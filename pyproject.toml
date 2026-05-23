@@ -1,29 +1,35 @@
 [project]
 name = "familiar-ai"
-version = "0.5.0"
-description = "AI that lives alongside you — with eyes, voice, and memory"
+version = "0.6.0"
+description = "AI that lives alongside you — with eyes, voice, memory and person awareness"
 requires-python = ">=3.10"
 dependencies = [
+    # LLM backends
     "anthropic>=0.40.0",
     "openai>=1.0.0",
-    "tinytuya>=1.15.0",
-    "python-dotenv>=1.0.0",
-    "aiohttp>=3.9.0",
+    "google-genai>=1.0",
+    "google-generativeai>=0.8.6",
+    # Database — PostgreSQL + pgvector
+    "psycopg2-binary>=2.9.9",
+    # Embeddings
     "sentence-transformers>=3.0.0",
     "numpy>=1.24.0",
-    "google-genai>=1.0",
+    # Hardware / IoT
+    "tinytuya>=1.15.0",
+    # HTTP / async
+    "aiohttp>=3.9.0",
+    # TUI
     "textual>=8.0.0",
     "textual-autocomplete>=4.0.6",
+    # MCP
     "mcp>=1.0.0",
-    "google-generativeai>=0.8.6",
+    # Utilities
+    "python-dotenv>=1.0.0",
     "uvloop>=0.22.1; sys_platform != 'win32'",
 ]
 
 [project.optional-dependencies]
-gui = [
-    "PySide6>=6.7.0",
-    "qasync>=0.27.0",
-]
+gui = ["PySide6>=6.7.0", "qasync>=0.27.0"]
 camera = [
     "opencv-python>=4.00",
     "onvif-zeep-async>=4.0.0",
@@ -36,9 +42,14 @@ voice = [
     "soundfile>=0.13.1",
     "av>=14.0.0",
 ]
-all = [
-    "familiar-ai[gui,camera,voice]",
+recognition = [
+    # Face recognition (optional)
+    "deepface>=0.0.93",
+    "tf-keras>=2.16.0",
+    # Speaker identification (optional)
+    "resemblyzer>=0.1.3",
 ]
+all = ["familiar-ai[gui,camera,voice,recognition]"]
 
 [project.scripts]
 familiar = "familiar_agent.main:main"
@@ -52,44 +63,25 @@ build-backend = "hatchling.build"
 packages = ["src/familiar_agent"]
 
 [tool.uv]
-default-groups = ["dev", "gui", "camera", "voice"]
+default-groups = ["dev", "camera", "voice"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
-url = "https://download.pytorch.org/whl/cpu"
+url  = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
 [tool.ruff]
 line-length = 100
-extend-exclude = ["*.iss"]
 
 [tool.mypy]
 ignore_missing_imports = true
 python_version = "3.10"
 
 [dependency-groups]
-dev = [
-    "pytest>=9.0.2",
-    "pytest-asyncio>=1.3.0",
-    "mypy>=1.10.0",
-    "pre-commit>=4.5.1",
-]
-gui = [
-    "PySide6>=6.7.0",
-    "qasync>=0.27.0",
-]
-camera = [
-    "opencv-python>=4.00",
-    "onvif-zeep-async>=4.0.0",
-    "Pillow>=10.0.0",
-    "zeroconf>=0.132.2",
-]
-voice = [
-    "openai-whisper",
-    "sounddevice>=0.5.5",
-    "soundfile>=0.13.1",
-    "av>=14.0.0",
-]
+dev      = ["pytest>=9.0.2", "pytest-asyncio>=1.3.0", "mypy>=1.10.0", "pre-commit>=4.5.1"]
+gui      = ["PySide6>=6.7.0", "qasync>=0.27.0"]
+camera   = ["opencv-python>=4.00", "onvif-zeep-async>=4.0.0", "Pillow>=10.0.0", "zeroconf>=0.132.2"]
+voice    = ["openai-whisper", "sounddevice>=0.5.5", "soundfile>=0.13.1", "av>=14.0.0"]
