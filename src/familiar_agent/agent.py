@@ -31,7 +31,7 @@ from .mental_state import (
     SocialState,
     WorkingMemoryItem,
 )
-from .relationship import RelationshipTracker
+from .relationship import PersonRegistry, RelationshipTracker
 from .routines import parse_schedule_config
 from .concern_engine import ConcernEngine
 from .self_state import SelfState
@@ -175,6 +175,17 @@ _COMPLEX_QUERY_RE = re.compile(
     r"calculate|algorithm|architect|optimize|trade.?off",
     re.IGNORECASE,
 )
+
+# ── Speaker identification ───────────────────────────────────────────────────
+# Message prefix formats:
+#   [太郎] こんにちは    →  speaker=太郎, text="こんにちは"
+#   @Yuki: どうした？   →  speaker=Yuki,  text="どうした？"
+_SPEAKER_PREFIX_RE = re.compile(
+    r"^\[([^\]]+)\]\s*(.*)$|^@([^\s:：]+)[:\s：]\s*(.*)$",
+    re.DOTALL,
+)
+# /speaker [name]  — set session-default speaker
+_SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:\s+(.+))?$", re.IGNORECASE)
 
 SYSTEM_PROMPT = """
 (agent :type embodied
@@ -738,7 +749,9 @@ class EmbodiedAgent:
         self._scene: SceneTracker | None = None  # initialized after DB ready in _init_tools
 
         self._mcp: MCPClientManager | None = None
-        self._relationship = RelationshipTracker()
+        self._persons = PersonRegistry(default_name=config.companion_name)
+        # Property alias so all existing self._relationship.* calls continue to work.
+        # They always address the currently active speaker's tracker.
         self._self_state = SelfState()
         self._self_narrative = SelfNarrative()
         self._concerns = ConcernEngine()
@@ -1338,7 +1351,18 @@ class EmbodiedAgent:
             self_state=self_state_snapshot,
         )
         relationship_ctx = self._relationship.context_for_prompt()
-        variable_parts: list[str] = [intero]
+        # Speaker context: who is currently talking, and list of known persons
+        speaker_name = self._persons.active_name
+        known = self._persons.known_names()
+        speaker_ctx_parts: list[str] = [f"(speaker :name \"{speaker_name}\")"]
+        others = [n for n in known if n != speaker_name]
+        if others:
+            speaker_ctx_parts.append(
+                "(known-persons " + " ".join(f'"{n}"' for n in others) + ")"
+            )
+        speaker_ctx = "\n".join(speaker_ctx_parts)
+
+        variable_parts: list[str] = [intero, speaker_ctx]
         if relationship_ctx:
             variable_parts.append(relationship_ctx)
         if continuity_ctx:
@@ -2366,6 +2390,48 @@ class EmbodiedAgent:
             await asyncio.wait_for(asyncio.to_thread(self._memory.close), timeout=1.0)
         except (asyncio.TimeoutError, Exception):
             pass
+        self._persons.close()
+
+    # ── Multi-person relationship delegation ─────────────────────────────────
+
+    @property
+    def _relationship(self) -> RelationshipTracker:
+        """Active speaker's RelationshipTracker (transparent alias for legacy call sites)."""
+        return self._persons.active
+
+    @_relationship.setter
+    def _relationship(self, value: RelationshipTracker) -> None:
+        """Allow direct assignment (used by tests and legacy code)."""
+        if not hasattr(self, "_persons"):
+            # Called before __init__ completes (e.g. test fixtures using __new__).
+            # Bootstrap a minimal PersonRegistry so the property getter works.
+            self._persons = PersonRegistry(default_name="companion")
+        self._persons._trackers[self._persons.active_name] = value
+
+    def _handle_speaker_command(self, user_input: str) -> str | None:
+        """/speaker [name] — set or show the active speaker for this session."""
+        m = _SPEAKER_COMMAND_RE.match(user_input.strip())
+        if m is None:
+            return None
+        name_arg = (m.group(1) or "").strip()
+        if not name_arg:
+            current = self._persons.active_name
+            known = ", ".join(self._persons.known_names())
+            return f"[現在の話者: {current}  既知: {known}]"
+        self._persons.set_active(name_arg)
+        return f"[話者を「{name_arg}」に切り替えました]"
+
+    @staticmethod
+    def _extract_speaker_prefix(user_input: str) -> tuple[str, str | None]:
+        """Parse [name] or @name: prefix. Return (stripped_text, speaker_name | None)."""
+        m = _SPEAKER_PREFIX_RE.match(user_input)
+        if not m:
+            return user_input, None
+        if m.group(1) is not None:
+            # [name] format
+            return (m.group(2) or "").strip(), m.group(1).strip()
+        # @name: format
+        return (m.group(4) or "").strip(), m.group(3).strip()
 
     def _handle_thinking_command(self, user_input: str) -> str | None:
         """Return a status string if user_input is a thinking-mode command, else None.
@@ -2454,6 +2520,19 @@ class EmbodiedAgent:
         if not hasattr(self, "_tool_failure_streak"):
             self._tool_failure_streak = 0
 
+        # ── Speaker identification ────────────────────────────────────────────
+        # /speaker command sets the session-default speaker.
+        _speaker_reply = self._handle_speaker_command(user_input)
+        if _speaker_reply is not None:
+            if on_text:
+                on_text(_speaker_reply)
+            return _speaker_reply
+
+        # Parse [name] / @name: prefix; strip it from user_input for the LLM.
+        user_input, _speaker_from_prefix = self._extract_speaker_prefix(user_input)
+        if _speaker_from_prefix:
+            self._persons.set_active(_speaker_from_prefix)
+
         # ── Thinking-mode slash-commands & natural-language shortcuts ────────
         # These return immediately without calling the LLM.
         _think_reply = self._handle_thinking_command(user_input)
@@ -2486,10 +2565,12 @@ class EmbodiedAgent:
             is_desire_turn=is_desire_turn,
         )
 
-        # First turn: reset thinking mode to .env default (user overrides are session-scoped)
-        if first_turn and hasattr(self.backend, "thinking_mode"):
-            self.backend.thinking_mode = self.config.thinking_mode
-            self._thinking_user_override = False
+        # First turn: reset thinking mode and speaker to .env defaults (session-scoped)
+        if first_turn:
+            if hasattr(self.backend, "thinking_mode"):
+                self.backend.thinking_mode = self.config.thinking_mode
+                self._thinking_user_override = False
+            self._persons.reset_to_default()
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""

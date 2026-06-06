@@ -46,9 +46,15 @@ def _fresh_state() -> dict:
 
 
 class RelationshipTracker:
-    """Tracks longitudinal relationship metadata with the companion."""
+    """Tracks longitudinal relationship metadata with one named person."""
 
-    def __init__(self, state_path: Path | None = None, db_path: str | Path | None = None):
+    def __init__(
+        self,
+        state_path: Path | None = None,
+        db_path: str | Path | None = None,
+        state_key: str = "default",
+    ):
+        self._state_key = state_key
         self._state_path = state_path or Path.home() / ".familiar_ai" / "relationship.json"
         if db_path is None:
             self._db_path = (
@@ -86,7 +92,8 @@ class RelationshipTracker:
         try:
             db = self._ensure_db()
             row = db.execute(
-                "SELECT value_json FROM relationship_state WHERE state_key = 'default'"
+                "SELECT value_json FROM relationship_state WHERE state_key = ?",
+                (self._state_key,),
             ).fetchone()
         except Exception as e:
             logger.warning("Could not load relationship state from SQLite: %s", e)
@@ -119,11 +126,13 @@ class RelationshipTracker:
         state = self._load_from_db()
         if state is not None:
             return state
-        state = self._load_legacy_json()
-        if state is not None:
-            self._state = state
-            self._save()
-            return state
+        # Legacy JSON migration only applies to the primary companion (state_key == "default")
+        if self._state_key == "default":
+            state = self._load_legacy_json()
+            if state is not None:
+                self._state = state
+                self._save()
+                return state
         return _fresh_state()
 
     def _save(self) -> None:
@@ -133,12 +142,12 @@ class RelationshipTracker:
             db.execute(
                 """
                 INSERT INTO relationship_state (state_key, value_json, updated_at)
-                VALUES ('default', ?, ?)
+                VALUES (?, ?, ?)
                 ON CONFLICT(state_key) DO UPDATE SET
                     value_json = excluded.value_json,
                     updated_at = excluded.updated_at
                 """,
-                (json.dumps(self._state, ensure_ascii=False), now),
+                (self._state_key, json.dumps(self._state, ensure_ascii=False), now),
             )
             db.commit()
         except Exception as e:
@@ -479,3 +488,67 @@ class RelationshipTracker:
             parts.append(rel_ctx)
 
         return "\n".join(parts)
+
+
+class PersonRegistry:
+    """Manages per-person RelationshipTracker instances.
+
+    Persons are registered on first appearance and persisted individually in the
+    same SQLite DB using their name as state_key.  The active person is whoever
+    is currently speaking; all callers can use registry.active to reach their
+    tracker without knowing about other persons.
+    """
+
+    def __init__(self, default_name: str, db_path: str | Path | None = None):
+        self._default_name = default_name
+        self._db_path = Path(db_path) if db_path else DEFAULT_RELATIONSHIP_DB_PATH
+        self._trackers: dict[str, RelationshipTracker] = {}
+        self._active_name: str = default_name
+
+    def _get_or_create(self, name: str) -> RelationshipTracker:
+        if name not in self._trackers:
+            # "default" is the historical key for the primary companion
+            key = "default" if name == self._default_name else name
+            self._trackers[name] = RelationshipTracker(
+                db_path=self._db_path,
+                state_key=key,
+            )
+        return self._trackers[name]
+
+    @property
+    def active(self) -> RelationshipTracker:
+        return self._get_or_create(self._active_name)
+
+    @property
+    def active_name(self) -> str:
+        return self._active_name
+
+    @property
+    def default_name(self) -> str:
+        return self._default_name
+
+    def set_active(self, name: str) -> None:
+        self._active_name = name
+
+    def reset_to_default(self) -> None:
+        self._active_name = self._default_name
+
+    def known_names(self) -> list[str]:
+        """Return all person names that have a DB row."""
+        try:
+            db = self.active._ensure_db()
+            rows = db.execute(
+                "SELECT state_key FROM relationship_state ORDER BY state_key"
+            ).fetchall()
+            names: list[str] = []
+            for row in rows:
+                key = str(row["state_key"])
+                names.append(self._default_name if key == "default" else key)
+            return names
+        except Exception:
+            return [self._default_name]
+
+    def close(self) -> None:
+        for tracker in self._trackers.values():
+            tracker.close()
+        self._trackers.clear()
