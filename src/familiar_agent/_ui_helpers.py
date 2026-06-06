@@ -39,6 +39,8 @@ ACTION_ICONS: dict[str, str] = {
     "tom": "🧠",
     "listen": "🎙️",
     "search": "🔍",
+    "brave_web_search": "🔍",
+    "brave_local_search": "📍",
 }
 
 # Tool names that have dedicated i18n labels (key: "action_{name}")
