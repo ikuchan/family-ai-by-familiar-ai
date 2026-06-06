@@ -165,6 +165,16 @@ _THINK_OFF_EXACT = frozenset({
     "disable thinking",
     "no thinking",
 })
+# Patterns that hint a query benefits from deeper reasoning.
+# Matched against user_input to auto-enable adaptive thinking for that turn.
+_COMPLEX_QUERY_RE = re.compile(
+    r"なぜ|どうして|どのように|仕組み|原因|理由|分析|設計|アーキテクチャ|"
+    r"アルゴリズム|最適化|証明|数学的|数式|デバッグ|実装|比較|評価|検討|"
+    r"問題を|解決策|トレードオフ|メリット|デメリット|"
+    r"why\b|how does|explain|analyze|design|debug|implement|compare|"
+    r"calculate|algorithm|architect|optimize|trade.?off",
+    re.IGNORECASE,
+)
 
 SYSTEM_PROMPT = """
 (agent :type embodied
@@ -1160,17 +1170,49 @@ class EmbodiedAgent:
             "- Do not use observation, memory, or ToM tools unless explicitly asked."
         )
 
-    def _configure_backend_for_turn(self, *, brief_reply_mode: bool) -> tuple[Any, Any] | None:
-        if not brief_reply_mode or not hasattr(self.backend, "thinking_mode"):
+    def _configure_backend_for_turn(
+        self,
+        *,
+        brief_reply_mode: bool,
+        user_input: str = "",
+    ) -> tuple[Any, Any] | None:
+        if not hasattr(self.backend, "thinking_mode"):
             return None
-        previous = (
-            getattr(self.backend, "thinking_mode", None),
-            getattr(self.backend, "thinking_effort", None),
-        )
-        self.backend.thinking_mode = "disabled"
-        if hasattr(self.backend, "thinking_effort"):
-            self.backend.thinking_effort = "low"
-        return previous
+
+        # brief_reply_mode overrides everything: force thinking off for short acks
+        if brief_reply_mode:
+            previous = (
+                getattr(self.backend, "thinking_mode", None),
+                getattr(self.backend, "thinking_effort", None),
+            )
+            self.backend.thinking_mode = "disabled"
+            if hasattr(self.backend, "thinking_effort"):
+                self.backend.thinking_effort = "low"
+            return previous
+
+        # Auto-enable adaptive thinking for complex queries when the user has not
+        # explicitly set a thinking override this session.
+        if (
+            not getattr(self, "_thinking_user_override", False)
+            and self.backend.thinking_mode == "disabled"
+            and user_input
+            and self._is_complex_query(user_input)
+        ):
+            previous = (
+                getattr(self.backend, "thinking_mode", None),
+                getattr(self.backend, "thinking_effort", None),
+            )
+            self.backend.thinking_mode = "adaptive"
+            return previous
+
+        return None
+
+    @staticmethod
+    def _is_complex_query(text: str) -> bool:
+        """Return True when the query likely benefits from deeper reasoning."""
+        if len(text) > 200:
+            return True
+        return bool(_COMPLEX_QUERY_RE.search(text))
 
     def _restore_backend_after_turn(self, snapshot: tuple[Any, Any] | None) -> None:
         if snapshot is None:
@@ -2354,6 +2396,9 @@ class EmbodiedAgent:
                 new_mode = "disabled" if current == "adaptive" else "adaptive"
 
             self.backend.thinking_mode = new_mode
+            # Track that the user has explicitly set thinking mode this session.
+            # This prevents the per-turn auto-thinking heuristic from reverting it.
+            self._thinking_user_override = new_mode != "disabled"
             label = "有効（adaptive）" if new_mode == "adaptive" else "無効"
             return f"[思考モードを {label} に切り替えました]"
 
@@ -2363,10 +2408,12 @@ class EmbodiedAgent:
 
         if stripped in _THINK_ON_EXACT:
             self.backend.thinking_mode = "adaptive"
+            self._thinking_user_override = True
             return "[思考モードを有効（adaptive）に切り替えました]"
 
         if stripped in _THINK_OFF_EXACT:
             self.backend.thinking_mode = "disabled"
+            self._thinking_user_override = False
             return "[思考モードを無効に切り替えました]"
 
         return None
@@ -2438,6 +2485,11 @@ class EmbodiedAgent:
             user_input,
             is_desire_turn=is_desire_turn,
         )
+
+        # First turn: reset thinking mode to .env default (user overrides are session-scoped)
+        if first_turn and hasattr(self.backend, "thinking_mode"):
+            self.backend.thinking_mode = self.config.thinking_mode
+            self._thinking_user_override = False
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""
@@ -2687,7 +2739,10 @@ class EmbodiedAgent:
             else self.config.max_tokens
         )
         turn_max_iterations = _BRIEF_REPLY_MAX_ITERATIONS if brief_reply_turn else MAX_ITERATIONS
-        backend_turn_snapshot = self._configure_backend_for_turn(brief_reply_mode=brief_reply_turn)
+        backend_turn_snapshot = self._configure_backend_for_turn(
+            brief_reply_mode=brief_reply_turn,
+            user_input=user_input,
+        )
 
         try:
             for i in range(turn_max_iterations):

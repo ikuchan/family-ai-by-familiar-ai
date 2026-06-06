@@ -774,6 +774,7 @@ async def test_post_response_pipeline_updates_self_continuity_state():
         user_input="どう見えた？",
         final_text="窓の光が少し気になってる。",
         camera_used=True,
+        camera_image=None,
         observation_action_name="look",
         observation_action_input={"direction": "left", "degrees": 30},
         companion_mood="frustrated",
