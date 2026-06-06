@@ -1,6 +1,7 @@
 services:
   db:
     image: pgvector/pgvector:pg16
+    restart: unless-stopped
     environment:
       POSTGRES_USER: familiar
       POSTGRES_PASSWORD: familiar
@@ -15,19 +16,5 @@ services:
       timeout: 5s
       retries: 10
 
-  app:
-    build: .
-    depends_on:
-      db:
-        condition: service_healthy
-    env_file: .env
-    environment:
-      DATABASE_URL: postgresql://familiar:familiar@db:5432/familiar_ai
-    volumes:
-      - familiar_data:/root/.familiar_ai
-    stdin_open: true
-    tty: true
-
 volumes:
   pgdata:
-  familiar_data:
