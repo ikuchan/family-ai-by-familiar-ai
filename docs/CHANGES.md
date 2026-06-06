@@ -160,3 +160,117 @@ current_speaker_id : str | None
 | `010` | `persons` テーブル + 全テーブルへ `person_id` 追加 |
 | `011` | `situated_embeddings` + `pgvector` 拡張 + HNSW インデックス |
 | `012` | `observations` へ `writer_id`, `subject_id`, `participants_json`, `scope` 追加 |
+
+---
+
+## 9. 思考モードのランタイム切替
+
+### 概要
+
+`AnthropicBackend.thinking_mode` はインスタンス変数であり、プロセス再起動なしに書き換えられる。
+`agent.py` の `run()` 入り口でコマンドを検出し、LLM を呼ばずに即座に切り替える。
+
+### コマンド一覧
+
+| 入力 | 効果 |
+|---|---|
+| `/think` | `adaptive` ↔ `disabled` をトグル |
+| `/think on` | adaptive 思考を有効化 |
+| `/think off` | 思考なし（高速）に戻す |
+| `/think status` | 現在のモードを表示（変更なし）|
+| `深く考えて` / `深く考えてください` | adaptive に切り替え |
+| `考えなくていい` / `考えなくていいです` | disabled に切り替え |
+| `thinking on` / `enable thinking` | adaptive に切り替え（英語） |
+| `thinking off` / `disable thinking` | disabled に切り替え（英語） |
+
+### 自動思考（AI が自律判断）
+
+メッセージ長 > 200 文字、または分析・設計・なぜ・どうして・explain・analyze
+などのキーワードを含む場合、そのターンだけ自動的に `adaptive` に切り替わり、
+ターン終了後に元のモードへ戻る。
+
+ユーザーが `/think on` で明示的にオンにした場合（`_thinking_user_override = True`）は
+自動リセットは行われず、ユーザー設定が優先される。
+
+### セッション間の挙動
+
+- `/think` による変更は **そのセッション限り**
+- セッション開始時（`first_turn`）に `.env` の `THINKING_MODE` へ自動リセット
+- デフォルトは `THINKING_MODE=disabled`（高速・低コスト）
+
+### 実装箇所
+
+- `src/familiar_agent/agent.py`
+  - `_THINK_COMMAND_RE`, `_THINK_ON_EXACT`, `_THINK_OFF_EXACT` — 定数
+  - `_COMPLEX_QUERY_RE` — 自動思考トリガーパターン
+  - `_handle_thinking_command()` — コマンド処理
+  - `_configure_backend_for_turn()` — per-turn 自動思考ロジック
+  - `_is_complex_query()` — 複雑度判定
+
+---
+
+## 10. 複数人関係モデルと話者識別
+
+### 概要
+
+`RelationshipTracker` が `state_key` パラメータで複数人の関係状態を同一 SQLite DB
+に格納できるように拡張された。新しい `PersonRegistry` クラスが人物ごとの
+`RelationshipTracker` インスタンスを管理し、エージェントは常に「アクティブな話者」
+のトラッカーを参照する。
+
+### DB スキーマ（変更なし）
+
+`relationship_state` テーブルの `state_key` カラムを人物名として使用する。
+プライマリコンパニオンは後方互換のため `state_key = 'default'` を維持。
+
+```
+relationship_state
+  state_key  TEXT PRIMARY KEY   ← "default" (主コンパニオン) | 人物名
+  value_json TEXT               ← RelationshipTracker の状態 (JSON)
+  updated_at TEXT
+```
+
+### 話者指定の方法
+
+**1ターンだけ話者を指定（メッセージプレフィックス）：**
+
+```
+[太郎] こんにちは、元気？
+@Yuki: 昨日の宿題終わった？
+```
+
+**セッション中ずっとその人として話す（スラッシュコマンド）：**
+
+```
+/speaker 太郎          ← 太郎に切り替え
+/speaker               ← 現在の話者と既知の人物一覧を表示
+```
+
+**セッション終了時の動作：**
+- アクティブ話者はセッション開始時（`first_turn`）にデフォルト（`COMPANION_NAME`）へリセット
+
+### システムプロンプトへの注入
+
+毎ターン、variable 部分に以下のコンテキストが追加される：
+
+```
+(speaker :name "太郎")
+(known-persons "Yuki" "花子")
+```
+
+話者に切り替わると、その人物の関係状態（信頼度・親密度・好み・傾向など）が
+自動的に `context_for_prompt()` から読み込まれる。
+
+### 実装箇所
+
+- `src/familiar_agent/relationship.py`
+  - `RelationshipTracker.__init__` に `state_key: str = "default"` を追加
+  - `_load_from_db()`, `_save()` でパラメータ化クエリを使用
+  - `PersonRegistry` クラス（新規）
+- `src/familiar_agent/agent.py`
+  - `_SPEAKER_PREFIX_RE`, `_SPEAKER_COMMAND_RE` — 定数
+  - `self._persons: PersonRegistry` — `self._relationship` を置き換え
+  - `_relationship` property + setter — 既存呼び出し箇所への透過的エイリアス
+  - `_handle_speaker_command()` — `/speaker` コマンド処理
+  - `_extract_speaker_prefix()` — `[name]` / `@name:` プレフィックス解析
+  - `_system_prompt()` — speaker / known-persons コンテキスト注入
