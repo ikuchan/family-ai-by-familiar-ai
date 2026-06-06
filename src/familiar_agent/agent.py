@@ -790,6 +790,7 @@ class EmbodiedAgent:
         user_input: str,
         final_text: str,
         camera_used: bool,
+        camera_image: str | None,
         observation_action_name: str | None,
         observation_action_input: dict | None,
         companion_mood: str,
@@ -824,6 +825,7 @@ class EmbodiedAgent:
                         prediction_engine=self._prediction,
                         action_name=observation_action_name,
                         action_input=observation_action_input,
+                        image_b64=camera_image,
                     )
                     _react_to_scene_events(scene_events, desires)
                     pred_signal = self._prediction.last_signal()
@@ -2588,6 +2590,7 @@ class EmbodiedAgent:
             on_phase("thinking")
 
         camera_used = False
+        camera_image: str | None = None  # raw base64 JPEG from the latest `see` tool call
         say_used = False
         final_text = "(no response)"
         non_say_streak = 0  # consecutive tool calls without say()
@@ -2709,6 +2712,7 @@ class EmbodiedAgent:
                                 user_input=user_input,
                                 final_text=final_text,
                                 camera_used=camera_used,
+                                camera_image=camera_image,
                                 observation_action_name=observation_action_name,
                                 observation_action_input=observation_action_input,
                                 companion_mood=companion_mood,
@@ -2783,6 +2787,8 @@ class EmbodiedAgent:
                                 logger.info("TAPE replan: %s", replan[:80])
 
                         logger.info("Tool result: %s", text[:100])
+                        if tc.name == "see" and image:
+                            camera_image = image
                         if image and on_image is not None:
                             on_image(image)
                         if on_tool_result is not None:

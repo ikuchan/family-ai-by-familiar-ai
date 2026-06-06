@@ -46,15 +46,34 @@ Return ONLY the JSON object. Example:
 """
 
 
-async def extract_entities(description: str, backend: Any) -> list[dict]:
+async def extract_entities(
+    description: str, backend: Any, image_b64: str | None = None
+) -> list[dict]:
     """Call the utility backend to extract structured entities from a scene description.
+
+    When image_b64 is provided and the backend supports complete_with_image(),
+    the raw camera image is sent directly to the backend (useful for local VLMs via
+    Ollama) and description is used only as fallback.
 
     Returns a list of dicts with keys: label, category, confidence.
     Returns [] on any parse error.
     """
-    prompt = f"{_EXTRACT_SYSTEM}\n\nScene description:\n{description}"
     try:
-        raw = await backend.complete(prompt)
+        if image_b64 and hasattr(backend, "complete_with_image"):
+            vision_prompt = (
+                f"{_EXTRACT_SYSTEM}\n\n"
+                "Analyze this camera image directly and extract all visible entities."
+            )
+            raw = await backend.complete_with_image(vision_prompt, image_b64)
+            if not raw:
+                # Fall back to text description if vision call returned nothing
+                raw = await backend.complete(
+                    f"{_EXTRACT_SYSTEM}\n\nScene description:\n{description}"
+                )
+        else:
+            raw = await backend.complete(
+                f"{_EXTRACT_SYSTEM}\n\nScene description:\n{description}"
+            )
         data = json.loads(raw)
         entities = data.get("entities", [])
         if not isinstance(entities, list):
@@ -139,10 +158,15 @@ class SceneTracker:
         prediction_engine: PredictionEngine | None = None,
         action_name: str | None = None,
         action_input: dict[str, Any] | None = None,
+        image_b64: str | None = None,
     ) -> list[dict]:
         """Extract entities from description, detect changes, persist, return events.
 
         Returns a list of event dicts: {event_type, entity_label, entity_id}.
+
+        When image_b64 is provided, it is passed to extract_entities() so that
+        a vision-capable backend (e.g. local Ollama VLM) can process the raw
+        camera frame instead of relying on the main backend's text description.
 
         If prediction_engine is provided, compute prediction error against
         the new observation and update the model.
@@ -150,7 +174,7 @@ class SceneTracker:
         if prediction_engine is not None and action_name:
             prediction_engine.record_action(action_name, action_input or {})
 
-        new_entities = await extract_entities(description, backend)
+        new_entities = await extract_entities(description, backend, image_b64=image_b64)
         events = self._diff_entities(new_entities)
         self._persist_entities(new_entities)
         self._persist_events(events)

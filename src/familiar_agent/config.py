@@ -195,9 +195,11 @@ class AgentConfig:
     # ── Scene backend (optional) ────────────────────────────────────────
     # Separate backend for scene entity extraction — cheaper/local model.
     # Falls back to utility backend (then main backend) when not configured.
+    # For local VLM via Ollama: SCENE_PLATFORM=openai, SCENE_BASE_URL=http://localhost:11434/v1
     scene_platform: str = field(default_factory=lambda: os.environ.get("SCENE_PLATFORM", ""))
     scene_api_key: str = field(default_factory=lambda: os.environ.get("SCENE_API_KEY", ""))
     scene_model: str = field(default_factory=lambda: os.environ.get("SCENE_MODEL", ""))
+    scene_base_url: str = field(default_factory=lambda: os.environ.get("SCENE_BASE_URL", ""))
 
     # ── Autonomous behavior ───────────────────────────────────────
     # Desire-driven idle turns are OFF by default.

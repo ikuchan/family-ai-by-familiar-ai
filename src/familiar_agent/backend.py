@@ -368,6 +368,32 @@ class AnthropicBackend:
             logger.warning("complete() failed: %s", e)
             return ""
 
+    async def complete_with_image(self, prompt: str, image_b64: str, max_tokens: int = 512) -> str:
+        """Vision completion — sends base64 JPEG alongside text prompt."""
+        try:
+            from anthropic.types import TextBlock
+
+            resp = await self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image", "source": {
+                            "type": "base64",
+                            "media_type": "image/jpeg",
+                            "data": image_b64,
+                        }},
+                    ],
+                }],
+            )
+            first = resp.content[0] if resp.content else None
+            return first.text.strip() if isinstance(first, TextBlock) else ""
+        except Exception as e:
+            logger.warning("complete_with_image() failed: %s", e)
+            return ""
+
 
 class OpenAICompatibleBackend:
     """Backend for any OpenAI-compatible endpoint: Ollama, vllm, lm-studio, etc."""
@@ -650,6 +676,28 @@ class OpenAICompatibleBackend:
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:
             logger.warning("complete() failed: %s", e)
+            return ""
+
+    async def complete_with_image(self, prompt: str, image_b64: str, max_tokens: int = 512) -> str:
+        """Vision completion — for local VLMs (Ollama llava, qwen2-vl, etc.)."""
+        tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
+        try:
+            resp = await self.client.chat.completions.create(  # type: ignore[call-overload]
+                model=self.model,
+                **{tokens_key: max_tokens},
+                messages=[{
+                    "role": "user",
+                    "content": [
+                        {"type": "text", "text": prompt},
+                        {"type": "image_url", "image_url": {
+                            "url": f"data:image/jpeg;base64,{image_b64}"
+                        }},
+                    ],
+                }],
+            )
+            return (resp.choices[0].message.content or "").strip()
+        except Exception as e:
+            logger.warning("complete_with_image() failed: %s", e)
             return ""
 
 
@@ -1144,6 +1192,29 @@ class GeminiBackend:
             logger.warning("complete() failed: %s", e)
             return ""
 
+    async def complete_with_image(self, prompt: str, image_b64: str, max_tokens: int = 512) -> str:
+        """Vision completion — sends base64 JPEG alongside text prompt."""
+        types = self._types
+        try:
+            resp = await self._client.aio.models.generate_content(
+                model=self.model,
+                contents=[{
+                    "role": "user",
+                    "parts": [
+                        {"text": prompt},
+                        {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                    ],
+                }],
+                config=types.GenerateContentConfig(
+                    max_output_tokens=max_tokens,
+                    thinking_config=types.ThinkingConfig(thinking_budget=0),
+                ),
+            )
+            return (resp.text or "").strip()
+        except Exception as e:
+            logger.warning("complete_with_image() failed: %s", e)
+            return ""
+
 
 class CLIBackend:
     """Backend that shells out to any CLI LLM tool via stdin/stdout.
@@ -1443,9 +1514,15 @@ def create_scene_backend(
         return GLMBackend(api_key=api_key, model=model)
     if platform == "openai":
         model = model or "gpt-4o-mini"
-        logger.info("Using OpenAI scene backend: %s", model)
+        base_url = config.scene_base_url or "https://api.openai.com/v1"
+        is_local = any(h in base_url for h in ("localhost", "127.0.0.1", "::1"))
+        tools_mode = "prompt" if is_local else "native"
+        logger.info("Using OpenAI scene backend: %s @ %s (tools=%s)", model, base_url, tools_mode)
         return OpenAICompatibleBackend(
-            api_key=api_key, model=model, base_url="https://api.openai.com/v1"
+            api_key=api_key or "local",
+            model=model,
+            base_url=base_url,
+            tools_mode=tools_mode,
         )
 
     logger.warning("Unknown SCENE_PLATFORM: %s, falling back", platform)
