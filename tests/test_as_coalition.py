@@ -9,7 +9,9 @@ produces a Coalition for the Global Workspace.  These tests verify:
 
 from __future__ import annotations
 
+import re
 import sqlite3
+import threading
 from pathlib import Path
 from unittest.mock import AsyncMock
 
@@ -106,10 +108,58 @@ def test_desire_coalition_context_block_has_inner_voice(desires: DesireSystem) -
 # ── SceneTracker.as_coalition ──────────────────────────────────────────────────
 
 
+class _FakeCursor:
+    def __init__(self, cur: sqlite3.Cursor) -> None:
+        self._cur = cur
+
+    def __enter__(self) -> "_FakeCursor":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self._cur.close()
+
+    def execute(self, sql: str, params: tuple = ()) -> None:
+        self._cur.execute(re.sub(r"%s", "?", sql), params)
+
+    def fetchone(self) -> dict | None:
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        desc = self._cur.description or []
+        return {d[0]: row[i] for i, d in enumerate(desc)}
+
+    def fetchall(self) -> list[dict]:
+        rows = self._cur.fetchall()
+        desc = self._cur.description or []
+        return [{d[0]: r[i] for i, d in enumerate(desc)} for r in rows]
+
+
+class _FakeDatabase:
+    def __init__(self) -> None:
+        self._conn = sqlite3.connect(":memory:")
+        self.lock = threading.Lock()
+
+    def conn(self) -> "_FakeDatabase":
+        return self
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self._conn.cursor())
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+
 @pytest.fixture
 def scene_tracker() -> SceneTracker:
-    conn = sqlite3.connect(":memory:")
-    return SceneTracker(conn)
+    db = _FakeDatabase()
+    tracker = SceneTracker.__new__(SceneTracker)
+    tracker._db = db
+    tracker._current_entities = {}
+    SceneTracker._init_schema(db)
+    return tracker
 
 
 def test_scene_coalition_none_when_empty(scene_tracker: SceneTracker) -> None:

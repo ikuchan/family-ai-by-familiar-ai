@@ -5,7 +5,7 @@ Phase 1 of the familiar-ai roadmap.
 Architecture:
 - extract_entities(): calls the utility backend to parse a scene description
   into a structured list of {label, category, confidence} dicts.
-- SceneTracker: SQLite-backed tracker that maintains the current entity set,
+- SceneTracker: PostgreSQL-backed tracker that maintains the current entity set,
   diffs it against the previous set on every update(), emits change events,
   and formats a compact context block for LLM injection.
 """
@@ -14,10 +14,11 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
+
+from .db import Database
 
 if TYPE_CHECKING:
     from .prediction import PredictionEngine
@@ -65,57 +66,67 @@ async def extract_entities(description: str, backend: Any) -> list[dict]:
 
 
 class SceneTracker:
-    """Persistent scene entity tracker backed by SQLite.
+    """Persistent scene entity tracker backed by PostgreSQL.
 
     Usage:
-        tracker = SceneTracker(conn)
+        tracker = SceneTracker(db)
         events = await tracker.update(description, backend)
         context = tracker.context_for_prompt()
     """
 
-    def __init__(self, conn: sqlite3.Connection) -> None:
-        self._conn = conn
+    def __init__(self, db: Database) -> None:
+        self._db = db
         self._current_entities: dict[str, dict] = {}  # label → entity dict
-        self._init_schema(conn)
         self._load_current_entities()
 
     @staticmethod
-    def _init_schema(conn: sqlite3.Connection) -> None:
+    def _init_schema(db: Database) -> None:
         """Create tables if not present (idempotent). Used by tests and __init__."""
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scene_entities (
-                entity_id   TEXT PRIMARY KEY,
-                label       TEXT NOT NULL,
-                category    TEXT NOT NULL DEFAULT 'object',
-                first_seen  TEXT NOT NULL,
-                last_seen   TEXT NOT NULL,
-                confidence  REAL NOT NULL DEFAULT 0.8,
-                bbox_hint   TEXT
+        conn = db.conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scene_entities (
+                    entity_id   TEXT PRIMARY KEY,
+                    label       TEXT NOT NULL,
+                    category    TEXT NOT NULL DEFAULT 'object',
+                    first_seen  TEXT NOT NULL,
+                    last_seen   TEXT NOT NULL,
+                    confidence  REAL NOT NULL DEFAULT 0.8,
+                    bbox_hint   TEXT
+                )
+                """
             )
-            """
-        )
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS scene_events (
-                event_id     TEXT PRIMARY KEY,
-                event_type   TEXT NOT NULL,
-                entity_id    TEXT,
-                entity_label TEXT NOT NULL,
-                timestamp    TEXT NOT NULL
+            cur.execute(
+                """
+                CREATE TABLE IF NOT EXISTS scene_events (
+                    event_id     TEXT PRIMARY KEY,
+                    event_type   TEXT NOT NULL,
+                    entity_id    TEXT,
+                    entity_label TEXT NOT NULL,
+                    timestamp    TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
         conn.commit()
 
     def _load_current_entities(self) -> None:
         """Restore current entity set from DB (last-seen entities)."""
         try:
-            rows = self._conn.execute(
-                "SELECT label, category, confidence, entity_id FROM scene_entities"
-            ).fetchall()
+            with self._db.lock:
+                conn = self._db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT label, category, confidence, entity_id FROM scene_entities"
+                    )
+                    rows = cur.fetchall()
             self._current_entities = {
-                r[0]: {"label": r[0], "category": r[1], "confidence": r[2], "entity_id": r[3]}
+                r["label"]: {
+                    "label": r["label"],
+                    "category": r["category"],
+                    "confidence": r["confidence"],
+                    "entity_id": r["entity_id"],
+                }
                 for r in rows
             }
         except Exception:
@@ -171,52 +182,62 @@ class SceneTracker:
 
     def _persist_entities(self, entities: list[dict]) -> None:
         now = datetime.now().isoformat()
-        for entity in entities:
-            label = entity["label"]
-            existing = self._current_entities.get(label)
-            if existing and existing.get("entity_id"):
-                entity_id = existing["entity_id"]
-                self._conn.execute(
-                    "UPDATE scene_entities SET last_seen=?, confidence=? WHERE entity_id=?",
-                    (now, entity.get("confidence", 0.8), entity_id),
-                )
-            else:
-                entity_id = str(uuid.uuid4())
-                entity["entity_id"] = entity_id
-                self._conn.execute(
-                    """
-                    INSERT INTO scene_entities
-                        (entity_id, label, category, first_seen, last_seen, confidence)
-                    VALUES (?, ?, ?, ?, ?, ?)
-                    """,
-                    (
-                        entity_id,
-                        label,
-                        entity.get("category", "object"),
-                        now,
-                        now,
-                        entity.get("confidence", 0.8),
-                    ),
-                )
-        self._conn.commit()
+        with self._db.lock:
+            conn = self._db.conn()
+            with conn.cursor() as cur:
+                for entity in entities:
+                    label = entity["label"]
+                    existing = self._current_entities.get(label)
+                    if existing and existing.get("entity_id"):
+                        entity_id = existing["entity_id"]
+                        cur.execute(
+                            "UPDATE scene_entities SET last_seen=%s, confidence=%s"
+                            " WHERE entity_id=%s",
+                            (now, entity.get("confidence", 0.8), entity_id),
+                        )
+                    else:
+                        entity_id = str(uuid.uuid4())
+                        entity["entity_id"] = entity_id
+                        cur.execute(
+                            """
+                            INSERT INTO scene_entities
+                                (entity_id, label, category, first_seen, last_seen, confidence)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                            """,
+                            (
+                                entity_id,
+                                label,
+                                entity.get("category", "object"),
+                                now,
+                                now,
+                                entity.get("confidence", 0.8),
+                            ),
+                        )
+            conn.commit()
 
     def _persist_events(self, events: list[dict]) -> None:
+        if not events:
+            return
         now = datetime.now().isoformat()
-        for event in events:
-            self._conn.execute(
-                """
-                INSERT INTO scene_events (event_id, event_type, entity_id, entity_label, timestamp)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    str(uuid.uuid4()),
-                    event["event_type"],
-                    event.get("entity_id"),
-                    event["entity_label"],
-                    now,
-                ),
-            )
-        self._conn.commit()
+        with self._db.lock:
+            conn = self._db.conn()
+            with conn.cursor() as cur:
+                for event in events:
+                    cur.execute(
+                        """
+                        INSERT INTO scene_events
+                            (event_id, event_type, entity_id, entity_label, timestamp)
+                        VALUES (%s, %s, %s, %s, %s)
+                        """,
+                        (
+                            str(uuid.uuid4()),
+                            event["event_type"],
+                            event.get("entity_id"),
+                            event["entity_label"],
+                            now,
+                        ),
+                    )
+            conn.commit()
 
     def context_for_prompt(self, n: int = 10) -> str:
         """Return a compact scene summary for LLM system prompt injection."""
@@ -242,16 +263,27 @@ class SceneTracker:
 
     def recent_events(self, n: int = 5) -> list[dict]:
         """Return the n most recent scene events from the DB."""
-        rows = self._conn.execute(
-            """
-            SELECT event_type, entity_label, timestamp
-            FROM scene_events
-            ORDER BY timestamp DESC
-            LIMIT ?
-            """,
-            (n,),
-        ).fetchall()
-        return [{"event_type": r[0], "entity_label": r[1], "timestamp": r[2]} for r in rows]
+        with self._db.lock:
+            conn = self._db.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT event_type, entity_label, timestamp
+                    FROM scene_events
+                    ORDER BY timestamp DESC
+                    LIMIT %s
+                    """,
+                    (n,),
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "event_type": r["event_type"],
+                "entity_label": r["entity_label"],
+                "timestamp": r["timestamp"],
+            }
+            for r in rows
+        ]
 
     def as_coalition(self) -> Coalition | None:
         """Return a workspace Coalition from the current scene state."""

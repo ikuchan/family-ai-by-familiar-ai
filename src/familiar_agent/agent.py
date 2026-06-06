@@ -1003,15 +1003,11 @@ class EmbodiedAgent:
             self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url)
 
         # World model: persistent scene entity tracker (Phase 1)
-        # Reuses the same SQLite DB as ObservationMemory via a separate connection.
-        import sqlite3 as _sqlite3
-        from pathlib import Path as _Path
+        # Shares the same PostgreSQL Database instance as ObservationMemory.
+        from .db import get_db as _get_db
 
-        scene_db_path = str(_Path.home() / ".familiar_ai" / "observations.db")
         try:
-            _Path(scene_db_path).parent.mkdir(parents=True, exist_ok=True)
-            scene_conn = _sqlite3.connect(scene_db_path)
-            self._scene = SceneTracker(scene_conn)
+            self._scene = SceneTracker(_get_db())
         except Exception as exc:
             logger.warning("SceneTracker init failed: %s", exc)
 

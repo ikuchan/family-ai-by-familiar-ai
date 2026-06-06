@@ -1,13 +1,17 @@
 """Tests for SceneTracker — entity extraction and change detection.
 
 TDD: these tests are written BEFORE the implementation in scene.py.
-All tests that touch the DB use an in-memory SQLite connection.
+All tests that touch the DB use an in-memory SQLite connection wrapped
+in a _FakeDatabase stub that is compatible with the psycopg2 Database
+interface used by scene.py.
 """
 
 from __future__ import annotations
 
 import json
+import re
 import sqlite3
+import threading
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -16,17 +20,71 @@ from familiar_agent.scene import SceneTracker, extract_entities
 
 
 # ---------------------------------------------------------------------------
+# _FakeDatabase — psycopg2-compatible stub backed by in-memory SQLite
+# ---------------------------------------------------------------------------
+
+
+class _FakeCursor:
+    """Wraps a sqlite3.Cursor to look like a psycopg2 RealDictCursor."""
+
+    def __init__(self, cur: sqlite3.Cursor) -> None:
+        self._cur = cur
+
+    def __enter__(self) -> "_FakeCursor":
+        return self
+
+    def __exit__(self, *args) -> None:
+        self._cur.close()
+
+    def execute(self, sql: str, params: tuple = ()) -> None:
+        sql = re.sub(r"%s", "?", sql)
+        self._cur.execute(sql, params)
+
+    def fetchone(self) -> dict | None:
+        row = self._cur.fetchone()
+        if row is None:
+            return None
+        desc = self._cur.description or []
+        return {d[0]: row[i] for i, d in enumerate(desc)}
+
+    def fetchall(self) -> list[dict]:
+        rows = self._cur.fetchall()
+        desc = self._cur.description or []
+        return [{d[0]: r[i] for i, d in enumerate(desc)} for r in rows]
+
+
+class _FakeDatabase:
+    """SQLite-backed Database stub compatible with scene.py's psycopg2 interface."""
+
+    def __init__(self) -> None:
+        self._conn = sqlite3.connect(":memory:")
+        self.lock = threading.Lock()
+
+    def conn(self) -> "_FakeDatabase":
+        return self
+
+    def cursor(self) -> _FakeCursor:
+        return _FakeCursor(self._conn.cursor())
+
+    def commit(self) -> None:
+        self._conn.commit()
+
+    def rollback(self) -> None:
+        self._conn.rollback()
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 
 
 def _in_memory_tracker() -> SceneTracker:
-    """SceneTracker backed by an in-memory SQLite DB."""
-    conn = sqlite3.connect(":memory:")
+    """SceneTracker backed by an in-memory SQLite DB via _FakeDatabase."""
+    db = _FakeDatabase()
     tracker = SceneTracker.__new__(SceneTracker)
-    tracker._conn = conn
+    tracker._db = db
     tracker._current_entities = {}
-    tracker._init_schema(conn)
+    SceneTracker._init_schema(db)
     return tracker
 
 
@@ -107,7 +165,7 @@ async def test_update_stores_entities_in_db():
 
     await tracker.update("A sofa in the room.", backend)
 
-    rows = tracker._conn.execute("SELECT label FROM scene_entities").fetchall()
+    rows = tracker._db._conn.execute("SELECT label FROM scene_entities").fetchall()
     labels = {r[0] for r in rows}
     assert "sofa" in labels
 
@@ -213,7 +271,7 @@ async def test_update_stores_events_in_db():
     )
     await tracker.update("A person entered.", _backend_with_response(payload))
 
-    rows = tracker._conn.execute("SELECT event_type, entity_label FROM scene_events").fetchall()
+    rows = tracker._db._conn.execute("SELECT event_type, entity_label FROM scene_events").fetchall()
     assert any(r[0] == "appeared" and r[1] == "person" for r in rows)
 
 
