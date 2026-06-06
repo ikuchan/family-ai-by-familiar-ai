@@ -139,6 +139,33 @@ _BRIEF_CORRECTION_PATTERNS = (
     r"^いや[、, ]",
 )
 
+# ── Thinking-mode switching ──────────────────────────────────────────────────
+# Accepts:  /think [on|off|adaptive|disabled|status]
+#           Natural-language standalone instructions (exact match)
+_THINK_COMMAND_RE = re.compile(
+    r"^/think(?:\s+(on|off|adaptive|disabled|status))?$",
+    re.IGNORECASE,
+)
+# Exact natural-language phrases that toggle thinking (only when the ENTIRE
+# message matches — avoids false positives mid-sentence)
+_THINK_ON_EXACT = frozenset({
+    "深く考えて",
+    "深く考えてください",
+    "よく考えて",
+    "じっくり考えて",
+    "thinking on",
+    "enable thinking",
+})
+_THINK_OFF_EXACT = frozenset({
+    "考えなくていい",
+    "考えなくていいです",
+    "すぐに答えて",
+    "シンプルに答えて",
+    "thinking off",
+    "disable thinking",
+    "no thinking",
+})
+
 SYSTEM_PROMPT = """
 (agent :type embodied
   (body
@@ -2298,6 +2325,52 @@ class EmbodiedAgent:
         except (asyncio.TimeoutError, Exception):
             pass
 
+    def _handle_thinking_command(self, user_input: str) -> str | None:
+        """Return a status string if user_input is a thinking-mode command, else None.
+
+        Handles /think slash commands and a small set of exact natural-language
+        phrases. Returns None to indicate the caller should continue normally.
+        """
+        stripped = user_input.strip()
+
+        # --- slash command: /think [on|off|adaptive|disabled|status] ---
+        m = _THINK_COMMAND_RE.match(stripped)
+        if m:
+            arg = (m.group(1) or "").lower()
+            if arg == "status":
+                current = getattr(self.backend, "thinking_mode", "不明")
+                return f"[思考モード: {current}]"
+
+            if not hasattr(self.backend, "thinking_mode"):
+                return "[このバックエンドは思考モードの切替に対応していません]"
+
+            if arg in ("on", "adaptive"):
+                new_mode = "adaptive"
+            elif arg in ("off", "disabled"):
+                new_mode = "disabled"
+            else:
+                # bare /think → toggle
+                current = getattr(self.backend, "thinking_mode", "disabled")
+                new_mode = "disabled" if current == "adaptive" else "adaptive"
+
+            self.backend.thinking_mode = new_mode
+            label = "有効（adaptive）" if new_mode == "adaptive" else "無効"
+            return f"[思考モードを {label} に切り替えました]"
+
+        # --- exact natural-language phrases ---
+        if not hasattr(self.backend, "thinking_mode"):
+            return None  # backend doesn't support it; ignore silently
+
+        if stripped in _THINK_ON_EXACT:
+            self.backend.thinking_mode = "adaptive"
+            return "[思考モードを有効（adaptive）に切り替えました]"
+
+        if stripped in _THINK_OFF_EXACT:
+            self.backend.thinking_mode = "disabled"
+            return "[思考モードを無効に切り替えました]"
+
+        return None
+
     async def run(
         self,
         user_input: str,
@@ -2333,6 +2406,15 @@ class EmbodiedAgent:
             self._last_tool_error = None
         if not hasattr(self, "_tool_failure_streak"):
             self._tool_failure_streak = 0
+
+        # ── Thinking-mode slash-commands & natural-language shortcuts ────────
+        # These return immediately without calling the LLM.
+        _think_reply = self._handle_thinking_command(user_input)
+        if _think_reply is not None:
+            if on_text:
+                on_text(_think_reply)
+            return _think_reply
+
         self._turn_count += 1
         first_turn = self._turn_count == 1
         memory_worker = getattr(self, "_memory_worker", None)

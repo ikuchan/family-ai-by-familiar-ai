@@ -36,6 +36,7 @@ def _config_with_scene(
     config.scene_platform = platform
     config.scene_api_key = api_key
     config.scene_model = model
+    config.scene_base_url = ""
     return config
 
 
