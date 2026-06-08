@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .memory import ObservationMemory
     from ..workspace import Coalition
+    from ..person_memory_manager import PersonMemoryManager
 
 logger = logging.getLogger(__name__)
 
@@ -18,16 +19,32 @@ class ToMTool:
 
     def __init__(
         self,
-        memory: "ObservationMemory",
+        memory: "PersonMemoryManager",
         default_person: str = "Alex",
         backend: Any | None = None,
     ) -> None:
-        self._memory = memory
+        self._pmm = memory
         self._default_person = default_person
         self._backend = backend
         self._last_situation: str | None = None
         self._last_person: str | None = None
         self._last_policy: str | None = None
+
+    def _resolve_memory(self, person: str) -> "ObservationMemory":
+        """Return the ObservationMemory for the named person.
+
+        Resolution order:
+        1. Find person UUID by name in PMM registry → use that person's memory.
+        2. Fall back to current speaker's memory.
+        3. Fall back to agent's own memory as last resort.
+        """
+        pid = self._pmm.find_person_id_by_name(person)
+        if pid:
+            return self._pmm.get_memory_for(pid)
+        speaker_mem = self._pmm.get_speaker_memory()
+        if speaker_mem is not None:
+            return speaker_mem
+        return self._pmm.get_agent_memory()
 
     def get_tool_definitions(self) -> list[dict]:
         return [
@@ -62,8 +79,9 @@ class ToMTool:
         situation = tool_input.get("situation", "")
         person = tool_input.get("person", self._default_person)
 
-        # Pull relevant memories about this person
-        memories = await self._memory.recall_async(
+        # Pull relevant memories about this person from the correct memory space
+        memory = self._resolve_memory(person)
+        memories = await memory.recall_async(
             f"{person} コミュニケーション 性格 会話パターン {situation}", n=5
         )
         memory_context = ""

@@ -49,3 +49,48 @@ def test_update_from_turn_keeps_high_salience_threads():
     assert concerns
     assert any(item["category"] == "agency" for item in concerns)
     assert any(item["category"] == "companion" for item in concerns)
+
+
+def test_companion_concern_uses_provided_name():
+    engine = ConcernEngine()
+    engine.update_from_turn(
+        turn_index=1,
+        emotion="neutral",
+        companion_mood="frustrated",
+        curiosity=None,
+        prediction_signal=None,
+        companion_name="Yusuke",
+    )
+    concerns = engine.snapshot()
+    companion = next(c for c in concerns if c["category"] == "companion")
+    assert "Yusuke" in companion["topic"]
+    assert "Kouta" not in companion["topic"]
+
+
+def test_companion_concern_falls_back_when_name_empty():
+    engine = ConcernEngine()
+    engine.update_from_turn(
+        turn_index=1,
+        emotion="neutral",
+        companion_mood="frustrated",
+        curiosity=None,
+        prediction_signal=None,
+        companion_name="",
+    )
+    concerns = engine.snapshot()
+    companion = next(c for c in concerns if c["category"] == "companion")
+    assert "companion" in companion["topic"]
+    assert "Kouta" not in companion["topic"]
+
+
+def test_companion_concern_no_name_arg_still_works():
+    engine = ConcernEngine()
+    engine.update_from_turn(
+        turn_index=1,
+        emotion="neutral",
+        companion_mood="frustrated",
+        curiosity=None,
+        prediction_signal=None,
+    )
+    concerns = engine.snapshot()
+    assert any(c["category"] == "companion" for c in concerns)

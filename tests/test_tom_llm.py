@@ -18,21 +18,40 @@ from familiar_agent.tools.tom import ToMTool
 # ---------------------------------------------------------------------------
 
 
+def _make_memory_mock(memories: list[dict] | None = None) -> MagicMock:
+    mem = MagicMock()
+    mem.recall_async = AsyncMock(return_value=memories or [])
+    return mem
+
+
+def _make_pmm(
+    memories: list[dict] | None = None,
+    person_id_for_name: str | None = None,
+) -> MagicMock:
+    """Create a minimal PersonMemoryManager mock."""
+    mem = _make_memory_mock(memories)
+    pmm = MagicMock()
+    pmm.find_person_id_by_name = MagicMock(return_value=person_id_for_name)
+    pmm.get_speaker_memory = MagicMock(return_value=mem)
+    pmm.get_agent_memory = MagicMock(return_value=mem)
+    pmm.get_memory_for = MagicMock(return_value=mem)
+    return pmm
+
+
 def _make_tom(
     backend_response: str | None = None,
     memories: list[dict] | None = None,
     default_person: str = "Kouta",
 ) -> ToMTool:
-    """Create ToMTool with mocked memory and optional mocked backend."""
-    memory = MagicMock()
-    memory.recall_async = AsyncMock(return_value=memories or [])
+    """Create ToMTool with mocked PMM and optional mocked backend."""
+    pmm = _make_pmm(memories=memories)
 
     backend = None
     if backend_response is not None:
         backend = MagicMock()
         backend.complete = AsyncMock(return_value=backend_response)
 
-    return ToMTool(memory=memory, default_person=default_person, backend=backend)
+    return ToMTool(memory=pmm, default_person=default_person, backend=backend)
 
 
 _VALID_JSON_RESPONSE = json.dumps(
@@ -182,3 +201,57 @@ async def test_unknown_tool_name_returns_error():
     tom = _make_tom()
     result, _ = await tom.call("unknown_tool", {})
     assert "unknown" in result.lower()
+
+
+# ---------------------------------------------------------------------------
+# Tests: PMM memory resolution
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_tom_uses_memory_for_known_person():
+    """When person is found in PMM registry, get_memory_for() is used."""
+    pmm = _make_pmm(person_id_for_name="uuid-alice")
+    tom = ToMTool(memory=pmm, default_person="Alice", backend=None)
+    await tom.call("tom", {"situation": "hello", "person": "Alice"})
+    pmm.find_person_id_by_name.assert_called_with("Alice")
+    pmm.get_memory_for.assert_called_with("uuid-alice")
+
+
+@pytest.mark.asyncio
+async def test_tom_falls_back_to_speaker_memory_for_unknown_person():
+    """When person name is not in registry, falls back to current speaker."""
+    pmm = _make_pmm(person_id_for_name=None)
+    tom = ToMTool(memory=pmm, default_person="Unknown", backend=None)
+    await tom.call("tom", {"situation": "hello", "person": "Unknown"})
+    pmm.get_speaker_memory.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_tom_falls_back_to_agent_memory_when_no_speaker():
+    """When person unknown and no current speaker, falls back to agent memory."""
+    pmm = _make_pmm(person_id_for_name=None)
+    pmm.get_speaker_memory = MagicMock(return_value=None)
+    tom = ToMTool(memory=pmm, default_person="Unknown", backend=None)
+    await tom.call("tom", {"situation": "hello"})
+    pmm.get_agent_memory.assert_called()
+
+
+@pytest.mark.asyncio
+async def test_tom_different_persons_use_different_memories():
+    """Two different person IDs result in different get_memory_for() calls."""
+    mem_alice = _make_memory_mock()
+    mem_bob = _make_memory_mock()
+    pmm = MagicMock()
+    pmm.find_person_id_by_name = MagicMock(side_effect=lambda n: "id-alice" if n == "Alice" else "id-bob")
+    pmm.get_memory_for = MagicMock(side_effect=lambda pid: mem_alice if pid == "id-alice" else mem_bob)
+    pmm.get_speaker_memory = MagicMock(return_value=mem_alice)
+    pmm.get_agent_memory = MagicMock(return_value=mem_alice)
+
+    tom = ToMTool(memory=pmm, default_person="Alice", backend=None)
+    await tom.call("tom", {"situation": "hi", "person": "Alice"})
+    await tom.call("tom", {"situation": "hi", "person": "Bob"})
+
+    calls = [c[0][0] for c in pmm.get_memory_for.call_args_list]
+    assert "id-alice" in calls
+    assert "id-bob" in calls

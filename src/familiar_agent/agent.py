@@ -765,7 +765,7 @@ class EmbodiedAgent:
         self._memory_tool = MemoryTool(self._pmm)
         self._presence_watcher: CameraPresenceWatcher | None = None
         self._tom_tool = ToMTool(
-            self._memory,
+            self._pmm,
             default_person=config.companion_name,
             backend=self._utility_backend,
         )
@@ -784,7 +784,7 @@ class EmbodiedAgent:
         self._workspace.register_broadcast_listener(self._self_state.on_broadcast)
         self._prediction = PredictionEngine()
         self._attention_schema = AttentionSchema()
-        self._dmn = DefaultModeProcessor(self._memory)
+        self._dmn = DefaultModeProcessor(self._pmm.get_agent_memory())
         self._meta_monitor = MetaMonitor()
         self._appraisal = AppraisalEngine()
         self._social_policy = SocialPolicyEngine()
@@ -980,6 +980,7 @@ class EmbodiedAgent:
                     companion_mood=companion_mood,
                     curiosity=curiosity,
                     prediction_signal=pred_signal,
+                    companion_name=self._persons.active_name,
                 )
 
             self_state = getattr(self, "_self_state", None)

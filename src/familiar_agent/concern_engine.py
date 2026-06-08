@@ -216,6 +216,7 @@ class ConcernEngine:
         companion_mood: str,
         curiosity: str | None,
         prediction_signal: PredictionSignal | None,
+        companion_name: str = "",
     ) -> None:
         self.decay()
 
@@ -231,8 +232,9 @@ class ConcernEngine:
                 self.soothe("agency", amount=0.16)
 
         if companion_mood == "frustrated":
+            name = companion_name.strip() or "companion"
             self.activate(
-                "Kouta may need gentleness right now.",
+                f"{name} may need gentleness right now.",
                 category="companion",
                 intensity=0.5,
                 turn_index=turn_index,
