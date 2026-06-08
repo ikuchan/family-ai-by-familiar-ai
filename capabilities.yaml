@@ -6,11 +6,20 @@
 capabilities:
 
   - id: autonomous_initiation
-    summary: Initiate conversation from inner desire without waiting for user input
+    summary: Initiate conversation or internal processing from inner desire without waiting for user input
     detail: >
-      When FAMILIAR_AUTO_DESIRE=1, desire levels grow over time. When a drive
-      exceeds the trigger threshold, an inner-voice turn fires and the agent
-      speaks unprompted.
+      When FAMILIAR_AUTO_DESIRE=1, desire levels grow over time. Desires are split
+      into two categories. Social desires (greet_companion, share_memory, worry_companion,
+      care, attachment, repair, play) cause the agent to speak to the user and use the
+      full conversation backend. Internal desires (look_around, explore, consolidate,
+      reflect, curiosity, browse_curiosity, rest) run background processing using a
+      lightweight backend. DESIRE_COOLDOWN controls the growth rate of social desires;
+      INTERNAL_DESIRE_COOLDOWN controls internal desires independently (default: faster).
+      Social desires are gated by presence: when a camera is active, the agent only
+      speaks if a person is detected; without a camera, only within 5 minutes of the
+      last user message. When an internal turn finds something notable (scene change,
+      memory discovery, curiosity trigger), share_memory is automatically boosted so
+      the agent will bring it up when the user is next present.
     enabled: true
 
   - id: memory
