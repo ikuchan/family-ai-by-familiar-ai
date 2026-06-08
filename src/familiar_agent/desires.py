@@ -7,10 +7,13 @@ import json
 import logging
 import os
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import psycopg2.extras
+
+from .db import get_db
 from ._i18n import _t
 
 if TYPE_CHECKING:
@@ -24,7 +27,8 @@ DEFAULT_DESIRES = {
     "greet_companion": 0.0,
     "rest": 0.0,
     "worry_companion": 0.0,  # grows only via detect_worry_signal(), not over time
-    "share_memory": 0.0,  # spontaneous "remember when..." sharing; fires every ~3 min idle
+    "share_memory": 0.0,  # spontaneous "remember when..." sharing
+    "browse_curiosity": 0.0,  # idle web browsing
     "curiosity": 0.0,
     "attachment": 0.0,
     "care": 0.0,
@@ -35,22 +39,56 @@ DEFAULT_DESIRES = {
     "self_protect": 0.0,
 }
 
-# How fast each desire grows per second of inactivity
+# ---------------------------------------------------------------------------
+# Growth-rate calibration
+#
+# Each drive's growth rate is derived from DESIRE_COOLDOWN so the system
+# stays internally consistent: if the cooldown changes, all drives scale.
+#
+#   growth_rate = (TRIGGER_THRESHOLD × DECAY_ON_SATISFY) / (n × _REF_COOLDOWN)
+#               = 0.3 / (n × _REF_COOLDOWN)
+#
+# _rate(n) returns the rate at which a satisfied drive (level ≈ 0.3 after
+# DECAY_ON_SATISFY) recovers to TRIGGER_THRESHOLD (0.6) in exactly
+# n × DESIRE_COOLDOWN seconds — i.e., it fires every n cooldown cycles.
+# ---------------------------------------------------------------------------
+
+TRIGGER_THRESHOLD = 0.6
+DECAY_ON_SATISFY = 0.5  # drop hard so it can rebuild and fire again
+
+# Mirror the default from _ui_helpers.DESIRE_COOLDOWN (avoid circular import).
+_REF_COOLDOWN: float = float(os.environ.get("DESIRE_COOLDOWN", "90"))
+
+# Cap dt in tick() to prevent drives from jumping to 1.0 after a long gap
+# (process sleep, restart, system suspend).  Two cooldown periods is enough
+# headroom for normal jitter while bounding worst-case accumulation.
+MAX_TICK_DT: float = _REF_COOLDOWN * 2
+
+
+def _rate(n_cycles: float) -> float:
+    """Return the per-second growth rate that fires a desire every n_cycles cooldowns."""
+    recover = TRIGGER_THRESHOLD * DECAY_ON_SATISFY  # = 0.3
+    return recover / (n_cycles * _REF_COOLDOWN)
+
+
+# How fast each desire grows per second of inactivity.
+# n  ×  DESIRE_COOLDOWN(90s)  →  steady-state fire interval
 GROWTH_RATES = {
-    "look_around": 0.005,  # reaches 0.6 after ~2 min (was 40sec — too eager, caused spam)
-    "explore": 0.008,  # reaches 0.6 after ~75 sec — explore should fire more often
-    "greet_companion": 0.002,  # slow build; fires after ~5 min of silence
-    "rest": 0.002,  # baseline; night modulation (×1.8) makes it grow meaningfully only at night
-    "share_memory": 0.003,  # reaches 0.6 after ~3.3 min idle; evening ×1.4 makes it ~2.4 min
-    "curiosity": 0.0025,
-    "attachment": 0.0015,
-    "care": 0.0015,
-    "reflect": 0.0010,
-    "consolidate": 0.0010,
-    "repair": 0.0,
-    "play": 0.0012,
-    "self_protect": 0.0,
-    # worry_companion intentionally omitted — only grows via boost()
+    "look_around":      _rate(3),   # n=3  →  4.5 min  (night ×0.4 → 11 min)
+    "explore":          _rate(5),   # n=5  →  7.5 min  (night ×0.4 → 19 min)
+    "greet_companion":  _rate(5),   # n=5  →  7.5 min  (morning ×1.3 → 5.8 min)
+    "rest":             _rate(6),   # n=6  →  9 min    (night ×1.8 → 5 min)
+    "share_memory":     _rate(4),   # n=4  →  6 min    (evening ×1.4 → 4.3 min)
+    "browse_curiosity": _rate(30),  # n=30 → 45 min    (matches min_interval_seconds=2700)
+    "curiosity":        _rate(4),   # n=4  →  6 min
+    "attachment":       _rate(8),   # n=8  → 12 min
+    "care":             _rate(8),   # n=8  → 12 min
+    "reflect":          _rate(12),  # n=12 → 18 min
+    "consolidate":      _rate(20),  # n=20 → 30 min
+    "repair":           0.0,        # manual only — grows via boost()
+    "play":             _rate(8),   # n=8  → 12 min
+    "self_protect":     0.0,        # manual only — grows via boost()
+    # worry_companion intentionally omitted — only grows via detect_worry_signal()
 }
 
 # ── Worry signal detection ─────────────────────────────────────────────────────
@@ -114,10 +152,6 @@ def detect_worry_signal(text: str) -> float:
     return min(1.0, total)
 
 
-TRIGGER_THRESHOLD = 0.6
-DECAY_ON_SATISFY = 0.5  # drop hard so it can rebuild and fire again
-
-
 @dataclass(slots=True)
 class DriveSpec:
     name: str
@@ -132,11 +166,10 @@ class DesireSystem:
 
     def __init__(
         self,
-        state_path: Path | None = None,
+        state_path: Path | None = None,  # ignored; kept for call-site compatibility
         companion_name: str | None = None,
         drive_config_path: Path | None = None,
     ):
-        self._state_path = state_path or Path.home() / ".familiar_ai" / "desires.json"
         self._desires: dict[str, float] = {}
         self._last_tick: float = time.time()
         default_name = _t("default_companion_name")
@@ -199,6 +232,13 @@ class DesireSystem:
                 _t("desire_prompt_share_memory", companion=self._companion_name),
                 ("legacy", "reflect"),
                 90,
+            ),
+            "browse_curiosity": DriveSpec(
+                "browse_curiosity",
+                GROWTH_RATES["browse_curiosity"],
+                _t("desire_prompt_browse_curiosity"),
+                ("curiosity", "explore"),
+                2700,
             ),
             "curiosity": DriveSpec(
                 "curiosity",
@@ -291,8 +331,14 @@ class DesireSystem:
 
     def _load(self) -> None:
         try:
-            if self._state_path.exists():
-                self._desires = json.loads(self._state_path.read_text())
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", ("desires",))
+                    row = cur.fetchone()
+            if row:
+                self._desires = json.loads(row["value_json"])
             else:
                 self._desires = dict(DEFAULT_DESIRES)
         except Exception:
@@ -300,8 +346,17 @@ class DesireSystem:
 
     def _save(self) -> None:
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            self._state_path.write_text(json.dumps(self._desires, indent=2))
+            now = datetime.now(timezone.utc).isoformat()
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
+                        " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
+                        ("desires", json.dumps(self._desires), now),
+                    )
+                conn.commit()
         except Exception as e:
             logger.warning("Could not save desires: %s", e)
 
@@ -365,7 +420,7 @@ class DesireSystem:
         Applies Phase 3-1 circadian modulation and Phase 3-2 drive suppression.
         """
         now = time.time()
-        dt = now - self._last_tick
+        dt = min(now - self._last_tick, MAX_TICK_DT)
         self._last_tick = now
 
         hour = datetime.now().hour

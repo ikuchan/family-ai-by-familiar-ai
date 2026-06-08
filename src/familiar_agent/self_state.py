@@ -4,16 +4,19 @@ from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import psycopg2.extras
+
+from .db import get_db
 
 if TYPE_CHECKING:
     from .prediction import PredictionSignal
     from .workspace import Coalition
 
 logger = logging.getLogger(__name__)
-
-_DEFAULT_PATH = Path.home() / ".familiar_ai" / "self_state.json"
 
 _BASELINES: dict[str, float] = {
     "arousal": 0.35,
@@ -32,29 +35,41 @@ def _clamp(value: float) -> float:
 class SelfState:
     """Small persistent latent state for embodied continuity."""
 
-    def __init__(self, path: Path | None = None) -> None:
-        self._path = path or _DEFAULT_PATH
+    def __init__(self, path: Path | None = None) -> None:  # path ignored; kept for call-site compatibility
         self._values = dict(_BASELINES)
         self._load()
 
     def _load(self) -> None:
         try:
-            if not self._path.exists():
-                return
-            raw = json.loads(self._path.read_text())
-            if not isinstance(raw, dict):
-                return
-            for key, baseline in _BASELINES.items():
-                value = raw.get(key, baseline)
-                if isinstance(value, (int, float)):
-                    self._values[key] = _clamp(float(value))
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", ("self_state",))
+                    row = cur.fetchone()
+            if row:
+                raw = json.loads(row["value_json"])
+                if isinstance(raw, dict):
+                    for key, baseline in _BASELINES.items():
+                        value = raw.get(key, baseline)
+                        if isinstance(value, (int, float)):
+                            self._values[key] = _clamp(float(value))
         except Exception as exc:
             logger.warning("Could not load self state: %s", exc)
 
     def _save(self) -> None:
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
-            self._path.write_text(json.dumps(self._values, indent=2))
+            now = datetime.now(timezone.utc).isoformat()
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
+                        " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
+                        ("self_state", json.dumps(self._values), now),
+                    )
+                conn.commit()
         except Exception as exc:
             logger.warning("Could not save self state: %s", exc)
 

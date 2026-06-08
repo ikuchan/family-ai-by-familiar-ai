@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime, timezone
 import json
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
+
+import psycopg2.extras
+
+from .db import get_db
 
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from .prediction import PredictionSignal
 
-_DEFAULT_PATH = Path.home() / ".familiar_ai" / "active_concerns.json"
 _MAX_CONCERNS = 5
 _DECAY = 0.94
 _LEAK = 0.015
@@ -41,17 +45,22 @@ class Concern:
 class ConcernEngine:
     """Small persistent set of unresolved concerns with decay and cooldown."""
 
-    def __init__(self, path: Path | None = None, max_concerns: int = _MAX_CONCERNS) -> None:
-        self._path = path or _DEFAULT_PATH
+    def __init__(self, path: Path | None = None, max_concerns: int = _MAX_CONCERNS) -> None:  # path ignored
         self._max_concerns = max(1, max_concerns)
         self._concerns: list[Concern] = []
         self._load()
 
     def _load(self) -> None:
         try:
-            if not self._path.exists():
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", ("concerns",))
+                    row = cur.fetchone()
+            if not row:
                 return
-            raw = json.loads(self._path.read_text())
+            raw = json.loads(row["value_json"])
             if not isinstance(raw, list):
                 return
             concerns: list[Concern] = []
@@ -81,9 +90,18 @@ class ConcernEngine:
 
     def _save(self) -> None:
         try:
-            self._path.parent.mkdir(parents=True, exist_ok=True)
+            now = datetime.now(timezone.utc).isoformat()
             serializable = [asdict(c) for c in self._concerns]
-            self._path.write_text(json.dumps(serializable, ensure_ascii=False, indent=2))
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
+                        " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
+                        ("concerns", json.dumps(serializable, ensure_ascii=False), now),
+                    )
+                conn.commit()
         except Exception as exc:
             logger.warning("Could not save active concerns: %s", exc)
 

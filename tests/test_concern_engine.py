@@ -6,8 +6,8 @@ from familiar_agent.concern_engine import ConcernEngine
 from familiar_agent.prediction import PredictionSignal
 
 
-def test_prompt_context_respects_turn_cooldown(tmp_path):
-    engine = ConcernEngine(path=tmp_path / "active_concerns.json")
+def test_prompt_context_respects_turn_cooldown():
+    engine = ConcernEngine()
     engine.activate(
         "Something about this still feels unfinished.",
         category="affect",
@@ -24,8 +24,8 @@ def test_prompt_context_respects_turn_cooldown(tmp_path):
     assert third is not None
 
 
-def test_update_from_turn_keeps_high_salience_threads(tmp_path):
-    engine = ConcernEngine(path=tmp_path / "active_concerns.json")
+def test_update_from_turn_keeps_high_salience_threads():
+    engine = ConcernEngine()
     signal = PredictionSignal(
         total_error=0.8,
         external_surprise=0.2,

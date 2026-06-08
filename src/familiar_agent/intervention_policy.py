@@ -8,15 +8,18 @@ Works alongside concern_engine.py and desires.py to gate all autonomous output.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import logging
 import time
 from dataclasses import dataclass
 from pathlib import Path
 
-logger = logging.getLogger(__name__)
+import psycopg2.extras
 
-_DEFAULT_PATH = Path.home() / ".familiar_ai" / "intervention_policy.json"
+from .db import get_db
+
+logger = logging.getLogger(__name__)
 
 # Cooldown: minimum seconds between autonomous interventions
 _MIN_INTERVENTION_GAP = 120.0  # 2 minutes
@@ -44,27 +47,41 @@ class InterventionPolicy:
     and uncertainty-based silence.
     """
 
-    def __init__(self, state_path: Path | None = None):
-        self._state_path = state_path or _DEFAULT_PATH
+    def __init__(self, state_path: Path | None = None):  # state_path ignored; kept for call-site compatibility
         self._state = self._load()
 
     def _load(self) -> dict:
-        default = {
-            "intervention_timestamps": [],  # list of float timestamps
+        default: dict = {
+            "intervention_timestamps": [],
             "total_interventions": 0,
-            "silenced_count": 0,  # times we chose to stay quiet
+            "silenced_count": 0,
         }
         try:
-            if self._state_path.exists():
-                return {**default, **json.loads(self._state_path.read_text())}
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", ("intervention_policy",))
+                    row = cur.fetchone()
+            if row:
+                return {**default, **json.loads(row["value_json"])}
         except Exception as e:
             logger.warning("Could not load intervention policy state: %s", e)
         return default
 
     def _save(self) -> None:
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            self._state_path.write_text(json.dumps(self._state, indent=2))
+            now = datetime.now(timezone.utc).isoformat()
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
+                        " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
+                        ("intervention_policy", json.dumps(self._state), now),
+                    )
+                conn.commit()
         except Exception as e:
             logger.warning("Could not save intervention policy state: %s", e)
 

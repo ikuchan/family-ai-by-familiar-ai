@@ -5,12 +5,18 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 import json
+import logging
 from pathlib import Path
 from typing import Any
 
+import psycopg2.extras
+
+from .db import get_db
 from .workspace import Coalition
 
 MENTAL_STATE_PATH = Path.home() / ".familiar_ai" / "mental_state.jsonl"
+
+logger = logging.getLogger(__name__)
 
 
 def _clamp01(value: float) -> float:
@@ -275,28 +281,50 @@ class MentalStateSnapshot:
 
 
 class MentalStateBus:
-    """Append-only JSONL bus for compact mental-state snapshots."""
+    """Append-only mental-state log backed by PostgreSQL."""
 
     def __init__(self, path: Path = MENTAL_STATE_PATH):
-        self._path = path
+        pass  # path ignored; kept for call-site compatibility
 
     def append(self, snapshot: MentalStateSnapshot) -> None:
-        self._path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(snapshot.to_json_dict(), ensure_ascii=False, separators=(",", ":"))
-        with self._path.open("a", encoding="utf-8") as fh:
-            fh.write(line + "\n")
+        try:
+            payload = json.dumps(snapshot.to_json_dict(), ensure_ascii=False, separators=(",", ":"))
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO mental_state_log (turn_index, created_at, payload)"
+                        " VALUES (%s, %s, %s)",
+                        (snapshot.turn_index, snapshot.created_at, payload),
+                    )
+                conn.commit()
+        except Exception as e:
+            logger.warning("Could not append mental state: %s", e)
 
     def recent(self, n: int = 5) -> list[MentalStateSnapshot]:
-        if not self._path.exists() or n <= 0:
+        if n <= 0:
             return []
-        lines = self._path.read_text(encoding="utf-8").splitlines()[-n:]
-        snapshots: list[MentalStateSnapshot] = []
-        for line in lines:
-            try:
-                snapshots.append(MentalStateSnapshot.from_json_dict(json.loads(line)))
-            except Exception:
-                continue
-        return snapshots
+        try:
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT payload FROM mental_state_log ORDER BY id DESC LIMIT %s",
+                        (n,),
+                    )
+                    rows = cur.fetchall()
+            snapshots: list[MentalStateSnapshot] = []
+            for row in reversed(rows):
+                try:
+                    snapshots.append(MentalStateSnapshot.from_json_dict(json.loads(row["payload"])))
+                except Exception:
+                    continue
+            return snapshots
+        except Exception as e:
+            logger.warning("Could not read mental state: %s", e)
+            return []
 
     def summarize_recent_for_prompt(self, n: int = 3) -> str:
         snapshots = self.recent(n)

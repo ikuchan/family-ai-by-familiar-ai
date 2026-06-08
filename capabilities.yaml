@@ -1,0 +1,104 @@
+# familiar-ai capability manifest
+# Developer-maintained source of truth.
+# The agent reads this periodically and writes its own understanding
+# to agent_state["capability_summary"] via a capability-refresh turn.
+
+capabilities:
+
+  - id: autonomous_initiation
+    summary: Initiate conversation from inner desire without waiting for user input
+    detail: >
+      When FAMILIAR_AUTO_DESIRE=1, desire levels grow over time. When a drive
+      exceeds the trigger threshold, an inner-voice turn fires and the agent
+      speaks unprompted.
+    enabled: true
+
+  - id: memory
+    summary: Store and recall observations, episodes, semantic facts, and unfinished business
+    detail: >
+      Observations are embedded and stored in PostgreSQL. Recall uses cosine
+      similarity over situated embeddings. Episodes group related memories.
+      Semantic facts and behavior policies are extracted from observations.
+    enabled: true
+
+  - id: relationship
+    summary: Track longitudinal relationship state with each known person
+    detail: >
+      trust, intimacy, session_count, repair history, and support patterns are
+      persisted per person. Relationship context is injected into every turn.
+    enabled: true
+
+  - id: emotion_appraisal
+    summary: Maintain a continuous affective state (valence, arousal, attachment, etc.)
+    detail: >
+      AppraisalEngine updates affect each turn based on user input, prediction
+      error, and social policy. State persists across sessions via mental_state_log.
+    enabled: true
+
+  - id: camera_vision
+    summary: Capture and interpret images from a camera (RTSP or USB webcam)
+    detail: >
+      look_around() captures a frame and describes the scene using a vision LLM.
+      Scene changes are tracked; new/disappeared entities trigger workspace events.
+    enabled_env: CAMERA_HOST or USB webcam
+
+  - id: face_recognition
+    summary: Identify known persons from camera frames
+    detail: >
+      CameraPresenceWatcher polls the camera every 5 s, runs face recognition,
+      and updates PersonMemoryManager. Memory and relationship context switch
+      to the identified person automatically.
+    enabled_env: requires face embeddings registered via /register_face
+
+  - id: voice_identification
+    summary: Identify known persons by voice print (speaker diarization)
+    detail: >
+      VoiceIdentifier uses resemblyzer to embed utterances and match against
+      registered voice profiles. Currently implemented but NOT yet wired into
+      the agent's STT pipeline. See GitHub issue #4.
+    enabled: false
+    note: pending integration — see issue #4
+
+  - id: tts
+    summary: Speak responses aloud via text-to-speech
+    detail: >
+      say() sends text to the configured TTS backend (e.g. pyttsx3, edge-tts,
+      or a remote service). VoiceGuard prevents TTS output from feeding back
+      into STT.
+    enabled_env: TTS_BACKEND
+
+  - id: stt
+    summary: Listen to spoken input via speech-to-text
+    detail: >
+      RealtimeSTT or batch STT transcribes microphone audio. VoiceGuard mutes
+      STT while TTS is playing.
+    enabled_env: STT_BACKEND or microphone available
+
+  - id: mobility
+    summary: Control physical movement (vacuum robot body)
+    detail: >
+      walk(direction, steps) moves the vacuum body. Camera is fixed and
+      independent of movement. walk() does NOT change camera view.
+    enabled_env: MOBILITY_BACKEND
+
+  - id: mental_state_continuity
+    summary: Persist and recall mental state across sessions
+    detail: >
+      Interoception, affect, social state, and drive levels are snapshotted
+      to mental_state_log each turn. Recent snapshots are injected as
+      continuity context at session start.
+    enabled: true
+
+  - id: self_narrative
+    summary: Maintain a first-person autobiographical diary
+    detail: >
+      A sentence describing "today's self" is written at session close and
+      read back at the next session start as a continuity anchor.
+    enabled: true
+
+  - id: mcp_tools
+    summary: Use external tools via Model Context Protocol (MCP)
+    detail: >
+      Optional MCP server connections extend the agent with arbitrary external
+      tools (web search, file systems, services, etc.).
+    enabled_env: MCP_CONFIG

@@ -38,18 +38,15 @@ def test_continuation_chain_carries_over_and_stops_at_max_depth(tmp_path: Path) 
         memory.close()
 
 
-def test_heartbeat_persists_continuation_state_across_restarts(tmp_path: Path) -> None:
-    state_path = tmp_path / "heartbeat.json"
+def test_heartbeat_persists_continuation_state_across_restarts() -> None:
     runtime = HeartbeatRuntime(
         quiet_rule=QuietHoursRule(),
-        state_path=state_path,
         max_chain_depth=3,
     )
     runtime.apply_status("CONTINUE:follow-up tomorrow")
 
     restored = HeartbeatRuntime(
         quiet_rule=QuietHoursRule(),
-        state_path=state_path,
         max_chain_depth=3,
     )
 

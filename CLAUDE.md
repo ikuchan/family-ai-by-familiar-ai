@@ -5,9 +5,10 @@
 familiar-ai is an embodied companion agent. It combines:
 
 - a ReAct tool loop
-- local SQLite memory
+- PostgreSQL memory (pgvector)
 - prediction / workspace / self-state layers
 - explicit relationship, appraisal, social policy, and drive regulation
+- capability manifest with periodic AI self-understanding refresh
 - optional camera, mobility, TTS, STT, GUI, and MCP integrations
 
 The codebase is backend-agnostic. Anthropic is supported, but it is no longer the only runtime path.
@@ -16,43 +17,65 @@ The codebase is backend-agnostic. Anthropic is supported, but it is no longer th
 
 ```text
 src/familiar_agent/
-├── agent.py              # Main embodied turn loop
-├── appraisal.py          # Low-dimensional affect updates
-├── attention_schema.py   # Recent focus / attention state
-├── backend.py            # LLM backend protocol + implementations
-├── bootstrap.py          # Startup/setup/configured-state handling
-├── concern_engine.py     # Active unfinished concerns
-├── config.py             # Runtime config objects
-├── default_mode.py       # Idle/default-mode memory processing
-├── desires.py            # Autonomous drives + drive selection
-├── diagnostics.py        # GUI diagnostics and connection tests
-├── gui.py                # GTK GUI
-├── heartbeat.py          # Continuation/runtime status logic
-├── interoception.py      # Interoception providers + semantic pressure
-├── main.py               # CLI entry point / mode selection
-├── mental_state.py       # Mental-state bus and JSONL snapshots
-├── meta_monitor.py       # Metacognitive logging + response gating
-├── prediction.py         # Prediction error / agency error
-├── relationship.py       # Longitudinal relationship state
-├── routines.py           # Quiet-hours / routine config helpers
-├── self_narrative.py     # Session-spanning autobiographical narrative
-├── self_state.py         # Persistent latent bodily state
-├── setup.py              # Setup flow, env migration, validation
-├── social_policy.py      # Speech-act classification + response mode
-├── sqlite_migrations.py  # Migration runner
+├── agent.py                  # Main embodied turn loop
+├── appraisal.py              # Low-dimensional affect updates
+├── attention_schema.py       # Recent focus / attention state
+├── backend.py                # LLM backend protocol + implementations
+├── bootstrap.py              # Startup/setup/configured-state handling
+├── camera_discovery.py       # Zeroconf + network camera discovery
+├── capability_state.py       # Capability manifest loader + AI self-understanding storage
+├── concern_engine.py         # Active unfinished concerns
+├── config.py                 # Runtime config objects
+├── db.py                     # PostgreSQL singleton (get_db())
+├── db_migrations.py          # Migration runner (apply_migrations)
+├── default_mode.py           # Idle/default-mode memory processing (DMN)
+├── desires.py                # Autonomous drives + drive selection
+├── diagnostics.py            # GUI diagnostics and connection tests
+├── event_bus.py              # Internal event bus
+├── exploration.py            # Spatial exploration state
+├── gui.py                    # GTK GUI
+├── heartbeat.py              # Continuation/runtime status logic
+├── interoception.py          # Interoception providers + semantic pressure
+├── intervention_policy.py    # Autonomous intervention gating
+├── main.py                   # CLI entry point / mode selection
+├── mcp_client.py             # Model Context Protocol client
+├── memory_worker.py          # Async background memory job worker
+├── mental_state.py           # Mental-state bus and PostgreSQL snapshots
+├── meta_monitor.py           # Metacognitive logging + response gating
+├── person_memory_manager.py  # Multi-person identity and memory routing
+├── prediction.py             # Prediction error / agency error
+├── realtime_stt_session.py   # Streaming STT session management
+├── reflect.py                # Self-reflection and value adaptation
+├── relationship.py           # Longitudinal relationship state
+├── routines.py               # Quiet-hours / routine config helpers
+├── scene.py                  # Scene entity tracking
+├── self_narrative.py         # Session-spanning autobiographical narrative
+├── self_state.py             # Persistent latent bodily state
+├── settings_schema.py        # Settings schema and validation
+├── setup.py                  # Setup flow, env migration, validation
+├── social_policy.py          # Speech-act classification + response mode
+├── sqlite_migrations.py      # Legacy SQLite migration runner (unused)
+├── tape.py                   # Action plan (TAPE mechanism)
+├── tui.py                    # Text UI
+├── voice_guard.py            # TTS/STT loop prevention
+├── workspace.py              # Coalition competition / broadcast
+├── _i18n.py                  # Internationalisation helpers
+├── _ui_helpers.py            # Shared UI utilities
 ├── tools/
 │   ├── camera.py
 │   ├── coding.py
 │   ├── memory.py
 │   ├── mic.py
 │   ├── mobility.py
+│   ├── person.py
 │   ├── realtime_stt.py
 │   ├── stt.py
 │   ├── tom.py
 │   └── tts.py
-├── tui.py                # Text UI
-├── voice_guard.py        # TTS/STT loop prevention
-└── workspace.py          # Coalition competition / broadcast
+└── recognition/
+    ├── face.py               # Face recognition
+    ├── presence_watcher.py   # Background camera presence polling
+    └── voice.py              # Voice-print speaker identification (wiring pending — issue #4)
 ```
 
 ## Runtime architecture
@@ -72,47 +95,53 @@ The current turn flow in `agent.py` is:
 11. meta-gate the response
 12. persist post-turn traces and mental-state snapshots
 
+During idle DMN cycles (no workspace winner), the agent periodically refreshes
+its capability self-understanding from `capabilities.yaml`.
+
 The old prompt-only social logic is no longer the full story. Deterministic state layers now sit between raw input and response planning.
 
 ## Persistence
 
-Primary persistent stores:
+All state is stored in **PostgreSQL** (`DATABASE_URL` env var). No SQLite, no JSON files.
 
-- `~/.familiar_ai/observations.db`
-  - observations
-  - embeddings
-  - semantic facts
-  - behavior policies
-  - revisions
-  - episodes
-  - episode membership
-  - memory activation
-  - unfinished business
-  - relationship state
-- `~/.familiar_ai/mental_state.jsonl`
-  - append-only mental-state snapshots
-- `~/.familiar_ai/heartbeat_state.json`
-  - continuation / carryover status
-- `~/.familiar_ai/desires.json`
-  - drive levels
-- `~/.familiar_ai/self_state.json`
-  - latent bodily carryover
+Primary tables:
 
-Legacy compatibility:
-
-- `~/.familiar_ai/relationship.json`
-  - imported once if present, then SQLite becomes authoritative
+| Table | Contents |
+|---|---|
+| `observations` | Raw memories + embeddings |
+| `obs_embeddings` | Binary embedding vectors |
+| `situated_embeddings` | pgvector embeddings per person |
+| `episodes` / `episode_memories` | Grouped memory episodes |
+| `memory_activation` | Recall salience tracking |
+| `semantic_facts` | Extracted facts |
+| `behavior_policies` | Extracted behavioral rules |
+| `memory_revisions` | Edit history |
+| `memory_events` / `memory_jobs` | Async job queue |
+| `memory_links` | Associative links |
+| `unfinished_business` | Open threads |
+| `relationship_state` | Per-person relationship data |
+| `persons` | Known person registry |
+| `mental_state_log` | Append-only mental-state snapshots |
+| `self_narrative_log` | First-person session diary |
+| `agent_state` | Key-value store: desires, self_state, heartbeat, concerns, intervention_policy, capability_summary |
 
 Schema changes must go through timestamped files under `migration/`.
+
+## Databases
+
+| Database | Purpose | Port |
+|---|---|---|
+| `familiar_ai` | Production | 5432 (Docker) |
+| `familiar_test` | Tests | 5433 (Docker `--profile test`) |
 
 ## Development rules
 
 - Python 3.10+
 - Async-first style
-- SQLite stays the primary storage
+- **PostgreSQL is the only storage backend — no SQLite, no JSON/JSONL files**
 - Prefer deterministic logic and typed dataclasses over giant prompt blobs
 - Do not leak raw interoception/body metrics into normal user-facing text
-- Keep compatibility for existing memory DBs; add migrations for every schema change
+- Add a migration for every schema change
 
 ## Validation before merge
 
@@ -146,9 +175,12 @@ docs: refresh technical architecture guide
   - agent registration / routing
   - tests
 - When changing state or persistence:
-  - add a migration
-  - add migration coverage
-  - update docs
+  - add a migration under `migration/`
+  - add migration coverage in tests
+  - update this file
+- When adding a capability:
+  - add an entry to `capabilities.yaml`
+  - the agent will pick it up automatically on the next idle DMN turn
 - When changing social behavior:
   - prefer appraisal / social policy / meta gate logic first
   - only extend prompt instructions when state logic is insufficient

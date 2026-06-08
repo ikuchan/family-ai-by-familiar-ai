@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-
 import pytest
 
 from familiar_agent.desires import (
@@ -92,8 +90,8 @@ def test_worry_companion_has_no_growth_rate() -> None:
 
 
 @pytest.fixture
-def desires(tmp_path: Path) -> DesireSystem:
-    return DesireSystem(state_path=tmp_path / "desires.json", companion_name="Kota")
+def desires() -> DesireSystem:
+    return DesireSystem(companion_name="Kota")
 
 
 def test_worry_starts_at_zero(desires: DesireSystem) -> None:
@@ -165,15 +163,14 @@ def test_worry_prompt_contains_action_hint(desires: DesireSystem) -> None:
     assert "say()" in prompt or "声" in prompt or "確認" in prompt
 
 
-def test_worry_persists_across_reload(desires: DesireSystem, tmp_path: Path) -> None:
+def test_worry_persists_across_reload(desires: DesireSystem) -> None:
     desires.boost("worry_companion", 0.7)
-    # reload from same path
-    desires2 = DesireSystem(state_path=tmp_path / "desires.json")
+    desires2 = DesireSystem()
     assert desires2.level("worry_companion") == pytest.approx(0.7)
 
 
-def test_worry_prompt_uses_configured_companion_name(tmp_path: Path) -> None:
-    desires = DesireSystem(state_path=tmp_path / "desires.json", companion_name="Mika")
+def test_worry_prompt_uses_configured_companion_name() -> None:
+    desires = DesireSystem(companion_name="Mika")
     desires.boost("worry_companion", TRIGGER_THRESHOLD)
     prompt = desires.dominant_as_prompt()
     assert prompt is not None
@@ -182,17 +179,17 @@ def test_worry_prompt_uses_configured_companion_name(tmp_path: Path) -> None:
 
 
 def test_rest_prompt_is_localized_for_ja_and_en(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     monkeypatch.setattr("familiar_agent._i18n._LANG", "en")
-    en_desires = DesireSystem(state_path=tmp_path / "en.json", companion_name="Kota")
+    en_desires = DesireSystem(companion_name="Kota")
     en_desires.boost("rest", TRIGGER_THRESHOLD)
     en_prompt = en_desires.dominant_as_prompt()
     assert en_prompt is not None
     assert "internal impulse" in en_prompt
 
     monkeypatch.setattr("familiar_agent._i18n._LANG", "ja")
-    ja_desires = DesireSystem(state_path=tmp_path / "ja.json", companion_name="コウタ")
+    ja_desires = DesireSystem(companion_name="コウタ")
     ja_desires.boost("rest", TRIGGER_THRESHOLD)
     ja_prompt = ja_desires.dominant_as_prompt()
     assert ja_prompt is not None

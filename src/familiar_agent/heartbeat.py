@@ -3,19 +3,23 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 import json
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+import psycopg2.extras
+
+from .db import get_db
 from .routines import QuietHoursRule, RoutineDecision, evaluate_routine_state, load_optional_notes
 
 if TYPE_CHECKING:
     from .tools.memory import ObservationMemory
 
+logger = logging.getLogger(__name__)
 
 DONE = "DONE"
-HEARTBEAT_STATE_PATH = Path.home() / ".familiar_ai" / "heartbeat_state.json"
 
 
 @dataclass(slots=True, frozen=True)
@@ -42,49 +46,59 @@ class HeartbeatRuntime:
         memory: ObservationMemory | None = None,
         quiet_rule: QuietHoursRule | None = None,
         base_dir: Path | None = None,
-        state_path: Path | None = None,
+        state_path: Path | None = None,  # ignored; kept for call-site compatibility
         max_chain_depth: int = 3,
     ) -> None:
         self._memory = memory
         self._quiet_rule = quiet_rule or QuietHoursRule()
         self._base_dir = base_dir or Path.cwd()
-        self._state_path = state_path or HEARTBEAT_STATE_PATH
         self._max_chain_depth = max_chain_depth
         self._state = self._load_state()
         self._chain_depth = self._state.chain_depth
         self._last_continuation_reason = self._state.last_continuation_reason
 
     def _load_state(self) -> HeartbeatState:
-        if not self._state_path.exists():
-            return HeartbeatState()
         try:
-            payload = json.loads(self._state_path.read_text(encoding="utf-8"))
-        except Exception:
-            return HeartbeatState()
-        if not isinstance(payload, dict):
-            return HeartbeatState()
-        return HeartbeatState(
-            chain_depth=max(0, int(payload.get("chain_depth", 0))),
-            last_status=str(payload.get("last_status", DONE)),
-            last_continuation_reason=str(payload.get("last_continuation_reason", "")),
-            last_updated_at=str(payload.get("last_updated_at", "")),
-        )
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", ("heartbeat",))
+                    row = cur.fetchone()
+            if row:
+                payload = json.loads(row["value_json"])
+                if isinstance(payload, dict):
+                    return HeartbeatState(
+                        chain_depth=max(0, int(payload.get("chain_depth", 0))),
+                        last_status=str(payload.get("last_status", DONE)),
+                        last_continuation_reason=str(payload.get("last_continuation_reason", "")),
+                        last_updated_at=str(payload.get("last_updated_at", "")),
+                    )
+        except Exception as exc:
+            logger.warning("Could not load heartbeat state: %s", exc)
+        return HeartbeatState()
 
     def _save_state(self, status: str) -> None:
         self._state = HeartbeatState(
             chain_depth=self._chain_depth,
             last_status=status,
             last_continuation_reason=self._last_continuation_reason,
-            last_updated_at=datetime.utcnow().isoformat(),
+            last_updated_at=datetime.now(timezone.utc).isoformat(),
         )
         try:
-            self._state_path.parent.mkdir(parents=True, exist_ok=True)
-            self._state_path.write_text(
-                json.dumps(asdict(self._state), ensure_ascii=False, indent=2),
-                encoding="utf-8",
-            )
-        except Exception:
-            return
+            now = self._state.last_updated_at
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
+                        " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
+                        ("heartbeat", json.dumps(asdict(self._state), ensure_ascii=False), now),
+                    )
+                conn.commit()
+        except Exception as exc:
+            logger.warning("Could not save heartbeat state: %s", exc)
 
     def routine_state(self, now: datetime | None = None) -> RoutineDecision:
         return evaluate_routine_state(self._quiet_rule, now)

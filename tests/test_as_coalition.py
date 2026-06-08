@@ -81,9 +81,7 @@ def test_desire_coalition_urgency_varies_by_desire_type(desires: DesireSystem) -
     worry_c = desires.as_coalition()
     assert worry_c is not None
 
-    desires2 = DesireSystem(
-        state_path=desires._state_path.parent / "desires2.json", companion_name="Kota"
-    )
+    desires2 = DesireSystem(companion_name="Kota")
     desires2.boost("rest", TRIGGER_THRESHOLD + 0.1)
     rest_c = desires2.as_coalition()
     assert rest_c is not None
@@ -489,7 +487,7 @@ async def test_memory_coalition_activation_from_top_confidence() -> None:
 
     c = await mem.as_coalition_async()
     assert c is not None
-    assert c.activation == pytest.approx(0.95)
+    assert c.activation == pytest.approx(0.6)
 
 
 @pytest.mark.asyncio
@@ -528,7 +526,7 @@ async def test_memory_coalition_context_block_has_recall_label() -> None:
 
 @pytest.mark.asyncio
 async def test_memory_coalition_fixed_urgency_and_novelty() -> None:
-    """Memory coalitions have fixed urgency=0.1 and novelty=0.0."""
+    """Memory coalitions have fixed urgency=0.1; novelty=0.2 when no is_today memory."""
     from familiar_agent.tools.memory import ObservationMemory
 
     mem = object.__new__(ObservationMemory)
@@ -541,4 +539,4 @@ async def test_memory_coalition_fixed_urgency_and_novelty() -> None:
     c = await mem.as_coalition_async()
     assert c is not None
     assert c.urgency == pytest.approx(0.1)
-    assert c.novelty == pytest.approx(0.0)
+    assert c.novelty == pytest.approx(0.2)

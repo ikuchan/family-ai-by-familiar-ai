@@ -6,7 +6,6 @@ TDD: written before implementation.
 from __future__ import annotations
 
 import time
-from pathlib import Path
 from unittest.mock import patch
 
 
@@ -18,9 +17,8 @@ from familiar_agent.desires import DECAY_ON_SATISFY, DesireSystem
 # ---------------------------------------------------------------------------
 
 
-def _make_desires(tmp_path: Path) -> DesireSystem:
-    """Create a DesireSystem with a temp state file (no real disk side-effects)."""
-    return DesireSystem(state_path=tmp_path / "desires.json")
+def _make_desires() -> DesireSystem:
+    return DesireSystem()
 
 
 # ---------------------------------------------------------------------------
@@ -28,9 +26,9 @@ def _make_desires(tmp_path: Path) -> DesireSystem:
 # ---------------------------------------------------------------------------
 
 
-def test_satisfy_uses_decay_not_full_reset(tmp_path):
+def test_satisfy_uses_decay_not_full_reset():
     """satisfy() should reduce desire by DECAY_ON_SATISFY, not reset to DEFAULT."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     # Manually set a desire above default
     ds._desires["look_around"] = 0.8
 
@@ -42,17 +40,17 @@ def test_satisfy_uses_decay_not_full_reset(tmp_path):
     assert abs(result - expected) < 1e-6
 
 
-def test_satisfy_never_goes_below_zero(tmp_path):
+def test_satisfy_never_goes_below_zero():
     """satisfy() result must be non-negative."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds._desires["rest"] = 0.0
     ds.satisfy("rest")
     assert ds.level("rest") >= 0.0
 
 
-def test_satisfy_unknown_desire_is_safe(tmp_path):
+def test_satisfy_unknown_desire_is_safe():
     """satisfy() on a non-existent desire does not raise."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds.satisfy("nonexistent_desire")  # must not raise
 
 
@@ -61,9 +59,9 @@ def test_satisfy_unknown_desire_is_safe(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_tick_grows_rest_faster_at_night(tmp_path):
+def test_tick_grows_rest_faster_at_night():
     """During night hours (23:00), rest grows faster than default."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds._desires["rest"] = 0.0
 
     # Simulate tick at 23:00 (nighttime)
@@ -75,7 +73,7 @@ def test_tick_grows_rest_faster_at_night(tmp_path):
     night_rest = ds.level("rest")
 
     # Reset and simulate at noon
-    ds2 = _make_desires(tmp_path)
+    ds2 = _make_desires()
     ds2._desires["rest"] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:
         mock_dt.now.return_value.hour = 12
@@ -87,9 +85,9 @@ def test_tick_grows_rest_faster_at_night(tmp_path):
     assert night_rest > noon_rest, "rest should grow faster at night than noon"
 
 
-def test_tick_grows_explore_slower_at_night(tmp_path):
+def test_tick_grows_explore_slower_at_night():
     """During night hours, explore grows slower than during the day."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds._desires["explore"] = 0.0
 
     with patch("familiar_agent.desires.datetime") as mock_dt:
@@ -99,7 +97,7 @@ def test_tick_grows_explore_slower_at_night(tmp_path):
 
     night_explore = ds.level("explore")
 
-    ds2 = _make_desires(tmp_path)
+    ds2 = _make_desires()
     ds2._desires["explore"] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:
         mock_dt.now.return_value.hour = 14  # 2 PM
@@ -111,9 +109,9 @@ def test_tick_grows_explore_slower_at_night(tmp_path):
     assert night_explore < day_explore, "explore should grow slower at night than afternoon"
 
 
-def test_tick_grows_look_around_slower_at_night(tmp_path):
+def test_tick_grows_look_around_slower_at_night():
     """During night hours, look_around grows slower than during the day."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds._desires["look_around"] = 0.0
 
     with patch("familiar_agent.desires.datetime") as mock_dt:
@@ -123,7 +121,7 @@ def test_tick_grows_look_around_slower_at_night(tmp_path):
 
     night_look = ds.level("look_around")
 
-    ds2 = _make_desires(tmp_path)
+    ds2 = _make_desires()
     ds2._desires["look_around"] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:
         mock_dt.now.return_value.hour = 10
@@ -135,9 +133,9 @@ def test_tick_grows_look_around_slower_at_night(tmp_path):
     assert night_look < day_look
 
 
-def test_circadian_modulation_returns_dict(tmp_path):
+def test_circadian_modulation_returns_dict():
     """_time_modulation() returns a dict mapping desire names to rate multipliers."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     for hour in [0, 6, 12, 18, 23]:
         result = ds._time_modulation(hour)
         assert isinstance(result, dict)
@@ -151,10 +149,10 @@ def test_circadian_modulation_returns_dict(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_tick_suppresses_explore_when_rest_is_high(tmp_path):
+def test_tick_suppresses_explore_when_rest_is_high():
     """When rest is high (>0.5), explore grows slower during tick."""
     # High rest scenario
-    ds_tired = _make_desires(tmp_path)
+    ds_tired = _make_desires()
     ds_tired._desires["rest"] = 0.9
     ds_tired._desires["explore"] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:
@@ -164,7 +162,7 @@ def test_tick_suppresses_explore_when_rest_is_high(tmp_path):
     tired_explore = ds_tired.level("explore")
 
     # Low rest scenario
-    ds_fresh = _make_desires(tmp_path)
+    ds_fresh = _make_desires()
     ds_fresh._desires["rest"] = 0.0
     ds_fresh._desires["explore"] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:
@@ -176,9 +174,9 @@ def test_tick_suppresses_explore_when_rest_is_high(tmp_path):
     assert tired_explore < fresh_explore, "explore should grow slower when rest is high"
 
 
-def test_tick_suppresses_look_around_when_rest_is_high(tmp_path):
+def test_tick_suppresses_look_around_when_rest_is_high():
     """When rest is high (>0.5), look_around grows slower during tick."""
-    ds_tired = _make_desires(tmp_path)
+    ds_tired = _make_desires()
     ds_tired._desires["rest"] = 0.8
     ds_tired._desires["look_around"] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:
@@ -187,7 +185,7 @@ def test_tick_suppresses_look_around_when_rest_is_high(tmp_path):
         ds_tired.tick()
     tired_look = ds_tired.level("look_around")
 
-    ds_fresh = _make_desires(tmp_path)
+    ds_fresh = _make_desires()
     ds_fresh._desires["rest"] = 0.0
     ds_fresh._desires["look_around"] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:
@@ -199,10 +197,10 @@ def test_tick_suppresses_look_around_when_rest_is_high(tmp_path):
     assert tired_look < fresh_look
 
 
-def test_dominant_prefers_worry_over_greet(tmp_path):
+def test_dominant_prefers_worry_over_greet():
     """When worry_companion and greet_companion both exceed threshold,
     worry_companion wins (it takes priority over greeting)."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds._desires["worry_companion"] = 0.8
     ds._desires["greet_companion"] = 0.75
 
@@ -215,9 +213,9 @@ def test_dominant_prefers_worry_over_greet(tmp_path):
     assert name == "worry_companion"
 
 
-def test_suppression_does_not_affect_worry(tmp_path):
+def test_suppression_does_not_affect_worry():
     """worry_companion is exempt from rest-based suppression."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds._desires["rest"] = 0.9
     ds._desires["worry_companion"] = 0.0
 
@@ -235,24 +233,24 @@ def test_suppression_does_not_affect_worry(tmp_path):
 # ---------------------------------------------------------------------------
 
 
-def test_boost_still_works(tmp_path):
+def test_boost_still_works():
     """boost() still increases the desire level."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     before = ds.level("look_around")
     ds.boost("look_around", 0.3)
     assert ds.level("look_around") > before
 
 
-def test_level_capped_at_one(tmp_path):
+def test_level_capped_at_one():
     """desire level never exceeds 1.0."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     ds.boost("explore", 10.0)
     assert ds.level("explore") <= 1.0
 
 
-def test_get_dominant_returns_none_below_threshold(tmp_path):
+def test_get_dominant_returns_none_below_threshold():
     """get_dominant() returns None when all desires are below trigger threshold."""
-    ds = _make_desires(tmp_path)
+    ds = _make_desires()
     for k in ds._desires:
         ds._desires[k] = 0.0
     with patch("familiar_agent.desires.datetime") as mock_dt:

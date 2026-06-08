@@ -1,24 +1,23 @@
 """Relationship tracker — persistent companion relationship metadata.
 
-Relationship state now lives primarily in SQLite so it participates in the same
-migration and backup story as the rest of the agent memory. Legacy JSON state is
-still imported on first load for backward compatibility.
+Relationship state lives in the shared PostgreSQL database (relationship_state
+table, created by migration 009).
 """
 
 from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import time
 from datetime import date, datetime
 from pathlib import Path
 
-from .sqlite_migrations import apply_migrations, default_migration_dir
+import psycopg2.extras
+
+from .db import get_db
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_RELATIONSHIP_DB_PATH = Path.home() / ".familiar_ai" / "observations.db"
 
 _DEFAULT_STATE: dict = {
     "first_session_date": None,
@@ -51,52 +50,31 @@ class RelationshipTracker:
     def __init__(
         self,
         state_path: Path | None = None,
-        db_path: str | Path | None = None,
         state_key: str = "default",
     ):
         self._state_key = state_key
         self._state_path = state_path or Path.home() / ".familiar_ai" / "relationship.json"
-        if db_path is None:
-            self._db_path = (
-                self._state_path.with_suffix(".db")
-                if state_path is not None
-                else DEFAULT_RELATIONSHIP_DB_PATH
-            )
-        else:
-            self._db_path = Path(db_path)
-        self._db: sqlite3.Connection | None = None
+        self._db = get_db()
+        self._lock = self._db.lock
         self._state: dict = self._load()
 
     def close(self) -> None:
-        if self._db is not None:
-            try:
-                self._db.close()
-            except Exception:
-                pass
-            finally:
-                self._db = None
+        pass  # connection is managed by the shared Database singleton
 
-    def _ensure_db(self) -> sqlite3.Connection:
-        if self._db is None:
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            self._db = sqlite3.connect(self._db_path, check_same_thread=False)
-            self._db.row_factory = sqlite3.Row
-            self._db.execute("PRAGMA journal_mode = WAL")
-            self._db.execute("PRAGMA synchronous = NORMAL")
-            self._db.execute("PRAGMA foreign_keys = ON")
-            apply_migrations(self._db, default_migration_dir())
-            self._db.commit()
-        return self._db
+    # ── DB access ──────────────────────────────────────────────────────────
 
     def _load_from_db(self) -> dict | None:
         try:
-            db = self._ensure_db()
-            row = db.execute(
-                "SELECT value_json FROM relationship_state WHERE state_key = ?",
-                (self._state_key,),
-            ).fetchone()
+            with self._lock:
+                conn = self._db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute(
+                        "SELECT value_json FROM relationship_state WHERE state_key = %s",
+                        (self._state_key,),
+                    )
+                    row = cur.fetchone()
         except Exception as e:
-            logger.warning("Could not load relationship state from SQLite: %s", e)
+            logger.warning("Could not load relationship state from DB: %s", e)
             return None
         if row is None:
             return None
@@ -126,7 +104,6 @@ class RelationshipTracker:
         state = self._load_from_db()
         if state is not None:
             return state
-        # Legacy JSON migration only applies to the primary companion (state_key == "default")
         if self._state_key == "default":
             state = self._load_legacy_json()
             if state is not None:
@@ -137,19 +114,22 @@ class RelationshipTracker:
 
     def _save(self) -> None:
         try:
-            db = self._ensure_db()
             now = datetime.utcnow().isoformat()
-            db.execute(
-                """
-                INSERT INTO relationship_state (state_key, value_json, updated_at)
-                VALUES (?, ?, ?)
-                ON CONFLICT(state_key) DO UPDATE SET
-                    value_json = excluded.value_json,
-                    updated_at = excluded.updated_at
-                """,
-                (self._state_key, json.dumps(self._state, ensure_ascii=False), now),
-            )
-            db.commit()
+            value_json = json.dumps(self._state, ensure_ascii=False)
+            with self._lock:
+                conn = self._db.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        INSERT INTO relationship_state (state_key, value_json, updated_at)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT(state_key) DO UPDATE SET
+                            value_json = EXCLUDED.value_json,
+                            updated_at = EXCLUDED.updated_at
+                        """,
+                        (self._state_key, value_json, now),
+                    )
+                conn.commit()
         except Exception as e:
             logger.warning("Could not save relationship state: %s", e)
 
@@ -491,28 +471,17 @@ class RelationshipTracker:
 
 
 class PersonRegistry:
-    """Manages per-person RelationshipTracker instances.
+    """Manages per-person RelationshipTracker instances."""
 
-    Persons are registered on first appearance and persisted individually in the
-    same SQLite DB using their name as state_key.  The active person is whoever
-    is currently speaking; all callers can use registry.active to reach their
-    tracker without knowing about other persons.
-    """
-
-    def __init__(self, default_name: str, db_path: str | Path | None = None):
+    def __init__(self, default_name: str):
         self._default_name = default_name
-        self._db_path = Path(db_path) if db_path else DEFAULT_RELATIONSHIP_DB_PATH
         self._trackers: dict[str, RelationshipTracker] = {}
         self._active_name: str = default_name
 
     def _get_or_create(self, name: str) -> RelationshipTracker:
         if name not in self._trackers:
-            # "default" is the historical key for the primary companion
             key = "default" if name == self._default_name else name
-            self._trackers[name] = RelationshipTracker(
-                db_path=self._db_path,
-                state_key=key,
-            )
+            self._trackers[name] = RelationshipTracker(state_key=key)
         return self._trackers[name]
 
     @property
@@ -536,10 +505,12 @@ class PersonRegistry:
     def known_names(self) -> list[str]:
         """Return all person names that have a DB row."""
         try:
-            db = self.active._ensure_db()
-            rows = db.execute(
-                "SELECT state_key FROM relationship_state ORDER BY state_key"
-            ).fetchall()
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                    cur.execute("SELECT state_key FROM relationship_state ORDER BY state_key")
+                    rows = cur.fetchall()
             names: list[str] = []
             for row in rows:
                 key = str(row["state_key"])

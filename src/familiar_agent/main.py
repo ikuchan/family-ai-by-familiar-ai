@@ -151,7 +151,9 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                 queued_input = None
 
             if queued_input is None and input_queue.empty():
-                # Skip desire-driven turns when auto_desire is disabled
+                # Always grow desires regardless of cooldown or auto_desire setting.
+                desires.tick()
+                # Skip firing if auto_desire is disabled
                 if not getattr(agent, "config", None) or not agent.config.auto_desire:
                     continue
                 # Genuine idle — check desires, but respect cooldown after conversation
@@ -380,6 +382,12 @@ def main() -> None:
     os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
+
+    # --db-url must be applied before any DB singleton is initialized
+    for i, arg in enumerate(sys.argv[:-1]):
+        if arg == "--db-url":
+            os.environ["DATABASE_URL"] = sys.argv[i + 1]
+            break
 
     # Setup logging FIRST — before any library import can add a StreamHandler
     debug = "--debug" in sys.argv

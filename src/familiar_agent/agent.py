@@ -49,12 +49,16 @@ from .tape import check_plan_blocked, generate_plan, generate_replan
 from .tools.camera import CameraTool
 from .tools.coding import CodingTool
 from .tools.memory import MemoryTool, ObservationMemory
+from .person_memory_manager import PersonMemoryManager
+from .recognition.face import recognize_face_async
+from .recognition.presence_watcher import CameraPresenceWatcher
 from .tools.tom import ToMTool
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .tools.tts import TTSTool
 from ._i18n import _t
 from .mcp_client import MCPClientManager, _resolve_config_path
+from .capability_state import load_manifest, load_summary, save_summary, should_refresh
 
 logger = logging.getLogger(__name__)
 
@@ -181,11 +185,12 @@ _COMPLEX_QUERY_RE = re.compile(
 #   [太郎] こんにちは    →  speaker=太郎, text="こんにちは"
 #   @Yuki: どうした？   →  speaker=Yuki,  text="どうした？"
 _SPEAKER_PREFIX_RE = re.compile(
-    r"^\[([^\]]+)\]\s*(.*)$|^@([^\s:：]+)[:\s：]\s*(.*)$",
+    r"^[\[［]([^\]］]+)[\]］]\s*(.*)$|^@([^\s:：]+)[:\s：]\s*(.*)$",
     re.DOTALL,
 )
 # /speaker [name]  — set session-default speaker
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:\s+(.+))?$", re.IGNORECASE)
+_RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 
 SYSTEM_PROMPT = """
 (agent :type embodied
@@ -358,6 +363,11 @@ SYSTEM_PROMPT = """
       (principle "Before each action: Why do I want to do this? Does this feel like me?")
       (principle "Unsolved mysteries are worth keeping — carry them forward.")
       (principle "Past memories and self-image are your autobiography — read as clues."))
+
+    ; ── Capabilities ───────────────────────────────────────────────────
+    (capabilities
+      (capability "You can and do initiate conversation autonomously via inner-voice desire turns — you are not purely reactive.")
+      (capability "When an inner voice is present and no user input exists, you are speaking from your own impulse, not responding to anyone."))
 
     ; ── Developer tools ────────────────────────────────────────────────
     (tools
@@ -735,10 +745,25 @@ class EmbodiedAgent:
         self._mobility: MobilityTool | None = None
         self._tts: TTSTool | None = None
         self._stt: STTTool | None = None
-        self._me_md: str = self._load_me_md()  # loaded once; restart to pick up changes
+        self._me_md: str = self._load_me_md()          # loaded once; restart to pick up changes
+        self._family_md: str = self._load_family_md()  # loaded once; restart to pick up changes
+
+        # Auto-populate names from MD files when env vars are not explicitly set
+        if not os.environ.get("AGENT_NAME"):
+            me_name = self._parse_me_name(self._me_md)
+            if me_name:
+                config.agent_name = me_name
+        if not os.environ.get("COMPANION_NAME"):
+            members = self._parse_family_md(self._family_md)
+            if members:
+                first_call = members[0]["display_name"].split("、")[0].split(",")[0].strip()
+                if first_call:
+                    config.companion_name = first_call
         self._memory = ObservationMemory()
         self._memory_worker = MemoryJobWorker(self._memory)
-        self._memory_tool = MemoryTool(self._memory)
+        self._pmm = PersonMemoryManager(self._memory)
+        self._memory_tool = MemoryTool(self._pmm)
+        self._presence_watcher: CameraPresenceWatcher | None = None
         self._tom_tool = ToMTool(
             self._memory,
             default_person=config.companion_name,
@@ -1063,6 +1088,12 @@ class EmbodiedAgent:
         except Exception as exc:
             logger.warning("SceneTracker init failed: %s", exc)
 
+        if self._camera:
+            self._presence_watcher = CameraPresenceWatcher(self._pmm)
+
+        # Register family members from FAMILY.md into persons DB
+        self._register_family_from_md()
+
     @property
     def _all_tool_defs(self) -> list[dict]:
         defs = []
@@ -1276,6 +1307,94 @@ class EmbodiedAgent:
                     pass
         return ""
 
+    @staticmethod
+    def _parse_me_name(text: str) -> str:
+        """Extract the AI's name from ME.md. Returns empty string if not found."""
+        m = re.search(r"名前\s*[：:]\s*(.+)", text)
+        if not m:
+            return ""
+        return m.group(1).strip()
+
+    def _load_family_md(self) -> str:
+        """Load FAMILY.md family-member descriptions if it exists."""
+        from pathlib import Path
+
+        candidates = [
+            Path("FAMILY.md"),
+            Path.home() / ".familiar_ai" / "FAMILY.md",
+        ]
+        for path in candidates:
+            if path.exists():
+                try:
+                    return path.read_text(encoding="utf-8").strip()
+                except Exception:
+                    pass
+        return ""
+
+    @staticmethod
+    def _parse_family_md(text: str) -> list[dict]:
+        """Parse FAMILY.md into a list of {name, display_name} dicts.
+
+        Supports the FAMILY-template.md format:
+          ## Section heading
+          - **名前**：田中太郎
+          - **呼び方**：お父さん
+        """
+        if not text:
+            return []
+
+        _NAME_RE = re.compile(r"[-*]\s*\*{0,2}名前\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+        _CALL_RE = re.compile(r"[-*]\s*\*{0,2}呼び方\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+        _TEMPLATE_SKIP = re.compile(r"^[（(].*[）)]$")
+
+        members: list[dict] = []
+        # Split on level-2 headings; each section describes one person
+        sections = re.split(r"\n(?=##\s)", "\n" + text)
+        for section in sections:
+            name_m = _NAME_RE.search(section)
+            if not name_m:
+                continue
+            name = name_m.group(1).strip()
+            if not name or _TEMPLATE_SKIP.match(name):
+                continue
+            call_m = _CALL_RE.search(section)
+            display_name = call_m.group(1).strip() if call_m else ""
+            if display_name and _TEMPLATE_SKIP.match(display_name):
+                display_name = ""
+            members.append({"name": name, "display_name": display_name or name})
+        return members
+
+    def _register_family_from_md(self) -> None:
+        """Register FAMILY.md members in the persons DB and pre-seed PersonRegistry.
+
+        Idempotent: existing persons are returned as-is (same UUID each run).
+        """
+        members = self._parse_family_md(self._family_md)
+        if not members:
+            return
+        for m in members:
+            try:
+                self._pmm.register_person(m["name"], display_name=m["display_name"])
+                # Pre-seed PersonRegistry so [呼び方] and /speaker commands work immediately
+                self._persons._get_or_create(m["display_name"])
+                logger.info(
+                    "Family member registered: %s (display=%s)", m["name"], m["display_name"]
+                )
+            except Exception as exc:
+                logger.warning("Could not register family member %s: %s", m["name"], exc)
+
+    async def _apply_face_hint(self, img_path: str) -> None:
+        """Run face recognition on a captured image and sync result to PersonRegistry."""
+        hint = await recognize_face_async(img_path, self._pmm)
+        if hint is None:
+            return
+        switched = await self._pmm.apply_hint(hint)
+        if switched:
+            name = self._pmm.get_person_name(hint.person_id)
+            if name and name != hint.person_id[:8]:
+                self._persons.set_active(name)
+                logger.debug("Face recognition: switched speaker to %s", name)
+
     def _get_body_description(self) -> str:
         """Generate a text description of available hardware for the system prompt."""
         # Eyes are always available (CameraTool handles missing stream internally)
@@ -1336,7 +1455,7 @@ class EmbodiedAgent:
         body_desc = self._get_body_description()
         base = re.sub(r"\(body.*?\)", body_desc, base, flags=re.DOTALL)
 
-        stable_parts = [p for p in [self._me_md, base] if p]
+        stable_parts = [p for p in [self._me_md, self._family_md, base] if p]
         stable = "\n\n---\n\n".join(stable_parts)
 
         agent_mood, agent_mood_intensity = self._decayed_mood()
@@ -1362,7 +1481,9 @@ class EmbodiedAgent:
             )
         speaker_ctx = "\n".join(speaker_ctx_parts)
 
-        variable_parts: list[str] = [intero, speaker_ctx]
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        datetime_ctx = f"(now :datetime \"{now_str}\")"
+        variable_parts: list[str] = [intero, datetime_ctx, speaker_ctx]
         if relationship_ctx:
             variable_parts.append(relationship_ctx)
         if continuity_ctx:
@@ -1398,6 +1519,10 @@ class EmbodiedAgent:
             scene_ctx = self._scene.context_for_prompt() if self._scene else ""
             if scene_ctx:
                 variable_parts.append(scene_ctx)
+
+        capability_summary = load_summary()
+        if capability_summary:
+            variable_parts.append(f"[My capabilities]\n{capability_summary}")
 
         variable = "\n\n---\n\n".join(variable_parts)
         return stable, variable
@@ -1601,6 +1726,9 @@ class EmbodiedAgent:
         winner = self._workspace.compete(coalitions)
         if winner is None:
             logger.debug("GlobalWorkspace: nothing reached ignition threshold — activating DMN")
+            # Periodically refresh capability self-understanding during idle DMN cycles
+            if should_refresh(self._turn_count):
+                asyncio.ensure_future(self._refresh_capability_summary())
             # Default Mode Network: mind-wander when workspace is idle
             dmn_coalition = await self._dmn.wander()
             if dmn_coalition is None:
@@ -2105,6 +2233,29 @@ class EmbodiedAgent:
         except Exception as e:
             logger.warning("Failed to generate day summary for %s: %s", date, e)
 
+    async def _refresh_capability_summary(self) -> None:
+        """Ask the LLM to read capabilities.yaml and write a first-person summary.
+
+        Stored in agent_state["capability_summary"] and injected each turn.
+        """
+        manifest = load_manifest()
+        if not manifest:
+            return
+        try:
+            prompt = (
+                "Below is the capability manifest for this agent system.\n"
+                "Write a concise first-person summary (10–20 lines) of what you can do, "
+                "based only on capabilities marked enabled:true or with an enabled_env note. "
+                "Use natural language. Start each line with '- I can ...'.\n\n"
+                f"{manifest}"
+            )
+            summary = await self._utility_backend.complete(prompt, max_tokens=512)
+            if summary:
+                save_summary(summary.strip())
+                logger.info("Capability summary refreshed (%d chars)", len(summary))
+        except Exception as e:
+            logger.warning("Could not refresh capability summary: %s", e)
+
     async def _update_self_model(self, final_text: str, emotion: str) -> None:
         """Extract a self-insight and store it as self_model memory.
 
@@ -2386,6 +2537,11 @@ class EmbodiedAgent:
                 await asyncio.wait_for(self._mcp.stop(), timeout=2.0)
             except (asyncio.TimeoutError, Exception):
                 pass
+        if getattr(self, "_presence_watcher", None):
+            try:
+                await asyncio.wait_for(self._presence_watcher.stop(), timeout=1.0)
+            except (asyncio.TimeoutError, Exception):
+                pass
         try:
             await asyncio.wait_for(asyncio.to_thread(self._memory.close), timeout=1.0)
         except (asyncio.TimeoutError, Exception):
@@ -2408,6 +2564,15 @@ class EmbodiedAgent:
             self._persons = PersonRegistry(default_name="companion")
         self._persons._trackers[self._persons.active_name] = value
 
+    async def _sync_pmm_speaker(self, name: str) -> None:
+        """Set PersonMemoryManager speaker to match the name from PersonRegistry."""
+        pmm = getattr(self, "_pmm", None)
+        if pmm is None:
+            return
+        pid = pmm.find_person_id_by_name(name)
+        if pid:
+            await pmm.set_speaker(pid, source="text")
+
     def _handle_speaker_command(self, user_input: str) -> str | None:
         """/speaker [name] — set or show the active speaker for this session."""
         m = _SPEAKER_COMMAND_RE.match(user_input.strip())
@@ -2419,6 +2584,7 @@ class EmbodiedAgent:
             known = ", ".join(self._persons.known_names())
             return f"[現在の話者: {current}  既知: {known}]"
         self._persons.set_active(name_arg)
+        asyncio.ensure_future(self._sync_pmm_speaker(name_arg))
         return f"[話者を「{name_arg}」に切り替えました]"
 
     @staticmethod
@@ -2432,6 +2598,42 @@ class EmbodiedAgent:
             return (m.group(2) or "").strip(), m.group(1).strip()
         # @name: format
         return (m.group(4) or "").strip(), m.group(3).strip()
+
+    def _handle_reload_command(self, user_input: str) -> str | None:
+        """Reload ME.md and FAMILY.md without restarting. Returns status string or None."""
+        if not _RELOAD_COMMAND_RE.match(user_input.strip()):
+            return None
+
+        old_me = self._me_md
+        old_family = self._family_md
+
+        self._me_md = self._load_me_md()
+        self._family_md = self._load_family_md()
+
+        lines: list[str] = []
+        lines.append("[リロード完了]")
+        if self._me_md != old_me:
+            lines.append("• ME.md を更新しました")
+            if not os.environ.get("AGENT_NAME"):
+                me_name = self._parse_me_name(self._me_md)
+                if me_name:
+                    self.config.agent_name = me_name
+        else:
+            lines.append("• ME.md 変更なし")
+        if self._family_md != old_family:
+            lines.append("• FAMILY.md を更新しました")
+            self._register_family_from_md()
+            if not os.environ.get("COMPANION_NAME"):
+                members = self._parse_family_md(self._family_md)
+                if members:
+                    first_call = members[0]["display_name"].split("、")[0].split(",")[0].strip()
+                    if first_call:
+                        self.config.companion_name = first_call
+                        self._persons._default_name = first_call
+        else:
+            lines.append("• FAMILY.md 変更なし")
+        lines.append("次のターンから新しい内容が反映されます。")
+        return "\n".join(lines)
 
     def _handle_thinking_command(self, user_input: str) -> str | None:
         """Return a status string if user_input is a thinking-mode command, else None.
@@ -2532,6 +2734,14 @@ class EmbodiedAgent:
         user_input, _speaker_from_prefix = self._extract_speaker_prefix(user_input)
         if _speaker_from_prefix:
             self._persons.set_active(_speaker_from_prefix)
+            await self._sync_pmm_speaker(_speaker_from_prefix)
+
+        # ── File reload command ───────────────────────────────────────────────
+        _reload_reply = self._handle_reload_command(user_input)
+        if _reload_reply is not None:
+            if on_text:
+                on_text(_reload_reply)
+            return _reload_reply
 
         # ── Thinking-mode slash-commands & natural-language shortcuts ────────
         # These return immediately without calling the LLM.
@@ -2565,12 +2775,25 @@ class EmbodiedAgent:
             is_desire_turn=is_desire_turn,
         )
 
+        # If PMM speaker was never set (e.g. first turn, no face recognition), sync from PersonRegistry.
+        if getattr(self, "_pmm", None) and self._pmm.current_speaker_id is None:
+            await self._sync_pmm_speaker(self._persons.active_name)
+
+        # Fire mood inference immediately so it runs in parallel with all DB preprocessing.
+        # Awaited just before it is needed; overlap with unfinished_business + recall gather
+        # absorbs most of the Gemini round-trip.
+        _mood_task: asyncio.Task[str] | None = None
+        if not is_desire_turn and not candidate_brief_turn:
+            _mood_task = asyncio.create_task(self._infer_companion_mood(user_input))
+
         # First turn: reset thinking mode and speaker to .env defaults (session-scoped)
         if first_turn:
             if hasattr(self.backend, "thinking_mode"):
                 self.backend.thinking_mode = self.config.thinking_mode
                 self._thinking_user_override = False
             self._persons.reset_to_default()
+            if self._presence_watcher:
+                asyncio.ensure_future(self._presence_watcher.start())
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""
@@ -2619,20 +2842,21 @@ class EmbodiedAgent:
                 user_input_with_ctx = user_input
                 feelings_ctx = ""
             else:
+                # Build the memories coroutine lazily so it runs inside gather,
+                # not sequentially before it (the eager-await fallback pattern was slow).
+                _memories_coro = (
+                    _call_optional_async(recall_divergent, user_input, n=recall_n, fallback=[])
+                    if recall_divergent is not None
+                    else self._memory.recall_async(user_input, n=recall_n)
+                )
                 (
                     memories,
                     feelings,
                     semantic_facts,
                     behavior_policies,
                     working_memory,
-                    companion_mood,
                 ) = await asyncio.gather(
-                    _call_optional_async(
-                        recall_divergent,
-                        user_input,
-                        n=recall_n,
-                        fallback=await self._memory.recall_async(user_input, n=recall_n),
-                    ),
+                    _memories_coro,
                     self._memory.recent_feelings_async(n=4),
                     self._memory.recall_semantic_facts_async(user_input, n=3),
                     self._memory.recall_behavior_policies_async(user_input, n=2),
@@ -2642,8 +2866,16 @@ class EmbodiedAgent:
                         n=4,
                         fallback=[],
                     ),
-                    self._infer_companion_mood(user_input),
                 )
+                # Mood task was fired before all DB preprocessing; by now it is
+                # likely already done (Gemini overlapped with recall gather).
+                try:
+                    companion_mood = (
+                        await _mood_task if _mood_task is not None
+                        else self._cached_companion_mood or "engaged"
+                    )
+                except Exception:
+                    companion_mood = self._cached_companion_mood or "engaged"
                 working_memory = await _call_optional_async(get_working, n=4, fallback=[])
                 temporal_ctx = self._cached_temporal_ctx
                 memory_parts = []
@@ -3007,6 +3239,11 @@ class EmbodiedAgent:
                         logger.info("Tool result: %s", text[:100])
                         if tc.name == "see" and image:
                             camera_image = image
+                            _path_m = re.search(r"\(saved to ([^)]+)\)", text)
+                            if _path_m:
+                                asyncio.ensure_future(
+                                    self._apply_face_hint(_path_m.group(1))
+                                )
                         if image and on_image is not None:
                             on_image(image)
                         if on_tool_result is not None:
