@@ -13,7 +13,7 @@ import re
 import sqlite3
 import threading
 from pathlib import Path
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -359,10 +359,14 @@ def test_exploration_coalition_activation_bounded(exploration: ExplorationTracke
 
 @pytest.fixture
 def tom_tool() -> ToMTool:
-    # Use a mock memory that returns empty on recall_async
-    mock_memory = AsyncMock()
+    mock_memory = MagicMock()
     mock_memory.recall_async = AsyncMock(return_value=[])
-    return ToMTool(memory=mock_memory, default_person="Kota")
+    mock_pmm = MagicMock()
+    mock_pmm.find_person_id_by_name = MagicMock(return_value=None)
+    mock_pmm.get_speaker_memory = MagicMock(return_value=mock_memory)
+    mock_pmm.get_agent_memory = MagicMock(return_value=mock_memory)
+    mock_pmm.get_memory_for = MagicMock(return_value=mock_memory)
+    return ToMTool(memory=mock_pmm, default_person="Kota")
 
 
 def test_tom_coalition_none_before_any_call(tom_tool: ToMTool) -> None:
