@@ -71,7 +71,14 @@ class MemoryJobWorker:
 
     async def _run_loop(self) -> None:
         while True:
-            processed = await self.run_once()
+            try:
+                processed = await self.run_once()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.error("memory-job-worker unhandled error, retrying: %s", exc, exc_info=True)
+                await asyncio.sleep(self._config.retry_delay_sec)
+                continue
             sleep_s = 0.0 if processed > 0 else max(self._config.poll_interval_sec, 0.05)
             await asyncio.sleep(sleep_s)
 
