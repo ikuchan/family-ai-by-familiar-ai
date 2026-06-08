@@ -292,8 +292,16 @@ class FamiliarApp(App):
     def _log_system(self, text: str) -> None:
         self._write_log(f"[dim]{text}[/dim]")
 
+    def _current_speaker(self, text: str) -> str:
+        """Return the effective speaker name for a given input line."""
+        _, speaker = self.agent._extract_speaker_prefix(text)
+        if speaker:
+            return speaker
+        return self.agent._persons.active_name
+
     def _log_user(self, text: str) -> None:
-        self._write_log(f"[bold cyan]{self._companion_name} ▶[/bold cyan] {text}")
+        name = self._current_speaker(text)
+        self._write_log(f"[bold cyan]{name} ▶[/bold cyan] {text}")
 
     def _log_action(self, name: str, tool_input: dict) -> None:
         label = _format_action(name, tool_input)
@@ -376,7 +384,7 @@ class FamiliarApp(App):
             await asyncio.sleep(0.08)
         stream.remove_class("thinking")
 
-    async def _run_agent(self, user_input: str, inner_voice: str = "") -> None:
+    async def _run_agent(self, user_input: str, inner_voice: str = "", desire_name: str = "") -> None:
         self._agent_running = True
         self._cancel_event.clear()
         self._current_text_buf = ""
@@ -482,6 +490,7 @@ class FamiliarApp(App):
                     on_tool_result=on_tool_result,
                     desires=self.desires,
                     inner_voice=inner_voice,
+                    desire_name=desire_name,
                     interrupt_queue=self._input_queue,
                 )
             )
@@ -511,7 +520,10 @@ class FamiliarApp(App):
 
     async def _desire_tick(self) -> None:
         """Check desires and fire autonomous actions when idle."""
-        # Skip if auto_desire is disabled (default OFF)
+        # Always grow desires regardless of cooldown or auto_desire setting.
+        self.desires.tick()
+
+        # Skip firing if auto_desire is disabled (default OFF)
         if not getattr(self.agent.config, "auto_desire", False):
             return
         now = time.time()
@@ -545,7 +557,7 @@ class FamiliarApp(App):
         self._log_system(murmur)
 
         self._last_interaction = time.time()  # reset cooldown
-        await self._run_agent("", inner_voice=prompt)
+        await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
         self.desires.satisfy(desire_name)
         self.desires.curiosity_target = None
 
@@ -566,8 +578,9 @@ class FamiliarApp(App):
 
             def _on_committed(text: str) -> None:
                 try:
+                    _spk = self.agent._persons.active_name
                     self._write_log(
-                        f"[bold cyan]\U0001f3a4 {self._companion_name}[/bold cyan] {text}"
+                        f"[bold cyan]\U0001f3a4 {_spk}[/bold cyan] {text}"
                     )
                     self._last_interaction = time.time()
                     stream = self.query_one("#stream", Static)

@@ -112,7 +112,7 @@ async def test_gui_process_queue_handles_burst_in_order():
     win = _make_window_stub()
     processed: list[str] = []
 
-    async def _fake_run_agent(text: str, inner_voice: str = "") -> None:
+    async def _fake_run_agent(text: str, inner_voice: str = "", desire_name: str = "") -> None:
         assert inner_voice == ""
         processed.append(text)
         await asyncio.sleep(0)
@@ -173,7 +173,7 @@ async def test_gui_realtime_stt_init_failure_sets_session_none():
 async def test_gui_idle_desire_logs_localized_murmur(monkeypatch):
     win = _make_window_stub()
 
-    async def _fake_run_agent(text: str, inner_voice: str = "") -> None:
+    async def _fake_run_agent(text: str, inner_voice: str = "", desire_name: str = "") -> None:
         assert text == ""
         assert inner_voice == "inner-prompt"
 

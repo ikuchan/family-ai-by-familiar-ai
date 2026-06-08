@@ -17,7 +17,7 @@ from typing import Any
 from .backend import create_backend, create_scene_backend, create_utility_backend
 from .appraisal import AppraisalContext, AppraisalEngine
 from .config import AgentConfig
-from .desires import DesireSystem, detect_worry_signal
+from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
 from .interoception import (
     MCPInteroceptionProvider,
@@ -944,6 +944,7 @@ class EmbodiedAgent:
 
             if not is_desire_turn and user_input:
                 self._relationship.record_conversation()
+                self._last_human_at = time.time()
 
             if desires is not None and not is_desire_turn and user_input:
                 worry_boost = detect_worry_signal(user_input)
@@ -1266,6 +1267,59 @@ class EmbodiedAgent:
             self.backend.thinking_mode = thinking_mode
         if hasattr(self.backend, "thinking_effort"):
             self.backend.thinking_effort = thinking_effort
+
+    def _maybe_swap_internal_backend(
+        self, is_desire_turn: bool, desire_name: str
+    ) -> Any:
+        """Temporarily swap to utility backend for internal (non-social) desire turns.
+
+        Returns the saved original backend, or None if no swap was made.
+        Internal turns (look_around, explore, etc.) use Gemini Flash-Lite instead
+        of the main Sonnet backend to reduce cost.
+        """
+        if not is_desire_turn or not desire_name or is_social_desire(desire_name):
+            return None
+        if self._utility_backend is self.backend:
+            return None
+        saved = self.backend
+        self.backend = self._utility_backend
+        return saved
+
+    def _social_presence_permission(self) -> float:
+        """Return 1.0 when someone is present, 0.0 when the room is empty.
+
+        Camera active: checks CameraPresenceWatcher / PMM for detected persons.
+        Camera inactive: allows social if a real user message arrived within 5 min.
+        """
+        if getattr(self, "_presence_watcher", None) is not None:
+            pmm = getattr(self, "_pmm", None)
+            if pmm is not None and pmm.get_present_ids():
+                return 1.0
+            return 0.0
+        last = getattr(self, "_last_human_at", None)
+        if last is None:
+            return 0.0
+        return 1.0 if (time.time() - last) < 300.0 else 0.0
+
+    # Keywords that suggest the internal turn found something worth sharing.
+    _INTERNAL_SHARE_PATTERNS: tuple[str, ...] = (
+        "気になる", "面白い", "面白そう", "発見", "気づい", "思い出",
+        "不思議", "見つけ", "変化", "新しい",
+        "found", "discovered", "interesting", "noticed", "curious", "changed",
+    )
+
+    @classmethod
+    def _boost_from_internal_result(cls, text: str) -> float:
+        """Return a share_memory boost amount (0–0.35) based on notable content."""
+        lower = text.lower()
+        count = sum(1 for p in cls._INTERNAL_SHARE_PATTERNS if p.lower() in lower)
+        if count == 0:
+            return 0.0
+        if count >= 3:
+            return 0.35
+        if count >= 2:
+            return 0.25
+        return 0.15
 
     @staticmethod
     def _drain_interrupt_queue(
@@ -2696,11 +2750,13 @@ class EmbodiedAgent:
         on_tool_result: Callable[[str, dict, str], None] | None = None,
         desires=None,
         inner_voice: str = "",
+        desire_name: str = "",
         interrupt_queue=None,
     ) -> str:
         """Run one conversation turn with the agent loop.
 
         inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
+        desire_name: the desire that triggered this turn (empty for user turns).
         """
         if not hasattr(self, "_schedule_rule"):
             self._schedule_rule = parse_schedule_config(
@@ -2721,6 +2777,8 @@ class EmbodiedAgent:
             self._last_tool_error = None
         if not hasattr(self, "_tool_failure_streak"):
             self._tool_failure_streak = 0
+        if not hasattr(self, "_last_human_at"):
+            self._last_human_at = time.time()
 
         # ── Speaker identification ────────────────────────────────────────────
         # /speaker command sets the session-default speaker.
@@ -2946,9 +3004,11 @@ class EmbodiedAgent:
                 "consolidate": 1.2 if unfinished_business else 1.0,
                 "self_protect": 1.2 if self._tool_failure_streak >= 2 else 1.0,
             }
+            _presence = self._social_presence_permission()
+            _threat_factor = max(0.2, 1.0 - affect.threat * 0.35)
             desires.update_context(
                 schedule_multiplier=routine_state.schedule_multiplier,
-                social_permission=max(0.2, 1.0 - affect.threat * 0.35),
+                social_permission=_threat_factor * _presence if _presence > 0.0 else 0.0,
                 energy_budget=max(0.2, 1.0 - interoception_pressure.need_rest * 0.6),
                 unfinished_business_bonus=min(0.4, len(unfinished_business) * 0.1),
                 context_affordances=context_affordances,
@@ -3056,6 +3116,7 @@ class EmbodiedAgent:
             brief_reply_mode=brief_reply_turn,
             user_input=user_input,
         )
+        _internal_backend_saved = self._maybe_swap_internal_backend(is_desire_turn, desire_name)
 
         try:
             for i in range(turn_max_iterations):
@@ -3171,6 +3232,21 @@ class EmbodiedAgent:
                             ),
                             name="post-response-pipeline",
                         )
+                        # Boost share_memory if an internal turn found something notable.
+                        if (
+                            is_desire_turn
+                            and desire_name
+                            and not is_social_desire(desire_name)
+                            and desires is not None
+                        ):
+                            _share_boost = self._boost_from_internal_result(final_text)
+                            if _share_boost > 0.0:
+                                desires.boost("share_memory", _share_boost)
+                                logger.debug(
+                                    "Internal '%s' result → share_memory +%.2f",
+                                    desire_name,
+                                    _share_boost,
+                                )
 
                     return final_text
 
@@ -3316,6 +3392,8 @@ class EmbodiedAgent:
             return result.text or "(max iterations reached)"
         finally:
             self._restore_backend_after_turn(backend_turn_snapshot)
+            if _internal_backend_saved is not None:
+                self.backend = _internal_backend_saved
 
     @property
     def stt(self) -> STTTool | None:

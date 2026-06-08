@@ -190,6 +190,7 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                         on_text=on_text,
                         desires=desires,
                         inner_voice=prompt,
+                        desire_name=desire_name,
                         interrupt_queue=input_queue,
                     )
                     desires.satisfy(desire_name)

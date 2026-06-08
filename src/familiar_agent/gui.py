@@ -29,29 +29,55 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
 
-import qasync
-from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
-from PySide6.QtGui import QIcon, QImage, QPixmap
-from PySide6.QtWidgets import (
-    QApplication,
-    QComboBox,
-    QDialog,
-    QDialogButtonBox,
-    QFormLayout,
-    QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QMainWindow,
-    QMessageBox,
-    QProgressBar,
-    QPushButton,
-    QScrollArea,
-    QSizePolicy,
-    QSplitter,
-    QTabWidget,
-    QVBoxLayout,
-    QWidget,
-)
+try:
+    import qasync
+    from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
+    from PySide6.QtGui import QIcon, QImage, QPixmap
+    from PySide6.QtWidgets import (
+        QApplication,
+        QComboBox,
+        QDialog,
+        QDialogButtonBox,
+        QFormLayout,
+        QHBoxLayout,
+        QLabel,
+        QLineEdit,
+        QMainWindow,
+        QMessageBox,
+        QProgressBar,
+        QPushButton,
+        QScrollArea,
+        QSizePolicy,
+        QSplitter,
+        QTabWidget,
+        QVBoxLayout,
+        QWidget,
+    )
+    _QT_AVAILABLE = True
+except ImportError:
+    _QT_AVAILABLE = False
+    qasync = None  # type: ignore[assignment]
+
+    class _QtMeta(type):
+        def __getattr__(cls, name: str) -> object:
+            return lambda *a, **kw: None
+
+    class _QtBase(metaclass=_QtMeta):  # type: ignore[no-redef]
+        def __init__(self, *a: object, **kw: object) -> None: ...
+        def __init_subclass__(cls, **kw: object) -> None: ...
+
+    QScrollArea = QWidget = QLabel = QMainWindow = QDialog = _QtBase  # type: ignore[misc,assignment]
+    QApplication = QComboBox = QDialogButtonBox = QFormLayout = _QtBase  # type: ignore[misc,assignment]
+    QHBoxLayout = QLineEdit = QMessageBox = QProgressBar = _QtBase  # type: ignore[misc,assignment]
+    QPushButton = QSizePolicy = QSplitter = QTabWidget = QVBoxLayout = _QtBase  # type: ignore[misc,assignment]
+    class _QtCallable:  # type: ignore[no-redef]
+        """Callable stub for Qt symbols used as class-level constants."""
+        def __init__(self, *a: object, **kw: object) -> None: ...
+        def __call__(self, *a: object, **kw: object) -> "_QtCallable": return _QtCallable()
+        def __getattr__(self, name: str) -> "_QtCallable": return _QtCallable()
+
+    QEasingCurve = QPropertyAnimation = QSize = Qt = QTimer = _QtCallable()  # type: ignore[assignment]
+    QIcon = QImage = QPixmap = _QtCallable()  # type: ignore[assignment]
 
 from ._i18n import _t
 from ._ui_helpers import (
@@ -1529,7 +1555,9 @@ class FamiliarWindow(QMainWindow):
                     continue
                 if not getattr(self, "_agent_ready", True):
                     continue
-                # Skip desire-driven turns when auto_desire is disabled (default OFF)
+                # Always grow desires regardless of cooldown or auto_desire setting.
+                self._desires.tick()
+                # Skip firing if auto_desire is disabled (default OFF)
                 agent_config = getattr(getattr(self, "_agent", None), "config", None)
                 if agent_config is not None and not getattr(agent_config, "auto_desire", False):
                     continue
@@ -1553,7 +1581,7 @@ class FamiliarWindow(QMainWindow):
                     except KeyError:
                         murmur = _t("desire_default")
                     self._log.append_line(murmur)
-                    await self._run_agent("", inner_voice=prompt)
+                    await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
                     self._desires.satisfy(desire_name)
                     self._desires.curiosity_target = None
                     last_interaction = time.time()
@@ -1578,7 +1606,7 @@ class FamiliarWindow(QMainWindow):
             )
             await self._run_agent(text)
 
-    async def _run_agent(self, user_input: str, inner_voice: str = "") -> None:
+    async def _run_agent(self, user_input: str, inner_voice: str = "", desire_name: str = "") -> None:
         if self._agent is None:
             self._stream.set_status(self._startup_status)
             return
@@ -1675,6 +1703,7 @@ class FamiliarWindow(QMainWindow):
                     on_tool_result=on_tool_result,
                     desires=self._desires,
                     inner_voice=inner_voice,
+                    desire_name=desire_name,
                     interrupt_queue=self._input_queue,
                 )
             )

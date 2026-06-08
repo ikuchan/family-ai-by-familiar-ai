@@ -59,37 +59,66 @@ DECAY_ON_SATISFY = 0.5  # drop hard so it can rebuild and fire again
 # Mirror the default from _ui_helpers.DESIRE_COOLDOWN (avoid circular import).
 _REF_COOLDOWN: float = float(os.environ.get("DESIRE_COOLDOWN", "90"))
 
-# Cap dt in tick() to prevent drives from jumping to 1.0 after a long gap
-# (process sleep, restart, system suspend).  Two cooldown periods is enough
-# headroom for normal jitter while bounding worst-case accumulation.
-MAX_TICK_DT: float = _REF_COOLDOWN * 2
+# Internal desires can have a separate, faster cooldown reference so they fire
+# more frequently without accelerating social (user-facing) desires.
+# Defaults to DESIRE_COOLDOWN when not set (preserves existing behaviour).
+_INTERNAL_REF_COOLDOWN: float = float(
+    os.environ.get("INTERNAL_DESIRE_COOLDOWN", str(_REF_COOLDOWN))
+)
+
+# Cap dt to prevent drives from jumping to 1.0 after a long gap.
+MAX_TICK_DT: float = max(_REF_COOLDOWN, _INTERNAL_REF_COOLDOWN) * 2
 
 
 def _rate(n_cycles: float) -> float:
-    """Return the per-second growth rate that fires a desire every n_cycles cooldowns."""
+    """Growth rate for social desires: fires every n_cycles × DESIRE_COOLDOWN seconds."""
     recover = TRIGGER_THRESHOLD * DECAY_ON_SATISFY  # = 0.3
     return recover / (n_cycles * _REF_COOLDOWN)
 
 
-# How fast each desire grows per second of inactivity.
-# n  ×  DESIRE_COOLDOWN(90s)  →  steady-state fire interval
+def _internal_rate(n_cycles: float) -> float:
+    """Growth rate for internal desires: fires every n_cycles × INTERNAL_DESIRE_COOLDOWN seconds."""
+    recover = TRIGGER_THRESHOLD * DECAY_ON_SATISFY  # = 0.3
+    return recover / (n_cycles * _INTERNAL_REF_COOLDOWN)
+
+
+# Social desires use _rate() (DESIRE_COOLDOWN); internal desires use _internal_rate().
 GROWTH_RATES = {
-    "look_around":      _rate(3),   # n=3  →  4.5 min  (night ×0.4 → 11 min)
-    "explore":          _rate(5),   # n=5  →  7.5 min  (night ×0.4 → 19 min)
-    "greet_companion":  _rate(5),   # n=5  →  7.5 min  (morning ×1.3 → 5.8 min)
-    "rest":             _rate(6),   # n=6  →  9 min    (night ×1.8 → 5 min)
-    "share_memory":     _rate(4),   # n=4  →  6 min    (evening ×1.4 → 4.3 min)
-    "browse_curiosity": _rate(30),  # n=30 → 45 min    (matches min_interval_seconds=2700)
-    "curiosity":        _rate(4),   # n=4  →  6 min
-    "attachment":       _rate(8),   # n=8  → 12 min
-    "care":             _rate(8),   # n=8  → 12 min
-    "reflect":          _rate(12),  # n=12 → 18 min
-    "consolidate":      _rate(20),  # n=20 → 30 min
-    "repair":           0.0,        # manual only — grows via boost()
-    "play":             _rate(8),   # n=8  → 12 min
-    "self_protect":     0.0,        # manual only — grows via boost()
+    # ── Social desires (user-facing, Sonnet backend) ───────────────────────
+    "greet_companion":  _rate(5),       # n=5  →  7.5 min  (morning ×1.3 → 5.8 min)
+    "share_memory":     _rate(4),       # n=4  →  6 min    (evening ×1.4 → 4.3 min)
+    "attachment":       _rate(8),       # n=8  → 12 min
+    "care":             _rate(8),       # n=8  → 12 min
+    "play":             _rate(8),       # n=8  → 12 min
+    "repair":           0.0,            # manual only — grows via boost()
     # worry_companion intentionally omitted — only grows via detect_worry_signal()
+
+    # ── Internal desires (no user output, utility backend) ─────────────────
+    "look_around":      _internal_rate(3),   # n=3  →  fires every 3 × INTERNAL_COOLDOWN
+    "explore":          _internal_rate(5),
+    "rest":             _internal_rate(6),
+    "browse_curiosity": _internal_rate(30),  # matches min_interval_seconds=2700
+    "curiosity":        _internal_rate(4),
+    "reflect":          _internal_rate(12),
+    "consolidate":      _internal_rate(20),
+    "self_protect":     0.0,                 # manual only — grows via boost()
 }
+
+# Desires that require the full conversation backend and presence gating.
+_SOCIAL_DESIRE_NAMES: frozenset[str] = frozenset({
+    "greet_companion",
+    "worry_companion",
+    "share_memory",
+    "attachment",
+    "care",
+    "repair",
+    "play",
+})
+
+
+def is_social_desire(name: str) -> bool:
+    """Return True if this desire is user-facing and should use the full LLM backend."""
+    return name in _SOCIAL_DESIRE_NAMES
 
 # ── Worry signal detection ─────────────────────────────────────────────────────
 
@@ -230,7 +259,7 @@ class DesireSystem:
                 "share_memory",
                 GROWTH_RATES["share_memory"],
                 _t("desire_prompt_share_memory", companion=self._companion_name),
-                ("legacy", "reflect"),
+                ("legacy", "social", "reflect"),
                 90,
             ),
             "browse_curiosity": DriveSpec(
