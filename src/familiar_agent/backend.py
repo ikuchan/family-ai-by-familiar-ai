@@ -1099,16 +1099,49 @@ class GeminiBackend:
 
     # ── API calls ─────────────────────────────────────────────────
 
+    # JSON Schema keywords unsupported by Gemini FunctionDeclaration
+    _GEMINI_UNSUPPORTED_SCHEMA_KEYS: frozenset[str] = frozenset({
+        "exclusiveMaximum", "exclusiveMinimum",
+        "$schema", "$id", "$ref", "$comment",
+        "additionalItems", "contains", "patternProperties",
+        "dependencies", "propertyNames", "const",
+        "if", "then", "else", "allOf", "anyOf", "oneOf", "not",
+        "examples", "readOnly", "writeOnly",
+    })
+
+    @classmethod
+    def _sanitize_schema(cls, schema: dict) -> dict:
+        """Recursively remove JSON Schema keywords unsupported by Gemini."""
+        result = {}
+        for k, v in schema.items():
+            if k in cls._GEMINI_UNSUPPORTED_SCHEMA_KEYS:
+                continue
+            if isinstance(v, dict):
+                result[k] = cls._sanitize_schema(v)
+            elif isinstance(v, list):
+                result[k] = [
+                    cls._sanitize_schema(item) if isinstance(item, dict) else item
+                    for item in v
+                ]
+            else:
+                result[k] = v
+        return result
+
     def _convert_tools(self, tool_defs: list[dict]) -> list:
         types = self._types
-        declarations = [
-            types.FunctionDeclaration(
-                name=t["name"],
-                description=t["description"],
-                parameters=t["input_schema"],
-            )
-            for t in tool_defs
-        ]
+        declarations = []
+        for t in tool_defs:
+            try:
+                declarations.append(types.FunctionDeclaration(
+                    name=t["name"],
+                    description=t["description"],
+                    parameters=self._sanitize_schema(t["input_schema"]),
+                ))
+            except Exception as e:
+                import logging
+                logging.getLogger(__name__).warning(
+                    "Skipping tool %s for Gemini (schema error): %s", t["name"], e
+                )
         return [types.Tool(function_declarations=declarations)]
 
     def _flatten_messages(self, messages: list) -> list[dict]:

@@ -137,3 +137,67 @@ def test_agent_config_scene_platform_from_env():
         config = AgentConfig()
     assert config.scene_platform == "gemini"
     assert config.scene_api_key == "gm-key"
+
+
+# ---------------------------------------------------------------------------
+# Tests: GeminiBackend._sanitize_schema strips unsupported JSON Schema keys
+# ---------------------------------------------------------------------------
+
+
+def test_sanitize_schema_removes_exclusive_bounds():
+    """exclusiveMaximum and exclusiveMinimum are stripped from Gemini schemas."""
+    from familiar_agent.backend import GeminiBackend
+    schema = {
+        "type": "object",
+        "properties": {
+            "max_length": {
+                "type": "integer",
+                "exclusiveMaximum": 1000,
+                "exclusiveMinimum": 0,
+                "description": "length limit",
+            }
+        },
+    }
+    result = GeminiBackend._sanitize_schema(schema)
+    prop = result["properties"]["max_length"]
+    assert "exclusiveMaximum" not in prop
+    assert "exclusiveMinimum" not in prop
+    assert prop["type"] == "integer"
+    assert prop["description"] == "length limit"
+
+
+def test_sanitize_schema_preserves_supported_keys():
+    """Standard JSON Schema keys like type, description, enum are preserved."""
+    from familiar_agent.backend import GeminiBackend
+    schema = {
+        "type": "object",
+        "properties": {
+            "query": {"type": "string", "description": "search query"},
+            "count": {"type": "integer", "minimum": 1, "maximum": 10},
+        },
+        "required": ["query"],
+    }
+    result = GeminiBackend._sanitize_schema(schema)
+    assert result["properties"]["query"]["type"] == "string"
+    assert result["properties"]["count"]["minimum"] == 1
+    assert result["properties"]["count"]["maximum"] == 10
+    assert result["required"] == ["query"]
+
+
+def test_sanitize_schema_strips_nested_unsupported():
+    """Nested schemas inside properties are also sanitized."""
+    from familiar_agent.backend import GeminiBackend
+    schema = {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "items": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                },
+            }
+        },
+    }
+    result = GeminiBackend._sanitize_schema(schema)
+    assert "exclusiveMinimum" not in result["properties"]["items"]["items"]
