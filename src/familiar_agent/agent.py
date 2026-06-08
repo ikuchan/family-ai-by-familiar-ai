@@ -48,6 +48,7 @@ from .memory_worker import MemoryJobWorker
 from .tape import check_plan_blocked, generate_plan, generate_replan
 from .tools.camera import CameraTool
 from .tools.coding import CodingTool
+from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .person_memory_manager import PersonMemoryManager
 from .recognition.face import recognize_face_async
@@ -1073,6 +1074,8 @@ class EmbodiedAgent:
         elif os.environ.get("MCP_CONFIG"):
             logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
 
+        self._deferred_search = DeferredSearchTool(self._mcp_search)
+
         stt_cfg = self.config.stt
         if stt_cfg.elevenlabs_api_key:
             cam = self.config.camera
@@ -1108,9 +1111,19 @@ class EmbodiedAgent:
         defs.extend(self._memory_tool.get_tool_definitions())
         defs.extend(self._tom_tool.get_tool_definitions())
         defs.extend(self._coding.get_tool_definitions())
+        defs.extend(self._deferred_search.get_tool_definitions())
         if self._mcp:
             defs.extend(self._mcp.get_tool_definitions())
         return defs
+
+    async def _mcp_search(self, tool_name: str, tool_input: dict) -> tuple[str, Any]:
+        """Route a search call through MCP, waiting for MCP init if needed."""
+        mcp_task = getattr(self, "_mcp_start_task", None)
+        if mcp_task and not mcp_task.done():
+            await mcp_task
+        if self._mcp:
+            return await self._mcp.call(tool_name, tool_input)
+        return "MCP が利用できません。", None
 
     async def _execute_tool(self, name: str, tool_input: dict) -> tuple[str, str | None]:
         """Route tool call to the right handler. Returns (text, image_b64_or_None)."""
@@ -1136,6 +1149,8 @@ class EmbodiedAgent:
             return await self._memory_tool.call(name, tool_input)
         elif name == "tom":
             return await self._tom_tool.call(name, tool_input)
+        elif name == "search_deferred":
+            return await self._deferred_search.call(name, tool_input)
         elif name in coding_tools:
             return await self._coding.call(name, tool_input)
         elif self._mcp:
@@ -1510,7 +1525,13 @@ class EmbodiedAgent:
         body_desc = self._get_body_description()
         base = re.sub(r"\(body.*?\)", body_desc, base, flags=re.DOTALL)
 
-        stable_parts = [p for p in [self._me_md, self._family_md, base] if p]
+        capability_summary = load_summary()
+        stable_parts = [p for p in [
+            self._me_md,
+            self._family_md,
+            base,
+            f"[My capabilities]\n{capability_summary}" if capability_summary else "",
+        ] if p]
         stable = "\n\n---\n\n".join(stable_parts)
 
         agent_mood, agent_mood_intensity = self._decayed_mood()
@@ -1575,9 +1596,9 @@ class EmbodiedAgent:
             if scene_ctx:
                 variable_parts.append(scene_ctx)
 
-        capability_summary = load_summary()
-        if capability_summary:
-            variable_parts.append(f"[My capabilities]\n{capability_summary}")
+        deferred_ctx = self._deferred_search.pending_context()
+        if deferred_ctx:
+            variable_parts.append(deferred_ctx)
 
         variable = "\n\n---\n\n".join(variable_parts)
         return stable, variable
@@ -3118,6 +3139,9 @@ class EmbodiedAgent:
             user_input=user_input,
         )
         _internal_backend_saved = self._maybe_swap_internal_backend(is_desire_turn, desire_name)
+        _internal_messages_baseline = (
+            len(self.messages) if _internal_backend_saved is not None else None
+        )
 
         try:
             for i in range(turn_max_iterations):
@@ -3395,6 +3419,11 @@ class EmbodiedAgent:
             self._restore_backend_after_turn(backend_turn_snapshot)
             if _internal_backend_saved is not None:
                 self.backend = _internal_backend_saved
+                # Discard messages appended during the internal-backend turn to
+                # prevent format contamination (e.g. Anthropic content blocks in
+                # a Gemini history).
+                if _internal_messages_baseline is not None:
+                    self.messages = self.messages[:_internal_messages_baseline]
 
     @property
     def stt(self) -> STTTool | None:

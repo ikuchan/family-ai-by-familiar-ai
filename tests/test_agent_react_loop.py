@@ -51,6 +51,8 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     agent._started_at = 0.0
     agent.messages = []
     agent._me_md = ""
+    agent._family_md = ""
+    agent._presence_watcher = None
 
     # Backend: make_tool_results must accept (tool_calls, results) and return a list
     backend = MagicMock()
@@ -128,6 +130,12 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
         mcp_client.call = AsyncMock(return_value=("mcp result", None))
         mcp_client.is_started = True
         agent._mcp = mcp_client
+
+    deferred = MagicMock()
+    deferred.get_tool_definitions = MagicMock(return_value=[])
+    deferred.call = AsyncMock(return_value=("search started", None))
+    deferred.pending_context = MagicMock(return_value="")
+    agent._deferred_search = deferred
 
     agent._exploration = ExplorationTracker()
     agent._scene = None
