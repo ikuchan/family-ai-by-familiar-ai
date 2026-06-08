@@ -40,6 +40,7 @@ class Concern:
     last_expressed_turn: int = -999
     resolved: bool = False
     linked_episode: str = ""
+    person_id: str = ""
 
 
 class ConcernEngine:
@@ -151,6 +152,7 @@ class ConcernEngine:
         intensity: float = 0.4,
         turn_index: int = 0,
         linked_episode: str = "",
+        person_id: str = "",
     ) -> None:
         cleaned = topic.strip()
         if not cleaned:
@@ -165,6 +167,7 @@ class ConcernEngine:
                 age_turns=0,
                 last_activated_turn=max(0, turn_index),
                 linked_episode=linked_episode,
+                person_id=person_id,
             )
             self._concerns.append(concern)
         else:
@@ -175,6 +178,8 @@ class ConcernEngine:
             concern.resolved = False
             if linked_episode:
                 concern.linked_episode = linked_episode
+            if person_id:
+                concern.person_id = person_id
         self._sort()
         self._save()
 
@@ -217,6 +222,7 @@ class ConcernEngine:
         curiosity: str | None,
         prediction_signal: PredictionSignal | None,
         companion_name: str = "",
+        speaker_id: str = "",
     ) -> None:
         self.decay()
 
@@ -238,6 +244,7 @@ class ConcernEngine:
                 category="companion",
                 intensity=0.5,
                 turn_index=turn_index,
+                person_id=speaker_id,
             )
         elif companion_mood in {"happy", "engaged"}:
             self.soothe("companion", amount=0.1)

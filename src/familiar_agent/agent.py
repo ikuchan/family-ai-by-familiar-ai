@@ -881,7 +881,7 @@ class EmbodiedAgent:
 
         try:
             if camera_used:
-                recent_obs = await self._memory.recall_async(
+                recent_obs = await self._pmm.get_agent_memory().recall_async(
                     final_text[:200], n=6, kind="observation"
                 )
                 past_scores = [m.get("score", 0.5) for m in recent_obs[:3]]
@@ -915,7 +915,7 @@ class EmbodiedAgent:
                     pred_coalition = self._prediction.as_coalition()
                     if pred_coalition is not None:
                         self._workspace.apply_prediction_error(pred_coalition.novelty)
-                await self._memory.save_async(
+                await self._pmm.get_agent_memory().save_async(
                     final_text[:500],
                     direction="観察",
                     kind="observation",
@@ -926,7 +926,7 @@ class EmbodiedAgent:
             emotion = await self._infer_emotion(final_text)
             self._update_mood(emotion)
             summary = await self._summarize_exchange(user_input, final_text)
-            await self._memory.save_async(
+            await self._active_memory().save_async(
                 summary,
                 direction="会話",
                 kind="conversation",
@@ -962,7 +962,7 @@ class EmbodiedAgent:
                 if curiosity:
                     desires.curiosity_target = curiosity
                     desires.boost("look_around", 0.3)
-                    await self._memory.save_async(
+                    await self._pmm.get_agent_memory().save_async(
                         curiosity,
                         direction="好奇心",
                         kind="curiosity",
@@ -982,6 +982,7 @@ class EmbodiedAgent:
                     curiosity=curiosity,
                     prediction_signal=pred_signal,
                     companion_name=self._persons.active_name,
+                    speaker_id=self._pmm.current_speaker_id or "",
                 )
 
             self_state = getattr(self, "_self_state", None)
@@ -1300,6 +1301,10 @@ class EmbodiedAgent:
         saved = self.backend
         self.backend = self._utility_backend
         return saved
+
+    def _active_memory(self) -> "ObservationMemory":
+        """Return the current speaker's memory, or agent's own if no speaker is set."""
+        return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
 
     def _social_presence_permission(self) -> float:
         """Return 1.0 when someone is present, 0.0 when the room is empty.
@@ -1940,7 +1945,7 @@ class EmbodiedAgent:
             hint = now.strftime("%B")
 
         try:
-            memories = await self._memory.recall_async(hint, n=5)
+            memories = await self._active_memory().recall_async(hint, n=5)
         except Exception:
             return None
 
@@ -2285,7 +2290,7 @@ class EmbodiedAgent:
                 timeout=30.0,
             )
             if summary:
-                await self._memory.save_async(
+                await self._pmm.get_agent_memory().save_async(
                     summary,
                     direction="記憶",
                     kind="day_summary",
@@ -2346,7 +2351,7 @@ class EmbodiedAgent:
                 max_tokens=80,
             )
             if insight and insight.lower() != "nothing":
-                await self._memory.save_async(
+                await self._pmm.get_agent_memory().save_async(
                     insight,
                     direction="内省",
                     kind="self_model",
@@ -2927,7 +2932,7 @@ class EmbodiedAgent:
                 _memories_coro = (
                     _call_optional_async(recall_divergent, user_input, n=recall_n, fallback=[])
                     if recall_divergent is not None
-                    else self._memory.recall_async(user_input, n=recall_n)
+                    else self._active_memory().recall_async(user_input, n=recall_n)
                 )
                 (
                     memories,
