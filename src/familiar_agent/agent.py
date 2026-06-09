@@ -881,7 +881,7 @@ class EmbodiedAgent:
 
         try:
             if camera_used:
-                recent_obs = await self._pmm.get_agent_memory().recall_async(
+                recent_obs = await self._memory.recall_async(
                     final_text[:200], n=6, kind="observation"
                 )
                 past_scores = [m.get("score", 0.5) for m in recent_obs[:3]]
@@ -915,7 +915,7 @@ class EmbodiedAgent:
                     pred_coalition = self._prediction.as_coalition()
                     if pred_coalition is not None:
                         self._workspace.apply_prediction_error(pred_coalition.novelty)
-                await self._pmm.get_agent_memory().save_async(
+                await self._memory.save_async(
                     final_text[:500],
                     direction="観察",
                     kind="observation",
@@ -962,7 +962,7 @@ class EmbodiedAgent:
                 if curiosity:
                     desires.curiosity_target = curiosity
                     desires.boost("look_around", 0.3)
-                    await self._pmm.get_agent_memory().save_async(
+                    await self._memory.save_async(
                         curiosity,
                         direction="好奇心",
                         kind="curiosity",
@@ -2290,7 +2290,7 @@ class EmbodiedAgent:
                 timeout=30.0,
             )
             if summary:
-                await self._pmm.get_agent_memory().save_async(
+                await self._memory.save_async(
                     summary,
                     direction="記憶",
                     kind="day_summary",
@@ -2351,7 +2351,7 @@ class EmbodiedAgent:
                 max_tokens=80,
             )
             if insight and insight.lower() != "nothing":
-                await self._pmm.get_agent_memory().save_async(
+                await self._memory.save_async(
                     insight,
                     direction="内省",
                     kind="self_model",
