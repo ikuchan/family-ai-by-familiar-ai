@@ -1144,13 +1144,42 @@ class GeminiBackend:
                 )
         return [types.Tool(function_declarations=declarations)]
 
+    @staticmethod
+    def _to_gemini_message(msg: dict) -> dict:
+        """Convert a non-Gemini format message to Gemini parts format.
+
+        Silently fixes messages in Anthropic/OpenAI format (role+content)
+        that occasionally leak in when the utility backend is not Gemini.
+        Logs a warning so the root cause can be traced.
+        """
+        if "parts" in msg or "content" not in msg:
+            return msg
+        role = msg.get("role", "user")
+        content = msg["content"]
+        if isinstance(content, str):
+            parts: list = [{"text": content}]
+        elif isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append({"text": block.get("text", "")})
+        else:
+            parts = [{"text": str(content)}]
+        gemini_role = "model" if role == "assistant" else role
+        logger.warning(
+            "Gemini: non-Gemini message coerced (role=%s). "
+            "Check utility-backend message isolation.",
+            role,
+        )
+        return {"role": gemini_role, "parts": parts}
+
     def _flatten_messages(self, messages: list) -> list[dict]:
         flat: list[dict] = []
         for msg in messages:
             if isinstance(msg, list):
-                flat.extend(msg)
-            else:
-                flat.append(msg)
+                flat.extend(self._to_gemini_message(m) for m in msg if isinstance(m, dict))
+            elif isinstance(msg, dict):
+                flat.append(self._to_gemini_message(msg))
         return flat
 
     async def stream_turn(
