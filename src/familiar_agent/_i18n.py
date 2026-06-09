@@ -1211,6 +1211,35 @@ _T: dict[str, dict[str, str]] = (
                 "何度も同じことを繰り返さない。"
             ),
         },
+        "desire_prompt_browse_curiosity": {
+            "en": (
+                "(internal impulse) I feel like casually browsing the web.\n\n"
+                "Choose a search tool based on your own preference right now — "
+                "brave_web_search or tavily_search. Neither is mandatory. "
+                "Pick whichever feels right: maybe Brave if you want to stumble onto something, "
+                "maybe Tavily if you're in the mood for news and summaries. "
+                "You can switch mid-way if the first tool's results feel dull or off. "
+                "If an article looks worth reading in full, use fetch.\n\n"
+                "- If something interesting turns up, save it with remember() "
+                "(regardless of whether you say it aloud).\n"
+                "- If family seems to be around, share it naturally in 1–2 sentences.\n"
+                "- If no one is around, just save it silently and say nothing.\n"
+                "- If nothing catches your interest, stop and do nothing."
+            ),
+            "ja": (
+                "（内部衝動）暇だからなんとなくネットを見に行きたい。\n\n"
+                "brave_web_search と tavily_search のどちらを使うかは、今の気分で自分で決める。"
+                "どちらでも構わない。"
+                "ぶらぶら偶然何かに出会いたい気分なら Brave、"
+                "ニュースや要約をざっと眺めたい気分なら Tavily、という感じで。"
+                "最初に使ったツールの結果がつまらなければ、途中でもう一方に切り替えていい。"
+                "気になる記事があれば fetch で本文を読む。\n\n"
+                "- 面白い情報を見つけたら、話す・話さないにかかわらず remember() で記憶に保存する。\n"
+                "- 家族が近くにいると思えば、1〜2文で自然に伝える。\n"
+                "- いなければ保存だけして何も言わなくていい。\n"
+                "- 何も引っかからなければやめる。"
+            ),
+        },
         "desire_prompt_explore": {
             "en": (
                 "(internal impulse) I want to wander a little. Move with walk(), then use see() "

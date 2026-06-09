@@ -443,6 +443,29 @@ class DesireSystem:
 
     # ------------------------------------------------------------------
 
+    def update_active_companion(self, name: str) -> None:
+        """Update companion name and rebuild drive prompts that reference it."""
+        if not name or name == self._companion_name:
+            return
+        self._companion_name = name
+        companion_drives = {
+            "greet_companion": _t("desire_prompt_greet_companion", companion=name),
+            "worry_companion": _t("desire_prompt_worry_companion", companion=name),
+            "share_memory": _t("desire_prompt_share_memory", companion=name),
+            "attachment": f"Internal impulse: stay connected to {name} without becoming clingy.",
+            "care": f"Internal impulse: offer grounded care to {name} if it fits the moment.",
+        }
+        for drive_name, prompt in companion_drives.items():
+            if drive_name in self._drive_specs:
+                spec = self._drive_specs[drive_name]
+                self._drive_specs[drive_name] = DriveSpec(
+                    spec.name,
+                    spec.growth_rate_per_second,
+                    prompt,
+                    spec.tags,
+                    spec.min_interval_seconds,
+                )
+
     def tick(self) -> None:
         """Update desire levels based on elapsed time.
 

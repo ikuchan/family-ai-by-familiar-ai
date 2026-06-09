@@ -205,6 +205,23 @@ class PersonMemoryManager:
         persons = {p["id"]: p for p in self.list_persons()}
         return persons.get(person_id, {}).get("display_name", person_id[:8])
 
+    def find_person_id_by_name(self, name: str) -> str | None:
+        """Look up person UUID by name field or any alias in display_name.
+
+        display_name may contain comma/読点-separated aliases such as
+        "パパ、いくながさん、ゆうすけ".  Checks each alias individually.
+        """
+        for p in self.list_persons():
+            if str(p.get("id", "")) in (AGENT_SELF_ID, DEFAULT_PERSON_ID):
+                continue
+            if p.get("name") == name:
+                return str(p["id"])
+            raw = p.get("display_name", "") or ""
+            aliases = [a.strip() for a in raw.replace(",", "、").split("、")]
+            if name in aliases:
+                return str(p["id"])
+        return None
+
     def get_active_person_info(self) -> dict:
         """Kept for backward-compat — returns current speaker info."""
         return self.get_speaker_info() or {

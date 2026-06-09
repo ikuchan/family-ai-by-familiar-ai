@@ -763,6 +763,8 @@ class EmbodiedAgent:
         self._memory = ObservationMemory()
         self._memory_worker = MemoryJobWorker(self._memory)
         self._pmm = PersonMemoryManager(self._memory)
+        self._desires_ref: "DesireSystem | None" = None
+        self._pmm.on_switch(self._on_pmm_speaker_switch)
         self._memory_tool = MemoryTool(self._pmm)
         self._presence_watcher: CameraPresenceWatcher | None = None
         self._tom_tool = ToMTool(
@@ -2137,6 +2139,24 @@ class EmbodiedAgent:
         )
         return result or agent_response[:100]
 
+    def _backup_status_note(self) -> str:
+        """Return a system note if the last DB backup is stale (>25h), else empty string."""
+        log_path = Path.home() / ".familiar_ai" / "backups" / "backup.log"
+        if not log_path.exists():
+            return ""
+        try:
+            text = log_path.read_text(errors="replace")
+        except OSError:
+            return ""
+        matches = re.findall(r"\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\] Done:", text)
+        if not matches:
+            return "[system: no successful database backup on record]"
+        last_backup = datetime.fromisoformat(matches[-1])
+        age_hours = (datetime.now() - last_backup).total_seconds() / 3600
+        if age_hours > 25:
+            return f"[system: last database backup was {int(age_hours)}h ago — may need attention]"
+        return ""
+
     async def _morning_reconstruction(self, desires=None) -> str:
         """Build a 'yesterday → today' bridge from stored memories.
 
@@ -2654,6 +2674,16 @@ class EmbodiedAgent:
         if pid:
             await pmm.set_speaker(pid, source="text")
 
+    async def _on_pmm_speaker_switch(self, old_id: str | None, new_id: str) -> None:
+        """PMM on_switch callback: update companion name in the active DesireSystem."""
+        desires = getattr(self, "_desires_ref", None)
+        if desires is None:
+            return
+        info = self._pmm.get_speaker_info()
+        name = (info or {}).get("display_name") or (info or {}).get("name", "")
+        if name:
+            desires.update_active_companion(name)
+
     def _handle_speaker_command(self, user_input: str) -> str | None:
         """/speaker [name] — set or show the active speaker for this session."""
         m = _SPEAKER_COMMAND_RE.match(user_input.strip())
@@ -2785,6 +2815,8 @@ class EmbodiedAgent:
         inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
         desire_name: the desire that triggered this turn (empty for user turns).
         """
+        if desires is not None:
+            self._desires_ref = desires
         if not hasattr(self, "_schedule_rule"):
             self._schedule_rule = parse_schedule_config(
                 Path.home() / ".familiar_ai" / "schedule.conf"
@@ -2894,6 +2926,9 @@ class EmbodiedAgent:
                     morning_ctx = (
                         f"{morning_ctx}\n\n{routine_notes}" if morning_ctx else routine_notes
                     )
+            backup_note = self._backup_status_note()
+            if backup_note:
+                morning_ctx = f"{morning_ctx}\n\n{backup_note}" if morning_ctx else backup_note
 
         # Compact context if it has grown too large (GC-like: compress old turns)
         if self._should_compact():
