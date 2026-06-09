@@ -1,34 +1,37 @@
-"""Tests for append-only memory event log and pending job queue."""
+"""Tests for append-only memory event log and pending job queue (PostgreSQL)."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
 from unittest.mock import patch
+
+import psycopg2
+import psycopg2.extras
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
-def _connect(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+
+
+def _pg_conn():
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = False
     return conn
 
 
-def test_save_appends_event_and_pending_job(tmp_path) -> None:
-    db_path = str(tmp_path / "memory_events.db")
+def test_save_appends_event_and_pending_job() -> None:
     with (
         patch.object(_EmbeddingModel, "pre_warm"),
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         assert mem.save("hello world", kind="conversation", emotion="curious")
-        mem.close()
 
-    with _connect(db_path) as conn:
-        event = conn.execute(
-            "SELECT event_id, event_type, payload_json FROM memory_events"
-        ).fetchone()
+    conn = _pg_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT event_id, event_type, payload_json FROM memory_events")
+        event = cur.fetchone()
         assert event is not None
         assert event["event_type"] == "memory.save"
 
@@ -37,72 +40,72 @@ def test_save_appends_event_and_pending_job(tmp_path) -> None:
         assert payload["kind"] == "conversation"
         assert payload["emotion"] == "curious"
 
-        job = conn.execute(
-            "SELECT job_type, status, attempts FROM memory_jobs WHERE event_id = ?",
+        cur.execute(
+            "SELECT job_type, status, attempts FROM memory_jobs WHERE event_id = %s",
             (event["event_id"],),
-        ).fetchone()
+        )
+        job = cur.fetchone()
         assert job is not None
         assert job["job_type"] == "materialize_observation"
         assert job["status"] == "pending"
         assert job["attempts"] == 0
+    conn.close()
 
 
-def test_save_with_dedupe_key_is_idempotent(tmp_path) -> None:
-    db_path = str(tmp_path / "memory_dedupe.db")
+def test_save_with_dedupe_key_is_idempotent() -> None:
     with (
         patch.object(_EmbeddingModel, "pre_warm"),
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         assert mem.save("same payload", kind="conversation", dedupe_key="turn-1-conversation")
         assert mem.save("same payload", kind="conversation", dedupe_key="turn-1-conversation")
-        mem.close()
 
-    with _connect(db_path) as conn:
-        event_count = conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0]
-        job_count = conn.execute("SELECT COUNT(*) FROM memory_jobs").fetchone()[0]
-        observation_count = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM memory_events")
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT COUNT(*) FROM memory_jobs")
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT COUNT(*) FROM observations")
+        assert cur.fetchone()[0] == 1
+    conn.close()
 
-    assert event_count == 1
-    assert job_count == 1
-    assert observation_count == 1
 
-
-def test_save_can_enqueue_without_immediate_materialization(tmp_path) -> None:
-    db_path = str(tmp_path / "memory_async_queue.db")
+def test_save_can_enqueue_without_immediate_materialization() -> None:
     with (
         patch.object(_EmbeddingModel, "pre_warm"),
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         assert mem.save("queued only", kind="conversation", materialize_now=False)
-        mem.close()
 
-    with _connect(db_path) as conn:
-        event_count = conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0]
-        job_row = conn.execute("SELECT status FROM memory_jobs").fetchone()
-        observation_count = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
+    conn = _pg_conn()
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        cur.execute("SELECT COUNT(*) AS cnt FROM memory_events")
+        assert cur.fetchone()["cnt"] == 1
+        cur.execute("SELECT status FROM memory_jobs")
+        job_row = cur.fetchone()
+        assert job_row is not None
+        assert job_row["status"] == "pending"
+        cur.execute("SELECT COUNT(*) AS cnt FROM observations")
+        assert cur.fetchone()["cnt"] == 0
+    conn.close()
 
-    assert event_count == 1
-    assert job_row is not None
-    assert job_row["status"] == "pending"
-    assert observation_count == 0
 
-
-def test_save_continues_when_event_append_fails(tmp_path) -> None:
-    db_path = str(tmp_path / "memory_fail_open.db")
+def test_save_continues_when_event_append_fails() -> None:
     with (
         patch.object(_EmbeddingModel, "pre_warm"),
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         with patch.object(mem, "append_memory_event", side_effect=RuntimeError("boom")):
             assert mem.save("still stored despite event failure")
-        mem.close()
 
-    with _connect(db_path) as conn:
-        event_count = conn.execute("SELECT COUNT(*) FROM memory_events").fetchone()[0]
-        observation_count = conn.execute("SELECT COUNT(*) FROM observations").fetchone()[0]
-
-    assert event_count == 0
-    assert observation_count == 1
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM memory_events")
+        assert cur.fetchone()[0] == 0
+        cur.execute("SELECT COUNT(*) FROM observations")
+        assert cur.fetchone()[0] == 1
+    conn.close()

@@ -1,44 +1,65 @@
-"""Tests for automatic SQLite schema migrations on startup."""
+"""Tests for automatic PostgreSQL schema migrations on startup."""
 
 from __future__ import annotations
 
-import sqlite3
 from pathlib import Path
 from unittest.mock import patch
+
+import psycopg2
+import psycopg2.extras
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
-def _connect(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+
+
+def _pg_conn():
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = False
     return conn
 
 
-def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
-    rows = conn.execute(f"PRAGMA table_info({table})").fetchall()
-    return {str(r["name"]) for r in rows}
+def _pg_tables() -> set[str]:
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_schema = 'public' AND table_type = 'BASE TABLE'"
+        )
+        tables = {r[0] for r in cur.fetchall()}
+    conn.close()
+    return tables
 
 
-def test_auto_applies_migrations_on_first_connect(tmp_path) -> None:
-    db_path = str(tmp_path / "auto_migrate.db")
+def _pg_columns(table: str) -> set[str]:
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name = %s AND table_schema = 'public'",
+            (table,),
+        )
+        cols = {r[0] for r in cur.fetchall()}
+    conn.close()
+    return cols
+
+
+def test_auto_applies_migrations_on_first_connect() -> None:
     expected_ids = {p.stem for p in (Path.cwd() / "migration").glob("*.py")}
 
     with patch.object(_EmbeddingModel, "pre_warm"):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         mem.append_memory_event("memory.save", {"content": "x"}, queue_job=False)
-        mem.close()
 
-    with _connect(db_path) as conn:
-        applied = {
-            str(r["id"]) for r in conn.execute("SELECT id FROM schema_migrations").fetchall()
-        }
-        tables = {
-            str(r["name"])
-            for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
-        }
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT id FROM schema_migrations")
+        applied = {r[0] for r in cur.fetchall()}
+    conn.close()
 
     assert expected_ids.issubset(applied)
+    tables = _pg_tables()
     assert {
         "observations",
         "obs_embeddings",
@@ -52,54 +73,46 @@ def test_auto_applies_migrations_on_first_connect(tmp_path) -> None:
     }.issubset(tables)
 
 
-def test_migrates_legacy_observations_schema(tmp_path) -> None:
-    db_path = str(tmp_path / "legacy_schema.db")
-    with _connect(db_path) as conn:
-        conn.execute(
-            """
-            CREATE TABLE observations (
-                id TEXT PRIMARY KEY,
-                content TEXT NOT NULL,
-                timestamp TEXT NOT NULL,
-                date TEXT NOT NULL,
-                time TEXT NOT NULL,
-                direction TEXT NOT NULL DEFAULT 'unknown'
-            )
-            """
-        )
-        conn.commit()
-
+def test_migrates_observations_has_all_columns() -> None:
+    """All expected columns exist in the observations table after migration."""
     with patch.object(_EmbeddingModel, "pre_warm"):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         mem.append_memory_event("memory.save", {"content": "x"}, queue_job=False)
-        mem.close()
 
-    with _connect(db_path) as conn:
-        cols = _columns(conn, "observations")
-        applied = {
-            str(r["id"]) for r in conn.execute("SELECT id FROM schema_migrations").fetchall()
-        }
-
-    for name in ("kind", "emotion", "image_path", "image_data"):
-        assert name in cols
-    assert "2026-03-03-001_observations_baseline" in applied
+    cols = _pg_columns("observations")
+    for name in ("kind", "emotion", "image_path", "image_data", "importance", "superseded_by"):
+        assert name in cols, f"Missing column: {name}"
 
 
-def test_migrations_are_idempotent_across_restarts(tmp_path) -> None:
-    db_path = str(tmp_path / "idempotent.db")
+def test_migrations_are_idempotent_across_restarts() -> None:
     with patch.object(_EmbeddingModel, "pre_warm"):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         mem.append_memory_event("memory.save", {"content": "first"}, queue_job=False)
-        mem.close()
 
-        with _connect(db_path) as conn:
-            count_first = conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM schema_migrations")
+        count_first = cur.fetchone()[0]
+    conn.close()
 
-        mem2 = ObservationMemory(db_path=db_path)
+    # Reset singleton and reconnect — migrations must not re-run
+    import familiar_agent.db as db_module
+    with db_module._INSTANCE_LOCK:
+        if db_module._INSTANCE is not None:
+            try:
+                db_module._INSTANCE.close()
+            except Exception:
+                pass
+            db_module._INSTANCE = None
+
+    with patch.object(_EmbeddingModel, "pre_warm"):
+        mem2 = ObservationMemory()
         mem2.append_memory_event("memory.save", {"content": "second"}, queue_job=False)
-        mem2.close()
 
-    with _connect(db_path) as conn:
-        count_second = conn.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0]
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM schema_migrations")
+        count_second = cur.fetchone()[0]
+    conn.close()
 
     assert count_second == count_first

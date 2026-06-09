@@ -17,11 +17,8 @@ from familiar_agent.relationship import RelationshipTracker
 # ---------------------------------------------------------------------------
 
 
-def _tracker(tmp_path: Path) -> RelationshipTracker:
-    return RelationshipTracker(
-        state_path=tmp_path / "relationship.json",
-        db_path=tmp_path / "relationship.db",
-    )
+def _tracker() -> RelationshipTracker:
+    return RelationshipTracker()
 
 
 # ---------------------------------------------------------------------------
@@ -29,18 +26,18 @@ def _tracker(tmp_path: Path) -> RelationshipTracker:
 # ---------------------------------------------------------------------------
 
 
-def test_fresh_tracker_has_zero_sessions(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_fresh_tracker_has_zero_sessions() -> None:
+    t = _tracker()
     assert t.session_count == 0
 
 
-def test_fresh_tracker_has_zero_conversations(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_fresh_tracker_has_zero_conversations() -> None:
+    t = _tracker()
     assert t.conversation_count == 0
 
 
-def test_fresh_tracker_has_no_first_session_date(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_fresh_tracker_has_no_first_session_date() -> None:
+    t = _tracker()
     assert t.first_session_date is None
 
 
@@ -49,35 +46,35 @@ def test_fresh_tracker_has_no_first_session_date(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_record_session_increments_count(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_record_session_increments_count() -> None:
+    t = _tracker()
     t.record_session()
     assert t.session_count == 1
 
 
-def test_record_session_twice_increments_to_two(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_record_session_twice_increments_to_two() -> None:
+    t = _tracker()
     t.record_session()
     t.record_session()
     assert t.session_count == 2
 
 
-def test_record_session_sets_first_session_date_on_first_call(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_record_session_sets_first_session_date_on_first_call() -> None:
+    t = _tracker()
     t.record_session()
     assert t.first_session_date is not None
 
 
-def test_record_session_does_not_overwrite_first_session_date(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_record_session_does_not_overwrite_first_session_date() -> None:
+    t = _tracker()
     t.record_session()
     first = t.first_session_date
     t.record_session()
     assert t.first_session_date == first
 
 
-def test_record_session_updates_last_session_date(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_record_session_updates_last_session_date() -> None:
+    t = _tracker()
     t.record_session()
     assert t.last_session_date is not None
 
@@ -87,14 +84,14 @@ def test_record_session_updates_last_session_date(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_record_conversation_increments_count(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_record_conversation_increments_count() -> None:
+    t = _tracker()
     t.record_conversation()
     assert t.conversation_count == 1
 
 
-def test_record_conversation_multiple_times(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_record_conversation_multiple_times() -> None:
+    t = _tracker()
     for _ in range(5):
         t.record_conversation()
     assert t.conversation_count == 5
@@ -105,21 +102,20 @@ def test_record_conversation_multiple_times(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_days_together_none_when_no_first_session(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_days_together_none_when_no_first_session() -> None:
+    t = _tracker()
     assert t.days_together is None
 
 
-def test_days_together_zero_on_first_day(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_days_together_zero_on_first_day() -> None:
+    t = _tracker()
     t.record_session()
     assert t.days_together == 0
 
 
-def test_days_together_correct_after_backdating(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_days_together_correct_after_backdating() -> None:
+    t = _tracker()
     t.record_session()
-    # Backdate first_session_date by 7 days
     t._state["first_session_date"] = (date.today() - timedelta(days=7)).isoformat()
     t._save()
     assert t.days_together == 7
@@ -130,13 +126,13 @@ def test_days_together_correct_after_backdating(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_state_persists_across_instances(tmp_path) -> None:
-    t1 = _tracker(tmp_path)
+def test_state_persists_across_instances() -> None:
+    t1 = _tracker()
     t1.record_session()
     t1.record_conversation()
     t1.record_conversation()
 
-    t2 = _tracker(tmp_path)
+    t2 = _tracker()
     assert t2.session_count == 1
     assert t2.conversation_count == 2
 
@@ -146,8 +142,8 @@ def test_state_persists_across_instances(tmp_path) -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_context_for_prompt_returns_string(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_context_for_prompt_returns_string() -> None:
+    t = _tracker()
     t.record_session()
     t.record_conversation()
     result = t.context_for_prompt()
@@ -155,27 +151,25 @@ def test_context_for_prompt_returns_string(tmp_path) -> None:
     assert len(result) > 0
 
 
-def test_context_for_prompt_empty_before_first_session(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_context_for_prompt_empty_before_first_session() -> None:
+    t = _tracker()
     result = t.context_for_prompt()
-    # No session yet — should return empty string or None
     assert result == "" or result is None
 
 
-def test_context_for_prompt_includes_session_info(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_context_for_prompt_includes_session_info() -> None:
+    t = _tracker()
     t.record_session()
     for _ in range(3):
         t.record_conversation()
     result = t.context_for_prompt()
-    # Should mention sessions or conversations somewhere
     assert (
         "session" in result.lower() or "conversation" in result.lower() or "talk" in result.lower()
     )
 
 
-def test_relationship_tracks_trust_and_intimacy_trajectory(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_relationship_tracks_trust_and_intimacy_trajectory() -> None:
+    t = _tracker()
     t.note_trust_shift(0.7, "shared a vulnerable moment")
     t.note_intimacy_shift(0.66, "celebrated together")
 
@@ -183,8 +177,8 @@ def test_relationship_tracks_trust_and_intimacy_trajectory(tmp_path) -> None:
     assert t.intimacy == 0.66
 
 
-def test_relationship_records_support_preferences_and_permissions(tmp_path) -> None:
-    t = _tracker(tmp_path)
+def test_relationship_records_support_preferences_and_permissions() -> None:
+    t = _tracker()
     t.record_support_preference("validate first before advice")
     t.set_permission("offer_unsolicited_advice", False, evidence="asked to slow down")
 
@@ -193,7 +187,7 @@ def test_relationship_records_support_preferences_and_permissions(tmp_path) -> N
     assert "permissions-blocked" in ctx
 
 
-def test_relationship_imports_legacy_json_into_sqlite(tmp_path: Path) -> None:
+def test_relationship_imports_legacy_json_into_db(tmp_path: Path) -> None:
     legacy_path = tmp_path / "relationship.json"
     legacy_path.write_text(
         """
@@ -207,14 +201,8 @@ def test_relationship_imports_legacy_json_into_sqlite(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    tracker = RelationshipTracker(
-        state_path=legacy_path,
-        db_path=tmp_path / "relationship.db",
-    )
-    reloaded = RelationshipTracker(
-        state_path=legacy_path,
-        db_path=tmp_path / "relationship.db",
-    )
-
+    tracker = RelationshipTracker(state_path=legacy_path)
     assert tracker.session_count == 2
+
+    reloaded = RelationshipTracker()
     assert reloaded.trust == 0.81

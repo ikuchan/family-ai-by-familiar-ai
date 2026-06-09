@@ -1,31 +1,35 @@
-"""Tests for evidence-backed memory recall metadata."""
+"""Tests for evidence-backed memory recall metadata (PostgreSQL)."""
 
 from __future__ import annotations
 
-import sqlite3
 from datetime import datetime
 from unittest.mock import patch
 
+import psycopg2
+import psycopg2.extras
+
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
+from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 
 
-def _connect(db_path: str) -> sqlite3.Connection:
-    conn = sqlite3.connect(db_path)
-    conn.row_factory = sqlite3.Row
+_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+
+
+def _pg_conn():
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = False
     return conn
 
 
-def test_recall_semantic_includes_evidence_metadata(tmp_path) -> None:
-    db_path = str(tmp_path / "recall_semantic.db")
+def test_recall_semantic_includes_evidence_metadata() -> None:
     with (
         patch.object(_EmbeddingModel, "pre_warm"),
         patch.object(_EmbeddingModel, "encode_document", return_value=[[1.0, 0.0, 0.0]]),
         patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]),
     ):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         assert mem.save("saw a cat by the window", kind="observation", emotion="curious")
         rows = mem.recall("cat", n=1)
-        mem.close()
 
     assert len(rows) == 1
     row = rows[0]
@@ -37,19 +41,19 @@ def test_recall_semantic_includes_evidence_metadata(tmp_path) -> None:
     assert 0.0 <= float(row["confidence"]) <= 1.0
 
 
-def test_recall_fallback_includes_metadata_and_low_confidence(tmp_path) -> None:
-    db_path = str(tmp_path / "recall_fallback.db")
+def test_recall_fallback_includes_metadata_and_low_confidence() -> None:
     with patch.object(_EmbeddingModel, "pre_warm"):
-        mem = ObservationMemory(db_path=db_path)
+        mem = ObservationMemory()
         mem.append_memory_event("memory.save", {"content": "seed"}, queue_job=False)
+
+        # Insert a row directly (no embedding → forces recency fallback)
         now = datetime.now()
-        with _connect(db_path) as conn:
-            conn.execute(
-                """
-                INSERT INTO observations
-                (id, content, timestamp, date, time, direction, kind, emotion, image_path, image_data)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
+        conn = _pg_conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO observations "
+                "(id,content,timestamp,date,time,direction,kind,emotion,person_id) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
                     "legacy-row-1",
                     "older memory without embedding",
@@ -59,14 +63,13 @@ def test_recall_fallback_includes_metadata_and_low_confidence(tmp_path) -> None:
                     "unknown",
                     "conversation",
                     "neutral",
-                    None,
-                    None,
+                    DEFAULT_PERSON_ID,
                 ),
             )
-            conn.commit()
+        conn.commit()
+        conn.close()
 
         rows = mem.recall("", n=1)
-        mem.close()
 
     assert len(rows) == 1
     row = rows[0]
@@ -78,7 +81,7 @@ def test_recall_fallback_includes_metadata_and_low_confidence(tmp_path) -> None:
 
 def test_format_for_context_includes_confidence_guidance() -> None:
     with patch.object(_EmbeddingModel, "pre_warm"):
-        mem = ObservationMemory(db_path=":memory:")
+        mem = ObservationMemory()
     text = mem.format_for_context(
         [
             {
@@ -93,7 +96,6 @@ def test_format_for_context_includes_confidence_guidance() -> None:
             }
         ]
     )
-    mem.close()
 
     assert "conf<0.55" in text
     assert "id:abcde123" in text

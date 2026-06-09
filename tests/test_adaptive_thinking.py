@@ -310,12 +310,13 @@ class TestAgentConfig:
     """Verify that AgentConfig reads thinking-related env vars."""
 
     def test_thinking_mode_default_is_auto(self, monkeypatch):
-        monkeypatch.delenv("THINKING_MODE", raising=False)
         import importlib
 
         import familiar_agent.config as cfg_mod
 
-        importlib.reload(cfg_mod)
+        monkeypatch.delenv("THINKING_MODE", raising=False)
+        with patch("dotenv.load_dotenv"):
+            importlib.reload(cfg_mod)
         from familiar_agent.config import AgentConfig
 
         config = AgentConfig()
