@@ -274,3 +274,49 @@ relationship_state
   - `_handle_speaker_command()` — `/speaker` コマンド処理
   - `_extract_speaker_prefix()` — `[name]` / `@name:` プレフィックス解析
   - `_system_prompt()` — speaker / known-persons コンテキスト注入
+
+---
+
+## 11. PersonMemoryManager の配線と FAMILY.md 分割
+
+### 概要
+
+`PersonMemoryManager`（UUID ベースの人物識別レイヤー）が `agent.py` に完全に配線され、
+`PersonRegistry`（名前ベースの話者管理）と連携して動作するようになった。
+また、AIペルソナ記述を `ME.md` とファミリー記述を `FAMILY.md` に分離した。
+
+### PersonMemoryManager の配線
+
+| 変更内容 | 概要 |
+|----------|------|
+| `self._pmm = PersonMemoryManager(self._memory)` | `__init__` で初期化済み |
+| `MemoryTool(self._pmm)` | 旧 `MemoryTool(self._memory)` から修正 |
+| `self._presence_watcher` | カメラ利用時に `CameraPresenceWatcher` を起動 |
+| `_apply_face_hint(img_path)` | `see` ツール後に顔認識を非同期実行 |
+
+`see` ツールがカメラ画像を返すと、保存パスを抽出して `recognize_face_async()` を
+バックグラウンドで実行。認識が閾値（0.75）を超えると `PersonRegistry` の
+アクティブ話者が自動更新される。
+
+### ME.md / FAMILY.md 分割
+
+| ファイル | 役割 |
+|----------|------|
+| `ME.md` | AIのペルソナ（名前・性格・話し方） |
+| `FAMILY.md` | 一緒に暮らす人の記述（名前・外見・関係） |
+| `ME-template.md` | ME.md のサンプル |
+| `FAMILY-template.md` | FAMILY.md のサンプル（新規） |
+
+両ファイルは起動時に1回読み込まれ、安定キャッシュ部分に結合される。
+一方が存在しなくても起動可能。どちらも `.gitignore` に含まれる。
+
+### 実装箇所
+
+- `src/familiar_agent/agent.py`
+  - `self._family_md: str = self._load_family_md()` — `__init__` に追加
+  - `_load_family_md()` — `_load_me_md()` と同パターンで実装
+  - `stable_parts = [self._me_md, self._family_md, base]` — 安定プロンプトに追加
+  - `_apply_face_hint(img_path)` — 顔認識→話者同期ヘルパー
+  - `see` ツール結果処理で `_apply_face_hint` を `ensure_future` 呼び出し
+- `FAMILY-template.md` — 新規作成
+- `.gitignore` — `FAMILY.md` を追加
