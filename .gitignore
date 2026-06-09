@@ -1,5 +1,7 @@
 # Personal familiar configuration (do not commit)
 ME.md
+FAMILY.md
+FAMILY-template.md
 
 # Environment & secrets
 .env
