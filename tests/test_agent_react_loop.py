@@ -137,6 +137,14 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     deferred.pending_context = MagicMock(return_value="")
     agent._deferred_search = deferred
 
+    mock_pmm = MagicMock()
+    mock_pmm.get_speaker_memory = MagicMock(return_value=None)
+    mock_pmm.get_agent_memory = MagicMock(return_value=mem)
+    mock_pmm.current_speaker_id = None
+    mock_pmm.find_person_id_by_name = MagicMock(return_value=None)
+    mock_pmm.set_speaker = AsyncMock()
+    agent._pmm = mock_pmm
+
     agent._exploration = ExplorationTracker()
     agent._scene = None
 

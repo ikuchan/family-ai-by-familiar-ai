@@ -120,6 +120,14 @@ async def test_proactive_memory_context_returns_string_when_memories_exist() -> 
         ]
     )
 
+    mock_pmm = MagicMock()
+    mock_pmm.get_speaker_memory = MagicMock(return_value=None)
+    mock_pmm.get_agent_memory = MagicMock(return_value=agent._memory)
+    mock_pmm.current_speaker_id = None
+    mock_pmm.find_person_id_by_name = MagicMock(return_value=None)
+    mock_pmm.set_speaker = AsyncMock()
+    agent._pmm = mock_pmm
+
     result = await agent._proactive_memory_context()
 
     assert result is not None

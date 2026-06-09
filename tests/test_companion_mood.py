@@ -281,6 +281,8 @@ class TestFrustratedBoostsDesire:
         agent._started_at = time.time()
         agent._turn_count = 0
         agent._me_md = ""
+        agent._family_md = ""
+        agent._presence_watcher = None
         agent._camera = None
         agent._mobility = None
         agent._tts = None
@@ -294,12 +296,14 @@ class TestFrustratedBoostsDesire:
         from familiar_agent.tools.memory import MemoryTool
         from familiar_agent.tools.tom import ToMTool
         from familiar_agent.tools.coding import CodingTool
+        from familiar_agent.relationship import PersonRegistry
 
         agent._memory_tool = MagicMock(spec=MemoryTool)
         agent._memory_tool.get_tool_definitions = MagicMock(return_value=[])
         agent._tom_tool = MagicMock(spec=ToMTool)
         agent._tom_tool.get_tool_definitions = MagicMock(return_value=[])
         agent._coding = MagicMock(spec=CodingTool)
+        agent._persons = PersonRegistry(default_name="Kouta")
         agent._coding.get_tool_definitions = MagicMock(return_value=[])
 
         from familiar_agent.exploration import ExplorationTracker
@@ -338,6 +342,20 @@ class TestFrustratedBoostsDesire:
 
         agent._concerns = ConcernEngine()
         agent._self_state = SelfState()
+
+        mock_pmm = MagicMock()
+        mock_pmm.get_speaker_memory = MagicMock(return_value=None)
+        mock_pmm.get_agent_memory = MagicMock(return_value=agent._memory)
+        mock_pmm.current_speaker_id = None
+        mock_pmm.find_person_id_by_name = MagicMock(return_value=None)
+        mock_pmm.set_speaker = AsyncMock()
+        agent._pmm = mock_pmm
+
+        deferred = MagicMock()
+        deferred.get_tool_definitions = MagicMock(return_value=[])
+        deferred.call = AsyncMock(return_value=("search started", None))
+        deferred.pending_context = MagicMock(return_value="")
+        agent._deferred_search = deferred
 
         desires = MagicMock(spec=DesireSystem)
         desires.curiosity_target = None

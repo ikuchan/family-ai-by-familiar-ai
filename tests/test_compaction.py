@@ -13,6 +13,7 @@ def _make_msg(role: str, text: str) -> dict:
 def _make_agent():
     """Minimal EmbodiedAgent with mocked backend and memory."""
     from familiar_agent.agent import EmbodiedAgent
+    from familiar_agent.relationship import PersonRegistry
 
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     agent.config = MagicMock()
@@ -39,6 +40,7 @@ def _make_agent():
 
     agent._memory = MagicMock()
     agent._memory.recall_async = AsyncMock(return_value=[])
+    agent._memory.recall_divergent_async = None  # force recall_async path
     agent._memory.recent_feelings_async = AsyncMock(return_value=[])
     agent._memory.recall_self_model_async = AsyncMock(return_value=[])
     agent._memory.recall_curiosities_async = AsyncMock(return_value=[])
@@ -49,6 +51,9 @@ def _make_agent():
     agent._memory.format_semantic_facts_for_context = MagicMock(return_value="")
     agent._memory.format_behavior_policies_for_context = MagicMock(return_value="")
     agent._me_md = ""
+    agent._family_md = ""
+    agent._presence_watcher = None
+    agent._persons = PersonRegistry(default_name="A")
 
     from familiar_agent.exploration import ExplorationTracker
     from familiar_agent.self_narrative import SelfNarrative
@@ -76,6 +81,20 @@ def _make_agent():
     agent._mood = "neutral"
     agent._mood_intensity = 0.0
     agent._mood_set_at = _time.time()
+
+    mock_pmm = MagicMock()
+    mock_pmm.get_speaker_memory = MagicMock(return_value=None)
+    mock_pmm.get_agent_memory = MagicMock(return_value=agent._memory)
+    mock_pmm.current_speaker_id = None
+    mock_pmm.find_person_id_by_name = MagicMock(return_value=None)
+    mock_pmm.set_speaker = AsyncMock()
+    agent._pmm = mock_pmm
+
+    deferred = MagicMock()
+    deferred.get_tool_definitions = MagicMock(return_value=[])
+    deferred.call = AsyncMock(return_value=("search started", None))
+    deferred.pending_context = MagicMock(return_value="")
+    agent._deferred_search = deferred
 
     return agent
 
