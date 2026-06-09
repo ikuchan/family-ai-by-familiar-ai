@@ -53,6 +53,12 @@ class Database:
             self._conn = psycopg2.connect(url)
             self._conn.autocommit = False
             logger.debug("PostgreSQL connection established")
+        elif self._conn.info.transaction_status == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
+            # Recover from a failed transaction so subsequent queries don't all fail.
+            try:
+                self._conn.rollback()
+            except Exception:
+                pass
         return self._conn
 
     def cursor(self) -> "psycopg2.extras.RealDictCursor":
