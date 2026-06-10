@@ -1184,6 +1184,31 @@ class FamiliarWindow(QMainWindow):
         self._restart_stt_btn.setEnabled(self._realtime_stt is not None)
         self._restart_stt_btn.clicked.connect(self._on_restart_stt_clicked)
         header_layout.addWidget(self._restart_stt_btn)
+
+        self._ime_btn = QPushButton("あ")
+        self._ime_btn.setToolTip("日本語入力のON/OFFを切り替えます (fcitx5-remote -t)")
+        self._ime_btn.setFixedHeight(48)
+        self._ime_btn.setFixedWidth(56)
+        self._ime_btn.setStyleSheet(
+            f"QPushButton {{ background: #f0f8ff; border-radius: 16px;"
+            f" border: 1px solid {_BORDER};"
+            f" padding: 0 8px; font-size: {_px(15)}px; color: {_TEXT_PRIMARY}; font-weight: 700; }}"
+            f"QPushButton:hover {{ background: #e0f0ff; color: {_ACCENT_DEEP}; }}"
+            f"QPushButton:pressed {{ background: #d0e8ff; }}"
+        )
+        self._ime_btn.clicked.connect(self._on_ime_toggle_clicked)
+        # check if fcitx5-remote is available
+        import shutil as _shutil
+        self._ime_btn.setVisible(bool(_shutil.which("fcitx5-remote")))
+        header_layout.addWidget(self._ime_btn)
+
+        # refresh IME button label every 800 ms
+        self._ime_timer = QTimer(self)
+        self._ime_timer.setInterval(800)
+        self._ime_timer.timeout.connect(self._refresh_ime_btn)
+        if self._ime_btn.isVisible():
+            self._ime_timer.start()
+
         left_layout.addWidget(header)
 
         status_card = QWidget()
@@ -1260,6 +1285,7 @@ class FamiliarWindow(QMainWindow):
         input_row.setSpacing(8)
 
         self._input = QLineEdit()
+        self._input.setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
         self._input.setPlaceholderText(_t("gui_input_placeholder"))
         self._input.setObjectName("msgInput")
         self._input.setStyleSheet(
@@ -1465,6 +1491,28 @@ class FamiliarWindow(QMainWindow):
 
     def _on_restart_stt_clicked(self) -> None:
         self._create_task(self._restart_realtime_stt(reason="manual"))
+
+    def _on_ime_toggle_clicked(self) -> None:
+        import subprocess as _sp
+        try:
+            _sp.run(["fcitx5-remote", "-t"], timeout=1)
+        except Exception:
+            pass
+        self._refresh_ime_btn()
+        if hasattr(self, "_input"):
+            self._input.setFocus()
+
+    def _refresh_ime_btn(self) -> None:
+        btn = getattr(self, "_ime_btn", None)
+        if btn is None or not btn.isVisible():
+            return
+        import subprocess as _sp
+        try:
+            r = _sp.run(["fcitx5-remote"], capture_output=True, timeout=1)
+            active = r.stdout.strip() == b"2"
+        except Exception:
+            return
+        btn.setText("あ" if active else "A")
 
     def _get_active_speaker(self) -> str:
         """Return the agent's current estimated speaker name, or the fallback label."""
