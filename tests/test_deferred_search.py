@@ -131,3 +131,120 @@ async def test_search_error_stored_as_pending_result():
     await asyncio.sleep(0)
     ctx = tool.pending_context()
     assert "エラー" in ctx
+
+
+# ── Deduplication tests ───────────────────────────────────────────────────────
+
+
+class _MockUtilityBackend:
+    """Minimal utility backend stub that always returns a fixed yes/no answer."""
+
+    def __init__(self, response: str = "no") -> None:
+        self.response = response
+        self.calls: list[str] = []
+
+    async def complete(self, prompt: str, max_tokens: int) -> str:
+        self.calls.append(prompt)
+        return self.response
+
+
+@pytest.mark.asyncio
+async def test_first_search_skips_utility_llm():
+    """When no existing searches exist, utility LLM is never called."""
+    backend = _MockUtilityBackend("yes")
+    tool = DeferredSearchTool(AsyncMock(return_value=("r", None)), utility_backend=backend)
+    result, _ = await tool.call("search_deferred", {"query": "first query"})
+    assert "バックグラウンド" in result
+    assert len(backend.calls) == 0
+
+
+@pytest.mark.asyncio
+async def test_same_intent_blocked_by_utility_llm():
+    """Utility LLM returning yes blocks the duplicate search."""
+    backend = _MockUtilityBackend("yes")
+    fn = AsyncMock(return_value=("r", None))
+    tool = DeferredSearchTool(fn, utility_backend=backend)
+
+    await tool.call("search_deferred", {"query": "日本 最新ニュース"})
+    result, _ = await tool.call("search_deferred", {"query": "今日のニュース教えて"})
+
+    assert "進行中" in result
+    await asyncio.sleep(0)
+    assert fn.call_count == 1  # only the first search executed
+
+
+@pytest.mark.asyncio
+async def test_different_intent_allowed_by_utility_llm():
+    """Utility LLM returning no allows the second search to proceed."""
+    backend = _MockUtilityBackend("no")
+    fn = AsyncMock(return_value=("r", None))
+    tool = DeferredSearchTool(fn, utility_backend=backend)
+
+    await tool.call("search_deferred", {"query": "日本 最新ニュース"})
+    result, _ = await tool.call("search_deferred", {"query": "東京 天気予報"})
+
+    assert "バックグラウンド" in result
+    await asyncio.sleep(0)
+    assert fn.call_count == 2
+
+
+@pytest.mark.asyncio
+async def test_no_utility_backend_exact_match_blocks_duplicate():
+    """Without utility backend, exact string match blocks duplicate."""
+    fn = AsyncMock(return_value=("r", None))
+    tool = DeferredSearchTool(fn)
+
+    await tool.call("search_deferred", {"query": "same query"})
+    result, _ = await tool.call("search_deferred", {"query": "same query"})
+    assert "進行中" in result
+
+
+@pytest.mark.asyncio
+async def test_no_utility_backend_different_query_allowed():
+    """Without utility backend, different query string proceeds."""
+    fn = AsyncMock(return_value=("r", None))
+    tool = DeferredSearchTool(fn)
+
+    await tool.call("search_deferred", {"query": "query A"})
+    result, _ = await tool.call("search_deferred", {"query": "query B"})
+    assert "バックグラウンド" in result
+
+
+@pytest.mark.asyncio
+async def test_running_query_tracked_and_removed():
+    """Query is in _running_queries while executing and removed on completion."""
+    fn = AsyncMock(return_value=("r", None))
+    tool = DeferredSearchTool(fn)
+
+    await tool.call("search_deferred", {"query": "track me"})
+    assert "track me" in tool._running_queries
+    await asyncio.sleep(0)
+    assert "track me" not in tool._running_queries
+
+
+@pytest.mark.asyncio
+async def test_pending_query_also_blocks_duplicate():
+    """A query already delivered to _pending blocks the same query again."""
+    fn = AsyncMock(return_value=("r", None))
+    tool = DeferredSearchTool(fn)
+    tool._pending = [{"query": "cached query", "result": "...", "source": "brave"}]
+
+    result, _ = await tool.call("search_deferred", {"query": "cached query"})
+    assert "進行中" in result
+    fn.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_utility_llm_error_falls_back_to_exact_match():
+    """If utility LLM raises, exact match is used as fallback."""
+
+    class _BrokenBackend:
+        async def complete(self, prompt: str, max_tokens: int) -> str:
+            raise RuntimeError("LLM unavailable")
+
+    fn = AsyncMock(return_value=("r", None))
+    tool = DeferredSearchTool(fn, utility_backend=_BrokenBackend())
+
+    await tool.call("search_deferred", {"query": "identical"})
+    result, _ = await tool.call("search_deferred", {"query": "identical"})
+    assert "進行中" in result

@@ -1153,7 +1153,7 @@ class EmbodiedAgent:
         elif os.environ.get("MCP_CONFIG"):
             logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
 
-        self._deferred_search = DeferredSearchTool(self._mcp_search)
+        self._deferred_search = DeferredSearchTool(self._mcp_search, self._utility_backend)
         self._deferred_fetch = DeferredFetchTool(self._mcp_search)
 
         stt_cfg = self.config.stt

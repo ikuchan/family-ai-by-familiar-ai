@@ -15,6 +15,11 @@ _SOURCE_TO_TOOL = {
     "tavily": "tavily_search",
 }
 
+_SAME_INTENT_PROMPT = (
+    "次の2つの検索クエリは同じ調査の意図ですか？ yes か no だけ答えてください。\n"
+    "A: {a}\nB: {b}"
+)
+
 
 class DeferredSearchTool:
     """Starts an MCP search in the background and returns immediately.
@@ -27,10 +32,13 @@ class DeferredSearchTool:
     def __init__(
         self,
         search_fn: Callable[[str, dict], Awaitable[tuple[str, Any]]],
+        utility_backend: Any = None,
     ) -> None:
         self._search_fn = search_fn
+        self._utility_backend = utility_backend
         self._pending: list[dict] = []
         self._running: int = 0
+        self._running_queries: set[str] = set()
 
     # ── Tool definition ───────────────────────────────────────────────
 
@@ -64,6 +72,19 @@ class DeferredSearchTool:
 
     # ── Tool execution ────────────────────────────────────────────────
 
+    async def _is_same_intent(self, new_query: str, existing_query: str) -> bool:
+        """Return True if new_query and existing_query share the same search intent."""
+        if self._utility_backend is None:
+            return new_query == existing_query
+        try:
+            answer = await self._utility_backend.complete(
+                _SAME_INTENT_PROMPT.format(a=existing_query, b=new_query),
+                max_tokens=5,
+            )
+            return answer.strip().lower().startswith("yes")
+        except Exception:
+            return new_query == existing_query
+
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name != "search_deferred":
             return f"Unknown tool: {tool_name}", None
@@ -79,9 +100,23 @@ class DeferredSearchTool:
                 None,
             )
 
+        # Deduplicate: skip if same intent is already running or pending.
+        # existing_queries is empty on the first search → no utility LLM call needed.
+        existing_queries = list(self._running_queries) + [
+            item["query"] for item in self._pending
+        ]
+        for existing in existing_queries:
+            if await self._is_same_intent(query, existing):
+                return (
+                    f"「{existing}」の調査がすでに進行中です。結果は次のターンで届きます。",
+                    None,
+                )
+
         source = str(tool_input.get("source", "brave"))
         mcp_tool = _SOURCE_TO_TOOL.get(source, "brave_web_search")
-        self._running += 1  # increment synchronously before task starts to prevent race
+        # Increment synchronously before task starts to prevent race conditions.
+        self._running += 1
+        self._running_queries.add(query)
         asyncio.create_task(self._run(query, mcp_tool, source))
         return (
             f"「{query}」を {source} でバックグラウンド検索中… 次のターンで結果をお知らせします。",
@@ -103,6 +138,7 @@ class DeferredSearchTool:
                 })
         finally:
             self._running -= 1
+            self._running_queries.discard(query)
 
     # ── Context injection ─────────────────────────────────────────────
 
