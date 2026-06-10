@@ -1,10 +1,33 @@
 #!/usr/bin/env bash
 # Run the full test suite against the test DB.
-# Usage: ./scripts/run_tests.sh [pytest args...]
+#
+# Usage:
+#   ./scripts/run_tests.sh [pytest args...]
+#   ./scripts/run_tests.sh -m "commit message" [pytest args...]
+#
+# If -m is given and all tests pass, tracked changes are committed.
+# The new commit hash becomes the updated version shown in the TUI.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
+
+# ── Parse args ─────────────────────────────────────────────────────────────
+COMMIT_MSG=""
+PYTEST_ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -m|--message)
+            COMMIT_MSG="$2"
+            shift 2
+            ;;
+        *)
+            PYTEST_ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
 
 # ── Start test DB ──────────────────────────────────────────────────────────
 echo "Starting test DB..."
@@ -29,10 +52,25 @@ done
 
 # ── Run tests ──────────────────────────────────────────────────────────────
 EXIT_CODE=0
-uv run pytest -q "$@" || EXIT_CODE=$?
+uv run pytest -v "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
 
 # ── Stop test DB ───────────────────────────────────────────────────────────
 echo "Stopping test DB..."
 docker compose --profile test stop db-test
+
+# ── Commit on success ──────────────────────────────────────────────────────
+if [ "$EXIT_CODE" -eq 0 ] && [ -n "$COMMIT_MSG" ]; then
+    echo ""
+    echo "All tests passed. Committing..."
+    git add -u
+    git commit -m "${COMMIT_MSG}
+
+Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+    VERSION=$(uv run python -c "from familiar_agent import __version__; print(__version__)" 2>/dev/null || echo "unknown")
+    echo "Committed. Version: ${VERSION}"
+elif [ "$EXIT_CODE" -ne 0 ]; then
+    echo "" >&2
+    echo "Tests failed — no commit made." >&2
+fi
 
 exit "$EXIT_CODE"
