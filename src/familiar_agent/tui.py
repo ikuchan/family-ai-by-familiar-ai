@@ -19,6 +19,7 @@ from textual.binding import Binding
 from textual.widgets import Footer, Input, RichLog, Static
 from textual_autocomplete import AutoComplete, DropdownItem, TargetState
 
+from . import __version__
 from ._i18n import _make_banner, _t
 from ._ui_helpers import (
     ACTION_ICONS,
@@ -210,7 +211,7 @@ class FamiliarApp(App):
         yield RichLog(id="log", highlight=False, markup=True, wrap=True)
         yield Static("", id="stream")
         input_bar = Input(
-            placeholder=_t("input_placeholder"),
+            placeholder=f"{__version__}  {_t('input_placeholder')}",
             id="input-bar",
         )
         yield input_bar
@@ -522,6 +523,16 @@ class FamiliarApp(App):
         """Check desires and fire autonomous actions when idle."""
         # Always grow desires regardless of cooldown or auto_desire setting.
         self.desires.tick()
+
+        # Deliver completed deferred search results immediately (bypasses cooldown).
+        if self.agent.should_deliver_deferred_result():
+            self._last_interaction = time.time()
+            await self._run_agent(
+                "",
+                inner_voice="調べておいた検索結果が出た。ユーザーに知らせよう。",
+                desire_name="share_search_result",
+            )
+            return
 
         # Skip firing if auto_desire is disabled (default OFF)
         if not getattr(self.agent.config, "auto_desire", False):

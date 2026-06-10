@@ -1,6 +1,6 @@
 [project]
 name = "familiar-ai"
-version = "0.6.0"
+dynamic = ["version"]
 description = "AI that lives alongside you — with eyes, voice, memory and person awareness"
 requires-python = ">=3.10"
 dependencies = [
@@ -56,8 +56,14 @@ familiar = "familiar_agent.main:main"
 familiar-discover-cameras = "familiar_agent.camera_discovery:main"
 
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/familiar_agent/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/familiar_agent"]

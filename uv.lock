@@ -836,7 +836,6 @@ wheels = [
 
 [[package]]
 name = "familiar-ai"
-version = "0.6.0"
 source = { editable = "." }
 dependencies = [
     { name = "aiohttp" },
@@ -923,34 +922,46 @@ voice = [
 requires-dist = [
     { name = "aiohttp", specifier = ">=3.9.0" },
     { name = "anthropic", specifier = ">=0.40.0" },
+    { name = "av", marker = "extra == 'all'", specifier = ">=14.0.0" },
     { name = "av", marker = "extra == 'voice'", specifier = ">=14.0.0" },
+    { name = "deepface", marker = "extra == 'all'", specifier = ">=0.0.93" },
     { name = "deepface", marker = "extra == 'recognition'", specifier = ">=0.0.93" },
-    { name = "familiar-ai", extras = ["gui", "camera", "voice", "recognition"], marker = "extra == 'all'" },
     { name = "google-genai", specifier = ">=1.0" },
     { name = "google-generativeai", specifier = ">=0.8.6" },
     { name = "mcp", specifier = ">=1.0.0" },
     { name = "numpy", specifier = ">=1.24.0" },
+    { name = "onvif-zeep-async", marker = "extra == 'all'", specifier = ">=4.0.0" },
     { name = "onvif-zeep-async", marker = "extra == 'camera'", specifier = ">=4.0.0" },
     { name = "openai", specifier = ">=1.0.0" },
+    { name = "openai-whisper", marker = "extra == 'all'" },
     { name = "openai-whisper", marker = "extra == 'voice'" },
+    { name = "opencv-python", marker = "extra == 'all'", specifier = ">=4.0" },
     { name = "opencv-python", marker = "extra == 'camera'", specifier = ">=4.0" },
+    { name = "pillow", marker = "extra == 'all'", specifier = ">=10.0.0" },
     { name = "pillow", marker = "extra == 'camera'", specifier = ">=10.0.0" },
     { name = "psycopg2-binary", specifier = ">=2.9.9" },
+    { name = "pyside6", marker = "extra == 'all'", specifier = ">=6.7.0" },
     { name = "pyside6", marker = "extra == 'gui'", specifier = ">=6.7.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
+    { name = "qasync", marker = "extra == 'all'", specifier = ">=0.27.0" },
     { name = "qasync", marker = "extra == 'gui'", specifier = ">=0.27.0" },
+    { name = "resemblyzer", marker = "extra == 'all'", specifier = ">=0.1.3" },
     { name = "resemblyzer", marker = "extra == 'recognition'", specifier = ">=0.1.3" },
     { name = "sentence-transformers", specifier = ">=3.0.0" },
+    { name = "sounddevice", marker = "extra == 'all'", specifier = ">=0.5.5" },
     { name = "sounddevice", marker = "extra == 'voice'", specifier = ">=0.5.5" },
+    { name = "soundfile", marker = "extra == 'all'", specifier = ">=0.13.1" },
     { name = "soundfile", marker = "extra == 'voice'", specifier = ">=0.13.1" },
     { name = "textual", specifier = ">=8.0.0" },
     { name = "textual-autocomplete", specifier = ">=4.0.6" },
+    { name = "tf-keras", marker = "extra == 'all'", specifier = ">=2.16.0" },
     { name = "tf-keras", marker = "extra == 'recognition'", specifier = ">=2.16.0" },
     { name = "tinytuya", specifier = ">=1.15.0" },
     { name = "uvloop", marker = "sys_platform != 'win32'", specifier = ">=0.22.1" },
+    { name = "zeroconf", marker = "extra == 'all'", specifier = ">=0.132.2" },
     { name = "zeroconf", marker = "extra == 'camera'", specifier = ">=0.132.2" },
 ]
-provides-extras = ["gui", "camera", "voice", "recognition", "all"]
+provides-extras = ["all", "camera", "gui", "recognition", "voice"]
 
 [package.metadata.requires-dev]
 camera = [

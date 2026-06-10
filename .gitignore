@@ -19,3 +19,4 @@ dist/
 build/
 .release/
 *.spec
+src/familiar_agent/_version.py
