@@ -1828,6 +1828,12 @@ class FamiliarWindow(QMainWindow):
 
             agent = await asyncio.to_thread(EmbodiedAgent, self._config)
             self._agent = agent
+            # Refresh display name from ME.md now that the agent has loaded it.
+            agent_name = (getattr(self._config, "agent_name", "") or "").strip()
+            current = getattr(self, "_agent_display_name", "")
+            if agent_name and agent_name != current:
+                self._agent_display_name = agent_name
+                setattr(self._log, "_agent_label", agent_name)
             if not agent.is_embedding_ready:
                 self._set_startup_status(f"{_t('initializing')} memory...")
             self._agent_ready = True
