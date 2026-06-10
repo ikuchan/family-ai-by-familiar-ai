@@ -1333,6 +1333,8 @@ class FamiliarWindow(QMainWindow):
         scroll.setWidget(central)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(f"QScrollArea {{ background: {_BG_BASE}; border: none; }}")
+        scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        scroll.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setCentralWidget(scroll)
 
     def _set_input_enabled(self, enabled: bool) -> None:
