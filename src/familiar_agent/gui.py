@@ -166,6 +166,23 @@ _GUI_LOOK_PREVIEW_MIN_SEC = 0.8
 _GUI_LOOK_PREVIEW_MAX_SEC = 2.0
 _GUI_LOOK_PREVIEW_GRACE_SEC = 0.3
 _GUI_LOOK_PREVIEW_READ_TIMEOUT_SEC = 0.35
+
+
+class _PassthroughScrollArea(QScrollArea):
+    """QScrollArea that forwards all key events to the currently focused widget.
+
+    Prevents the scroll area from consuming IME toggle keys (e.g. 半角/全角)
+    before they reach the QLineEdit input context.
+    """
+
+    def keyPressEvent(self, event: Any) -> None:
+        from PySide6.QtWidgets import QApplication as _QApp  # noqa: PLC0415
+
+        focused = _QApp.focusWidget()
+        if focused is not None and focused is not self:
+            _QApp.sendEvent(focused, event)
+        else:
+            super().keyPressEvent(event)
 _SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 _APP_ICON_ENV = "FAMILIAR_APP_ICON"
 
@@ -1329,7 +1346,7 @@ class FamiliarWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         root.addWidget(splitter)
 
-        scroll = QScrollArea()
+        scroll = _PassthroughScrollArea()
         scroll.setWidget(central)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(f"QScrollArea {{ background: {_BG_BASE}; border: none; }}")
