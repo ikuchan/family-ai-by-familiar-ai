@@ -1358,6 +1358,11 @@ class FamiliarWindow(QMainWindow):
         scroll.setWidget(central)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(f"QScrollArea {{ background: {_BG_BASE}; border: none; }}")
+        # Redirect focus from the scroll area and its viewport to the text input field.
+        # This ensures IBus sees the QLineEdit's input context when Zenkaku/Hankaku is pressed,
+        # regardless of whether the user has clicked the input field explicitly.
+        scroll.setFocusProxy(self._input)
+        scroll.viewport().setFocusProxy(self._input)
         self.setCentralWidget(scroll)
 
     def _set_input_enabled(self, enabled: bool) -> None:
