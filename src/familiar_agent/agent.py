@@ -3445,9 +3445,16 @@ class EmbodiedAgent:
                         and final_text
                         and final_text != "(no response)"
                     ):
-                        if on_action:
-                            on_action("say", {"text": final_text})
-                        await self._tts.call("say", {"text": final_text})
+                        import re as _re
+                        # Strip any system-context labels that leaked into the output.
+                        # These look like "[バックグラウンド検索完了: ...]" and must not be spoken.
+                        _tts_text = _re.sub(
+                            r"\[バックグラウンド(?:検索|取得)完了[^\]]*\]\n?", "", final_text
+                        ).strip()
+                        if _tts_text:
+                            if on_action:
+                                on_action("say", {"text": _tts_text})
+                            await self._tts.call("say", {"text": _tts_text})
 
                     if final_text and final_text != "(no response)":
                         try:

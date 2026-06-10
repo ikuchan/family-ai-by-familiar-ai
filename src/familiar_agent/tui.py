@@ -527,9 +527,20 @@ class FamiliarApp(App):
         # Deliver completed deferred search results immediately (bypasses cooldown).
         if self.agent.should_deliver_deferred_result():
             self._last_interaction = time.time()
+            # Build inner_voice from pending query/URL names so the LLM knows
+            # what was fetched without needing a label in the context block itself.
+            _parts: list[str] = []
+            if self.agent._deferred_search.has_pending:
+                _parts.append(f"「{self.agent._deferred_search.pending_summary()}」の検索結果")
+            if self.agent._deferred_fetch.has_pending:
+                _parts.append(f"「{self.agent._deferred_fetch.pending_summary()}」のページ取得結果")
+            _what = "と".join(_parts) if _parts else "調べておいた結果"
             await self._run_agent(
                 "",
-                inner_voice="調べておいた検索結果が出た。ユーザーに知らせよう。",
+                inner_voice=(
+                    f"{_what}が届いた。"
+                    "いつものトーンで自然に報告しよう。改めての挨拶は不要。"
+                ),
                 desire_name="share_search_result",
             )
             return

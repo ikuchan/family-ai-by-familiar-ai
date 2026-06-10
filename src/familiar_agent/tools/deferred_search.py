@@ -142,14 +142,19 @@ class DeferredSearchTool:
 
     # ── Context injection ─────────────────────────────────────────────
 
+    def pending_summary(self) -> str:
+        """Return a comma-joined list of pending query strings (does not clear pending)."""
+        return "、".join(item["query"] for item in self._pending)
+
     def pending_context(self) -> str:
-        """Return all completed results as a context block, then clear them."""
+        """Return all completed results as a context block, then clear them.
+
+        The query label is intentionally omitted here — it is embedded in the
+        inner_voice directive instead, so the LLM never echoes it as output text.
+        """
         if not self._pending:
             return ""
-        parts = []
-        for item in self._pending:
-            snippet = item["result"][:2000]
-            parts.append(f"[バックグラウンド検索完了: {item['query']}]\n{snippet}")
+        parts = [item["result"][:2000] for item in self._pending]
         self._pending.clear()
         return "\n\n".join(parts)
 

@@ -36,8 +36,18 @@ async def test_pending_context_contains_result_after_completion():
     await tool.call("fetch_deferred", {"url": "https://example.com/tokyo"})
     await asyncio.sleep(0)
     ctx = tool.pending_context()
-    assert "https://example.com/tokyo" in ctx
+    # URL label is intentionally excluded from context (injected via inner_voice instead).
     assert "東京は日本の首都です。" in ctx
+
+
+@pytest.mark.asyncio
+async def test_pending_summary_returns_urls_without_clearing():
+    tool, _ = _make_tool("result")
+    await tool.call("fetch_deferred", {"url": "https://example.com/a"})
+    await asyncio.sleep(0)
+    summary = tool.pending_summary()
+    assert "https://example.com/a" in summary
+    assert tool.has_pending  # pending list was not cleared
 
 
 @pytest.mark.asyncio
