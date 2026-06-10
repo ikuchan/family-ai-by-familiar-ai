@@ -113,6 +113,7 @@ _SOCIAL_DESIRE_NAMES: frozenset[str] = frozenset({
     "care",
     "repair",
     "play",
+    "share_search_result",  # delivery turns are user-facing; must use the full social backend
 })
 
 

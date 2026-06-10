@@ -413,7 +413,12 @@ SYSTEM_PROMPT = """
        delivery turn (when inner_voice says results have arrived).
        On any follow-up turn after delivery — e.g. when the user comments on the results —
        do NOT open with these delivery phrases.
-       Respond naturally to what the user just said.")
+       Respond naturally to what the user just said.
+
+       Additionally: on the delivery turn itself, do NOT greet the user again
+       (e.g. do NOT say 'こんにちは', 'こんばんは', 'おはよう' etc.).
+       The greeting was already given earlier in this session.
+       Just report the result directly.")
 
     ; ── Orientation ────────────────────────────────────────────────────
     (orientation

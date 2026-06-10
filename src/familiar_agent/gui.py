@@ -79,6 +79,7 @@ except ImportError:
     QEasingCurve = QPropertyAnimation = QSize = Qt = QTimer = _QtCallable()  # type: ignore[assignment]
     QIcon = QImage = QPixmap = _QtCallable()  # type: ignore[assignment]
 
+from . import __version__
 from ._i18n import _t
 from ._ui_helpers import (
     DESIRE_COOLDOWN,
@@ -928,7 +929,7 @@ class FamiliarWindow(QMainWindow):
         self._status_timer.timeout.connect(self._refresh_status_card)
         self._status_timer.start()
 
-        self.setWindowTitle("familiar-ai")
+        self.setWindowTitle(f"familiar-ai  {__version__}")
         self.resize(1020, 720)
         self.setStyleSheet(f"background: {_BG_BASE};")
         self._build_ui()
@@ -1324,7 +1325,7 @@ class FamiliarWindow(QMainWindow):
         self._startup_status = text
         if not self._agent_running and not self._stream.has_content():
             self._stream.set_status(text)
-        self.setWindowTitle(f"familiar-ai  ⏳ {text}")
+        self.setWindowTitle(f"familiar-ai  {__version__}  ⏳ {text}")
         self._refresh_status_card()
 
     def _set_last_error(self, message: str | None) -> None:
@@ -1759,7 +1760,7 @@ class FamiliarWindow(QMainWindow):
         elapsed = int(time.time() - start)
         self._log.append_line(f"✅ {_t('initializing_done')} ({elapsed}s)")
         self._stream.clear_status()
-        self.setWindowTitle("familiar-ai")
+        self.setWindowTitle(f"familiar-ai  {__version__}")
 
     async def _initialize_agent(self) -> None:
         """Build EmbodiedAgent after the window is already visible."""
@@ -1799,7 +1800,7 @@ class FamiliarWindow(QMainWindow):
         self._shutdown_requested = True
         self._closing = True
         self.setEnabled(False)
-        self.setWindowTitle("familiar-ai  ⏳ shutting down...")
+        self.setWindowTitle(f"familiar-ai  {__version__}  ⏳ shutting down...")
         self._ensure_shutdown_task()
         event.ignore()
 
