@@ -3267,16 +3267,16 @@ class EmbodiedAgent:
         continuity_ctx = ""
         tape_backend = self._tape_backend()  # still needed for in-loop replanning
         if not brief_reply_turn:
-            if not _deferred_parts:
-                # Delivery turns skip workspace: competing coalitions would override
-                # the inner-voice directive to report search/fetch results.
-                extra_coalitions = [affect.as_coalition()]
-                workspace_ctx = await self._gather_workspace_context(
-                    desires=desires,
-                    extra_coalitions=extra_coalitions,
-                )
-                if not workspace_ctx:
-                    workspace_ctx = self._cached_workspace_ctx
+            extra_coalitions = [affect.as_coalition()]
+            workspace_ctx = await self._gather_workspace_context(
+                # Delivery turns exclude desire coalitions: social impulses (greet etc.)
+                # would override the inner-voice directive to report search/fetch results.
+                # Affect, memory, attention etc. still compete to preserve personality tone.
+                desires=None if _deferred_parts else desires,
+                extra_coalitions=extra_coalitions,
+            )
+            if not workspace_ctx:
+                workspace_ctx = self._cached_workspace_ctx
             continuity_ctx = self._self_continuity_context()
             heartbeat_ctx = self._heartbeat.continuity_context_for_prompt()
             if heartbeat_ctx:

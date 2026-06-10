@@ -33,18 +33,20 @@ done
 echo "Starting test DB..."
 docker compose --profile test up -d db-test
 
-# Wait until Docker healthcheck reports "healthy" (max 60 s)
+# Wait until Docker healthcheck reports "healthy" (max 120 s).
+# WAL recovery after an unclean shutdown can take 60-90 s on a busy test DB,
+# so give it twice the old window before declaring failure.
 echo "Waiting for test DB to be ready..."
 CONTAINER="family-ai-by-familiar-ai-db-test-1"
-for i in $(seq 1 60); do
+for i in $(seq 1 120); do
     STATUS=$(docker inspect --format '{{.State.Health.Status}}' "$CONTAINER" 2>/dev/null || echo "missing")
     if [ "$STATUS" = "healthy" ]; then
         echo "Test DB ready."
         break
     fi
-    if [ "$i" -eq 60 ]; then
+    if [ "$i" -eq 120 ]; then
         echo "ERROR: test DB did not become ready in time (status: $STATUS)." >&2
-        docker compose --profile test stop db-test
+        docker compose --profile test stop --timeout 60 db-test
         exit 1
     fi
     sleep 1
@@ -55,8 +57,13 @@ EXIT_CODE=0
 uv run pytest -v "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
 
 # ── Stop test DB ───────────────────────────────────────────────────────────
+# --timeout 60: give PostgreSQL up to 60 s to flush WAL before Docker sends
+# SIGKILL. Without this the default 10 s is often too short after a full test
+# run, leaving the data directory dirty and forcing WAL recovery on next start
+# — which takes longer than the healthcheck window and marks the container
+# unhealthy.
 echo "Stopping test DB..."
-docker compose --profile test stop db-test
+docker compose --profile test stop --timeout 60 db-test
 
 # ── Commit on success ──────────────────────────────────────────────────────
 if [ "$EXIT_CODE" -eq 0 ] && [ -n "$COMMIT_MSG" ]; then
