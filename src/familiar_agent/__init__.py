@@ -1,32 +1,28 @@
 """Embodied agent - a real-world exploration AI."""
 from __future__ import annotations
 
-import re
+import subprocess
+from pathlib import Path
+
+_SRC_DIR = Path(__file__).resolve().parent
 
 
-def _format_version(raw: str) -> str:
-    """Convert a PEP 440 version string to v0.HASH format.
-
-    Examples:
-      "0.6.0+g30bfd72"           -> "v0.30bfd"
-      "0.6.1.dev3+g30bfd72"      -> "v0.30bfd"
-      "0.6.1.dev3+g30bfd72.d*"   -> "v0.30bfd*"  (dirty)
-      "0.6.0"                    -> "v0.6.0"      (exact tag, no hash)
-    """
-    dirty = bool(re.search(r"\.d\d{8}", raw))  # .d20260610 style date suffix = dirty
-    m = re.search(r"\+g([0-9a-f]+)", raw)
-    if m:
-        h = m.group(1)[:5]
-        return f"v0.{h}{'*' if dirty else ''}"
-    return f"v{raw}"
-
-
-try:
-    from importlib.metadata import version as _pkg_version
-    __version__ = _format_version(_pkg_version("familiar-ai"))
-except Exception:
+def _compute_version() -> str:
     try:
-        from familiar_agent._version import __version__ as _v
-        __version__ = _format_version(_v)
+        hash_r = subprocess.run(
+            ["git", "rev-parse", "--short=5", "HEAD"],
+            capture_output=True, text=True, cwd=_SRC_DIR,
+        )
+        dirty_r = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True, text=True, cwd=_SRC_DIR,
+        )
+        if hash_r.returncode == 0 and hash_r.stdout.strip():
+            dirty = bool(dirty_r.stdout.strip())
+            return f"v0.{hash_r.stdout.strip()}{'*' if dirty else ''}"
     except Exception:
-        __version__ = "v0.?????"
+        pass
+    return "v0.?????"
+
+
+__version__ = _compute_version()
