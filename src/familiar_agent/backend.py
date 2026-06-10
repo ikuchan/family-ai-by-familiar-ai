@@ -194,7 +194,7 @@ class AnthropicBackend:
         """Returns a one-element list containing the Anthropic tool_result user message."""
         content: list[dict[str, Any]] = []
         for tc, (text, image) in zip(tool_calls, results):
-            result_content: list[dict[str, Any]] = [{"type": "text", "text": text}]
+            result_content: list[dict[str, Any]] = [{"type": "text", "text": text or "(empty)"}]
             if image:
                 result_content.append(
                     {
@@ -203,6 +203,8 @@ class AnthropicBackend:
                     }
                 )
             content.append({"type": "tool_result", "tool_use_id": tc.id, "content": result_content})
+        if not content:
+            content = [{"type": "text", "text": "(no tool results)"}]
         msgs: list[dict[str, Any]] = [{"role": "user", "content": content}]
         return msgs
 
@@ -314,11 +316,27 @@ class AnthropicBackend:
         flat_messages = self._flatten_messages(messages)
         flat_messages = self.compact_images(flat_messages)
         stream_kwargs["messages"] = cast(list[MessageParam], flat_messages)
-        async with self.client.messages.stream(**stream_kwargs) as stream:  # type: ignore[arg-type]
-            async for chunk in stream.text_stream:
-                if on_text:
-                    on_text(chunk)
-            response = await stream.get_final_message()
+
+        import anthropic as _anthropic
+
+        _rate_limit_retries = 2
+        for _attempt in range(_rate_limit_retries + 1):
+            try:
+                async with self.client.messages.stream(**stream_kwargs) as stream:  # type: ignore[arg-type]
+                    async for chunk in stream.text_stream:
+                        if on_text:
+                            on_text(chunk)
+                    response = await stream.get_final_message()
+                break  # success
+            except _anthropic.RateLimitError:
+                if _attempt >= _rate_limit_retries:
+                    raise
+                _wait = 60 * (_attempt + 1)
+                logger.warning(
+                    "Anthropic 429 rate limit — waiting %ds before retry %d/%d",
+                    _wait, _attempt + 1, _rate_limit_retries,
+                )
+                await asyncio.sleep(_wait)
 
         # ThinkingBlock has no .text attribute — hasattr check excludes it automatically
         text = "".join(b.text for b in response.content if hasattr(b, "text"))
@@ -327,7 +345,7 @@ class AnthropicBackend:
             for b in response.content
             if b.type == "tool_use"
         ]
-        stop = "end_turn" if response.stop_reason == "end_turn" else "tool_use"
+        stop = "tool_use" if tool_calls else "end_turn"
         in_tok = getattr(response.usage, "input_tokens", 0) if response.usage else 0
         out_tok = getattr(response.usage, "output_tokens", 0) if response.usage else 0
         # Return response.content (including ThinkingBlocks) so interleaved thinking
@@ -342,6 +360,28 @@ class AnthropicBackend:
             ),
             response.content,
         )
+
+    async def warm_cache(self, stable_system: str) -> None:
+        """Ping Anthropic with the stable system prompt to keep the 5-min cache TTL alive.
+
+        Sends a minimal 1-token request.  The cache_read vs cache_creation token counts
+        in the response tell us whether the block was already warm.
+        """
+        try:
+            sys_param = self._build_system_param((stable_system, ""))
+            resp = await self.client.messages.create(
+                model=self.model,
+                max_tokens=1,
+                system=sys_param,  # type: ignore[arg-type]
+                messages=[{"role": "user", "content": "."}],
+            )
+            usage = resp.usage
+            if usage:
+                read = getattr(usage, "cache_read_input_tokens", 0) or 0
+                write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+                logger.debug("cache heartbeat ok — cache_read=%d cache_write=%d", read, write)
+        except Exception as e:
+            logger.debug("cache heartbeat skipped (non-critical): %s", e)
 
     async def complete(self, prompt: str, max_tokens: int) -> str:
         """Simple completion (no tools, no streaming) for utility calls."""

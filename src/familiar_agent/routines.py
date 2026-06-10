@@ -12,7 +12,7 @@ class QuietHoursRule:
     start_hour: int = 23
     end_hour: int = 7
 
-    def is_active(self, now: datetime | None = None) -> bool:
+    def is_quiet(self, now: datetime | None = None) -> bool:
         moment = now or datetime.now()
         if self.start_hour == self.end_hour:
             return False
@@ -58,7 +58,7 @@ def load_optional_notes(base_dir: Path | None = None) -> dict[str, str]:
 
 
 def evaluate_routine_state(rule: QuietHoursRule, now: datetime | None = None) -> RoutineDecision:
-    quiet = rule.is_active(now)
+    quiet = rule.is_quiet(now)
     return RoutineDecision(
         quiet_hours=quiet,
         schedule_multiplier=0.45 if quiet else 1.0,

@@ -1187,16 +1187,16 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT id, content, emotion, kind, created_at "
+                        "SELECT id, content, emotion, kind, timestamp "
                         "FROM observations "
                         "WHERE person_id=%s AND date=%s AND kind != 'day_summary' "
-                        "ORDER BY created_at ASC LIMIT %s",
+                        "ORDER BY timestamp ASC LIMIT %s",
                         (self._person_id, date, limit),
                     )
                     rows = cur.fetchall()
             result = []
             for row in rows:
-                ts = str(row["created_at"])
+                ts = str(row["timestamp"])
                 result.append({
                     "id": row["id"],
                     "content": row["content"],

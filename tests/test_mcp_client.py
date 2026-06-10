@@ -394,3 +394,233 @@ async def test_call_extracts_image_from_content(tmp_path: Path) -> None:
 
     assert text == "Image captured."
     assert image == "base64encodedimagedata=="
+
+
+@pytest.mark.asyncio
+async def test_tavily_search_strips_country_param(tmp_path: Path) -> None:
+    """tavily_search calls must have the 'country' key removed before dispatch."""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"tavily": {"type": "stdio", "command": "tavily-cmd"}}})
+    )
+    sess = _session(_tool("tavily_search"))
+
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = "Results."
+    call_result = MagicMock()
+    call_result.content = [text_block]
+    sess.call_tool = AsyncMock(return_value=call_result)
+
+    from familiar_agent.mcp_client import MCPClientManager
+
+    with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
+        sys.modules, _patch_mcp([sess])
+    ):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        await mgr.call("tavily_search", {"query": "AI news", "country": "Japan", "max_results": 5})
+
+    _, kwargs = sess.call_tool.call_args
+    sent = kwargs["arguments"]
+    assert "country" not in sent
+    assert sent["query"] == "AI news"
+    assert sent["max_results"] == 5
+
+
+@pytest.mark.asyncio
+async def test_tavily_search_without_country_is_unchanged(tmp_path: Path) -> None:
+    """tavily_search calls without 'country' are passed through unchanged."""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"tavily": {"type": "stdio", "command": "tavily-cmd"}}})
+    )
+    sess = _session(_tool("tavily_search"))
+
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = "Results."
+    call_result = MagicMock()
+    call_result.content = [text_block]
+    sess.call_tool = AsyncMock(return_value=call_result)
+
+    from familiar_agent.mcp_client import MCPClientManager
+
+    with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
+        sys.modules, _patch_mcp([sess])
+    ):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        await mgr.call("tavily_search", {"query": "AI news", "search_depth": "basic"})
+
+    _, kwargs = sess.call_tool.call_args
+    sent = kwargs["arguments"]
+    assert sent == {"query": "AI news", "search_depth": "basic"}
+
+
+@pytest.mark.asyncio
+async def test_other_tools_country_param_not_stripped(tmp_path: Path) -> None:
+    """'country' is only stripped from tavily_search; other tools are not affected."""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"other": {"type": "stdio", "command": "other-cmd"}}})
+    )
+    sess = _session(_tool("some_tool"))
+
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = "OK."
+    call_result = MagicMock()
+    call_result.content = [text_block]
+    sess.call_tool = AsyncMock(return_value=call_result)
+
+    from familiar_agent.mcp_client import MCPClientManager
+
+    with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
+        sys.modules, _patch_mcp([sess])
+    ):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        await mgr.call("some_tool", {"query": "test", "country": "Japan"})
+
+    _, kwargs = sess.call_tool.call_args
+    sent = kwargs["arguments"]
+    assert "country" in sent
+
+
+def test_compress_tavily_result_truncates_content() -> None:
+    """Content snippets longer than 120 chars are truncated with ellipsis."""
+    from familiar_agent.mcp_client import _compress_tavily_result
+
+    long_content = "x" * 200
+    raw = f"Detailed Results:\n\nTitle: Test\nURL: https://example.com\nContent: {long_content}\nScore: 0.9\n"
+    result = _compress_tavily_result(raw)
+
+    assert "Title: Test" in result
+    assert "URL: https://example.com" in result
+    assert "Score:" not in result
+    content_line = next(ln for ln in result.splitlines() if ln.startswith("Content: "))
+    assert content_line.endswith("…")
+    assert len(content_line) <= len("Content: ") + 120 + 1  # +1 for ellipsis char
+
+
+def test_compress_tavily_result_keeps_answer() -> None:
+    """Answer: line is preserved as-is (it is already short)."""
+    from familiar_agent.mcp_client import _compress_tavily_result
+
+    raw = "Answer: AIによる短い要約文。\n\nDetailed Results:\n\nTitle: T\nURL: U\nContent: short\n"
+    result = _compress_tavily_result(raw)
+    assert result.startswith("Answer: AIによる短い要約文。")
+
+
+def test_compress_tavily_result_drops_score_and_favicon() -> None:
+    """Score and Favicon lines are removed from output."""
+    from familiar_agent.mcp_client import _compress_tavily_result
+
+    raw = "Detailed Results:\n\nTitle: T\nURL: U\nContent: c\nScore: 0.95\nFavicon: https://f.ico\n"
+    result = _compress_tavily_result(raw)
+    assert "Score:" not in result
+    assert "Favicon:" not in result
+
+
+def test_compress_tavily_result_short_content_unchanged() -> None:
+    """Content shorter than 120 chars is passed through without truncation."""
+    from familiar_agent.mcp_client import _compress_tavily_result
+
+    raw = "Detailed Results:\n\nTitle: T\nURL: U\nContent: short text\n"
+    result = _compress_tavily_result(raw)
+    assert "Content: short text" in result
+    assert "…" not in result
+
+
+@pytest.mark.asyncio
+async def test_tavily_search_result_is_compressed(tmp_path: Path) -> None:
+    """call() applies _compress_tavily_result to tavily_search results."""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"tavily": {"type": "stdio", "command": "tavily-cmd"}}})
+    )
+    sess = _session(_tool("tavily_search"))
+
+    long_content = "x" * 500
+    text_block = MagicMock()
+    text_block.type = "text"
+    text_block.text = f"Detailed Results:\n\nTitle: Test\nURL: https://example.com\nContent: {long_content}\nScore: 0.9\n"
+    call_result = MagicMock()
+    call_result.content = [text_block]
+    sess.call_tool = AsyncMock(return_value=call_result)
+
+    from familiar_agent.mcp_client import MCPClientManager
+
+    with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
+        sys.modules, _patch_mcp([sess])
+    ):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        text, _ = await mgr.call("tavily_search", {"query": "test"})
+
+    assert "Score:" not in text
+    content_line = next((ln for ln in text.splitlines() if ln.startswith("Content: ")), "")
+    assert content_line.endswith("…")
+
+
+@pytest.mark.asyncio
+async def test_tavily_search_normalizes_invalid_time_range(tmp_path: Path) -> None:
+    """tavily_search: invalid time_range values like '24h' and '7d' are normalized."""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"tavily": {"type": "stdio", "command": "tavily-cmd"}}})
+    )
+
+    from familiar_agent.mcp_client import MCPClientManager
+
+    for invalid, expected in [("24h", "day"), ("7d", "week"), ("30d", "month"), ("48h", "day"), ("3d", "week")]:
+        sess = _session(_tool("tavily_search"))
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "Results."
+        call_result = MagicMock()
+        call_result.content = [text_block]
+        sess.call_tool = AsyncMock(return_value=call_result)
+
+        with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
+            sys.modules, _patch_mcp([sess])
+        ):
+            mgr = MCPClientManager(config_path=cfg)
+            await mgr.start()
+            await mgr.call("tavily_search", {"query": "news", "time_range": invalid})
+
+        _, kwargs = sess.call_tool.call_args
+        sent = kwargs["arguments"]
+        assert sent["time_range"] == expected, f"{invalid!r} should map to {expected!r}, got {sent['time_range']!r}"
+
+
+@pytest.mark.asyncio
+async def test_tavily_search_valid_time_range_unchanged(tmp_path: Path) -> None:
+    """tavily_search: valid time_range values are passed through unchanged."""
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"tavily": {"type": "stdio", "command": "tavily-cmd"}}})
+    )
+
+    from familiar_agent.mcp_client import MCPClientManager
+
+    for valid in ["day", "week", "month", "year", "d", "w", "m", "y"]:
+        sess = _session(_tool("tavily_search"))
+        text_block = MagicMock()
+        text_block.type = "text"
+        text_block.text = "Results."
+        call_result = MagicMock()
+        call_result.content = [text_block]
+        sess.call_tool = AsyncMock(return_value=call_result)
+
+        with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
+            sys.modules, _patch_mcp([sess])
+        ):
+            mgr = MCPClientManager(config_path=cfg)
+            await mgr.start()
+            await mgr.call("tavily_search", {"query": "news", "time_range": valid})
+
+        _, kwargs = sess.call_tool.call_args
+        sent = kwargs["arguments"]
+        assert sent["time_range"] == valid, f"Valid value {valid!r} should be unchanged"

@@ -153,6 +153,21 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
             if queued_input is None and input_queue.empty():
                 # Always grow desires regardless of cooldown or auto_desire setting.
                 desires.tick()
+
+                # Deliver completed deferred search results immediately.
+                # Bypasses desire cooldown — this is a response to a user request, not an impulse.
+                if agent.should_deliver_deferred_result():
+                    last_interaction_time = time.time()
+                    await agent.run(
+                        "",
+                        on_action=on_action,
+                        on_text=on_text,
+                        desire_name="share_search_result",
+                        inner_voice="調べておいた検索結果が出た。ユーザーに知らせよう。",
+                        interrupt_queue=input_queue,
+                    )
+                    continue
+
                 # Skip firing if auto_desire is disabled
                 if not getattr(agent, "config", None) or not agent.config.auto_desire:
                     continue

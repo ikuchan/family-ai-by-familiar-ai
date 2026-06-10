@@ -62,6 +62,31 @@ def _load_servers(config_path: Path) -> dict[str, dict[str, Any]]:
         return {}
 
 
+_TAVILY_SKIP_PREFIXES = ("Score: ", "Favicon: ", "Raw Content: ")
+_TAVILY_CONTENT_CHARS = 120
+
+
+def _compress_tavily_result(text: str) -> str:
+    """Strip low-value fields and truncate Content snippets in a Tavily result.
+
+    Keeps: Answer (if present), Title, URL, Content (first 120 chars).
+    Drops: Score, Favicon, Raw Content, image lines.
+    Reduces typical output from ~1200 tokens to ~300 tokens.
+    """
+    out: list[str] = []
+    for line in text.splitlines():
+        if any(line.startswith(p) for p in _TAVILY_SKIP_PREFIXES):
+            continue
+        if line.startswith("Content: "):
+            body = line[len("Content: "):]
+            if len(body) > _TAVILY_CONTENT_CHARS:
+                body = body[:_TAVILY_CONTENT_CHARS] + "…"
+            out.append(f"Content: {body}")
+        else:
+            out.append(line)
+    return "\n".join(out)
+
+
 class MCPClientManager:
     """Manages MCP server connections (stdio and SSE) for the duration of the agent session."""
 
@@ -201,6 +226,13 @@ class MCPClientManager:
         if session is None:
             return f"MCP server '{server_name}' is not connected.", None
 
+        if tool_name == "tavily_search":
+            tool_input = {k: v for k, v in tool_input.items() if k != "country"}
+            _time_range_map = {"24h": "day", "7d": "week", "30d": "month", "1h": "day", "48h": "day", "3d": "week"}
+            if "time_range" in tool_input and tool_input["time_range"] in _time_range_map:
+                tool_input = dict(tool_input)
+                tool_input["time_range"] = _time_range_map[tool_input["time_range"]]
+
         try:
             result = await session.call_tool(tool_name, arguments=tool_input)
         except Exception as e:
@@ -221,4 +253,6 @@ class MCPClientManager:
                 image_b64 = item.data
 
         text = "\n".join(text_parts) if text_parts else "(no output)"
+        if tool_name == "tavily_search":
+            text = _compress_tavily_result(text)
         return text, image_b64

@@ -2,11 +2,18 @@
 
 from __future__ import annotations
 
+import time
+
+import familiar_agent.capability_state as _cs
 from familiar_agent.capability_state import (
+    build_generation_prompt,
+    collect_manifest_context,
     load_manifest,
     load_summary,
+    save_manifest,
     save_summary,
     should_refresh,
+    should_regenerate_manifest,
 )
 
 
@@ -64,3 +71,129 @@ def test_should_not_refresh_on_other_turns():
     save_summary("existing summary")
     for turn in [1, 10, 25, 49, 51, 99]:
         assert should_refresh(turn) is False
+
+
+# ---------------------------------------------------------------------------
+# should_regenerate_manifest
+# ---------------------------------------------------------------------------
+
+
+def test_should_regenerate_when_file_missing(tmp_path, monkeypatch):
+    monkeypatch.setattr(_cs, "_MANIFEST_PATH", tmp_path / "capabilities.yaml")
+    assert should_regenerate_manifest() is True
+
+
+def test_should_regenerate_when_file_is_old(tmp_path, monkeypatch):
+    manifest = tmp_path / "capabilities.yaml"
+    manifest.write_text("capabilities: []")
+    # Backdate mtime by 25 hours
+    old_time = time.time() - 25 * 3600
+    import os
+    os.utime(manifest, (old_time, old_time))
+    monkeypatch.setattr(_cs, "_MANIFEST_PATH", manifest)
+    assert should_regenerate_manifest() is True
+
+
+def test_should_not_regenerate_when_file_is_recent(tmp_path, monkeypatch):
+    manifest = tmp_path / "capabilities.yaml"
+    manifest.write_text("capabilities: []")
+    monkeypatch.setattr(_cs, "_MANIFEST_PATH", manifest)
+    assert should_regenerate_manifest() is False
+
+
+def test_should_regenerate_respects_custom_max_age(tmp_path, monkeypatch):
+    manifest = tmp_path / "capabilities.yaml"
+    manifest.write_text("capabilities: []")
+    # File is 2 seconds old; max_age=1 → should regenerate
+    import os
+    old_time = time.time() - 2
+    os.utime(manifest, (old_time, old_time))
+    monkeypatch.setattr(_cs, "_MANIFEST_PATH", manifest)
+    assert should_regenerate_manifest(max_age_seconds=1) is True
+    assert should_regenerate_manifest(max_age_seconds=10) is False
+
+
+# ---------------------------------------------------------------------------
+# collect_manifest_context
+# ---------------------------------------------------------------------------
+
+
+def test_collect_manifest_context_returns_string():
+    result = collect_manifest_context()
+    assert isinstance(result, str)
+    assert len(result) > 0
+
+
+def test_collect_manifest_context_contains_sections():
+    result = collect_manifest_context()
+    assert "Built-in tools" in result
+    assert "Key modules" in result
+    assert ".env" in result
+    assert "MCP servers" in result
+
+
+def test_collect_manifest_context_contains_known_tool():
+    result = collect_manifest_context()
+    # memory.py and tts.py are always present
+    assert "memory.py" in result or "tools/memory" in result
+
+
+def test_collect_manifest_context_redacts_secrets():
+    result = collect_manifest_context()
+    assert "API_KEY=<redacted>" in result or "API_KEY" not in result or "<redacted>" in result
+
+
+# ---------------------------------------------------------------------------
+# build_generation_prompt
+# ---------------------------------------------------------------------------
+
+
+def test_build_generation_prompt_contains_context():
+    prompt = build_generation_prompt("## test context\nsome info", "")
+    assert "test context" in prompt
+    assert "some info" in prompt
+
+
+def test_build_generation_prompt_includes_existing_yaml():
+    prompt = build_generation_prompt("ctx", "capabilities:\n  - id: memory")
+    assert "memory" in prompt
+
+
+def test_build_generation_prompt_omits_existing_when_empty():
+    prompt = build_generation_prompt("ctx", "")
+    assert "Existing capabilities.yaml" not in prompt
+
+
+def test_build_generation_prompt_instructs_yaml_output():
+    prompt = build_generation_prompt("ctx", "")
+    assert "capabilities:" in prompt
+    assert "YAML" in prompt
+
+
+# ---------------------------------------------------------------------------
+# save_manifest
+# ---------------------------------------------------------------------------
+
+
+def test_save_manifest_writes_file(tmp_path, monkeypatch):
+    manifest = tmp_path / "capabilities.yaml"
+    monkeypatch.setattr(_cs, "_MANIFEST_PATH", manifest)
+    save_manifest("capabilities:\n  - id: test\n")
+    assert manifest.exists()
+    assert "id: test" in manifest.read_text()
+
+
+def test_save_manifest_strips_markdown_fences(tmp_path, monkeypatch):
+    manifest = tmp_path / "capabilities.yaml"
+    monkeypatch.setattr(_cs, "_MANIFEST_PATH", manifest)
+    save_manifest("```yaml\ncapabilities:\n  - id: test\n```")
+    content = manifest.read_text()
+    assert "```" not in content
+    assert "id: test" in content
+
+
+def test_save_manifest_adds_trailing_newline(tmp_path, monkeypatch):
+    manifest = tmp_path / "capabilities.yaml"
+    monkeypatch.setattr(_cs, "_MANIFEST_PATH", manifest)
+    save_manifest("capabilities: []")
+    assert manifest.read_text().endswith("\n")
