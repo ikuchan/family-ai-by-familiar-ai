@@ -1207,6 +1207,22 @@ _T: dict[str, dict[str, str]] = (
             "en": "Play",
             "ja": "遊び",
         },
+        "desire_label_curiosity": {
+            "en": "Curiosity",
+            "ja": "好奇心",
+        },
+        "desire_label_reflect": {
+            "en": "Reflect",
+            "ja": "内省",
+        },
+        "desire_label_consolidate": {
+            "en": "Consolidate",
+            "ja": "記憶整理",
+        },
+        "desire_label_self_protect": {
+            "en": "Self-protect",
+            "ja": "自己保護",
+        },
         "gui_estimated_speaker": {
             "en": "Speaker",
             "ja": "推定話者",

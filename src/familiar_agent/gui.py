@@ -146,6 +146,7 @@ _DESIRE_COLORS: dict[str, str] = {
     "look_around": "#57b8ff",
     "explore": "#5ea1ff",
     "browse_curiosity": "#58c5b7",
+    "curiosity": "#3ecfcf",
     "greet_companion": "#ffb35f",
     "worry_companion": "#ff6b73",
     "share_memory": "#c17aff",
@@ -153,7 +154,10 @@ _DESIRE_COLORS: dict[str, str] = {
     "care": "#ff9e7a",
     "repair": "#7adcff",
     "play": "#a2e57a",
+    "reflect": "#b09aff",
+    "consolidate": "#9abfff",
     "rest": "#8a94a6",
+    "self_protect": "#ff8c8c",
 }
 
 # Flush streamed text at most this often (ms)
