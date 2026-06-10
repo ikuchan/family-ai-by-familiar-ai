@@ -31,7 +31,7 @@ from urllib.parse import quote
 
 try:
     import qasync
-    from PySide6.QtCore import QEasingCurve, QPropertyAnimation, QSize, Qt, QTimer
+    from PySide6.QtCore import QEasingCurve, QEvent, QPropertyAnimation, QSize, Qt, QTimer
     from PySide6.QtGui import QIcon, QImage, QPixmap
     from PySide6.QtWidgets import (
         QApplication,
@@ -168,21 +168,29 @@ _GUI_LOOK_PREVIEW_GRACE_SEC = 0.3
 _GUI_LOOK_PREVIEW_READ_TIMEOUT_SEC = 0.35
 
 
-class _PassthroughScrollArea(QScrollArea):
-    """QScrollArea that forwards all key events to the currently focused widget.
+class _IMEAwareScrollArea(QScrollArea):
+    """QScrollArea that correctly routes IBus/IME events.
 
-    Prevents the scroll area from consuming IME toggle keys (e.g. 半角/全角)
-    before they reach the QLineEdit input context.
+    Standard QScrollArea intercepts InputMethod events at the viewport level,
+    breaking the Zenkaku/Hankaku key on Linux with IBus.  This subclass lets
+    those events pass through without consuming them, and marks the viewport as
+    IME-capable so the platform input context is properly attached.
     """
 
-    def keyPressEvent(self, event: Any) -> None:
-        from PySide6.QtWidgets import QApplication as _QApp  # noqa: PLC0415
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        try:
+            self.viewport().setAttribute(Qt.WidgetAttribute.WA_InputMethodEnabled, True)
+        except Exception:
+            pass
 
-        focused = _QApp.focusWidget()
-        if focused is not None and focused is not self:
-            _QApp.sendEvent(focused, event)
-        else:
-            super().keyPressEvent(event)
+    def viewportEvent(self, event: Any) -> bool:
+        try:
+            if event.type() in (QEvent.Type.InputMethod, QEvent.Type.InputMethodQuery):
+                return False  # let the focused child handle IME events
+        except Exception:
+            pass
+        return super().viewportEvent(event)  # type: ignore[return-value]
 _SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 _APP_ICON_ENV = "FAMILIAR_APP_ICON"
 
@@ -1346,12 +1354,10 @@ class FamiliarWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         root.addWidget(splitter)
 
-        scroll = _PassthroughScrollArea()
+        scroll = _IMEAwareScrollArea()
         scroll.setWidget(central)
         scroll.setWidgetResizable(True)
         scroll.setStyleSheet(f"QScrollArea {{ background: {_BG_BASE}; border: none; }}")
-        scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        scroll.viewport().setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.setCentralWidget(scroll)
 
     def _set_input_enabled(self, enabled: bool) -> None:
