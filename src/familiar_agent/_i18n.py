@@ -1187,6 +1187,30 @@ _T: dict[str, dict[str, str]] = (
             "en": "Rest",
             "ja": "休息",
         },
+        "desire_label_share_memory": {
+            "en": "Share Memory",
+            "ja": "思い出を話す",
+        },
+        "desire_label_attachment": {
+            "en": "Attachment",
+            "ja": "絆",
+        },
+        "desire_label_care": {
+            "en": "Care",
+            "ja": "気遣い",
+        },
+        "desire_label_repair": {
+            "en": "Repair",
+            "ja": "関係修復",
+        },
+        "desire_label_play": {
+            "en": "Play",
+            "ja": "遊び",
+        },
+        "gui_estimated_speaker": {
+            "en": "Speaker",
+            "ja": "推定話者",
+        },
         "desire_pending_note": {
             "en": "(companion said: {note}) {prompt}",
             "ja": "（{note}と言ってた）{prompt}",

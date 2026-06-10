@@ -140,15 +140,20 @@ _UI_FONT_STACK = (
 )
 _MONO_FONT_STACK = "'Cascadia Mono', 'Consolas', 'Courier New', monospace"
 _FONT_SCALE = 1.9
+_SPEAKER_PREFIX_RE = re.compile(r"^\[([^\]]+)\]\s*(.*)", re.DOTALL)
 
 _DESIRE_COLORS: dict[str, str] = {
     "look_around": "#57b8ff",
-    "look_outside": "#4f8cff",
-    "miss_companion": "#ff7ea3",
-    "browse_curiosity": "#58c5b7",
     "explore": "#5ea1ff",
+    "browse_curiosity": "#58c5b7",
     "greet_companion": "#ffb35f",
     "worry_companion": "#ff6b73",
+    "share_memory": "#c17aff",
+    "attachment": "#ff7ea3",
+    "care": "#ff9e7a",
+    "repair": "#7adcff",
+    "play": "#a2e57a",
+    "rest": "#8a94a6",
 }
 
 # Flush streamed text at most this often (ms)
@@ -367,20 +372,7 @@ class ChatLog(QScrollArea):
         if not text:
             return
 
-        user_text = self._extract_prefixed_text(text, self._companion_label)
-        if user_text is None and self._companion_label != "You":
-            user_text = self._extract_prefixed_text(text, "You")
-        if user_text is not None:
-            self._add_bubble(
-                user_text,
-                prefix=self._companion_label,
-                prefix_color=_TEXT_SECONDARY,
-                bg=_BUBBLE_USER_BG,
-                ml=60,
-                mr=4,
-            )
-            return
-
+        # Agent bubble (check first — most specific)
         agent_text = self._extract_prefixed_text(text, self._agent_label)
         if agent_text is None and self._agent_label != "Agent":
             agent_text = self._extract_prefixed_text(text, "Agent")
@@ -396,6 +388,7 @@ class ChatLog(QScrollArea):
             )
             return
 
+        # System error bubble
         if text.startswith("[error]"):
             self._add_bubble(
                 f"⚠ {text[7:].strip()}",
@@ -405,16 +398,33 @@ class ChatLog(QScrollArea):
                 mr=20,
                 small=True,
             )
-        else:
+            return
+
+        # Speaker bubble: any [Name] prefix is treated as a user/speaker message.
+        # This supports dynamic multi-speaker display (パパ, ママ, 推定話者, etc.).
+        m = _SPEAKER_PREFIX_RE.match(text)
+        if m:
+            speaker_name = m.group(1)
+            user_text = m.group(2)
             self._add_bubble(
-                text,
-                bg=_BUBBLE_TOOL_BG,
-                text_color=_TEXT_SECONDARY,
-                ml=20,
-                mr=20,
-                small=True,
-                monospace=True,
+                user_text,
+                prefix=speaker_name,
+                prefix_color=_TEXT_SECONDARY,
+                bg=_BUBBLE_USER_BG,
+                ml=60,
+                mr=4,
             )
+            return
+
+        self._add_bubble(
+            text,
+            bg=_BUBBLE_TOOL_BG,
+            text_color=_TEXT_SECONDARY,
+            ml=20,
+            mr=20,
+            small=True,
+            monospace=True,
+        )
 
     def append_action(self, name: str, tool_input: dict) -> None:
         """Format a tool call and append it as a bubble."""
@@ -898,7 +908,7 @@ class FamiliarWindow(QMainWindow):
         self._agent: EmbodiedAgent | None = None
         self._desires = desires
         self._agent_display_name = (config.agent_name or "Agent").strip() or "Agent"
-        self._companion_display_name = (config.companion_name or "You").strip() or "You"
+        self._companion_display_name = _t("gui_estimated_speaker")
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._agent_running = False
         self._agent_ready = False
@@ -1091,7 +1101,6 @@ class FamiliarWindow(QMainWindow):
     def _build_ui(self) -> None:
         central = QWidget()
         central.setStyleSheet(f"background: {_BG_BASE};")
-        self.setCentralWidget(central)
         root = QHBoxLayout(central)
         root.setContentsMargins(10, 10, 10, 10)
         root.setSpacing(10)
@@ -1317,6 +1326,12 @@ class FamiliarWindow(QMainWindow):
         splitter.setStretchFactor(1, 1)
         root.addWidget(splitter)
 
+        scroll = QScrollArea()
+        scroll.setWidget(central)
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet(f"QScrollArea {{ background: {_BG_BASE}; border: none; }}")
+        self.setCentralWidget(scroll)
+
     def _set_input_enabled(self, enabled: bool) -> None:
         self._input.setEnabled(enabled)
         self._send_btn.setEnabled(enabled)
@@ -1418,6 +1433,15 @@ class FamiliarWindow(QMainWindow):
     def _on_restart_stt_clicked(self) -> None:
         self._create_task(self._restart_realtime_stt(reason="manual"))
 
+    def _get_active_speaker(self) -> str:
+        """Return the agent's current estimated speaker name, or the fallback label."""
+        agent = getattr(self, "_agent", None)
+        if agent is not None:
+            name = getattr(getattr(agent, "_persons", None), "active_name", None)
+            if name:
+                return name
+        return self._companion_display_name
+
     def _on_send(self) -> None:
         if getattr(self, "_agent", None) is None and not getattr(self, "_agent_ready", True):
             self._stream.set_status(getattr(self, "_startup_status", "Initializing familiar-ai..."))
@@ -1427,7 +1451,7 @@ class FamiliarWindow(QMainWindow):
             return
         self._input.clear()
         self._stream.clear_status()
-        self._log.append_line(f"[{self._companion_display_name}] {text}")
+        self._log.append_line(f"[{self._get_active_speaker()}] {text}")
         self._input_queue.put_nowait(text)
         qsize = self._input_queue.qsize()
         if qsize >= _GUI_QUEUE_WARN_SIZE:
@@ -1454,7 +1478,7 @@ class FamiliarWindow(QMainWindow):
         if not spoken:
             return
         self._stream.clear_status()
-        self._log.append_line(f"[{self._companion_display_name}] {spoken}")
+        self._log.append_line(f"[{self._get_active_speaker()}] {spoken}")
 
     def _on_realtime_stt_restart(self, reason: str) -> None:
         if self._closing:
