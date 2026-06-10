@@ -14,7 +14,7 @@ def _compute_version() -> str:
             capture_output=True, text=True, cwd=_SRC_DIR,
         )
         dirty_r = subprocess.run(
-            ["git", "status", "--porcelain"],
+            ["git", "status", "--porcelain", "--untracked-files=no"],
             capture_output=True, text=True, cwd=_SRC_DIR,
         )
         if hash_r.returncode == 0 and hash_r.stdout.strip():
