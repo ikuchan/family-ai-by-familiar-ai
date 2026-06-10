@@ -402,10 +402,13 @@ class ChatLog(QScrollArea):
 
         # Speaker bubble: any [Name] prefix is treated as a user/speaker message.
         # This supports dynamic multi-speaker display (パパ, ママ, 推定話者, etc.).
+        # Legacy [You] marker maps back to companion_label for backward compatibility.
         m = _SPEAKER_PREFIX_RE.match(text)
         if m:
             speaker_name = m.group(1)
             user_text = m.group(2)
+            if speaker_name == "You":
+                speaker_name = self._companion_label
             self._add_bubble(
                 user_text,
                 prefix=speaker_name,
