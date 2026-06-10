@@ -1615,6 +1615,27 @@ class FamiliarWindow(QMainWindow):
                     continue
                 # Always grow desires regardless of cooldown or auto_desire setting.
                 self._desires.tick()
+
+                # Deliver completed deferred search/fetch results immediately (bypasses cooldown).
+                agent = getattr(self, "_agent", None)
+                if agent is not None and agent.should_deliver_deferred_result():
+                    _parts: list[str] = []
+                    if agent._deferred_search.has_pending:
+                        _parts.append(f"「{agent._deferred_search.pending_summary()}」の検索結果")
+                    if agent._deferred_fetch.has_pending:
+                        _parts.append(f"「{agent._deferred_fetch.pending_summary()}」のページ取得結果")
+                    _what = "と".join(_parts) if _parts else "調べておいた結果"
+                    await self._run_agent(
+                        "",
+                        inner_voice=(
+                            f"{_what}が届いた。"
+                            "いつものトーンで自然に報告しよう。改めての挨拶は不要。"
+                        ),
+                        desire_name="share_search_result",
+                    )
+                    last_interaction = time.time()
+                    continue
+
                 # Skip firing if auto_desire is disabled (default OFF)
                 agent_config = getattr(getattr(self, "_agent", None), "config", None)
                 if agent_config is not None and not getattr(agent_config, "auto_desire", False):
