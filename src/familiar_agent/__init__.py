@@ -13,7 +13,7 @@ def _format_version(raw: str) -> str:
       "0.6.1.dev3+g30bfd72.d*"   -> "v0.30bfd*"  (dirty)
       "0.6.0"                    -> "v0.6.0"      (exact tag, no hash)
     """
-    dirty = ".d" in raw
+    dirty = bool(re.search(r"\.d\d{8}", raw))  # .d20260610 style date suffix = dirty
     m = re.search(r"\+g([0-9a-f]+)", raw)
     if m:
         h = m.group(1)[:5]
