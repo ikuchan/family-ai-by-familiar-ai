@@ -54,7 +54,7 @@ done
 
 # ── Run tests ──────────────────────────────────────────────────────────────
 EXIT_CODE=0
-uv run pytest -v "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
+uv run pytest -q "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
 
 # ── Stop test DB ───────────────────────────────────────────────────────────
 # --timeout 60: give PostgreSQL up to 60 s to flush WAL before Docker sends
