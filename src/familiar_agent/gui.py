@@ -1484,6 +1484,38 @@ class FamiliarWindow(QMainWindow):
             return
         self._input.clear()
         self._stream.clear_status()
+
+        # Slash commands (mirrors TUI).
+        agent = getattr(self, "_agent", None)
+        if text == "/clear":
+            if agent is not None:
+                agent.clear_history()
+            self._log.append_line(_t("history_cleared"))
+            return
+        if text == "/reload":
+            if agent is not None:
+                self._create_task(self._do_reload())
+            return
+        if text == "/cost":
+            in_tok = getattr(agent, "_session_input_tokens", 0) if agent else 0
+            out_tok = getattr(agent, "_session_output_tokens", 0) if agent else 0
+            total = (in_tok / 1_000_000 * 3.0) + (out_tok / 1_000_000 * 15.0)
+            self._log.append_line(
+                f"📊 in: {in_tok:,}  out: {out_tok:,}  💰 ${total:.4f}"
+            )
+            return
+        if text.startswith("/btw "):
+            question = text[5:].strip()
+            if question and agent is not None:
+                self._create_task(self._run_btw(question))
+            return
+
+        # Detect speaker prefix (e.g. "パパ ▶ message") and update active speaker.
+        if agent is not None:
+            _, speaker = agent._extract_speaker_prefix(text)
+            if speaker:
+                agent._persons.set_active(speaker)
+
         self._log.append_line(f"[{self._get_active_speaker()}] {text}")
         self._input_queue.put_nowait(text)
         qsize = self._input_queue.qsize()
@@ -1491,6 +1523,20 @@ class FamiliarWindow(QMainWindow):
             logger.warning("GUI input queue backlog: %d", qsize)
         else:
             logger.debug("GUI input queued (size=%d)", qsize)
+
+    async def _do_reload(self) -> None:
+        agent = getattr(self, "_agent", None)
+        if agent is None:
+            return
+        result = await asyncio.to_thread(agent.reload_md_files)
+        self._log.append_line(result or "✅ reloaded")
+
+    async def _run_btw(self, question: str) -> None:
+        agent = getattr(self, "_agent", None)
+        if agent is None:
+            return
+        answer = await agent.backend.complete(question, max_tokens=300)
+        self._log.append_line(f"[{self._agent_display_name}] {answer}")
 
     def _on_realtime_stt_partial(self, text: str) -> None:
         """Display partial STT transcript while idle."""
@@ -1504,7 +1550,7 @@ class FamiliarWindow(QMainWindow):
         self._stream.set_status(f"🎤 {partial}")
 
     def _on_realtime_stt_committed(self, text: str) -> None:
-        """Display committed STT transcript as a user message bubble."""
+        """Display committed STT transcript and enqueue it for agent processing."""
         if self._closing:
             return
         spoken = text.strip()
@@ -1512,6 +1558,7 @@ class FamiliarWindow(QMainWindow):
             return
         self._stream.clear_status()
         self._log.append_line(f"[{self._get_active_speaker()}] {spoken}")
+        self._input_queue.put_nowait(spoken)
 
     def _on_realtime_stt_restart(self, reason: str) -> None:
         if self._closing:
@@ -1650,20 +1697,28 @@ class FamiliarWindow(QMainWindow):
                     continue
 
                 tick = desire_tick_prompt(self._desires, [])
-                if tick:
-                    # If user input arrived meanwhile, prioritize that over autonomous desire.
-                    if not self._input_queue.empty():
-                        continue
-                    desire_name, prompt, _ = tick
-                    try:
-                        murmur = _t(f"desire_{desire_name}")
-                    except KeyError:
-                        murmur = _t("desire_default")
-                    self._log.append_line(murmur)
-                    await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
-                    self._desires.satisfy(desire_name)
-                    self._desires.curiosity_target = None
-                    last_interaction = time.time()
+                if not tick:
+                    continue
+                # Second check: guard against race conditions where input arrived
+                # between the first check and tick generation (mirrors TUI).
+                if not should_fire_idle_desire(
+                    agent_running=self._agent_running,
+                    has_pending_input=not self._input_queue.empty(),
+                    last_interaction=last_interaction,
+                    now=time.time(),
+                    cooldown=DESIRE_COOLDOWN,
+                ):
+                    continue
+                desire_name, prompt, _ = tick
+                try:
+                    murmur = _t(f"desire_{desire_name}")
+                except KeyError:
+                    murmur = _t("desire_default")
+                self._log.append_line(murmur)
+                await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
+                self._desires.satisfy(desire_name)
+                self._desires.curiosity_target = None
+                last_interaction = time.time()
                 continue
 
             if text is None:
