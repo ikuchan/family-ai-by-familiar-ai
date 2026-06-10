@@ -52,6 +52,8 @@ class Database:
             )
             self._conn = psycopg2.connect(url)
             self._conn.autocommit = False
+            from .db_migrations import apply_migrations, default_migration_dir
+            apply_migrations(self._conn, default_migration_dir())
             logger.debug("PostgreSQL connection established")
         elif self._conn.info.transaction_status == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
             # Recover from a failed transaction so subsequent queries don't all fail.

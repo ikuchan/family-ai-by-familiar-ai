@@ -63,11 +63,15 @@ if [ "$EXIT_CODE" -eq 0 ] && [ -n "$COMMIT_MSG" ]; then
     echo ""
     echo "All tests passed. Committing..."
     git add -u
-    git commit -m "${COMMIT_MSG}
+    if git diff --cached --quiet; then
+        echo "Nothing to commit — working tree clean."
+    else
+        git commit -m "${COMMIT_MSG}
 
 Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
-    VERSION=$(uv run python -c "from familiar_agent import __version__; print(__version__)" 2>/dev/null || echo "unknown")
-    echo "Committed. Version: ${VERSION}"
+        VERSION=$(uv run python -c "from familiar_agent import __version__; print(__version__)" 2>/dev/null || echo "unknown")
+        echo "Committed. Version: ${VERSION}"
+    fi
 elif [ "$EXIT_CODE" -ne 0 ]; then
     echo "" >&2
     echo "Tests failed — no commit made." >&2
