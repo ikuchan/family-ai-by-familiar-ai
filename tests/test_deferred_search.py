@@ -94,11 +94,33 @@ async def test_get_tool_definitions_valid():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_limit_blocks_excess_calls():
+async def test_blocks_when_at_max_concurrent():
+    from familiar_agent.tools.deferred_search import _MAX_CONCURRENT
+
     tool, _ = _make_tool()
-    tool._running = 3  # simulate max concurrent
+    tool._running = _MAX_CONCURRENT  # simulate max in-flight searches
     result, _ = await tool.call("search_deferred", {"query": "overflow"})
-    assert "混んでいます" in result
+    assert "同時に" in result
+
+
+@pytest.mark.asyncio
+async def test_does_not_block_when_below_max_concurrent():
+    from familiar_agent.tools.deferred_search import _MAX_CONCURRENT
+
+    tool, _ = _make_tool()
+    tool._running = _MAX_CONCURRENT - 1
+    result, _ = await tool.call("search_deferred", {"query": "under limit"})
+    assert "バックグラウンド" in result
+
+
+@pytest.mark.asyncio
+async def test_does_not_block_when_pending_result_exists():
+    tool, fn = _make_tool()
+    tool._pending = [{"query": "prev", "result": "r", "source": "brave"}]
+    result, _ = await tool.call("search_deferred", {"query": "new query"})
+    assert "バックグラウンド" in result
+    await asyncio.sleep(0)
+    fn.assert_called_once()
 
 
 @pytest.mark.asyncio

@@ -355,7 +355,17 @@ class TestFrustratedBoostsDesire:
         deferred.get_tool_definitions = MagicMock(return_value=[])
         deferred.call = AsyncMock(return_value=("search started", None))
         deferred.pending_context = MagicMock(return_value="")
+        deferred.has_pending = False
+        deferred.is_running = False
         agent._deferred_search = deferred
+
+        deferred_fetch = MagicMock()
+        deferred_fetch.get_tool_definitions = MagicMock(return_value=[])
+        deferred_fetch.call = AsyncMock(return_value=("fetch started", None))
+        deferred_fetch.pending_context = MagicMock(return_value="")
+        deferred_fetch.has_pending = False
+        deferred_fetch.is_running = False
+        agent._deferred_fetch = deferred_fetch
 
         desires = MagicMock(spec=DesireSystem)
         desires.curiosity_target = None

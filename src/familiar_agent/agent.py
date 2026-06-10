@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .backend import create_backend, create_scene_backend, create_utility_backend
+from .backend import AnthropicBackend, create_backend, create_scene_backend, create_utility_backend
 from .appraisal import AppraisalContext, AppraisalEngine
 from .config import AgentConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
@@ -48,6 +48,7 @@ from .memory_worker import MemoryJobWorker
 from .tape import check_plan_blocked, generate_plan, generate_replan
 from .tools.camera import CameraTool
 from .tools.coding import CodingTool
+from .tools.deferred_fetch import DeferredFetchTool
 from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .person_memory_manager import PersonMemoryManager
@@ -59,7 +60,16 @@ from .tools.stt import STTTool
 from .tools.tts import TTSTool
 from ._i18n import _t
 from .mcp_client import MCPClientManager, _resolve_config_path
-from .capability_state import load_manifest, load_summary, save_summary, should_refresh
+from .capability_state import (
+    build_generation_prompt,
+    collect_manifest_context,
+    load_manifest,
+    load_summary,
+    save_manifest,
+    save_summary,
+    should_refresh,
+    should_regenerate_manifest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +106,7 @@ async def _call_optional_async(
 
 MAX_ITERATIONS = 50
 _MORNING_CONTEXT_MAX_CHARS = 2600
+_CACHE_HEARTBEAT_INTERVAL = 240  # 4 min; Anthropic cache TTL is 5 min
 _DEFAULT_TOOL_TIMEOUT = 20.0
 _TOOL_TIMEOUTS: dict[str, float] = {
     "see": 12.0,
@@ -348,6 +359,54 @@ SYSTEM_PROMPT = """
     ; ── Step budget ────────────────────────────────────────────────────
     (constraint :id step-budget
       "You have up to {max_steps} steps. Use them wisely.")
+
+    ; ── Search tool constraints ─────────────────────────────────────────
+    (constraint :priority high :id no-country-param
+      "Never pass a 'country' parameter to tavily_search or any web search tool.
+       The query language already signals the target region — the parameter is redundant
+       and causes API errors with fast/ultra-fast search depths.")
+    (constraint :priority high :id tavily-search-depth
+      "Always use search_depth='basic' for tavily_search unless the user explicitly
+       requests deeper results. Do not use 'fast' or 'ultra-fast' — they return
+       stale or irrelevant results for Japanese news queries.")
+    (constraint :priority high :id tavily-time-range
+      "When passing time_range to tavily_search, only use these exact values:
+       'day', 'week', 'month', 'year' (or the single-letter shortcuts 'd', 'w', 'm', 'y').
+       Never use '24h', '7d', '1h', '48h', '3d' or any other human-readable duration —
+       they are rejected by the Tavily API with an error.")
+    (constraint :priority high :id deferred-search-first
+      "For any web search — news, current facts, or anything beyond your knowledge cutoff —
+       follow this pattern by default:
+
+       (step 1) search_deferred(query :source 'tavily')  ; fires instantly, never blocks
+       (step 2) say() ONE sentence: e.g. '調べてから教えるね' or '少し待ってて、調べてみる'
+       (step 3) end your turn                             ; do NOT call tavily_search after this
+
+       On the NEXT turn, when [バックグラウンド検索完了: ...] appears in the user message:
+         → read the results and answer fully without needing to search again.
+
+       Use blocking tavily_search / brave_web_search ONLY when:
+         - second search must use results from the first (chained queries)
+         - user explicitly says they need an answer right now in this turn
+
+       If search_deferred returns '結果が届いてから再度お試しください':
+         → tell the user in ONE sentence that you are already looking something up
+           and will share everything together once it is ready.
+         → do NOT start another search in this turn.")
+
+    (constraint :priority high :id deferred-fetch-pattern
+      "To read a specific URL in depth after search results — use fetch_deferred:
+
+       (step 1) fetch_deferred(url '...')                ; fires instantly, never blocks
+       (step 2) say() ONE sentence: e.g. 'もっと詳しく調べてくるね' or 'そのページ読んでみる'
+       (step 3) end your turn                             ; do NOT call fetch after this
+
+       On the NEXT turn, when [バックグラウンド取得完了: ...] appears in the user message:
+         → summarise the page content without fetching again.
+
+       You may call search_deferred and fetch_deferred in the SAME turn when you want
+       to search AND immediately deep-read a known URL — all results are delivered
+       together once every background task has finished.")
 
     ; ── Orientation ────────────────────────────────────────────────────
     (orientation
@@ -862,6 +921,23 @@ class EmbodiedAgent:
                 task.cancel()
             await asyncio.gather(*still_pending, return_exceptions=True)
 
+    async def _cache_heartbeat_loop(self) -> None:
+        """Keep the Anthropic stable system-prompt block cached across idle periods.
+
+        Fires every 4 minutes so the 5-minute cache TTL never expires between turns.
+        Only active when the main backend is AnthropicBackend; a no-op otherwise.
+        """
+        try:
+            while True:
+                await asyncio.sleep(_CACHE_HEARTBEAT_INTERVAL)
+                stable, _ = self._system_prompt()
+                assert isinstance(self.backend, AnthropicBackend)
+                await self.backend.warm_cache(stable)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e:
+            logger.warning("cache heartbeat loop exited unexpectedly: %s", e)
+
     async def _run_post_response_pipeline(
         self,
         *,
@@ -1078,6 +1154,7 @@ class EmbodiedAgent:
             logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
 
         self._deferred_search = DeferredSearchTool(self._mcp_search)
+        self._deferred_fetch = DeferredFetchTool(self._mcp_search)
 
         stt_cfg = self.config.stt
         if stt_cfg.elevenlabs_api_key:
@@ -1115,6 +1192,7 @@ class EmbodiedAgent:
         defs.extend(self._tom_tool.get_tool_definitions())
         defs.extend(self._coding.get_tool_definitions())
         defs.extend(self._deferred_search.get_tool_definitions())
+        defs.extend(self._deferred_fetch.get_tool_definitions())
         if self._mcp:
             defs.extend(self._mcp.get_tool_definitions())
         return defs
@@ -1153,7 +1231,13 @@ class EmbodiedAgent:
         elif name == "tom":
             return await self._tom_tool.call(name, tool_input)
         elif name == "search_deferred":
-            return await self._deferred_search.call(name, tool_input)
+            result = await self._deferred_search.call(name, tool_input)
+            self._deferred_requested_at_turn = self._turn_count
+            return result
+        elif name == "fetch_deferred":
+            result = await self._deferred_fetch.call(name, tool_input)
+            self._deferred_requested_at_turn = self._turn_count
+            return result
         elif name in coding_tools:
             return await self._coding.call(name, tool_input)
         elif self._mcp:
@@ -1602,10 +1686,6 @@ class EmbodiedAgent:
             scene_ctx = self._scene.context_for_prompt() if self._scene else ""
             if scene_ctx:
                 variable_parts.append(scene_ctx)
-
-        deferred_ctx = self._deferred_search.pending_context()
-        if deferred_ctx:
-            variable_parts.append(deferred_ctx)
 
         variable = "\n\n---\n\n".join(variable_parts)
         return stable, variable
@@ -2357,6 +2437,22 @@ class EmbodiedAgent:
         except Exception as e:
             logger.warning("Could not refresh capability summary: %s", e)
 
+    async def _regenerate_capability_manifest(self) -> None:
+        """Rewrite capabilities.yaml from source introspection via the utility LLM.
+
+        Called at most once per day during ``rest`` desire turns.
+        """
+        try:
+            context = collect_manifest_context()
+            existing = load_manifest()
+            prompt = build_generation_prompt(context, existing)
+            yaml_content = await self._utility_backend.complete(prompt, max_tokens=2500)
+            if yaml_content:
+                save_manifest(yaml_content)
+                await self._refresh_capability_summary()
+        except Exception as e:
+            logger.warning("capabilities.yaml regeneration failed: %s", e)
+
     async def _update_self_model(self, final_text: str, emotion: str) -> None:
         """Extract a self-insight and store it as self_model memory.
 
@@ -2415,6 +2511,8 @@ class EmbodiedAgent:
             f"emotion: {emotion}\n"
             f"agency_error: {agency_error:.2f}\n"
             "条件: 一人称は『ウチ』。60文字以内。説明や前置きは禁止。"
+            "ウチはAIエージェントであり食事・移動などの身体的行動はしない。"
+            "userの行動・予定・感情ではなく、ウチ自身が感じたこと・したことを書くこと。"
         )
         try:
             text = await asyncio.wait_for(
@@ -2522,12 +2620,57 @@ class EmbodiedAgent:
             logger.warning("Curiosity extraction failed: %s", e)
         return None
 
-    def _should_compact(self, threshold_tokens: int = 60_000) -> bool:
+    def should_deliver_deferred_result(self) -> bool:
+        """Return True when a proactive deferred-search delivery turn should fire.
+
+        Four gates must all pass:
+          1. Pending results exist
+          2. Someone is present (camera: person detected; no camera: recent user message)
+          3. Quiet-hours mode is not active
+          4. Current social context allows interruption
+             (blocked during grief / venting / emotional repair / boundary)
+        """
+        if not getattr(self, "_deferred_search", None):
+            return False
+        # Gate 1: at least one result is ready
+        search_pending = self._deferred_search.has_pending
+        fetch_pending = self._deferred_fetch.has_pending
+        if not (search_pending or fetch_pending):
+            return False
+        # Wait until all concurrent tasks finish so results are delivered together
+        if self._deferred_search.is_running or self._deferred_fetch.is_running:
+            return False
+
+        # Gate 2: presence — reuse the same logic as social desires
+        if self._social_presence_permission() == 0.0:
+            return False
+
+        # Gate 3: quiet mode
+        rule = getattr(self, "_schedule_rule", None)
+        if rule is not None:
+            from datetime import datetime
+            if rule.is_quiet(datetime.now()):
+                return False
+
+        # Gate 4: social policy
+        last_policy = getattr(self, "_last_social_decision", None)
+        if last_policy is not None:
+            _BLOCKED = frozenset({
+                "grief_signal", "venting", "fatigue_signal",
+                "repair_attempt", "boundary_assertion",
+            })
+            if last_policy.primary_act in _BLOCKED:
+                return False
+
+        return True
+
+    def _should_compact(self, threshold_tokens: int = 20_000) -> bool:
         """Return True when context is large enough to warrant compaction.
 
         A threshold of 0 acts as a disabled sentinel — never compact.
         In normal use _last_context_tokens is 0 until after the first turn,
         so an empty conversation naturally returns False.
+        Threshold set to 20k to stay safely under the 30k input-TPM rate limit.
         """
         return threshold_tokens > 0 and self._last_context_tokens > threshold_tokens
 
@@ -2612,6 +2755,11 @@ class EmbodiedAgent:
         """Clean up resources. Bounded by timeouts to avoid hanging on exit."""
         if self._camera:
             self._camera.close()
+
+        heartbeat = getattr(self, "_cache_heartbeat_task", None)
+        if heartbeat and not heartbeat.done():
+            heartbeat.cancel()
+            await asyncio.gather(heartbeat, return_exceptions=True)
 
         await self._drain_background_tasks()
 
@@ -2838,6 +2986,13 @@ class EmbodiedAgent:
             self._tool_failure_streak = 0
         if not hasattr(self, "_last_human_at"):
             self._last_human_at = time.time()
+        if not hasattr(self, "_cache_heartbeat_task"):
+            if isinstance(self.backend, AnthropicBackend):
+                self._cache_heartbeat_task: asyncio.Task[None] | None = asyncio.create_task(
+                    self._cache_heartbeat_loop(), name="cache-heartbeat"
+                )
+            else:
+                self._cache_heartbeat_task = None
 
         # ── Speaker identification ────────────────────────────────────────────
         # /speaker command sets the session-default speaker.
@@ -3053,6 +3208,7 @@ class EmbodiedAgent:
             interoception=interoception_pressure,
             previous_response_hurt=previous_response_hurt,
         )
+        self._last_social_decision = social_policy
         self._provisional_relationship_update(user_text=user_input, social_policy=social_policy)
 
         if desires is not None:
@@ -3089,6 +3245,18 @@ class EmbodiedAgent:
             social_policy=social_policy,
             is_desire_turn=is_desire_turn,
         )
+
+        # Inject deferred results into messages (persistent history) before appending.
+        # This ensures the LLM can see delivered results in all subsequent turns.
+        _deferred_parts: list[str] = []
+        if _search_ctx := self._deferred_search.pending_context():
+            _deferred_parts.append(_search_ctx)
+        if _fetch_ctx := self._deferred_fetch.pending_context():
+            _deferred_parts.append(_fetch_ctx)
+        if _deferred_parts:
+            _deferred_block = "\n\n".join(_deferred_parts)
+            user_input_with_ctx = _deferred_block + "\n\n---\n\n" + user_input_with_ctx
+
         self.messages.append(self.backend.make_user_message(user_input_with_ctx))
 
         # Use cached plan & workspace context from previous turn's post-response pipeline.
@@ -3297,6 +3465,13 @@ class EmbodiedAgent:
                             ),
                             name="post-response-pipeline",
                         )
+                        # Regenerate capabilities.yaml during rest turns (at most once per day).
+                        if desire_name == "rest" and should_regenerate_manifest():
+                            self._spawn_background_task(
+                                self._regenerate_capability_manifest(),
+                                name="capability-manifest-regen",
+                            )
+
                         # Boost share_memory if an internal turn found something notable.
                         if (
                             is_desire_turn

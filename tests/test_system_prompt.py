@@ -159,3 +159,21 @@ def test_interoception_reflects_self_state_when_provided() -> None:
     assert "(body-state" in result
     assert "(tension" in result
     assert "(sensing" in result
+
+
+def test_system_prompt_no_country_param_constraint_present() -> None:
+    """The no-country-param constraint must be present to prevent redundant country args."""
+    assert "no-country-param" in FORMATTED
+    assert "country" in FORMATTED
+
+
+def test_system_prompt_tavily_search_depth_constraint_present() -> None:
+    """The tavily-search-depth constraint must be present to enforce basic depth by default."""
+    assert "tavily-search-depth" in FORMATTED
+    assert "basic" in FORMATTED
+
+
+def test_system_prompt_tavily_time_range_constraint_present() -> None:
+    """The tavily-time-range constraint must list valid values and forbid '24h' etc."""
+    assert "tavily-time-range" in FORMATTED
+    assert "24h" in FORMATTED
