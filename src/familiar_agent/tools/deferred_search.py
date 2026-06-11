@@ -124,8 +124,10 @@ class DeferredSearchTool:
         )
 
     async def _run(self, query: str, mcp_tool: str, source: str) -> None:
+        logger.debug("deferred search _run started (query=%r mcp_tool=%r)", query, mcp_tool)
         try:
             result, _ = await self._search_fn(mcp_tool, {"query": query})
+            logger.debug("deferred search _run completed (query=%r result_len=%d)", query, len(result))
             if len(self._pending) < _MAX_PENDING:
                 self._pending.append({"query": query, "result": result, "source": source})
         except Exception as exc:

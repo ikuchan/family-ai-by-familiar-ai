@@ -810,3 +810,90 @@ async def test_post_response_pipeline_updates_self_continuity_state():
 
     agent._concerns.update_from_turn.assert_called_once()
     agent._self_state.apply_turn_context.assert_called_once()
+
+
+# ---------------------------------------------------------------------------
+# Tests: deferred search result delivery inner_voice injection
+# ---------------------------------------------------------------------------
+
+
+def _system_text(system: str | tuple) -> str:
+    """Flatten the (stable, variable) tuple returned by _system_prompt() into one string."""
+    if isinstance(system, tuple):
+        return "\n\n---\n\n".join(s for s in system if s)
+    return system
+
+
+@pytest.mark.asyncio
+async def test_run_sets_inner_voice_when_deferred_results_arrive_with_user_message():
+    """When deferred search results are available alongside a user message,
+    run() should inject a delivery inner_voice so the LLM explicitly reports them."""
+    agent = _make_agent()
+    agent._deferred_search.pending_context = MagicMock(return_value="【検索結果】日本の最新ニュース…")
+    agent.backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="ニュースが届いたよ！"), "ニュースが届いたよ！")
+    )
+
+    captured_system: list = []
+
+    original_stream_turn = agent.backend.stream_turn
+
+    async def _capture_system(*args, system="", **kwargs):
+        captured_system.append(system)
+        return await original_stream_turn(*args, system=system, **kwargs)
+
+    agent.backend.stream_turn = _capture_system
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        await agent.run("最新ニュース教えて")
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert captured_system, "stream_turn was not called"
+    system_text = _system_text(captured_system[0])
+    assert "調べておいた結果が届いた" in system_text, (
+        "Expected delivery inner_voice in system prompt when deferred results are available"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_does_not_overwrite_explicit_inner_voice_when_deferred_results_arrive():
+    """If inner_voice is already provided (e.g. proactive delivery turn), it must not be
+    replaced by the auto-generated delivery inner_voice."""
+    agent = _make_agent()
+    agent._deferred_search.pending_context = MagicMock(return_value="【検索結果】日本の最新ニュース…")
+    agent.backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="届いたよ"), "届いたよ")
+    )
+
+    captured_system: list = []
+
+    original_stream_turn = agent.backend.stream_turn
+
+    async def _capture_system(*args, system="", **kwargs):
+        captured_system.append(system)
+        return await original_stream_turn(*args, system=system, **kwargs)
+
+    agent.backend.stream_turn = _capture_system
+
+    explicit_inner_voice = "「最新ニュース」の検索結果が届いた。いつものトーンで自然に報告しよう。"
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        await agent.run("", inner_voice=explicit_inner_voice)
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert captured_system, "stream_turn was not called"
+    system_text = _system_text(captured_system[0])
+    assert explicit_inner_voice in system_text, "Explicit inner_voice should be present in system"
+    assert "調べておいた結果が届いた" not in system_text, (
+        "Auto inner_voice must not overwrite an already-set inner_voice"
+    )

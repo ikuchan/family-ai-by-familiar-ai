@@ -29,6 +29,7 @@ Example config:
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -285,8 +286,15 @@ class MCPClientManager:
                 tool_input = dict(tool_input)
                 tool_input["time_range"] = _time_range_map[tool_input["time_range"]]
 
+        _call_timeout = float(os.environ.get("MCP_CALL_TIMEOUT", "30"))
         try:
-            result = await session.call_tool(tool_name, arguments=tool_input)
+            result = await asyncio.wait_for(
+                session.call_tool(tool_name, arguments=tool_input),
+                timeout=_call_timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("MCP tool '%s' call timed out after %.0fs", tool_name, _call_timeout)
+            return f"MCP tool '{tool_name}' timed out after {_call_timeout:.0f}s", None
         except Exception as e:
             logger.warning("MCP tool '%s' call failed: %s", tool_name, e)
             return f"MCP tool '{tool_name}' error: {e}", None

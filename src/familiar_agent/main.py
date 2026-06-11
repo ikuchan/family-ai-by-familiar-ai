@@ -404,6 +404,17 @@ def main() -> None:
     os.environ.setdefault("HF_HUB_DISABLE_PROGRESS_BARS", "1")
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
 
+    # Qt reads QT_IM_MODULE before QApplication is created.  Set it here so
+    # the app works regardless of how it was launched (terminal, desktop icon,
+    # systemd unit, etc.).  Only set if fcitx5-remote is reachable; otherwise
+    # leave whatever the environment already has.
+    if "--gui" in sys.argv:
+        import shutil as _shutil
+        if "QT_IM_MODULE" not in os.environ and _shutil.which("fcitx5-remote"):
+            os.environ["QT_IM_MODULE"] = "fcitx"
+            os.environ.setdefault("GTK_IM_MODULE", "fcitx")
+            os.environ.setdefault("XMODIFIERS", "@im=fcitx")
+
     # --db-url must be applied before any DB singleton is initialized
     for i, arg in enumerate(sys.argv[:-1]):
         if arg == "--db-url":

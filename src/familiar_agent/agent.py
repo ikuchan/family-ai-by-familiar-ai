@@ -3277,6 +3277,12 @@ class EmbodiedAgent:
         if _deferred_parts:
             _deferred_block = "\n\n".join(_deferred_parts)
             user_input_with_ctx = _deferred_block + "\n\n---\n\n" + user_input_with_ctx
+            # When results arrive alongside a user message, guide the LLM to report them.
+            if not inner_voice:
+                inner_voice = (
+                    "調べておいた結果が届いた。"
+                    "いつものトーンで自然にユーザーに伝えよう。改めての挨拶は不要。"
+                )
 
         self.messages.append(self.backend.make_user_message(user_input_with_ctx))
 

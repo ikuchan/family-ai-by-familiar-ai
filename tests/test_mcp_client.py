@@ -596,6 +596,37 @@ async def test_tavily_search_normalizes_invalid_time_range(tmp_path: Path) -> No
 
 
 @pytest.mark.asyncio
+async def test_call_times_out_and_returns_error(tmp_path: Path, monkeypatch) -> None:
+    """call() returns a timeout error string when session.call_tool hangs."""
+    import asyncio
+
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"slow": {"type": "stdio", "command": "slow-cmd"}}})
+    )
+    sess = _session(_tool("slow_tool"))
+
+    async def _hang(*args, **kwargs):
+        await asyncio.sleep(9999)
+
+    sess.call_tool = _hang
+
+    monkeypatch.setenv("MCP_CALL_TIMEOUT", "0.05")
+
+    from familiar_agent.mcp_client import MCPClientManager
+
+    with __import__("unittest.mock", fromlist=["patch"]).patch.dict(
+        sys.modules, _patch_mcp([sess])
+    ):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        text, image = await mgr.call("slow_tool", {})
+
+    assert "timed out" in text.lower() or "timeout" in text.lower()
+    assert image is None
+
+
+@pytest.mark.asyncio
 async def test_tavily_search_valid_time_range_unchanged(tmp_path: Path) -> None:
     """tavily_search: valid time_range values are passed through unchanged."""
     cfg = tmp_path / "cfg.json"
