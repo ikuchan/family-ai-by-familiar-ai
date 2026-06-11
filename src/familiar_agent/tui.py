@@ -23,13 +23,18 @@ from . import __version__
 from ._i18n import _make_banner, _t
 from ._ui_helpers import (
     ACTION_ICONS,
+    AdaptiveDesireCooldown,
     DESIRE_COOLDOWN as _DESIRE_COOLDOWN,
     IDLE_CHECK_INTERVAL as _IDLE_CHECK_INTERVAL,
+    INTERNAL_DESIRE_COOLDOWN as _INTERNAL_DESIRE_COOLDOWN,
+    SILENCE_DURATION_SEC as _SILENCE_DURATION_SEC,
     desire_tick_prompt,
     format_action as _format_action,
     format_tool_result as _format_tool_result,
+    is_silence_request,
     should_fire_idle_desire,
 )
+from .desires import is_social_desire
 from .realtime_stt_session import create_realtime_stt_controller, RealtimeSttController
 
 if TYPE_CHECKING:
@@ -180,6 +185,9 @@ class FamiliarApp(App):
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._last_interaction = time.time()
         self._agent_running = False
+        self._adaptive_cooldown = AdaptiveDesireCooldown()
+        self._last_social_fire: float = 0.0
+        self._silence_until: float = 0.0
         self._current_text_buf = ""  # buffer for streaming text
         self._log_path = self._open_log_file()
         self._recording = False
@@ -342,6 +350,10 @@ class FamiliarApp(App):
             return
 
         self._log_user(text)
+        self._adaptive_cooldown.on_user_message()
+        self._silence_until = 0.0
+        if is_silence_request(text):
+            self._silence_until = time.time() + _SILENCE_DURATION_SEC
         self._last_interaction = time.time()
         await self._input_queue.put(text)
 
@@ -548,29 +560,43 @@ class FamiliarApp(App):
         # Skip firing if auto_desire is disabled (default OFF)
         if not getattr(self.agent.config, "auto_desire", False):
             return
+
         now = time.time()
-        if not should_fire_idle_desire(
-            agent_running=self._agent_running,
-            has_pending_input=not self._input_queue.empty(),
-            last_interaction=self._last_interaction,
-            now=now,
-            cooldown=DESIRE_COOLDOWN,
-        ):
+
+        # Silence mode: user asked to be quiet
+        if now < self._silence_until:
             return
 
+        # Peek at dominant desire to determine which cooldown to use
         tick = desire_tick_prompt(self.desires, [])
         if tick is None:
             return
+
+        desire_name, prompt, _pending = tick
+
+        if is_social_desire(desire_name):
+            _last = self._last_social_fire
+            _cooldown = self._adaptive_cooldown.current
+        else:
+            _last = self._last_interaction
+            _cooldown = _INTERNAL_DESIRE_COOLDOWN
+
         if not should_fire_idle_desire(
             agent_running=self._agent_running,
             has_pending_input=not self._input_queue.empty(),
-            last_interaction=self._last_interaction,
-            now=time.time(),
-            cooldown=DESIRE_COOLDOWN,
+            last_interaction=_last,
+            now=now,
+            cooldown=_cooldown,
         ):
             return
-
-        desire_name, prompt, _pending = tick
+        if not should_fire_idle_desire(
+            agent_running=self._agent_running,
+            has_pending_input=not self._input_queue.empty(),
+            last_interaction=_last,
+            now=time.time(),
+            cooldown=_cooldown,
+        ):
+            return
 
         try:
             murmur = _t(f"desire_{desire_name}")
@@ -578,7 +604,12 @@ class FamiliarApp(App):
             murmur = _t("desire_default")
         self._log_system(murmur)
 
-        self._last_interaction = time.time()  # reset cooldown
+        _fired_at = time.time()
+        self._last_interaction = _fired_at
+        if is_social_desire(desire_name):
+            self._adaptive_cooldown.on_desire_fired()
+            self._last_social_fire = _fired_at
+
         await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
         self.desires.satisfy(desire_name)
         self.desires.curiosity_target = None

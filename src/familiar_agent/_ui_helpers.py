@@ -227,6 +227,63 @@ def _format_tom_result(result: str) -> str | None:
 
 IDLE_CHECK_INTERVAL: float = 10.0  # seconds between desire checks when idle
 DESIRE_COOLDOWN: float = float(os.environ.get("DESIRE_COOLDOWN", "90"))  # configurable
+INTERNAL_DESIRE_COOLDOWN: float = float(os.environ.get("INTERNAL_DESIRE_COOLDOWN", str(DESIRE_COOLDOWN)))
+
+# Adaptive cooldown settings for social desires
+SOCIAL_DESIRE_COOLDOWN_BASE: float = float(os.environ.get("SOCIAL_DESIRE_COOLDOWN", "30"))
+SOCIAL_DESIRE_COOLDOWN_MAX: float = float(os.environ.get("SOCIAL_DESIRE_COOLDOWN_MAX", "120"))
+
+# How long to stay silent after a silence request (seconds)
+SILENCE_DURATION_SEC: float = float(os.environ.get("SILENCE_DURATION", "1800"))
+
+_SILENCE_KEYWORDS: tuple[str, ...] = (
+    "静かにして", "しずかにして", "黙って", "うるさい",
+    "話しかけないで", "今は話しかけないで", "放っておいて", "ほっておいて",
+    "be quiet", "stop talking", "leave me alone", "don't talk to me", "shut up",
+)
+
+
+def is_silence_request(text: str) -> bool:
+    """Return True if the user is asking the agent to stop talking."""
+    lower = text.lower()
+    return any(kw in lower for kw in _SILENCE_KEYWORDS)
+
+
+class AdaptiveDesireCooldown:
+    """Adaptive cooldown for social desires.
+
+    Sequence: base → base×2 → base×4 (capped at max).
+    Resets to base when the user sends any message.
+    Step advances only when a social desire fires without a prior user response.
+    """
+
+    _MULTIPLIERS: tuple[int, ...] = (1, 2, 4)
+
+    def __init__(
+        self,
+        base: float = SOCIAL_DESIRE_COOLDOWN_BASE,
+        max_cd: float = SOCIAL_DESIRE_COOLDOWN_MAX,
+    ) -> None:
+        self._base = base
+        self._max = max_cd
+        self._step = 0
+        self._user_responded = True  # treat startup as "user just spoke"
+
+    @property
+    def current(self) -> float:
+        mult = self._MULTIPLIERS[min(self._step, len(self._MULTIPLIERS) - 1)]
+        return min(self._max, self._base * mult)
+
+    def on_desire_fired(self) -> None:
+        """Call after a social desire fires."""
+        if not self._user_responded:
+            self._step = min(self._step + 1, len(self._MULTIPLIERS) - 1)
+        self._user_responded = False
+
+    def on_user_message(self) -> None:
+        """Call when the user sends any message — resets to base cooldown."""
+        self._step = 0
+        self._user_responded = True
 
 
 def should_fire_idle_desire(

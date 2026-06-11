@@ -82,11 +82,14 @@ except ImportError:
 from . import __version__
 from ._i18n import _t
 from ._ui_helpers import (
-    DESIRE_COOLDOWN,
+    AdaptiveDesireCooldown,
     IDLE_CHECK_INTERVAL,
+    INTERNAL_DESIRE_COOLDOWN,
+    SILENCE_DURATION_SEC,
     desire_tick_prompt,
     format_action,
     format_tool_result,
+    is_silence_request,
     should_fire_idle_desire,
 )
 from .bootstrap import resolve_env_path
@@ -107,6 +110,7 @@ from .settings_schema import (
     setup_config_from_agent_config,
     validate_setup_config,
 )
+from .desires import is_social_desire
 from .setup import save_setup_config
 
 if TYPE_CHECKING:
@@ -959,6 +963,9 @@ class FamiliarWindow(QMainWindow):
         self._look_preview_task: asyncio.Task[None] | None = None
         self._look_preview_until: float = 0.0
         self._look_preview_disabled = False
+        self._adaptive_cooldown = AdaptiveDesireCooldown()
+        self._last_social_fire: float = 0.0
+        self._silence_until: float = 0.0
         self._realtime_stt: RealtimeSttController | None = create_realtime_stt_controller()
         self._realtime_stt_task: asyncio.Task[None] | None = None
         self._last_lag_tick = time.perf_counter()
@@ -1739,38 +1746,54 @@ class FamiliarWindow(QMainWindow):
                 agent_config = getattr(getattr(self, "_agent", None), "config", None)
                 if agent_config is not None and not getattr(agent_config, "auto_desire", False):
                     continue
-                if not should_fire_idle_desire(
-                    agent_running=self._agent_running,
-                    has_pending_input=not self._input_queue.empty(),
-                    last_interaction=last_interaction,
-                    now=now,
-                    cooldown=DESIRE_COOLDOWN,
-                ):
+
+                # Silence mode: user asked to be quiet — block all social desires
+                if now < self._silence_until:
                     continue
 
+                # Peek at dominant desire to determine which cooldown to use
                 tick = desire_tick_prompt(self._desires, [])
                 if not tick:
                     continue
-                # Second check: guard against race conditions where input arrived
-                # between the first check and tick generation (mirrors TUI).
+                desire_name, prompt, _ = tick
+
+                # Social desires use adaptive cooldown; internal use fixed INTERNAL_DESIRE_COOLDOWN
+                if is_social_desire(desire_name):
+                    _last = self._last_social_fire
+                    _cooldown = self._adaptive_cooldown.current
+                else:
+                    _last = last_interaction
+                    _cooldown = INTERNAL_DESIRE_COOLDOWN
+
                 if not should_fire_idle_desire(
                     agent_running=self._agent_running,
                     has_pending_input=not self._input_queue.empty(),
-                    last_interaction=last_interaction,
-                    now=time.time(),
-                    cooldown=DESIRE_COOLDOWN,
+                    last_interaction=_last,
+                    now=now,
+                    cooldown=_cooldown,
                 ):
                     continue
-                desire_name, prompt, _ = tick
-                try:
-                    murmur = _t(f"desire_{desire_name}")
-                except KeyError:
-                    murmur = _t("desire_default")
+                # Second check: guard against race between tick and fire
+                if not should_fire_idle_desire(
+                    agent_running=self._agent_running,
+                    has_pending_input=not self._input_queue.empty(),
+                    last_interaction=_last,
+                    now=time.time(),
+                    cooldown=_cooldown,
+                ):
+                    continue
+
+                _murmur_key = f"desire_{desire_name}"
+                murmur = _t(_murmur_key) if _t(_murmur_key) != _murmur_key else _t("desire_default")
                 self._log.append_line(murmur)
                 await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
                 self._desires.satisfy(desire_name)
                 self._desires.curiosity_target = None
-                last_interaction = time.time()
+                _fired_at = time.time()
+                last_interaction = _fired_at
+                if is_social_desire(desire_name):
+                    self._adaptive_cooldown.on_desire_fired()
+                    self._last_social_fire = _fired_at
                 continue
 
             if text is None:
@@ -1784,6 +1807,12 @@ class FamiliarWindow(QMainWindow):
                 await asyncio.sleep(0.05)
             if not getattr(self, "_agent_ready", True) and getattr(self, "_agent", None) is None:
                 break
+            # User spoke: reset adaptive cooldown and lift any silence mode
+            self._adaptive_cooldown.on_user_message()
+            self._silence_until = 0.0
+            if is_silence_request(text):
+                self._silence_until = time.time() + SILENCE_DURATION_SEC
+                logger.info("Silence mode activated for %.0f seconds", SILENCE_DURATION_SEC)
             last_interaction = time.time()
             logger.debug(
                 "GUI dequeued input (remaining queue=%d, running=%s)",

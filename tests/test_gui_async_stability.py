@@ -78,6 +78,10 @@ def _make_window_stub() -> FamiliarWindow:
     win._realtime_stt = None
     win._realtime_stt_task = None
     win._desires = MagicMock()
+    win._adaptive_cooldown = MagicMock()
+    win._adaptive_cooldown.current = 30.0
+    win._last_social_fire = 0.0
+    win._silence_until = 0.0
     win._log = MagicMock()
     win._stream = MagicMock()
     win._stream.has_content.return_value = False
