@@ -405,3 +405,98 @@ def test_gui_request_look_preview_starts_task_and_extends_deadline(monkeypatch):
     assert win._look_preview_task is not None
     assert len(created) == 1
     assert win._look_preview_until > first_until
+
+
+@pytest.mark.asyncio
+async def test_gui_process_queue_suppresses_desires_during_quiet_hours(monkeypatch):
+    """_process_queue must not fire desires when the schedule rule says it is quiet."""
+    win = _make_window_stub()
+
+    # Simulate an agent with a schedule rule that is always quiet
+    class _AlwaysQuietRule:
+        def is_quiet(self, now=None) -> bool:
+            return True
+
+    fake_agent = MagicMock()
+    fake_agent._schedule_rule = _AlwaysQuietRule()
+    fake_agent.should_deliver_deferred_result.return_value = False
+    win._agent = fake_agent
+    win._agent_ready = True
+
+    fired: list[str] = []
+
+    async def _fake_run_agent(text: str, inner_voice: str = "", desire_name: str = "") -> None:
+        fired.append(desire_name)
+
+    win._run_agent = _fake_run_agent  # type: ignore[method-assign]
+
+    call_count = {"n": 0}
+
+    async def _fake_wait_for(awaitable, timeout):
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise asyncio.TimeoutError
+        return None
+
+    monkeypatch.setattr("familiar_agent.gui.asyncio.wait_for", _fake_wait_for)
+    monkeypatch.setattr("familiar_agent.gui.should_fire_idle_desire", lambda **kwargs: True)
+    monkeypatch.setattr(
+        "familiar_agent.gui.desire_tick_prompt",
+        lambda _desires, _peek: ("greet_companion", "say hello", None),
+    )
+
+    await FamiliarWindow._process_queue(win)
+
+    assert fired == [], "No desire should fire during quiet hours"
+    win._desires.satisfy.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_gui_process_queue_fires_desires_outside_quiet_hours(monkeypatch):
+    """_process_queue fires desires normally when outside quiet hours."""
+    win = _make_window_stub()
+
+    class _NeverQuietRule:
+        def is_quiet(self, now=None) -> bool:
+            return False
+
+    fake_agent = MagicMock()
+    fake_agent._schedule_rule = _NeverQuietRule()
+    fake_agent.should_deliver_deferred_result.return_value = False
+    win._agent = fake_agent
+    win._agent_ready = True
+
+    fired: list[str] = []
+
+    async def _fake_run_agent(text: str, inner_voice: str = "", desire_name: str = "") -> None:
+        fired.append(desire_name)
+
+    win._run_agent = _fake_run_agent  # type: ignore[method-assign]
+
+    call_count = {"n": 0}
+
+    async def _fake_wait_for(awaitable, timeout):
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise asyncio.TimeoutError
+        return None
+
+    monkeypatch.setattr("familiar_agent.gui.asyncio.wait_for", _fake_wait_for)
+    monkeypatch.setattr("familiar_agent.gui.should_fire_idle_desire", lambda **kwargs: True)
+    monkeypatch.setattr(
+        "familiar_agent.gui.desire_tick_prompt",
+        lambda _desires, _peek: ("greet_companion", "say hello", None),
+    )
+    monkeypatch.setattr(
+        "familiar_agent.gui._t",
+        lambda key, **kwargs: "localized" if "desire_" in key else key,
+    )
+
+    await FamiliarWindow._process_queue(win)
+
+    assert fired == ["greet_companion"]
+    win._desires.satisfy.assert_called_once_with("greet_companion")

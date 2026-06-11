@@ -19,6 +19,34 @@ def test_quiet_hours_suppress_intrusive_actions(tmp_path: Path) -> None:
     assert decision.schedule_multiplier < 1.0
 
 
+def test_parse_schedule_config_reads_routines_md(tmp_path: Path, monkeypatch) -> None:
+    """parse_schedule_config falls back to ROUTINES.md in cwd when no path given."""
+    routines_md = tmp_path / "ROUTINES.md"
+    routines_md.write_text("quiet_hours_start=21\nquiet_hours_end=5\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    rule = parse_schedule_config()  # no explicit path — must read ROUTINES.md
+
+    assert rule.start_hour == 21
+    assert rule.end_hour == 5
+    assert rule.is_quiet(datetime(2026, 6, 11, 22, 0)) is True
+    assert rule.is_quiet(datetime(2026, 6, 11, 10, 0)) is False
+
+
+def test_parse_schedule_config_explicit_path_takes_precedence(tmp_path: Path, monkeypatch) -> None:
+    """Explicit path is used before ROUTINES.md fallback."""
+    routines_md = tmp_path / "ROUTINES.md"
+    routines_md.write_text("quiet_hours_start=21\nquiet_hours_end=5\n", encoding="utf-8")
+    explicit = tmp_path / "custom.conf"
+    explicit.write_text("quiet_hours_start=0\nquiet_hours_end=1\n", encoding="utf-8")
+    monkeypatch.chdir(tmp_path)
+
+    rule = parse_schedule_config(explicit)
+
+    assert rule.start_hour == 0
+    assert rule.end_hour == 1
+
+
 def test_continuation_chain_carries_over_and_stops_at_max_depth(tmp_path: Path) -> None:
     db_path = tmp_path / "observations.db"
     with patch.object(_EmbeddingModel, "pre_warm"):

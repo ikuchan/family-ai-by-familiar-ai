@@ -28,22 +28,39 @@ class RoutineDecision:
     notes: tuple[str, ...] = ()
 
 
-def parse_schedule_config(path: Path | None) -> QuietHoursRule:
-    if path is None or not path.exists():
-        return QuietHoursRule()
+def parse_schedule_config(path: Path | None = None) -> QuietHoursRule:
+    # Check primary path first, then fall back to ROUTINES.md in cwd.
+    candidates: list[Path] = []
+    if path is not None:
+        candidates.append(path)
+    routines_md = Path.cwd() / "ROUTINES.md"
+    if routines_md not in candidates:
+        candidates.append(routines_md)
+
     start = 23
     end = 7
-    for line in path.read_text(encoding="utf-8").splitlines():
-        stripped = line.strip()
-        if not stripped or stripped.startswith("#"):
+    for candidate in candidates:
+        if not candidate.exists():
             continue
-        if "=" not in stripped:
-            continue
-        key, value = [part.strip() for part in stripped.split("=", 1)]
-        if key == "quiet_hours_start":
-            start = int(value)
-        elif key == "quiet_hours_end":
-            end = int(value)
+        found = False
+        for line in candidate.read_text(encoding="utf-8").splitlines():
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#"):
+                continue
+            if "=" not in stripped:
+                continue
+            key, value = [part.strip() for part in stripped.split("=", 1)]
+            try:
+                if key == "quiet_hours_start":
+                    start = int(value)
+                    found = True
+                elif key == "quiet_hours_end":
+                    end = int(value)
+                    found = True
+            except ValueError:
+                continue
+        if found:
+            break
     return QuietHoursRule(start_hour=start, end_hour=end)
 
 

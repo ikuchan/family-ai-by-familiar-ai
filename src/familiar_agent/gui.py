@@ -1751,6 +1751,12 @@ class FamiliarWindow(QMainWindow):
                 if now < self._silence_until:
                     continue
 
+                # Quiet hours: suppress all desires during scheduled sleep window
+                _agent_for_rule = getattr(self, "_agent", None)
+                _schedule_rule = getattr(_agent_for_rule, "_schedule_rule", None)
+                if _schedule_rule is not None and _schedule_rule.is_quiet():
+                    continue
+
                 # Peek at dominant desire to determine which cooldown to use
                 tick = desire_tick_prompt(self._desires, [])
                 if not tick:

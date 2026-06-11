@@ -3055,6 +3055,14 @@ class EmbodiedAgent:
             await memory_worker.start()
 
         is_desire_turn = bool(inner_voice and not user_input)
+
+        # Suppress social desire turns during quiet hours (don't wake the user).
+        if is_desire_turn and is_social_desire(desire_name):
+            _rule = getattr(self, "_schedule_rule", None)
+            if _rule is not None and _rule.is_quiet():
+                logger.debug("Social desire '%s' suppressed: quiet hours", desire_name)
+                return ""
+
         candidate_brief_turn = self._is_candidate_brief_turn(
             user_input,
             is_desire_turn=is_desire_turn,

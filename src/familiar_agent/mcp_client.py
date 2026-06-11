@@ -87,6 +87,9 @@ def _compress_tavily_result(text: str) -> str:
     return "\n".join(out)
 
 
+_CONNECT_TIMEOUT = float(os.environ.get("MCP_CONNECT_TIMEOUT", "30"))
+
+
 class MCPClientManager:
     """Manages MCP server connections (stdio and SSE) for the duration of the agent session."""
 
@@ -99,11 +102,19 @@ class MCPClientManager:
         # Cached tool definitions (Anthropic format)
         self._tool_defs: list[dict[str, Any]] = []
         self._exit_stack = AsyncExitStack()
-        self._started = False
+        self._started = False  # True once start() has been called (re-entry guard)
+        self._start_complete = False  # True once start() has finished (success or failure)
+        self._failed_servers: list[str] = []
 
     @property
     def is_started(self) -> bool:
+        """True once start() has been called.  Does NOT imply any server is connected."""
         return self._started
+
+    @property
+    def is_connected(self) -> bool:
+        """True if at least one server connected and registered tools."""
+        return bool(self._sessions)
 
     async def _register_tools(self, name: str, session: Any) -> int:
         """Register tools from a connected session. Returns count of registered tools."""
@@ -138,6 +149,60 @@ class MCPClientManager:
             count += 1
         return count
 
+    async def _connect_one(
+        self,
+        name: str,
+        cfg: dict[str, Any],
+        ClientSession: Any,
+        StdioServerParameters: Any,
+        stdio_client: Any,
+    ) -> None:
+        """Connect a single server and register its tools. Raises on failure."""
+        import asyncio
+        import sniffio as _sniffio
+
+        try:
+            _lib = _sniffio.current_async_library()
+        except Exception as _e:
+            _lib = f"<detection failed: {_e!r}>"
+        logger.info("MCP connect '%s': sniffio=%r task=%r", name, _lib, asyncio.current_task())
+
+        server_type = cfg.get("type", "stdio")
+
+        if server_type == "stdio":
+            command = cfg.get("command", "")
+            args: list[str] = cfg.get("args", [])
+            env: dict[str, str] | None = cfg.get("env") or None
+
+            if not command:
+                logger.warning("MCP server '%s': missing 'command', skipping", name)
+                return
+
+            params = StdioServerParameters(command=command, args=args, env=env)
+            read, write = await self._exit_stack.enter_async_context(stdio_client(params))
+            session: Any = await self._exit_stack.enter_async_context(ClientSession(read, write))
+            await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
+
+        elif server_type == "sse":
+            from mcp.client.sse import sse_client as _sse_client
+
+            url = cfg.get("url", "")
+            if not url:
+                logger.warning("MCP server '%s': missing 'url' for sse type, skipping", name)
+                return
+
+            read, write = await self._exit_stack.enter_async_context(_sse_client(url=url))
+            session = await self._exit_stack.enter_async_context(ClientSession(read, write))
+            await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
+
+        else:
+            logger.warning("MCP server '%s': unsupported type '%s', skipping", name, server_type)
+            return
+
+        self._sessions[name] = session
+        count = await self._register_tools(name, session)
+        logger.info("Connected to MCP server '%s' (%d tools)", name, count)
+
     async def start(self) -> None:
         """Connect to all configured servers. Skips servers that fail to connect."""
         if self._started:
@@ -145,6 +210,7 @@ class MCPClientManager:
         self._started = True
 
         if not self._servers:
+            self._start_complete = True
             return
 
         try:
@@ -152,56 +218,31 @@ class MCPClientManager:
             from mcp.client.stdio import stdio_client
         except ImportError:
             logger.warning("mcp package not installed; MCP support disabled")
+            self._start_complete = True
             return
 
         await self._exit_stack.__aenter__()
 
         for name, cfg in self._servers.items():
-            server_type = cfg.get("type", "stdio")
-
             try:
-                if server_type == "stdio":
-                    command = cfg.get("command", "")
-                    args: list[str] = cfg.get("args", [])
-                    env: dict[str, str] | None = cfg.get("env") or None
-
-                    if not command:
-                        logger.warning("MCP server '%s': missing 'command', skipping", name)
-                        continue
-
-                    params = StdioServerParameters(command=command, args=args, env=env)
-                    read, write = await self._exit_stack.enter_async_context(stdio_client(params))
-                    session: Any = await self._exit_stack.enter_async_context(
-                        ClientSession(read, write)
-                    )
-                    await session.initialize()
-
-                elif server_type == "sse":
-                    from mcp.client.sse import sse_client
-
-                    url = cfg.get("url", "")
-                    if not url:
-                        logger.warning(
-                            "MCP server '%s': missing 'url' for sse type, skipping", name
-                        )
-                        continue
-
-                    read, write = await self._exit_stack.enter_async_context(sse_client(url=url))
-                    session = await self._exit_stack.enter_async_context(ClientSession(read, write))
-                    await session.initialize()
-
-                else:
-                    logger.warning(
-                        "MCP server '%s': unsupported type '%s', skipping", name, server_type
-                    )
-                    continue
-
-                self._sessions[name] = session
-                count = await self._register_tools(name, session)
-                logger.info("Connected to MCP server '%s' (%d tools)", name, count)
-
+                await self._connect_one(name, cfg, ClientSession, StdioServerParameters, stdio_client)
             except Exception as e:
-                logger.warning("Failed to connect to MCP server '%s': %s", name, e)
+                self._failed_servers.append(name)
+                logger.warning(
+                    "Failed to connect to MCP server '%s': %r",
+                    name,
+                    e,
+                    exc_info=True,
+                )
+
+        if self._failed_servers:
+            logger.warning(
+                "MCP: %d/%d server(s) failed to connect: %s",
+                len(self._failed_servers),
+                len(self._servers),
+                ", ".join(self._failed_servers),
+            )
+        self._start_complete = True
 
     async def stop(self) -> None:
         """Close all MCP connections."""
@@ -210,7 +251,18 @@ class MCPClientManager:
         try:
             await self._exit_stack.__aexit__(None, None, None)
         except Exception as e:
-            logger.debug("MCP cleanup error: %s", e)
+            logger.debug("MCP cleanup error: %r", e)
+
+    async def reset(self) -> None:
+        """Stop all connections and reset state so start() can be called again."""
+        await self.stop()
+        self._sessions.clear()
+        self._tool_router.clear()
+        self._tool_defs.clear()
+        self._failed_servers.clear()
+        self._exit_stack = AsyncExitStack()
+        self._started = False
+        self._start_complete = False
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Return Anthropic-format tool definitions from all connected servers."""

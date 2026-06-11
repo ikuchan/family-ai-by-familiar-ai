@@ -280,14 +280,14 @@ class DesireSystem:
             "attachment": DriveSpec(
                 "attachment",
                 GROWTH_RATES["attachment"],
-                f"Internal impulse: stay connected to {self._companion_name} without becoming clingy.",
+                _t("desire_prompt_attachment", companion=self._companion_name),
                 ("social",),
                 60,
             ),
             "care": DriveSpec(
                 "care",
                 GROWTH_RATES["care"],
-                f"Internal impulse: offer grounded care to {self._companion_name} if it fits the moment.",
+                _t("desire_prompt_care", companion=self._companion_name),
                 ("social", "care"),
                 60,
             ),
@@ -315,7 +315,7 @@ class DesireSystem:
             "play": DriveSpec(
                 "play",
                 GROWTH_RATES["play"],
-                "Internal impulse: keep some lightness and play where it is welcome.",
+                _t("desire_prompt_play", companion=self._companion_name),
                 ("play",),
                 45,
             ),

@@ -190,6 +190,11 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                     if item:
                         pending_items.append(item)
 
+                # Suppress social desires during quiet hours.
+                _schedule_rule = getattr(agent, "_schedule_rule", None)
+                if _schedule_rule is not None and _schedule_rule.is_quiet():
+                    continue
+
                 tick = desire_tick_prompt(desires, pending_items)
                 if tick:
                     desire_name, prompt, _pending = tick
@@ -409,19 +414,23 @@ def main() -> None:
     debug = "--debug" in sys.argv
     setup_logging(debug=debug)
 
-    # Use uvloop for faster I/O throughput when available (Linux / WSL2)
-    try:
-        import uvloop
-
-        uvloop.install()
-    except ImportError:
-        pass
-
     if len(sys.argv) > 1 and sys.argv[1] == "mcp":
         _mcp_command(sys.argv[2:])
         return
 
     use_gui = "--gui" in sys.argv
+
+    # Use uvloop for faster I/O throughput when available (Linux / WSL2).
+    # Skipped in GUI mode: uvloop.EventLoopPolicy does not implement get_child_watcher(),
+    # which breaks asyncio subprocess creation (used by MCP stdio transport) when running
+    # inside a qasync event loop.
+    if not use_gui:
+        try:
+            import uvloop
+
+            uvloop.install()
+        except ImportError:
+            pass
     use_tui = "--no-tui" not in sys.argv and not use_gui
     bootstrap = load_app_bootstrap()
 

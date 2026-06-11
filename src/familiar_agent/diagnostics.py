@@ -52,7 +52,16 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     queue = getattr(window, "_input_queue", None)
     queue_backlog = int(queue.qsize()) if queue is not None else 0
     embedding_ready = bool(getattr(agent, "is_embedding_ready", False))
-    mcp_ready = bool(getattr(getattr(agent, "_mcp", None), "is_started", False))
+    _mcp = getattr(agent, "_mcp", None)
+    if _mcp is None:
+        _mcp_state = "na"
+    elif getattr(_mcp, "is_connected", False):
+        _mcp_state = "ready"
+    elif getattr(_mcp, "_start_complete", False):
+        _mcp_state = "failed"
+    else:
+        _mcp_state = "connecting"
+    mcp_ready = _mcp_state == "ready"
     stt_connected = bool(getattr(realtime_stt, "connected", False))
     stt_gated = bool(getattr(realtime_stt, "gated", False))
 
@@ -80,7 +89,7 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     readiness_bits = [
         "agent=ready" if agent_ready else "agent=starting",
         "embedding=ready" if embedding_ready else "embedding=warming",
-        "mcp=ready" if mcp_ready else "mcp=connecting",
+        f"mcp={_mcp_state}",
         "stt=connected" if stt_connected else "stt=idle",
     ]
     if stt_gated:
