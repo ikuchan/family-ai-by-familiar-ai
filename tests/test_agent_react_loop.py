@@ -137,6 +137,8 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     deferred.pending_context = MagicMock(return_value="")
     deferred.has_pending = False
     deferred.is_running = False
+    deferred.has_user_initiated_pending = False
+    deferred.set_user_turn = MagicMock()
     agent._deferred_search = deferred
 
     deferred_fetch = MagicMock()
@@ -145,6 +147,8 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     deferred_fetch.pending_context = MagicMock(return_value="")
     deferred_fetch.has_pending = False
     deferred_fetch.is_running = False
+    deferred_fetch.has_user_initiated_pending = False
+    deferred_fetch.set_user_turn = MagicMock()
     agent._deferred_fetch = deferred_fetch
 
     mock_pmm = MagicMock()
@@ -896,4 +900,72 @@ async def test_run_does_not_overwrite_explicit_inner_voice_when_deferred_results
     assert explicit_inner_voice in system_text, "Explicit inner_voice should be present in system"
     assert "調べておいた結果が届いた" not in system_text, (
         "Auto inner_voice must not overwrite an already-set inner_voice"
+    )
+
+
+# ---------------------------------------------------------------------------
+# Quiet-hours bypass for share_search_result (user-initiated)
+# ---------------------------------------------------------------------------
+
+
+def _make_quiet_rule():
+    rule = MagicMock()
+    rule.is_quiet = MagicMock(return_value=True)
+    rule.start_hour = 21
+    rule.end_hour = 5
+    return rule
+
+
+@pytest.mark.asyncio
+async def test_share_search_result_bypasses_quiet_hours_when_user_initiated():
+    """share_search_result delivery must proceed during quiet hours if the search was user-initiated."""
+    agent = _make_agent()
+    agent._schedule_rule = _make_quiet_rule()
+    agent._deferred_search.has_user_initiated_pending = True
+    agent.backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="ニュースが届いたよ！"), "ニュースが届いたよ！")
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        result = await agent.run(
+            "",
+            inner_voice="調べておいた結果が届いた。いつものトーンで自然に伝えよう。",
+            desire_name="share_search_result",
+        )
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert result != "", (
+        "share_search_result should not be suppressed during quiet hours when user-initiated"
+    )
+    assert "ニュース" in result
+
+
+@pytest.mark.asyncio
+async def test_share_search_result_suppressed_during_quiet_hours_when_not_user_initiated():
+    """share_search_result must still be suppressed during quiet hours for autonomous searches."""
+    agent = _make_agent()
+    agent._schedule_rule = _make_quiet_rule()
+    agent._deferred_search.has_user_initiated_pending = False
+    agent._deferred_fetch.has_user_initiated_pending = False
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        result = await agent.run(
+            "",
+            inner_voice="何か調べた結果が届いた。",
+            desire_name="share_search_result",
+        )
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert result == "", (
+        "Autonomous share_search_result should be suppressed during quiet hours"
     )

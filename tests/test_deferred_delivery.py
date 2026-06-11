@@ -13,10 +13,16 @@ import pytest
 from familiar_agent.agent import EmbodiedAgent
 
 
-def _make_deferred(*, has_pending: bool = False, is_running: bool = False) -> MagicMock:
+def _make_deferred(
+    *,
+    has_pending: bool = False,
+    is_running: bool = False,
+    user_initiated: bool = False,
+) -> MagicMock:
     m = MagicMock()
     m.has_pending = has_pending
     m.is_running = is_running
+    m.has_user_initiated_pending = user_initiated
     return m
 
 
@@ -26,13 +32,15 @@ def _make_agent_stub(
     search_running: bool = False,
     fetch_pending: bool = False,
     fetch_running: bool = False,
+    search_user_initiated: bool = False,
+    fetch_user_initiated: bool = False,
     presence: float = 1.0,
     quiet: bool = False,
     social_act: str | None = None,
 ) -> EmbodiedAgent:
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    agent._deferred_search = _make_deferred(has_pending=search_pending, is_running=search_running)
-    agent._deferred_fetch = _make_deferred(has_pending=fetch_pending, is_running=fetch_running)
+    agent._deferred_search = _make_deferred(has_pending=search_pending, is_running=search_running, user_initiated=search_user_initiated)
+    agent._deferred_fetch = _make_deferred(has_pending=fetch_pending, is_running=fetch_running, user_initiated=fetch_user_initiated)
     agent._social_presence_permission = MagicMock(return_value=presence)
     agent._schedule_rule = None
     if quiet:
@@ -170,3 +178,38 @@ def test_returns_false_when_deferred_search_not_initialized():
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     # _deferred_search intentionally absent
     assert agent.should_deliver_deferred_result() is False
+
+
+# ---------------------------------------------------------------------------
+# Gate 3: quiet hours bypass for user-initiated searches
+# ---------------------------------------------------------------------------
+
+
+def test_user_initiated_search_bypasses_quiet_hours():
+    agent = _make_agent_stub(search_pending=True, quiet=True, search_user_initiated=True)
+    assert agent.should_deliver_deferred_result() is True
+
+
+def test_user_initiated_fetch_bypasses_quiet_hours():
+    agent = _make_agent_stub(fetch_pending=True, quiet=True, fetch_user_initiated=True)
+    assert agent.should_deliver_deferred_result() is True
+
+
+def test_autonomous_search_still_blocked_during_quiet_hours():
+    agent = _make_agent_stub(search_pending=True, quiet=True, search_user_initiated=False)
+    assert agent.should_deliver_deferred_result() is False
+
+
+def test_autonomous_fetch_still_blocked_during_quiet_hours():
+    agent = _make_agent_stub(fetch_pending=True, quiet=True, fetch_user_initiated=False)
+    assert agent.should_deliver_deferred_result() is False
+
+
+def test_mixed_user_and_autonomous_pending_bypasses_quiet_hours():
+    # One user-initiated + one autonomous pending → bypass (user's request takes priority)
+    agent = _make_agent_stub(
+        search_pending=True, search_user_initiated=True,
+        fetch_pending=True, fetch_user_initiated=False,
+        quiet=True,
+    )
+    assert agent.should_deliver_deferred_result() is True

@@ -248,3 +248,44 @@ async def test_utility_llm_error_falls_back_to_exact_match():
     await tool.call("search_deferred", {"query": "identical"})
     result, _ = await tool.call("search_deferred", {"query": "identical"})
     assert "進行中" in result
+
+
+# ---------------------------------------------------------------------------
+# user_initiated flag
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_has_user_initiated_pending_false_by_default():
+    tool, _ = _make_tool()
+    await tool.call("search_deferred", {"query": "q"})
+    await asyncio.sleep(0)
+    assert tool.has_user_initiated_pending is False
+
+
+@pytest.mark.asyncio
+async def test_has_user_initiated_pending_true_when_user_turn():
+    tool, _ = _make_tool()
+    tool.set_user_turn(True)
+    await tool.call("search_deferred", {"query": "q"})
+    await asyncio.sleep(0)
+    assert tool.has_user_initiated_pending is True
+
+
+@pytest.mark.asyncio
+async def test_has_user_initiated_pending_false_when_desire_turn():
+    tool, _ = _make_tool()
+    tool.set_user_turn(False)
+    await tool.call("search_deferred", {"query": "q"})
+    await asyncio.sleep(0)
+    assert tool.has_user_initiated_pending is False
+
+
+@pytest.mark.asyncio
+async def test_has_user_initiated_pending_cleared_after_read():
+    tool, _ = _make_tool()
+    tool.set_user_turn(True)
+    await tool.call("search_deferred", {"query": "q"})
+    await asyncio.sleep(0)
+    tool.pending_context()  # consume
+    assert tool.has_user_initiated_pending is False

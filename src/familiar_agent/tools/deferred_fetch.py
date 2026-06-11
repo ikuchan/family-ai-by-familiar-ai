@@ -30,6 +30,11 @@ class DeferredFetchTool:
         self._fetch_fn = fetch_fn
         self._pending: list[dict] = []
         self._running: int = 0
+        self._user_turn: bool = False
+
+    def set_user_turn(self, value: bool) -> None:
+        """Mark whether the current agent turn is user-initiated (vs. autonomous desire)."""
+        self._user_turn = value
 
     # ── Tool definition ───────────────────────────────────────────────
 
@@ -74,24 +79,26 @@ class DeferredFetchTool:
                 None,
             )
 
+        user_initiated = self._user_turn
         self._running += 1  # increment synchronously before task starts to prevent race
-        asyncio.create_task(self._run(url))
+        asyncio.create_task(self._run(url, user_initiated))
         return (
             f"「{url}」をバックグラウンドで取得中… 次のターンで内容をお知らせします。",
             None,
         )
 
-    async def _run(self, url: str) -> None:
+    async def _run(self, url: str, user_initiated: bool = False) -> None:
         try:
             result, _ = await self._fetch_fn("fetch", {"url": url})
             if len(self._pending) < _MAX_PENDING:
-                self._pending.append({"url": url, "result": result})
+                self._pending.append({"url": url, "result": result, "user_initiated": user_initiated})
         except Exception as exc:
             logger.warning("deferred fetch failed (url=%r): %s", url, exc)
             if len(self._pending) < _MAX_PENDING:
                 self._pending.append({
                     "url": url,
                     "result": f"取得中にエラーが発生しました: {exc}",
+                    "user_initiated": user_initiated,
                 })
         finally:
             self._running -= 1
@@ -117,6 +124,10 @@ class DeferredFetchTool:
     @property
     def has_pending(self) -> bool:
         return bool(self._pending)
+
+    @property
+    def has_user_initiated_pending(self) -> bool:
+        return any(item.get("user_initiated") for item in self._pending)
 
     @property
     def is_running(self) -> bool:

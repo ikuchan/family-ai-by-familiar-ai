@@ -39,6 +39,11 @@ class DeferredSearchTool:
         self._pending: list[dict] = []
         self._running: int = 0
         self._running_queries: set[str] = set()
+        self._user_turn: bool = False
+
+    def set_user_turn(self, value: bool) -> None:
+        """Mark whether the current agent turn is user-initiated (vs. autonomous desire)."""
+        self._user_turn = value
 
     # ── Tool definition ───────────────────────────────────────────────
 
@@ -114,22 +119,23 @@ class DeferredSearchTool:
 
         source = str(tool_input.get("source", "brave"))
         mcp_tool = _SOURCE_TO_TOOL.get(source, "brave_web_search")
+        user_initiated = self._user_turn
         # Increment synchronously before task starts to prevent race conditions.
         self._running += 1
         self._running_queries.add(query)
-        asyncio.create_task(self._run(query, mcp_tool, source))
+        asyncio.create_task(self._run(query, mcp_tool, source, user_initiated))
         return (
             f"「{query}」を {source} でバックグラウンド検索中… 次のターンで結果をお知らせします。",
             None,
         )
 
-    async def _run(self, query: str, mcp_tool: str, source: str) -> None:
+    async def _run(self, query: str, mcp_tool: str, source: str, user_initiated: bool = False) -> None:
         logger.debug("deferred search _run started (query=%r mcp_tool=%r)", query, mcp_tool)
         try:
             result, _ = await self._search_fn(mcp_tool, {"query": query})
             logger.debug("deferred search _run completed (query=%r result_len=%d)", query, len(result))
             if len(self._pending) < _MAX_PENDING:
-                self._pending.append({"query": query, "result": result, "source": source})
+                self._pending.append({"query": query, "result": result, "source": source, "user_initiated": user_initiated})
         except Exception as exc:
             logger.warning("deferred search failed (query=%r): %s", query, exc)
             if len(self._pending) < _MAX_PENDING:
@@ -137,6 +143,7 @@ class DeferredSearchTool:
                     "query": query,
                     "result": f"検索中にエラーが発生しました: {exc}",
                     "source": source,
+                    "user_initiated": user_initiated,
                 })
         finally:
             self._running -= 1
@@ -163,6 +170,10 @@ class DeferredSearchTool:
     @property
     def has_pending(self) -> bool:
         return bool(self._pending)
+
+    @property
+    def has_user_initiated_pending(self) -> bool:
+        return any(item.get("user_initiated") for item in self._pending)
 
     @property
     def is_running(self) -> bool:

@@ -124,7 +124,7 @@ _TOOL_TIMEOUTS: dict[str, float] = {
 }
 _BRIEF_REPLY_MAX_ITERATIONS = 2
 _BRIEF_REPLY_MAX_TOKENS = 120
-_BRIEF_REPLY_TOOL_NAMES = frozenset({"say"})
+_BRIEF_REPLY_TOOL_NAMES = frozenset({"say", "search_deferred", "fetch_deferred"})
 _BRIEF_GREETING_PATTERNS = (
     r"^おはよ",
     r"^こんにちは",
@@ -2658,12 +2658,17 @@ class EmbodiedAgent:
         if self._social_presence_permission() == 0.0:
             return False
 
-        # Gate 3: quiet mode
-        rule = getattr(self, "_schedule_rule", None)
-        if rule is not None:
-            from datetime import datetime
-            if rule.is_quiet(datetime.now()):
-                return False
+        # Gate 3: quiet mode — bypassed when the user explicitly requested the search.
+        _user_initiated = (
+            self._deferred_search.has_user_initiated_pending
+            or self._deferred_fetch.has_user_initiated_pending
+        )
+        if not _user_initiated:
+            rule = getattr(self, "_schedule_rule", None)
+            if rule is not None:
+                from datetime import datetime
+                if rule.is_quiet(datetime.now()):
+                    return False
 
         # Gate 4: social policy
         last_policy = getattr(self, "_last_social_decision", None)
@@ -3056,12 +3061,24 @@ class EmbodiedAgent:
 
         is_desire_turn = bool(inner_voice and not user_input)
 
+        # Tell the deferred tools whether this is a user-initiated turn so pending
+        # results can be tagged and quiet-hours bypassed for user-requested searches.
+        self._deferred_search.set_user_turn(not is_desire_turn)
+        self._deferred_fetch.set_user_turn(not is_desire_turn)
+
         # Suppress social desire turns during quiet hours (don't wake the user).
+        # Exception: share_search_result bypasses quiet hours when the user explicitly
+        # requested the search (user_initiated flag in pending entries).
         if is_desire_turn and is_social_desire(desire_name):
             _rule = getattr(self, "_schedule_rule", None)
             if _rule is not None and _rule.is_quiet():
-                logger.debug("Social desire '%s' suppressed: quiet hours", desire_name)
-                return ""
+                _delivering_user_search = desire_name == "share_search_result" and (
+                    self._deferred_search.has_user_initiated_pending
+                    or self._deferred_fetch.has_user_initiated_pending
+                )
+                if not _delivering_user_search:
+                    logger.debug("Social desire '%s' suppressed: quiet hours", desire_name)
+                    return ""
 
         candidate_brief_turn = self._is_candidate_brief_turn(
             user_input,
