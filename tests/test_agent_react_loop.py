@@ -969,3 +969,90 @@ async def test_share_search_result_suppressed_during_quiet_hours_when_not_user_i
     assert result == "", (
         "Autonomous share_search_result should be suppressed during quiet hours"
     )
+
+
+# ---------------------------------------------------------------------------
+# Internal desire turns pass Gemini-formatted messages to utility backend
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_internal_desire_turn_passes_gemini_formatted_messages_to_utility_backend():
+    """When swapped to the Gemini utility backend for an internal desire turn,
+    messages must be converted to Gemini format (parts, not content) before
+    stream_turn is called — no Anthropic-format messages should leak through."""
+    import logging
+    agent = _make_agent()
+
+    # Give agent a separate utility backend so the swap actually happens
+    utility_backend = MagicMock()
+    utility_backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="interesting discovery"), "interesting discovery")
+    )
+    utility_backend.make_assistant_message = MagicMock(
+        return_value={"role": "model", "parts": [{"text": "interesting discovery"}]}
+    )
+    agent._utility_backend = utility_backend
+
+    # Pre-populate messages in Anthropic format (simulates prior conversation turns)
+    agent.messages = [
+        {"role": "user", "content": "こんにちは"},
+        {"role": "assistant", "content": "こんにちは！"},
+    ]
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        await agent.run("", inner_voice="好奇心が高まっている", desire_name="curiosity")
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert utility_backend.stream_turn.called, "utility backend stream_turn should have been called"
+    call_kwargs = utility_backend.stream_turn.call_args
+    messages_passed = call_kwargs.kwargs.get("messages") or call_kwargs.args[1]
+
+    # Every message must be in Gemini format (has 'parts', not 'content')
+    for msg in messages_passed:
+        assert "parts" in msg, (
+            f"Message passed to utility backend must use Gemini 'parts' format, got: {msg}"
+        )
+        assert "content" not in msg, (
+            f"Anthropic 'content' key must not appear in messages for utility backend, got: {msg}"
+        )
+
+
+@pytest.mark.asyncio
+async def test_internal_desire_turn_no_coercion_warning(caplog):
+    """No 'coerced' warning should be logged when an internal desire turn runs."""
+    import logging
+    agent = _make_agent()
+
+    utility_backend = MagicMock()
+    utility_backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="reflecting..."), "reflecting...")
+    )
+    utility_backend.make_assistant_message = MagicMock(
+        return_value={"role": "model", "parts": [{"text": "reflecting..."}]}
+    )
+    agent._utility_backend = utility_backend
+
+    agent.messages = [
+        {"role": "user", "content": "今日はどうだった？"},
+        {"role": "assistant", "content": "楽しかったよ。"},
+    ]
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        with caplog.at_level(logging.WARNING, logger="familiar_agent.backend"):
+            await agent.run("", inner_voice="振り返りたい", desire_name="reflect")
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert "coerced" not in caplog.text, (
+        "No coercion warning should be logged for internal desire turns"
+    )

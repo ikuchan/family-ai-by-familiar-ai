@@ -2,10 +2,16 @@
 
 ## Project overview
 
-familiar-ai is an embodied companion agent. It combines:
+familiar-ai is an embodied companion agent designed for home use by a family.
+Multiple family members share a single agent instance; each person has an
+independent memory space, relationship state, and perspective vector.
+The agent identifies who is speaking via face recognition or voice print,
+and routes memory reads/writes to the appropriate person context automatically.
+
+It combines:
 
 - a ReAct tool loop
-- PostgreSQL memory (pgvector)
+- PostgreSQL memory (pgvector) with per-person situated embeddings
 - prediction / workspace / self-state layers
 - explicit relationship, appraisal, social policy, and drive regulation
 - capability manifest with periodic AI self-understanding refresh
@@ -33,7 +39,7 @@ src/familiar_agent/
 ├── diagnostics.py            # GUI diagnostics and connection tests
 ├── event_bus.py              # Internal event bus
 ├── exploration.py            # Spatial exploration state
-├── gui.py                    # GTK GUI
+├── gui.py                    # PySide6 GUI
 ├── heartbeat.py              # Continuation/runtime status logic
 ├── interoception.py          # Interoception providers + semantic pressure
 ├── intervention_policy.py    # Autonomous intervention gating
@@ -64,6 +70,8 @@ src/familiar_agent/
 ├── tools/
 │   ├── camera.py
 │   ├── coding.py
+│   ├── deferred_fetch.py     # Fire-and-forget URL fetch; result injected next turn
+│   ├── deferred_search.py    # Fire-and-forget web search; result injected next turn
 │   ├── memory.py
 │   ├── mic.py
 │   ├── mobility.py
@@ -94,6 +102,14 @@ The current turn flow in `agent.py` is:
 10. execute the ReAct loop
 11. meta-gate the response
 12. persist post-turn traces and mental-state snapshots
+
+In addition to the above turn-driven flow, the GUI idle loop
+(`_process_queue()` in `gui.py`) fires a separate **deferred delivery turn**
+when `should_deliver_deferred_result()` returns True. This turn delivers
+completed `search_deferred` / `fetch_deferred` results proactively, bypassing
+the normal user-input trigger. It is gated by presence, quiet hours, and social
+context, but quiet hours are bypassed when the search was user-initiated and the
+user was active within 30 minutes.
 
 During idle DMN cycles (no workspace winner), the agent periodically refreshes
 its capability self-understanding from `capabilities.yaml`.
@@ -150,14 +166,18 @@ Run before opening a PR:
 ```bash
 uv run ruff check .
 uv run --group dev mypy src/familiar_agent
-uv run pytest -q
+./scripts/run_tests.sh
 ```
+
+`./scripts/run_tests.sh` starts the test DB container (port 5433), runs the
+full pytest suite against it, and stops the container on exit. Do not use
+`uv run pytest -q` directly — many tests require a live PostgreSQL connection.
 
 ## Git workflow
 
-- Work from `develop`
+- Work from `develop-ikuchan`
 - Cut a feature branch before changes
-- Open focused PRs into `develop`
+- Open focused PRs into `develop-ikuchan`
 - Use Conventional Commits in English
 
 Examples:
@@ -184,3 +204,19 @@ docs: refresh technical architecture guide
 - When changing social behavior:
   - prefer appraisal / social policy / meta gate logic first
   - only extend prompt instructions when state logic is insufficient
+- When adding a deferred tool (search or fetch variant):
+  - implement `set_user_turn(bool)` and `has_user_initiated_pending` on the tool
+  - add the tool name to `_BRIEF_REPLY_TOOL_NAMES` in `agent.py` so it is
+    available during brief-reply mode (short greetings, acks, etc.)
+  - if the tool produces user-facing output, add its delivery desire name to
+    `_SOCIAL_DESIRE_NAMES` in `desires.py`
+- Quiet hours and autonomous desires:
+  - social desires are suppressed during quiet hours unless the delivery is
+    for a user-initiated deferred search (`share_search_result`) AND the user
+    was active within 30 minutes (`_last_human_at`)
+  - this bypass is implemented in both `should_deliver_deferred_result()` and
+    the quiet-hours gate inside `agent.run()`; both must be kept in sync
+- Desire turn user message:
+  - desire turns use `"."` as the user message placeholder,
+    not a human-readable marker. Any visible string leaks into LLM output.
+    A plain space is rejected by the Anthropic API (whitespace-only not allowed).

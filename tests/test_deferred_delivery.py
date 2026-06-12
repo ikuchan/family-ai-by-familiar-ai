@@ -37,11 +37,14 @@ def _make_agent_stub(
     presence: float = 1.0,
     quiet: bool = False,
     social_act: str | None = None,
+    user_recent: bool = True,
 ) -> EmbodiedAgent:
+    import time
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     agent._deferred_search = _make_deferred(has_pending=search_pending, is_running=search_running, user_initiated=search_user_initiated)
     agent._deferred_fetch = _make_deferred(has_pending=fetch_pending, is_running=fetch_running, user_initiated=fetch_user_initiated)
     agent._social_presence_permission = MagicMock(return_value=presence)
+    agent._last_human_at = time.time() if user_recent else 0.0
     agent._schedule_rule = None
     if quiet:
         rule = MagicMock()
@@ -213,3 +216,18 @@ def test_mixed_user_and_autonomous_pending_bypasses_quiet_hours():
         quiet=True,
     )
     assert agent.should_deliver_deferred_result() is True
+
+
+def test_user_initiated_search_does_not_bypass_when_user_not_recent():
+    # User-initiated but user hasn't been active for >30 min → no bypass
+    agent = _make_agent_stub(
+        search_pending=True, quiet=True, search_user_initiated=True, user_recent=False,
+    )
+    assert agent.should_deliver_deferred_result() is False
+
+
+def test_user_initiated_fetch_does_not_bypass_when_user_not_recent():
+    agent = _make_agent_stub(
+        fetch_pending=True, quiet=True, fetch_user_initiated=True, user_recent=False,
+    )
+    assert agent.should_deliver_deferred_result() is False

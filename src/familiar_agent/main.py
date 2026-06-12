@@ -406,14 +406,17 @@ def main() -> None:
 
     # Qt reads QT_IM_MODULE before QApplication is created.  Set it here so
     # the app works regardless of how it was launched (terminal, desktop icon,
-    # systemd unit, etc.).  Only set if fcitx5-remote is reachable; otherwise
-    # leave whatever the environment already has.
+    # systemd unit, etc.).
+    # PySide6's bundled fcitx5 plugin uses Qt private API from 6.4.x which is
+    # incompatible with PySide6's bundled Qt 6.10.x, causing a load failure.
+    # The IBus plugin loads fine (no private API dependency) and fcitx5 exposes
+    # an IBus-compatible D-Bus interface, so QT_IM_MODULE=ibus works for both.
     if "--gui" in sys.argv:
-        import shutil as _shutil
-        if "QT_IM_MODULE" not in os.environ and _shutil.which("fcitx5-remote"):
-            os.environ["QT_IM_MODULE"] = "fcitx"
-            os.environ.setdefault("GTK_IM_MODULE", "fcitx")
-            os.environ.setdefault("XMODIFIERS", "@im=fcitx")
+        if "QT_IM_MODULE" not in os.environ:
+            os.environ["QT_IM_MODULE"] = "ibus"
+        elif os.environ["QT_IM_MODULE"] == "fcitx":
+            os.environ["QT_IM_MODULE"] = "ibus"
+        os.environ.setdefault("XMODIFIERS", "@im=ibus")
 
     # --db-url must be applied before any DB singleton is initialized
     for i, arg in enumerate(sys.argv[:-1]):

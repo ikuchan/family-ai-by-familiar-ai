@@ -1213,6 +1213,39 @@ class GeminiBackend:
         )
         return {"role": gemini_role, "parts": parts}
 
+    @staticmethod
+    def _to_gemini_message_silent(msg: dict) -> dict:
+        """Convert an Anthropic-format message to Gemini format without logging.
+
+        Use this for intentional bulk conversion (e.g. when swapping to the
+        utility backend for internal desire turns). _to_gemini_message() is
+        kept for accidental-leakage detection and still logs a warning.
+        """
+        if "parts" in msg or "content" not in msg:
+            return msg
+        role = msg.get("role", "user")
+        content = msg["content"]
+        if isinstance(content, str):
+            parts: list = [{"text": content}]
+        elif isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append({"text": block.get("text", "")})
+        else:
+            parts = [{"text": str(content)}]
+        gemini_role = "model" if role == "assistant" else role
+        return {"role": gemini_role, "parts": parts}
+
+    @staticmethod
+    def convert_messages_to_gemini_format(messages: list[dict]) -> list[dict]:
+        """Return a new list with all messages converted to Gemini format.
+
+        Intended for intentional conversion when switching to the Gemini
+        utility backend. Does not log warnings.
+        """
+        return [GeminiBackend._to_gemini_message_silent(m) for m in messages]
+
     def _flatten_messages(self, messages: list) -> list[dict]:
         flat: list[dict] = []
         for msg in messages:

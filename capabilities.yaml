@@ -4,11 +4,14 @@ capabilities:
     detail: >
       When FAMILIAR_AUTO_DESIRE=1, desire levels grow over time. Desires are split
       into two categories. Social desires (greet_companion, share_memory, worry_companion,
-      care, attachment, repair, play) cause the agent to speak to the user and use the
-      full conversation backend. Internal desires (look_around, explore, consolidate,
-      reflect, curiosity, browse_curiosity, rest) run background processing using a
-      lightweight backend. DESIRE_COOLDOWN controls the growth rate of social desires;
-      INTERNAL_DESIRE_COOLDOWN controls internal desires independently (default: faster).
+      care, attachment, repair, play, share_search_result) cause the agent to speak to
+      the user and use the full conversation backend. Internal desires (look_around,
+      explore, consolidate, reflect, curiosity, browse_curiosity, rest, self_protect)
+      run background processing using a lightweight backend. DESIRE_COOLDOWN controls
+      the growth rate of social desires; INTERNAL_DESIRE_COOLDOWN controls internal
+      desires independently (default: faster). Note: repair and self_protect have a
+      growth rate of 0.0 and only activate via boost(). share_search_result fires
+      automatically when a deferred search result is ready to deliver.
       Social desires are gated by presence: when a camera is active, the agent only
       speaks if a person is detected; without a camera, only within 5 minutes of the
       last user message. When an internal turn finds something notable (scene change,
@@ -72,11 +75,15 @@ capabilities:
     enabled_env: MOBILITY_BACKEND
 
   - id: person_identification
-    summary: Identify and track persons in the environment
+    summary: Identify and track multiple family members as distinct individuals
     detail: >
-      Tools for person identification and presence detection. This module
-      interfaces with camera and voice data to recognize individuals. Uses
-      the `tools/person.py` module.
+      The agent is designed for shared household use: multiple family members
+      interact with the same instance, each with a separate memory space,
+      relationship state, and perspective vector. PersonMemoryManager routes
+      memory writes to the current speaker and reads across all present persons.
+      Identification uses face recognition (CameraPresenceWatcher) or voice print
+      (VoiceIdentifier). Uses the `tools/person.py` and `person_memory_manager.py`
+      modules.
     enabled: true
 
   - id: realtime_stt
@@ -121,11 +128,13 @@ capabilities:
     enabled: true
 
   - id: relationship_tracker
-    summary: Track longitudinal relationship state with each known person
+    summary: Track longitudinal relationship state independently for each family member
     detail: >
-      Maintains persistent metadata about the agent's relationships, including
-      trust, intimacy, session counts, and support patterns. This state is
-      persisted in the PostgreSQL database. Implemented in `relationship.py`.
+      Each registered person has their own relationship record, including trust,
+      intimacy, session counts, and support patterns. The agent maintains distinct
+      rapport with each family member and adapts its behavior accordingly.
+      State is persisted in the PostgreSQL `relationship_state` table.
+      Implemented in `relationship.py`.
     enabled: true
 
   - id: appraisal_engine
@@ -237,3 +246,13 @@ capabilities:
     detail: >
       VoiceIdentifier uses resemblyzer to embed utterances and match against
       registered voice profiles. Currently implemented but NOT yet wired into
+
+  - id: gui
+    summary: Graphical user interface for text-based interaction with the agent
+    detail: >
+      A PySide6-based desktop GUI (gui.py) that provides a chat-style interface
+      for conversing with the agent. The GUI supports Japanese text input via the
+      system IME, allowing users to compose messages in Japanese using input method
+      editors such as fcitx5 or ibus. Launched with `uv run familiar --gui` or
+      via `run-gui.sh`.
+    enabled: true

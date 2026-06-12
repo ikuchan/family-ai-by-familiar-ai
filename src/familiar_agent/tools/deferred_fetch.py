@@ -13,6 +13,13 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONCURRENT = 3
 _MAX_PENDING = 10
+_FETCH_TIMEOUT_SEC = 60
+
+
+async def _cancel_after(task: "asyncio.Task[object]", delay: float) -> None:
+    await asyncio.sleep(delay)
+    if not task.done():
+        task.cancel()
 
 
 class DeferredFetchTool:
@@ -81,7 +88,8 @@ class DeferredFetchTool:
 
         user_initiated = self._user_turn
         self._running += 1  # increment synchronously before task starts to prevent race
-        asyncio.create_task(self._run(url, user_initiated))
+        task = asyncio.create_task(self._run(url, user_initiated))
+        asyncio.create_task(_cancel_after(task, _FETCH_TIMEOUT_SEC))
         return (
             f"「{url}」をバックグラウンドで取得中… 次のターンで内容をお知らせします。",
             None,
@@ -92,6 +100,14 @@ class DeferredFetchTool:
             result, _ = await self._fetch_fn("fetch", {"url": url})
             if len(self._pending) < _MAX_PENDING:
                 self._pending.append({"url": url, "result": result, "user_initiated": user_initiated})
+        except asyncio.CancelledError:
+            logger.warning("deferred fetch timed out after %ds (url=%r)", _FETCH_TIMEOUT_SEC, url)
+            if len(self._pending) < _MAX_PENDING:
+                self._pending.append({
+                    "url": url,
+                    "result": f"取得がタイムアウトしました（{_FETCH_TIMEOUT_SEC}秒）: {url}",
+                    "user_initiated": user_initiated,
+                })
         except Exception as exc:
             logger.warning("deferred fetch failed (url=%r): %s", url, exc)
             if len(self._pending) < _MAX_PENDING:

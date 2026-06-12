@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .backend import AnthropicBackend, create_backend, create_scene_backend, create_utility_backend
+from .backend import AnthropicBackend, GeminiBackend, create_backend, create_scene_backend, create_utility_backend
 from .appraisal import AppraisalContext, AppraisalEngine
 from .config import AgentConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
@@ -2658,8 +2658,11 @@ class EmbodiedAgent:
         if self._social_presence_permission() == 0.0:
             return False
 
-        # Gate 3: quiet mode — bypassed when the user explicitly requested the search.
-        _user_initiated = (
+        # Gate 3: quiet mode — bypassed only when the user explicitly requested the search
+        # AND is still present (last message within 30 minutes).
+        import time as _time
+        _user_recent = _time.time() - getattr(self, "_last_human_at", 0) < 1800
+        _user_initiated = _user_recent and (
             self._deferred_search.has_user_initiated_pending
             or self._deferred_fetch.has_user_initiated_pending
         )
@@ -3067,14 +3070,22 @@ class EmbodiedAgent:
         self._deferred_fetch.set_user_turn(not is_desire_turn)
 
         # Suppress social desire turns during quiet hours (don't wake the user).
-        # Exception: share_search_result bypasses quiet hours when the user explicitly
-        # requested the search (user_initiated flag in pending entries).
+        # Exception: share_search_result bypasses quiet hours only when the user explicitly
+        # requested the search AND is still present (last message within 30 minutes).
         if is_desire_turn and is_social_desire(desire_name):
             _rule = getattr(self, "_schedule_rule", None)
             if _rule is not None and _rule.is_quiet():
-                _delivering_user_search = desire_name == "share_search_result" and (
-                    self._deferred_search.has_user_initiated_pending
-                    or self._deferred_fetch.has_user_initiated_pending
+                import time as _time
+                _user_recent = (
+                    _time.time() - getattr(self, "_last_human_at", 0) < 1800
+                )
+                _delivering_user_search = (
+                    desire_name == "share_search_result"
+                    and _user_recent
+                    and (
+                        self._deferred_search.has_user_initiated_pending
+                        or self._deferred_fetch.has_user_initiated_pending
+                    )
                 )
                 if not _delivering_user_search:
                     logger.debug("Social desire '%s' suppressed: quiet hours", desire_name)
@@ -3216,7 +3227,10 @@ class EmbodiedAgent:
         else:
             # Desire turn: no user context needed; feelings injected via interoception
             feelings_ctx = ""
-            user_input_with_ctx = _t("desire_turn_marker")
+            # Use a minimal placeholder — the real instruction is in inner_voice (system prompt).
+            # The previous "（内的衝動に従って行動）" marker was echoed verbatim by the LLM.
+            # "." is the shortest non-whitespace string accepted by the Anthropic API.
+            user_input_with_ctx = "."
 
         if self._tool_failure_streak >= 2 and desires is not None:
             desires.boost("self_protect", min(0.5, 0.15 * self._tool_failure_streak))
@@ -3397,6 +3411,13 @@ class EmbodiedAgent:
         _internal_messages_baseline = (
             len(self.messages) if _internal_backend_saved is not None else None
         )
+        # When swapping to a non-Anthropic utility backend (e.g. Gemini Flash-Lite),
+        # convert existing Anthropic-format messages so stream_turn receives properly
+        # formatted input.
+        _internal_messages_saved: list | None = None
+        if _internal_backend_saved is not None and not isinstance(self.backend, AnthropicBackend):
+            _internal_messages_saved = list(self.messages)
+            self.messages = GeminiBackend.convert_messages_to_gemini_format(self.messages)
 
         try:
             for i in range(turn_max_iterations):
@@ -3688,10 +3709,11 @@ class EmbodiedAgent:
             self._restore_backend_after_turn(backend_turn_snapshot)
             if _internal_backend_saved is not None:
                 self.backend = _internal_backend_saved
-                # Discard messages appended during the internal-backend turn to
-                # prevent format contamination (e.g. Anthropic content blocks in
-                # a Gemini history).
-                if _internal_messages_baseline is not None:
+                # Restore the original pre-swap messages (Anthropic format),
+                # discarding anything appended during the internal-backend turn.
+                if _internal_messages_saved is not None:
+                    self.messages = _internal_messages_saved
+                elif _internal_messages_baseline is not None:
                     self.messages = self.messages[:_internal_messages_baseline]
 
     @property

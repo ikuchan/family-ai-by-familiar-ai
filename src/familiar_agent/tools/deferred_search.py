@@ -10,6 +10,13 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONCURRENT = 3
 _MAX_PENDING = 10
+_SEARCH_TIMEOUT_SEC = 60
+
+
+async def _cancel_after(task: "asyncio.Task[object]", delay: float) -> None:
+    await asyncio.sleep(delay)
+    if not task.done():
+        task.cancel()
 _SOURCE_TO_TOOL = {
     "brave": "brave_web_search",
     "tavily": "tavily_search",
@@ -123,7 +130,8 @@ class DeferredSearchTool:
         # Increment synchronously before task starts to prevent race conditions.
         self._running += 1
         self._running_queries.add(query)
-        asyncio.create_task(self._run(query, mcp_tool, source, user_initiated))
+        task = asyncio.create_task(self._run(query, mcp_tool, source, user_initiated))
+        asyncio.create_task(_cancel_after(task, _SEARCH_TIMEOUT_SEC))
         return (
             f"「{query}」を {source} でバックグラウンド検索中… 次のターンで結果をお知らせします。",
             None,
@@ -136,6 +144,15 @@ class DeferredSearchTool:
             logger.debug("deferred search _run completed (query=%r result_len=%d)", query, len(result))
             if len(self._pending) < _MAX_PENDING:
                 self._pending.append({"query": query, "result": result, "source": source, "user_initiated": user_initiated})
+        except asyncio.CancelledError:
+            logger.warning("deferred search timed out after %ds (query=%r)", _SEARCH_TIMEOUT_SEC, query)
+            if len(self._pending) < _MAX_PENDING:
+                self._pending.append({
+                    "query": query,
+                    "result": f"検索がタイムアウトしました（{_SEARCH_TIMEOUT_SEC}秒）: {query}",
+                    "source": source,
+                    "user_initiated": user_initiated,
+                })
         except Exception as exc:
             logger.warning("deferred search failed (query=%r): %s", query, exc)
             if len(self._pending) < _MAX_PENDING:
