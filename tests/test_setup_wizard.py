@@ -8,7 +8,7 @@ API key validation, and camera discovery interface.
 from __future__ import annotations
 
 from pathlib import Path
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -229,7 +229,8 @@ async def test_validate_camera_connection_success():
     """Returns (True, '') when ONVIF camera responds."""
     with patch("familiar_agent.setup.ONVIFCamera") as mock_cls:
         mock_cam = MagicMock()
-        mock_cam.create_devicemgmt_service = MagicMock()
+        mock_cam.update_xaddrs = AsyncMock(return_value=None)
+        mock_cam.create_devicemgmt_service = AsyncMock(return_value=None)
         mock_cls.return_value = mock_cam
 
         ok, msg = await validate_camera_connection(

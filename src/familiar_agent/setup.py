@@ -188,7 +188,8 @@ async def validate_camera_connection(
     """Test ONVIF connectivity. Returns (ok, error_message)."""
     try:
         cam = ONVIFCamera(host, port, username, password)
-        cam.create_devicemgmt_service()
+        await cam.update_xaddrs()
+        await cam.create_devicemgmt_service()
         return True, ""
     except Exception as exc:
         return False, str(exc)
