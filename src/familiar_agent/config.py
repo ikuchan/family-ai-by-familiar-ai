@@ -72,6 +72,27 @@ class CameraConfig:
         default_factory=lambda: _optional_int_env("CAMERA_PTZ_PORT")
     )
 
+    def stream_url(self, stream: str = "stream1") -> str | int:
+        """Build the RTSP or USB source URL — the single authoritative place.
+
+        - host is a digit string or int → USB index (returns int)
+        - host is empty → USB index 0
+        - host contains '://' → pass through as-is
+        - otherwise → rtsp://[user:pass@]host:554/{stream}
+        """
+        if isinstance(self.host, int) or (isinstance(self.host, str) and self.host.isdigit()):
+            return int(self.host)
+        if not self.host:
+            return 0
+        if "://" in self.host:
+            return self.host
+        auth = f"{self.username}:{self.password}@" if self.username and self.password else ""
+        return f"rtsp://{auth}{self.host}:554/{stream}"
+
+    def is_rtsp(self) -> bool:
+        """True when the camera is an RTSP source (not USB/index)."""
+        return bool(self.host) and not (isinstance(self.host, str) and self.host.isdigit())
+
     @property
     def ptz_host(self) -> str:
         return self.ptz_host_override or self.host

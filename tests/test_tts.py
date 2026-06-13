@@ -245,3 +245,48 @@ async def test_say_serializes_concurrent_calls():
 
     # Both should succeed (no exception)
     assert len(results) == 2
+
+
+# ---------------------------------------------------------------------------
+# Tests: no-key (silent) mode
+# ---------------------------------------------------------------------------
+
+
+def test_no_go2rtc_when_no_key(monkeypatch):
+    """__init__ must NOT call _ensure_go2rtc when api_key is empty."""
+    import familiar_agent.tools.tts as tts_mod
+
+    called = []
+    monkeypatch.setattr(tts_mod, "_ensure_go2rtc", lambda url: called.append(url))
+
+    tts_mod.TTSTool("", "voice")
+    assert called == [], "Expected _ensure_go2rtc NOT called with empty key"
+
+    tts_mod.TTSTool("key", "voice")
+    assert called == ["http://localhost:1984"], (
+        "Expected _ensure_go2rtc called once with default go2rtc_url"
+    )
+
+
+@pytest.mark.asyncio
+async def test_say_silent_when_no_key():
+    """say() with empty api_key returns '(silent) text' without any HTTP call."""
+    from familiar_agent.tools.tts import TTSTool
+
+    tool = TTSTool("", "voice")
+    result = await tool.say("こんにちは")
+    assert result == "(silent) こんにちは"
+
+
+@pytest.mark.asyncio
+async def test_say_call_registered_without_key():
+    """say tool is registered and call() returns silent result when no api_key."""
+    from familiar_agent.tools.tts import TTSTool
+
+    tool = TTSTool("", "voice")
+    defs = tool.get_tool_definitions()
+    assert any(d["name"] == "say" for d in defs), "say must be in tool definitions"
+
+    result, img = await tool.call("say", {"text": "やあ"})
+    assert result == "(silent) やあ"
+    assert img is None

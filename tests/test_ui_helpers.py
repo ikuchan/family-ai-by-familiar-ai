@@ -13,7 +13,31 @@ from familiar_agent._ui_helpers import (
     desire_tick_prompt,
     format_action,
     should_fire_idle_desire,
+    strip_stage_directions,
 )
+
+
+# ---------------------------------------------------------------------------
+# strip_stage_directions: TTS path — drop （…）but KEEP [audio tags]
+# ---------------------------------------------------------------------------
+
+
+class TestStripStageDirections:
+    def test_removes_fullwidth_parenthetical(self):
+        assert strip_stage_directions("で、用事ある？（静かに待つ）") == "で、用事ある？"
+
+    def test_removes_halfwidth_parenthetical(self):
+        assert strip_stage_directions("おはよう (眠そう)") == "おはよう"
+
+    def test_preserves_elevenlabs_audio_tags(self):
+        """[whispers] etc. are native eleven_v3 audio tags — must reach ElevenLabs."""
+        assert strip_stage_directions("[whispers]ないしょだよ") == "[whispers]ないしょだよ"
+
+    def test_preserves_audio_tag_but_drops_parenthetical(self):
+        assert strip_stage_directions("[excited]やったね！（ガッツポーズ）") == "[excited]やったね！"
+
+    def test_plain_text_unchanged(self):
+        assert strip_stage_directions("こんにちは") == "こんにちは"
 
 
 # ---------------------------------------------------------------------------

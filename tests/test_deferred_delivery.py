@@ -133,6 +133,44 @@ def test_allows_when_person_present():
 
 
 # ---------------------------------------------------------------------------
+# Gate 2: presence bypass for user-initiated recent searches
+# ---------------------------------------------------------------------------
+
+
+def test_user_initiated_search_bypasses_presence_gate():
+    """Camera reports an empty room (face not registered) but the user just
+    asked for this search — deliver it anyway. Without this bypass, unreliable
+    face recognition silently swallows every user-requested result."""
+    agent = _make_agent_stub(
+        search_pending=True, presence=0.0, search_user_initiated=True, user_recent=True,
+    )
+    assert agent.should_deliver_deferred_result() is True
+
+
+def test_user_initiated_fetch_bypasses_presence_gate():
+    agent = _make_agent_stub(
+        fetch_pending=True, presence=0.0, fetch_user_initiated=True, user_recent=True,
+    )
+    assert agent.should_deliver_deferred_result() is True
+
+
+def test_autonomous_search_still_blocked_when_no_one_present():
+    """An autonomous (not user-requested) search must still respect presence."""
+    agent = _make_agent_stub(
+        search_pending=True, presence=0.0, search_user_initiated=False,
+    )
+    assert agent.should_deliver_deferred_result() is False
+
+
+def test_user_initiated_search_does_not_bypass_presence_when_user_not_recent():
+    """User-initiated but stale (>30 min) — presence gate still blocks."""
+    agent = _make_agent_stub(
+        search_pending=True, presence=0.0, search_user_initiated=True, user_recent=False,
+    )
+    assert agent.should_deliver_deferred_result() is False
+
+
+# ---------------------------------------------------------------------------
 # Gate 3: quiet hours
 # ---------------------------------------------------------------------------
 

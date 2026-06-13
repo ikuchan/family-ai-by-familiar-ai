@@ -1170,14 +1170,13 @@ class EmbodiedAgent:
             )
 
         tts = self.config.tts
-        if tts.elevenlabs_api_key:
-            self._tts = TTSTool(
-                tts.elevenlabs_api_key,
-                tts.voice_id,
-                tts.go2rtc_url,
-                tts.go2rtc_stream,
-                output=tts.output,
-            )
+        self._tts = TTSTool(
+            tts.elevenlabs_api_key,
+            tts.voice_id,
+            tts.go2rtc_url,
+            tts.go2rtc_stream,
+            output=tts.output,
+        )
 
         cfg_path = _resolve_config_path()
         if cfg_path.exists():
@@ -1191,9 +1190,7 @@ class EmbodiedAgent:
         stt_cfg = self.config.stt
         if stt_cfg.elevenlabs_api_key:
             cam = self.config.camera
-            rtsp_url = (
-                f"rtsp://{cam.username}:{cam.password}@{cam.host}:554/stream1" if cam.host else ""
-            )
+            rtsp_url = str(cam.stream_url("stream1")) if cam.is_rtsp() else ""
             self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url)
 
         # World model: persistent scene entity tracker (Phase 1)
@@ -1206,7 +1203,7 @@ class EmbodiedAgent:
             logger.warning("SceneTracker init failed: %s", exc)
 
         if self._camera:
-            self._presence_watcher = CameraPresenceWatcher(self._pmm)
+            self._presence_watcher = CameraPresenceWatcher(self._pmm, camera=self.config.camera)
 
         # Register family members from FAMILY.md into persons DB
         self._register_family_from_md()
@@ -2681,18 +2678,23 @@ class EmbodiedAgent:
         if self._deferred_search.is_running or self._deferred_fetch.is_running:
             return False
 
-        # Gate 2: presence — reuse the same logic as social desires
-        if self._social_presence_permission() == 0.0:
-            return False
-
-        # Gate 3: quiet mode — bypassed only when the user explicitly requested the search
-        # AND is still present (last message within 30 minutes).
+        # A user-initiated search whose requester was active within 30 minutes
+        # bypasses both the presence gate and the quiet-hours gate: the user
+        # explicitly asked for this and is effectively present, even if camera
+        # face recognition has not registered them in _present.
         import time as _time
         _user_recent = _time.time() - getattr(self, "_last_human_at", 0) < 1800
         _user_initiated = _user_recent and (
             self._deferred_search.has_user_initiated_pending
             or self._deferred_fetch.has_user_initiated_pending
         )
+
+        # Gate 2: presence — reuse the same logic as social desires.
+        # Bypassed for user-initiated recent searches (see above).
+        if not _user_initiated and self._social_presence_permission() == 0.0:
+            return False
+
+        # Gate 3: quiet mode — bypassed for user-initiated recent searches.
         if not _user_initiated:
             rule = getattr(self, "_schedule_rule", None)
             if rule is not None:

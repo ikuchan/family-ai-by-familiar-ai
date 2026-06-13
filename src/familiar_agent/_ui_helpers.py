@@ -26,24 +26,39 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 # TTS audio-direction tags, e.g. [cheerful] [laughs] [whispers].
+# ElevenLabs eleven_v3 interprets these natively as audio tags, so they must
+# survive on the TTS path even though they are stripped from visual display.
 _TTS_TAG_RE = re.compile(r"\[[^\]]*\]")
 # Stage directions in parentheses, full-width （…） or half-width (…).
-# These have no meaning as spoken words and must never reach voice or display.
+# ElevenLabs does NOT treat these as audio tags — it would read them aloud —
+# and they are visual narration, so they are dropped from both voice and display.
 _STAGE_DIRECTION_RE = re.compile(r"（[^）]*）|\([^)]*\)")
 
 
-def clean_spoken_text(text: str) -> str:
-    """Strip TTS tags and parenthetical stage directions from say()/display text.
+def _collapse_ws(text: str) -> str:
+    """Collapse runs of spaces (incl. full-width) left behind by removals."""
+    return re.sub(r"[ 　\t]{2,}", " ", text).strip()
 
-    Removes [bracket-tag] audio codes and （…）/(…) stage directions, then
-    collapses the whitespace they leave behind. Parenthetical asides like
-    '（了解。今は静かに待つ。）' are narration, not speech, so they are dropped.
+
+def strip_stage_directions(text: str) -> str:
+    """Remove （…）/(…) parenthetical narration, preserving [audio tags].
+
+    Used on the TTS path: parenthetical asides like '（静かに待つ）' have no
+    spoken meaning and ElevenLabs would read them literally, but [whispers]-style
+    audio tags are native eleven_v3 directives and must reach the API intact.
     """
-    cleaned = _TTS_TAG_RE.sub("", text)
-    cleaned = _STAGE_DIRECTION_RE.sub("", cleaned)
-    # Collapse runs of spaces (incl. full-width) created by removals.
-    cleaned = re.sub(r"[ 　\t]{2,}", " ", cleaned)
-    return cleaned.strip()
+    return _collapse_ws(_STAGE_DIRECTION_RE.sub("", text))
+
+
+def clean_spoken_text(text: str) -> str:
+    """Strip BOTH [audio tags] and （…）/(…) stage directions for visual display.
+
+    Removes [bracket-tag] audio codes and parenthetical narration, then collapses
+    leftover whitespace. Use for the chat log / display, where neither should be
+    shown. For the TTS path use ``strip_stage_directions`` instead so audio tags
+    survive.
+    """
+    return _collapse_ws(_STAGE_DIRECTION_RE.sub("", _TTS_TAG_RE.sub("", text)))
 
 
 # ---------------------------------------------------------------------------

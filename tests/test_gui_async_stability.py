@@ -353,11 +353,14 @@ def test_gui_thinking_status_text_uses_i18n_and_agent_display_name(monkeypatch) 
     assert FamiliarWindow._thinking_status_text(win, 7) == "Yukine:::7"
 
 
-def test_gui_build_rtsp_url_encodes_credentials_and_supports_raw_url() -> None:
-    built = FamiliarWindow._build_rtsp_url("192.168.0.10", "user name", "p@ss")
-    assert built == "rtsp://user%20name:p%40ss@192.168.0.10:554/stream1"
+def test_camera_config_stream_url_builds_rtsp_and_supports_raw_url() -> None:
+    """CameraConfig.stream_url() is now the single RTSP URL builder."""
+    from familiar_agent.config import CameraConfig
 
-    raw = FamiliarWindow._build_rtsp_url("rtsp://camera.local/stream1", "u", "p")
+    built = CameraConfig(host="192.168.0.10", username="user", password="pass").stream_url("stream1")
+    assert built == "rtsp://user:pass@192.168.0.10:554/stream1"
+
+    raw = CameraConfig(host="rtsp://camera.local/stream1", username="u", password="p").stream_url()
     assert raw == "rtsp://camera.local/stream1"
 
 

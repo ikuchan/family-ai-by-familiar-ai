@@ -216,12 +216,12 @@ class CameraTool:
         return hostname, username, password, port
 
     def _get_stream_url(self) -> str | int:
-        if isinstance(self.host, int) or (isinstance(self.host, str) and self.host.isdigit()):
-            return int(self.host)
-        if "://" in self.host:
-            return self.host
-        auth = f"{self.username}:{self.password}@" if self.username and self.password else ""
-        return f"rtsp://{auth}{self.host}:554/stream1"
+        from ..config import CameraConfig
+        return CameraConfig(
+            host=str(self.host) if self.host is not None else "",
+            username=self.username or "",
+            password=self.password or "",
+        ).stream_url("stream1")
 
     async def capture(self) -> tuple[str | None, str | None]:
         """Get the latest frame from the background thread. Returns (base64_jpeg, saved_path)."""

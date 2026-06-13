@@ -28,7 +28,6 @@ import time
 from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
-from urllib.parse import quote
 
 try:
     import qasync
@@ -1026,23 +1025,6 @@ class FamiliarWindow(QMainWindow):
             loop = asyncio.get_event_loop()
         return loop.create_task(coro)
 
-    @staticmethod
-    def _build_rtsp_url(host: str, username: str, password: str) -> str | None:
-        """Build RTSP URL from camera config, preserving explicit URI hosts."""
-        host = (host or "").strip()
-        if not host:
-            return None
-        if "://" in host:
-            return host
-        user = quote((username or "").strip(), safe="")
-        pw = quote((password or "").strip(), safe="")
-        auth = ""
-        if user and pw:
-            auth = f"{user}:{pw}@"
-        elif user:
-            auth = f"{user}@"
-        return f"rtsp://{auth}{host}:554/stream1"
-
     def _camera_rtsp_url(self) -> str | None:
         config = getattr(self, "_config", None) or getattr(
             getattr(self, "_agent", None), "config", None
@@ -1050,7 +1032,9 @@ class FamiliarWindow(QMainWindow):
         if config is None:
             return None
         cam = config.camera
-        return self._build_rtsp_url(cam.host, cam.username, cam.password)
+        if not cam.is_rtsp():
+            return None
+        return str(cam.stream_url("stream1"))
 
     @staticmethod
     def _look_preview_seconds_for_degrees(degrees: int | None) -> float:

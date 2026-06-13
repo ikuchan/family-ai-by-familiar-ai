@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..person_memory_manager import PersonMemoryManager
+    from ..config import CameraConfig
 
 logger = logging.getLogger(__name__)
 
@@ -18,10 +19,13 @@ class CameraPresenceWatcher:
     def __init__(
         self,
         manager: "PersonMemoryManager",
+        camera: "CameraConfig | None" = None,
         interval_sec: float = 5.0,
         absent_threshold_sec: float = 30.0,
     ) -> None:
         self._manager  = manager
+        from ..config import CameraConfig as _CameraConfig
+        self._camera   = camera or _CameraConfig()
         self._interval = interval_sec
         self._absent   = absent_threshold_sec
         self._task: asyncio.Task | None = None
@@ -59,27 +63,28 @@ class CameraPresenceWatcher:
                 logger.warning("PresenceWatcher error: %s", e)
             await asyncio.sleep(self._interval)
 
-    @staticmethod
-    async def _capture_frame() -> str | None:
+    async def _capture_frame(self) -> str | None:
         """Capture one frame from the camera. Returns temp file path or None."""
         try:
-            import tempfile, os
-            # Try RTSP first (Tapo), fall back to USB webcam
-            rtsp = os.environ.get("CAMERA_HOST")
-            if rtsp:
-                user = os.environ.get("CAMERA_USER", "")
-                pw   = os.environ.get("CAMERA_PASS", "")
-                url  = f"rtsp://{user}:{pw}@{rtsp}/stream1" if user else f"rtsp://{rtsp}/stream1"
-                tmp  = tempfile.mktemp(suffix=".jpg")
+            import os
+            import tempfile
+
+            cam = self._camera
+            if cam.is_rtsp():
+                url = cam.stream_url("stream1")
+                tmp = tempfile.mktemp(suffix=".jpg")
                 proc = await asyncio.create_subprocess_exec(
                     "ffmpeg", "-y", "-rtsp_transport", "tcp",
-                    "-i", url, "-frames:v", "1", "-q:v", "3", tmp,
+                    "-i", str(url), "-frames:v", "1", "-q:v", "3", tmp,
                     stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
                 )
                 await asyncio.wait_for(proc.wait(), timeout=8.0)
                 if os.path.exists(tmp) and os.path.getsize(tmp) > 0:
                     return tmp
-            # USB webcam via OpenCV
+                # RTSP failed — do NOT fall through to USB when RTSP is configured.
+                # Falling through would open /dev/video0 in an infinite error loop.
+                return None
+            # USB webcam (only when CAMERA_HOST is not set)
             import cv2
             cap = cv2.VideoCapture(0)
             if not cap.isOpened():

@@ -129,8 +129,8 @@ class TTSTool:
         self._voice_guard = voice_guard or get_shared_voice_guard()
         # Serialize concurrent say() calls so audio never overlaps
         self._lock = asyncio.Lock()
-        # Ensure go2rtc is running at startup
-        _ensure_go2rtc(self.go2rtc_url)
+        if self.api_key:
+            _ensure_go2rtc(self.go2rtc_url)
 
     async def say(self, text: str, output: str | None = None) -> str:
         """Speak text aloud via ElevenLabs.
@@ -140,15 +140,18 @@ class TTSTool:
 
         Concurrent calls are serialized via self._lock so audio never overlaps.
         """
+        if not self.api_key:
+            return f"(silent) {text}"
+
         import aiohttp
 
-        from .._ui_helpers import clean_spoken_text
+        from .._ui_helpers import strip_stage_directions
 
         if output is None:
             output = self.output
-        # Strip TTS tags and parenthetical stage directions before speaking —
-        # narration like '（静かに待つ）' must never be voiced.
-        text = clean_spoken_text(text)
+        # Drop parenthetical narration like '（静かに待つ）' (ElevenLabs would read
+        # it aloud), but KEEP [audio tags] — eleven_v3 uses them for delivery.
+        text = strip_stage_directions(text)
         if not text:
             return "Said: (nothing to speak after cleaning)"
         if len(text) > 200:
