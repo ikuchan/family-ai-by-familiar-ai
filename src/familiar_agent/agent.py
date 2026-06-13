@@ -394,6 +394,18 @@ SYSTEM_PROMPT = """
            and will share everything together once it is ready.
          → do NOT start another search in this turn.")
 
+    (constraint :priority high :id deferred-close-with-say
+      "After firing search_deferred or fetch_deferred, you MUST close the SAME turn
+       with a single say() — e.g. '調べておくね' / '少し待ってて、調べてみる'.
+       Writing text alone is silent; without say() the search ends in silence and
+       the user never hears that you started looking.
+
+       EXCEPTION — stay silent (no say()) when:
+         - it is 深夜 / quiet hours, OR
+         - 誰も いない / no one is present.
+       In those cases fire the background search and end the turn without speaking;
+       the result will be delivered later when it is appropriate to talk.")
+
     (constraint :priority high :id deferred-fetch-pattern
       "To read a specific URL in depth after search results — use fetch_deferred:
 
@@ -419,6 +431,13 @@ SYSTEM_PROMPT = """
        (e.g. do NOT say 'こんにちは', 'こんばんは', 'おはよう' etc.).
        The greeting was already given earlier in this session.
        Just report the result directly.")
+
+    (constraint :priority critical :id no-url-in-speech
+      "NEVER tell the user to visit a URL, look at a website, or check a link.
+       Users cannot follow URLs from a home companion chat interface.
+       Instead: share the key content directly in your own words.
+       Wrong: 'このサイトを見てみて → https://...'
+       Right: summarise what you found in 1-2 sentences.")
 
     ; ── Orientation ────────────────────────────────────────────────────
     (orientation
@@ -1420,6 +1439,14 @@ class EmbodiedAgent:
         if last is None:
             return 0.0
         return 1.0 if (time.time() - last) < 300.0 else 0.0
+
+    def _in_quiet_hours(self) -> bool:
+        """Return True when the current time falls inside the scheduled quiet window.
+
+        Safe default: if no schedule rule is configured, treat as NOT quiet.
+        """
+        rule = getattr(self, "_schedule_rule", None)
+        return bool(rule is not None and rule.is_quiet())
 
     # Keywords that suggest the internal turn found something worth sharing.
     _INTERNAL_SHARE_PATTERNS: tuple[str, ...] = (
@@ -3390,6 +3417,7 @@ class EmbodiedAgent:
         camera_used = False
         camera_image: str | None = None  # raw base64 JPEG from the latest `see` tool call
         say_used = False
+        say_nudge_used = False  # one-time say() nudge per turn (silence-control step 3)
         final_text = "(no response)"
         non_say_streak = 0  # consecutive tool calls without say()
         observation_action_name: str | None = None
@@ -3456,6 +3484,20 @@ class EmbodiedAgent:
                     self.messages.append(self.backend.make_assistant_message(result, raw_content))
                     final_text = result.text or "(no response)"
 
+                    # One-time say() nudge (silence-control step 3): on a USER turn,
+                    # if the model wrote text but never spoke, prompt it once to add
+                    # a say(). It may still choose silence. Desire turns are exempt —
+                    # autonomous turns decide their own voicing via the gates above.
+                    if not say_used and not is_desire_turn and not say_nudge_used:
+                        say_nudge_used = True
+                        self.messages.append(
+                            self.backend.make_user_message(
+                                "まだ声に出していない。必要なら say() で一言。"
+                                "不要なら何もしなくてよい。"
+                            )
+                        )
+                        continue
+
                     gate_method = getattr(self._meta_monitor, "gate_response", None)
                     gate: MetaGateDecision | None = None
                     if callable(gate_method):
@@ -3502,6 +3544,8 @@ class EmbodiedAgent:
                     self._coherence_retried = False
 
                     # Auto-say: if the model wrote text but never called say(), speak it aloud.
+                    # Gated (silence-control step 4) to respect the same silence rules as
+                    # deferred delivery: never speak into an empty room or during quiet hours.
                     _auto_say_enabled = getattr(self.config, "auto_say", False)
                     if (
                         _auto_say_enabled
@@ -3509,6 +3553,8 @@ class EmbodiedAgent:
                         and not say_used
                         and final_text
                         and final_text != "(no response)"
+                        and self._social_presence_permission() != 0.0
+                        and not self._in_quiet_hours()
                     ):
                         import re as _re
                         # Strip any system-context labels that leaked into the output.

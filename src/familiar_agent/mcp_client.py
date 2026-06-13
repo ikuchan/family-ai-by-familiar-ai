@@ -103,6 +103,7 @@ class MCPClientManager:
         # Cached tool definitions (Anthropic format)
         self._tool_defs: list[dict[str, Any]] = []
         self._exit_stack = AsyncExitStack()
+        self._server_stacks: dict[str, AsyncExitStack] = {}  # per-server stack for reconnect
         self._started = False  # True once start() has been called (re-entry guard)
         self._start_complete = False  # True once start() has finished (success or failure)
         self._failed_servers: list[str] = []
@@ -157,6 +158,7 @@ class MCPClientManager:
         ClientSession: Any,
         StdioServerParameters: Any,
         stdio_client: Any,
+        stack: AsyncExitStack | None = None,
     ) -> None:
         """Connect a single server and register its tools. Raises on failure."""
         import asyncio
@@ -168,6 +170,7 @@ class MCPClientManager:
             _lib = f"<detection failed: {_e!r}>"
         logger.info("MCP connect '%s': sniffio=%r task=%r", name, _lib, asyncio.current_task())
 
+        ctx = stack if stack is not None else self._exit_stack
         server_type = cfg.get("type", "stdio")
 
         if server_type == "stdio":
@@ -180,8 +183,8 @@ class MCPClientManager:
                 return
 
             params = StdioServerParameters(command=command, args=args, env=env)
-            read, write = await self._exit_stack.enter_async_context(stdio_client(params))
-            session: Any = await self._exit_stack.enter_async_context(ClientSession(read, write))
+            read, write = await ctx.enter_async_context(stdio_client(params))
+            session: Any = await ctx.enter_async_context(ClientSession(read, write))
             await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
 
         elif server_type == "sse":
@@ -192,8 +195,8 @@ class MCPClientManager:
                 logger.warning("MCP server '%s': missing 'url' for sse type, skipping", name)
                 return
 
-            read, write = await self._exit_stack.enter_async_context(_sse_client(url=url))
-            session = await self._exit_stack.enter_async_context(ClientSession(read, write))
+            read, write = await ctx.enter_async_context(_sse_client(url=url))
+            session = await ctx.enter_async_context(ClientSession(read, write))
             await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
 
         else:
@@ -265,6 +268,45 @@ class MCPClientManager:
         self._started = False
         self._start_complete = False
 
+    async def _reconnect_server(self, name: str) -> bool:
+        """Tear down and re-establish a single broken server. Returns True on success."""
+        cfg = self._servers.get(name)
+        if cfg is None:
+            return False
+
+        # Drop stale registrations for this server.
+        stale_tools = [t for t, s in self._tool_router.items() if s == name]
+        for t in stale_tools:
+            del self._tool_router[t]
+        self._tool_defs = [d for d in self._tool_defs if d["name"] not in stale_tools]
+        self._sessions.pop(name, None)
+
+        # Close old per-server stack (frees the subprocess).
+        old_stack = self._server_stacks.pop(name, None)
+        if old_stack is not None:
+            try:
+                await old_stack.aclose()
+            except Exception:
+                pass
+
+        # Reconnect with a fresh stack.
+        try:
+            from mcp import ClientSession, StdioServerParameters
+            from mcp.client.stdio import stdio_client
+
+            new_stack = AsyncExitStack()
+            self._server_stacks[name] = new_stack
+            await asyncio.wait_for(
+                self._connect_one(name, cfg, ClientSession, StdioServerParameters, stdio_client, stack=new_stack),
+                timeout=_CONNECT_TIMEOUT,
+            )
+            logger.info("MCP server '%s' reconnected successfully", name)
+            return True
+        except Exception as exc:
+            logger.warning("MCP server '%s' reconnect failed: %s", name, exc)
+            self._server_stacks.pop(name, None)
+            return False
+
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Return Anthropic-format tool definitions from all connected servers."""
         return list(self._tool_defs)
@@ -296,8 +338,22 @@ class MCPClientManager:
             logger.warning("MCP tool '%s' call timed out after %.0fs", tool_name, _call_timeout)
             return f"MCP tool '{tool_name}' timed out after {_call_timeout:.0f}s", None
         except Exception as e:
-            logger.warning("MCP tool '%s' call failed: %s", tool_name, e)
-            return f"MCP tool '{tool_name}' error: {e}", None
+            logger.warning("MCP tool '%s' session error, attempting reconnect: %s", tool_name, e)
+            reconnected = await self._reconnect_server(server_name)
+            if not reconnected:
+                return f"MCP tool '{tool_name}' error: {e}", None
+            # Retry once with the fresh session.
+            new_session = self._sessions.get(server_name)
+            if new_session is None:
+                return f"MCP tool '{tool_name}' error: {e}", None
+            try:
+                result = await asyncio.wait_for(
+                    new_session.call_tool(tool_name, arguments=tool_input),
+                    timeout=_call_timeout,
+                )
+            except Exception as e2:
+                logger.warning("MCP tool '%s' retry failed: %s", tool_name, e2)
+                return f"MCP tool '{tool_name}' error: {e2}", None
 
         # Extract text and optional image from content blocks
         text_parts: list[str] = []

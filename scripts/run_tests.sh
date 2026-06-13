@@ -2,11 +2,12 @@
 # Run the full test suite against the test DB.
 #
 # Usage:
-#   ./scripts/run_tests.sh [pytest args...]
 #   ./scripts/run_tests.sh -m "commit message" [pytest args...]
+#   ./scripts/run_tests.sh -f [pytest args...]
 #
-# If -m is given and all tests pass, tracked changes are committed.
-# The new commit hash becomes the updated version shown in the TUI.
+# A commit message (-m) is REQUIRED. If all tests pass, tracked changes are
+# committed and the new commit hash becomes the version shown in the TUI.
+# To run the tests WITHOUT committing, you must pass -f/--force explicitly.
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -14,6 +15,7 @@ cd "$ROOT"
 
 # ── Parse args ─────────────────────────────────────────────────────────────
 COMMIT_MSG=""
+FORCE=0
 PYTEST_ARGS=()
 
 while [[ $# -gt 0 ]]; do
@@ -22,12 +24,25 @@ while [[ $# -gt 0 ]]; do
             COMMIT_MSG="$2"
             shift 2
             ;;
+        -f|--force)
+            FORCE=1
+            shift
+            ;;
         *)
             PYTEST_ARGS+=("$1")
             shift
             ;;
     esac
 done
+
+# ── Require -m unless -f is given ───────────────────────────────────────────
+if [[ -z "$COMMIT_MSG" && "$FORCE" -ne 1 ]]; then
+    echo "ERROR: コミットメッセージ (-m \"...\") が必要です。" >&2
+    echo "       コミットせずにテストだけ実行する場合は -f を付けてください。" >&2
+    echo "Usage: ./scripts/run_tests.sh -m \"commit message\" [pytest args...]" >&2
+    echo "       ./scripts/run_tests.sh -f [pytest args...]" >&2
+    exit 2
+fi
 
 # ── Start test DB ──────────────────────────────────────────────────────────
 echo "Starting test DB..."

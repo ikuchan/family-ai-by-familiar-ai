@@ -9,10 +9,42 @@ from __future__ import annotations
 
 from familiar_agent._ui_helpers import (
     ACTION_ICONS,
+    clean_spoken_text,
     desire_tick_prompt,
     format_action,
     should_fire_idle_desire,
 )
+
+
+# ---------------------------------------------------------------------------
+# clean_spoken_text: strip TTS tags and stage-direction parentheticals
+# ---------------------------------------------------------------------------
+
+
+class TestCleanSpokenText:
+    def test_strips_fullwidth_parenthetical_stage_direction(self):
+        """Full-width （…）stage directions have no spoken meaning → removed."""
+        assert clean_spoken_text("で、なんか用事ありましたか？（了解。今は静かに待つ。）") == (
+            "で、なんか用事ありましたか？"
+        )
+
+    def test_strips_halfwidth_parenthetical(self):
+        assert clean_spoken_text("おはよう (まだ眠そう)") == "おはよう"
+
+    def test_strips_tts_bracket_tags(self):
+        assert clean_spoken_text("[cheerful]やったね！") == "やったね！"
+
+    def test_strips_both_tags_and_parentheticals(self):
+        assert clean_spoken_text("[whispers]ないしょだよ（小声で）") == "ないしょだよ"
+
+    def test_plain_text_unchanged(self):
+        assert clean_spoken_text("こんにちは、元気？") == "こんにちは、元気？"
+
+    def test_collapses_leftover_whitespace(self):
+        assert clean_spoken_text("はい（うなずく） そうだね") == "はい そうだね"
+
+    def test_empty_when_only_stage_direction(self):
+        assert clean_spoken_text("（静かに待つ）") == ""
 
 
 # ---------------------------------------------------------------------------

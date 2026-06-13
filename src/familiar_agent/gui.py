@@ -25,6 +25,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import quote
@@ -86,6 +87,7 @@ from ._ui_helpers import (
     IDLE_CHECK_INTERVAL,
     INTERNAL_DESIRE_COOLDOWN,
     SILENCE_DURATION_SEC,
+    clean_spoken_text,
     desire_tick_prompt,
     format_action,
     format_tool_result,
@@ -380,6 +382,13 @@ class ChatLog(QScrollArea):
         self.verticalScrollBar().valueChanged.connect(self._on_scroll_value_changed)
         self.verticalScrollBar().rangeChanged.connect(self._on_scroll_range_changed)
 
+        # File log (mirrors tui.py behaviour)
+        _log_dir = Path.home() / ".cache" / "familiar-ai"
+        _log_dir.mkdir(parents=True, exist_ok=True)
+        self._log_path: Path = _log_dir / "chat.log"
+        with self._log_path.open("a", encoding="utf-8") as _f:
+            _f.write(f"\n{'─' * 60}\n[{datetime.now():%Y-%m-%d %H:%M:%S}] セッション開始\n")
+
     def _on_scroll_value_changed(self, value: int) -> None:
         sb = self.verticalScrollBar()
         self._auto_scroll = value >= sb.maximum() - 20
@@ -404,6 +413,13 @@ class ChatLog(QScrollArea):
         text = text.strip()
         if not text:
             return
+        log_path = getattr(self, "_log_path", None)
+        if log_path is not None:
+            try:
+                with log_path.open("a", encoding="utf-8") as _f:
+                    _f.write(text + "\n")
+            except OSError as exc:
+                logger.warning("chat.log write failed: %s", exc)
 
         # Agent bubble (check first — most specific)
         agent_text = self._extract_prefixed_text(text, self._agent_label)
@@ -622,6 +638,15 @@ class StreamLabel(QWidget):
         self._blink_timer.stop()
         self._label.setText("")
         return text
+
+    def discard(self) -> None:
+        """Discard all pending and accumulated text without returning it."""
+        self._chunks.clear()
+        self._text = ""
+        self._status_text = ""
+        self._cursor_on = False
+        self._blink_timer.stop()
+        self._label.setText("")
 
 
 # ---------------------------------------------------------------------------
@@ -1827,6 +1852,17 @@ class FamiliarWindow(QMainWindow):
             )
             await self._run_agent(text)
 
+    @staticmethod
+    def _should_show_agent_fallback(display: str, desire_name: str) -> bool:
+        """Return True if raw fallback text should be painted into the chat log.
+
+        Fallback text (the model's plain text when say() was never called) is
+        only shown on user turns. On autonomous desire turns (desire_name set)
+        the raw text often contains internal markers, URL fragments, or MCP
+        error strings, so it must never be displayed.
+        """
+        return bool(display) and not desire_name
+
     async def _run_agent(self, user_input: str, inner_voice: str = "", desire_name: str = "") -> None:
         if self._agent is None:
             self._stream.set_status(self._startup_status)
@@ -1895,9 +1931,9 @@ class FamiliarWindow(QMainWindow):
                 # Discard pre-say text, then commit each say() immediately so
                 # multiple calls all appear in order rather than overwriting.
                 say_fired = True
-                self._stream.commit_and_clear()
+                self._stream.discard()
                 raw = str(tool_input.get("text", ""))
-                clean = re.sub(r"\[.*?\]", "", raw).strip()
+                clean = clean_spoken_text(raw)
                 if clean:
                     self._log.append_line(f"[{self._agent_display_name}] {clean}")
             else:
@@ -1934,8 +1970,8 @@ class FamiliarWindow(QMainWindow):
             # (clean, tags stripped). Suppress final_text to avoid the LLM's
             # post-say text echo (same content with raw audio tags) appearing again.
             if not say_fired:
-                display = committed.strip() or final_text.strip()
-                if display:
+                display = clean_spoken_text(committed.strip() or final_text.strip())
+                if self._should_show_agent_fallback(display, desire_name):
                     self._log.append_line(f"[{self._agent_display_name}] {display}")
         except asyncio.CancelledError:
             self._stream.commit_and_clear()

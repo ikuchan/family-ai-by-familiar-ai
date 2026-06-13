@@ -1086,6 +1086,56 @@ class GLMBackend:
             return ""
 
 
+class _ThinkingTagFilter:
+    """Strips <thinking>...</thinking> blocks from streamed Gemini text chunks.
+
+    Maintains state across calls so tags split across chunk boundaries are
+    handled correctly.  Also suppresses parts where part.thought is True
+    (structured thinking API).
+    """
+
+    _OPEN = "<thinking>"
+    _CLOSE = "</thinking>"
+
+    def __init__(self) -> None:
+        self._in_thinking = False
+        self._buf = ""  # lookahead buffer for partial opening tags
+
+    def feed(self, chunk: str) -> str:
+        """Return the portion of *chunk* that should be emitted to the user."""
+        self._buf += chunk
+        out: list[str] = []
+        while True:
+            if not self._in_thinking:
+                idx = self._buf.find(self._OPEN)
+                if idx == -1:
+                    # No opening tag in buffer — safe to emit all except a
+                    # possible partial tag fragment at the tail.
+                    tail = len(self._OPEN) - 1
+                    if len(self._buf) > tail:
+                        out.append(self._buf[:-tail])
+                        self._buf = self._buf[-tail:]
+                    break
+                out.append(self._buf[:idx])
+                self._buf = self._buf[idx + len(self._OPEN):]
+                self._in_thinking = True
+            else:
+                idx = self._buf.find(self._CLOSE)
+                if idx == -1:
+                    break  # still inside block — buffer everything
+                self._buf = self._buf[idx + len(self._CLOSE):]
+                self._in_thinking = False
+        return "".join(out)
+
+    def flush(self) -> str:
+        """Return any remaining buffered non-thinking text after streaming ends."""
+        if self._in_thinking:
+            return ""  # unclosed tag — discard
+        result = self._buf
+        self._buf = ""
+        return result
+
+
 class GeminiBackend:
     """Backend using the official Google Generative AI SDK (google-generativeai).
 
@@ -1277,6 +1327,7 @@ class GeminiBackend:
         text_chunks: list[str] = []
         tool_calls: list[ToolCall] = []
         raw_parts: list = []
+        _tf = _ThinkingTagFilter()
 
         async for chunk in await self._client.aio.models.generate_content_stream(
             model=self.model,
@@ -1290,10 +1341,12 @@ class GeminiBackend:
                 continue
             for part in content.parts:
                 raw_parts.append(part)
-                if part.text:
-                    text_chunks.append(part.text)
-                    if on_text:
-                        on_text(part.text)
+                if part.text and not getattr(part, "thought", False):
+                    filtered = _tf.feed(part.text)
+                    if filtered:
+                        text_chunks.append(filtered)
+                        if on_text:
+                            on_text(filtered)
                 if part.function_call:
                     fc = part.function_call
                     if fc.name is None:
@@ -1306,6 +1359,11 @@ class GeminiBackend:
                         )
                     )
 
+        tail = _tf.flush()
+        if tail:
+            text_chunks.append(tail)
+            if on_text:
+                on_text(tail)
         text = "".join(text_chunks)
         stop = "tool_use" if tool_calls else "end_turn"
         raw_assistant = {"role": "model", "parts": raw_parts}

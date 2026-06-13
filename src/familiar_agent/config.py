@@ -213,10 +213,12 @@ class AgentConfig:
             or os.environ.get("FAMILIAR_AUTO", "").strip().lower() in ("1", "true", "yes")
         )
     )
+    # Auto-say is ON by default (silence-control step 5). It is gated at runtime
+    # by presence + quiet hours, so it never speaks into an empty room or during
+    # quiet hours. Set FAMILIAR_AUTO_SAY=0 to disable.
     auto_say: bool = field(
         default_factory=lambda: (
-            os.environ.get("FAMILIAR_AUTO_SAY", "").strip().lower() in ("1", "true", "yes")
-            or os.environ.get("FAMILIAR_AUTO", "").strip().lower() in ("1", "true", "yes")
+            os.environ.get("FAMILIAR_AUTO_SAY", "").strip().lower() not in ("0", "false", "no")
         )
     )
 

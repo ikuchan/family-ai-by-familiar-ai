@@ -12,12 +12,38 @@ Keeping these here prevents duplication across tui.py, gui.py, and main.py.
 from __future__ import annotations
 
 import os
+import re
 from typing import TYPE_CHECKING
 
 from ._i18n import _t
 
 if TYPE_CHECKING:
     from .desires import DesireSystem
+
+
+# ---------------------------------------------------------------------------
+# Spoken-text cleaning
+# ---------------------------------------------------------------------------
+
+# TTS audio-direction tags, e.g. [cheerful] [laughs] [whispers].
+_TTS_TAG_RE = re.compile(r"\[[^\]]*\]")
+# Stage directions in parentheses, full-width （…） or half-width (…).
+# These have no meaning as spoken words and must never reach voice or display.
+_STAGE_DIRECTION_RE = re.compile(r"（[^）]*）|\([^)]*\)")
+
+
+def clean_spoken_text(text: str) -> str:
+    """Strip TTS tags and parenthetical stage directions from say()/display text.
+
+    Removes [bracket-tag] audio codes and （…）/(…) stage directions, then
+    collapses the whitespace they leave behind. Parenthetical asides like
+    '（了解。今は静かに待つ。）' are narration, not speech, so they are dropped.
+    """
+    cleaned = _TTS_TAG_RE.sub("", text)
+    cleaned = _STAGE_DIRECTION_RE.sub("", cleaned)
+    # Collapse runs of spaces (incl. full-width) created by removals.
+    cleaned = re.sub(r"[ 　\t]{2,}", " ", cleaned)
+    return cleaned.strip()
 
 
 # ---------------------------------------------------------------------------

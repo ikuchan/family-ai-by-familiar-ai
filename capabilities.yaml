@@ -231,28 +231,3 @@ capabilities:
       This engine manages lightweight active concerns, contributing to the agent's
       sense of autobiographical self-continuity across its experiences. Implemented
       in `concern_engine.py`.
-    enabled: true
-
-  - id: face_recognition
-    summary: Identify known persons from camera frames
-    detail: >
-      The CameraPresenceWatcher polls the camera, runs face recognition, and updates
-      PersonMemoryManager. Memory and relationship context switch to the identified
-      person automatically. Requires face embeddings registered via `/register_face`.
-    enabled_env: requires face embeddings registered via /register_face
-
-  - id: voice_identification
-    summary: Identify known persons by voice print (speaker diarization)
-    detail: >
-      VoiceIdentifier uses resemblyzer to embed utterances and match against
-      registered voice profiles. Currently implemented but NOT yet wired into
-
-  - id: gui
-    summary: Graphical user interface for text-based interaction with the agent
-    detail: >
-      A PySide6-based desktop GUI (gui.py) that provides a chat-style interface
-      for conversing with the agent. The GUI supports Japanese text input via the
-      system IME, allowing users to compose messages in Japanese using input method
-      editors such as fcitx5 or ibus. Launched with `uv run familiar --gui` or
-      via `run-gui.sh`.
-    enabled: true

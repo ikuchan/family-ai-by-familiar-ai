@@ -142,8 +142,15 @@ class TTSTool:
         """
         import aiohttp
 
+        from .._ui_helpers import clean_spoken_text
+
         if output is None:
             output = self.output
+        # Strip TTS tags and parenthetical stage directions before speaking —
+        # narration like '（静かに待つ）' must never be voiced.
+        text = clean_spoken_text(text)
+        if not text:
+            return "Said: (nothing to speak after cleaning)"
         if len(text) > 200:
             text = text[:197] + "..."
 

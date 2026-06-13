@@ -367,9 +367,13 @@ async def test_run_accumulates_tokens():
             "ok",
         )
     )
-    # Override to set token counts
+    # Override to set token counts. The first end_turn carries the tokens; the
+    # model is nudged once for not calling say(), then ends again with no tokens.
     result_obj = TurnResult(stop_reason="end_turn", text="ok", input_tokens=200, output_tokens=80)
-    agent.backend.stream_turn = AsyncMock(return_value=(result_obj, "ok"))
+    post_nudge = TurnResult(stop_reason="end_turn", text="ok", input_tokens=0, output_tokens=0)
+    agent.backend.stream_turn = AsyncMock(
+        side_effect=[(result_obj, "ok"), (post_nudge, "ok")]
+    )
 
     ps = _patch_heavy()
     for p in ps:
@@ -397,11 +401,14 @@ async def test_run_tool_use_then_end_turn():
     tc = ToolCall(id="tc1", name="remember", input={"content": "test memory"})
     turn1 = TurnResult(stop_reason="tool_use", text="", tool_calls=[tc])
     turn2 = TurnResult(stop_reason="end_turn", text="Done!", tool_calls=[])
+    # The end_turn arrives without say(); the model is nudged once then ends again.
+    turn3 = TurnResult(stop_reason="end_turn", text="Done!", tool_calls=[])
 
     agent.backend.stream_turn = AsyncMock(
         side_effect=[
             (turn1, None),
             (turn2, "Done!"),
+            (turn3, "Done!"),
         ]
     )
 
@@ -426,11 +433,14 @@ async def test_run_tool_results_added_to_messages():
     tc = ToolCall(id="tc1", name="remember", input={"content": "hi"})
     turn1 = TurnResult(stop_reason="tool_use", text="", tool_calls=[tc])
     turn2 = TurnResult(stop_reason="end_turn", text="Saved.", tool_calls=[])
+    # end_turn without say() → one nudge → model ends again.
+    turn3 = TurnResult(stop_reason="end_turn", text="Saved.", tool_calls=[])
 
     agent.backend.stream_turn = AsyncMock(
         side_effect=[
             (turn1, None),
             (turn2, "Saved."),
+            (turn3, "Saved."),
         ]
     )
 
@@ -473,8 +483,10 @@ async def test_run_passes_latest_pre_see_action_into_scene_update():
         ],
     )
     turn2 = TurnResult(stop_reason="end_turn", text="There is a window.", tool_calls=[])
+    # end_turn without say() → one nudge → model ends again.
+    turn3 = TurnResult(stop_reason="end_turn", text="There is a window.", tool_calls=[])
     agent.backend.stream_turn = AsyncMock(
-        side_effect=[(turn1, None), (turn2, "There is a window.")]
+        side_effect=[(turn1, None), (turn2, "There is a window."), (turn3, "There is a window.")]
     )
 
     patches = dict(_HEAVY_PATCHES)
@@ -507,6 +519,7 @@ async def test_run_passes_latest_pre_see_action_into_scene_update():
 async def test_run_auto_say_fires_when_tts_available_and_no_say_call():
     """When TTS is present and model wrote text without calling say(), auto-say fires."""
     agent = _make_agent(with_tts=True)
+    agent._schedule_rule = _make_active_rule()  # deterministic: not quiet hours
     agent.backend.stream_turn = AsyncMock(
         return_value=(_turn("end_turn", text="Hello, I speak!"), "Hello, I speak!")
     )
@@ -572,6 +585,126 @@ async def test_run_no_auto_say_when_say_already_called():
 
     # say() was called once via tool execution; auto-say must NOT add a second call
     assert agent._tts.call.call_count == 1
+
+
+# ---------------------------------------------------------------------------
+# Tests: one-time say() nudge at end_turn (Step 3 of silence-control)
+# ---------------------------------------------------------------------------
+
+
+def _nudge_messages(agent) -> list:
+    """Return user messages that look like the say() nudge."""
+    out = []
+    for m in agent.messages:
+        content = m.get("content") if isinstance(m, dict) else None
+        if (
+            isinstance(content, str)
+            and m.get("role") == "user"
+            and "say()" in content
+            and "声に出して" in content
+        ):
+            out.append(m)
+    return out
+
+
+@pytest.mark.asyncio
+async def test_user_turn_end_turn_without_say_nudges_once():
+    """User turn ending without say() gets exactly one nudge and one extra loop."""
+    agent = _make_agent()
+    agent.backend.stream_turn = AsyncMock(
+        side_effect=[
+            (_turn("end_turn", text="調べておくね"), "調べておくね"),
+            (_turn("end_turn", text="うん"), "うん"),
+        ]
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        result = await agent.run("ニュース調べて")
+    finally:
+        for p in ps:
+            p.stop()
+
+    # One extra loop happened (2 stream calls), exactly one nudge appended.
+    assert agent.backend.stream_turn.await_count == 2
+    assert len(_nudge_messages(agent)) == 1
+    assert result == "うん"
+
+
+@pytest.mark.asyncio
+async def test_user_turn_nudge_fires_at_most_once_per_turn():
+    """Even if the model never speaks, the nudge fires only once (no infinite loop)."""
+    agent = _make_agent()
+    agent.backend.stream_turn = AsyncMock(
+        side_effect=[
+            (_turn("end_turn", text="text1"), "text1"),
+            (_turn("end_turn", text="text2"), "text2"),
+            (_turn("end_turn", text="text3"), "text3"),
+        ]
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        result = await agent.run("hello")
+    finally:
+        for p in ps:
+            p.stop()
+
+    # Second end_turn returns immediately (flag set) — only 2 stream calls, 1 nudge.
+    assert agent.backend.stream_turn.await_count == 2
+    assert len(_nudge_messages(agent)) == 1
+    assert result == "text2"
+
+
+@pytest.mark.asyncio
+async def test_desire_turn_end_turn_without_say_does_not_nudge():
+    """Autonomous desire turns must never receive the say() nudge."""
+    agent = _make_agent()
+    agent.backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="気になることがある"), "気になることがある")
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        result = await agent.run("", inner_voice="なんとなくネットを見たい", desire_name="")
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert agent.backend.stream_turn.await_count == 1
+    assert _nudge_messages(agent) == []
+    assert result == "気になることがある"
+
+
+@pytest.mark.asyncio
+async def test_user_turn_with_say_does_not_nudge():
+    """If say() was used, no nudge is appended at end_turn."""
+    agent = _make_agent(with_tts=True)
+    say_tc = ToolCall(id="s1", name="say", input={"text": "話したよ"})
+    agent.backend.stream_turn = AsyncMock(
+        side_effect=[
+            (_turn("tool_use", tool_calls=[say_tc]), None),
+            (_turn("end_turn", text="done"), "done"),
+        ]
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        result = await agent.run("話して")
+    finally:
+        for p in ps:
+            p.stop()
+
+    assert _nudge_messages(agent) == []
+    assert result == "done"
 
 
 # ---------------------------------------------------------------------------
@@ -969,6 +1102,108 @@ async def test_share_search_result_suppressed_during_quiet_hours_when_not_user_i
     assert result == "", (
         "Autonomous share_search_result should be suppressed during quiet hours"
     )
+
+
+# ---------------------------------------------------------------------------
+# Step 4: auto_say presence + quiet-hours gate
+# ---------------------------------------------------------------------------
+
+
+def _make_active_rule():
+    """A schedule rule that is never in quiet hours."""
+    rule = MagicMock()
+    rule.is_quiet = MagicMock(return_value=False)
+    rule.start_hour = 23
+    rule.end_hour = 7
+    return rule
+
+
+class TestInQuietHoursHelper:
+    def test_true_when_schedule_rule_is_quiet(self):
+        from familiar_agent.agent import EmbodiedAgent
+
+        agent = EmbodiedAgent.__new__(EmbodiedAgent)
+        agent._schedule_rule = _make_quiet_rule()
+        assert agent._in_quiet_hours() is True
+
+    def test_false_when_schedule_rule_not_quiet(self):
+        from familiar_agent.agent import EmbodiedAgent
+
+        agent = EmbodiedAgent.__new__(EmbodiedAgent)
+        agent._schedule_rule = _make_active_rule()
+        assert agent._in_quiet_hours() is False
+
+    def test_false_when_no_schedule_rule(self):
+        from familiar_agent.agent import EmbodiedAgent
+
+        agent = EmbodiedAgent.__new__(EmbodiedAgent)
+        assert agent._in_quiet_hours() is False
+
+
+@pytest.mark.asyncio
+async def test_auto_say_fires_when_present_and_not_quiet():
+    """Desire turn with TTS, present, not quiet → auto_say speaks."""
+    agent = _make_agent(with_tts=True)
+    agent._schedule_rule = _make_active_rule()
+    agent._last_human_at = __import__("time").time()  # present
+    agent.backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="気になることがあるよ"), "気になることがあるよ")
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        await agent.run("", inner_voice="なんとなく話したい", desire_name="browse_curiosity")
+    finally:
+        for p in ps:
+            p.stop()
+
+    agent._tts.call.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_auto_say_suppressed_when_nobody_present():
+    """Desire turn with TTS but nobody present → auto_say stays silent."""
+    agent = _make_agent(with_tts=True)
+    agent._schedule_rule = _make_active_rule()  # not quiet — isolate presence gate
+    agent._last_human_at = 0.0  # nobody present (1970)
+    agent.backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="誰もいないけど喋っちゃう"), "誰もいないけど喋っちゃう")
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        await agent.run("", inner_voice="ひとりごと", desire_name="browse_curiosity")
+    finally:
+        for p in ps:
+            p.stop()
+
+    agent._tts.call.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_auto_say_suppressed_during_quiet_hours():
+    """Desire turn with TTS, present, but quiet hours → auto_say stays silent."""
+    agent = _make_agent(with_tts=True)
+    agent._schedule_rule = _make_quiet_rule()  # quiet
+    agent._last_human_at = __import__("time").time()  # present — isolate quiet gate
+    agent.backend.stream_turn = AsyncMock(
+        return_value=(_turn("end_turn", text="深夜なのに喋っちゃう"), "深夜なのに喋っちゃう")
+    )
+
+    ps = _patch_heavy()
+    for p in ps:
+        p.start()
+    try:
+        await agent.run("", inner_voice="夜中のひとりごと", desire_name="browse_curiosity")
+    finally:
+        for p in ps:
+            p.stop()
+
+    agent._tts.call.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------

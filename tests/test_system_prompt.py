@@ -82,6 +82,34 @@ def test_system_prompt_no_all_caps_critical() -> None:
     )
 
 
+# ── Deferred search/fetch: must close the turn with say() ─────────────────────
+
+
+def test_system_prompt_deferred_close_with_say_constraint_present() -> None:
+    """A constraint must require closing a deferred-search turn with say().
+
+    Step 2 of silence-control: after firing search_deferred / fetch_deferred,
+    the model must add a closing say() in the SAME turn so the search does not
+    end in silence — UNLESS quiet hours or nobody present.
+    """
+    assert "deferred-close-with-say" in FORMATTED
+
+
+def test_system_prompt_deferred_close_mentions_silence_exception() -> None:
+    """The closing-say constraint must carve out the quiet-hours / no-presence exception.
+
+    This keeps the rule aligned with the presence / quiet-hours gates so the
+    prompt never pushes the model to speak when it should stay silent.
+    """
+    idx = FORMATTED.index("deferred-close-with-say")
+    segment = FORMATTED[idx : idx + 600]
+    # Must require a closing say()
+    assert "say()" in segment
+    # Must mention the silence exception (quiet hours / nobody present)
+    assert "深夜" in segment or "quiet" in segment.lower()
+    assert "誰も" in segment or "no one" in segment.lower() or "nobody" in segment.lower()
+
+
 # ── _interoception: S-expression output ───────────────────────────────────────
 
 
