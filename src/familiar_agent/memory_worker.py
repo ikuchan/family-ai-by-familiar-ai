@@ -1,4 +1,10 @@
-"""Background worker for durable memory jobs."""
+"""Background worker for durable memory operations.
+
+Executes jobs from the memory_jobs table: embedding generation (pgvector,
+multilingual-e5-small), situated embedding updates, and semantic fact extraction.
+Runs as a background asyncio task with retry logic (max 3 attempts per job).
+Config: DATABASE_URL.
+"""
 
 from __future__ import annotations
 

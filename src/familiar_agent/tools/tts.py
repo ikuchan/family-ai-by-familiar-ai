@@ -1,4 +1,10 @@
-"""TTS tool - voice of the embodied agent (ElevenLabs + go2rtc camera speaker)."""
+"""TTS tool - voice of the embodied agent.
+
+Built-in tools:
+- say(text): speak aloud via ElevenLabs streaming TTS. Supports audio style tags e.g. [cheerful].
+  When ELEVENLABS_API_KEY is unset, runs in display-only (silent) mode — text is shown but not spoken.
+Config: ELEVENLABS_API_KEY, TTS_VOICE_ID, GO2RTC_URL, TTS_OUTPUT.
+"""
 
 from __future__ import annotations
 

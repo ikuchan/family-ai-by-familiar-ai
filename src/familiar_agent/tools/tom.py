@@ -1,4 +1,10 @@
-"""Theory of Mind tool — perspective-taking before responding."""
+"""Theory of Mind tool — perspective-taking before responding.
+
+Built-in tools:
+- tom(situation, person): infer what the other person likely feels and wants given the situation.
+  Call BEFORE responding to emotionally salient or ambiguous messages.
+  Uses person-scoped ObservationMemory to ground inferences in past interactions.
+"""
 
 from __future__ import annotations
 

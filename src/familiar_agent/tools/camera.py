@@ -1,4 +1,12 @@
-"""Camera tool - the eyes and neck of the embodied agent."""
+"""Camera tool - the eyes and neck of the embodied agent.
+
+Built-in tools:
+- see(): capture a camera frame and describe the scene via vision LLM.
+- look(direction, degrees): rotate the camera head via ONVIF PTZ.
+  direction: left/right/up/down. Supported on pan-tilt cameras (e.g. Tapo C211).
+  PTZ availability is auto-detected at startup via is_pan_tilt_available().
+Config: CAMERA_HOST, CAMERA_USERNAME, CAMERA_PASSWORD, CAMERA_ONVIF_PORT (default 2020).
+"""
 
 from __future__ import annotations
 
@@ -14,8 +22,9 @@ from typing import Any
 from urllib.parse import urlparse
 
 import cv2
-import onvif
 from onvif import ONVIFCamera
+
+from ..setup import _onvif_wsdl_dir
 
 logger = logging.getLogger(__name__)
 
@@ -150,12 +159,7 @@ class CameraTool:
         if isinstance(hostname, int) or (isinstance(hostname, str) and hostname.isdigit()):
             return False
 
-        # onvif-zeep-async bug: wsdl_dir defaults to site-packages/wsdl/
-        # instead of the correct site-packages/onvif/wsdl/
-        onvif_dir = os.path.dirname(onvif.__file__)
-        wsdl_dir = os.path.join(onvif_dir, "wsdl")
-        if not os.path.isdir(wsdl_dir):
-            wsdl_dir = os.path.join(os.path.dirname(onvif_dir), "wsdl")
+        wsdl_dir = _onvif_wsdl_dir()
 
         # Try the configured port first, then common fallback ports (Eufy/generic cameras
         # often use 8080 or 80 instead of Tapo's default 2020).

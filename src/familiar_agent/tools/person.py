@@ -1,4 +1,13 @@
-"""Person identification and presence tools for the ReAct agent."""
+"""Person identification and presence management tools.
+
+Built-in tools:
+- declare_speaker(name, confidence, reason): declare who is currently speaking. Call on speaker change.
+- note_person_arrived(name, confidence): record someone entering the scene.
+- note_person_left(name): record someone leaving the scene.
+- who_is_present(): list people currently in the room.
+- ask_who_is_speaking(): query the current speaker identity.
+Each person has a separate memory space routed via PersonMemoryManager (person_id).
+"""
 from __future__ import annotations
 
 import logging

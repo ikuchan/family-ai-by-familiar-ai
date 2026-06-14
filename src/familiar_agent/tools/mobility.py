@@ -1,4 +1,11 @@
-"""Mobility tool - legs of the embodied agent (robot vacuum)."""
+"""Mobility tool - legs of the embodied agent (robot vacuum).
+
+Built-in tools:
+- walk(direction, duration): move the body of the vacuum robot.
+  direction: forward/backward/left/right/stop. duration: 0.1-10 seconds.
+  Camera view is independent of movement — walk() does NOT change what the camera sees.
+Config: TUYA_REGION, TUYA_API_KEY, TUYA_API_SECRET, TUYA_DEVICE_ID.
+"""
 
 from __future__ import annotations
 

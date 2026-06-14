@@ -12,6 +12,7 @@ This module provides:
 from __future__ import annotations
 
 import logging
+import os
 import re
 from pathlib import Path
 from typing import Any
@@ -182,12 +183,31 @@ except ImportError:
             pass
 
 
+def _onvif_wsdl_dir() -> str:
+    """Return the correct wsdl/ directory for onvif-zeep-async.
+
+    onvif-zeep-async has a bug where the default wsdl_dir points to
+    site-packages/wsdl/ instead of the correct site-packages/onvif/wsdl/.
+    This function resolves the real path from the onvif package location.
+    """
+    try:
+        import onvif as _onvif_pkg
+        onvif_dir = os.path.dirname(_onvif_pkg.__file__)
+        wsdl_dir = os.path.join(onvif_dir, "wsdl")
+        if not os.path.isdir(wsdl_dir):
+            wsdl_dir = os.path.join(os.path.dirname(onvif_dir), "wsdl")
+        return wsdl_dir
+    except ImportError:
+        return ""
+
+
 async def validate_camera_connection(
     host: str, username: str, password: str, port: int = 2020
 ) -> tuple[bool, str]:
     """Test ONVIF connectivity. Returns (ok, error_message)."""
     try:
-        cam = ONVIFCamera(host, port, username, password)
+        wsdl_dir = _onvif_wsdl_dir()
+        cam = ONVIFCamera(host, port, username, password, wsdl_dir=wsdl_dir)
         await cam.update_xaddrs()
         await cam.create_devicemgmt_service()
         return True, ""

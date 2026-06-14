@@ -69,6 +69,7 @@ from .capability_state import (
     save_summary,
     should_refresh,
     should_regenerate_manifest,
+    should_regenerate_on_startup,
 )
 
 logger = logging.getLogger(__name__)
@@ -1941,7 +1942,10 @@ class EmbodiedAgent:
             logger.debug("GlobalWorkspace: nothing reached ignition threshold — activating DMN")
             # Periodically refresh capability self-understanding during idle DMN cycles
             if should_refresh(self._turn_count):
-                asyncio.ensure_future(self._refresh_capability_summary())
+                if should_regenerate_on_startup():
+                    asyncio.ensure_future(self._regenerate_capability_manifest())
+                else:
+                    asyncio.ensure_future(self._refresh_capability_summary())
             # Default Mode Network: mind-wander when workspace is idle
             dmn_coalition = await self._dmn.wander()
             if dmn_coalition is None:

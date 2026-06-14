@@ -116,6 +116,17 @@ def should_refresh(turn_index: int) -> bool:
 # ---------------------------------------------------------------------------
 
 
+def should_regenerate_on_startup() -> bool:
+    """Return True when capability_summary is absent.
+
+    Called on turn 0 to decide whether to regenerate the full YAML (and then
+    refresh the summary) rather than just refreshing the summary from an
+    existing YAML.  Returns False when a summary is already stored so normal
+    startup does not re-run the expensive LLM generation step.
+    """
+    return not bool(load_summary())
+
+
 def should_regenerate_manifest(max_age_seconds: int = _MANIFEST_MAX_AGE_SECONDS) -> bool:
     """Return True if capabilities.yaml is missing or older than max_age_seconds."""
     if not _MANIFEST_PATH.exists():

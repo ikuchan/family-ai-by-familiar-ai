@@ -1,13 +1,12 @@
-"""Observation and emotional memory — PostgreSQL + pgvector + person perspectives.
+"""Observation and emotional memory for the embodied agent.
 
-Key changes from original
---------------------------
-* Backend : SQLite → PostgreSQL (psycopg2, RealDictCursor)
-* Vectors : obs_embeddings keeps BYTEA; situated_embeddings uses vector(384)
-* Persons : every row carries person_id; AGENT_SELF_ID for agent-own memories
-* Recall  : uses situated_embeddings for person-scoped cosine search via SQL
-* Write   : pre-computes situated vectors for all registered persons at save time
-* Scope   : remember() accepts scope= "speaker"|"witnessed"|"scene"|"all"
+Built-in tools:
+- remember(content, emotion, scope): store an observation in PostgreSQL.
+  scope: "speaker" | "witnessed" | "scene" | "all".
+- recall(hint, n): retrieve semantically similar memories via pgvector cosine similarity.
+Storage: PostgreSQL + pgvector (situated_embeddings, multilingual-e5-small).
+Memory is scoped per person via PersonMemoryManager (person_id).
+Config: DATABASE_URL.
 """
 from __future__ import annotations
 

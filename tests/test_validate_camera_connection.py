@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -52,3 +53,39 @@ async def test_no_runtime_warning(recwarn):
         await setup_mod.validate_camera_connection("192.168.1.26", "u", "p", 2020)
 
     assert not any("never awaited" in str(w.message) for w in recwarn.list)
+
+
+# ---------------------------------------------------------------------------
+# wsdl_dir resolution
+# ---------------------------------------------------------------------------
+
+
+def test_onvif_wsdl_dir_is_resolved_correctly():
+    """_onvif_wsdl_dir() returns an existing directory containing devicemgmt.wsdl."""
+    from familiar_agent.setup import _onvif_wsdl_dir
+    wsdl_dir = _onvif_wsdl_dir()
+    assert os.path.isdir(wsdl_dir), f"wsdl_dir が存在しない: {wsdl_dir}"
+    assert os.path.exists(os.path.join(wsdl_dir, "devicemgmt.wsdl")), (
+        f"devicemgmt.wsdl が見つからない in {wsdl_dir}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_validate_camera_uses_correct_wsdl_dir():
+    """validate_camera_connection passes wsdl_dir to ONVIFCamera."""
+    captured: dict = {}
+
+    def fake_onvif(host, port, user, pw, wsdl_dir=None):
+        captured["wsdl_dir"] = wsdl_dir
+        cam = MagicMock()
+        cam.update_xaddrs = AsyncMock(return_value=None)
+        cam.create_devicemgmt_service = AsyncMock(return_value=object())
+        return cam
+
+    with patch.object(setup_mod, "ONVIFCamera", side_effect=fake_onvif):
+        await setup_mod.validate_camera_connection("192.168.1.26", "u", "p", 2020)
+
+    assert captured.get("wsdl_dir") is not None, "wsdl_dir が ONVIFCamera に渡されていない"
+    assert os.path.isdir(captured["wsdl_dir"]), (
+        f"渡された wsdl_dir が存在しない: {captured['wsdl_dir']}"
+    )
