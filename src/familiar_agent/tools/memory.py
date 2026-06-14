@@ -18,7 +18,8 @@ import os
 import threading
 import uuid
 from collections import OrderedDict
-from datetime import date as _date, datetime, timedelta
+import math
+from datetime import date as _date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -49,6 +50,52 @@ def _recall_min_score() -> float:
         return float(os.environ.get("RECALL_MIN_SCORE", "0.0"))
     except ValueError:
         return 0.0
+
+
+def _recall_half_life_days() -> float:
+    try:
+        return float(os.environ.get("RECALL_HALF_LIFE_DAYS", "7.0"))
+    except ValueError:
+        return 7.0
+
+
+def _recall_time_floor() -> float:
+    try:
+        return float(os.environ.get("RECALL_TIME_FLOOR", "0.25"))
+    except ValueError:
+        return 0.25
+
+
+def _compute_final_score(
+    cosine: float,
+    ts,
+    last_recalled_at,
+    recall_count: int,
+    importance: float,
+) -> float:
+    """Compute time-decayed final score for a recalled memory.
+
+    final_score = cosine × time_score × importance
+    time_score  = max(floor, exp(-elapsed / tau))
+    tau         = half_life_days × 2^recall_count / ln(2)
+    elapsed     = days since last_recalled_at (or timestamp if never recalled)
+    """
+    half_life = _recall_half_life_days()
+    floor = _recall_time_floor()
+
+    now = datetime.now(timezone.utc)
+    base = last_recalled_at if last_recalled_at is not None else ts
+    if base is not None and base.tzinfo is None:
+        base = base.replace(tzinfo=timezone.utc)
+    if base is None:
+        elapsed_days = 0.0
+    else:
+        elapsed_days = max(0.0, (now - base).total_seconds() / 86400.0)
+
+    effective_half_life = half_life * (2 ** max(0, recall_count))
+    tau = effective_half_life / math.log(2)
+    time_score = max(floor, math.exp(-elapsed_days / tau))
+    return cosine * time_score * float(importance)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -724,24 +771,28 @@ class ObservationMemory:
     # ── Recall ─────────────────────────────────────────────────────────────
 
     def recall(self, query: str, n: int = 3, kind: str | None = None,
-               min_score: float = 0.0) -> list[dict]:
+               min_score: float = 0.0,
+               recall_mode: str = "system") -> list[dict]:
         """Recall using situated vectors (pgvector cosine search).
 
-        Issue A: min_score filters out memories below the cosine similarity threshold.
-        Defaults to 0.0 (no filtering) for backward compatibility with existing callers.
-        Time decay and recall-count weighting will be added in Issue B.
+        min_score:   cosine similarity threshold (Issue A).
+        recall_mode: reinforcement mode (Issue B).
+          "conversation" → recall_count += 1 AND last_recalled_at = now()
+          "spontaneous"  → last_recalled_at = now() only
+          "system"       → no reinforcement (default)
+
+        Scoring: final_score = cosine × time_score × importance
+        Results are re-sorted by final_score before returning.
         """
         try:
             q_vec = _coerce_to_embedding_dim(
                 np.array(self._embedder.encode_query([query])[0], dtype=np.float32)
             )
-            # Apply person's perspective bias to query too
             p_vec = self._get_perspective_vec(self._person_id)
             situated_q = _normalise(q_vec + ALPHA * p_vec)
             q_sql = vec_to_sql(situated_q.tolist())
 
             kind_clause = "AND o.kind = %s" if kind else ""
-            # Issue A: 関連度がmin_score未満の記憶を除外。時間減衰・想起重みはIssue Bで追加。
             score_clause = "AND (1 - (s.vector <=> %s::vector)) >= %s" if min_score > 0.0 else ""
             params: list = [q_sql, self._person_id]
             if kind:
@@ -758,6 +809,8 @@ class ObservationMemory:
                         SELECT o.id, o.content, o.timestamp,
                                o.direction, o.kind, o.emotion, o.image_path,
                                COALESCE(o.importance, 1.0) AS importance,
+                               COALESCE(o.recall_count, 0) AS recall_count,
+                               o.last_recalled_at,
                                1 - (s.vector <=> %s::vector) AS score
                         FROM situated_embeddings s
                         JOIN observations o ON o.id = s.obs_id
@@ -773,8 +826,17 @@ class ObservationMemory:
                     rows = cur.fetchall()
 
             if rows:
-                return [
-                    {
+                results = []
+                for row in rows:
+                    cosine = float(row["score"])
+                    final = _compute_final_score(
+                        cosine,
+                        row["timestamp"],
+                        row["last_recalled_at"],
+                        int(row["recall_count"]),
+                        float(row["importance"]),
+                    )
+                    results.append({
                         "memory_id":        row["id"],
                         "timestamp":        row["timestamp"],
                         "summary":          row["content"],
@@ -785,12 +847,18 @@ class ObservationMemory:
                         "source_kind":      row["kind"],
                         "emotion":          row["emotion"],
                         "image_path":       row["image_path"],
-                        "score":            float(row["score"]),
-                        "confidence":       max(0.0, min(1.0, (float(row["score"]) + 1.0) / 2.0)),
+                        "score":            final,
+                        "confidence":       max(0.0, min(1.0, (cosine + 1.0) / 2.0)),
                         "retrieval_method": "semantic",
-                    }
-                    for row in rows
-                ]
+                    })
+                results.sort(key=lambda r: r["score"], reverse=True)
+
+                if recall_mode in ("conversation", "spontaneous"):
+                    self._mark_recalled(
+                        [r["memory_id"] for r in results],
+                        reinforce_half_life=(recall_mode == "conversation"),
+                    )
+                return results
 
             # Fallback: plain keyword search when no situated vectors exist yet.
             # Skip when min_score > 0.0: keyword results have no cosine score so
@@ -801,6 +869,30 @@ class ObservationMemory:
         except Exception as e:
             logger.warning("recall failed: %s", e)
             return []
+
+    def _mark_recalled(self, ids: list[str], *, reinforce_half_life: bool) -> None:
+        """Reinforce recalled memories by updating decay tracking columns."""
+        if not ids:
+            return
+        try:
+            with self._db_lock:
+                conn = self._ensure_connected()
+                with conn.cursor() as cur:
+                    if reinforce_half_life:
+                        cur.execute(
+                            "UPDATE observations "
+                            "SET recall_count = recall_count + 1, last_recalled_at = now() "
+                            "WHERE id = ANY(%s)",
+                            (ids,),
+                        )
+                    else:
+                        cur.execute(
+                            "UPDATE observations SET last_recalled_at = now() WHERE id = ANY(%s)",
+                            (ids,),
+                        )
+                conn.commit()
+        except Exception as e:
+            logger.warning("_mark_recalled failed: %s", e)
 
     def _recall_keyword_fallback(self, query: str, n: int, kind: str | None) -> list[dict]:
         keywords = [w for w in query.split() if len(w) > 1][:4]
@@ -1921,14 +2013,14 @@ class MemoryTool:
 
         # agent self
         agent_mem = self._agent_store
-        for m in await agent_mem.recall_async(query, n=n):
+        for m in await agent_mem.recall_async(query, n=n, recall_mode="conversation"):
             m["_from"] = "自分"
             all_results.append(m)
 
         # all present persons
         for pid, mem in self._manager.get_all_present_memories():
             name = self._manager.get_person_name(pid)
-            for m in await mem.recall_async(query, n=n):
+            for m in await mem.recall_async(query, n=n, recall_mode="conversation"):
                 m["_from"] = name
                 all_results.append(m)
 
