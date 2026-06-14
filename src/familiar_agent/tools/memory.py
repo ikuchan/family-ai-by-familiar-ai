@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import os
 import threading
 import uuid
 from collections import OrderedDict
@@ -36,6 +37,18 @@ DB_PATH_UNUSED = ""          # kept for API compatibility, ignored
 EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
 EMBEDDING_DIM   = 384
 _THUMB_SIZE     = (320, 240)
+
+
+def _recall_min_score() -> float:
+    """Return the relevance-score threshold for recall() from RECALL_MIN_SCORE env var.
+
+    Memories with cosine similarity below this value are excluded from results.
+    Defaults to 0.0 (no filtering) so existing callers that omit min_score are unaffected.
+    """
+    try:
+        return float(os.environ.get("RECALL_MIN_SCORE", "0.0"))
+    except ValueError:
+        return 0.0
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -693,8 +706,14 @@ class ObservationMemory:
 
     # ── Recall ─────────────────────────────────────────────────────────────
 
-    def recall(self, query: str, n: int = 3, kind: str | None = None) -> list[dict]:
-        """Recall using situated vectors (pgvector cosine search)."""
+    def recall(self, query: str, n: int = 3, kind: str | None = None,
+               min_score: float = 0.0) -> list[dict]:
+        """Recall using situated vectors (pgvector cosine search).
+
+        Issue A: min_score filters out memories below the cosine similarity threshold.
+        Defaults to 0.0 (no filtering) for backward compatibility with existing callers.
+        Time decay and recall-count weighting will be added in Issue B.
+        """
         try:
             q_vec = _coerce_to_embedding_dim(
                 np.array(self._embedder.encode_query([query])[0], dtype=np.float32)
@@ -705,9 +724,13 @@ class ObservationMemory:
             q_sql = vec_to_sql(situated_q.tolist())
 
             kind_clause = "AND o.kind = %s" if kind else ""
+            # Issue A: 関連度がmin_score未満の記憶を除外。時間減衰・想起重みはIssue Bで追加。
+            score_clause = "AND (1 - (s.vector <=> %s::vector)) >= %s" if min_score > 0.0 else ""
             params: list = [q_sql, self._person_id]
             if kind:
                 params.append(kind)
+            if min_score > 0.0:
+                params += [q_sql, min_score]
             params += [q_sql, n]
 
             with self._db_lock:
@@ -724,6 +747,7 @@ class ObservationMemory:
                         WHERE s.person_id = %s
                           AND o.superseded_by IS NULL
                           {kind_clause}
+                          {score_clause}
                         ORDER BY s.vector <=> %s::vector
                         LIMIT %s
                         """,
@@ -751,7 +775,11 @@ class ObservationMemory:
                     for row in rows
                 ]
 
-            # Fallback: plain keyword search when no situated vectors exist yet
+            # Fallback: plain keyword search when no situated vectors exist yet.
+            # Skip when min_score > 0.0: keyword results have no cosine score so
+            # the threshold cannot be enforced — return empty instead.
+            if min_score > 0.0:
+                return []
             return self._recall_keyword_fallback(query, n, kind)
         except Exception as e:
             logger.warning("recall failed: %s", e)

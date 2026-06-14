@@ -50,7 +50,7 @@ from .tools.camera import CameraTool
 from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool
 from .tools.deferred_search import DeferredSearchTool
-from .tools.memory import MemoryTool, ObservationMemory
+from .tools.memory import MemoryTool, ObservationMemory, _recall_min_score
 from .person_memory_manager import PersonMemoryManager
 from .recognition.face import recognize_face_async
 from .recognition.presence_watcher import CameraPresenceWatcher
@@ -2090,7 +2090,7 @@ class EmbodiedAgent:
             hint = now.strftime("%B")
 
         try:
-            memories = await self._active_memory().recall_async(hint, n=5)
+            memories = await self._active_memory().recall_async(hint, n=5, min_score=_recall_min_score())
         except Exception:
             return None
 
@@ -3228,7 +3228,7 @@ class EmbodiedAgent:
                 _memories_coro = (
                     _call_optional_async(recall_divergent, user_input, n=recall_n, fallback=[])
                     if recall_divergent is not None
-                    else self._active_memory().recall_async(user_input, n=recall_n)
+                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=_recall_min_score())
                 )
                 (
                     memories,
