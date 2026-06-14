@@ -3622,16 +3622,12 @@ class EmbodiedAgent:
             user_input=user_input,
         )
         _internal_backend_saved = self._maybe_swap_internal_backend(is_desire_turn, desire_name)
-        _internal_messages_baseline = (
-            len(self.messages) if _internal_backend_saved is not None else None
-        )
-        # When swapping to a non-Anthropic utility backend (e.g. Gemini Flash-Lite),
-        # convert existing Anthropic-format messages so stream_turn receives properly
-        # formatted input.
-        _internal_messages_saved: list | None = None
-        if _internal_backend_saved is not None and not isinstance(self.backend, AnthropicBackend):
-            _internal_messages_saved = list(self.messages)
-            self.messages = GeminiBackend.convert_messages_to_gemini_format(self.messages)
+        # 内的desireターンは結果を履歴に残さないためローカルコピーを使う。
+        # 通常ターンは本体参照。形式変換は各バックエンドの stream_turn 内部が行う（呼び出し側は変換しない）。
+        if _internal_backend_saved is not None:
+            turn_messages = list(self.messages)
+        else:
+            turn_messages = self.messages
 
         try:
             for i in range(turn_max_iterations):
@@ -3648,7 +3644,7 @@ class EmbodiedAgent:
                         workspace_ctx=workspace_ctx,
                         mental_ctx=mental_ctx,
                     ),
-                    messages=self.messages,
+                    messages=turn_messages,
                     tools=turn_tools,
                     max_tokens=turn_max_tokens,
                     on_text=on_text,
@@ -3667,7 +3663,7 @@ class EmbodiedAgent:
                     self._meta_monitor.record_step(_focus, action=_action, confidence=_conf)
 
                 if result.stop_reason == "end_turn":
-                    self.messages.append(self.backend.make_assistant_message(result, raw_content))
+                    turn_messages.append(self.backend.make_assistant_message(result, raw_content))
                     final_text = result.text or "(no response)"
 
                     # One-time say() nudge (silence-control step 3): on a USER turn,
@@ -3676,7 +3672,7 @@ class EmbodiedAgent:
                     # autonomous turns decide their own voicing via the gates above.
                     if not say_used and not is_desire_turn and not say_nudge_used:
                         say_nudge_used = True
-                        self.messages.append(
+                        turn_messages.append(
                             self.backend.make_user_message(
                                 "まだ声に出していない。必要なら say() で一言。"
                                 "不要なら何もしなくてよい。"
@@ -3718,7 +3714,7 @@ class EmbodiedAgent:
                         violation = await self._check_response_coherence(final_text)
                         if violation:
                             self._coherence_retried = True
-                            self.messages.append(
+                            turn_messages.append(
                                 self.backend.make_user_message(
                                     f"[SELF-CHECK] Your previous response has a problem: "
                                     f"{violation}. Please correct it and respond again."
@@ -3878,9 +3874,9 @@ class EmbodiedAgent:
                             on_tool_result(tc.name, tc.input, text)
                         collected.append((text, image))
 
-                    self.messages.append(self.backend.make_assistant_message(result, raw_content))
+                    turn_messages.append(self.backend.make_assistant_message(result, raw_content))
                     tool_msgs = self.backend.make_tool_results(result.tool_calls, collected)
-                    self.messages.append(tool_msgs)
+                    turn_messages.append(tool_msgs)
 
                     if interrupt_queue is not None and not interrupt_queue.empty():
                         interrupts = self._drain_interrupt_queue(interrupt_queue)
@@ -3889,7 +3885,7 @@ class EmbodiedAgent:
                             if len(interrupts) > 3:
                                 head += f" (+{len(interrupts) - 3} more)"
                             logger.debug("Consumed %d queued interrupts", len(interrupts))
-                            self.messages.append(
+                            turn_messages.append(
                                 self.backend.make_user_message(
                                     f"[User interrupted x{len(interrupts)}]: {head}. "
                                     "Respond to this directly with say() now."
@@ -3898,7 +3894,7 @@ class EmbodiedAgent:
                             non_say_streak = 0
 
                     elif non_say_streak >= 2 and not say_used:
-                        self.messages.append(
+                        turn_messages.append(
                             self.backend.make_user_message(
                                 "REMINDER: Writing text is silent. You MUST call say() to be heard. "
                                 "Call say() NOW. Keep it to 1-2 sentences."
@@ -3907,7 +3903,7 @@ class EmbodiedAgent:
                         non_say_streak = 0
 
                     elif say_used and non_say_streak >= 2:
-                        self.messages.append(
+                        turn_messages.append(
                             self.backend.make_user_message(
                                 "You already spoke. Stop exploring and end your turn now."
                             )
@@ -3923,7 +3919,7 @@ class EmbodiedAgent:
                 "Reached max iterations (%d). Forcing final response.",
                 turn_max_iterations,
             )
-            self.messages.append(
+            turn_messages.append(
                 self.backend.make_user_message(
                     "Please summarize what you found and provide your final answer now."
                 )
@@ -3936,7 +3932,7 @@ class EmbodiedAgent:
                     workspace_ctx=workspace_ctx,
                     mental_ctx=mental_ctx,
                 ),
-                messages=self.messages,
+                messages=turn_messages,
                 tools=[],
                 max_tokens=turn_max_tokens,
                 on_text=on_text,
@@ -3945,13 +3941,8 @@ class EmbodiedAgent:
         finally:
             self._restore_backend_after_turn(backend_turn_snapshot)
             if _internal_backend_saved is not None:
+                # turn_messages はローカル変数なので self.messages は汚染されていない。復元不要。
                 self.backend = _internal_backend_saved
-                # Restore the original pre-swap messages (Anthropic format),
-                # discarding anything appended during the internal-backend turn.
-                if _internal_messages_saved is not None:
-                    self.messages = _internal_messages_saved
-                elif _internal_messages_baseline is not None:
-                    self.messages = self.messages[:_internal_messages_baseline]
 
     @property
     def stt(self) -> STTTool | None:

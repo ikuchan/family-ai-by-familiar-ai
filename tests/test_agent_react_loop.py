@@ -1207,15 +1207,17 @@ async def test_auto_say_suppressed_during_quiet_hours():
 
 
 # ---------------------------------------------------------------------------
-# Internal desire turns pass Gemini-formatted messages to utility backend
+# Internal desire turns pass Anthropic-format messages to utility backend
+# (format conversion is handled inside each backend's stream_turn, not at agent level)
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_internal_desire_turn_passes_gemini_formatted_messages_to_utility_backend():
-    """When swapped to the Gemini utility backend for an internal desire turn,
-    messages must be converted to Gemini format (parts, not content) before
-    stream_turn is called — no Anthropic-format messages should leak through."""
+async def test_internal_desire_turn_passes_anthropic_format_messages_to_utility_backend():
+    """When swapped to the utility backend for an internal desire turn,
+    messages passed to stream_turn remain in Anthropic format (role+content).
+    Format conversion is the responsibility of each backend's stream_turn internally.
+    The agent must NOT pre-convert self.messages to avoid polluting the message body."""
     import logging
     agent = _make_agent()
 
@@ -1225,7 +1227,7 @@ async def test_internal_desire_turn_passes_gemini_formatted_messages_to_utility_
         return_value=(_turn("end_turn", text="interesting discovery"), "interesting discovery")
     )
     utility_backend.make_assistant_message = MagicMock(
-        return_value={"role": "model", "parts": [{"text": "interesting discovery"}]}
+        return_value={"role": "assistant", "content": "interesting discovery"}
     )
     agent._utility_backend = utility_backend
 
@@ -1248,13 +1250,12 @@ async def test_internal_desire_turn_passes_gemini_formatted_messages_to_utility_
     call_kwargs = utility_backend.stream_turn.call_args
     messages_passed = call_kwargs.kwargs.get("messages") or call_kwargs.args[1]
 
-    # Every message must be in Gemini format (has 'parts', not 'content')
+    # Messages must remain in Anthropic format (role+content); agent must not pre-convert.
+    # Each backend's stream_turn internally handles format conversion if needed.
     for msg in messages_passed:
-        assert "parts" in msg, (
-            f"Message passed to utility backend must use Gemini 'parts' format, got: {msg}"
-        )
-        assert "content" not in msg, (
-            f"Anthropic 'content' key must not appear in messages for utility backend, got: {msg}"
+        assert isinstance(msg, dict), f"Each message must be a dict, got: {type(msg)}"
+        assert "content" in msg, (
+            f"Messages must remain in Anthropic format (role+content) for the agent layer, got: {msg}"
         )
 
 
