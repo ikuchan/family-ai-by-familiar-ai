@@ -56,6 +56,10 @@ def setup_logging(debug: bool = False) -> None:
     root.addHandler(file_handler)
     root.setLevel(level)
 
+    # Rotate on every startup so each session gets its own log segment
+    if log_file.exists():
+        file_handler.doRollover()
+
     from . import __version__
     logging.getLogger(__name__).info("familiar-ai %s starting", __version__)
 
