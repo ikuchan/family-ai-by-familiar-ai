@@ -841,6 +841,8 @@ class EmbodiedAgent:
         self.messages: list = []
         self._started_at = time.time()
         self._turn_count = 0
+        self._current_is_desire_turn: bool = False
+        self._current_desire_name: str = ""
         self._session_input_tokens: int = 0
         self._session_output_tokens: int = 0
         self._last_context_tokens: int = 0
@@ -1268,6 +1270,13 @@ class EmbodiedAgent:
         elif name in mobility_tools and self._mobility:
             return await self._mobility.call(name, tool_input)
         elif name in tts_tools and self._tts:
+            # 応急処置(Issue D 先行): 内的desireターンでは say() を実行しない。
+            # LLMが内的ターンで say() を呼ぶと presence/quiet ゲートをバイパスし、
+            # 無人・深夜でも繰り返し発言してしまうため。
+            # 「話したいことを溜めて後で話す」機能は Issue D 本体(pending_speech)で実装予定。
+            if (self._current_is_desire_turn
+                    and not is_social_desire(self._current_desire_name)):
+                return "(internal turn: speaking is suppressed)", None
             return await self._tts.call(name, tool_input)
         elif name in memory_tools:
             return await self._memory_tool.call(name, tool_input)
@@ -3109,6 +3118,8 @@ class EmbodiedAgent:
             await memory_worker.start()
 
         is_desire_turn = bool(inner_voice and not user_input)
+        self._current_is_desire_turn = is_desire_turn
+        self._current_desire_name = desire_name
 
         # Tell the deferred tools whether this is a user-initiated turn so pending
         # results can be tagged and quiet-hours bypassed for user-requested searches.
