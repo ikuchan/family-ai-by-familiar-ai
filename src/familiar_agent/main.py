@@ -66,13 +66,15 @@ def setup_logging(debug: bool = False) -> None:
         log_file, when="midnight", interval=1, backupCount=14, encoding="utf-8"
     )
     file_handler.namer = lambda name: str(logs_dir / Path(name).name)
+    from . import __version__
+    # 全行にバージョンを含め、更新反映を行単位で判別可能にする
     file_handler.setFormatter(
-        logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
+        logging.Formatter(
+            f"%(asctime)s [{__version__}] [%(levelname)s] %(name)s: %(message)s"
+        )
     )
     root.addHandler(file_handler)
     root.setLevel(level)
-
-    from . import __version__
     logging.getLogger(__name__).info("familiar-ai %s starting", __version__)
 
     # Reduce noise from 3rd party libs

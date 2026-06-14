@@ -3625,7 +3625,12 @@ class EmbodiedAgent:
         # 内的desireターンは結果を履歴に残さないためローカルコピーを使う。
         # 通常ターンは本体参照。形式変換は各バックエンドの stream_turn 内部が行う（呼び出し側は変換しない）。
         if _internal_backend_saved is not None:
-            turn_messages = list(self.messages)
+            # 非社会的な内的desireターンは会話履歴を引き継がない（直前発話の復唱を防ぐ）。
+            # 内的衝動は会話の残響でなく記憶の想起（system promptの[Resurfaced memory]）に基づく。
+            # 直前に追加した最小プレースホルダ "." のみを起点にする
+            # （messagesを空にすると Gemini の contents が空になり拒否されるため）。
+            # ターン内で生成されるメッセージは turn_messages.append で積まれ連続性は保たれる。
+            turn_messages = [self.messages[-1]]
         else:
             turn_messages = self.messages
 
