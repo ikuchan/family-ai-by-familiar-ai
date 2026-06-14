@@ -18,15 +18,13 @@ capabilities:
       memory discovery, curiosity trigger), share_memory is automatically boosted so
       the agent will bring it up when the user is next present.
     enabled: true
-
   - id: camera_vision
     summary: Capture and interpret images from a camera (RTSP or USB webcam)
     detail: >
       look_around() captures a frame and describes the scene using a vision LLM.
       Scene changes are tracked; new/disappeared entities trigger workspace events.
       Uses the `tools/camera.py` module and can be configured via `CAMERA_HOST` or by detecting a USB webcam.
-    enabled_env: CAMERA_HOST or USB webcam
-
+    enabled_env: CAMERA_HOST
   - id: coding_tools
     summary: Read, edit, glob, grep, and execute shell commands
     detail: >
@@ -34,21 +32,18 @@ capabilities:
       code, searching the codebase, and running shell commands. Paths are resolved
       relative to `CODING_WORKDIR`. Uses the `tools/coding.py` module.
     enabled: true
-
   - id: deferred_fetch
     summary: Asynchronously fetch content from a URL and inject it on the next turn
     detail: >
       Used for fire-and-forget URL fetching. The result is made available in the
       agent's workspace on the subsequent turn. Implemented in `tools/deferred_fetch.py`.
     enabled: true
-
   - id: deferred_search
     summary: Asynchronously perform a search and inject results on the next turn
     detail: >
       Enables fire-and-forget search queries. The search results are delivered to
       the agent's workspace on the subsequent turn. Implemented in `tools/deferred_search.py`.
     enabled: true
-
   - id: memory
     summary: Store and recall observations, episodes, semantic facts, and unfinished business
     detail: >
@@ -57,14 +52,12 @@ capabilities:
       related memories. Semantic facts and behavior policies are extracted from
       observations. Uses the `tools/memory.py` module and `DATABASE_URL` environment variable.
     enabled: true
-
   - id: mic_capture
     summary: Capture audio from a microphone
     detail: >
       Streams PCM 16 kHz 16-bit mono audio to an async callback. Primarily used
       for speech input. Implemented in `tools/mic.py`.
     enabled: true
-
   - id: mobility
     summary: Control physical movement (vacuum robot body)
     detail: >
@@ -73,7 +66,6 @@ capabilities:
       independent of movement. Uses the `tools/mobility.py` module and can be
       configured via `MOBILITY_BACKEND`.
     enabled_env: MOBILITY_BACKEND
-
   - id: person_identification
     summary: Identify and track multiple family members as distinct individuals
     detail: >
@@ -85,7 +77,6 @@ capabilities:
       (VoiceIdentifier). Uses the `tools/person.py` and `person_memory_manager.py`
       modules.
     enabled: true
-
   - id: realtime_stt
     summary: Transcribe spoken audio in real-time using ElevenLabs
     detail: >
@@ -93,16 +84,14 @@ capabilities:
       It maintains a persistent WebSocket connection and streams PCM audio,
       leveraging ElevenLabs VAD for speech boundary detection. Implemented in
       `tools/realtime_stt.py`.
-    enabled_env: STT_BACKEND and microphone available
-
+    enabled_env: STT_BACKEND
   - id: stt
     summary: Transcribe spoken audio using ElevenLabs Scribe API
     detail: >
       Performs Speech-to-Text transcription using the ElevenLabs Scribe API.
       It can record audio from the local PC microphone (via sounddevice) or
       a camera RTSP stream (via PyAV) as a fallback. Implemented in `tools/stt.py`.
-    enabled_env: STT_BACKEND and microphone available
-
+    enabled_env: STT_BACKEND
   - id: theory_of_mind
     summary: Enable perspective-taking and social reasoning
     detail: >
@@ -110,7 +99,6 @@ capabilities:
       mental states of others before responding. This is crucial for empathetic
       and contextually aware interactions. Implemented in `tools/tom.py`.
     enabled: true
-
   - id: tts
     summary: Speak responses aloud via text-to-speech
     detail: >
@@ -118,7 +106,6 @@ capabilities:
       backends like ElevenLabs and go2rtc for camera speakers. VoiceGuard prevents
       TTS output from feeding back into STT. Implemented in `tools/tts.py`.
     enabled_env: TTS_BACKEND
-
   - id: desire_system
     summary: Drive autonomous motivations and goal-directed behavior
     detail: >
@@ -126,7 +113,6 @@ capabilities:
       goal-directed behavior. It influences the agent's actions and decision-making
       process. Implemented in `desires.py`.
     enabled: true
-
   - id: relationship_tracker
     summary: Track longitudinal relationship state independently for each family member
     detail: >
@@ -136,7 +122,6 @@ capabilities:
       State is persisted in the PostgreSQL `relationship_state` table.
       Implemented in `relationship.py`.
     enabled: true
-
   - id: appraisal_engine
     summary: Deterministically update affective state based on inputs
     detail: >
@@ -144,7 +129,6 @@ capabilities:
       affective state (e.g., valence, arousal) based on incoming information.
       Implemented in `appraisal.py`.
     enabled: true
-
   - id: social_policy
     summary: Explicit layer for turn-level interaction decisions
     detail: >
@@ -152,7 +136,6 @@ capabilities:
       interaction decisions on a turn-by-turn basis, ensuring appropriate social
       behavior. Implemented in `social_policy.py`.
     enabled: true
-
   - id: self_narrative
     summary: Maintain a first-person autobiographical diary of sessions
     detail: >
@@ -160,7 +143,6 @@ capabilities:
       recording key events and experiences. This narrative helps in self-reflection
       and continuity. Implemented in `self_narrative.py`.
     enabled: true
-
   - id: mcp_client
     summary: Manage connections to external MCP servers
     detail: >
@@ -168,7 +150,6 @@ capabilities:
       MCP servers, exposing their tools to the agent. Supported transports include
       stdio and SSE. Implemented in `mcp_client.py`.
     enabled_env: MCP_CONFIG
-
   - id: interoception_bridge
     summary: Provide and semantically map internal bodily signals
     detail: >
@@ -176,7 +157,6 @@ capabilities:
       and maps them semantically, contributing to the agent's self-awareness.
       Implemented in `interoception.py`.
     enabled: true
-
   - id: default_mode_network
     summary: Process spontaneous memory recall during idle time
     detail: >
@@ -184,7 +164,6 @@ capabilities:
       past memories during idle periods, surfacing associations and consolidating
       memories. Implemented in `default_mode.py`.
     enabled: true
-
   - id: prediction_error_engine
     summary: Minimize prediction error based on the Free Energy Principle
     detail: >
@@ -192,7 +171,6 @@ capabilities:
       prediction error by updating probability estimates using Exponential Moving
       Averages. Implemented in `prediction.py`.
     enabled: true
-
   - id: global_workspace
     summary: Integrate information from various processing modules
     detail: >
@@ -200,7 +178,6 @@ capabilities:
       where specialized processors compete for a shared workspace, broadcasting
       their content. Implemented in `workspace.py`.
     enabled: true
-
   - id: memory_worker
     summary: Handle background jobs for durable memory operations
     detail: >
@@ -208,7 +185,6 @@ capabilities:
       ensuring efficient and asynchronous memory management. Implemented in
       `memory_worker.py`.
     enabled: true
-
   - id: meta_monitor
     summary: Monitor metacognitive state and update self-model
     detail: >
@@ -216,7 +192,6 @@ capabilities:
       metacognitive states, detects inconsistencies, and produces session summaries
       for diary and self-model updates. Implemented in `meta_monitor.py`.
     enabled: true
-
   - id: tape_planning
     summary: Implement TAPE-inspired planning for embodied agents
     detail: >
@@ -224,10 +199,11 @@ capabilities:
       and adaptive replanning mechanisms to guide action sequences. Implemented in
       `tape.py`.
     enabled: true
-
   - id: concern_engine
     summary: Manage lightweight active concerns for self-continuity
     detail: >
       This engine manages lightweight active concerns, contributing to the agent's
       sense of autobiographical self-continuity across its experiences. Implemented
       in `concern_engine.py`.
+    enabled: true
+  - id: m

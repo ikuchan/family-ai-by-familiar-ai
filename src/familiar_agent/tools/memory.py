@@ -18,7 +18,7 @@ import os
 import threading
 import uuid
 from collections import OrderedDict
-from datetime import datetime, timedelta
+from datetime import date as _date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -52,6 +52,24 @@ def _recall_min_score() -> float:
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
+
+def _ts_to_date(ts) -> str:
+    """Convert a TIMESTAMPTZ row value to YYYY-MM-DD string."""
+    if ts is None:
+        return ""
+    if isinstance(ts, str):
+        return ts[:10]
+    return ts.date().isoformat()
+
+
+def _ts_to_time(ts) -> str:
+    """Convert a TIMESTAMPTZ row value to HH:MM string."""
+    if ts is None:
+        return ""
+    if isinstance(ts, str):
+        return ts[11:16] if len(ts) >= 16 else ts
+    return ts.strftime("%H:%M")
+
 
 def _encode_image(image_path: str) -> str | None:
     try:
@@ -559,11 +577,10 @@ class ObservationMemory:
         blob = _encode_vector(vec)
         now = datetime.now()
         if override_date:
-            save_date = str(override_date); save_time = "23:59"
-            save_ts   = f"{save_date}T23:59:59"
+            d = datetime.strptime(str(override_date)[:10], "%Y-%m-%d")
+            save_ts = d.replace(hour=23, minute=59, second=59)
         else:
-            save_date = now.strftime("%Y-%m-%d"); save_time = now.strftime("%H:%M")
-            save_ts   = now.isoformat()
+            save_ts = now
 
         participants_json = json.dumps(participants or [], ensure_ascii=False)
 
@@ -575,11 +592,11 @@ class ObservationMemory:
                     return True
                 cur.execute(
                     "INSERT INTO observations "
-                    "(id,content,timestamp,date,time,direction,kind,emotion,"
+                    "(id,content,timestamp,direction,kind,emotion,"
                     " image_path,image_data,person_id,writer_id,subject_id,"
                     " participants_json,scope) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (event_id, content, save_ts, save_date, save_time,
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
                      self._person_id,
                      writer_id or self._person_id,
@@ -738,7 +755,7 @@ class ObservationMemory:
                 with conn.cursor() as cur:
                     cur.execute(
                         f"""
-                        SELECT o.id, o.content, o.timestamp, o.date, o.time,
+                        SELECT o.id, o.content, o.timestamp,
                                o.direction, o.kind, o.emotion, o.image_path,
                                COALESCE(o.importance, 1.0) AS importance,
                                1 - (s.vector <=> %s::vector) AS score
@@ -761,8 +778,8 @@ class ObservationMemory:
                         "memory_id":        row["id"],
                         "timestamp":        row["timestamp"],
                         "summary":          row["content"],
-                        "date":             row["date"],
-                        "time":             row["time"],
+                        "date":             _ts_to_date(row["timestamp"]),
+                        "time":             _ts_to_time(row["timestamp"]),
                         "direction":        row["direction"],
                         "kind":             row["kind"],
                         "source_kind":      row["kind"],
@@ -800,7 +817,7 @@ class ObservationMemory:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT o.id, o.content, o.timestamp, o.date, o.time,
+                    SELECT o.id, o.content, o.timestamp,
                            o.direction, o.kind, o.emotion, o.image_path
                     FROM observations o
                     WHERE ({cond}) {kind_clause}
@@ -814,7 +831,8 @@ class ObservationMemory:
         return [
             {
                 "memory_id": r["id"], "timestamp": r["timestamp"],
-                "summary": r["content"], "date": r["date"], "time": r["time"],
+                "summary": r["content"],
+                "date": _ts_to_date(r["timestamp"]), "time": _ts_to_time(r["timestamp"]),
                 "direction": r["direction"], "kind": r["kind"],
                 "source_kind": r["kind"], "emotion": r["emotion"],
                 "image_path": r["image_path"],
@@ -834,7 +852,7 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        f"SELECT o.id, o.content, o.timestamp, o.date, o.time, "
+                        f"SELECT o.id, o.content, o.timestamp, "
                         f"o.direction, o.kind, o.emotion, o.image_path "
                         f"FROM observations o "
                         f"WHERE o.person_id = %s AND o.superseded_by IS NULL {kind_clause} "
@@ -845,7 +863,8 @@ class ObservationMemory:
             return [
                 {
                     "memory_id": r["id"], "timestamp": r["timestamp"],
-                    "summary": r["content"], "date": r["date"], "time": r["time"],
+                    "summary": r["content"],
+                    "date": _ts_to_date(r["timestamp"]), "time": _ts_to_time(r["timestamp"]),
                     "direction": r["direction"], "kind": r["kind"],
                     "source_kind": r["kind"], "emotion": r["emotion"],
                     "image_path": r["image_path"],
@@ -865,12 +884,12 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT content, date, time, emotion FROM observations "
+                        "SELECT content, timestamp, emotion FROM observations "
                         "WHERE kind IN ('feeling','conversation') AND person_id=%s "
                         "ORDER BY timestamp DESC LIMIT %s",
                         (self._person_id, n),
                     )
-                    return [{"summary":r["content"],"date":r["date"],"time":r["time"],"emotion":r["emotion"]}
+                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"]),"emotion":r["emotion"]}
                             for r in cur.fetchall()]
         except Exception as e:
             logger.warning("recent_feelings failed: %s", e); return []
@@ -885,12 +904,12 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT content, date, time, emotion FROM observations "
+                        "SELECT content, timestamp, emotion FROM observations "
                         "WHERE kind='self_model' AND person_id=%s "
                         "ORDER BY timestamp DESC LIMIT %s",
                         (AGENT_SELF_ID, n),
                     )
-                    return [{"summary":r["content"],"date":r["date"],"time":r["time"],"emotion":r["emotion"]}
+                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"]),"emotion":r["emotion"]}
                             for r in cur.fetchall()]
         except Exception as e:
             logger.warning("recall_self_model failed: %s", e); return []
@@ -904,12 +923,12 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT content, date, time FROM observations "
+                        "SELECT content, timestamp FROM observations "
                         "WHERE kind='curiosity' AND person_id=%s "
                         "ORDER BY timestamp DESC LIMIT %s",
                         (AGENT_SELF_ID, n),
                     )
-                    return [{"summary":r["content"],"date":r["date"],"time":r["time"]}
+                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"])}
                             for r in cur.fetchall()]
         except Exception as e:
             logger.warning("recall_curiosities failed: %s", e); return []
@@ -1183,12 +1202,12 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT DISTINCT date FROM observations "
-                        "WHERE person_id=%s AND date >= %s AND kind != 'day_summary' "
-                        "ORDER BY date DESC",
+                        "SELECT DISTINCT timestamp::date AS d FROM observations "
+                        "WHERE person_id=%s AND timestamp::date >= %s::date AND kind != 'day_summary' "
+                        "ORDER BY d DESC",
                         (self._person_id, cutoff),
                     )
-                    return [row["date"] for row in cur.fetchall()]
+                    return [row["d"].isoformat() for row in cur.fetchall()]
         except Exception as e:
             logger.warning("get_dates_with_observations failed: %s", e); return []
 
@@ -1199,11 +1218,11 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT DISTINCT date FROM observations "
-                        "WHERE person_id=%s AND kind='day_summary' ORDER BY date DESC",
+                        "SELECT DISTINCT timestamp::date AS d FROM observations "
+                        "WHERE person_id=%s AND kind='day_summary' ORDER BY d DESC",
                         (self._person_id,),
                     )
-                    return [row["date"] for row in cur.fetchall()]
+                    return [row["d"].isoformat() for row in cur.fetchall()]
         except Exception as e:
             logger.warning("get_dates_with_summaries failed: %s", e); return []
 
@@ -1216,20 +1235,19 @@ class ObservationMemory:
                     cur.execute(
                         "SELECT id, content, emotion, kind, timestamp "
                         "FROM observations "
-                        "WHERE person_id=%s AND date=%s AND kind != 'day_summary' "
+                        "WHERE person_id=%s AND timestamp::date=%s::date AND kind != 'day_summary' "
                         "ORDER BY timestamp ASC LIMIT %s",
                         (self._person_id, date, limit),
                     )
                     rows = cur.fetchall()
             result = []
             for row in rows:
-                ts = str(row["timestamp"])
                 result.append({
                     "id": row["id"],
                     "content": row["content"],
                     "emotion": row["emotion"] or "neutral",
                     "kind": row["kind"] or "conversation",
-                    "time": ts[11:16] if len(ts) >= 16 else ts,
+                    "time": _ts_to_time(row["timestamp"]),
                 })
             return result
         except Exception as e:
@@ -1296,12 +1314,12 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT content,date,time,emotion FROM observations "
+                        "SELECT content,timestamp,emotion FROM observations "
                         "WHERE kind='day_summary' AND person_id=%s "
                         "ORDER BY timestamp DESC LIMIT %s",
                         (self._person_id, n),
                     )
-                    return [{"summary":r["content"],"date":r["date"],"time":r["time"],"emotion":r["emotion"]}
+                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"]),"emotion":r["emotion"]}
                             for r in cur.fetchall()]
         except Exception as e:
             logger.warning("recall_day_summaries failed: %s", e); return []
@@ -1316,7 +1334,7 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "DELETE FROM observations WHERE kind='day_summary' AND date=%s AND person_id=%s",
+                        "DELETE FROM observations WHERE kind='day_summary' AND timestamp::date=%s::date AND person_id=%s",
                         (date, self._person_id),
                     )
                     count = cur.rowcount if hasattr(cur, "rowcount") else 0
@@ -1336,7 +1354,7 @@ class ObservationMemory:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE observations SET importance = importance * %s "
-                    "WHERE date < %s AND person_id = %s AND superseded_by IS NULL",
+                    "WHERE timestamp::date < %s::date AND person_id = %s AND superseded_by IS NULL",
                     (factor, before_date, self._person_id),
                 )
                 count = cur.rowcount
@@ -1514,23 +1532,29 @@ class ObservationMemory:
                 if direction in ("out", "both"):
                     with conn.cursor() as cur:
                         cur.execute(
-                            "SELECT o.id,o.content,o.date,o.time,o.emotion,o.kind,"
+                            "SELECT o.id,o.content,o.timestamp,o.emotion,o.kind,"
                             "ml.link_type,ml.note FROM memory_links ml "
                             "JOIN observations o ON o.id=ml.target_id "
                             "WHERE ml.source_id=%s AND o.superseded_by IS NULL",
                             (memory_id,),
                         )
-                        results.extend({**dict(r), "link_direction":"→"} for r in cur.fetchall())
+                        results.extend(
+                            {**dict(r), "date": _ts_to_date(r["timestamp"]), "time": _ts_to_time(r["timestamp"]), "link_direction": "→"}
+                            for r in cur.fetchall()
+                        )
                 if direction in ("in", "both"):
                     with conn.cursor() as cur:
                         cur.execute(
-                            "SELECT o.id,o.content,o.date,o.time,o.emotion,o.kind,"
+                            "SELECT o.id,o.content,o.timestamp,o.emotion,o.kind,"
                             "ml.link_type,ml.note FROM memory_links ml "
                             "JOIN observations o ON o.id=ml.source_id "
                             "WHERE ml.target_id=%s AND o.superseded_by IS NULL",
                             (memory_id,),
                         )
-                        results.extend({**dict(r), "link_direction":"←"} for r in cur.fetchall())
+                        results.extend(
+                            {**dict(r), "date": _ts_to_date(r["timestamp"]), "time": _ts_to_time(r["timestamp"]), "link_direction": "←"}
+                            for r in cur.fetchall()
+                        )
             return results
         except Exception as e:
             logger.warning("get_linked_memories failed: %s", e); return []
@@ -1541,18 +1565,24 @@ class ObservationMemory:
     def recall_on_this_day(self, month: int, day: int, n: int = 5) -> list[dict]:
         """Return observations from past years on the same month/day (anniversary recall)."""
         try:
-            suffix = f"-{month:02d}-{day:02d}"
-            today_str = datetime.now().strftime("%Y-%m-%d")
+            today = _date.today()
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT id, content, date, time, emotion, kind FROM observations "
-                        "WHERE date LIKE %s AND date < %s AND superseded_by IS NULL "
-                        "ORDER BY date DESC LIMIT %s",
-                        (f"%{suffix}", today_str, n),
+                        "SELECT id, content, timestamp, emotion, kind FROM observations "
+                        "WHERE EXTRACT(MONTH FROM timestamp) = %s "
+                        "  AND EXTRACT(DAY FROM timestamp) = %s "
+                        "  AND timestamp::date < %s "
+                        "  AND person_id = %s "
+                        "  AND superseded_by IS NULL "
+                        "ORDER BY timestamp DESC LIMIT %s",
+                        (month, day, today, self._person_id, n),
                     )
-                    return [dict(r) for r in cur.fetchall()]
+                    return [
+                        {**dict(r), "date": _ts_to_date(r["timestamp"]), "time": _ts_to_time(r["timestamp"])}
+                        for r in cur.fetchall()
+                    ]
         except Exception as e:
             logger.warning("recall_on_this_day failed: %s", e); return []
 
@@ -1566,7 +1596,8 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT MIN(date) AS earliest FROM observations WHERE superseded_by IS NULL"
+                        "SELECT MIN(timestamp::date) AS earliest FROM observations WHERE person_id = %s AND superseded_by IS NULL",
+                        (self._person_id,)
                     )
                     row = cur.fetchone()
                 if row is None:
@@ -1632,13 +1663,13 @@ class ObservationMemory:
     def _get_recent_observations(self, n: int = 5) -> list[dict]:
         """Return the N most recent observations for the current person, ordered by timestamp desc."""
         try:
-            today = datetime.now().strftime("%Y-%m-%d")
+            today = _date.today()
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
                         """
-                        SELECT id, content, date, time, emotion, direction, kind,
+                        SELECT id, content, timestamp, emotion, direction, kind,
                                COALESCE(importance, 1.0) AS importance
                         FROM observations
                         WHERE person_id = %s AND superseded_by IS NULL
@@ -1652,14 +1683,14 @@ class ObservationMemory:
                 {
                     "memory_id":  row["id"],
                     "summary":    row["content"],
-                    "date":       row["date"],
-                    "time":       row["time"],
+                    "date":       _ts_to_date(row["timestamp"]),
+                    "time":       _ts_to_time(row["timestamp"]),
                     "emotion":    row["emotion"],
                     "direction":  row["direction"],
                     "kind":       row["kind"],
                     "importance": float(row["importance"]),
                     "confidence": float(row["importance"]),
-                    "is_today":   row["date"] == today,
+                    "is_today":   row["timestamp"].date() == today if row["timestamp"] else False,
                 }
                 for row in rows
             ]

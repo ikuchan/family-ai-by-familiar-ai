@@ -6,13 +6,13 @@ The agent knows "on this day" events and milestones, surfacing them in morning r
 
 from __future__ import annotations
 
-import sqlite3
-from datetime import date, timedelta
-from unittest.mock import AsyncMock, MagicMock
+import uuid
+from datetime import date, datetime, timedelta
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from familiar_agent.tools.memory import ObservationMemory
+from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
 # ---------------------------------------------------------------------------
@@ -21,45 +21,46 @@ from familiar_agent.tools.memory import ObservationMemory
 
 
 def _memory_with_rows(rows: list[dict]) -> ObservationMemory:
-    """ObservationMemory backed by an in-memory DB seeded with rows."""
-    import threading
+    """ObservationMemory backed by the PostgreSQL test DB, seeded with rows.
 
-    mem = ObservationMemory.__new__(ObservationMemory)
-    conn = sqlite3.connect(":memory:", check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    conn.execute(
-        """CREATE TABLE observations (
-            id TEXT PRIMARY KEY,
-            content TEXT NOT NULL,
-            timestamp TEXT NOT NULL,
-            date TEXT NOT NULL,
-            time TEXT NOT NULL,
-            direction TEXT NOT NULL DEFAULT 'unknown',
-            kind TEXT NOT NULL DEFAULT 'observation',
-            emotion TEXT NOT NULL DEFAULT 'neutral',
-            image_path TEXT,
-            image_data TEXT,
-            importance REAL NOT NULL DEFAULT 1.0,
-            superseded_by TEXT
-        )"""
-    )
-    for i, row in enumerate(rows):
-        conn.execute(
-            "INSERT INTO observations (id, content, timestamp, date, time, kind, emotion) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?)",
-            (
-                str(i),
-                row["content"],
-                row.get("timestamp", f"{row['date']}T12:00:00"),
-                row["date"],
-                row.get("time", "12:00"),
-                row.get("kind", "conversation"),
-                row.get("emotion", "neutral"),
-            ),
-        )
-    conn.commit()
-    mem._db = conn
-    mem._db_lock = threading.Lock()
+    Each call uses a unique person_id so rows from different calls are isolated.
+    """
+    person_id = str(uuid.uuid4())
+    with (
+        patch.object(_EmbeddingModel, "pre_warm"),
+        patch.object(_EmbeddingModel, "encode_document", return_value=[[1.0, 0.0, 0.0]]),
+        patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]),
+    ):
+        mem = ObservationMemory(person_id=person_id)
+
+    now_str = datetime.now().isoformat()
+    with mem._db_lock:
+        conn = mem._ensure_connected()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persons (id,name,display_name,created_at,updated_at) "
+                "VALUES (%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
+                (person_id, f"test-{person_id[:8]}", "Test Person", now_str, now_str),
+            )
+        for row in rows:
+            obs_ts = datetime.strptime(row["date"], "%Y-%m-%d").replace(hour=12, minute=0)
+            with conn.cursor() as cur:
+                cur.execute(
+                    "INSERT INTO observations "
+                    "(id,content,timestamp,direction,kind,emotion,person_id) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                    (
+                        str(uuid.uuid4()),
+                        row["content"],
+                        obs_ts,
+                        "unknown",
+                        row.get("kind", "conversation"),
+                        row.get("emotion", "neutral"),
+                        person_id,
+                    ),
+                )
+        conn.commit()
+
     return mem
 
 

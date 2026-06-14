@@ -1274,8 +1274,8 @@ class EmbodiedAgent:
             # LLMが内的ターンで say() を呼ぶと presence/quiet ゲートをバイパスし、
             # 無人・深夜でも繰り返し発言してしまうため。
             # 「話したいことを溜めて後で話す」機能は Issue D 本体(pending_speech)で実装予定。
-            if (self._current_is_desire_turn
-                    and not is_social_desire(self._current_desire_name)):
+            if (getattr(self, "_current_is_desire_turn", False)
+                    and not is_social_desire(getattr(self, "_current_desire_name", ""))):
                 return "(internal turn: speaking is suppressed)", None
             return await self._tts.call(name, tool_input)
         elif name in memory_tools:

@@ -42,11 +42,10 @@ def _insert_observation(
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,date,time,direction,kind,emotion,importance,person_id) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,kind,emotion,importance,person_id) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
                 (
-                    obs_id, content, now.isoformat(),
-                    now.strftime("%Y-%m-%d"), now.strftime("%H:%M"),
+                    obs_id, content, now,
                     "test", kind, emotion, importance, mem._person_id,
                 ),
             )
@@ -93,7 +92,7 @@ def test_decay_importance_reduces_old_records() -> None:
     obs_id = _insert_observation(mem, "old memory", importance=1.0)
     conn = _pg_conn()
     with conn.cursor() as cur:
-        cur.execute("UPDATE observations SET date='2025-01-01' WHERE id=%s", (obs_id,))
+        cur.execute("UPDATE observations SET timestamp='2025-01-01T00:00:00' WHERE id=%s", (obs_id,))
     conn.commit()
     conn.close()
 
@@ -114,7 +113,7 @@ def test_decay_importance_skips_recent_records() -> None:
     obs_id = _insert_observation(mem, "fresh memory", importance=1.0)
     conn = _pg_conn()
     with conn.cursor() as cur:
-        cur.execute("UPDATE observations SET date=%s WHERE id=%s", (today, obs_id))
+        cur.execute("UPDATE observations SET timestamp=%s WHERE id=%s", (today + "T12:00:00", obs_id))
     conn.commit()
     conn.close()
 
@@ -133,7 +132,7 @@ def test_decay_importance_is_cumulative() -> None:
     obs_id = _insert_observation(mem, "old memory", importance=1.0)
     conn = _pg_conn()
     with conn.cursor() as cur:
-        cur.execute("UPDATE observations SET date='2020-01-01' WHERE id=%s", (obs_id,))
+        cur.execute("UPDATE observations SET timestamp='2020-01-01T00:00:00' WHERE id=%s", (obs_id,))
     conn.commit()
     conn.close()
 

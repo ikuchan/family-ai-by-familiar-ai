@@ -52,14 +52,12 @@ def test_recall_fallback_includes_metadata_and_low_confidence() -> None:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,date,time,direction,kind,emotion,person_id) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,kind,emotion,person_id) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
                 (
                     "legacy-row-1",
                     "older memory without embedding",
-                    now.isoformat(),
-                    now.strftime("%Y-%m-%d"),
-                    now.strftime("%H:%M"),
+                    now,
                     "unknown",
                     "conversation",
                     "neutral",
