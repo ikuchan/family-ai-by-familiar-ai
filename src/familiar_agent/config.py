@@ -17,6 +17,13 @@ def _default_companion_name() -> str:
     return _t("default_companion_name")
 
 
+def _float_env(name: str, default: float) -> float:
+    try:
+        return float(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
 def _env_value(*names: str, default: str = "") -> str:
     """Return the first present env var, preserving explicit empty strings."""
     for name in names:
@@ -142,6 +149,15 @@ class MemoryConfig:
             "MEMORY_DB_PATH",
             str(Path.home() / ".claude" / "memories"),
         )
+    )
+    recall_half_life_days: float = field(
+        default_factory=lambda: _float_env("RECALL_HALF_LIFE_DAYS", 7.0)
+    )
+    recall_time_floor: float = field(
+        default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.25)
+    )
+    recall_min_score: float = field(
+        default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.0)
     )
 
 

@@ -16,7 +16,7 @@ from typing import Any
 
 from .backend import AnthropicBackend, GeminiBackend, create_backend, create_scene_backend, create_utility_backend
 from .appraisal import AppraisalContext, AppraisalEngine
-from .config import AgentConfig
+from .config import AgentConfig, MemoryConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
 from .interoception import (
@@ -50,7 +50,7 @@ from .tools.camera import CameraTool
 from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool
 from .tools.deferred_search import DeferredSearchTool
-from .tools.memory import MemoryTool, ObservationMemory, _recall_min_score
+from .tools.memory import MemoryTool, ObservationMemory
 from .person_memory_manager import PersonMemoryManager
 from .recognition.face import recognize_face_async
 from .recognition.presence_watcher import CameraPresenceWatcher
@@ -2116,7 +2116,7 @@ class EmbodiedAgent:
             try:
                 assoc = await self._active_memory().recall_async(
                     seed.get("content", ""), n=assoc_max,
-                    min_score=_recall_min_score(), recall_mode="spontaneous",
+                    min_score=MemoryConfig().recall_min_score, recall_mode="spontaneous",
                 )
                 collected += assoc
             except Exception:
@@ -3251,7 +3251,7 @@ class EmbodiedAgent:
                 _memories_coro = (
                     _call_optional_async(recall_divergent, user_input, n=recall_n, fallback=[])
                     if recall_divergent is not None
-                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=_recall_min_score(), recall_mode="conversation")
+                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=MemoryConfig().recall_min_score, recall_mode="conversation")
                 )
                 (
                     memories,

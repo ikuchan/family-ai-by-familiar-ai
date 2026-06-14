@@ -25,9 +25,11 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 import psycopg2.extras
 
+from ..config import MemoryConfig
 from ..db import Database, get_db, vec_to_sql
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, ALPHA
+from ..time_decay import DecayState
 
 if TYPE_CHECKING:
     from ..person_memory_manager import PersonMemoryManager
@@ -40,30 +42,17 @@ EMBEDDING_DIM   = 384
 _THUMB_SIZE     = (320, 240)
 
 
-def _recall_min_score() -> float:
-    """Return the relevance-score threshold for recall() from RECALL_MIN_SCORE env var.
-
-    Memories with cosine similarity below this value are excluded from results.
-    Defaults to 0.0 (no filtering) so existing callers that omit min_score are unaffected.
-    """
-    try:
-        return float(os.environ.get("RECALL_MIN_SCORE", "0.0"))
-    except ValueError:
-        return 0.0
-
-
-def _recall_half_life_days() -> float:
-    try:
-        return float(os.environ.get("RECALL_HALF_LIFE_DAYS", "7.0"))
-    except ValueError:
-        return 7.0
-
-
-def _recall_time_floor() -> float:
-    try:
-        return float(os.environ.get("RECALL_TIME_FLOOR", "0.25"))
-    except ValueError:
-        return 0.25
+def _to_epoch(dt) -> float | None:
+    if dt is None:
+        return None
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except ValueError:
+            return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt.timestamp()
 
 
 def _compute_final_score(
@@ -72,30 +61,29 @@ def _compute_final_score(
     last_recalled_at,
     recall_count: int,
     importance: float,
+    *,
+    half_life_days: float,
+    floor: float,
 ) -> float:
-    """Compute time-decayed final score for a recalled memory.
+    """Compute time-decayed final score via DecayState.
 
     final_score = cosine × time_score × importance
-    time_score  = max(floor, exp(-elapsed / tau))
-    tau         = half_life_days × 2^recall_count / ln(2)
-    elapsed     = days since last_recalled_at (or timestamp if never recalled)
+    强化A: recall_count → effective half-life doubles per increment.
+    強化B: last_recalled_at as origin_epoch (freshness reset).
+    Settings injected from MemoryConfig (time_decay refactor Issue).
     """
-    half_life = _recall_half_life_days()
-    floor = _recall_time_floor()
-
-    now = datetime.now(timezone.utc)
     base = last_recalled_at if last_recalled_at is not None else ts
-    if base is not None and base.tzinfo is None:
-        base = base.replace(tzinfo=timezone.utc)
-    if base is None:
-        elapsed_days = 0.0
-    else:
-        elapsed_days = max(0.0, (now - base).total_seconds() / 86400.0)
-
-    effective_half_life = half_life * (2 ** max(0, recall_count))
-    tau = effective_half_life / math.log(2)
-    time_score = max(floor, math.exp(-elapsed_days / tau))
-    return cosine * time_score * float(importance)
+    origin = _to_epoch(base)
+    if origin is None:
+        origin = datetime.now(timezone.utc).timestamp()
+    state = DecayState(
+        origin_epoch=origin,
+        half_life_seconds=half_life_days * 86400.0,
+        floor=floor,
+        reinforce_count=max(0, recall_count),
+    )
+    now_epoch = datetime.now(timezone.utc).timestamp()
+    return cosine * state.score(now_epoch) * float(importance)
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -826,6 +814,7 @@ class ObservationMemory:
                     rows = cur.fetchall()
 
             if rows:
+                _cfg = MemoryConfig()
                 results = []
                 for row in rows:
                     cosine = float(row["score"])
@@ -835,6 +824,8 @@ class ObservationMemory:
                         row["last_recalled_at"],
                         int(row["recall_count"]),
                         float(row["importance"]),
+                        half_life_days=_cfg.recall_half_life_days,
+                        floor=_cfg.recall_time_floor,
                     )
                     results.append({
                         "memory_id":        row["id"],

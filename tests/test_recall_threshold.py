@@ -2,7 +2,7 @@
 
 recall(min_score=X) must only return memories with cosine similarity >= X.
 Default is 0.0 (backward-compatible — existing callers unchanged).
-RECALL_MIN_SCORE env var is read by _recall_min_score() for use in agent.py.
+RECALL_MIN_SCORE env var is read via MemoryConfig.recall_min_score.
 """
 
 from __future__ import annotations
@@ -69,21 +69,21 @@ def test_recall_high_threshold_excludes_all(memory_with_data):
 
 
 def test_recall_min_score_from_env(monkeypatch, memory):
-    """_recall_min_score() reads RECALL_MIN_SCORE env var."""
+    """RECALL_MIN_SCORE env var is read via MemoryConfig."""
     monkeypatch.setenv("RECALL_MIN_SCORE", "0.6")
-    from familiar_agent.tools.memory import _recall_min_score
-    assert _recall_min_score() == pytest.approx(0.6)
+    from familiar_agent.config import MemoryConfig
+    assert MemoryConfig().recall_min_score == pytest.approx(0.6)
 
 
 def test_recall_min_score_env_default(monkeypatch):
-    """_recall_min_score() returns 0.0 when RECALL_MIN_SCORE is unset."""
+    """MemoryConfig.recall_min_score returns 0.0 when RECALL_MIN_SCORE is unset."""
     monkeypatch.delenv("RECALL_MIN_SCORE", raising=False)
-    from familiar_agent.tools.memory import _recall_min_score
-    assert _recall_min_score() == 0.0
+    from familiar_agent.config import MemoryConfig
+    assert MemoryConfig().recall_min_score == 0.0
 
 
 def test_recall_min_score_env_invalid(monkeypatch):
-    """_recall_min_score() returns 0.0 on invalid env value (no crash)."""
+    """MemoryConfig.recall_min_score returns 0.0 on invalid env value."""
     monkeypatch.setenv("RECALL_MIN_SCORE", "not-a-number")
-    from familiar_agent.tools.memory import _recall_min_score
-    assert _recall_min_score() == 0.0
+    from familiar_agent.config import MemoryConfig
+    assert MemoryConfig().recall_min_score == 0.0
