@@ -35,7 +35,8 @@ def setup_logging(debug: bool = False) -> None:
     causing Python to auto-add a StreamHandler to the root logger.
     """
     log_dir = Path.home() / ".cache" / "familiar-ai"
-    log_dir.mkdir(parents=True, exist_ok=True)
+    logs_dir = log_dir / "logs"
+    logs_dir.mkdir(parents=True, exist_ok=True)
     log_file = log_dir / "app.log"
 
     level = logging.DEBUG if debug else logging.INFO
@@ -45,11 +46,12 @@ def setup_logging(debug: bool = False) -> None:
     for handler in root.handlers[:]:
         root.removeHandler(handler)
 
-    # Rotate daily at midnight, keep 14 days of backups
+    # Rotate daily at midnight, keep 14 days of backups (archived into logs/)
     from logging.handlers import TimedRotatingFileHandler
     file_handler = TimedRotatingFileHandler(
         log_file, when="midnight", interval=1, backupCount=14, encoding="utf-8"
     )
+    file_handler.namer = lambda name: str(logs_dir / Path(name).name)
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
     )
@@ -62,10 +64,10 @@ def setup_logging(debug: bool = False) -> None:
         import shutil
         from datetime import datetime
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        shutil.move(str(log_file), str(log_file.parent / f"app.{stamp}.log"))
-        # Remove startup-rotated files older than 14 days
+        shutil.move(str(log_file), str(logs_dir / f"app.{stamp}.log"))
+        # Remove archived files older than 14 days
         cutoff = datetime.now().timestamp() - 14 * 86400
-        for old in log_dir.glob("app.*.log"):
+        for old in logs_dir.glob("app.*.log"):
             if old.stat().st_mtime < cutoff:
                 old.unlink(missing_ok=True)
 
