@@ -45,10 +45,10 @@ def setup_logging(debug: bool = False) -> None:
     for handler in root.handlers[:]:
         root.removeHandler(handler)
 
-    # Add rotating file handler (10 MB per file, keep 5 backups)
-    from logging.handlers import RotatingFileHandler
-    file_handler = RotatingFileHandler(
-        log_file, maxBytes=10 * 1024 * 1024, backupCount=5, encoding="utf-8"
+    # Rotate daily at midnight, keep 14 days of backups
+    from logging.handlers import TimedRotatingFileHandler
+    file_handler = TimedRotatingFileHandler(
+        log_file, when="midnight", interval=1, backupCount=14, encoding="utf-8"
     )
     file_handler.setFormatter(
         logging.Formatter("%(asctime)s [%(levelname)s] %(name)s: %(message)s")
