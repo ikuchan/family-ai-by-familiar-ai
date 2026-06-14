@@ -56,9 +56,18 @@ def setup_logging(debug: bool = False) -> None:
     root.addHandler(file_handler)
     root.setLevel(level)
 
-    # Rotate on every startup so each session gets its own log segment
-    if log_file.exists():
-        file_handler.doRollover()
+    # Rotate on every startup so each session gets its own log segment.
+    # Use a full datetime stamp (seconds precision) to avoid same-day overwriting.
+    if log_file.exists() and log_file.stat().st_size > 0:
+        import shutil
+        from datetime import datetime
+        stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        shutil.move(str(log_file), str(log_file.parent / f"app.{stamp}.log"))
+        # Remove startup-rotated files older than 14 days
+        cutoff = datetime.now().timestamp() - 14 * 86400
+        for old in log_dir.glob("app.*.log"):
+            if old.stat().st_mtime < cutoff:
+                old.unlink(missing_ok=True)
 
     from . import __version__
     logging.getLogger(__name__).info("familiar-ai %s starting", __version__)
