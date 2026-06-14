@@ -215,6 +215,26 @@ class MetaMonitor:
             )
         )
 
+    @staticmethod
+    def _looks_like_robotic_readout(text: str) -> bool:
+        """Return True when text reads like a search-engine readout (high 敬体 + source listing).
+
+        Detection requires BOTH signals to avoid false-positives on ordinary polite speech:
+        1. High です/ます density (≥ 2 occurrences per 100 chars)
+        2. Source-listing markers (「参考:」「出典:」「〜によると」「〜より」)
+        AND absence of paju conversational markers (だよ / みたい / なんだ / 教えるね).
+        """
+        _PAJU = ("だよ", "みたい", "なんだ", "教えるね", "だね", "じゃん", "だよね")
+        if any(m in text for m in _PAJU):
+            return False
+        _SOURCE = ("参考：", "参考:", "出典：", "出典:", "によると", "より引用", "〜より")
+        has_source = any(m in text for m in _SOURCE)
+        if not has_source:
+            return False
+        desu_masu = text.count("です") + text.count("ます") + text.count("ました") + text.count("ません")
+        density = desu_masu / max(len(text), 1) * 100
+        return density >= 2.0
+
     def gate_response(
         self,
         *,
@@ -222,6 +242,7 @@ class MetaMonitor:
         candidate_response: str,
         social_policy: SocialPolicyDecision | None = None,
         last_error: str | None = None,
+        did_search: bool = False,
     ) -> MetaGateDecision:
         reasons: list[str] = []
         repaired_response = candidate_response
@@ -257,6 +278,9 @@ class MetaMonitor:
 
         if last_error and "contradict" in last_error.lower():
             reasons.append("contradiction risk")
+
+        if did_search and self._looks_like_robotic_readout(candidate_response):
+            reasons.append("robotic 敬体 readout after search")
 
         needs_repair = bool(reasons)
         allowed = not needs_repair or repaired_response != candidate_response

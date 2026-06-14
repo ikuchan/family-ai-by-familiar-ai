@@ -63,6 +63,7 @@ class DeferredSearchTool:
                     "「調べておくね」と伝えて会話を続けたいときに使う。"
                     "結果は次のターンで自動的にコンテキストに提供される。"
                     "今すぐ結果が必要なときは brave_web_search / tavily_search を使うこと。"
+                    " 結果が届いたターンでは必ず say() を使って自分の言葉（だよ・みたい口語）で報告すること。"
                 ),
                 "input_schema": {
                     "type": "object",

@@ -289,3 +289,17 @@ async def test_has_user_initiated_pending_cleared_after_read():
     await asyncio.sleep(0)
     tool.pending_context()  # consume
     assert tool.has_user_initiated_pending is False
+
+
+# ── Tool description contract ──────────────────────────────────────────────────
+
+
+def test_deferred_search_tooldef_requires_say_in_own_words() -> None:
+    """Tool description must instruct the model to report via say() in own words."""
+    tool, _ = _make_tool()
+    defs = tool.get_tool_definitions()
+    desc = defs[0]["description"]
+    # Must mention say() so the model knows to speak the result aloud
+    assert "say()" in desc
+    # Must mention reporting in own words (not raw source text)
+    assert any(kw in desc for kw in ("自分の言葉", "口語", "だよ", "みたい"))

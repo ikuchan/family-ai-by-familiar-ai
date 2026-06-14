@@ -257,3 +257,38 @@ def test_gate_response_detects_raw_interoception_leakage() -> None:
     )
 
     assert "raw interoception leakage" in decision.reasons
+
+
+# ── Robotic readout detection ──────────────────────────────────────────────────
+
+
+def test_detects_robotic_readout() -> None:
+    """High です/ます rate + source listing is flagged as robotic search readout."""
+    robotic = (
+        "東京の人口は約1,400万人です。面積は2,194km²となっています。"
+        "経済規模も非常に大きいです。参考：東京都公式サイト。"
+    )
+    assert MetaMonitor._looks_like_robotic_readout(robotic) is True
+
+
+def test_paju_tone_not_flagged() -> None:
+    """paju口語 (みたい/だよ/教えるね) is NOT flagged as robotic."""
+    paju = "東京の人口ってさ、1400万人くらいみたいだよ！すごいよね〜。教えるね！"
+    assert MetaMonitor._looks_like_robotic_readout(paju) is False
+
+
+def test_gate_flags_robotic_readout_for_repair() -> None:
+    """gate_response with did_search=True flags robotic 敬体 readout."""
+    monitor = MetaMonitor()
+    robotic = (
+        "東京の人口は約1,400万人です。面積は2,194km²となっています。"
+        "参考：東京都公式サイト。"
+    )
+    decision = monitor.gate_response(
+        user_text="東京の人口は？",
+        candidate_response=robotic,
+        social_policy=None,
+        did_search=True,
+    )
+    assert decision.needs_repair is True
+    assert any("robotic" in r or "敬体" in r for r in decision.reasons)

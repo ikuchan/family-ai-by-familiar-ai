@@ -797,6 +797,19 @@ def _interoception(
     return base + ")"
 
 
+def _search_length_guidance(did_search: bool, is_desire_turn: bool) -> str:
+    """Return a length/tone guidance line to inject into the variable system prompt.
+
+    Returns empty string when no search happened this turn (no injection needed).
+    User-initiated searches allow fuller detail; desire-turn searches stay brief.
+    """
+    if not did_search:
+        return ""
+    if is_desire_turn:
+        return "(search-report :brevity required 短く1-2文で「〜みたいだよ」スタイルで伝えて)"
+    return "(search-report :detail allowed 自分の言葉で全部伝えてね — 情報を削らないで)"
+
+
 def _react_to_scene_events(events: list[dict], desires: DesireSystem | None) -> None:
     """Translate SceneTracker events into desire boosts.
 

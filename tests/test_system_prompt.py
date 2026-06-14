@@ -5,7 +5,7 @@ from __future__ import annotations
 import time
 
 
-from familiar_agent.agent import SYSTEM_PROMPT, MAX_ITERATIONS, _interoception
+from familiar_agent.agent import SYSTEM_PROMPT, MAX_ITERATIONS, _interoception, _search_length_guidance
 
 
 FORMATTED = SYSTEM_PROMPT.format(max_steps=MAX_ITERATIONS)
@@ -205,3 +205,28 @@ def test_system_prompt_tavily_time_range_constraint_present() -> None:
     """The tavily-time-range constraint must list valid values and forbid '24h' etc."""
     assert "tavily-time-range" in FORMATTED
     assert "24h" in FORMATTED
+
+
+# ── _search_length_guidance ────────────────────────────────────────────────────
+
+
+def test_user_search_report_allows_length() -> None:
+    """After a user-initiated search, guidance allows fuller explanation."""
+    guidance = _search_length_guidance(did_search=True, is_desire_turn=False)
+    assert guidance != ""
+    # Should permit detail / not restrict length
+    assert any(kw in guidance for kw in ("detail", "allowed", "全部", "自分の言葉"))
+
+
+def test_desire_search_report_prefers_brief() -> None:
+    """After a desire-turn search, guidance requests brevity."""
+    guidance = _search_length_guidance(did_search=True, is_desire_turn=True)
+    assert guidance != ""
+    # Should request brief output
+    assert any(kw in guidance for kw in ("brief", "brevity", "1-2", "短く"))
+
+
+def test_daily_conversation_stays_short() -> None:
+    """No search this turn → guidance is empty (no injection)."""
+    guidance = _search_length_guidance(did_search=False, is_desire_turn=False)
+    assert guidance == ""
