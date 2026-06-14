@@ -84,7 +84,7 @@ docker compose --profile test stop --timeout 60 db-test
 if [ "$EXIT_CODE" -eq 0 ] && [ -n "$COMMIT_MSG" ]; then
     echo ""
     echo "All tests passed. Committing..."
-    git add -u
+    git add -A
     if git diff --cached --quiet; then
         echo "Nothing to commit — working tree clean."
     else
