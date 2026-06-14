@@ -56,6 +56,9 @@ def setup_logging(debug: bool = False) -> None:
     root.addHandler(file_handler)
     root.setLevel(level)
 
+    from . import __version__
+    logging.getLogger(__name__).info("familiar-ai %s starting", __version__)
+
     # Reduce noise from 3rd party libs
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
