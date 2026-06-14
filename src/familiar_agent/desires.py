@@ -27,7 +27,7 @@ DEFAULT_DESIRES = {
     "greet_companion": 0.0,
     "rest": 0.0,
     "worry_companion": 0.0,  # grows only via detect_worry_signal(), not over time
-    "share_memory": 0.0,  # spontaneous "remember when..." sharing
+    "share_memory": 0.0,  # associative memory sharing (Issue C)
     "browse_curiosity": 0.0,  # idle web browsing
     "curiosity": 0.0,
     "attachment": 0.0,
@@ -398,10 +398,12 @@ class DesireSystem:
     def _time_modulation(hour: int) -> dict[str, float]:
         """Return per-desire growth-rate multipliers based on time of day.
 
-        Night  (22–6):  rest ×1.8, explore ×0.4, look_around ×0.4, share_memory ×0.3
+        Night  (22–6):  rest ×1.8, explore ×0.4, look_around ×0.4
         Morning (6–10): greet_companion ×1.3, explore ×1.2
         Day   (10–18):  all default (×1.0)
-        Evening(18–22): share_memory ×1.4 (nostalgic hour)
+        Evening(18–22): all default (×1.0)
+        share_memory: no time-of-day multiplier — time-of-day proximity is handled
+        inside pick_seed_candidates() (Issue C)
         """
         if 22 <= hour or hour < 6:  # night
             return {
@@ -410,7 +412,6 @@ class DesireSystem:
                 "look_around": 0.4,
                 "greet_companion": 1.0,
                 "worry_companion": 1.0,
-                "share_memory": 0.3,  # late night: quiet, not the time for reminiscing
             }
         if 6 <= hour < 10:  # morning
             return {
@@ -420,10 +421,6 @@ class DesireSystem:
                 "greet_companion": 1.3,
                 "worry_companion": 1.0,
                 "share_memory": 1.0,
-            }
-        if 18 <= hour < 22:  # evening — nostalgic hour
-            return {
-                "share_memory": 1.4,
             }
         return {}  # default: no modulation (all ×1.0)
 

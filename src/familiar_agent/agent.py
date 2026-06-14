@@ -2070,53 +2070,76 @@ class EmbodiedAgent:
         return (self._mood, intensity)
 
     async def _proactive_memory_context(self) -> str | None:
-        """Recall a contextually relevant past memory for spontaneous sharing.
+        """2-stage associative recall for share_memory (Issue C).
 
-        Returns a short hint string (the memory content) to prepend to a
-        share_memory desire turn, or None if no suitable memory is found.
-        Only memories older than 24 hours are surfaced to avoid repeating
-        recent events.
+        Step 1: collect seed candidates from each present person's memory using
+        pick_seed_candidates() — a mixed pool of hour-near + month-near + random rows.
+        Seeding 1-2 rows intentionally creates "unexpected connections."
+
+        Step 2: expand each seed via recall() (spontaneous mode) to find associated
+        memories, then merge, deduplicate, and cap at SHARE_MEMORY_TOTAL_MAX.
+
+        Returns None when no one is present or no candidates exist.
         """
-        from datetime import datetime, timedelta
+        import random as _random
+
+        pmm = self._pmm
+        present = pmm.get_all_present_memories()
+        if not present:
+            return None
 
         now = datetime.now()
-        # Build a time-of-day context hint for the recall query
-        hour = now.hour
-        if 5 <= hour < 10:
-            hint = f"morning {now.strftime('%B')}"
-        elif 18 <= hour < 22:
-            hint = f"evening {now.strftime('%B')}"
-        else:
-            hint = now.strftime("%B")
+        hour, month = now.hour, now.month
+        hour_w    = int(os.environ.get("SHARE_MEMORY_HOUR_WINDOW",  "3"))
+        month_w   = int(os.environ.get("SHARE_MEMORY_MONTH_WINDOW", "1"))
+        pool_k    = int(os.environ.get("SHARE_MEMORY_SEED_POOL_K",  "3"))
+        assoc_max = int(os.environ.get("SHARE_MEMORY_ASSOC_MAX",    "3"))
+        total_max = int(os.environ.get("SHARE_MEMORY_TOTAL_MAX",    "4"))
 
-        try:
-            memories = await self._active_memory().recall_async(hint, n=5, min_score=_recall_min_score(), recall_mode="spontaneous")
-        except Exception:
+        # Step 1: gather seed candidates from all present persons
+        candidates: list[dict] = []
+        for _pid, mem in present:
+            candidates += await asyncio.to_thread(
+                mem.pick_seed_candidates, hour, month,
+                hour_window=hour_w, month_window=month_w, k=pool_k,
+            )
+        if not candidates:
             return None
 
-        if not memories:
-            return None
+        # Pick 1 or 2 seeds — small count encourages surprising associations
+        seed_n = _random.choice([1, 2])
+        seeds = _random.sample(candidates, min(seed_n, len(candidates)))
 
-        cutoff = now - timedelta(hours=24)
-        old_enough = []
-        for m in memories:
-            created_at = m.get("created_at")
-            if not created_at:
-                continue
+        # Step 2: expand each seed via existing recall() (spontaneous reinforcement)
+        collected: list[dict] = list(seeds)
+        for seed in seeds:
             try:
-                ts = datetime.fromisoformat(created_at)
-                if ts < cutoff:
-                    old_enough.append(m)
-            except (ValueError, TypeError):
-                continue
+                assoc = await self._active_memory().recall_async(
+                    seed.get("content", ""), n=assoc_max,
+                    min_score=_recall_min_score(), recall_mode="spontaneous",
+                )
+                collected += assoc
+            except Exception:
+                pass
 
-        if not old_enough:
+        # Deduplicate by id/content, keep highest-score first, cap at total_max
+        seen: set[str] = set()
+        merged: list[dict] = []
+        for m in sorted(collected, key=lambda x: x.get("score", 0.0), reverse=True):
+            key = m.get("memory_id") or m.get("id") or m.get("content", "")
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append(m)
+            if len(merged) >= total_max:
+                break
+
+        if not merged:
             return None
 
-        # Pick the highest-scoring old memory
-        best = max(old_enough, key=lambda m: m.get("score", 0.0))
-        content = best.get("content", "")
-        return content if content else None
+        contents = [m.get("content", "") or m.get("summary", "") for m in merged]
+        contents = [c for c in contents if c]
+        return " / ".join(contents) if contents else None
 
     async def _anniversary_context(self) -> str | None:
         """Return a calendar-aware context string for today, or None if nothing notable.

@@ -1681,6 +1681,65 @@ class ObservationMemory:
     async def recall_on_this_day_async(self, month: int, day: int, n: int = 5) -> list[dict]:
         return await asyncio.to_thread(self.recall_on_this_day, month, day, n)
 
+    def pick_seed_candidates(
+        self,
+        hour: int,
+        month: int,
+        *,
+        hour_window: int,
+        month_window: int,
+        k: int,
+    ) -> list[dict]:
+        """Return mixed seed candidates for associative memory sharing (Issue C).
+
+        Three sub-pools are merged (deduped by id):
+          - hour-near:   rows whose hour is within hour_window of `hour` (circular)
+          - month-near:  rows whose month is within month_window of `month` (circular)
+          - random:      any k rows
+        Each sub-pool uses ORDER BY RANDOM() LIMIT k for lightweight diversity.
+        time-of-day / seasonal proximity replaces the old time-label cosine query.
+        """
+        _COMMON = (
+            "WHERE person_id=%s AND superseded_by IS NULL AND kind != 'day_summary' "
+        )
+        sql_hour = (
+            "SELECT id, content, timestamp FROM observations " + _COMMON +
+            "AND LEAST(ABS(EXTRACT(HOUR FROM timestamp)-%s), "
+            "          24-ABS(EXTRACT(HOUR FROM timestamp)-%s)) <= %s "
+            "ORDER BY RANDOM() LIMIT %s"
+        )
+        sql_month = (
+            "SELECT id, content, timestamp FROM observations " + _COMMON +
+            "AND LEAST(ABS(EXTRACT(MONTH FROM timestamp)-%s), "
+            "          12-ABS(EXTRACT(MONTH FROM timestamp)-%s)) <= %s "
+            "ORDER BY RANDOM() LIMIT %s"
+        )
+        sql_rand = (
+            "SELECT id, content, timestamp FROM observations " + _COMMON +
+            "ORDER BY RANDOM() LIMIT %s"
+        )
+        pid = self._person_id
+        try:
+            with self._db_lock:
+                conn = self._ensure_connected()
+                seen: dict[str, dict] = {}
+                with conn.cursor() as cur:
+                    if hour_window > 0:
+                        cur.execute(sql_hour, (pid, hour, hour, hour_window, k))
+                        for r in cur.fetchall():
+                            seen.setdefault(r["id"], dict(r))
+                    if month_window > 0:
+                        cur.execute(sql_month, (pid, month, month, month_window, k))
+                        for r in cur.fetchall():
+                            seen.setdefault(r["id"], dict(r))
+                    cur.execute(sql_rand, (pid, k))
+                    for r in cur.fetchall():
+                        seen.setdefault(r["id"], dict(r))
+            return list(seen.values())
+        except Exception as e:
+            logger.warning("pick_seed_candidates failed: %s", e)
+            return []
+
     def get_earliest_date(self) -> str | None:
         """Return the earliest observation date string (YYYY-MM-DD), or None if no records."""
         try:
