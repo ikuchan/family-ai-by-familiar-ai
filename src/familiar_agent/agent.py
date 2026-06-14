@@ -16,7 +16,7 @@ from typing import Any
 
 from .backend import AnthropicBackend, GeminiBackend, create_backend, create_scene_backend, create_utility_backend
 from .appraisal import AppraisalContext, AppraisalEngine
-from .config import AgentConfig, MemoryConfig
+from .config import AgentConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
 from .interoception import (
@@ -873,6 +873,7 @@ class EmbodiedAgent:
         self._desires_ref: "DesireSystem | None" = None
         self._pmm.on_switch(self._on_pmm_speaker_switch)
         self._memory_tool = MemoryTool(self._pmm)
+        self._pending_store = self._memory_tool._pending_store
         self._presence_watcher: CameraPresenceWatcher | None = None
         self._tom_tool = ToMTool(
             self._pmm,
@@ -1488,6 +1489,96 @@ class EmbodiedAgent:
             return 0.25
         return 0.15
 
+    def _select_addressee(
+        self,
+        present_ids: list[str],
+        pending_rows: list[dict],
+        cfg: "PendingSpeechConfig",
+    ) -> str | None:
+        """複数人がいる場面で誰に話しかけるかを、話したい内容の強さと関係性から確率的に決める。
+
+        内容の強さ[p] = target=p の鮮度合計 + target=NULL の鮮度合計(全員共通)
+        関係性[p]    = (trust + intimacy) / 2
+        正規化(各要素を present 合計で割る) → 重み付き合成 → 確率^(1/T) で選択。
+        """
+        import random as _random
+        from datetime import datetime, timezone as _tz
+        from .time_decay import DecayState as _DecayState
+
+        if not present_ids:
+            return None
+
+        now_epoch = datetime.now(_tz.utc).timestamp()
+
+        def _row_score(row: dict) -> float:
+            created_at = row.get("created_at")
+            if isinstance(created_at, datetime):
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=_tz.utc)
+                origin = created_at.timestamp()
+            else:
+                origin = now_epoch
+            state = _DecayState(
+                origin_epoch=origin,
+                half_life_seconds=cfg.half_life_days * 86400.0,
+                floor=cfg.floor,
+                reinforce_count=int(row.get("reinforce_count", 0)),
+            )
+            return state.score(now_epoch)
+
+        # 1) content strength per person
+        null_score_sum = 0.0
+        per_pid_score: dict[str, float] = {pid: 0.0 for pid in present_ids}
+        for row in pending_rows:
+            tgt = row.get("target_person_id")
+            score = _row_score(row)
+            if tgt is None:
+                null_score_sum += score
+            elif tgt in per_pid_score:
+                per_pid_score[tgt] += score
+
+        content_strength = {
+            pid: per_pid_score[pid] + null_score_sum for pid in present_ids
+        }
+        content_total = sum(content_strength.values())
+
+        # 2) relationship score per person
+        def _rel(pid: str) -> float:
+            name = self._pmm.get_person_name(pid) if hasattr(self, "_pmm") else pid
+            persons = getattr(self, "_persons", None)
+            if persons is not None:
+                tracker = persons._trackers.get(name)
+                if tracker is not None:
+                    return (tracker.trust + tracker.intimacy) / 2.0
+            return (0.5 + 0.4) / 2.0  # neutral defaults
+
+        relation: dict[str, float] = {pid: _rel(pid) for pid in present_ids}
+        relation_total = sum(relation.values())
+
+        # 3) normalized weighted score
+        wc = cfg.weight_content
+        wr = cfg.weight_relation
+        scores: dict[str, float] = {}
+        for pid in present_ids:
+            nc = content_strength[pid] / content_total if content_total > 0 else 1.0 / len(present_ids)
+            nr = relation[pid] / relation_total if relation_total > 0 else 1.0 / len(present_ids)
+            scores[pid] = wc * nc + wr * nr
+
+        # 4) temperature scaling then proportional selection
+        t = max(cfg.temperature, 1e-6)
+        scaled = {pid: s ** (1.0 / t) for pid, s in scores.items()}
+        total = sum(scaled.values())
+        if total <= 0:
+            return _random.choice(present_ids)
+
+        r = _random.random() * total
+        cumulative = 0.0
+        for pid in present_ids:
+            cumulative += scaled[pid]
+            if r <= cumulative:
+                return pid
+        return present_ids[-1]
+
     @staticmethod
     def _drain_interrupt_queue(
         interrupt_queue: asyncio.Queue[str | None], max_items: int = 6
@@ -2070,24 +2161,66 @@ class EmbodiedAgent:
         return (self._mood, intensity)
 
     async def _proactive_memory_context(self) -> str | None:
-        """2-stage associative recall for share_memory (Issue C).
+        """pending_speech 優先、なければ 2-stage 連想想起 (Issue C/D).
 
-        Step 1: collect seed candidates from each present person's memory using
-        pick_seed_candidates() — a mixed pool of hour-near + month-near + random rows.
-        Seeding 1-2 rows intentionally creates "unexpected connections."
-
-        Step 2: expand each seed via recall() (spontaneous mode) to find associated
-        memories, then merge, deduplicate, and cap at SHARE_MEMORY_TOTAL_MAX.
-
-        Returns None when no one is present or no candidates exist.
+        Issue D: present チェック後、まず pending_speech を確認する。
+        alive な pending があれば相手を選んで max_per_turn 件を発話として返す。
+        pending がない/全失効 → Issue C の2段階想起にフォールスルー。
         """
         import random as _random
+        from datetime import timezone as _tz
 
         pmm = self._pmm
         present = pmm.get_all_present_memories()
         if not present:
             return None
 
+        present_ids = pmm.get_present_ids()
+
+        # ── Issue D: pending_speech 優先フロー ──────────────────────────────
+        pending_store = getattr(self, "_pending_store", None)
+        if pending_store is not None:
+            cfg = PendingSpeechConfig()
+            now_epoch = datetime.now(_tz.utc).timestamp()
+            try:
+                all_pending = pending_store.list_active()
+            except Exception:
+                all_pending = []
+
+            alive: list[dict] = []
+            for row in all_pending:
+                score = pending_store.freshness_score(row, now_epoch, cfg)
+                if pending_store.is_expired(row, score, cfg):
+                    try:
+                        pending_store.delete(row["id"])
+                    except Exception:
+                        pass
+                else:
+                    alive.append(row)
+
+            if alive:
+                addressee = self._select_addressee(present_ids, alive, cfg)
+                if addressee:
+                    # 相手向け(target=addressee) + target=NULL を鮮度順に max_per_turn まで
+                    eligible = [
+                        r for r in alive
+                        if r.get("target_person_id") in (addressee, None)
+                    ]
+                    eligible.sort(
+                        key=lambda r: pending_store.freshness_score(r, now_epoch, cfg),
+                        reverse=True,
+                    )
+                    chosen = eligible[: cfg.max_per_turn]
+                    if chosen:
+                        for c in chosen:
+                            try:
+                                pending_store.delete(c["id"])
+                            except Exception:
+                                pass
+                        contents = [c.get("content", "") for c in chosen if c.get("content")]
+                        return " / ".join(contents) if contents else None
+
+        # ── Issue C フォールスルー: 2-stage 連想想起 ──────────────────────
         now = datetime.now()
         hour, month = now.hour, now.month
         hour_w    = int(os.environ.get("SHARE_MEMORY_HOUR_WINDOW",  "3"))
@@ -2096,7 +2229,6 @@ class EmbodiedAgent:
         assoc_max = int(os.environ.get("SHARE_MEMORY_ASSOC_MAX",    "3"))
         total_max = int(os.environ.get("SHARE_MEMORY_TOTAL_MAX",    "4"))
 
-        # Step 1: gather seed candidates from all present persons
         candidates: list[dict] = []
         for _pid, mem in present:
             candidates += await asyncio.to_thread(
@@ -2106,11 +2238,9 @@ class EmbodiedAgent:
         if not candidates:
             return None
 
-        # Pick 1 or 2 seeds — small count encourages surprising associations
         seed_n = _random.choice([1, 2])
         seeds = _random.sample(candidates, min(seed_n, len(candidates)))
 
-        # Step 2: expand each seed via existing recall() (spontaneous reinforcement)
         collected: list[dict] = list(seeds)
         for seed in seeds:
             try:
@@ -2122,7 +2252,6 @@ class EmbodiedAgent:
             except Exception:
                 pass
 
-        # Deduplicate by id/content, keep highest-score first, cap at total_max
         seen: set[str] = set()
         merged: list[dict] = []
         for m in sorted(collected, key=lambda x: x.get("score", 0.0), reverse=True):
@@ -3144,6 +3273,10 @@ class EmbodiedAgent:
         self._current_is_desire_turn = is_desire_turn
         self._current_desire_name = desire_name
 
+        # Reset per-turn note registration counter for boost gating (Issue D).
+        if hasattr(self, "_memory_tool"):
+            self._memory_tool._notes_registered_this_turn = 0
+
         # Tell the deferred tools whether this is a user-initiated turn so pending
         # results can be tagged and quiet-hours bypassed for user-requested searches.
         self._deferred_search.set_user_turn(not is_desire_turn)
@@ -3646,19 +3779,24 @@ class EmbodiedAgent:
                                 name="capability-manifest-regen",
                             )
 
-                        # Boost share_memory if an internal turn found something notable.
+                        # Boost share_memory when note_to_share was actually called
+                        # this turn (pending 登録経由の boost — Issue D).
                         if (
                             is_desire_turn
                             and desire_name
                             and not is_social_desire(desire_name)
                             and desires is not None
                         ):
-                            _share_boost = self._boost_from_internal_result(final_text)
-                            if _share_boost > 0.0:
+                            _notes_n = getattr(
+                                getattr(self, "_memory_tool", None),
+                                "_notes_registered_this_turn", 0
+                            )
+                            if _notes_n > 0:
+                                _share_boost = min(0.35, _notes_n * 0.15)
                                 desires.boost("share_memory", _share_boost)
                                 logger.debug(
-                                    "Internal '%s' result → share_memory +%.2f",
-                                    desire_name,
+                                    "note_to_share ×%d → share_memory +%.2f",
+                                    _notes_n,
                                     _share_boost,
                                 )
 

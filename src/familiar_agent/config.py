@@ -24,6 +24,13 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _int_env(name: str, default: int) -> int:
+    try:
+        return int(os.environ.get(name, str(default)))
+    except ValueError:
+        return default
+
+
 def _env_value(*names: str, default: str = "") -> str:
     """Return the first present env var, preserving explicit empty strings."""
     for name in names:
@@ -158,6 +165,31 @@ class MemoryConfig:
     )
     recall_min_score: float = field(
         default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.0)
+    )
+
+
+@dataclass
+class PendingSpeechConfig:
+    half_life_days: float = field(
+        default_factory=lambda: _float_env("PENDING_SPEECH_HALF_LIFE_DAYS", 1.0)
+    )
+    floor: float = field(
+        default_factory=lambda: _float_env("PENDING_SPEECH_FLOOR", 0.01)
+    )
+    expire_threshold: float = field(
+        default_factory=lambda: _float_env("PENDING_SPEECH_EXPIRE_THRESHOLD", 0.1)
+    )
+    max_per_turn: int = field(
+        default_factory=lambda: _int_env("PENDING_SPEECH_MAX", 2)
+    )
+    weight_content: float = field(
+        default_factory=lambda: _float_env("ADDRESS_WEIGHT_CONTENT", 1.0)
+    )
+    weight_relation: float = field(
+        default_factory=lambda: _float_env("ADDRESS_WEIGHT_RELATION", 1.0)
+    )
+    temperature: float = field(
+        default_factory=lambda: _float_env("ADDRESS_TEMPERATURE", 1.0)
     )
 
 

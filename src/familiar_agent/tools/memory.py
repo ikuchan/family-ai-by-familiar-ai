@@ -1940,6 +1940,9 @@ class MemoryTool:
 
     def __init__(self, manager: "PersonMemoryManager") -> None:
         self._manager = manager
+        from .pending_speech_store import PendingSpeechStore
+        self._pending_store = PendingSpeechStore()
+        self._notes_registered_this_turn: int = 0
 
     @property
     def _write_store(self) -> ObservationMemory | None:
@@ -1986,6 +1989,22 @@ class MemoryTool:
                     "required": ["query"],
                 },
             },
+            {
+                "name": "note_to_share",
+                "description": (
+                    "覚えた記憶を、後で誰かに話したいこととして登録する。"
+                    "observation_id は remember で覚えた記憶のID。"
+                    "target は話したい相手の名前(任意、省略時は誰でも)。"
+                ),
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "observation_id": {"type": "string"},
+                        "target":         {"type": "string"},
+                    },
+                    "required": ["observation_id"],
+                },
+            },
         ]
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, str | None]:
@@ -1993,7 +2012,22 @@ class MemoryTool:
             return await self._remember(tool_input)
         if tool_name == "recall":
             return await self._recall(tool_input)
+        if tool_name == "note_to_share":
+            return await self._note_to_share(tool_input)
         return f"Unknown memory tool: {tool_name}", None
+
+    async def _note_to_share(self, inp: dict) -> tuple[str, None]:
+        obs_id = inp["observation_id"]
+        target_name = inp.get("target")
+        target_id: str | None = None
+        if target_name:
+            target_id = self._manager.find_person_id_by_name(target_name)
+            # 名前解決失敗 → NULL(誰でも)にフォールバック
+        pid = self._pending_store.add(obs_id, target_id)
+        if pid is None:
+            return "覚えていない記憶は話せません。先に remember してください。", None
+        self._notes_registered_this_turn = getattr(self, "_notes_registered_this_turn", 0) + 1
+        return "話したいこととして登録しました。", None
 
     async def _remember(self, inp: dict) -> tuple[str, None]:
         scope      = inp.get("scope", "speaker")

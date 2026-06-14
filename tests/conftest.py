@@ -30,6 +30,7 @@ _TRUNCATE_TABLES = [
     "memory_jobs",
     "memory_events",
     "episodes",
+    "pending_speech",
     "observations",
     "relationship_state",
     "persons",
