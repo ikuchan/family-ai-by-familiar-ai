@@ -89,6 +89,7 @@ from ._ui_helpers import (
     clean_spoken_text,
     desire_tick_prompt,
     format_action,
+    format_chat_log_line,
     format_tool_result,
     is_silence_request,
     should_fire_idle_desire,
@@ -416,7 +417,8 @@ class ChatLog(QScrollArea):
         if log_path is not None:
             try:
                 with log_path.open("a", encoding="utf-8") as _f:
-                    _f.write(text + "\n")
+                    # Timestamp file only; bubble dispatch below uses original text.
+                    _f.write(format_chat_log_line(text) + "\n")
             except OSError as exc:
                 logger.warning("chat.log write failed: %s", exc)
 

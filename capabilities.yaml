@@ -62,9 +62,9 @@ capabilities:
     summary: Control physical movement (vacuum robot body)
     detail: >
       Provides control over the agent's physical movement, typically a robot vacuum.
-      The `walk(direction, steps)` function moves the body. The camera view is
-      independent of movement. Uses the `tools/mobility.py` module and can be
-      configured via `MOBILITY_BACKEND`.
+      The `walk(direction, duration)` function moves the body. The camera view is
+      independent of movement. Uses the `tools/mobility.py` module and is configured via
+      `TUYA_REGION`, `TUYA_API_KEY`, `TUYA_API_SECRET`.
     enabled_env: MOBILITY_BACKEND
   - id: person_identification
     summary: Identify and track multiple family members as distinct individuals
@@ -84,14 +84,14 @@ capabilities:
       It maintains a persistent WebSocket connection and streams PCM audio,
       leveraging ElevenLabs VAD for speech boundary detection. Implemented in
       `tools/realtime_stt.py`.
-    enabled_env: STT_BACKEND
+    enabled_env: ELEVENLABS_API_KEY
   - id: stt
     summary: Transcribe spoken audio using ElevenLabs Scribe API
     detail: >
       Performs Speech-to-Text transcription using the ElevenLabs Scribe API.
       It can record audio from the local PC microphone (via sounddevice) or
       a camera RTSP stream (via PyAV) as a fallback. Implemented in `tools/stt.py`.
-    enabled_env: STT_BACKEND
+    enabled_env: ELEVENLABS_API_KEY
   - id: theory_of_mind
     summary: Enable perspective-taking and social reasoning
     detail: >
@@ -105,7 +105,7 @@ capabilities:
       The Text-to-Speech tool generates spoken output for the agent. It supports
       backends like ElevenLabs and go2rtc for camera speakers. VoiceGuard prevents
       TTS output from feeding back into STT. Implemented in `tools/tts.py`.
-    enabled_env: TTS_BACKEND
+    enabled_env: ELEVENLABS_API_KEY
   - id: desire_system
     summary: Drive autonomous motivations and goal-directed behavior
     detail: >
@@ -203,7 +203,4 @@ capabilities:
     summary: Manage lightweight active concerns for self-continuity
     detail: >
       This engine manages lightweight active concerns, contributing to the agent's
-      sense of autobiographical self-continuity across its experiences. Implemented
-      in `concern_engine.py`.
-    enabled: true
-  - id: m
+      sense of autobiographical self-continuity across its experiences

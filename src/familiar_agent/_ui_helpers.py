@@ -13,12 +13,28 @@ from __future__ import annotations
 
 import os
 import re
+from datetime import datetime
 from typing import TYPE_CHECKING
 
 from ._i18n import _t
 
 if TYPE_CHECKING:
     from .desires import DesireSystem
+
+
+# ---------------------------------------------------------------------------
+# Chat log formatting
+# ---------------------------------------------------------------------------
+
+
+def format_chat_log_line(text: str, now: datetime | None = None) -> str:
+    """Return text with a timestamp prepended for chat.log file writes.
+
+    File-write only — do not use for screen bubbles. Format matches app.log
+    so timestamps can be cross-referenced line by line.
+    """
+    ts = (now or datetime.now()).strftime("%Y-%m-%d %H:%M:%S")
+    return f"[{ts}] {text}"
 
 
 # ---------------------------------------------------------------------------
