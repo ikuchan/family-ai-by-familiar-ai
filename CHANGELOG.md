@@ -7,6 +7,9 @@ This project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Changed
+- Autonomous internal (non-social) desire turns now render the agent's output as a self-directed thought bubble (薄青つぶやき / TUI dim) instead of a user-facing speech bubble. Social desire turns and user replies are unchanged.
+
 ### Added
 - GitHub Actions-based release automation for the new `develop -> main -> tag` flow, including a manual release PR workflow and an automatic tag/release workflow on `main`
 - Bootstrap-based startup recovery for missing or legacy `.env` files, including shared setup persistence and `ANTHROPIC_* -> PLATFORM/API_KEY/MODEL` migration support

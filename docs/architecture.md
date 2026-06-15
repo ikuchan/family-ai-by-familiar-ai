@@ -71,6 +71,7 @@ JSONL append-only logging with replay support.
 - Circadian modulation (night suppresses exploration)
 - Drive suppression (high rest suppresses active drives)
 - Decay on satisfaction
+- Internal desire turns (non-social) surface as monologue thought bubbles; only social desires speak to the user.
 
 **intervention_policy.py** — Annoyance guard:
 - Cooldown (minimum 2min between autonomous interventions)

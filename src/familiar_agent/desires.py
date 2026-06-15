@@ -121,6 +121,17 @@ def is_social_desire(name: str) -> bool:
     """Return True if this desire is user-facing and should use the full LLM backend."""
     return name in _SOCIAL_DESIRE_NAMES
 
+
+def is_internal_desire_turn(desire_name: str) -> bool:
+    """True for autonomous *internal* (non-social) desire turns.
+
+    On these turns the agent monologues to itself rather than speaking to the
+    user, so the UI renders the output as a thought bubble (薄青つぶやき) instead
+    of an agent speech bubble. User turns (desire_name == "") and social desire
+    turns return False.
+    """
+    return bool(desire_name) and not is_social_desire(desire_name)
+
 # ── Worry signal detection ─────────────────────────────────────────────────────
 
 # Strong signals: sleep deprivation, illness → boost 0.4

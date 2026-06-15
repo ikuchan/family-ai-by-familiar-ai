@@ -34,7 +34,7 @@ from ._ui_helpers import (
     is_silence_request,
     should_fire_idle_desire,
 )
-from .desires import is_social_desire
+from .desires import is_internal_desire_turn, is_social_desire
 from .realtime_stt_session import create_realtime_stt_controller, RealtimeSttController
 
 if TYPE_CHECKING:
@@ -463,8 +463,13 @@ class FamiliarApp(App):
                 raw = str(tool_input.get("text", ""))
                 clean = re.sub(r"\[.*?\]", "", raw).strip()
                 if clean:
-                    log.write(f"[bold magenta]{self._agent_name} 🔊[/bold magenta] {clean}")
-                    self._append_log(f"{self._agent_name} 🔊 {clean}")
+                    if is_internal_desire_turn(desire_name):
+                        # 内的desireターンはひとりごと。発話マーカー(🔊)を付けず dim で表示。
+                        log.write(f"[dim]{clean}[/dim]")
+                        self._append_log(clean)
+                    else:
+                        log.write(f"[bold magenta]{self._agent_name} 🔊[/bold magenta] {clean}")
+                        self._append_log(f"{self._agent_name} 🔊 {clean}")
             else:
                 label = _format_action(name, tool_input)
                 log.write(f"[dim]{label}[/dim]")
