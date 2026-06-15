@@ -1803,6 +1803,7 @@ class FamiliarWindow(QMainWindow):
                 _murmur_key = f"desire_{desire_name}"
                 murmur = _t(_murmur_key) if _t(_murmur_key) != _murmur_key else _t("desire_default")
                 self._log.append_line(murmur)
+                logger.info("DIAG-FIRE desire_name=%r prompt_len=%d", desire_name, len(prompt))  # DIAG: remove after triage
                 await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
                 self._desires.satisfy(desire_name)
                 self._desires.curiosity_target = None
@@ -1920,6 +1921,7 @@ class FamiliarWindow(QMainWindow):
                 self._stream.discard()
                 raw = str(tool_input.get("text", ""))
                 clean = clean_spoken_text(raw)
+                logger.info("DIAG-SAY inner_voice=%s desire_name=%r clean=%r", bool(inner_voice), desire_name, clean[:60])  # DIAG: remove after triage
                 if clean:
                     self._log.append_line(f"[{self._agent_display_name}] {clean}")
             else:
@@ -1957,7 +1959,9 @@ class FamiliarWindow(QMainWindow):
             # post-say text echo (same content with raw audio tags) appearing again.
             if not say_fired:
                 display = clean_spoken_text(committed.strip() or final_text.strip())
-                if self._should_show_agent_fallback(display, desire_name):
+                _show = self._should_show_agent_fallback(display, desire_name)  # DIAG: remove after triage
+                logger.info("DIAG-FB inner_voice=%s desire_name=%r say_fired=%s show=%s display=%r", bool(inner_voice), desire_name, say_fired, _show, display[:60])  # DIAG: remove after triage
+                if _show:
                     self._log.append_line(f"[{self._agent_display_name}] {display}")
         except asyncio.CancelledError:
             self._stream.commit_and_clear()
