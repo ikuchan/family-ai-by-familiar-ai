@@ -829,6 +829,26 @@ def _react_to_scene_events(events: list[dict], desires: DesireSystem | None) -> 
                 desires.boost("worry_companion", 0.2)
 
 
+def _flatten_history(messages: list) -> list[dict]:
+    """履歴スライスを「dictのみのフラット列」にして返す（読み取り専用走査向け）。
+
+    tool結果はネストlistとして履歴に格納され（make_tool_results /
+    _flatten_messages 参照）、API送信時にのみ実メッセージへ展開される。
+    要約トランスクリプトや整合性チェックなど、生の履歴を走査する読み取り側は
+    先にflattenしないと list 要素で msg.get(...) が AttributeError になる。
+
+    backend._flatten_messages を再利用しないのは、そのシグネチャがbackend間で
+    不統一（OpenAI互換backendは (system, messages)）なため。
+    """
+    flat: list[dict] = []
+    for msg in messages:
+        if isinstance(msg, list):
+            flat.extend(m for m in msg if isinstance(m, dict))
+        elif isinstance(msg, dict):
+            flat.append(msg)
+    return flat
+
+
 class EmbodiedAgent:
     """Real-world exploration agent using a pluggable LLM backend."""
 
@@ -2396,7 +2416,7 @@ class EmbodiedAgent:
 
         # Build a compact context from the last few messages (user + assistant text only)
         context_parts: list[str] = []
-        for msg in self.messages[-6:]:
+        for msg in _flatten_history(self.messages[-6:]):  # tool結果はネストlist。走査前に展開
             role = msg.get("role", "")
             content = msg.get("content", "")
             if isinstance(content, str) and content:
@@ -2917,7 +2937,7 @@ class EmbodiedAgent:
 
         # Build a plain-text transcript for the summary LLM call
         lines = []
-        for msg in to_summarise:
+        for msg in _flatten_history(to_summarise):  # tool結果はネストlist。走査前に展開
             role = msg.get("role", "?")
             content = msg.get("content", "")
             if isinstance(content, list):

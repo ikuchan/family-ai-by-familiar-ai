@@ -273,3 +273,108 @@ class TestPostCompactionRecall:
         call_args = agent._memory.recall_async.call_args
         n_used = call_args[1].get("n") or call_args[0][1]
         assert n_used > 3, f"Expected n > 3 after compaction, got {n_used}"
+
+
+# ── _flatten_history ───────────────────────────────────────────────────────
+
+
+class TestFlattenHistory:
+    def test_nested_list_is_expanded(self):
+        """ネストlist要素（tool結果相当）をフラット展開する。"""
+        from familiar_agent.agent import _flatten_history
+
+        tool_msgs = [
+            {"role": "user", "content": [{"type": "tool_result", "content": "ok"}]},
+        ]
+        history = [
+            {"role": "user", "content": "hello"},
+            tool_msgs,  # ネストlist（make_tool_results → append）
+            {"role": "assistant", "content": "world"},
+        ]
+        flat = _flatten_history(history)
+        assert flat == [
+            {"role": "user", "content": "hello"},
+            {"role": "user", "content": [{"type": "tool_result", "content": "ok"}]},
+            {"role": "assistant", "content": "world"},
+        ]
+
+    def test_dict_passthrough(self):
+        """dict 要素はそのまま通す。"""
+        from familiar_agent.agent import _flatten_history
+
+        msgs = [{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}]
+        assert _flatten_history(msgs) == msgs
+
+    def test_non_dict_inside_nested_list_is_dropped(self):
+        """ネストlist内の非dict要素は落とす。"""
+        from familiar_agent.agent import _flatten_history
+
+        history = [
+            [{"role": "user", "content": "tool"}, "stray-string"],
+        ]
+        flat = _flatten_history(history)
+        assert flat == [{"role": "user", "content": "tool"}]
+
+
+# ── _compact_messages with nested tool results ─────────────────────────────
+
+
+class TestCompactMessagesWithNestedToolResults:
+    def test_no_error_when_to_summarise_has_nested_list(self):
+        """to_summarise 領域にネストlist要素が含まれても AttributeError が出ない。"""
+        agent = _make_agent()
+        # 通常メッセージ + ネストlist（tool結果相当）を to_summarise 領域に置く
+        agent.messages = [
+            _make_msg("user", "first"),
+            _make_msg("assistant", "response"),
+            [{"role": "user", "content": [{"type": "tool_result", "content": "ok"}]}],  # ネストlist
+            _make_msg("user", "second"),
+            # ↓ recent (keep_last=2) として保持される
+            _make_msg("user", "recent1"),
+            _make_msg("assistant", "recent2"),
+        ]
+        # AttributeError を出さず完了すること
+        asyncio.run(agent._compact_messages(keep_last=2))
+
+        # 要約マーカー + recent 2件
+        assert len(agent.messages) == 3
+        assert "summary" in agent.messages[0]["content"].lower() or len(agent.messages[0]["content"]) > 0
+
+    def test_recent_slice_structure_preserved(self):
+        """_compact_messages 後も recent スライスの構造がそのまま残る。"""
+        agent = _make_agent()
+        nested = [{"role": "user", "content": [{"type": "tool_result", "content": "ok"}]}]
+        recent_a = _make_msg("user", "keep-me")
+        recent_b = _make_msg("assistant", "keep-too")
+        agent.messages = [
+            _make_msg("user", "old"),
+            nested,  # ネストlist（to_summarise 領域）
+            recent_a,
+            recent_b,
+        ]
+        asyncio.run(agent._compact_messages(keep_last=2))
+
+        # recent はネスト構造を保ったまま残る（送信時 flatten の前提）
+        assert agent.messages[1] is recent_a
+        assert agent.messages[2] is recent_b
+
+
+# ── _check_response_coherence with nested tool results ─────────────────────
+
+
+class TestCheckResponseCoherenceWithNestedToolResults:
+    def test_no_error_when_last_6_has_nested_list(self):
+        """直近6件にネストlist要素が含まれても AttributeError が出ない。"""
+        agent = _make_agent()
+        # utility_backend を別モックにしてループが実行される状態にする
+        agent._utility_backend = MagicMock()
+        agent._utility_backend.complete = AsyncMock(return_value="ok")
+
+        agent.messages = [
+            _make_msg("user", "hello"),
+            [{"role": "user", "content": [{"type": "tool_result", "content": "data"}]}],  # ネストlist
+            _make_msg("assistant", "reply"),
+        ]
+        # AttributeError を出さず None か文字列を返すこと
+        result = asyncio.run(agent._check_response_coherence("some response"))
+        assert result is None or isinstance(result, str)

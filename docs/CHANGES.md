@@ -320,3 +320,28 @@ relationship_state
   - `see` ツール結果処理で `_apply_face_hint` を `ensure_future` 呼び出し
 - `FAMILY-template.md` — 新規作成
 - `.gitignore` — `FAMILY.md` を追加
+
+---
+
+## 12. 会話履歴のネストlist走査バグ修正
+
+### 背景
+
+`self.messages` は tool 結果をネストした `list` 要素として保持する設計になっている
+（`backend.make_tool_results()` が `list[dict]` を返し、`turn_messages.append(tool_msgs)` で
+リストごと 1 要素として積む。API 送信前に各 backend の `_flatten_messages()` が展開する）。
+
+読み取り専用で履歴を走査する 2 メソッドがこのネスト要素で `msg.get("role")` を呼ぶと
+`AttributeError: 'list' object has no attribute 'get'` で落ちていた。
+
+### 主な変更
+
+- `agent.py` に純関数 `_flatten_history(messages)` を追加。
+  ネストlist 要素を dict 列にフラット展開して返す。backend の `_flatten_messages` を
+  再利用しないのはシグネチャが backend 間で不統一なため。
+- `_compact_messages` の要約トランスクリプト生成ループを
+  `for msg in _flatten_history(to_summarise):` に変更（スライス自体は生のまま維持）。
+- `_check_response_coherence` の直近 6 件走査を
+  `for msg in _flatten_history(self.messages[-6:]):` に変更。
+- これにより `'list' object has no attribute 'get'` を解消した。
+- 送信経路（`make_tool_results` / `append` / `_flatten_messages`）は無変更。
