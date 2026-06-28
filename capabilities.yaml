@@ -21,9 +21,9 @@ capabilities:
   - id: camera_vision
     summary: Capture and interpret images from a camera (RTSP or USB webcam)
     detail: >
-      look_around() captures a frame and describes the scene using a vision LLM.
-      Scene changes are tracked; new/disappeared entities trigger workspace events.
-      Uses the `tools/camera.py` module and can be configured via `CAMERA_HOST` or by detecting a USB webcam.
+      `see()` captures a camera frame and describes the scene via vision LLM.
+      `look(direction, degrees)` rotates the camera head via ONVIF PTZ.
+      Camera view is independent of mobility. Uses the `tools/camera.py` module.
     enabled_env: CAMERA_HOST
   - id: coding_tools
     summary: Read, edit, glob, grep, and execute shell commands
@@ -97,7 +97,7 @@ capabilities:
     detail: >
       The Theory of Mind tool helps the agent understand and reason about the
       mental states of others before responding. This is crucial for empathetic
-      and contextually aware interactions. Implemented in `tools/tom.py`.
+      and contextually aware interactions. Uses `tools/tom.py`.
     enabled: true
   - id: tts
     summary: Speak responses aloud via text-to-speech
@@ -203,4 +203,5 @@ capabilities:
     summary: Manage lightweight active concerns for self-continuity
     detail: >
       This engine manages lightweight active concerns, contributing to the agent's
-      sense of autobiographical self-continuity across its experiences
+      sense of autobiographical self-continuity across its experiences.
+      Implemented in `concern_
