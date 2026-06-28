@@ -110,12 +110,19 @@ class CameraTool:
         os.environ["OPENCV_FFMPEG_LOGLEVEL"] = "-8"  # AV_LOG_QUIET
         os.environ["OPENCV_LOG_LEVEL"] = "SILENT"
 
-        try:
+        def _open_cap() -> cv2.VideoCapture:
             if isinstance(source, str) and source.startswith("rtsp://"):
-                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp"
-            self._cap = cv2.VideoCapture(
+                # stimeout: socket-level read timeout in microseconds (5 s).
+                # Reduces dead-stream recovery from 30–47 s to ~5 s.
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
+                    "rtsp_transport;tcp|stimeout;5000000"
+                )
+            return cv2.VideoCapture(
                 source, cv2.CAP_FFMPEG if isinstance(source, str) else cv2.CAP_ANY
             )
+
+        try:
+            self._cap = _open_cap()
 
             if not self._cap.isOpened():
                 logger.error("Failed to open camera source: %s", source)
@@ -128,8 +135,10 @@ class CameraTool:
                 ret, frame = self._cap.read()
                 if not ret:
                     logger.warning("Failed to read frame, retrying in 2s...")
+                    self._cap.release()
+                    self._cap = None
                     time.sleep(2.0)
-                    self._cap.open(source)
+                    self._cap = _open_cap()
                     continue
 
                 with self._lock:

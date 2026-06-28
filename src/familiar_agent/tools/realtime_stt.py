@@ -26,7 +26,7 @@ def _build_stt_ws_url(language_code: str = "") -> str:
         "model_id": "scribe_v2_realtime",
         "audio_format": "pcm_16000",
         "commit_strategy": "vad",
-        "vad_silence_threshold_secs": "1.0",
+        "vad_silence_threshold_secs": "3.0",
         # Experimental: batch STT already disables audio-event tagging.
         # If realtime accepts the same flag, this suppresses non-speech tags.
         "tag_audio_events": "false",
@@ -146,14 +146,27 @@ class RealtimeSttClient:
                         logger.debug(
                             "Realtime STT received non-JSON text frame: %r", msg.data[:200]
                         )
-                elif msg.type in (aiohttp.WSMsgType.CLOSED, aiohttp.WSMsgType.ERROR):
-                    logger.warning("Realtime STT websocket closed: type=%s", msg.type.name)
+                elif msg.type in (
+                    aiohttp.WSMsgType.CLOSED,
+                    aiohttp.WSMsgType.CLOSING,
+                    aiohttp.WSMsgType.ERROR,
+                ):
+                    close_code = getattr(self._ws, "close_code", None)
+                    logger.warning(
+                        "Realtime STT websocket closed: type=%s close_code=%s data=%r",
+                        msg.type.name,
+                        close_code,
+                        msg.data[:200] if msg.data else None,
+                    )
                     break
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.warning("Realtime STT recv loop error: %s", e)
         finally:
+            close_code = getattr(self._ws, "close_code", None) if self._ws else None
+            if close_code is not None:
+                logger.info("Realtime STT recv loop ended (close_code=%s)", close_code)
             self._connected = False
 
     async def close(self) -> None:

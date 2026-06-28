@@ -1774,6 +1774,12 @@ class FamiliarWindow(QMainWindow):
                     continue
                 desire_name, prompt, _ = tick
 
+                # Social desires: suppress when nobody is present (don't burn TTS credits talking to an empty room)
+                if is_social_desire(desire_name):
+                    _agent_ref = getattr(self, "_agent", None)
+                    if _agent_ref is not None and _agent_ref._social_presence_permission() == 0.0:
+                        continue
+
                 # Social desires use adaptive cooldown; internal use fixed INTERNAL_DESIRE_COOLDOWN
                 if is_social_desire(desire_name):
                     _last = self._last_social_fire

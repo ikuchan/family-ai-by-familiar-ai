@@ -503,3 +503,54 @@ async def test_gui_process_queue_fires_desires_outside_quiet_hours(monkeypatch):
 
     assert fired == ["greet_companion"]
     win._desires.satisfy.assert_called_once_with("greet_companion")
+
+
+@pytest.mark.asyncio
+async def test_gui_process_queue_suppresses_social_desires_when_nobody_present(monkeypatch):
+    """Social desires must not fire (and burn TTS credits) when nobody is present."""
+    win = _make_window_stub()
+
+    class _NeverQuietRule:
+        def is_quiet(self, now=None) -> bool:
+            return False
+
+    fake_agent = MagicMock()
+    fake_agent._schedule_rule = _NeverQuietRule()
+    fake_agent.should_deliver_deferred_result.return_value = False
+    # Simulate empty room: _social_presence_permission returns 0.0
+    fake_agent._social_presence_permission.return_value = 0.0
+    win._agent = fake_agent
+    win._agent_ready = True
+
+    fired: list[str] = []
+
+    async def _fake_run_agent(text: str, inner_voice: str = "", desire_name: str = "") -> None:
+        fired.append(desire_name)
+
+    win._run_agent = _fake_run_agent  # type: ignore[method-assign]
+
+    call_count = {"n": 0}
+
+    async def _fake_wait_for(awaitable, timeout):
+        if hasattr(awaitable, "close"):
+            awaitable.close()
+        call_count["n"] += 1
+        if call_count["n"] == 1:
+            raise asyncio.TimeoutError
+        return None
+
+    monkeypatch.setattr("familiar_agent.gui.asyncio.wait_for", _fake_wait_for)
+    monkeypatch.setattr("familiar_agent.gui.should_fire_idle_desire", lambda **kwargs: True)
+    monkeypatch.setattr(
+        "familiar_agent.gui.desire_tick_prompt",
+        lambda _desires, _peek: ("greet_companion", "say hello", None),
+    )
+    monkeypatch.setattr(
+        "familiar_agent.gui._t",
+        lambda key, **kwargs: "localized" if "desire_" in key else key,
+    )
+
+    await FamiliarWindow._process_queue(win)
+
+    assert fired == [], "Social desire must not fire when room is empty"
+    win._desires.satisfy.assert_not_called()
