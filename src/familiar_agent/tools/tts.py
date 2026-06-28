@@ -406,6 +406,31 @@ async def _play_local(tmp_path: str) -> bool:
             except (FileNotFoundError, OSError) as e:
                 logger.warning("Could not launch afplay: %s", e)
 
+    # --- aplay (Linux ALSA direct, bypasses PipeWire/PulseAudio intercept) ---
+    alsa_dev = os.environ.get("ALSA_PLAYBACK_DEVICE", "")
+    if sys.platform != "darwin" and alsa_dev and tmp_path.lower().endswith((".wav", ".wave")):
+        aplay = shutil.which("aplay")
+        if aplay:
+            try:
+                proc = await asyncio.create_subprocess_exec(
+                    aplay,
+                    "-D",
+                    alsa_dev,
+                    tmp_path,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                _, stderr = await proc.communicate()
+                if proc.returncode == 0:
+                    return True
+                logger.warning(
+                    "aplay failed (exit %d): %s",
+                    proc.returncode,
+                    stderr.decode(errors="replace")[:120],
+                )
+            except (FileNotFoundError, OSError) as e:
+                logger.warning("Could not launch aplay: %s", e)
+
     # --- paplay (PulseAudio native, WAV only) ---
     paplay = shutil.which("paplay")
     if paplay and tmp_path.lower().endswith((".wav", ".wave")):

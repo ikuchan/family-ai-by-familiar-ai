@@ -15,8 +15,10 @@ def resolve_env_path() -> Path:
     """Resolve the app `.env` path.
 
     Prefer the repository root when running from source, otherwise fall back to
-    the current working directory.
+    the current working directory. FAMILIAR_ENV_FILE overrides the default path.
     """
+    if override := os.environ.get("FAMILIAR_ENV_FILE"):
+        return Path(override)
     root_env = Path(__file__).resolve().parents[2] / ".env"
     if root_env.exists():
         return root_env

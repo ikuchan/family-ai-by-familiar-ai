@@ -113,8 +113,25 @@ class MicCapture:
         self._loop = loop
 
         try:
+            # Resolve device index: AUDIO_INPUT_DEVICE env var selects by name substring.
+            device_idx: int | None = None
+            audio_input_device = os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+            if audio_input_device:
+                for i, d in enumerate(sd.query_devices()):
+                    if (
+                        audio_input_device.lower() in d["name"].lower()
+                        and d["max_input_channels"] > 0
+                    ):
+                        device_idx = i
+                        break
+                if device_idx is None:
+                    logger.warning(
+                        "AUDIO_INPUT_DEVICE=%r not found; falling back to default",
+                        audio_input_device,
+                    )
+
             # Use the device's native sample rate to avoid paInvalidSampleRate
-            device_info = sd.query_devices(kind="input")
+            device_info = sd.query_devices(device=device_idx, kind="input")
             self._native_rate = int(device_info["default_samplerate"])
             block_size = int(self._native_rate * _BLOCK_MS / 1000)
 
@@ -139,6 +156,7 @@ class MicCapture:
                 blocksize=block_size,
                 channels=CHANNELS,
                 dtype="int16",
+                device=device_idx,
                 callback=_callback,
             )
             self._stream.start()

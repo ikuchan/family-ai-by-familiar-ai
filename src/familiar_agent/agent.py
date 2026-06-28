@@ -14,7 +14,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .backend import AnthropicBackend, GeminiBackend, create_backend, create_scene_backend, create_utility_backend
+from .backend import AnthropicBackend, create_backend, create_scene_backend, create_utility_backend
 from .appraisal import AppraisalContext, AppraisalEngine
 from .config import AgentConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
@@ -3839,38 +3839,47 @@ class EmbodiedAgent:
                         elif tc.name in {"look", "walk"}:
                             pending_view_action_name = tc.name
                             pending_view_action_input = dict(tc.input)
+                        # Capture whether say() was already used BEFORE updating say_used,
+                        # so we can suppress duplicate audio in the same turn.
+                        _is_duplicate_say = tc.name == "say" and say_used
                         if tc.name == "say":
                             say_used = True
                             non_say_streak = 0
                         else:
                             non_say_streak += 1
                         logger.info("Tool call: %s(%s)", tc.name, tc.input)
-                        if on_action:
+                        if on_action and not _is_duplicate_say:
                             on_action(tc.name, tc.input)
 
-                        timeout_s = self._tool_timeout_seconds(tc.name)
-                        try:
-                            text, image = await asyncio.wait_for(
-                                self._execute_tool(tc.name, tc.input),
-                                timeout=timeout_s,
+                        if _is_duplicate_say:
+                            logger.warning(
+                                "say() called again in same turn — duplicate audio suppressed"
                             )
-                            self._last_tool_error = None
-                            self._tool_failure_streak = 0
-                        except asyncio.TimeoutError:
-                            logger.warning("Tool %s timed out after %.1fs", tc.name, timeout_s)
-                            text, image = (
-                                f"Tool timeout: {tc.name} exceeded {timeout_s:.1f}s.",
-                                None,
-                            )
-                            self._last_tool_error = text
-                            self._tool_failure_streak += 1
-                        except Exception as e:
-                            logger.warning("Tool %s failed: %s", tc.name, e)
-                            text, image = f"Tool error: {e}", None
-                            self._last_tool_error = str(e)
-                            self._tool_failure_streak += 1
+                            text, image = "(duplicate say suppressed: already spoke this turn)", None
+                        else:
+                            timeout_s = self._tool_timeout_seconds(tc.name)
+                            try:
+                                text, image = await asyncio.wait_for(
+                                    self._execute_tool(tc.name, tc.input),
+                                    timeout=timeout_s,
+                                )
+                                self._last_tool_error = None
+                                self._tool_failure_streak = 0
+                            except asyncio.TimeoutError:
+                                logger.warning("Tool %s timed out after %.1fs", tc.name, timeout_s)
+                                text, image = (
+                                    f"Tool timeout: {tc.name} exceeded {timeout_s:.1f}s.",
+                                    None,
+                                )
+                                self._last_tool_error = text
+                                self._tool_failure_streak += 1
+                            except Exception as e:
+                                logger.warning("Tool %s failed: %s", tc.name, e)
+                                text, image = f"Tool error: {e}", None
+                                self._last_tool_error = str(e)
+                                self._tool_failure_streak += 1
 
-                        if (
+                        if not _is_duplicate_say and (
                             tape_backend
                             and plan_ctx
                             and await check_plan_blocked(
@@ -3895,7 +3904,7 @@ class EmbodiedAgent:
                                 )
                         if image and on_image is not None:
                             on_image(image)
-                        if on_tool_result is not None:
+                        if on_tool_result is not None and not _is_duplicate_say:
                             on_tool_result(tc.name, tc.input, text)
                         collected.append((text, image))
 
