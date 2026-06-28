@@ -26,7 +26,7 @@ def _build_stt_ws_url(language_code: str = "") -> str:
         "model_id": "scribe_v2_realtime",
         "audio_format": "pcm_16000",
         "commit_strategy": "vad",
-        "vad_silence_threshold_secs": "3.0",
+        "vad_silence_threshold_secs": "1.0",
         # Experimental: batch STT already disables audio-event tagging.
         # If realtime accepts the same flag, this suppresses non-speech tags.
         "tag_audio_events": "false",

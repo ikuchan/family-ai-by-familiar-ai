@@ -62,7 +62,7 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     else:
         _mcp_state = "connecting"
     mcp_ready = _mcp_state == "ready"
-    stt_connected = bool(getattr(realtime_stt, "connected", False))
+    stt_connected = bool(getattr(realtime_stt, "connected_for_display", False))
     stt_gated = bool(getattr(realtime_stt, "gated", False))
 
     if agent_init_failed:

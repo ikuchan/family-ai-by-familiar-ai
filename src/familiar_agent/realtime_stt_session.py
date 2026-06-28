@@ -113,6 +113,7 @@ class RealtimeSttSession:
         self._restart_lock = asyncio.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
         self._stopping = False
+        self._last_connected_at: float = 0.0
 
         # Deduplication state
         self._last_normalized_text = ""
@@ -132,6 +133,18 @@ class RealtimeSttSession:
     def connected(self) -> bool:
         """True while the websocket transport is currently live."""
         return bool(self._stt_client and self._stt_client.connected)
+
+    @property
+    def connected_for_display(self) -> bool:
+        """Debounced connected state for UI.
+
+        VAD commits close the ElevenLabs session every vad_silence_threshold_secs,
+        causing a brief (~1 s) reconnect gap.  Returning True for 3 s after the
+        last successful connect prevents the status indicator from flickering.
+        """
+        if self.connected:
+            return True
+        return (time.time() - self._last_connected_at) < 3.0
 
     @property
     def gated(self) -> bool:
@@ -233,6 +246,7 @@ class RealtimeSttSession:
             client.on_partial = self._incoming_partial
             await client.connect()
             self._stt_client = client
+            self._last_connected_at = time.time()
             logger.info("Realtime STT transport connected")
 
     async def _ensure_connected(self) -> bool:
@@ -339,6 +353,10 @@ class RealtimeSttController:
     @property
     def connected(self) -> bool:
         return self._session.connected
+
+    @property
+    def connected_for_display(self) -> bool:
+        return self._session.connected_for_display
 
     @property
     def gated(self) -> bool:
