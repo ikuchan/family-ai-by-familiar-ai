@@ -268,10 +268,34 @@ def _pulse_env() -> dict[str, str] | None:
     return env
 
 
+def _resolve_output_device() -> int | None:
+    """Return sounddevice output device index from AUDIO_OUTPUT_DEVICE or AUDIO_INPUT_DEVICE env vars.
+
+    Prefers AUDIO_OUTPUT_DEVICE; falls back to AUDIO_INPUT_DEVICE (both typically refer
+    to the same USB speaker/mic combo like Yamaha YVC-300). Returns None to use the default.
+    """
+    name = (
+        os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
+        or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+    )
+    if not name:
+        return None
+    try:
+        import sounddevice as sd
+
+        for i, d in enumerate(sd.query_devices()):
+            if name.lower() in d["name"].lower() and d["max_output_channels"] > 0:
+                return i
+    except Exception:
+        pass
+    return None
+
+
 async def _play_via_sounddevice(audio_path: str) -> bool:
     """Play WAV or MP3 file using sounddevice (pure Python, no system dependency).
 
-    WAV: decoded by soundfile directly.
+    WAV: decoded by soundfile directly, resampled to the output device's native rate
+    so we avoid PortAudio paInvalidSampleRate (e.g. Yamaha requires 48 kHz).
     MP3: decoded frame-by-frame with PyAV (av package), then played via sounddevice.
     """
 
@@ -283,13 +307,28 @@ async def _play_via_sounddevice(audio_path: str) -> bool:
             return _play_mp3_via_pyav(audio_path)
         else:
             try:
+                import numpy as np
                 import sounddevice as sd
                 import soundfile as sf
             except ImportError:
                 return False
             try:
                 data, samplerate = sf.read(audio_path)
-                sd.play(data, samplerate)
+                device_idx = _resolve_output_device()
+                # Determine device's native sample rate; resample if needed.
+                try:
+                    dev_info = sd.query_devices(device_idx, kind="output")
+                    native_rate = int(dev_info["default_samplerate"])
+                except Exception:
+                    native_rate = samplerate
+                if native_rate != samplerate and native_rate > 0:
+                    ratio = native_rate // samplerate
+                    if ratio > 0:
+                        data = np.repeat(data, ratio, axis=0) if data.ndim > 1 else np.repeat(data, ratio)
+                    play_rate = native_rate
+                else:
+                    play_rate = samplerate
+                sd.play(data, play_rate, device=device_idx)
                 sd.wait()
                 return True
             except Exception as e:
@@ -406,30 +445,12 @@ async def _play_local(tmp_path: str) -> bool:
             except (FileNotFoundError, OSError) as e:
                 logger.warning("Could not launch afplay: %s", e)
 
-    # --- aplay (Linux ALSA direct, bypasses PipeWire/PulseAudio intercept) ---
-    alsa_dev = os.environ.get("ALSA_PLAYBACK_DEVICE", "")
-    if sys.platform != "darwin" and alsa_dev and tmp_path.lower().endswith((".wav", ".wave")):
-        aplay = shutil.which("aplay")
-        if aplay:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    aplay,
-                    "-D",
-                    alsa_dev,
-                    tmp_path,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await proc.communicate()
-                if proc.returncode == 0:
-                    return True
-                logger.warning(
-                    "aplay failed (exit %d): %s",
-                    proc.returncode,
-                    stderr.decode(errors="replace")[:120],
-                )
-            except (FileNotFoundError, OSError) as e:
-                logger.warning("Could not launch aplay: %s", e)
+    # --- sounddevice with named output device (Linux: avoids ALSA hw exclusive-access
+    #     conflict when mic is simultaneously open via PortAudio on the same device) ---
+    if sys.platform != "darwin" and os.environ.get("AUDIO_INPUT_DEVICE", "").strip():
+        sd_ok = await _play_via_sounddevice(tmp_path)
+        if sd_ok:
+            return True
 
     # --- paplay (PulseAudio native, WAV only) ---
     paplay = shutil.which("paplay")

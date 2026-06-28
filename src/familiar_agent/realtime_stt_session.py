@@ -257,6 +257,10 @@ class RealtimeSttSession:
                 await asyncio.sleep(_RECONNECT_BACKOFF_SECS)
 
     async def _send_audio(self, pcm16le: bytes) -> None:
+        # Drop mic audio while TTS is active: prevents speaker echo from reaching
+        # ElevenLabs and causing rapid WebSocket disconnect/reconnect loops.
+        if self._voice_guard.speaking:
+            return
         client = self._stt_client
         if client is None:
             return
