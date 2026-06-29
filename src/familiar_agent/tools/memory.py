@@ -41,6 +41,10 @@ EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
 EMBEDDING_DIM   = 384
 _THUMB_SIZE     = (320, 240)
 
+# Time-window dedup: identical (person_id, content, kind) within this many seconds
+# is treated as a duplicate and silently skipped. Set to 0 to disable.
+_CONTENT_DEDUP_WINDOW_SECS: int = int(os.environ.get("MEMORY_DEDUP_WINDOW_SECS", "30"))
+
 
 def _to_epoch(dt) -> float | None:
     if dt is None:
@@ -625,6 +629,22 @@ class ObservationMemory:
                 cur.execute("SELECT 1 FROM observations WHERE id=%s", (event_id,))
                 if cur.fetchone():
                     return True
+                if _CONTENT_DEDUP_WINDOW_SECS > 0:
+                    cur.execute(
+                        "SELECT id FROM observations "
+                        "WHERE person_id = %s AND content = %s AND kind = %s "
+                        "  AND timestamp >= now() - (%s * INTERVAL '1 second') "
+                        "  AND superseded_by IS NULL "
+                        "ORDER BY timestamp DESC LIMIT 1",
+                        (self._person_id, content, kind, _CONTENT_DEDUP_WINDOW_SECS),
+                    )
+                    if cur.fetchone():
+                        logger.debug(
+                            "content dedup skip: (person_id=%.8s kind=%s content=%.40r) "
+                            "within %ds window",
+                            self._person_id, kind, content, _CONTENT_DEDUP_WINDOW_SECS,
+                        )
+                        return True
                 cur.execute(
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
