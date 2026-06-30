@@ -39,6 +39,11 @@ _RECONNECT_POLL_SECS = 1.0
 _RECONNECT_BACKOFF_SECS = 2.0
 _BRACKETED_EVENT_RE = re.compile(r"[（(［\[]([^（）()\[\]［］]{1,40})[）)］\]]")
 
+# Repetition-loop hallucination detection
+# ElevenLabs sometimes emits "で、で、で、..." or "え？え？え？" on noise/unclear audio.
+_REPETITION_MIN_TOKENS = 5
+_REPETITION_THRESHOLD = 0.5  # fraction of tokens that must be the same token
+
 
 def _dedupe_now() -> float:
     """Return the clock used for realtime transcript deduplication."""
@@ -47,6 +52,22 @@ def _dedupe_now() -> float:
 
 def _is_only_punct_or_symbol(s: str) -> bool:
     return all(c in "。、！？…・「」『』（）()!?,." or not c.isalnum() for c in s)
+
+
+def _is_repetition_loop(text: str) -> bool:
+    """Return True when the transcript is a STT hallucination repetition loop.
+
+    Splits on Japanese punctuation and whitespace; flags the text when a single
+    token makes up more than half of all tokens and repeats at least 4 times.
+    """
+    tokens = [t for t in re.split(r"[、。！？\s]+", text.strip()) if t]
+    if len(tokens) < _REPETITION_MIN_TOKENS:
+        return False
+    counts: dict[str, int] = {}
+    for t in tokens:
+        counts[t] = counts.get(t, 0) + 1
+    top_count = max(counts.values())
+    return top_count >= 4 and top_count / len(tokens) > _REPETITION_THRESHOLD
 
 
 def _looks_like_audio_event(text: str) -> bool:
@@ -70,6 +91,8 @@ def should_skip_stt(text: str) -> bool:
     if _is_only_punct_or_symbol(text):
         return True
     if text in _FILLER_WORDS:
+        return True
+    if _is_repetition_loop(text):
         return True
     return False
 

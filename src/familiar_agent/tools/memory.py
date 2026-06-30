@@ -4,7 +4,7 @@ Built-in tools:
 - remember(content, emotion, scope): store an observation in PostgreSQL.
   scope: "speaker" | "witnessed" | "scene" | "all".
 - recall(hint, n): retrieve semantically similar memories via pgvector cosine similarity.
-Storage: PostgreSQL + pgvector (situated_embeddings, multilingual-e5-small).
+Storage: PostgreSQL + pgvector (situated_embeddings, bge-m3).
 Memory is scoped per person via PersonMemoryManager (person_id).
 Config: DATABASE_URL.
 """
@@ -18,7 +18,6 @@ import os
 import threading
 import uuid
 from collections import OrderedDict
-import math
 from datetime import date as _date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -37,8 +36,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 DB_PATH_UNUSED = ""          # kept for API compatibility, ignored
-EMBEDDING_MODEL = "intfloat/multilingual-e5-small"
-EMBEDDING_DIM   = 384
+EMBEDDING_MODEL = "BAAI/bge-m3"
+EMBEDDING_DIM   = 1024
 _THUMB_SIZE     = (320, 240)
 
 # Time-window dedup: identical (person_id, content, kind) within this many seconds
@@ -294,8 +293,7 @@ class _EmbeddingModel:
         self._load()
         if self._model is None:
             return self._zeros(len(texts))
-        prefixed = [f"passage: {t}" for t in texts]
-        miss_idx, miss_texts, results = self._lookup(self._d_cache, prefixed)
+        miss_idx, miss_texts, results = self._lookup(self._d_cache, texts)
         if miss_texts:
             try:
                 new = self._model.encode(miss_texts, normalize_embeddings=True,
@@ -310,8 +308,7 @@ class _EmbeddingModel:
         self._load()
         if self._model is None:
             return self._zeros(len(texts))
-        prefixed = [f"query: {t}" for t in texts]
-        miss_idx, miss_texts, results = self._lookup(self._q_cache, prefixed)
+        miss_idx, miss_texts, results = self._lookup(self._q_cache, texts)
         if miss_texts:
             try:
                 new = self._model.encode(miss_texts, normalize_embeddings=True,
@@ -408,7 +405,7 @@ class ObservationMemory:
             cur.execute("SELECT perspective_vec FROM persons WHERE id = %s", (person_id,))
             row = cur.fetchone()
         if row and row["perspective_vec"]:
-            return _decode_vector(bytes(row["perspective_vec"]))
+            return _coerce_to_embedding_dim(_decode_vector(bytes(row["perspective_vec"])))
         return np.zeros(EMBEDDING_DIM, dtype=np.float32)
 
     def _get_perspective_vec(self, person_id: str) -> np.ndarray:

@@ -180,10 +180,9 @@ def test_purge_migration_removes_duplicate_embeddings() -> None:
         ids.append(oid)
 
     # Insert a fake situated_embedding for each (vector not important for this test)
-    import importlib.util
     from familiar_agent.db import vec_to_sql
     import numpy as np
-    fake_vec = vec_to_sql(np.zeros(384).tolist())
+    fake_vec = vec_to_sql(np.zeros(1024).tolist())
     with conn.cursor() as cur:
         for oid in ids:
             cur.execute(

@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime
-from pathlib import Path
 from unittest.mock import patch
 
 import psycopg2
@@ -197,7 +196,7 @@ def test_find_near_duplicates_returns_pairs() -> None:
     import numpy as np
     mem = _make_memory()
 
-    vec = np.ones(384, dtype=np.float32)
+    vec = np.ones(1024, dtype=np.float32)
     vec /= np.linalg.norm(vec)
     blob = _encode_vector(vec.tolist())
 
@@ -224,7 +223,7 @@ def test_find_near_duplicates_skips_already_superseded() -> None:
     import numpy as np
     mem = _make_memory()
 
-    vec = np.ones(384, dtype=np.float32)
+    vec = np.ones(1024, dtype=np.float32)
     vec /= np.linalg.norm(vec)
     blob = _encode_vector(vec.tolist())
 

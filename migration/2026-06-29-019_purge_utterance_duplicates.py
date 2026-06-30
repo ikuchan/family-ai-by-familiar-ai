@@ -9,9 +9,13 @@ Run after: 2026-06-14-018_pending_speech.py
 from __future__ import annotations
 from datetime import timezone
 
+import psycopg2.extras
+
 
 def upgrade(conn) -> None:
-    with conn.cursor() as cur:
+    # Use RealDictCursor explicitly so this migration works regardless of what
+    # cursor factory the migration runner configured on the connection.
+    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         # Collect groups with more than one unsuperseded observation
         # sharing the same (content, kind).
         cur.execute("""

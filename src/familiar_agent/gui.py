@@ -2136,6 +2136,18 @@ def run_gui(config: "AgentConfig", desires: "DesireSystem") -> None:
     """Launch the PySide6 GUI with qasync event loop."""
     import signal
 
+    # Save terminal settings before Qt takes over. Qt/PySide6 can put the
+    # terminal in raw/noecho mode for keyboard handling; without saving and
+    # restoring these settings, closing the GUI leaves the launching terminal
+    # unable to accept input (fix: run `stty sane` manually, or restart shell).
+    _saved_tty = None
+    try:
+        import termios
+        if sys.stdin.isatty():
+            _saved_tty = termios.tcgetattr(sys.stdin.fileno())
+    except Exception:
+        pass
+
     existing = QApplication.instance()
     qt_app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
     _apply_global_style(qt_app)
@@ -2168,6 +2180,15 @@ def run_gui(config: "AgentConfig", desires: "DesireSystem") -> None:
 
     with loop:
         loop.run_forever()
+
+    # Restore terminal settings before force-exit so the launching terminal is
+    # not left in raw/noecho mode after the GUI closes.
+    if _saved_tty is not None:
+        try:
+            import termios
+            termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, _saved_tty)
+        except Exception:
+            pass
 
     # Non-daemon threads (ThreadPoolExecutor from run_in_executor, httpx connection
     # pools, etc.) keep the process alive after the Qt event loop exits.
