@@ -213,3 +213,72 @@ def test_recall_self_model_returns_empty_when_none() -> None:
     mem = _mem()
     result = mem.recall_self_model(n=5)
     assert result == []
+
+
+# ── 5. recall_day_summaries の付け替え後の戻り値の形（在席者スコープ経路） ──
+
+def test_recall_day_summaries_returns_expected_shape_newest_first_with_limit() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "ds-1", "first day summary", "day_summary", DEFAULT_PERSON_ID,
+                                  _NOW - timedelta(hours=2), "neutral")
+        _insert_obs_with_emotion(cur, "ds-2", "second day summary", "day_summary", DEFAULT_PERSON_ID,
+                                  _NOW - timedelta(hours=1), "neutral")
+        _insert_obs_with_emotion(cur, "ds-3", "third day summary", "day_summary", DEFAULT_PERSON_ID,
+                                  _NOW, "neutral")
+    conn.close()
+
+    mem = _mem()
+    assert mem._person_id == DEFAULT_PERSON_ID
+    result = mem.recall_day_summaries(n=2)
+
+    assert len(result) == 2
+    newest = result[0]
+    assert set(newest.keys()) == {"summary", "date", "time", "emotion"}
+    assert newest["summary"] == "third day summary"
+    assert newest["date"] == "2026-06-01"
+    assert newest["time"] == "12:00"
+    assert result[1]["summary"] == "second day summary"
+
+
+def test_recall_day_summaries_scopes_to_this_memorys_person_id() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "ds-present", "present person day summary", "day_summary",
+                                  DEFAULT_PERSON_ID, _NOW, "neutral")
+        _insert_obs_with_emotion(cur, "ds-other", "other person day summary", "day_summary",
+                                  AGENT_SELF_ID, _NOW + timedelta(seconds=1), "neutral")
+    conn.close()
+
+    mem = _mem()
+    assert mem._person_id == DEFAULT_PERSON_ID
+    result = mem.recall_day_summaries(n=10)
+
+    assert len(result) == 1
+    assert result[0]["summary"] == "present person day summary"
+
+
+def test_recall_day_summaries_returns_distinct_emotion_values_unchanged() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "ds-emo-1", "neutral day summary", "day_summary",
+                                  DEFAULT_PERSON_ID, _NOW - timedelta(hours=1), "neutral")
+        _insert_obs_with_emotion(cur, "ds-emo-2", "happy day summary", "day_summary",
+                                  DEFAULT_PERSON_ID, _NOW, "happy")
+    conn.close()
+
+    mem = _mem()
+    result = mem.recall_day_summaries(n=5)
+
+    by_summary = {r["summary"]: r["emotion"] for r in result}
+    assert by_summary["happy day summary"] == "happy"
+    assert by_summary["neutral day summary"] == "neutral"
+
+
+def test_recall_day_summaries_returns_empty_when_none() -> None:
+    mem = _mem()
+    result = mem.recall_day_summaries(n=5)
+    assert result == []

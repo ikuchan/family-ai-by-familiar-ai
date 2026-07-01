@@ -295,6 +295,30 @@ the message.
 **Do not** add `print(...)` for logging in library code; use a logger. Plain
 `print` is only for genuine CLI/interactive stdout.
 
+**When to add a log (debug-useful points).** When writing new or changed logic,
+add logs at the points that let someone reconstruct what happened afterwards:
+
+- External boundaries — the entry and result of DB queries, LLM calls, MCP/tool
+  calls, and device I/O.
+- LLM prompt construction/editing — whenever a prompt is assembled or edited, log
+  it. The full prompt is heavy and may carry conversational/memory content, so log
+  the **full prompt at `debug` only** (off in production, available when
+  debugging). A lightweight summary (which template/path, how many MIs went into
+  W, prompt length, target model, and in/out token counts if available) may be
+  logged as a normal state-transition line. **Never dump the full prompt or
+  conversational/memory content at `info` or above.**
+- State transitions — once those mechanisms exist: firing, W construction, open
+  resolution, and similar shifts worth reconstructing later.
+- Recovered anomalies — when a fallback path is taken (log at `warning`, per the
+  level policy).
+- Async boundaries — enqueue, completion, and cancellation (pairs with the
+  concurrency skill's leak/cancellation guidance).
+
+**Restraint (do not drown the log).** Hot paths that run every iteration or every
+tick use `debug`, not `info`. One log line, one purpose. Dump values selectively
+(key fields, counts, lengths), not whole objects. The goal is that the signal
+stays findable — more logs is not the goal, reconstructable logs is.
+
 ## Validation before merge
 
 Run before opening a PR:

@@ -1427,20 +1427,17 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall_behavior_policies, *a, **kw)
 
     def recall_day_summaries(self, n: int = 5) -> list[dict]:
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT content,timestamp,emotion FROM observations "
-                        "WHERE kind='day_summary' AND person_id=%s "
-                        "ORDER BY timestamp DESC LIMIT %s",
-                        (self._person_id, n),
-                    )
-                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"]),"emotion":r["emotion"]}
-                            for r in cur.fetchall()]
-        except Exception as e:
-            logger.warning("recall_day_summaries failed: %s", e); return []
+        rows = self._read_observations_by_kind(
+            kind="day_summary",
+            person_id=self._person_id,
+            n=n,
+            columns=("content", "timestamp", "emotion"),
+        )
+        return [
+            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
+             "time": _ts_to_time(r["timestamp"]), "emotion": r["emotion"]}
+            for r in rows
+        ]
 
     async def recall_day_summaries_async(self, n=5):
         return await asyncio.to_thread(self.recall_day_summaries, n)
