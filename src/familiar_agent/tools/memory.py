@@ -979,20 +979,17 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall, *a, **kw)
 
     def recent_feelings(self, n: int = 5) -> list[dict]:
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT content, timestamp, emotion FROM observations "
-                        "WHERE kind IN ('feeling','conversation') AND person_id=%s "
-                        "ORDER BY timestamp DESC LIMIT %s",
-                        (self._person_id, n),
-                    )
-                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"]),"emotion":r["emotion"]}
-                            for r in cur.fetchall()]
-        except Exception as e:
-            logger.warning("recent_feelings failed: %s", e); return []
+        rows = self._read_observations_by_kind(
+            kind=("feeling", "conversation"),
+            person_id=self._person_id,
+            n=n,
+            columns=("content", "timestamp", "emotion"),
+        )
+        return [
+            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
+             "time": _ts_to_time(r["timestamp"]), "emotion": r["emotion"]}
+            for r in rows
+        ]
 
     async def recent_feelings_async(self, n: int = 5):
         return await asyncio.to_thread(self.recent_feelings, n)
@@ -1015,10 +1012,11 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall_self_model, n)
 
     def _read_observations_by_kind(
-        self, kind: str, person_id: str, n: int, columns: tuple[str, ...]
+        self, kind: str | tuple[str, ...], person_id: str, n: int, columns: tuple[str, ...]
     ) -> list[dict]:
         """observations を kind と person_id で絞り、新しい順に n 件読む dumb な読み出し。
 
+        kind は単一値（str）または複数値（tuple[str, ...]）。複数値のときは kind IN (...)。
         採点・想起判断・trigger 判断は持たない（機械的な読み出しのみ）。
         設計ドキュメントで確定したストアアクセス層の最初の実体。
         行(dict)のリストを返す。失敗時は空リスト。
@@ -1028,12 +1026,21 @@ class ObservationMemory:
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
-                    cur.execute(
-                        f"SELECT {col_sql} FROM observations "
-                        "WHERE kind=%s AND person_id=%s "
-                        "ORDER BY timestamp DESC LIMIT %s",
-                        (kind, person_id, n),
-                    )
+                    if isinstance(kind, str):
+                        cur.execute(
+                            f"SELECT {col_sql} FROM observations "
+                            "WHERE kind=%s AND person_id=%s "
+                            "ORDER BY timestamp DESC LIMIT %s",
+                            (kind, person_id, n),
+                        )
+                    else:
+                        placeholders = ", ".join(["%s"] * len(kind))
+                        cur.execute(
+                            f"SELECT {col_sql} FROM observations "
+                            f"WHERE kind IN ({placeholders}) AND person_id=%s "
+                            "ORDER BY timestamp DESC LIMIT %s",
+                            (*kind, person_id, n),
+                        )
                     return list(cur.fetchall())
         except Exception as e:
             logger.warning("_read_observations_by_kind failed: %s", e); return []

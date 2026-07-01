@@ -209,6 +209,14 @@ into code or this file until it is actually built in a given phase.
 `grep` for the old name returns zero, not a hand-counted list of edited sites
 (see the timestamp/embedding migration history for why counting is unreliable).
 
+**Report which skills you used.** In every completion report, state which skills
+(from Superpowers or the project-local set below) actually shaped the work, and in
+one line each, what they did — e.g. "test-driven-development: wrote the failing
+test first", "systematic-debugging: traced the root cause before editing",
+"postgresql-table-design: used timestamptz for the new column". If none applied,
+say "skills used: none". Keep it factual, not decorative — the point is
+visibility into whether the skills are earning their place.
+
 ## Project-local skills (PostgreSQL, pgvector, concurrency, logging)
 
 Four third-party skills are vendored under `.claude/skills/` in this repo. They

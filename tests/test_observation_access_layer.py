@@ -282,3 +282,108 @@ def test_recall_day_summaries_returns_empty_when_none() -> None:
     mem = _mem()
     result = mem.recall_day_summaries(n=5)
     assert result == []
+
+
+# ── 6. _read_observations_by_kind の複数 kind 対応（tuple） ─────────────────
+
+def test_read_observations_by_kind_accepts_tuple_of_kinds() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs(cur, "mk-1", "a feeling", "feeling", AGENT_SELF_ID, _NOW - timedelta(hours=2))
+        _insert_obs(cur, "mk-2", "a conversation", "conversation", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "mk-3", "a curiosity", "curiosity", AGENT_SELF_ID, _NOW)
+    conn.close()
+
+    mem = _mem()
+    rows = mem._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 10, ("content", "timestamp"))
+
+    contents = {r["content"] for r in rows}
+    assert contents == {"a feeling", "a conversation"}
+    assert "a curiosity" not in contents
+
+
+def test_read_observations_by_kind_tuple_respects_order_and_limit() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs(cur, "mk-old", "old feeling", "feeling", AGENT_SELF_ID, _NOW - timedelta(hours=2))
+        _insert_obs(cur, "mk-mid", "mid conversation", "conversation", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "mk-new", "new feeling", "feeling", AGENT_SELF_ID, _NOW)
+    conn.close()
+
+    mem = _mem()
+    rows = mem._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 2, ("content", "timestamp"))
+
+    assert len(rows) == 2
+    assert rows[0]["content"] == "new feeling"
+    assert rows[1]["content"] == "mid conversation"
+
+
+def test_read_observations_by_kind_str_path_unchanged_after_tuple_support() -> None:
+    """既存の単一 kind (str) 経路が、複数 kind 対応の追加後も壊れていないことの明示的な回帰確認。"""
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs(cur, "sk-1", "curiosity row", "curiosity", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "sk-2", "feeling row", "feeling", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
+    conn.close()
+
+    mem = _mem()
+    rows = mem._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+
+    assert len(rows) == 1
+    assert rows[0]["content"] == "curiosity row"
+
+
+# ── 7. recent_feelings の付け替え後の戻り値の形（複数 kind 経路の実証） ─────
+
+def test_recent_feelings_returns_expected_shape_newest_first_with_limit() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "rf-1", "first feeling", "feeling", DEFAULT_PERSON_ID,
+                                  _NOW - timedelta(hours=2), "neutral")
+        _insert_obs_with_emotion(cur, "rf-2", "first conversation", "conversation", DEFAULT_PERSON_ID,
+                                  _NOW - timedelta(hours=1), "neutral")
+        _insert_obs_with_emotion(cur, "rf-3", "second feeling", "feeling", DEFAULT_PERSON_ID,
+                                  _NOW, "happy")
+    conn.close()
+
+    mem = _mem()
+    assert mem._person_id == DEFAULT_PERSON_ID
+    result = mem.recent_feelings(n=2)
+
+    assert len(result) == 2
+    newest = result[0]
+    assert set(newest.keys()) == {"summary", "date", "time", "emotion"}
+    assert newest["summary"] == "second feeling"
+    assert newest["emotion"] == "happy"
+    assert newest["date"] == "2026-06-01"
+    assert newest["time"] == "12:00"
+    assert result[1]["summary"] == "first conversation"
+
+
+def test_recent_feelings_excludes_other_kinds() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "rf-feeling", "a feeling", "feeling", DEFAULT_PERSON_ID,
+                                  _NOW - timedelta(seconds=1), "neutral")
+        _insert_obs_with_emotion(cur, "rf-conv", "a conversation", "conversation", DEFAULT_PERSON_ID,
+                                  _NOW, "neutral")
+        _insert_obs_with_emotion(cur, "rf-curiosity", "a curiosity", "curiosity", DEFAULT_PERSON_ID,
+                                  _NOW + timedelta(seconds=1), "neutral")
+    conn.close()
+
+    mem = _mem()
+    result = mem.recent_feelings(n=10)
+
+    summaries = {r["summary"] for r in result}
+    assert summaries == {"a feeling", "a conversation"}
+
+
+def test_recent_feelings_returns_empty_when_none() -> None:
+    mem = _mem()
+    result = mem.recent_feelings(n=5)
+    assert result == []
