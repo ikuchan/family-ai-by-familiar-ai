@@ -159,6 +159,100 @@ Schema changes must go through timestamped files under `migration/`.
 - Do not leak raw interoception/body metrics into normal user-facing text
 - Add a migration for every schema change
 
+## Working with Superpowers skills
+
+The `superpowers` plugin (obra/superpowers) is installed. Its skills auto-activate.
+This project uses Superpowers **selectively**. The rules below override skill
+defaults where they conflict (per Superpowers' own precedence: user/CLAUDE.md
+instructions win over skills).
+
+**Skills to follow (discipline skills — use fully):**
+
+- `test-driven-development` — RED-GREEN-REFACTOR for all new code and bug fixes.
+  Write the failing test, watch it fail for the right reason, then write minimal
+  code. This matches how we already work.
+- `systematic-debugging` — for any bug, test failure, or unexpected behavior:
+  find the root cause before proposing a fix. No guess-and-check. This matches
+  our existing rule "no fix until the true cause is confirmed."
+- `verification-before-completion` — run the actual verification command and read
+  its output before claiming work is done.
+- `writing-plans` — when turning an approved design into an implementation plan,
+  break it into small tasks with exact file paths and verification steps.
+
+**Skill defaults this project overrides:**
+
+- **The TDD "delete code written before the test" rule applies to NEW code only.**
+  This is an existing large codebase. For changes to existing modules, add tests
+  for the code being changed; do not delete working production code to "start
+  fresh." Delete-and-restart is for freshly written, untested code in the current
+  task.
+- **Do not run the autonomous multi-hour implementation flow**
+  (`subagent-driven-development` working unattended across many tasks). This
+  project proceeds **one item at a time with human confirmation after each
+  change**. Stop and confirm before moving to the next change.
+- **Design is settled in conversation first, not by the skill's brainstorming
+  flow.** Design decisions are made with the human partner (cause → proposal →
+  approval) and recorded in the design docs (Japanese `.md` files under the
+  project). Use `brainstorming` only if explicitly asked; do not let it replace
+  the established approval gate.
+- **Do not auto-create git worktrees without asking.** Follow the existing Git
+  workflow in this file (feature branch off `develop-ikuchan`).
+
+**Design docs vs. code:** the authoritative design lives in the project's
+Japanese design documents (Mermaid 設計図, 用語一覧, 課題 docs, etc.), which are
+version-numbered and may describe not-yet-implemented decisions. **This CLAUDE.md
+and the code describe only what is actually implemented.** Do not copy in-progress
+design (new O/MI data model, T registers, trigger/cue, store access layer, etc.)
+into code or this file until it is actually built in a given phase.
+
+**When a bug fix touches a column/API rename or removal:** completion means
+`grep` for the old name returns zero, not a hand-counted list of edited sites
+(see the timestamp/embedding migration history for why counting is unreliable).
+
+## Project-local skills (PostgreSQL, pgvector, concurrency)
+
+Three third-party skills are vendored under `.claude/skills/` in this repo. They
+auto-activate on matching tasks. Scripts were intentionally excluded where
+present; **do not run any script from these skills against a database** — use them
+as guidance only. Environment facts to keep the skills honest: PostgreSQL 16
+(`pgvector/pgvector:pg16`), `situated_embeddings` is `vector(1024)`, cosine
+(`vector_cosine_ops` / `<=>`), embeddings are normalised.
+
+**`mastering-postgresql` (pgvector guidance):**
+
+- Use for pgvector index/query guidance (HNSW, `ef_search`, filtered-search
+  recall, iterative scan) and asyncpg query patterns.
+- Its Quick Start examples use pg17, `vector(1536)`, and `BIGSERIAL`. **Ignore
+  those specifics** — our env is pg16, `vector(1024)`, and existing schema. Do not
+  introduce `BIGSERIAL` (see the type rules below).
+- The `scripts/` and `assets/` were removed on purpose. Guidance only.
+
+**`postgresql-table-design` (PostgreSQL schema rules):**
+
+- Use its type and safety rules for **new** tables/columns and migrations:
+  `timestamptz` (never `timestamp`), `text` over `varchar(n)`,
+  `generated always as identity` over `serial`, manual index on FK columns.
+- Safe schema evolution matters for our large-table migrations: `CREATE INDEX
+  CONCURRENTLY` (not in a transaction), volatile defaults (`now()`) rewrite the
+  table, drop constraints before columns.
+- **Do not rewrite existing schema** just to match these rules. Apply them to new
+  work; leave working existing columns/types alone unless a task requires change.
+
+**`python-concurrency-performance` (async / concurrency):**
+
+- Use for asyncio vs threads boundaries, bounding fan-out (semaphores / bounded
+  queues), deadline/cancellation propagation, and task/thread leak checks.
+- Directly relevant to the planned **in-flight cancel** work (課題13 / Phase 5):
+  treat cancellation as normal control flow — catch `asyncio.CancelledError` only
+  for local cleanup, then **re-raise**; never swallow it in leaf tasks. Make
+  shutdown idempotent; guarantee cleanup in `finally` / managed contexts.
+- Keep a call path fully sync or async; offload blocking/GPU-heavy calls
+  (InsightFace, faster-whisper, etc.) off the event loop (`asyncio.to_thread()`).
+- `pyleak` is suggested as a dev/test-only diagnostic; adopt it only if we decide
+  to — it is not a runtime dependency.
+
+These are third-party (MIT) skills; keep their LICENSE/attribution files intact.
+
 ## Validation before merge
 
 Run before opening a PR:
