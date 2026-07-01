@@ -1017,21 +1017,42 @@ class ObservationMemory:
     async def recall_self_model_async(self, n: int = 5):
         return await asyncio.to_thread(self.recall_self_model, n)
 
-    def recall_curiosities(self, n: int = 5) -> list[dict]:
+    def _read_observations_by_kind(
+        self, kind: str, person_id: str, n: int, columns: tuple[str, ...]
+    ) -> list[dict]:
+        """observations を kind と person_id で絞り、新しい順に n 件読む dumb な読み出し。
+
+        採点・想起判断・trigger 判断は持たない（機械的な読み出しのみ）。
+        設計ドキュメントで確定したストアアクセス層の最初の実体。
+        行(dict)のリストを返す。失敗時は空リスト。
+        """
+        col_sql = ", ".join(columns)
         try:
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT content, timestamp FROM observations "
-                        "WHERE kind='curiosity' AND person_id=%s "
+                        f"SELECT {col_sql} FROM observations "
+                        "WHERE kind=%s AND person_id=%s "
                         "ORDER BY timestamp DESC LIMIT %s",
-                        (AGENT_SELF_ID, n),
+                        (kind, person_id, n),
                     )
-                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"])}
-                            for r in cur.fetchall()]
+                    return list(cur.fetchall())
         except Exception as e:
-            logger.warning("recall_curiosities failed: %s", e); return []
+            logger.warning("_read_observations_by_kind failed: %s", e); return []
+
+    def recall_curiosities(self, n: int = 5) -> list[dict]:
+        rows = self._read_observations_by_kind(
+            kind="curiosity",
+            person_id=AGENT_SELF_ID,
+            n=n,
+            columns=("content", "timestamp"),
+        )
+        return [
+            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
+             "time": _ts_to_time(r["timestamp"])}
+            for r in rows
+        ]
 
     async def recall_curiosities_async(self, n: int = 5):
         return await asyncio.to_thread(self.recall_curiosities, n)
