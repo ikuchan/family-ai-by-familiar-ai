@@ -209,9 +209,9 @@ into code or this file until it is actually built in a given phase.
 `grep` for the old name returns zero, not a hand-counted list of edited sites
 (see the timestamp/embedding migration history for why counting is unreliable).
 
-## Project-local skills (PostgreSQL, pgvector, concurrency)
+## Project-local skills (PostgreSQL, pgvector, concurrency, logging)
 
-Three third-party skills are vendored under `.claude/skills/` in this repo. They
+Four third-party skills are vendored under `.claude/skills/` in this repo. They
 auto-activate on matching tasks. Scripts were intentionally excluded where
 present; **do not run any script from these skills against a database** — use them
 as guidance only. Environment facts to keep the skills honest: PostgreSQL 16
@@ -252,6 +252,48 @@ as guidance only. Environment facts to keep the skills honest: PostgreSQL 16
   to — it is not a runtime dependency.
 
 These are third-party (MIT) skills; keep their LICENSE/attribution files intact.
+
+**`python-logging` (logging setup guidance):**
+
+- Use for choosing/configuring Python logging. It confirms our approach: keep the
+  `familiar_agent` package as a library (each module `logging.getLogger(__name__)`,
+  never call `basicConfig()`), and configure handlers/levels once at the entry
+  point (`main.py`). We stay on **stdlib logging** — do not introduce loguru.
+- The skill covers setup and structure but **not** which level to use for what.
+  That level policy is defined below (this project's own audit).
+
+## Logging policy (levels and format)
+
+Result of a one-time audit of existing logging. Setup is already centralised in
+`main.py` (root handler, formatter, third-party level suppression); the only stray
+setup is one line in `memory.py`. We do **not** mass-rewrite existing logs. Apply
+this policy to **new and changed code**; fix existing call sites opportunistically
+when you already touch that file.
+
+**Level policy (five levels):**
+
+- `debug` — detailed developer tracing (variable values, branch taken). Off in
+  production.
+- `info` — normal-path milestones (startup/shutdown, connection established, job
+  completed, state transitions worth recording).
+- `warning` — an anomaly the code **recovers from** and keeps going (config file
+  missing so a default is used; an optional feature disabled; queue backlog).
+- `error` — an operation that **could not be completed** (no fallback; the function
+  did not achieve its purpose).
+- In an `except` block, prefer **`logger.exception(...)`** (or
+  `logger.error(..., exc_info=True)`) so the stack trace is captured. Our existing
+  code has ~110 `logger.warning("...: %s", e)` sites in `except` blocks that drop
+  the traceback — when you touch one, convert it: keep `warning` only if it is a
+  recoverable anomaly, otherwise `exception`; add `exc_info` when the trace helps.
+
+**Format (from the skill's stdlib reference):** the entry-point formatter should
+carry timestamp, level, logger name and line number, e.g.
+`"%(asctime)s | %(levelname)s | %(name)s:%(lineno)d - %(message)s"`. Use
+`extra={...}` for structured context rather than string-formatting everything into
+the message.
+
+**Do not** add `print(...)` for logging in library code; use a logger. Plain
+`print` is only for genuine CLI/interactive stdout.
 
 ## Validation before merge
 

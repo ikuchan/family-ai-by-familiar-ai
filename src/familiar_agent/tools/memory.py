@@ -999,20 +999,17 @@ class ObservationMemory:
 
     def recall_self_model(self, n: int = 5) -> list[dict]:
         """Always uses AGENT_SELF_ID scope — agent's own self-understanding."""
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT content, timestamp, emotion FROM observations "
-                        "WHERE kind='self_model' AND person_id=%s "
-                        "ORDER BY timestamp DESC LIMIT %s",
-                        (AGENT_SELF_ID, n),
-                    )
-                    return [{"summary":r["content"],"date":_ts_to_date(r["timestamp"]),"time":_ts_to_time(r["timestamp"]),"emotion":r["emotion"]}
-                            for r in cur.fetchall()]
-        except Exception as e:
-            logger.warning("recall_self_model failed: %s", e); return []
+        rows = self._read_observations_by_kind(
+            kind="self_model",
+            person_id=AGENT_SELF_ID,
+            n=n,
+            columns=("content", "timestamp", "emotion"),
+        )
+        return [
+            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
+             "time": _ts_to_time(r["timestamp"]), "emotion": r["emotion"]}
+            for r in rows
+        ]
 
     async def recall_self_model_async(self, n: int = 5):
         return await asyncio.to_thread(self.recall_self_model, n)

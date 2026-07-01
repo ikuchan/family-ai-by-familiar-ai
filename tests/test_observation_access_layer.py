@@ -136,3 +136,80 @@ def test_recall_curiosities_returns_empty_when_none() -> None:
     mem = _mem()
     result = mem.recall_curiosities(n=5)
     assert result == []
+
+
+# ── 4. recall_self_model の付け替え後の戻り値の形（emotion 込み経路） ────────
+
+def _insert_obs_with_emotion(
+    cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime, emotion: str
+) -> None:
+    cur.execute(
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, emotion, person_id),
+    )
+
+
+def test_recall_self_model_returns_expected_shape_newest_first_with_limit() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "sm-1", "first self model", "self_model", AGENT_SELF_ID,
+                                  _NOW - timedelta(hours=2), "neutral")
+        _insert_obs_with_emotion(cur, "sm-2", "second self model", "self_model", AGENT_SELF_ID,
+                                  _NOW - timedelta(hours=1), "neutral")
+        _insert_obs_with_emotion(cur, "sm-3", "third self model", "self_model", AGENT_SELF_ID,
+                                  _NOW, "neutral")
+    conn.close()
+
+    mem = _mem()
+    result = mem.recall_self_model(n=2)
+
+    assert len(result) == 2
+    newest = result[0]
+    assert set(newest.keys()) == {"summary", "date", "time", "emotion"}
+    assert newest["summary"] == "third self model"
+    assert newest["date"] == "2026-06-01"
+    assert newest["time"] == "12:00"
+    assert result[1]["summary"] == "second self model"
+
+
+def test_recall_self_model_returns_distinct_emotion_values_unchanged() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "sm-emo-1", "neutral self model", "self_model", AGENT_SELF_ID,
+                                  _NOW - timedelta(hours=1), "neutral")
+        _insert_obs_with_emotion(cur, "sm-emo-2", "happy self model", "self_model", AGENT_SELF_ID,
+                                  _NOW, "happy")
+    conn.close()
+
+    mem = _mem()
+    result = mem.recall_self_model(n=5)
+
+    by_summary = {r["summary"]: r["emotion"] for r in result}
+    assert by_summary["happy self model"] == "happy"
+    assert by_summary["neutral self model"] == "neutral"
+
+
+def test_recall_self_model_filters_by_agent_self_id() -> None:
+    conn = psycopg2.connect(_DB_URL)
+    conn.autocommit = True
+    with conn.cursor() as cur:
+        _insert_obs_with_emotion(cur, "sm-self", "agent self model", "self_model", AGENT_SELF_ID,
+                                  _NOW, "neutral")
+        _insert_obs_with_emotion(cur, "sm-other", "other person self model", "self_model",
+                                  DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1), "neutral")
+    conn.close()
+
+    mem = _mem()
+    result = mem.recall_self_model(n=10)
+
+    assert len(result) == 1
+    assert result[0]["summary"] == "agent self model"
+
+
+def test_recall_self_model_returns_empty_when_none() -> None:
+    mem = _mem()
+    result = mem.recall_self_model(n=5)
+    assert result == []
