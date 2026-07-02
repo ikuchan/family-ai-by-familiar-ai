@@ -18,6 +18,7 @@ import os
 import threading
 import uuid
 from collections import OrderedDict
+from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -318,6 +319,40 @@ class _EmbeddingModel:
             self._store(self._q_cache, miss_texts, new)
             for j, i in enumerate(miss_idx): results[i] = new[j]
         return results  # type: ignore
+
+
+# ── MentalItem ──────────────────────────────────────────────────────────────
+
+@dataclass
+class PrimitiveMentalItem:
+    emotion: object | None = None   # PAD または未設定。A-1では未設定(None)
+    drive: object | None = None     # 5欠乏 または未設定。A-1では未設定(None)
+
+
+@dataclass
+class MentalItem(PrimitiveMentalItem):
+    id: str = ""
+    content: str = ""
+    vector: object | None = None
+    supersedes: str | None = None
+    activation: float | None = None
+
+
+def _row_to_mental_item(row) -> MentalItem:
+    """観測行から MentalItem を組み立てる。
+
+    感情のPAD化・埋め込みの取り込みは後続の段階で行うため、
+    emotion・drive・vector は未設定（None）とする。
+    """
+    return MentalItem(
+        id=row["id"],
+        content=row["content"],
+        supersedes=row["superseded_by"],
+        activation=row["importance"],
+        emotion=None,
+        drive=None,
+        vector=None,
+    )
 
 
 # ── ObservationMemory ──────────────────────────────────────────────────────
@@ -1000,8 +1035,10 @@ class ObservationMemory:
             kind="self_model",
             person_id=AGENT_SELF_ID,
             n=n,
-            columns=("content", "timestamp", "emotion"),
+            columns=("id", "content", "timestamp", "emotion", "superseded_by", "importance"),
         )
+        # A-1: 器を組み立てる経路を通す。返り値には使わず外部挙動を保つ（利用は次の一本）。
+        _items = [_row_to_mental_item(r) for r in rows]
         return [
             {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
              "time": _ts_to_time(r["timestamp"]), "emotion": r["emotion"]}
