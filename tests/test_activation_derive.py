@@ -82,11 +82,13 @@ def test_derive_activation_plus_minus_one_round_trip() -> None:
     assert abs((up - mid) - (mid - down)) < 0.2  # roughly symmetric near center
 
 
-# ── 5. a0=0.75, n=5, s=0.7 → near upper bound C=2 ────────────────────────────
+# ── 5. a0=0.75, step=0.33 → 評価5回で実用上限1.5に到達 ────────────────────────
 
-def test_derive_activation_five_evaluations_near_upper_bound() -> None:
-    a = _derive_activation(0.75, 5)
-    assert a >= 1.9
+def test_derive_activation_reaches_practical_limit_at_five() -> None:
+    a4 = _derive_activation(0.75, 4)
+    a5 = _derive_activation(0.75, 5)
+    assert a4 < 1.5 <= a5   # 4回では1.5未満、5回で1.5到達
+    assert a5 < 1.6         # ハード上限C=2にはまだ遠い（緩んで育つ）
 
 
 # ── 6. migration adds the two columns ────────────────────────────────────────

@@ -358,7 +358,7 @@ def _row_to_mental_item(row) -> MentalItem:
 
 def _derive_activation(
     a0: float, n: int, *, floor: float = 0.0, c: float = 2.0,
-    epsilon: float = 0.001, step: float = 0.7,
+    epsilon: float = 0.001, step: float = 0.33,
 ) -> float:
     """初期値 a0 と正味デルタ回数 n から活性 a を導出する。
 
