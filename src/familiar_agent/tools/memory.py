@@ -14,6 +14,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import math
 import os
 import threading
 import uuid
@@ -353,6 +354,24 @@ def _row_to_mental_item(row) -> MentalItem:
         drive=None,
         vector=None,
     )
+
+
+def _derive_activation(
+    a0: float, n: int, *, floor: float = 0.0, c: float = 2.0,
+    epsilon: float = 0.001, step: float = 0.7,
+) -> float:
+    """初期値 a0 と正味デルタ回数 n から活性 a を導出する。
+
+    a0 を [floor, c] で正規化し、ε で両端に寄せてロジットで無限区間へ写し、
+    n·step を足してロジスティックで [floor, c] へ戻す。n=0 なら a=a0。
+    floor・c・ε・step は設定値（値の確定は課題5・Config から差し替え可）。
+    """
+    span = c - floor
+    x0 = (a0 - floor) / span
+    x0 = min(max(x0, epsilon), 1.0 - epsilon)
+    u = math.log(x0 / (1.0 - x0)) + n * step
+    y = 1.0 / (1.0 + math.exp(-u))
+    return floor + span * y
 
 
 # ── ObservationMemory ──────────────────────────────────────────────────────
