@@ -1527,11 +1527,13 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall_behavior_policies, *a, **kw)
 
     def recall_day_summaries(self, n: int = 5) -> list[dict]:
-        rows = self._read_observations_by_kind(
-            kind="day_summary",
+        # C-1: 所有者絞り（observations.person_id）でなく situated 相関で在席者に紐づける。
+        # 母集合は所有者に依らず、この memory の person_id の視点で状況化された観測。
+        rows = self._read_observations_by_situated(
             person_id=self._person_id,
             n=n,
             columns=("content", "timestamp", "emotion"),
+            kind="day_summary",
         )
         return [
             {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),

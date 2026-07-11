@@ -1,6 +1,8 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.15）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.16）
 
 > 確定した新設計を現行コードへ落とす順序と依存を決める文書。**本書は段取り（フェーズ順序・依存・チェックポイント）の設計方針であり、各フェーズの TDD 手順・コードは承認後に別途出す。** 一項目ずつ確認しながら進める原則に従い、各フェーズ末に確認を挟む。
+
+> v0.16：C-1（person_id 所有者絞りの撤去）を実装済みに更新。situated 相関の読み出し層 `_read_observations_by_situated` を新設（第一段・未接続・テスト10件）し、`recall_day_summaries` をその層へ付け替えて所有者絞りを撤去（第二段・母集合が在席者相関へ変わる・戻り値の形は不変・既存 day_summary テスト4件を相関の意味論へ更新）。反証確認で、フォールバック二関数は主 situated 経路が0件のときだけ発火するため同じ situated 相関へ寄せると恒常的に空になると判明し、C-1 対象から外して別課題へ申し送った。次のコードは C-2（situated の役割整理）または MI 集約段。
 
 > v0.15：B-3（PI 構築と PI→MI 拡張）を実装済みに更新。`tif.py` を新設＝`build_primitive`（M と D から PrimitiveMentalItem を構築）と `expand_to_mental`（PI→MI 拡張）の純関数。emotion に MoodPAD、drive に AiDrivers を流用し A-1 器は無変更。実際の発火とループには未接続で外部挙動不変。DB 不使用でマイグレーションなし。新規テスト3件。Nudge と N_PAD と発火接続は後続段。段階B の Phase 1 スライス（B-1／B-2／B-3）が揃い、次のコードは段階C の C-1。
 > v0.14：B-2（drive（5欲求）レジスタ）を器のみ実装済みに更新。`drive_register.py` を新設＝5欲求（SEEKING／REST／BOND／SAFETY／ESTEEM）の器 AiDrivers（各軸 [0,1]・静止0.0）、agent_state（state_key drive5）への load_drives／save_drives。器と永続化のみで蓄積と放電と mood 変調（dynamics）は未実装。生きた15欲求 DesireSystem（agent_state["desires"]）にも as_coalition にも未接続で外部挙動不変。新規マイグレーションなし。新規テスト5件。dynamics と PI.drive surface と旧15→新5 移行は後続段。次のコードは B-3（PI 構築と MI 拡張）。
@@ -97,7 +99,7 @@
   - **B-3 の残り【予定・後続段】**：I→T Nudge を MI として発し T が emotion をフィルタ（[D-T境界]）、N_PAD（W の MI の emotion を activation 重みで合成）、発火とループへの `build_primitive`／`expand_to_mental` の接続。いずれも想起（W・Phase 2）と MI.emotion の PAD 化（課題11k）と発火に依存するため後続。
 
 段階C（相関サブテーブルの整理）：
-- **C-1【予定】person_id 所有者絞りの撤去**。所有者フィルタとしての person_id 参照を grep で洗い、相関（視点）へ一本化。自分（AGENT_SELF_ID）への相関は持たない。完了条件：所有者絞りの旧参照が grep で0件（相関・共通フィルタとしての残存は正当・1件ずつ理由を明示）。テスト観点：想起が所有者で絞られない／相関の person 別想起。**実機テスト：不要**（C-2 とまとめて節目③）。
+- **C-1【実装済み】person_id 所有者絞りの撤去**。代替の相関経路を先に作り、そのあと所有者絞りを外す二段で進めた。第一段：situated 相関の読み出し層 `_read_observations_by_situated(person_id, n, columns, *, kind=None, keywords=())` を新設（`situated_embeddings s` を `observations o` に JOIN し `s.person_id` で紐づける・所有者に依らない母集合・timestamp DESC・ベクトル類似度は使わない・未接続・テスト10件）。第二段：`recall_day_summaries` をこの層へ付け替え、`observations.person_id` 所有者絞りを撤去（母集合が在席者相関へ変わる・戻り値の形は不変・既存 day_summary テスト4件を相関の意味論へ更新）。フォールバック二関数 `_recall_keyword_fallback`／`_recall_recency_fallback` は C-1 対象から外した（主 situated 経路が0件のときだけ発火し、その0件は「その person の situated 行が無い」ときに限るため、同じ situated 相関へ寄せると恒常的に空になる。所有者絞りのまま「situated 行を持たない観測」を拾う役目を残す）。「situated 行を持たない観測のフォールバック扱い」は別課題へ申し送り。完了条件（達成）：`recall_day_summaries` から `observations.person_id` 所有者絞りが消えた（書き込み側 `delete_day_summaries_for_date` とフォールバック二関数は対象外）。**実機テスト：不要**（C-2 とまとめて節目③）。
 - **C-2【予定】situated の役割整理**。situated_embeddings を MI×person の相関として整理（在席者相関 p の素材・[D-在席相関]）。**実機テスト：必要（節目③）**＝在席者を想定した対話で、想起が在席者に応じて変わるか体感確認（在席入力は Phase 3 まで暫定なので限定的）。
 
 段階D（O 一元化の残りと撤去・最後）：
@@ -114,7 +116,7 @@
 | ④ | D-1（O 統合・テーブルごと） | 統合テーブル該当シナリオ | 統合前と挙動が変わらないか |
 | ⑤ | D-2（撤去・Phase 1 総合） | 主要シナリオ一通り | Phase 1 前と体感が劣化していないか |
 
-**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**次のコード＝段階C の C-1（person_id 所有者絞りの撤去）**。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
+**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**C-1（person_id 所有者絞りの撤去）実装済み**（`_read_observations_by_situated` 新設＋`recall_day_summaries` 付け替え・フォールバック二関数は別課題へ申し送り）。**次のコード＝段階C の C-2（situated の役割整理）または MI 集約段**。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
 
 #### Phase 1 実装済み進捗（読み出し層寄せ＝段階 A-0）
 

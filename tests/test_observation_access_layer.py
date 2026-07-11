@@ -150,6 +150,19 @@ def _insert_obs_with_emotion(
     )
 
 
+# situated_embeddings.vector は vector(1024)。recall_day_summaries は situated 相関で
+# 引くため、返ってほしい観測には対象 person の situated 行が要る。ベクトルは順序に
+# 使わない（timestamp DESC）が、コサイン索引がゼロノルムを嫌うので非ゼロを入れる。
+_VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
+
+
+def _insert_situated(cur, se_id: str, obs_id: str, person_id: str) -> None:
+    cur.execute(
+        "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",
+        (se_id, obs_id, person_id, _VEC),
+    )
+
+
 def test_recall_self_model_returns_expected_shape_newest_first_with_limit() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
@@ -215,7 +228,7 @@ def test_recall_self_model_returns_empty_when_none() -> None:
     assert result == []
 
 
-# ── 5. recall_day_summaries の付け替え後の戻り値の形（在席者スコープ経路） ──
+# ── 5. recall_day_summaries の付け替え後の戻り値の形（situated 相関経路） ──
 
 def test_recall_day_summaries_returns_expected_shape_newest_first_with_limit() -> None:
     conn = psycopg2.connect(_DB_URL)
@@ -227,6 +240,9 @@ def test_recall_day_summaries_returns_expected_shape_newest_first_with_limit() -
                                   _NOW - timedelta(hours=1), "neutral")
         _insert_obs_with_emotion(cur, "ds-3", "third day summary", "day_summary", DEFAULT_PERSON_ID,
                                   _NOW, "neutral")
+        _insert_situated(cur, "se-ds-1", "ds-1", DEFAULT_PERSON_ID)
+        _insert_situated(cur, "se-ds-2", "ds-2", DEFAULT_PERSON_ID)
+        _insert_situated(cur, "se-ds-3", "ds-3", DEFAULT_PERSON_ID)
     conn.close()
 
     mem = _mem()
@@ -242,22 +258,28 @@ def test_recall_day_summaries_returns_expected_shape_newest_first_with_limit() -
     assert result[1]["summary"] == "second day summary"
 
 
-def test_recall_day_summaries_scopes_to_this_memorys_person_id() -> None:
+def test_recall_day_summaries_correlates_by_situated_not_owner() -> None:
+    """付け替え後は所有者絞りでなく situated 相関で引く。所有者が別人でも、この memory の
+    person_id の situated 行があれば返り（相関で含む）、situated 行が無ければ所有していても
+    返らない（相関が母集合を決める）。"""
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs_with_emotion(cur, "ds-present", "present person day summary", "day_summary",
-                                  DEFAULT_PERSON_ID, _NOW, "neutral")
-        _insert_obs_with_emotion(cur, "ds-other", "other person day summary", "day_summary",
-                                  AGENT_SELF_ID, _NOW + timedelta(seconds=1), "neutral")
+        # 所有者は AGENT_SELF_ID だが DEFAULT_PERSON_ID の situated 行がある → 返る
+        _insert_obs_with_emotion(cur, "ds-corr", "correlated day summary", "day_summary",
+                                  AGENT_SELF_ID, _NOW, "neutral")
+        _insert_situated(cur, "se-corr", "ds-corr", DEFAULT_PERSON_ID)
+        # 所有者は DEFAULT_PERSON_ID だが DEFAULT_PERSON_ID の situated 行が無い → 返らない
+        _insert_obs_with_emotion(cur, "ds-uncorr", "uncorrelated day summary", "day_summary",
+                                  DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1), "neutral")
+        _insert_situated(cur, "se-uncorr", "ds-uncorr", AGENT_SELF_ID)
     conn.close()
 
     mem = _mem()
     assert mem._person_id == DEFAULT_PERSON_ID
     result = mem.recall_day_summaries(n=10)
 
-    assert len(result) == 1
-    assert result[0]["summary"] == "present person day summary"
+    assert [r["summary"] for r in result] == ["correlated day summary"]
 
 
 def test_recall_day_summaries_returns_distinct_emotion_values_unchanged() -> None:
@@ -268,6 +290,8 @@ def test_recall_day_summaries_returns_distinct_emotion_values_unchanged() -> Non
                                   DEFAULT_PERSON_ID, _NOW - timedelta(hours=1), "neutral")
         _insert_obs_with_emotion(cur, "ds-emo-2", "happy day summary", "day_summary",
                                   DEFAULT_PERSON_ID, _NOW, "happy")
+        _insert_situated(cur, "se-emo-1", "ds-emo-1", DEFAULT_PERSON_ID)
+        _insert_situated(cur, "se-emo-2", "ds-emo-2", DEFAULT_PERSON_ID)
     conn.close()
 
     mem = _mem()

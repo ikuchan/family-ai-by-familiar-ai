@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.2）
+# familiar-ai 直近の進め方と進捗（v0.3）
+
+> v0.3：C-1 を実装済みに更新。situated 相関の読み出し層 `_read_observations_by_situated` を新設（第一段・未接続）し、`recall_day_summaries` をその層へ付け替えて所有者絞りを撤去（第二段）。付け替え前の反証確認で、フォールバック二関数（`_recall_keyword_fallback`、`_recall_recency_fallback`）は主 situated 経路が0件のときだけ発火するため同じ situated 相関へ寄せると恒常的に空になると判明し、C-1 対象から外して別課題へ申し送った。C-1 の付け替え対象は `recall_day_summaries` の1本に絞った。
 
 > v0.2：C-1 の対象から `recall_on_this_day` を外し、W の5軸に収まる三関数（`_recall_keyword_fallback`、`_recall_recency_fallback`、`recall_day_summaries`）に絞った。日付一致（周期一致の記念日想起）は W の5軸に受け皿がなく、trigger 側の時刻起因の情動発火に属するため、本体ごと trigger 段へ申し送りとした。完了条件と次の一歩もこれに合わせた。
 
@@ -33,14 +35,16 @@
 - B-3：PI 構築 `build_primitive` と PI→MI 拡張 `expand_to_mental`（`tif.py`。emotion に `MoodPAD`、drive に `AiDrivers` を載せる）実装済みで未接続。
 - B-2 の蓄積 dynamics と、B-3 の Nudge および発火接続は後続段。
 
-### 段階C（着手前）
+### 段階C（C-1 実装済み）
 
-- C-1：観測想起経路の所有者絞りの撤去。方針は承認済みで、代替の相関経路を先に作り、そのあと所有者絞りを外す二段で進める。
-  - 対象は observations を person_id で絞る想起のうち、W の5軸（関連、新しさ、感情一致、activation、在席者相関）に収まる三つ。`_recall_keyword_fallback`、`_recall_recency_fallback`、`recall_day_summaries`。所有者絞りの本体が関連と新しさと person 相関なので、person 相関を situated 相関（第5軸）へ寄せれば W 想起に収まる。
+- C-1：観測想起経路の所有者絞りの撤去。代替の相関経路を先に作り、そのあと所有者絞りを外す二段で進めた。両段とも実装済み。
+  - 第一段【実装済み・未接続】：situated 相関の読み出し層 `_read_observations_by_situated(person_id, n, columns, *, kind=None, keywords=())` を新設。`situated_embeddings s` を `observations o` に JOIN し `s.person_id` で紐づける（所有者に依らない母集合）。順序は timestamp DESC でベクトル類似度は使わない。テスト10件。
+  - 第二段【実装済み】：`recall_day_summaries` を `_read_observations_by_kind`（所有者絞り）から `_read_observations_by_situated`（situated 相関・kind="day_summary"）へ付け替え、所有者絞りを撤去。母集合が所有者から在席者相関へ変わる（戻り値の形は不変）。既存 day_summary テスト4件を相関の意味論へ更新。
+  - フォールバック二関数 `_recall_keyword_fallback`、`_recall_recency_fallback` は C-1 対象から外した。付け替え前の反証確認で、両関数は主 situated 経路（`recall` の cosine 検索・min_score=0）が0件のときにだけ発火し、その0件は「その person の situated 行が無い」ときに限ると判明した。同じ situated 相関へ寄せると発火条件と母集合が一致して恒常的に空になる。所有者絞りのまま「situated 行を持たない観測」を拾う役目を残す。「situated 行を持たない観測をフォールバックがどう扱うか」は C-1 と別課題として申し送り。
   - `recall_on_this_day` は C-1 の対象外。本体が周期一致（今日と同じ月日の記念日想起）で、W の5軸に受け皿がない。周期一致は trigger 側の時刻起因の情動発火に属し、その機構は未実装。person 絞りだけを situated へ寄せると日付一致を W 想起の一部として実装で確定させ、trigger 段の設計判断を先取りする。よって日付一致の本体ごと trigger 段へ申し送り、C-1 では触らない。当面は現状維持（`observations.person_id = self._person_id` のまま動く。外部挙動不変）。
   - 主 recall はすでに situated 相関で引くので対象外。
   - `self_model`、`curiosities`、`semantic_facts`、`behavior_policies` は後続の MI 集約段へ回す。
-  - 完了条件は、上記三関数で person_id により所有者を絞る旧参照が grep で0件（相関や共通フィルタとしての残存は正当。除外は理由を1件ずつ明示）。`recall_on_this_day` の所有者絞りは trigger 段の完了条件へ移す。
+  - 完了条件（達成済み）：`recall_day_summaries` から `observations.person_id` の所有者絞りが消えた。書き込み側の `delete_day_summaries_for_date`（削除の所有者指定）とフォールバック二関数は対象外。`recall_on_this_day` の所有者絞りは trigger 段の完了条件へ移す。
 - MI 集約段（新設・後続）：`self_model`、`curiosities`、`semantic_facts`、`behavior_policies` を MI へ集約し、person は situated 相関で結ぶ。自己モデルの専用 MI 化を含む。person 縛りの撤去はこの段。置き場所（段階C の C-3 か段階D か）は未確定。
 - C-2：situated 役割整理。現行のまま。
 
@@ -56,4 +60,4 @@
 
 ## 次の一歩
 
-C-1 の第一段（相関経路の追加）の設計方針を立てるため、`_recall_keyword_fallback`、`_recall_recency_fallback`、`recall_day_summaries` の実装を読み、situated 相関で引く代替が各々どう書けるかを腑分けする調査に入る。`recall_on_this_day` は日付一致が trigger 段に属するため C-1 の調査対象から外す。
+C-1 は実装済み。次は MI 集約段の設計に入る。`self_model`、`curiosities`、`semantic_facts`、`behavior_policies` を MI へ集約し、person は situated 相関で結ぶ段。まず対象4種の現在の読み出し（`recall_self_model`、`recall_curiosities`、および `semantic_facts`／`behavior_policies` の読み出し経路）を実物のソースで調べ、MI 集約と situated 相関化の可否と順序を腑分けする調査に入る。置き場所（段階C の C-3 か段階D か）はこの調査で確定する。
