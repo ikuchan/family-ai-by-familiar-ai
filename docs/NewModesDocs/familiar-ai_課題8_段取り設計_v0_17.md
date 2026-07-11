@@ -1,6 +1,8 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.16）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.17）
 
 > 確定した新設計を現行コードへ落とす順序と依存を決める文書。**本書は段取り（フェーズ順序・依存・チェックポイント）の設計方針であり、各フェーズの TDD 手順・コードは承認後に別途出す。** 一項目ずつ確認しながら進める原則に従い、各フェーズ末に確認を挟む。
+
+> v0.17：C-2（situated の役割整理）を実装済み（設計整理のみ・実行時の挙動不変）に更新。`situated_embeddings` の二役割（1=視点シフト検索・本人／2=在席者相関 p・他者・自分除外）を台帳へ固定し、現行で生きているのは役割1のみ・役割2＝p 軸は 5軸スコアラごと Phase 2、AGENT_SELF situated は自己の中立視点（役割1の自己スコープ）と明記。ソースコードは変更なし。節目③（在席者に応じた想起変化）は p 軸実装後へ保留。次のコードは MI 集約段。
 
 > v0.16：C-1（person_id 所有者絞りの撤去）を実装済みに更新。situated 相関の読み出し層 `_read_observations_by_situated` を新設（第一段・未接続・テスト10件）し、`recall_day_summaries` をその層へ付け替えて所有者絞りを撤去（第二段・母集合が在席者相関へ変わる・戻り値の形は不変・既存 day_summary テスト4件を相関の意味論へ更新）。反証確認で、フォールバック二関数は主 situated 経路が0件のときだけ発火するため同じ situated 相関へ寄せると恒常的に空になると判明し、C-1 対象から外して別課題へ申し送った。次のコードは C-2（situated の役割整理）または MI 集約段。
 
@@ -100,7 +102,7 @@
 
 段階C（相関サブテーブルの整理）：
 - **C-1【実装済み】person_id 所有者絞りの撤去**。代替の相関経路を先に作り、そのあと所有者絞りを外す二段で進めた。第一段：situated 相関の読み出し層 `_read_observations_by_situated(person_id, n, columns, *, kind=None, keywords=())` を新設（`situated_embeddings s` を `observations o` に JOIN し `s.person_id` で紐づける・所有者に依らない母集合・timestamp DESC・ベクトル類似度は使わない・未接続・テスト10件）。第二段：`recall_day_summaries` をこの層へ付け替え、`observations.person_id` 所有者絞りを撤去（母集合が在席者相関へ変わる・戻り値の形は不変・既存 day_summary テスト4件を相関の意味論へ更新）。フォールバック二関数 `_recall_keyword_fallback`／`_recall_recency_fallback` は C-1 対象から外した（主 situated 経路が0件のときだけ発火し、その0件は「その person の situated 行が無い」ときに限るため、同じ situated 相関へ寄せると恒常的に空になる。所有者絞りのまま「situated 行を持たない観測」を拾う役目を残す）。「situated 行を持たない観測のフォールバック扱い」は別課題へ申し送り。完了条件（達成）：`recall_day_summaries` から `observations.person_id` 所有者絞りが消えた（書き込み側 `delete_day_summaries_for_date` とフォールバック二関数は対象外）。**実機テスト：不要**（C-2 とまとめて節目③）。
-- **C-2【予定】situated の役割整理**。situated_embeddings を MI×person の相関として整理（在席者相関 p の素材・[D-在席相関]）。**実機テスト：必要（節目③）**＝在席者を想定した対話で、想起が在席者に応じて変わるか体感確認（在席入力は Phase 3 まで暫定なので限定的）。
+- **C-2【実装済み・設計整理のみ・実行時の挙動不変】situated の役割整理**。situated_embeddings（obs_id, person_id, vector）を MI×person 相関の先行形として、二役割で整理・固定した。役割1＝視点シフト検索（`s.person_id=問う人`・本人・その視点に寄せた母集合とスコア）、役割2＝在席者相関 p（W 想起の第5軸・在席**他者**・**自分除外**・noisy-OR・[D-在席相関]）。**現行コードで生きているのは役割1のみ**（主 `recall` のコサイン検索と C-1 の `_read_observations_by_situated`）。**役割2（p 軸のスコアリング）は 5軸スコアラごと Phase 2**（現 `_compute_final_score` は p を含まない）。AGENT_SELF の situated 行は自己の中立視点（役割1の自己スコープ・`perspective_vec` 不在なら素の記憶ベクトル）で、p 軸の自分除外とは別物。ソースコードは変更せず、位置づけを「store と I/F」台帳と本節に固定した。**実機テスト：p 軸が入る Phase 2 まで保留**（現行は話し手ひとりの視点シフトのみで、在席者に応じた想起変化は p 軸実装後にしか観測できない。旧記載の節目③はこの保留に置き換え）。
 
 段階D（O 一元化の残りと撤去・最後）：
 - **D-1【予定】旧テーブルの O 統合**。episodes・episode_memories・memory_events・pending_speech・unfinished_business 等を O へ統合、semantic_facts・behavior_policies は O 外の昇格処理へ。1テーブルずつ薄く。テスト観点：統合で既存データが欠落・重複しない（移行の要）。マイグレーション＋ロールバック。**実機テスト：必要（節目④・テーブルごと）**＝統合したテーブルに関わるシナリオ（例：記憶を問う対話・②〜⑤の該当機能）で、統合前と挙動が変わらないか確認。
@@ -112,11 +114,11 @@
 |---|---|---|---|
 | ① | A-3 導出の想起接続（A-3-1 は未接続で対象外） | 記憶を問う対話（UC⑥） | 想起される記憶が従来と大きくずれないか |
 | ② | B-2（感情・欲求が動く） | 数回の対話 | 感情が自然に変化し平静へ戻るか・欲求が極端に振れないか |
-| ③ | C-2（相関整理） | 在席者を想定した対話 | 想起が在席者に応じて変わるか（暫定的） |
+| ③ | Phase 2 の p 軸（在席者相関） | 在席者を想定した対話 | 想起が在席者に応じて変わるか（C-2 は設計整理のみで役割2＝p 軸未実装のため、この観測は p 軸実装後へ保留） |
 | ④ | D-1（O 統合・テーブルごと） | 統合テーブル該当シナリオ | 統合前と挙動が変わらないか |
 | ⑤ | D-2（撤去・Phase 1 総合） | 主要シナリオ一通り | Phase 1 前と体感が劣化していないか |
 
-**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**C-1（person_id 所有者絞りの撤去）実装済み**（`_read_observations_by_situated` 新設＋`recall_day_summaries` 付け替え・フォールバック二関数は別課題へ申し送り）。**次のコード＝段階C の C-2（situated の役割整理）または MI 集約段**。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
+**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**C-1（person_id 所有者絞りの撤去）実装済み**（`_read_observations_by_situated` 新設＋`recall_day_summaries` 付け替え・フォールバック二関数は別課題へ申し送り）。**C-2（situated の役割整理）実装済み・設計整理のみ**（二役割を台帳へ固定・役割2＝p 軸は Phase 2・コード変更なし・実機テストは Phase 2 まで保留）。**次のコード＝MI 集約段**（`self_model`／`curiosities`／`semantic_facts`／`behavior_policies` を MI へ集約し person を situated 相関で結ぶ・置き場所は C-3 か段階D で未確定）。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
 
 #### Phase 1 実装済み進捗（読み出し層寄せ＝段階 A-0）
 
