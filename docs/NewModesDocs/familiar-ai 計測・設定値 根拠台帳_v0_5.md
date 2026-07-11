@@ -1,0 +1,119 @@
+# familiar-ai 計測・設定値 根拠台帳（v0.5）
+ 
+> 計測・実測が絡む設定値と設計判断について、「その値・方針に至った計測事実と判断の理由」を時系列で積む根拠集。**確定値そのものは課題5（パラメータ仮案）が正**で、本書は重複させず理由だけを残す（課題5＝今の値／本書＝なぜその値か）。計測を伴わない設計判断（在席者相関の第5軸化、relationship の案A 等）は対象外で、各課題ドキュメントに従う。
+>
+> 書式：対象／現在値・決定／計測事実〔【事実】に限る〕／判断と理由〔却下案も〕／暫定・確定の別と再検討条件／出典。
+ 
+> v0.5：**§11 pgvector 運用上の注意**を新設（外部ソース＝pgvector 公式・`mastering-postgresql` reference 由来の一般則を記録）。HNSW を使わせるクエリの形（`ORDER BY 距離 ... LIMIT K` 昇順）、`ef_search` は `SET LOCAL`＋トランザクション（singleton 接続で漏れ防止）、フィルタ付き検索の recall 低下と `hnsw.iterative_scan`（Phase 2 の5軸フィルタ＋min_score に関連）、HNSW/GIN の autovacuum 積極設定と `REINDEX CONCURRENTLY` 保守、距離と演算子クラスの一致（移行020 で `vector_cosine_ops` 一致は確認済み）。各項に【事実（一般則）】と【要確認（私たちのコード未確認）】を分離。実コード確認は Phase 1／計測4以降。
+> v0.4：bge-m3 での計測1（c_lo/c_hi）結果を反映。窓幅マイナス（運用値出ず）だが原因は関連プロキシ（時間ギャップ擬似セッション＝意味関連の代理にならず）＋perspective_vec ゼロ（全 person 同一ベクトル＝SQL で `distinct_vecs=1` 全 obs 確認）。bge-m3 自体の識別力は高い（nn p50 0.59 対 無関係 −0.02＝差 +0.61）。**c_lo/c_hi は暫定 0.25/0.50**・正式確定は (1)perspective 機能化＋(2)関連定義の作り直し後。r 段階化は維持。person 別中心化は現状グローバル等価。perspective 式の重み 0.30 を仮値として §10 に記録。
+> v0.3：bge-m3 移行の**完了**を反映（§6 を移行完了・再測定待ちへ）。BUG-1（A 冪等化＋B purge）完了確認のうえ着手・purge でデータがクリーン化（observations 2,618→2,519・situated 10,472→10,076）。c_lo/c_hi・min_score・mu は bge-m3 ベクトルで再測定/再計算待ち（§3・§4・§6）。
+> v0.2：計測5（VRAM）と実機 TTS 聴き比べを反映。§6 を bge-m3 確定・§8 を VRAM 確定へ更新、§9（TTS 選定＝Style-Bert-VITS2 / jvnv-M2-jp・案1 写像・セットアップ前提）を追加。Mermaid v0.22 と整合。
+ 
+## 計測履歴（データ規模）
+ 
+| 回 | 日付 | データ | 規模 | 出典 |
+|---|---|---|---|---|
+| 1回目 | 課題7 v0.1 計測 | situated コサイン（生） | — | 生コサイン CSV（most_populated／ゆうすけ／AGENT_SELF） |
+| 2回目 | 課題7 v0.3 計測 | observations 2,618 件（2026-06-08〜28）／situated 10,472 件／384次元（multilingual-e5-small）／episodes 0 件 | 無関係 50,000 ペア・NN top-5・意味ラベル ≈983 ペア | `report_c7_v03.md`／`rel_nn_final_*`・`rel_sem_final_*`・`unrel_final_*` CSV |
+| 計測5 | 2026-06-29 | ローカル ML スタック VRAM（RTX 3060 12GB） | モデル別＋同時常駐ピーク | `report_c5_vram.md`／`vram_results_c5.csv` |
+| 聴き比べ | 2026-06-29 | TTS エンジン実機比較（VOICEVOX/Kokoro/SBV2） | 評価テキスト5×style×強度 | 実機合成 wav（観点＝感情の出し分け・声の好み） |
+| bge-m3 移行 | 2026-06-29 | 埋め込み e5-small→bge-m3 移行完了（本番 DB） | obs 2,519／situated 10,076（1024次元・purge 後） | `migration-bge-m3-2026-06-29.md` |
+| 計測1(bge-m3) | 2026-06-29 | c_lo/c_hi 再測定（中心化後・擬似セッション） | 無関係5万・擬似セッション・nn top-5 | `measure-c-lo-hi-bge-m3-2026-06-29.md` |
+ 
+---
+ 
+## 1. 埋め込み平均中心化（採用・確定）
+ 
+- **現在の決定**：r／在席者相関 p／声紋照合のコサインを取る前に、全埋め込みから共通成分（平均ベクトル `mu`）を引いて L2 正規化する（[D-想起合成]／[D-在席相関]／[D-知覚]）。`mu` は固定保存・低頻度で再推定。
+- **計測事実**：1回目は生コサインが無関係でも mean≈0.88・無関係 p95≈0.931・関連 p25≈0.947 で窓幅 0.016（異方性・cone 効果）。2回目で `|mu|≈0.938`（cone の大きさ）。中心化後は無関係 中央値≈0 に改善、窓幅 0.202〜0.209（約12.3〜12.7倍）、順位分離 P(NN>無関係)≈0.99。
+- **判断と理由**：生コサインは絶対値が情報を持たず固定 min-max 窓が過小・脆弱。共通成分の除去で異方性が解け窓が健全化した。平均中心化は安価・モデル非依存で副作用が小さい。
+- **暫定/確定**：**確定**（揺るがない）。
+- **出典**：`report_c7_v03.md`／Mermaid v0.18・v0.19。
+## 2. 関連 r の扱い：ハード拒否権ゲート → 段階的関連係数（変更・確定）
+ 
+- **現在の決定**：r は段階的関連係数。c_lo 未満でも r=0 にせず連続の down-weight に留め、明らかな反相関（中心化後コサインが無関係中央値≈0 を下回る域）だけ低 r。**無関係の最終排除は min_score（合成5軸スコアの床）が担う**（[D-想起合成]）。
+- **計測事実**：2回目で、非トートロジーの意味ラベル関連は無関係と大きく重なった。AGENT_SELF で意味関連 中央値0.27・p25 0.12、無関係 p95 0.35。`c_lo=0.354` だと**意味関連の約64%が r=0（veto）**になり、関連を守ろうと c_lo を下げると無関係の通過が急増（c_lo=0.05 で無関係通過 37%）。きれいに分ける閾値が存在しない。順位分離 P(意味>無関係)≈0.836。
+- **判断と理由**：この埋め込みは近重複（NN）はよく分けるが段階的関連は分けきれない。ハード veto＋狭い窓は関連記憶を大量に殺すため却下。r を段階化し、選別を合成5軸スコアの min_score に移すと、関連が弱くても他軸（新しさ・感情・activation・在席者相関）で W に上がれる記憶を救える（5軸設計＝関連は一軸、の趣旨とも整合）。
+- **却下案**：(案2) 拒否権を維持し c_lo を低くするだけ＝関連 veto と無関係流入のトレードオフから抜けられず却下。
+- **留意**：意味ラベルが弱い proxy（同一 kind・60秒以内）で作られ、真の意味分離はやや良い可能性がある。ただし NN(0.56) と意味(0.27) の差は大きく、proxy を割り引いても veto 過剰は確か。
+- **暫定/確定**：方針は**確定**。閾値は暫定（下記3）。
+- **出典**：`report_c7_v03.md`／本台帳の veto 影響試算（AGENT_SELF）／Mermaid v0.20・課題5 v0.18。
+## 3. c_lo / c_hi（bge-m3・暫定 0.25 / 0.50）
+ 
+- **現在の値（暫定）**：c_lo≈**0.25**（無関係 p95）／c_hi≈**0.50**（nn top-5 p25・参考上限）。**正式値ではなく仮置き**。
+- **計測事実（bge-m3・2026-06-29）**：中心化後、無関係 p50 −0.02／p95 0.253。擬似セッション内ペア p25 −0.05（無関係とほぼ同値）で**窓幅マイナス（運用不可）**。一方 nn top-5 p50 0.59・無関係 p50 −0.02 で差 **+0.61**＝bge-m3 の識別力は高い。P(関連>無関係)≈0.63 は**関連プロキシの不良**（時間近接≠意味関連・短いセッション多数＋長大セッションのトピック横断）による。前回 e5-small（0.354/0.555）は計測方式が違い直接比較不可。
+- **構造要因**：perspective_vec が NULL リセットで全 person の situated が生 bge-m3 ベクトルの複製（SQL 確認＝`distinct_vecs=1` 全 2,519 obs）。視点差が無く person 別中心化も現状グローバルと等価。
+- **判断と理由**：窓がきれいに出ない以上 **r はハード veto に戻さず段階化のまま**（無関係排除は min_score）。nn top-k は「コサイン最大」で循環するため c_hi の**確定根拠には使わない**（参考のみ）。暫定 0.25/0.50 で先へ進む。
+- **却下案（レポート推奨）**：「意味的近傍 top-k を真の関連として c_hi 校正」＝トートロジー（近重複レンジへ逆戻り）のため却下。長大セッション除外・perspective 蓄積後の再測定は妥当として採用方向。
+- **暫定/確定**：**暫定**。正式確定の条件＝(1) perspective_vec の機能化（運用蓄積 or 課題8 の相関サブテーブル化）、(2) 関連定義をトートロジー回避で作り直す（計測指示書 v0.6・**当面保留**）。
+- **出典**：`measure-c-lo-hi-bge-m3-2026-06-29.md`／SQL 確認（distinct_vecs）／Mermaid v0.23。
+## 4. min_score（0.05 起点・主たる足切りへ）
+ 
+- **現在の値**：0.05（起点）。役割を「無関係排除の主たる足切り」へ格上げ（r の段階化に伴い）。
+- **計測事実**：5軸スコアは未実装のため、min_score 自体の実測はできていない（計測2 は素材のコサイン分布のみ採取）。
+- **判断と理由**：r が門でなくなったぶん、合成5軸スコアの soft 床が選別を担う。
+- **暫定/確定**：**暫定**。再検討条件＝**5軸スコア実装後（課題8）にスコア分布から確定**。
+- **出典**：`report_c7_v03.md`／課題5 v0.18／Mermaid v0.20。
+## 5. MaxConc（外部 API 同時実行の安全弁）
+ 
+- **現在の値**：3（Gemini Free 使用時は 2）。
+- **計測事実**：呼び出し先のレート上限＝Main LLM（Anthropic・従量 RPM≧50）／Utility（Gemini Free 15 RPM・Paid 60+）／Scene（OpenAI Tier1 500 RPM）／Web 検索（Brave Free 2,000件/月）／TTS（ElevenLabs 従量）。deferred は I/O 待ちで自前負荷は小さく、律速は外部 API 側。
+- **判断と理由**：最も厳しい上限の安全側に置く。Gemini Free が律速になり得るため、その場合 2。
+- **暫定/確定**：**暫定**（音声ローカル化で TTS の ElevenLabs 依存は解消予定・LLM 構成変更時に見直し）。
+- **出典**：`report_c7_v03.md`。
+## 6. 埋め込みモデルの大型化（確定＝bge-m3）
+ 
+- **現在の決定**：multilingual-e5-small（384次元・既存）→ **bge-m3（1024次元）へ移行（品質重視で確定）**。
+- **計測事実**：2回目で e5-small は近重複は分けるが段階的関連を分けきれないと判明（上記2・3）。計測5（VRAM 実測）で、bge-m3 級（xlm-roberta-large 級・約560M・1024次元）を GPU 常駐しても概算 1.5〜2.2GB・スタック全体 約5〜6GB・**残り 6〜7GB** と確認（VRAM は制約にならない）。
+- **判断と理由**：bge-m3 は retrieval 特化・多言語・長文脈に強く、段階的関連の分離改善が最も期待できる。e5-large（移行は素直）と比較し VRAM 差はわずかで品質を優先。次元 384→1024 は VRAM 余裕内。
+- **却下案**：e5-large＝移行は楽だが分離改善の期待値で bge-m3 に劣ると判断。
+- **移行実績（2026-06-29・完了）**：`EMBEDDING_MODEL`→bge-m3／`EMBEDDING_DIM`→1024／**e5 プレフィックス除去**／situated 列 384→1024・HNSW 再作成／obs 2,519・situated 10,076（孤児ゼロ）／旧 perspective_vec NULL リセット／副次に `_coerce_to_embedding_dim` で次元不一致クラッシュ防止。完了条件は旧名 grep 0件・全行 1024次元で証明（`migration-bge-m3-2026-06-29.md`）。
+- **暫定/確定**：**モデル選定＝確定・移行＝完了**。残＝**mu 再計算・c_lo/c_hi 再測定（§3）・min_score 確定（§4）**を bge-m3 ベクトルで実施（計測指示書 v0.5）。
+- **出典**：`report_c5_vram.md`／`report_c7_v03.md`／Mermaid v0.21–22／bge-m3 移行チケット。
+## 7. 声紋 同定閾値・VAD パラメータ（未計測）
+ 
+- **現在の状態**：未計測。
+- **計測事実**：2回目で `~/.familiar_ai/` 以下に enrollment（`.wav/.mp3/.npy`）が無くスキップ。
+- **判断と理由**：enrollment 完了後に、同一人物/別人のコサイン分布（平均中心化後）から同定閾値・unknown 境界を、自然な発話から VAD エンドポインティング（min_silence/speech_pad/min_speech）を決める。
+- **暫定/確定**：**未確定**。再検討条件＝enrollment 完了後に計測4 を実施。
+- **出典**：`report_c7_v03.md`／計測指示書 v0.5（計測4）。
+## 8. ローカル ML スタックの VRAM（確定＝大幅に余裕）
+ 
+- **現在の状態**：実測済み（2026-06-29・RTX 3060 12GB・実用空き 12,188 MiB）。
+- **計測事実**：1プロセス統合で CUDA コンテキスト共有（約26%節約）。知覚＋音声＋埋め込みの同時常駐ピーク **1,838 MiB・残り 10,450 MiB**。モデル別ピーク（MiB）＝e5-small 619／silero 164／DINOv2 S203・B351・L751／YOLO11n 254／Whisper medium-int8 1,090・large-v3-int8 2,018／ECAPA 276。構成 A〜D 全て収容可・最大品質でも約4.2GB。InsightFace は環境エラーで未測定（文献値 400〜600 MiB 想定）。
+- **判断と理由**：LLM・評価器・シーン VLM がクラウドなのでローカルは小型のみ。余裕が大きく STT も妥協不要（large-v3 int8 まで可）。推奨構成＝DINOv2-B＋Whisper（medium〜large-v3 int8）＋bge-m3＋e5/VAD は CPU 退避可。
+- **暫定/確定**：**確定（12GB で大幅に余裕）**。
+- **出典**：`report_c5_vram.md`／`vram_results_c5.csv`／Mermaid v0.21–22。
+## 9. TTS エンジン選定（確定＝Style-Bert-VITS2 / jvnv-M2-jp）
+ 
+- **現在の決定**：TTS＝**Style-Bert-VITS2**、声＝**jvnv-M2-jp**。感情は **PAD→(style, style_weight) 離散写像（案1）**＝基本感情ラベルへ当て、覚醒の大きさを style_weight に写す。
+- **計測事実（実機聴き比べ）**：VOICEVOX・Kokoro は感情の出し分けが弱く「いまいち」。SBV2 は style 7種（Neutral/Happy/Sad/Angry/Disgust/Fear/Surprise）×style_weight で感情を連続制御でき、声の好みで M2 を採用。GPU で 5.8 秒音声を **0.1〜0.8 秒**で合成（速度十分）。VRAM は SBV2＋日本語 BERT で 1〜2GB 程度（余裕）。
+- **判断と理由**：設計の PAD→声色写像に最も適合（style と強度の連続制御）。VOICEVOX（安定だが感情粗い）・Kokoro（軽量だが日本語表現が一歩譲る）は不採用。
+- **セットアップ前提（実機で判明）**：(a) GPU 利用時は **BERT を float32 で明示ロード**（既定 fp16 だと Half/float 混在で落ちる）。(b) numpy は拡張（pyworld/pyopenjtalk）の後に **numpy==1.26.4 を固定**（ABI 不整合回避）。(c) 入力テキストの全角「！？…」は g2p が落とすため**記号を無害化**。(d) VOICEVOX を Docker GPU で使う場合は **NVIDIA Container Toolkit** が前提。
+- **ライセンス**：SBV2 本体は **AGPL-3.0**（個人運用可・配布時 copyleft）。jvnv 既定モデルの利用規約は運用時に確認。
+- **暫定/確定**：**確定**。PAD→(style, style_weight) の具体的対応表は別途設計。
+- **出典**：実機聴き比べ（2026-06-29）／TTS 聴き比べ手順書（VOICEVOX/Kokoro 版・SBV2 版）／Mermaid v0.22。
+---
+ 
+## 10. perspective_vec の重み 0.30（仮値・未検証）
+ 
+- **現在の値**：`situated = normalise(mem_vec + 0.30 × perspective_vec)` の重み **0.30**。
+- **計測事実**：実測・検討の裏付けは無い（仮置き）。現状 perspective_vec は NULL リセットで 0 のため、この重みは現時点で効いていない（situated＝mem_vec）。
+- **判断と理由**：人物別の関与は新設計では相関サブテーブル（person 別想起）で持つ方針のため、perspective_vec／重み 0.30 の扱いは課題8 で相関サブテーブル化と併せて見直す。今は一括再構築しない（課題8 で作り直しになるため）。
+- **暫定/確定**：**未検証の仮値**。再検討＝課題8（perspective を相関サブテーブルへ寄せる設計時）。
+- **出典**：現行コード（`situated` 計算式）／SQL 確認（perspective_vec NULL）。
+## 11. pgvector 運用上の注意（外部ソース由来・実コード未確認を明記）
+ 
+外部の pgvector ドキュメント・SKILL（`mastering-postgresql` の reference）由来の一般則を記録する。**いずれも一般則としての【事実】であり、私たちのコードで実際にそうなっているかの確認は未実施**（要確認事項を各項に付す）。実環境は **PostgreSQL 16 + pgvector（`pgvector/pgvector:pg16`）・situated_embeddings は `vector(1024)`・cosine（`vector_cosine_ops`／`<=>`）・埋め込みは normalise 済み**。
+ 
+- **HNSW を使わせるクエリの形**：【事実】HNSW インデックスは `ORDER BY 距離演算子 ... LIMIT K` を昇順で書いたときにプランナが使う。この形でないと（例：距離で ORDER せず後段でソート、あるいは CROSS JOIN で全対全比較）インデックスが無視され全行スキャンに落ちる。演算子クラスは検索の距離と一致必須（cosine 検索なら `vector_cosine_ops`／`<=>`）。【要確認】私たちの situated 近傍検索が `ORDER BY situated <=> $1 LIMIT n` の形になっているか、`EXPLAIN (ANALYZE)` でインデックス使用を確認する（Phase 1 以降）。
+- **`hnsw.ef_search` は `SET LOCAL`＋トランザクション内で**：【事実】`ef_search`（既定 40・大きいほど recall 向上・遅くなる）をセッションレベルで `SET` すると、接続が再利用される環境では以後の全クエリに漏れる。`SET LOCAL` をトランザクション内で使えば COMMIT/ROLLBACK で自動的に戻る。【要確認】私たちは DB 接続が singleton（`get_db()`）で接続再利用に該当するため、将来 recall 精度向上で `ef_search` を触るときは `SET LOCAL`＋トランザクションを守る。現状 `ef_search` を設定しているか（既定 40 のままか）は未確認。
+- **フィルタ付き検索の recall 低下と iterative scan**：【事実】ベクトル近傍とフィルタ（`WHERE category = ...` 等）を併用すると、既定では「インデックスで近傍 K 件を取ってから WHERE で絞る」ため、フィルタが厳しいと結果が数件〜0件に減ることがある。pgvector 0.7+ の `hnsw.iterative_scan`（`strict_order`＝距離順維持／`relaxed_order`＝recall 優先で軽く順不同）＋`hnsw.max_scan_tuples`・`hnsw.scan_mem_multiplier` で緩和できる。【関連】Phase 2 の5軸スコアラ＋min_score は、まさに「近傍＋フィルタ」に該当しうる。min_score（§4）の足切りを DB 側 WHERE でやるか、取得後にアプリ側で採点して絞るかで挙動が変わる。【要確認】私たちの pgvector 版が 0.7+ で iterative_scan を使えるか（`pgvector/pgvector:pg16` の同梱版）。5軸フィルタを DB クエリに寄せるなら、この recall 低下を計測4以降で確認。
+- **HNSW/GIN の更新とメンテ**：【事実】HNSW・GIN は更新でデッドタプルが多く出るため、vector 中心のテーブルは autovacuum を積極設定（`autovacuum_vacuum_scale_factor` を既定 20% から 1% 程度へ、`autovacuum_analyze_scale_factor` も下げる）するのが推奨。インデックス保守は `REINDEX INDEX CONCURRENTLY`（ロック回避）→`VACUUM` の順が速い。【要確認】私たちの situated_embeddings は再埋め込み（bge-m3 移行・purge）で更新が入るため、bloat と autovacuum 設定を確認する価値がある。現状の autovacuum 設定は未確認。恒久運用に入る前（計測4以降）で見る。
+- **距離と演算子クラスの一致（既知の誤り源）**：【事実】インデックスの ops（`vector_cosine_ops`）とクエリの演算子（`<=>`）が食い違うとインデックスが使われない。【事実】私たちは移行020で `idx_se_hnsw` を `vector_cosine_ops` で作成済み・検索も cosine `<=>` のため一致している（この項のみ実装確認済み）。
+## 関連する既知バグ（計測への影響・別チケット）
+ 
+計測の解釈に影響するため記録する。修正は別チケット＋課題8。
+ 
+- **BUG-1 utterance 重複記録**：同一テキストの utterance 観測が50〜113件連続書き込み（書き込み側に dedup なし・統合がアイドル DMN 依存で走らず・上流の反復）。situated_embeddings に完全重複ベクトルが残存し、無関係の上裾と意味ラベルペアを汚染。**計測では完全重複を除去して対処**。恒久対応＝[D-反復出力]（反復抑止）＋REST 近重複統合＋既存重複の purge マイグレーション（課題8）。
+- **BUG-2 episodes 未記録**：`create_episode`/`append_to_episode` に呼び出し元がなく episodes が常に空。真の「同一セッション」ラベルが作れず、c_hi が NN ベース暫定になった。新設計では episodes は O 統合で廃止予定のため、計測の擬似セッションは**時間ギャップ**で代替（計測指示書 v0.5）。

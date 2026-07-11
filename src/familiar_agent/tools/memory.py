@@ -1101,6 +1101,43 @@ class ObservationMemory:
         except Exception as e:
             logger.warning("_read_observations_by_kind failed: %s", e); return []
 
+    def _read_observations_by_situated(
+        self, person_id: str, n: int, columns: tuple[str, ...],
+        *, kind: str | None = None, keywords: tuple[str, ...] = (),
+    ) -> list[dict]:
+        """observations を situated 相関で person に紐づけ、新しい順に n 件読む dumb な読み出し。
+
+        所有者絞り（observations.person_id）でなく situated_embeddings を JOIN し
+        s.person_id で紐づける（母集合はその person の視点で状況化された観測・所有者に依らない）。
+        順序は timestamp DESC でベクトル類似度は使わない。kind と keywords（content LIKE の OR）は任意。
+        採点・想起判断・trigger 判断は持たない。行(dict)のリストを返す。失敗時は空リスト。
+        """
+        col_sql = ", ".join(f"o.{c}" for c in columns)
+        clauses = ["s.person_id=%s", "o.superseded_by IS NULL"]
+        params: list = [person_id]
+        if kind is not None:
+            clauses.append("o.kind=%s")
+            params.append(kind)
+        if keywords:
+            like_sql = " OR ".join(["o.content LIKE %s"] * len(keywords))
+            clauses.append(f"({like_sql})")
+            params += [f"%{kw}%" for kw in keywords]
+        params.append(n)
+        try:
+            with self._db_lock:
+                conn = self._ensure_connected()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT {col_sql} FROM situated_embeddings s "
+                        "JOIN observations o ON o.id = s.obs_id "
+                        f"WHERE {' AND '.join(clauses)} "
+                        "ORDER BY o.timestamp DESC LIMIT %s",
+                        tuple(params),
+                    )
+                    return list(cur.fetchall())
+        except Exception as e:
+            logger.warning("_read_observations_by_situated failed: %s", e); return []
+
     def recall_curiosities(self, n: int = 5) -> list[dict]:
         rows = self._read_observations_by_kind(
             kind="curiosity",
