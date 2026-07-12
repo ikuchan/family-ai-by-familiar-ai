@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.9）
+# familiar-ai 直近の進め方と進捗（v0.10）
+
+> v0.10：論点1（c）＝系統A の対応づけを確定。self_model→自己認識 MI 自己エピソード部（REST 蒸留・能力部は capability_summary・self_narrative_log 廃止で pinned へ）、curiosity→cue／SEEKING の open 意図 O（自己認識 MI でない）、方針は二分（自己認識 MI 方針＝核＋Config／behavior_policies＝信念 MI・REST が間接蒸留）。MIデータモデル v0.06 の付録A に反映。これで MI 集約段の設計（系統A・系統B・situated V2・自己認識 MI 構築規約）が一通り揃った。
 
 > v0.9：自己認識 MI＝システムプロンプトの構築規約を追加（[D-自己認識分離]）。**プロンプトキャッシュ**整合のため、不変度順（核→Config→自己エピソード/policy）に前から並べ、毎ターンの可変分（W・mood・在席者・ユーザー入力）は messages 側へ置く。各区画に文字数上限（値は課題5）。キャッシュ非対応バックエンドでも無害。設計図 v0.42・用語一覧 v0.25 に反映。
 
@@ -72,4 +74,4 @@
 
 ## 次の一歩
 
-C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。MI 集約段の設計を会話で進行中（実装未着手）。系統B（`semantic_facts`／`behavior_policies`）は設計確定（キーレス supersede・content 注記・REST 更新・旧2テーブル撤去・`MIデータモデル` §7）で実装本体は Phase 2 寄り。系統A（`self_model`／`curiosity`）も調査で REST 蒸留の自己認識 MI へ収束する Phase 2 寄りと判明（旧スコープ不一致は旧実装の名残）。situated V2 の構造は確定（[D-在席相関/V2]・gap v0.3）。論点2（生成規則・移行）は確定した。situated V2 は構造・生成規則・移行写像まで設計が揃い、残るは β 分離の測定（課題7）と実装の置き場所（課題8）。次は、(a) situated V2 のマイグレーション方針（`relation_key` 追加・`UNIQUE` 撤去・既存観測→関係エッジ展開・`observations.person_id` 削除）を課題8 のどの段に置くか、(b) 旧 `_remember`・witnessed/scene の撤去範囲と順序、を実装計画として起こす段。ただし situated V2 は p 軸・関係抽出・REST に連なる Phase 2 寄りの大改修なので、着手前に Phase 1 で閉じられる部分があるか（例：`relation_key` 列とマイグレーションの器だけ先に）を切り分ける。
+C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。MI 集約段の設計を会話で進行中（実装未着手）。系統B（`semantic_facts`／`behavior_policies`）は設計確定（キーレス supersede・content 注記・REST 更新・旧2テーブル撤去・`MIデータモデル` §7）で実装本体は Phase 2 寄り。系統A（`self_model`／`curiosity`）の対応づけも確定（self_model→自己認識 MI 自己エピソード部・curiosity→cue O・方針二分・MIデータモデル v0.06 付録A）で、更新は REST 依存の Phase 2 寄り。自己認識 MI のシステムプロンプト構築規約（不変度順・messages 分離・文字数上限）も確定（[D-自己認識分離]）。situated V2 の構造・生成規則・移行も確定（[D-在席相関/V2]・gap v0.4）。situated V2 は構造・生成規則・移行写像まで設計が揃い、残るは β 分離の測定（課題7）と実装の置き場所（課題8）。次は、(a) situated V2 のマイグレーション方針（`relation_key` 追加・`UNIQUE` 撤去・既存観測→関係エッジ展開・`observations.person_id` 削除）を課題8 のどの段に置くか、(b) 旧 `_remember`・witnessed/scene の撤去範囲と順序、を実装計画として起こす段。ただし situated V2 は p 軸・関係抽出・REST に連なる Phase 2 寄りの大改修なので、着手前に Phase 1 で閉じられる部分があるか（例：`relation_key` 列とマイグレーションの器だけ先に）を切り分ける。

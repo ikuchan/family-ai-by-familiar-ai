@@ -2,6 +2,8 @@
  
 v1 を全面差し替え。本セッションの確定（LLM を解釈基盤に・属性最小化・B 解体・T↔I 境界＝PI）を反映。
 
+> v0.06 改訂（系統A の対応づけ確定＝論点1c）：付録A に `self_model`（→自己認識 MI 自己エピソード部・REST 蒸留・能力部は capability_summary）／`curiosity`（→cue／SEEKING の open 意図 O・自己認識 MI でない）／`semantic_facts／behavior_policies`（→信念 MI・自己認識 MI 方針とは別・REST が間接蒸留）の行を追加。
+
 > v0.05 改訂：付録A の移行早見表に `utterance／witnessed／scene` 行を追加＝単一 O＋situated 関係エッジ（speaker/presence/subject）へ一本化し旧 `_remember` の人ごと複製を廃止（[D-在席相関/V2]）。
 
 > v0.04 改訂：§7 の confidence を確定。**信頼度は数値属性を持たず MI の `content` に自然文注記として書くにとどめる**（検索の5軸に入れない・機械可読スカラ不要）。数値導出案（activation 同型の `(c0, m)`）は検討のうえ撤回。信頼度の更新（確証／反証／使われない）は REST 内省が結末を読み content を書き換えて supersede する形とし Phase 2 寄り。`_project_observation`・専用2テーブル・`fact_key`／`policy_key`・`confidence`・`adjust_*_confidence`・`memory_revisions`（confidence 版）は撤去対象として明記。§7 を〔設計確定・実装未着手〕へ。
@@ -130,6 +132,9 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 | suspended（退避） | **概念廃止**。W は毎ターン破棄・再構築。salience が下がれば載らないだけ（退避 store 無し） |
 | 動作要求／呼出要求 | **O の MI**（`content`＝動作・呼出の意図）。実行は調停→生成/動作（投げっぱなし） |
 | utterance／witnessed／scene | **単一 O の MI ＋ situated 関係エッジ**（[D-在席相関/V2]）。旧 `_remember` の人ごと複製（話者/目撃/場面）を廃し、1つの O に `speaker`（←`writer_id`）／`presence`（←`participants_json` の各在席者）／`subject`（←`subject_id`）の関係エッジを付ける。「[X が言った]」等の視点は content と関係エッジで表す |
+| self_model | **自己認識 MI の自己エピソード部**（REST が日付で O を読み返し一人称に蒸留し supersede 更新・pinned）。旧 `self_narrative_log` 廃止・morning-context 注入から pinned へ移す。能力部は `capabilities.yaml`→`capability_summary` の LLM 要約が担い REST が更新 |
+| curiosity | **cue／SEEKING の open 意図 O**（[D-想起起動]）。自己認識 MI ではない。専用種別なし・想起で W に載る |
+| semantic_facts／behavior_policies | **キーレス supersede チェーンの信念 MI**（§7）。信頼度は content 注記・REST が更新。自己認識 MI の方針(policy)とは別（自己認識 MI 方針＝核＋Config・pinned／behavior_policies＝W 想起の belief MI）。REST が繰り返し確証された belief 方針を自己認識 MI の方針へ一般化蒸留する間接経路のみ |
 | timer | **課題9 で別途**（時刻 due の扱いは未確定） |
  
 **観測 MI の `content`（設計要求）**：観測種別に応じて自然文の中身が入る（LLM が解釈・構造化コマンドは持たない＝[D-MIモデル]）。**ユーザー発話**＝ASR テキスト／**機器イベント（カメラ等）**＝scene・VLM の記述テキスト（Y-2・部屋レベル・定点非記載）／**検索・取得**＝フルLLM が束を畳んだ consolidated 内容（生の結果でなく整理後・[D-O書込]／[D-検索]）／**音楽等の機器状態**＝出来事の記述（曲・プレイリストの変化）。これにより観測 MI 化時の値踏み入力「いま起きたこと」は当該 `content` から取れる（[D-値踏み]）。**open 意図の `content`＝意図**（上表）と合わせ、値踏み入力〔いま起きたこと＝観測 `content`／気がかり＝open 意図 `content`＋`activation`〕が設計要求として裏づく。
