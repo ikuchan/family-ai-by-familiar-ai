@@ -1,4 +1,8 @@
-# familiar-ai 直近の進め方と進捗（v0.6）
+# familiar-ai 直近の進め方と進捗（v0.8）
+
+> v0.8：論点2（situated V2 の生成規則・移行）を確定。観測の既存視点列（`writer_id`／`subject_id`／`participants_json`）が関係エッジの素材と判明。関係初期集合＝`presence`（←participants_json）／`speaker`（←writer_id）／`subject`（←subject_id＋content 抽出）。**旧 `_remember` の複製モデル（scope speaker/witnessed/scene・kind utterance/witnessed/scene）を撤去し単一 O＋関係エッジへ一本化**（複数名対応の根本課題への回答）。移行は既存観測1件を視点列から複数関係エッジへ展開（person_id はフォールバックのみ・列削除）。設計図 [D-在席相関/V2]（v0.41）・gap v0.4・MIデータモデル v0.05 に反映。これで situated V2 の設計（構造＋生成規則＋移行）が確定、残るは β 分離の測定（課題7）と実装の置き場所（課題8）。
+
+> v0.7：系統A の調査で「self_model／curiosity の書き＝DEFAULT／読み＝AGENT_SELF のスコープ不一致」を発見。これは旧実装（複数名対応の試み）と新設計の gap で、系統A も REST 蒸留の自己認識 MI へ収束する Phase 2 寄りと判明（先の「系統A は Phase 1 で contained」は撤回）。ここから論点2（所有権・相関）を議論し、situated V2 の構造を確定：`observations.person_id` を削除し person↔MI は situated だけが担う／situated は型つき関係エッジ（`(obs_id,person_id)` に複数行・`UNIQUE` 撤去・在席関係／会話主体が並ぶ）／関係の種別は vector で表す（open-vocabulary）＋帳簿用 `relation_key` TEXT 列／分離が難しい関係は独立 vector 行で関係だけ引ける／p 軸は在席関係の行。設計図 [D-在席相関/V2]・gap v0.3 に反映。生成規則・移行写像・β 分離は次段。
 
 > v0.6：系統B 畳み込みの confidence を確定。**信頼度は数値属性を持たず MI の content に自然文注記として書くにとどめる**（検索の5軸に入れないので機械可読スカラ不要）。数値導出案（activation 同型の (c0,m)・確証+1／反証−1／使われない decay をユースケース①〜⑥でシミュレート）は検討のうえ撤回。信頼度の更新は REST 内省が結末を読み content を書き換え supersede する形で Phase 2 寄り。旧 semantic_facts／behavior_policies・固定キー投影・confidence・adjust・memory_revisions は撤去対象。これで系統B の設計（supersede＋confidence）が確定（`MIデータモデル` §7〔設計確定・実装未着手〕）。
 
@@ -66,4 +70,4 @@
 
 ## 次の一歩
 
-C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。MI 集約段の設計を会話で進行中（実装未着手）。系統B（`semantic_facts`／`behavior_policies`）の畳み込みは設計確定（supersede＝キーレス・再帰想起・`superseded_by IS NULL`／confidence＝content 注記・更新は REST／旧2テーブルと投影と adjust は撤去対象・いずれも `MIデータモデル` §7）。ただし online 更新は無く更新は REST 内省（Phase 2）に依るため、系統B の実装本体は Phase 2 寄り。次は **系統A（`self_model`／`curiosity`）の設計**（observations に既にあり situated 行も持つので C-1 と同型で contained）を詰め、Phase 1 で先に落とせる実装スライスとして系統A を実装方針に起こす。そのうえで系統B の Phase 1 で可能な部分（読み出し側＝再帰想起の器・キーレス supersede の下ごしらえ）と Phase 2 部分（REST 駆動の content 改訂）の切り分けと置き場所（C-3 か段階D か）を確定する。
+C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。MI 集約段の設計を会話で進行中（実装未着手）。系統B（`semantic_facts`／`behavior_policies`）は設計確定（キーレス supersede・content 注記・REST 更新・旧2テーブル撤去・`MIデータモデル` §7）で実装本体は Phase 2 寄り。系統A（`self_model`／`curiosity`）も調査で REST 蒸留の自己認識 MI へ収束する Phase 2 寄りと判明（旧スコープ不一致は旧実装の名残）。situated V2 の構造は確定（[D-在席相関/V2]・gap v0.3）。論点2（生成規則・移行）は確定した。situated V2 は構造・生成規則・移行写像まで設計が揃い、残るは β 分離の測定（課題7）と実装の置き場所（課題8）。次は、(a) situated V2 のマイグレーション方針（`relation_key` 追加・`UNIQUE` 撤去・既存観測→関係エッジ展開・`observations.person_id` 削除）を課題8 のどの段に置くか、(b) 旧 `_remember`・witnessed/scene の撤去範囲と順序、を実装計画として起こす段。ただし situated V2 は p 軸・関係抽出・REST に連なる Phase 2 寄りの大改修なので、着手前に Phase 1 で閉じられる部分があるか（例：`relation_key` 列とマイグレーションの器だけ先に）を切り分ける。

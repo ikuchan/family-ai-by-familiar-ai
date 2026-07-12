@@ -1,4 +1,8 @@
-familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.2）
+familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.4）
+
+v0.4：situated V2 の生成規則・移行を確定。関係初期集合＝presence/speaker/subject（視点列 participants_json/writer_id/subject_id から生成）。旧 `_remember` 複製モデル（scope speaker/witnessed/scene・kind utterance/witnessed/scene）の撤去を申し送りへ追加。移行写像を「既存観測1件→複数関係エッジ展開」へ精緻化。
+
+v0.3：situated V2（型つき関係エッジ・[D-在席相関/V2]）を反映。person_id 保持メモを「`observations.person_id` 削除＋situated だけが person↔MI を担う（型つき関係エッジ・`relation_key` 帳簿列・`UNIQUE(obs_id,person_id)` 撤去・独立 vector 行）」へ更新。課題8 申し送りも V2 へ。生成規則・移行写像・β 分離は次段。
 
 課題6 gap 文書化の承認用ドキュメント。旧実装の ~20 ストア（DB テーブル22個）＋旧感情系を、新設計（O 一元化・T レジスタ・W 派生・共通 MI）へどう移すかの対応表。設計レベルの対応と確定先（[D-…]）を示し、コード撤去・マイグレーション・テストの詳細は課題8 に送る。
 
@@ -27,7 +31,7 @@ relationship_state：廃止＋移管。関係内容（傾向・好み・境界�
 
 旧フィールド廃止：state_type／source／status／actionable_when／target／persist／pose／meta／urgency／novelty。MI は kind を持たず、意味は content に置き LLM が解釈する（[D-MIモデル]）。
 旧 kind → 新所属・表現：MIデータモデルの移行早見表（付録A）に従う。分類は格納先でなく content の解釈で表す。
-person_id 保持メモ：MI を最小化しても、person_id は store 列として残す（想起の共通フィルタ・相関サブテーブルの person 別視点に必須）。所有者フィルタとしては使わない（在席他者への相関＝視点へ一本化・[D-在席相関]）。
+person_id 保持メモ（[D-在席相関/V2] で更新）：**`observations.person_id` は削除**し、person と MI の結びつきは situated だけが担う（既存データは所有者 person を写像で situated へ移す）。situated は「MI×person の型つき関係エッジ」へ精緻化＝`(obs_id, person_id)` に複数行を許し（`UNIQUE` 撤去）、在席関係／会話主体など複数関係が並ぶ。関係の種別は vector で表し（open-vocabulary）、帳簿用 `relation_key` TEXT を1列持つ（検索に使わない）。分離が難しい関係は内容を混ぜない独立 vector 行で「関係だけ」を引ける。所有者フィルタは廃し、p 軸（在席者相関・自分除外）は在席関係の行を使う（[D-在席相関]）。
 
 5. 旧感情系・旧欲求 → 新（PAD・5欲求）
 
@@ -39,8 +43,9 @@ person_id 保持メモ：MI を最小化しても、person_id は store 列と�
 
 テーブル撤去：memory_links／exploration_state／self_narrative_log／relationship_state、および関連クラス（DefaultModeProcessor／ExplorationTracker／SelfNarrative／RelationshipTracker／TAPE）の撤去・置換。
 新規：WRDB（[D-WR拡散想起]）のマイグレーションとテスト。
-相関サブテーブル＝situated_embeddings の役割整理（person 別視点・在席者相関 p の素材）。
-person_id の所有者絞りの撤去（共通フィルタ・相関サブテーブルとしての利用は残す）。
+相関サブテーブル＝situated_embeddings を型つき関係エッジへ（[D-在席相関/V2]）：`relation_key` 列追加・`UNIQUE(obs_id, person_id)` 撤去・関係は vector（open-vocabulary）・独立 vector 行の許容。関係の初期集合＝`presence`（←`participants_json`）／`speaker`（←`writer_id`）／`subject`（←`subject_id`＋content 抽出）。β 分離可能性は課題7 計測へ。
+旧 `_remember` の複製モデル（`scope` speaker/witnessed/scene で観測を人ごとストアへ重複保存・kind `utterance`/`witnessed`/`scene`）を撤去し、単一 O＋situated 関係エッジへ一本化（複数名対応の根本課題への回答・[D-記憶単一化]／[D-在席相関/V2]）。
+`observations.person_id` の削除と既存データの situated 写像：既存観測1件を `participants_json`＋`writer_id`＋`subject_id` から複数の関係エッジへ展開（`person_id` は presence/speaker のフォールバックのみ）。所有者絞りの撤去は済（C-1）だが列削除は V2 で行う。
 appraisal／social_policy の trust/intimacy 依存を、想起した関係記憶からの評価器導出へ置換。
 旧フィールド・旧 kind 参照の撤去は、旧名で grep して残存ゼロを完了条件にする。
 DB 更新を伴うため、既存テストの修正要否を検討し、マイグレーション方法をテストに含める。
