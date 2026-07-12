@@ -1,4 +1,8 @@
-# familiar-ai 直近の進め方と進捗（v0.12）
+# familiar-ai 直近の進め方と進捗（v0.14）
+
+> v0.14：REST 内省サイクルの構造を確定（折衷型・課題10・設計図 v0.46）。起動＝T の純粋欠乏発火（日次）。1パス＝読み込み→蒸留（自己エピソード・per-person 関係サマリ）→open 棚卸し（孤児 Warn・消さない）→Config 自己調整（範囲内・人の設定不変）。**圧縮系（near-dup 統合・situated relation_key 語彙の増減）は同じパス内で量ベース**（たまっていれば実施）。平均ベクトル再推定はさらに低頻度。すべて版履歴で可逆、機械（距離/冗長度/Warn）とLLM（蒸留/棚卸し/命名/値提案）を切り分け。具体値（発火欲求・蓄積レート・量/滞留閾値・頻度）は課題5/10。実装は Phase 2。
+
+> v0.13：situated の relation_key 語彙の増減設計を確定（[D-在席相関/V2]・設計図 v0.45）。**REST が relation_key（関係の種類）を育て・畳む**——増やす＝既存 relation_concept と遠い関与が繰り返し出たら新関係語を立てる（命名 LLM・距離判定 機械）、減らす＝近い concept を統合／使われない relation_key を間引く（版履歴で可逆）。初期3種（presence/speaker/subject）は基幹の錨で対象外。閾値・回数・失効は課題10/5。これは vector で関係を表す狙い（open-vocabulary の自己管理）の実体。実装は Phase 2（REST 依存）。
 
 > v0.12：系統B の読み出し器を実装（未接続の薄い縦切り）。`memory.py` に `_read_supersede_chain(head_id, columns)` を新設＝現行版を起点に `superseded_by` を `WITH RECURSIVE` でさかのぼり版チェーンを再構成する dumb な読み出し（採点なし・既存経路から未接続・テスト4件）。MIデータモデル v0.07 §7 に反映。系統B 畳み込み本体は REST 依存で Phase 2。
 
