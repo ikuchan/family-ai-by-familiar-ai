@@ -1,4 +1,8 @@
-# familiar-ai 直近の進め方と進捗（v0.4）
+# familiar-ai 直近の進め方と進捗（v0.6）
+
+> v0.6：系統B 畳み込みの confidence を確定。**信頼度は数値属性を持たず MI の content に自然文注記として書くにとどめる**（検索の5軸に入れないので機械可読スカラ不要）。数値導出案（activation 同型の (c0,m)・確証+1／反証−1／使われない decay をユースケース①〜⑥でシミュレート）は検討のうえ撤回。信頼度の更新は REST 内省が結末を読み content を書き換え supersede する形で Phase 2 寄り。旧 semantic_facts／behavior_policies・固定キー投影・confidence・adjust・memory_revisions は撤去対象。これで系統B の設計（supersede＋confidence）が確定（`MIデータモデル` §7〔設計確定・実装未着手〕）。
+
+> v0.5：MI 集約段の設計を会話で開始（実装未着手）。対象4種を二系統に腑分けした。系統A＝`self_model`／`curiosity`（observations に kind で入る自己スコープ・C-1 と同型で contained）、系統B＝`semantic_facts`／`behavior_policies`（observations から `_project_observation` が固定キー投影する意味・信念層・key／revisions／confidence を持つ）。ユーザー方針で系統B の畳み込みを先に議論。supersede について、identity キーは足さず supersede チェーンの再帰想起で identity と revisions を賄い、W 取り込みは `superseded_by IS NULL` とする方向を確定（`MIデータモデル` §7 に反映）。書き込み側の紐づけ（old_id 同定）は類似度／REST へ寄せ Phase 2 寄り。confidence の写し先は次に議論。
 
 > v0.4：C-2（situated の役割整理）を実装済み（設計整理のみ・実行時の挙動不変）に更新。`situated_embeddings` の二役割（1=視点シフト検索・本人／2=在席者相関 p・他者・自分除外）を台帳へ固定し、現行で生きているのは役割1のみ・役割2＝p 軸は Phase 2、AGENT_SELF situated は自己の中立視点と明記した。ソースコードは変更なし。段階C（C-1・C-2）が済み、次は MI 集約段の調査。
 
@@ -62,4 +66,4 @@
 
 ## 次の一歩
 
-C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。次は MI 集約段の設計に入る。`self_model`、`curiosities`、`semantic_facts`、`behavior_policies` を MI へ集約し、person は situated 相関で結ぶ段。まず対象4種の現在の読み出し（`recall_self_model`、`recall_curiosities`、および `semantic_facts`／`behavior_policies` の読み出し経路）を実物のソースで調べ、MI 集約と situated 相関化の可否と順序を腑分けする調査に入る。置き場所（段階C の C-3 か段階D か）はこの調査で確定する。
+C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。MI 集約段の設計を会話で進行中（実装未着手）。系統B（`semantic_facts`／`behavior_policies`）の畳み込みは設計確定（supersede＝キーレス・再帰想起・`superseded_by IS NULL`／confidence＝content 注記・更新は REST／旧2テーブルと投影と adjust は撤去対象・いずれも `MIデータモデル` §7）。ただし online 更新は無く更新は REST 内省（Phase 2）に依るため、系統B の実装本体は Phase 2 寄り。次は **系統A（`self_model`／`curiosity`）の設計**（observations に既にあり situated 行も持つので C-1 と同型で contained）を詰め、Phase 1 で先に落とせる実装スライスとして系統A を実装方針に起こす。そのうえで系統B の Phase 1 で可能な部分（読み出し側＝再帰想起の器・キーレス supersede の下ごしらえ）と Phase 2 部分（REST 駆動の content 改訂）の切り分けと置き場所（C-3 か段階D か）を確定する。

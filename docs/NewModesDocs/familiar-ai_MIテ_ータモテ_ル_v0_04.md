@@ -1,6 +1,10 @@
 # familiar-ai MI データモデル v2（最小・確定）
  
 v1 を全面差し替え。本セッションの確定（LLM を解釈基盤に・属性最小化・B 解体・T↔I 境界＝PI）を反映。
+
+> v0.04 改訂：§7 の confidence を確定。**信頼度は数値属性を持たず MI の `content` に自然文注記として書くにとどめる**（検索の5軸に入れない・機械可読スカラ不要）。数値導出案（activation 同型の `(c0, m)`）は検討のうえ撤回。信頼度の更新（確証／反証／使われない）は REST 内省が結末を読み content を書き換えて supersede する形とし Phase 2 寄り。`_project_observation`・専用2テーブル・`fact_key`／`policy_key`・`confidence`・`adjust_*_confidence`・`memory_revisions`（confidence 版）は撤去対象として明記。§7 を〔設計確定・実装未着手〕へ。
+
+> v0.03 改訂：MI 集約段の設計中の記録として §7「意味・信念層（旧 semantic_facts／behavior_policies）の畳み込み」を追加。key／revisions／confidence の意味を整理し、**畳み込む方針**を確定。key と revisions は MI の supersede 版チェーンへ写す（identity＝chain 到達・revisions＝祖先の再帰想起・W 取り込み＝`superseded_by IS NULL`・identity キーは足さない）。書き込み側の紐づけ（old_id 同定）は類似度／REST へ寄せ Phase 2 寄り。confidence の写し先は未決（次の議論）。実装は未着手。
  
 ## 0. 方針
 LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／由来／動作 等）は属性にせず `content` に置き LLM が解釈**する。属性は「**T が作る信号**」＋「**機械的必須**」だけ。MI は**単一クラス**（抽象基底・サブタイプは作らない）。
@@ -82,6 +86,31 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
  
 - recall 重みの合成・値（課題5）。
 - `activation` の最終定義（取込初期化＝surprise+novelty+relevance／on-read 減衰、の方向は確定・微調整は検討継続）。
+
+## 7. 意味・信念層（旧 semantic_facts／behavior_policies）の畳み込み〔設計確定・実装未着手〕
+
+現行の `semantic_facts`／`behavior_policies` は、observations（エピソード）の上に載る**畳み込み済みの意味・信念層**である。書き込み元は `_project_observation` の固定キー投影のみで（`self_model:core`／`curiosity:active`／`conversation:support`）、独立した LLM 抽出は未接続。各行は次の三要素を持つ。
+
+- **key**（`fact_key`／`policy_key`）：同じ信念を時間をまたいで指す identity。同一キーへの再投影は行を増やさず UPDATE する。
+- **revisions**（`memory_revisions`）：本文・confidence が変わったときの改訂履歴（旧→新）。
+- **confidence**：その信念をどれだけ信じてよいかの信頼度。想起の絞り・並びには使わず、LLM 文脈へ `conf:0.85` の形で注入し、`memory-evidence-confidence` 制約で「0.55 未満は不確か」と読ませる。経験（会話の結末）で `adjust_*_confidence` が増減させる。
+
+**方針は MI へ畳み込む**。key と revisions は MI の `supersedes` 版チェーンへ写す。
+
+- **identity ＝ supersede チェーンの到達可能性**。identity キーは足さない。信念を更新するたびに新 MI を書き、旧 MI を `superseded_by = 新id` で閉じる。
+- **revisions ＝ 祖先の再帰想起**。現行版（`superseded_by IS NULL`）を起点に `WITH RECURSIVE` で祖先へさかのぼれば、その信念の改訂履歴が chain から再構成できる（旧本文・旧 confidence は旧 MI に残る）。`superseded_by` には索引 `idx_obs_superseded` があり再帰は安価。多対一の収束（重複を最古へ畳む）も既存の型。
+- **W への取り込み ＝ `superseded_by IS NULL`**。既存の全想起経路がこの絞りを持つので、chain の現行版だけが W に載る。今の「キーごとに生きた1行」と同じ効果が追加機構なしで出る。
+
+**残る書き込み側の紐づけ**：chain は linkage を記録するが、新しい信念版が来たとき `mark_superseded` に渡す old_id（どの現行 MI を置き換えるか）を何が同定するかは別問題。キーを外すので、この同定は**類似度／REST に寄せる**（`find_near_duplicates` のベクトル近傍、または REST 内省が意味的に同じ現行 MI を見つけて supersede）。固定キーの即時投影 `_project_observation` は、キーレス化で類似度／REST ベースの supersede へ置き換わる。REST 内省は未実装のため、**書き込み側 consolidation は Phase 2（REST）寄り**。読み出し側（再帰想起で履歴・`superseded_by IS NULL` で現行版）は既存機構で成立する。
+
+**整理事項**：MI dataclass の `supersedes` フィールドは行の `superseded_by` から読んでおり（`memory.py`）、名は「前版を指す」だが実体は「次版に置き換えられた」。再帰想起を素直に書くため、畳み込み実装時にこの向きを整理する。
+
+**confidence の畳み込み〔確定〕**：confidence は**数値属性として持たず、信頼度を MI の `content` に自然文の注記として書く**にとどめる（「この方針は何度かうまくいっている」「まだ確信は薄い」等）。MI に confidence カラムも `(c0, m)` のような導出用スカラも足さない。理由は、confidence は検索に一切効かせない（5軸 r/t/e/a/p に入れない）ため機械可読なスカラである必要がなく、MIデータモデルの「属性は T 信号＋機械的必須だけ・意味は content」に沿うから。数値導出案（activation と同型に `(c0, m)` からロジスティックで導く案）は検討したうえで撤回した（検索に効かないので数値化の利得がない）。
+
+信頼度の更新（確証／反証／使われない）は、**REST 内省がその日の結末を読み、信念 MI の `content` を書き換えて supersede** することで反映する。確証＝結末が信念を裏づけた、反証＝使ったが結末が反した、使われない＝一定期間 W へ引かれず再検証されない、の三つを REST が読み取り、注記を強める／弱める／薄める。`adjust_*_confidence` の即時 ±delta と `memory_revisions` の confidence 版は、この REST 駆動の content 改訂に置き換わる（online の数値即時更新は持たない）。REST 内省は未実装のため、信頼度の更新は **Phase 2（REST）寄り**。
+
+**畳み込みで消える現行機構**：`_project_observation` の固定キー投影、`semantic_facts`／`behavior_policies` テーブル、`fact_key`／`policy_key`、`confidence` カラム、`adjust_*_confidence`、`memory_revisions`（confidence 版）は、キーレス supersede チェーン＋content 注記へ畳まれるため撤去対象。撤去は実装スライスで grep 0件を完了条件に含める。
+
 ## 付録A. 旧 kind → 新（移行早見表）
  
 `kind` 廃止（案A）の確定を吸収。各行は本文・設計図 [D-…] の再掲だが、改造時の一覧用に畳む。
