@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.8）
+# familiar-ai 直近の進め方と進捗（v0.9）
+
+> v0.9：自己認識 MI＝システムプロンプトの構築規約を追加（[D-自己認識分離]）。**プロンプトキャッシュ**整合のため、不変度順（核→Config→自己エピソード/policy）に前から並べ、毎ターンの可変分（W・mood・在席者・ユーザー入力）は messages 側へ置く。各区画に文字数上限（値は課題5）。キャッシュ非対応バックエンドでも無害。設計図 v0.42・用語一覧 v0.25 に反映。
 
 > v0.8：論点2（situated V2 の生成規則・移行）を確定。観測の既存視点列（`writer_id`／`subject_id`／`participants_json`）が関係エッジの素材と判明。関係初期集合＝`presence`（←participants_json）／`speaker`（←writer_id）／`subject`（←subject_id＋content 抽出）。**旧 `_remember` の複製モデル（scope speaker/witnessed/scene・kind utterance/witnessed/scene）を撤去し単一 O＋関係エッジへ一本化**（複数名対応の根本課題への回答）。移行は既存観測1件を視点列から複数関係エッジへ展開（person_id はフォールバックのみ・列削除）。設計図 [D-在席相関/V2]（v0.41）・gap v0.4・MIデータモデル v0.05 に反映。これで situated V2 の設計（構造＋生成規則＋移行）が確定、残るは β 分離の測定（課題7）と実装の置き場所（課題8）。
 

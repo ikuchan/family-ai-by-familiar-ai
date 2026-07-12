@@ -1,4 +1,6 @@
-# familiar-ai 用語・略語一覧（v0.24）
+# familiar-ai 用語・略語一覧（v0.25）
+
+> v0.25：プロンプトキャッシュを追加（LLM 項）。自己認識 MI＝システムプロンプトを不変度順に並べ可変分を messages へ置く構築規約の根拠（[D-自己認識分離]・設計図 v0.42）。
 
 > v0.24：B スライスの実装名を併記（いずれも実装済み・未接続）。M（PAD）項に mood レジスタ `MoodPAD`（`mood_register.py`・全軸[0,1]・中立0.5・平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad`・B-1）。D（Drive）項に drive レジスタ `AiDrivers`（`drive_register.py`・5欲求 SEEKING/REST/BOND/SAFETY/ESTEEM・各軸[0,1]・静止0.0・state_key `drive5`・`load_drives`/`save_drives`・器のみ・B-2）。PI 項に PI 構築と PI→MI 拡張の `tif.py` の `build_primitive`／`expand_to_mental`（emotion に `MoodPAD`・drive に `AiDrivers` を載せる・発火とループへ未接続・B-3）。いずれも既存 agent_state パターン踏襲で外部挙動不変。
 > v0.23：活性の保存形式の実装名を併記（A-3-1）。activation 項に列 `activation_a0`・導出関数 `_derive_activation`（定数 floor=0／C=2／ε=0.001／step=0.33 の仮値・step は取込 a0=0.75 から5回で実用上限1.5 に達する効き幅）を、正味デルタ回数 n の項に列 `activation_n` を追記。importance 列は当面残す（接続と廃止は後続）。
@@ -218,3 +220,4 @@
 | LLM | トークン毎秒 | tokens per second | tok/s | 1秒あたりの生成トークン数（生成スループット）。ローカル化時の同時実行・レイテンシ評価に用いる（課題7）。 |
 | LLM | 初回トークン遅延 | time to first token | TTFT | プロンプト投入から最初のトークン出力までの時間。軽量LLM 選定の第一基準＝レイテンシの主指標（課題7）。 |
 | LLM | 思考モードと非思考モード | thinking / non-thinking mode | — | Qwen3 の切替可能な生成モード。思考モードは連鎖推論を挟み遅延が増え、非思考モードは即答寄り。評価・調停・つなぎはレイテンシ要件のため非思考モードを前提（課題7）。 |
+| LLM | プロンプトキャッシュ | prompt caching | — | プロンプトのプレフィックスを再利用して再計算を省く仕組み（Anthropic 等）。前方一致で、プレフィックスが1バイトでも変わると以降が無効化される（レンダリング順 tools→system→messages）。自己認識 MI＝システムプロンプトを不変度順に並べ、毎ターンの可変分を messages 側へ置く構築規約の根拠（[D-自己認識分離]）。キャッシュ非対応バックエンドでも順序規約として無害。 |
