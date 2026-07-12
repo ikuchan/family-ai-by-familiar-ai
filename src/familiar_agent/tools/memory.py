@@ -489,18 +489,24 @@ class ObservationMemory:
         obs_id: str,
         person_id: str,
         mem_vec: np.ndarray,
+        relation_key: str = "presence",
     ) -> None:
-        """Compute and store situated vector for one person."""
+        """Compute and store situated vector for one person under a relation_key.
+
+        relation_key は関係の帳簿ラベル（[D-在席相関/V2]）。同定キーは
+        (obs_id, person_id, relation_key) で、同じ関係の再計算は vector を更新する。
+        生成の多型化（speaker/subject）は後続スライス。
+        """
         mem_vec = _coerce_to_embedding_dim(mem_vec)
         p_vec = self._get_perspective_vec_with_conn(person_id, conn)
         situated = _normalise(mem_vec + ALPHA * p_vec)
         vec_str = vec_to_sql(situated.tolist())
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) "
-                "VALUES (%s, %s, %s, %s::vector) "
-                "ON CONFLICT (obs_id, person_id) DO UPDATE SET vector = EXCLUDED.vector",
-                (str(uuid.uuid4()), obs_id, person_id, vec_str),
+                "INSERT INTO situated_embeddings (id, obs_id, person_id, vector, relation_key) "
+                "VALUES (%s, %s, %s, %s::vector, %s) "
+                "ON CONFLICT (obs_id, person_id, relation_key) DO UPDATE SET vector = EXCLUDED.vector",
+                (str(uuid.uuid4()), obs_id, person_id, vec_str, relation_key),
             )
 
     def _refresh_situated_embeddings(self, conn, obs_id: str, mem_vec: np.ndarray) -> None:

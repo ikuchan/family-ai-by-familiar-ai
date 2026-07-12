@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.10）
+# familiar-ai 直近の進め方と進捗（v0.11）
+
+> v0.11：MI 集約段の設計が一通り確定したので実装へ着手。**situated V2 の schema 器を Phase 1 分として実装**＝スライス1（`relation_key` 列・マイグレーション 022）とスライス2（UNIQUE を `(obs_id,person_id,relation_key)` へ・023・`_upsert_situated_embedding` に relation_key 既定 presence）。いずれも生成 presence のみで挙動不変。RED→GREEN、自分で回した回帰・ruff・mypy は緑（全体テストはユーザー実行中）。**slice-3 以降（視点列から presence/speaker/subject の関係生成・person_id 削除・旧 `_remember` 撤去）は、書き込みが視点列を実質埋めていない＝在席検出・話者帰属（[D-知覚]）依存で Phase 2 へ申し送り**と判明。設計図 v0.44・課題8 v0.18 に反映。
 
 > v0.10：論点1（c）＝系統A の対応づけを確定。self_model→自己認識 MI 自己エピソード部（REST 蒸留・能力部は capability_summary・self_narrative_log 廃止で pinned へ）、curiosity→cue／SEEKING の open 意図 O（自己認識 MI でない）、方針は二分（自己認識 MI 方針＝核＋Config／behavior_policies＝信念 MI・REST が間接蒸留）。MIデータモデル v0.06 の付録A に反映。これで MI 集約段の設計（系統A・系統B・situated V2・自己認識 MI 構築規約）が一通り揃った。
 
@@ -74,4 +76,4 @@
 
 ## 次の一歩
 
-C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。MI 集約段の設計を会話で進行中（実装未着手）。系統B（`semantic_facts`／`behavior_policies`）は設計確定（キーレス supersede・content 注記・REST 更新・旧2テーブル撤去・`MIデータモデル` §7）で実装本体は Phase 2 寄り。系統A（`self_model`／`curiosity`）の対応づけも確定（self_model→自己認識 MI 自己エピソード部・curiosity→cue O・方針二分・MIデータモデル v0.06 付録A）で、更新は REST 依存の Phase 2 寄り。自己認識 MI のシステムプロンプト構築規約（不変度順・messages 分離・文字数上限）も確定（[D-自己認識分離]）。situated V2 の構造・生成規則・移行も確定（[D-在席相関/V2]・gap v0.4）。situated V2 は構造・生成規則・移行写像まで設計が揃い、残るは β 分離の測定（課題7）と実装の置き場所（課題8）。次は、(a) situated V2 のマイグレーション方針（`relation_key` 追加・`UNIQUE` 撤去・既存観測→関係エッジ展開・`observations.person_id` 削除）を課題8 のどの段に置くか、(b) 旧 `_remember`・witnessed/scene の撤去範囲と順序、を実装計画として起こす段。ただし situated V2 は p 軸・関係抽出・REST に連なる Phase 2 寄りの大改修なので、着手前に Phase 1 で閉じられる部分があるか（例：`relation_key` 列とマイグレーションの器だけ先に）を切り分ける。
+C-1・C-2 は実装済み（段階C の Phase 1 スライスが済んだ）。MI 集約段の設計を会話で進行中（実装未着手）。系統B（`semantic_facts`／`behavior_policies`）は設計確定（キーレス supersede・content 注記・REST 更新・旧2テーブル撤去・`MIデータモデル` §7）で実装本体は Phase 2 寄り。系統A（`self_model`／`curiosity`）の対応づけも確定（self_model→自己認識 MI 自己エピソード部・curiosity→cue O・方針二分・MIデータモデル v0.06 付録A）で、更新は REST 依存の Phase 2 寄り。自己認識 MI のシステムプロンプト構築規約（不変度順・messages 分離・文字数上限）も確定（[D-自己認識分離]）。situated V2 の構造・生成規則・移行も確定（[D-在席相関/V2]・gap v0.4）。situated V2 の schema 器（スライス1・2）を実装し、Phase 1 分はここで一区切り（全体テスト緑待ち）。slice-3 以降は視点列を埋める知覚（[D-知覚]）依存で Phase 2。**Phase 1 で残る MI 集約段の実装可能面はほぼ尽きた**（集約本体は REST 依存）。次の候補：(A) 系統B の読み出し器（キーレス supersede チェーンの再帰想起ヘルパー・母集合を変えず未接続の薄い縦切り）、(B) 別の設計論点や別課題（Phase 2 の p 軸設計・REST 詳細＝課題10 等）へ移る。全体テスト緑を確認してから、どちらへ進むか決める。

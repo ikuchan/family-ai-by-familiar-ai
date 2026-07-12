@@ -1,6 +1,8 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.17）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.18）
 
 > 確定した新設計を現行コードへ落とす順序と依存を決める文書。**本書は段取り（フェーズ順序・依存・チェックポイント）の設計方針であり、各フェーズの TDD 手順・コードは承認後に別途出す。** 一項目ずつ確認しながら進める原則に従い、各フェーズ末に確認を挟む。
+
+> v0.18：MI 集約段の設計確定（系統A・系統B・situated V2・自己認識 MI）を締めに反映。situated V2 の schema 器＝スライス1（relation_key 列・022）／スライス2（UNIQUE を relation_key 込みへ・023・upsert キー化）を Phase 1 分として実装（生成 presence のみ・挙動不変）。slice-3 以降（関係生成・person_id 削除・旧 `_remember` 撤去）は視点列を埋める知覚（[D-知覚]）依存で Phase 2 へ申し送り。集約全体の更新機構は REST 内省依存で Phase 2 寄り。
 
 > v0.17：C-2（situated の役割整理）を実装済み（設計整理のみ・実行時の挙動不変）に更新。`situated_embeddings` の二役割（1=視点シフト検索・本人／2=在席者相関 p・他者・自分除外）を台帳へ固定し、現行で生きているのは役割1のみ・役割2＝p 軸は 5軸スコアラごと Phase 2、AGENT_SELF situated は自己の中立視点（役割1の自己スコープ）と明記。ソースコードは変更なし。節目③（在席者に応じた想起変化）は p 軸実装後へ保留。次のコードは MI 集約段。
 
@@ -118,7 +120,7 @@
 | ④ | D-1（O 統合・テーブルごと） | 統合テーブル該当シナリオ | 統合前と挙動が変わらないか |
 | ⑤ | D-2（撤去・Phase 1 総合） | 主要シナリオ一通り | Phase 1 前と体感が劣化していないか |
 
-**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**C-1（person_id 所有者絞りの撤去）実装済み**（`_read_observations_by_situated` 新設＋`recall_day_summaries` 付け替え・フォールバック二関数は別課題へ申し送り）。**C-2（situated の役割整理）実装済み・設計整理のみ**（二役割を台帳へ固定・役割2＝p 軸は Phase 2・コード変更なし・実機テストは Phase 2 まで保留）。**次のコード＝MI 集約段**（`self_model`／`curiosities`／`semantic_facts`／`behavior_policies` を MI へ集約し person を situated 相関で結ぶ・置き場所は C-3 か段階D で未確定）。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
+**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**C-1（person_id 所有者絞りの撤去）実装済み**（`_read_observations_by_situated` 新設＋`recall_day_summaries` 付け替え・フォールバック二関数は別課題へ申し送り）。**C-2（situated の役割整理）実装済み・設計整理のみ**（二役割を台帳へ固定・役割2＝p 軸は Phase 2・コード変更なし・実機テストは Phase 2 まで保留）。**MI 集約段の設計は一通り確定**（系統A＝self_model→自己認識 MI 自己エピソード部／curiosity→cue O、系統B＝キーレス supersede＋content 注記の信念 MI、situated V2＝型つき関係エッジ、自己認識 MI＝核/Config/自己エピソード/policy＋プロンプトキャッシュ整合の構築規約・MIデータモデル §7／[D-在席相関/V2]／[D-自己認識分離]）。**いずれも更新機構が REST 内省に依存するため実装本体は Phase 2 寄り**（REST 詳細＝周期・閾値は課題10）。**Phase 1 で入ったのは situated V2 の schema 器のみ**＝スライス1（`relation_key` 列・2026-07-12-022）とスライス2（UNIQUE を relation_key 込みへ・2026-07-12-023・`_upsert` キー化）で、いずれも生成 presence のみ・挙動不変。**slice-3 以降（視点列から presence/speaker/subject の関係生成・person_id 削除・旧 `_remember` 撤去）は、書き込みが視点列を実質埋めていない＝在席検出・話者帰属（[D-知覚]）が入る Phase 2 に依存するため申し送り**。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
 
 #### Phase 1 実装済み進捗（読み出し層寄せ＝段階 A-0）
 
