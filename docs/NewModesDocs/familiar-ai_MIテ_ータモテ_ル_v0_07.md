@@ -2,6 +2,8 @@
  
 v1 を全面差し替え。本セッションの確定（LLM を解釈基盤に・属性最小化・B 解体・T↔I 境界＝PI）を反映。
 
+> v0.07 改訂：§7 の読み出し器を実装済み（未接続）に更新。`_read_supersede_chain(head_id, columns)` を新設（`WITH RECURSIVE` で supersede 版チェーンを再構成・dumb・未接続・テスト4件）。畳み込み本体は Phase 2。
+
 > v0.06 改訂（系統A の対応づけ確定＝論点1c）：付録A に `self_model`（→自己認識 MI 自己エピソード部・REST 蒸留・能力部は capability_summary）／`curiosity`（→cue／SEEKING の open 意図 O・自己認識 MI でない）／`semantic_facts／behavior_policies`（→信念 MI・自己認識 MI 方針とは別・REST が間接蒸留）の行を追加。
 
 > v0.05 改訂：付録A の移行早見表に `utterance／witnessed／scene` 行を追加＝単一 O＋situated 関係エッジ（speaker/presence/subject）へ一本化し旧 `_remember` の人ごと複製を廃止（[D-在席相関/V2]）。
@@ -102,7 +104,7 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 **方針は MI へ畳み込む**。key と revisions は MI の `supersedes` 版チェーンへ写す。
 
 - **identity ＝ supersede チェーンの到達可能性**。identity キーは足さない。信念を更新するたびに新 MI を書き、旧 MI を `superseded_by = 新id` で閉じる。
-- **revisions ＝ 祖先の再帰想起**。現行版（`superseded_by IS NULL`）を起点に `WITH RECURSIVE` で祖先へさかのぼれば、その信念の改訂履歴が chain から再構成できる（旧本文・旧 confidence は旧 MI に残る）。`superseded_by` には索引 `idx_obs_superseded` があり再帰は安価。多対一の収束（重複を最古へ畳む）も既存の型。
+- **revisions ＝ 祖先の再帰想起**。現行版（`superseded_by IS NULL`）を起点に `WITH RECURSIVE` で祖先へさかのぼれば、その信念の改訂履歴が chain から再構成できる（旧本文・旧 confidence は旧 MI に残る）。`superseded_by` には索引 `idx_obs_superseded` があり再帰は安価。多対一の収束（重複を最古へ畳む）も既存の型。**【実装済み・未接続】**この再帰想起の器を `memory.py` の `_read_supersede_chain(head_id, columns)` として新設（現行版を起点に `superseded_by` を `WITH RECURSIVE` でさかのぼり head〔depth 0〕＋祖先を depth 昇順で返す dumb な読み出し・採点や想起判断は持たない・既存経路からは未接続・テスト4件）。系統B の畳み込み本体（投影の撤去と REST 駆動の content 改訂）は Phase 2。
 - **W への取り込み ＝ `superseded_by IS NULL`**。既存の全想起経路がこの絞りを持つので、chain の現行版だけが W に載る。今の「キーごとに生きた1行」と同じ効果が追加機構なしで出る。
 
 **残る書き込み側の紐づけ**：chain は linkage を記録するが、新しい信念版が来たとき `mark_superseded` に渡す old_id（どの現行 MI を置き換えるか）を何が同定するかは別問題。キーを外すので、この同定は**類似度／REST に寄せる**（`find_near_duplicates` のベクトル近傍、または REST 内省が意味的に同じ現行 MI を見つけて supersede）。固定キーの即時投影 `_project_observation` は、キーレス化で類似度／REST ベースの supersede へ置き換わる。REST 内省は未実装のため、**書き込み側 consolidation は Phase 2（REST）寄り**。読み出し側（再帰想起で履歴・`superseded_by IS NULL` で現行版）は既存機構で成立する。

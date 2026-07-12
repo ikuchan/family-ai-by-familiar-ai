@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.11）
+# familiar-ai 直近の進め方と進捗（v0.12）
+
+> v0.12：系統B の読み出し器を実装（未接続の薄い縦切り）。`memory.py` に `_read_supersede_chain(head_id, columns)` を新設＝現行版を起点に `superseded_by` を `WITH RECURSIVE` でさかのぼり版チェーンを再構成する dumb な読み出し（採点なし・既存経路から未接続・テスト4件）。MIデータモデル v0.07 §7 に反映。系統B 畳み込み本体は REST 依存で Phase 2。
 
 > v0.11：MI 集約段の設計が一通り確定したので実装へ着手。**situated V2 の schema 器を Phase 1 分として実装**＝スライス1（`relation_key` 列・マイグレーション 022）とスライス2（UNIQUE を `(obs_id,person_id,relation_key)` へ・023・`_upsert_situated_embedding` に relation_key 既定 presence）。いずれも生成 presence のみで挙動不変。RED→GREEN、自分で回した回帰・ruff・mypy は緑（全体テストはユーザー実行中）。**slice-3 以降（視点列から presence/speaker/subject の関係生成・person_id 削除・旧 `_remember` 撤去）は、書き込みが視点列を実質埋めていない＝在席検出・話者帰属（[D-知覚]）依存で Phase 2 へ申し送り**と判明。設計図 v0.44・課題8 v0.18 に反映。
 

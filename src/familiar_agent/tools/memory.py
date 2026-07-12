@@ -1144,6 +1144,36 @@ class ObservationMemory:
         except Exception as e:
             logger.warning("_read_observations_by_situated failed: %s", e); return []
 
+    def _read_supersede_chain(
+        self, head_id: str, columns: tuple[str, ...]
+    ) -> list[dict]:
+        """現行版 MI（head_id）を起点に supersede の版チェーンを再構成する dumb な読み出し。
+
+        `superseded_by`（旧→新を指す）を再帰でさかのぼり、head（depth 0）と祖先
+        （旧版）を depth 昇順（新→旧）で返す。系統B 畳み込みの改訂履歴の再構成に使う
+        （§7）。採点・想起判断は持たない。既存経路からは未接続。失敗時は空リスト。
+        head_id が存在しなければ空リスト。
+        """
+        col_sql = ", ".join(f"o.{c}" for c in columns)
+        try:
+            with self._db_lock:
+                conn = self._ensure_connected()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "WITH RECURSIVE chain AS ("
+                        "  SELECT id, 0 AS depth FROM observations WHERE id=%s"
+                        "  UNION ALL"
+                        "  SELECT o.id, c.depth+1 FROM observations o "
+                        "    JOIN chain c ON o.superseded_by = c.id"
+                        ") "
+                        f"SELECT {col_sql} FROM chain c JOIN observations o ON o.id = c.id "
+                        "ORDER BY c.depth",
+                        (head_id,),
+                    )
+                    return list(cur.fetchall())
+        except Exception as e:
+            logger.warning("_read_supersede_chain failed: %s", e); return []
+
     def recall_curiosities(self, n: int = 5) -> list[dict]:
         rows = self._read_observations_by_kind(
             kind="curiosity",
