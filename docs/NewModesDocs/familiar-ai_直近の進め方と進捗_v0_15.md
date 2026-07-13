@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.14）
+# familiar-ai 直近の進め方と進捗（v0.15）
+
+> v0.15：Phase 2 に着手（入口＝P＝想起から）。**スライス P-1＝活性の想起接続**を実装。`_compute_final_score` の `importance` を `_derive_activation(activation_a0, activation_n)` へ差し替え、recall クエリを activation_a0/n の取得へ、`_compute_final_score` の呼び出しも更新。**二重時間減衰を解消**＝`importance` の日次減衰（`_generate_day_summary` の `decay_importance_async`）を撤去し、時間減衰は t 軸（time_score）へ一元化・a 軸は (a0,n) のイベント駆動（[D-想起合成]）。挙動変化（二重減衰の解消）＝**実機確認が要る**（UC⑥・節目①相当）。テスト2件＋回帰緑（時間減衰の順序は維持）。Phase 2 の背骨（5軸スコアラ）の第一歩。次は P-2（参照申告で n 増減・freshness 若返り）／P-3（感情 PAD 化）。
 
 > v0.14：REST 内省サイクルの構造を確定（折衷型・課題10・設計図 v0.46）。起動＝T の純粋欠乏発火（日次）。1パス＝読み込み→蒸留（自己エピソード・per-person 関係サマリ）→open 棚卸し（孤児 Warn・消さない）→Config 自己調整（範囲内・人の設定不変）。**圧縮系（near-dup 統合・situated relation_key 語彙の増減）は同じパス内で量ベース**（たまっていれば実施）。平均ベクトル再推定はさらに低頻度。すべて版履歴で可逆、機械（距離/冗長度/Warn）とLLM（蒸留/棚卸し/命名/値提案）を切り分け。具体値（発火欲求・蓄積レート・量/滞留閾値・頻度）は課題5/10。実装は Phase 2。
 

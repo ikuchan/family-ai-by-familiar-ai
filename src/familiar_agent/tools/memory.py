@@ -65,14 +65,18 @@ def _compute_final_score(
     ts,
     last_recalled_at,
     recall_count: int,
-    importance: float,
+    activation_a0: float,
+    activation_n: int,
     *,
     half_life_days: float,
     floor: float,
 ) -> float:
     """Compute time-decayed final score via DecayState.
 
-    final_score = cosine × time_score × importance
+    final_score = cosine × time_score × activation（導出）
+    a 軸＝`_derive_activation(a0, n)`（イベント駆動・時間では減らさない）。
+    時間減衰は time_score（t 軸）に一元化し、importance の日次減衰は使わない
+    （Phase 2 P-1・[D-想起合成]）。
     强化A: recall_count → effective half-life doubles per increment.
     強化B: last_recalled_at as origin_epoch (freshness reset).
     Settings injected from MemoryConfig (time_decay refactor Issue).
@@ -88,7 +92,9 @@ def _compute_final_score(
         reinforce_count=max(0, recall_count),
     )
     now_epoch = datetime.now(timezone.utc).timestamp()
-    return cosine * state.score(now_epoch) * float(importance)
+    return cosine * state.score(now_epoch) * _derive_activation(
+        float(activation_a0), int(activation_n)
+    )
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -873,7 +879,8 @@ class ObservationMemory:
                         f"""
                         SELECT o.id, o.content, o.timestamp,
                                o.direction, o.kind, o.emotion, o.image_path,
-                               COALESCE(o.importance, 1.0) AS importance,
+                               COALESCE(o.activation_a0, 1.0) AS activation_a0,
+                               COALESCE(o.activation_n, 0) AS activation_n,
                                COALESCE(o.recall_count, 0) AS recall_count,
                                o.last_recalled_at,
                                1 - (s.vector <=> %s::vector) AS score
@@ -900,7 +907,8 @@ class ObservationMemory:
                         row["timestamp"],
                         row["last_recalled_at"],
                         int(row["recall_count"]),
-                        float(row["importance"]),
+                        float(row["activation_a0"]),
+                        int(row["activation_n"]),
                         half_life_days=_cfg.recall_half_life_days,
                         floor=_cfg.recall_time_floor,
                     )

@@ -2637,11 +2637,8 @@ class EmbodiedAgent:
                     materialize_now=False,
                 )
                 logger.info("Day summary generated for %s: %s", date, summary[:80])
-                # Phase 2-2: decay importance of older observations now that the day is summarised.
-                # Run in background to avoid stalling the backfill loop.
-                asyncio.ensure_future(
-                    self._memory.decay_importance_async(before_date=date, factor=0.95)
-                )
+                # 時間減衰は想起の t 軸（time_score）へ一元化したため、importance の
+                # 日次減衰は行わない（Phase 2 P-1・[D-想起合成]。a 軸＝(a0,n) はイベント駆動）。
             else:
                 logger.warning("Day summary for %s: LLM returned empty response", date)
         except asyncio.TimeoutError:
