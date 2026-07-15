@@ -380,6 +380,35 @@ def _derive_activation(
     return floor + span * y
 
 
+def _emotion_match(
+    obs_pad: tuple[float, float, float, float],
+    mood_pad: tuple[float, float, float, float],
+    *,
+    sigma: float = 1.0,
+    lambdas: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
+    epsilon: float = 0.001,
+) -> float:
+    """感情一致 e を導出する（課題5 v0.23・ガウシアン・未接続）。
+
+    各 PAD 軸を ε で両端へ寄せロジットで元空間へ戻し、軸重み λ_i つきの
+    二乗距離 D²=Σ λ_i (logit(x_obs)-logit(x_mood))² を作り、
+    e=exp(-D²/(2σ²)) を返す。完全一致で e=1、遠いほど 0 へ。
+    σ・λ_i・ε は設定値（課題5・Config から差し替え可）。
+
+    この段（Phase 2 P-3・スライス1）では `_compute_final_score` へは繋がず、
+    e 軸のスコア接続は後続スライスに置く。
+    """
+    def _logit(x: float) -> float:
+        x = min(max(x, epsilon), 1.0 - epsilon)
+        return math.log(x / (1.0 - x))
+
+    d2 = 0.0
+    for xo, xm, lam in zip(obs_pad, mood_pad, lambdas):
+        delta = _logit(xo) - _logit(xm)
+        d2 += lam * delta * delta
+    return math.exp(-d2 / (2.0 * sigma * sigma))
+
+
 # ── ObservationMemory ──────────────────────────────────────────────────────
 
 class ObservationMemory:
