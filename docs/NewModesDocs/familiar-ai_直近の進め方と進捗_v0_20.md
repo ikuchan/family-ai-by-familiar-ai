@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.19）
+# familiar-ai 直近の進め方と進捗（v0.20）
+
+> v0.20：書き込み PAD 化の W1b を実装。マイグレーション025 で、既存観測の PAD を確定した12ラベル→4軸 PAD の写像で埋める（移行専用・一回限り・実行時 φ ではない）。表に無いラベルは既定0.5のまま。写像値の正本はマイグレーション025 の `_LABEL_PAD`（両価 moved/nostalgic は Pn を上げ、proud は Dom=0.90、鎮静系 relieved/sad/nostalgic/tender は A を 0.25〜0.35）に一元化し、設計ドキュメントからは値を複製せず参照する（runtime パラメータではないため課題5 には置かない）。PAD 列は依然としてスコア・recall・書き込み経路から未参照（実行時は未接続）。テスト4件（写像適用・表外は既定維持・neutral 明示更新・写像表の網羅）＋全体回帰緑。次は W2（評価器が P/Pn/Dom を直接出力し新規観測に PAD を保存・A 軸は機械・A_gate ゲート・評価器プロンプト＝自己認識 MI の変更を伴う）。
 
 > v0.19：P-3 の書き込み PAD 化を、mood 化に先行して進めることに決めた（案A）。理由は、mood の PAD レジスタを nudge で駆動するには入力が PAD である必要があり、それには評価器が PAD を出す書き込み側が先に要るため。実行時の機械写像 φ を作らない（課題5 v0.23）という制約とも整合する。書き込み PAD 化は W1a（列追加）→ W1b（既存行を一回限りの label→PAD 写像で埋める）→ W2（評価器が P/Pn/Dom を直接出力）の3段に分ける。**W1a を実装**：マイグレーション024 で `observations` に感情 PAD 列 `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`（案B・`double precision NOT NULL DEFAULT 0.5`・各列 CHECK 0..1）を追加。既存行・新規行とも既定0.5で、評価器・スコア・recall は無変更・列は未参照（外部挙動不変）。文字列 emotion 列は残す。テスト4件（列追加・既定0.5・CHECK 下限/上限）＋全体回帰緑。W1b の label→PAD 写像値（12ラベル・4軸）は確定済み（moved/nostalgic は Pn を上げた両価・proud は Dom=0.90・鎮静系は A を 0.25〜0.35）。次は W1b の実装。
 
