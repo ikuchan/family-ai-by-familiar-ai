@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.21）
+# familiar-ai 直近の進め方と進捗（v0.22）
+
+> v0.22：W2b（接続・挙動変化）を W2b-1（書き込み配管・不変）と W2b-2（評価器接続・挙動変化）に分け、W2b-1 を実装。`save`／`save_with_id` に任意引数 `emotion_pad: MoodPAD | None` を足し、payload へ `to_json_dict()` で載せる。`_materialize_save_event` が `from_json_dict`（未指定は中立 `MoodPAD()`）で戻し、INSERT に PAD 4列（emotion_p/pn/a/dom）を書く。PAD は payload（JSON）経由で遅延マテリアライズ（`materialize_now=False`・memory_events）も通る。呼び出し側はまだ `emotion_pad` を渡さない（`agent.py` で0件）ので既定は中立0.5＝列既定と同値で外部挙動不変。マイグレーション不要（列は W1a 済み）。テスト3件（PAD 付き保存・PAD 無しは0.5・遅延 payload 往復）＋全体回帰緑。次は W2b-2（評価器を PAD 出力へ・A_gate と arousal 配線・解析・`label_from_pad` でラベル派生・生観測と会話 summary に PAD を渡す・旧 `_infer_emotion`／`_EMOTION_PROMPT` 撤去）。ここで挙動が変わる（静かなターンは評価器 LLM 非起動・ラベルは PAD 派生）。実機確認は P-1〜P-4 とまとめてスライス3 の後・知覚の前（実機確認シナリオ文書へ追記して溜める）。
 
 > v0.21：W2（評価器が PAD を直接出力）を W2a（未接続の追加）と W2b（接続・挙動変化）に分け、W2a を実装。(1) `emotion_pad.py` を新設＝PAD↔ラベルの**生きた正本** `LABEL_PAD`（マイグレーション025 の `_LABEL_PAD` は凍結写しで値一致）と、PAD→ラベルの逆引き `label_from_pad`（ユークリッド最近傍で12ラベルへ量子化）。(2) Y＝`_row_to_mental_item` が観測行の PAD 列を `MoodPAD` として `MentalItem.emotion` に載せる（`row.get` 既定0.5で安全・`recall_self_model` の columns に PAD 列を追加）。これで評価器の PAD・行の列・MI 器の emotion が同じ `MoodPAD` で一本化（B-3 の tif.py と型が揃う）。`label_from_pad` は W2a では未接続（呼び出しは W2b）で外部挙動不変。純関数テスト（正本網羅・凍結写し一致・逆引き）と `test_mental_item` の PAD 版更新＋全体回帰緑。逆引き距離は e 軸の logit（`_emotion_match`）でなくユークリッドにした（12点への量子化には十分・emotion_pad を軽く保つ）。次は W2b（評価器を PAD 出力へ差し替え・A_gate と A の配線・観測への PAD 保存・ラベル派生）。
 
