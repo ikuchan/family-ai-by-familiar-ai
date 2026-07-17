@@ -15,6 +15,7 @@ from familiar_agent.tools.memory import (
     _EmbeddingModel,
     _row_to_mental_item,
 )
+from familiar_agent.mood_register import MoodPAD
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
@@ -65,9 +66,27 @@ def test_row_to_mental_item_builds_from_row() -> None:
     assert item.content == "self model content"
     assert item.supersedes == "sm-0"
     assert item.activation == 0.7
-    assert item.emotion is None
+    # Y: PAD 列を SELECT していない行は row.get 既定0.5で中立 MoodPAD になる
+    assert item.emotion == MoodPAD()
     assert item.drive is None
     assert item.vector is None
+
+
+# ── 1b. Y: PAD 列を持つ行は MoodPAD として emotion に載る（純関数） ──────────
+
+def test_row_to_mental_item_loads_pad_emotion() -> None:
+    row = {
+        "id": "x", "content": "c", "superseded_by": None, "importance": 1.0,
+        "emotion_p": 0.8, "emotion_pn": 0.15, "emotion_a": 0.55, "emotion_dom": 0.6,
+    }
+    item = _row_to_mental_item(row)
+    assert item.emotion == MoodPAD(0.8, 0.15, 0.55, 0.6)
+
+
+def test_row_to_mental_item_pad_defaults_neutral_when_absent() -> None:
+    row = {"id": "x", "content": "c", "superseded_by": None, "importance": 1.0}
+    item = _row_to_mental_item(row)
+    assert item.emotion == MoodPAD()
 
 
 # ── 2. MentalItem inherits PrimitiveMentalItem ──────────────────────────────

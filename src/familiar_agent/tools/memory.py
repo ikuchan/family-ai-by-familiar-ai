@@ -28,6 +28,7 @@ import psycopg2.extras
 
 from ..config import MemoryConfig
 from ..db import Database, get_db, vec_to_sql
+from ..mood_register import MoodPAD
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, ALPHA
 from ..time_decay import DecayState
@@ -348,15 +349,22 @@ class MentalItem(PrimitiveMentalItem):
 def _row_to_mental_item(row) -> MentalItem:
     """観測行から MentalItem を組み立てる。
 
-    感情のPAD化・埋め込みの取り込みは後続の段階で行うため、
-    emotion・drive・vector は未設定（None）とする。
+    Y（W2a）：行の PAD 列（emotion_p/pn/a/dom）を `MoodPAD` として emotion に載せる。
+    列を SELECT していない呼び出しでも `row.get` 既定0.5で中立になり安全。これで
+    評価器の PAD・行の列・MI 器の emotion が同じ `MoodPAD` で一本化する（B-3 の
+    tif.py が emotion に MoodPAD を使うのと型が揃う）。drive・vector は後続で未設定。
     """
     return MentalItem(
         id=row["id"],
         content=row["content"],
         supersedes=row["superseded_by"],
         activation=row["importance"],
-        emotion=None,
+        emotion=MoodPAD(
+            p=row.get("emotion_p", 0.5),
+            pn=row.get("emotion_pn", 0.5),
+            a=row.get("emotion_a", 0.5),
+            dom=row.get("emotion_dom", 0.5),
+        ),
         drive=None,
         vector=None,
     )
@@ -1097,9 +1105,12 @@ class ObservationMemory:
             kind="self_model",
             person_id=AGENT_SELF_ID,
             n=n,
-            columns=("id", "content", "timestamp", "emotion", "superseded_by", "importance"),
+            columns=("id", "content", "timestamp", "emotion", "superseded_by", "importance",
+                     "emotion_p", "emotion_pn", "emotion_a", "emotion_dom"),
         )
         # A-1: 器を組み立てる経路を通す。返り値には使わず外部挙動を保つ（利用は次の一本）。
+        # Y（W2a）：PAD 列を渡すことで組み立てる MI が実 PAD を emotion に載せる。返り値の
+        # dict は content/timestamp/emotion しか使わないので外部挙動は不変。
         _items = [_row_to_mental_item(r) for r in rows]
         return [
             {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
