@@ -707,6 +707,10 @@ class ObservationMemory:
         emotion   = str(payload.get("emotion", "neutral"))
         image_path = payload.get("image_path")
         override_date = payload.get("override_date")
+        # PAD は payload 経由（to_json_dict/from_json_dict）。未指定は中立（列既定と同値）。
+        # 呼び出し側の PAD 引き渡しは W2b-2。
+        pad_dict = payload.get("emotion_pad")
+        emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else MoodPAD()
 
         if not content:
             return False
@@ -749,14 +753,16 @@ class ObservationMemory:
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
                     " image_path,image_data,person_id,writer_id,subject_id,"
-                    " participants_json,scope) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    " participants_json,scope,"
+                    " emotion_p,emotion_pn,emotion_a,emotion_dom) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
                      self._person_id,
                      writer_id or self._person_id,
                      subject_id or self._person_id,
-                     participants_json, scope),
+                     participants_json, scope,
+                     emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom),
                 )
                 cur.execute(
                     "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
@@ -794,10 +800,14 @@ class ObservationMemory:
         subject_id: str | None = None,
         participants: list[str] | None = None,
         scope: str = "speaker",
+        emotion_pad: MoodPAD | None = None,
     ) -> bool:
+        # PAD は payload へ dict で載せる（JSON 往復可・遅延マテリアライズも通る）。
+        # 呼び出し側の PAD 引き渡しは W2b-2。未指定は中立で外部挙動不変。
         payload = dict(content=content, direction=direction, kind=kind,
                        emotion=emotion, image_path=image_path,
-                       override_date=override_date)
+                       override_date=override_date,
+                       emotion_pad=emotion_pad.to_json_dict() if emotion_pad else None)
         try:
             event_id: str | None = None
             try:
@@ -824,9 +834,11 @@ class ObservationMemory:
             return False
 
     def save_with_id(self, content: str, **kwargs) -> tuple[str | None, bool]:
+        _pad = kwargs.get("emotion_pad")
         payload = dict(content=content, direction=kwargs.get("direction","unknown"),
                        kind=kwargs.get("kind","observation"), emotion=kwargs.get("emotion","neutral"),
-                       image_path=kwargs.get("image_path"), override_date=kwargs.get("override_date"))
+                       image_path=kwargs.get("image_path"), override_date=kwargs.get("override_date"),
+                       emotion_pad=_pad.to_json_dict() if _pad else None)
         try:
             event_id, created_new = self.append_memory_event(
                 "memory.save", payload,
