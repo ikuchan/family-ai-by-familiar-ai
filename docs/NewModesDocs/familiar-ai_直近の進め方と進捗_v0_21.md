@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.20）
+# familiar-ai 直近の進め方と進捗（v0.21）
+
+> v0.21：W2（評価器が PAD を直接出力）を W2a（未接続の追加）と W2b（接続・挙動変化）に分け、W2a を実装。(1) `emotion_pad.py` を新設＝PAD↔ラベルの**生きた正本** `LABEL_PAD`（マイグレーション025 の `_LABEL_PAD` は凍結写しで値一致）と、PAD→ラベルの逆引き `label_from_pad`（ユークリッド最近傍で12ラベルへ量子化）。(2) Y＝`_row_to_mental_item` が観測行の PAD 列を `MoodPAD` として `MentalItem.emotion` に載せる（`row.get` 既定0.5で安全・`recall_self_model` の columns に PAD 列を追加）。これで評価器の PAD・行の列・MI 器の emotion が同じ `MoodPAD` で一本化（B-3 の tif.py と型が揃う）。`label_from_pad` は W2a では未接続（呼び出しは W2b）で外部挙動不変。純関数テスト（正本網羅・凍結写し一致・逆引き）と `test_mental_item` の PAD 版更新＋全体回帰緑。逆引き距離は e 軸の logit（`_emotion_match`）でなくユークリッドにした（12点への量子化には十分・emotion_pad を軽く保つ）。次は W2b（評価器を PAD 出力へ差し替え・A_gate と A の配線・観測への PAD 保存・ラベル派生）。
 
 > v0.20：書き込み PAD 化の W1b を実装。マイグレーション025 で、既存観測の PAD を確定した12ラベル→4軸 PAD の写像で埋める（移行専用・一回限り・実行時 φ ではない）。表に無いラベルは既定0.5のまま。写像値の正本はマイグレーション025 の `_LABEL_PAD`（両価 moved/nostalgic は Pn を上げ、proud は Dom=0.90、鎮静系 relieved/sad/nostalgic/tender は A を 0.25〜0.35）に一元化し、設計ドキュメントからは値を複製せず参照する（runtime パラメータではないため課題5 には置かない）。PAD 列は依然としてスコア・recall・書き込み経路から未参照（実行時は未接続）。テスト4件（写像適用・表外は既定維持・neutral 明示更新・写像表の網羅）＋全体回帰緑。次は W2（評価器が P/Pn/Dom を直接出力し新規観測に PAD を保存・A 軸は機械・A_gate ゲート・評価器プロンプト＝自己認識 MI の変更を伴う）。
 
