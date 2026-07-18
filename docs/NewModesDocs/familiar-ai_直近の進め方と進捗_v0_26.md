@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.25）
+# familiar-ai 直近の進め方と進捗（v0.26）
+
+> v0.26：mood の PAD 化 mood-c を実装し、**感情ループの上半分（W→N_PAD→M）を接続**（挙動変化）。`mood_register.py` に `_load_mood_with_updated_at`・`decay_and_nudge`（純＝`decay_to_rest`→`compute_n_pad`→`nudge_toward`）・`nudge_current_mood`（自己接続＝現 mood と updated_at を読み経過で減衰し nudge して save）を新設。`agent.py` の post-response pipeline で、評価器（`_emotion_for_turn`）の後に、想起記憶（PAD, activation）＋現ターン感情 E_cur（重み＝既定 a0=1.0）＋自己認識 MI フラット項から `nudge_current_mood` を呼ぶ。`memories` を pipeline へ配線。課題5 の「W は現在も含む・現在/過去で重み付けず」に沿い、現ターンの感情も W の一員として nudge に入る（1ターン遅れではない）。評価器のベースは直前 mood。decay は updated_at からの実経過（初回は経過0）。テスト（`decay_and_nudge` 純2件・`nudge_current_mood` DB2件）＋全体回帰緑。これで `load_current_mood` が実 mood を返し始め、評価器ベースが生きる。次はスライス3（e 軸をスコアへ＝合成式をハイブリッドへ切り替え）。ただし調査で、e は加算部の一項なので純積からハイブリッドへの切替が必要で、r 軸の伸長は平均中心化（課題7・未実装）依存と判明。方針は会話で決定中。
 
 > v0.25：mood の PAD 化 mood-b を実装。recall が nudge の入力（各記憶の PAD と activation 重み）を露出する。SELECT に PAD 4列（emotion_p/pn/a/dom）を足し、返り dict に `"emotion_pad"`（`MoodPAD`）と `"activation"`（`_derive_activation(a0,n)`）を追加。追加フィールドのみで既存消費者は無視するため挙動不変。テスト3件（PAD 露出・activation 露出・既存キー不変）＋全体回帰緑。これで mood-c が `[(m["emotion_pad"], m["activation"]) for m in memories]` を `compute_n_pad` へ渡せる。次は mood-c（ターンで recall 後・pipeline 前に N_PAD→decay（updated_at からの経過）→nudge→save・接続・挙動変化）。
 

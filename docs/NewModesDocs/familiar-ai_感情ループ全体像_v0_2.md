@@ -1,4 +1,6 @@
-# familiar-ai 感情ループ全体像（v0.1）
+# familiar-ai 感情ループ全体像（v0.2）
+
+> v0.2：mood-c（W→N_PAD→M の nudge のターン接続）を実装済みへ更新。`load_current_mood` が実 mood を返し始めた。残る mood の効き先は `g_D(M)`（Drive 変調・未実装）・声色（未実装）・e 軸（スライス3）。
 
 > v0.1：感情と気分と欲求が閉じる自律ループの全体像を一枚に固定する。起動源は **Drive（欲求）** の時間蓄積と発火であり、W→mood→想起はその下流であることを明記する。個々の機構の詳細は課題5・発火/mood 別紙・MIデータモデルにあるが、それらが**どう一つのループを成すか**の見取り図はここを正本とする。関連コード（mood・drive・評価器・想起）を触る前にこの図で位置づけを確かめる。
 
@@ -57,8 +59,8 @@ graph TD
 | 評価器の PAD 出力（`FIRE → EVAL → OBS`） | 実装済み（W2b-2） |
 | 観測 PAD の保存（OBS） | 実装済み（W1a/W1b/W2a/W2b） |
 | W の PAD 露出（`OBS → W`） | 実装済み（mood-b・recall が PAD と activation を返す） |
-| N_PAD と nudge の純関数（`W → NPAD → M`） | 実装済み・未接続（mood-a） |
-| nudge のターン接続（M を実際に動かす） | 未実装（mood-c） |
+| N_PAD と nudge の純関数（`W → NPAD → M`） | 実装済み（mood-a） |
+| nudge のターン接続（M を実際に動かす・`W → NPAD → M`） | 実装済み（mood-c・`load_current_mood` が実 mood を返す） |
 | **`M → g_D(M) → D`（気分による欲求変調）** | **未実装**（`drive_register.py` は器のみ・B-2・dynamics 未着手） |
 | Drive の蓄積 dynamics・発火 | 未実装（現在の自律駆動は legacy `DesireSystem`） |
 | `M → VOICE`（声色） | 未実装（[D-知覚]・TTS） |
