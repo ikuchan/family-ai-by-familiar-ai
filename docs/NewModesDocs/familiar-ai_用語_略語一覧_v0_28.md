@@ -1,4 +1,6 @@
-# familiar-ai 用語・略語一覧（v0.27）
+# familiar-ai 用語・略語一覧（v0.28）
+
+> v0.28：M/PAD 行に評価器の PAD 出力と mood 読み出しを併記（W2b-2）。評価器（軽量LLM）が観測の感情を P/Pn/Dom で直接出し（`_evaluate_emotion_pad`・A_gate=0.25・A は機械 arousal・失敗は mood フォールバック）、`load_current_mood()`（自己接続・読みだけ）で現在 mood を読む。旧 `_infer_emotion`（ラベル直出し）は撤去し、ラベルは PAD から派生（`label_from_pad`）。
 
 > v0.27：M/PAD 行に PAD↔ラベル正本の所在を併記（W2a）。PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`（マイグレーション025 の `_LABEL_PAD` は凍結写し）、PAD→ラベル逆引きは `label_from_pad`（ユークリッド最近傍・未接続）。観測行の PAD は `_row_to_mental_item` が `MoodPAD` として MI の emotion に載せる（Y）。
 
@@ -81,7 +83,7 @@
 | G／DIF | 振動中ゲート | — | — | カメラ移動中は驚き計算をスキップする仕組み（自己運動で誤検知しない）。 |
 | G／DIF | 時刻（Clock） | — | — | TIF が D に渡す時刻。欠乏の蓄積レート修飾に使う。 |
 | M | 雰囲気 | Mood | M | 気分を保持し、平静へ減衰する。 |
-| M | 快・喚起・支配（感情3軸） | — | PAD | 感情を3軸で表す。P/Pn（快/不快・両価で独立）、A（覚醒）、Dom（支配＝対処可否）。**全軸 [0,1]・中立0.5・両側**（0＝皆無／0.5＝普通／1＝最大）。畳み込み前へ戻すときは全軸ロジット $\mathrm{logit}(x)=\ln(x/(1-x))$（中立0.5→0）。**mood レジスタの実装は `mood_register.py`** の `MoodPAD`（`p`／`pn`／`a`／`dom`・各軸[0,1]・中立0.5）＝平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad` へ永続・現状は未接続（B-1）。**観測側の感情 PAD は `observations` の列 `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`**（案B＝軸ごとの `double precision NOT NULL DEFAULT 0.5`・各列 CHECK 0..1・マイグレーション024）に格納する。現状は既定0.5で未接続（書き込み PAD 化 W1a・既存行を label→PAD で埋める W1b と評価器の PAD 出力 W2 は後続）。**PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`**（マイグレーション025 の `_LABEL_PAD` は凍結写し・値一致）、**PAD→ラベル逆引きは `label_from_pad`**（ユークリッド最近傍で12ラベルへ量子化・W2a・未接続）。観測行の PAD 列は `_row_to_mental_item` が `MoodPAD` として `MentalItem.emotion` に載せる（Y・W2a）。 |
+| M | 快・喚起・支配（感情3軸） | — | PAD | 感情を3軸で表す。P/Pn（快/不快・両価で独立）、A（覚醒）、Dom（支配＝対処可否）。**全軸 [0,1]・中立0.5・両側**（0＝皆無／0.5＝普通／1＝最大）。畳み込み前へ戻すときは全軸ロジット $\mathrm{logit}(x)=\ln(x/(1-x))$（中立0.5→0）。**mood レジスタの実装は `mood_register.py`** の `MoodPAD`（`p`／`pn`／`a`／`dom`・各軸[0,1]・中立0.5）＝平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad` へ永続・現状は未接続（B-1）。**観測側の感情 PAD は `observations` の列 `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`**（案B＝軸ごとの `double precision NOT NULL DEFAULT 0.5`・各列 CHECK 0..1・マイグレーション024）に格納する。現状は既定0.5で未接続（書き込み PAD 化 W1a・既存行を label→PAD で埋める W1b と評価器の PAD 出力 W2 は後続）。**PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`**（マイグレーション025 の `_LABEL_PAD` は凍結写し・値一致）、**PAD→ラベル逆引きは `label_from_pad`**（ユークリッド最近傍で12ラベルへ量子化・W2a・未接続）。観測行の PAD 列は `_row_to_mental_item` が `MoodPAD` として `MentalItem.emotion` に載せる（Y・W2a）。**観測の感情 PAD は評価器（軽量LLM）が P/Pn/Dom で直接出す**（`_evaluate_emotion_pad`・A_gate=0.25＝arousal 未満は評価器を呼ばず P/Pn/Dom＝M、A 軸は機械 arousal、解析失敗は mood フォールバック・W2b-2）。現在 mood は `load_current_mood()`（自己接続・読みだけ・更新は mood スライス）。ラベルは PAD から派生（`label_from_pad`）＝旧 `_infer_emotion`（ラベル直出し）は撤去。 |
 | D | 情動 | Drive | D | 欠乏を蓄積し、修飾を受ける。閾値超えで発火。**drive レジスタの実装は `drive_register.py`** の `AiDrivers`（`seeking`／`rest`／`bond`／`safety`／`esteem`・各軸[0,1]・静止（既定）0.0）＝agent_state の state_key `drive5` へ `load_drives`／`save_drives` で永続・器のみで蓄積と放電と mood 変調は未実装・未接続（B-2）。 |
 | D | M→D 変調項 | mood-drive modulation | g_D | mood が drive 蓄積を変調する係数。$g_{D,i}=\mathrm{logistic}(\mathrm{logit}(b_i)+\sum_j C_{ij}\,\mathrm{logit}(x_j))$（ロジット合成・崖なし・両端漸近。$x_j$＝PAD 軸の生値・全軸中立0.5を logit で戻す＝引き算不要）。共通 rate に掛かる（[D-発火]・別紙「設計詳細_発火・mood」）。 |
 | D | 基準バイアス | drive bias | b_i | 中立 mood 時の $g_{D,i}$＝欲求 $i$ の中立発火頻度を決める Config（0〜1）。低いほど低頻度（[D-発火]）。 |
