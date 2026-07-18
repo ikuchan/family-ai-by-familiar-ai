@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.23）
+# familiar-ai 直近の進め方と進捗（v0.24）
+
+> v0.24：mood の PAD 化（案A で後回しにした感情ループの上半分＝W→mood）に着手し、mood-a（未接続）を実装。`mood_register.py` に、W の感情トーン N_PAD を activation 加重平均で作る `compute_n_pad`（自己認識 MI のフラット項 (0.5,0.5,0.5,0.5)・重み `SELF_KNOWLEDGE_MI_WEIGHT=2.0`＝課題5 の C を常に含むので W が空でも中立を返す）と、課題5 の式で mood を動かす `nudge_toward`（`A_M←max(A_M,A_N)`／`X_M←X_M+A_N(X_N−X_M)`・X＝p,pn,dom・A_N＝N_PAD.a）を新設。どちらも純関数・未接続で挙動不変。テスト8件＋全体回帰緑。未決は 1=自己認識 MI フラット項を含める・2=減衰の経過は agent_state の updated_at・3=nudge の接続点は recall 後 pipeline 前、で確定済み。次は mood-b（recall が各記憶 dict に PAD と activation を載せる）→ mood-c（ターンで N_PAD→decay→nudge→save・接続・挙動変化）。
 
 > v0.23：W2b-2 を実装し、**書き込み PAD 化（W2）が完了**（実行時に接続・挙動変化）。`mood_register.py` に自己接続の `load_current_mood()`（読みだけ）、`agent.py` に定数 `A_GATE=0.25`・評価器プロンプト `_EMOTION_PAD_PROMPT`・モジュール関数 `_evaluate_emotion_pad(backend, text, mood, arousal)`（arousal<A_GATE は評価器を呼ばず P/Pn/Dom＝M、以上は固定順3数値を正規表現で拾い [0,1] クランプ、失敗は mood フォールバック、A 軸は機械 arousal）・インスタンスメソッド `_emotion_for_turn`（PAD 評価＋`label_from_pad` でラベル派生）を新設。`_run_post_response_pipeline` が `_emotion_for_turn` を呼び、生観測と会話 summary に `emotion_pad` を保存、派生ラベルを既存消費者へ渡す。`arousal=affect.arousal` を配線。旧 `_infer_emotion`／`_EMOTION_PROMPT`（ラベル直出し）を撤去（src grep 0件）。挙動変化＝静かなターン（A<0.25）は評価器 LLM を起動せず mood、ラベルは PAD 派生。テスト（`_evaluate_emotion_pad` 4件・`load_current_mood` 2件）と mock 差し替え（4ファイル・旧機構テスト3件撤去）＋全体回帰緑。W2b-2 の実機確認シナリオを文書へ追記（実施は P-1〜P-4 とまとめてスライス3 後）。次は mood の PAD 化（案A で後回しにした分・W の N_PAD で mood を nudge）→ スライス3（e 軸をスコアへ）。
 
