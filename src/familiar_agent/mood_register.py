@@ -126,13 +126,63 @@ def load_current_mood() -> MoodPAD:
     """自己接続で現在の mood を読む（W2b-2・読みだけ）。
 
     他状態モジュール（self_state 等）と同じく get_db() で接続し `load_mood` を呼ぶ。
-    行が無ければ中立。mood の更新（nudge・save）は後段の mood スライスで繋ぐ。
+    行が無ければ中立。mood の更新（nudge・save）は mood-c の `nudge_current_mood`。
     """
     from .db import get_db
 
     db = get_db()
     with db.lock:
         return load_mood(db.conn())
+
+
+def _load_mood_with_updated_at(conn) -> "tuple[MoodPAD, datetime | None]":
+    """mood と、その最終更新時刻（decay の経過起点）を読む（mood-c）。行が無ければ (中立, None)。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT value_json, updated_at FROM agent_state WHERE state_key = %s",
+            (MOOD_STATE_KEY,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return MoodPAD(), None
+    updated = row[1]
+    if isinstance(updated, str):
+        updated = datetime.fromisoformat(updated)
+    return MoodPAD.from_json_dict(json.loads(row[0])), updated
+
+
+def decay_and_nudge(
+    mood: MoodPAD, elapsed_seconds: float, items: "list[tuple[MoodPAD, float]]",
+) -> MoodPAD:
+    """mood を経過ぶん平静へ減衰させてから W トーン N_PAD へ nudge する（mood-c・純）。
+
+    課題5：`decay_to_rest`（updated_at からの経過）→ `compute_n_pad`（W の PAD の
+    activation 加重平均＋自己認識 MI フラット項）→ `nudge_toward`。
+    """
+    decayed = decay_to_rest(mood, elapsed_seconds)
+    return nudge_toward(decayed, compute_n_pad(items))
+
+
+def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
+    """現 mood を読み、経過で減衰させ、W トーンで nudge して保存する（mood-c・接続）。
+
+    経過秒＝now − updated_at（行が無ければ0）。評価器の後にターンの W（想起記憶＋現ターン
+    感情＋自己認識 MI フラット項）から呼ぶ。新しい mood を返す。
+    """
+    from .db import get_db
+
+    db = get_db()
+    with db.lock:
+        conn = db.conn()
+        mood, updated_at = _load_mood_with_updated_at(conn)
+        if updated_at is not None:
+            elapsed = (datetime.now(timezone.utc) - updated_at).total_seconds()
+        else:
+            elapsed = 0.0
+        new_mood = decay_and_nudge(mood, elapsed, items)
+        save_mood(conn, new_mood)
+        conn.commit()
+    return new_mood
 
 
 def save_mood(conn, mood: MoodPAD) -> None:

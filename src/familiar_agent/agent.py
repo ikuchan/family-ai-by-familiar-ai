@@ -36,7 +36,7 @@ from .routines import parse_schedule_config
 from .concern_engine import ConcernEngine
 from .self_state import SelfState
 from .self_narrative import SelfNarrative
-from .mood_register import MoodPAD, load_current_mood
+from .mood_register import MoodPAD, load_current_mood, nudge_current_mood
 from .emotion_pad import label_from_pad
 from .exploration import ExplorationTracker
 from .scene import SceneTracker
@@ -1059,6 +1059,7 @@ class EmbodiedAgent:
         is_desire_turn: bool,
         desires: DesireSystem | None,
         arousal: float = 0.0,
+        memories: list[dict] | None = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply."""
         if not final_text or final_text == "(no response)":
@@ -1068,6 +1069,17 @@ class EmbodiedAgent:
         # 会話 summary）にこの PAD を書き、派生ラベルは既存消費者へ渡す。
         emotion_pad, emotion = await self._emotion_for_turn(final_text, arousal)
         self._update_mood(emotion)
+
+        # mood を W トーンで nudge（mood-c）。W＝想起記憶（PAD, activation）＋現ターンの
+        # 感情 E_cur（重み＝既定 a0=1.0）＋自己認識 MI フラット項（compute_n_pad が内包）。
+        # 評価器の後に呼ぶ（E_cur を W に含めるため）。会話ターンのみ（memories が入力）。
+        _nudge_items = [
+            (m["emotion_pad"], m["activation"])
+            for m in (memories or [])
+            if "emotion_pad" in m and "activation" in m
+        ]
+        _nudge_items.append((emotion_pad, 1.0))
+        nudge_current_mood(_nudge_items)
 
         try:
             if camera_used:
@@ -3820,6 +3832,7 @@ class EmbodiedAgent:
                                 is_desire_turn=is_desire_turn,
                                 desires=desires,
                                 arousal=affect.arousal,
+                                memories=memories,
                             ),
                             name="post-response-pipeline",
                         )
