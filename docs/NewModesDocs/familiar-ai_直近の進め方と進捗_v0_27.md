@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.26）
+# familiar-ai 直近の進め方と進捗（v0.27）
+
+> v0.27：スライス3（e 軸をスコアへ）の調査で、**e は加算部の一項なので純積からハイブリッド合成への切り替えが必要**（乗算で足すと拒否権になり設計と逆）、かつ**ハイブリッドの r 伸長は平均中心化が前提**（生コサインは異方性で mean≈0.88・窓0.016）と判明。方針は (い)＝**平均中心化を先に**を選択。中心化は C1（器・未接続）→ C2（適用と backfill・挙動変化）に分け、**C1 を実装**。マイグレーション026 で `embedding_means` を新設し（`scope`／`scope_key` で複数行＝将来の person 別中心化やクラスタ別平均を行追加で置ける・`vector` は BYTEA で次元非依存・`dim` で埋め込みモデル変更時の取り違え防止・`timestamptz`・`generated always as identity`）、既存 `obs_embeddings` から global の mu を一度推定して保存（0件なら行を作らない）。`tools/memory.py` に読み出し `load_embedding_mean(dim)`（行なし・次元不一致は `None`＝中心化しないフォールバック）を追加。未接続で挙動不変。テスト5件＋全体回帰緑。mu は Config（範囲つきのつまみ）ではなく統計量なので専用ストアに置き、再推定の起動を REST が持つ形にする。次は C2（situated 書き込みと recall クエリの両方で mu を引く＋既存 situated の一括再計算）。
 
 > v0.26：mood の PAD 化 mood-c を実装し、**感情ループの上半分（W→N_PAD→M）を接続**（挙動変化）。`mood_register.py` に `_load_mood_with_updated_at`・`decay_and_nudge`（純＝`decay_to_rest`→`compute_n_pad`→`nudge_toward`）・`nudge_current_mood`（自己接続＝現 mood と updated_at を読み経過で減衰し nudge して save）を新設。`agent.py` の post-response pipeline で、評価器（`_emotion_for_turn`）の後に、想起記憶（PAD, activation）＋現ターン感情 E_cur（重み＝既定 a0=1.0）＋自己認識 MI フラット項から `nudge_current_mood` を呼ぶ。`memories` を pipeline へ配線。課題5 の「W は現在も含む・現在/過去で重み付けず」に沿い、現ターンの感情も W の一員として nudge に入る（1ターン遅れではない）。評価器のベースは直前 mood。decay は updated_at からの実経過（初回は経過0）。テスト（`decay_and_nudge` 純2件・`nudge_current_mood` DB2件）＋全体回帰緑。これで `load_current_mood` が実 mood を返し始め、評価器ベースが生きる。次はスライス3（e 軸をスコアへ＝合成式をハイブリッドへ切り替え）。ただし調査で、e は加算部の一項なので純積からハイブリッドへの切替が必要で、r 軸の伸長は平均中心化（課題7・未実装）依存と判明。方針は会話で決定中。
 
