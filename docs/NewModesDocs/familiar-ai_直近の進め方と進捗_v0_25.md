@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.24）
+# familiar-ai 直近の進め方と進捗（v0.25）
+
+> v0.25：mood の PAD 化 mood-b を実装。recall が nudge の入力（各記憶の PAD と activation 重み）を露出する。SELECT に PAD 4列（emotion_p/pn/a/dom）を足し、返り dict に `"emotion_pad"`（`MoodPAD`）と `"activation"`（`_derive_activation(a0,n)`）を追加。追加フィールドのみで既存消費者は無視するため挙動不変。テスト3件（PAD 露出・activation 露出・既存キー不変）＋全体回帰緑。これで mood-c が `[(m["emotion_pad"], m["activation"]) for m in memories]` を `compute_n_pad` へ渡せる。次は mood-c（ターンで recall 後・pipeline 前に N_PAD→decay（updated_at からの経過）→nudge→save・接続・挙動変化）。
 
 > v0.24：mood の PAD 化（案A で後回しにした感情ループの上半分＝W→mood）に着手し、mood-a（未接続）を実装。`mood_register.py` に、W の感情トーン N_PAD を activation 加重平均で作る `compute_n_pad`（自己認識 MI のフラット項 (0.5,0.5,0.5,0.5)・重み `SELF_KNOWLEDGE_MI_WEIGHT=2.0`＝課題5 の C を常に含むので W が空でも中立を返す）と、課題5 の式で mood を動かす `nudge_toward`（`A_M←max(A_M,A_N)`／`X_M←X_M+A_N(X_N−X_M)`・X＝p,pn,dom・A_N＝N_PAD.a）を新設。どちらも純関数・未接続で挙動不変。テスト8件＋全体回帰緑。未決は 1=自己認識 MI フラット項を含める・2=減衰の経過は agent_state の updated_at・3=nudge の接続点は recall 後 pipeline 前、で確定済み。次は mood-b（recall が各記憶 dict に PAD と activation を載せる）→ mood-c（ターンで N_PAD→decay→nudge→save・接続・挙動変化）。
 
