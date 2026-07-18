@@ -77,6 +77,51 @@ def load_mood(conn) -> MoodPAD:
     return MoodPAD.from_json_dict(json.loads(row[0]))
 
 
+# 自己認識 MI のフラット emotion(0.5×4) を Nudge に含むときの重み（課題5 の C＝
+# activation 上限）。pinned なので常に効き、W が薄いと mood は中立へ寄る。Config 差し替え可。
+SELF_KNOWLEDGE_MI_WEIGHT = 2.0
+
+
+def compute_n_pad(
+    items: "list[tuple[MoodPAD, float]]",
+    *,
+    self_weight: float = SELF_KNOWLEDGE_MI_WEIGHT,
+) -> MoodPAD:
+    """W の感情トーン N_PAD を activation 加重平均で作る（課題5・mood-a・未接続）。
+
+    `items`＝各 W MI の (PAD, activation 重み)。自己認識 MI のフラット項
+    (0.5,0.5,0.5,0.5)・重み `self_weight` を常に足すので、W が空でも中立を返す。
+    N_PAD_x =(Σ a_i x_i + C·0.5)/(Σ a_i + C)（x＝p,pn,a,dom・C＝self_weight）。
+    """
+    total_w = self_weight
+    sp = self_weight * 0.5
+    spn = self_weight * 0.5
+    sa = self_weight * 0.5
+    sdom = self_weight * 0.5
+    for pad, w in items:
+        total_w += w
+        sp += w * pad.p
+        spn += w * pad.pn
+        sa += w * pad.a
+        sdom += w * pad.dom
+    return MoodPAD(sp / total_w, spn / total_w, sa / total_w, sdom / total_w).clipped()
+
+
+def nudge_toward(mood: MoodPAD, n_pad: MoodPAD) -> MoodPAD:
+    """W トーン N_PAD で mood を動かす（課題5・mood-a・未接続）。
+
+    覚醒が高いほど強く引かれる：A_M←max(A_M,A_N)／X_M←X_M+A_N(X_N−X_M)（X＝p,pn,dom）。
+    push でなく漸近なので Dom の意味も壊れない。接続は mood-c。
+    """
+    a_n = n_pad.a
+    return MoodPAD(
+        p=mood.p + a_n * (n_pad.p - mood.p),
+        pn=mood.pn + a_n * (n_pad.pn - mood.pn),
+        a=max(mood.a, a_n),
+        dom=mood.dom + a_n * (n_pad.dom - mood.dom),
+    ).clipped()
+
+
 def load_current_mood() -> MoodPAD:
     """自己接続で現在の mood を読む（W2b-2・読みだけ）。
 

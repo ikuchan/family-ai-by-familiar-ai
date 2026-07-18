@@ -1,0 +1,78 @@
+"""Tests for mood の nudge と N_PAD 計算（mood-a・未接続）。
+
+課題5：N_PAD＝W 全 MI の PAD の activation 加重平均＋自己認識 MI のフラット項
+(0.5,0.5,0.5,0.5)・重み C=2.0。nudge は A_M←max(A_M,A_N)／X_M←X_M+A_N(X_N−X_M)。
+mood-a では未接続（接続は mood-c）。
+"""
+
+from __future__ import annotations
+
+import pytest
+
+from familiar_agent.mood_register import (
+    MoodPAD,
+    SELF_KNOWLEDGE_MI_WEIGHT,
+    compute_n_pad,
+    nudge_toward,
+)
+
+
+# ── compute_n_pad ───────────────────────────────────────────────────────────
+def test_n_pad_empty_is_neutral() -> None:
+    # フラット項(0.5)のみ → 中立
+    assert compute_n_pad([]) == MoodPAD()
+
+
+def test_n_pad_single_item_blends_with_flat() -> None:
+    # (2*v + C*0.5)/(2 + C)、C=2.0、weight=2.0
+    n = compute_n_pad([(MoodPAD(1.0, 0.0, 1.0, 0.0), 2.0)])
+    assert n == MoodPAD(0.75, 0.25, 0.75, 0.25)
+
+
+def test_n_pad_heavier_weight_pulls_further_from_flat() -> None:
+    light = compute_n_pad([(MoodPAD(1.0, 1.0, 1.0, 1.0), 1.0)])
+    heavy = compute_n_pad([(MoodPAD(1.0, 1.0, 1.0, 1.0), 4.0)])
+    assert heavy.p > light.p  # 重いほど 0.5 から 1.0 へ寄る
+
+
+def test_self_knowledge_weight_is_two() -> None:
+    assert SELF_KNOWLEDGE_MI_WEIGHT == 2.0
+
+
+# ── nudge_toward ────────────────────────────────────────────────────────────
+def test_nudge_full_arousal_moves_to_tone() -> None:
+    mood = MoodPAD(0.5, 0.5, 0.3, 0.5)
+    n = MoodPAD(0.9, 0.1, 1.0, 0.8)  # A_N=1.0
+    out = nudge_toward(mood, n)
+    assert out.p == pytest.approx(0.9)
+    assert out.pn == pytest.approx(0.1)
+    assert out.dom == pytest.approx(0.8)
+    assert out.a == pytest.approx(1.0)  # max(0.3, 1.0)
+
+
+def test_nudge_zero_arousal_keeps_pdom_but_maxes_a() -> None:
+    mood = MoodPAD(0.6, 0.4, 0.7, 0.55)
+    n = MoodPAD(0.2, 0.9, 0.0, 0.1)  # A_N=0.0
+    out = nudge_toward(mood, n)
+    assert out.p == pytest.approx(0.6)
+    assert out.pn == pytest.approx(0.4)
+    assert out.dom == pytest.approx(0.55)
+    assert out.a == pytest.approx(0.7)  # max(0.7, 0.0)
+
+
+def test_nudge_partial_arousal_moves_by_fraction() -> None:
+    mood = MoodPAD(0.5, 0.5, 0.5, 0.5)
+    n = MoodPAD(1.0, 0.0, 0.4, 1.0)  # A_N=0.4
+    out = nudge_toward(mood, n)
+    # X_M + A_N*(X_N - X_M) = 0.5 + 0.4*(1.0-0.5) = 0.7
+    assert out.p == pytest.approx(0.7)
+    assert out.dom == pytest.approx(0.7)
+    assert out.pn == pytest.approx(0.5 + 0.4 * (0.0 - 0.5))  # 0.3
+
+
+def test_nudge_clips_to_range() -> None:
+    mood = MoodPAD(0.9, 0.1, 0.9, 0.9)
+    n = MoodPAD(1.0, 0.0, 1.0, 1.0)
+    out = nudge_toward(mood, n)
+    for v in (out.p, out.pn, out.a, out.dom):
+        assert 0.0 <= v <= 1.0
