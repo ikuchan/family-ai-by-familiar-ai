@@ -932,6 +932,7 @@ class ObservationMemory:
                                COALESCE(o.activation_n, 0) AS activation_n,
                                COALESCE(o.recall_count, 0) AS recall_count,
                                o.last_recalled_at,
+                               o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
                                1 - (s.vector <=> %s::vector) AS score
                         FROM situated_embeddings s
                         JOIN observations o ON o.id = s.obs_id
@@ -975,6 +976,14 @@ class ObservationMemory:
                         "score":            final,
                         "confidence":       max(0.0, min(1.0, (cosine + 1.0) / 2.0)),
                         "retrieval_method": "semantic",
+                        # mood nudge（mood-c）の入力用に PAD と activation 重みを露出。追加のみで挙動不変。
+                        "emotion_pad":      MoodPAD(
+                            p=row["emotion_p"], pn=row["emotion_pn"],
+                            a=row["emotion_a"], dom=row["emotion_dom"],
+                        ),
+                        "activation":       _derive_activation(
+                            float(row["activation_a0"]), int(row["activation_n"]),
+                        ),
                     })
                 results.sort(key=lambda r: r["score"], reverse=True)
 
