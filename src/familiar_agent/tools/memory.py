@@ -388,18 +388,37 @@ def _derive_activation(
     return floor + span * y
 
 
-def load_embedding_mean(dim: int) -> "np.ndarray | None":
-    """埋め込みの平均ベクトル mu（global）を読む（平均中心化 C1・未接続）。
+def _situated_vector(
+    mem_vec: "np.ndarray", p_vec: "np.ndarray", mu: "np.ndarray | None",
+) -> "np.ndarray":
+    """situated ベクトルを作る（平均中心化 C2）。
+
+    コサインを取る前に共通成分 mu を引いて L2 正規化する（計測台帳 §1）。生コサインは
+    異方性（cone 効果）で無関係でも 0.88 付近に圧縮され、関連との窓が 0.016 しかない。
+    mu を引くと無関係が ≈0 へ移り窓が約12倍になる。
+
+    **書き込み（situated 生成）と問い合わせ（recall のクエリ）は必ずこの同じ関数を通す**。
+    片方だけ中心化すると別空間になりコサインが無意味になるため、式を1箇所に集約する。
+    mu が None（未推定・次元不一致）なら中心化せず従来式で返す（フォールバック）。
+    """
+    composed = mem_vec + ALPHA * p_vec
+    if mu is not None:
+        composed = composed - mu
+    return _normalise(composed)
+
+
+def load_embedding_mean(dim: int, conn=None) -> "np.ndarray | None":
+    """埋め込みの平均ベクトル mu（global）を読む（平均中心化）。
 
     コサインを取る前に共通成分（cone）を除くために引くベクトル（計測台帳 §1）。
     行が無い、または保存された次元が `dim` と一致しない（埋め込みモデルを替えた後など）
     ときは None を返し、呼び出し側は**中心化しない**でフォールバックする。
 
-    中心化の適用（situated 書き込みと recall クエリ）は C2。この段では未接続。
+    `conn` を渡すとその接続で読む。`db.lock` は**再入不可**で、書き込み経路
+    （`_materialize_save_event`）はロックを保持したまま situated 生成を呼ぶため、
+    そこから来るときは必ず `conn` を渡してロックを取り直さない（二重取得でデッドロックする）。
     """
-    db = get_db()
-    with db.lock:
-        conn = db.conn()
+    if conn is not None:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT dim, vector FROM embedding_means "
@@ -407,6 +426,17 @@ def load_embedding_mean(dim: int) -> "np.ndarray | None":
                 ("global", ""),
             )
             row = cur.fetchone()
+    else:
+        db = get_db()
+        with db.lock:
+            conn2 = db.conn()
+            with conn2.cursor() as cur:
+                cur.execute(
+                    "SELECT dim, vector FROM embedding_means "
+                    "WHERE scope = %s AND scope_key = %s",
+                    ("global", ""),
+                )
+                row = cur.fetchone()
     if not row:
         return None
     stored_dim, blob = (row[0], row[1]) if not isinstance(row, dict) else (row["dim"], row["vector"])
@@ -466,6 +496,20 @@ class ObservationMemory:
             self._embedder.pre_warm()
 
     # ── Internals ──────────────────────────────────────────────────────────
+
+    def _embedding_mu(self, conn=None) -> "np.ndarray | None":
+        """平均中心化に使う mu を返す（C2・遅延読み込みで1回だけ）。
+
+        mu は固定値（低頻度で再推定）なので、書き込みと想起のたびに DB を引かずに
+        インスタンスへ持つ。再推定時の無効化は REST 接続の段で扱う。未推定・次元不一致は
+        None で、そのとき `_situated_vector` は中心化しない。
+
+        `db.lock` は再入不可なので、**ロックを保持したまま呼ぶ経路（書き込み）は `conn` を
+        渡す**。渡さないと同じロックを二重取得してデッドロックする。
+        """
+        if not hasattr(self, "_mu_cache"):
+            self._mu_cache = load_embedding_mean(EMBEDDING_DIM, conn)
+        return self._mu_cache
 
     def is_embedding_ready(self) -> bool:
         return self._embedder.is_ready()
@@ -569,7 +613,8 @@ class ObservationMemory:
         """
         mem_vec = _coerce_to_embedding_dim(mem_vec)
         p_vec = self._get_perspective_vec_with_conn(person_id, conn)
-        situated = _normalise(mem_vec + ALPHA * p_vec)
+        # 書き込み経路は db.lock を保持したまま来るので conn を渡す（再入不可のため）。
+        situated = _situated_vector(mem_vec, p_vec, self._embedding_mu(conn))
         vec_str = vec_to_sql(situated.tolist())
         with conn.cursor() as cur:
             cur.execute(
@@ -936,7 +981,7 @@ class ObservationMemory:
                 np.array(self._embedder.encode_query([query])[0], dtype=np.float32)
             )
             p_vec = self._get_perspective_vec(self._person_id)
-            situated_q = _normalise(q_vec + ALPHA * p_vec)
+            situated_q = _situated_vector(q_vec, p_vec, self._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
 
             kind_clause = "AND o.kind = %s" if kind else ""
