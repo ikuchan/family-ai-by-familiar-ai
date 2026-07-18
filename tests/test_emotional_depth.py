@@ -1,14 +1,13 @@
 """Tests for expanded emotion vocabulary (Phase 5 — emotional depth).
 
-Expands _infer_emotion from 6 → 12 labels, aligning _MOOD_INTENSITY
-and _interoception agent mood feels to the full set.
+文字列 mood 側（_MOOD_INTENSITY・_interoception の mood feels・_update_mood）が
+12ラベルを網羅することを確認する。感情ラベルは W2b-2 で PAD から派生する形へ
+変わったが、この文字列 mood 機構は移行期も生きている。
 """
 
 from __future__ import annotations
 
 import time
-
-import pytest
 
 from familiar_agent.agent import EmbodiedAgent, _interoception
 
@@ -32,47 +31,10 @@ _EXPECTED_EMOTIONS = {
 _NON_NEUTRAL_EMOTIONS = _EXPECTED_EMOTIONS - {"neutral"}
 
 
-# ---------------------------------------------------------------------------
-# Tests: _EMOTION_PROMPT covers all labels
-# ---------------------------------------------------------------------------
-
-
-def test_emotion_prompt_lists_all_labels() -> None:
-    from familiar_agent.agent import _EMOTION_PROMPT
-
-    prompt = _EMOTION_PROMPT.lower()
-    for label in _NON_NEUTRAL_EMOTIONS:
-        assert label in prompt, f"Missing emotion '{label}' in _EMOTION_PROMPT"
-    assert "neutral" in prompt
-
-
-# ---------------------------------------------------------------------------
-# Tests: _infer_emotion accepts all 12 labels
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_infer_emotion_accepts_all_new_labels() -> None:
-    """The valid set in _infer_emotion must contain all 12 expected labels."""
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    from unittest.mock import AsyncMock, MagicMock
-
-    for label in _NON_NEUTRAL_EMOTIONS:
-        agent._utility_backend = MagicMock()
-        agent._utility_backend.complete = AsyncMock(return_value=label)
-        result = await agent._infer_emotion("some text")
-        assert result == label, f"_infer_emotion rejected valid label '{label}'"
-
-
-@pytest.mark.asyncio
-async def test_infer_emotion_rejects_unknown_label() -> None:
-    from unittest.mock import AsyncMock, MagicMock
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    agent._utility_backend = MagicMock()
-    agent._utility_backend.complete = AsyncMock(return_value="furious")
-    result = await agent._infer_emotion("some text")
-    assert result == "neutral"
+# 旧 _EMOTION_PROMPT / _infer_emotion（ラベル直出し）のテストは、W2b-2 で評価器が
+# PAD を出しラベルを PAD から派生する形へ変わったため撤去した。12ラベルの網羅は
+# emotion_pad.LABEL_PAD 側（test_emotion_pad_module）で担保する。ここでは文字列 mood の
+# _MOOD_INTENSITY・_interoception・_update_mood（現存機構）の網羅を引き続き確認する。
 
 
 # ---------------------------------------------------------------------------

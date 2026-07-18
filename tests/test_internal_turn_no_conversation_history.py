@@ -21,6 +21,7 @@ import pytest
 
 from familiar_agent.backend import TurnResult
 from familiar_agent.exploration import ExplorationTracker
+from familiar_agent.mood_register import MoodPAD
 
 
 # ---------------------------------------------------------------------------
@@ -209,8 +210,8 @@ def _make_patches() -> list:
               new=AsyncMock(return_value="")),
         patch("familiar_agent.agent.EmbodiedAgent._infer_companion_mood",
               new=AsyncMock(return_value="engaged")),
-        patch("familiar_agent.agent.EmbodiedAgent._infer_emotion",
-              new=AsyncMock(return_value="neutral")),
+        patch("familiar_agent.agent.EmbodiedAgent._emotion_for_turn",
+              new=AsyncMock(return_value=(MoodPAD(), "neutral"))),
         patch("familiar_agent.agent.EmbodiedAgent._summarize_exchange",
               new=AsyncMock(return_value="summary")),
         patch("familiar_agent.agent.EmbodiedAgent._online_temporal_context",

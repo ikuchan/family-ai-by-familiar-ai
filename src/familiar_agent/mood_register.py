@@ -77,6 +77,19 @@ def load_mood(conn) -> MoodPAD:
     return MoodPAD.from_json_dict(json.loads(row[0]))
 
 
+def load_current_mood() -> MoodPAD:
+    """自己接続で現在の mood を読む（W2b-2・読みだけ）。
+
+    他状態モジュール（self_state 等）と同じく get_db() で接続し `load_mood` を呼ぶ。
+    行が無ければ中立。mood の更新（nudge・save）は後段の mood スライスで繋ぐ。
+    """
+    from .db import get_db
+
+    db = get_db()
+    with db.lock:
+        return load_mood(db.conn())
+
+
 def save_mood(conn, mood: MoodPAD) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with conn.cursor() as cur:

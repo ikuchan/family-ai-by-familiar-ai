@@ -36,6 +36,8 @@ from .routines import parse_schedule_config
 from .concern_engine import ConcernEngine
 from .self_state import SelfState
 from .self_narrative import SelfNarrative
+from .mood_register import MoodPAD, load_current_mood
+from .emotion_pad import label_from_pad
 from .exploration import ExplorationTracker
 from .scene import SceneTracker
 from .attention_schema import AttentionSchema
@@ -506,14 +508,51 @@ If the response is logically consistent, reply with exactly: OK
 If there is a violation, reply with a brief description of the violation (one sentence)."""
 
 # Emotion inference prompt — short, cheap to run
-_EMOTION_PROMPT = """\
-Read this text and pick the single best emotion label:
-happy / sad / curious / excited / moved / surprised / nostalgic / relieved / tender / playful / proud / neutral
+# 値踏みゲート（課題5・Config 差し替え可）。A<A_GATE は評価器を呼ばず P/Pn/Dom＝M。
+A_GATE = 0.25
+
+# 評価器（軽量LLM）へ観測の感情を P/Pn/Dom で出させるプロンプト（W2b-2・論点5b）。
+# A 軸は機械 arousal なので尋ねない。最終的には自己認識 MI のシステムプロンプトへ統合する。
+_EMOTION_PAD_PROMPT = """\
+Rate the emotion of this exchange on three axes, each 0.0 to 1.0:
+- P  (pleasure):    0 none, 0.5 neutral, 1 very pleasant
+- Pn (displeasure): 0 none, 0.5 neutral, 1 very unpleasant
+- Dom (dominance):  0 powerless, 0.5 neutral, 1 fully in control
+
+Current mood baseline (P Pn Dom): {mood}
+Move from this baseline only as the exchange warrants.
 
 Text:
 {text}
 
-Reply with the label only (one English word)."""
+Reply with exactly three decimals in order P Pn Dom, space-separated \
+(e.g. "0.7 0.2 0.6"). Nothing else."""
+
+
+async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: float,
+                                *, a_gate: float = A_GATE) -> "MoodPAD":
+    """観測の感情を PAD で評価する（W2b-2）。
+
+    A は機械 arousal。arousal<a_gate は評価器を呼ばず P/Pn/Dom＝M（mood）。以上は
+    評価器（軽量LLM）へ投げ、固定順3数値を正規表現で拾い [0,1] クランプして
+    MoodPAD(p, pn, a=arousal, dom) にする。3つ未満・例外は mood フォールバック。
+    """
+    a = min(1.0, max(0.0, arousal))
+    if a < a_gate:
+        return MoodPAD(p=mood.p, pn=mood.pn, a=a, dom=mood.dom)
+    try:
+        mood_str = f"{mood.p:.2f} {mood.pn:.2f} {mood.dom:.2f}"
+        raw = await backend.complete(
+            _EMOTION_PAD_PROMPT.format(text=text[:400], mood=mood_str), max_tokens=20
+        )
+        nums = re.findall(r"-?[0-9]*\.?[0-9]+", raw)
+        if len(nums) < 3:
+            raise ValueError("evaluator did not return three numbers")
+        p, pn, dom = (min(1.0, max(0.0, float(nums[i]))) for i in range(3))
+        return MoodPAD(p=p, pn=pn, a=a, dom=dom)
+    except Exception as e:
+        logger.warning("emotion PAD evaluation failed, falling back to mood: %s", e)
+        return MoodPAD(p=mood.p, pn=mood.pn, a=a, dom=mood.dom)
 
 # Conversation save prompt — distill what happened into one sentence
 _SUMMARY_PROMPT = """\
@@ -1019,12 +1058,16 @@ class EmbodiedAgent:
         companion_mood: str,
         is_desire_turn: bool,
         desires: DesireSystem | None,
+        arousal: float = 0.0,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply."""
         if not final_text or final_text == "(no response)":
             return
 
-        emotion = "neutral"
+        # 感情を PAD で1回評価し、ラベルは PAD から派生（W2b-2）。ターンの観測（生観測・
+        # 会話 summary）にこの PAD を書き、派生ラベルは既存消費者へ渡す。
+        emotion_pad, emotion = await self._emotion_for_turn(final_text, arousal)
+        self._update_mood(emotion)
 
         try:
             if camera_used:
@@ -1068,10 +1111,9 @@ class EmbodiedAgent:
                     kind="observation",
                     dedupe_key=self._memory_dedupe_key("observation", final_text[:500]),
                     materialize_now=False,
+                    emotion_pad=emotion_pad,
                 )
 
-            emotion = await self._infer_emotion(final_text)
-            self._update_mood(emotion)
             summary = await self._summarize_exchange(user_input, final_text)
             await self._active_memory().save_async(
                 summary,
@@ -1080,6 +1122,7 @@ class EmbodiedAgent:
                 emotion=emotion,
                 dedupe_key=self._memory_dedupe_key("conversation", summary),
                 materialize_now=False,
+                emotion_pad=emotion_pad,
             )
 
             await self._update_self_model(final_text, emotion)
@@ -2106,27 +2149,16 @@ class EmbodiedAgent:
         selected.sort(key=lambda item: item[0])
         return [text for _, text in selected]
 
-    async def _infer_emotion(self, text: str) -> str:
-        """Ask the LLM to label the emotion of a response. Returns label string."""
-        label = await self._utility_backend.complete(
-            _EMOTION_PROMPT.format(text=text[:400]), max_tokens=10
+    async def _emotion_for_turn(self, text: str, arousal: float) -> tuple[MoodPAD, str]:
+        """ターンの感情を PAD で評価し、派生ラベルと合わせて返す（W2b-2）。
+
+        現在の mood をベースに評価器（軽量LLM）が P/Pn/Dom を出し（A は機械 arousal・
+        A_gate 未満は mood）、`label_from_pad` で最近傍ラベルを導く。mood は読みだけ。
+        """
+        pad = await _evaluate_emotion_pad(
+            self._utility_backend, text, load_current_mood(), arousal
         )
-        label = label.lower()
-        valid = {
-            "happy",
-            "sad",
-            "curious",
-            "excited",
-            "moved",
-            "surprised",
-            "nostalgic",
-            "relieved",
-            "tender",
-            "playful",
-            "proud",
-            "neutral",
-        }
-        return label if label in valid else "neutral"
+        return pad, label_from_pad(pad)
 
     # Emotion intensity by label (higher = stronger felt quality)
     _MOOD_INTENSITY: dict[str, float] = {
@@ -3787,6 +3819,7 @@ class EmbodiedAgent:
                                 companion_mood=companion_mood,
                                 is_desire_turn=is_desire_turn,
                                 desires=desires,
+                                arousal=affect.arousal,
                             ),
                             name="post-response-pipeline",
                         )

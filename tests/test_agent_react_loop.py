@@ -11,6 +11,7 @@ import pytest
 from familiar_agent.backend import ToolCall, TurnResult
 from familiar_agent.desires import DesireSystem
 from familiar_agent.exploration import ExplorationTracker
+from familiar_agent.mood_register import MoodPAD
 
 
 # ---------------------------------------------------------------------------
@@ -194,7 +195,7 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
 _HEAVY_PATCHES = {
     "familiar_agent.agent.EmbodiedAgent._morning_reconstruction": AsyncMock(return_value=""),
     "familiar_agent.agent.EmbodiedAgent._infer_companion_mood": AsyncMock(return_value="engaged"),
-    "familiar_agent.agent.EmbodiedAgent._infer_emotion": AsyncMock(return_value="neutral"),
+    "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(return_value=(MoodPAD(), "neutral")),
     "familiar_agent.agent.EmbodiedAgent._summarize_exchange": AsyncMock(return_value="summary"),
     "familiar_agent.agent.EmbodiedAgent._online_temporal_context": AsyncMock(return_value=None),
     "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline": AsyncMock(),
@@ -921,7 +922,7 @@ async def test_post_response_pipeline_updates_self_continuity_state():
             external_surprise=0.18,
         )
     )
-    agent._infer_emotion = AsyncMock(return_value="tender")
+    agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
     agent._update_self_model = AsyncMock()
     agent._maybe_update_self_narrative = AsyncMock()

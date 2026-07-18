@@ -5,6 +5,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
+from familiar_agent.mood_register import MoodPAD
+
 
 def _make_msg(role: str, text: str) -> dict:
     return {"role": role, "content": text}
@@ -261,7 +263,7 @@ class TestPostCompactionRecall:
         agent.backend.make_assistant_message = MagicMock(return_value=_make_msg("assistant", "ok"))
         agent.backend.make_tool_results = MagicMock(return_value=_make_msg("user", ""))
         agent._run_post_response_pipeline = AsyncMock()
-        agent._infer_emotion = AsyncMock(return_value="neutral")
+        agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), "neutral"))
         agent._summarize_exchange = AsyncMock(return_value="summary")
         agent._update_self_model = AsyncMock()
         agent._memory.save_async = AsyncMock()
