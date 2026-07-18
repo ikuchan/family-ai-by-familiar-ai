@@ -388,6 +388,33 @@ def _derive_activation(
     return floor + span * y
 
 
+def load_embedding_mean(dim: int) -> "np.ndarray | None":
+    """埋め込みの平均ベクトル mu（global）を読む（平均中心化 C1・未接続）。
+
+    コサインを取る前に共通成分（cone）を除くために引くベクトル（計測台帳 §1）。
+    行が無い、または保存された次元が `dim` と一致しない（埋め込みモデルを替えた後など）
+    ときは None を返し、呼び出し側は**中心化しない**でフォールバックする。
+
+    中心化の適用（situated 書き込みと recall クエリ）は C2。この段では未接続。
+    """
+    db = get_db()
+    with db.lock:
+        conn = db.conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT dim, vector FROM embedding_means "
+                "WHERE scope = %s AND scope_key = %s",
+                ("global", ""),
+            )
+            row = cur.fetchone()
+    if not row:
+        return None
+    stored_dim, blob = (row[0], row[1]) if not isinstance(row, dict) else (row["dim"], row["vector"])
+    if stored_dim != dim or blob is None:
+        return None
+    return _decode_vector(bytes(blob))
+
+
 def _emotion_match(
     obs_pad: tuple[float, float, float, float],
     mood_pad: tuple[float, float, float, float],
