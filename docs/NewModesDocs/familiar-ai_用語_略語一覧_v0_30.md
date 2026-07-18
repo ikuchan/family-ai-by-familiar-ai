@@ -1,6 +1,7 @@
-# familiar-ai 用語・略語一覧（v0.29）
+# familiar-ai 用語・略語一覧（v0.30）
 
 
+> v0.30：埋め込み平均中心化の行を実装済みへ更新（C2）。書き込みと問い合わせの両方を `_situated_vector` に通し、既存 situated はマイグレーション027 で一括再計算する。
 > v0.29：埋め込み平均中心化の行に mu の保存先を併記（C1）。平均ベクトル mu は `embedding_means`（scope 付き複数行・BYTEA で次元非依存・dim ガード・マイグレーション026 が初回推定）に持ち、読み出しは `load_embedding_mean(dim)`。mu は Config のつまみではなく統計量で、再推定の起動は REST の機械側が持つ。適用は C2。
 > v0.28：M/PAD 行に評価器の PAD 出力と mood 読み出しを併記（W2b-2）。評価器（軽量LLM）が観測の感情を P/Pn/Dom で直接出し（`_evaluate_emotion_pad`・A_gate=0.25・A は機械 arousal・失敗は mood フォールバック）、`load_current_mood()`（自己接続・読みだけ）で現在 mood を読む。旧 `_infer_emotion`（ラベル直出し）は撤去し、ラベルは PAD から派生（`label_from_pad`）。
 
@@ -209,7 +210,7 @@
 | 知覚 | 声紋埋め込み器 | ECAPA-TDNN | — | 話者埋め込みの事実上の標準。SpeechBrain の `spkrec-ecapa-voxceleb` を採用（声→埋め込み→コサイン照合）。重みは VoxCeleb 由来＝商用時ライセンス確認要（[D-知覚]）。 |
 | 知覚 | 話者ダイアライゼーション | Speaker diarization | — | 1ストリーム内の同時発話を「誰がいつ」分離する技術。**本設計では不採用**（順番に話す前提＝話者同定で足りる・[D-知覚]）。 |
 | 知覚 | 声紋登録 | Enrollment | — | 話者同定の前提として各人の声を登録する操作。5〜10秒のクリーン発話・顔登録と同時（[D-知覚]）。 |
-| 想起 | 埋め込み平均中心化 | Mean centering | — | コサインを取る前に全埋め込みから共通成分（平均ベクトル）を引き L2 正規化する前処理。異方性（cone 効果）で生コサインが高位圧縮する問題への対処。平均ベクトルは固定保存・低頻度で再推定。r／在席者相関 p／声紋照合に共通適用（[D-想起合成]）。**平均ベクトル mu の保存先は `embedding_means` テーブル**（`scope`／`scope_key` で複数行＝現在は global の1行・将来 person 別やクラスタ別を行追加で置ける／`vector` は BYTEA で次元非依存／`dim` で埋め込みモデル変更時の取り違えを防ぐ／マイグレーション026 が既存 `obs_embeddings` から初回推定）。読み出しは `load_embedding_mean(dim)`（行なし・次元不一致は `None`＝中心化しないフォールバック）。**mu は Config（範囲つきの調整つまみ）ではなく観測から機械的に推定する統計量**で、再推定の起動を REST の機械側処理が持つ。中心化の適用（situated 書き込みと recall クエリ・既存 backfill）は C2。 |
+| 想起 | 埋め込み平均中心化 | Mean centering | — | コサインを取る前に全埋め込みから共通成分（平均ベクトル）を引き L2 正規化する前処理。異方性（cone 効果）で生コサインが高位圧縮する問題への対処。平均ベクトルは固定保存・低頻度で再推定。r／在席者相関 p／声紋照合に共通適用（[D-想起合成]）。**平均ベクトル mu の保存先は `embedding_means` テーブル**（`scope`／`scope_key` で複数行＝現在は global の1行・将来 person 別やクラスタ別を行追加で置ける／`vector` は BYTEA で次元非依存／`dim` で埋め込みモデル変更時の取り違えを防ぐ／マイグレーション026 が既存 `obs_embeddings` から初回推定）。読み出しは `load_embedding_mean(dim)`（行なし・次元不一致は `None`＝中心化しないフォールバック）。**mu は Config（範囲つきの調整つまみ）ではなく観測から機械的に推定する統計量**で、再推定の起動を REST の機械側処理が持つ。**中心化の適用は実装済み（C2）**＝純関数 `_situated_vector(mem_vec, p_vec, mu)`（`normalise(mem_vec + ALPHA·p_vec − mu)`・mu が None なら従来式）に**書き込みと問い合わせの両方を通す**（片側だけ中心化して別空間になるのを構造で防ぐ）。既存 situated はマイグレーション027 で同じ式へ一括再計算。mu は `_embedding_mu` が遅延1回だけ読む（`db.lock` は再入不可なので、ロック保持中の書き込み経路は接続を渡す）。 |
 | 想起 | 異方性（cone 効果） | Anisotropy | — | 埋め込みが狭い円錐に固まり、無関係ペアでもコサインが高く出る性質（実測で無関係 mean≈0.88）。絶対値が情報を持たず min-max 窓が狭くなる。平均中心化で緩和（[D-想起合成]）。 |
 | 想起 | ホワイトニング | Whitening | — | 次元を無相関化する正規化（ZCA/PCA）。平均中心化で窓が不足な場合の**今後の改善案**。行列推定にデータ量・過適合に注意（[D-想起合成]）。 |
 | 知覚 | 音声合成 | Text-to-Speech | TTS | テキスト→音声。**Style-Bert-VITS2（声＝jvnv-M2-jp）に確定**（ローカル・GPU 高速・VOICEVOX/Kokoro は感情表現で劣り不採用）。style 7種＋style_weight で感情を連続制御し、PAD を (style, style_weight) へ写像（[D-知覚]）。 |
