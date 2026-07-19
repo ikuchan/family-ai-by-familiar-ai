@@ -157,14 +157,32 @@ class MemoryConfig:
             str(Path.home() / ".claude" / "memories"),
         )
     )
-    recall_half_life_days: float = field(
-        default_factory=lambda: _float_env("RECALL_HALF_LIFE_DAYS", 7.0)
+    # 想起スコアのつまみ。既定値は課題5 v0.24（D 節＝合成／F 節＝新しさ）に一致させる。
+    recall_half_life_days: float = field(  # HL=259200 秒（3日）
+        default_factory=lambda: _float_env("RECALL_HALF_LIFE_DAYS", 3.0)
     )
-    recall_time_floor: float = field(
-        default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.25)
+    recall_time_floor: float = field(  # t_floor
+        default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.001)
     )
     recall_min_score: float = field(
         default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.0)
+    )
+    # r 軸の min-max 伸長係数。現行値では恒等（根拠台帳 v0.7 §3 の計測で決定）。
+    recall_c_lo: float = field(  # c_lo
+        default_factory=lambda: _float_env("RECALL_C_LO", 0.0)
+    )
+    recall_c_hi: float = field(  # c_hi
+        default_factory=lambda: _float_env("RECALL_C_HI", 1.0)
+    )
+    # 重みプロファイル。w_r は関連ゲートの指数、残りは加算部 M の加重平均係数。
+    # p 軸（w_p）は知覚待ちのため項ごと持たない。
+    recall_w_r: float = field(default_factory=lambda: _float_env("RECALL_W_R", 1.0))
+    recall_w_t: float = field(default_factory=lambda: _float_env("RECALL_W_T", 1.0))
+    recall_w_e: float = field(default_factory=lambda: _float_env("RECALL_W_E", 1.0))
+    recall_w_a: float = field(default_factory=lambda: _float_env("RECALL_W_A", 1.5))
+    # 感情一致 e のスケール σ（小=シビア／大=近縁も仲間）。λ_i は _emotion_match の既定。
+    recall_emotion_sigma: float = field(
+        default_factory=lambda: _float_env("RECALL_EMOTION_SIGMA", 1.0)
     )
 
 

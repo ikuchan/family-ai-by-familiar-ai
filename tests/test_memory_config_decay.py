@@ -30,11 +30,11 @@ def test_memory_config_recall_min_score(monkeypatch):
 
 
 def test_memory_config_defaults():
-    """デフォルト値の確認（envなし）。"""
+    """デフォルト値の確認（envなし）。値の出所は課題5 v0.24（HL=3日・t_floor）。"""
     from familiar_agent.config import MemoryConfig
     cfg = MemoryConfig()
-    assert cfg.recall_half_life_days == 7.0
-    assert cfg.recall_time_floor == 0.25
+    assert cfg.recall_half_life_days == 3.0
+    assert cfg.recall_time_floor == 0.001
     assert cfg.recall_min_score == 0.0
 
 
@@ -42,7 +42,7 @@ def test_memory_config_invalid_env_falls_back(monkeypatch):
     monkeypatch.setenv("RECALL_HALF_LIFE_DAYS", "not-a-float")
     from familiar_agent.config import MemoryConfig
     cfg = MemoryConfig()
-    assert cfg.recall_half_life_days == 7.0
+    assert cfg.recall_half_life_days == 3.0
 
 
 import pytest

@@ -28,7 +28,7 @@ import psycopg2.extras
 
 from ..config import MemoryConfig
 from ..db import Database, get_db, vec_to_sql
-from ..mood_register import MoodPAD
+from ..mood_register import MoodPAD, load_current_mood
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, ALPHA
 from ..time_decay import DecayState
@@ -61,6 +61,24 @@ def _to_epoch(dt) -> float | None:
     return dt.timestamp()
 
 
+def _stretch_relevance(cosine: float, *, c_lo: float, c_hi: float) -> float:
+    """r 軸＝コサインの固定係数 min-max 伸長（課題5 v0.24 D 節）。
+
+    r = clip((cos - c_lo) / (c_hi - c_lo), 0, 1)。seed や候補数に依存しない。
+    確定値は c_lo=0.0 / c_hi=1.0 で、このとき伸長は恒等になる（平均中心化後の
+    実測でコサインが [0,1] にほぼ収まったため・根拠台帳 v0.7 §3）。恒等でも式を
+    通すのは、両係数が Config で可変であり、値を変えたときに r の経路が一本で
+    あることを保つためである。
+
+    c_hi <= c_lo の縮退時は段階を作れないので、0除算を避けてステップ関数
+    （cos >= c_hi で 1、そうでなければ 0）へ退化させる。
+    """
+    span = c_hi - c_lo
+    if span <= 0.0:
+        return 1.0 if cosine >= c_hi else 0.0
+    return max(0.0, min(1.0, (cosine - c_lo) / span))
+
+
 def _compute_final_score(
     cosine: float,
     ts,
@@ -69,18 +87,40 @@ def _compute_final_score(
     activation_a0: float,
     activation_n: int,
     *,
+    obs_pad: tuple[float, float, float, float] | None = None,
+    mood_pad: tuple[float, float, float, float] | None = None,
     half_life_days: float,
     floor: float,
+    c_lo: float = 0.0,
+    c_hi: float = 1.0,
+    w_r: float = 1.0,
+    w_t: float = 1.0,
+    w_e: float = 1.0,
+    w_a: float = 1.5,
+    sigma: float = 1.0,
 ) -> float:
-    """Compute time-decayed final score via DecayState.
+    """想起スコアのハイブリッド合成（課題5 v0.24 D 節・Phase 2 スライス3）。
 
-    final_score = cosine × time_score × activation（導出）
-    a 軸＝`_derive_activation(a0, n)`（イベント駆動・時間では減らさない）。
-    時間減衰は time_score（t 軸）に一元化し、importance の日次減衰は使わない
-    （Phase 2 P-1・[D-想起合成]）。
-    强化A: recall_count → effective half-life doubles per increment.
-    強化B: last_recalled_at as origin_epoch (freshness reset).
-    Settings injected from MemoryConfig (time_decay refactor Issue).
+        score = r^{w_r} × M,  M = (w_t·t + w_e·e + w_a·a) / (w_t + w_e + w_a)
+
+    関連 r だけが乗算ゲート（段階的関連係数）で、t・e・a は加重平均で補償的に
+    束ねる。純積ではないので、一軸が低いだけで記憶が消えることはない。加算部の
+    重みが全0なら M=1（score は r だけ）。
+
+    - r：`_stretch_relevance` でコサインを伸長した値。
+    - t：`DecayState`（強化A＝recall_count で実効半減期が倍、強化B＝
+      last_recalled_at を origin にして若返り）。時間減衰はこの軸に一元化し、
+      importance の日次減衰は使わない（P-1・[D-想起合成]）。
+    - e：`_emotion_match(obs_pad, mood_pad)`＝**今の気分と観測 PAD の距離**。
+      記憶どうしの感情距離ではない（`感情ループ全体像` の `M → RECALL`）。
+      mood_pad が None（mood を読めなかった経路）のときは e 項を分子分母から
+      外す。中立0.5で埋めると「気分に一致する記憶」を偽って作ってしまうため。
+      obs_pad が None のときも同様に外す。
+    - a：`_derive_activation(a0, n)`（イベント駆動・時間では減らさない）。
+    - p（在席者相関）は知覚待ちのため項ごと持たない。課題5 の「在席者ゼロなら
+      w_p 項を外す」に一致する。
+
+    係数は MemoryConfig から注入する。
     """
     base = last_recalled_at if last_recalled_at is not None else ts
     origin = _to_epoch(base)
@@ -93,9 +133,19 @@ def _compute_final_score(
         reinforce_count=max(0, recall_count),
     )
     now_epoch = datetime.now(timezone.utc).timestamp()
-    return cosine * state.score(now_epoch) * _derive_activation(
-        float(activation_a0), int(activation_n)
-    )
+
+    r = _stretch_relevance(cosine, c_lo=c_lo, c_hi=c_hi)
+    t = state.score(now_epoch)
+    a = _derive_activation(float(activation_a0), int(activation_n))
+
+    numerator = w_t * t + w_a * a
+    denominator = w_t + w_a
+    if obs_pad is not None and mood_pad is not None:
+        numerator += w_e * _emotion_match(obs_pad, mood_pad, sigma=sigma)
+        denominator += w_e
+
+    m = 1.0 if denominator <= 0.0 else numerator / denominator
+    return (r ** w_r) * m
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -453,15 +503,15 @@ def _emotion_match(
     lambdas: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
     epsilon: float = 0.001,
 ) -> float:
-    """感情一致 e を導出する（課題5 v0.23・ガウシアン・未接続）。
+    """感情一致 e を導出する（課題5 v0.24・ガウシアン）。
 
     各 PAD 軸を ε で両端へ寄せロジットで元空間へ戻し、軸重み λ_i つきの
     二乗距離 D²=Σ λ_i (logit(x_obs)-logit(x_mood))² を作り、
     e=exp(-D²/(2σ²)) を返す。完全一致で e=1、遠いほど 0 へ。
-    σ・λ_i・ε は設定値（課題5・Config から差し替え可）。
+    σ は Config（`recall_emotion_sigma`）から、λ_i・ε は既定値を使う。
 
-    この段（Phase 2 P-3・スライス1）では `_compute_final_score` へは繋がず、
-    e 軸のスコア接続は後続スライスに置く。
+    `mood_pad` には**今の気分**を渡す（記憶どうしの感情距離ではない）。
+    `_compute_final_score` の加算部の一項として使う（スライス3 で接続）。
     """
     def _logit(x: float) -> float:
         x = min(max(x, epsilon), 1.0 - epsilon)
@@ -973,9 +1023,21 @@ class ObservationMemory:
           "spontaneous"  → last_recalled_at = now() only
           "system"       → no reinforcement (default)
 
-        Scoring: final_score = cosine × time_score × importance
+        Scoring: `_compute_final_score` のハイブリッド合成（r・t・e・a）。
         Results are re-sorted by final_score before returning.
         """
+        # e 軸の基準となる今の気分を1回だけ読む（想起1回につき M は1つ）。
+        # DB ロックへ入る前に読むこと：load_current_mood() は内部で db.lock を
+        # 取り、これは再入不可なのでロック内から呼ぶと停止する（平均中心化 C2 で
+        # 実際に起きたデッドロックと同型）。
+        mood_pad: tuple[float, float, float, float] | None
+        try:
+            _mood = load_current_mood()
+            mood_pad = (_mood.p, _mood.pn, _mood.a, _mood.dom)
+        except Exception:
+            logger.warning("mood を読めないので e 軸を外して想起する", exc_info=True)
+            mood_pad = None
+
         try:
             q_vec = _coerce_to_embedding_dim(
                 np.array(self._embedder.encode_query([query])[0], dtype=np.float32)
@@ -1031,8 +1093,20 @@ class ObservationMemory:
                         int(row["recall_count"]),
                         float(row["activation_a0"]),
                         int(row["activation_n"]),
+                        obs_pad=(
+                            row["emotion_p"], row["emotion_pn"],
+                            row["emotion_a"], row["emotion_dom"],
+                        ),
+                        mood_pad=mood_pad,
                         half_life_days=_cfg.recall_half_life_days,
                         floor=_cfg.recall_time_floor,
+                        c_lo=_cfg.recall_c_lo,
+                        c_hi=_cfg.recall_c_hi,
+                        w_r=_cfg.recall_w_r,
+                        w_t=_cfg.recall_w_t,
+                        w_e=_cfg.recall_w_e,
+                        w_a=_cfg.recall_w_a,
+                        sigma=_cfg.recall_emotion_sigma,
                     )
                     results.append({
                         "memory_id":        row["id"],

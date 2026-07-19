@@ -3,7 +3,9 @@
 現行の `importance` を `_derive_activation(activation_a0, activation_n)` へ差し替え、
 a 軸を器から想起スコアへ結線する。時間減衰は time_score（t 軸）に一元化し、
 importance の日次減衰はスコア経路から外す。ここでは `_compute_final_score` が
-(a0, n) から導出 activation を積に用いることを検証する（DB 非依存の単体）。
+(a0, n) から導出した activation を a 軸に用いることを検証する（DB 非依存の単体）。
+スライス3 で合成がハイブリッドになったので、a は積の因子ではなく加算部 M の
+一項（係数 w_a=1.5）として効く。期待値をその式へ合わせてある。
 """
 
 from __future__ import annotations
@@ -13,14 +15,19 @@ from datetime import datetime, timezone
 from familiar_agent.tools.memory import _compute_final_score, _derive_activation
 
 
-_NOW = datetime.now(timezone.utc)
-
-
 def _score(a0: float, n: int) -> float:
-    # 現在時刻・強化なしで time_score をほぼ 1 に寄せ、a 軸の効きを見る
+    # 現在時刻・強化なしで time_score をほぼ 1 に寄せ、a 軸の効きを見る。
+    # now はモジュール読み込み時でなく呼び出し時に取る（読み込み時に固定すると、
+    # 全体テストのように実行まで時間が空いたとき t が減衰して期待値とずれる）。
+    now = datetime.now(timezone.utc)
     return _compute_final_score(
-        1.0, _NOW, None, 0, a0, n, half_life_days=30.0, floor=0.0
+        1.0, now, None, 0, a0, n, half_life_days=30.0, floor=0.0
     )
+
+
+def _expected(a0: float, n: int) -> float:
+    """スライス3 のハイブリッド：cosine=1・t≈1・mood 無しなので (t + 1.5a)/2.5。"""
+    return (1.0 + 1.5 * _derive_activation(a0, n)) / 2.5
 
 
 def test_score_uses_derived_activation_not_raw_a0() -> None:
@@ -28,15 +35,13 @@ def test_score_uses_derived_activation_not_raw_a0() -> None:
     s0 = _score(0.5, 0)
     s3 = _score(0.5, 3)
     assert s3 > s0
-    # 比は導出 activation の比に一致（time_score は共通で相殺）
-    ratio = _derive_activation(0.5, 3) / _derive_activation(0.5, 0)
-    assert abs((s3 / s0) - ratio) < 1e-6
+    # 加算部の一項として効くので、上がり幅は導出 activation の差の w_a/Σw 倍
+    delta = 1.5 * (_derive_activation(0.5, 3) - _derive_activation(0.5, 0)) / 2.5
+    assert abs((s3 - s0) - delta) < 1e-6
 
 
 def test_score_n_zero_equals_a0_factor() -> None:
-    """n=0 では導出 activation ＝ a0。score は cosine×time_score×a0 に一致。"""
+    """n=0 では導出 activation ＝ a0。score は (t + 1.5·a0)/2.5 に一致。"""
     a0 = 0.7
-    s = _score(a0, 0)
-    # 同条件で a0 を 1.0 にした基準との比が a0 に一致（time_score 相殺）
-    base = _score(1.0, 0)
-    assert abs((s / base) - a0) < 1e-6
+    assert abs(_score(a0, 0) - _expected(a0, 0)) < 1e-6
+    assert abs(_score(1.0, 0) - _expected(1.0, 0)) < 1e-6
