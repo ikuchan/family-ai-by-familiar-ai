@@ -1,4 +1,6 @@
-# familiar-ai 設計図（Mermaid一式・v0.57）
+# familiar-ai 設計図（Mermaid一式・v0.58）
+
+> v0.58 改訂（スライス3＝e 軸のスコア接続・合成のハイブリッド化・挙動変化）：想起スコアを純積 `cos×t×a` から課題5 v0.24 の `score = r^{w_r} × (w_t·t + w_e·e + w_a·a)/(w_t+w_e+w_a)` へ替え、**`_compute_final_score` が設計式と一致**した（純積の残存は grep で0件）。r は新設の純関数 `_stretch_relevance(cos, c_lo, c_hi)`（固定係数 min-max 伸長・確定値 0.0/1.0 では恒等・c_hi≤c_lo の縮退はステップへ退化）を通す。e は既存 `_emotion_match` を接続し、基準は**今の気分**（記憶どうしの距離ではない・`感情ループ全体像` の `M → RECALL`）。mood は想起1回につき1つ読み全候補共通に使い、読めなければ e 項を分子分母から外す（中立0.5で埋めない）。**mood の読みは DB ロックの外**に置く（`load_current_mood` が再入不可の `db.lock` を取るため・C2 と同型のデッドロックを避ける・コメントで意図を残す）。p 軸は知覚待ちで項ごと持たない。あわせて既定値を課題5 へ揃え（半減期 7日→3日・t_floor 0.25→0.001）、合成係数7つを `MemoryConfig` へ出した。新規テスト13件・既存4件を式に合わせて更新・全体1401件緑。min_score が生コサインの閾値である点（設計は合成スコアの床）と候補集合の切り方は**変えていない**＝別スライスへ申し送り。「store と I/F」節に反映。
 
 > v0.57 改訂（平均中心化 C2＝適用と backfill・挙動変化）：純関数 `_situated_vector(mem_vec, p_vec, mu)`＝`normalise(mem_vec + ALPHA·p_vec − mu)`（mu が None なら従来式）を新設し、**situated 書き込みと recall クエリの両方をこの関数へ一元化**（片側だけ中心化して別空間になる事故を構造で防ぐ・直書きは grep で0件）。mu は `_embedding_mu` が遅延1回だけ読みキャッシュ。マイグレーション027 で既存 situated を同じ式へ一括再計算（mu 未推定なら何もしない）。実装中に**デッドロックを発見して修正**（`db.lock` は再入不可で、書き込み経路はロック保持のまま situated 生成を呼ぶため、`load_embedding_mean` に呼び出し元の接続を渡す形へ）。新規テスト6件。c_lo/c_hi の値は中心化後の実分散を計測してから決める。「store と I/F」節に反映。
 

@@ -1,4 +1,6 @@
-# familiar-ai 用語・略語一覧（v0.30）
+# familiar-ai 用語・略語一覧（v0.31）
+
+> v0.31：想起スコアの行を実装済みへ更新（スライス3）。合成がハイブリッドになり `_compute_final_score` が設計式と一致した。r の伸長 `_stretch_relevance` と、合成係数の Config 名（`recall_c_lo` ほか）を併記した。
 
 
 > v0.30：埋め込み平均中心化の行を実装済みへ更新（C2）。書き込みと問い合わせの両方を `_situated_vector` に通し、既存 situated はマイグレーション027 で一括再計算する。
@@ -116,7 +118,7 @@
 | MI／記憶モデル | 重要度 | activation | — | **重要度**（現 `importance` の一般化）。**2段で動く**：段1＝機械＝取込時 `a0=clip(w_s·surprise+w_n·novelty,0,C)`（**relevance 廃止**）、機械想起では触らない／段2＝**フルLLM が参照した MI だけ**再評価（上げ下げ）＋freshness 更新、解決もフルLLM 宣言で落とす。open・pinned は高く保つ。**time では減らさない**。[D-想起合成]。**保存形式の実装（A-3-1）**：初期値 a0 を列 `activation_a0`（REAL・既定1.0）、正味デルタ回数 n を列 `activation_n`（INTEGER・既定0）に持ち、導出関数 `_derive_activation(a0, n)` で a を導出（a0 を正規化しロジットで無限区間へ→n·step 加算→ロジスティックで [floor,C] へ戻す）。定数 floor=0／C=2／ε=0.001／step=0.33 は Config 差し替え可の仮値（step=0.33 は取込 a0=0.75 から評価5回で実用上限1.5 に達する効き幅・課題5）。現 `importance` 列は当面残す（想起スコアが使用中・接続と廃止は後続）。 |
 | MI／記憶モデル | 活性の正味更新回数 | net delta count | n | activation を値 a で保存せず $(a_0,n)$ で保存し導出するための、正味デルタ回数（大事+1／不要−1）。$n$ を保存することで +1/−1 が可逆・対称になる（[D-想起合成]）。**実装列は `activation_n`（INTEGER・既定0）**。n を実際に増減させる評価の仕組みは後続（Phase 2）で、A-3-1 時点では移行・取込とも 0。 |
 | 全体 | 有界量の逆写像操作（共通イディオム） | bounded-value inverse-map op | — | 0〜1（有界区間）の量をロジット等で無限空間へ戻し、そこで線形操作（加算）して畳み込み関数で戻す共通手法。**感情距離（PAD）・activation 導出・新しさ漸近・drive の M→D 変調**に共通（4例）。可逆・対称・両端漸近を与える（[D-想起合成]）。 |
-| MI／記憶モデル | 想起スコア | score | — | **想起 score＝r^(w_r)×M（ハイブリッド）**＝関連 r^(w_r) は乗算ゲート（拒否権）、M＝(w_t·t+w_e·e+w_a·a)/(w_t+w_e+w_a)＝t/e/a の加重平均（[D-想起合成]・基底プロファイル (1,1,1,1.5)→base は r·(t+e+1.5a)/3.5＝現 `_compute_final_score` とは非一致）。優先・競合に使う。 |
+| MI／記憶モデル | 想起スコア | score | — | **想起 score＝r^(w_r)×M（ハイブリッド）**＝関連 r^(w_r) は乗算ゲート（拒否権）、M＝(w_t·t+w_e·e+w_a·a)/(w_t+w_e+w_a)＝t/e/a の加重平均（[D-想起合成]・基底プロファイル (1,1,1,1.5)→base は r·(t+e+1.5a)/3.5）。優先・競合に使う。**実装（スライス3）**：`_compute_final_score` がこの式そのもの。r は `_stretch_relevance(cos, c_lo, c_hi)`（固定係数 min-max 伸長・確定値 0.0/1.0 では恒等）、e は `_emotion_match(obs_pad, mood_pad, sigma)`＝**今の気分と観測 PAD の距離**（mood は想起1回につき1つ読み全候補共通・読めなければ e 項を分子分母から外す）、a は `_derive_activation(a0,n)`。係数は `MemoryConfig` の `recall_c_lo`／`recall_c_hi`／`recall_w_r`／`recall_w_t`／`recall_w_e`／`recall_w_a`／`recall_emotion_sigma`。p 軸（w_p）は知覚待ちで項ごと持たない。 |
 | MI／記憶モデル | 重要度（現コード名） | importance | — | `_compute_final_score` の第3項。新設計の `activation` がこれを一般化（静的→イベント駆動の重要度）。[D-想起合成]。 |
 | MI／記憶モデル | 常時 W 包含 | pinned | — | `activation` を実質上限に保ち、recall_score に依らず毎ターン W に含める扱い。自己認識 MI に適用。 |
 | MI／記憶モデル | 自己認識 MI | Self-knowledge MI | — | 能力＋方針（policy）を保持する O の特別な MI。**実体＝フルLLM と評価器（軽量LLM）双方のシステムプロンプト**（候補集合・score の外で常に効く＝pinned の実体）。フルLLM に能力・方針＋「参照記憶の申告・再評価・解決宣言」を指示。**評価器にとって最重要**＝E（P/Pn/Dom）の出し方・意味づけ・重み決定がこれに従う（A の値・S 字混合の考え方〔A 高→今重視／低→M 寄り〕・M がベースである旨・分布指針を含む・課題6-1）。REST 内省で supersede 更新。policy 専用レイヤを置かずこれで代替（[D-想起合成]）。 |
