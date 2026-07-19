@@ -79,6 +79,74 @@ def _stretch_relevance(cosine: float, *, c_lo: float, c_hi: float) -> float:
     return max(0.0, min(1.0, (cosine - c_lo) / span))
 
 
+@dataclass(frozen=True)
+class _ScoreParts:
+    """想起スコアと各軸の内訳。`e` は項を外したとき None。"""
+
+    score: float
+    r: float
+    t: float
+    a: float
+    m: float
+    e: float | None
+
+
+def _score_breakdown(
+    cosine: float,
+    ts,
+    last_recalled_at,
+    recall_count: int,
+    activation_a0: float,
+    activation_n: int,
+    *,
+    obs_pad: tuple[float, float, float, float] | None = None,
+    mood_pad: tuple[float, float, float, float] | None = None,
+    half_life_days: float,
+    floor: float,
+    c_lo: float = 0.0,
+    c_hi: float = 1.0,
+    w_r: float = 1.0,
+    w_t: float = 1.0,
+    w_e: float = 1.0,
+    w_a: float = 1.5,
+    sigma: float = 1.0,
+) -> _ScoreParts:
+    """想起スコアと各軸の内訳を返す（合成式の正本）。
+
+    `_compute_final_score` はここから `score` を取り出すだけの薄い包みである。
+    内訳を別に組み立てると式が二重になり、片方だけ直したときにずれるので、
+    計算はこの関数だけが持つ。`e` は項を外したとき None になる。
+
+    式と各軸の意味は `_compute_final_score` の docstring にある。
+    """
+    base = last_recalled_at if last_recalled_at is not None else ts
+    origin = _to_epoch(base)
+    if origin is None:
+        origin = datetime.now(timezone.utc).timestamp()
+    state = DecayState(
+        origin_epoch=origin,
+        half_life_seconds=half_life_days * 86400.0,
+        floor=floor,
+        reinforce_count=max(0, recall_count),
+    )
+    now_epoch = datetime.now(timezone.utc).timestamp()
+
+    r = _stretch_relevance(cosine, c_lo=c_lo, c_hi=c_hi)
+    t = state.score(now_epoch)
+    a = _derive_activation(float(activation_a0), int(activation_n))
+
+    e: float | None = None
+    numerator = w_t * t + w_a * a
+    denominator = w_t + w_a
+    if obs_pad is not None and mood_pad is not None:
+        e = _emotion_match(obs_pad, mood_pad, sigma=sigma)
+        numerator += w_e * e
+        denominator += w_e
+
+    m = 1.0 if denominator <= 0.0 else numerator / denominator
+    return _ScoreParts(score=(r ** w_r) * m, r=r, t=t, a=a, m=m, e=e)
+
+
 def _compute_final_score(
     cosine: float,
     ts,
@@ -120,32 +188,16 @@ def _compute_final_score(
     - p（在席者相関）は知覚待ちのため項ごと持たない。課題5 の「在席者ゼロなら
       w_p 項を外す」に一致する。
 
-    係数は MemoryConfig から注入する。
+    係数は MemoryConfig から注入する。計算の実体は `_score_breakdown` にある
+    （内訳ログと式を共有するため）。
     """
-    base = last_recalled_at if last_recalled_at is not None else ts
-    origin = _to_epoch(base)
-    if origin is None:
-        origin = datetime.now(timezone.utc).timestamp()
-    state = DecayState(
-        origin_epoch=origin,
-        half_life_seconds=half_life_days * 86400.0,
-        floor=floor,
-        reinforce_count=max(0, recall_count),
-    )
-    now_epoch = datetime.now(timezone.utc).timestamp()
-
-    r = _stretch_relevance(cosine, c_lo=c_lo, c_hi=c_hi)
-    t = state.score(now_epoch)
-    a = _derive_activation(float(activation_a0), int(activation_n))
-
-    numerator = w_t * t + w_a * a
-    denominator = w_t + w_a
-    if obs_pad is not None and mood_pad is not None:
-        numerator += w_e * _emotion_match(obs_pad, mood_pad, sigma=sigma)
-        denominator += w_e
-
-    m = 1.0 if denominator <= 0.0 else numerator / denominator
-    return (r ** w_r) * m
+    return _score_breakdown(
+        cosine, ts, last_recalled_at, recall_count, activation_a0, activation_n,
+        obs_pad=obs_pad, mood_pad=mood_pad,
+        half_life_days=half_life_days, floor=floor,
+        c_lo=c_lo, c_hi=c_hi,
+        w_r=w_r, w_t=w_t, w_e=w_e, w_a=w_a, sigma=sigma,
+    ).score
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -1084,9 +1136,10 @@ class ObservationMemory:
             if rows:
                 _cfg = MemoryConfig()
                 results = []
+                breakdowns: dict[Any, _ScoreParts] = {}
                 for row in rows:
                     cosine = float(row["score"])
-                    final = _compute_final_score(
+                    parts = _score_breakdown(
                         cosine,
                         row["timestamp"],
                         row["last_recalled_at"],
@@ -1108,6 +1161,8 @@ class ObservationMemory:
                         w_a=_cfg.recall_w_a,
                         sigma=_cfg.recall_emotion_sigma,
                     )
+                    final = parts.score
+                    breakdowns[row["id"]] = parts
                     results.append({
                         "memory_id":        row["id"],
                         "timestamp":        row["timestamp"],
@@ -1132,6 +1187,26 @@ class ObservationMemory:
                         ),
                     })
                 results.sort(key=lambda r: r["score"], reverse=True)
+
+                # 想起順の内訳。実機確認で「なぜこの順なのか」を後から再構成する
+                # ために出す。記憶内容を含むうえ想起のたびに走るので debug 限定。
+                if logger.isEnabledFor(logging.DEBUG):
+                    logger.debug(
+                        "recall score: query=%r person=%s mood=%s 候補%d件",
+                        query[:60], self._person_id,
+                        "なし" if mood_pad is None
+                        else "(%.2f,%.2f,%.2f,%.2f)" % mood_pad,
+                        len(results),
+                    )
+                    for rank, item in enumerate(results[:10], start=1):
+                        b = breakdowns[item["memory_id"]]
+                        logger.debug(
+                            "  #%d recall score=%.4f r=%.3f t=%.3f a=%.3f e=%s | %s | %s",
+                            rank, item["score"], b.r, b.t, b.a,
+                            "なし" if b.e is None else "%.3f" % b.e,
+                            _ts_to_date(item["timestamp"]),
+                            str(item["summary"])[:50],
+                        )
 
                 if recall_mode in ("conversation", "spontaneous"):
                     self._mark_recalled(

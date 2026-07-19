@@ -1004,7 +1004,7 @@ class EmbodiedAgent:
             except asyncio.CancelledError:
                 return
             if exc is not None:
-                logger.warning("Background task %s failed: %s", name, exc)
+                logger.warning("Background task %s failed: %s", name, exc, exc_info=exc)
 
         task.add_done_callback(_done)
 
@@ -3664,6 +3664,12 @@ class EmbodiedAgent:
         camera_used = False
         camera_image: str | None = None  # raw base64 JPEG from the latest `see` tool call
         say_used = False
+        # 実際にユーザーへ届いた発話。2回目以降の say() は音声も画面表示も抑制される
+        # ので、届いた最初の1回だけを持つ。永続化はこれと本文の両方を使う。
+        spoken_text = ""
+        # ターン中に書かれた本文（考えたこと）。最後の周だけでなく、ツールを使った
+        # 周に書かれたものも自分がしたことなので拾う。
+        turn_thoughts: list[str] = []
         say_nudge_used = False  # one-time say() nudge per turn (silence-control step 3)
         final_text = "(no response)"
         non_say_streak = 0  # consecutive tool calls without say()
@@ -3715,6 +3721,9 @@ class EmbodiedAgent:
                     max_tokens=turn_max_tokens,
                     on_text=on_text,
                 )
+                _text = (result.text or "").strip()
+                if _text and _text not in turn_thoughts:
+                    turn_thoughts.append(_text)
                 self._last_context_tokens = result.input_tokens
                 self._session_input_tokens += result.input_tokens
                 self._session_output_tokens += result.output_tokens
@@ -3815,7 +3824,13 @@ class EmbodiedAgent:
                                 on_action("say", {"text": _tts_text})
                             await self._tts.call("say", {"text": _tts_text})
 
-                    if final_text and final_text != "(no response)":
+                    # そのターンに自分がしたこと＝考えたこと（本文）と話したこと（say）。
+                    # 区別せず両方を残す。本文は say() が出ると画面からは捨てられるが、
+                    # 「考えたが言わなかったこと」として記憶には残す価値がある。
+                    turn_record = "\n".join(
+                        x for x in (*turn_thoughts, spoken_text) if x
+                    )
+                    if turn_record:
                         try:
                             self._mental_state_bus.append(mental_snapshot)
                         except Exception as exc:  # noqa: BLE001
@@ -3823,7 +3838,7 @@ class EmbodiedAgent:
                         self._spawn_background_task(
                             self._run_post_response_pipeline(
                                 user_input=user_input,
-                                final_text=final_text,
+                                final_text=turn_record,
                                 camera_used=camera_used,
                                 camera_image=camera_image,
                                 observation_action_name=observation_action_name,
@@ -3886,6 +3901,8 @@ class EmbodiedAgent:
                         # so we can suppress duplicate audio in the same turn.
                         _is_duplicate_say = tc.name == "say" and say_used
                         if tc.name == "say":
+                            if not _is_duplicate_say and not spoken_text:
+                                spoken_text = str(tc.input.get("text", "")).strip()
                             say_used = True
                             non_say_streak = 0
                         else:
