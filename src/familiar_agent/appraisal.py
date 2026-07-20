@@ -34,14 +34,24 @@ _REPAIR_PATTERNS = [r"hurt me", r"hurt", r"傷つ", r"前の返事", r"嫌だっ
 _REQUEST_PATTERNS = [r"どう", r"help", r"教えて", r"して", r"お願い", r"\?"]
 
 
+# 一致語数を飽和させる語数。2語そろえば上限に達する。辞書サイズで割らないのは、
+# 語彙を増やすほど感度が下がる（表現を広く拾おうとすると鈍る）ため。
+_PATTERN_SATURATION = 2
+
+
 def _count_patterns(text: str, patterns: Iterable[str]) -> float:
-    pattern_list = list(patterns)
+    """一致した語の多さを 0〜1 で返す。
+
+    感情語がひとつ出れば 0.5 になり、arousal が値踏みゲート A_GATE=0.25 を越える。
+    課題5 v0.24 の「A は平常0.5でも感情は動くため省略は深い鎮静 A<0.25 のみ」に
+    合わせ、感情語の無い淡々としたターンだけが省略されるようにしてある。
+    """
     lower = text.lower()
     count = 0
-    for pattern in pattern_list:
+    for pattern in patterns:
         if re.search(pattern, lower):
             count += 1
-    return min(1.0, count / max(1, len(pattern_list)))
+    return min(1.0, count / _PATTERN_SATURATION)
 
 
 @dataclass(slots=True)

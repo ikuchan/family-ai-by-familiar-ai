@@ -38,6 +38,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 「その日の終わり」など、人の生活時間で意味が決まる時刻の基準となるローカル TZ。
+_LOCAL_TZ = datetime.now().astimezone().tzinfo or timezone.utc
+
 DB_PATH_UNUSED = ""          # kept for API compatibility, ignored
 EMBEDDING_MODEL = "BAAI/bge-m3"
 EMBEDDING_DIM   = 1024
@@ -892,10 +895,17 @@ class ObservationMemory:
         image_data = _encode_image(image_path) if image_path else None
         vec = self._embedder.encode_document([content])[0]
         blob = _encode_vector(vec)
-        now = datetime.now()
+        # timestamp 列は timestamptz。tz を持たない datetime を入れると、DB が
+        # セッションの TimeZone（UTC）で解釈し、JST の壁掛け時計の値がそのまま
+        # UTC として保存されて9時間先になる。同じ表の last_recalled_at は SQL の
+        # now() で書かれるため、2つの時刻列が別の時計を指してしまう。
+        now = datetime.now(timezone.utc)
         if override_date:
+            # 日付指定はその日の終わり（ローカル時刻の 23:59:59）を意味する。
             d = datetime.strptime(str(override_date)[:10], "%Y-%m-%d")
-            save_ts = d.replace(hour=23, minute=59, second=59)
+            save_ts = d.replace(
+                hour=23, minute=59, second=59, tzinfo=_LOCAL_TZ
+            ).astimezone(timezone.utc)
         else:
             save_ts = now
 
