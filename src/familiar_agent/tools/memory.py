@@ -16,7 +16,7 @@ import logging
 import math
 import uuid
 from dataclasses import dataclass
-from datetime import date as _date, datetime, timezone
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -29,6 +29,7 @@ from ..legacy.semantic_layer import LegacySemanticLayer
 from ..store import clock
 from ..store.context import StoreContext
 from ..store.jobs import JobQueue
+from ..store.persons import PersonRegistry
 from ..store.observations import ObservationStore
 from ..store.situated import (  # noqa: F401  既存の呼び出し側が memory 経由で引くための再輸出
     SituatedVectors,
@@ -347,6 +348,7 @@ class ObservationMemory:
             self._ctx, situated=self._situated, legacy=self._legacy
         )
         self._jobs = JobQueue(self._ctx, observations=self._observations)
+        self._persons_store = PersonRegistry(self._ctx)
 
     # ── Internals ──────────────────────────────────────────────────────────
 
@@ -376,6 +378,13 @@ class ObservationMemory:
     # （層の内側が外から触れる状態を残さないため）。署名は層の実物に合わせて
     # 書く。`*a, **kw` にすると、何を受けるかがここから読めなくなる。
     # 自動転送（__getattr__）は使わない。何が公開面かがコードから読めなくなる。
+
+    # 人物レジストリ（store/persons.py）
+    def register_person(self, name: str, display_name: str = "", person_id: str | None = None) -> str:
+        return self._persons_store.register_person(name, display_name, person_id)
+
+    def list_persons(self) -> list[dict]:
+        return self._persons_store.list_persons()
 
     # 観測（store/observations.py）
     def mark_superseded(self, old_id: 'str', new_id: 'str') -> 'None':
@@ -411,6 +420,16 @@ class ObservationMemory:
     async def get_earliest_date_async(self) -> 'str | None':
         return await self._observations.get_earliest_date_async()
 
+
+    def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
+        return self._observations.find_near_duplicates(threshold)
+
+    def pick_seed_candidates(
+        self, hour: int, month: int, *, hour_window: int, month_window: int, k: int
+    ) -> list[dict]:
+        return self._observations.pick_seed_candidates(
+            hour, month, hour_window=hour_window, month_window=month_window, k=k
+        )
 
     # キュー（store/jobs.py）
     def append_memory_event(self, event_type: 'str', payload: 'dict', dedupe_key: 'str | None' = None, queue_job: 'bool' = True, job_type: 'str' = 'materialize_observation') -> 'tuple[str | None, bool]':
@@ -479,31 +498,6 @@ class ObservationMemory:
         return self._legacy.format_behavior_policies_for_context(policies)
 
     # ── Person management ──────────────────────────────────────────────────
-
-    def register_person(self, name: str, display_name: str = "", person_id: str | None = None) -> str:
-        pid = person_id or str(uuid.uuid4())
-        now = self._now()
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute("SELECT id FROM persons WHERE name = %s", (name,))
-                row = cur.fetchone()
-                if row:
-                    return str(row["id"])
-                cur.execute(
-                    "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
-                    "VALUES (%s, %s, %s, %s, %s)",
-                    (pid, name, display_name or name, now, now),
-                )
-            conn.commit()
-        return pid
-
-    def list_persons(self) -> list[dict]:
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute("SELECT id, name, display_name, created_at FROM persons ORDER BY created_at")
-                return [dict(r) for r in cur.fetchall()]
 
     def for_person(self, person_id: str) -> "ObservationMemory":
         """Return a lightweight view of this memory scoped to another person."""
@@ -809,33 +803,14 @@ class ObservationMemory:
     async def recall_day_summaries_async(self, n=5):
         return await asyncio.to_thread(self.recall_day_summaries, n)
 
-    def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
-        """Return pairs of non-superseded observations whose vectors are >= threshold similar."""
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT e.obs_id, e.vector FROM obs_embeddings e "
-                        "JOIN observations o ON o.id = e.obs_id "
-                        "WHERE o.superseded_by IS NULL"
-                    )
-                    rows = cur.fetchall()
-            if len(rows) < 2:
-                return []
-            ids = [r["obs_id"] for r in rows]
-            vecs = np.array([_decode_vector(bytes(r["vector"])) for r in rows], dtype=np.float32)
-            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-            vecs = vecs / np.where(norms > 1e-8, norms, 1.0)
-            pairs: list[tuple[str, str, float]] = []
-            for i in range(len(ids)):
-                for j in range(i + 1, len(ids)):
-                    sim = float(vecs[i] @ vecs[j])
-                    if sim >= threshold:
-                        pairs.append((ids[i], ids[j], sim))
-            return pairs
-        except Exception as e:
-            logger.warning("find_near_duplicates failed: %s", e); return []
+    # ── これから作り替えるもの（store/ へ移していない） ──────────────────
+    # episodes／memory_activation／unfinished_business を触る以下の一群は、
+    # Phase 5 で作り替えが決まっているため、いま層へ移していない。
+    #   - W（作業記憶）は O からの派生ビューで毎ターン作り直す（[D-記憶単一化]）
+    #     ので、memory_activation に溜める形自体が変わる
+    #   - 明示リンクとエピソードは WR 拡散想起へ置き換わる（[D-WR拡散想起]）
+    # いま移しても Phase 5 で捨てることになる。撤去が確定していないので
+    # legacy/ にも入れない。作り替えの形が決まった段で行き先を決める。
 
     def create_episode(self, title: str, summary: str = "") -> str | None:
         try:
@@ -944,65 +919,6 @@ class ObservationMemory:
         except Exception as e:
             logger.warning("get_working_memory failed: %s", e); return []
 
-    def pick_seed_candidates(
-        self,
-        hour: int,
-        month: int,
-        *,
-        hour_window: int,
-        month_window: int,
-        k: int,
-    ) -> list[dict]:
-        """Return mixed seed candidates for associative memory sharing (Issue C).
-
-        Three sub-pools are merged (deduped by id):
-          - hour-near:   rows whose hour is within hour_window of `hour` (circular)
-          - month-near:  rows whose month is within month_window of `month` (circular)
-          - random:      any k rows
-        Each sub-pool uses ORDER BY RANDOM() LIMIT k for lightweight diversity.
-        time-of-day / seasonal proximity replaces the old time-label cosine query.
-        """
-        _COMMON = (
-            "WHERE person_id=%s AND superseded_by IS NULL AND kind != 'day_summary' "
-        )
-        sql_hour = (
-            "SELECT id, content, timestamp FROM observations " + _COMMON +
-            "AND LEAST(ABS(EXTRACT(HOUR FROM timestamp)-%s), "
-            "          24-ABS(EXTRACT(HOUR FROM timestamp)-%s)) <= %s "
-            "ORDER BY RANDOM() LIMIT %s"
-        )
-        sql_month = (
-            "SELECT id, content, timestamp FROM observations " + _COMMON +
-            "AND LEAST(ABS(EXTRACT(MONTH FROM timestamp)-%s), "
-            "          12-ABS(EXTRACT(MONTH FROM timestamp)-%s)) <= %s "
-            "ORDER BY RANDOM() LIMIT %s"
-        )
-        sql_rand = (
-            "SELECT id, content, timestamp FROM observations " + _COMMON +
-            "ORDER BY RANDOM() LIMIT %s"
-        )
-        pid = self._person_id
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                seen: dict[str, dict] = {}
-                with conn.cursor() as cur:
-                    if hour_window > 0:
-                        cur.execute(sql_hour, (pid, hour, hour, hour_window, k))
-                        for r in cur.fetchall():
-                            seen.setdefault(r["id"], dict(r))
-                    if month_window > 0:
-                        cur.execute(sql_month, (pid, month, month, month_window, k))
-                        for r in cur.fetchall():
-                            seen.setdefault(r["id"], dict(r))
-                    cur.execute(sql_rand, (pid, k))
-                    for r in cur.fetchall():
-                        seen.setdefault(r["id"], dict(r))
-            return list(seen.values())
-        except Exception as e:
-            logger.warning("pick_seed_candidates failed: %s", e)
-            return []
-
     def open_unfinished_business(
         self,
         summary: str,
@@ -1052,44 +968,6 @@ class ObservationMemory:
 
     async def list_unfinished_business_async(self, status: str = "open", n: int = 50) -> list[dict]:
         return await asyncio.to_thread(self.list_unfinished_business, status, n)
-
-    def _get_recent_observations(self, n: int = 5) -> list[dict]:
-        """Return the N most recent observations for the current person, ordered by timestamp desc."""
-        try:
-            today = _date.today()
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT id, content, timestamp, emotion, direction, kind,
-                               COALESCE(importance, 1.0) AS importance
-                        FROM observations
-                        WHERE person_id = %s AND superseded_by IS NULL
-                        ORDER BY timestamp DESC
-                        LIMIT %s
-                        """,
-                        (self._person_id, n),
-                    )
-                    rows = cur.fetchall()
-            return [
-                {
-                    "memory_id":  row["id"],
-                    "summary":    row["content"],
-                    "date":       _ts_to_date(row["timestamp"]),
-                    "time":       _ts_to_time(row["timestamp"]),
-                    "emotion":    row["emotion"],
-                    "direction":  row["direction"],
-                    "kind":       row["kind"],
-                    "importance": float(row["importance"]),
-                    "confidence": float(row["importance"]),
-                    "is_today":   row["timestamp"].date() == today if row["timestamp"] else False,
-                }
-                for row in rows
-            ]
-        except Exception as exc:
-            logger.debug("_get_recent_observations failed: %s", exc)
-            return []
 
     async def as_coalition_async(self):
         """Surface recently-stored memories as a workspace coalition.

@@ -24,7 +24,7 @@ import numpy as np
 from ..mood_register import MoodPAD
 from ..store import clock
 from .context import StoreContext
-from .embedding import _encode_vector
+from .embedding import _decode_vector, _encode_vector
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,131 @@ class ObservationStore:
             ]
         except Exception as e:
             logger.warning("recency_fallback failed: %s", e); return []
+
+    def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
+        """Return pairs of non-superseded observations whose vectors are >= threshold similar."""
+        try:
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT e.obs_id, e.vector FROM obs_embeddings e "
+                        "JOIN observations o ON o.id = e.obs_id "
+                        "WHERE o.superseded_by IS NULL"
+                    )
+                    rows = cur.fetchall()
+            if len(rows) < 2:
+                return []
+            ids = [r["obs_id"] for r in rows]
+            vecs = np.array([_decode_vector(bytes(r["vector"])) for r in rows], dtype=np.float32)
+            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
+            vecs = vecs / np.where(norms > 1e-8, norms, 1.0)
+            pairs: list[tuple[str, str, float]] = []
+            for i in range(len(ids)):
+                for j in range(i + 1, len(ids)):
+                    sim = float(vecs[i] @ vecs[j])
+                    if sim >= threshold:
+                        pairs.append((ids[i], ids[j], sim))
+            return pairs
+        except Exception as e:
+            logger.warning("find_near_duplicates failed: %s", e); return []
+
+    def pick_seed_candidates(
+        self,
+        hour: int,
+        month: int,
+        *,
+        hour_window: int,
+        month_window: int,
+        k: int,
+    ) -> list[dict]:
+        """Return mixed seed candidates for associative memory sharing (Issue C).
+
+        Three sub-pools are merged (deduped by id):
+          - hour-near:   rows whose hour is within hour_window of `hour` (circular)
+          - month-near:  rows whose month is within month_window of `month` (circular)
+          - random:      any k rows
+        Each sub-pool uses ORDER BY RANDOM() LIMIT k for lightweight diversity.
+        time-of-day / seasonal proximity replaces the old time-label cosine query.
+        """
+        _COMMON = (
+            "WHERE person_id=%s AND superseded_by IS NULL AND kind != 'day_summary' "
+        )
+        sql_hour = (
+            "SELECT id, content, timestamp FROM observations " + _COMMON +
+            "AND LEAST(ABS(EXTRACT(HOUR FROM timestamp)-%s), "
+            "          24-ABS(EXTRACT(HOUR FROM timestamp)-%s)) <= %s "
+            "ORDER BY RANDOM() LIMIT %s"
+        )
+        sql_month = (
+            "SELECT id, content, timestamp FROM observations " + _COMMON +
+            "AND LEAST(ABS(EXTRACT(MONTH FROM timestamp)-%s), "
+            "          12-ABS(EXTRACT(MONTH FROM timestamp)-%s)) <= %s "
+            "ORDER BY RANDOM() LIMIT %s"
+        )
+        sql_rand = (
+            "SELECT id, content, timestamp FROM observations " + _COMMON +
+            "ORDER BY RANDOM() LIMIT %s"
+        )
+        pid = self._ctx.person_id
+        try:
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                seen: dict[str, dict] = {}
+                with conn.cursor() as cur:
+                    if hour_window > 0:
+                        cur.execute(sql_hour, (pid, hour, hour, hour_window, k))
+                        for r in cur.fetchall():
+                            seen.setdefault(r["id"], dict(r))
+                    if month_window > 0:
+                        cur.execute(sql_month, (pid, month, month, month_window, k))
+                        for r in cur.fetchall():
+                            seen.setdefault(r["id"], dict(r))
+                    cur.execute(sql_rand, (pid, k))
+                    for r in cur.fetchall():
+                        seen.setdefault(r["id"], dict(r))
+            return list(seen.values())
+        except Exception as e:
+            logger.warning("pick_seed_candidates failed: %s", e)
+            return []
+
+    def _get_recent_observations(self, n: int = 5) -> list[dict]:
+        """Return the N most recent observations for the current person, ordered by timestamp desc."""
+        try:
+            today = _date.today()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT id, content, timestamp, emotion, direction, kind,
+                               COALESCE(importance, 1.0) AS importance
+                        FROM observations
+                        WHERE person_id = %s AND superseded_by IS NULL
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                        """,
+                        (self._ctx.person_id, n),
+                    )
+                    rows = cur.fetchall()
+            return [
+                {
+                    "memory_id":  row["id"],
+                    "summary":    row["content"],
+                    "date":       clock.ts_to_date(row["timestamp"]),
+                    "time":       clock.ts_to_time(row["timestamp"]),
+                    "emotion":    row["emotion"],
+                    "direction":  row["direction"],
+                    "kind":       row["kind"],
+                    "importance": float(row["importance"]),
+                    "confidence": float(row["importance"]),
+                    "is_today":   row["timestamp"].date() == today if row["timestamp"] else False,
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            logger.debug("_get_recent_observations failed: %s", exc)
+            return []
 
     def _read_supersede_chain(
         self, head_id: str, columns: tuple[str, ...]
