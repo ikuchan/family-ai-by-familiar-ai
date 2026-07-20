@@ -11,25 +11,32 @@ Config: DATABASE_URL.
 from __future__ import annotations
 
 import asyncio
-import hashlib
 import json
 import logging
 import math
 import os
-import threading
 import uuid
-from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import date as _date, datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
-import psycopg2.extras
 
 from ..config import MemoryConfig
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
 from ..db_migrations import apply_migrations, default_migration_dir
+from ..store import clock
+from ..store.db_compat import _RealDictConnWrapper, _SQLiteConnWrapper
+from ..store.embedding import (
+    EMBEDDING_DIM,
+    EMBEDDING_MODEL,
+    _coerce_to_embedding_dim,
+    _decode_vector,
+    _EmbeddingModel,
+    _encode_vector,
+    _normalise,
+)
 from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, ALPHA
 from ..time_decay import DecayState
 
@@ -38,12 +45,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 「その日の終わり」など、人の生活時間で意味が決まる時刻の基準となるローカル TZ。
-_LOCAL_TZ = datetime.now().astimezone().tzinfo or timezone.utc
 
 DB_PATH_UNUSED = ""          # kept for API compatibility, ignored
-EMBEDDING_MODEL = "BAAI/bge-m3"
-EMBEDDING_DIM   = 1024
 _THUMB_SIZE     = (320, 240)
 
 # Time-window dedup: identical (person_id, content, kind) within this many seconds
@@ -238,203 +241,6 @@ def _encode_image(image_path: str) -> str | None:
 
 
 
-
-class _RealDictConnWrapper:
-    """Wraps a psycopg2 connection so that cursor() always uses RealDictCursor."""
-
-    def __init__(self, conn) -> None:
-        self._conn = conn
-
-    def cursor(self, **kwargs):
-        kwargs.setdefault("cursor_factory", psycopg2.extras.RealDictCursor)
-        return self._conn.cursor(**kwargs)
-
-    def commit(self):   return self._conn.commit()
-    def rollback(self): return self._conn.rollback()
-    def close(self):    return self._conn.close()
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-
-class _SQLiteCursorWrapper:
-    """Wraps sqlite3.Cursor: adds context-manager support and %s→? translation."""
-
-    def __init__(self, cur) -> None:
-        self._cur = cur
-
-    def execute(self, sql: str, params=None) -> None:
-        sql = sql.replace("%s", "?")
-        if params is None:
-            self._cur.execute(sql)
-        else:
-            self._cur.execute(sql, params)
-
-    def fetchone(self):
-        return self._cur.fetchone()
-
-    def fetchall(self):
-        return self._cur.fetchall()
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        self._cur.close()
-
-    def __iter__(self):
-        return iter(self._cur)
-
-
-class _SQLiteConnWrapper:
-    """Wraps a raw sqlite3.Connection for use in methods that expect psycopg2 style."""
-
-    def __init__(self, conn) -> None:
-        self._conn = conn
-
-    def cursor(self, **kwargs) -> "_SQLiteCursorWrapper":
-        return _SQLiteCursorWrapper(self._conn.cursor())
-
-    def commit(self):   return self._conn.commit()
-    def rollback(self): return self._conn.rollback()
-    def close(self):    return self._conn.close()
-
-    def __getattr__(self, name):
-        return getattr(self._conn, name)
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *a):
-        pass
-
-
-def _cosine_similarity(query: np.ndarray, corpus: np.ndarray) -> np.ndarray:
-    q = query / (np.linalg.norm(query) + 1e-10)
-    c = corpus / (np.linalg.norm(corpus, axis=1, keepdims=True) + 1e-10)
-    return c @ q
-
-
-def _encode_vector(vec: list[float]) -> bytes:
-    return np.array(vec, dtype=np.float32).tobytes()
-
-
-def _decode_vector(blob: bytes) -> np.ndarray:
-    return np.frombuffer(blob, dtype=np.float32)
-
-
-def _normalise(v: np.ndarray) -> np.ndarray:
-    n = np.linalg.norm(v)
-    return v / n if n > 1e-8 else v
-
-
-def _coerce_to_embedding_dim(vec: np.ndarray) -> np.ndarray:
-    """Ensure vec has exactly EMBEDDING_DIM dimensions (pad with zeros or truncate).
-
-    In production embeddings are always EMBEDDING_DIM-dimensional, so this is a
-    no-op. In tests that mock the encoder with a small vector the padding keeps
-    situated-embedding storage and retrieval consistent.
-    """
-    if vec.shape[0] == EMBEDDING_DIM:
-        return vec
-    out = np.zeros(EMBEDDING_DIM, dtype=np.float32)
-    n = min(vec.shape[0], EMBEDDING_DIM)
-    out[:n] = vec[:n]
-    return out
-
-
-# ── Lazy embedding model ───────────────────────────────────────────────────
-
-class _EmbeddingModel:
-    _CACHE_SIZE = 128
-
-    def __init__(self, model_name: str = EMBEDDING_MODEL) -> None:
-        self._model_name = model_name
-        self._model: Any = None
-        self._failed = False
-        self._lock = threading.Lock()
-        self._ready = threading.Event()
-        self._q_cache: OrderedDict[str, list[float]] = OrderedDict()
-        self._d_cache: OrderedDict[str, list[float]] = OrderedDict()
-
-    def pre_warm(self) -> None:
-        t = threading.Thread(target=self._load, daemon=True, name="embedding-prewarm")
-        t.start()
-
-    def is_ready(self) -> bool:
-        return self._ready.is_set()
-
-    def _load(self) -> None:
-        if self._model is not None or self._failed:
-            return
-        with self._lock:
-            if self._model is None and not self._failed:
-                for name in ("sentence_transformers", "huggingface_hub", "transformers"):
-                    logging.getLogger(name).setLevel(logging.ERROR)
-                try:
-                    from sentence_transformers import SentenceTransformer
-                    self._model = SentenceTransformer(self._model_name)
-                    logger.info("Embedding model loaded.")
-                except Exception as e:
-                    self._failed = True
-                    logger.warning("Embedding model load failed: %s", e)
-                self._ready.set()
-
-    def _zeros(self, n: int) -> list[list[float]]:
-        return [[0.0] * EMBEDDING_DIM for _ in range(n)]
-
-    def _key(self, text: str) -> str:
-        return hashlib.md5(text.encode()).hexdigest()
-
-    def _lookup(self, cache: OrderedDict, texts: list[str]):
-        results, miss_idx, miss_texts = [], [], []
-        for i, t in enumerate(texts):
-            k = self._key(t)
-            if k in cache:
-                cache.move_to_end(k)
-                results.append(cache[k])
-            else:
-                miss_idx.append(i); miss_texts.append(t); results.append(None)
-        return miss_idx, miss_texts, results
-
-    def _store(self, cache: OrderedDict, texts: list[str], vecs: list[list[float]]) -> None:
-        for t, v in zip(texts, vecs):
-            k = self._key(t); cache[k] = v; cache.move_to_end(k)
-        while len(cache) > self._CACHE_SIZE:
-            cache.popitem(last=False)
-
-    def encode_document(self, texts: list[str]) -> list[list[float]]:
-        self._load()
-        if self._model is None:
-            return self._zeros(len(texts))
-        miss_idx, miss_texts, results = self._lookup(self._d_cache, texts)
-        if miss_texts:
-            try:
-                new = self._model.encode(miss_texts, normalize_embeddings=True,
-                                         show_progress_bar=False).tolist()
-            except Exception as e:
-                logger.warning("encode_document failed: %s", e); return self._zeros(len(texts))
-            self._store(self._d_cache, miss_texts, new)
-            for j, i in enumerate(miss_idx): results[i] = new[j]
-        return results  # type: ignore
-
-    def encode_query(self, texts: list[str]) -> list[list[float]]:
-        self._load()
-        if self._model is None:
-            return self._zeros(len(texts))
-        miss_idx, miss_texts, results = self._lookup(self._q_cache, texts)
-        if miss_texts:
-            try:
-                new = self._model.encode(miss_texts, normalize_embeddings=True,
-                                         show_progress_bar=False).tolist()
-            except Exception as e:
-                logger.warning("encode_query failed: %s", e); return self._zeros(len(texts))
-            self._store(self._q_cache, miss_texts, new)
-            for j, i in enumerate(miss_idx): results[i] = new[j]
-        return results  # type: ignore
-
-
-# ── MentalItem ──────────────────────────────────────────────────────────────
 
 @dataclass
 class PrimitiveMentalItem:
@@ -632,7 +438,8 @@ class ObservationMemory:
 
     @staticmethod
     def _now() -> str:
-        return datetime.now().isoformat()
+        """TEXT 列向けの現在時刻（store/clock.py の使い分けに従う）。"""
+        return clock.now_local_iso()
 
     # ── Person management ──────────────────────────────────────────────────
 
@@ -847,7 +654,7 @@ class ObservationMemory:
             return True
 
     def mark_job_failed(self, job_id: str, error: str, retry_delay: float = 10.0, max_attempts: int = 3) -> str:
-        now = datetime.now()
+        now = datetime.fromisoformat(clock.now_local_iso())
         with self._db_lock:
             conn = self._ensure_connected()
             with conn.cursor() as cur:
@@ -895,19 +702,9 @@ class ObservationMemory:
         image_data = _encode_image(image_path) if image_path else None
         vec = self._embedder.encode_document([content])[0]
         blob = _encode_vector(vec)
-        # timestamp 列は timestamptz。tz を持たない datetime を入れると、DB が
-        # セッションの TimeZone（UTC）で解釈し、JST の壁掛け時計の値がそのまま
-        # UTC として保存されて9時間先になる。同じ表の last_recalled_at は SQL の
-        # now() で書かれるため、2つの時刻列が別の時計を指してしまう。
-        now = datetime.now(timezone.utc)
-        if override_date:
-            # 日付指定はその日の終わり（ローカル時刻の 23:59:59）を意味する。
-            d = datetime.strptime(str(override_date)[:10], "%Y-%m-%d")
-            save_ts = d.replace(
-                hour=23, minute=59, second=59, tzinfo=_LOCAL_TZ
-            ).astimezone(timezone.utc)
-        else:
-            save_ts = now
+        # どの時計を使うかは store/clock.py に集約してある。
+        now = clock.now_utc()
+        save_ts = clock.end_of_day_utc(override_date) if override_date else now
 
         participants_json = json.dumps(participants or [], ensure_ascii=False)
 
@@ -1527,7 +1324,7 @@ class ObservationMemory:
         tags: str = "",
     ) -> None:
         """Upsert a semantic fact inside an already-held lock; record a revision if the text changes."""
-        now = datetime.now().isoformat()
+        now = clock.now_local_iso()
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, fact_text, confidence FROM semantic_facts "
@@ -1577,7 +1374,7 @@ class ObservationMemory:
         confidence: float = 0.5,
         source_memory_id: str | None = None,
     ) -> None:
-        now = datetime.now().isoformat()
+        now = clock.now_local_iso()
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, policy_text, confidence FROM behavior_policies "
@@ -1646,7 +1443,7 @@ class ObservationMemory:
         self, key: str, delta: float, reason: str = ""
     ):
         try:
-            now = datetime.now().isoformat()
+            now = clock.now_local_iso()
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
@@ -1710,7 +1507,7 @@ class ObservationMemory:
         self, key: str, delta: float, reason: str = ""
     ):
         try:
-            now = datetime.now().isoformat()
+            now = clock.now_local_iso()
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
@@ -1751,7 +1548,7 @@ class ObservationMemory:
         """Return distinct dates (YYYY-MM-DD) that have observations within the last N days."""
         try:
             from datetime import timedelta
-            cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+            cutoff = (datetime.fromisoformat(clock.now_local_iso()) - timedelta(days=days)).strftime("%Y-%m-%d")
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
@@ -2231,7 +2028,7 @@ class ObservationMemory:
     ) -> str:
         """Create an open unfinished-business record and return its ID."""
         item_id = str(uuid.uuid4())
-        now = datetime.now().isoformat()
+        now = clock.now_local_iso()
         sql = (
             "INSERT INTO unfinished_business "
             "(id,summary,status,source,related_memory_id,metadata_json,created_at) "
