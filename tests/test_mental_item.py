@@ -52,7 +52,7 @@ def test_row_to_mental_item_builds_from_row() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind(
+    rows = mem._observations._read_observations_by_kind(
         kind="self_model",
         person_id=AGENT_SELF_ID,
         n=1,

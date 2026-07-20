@@ -17,14 +17,14 @@ import asyncio
 import json
 import logging
 import os
-import threading
 from datetime import date as _date, datetime
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
 from ..mood_register import MoodPAD
 from ..store import clock
+from .context import StoreContext
 from .embedding import _encode_vector
 
 logger = logging.getLogger(__name__)
@@ -47,17 +47,18 @@ def _encode_image(image_path: str) -> str | None:
         return None
 
 
-class ObservationReadMixin:
-    """観測の読み出しの持ち主。`ObservationMemory` が継承する。
+class ObservationStore:
+    """O（観測）の持ち主。読み出しと書き込みの両方を持つ。
 
-    宿主から借りる道具を下に宣言してある。これがこの層の依存の全てである。
+    使うものは文脈（`StoreContext`）から受け取り、層をまたぐ依存は引数で受け取る。
+    保存の一部として situated の更新と（撤去予定の）意味層への投影を起こすので、
+    その2つを渡してもらう。
     """
 
-    # 宿主（ObservationMemory）が備えるもの。mixin 自身は持たない。
-    _db_lock: threading.Lock
-    _person_id: str
-
-    def _ensure_connected(self) -> Any: ...  # 宿主が実装する
+    def __init__(self, ctx: StoreContext, *, situated: Any, legacy: Any) -> None:
+        self._ctx = ctx
+        self._situated = situated
+        self._legacy = legacy
 
 
     def _read_observations_by_kind(
@@ -72,8 +73,8 @@ class ObservationReadMixin:
         """
         col_sql = ", ".join(columns)
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     if isinstance(kind, str):
                         cur.execute(
@@ -117,8 +118,8 @@ class ObservationReadMixin:
             params += [f"%{kw}%" for kw in keywords]
         params.append(n)
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         f"SELECT {col_sql} FROM situated_embeddings s "
@@ -143,8 +144,8 @@ class ObservationReadMixin:
         """
         col_sql = ", ".join(f"o.{c}" for c in columns)
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "WITH RECURSIVE chain AS ("
@@ -166,14 +167,14 @@ class ObservationReadMixin:
         try:
             from datetime import timedelta
             cutoff = (datetime.fromisoformat(clock.now_local_iso()) - timedelta(days=days)).strftime("%Y-%m-%d")
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT DISTINCT timestamp::date AS d FROM observations "
                         "WHERE person_id=%s AND timestamp::date >= %s::date AND kind != 'day_summary' "
                         "ORDER BY d DESC",
-                        (self._person_id, cutoff),
+                        (self._ctx.person_id, cutoff),
                     )
                     return [row["d"].isoformat() for row in cur.fetchall()]
         except Exception as e:
@@ -182,13 +183,13 @@ class ObservationReadMixin:
     def get_dates_with_summaries(self) -> list[str]:
         """Return distinct dates (YYYY-MM-DD) that already have a day_summary observation."""
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT DISTINCT timestamp::date AS d FROM observations "
                         "WHERE person_id=%s AND kind='day_summary' ORDER BY d DESC",
-                        (self._person_id,),
+                        (self._ctx.person_id,),
                     )
                     return [row["d"].isoformat() for row in cur.fetchall()]
         except Exception as e:
@@ -197,15 +198,15 @@ class ObservationReadMixin:
     def get_observations_for_date(self, date: str, limit: int = 50) -> list[dict]:
         """Return observations for a specific date (YYYY-MM-DD), oldest first."""
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT id, content, emotion, kind, timestamp "
                         "FROM observations "
                         "WHERE person_id=%s AND timestamp::date=%s::date AND kind != 'day_summary' "
                         "ORDER BY timestamp ASC LIMIT %s",
-                        (self._person_id, date, limit),
+                        (self._ctx.person_id, date, limit),
                     )
                     rows = cur.fetchall()
             result = []
@@ -224,12 +225,12 @@ class ObservationReadMixin:
     def delete_day_summaries_for_date(self, date: str) -> int:
         """Delete all day_summary observations for a given date. Returns deleted row count."""
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "DELETE FROM observations WHERE kind='day_summary' AND timestamp::date=%s::date AND person_id=%s",
-                        (date, self._person_id),
+                        (date, self._ctx.person_id),
                     )
                     count = cur.rowcount if hasattr(cur, "rowcount") else 0
                 conn.commit()
@@ -246,8 +247,8 @@ class ObservationReadMixin:
         """Return observations from past years on the same month/day (anniversary recall)."""
         try:
             today = _date.today()
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT id, content, timestamp, emotion, kind FROM observations "
@@ -257,7 +258,7 @@ class ObservationReadMixin:
                         "  AND person_id = %s "
                         "  AND superseded_by IS NULL "
                         "ORDER BY timestamp DESC LIMIT %s",
-                        (month, day, today, self._person_id, n),
+                        (month, day, today, self._ctx.person_id, n),
                     )
                     return [
                         {**dict(r), "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"])}
@@ -272,12 +273,12 @@ class ObservationReadMixin:
     def get_earliest_date(self) -> str | None:
         """Return the earliest observation date string (YYYY-MM-DD), or None if no records."""
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT MIN(timestamp::date) AS earliest FROM observations WHERE person_id = %s AND superseded_by IS NULL",
-                        (self._person_id,)
+                        (self._ctx.person_id,)
                     )
                     row = cur.fetchone()
                 if row is None:
@@ -291,29 +292,7 @@ class ObservationReadMixin:
         return await asyncio.to_thread(self.get_earliest_date)
 
 
-class ObservationWriteMixin:
-    """観測の書き込みの持ち主。`ObservationMemory` が継承する。
-
-    O は追記である（[D-O書込]）。`_materialize_save_event` はキューに積まれた
-    イベントを実体化する本体で、埋め込みと situated 行の生成もここから起こす。
-
-    宿主から借りる道具を下に宣言してある。これがこの層の依存の全てである。
-    """
-
-    # 宿主（ObservationMemory）が備えるもの。mixin 自身は持たない。
-    _db_lock: threading.Lock
-    _person_id: str
-    _embedder: Any
-
-    def _ensure_connected(self) -> Any: ...  # 宿主が実装する
-
-    # 保存の一部として起こす、他の層の仕事。型の宣言だけにとどめる（メソッドとして
-    # 定義すると MRO で本物より先に見つかり、実行時にこちらが呼ばれてしまう）。
-    _refresh_situated_embeddings: Callable[..., None]
-    _update_perspective_vec: Callable[..., None]
-    _project_observation: Callable[..., None]
-
-    def _materialize_save_event(
+    def materialize_save_event(
         self,
         event_id: str,
         payload: dict,
@@ -337,7 +316,7 @@ class ObservationWriteMixin:
             return False
 
         image_data = _encode_image(image_path) if image_path else None
-        vec = self._embedder.encode_document([content])[0]
+        vec = self._ctx.embedder.encode_document([content])[0]
         blob = _encode_vector(vec)
         # どの時計を使うかは store/clock.py に集約してある。
         now = clock.now_utc()
@@ -345,8 +324,8 @@ class ObservationWriteMixin:
 
         participants_json = json.dumps(participants or [], ensure_ascii=False)
 
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute("SELECT 1 FROM observations WHERE id=%s", (event_id,))
                 if cur.fetchone():
@@ -358,13 +337,13 @@ class ObservationWriteMixin:
                         "  AND timestamp >= now() - (%s * INTERVAL '1 second') "
                         "  AND superseded_by IS NULL "
                         "ORDER BY timestamp DESC LIMIT 1",
-                        (self._person_id, content, kind, _CONTENT_DEDUP_WINDOW_SECS),
+                        (self._ctx.person_id, content, kind, _CONTENT_DEDUP_WINDOW_SECS),
                     )
                     if cur.fetchone():
                         logger.debug(
                             "content dedup skip: (person_id=%.8s kind=%s content=%.40r) "
                             "within %ds window",
-                            self._person_id, kind, content, _CONTENT_DEDUP_WINDOW_SECS,
+                            self._ctx.person_id, kind, content, _CONTENT_DEDUP_WINDOW_SECS,
                         )
                         return True
                 cur.execute(
@@ -376,9 +355,9 @@ class ObservationWriteMixin:
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
-                     self._person_id,
-                     writer_id or self._person_id,
-                     subject_id or self._person_id,
+                     self._ctx.person_id,
+                     writer_id or self._ctx.person_id,
+                     subject_id or self._ctx.person_id,
                      participants_json, scope,
                      emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom),
                 )
@@ -389,8 +368,8 @@ class ObservationWriteMixin:
                 )
             # Pre-compute situated embeddings for all persons
             mem_vec = np.array(vec, dtype=np.float32)
-            self._refresh_situated_embeddings(conn, event_id, mem_vec)
-            self._project_observation(conn, event_id, content, kind, emotion)
+            self._situated.refresh_situated_embeddings(conn, event_id, mem_vec)
+            self._legacy.project_observation(conn, event_id, content, kind, emotion)
             conn.commit()
 
         # Update this person's perspective vector in background
@@ -398,10 +377,10 @@ class ObservationWriteMixin:
             loop = asyncio.get_running_loop()
             loop.run_in_executor(
                 None,
-                lambda: self._update_perspective_vec(self._person_id, np.array(vec, dtype=np.float32)),
+                lambda: self._situated.update_perspective_vec(self._ctx.person_id, np.array(vec, dtype=np.float32)),
             )
         except RuntimeError:
-            self._update_perspective_vec(self._person_id, np.array(vec, dtype=np.float32))
+            self._situated.update_perspective_vec(self._ctx.person_id, np.array(vec, dtype=np.float32))
         return True
 
     def _mark_recalled(self, ids: list[str], *, reinforce_half_life: bool) -> None:
@@ -409,8 +388,8 @@ class ObservationWriteMixin:
         if not ids:
             return
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     if reinforce_half_life:
                         cur.execute(
@@ -429,13 +408,13 @@ class ObservationWriteMixin:
             logger.warning("_mark_recalled failed: %s", e)
 
     def decay_importance(self, before_date: str, factor: float = 0.95) -> int:
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE observations SET importance = importance * %s "
                     "WHERE timestamp::date < %s::date AND person_id = %s AND superseded_by IS NULL",
-                    (factor, before_date, self._person_id),
+                    (factor, before_date, self._ctx.person_id),
                 )
                 count = cur.rowcount
             conn.commit()
@@ -445,8 +424,8 @@ class ObservationWriteMixin:
         return await asyncio.to_thread(self.decay_importance, *a, **kw)
 
     def mark_superseded(self, old_id: str, new_id: str) -> None:
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute("UPDATE observations SET superseded_by=%s WHERE id=%s", (new_id, old_id))
             conn.commit()

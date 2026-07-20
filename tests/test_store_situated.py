@@ -15,12 +15,17 @@ import re
 
 import numpy as np
 
-from familiar_agent.store.situated import SituatedVectorsMixin, _situated_vector
+from familiar_agent.store.situated import SituatedVectors, _situated_vector
 from familiar_agent.tools.memory import ObservationMemory
 
 
-def test_observation_memory_inherits_the_situated_layer() -> None:
-    assert issubclass(ObservationMemory, SituatedVectorsMixin)
+def test_observation_memory_holds_the_situated_layer() -> None:
+    """層は文脈だけで組み立てられ、宿主は部品として持つ（継承しない）。"""
+    import inspect
+
+    assert "ctx" in inspect.signature(SituatedVectors.__init__).parameters
+    assert not issubclass(ObservationMemory, SituatedVectors)
+    assert hasattr(SituatedVectors, "refresh_situated_embeddings")
 
 
 def test_situated_vector_is_normalised() -> None:

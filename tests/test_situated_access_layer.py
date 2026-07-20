@@ -63,7 +63,7 @@ def test_read_by_situated_returns_newest_first() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 3, ("content", "timestamp"))
 
     assert [r["content"] for r in rows] == ["new", "mid", "old"]
 
@@ -78,7 +78,7 @@ def test_read_by_situated_respects_limit() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 3, ("content", "timestamp"))
     assert len(rows) == 3
 
 
@@ -95,7 +95,7 @@ def test_read_by_situated_includes_non_owner_when_correlated() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
 
     assert [r["content"] for r in rows] == ["other owned"]
 
@@ -111,7 +111,7 @@ def test_read_by_situated_excludes_when_no_correlation_row() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
     assert rows == []
 
 
@@ -128,7 +128,7 @@ def test_read_by_situated_filters_by_kind() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), kind="day_summary")
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), kind="day_summary")
     assert [r["content"] for r in rows] == ["a day summary"]
 
 
@@ -145,7 +145,7 @@ def test_read_by_situated_filters_by_keywords() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), keywords=("ramen",))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), keywords=("ramen",))
     assert [r["content"] for r in rows] == ["we talked about ramen today"]
 
 
@@ -160,7 +160,7 @@ def test_read_by_situated_empty_keywords_returns_all() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), keywords=())
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), keywords=())
     assert {r["content"] for r in rows} == {"alpha", "beta"}
 
 
@@ -175,7 +175,7 @@ def test_read_by_situated_passes_through_emotion_column() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content", "emotion"))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content", "emotion"))
     assert rows[0]["emotion"] == "happy"
 
 
@@ -193,7 +193,7 @@ def test_read_by_situated_excludes_superseded() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
     assert [r["content"] for r in rows] == ["live row"]
 
 
@@ -201,5 +201,5 @@ def test_read_by_situated_excludes_superseded() -> None:
 
 def test_read_by_situated_returns_empty_when_none() -> None:
     mem = _mem()
-    rows = mem._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
+    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",))
     assert rows == []

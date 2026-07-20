@@ -42,7 +42,7 @@ def test_read_observations_by_kind_returns_newest_first() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
 
     assert len(rows) == 3
     assert rows[0]["content"] == "new curiosity"
@@ -60,7 +60,7 @@ def test_read_observations_by_kind_respects_limit() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
 
     assert len(rows) == 3
 
@@ -77,7 +77,7 @@ def test_read_observations_by_kind_filters_by_kind() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     assert len(rows) == 1
     assert rows[0]["content"] == "curiosity row"
@@ -92,7 +92,7 @@ def test_read_observations_by_kind_filters_by_person_id() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     assert len(rows) == 1
     assert rows[0]["content"] == "agent curiosity"
@@ -106,7 +106,7 @@ def test_read_observations_by_kind_returns_empty_when_none_match() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     assert rows == []
 
@@ -320,7 +320,7 @@ def test_read_observations_by_kind_accepts_tuple_of_kinds() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     contents = {r["content"] for r in rows}
     assert contents == {"a feeling", "a conversation"}
@@ -337,7 +337,7 @@ def test_read_observations_by_kind_tuple_respects_order_and_limit() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 2, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 2, ("content", "timestamp"))
 
     assert len(rows) == 2
     assert rows[0]["content"] == "new feeling"
@@ -354,7 +354,7 @@ def test_read_observations_by_kind_str_path_unchanged_after_tuple_support() -> N
     conn.close()
 
     mem = _mem()
-    rows = mem._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     assert len(rows) == 1
     assert rows[0]["content"] == "curiosity row"

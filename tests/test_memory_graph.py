@@ -39,10 +39,10 @@ def test_conflicting_semantic_facts_create_revisions(tmp_path: Path) -> None:
     mem = _memory(tmp_path)
     with mem._db_lock:  # noqa: SLF001
         db = mem._ensure_connected()  # noqa: SLF001
-        mem._upsert_semantic_fact_locked(
+        mem._legacy._upsert_semantic_fact_locked(
             db, "favorite_drink", "Coffee is the favorite", confidence=0.7
         )  # noqa: SLF001
-        mem._upsert_semantic_fact_locked(
+        mem._legacy._upsert_semantic_fact_locked(
             db, "favorite_drink", "Tea is the favorite", confidence=0.8
         )  # noqa: SLF001
         db.commit()

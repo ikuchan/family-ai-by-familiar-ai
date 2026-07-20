@@ -25,12 +25,13 @@ from ..config import MemoryConfig
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
 from ..db_migrations import apply_migrations, default_migration_dir
-from ..legacy.semantic_layer import LegacySemanticLayerMixin
+from ..legacy.semantic_layer import LegacySemanticLayer
 from ..store import clock
-from ..store.jobs import MemoryJobsMixin
-from ..store.observations import ObservationReadMixin, ObservationWriteMixin
+from ..store.context import StoreContext
+from ..store.jobs import JobQueue
+from ..store.observations import ObservationStore
 from ..store.situated import (  # noqa: F401  既存の呼び出し側が memory 経由で引くための再輸出
-    SituatedVectorsMixin,
+    SituatedVectors,
     _situated_vector,
     load_embedding_mean,
 )
@@ -311,13 +312,7 @@ def _emotion_match(
 
 # ── ObservationMemory ──────────────────────────────────────────────────────
 
-class ObservationMemory(
-    LegacySemanticLayerMixin,
-    MemoryJobsMixin,
-    SituatedVectorsMixin,
-    ObservationReadMixin,
-    ObservationWriteMixin,
-):
+class ObservationMemory:
     """PostgreSQL-backed memory store scoped to one person_id."""
 
     _embedder: "_EmbeddingModel" = _EmbeddingModel()  # class-level default; tests can patch via __class__
@@ -332,9 +327,26 @@ class ObservationMemory(
         self._db: Database = get_db()
         self._db_lock = self._db.lock
         self._embedder = _EmbeddingModel(model_name)
+        self._build_layers()
         import os
         if os.environ.get("FAMILIAR_EMBEDDING_PREWARM", "1").lower() not in {"0","false","no","off"}:
             self._embedder.pre_warm()
+
+    def _build_layers(self) -> None:
+        """層を組み立てる。依存は引数に出す（宿主の名前空間を共有しない）。
+
+        向きは jobs → observations → situated / legacy の一方向。
+        """
+        self._ctx = StoreContext(
+            db=self._db, lock=self._db_lock,
+            person_id=self._person_id, embedder=self._embedder,
+        )
+        self._situated = SituatedVectors(self._ctx)
+        self._legacy = LegacySemanticLayer(self._ctx)
+        self._observations = ObservationStore(
+            self._ctx, situated=self._situated, legacy=self._legacy
+        )
+        self._jobs = JobQueue(self._ctx, observations=self._observations)
 
     # ── Internals ──────────────────────────────────────────────────────────
 
@@ -356,6 +368,115 @@ class ObservationMemory(
     def _now() -> str:
         """TEXT 列向けの現在時刻（store/clock.py の使い分けに従う）。"""
         return clock.now_local_iso()
+
+
+    # ── 層への委譲 ────────────────────────────────────────────────────────
+    # 公開面は従来どおり ObservationMemory に集める（呼び出し側を変えないため）。
+    # 委譲するのは**外から呼ばれるものだけ**で、層の内部ヘルパーは委譲しない
+    # （層の内側が外から触れる状態を残さないため）。署名は層の実物に合わせて
+    # 書く。`*a, **kw` にすると、何を受けるかがここから読めなくなる。
+    # 自動転送（__getattr__）は使わない。何が公開面かがコードから読めなくなる。
+
+    # 観測（store/observations.py）
+    def mark_superseded(self, old_id: 'str', new_id: 'str') -> 'None':
+        return self._observations.mark_superseded(old_id, new_id)
+
+    def decay_importance(self, before_date: 'str', factor: 'float' = 0.95) -> 'int':
+        return self._observations.decay_importance(before_date, factor)
+
+    async def decay_importance_async(self, *a, **kw):
+        return await self._observations.decay_importance_async(*a, **kw)
+
+    def get_dates_with_observations(self, days: 'int' = 7) -> 'list[str]':
+        return self._observations.get_dates_with_observations(days)
+
+    def get_dates_with_summaries(self) -> 'list[str]':
+        return self._observations.get_dates_with_summaries()
+
+    def get_observations_for_date(self, date: 'str', limit: 'int' = 50) -> 'list[dict]':
+        return self._observations.get_observations_for_date(date, limit)
+
+    def delete_day_summaries_for_date(self, date: 'str') -> 'int':
+        return self._observations.delete_day_summaries_for_date(date)
+
+    def recall_on_this_day(self, month: 'int', day: 'int', n: 'int' = 5) -> 'list[dict]':
+        return self._observations.recall_on_this_day(month, day, n)
+
+    async def recall_on_this_day_async(self, month: 'int', day: 'int', n: 'int' = 5) -> 'list[dict]':
+        return await self._observations.recall_on_this_day_async(month, day, n)
+
+    def get_earliest_date(self) -> 'str | None':
+        return self._observations.get_earliest_date()
+
+    async def get_earliest_date_async(self) -> 'str | None':
+        return await self._observations.get_earliest_date_async()
+
+
+    # キュー（store/jobs.py）
+    def append_memory_event(self, event_type: 'str', payload: 'dict', dedupe_key: 'str | None' = None, queue_job: 'bool' = True, job_type: 'str' = 'materialize_observation') -> 'tuple[str | None, bool]':
+        return self._jobs.append_memory_event(event_type, payload, dedupe_key, queue_job, job_type)
+
+    async def append_memory_event_async(self, *a, **kw):
+        return await self._jobs.append_memory_event_async(*a, **kw)
+
+    def claim_pending_jobs(self, limit: 'int' = 10) -> 'list[dict]':
+        return self._jobs.claim_pending_jobs(limit)
+
+    def mark_job_done(self, job_id: 'str') -> 'bool':
+        return self._jobs.mark_job_done(job_id)
+
+    def mark_job_failed(self, job_id: 'str', error: 'str', retry_delay: 'float' = 10.0, max_attempts: 'int' = 3) -> 'str':
+        return self._jobs.mark_job_failed(job_id, error, retry_delay, max_attempts)
+
+    def materialize_event(self, event_id: 'str') -> 'bool':
+        return self._jobs.materialize_event(event_id)
+
+
+    # 撤去予定の層（legacy/semantic_layer.py・Phase 6 で消える）
+    def recall_semantic_facts(self, query: 'str', n: 'int' = 5) -> 'list[dict]':
+        return self._legacy.recall_semantic_facts(query, n)
+
+    async def recall_semantic_facts_async(self, *a, **kw):
+        return await self._legacy.recall_semantic_facts_async(*a, **kw)
+
+    def recall_behavior_policies(self, query: 'str', n: 'int' = 5) -> 'list[dict]':
+        return self._legacy.recall_behavior_policies(query, n)
+
+    async def recall_behavior_policies_async(self, *a, **kw):
+        return await self._legacy.recall_behavior_policies_async(*a, **kw)
+
+    def recall_revisions(self, entity_type: 'str' = 'semantic_fact', entity_key: 'str | None' = None, n: 'int' = 50) -> 'list[dict]':
+        return self._legacy.recall_revisions(entity_type, entity_key, n)
+
+    def adjust_semantic_fact_confidence(self, key: 'str', delta: 'float', reason: 'str' = ''):
+        return self._legacy.adjust_semantic_fact_confidence(key, delta, reason)
+
+    async def adjust_semantic_fact_confidence_async(self, key: 'str', delta: 'float', reason: 'str' = ''):
+        return await self._legacy.adjust_semantic_fact_confidence_async(key, delta, reason)
+
+    def adjust_behavior_policy_confidence(self, key: 'str', delta: 'float', reason: 'str' = ''):
+        return self._legacy.adjust_behavior_policy_confidence(key, delta, reason)
+
+    async def adjust_behavior_policy_confidence_async(self, key: 'str', delta: 'float', reason: 'str' = '', policy_text: 'str' = '', trigger_context: 'str' = '', action_hint: 'str' = ''):
+        return await self._legacy.adjust_behavior_policy_confidence_async(key, delta, reason, policy_text, trigger_context, action_hint)
+
+    def link_memories(self, src: 'str', tgt: 'str', link_type: 'str' = 'related', note: 'str | None' = None) -> 'bool':
+        return self._legacy.link_memories(src, tgt, link_type, note)
+
+    async def link_memories_async(self, *a, **kw):
+        return await self._legacy.link_memories_async(*a, **kw)
+
+    def get_linked_memories(self, memory_id: 'str', direction: 'str' = 'both') -> 'list[dict]':
+        return self._legacy.get_linked_memories(memory_id, direction)
+
+    async def get_linked_memories_async(self, *a, **kw):
+        return await self._legacy.get_linked_memories_async(*a, **kw)
+
+    def format_semantic_facts_for_context(self, facts: 'list[dict]') -> 'str':
+        return self._legacy.format_semantic_facts_for_context(facts)
+
+    def format_behavior_policies_for_context(self, policies: 'list[dict]') -> 'str':
+        return self._legacy.format_behavior_policies_for_context(policies)
 
     # ── Person management ──────────────────────────────────────────────────
 
@@ -391,6 +512,7 @@ class ObservationMemory(
         obj._db        = self._db
         obj._db_lock   = self._db_lock
         obj._embedder  = self._embedder
+        obj._build_layers()
         return obj
 
     # ── Perspective vector ─────────────────────────────────────────────────
@@ -434,7 +556,7 @@ class ObservationMemory(
             except Exception as e:
                 logger.warning("append_memory_event failed, continuing with direct save: %s", e)
             obs_id = event_id or str(uuid.uuid4())
-            return self._materialize_save_event(
+            return self._observations.materialize_save_event(
                 obs_id, payload,
                 writer_id=writer_id,
                 subject_id=subject_id,
@@ -462,7 +584,7 @@ class ObservationMemory(
             if not kwargs.get("materialize_now", True) and event_id:
                 return event_id, True
             obs_id = event_id or str(uuid.uuid4())
-            ok = self._materialize_save_event(
+            ok = self._observations.materialize_save_event(
                 obs_id, payload,
                 writer_id=kwargs.get("writer_id"),
                 subject_id=kwargs.get("subject_id"),
@@ -510,8 +632,8 @@ class ObservationMemory(
             q_vec = _coerce_to_embedding_dim(
                 np.array(self._embedder.encode_query([query])[0], dtype=np.float32)
             )
-            p_vec = self._get_perspective_vec(self._person_id)
-            situated_q = _situated_vector(q_vec, p_vec, self._embedding_mu())
+            p_vec = self._situated._get_perspective_vec(self._person_id)
+            situated_q = _situated_vector(q_vec, p_vec, self._situated._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
 
             kind_clause = "AND o.kind = %s" if kind else ""
@@ -625,7 +747,7 @@ class ObservationMemory(
                         )
 
                 if recall_mode in ("conversation", "spontaneous"):
-                    self._mark_recalled(
+                    self._observations._mark_recalled(
                         [r["memory_id"] for r in results],
                         reinforce_half_life=(recall_mode == "conversation"),
                     )
@@ -718,7 +840,7 @@ class ObservationMemory(
         return await asyncio.to_thread(self.recall, *a, **kw)
 
     def recent_feelings(self, n: int = 5) -> list[dict]:
-        rows = self._read_observations_by_kind(
+        rows = self._observations._read_observations_by_kind(
             kind=("feeling", "conversation"),
             person_id=self._person_id,
             n=n,
@@ -735,7 +857,7 @@ class ObservationMemory(
 
     def recall_self_model(self, n: int = 5) -> list[dict]:
         """Always uses AGENT_SELF_ID scope — agent's own self-understanding."""
-        rows = self._read_observations_by_kind(
+        rows = self._observations._read_observations_by_kind(
             kind="self_model",
             person_id=AGENT_SELF_ID,
             n=n,
@@ -756,7 +878,7 @@ class ObservationMemory(
         return await asyncio.to_thread(self.recall_self_model, n)
 
     def recall_curiosities(self, n: int = 5) -> list[dict]:
-        rows = self._read_observations_by_kind(
+        rows = self._observations._read_observations_by_kind(
             kind="curiosity",
             person_id=AGENT_SELF_ID,
             n=n,
@@ -774,7 +896,7 @@ class ObservationMemory(
     def recall_day_summaries(self, n: int = 5) -> list[dict]:
         # C-1: 所有者絞り（observations.person_id）でなく situated 相関で在席者に紐づける。
         # 母集合は所有者に依らず、この memory の person_id の視点で状況化された観測。
-        rows = self._read_observations_by_situated(
+        rows = self._observations._read_observations_by_situated(
             person_id=self._person_id,
             n=n,
             columns=("content", "timestamp", "emotion"),

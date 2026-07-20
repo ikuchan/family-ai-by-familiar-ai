@@ -84,6 +84,6 @@ def test_materialize_from_payload_dict_round_trips_pad() -> None:
         "emotion_pad": MoodPAD(0.7, 0.2, 0.35, 0.5).to_json_dict(),
     }
     with patch.object(_EmbeddingModel, "encode_document", return_value=[_FIXED_VEC]):
-        ok = mem._materialize_save_event(obs_id, payload)
+        ok = mem._observations.materialize_save_event(obs_id, payload)
     assert ok is True
     assert _pad_of(obs_id) == (0.7, 0.2, 0.35, 0.5)

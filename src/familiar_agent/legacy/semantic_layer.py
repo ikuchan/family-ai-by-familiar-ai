@@ -17,40 +17,30 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import threading
 import uuid
-from typing import Any
 
 from ..store import clock
 from ..store.db_compat import _RealDictConnWrapper
 
+from ..store.context import StoreContext
+
 logger = logging.getLogger(__name__)
 
 
-class LegacySemanticLayerMixin:
-    """撤去予定の層。`ObservationMemory` が継承する。
+class LegacySemanticLayer:
+    """撤去予定の層（Phase 6）。
 
-    宿主から借りる道具を下に宣言してある。**これがこの層の依存の全て**で、
-    ここから宿主の想起や採点は呼ばない。撤去のとき、宿主側に何が残るかが
-    この宣言だけで分かるようにしてある。
+    使うものは文脈（`StoreContext`）から受け取る。ここに新しい機能を足さない。
     """
 
-    # 宿主（ObservationMemory）が備える属性。mixin 自身は持たない。
-    _db_lock: threading.Lock
-    _person_id: str
-
-    def _ensure_connected(self) -> Any: ...  # noqa: D102  宿主が実装する
-
-    @staticmethod
-    def _now() -> str:
-        """宿主が実装する（TEXT 列向けの現在時刻）。"""
-        raise NotImplementedError
+    def __init__(self, ctx: StoreContext) -> None:
+        self._ctx = ctx
 
     def recall_semantic_facts(self, query: str, n: int = 5) -> list[dict]:
         like = f"%{query.strip()}%" if query.strip() else "%"
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT fact_key,fact_text,source_memory_id,confidence,tags,last_seen_at "
@@ -58,7 +48,7 @@ class LegacySemanticLayerMixin:
                         "WHERE person_id=%s AND (%s='%%' OR fact_text LIKE %s OR tags LIKE %s) "
                         "ORDER BY CASE WHEN fact_text LIKE %s THEN 0 ELSE 1 END, last_seen_at DESC "
                         "LIMIT %s",
-                        (self._person_id, like, like, like, like, n),
+                        (self._ctx.person_id, like, like, like, like, n),
                     )
                     return [
                         {"key":r["fact_key"],"summary":r["fact_text"],
@@ -88,7 +78,7 @@ class LegacySemanticLayerMixin:
             cur.execute(
                 "SELECT id, fact_text, confidence FROM semantic_facts "
                 "WHERE person_id=%s AND fact_key=%s",
-                (self._person_id, key),
+                (self._ctx.person_id, key),
             )
             existing = cur.fetchone()
         if existing and existing["fact_text"] != text:
@@ -110,7 +100,7 @@ class LegacySemanticLayerMixin:
                     "source_memory_id=%s,tags=%s,updated_at=%s,last_seen_at=%s "
                     "WHERE person_id=%s AND fact_key=%s",
                     (text, confidence, source_memory_id, tags, now, now,
-                     self._person_id, key),
+                     self._ctx.person_id, key),
                 )
         else:
             with conn.cursor() as cur:
@@ -120,7 +110,7 @@ class LegacySemanticLayerMixin:
                     "last_seen_at,created_at,updated_at,person_id) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (str(uuid.uuid4()), key, text, source_memory_id,
-                     confidence, tags, now, now, now, self._person_id),
+                     confidence, tags, now, now, now, self._ctx.person_id),
                 )
 
     def _upsert_behavior_policy_locked(
@@ -138,7 +128,7 @@ class LegacySemanticLayerMixin:
             cur.execute(
                 "SELECT id, policy_text, confidence FROM behavior_policies "
                 "WHERE policy_key=%s AND person_id=%s",
-                (key, self._person_id),
+                (key, self._ctx.person_id),
             )
             existing = cur.fetchone()
         if existing and existing["policy_text"] != text:
@@ -161,7 +151,7 @@ class LegacySemanticLayerMixin:
                     "confidence=%s,source_memory_id=%s,updated_at=%s,last_seen_at=%s "
                     "WHERE policy_key=%s AND person_id=%s",
                     (text, trigger_context, action_hint, confidence, source_memory_id,
-                     now, now, key, self._person_id),
+                     now, now, key, self._ctx.person_id),
                 )
         else:
             with conn.cursor() as cur:
@@ -171,10 +161,10 @@ class LegacySemanticLayerMixin:
                     "source_memory_id,confidence,last_seen_at,created_at,updated_at,person_id) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (str(uuid.uuid4()), key, text, trigger_context, action_hint,
-                     source_memory_id, confidence, now, now, now, self._person_id),
+                     source_memory_id, confidence, now, now, now, self._ctx.person_id),
                 )
 
-    def _project_observation(
+    def project_observation(
         self, conn: "_RealDictConnWrapper", obs_id: str, content: str, kind: str, emotion: str
     ) -> None:
         try:
@@ -203,13 +193,13 @@ class LegacySemanticLayerMixin:
     ):
         try:
             now = clock.now_local_iso()
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT id, policy_text, confidence FROM behavior_policies "
                         "WHERE policy_key=%s AND person_id=%s",
-                        (key, self._person_id),
+                        (key, self._ctx.person_id),
                     )
                     row = cur.fetchone()
                 if not row:
@@ -229,7 +219,7 @@ class LegacySemanticLayerMixin:
                     cur.execute(
                         "UPDATE behavior_policies SET confidence=%s,updated_at=%s "
                         "WHERE policy_key=%s AND person_id=%s",
-                        (new_conf, now, key, self._person_id),
+                        (new_conf, now, key, self._ctx.person_id),
                     )
                 conn.commit()
             return new_conf
@@ -249,8 +239,8 @@ class LegacySemanticLayerMixin:
         def _run():
             if policy_text:
                 try:
-                    with self._db_lock:
-                        conn = self._ensure_connected()
+                    with self._ctx.lock:
+                        conn = self._ctx.conn()
                         self._upsert_behavior_policy_locked(
                             conn, key, policy_text,
                             trigger_context=trigger_context,
@@ -267,13 +257,13 @@ class LegacySemanticLayerMixin:
     ):
         try:
             now = clock.now_local_iso()
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT id, fact_text, confidence FROM semantic_facts "
                         "WHERE fact_key=%s AND person_id=%s",
-                        (key, self._person_id),
+                        (key, self._ctx.person_id),
                     )
                     row = cur.fetchone()
                 if not row:
@@ -293,7 +283,7 @@ class LegacySemanticLayerMixin:
                     cur.execute(
                         "UPDATE semantic_facts SET confidence=%s,updated_at=%s "
                         "WHERE fact_key=%s AND person_id=%s",
-                        (new_conf, now, key, self._person_id),
+                        (new_conf, now, key, self._ctx.person_id),
                     )
                 conn.commit()
             return new_conf
@@ -310,8 +300,8 @@ class LegacySemanticLayerMixin:
         n: int = 50,
     ) -> list[dict]:
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 params: list = [entity_type]
                 sql = (
                     "SELECT id,entity_type,entity_key,previous_text,new_text,"
@@ -332,8 +322,8 @@ class LegacySemanticLayerMixin:
     def recall_behavior_policies(self, query: str, n: int = 5) -> list[dict]:
         like = f"%{query.strip()}%" if query.strip() else "%"
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT policy_key,policy_text,trigger_context,action_hint,"
@@ -343,7 +333,7 @@ class LegacySemanticLayerMixin:
                         "   OR trigger_context LIKE %s OR action_hint LIKE %s) "
                         "ORDER BY CASE WHEN policy_text LIKE %s THEN 0 ELSE 1 END, last_seen_at DESC "
                         "LIMIT %s",
-                        (self._person_id, like, like, like, like, like, n),
+                        (self._ctx.person_id, like, like, like, like, like, n),
                     )
                     return [
                         {"key":r["policy_key"],"summary":r["policy_text"],
@@ -360,13 +350,13 @@ class LegacySemanticLayerMixin:
 
     def link_memories(self, src: str, tgt: str, link_type: str = "related", note: str | None = None) -> bool:
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "INSERT INTO memory_links (id,source_id,target_id,link_type,note,created_at) "
                         "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                        (str(uuid.uuid4()), src, tgt, link_type, note, self._now()),
+                        (str(uuid.uuid4()), src, tgt, link_type, note, clock.now_local_iso()),
                     )
                 conn.commit()
             return True
@@ -379,8 +369,8 @@ class LegacySemanticLayerMixin:
     def get_linked_memories(self, memory_id: str, direction: str = "both") -> list[dict]:
         try:
             results = []
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 if direction in ("out", "both"):
                     with conn.cursor() as cur:
                         cur.execute(

@@ -12,30 +12,39 @@ from __future__ import annotations
 import pathlib
 import re
 
-from familiar_agent.store.observations import ObservationWriteMixin
+from familiar_agent.store.observations import ObservationStore
 from familiar_agent.tools.memory import ObservationMemory
 
 
-def test_observation_memory_inherits_the_write_layer() -> None:
-    assert issubclass(ObservationMemory, ObservationWriteMixin)
+def test_observation_memory_holds_the_write_layer() -> None:
+    assert hasattr(ObservationStore, "materialize_save_event")
 
 
-def test_moved_writers_are_gone_from_memory_module() -> None:
-    """移動元に定義が残っていない（二重定義の反証）。"""
+def test_writing_is_owned_by_the_store_layer() -> None:
+    """書き込みの実装が層にあり、`memory.py` に二重に無い。"""
+    from familiar_agent.store.observations import ObservationStore
+
     src = pathlib.Path("src/familiar_agent/tools/memory.py").read_text()
-    for name in (
-        "_materialize_save_event",
-        "_mark_recalled",
-        "mark_superseded",
-        "decay_importance",
-    ):
-        assert not re.search(rf"^    def {name}\b", src, re.M), f"{name} の定義が残っている"
+    for name in ("materialize_save_event", "_mark_recalled"):
+        assert hasattr(ObservationStore, name), f"{name} が層に無い"
+    for name in ("_materialize_save_event", "_mark_recalled"):
+        assert not re.search(rf"^    (?:async )?def {name}\b", src, re.M), \
+            f"{name} が memory.py にも定義されている（二重実装）"
+
+    # 外から呼ばれるものは委譲が残る。ただし SQL は持たない。
+    for name in ("mark_superseded", "decay_importance"):
+        m = re.search(rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S)
+        assert m, f"{name} の委譲が要る（外から呼ばれる）"
+        assert "cur.execute" not in m.group(0), f"{name} の SQL が memory.py に残っている"
 
 
-def test_jobs_no_longer_borrows_materialize_from_the_host() -> None:
-    """キュー層の依存が1つ減っている（切り出しが進んだ印）。"""
-    src = pathlib.Path("src/familiar_agent/store/jobs.py").read_text()
-    assert "宿主が実装する（observations への実体化" not in src
+def test_jobs_receives_observations_explicitly() -> None:
+    """キュー層は実体化の本体を引数で受け取る（借り物でない）。"""
+    import inspect
+
+    from familiar_agent.store.jobs import JobQueue
+
+    assert "observations" in inspect.signature(JobQueue.__init__).parameters
 
 
 def test_store_dependencies_stay_one_way() -> None:

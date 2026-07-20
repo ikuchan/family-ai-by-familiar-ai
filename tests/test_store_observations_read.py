@@ -18,12 +18,13 @@ from __future__ import annotations
 import pathlib
 import re
 
-from familiar_agent.store.observations import ObservationReadMixin
+from familiar_agent.store.observations import ObservationStore
 from familiar_agent.tools.memory import ObservationMemory
 
 
-def test_observation_memory_inherits_the_read_layer() -> None:
-    assert issubclass(ObservationMemory, ObservationReadMixin)
+def test_observation_memory_holds_the_read_layer() -> None:
+    assert hasattr(ObservationStore, "_read_observations_by_kind")
+    assert hasattr(ObservationMemory, "get_dates_with_observations")
 
 
 def test_public_entry_points_are_still_reachable() -> None:
@@ -56,14 +57,24 @@ def test_read_layer_has_no_scoring() -> None:
         assert banned not in code, f"層に採点が混ざっている: {banned}"
 
 
-def test_moved_readers_are_gone_from_memory_module() -> None:
-    """移動元に定義が残っていない（二重定義の反証）。"""
+def test_reading_is_owned_by_the_store_layer() -> None:
+    """読み出しの実装が層にあり、`memory.py` に二重に無い。
+
+    層の内部ヘルパー（`_read_*`）は `memory.py` へ委譲しない（層の内側が外から
+    触れる状態を残さないため）。よってここでは「memory.py に定義が無いこと」と
+    「層に在ること」の両方を見る。
+    """
+    from familiar_agent.store.observations import ObservationStore
+
     src = pathlib.Path("src/familiar_agent/tools/memory.py").read_text()
-    for name in (
-        "_read_observations_by_kind",
-        "_read_observations_by_situated",
-        "_read_supersede_chain",
-        "get_dates_with_observations",
-        "recall_on_this_day",
-    ):
-        assert not re.search(rf"^    def {name}\b", src, re.M), f"{name} の定義が残っている"
+    for name in ("_read_observations_by_kind", "_read_observations_by_situated",
+                 "_read_supersede_chain"):
+        assert hasattr(ObservationStore, name), f"{name} が層に無い"
+        assert not re.search(rf"^    (?:async )?def {name}\b", src, re.M), \
+            f"{name} が memory.py にも定義されている（二重実装）"
+
+    # 日付系は外から呼ばれるので委譲が残る。ただし SQL は持たない。
+    for name in ("get_dates_with_observations", "recall_on_this_day"):
+        m = re.search(rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S)
+        assert m, f"{name} の委譲が要る（外から呼ばれる）"
+        assert "cur.execute" not in m.group(0), f"{name} の SQL が memory.py に残っている"

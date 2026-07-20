@@ -45,7 +45,7 @@ def test_chain_returns_head_then_ancestors() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_supersede_chain("v-c", ("id", "content"))
+    rows = mem._observations._read_supersede_chain("v-c", ("id", "content"))
     assert [r["content"] for r in rows] == ["third", "second", "first"]
 
 
@@ -57,7 +57,7 @@ def test_chain_single_live_mi_returns_itself() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_supersede_chain("solo-1", ("id", "content"))
+    rows = mem._observations._read_supersede_chain("solo-1", ("id", "content"))
     assert [r["content"] for r in rows] == ["only"]
 
 
@@ -72,11 +72,11 @@ def test_chain_gathers_merged_ancestors() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._read_supersede_chain("m-head", ("id", "content"))
+    rows = mem._observations._read_supersede_chain("m-head", ("id", "content"))
     assert {r["content"] for r in rows} == {"head", "merged-x", "merged-y"}
 
 
 def test_chain_returns_empty_for_unknown_head() -> None:
     mem = _mem()
-    rows = mem._read_supersede_chain("no-such-id", ("id", "content"))
+    rows = mem._observations._read_supersede_chain("no-such-id", ("id", "content"))
     assert rows == []

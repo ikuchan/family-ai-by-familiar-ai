@@ -15,16 +15,19 @@ from __future__ import annotations
 import pathlib
 import re
 
-from familiar_agent.legacy.semantic_layer import LegacySemanticLayerMixin
+from familiar_agent.legacy.semantic_layer import LegacySemanticLayer
 from familiar_agent.tools.memory import ObservationMemory
 
 
 _LEGACY_TABLES = ("semantic_facts", "behavior_policies", "memory_revisions", "memory_links")
 
 
-def test_observation_memory_inherits_the_legacy_layer() -> None:
-    """公開 API は変わらない（呼び出し側を書き換えないための継承）。"""
-    assert issubclass(ObservationMemory, LegacySemanticLayerMixin)
+def test_observation_memory_holds_the_legacy_layer() -> None:
+    """公開 API は変わらない（呼び出し側を書き換えないための委譲）。"""
+    import inspect
+
+    assert "ctx" in inspect.signature(LegacySemanticLayer.__init__).parameters
+    assert hasattr(ObservationMemory, "recall_semantic_facts_async")
 
 
 def test_public_methods_are_still_reachable() -> None:

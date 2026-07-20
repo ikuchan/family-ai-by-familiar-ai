@@ -12,9 +12,7 @@
 from __future__ import annotations
 
 import logging
-import threading
 import uuid
-from typing import Any
 
 import numpy as np
 
@@ -27,6 +25,9 @@ from .embedding import (
     _encode_vector,
     _normalise,
 )
+
+from . import clock
+from .context import StoreContext
 
 logger = logging.getLogger(__name__)
 
@@ -88,22 +89,14 @@ def load_embedding_mean(dim: int, conn=None) -> "np.ndarray | None":
     return _decode_vector(bytes(blob))
 
 
-class SituatedVectorsMixin:
-    """視点ベクトルと situated 行の持ち主。`ObservationMemory` が継承する。
+class SituatedVectors:
+    """視点ベクトルと situated 行の持ち主。
 
-    宿主から借りる道具を下に宣言してある。これがこの層の依存の全てである。
+    使うものは文脈（`StoreContext`）から受け取る。宿主の名前空間は覗かない。
     """
 
-    # 宿主（ObservationMemory）が備えるもの。mixin 自身は持たない。
-    _db_lock: threading.Lock
-    _person_id: str
-
-    def _ensure_connected(self) -> Any: ...  # 宿主が実装する
-
-    @staticmethod
-    def _now() -> str:
-        """宿主が実装する（TEXT 列向けの現在時刻）。"""
-        raise NotImplementedError
+    def __init__(self, ctx: StoreContext) -> None:
+        self._ctx = ctx
 
     def _embedding_mu(self, conn=None) -> "np.ndarray | None":
         """平均中心化に使う mu を返す（C2・遅延読み込みで1回だけ）。
@@ -130,22 +123,22 @@ class SituatedVectorsMixin:
 
     def _get_perspective_vec(self, person_id: str) -> np.ndarray:
         """Load person's perspective vector from DB. Returns zeros if none."""
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             return self._get_perspective_vec_with_conn(person_id, conn)
 
-    def _update_perspective_vec(self, person_id: str, mem_vec: np.ndarray, lr: float = 0.05) -> None:
+    def update_perspective_vec(self, person_id: str, mem_vec: np.ndarray, lr: float = 0.05) -> None:
         """Moving-average update of person's perspective vector."""
         mem_vec = _coerce_to_embedding_dim(mem_vec)
         old = self._get_perspective_vec(person_id)
         new = _normalise((1.0 - lr) * old + lr * mem_vec)
         blob = _encode_vector(new.tolist())
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE persons SET perspective_vec = %s, updated_at = %s WHERE id = %s",
-                    (blob, self._now(), person_id),
+                    (blob, clock.now_local_iso(), person_id),
                 )
             conn.commit()
 
@@ -176,7 +169,7 @@ class SituatedVectorsMixin:
                 (str(uuid.uuid4()), obs_id, person_id, vec_str, relation_key),
             )
 
-    def _refresh_situated_embeddings(self, conn, obs_id: str, mem_vec: np.ndarray) -> None:
+    def refresh_situated_embeddings(self, conn, obs_id: str, mem_vec: np.ndarray) -> None:
         """Pre-compute situated vectors for ALL registered persons + agent self."""
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM persons")

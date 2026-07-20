@@ -18,13 +18,16 @@ from __future__ import annotations
 import pathlib
 import re
 
-from familiar_agent.store.jobs import MemoryJobsMixin
+from familiar_agent.store.jobs import JobQueue
 from familiar_agent.tools.memory import ObservationMemory
 
 
-def test_observation_memory_inherits_the_jobs_layer() -> None:
-    """公開 API は変わらない（memory_worker.py を書き換えないための継承）。"""
-    assert issubclass(ObservationMemory, MemoryJobsMixin)
+def test_observation_memory_holds_the_jobs_layer() -> None:
+    """公開 API は変わらない（memory_worker.py を書き換えないための委譲）。"""
+    import inspect
+
+    assert "observations" in inspect.signature(JobQueue.__init__).parameters
+    assert hasattr(ObservationMemory, "claim_pending_jobs")
 
 
 def test_worker_entry_points_are_still_reachable() -> None:

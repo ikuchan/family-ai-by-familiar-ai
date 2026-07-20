@@ -18,37 +18,26 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import threading
 import uuid
 from datetime import datetime, timedelta
-from typing import Any, Callable
+from typing import Any
 
 from . import clock
+from .context import StoreContext
 
 logger = logging.getLogger(__name__)
 
 
-class MemoryJobsMixin:
-    """キューの持ち主。`ObservationMemory` が継承する。
+class JobQueue:
+    """キューの持ち主。
 
-    宿主から借りる道具を下に宣言してある。これがこの層の依存の全てである。
+    使うものは文脈（`StoreContext`）から受け取り、層をまたぐ依存は引数で受け取る。
+    実体化の本体は観測層が持つので、それを渡してもらう。
     """
 
-    # 宿主（ObservationMemory）が備えるもの。mixin 自身は持たない。
-    _db_lock: threading.Lock
-    _person_id: str
-
-    def _ensure_connected(self) -> Any: ...  # 宿主が実装する
-
-    @staticmethod
-    def _now() -> str:
-        """宿主が実装する（TEXT 列向けの現在時刻）。"""
-        raise NotImplementedError
-
-    # 実体化の本体は観測層（ObservationWriteMixin）が持つ。ここでは型の宣言だけに
-    # とどめる。メソッドとして定義すると MRO で本物より先に見つかり、実行時に
-    # こちらが呼ばれてしまう。
-    _materialize_save_event: Callable[..., bool]
+    def __init__(self, ctx: StoreContext, *, observations: Any) -> None:
+        self._ctx = ctx
+        self._observations = observations
 
     def _enqueue_job(self, conn, event_id: str, job_type: str, now: str) -> bool:
         try:
@@ -71,11 +60,11 @@ class MemoryJobsMixin:
         queue_job: bool = True,
         job_type: str = "materialize_observation",
     ) -> tuple[str | None, bool]:
-        now = self._now()
+        now = clock.now_local_iso()
         payload_json = json.dumps(payload, ensure_ascii=False, separators=(",",":"), sort_keys=True)
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 if dedupe_key:
                     with conn.cursor() as cur:
                         cur.execute("SELECT event_id FROM memory_events WHERE dedupe_key = %s", (dedupe_key,))
@@ -91,7 +80,7 @@ class MemoryJobsMixin:
                     cur.execute(
                         "INSERT INTO memory_events (event_id,created_at,event_type,dedupe_key,payload_json,person_id) "
                         "VALUES (%s,%s,%s,%s,%s,%s)",
-                        (eid, now, event_type, dedupe_key, payload_json, self._person_id),
+                        (eid, now, event_type, dedupe_key, payload_json, self._ctx.person_id),
                     )
                 if queue_job:
                     self._enqueue_job(conn, eid, job_type, now)
@@ -105,10 +94,10 @@ class MemoryJobsMixin:
         return await asyncio.to_thread(self.append_memory_event, *a, **kw)
 
     def claim_pending_jobs(self, limit: int = 10) -> list[dict]:
-        now = self._now()
+        now = clock.now_local_iso()
         claimed = []
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT j.job_id,j.event_id,j.job_type,j.attempts, "
@@ -144,20 +133,20 @@ class MemoryJobsMixin:
         return claimed
 
     def mark_job_done(self, job_id: str) -> bool:
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE memory_jobs SET status='done',updated_at=%s,last_error=NULL WHERE job_id=%s",
-                    (self._now(), job_id),
+                    (clock.now_local_iso(), job_id),
                 )
             conn.commit()
             return True
 
     def mark_job_failed(self, job_id: str, error: str, retry_delay: float = 10.0, max_attempts: int = 3) -> str:
         now = datetime.fromisoformat(clock.now_local_iso())
-        with self._db_lock:
-            conn = self._ensure_connected()
+        with self._ctx.lock:
+            conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute("SELECT attempts FROM memory_jobs WHERE job_id=%s", (job_id,))
                 row = cur.fetchone()
@@ -179,8 +168,8 @@ class MemoryJobsMixin:
 
     def materialize_event(self, event_id: str) -> bool:
         try:
-            with self._db_lock:
-                conn = self._ensure_connected()
+            with self._ctx.lock:
+                conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT event_type, payload_json FROM memory_events WHERE event_id=%s",
@@ -191,7 +180,7 @@ class MemoryJobsMixin:
                 return False
             payload = json.loads(row["payload_json"])
             if row["event_type"] == "memory.save":
-                return self._materialize_save_event(event_id, payload)
+                return self._observations.materialize_save_event(event_id, payload)
             return False
         except Exception as e:
             logger.warning("materialize_event failed: %s", e)
