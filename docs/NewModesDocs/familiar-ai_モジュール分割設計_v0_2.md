@@ -1,4 +1,6 @@
-# familiar-ai モジュール分割設計（v0.1）
+# familiar-ai モジュール分割設計（v0.2）
+
+> v0.2：`store/` の切り出しを実施した（S1〜S6d）。`tools/memory.py` は 2,594 行から 1,238 行へ減り、SQL は `store/`（と撤去予定の `legacy/`）にだけ残る形になった。途中で**継承（mixin）をやめて合成へ組み替えた**（C1〜C3）。mixin は宿主の名前空間を共有するため層どうしが名前で衝突し、実際に実体化が MRO で覆い隠される事故が出たためである。各層は `StoreContext` から共有の道具（接続・ロック・person・埋め込み器）を受け取り、層をまたぐ依存は引数に出す。あわせて層ごとの単体テストを足し（合成にしたことで層を単独で組み立てられる）、層が Config を直接読まない形にした。実施結果と、作り替え予定で層へ移さなかった一群を下に記す。
 
 > v0.1：Phase 2 の締めに置く境界切り出し（課題8 v0.20）の、分割単位そのものを決める。判断の基準を「設計が定めたコンポーネントに合わせる」と「変わりそうな判断を隠す」の二つに置き、目標のファイル構成と第一弾の範囲を確定した。実装は未着手。
 
@@ -108,3 +110,54 @@ legacy/   Phase 6 で撤去予定を隔離
 ## 完了条件の考え方
 
 各段で、移動元に旧名が残っていないことを grep で確認する（件数を数えるのではなく0件を示す）。挙動は変えないので、全体テストが緑であることが不変の条件になる。分割の前後で実機の体感が変わらないことも確かめる。
+
+## 実施結果（store の切り出し）
+
+`store/` の切り出しを次の順で行った。いずれも挙動不変で、各段ごとに全体テストが緑になってからコミットした。
+
+| 段 | 内容 | 主なファイル |
+|---|---|---|
+| S1 | 時刻の一元化 | `store/clock.py` |
+| S2 | 接続ラッパ | `store/db_compat.py` |
+| S3 | 埋め込みとベクトル符号化 | `store/embedding.py` |
+| 隔離 | 撤去予定の意味・信念層と明示リンク | `legacy/semantic_layer.py` |
+| S4 | 非同期の書き込みキュー | `store/jobs.py` |
+| S5 | 視点ベクトルと situated 行 | `store/situated.py` |
+| S6a | 観測の読み出し層（by_kind／by_situated／by_date） | `store/observations.py` |
+| S6b | 観測の書き込み本体 | 同上 |
+| C1〜C3 | 継承から合成への組み替え、層ごとの単体テスト | `store/context.py` ほか |
+| S6c | 想起の類似検索を `by_vector` へ、Config を層から外す | 同上 |
+| S6d | 人物レジストリと観測系の残り | `store/persons.py` ほか |
+
+結果の構成。SQL は `store/`（と `legacy/`）にだけ残る。
+
+```text
+store/  context.py     層が共有する道具（StoreContext）
+        clock.py       時刻の一元化
+        db_compat.py   接続ラッパ
+        embedding.py   埋め込みとベクトル符号化
+        persons.py     人物レジストリ
+        situated.py    視点ベクトルと situated 行
+        jobs.py        非同期の書き込みキュー
+        observations.py 観測の読み書き（by_kind／by_situated／by_date／by_vector）
+legacy/ semantic_layer.py 撤去予定（Phase 6）
+tools/  memory.py      ファサード（ObservationMemory）＝公開面を委譲で集める
+```
+
+## 継承をやめて合成にした理由
+
+当初は各層を mixin として `ObservationMemory` に継承させた。しかし mixin は宿主の名前空間を共有するため、層どうしが同名メソッドで衝突しうる。実際 S6b で、キュー層に置いた「宿主から借りる」宣言が観測層の実体化本体を MRO で覆い隠し、実体化が例外になる状態を作った（生存確認の不変条件が気づいた）。
+
+そこで合成へ組み替えた。各層は普通のクラスにし、`StoreContext`（接続・ロック・person・埋め込み器の4つだけ）と、層をまたぐ依存を**引数で受け取る**。依存の向きは `jobs → observations → situated / legacy` の一方向である。`ObservationMemory` はファサードとして公開面だけを委譲する。**層の内部ヘルパーは委譲しない**（層の内側が外から触れる状態を残さないため）。委譲は `*a, **kw` でなく実際の署名を書く（何を受けるかがファサードから読めるように）。自動転送（`__getattr__`）は使わない。
+
+合成にしたことで、各層を `StoreContext` だけで単独に組み立てられるようになった。これまで `ObservationMemory` 越しにしか触れなかった振る舞いに、層ごとの単体テストを当てた。
+
+Config は層が持たない。設定は呼び出し側（ファサード）が `MemoryConfig` から読み、層は引数で受け取る（例：dedup の窓）。ワーカー的なクラスが設定を抱えると、同じ層を別の設定で使えなくなるためである。
+
+## 作り替え予定で層へ移さなかった一群
+
+`create_episode`／`append_to_episode`／`recall_divergent`（episodes）、`refresh_working_memory`／`get_working_memory`（memory_activation）、`open_unfinished_business`／`list_unfinished_business`（unfinished_business）は `tools/memory.py` に残した。W（作業記憶）は O からの派生ビューで毎ターン作り直す（[D-記憶単一化]）ので `memory_activation` に溜める形自体が変わり、エピソードと明示リンクは WR 拡散想起へ置き換わる（[D-WR拡散想起]）。Phase 5 で作り替えるため、いま層へ移しても捨てることになる。撤去が確定していないので `legacy/` にも入れない。行き先は作り替えの形が決まった段で決める。
+
+## 残り
+
+`agent.py`（4,000 行超）の副作用境界の切り出しは未着手（`loop/persistence.py`・`loop/evaluator.py`）。`min_score` の是正（生コサインの閾値から合成スコアの床へ）も未着手。いずれも Phase 2 の締めに含む。
