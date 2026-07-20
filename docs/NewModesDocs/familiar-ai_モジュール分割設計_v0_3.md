@@ -1,4 +1,6 @@
-# familiar-ai モジュール分割設計（v0.2）
+# familiar-ai モジュール分割設計（v0.3）
+
+> v0.3：`agent.py` の切り出し方針を、実測に基づいて絞った。当初は `loop/evaluator.py` と `loop/persistence.py` の二つを第一弾に入れていたが、`_run_post_response_pipeline` が 28 種の `self.` 属性（エージェント状態のほぼ全域）に触ると分かったため、**persistence は見送る**。切り出しても依存を束ねられず（`StoreContext` のようにいかない）、かつ Phase 5 で `run()` ごと作り替えるものだからである。**evaluator だけを切り出す**（依存は軽量LLM とメインバックエンドの二つに収まり、設計に名前があり、Phase 4 が参照する残るものである）。
 
 > v0.2：`store/` の切り出しを実施した（S1〜S6d）。`tools/memory.py` は 2,594 行から 1,238 行へ減り、SQL は `store/`（と撤去予定の `legacy/`）にだけ残る形になった。途中で**継承（mixin）をやめて合成へ組み替えた**（C1〜C3）。mixin は宿主の名前空間を共有するため層どうしが名前で衝突し、実際に実体化が MRO で覆い隠される事故が出たためである。各層は `StoreContext` から共有の道具（接続・ロック・person・埋め込み器）を受け取り、層をまたぐ依存は引数に出す。あわせて層ごとの単体テストを足し（合成にしたことで層を単独で組み立てられる）、層が Config を直接読まない形にした。実施結果と、作り替え予定で層へ移さなかった一群を下に記す。
 
@@ -158,6 +160,15 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 
 `create_episode`／`append_to_episode`／`recall_divergent`（episodes）、`refresh_working_memory`／`get_working_memory`（memory_activation）、`open_unfinished_business`／`list_unfinished_business`（unfinished_business）は `tools/memory.py` に残した。W（作業記憶）は O からの派生ビューで毎ターン作り直す（[D-記憶単一化]）ので `memory_activation` に溜める形自体が変わり、エピソードと明示リンクは WR 拡散想起へ置き換わる（[D-WR拡散想起]）。Phase 5 で作り替えるため、いま層へ移しても捨てることになる。撤去が確定していないので `legacy/` にも入れない。行き先は作り替えの形が決まった段で決める。
 
+## agent.py の切り出し方針
+
+`store/` と違い、`agent.py` の対象は `EmbodiedAgent` のメソッドで、宿主の状態を多く参照する。切り出しの目的（一度に読める大きさにして依存を見えるようにする）を達するには、**依存が引数に束ねられるものだけ**を対象にする。別ファイルへ動かしても宿主参照を丸ごと渡すのでは、依存が減らず目的を達しない。
+
+`self.` 属性の参照を実測して二つを比べた。
+
+- **evaluator（`_emotion_for_turn`／`_summarize_exchange`／`_infer_companion_mood`／`_check_response_coherence`）**：触るのは実質 `_utility_backend`（軽量LLM）と `backend`（メインLLM）の二つ。`_evaluate_emotion_pad` は既にモジュール関数。設計の「評価器＝軽量LLM」（[D-I内部]）に名前が一致し、Phase 4 が PAD→声色で参照する先になる。**切り出す。**
+- **persistence（`_run_post_response_pipeline`・192 行）**：`_prediction`／`_memory`／`_scene`／`_exploration`／`_relationship`／`_persons`／`_pmm`／各種 `_cached_*` など **28 種の `self.` 属性**に触る。エージェント状態のほぼ全域で、`StoreContext` のようには束ねられない。かつ Phase 5 で `run()` ごと作り替えが決まっている入れ子の一部である。**見送る**（いま切っても境界にならず、Phase 5 で作り直す）。
+
 ## 残り
 
-`agent.py`（4,000 行超）の副作用境界の切り出しは未着手（`loop/persistence.py`・`loop/evaluator.py`）。`min_score` の是正（生コサインの閾値から合成スコアの床へ）も未着手。いずれも Phase 2 の締めに含む。
+evaluator を切り出したあと、`min_score` の是正（生コサインの閾値から合成スコアの床へ）が Phase 2 の締めに残る。persistence の切り出しは Phase 5 の `run()` 作り替えの中で行う。
