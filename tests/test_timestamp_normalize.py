@@ -10,11 +10,16 @@ All public API return types are unchanged (date/time remain as YYYY-MM-DD / HH:M
 
 from __future__ import annotations
 
-from datetime import date, datetime
+import os
+import uuid
+from datetime import date, datetime, timedelta, timezone
 from unittest.mock import patch
 
+import psycopg2
+import psycopg2.extras
 import pytest
 
+from familiar_agent.store import clock
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
@@ -64,6 +69,42 @@ def test_get_observations_for_date_filters_correctly(memory_with_data):
     for o in obs:
         assert "time" in o
         assert len(o["time"]) == 5 and o["time"][2] == ":"
+
+
+def test_get_observations_for_date_uses_local_calendar_day(memory):
+    """日付の絞り込みが UTC でなくローカルの生活日で行われること。
+
+    ローカル今日 00:30 の instant（UTC では前日）で観測を保存し、ローカル今日で
+    引けることと、返る time がローカル時刻（00:30）であることを見る。UTC セッション
+    のままだと前日扱いになって漏れる（反証）。
+    """
+    tz = clock.local_tz()
+    offset = datetime.now(tz).utcoffset() or timedelta(0)
+    if offset <= timedelta(0):
+        pytest.skip("UTC/西側ホストでは 00:30 が日付境界を跨がないため対象外")
+
+    boundary = datetime.now(tz).replace(hour=0, minute=30, second=0, microsecond=0)
+    local_today = boundary.date().isoformat()
+    # 前提の確認：この instant はローカルでは今日、UTC では前日。
+    assert boundary.astimezone(timezone.utc).date() != boundary.date()
+
+    content = f"境界テスト {uuid.uuid4()}"
+    memory.save(content, kind="observation", emotion="neutral")
+
+    # 保存済み行の timestamp を境界 instant へ差し替える（別接続・UTC でも instant は不変）。
+    raw = psycopg2.connect(os.environ["DATABASE_URL"])
+    raw.autocommit = True
+    with raw.cursor() as cur:
+        cur.execute(
+            "UPDATE observations SET timestamp=%s WHERE content=%s", (boundary, content)
+        )
+    raw.close()
+
+    obs = memory.get_observations_for_date(local_today, limit=50)
+    contents = [o["content"] for o in obs]
+    assert content in contents, "ローカル今日で保存した記憶が引けない（UTC で絞られている）"
+    got = next(o for o in obs if o["content"] == content)
+    assert got["time"] == "00:30", f"time がローカル時刻でない: {got['time']!r}"
 
 
 def test_save_and_recall_roundtrip(memory):

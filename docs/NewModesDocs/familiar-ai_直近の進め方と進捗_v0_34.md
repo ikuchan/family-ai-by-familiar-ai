@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.33）
+# familiar-ai 直近の進め方と進捗（v0.34）
+
+> v0.34：Phase 2 の締めの切り出しを進め、**`agent.py` から評価器を `loop/evaluator.py` へ分離**した（挙動保存）。感情・要約・相手気分・整合性チェックの4メソッドと `A_GATE`・PAD 評価関数・各プロンプトを移し、`agent.py` は薄い委譲だけ残す。`_evaluator` は内部欲求ターンの backend スワップに追随する派生プロパティにした。永続化（`loop/persistence.py`）は `run()` ごと作り替える Phase 5 へ送り切り出さない（分割設計 v0.4）。あわせて **timestamp のタイムゾーンずれを是正**（挙動変化）：`timestamp::date`・`EXTRACT`・psycopg2 が返す datetime はセッションの TimeZone で解釈されるが、既定 UTC のままだと、ローカルの「今日」で引いた記憶が UTC 早朝帯（JST 00:00〜09:00）で前日扱いになり漏れ、表示時刻も9時間ずれていた（マイグレーション028 で値を真 UTC へ揃えたことで露呈した宿題）。`Database.conn()` の接続確立時に一度 `SET TIME ZONE INTERVAL` でローカルオフセットへ固定し、全 timestamptz 読みを生活時間へ寄せた（オフセット導出は `store/clock.py` の `local_utc_offset()` に閉じる・DST のある地域では接続存続中にずれうるが JST は DST なし）。テストは日付境界（ローカル今日 00:30＝UTC 前日）を跨ぐ instant で絞り込みと表示を検証し、既存のアクセス層テストが naive datetime を挿入セッションの TZ で解釈させていた曖昧さを tz 付きへ改めた。全体 1,474 件＋不変条件8件緑。次は **`min_score` の是正**（生コサインの閾値→合成スコアの足切り・挙動変化・設計を会話で決める）。
 
 > v0.33：Phase 2 の締めの境界切り出しのうち、**`store/` の切り出しを完了**（S1〜S6d）。`tools/memory.py` は 2,594 行から 1,238 行へ減り、SQL は `store/`（と撤去予定の `legacy/`）にだけ残る。途中で継承（mixin）をやめ**合成へ組み替えた**（C1〜C3）。mixin が MRO で層の本体を覆い隠す事故が出たためで、各層は `StoreContext` から共有の道具を受け取り依存を引数に出す。生存確認の不変条件8件を先に置いたことでこの事故に気づけた。詳細は `モジュール分割設計 v0.2`。残るは `agent.py` の副作用境界の切り出し（`loop/persistence.py`・`loop/evaluator.py`）と `min_score` の是正。次は agent.py の切り出しへ。
 

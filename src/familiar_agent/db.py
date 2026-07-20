@@ -52,6 +52,13 @@ class Database:
             )
             self._conn = psycopg2.connect(url)
             self._conn.autocommit = False
+            # timestamptz を生活時間（ローカル）で読むため、セッション TimeZone を
+            # ローカルオフセットへ固定する。timestamp::date・EXTRACT・psycopg2 の返す
+            # datetime がローカルになる。挿入（now_utc）と TEXT 列比較は非影響。
+            from .store.clock import local_utc_offset
+            with self._conn.cursor() as _cur:
+                _cur.execute(f"SET TIME ZONE INTERVAL '{local_utc_offset()}' HOUR TO MINUTE")
+            self._conn.commit()
             from .db_migrations import apply_migrations, default_migration_dir
             apply_migrations(self._conn, default_migration_dir())
             logger.debug("PostgreSQL connection established")

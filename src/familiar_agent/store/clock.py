@@ -16,12 +16,26 @@ TEXT 列をいずれ timestamptz へ移すなら、その判断はこのモジ�
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, tzinfo
+from datetime import datetime, timedelta, timezone, tzinfo
 
 
 def local_tz() -> tzinfo:
     """このホストのローカルタイムゾーン。生活時間の基準に使う。"""
     return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def local_utc_offset() -> str:
+    """ローカルの UTC オフセットを `'+09:00'` 形式で返す（DB セッション TZ 設定用）。
+
+    DB セッションの TimeZone をこの値に設定すると、timestamptz→date/時分の変換や
+    psycopg2 が返す datetime が生活時間（ローカル）になる。固定オフセットなので、
+    DST のある地域では接続存続中にずれうる（JST は DST なしで問題ない）。
+    """
+    off = datetime.now(local_tz()).utcoffset() or timedelta(0)
+    total = int(off.total_seconds())
+    sign = "+" if total >= 0 else "-"
+    total = abs(total)
+    return f"{sign}{total // 3600:02d}:{(total % 3600) // 60:02d}"
 
 
 def now_utc() -> datetime:

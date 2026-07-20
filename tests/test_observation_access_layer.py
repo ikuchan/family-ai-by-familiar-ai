@@ -8,13 +8,17 @@ from unittest.mock import patch
 import psycopg2
 import psycopg2.extras
 
+from familiar_agent.store import clock
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 
 
 _DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
 
-_NOW = datetime(2026, 6, 1, 12, 0, 0)
+# ローカルの生活時間で「その日の正午」を表す tz 付き instant。
+# naive のままだと挿入セッションの TZ に意味が左右され（DB セッション TZ を
+# ローカルへ固定した後は表示がずれる）、date/time の期待値が壊れる。
+_NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=clock.local_tz())
 
 
 def _insert_obs(cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime) -> None:
