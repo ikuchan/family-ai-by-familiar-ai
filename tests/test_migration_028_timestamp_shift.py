@@ -1,8 +1,13 @@
 """Tests for migration 028（既存観測の9時間ずれの補正）.
 
 既存行は JST の壁掛け時計が UTC として保存されており、実時刻より9時間先にある。
-書き込み側を tz-aware に直したので、既存行も同じ時計へ寄せる。二度当てると余分に
-ずれるため、冪等であることも見る。
+書き込み側を tz-aware に直したので、既存行も同じ時計へ寄せる。
+
+二重適用は二段で防ぐ。主たる保証はランナー（`schema_migrations` で適用済みを記録）、
+保険が移行本体の前提条件（壊れている間だけ成り立つ `max(timestamp) > now()`）。
+ここでは両方を見る。前提条件には限界があり（相対的なずらしは補正後と元から正しい
+データを見分けられない）、壊れた行と正しい行を混在させた状態は本番では起きないので、
+テストでもその状態を作らない。
 """
 
 from __future__ import annotations
@@ -69,8 +74,8 @@ def test_shifts_future_rows_back_by_nine_hours() -> None:
     conn.close()
 
 
-def test_migration_is_idempotent() -> None:
-    """二度当てても余分にずれない（未来の行が無ければ何もしない）。"""
+def test_second_direct_run_does_nothing() -> None:
+    """本体を直接二度呼んでも2回目は何もしない（前提条件の保険）。"""
     conn = _pg()
     obs_id = _insert(conn, f"tz idem {uuid.uuid4()}", "now() + interval '9 hours'")
     _run_migration(conn)
@@ -80,6 +85,29 @@ def test_migration_is_idempotent() -> None:
     after_second = _drift_hours(conn, obs_id)
 
     assert abs(after_second - after_first) < 0.1, "二度目の適用で余分にずれた"
+    conn.close()
+
+
+def test_runner_applies_it_only_once() -> None:
+    """ランナー経由でも二度当たらない（主たる保証は schema_migrations）。"""
+    from familiar_agent.db_migrations import apply_migrations, default_migration_dir
+
+    conn = _pg()
+    obs_id = _insert(conn, f"tz runner {uuid.uuid4()}", "now() + interval '9 hours'")
+
+    # ランナーは row[0] で読むので、本番と同じ素の接続を渡す（db.py の conn()）。
+    runner_conn = psycopg2.connect(_DB_URL)
+    runner_conn.autocommit = True
+    mig_dir = default_migration_dir()
+    try:
+        apply_migrations(runner_conn, migration_dir=mig_dir)
+        after_first = _drift_hours(conn, obs_id)
+        apply_migrations(runner_conn, migration_dir=mig_dir)
+        after_second = _drift_hours(conn, obs_id)
+    finally:
+        runner_conn.close()
+
+    assert abs(after_second - after_first) < 0.1, "ランナー経由で二度当たった"
     conn.close()
 
 
