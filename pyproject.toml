@@ -79,6 +79,11 @@ name = "pytorch-cpu"
 url  = "https://download.pytorch.org/whl/cpu"
 explicit = true
 
+[tool.pytest.ini_options]
+markers = [
+    "invariant: システムが守ると言っていることの生存確認（実 DB を使う・通常の一式とは別群で走らせる）",
+]
+
 [tool.ruff]
 line-length = 100
 

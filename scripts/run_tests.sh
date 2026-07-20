@@ -68,8 +68,16 @@ for i in $(seq 1 120); do
 done
 
 # ── Run tests ──────────────────────────────────────────────────────────────
+# 2群に分けて走らせる。通常の一式（not invariant）と、生存確認の不変条件
+# （invariant・実 DB を使う）。分けるのは、不変条件が通常の一式へ影響しないことを
+# 確かめられる形にしておくため。どちらかが赤ならコミットしない。
 EXIT_CODE=0
-uv run pytest -q "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
+echo "── 通常の一式 ─────────────────────────────"
+uv run pytest -q -m "not invariant" "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
+if [ "$EXIT_CODE" -eq 0 ]; then
+    echo "── 生存確認の不変条件 ─────────────────────"
+    uv run pytest -q -m invariant "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
+fi
 
 # ── Stop test DB ───────────────────────────────────────────────────────────
 # --timeout 60: give PostgreSQL up to 60 s to flush WAL before Docker sends
