@@ -166,7 +166,7 @@ class JobQueue:
 
     # ── Core save ──────────────────────────────────────────────────────────
 
-    def materialize_event(self, event_id: str) -> bool:
+    def materialize_event(self, event_id: str, *, dedup_window_secs: int = 30) -> bool:
         try:
             with self._ctx.lock:
                 conn = self._ctx.conn()
@@ -180,7 +180,9 @@ class JobQueue:
                 return False
             payload = json.loads(row["payload_json"])
             if row["event_type"] == "memory.save":
-                return self._observations.materialize_save_event(event_id, payload)
+                return self._observations.materialize_save_event(
+                    event_id, payload, dedup_window_secs=dedup_window_secs
+                )
             return False
         except Exception as e:
             logger.warning("materialize_event failed: %s", e)

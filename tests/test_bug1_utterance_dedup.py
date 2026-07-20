@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import uuid
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -57,21 +58,24 @@ def _insert_obs_at(conn, person_id: str, content: str, kind: str, ts: datetime) 
 
 def test_dedup_skips_same_content_kind_within_window() -> None:
     """Same (person_id, content, kind) within window → only 1 row inserted."""
-    import familiar_agent.store.observations as obs_mod
     import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
     pid = mem._person_id
     content = f"重複テスト_{uuid.uuid4()}"
 
-    original_window = obs_mod._CONTENT_DEDUP_WINDOW_SECS
-    obs_mod._CONTENT_DEDUP_WINDOW_SECS = 30
+    # 窓の値は呼び出し時に MemoryConfig から読む（層は設定を持たない）。
+    original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
+    os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
         ok1, _ = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
         ok2, _ = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
         ok3, _ = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
     finally:
-        obs_mod._CONTENT_DEDUP_WINDOW_SECS = original_window
+        if original_window is None:
+            os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
+        else:
+            os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
     n = _obs_count(conn, pid, content, "utterance")
@@ -81,7 +85,6 @@ def test_dedup_skips_same_content_kind_within_window() -> None:
 
 def test_dedup_allows_different_content() -> None:
     """Different content with same kind must both be inserted."""
-    import familiar_agent.store.observations as obs_mod
     import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
@@ -90,13 +93,17 @@ def test_dedup_allows_different_content() -> None:
     c1 = f"内容A_{suffix}"
     c2 = f"内容B_{suffix}"
 
-    original_window = obs_mod._CONTENT_DEDUP_WINDOW_SECS
-    obs_mod._CONTENT_DEDUP_WINDOW_SECS = 30
+    # 窓の値は呼び出し時に MemoryConfig から読む（層は設定を持たない）。
+    original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
+    os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
         mem.save_with_id(c1, kind="utterance", writer_id=pid, subject_id=pid)
         mem.save_with_id(c2, kind="utterance", writer_id=pid, subject_id=pid)
     finally:
-        obs_mod._CONTENT_DEDUP_WINDOW_SECS = original_window
+        if original_window is None:
+            os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
+        else:
+            os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
     n1 = _obs_count(conn, pid, c1, "utterance")
@@ -107,20 +114,23 @@ def test_dedup_allows_different_content() -> None:
 
 def test_dedup_allows_different_kind() -> None:
     """Same content but different kind must both be inserted."""
-    import familiar_agent.store.observations as obs_mod
     import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
     pid = mem._person_id
     content = f"kindテスト_{uuid.uuid4()}"
 
-    original_window = obs_mod._CONTENT_DEDUP_WINDOW_SECS
-    obs_mod._CONTENT_DEDUP_WINDOW_SECS = 30
+    # 窓の値は呼び出し時に MemoryConfig から読む（層は設定を持たない）。
+    original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
+    os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
         mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
         mem.save_with_id(content, kind="conversation", writer_id=pid, subject_id=pid)
     finally:
-        obs_mod._CONTENT_DEDUP_WINDOW_SECS = original_window
+        if original_window is None:
+            os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
+        else:
+            os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
     n_u = _obs_count(conn, pid, content, "utterance")
@@ -131,20 +141,23 @@ def test_dedup_allows_different_kind() -> None:
 
 def test_dedup_disabled_when_window_zero() -> None:
     """MEMORY_DEDUP_WINDOW_SECS=0 must allow duplicate inserts."""
-    import familiar_agent.store.observations as obs_mod
     import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
     pid = mem._person_id
     content = f"dedup無効テスト_{uuid.uuid4()}"
 
-    original_window = obs_mod._CONTENT_DEDUP_WINDOW_SECS
-    obs_mod._CONTENT_DEDUP_WINDOW_SECS = 0
+    # 窓の値は呼び出し時に MemoryConfig から読む（層は設定を持たない）。
+    original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
+    os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "0"
     try:
         mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
         mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
     finally:
-        obs_mod._CONTENT_DEDUP_WINDOW_SECS = original_window
+        if original_window is None:
+            os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
+        else:
+            os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
     n = _obs_count(conn, pid, content, "utterance")

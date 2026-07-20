@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from datetime import date as _date, datetime
 from typing import Any
 
@@ -29,7 +28,6 @@ from .embedding import _encode_vector
 
 logger = logging.getLogger(__name__)
 
-_CONTENT_DEDUP_WINDOW_SECS: int = int(os.environ.get("MEMORY_DEDUP_WINDOW_SECS", "30"))
 _THUMB_SIZE = (320, 240)  # 画像は保存前にこの大きさへ縮小する（memory.py からの移動）
 
 
@@ -131,6 +129,136 @@ class ObservationStore:
                     return list(cur.fetchall())
         except Exception as e:
             logger.warning("_read_observations_by_situated failed: %s", e); return []
+
+    def by_vector(
+        self,
+        query_vector_sql: str,
+        n: int,
+        *,
+        kind: str | None = None,
+        min_cosine: float = 0.0,
+    ) -> list[dict]:
+        """situated 相関のコサイン順に n 件読む。**採点はしない**。
+
+        返り行の `score` は**生のコサイン**で、5軸の合成スコアではない。合成は
+        W の構築（想起）の仕事で、層は持たない（[D-データモデル]）。
+
+        `query_vector_sql` は pgvector の文字列表現を受け取る。ベクトルの作り方
+        （視点合成・平均中心化）は呼び出し側の責任で、層は受け取った表現で引くだけ。
+
+        `min_cosine` は **SQL の中で**効かせる。後段で絞ると `LIMIT n` との
+        組み合わせで「閾値を満たす n 件」から「n 件のうち閾値を満たすもの」へ
+        意味が変わるため。
+        """
+        kind_clause = "AND o.kind = %s" if kind else ""
+        score_clause = "AND (1 - (s.vector <=> %s::vector)) >= %s" if min_cosine > 0.0 else ""
+        params: list = [query_vector_sql, self._ctx.person_id]
+        if kind:
+            params.append(kind)
+        if min_cosine > 0.0:
+            params += [query_vector_sql, min_cosine]
+        params += [query_vector_sql, n]
+        try:
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"""
+                        SELECT o.id, o.content, o.timestamp,
+                               o.direction, o.kind, o.emotion, o.image_path,
+                               COALESCE(o.activation_a0, 1.0) AS activation_a0,
+                               COALESCE(o.activation_n, 0) AS activation_n,
+                               COALESCE(o.recall_count, 0) AS recall_count,
+                               o.last_recalled_at,
+                               o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                               1 - (s.vector <=> %s::vector) AS score
+                        FROM situated_embeddings s
+                        JOIN observations o ON o.id = s.obs_id
+                        WHERE s.person_id = %s
+                          AND o.superseded_by IS NULL
+                          {kind_clause}
+                          {score_clause}
+                        ORDER BY s.vector <=> %s::vector
+                        LIMIT %s
+                        """,
+                        params,
+                    )
+                    return list(cur.fetchall())
+        except Exception as e:
+            logger.warning("by_vector failed: %s", e); return []
+
+    def keyword_fallback(self, query: str, n: int, kind: str | None) -> list[dict]:
+        keywords = [w for w in query.split() if len(w) > 1][:4]
+        if not keywords:
+            return self.recency_fallback(n, kind)
+        cond = " OR ".join(["o.content LIKE %s"] * len(keywords))
+        params: list = [f"%{kw}%" for kw in keywords]
+        kind_clause = "AND o.kind = %s" if kind else ""
+        if kind:
+            params.append(kind)
+        params += [self._ctx.person_id, n]
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id, o.content, o.timestamp,
+                           o.direction, o.kind, o.emotion, o.image_path
+                    FROM observations o
+                    WHERE ({cond}) {kind_clause}
+                      AND o.person_id = %s
+                      AND o.superseded_by IS NULL
+                    ORDER BY o.timestamp DESC LIMIT %s
+                    """,
+                    params,
+                )
+                rows = cur.fetchall()
+        return [
+            {
+                "memory_id": r["id"], "timestamp": r["timestamp"],
+                "summary": r["content"],
+                "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"]),
+                "direction": r["direction"], "kind": r["kind"],
+                "source_kind": r["kind"], "emotion": r["emotion"],
+                "image_path": r["image_path"],
+                "confidence": 0.45, "retrieval_method": "keyword",
+            }
+            for r in rows
+        ]
+
+    def recency_fallback(self, n: int, kind: str | None) -> list[dict]:
+        kind_clause = "AND o.kind = %s" if kind else ""
+        params: list = [self._ctx.person_id]
+        if kind:
+            params.append(kind)
+        params.append(n)
+        try:
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        f"SELECT o.id, o.content, o.timestamp, "
+                        f"o.direction, o.kind, o.emotion, o.image_path "
+                        f"FROM observations o "
+                        f"WHERE o.person_id = %s AND o.superseded_by IS NULL {kind_clause} "
+                        f"ORDER BY o.timestamp DESC LIMIT %s",
+                        params,
+                    )
+                    rows = cur.fetchall()
+            return [
+                {
+                    "memory_id": r["id"], "timestamp": r["timestamp"],
+                    "summary": r["content"],
+                    "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"]),
+                    "direction": r["direction"], "kind": r["kind"],
+                    "source_kind": r["kind"], "emotion": r["emotion"],
+                    "image_path": r["image_path"],
+                    "confidence": 0.3, "retrieval_method": "recency",
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            logger.warning("recency_fallback failed: %s", e); return []
 
     def _read_supersede_chain(
         self, head_id: str, columns: tuple[str, ...]
@@ -296,6 +424,8 @@ class ObservationStore:
         self,
         event_id: str,
         payload: dict,
+        *,
+        dedup_window_secs: int = 30,
         writer_id: str | None = None,
         subject_id: str | None = None,
         participants: list[str] | None = None,
@@ -330,20 +460,20 @@ class ObservationStore:
                 cur.execute("SELECT 1 FROM observations WHERE id=%s", (event_id,))
                 if cur.fetchone():
                     return True
-                if _CONTENT_DEDUP_WINDOW_SECS > 0:
+                if dedup_window_secs > 0:
                     cur.execute(
                         "SELECT id FROM observations "
                         "WHERE person_id = %s AND content = %s AND kind = %s "
                         "  AND timestamp >= now() - (%s * INTERVAL '1 second') "
                         "  AND superseded_by IS NULL "
                         "ORDER BY timestamp DESC LIMIT 1",
-                        (self._ctx.person_id, content, kind, _CONTENT_DEDUP_WINDOW_SECS),
+                        (self._ctx.person_id, content, kind, dedup_window_secs),
                     )
                     if cur.fetchone():
                         logger.debug(
                             "content dedup skip: (person_id=%.8s kind=%s content=%.40r) "
                             "within %ds window",
-                            self._ctx.person_id, kind, content, _CONTENT_DEDUP_WINDOW_SECS,
+                            self._ctx.person_id, kind, content, dedup_window_secs,
                         )
                         return True
                 cur.execute(

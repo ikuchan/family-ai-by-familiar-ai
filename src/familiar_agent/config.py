@@ -167,6 +167,10 @@ class MemoryConfig:
     recall_min_score: float = field(
         default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.0)
     )
+    # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
+    dedup_window_secs: int = field(
+        default_factory=lambda: _int_env("MEMORY_DEDUP_WINDOW_SECS", 30)
+    )
     # r 軸の min-max 伸長係数。現行値では恒等（根拠台帳 v0.7 §3 の計測で決定）。
     recall_c_lo: float = field(  # c_lo
         default_factory=lambda: _float_env("RECALL_C_LO", 0.0)

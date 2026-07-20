@@ -558,6 +558,7 @@ class ObservationMemory:
             obs_id = event_id or str(uuid.uuid4())
             return self._observations.materialize_save_event(
                 obs_id, payload,
+                dedup_window_secs=MemoryConfig().dedup_window_secs,
                 writer_id=writer_id,
                 subject_id=subject_id,
                 participants=participants,
@@ -586,6 +587,7 @@ class ObservationMemory:
             obs_id = event_id or str(uuid.uuid4())
             ok = self._observations.materialize_save_event(
                 obs_id, payload,
+                dedup_window_secs=MemoryConfig().dedup_window_secs,
                 writer_id=kwargs.get("writer_id"),
                 subject_id=kwargs.get("subject_id"),
                 participants=kwargs.get("participants"),
@@ -636,40 +638,9 @@ class ObservationMemory:
             situated_q = _situated_vector(q_vec, p_vec, self._situated._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
 
-            kind_clause = "AND o.kind = %s" if kind else ""
-            score_clause = "AND (1 - (s.vector <=> %s::vector)) >= %s" if min_score > 0.0 else ""
-            params: list = [q_sql, self._person_id]
-            if kind:
-                params.append(kind)
-            if min_score > 0.0:
-                params += [q_sql, min_score]
-            params += [q_sql, n]
-
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        f"""
-                        SELECT o.id, o.content, o.timestamp,
-                               o.direction, o.kind, o.emotion, o.image_path,
-                               COALESCE(o.activation_a0, 1.0) AS activation_a0,
-                               COALESCE(o.activation_n, 0) AS activation_n,
-                               COALESCE(o.recall_count, 0) AS recall_count,
-                               o.last_recalled_at,
-                               o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
-                               1 - (s.vector <=> %s::vector) AS score
-                        FROM situated_embeddings s
-                        JOIN observations o ON o.id = s.obs_id
-                        WHERE s.person_id = %s
-                          AND o.superseded_by IS NULL
-                          {kind_clause}
-                          {score_clause}
-                        ORDER BY s.vector <=> %s::vector
-                        LIMIT %s
-                        """,
-                        params,
-                    )
-                    rows = cur.fetchall()
+            rows = self._observations.by_vector(
+                q_sql, n, kind=kind, min_cosine=min_score
+            )
 
             if rows:
                 _cfg = MemoryConfig()
@@ -758,83 +729,10 @@ class ObservationMemory:
             # the threshold cannot be enforced — return empty instead.
             if min_score > 0.0:
                 return []
-            return self._recall_keyword_fallback(query, n, kind)
+            return self._observations.keyword_fallback(query, n, kind)
         except Exception as e:
             logger.warning("recall failed: %s", e)
             return []
-
-    def _recall_keyword_fallback(self, query: str, n: int, kind: str | None) -> list[dict]:
-        keywords = [w for w in query.split() if len(w) > 1][:4]
-        if not keywords:
-            return self._recall_recency_fallback(n, kind)
-        cond = " OR ".join(["o.content LIKE %s"] * len(keywords))
-        params: list = [f"%{kw}%" for kw in keywords]
-        kind_clause = "AND o.kind = %s" if kind else ""
-        if kind:
-            params.append(kind)
-        params += [self._person_id, n]
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT o.id, o.content, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path
-                    FROM observations o
-                    WHERE ({cond}) {kind_clause}
-                      AND o.person_id = %s
-                      AND o.superseded_by IS NULL
-                    ORDER BY o.timestamp DESC LIMIT %s
-                    """,
-                    params,
-                )
-                rows = cur.fetchall()
-        return [
-            {
-                "memory_id": r["id"], "timestamp": r["timestamp"],
-                "summary": r["content"],
-                "date": _ts_to_date(r["timestamp"]), "time": _ts_to_time(r["timestamp"]),
-                "direction": r["direction"], "kind": r["kind"],
-                "source_kind": r["kind"], "emotion": r["emotion"],
-                "image_path": r["image_path"],
-                "confidence": 0.45, "retrieval_method": "keyword",
-            }
-            for r in rows
-        ]
-
-    def _recall_recency_fallback(self, n: int, kind: str | None) -> list[dict]:
-        kind_clause = "AND o.kind = %s" if kind else ""
-        params: list = [self._person_id]
-        if kind:
-            params.append(kind)
-        params.append(n)
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        f"SELECT o.id, o.content, o.timestamp, "
-                        f"o.direction, o.kind, o.emotion, o.image_path "
-                        f"FROM observations o "
-                        f"WHERE o.person_id = %s AND o.superseded_by IS NULL {kind_clause} "
-                        f"ORDER BY o.timestamp DESC LIMIT %s",
-                        params,
-                    )
-                    rows = cur.fetchall()
-            return [
-                {
-                    "memory_id": r["id"], "timestamp": r["timestamp"],
-                    "summary": r["content"],
-                    "date": _ts_to_date(r["timestamp"]), "time": _ts_to_time(r["timestamp"]),
-                    "direction": r["direction"], "kind": r["kind"],
-                    "source_kind": r["kind"], "emotion": r["emotion"],
-                    "image_path": r["image_path"],
-                    "confidence": 0.3, "retrieval_method": "recency",
-                }
-                for r in rows
-            ]
-        except Exception as e:
-            logger.warning("_recall_recency_fallback failed: %s", e); return []
 
     async def recall_async(self, *a, **kw):
         return await asyncio.to_thread(self.recall, *a, **kw)
