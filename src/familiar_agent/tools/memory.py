@@ -14,7 +14,6 @@ import asyncio
 import json
 import logging
 import math
-import os
 import uuid
 from dataclasses import dataclass
 from datetime import date as _date, datetime, timezone
@@ -29,7 +28,7 @@ from ..db_migrations import apply_migrations, default_migration_dir
 from ..legacy.semantic_layer import LegacySemanticLayerMixin
 from ..store import clock
 from ..store.jobs import MemoryJobsMixin
-from ..store.observations import ObservationReadMixin
+from ..store.observations import ObservationReadMixin, ObservationWriteMixin
 from ..store.situated import (  # noqa: F401  既存の呼び出し側が memory 経由で引くための再輸出
     SituatedVectorsMixin,
     _situated_vector,
@@ -56,11 +55,9 @@ logger = logging.getLogger(__name__)
 
 
 DB_PATH_UNUSED = ""          # kept for API compatibility, ignored
-_THUMB_SIZE     = (320, 240)
 
 # Time-window dedup: identical (person_id, content, kind) within this many seconds
 # is treated as a duplicate and silently skipped. Set to 0 to disable.
-_CONTENT_DEDUP_WINDOW_SECS: int = int(os.environ.get("MEMORY_DEDUP_WINDOW_SECS", "30"))
 
 
 def _to_epoch(dt) -> float | None:
@@ -222,18 +219,6 @@ _ts_to_date = clock.ts_to_date
 _ts_to_time = clock.ts_to_time
 
 
-def _encode_image(image_path: str) -> str | None:
-    try:
-        import base64, io
-        from PIL import Image
-        with Image.open(image_path) as img:
-            img.thumbnail(_THUMB_SIZE, Image.Resampling.LANCZOS)
-            buf = io.BytesIO()
-            img.convert("RGB").save(buf, format="JPEG", quality=60)
-            return base64.b64encode(buf.getvalue()).decode()
-    except Exception as e:
-        logger.warning("Failed to encode image %s: %s", image_path, e)
-        return None
 
 
 
@@ -331,6 +316,7 @@ class ObservationMemory(
     MemoryJobsMixin,
     SituatedVectorsMixin,
     ObservationReadMixin,
+    ObservationWriteMixin,
 ):
     """PostgreSQL-backed memory store scoped to one person_id."""
 
@@ -411,97 +397,6 @@ class ObservationMemory(
 
     # ── Event / job queue ──────────────────────────────────────────────────
 
-
-    def _materialize_save_event(
-        self,
-        event_id: str,
-        payload: dict,
-        writer_id: str | None = None,
-        subject_id: str | None = None,
-        participants: list[str] | None = None,
-        scope: str = "speaker",
-    ) -> bool:
-        content   = str(payload.get("content", "")).strip()
-        direction = str(payload.get("direction", "unknown"))
-        kind      = str(payload.get("kind", "observation"))
-        emotion   = str(payload.get("emotion", "neutral"))
-        image_path = payload.get("image_path")
-        override_date = payload.get("override_date")
-        # PAD は payload 経由（to_json_dict/from_json_dict）。未指定は中立（列既定と同値）。
-        # 呼び出し側の PAD 引き渡しは W2b-2。
-        pad_dict = payload.get("emotion_pad")
-        emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else MoodPAD()
-
-        if not content:
-            return False
-
-        image_data = _encode_image(image_path) if image_path else None
-        vec = self._embedder.encode_document([content])[0]
-        blob = _encode_vector(vec)
-        # どの時計を使うかは store/clock.py に集約してある。
-        now = clock.now_utc()
-        save_ts = clock.end_of_day_utc(override_date) if override_date else now
-
-        participants_json = json.dumps(participants or [], ensure_ascii=False)
-
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute("SELECT 1 FROM observations WHERE id=%s", (event_id,))
-                if cur.fetchone():
-                    return True
-                if _CONTENT_DEDUP_WINDOW_SECS > 0:
-                    cur.execute(
-                        "SELECT id FROM observations "
-                        "WHERE person_id = %s AND content = %s AND kind = %s "
-                        "  AND timestamp >= now() - (%s * INTERVAL '1 second') "
-                        "  AND superseded_by IS NULL "
-                        "ORDER BY timestamp DESC LIMIT 1",
-                        (self._person_id, content, kind, _CONTENT_DEDUP_WINDOW_SECS),
-                    )
-                    if cur.fetchone():
-                        logger.debug(
-                            "content dedup skip: (person_id=%.8s kind=%s content=%.40r) "
-                            "within %ds window",
-                            self._person_id, kind, content, _CONTENT_DEDUP_WINDOW_SECS,
-                        )
-                        return True
-                cur.execute(
-                    "INSERT INTO observations "
-                    "(id,content,timestamp,direction,kind,emotion,"
-                    " image_path,image_data,person_id,writer_id,subject_id,"
-                    " participants_json,scope,"
-                    " emotion_p,emotion_pn,emotion_a,emotion_dom) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (event_id, content, save_ts,
-                     direction, kind, emotion, image_path, image_data,
-                     self._person_id,
-                     writer_id or self._person_id,
-                     subject_id or self._person_id,
-                     participants_json, scope,
-                     emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom),
-                )
-                cur.execute(
-                    "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
-                    "ON CONFLICT DO NOTHING",
-                    (event_id, blob),
-                )
-            # Pre-compute situated embeddings for all persons
-            mem_vec = np.array(vec, dtype=np.float32)
-            self._refresh_situated_embeddings(conn, event_id, mem_vec)
-            self._project_observation(conn, event_id, content, kind, emotion)
-            conn.commit()
-
-        # Update this person's perspective vector in background
-        try:
-            loop = asyncio.get_running_loop()
-            loop.run_in_executor(
-                None,
-                lambda: self._update_perspective_vec(self._person_id, np.array(vec, dtype=np.float32)),
-            )
-        except RuntimeError:
-            self._update_perspective_vec(self._person_id, np.array(vec, dtype=np.float32))
-        return True
 
     def save(
         self,
@@ -746,30 +641,6 @@ class ObservationMemory(
             logger.warning("recall failed: %s", e)
             return []
 
-    def _mark_recalled(self, ids: list[str], *, reinforce_half_life: bool) -> None:
-        """Reinforce recalled memories by updating decay tracking columns."""
-        if not ids:
-            return
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    if reinforce_half_life:
-                        cur.execute(
-                            "UPDATE observations "
-                            "SET recall_count = recall_count + 1, last_recalled_at = now() "
-                            "WHERE id = ANY(%s)",
-                            (ids,),
-                        )
-                    else:
-                        cur.execute(
-                            "UPDATE observations SET last_recalled_at = now() WHERE id = ANY(%s)",
-                            (ids,),
-                        )
-                conn.commit()
-        except Exception as e:
-            logger.warning("_mark_recalled failed: %s", e)
-
     def _recall_keyword_fallback(self, query: str, n: int, kind: str | None) -> list[dict]:
         keywords = [w for w in query.split() if len(w) > 1][:4]
         if not keywords:
@@ -917,29 +788,6 @@ class ObservationMemory(
 
     async def recall_day_summaries_async(self, n=5):
         return await asyncio.to_thread(self.recall_day_summaries, n)
-
-    def decay_importance(self, before_date: str, factor: float = 0.95) -> int:
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE observations SET importance = importance * %s "
-                    "WHERE timestamp::date < %s::date AND person_id = %s AND superseded_by IS NULL",
-                    (factor, before_date, self._person_id),
-                )
-                count = cur.rowcount
-            conn.commit()
-        return count
-
-    async def decay_importance_async(self, *a, **kw):
-        return await asyncio.to_thread(self.decay_importance, *a, **kw)
-
-    def mark_superseded(self, old_id: str, new_id: str) -> None:
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute("UPDATE observations SET superseded_by=%s WHERE id=%s", (new_id, old_id))
-            conn.commit()
 
     def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
         """Return pairs of non-superseded observations whose vectors are >= threshold similar."""

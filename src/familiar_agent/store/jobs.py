@@ -21,7 +21,7 @@ import logging
 import threading
 import uuid
 from datetime import datetime, timedelta
-from typing import Any
+from typing import Any, Callable
 
 from . import clock
 
@@ -45,9 +45,10 @@ class MemoryJobsMixin:
         """宿主が実装する（TEXT 列向けの現在時刻）。"""
         raise NotImplementedError
 
-    def _materialize_save_event(self, event_id: str, payload: dict) -> bool:
-        """宿主が実装する（observations への実体化＝S6 の対象）。"""
-        raise NotImplementedError
+    # 実体化の本体は観測層（ObservationWriteMixin）が持つ。ここでは型の宣言だけに
+    # とどめる。メソッドとして定義すると MRO で本物より先に見つかり、実行時に
+    # こちらが呼ばれてしまう。
+    _materialize_save_event: Callable[..., bool]
 
     def _enqueue_job(self, conn, event_id: str, job_type: str, now: str) -> bool:
         try:
