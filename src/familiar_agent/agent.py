@@ -36,8 +36,7 @@ from .routines import parse_schedule_config
 from .concern_engine import ConcernEngine
 from .self_state import SelfState
 from .self_narrative import SelfNarrative
-from .mood_register import MoodPAD, load_current_mood, nudge_current_mood
-from .emotion_pad import label_from_pad
+from .mood_register import MoodPAD, nudge_current_mood
 from .exploration import ExplorationTracker
 from .scene import SceneTracker
 from .attention_schema import AttentionSchema
@@ -61,6 +60,8 @@ from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .tools.tts import TTSTool
 from ._i18n import _t
+from .loop.evaluator import Evaluator
+from .loop.history import _flatten_history
 from .mcp_client import MCPClientManager, _resolve_config_path
 from .capability_state import (
     build_generation_prompt,
@@ -487,81 +488,9 @@ SYSTEM_PROMPT = """
 )
 """
 
-# Response coherence check — catch logical self-contradictions before delivery
-_COHERENCE_CHECK_PROMPT = """\
-You are a logical consistency checker. Given the recent conversation and the agent's \
-planned response, determine whether the response contains a logical error, rule violation, \
-or self-contradiction.
-
-Examples of violations:
-- In shiritori (word-chain game): responding with a word that ends in 'ん'
-- Claiming something that directly contradicts what was just said
-- Giving an answer that violates the stated rules of an ongoing activity
-
-Recent conversation:
-{context}
-
-Agent's planned response:
-{response}
-
-If the response is logically consistent, reply with exactly: OK
-If there is a violation, reply with a brief description of the violation (one sentence)."""
-
-# Emotion inference prompt — short, cheap to run
-# 値踏みゲート（課題5・Config 差し替え可）。A<A_GATE は評価器を呼ばず P/Pn/Dom＝M。
-A_GATE = 0.25
-
-# 評価器（軽量LLM）へ観測の感情を P/Pn/Dom で出させるプロンプト（W2b-2・論点5b）。
-# A 軸は機械 arousal なので尋ねない。最終的には自己認識 MI のシステムプロンプトへ統合する。
-_EMOTION_PAD_PROMPT = """\
-Rate the emotion of this exchange on three axes, each 0.0 to 1.0:
-- P  (pleasure):    0 none, 0.5 neutral, 1 very pleasant
-- Pn (displeasure): 0 none, 0.5 neutral, 1 very unpleasant
-- Dom (dominance):  0 powerless, 0.5 neutral, 1 fully in control
-
-Current mood baseline (P Pn Dom): {mood}
-Move from this baseline only as the exchange warrants.
-
-Text:
-{text}
-
-Reply with exactly three decimals in order P Pn Dom, space-separated \
-(e.g. "0.7 0.2 0.6"). Nothing else."""
-
-
-async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: float,
-                                *, a_gate: float = A_GATE) -> "MoodPAD":
-    """観測の感情を PAD で評価する（W2b-2）。
-
-    A は機械 arousal。arousal<a_gate は評価器を呼ばず P/Pn/Dom＝M（mood）。以上は
-    評価器（軽量LLM）へ投げ、固定順3数値を正規表現で拾い [0,1] クランプして
-    MoodPAD(p, pn, a=arousal, dom) にする。3つ未満・例外は mood フォールバック。
-    """
-    a = min(1.0, max(0.0, arousal))
-    if a < a_gate:
-        return MoodPAD(p=mood.p, pn=mood.pn, a=a, dom=mood.dom)
-    try:
-        mood_str = f"{mood.p:.2f} {mood.pn:.2f} {mood.dom:.2f}"
-        raw = await backend.complete(
-            _EMOTION_PAD_PROMPT.format(text=text[:400], mood=mood_str), max_tokens=20
-        )
-        nums = re.findall(r"-?[0-9]*\.?[0-9]+", raw)
-        if len(nums) < 3:
-            raise ValueError("evaluator did not return three numbers")
-        p, pn, dom = (min(1.0, max(0.0, float(nums[i]))) for i in range(3))
-        return MoodPAD(p=p, pn=pn, a=a, dom=dom)
-    except Exception as e:
-        logger.warning("emotion PAD evaluation failed, falling back to mood: %s", e)
-        return MoodPAD(p=mood.p, pn=mood.pn, a=a, dom=mood.dom)
-
-# Conversation save prompt — distill what happened into one sentence
-_SUMMARY_PROMPT = """\
-Summarize this exchange in one sentence that captures the emotional core. \
-Write in {lang}.
-Speaker: {user}
-Agent: {agent}
-
-One sentence only."""
+# 評価器（感情・要約・相手気分・整合性チェック）は loop/evaluator.py へ分離した。
+# 値踏みゲート A_GATE・PAD 評価関数・各プロンプトはそちらにある。ここでは self._evaluator
+# 経由で呼び、_emotion_for_turn などの薄い委譲メソッドを残す（テスト差し替え点でもある）。
 
 # Self-model update prompt — extract a self-insight from an emotionally significant response
 _SELF_MODEL_PROMPT = """\
@@ -577,111 +506,6 @@ Response:
 {text}
 
 Write just the sentence. If nothing meaningful is revealed, write "nothing"."""
-
-# Companion mood prompt — classify companion's emotional state from their message
-_COMPANION_MOOD_PROMPT = """\
-Read this message and pick the single best label for the sender's mood:
-engaged / tired / frustrated / absent / happy
-
-Message: {text}
-
-Reply with the label only (one English word)."""
-
-
-def _companion_mood_heuristic(text: str) -> str:
-    """Fast keyword-based mood classifier used when no dedicated utility backend exists.
-
-    Covers the common explicit expressions; defaults to "engaged" for ambiguous text.
-    Labels: engaged / tired / frustrated / absent / happy
-    """
-    t = text.lower()
-
-    # tired
-    if any(
-        w in t
-        for w in [
-            "疲れ",
-            "つかれ",
-            "しんど",
-            "眠い",
-            "ねむ",
-            "だるい",
-            "きつい",
-            "tired",
-            "exhausted",
-            "sleepy",
-            "worn out",
-            "drained",
-        ]
-    ):
-        return "tired"
-
-    # frustrated
-    if any(
-        w in t
-        for w in [
-            "むかつ",
-            "いらいら",
-            "うざ",
-            "最悪",
-            "ムカつ",
-            "怒",
-            "frustrated",
-            "annoyed",
-            "angry",
-            "not working",
-            "isn't working",
-            "doesn't work",
-            "won't work",
-            "can't",
-            "ugh",
-            "argh",
-        ]
-    ):
-        return "frustrated"
-
-    # happy
-    if any(
-        w in t
-        for w in [
-            "嬉しい",
-            "うれし",
-            "楽しい",
-            "たのし",
-            "やったー",
-            "やった",
-            "最高",
-            "最強",
-            "好き",
-            "すき",
-            "幸せ",
-            "しあわせ",
-            ":)",
-            "😊",
-            "😄",
-            "🎉",
-            "笑",
-            "www",
-            "ｗ",
-            "happy",
-            "great",
-            "perfect",
-            "worked",
-            "excellent",
-            "wonderful",
-            "love",
-            "yay",
-            "awesome",
-        ]
-    ):
-        return "happy"
-
-    # absent (very short / punctuation only)
-    if len(text.strip()) < 4:
-        return "absent"
-
-    return "engaged"
-
 
 # Day summary prompt — condense a day's observations into a diary-like entry
 _DAY_SUMMARY_PROMPT = """\
@@ -866,26 +690,6 @@ def _react_to_scene_events(events: list[dict], desires: DesireSystem | None) -> 
                 desires.boost("greet_companion", 0.6)
             elif event_type == "disappeared":
                 desires.boost("worry_companion", 0.2)
-
-
-def _flatten_history(messages: list) -> list[dict]:
-    """履歴スライスを「dictのみのフラット列」にして返す（読み取り専用走査向け）。
-
-    tool結果はネストlistとして履歴に格納され（make_tool_results /
-    _flatten_messages 参照）、API送信時にのみ実メッセージへ展開される。
-    要約トランスクリプトや整合性チェックなど、生の履歴を走査する読み取り側は
-    先にflattenしないと list 要素で msg.get(...) が AttributeError になる。
-
-    backend._flatten_messages を再利用しないのは、そのシグネチャがbackend間で
-    不統一（OpenAI互換backendは (system, messages)）なため。
-    """
-    flat: list[dict] = []
-    for msg in messages:
-        if isinstance(msg, list):
-            flat.extend(m for m in msg if isinstance(m, dict))
-        elif isinstance(msg, dict):
-            flat.append(msg)
-    return flat
 
 
 class EmbodiedAgent:
@@ -1515,6 +1319,25 @@ class EmbodiedAgent:
         saved = self.backend
         self.backend = self._utility_backend
         return saved
+
+    @property
+    def _evaluator(self) -> Evaluator:
+        """評価器（loop/evaluator.py）を現在の backend から導出して返す。
+
+        `self.backend` は内部欲求ターンで utility へ一時スワップされるため、評価器は
+        スナップショットせず、`_utility_backend` と現在の `self.backend` から都度導く。
+        参照が変わらなければキャッシュを返す（内部ターン中の「utility is backend」判定も
+        自然に追随する）。
+        """
+        ev = self.__dict__.get("_evaluator_obj")
+        if (
+            ev is None
+            or ev._utility_backend is not self._utility_backend
+            or ev.backend is not self.backend
+        ):
+            ev = Evaluator(self._utility_backend, self.backend)
+            self.__dict__["_evaluator_obj"] = ev
+        return ev
 
     def _active_memory(self) -> "ObservationMemory":
         """Return the current speaker's memory, or agent's own if no speaker is set."""
@@ -2162,15 +1985,8 @@ class EmbodiedAgent:
         return [text for _, text in selected]
 
     async def _emotion_for_turn(self, text: str, arousal: float) -> tuple[MoodPAD, str]:
-        """ターンの感情を PAD で評価し、派生ラベルと合わせて返す（W2b-2）。
-
-        現在の mood をベースに評価器（軽量LLM）が P/Pn/Dom を出し（A は機械 arousal・
-        A_gate 未満は mood）、`label_from_pad` で最近傍ラベルを導く。mood は読みだけ。
-        """
-        pad = await _evaluate_emotion_pad(
-            self._utility_backend, text, load_current_mood(), arousal
-        )
-        return pad, label_from_pad(pad)
+        """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
+        return await self._evaluator.emotion_for_turn(text, arousal)
 
     # Emotion intensity by label (higher = stronger felt quality)
     _MOOD_INTENSITY: dict[str, float] = {
@@ -2428,75 +2244,16 @@ class EmbodiedAgent:
         return "[Temporal self]\n" + "\n".join(lines)
 
     async def _infer_companion_mood(self, text: str) -> str:
-        """Classify companion's emotional state from their message. Returns mood label.
-
-        When the utility backend is the same as the main backend (e.g. both are Kimi),
-        uses a fast keyword heuristic to avoid an extra LLM round-trip every turn.
-        Falls back to the LLM when a dedicated utility backend is configured.
-        """
-        if not text or len(text.strip()) < 3:
-            return "absent"
-        # Skip LLM call when utility == main backend (no dedicated cheap model available).
-        if self._utility_backend is self.backend:
-            return _companion_mood_heuristic(text)
-        label = await self._utility_backend.complete(
-            _COMPANION_MOOD_PROMPT.format(text=text[:300]), max_tokens=10
-        )
-        label = label.strip().lower()
-        valid = {"engaged", "tired", "frustrated", "absent", "happy"}
-        return label if label in valid else "engaged"
+        """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
+        return await self._evaluator.infer_companion_mood(text)
 
     async def _check_response_coherence(self, response: str) -> str | None:
-        """Check whether the agent's response contains a logical error or rule violation.
-
-        Uses the utility backend for a lightweight reflection pass.  Returns None if
-        the response is coherent, or a short violation description if not.
-        Skipped when no dedicated utility backend exists (same heuristic as TAPE).
-        """
-        if self._utility_backend is self.backend:
-            return None
-        if not response or response == "(no response)":
-            return None
-
-        # Build a compact context from the last few messages (user + assistant text only)
-        context_parts: list[str] = []
-        for msg in _flatten_history(self.messages[-6:]):  # tool結果はネストlist。走査前に展開
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if isinstance(content, str) and content:
-                context_parts.append(f"{role}: {content[:200]}")
-            elif isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        context_parts.append(f"{role}: {block['text'][:200]}")
-                        break
-        context = "\n".join(context_parts[-6:])
-
-        try:
-            result = await self._utility_backend.complete(
-                _COHERENCE_CHECK_PROMPT.format(context=context, response=response[:300]),
-                max_tokens=60,
-            )
-            result = result.strip()
-            if result.upper().startswith("OK"):
-                return None
-            logger.info("Coherence check caught violation: %s", result)
-            return result
-        except Exception as e:
-            logger.debug("Coherence check failed (non-critical): %s", e)
-            return None
+        """評価器へ委譲（loop/evaluator.py）。生の会話履歴を渡す。"""
+        return await self._evaluator.check_response_coherence(response, self.messages)
 
     async def _summarize_exchange(self, user_input: str, agent_response: str) -> str:
-        """Distill an exchange into one sentence for memory storage."""
-        result = await self._utility_backend.complete(
-            _SUMMARY_PROMPT.format(
-                lang=_t("summary_lang"),
-                user=user_input[:200],
-                agent=agent_response[:200],
-            ),
-            max_tokens=80,
-        )
-        return result or agent_response[:100]
+        """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
+        return await self._evaluator.summarize_exchange(user_input, agent_response)
 
     def _backup_status_note(self) -> str:
         """Return a system note if the last DB backup is stale (>25h), else empty string."""

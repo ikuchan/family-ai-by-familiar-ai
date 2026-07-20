@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 
-from familiar_agent.agent import _evaluate_emotion_pad, A_GATE
+from familiar_agent.loop.evaluator import _evaluate_emotion_pad, A_GATE
 from familiar_agent.mood_register import MoodPAD
 
 

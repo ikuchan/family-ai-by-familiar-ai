@@ -1,4 +1,6 @@
-# familiar-ai モジュール分割設計（v0.3）
+# familiar-ai モジュール分割設計（v0.4）
+
+> v0.4：v0.3 の方針どおり **evaluator を `loop/evaluator.py` へ切り出した**（挙動保存）。`agent.py` から感情（`_emotion_for_turn`）・要約（`_summarize_exchange`）・相手気分（`_infer_companion_mood`）・整合性チェック（`_check_response_coherence`）の4メソッドと、値踏みゲート `A_GATE`・PAD 評価関数 `_evaluate_emotion_pad`・各プロンプト・`_companion_mood_heuristic` を移し、履歴走査 `_flatten_history` は `loop/history.py` へ分けた（評価器と要約が共有・循環 import 回避）。`agent.py` 側は薄い委譲だけ残す（テストの差し替え点でもある）。`EmbodiedAgent._evaluator` は、内部欲求ターンでメイン backend が utility へ一時スワップされても追随するよう、現在の `self.backend` と `_utility_backend` から導出する派生プロパティにした（スナップショットしない）。`store/` と同じく合成で、Config を持たず注入された backend だけに依存する。`loop/persistence.py` は v0.3 のとおり見送り（Phase 5 で `run()` ごと作り替える）。
 
 > v0.3：`agent.py` の切り出し方針を、実測に基づいて絞った。当初は `loop/evaluator.py` と `loop/persistence.py` の二つを第一弾に入れていたが、`_run_post_response_pipeline` が 28 種の `self.` 属性（エージェント状態のほぼ全域）に触ると分かったため、**persistence は見送る**。切り出しても依存を束ねられず（`StoreContext` のようにいかない）、かつ Phase 5 で `run()` ごと作り替えるものだからである。**evaluator だけを切り出す**（依存は軽量LLM とメインバックエンドの二つに収まり、設計に名前があり、Phase 4 が参照する残るものである）。
 
