@@ -64,7 +64,6 @@ def test_setup_config_defaults():
     assert config.camera_onvif_port == "2020"
     assert config.elevenlabs_api_key == ""
     assert config.auto_desire is False
-    assert config.auto_say is True
 
 
 def test_setup_config_with_camera():

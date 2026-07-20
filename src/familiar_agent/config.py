@@ -290,25 +290,13 @@ class AgentConfig:
 
     # ── Autonomous behavior ───────────────────────────────────────
     # Desire-driven idle turns are OFF by default.
-    # Auto-say (speak text responses aloud) is ON by default.
-    # Set FAMILIAR_AUTO=1 to enable all, or toggle individually:
-    #   FAMILIAR_AUTO_DESIRE=1  — enable desire-driven idle turns
-    #   FAMILIAR_AUTO_SAY=0     — disable auto-say
+    # Set FAMILIAR_AUTO=1 or FAMILIAR_AUTO_DESIRE=1 to enable.
     auto_desire: bool = field(
         default_factory=lambda: (
             os.environ.get("FAMILIAR_AUTO_DESIRE", "").strip().lower() in ("1", "true", "yes")
             or os.environ.get("FAMILIAR_AUTO", "").strip().lower() in ("1", "true", "yes")
         )
     )
-    # Auto-say is ON by default (silence-control step 5). It is gated at runtime
-    # by presence + quiet hours, so it never speaks into an empty room or during
-    # quiet hours. Set FAMILIAR_AUTO_SAY=0 to disable.
-    auto_say: bool = field(
-        default_factory=lambda: (
-            os.environ.get("FAMILIAR_AUTO_SAY", "").strip().lower() not in ("0", "false", "no")
-        )
-    )
-
     max_tokens: int = 4096
     camera: CameraConfig = field(default_factory=CameraConfig)
     mobility: MobilityConfig = field(default_factory=MobilityConfig)

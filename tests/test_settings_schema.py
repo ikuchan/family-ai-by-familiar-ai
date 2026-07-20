@@ -21,10 +21,9 @@ def test_setup_mode_schema_is_subset_and_includes_api_key() -> None:
 
 
 def test_setup_config_to_env_values_serializes_auto_flags() -> None:
-    values = setup_config_to_env_values(SetupConfig(auto_desire=True, auto_say=False))
+    values = setup_config_to_env_values(SetupConfig(auto_desire=True))
 
     assert values["FAMILIAR_AUTO_DESIRE"] == "true"
-    assert values["FAMILIAR_AUTO_SAY"] == "false"
 
 
 def test_validate_setup_config_requires_api_key_only_in_setup_mode() -> None:

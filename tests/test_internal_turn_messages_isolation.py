@@ -88,7 +88,6 @@ def _make_agent(*, separate_utility: bool):
     agent.config.max_tokens = 512
     agent.config.agent_name = "Kokone"
     agent.config.companion_name = "Kouta"
-    agent.config.auto_say = False
     agent.config.thinking_mode = False
 
     agent._turn_count = 0

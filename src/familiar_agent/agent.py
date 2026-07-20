@@ -3800,30 +3800,6 @@ class EmbodiedAgent:
 
                     self._coherence_retried = False
 
-                    # Auto-say: if the model wrote text but never called say(), speak it aloud.
-                    # Gated (silence-control step 4) to respect the same silence rules as
-                    # deferred delivery: never speak into an empty room or during quiet hours.
-                    _auto_say_enabled = getattr(self.config, "auto_say", False)
-                    if (
-                        _auto_say_enabled
-                        and self._tts
-                        and not say_used
-                        and final_text
-                        and final_text != "(no response)"
-                        and self._social_presence_permission() != 0.0
-                        and not self._in_quiet_hours()
-                    ):
-                        import re as _re
-                        # Strip any system-context labels that leaked into the output.
-                        # These look like "[バックグラウンド検索完了: ...]" and must not be spoken.
-                        _tts_text = _re.sub(
-                            r"\[バックグラウンド(?:検索|取得)完了[^\]]*\]\n?", "", final_text
-                        ).strip()
-                        if _tts_text:
-                            if on_action:
-                                on_action("say", {"text": _tts_text})
-                            await self._tts.call("say", {"text": _tts_text})
-
                     # そのターンに自分がしたこと＝考えたこと（本文）と話したこと（say）。
                     # 区別せず両方を残す。本文は say() が出ると画面からは捨てられるが、
                     # 「考えたが言わなかったこと」として記憶には残す価値がある。

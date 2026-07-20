@@ -50,7 +50,6 @@ class SetupConfig:
     stt_language: str = "ja"
 
     auto_desire: bool = False
-    auto_say: bool = True
 
 
 Validator = Callable[[Any], str | None]
@@ -410,16 +409,6 @@ SETTINGS_FIELDS: tuple[SettingField, ...] = (
         default=False,
         setup_visible=False,
         runtime_getter=lambda config: config.auto_desire,
-    ),
-    SettingField(
-        env_key="FAMILIAR_AUTO_SAY",
-        attr="auto_say",
-        section="advanced",
-        label="Auto-say text:",
-        widget="bool",
-        default=True,
-        setup_visible=False,
-        runtime_getter=lambda config: config.auto_say,
     ),
 )
 

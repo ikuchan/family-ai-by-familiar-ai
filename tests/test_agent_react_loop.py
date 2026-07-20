@@ -512,80 +512,34 @@ async def test_run_passes_latest_pre_see_action_into_scene_update():
 
 
 # ---------------------------------------------------------------------------
-# Tests: auto-say
+# Tests: 発話は say() だけが担う（auto-say 撤去）
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_run_auto_say_fires_when_tts_available_and_no_say_call():
-    """When TTS is present and model wrote text without calling say(), auto-say fires."""
+async def test_text_only_turn_stays_silent():
+    """本文を書いても say() を呼ばなければ声は出ない。
+
+    話すかどうかの判断を say() へ切り出したのだから、呼ばなかったターンを機械が
+    代弁しない。本文は「考えたが言わなかったこと」として記憶には残る。
+    """
     agent = _make_agent(with_tts=True)
-    agent._schedule_rule = _make_active_rule()  # deterministic: not quiet hours
+    agent._schedule_rule = _make_active_rule()  # 静穏時間ではない
     agent.backend.stream_turn = AsyncMock(
-        return_value=(_turn("end_turn", text="Hello, I speak!"), "Hello, I speak!")
+        return_value=(_turn("end_turn", text="心の中で考えたこと"), "心の中で考えたこと")
     )
 
     ps = _patch_heavy()
     for p in ps:
         p.start()
     try:
-        await agent.run("speak to me")
+        await agent.run("話しかける")
     finally:
         for p in ps:
             p.stop()
 
-    agent._tts.call.assert_awaited_once()
-    call_args = agent._tts.call.call_args
-    assert call_args[0][0] == "say"
+    agent._tts.call.assert_not_awaited()
 
-
-@pytest.mark.asyncio
-async def test_run_no_auto_say_when_tts_absent():
-    """Without TTS, no auto-say even if model wrote text."""
-    agent = _make_agent(with_tts=False)
-    agent.backend.stream_turn = AsyncMock(
-        return_value=(_turn("end_turn", text="Silent response"), "Silent response")
-    )
-
-    ps = _patch_heavy()
-    for p in ps:
-        p.start()
-    try:
-        await agent.run("respond")
-    finally:
-        for p in ps:
-            p.stop()
-
-    assert agent._tts is None
-
-
-@pytest.mark.asyncio
-async def test_run_no_auto_say_when_say_already_called():
-    """If say() was called as a tool, auto-say should NOT fire again."""
-    agent = _make_agent(with_tts=True)
-
-    tc = ToolCall(id="tc1", name="say", input={"text": "I spoke"})
-    turn1 = TurnResult(stop_reason="tool_use", text="", tool_calls=[tc])
-    turn2 = TurnResult(stop_reason="end_turn", text="done", tool_calls=[])
-
-    agent.backend.stream_turn = AsyncMock(
-        side_effect=[
-            (turn1, None),
-            (turn2, "done"),
-        ]
-    )
-
-    ps = _patch_heavy()
-    for p in ps:
-        p.start()
-    try:
-        await agent.run("speak via tool")
-    finally:
-        for p in ps:
-            p.stop()
-
-    # say() was called once via tool execution; auto-say must NOT add a second call
-    assert agent._tts.call.call_count == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1106,7 +1060,7 @@ async def test_share_search_result_suppressed_during_quiet_hours_when_not_user_i
 
 
 # ---------------------------------------------------------------------------
-# Step 4: auto_say presence + quiet-hours gate
+# 静穏時間の判定に使う共通ヘルパー
 # ---------------------------------------------------------------------------
 
 
@@ -1141,70 +1095,7 @@ class TestInQuietHoursHelper:
         assert agent._in_quiet_hours() is False
 
 
-@pytest.mark.asyncio
-async def test_auto_say_fires_when_present_and_not_quiet():
-    """Desire turn with TTS, present, not quiet → auto_say speaks."""
-    agent = _make_agent(with_tts=True)
-    agent._schedule_rule = _make_active_rule()
-    agent._last_human_at = __import__("time").time()  # present
-    agent.backend.stream_turn = AsyncMock(
-        return_value=(_turn("end_turn", text="気になることがあるよ"), "気になることがあるよ")
-    )
 
-    ps = _patch_heavy()
-    for p in ps:
-        p.start()
-    try:
-        await agent.run("", inner_voice="なんとなく話したい", desire_name="browse_curiosity")
-    finally:
-        for p in ps:
-            p.stop()
-
-    agent._tts.call.assert_awaited_once()
-
-
-@pytest.mark.asyncio
-async def test_auto_say_suppressed_when_nobody_present():
-    """Desire turn with TTS but nobody present → auto_say stays silent."""
-    agent = _make_agent(with_tts=True)
-    agent._schedule_rule = _make_active_rule()  # not quiet — isolate presence gate
-    agent._last_human_at = 0.0  # nobody present (1970)
-    agent.backend.stream_turn = AsyncMock(
-        return_value=(_turn("end_turn", text="誰もいないけど喋っちゃう"), "誰もいないけど喋っちゃう")
-    )
-
-    ps = _patch_heavy()
-    for p in ps:
-        p.start()
-    try:
-        await agent.run("", inner_voice="ひとりごと", desire_name="browse_curiosity")
-    finally:
-        for p in ps:
-            p.stop()
-
-    agent._tts.call.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_auto_say_suppressed_during_quiet_hours():
-    """Desire turn with TTS, present, but quiet hours → auto_say stays silent."""
-    agent = _make_agent(with_tts=True)
-    agent._schedule_rule = _make_quiet_rule()  # quiet
-    agent._last_human_at = __import__("time").time()  # present — isolate quiet gate
-    agent.backend.stream_turn = AsyncMock(
-        return_value=(_turn("end_turn", text="深夜なのに喋っちゃう"), "深夜なのに喋っちゃう")
-    )
-
-    ps = _patch_heavy()
-    for p in ps:
-        p.start()
-    try:
-        await agent.run("", inner_voice="夜中のひとりごと", desire_name="browse_curiosity")
-    finally:
-        for p in ps:
-            p.stop()
-
-    agent._tts.call.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
