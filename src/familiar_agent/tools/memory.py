@@ -17,7 +17,7 @@ import math
 import os
 import uuid
 from dataclasses import dataclass
-from datetime import date as _date, datetime, timedelta, timezone
+from datetime import date as _date, datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -28,6 +28,7 @@ from ..mood_register import MoodPAD, load_current_mood
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..legacy.semantic_layer import LegacySemanticLayerMixin
 from ..store import clock
+from ..store.jobs import MemoryJobsMixin
 from ..store.db_compat import _RealDictConnWrapper, _SQLiteConnWrapper
 from ..store.embedding import (
     EMBEDDING_DIM,
@@ -375,7 +376,7 @@ def _emotion_match(
 
 # ── ObservationMemory ──────────────────────────────────────────────────────
 
-class ObservationMemory(LegacySemanticLayerMixin):
+class ObservationMemory(LegacySemanticLayerMixin, MemoryJobsMixin):
     """PostgreSQL-backed memory store scoped to one person_id."""
 
     _embedder: "_EmbeddingModel" = _EmbeddingModel()  # class-level default; tests can patch via __class__
@@ -537,132 +538,6 @@ class ObservationMemory(LegacySemanticLayerMixin):
 
     # ── Event / job queue ──────────────────────────────────────────────────
 
-    def _enqueue_job(self, conn, event_id: str, job_type: str, now: str) -> bool:
-        try:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO memory_jobs "
-                    "(job_id,event_id,job_type,status,attempts,available_at,last_error,created_at,updated_at) "
-                    "VALUES (%s,%s,%s,'pending',0,%s,NULL,%s,%s)",
-                    (str(uuid.uuid4()), event_id, job_type, now, now, now),
-                )
-            return True
-        except Exception:
-            return False
-
-    def append_memory_event(
-        self,
-        event_type: str,
-        payload: dict,
-        dedupe_key: str | None = None,
-        queue_job: bool = True,
-        job_type: str = "materialize_observation",
-    ) -> tuple[str | None, bool]:
-        now = self._now()
-        payload_json = json.dumps(payload, ensure_ascii=False, separators=(",",":"), sort_keys=True)
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                if dedupe_key:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT event_id FROM memory_events WHERE dedupe_key = %s", (dedupe_key,))
-                        row = cur.fetchone()
-                    if row:
-                        eid = str(row["event_id"])
-                        if queue_job:
-                            self._enqueue_job(conn, eid, job_type, now)
-                        conn.commit()
-                        return eid, False
-                eid = str(uuid.uuid4())
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO memory_events (event_id,created_at,event_type,dedupe_key,payload_json,person_id) "
-                        "VALUES (%s,%s,%s,%s,%s,%s)",
-                        (eid, now, event_type, dedupe_key, payload_json, self._person_id),
-                    )
-                if queue_job:
-                    self._enqueue_job(conn, eid, job_type, now)
-                conn.commit()
-                return eid, True
-        except Exception as e:
-            logger.warning("append_memory_event failed: %s", e)
-            return None, False
-
-    async def append_memory_event_async(self, *a, **kw):
-        return await asyncio.to_thread(self.append_memory_event, *a, **kw)
-
-    def claim_pending_jobs(self, limit: int = 10) -> list[dict]:
-        now = self._now()
-        claimed = []
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT j.job_id,j.event_id,j.job_type,j.attempts, "
-                    "e.event_type,e.payload_json "
-                    "FROM memory_jobs j JOIN memory_events e ON e.event_id = j.event_id "
-                    "WHERE j.status='pending' AND j.available_at <= %s "
-                    "ORDER BY j.created_at LIMIT %s",
-                    (now, limit),
-                )
-                rows = cur.fetchall()
-            for row in rows:
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE memory_jobs SET status='running',attempts=attempts+1,updated_at=%s "
-                        "WHERE job_id=%s AND status='pending' RETURNING job_id",
-                        (now, row["job_id"]),
-                    )
-                    if cur.rowcount != 1:
-                        continue
-                try:
-                    payload = json.loads(row["payload_json"])
-                except Exception:
-                    payload = {"raw_payload": row["payload_json"]}
-                claimed.append({
-                    "job_id":     row["job_id"],
-                    "event_id":   row["event_id"],
-                    "job_type":   row["job_type"],
-                    "attempts":   int(row["attempts"]) + 1,
-                    "event_type": row["event_type"],
-                    "payload":    payload,
-                })
-            conn.commit()
-        return claimed
-
-    def mark_job_done(self, job_id: str) -> bool:
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE memory_jobs SET status='done',updated_at=%s,last_error=NULL WHERE job_id=%s",
-                    (self._now(), job_id),
-                )
-            conn.commit()
-            return True
-
-    def mark_job_failed(self, job_id: str, error: str, retry_delay: float = 10.0, max_attempts: int = 3) -> str:
-        now = datetime.fromisoformat(clock.now_local_iso())
-        with self._db_lock:
-            conn = self._ensure_connected()
-            with conn.cursor() as cur:
-                cur.execute("SELECT attempts FROM memory_jobs WHERE job_id=%s", (job_id,))
-                row = cur.fetchone()
-            if row is None:
-                return "missing"
-            attempts = int(row["attempts"])
-            status = "dead_letter" if attempts >= max_attempts else "pending"
-            avail = now.isoformat() if status == "dead_letter" else \
-                    (now + timedelta(seconds=max(retry_delay, 0.0))).isoformat()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE memory_jobs SET status=%s,available_at=%s,last_error=%s,updated_at=%s WHERE job_id=%s",
-                    (status, avail, error[:500], now.isoformat(), job_id),
-                )
-            conn.commit()
-        return status
-
-    # ── Core save ──────────────────────────────────────────────────────────
 
     def _materialize_save_event(
         self,
@@ -836,28 +711,6 @@ class ObservationMemory(LegacySemanticLayerMixin):
 
     async def save_async_with_id(self, *a, **kw) -> tuple[str | None, bool]:
         return await asyncio.to_thread(self.save_with_id, *a, **kw)
-
-    def materialize_event(self, event_id: str) -> bool:
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT event_type, payload_json FROM memory_events WHERE event_id=%s",
-                        (event_id,),
-                    )
-                    row = cur.fetchone()
-            if not row:
-                return False
-            payload = json.loads(row["payload_json"])
-            if row["event_type"] == "memory.save":
-                return self._materialize_save_event(event_id, payload)
-            return False
-        except Exception as e:
-            logger.warning("materialize_event failed: %s", e)
-            return False
-
-    # ── Recall ─────────────────────────────────────────────────────────────
 
     def recall(self, query: str, n: int = 3, kind: str | None = None,
                min_score: float = 0.0,
