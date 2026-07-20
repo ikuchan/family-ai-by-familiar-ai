@@ -41,3 +41,21 @@ def end_of_day_utc(date_str: str) -> datetime:
     """`YYYY-MM-DD` の「その日の終わり」をローカル 23:59:59 として UTC で返す。"""
     d = datetime.strptime(str(date_str)[:10], "%Y-%m-%d")
     return d.replace(hour=23, minute=59, second=59, tzinfo=local_tz()).astimezone(timezone.utc)
+
+
+def ts_to_date(ts) -> str:
+    """timestamptz の行値を YYYY-MM-DD の文字列にする。"""
+    if ts is None:
+        return ""
+    if isinstance(ts, str):
+        return ts[:10]
+    return ts.date().isoformat()
+
+
+def ts_to_time(ts) -> str:
+    """timestamptz の行値を HH:MM の文字列にする。"""
+    if ts is None:
+        return ""
+    if isinstance(ts, str):
+        return ts[11:16] if len(ts) >= 16 else ts
+    return ts.strftime("%H:%M")
