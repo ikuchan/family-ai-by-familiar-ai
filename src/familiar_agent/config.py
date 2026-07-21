@@ -164,8 +164,10 @@ class MemoryConfig:
     recall_time_floor: float = field(  # t_floor
         default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.001)
     )
+    # 無関係排除の主たる足切り＝合成 final score の soft 床（生コサインではない）。
+    # 0.05 起点（根拠台帳 §4・確定は5軸スコア分布の計測後）。
     recall_min_score: float = field(
-        default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.0)
+        default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.05)
     )
     # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
     dedup_window_secs: int = field(

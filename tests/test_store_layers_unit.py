@@ -224,26 +224,6 @@ def test_by_vector_filters_by_kind(layers) -> None:
     assert all(r["kind"] == "day_summary" for r in rows)
 
 
-def test_by_vector_applies_the_cosine_floor_inside_the_query(layers) -> None:
-    """min_cosine は SQL の中で効く（LIMIT と組み合わさるため意味が変わらない）。
-
-    後段で絞ると「閾値を満たす n 件」でなく「n 件のうち閾値を満たすもの」になり、
-    挙動が変わる。境界の切り出しで意味論を変えないため、ここは引数で渡す。
-    """
-    from familiar_agent.db import vec_to_sql
-
-    _, observations, _ = layers
-    observations.materialize_save_event(
-        str(uuid.uuid4()),
-        {"content": f"unit floor {uuid.uuid4()}", "direction": "会話", "kind": "conversation"},
-    )
-    vec = np.zeros(1024, dtype=np.float32)
-    vec[0] = 1.0
-    q = vec_to_sql(vec.tolist())
-
-    assert observations.by_vector(q, 50, min_cosine=0.0), "床0で何も返らない"
-    assert observations.by_vector(q, 50, min_cosine=1.5) == [], "床を超える行が返っている"
-
 
 def test_store_layers_do_not_read_configuration(layers) -> None:
     """層は Config を持たない（環境変数を直接読まない）。

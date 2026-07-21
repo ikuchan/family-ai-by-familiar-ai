@@ -603,7 +603,8 @@ class ObservationMemory:
                recall_mode: str = "system") -> list[dict]:
         """Recall using situated vectors (pgvector cosine search).
 
-        min_score:   cosine similarity threshold (Issue A).
+        min_score:   合成 final score の soft 床（生コサインではない）。無関係の
+                     最終排除を担う（根拠台帳 §3–4）。床を課すときは候補を過剰取得する。
         recall_mode: reinforcement mode (Issue B).
           "conversation" → recall_count += 1 AND last_recalled_at = now()
           "spontaneous"  → last_recalled_at = now() only
@@ -632,9 +633,10 @@ class ObservationMemory:
             situated_q = _situated_vector(q_vec, p_vec, self._situated._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
 
-            rows = self._observations.by_vector(
-                q_sql, n, kind=kind, min_cosine=min_score
-            )
+            # min_score は合成 final score の床。採点後に絞ると「n 件のうち床を
+            # 満たすもの」になり n を割るため、床を課すぶんだけ多めに取る（n*3・上限20）。
+            fetch_n = min(n * 3, 20) if min_score > 0.0 else n
+            rows = self._observations.by_vector(q_sql, fetch_n, kind=kind)
 
             if rows:
                 _cfg = MemoryConfig()
@@ -665,6 +667,9 @@ class ObservationMemory:
                         sigma=_cfg.recall_emotion_sigma,
                     )
                     final = parts.score
+                    # 合成スコアの soft 床。生コサインではなく最終スコアで絞る。
+                    if min_score > 0.0 and final < min_score:
+                        continue
                     breakdowns[row["id"]] = parts
                     results.append({
                         "memory_id":        row["id"],
@@ -690,6 +695,8 @@ class ObservationMemory:
                         ),
                     })
                 results.sort(key=lambda r: r["score"], reverse=True)
+                # 過剰取得したぶんを落とし、上位 n 件へ戻す。
+                results = results[:n]
 
                 # 想起順の内訳。実機確認で「なぜこの順なのか」を後から再構成する
                 # ために出す。記憶内容を含むうえ想起のたびに走るので debug 限定。

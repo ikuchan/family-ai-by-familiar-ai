@@ -35,7 +35,7 @@ def test_memory_config_defaults():
     cfg = MemoryConfig()
     assert cfg.recall_half_life_days == 3.0
     assert cfg.recall_time_floor == 0.001
-    assert cfg.recall_min_score == 0.0
+    assert cfg.recall_min_score == pytest.approx(0.05)
 
 
 def test_memory_config_invalid_env_falls_back(monkeypatch):

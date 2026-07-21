@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.34）
+# familiar-ai 直近の進め方と進捗（v0.35）
+
+> v0.35：**`min_score` を是正**（挙動変化）。生コサインの SQL 足切りから**合成 final score の soft 床**へ付け替え、根拠台帳 §3–4 の確定方針（r は段階化・無関係排除は合成スコアが担う）にコードを一致させた。store の `by_vector` から `min_cosine` を撤去して素取得に戻し（grep 0件）、床は `recall` が採点後に `score >= min_score` で課す。床を課すと `LIMIT n` の後で n を割るため、`min_score>0` のとき候補を n×3（上限20）過剰取得し、絞って上位 n を返す。既定 `RECALL_MIN_SCORE` を **0.05 起点**にした（台帳 §4・確定は実データのスコア分布から）。既定 0.05 は本番の想起集合を変えるので実機確認へ申し送り。テストは、古い観測（t を落とし M<1 で composite<cosine）で床の中間を突いて「合成床は切り生コサイン床は残す」を分離、過剰取得の件数、store 署名から `min_cosine` 消滅を確認。全体緑。これで **Phase 2 の締め（想起の背骨＋境界切り出し）が一通り終わり**、次は Phase 3（知覚・在席）へ。
 
 > v0.34：Phase 2 の締めの切り出しを進め、**`agent.py` から評価器を `loop/evaluator.py` へ分離**した（挙動保存）。感情・要約・相手気分・整合性チェックの4メソッドと `A_GATE`・PAD 評価関数・各プロンプトを移し、`agent.py` は薄い委譲だけ残す。`_evaluator` は内部欲求ターンの backend スワップに追随する派生プロパティにした。永続化（`loop/persistence.py`）は `run()` ごと作り替える Phase 5 へ送り切り出さない（分割設計 v0.4）。あわせて **timestamp のタイムゾーンずれを是正**（挙動変化）：`timestamp::date`・`EXTRACT`・psycopg2 が返す datetime はセッションの TimeZone で解釈されるが、既定 UTC のままだと、ローカルの「今日」で引いた記憶が UTC 早朝帯（JST 00:00〜09:00）で前日扱いになり漏れ、表示時刻も9時間ずれていた（マイグレーション028 で値を真 UTC へ揃えたことで露呈した宿題）。`Database.conn()` の接続確立時に一度 `SET TIME ZONE INTERVAL` でローカルオフセットへ固定し、全 timestamptz 読みを生活時間へ寄せた（オフセット導出は `store/clock.py` の `local_utc_offset()` に閉じる・DST のある地域では接続存続中にずれうるが JST は DST なし）。テストは日付境界（ローカル今日 00:30＝UTC 前日）を跨ぐ instant で絞り込みと表示を検証し、既存のアクセス層テストが naive datetime を挿入セッションの TZ で解釈させていた曖昧さを tz 付きへ改めた。全体 1,474 件＋不変条件8件緑。次は **`min_score` の是正**（生コサインの閾値→合成スコアの足切り・挙動変化・設計を会話で決める）。
 

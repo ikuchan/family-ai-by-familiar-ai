@@ -1,8 +1,7 @@
-"""Tests for Issue A: recall() relevance-score threshold filter.
+"""Tests for recall() relevance-score threshold filter.
 
-recall(min_score=X) must only return memories with cosine similarity >= X.
-Default is 0.0 (backward-compatible — existing callers unchanged).
-RECALL_MIN_SCORE env var is read via MemoryConfig.recall_min_score.
+recall(min_score=X) は合成 final score が X 以上の記憶だけを返す（生コサインではない）。
+RECALL_MIN_SCORE env var is read via MemoryConfig.recall_min_score（既定 0.05）。
 """
 
 from __future__ import annotations
@@ -76,14 +75,14 @@ def test_recall_min_score_from_env(monkeypatch, memory):
 
 
 def test_recall_min_score_env_default(monkeypatch):
-    """MemoryConfig.recall_min_score returns 0.0 when RECALL_MIN_SCORE is unset."""
+    """MemoryConfig.recall_min_score returns 0.05 (起点) when RECALL_MIN_SCORE is unset."""
     monkeypatch.delenv("RECALL_MIN_SCORE", raising=False)
     from familiar_agent.config import MemoryConfig
-    assert MemoryConfig().recall_min_score == 0.0
+    assert MemoryConfig().recall_min_score == pytest.approx(0.05)
 
 
 def test_recall_min_score_env_invalid(monkeypatch):
-    """MemoryConfig.recall_min_score returns 0.0 on invalid env value."""
+    """MemoryConfig.recall_min_score falls back to 0.05 on invalid env value."""
     monkeypatch.setenv("RECALL_MIN_SCORE", "not-a-number")
     from familiar_agent.config import MemoryConfig
-    assert MemoryConfig().recall_min_score == 0.0
+    assert MemoryConfig().recall_min_score == pytest.approx(0.05)

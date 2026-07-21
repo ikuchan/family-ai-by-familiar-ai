@@ -136,27 +136,20 @@ class ObservationStore:
         n: int,
         *,
         kind: str | None = None,
-        min_cosine: float = 0.0,
     ) -> list[dict]:
-        """situated 相関のコサイン順に n 件読む。**採点はしない**。
+        """situated 相関のコサイン順に n 件読む。**採点も足切りもしない**。
 
-        返り行の `score` は**生のコサイン**で、5軸の合成スコアではない。合成は
-        W の構築（想起）の仕事で、層は持たない（[D-データモデル]）。
+        返り行の `score` は**生のコサイン**で、5軸の合成スコアではない。合成と
+        その足切りは W の構築（想起）の仕事で、層は持たない（[D-データモデル]）。
+        呼び出し側は足切りを課すぶんだけ n を増やして取り、採点後に絞る。
 
         `query_vector_sql` は pgvector の文字列表現を受け取る。ベクトルの作り方
         （視点合成・平均中心化）は呼び出し側の責任で、層は受け取った表現で引くだけ。
-
-        `min_cosine` は **SQL の中で**効かせる。後段で絞ると `LIMIT n` との
-        組み合わせで「閾値を満たす n 件」から「n 件のうち閾値を満たすもの」へ
-        意味が変わるため。
         """
         kind_clause = "AND o.kind = %s" if kind else ""
-        score_clause = "AND (1 - (s.vector <=> %s::vector)) >= %s" if min_cosine > 0.0 else ""
         params: list = [query_vector_sql, self._ctx.person_id]
         if kind:
             params.append(kind)
-        if min_cosine > 0.0:
-            params += [query_vector_sql, min_cosine]
         params += [query_vector_sql, n]
         try:
             with self._ctx.lock:
@@ -177,7 +170,6 @@ class ObservationStore:
                         WHERE s.person_id = %s
                           AND o.superseded_by IS NULL
                           {kind_clause}
-                          {score_clause}
                         ORDER BY s.vector <=> %s::vector
                         LIMIT %s
                         """,
