@@ -60,7 +60,7 @@
 ## 4. min_score（0.05 起点・主たる足切りへ）
  
 - **現在の値**：0.05（起点・既定 `RECALL_MIN_SCORE`）。役割を「無関係排除の主たる足切り」へ格上げ（r の段階化に伴い）。
-- **実装（2026-07 是正）**：min_score を**合成 final score の soft 床**として `recall`（`tools/memory.py`）で効かせる。以前は `by_vector` が生コサインを SQL で足切りしていたが（r をハード veto する §2 で棄却した挙動と同型）、これを撤去し store は素取得だけに戻した（`min_cosine` は grep 0件）。床を課すと `LIMIT n` の後で n を割るため、`min_score>0` のとき候補を n×3（上限20）取り、採点後に `score >= min_score` で絞って上位 n を返す。
+- **実装（2026-07 是正）**：min_score を**合成 final score の soft 床**として `recall`（`tools/memory.py`）で効かせる。以前は `by_vector` が生コサインを SQL で足切りしていたが（r をハード veto する §2 で棄却した挙動と同型）、これを撤去し store は素取得だけに戻した（`min_cosine` は grep 0件）。床を課すと `LIMIT n` の後で n を割るため、`min_score>0` のとき候補を n×`RECALL_OVERFETCH_FACTOR`（既定3・上限 `RECALL_OVERFETCH_CAP` 既定20）取り、採点後に `score >= min_score` で絞って上位 n を返す。過剰取得の係数・上限も他の想起つまみと同様に Config（env）で差し替え可。
 - **計測事実**：5軸スコアの実データ分布はまだ採っていない（計測2 は素材のコサイン分布のみ）。
 - **判断と理由**：r が門でなくなったぶん、合成5軸スコアの soft 床が選別を担う。
 - **暫定/確定**：値は**暫定**（機構は確定・実装済み）。再検討条件＝**実データのスコア分布から 0.05 を確定**。既定 0.05 は本番の想起集合を変える（挙動変化）ので実機確認で確かめる。

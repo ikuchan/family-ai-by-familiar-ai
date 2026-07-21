@@ -633,13 +633,17 @@ class ObservationMemory:
             situated_q = _situated_vector(q_vec, p_vec, self._situated._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
 
+            _cfg = MemoryConfig()
             # min_score は合成 final score の床。採点後に絞ると「n 件のうち床を
-            # 満たすもの」になり n を割るため、床を課すぶんだけ多めに取る（n*3・上限20）。
-            fetch_n = min(n * 3, 20) if min_score > 0.0 else n
+            # 満たすもの」になり n を割るため、床を課すぶんだけ多めに取る
+            # （n×factor・上限 cap・いずれも Config）。
+            fetch_n = (
+                min(n * _cfg.recall_overfetch_factor, _cfg.recall_overfetch_cap)
+                if min_score > 0.0 else n
+            )
             rows = self._observations.by_vector(q_sql, fetch_n, kind=kind)
 
             if rows:
-                _cfg = MemoryConfig()
                 results = []
                 breakdowns: dict[Any, _ScoreParts] = {}
                 for row in rows:

@@ -169,6 +169,13 @@ class MemoryConfig:
     recall_min_score: float = field(
         default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.05)
     )
+    # 合成床を課すときの候補過剰取得。採点後に絞ると n を割るため n×factor（上限 cap）取る。
+    recall_overfetch_factor: int = field(
+        default_factory=lambda: _int_env("RECALL_OVERFETCH_FACTOR", 3)
+    )
+    recall_overfetch_cap: int = field(
+        default_factory=lambda: _int_env("RECALL_OVERFETCH_CAP", 20)
+    )
     # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
     dedup_window_secs: int = field(
         default_factory=lambda: _int_env("MEMORY_DEDUP_WINDOW_SECS", 30)

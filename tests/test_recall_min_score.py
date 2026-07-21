@@ -81,6 +81,22 @@ def test_overfetch_only_when_min_score_positive(memory):
         assert bv.call_args.args[1] == 5, "min_score=0 で n ちょうどを取っていない"
 
 
+def test_overfetch_factor_and_cap_are_configurable(memory, monkeypatch):
+    """過剰取得の係数と上限は Config（env）で差し替えられる。"""
+    monkeypatch.setenv("RECALL_OVERFETCH_FACTOR", "5")
+    monkeypatch.setenv("RECALL_OVERFETCH_CAP", "40")
+    with (
+        patch.object(memory._observations, "by_vector", return_value=[]) as bv,
+        patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]),
+    ):
+        memory.recall("q", n=5, min_score=0.05)
+        assert bv.call_args.args[1] == 25, "factor=5 が効いていない（n*5）"
+
+        bv.reset_mock()
+        memory.recall("q", n=10, min_score=0.05)
+        assert bv.call_args.args[1] == 40, "cap=40 で頭打ちになっていない"
+
+
 def test_by_vector_has_no_min_cosine():
     """store の by_vector は素取得だけ（合成床の引数を持たない）。"""
     import inspect
