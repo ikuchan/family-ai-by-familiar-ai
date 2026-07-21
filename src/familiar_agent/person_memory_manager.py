@@ -74,13 +74,28 @@ class RecognitionHint:
 class PersonMemoryManager:
     """Central coordinator for person identity and memory routing."""
 
-    def __init__(self, base_memory: "ObservationMemory") -> None:  # type: ignore[name-defined]
+    def __init__(
+        self,
+        base_memory: "ObservationMemory",  # type: ignore[name-defined]
+        switch_thresholds: dict[str, float] | None = None,
+    ) -> None:
         self._base = base_memory
         self._present: dict[str, PersonPresence] = {}
         self._speaker_id: str | None = None
         self._instances: dict[str, Any] = {}   # person_id → ObservationMemory
         self._switch_callbacks: list[Callable[[str | None, str], Awaitable[None]]] = []
         self._lock = threading.Lock()
+        # source 別の自動切替しきい値。認識モデルで cosine 尺度が違うため source 別に持つ。
+        # 未指定なら RecognitionConfig の既定（顔・声）を読む。表に無い source は既定の
+        # AUTO_SWITCH_THRESHOLD へフォールバックする（text/auto 等）。
+        if switch_thresholds is None:
+            from .config import RecognitionConfig
+            _rc = RecognitionConfig()
+            switch_thresholds = {
+                "face": _rc.face_switch_threshold,
+                "voice": _rc.voice_switch_threshold,
+            }
+        self._switch_thresholds = switch_thresholds
 
     # ── Presence management ────────────────────────────────────────────────
 
@@ -154,11 +169,12 @@ class PersonMemoryManager:
         self.refresh_signal(hint.person_id)
         if hint.source in hint.IMMEDIATE:
             return await self.set_speaker(hint.person_id, source=hint.source)
-        if hint.confidence >= AUTO_SWITCH_THRESHOLD:
+        threshold = self._switch_thresholds.get(hint.source, AUTO_SWITCH_THRESHOLD)
+        if hint.confidence >= threshold:
             return await self.set_speaker(hint.person_id, source=hint.source)
         logger.debug(
-            "Hint below threshold: src=%s pid=%s conf=%.2f",
-            hint.source, hint.person_id[:8], hint.confidence,
+            "Hint below threshold: src=%s pid=%s conf=%.2f (th=%.2f)",
+            hint.source, hint.person_id[:8], hint.confidence, threshold,
         )
         return False
 

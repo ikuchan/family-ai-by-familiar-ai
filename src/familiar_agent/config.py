@@ -242,6 +242,37 @@ class CodingConfig:
 
 
 @dataclass
+class RecognitionConfig:
+    # 認識しきい値（cosine）＝「既知の人か」。face=ArcFace / voice=ECAPA。仮置き・実機で調整。
+    face_threshold: float = field(
+        default_factory=lambda: _float_env("FACE_THRESHOLD", 0.35)
+    )
+    voice_threshold: float = field(
+        default_factory=lambda: _float_env("VOICE_THRESHOLD", 0.25)
+    )
+    # 自動切替しきい値（cosine）＝「話者を切り替えるほど確信あるか」。認識より少し上。
+    # cosine 尺度が顔・声で違うため source 別に持つ（仮置き・実機で調整）。
+    face_switch_threshold: float = field(
+        default_factory=lambda: _float_env("FACE_SWITCH_THRESHOLD", 0.45)
+    )
+    voice_switch_threshold: float = field(
+        default_factory=lambda: _float_env("VOICE_SWITCH_THRESHOLD", 0.35)
+    )
+    # InsightFace のモデルパックと onnxruntime プロバイダ（CUDA→CPU フォールバック）。
+    face_model: str = field(
+        default_factory=lambda: os.environ.get("FACE_MODEL", "buffalo_l")
+    )
+    providers: str = field(
+        default_factory=lambda: os.environ.get(
+            "RECOGNITION_PROVIDERS", "CUDAExecutionProvider,CPUExecutionProvider"
+        )
+    )
+
+    def provider_list(self) -> list[str]:
+        return [p.strip() for p in self.providers.split(",") if p.strip()]
+
+
+@dataclass
 class AgentConfig:
     # Agent display name shown in TUI
     agent_name: str = field(default_factory=lambda: os.environ.get("AGENT_NAME", "AI"))
@@ -317,3 +348,4 @@ class AgentConfig:
     stt: STTConfig = field(default_factory=STTConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     coding: CodingConfig = field(default_factory=CodingConfig)
+    recognition: RecognitionConfig = field(default_factory=RecognitionConfig)

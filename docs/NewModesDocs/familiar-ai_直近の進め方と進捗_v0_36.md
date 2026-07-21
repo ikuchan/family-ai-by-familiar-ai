@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.35）
+# familiar-ai 直近の進め方と進捗（v0.36）
+
+> v0.36：**認識を InsightFace/ECAPA-TDNN へ載せ替え**（挙動変化・実機依存）。顔を deepface→InsightFace(ArcFace)、声を resemblyzer→ECAPA-TDNN(speechbrain) にし、`RecognitionHint` の I/F と公開 API（`recognize_face_async`・`register_face`・`VoiceIdentifier`）を保った（呼び出し元は無変更）。判定ロジックは `recognition/embedding_store.py`（`best_match`＝cosine 最大＋しきい値・人ごと埋め込み pkl）へ寄せ、実モデルは遅延シングルトンで1回ロード（CUDA→CPU フォールバック）。しきい値は `RecognitionConfig`（env）＝認識 顔0.35/声0.25・自動切替 顔0.45/声0.35（いずれも仮置き・実機調整）。載せ替えで生 cosine の尺度が変わり `AUTO_SWITCH_THRESHOLD=0.75` のままだと話者自動切替が発火しないため、`apply_hint` を **source 別しきい値**へ変えた（顔・声で別値・text/auto は従来 0.75）。旧 deepface/resemblyzer は optional のまま残す（当面）。実モデルは重く GPU 依存なのでテストは埋め込みをモックし判定・保存・per-source 切替のみ検証、実モデル統合は実機確認に回す。次は GUI（気分・感情＋在席・話者・カメラ）。
 
 > v0.35：**`min_score` を是正**（挙動変化）。生コサインの SQL 足切りから**合成 final score の soft 床**へ付け替え、根拠台帳 §3–4 の確定方針（r は段階化・無関係排除は合成スコアが担う）にコードを一致させた。store の `by_vector` から `min_cosine` を撤去して素取得に戻し（grep 0件）、床は `recall` が採点後に `score >= min_score` で課す。床を課すと `LIMIT n` の後で n を割るため、`min_score>0` のとき候補を n×3（上限20）過剰取得し、絞って上位 n を返す。既定 `RECALL_MIN_SCORE` を **0.05 起点**にした（台帳 §4・確定は実データのスコア分布から）。既定 0.05 は本番の想起集合を変えるので実機確認へ申し送り。テストは、古い観測（t を落とし M<1 で composite<cosine）で床の中間を突いて「合成床は切り生コサイン床は残す」を分離、過剰取得の件数、store 署名から `min_cosine` 消滅を確認。全体緑。これで **Phase 2 の締め（想起の背骨＋境界切り出し）が一通り終わり**、次は Phase 3（知覚・在席）へ。
 

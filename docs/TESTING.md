@@ -199,7 +199,7 @@ print(f'USB camera OK — frame shape: {frame.shape}')
 
 ---
 
-### 顔認識テスト (deepface が必要)
+### 顔認識テスト (InsightFace が必要)
 
 ```bash
 # 顔画像の登録
