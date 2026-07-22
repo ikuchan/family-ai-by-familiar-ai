@@ -35,13 +35,29 @@ class AppBootstrap:
     messages: list[str] = field(default_factory=list)
 
 
+def _base_env_path() -> Path:
+    """FAMILIAR_ENV_FILE を無視した、素の .env（リポジトリ root か cwd）。"""
+    root_env = Path(__file__).resolve().parents[2] / ".env"
+    return root_env if root_env.exists() else Path.cwd() / ".env"
+
+
 def load_app_bootstrap(env_path: Path | None = None) -> AppBootstrap:
-    """Load `.env`, migrate legacy Anthropic keys, and report startup status."""
+    """Load `.env`, migrate legacy Anthropic keys, and report startup status.
+
+    FAMILIAR_ENV_FILE を使うときは、まず素の `.env`（秘密鍵など）を読み、その上に
+    指定ファイルを重ねる（指定ファイルのキーが勝つ）。これで実機テスト用の
+    `.env.quiet` は上書きしたい数行だけで済む。
+    """
     path = env_path or resolve_env_path()
 
     legacy_detected = False
     migrated = False
     messages: list[str] = []
+
+    # 上書きファイル指定時は、素の .env を先に読んで秘密を継ぐ。
+    base = _base_env_path()
+    if os.environ.get("FAMILIAR_ENV_FILE") and base.exists() and base != path:
+        load_dotenv(base, override=True)
 
     if path.exists():
         raw = path.read_text(encoding="utf-8")

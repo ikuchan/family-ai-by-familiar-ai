@@ -155,6 +155,9 @@ class TTSTool:
 
         if output is None:
             output = self.output
+        # 実機テストなどでスピーカー出力を止める（TTS_OUTPUT=silent）。合成 API も叩かない。
+        if output == "silent":
+            return f"Said (silent): {text[:60]}"
         # Drop parenthetical narration like '（静かに待つ）' (ElevenLabs would read
         # it aloud), but KEEP [audio tags] — eleven_v3 uses them for delivery.
         text = strip_stage_directions(text)

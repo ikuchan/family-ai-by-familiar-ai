@@ -145,7 +145,7 @@ class TTSConfig:
     )
     go2rtc_stream: str = field(default_factory=lambda: os.environ.get("GO2RTC_STREAM", "tapo_cam"))
     # Audio output routing: "local" = PC speaker only, "remote" = camera speaker only,
-    # "both" = camera speaker + PC speaker simultaneously.
+    # "both" = camera speaker + PC speaker simultaneously, "silent" = 出力しない（実機テスト用）。
     output: str = field(default_factory=lambda: os.environ.get("TTS_OUTPUT", "local"))
 
 
