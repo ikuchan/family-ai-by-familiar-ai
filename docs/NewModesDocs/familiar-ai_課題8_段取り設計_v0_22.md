@@ -1,4 +1,6 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.21）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.22）
+
+> v0.22：**Phase 5 の WR 拡散想起を「W 想起の再帰化」として位置づけ、旧 ToM ツールの第二 W を吸収する決定を追記**。実機で、直接の対話相手（現話者）にまで ToM が発火し、応答が三人称の視点分析へ流れて一人称が崩れる挙動を確認した。原因は ToM の発火・出力設計にあり、記憶の汚染ではない。整理の結果、ToM が内部で独自クエリの想起を叩く部分は、本来 W 想起の再帰（拡散想起）が担うべきものだと判断した。Phase 5 の項に反映する。
 
 > v0.21：Phase 2 の締めの分割単位を `モジュール分割設計 v0.1` として別文書に切り出し、本書からは参照する。目標構成は設計のコンポーネント名に合わせた `core/`／`store/`／`loop/`／`io/`／`legacy/`。
 
@@ -184,6 +186,7 @@ Phase 2 を閉じる前に、`agent.py`（4,024行）と `tools/memory.py`（2,5
 - 内容：[D-反復出力]（1反復1出力）、REST（近重複統合・内省・自己エピソード supersede・per-person 蒸留）、WR 拡散想起（memory_links 代替）。
 - 依存：Phase 1（O/T）＋ Phase 2（recall）。BUG-1 の冪等化と整合（恒久の反復抑止）。
 - テスト観点：同一意図の再発火が止まる／REST が日次 O を正しく統合／WR の seed と想起 MI 選択。
+- **WR 拡散想起は W 想起の再帰化として設計し、旧 ToM ツールの第二 W を吸収する**：W が想起した MI が、その場にいない人の話を含むとき、その人を種にさらに想起して MI を W へ足す。1回の想起で閉じず、想起が想起を呼ぶ再帰である。現行の ToM ツールは内部で独自クエリの想起を叩いており、これはターンの W とは別の第二の W を立てているに等しい。この第二 W は WR の再帰想起が担うべきもので、新ループでは ToM に独自の想起を張らせず、不在の人の考慮は WR へ畳む。ToM が担っていたもう一方の働き（W の文脈を三人称で推測して応答を組む部分）は W 想起とは別種の推論であり、その扱いは別途決める（一人称の応答を三人称レポートで置き換えない）。
 
 ### Phase 6：旧系統の撤去
 - 内容：workspace／prediction／interoception／social_policy／appraisal／concern_engine／attention_schema の撤去、廃止ストア（tape／memory_links／self_narrative／relationship_state→案A／pending_store→O open 意図／GlobalWorkspace→調停・発火）の移管完了・撤去。
