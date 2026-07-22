@@ -4,7 +4,7 @@ Provides a native desktop window with:
 - Scrollable conversation log with styled HTML-like bubbles (ChatLog)
 - Live streaming text display with blinking cursor (StreamLabel)
 - Camera image viewer (CameraView)
-- Animated desire level bars (DesirePanel)
+- 状態パネル: 気分 PAD（MoodPanel）・drive5（DrivePanel）・在席/話者（PresencePanel）
 - Pill-shaped text input with circular send button
 - Settings dialog (⚙) for .env configuration
 
@@ -691,27 +691,51 @@ class CameraView(QLabel):
 
 
 # ---------------------------------------------------------------------------
-# DesireBar — single desire with animated progress bar
+# 状態表示（気分 PAD・drive5・在席/話者）の整形とパネル
 # ---------------------------------------------------------------------------
 
+_SOURCE_LABELS = {
+    "face": "顔", "voice": "声", "manual": "手動",
+    "auto": "自動", "text": "文", "llm": "推定",
+}
 
-class DesireBar(QWidget):
-    """A labeled progress bar with smooth animation for one desire."""
 
-    def __init__(self, name: str, color: str, parent: QWidget | None = None) -> None:
+def format_speaker_line(status: "dict | None", fallback: str) -> str:
+    """speaker_status → 「話者: 名前（由来 確信度）」。status が無ければ fallback。"""
+    if not status or not status.get("name"):
+        return f"話者: {fallback}"
+    name = status["name"]
+    src = _SOURCE_LABELS.get(status.get("source", ""), status.get("source") or "?")
+    conf = status.get("confidence")
+    if conf is None:
+        return f"話者: {name}（{src}）"
+    return f"話者: {name}（{src} {conf:.2f}）"
+
+
+def format_presence_rows(rows: "list[dict]") -> "list[str]":
+    """presence_status → 表示行。話者は ★、在席ゼロは注記。"""
+    if not rows:
+        return ["（在席者なし）"]
+    out: list[str] = []
+    for r in rows:
+        mark = "★ " if r.get("is_speaker") else "・"
+        name = r.get("name", "?")
+        conf = r.get("confidence")
+        out.append(f"{mark}{name}" if conf is None else f"{mark}{name} {conf:.2f}")
+    return out
+
+
+class LabeledBar(QWidget):
+    """1本の [0,1] バー（表示名を直接受ける汎用版）。"""
+
+    def __init__(self, display_name: str, color: str, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         self.setStyleSheet("background: transparent;")
-
         vbox = QVBoxLayout(self)
         vbox.setContentsMargins(0, 2, 0, 2)
         vbox.setSpacing(2)
 
-        # Header: desire name + percentage
         header = QHBoxLayout()
-        try:
-            display_name = _t(f"desire_label_{name}")
-        except KeyError:
-            display_name = name.replace("_", " ").title()
         name_lbl = QLabel(display_name)
         name_lbl.setStyleSheet(
             f"color: {color}; font-size: {_px(10)}px; font-weight: 600; background: transparent;"
@@ -726,7 +750,6 @@ class DesireBar(QWidget):
         header.addWidget(self._pct_label)
         vbox.addLayout(header)
 
-        # Gradient progress bar
         self._bar = QProgressBar()
         self._bar.setRange(0, 100)
         self._bar.setValue(0)
@@ -742,13 +765,12 @@ class DesireBar(QWidget):
         )
         vbox.addWidget(self._bar)
 
-        # Smooth animation
         self._anim = QPropertyAnimation(self._bar, b"value")
         self._anim.setDuration(500)
         self._anim.setEasingCurve(QEasingCurve.Type.OutCubic)
 
     def set_level(self, level: float) -> None:
-        target = int(level * 100)
+        target = int(max(0.0, min(1.0, level)) * 100)
         self._anim.stop()
         self._anim.setStartValue(self._bar.value())
         self._anim.setEndValue(target)
@@ -756,35 +778,38 @@ class DesireBar(QWidget):
         self._pct_label.setText(f"{target}%")
 
 
-# ---------------------------------------------------------------------------
-# DesirePanel
-# ---------------------------------------------------------------------------
+class MoodPanel(QWidget):
+    """気分（PAD 4軸）＋派生感情ラベル。2秒ごとに mood レジスタを読む。"""
 
+    _AXES = [
+        ("p", "快 P", _ACCENT), ("pn", "不快 Pn", "#ff6b73"),
+        ("a", "喚起 A", "#ffb35f"), ("dom", "支配 Dom", "#7adcff"),
+    ]
 
-class DesirePanel(QWidget):
-    """Shows desire levels as animated bars, refreshed every 2 seconds."""
-
-    def __init__(self, desires: "DesireSystem", parent: QWidget | None = None) -> None:
+    def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
-        self._desires = desires
-        self._bars: dict[str, DesireBar] = {}
-
         layout = QVBoxLayout(self)
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setSpacing(6)
 
-        title = QLabel(_t("desire_panel_title"))
+        title = QLabel("気分（PAD）")
         title.setStyleSheet(
             f"color: {_TEXT_SECONDARY}; font-size: {_px(10)}px; font-weight: 600;"
             f" background: transparent; letter-spacing: 0.1em;"
         )
         layout.addWidget(title)
 
-        for name, color in _DESIRE_COLORS.items():
-            bar = DesireBar(name, color)
-            self._bars[name] = bar
-            layout.addWidget(bar)
+        self._label = QLabel("—")
+        self._label.setStyleSheet(
+            f"color: {_ACCENT_DEEP}; font-size: {_px(18)}px; font-weight: 700; background: transparent;"
+        )
+        layout.addWidget(self._label)
 
+        self._bars: dict[str, LabeledBar] = {}
+        for key, disp, color in self._AXES:
+            bar = LabeledBar(disp, color)
+            self._bars[key] = bar
+            layout.addWidget(bar)
         layout.addStretch()
 
         timer = QTimer(self)
@@ -793,12 +818,115 @@ class DesirePanel(QWidget):
         self._refresh()
 
     def _refresh(self) -> None:
-        for name, bar in self._bars.items():
-            try:
-                level = self._desires.level(name)
-                bar.set_level(level)
-            except Exception:
-                pass
+        try:
+            from .emotion_pad import label_from_pad
+            from .mood_register import load_current_mood
+
+            mood = load_current_mood()
+            self._label.setText(label_from_pad(mood))
+            for key, bar in self._bars.items():
+                bar.set_level(getattr(mood, key))
+        except Exception:
+            pass
+
+
+class DrivePanel(QWidget):
+    """欲動 drive5。2秒ごとに drive レジスタを読む。"""
+
+    _AXES = [
+        ("seeking", "探索", "#5ea1ff"), ("rest", "休息", "#8a94a6"),
+        ("bond", "絆", "#ff7ea3"), ("safety", "安全", "#7adcff"),
+        ("esteem", "承認", "#c17aff"),
+    ]
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(6)
+
+        title = QLabel("欲動（drive5）")
+        title.setStyleSheet(
+            f"color: {_TEXT_SECONDARY}; font-size: {_px(10)}px; font-weight: 600;"
+            f" background: transparent; letter-spacing: 0.1em;"
+        )
+        layout.addWidget(title)
+
+        self._bars: dict[str, LabeledBar] = {}
+        for key, disp, color in self._AXES:
+            bar = LabeledBar(disp, color)
+            self._bars[key] = bar
+            layout.addWidget(bar)
+        layout.addStretch()
+
+        timer = QTimer(self)
+        timer.timeout.connect(self._refresh)
+        timer.start(2000)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        try:
+            from .drive_register import load_current_drives
+
+            d = load_current_drives()
+            for key, bar in self._bars.items():
+                bar.set_level(getattr(d, key))
+        except Exception:
+            pass
+
+
+class PresencePanel(QWidget):
+    """在席・話者（統合判断）。get_pmm() で PMM を取り、2秒ごとに更新する。"""
+
+    def __init__(self, get_pmm, fallback_speaker: str, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._get_pmm = get_pmm
+        self._fallback = fallback_speaker
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(4)
+
+        title = QLabel("在席・話者")
+        title.setStyleSheet(
+            f"color: {_TEXT_SECONDARY}; font-size: {_px(10)}px; font-weight: 600;"
+            f" background: transparent; letter-spacing: 0.1em;"
+        )
+        layout.addWidget(title)
+
+        self._speaker_lbl = QLabel(f"話者: {fallback_speaker}")
+        self._speaker_lbl.setStyleSheet(
+            f"color: {_TEXT_PRIMARY}; font-size: {_px(12)}px; font-weight: 600; background: transparent;"
+        )
+        layout.addWidget(self._speaker_lbl)
+
+        self._present_lbl = QLabel("（起動待ち）")
+        self._present_lbl.setStyleSheet(
+            f"color: {_TEXT_SECONDARY}; font-size: {_px(11)}px; background: transparent;"
+        )
+        self._present_lbl.setWordWrap(True)
+        layout.addWidget(self._present_lbl)
+        layout.addStretch()
+
+        timer = QTimer(self)
+        timer.timeout.connect(self._refresh)
+        timer.start(2000)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        try:
+            pmm = self._get_pmm()
+        except Exception:
+            pmm = None
+        if pmm is None:
+            self._speaker_lbl.setText(f"話者: {self._fallback}")
+            self._present_lbl.setText("（起動待ち）")
+            return
+        try:
+            self._speaker_lbl.setText(format_speaker_line(pmm.speaker_status(), self._fallback))
+            self._present_lbl.setText("\n".join(format_presence_rows(pmm.presence_status())))
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -1379,16 +1507,43 @@ class FamiliarWindow(QMainWindow):
         self._camera = CameraView()
         right_layout.addWidget(self._camera, stretch=3)
 
-        desire_card = QWidget()
-        desire_card.setStyleSheet(
-            f"background: {_BG_ELEVATED}; border-radius: 18px; border: 1px solid {_BORDER};"
+        def _card(widget: QWidget) -> QWidget:
+            card = QWidget()
+            card.setStyleSheet(
+                f"background: {_BG_ELEVATED}; border-radius: 18px; border: 1px solid {_BORDER};"
+            )
+            cv = QVBoxLayout(card)
+            cv.setContentsMargins(0, 0, 0, 0)
+            widget.setStyleSheet("background: transparent;")
+            cv.addWidget(widget)
+            return card
+
+        # 在席・話者（カメラ直下）＝統合判断の場所（PMM）に繋ぐ。
+        self._presence_panel = PresencePanel(
+            lambda: getattr(getattr(self, "_agent", None), "_pmm", None),
+            self._companion_display_name,
         )
-        desire_card_vbox = QVBoxLayout(desire_card)
-        desire_card_vbox.setContentsMargins(0, 0, 0, 0)
-        self._desire_panel = DesirePanel(self._desires)
-        self._desire_panel.setStyleSheet("background: transparent;")
-        desire_card_vbox.addWidget(self._desire_panel)
-        right_layout.addWidget(desire_card, stretch=2)
+        right_layout.addWidget(_card(self._presence_panel))
+
+        # 気分（PAD）と drive5 は縦に長いので NoFocus のスクロールへ。
+        # NoFocus にするのは、入力欄（self._input）の IME フォーカスコンテキストを
+        # 奪わないため（下の scroll.setFocusProxy(self._input) と同じ配慮）。
+        state_scroll = QScrollArea()
+        state_scroll.setWidgetResizable(True)
+        state_scroll.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        state_scroll.setStyleSheet("QScrollArea { border: none; background: transparent; }")
+        state_inner = QWidget()
+        state_inner.setStyleSheet("background: transparent;")
+        state_inner_v = QVBoxLayout(state_inner)
+        state_inner_v.setContentsMargins(0, 0, 0, 0)
+        state_inner_v.setSpacing(8)
+        self._mood_panel = MoodPanel()
+        self._drive_panel = DrivePanel()
+        state_inner_v.addWidget(_card(self._mood_panel))
+        state_inner_v.addWidget(_card(self._drive_panel))
+        state_inner_v.addStretch()
+        state_scroll.setWidget(state_inner)
+        right_layout.addWidget(state_scroll, stretch=2)
 
         # Splitter
         splitter = QSplitter(Qt.Orientation.Horizontal)

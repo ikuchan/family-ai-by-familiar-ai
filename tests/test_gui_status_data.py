@@ -74,3 +74,33 @@ async def test_presence_status_lists_present_with_speaker_flag():
     assert rows["アリス"]["is_speaker"] is True
     assert rows["ボブ"]["is_speaker"] is False
     assert rows["アリス"]["confidence"] == pytest.approx(0.9)
+
+
+# ── 表示整形（純関数・GUI 描画はこの結果を貼るだけ） ────────────────────────
+
+def test_format_speaker_line():
+    from familiar_agent.gui import format_speaker_line
+
+    assert format_speaker_line(None, "推定話者") == "話者: 推定話者"
+    assert (
+        format_speaker_line({"name": "アリス", "source": "face", "confidence": 0.66}, "x")
+        == "話者: アリス（顔 0.66）"
+    )
+    # confidence が無い（手動など）
+    assert (
+        format_speaker_line({"name": "ボブ", "source": "manual", "confidence": None}, "x")
+        == "話者: ボブ（手動）"
+    )
+
+
+def test_format_presence_rows():
+    from familiar_agent.gui import format_presence_rows
+
+    rows = [
+        {"name": "アリス", "confidence": 0.9, "is_speaker": True},
+        {"name": "ボブ", "confidence": 0.5, "is_speaker": False},
+    ]
+    out = format_presence_rows(rows)
+    assert out[0] == "★ アリス 0.90"
+    assert out[1] == "・ボブ 0.50"
+    assert format_presence_rows([]) == ["（在席者なし）"]
