@@ -126,6 +126,37 @@ def test_novelty_excludes_self_model():
             p.stop()
 
 
+def test_content_novelty_facade_empty_returns_default():
+    from familiar_agent.config import MemoryConfig
+    ps = _fixed_embed()
+    for p in ps:
+        p.start()
+    try:
+        mem = ObservationMemory()
+        assert mem.content_novelty("") == pytest.approx(MemoryConfig().novelty_default)
+        assert mem.content_novelty("   ") == pytest.approx(MemoryConfig().novelty_default)
+    finally:
+        for p in ps:
+            p.stop()
+
+
+@pytest.mark.asyncio
+async def test_turn_arousal_prefers_user_input_else_final_text():
+    from unittest.mock import AsyncMock
+
+    from familiar_agent.agent import EmbodiedAgent
+
+    agent = EmbodiedAgent.__new__(EmbodiedAgent)
+    agent._memory = MagicMock()
+    agent._memory.content_novelty_async = AsyncMock(
+        side_effect=lambda c: 0.9 if c == "user says X" else 0.1
+    )
+    # user_input があればそれで測る
+    assert await agent._turn_arousal("user says X", "agent text") == pytest.approx(0.9)
+    # 自発ターン（user_input 空）は final_text へフォールバック
+    assert await agent._turn_arousal("   ", "agent text") == pytest.approx(0.1)
+
+
 def test_config_novelty_defaults(monkeypatch):
     for k in ("NOVELTY_K", "NOVELTY_W_N", "NOVELTY_DEFAULT", "NOVELTY_A0_CAP"):
         monkeypatch.delenv(k, raising=False)

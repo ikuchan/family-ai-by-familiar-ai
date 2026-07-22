@@ -603,6 +603,31 @@ class ObservationMemory:
     async def save_async_with_id(self, *a, **kw) -> tuple[str | None, bool]:
         return await asyncio.to_thread(self.save_with_id, *a, **kw)
 
+    def content_novelty(self, content: str) -> float:
+        """内容の新規性 novelty ∈ [0,1]（AGENT_SELF 視点・self_model 除外・課題5 v0.26）。
+
+        a0（保存時の活性）と A（評価器 arousal）の源。空内容は既定を返す。埋め込みは
+        重いのでロック外で計算し、近傍検索だけロック内で行う。
+        """
+        cfg = MemoryConfig()
+        content = (content or "").strip()
+        if not content:
+            return cfg.novelty_default
+        try:
+            vec = self._embedder.encode_document([content])[0]
+        except Exception as e:  # noqa: BLE001
+            logger.warning("content_novelty embed failed, using default: %s", e)
+            return cfg.novelty_default
+        with self._db_lock:
+            conn = self._ctx.conn()
+            return self._observations.content_novelty(
+                np.asarray(vec, dtype=np.float32), conn,
+                k=cfg.novelty_k, default=cfg.novelty_default,
+            )
+
+    async def content_novelty_async(self, content: str) -> float:
+        return await asyncio.to_thread(self.content_novelty, content)
+
     def recall(self, query: str, n: int = 3, kind: str | None = None,
                min_score: float = 0.0,
                recall_mode: str = "system") -> list[dict]:

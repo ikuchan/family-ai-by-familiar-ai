@@ -41,6 +41,7 @@ def _make_agent():
     agent._utility_backend = agent.backend
 
     agent._memory = MagicMock()
+    agent._memory.content_novelty_async = AsyncMock(return_value=0.5)
     agent._memory.recall_async = AsyncMock(return_value=[])
     agent._memory.recall_divergent_async = None  # force recall_async path
     agent._memory.recent_feelings_async = AsyncMock(return_value=[])

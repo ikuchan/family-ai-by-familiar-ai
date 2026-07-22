@@ -2010,6 +2010,15 @@ class EmbodiedAgent:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.emotion_for_turn(text, arousal)
 
+    async def _turn_arousal(self, user_input: str, final_text: str) -> float:
+        """A（評価器 arousal）＝内容の新規性 novelty（課題5 v0.26）。
+
+        外からの驚きを測るので user_input の novelty を使う。自発ターン（DMN・Drive
+        発火）でユーザー入力が無いときは、エージェント自身の応答 final_text へフォールバック。
+        """
+        content = user_input if (user_input and user_input.strip()) else (final_text or "")
+        return await self._memory.content_novelty_async(content)
+
     # Emotion intensity by label (higher = stronger felt quality)
     _MOOD_INTENSITY: dict[str, float] = {
         "excited": 0.8,
@@ -3590,6 +3599,9 @@ class EmbodiedAgent:
                             self._mental_state_bus.append(mental_snapshot)
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("Failed to persist mental state snapshot: %s", exc)
+                        # A（評価器 arousal）＝内容の novelty（外からの驚き。自発ターンは
+                        # final_text へフォールバック）。keyword appraisal の arousal は使わない。
+                        turn_arousal = await self._turn_arousal(user_input, turn_record)
                         self._spawn_background_task(
                             self._run_post_response_pipeline(
                                 user_input=user_input,
@@ -3601,7 +3613,7 @@ class EmbodiedAgent:
                                 companion_mood=companion_mood,
                                 is_desire_turn=is_desire_turn,
                                 desires=desires,
-                                arousal=affect.arousal,
+                                arousal=turn_arousal,
                                 memories=memories,
                             ),
                             name="post-response-pipeline",
