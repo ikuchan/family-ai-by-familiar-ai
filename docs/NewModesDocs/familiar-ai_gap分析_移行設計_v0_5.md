@@ -1,4 +1,7 @@
-familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.4）
+familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.5）
+
+> v0.5：一行に潰れていた「旧 DB テーブル → 新構成」対応表と「旧クラス → 新構成」対応表を Markdown テーブルへ復元（内容は保持）。旧運用の記述「全体テストはユーザー実施」を現行運用へ訂正。
+
 
 v0.4：situated V2 の生成規則・移行を確定。関係初期集合＝presence/speaker/subject（視点列 participants_json/writer_id/subject_id から生成）。旧 `_remember` 複製モデル（scope speaker/witnessed/scene・kind utterance/witnessed/scene）の撤去を申し送りへ追加。移行写像を「既存観測1件→複数関係エッジ展開」へ精緻化。
 
@@ -16,9 +19,51 @@ v0.2：課題7 のコード確認を反映。GlobalWorkspace 行を精緻化（�
 実装（撤去・新テーブル・マイグレーション・既存テスト修正）は課題8 で TDD として行う。本書は「何を何へ移すか」を確定する承認用で、コード手順は含めない。
 
 1. 旧 DB テーブル（22個）→ 新構成 対応表
-旧テーブル旧の役割新構成での扱い確定先observations観測・記憶の本体O（単一エピソード記憶＝MI の本体）[D-記憶単一化]／[D-O書込]／[D-MIモデル]obs_embeddings観測の埋め込みMI.vector（関連軸の素材）[D-想起合成]／[D-MIモデル]situated_embeddings人視点別の埋め込み相関サブテーブル（MI×person の situated・在席者相関 p の素材・person 別視点）[D-在席相関]／[D-想起合成]memory_activation活性（重要度）MI.activation（(a0,n) から導出・on-read）[D-活性]／[D-想起合成]memory_eventsイベントログO への取込の前段（O に吸収）[D-O書込]memory_jobsmaterialize ジョブO 投影の非同期ジョブ（保守器/REST）[D-O書込]memory_revisions版履歴MI.supersedes（版履歴）[D-記憶単一化]／[D-MIモデル]memory_links明示の連想リンク廃止（代替＝[D-WR拡散想起]。連想は vector 関連・明示関係は content・読み側は旧実装で未結線）[D-WR拡散想起]／[D-MIモデル]episodesエピソードO に統合[D-記憶単一化]episode_memoriesエピソード記憶O に統合[D-記憶単一化]mental_state_logmood/affect ログM（PAD・T レジスタ）。mood の永続は agent_state[D-B分離]／[D-活性]agent_statedrive/mood/能力要約 等T レジスタ（drive→PI.drive／mood→PI.emotion）＋ capability_summary→SS・自己認識 MI[D-B分離]pending_speech未発話O の open 意図（W 派生・退避なし）[D-記憶単一化]／[D-単一想起]unfinished_business未完了O の open 意図（気がかり・salience）[D-気がかり統合]／[D-単一想起]persons人物 identityI 自前の人物 identity（InsightFace person_id・identity は B に持たない）[D-知覚]／[D-B定点]relationship_state関係メタ（trust/intimacy 等）廃止＋移管（§3 参照）[D-在席相関]scene_entities知覚エンティティT(G) 知覚（norm・在席＝private）。驚いた出来事は O[D-知覚]／[D-B分離]scene_events知覚イベント同上（scene の出来事・驚きは O）[D-知覚]self_narrative_log自己物語の日記廃止＋移管（§3 参照）[D-在席相関]semantic_facts意味事実観測→意味の昇格（O の外・O は出来事のみ）[D-O書込]behavior_policies行動方針観測→方針の昇格（policy・自己認識 MI policy）[D-O書込]／[D-想起合成]exploration_state探索状態廃止＋機能移管（§3 参照）[D-知覚]／[D-記憶単一化]
+| 旧 | 旧の役割 | 新構成での扱い | 確定先 |
+|---|---|---|---|
+| observations | 観測・記憶の本体 | O（単一エピソード記憶＝MI の本体） | [D-記憶単一化]／[D-O書込]／[D-MIモデル] |
+| obs_embeddings | 観測の埋め込み | MI.vector（関連軸の素材） | [D-想起合成]／[D-MIモデル] |
+| situated_embeddings | 人視点別の埋め込み | 相関サブテーブル（MI×person の situated・在席者相関 p の素材・person 別視点） | [D-在席相関]／[D-想起合成] |
+| memory_activation | 活性（重要度） | MI.activation（(a0,n) から導出・on-read） | [D-活性]／[D-想起合成] |
+| memory_events | イベントログ | O への取込の前段（O に吸収） | [D-O書込] |
+| memory_jobs | materialize ジョブ | O 投影の非同期ジョブ（保守器/REST） | [D-O書込] |
+| memory_revisions | 版履歴 | MI.supersedes（版履歴） | [D-記憶単一化]／[D-MIモデル] |
+| memory_links | 明示の連想リンク | 廃止（代替＝[D-WR拡散想起]。連想は vector 関連・明示関係は content・読み側は旧実装で未結線） | [D-WR拡散想起]／[D-MIモデル] |
+| episodes | エピソード | O に統合 | [D-記憶単一化] |
+| episode_memories | エピソード記憶 | O に統合 | [D-記憶単一化] |
+| mental_state_log | mood/affect ログ | M（PAD・T レジスタ）。mood の永続は agent_state | [D-B分離]／[D-活性] |
+| agent_state | drive/mood/能力要約 等 | T レジスタ（drive→PI.drive／mood→PI.emotion）＋ capability_summary→SS・自己認識 MI | [D-B分離] |
+| pending_speech | 未発話 | O の open 意図（W 派生・退避なし） | [D-記憶単一化]／[D-単一想起] |
+| unfinished_business | 未完了 | O の open 意図（気がかり・salience） | [D-気がかり統合]／[D-単一想起] |
+| persons | 人物 identity | I 自前の人物 identity（InsightFace person_id・identity は B に持たない） | [D-知覚]／[D-B定点] |
+| relationship_state | 関係メタ（trust/intimacy 等） | 廃止＋移管（§3 参照） | [D-在席相関] |
+| scene_entities | 知覚エンティティ | T(G) 知覚（norm・在席＝private）。驚いた出来事は O | [D-知覚]／[D-B分離] |
+| scene_events | 知覚イベント | 同上（scene の出来事・驚きは O） | [D-知覚] |
+| self_narrative_log | 自己物語の日記 | 廃止＋移管（§3 参照） | [D-在席相関] |
+| semantic_facts | 意味事実 | 観測→意味の昇格（O の外・O は出来事のみ） | [D-O書込] |
+| behavior_policies | 行動方針 | 観測→方針の昇格（policy・自己認識 MI policy） | [D-O書込]／[D-想起合成] |
+| exploration_state | 探索状態 | 廃止＋機能移管（§3 参照） | [D-知覚]／[D-記憶単一化] |
 2. 旧 実行時状態クラス → 新構成 対応表
-旧クラス（ファイル）旧の役割新構成での扱い確定先GlobalWorkspace（workspace.py）作業記憶（名）／実体は coalition 競合＋ignition作業集合・broadcast の概念→W／コードの競合・ignition 実装→調停・発火（記憶ストアでないため W へ直接転用は不可・課題7 で確認）[D-記憶単一化]／[D-I内部]PendingSpeechStore未発話キューO の open 意図（W 派生）[D-単一想起]ConcernEngine／Concern気がかり（最大5・自前 decay）O の open 意図＋salience[D-気がかり統合]（課題11j）AttentionSchema注意・焦点MI.activation／salience（焦点は W 構築で表す）[D-活性]AffectiveState／MentalStateBus／Affect感情状態M（PAD・T レジスタ）[D-B分離]／[D-活性]PredictionEngine／PredictionSignal予測・期待norm（T(G) private・予測の驚き）[D-知覚]／[D-B分離]RelationshipTracker関係追跡廃止＋移管（§3）[D-在席相関]PersonMemoryManager人物記憶I 自前 person identity[D-知覚]／[D-B定点]SelfState自己状態SS（自己状態・H 即時読み）[D-I内部]SelfNarrative自己物語廃止＋移管（§3）[D-在席相関]CapabilityState能力自己理解自己認識 MI（能力）[D-想起合成]／[D-自己認識分離]SocialPolicyEngine／SocialState社会的方針social policy／配信ゲート[D-値踏み]AppraisalEngine値踏み評価器（軽量LLM）[D-値踏み]／[D-I内部]DefaultModeProcessorアイドル自発想起廃止（自発活性は T 発火・W 空きの拡散は WR）[D-WR拡散想起]ExplorationTracker探索追跡廃止＋機能移管（§3）[D-知覚]TAPE（tape.py）事前プラン＋replan廃止（[D-反復出力]「1反復1出力」で置換）[D-反復出力]DecayState／HeartbeatStatetick/減衰T-tick／freshness（時刻基準）[D-周期]／[D-活性]desires.py（DEFAULT_DESIRES）旧15欲求D（5欲求 drive）§5・[D-発火]
+| 旧 | 旧の役割 | 新構成での扱い | 確定先 |
+|---|---|---|---|
+| GlobalWorkspace（workspace.py） | 作業記憶（名）／実体は coalition 競合＋ignition | 作業集合・broadcast の概念→W／競合・ignition 実装→調停・発火（記憶ストアでないため W へ直接転用は不可・課題7 で確認） | [D-記憶単一化]／[D-I内部] |
+| PendingSpeechStore | 未発話キュー | O の open 意図（W 派生） | [D-単一想起] |
+| ConcernEngine／Concern | 気がかり（最大5・自前 decay） | O の open 意図＋salience | [D-気がかり統合]（課題11j） |
+| AttentionSchema | 注意・焦点 | MI.activation／salience（焦点は W 構築で表す） | [D-活性] |
+| AffectiveState／MentalStateBus／Affect | 感情状態 | M（PAD・T レジスタ） | [D-B分離]／[D-活性] |
+| PredictionEngine／PredictionSignal | 予測・期待 | norm（T(G) private・予測の驚き） | [D-知覚]／[D-B分離] |
+| RelationshipTracker | 関係追跡 | 廃止＋移管（§3） | [D-在席相関] |
+| PersonMemoryManager | 人物記憶 | I 自前 person identity | [D-知覚]／[D-B定点] |
+| SelfState | 自己状態 | SS（自己状態・H 即時読み） | [D-I内部] |
+| SelfNarrative | 自己物語 | 廃止＋移管（§3） | [D-在席相関] |
+| CapabilityState | 能力自己理解 | 自己認識 MI（能力） | [D-想起合成]／[D-自己認識分離] |
+| SocialPolicyEngine／SocialState | 社会的方針 | social policy／配信ゲート | [D-値踏み] |
+| AppraisalEngine | 値踏み | 評価器（軽量LLM） | [D-値踏み]／[D-I内部] |
+| DefaultModeProcessor | アイドル自発想起 | 廃止（自発活性は T 発火・W 空きの拡散は WR） | [D-WR拡散想起] |
+| ExplorationTracker | 探索追跡 | 廃止＋機能移管（§3） | [D-知覚] |
+| TAPE（tape.py） | 事前プラン＋replan | 廃止（[D-反復出力]「1反復1出力」で置換） | [D-反復出力] |
+| DecayState／HeartbeatState | tick/減衰 | T-tick／freshness（時刻基準） | [D-周期]／[D-活性] |
+| desires.py（DEFAULT_DESIRES） | 旧15欲求 | D（5欲求 drive） | §5・[D-発火] |
 3. 廃止・移管した5件（未マップ store の確定）
 
 tape：廃止。事前の多段アクションプラン＋ループ中の block 判定・replan は、新ループ（1反復1出力・ターン内多段なし）の前提と衝突する。計画性は open 意図（O・想起で再会）＋フルLLM の行動組み立て＋調停の drive-serving 選択で代替し、専用プランレイヤは新設しない（[D-反復出力]）。
@@ -49,4 +94,4 @@ person_id 保持メモ（[D-在席相関/V2] で更新）：**`observations.pers
 appraisal／social_policy の trust/intimacy 依存を、想起した関係記憶からの評価器導出へ置換。
 旧フィールド・旧 kind 参照の撤去は、旧名で grep して残存ゼロを完了条件にする。
 DB 更新を伴うため、既存テストの修正要否を検討し、マイグレーション方法をテストに含める。
-全体テストはユーザー実施。
+全体テストは `./scripts/run_tests.sh` で自分（Claude Code）が回す。

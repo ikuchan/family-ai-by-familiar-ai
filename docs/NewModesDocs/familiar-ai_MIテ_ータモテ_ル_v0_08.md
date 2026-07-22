@@ -1,5 +1,7 @@
-# familiar-ai MI データモデル v2（最小・確定）
- 
+# familiar-ai MI データモデル（v0.08・最小・確定）
+
+> v0.08：§2 の recall スコアを 3軸から実装済みの5軸（r/t/e/a/p）へ更新し、§7（5軸前提）との齟齬を解消。タイトルの版表記をファイル名に一致させた。
+
 v1 を全面差し替え。本セッションの確定（LLM を解釈基盤に・属性最小化・B 解体・T↔I 境界＝PI）を反映。
 
 > v0.07 改訂：§7 の読み出し器を実装済み（未接続）に更新。`_read_supersede_chain(head_id, columns)` を新設（`WITH RECURSIVE` で supersede 版チェーンを再構成・dumb・未接続・テスト4件）。畳み込み本体は Phase 2。
@@ -55,9 +57,9 @@ LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／
 - `score` → 導出（保存しない）。
 ## 2. 想起（W 構築）の重み ＝ 全部機械
  
-> recall score ＝ 関連(`vector`) ＋ 新しさ(store `timestamp`) ＋ `activation`
- 
-3つとも機械で取れるので **W 構築（毎ターン）に LLM 不要**。LLM は評価／生成でのみ働き、**解決時に `activation` を落とす**（次ターンの機械想起が従う）。＝activation が「LLM の解釈」と「機械の想起」を繋ぐ一点。（重みの合成・値は課題5。）
+> recall score ＝ 関連 r(`vector`) × 加重平均( 新しさ t(store `timestamp`) ＋ 感情一致 e(mood との PAD 距離) ＋ `activation` a ＋ 在席者相関 p )
+
+5軸とも機械で取れるので **W 構築（毎ターン）に LLM 不要**（§7 の 5軸 r/t/e/a/p と一致）。LLM は評価／生成でのみ働き、**解決時に `activation` を落とす**（次ターンの機械想起が従う）。＝activation が「LLM の解釈」と「機械の想起」を繋ぐ一点。（重みの合成・値は課題5。）
  
 ## 3. T の数値レジスタ（MI でない）＝ B の解体
  

@@ -1,4 +1,6 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.4）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.5）
+
+> v0.5：確定設計に合わせ定数台帳の2行を更新。mood による D への修飾は「乗算ゲイン」を廃し logit 合成 $g_{D,i}(M)$ に一本化（課題5 C・発火mood §2.2）。activation 初期化は relevance を廃し、seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分ける（足さない・課題5 E）。
 
 > v0.4：B-2（drive（5欲求）レジスタ）の器実装を反映。§3-1 の drive 行と §3 移行まとめに、`drive_register.py`（5欲求 SEEKING／REST／BOND／SAFETY／ESTEEM の器 AiDrivers・各軸 [0,1]・静止0.0・agent_state の state_key drive5 への load_drives/save_drives）が器のみ実装済み（未接続）であることを追記。蓄積と放電と mood 変調（dynamics）と PI.drive surface は後続。既存15欲求 DesireSystem と "desires" キーは無変更で外部挙動不変。
 > v0.3：B-1（mood（PAD）レジスタの器）実装を反映。§3-1 の mood 行と §3 移行まとめに、`mood_register.py`（4軸 PAD の器 MoodPAD・M_rest への半減期600秒収束 decay_to_rest・agent_state の state_key mood_pad への load_mood/save_mood）が実装済み（未接続）であることを追記。emotion→PAD 写像 φ（課題11k）と既存 mood へは未接続で外部挙動不変。
@@ -26,7 +28,7 @@
 | 学習倍率の上限・下限 | 機械調整の丸め範囲 | 人・固定 | 各 D×2 |
 | D 活性の上限・下限 | 蓄積のクリップ範囲 | 人・固定 | 各 D×2 |
 | spike 重み | G の賦活を D に乗せる重み | 人・固定 | 各 D＝5 |
-| mood 修飾ゲイン係数 | mood が D の蓄積/賦活を増幅/抑制（乗算） | 人・固定 | global |
+| mood 修飾ゲイン係数 | mood が D の蓄積を修飾（乗算は廃止し logit 合成 $g_{D,i}(M)$ に一本化・課題5 C／発火mood §2.2） | 人・固定 | global |
 | 放電量 | 発火時に D から引く量 | 人・固定 | 各 D＝5 |
 | 発火閾値（TRIGGER） | D 発火の判定閾値（放電の基準にも） | 人・固定 | 各 D＝5 |
 
@@ -41,7 +43,7 @@
 | 定数 | 役割 | 種別 | 個数 |
 |---|---|---|---|
 | activation 減衰時定数 | salience の指数減衰の速さ | 人・固定 | global |
-| activation 初期化重み | 取込時 activation の初期値（surprise／novelty／relevance の合成） | 人・固定 | global |
+| activation 初期化重み | 取込時 activation の初期値（relevance は廃止・seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分け・足さない・課題5 E） | 人・固定 | global |
 
 **周期**
 | 定数 | 役割 | 種別 | 個数 |

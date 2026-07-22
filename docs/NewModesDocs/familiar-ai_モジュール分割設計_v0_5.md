@@ -1,4 +1,6 @@
-# familiar-ai モジュール分割設計（v0.4）
+# familiar-ai モジュール分割設計（v0.5）
+
+> v0.5：境界切り出しの実績と、順序方針のリファインメント（段取り v0.24）を反映。リファクタリングを 境界R（core/store/loop/io/legacy のつなぎ目）→ D（store 境界の中でのデータモデル整理）→ 内部R（中身整理）の3段に割り、loop に触る persistence 等は後回し（Phase 5）と位置づける。現状の分割実態＝`store/`（observations／situated／persons／jobs／context／clock／embedding／db_compat）、`loop/`（evaluator・history）、`legacy/`（semantic_layer）は実在。`io/`・`core/` は未作成。`tools/memory.py` は現在 1,348 行（agent.py は 3,826 行）。`min_score` の合成床化は実装済み。`core/recall_score.py` は未作成で、ハイブリッド5軸合成は `tools/memory.py` 内の `_score_breakdown`（正本）にある（抽出は内部R＝D 後へ）。
 
 > v0.4：v0.3 の方針どおり **evaluator を `loop/evaluator.py` へ切り出した**（挙動保存）。`agent.py` から感情（`_emotion_for_turn`）・要約（`_summarize_exchange`）・相手気分（`_infer_companion_mood`）・整合性チェック（`_check_response_coherence`）の4メソッドと、値踏みゲート `A_GATE`・PAD 評価関数 `_evaluate_emotion_pad`・各プロンプト・`_companion_mood_heuristic` を移し、履歴走査 `_flatten_history` は `loop/history.py` へ分けた（評価器と要約が共有・循環 import 回避）。`agent.py` 側は薄い委譲だけ残す（テストの差し替え点でもある）。`EmbodiedAgent._evaluator` は、内部欲求ターンでメイン backend が utility へ一時スワップされても追随するよう、現在の `self.backend` と `_utility_backend` から導出する派生プロパティにした（スナップショットしない）。`store/` と同じく合成で、Config を持たず注入された backend だけに依存する。`loop/persistence.py` は v0.3 のとおり見送り（Phase 5 で `run()` ごと作り替える）。
 
@@ -10,7 +12,7 @@
 
 ## この文書が決めること
 
-`agent.py`（4,025行）と `tools/memory.py`（2,594行）を、どの単位でファイルへ切り出すかを決める。行数を減らすことが目的ではない。**コードを開いた人が設計図と突き合わせて読める状態**にすることが目的で、行数はその結果として下がる。
+`agent.py`（現 3,826 行）と `tools/memory.py`（現 1,348 行・`store/` 切り出し後）を、どの単位でファイルへ切り出すかを決める。行数を減らすことが目的ではない。**コードを開いた人が設計図と突き合わせて読める状態**にすることが目的で、行数はその結果として下がる。
 
 置き場所と順序は課題8 v0.20 が決めている。本書はその中身にあたる。
 
@@ -102,7 +104,7 @@ legacy/   Phase 6 で撤去予定を隔離
 |---|---|---|
 | 0 | 生存確認の不変条件 | 分割の安全網。壊れても分からない状態で大工事をしない |
 | 1 | `store/`（O とアクセス層、`clock.py` を含む） | 課題8 v0.6 が Phase 2 の宿題として指定済み。Phase 3 が書き込み経路に触る。時刻の一元化で 2026-07-20 の9時間ずれの真因を封じる |
-| 2 | `core/recall_score.py` | Phase 2 の本体。次の `min_score` 是正がこの上に乗る |
+| 2 | `core/recall_score.py`（未作成） | 5軸合成は現在 `tools/memory.py` 内の `_score_breakdown`（正本）にあり `min_score` 是正も実装済み。`core/` への抽出は内部R（D 後）へ |
 | 3 | `loop/evaluator.py` | 設計に名前のある実体が `agent.py` に散っている。Phase 4 が PAD から声色を作るときに参照する |
 | 4 | `loop/persistence.py` | 永続化の判定を独立させる。Phase 3 と Phase 4 が積み増す前に |
 | 5 | `legacy/` への隔離 | Phase 6 の撤去を、ディレクトリの削除に近づける |
@@ -173,4 +175,4 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 
 ## 残り
 
-evaluator を切り出したあと、`min_score` の是正（生コサインの閾値から合成スコアの床へ）が Phase 2 の締めに残る。persistence の切り出しは Phase 5 の `run()` 作り替えの中で行う。
+`min_score` の是正（生コサインの閾値から合成スコアの床へ）は実装済み。次の境界R は `io/` の切り出しなど loop に触らない範囲から進め、`core/recall_score.py` への抽出は D の後（内部R）に置く。persistence の切り出しは loop に触るため Phase 5 の `run()` 作り替えの中で行う。

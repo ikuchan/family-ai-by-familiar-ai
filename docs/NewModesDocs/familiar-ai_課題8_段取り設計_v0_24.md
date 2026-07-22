@@ -1,4 +1,6 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.23）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.24）
+
+> v0.24 改訂（順序方針のリファインメント）：Phase を直列に降りる前提を、リスクとサイズで組み直す。原則は4つ。(1) 小さく正しく先行＝挙動が大きく変わらない小機能を、正しく動く状態に先に固める。(2) 大きな挙動変化は後回し＝Drive 発火（起動源）・drive/mood の dynamics 接続・拡散想起・データモデルの深い作り替えは後ろへ。(3) リファクタリングを2つに割る＝境界R（core/store/loop/io/legacy のつなぎ目を引く・中身が変わっても残る）を先に、D（store 境界の中でのデータモデル整理）を挟み、内部R（各モジュールの中身整理）は D 確定後に置く。順序は 境界R → D → 内部R。(4) loop に触る作業（大物の機能 F と loop の R）はまとめて後回し＝loop の制御流れは起動源・拡散想起が入って初めて決まるため、形が決まらない所を先に切らない。顔登録・声紋登録・識別・設定値入力（S）は R と D の後（最後）に置く。当面 感情ループは受け身のまま（起動源を意図的に後回しにする代償として許容）。近い所の焦点は、小機能の正しさと、loop に触らない境界R（store/io/core のつなぎ目）。以下の Phase 記述はこの方針で読み替える。なお本文が「未実装/次」とする作業のうち、5軸スコアラ（r/t/e/a/p・p は slice-1/slice-2 とも実装済み）、min_score の合成床化、認識の InsightFace/ECAPA 載せ替えと GPU 実行、ToM 撤去、evaluator と store の切り出しは実装済み。
 
 > v0.23：Phase 5 の項に、ToM のもう一方の働き（他者の心の想像）を「**W を消費する一人称 CoT**」に置き換える方針と、その **WR との相互再帰の切り分け**を追記。CoT は W の下流に置き対象を「W の文脈に出る人」で定義するので、想像⇄再帰想起の相互再帰は上流の WR が担い、CoT は先行実装しても WR 導入時に作り直しにならない。一人称崩れの止血として先行実装する（対象は当面 W の在席者＋想起 MI の人）。
 
@@ -41,7 +43,7 @@
 - **recall 系統は多数**：主 `recall`（:761）に加え、`recall_self_model`／`recall_curiosities`／`recall_semantic_facts`／`recall_behavior_policies`／`recall_day_summaries`／`recall_divergent`／`recall_on_this_day`／`recall_revisions` 等（同期・async 併せ十数個）。**1経路へ統合**が要る。
 - **旧系統の規模**（gap 文書の段階移行対象・ファイル数）：workspace 15／prediction 8／interoception 7／social_policy 3／appraisal 3／concern_engine 3／attention_schema 1。
 - **廃止/移管ストアの結線数**：self_narrative 15／tape 11／pending_store 11／GlobalWorkspace 6／relationship_state 4／memory_links 3／exploration_state 0（既に未結線）。
-- **現行先行作業**：BUG-1（冪等化＋purge・作業中）、bge-m3 移行（チケット v0.2）。新アーキとは独立で、再測定の前提。
+- **現行先行作業**：BUG-1（冪等化＋purge・完了）、bge-m3 移行（完了・EMBEDDING_DIM=1024）。新アーキとは独立で、再測定の前提。
 
 ## 2. 段取りの原則
 
@@ -50,7 +52,7 @@
 - **基盤（O/MI データモデル）が先、recall 一本化が次**：5軸は O の上で動くため、O モデルが無いと意味を持たない。
 - **旧系統の撤去は最後**：新経路が通って実証されてから、grep 残存ゼロを完了条件に撤去する。
 - **DB 変更はマイグレーション＋テスト＋ロールバック**を各フェーズに含める。カラム・ストア廃止は「旧名 grep で0件」を完了条件にする。
-- **一項目ずつ**：各フェーズはさらに小ステップに割り、ステップ毎にユーザー確認。全体テストはユーザー実施。
+- **一項目ずつ**：各フェーズはさらに小ステップに割り、ステップ毎にユーザー確認。全体テストは `./scripts/run_tests.sh` で自分（Claude Code）が回す。
 
 ## 3. フェーズ順序（提案）
 
@@ -114,7 +116,7 @@
 
 段階C（相関サブテーブルの整理）：
 - **C-1【実装済み】person_id 所有者絞りの撤去**。代替の相関経路を先に作り、そのあと所有者絞りを外す二段で進めた。第一段：situated 相関の読み出し層 `_read_observations_by_situated(person_id, n, columns, *, kind=None, keywords=())` を新設（`situated_embeddings s` を `observations o` に JOIN し `s.person_id` で紐づける・所有者に依らない母集合・timestamp DESC・ベクトル類似度は使わない・未接続・テスト10件）。第二段：`recall_day_summaries` をこの層へ付け替え、`observations.person_id` 所有者絞りを撤去（母集合が在席者相関へ変わる・戻り値の形は不変・既存 day_summary テスト4件を相関の意味論へ更新）。フォールバック二関数 `_recall_keyword_fallback`／`_recall_recency_fallback` は C-1 対象から外した（主 situated 経路が0件のときだけ発火し、その0件は「その person の situated 行が無い」ときに限るため、同じ situated 相関へ寄せると恒常的に空になる。所有者絞りのまま「situated 行を持たない観測」を拾う役目を残す）。「situated 行を持たない観測のフォールバック扱い」は別課題へ申し送り。完了条件（達成）：`recall_day_summaries` から `observations.person_id` 所有者絞りが消えた（書き込み側 `delete_day_summaries_for_date` とフォールバック二関数は対象外）。**実機テスト：不要**（C-2 とまとめて節目③）。
-- **C-2【実装済み・設計整理のみ・実行時の挙動不変】situated の役割整理**。situated_embeddings（obs_id, person_id, vector）を MI×person 相関の先行形として、二役割で整理・固定した。役割1＝視点シフト検索（`s.person_id=問う人`・本人・その視点に寄せた母集合とスコア）、役割2＝在席者相関 p（W 想起の第5軸・在席**他者**・**自分除外**・noisy-OR・[D-在席相関]）。**現行コードで生きているのは役割1のみ**（主 `recall` のコサイン検索と C-1 の `_read_observations_by_situated`）。**役割2（p 軸のスコアリング）は 5軸スコアラごと Phase 2**（現 `_compute_final_score` は p を含まない）。AGENT_SELF の situated 行は自己の中立視点（役割1の自己スコープ・`perspective_vec` 不在なら素の記憶ベクトル）で、p 軸の自分除外とは別物。ソースコードは変更せず、位置づけを「store と I/F」台帳と本節に固定した。**実機テスト：p 軸が入る Phase 2 まで保留**（現行は話し手ひとりの視点シフトのみで、在席者に応じた想起変化は p 軸実装後にしか観測できない。旧記載の節目③はこの保留に置き換え）。
+- **C-2【実装済み・設計整理のみ・実行時の挙動不変】situated の役割整理**。situated_embeddings（obs_id, person_id, vector）を MI×person 相関の先行形として、二役割で整理・固定した。役割1＝視点シフト検索（`s.person_id=問う人`・本人・その視点に寄せた母集合とスコア）、役割2＝在席者相関 p（W 想起の第5軸・在席**他者**・**自分除外**・noisy-OR・[D-在席相関]）。C-2 の段では役割1（視点シフト検索）のみが生きていた。**その後、役割2＝在席者相関 p を実装した**（slice-1＝score 軸で `_score_breakdown` に第5軸 p/w_p、slice-2＝候補集合拡張で `recall_presence_expand` と在席他者視点の候補 union・r 補完）。想起経路は `_presence_correlation` と `_score_breakdown(..., w_p=recall_w_p, p=…)` を通る5軸合成である（薄い包みの `_compute_final_score` 単体は今も p を渡さない4軸）。AGENT_SELF の situated 行は自己の中立視点（役割1の自己スコープ・`perspective_vec` 不在なら素の記憶ベクトル）で、p 軸の自分除外とは別物。**実機テスト（節目③・在席者に応じた想起変化）は、顔登録＝S を伴うため R と D の後へ置く（戦略・v0.24）**。
 
 段階D（O 一元化の残りと撤去・最後）：
 - **D-1【予定】旧テーブルの O 統合**。episodes・episode_memories・memory_events・pending_speech・unfinished_business 等を O へ統合、semantic_facts・behavior_policies は O 外の昇格処理へ。1テーブルずつ薄く。テスト観点：統合で既存データが欠落・重複しない（移行の要）。マイグレーション＋ロールバック。**実機テスト：必要（節目④・テーブルごと）**＝統合したテーブルに関わるシナリオ（例：記憶を問う対話・②〜⑤の該当機能）で、統合前と挙動が変わらないか確認。
@@ -126,11 +128,11 @@
 |---|---|---|---|
 | ① | A-3 導出の想起接続（A-3-1 は未接続で対象外） | 記憶を問う対話（UC⑥） | 想起される記憶が従来と大きくずれないか |
 | ② | B-2（感情・欲求が動く） | 数回の対話 | 感情が自然に変化し平静へ戻るか・欲求が極端に振れないか |
-| ③ | Phase 2 の p 軸（在席者相関） | 在席者を想定した対話 | 想起が在席者に応じて変わるか（C-2 は設計整理のみで役割2＝p 軸未実装のため、この観測は p 軸実装後へ保留） |
+| ③ | p 軸（在席者相関・実装済み） | 在席者を想定した対話 | 想起が在席者に応じて変わるか（p 軸は slice-1 score＋slice-2 候補集合拡張とも実装済み。実機確認は顔登録＝S の後・戦略上 R と D の後に置く） |
 | ④ | D-1（O 統合・テーブルごと） | 統合テーブル該当シナリオ | 統合前と挙動が変わらないか |
 | ⑤ | D-2（撤去・Phase 1 総合） | 主要シナリオ一通り | Phase 1 前と体感が劣化していないか |
 
-**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**C-1（person_id 所有者絞りの撤去）実装済み**（`_read_observations_by_situated` 新設＋`recall_day_summaries` 付け替え・フォールバック二関数は別課題へ申し送り）。**C-2（situated の役割整理）実装済み・設計整理のみ**（二役割を台帳へ固定・役割2＝p 軸は Phase 2・コード変更なし・実機テストは Phase 2 まで保留）。**MI 集約段の設計は一通り確定**（系統A＝self_model→自己認識 MI 自己エピソード部／curiosity→cue O、系統B＝キーレス supersede＋content 注記の信念 MI、situated V2＝型つき関係エッジ、自己認識 MI＝核/Config/自己エピソード/policy＋プロンプトキャッシュ整合の構築規約・MIデータモデル §7／[D-在席相関/V2]／[D-自己認識分離]）。**いずれも更新機構が REST 内省に依存するため実装本体は Phase 2 寄り**（REST 詳細＝周期・閾値は課題10）。**Phase 1 で入ったのは situated V2 の schema 器のみ**＝スライス1（`relation_key` 列・2026-07-12-022）とスライス2（UNIQUE を relation_key 込みへ・2026-07-12-023・`_upsert` キー化）で、いずれも生成 presence のみ・挙動不変。**slice-3 以降（視点列から presence/speaker/subject の関係生成・person_id 削除・旧 `_remember` 撤去）は、書き込みが視点列を実質埋めていない＝在席検出・話者帰属（[D-知覚]）が入る Phase 2 に依存するため申し送り**。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
+**A-1・A-2 完了、A-3-1 実装済み、A-3 の Phase 1 残務も記述で完了、B-1・B-2・B-3 も実装済み**（段階B の Phase 1 スライス完了＝B-1 `mood_register.py`／B-2 `drive_register.py`（`AiDrivers`）／B-3 `tif.py`（`build_primitive`・`expand_to_mental`）・いずれも器または構築関数で未接続）。A-3 の残りは Phase 2、B-2 の残り（蓄積 dynamics ほか）と B-3 の残り（Nudge・N_PAD・発火接続）は後続段。**C-1（person_id 所有者絞りの撤去）実装済み**（`_read_observations_by_situated` 新設＋`recall_day_summaries` 付け替え・フォールバック二関数は別課題へ申し送り）。**C-2（situated の役割整理）実装済み**、加えて**役割2＝在席者相関 p も実装済み**（slice-1 score＋slice-2 候補集合拡張・`_presence_correlation`／`_score_breakdown`／`recall_w_p`／`recall_presence_expand`・実機テストは顔登録＝S を伴うため R と D の後）。**MI 集約段の設計は一通り確定**（系統A＝self_model→自己認識 MI 自己エピソード部／curiosity→cue O、系統B＝キーレス supersede＋content 注記の信念 MI、situated V2＝型つき関係エッジ、自己認識 MI＝核/Config/自己エピソード/policy＋プロンプトキャッシュ整合の構築規約・MIデータモデル §7／[D-在席相関/V2]／[D-自己認識分離]）。**いずれも更新機構が REST 内省に依存するため実装本体は Phase 2 寄り**（REST 詳細＝周期・閾値は課題10）。**Phase 1 で入ったのは situated V2 の schema 器のみ**＝スライス1（`relation_key` 列・2026-07-12-022）とスライス2（UNIQUE を relation_key 込みへ・2026-07-12-023・`_upsert` キー化）で、いずれも生成 presence のみ・挙動不変。**slice-3 以降（視点列から presence/speaker/subject の関係生成・person_id 削除・旧 `_remember` 撤去）は、書き込みが視点列を実質埋めていない＝在席検出・話者帰属（[D-知覚]）が入る Phase 2 に依存するため申し送り**。着手時は実環境の最新ソースを確認してから、調査 → 設計方針 → 承認 → TDD 改造の順で進める。
 
 #### Phase 1 実装済み進捗（読み出し層寄せ＝段階 A-0）
 
@@ -174,8 +176,9 @@ Phase 2 を閉じる前に、`agent.py`（4,024行）と `tools/memory.py`（2,5
 **実機テスト**：必要。分解の前後で体感が変わらないことを確認する（挙動不変が完了条件）。
 
 ### Phase 3：知覚入力
-- 内容：在席（YOLO／InsightFace／DINOv2）、声紋話者帰属（ECAPA-TDNN）、VAD（silero・**512 サンプル@16kHz 単位**）＋発話バッファ → STT（faster-whisper int8/medium）と話者同定へ分配、在席相関 p の実入力結線、顔×声＝融B。
-- 依存：Phase 2（p 軸がスコアラにある）。InsightFace の onnxruntime CUDA/cuDNN 解決（実機セットアップ）。
+- 状態：**認識の載せ替えは実装済み**＝InsightFace(ArcFace) 顔＋ECAPA-TDNN 声、GPU 実行（onnxruntime CUDA/cuDNN 解決済み）、presence_watcher が person_arrived/left へ結線。**残るは登録の入口（GUI/CLI）と実際の登録＝S**で、戦略上 R と D の後。p 軸のスコアラ結線は実装済み（在席入力が埋まればそのまま効く）。
+- 内容：在席（InsightFace・DINOv2）、声紋話者帰属（ECAPA-TDNN）、VAD（silero・**512 サンプル@16kHz 単位**）＋発話バッファ → STT（faster-whisper int8/medium）と話者同定へ分配、顔×声＝融B。
+- 依存：p 軸（実装済み）。登録＝S は R と D の後。
 - テスト観点：VAD のフレーム条件（512）／発話バッファの終端確定／話者同定の閾値（enrollment 後）／在席ゼロ時の発話ゲート。
 - チェックポイント：「誰が話したか」が相関サブテーブルへ供給される。
 
@@ -188,7 +191,7 @@ Phase 2 を閉じる前に、`agent.py`（4,024行）と `tools/memory.py`（2,5
 - 内容：[D-反復出力]（1反復1出力）、REST（近重複統合・内省・自己エピソード supersede・per-person 蒸留）、WR 拡散想起（memory_links 代替）。
 - 依存：Phase 1（O/T）＋ Phase 2（recall）。BUG-1 の冪等化と整合（恒久の反復抑止）。
 - テスト観点：同一意図の再発火が止まる／REST が日次 O を正しく統合／WR の seed と想起 MI 選択。
-- **WR 拡散想起は W 想起の再帰化として設計し、旧 ToM ツールの第二 W を吸収する**：W が想起した MI が、その場にいない人の話を含むとき、その人を種にさらに想起して MI を W へ足す。1回の想起で閉じず、想起が想起を呼ぶ再帰である。現行の ToM ツールは内部で独自クエリの想起を叩いており、これはターンの W とは別の第二の W を立てているに等しい。この第二 W は WR の再帰想起が担うべきもので、新ループでは ToM に独自の想起を張らせず、不在の人の考慮は WR へ畳む。
+- **WR 拡散想起は W 想起の再帰化として設計し、旧 ToM ツールの第二 W を吸収する**：W が想起した MI が、その場にいない人の話を含むとき、その人を種にさらに想起して MI を W へ足す。1回の想起で閉じず、想起が想起を呼ぶ再帰である。旧 ToM ツール（撤去済み）は内部で独自クエリの想起を叩いており、これはターンの W とは別の第二の W を立てているに等しかった。この第二 W は WR の再帰想起が担うべきもので、新ループでは不在の人の考慮を WR へ畳む（ToM 自体は撤去済みで、現行は一人称 CoT が W の在席者と想起 MI の人を想像する）。
 - **ToM のもう一方の働き（他者の心の想像）は「W を消費する一人称 CoT」に置き換え、WR と相互再帰で噛み合わせる**：応答の前に、いま W の文脈に出ている人それぞれの気持ちと望みを一人称で想像し、その上で自分として一人称で答える（三人称の視点分析レポートで応答を置き換えない）。この CoT は W の**下流**に置き、対象を固定の人リストでなく「W の文脈に出る人」で定義するので、W の作り方に依存せず、WR で W が深まればそのまま対象が増える。**想像が新たな想起を呼ぶ相互再帰（想像→その人を種に再帰想起→増えた人も想像）は上流の WR 側に置く**。この一人称 CoT 自体（対象は当面 W の在席者＋想起 MI の人）は Phase 2 の知覚が入った後に先行実装でき、WR が入れば自動で深まる（先行実装しても作り直しにならない）。
 
 ### Phase 6：旧系統の撤去
