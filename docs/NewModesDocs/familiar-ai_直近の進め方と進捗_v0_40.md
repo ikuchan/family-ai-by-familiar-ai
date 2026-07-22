@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.39）
+# familiar-ai 直近の進め方と進捗（v0.40）
+
+> v0.40：**在席者相関 $p$ の候補集合拡張（slice-2）の設計を確定**した（未実装）。slice-1 は話者候補の再採点のみで、話者の問いと無関係な「その人向けの記憶」は候補に上がらない。slice-2 は在席他者 $q$ 視点でも候補を取って union し、話者候補に無い記憶へ話者視点の $r$ を `situated_cosines` で補って採点する。これで「その人が居るだけで、会話内容と無関係でも先回りして想起」が実現する。決めた3点は、候補取得数は話者と同じ `fetch_n`、Config トグル `recall_presence_expand`（既定 true）で退避可能、$r$ 補完は `situated_cosines`。在席他者ゼロなら slice-1 と一致。次はこの実装（recall の union 化・トグル・在席他者候補が W に入る実 DB テスト）。
 
 > v0.39：**在席者相関 $p$（想起の第5軸・役割2）の score 軸を実装**した（slice-1・発火はカメラ稼働時のみ）。在席他者がいるターンだけ、想起候補を $p$ で再採点する。$p$ の素点は在席他者 $q$ ごとの $q$ 視点 situated コサインを $r$ と同じ伸長で $r_{p,q}$ 化し、noisy-OR $p=1-\prod_q(1-r_{p,q})$ で束ねる。対象は在席者から自分（AGENT_SELF）と現話者を除いた在席他者で、話者は視点シフト（役割1）の $r$ で既に効くため二重に数えない。合成は `_score_breakdown` へ第5軸 $(p,w_p)$ を足し、在席他者ゼロなら $p$ を分母ごと外すので既存想起は不変。在席他者は `PersonMemoryManager.get_present_ids()` から取り、顔認識（presence_watcher）が埋める。$w_p=1.0$ は Config（`recall_w_p`）。新設は store の薄い層 `situated_cosines`、facade の `_presence_correlation`、Config `recall_w_p`。テストは noisy-OR と伸長の単体、実 DB で「在席他者ありで score 上昇・空で不変」を対で確認し、全体緑。候補集合拡張（在席他者に強く結びつく記憶を、話者クエリと無関係でも W に上げる）は slice-2 で未実装。次は slice-2 の設計。
 
