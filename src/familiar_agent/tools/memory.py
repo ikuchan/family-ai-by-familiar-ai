@@ -706,22 +706,45 @@ class ObservationMemory:
                 min(n * _cfg.recall_overfetch_factor, _cfg.recall_overfetch_cap)
                 if min_score > 0.0 else n
             )
-            rows = self._observations.by_vector(q_sql, fetch_n, kind=kind)
+            speaker_rows = self._observations.by_vector(q_sql, fetch_n, kind=kind)
 
-            # 在席者相関 p（第5軸・役割2）。在席他者がいる間だけ候補を再採点する。
-            # 在席他者ゼロ（テキストや単独在席）なら p_by_id は空で、各行 p=None＝項落ち。
+            # 候補の obs_id → 行（列は obs レベルなのでどの視点由来でも同じ）。
+            row_by_id: dict[str, dict] = {r["id"]: r for r in speaker_rows}
+            # r（関連）の素点＝話者視点 situated コサイン。話者候補はそのまま持っている。
+            cos_by_id: dict[str, float] = {r["id"]: float(r["score"]) for r in speaker_rows}
+
+            # 在席者相関 p（第5軸・役割2）の候補集合拡張（slice-2）。在席他者 q 視点でも
+            # 候補を取って union し、話者の問いと無関係でも在席他者に結びつく記憶を W に上げる。
+            # トグルで slice-1（話者候補の再採点のみ）へ退避できる。
+            if present_others and _cfg.recall_presence_expand:
+                mu = self._situated._embedding_mu()
+                for q in present_others:
+                    sit_q = _situated_vector(q_vec, self._situated._get_perspective_vec(q), mu)
+                    for r in self._observations.by_vector(
+                        vec_to_sql(sit_q.tolist()), fetch_n, kind=kind,
+                    ):
+                        row_by_id.setdefault(r["id"], r)  # 新規候補だけ足す
+                # 在席他者由来で話者候補に無い記憶へ、話者視点の r を補って公平に採点する。
+                extra = [oid for oid in row_by_id if oid not in cos_by_id]
+                if extra:
+                    cos_by_id.update(
+                        self._observations.situated_cosines(q_sql, extra, self._person_id)
+                    )
+
+            # p は union 全体に対して計算。在席他者ゼロなら空＝各行 p=None で項落ち（不変）。
             p_by_id: dict[str, float] = {}
             if present_others:
                 p_by_id = self._presence_correlation(
-                    q_vec, [row["id"] for row in rows], present_others,
+                    q_vec, list(row_by_id), present_others,
                     c_lo=_cfg.recall_c_lo, c_hi=_cfg.recall_c_hi,
                 )
 
+            rows = list(row_by_id.values())
             if rows:
                 results = []
                 breakdowns: dict[Any, _ScoreParts] = {}
                 for row in rows:
-                    cosine = float(row["score"])
+                    cosine = cos_by_id.get(row["id"], 0.0)
                     parts = _score_breakdown(
                         cosine,
                         row["timestamp"],

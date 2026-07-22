@@ -194,6 +194,10 @@ class MemoryConfig:
     recall_w_e: float = field(default_factory=lambda: _float_env("RECALL_W_E", 1.0))
     recall_w_a: float = field(default_factory=lambda: _float_env("RECALL_W_A", 1.5))
     recall_w_p: float = field(default_factory=lambda: _float_env("RECALL_W_P", 1.0))
+    # 在席者相関 p の候補集合拡張（slice-2）。在席他者視点でも候補を取り union する退避弁。
+    recall_presence_expand: bool = field(
+        default_factory=lambda: _bool_env("RECALL_PRESENCE_EXPAND", default=True)
+    )
     # 感情一致 e のスケール σ（小=シビア／大=近縁も仲間）。λ_i は _emotion_match の既定。
     recall_emotion_sigma: float = field(
         default_factory=lambda: _float_env("RECALL_EMOTION_SIGMA", 1.0)

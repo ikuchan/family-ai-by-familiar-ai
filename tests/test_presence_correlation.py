@@ -117,6 +117,91 @@ def test_config_recall_w_p_default(monkeypatch):
     assert MemoryConfig().recall_w_p == pytest.approx(1.0)
 
 
+def test_config_recall_presence_expand_default(monkeypatch):
+    monkeypatch.delenv("RECALL_PRESENCE_EXPAND", raising=False)
+    from familiar_agent.config import MemoryConfig
+
+    assert MemoryConfig().recall_presence_expand is True
+
+
+# ── slice-2：候補集合拡張（在席他者視点で候補を union） ──────────────────────
+
+def _row(oid: str, score: float) -> dict:
+    return {
+        "id": oid, "content": f"content-{oid}", "timestamp": "2026-07-01T10:00:00+09:00",
+        "direction": "in", "kind": "observation", "emotion": "neutral", "image_path": None,
+        "activation_a0": 1.0, "activation_n": 0, "recall_count": 0, "last_recalled_at": None,
+        "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
+        "score": score,
+    }
+
+
+def _recall_facade(by_vector_seq, situated_cosines_fn, person_id="spk"):
+    from familiar_agent.tools.memory import ObservationMemory
+
+    mem = ObservationMemory.__new__(ObservationMemory)
+    mem._person_id = person_id
+    emb = MagicMock()
+    emb.encode_query.return_value = [[1.0, 0.0, 0.0]]
+    mem._embedder = emb
+    sit = MagicMock()
+    sit._embedding_mu.return_value = None
+    sit._get_perspective_vec.return_value = None
+    mem._situated = sit
+    obs = MagicMock()
+    seq = list(by_vector_seq)
+    calls = {"i": 0}
+
+    def _bv(q_sql, n, kind=None):
+        i = calls["i"]
+        calls["i"] += 1
+        return seq[i] if i < len(seq) else []
+
+    obs.by_vector.side_effect = _bv
+    obs.situated_cosines.side_effect = situated_cosines_fn
+    mem._observations = obs
+    return mem
+
+
+def _patch_recall_env(monkeypatch):
+    import numpy as np
+
+    import familiar_agent.tools.memory as m
+    from familiar_agent.mood_register import MoodPAD
+
+    monkeypatch.setattr(m, "_situated_vector", lambda *a, **k: np.zeros(3, dtype=np.float32))
+    monkeypatch.setattr(m, "vec_to_sql", lambda v: "q")
+    monkeypatch.setattr(m, "load_current_mood", lambda: MoodPAD())
+
+
+def _sc(q_sql, obs_ids, person_id):
+    # 話者視点＝r 補完（B のみ）。在席他者 q1 視点＝B が強く結びつく。
+    # 実 situated_cosines は要求 obs_id ぶんしか返さない（WHERE obs_id = ANY）ので絞る。
+    full = {"B": 0.15} if person_id == "spk" else {"A": 0.0, "B": 0.9}
+    return {k: v for k, v in full.items() if k in obs_ids}
+
+
+def test_recall_slice2_expands_candidate_from_present_other(monkeypatch):
+    monkeypatch.delenv("RECALL_PRESENCE_EXPAND", raising=False)  # 既定 on
+    _patch_recall_env(monkeypatch)
+    # 話者候補＝A のみ。在席他者 q1 視点の候補＝B（話者クエリと無関係でも W へ）。
+    mem = _recall_facade([[_row("A", 0.8)], [_row("B", 0.7)]], _sc)
+    res = mem.recall("q", n=5, present_others=["q1"])
+    ids = {r["memory_id"] for r in res}
+    assert "A" in ids
+    assert "B" in ids  # 在席他者視点で候補集合に入った
+
+
+def test_recall_slice2_toggle_off_is_slice1(monkeypatch):
+    monkeypatch.setenv("RECALL_PRESENCE_EXPAND", "false")  # 退避＝slice-1 のみ
+    _patch_recall_env(monkeypatch)
+    # 拡張オフなら在席他者視点の by_vector は呼ばれず、B は候補に入らない。
+    mem = _recall_facade([[_row("A", 0.8)]], _sc)
+    res = mem.recall("q", n=5, present_others=["q1"])
+    ids = {r["memory_id"] for r in res}
+    assert ids == {"A"}
+
+
 # ── 実 DB：p が想起スコアへ効く（在席他者ありでスコアが上がる） ────────────────
 
 def test_recall_present_others_raises_score():
