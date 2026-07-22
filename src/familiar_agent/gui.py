@@ -1539,10 +1539,14 @@ class FamiliarWindow(QMainWindow):
     def _get_active_speaker(self) -> str:
         """Return the agent's current estimated speaker name, or the fallback label."""
         agent = getattr(self, "_agent", None)
-        if agent is not None:
-            name = getattr(getattr(agent, "_persons", None), "active_name", None)
-            if name:
-                return name
+        pmm = getattr(agent, "_pmm", None) if agent is not None else None
+        if pmm is not None:
+            try:
+                st = pmm.speaker_status()
+            except Exception:
+                st = None
+            if st and st.get("name"):
+                return str(st["name"])
         return self._companion_display_name
 
     def _on_send(self) -> None:

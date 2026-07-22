@@ -82,6 +82,9 @@ class PersonMemoryManager:
         self._base = base_memory
         self._present: dict[str, PersonPresence] = {}
         self._speaker_id: str | None = None
+        # 現在の話者を決めた認識の由来と確信度（GUI で「話者認識がどうなっているか」を出す）。
+        self._speaker_source: str = ""
+        self._speaker_confidence: float | None = None
         self._instances: dict[str, Any] = {}   # person_id → ObservationMemory
         self._switch_callbacks: list[Callable[[str | None, str], Awaitable[None]]] = []
         self._lock = threading.Lock()
@@ -108,7 +111,7 @@ class PersonMemoryManager:
             )
         logger.info("Arrived: %s  (total present: %d)", person_id, len(self._present))
         if was_empty:
-            await self.set_speaker(person_id, source="auto")
+            await self.set_speaker(person_id, source="auto", confidence=confidence)
 
     async def person_left(self, person_id: str) -> None:
         """Register that someone has left the space."""
@@ -139,13 +142,20 @@ class PersonMemoryManager:
 
     # ── Speaker management ─────────────────────────────────────────────────
 
-    async def set_speaker(self, person_id: str, source: str = "manual") -> bool:
-        """Declare who is speaking. Adds them to present if not already."""
+    async def set_speaker(
+        self, person_id: str, source: str = "manual", confidence: float | None = None
+    ) -> bool:
+        """Declare who is speaking. Adds them to present if not already.
+
+        `source`/`confidence` は誰がどう決めたか（顔/声/手動＋確信度）で、GUI 表示に使う。
+        """
         if person_id not in self._present:
             await self.person_arrived(person_id)
         old = self._speaker_id
         with self._lock:
             self._speaker_id = person_id
+            self._speaker_source = source
+            self._speaker_confidence = confidence
         if old != person_id:
             logger.info("Speaker: %s → %s  (source=%s)", old, person_id, source)
             for cb in self._switch_callbacks:
@@ -168,10 +178,14 @@ class PersonMemoryManager:
         """Apply a recognition signal. Returns True if a switch happened."""
         self.refresh_signal(hint.person_id)
         if hint.source in hint.IMMEDIATE:
-            return await self.set_speaker(hint.person_id, source=hint.source)
+            return await self.set_speaker(
+                hint.person_id, source=hint.source, confidence=hint.confidence
+            )
         threshold = self._switch_thresholds.get(hint.source, AUTO_SWITCH_THRESHOLD)
         if hint.confidence >= threshold:
-            return await self.set_speaker(hint.person_id, source=hint.source)
+            return await self.set_speaker(
+                hint.person_id, source=hint.source, confidence=hint.confidence
+            )
         logger.debug(
             "Hint below threshold: src=%s pid=%s conf=%.2f (th=%.2f)",
             hint.source, hint.person_id[:8], hint.confidence, threshold,
@@ -216,6 +230,36 @@ class PersonMemoryManager:
             return None
         persons = {p["id"]: p for p in self.list_persons()}
         return persons.get(self._speaker_id)
+
+    def speaker_status(self) -> dict | None:
+        """現在の話者の統合ビュー（GUI 表示用）。話者未定なら None。
+
+        name は表示名、source は誰が決めたか（顔/声/手動/auto）、confidence はその確信度。
+        声紋をライブ結線したあとは source/confidence がその結果に置き換わる。
+        """
+        if self._speaker_id is None:
+            return None
+        return {
+            "person_id": self._speaker_id,
+            "name": self.get_person_name(self._speaker_id),
+            "source": self._speaker_source,
+            "confidence": self._speaker_confidence,
+        }
+
+    def presence_status(self) -> list[dict]:
+        """在席者一覧の統合ビュー（GUI 表示用）。name・confidence・is_speaker。"""
+        with self._lock:
+            present = list(self._present.values())
+            speaker = self._speaker_id
+        return [
+            {
+                "person_id": p.person_id,
+                "name": self.get_person_name(p.person_id),
+                "confidence": p.confidence,
+                "is_speaker": p.person_id == speaker,
+            }
+            for p in present
+        ]
 
     def get_person_name(self, person_id: str) -> str:
         persons = {p["id"]: p for p in self.list_persons()}

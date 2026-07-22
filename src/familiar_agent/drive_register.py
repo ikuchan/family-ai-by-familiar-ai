@@ -67,6 +67,19 @@ def load_drives(conn) -> AiDrivers:
     return AiDrivers.from_json_dict(json.loads(row[0]))
 
 
+def load_current_drives() -> AiDrivers:
+    """自己接続で現在の drive5 を読む（読みだけ・`load_current_mood` と同型）。
+
+    GUI など、接続を持たない読み取り側のために get_db() で繋いで `load_drives` を呼ぶ。
+    行が無ければ既定（全軸 0.0）。
+    """
+    from .db import get_db
+
+    db = get_db()
+    with db.lock:
+        return load_drives(db.conn())
+
+
 def save_drives(conn, drives: AiDrivers) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with conn.cursor() as cur:
