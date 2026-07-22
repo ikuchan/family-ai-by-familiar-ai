@@ -343,6 +343,7 @@ class TestFrustratedBoostsDesire:
         mock_pmm.get_speaker_memory = MagicMock(return_value=None)
         mock_pmm.get_agent_memory = MagicMock(return_value=agent._memory)
         mock_pmm.current_speaker_id = None
+        mock_pmm.get_present_ids = MagicMock(return_value=[])
         mock_pmm.find_person_id_by_name = MagicMock(return_value=None)
         mock_pmm.set_speaker = AsyncMock()
         agent._pmm = mock_pmm

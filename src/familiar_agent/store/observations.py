@@ -209,6 +209,33 @@ class ObservationStore:
             return default
         return max(0.0, min(1.0, 1.0 - sum(cosines) / len(cosines)))
 
+    def situated_cosines(
+        self, query_vector_sql: str, obs_ids: list[str], person_id: str,
+    ) -> dict[str, float]:
+        """指定 obs_id 群について、person_id 視点の situated コサインを返す（[D-在席相関]）。
+
+        在席者相関 p の素点用。ベクトルの作り方（視点合成・平均中心化）は呼び出し側の
+        責任で、層は受け取った表現で `situated_embeddings` を person_id 絞りで引くだけ。
+        該当 situated 行が無い obs_id は結果に含めない（呼び出し側で 0 相当に畳む）。
+        """
+        if not obs_ids:
+            return {}
+        try:
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT s.obs_id, 1 - (s.vector <=> %s::vector) AS c "
+                        "FROM situated_embeddings s JOIN observations o ON o.id = s.obs_id "
+                        "WHERE s.person_id = %s AND o.superseded_by IS NULL "
+                        "  AND s.obs_id = ANY(%s)",
+                        (query_vector_sql, person_id, list(obs_ids)),
+                    )
+                    return {row["obs_id"]: float(row["c"]) for row in cur.fetchall()}
+        except Exception as e:  # noqa: BLE001
+            logger.warning("situated_cosines failed (person=%s): %s", person_id, e)
+            return {}
+
     def keyword_fallback(self, query: str, n: int, kind: str | None) -> list[dict]:
         keywords = [w for w in query.split() if len(w) > 1][:4]
         if not keywords:

@@ -52,7 +52,7 @@ from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool
 from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
-from .person_memory_manager import PersonMemoryManager
+from .person_memory_manager import AGENT_SELF_ID, PersonMemoryManager
 from .recognition.face import recognize_face_async
 from .recognition.presence_watcher import CameraPresenceWatcher
 from .tools.mobility import MobilityTool
@@ -2010,6 +2010,17 @@ class EmbodiedAgent:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.emotion_for_turn(text, arousal)
 
+    def _present_others_for_recall(self) -> list[str]:
+        """在席者相関 p の対象＝在席者から AGENT_SELF と現話者を除いた在席他者（[D-在席相関]）。
+
+        話者は想起の視点シフト（役割1・r）で既に効くため p からは外す。自分も除く。
+        """
+        pmm = getattr(self, "_pmm", None)
+        if pmm is None:
+            return []
+        exclude = {AGENT_SELF_ID, pmm.current_speaker_id}
+        return [pid for pid in pmm.get_present_ids() if pid not in exclude]
+
     async def _turn_arousal(self, user_input: str, final_text: str) -> float:
         """A（評価器 arousal）＝内容の新規性 novelty（課題5 v0.26）。
 
@@ -3233,7 +3244,7 @@ class EmbodiedAgent:
                 _memories_coro = (
                     _call_optional_async(recall_divergent, user_input, n=recall_n, fallback=[])
                     if recall_divergent is not None
-                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=MemoryConfig().recall_min_score, recall_mode="conversation")
+                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=MemoryConfig().recall_min_score, recall_mode="conversation", present_others=self._present_others_for_recall())
                 )
                 (
                     memories,

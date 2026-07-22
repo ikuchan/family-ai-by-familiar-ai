@@ -103,6 +103,7 @@ class _ScoreParts:
     a: float
     m: float
     e: float | None
+    p: float | None = None
 
 
 def _score_breakdown(
@@ -123,6 +124,8 @@ def _score_breakdown(
     w_t: float = 1.0,
     w_e: float = 1.0,
     w_a: float = 1.5,
+    w_p: float = 0.0,
+    p: float | None = None,
     sigma: float = 1.0,
 ) -> _ScoreParts:
     """想起スコアと各軸の内訳を返す（合成式の正本）。
@@ -157,8 +160,13 @@ def _score_breakdown(
         numerator += w_e * e
         denominator += w_e
 
+    # 在席者相関 p（第5軸・役割2）。在席他者ゼロなら p は None で項ごと外す。
+    if p is not None and w_p > 0.0:
+        numerator += w_p * p
+        denominator += w_p
+
     m = 1.0 if denominator <= 0.0 else numerator / denominator
-    return _ScoreParts(score=(r ** w_r) * m, r=r, t=t, a=a, m=m, e=e)
+    return _ScoreParts(score=(r ** w_r) * m, r=r, t=t, a=a, m=m, e=e, p=p)
 
 
 def _compute_final_score(
@@ -628,9 +636,36 @@ class ObservationMemory:
     async def content_novelty_async(self, content: str) -> float:
         return await asyncio.to_thread(self.content_novelty, content)
 
+    def _presence_correlation(
+        self, q_vec, obs_ids: list[str], present_others: list[str],
+        *, c_lo: float, c_hi: float,
+    ) -> dict[str, float]:
+        """在席者相関 p（obs_id → [0,1]・課題5 v0.26／[D-在席相関]）。
+
+        在席他者 q ごとに、クエリを q 視点で situate した situated コサインを r と同じ
+        伸長で r_{p,q} 化し、obs_id ごとに noisy-OR `p = 1 − Π_q(1 − r_{p,q})` で束ねる。
+        自分（AGENT_SELF）・話者の除外は呼び出し側で行う（present_others に含めない）。
+        present_others か obs_ids が空なら {}（在席他者ゼロ＝p 項を外す）。
+        """
+        if not obs_ids or not present_others:
+            return {}
+        mu = self._situated._embedding_mu()
+        one_minus: dict[str, float] = {oid: 1.0 for oid in obs_ids}
+        for q in present_others:
+            p_vec_q = self._situated._get_perspective_vec(q)
+            sit_q = _situated_vector(q_vec, p_vec_q, mu)
+            cosines = self._observations.situated_cosines(
+                vec_to_sql(sit_q.tolist()), list(obs_ids), q,
+            )
+            for oid, cos in cosines.items():
+                r_pq = _stretch_relevance(cos, c_lo=c_lo, c_hi=c_hi)
+                one_minus[oid] *= (1.0 - r_pq)
+        return {oid: 1.0 - om for oid, om in one_minus.items()}
+
     def recall(self, query: str, n: int = 3, kind: str | None = None,
                min_score: float = 0.0,
-               recall_mode: str = "system") -> list[dict]:
+               recall_mode: str = "system",
+               present_others: list[str] | None = None) -> list[dict]:
         """Recall using situated vectors (pgvector cosine search).
 
         min_score:   合成 final score の soft 床（生コサインではない）。無関係の
@@ -673,6 +708,15 @@ class ObservationMemory:
             )
             rows = self._observations.by_vector(q_sql, fetch_n, kind=kind)
 
+            # 在席者相関 p（第5軸・役割2）。在席他者がいる間だけ候補を再採点する。
+            # 在席他者ゼロ（テキストや単独在席）なら p_by_id は空で、各行 p=None＝項落ち。
+            p_by_id: dict[str, float] = {}
+            if present_others:
+                p_by_id = self._presence_correlation(
+                    q_vec, [row["id"] for row in rows], present_others,
+                    c_lo=_cfg.recall_c_lo, c_hi=_cfg.recall_c_hi,
+                )
+
             if rows:
                 results = []
                 breakdowns: dict[Any, _ScoreParts] = {}
@@ -698,6 +742,8 @@ class ObservationMemory:
                         w_t=_cfg.recall_w_t,
                         w_e=_cfg.recall_w_e,
                         w_a=_cfg.recall_w_a,
+                        w_p=_cfg.recall_w_p,
+                        p=p_by_id.get(row["id"]),
                         sigma=_cfg.recall_emotion_sigma,
                     )
                     final = parts.score
