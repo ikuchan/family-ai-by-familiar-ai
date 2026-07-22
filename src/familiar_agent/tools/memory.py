@@ -550,13 +550,18 @@ class ObservationMemory:
             except Exception as e:
                 logger.warning("append_memory_event failed, continuing with direct save: %s", e)
             obs_id = event_id or str(uuid.uuid4())
+            _cfg = MemoryConfig()
             return self._observations.materialize_save_event(
                 obs_id, payload,
-                dedup_window_secs=MemoryConfig().dedup_window_secs,
+                dedup_window_secs=_cfg.dedup_window_secs,
                 writer_id=writer_id,
                 subject_id=subject_id,
                 participants=participants,
                 scope=scope,
+                novelty_k=_cfg.novelty_k,
+                novelty_w_n=_cfg.novelty_w_n,
+                novelty_default=_cfg.novelty_default,
+                novelty_a0_cap=_cfg.novelty_a0_cap,
             )
         except Exception as e:
             logger.warning("save failed: %s", e)

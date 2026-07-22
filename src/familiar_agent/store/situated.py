@@ -112,6 +112,18 @@ class SituatedVectors:
             self._mu_cache = load_embedding_mean(EMBEDDING_DIM, conn)
         return self._mu_cache
 
+    def situate(self, mem_vec: np.ndarray, person_id: str, conn) -> np.ndarray:
+        """内容ベクトルを person 視点で situated 化する（recall のクエリと同じ式）。
+
+        conn を渡すのは、書き込み経路（ロック保持中）から呼ぶため（p_vec・mu の読みで
+        ロックを取り直さない）。novelty 算出などで内容の situated クエリを作るのに使う。
+        """
+        p_vec = self._get_perspective_vec_with_conn(person_id, conn)
+        mu = self._embedding_mu(conn)
+        return _situated_vector(
+            _coerce_to_embedding_dim(np.asarray(mem_vec, dtype=np.float32)), p_vec, mu
+        )
+
     def _get_perspective_vec_with_conn(self, person_id: str, conn) -> np.ndarray:
         """Load perspective vector using an already-open connection (no lock)."""
         with conn.cursor() as cur:

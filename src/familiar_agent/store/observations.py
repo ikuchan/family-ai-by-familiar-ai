@@ -21,7 +21,9 @@ from typing import Any
 
 import numpy as np
 
+from ..db import vec_to_sql
 from ..mood_register import MoodPAD
+from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
 from .context import StoreContext
 from .embedding import _decode_vector, _encode_vector
@@ -178,6 +180,34 @@ class ObservationStore:
                     return list(cur.fetchall())
         except Exception as e:
             logger.warning("by_vector failed: %s", e); return []
+
+    def content_novelty(self, mem_vec, conn, *, k: int, default: float) -> float:
+        """内容の新規性 novelty ∈ [0,1]（課題5 v0.26）。
+
+        **視点は常に AGENT_SELF**（a0/A はエージェント自身の活性・喚起・話者ではない）。
+        内容を AGENT_SELF 視点で situate し、AGENT_SELF スコープの situated 近傍 K 件の
+        コサイン平均の裏返し（1−平均）＝関連 r の鏡。**self_model（自己認識 MI）は母集合
+        から除く**。近傍が K 未満なら既定（初期の横並びを避ける）。
+        """
+        try:
+            v_sit = self._situated.situate(mem_vec, AGENT_SELF_ID, conn)
+            q_sql = vec_to_sql(v_sit.tolist())
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT 1 - (s.vector <=> %s::vector) AS c "
+                    "FROM situated_embeddings s JOIN observations o ON o.id = s.obs_id "
+                    "WHERE s.person_id = %s AND o.superseded_by IS NULL "
+                    "  AND o.kind <> 'self_model' "
+                    "ORDER BY s.vector <=> %s::vector LIMIT %s",
+                    (q_sql, AGENT_SELF_ID, q_sql, k),
+                )
+                cosines = [float(row["c"]) for row in cur.fetchall()]
+        except Exception as e:
+            logger.warning("content_novelty failed, using default: %s", e)
+            return default
+        if len(cosines) < k:
+            return default
+        return max(0.0, min(1.0, 1.0 - sum(cosines) / len(cosines)))
 
     def keyword_fallback(self, query: str, n: int, kind: str | None) -> list[dict]:
         keywords = [w for w in query.split() if len(w) > 1][:4]
@@ -547,6 +577,10 @@ class ObservationStore:
         subject_id: str | None = None,
         participants: list[str] | None = None,
         scope: str = "speaker",
+        novelty_k: int = 7,
+        novelty_w_n: float = 1.5,
+        novelty_default: float = 0.5,
+        novelty_a0_cap: float = 1.5,
     ) -> bool:
         content   = str(payload.get("content", "")).strip()
         direction = str(payload.get("direction", "unknown"))
@@ -593,19 +627,26 @@ class ObservationStore:
                             self._ctx.person_id, kind, content, dedup_window_secs,
                         )
                         return True
+                # 取込 novelty（内容の新規性）→ a0。挿入前に測るので新観測は母集合に
+                # 居ない（=自分は含まれない）。視点は AGENT_SELF・self_model 除外。
+                novelty = self.content_novelty(
+                    np.asarray(vec, dtype=np.float32), conn,
+                    k=novelty_k, default=novelty_default,
+                )
+                activation_a0 = max(0.0, min(novelty_a0_cap, novelty_w_n * novelty))
                 cur.execute(
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
                     " image_path,image_data,person_id,writer_id,subject_id,"
-                    " participants_json,scope,"
+                    " participants_json,scope,activation_a0,"
                     " emotion_p,emotion_pn,emotion_a,emotion_dom) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
                      self._ctx.person_id,
                      writer_id or self._ctx.person_id,
                      subject_id or self._ctx.person_id,
-                     participants_json, scope,
+                     participants_json, scope, activation_a0,
                      emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom),
                 )
                 cur.execute(
