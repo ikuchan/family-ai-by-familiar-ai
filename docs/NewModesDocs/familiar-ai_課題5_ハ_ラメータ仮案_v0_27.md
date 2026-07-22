@@ -1,4 +1,6 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.26・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.27・数式併記）
+
+> v0.27 改訂（在席者相関 $p$ の score 軸を実装）：v0.17 で「値の確定（$w_p$・noisy-OR の最終確認）は本課題」とした $p$ を実装した（score 軸・slice-1）。**$w_p=1.0$ を Config（`recall_w_p`）で確定**し、noisy-OR $p=1-\prod_q(1-r_{p,q})$ と、$r$ と共通の伸長（$c_{lo}{=}0/c_{hi}{=}1$）で確定。対象は在席者から自分（AGENT_SELF）と現話者を除いた在席他者で、話者は役割1 の $r$ で効くため $p$ には数えない。在席他者ゼロなら $p$ 項を分母ごと外す。候補集合への反映（第5軸で候補を広げる）は slice-2 で未実装で、現状は話者候補の再採点のみ。実装は facade `_presence_correlation`・store `situated_cosines`・`_score_breakdown` の第5軸 $(p,w_p)$。
 
 > v0.26 改訂（novelty を situated・AGENT_SELF 視点で確定）：novelty の「近傍 $K$ 件」を、**situated 空間・視点＝AGENT_SELF（$v_{mem}+\alpha_p\,p_{vec}[\text{self}]-\mu$）・母集合＝`s.person_id=AGENT\_SELF`・self MI（`kind="self_model"`）を除外**して測ると確定。**a0/A/novelty はエージェント自身の活性・喚起なので視点は常に AGENT_SELF**（話者スコープではない。検索・自発ターン等で話者がいない場面でも一意）。person≠self の situated recall は読み込み側の別用途（現話者同調＝役割1／p 軸＝役割2）。「自分除外」は self MI の除外を指す（挿入する観測自体ではない）。**recall の `by_vector`（situated コサイン検索）を保存時に流用し、上位K件の平均コサインの裏返し**（＝関連 $r$ の鏡）で novelty を作る。よって novelty は「その人にとっての新規性」になる。W は近傍の母集合には使わない（$K$ の件数が W サイズと共通なだけ）。E 節 novelty 行に反映。
 

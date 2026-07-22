@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.38）
+# familiar-ai 直近の進め方と進捗（v0.39）
+
+> v0.39：**在席者相関 $p$（想起の第5軸・役割2）の score 軸を実装**した（slice-1・発火はカメラ稼働時のみ）。在席他者がいるターンだけ、想起候補を $p$ で再採点する。$p$ の素点は在席他者 $q$ ごとの $q$ 視点 situated コサインを $r$ と同じ伸長で $r_{p,q}$ 化し、noisy-OR $p=1-\prod_q(1-r_{p,q})$ で束ねる。対象は在席者から自分（AGENT_SELF）と現話者を除いた在席他者で、話者は視点シフト（役割1）の $r$ で既に効くため二重に数えない。合成は `_score_breakdown` へ第5軸 $(p,w_p)$ を足し、在席他者ゼロなら $p$ を分母ごと外すので既存想起は不変。在席他者は `PersonMemoryManager.get_present_ids()` から取り、顔認識（presence_watcher）が埋める。$w_p=1.0$ は Config（`recall_w_p`）。新設は store の薄い層 `situated_cosines`、facade の `_presence_correlation`、Config `recall_w_p`。テストは noisy-OR と伸長の単体、実 DB で「在席他者ありで score 上昇・空で不変」を対で確認し、全体緑。候補集合拡張（在席他者に強く結びつく記憶を、話者クエリと無関係でも W に上げる）は slice-2 で未実装。次は slice-2 の設計。
 
 > v0.38：**旧 ToM ツールを完全撤去し、一人称 CoT へ置き換えた**（挙動変化）。実機で、直接の対話相手（現話者）にまで ToM が発火し、応答が三人称の「◯◯の視点分析」へ流れて一人称が崩れる挙動を確認した（ToM の出力そのもの・記憶汚染ではない）。真因は ToM の発火設計（説明文が「応答前に呼べ」と促す）＋三人称の出力枠＋捏造を許すプロンプト。`tools/tom.py` を削除（`tom`/`ToMTool` の src 参照 grep 0件・`attention_schema` の概念的 "Theory of Mind" は別物で対象外）、`SYSTEM_PROMPT` の `theory-of-mind` 制約を **`first-person-perspective-taking`** へ差し替え（応答前に、同席者と想起 MI に出てくる人それぞれの気持ち・望みを一人称で想像してから、自分として一人称で答える。三人称レポートで応答を置き換えない）。在席（知覚＝PMM 由来）を `(present :speaker … :others …)` で注入し、CoT が「誰を想像するか」を知る。対象を固定リストでなく W から作るので、拡散想起（流れ①・Phase 5）で W が深まれば自動で増える（段取り v0.23）。workspace coalition から ToM を外し、テスト側の tom 参照（`test_as_coalition` の ToM 節・`test_tom_llm` 等）も掃除。実際の一人称挙動は実機確認。次は在席スコア（p 軸）へ戻る。
 
