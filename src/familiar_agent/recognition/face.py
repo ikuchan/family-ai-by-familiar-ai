@@ -43,11 +43,19 @@ def _get_model(cfg: RecognitionConfig) -> Any:
     if _MODEL is not None:
         return _MODEL
     try:
+        import onnxruntime as ort
+
         from insightface.app import FaceAnalysis
     except ImportError:
         logger.debug("insightface 未インストール。顔認識を飛ばす")
         return None
     try:
+        # nvidia pip ホイールの CUDA/cuDNN を先読みし、onnxruntime の CUDA プロバイダが
+        # libcublasLt.so.12 等を見つけられるようにする。これが無いと provider の .so が
+        # ロードできず、警告だけ出して黙って CPU に落ちる（torch は自前で preload する
+        # ので影響を受けないが、onnxruntime は自動では load しない）。
+        if hasattr(ort, "preload_dlls"):
+            ort.preload_dlls()
         app = FaceAnalysis(name=cfg.face_model, providers=cfg.provider_list())
         app.prepare(ctx_id=0)
         _MODEL = app

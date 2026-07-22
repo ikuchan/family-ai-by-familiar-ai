@@ -31,7 +31,9 @@ dependencies = [
     "speechbrain>=1.1.0",
     "torchaudio==2.10.0",
     "insightface>=1.0.1",
-    "onnxruntime-gpu>=1.24.3",
+    # CUDA-12 版 onnxruntime-gpu（1.27+）は Python>=3.11 が必要。requires-python は 3.10 の
+    # ままにし、GPU 版は 3.11+ でだけ要求する（3.10 では顔認識が無効化されるだけ）。
+    "onnxruntime-gpu>=1.24.3 ; python_version >= '3.11'",
 ]
 
 [project.optional-dependencies]
@@ -70,13 +72,25 @@ packages = ["src/familiar_agent"]
 
 [tool.uv]
 default-groups = ["dev", "camera", "voice"]
+# insightface が依存として引き込む CPU 版 onnxruntime を無効化する。onnxruntime-gpu が
+# 同じ import 名前空間を提供するため実行時は満たされる。マーカーが常に偽なので、どの
+# プラットフォームでも CPU 版は入らない（GPU 版と同じ onnxruntime/ を奪い合う事故を防ぐ）。
+override-dependencies = ["onnxruntime; sys_platform == 'nonexistent'"]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+# 既定 PyPI の onnxruntime-gpu は CUDA 13 版（libcudart.so.13 を要求）。環境は torch と
+# 揃えた CUDA 12.8（cudnn 9.10 cu12）なので、CUDA-12 版を公式の CUDA-12 索引から入れる。
+onnxruntime-gpu = { index = "onnxruntime-cuda12" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
 url  = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[[tool.uv.index]]
+name = "onnxruntime-cuda12"
+url  = "https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/"
 explicit = true
 
 [tool.pytest.ini_options]
