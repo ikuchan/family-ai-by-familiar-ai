@@ -99,5 +99,6 @@
   "settings_saved_message": "設定を保存しました。\nすべての変更を反映するには familiar-ai を再起動してください。",
   "gui_input_placeholder": "メッセージを入力して Enter…",
   "gui_cancel_turn_tooltip": "現在の応答を中断 (Esc)",
-  "thinking_status": "{name}が思考中... {seconds}s"
+  "thinking_status": "{name}が思考中... {seconds}s",
+  "gui_estimated_speaker": "推定話者"
 }

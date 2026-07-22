@@ -789,7 +789,7 @@ class MoodPanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
 
         title = QLabel("気分（PAD）")
@@ -801,7 +801,7 @@ class MoodPanel(QWidget):
 
         self._label = QLabel("—")
         self._label.setStyleSheet(
-            f"color: {_ACCENT_DEEP}; font-size: {_px(18)}px; font-weight: 700; background: transparent;"
+            f"color: {_ACCENT_DEEP}; font-size: {_px(14)}px; font-weight: 700; background: transparent;"
         )
         layout.addWidget(self._label)
 
@@ -842,7 +842,7 @@ class DrivePanel(QWidget):
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(6)
 
         title = QLabel("欲動（drive5）")
@@ -884,7 +884,7 @@ class PresencePanel(QWidget):
         self._fallback = fallback_speaker
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
 
         title = QLabel("在席・話者")
@@ -1133,7 +1133,7 @@ class FamiliarWindow(QMainWindow):
         self._status_timer.start()
 
         self.setWindowTitle(f"familiar-ai  {__version__}")
-        self.resize(1020, 720)
+        self.resize(1260, 820)
         self.setStyleSheet(f"background: {_BG_BASE};")
         self._build_ui()
         self._set_input_enabled(False)
@@ -1498,7 +1498,7 @@ class FamiliarWindow(QMainWindow):
 
         # ── Right panel ─────────────────────────────────────────
         right = QWidget()
-        right.setFixedWidth(340)
+        right.setFixedWidth(360)
         right.setStyleSheet(f"background: {_BG_BASE};")
         right_layout = QVBoxLayout(right)
         right_layout.setContentsMargins(0, 0, 0, 0)
