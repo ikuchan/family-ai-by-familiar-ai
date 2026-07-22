@@ -1194,6 +1194,25 @@ class FamiliarWindow(QMainWindow):
             frames.append(frame)
         return frames
 
+    def _refresh_presence_camera(self) -> None:
+        """在席確認カメラ：presence_watcher の直近フレームを表示する。
+
+        look-preview（カメラ移動時のライブ表示）中はそちらを優先し上書きしない。
+        カメラ未設定・フレーム未取得なら何もしない（従来のプレースホルダのまま）。
+        """
+        if time.perf_counter() < getattr(self, "_look_preview_until", 0.0):
+            return
+        agent = getattr(self, "_agent", None)
+        watcher = getattr(agent, "_presence_watcher", None) if agent is not None else None
+        if watcher is None:
+            return
+        try:
+            b64 = watcher.latest_frame_b64()
+        except Exception:
+            b64 = None
+        if b64:
+            self._camera.update_image(b64)
+
     def _request_look_preview(self, degrees: int | None = None) -> None:
         """Start/extend a short live preview window for look() actions."""
         if self._look_preview_disabled:
@@ -1506,6 +1525,12 @@ class FamiliarWindow(QMainWindow):
 
         self._camera = CameraView()
         right_layout.addWidget(self._camera, stretch=3)
+
+        # 在席確認カメラ：presence_watcher が認識用に撮る直近フレームを定期表示する。
+        self._presence_cam_timer = QTimer(self)
+        self._presence_cam_timer.setInterval(2000)
+        self._presence_cam_timer.timeout.connect(self._refresh_presence_camera)
+        self._presence_cam_timer.start()
 
         def _card(widget: QWidget) -> QWidget:
             card = QWidget()

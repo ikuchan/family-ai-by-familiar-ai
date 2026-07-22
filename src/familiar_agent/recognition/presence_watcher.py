@@ -5,7 +5,8 @@ runs face recognition, and updates PersonMemoryManager accordingly.
 Persons not seen for `absent_threshold_sec` are marked as left.
 """
 from __future__ import annotations
-import asyncio, logging, time
+import asyncio, base64, logging
+from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -13,6 +14,14 @@ if TYPE_CHECKING:
     from ..config import CameraConfig
 
 logger = logging.getLogger(__name__)
+
+
+def _encode_frame(path: str) -> str | None:
+    """フレーム画像ファイルを base64 文字列にする（GUI 表示用）。読めなければ None。"""
+    try:
+        return base64.b64encode(Path(path).read_bytes()).decode("ascii")
+    except Exception:
+        return None
 
 
 class CameraPresenceWatcher:
@@ -29,6 +38,12 @@ class CameraPresenceWatcher:
         self._interval = interval_sec
         self._absent   = absent_threshold_sec
         self._task: asyncio.Task | None = None
+        # 直近に認識用へ撮ったフレーム（base64）。GUI が在席確認カメラとして表示する。
+        self._last_frame_b64: str | None = None
+
+    def latest_frame_b64(self) -> str | None:
+        """認識に使った直近フレームの base64（まだ無ければ None）。"""
+        return self._last_frame_b64
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -51,6 +66,7 @@ class CameraPresenceWatcher:
             try:
                 frame_path = await self._capture_frame()
                 if frame_path:
+                    self._last_frame_b64 = _encode_frame(frame_path)
                     hint = await recognize_face_async(frame_path, self._manager)
                     if hint:
                         await self._manager.apply_hint(hint)
