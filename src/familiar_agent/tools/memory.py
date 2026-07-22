@@ -834,8 +834,11 @@ class ObservationMemory:
             if min_score > 0.0:
                 return []
             return self._observations.keyword_fallback(query, n, kind)
-        except Exception as e:
-            logger.warning("recall failed: %s", e)
+        except Exception:
+            # 想起の失敗はトレース付きで loud に残す（hot path・完了できなかった操作）。
+            # degrade してクラッシュはさせないが、keyword_fallback へは流さない
+            # （失敗を静かなテキスト検索で masking しない・棚卸し A1）。
+            logger.exception("recall failed")
             return []
 
     async def recall_async(self, *a, **kw):

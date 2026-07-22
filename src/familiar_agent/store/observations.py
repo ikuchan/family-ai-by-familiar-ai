@@ -153,33 +153,34 @@ class ObservationStore:
         if kind:
             params.append(kind)
         params += [query_vector_sql, n]
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        f"""
-                        SELECT o.id, o.content, o.timestamp,
-                               o.direction, o.kind, o.emotion, o.image_path,
-                               COALESCE(o.activation_a0, 1.0) AS activation_a0,
-                               COALESCE(o.activation_n, 0) AS activation_n,
-                               COALESCE(o.recall_count, 0) AS recall_count,
-                               o.last_recalled_at,
-                               o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
-                               1 - (s.vector <=> %s::vector) AS score
-                        FROM situated_embeddings s
-                        JOIN observations o ON o.id = s.obs_id
-                        WHERE s.person_id = %s
-                          AND o.superseded_by IS NULL
-                          {kind_clause}
-                        ORDER BY s.vector <=> %s::vector
-                        LIMIT %s
-                        """,
-                        params,
-                    )
-                    return list(cur.fetchall())
-        except Exception as e:
-            logger.warning("by_vector failed: %s", e); return []
+        # dumb 層は失敗を握り潰さない。例外は呼び出し側（recall）へ上げ、そこで方針
+        # （loud に残す・degrade して []・keyword_fallback へ流さない）を持つ。0件と
+        # 失敗を `[]` で混同すると、壊れた埋め込みパイプラインが keyword 検索で動いて
+        # 見える masking になるため（棚卸し A1）。
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id, o.content, o.timestamp,
+                           o.direction, o.kind, o.emotion, o.image_path,
+                           COALESCE(o.activation_a0, 1.0) AS activation_a0,
+                           COALESCE(o.activation_n, 0) AS activation_n,
+                           COALESCE(o.recall_count, 0) AS recall_count,
+                           o.last_recalled_at,
+                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                           1 - (s.vector <=> %s::vector) AS score
+                    FROM situated_embeddings s
+                    JOIN observations o ON o.id = s.obs_id
+                    WHERE s.person_id = %s
+                      AND o.superseded_by IS NULL
+                      {kind_clause}
+                    ORDER BY s.vector <=> %s::vector
+                    LIMIT %s
+                    """,
+                    params,
+                )
+                return list(cur.fetchall())
 
     def content_novelty(self, mem_vec, conn, *, k: int, default: float) -> float:
         """内容の新規性 novelty ∈ [0,1]（課題5 v0.26）。
