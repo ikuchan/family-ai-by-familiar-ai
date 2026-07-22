@@ -1,6 +1,6 @@
 """Tests for as_coalition() methods across all processors.
 
-Each processor (desires, scene, exploration, self_narrative, tom, memory)
+Each processor (desires, scene, exploration, self_narrative, memory)
 produces a Coalition for the Global Workspace.  These tests verify:
   - Returns None when the processor has no data (empty state).
   - Returns a Coalition with correct source and valid field ranges.
@@ -13,7 +13,7 @@ import re
 import sqlite3
 import threading
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -21,7 +21,6 @@ from familiar_agent.desires import TRIGGER_THRESHOLD, DesireSystem
 from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.scene import SceneTracker
 from familiar_agent.self_narrative import SelfNarrative
-from familiar_agent.tools.tom import ToMTool
 from familiar_agent.workspace import Coalition
 
 
@@ -352,79 +351,6 @@ def test_exploration_coalition_activation_bounded(exploration: ExplorationTracke
     c = exploration.as_coalition()
     assert c is not None
     assert c.activation <= 1.0
-
-
-# ── ToMTool.as_coalition ───────────────────────────────────────────────────────
-
-
-@pytest.fixture
-def tom_tool() -> ToMTool:
-    mock_memory = MagicMock()
-    mock_memory.recall_async = AsyncMock(return_value=[])
-    mock_pmm = MagicMock()
-    mock_pmm.find_person_id_by_name = MagicMock(return_value=None)
-    mock_pmm.get_speaker_memory = MagicMock(return_value=mock_memory)
-    mock_pmm.get_agent_memory = MagicMock(return_value=mock_memory)
-    mock_pmm.get_memory_for = MagicMock(return_value=mock_memory)
-    return ToMTool(memory=mock_pmm, default_person="Kota")
-
-
-def test_tom_coalition_none_before_any_call(tom_tool: ToMTool) -> None:
-    """No ToM inference done yet -> returns None."""
-    result = tom_tool.as_coalition()
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_tom_coalition_returns_valid_after_call(tom_tool: ToMTool) -> None:
-    """After calling tom tool, as_coalition returns valid Coalition."""
-    await tom_tool.call("tom", {"situation": "User seems tired"})
-    c = tom_tool.as_coalition()
-    assert c is not None
-    _assert_valid_coalition(c, "tom")
-
-
-@pytest.mark.asyncio
-async def test_tom_coalition_source_is_tom(tom_tool: ToMTool) -> None:
-    await tom_tool.call("tom", {"situation": "Hello there"})
-    c = tom_tool.as_coalition()
-    assert c is not None
-    assert c.source == "tom"
-
-
-@pytest.mark.asyncio
-async def test_tom_coalition_summary_contains_person(tom_tool: ToMTool) -> None:
-    await tom_tool.call("tom", {"situation": "How are you?", "person": "Mika"})
-    c = tom_tool.as_coalition()
-    assert c is not None
-    assert "Mika" in c.summary
-
-
-@pytest.mark.asyncio
-async def test_tom_coalition_summary_contains_situation(tom_tool: ToMTool) -> None:
-    await tom_tool.call("tom", {"situation": "I need help with code"})
-    c = tom_tool.as_coalition()
-    assert c is not None
-    assert "help" in c.summary or "code" in c.summary
-
-
-@pytest.mark.asyncio
-async def test_tom_coalition_uses_default_person(tom_tool: ToMTool) -> None:
-    await tom_tool.call("tom", {"situation": "Something happened"})
-    c = tom_tool.as_coalition()
-    assert c is not None
-    assert "Kota" in c.summary
-
-
-@pytest.mark.asyncio
-async def test_tom_coalition_fixed_values(tom_tool: ToMTool) -> None:
-    """ToM has fixed activation=0.5, urgency=0.6, novelty=0.2."""
-    await tom_tool.call("tom", {"situation": "test"})
-    c = tom_tool.as_coalition()
-    assert c is not None
-    assert c.activation == pytest.approx(0.5)
-    assert c.urgency == pytest.approx(0.6)
-    assert c.novelty == pytest.approx(0.2)
 
 
 # ── ObservationMemory.as_coalition_async ───────────────────────────────────────

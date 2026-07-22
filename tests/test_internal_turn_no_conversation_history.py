@@ -140,9 +140,6 @@ def _make_agent(*, separate_utility: bool):
     agent._memory_tool = mem_tool
     agent._pending_store = mem_tool._pending_store
 
-    tom = MagicMock()
-    tom.get_tool_definitions = MagicMock(return_value=[])
-    agent._tom_tool = tom
 
     coding = MagicMock()
     coding.get_tool_definitions = MagicMock(return_value=[])

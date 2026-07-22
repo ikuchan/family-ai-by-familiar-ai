@@ -55,7 +55,6 @@ from .tools.memory import MemoryTool, ObservationMemory
 from .person_memory_manager import PersonMemoryManager
 from .recognition.face import recognize_face_async
 from .recognition.presence_watcher import CameraPresenceWatcher
-from .tools.tom import ToMTool
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .tools.tts import TTSTool
@@ -119,7 +118,6 @@ _TOOL_TIMEOUTS: dict[str, float] = {
     "say": 60.0,
     "remember": 20.0,
     "recall": 20.0,
-    "tom": 20.0,
     "read_file": 30.0,
     "edit_file": 30.0,
     "glob": 20.0,
@@ -279,15 +277,18 @@ SYSTEM_PROMPT = """
       "Speaking style is defined in the ME section above. Never default to generic
        polite Japanese. Follow ME exactly — dialect, tone, cadence.")
 
-    ; ── Theory of Mind ─────────────────────────────────────────────────
-    (constraint :priority critical :id theory-of-mind
-      "Before responding to a person, ask: what do they actually want?
-       Surface request ≠ underlying desire.
+    ; ── First-person perspective-taking ─────────────────────────────────
+    (constraint :priority critical :id first-person-perspective-taking
+      "Before responding, imagine — in the first person, inside your own head —
+       what each person present and each person appearing in your recalled
+       memories is feeling and wanting. Then answer as yourself.
+       Surface request ≠ underlying desire. Respond to the desire, not the words.
        Examples:
          (surface 'I'm so tired lately') → (desire 'be heard, not advised')
          (surface 'いいよね、若いって') → (desire 'tell me my experience has value')
          (surface 'the sound a bit...') → (desire 'don't make me say it directly')
-       Respond to the desire, not just the surface words.")
+       Stay in your own voice. Never step outside to produce a third-person
+       'analysis of X' — you are alongside them, imagining and responding as yourself.")
 
     ; ── Validation before advice ────────────────────────────────────────
     (constraint :priority critical :id validation-before-advice
@@ -692,6 +693,19 @@ def _react_to_scene_events(events: list[dict], desires: DesireSystem | None) -> 
                 desires.boost("worry_companion", 0.2)
 
 
+def format_present_ctx(speaker_name: str, other_present: list[str]) -> str:
+    """在席の話者と、話者以外の在席者を lisp 風の `(present ...)` 文脈にする。
+
+    一人称 CoT が「いま誰を想像するか」を知るための注入。空話者は "unknown"。
+    対象を固定リストでなく在席（PMM）から作るので、想起で W が深まれば増える。
+    """
+    speaker = speaker_name or "unknown"
+    s = f'(present :speaker "{speaker}"'
+    if other_present:
+        s += " :others " + " ".join(f'"{n}"' for n in other_present)
+    return s + ")"
+
+
 class EmbodiedAgent:
     """Real-world exploration agent using a pluggable LLM backend."""
 
@@ -738,11 +752,6 @@ class EmbodiedAgent:
         self._memory_tool = MemoryTool(self._pmm)
         self._pending_store = self._memory_tool._pending_store
         self._presence_watcher: CameraPresenceWatcher | None = None
-        self._tom_tool = ToMTool(
-            self._pmm,
-            default_person=config.companion_name,
-            backend=self._utility_backend,
-        )
         self._coding = CodingTool(config.coding)
         self._exploration = ExplorationTracker()
         self._scene: SceneTracker | None = None  # initialized after DB ready in _init_tools
@@ -1114,7 +1123,6 @@ class EmbodiedAgent:
         if self._tts:
             defs.extend(self._tts.get_tool_definitions())
         defs.extend(self._memory_tool.get_tool_definitions())
-        defs.extend(self._tom_tool.get_tool_definitions())
         defs.extend(self._coding.get_tool_definitions())
         defs.extend(self._deferred_search.get_tool_definitions())
         defs.extend(self._deferred_fetch.get_tool_definitions())
@@ -1160,8 +1168,6 @@ class EmbodiedAgent:
             return await self._tts.call(name, tool_input)
         elif name in memory_tools:
             return await self._memory_tool.call(name, tool_input)
-        elif name == "tom":
-            return await self._tom_tool.call(name, tool_input)
         elif name == "search_deferred":
             result = await self._deferred_search.call(name, tool_input)
             self._deferred_requested_at_turn = self._turn_count
@@ -1247,7 +1253,7 @@ class EmbodiedAgent:
             "- This is a short conversational turn.\n"
             "- Reply directly in 1-2 short sentences.\n"
             "- Do not infer plans, facts, or feelings the user did not say.\n"
-            "- Do not use observation, memory, or ToM tools unless explicitly asked."
+            "- Do not use observation or memory tools unless explicitly asked."
         )
 
     def _configure_backend_for_turn(
@@ -1697,9 +1703,26 @@ class EmbodiedAgent:
             )
         speaker_ctx = "\n".join(speaker_ctx_parts)
 
+        # 在席（知覚＝PMM 由来）を注入。一人称 CoT が「誰を想像するか」を知るため。
+        present_ctx = ""
+        pmm = getattr(self, "_pmm", None)
+        if pmm is not None:
+            try:
+                rows = pmm.presence_status()
+                if rows:
+                    present_speaker = next(
+                        (r["name"] for r in rows if r.get("is_speaker")), ""
+                    )
+                    present_others = [r["name"] for r in rows if not r.get("is_speaker")]
+                    present_ctx = format_present_ctx(present_speaker, present_others)
+            except Exception:
+                present_ctx = ""
+
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
         datetime_ctx = f"(now :datetime \"{now_str}\")"
         variable_parts: list[str] = [intero, datetime_ctx, speaker_ctx]
+        if present_ctx:
+            variable_parts.append(present_ctx)
         if relationship_ctx:
             variable_parts.append(relationship_ctx)
         if continuity_ctx:
@@ -1903,7 +1926,6 @@ class EmbodiedAgent:
         sync_tasks = [
             asyncio.to_thread(self._exploration.as_coalition),
             asyncio.to_thread(self._self_narrative.as_coalition),
-            asyncio.to_thread(self._tom_tool.as_coalition),
             asyncio.to_thread(self._prediction.as_coalition),
             asyncio.to_thread(self._attention_schema.as_coalition),
             asyncio.to_thread(self._meta_monitor.as_coalition),

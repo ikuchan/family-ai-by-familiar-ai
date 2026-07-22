@@ -97,10 +97,6 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mem_tool.call = AsyncMock(return_value=("remembered", None))
     agent._memory_tool = mem_tool
 
-    tom = MagicMock()
-    tom.get_tool_definitions = MagicMock(return_value=[])
-    tom.call = AsyncMock(return_value=("tom result", None))
-    agent._tom_tool = tom
 
     coding = MagicMock()
     coding.get_tool_definitions = MagicMock(return_value=[])

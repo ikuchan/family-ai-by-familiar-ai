@@ -265,11 +265,6 @@ def test_person_has_declare_speaker():
     assert "declare_speaker" in _doc("person.py"), f"got: {_doc('person.py')!r}"
 
 
-def test_tom_has_tom_tool():
-    """tom.py docstring mentions tom()."""
-    assert "tom(" in _doc("tom.py"), f"got: {_doc('tom.py')!r}"
-
-
 def test_memory_has_remember_recall():
     """memory.py docstring mentions remember() and recall()."""
     d = _doc("memory.py")

@@ -32,10 +32,6 @@ def _make_agent(
     mem_tool.call = AsyncMock(return_value=("mem result", None))
     agent._memory_tool = mem_tool
 
-    tom_tool = MagicMock()
-    tom_tool.call = AsyncMock(return_value=("tom result", None))
-    agent._tom_tool = tom_tool
-
     coding = MagicMock()
     coding.call = AsyncMock(return_value=("code result", None))
     agent._coding = coding
@@ -92,14 +88,6 @@ async def test_execute_tool_routes_recall_to_memory_tool():
 # ---------------------------------------------------------------------------
 # Tests: ToM tool
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_execute_tool_routes_tom():
-    agent = _make_agent()
-    result, _ = await agent._execute_tool("tom", {"situation": "user is quiet"})
-    assert result == "tom result"
-    agent._tom_tool.call.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------

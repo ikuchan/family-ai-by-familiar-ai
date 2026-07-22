@@ -93,7 +93,6 @@ ACTION_ICONS: dict[str, str] = {
     "say": "🗣️",
     "remember": "💾",
     "recall": "💭",
-    "tom": "🧠",
     "listen": "🎙️",
     "search": "🔍",
     "brave_web_search": "🔍",
@@ -137,12 +136,6 @@ def format_action(name: str, tool_input: dict) -> str:
         ellipsis = "…" if len(raw) > 50 else ""
         return f"{icon} 「{preview}{ellipsis}」"
 
-    if name == "tom":
-        person = tool_input.get("person", "")
-        sit = tool_input.get("situation", "")[:40]
-        suffix = f" ({person})" if person else ""
-        return f"{icon} ToM{suffix}: {sit}…" if sit else f"{icon} ToM{suffix}"
-
     if name in _I18N_ACTION_NAMES:
         try:
             return _t(f"action_{name}")
@@ -157,7 +150,7 @@ def format_action(name: str, tool_input: dict) -> str:
 # ---------------------------------------------------------------------------
 
 # Tools whose results we want to surface in the UI
-_RESULT_DISPLAY_TOOLS: frozenset[str] = frozenset({"remember", "recall", "tom"})
+_RESULT_DISPLAY_TOOLS: frozenset[str] = frozenset({"remember", "recall"})
 
 _EMOTION_COLORS: dict[str, str] = {
     "happy": "🌸",
@@ -173,7 +166,7 @@ def format_tool_result(name: str, _tool_input: dict, result: str) -> str | None:
     """Return a formatted string to display after a tool runs, or None to suppress.
 
     Called by GUI/TUI after on_action (which fires before the tool runs).
-    Only memory/recall/tom results are surfaced; other tools are silent.
+    Only memory/recall results are surfaced; other tools are silent.
     """
     if name not in _RESULT_DISPLAY_TOOLS:
         return None
@@ -182,8 +175,6 @@ def format_tool_result(name: str, _tool_input: dict, result: str) -> str | None:
         return _format_remember_result(result)
     if name == "recall":
         return _format_recall_result(result)
-    if name == "tom":
-        return _format_tom_result(result)
     return None
 
 
@@ -244,38 +235,6 @@ def _format_recall_result(result: str) -> str:
             out.append(f"    {line.strip()[:90]}")
 
     return "\n".join(out)
-
-
-def _format_tom_result(result: str) -> str | None:
-    """Format ToM result — show evidence / inference / policy sections."""
-    if not result or result.startswith("Unknown"):
-        return None  # type: ignore[return-value]
-
-    lines = result.splitlines()
-    out: list[str] = []
-    section = ""
-
-    for line in lines:
-        stripped = line.strip()
-        if not stripped:
-            continue
-        if stripped.startswith("## エビデンス"):
-            section = "evidence"
-            out.append("  📋 エビデンス")
-        elif stripped.startswith("## 推論"):
-            section = "inference"
-            out.append("  🔍 推論")
-        elif stripped.startswith("## 応答方針"):
-            section = "policy"
-            out.append("  💡 方針")
-        elif stripped.startswith("# ToM"):
-            out.append(f"  🧠 {stripped[2:]}")
-        elif stripped.startswith("- ") and section in ("evidence", "inference"):
-            out.append(f"    {stripped[:100]}")
-        elif section == "policy" and not stripped.startswith("#"):
-            out.append(f"    {stripped[:120]}")
-
-    return "\n".join(out) if out else None
 
 
 # ---------------------------------------------------------------------------

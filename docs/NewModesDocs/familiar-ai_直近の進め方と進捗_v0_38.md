@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.37）
+# familiar-ai 直近の進め方と進捗（v0.38）
+
+> v0.38：**旧 ToM ツールを完全撤去し、一人称 CoT へ置き換えた**（挙動変化）。実機で、直接の対話相手（現話者）にまで ToM が発火し、応答が三人称の「◯◯の視点分析」へ流れて一人称が崩れる挙動を確認した（ToM の出力そのもの・記憶汚染ではない）。真因は ToM の発火設計（説明文が「応答前に呼べ」と促す）＋三人称の出力枠＋捏造を許すプロンプト。`tools/tom.py` を削除（`tom`/`ToMTool` の src 参照 grep 0件・`attention_schema` の概念的 "Theory of Mind" は別物で対象外）、`SYSTEM_PROMPT` の `theory-of-mind` 制約を **`first-person-perspective-taking`** へ差し替え（応答前に、同席者と想起 MI に出てくる人それぞれの気持ち・望みを一人称で想像してから、自分として一人称で答える。三人称レポートで応答を置き換えない）。在席（知覚＝PMM 由来）を `(present :speaker … :others …)` で注入し、CoT が「誰を想像するか」を知る。対象を固定リストでなく W から作るので、拡散想起（流れ①・Phase 5）で W が深まれば自動で増える（段取り v0.23）。workspace coalition から ToM を外し、テスト側の tom 参照（`test_as_coalition` の ToM 節・`test_tom_llm` 等）も掃除。実際の一人称挙動は実機確認。次は在席スコア（p 軸）へ戻る。
 
 > v0.37：**顔認識の GPU 実行を実機で通した**（環境修正）。既定 PyPI の `onnxruntime-gpu` が CUDA 13 版（`libcudart.so.13` を要求）で、環境の CUDA 12.8（torch と共通）と不一致のため `import onnxruntime` ごと失敗し、顔認識が黙って無効化されていた。(1) insightface が引き込む CPU 版 `onnxruntime` を uv の `override-dependencies` で無効化（GPU 版と同じ import 名前空間を奪い合う事故を防ぐ）、(2) `onnxruntime-gpu` を公式 CUDA-12 索引（1.28.0・`python_version>='3.11'` マーカー付き＝requires-python は 3.10 のまま）へ固定。さらに onnxruntime は nvidia pip ホイールの CUDA/cuDNN を自動 load しないため `libcublasLt.so.12` が見つからず CPU に落ちていたので、`face._get_model` で FaceAnalysis 構築前に `onnxruntime.preload_dlls()` を呼ぶようにした。結果 buffalo_l の全モデルが `CUDAExecutionProvider`（CUDA 先頭）で動作。旧 deepface/resemblyzer と GUI(PySide6) は `uv sync --all-extras` で復元。確認手順（`nvidia-smi`／`ort.get_available_providers()`／各セッションの `get_providers()`）で GPU 実行を検証。次は GUI（気分・感情＋在席・話者・カメラ）。
 

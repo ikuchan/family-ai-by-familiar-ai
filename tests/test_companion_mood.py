@@ -113,7 +113,6 @@ class TestInferCompanionMood:
         agent._cached_companion_mood = "engaged"
 
         from familiar_agent.tools.memory import ObservationMemory, MemoryTool
-        from familiar_agent.tools.tom import ToMTool
         from familiar_agent.tools.coding import CodingTool
 
         agent._memory = MagicMock(spec=ObservationMemory)
@@ -123,7 +122,6 @@ class TestInferCompanionMood:
         agent._memory.format_semantic_facts_for_context = MagicMock(return_value="")
         agent._memory.format_behavior_policies_for_context = MagicMock(return_value="")
         agent._memory_tool = MagicMock(spec=MemoryTool)
-        agent._tom_tool = MagicMock(spec=ToMTool)
         agent._coding = MagicMock(spec=CodingTool)
 
         from familiar_agent.exploration import ExplorationTracker
@@ -294,14 +292,11 @@ class TestFrustratedBoostsDesire:
         agent._post_compact = False
 
         from familiar_agent.tools.memory import MemoryTool
-        from familiar_agent.tools.tom import ToMTool
         from familiar_agent.tools.coding import CodingTool
         from familiar_agent.relationship import PersonRegistry
 
         agent._memory_tool = MagicMock(spec=MemoryTool)
         agent._memory_tool.get_tool_definitions = MagicMock(return_value=[])
-        agent._tom_tool = MagicMock(spec=ToMTool)
-        agent._tom_tool.get_tool_definitions = MagicMock(return_value=[])
         agent._coding = MagicMock(spec=CodingTool)
         agent._persons = PersonRegistry(default_name="Kouta")
         agent._coding.get_tool_definitions = MagicMock(return_value=[])

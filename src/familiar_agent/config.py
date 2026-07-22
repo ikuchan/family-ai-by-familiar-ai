@@ -277,7 +277,7 @@ class AgentConfig:
     # Agent display name shown in TUI
     agent_name: str = field(default_factory=lambda: os.environ.get("AGENT_NAME", "AI"))
 
-    # Name of the companion/user shown in TUI and ToM tool
+    # Name of the companion/user shown in TUI
     companion_name: str = field(
         default_factory=lambda: os.environ.get("COMPANION_NAME", _default_companion_name())
     )

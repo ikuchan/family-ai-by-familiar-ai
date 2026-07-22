@@ -252,8 +252,6 @@ class TestPostCompactionRecall:
         agent._coding.get_tool_definitions = MagicMock(return_value=[])
         agent._memory_tool = MagicMock()
         agent._memory_tool.get_tool_definitions = MagicMock(return_value=[])
-        agent._tom_tool = MagicMock()
-        agent._tom_tool.get_tool_definitions = MagicMock(return_value=[])
 
         # Make stream_turn return end_turn immediately
         from familiar_agent.backend import TurnResult
