@@ -197,6 +197,11 @@ class MemoryConfig:
     recall_emotion_sigma: float = field(
         default_factory=lambda: _float_env("RECALL_EMOTION_SIGMA", 1.0)
     )
+    # 自己認識 MI（W が空のときのデフォルト感情・外部 MI が入れば一員として参加）の重み。
+    # 旧・activation 上限 C=2.0 の流用をやめ、支配しない薄い錨へ（emotion は REST が育てる）。
+    self_mi_weight: float = field(
+        default_factory=lambda: _float_env("SELF_MI_WEIGHT", 0.5)
+    )
 
 
 @dataclass

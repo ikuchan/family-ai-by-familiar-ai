@@ -24,9 +24,10 @@ def test_n_pad_empty_is_neutral() -> None:
 
 
 def test_n_pad_single_item_blends_with_flat() -> None:
-    # (2*v + C*0.5)/(2 + C)、C=2.0、weight=2.0
+    # (w*v + C*0.5)/(w + C)、C=0.5（既定 self_weight）、item weight=2.0
+    # p=(2*1.0+0.5*0.5)/2.5=0.9, pn=(2*0.0+0.25)/2.5=0.1
     n = compute_n_pad([(MoodPAD(1.0, 0.0, 1.0, 0.0), 2.0)])
-    assert n == MoodPAD(0.75, 0.25, 0.75, 0.25)
+    assert n == MoodPAD(0.9, 0.1, 0.9, 0.1)
 
 
 def test_n_pad_heavier_weight_pulls_further_from_flat() -> None:
@@ -35,8 +36,9 @@ def test_n_pad_heavier_weight_pulls_further_from_flat() -> None:
     assert heavy.p > light.p  # 重いほど 0.5 から 1.0 へ寄る
 
 
-def test_self_knowledge_weight_is_two() -> None:
-    assert SELF_KNOWLEDGE_MI_WEIGHT == 2.0
+def test_self_knowledge_weight_default_is_half() -> None:
+    # activation 上限 C=2.0 の流用をやめ、支配しない薄い錨（既定 0.5・Config で差替可）
+    assert SELF_KNOWLEDGE_MI_WEIGHT == 0.5
 
 
 # ── nudge_toward ────────────────────────────────────────────────────────────

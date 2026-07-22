@@ -1,4 +1,6 @@
-# familiar-ai 計測・設定値 根拠台帳（v0.9）
+# familiar-ai 計測・設定値 根拠台帳（v0.10）
+
+> v0.10：**mood がほとんど動かない件（§12）に最小・非破壊で対処**（挙動変化）。原因は自己認識 MI の重みが activation 上限 C=2.0 の**流用**で（意図して選んだ重みでない）、W の他の MI（想起記憶・現ターン感情 E_cur＝重み1.0）を常に上回り N_PAD を中立へ張り付かせていたこと。`SELF_KNOWLEDGE_MI_WEIGHT` を 2.0→**0.5**（Config `SELF_MI_WEIGHT`）へ下げ、自己認識 MI を「支配的な中立の錘」から「重み0.5の一員」へ。あわせて自己認識 MI の **emotion を固定中立のハードコードから `agent_state`（キー `self_mi_emotion`）＋Config 既定（中立）へ移し、REST 内省が書き換えられる器（`save_self_mi_emotion`）を用意**した（**emotion を育てるのは REST の役・課題10**。今回は書換口だけで REST へは未接続）。W に外部 MI が一つも入らないときは、自己認識 MI の emotion が N_PAD のデフォルトになる。試算：重み0.5なら E_cur(1.0)単独で N_PAD.p≈0.77（旧2.0では0.63）。**残る宿題**＝想起記憶側の activation：`a0=novelty` が保存経路に未実装（新規は列 DEFAULT 1.0・旧記憶は移行 importance の低値）＋ n が育たない（P-2 参照申告 未実装）。これらは記憶側 activation を意味あるものにする別作業。
 
 > v0.9：**§4 min_score の是正を反映**。min_score を生コサインの SQL 足切りから**合成 final score の soft 床**へ付け替え、既定 `RECALL_MIN_SCORE` を 0.05 起点にした（§3–4 の確定方針にコードを一致）。store の `by_vector` から `min_cosine` を撤去し素取得に戻し、床は `recall` が採点後に課す（床を課すとき候補を n×3・上限20 で過剰取得）。値は暫定で、確定は実データのスコア分布から。既定 0.05 は本番の想起集合を変える（挙動変化）ので実機確認へ申し送り。
 
