@@ -219,6 +219,30 @@ def test_find_near_duplicates_returns_pairs() -> None:
     assert frozenset([id_a, id_b]) in pair_ids
 
 
+def test_find_near_duplicates_failure_is_loud(caplog) -> None:
+    """失敗は握り潰さず error＋トレースで残し、[] で degrade（棚卸し find_near_dup）。"""
+    import logging
+    from unittest.mock import MagicMock
+
+    from familiar_agent.store.observations import ObservationStore
+
+    store = ObservationStore.__new__(ObservationStore)
+    ctx = MagicMock()
+    ctx.conn.return_value.cursor.side_effect = RuntimeError("boom")
+    store._ctx = ctx
+
+    with caplog.at_level(logging.ERROR, logger="familiar_agent.store.observations"):
+        result = store.find_near_duplicates()
+
+    assert result == []
+    assert any(
+        r.levelno >= logging.ERROR
+        and "find_near_duplicates failed" in r.getMessage()
+        and r.exc_info
+        for r in caplog.records
+    )
+
+
 def test_find_near_duplicates_skips_already_superseded() -> None:
     import numpy as np
     mem = _make_memory()

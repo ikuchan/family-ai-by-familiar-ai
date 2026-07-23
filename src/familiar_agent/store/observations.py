@@ -328,15 +328,19 @@ class ObservationStore:
             vecs = np.array([_decode_vector(bytes(r["vector"])) for r in rows], dtype=np.float32)
             norms = np.linalg.norm(vecs, axis=1, keepdims=True)
             vecs = vecs / np.where(norms > 1e-8, norms, 1.0)
-            pairs: list[tuple[str, str, float]] = []
-            for i in range(len(ids)):
-                for j in range(i + 1, len(ids)):
-                    sim = float(vecs[i] @ vecs[j])
-                    if sim >= threshold:
-                        pairs.append((ids[i], ids[j], sim))
-            return pairs
-        except Exception as e:
-            logger.warning("find_near_duplicates failed: %s", e); return []
+            # 全ペア類似度は BLAS の行列積で一括計算し、上三角（i<j）だけ取る。
+            # Python の O(n^2) 二重ループを避ける（出力は同一）。
+            sims = vecs @ vecs.T
+            iu, ju = np.triu_indices(len(ids), k=1)
+            mask = sims[iu, ju] >= threshold
+            return [
+                (ids[int(i)], ids[int(j)], float(sims[int(i), int(j)]))
+                for i, j in zip(iu[mask], ju[mask])
+            ]
+        except Exception:
+            # 失敗（復号・OOM 等）はトレース付きで loud に残す。idle 統合を落とさず [] で degrade。
+            logger.exception("find_near_duplicates failed")
+            return []
 
     def pick_seed_candidates(
         self,
