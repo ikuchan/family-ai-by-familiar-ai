@@ -10,6 +10,7 @@ from familiar_agent.core.drive_dynamics import (
     discharge,
     fired,
     g_d,
+    tick,
 )
 from familiar_agent.drive_register import AiDrivers
 from familiar_agent.mood_register import MoodPAD
@@ -79,3 +80,38 @@ def test_discharge_fired_drive_to_near_zero():
     out = discharge(d, f)
     assert out.seeking == pytest.approx(0.0, abs=_CFG.epsilon + 1e-9)  # ~0 へ全放電
     assert out.bond == pytest.approx(0.7)  # 発火していない軸は不変
+
+
+# ── 1 tick（蓄積→発火→放電）＝ループ接続 Slice 2a が呼ぶ純関数 ──────────────
+
+def test_tick_below_threshold_accumulates_without_firing():
+    d, f = tick(AiDrivers(), MoodPAD(), dt=_CFG.p_t)
+    assert f.any is False
+    assert d.seeking > 0.0  # 少し溜まった
+
+
+def test_tick_at_threshold_fires_and_discharges():
+    near = AiDrivers(seeking=_CFG.theta_fire)  # 閾値ちょうど
+    d, f = tick(near, MoodPAD(a=0.99), dt=_CFG.p_t)  # さらに積んで発火
+    assert f.seeking is True
+    assert d.seeking == pytest.approx(0.0, abs=_CFG.epsilon + 1e-3)  # 放電で ~0
+
+
+# ── 実 DB：ループ接続 Slice 2a の永続化経路（load→tick→save→load） ───────────
+
+def test_tick_persists_to_drive5():
+    import os
+
+    import psycopg2
+
+    from familiar_agent.drive_register import load_drives, save_drives
+
+    conn = psycopg2.connect(os.environ["DATABASE_URL"])
+    conn.autocommit = True
+    d0 = load_drives(conn)  # 空スタート（clean_db で agent_state truncate 済み）＝全0
+    d1, _ = tick(d0, MoodPAD(), dt=1.0)
+    save_drives(conn, d1)
+    d2 = load_drives(conn)
+    conn.close()
+    assert d2.seeking == pytest.approx(d1.seeking)
+    assert d2.seeking > 0.0  # 蓄積が永続化された

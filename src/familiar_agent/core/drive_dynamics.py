@@ -93,6 +93,22 @@ def fired(drives: AiDrivers, cfg: DriveConfig | None = None) -> DriveFiring:
     )
 
 
+def tick(
+    drives: AiDrivers, mood: MoodPAD, *, dt: float, cfg: DriveConfig | None = None
+) -> tuple[AiDrivers, DriveFiring]:
+    """1 tick 分の dynamics：蓄積 → 発火判定 → 発火なら放電。(新 drives, 発火) を返す。
+
+    ループ接続（Slice 2a）から呼ぶ純関数。DB も loop 制御も持たない（呼び出し側が
+    mood/drives を読み、結果を永続化する）。dt は前 tick からの実経過秒。
+    """
+    cfg = cfg or DriveConfig()
+    d = accumulate(drives, mood, dt=dt, cfg=cfg)
+    firing = fired(d, cfg)
+    if firing.any:
+        d = discharge(d, firing, cfg)
+    return d, firing
+
+
 def discharge(drives: AiDrivers, firing: DriveFiring, cfg: DriveConfig | None = None) -> AiDrivers:
     """発火した欲求を放電（q だけ引いて ~0 へ）。発火していない軸は不変。"""
     cfg = cfg or DriveConfig()

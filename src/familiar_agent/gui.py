@@ -1902,6 +1902,33 @@ class FamiliarWindow(QMainWindow):
     # Agent loop
     # ------------------------------------------------------------------
 
+    def _tick_drives(self, dt: float) -> None:
+        """新5欲求の1 tick（現 mood で蓄積・発火・放電）を drive5 へ永続化（Slice 2a）。
+
+        自発ターン（行動）へは接続しない＝legacy DesireSystem が従来どおり駆動するので
+        挙動は不変。dt は前 tick からの実経過秒。失敗は degrade（アイドルを落とさない）。
+        """
+        if dt <= 0.0:
+            return
+        try:
+            from .core import drive_dynamics as dd
+            from .db import get_db
+            from .drive_register import load_drives, save_drives
+            from .mood_register import load_current_mood
+
+            mood = load_current_mood()  # 自己接続で db.lock を取り、抜ける（再入回避）
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                drives = load_drives(conn)
+                drives, firing = dd.tick(drives, mood, dt=dt)
+                save_drives(conn, drives)
+                conn.commit()
+            if firing.any:
+                logger.info("Drive fired (Slice 2a・行動は未接続): %s", firing)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("drive tick failed: %s", e)
+
     async def _process_queue(self) -> None:
         """Dequeue user messages and run the agent; fire desires when idle."""
         last_interaction = time.time()
@@ -1916,6 +1943,13 @@ class FamiliarWindow(QMainWindow):
                     continue
                 # Always grow desires regardless of cooldown or auto_desire setting.
                 self._desires.tick()
+
+                # 新5欲求の dynamics を回す（Drive 起動源 Slice 2a・観測用・行動は未接続）。
+                # 現 mood で蓄積・発火・放電して drive5 へ永続化する。GUI の DrivePanel で
+                # 新5欲求が実時間で動くのが見える。自発ターンは legacy DesireSystem が従来どおり。
+                _drive_now = time.time()
+                self._tick_drives(_drive_now - getattr(self, "_last_drive_tick", _drive_now))
+                self._last_drive_tick = _drive_now
 
                 # Deliver completed deferred search/fetch results immediately (bypasses cooldown).
                 agent = getattr(self, "_agent", None)
