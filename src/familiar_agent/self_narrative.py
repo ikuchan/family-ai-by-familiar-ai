@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import logging
-from datetime import date, datetime
+from datetime import date
+from .store import clock
 from pathlib import Path
 from typing import TYPE_CHECKING, NamedTuple
 
@@ -40,7 +41,7 @@ class SelfNarrative:
             return
         try:
             db = get_db()
-            now = datetime.utcnow().isoformat()
+            now = clock.now_utc_iso()
             with db.lock:
                 conn = db.conn()
                 with conn.cursor() as cur:

@@ -9,7 +9,8 @@ from __future__ import annotations
 import json
 import logging
 import time
-from datetime import date, datetime
+from datetime import date
+from .store import clock
 from pathlib import Path
 
 import psycopg2.extras
@@ -114,7 +115,7 @@ class RelationshipTracker:
 
     def _save(self) -> None:
         try:
-            now = datetime.utcnow().isoformat()
+            now = clock.now_utc_iso()
             value_json = json.dumps(self._state, ensure_ascii=False)
             with self._lock:
                 conn = self._db.conn()

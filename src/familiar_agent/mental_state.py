@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
+from .store import clock
 import json
 import logging
 from pathlib import Path
@@ -208,7 +208,7 @@ class WorkingMemoryItem:
     salience: float = 0.5
     tags: tuple[str, ...] = ()
     episode_id: str | None = None
-    created_at: str = field(default_factory=lambda: datetime.utcnow().isoformat())
+    created_at: str = field(default_factory=lambda: clock.now_utc_iso())
 
     def sanitized(self) -> "WorkingMemoryItem":
         return WorkingMemoryItem(
@@ -253,7 +253,7 @@ class MentalStateSnapshot:
     def from_json_dict(cls, data: dict[str, Any]) -> "MentalStateSnapshot":
         return cls(
             turn_index=int(data.get("turn_index", 0)),
-            created_at=str(data.get("created_at") or datetime.utcnow().isoformat()),
+            created_at=str(data.get("created_at") or clock.now_utc_iso()),
             interoception=InteroceptiveSignal(**dict(data.get("interoception", {}))),
             affect=AffectiveState(**dict(data.get("affect", {}))),
             social=SocialState(**dict(data.get("social", {}))),

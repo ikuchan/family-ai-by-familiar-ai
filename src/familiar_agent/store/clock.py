@@ -43,12 +43,32 @@ def now_utc() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def now_local_iso() -> str:
-    """TEXT 列へ入れる現在時刻（ローカル・tz なしの ISO 文字列）。
+def now_utc_iso() -> str:
+    """TEXT 時刻列へ入れる現在時刻（UTC・tz 付きの ISO 文字列＝`+00:00`）。
 
-    既存行と文字列比較するため、tz を付けない。
+    DB は UTC で管理する（保存列はこれを使う）。aware なので `+00:00` が付き、
+    naive との取り違えが起きない。
+    """
+    return datetime.now(timezone.utc).isoformat()
+
+
+def now_local_iso() -> str:
+    """ローカル暦日境界の計算に使う現在時刻（ローカル・tz なしの ISO 文字列）。
+
+    保存列には使わない（保存は `now_utc_iso()`＝UTC）。`timestamp::date >= cutoff`
+    のように、セッション TZ でローカル化された timestamptz と**ローカル暦日**で
+    突き合わせる計算に限って使う（UTC 化すると日境界が9時間ずれる）。
     """
     return datetime.now().isoformat()
+
+
+def now_local_str() -> str:
+    """プロンプト表示用の現在時刻＝OS のローカル時刻にタイムゾーンを付記した文字列。
+
+    例：`2026-07-23 15:00 JST(+0900)`。DB は UTC で持つが、プロンプト上は OS が持つ
+    タイムゾーンを添えて見せる。
+    """
+    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z(%z)")
 
 
 def end_of_day_utc(date_str: str) -> datetime:

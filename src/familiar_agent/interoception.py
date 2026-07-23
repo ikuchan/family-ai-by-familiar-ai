@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
 import time
 from typing import Protocol
 
 from .mental_state import InteroceptiveSignal
+from .store import clock
 
 
 def _clamp01(value: float) -> float:
@@ -35,7 +36,7 @@ class NoopInteroceptionProvider:
     def collect(self) -> InteroceptiveSignal:
         return InteroceptiveSignal(
             provider="noop",
-            observed_at=datetime.utcnow().isoformat(),
+            observed_at=clock.now_utc_iso(),
         )
 
 
@@ -72,7 +73,7 @@ class RuntimeInteroceptionProvider:
         social_openness = _clamp01(0.58 - (0.18 if quiet else 0.0) - body_stress * 0.25)
         return InteroceptiveSignal(
             provider="runtime",
-            observed_at=datetime.utcnow().isoformat(),
+            observed_at=clock.now_utc_iso(),
             local_hour=hour,
             quiet_hours=quiet,
             energy=_clamp01(energy),
@@ -133,7 +134,9 @@ class MCPInteroceptionProvider:
             observed = datetime.fromisoformat(observed_at.replace("Z", "+00:00"))
         except ValueError:
             return True
-        now = datetime.now(observed.tzinfo) if observed.tzinfo else datetime.utcnow()
+        if observed.tzinfo is None:
+            observed = observed.replace(tzinfo=timezone.utc)  # naive は UTC とみなす（DB=UTC）
+        now = clock.now_utc()
         return observed >= now - timedelta(seconds=self._max_staleness_seconds)
 
     def collect(self) -> InteroceptiveSignal:
@@ -146,7 +149,7 @@ class MCPInteroceptionProvider:
             or signal_payload.get("timestamp")
             or payload.get("observed_at")
             or payload.get("timestamp")
-            or datetime.utcnow().isoformat()
+            or clock.now_utc_iso()
         )
         if not self._payload_is_fresh(observed_at):
             return NoopInteroceptionProvider().collect()

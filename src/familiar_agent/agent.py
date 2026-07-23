@@ -12,6 +12,8 @@ import time
 from collections.abc import Callable, Coroutine, Mapping
 from datetime import datetime
 from pathlib import Path
+
+from .store import clock  # noqa: E402  時刻方針（DB=UTC・プロンプトは OS tz）の正本
 from typing import Any
 
 from .backend import AnthropicBackend, create_backend, create_scene_backend, create_utility_backend
@@ -1718,7 +1720,7 @@ class EmbodiedAgent:
             except Exception:
                 present_ctx = ""
 
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M")
+        now_str = clock.now_local_str()  # OS ローカル時刻＋タイムゾーン付記（例 2026-07-23 15:00 JST(+0900)）
         datetime_ctx = f"(now :datetime \"{now_str}\")"
         variable_parts: list[str] = [intero, datetime_ctx, speaker_ctx]
         if present_ctx:
@@ -1885,7 +1887,7 @@ class EmbodiedAgent:
         ]
         return MentalStateSnapshot(
             turn_index=self._turn_count,
-            created_at=datetime.utcnow().isoformat(),
+            created_at=clock.now_utc_iso(),
             interoception=interoception_signal,
             affect=affect,
             social=SocialState(
