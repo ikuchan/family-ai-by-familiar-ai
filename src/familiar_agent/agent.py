@@ -58,7 +58,7 @@ from .prediction import PredictionEngine
 from .social_policy import SocialPolicyDecision, SocialPolicyEngine
 from .workspace import GlobalWorkspace
 from .memory_worker import MemoryJobWorker
-from .tape import check_plan_blocked, generate_plan, generate_replan
+from .legacy.tape import check_plan_blocked, generate_plan, generate_replan
 from .tools.camera import CameraTool
 from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool

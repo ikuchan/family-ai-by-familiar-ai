@@ -19,6 +19,16 @@ services:
   db-test:
     image: pgvector/pgvector:pg16
     profiles: ["test"]
+    # テスト DB は永続性不要（データは毎回作り直す）。fsync/WAL 同期を切って、
+    # 並列化で増えた複数 DB があっても起動・再起動を速くする。本番 db には付けない。
+    command:
+      - "postgres"
+      - "-c"
+      - "fsync=off"
+      - "-c"
+      - "synchronous_commit=off"
+      - "-c"
+      - "full_page_writes=off"
     environment:
       POSTGRES_USER: familiar
       POSTGRES_PASSWORD: familiar

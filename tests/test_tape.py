@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from familiar_agent.tape import (
+from familiar_agent.legacy.tape import (
     check_plan_blocked,
     generate_plan,
     generate_replan,
