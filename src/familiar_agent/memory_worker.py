@@ -72,7 +72,12 @@ class MemoryJobWorker:
                     self._config.retry_delay_sec,
                     self._config.max_attempts,
                 )
-                logger.warning("Memory job failed (job_id=%s, status=%s): %s", job_id, status, e)
+                # dead_letter＝retry 上限を超えて永続的に失敗＝完了できなかった操作は error。
+                # retry 上限内（status="pending"）の再試行は warning のまま。
+                if status == "dead_letter":
+                    logger.error("Memory job dead-lettered (job_id=%s): %s", job_id, e, exc_info=True)
+                else:
+                    logger.warning("Memory job failed, will retry (job_id=%s, status=%s): %s", job_id, status, e)
         return len(jobs)
 
     async def _run_loop(self) -> None:

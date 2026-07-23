@@ -87,7 +87,8 @@ class JobQueue:
                 conn.commit()
                 return eid, True
         except Exception as e:
-            logger.warning("append_memory_event failed: %s", e)
+            # enqueue 失敗。save 側は直接 save へフォールバックする回復経路。trace は残す。
+            logger.warning("append_memory_event failed: %s", e, exc_info=True)
             return None, False
 
     async def append_memory_event_async(self, *a, **kw):

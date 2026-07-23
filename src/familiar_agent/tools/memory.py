@@ -556,7 +556,8 @@ class ObservationMemory:
                 if not materialize_now and event_id:
                     return True
             except Exception as e:
-                logger.warning("append_memory_event failed, continuing with direct save: %s", e)
+                # 直接 save へフォールバックする回復経路。trace は残す。
+                logger.warning("append_memory_event failed, continuing with direct save: %s", e, exc_info=True)
             obs_id = event_id or str(uuid.uuid4())
             _cfg = MemoryConfig()
             return self._observations.materialize_save_event(
@@ -571,8 +572,10 @@ class ObservationMemory:
                 novelty_default=_cfg.novelty_default,
                 novelty_a0_cap=_cfg.novelty_a0_cap,
             )
-        except Exception as e:
-            logger.warning("save failed: %s", e)
+        except Exception:
+            # 保存の失敗（埋め込み次元不一致・モデル未ロード・コードバグ等の決定的
+            # エラーを含む）はトレース付きで loud に残す。返りは False（ターンは落とさない）。
+            logger.exception("save failed")
             return False
 
     def save_with_id(self, content: str, **kwargs) -> tuple[str | None, bool]:
@@ -601,8 +604,8 @@ class ObservationMemory:
                 scope=kwargs.get("scope", "speaker"),
             )
             return (obs_id if ok else None), ok
-        except Exception as e:
-            logger.warning("save_with_id failed: %s", e)
+        except Exception:
+            logger.exception("save_with_id failed")
             return None, False
 
     async def save_async(self, *a, **kw) -> bool:
