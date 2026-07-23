@@ -1142,8 +1142,11 @@ class MemoryTool:
         self._notes_registered_this_turn: int = 0
 
     @property
-    def _write_store(self) -> ObservationMemory | None:
-        return self._manager.get_speaker_memory()
+    def _write_store(self) -> ObservationMemory:
+        # 話者未解決（声/カメラ/明示のどれも無い＝単独テキスト等）でも書けるよう、
+        # 既定話者 DEFAULT_PERSON_ID の記憶へフォールバックする（優先度の floor）。
+        # 自動ターン永続化の _active_memory と同じく、書き込みは常に person へ帰属させる。
+        return self._manager.get_speaker_memory() or self._manager.get_memory_for(DEFAULT_PERSON_ID)
 
     @property
     def _agent_store(self) -> ObservationMemory:
@@ -1235,14 +1238,13 @@ class MemoryTool:
         link_type  = inp.get("link_type", "related")
 
         present_ids = self._manager.get_present_ids()
-        speaker_id  = self._manager.current_speaker_id
+        # 話者未解決なら既定話者 DEFAULT_PERSON_ID を writer/subject に使う（floor）。
+        speaker_id  = self._manager.current_speaker_id or DEFAULT_PERSON_ID
         results: list[str] = []
 
         # speaker
         if scope in ("speaker", "all"):
-            store = self._write_store
-            if store is None:
-                return "話者不明のため書き込めません。declare_speaker を先に呼んでください。", None
+            store = self._write_store  # フォールバックで None にならない
             mem_id, ok = await store.save_async_with_id(
                 content, kind="utterance", emotion=emotion,
                 image_path=image_path,
