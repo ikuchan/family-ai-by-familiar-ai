@@ -28,7 +28,7 @@ from typing import Any
 
 from .backend import AnthropicBackend, create_backend, create_scene_backend, create_utility_backend
 from .appraisal import AppraisalContext, AppraisalEngine
-from .config import AgentConfig, MemoryConfig, PendingSpeechConfig
+from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
 from .interoception import (
@@ -656,6 +656,77 @@ class EmbodiedAgent:
         except Exception as e:
             logger.warning("cache heartbeat loop exited unexpectedly: %s", e)
 
+    def _drive_config(self) -> DriveConfig:
+        cfg = getattr(self, "_drive_cfg_cache", None)
+        if cfg is None:
+            cfg = self._drive_cfg_cache = DriveConfig()
+        return cfg
+
+    async def _maybe_discharge_satisfied_drives(
+        self,
+        *,
+        user_input: str,
+        final_text: str,
+        emotion_pad: MoodPAD,
+        memories: list[dict] | None,
+        camera_used: bool,
+        is_desire_turn: bool,
+    ) -> None:
+        """ターン完了時、満たされた drive を軽量LLMで判定し発火時と同じ全放電で沈静化する。
+
+        ゲートは drive 値でなく W/MI（memories）・E（PAD 距離）・行動から作る（鎮静対象を
+        その値でゲートする循環を避ける）。既定 off。応答クリティカルパス外（本 pipeline 内）。
+        """
+        cfg = self._drive_config()
+        if not cfg.satisfy_llm:
+            return
+        from .core.drive_satisfaction import (
+            apply_satisfaction,
+            pad_distance,
+            parse_satisfied_axes,
+            satisfaction_gate,
+        )
+
+        pad_move = pad_distance(emotion_pad, MoodPAD())  # 中立からのズレ＝affect の大きさ（上下両方向）
+        if not satisfaction_gate(
+            memories_nonempty=bool(memories),
+            pad_move=pad_move,
+            action_used=camera_used or is_desire_turn,
+            cfg=cfg,
+        ):
+            return
+
+        prompt = (
+            "次の対話ターンで、エージェント自身のどの欲求が『満たされた』かを判定してください。\n"
+            "欲求は5つ：seeking（探索・好奇心）／rest（休息・鎮まり）／bond（つながり・絆）／"
+            "safety（安全・安心）／esteem（承認・役立ち）。\n"
+            "満たされたものだけを小文字の名前で列挙し、無ければ none とだけ答えてください。\n"
+            f"[ユーザー] {user_input[:400]}\n[エージェント] {final_text[:400]}"
+        )
+        try:
+            raw = await self._utility_backend.complete(prompt, max_tokens=32)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("satisfaction check LLM failed: %s", e)
+            return
+        axes = parse_satisfied_axes(raw)
+        if not axes:
+            return
+
+        from .db import get_db
+        from .drive_register import load_drives, save_drives
+
+        try:
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                drives = load_drives(conn)
+                drives = apply_satisfaction(drives, axes)
+                save_drives(conn, drives)
+                conn.commit()
+            logger.info("Drive satisfied → discharged: %s", sorted(axes))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("satisfaction discharge persist failed: %s", e)
+
     async def _run_post_response_pipeline(
         self,
         *,
@@ -690,6 +761,16 @@ class EmbodiedAgent:
         ]
         _nudge_items.append((emotion_pad, 1.0))
         nudge_current_mood(_nudge_items)
+
+        # 案Y：満たされた drive を軽量LLMで判定し発火時と同じ全放電で沈静化（既定 off）。
+        await self._maybe_discharge_satisfied_drives(
+            user_input=user_input,
+            final_text=final_text,
+            emotion_pad=emotion_pad,
+            memories=memories,
+            camera_used=camera_used,
+            is_desire_turn=is_desire_turn,
+        )
 
         try:
             if camera_used:

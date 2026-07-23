@@ -104,3 +104,48 @@ def test_apply_satisfaction_empty_noop():
     src = AiDrivers(bond=0.9)
     out = apply_satisfaction(src, frozenset())
     assert out.bond == pytest.approx(0.9)
+
+
+# ── agent 結線：フラグ／ゲートで軽量LLM の起動可否（DB 非依存） ──────────────
+
+import asyncio  # noqa: E402
+from unittest.mock import AsyncMock, MagicMock  # noqa: E402
+
+from familiar_agent.agent import EmbodiedAgent  # noqa: E402
+
+
+def _mock_agent(satisfy_llm: bool, complete_ret: str = "none"):
+    cfg = DriveConfig()
+    cfg.satisfy_llm = satisfy_llm
+    s = MagicMock()
+    s._drive_config = lambda: cfg
+    s._utility_backend = MagicMock()
+    s._utility_backend.complete = AsyncMock(return_value=complete_ret)
+    return s
+
+
+def _run(s, **kw):
+    asyncio.run(EmbodiedAgent._maybe_discharge_satisfied_drives(s, **kw))
+
+
+def test_wiring_flag_off_skips_llm():
+    s = _mock_agent(satisfy_llm=False)
+    _run(s, user_input="hi", final_text="ok", emotion_pad=MoodPAD(p=0.9, a=0.9),
+         memories=[{"x": 1}], camera_used=True, is_desire_turn=False)
+    s._utility_backend.complete.assert_not_called()
+
+
+def test_wiring_gate_fail_skips_llm():
+    # フラグ on でも、W空・E中立・行動なし＝ゲート不成立で LLM を呼ばない
+    s = _mock_agent(satisfy_llm=True)
+    _run(s, user_input="hi", final_text="ok", emotion_pad=MoodPAD(),
+         memories=None, camera_used=False, is_desire_turn=False)
+    s._utility_backend.complete.assert_not_called()
+
+
+def test_wiring_gate_pass_calls_llm():
+    # W 非空でゲート成立 → LLM 起動（none 応答なので DB へは行かない）
+    s = _mock_agent(satisfy_llm=True, complete_ret="none")
+    _run(s, user_input="hi", final_text="ok", emotion_pad=MoodPAD(),
+         memories=[{"x": 1}], camera_used=False, is_desire_turn=False)
+    s._utility_backend.complete.assert_awaited_once()
