@@ -60,7 +60,7 @@ class JobQueue:
         queue_job: bool = True,
         job_type: str = "materialize_observation",
     ) -> tuple[str | None, bool]:
-        now = clock.now_local_iso()
+        now = clock.now_utc_iso()
         payload_json = json.dumps(payload, ensure_ascii=False, separators=(",",":"), sort_keys=True)
         try:
             with self._ctx.lock:
@@ -94,7 +94,7 @@ class JobQueue:
         return await asyncio.to_thread(self.append_memory_event, *a, **kw)
 
     def claim_pending_jobs(self, limit: int = 10) -> list[dict]:
-        now = clock.now_local_iso()
+        now = clock.now_utc_iso()
         claimed = []
         with self._ctx.lock:
             conn = self._ctx.conn()
@@ -138,13 +138,13 @@ class JobQueue:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE memory_jobs SET status='done',updated_at=%s,last_error=NULL WHERE job_id=%s",
-                    (clock.now_local_iso(), job_id),
+                    (clock.now_utc_iso(), job_id),
                 )
             conn.commit()
             return True
 
     def mark_job_failed(self, job_id: str, error: str, retry_delay: float = 10.0, max_attempts: int = 3) -> str:
-        now = datetime.fromisoformat(clock.now_local_iso())
+        now = datetime.fromisoformat(clock.now_utc_iso())
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:

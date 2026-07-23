@@ -150,7 +150,7 @@ class SituatedVectors:
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE persons SET perspective_vec = %s, updated_at = %s WHERE id = %s",
-                    (blob, clock.now_local_iso(), person_id),
+                    (blob, clock.now_utc_iso(), person_id),
                 )
             conn.commit()
 

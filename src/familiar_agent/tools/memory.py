@@ -377,7 +377,7 @@ class ObservationMemory:
     @staticmethod
     def _now() -> str:
         """TEXT 列向けの現在時刻（store/clock.py の使い分けに従う）。"""
-        return clock.now_local_iso()
+        return clock.now_utc_iso()
 
 
     # ── 層への委譲 ────────────────────────────────────────────────────────
@@ -1041,7 +1041,7 @@ class ObservationMemory:
     ) -> str:
         """Create an open unfinished-business record and return its ID."""
         item_id = str(uuid.uuid4())
-        now = clock.now_local_iso()
+        now = clock.now_utc_iso()
         sql = (
             "INSERT INTO unfinished_business "
             "(id,summary,status,source,related_memory_id,metadata_json,created_at) "

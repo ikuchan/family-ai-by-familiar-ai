@@ -25,7 +25,7 @@ class PersonRegistry:
 
     def register_person(self, name: str, display_name: str = "", person_id: str | None = None) -> str:
         pid = person_id or str(uuid.uuid4())
-        now = clock.now_local_iso()
+        now = clock.now_utc_iso()
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:

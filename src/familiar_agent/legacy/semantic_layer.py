@@ -73,7 +73,7 @@ class LegacySemanticLayer:
         tags: str = "",
     ) -> None:
         """Upsert a semantic fact inside an already-held lock; record a revision if the text changes."""
-        now = clock.now_local_iso()
+        now = clock.now_utc_iso()
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, fact_text, confidence FROM semantic_facts "
@@ -123,7 +123,7 @@ class LegacySemanticLayer:
         confidence: float = 0.5,
         source_memory_id: str | None = None,
     ) -> None:
-        now = clock.now_local_iso()
+        now = clock.now_utc_iso()
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT id, policy_text, confidence FROM behavior_policies "
@@ -192,7 +192,7 @@ class LegacySemanticLayer:
         self, key: str, delta: float, reason: str = ""
     ):
         try:
-            now = clock.now_local_iso()
+            now = clock.now_utc_iso()
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
@@ -256,7 +256,7 @@ class LegacySemanticLayer:
         self, key: str, delta: float, reason: str = ""
     ):
         try:
-            now = clock.now_local_iso()
+            now = clock.now_utc_iso()
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
@@ -356,7 +356,7 @@ class LegacySemanticLayer:
                     cur.execute(
                         "INSERT INTO memory_links (id,source_id,target_id,link_type,note,created_at) "
                         "VALUES (%s,%s,%s,%s,%s,%s) ON CONFLICT DO NOTHING",
-                        (str(uuid.uuid4()), src, tgt, link_type, note, clock.now_local_iso()),
+                        (str(uuid.uuid4()), src, tgt, link_type, note, clock.now_utc_iso()),
                     )
                 conn.commit()
             return True

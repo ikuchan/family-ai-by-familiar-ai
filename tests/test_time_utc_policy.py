@@ -33,6 +33,32 @@ def test_working_memory_item_created_at_is_aware_utc():
     assert dt.tzinfo is not None  # naive utcnow ではなく aware
 
 
+def test_now_local_iso_only_in_local_calendar_boundary():
+    """完了条件：`now_local_iso()` の呼び出しは observations の暦日境界だけ（保存列は UTC）。"""
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent / "src" / "familiar_agent"
+    callers = []
+    for p in root.rglob("*.py"):
+        if p.name == "clock.py":
+            continue  # 定義・docstring は対象外
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            if "now_local_iso()" in line:
+                callers.append(f"{p.name}:{i}")
+    # 許可されるのは observations.py の cutoff（ローカル暦日境界）のみ。
+    assert callers == ["observations.py:472"] or all(
+        c.startswith("observations.py") for c in callers
+    ), callers
+
+
+def test_now_utc_iso_used_for_storage_returns_aware():
+    """保存列向けの `_now()`（now_utc_iso）が aware を返す。"""
+    from familiar_agent.tools.memory import ObservationMemory
+
+    dt = datetime.fromisoformat(ObservationMemory._now())
+    assert dt.tzinfo is not None
+
+
 def test_no_naive_utcnow_remains_in_src():
     """完了条件：src に naive `utcnow()` が残っていない（grep 0）。"""
     import pathlib
