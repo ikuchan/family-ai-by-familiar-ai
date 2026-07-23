@@ -269,10 +269,14 @@ class RecognitionConfig:
     # 自動切替しきい値（cosine）＝「話者を切り替えるほど確信あるか」。認識より少し上。
     # cosine 尺度が顔・声で違うため source 別に持つ（仮置き・実機で調整）。
     face_switch_threshold: float = field(
-        default_factory=lambda: _float_env("FACE_SWITCH_THRESHOLD", 0.45)
+        default_factory=lambda: _float_env("FACE_SWITCH_THRESHOLD", 0.65)
     )
     voice_switch_threshold: float = field(
         default_factory=lambda: _float_env("VOICE_SWITCH_THRESHOLD", 0.35)
+    )
+    # 在席巡回（CameraPresenceWatcher）の周期（秒）。低頻度で誤確定・負荷を抑える。
+    presence_interval_sec: float = field(
+        default_factory=lambda: _float_env("PRESENCE_INTERVAL_SEC", 30.0)
     )
     # InsightFace のモデルパックと onnxruntime プロバイダ（CUDA→CPU フォールバック）。
     face_model: str = field(

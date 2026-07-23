@@ -905,7 +905,11 @@ class EmbodiedAgent:
             logger.warning("SceneTracker init failed: %s", exc)
 
         if self._camera:
-            self._presence_watcher = CameraPresenceWatcher(self._pmm, camera=self.config.camera)
+            self._presence_watcher = CameraPresenceWatcher(
+                self._pmm,
+                camera=self.config.camera,
+                interval_sec=self.config.recognition.presence_interval_sec,
+            )
 
         # Register family members from FAMILY.md into persons DB
         self._register_family_from_md()

@@ -74,7 +74,7 @@ def test_recognition_config_defaults(monkeypatch):
     cfg = RecognitionConfig()
     assert cfg.face_threshold == pytest.approx(0.35)
     assert cfg.voice_threshold == pytest.approx(0.25)
-    assert cfg.face_switch_threshold == pytest.approx(0.45)
+    assert cfg.face_switch_threshold == pytest.approx(0.65)
     assert cfg.voice_switch_threshold == pytest.approx(0.35)
 
 
