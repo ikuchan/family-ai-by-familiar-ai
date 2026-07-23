@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .store import clock  # noqa: E402  時刻方針（DB=UTC・プロンプトは OS tz）の正本
+from .core import parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
 from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内部利用＋既存の import 経路を保つ再輸出
     _call_optional_async,
     _interoception,
@@ -184,10 +185,6 @@ _COMPLEX_QUERY_RE = re.compile(
 # Message prefix formats:
 #   [太郎] こんにちは    →  speaker=太郎, text="こんにちは"
 #   @Yuki: どうした？   →  speaker=Yuki,  text="どうした？"
-_SPEAKER_PREFIX_RE = re.compile(
-    r"^[\[［]([^\]］]+)[\]］]\s*(.*)$|^@([^\s:：]+)[:\s：]\s*(.*)$",
-    re.DOTALL,
-)
 # /speaker [name]  — set session-default speaker
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:\s+(.+))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
@@ -563,11 +560,11 @@ class EmbodiedAgent:
 
         # Auto-populate names from MD files when env vars are not explicitly set
         if not os.environ.get("AGENT_NAME"):
-            me_name = self._parse_me_name(self._me_md)
+            me_name = parsing.parse_me_name(self._me_md)
             if me_name:
                 config.agent_name = me_name
         if not os.environ.get("COMPANION_NAME"):
-            members = self._parse_family_md(self._family_md)
+            members = parsing.parse_family_md(self._family_md)
             if members:
                 first_call = members[0]["display_name"].split("、")[0].split(",")[0].strip()
                 if first_call:
@@ -1351,14 +1348,6 @@ class EmbodiedAgent:
                     pass
         return ""
 
-    @staticmethod
-    def _parse_me_name(text: str) -> str:
-        """Extract the AI's name from ME.md. Returns empty string if not found."""
-        m = re.search(r"名前\s*[：:]\s*(.+)", text)
-        if not m:
-            return ""
-        return m.group(1).strip()
-
     def _load_family_md(self) -> str:
         """Load FAMILY.md family-member descriptions if it exists."""
         from pathlib import Path
@@ -1375,45 +1364,12 @@ class EmbodiedAgent:
                     pass
         return ""
 
-    @staticmethod
-    def _parse_family_md(text: str) -> list[dict]:
-        """Parse FAMILY.md into a list of {name, display_name} dicts.
-
-        Supports the FAMILY-template.md format:
-          ## Section heading
-          - **名前**：田中太郎
-          - **呼び方**：お父さん
-        """
-        if not text:
-            return []
-
-        _NAME_RE = re.compile(r"[-*]\s*\*{0,2}名前\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
-        _CALL_RE = re.compile(r"[-*]\s*\*{0,2}呼び方\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
-        _TEMPLATE_SKIP = re.compile(r"^[（(].*[）)]$")
-
-        members: list[dict] = []
-        # Split on level-2 headings; each section describes one person
-        sections = re.split(r"\n(?=##\s)", "\n" + text)
-        for section in sections:
-            name_m = _NAME_RE.search(section)
-            if not name_m:
-                continue
-            name = name_m.group(1).strip()
-            if not name or _TEMPLATE_SKIP.match(name):
-                continue
-            call_m = _CALL_RE.search(section)
-            display_name = call_m.group(1).strip() if call_m else ""
-            if display_name and _TEMPLATE_SKIP.match(display_name):
-                display_name = ""
-            members.append({"name": name, "display_name": display_name or name})
-        return members
-
     def _register_family_from_md(self) -> None:
         """Register FAMILY.md members in the persons DB and pre-seed PersonRegistry.
 
         Idempotent: existing persons are returned as-is (same UUID each run).
         """
-        members = self._parse_family_md(self._family_md)
+        members = parsing.parse_family_md(self._family_md)
         if not members:
             return
         for m in members:
@@ -2702,9 +2658,10 @@ class EmbodiedAgent:
                 await asyncio.wait_for(self._mcp.stop(), timeout=2.0)
             except (asyncio.TimeoutError, Exception):
                 pass
-        if getattr(self, "_presence_watcher", None):
+        _pw = getattr(self, "_presence_watcher", None)
+        if _pw is not None:
             try:
-                await asyncio.wait_for(self._presence_watcher.stop(), timeout=1.0)
+                await asyncio.wait_for(_pw.stop(), timeout=1.0)
             except (asyncio.TimeoutError, Exception):
                 pass
         try:
@@ -2762,18 +2719,6 @@ class EmbodiedAgent:
         asyncio.ensure_future(self._sync_pmm_speaker(name_arg))
         return f"[話者を「{name_arg}」に切り替えました]"
 
-    @staticmethod
-    def _extract_speaker_prefix(user_input: str) -> tuple[str, str | None]:
-        """Parse [name] or @name: prefix. Return (stripped_text, speaker_name | None)."""
-        m = _SPEAKER_PREFIX_RE.match(user_input)
-        if not m:
-            return user_input, None
-        if m.group(1) is not None:
-            # [name] format
-            return (m.group(2) or "").strip(), m.group(1).strip()
-        # @name: format
-        return (m.group(4) or "").strip(), m.group(3).strip()
-
     def _handle_reload_command(self, user_input: str) -> str | None:
         """Reload ME.md and FAMILY.md without restarting. Returns status string or None."""
         if not _RELOAD_COMMAND_RE.match(user_input.strip()):
@@ -2790,7 +2735,7 @@ class EmbodiedAgent:
         if self._me_md != old_me:
             lines.append("• ME.md を更新しました")
             if not os.environ.get("AGENT_NAME"):
-                me_name = self._parse_me_name(self._me_md)
+                me_name = parsing.parse_me_name(self._me_md)
                 if me_name:
                     self.config.agent_name = me_name
         else:
@@ -2799,7 +2744,7 @@ class EmbodiedAgent:
             lines.append("• FAMILY.md を更新しました")
             self._register_family_from_md()
             if not os.environ.get("COMPANION_NAME"):
-                members = self._parse_family_md(self._family_md)
+                members = parsing.parse_family_md(self._family_md)
                 if members:
                     first_call = members[0]["display_name"].split("、")[0].split(",")[0].strip()
                     if first_call:
@@ -2919,7 +2864,7 @@ class EmbodiedAgent:
             return _speaker_reply
 
         # Parse [name] / @name: prefix; strip it from user_input for the LLM.
-        user_input, _speaker_from_prefix = self._extract_speaker_prefix(user_input)
+        user_input, _speaker_from_prefix = parsing.extract_speaker_prefix(user_input)
         if _speaker_from_prefix:
             self._persons.set_active(_speaker_from_prefix)
             await self._sync_pmm_speaker(_speaker_from_prefix)
