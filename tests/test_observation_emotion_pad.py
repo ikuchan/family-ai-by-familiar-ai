@@ -8,6 +8,8 @@ recall は無変更で列は誰も読まない（外部挙動不変）。ラベ�
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from pathlib import Path
@@ -20,7 +22,7 @@ import pytest
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 _PAD_COLUMNS = {"emotion_p", "emotion_pn", "emotion_a", "emotion_dom"}
 

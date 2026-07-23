@@ -13,7 +13,6 @@ import pathlib
 import re
 
 from familiar_agent.store.observations import ObservationStore
-from familiar_agent.tools.memory import ObservationMemory
 
 
 def test_observation_memory_holds_the_write_layer() -> None:

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from datetime import datetime
 from unittest.mock import patch
 
@@ -12,7 +14,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _pg_conn():

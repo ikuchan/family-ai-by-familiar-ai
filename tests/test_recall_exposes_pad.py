@@ -7,6 +7,8 @@ nudge（mood-c）の入力に、W の各記憶の PAD（MoodPAD）と activation
 
 from __future__ import annotations
 
+import os
+
 import uuid
 from unittest.mock import patch
 
@@ -17,7 +19,7 @@ from familiar_agent.mood_register import MoodPAD
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
 

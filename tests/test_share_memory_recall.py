@@ -27,7 +27,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 def _pg_conn():
     url = os.environ.get(
         "DATABASE_URL",
-        "postgresql://familiar_ai:familiar_ai@localhost:5433/familiar_test",
+        os.environ["DATABASE_URL"],
     )
     return psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
 

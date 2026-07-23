@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from pathlib import Path
@@ -18,7 +20,7 @@ from familiar_agent.tools.memory import (
     _coerce_to_embedding_dim,
 )
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _pg_conn():

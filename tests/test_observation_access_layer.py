@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -13,7 +15,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 # ローカルの生活時間で「その日の正午」を表す tz 付き instant。
 # naive のままだと挿入セッションの TZ に意味が左右され（DB セッション TZ を

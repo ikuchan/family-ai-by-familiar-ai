@@ -113,7 +113,14 @@ ignore_missing_imports = true
 python_version = "3.10"
 
 [dependency-groups]
-dev      = ["pytest>=9.0.2", "pytest-asyncio>=1.3.0", "mypy>=1.10.0", "pre-commit>=4.5.1", "ruff>=0.4.0"]
+dev      = [
+    "pytest>=9.0.2",
+    "pytest-asyncio>=1.3.0",
+    "mypy>=1.10.0",
+    "pre-commit>=4.5.1",
+    "ruff>=0.4.0",
+    "pytest-xdist>=3.8.0",
+]
 gui      = ["PySide6>=6.7.0", "qasync>=0.27.0"]
 camera   = ["opencv-python>=4.00", "onvif-zeep-async>=4.0.0", "Pillow>=10.0.0", "zeroconf>=0.132.2"]
 voice    = ["openai-whisper", "sounddevice>=0.5.5", "soundfile>=0.13.1", "av>=14.0.0"]

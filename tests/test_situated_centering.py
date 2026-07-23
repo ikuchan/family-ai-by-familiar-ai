@@ -7,6 +7,8 @@ mu が無い／次元不一致なら中心化しない（フォールバック�
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from datetime import datetime, timezone
@@ -27,7 +29,7 @@ from familiar_agent.tools.memory import (
 from familiar_agent.person_memory_manager import ALPHA
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _BACKFILL_MIGRATION = "2026-07-18-027_center_situated_embeddings.py"
 
 

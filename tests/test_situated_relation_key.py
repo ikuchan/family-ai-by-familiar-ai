@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from pathlib import Path
@@ -17,7 +19,7 @@ import psycopg2.extras
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 # situated_embeddings.vector は vector(1024)。非ゼロベクトルを入れる。
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"

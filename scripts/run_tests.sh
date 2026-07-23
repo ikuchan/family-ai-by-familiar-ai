@@ -72,10 +72,14 @@ done
 # （invariant・実 DB を使う）。分けるのは、不変条件が通常の一式へ影響しないことを
 # 確かめられる形にしておくため。どちらかが赤ならコミットしない。
 EXIT_CODE=0
-echo "── 通常の一式 ─────────────────────────────"
-uv run pytest -q -m "not invariant" "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
+# 並列度。ワーカーごとに別 DB を使う（conftest）。既定は論理CPU数（-n auto）。
+# 直列に戻したいときは RUN_TESTS_PARALLEL="" で無効化できる。
+PARALLEL="${RUN_TESTS_PARALLEL:--n auto}"
+echo "── 通常の一式（${PARALLEL:-直列}）─────────────"
+uv run pytest -q $PARALLEL -m "not invariant" "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
 if [ "$EXIT_CODE" -eq 0 ]; then
-    echo "── 生存確認の不変条件 ─────────────────────"
+    # 不変条件は少数（生存確認）なので直列で確実に。
+    echo "── 生存確認の不変条件（直列）─────────────"
     uv run pytest -q -m invariant "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
 fi
 

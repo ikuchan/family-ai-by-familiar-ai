@@ -7,6 +7,8 @@ W1a（024）で追加した PAD 列は既存行が既定0.5のまま。W1b（025
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from pathlib import Path
@@ -17,7 +19,7 @@ import psycopg2.extras
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 _MIGRATION_DIR = Path(__file__).parent.parent / "migration"
 

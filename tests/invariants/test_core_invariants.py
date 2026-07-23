@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+import os
+
 import math
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -28,7 +30,7 @@ from familiar_agent.mood_register import (
 pytestmark = pytest.mark.invariant
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _pg():

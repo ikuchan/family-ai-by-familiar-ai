@@ -3,15 +3,60 @@
 from __future__ import annotations
 
 import os
+import time
 
 # Must be set before any familiar_agent imports so Database singleton picks up correct URL.
 os.environ.setdefault("FAMILIAR_EMBEDDING_PREWARM", "0")
-os.environ["DATABASE_URL"] = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+
+# 並列実行（pytest-xdist）ではワーカーごとに別 DB を使う。autouse の clean_db が
+# 共有テーブルを truncate するため、1 DB を並列共有すると互いにデータを消し合う。
+# `PYTEST_XDIST_WORKER`（gw0/gw1…）を DB 名に反映し、非並列（未設定/master）は従来の
+# `familiar_test` を使う。DATABASE_URL は Database singleton が import 時に拾うので、
+# familiar_agent の import より前にここで確定させる。
+_PG_HOST = "postgresql://familiar:familiar@localhost:5433"
+_BASE_DB = "familiar_test"
+_WORKER = os.environ.get("PYTEST_XDIST_WORKER")
+_DB_NAME = f"{_BASE_DB}_{_WORKER}" if (_WORKER and _WORKER != "master") else _BASE_DB
+os.environ["DATABASE_URL"] = f"{_PG_HOST}/{_DB_NAME}"
 
 import psycopg2  # noqa: E402
 import pytest  # noqa: E402
 
 _TEST_DB_URL = os.environ["DATABASE_URL"]
+
+
+def _ensure_worker_db_and_schema() -> None:
+    """ワーカー別 DB を用意し schema を張る（非並列の base DB は作成不要）。
+
+    無ければ `familiar_test` へ管理接続して `CREATE DATABASE`（familiar は CREATEDB 権限）。
+    並列起動時は複数ワーカーが同時に template1 を触って `being accessed` になり得るので
+    retry する。作成後 apply_migrations で全 schema を張る（直接 psycopg2 で引くテストが
+    最初に来ても表があるように、遅延適用でなくここで確定させる）。
+    """
+    if _DB_NAME != _BASE_DB:
+        for attempt in range(10):
+            try:
+                admin = psycopg2.connect(f"{_PG_HOST}/{_BASE_DB}")
+                admin.autocommit = True
+                with admin.cursor() as cur:
+                    cur.execute("SELECT 1 FROM pg_database WHERE datname = %s", (_DB_NAME,))
+                    if not cur.fetchone():
+                        cur.execute(f'CREATE DATABASE "{_DB_NAME}"')
+                admin.close()
+                break
+            except psycopg2.Error:
+                time.sleep(0.3 * (attempt + 1))
+        else:
+            return  # 作成できなければ諦める（そのワーカーの DB テストは失敗する）
+    from familiar_agent.db_migrations import apply_migrations, default_migration_dir
+
+    conn = psycopg2.connect(_TEST_DB_URL)
+    apply_migrations(conn, default_migration_dir())
+    conn.commit()
+    conn.close()
+
+
+_ensure_worker_db_and_schema()
 
 # Reserved person IDs (mirrors migration 010)
 _AGENT_SELF_ID = "00000000-0000-0000-0000-000000000000"

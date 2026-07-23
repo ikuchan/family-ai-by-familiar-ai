@@ -10,6 +10,8 @@ debug が有効なときだけ行う（無効なら素通り）、記憶内容�
 
 from __future__ import annotations
 
+import os
+
 import logging
 import uuid
 from unittest.mock import patch
@@ -22,7 +24,7 @@ from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 _CONTENT = "score breakdown log content"
 

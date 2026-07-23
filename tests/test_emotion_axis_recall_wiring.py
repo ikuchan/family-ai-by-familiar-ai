@@ -11,6 +11,8 @@ recall の DB ロック内から呼ぶと停止する（平均中心化 C2 と�
 
 from __future__ import annotations
 
+import os
+
 import threading
 import time
 import uuid
@@ -24,7 +26,7 @@ from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
 _CONTENT_GLAD = "emotion axis glad memory"

@@ -7,6 +7,8 @@ PAD は payload（JSON・to_json_dict/from_json_dict）経由で遅延マテリ�
 
 from __future__ import annotations
 
+import os
+
 import uuid
 from unittest.mock import patch
 
@@ -18,7 +20,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from familiar_agent.mood_register import MoodPAD
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 _FIXED_VEC = np.zeros(1024, dtype=np.float32)
 _FIXED_VEC[0] = 1.0

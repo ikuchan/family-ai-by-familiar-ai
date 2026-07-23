@@ -7,6 +7,8 @@ L2 正規化する。C1 では mu を保存する器（scope 付き複数行）�
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from pathlib import Path
@@ -19,7 +21,7 @@ from familiar_agent.tools.memory import load_embedding_mean
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-07-18-026_embedding_means.py"
 
 _DIM = 8  # テスト用の小さな次元（実運用は 1024）

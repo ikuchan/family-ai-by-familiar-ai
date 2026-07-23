@@ -13,8 +13,6 @@ recall_mode:
 from __future__ import annotations
 
 import os
-import time
-from datetime import datetime, timezone
 from unittest.mock import patch
 
 import psycopg2
@@ -42,7 +40,7 @@ def memory():
 def _fresh_conn():
     url = os.environ.get(
         "DATABASE_URL",
-        "postgresql://familiar_ai:familiar_ai@localhost:5433/familiar_test",
+        os.environ["DATABASE_URL"],
     )
     return psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
 

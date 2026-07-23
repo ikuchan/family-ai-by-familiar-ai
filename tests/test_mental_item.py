@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
@@ -19,7 +21,7 @@ from familiar_agent.mood_register import MoodPAD
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 _NOW = datetime(2026, 6, 1, 12, 0, 0)
 

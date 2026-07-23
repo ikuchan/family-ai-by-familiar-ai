@@ -12,6 +12,8 @@ timestamp」なので、**想起した瞬間に起点が9時間後退する**＝
 
 from __future__ import annotations
 
+import os
+
 import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
@@ -23,7 +25,7 @@ from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _pg():

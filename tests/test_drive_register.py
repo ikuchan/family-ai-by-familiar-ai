@@ -7,12 +7,14 @@ in this step; accumulation, discharge, and mood modulation (dynamics) are later 
 
 from __future__ import annotations
 
+import os
+
 import psycopg2
 
 from familiar_agent.drive_register import AiDrivers, load_drives, save_drives
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _db_conn():

@@ -26,7 +26,7 @@ from familiar_agent.tools.pending_speech_store import PendingSpeechStore
 
 _TEST_DB_URL = os.environ.get(
     "DATABASE_URL",
-    "postgresql://familiar_ai:familiar_ai@localhost:5433/familiar_test",
+    os.environ["DATABASE_URL"],
 )
 
 

@@ -12,6 +12,8 @@
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from pathlib import Path
@@ -22,7 +24,7 @@ import psycopg2.extras
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-07-20-028_fix_observation_timestamp_tz.py"
 
 

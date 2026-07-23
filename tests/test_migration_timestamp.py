@@ -32,7 +32,7 @@ def _load_migration_016():
 def _fresh_conn():
     url = os.environ.get(
         "DATABASE_URL",
-        "postgresql://familiar_ai:familiar_ai@localhost:5433/familiar_test",
+        os.environ["DATABASE_URL"],
     )
     return psycopg2.connect(url, cursor_factory=psycopg2.extras.RealDictCursor)
 

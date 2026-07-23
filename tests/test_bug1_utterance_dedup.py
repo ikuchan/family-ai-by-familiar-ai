@@ -13,7 +13,7 @@ import psycopg2.extras
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _pg_conn():
@@ -58,7 +58,6 @@ def _insert_obs_at(conn, person_id: str, content: str, kind: str, ts: datetime) 
 
 def test_dedup_skips_same_content_kind_within_window() -> None:
     """Same (person_id, content, kind) within window → only 1 row inserted."""
-    import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
     pid = mem._person_id
@@ -85,7 +84,6 @@ def test_dedup_skips_same_content_kind_within_window() -> None:
 
 def test_dedup_allows_different_content() -> None:
     """Different content with same kind must both be inserted."""
-    import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
     pid = mem._person_id
@@ -114,7 +112,6 @@ def test_dedup_allows_different_content() -> None:
 
 def test_dedup_allows_different_kind() -> None:
     """Same content but different kind must both be inserted."""
-    import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
     pid = mem._person_id
@@ -141,7 +138,6 @@ def test_dedup_allows_different_kind() -> None:
 
 def test_dedup_disabled_when_window_zero() -> None:
     """MEMORY_DEDUP_WINDOW_SECS=0 must allow duplicate inserts."""
-    import familiar_agent.tools.memory as mem_mod
 
     mem = _make_memory()
     pid = mem._person_id

@@ -1108,7 +1108,6 @@ async def test_internal_desire_turn_passes_anthropic_format_messages_to_utility_
     messages passed to stream_turn remain in Anthropic format (role+content).
     Format conversion is the responsibility of each backend's stream_turn internally.
     The agent must NOT pre-convert self.messages to avoid polluting the message body."""
-    import logging
     agent = _make_agent()
 
     # Give agent a separate utility backend so the swap actually happens

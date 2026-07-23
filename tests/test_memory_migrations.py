@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import os
+
 from pathlib import Path
 from unittest.mock import patch
 
@@ -11,7 +13,7 @@ import psycopg2.extras
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _pg_conn():

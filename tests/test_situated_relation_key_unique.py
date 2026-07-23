@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from pathlib import Path
@@ -19,7 +21,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
 

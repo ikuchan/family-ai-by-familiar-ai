@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import os
+
 import importlib.util
 import uuid
 from datetime import datetime
@@ -16,7 +18,7 @@ import psycopg2.extras
 
 from familiar_agent.store.clock import local_tz
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-07-23-029_utc_text_timestamps.py"
 
 

@@ -5,12 +5,11 @@ pending があれば Issue C 想起より優先して発話コンテンツが作
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from familiar_agent.agent import EmbodiedAgent
-from familiar_agent.config import PendingSpeechConfig
 
 
 # ---------------------------------------------------------------------------

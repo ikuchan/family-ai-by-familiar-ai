@@ -7,12 +7,14 @@ Not wired to appraisal/recall/_mood/_decayed_mood/AffectiveState in this step.
 
 from __future__ import annotations
 
+import os
+
 import psycopg2
 
 from familiar_agent.mood_register import MoodPAD, decay_to_rest, load_mood, save_mood
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _db_conn():

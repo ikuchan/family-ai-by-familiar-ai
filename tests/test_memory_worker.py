@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import os
+
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import psycopg2
 import psycopg2.extras
@@ -13,7 +15,7 @@ from familiar_agent.memory_worker import MemoryJobWorker, MemoryWorkerConfig
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
-_DB_URL = "postgresql://familiar:familiar@localhost:5433/familiar_test"
+_DB_URL = os.environ["DATABASE_URL"]
 
 
 def _pg_conn():
