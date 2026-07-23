@@ -1,4 +1,6 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.25）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.26）
+
+> v0.26 改訂（境界R 完了と、次の実装対象＝Drive 起動源を予定に落とす）：境界R（B1 core/mental_item・B2 core/helpers・B3/B3b core/parsing・brief_turn・B4 legacy/tape）を実装済み。io/ デバイスビルダー（B5）は `_init_tools` が構築フロー（9属性書き込み＋非デバイス配線）と絡み durable な境界が立ちにくいので見送り。テスト基盤は pytest-xdist（ワーカー別 DB）＋テスト DB の fsync=off で **約15分→約1分**に短縮。次の実装対象を検討で確定した＝**Drive 起動源（dynamics＝蓄積式・発火・気分変調 g_D(M)）を次にやる**。理由は依存が揃い validatable に進められるため（mood 器・drive 器・式と仮値＝発火mood §2.1-2.3 が確定・知覚/REST/D に非依存）。一方 **D の深い部分は前提が未スケジュールで詰まっている**：D-rel（situated V2 slice-3＝関係生成）は前提 **P1（知覚→本命 save の視点列配線・小〜中・いま可能）** が要り、D-mi（MI 集約＝系統A/B 蒸留）は前提 **P2（REST 内省＝蒸留の引き金・大・課題10・知覚/S 非依存でいつでも着手可）** が要る。よって順序を確定：**(1) Drive 起動源 →(2) P1（知覚→save）→(3) P2（REST 内省）→(4) D の深い部分（D-rel/D-mi）**。関連して、在席の「会話経由の入退場」（`PersonTool` を登録すれば LLM が `note_person_arrived`/`note_person_left` を呼べる・いま可能）と「一定時間で忘れる（MI 想起駆動の在席＝活性の派生ビュー）」は、後者が P1/D-rel（記憶が人に紐づく）依存なので Drive の後に置く。顔登録・声紋（S）は P1 の質を上げる後工程で D-rel の検証には必須でない（テストは PMM.person_arrived で複数在席を作れる）。Drive への入力は設計上「時間（基底 rate）＋Mood（g_D(M) が状況を集約）」で、内受容 I は drive を直接動かさず Mood 経由（発火mood §2.4-2.5）である。
 
 > v0.25 改訂（致命的エラー時の動作方針を未検討項目として追加）：機能の前提が満たせない障害（DB 接続不可、埋め込み/評価器モデルの起動失敗、pgvector 次元不一致など）に対し、システムをどう振る舞わせるかの全体方針を検討する項目を立てる。検討する観点は、(1) 起動時失敗の扱い（落とすか degrade 起動か）、(2) 実行時の degrade と surface（どこまで動き続け・何を諦め・どう loud に残すか）、(3) ユーザーへの提示。現状は局所的 degrade のみ（棚卸し A1／A4 で例外を `logger.exception`／`logger.error` で loud 化し、`[]`／`False` を返してターンは落とさない）で、全体方針は未設計。**順序は個別設定・Config・個人登録（S）の後**（S が済んで運用の前提が揃ってから、障害時の振る舞いを設計する）。
 
