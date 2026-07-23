@@ -400,6 +400,13 @@ class DriveConfig:
     drive_level_mid: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_MID", 0.5))
     drive_level_high: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_HIGH", 0.75))
 
+    # 案Y：ターン完了時に軽量LLMで満たされた drive を発火時と同じ全放電で沈静化するか。
+    satisfy_llm: bool = field(default_factory=lambda: _bool_env("DRIVE5_SATISFY_LLM", default=False))
+    # 充足判定LLM を回すゲートの PAD 距離しきい値（drive 値でなく E の動きで判定・上下両方向）。
+    satisfy_gate_pad_dist: float = field(
+        default_factory=lambda: _float_env("DRIVE5_SATISFY_PAD_DIST", 0.2)
+    )
+
     # 発火→自発ターンの内声（[D-行動選択]・行動は指定せず主LLM が O と文脈から選ぶ）。
     # env で上書きして改善できる（VOICE_SEEKING 等）。
     voice_seeking: str = field(default_factory=lambda: os.environ.get(
