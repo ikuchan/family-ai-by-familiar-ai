@@ -15,7 +15,9 @@ from familiar_agent.config import DriveConfig
 from familiar_agent.core.drive_autonomy import (
     SOCIAL_DRIVES,
     drive_gate,
+    drive_snapshot,
     inner_voice_for,
+    qualitative_level,
     select_fired_axis,
 )
 from familiar_agent.core.drive_dynamics import DriveFiring
@@ -93,3 +95,36 @@ def test_gate_social_axis_passes_with_presence():
 
 def test_social_drives_are_bond_and_esteem():
     assert SOCIAL_DRIVES == frozenset({"bond", "esteem"})
+
+
+# ── 定性ラベルの帯（Config 可変・低<0.5 / 中 / 高≥0.75） ─────────────────────
+
+def test_level_band_defaults():
+    cfg = DriveConfig()
+    with patch.dict(os.environ, {}, clear=False):
+        for k in ("DRIVE_LEVEL_MID", "DRIVE_LEVEL_HIGH"):
+            os.environ.pop(k, None)
+        cfg = DriveConfig()
+    assert cfg.drive_level_mid == 0.5
+    assert cfg.drive_level_high == 0.75
+
+
+def test_qualitative_level_bands():
+    cfg = DriveConfig()
+    assert qualitative_level(0.10, cfg) == "低"
+    assert qualitative_level(0.49, cfg) == "低"
+    assert qualitative_level(0.50, cfg) == "中"
+    assert qualitative_level(0.74, cfg) == "中"
+    assert qualitative_level(0.75, cfg) == "高"
+    assert qualitative_level(1.0, cfg) == "高"
+
+
+def test_drive_snapshot_contains_all_axes_with_levels():
+    cfg = DriveConfig()
+    snap = drive_snapshot(AiDrivers(seeking=0.8, safety=0.6, bond=0.1), cfg)
+    assert "SEEKING 高" in snap
+    assert "SAFETY 中" in snap
+    assert "BOND 低" in snap
+    # 5軸すべて含む
+    for name in ("SEEKING", "SAFETY", "BOND", "ESTEEM", "REST"):
+        assert name in snap

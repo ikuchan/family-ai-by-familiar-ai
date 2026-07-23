@@ -119,7 +119,9 @@ from .setup import save_setup_config
 if TYPE_CHECKING:
     from familiar_agent.agent import EmbodiedAgent
     from familiar_agent.config import AgentConfig
+    from familiar_agent.core.drive_dynamics import DriveFiring
     from familiar_agent.desires import DesireSystem
+    from familiar_agent.drive_register import AiDrivers
     from familiar_agent.realtime_stt_session import RealtimeSttController
 
 logger = logging.getLogger(__name__)
@@ -1903,14 +1905,15 @@ class FamiliarWindow(QMainWindow):
     # Agent loop
     # ------------------------------------------------------------------
 
-    def _tick_drives(self, dt: float) -> None:
-        """新5欲求の1 tick（現 mood で蓄積・発火・放電）を drive5 へ永続化（Slice 2a）。
+    def _tick_drives(self, dt: float) -> "tuple[DriveFiring, AiDrivers] | None":
+        """新5欲求の1 tick（現 mood で蓄積・発火・放電）を drive5 へ永続化。
 
-        自発ターン（行動）へは接続しない＝legacy DesireSystem が従来どおり駆動するので
-        挙動は不変。dt は前 tick からの実経過秒。失敗は degrade（アイドルを落とさない）。
+        戻り値＝(発火, 蓄積後・放電前の drives)。放電は案A（発火時・`dd.tick` 内）。
+        呼び出し側（idle ループ）は autonomous ON のとき発火軸を選び自発ターンへ繋ぐ。
+        dt は前 tick からの実経過秒。失敗は degrade（アイドルを落とさない）＝None。
         """
         if dt <= 0.0:
-            return
+            return None
         try:
             from .core import drive_dynamics as dd
             from .db import get_db
@@ -1922,13 +1925,17 @@ class FamiliarWindow(QMainWindow):
             with db.lock:
                 conn = db.conn()
                 drives = load_drives(conn)
-                drives, firing = dd.tick(drives, mood, dt=dt)
-                save_drives(conn, drives)
+                accumulated = dd.accumulate(drives, mood, dt=dt)  # 放電前＝スナップショット/順位付け用
+                firing = dd.fired(accumulated)
+                persisted = dd.discharge(accumulated, firing) if firing.any else accumulated
+                save_drives(conn, persisted)
                 conn.commit()
             if firing.any:
-                logger.info("Drive fired (Slice 2a・行動は未接続): %s", firing)
+                logger.info("Drive fired: %s", firing)
+            return firing, accumulated
         except Exception as e:  # noqa: BLE001
             logger.warning("drive tick failed: %s", e)
+            return None
 
     async def _process_queue(self) -> None:
         """Dequeue user messages and run the agent; fire desires when idle."""
@@ -1942,14 +1949,21 @@ class FamiliarWindow(QMainWindow):
                     continue
                 if not getattr(self, "_agent_ready", True):
                     continue
-                # Always grow desires regardless of cooldown or auto_desire setting.
-                self._desires.tick()
+                from .config import DriveConfig
+                if not hasattr(self, "_drive_cfg"):
+                    self._drive_cfg = DriveConfig()
+                _drive_cfg = self._drive_cfg
 
-                # 新5欲求の dynamics を回す（Drive 起動源 Slice 2a・観測用・行動は未接続）。
-                # 現 mood で蓄積・発火・放電して drive5 へ永続化する。GUI の DrivePanel で
-                # 新5欲求が実時間で動くのが見える。自発ターンは legacy DesireSystem が従来どおり。
+                # legacy DesireSystem は autonomous OFF のときだけ育てる（完全排他）。
+                if not _drive_cfg.autonomous:
+                    self._desires.tick()
+
+                # 新5欲求の dynamics を回す（現 mood で蓄積・発火・放電して drive5 へ永続化）。
+                # GUI の DrivePanel で新5欲求が実時間で動くのが見える。発火は下で使う。
                 _drive_now = time.time()
-                self._tick_drives(_drive_now - getattr(self, "_last_drive_tick", _drive_now))
+                _drive_res = self._tick_drives(
+                    _drive_now - getattr(self, "_last_drive_tick", _drive_now)
+                )
                 self._last_drive_tick = _drive_now
 
                 # Deliver completed deferred search/fetch results immediately (bypasses cooldown).
@@ -1970,6 +1984,43 @@ class FamiliarWindow(QMainWindow):
                         desire_name="share_search_result",
                     )
                     last_interaction = time.time()
+                    continue
+
+                # Drive Slice 2b：新5欲求の発火→自発ターン（autonomous ON では legacy と完全排他）。
+                if _drive_cfg.autonomous:
+                    from .core.drive_autonomy import (
+                        drive_gate,
+                        drive_snapshot,
+                        inner_voice_for,
+                        select_fired_axis,
+                    )
+                    if _drive_res is not None and now >= self._silence_until:
+                        _firing, _accum = _drive_res
+                        _axis = select_fired_axis(_firing, _accum)
+                        if _axis is not None:
+                            _rule = getattr(agent, "_schedule_rule", None)
+                            _quiet = bool(_rule is not None and _rule.is_quiet())
+                            _presence = (
+                                agent._social_presence_permission() if agent is not None else 0.0
+                            )
+                            if drive_gate(
+                                _axis,
+                                agent_running=self._agent_running,
+                                pending_input=not self._input_queue.empty(),
+                                quiet=_quiet,
+                                presence=_presence,
+                            ):
+                                _inner = inner_voice_for(_axis, _drive_cfg)
+                                _snap = drive_snapshot(_accum, _drive_cfg)
+                                _mkey = f"desire_drive_{_axis}"
+                                _murmur = _t(_mkey) if _t(_mkey) != _mkey else _t("desire_default")
+                                self._log.append_line(_murmur)
+                                await self._run_agent(
+                                    "",
+                                    inner_voice=f"{_inner}\n[今の欲求の状態] {_snap}",
+                                    desire_name=f"drive_{_axis}",
+                                )
+                                last_interaction = time.time()
                     continue
 
                 # Skip firing if auto_desire is disabled (default OFF)

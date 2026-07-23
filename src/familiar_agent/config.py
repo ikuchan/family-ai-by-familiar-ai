@@ -396,6 +396,10 @@ class DriveConfig:
     # Slice 2b：新Drive発火で自発ターンを起こすか（既定 off＝legacy DesireSystem と完全排他）
     autonomous: bool = field(default_factory=lambda: _bool_env("DRIVE5_AUTONOMOUS", default=False))
 
+    # 自発ターンに同梱する drive5 スナップショットの定性ラベル帯（低<mid / 中 / 高≥high）。
+    drive_level_mid: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_MID", 0.5))
+    drive_level_high: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_HIGH", 0.75))
+
     # 発火→自発ターンの内声（[D-行動選択]・行動は指定せず主LLM が O と文脈から選ぶ）。
     # env で上書きして改善できる（VOICE_SEEKING 等）。
     voice_seeking: str = field(default_factory=lambda: os.environ.get(

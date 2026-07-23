@@ -29,6 +29,28 @@ def inner_voice_for(axis: str, cfg: DriveConfig) -> str:
     return getattr(cfg, f"voice_{axis}")
 
 
+# drive5 スナップショットの表示順（発火mood の値表順）と表示名。
+_SNAPSHOT_ORDER: tuple[str, ...] = ("seeking", "safety", "bond", "esteem", "rest")
+
+
+def qualitative_level(value: float, cfg: DriveConfig) -> str:
+    """drive 値を定性ラベルへ（低<mid / 中 / 高≥high・生値は出さない）。"""
+    if value >= cfg.drive_level_high:
+        return "高"
+    if value >= cfg.drive_level_mid:
+        return "中"
+    return "低"
+
+
+def drive_snapshot(drives: AiDrivers, cfg: DriveConfig) -> str:
+    """5軸の状態を定性ラベルで1行に（発火軸以外の欲求バランスもターンへ渡す）。"""
+    parts = [
+        f"{ax.upper()} {qualitative_level(getattr(drives, ax), cfg)}"
+        for ax in _SNAPSHOT_ORDER
+    ]
+    return " / ".join(parts)
+
+
 def drive_gate(
     axis: str,
     *,
