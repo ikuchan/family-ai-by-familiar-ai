@@ -82,6 +82,14 @@ def test_situated_rows_are_created_for_each_person(ctx) -> None:
 
 # ── ObservationStore ────────────────────────────────────────────────────────
 
+def test_dead_get_recent_observations_is_removed() -> None:
+    """撤去済み（呼び出し元ゼロのデッドコード・confidence=importance のコピペ源）。
+
+    再導入を防ぐ番人。棚卸し A2：実害は無かったが、未使用メソッドとコピペ行を残さない。
+    """
+    assert not hasattr(ObservationStore, "_get_recent_observations")
+
+
 def test_saved_observation_is_readable_by_kind(layers) -> None:
     """書いたものが by_kind で読める（追記と読み出しが噛み合う）。"""
     _, observations, _ = layers

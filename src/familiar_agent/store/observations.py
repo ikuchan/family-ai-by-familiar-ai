@@ -397,43 +397,6 @@ class ObservationStore:
             logger.warning("pick_seed_candidates failed: %s", e)
             return []
 
-    def _get_recent_observations(self, n: int = 5) -> list[dict]:
-        """Return the N most recent observations for the current person, ordered by timestamp desc."""
-        try:
-            today = _date.today()
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        """
-                        SELECT id, content, timestamp, emotion, direction, kind,
-                               COALESCE(importance, 1.0) AS importance
-                        FROM observations
-                        WHERE person_id = %s AND superseded_by IS NULL
-                        ORDER BY timestamp DESC
-                        LIMIT %s
-                        """,
-                        (self._ctx.person_id, n),
-                    )
-                    rows = cur.fetchall()
-            return [
-                {
-                    "memory_id":  row["id"],
-                    "summary":    row["content"],
-                    "date":       clock.ts_to_date(row["timestamp"]),
-                    "time":       clock.ts_to_time(row["timestamp"]),
-                    "emotion":    row["emotion"],
-                    "direction":  row["direction"],
-                    "kind":       row["kind"],
-                    "importance": float(row["importance"]),
-                    "confidence": float(row["importance"]),
-                    "is_today":   row["timestamp"].date() == today if row["timestamp"] else False,
-                }
-                for row in rows
-            ]
-        except Exception as exc:
-            logger.debug("_get_recent_observations failed: %s", exc)
-            return []
 
     def _read_supersede_chain(
         self, head_id: str, columns: tuple[str, ...]
