@@ -81,6 +81,7 @@ except ImportError:
 
 from . import __version__
 from ._i18n import _t
+from .core import parsing
 from ._ui_helpers import (
     AdaptiveDesireCooldown,
     IDLE_CHECK_INTERVAL,
@@ -1766,7 +1767,7 @@ class FamiliarWindow(QMainWindow):
 
         # Detect speaker prefix (e.g. "パパ ▶ message") and update active speaker.
         if agent is not None:
-            _, speaker = agent._extract_speaker_prefix(text)
+            _, speaker = parsing.extract_speaker_prefix(text)
             if speaker:
                 agent._persons.set_active(speaker)
 

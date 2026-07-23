@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from .core import parsing
 import os
 import re
 import sys
@@ -303,7 +304,7 @@ class FamiliarApp(App):
 
     def _current_speaker(self, text: str) -> str:
         """Return the effective speaker name for a given input line."""
-        _, speaker = self.agent._extract_speaker_prefix(text)
+        _, speaker = parsing.extract_speaker_prefix(text)
         if speaker:
             return speaker
         return self.agent._persons.active_name
