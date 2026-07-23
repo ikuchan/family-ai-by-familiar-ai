@@ -1,4 +1,6 @@
-# familiar-ai 直近の進め方と進捗（v0.41）
+# familiar-ai 直近の進め方と進捗（v0.42）
+
+> v0.42：**棚卸しに沿って「小さく正しく先行」の局所修正を3件進めた**（段取り v0.24 の順序方針）。(1) A1＝中核想起 `by_vector` の例外握り潰しを是正（dumb 層は raise・recall が `logger.exception` で loud に残し、失敗時は keyword_fallback へ流さず `[]`。0件と失敗の混同を解消）。(2) A3＝時刻方針を「DB は UTC・プロンプトは OS タイムゾーン付記」で統一：naive `utcnow` の9サイトと `now_local_iso` の保存列を aware UTC（`clock.now_utc_iso`）へ、既存ローカル行はマイグレーション029で UTC へ移行（tz サフィックス無しの行だけ変換＝冪等）、プロンプトは `clock.now_local_str()`（例 `JST(+0900)`）、出力の UTC 漏れは網羅監査で0件、`observations` の直近N日はローカル暦日境界のため `now_local_iso` を維持。(3) A2＝`confidence=importance` のコピペ源だったデッドコード `_get_recent_observations`（呼び出し元0）を撤去（実害は無かったが将来の誤用を断つ）。棚卸しは (a) 小さく正しく直す所（残り＝A4 save 系の握り潰し・find_near_duplicates・db.py の無音 except 等）と (b) loop 非依存の境界R（`core/mental_item`・`core/helpers`・`core/parsing`・`legacy` 隔離・`io/` DIF）を洗い出し済み。大きな挙動変化（Drive 発火＝起動源・dynamics・拡散想起・深い D）と顔登録/識別/設定値入力（S）は後回し。次は A4（save 系の失敗を loud 化・観測性の是正）。
 
 > v0.41：**在席者相関 $p$ の slice-2（候補集合拡張）を実装**（`recall_presence_expand` 既定 true・在席他者視点で候補 union・話者候補に無い記憶へ話者視点 $r$ を `situated_cosines` で補完）。これで $p$ は score 軸（slice-1）と候補集合拡張（slice-2）の両方が入り、5軸想起（r/t/e/a/p）が揃った。あわせて順序方針をリファインメント（段取り v0.24）：小さく正しく先行／大きな挙動変化（Drive 発火＝起動源・dynamics・拡散想起・深い D）は後回し／リファクタリングは 境界R→D→内部R／loop に触る作業はまとめて後回し／顔登録・識別・設定値入力は最後／当面 感情ループは受け身。次は棚卸し＝(a) 小さくて正しく直しておきたい機能・既知の危うい所、(b) loop に触らずに引ける境界R の単位（store/io/core）を洗い出し、近い所のバックログを具体化する。
 
