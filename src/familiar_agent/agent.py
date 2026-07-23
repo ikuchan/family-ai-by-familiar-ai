@@ -14,6 +14,7 @@ from pathlib import Path
 
 from .store import clock  # noqa: E402  時刻方針（DB=UTC・プロンプトは OS tz）の正本
 from .core import parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
+from .core import brief_turn  # noqa: E402  brief-turn 判定・軽量返信モードのヒューリスティクス
 from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内部利用＋既存の import 経路を保つ再輸出
     _call_optional_async,
     _interoception,
@@ -114,35 +115,6 @@ _TOOL_TIMEOUTS: dict[str, float] = {
 _BRIEF_REPLY_MAX_ITERATIONS = 2
 _BRIEF_REPLY_MAX_TOKENS = 120
 _BRIEF_REPLY_TOOL_NAMES = frozenset({"say", "search_deferred", "fetch_deferred"})
-_BRIEF_GREETING_PATTERNS = (
-    r"^おはよ",
-    r"^こんにちは",
-    r"^こんばんは",
-    r"^おーい$",
-    r"^もしもし$",
-)
-_BRIEF_ACK_PATTERNS = (
-    r"^ありがとう",
-    r"^ありがと",
-    r"^助か",
-    r"^よかった",
-    r"^了解$",
-    r"^ok$",
-    r"^okay$",
-    r"^お願い(?:[。.!！]?信じてる)?$",
-    r"^信じてる$",
-)
-_BRIEF_CORRECTION_PATTERNS = (
-    r"言ってない",
-    r"勘違",
-    r"誤解",
-    r"食い違",
-    r"そういう意味じゃ",
-    r"そうじゃない",
-    r"違う",
-    r"ちゃう",
-    r"^いや[、, ]",
-)
 
 # ── Thinking-mode switching ──────────────────────────────────────────────────
 # Accepts:  /think [on|off|adaptive|disabled|status]
@@ -1017,53 +989,9 @@ class EmbodiedAgent:
         """Return per-tool timeout budget in seconds."""
         return _TOOL_TIMEOUTS.get(name, _DEFAULT_TOOL_TIMEOUT)
 
-    @staticmethod
-    def _normalize_brief_turn_text(text: str) -> str:
-        """Normalize short conversational turns for lightweight heuristics."""
-        return text.strip().lower().rstrip("。.!！?？ ")
-
-    @classmethod
-    def _matches_brief_turn_pattern(cls, text: str, patterns: tuple[str, ...]) -> bool:
-        normalized = cls._normalize_brief_turn_text(text)
-        return any(re.search(pattern, normalized) for pattern in patterns)
-
-    @classmethod
-    def _is_candidate_brief_turn(cls, user_input: str, *, is_desire_turn: bool) -> bool:
-        """Cheap pre-LLM gate for greeting/ack/correction turns.
-
-        These turns should avoid expensive memory recall and exploratory tools.
-        """
-        if is_desire_turn:
-            return False
-        text = user_input.strip()
-        if not text or len(text) > 80 or "\n" in text:
-            return False
-        return (
-            cls._matches_brief_turn_pattern(text, _BRIEF_GREETING_PATTERNS)
-            or cls._matches_brief_turn_pattern(text, _BRIEF_ACK_PATTERNS)
-            or cls._matches_brief_turn_pattern(text, _BRIEF_CORRECTION_PATTERNS)
-        )
-
-    @staticmethod
-    def _should_use_brief_reply_mode(
-        *,
-        user_input: str,
-        social_policy: SocialPolicyDecision,
-        is_desire_turn: bool,
-    ) -> bool:
-        if is_desire_turn:
-            return False
-        text = user_input.strip()
-        if not text or len(text) > 80 or "\n" in text:
-            return False
-        return social_policy.primary_act in {
-            "greeting",
-            "acknowledgement",
-            "clarification",
-            "repair_attempt",
-            "boundary_assertion",
-            "silence_or_low_presence",
-        }
+    # brief-turn 判定は core/brief_turn.py が持つ。既存の呼び出し口を保つ薄い委譲。
+    _is_candidate_brief_turn = staticmethod(brief_turn.is_candidate_brief_turn)
+    _should_use_brief_reply_mode = staticmethod(brief_turn.should_use_brief_reply_mode)
 
     def _tool_defs_for_turn(self, *, brief_reply_mode: bool) -> list[dict]:
         tool_defs = self._all_tool_defs
@@ -1071,15 +999,7 @@ class EmbodiedAgent:
             return tool_defs
         return [tool for tool in tool_defs if tool.get("name") in _BRIEF_REPLY_TOOL_NAMES]
 
-    @staticmethod
-    def _brief_reply_prompt() -> str:
-        return (
-            "[Lightweight turn]\n"
-            "- This is a short conversational turn.\n"
-            "- Reply directly in 1-2 short sentences.\n"
-            "- Do not infer plans, facts, or feelings the user did not say.\n"
-            "- Do not use observation or memory tools unless explicitly asked."
-        )
+    _brief_reply_prompt = staticmethod(brief_turn.brief_reply_prompt)
 
     def _configure_backend_for_turn(
         self,
