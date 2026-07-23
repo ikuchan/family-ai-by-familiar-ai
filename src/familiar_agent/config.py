@@ -393,6 +393,28 @@ class DriveConfig:
     bias_esteem: float = 0.0014
     bias_rest: float = 0.0009
 
+    # Slice 2b：新Drive発火で自発ターンを起こすか（既定 off＝legacy DesireSystem と完全排他）
+    autonomous: bool = field(default_factory=lambda: _bool_env("DRIVE5_AUTONOMOUS", default=False))
+
+    # 発火→自発ターンの内声（[D-行動選択]・行動は指定せず主LLM が O と文脈から選ぶ）。
+    # env で上書きして改善できる（VOICE_SEEKING 等）。
+    voice_seeking: str = field(default_factory=lambda: os.environ.get(
+        "VOICE_SEEKING",
+        "探索したい気持ちが募っている。O の傾向と今の文脈から、"
+        "気になっていることを自分で選んで動いてみて。"))
+    voice_rest: str = field(default_factory=lambda: os.environ.get(
+        "VOICE_REST",
+        "休みたい気持ちが募っている。静かに落ち着くか活動を控えるか、自分で選んで。"))
+    voice_bond: str = field(default_factory=lambda: os.environ.get(
+        "VOICE_BOND",
+        "つながりたい気持ちが募っている。相手へ自然に働きかけるか気にかけるか、自分で選んで。"))
+    voice_safety: str = field(default_factory=lambda: os.environ.get(
+        "VOICE_SAFETY",
+        "確かめたい・守りたい気持ちが募っている。周りや状況を見回るか確認するか、自分で選んで。"))
+    voice_esteem: str = field(default_factory=lambda: os.environ.get(
+        "VOICE_ESTEEM",
+        "認められたい・役に立ちたい気持ちが募っている。何か示すか貢献するか、自分で選んで。"))
+
     # 変調行列 C_ij（各欲求の [P, Pn, A, Dom]・絶対値≤1.0・仮値）
     c_seeking: tuple[float, float, float, float] = (0.0, -0.5, 1.0, 0.4)
     c_safety: tuple[float, float, float, float] = (0.0, 0.75, 0.25, -1.0)
