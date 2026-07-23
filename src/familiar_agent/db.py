@@ -66,8 +66,10 @@ class Database:
             # Recover from a failed transaction so subsequent queries don't all fail.
             try:
                 self._conn.rollback()
-            except Exception:
-                pass
+            except Exception as exc:
+                # 失敗トランザクションからの回復。rollback 自体が失敗しても続行するが、
+                # 無音にはしない（接続不調の兆候を残す・ログ方針）。
+                logger.debug("rollback after failed transaction did not succeed: %s", exc, exc_info=True)
         return self._conn
 
     def cursor(self) -> "psycopg2.extras.RealDictCursor":
@@ -88,8 +90,10 @@ class Database:
                 try:
                     self._conn.commit()
                     self._conn.close()
-                except Exception:
-                    pass
+                except Exception as exc:
+                    # テアダウン。commit/close が落ちても _conn は下の finally で捨てるが、
+                    # 無音にはしない（ログ方針）。
+                    logger.debug("connection commit/close during teardown failed: %s", exc, exc_info=True)
                 finally:
                     self._conn = None
 
