@@ -1,4 +1,6 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.5）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.6）
+
+> v0.6：Drive 起動源の dynamics 接続（Slice 2a）と発火から自発ターンへの結線（Slice 2b）を反映。§3-1 の drive 行を更新。`core/drive_dynamics.py`（蓄積 $g_{D,i}(M)$・発火・放電の純関数）を `gui._process_queue` のアイドルで毎周回 tick して `drive5` へ永続化する（Slice 2a）。`DRIVE5_AUTONOMOUS`（Config・既定 off）が on のとき、発火軸のうち蓄積（放電前）最大の1軸を選び、在席と静穏でゲートして自発ターンを起こす（Slice 2b）。ターンには発火軸の内声（Config 文字列・行動非指定・主LLM が選ぶ）と drive5 の定性スナップショット（低 0.5 未満・中・高 0.75 以上・Config）を同梱する。放電は発火時（案A）。off では既存15欲求 `DesireSystem` が従来どおり駆動し、on とは完全排他（旧15→新5 移行そのものは後続）。
 
 > v0.5：確定設計に合わせ定数台帳の2行を更新。mood による D への修飾は「乗算ゲイン」を廃し logit 合成 $g_{D,i}(M)$ に一本化（課題5 C・発火mood §2.2）。activation 初期化は relevance を廃し、seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分ける（足さない・課題5 E）。
 
@@ -120,7 +122,7 @@
 ### 3-1. T レジスタの現状→移行
 | レジスタ | 現状 | 移行 |
 |---|---|---|
-| drive（float[5]） | `agent_state["desires"]` | 流用（旧欲求名→新5欲求は課題6）。発火で PI.drive へ。**【B-2 実装済み・器のみ・未接続】** `drive_register.py`＝5欲求（SEEKING／REST／BOND／SAFETY／ESTEEM）の器 `AiDrivers`（各軸 [0,1]・静止0.0）／`agent_state`（state_key `drive5`・"desires" とは別キー）の `load_drives`・`save_drives`。既存15欲求 `DesireSystem` と "desires" へは未接続で外部挙動不変。蓄積 dynamics・放電・mood 変調・PI.drive surface・旧15→新5 移行は後続 |
+| drive（float[5]） | `agent_state["drive5"]` | **【Slice 2a/2b 実装済み・接続】** 器＝`drive_register.py`（5欲求 SEEKING／REST／BOND／SAFETY／ESTEEM の `AiDrivers`・各軸 [0,1]・静止0.0／`agent_state` の state_key `drive5`・`load_drives`・`save_drives`）。dynamics＝`core/drive_dynamics.py`（蓄積 $g_{D,i}(M)$・発火 $\Theta_{fire}$・放電 $q$）。`gui._process_queue` のアイドルで毎周回 tick し `drive5` へ永続化する（Slice 2a）。`DRIVE5_AUTONOMOUS`（既定 off）が on で発火→自発ターン結線＝`core/drive_autonomy.py`（`select_fired_axis`・`drive_gate`・`inner_voice_for`・`drive_snapshot`）。ターンには発火軸の内声（Config 文字列・[D-行動選択]）と drive5 定性スナップショットを同梱する。off では既存15欲求 `DesireSystem` が駆動し完全排他（旧15→新5 移行は後続）。PI.drive の全ターンサーフェスは後続で、現状は自発ターンへのスナップショット同梱のみ |
 | mood（PAD） | 毎ターン再計算 | **T の mood レジスタとして永続化**（`agent_state` へ）。発火で PI.emotion へ。**【B-1 実装済み・器のみ・未接続】** `mood_register.py`＝4軸 PAD の器 `MoodPAD`／各軸を M_rest=(0.5,0.5,0.5,0.5) へ半減期600秒で収束させる `decay_to_rest`／`agent_state`（state_key `mood_pad`）の `load_mood`・`save_mood`。emotion→PAD 写像 φ（課題11k）と既存 mood へは未接続で外部挙動不変 |
 | norm（定点別 EMA＋確率） | prediction.py の `P(entity)` EMA | **定点キーに拡張**＋DINOv2 定点別「普通」。T(G) private |
 | presence（定点別 在席） | `self._present` を都度導出 | **YOLO 由来の定点別 presence マップ**（新規）。T(G) private |
