@@ -89,6 +89,25 @@ def test_row_to_mental_item_pad_defaults_neutral_when_absent() -> None:
     assert item.emotion == MoodPAD()
 
 
+# ── 0. 新居 core/mental_item から引ける（境界R B1） ─────────────────────────
+
+def test_importable_from_core_mental_item() -> None:
+    from familiar_agent.core.mental_item import (
+        MentalItem as CoreMI,
+        PrimitiveMentalItem as CorePI,
+        _row_to_mental_item as core_row,
+    )
+    from familiar_agent.tools.memory import (
+        MentalItem as MemMI,
+        PrimitiveMentalItem as MemPI,
+        _row_to_mental_item as mem_row,
+    )
+    # tools.memory は再輸出なので同一オブジェクト。
+    assert CoreMI is MemMI
+    assert CorePI is MemPI
+    assert core_row is mem_row
+
+
 # ── 2. MentalItem inherits PrimitiveMentalItem ──────────────────────────────
 
 def test_mental_item_inherits_primitive_mental_item() -> None:

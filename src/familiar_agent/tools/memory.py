@@ -24,6 +24,11 @@ import numpy as np
 from ..config import MemoryConfig
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
+from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memory 経由で引くための再輸出
+    MentalItem,
+    PrimitiveMentalItem,
+    _row_to_mental_item,
+)
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..legacy.semantic_layer import LegacySemanticLayer
 from ..store import clock
@@ -231,45 +236,6 @@ _ts_to_time = clock.ts_to_time
 
 
 
-
-
-@dataclass
-class PrimitiveMentalItem:
-    emotion: object | None = None   # PAD または未設定。A-1では未設定(None)
-    drive: object | None = None     # 5欠乏 または未設定。A-1では未設定(None)
-
-
-@dataclass
-class MentalItem(PrimitiveMentalItem):
-    id: str = ""
-    content: str = ""
-    vector: object | None = None
-    supersedes: str | None = None
-    activation: float | None = None
-
-
-def _row_to_mental_item(row) -> MentalItem:
-    """観測行から MentalItem を組み立てる。
-
-    Y（W2a）：行の PAD 列（emotion_p/pn/a/dom）を `MoodPAD` として emotion に載せる。
-    列を SELECT していない呼び出しでも `row.get` 既定0.5で中立になり安全。これで
-    評価器の PAD・行の列・MI 器の emotion が同じ `MoodPAD` で一本化する（B-3 の
-    tif.py が emotion に MoodPAD を使うのと型が揃う）。drive・vector は後続で未設定。
-    """
-    return MentalItem(
-        id=row["id"],
-        content=row["content"],
-        supersedes=row["superseded_by"],
-        activation=row["importance"],
-        emotion=MoodPAD(
-            p=row.get("emotion_p", 0.5),
-            pn=row.get("emotion_pn", 0.5),
-            a=row.get("emotion_a", 0.5),
-            dom=row.get("emotion_dom", 0.5),
-        ),
-        drive=None,
-        vector=None,
-    )
 
 
 def _derive_activation(
