@@ -56,7 +56,12 @@ def _ensure_worker_db_and_schema() -> None:
     conn.close()
 
 
-_ensure_worker_db_and_schema()
+try:
+    _ensure_worker_db_and_schema()
+except psycopg2.Error:
+    # DB が起動していないときは収集ごと落とさない（DB を使わない純テストは走れる）。
+    # DB を使うテストは autouse clean_db／各テストの接続で従来どおり失敗する。
+    pass
 
 # Reserved person IDs (mirrors migration 010)
 _AGENT_SELF_ID = "00000000-0000-0000-0000-000000000000"

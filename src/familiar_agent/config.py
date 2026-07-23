@@ -365,3 +365,33 @@ class AgentConfig:
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     coding: CodingConfig = field(default_factory=CodingConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
+
+
+@dataclass
+class DriveConfig:
+    """Drive 起動源の dynamics 定数（発火mood §2・課題5 B 由来）。
+
+    値は設計の確定/仮値をそのまま既定にする（仮値の最終決定は課題8・実機）。
+    b_i＝中立発火頻度のバイアス、c_*＝変調行列 C_ij（軸順 P, Pn, A, Dom）。
+    """
+    rate: float = 1.665e-2      # 全欲求共通の基準レート（/秒・課題5 B〔確定〕）
+    p_t: float = 0.5            # T-tick 周期（秒・課題5 A）
+    mult: float = 1.0          # 時間帯倍率（課題10・既定1.0）
+    learn: float = 1.0         # 学習倍率（課題10・既定1.0）
+    epsilon: float = 0.001
+    theta_fire: float = 1.0 - 0.001   # 発火閾値 Θ_fire = 1−ε
+    discharge_q: float = 1.0 - 0.001  # 放電量 q = 1−ε（全放電）
+
+    # バイアス b_i（中立時 g_{D,i}=b_i・0〜1・仮値）
+    bias_seeking: float = 0.20
+    bias_safety: float = 0.05
+    bias_bond: float = 0.0056
+    bias_esteem: float = 0.0014
+    bias_rest: float = 0.0009
+
+    # 変調行列 C_ij（各欲求の [P, Pn, A, Dom]・絶対値≤1.0・仮値）
+    c_seeking: tuple[float, float, float, float] = (0.0, -0.5, 1.0, 0.4)
+    c_safety: tuple[float, float, float, float] = (0.0, 0.75, 0.25, -1.0)
+    c_bond: tuple[float, float, float, float] = (-1.0, 0.5, 0.0, 0.25)
+    c_esteem: tuple[float, float, float, float] = (-0.2, 0.2, 1.0, -0.4)
+    c_rest: tuple[float, float, float, float] = (-0.68, -0.68, -0.68, 0.0)
