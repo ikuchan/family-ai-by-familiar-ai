@@ -18,8 +18,11 @@ issue #11k). Connecting it to those is later work.
 from __future__ import annotations
 
 import json
+import logging
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
+
+logger = logging.getLogger(__name__)
 
 REST = 0.5
 HALF_LIFE_SECONDS = 600.0
@@ -217,11 +220,21 @@ def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
             elapsed = (datetime.now(timezone.utc) - updated_at).total_seconds()
         else:
             elapsed = 0.0
+        n_pad = compute_n_pad(items, self_pad=self_pad, self_weight=self_weight)
         new_mood = decay_and_nudge(
             mood, elapsed, items, self_pad=self_pad, self_weight=self_weight
         )
         save_mood(conn, new_mood)
         conn.commit()
+    # 計測（#1 感情ループ閉じ）：ターンごとの mood 推移を1行で観測する。
+    logger.info(
+        "MOOD nudge: (%.2f,%.2f,%.2f,%.2f)→(%.2f,%.2f,%.2f,%.2f) "
+        "N_PAD=(%.2f,%.2f,%.2f,%.2f) items=%d elapsed=%.0fs",
+        mood.p, mood.pn, mood.a, mood.dom,
+        new_mood.p, new_mood.pn, new_mood.a, new_mood.dom,
+        n_pad.p, n_pad.pn, n_pad.a, n_pad.dom,
+        len(items), elapsed,
+    )
     return new_mood
 
 

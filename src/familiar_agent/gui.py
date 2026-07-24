@@ -1950,6 +1950,20 @@ class FamiliarWindow(QMainWindow):
                 conn.commit()
             if firing.any:
                 logger.info("Drive fired: %s", firing)
+            # 計測（#1 感情ループ閉じ）：mood・g_D・drive の推移を ~60秒ごとに1行で観測する。
+            _now = time.time()
+            if _now - getattr(self, "_last_drive_obs", 0.0) >= 60.0:
+                self._last_drive_obs = _now
+                g = dd.g_d(mood)
+                logger.info(
+                    "DRIVE obs: mood=(%.2f,%.2f,%.2f,%.2f) "
+                    "g_D(seek=%.3f,safe=%.3f,bond=%.3f,est=%.3f,rest=%.3f) "
+                    "drive(seek=%.2f,safe=%.2f,bond=%.2f,est=%.2f,rest=%.2f)",
+                    mood.p, mood.pn, mood.a, mood.dom,
+                    g.seeking, g.safety, g.bond, g.esteem, g.rest,
+                    accumulated.seeking, accumulated.safety, accumulated.bond,
+                    accumulated.esteem, accumulated.rest,
+                )
             return firing, accumulated
         except Exception as e:  # noqa: BLE001
             logger.warning("drive tick failed: %s", e)
