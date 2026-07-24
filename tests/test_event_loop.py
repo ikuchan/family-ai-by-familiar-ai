@@ -33,7 +33,9 @@ def _agent(*, stream_returns, max_iters=3):
     mem.format_for_context = MagicMock(return_value="[想起]昔の話")
     a._active_memory = MagicMock(return_value=mem)
     a._memory = MagicMock()
-    a._memory.save_async_with_id = AsyncMock(return_value=("obs123", True))
+    # 書込みごとに別 id を返す（トリガ／open 意図／完了 を区別して検証するため）。
+    _ids = iter([f"obs{i}" for i in range(1, 20)])
+    a._memory.save_async_with_id = AsyncMock(side_effect=lambda *_a, **_k: (next(_ids), True))
     a._memory.mark_superseded = MagicMock()
     a._observation_perspective = MagicMock(return_value={})
     a._memory_tool = MagicMock()
@@ -75,7 +77,8 @@ def test_speaks_via_say_tool():
     assert kwargs.get("tools") == [_SAY_DEF, _RECALL_DEF]   # say＋recall のみ
     assert kwargs["max_tokens"] == 400
     assert "on_text" in kwargs
-    a._memory.save_async_with_id.assert_not_awaited()       # 完了 O 書込みは無い
+    # 取込でトリガ（発話）O を1件書くだけ（open 意図・完了 O は無い）。
+    assert a._memory.save_async_with_id.await_count == 1
     a._spawn_background_task.assert_called_once()
 
 
@@ -121,20 +124,49 @@ def test_recall_chains_via_completion_queue_then_says():
     assert a.backend.stream_turn.await_count == 2               # 2反復
     a._memory_tool.call.assert_awaited_once_with("recall", {"query": "運動会"})  # RH 実行
     # QC drain＝完了結果を O へ書込（反復2の取込）。
-    a._memory.save_async_with_id.assert_awaited_once()
-    args, kwargs = a._memory.save_async_with_id.call_args
-    assert args[0] == "recall結果テキスト"
-    assert kwargs["kind"] == "observation"
+    written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
+    assert "recall結果テキスト" in written
+    kinds = {c.kwargs["kind"] for c in a._memory.save_async_with_id.call_args_list}
+    assert kinds == {"observation"}
 
 
-def test_consumed_completion_is_superseded_via_pipeline():
+def test_trigger_utterance_written_to_o_at_intake():
+    # 取込＝来た事実（人の発話）を O に書く（④シーケンス）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ"})])])
+    _run(a, utterance="おはよう")
+    first = a._memory.save_async_with_id.call_args_list[0]
+    assert first.args[0] == "おはよう"
+    assert first.kwargs["direction"] == "発話"
+
+
+def test_open_intent_written_with_utterance_and_query():
+    # recall を決めた反復で open 意図 O を書く。content は元の発話内容と query を含む
+    # （id ではなく内容そのもの＝W に載ったとき意味が通り想起にも効く）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ])
+    _run(a, utterance="おはよう")
+    intents = [
+        c for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "意図"
+    ]
+    assert len(intents) == 1
+    content = intents[0].args[0]
+    assert "おはよう" in content and "運動会" in content
+
+
+def test_all_loop_os_are_superseded_via_pipeline():
+    # トリガ・open 意図・完了 のループ中 O は、すべてターン末に supersede される。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ])
     _run(a)
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert kwargs["superseded_ids"] == ["obs123"]              # 消化した完了 O id
+    # 書いた O は3件（トリガ obs1・open 意図 obs2・完了 obs3）＝全部が supersede 対象。
+    assert a._memory.save_async_with_id.await_count == 3
+    assert kwargs["superseded_ids"] == ["obs1", "obs2", "obs3"]
 
 
 def test_max_iterations_bounds_the_chain():

@@ -84,13 +84,26 @@ class InformationProcessing:
         from ..capability_state import load_summary
 
         agent = self._agent
-        consumed_completion_ids: list[str] = []
+        loop_obs_ids: list[str] = []
         memories: list[dict] = []
         text = ""
 
         max_iters = max(1, agent.config.event_max_iterations)
         outcome = "空"          # 結末：発話 | 沈黙 | 空（上限空終了）
         iters_used = 0
+
+        # 取込：来た事実（人の発話）を O に書く（④シーケンス）。ループ中の O は中間なので
+        # ターン末にまとめて supersede し、恒久記録は会話 summary O が担う。
+        trigger_id, _ = await agent._memory.save_async_with_id(
+            utterance[:500],
+            direction="発話",
+            kind="observation",
+            materialize_now=True,
+            **agent._observation_perspective(),
+        )
+        if trigger_id:
+            loop_obs_ids.append(trigger_id)
+
         for _i in range(max_iters):
             iters_used = _i + 1
             logger.debug("event-loop iter=%d/%d 開始", iters_used, max_iters)
@@ -107,7 +120,7 @@ class InformationProcessing:
                     **agent._observation_perspective(),
                 )
                 if obs_id:
-                    consumed_completion_ids.append(obs_id)
+                    loop_obs_ids.append(obs_id)
             if drained:
                 logger.debug("event-loop iter=%d/%d QC取込=%d件", iters_used, max_iters, drained)
 
@@ -153,6 +166,19 @@ class InformationProcessing:
             recall_tc = next((tc for tc in result.tool_calls if tc.name == "recall"), None)
             if recall_tc is not None:
                 logger.debug("event-loop iter=%d/%d 決定=recall", iters_used, max_iters)
+                # open 意図＝「何を思い出そうとしたか」を O に残す。これが無いと次反復の W が
+                # 前反復と同じに見え、モデルは同じ recall を繰り返す（実機で観測）。content は
+                # id でなく内容（元の発話と query）を持つ＝W に載ったとき意味が通る。
+                query = str(recall_tc.input.get("query", "")).strip()
+                intent_id, _ = await agent._memory.save_async_with_id(
+                    f"「{utterance}」について recall（query={query}）を要求した。結果はまだ無い。"[:500],
+                    direction="意図",
+                    kind="observation",
+                    materialize_now=True,
+                    **agent._observation_perspective(),
+                )
+                if intent_id:
+                    loop_obs_ids.append(intent_id)
                 out, _ = await agent._memory_tool.call("recall", dict(recall_tc.input))
                 self._completion_queue.put_nowait(out)
                 continue
@@ -184,7 +210,7 @@ class InformationProcessing:
                     observation_action_name=None, observation_action_input=None,
                     companion_mood="engaged", is_desire_turn=False, desires=None,
                     arousal=arousal, memories=memories,
-                    superseded_ids=consumed_completion_ids or None,
+                    superseded_ids=loop_obs_ids or None,
                 ),
                 name="event-post-response",
             )
