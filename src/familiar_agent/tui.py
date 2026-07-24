@@ -282,6 +282,11 @@ class FamiliarApp(App):
             await asyncio.sleep(0.5)
         if self._closing:
             return
+        # #10：埋め込み読込失敗は致命。記憶が死ぬので TUI を終了する。
+        if getattr(self.agent, "embedding_failed", None) and self.agent.embedding_failed():
+            with contextlib.suppress(Exception):
+                self.exit(message="[致命的エラー] 埋め込みモデルを読み込めません。記憶が機能しないため終了します。")
+            return
         elapsed = int(time.time() - start)
         with contextlib.suppress(Exception):
             stream.update(f"[dim]{_t('initializing_done')} ({elapsed}s)[/dim]")

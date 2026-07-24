@@ -2658,6 +2658,10 @@ class EmbodiedAgent:
         """Return True once the embedding model has finished loading."""
         return self._memory.is_embedding_ready()
 
+    def embedding_failed(self) -> bool:
+        """埋め込みモデルの読込に失敗したか（#10・致命）。記憶が死ぬので fail-fast する。"""
+        return self._memory.embedding_failed()
+
     async def _write_today_narrative(self) -> None:
         """Write a one-sentence self-description for today's session.
 

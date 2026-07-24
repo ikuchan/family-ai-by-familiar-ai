@@ -82,6 +82,7 @@ except ImportError:
 from . import __version__
 from ._i18n import _t
 from .core import parsing
+from .errors import FatalStartupError, check_embedding_fatal
 from ._ui_helpers import (
     AdaptiveDesireCooldown,
     IDLE_CHECK_INTERVAL,
@@ -2329,10 +2330,33 @@ class FamiliarWindow(QMainWindow):
             await asyncio.sleep(0.5)
         if self._closing or getattr(self, "_agent", None) is None:
             return
+        try:
+            check_embedding_fatal(self._agent)  # #10：埋め込み読込失敗は致命
+        except FatalStartupError as e:
+            self._fatal_dialog(str(e))
+            return
         elapsed = int(time.time() - start)
         self._log.append_line(f"✅ {_t('initializing_done')} ({elapsed}s)")
         self._stream.clear_status()
         self.setWindowTitle(f"familiar-ai  {__version__}")
+
+    def _fatal_dialog(self, message: str) -> None:
+        """#10：致命的な起動失敗をダイアログで示してアプリを終了する。"""
+        logger.error("Fatal startup: %s", message)
+        self._agent_init_failed = True
+        with contextlib.suppress(Exception):
+            self._set_startup_status("起動できません")
+            self._set_input_enabled(False)
+        try:
+            from PySide6.QtWidgets import QApplication, QMessageBox
+
+            QMessageBox.critical(self, "起動できません", message)
+            app = QApplication.instance()
+            if app is not None:
+                app.quit()
+        except Exception:  # noqa: BLE001
+            # ダイアログを出せない環境（ヘッドレス等）でも致命は伝える。
+            print(f"[致命的エラー] {message}", file=sys.stderr)
 
     async def _initialize_agent(self) -> None:
         """Build EmbodiedAgent after the window is already visible."""
@@ -2356,6 +2380,11 @@ class FamiliarWindow(QMainWindow):
             self._set_input_enabled(True)
             if self._realtime_stt and self._realtime_stt_task is None:
                 self._realtime_stt_task = self._create_task(self._start_realtime_stt())
+        except FatalStartupError as e:
+            # #10：致命的な起動失敗（DB 接続不可等）はダイアログで示して終了。
+            self._agent_init_failed = True
+            self._fatal_dialog(str(e))
+            return
         except Exception as exc:
             self._agent_init_failed = True
             logger.exception("Agent initialization failed")

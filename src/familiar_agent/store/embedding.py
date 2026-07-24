@@ -78,6 +78,10 @@ class _EmbeddingModel:
     def is_ready(self) -> bool:
         return self._ready.is_set()
 
+    def failed(self) -> bool:
+        """モデル読込に失敗したか（#10・致命判定用）。"""
+        return self._failed
+
     def _load(self) -> None:
         if self._model is not None or self._failed:
             return

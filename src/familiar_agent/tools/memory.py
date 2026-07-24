@@ -329,6 +329,9 @@ class ObservationMemory:
     def is_embedding_ready(self) -> bool:
         return self._embedder.is_ready()
 
+    def embedding_failed(self) -> bool:
+        return self._embedder.failed()
+
     def close(self) -> None:
         self._db.close()
 

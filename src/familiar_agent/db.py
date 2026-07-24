@@ -9,15 +9,52 @@ from __future__ import annotations
 import logging
 import os
 import threading
+import time
 from typing import TYPE_CHECKING
+from urllib.parse import urlparse
 
 import psycopg2
 import psycopg2.extras
+
+from .errors import FatalStartupError
 
 if TYPE_CHECKING:
     import psycopg2.extensions
 
 logger = logging.getLogger(__name__)
+
+
+def _mask_db_url(url: str) -> str:
+    """DB URL のパスワードを伏せて返す（ログ・メッセージ用）。"""
+    try:
+        p = urlparse(url)
+        host = p.hostname or "?"
+        port = f":{p.port}" if p.port else ""
+        db = (p.path or "/").lstrip("/") or "?"
+        return f"{host}{port}/{db}"
+    except Exception:  # noqa: BLE001
+        return "?"
+
+
+def _connect_with_retry(url: str, attempts: int = 3, delay: float = 1.0):
+    """psycopg2.connect を最大 attempts 回試す（既定＝初回＋2リトライ）。失敗は致命。"""
+    last: Exception | None = None
+    for i in range(max(1, attempts)):
+        try:
+            return psycopg2.connect(url)
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if i < attempts - 1:
+                logger.warning(
+                    "PostgreSQL 接続に失敗（%d/%d・%.0fs 後に再試行）: %s",
+                    i + 1, attempts, delay, e,
+                )
+                if delay > 0:
+                    time.sleep(delay)
+    raise FatalStartupError(
+        f"PostgreSQL に接続できません（{_mask_db_url(url)}）。"
+        f"DB が起動しているか・DATABASE_URL を確認してください。詳細: {last}"
+    )
 
 _INSTANCE: "Database | None" = None
 _INSTANCE_LOCK = threading.Lock()
@@ -50,7 +87,7 @@ class Database:
                 "DATABASE_URL",
                 "postgresql://familiar:familiar@localhost:5432/familiar_ai",
             )
-            self._conn = psycopg2.connect(url)
+            self._conn = _connect_with_retry(url, attempts=3, delay=1.0)
             self._conn.autocommit = False
             # timestamptz を生活時間（ローカル）で読むため、セッション TimeZone を
             # ローカルオフセットへ固定する。timestamp::date・EXTRACT・psycopg2 の返す

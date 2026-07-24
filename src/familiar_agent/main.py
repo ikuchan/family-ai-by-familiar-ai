@@ -8,6 +8,8 @@ import os
 import signal
 import sys
 import time
+
+from .errors import FatalStartupError, check_embedding_fatal
 from pathlib import Path
 
 from .agent import EmbodiedAgent
@@ -104,6 +106,7 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
             print(f"\r  {_t('initializing')}... ({elapsed}s)", end="", flush=True)
             await asyncio.sleep(0.5)
         print(f"\r  {_t('initializing_done')} ({int(time.time() - start_init)}s)          ")
+        check_embedding_fatal(agent)  # #10：埋め込み読込失敗は致命
 
     loop = asyncio.get_event_loop()
 
@@ -497,22 +500,28 @@ def main() -> None:
 
     config = AgentConfig()
 
-    if use_gui:
-        from .gui import run_gui
+    # #10：致命的な起動失敗（DB 接続不可・埋め込み読込不可）は生 traceback でなく
+    # 原因＋対処を1行で示してクリーン終了する。GUI は run_gui 内でダイアログ表示。
+    try:
+        if use_gui:
+            from .gui import run_gui
 
-        desires = DesireSystem(companion_name=config.companion_name)
-        run_gui(config, desires)
-    elif use_tui:
-        agent = EmbodiedAgent(config)
-        desires = DesireSystem(companion_name=config.companion_name)
-        from .tui import FamiliarApp
+            desires = DesireSystem(companion_name=config.companion_name)
+            run_gui(config, desires)
+        elif use_tui:
+            agent = EmbodiedAgent(config)
+            desires = DesireSystem(companion_name=config.companion_name)
+            from .tui import FamiliarApp
 
-        app = FamiliarApp(agent, desires)
-        app.run(mouse=False)
-    else:
-        agent = EmbodiedAgent(config)
-        desires = DesireSystem(companion_name=config.companion_name)
-        _run_repl(agent, desires, debug=debug)
+            app = FamiliarApp(agent, desires)
+            app.run(mouse=False)
+        else:
+            agent = EmbodiedAgent(config)
+            desires = DesireSystem(companion_name=config.companion_name)
+            _run_repl(agent, desires, debug=debug)
+    except FatalStartupError as e:
+        print(f"\n[致命的エラー] {e}", file=sys.stderr)
+        sys.exit(1)
 
 
 if __name__ == "__main__":
