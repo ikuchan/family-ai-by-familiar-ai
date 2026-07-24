@@ -1286,6 +1286,21 @@ class MemoryTool:
             )
             results.append("[agent_self] 場面記録")
 
+        # floor：どの scope でも1件も書けなかったら話者／DEFAULT の本命へ落とす
+        # （witnessed で在席他者ゼロ等・記憶を落とさない・Slice A の一般化）。
+        if not results:
+            store = self._write_store
+            mem_id, ok = await store.save_async_with_id(
+                content, kind="utterance", emotion=emotion,
+                image_path=image_path,
+                writer_id=speaker_id, subject_id=speaker_id,
+                participants=present_ids, scope="speaker",
+            )
+            if ok:
+                results.append(f"[{self._manager.get_person_name(speaker_id)}] 話者（在席者なし）")
+                if link_to and mem_id:
+                    await store.link_memories_async(mem_id, link_to, link_type=link_type)
+
         summary = " / ".join(results) if results else "書き込みなし"
         return f"記憶しました: {summary}", None
 
