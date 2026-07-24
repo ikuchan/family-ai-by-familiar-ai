@@ -6,7 +6,26 @@ import os
 
 import psycopg2
 
-from familiar_agent.wr_store import load_wr_items, save_wr
+from familiar_agent.wr_store import combine_wr_ids, load_wr_items, save_wr
+
+
+# ── combine_wr_ids（W 想起 MI ＋ そのターンの新記憶・順序保存で重複除去・純関数） ──
+
+def test_combine_recalled_and_new_ids():
+    memories = [{"memory_id": "w1"}, {"memory_id": "w2"}]
+    out = combine_wr_ids(memories, ["obs1", "conv1"])
+    assert out == ["w1", "w2", "obs1", "conv1"]  # W ＋ 新記憶が1つの WR に共起
+
+
+def test_combine_dedups_and_skips_none():
+    memories = [{"memory_id": "w1"}, {"memory_id": None}, {"memory_id": "w1"}]
+    out = combine_wr_ids(memories, [None, "conv1", "w1"])
+    assert out == ["w1", "conv1"]  # 重複・None を除去
+
+
+def test_combine_empty():
+    assert combine_wr_ids(None, None) == []
+    assert combine_wr_ids([], []) == []
 
 
 def _conn():

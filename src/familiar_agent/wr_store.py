@@ -7,6 +7,19 @@
 from __future__ import annotations
 
 
+def combine_wr_ids(
+    memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
+) -> "list[str]":
+    """WR に入れる id 集合＝そのターンの W（想起 MI の memory_id）＋作った記憶 id。順序保存で重複除去。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in [m.get("memory_id") for m in (memories or [])] + list(new_ids or []):
+        if raw and str(raw) not in seen:
+            seen.add(str(raw))
+            out.append(str(raw))
+    return out
+
+
 def save_wr(conn, mi_ids: "list[str]") -> "int | None":
     """ターンの想起 MI id 集合を1つの WR として記録し、wr_id を返す。空なら記録せず None。"""
     ids = [str(m) for m in mi_ids if m]

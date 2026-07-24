@@ -247,6 +247,7 @@ class TestFrustratedBoostsDesire:
         agent._memory.recall_semantic_facts_async = AsyncMock(return_value=[])
         agent._memory.recall_behavior_policies_async = AsyncMock(return_value=[])
         agent._memory.save_async = AsyncMock(return_value=True)
+        agent._memory.save_async_with_id = AsyncMock(return_value=(None, True))
         agent._memory.content_novelty_async = AsyncMock(return_value=0.5)
         agent._memory.format_for_context = MagicMock(return_value="")
         agent._memory.format_feelings_for_context = MagicMock(return_value="")

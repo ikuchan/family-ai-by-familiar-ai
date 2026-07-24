@@ -760,8 +760,8 @@ class EmbodiedAgent:
         _nudge_items.append((emotion_pad, 1.0))
         nudge_current_mood(_nudge_items)
 
-        # 拡散想起の母集合：ターンの想起 MI 集合を WR として記録（記録のみ・拡散は未接続）。
-        self._record_wr(memories)
+        # そのターンで作った記憶 id（観察・会話）。WR 記録で W と共起させる。
+        _new_ids: list[str | None] = []
 
         # 案Y：満たされた drive を軽量LLMで判定し発火時と同じ全放電で沈静化（既定 off）。
         await self._maybe_discharge_satisfied_drives(
@@ -809,7 +809,7 @@ class EmbodiedAgent:
                     pred_coalition = self._prediction.as_coalition()
                     if pred_coalition is not None:
                         self._workspace.apply_prediction_error(pred_coalition.novelty)
-                await self._memory.save_async(
+                _obs_id, _ = await self._memory.save_async_with_id(
                     final_text[:500],
                     direction="観察",
                     kind="observation",
@@ -818,9 +818,10 @@ class EmbodiedAgent:
                     emotion_pad=emotion_pad,
                     **self._observation_perspective(),
                 )
+                _new_ids.append(_obs_id)
 
             summary = await self._summarize_exchange(user_input, final_text)
-            await self._active_memory().save_async(
+            _conv_id, _ = await self._active_memory().save_async_with_id(
                 summary,
                 direction="会話",
                 kind="conversation",
@@ -830,6 +831,11 @@ class EmbodiedAgent:
                 emotion_pad=emotion_pad,
                 **self._conversation_perspective(),
             )
+            _new_ids.append(_conv_id)
+
+            # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
+            # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
+            self._record_wr(memories, _new_ids)
 
             await self._update_self_model(final_text, emotion)
             await self._maybe_update_self_narrative(
@@ -1193,11 +1199,16 @@ class EmbodiedAgent:
         """MotionWatcher からのコールバック：動体を保留（GUI アイドルが知覚ターンを起こす）。"""
         self._motion_pending = True
 
-    def _record_wr(self, memories: "list[dict] | None") -> None:
-        """ターンの想起 MI 集合を WR として WRDB へ記録（拡散想起の母集合・記録のみ・挙動不変）。"""
-        if not memories:
-            return
-        mi_ids = [str(m["memory_id"]) for m in memories if m.get("memory_id")]
+    def _record_wr(
+        self, memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
+    ) -> None:
+        """そのターンの W（想起 MI）＋そのターンに作った記憶を1つの WR として共起記録する。
+
+        新記憶↔W の接続を作る（拡散想起の母集合・記録のみ・挙動不変）。id は重複除去する。
+        """
+        from .wr_store import combine_wr_ids
+
+        mi_ids = combine_wr_ids(memories, new_ids)
         if not mi_ids:
             return
         try:

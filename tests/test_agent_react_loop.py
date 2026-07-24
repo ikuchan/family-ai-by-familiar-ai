@@ -85,6 +85,7 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mem.format_self_model_for_context = MagicMock(return_value="")
     mem.format_curiosities_for_context = MagicMock(return_value="")
     mem.save_async = AsyncMock()
+    mem.save_async_with_id = AsyncMock(return_value=(None, True))
     mem.content_novelty_async = AsyncMock(return_value=0.5)
     mem.adjust_semantic_fact_confidence_async = AsyncMock(return_value=None)
     mem.adjust_behavior_policy_confidence_async = AsyncMock(return_value=None)

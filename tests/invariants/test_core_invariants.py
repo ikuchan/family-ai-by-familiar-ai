@@ -100,7 +100,13 @@ async def test_conversation_turn_persists_the_memory() -> None:
         for p in ps:
             p.stop()
 
-    assert agent._memory.save_async.await_count >= 1, "ターンが記憶を残していない"
+    # 永続化は save_async／save_async_with_id のどちらかを通る（会話 save は id 捕捉で
+    # save_async_with_id・拡散想起 WR の新記憶↔W 接続のため）。経路を問わず残ることを見る。
+    _persisted = (
+        agent._memory.save_async.await_count
+        + agent._memory.save_async_with_id.await_count
+    )
+    assert _persisted >= 1, "ターンが記憶を残していない"
 
 
 # ── 2. 想起の母集合に入る ───────────────────────────────────────────────────
