@@ -1955,7 +1955,7 @@ class FamiliarWindow(QMainWindow):
             if _now - getattr(self, "_last_drive_obs", 0.0) >= 60.0:
                 self._last_drive_obs = _now
                 g = dd.g_d(mood)
-                logger.info(
+                logger.debug(
                     "DRIVE obs: mood=(%.2f,%.2f,%.2f,%.2f) "
                     "g_D(seek=%.3f,safe=%.3f,bond=%.3f,est=%.3f,rest=%.3f) "
                     "drive(seek=%.2f,safe=%.2f,bond=%.2f,est=%.2f,rest=%.2f)",

@@ -226,8 +226,8 @@ def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
         )
         save_mood(conn, new_mood)
         conn.commit()
-    # 計測（#1 感情ループ閉じ）：ターンごとの mood 推移を1行で観測する。
-    logger.info(
+    # 観測（#1 感情ループ閉じ・tuning 用）：ターンごとの mood 推移を1行で。debug（本番は切る）。
+    logger.debug(
         "MOOD nudge: (%.2f,%.2f,%.2f,%.2f)→(%.2f,%.2f,%.2f,%.2f) "
         "N_PAD=(%.2f,%.2f,%.2f,%.2f) items=%d elapsed=%.0fs",
         mood.p, mood.pn, mood.a, mood.dom,
