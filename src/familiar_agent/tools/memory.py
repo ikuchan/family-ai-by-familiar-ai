@@ -631,14 +631,18 @@ class ObservationMemory:
                 one_minus[oid] *= (1.0 - r_pq)
         return {oid: 1.0 - om for oid, om in one_minus.items()}
 
-    def _diffuse_extend(self, results: list[dict], cfg) -> list[dict]:
-        """拡散想起 (A)共起＋(B)主体で W を有界再帰で広げ、a0=0 の W 要素（dict）を返す。"""
+    def _diffuse_extend(self, results: list[dict], cfg, seed_vec=None) -> list[dict]:
+        """拡散想起 (A)共起＋(B)主体で W を有界再帰で広げ、a0=0 の W 要素（dict）を返す。
+
+        seed_vec があれば候補を seed から遠い順（新規性高い順）に並べ替えて novel を優先する（4b）。
+        """
         try:
             from ..core.diffuse import diffuse_ids, select_entity_seeds
             from ..diffuse_store import (
                 cooccurring_mi_ids,
                 fetch_diffuse_rows,
                 fetch_perspectives,
+                order_ids_by_farthest,
                 recall_by_person,
             )
             from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
@@ -653,6 +657,9 @@ class ObservationMemory:
                     cands = list(cooccurring_mi_ids(conn, known, min_shared=2, limit=cap * 4))
                     for pid in select_entity_seeds(fetch_perspectives(conn, known), exclude)[:cap]:
                         cands += recall_by_person(conn, pid, limit=cap)
+                    # 4b：seed から遠い順（新規性高い順）に並べ替えて novel を優先する。
+                    if seed_vec is not None:
+                        cands = order_ids_by_farthest(conn, cands, seed_vec)
                     return cands
 
                 added = diffuse_ids(
@@ -835,7 +842,7 @@ class ObservationMemory:
                 # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
                 # a0=0（score/activation 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
                 if _cfg.diffuse_recall and results:
-                    results.extend(self._diffuse_extend(results, _cfg))
+                    results.extend(self._diffuse_extend(results, _cfg, seed_vec=q_vec))
 
                 return results
 

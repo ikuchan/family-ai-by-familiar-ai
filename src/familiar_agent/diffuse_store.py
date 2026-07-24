@@ -8,6 +8,39 @@ from __future__ import annotations
 
 import json
 
+import numpy as np
+
+from .store.embedding import _decode_vector
+
+
+def order_ids_by_farthest(conn, ids: "list[str]", seed_vec) -> "list[str]":
+    """候補 id を seed ベクトルから遠い順（コサイン低い順＝新規性高い順）に並べ替える（4b）。
+
+    埋め込みが無い/次元不一致の候補は末尾へ。DB 非破壊・LLM フリー。
+    """
+    ids = [str(i) for i in ids if i]
+    if not ids:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT obs_id, vector FROM obs_embeddings WHERE obs_id::text = ANY(%s)",
+            (ids,),
+        )
+        rows = cur.fetchall()
+    s = np.asarray(seed_vec, dtype=np.float32)
+    s = s / (float(np.linalg.norm(s)) or 1.0)
+    cos: dict[str, float] = {}
+    for oid, blob in rows:
+        if blob is None:
+            continue
+        v = _decode_vector(bytes(blob))
+        if v.size != s.size:
+            continue
+        v = v / (float(np.linalg.norm(v)) or 1.0)
+        cos[str(oid)] = float(np.dot(s, v))
+    # 遠い順＝コサイン昇順。埋め込み無しは末尾（新規性不明）。
+    return sorted(ids, key=lambda i: (i not in cos, cos.get(i, 1.0)))
+
 
 def fetch_perspectives(conn, ids: "list[str]") -> "list[dict]":
     """観測 id 群の視点列（subject_id/participants/writer_id）を取る（(B) の種抽出用）。"""

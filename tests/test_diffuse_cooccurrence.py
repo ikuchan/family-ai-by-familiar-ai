@@ -83,3 +83,25 @@ def test_diffuse_extend_adds_cooccurring_with_a0_zero():
     assert d in ids                                  # 共起候補を W へ足す
     assert all(e["score"] == 0.0 for e in extra)     # a0=0（重み0）
     assert all(e["retrieval_method"] == "diffuse" for e in extra)
+
+
+def test_order_ids_by_farthest_puts_novel_first():
+    """4b：seed から遠い（コサイン低い）候補を先頭へ、埋め込み無しは末尾。"""
+    import numpy as np
+
+    from familiar_agent.diffuse_store import order_ids_by_farthest
+
+    conn = _conn()
+    near = str(uuid.uuid4())   # seed とほぼ同方向（近い）
+    far = str(uuid.uuid4())    # seed と直交（遠い）
+    noemb = str(uuid.uuid4())  # 埋め込み無し
+    with conn.cursor() as cur:
+        _obs(cur, near); _obs(cur, far); _obs(cur, noemb)
+        cur.execute("INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s,%s)",
+                    (near, np.array([1, 0, 0], dtype=np.float32).tobytes()))
+        cur.execute("INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s,%s)",
+                    (far, np.array([0, 0, 1], dtype=np.float32).tobytes()))
+    out = order_ids_by_farthest(conn, [near, far, noemb], np.array([1, 0, 0], dtype=np.float32))
+    conn.close()
+    assert out[0] == far        # 最遠（新規性高い）が先頭
+    assert out[-1] == noemb      # 埋め込み無しは末尾
