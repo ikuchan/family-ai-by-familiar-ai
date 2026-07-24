@@ -1,4 +1,6 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.8）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.9）
+
+> v0.9：カメラ動体検知→知覚ターン起動（案B）を反映。**DIF（純イベント駆動 I）は未実装**なので、動体イベントは当面**現行ターン駆動へ接地**する（将来 DIF ができたらそこへ載せ替え）。`recognition/motion_watcher.py`＝`CameraMotionWatcher`（`presence_watcher` と同型の asyncio タスク・ONVIF PullPoint 購読＝`create_pullpoint_manager`→`SetSynchronizationPoint`→`PullMessages` ループ・Tapo は HTTPS webhook 非対応のため pull 採用）。動体検知で `agent._note_motion` が保留フラグ `_motion_pending` を立て、GUI アイドルループ（deferred 配信と同位置）が拾って**知覚ターン**を起こす（`inner_voice`＝Config `motion_inner_voice`・行動は主LLM が選ぶ・見え驚きは既存 `see`→SceneTracker 経路）。デバウンス（既定60秒・`Debouncer`）でバーストを1ターンにまとめ、long-poll 待機（既定60秒）は通信管理値で検知遅延にならない。ゲート＝静穏/沈黙/入力待ちを避け、**在席は問わない**（不在時の動きも気づく）。Config `MOTION_WATCH`（既定 off）で opt-in。
 
 > v0.8：起動時キャッチアップ（案B）と Drive 新機能の既定 on 化を反映。(1) 停止中の経過を初回 tick に積む：`gui._initial_drive_tick_time` が `drive5.updated_at` を読み、初回 `dt = now − updated_at`（停止秒数）で `accumulate` する（`drive_register.load_drives_with_updated_at`／`catchup_dt`）。cap は設けず accumulate の [0,1] クリップ任せ。mood は起動時 snapshot 近似。(2) 実行時フラグ `DRIVE5_AUTONOMOUS`／`DRIVE5_SATISFY_LLM` の**コード既定を on** へ（新機能を前提）。明示無効化は env `=0`。legacy 経路は `=0` で従来どおり。
 
