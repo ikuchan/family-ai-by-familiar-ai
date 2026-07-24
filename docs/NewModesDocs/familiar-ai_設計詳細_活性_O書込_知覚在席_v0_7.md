@@ -1,4 +1,6 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.6）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.7）
+
+> v0.7：P1（知覚→save の視点列配線）を反映。`agent._run_post_response_pipeline` の観察 save と会話 summary save が、視点列（`writer_id`/`subject_id`/`participants_json`/`scope`）を PMM から埋めるようにした。観察＝エージェント自身の情景観察（`writer_id=AGENT_SELF`・`scope="scene"`・`subject_id`＝現話者 floor `DEFAULT_PERSON_ID`）、会話 summary＝話者との遣り取り（`writer_id=subject_id`＝現話者 floor `DEFAULT`・`scope="speaker"`）、`participants`＝在席者（`get_present_ids`）。`scope` は現状 recall フィルタに使わず、将来 V2 が participants/writer/subject と合わせ関係エッジ（presence/speaker/subject）を作るためのラベル。実装＝`agent._observation_perspective`/`_conversation_perspective`。`day_summary` 等の要約系は対象外（REST/P2）。
 
 > v0.6：Drive 起動源の dynamics 接続（Slice 2a）と発火から自発ターンへの結線（Slice 2b）を反映。§3-1 の drive 行を更新。`core/drive_dynamics.py`（蓄積 $g_{D,i}(M)$・発火・放電の純関数）を `gui._process_queue` のアイドルで毎周回 tick して `drive5` へ永続化する（Slice 2a）。`DRIVE5_AUTONOMOUS`（Config・既定 off）が on のとき、発火軸のうち蓄積（放電前）最大の1軸を選び、在席と静穏でゲートして自発ターンを起こす（Slice 2b）。ターンには発火軸の内声（Config 文字列・行動非指定・主LLM が選ぶ）と drive5 の定性スナップショット（低 0.5 未満・中・高 0.75 以上・Config）を同梱する。放電は発火時（案A）。off では既存15欲求 `DesireSystem` が従来どおり駆動し、on とは完全排他（旧15→新5 移行そのものは後続）。
 
