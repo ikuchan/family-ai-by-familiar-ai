@@ -157,6 +157,11 @@ class MemoryConfig:
             str(Path.home() / ".claude" / "memories"),
         )
     )
+    # 拡散想起（[D-WR拡散想起]・(A)共起＋(B)エンティティ）。既定 off で導入。
+    diffuse_recall: bool = field(default_factory=lambda: _bool_env("DIFFUSE_RECALL", default=False))
+    diffuse_max_add: int = field(default_factory=lambda: _int_env("DIFFUSE_MAX_ADD", 4))
+    diffuse_max_depth: int = field(default_factory=lambda: _int_env("DIFFUSE_MAX_DEPTH", 2))
+
     # 想起スコアのつまみ。既定値は課題5 v0.24（D 節＝合成／F 節＝新しさ）に一致させる。
     recall_half_life_days: float = field(  # HL=259200 秒（3日）
         default_factory=lambda: _float_env("RECALL_HALF_LIFE_DAYS", 3.0)

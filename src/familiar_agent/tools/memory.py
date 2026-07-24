@@ -631,6 +631,42 @@ class ObservationMemory:
                 one_minus[oid] *= (1.0 - r_pq)
         return {oid: 1.0 - om for oid, om in one_minus.items()}
 
+    def _diffuse_extend(self, results: list[dict], cfg) -> list[dict]:
+        """拡散想起 (A)共起＋(B)主体で W を有界再帰で広げ、a0=0 の W 要素（dict）を返す。"""
+        try:
+            from ..core.diffuse import diffuse_ids, select_entity_seeds
+            from ..diffuse_store import (
+                cooccurring_mi_ids,
+                fetch_diffuse_rows,
+                fetch_perspectives,
+                recall_by_person,
+            )
+            from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
+
+            seed_ids = [r["memory_id"] for r in results]
+            exclude = {AGENT_SELF_ID, DEFAULT_PERSON_ID, self._person_id}
+            cap = max(1, cfg.diffuse_max_add)
+            with self._db_lock:
+                conn = self._db.conn()
+
+                def _get_candidates(known: list[str]) -> list[str]:
+                    cands = list(cooccurring_mi_ids(conn, known, min_shared=2, limit=cap * 4))
+                    for pid in select_entity_seeds(fetch_perspectives(conn, known), exclude)[:cap]:
+                        cands += recall_by_person(conn, pid, limit=cap)
+                    return cands
+
+                added = diffuse_ids(
+                    seed_ids, _get_candidates,
+                    max_add=cap, max_depth=max(1, cfg.diffuse_max_depth),
+                )
+                extra = fetch_diffuse_rows(conn, added)
+            if extra:
+                logger.info("diffuse recall: +%d MI（(A)共起/(B)主体）", len(extra))
+            return extra
+        except Exception:
+            logger.warning("diffuse recall failed", exc_info=True)
+            return []
+
     def recall(self, query: str, n: int = 3, kind: str | None = None,
                min_score: float = 0.0,
                recall_mode: str = "system",
@@ -795,6 +831,12 @@ class ObservationMemory:
                         [r["memory_id"] for r in results],
                         reinforce_half_life=(recall_mode == "conversation"),
                     )
+
+                # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
+                # a0=0（score/activation 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
+                if _cfg.diffuse_recall and results:
+                    results.extend(self._diffuse_extend(results, _cfg))
+
                 return results
 
             # Fallback: plain keyword search when no situated vectors exist yet.

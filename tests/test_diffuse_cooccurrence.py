@@ -52,3 +52,34 @@ def test_cooccurring_empty_when_w_too_small():
     conn = _conn()
     assert cooccurring_mi_ids(conn, ["only-one"], min_shared=2) == []
     conn.close()
+
+
+def test_diffuse_extend_adds_cooccurring_with_a0_zero():
+    """recall 結線グルー：(A)共起の候補を a0=0 で W へ足す（埋め込み不要・実DB）。"""
+    from familiar_agent.config import MemoryConfig
+    from familiar_agent.db import get_db
+    from familiar_agent.tools.memory import ObservationMemory
+
+    conn = _conn()
+    t = uuid.uuid4().hex[:8]
+    a, b = f"{t}-a", f"{t}-b"       # 現 W
+    d = str(uuid.uuid4())            # 共起で連想したい新 MI
+    with conn.cursor() as cur:
+        _obs(cur, d, kind="conversation")
+    save_wr(conn, [a, b, d])         # W={a,b} と a,b を共有（共起2）→ d を寄与
+    conn.close()
+
+    mem = ObservationMemory.__new__(ObservationMemory)
+    db = get_db()
+    mem._db = db
+    mem._db_lock = db.lock
+    mem._person_id = "SPEAKER"
+    cfg = MemoryConfig()
+    cfg.diffuse_max_add = 4
+    cfg.diffuse_max_depth = 2
+
+    extra = mem._diffuse_extend([{"memory_id": a}, {"memory_id": b}], cfg)
+    ids = [e["memory_id"] for e in extra]
+    assert d in ids                                  # 共起候補を W へ足す
+    assert all(e["score"] == 0.0 for e in extra)     # a0=0（重み0）
+    assert all(e["retrieval_method"] == "diffuse" for e in extra)

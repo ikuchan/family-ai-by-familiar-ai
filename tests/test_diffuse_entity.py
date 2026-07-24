@@ -64,3 +64,42 @@ def test_recall_by_person_matches_subject_and_participant_recent_first():
     conn.close()
     assert set(got) == {old, new}          # subject と participant の両方を拾う
     assert got[0] == new                    # 新しい順（participant の新しい方が先頭）
+
+
+# ── diffuse_ids（有界再帰・純関数・候補取得はコールバック注入） ───────────────
+
+from familiar_agent.core.diffuse import diffuse_ids  # noqa: E402
+
+
+def _grapher(graph):
+    def get(known):
+        out = []
+        for k in known:
+            out += graph.get(k, [])
+        return out
+    return get
+
+
+def test_diffuse_recurses_until_dry():
+    # a→x, x→y, y→(なし)。深く再帰して x,y を足す
+    get = _grapher({"a": ["x"], "x": ["y"]})
+    assert diffuse_ids(["a"], get, max_add=5, max_depth=3) == ["x", "y"]
+
+
+def test_diffuse_respects_max_add():
+    get = _grapher({"a": ["x"], "x": ["y"]})
+    assert diffuse_ids(["a"], get, max_add=1, max_depth=3) == ["x"]
+
+
+def test_diffuse_respects_max_depth():
+    get = _grapher({"a": ["x"], "x": ["y"]})
+    assert diffuse_ids(["a"], get, max_add=5, max_depth=1) == ["x"]
+
+
+def test_diffuse_excludes_seed_and_dedups():
+    get = _grapher({"a": ["a", "x", "x"]})  # 自分・重複を返しても
+    assert diffuse_ids(["a"], get, max_add=5, max_depth=2) == ["x"]
+
+
+def test_diffuse_empty_when_no_candidates():
+    assert diffuse_ids(["a"], _grapher({}), max_add=5, max_depth=3) == []

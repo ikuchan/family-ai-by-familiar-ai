@@ -6,6 +6,55 @@ person 中心の再想起＝その人が主体（subject_id）または参加者
 
 from __future__ import annotations
 
+import json
+
+
+def fetch_perspectives(conn, ids: "list[str]") -> "list[dict]":
+    """観測 id 群の視点列（subject_id/participants/writer_id）を取る（(B) の種抽出用）。"""
+    if not ids:
+        return []
+    out: list[dict] = []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT subject_id, participants_json, writer_id FROM observations "
+            "WHERE id::text = ANY(%s)",
+            ([str(i) for i in ids],),
+        )
+        for subj, part_json, writer in cur.fetchall():
+            try:
+                participants = json.loads(part_json) if part_json else []
+            except (ValueError, TypeError):
+                participants = []
+            out.append({"subject_id": subj, "participants": participants, "writer_id": writer})
+    return out
+
+
+def fetch_diffuse_rows(conn, ids: "list[str]") -> "list[dict]":
+    """拡散で足す MI の最小 W 要素（memory dict）を取る。a0=0（重み0）で W へ付す。"""
+    if not ids:
+        return []
+    rows: list[dict] = []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT id, content, timestamp, direction, kind, emotion FROM observations "
+            "WHERE id::text = ANY(%s)",
+            ([str(i) for i in ids],),
+        )
+        by_id = {
+            str(r[0]): {
+                "memory_id": str(r[0]), "summary": r[1], "timestamp": r[2],
+                "direction": r[3], "kind": r[4], "source_kind": r[4], "emotion": r[5],
+                "score": 0.0, "activation": 0.0, "retrieval_method": "diffuse",
+            }
+            for r in cur.fetchall()
+        }
+    # 呼び出し順（追加順）を保つ。
+    for i in ids:
+        row = by_id.get(str(i))
+        if row is not None:
+            rows.append(row)
+    return rows
+
 
 def cooccurring_mi_ids(
     conn, w_mi_ids: "list[str]", min_shared: int = 2, limit: int = 20

@@ -7,6 +7,40 @@ person を選ぶ。話題の主体 subject を最優先、次いで participants
 
 from __future__ import annotations
 
+from typing import Callable
+
+
+def diffuse_ids(
+    seed_ids: "list[str]",
+    get_candidates: "Callable[[list[str]], list[str]]",
+    *,
+    max_add: int,
+    max_depth: int,
+) -> "list[str]":
+    """有界再帰の spreading：seed から候補を辿り、現在集合に無い MI を最大 max_add 件足す。
+
+    `get_candidates(known)`＝現在の既知集合から候補 id を返すコールバック（(A)+(B) を合成）。
+    足した id を含めて再度候補を取り（想起が想起を呼ぶ）、深さ max_depth・件数 max_add で打ち切る。
+    追加した順の id リストを返す（seed 自身・重複は除く）。DB も採点も持たない純関数。
+    """
+    known = list(dict.fromkeys(str(s) for s in seed_ids if s))
+    known_set = set(known)
+    added: list[str] = []
+    for _ in range(max(0, max_depth)):
+        if len(added) >= max_add:
+            break
+        fresh = [
+            c for c in dict.fromkeys(str(x) for x in get_candidates(known) if x)
+            if c not in known_set
+        ]
+        if not fresh:
+            break
+        for c in fresh[: max_add - len(added)]:
+            known.append(c)
+            known_set.add(c)
+            added.append(c)
+    return added
+
 
 def select_entity_seeds(
     perspectives: "list[dict]", exclude: "set[str] | frozenset[str] | None" = None
