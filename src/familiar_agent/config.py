@@ -157,8 +157,8 @@ class MemoryConfig:
             str(Path.home() / ".claude" / "memories"),
         )
     )
-    # 拡散想起（[D-WR拡散想起]・(A)共起＋(B)エンティティ）。既定 off で導入。
-    diffuse_recall: bool = field(default_factory=lambda: _bool_env("DIFFUSE_RECALL", default=False))
+    # 拡散想起（[D-WR拡散想起]・(A)共起＋(B)エンティティ）。既定 on（DIFFUSE_RECALL=0 で無効化）。
+    diffuse_recall: bool = field(default_factory=lambda: _bool_env("DIFFUSE_RECALL", default=True))
     diffuse_max_add: int = field(default_factory=lambda: _int_env("DIFFUSE_MAX_ADD", 4))
     diffuse_max_depth: int = field(default_factory=lambda: _int_env("DIFFUSE_MAX_DEPTH", 2))
 
