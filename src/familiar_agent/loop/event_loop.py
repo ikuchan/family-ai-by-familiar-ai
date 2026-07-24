@@ -47,8 +47,11 @@ def _pi_ctx() -> str:
         return ""
 
 
-async def run_iteration(agent, utterance: str) -> str:
-    """1反復＝1出力：想起（拡散込み）で W を作り、フルLLM で1発話を生成して返す。"""
+async def run_iteration(agent, utterance: str, on_text=None) -> str:
+    """1反復＝1出力：想起（拡散込み）で W を作り、フルLLM で1発話を生成して返す。
+
+    `on_text` は生成のストリーミング出力先（CUI/GUI へ逐次表示）。
+    """
     from ..capability_state import load_summary
 
     mem = agent._active_memory()
@@ -66,7 +69,13 @@ async def run_iteration(agent, utterance: str) -> str:
 
     # 生成：ツールを渡さない＝多段 ReAct を構造的に禁止し1出力を保証（発話のみ）。
     user_msg = agent.backend.make_user_message(utterance)
-    result, _raw = await agent.backend.stream_turn(system=system, messages=[user_msg], tools=[])
+    result, _raw = await agent.backend.stream_turn(
+        system=system,
+        messages=[user_msg],
+        tools=[],
+        max_tokens=agent.config.max_tokens,
+        on_text=on_text,
+    )
     text = (result.text or "").strip()
 
     # 永続化＝既存 pipeline（utility LLM のみ）を応答クリティカルパス外で回す。

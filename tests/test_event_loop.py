@@ -27,6 +27,8 @@ def _agent():
     a._turn_arousal = AsyncMock(return_value=0.3)
     a._spawn_background_task = MagicMock()
     a._run_post_response_pipeline = MagicMock(return_value=MagicMock())
+    a.config = MagicMock()
+    a.config.max_tokens = 400
     return a
 
 
@@ -39,4 +41,6 @@ def test_run_iteration_recalls_generates_once_and_returns_speech():
     # 段階1は発話のみ＝ツールを渡さない（1出力保証）。
     _, kwargs = a.backend.stream_turn.call_args
     assert kwargs.get("tools") == []
+    assert "max_tokens" in kwargs and kwargs["max_tokens"] == 400  # 必須引数を渡す（回帰防止）
+    assert "on_text" in kwargs                                     # ストリーミング先を渡す
     a._spawn_background_task.assert_called_once()            # 永続化を回す

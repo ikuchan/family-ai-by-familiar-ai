@@ -2900,10 +2900,8 @@ class EmbodiedAgent:
         if getattr(self.config, "event_loop", False) is True and user_input and not desire_name:
             from .loop.event_loop import run_iteration
 
-            text = await run_iteration(self, user_input)
-            if on_text and text:
-                on_text(text)
-            return text
+            # on_text は stream_turn が逐次呼ぶ（二重表示しない）。
+            return await run_iteration(self, user_input, on_text=on_text)
 
         if desires is not None:
             self._desires_ref = desires
