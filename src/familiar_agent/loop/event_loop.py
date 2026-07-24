@@ -88,9 +88,16 @@ class InformationProcessing:
         memories: list[dict] = []
         text = ""
 
-        for _ in range(max(1, agent.config.event_max_iterations)):
+        max_iters = max(1, agent.config.event_max_iterations)
+        outcome = "空"          # 結末：発話 | 沈黙 | 空（上限空終了）
+        iters_used = 0
+        for _i in range(max_iters):
+            iters_used = _i + 1
+            logger.debug("event-loop iter=%d/%d 開始", iters_used, max_iters)
             # 1. 取込：QC を drain し、完了結果を O に書く（consumed を控え末尾で supersede）。
+            drained = 0
             while not self._completion_queue.empty():
+                drained += 1
                 result_text = self._completion_queue.get_nowait()
                 obs_id, _ = await agent._memory.save_async_with_id(
                     result_text[:500],
@@ -101,6 +108,8 @@ class InformationProcessing:
                 )
                 if obs_id:
                     consumed_completion_ids.append(obs_id)
+            if drained:
+                logger.debug("event-loop iter=%d/%d QC取込=%d件", iters_used, max_iters, drained)
 
             # 2. REC（想起）：O（＋現入力）→ W。完了 O があれば関連で W に上がる。
             mem = agent._active_memory()
@@ -129,6 +138,8 @@ class InformationProcessing:
             # say → 発話して終了（run() と同じ「先頭 say 採用」）。
             say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
             if say_tc is not None:
+                logger.debug("event-loop iter=%d/%d 決定=say", iters_used, max_iters)
+                outcome = "発話"
                 text = str(say_tc.input.get("text", "")).strip()
                 if text and agent._tts is not None:
                     with contextlib.suppress(Exception):
@@ -141,13 +152,27 @@ class InformationProcessing:
             # recall → RH が実行し結果を QC へ積んで次反復へ連鎖（O→W 経由で再会）。
             recall_tc = next((tc for tc in result.tool_calls if tc.name == "recall"), None)
             if recall_tc is not None:
+                logger.debug("event-loop iter=%d/%d 決定=recall", iters_used, max_iters)
                 out, _ = await agent._memory_tool.call("recall", dict(recall_tc.input))
                 self._completion_queue.put_nowait(out)
                 continue
 
             # どちらも無ければ result.text へフォールバック（既にストリーム済み）して終了。
+            logger.debug("event-loop iter=%d/%d 決定=none", iters_used, max_iters)
+            outcome = "沈黙"
             text = (result.text or "").strip()
             break
+
+        # ターン総括：反復数と結末を1行で残す（本番 INFO でも再構成できる）。
+        logger.info(
+            "event-loop 終了: 反復=%d/%d 結末=%s text_len=%d",
+            iters_used, max_iters, outcome, len(text),
+        )
+        if outcome == "空":
+            # 上限まで recall を連鎖し発話未決のまま打ち切られた＝空応答。
+            logger.warning(
+                "event-loop 反復上限 %d に達し発話未決のまま終了（空応答）", max_iters
+            )
 
         # 永続化＝既存 pipeline（utility LLM のみ）。消化した完了 O をターン観察で supersede。
         try:

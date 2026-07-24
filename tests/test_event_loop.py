@@ -8,6 +8,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backend import ToolCall, TurnResult
@@ -148,3 +149,61 @@ def test_max_iterations_bounds_the_chain():
     out = _run(a)
     assert out == ""                                           # say せず打ち切り
     assert a.backend.stream_turn.await_count == 2
+
+
+# ── 診断ログ（反復・決定・上限空終了）─────────────────
+
+_LOGGER = "familiar_agent.loop.event_loop"
+
+
+def test_warns_when_cap_reached_without_say(caplog):
+    # 上限まで recall を返し say 未決で終わる＝空応答経路 → WARNING が出る。
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        ],
+        max_iters=2,
+    )
+    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        _run(a)
+    warns = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert any("上限" in r.getMessage() for r in warns)
+
+
+def test_no_warning_on_normal_say(caplog):
+    # 通常の発話（say）では上限空終了の WARNING は出ない。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ"})])])
+    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        _run(a)
+    warns = [r for r in caplog.records if r.levelno == logging.WARNING]
+    assert not any("上限" in r.getMessage() for r in warns)
+
+
+def test_info_summary_reports_iteration_count(caplog):
+    # ターン終了時の INFO 総括に反復数が載る（本番ログで再構成できる）。
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
+    with caplog.at_level(logging.INFO, logger=_LOGGER):
+        _run(a)
+    infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
+    assert any("反復=2" in m for m in infos)
+
+
+def test_debug_lines_carry_iteration_number(caplog):
+    # debug 行に反復番号（iter=N/M）が付き、どの反復か分かる。
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
+    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
+        _run(a)
+    debugs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
+    assert any("iter=1/3" in m for m in debugs)
+    assert any("iter=2/3" in m for m in debugs)

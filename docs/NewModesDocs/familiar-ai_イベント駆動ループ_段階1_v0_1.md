@@ -1,5 +1,6 @@
-# familiar-ai イベント駆動ループ（#11・段階1）（v0.2）
+# familiar-ai イベント駆動ループ（#11・段階1）（v0.3）
 
+> v0.3：`run_iteration` に診断ログを追加（反復番号つき debug、ターン終了の info 総括、上限空終了の warning）。挙動不変。
 > v0.2：スライス2（内部ツール recall を QC 経由で連鎖）を実装。I（情報処理機構）を `InformationProcessing` クラスとして起こし、QC（完了キュー）と LPM（ループ核＝`run_iteration`）を実体化。
 > v0.1：段階1スライス1（人の発言→拡散込み想起→1反復1出力）を実装。正本＝`I内部設計根拠`・`設計図_Mermaid` ③。
 
@@ -29,6 +30,16 @@
 - **supersede**：消化した完了 O の id を `_run_post_response_pipeline(superseded_ids=...)` へ渡し、ターン観察保存後にその id で `mark_superseded`（完了結果の中間 O を想起から外す）。
 
 **挙動不変**：`EVENT_LOOP` off（既定）で現行 `run()` 経路のまま。
+
+## 診断ログ（実装済み）
+
+`run_iteration` は、反復の進行と結末を後からログだけで再構成できるよう記録する。挙動（分岐や出力）は変えず、記録だけを足している。
+
+- **反復ごと**（`debug`）：先頭に `iter=N/M`（N は 1 始まりの反復番号、M は上限）を付ける。反復頭 `event-loop iter=N/M 開始`、QC 取込 `event-loop iter=N/M QC取込=K件`（取込があった反復のみ）、決定直後 `event-loop iter=N/M 決定=say|recall|none`。どの反復のトレースかが一目で分かる。
+- **ターン終了**（`info`）：`event-loop 終了: 反復=N/M 結末=発話|沈黙|空 text_len=L` を1行。本番（INFO）でも反復数と結末が残る。**結末**は、say で終われば「発話」、say も recall も無い素テキストで終われば「沈黙」、どちらも決まらず上限まで回り切れば「空」。
+- **上限空終了**（`warning`）：結末が「空」のとき `event-loop 反復上限 M に達し発話未決のまま終了（空応答）` を出す。最終反復が recall で打ち切られ発話が未決のまま終わった経路を名指しする。
+
+会話や記憶の中身はログに出さない（`text_len` の長さのみ）。
 
 ## 次の段階（未実装）
 
