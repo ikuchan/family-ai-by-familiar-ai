@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import contextlib
 import logging
 import os
 import threading
@@ -179,6 +180,7 @@ class CameraTool:
 
         last_error: Exception | None = None
         for try_port in ports_to_try:
+            cam = None
             try:
                 cam = ONVIFCamera(hostname, try_port, username, password, wsdl_dir=wsdl_dir)
                 await cam.update_xaddrs()
@@ -192,6 +194,10 @@ class CameraTool:
             except Exception as e:
                 logger.debug("ONVIF PTZ port %d failed for %s: %s", try_port, hostname, e)
                 last_error = e
+                # 失敗した接続のセッションを閉じる（ポート総当りで漏れが積もるのを防ぐ）。
+                if cam is not None:
+                    with contextlib.suppress(Exception):
+                        await cam.close()
 
         logger.warning(
             "ONVIF PTZ unavailable for %s (tried ports %s). "
@@ -300,7 +306,12 @@ class CameraTool:
             return f"Looked {direction} by ~{degrees} degrees."
         except Exception as e:
             logger.warning("Camera move failed: %s", e)
+            # 失敗時はセッションを閉じてから破棄（Unclosed client session の漏れ防止）。
+            if self._cam_onvif is not None:
+                with contextlib.suppress(Exception):
+                    await self._cam_onvif.close()
             self._cam_onvif = None
+            self._ptz = None
             return f"Camera move failed: {e}"
 
     def get_tool_definitions(self) -> list[dict]:
