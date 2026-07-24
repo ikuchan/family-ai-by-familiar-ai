@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 
 from .prompt import build_event_system_prompt
@@ -67,16 +68,29 @@ async def run_iteration(agent, utterance: str, on_text=None) -> str:
         workspace_ctx=workspace_ctx,
     )
 
-    # 生成：ツールを渡さない＝多段 ReAct を構造的に禁止し1出力を保証（発話のみ）。
+    # 生成：say ツールだけを渡す＝発話のみ（多段 ReAct を構造的に禁止）。say は body-tool
+    # （voice part）であり、slice1 は「1反復で say を1回」＝1反復1出力。
+    say_tools = agent._tts.get_tool_definitions() if agent._tts else []
     user_msg = agent.backend.make_user_message(utterance)
     result, _raw = await agent.backend.stream_turn(
         system=system,
         messages=[user_msg],
-        tools=[],
+        tools=say_tools,
         max_tokens=agent.config.max_tokens,
         on_text=on_text,
     )
-    text = (result.text or "").strip()
+
+    # 発話の取り出し：run() と同じ「先頭 say を採用・重複 say は抑制」に揃える。
+    # say が無ければ result.text へフォールバック（保険）。
+    text = ""
+    say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+    if say_tc is not None:
+        text = str(say_tc.input.get("text", "")).strip()
+        if text and agent._tts is not None:
+            with contextlib.suppress(Exception):
+                await agent._tts.call("say", {"text": text})
+    else:
+        text = (result.text or "").strip()
 
     # 永続化＝既存 pipeline（utility LLM のみ）を応答クリティカルパス外で回す。
     try:
