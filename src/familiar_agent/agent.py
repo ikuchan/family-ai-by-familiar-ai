@@ -760,6 +760,9 @@ class EmbodiedAgent:
         _nudge_items.append((emotion_pad, 1.0))
         nudge_current_mood(_nudge_items)
 
+        # 拡散想起の母集合：ターンの想起 MI 集合を WR として記録（記録のみ・拡散は未接続）。
+        self._record_wr(memories)
+
         # 案Y：満たされた drive を軽量LLMで判定し発火時と同じ全放電で沈静化（既定 off）。
         await self._maybe_discharge_satisfied_drives(
             user_input=user_input,
@@ -1189,6 +1192,25 @@ class EmbodiedAgent:
     def _note_motion(self) -> None:
         """MotionWatcher からのコールバック：動体を保留（GUI アイドルが知覚ターンを起こす）。"""
         self._motion_pending = True
+
+    def _record_wr(self, memories: "list[dict] | None") -> None:
+        """ターンの想起 MI 集合を WR として WRDB へ記録（拡散想起の母集合・記録のみ・挙動不変）。"""
+        if not memories:
+            return
+        mi_ids = [str(m["memory_id"]) for m in memories if m.get("memory_id")]
+        if not mi_ids:
+            return
+        try:
+            from .db import get_db
+            from .wr_store import save_wr
+
+            db = get_db()
+            with db.lock:
+                conn = db.conn()
+                save_wr(conn, mi_ids)
+                conn.commit()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("WR record failed: %s", e)
 
     def _observation_perspective(self) -> dict:
         """知覚観察の視点列（P1）。書き手＝エージェント自身・情景観察・主体は話者 floor DEFAULT。"""
