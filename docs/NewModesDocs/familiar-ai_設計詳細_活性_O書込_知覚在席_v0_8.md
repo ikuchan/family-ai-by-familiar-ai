@@ -1,4 +1,6 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.7）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.8）
+
+> v0.8：起動時キャッチアップ（案B）と Drive 新機能の既定 on 化を反映。(1) 停止中の経過を初回 tick に積む：`gui._initial_drive_tick_time` が `drive5.updated_at` を読み、初回 `dt = now − updated_at`（停止秒数）で `accumulate` する（`drive_register.load_drives_with_updated_at`／`catchup_dt`）。cap は設けず accumulate の [0,1] クリップ任せ。mood は起動時 snapshot 近似。(2) 実行時フラグ `DRIVE5_AUTONOMOUS`／`DRIVE5_SATISFY_LLM` の**コード既定を on** へ（新機能を前提）。明示無効化は env `=0`。legacy 経路は `=0` で従来どおり。
 
 > v0.7：P1（知覚→save の視点列配線）を反映。`agent._run_post_response_pipeline` の観察 save と会話 summary save が、視点列（`writer_id`/`subject_id`/`participants_json`/`scope`）を PMM から埋めるようにした。観察＝エージェント自身の情景観察（`writer_id=AGENT_SELF`・`scope="scene"`・`subject_id`＝現話者 floor `DEFAULT_PERSON_ID`）、会話 summary＝話者との遣り取り（`writer_id=subject_id`＝現話者 floor `DEFAULT`・`scope="speaker"`）、`participants`＝在席者（`get_present_ids`）。`scope` は現状 recall フィルタに使わず、将来 V2 が participants/writer/subject と合わせ関係エッジ（presence/speaker/subject）を作るためのラベル。実装＝`agent._observation_perspective`/`_conversation_perspective`。`day_summary` 等の要約系は対象外（REST/P2）。
 
