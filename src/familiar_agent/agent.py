@@ -66,6 +66,7 @@ from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, PersonMemoryManager
 from .recognition.face import recognize_face_async
+from .recognition.motion_watcher import CameraMotionWatcher
 from .recognition.presence_watcher import CameraPresenceWatcher
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
@@ -543,6 +544,9 @@ class EmbodiedAgent:
         self._memory_tool = MemoryTool(self._pmm)
         self._pending_store = self._memory_tool._pending_store
         self._presence_watcher: CameraPresenceWatcher | None = None
+        self._motion_watcher: CameraMotionWatcher | None = None
+        # 動体検知→知覚ターンの保留フラグ（GUI アイドルが拾って知覚ターンを起こす・案B）。
+        self._motion_pending: bool = False
         self._coding = CodingTool(config.coding)
         self._exploration = ExplorationTracker()
         self._scene: SceneTracker | None = None  # initialized after DB ready in _init_tools
@@ -987,6 +991,13 @@ class EmbodiedAgent:
                 camera=self.config.camera,
                 interval_sec=self.config.recognition.presence_interval_sec,
             )
+            if self.config.recognition.motion_watch:
+                self._motion_watcher = CameraMotionWatcher(
+                    self.config.camera,
+                    self._note_motion,
+                    pull_timeout_sec=self.config.recognition.motion_pull_timeout_sec,
+                    debounce_sec=self.config.recognition.motion_debounce_sec,
+                )
 
         # Register family members from FAMILY.md into persons DB
         self._register_family_from_md()
@@ -1174,6 +1185,10 @@ class EmbodiedAgent:
     def _active_memory(self) -> "ObservationMemory":
         """Return the current speaker's memory, or agent's own if no speaker is set."""
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
+
+    def _note_motion(self) -> None:
+        """MotionWatcher からのコールバック：動体を保留（GUI アイドルが知覚ターンを起こす）。"""
+        self._motion_pending = True
 
     def _observation_perspective(self) -> dict:
         """知覚観察の視点列（P1）。書き手＝エージェント自身・情景観察・主体は話者 floor DEFAULT。"""
@@ -2685,6 +2700,12 @@ class EmbodiedAgent:
                 await asyncio.wait_for(_pw.stop(), timeout=1.0)
             except (asyncio.TimeoutError, Exception):
                 pass
+        _mw = getattr(self, "_motion_watcher", None)
+        if _mw is not None:
+            try:
+                await asyncio.wait_for(_mw.stop(), timeout=1.0)
+            except (asyncio.TimeoutError, Exception):
+                pass
         try:
             await asyncio.wait_for(asyncio.to_thread(self._memory.close), timeout=1.0)
         except (asyncio.TimeoutError, Exception):
@@ -2975,6 +2996,9 @@ class EmbodiedAgent:
             self._persons.reset_to_default()
             if self._presence_watcher:
                 asyncio.ensure_future(self._presence_watcher.start())
+            _mw = getattr(self, "_motion_watcher", None)
+            if _mw is not None:
+                asyncio.ensure_future(_mw.start())
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""

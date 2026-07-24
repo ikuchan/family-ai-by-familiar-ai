@@ -2005,6 +2005,22 @@ class FamiliarWindow(QMainWindow):
                     last_interaction = time.time()
                     continue
 
+                # 動体検知（案B）：MotionWatcher が立てた保留を拾い知覚ターンを起こす。
+                # 静穏・沈黙・入力待ちは避ける（在席は問わない＝不在時の動きも気づく）。
+                if agent is not None and getattr(agent, "_motion_pending", False) is True:
+                    agent._motion_pending = False
+                    _rule = getattr(agent, "_schedule_rule", None)
+                    _quiet = bool(_rule is not None and _rule.is_quiet())
+                    if (
+                        now >= self._silence_until
+                        and not _quiet
+                        and self._input_queue.empty()
+                    ):
+                        _mv = agent.config.recognition.motion_inner_voice
+                        await self._run_agent("", inner_voice=_mv, desire_name="motion")
+                        last_interaction = time.time()
+                    continue
+
                 # Drive Slice 2b：新5欲求の発火→自発ターン（autonomous ON では legacy と完全排他）。
                 if _drive_cfg.autonomous:
                     from .core.drive_autonomy import (
