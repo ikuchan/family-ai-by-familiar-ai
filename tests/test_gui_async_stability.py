@@ -78,6 +78,12 @@ def _make_window_stub() -> FamiliarWindow:
     win._realtime_stt = None
     win._realtime_stt_task = None
     win._desires = MagicMock()
+    # このスタブは legacy デザイアループ機構の検証用。新 Drive 自発経路（既定 on）の判定は
+    # 純関数テストで担保するため、ここでは legacy 経路へ明示オプトイン（autonomous=False）。
+    from familiar_agent.config import DriveConfig as _DriveConfig
+    _dc = _DriveConfig()
+    _dc.autonomous = False
+    win._drive_cfg = _dc
     win._adaptive_cooldown = MagicMock()
     win._adaptive_cooldown.current = 30.0
     win._last_social_fire = 0.0

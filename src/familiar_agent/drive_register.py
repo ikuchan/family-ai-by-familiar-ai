@@ -80,6 +80,29 @@ def load_current_drives() -> AiDrivers:
         return load_drives(db.conn())
 
 
+def load_drives_with_updated_at(conn) -> "tuple[AiDrivers, datetime | None]":
+    """drive5 と最終更新時刻を読む（案B 起動時キャッチアップの経過起点）。行が無ければ (全0, None)。"""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT value_json, updated_at FROM agent_state WHERE state_key = %s",
+            (DRIVE_STATE_KEY,),
+        )
+        row = cur.fetchone()
+    if not row:
+        return AiDrivers(), None
+    updated = row[1]
+    if isinstance(updated, str):
+        updated = datetime.fromisoformat(updated)
+    return AiDrivers.from_json_dict(json.loads(row[0])), updated
+
+
+def catchup_dt(updated_at: "datetime | None", now_epoch: float) -> float:
+    """停止していた秒数（now − updated_at）。updated_at 無し・未来は 0。cap なし（accumulate が [0,1] にクリップ）。"""
+    if updated_at is None:
+        return 0.0
+    return max(0.0, now_epoch - updated_at.timestamp())
+
+
 def save_drives(conn, drives: AiDrivers) -> None:
     now = datetime.now(timezone.utc).isoformat()
     with conn.cursor() as cur:

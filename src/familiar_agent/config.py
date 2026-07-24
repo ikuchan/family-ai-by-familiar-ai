@@ -393,15 +393,15 @@ class DriveConfig:
     bias_esteem: float = 0.0014
     bias_rest: float = 0.0009
 
-    # Slice 2b：新Drive発火で自発ターンを起こすか（既定 off＝legacy DesireSystem と完全排他）
-    autonomous: bool = field(default_factory=lambda: _bool_env("DRIVE5_AUTONOMOUS", default=False))
+    # Slice 2b：新Drive発火で自発ターンを起こすか（既定 on＝新機能を前提・legacy DesireSystem と完全排他）
+    autonomous: bool = field(default_factory=lambda: _bool_env("DRIVE5_AUTONOMOUS", default=True))
 
     # 自発ターンに同梱する drive5 スナップショットの定性ラベル帯（低<mid / 中 / 高≥high）。
     drive_level_mid: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_MID", 0.5))
     drive_level_high: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_HIGH", 0.75))
 
-    # 案Y：ターン完了時に軽量LLMで満たされた drive を発火時と同じ全放電で沈静化するか。
-    satisfy_llm: bool = field(default_factory=lambda: _bool_env("DRIVE5_SATISFY_LLM", default=False))
+    # 案Y：ターン完了時に軽量LLMで満たされた drive を発火時と同じ全放電で沈静化するか（既定 on＝新機能を前提）。
+    satisfy_llm: bool = field(default_factory=lambda: _bool_env("DRIVE5_SATISFY_LLM", default=True))
     # 充足判定LLM を回すゲートの PAD 距離しきい値（drive 値でなく E の動きで判定・上下両方向）。
     satisfy_gate_pad_dist: float = field(
         default_factory=lambda: _float_env("DRIVE5_SATISFY_PAD_DIST", 0.2)

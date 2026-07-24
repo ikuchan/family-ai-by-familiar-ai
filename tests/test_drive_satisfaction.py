@@ -24,9 +24,14 @@ from familiar_agent.mood_register import MoodPAD
 
 # ── Config：フラグと PAD 距離しきい値 ────────────────────────────────────────
 
-def test_satisfy_flag_default_off():
+def test_satisfy_flag_default_on():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("DRIVE5_SATISFY_LLM", None)
+        assert DriveConfig().satisfy_llm is True  # 新機能を前提＝既定 on
+
+
+def test_satisfy_flag_env_off():
+    with patch.dict(os.environ, {"DRIVE5_SATISFY_LLM": "0"}, clear=False):
         assert DriveConfig().satisfy_llm is False
 
 

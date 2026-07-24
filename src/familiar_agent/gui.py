@@ -1905,6 +1905,24 @@ class FamiliarWindow(QMainWindow):
     # Agent loop
     # ------------------------------------------------------------------
 
+    def _initial_drive_tick_time(self, now_epoch: float) -> float:
+        """初回 tick の起点。drive5.updated_at からの停止経過を初回 dt に含める（案B）。
+
+        updated_at が読めれば `now − 経過` を返し（＝dt に停止時間が乗る）、無ければ now
+        （dt=0）。失敗は degrade して now を返す（アイドルを落とさない）。
+        """
+        try:
+            from .db import get_db
+            from .drive_register import catchup_dt, load_drives_with_updated_at
+
+            db = get_db()
+            with db.lock:
+                _drives, updated = load_drives_with_updated_at(db.conn())
+            return now_epoch - catchup_dt(updated, now_epoch)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("drive catch-up init failed: %s", e)
+            return now_epoch
+
     def _tick_drives(self, dt: float) -> "tuple[DriveFiring, AiDrivers] | None":
         """新5欲求の1 tick（現 mood で蓄積・発火・放電）を drive5 へ永続化。
 
@@ -1960,10 +1978,11 @@ class FamiliarWindow(QMainWindow):
 
                 # 新5欲求の dynamics を回す（現 mood で蓄積・発火・放電して drive5 へ永続化）。
                 # GUI の DrivePanel で新5欲求が実時間で動くのが見える。発火は下で使う。
+                # 初回は drive5.updated_at 起点で停止中の経過も積む（案B 起動時キャッチアップ）。
                 _drive_now = time.time()
-                _drive_res = self._tick_drives(
-                    _drive_now - getattr(self, "_last_drive_tick", _drive_now)
-                )
+                if not hasattr(self, "_last_drive_tick"):
+                    self._last_drive_tick = self._initial_drive_tick_time(_drive_now)
+                _drive_res = self._tick_drives(_drive_now - self._last_drive_tick)
                 self._last_drive_tick = _drive_now
 
                 # Deliver completed deferred search/fetch results immediately (bypasses cooldown).

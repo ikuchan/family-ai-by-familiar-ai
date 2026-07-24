@@ -26,15 +26,15 @@ from familiar_agent.drive_register import AiDrivers
 
 # ── Config：排他フラグと内声 ─────────────────────────────────────────────────
 
-def test_autonomous_flag_default_off():
+def test_autonomous_flag_default_on():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("DRIVE5_AUTONOMOUS", None)
-        assert DriveConfig().autonomous is False
+        assert DriveConfig().autonomous is True  # 新機能を前提＝既定 on
 
 
-def test_autonomous_flag_env_on():
-    with patch.dict(os.environ, {"DRIVE5_AUTONOMOUS": "1"}, clear=False):
-        assert DriveConfig().autonomous is True
+def test_autonomous_flag_env_off():
+    with patch.dict(os.environ, {"DRIVE5_AUTONOMOUS": "0"}, clear=False):
+        assert DriveConfig().autonomous is False  # 明示 0 で無効化できる
 
 
 def test_inner_voice_present_for_all_axes():
