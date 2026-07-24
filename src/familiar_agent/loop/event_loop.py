@@ -65,7 +65,8 @@ class InformationProcessing:
     def __init__(self, agent):
         self._agent = agent
         # QC：完了キュー（Completion Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
-        self._completion_queue: asyncio.Queue[str] = asyncio.Queue()
+        # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
+        self._completion_queue: asyncio.Queue[tuple[str, str, str | None]] = asyncio.Queue()
 
     def _tools(self) -> list[dict]:
         """段階1スライス2で渡すツール＝say（発話）＋recall（内部・外部I/Oなし）のみ。"""
@@ -111,9 +112,10 @@ class InformationProcessing:
             drained = 0
             while not self._completion_queue.empty():
                 drained += 1
-                result_text = self._completion_queue.get_nowait()
+                query, result_text, intent_id = self._completion_queue.get_nowait()
+                # 探した事実と結果を1件に残す。open 意図と入れ替わるので W には結果つきが載る。
                 obs_id, _ = await agent._memory.save_async_with_id(
-                    result_text[:500],
+                    f"「{query}」を探した結果：{result_text}"[:500],
                     direction="完了",
                     kind="observation",
                     materialize_now=True,
@@ -121,6 +123,11 @@ class InformationProcessing:
                 )
                 if obs_id:
                     loop_obs_ids.append(obs_id)
+                    # 完了が open 意図に再会して解決（[D-単一想起]）。これをしないと W に
+                    # 「結果はまだ無い」が残り続け、同じ recall を繰り返す。
+                    if intent_id:
+                        agent._memory.mark_superseded(intent_id, obs_id)
+                        logger.debug("event-loop open意図 %s を完了 %s で解決", intent_id, obs_id)
             if drained:
                 logger.debug("event-loop iter=%d/%d QC取込=%d件", iters_used, max_iters, drained)
 
@@ -135,17 +142,23 @@ class InformationProcessing:
                 capabilities=load_summary(),
                 present_ctx=_present_ctx(agent),
                 pi_ctx=_pi_ctx(),
+                iter_ctx=(
+                    f"[反復] {iters_used}/{max_iters}"
+                    f"（残り {max_iters - iters_used} 回。最後の反復では必ず say で答える）"
+                ),
                 workspace_ctx=workspace_ctx,
             )
 
             # 3. GEN（生成）：say＋recall のみ渡す。1回の stream_turn で多段はしない。
+            # 生成中はストリームしない（on_text を渡さない）：ツールを選ぶ反復でモデルが出す
+            # 前置きの地の文が反復ごとに表示され重複するため。出力は決定後に1回だけ。
             user_msg = agent.backend.make_user_message(utterance)
             result, _raw = await agent.backend.stream_turn(
                 system=system,
                 messages=[user_msg],
                 tools=self._tools(),
                 max_tokens=agent.config.max_tokens,
-                on_text=on_text,
+                on_text=None,
             )
 
             # say → 発話して終了（run() と同じ「先頭 say 採用」）。
@@ -157,7 +170,6 @@ class InformationProcessing:
                 if text and agent._tts is not None:
                     with contextlib.suppress(Exception):
                         await agent._tts.call("say", {"text": text})
-                # say tool_call の text はストリームされないので表示のため明示的に流す。
                 if text and on_text is not None:
                     on_text(text)
                 break
@@ -177,16 +189,18 @@ class InformationProcessing:
                     materialize_now=True,
                     **agent._observation_perspective(),
                 )
-                if intent_id:
-                    loop_obs_ids.append(intent_id)
+                # 意図はターン末の一括 supersede に載せない（完了が解決する側なので、
+                # ターン観察で上書きすると「完了が意図を解決した」つながりが消える）。
                 out, _ = await agent._memory_tool.call("recall", dict(recall_tc.input))
-                self._completion_queue.put_nowait(out)
+                self._completion_queue.put_nowait((query, out, intent_id))
                 continue
 
-            # どちらも無ければ result.text へフォールバック（既にストリーム済み）して終了。
+            # どちらも無ければ result.text へフォールバックして終了（表示はここで1回）。
             logger.debug("event-loop iter=%d/%d 決定=none", iters_used, max_iters)
             outcome = "沈黙"
             text = (result.text or "").strip()
+            if text and on_text is not None:
+                on_text(text)
             break
 
         # ターン総括：反復数と結末を1行で残す（本番 INFO でも再構成できる）。

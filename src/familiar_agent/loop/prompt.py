@@ -70,13 +70,16 @@ def build_event_system_prompt(
     present_ctx: str,
     pi_ctx: str,
     workspace_ctx: str,
+    iter_ctx: str = "",
 ) -> str:
-    """案B：静的核 ＋ 自己認識 MI（ME/FAMILY/capabilities）＋ 在席 ＋ PI ＋ W を組む。"""
+    """案B：静的核 ＋ 自己認識 MI（ME/FAMILY/capabilities）＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。"""
     stable = "\n\n---\n\n".join(
         p for p in [
             me_md, family_md,
             f"[My capabilities]\n{capabilities}" if capabilities else "",
         ] if p and p.strip()
     )
-    variable = "\n\n".join(p for p in [present_ctx, pi_ctx, workspace_ctx] if p and p.strip())
+    variable = "\n\n".join(
+        p for p in [present_ctx, pi_ctx, iter_ctx, workspace_ctx] if p and p.strip()
+    )
     return "\n\n---\n\n".join(p for p in [EVENT_SYSTEM_PROMPT, stable, variable] if p and p.strip())

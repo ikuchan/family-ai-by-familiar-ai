@@ -104,11 +104,12 @@ def test_emits_say_text_to_on_text_for_display():
     assert "やあ" in "".join(shown)
 
 
-def test_does_not_double_emit_fallback_text():
+def test_fallback_text_emitted_once():
+    # 生成中はストリームせず、決定後に1回だけ出す（1反復1出力）。
     a = _agent(stream_returns=[_turn([], text="素テキスト")])
     shown: list[str] = []
     _run(a, on_text=shown.append)
-    assert "".join(shown) == ""
+    assert "".join(shown) == "素テキスト"
 
 
 # ── スライス2（QC 連鎖・supersede・上限）─────────────
@@ -125,7 +126,7 @@ def test_recall_chains_via_completion_queue_then_says():
     a._memory_tool.call.assert_awaited_once_with("recall", {"query": "運動会"})  # RH 実行
     # QC drain＝完了結果を O へ書込（反復2の取込）。
     written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
-    assert "recall結果テキスト" in written
+    assert any("recall結果テキスト" in w for w in written)   # 完了 O に結果が入る
     kinds = {c.kwargs["kind"] for c in a._memory.save_async_with_id.call_args_list}
     assert kinds == {"observation"}
 
@@ -156,6 +157,51 @@ def test_open_intent_written_with_utterance_and_query():
     assert "おはよう" in content and "運動会" in content
 
 
+def test_completion_supersedes_open_intent_and_records_search():
+    # 完了は open 意図に「再会」して解決する（[D-単一想起]）。完了 O が意図 O を supersede し、
+    # content は「探した事実＋結果」を持つ。これが無いと W に「結果はまだ無い」が残り続け、
+    # モデルは同じ recall を繰り返す（実機で観測）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+    ])
+    _run(a, utterance="昨日の天気覚えてる？")
+    # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図を supersede。
+    a._memory.mark_superseded.assert_called_once_with("obs2", "obs3")
+    completions = [
+        c for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "完了"
+    ]
+    assert len(completions) == 1
+    content = completions[0].args[0]
+    assert "昨日の天気" in content and "recall結果テキスト" in content
+
+
+def test_recall_iteration_does_not_display_filler_text():
+    # 1反復1出力：say を決めた反復以外は表示しない（前置きの地の文が反復ごとに出て重複した）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})], text="まず記憶を探すね！"),
+        _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
+    ])
+    shown: list[str] = []
+    _run(a, on_text=shown.append)
+    assert "".join(shown) == "晴れ"       # 前置きは出さず、発話だけ1回
+    # 生成中のストリームを止める＝呼び手の on_text を stream_turn へ渡さない。
+    assert all(c.kwargs["on_text"] is None for c in a.backend.stream_turn.call_args_list)
+
+
+def test_iteration_context_is_injected_into_prompt():
+    # 反復番号と上限をコンテキストで渡す（あと何回で結論すべきかモデルが判断できる）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ], max_iters=3)
+    _run(a)
+    systems = [c.kwargs["system"] for c in a.backend.stream_turn.call_args_list]
+    assert "1/3" in systems[0]
+    assert "2/3" in systems[1]
+
+
 def test_all_loop_os_are_superseded_via_pipeline():
     # トリガ・open 意図・完了 のループ中 O は、すべてターン末に supersede される。
     a = _agent(stream_returns=[
@@ -164,9 +210,10 @@ def test_all_loop_os_are_superseded_via_pipeline():
     ])
     _run(a)
     _, kwargs = a._run_post_response_pipeline.call_args
-    # 書いた O は3件（トリガ obs1・open 意図 obs2・完了 obs3）＝全部が supersede 対象。
+    # 書いた O は3件（トリガ obs1・open 意図 obs2・完了 obs3）。意図 obs2 は完了が解決済みなので
+    # ターン末の一括 supersede には載せない（「完了が意図を解決した」つながりを残すため）。
     assert a._memory.save_async_with_id.await_count == 3
-    assert kwargs["superseded_ids"] == ["obs1", "obs2", "obs3"]
+    assert kwargs["superseded_ids"] == ["obs1", "obs3"]
 
 
 def test_max_iterations_bounds_the_chain():
