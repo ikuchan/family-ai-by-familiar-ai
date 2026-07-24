@@ -69,3 +69,19 @@ def test_run_iteration_falls_back_to_text_when_no_say():
     out = asyncio.run(run_iteration(a, "こんにちは"))
     assert out == "ツール無しの素テキスト"                    # say が無ければ result.text へ保険
     a._tts.call.assert_not_awaited()
+
+
+def test_run_iteration_emits_say_text_to_on_text_for_display():
+    # say tool_call の text はストリームされないので、CUI 表示のため on_text へ明示的に流す。
+    a = _agent(tool_calls=[ToolCall(id="t", name="say", input={"text": "やあ"})])
+    shown: list[str] = []
+    asyncio.run(run_iteration(a, "こんにちは", on_text=shown.append))
+    assert "やあ" in "".join(shown)
+
+
+def test_run_iteration_does_not_double_emit_fallback_text():
+    # フォールバック（result.text）は stream_turn が既にストリーム済み＝二重表示しない。
+    a = _agent(tool_calls=[], text="素テキスト")
+    shown: list[str] = []
+    asyncio.run(run_iteration(a, "こんにちは", on_text=shown.append))
+    assert "".join(shown) == ""  # run_iteration からは明示出力しない

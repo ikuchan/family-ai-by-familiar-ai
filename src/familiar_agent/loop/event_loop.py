@@ -89,8 +89,11 @@ async def run_iteration(agent, utterance: str, on_text=None) -> str:
         if text and agent._tts is not None:
             with contextlib.suppress(Exception):
                 await agent._tts.call("say", {"text": text})
+        # say tool_call の text はストリームされないので、CUI/GUI 表示のため明示的に流す。
+        if text and on_text is not None:
+            on_text(text)
     else:
-        text = (result.text or "").strip()
+        text = (result.text or "").strip()  # フォールバックは stream_turn が既にストリーム済み
 
     # 永続化＝既存 pipeline（utility LLM のみ）を応答クリティカルパス外で回す。
     try:
