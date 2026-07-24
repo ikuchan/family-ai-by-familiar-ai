@@ -298,8 +298,10 @@ class AgentConfig:
     agent_name: str = field(default_factory=lambda: os.environ.get("AGENT_NAME", "AI"))
 
     # Name of the companion/user shown in TUI
+    # 話者未識別時のデフォルトは中立ラベル「推定話者」（FAMILY.md 先頭メンバーへ derive しない）。
+    # 顔/声/明示で確定したら set_active/apply_hint がそちらへ切り替える。
     companion_name: str = field(
-        default_factory=lambda: os.environ.get("COMPANION_NAME", _default_companion_name())
+        default_factory=lambda: os.environ.get("COMPANION_NAME", _t("gui_estimated_speaker"))
     )
 
     # Platform: "anthropic" | "gemini" | "openai" | "kimi" | "glm"

@@ -535,12 +535,6 @@ class EmbodiedAgent:
             me_name = parsing.parse_me_name(self._me_md)
             if me_name:
                 config.agent_name = me_name
-        if not os.environ.get("COMPANION_NAME"):
-            members = parsing.parse_family_md(self._family_md)
-            if members:
-                first_call = members[0]["display_name"].split("、")[0].split(",")[0].strip()
-                if first_call:
-                    config.companion_name = first_call
         self._memory = ObservationMemory()
         self._memory_worker = MemoryJobWorker(self._memory)
         self._pmm = PersonMemoryManager(self._memory)
@@ -2770,13 +2764,6 @@ class EmbodiedAgent:
         if self._family_md != old_family:
             lines.append("• FAMILY.md を更新しました")
             self._register_family_from_md()
-            if not os.environ.get("COMPANION_NAME"):
-                members = parsing.parse_family_md(self._family_md)
-                if members:
-                    first_call = members[0]["display_name"].split("、")[0].split(",")[0].strip()
-                    if first_call:
-                        self.config.companion_name = first_call
-                        self._persons._default_name = first_call
         else:
             lines.append("• FAMILY.md 変更なし")
         lines.append("次のターンから新しい内容が反映されます。")
