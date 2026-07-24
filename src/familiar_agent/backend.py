@@ -43,6 +43,36 @@ _TOOL_CALL_RE = re.compile(r"<tool_call>(.*?)</tool_call>", re.DOTALL)
 
 logger = logging.getLogger(__name__)
 
+
+# ── 一時的エラーの指数バックオフ・リトライ（Gemini の 503/429 対策） ─────────
+_TRANSIENT_MARKERS = ("503", "unavailable", "429", "resource_exhausted", "high demand")
+
+
+def _is_transient_error(exc: BaseException) -> bool:
+    """一時的（再試行で回復しうる）エラーか。恒久エラー（400/401 等）は False。"""
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code in (503, 429):
+        return True
+    s = str(exc).lower()
+    return any(m in s for m in _TRANSIENT_MARKERS)
+
+
+async def _retry_transient(fn, *, attempts: int, base_sec: float, label: str):
+    """`fn`（async・無引数）を一時的エラーで指数バックオフ再試行する。恒久エラーは即送出。"""
+    for i in range(attempts):
+        try:
+            return await fn()
+        except Exception as e:  # noqa: BLE001
+            if not _is_transient_error(e) or i == attempts - 1:
+                raise
+            delay = base_sec * (2 ** i)
+            logger.warning(
+                "%s transient error (retry %d/%d in %.1fs): %s", label, i + 1, attempts - 1, delay, e
+            )
+            if delay > 0:
+                await asyncio.sleep(delay)
+
+
 # ── Thinking support ───────────────────────────────────────────────────────
 
 _ADAPTIVE_THINKING_MODELS = ("sonnet-4", "opus-4")
@@ -1152,6 +1182,15 @@ class GeminiBackend:
         self._client = genai.Client(api_key=api_key)
         self._types = types
         self.model = model
+        # 一時的エラー（Google 側 503 過負荷等）の指数バックオフ・リトライ設定。
+        try:
+            self._retry_attempts = int(os.environ.get("GEMINI_RETRY_ATTEMPTS", "3"))
+        except ValueError:
+            self._retry_attempts = 3
+        try:
+            self._retry_base = float(os.environ.get("GEMINI_RETRY_BASE_SEC", "0.5"))
+        except ValueError:
+            self._retry_base = 0.5
 
     # ── message factories ─────────────────────────────────────────
 
@@ -1371,7 +1410,8 @@ class GeminiBackend:
 
     async def complete(self, prompt: str, max_tokens: int) -> str:
         types = self._types
-        try:
+
+        async def _call() -> str:
             resp = await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=prompt,
@@ -1381,6 +1421,12 @@ class GeminiBackend:
                 ),
             )
             return (resp.text or "").strip()
+
+        try:
+            return await _retry_transient(
+                _call, attempts=self._retry_attempts, base_sec=self._retry_base,
+                label="gemini.complete",
+            )
         except Exception as e:
             logger.warning("complete() failed: %s", e)
             return ""
@@ -1388,7 +1434,8 @@ class GeminiBackend:
     async def complete_with_image(self, prompt: str, image_b64: str, max_tokens: int = 512) -> str:
         """Vision completion — sends base64 JPEG alongside text prompt."""
         types = self._types
-        try:
+
+        async def _call() -> str:
             resp = await self._client.aio.models.generate_content(
                 model=self.model,
                 contents=[{
@@ -1404,6 +1451,12 @@ class GeminiBackend:
                 ),
             )
             return (resp.text or "").strip()
+
+        try:
+            return await _retry_transient(
+                _call, attempts=self._retry_attempts, base_sec=self._retry_base,
+                label="gemini.complete_with_image",
+            )
         except Exception as e:
             logger.warning("complete_with_image() failed: %s", e)
             return ""
