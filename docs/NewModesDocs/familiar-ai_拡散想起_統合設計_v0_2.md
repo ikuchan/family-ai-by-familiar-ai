@@ -1,4 +1,6 @@
-# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.1）
+# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.2）
+
+> v0.2：**全スライス実装済み**（既定 on）を反映。§実装状況を更新。
 
 > v0.1：別々に出た2案（WRDB 共起・エンティティ再帰想起）を1つの拡散想起へ統合。会話で確定した骨子を正本として起こす。実装は未着手。
 
@@ -47,20 +49,21 @@
 
 明示連想リンク `memory_links` は廃止する。連想の拡散はこの拡散想起（(A) 共起＋(B) エンティティ）が担う。`memory_links` の読み側は既に未結線で、廃止しても現挙動は変わらない（撤去は Phase 6）。
 
-## 実装状況と段取り
+## 実装状況（全スライス実装済み・既定 on）
 
-**未着手**である。WRDB テーブルは未作成で、拡散ループ・WR 記録・(A)/(B) の辺はいずれも未実装。5軸想起（初期 W の材料）と視点列（(B) の素材・P1）は実装済み。
+薄い縦切りで実装した（各スライスは pytest で通る最小の一本・実装後 `DIFFUSE_RECALL` を既定 on へ）。
 
-薄い縦切りで進める（Phase 1 と同じ流儀・各スライスは pytest で通る最小の一本）。
+1. **WRDB スキーマ＋WR 記録【済】**：`wr_records`／`wr_record_items(wr_id, mi_id)`（migration 030）。`wr_store.save_wr`。ターン後（`agent._record_wr`）に**そのターンの W（想起 MI）＋そのターンに作った記憶（観察・会話 id）を1つの WR として共起記録**（`combine_wr_ids`・新記憶↔W の接続）。
+2. **(B) エンティティ辺【済】**：`core/diffuse.select_entity_seeds`（視点列から種 person・subject 最優先・自分/話者/DEFAULT 除外）＋`diffuse_store.recall_by_person`（subject_id または participants に含む現行版観測を新しい順）。LLM フリー。
+3. **(A) 共起辺【済】**：`diffuse_store.cooccurring_mi_ids`（WRDB から共起≥2 の WR の要素 MI・現 W と `self_model` 除外）。
+4. **再帰結線【済・4a】**：`core/diffuse.diffuse_ids`（有界再帰・K/D）で (A)+(B) 候補を W へ **a0=0** で足す。`ObservationMemory._diffuse_extend` を `recall()` の top-n 確定＋`_mark_recalled` の**後**に append（**reinforce しない＝DB 非破壊**）。
+5. **新規性の精緻化【済・4b】**：`diffuse_store.order_ids_by_farthest`（候補を seed=クエリ vec から**遠い順＝コサイン低い順＝新規性高い順**に並べ替え・埋め込み無しは末尾）で novel を優先。
 
-1. **WRDB スキーマ＋WR 記録**：ターンの W スナップショット（MI id 群）を WRDB へ書く（マイグレーション・記録のみ・拡散には未接続で挙動不変）。
-2. **(B) エンティティ辺**：視点列 person で situated 再想起する純ロジック（Config フラグ・既定 off）。
-3. **(A) 共起辺**：WRDB から共起≥2 の WR を引き最遠 MI を選ぶ純ロジック（同フラグ）。
-4. **再帰結線**：(A)/(B) を有界再帰で W へ足す（フラグ on のとき・a0=0・DB 非破壊）。
+**Config**：`DIFFUSE_RECALL`（既定 on・`=0` で無効化）／`DIFFUSE_MAX_ADD`（K=4）／`DIFFUSE_MAX_DEPTH`（D=2）。`memory_links` の撤去そのものは Phase 6。
 
-## 未決（値・詳細は設計方針で詰める）
+## 確定した値・詳細
 
-- 辺の順序（(B)→(A) 交互か一括候補化か）。
-- 停止条件（深さ上限・追加件数上限・新規性閾値）。
-- (A) の「最遠」の距離尺度と閾値、共起閾値（初期2）。
-- Config フラグ名と既定（off 導入）。
+- 辺は一括候補化（(A)+(B) をまとめて候補にし、4b の距離順で選別）。
+- 停止条件＝深さ D=2・追加件数 K=4（Config）。新規性は「W 非包含（4a）＋seed 最遠優先（4b）」で担う。
+- (A) の共起閾値＝2（`min_shared`）。「最遠」＝クエリ vec とのコサイン（bge-m3 正規化・低い順）。
+- Config フラグ＝`DIFFUSE_RECALL`（既定 on）。
