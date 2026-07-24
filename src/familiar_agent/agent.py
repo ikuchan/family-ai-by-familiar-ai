@@ -64,7 +64,7 @@ from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool
 from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
-from .person_memory_manager import AGENT_SELF_ID, PersonMemoryManager
+from .person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, PersonMemoryManager
 from .recognition.face import recognize_face_async
 from .recognition.presence_watcher import CameraPresenceWatcher
 from .tools.mobility import MobilityTool
@@ -815,6 +815,7 @@ class EmbodiedAgent:
                     dedupe_key=self._memory_dedupe_key("observation", final_text[:500]),
                     materialize_now=False,
                     emotion_pad=emotion_pad,
+                    **self._observation_perspective(),
                 )
 
             summary = await self._summarize_exchange(user_input, final_text)
@@ -826,6 +827,7 @@ class EmbodiedAgent:
                 dedupe_key=self._memory_dedupe_key("conversation", summary),
                 materialize_now=False,
                 emotion_pad=emotion_pad,
+                **self._conversation_perspective(),
             )
 
             await self._update_self_model(final_text, emotion)
@@ -1178,6 +1180,26 @@ class EmbodiedAgent:
     def _active_memory(self) -> "ObservationMemory":
         """Return the current speaker's memory, or agent's own if no speaker is set."""
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
+
+    def _observation_perspective(self) -> dict:
+        """知覚観察の視点列（P1）。書き手＝エージェント自身・情景観察・主体は話者 floor DEFAULT。"""
+        speaker = self._pmm.current_speaker_id or DEFAULT_PERSON_ID
+        return dict(
+            writer_id=AGENT_SELF_ID,
+            subject_id=speaker,
+            participants=self._pmm.get_present_ids(),
+            scope="scene",
+        )
+
+    def _conversation_perspective(self) -> dict:
+        """会話 summary の視点列（P1）。書き手＝主体＝話者 floor DEFAULT・在席者・scope speaker。"""
+        speaker = self._pmm.current_speaker_id or DEFAULT_PERSON_ID
+        return dict(
+            writer_id=speaker,
+            subject_id=speaker,
+            participants=self._pmm.get_present_ids(),
+            scope="speaker",
+        )
 
     def _social_presence_permission(self) -> float:
         """Return 1.0 when someone is present, 0.0 when the room is empty.
