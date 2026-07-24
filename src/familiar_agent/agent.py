@@ -2896,6 +2896,15 @@ class EmbodiedAgent:
         inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
         desire_name: the desire that triggered this turn (empty for user turns).
         """
+        # #11 段階1：EVENT_LOOP on の user turn は新イベント駆動ループへ排他切替（発話のみ）。
+        if getattr(self.config, "event_loop", False) is True and user_input and not desire_name:
+            from .loop.event_loop import run_iteration
+
+            text = await run_iteration(self, user_input)
+            if on_text and text:
+                on_text(text)
+            return text
+
         if desires is not None:
             self._desires_ref = desires
         if not hasattr(self, "_schedule_rule"):

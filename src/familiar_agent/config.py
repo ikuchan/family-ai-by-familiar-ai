@@ -326,6 +326,9 @@ class AgentConfig:
         default_factory=lambda: os.environ.get("COMPANION_NAME", _t("gui_estimated_speaker"))
     )
 
+    # #11 段階1：イベント駆動ループ（人の発言→想起→1反復1出力）へ排他切替（既定 off）。
+    event_loop: bool = field(default_factory=lambda: _bool_env("EVENT_LOOP", default=False))
+
     # Platform: "anthropic" | "gemini" | "openai" | "kimi" | "glm"
     platform: str = field(default_factory=lambda: os.environ.get("PLATFORM", "anthropic"))
 
