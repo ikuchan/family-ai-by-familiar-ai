@@ -43,6 +43,15 @@ def test_inner_voice_present_for_all_axes():
         assert inner_voice_for(axis, cfg).strip()  # 空でない
 
 
+def test_all_voices_direct_conclusion_to_memory():
+    """全自発内声：当てが無ければ結論づけて記憶に残す（filler で終えない）を促す。"""
+    cfg = DriveConfig()
+    for axis in ("seeking", "rest", "bond", "safety", "esteem"):
+        v = inner_voice_for(axis, cfg)
+        assert "結論づけて記憶に残す" in v  # 当てが無ければ結論を O へ
+        assert "具体" in v                  # 具体的な行動を促す
+
+
 # ── select_fired_axis ────────────────────────────────────────────────────────
 
 def test_select_fired_axis_none_when_no_firing():
