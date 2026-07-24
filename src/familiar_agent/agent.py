@@ -739,8 +739,13 @@ class EmbodiedAgent:
         desires: DesireSystem | None,
         arousal: float = 0.0,
         memories: list[dict] | None = None,
+        superseded_ids: list[str] | None = None,
     ) -> None:
-        """Persist and adapt after a reply without blocking that reply."""
+        """Persist and adapt after a reply without blocking that reply.
+
+        superseded_ids: イベントループが消化した完了 O の id。ターンの観察保存後、その
+        観察 id で supersede して想起から外す（完了結果の中間 O を残さない）。
+        """
         if not final_text or final_text == "(no response)":
             return
 
@@ -819,6 +824,11 @@ class EmbodiedAgent:
                     **self._observation_perspective(),
                 )
                 _new_ids.append(_obs_id)
+
+                # イベントループが消化した完了 O を、このターン観察で supersede（想起除外）。
+                if superseded_ids and _obs_id:
+                    for _old in superseded_ids:
+                        self._memory.mark_superseded(_old, _obs_id)
 
             summary = await self._summarize_exchange(user_input, final_text)
             _conv_id, _ = await self._active_memory().save_async_with_id(
@@ -2898,10 +2908,12 @@ class EmbodiedAgent:
         """
         # #11 段階1：EVENT_LOOP on の user turn は新イベント駆動ループへ排他切替（発話のみ）。
         if getattr(self.config, "event_loop", False) is True and user_input and not desire_name:
-            from .loop.event_loop import run_iteration
+            from .loop.event_loop import InformationProcessing
 
-            # on_text は stream_turn が逐次呼ぶ（二重表示しない）。
-            return await run_iteration(self, user_input, on_text=on_text)
+            # I（情報処理機構）を生成し LPM の反復を回す。on_text は逐次表示先。
+            if getattr(self, "_info_processing", None) is None:
+                self._info_processing = InformationProcessing(self)
+            return await self._info_processing.run_iteration(user_input, on_text=on_text)
 
         if desires is not None:
             self._desires_ref = desires

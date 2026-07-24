@@ -1,11 +1,18 @@
-"""イベント駆動ループ（#11 段階1）：人の発言→拡散込み想起→1反復1出力（発話）。
+"""イベント駆動ループ（#11 段階1）：I（情報処理機構）の最小縦切り。
 
-現行 run() と排他（`EVENT_LOOP` on の user turn のみ）。段階1は発話のみ（ツールを渡さず
-1出力を保証）。永続化は既存 `_run_post_response_pipeline`（utility LLM のみ）を流用する。
+設計正本＝`設計図_Mermaid` ③ I 詳細図。ここでは I の中の **LPM（ループ核）** と
+**QC（完了キュー）** だけを実体化する。反復は QC を drain（取込→O 書込）→ REC（想起→W）→
+GEN（生成）で進み、say で1出力して終わる／内部ツール（recall）は結果を QC へ積んで次反復へ
+連鎖する（[D-単一想起]：相関ID を使わず結果は O→W 経由で再会）。
+
+現行 run() と排他（`EVENT_LOOP` on の user turn のみ）。AIF/DIF/QA/QD、ARB/APR/ACT/MNT の
+クラス分離は後続段階（ここでは stub しない）。永続化は既存 `_run_post_response_pipeline`
+（utility LLM のみ）を流用し、消化した完了 O はターン観察 id で supersede する。
 """
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 
@@ -48,67 +55,115 @@ def _pi_ctx() -> str:
         return ""
 
 
-async def run_iteration(agent, utterance: str, on_text=None) -> str:
-    """1反復＝1出力：想起（拡散込み）で W を作り、フルLLM で1発話を生成して返す。
+class InformationProcessing:
+    """I：情報処理機構（Information-processing）。③ I 詳細図の器。
 
-    `on_text` は生成のストリーミング出力先（CUI/GUI へ逐次表示）。
+    段階1で実体化するのは **QC（完了キュー）** と **LPM（ループ核）＝`run_iteration`** のみ。
+    O・C（Config）・W・RH 相当のツール実行は既存実体を持つ `agent` を当面参照する。
     """
-    from ..capability_state import load_summary
 
-    mem = agent._active_memory()
-    memories = await mem.recall_async(utterance, recall_mode="conversation")
-    workspace_ctx = mem.format_for_context(memories)
+    def __init__(self, agent):
+        self._agent = agent
+        # QC：完了キュー（Completion Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
+        self._completion_queue: asyncio.Queue[str] = asyncio.Queue()
 
-    system = build_event_system_prompt(
-        me_md=getattr(agent, "_me_md", ""),
-        family_md=getattr(agent, "_family_md", ""),
-        capabilities=load_summary(),
-        present_ctx=_present_ctx(agent),
-        pi_ctx=_pi_ctx(),
-        workspace_ctx=workspace_ctx,
-    )
+    def _tools(self) -> list[dict]:
+        """段階1スライス2で渡すツール＝say（発話）＋recall（内部・外部I/Oなし）のみ。"""
+        agent = self._agent
+        say = agent._tts.get_tool_definitions() if agent._tts else []
+        recall = [
+            d for d in agent._memory_tool.get_tool_definitions() if d.get("name") == "recall"
+        ]
+        return say + recall
 
-    # 生成：say ツールだけを渡す＝発話のみ（多段 ReAct を構造的に禁止）。say は body-tool
-    # （voice part）であり、slice1 は「1反復で say を1回」＝1反復1出力。
-    say_tools = agent._tts.get_tool_definitions() if agent._tts else []
-    user_msg = agent.backend.make_user_message(utterance)
-    result, _raw = await agent.backend.stream_turn(
-        system=system,
-        messages=[user_msg],
-        tools=say_tools,
-        max_tokens=agent.config.max_tokens,
-        on_text=on_text,
-    )
+    async def run_iteration(self, utterance: str, on_text=None) -> str:
+        """LPM：QC を drain して回す反復ループ。1反復＝1出力（say で終了）。
 
-    # 発話の取り出し：run() と同じ「先頭 say を採用・重複 say は抑制」に揃える。
-    # say が無ければ result.text へフォールバック（保険）。
-    text = ""
-    say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
-    if say_tc is not None:
-        text = str(say_tc.input.get("text", "")).strip()
-        if text and agent._tts is not None:
-            with contextlib.suppress(Exception):
-                await agent._tts.call("say", {"text": text})
-        # say tool_call の text はストリームされないので、CUI/GUI 表示のため明示的に流す。
-        if text and on_text is not None:
-            on_text(text)
-    else:
-        text = (result.text or "").strip()  # フォールバックは stream_turn が既にストリーム済み
+        `on_text` は生成のストリーミング出力先（CUI/GUI へ逐次表示）。
+        """
+        from ..capability_state import load_summary
 
-    # 永続化＝既存 pipeline（utility LLM のみ）を応答クリティカルパス外で回す。
-    try:
-        arousal = await agent._turn_arousal(utterance, text)
-        agent._spawn_background_task(
-            agent._run_post_response_pipeline(
-                user_input=utterance, final_text=text,
-                camera_used=False, camera_image=None,
-                observation_action_name=None, observation_action_input=None,
-                companion_mood="engaged", is_desire_turn=False, desires=None,
-                arousal=arousal, memories=memories,
-            ),
-            name="event-post-response",
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("event-loop persistence spawn failed: %s", e)
+        agent = self._agent
+        consumed_completion_ids: list[str] = []
+        memories: list[dict] = []
+        text = ""
 
-    return text
+        for _ in range(max(1, agent.config.event_max_iterations)):
+            # 1. 取込：QC を drain し、完了結果を O に書く（consumed を控え末尾で supersede）。
+            while not self._completion_queue.empty():
+                result_text = self._completion_queue.get_nowait()
+                obs_id, _ = await agent._memory.save_async_with_id(
+                    result_text[:500],
+                    direction="完了",
+                    kind="observation",
+                    materialize_now=True,
+                    **agent._observation_perspective(),
+                )
+                if obs_id:
+                    consumed_completion_ids.append(obs_id)
+
+            # 2. REC（想起）：O（＋現入力）→ W。完了 O があれば関連で W に上がる。
+            mem = agent._active_memory()
+            memories = await mem.recall_async(utterance, recall_mode="conversation")
+            workspace_ctx = mem.format_for_context(memories)
+
+            system = build_event_system_prompt(
+                me_md=getattr(agent, "_me_md", ""),
+                family_md=getattr(agent, "_family_md", ""),
+                capabilities=load_summary(),
+                present_ctx=_present_ctx(agent),
+                pi_ctx=_pi_ctx(),
+                workspace_ctx=workspace_ctx,
+            )
+
+            # 3. GEN（生成）：say＋recall のみ渡す。1回の stream_turn で多段はしない。
+            user_msg = agent.backend.make_user_message(utterance)
+            result, _raw = await agent.backend.stream_turn(
+                system=system,
+                messages=[user_msg],
+                tools=self._tools(),
+                max_tokens=agent.config.max_tokens,
+                on_text=on_text,
+            )
+
+            # say → 発話して終了（run() と同じ「先頭 say 採用」）。
+            say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+            if say_tc is not None:
+                text = str(say_tc.input.get("text", "")).strip()
+                if text and agent._tts is not None:
+                    with contextlib.suppress(Exception):
+                        await agent._tts.call("say", {"text": text})
+                # say tool_call の text はストリームされないので表示のため明示的に流す。
+                if text and on_text is not None:
+                    on_text(text)
+                break
+
+            # recall → RH が実行し結果を QC へ積んで次反復へ連鎖（O→W 経由で再会）。
+            recall_tc = next((tc for tc in result.tool_calls if tc.name == "recall"), None)
+            if recall_tc is not None:
+                out, _ = await agent._memory_tool.call("recall", dict(recall_tc.input))
+                self._completion_queue.put_nowait(out)
+                continue
+
+            # どちらも無ければ result.text へフォールバック（既にストリーム済み）して終了。
+            text = (result.text or "").strip()
+            break
+
+        # 永続化＝既存 pipeline（utility LLM のみ）。消化した完了 O をターン観察で supersede。
+        try:
+            arousal = await agent._turn_arousal(utterance, text)
+            agent._spawn_background_task(
+                agent._run_post_response_pipeline(
+                    user_input=utterance, final_text=text,
+                    camera_used=False, camera_image=None,
+                    observation_action_name=None, observation_action_input=None,
+                    companion_mood="engaged", is_desire_turn=False, desires=None,
+                    arousal=arousal, memories=memories,
+                    superseded_ids=consumed_completion_ids or None,
+                ),
+                name="event-post-response",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("event-loop persistence spawn failed: %s", e)
+
+        return text

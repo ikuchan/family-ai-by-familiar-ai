@@ -328,6 +328,10 @@ class AgentConfig:
 
     # #11 段階1：イベント駆動ループ（人の発言→想起→1反復1出力）へ排他切替（既定 off）。
     event_loop: bool = field(default_factory=lambda: _bool_env("EVENT_LOOP", default=False))
+    # 段階1スライス2：完了キュー経由の1反復1ツール連鎖の反復上限（暴走防止の安全弁）。
+    event_max_iterations: int = field(
+        default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 3)
+    )
 
     # Platform: "anthropic" | "gemini" | "openai" | "kimi" | "glm"
     platform: str = field(default_factory=lambda: os.environ.get("PLATFORM", "anthropic"))
