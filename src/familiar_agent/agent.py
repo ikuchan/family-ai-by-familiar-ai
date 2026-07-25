@@ -767,6 +767,7 @@ class EmbodiedAgent:
 
         # そのターンで作った記憶 id（観察・会話）。WR 記録で W と共起させる。
         _new_ids: list[str | None] = []
+        _obs_id: str | None = None      # 観察 O はカメラを使ったターンだけ書かれる。
 
         # 案Y：満たされた drive を軽量LLMで判定し発火時と同じ全放電で沈静化（既定 off）。
         await self._maybe_discharge_satisfied_drives(
@@ -825,11 +826,6 @@ class EmbodiedAgent:
                 )
                 _new_ids.append(_obs_id)
 
-                # イベントループが消化した完了 O を、このターン観察で supersede（想起除外）。
-                if superseded_ids and _obs_id:
-                    for _old in superseded_ids:
-                        self._memory.mark_superseded(_old, _obs_id)
-
             summary = await self._summarize_exchange(user_input, final_text)
             _conv_id, _ = await self._active_memory().save_async_with_id(
                 summary,
@@ -842,6 +838,14 @@ class EmbodiedAgent:
                 **self._conversation_perspective(),
             )
             _new_ids.append(_conv_id)
+
+            # イベントループが残したループ中 O を、このターンの記録で supersede（想起除外）。
+            # カメラ分岐の中に置くと、カメラを使わないイベントループのターンでは一度も走らず
+            # トリガ O が W に残り続ける（実機で観測）。観察が無ければ会話 O を宛先にする。
+            _supersede_target = _obs_id or _conv_id
+            if superseded_ids and _supersede_target:
+                for _old in superseded_ids:
+                    self._memory.mark_superseded(_old, _supersede_target)
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
             # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。

@@ -1182,3 +1182,41 @@ async def test_internal_desire_turn_no_coercion_warning(caplog):
     assert "coerced" not in caplog.text, (
         "No coercion warning should be logged for internal desire turns"
     )
+
+
+@pytest.mark.asyncio
+async def test_pipeline_supersedes_loop_obs_without_camera():
+    """イベントループのターン（camera_used=False）でもループ中 O の後始末が走る。
+
+    supersede をカメラ分岐の中に置いていたため、イベントループのターンでは一度も走らず、
+    トリガ O が残り続けて W を汚した（実機で観測）。カメラ無しでも会話 O で始末する。
+    """
+    from familiar_agent.agent import EmbodiedAgent
+
+    agent = _make_agent()
+    agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), "tender"))
+    agent._summarize_exchange = AsyncMock(return_value="summary")
+    agent._update_self_model = AsyncMock()
+    agent._maybe_update_self_narrative = AsyncMock()
+    agent._maybe_adapt_values = AsyncMock()
+    agent._active_memory = MagicMock(return_value=agent._memory)
+    agent._memory.save_async_with_id = AsyncMock(return_value=("conv-1", True))
+    agent._memory.mark_superseded = MagicMock()
+
+    await EmbodiedAgent._run_post_response_pipeline(
+        agent,
+        user_input="昨日の天気覚えてる？",
+        final_text="晴れてたよ",
+        camera_used=False,
+        camera_image=None,
+        observation_action_name=None,
+        observation_action_input=None,
+        companion_mood="engaged",
+        is_desire_turn=False,
+        desires=None,
+        superseded_ids=["loop-1", "loop-2"],
+    )
+
+    calls = [c.args for c in agent._memory.mark_superseded.call_args_list]
+    assert ("loop-1", "conv-1") in calls
+    assert ("loop-2", "conv-1") in calls

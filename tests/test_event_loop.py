@@ -149,6 +149,23 @@ def test_recall_chains_via_completion_queue_then_says():
     assert kinds == {"observation"}
 
 
+def test_completion_supersedes_trigger_too():
+    # 完了 O を記録した時点で、その発話（トリガ O）も supersede する。探した結果が出れば
+    # その発話は処理済みなので、W に居座って本物の記憶を押し下げないようにする。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+    ])
+    _run_chain(a, utterance="昨日の天気覚えてる？")
+    # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図もトリガも supersede。
+    calls = [c.args for c in a._memory.mark_superseded.call_args_list]
+    assert ("obs2", "obs3") in calls          # 意図の解決
+    assert ("obs1", "obs3") in calls          # トリガも同じ完了で解決
+    # 解決済みは、ターン末の一括 supersede に載せない（つながりを残すため）。
+    _, kwargs = a._run_post_response_pipeline.call_args
+    assert kwargs["superseded_ids"] == ["obs3"]
+
+
 def test_trigger_utterance_written_to_o_at_intake():
     # 取込＝来た事実（人の発話）を O に書く（④シーケンス）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ"})])])
@@ -185,7 +202,7 @@ def test_completion_supersedes_open_intent_and_records_search():
     ])
     _run_chain(a, utterance="昨日の天気覚えてる？")
     # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図を supersede。
-    a._memory.mark_superseded.assert_called_once_with("obs2", "obs3")
+    assert ("obs2", "obs3") in [c.args for c in a._memory.mark_superseded.call_args_list]
     completions = [
         c for c in a._memory.save_async_with_id.call_args_list
         if c.kwargs.get("direction") == "完了"
@@ -323,10 +340,10 @@ def test_all_loop_os_are_superseded_via_pipeline():
     ])
     _run_chain(a)
     _, kwargs = a._run_post_response_pipeline.call_args
-    # 書いた O は3件（トリガ obs1・open 意図 obs2・完了 obs3）。意図 obs2 は完了が解決済みなので
-    # ターン末の一括 supersede には載せない（「完了が意図を解決した」つながりを残すため）。
+    # 書いた O は3件（トリガ obs1・open 意図 obs2・完了 obs3）。意図 obs2 とトリガ obs1 は
+    # 完了が解決済みなので、ターン末の一括 supersede には載せない（つながりを残すため）。
     assert a._memory.save_async_with_id.await_count == 3
-    assert kwargs["superseded_ids"] == ["obs1", "obs3"]
+    assert kwargs["superseded_ids"] == ["obs3"]
 
 
 def test_max_iterations_bounds_the_chain():
