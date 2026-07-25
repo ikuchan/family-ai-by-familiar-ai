@@ -95,6 +95,13 @@ class Database:
             from .store.clock import local_utc_offset
             with self._conn.cursor() as _cur:
                 _cur.execute(f"SET TIME ZONE INTERVAL '{local_utc_offset()}' HOUR TO MINUTE")
+                # 絞り込み付きベクトル検索の取りこぼし対策（pgvector 0.8 の反復スキャン）。
+                # HNSW 索引は vector 単体に張られ、person_id や superseded_by の絞り込みは
+                # 索引が近傍候補を集めた「後」に当たる。同じ観測を人数分の視点で持つため
+                # 候補の大半が落ち、母集合が数千件あっても 0〜1 件しか残らないことがある
+                # （実機で 0 件を観測）。反復スキャンは、絞り込みを通った行が必要数に達する
+                # まで走査を続ける。上限は max_scan_tuples（既定 20000）が抑える。
+                _cur.execute("SET hnsw.iterative_scan = relaxed_order")
             self._conn.commit()
             from .db_migrations import apply_migrations, default_migration_dir
             apply_migrations(self._conn, default_migration_dir())
