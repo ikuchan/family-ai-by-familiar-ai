@@ -1,0 +1,107 @@
+"""調停器（ARB）：軽量LLM が会話の重さを自己判断し、反復の出し方を3つへ振り分ける。
+
+正本＝`I内部設計根拠` 段4。**基準は作り込まず軽量LLM の自己判断**とし、調整はプロンプトで
+行う（閾値や点数式を置かない）。実測では1ターン 10.5 秒のうち LLM が 10.2 秒を占め、
+`recall` を投げるだけの反復にもフルLLM を同期で使っていた。
+
+- **light**：短文で答えきれる会話は軽量LLM が応答して反復を閉じる（フルを起こさない）。
+- **full** ：熟慮・想起が要る会話はフルLLM を起こす。**思考の深さ（effort）も軽量LLM が決める**。
+- **action**：探すと決まっている反復は、軽量LLM が語を決めて `recall` を投げ反復を閉じる。
+
+判定できないとき・時間切れは **full／effort=high** へ倒す（従来と同じ挙動＝退行しない）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+import re
+from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
+
+_EFFORTS = ("low", "medium", "high")
+
+ARBITER_PROMPT = """\
+あなたは対話エージェントの内部で、次の一手を選ぶ調停器である。会話ではないので、
+挨拶や説明はせず、指定の JSON だけを返す。
+
+いま人から届いた言葉と、思い出している記憶を見て、次のどれかを選ぶ。
+
+- "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
+- "full"   : 記憶を踏まえた言葉選びや、込み入った説明が要る。生成は別の大きなモデルが行う。
+             どれくらい深く考えるべきかを effort に "low" / "medium" / "high" で書く。
+- "action" : まだ材料が足りず、記憶を探すのが先。探す語を query に書く。
+
+判断の基準は自分で決めてよい。迷ったら "full" を選ぶ。
+
+[人の言葉]
+{utterance}
+
+[思い出している記憶]
+{workspace}
+
+次の形の JSON だけを返す（他には何も書かない）:
+{{"branch": "light|full|action", "text": "…", "effort": "low|medium|high", "query": "…"}}
+使わない項目は省いてよい。
+"""
+
+
+@dataclass
+class Decision:
+    """調停の結果。`branch` 以外はその分岐でだけ意味を持つ。"""
+
+    branch: str          # light | full | action
+    text: str = ""       # light：発話
+    effort: str = "high"  # full：思考の深さ
+    query: str = ""      # action：探す語
+
+
+_FALLBACK = Decision(branch="full", effort="high")
+
+
+def _parse(reply: str) -> Decision | None:
+    """軽量LLM の返事から JSON を拾う。前後に地の文が混じっても拾えるようにする。"""
+    match = re.search(r"\{.*\}", reply or "", re.S)
+    if not match:
+        return None
+    try:
+        data = json.loads(match.group(0))
+    except Exception:
+        return None
+    branch = str(data.get("branch", "")).strip().lower()
+    if branch not in ("light", "full", "action"):
+        return None
+    effort = str(data.get("effort", "high")).strip().lower()
+    if effort not in _EFFORTS:
+        effort = "high"
+    text = str(data.get("text", "")).strip()
+    query = str(data.get("query", "")).strip()
+    # 分岐に必要なものが無ければ判定できていない＝倒す。
+    if branch == "light" and not text:
+        return None
+    if branch == "action" and not query:
+        return None
+    return Decision(branch=branch, text=text, effort=effort, query=query)
+
+
+async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
+                    timeout: float = 2.0) -> Decision:
+    """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。"""
+    prompt = ARBITER_PROMPT.format(utterance=utterance, workspace=workspace_ctx or "（なし）")
+    try:
+        reply = await asyncio.wait_for(backend.complete(prompt, 300), timeout=timeout)
+    except asyncio.TimeoutError:
+        logger.warning("調停が %.1f 秒で返らなかったのでフルへ倒す", timeout)
+        return _FALLBACK
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.warning("調停に失敗したのでフルへ倒す: %s", e)
+        return _FALLBACK
+    decision = _parse(reply)
+    if decision is None:
+        logger.warning("調停の返事を読めなかったのでフルへ倒す: %.80r", reply)
+        return _FALLBACK
+    return decision

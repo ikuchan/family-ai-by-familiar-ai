@@ -73,8 +73,12 @@ def build_event_system_prompt(
     pi_ctx: str,
     workspace_ctx: str,
     iter_ctx: str = "",
-) -> str:
+) -> tuple[str, str]:
     """案B：静的核 ＋ 自己認識 MI（ME/FAMILY/capabilities）＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
+
+    返りは **(安定部, 可変部)** の対。安定部（静的核＋ME＋FAMILY＋capabilities）は反復ごとに
+    変わらないので、backend がここへ `cache_control` を付けて再処理を省ける。1本の文字列で
+    渡すとキャッシュが効かない。
 
     日時は現行 run() と同じ書式で必ず入れる。これが無いと「昨日」「一昨日」を自分で解けず、
     日付を利用者に聞き返すことになる（実機で観測）。
@@ -89,4 +93,5 @@ def build_event_system_prompt(
     variable = "\n\n".join(
         p for p in [datetime_ctx, present_ctx, pi_ctx, iter_ctx, workspace_ctx] if p and p.strip()
     )
-    return "\n\n---\n\n".join(p for p in [EVENT_SYSTEM_PROMPT, stable, variable] if p and p.strip())
+    stable_all = "\n\n---\n\n".join(p for p in [EVENT_SYSTEM_PROMPT, stable] if p and p.strip())
+    return stable_all, variable

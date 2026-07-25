@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import logging
 
+from .arbiter import arbitrate
 from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -250,8 +251,33 @@ class InformationProcessing:
             p for p in [origin_ctx, mem.format_for_context(memories)] if p and p.strip()
         )
 
-        # 3. GEN（生成）：連鎖が上限に達した反復では recall を渡さない＝必ず発話させる。
+        # 3. ARB（調停）：軽量LLM が会話の重さを自己判断し、出し方を3つへ振り分ける（段4）。
+        #    フルLLM は「言語生成が要るとき」だけ起こす。実測で1ターン 10.5 秒のうち LLM が
+        #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
         capped = chain >= max_chain
+        decision = await arbitrate(
+            agent._utility_backend, utterance=utterance, workspace_ctx=workspace_ctx,
+        )
+        logger.debug("event-loop iter=%d/%d 調停=%s effort=%s",
+                     chain, max_chain, decision.branch, decision.effort)
+
+        # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
+        if decision.branch == "light" and decision.text:
+            text = decision.text
+            if agent._tts is not None:
+                with contextlib.suppress(Exception):
+                    await agent._tts.call("say", {"text": text})
+            if self._on_text is not None:
+                self._on_text(text)
+            await self._finish(text, memories, "発話")
+            return text
+
+        # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
+        if decision.branch == "action" and decision.query and not capped:
+            self._open_intent(utterance, {"query": decision.query})
+            logger.info("event-loop 反復 %d/%d 出力=ツール投げ（調停・続きは完了で起きる）",
+                        chain, max_chain)
+            return ""
         system = build_event_system_prompt(
             me_md=getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -272,6 +298,7 @@ class InformationProcessing:
             tools=self._tools(with_recall=not capped),
             max_tokens=agent.config.max_tokens,
             on_text=None,
+            effort=decision.effort,
         )
 
         # 出力その1＝発話（run() と同じ「先頭 say 採用」）。ここで反復は終わる。

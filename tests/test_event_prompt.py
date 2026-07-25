@@ -24,9 +24,12 @@ def test_build_includes_self_knowledge_present_pi_and_w():
         pi_ctx="[内部状態(PI)] 気分: おだやか / 欲求: SEEKING 高",
         workspace_ctx="[想起]昔の話",
     )
-    for needle in ("[ME] ぼくの口調", "[FAMILY] パパ・ママ", "能力の要約",
-                   "(present", "[内部状態(PI)]", "[想起]昔の話", "family-bond"):
-        assert needle in out
+    # 返りは (安定部, 可変部)。安定部は反復ごとに変わらないので backend がキャッシュする。
+    stable, variable = out
+    for needle in ("[ME] ぼくの口調", "[FAMILY] パパ・ママ", "能力の要約", "family-bond"):
+        assert needle in stable
+    for needle in ("(present", "[内部状態(PI)]", "[想起]昔の話"):
+        assert needle in variable
 
 
 def test_build_omits_retired_layers():
@@ -34,5 +37,6 @@ def test_build_omits_retired_layers():
         me_md="me", family_md="fam", capabilities="cap",
         present_ctx="", pi_ctx="pi", workspace_ctx="w",
     )
-    assert "[Interaction policy]" not in out   # social_policy は載せない
-    assert "interoception" not in out           # 撤去対象は載せない
+    joined = "\n".join(out)
+    assert "[Interaction policy]" not in joined   # social_policy は載せない
+    assert "interoception" not in joined           # 撤去対象は載せない

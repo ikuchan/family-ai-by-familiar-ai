@@ -1,0 +1,64 @@
+"""段階2：軽量LLM 調停の3分岐。
+
+反復の頭で軽量LLM に会話の重さを自己判断させ、(a)軽量で閉じる／(b)フルを起こす／(c)定型
+の3つへ振り分ける（`I内部設計根拠` 段4）。閾値は作らず、調整はプロンプトで行う。
+実測では1ターン 10.5 秒のうち LLM が 10.2 秒で、`recall` を投げるだけの反復にもフルLLM を
+使っていた。
+"""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock
+
+from familiar_agent.loop.arbiter import Decision, arbitrate
+
+
+def _backend(reply: str):
+    b = AsyncMock()
+    b.complete = AsyncMock(return_value=reply)
+    return b
+
+
+def _call(reply: str, timeout: float = 2.0) -> Decision:
+    return asyncio.run(
+        arbitrate(_backend(reply), utterance="こんにちは", workspace_ctx="[想起]…",
+                  timeout=timeout)
+    )
+
+
+def test_light_branch_carries_the_reply():
+    d = _call('{"branch":"light","text":"やあ！元気？"}')
+    assert d.branch == "light"
+    assert d.text == "やあ！元気？"
+
+
+def test_full_branch_carries_the_effort():
+    d = _call('{"branch":"full","effort":"medium"}')
+    assert d.branch == "full"
+    assert d.effort == "medium"
+
+
+def test_action_branch_carries_the_query():
+    d = _call('{"branch":"action","query":"昨日の天気"}')
+    assert d.branch == "action"
+    assert d.query == "昨日の天気"
+
+
+def test_unparsable_reply_falls_back_to_full():
+    # 判定できないときは今までと同じ挙動（フル・effort=high）へ倒す＝退行しない。
+    d = _call("よくわからない返事")
+    assert d.branch == "full"
+    assert d.effort == "high"
+
+
+def test_timeout_falls_back_to_full():
+    async def slow(*_a, **_k):
+        await asyncio.sleep(1.0)
+        return '{"branch":"light","text":"間に合わない"}'
+
+    b = AsyncMock()
+    b.complete = AsyncMock(side_effect=slow)
+    d = asyncio.run(arbitrate(b, utterance="x", workspace_ctx="", timeout=0.05))
+    assert d.branch == "full"
+    assert d.effort == "high"

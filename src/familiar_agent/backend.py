@@ -170,7 +170,7 @@ class AnthropicBackend:
         self.thinking_budget = thinking_budget
         self.thinking_effort = thinking_effort
 
-    def _build_thinking_params(self) -> dict:
+    def _build_thinking_params(self, effort: str | None = None) -> dict:
         """Return thinking kwargs for the Anthropic API call.
 
         Per official docs (https://platform.claude.com/docs/en/build-with-claude/adaptive-thinking):
@@ -188,12 +188,15 @@ class AnthropicBackend:
         if mode == "auto":
             mode = "adaptive" if _supports_adaptive_thinking(self.model) else "disabled"
 
+        # 呼び出しごとの effort（段階2 で軽量LLM が決める）。None ならインスタンスの設定。
+        chosen_effort = effort or self.thinking_effort
+
         if mode == "adaptive":
             # No beta header required — adaptive thinking is GA on Opus 4.6 / Sonnet 4.6.
             # Interleaved thinking is automatically enabled in adaptive mode.
             params: dict = {"thinking": {"type": "adaptive"}}
-            if self.thinking_effort != "high":  # "high" is the default; skip if default
-                params["output_config"] = {"effort": self.thinking_effort}
+            if chosen_effort != "high":  # "high" is the default; skip if default
+                params["output_config"] = {"effort": chosen_effort}
             return params
 
         if mode == "extended":
@@ -320,11 +323,15 @@ class AnthropicBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
+        effort: str | None = None,
     ) -> tuple[TurnResult, Any]:
-        """Stream one agent turn. Returns (result, raw_content_for_assistant_message)."""
+        """Stream one agent turn. Returns (result, raw_content_for_assistant_message).
+
+        `effort` は呼び出しごとの思考の深さ（段階2 で軽量LLM が決める）。None は既定。
+        """
         from anthropic.types import MessageParam, ToolParam
 
-        thinking_params = self._build_thinking_params()
+        thinking_params = self._build_thinking_params(effort)
         betas = thinking_params.pop("betas", [])
 
         sys_param = self._build_system_param(system)
@@ -578,6 +585,7 @@ class OpenAICompatibleBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
+        effort: str | None = None,   # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         sys_str: str = (
             "\n\n---\n\n".join(s for s in system if s) if isinstance(system, tuple) else system
@@ -835,6 +843,7 @@ class KimiBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None = None,
+        effort: str | None = None,   # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         if isinstance(system, tuple):
             system = "\n\n---\n\n".join(s for s in system if s)
@@ -1010,6 +1019,7 @@ class GLMBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None = None,
+        effort: str | None = None,   # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         if isinstance(system, tuple):
             system = "\n\n---\n\n".join(s for s in system if s)
@@ -1351,6 +1361,7 @@ class GeminiBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
+        effort: str | None = None,   # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         if isinstance(system, tuple):
             system = "\n\n---\n\n".join(s for s in system if s)
@@ -1591,6 +1602,7 @@ class CLIBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
+        effort: str | None = None,   # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         prompt = self._serialize(system, messages, tools)
         text = await self._run(prompt)

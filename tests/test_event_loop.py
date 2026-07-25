@@ -51,6 +51,8 @@ def _agent(*, stream_returns, max_iters=3):
     a.backend = MagicMock()
     a.backend.make_user_message = MagicMock(return_value={"role": "user", "content": "x"})
     a.backend.stream_turn = AsyncMock(side_effect=list(stream_returns))
+    a._utility_backend = MagicMock()
+    a._utility_backend.complete = AsyncMock(return_value='{"branch":"full","effort":"high"}')
     a._expected_turns = len(list(stream_returns))
     a._turn_arousal = AsyncMock(return_value=0.3)
     a._spawn_background_task = MagicMock()
@@ -203,7 +205,7 @@ def test_w_includes_the_intake_origin_deterministically():
     # 検索から外すかわりに、起点は W へ必ず加える（コサインの運に任せない）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a, utterance="おはよう")
-    system = a.backend.stream_turn.call_args.kwargs["system"]
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "おはよう" in system                        # 起点（人の発話）
     assert "[想起]昔の話" in system                    # 想起結果も従来どおり
 
@@ -277,6 +279,60 @@ def test_intake_drains_inbox_in_place():
     assert asyncio.run(ip._intake()) == 1
     assert ip._inbox is before        # 作り直さない
     assert ip._inbox == []            # 中身だけ空にする
+
+
+def test_system_prompt_is_split_for_caching():
+    # 安定部（静的核＋ME＋FAMILY＋capabilities）と可変部を分けて渡すと、安定部に
+    # cache_control が付いて反復ごとの再処理が減る。1本の文字列だと効かない。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    _run(a)
+    system = a.backend.stream_turn.call_args.kwargs["system"]
+    assert isinstance(system, tuple) and len(system) == 2
+    assert "[ME] 口調" in system[0]          # 安定部
+    assert "[想起]昔の話" in system[1]        # 可変部
+
+
+def test_light_branch_speaks_without_the_full_llm():
+    # 軽量LLM が「短文で足りる」と判断した反復は、フルLLM を呼ばずに閉じる。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"light","text":"やあ！元気？"}')
+    assert _run(a) == "やあ！元気？"
+    a.backend.stream_turn.assert_not_awaited()      # フルLLM を起こさない
+    a._tts.call.assert_awaited_once_with("say", {"text": "やあ！元気？"})
+
+
+def test_action_branch_dispatches_recall_without_the_full_llm():
+    # 探すと決まっている反復も、フルLLM を起こさずに recall を投げて閉じる。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"action","query":"昨日の天気"}')
+    shown: list[str] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        first = await ip.run_iteration("こんにちは", on_text=shown.append)
+        # 反復1でフルLLM を起こしていないこと（この後、駆動体が続きの反復を回す）。
+        assert a.backend.stream_turn.await_count == 0
+        for _ in range(200):
+            if a._memory_tool.call.await_count:
+                break
+            await asyncio.sleep(0.005)
+        query = a._memory_tool.call.await_args.args[1]
+        await ip.close()
+        return first, query
+
+    first, query = asyncio.run(scenario())
+    assert first == ""                                   # 発話を持たない反復
+    assert query == {"query": "昨日の天気"}              # 調停が決めた語で投げる
+
+
+def test_full_branch_passes_the_effort_chosen_by_the_arbiter():
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"full","effort":"low"}')
+    _run(a)
+    assert a.backend.stream_turn.call_args.kwargs["effort"] == "low"
 
 
 def test_iteration_ends_when_tool_is_dispatched():
@@ -366,7 +422,7 @@ def test_datetime_is_injected_into_prompt():
     # 現行 run() と同じ書式 `(now :datetime "…")` で毎反復渡す。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a)
-    system = a.backend.stream_turn.call_args.kwargs["system"]
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "(now :datetime " in system
 
 
@@ -377,7 +433,7 @@ def test_iteration_context_is_injected_into_prompt():
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ], max_iters=3)
     _run_chain(a)
-    systems = [c.kwargs["system"] for c in a.backend.stream_turn.call_args_list]
+    systems = ["\n".join(c.kwargs["system"]) for c in a.backend.stream_turn.call_args_list]
     assert "1/3" in systems[0]
     assert "2/3" in systems[1]
 
