@@ -11,6 +11,9 @@ from __future__ import annotations
 import logging
 from unittest.mock import patch
 
+import psycopg2
+import pytest
+
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
@@ -60,3 +63,40 @@ def test_save_with_id_failure_is_loud_error_with_trace(caplog):
     finally:
         for p in ps:
             p.stop()
+
+
+def test_recall_lets_programming_errors_surface() -> None:
+    """コードの誤り（署名不一致など）は握り潰さず伝播させる。
+
+    運用上の失敗（DB 障害など）は degrade して会話を続けるが、TypeError のような
+    プログラミングエラーまで `[]` に化けると「想起0件」に見えて原因が隠れる
+    （`by_vector` に引数を足したとき、在席者相関のテストが別の顔で落ちた）。
+    """
+    ps = _fixed_embed()
+    for x in ps:
+        x.start()
+    try:
+        mem = ObservationMemory()
+        with patch.object(
+            mem._observations, "by_vector", side_effect=TypeError("unexpected keyword argument")
+        ), pytest.raises(TypeError):
+            mem.recall("なにか")
+    finally:
+        for x in ps:
+            x.stop()
+
+
+def test_recall_degrades_on_operational_failure() -> None:
+    """運用上の失敗（DB 障害）は従来どおり degrade して [] を返す（会話は落とさない）。"""
+    ps = _fixed_embed()
+    for x in ps:
+        x.start()
+    try:
+        mem = ObservationMemory()
+        with patch.object(
+            mem._observations, "by_vector", side_effect=psycopg2.OperationalError("db down")
+        ):
+            assert mem.recall("なにか") == []
+    finally:
+        for x in ps:
+            x.stop()

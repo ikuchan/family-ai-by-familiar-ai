@@ -861,9 +861,15 @@ class ObservationMemory:
             if min_score > 0.0:
                 return []
             return self._observations.keyword_fallback(query, n, kind)
+        except (TypeError, AttributeError, NameError):
+            # コードの誤り（署名不一致・属性ミスなど）は degrade しない。`[]` に化けると
+            # 「想起0件」に見えて原因が隠れる（by_vector に引数を足したとき、在席者相関の
+            # テストが別の顔で落ちた）。呼び出し側まで伝播させて即座に表面化させる。
+            logger.exception("recall failed (コードの誤り)")
+            raise
         except Exception:
-            # 想起の失敗はトレース付きで loud に残す（hot path・完了できなかった操作）。
-            # degrade してクラッシュはさせないが、keyword_fallback へは流さない
+            # 運用上の失敗（DB 障害・埋め込み生成の失敗など）はトレース付きで loud に残しつつ
+            # degrade する（hot path・会話は落とさない）。keyword_fallback へは流さない
             # （失敗を静かなテキスト検索で masking しない・棚卸し A1）。
             logger.exception("recall failed")
             return []
