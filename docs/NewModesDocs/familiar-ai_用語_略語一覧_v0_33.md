@@ -1,42 +1,5 @@
 # familiar-ai 用語・略語一覧（v0.33）
 
-> v0.33：在席者相関 $p$ の候補集合拡張（slice-2）実装済みに合わせ、想起スコア行・基底プロファイル行の p 記述を実装済みへ統一。感情一致 e の関数形を確定のガウシアン $e=\exp(-D^2/(2σ^2))$ に、c_lo/c_hi を確定値 0.0/1.0 に揃えた。
-
-> v0.32：**在席者相関 $p$ と基底プロファイルを実装済み（score 軸）へ更新**した。想起合成に第5軸 $p$ を足し、在席他者がいる間の基底 $(w_r,w_t,w_e,w_a,w_p)=(1,1,1,1.5,1.0)$ が score 側でコードと一致した（Config `recall_w_p`）。$p$ の素点は在席他者ごとの situated コサインを noisy-OR で束ね、自分と現話者は除外する。候補集合拡張（$p$ で候補を広げる）は slice-2 で未実装なので、$p$ は現状 score の再採点だけに効く。
-
-> v0.31：想起スコアの行を実装済みへ更新（スライス3）。合成がハイブリッドになり `_compute_final_score` が設計式と一致した。r の伸長 `_stretch_relevance` と、合成係数の Config 名（`recall_c_lo` ほか）を併記した。
-
-
-> v0.30：埋め込み平均中心化の行を実装済みへ更新（C2）。書き込みと問い合わせの両方を `_situated_vector` に通し、既存 situated はマイグレーション027 で一括再計算する。
-> v0.29：埋め込み平均中心化の行に mu の保存先を併記（C1）。平均ベクトル mu は `embedding_means`（scope 付き複数行・BYTEA で次元非依存・dim ガード・マイグレーション026 が初回推定）に持ち、読み出しは `load_embedding_mean(dim)`。mu は Config のつまみではなく統計量で、再推定の起動は REST の機械側が持つ。適用は C2。
-> v0.28：M/PAD 行に評価器の PAD 出力と mood 読み出しを併記（W2b-2）。評価器（軽量LLM）が観測の感情を P/Pn/Dom で直接出し（`_evaluate_emotion_pad`・A_gate=0.25・A は機械 arousal・失敗は mood フォールバック）、`load_current_mood()`（自己接続・読みだけ）で現在 mood を読む。旧 `_infer_emotion`（ラベル直出し）は撤去し、ラベルは PAD から派生（`label_from_pad`）。
-
-> v0.27：M/PAD 行に PAD↔ラベル正本の所在を併記（W2a）。PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`（マイグレーション025 の `_LABEL_PAD` は凍結写し）、PAD→ラベル逆引きは `label_from_pad`（ユークリッド最近傍・未接続）。観測行の PAD は `_row_to_mental_item` が `MoodPAD` として MI の emotion に載せる（Y）。
-
-> v0.26：M/PAD 行に観測側の格納列を併記（書き込み PAD 化 W1a）。観測の感情 PAD は `observations` の `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`（案B・既定0.5・マイグレーション024・未接続）に持つ。mood レジスタ（`mood_register.py`）と対の関係。
-
-> v0.25：プロンプトキャッシュを追加（LLM 項）。自己認識 MI＝システムプロンプトを不変度順に並べ可変分を messages へ置く構築規約の根拠（[D-自己認識分離]・設計図 v0.42）。
-
-> v0.24：B スライスの実装名を併記（いずれも実装済み・未接続）。M（PAD）項に mood レジスタ `MoodPAD`（`mood_register.py`・全軸[0,1]・中立0.5・平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad`・B-1）。D（Drive）項に drive レジスタ `AiDrivers`（`drive_register.py`・5欲求 SEEKING/REST/BOND/SAFETY/ESTEEM・各軸[0,1]・静止0.0・state_key `drive5`・`load_drives`/`save_drives`・器のみ・B-2）。PI 項に PI 構築と PI→MI 拡張の `tif.py` の `build_primitive`／`expand_to_mental`（emotion に `MoodPAD`・drive に `AiDrivers` を載せる・発火とループへ未接続・B-3）。いずれも既存 agent_state パターン踏襲で外部挙動不変。
-> v0.23：活性の保存形式の実装名を併記（A-3-1）。activation 項に列 `activation_a0`・導出関数 `_derive_activation`（定数 floor=0／C=2／ε=0.001／step=0.33 の仮値・step は取込 a0=0.75 から5回で実用上限1.5 に達する効き幅）を、正味デルタ回数 n の項に列 `activation_n` を追記。importance 列は当面残す（接続と廃止は後続）。
-> v0.22：課題7 再検討（軽量LLM のローカル化検討）で使う語を追加＝ローカルLLM／Qwen／推論ランタイム／量子化（Q4）／量子化フォーマット（GGUF・AWQ）／トークン毎秒（tok/s）／初回トークン遅延（TTFT）／思考モードと非思考モード。あわせて「ローカル ML スタック」項の『LLM・評価器・シーン VLM はクラウド維持』を腑分け（フルLLM と シーン VLM は維持、軽量LLM＝補助LLM はローカル化検討中）に更新（設計図 v0.33・[D-知覚] と整合）。
-> v0.21：実装クラス名を併記。PI 項に `PrimitiveMentalItem`（基底のデータ保持クラス）と、感情属性が PAD または未設定（`None`）を取り評価前は未設定で持つ旨を追記。MI 項に `MentalItem`（`PrimitiveMentalItem` を継承する拡張クラス）を追記。課題8 Phase 1 の A-1（observations を器として読む）で導入。
-> v0.20：AIF 項に**境界の型は発し手基準（T＝PI／I＝MI）・処理は受け側**の原則を追記。**Nudge** を独立項として新設（I が MI として発し・emotion＝N_PAD・content＝標識＋W 上 MI の id 配列・T が受け側で emotion をフィルタし M 変調）。設計未決 I→T Nudge の PI/MI 化クローズ（[D-T境界]・[D-発火]）。
-> v0.19：trigger（きっかけ）/cue（手がかり）を追加（W 構築の起動・3 trigger 集約・[D-想起起動]）。
-> v0.18：声色 PAD（`α·N_PAD ＋ (1−α)·M`・α＝Config `speech_pad_blend` 起点 0.7）を追記（[D-知覚]）。
-> v0.17：TTS を Style-Bert-VITS2（jvnv-M2-jp）確定に更新（VOICEVOX/Kokoro 不採用・PAD→(style, style_weight) 写像・[D-知覚]）。
-> v0.16：埋め込みモデルを bge-m3（1024次元）へ大型化確定に更新（計測5 で VRAM 余裕確認・[D-知覚]／[D-想起合成]）。
-> v0.15：段階的関連係数（r のハード veto をやめ min_score で足切り）を追記、埋め込みモデルに大型化予定を追記（[D-想起合成]／[D-知覚]）。
-> v0.14：音声 I/O ローカル化の語を追記＝TTS／STT／ローカル ML スタック／埋め込みモデル（multilingual-e5-small）（[D-知覚]）。
-> v0.13：埋め込み平均中心化／異方性（cone 効果）／ホワイトニング（今後の改善案）を追記（[D-想起合成]）。
-> v0.12：声紋（話者帰属）関連を追記＝話者同定／話者帰属／VAD／ECAPA-TDNN／ダイアライゼーション（不採用）／声紋登録（[D-知覚]）。
-> v0.11：在席者相関（p・第5軸）／相関サブテーブル／発話ゲート を追記（[D-在席相関]）。
-> v0.10：WR 拡散想起（課題6 gap）の用語 WR／WRDB／想起MIリスト／想起MI／想起MI更新フラグ を追記。
-
-列＝**分類（コンポーネント）／日本語／英語／略語・頭文字／意味**。略語の無い語は略語列を「—」、英語の無い純日本語語は英語列を「—」とする。
-
-> v0.09 改訂（課題6-1）：自己認識 MI＝**フルLLM と評価器 双方のシステムプロンプト**へ拡張（評価器にとって最重要）。感情 E＝**評価器が P/Pn/Dom 直接出力・A ゲート（A<0.25 は M そのまま）**を反映。値踏み V の good/bad/coping 機械束ねは廃止。
-
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
 | T | 自律機構 | Tonic | T | 常時動く背景。TIF＋G/M/D＋B（＋MLK）。 |
@@ -236,3 +199,34 @@
 | LLM | 初回トークン遅延 | time to first token | TTFT | プロンプト投入から最初のトークン出力までの時間。軽量LLM 選定の第一基準＝レイテンシの主指標（課題7）。 |
 | LLM | 思考モードと非思考モード | thinking / non-thinking mode | — | Qwen3 の切替可能な生成モード。思考モードは連鎖推論を挟み遅延が増え、非思考モードは即答寄り。評価・調停・つなぎはレイテンシ要件のため非思考モードを前提（課題7）。 |
 | LLM | プロンプトキャッシュ | prompt caching | — | プロンプトのプレフィックスを再利用して再計算を省く仕組み（Anthropic 等）。前方一致で、プレフィックスが1バイトでも変わると以降が無効化される（レンダリング順 tools→system→messages）。自己認識 MI＝システムプロンプトを不変度順に並べ、毎ターンの可変分を messages 側へ置く構築規約の根拠（[D-自己認識分離]）。キャッシュ非対応バックエンドでも順序規約として無害。 |
+
+---
+
+## 更新履歴
+
+> v0.33：在席者相関 $p$ の候補集合拡張（slice-2）実装済みに合わせ、想起スコア行・基底プロファイル行の p 記述を実装済みへ統一。感情一致 e の関数形を確定のガウシアン $e=\exp(-D^2/(2σ^2))$ に、c_lo/c_hi を確定値 0.0/1.0 に揃えた。
+> v0.32：**在席者相関 $p$ と基底プロファイルを実装済み（score 軸）へ更新**した。想起合成に第5軸 $p$ を足し、在席他者がいる間の基底 $(w_r,w_t,w_e,w_a,w_p)=(1,1,1,1.5,1.0)$ が score 側でコードと一致した（Config `recall_w_p`）。$p$ の素点は在席他者ごとの situated コサインを noisy-OR で束ね、自分と現話者は除外する。候補集合拡張（$p$ で候補を広げる）は slice-2 で未実装なので、$p$ は現状 score の再採点だけに効く。
+> v0.31：想起スコアの行を実装済みへ更新（スライス3）。合成がハイブリッドになり `_compute_final_score` が設計式と一致した。r の伸長 `_stretch_relevance` と、合成係数の Config 名（`recall_c_lo` ほか）を併記した。
+> v0.30：埋め込み平均中心化の行を実装済みへ更新（C2）。書き込みと問い合わせの両方を `_situated_vector` に通し、既存 situated はマイグレーション027 で一括再計算する。
+> v0.29：埋め込み平均中心化の行に mu の保存先を併記（C1）。平均ベクトル mu は `embedding_means`（scope 付き複数行・BYTEA で次元非依存・dim ガード・マイグレーション026 が初回推定）に持ち、読み出しは `load_embedding_mean(dim)`。mu は Config のつまみではなく統計量で、再推定の起動は REST の機械側が持つ。適用は C2。
+> v0.28：M/PAD 行に評価器の PAD 出力と mood 読み出しを併記（W2b-2）。評価器（軽量LLM）が観測の感情を P/Pn/Dom で直接出し（`_evaluate_emotion_pad`・A_gate=0.25・A は機械 arousal・失敗は mood フォールバック）、`load_current_mood()`（自己接続・読みだけ）で現在 mood を読む。旧 `_infer_emotion`（ラベル直出し）は撤去し、ラベルは PAD から派生（`label_from_pad`）。
+> v0.27：M/PAD 行に PAD↔ラベル正本の所在を併記（W2a）。PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`（マイグレーション025 の `_LABEL_PAD` は凍結写し）、PAD→ラベル逆引きは `label_from_pad`（ユークリッド最近傍・未接続）。観測行の PAD は `_row_to_mental_item` が `MoodPAD` として MI の emotion に載せる（Y）。
+> v0.26：M/PAD 行に観測側の格納列を併記（書き込み PAD 化 W1a）。観測の感情 PAD は `observations` の `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`（案B・既定0.5・マイグレーション024・未接続）に持つ。mood レジスタ（`mood_register.py`）と対の関係。
+> v0.25：プロンプトキャッシュを追加（LLM 項）。自己認識 MI＝システムプロンプトを不変度順に並べ可変分を messages へ置く構築規約の根拠（[D-自己認識分離]・設計図 v0.42）。
+> v0.24：B スライスの実装名を併記（いずれも実装済み・未接続）。M（PAD）項に mood レジスタ `MoodPAD`（`mood_register.py`・全軸[0,1]・中立0.5・平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad`・B-1）。D（Drive）項に drive レジスタ `AiDrivers`（`drive_register.py`・5欲求 SEEKING/REST/BOND/SAFETY/ESTEEM・各軸[0,1]・静止0.0・state_key `drive5`・`load_drives`/`save_drives`・器のみ・B-2）。PI 項に PI 構築と PI→MI 拡張の `tif.py` の `build_primitive`／`expand_to_mental`（emotion に `MoodPAD`・drive に `AiDrivers` を載せる・発火とループへ未接続・B-3）。いずれも既存 agent_state パターン踏襲で外部挙動不変。
+> v0.23：活性の保存形式の実装名を併記（A-3-1）。activation 項に列 `activation_a0`・導出関数 `_derive_activation`（定数 floor=0／C=2／ε=0.001／step=0.33 の仮値・step は取込 a0=0.75 から5回で実用上限1.5 に達する効き幅）を、正味デルタ回数 n の項に列 `activation_n` を追記。importance 列は当面残す（接続と廃止は後続）。
+> v0.22：課題7 再検討（軽量LLM のローカル化検討）で使う語を追加＝ローカルLLM／Qwen／推論ランタイム／量子化（Q4）／量子化フォーマット（GGUF・AWQ）／トークン毎秒（tok/s）／初回トークン遅延（TTFT）／思考モードと非思考モード。あわせて「ローカル ML スタック」項の『LLM・評価器・シーン VLM はクラウド維持』を腑分け（フルLLM と シーン VLM は維持、軽量LLM＝補助LLM はローカル化検討中）に更新（設計図 v0.33・[D-知覚] と整合）。
+> v0.21：実装クラス名を併記。PI 項に `PrimitiveMentalItem`（基底のデータ保持クラス）と、感情属性が PAD または未設定（`None`）を取り評価前は未設定で持つ旨を追記。MI 項に `MentalItem`（`PrimitiveMentalItem` を継承する拡張クラス）を追記。課題8 Phase 1 の A-1（observations を器として読む）で導入。
+> v0.20：AIF 項に**境界の型は発し手基準（T＝PI／I＝MI）・処理は受け側**の原則を追記。**Nudge** を独立項として新設（I が MI として発し・emotion＝N_PAD・content＝標識＋W 上 MI の id 配列・T が受け側で emotion をフィルタし M 変調）。設計未決 I→T Nudge の PI/MI 化クローズ（[D-T境界]・[D-発火]）。
+> v0.19：trigger（きっかけ）/cue（手がかり）を追加（W 構築の起動・3 trigger 集約・[D-想起起動]）。
+> v0.18：声色 PAD（`α·N_PAD ＋ (1−α)·M`・α＝Config `speech_pad_blend` 起点 0.7）を追記（[D-知覚]）。
+> v0.17：TTS を Style-Bert-VITS2（jvnv-M2-jp）確定に更新（VOICEVOX/Kokoro 不採用・PAD→(style, style_weight) 写像・[D-知覚]）。
+> v0.16：埋め込みモデルを bge-m3（1024次元）へ大型化確定に更新（計測5 で VRAM 余裕確認・[D-知覚]／[D-想起合成]）。
+> v0.15：段階的関連係数（r のハード veto をやめ min_score で足切り）を追記、埋め込みモデルに大型化予定を追記（[D-想起合成]／[D-知覚]）。
+> v0.14：音声 I/O ローカル化の語を追記＝TTS／STT／ローカル ML スタック／埋め込みモデル（multilingual-e5-small）（[D-知覚]）。
+> v0.13：埋め込み平均中心化／異方性（cone 効果）／ホワイトニング（今後の改善案）を追記（[D-想起合成]）。
+> v0.12：声紋（話者帰属）関連を追記＝話者同定／話者帰属／VAD／ECAPA-TDNN／ダイアライゼーション（不採用）／声紋登録（[D-知覚]）。
+> v0.11：在席者相関（p・第5軸）／相関サブテーブル／発話ゲート を追記（[D-在席相関]）。
+> v0.10：WR 拡散想起（課題6 gap）の用語 WR／WRDB／想起MIリスト／想起MI／想起MI更新フラグ を追記。
+列＝**分類（コンポーネント）／日本語／英語／略語・頭文字／意味**。略語の無い語は略語列を「—」、英語の無い純日本語語は英語列を「—」とする。
+> v0.09 改訂（課題6-1）：自己認識 MI＝**フルLLM と評価器 双方のシステムプロンプト**へ拡張（評価器にとって最重要）。感情 E＝**評価器が P/Pn/Dom 直接出力・A ゲート（A<0.25 は M そのまま）**を反映。値踏み V の good/bad/coping 機械束ねは廃止。

@@ -1,14 +1,10 @@
-familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.5）
-
-> v0.5：一行に潰れていた「旧 DB テーブル → 新構成」対応表と「旧クラス → 新構成」対応表を Markdown テーブルへ復元（内容は保持）。旧運用の記述「全体テストはユーザー実施」を現行運用へ訂正。
-
+# familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.5）
 
 v0.4：situated V2 の生成規則・移行を確定。関係初期集合＝presence/speaker/subject（視点列 participants_json/writer_id/subject_id から生成）。旧 `_remember` 複製モデル（scope speaker/witnessed/scene・kind utterance/witnessed/scene）の撤去を申し送りへ追加。移行写像を「既存観測1件→複数関係エッジ展開」へ精緻化。
 
 v0.3：situated V2（型つき関係エッジ・[D-在席相関/V2]）を反映。person_id 保持メモを「`observations.person_id` 削除＋situated だけが person↔MI を担う（型つき関係エッジ・`relation_key` 帳簿列・`UNIQUE(obs_id,person_id)` 撤去・独立 vector 行）」へ更新。課題8 申し送りも V2 へ。生成規則・移行写像・β 分離は次段。
 
 課題6 gap 文書化の承認用ドキュメント。旧実装の ~20 ストア（DB テーブル22個）＋旧感情系を、新設計（O 一元化・T レジスタ・W 派生・共通 MI）へどう移すかの対応表。設計レベルの対応と確定先（[D-…]）を示し、コード撤去・マイグレーション・テストの詳細は課題8 に送る。
-
 
 v0.2：課題7 のコード確認を反映。GlobalWorkspace 行を精緻化（記憶ストアでなく coalition 競合＋ignition 機構→ W へ直接転用は不可・調停/発火へ）。
 
@@ -95,3 +91,9 @@ appraisal／social_policy の trust/intimacy 依存を、想起した関係記�
 旧フィールド・旧 kind 参照の撤去は、旧名で grep して残存ゼロを完了条件にする。
 DB 更新を伴うため、既存テストの修正要否を検討し、マイグレーション方法をテストに含める。
 全体テストは `./scripts/run_tests.sh` で自分（Claude Code）が回す。
+
+---
+
+## 更新履歴
+
+> v0.5：一行に潰れていた「旧 DB テーブル → 新構成」対応表と「旧クラス → 新構成」対応表を Markdown テーブルへ復元（内容は保持）。旧運用の記述「全体テストはユーザー実施」を現行運用へ訂正。

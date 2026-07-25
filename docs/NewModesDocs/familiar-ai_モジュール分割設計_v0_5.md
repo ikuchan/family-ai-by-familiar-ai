@@ -1,15 +1,5 @@
 # familiar-ai モジュール分割設計（v0.5）
 
-> v0.5：境界切り出しの実績と、順序方針のリファインメント（段取り v0.24）を反映。リファクタリングを 境界R（core/store/loop/io/legacy のつなぎ目）→ D（store 境界の中でのデータモデル整理）→ 内部R（中身整理）の3段に割り、loop に触る persistence 等は後回し（Phase 5）と位置づける。現状の分割実態＝`store/`（observations／situated／persons／jobs／context／clock／embedding／db_compat）、`loop/`（evaluator・history）、`legacy/`（semantic_layer）は実在。`io/`・`core/` は未作成。`tools/memory.py` は現在 1,348 行（agent.py は 3,826 行）。`min_score` の合成床化は実装済み。`core/recall_score.py` は未作成で、ハイブリッド5軸合成は `tools/memory.py` 内の `_score_breakdown`（正本）にある（抽出は内部R＝D 後へ）。
-
-> v0.4：v0.3 の方針どおり **evaluator を `loop/evaluator.py` へ切り出した**（挙動保存）。`agent.py` から感情（`_emotion_for_turn`）・要約（`_summarize_exchange`）・相手気分（`_infer_companion_mood`）・整合性チェック（`_check_response_coherence`）の4メソッドと、値踏みゲート `A_GATE`・PAD 評価関数 `_evaluate_emotion_pad`・各プロンプト・`_companion_mood_heuristic` を移し、履歴走査 `_flatten_history` は `loop/history.py` へ分けた（評価器と要約が共有・循環 import 回避）。`agent.py` 側は薄い委譲だけ残す（テストの差し替え点でもある）。`EmbodiedAgent._evaluator` は、内部欲求ターンでメイン backend が utility へ一時スワップされても追随するよう、現在の `self.backend` と `_utility_backend` から導出する派生プロパティにした（スナップショットしない）。`store/` と同じく合成で、Config を持たず注入された backend だけに依存する。`loop/persistence.py` は v0.3 のとおり見送り（Phase 5 で `run()` ごと作り替える）。
-
-> v0.3：`agent.py` の切り出し方針を、実測に基づいて絞った。当初は `loop/evaluator.py` と `loop/persistence.py` の二つを第一弾に入れていたが、`_run_post_response_pipeline` が 28 種の `self.` 属性（エージェント状態のほぼ全域）に触ると分かったため、**persistence は見送る**。切り出しても依存を束ねられず（`StoreContext` のようにいかない）、かつ Phase 5 で `run()` ごと作り替えるものだからである。**evaluator だけを切り出す**（依存は軽量LLM とメインバックエンドの二つに収まり、設計に名前があり、Phase 4 が参照する残るものである）。
-
-> v0.2：`store/` の切り出しを実施した（S1〜S6d）。`tools/memory.py` は 2,594 行から 1,238 行へ減り、SQL は `store/`（と撤去予定の `legacy/`）にだけ残る形になった。途中で**継承（mixin）をやめて合成へ組み替えた**（C1〜C3）。mixin は宿主の名前空間を共有するため層どうしが名前で衝突し、実際に実体化が MRO で覆い隠される事故が出たためである。各層は `StoreContext` から共有の道具（接続・ロック・person・埋め込み器）を受け取り、層をまたぐ依存は引数に出す。あわせて層ごとの単体テストを足し（合成にしたことで層を単独で組み立てられる）、層が Config を直接読まない形にした。実施結果と、作り替え予定で層へ移さなかった一群を下に記す。
-
-> v0.1：Phase 2 の締めに置く境界切り出し（課題8 v0.20）の、分割単位そのものを決める。判断の基準を「設計が定めたコンポーネントに合わせる」と「変わりそうな判断を隠す」の二つに置き、目標のファイル構成と第一弾の範囲を確定した。実装は未着手。
-
 ## この文書が決めること
 
 `agent.py`（現 3,826 行）と `tools/memory.py`（現 1,348 行・`store/` 切り出し後）を、どの単位でファイルへ切り出すかを決める。行数を減らすことが目的ではない。**コードを開いた人が設計図と突き合わせて読める状態**にすることが目的で、行数はその結果として下がる。
@@ -176,3 +166,13 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 ## 残り
 
 `min_score` の是正（生コサインの閾値から合成スコアの床へ）は実装済み。次の境界R は `io/` の切り出しなど loop に触らない範囲から進め、`core/recall_score.py` への抽出は D の後（内部R）に置く。persistence の切り出しは loop に触るため Phase 5 の `run()` 作り替えの中で行う。
+
+---
+
+## 更新履歴
+
+> v0.5：境界切り出しの実績と、順序方針のリファインメント（段取り v0.24）を反映。リファクタリングを 境界R（core/store/loop/io/legacy のつなぎ目）→ D（store 境界の中でのデータモデル整理）→ 内部R（中身整理）の3段に割り、loop に触る persistence 等は後回し（Phase 5）と位置づける。現状の分割実態＝`store/`（observations／situated／persons／jobs／context／clock／embedding／db_compat）、`loop/`（evaluator・history）、`legacy/`（semantic_layer）は実在。`io/`・`core/` は未作成。`tools/memory.py` は現在 1,348 行（agent.py は 3,826 行）。`min_score` の合成床化は実装済み。`core/recall_score.py` は未作成で、ハイブリッド5軸合成は `tools/memory.py` 内の `_score_breakdown`（正本）にある（抽出は内部R＝D 後へ）。
+> v0.4：v0.3 の方針どおり **evaluator を `loop/evaluator.py` へ切り出した**（挙動保存）。`agent.py` から感情（`_emotion_for_turn`）・要約（`_summarize_exchange`）・相手気分（`_infer_companion_mood`）・整合性チェック（`_check_response_coherence`）の4メソッドと、値踏みゲート `A_GATE`・PAD 評価関数 `_evaluate_emotion_pad`・各プロンプト・`_companion_mood_heuristic` を移し、履歴走査 `_flatten_history` は `loop/history.py` へ分けた（評価器と要約が共有・循環 import 回避）。`agent.py` 側は薄い委譲だけ残す（テストの差し替え点でもある）。`EmbodiedAgent._evaluator` は、内部欲求ターンでメイン backend が utility へ一時スワップされても追随するよう、現在の `self.backend` と `_utility_backend` から導出する派生プロパティにした（スナップショットしない）。`store/` と同じく合成で、Config を持たず注入された backend だけに依存する。`loop/persistence.py` は v0.3 のとおり見送り（Phase 5 で `run()` ごと作り替える）。
+> v0.3：`agent.py` の切り出し方針を、実測に基づいて絞った。当初は `loop/evaluator.py` と `loop/persistence.py` の二つを第一弾に入れていたが、`_run_post_response_pipeline` が 28 種の `self.` 属性（エージェント状態のほぼ全域）に触ると分かったため、**persistence は見送る**。切り出しても依存を束ねられず（`StoreContext` のようにいかない）、かつ Phase 5 で `run()` ごと作り替えるものだからである。**evaluator だけを切り出す**（依存は軽量LLM とメインバックエンドの二つに収まり、設計に名前があり、Phase 4 が参照する残るものである）。
+> v0.2：`store/` の切り出しを実施した（S1〜S6d）。`tools/memory.py` は 2,594 行から 1,238 行へ減り、SQL は `store/`（と撤去予定の `legacy/`）にだけ残る形になった。途中で**継承（mixin）をやめて合成へ組み替えた**（C1〜C3）。mixin は宿主の名前空間を共有するため層どうしが名前で衝突し、実際に実体化が MRO で覆い隠される事故が出たためである。各層は `StoreContext` から共有の道具（接続・ロック・person・埋め込み器）を受け取り、層をまたぐ依存は引数に出す。あわせて層ごとの単体テストを足し（合成にしたことで層を単独で組み立てられる）、層が Config を直接読まない形にした。実施結果と、作り替え予定で層へ移さなかった一群を下に記す。
+> v0.1：Phase 2 の締めに置く境界切り出し（課題8 v0.20）の、分割単位そのものを決める。判断の基準を「設計が定めたコンポーネントに合わせる」と「変わりそうな判断を隠す」の二つに置き、目標のファイル構成と第一弾の範囲を確定した。実装は未着手。

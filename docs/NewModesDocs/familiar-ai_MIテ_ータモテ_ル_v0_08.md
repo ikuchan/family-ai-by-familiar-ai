@@ -1,19 +1,5 @@
 # familiar-ai MI データモデル（v0.08・最小・確定）
 
-> v0.08：§2 の recall スコアを 3軸から実装済みの5軸（r/t/e/a/p）へ更新し、§7（5軸前提）との齟齬を解消。タイトルの版表記をファイル名に一致させた。
-
-v1 を全面差し替え。本セッションの確定（LLM を解釈基盤に・属性最小化・B 解体・T↔I 境界＝PI）を反映。
-
-> v0.07 改訂：§7 の読み出し器を実装済み（未接続）に更新。`_read_supersede_chain(head_id, columns)` を新設（`WITH RECURSIVE` で supersede 版チェーンを再構成・dumb・未接続・テスト4件）。畳み込み本体は Phase 2。
-
-> v0.06 改訂（系統A の対応づけ確定＝論点1c）：付録A に `self_model`（→自己認識 MI 自己エピソード部・REST 蒸留・能力部は capability_summary）／`curiosity`（→cue／SEEKING の open 意図 O・自己認識 MI でない）／`semantic_facts／behavior_policies`（→信念 MI・自己認識 MI 方針とは別・REST が間接蒸留）の行を追加。
-
-> v0.05 改訂：付録A の移行早見表に `utterance／witnessed／scene` 行を追加＝単一 O＋situated 関係エッジ（speaker/presence/subject）へ一本化し旧 `_remember` の人ごと複製を廃止（[D-在席相関/V2]）。
-
-> v0.04 改訂：§7 の confidence を確定。**信頼度は数値属性を持たず MI の `content` に自然文注記として書くにとどめる**（検索の5軸に入れない・機械可読スカラ不要）。数値導出案（activation 同型の `(c0, m)`）は検討のうえ撤回。信頼度の更新（確証／反証／使われない）は REST 内省が結末を読み content を書き換えて supersede する形とし Phase 2 寄り。`_project_observation`・専用2テーブル・`fact_key`／`policy_key`・`confidence`・`adjust_*_confidence`・`memory_revisions`（confidence 版）は撤去対象として明記。§7 を〔設計確定・実装未着手〕へ。
-
-> v0.03 改訂：MI 集約段の設計中の記録として §7「意味・信念層（旧 semantic_facts／behavior_policies）の畳み込み」を追加。key／revisions／confidence の意味を整理し、**畳み込む方針**を確定。key と revisions は MI の supersede 版チェーンへ写す（identity＝chain 到達・revisions＝祖先の再帰想起・W 取り込み＝`superseded_by IS NULL`・identity キーは足さない）。書き込み側の紐づけ（old_id 同定）は類似度／REST へ寄せ Phase 2 寄り。confidence の写し先は未決（次の議論）。実装は未着手。
- 
 ## 0. 方針
 LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／由来／動作 等）は属性にせず `content` に置き LLM が解釈**する。属性は「**T が作る信号**」＋「**機械的必須**」だけ。MI は**単一クラス**（抽象基底・サブタイプは作らない）。
  
@@ -142,3 +128,15 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 | timer | **課題9 で別途**（時刻 due の扱いは未確定） |
  
 **観測 MI の `content`（設計要求）**：観測種別に応じて自然文の中身が入る（LLM が解釈・構造化コマンドは持たない＝[D-MIモデル]）。**ユーザー発話**＝ASR テキスト／**機器イベント（カメラ等）**＝scene・VLM の記述テキスト（Y-2・部屋レベル・定点非記載）／**検索・取得**＝フルLLM が束を畳んだ consolidated 内容（生の結果でなく整理後・[D-O書込]／[D-検索]）／**音楽等の機器状態**＝出来事の記述（曲・プレイリストの変化）。これにより観測 MI 化時の値踏み入力「いま起きたこと」は当該 `content` から取れる（[D-値踏み]）。**open 意図の `content`＝意図**（上表）と合わせ、値踏み入力〔いま起きたこと＝観測 `content`／気がかり＝open 意図 `content`＋`activation`〕が設計要求として裏づく。
+
+---
+
+## 更新履歴
+
+> v0.08：§2 の recall スコアを 3軸から実装済みの5軸（r/t/e/a/p）へ更新し、§7（5軸前提）との齟齬を解消。タイトルの版表記をファイル名に一致させた。
+v1 を全面差し替え。本セッションの確定（LLM を解釈基盤に・属性最小化・B 解体・T↔I 境界＝PI）を反映。
+> v0.07 改訂：§7 の読み出し器を実装済み（未接続）に更新。`_read_supersede_chain(head_id, columns)` を新設（`WITH RECURSIVE` で supersede 版チェーンを再構成・dumb・未接続・テスト4件）。畳み込み本体は Phase 2。
+> v0.06 改訂（系統A の対応づけ確定＝論点1c）：付録A に `self_model`（→自己認識 MI 自己エピソード部・REST 蒸留・能力部は capability_summary）／`curiosity`（→cue／SEEKING の open 意図 O・自己認識 MI でない）／`semantic_facts／behavior_policies`（→信念 MI・自己認識 MI 方針とは別・REST が間接蒸留）の行を追加。
+> v0.05 改訂：付録A の移行早見表に `utterance／witnessed／scene` 行を追加＝単一 O＋situated 関係エッジ（speaker/presence/subject）へ一本化し旧 `_remember` の人ごと複製を廃止（[D-在席相関/V2]）。
+> v0.04 改訂：§7 の confidence を確定。**信頼度は数値属性を持たず MI の `content` に自然文注記として書くにとどめる**（検索の5軸に入れない・機械可読スカラ不要）。数値導出案（activation 同型の `(c0, m)`）は検討のうえ撤回。信頼度の更新（確証／反証／使われない）は REST 内省が結末を読み content を書き換えて supersede する形とし Phase 2 寄り。`_project_observation`・専用2テーブル・`fact_key`／`policy_key`・`confidence`・`adjust_*_confidence`・`memory_revisions`（confidence 版）は撤去対象として明記。§7 を〔設計確定・実装未着手〕へ。
+> v0.03 改訂：MI 集約段の設計中の記録として §7「意味・信念層（旧 semantic_facts／behavior_policies）の畳み込み」を追加。key／revisions／confidence の意味を整理し、**畳み込む方針**を確定。key と revisions は MI の supersede 版チェーンへ写す（identity＝chain 到達・revisions＝祖先の再帰想起・W 取り込み＝`superseded_by IS NULL`・identity キーは足さない）。書き込み側の紐づけ（old_id 同定）は類似度／REST へ寄せ Phase 2 寄り。confidence の写し先は未決（次の議論）。実装は未着手。

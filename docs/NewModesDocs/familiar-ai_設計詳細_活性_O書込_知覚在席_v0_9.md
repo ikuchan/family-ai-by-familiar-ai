@@ -1,20 +1,5 @@
 # familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.9）
 
-> v0.9：カメラ動体検知→知覚ターン起動（案B）を反映。**DIF（純イベント駆動 I）は未実装**なので、動体イベントは当面**現行ターン駆動へ接地**する（将来 DIF ができたらそこへ載せ替え）。`recognition/motion_watcher.py`＝`CameraMotionWatcher`（`presence_watcher` と同型の asyncio タスク・ONVIF PullPoint 購読＝`create_pullpoint_manager`→`SetSynchronizationPoint`→`PullMessages` ループ・Tapo は HTTPS webhook 非対応のため pull 採用）。動体検知で `agent._note_motion` が保留フラグ `_motion_pending` を立て、GUI アイドルループ（deferred 配信と同位置）が拾って**知覚ターン**を起こす（`inner_voice`＝Config `motion_inner_voice`・行動は主LLM が選ぶ・見え驚きは既存 `see`→SceneTracker 経路）。デバウンス（既定60秒・`Debouncer`）でバーストを1ターンにまとめ、long-poll 待機（既定60秒）は通信管理値で検知遅延にならない。ゲート＝静穏/沈黙/入力待ちを避け、**在席は問わない**（不在時の動きも気づく）。Config `MOTION_WATCH`（既定 off）で opt-in。
-
-> v0.8：起動時キャッチアップ（案B）と Drive 新機能の既定 on 化を反映。(1) 停止中の経過を初回 tick に積む：`gui._initial_drive_tick_time` が `drive5.updated_at` を読み、初回 `dt = now − updated_at`（停止秒数）で `accumulate` する（`drive_register.load_drives_with_updated_at`／`catchup_dt`）。cap は設けず accumulate の [0,1] クリップ任せ。mood は起動時 snapshot 近似。(2) 実行時フラグ `DRIVE5_AUTONOMOUS`／`DRIVE5_SATISFY_LLM` の**コード既定を on** へ（新機能を前提）。明示無効化は env `=0`。legacy 経路は `=0` で従来どおり。
-
-> v0.7：P1（知覚→save の視点列配線）を反映。`agent._run_post_response_pipeline` の観察 save と会話 summary save が、視点列（`writer_id`/`subject_id`/`participants_json`/`scope`）を PMM から埋めるようにした。観察＝エージェント自身の情景観察（`writer_id=AGENT_SELF`・`scope="scene"`・`subject_id`＝現話者 floor `DEFAULT_PERSON_ID`）、会話 summary＝話者との遣り取り（`writer_id=subject_id`＝現話者 floor `DEFAULT`・`scope="speaker"`）、`participants`＝在席者（`get_present_ids`）。`scope` は現状 recall フィルタに使わず、将来 V2 が participants/writer/subject と合わせ関係エッジ（presence/speaker/subject）を作るためのラベル。実装＝`agent._observation_perspective`/`_conversation_perspective`。`day_summary` 等の要約系は対象外（REST/P2）。
-
-> v0.6：Drive 起動源の dynamics 接続（Slice 2a）と発火から自発ターンへの結線（Slice 2b）を反映。§3-1 の drive 行を更新。`core/drive_dynamics.py`（蓄積 $g_{D,i}(M)$・発火・放電の純関数）を `gui._process_queue` のアイドルで毎周回 tick して `drive5` へ永続化する（Slice 2a）。`DRIVE5_AUTONOMOUS`（Config・既定 off）が on のとき、発火軸のうち蓄積（放電前）最大の1軸を選び、在席と静穏でゲートして自発ターンを起こす（Slice 2b）。ターンには発火軸の内声（Config 文字列・行動非指定・主LLM が選ぶ）と drive5 の定性スナップショット（低 0.5 未満・中・高 0.75 以上・Config）を同梱する。放電は発火時（案A）。off では既存15欲求 `DesireSystem` が従来どおり駆動し、on とは完全排他（旧15→新5 移行そのものは後続）。
-
-> v0.5：確定設計に合わせ定数台帳の2行を更新。mood による D への修飾は「乗算ゲイン」を廃し logit 合成 $g_{D,i}(M)$ に一本化（課題5 C・発火mood §2.2）。activation 初期化は relevance を廃し、seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分ける（足さない・課題5 E）。
-
-> v0.4：B-2（drive（5欲求）レジスタ）の器実装を反映。§3-1 の drive 行と §3 移行まとめに、`drive_register.py`（5欲求 SEEKING／REST／BOND／SAFETY／ESTEEM の器 AiDrivers・各軸 [0,1]・静止0.0・agent_state の state_key drive5 への load_drives/save_drives）が器のみ実装済み（未接続）であることを追記。蓄積と放電と mood 変調（dynamics）と PI.drive surface は後続。既存15欲求 DesireSystem と "desires" キーは無変更で外部挙動不変。
-> v0.3：B-1（mood（PAD）レジスタの器）実装を反映。§3-1 の mood 行と §3 移行まとめに、`mood_register.py`（4軸 PAD の器 MoodPAD・M_rest への半減期600秒収束 decay_to_rest・agent_state の state_key mood_pad への load_mood/save_mood）が実装済み（未接続）であることを追記。emotion→PAD 写像 φ（課題11k）と既存 mood へは未接続で外部挙動不変。
-> v0.2：A-3 の Phase 1 残務の決定を反映。観測列 recall_count・last_recalled_at（017）を、activation の n ではなく新しさ（t 軸）の若返りに対応づけ、更新トリガをフルLLM 参照申告へ移すことを §4 に明記。二列は旧 recall スコアリングに閉じるため Phase 1 は現状維持とし、再編は Phase 2（5軸スコアラ）で行う。
-> v0.1：課題2 項目4 クローズを反映（§5 を「項目4・W（確定・参照先明記）」へ更新）。以降この別紙は版番号で管理する。
-
 ## 位置づけ
 本書は設計図の確定 **[D-活性]／[D-O書込]／[D-B定点]／[D-B分離]／[D-知覚]／[D-設定]** の**別紙詳細**。決定そのものは設計図にあり、本書は **定数台帳／現状コード所在（file:line・移行入力）／知覚パイプライン細部／移行申し送り** を保持する（決定の地の文は設計図に一元化し、本書では繰り返さない）。対象＝課題2 の項目1（活性）・項目2（O書込）・項目3（知覚在席）。**暫定値は課題5、移行は課題6/7**。
 
@@ -180,3 +165,17 @@
 
 ## 参照する確定事項
 [D-活性]／[D-O書込]／[D-B定点]／[D-B分離]／[D-知覚]／[D-設定]／[D-記憶単一化]／[D-周期]／[D-向き]／[D-気がかり統合]／[課題10]。
+
+---
+
+## 更新履歴
+
+> v0.9：カメラ動体検知→知覚ターン起動（案B）を反映。**DIF（純イベント駆動 I）は未実装**なので、動体イベントは当面**現行ターン駆動へ接地**する（将来 DIF ができたらそこへ載せ替え）。`recognition/motion_watcher.py`＝`CameraMotionWatcher`（`presence_watcher` と同型の asyncio タスク・ONVIF PullPoint 購読＝`create_pullpoint_manager`→`SetSynchronizationPoint`→`PullMessages` ループ・Tapo は HTTPS webhook 非対応のため pull 採用）。動体検知で `agent._note_motion` が保留フラグ `_motion_pending` を立て、GUI アイドルループ（deferred 配信と同位置）が拾って**知覚ターン**を起こす（`inner_voice`＝Config `motion_inner_voice`・行動は主LLM が選ぶ・見え驚きは既存 `see`→SceneTracker 経路）。デバウンス（既定60秒・`Debouncer`）でバーストを1ターンにまとめ、long-poll 待機（既定60秒）は通信管理値で検知遅延にならない。ゲート＝静穏/沈黙/入力待ちを避け、**在席は問わない**（不在時の動きも気づく）。Config `MOTION_WATCH`（既定 off）で opt-in。
+> v0.8：起動時キャッチアップ（案B）と Drive 新機能の既定 on 化を反映。(1) 停止中の経過を初回 tick に積む：`gui._initial_drive_tick_time` が `drive5.updated_at` を読み、初回 `dt = now − updated_at`（停止秒数）で `accumulate` する（`drive_register.load_drives_with_updated_at`／`catchup_dt`）。cap は設けず accumulate の [0,1] クリップ任せ。mood は起動時 snapshot 近似。(2) 実行時フラグ `DRIVE5_AUTONOMOUS`／`DRIVE5_SATISFY_LLM` の**コード既定を on** へ（新機能を前提）。明示無効化は env `=0`。legacy 経路は `=0` で従来どおり。
+> v0.7：P1（知覚→save の視点列配線）を反映。`agent._run_post_response_pipeline` の観察 save と会話 summary save が、視点列（`writer_id`/`subject_id`/`participants_json`/`scope`）を PMM から埋めるようにした。観察＝エージェント自身の情景観察（`writer_id=AGENT_SELF`・`scope="scene"`・`subject_id`＝現話者 floor `DEFAULT_PERSON_ID`）、会話 summary＝話者との遣り取り（`writer_id=subject_id`＝現話者 floor `DEFAULT`・`scope="speaker"`）、`participants`＝在席者（`get_present_ids`）。`scope` は現状 recall フィルタに使わず、将来 V2 が participants/writer/subject と合わせ関係エッジ（presence/speaker/subject）を作るためのラベル。実装＝`agent._observation_perspective`/`_conversation_perspective`。`day_summary` 等の要約系は対象外（REST/P2）。
+> v0.6：Drive 起動源の dynamics 接続（Slice 2a）と発火から自発ターンへの結線（Slice 2b）を反映。§3-1 の drive 行を更新。`core/drive_dynamics.py`（蓄積 $g_{D,i}(M)$・発火・放電の純関数）を `gui._process_queue` のアイドルで毎周回 tick して `drive5` へ永続化する（Slice 2a）。`DRIVE5_AUTONOMOUS`（Config・既定 off）が on のとき、発火軸のうち蓄積（放電前）最大の1軸を選び、在席と静穏でゲートして自発ターンを起こす（Slice 2b）。ターンには発火軸の内声（Config 文字列・行動非指定・主LLM が選ぶ）と drive5 の定性スナップショット（低 0.5 未満・中・高 0.75 以上・Config）を同梱する。放電は発火時（案A）。off では既存15欲求 `DesireSystem` が従来どおり駆動し、on とは完全排他（旧15→新5 移行そのものは後続）。
+> v0.5：確定設計に合わせ定数台帳の2行を更新。mood による D への修飾は「乗算ゲイン」を廃し logit 合成 $g_{D,i}(M)$ に一本化（課題5 C・発火mood §2.2）。activation 初期化は relevance を廃し、seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分ける（足さない・課題5 E）。
+> v0.4：B-2（drive（5欲求）レジスタ）の器実装を反映。§3-1 の drive 行と §3 移行まとめに、`drive_register.py`（5欲求 SEEKING／REST／BOND／SAFETY／ESTEEM の器 AiDrivers・各軸 [0,1]・静止0.0・agent_state の state_key drive5 への load_drives/save_drives）が器のみ実装済み（未接続）であることを追記。蓄積と放電と mood 変調（dynamics）と PI.drive surface は後続。既存15欲求 DesireSystem と "desires" キーは無変更で外部挙動不変。
+> v0.3：B-1（mood（PAD）レジスタの器）実装を反映。§3-1 の mood 行と §3 移行まとめに、`mood_register.py`（4軸 PAD の器 MoodPAD・M_rest への半減期600秒収束 decay_to_rest・agent_state の state_key mood_pad への load_mood/save_mood）が実装済み（未接続）であることを追記。emotion→PAD 写像 φ（課題11k）と既存 mood へは未接続で外部挙動不変。
+> v0.2：A-3 の Phase 1 残務の決定を反映。観測列 recall_count・last_recalled_at（017）を、activation の n ではなく新しさ（t 軸）の若返りに対応づけ、更新トリガをフルLLM 参照申告へ移すことを §4 に明記。二列は旧 recall スコアリングに閉じるため Phase 1 は現状維持とし、再編は Phase 2（5軸スコアラ）で行う。
+> v0.1：課題2 項目4 クローズを反映（§5 を「項目4・W（確定・参照先明記）」へ更新）。以降この別紙は版番号で管理する。
