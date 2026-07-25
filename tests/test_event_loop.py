@@ -176,6 +176,19 @@ def test_w_search_excludes_the_intake_origin():
     assert kwargs.get("exclude_ids") == ["obs1"]      # obs1＝取込で書いたトリガ O
 
 
+def test_w_recall_query_follows_the_intake_origin():
+    # 想起の手がかりは「取り込んだもの」＝鎖の先頭。反復2以降も最初の発話で探し続けると、
+    # いま届いた完了とは無関係な検索になる（④ の「想起クエリ（手がかり）」）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ])
+    _run_chain(a, utterance="昨日の天気覚えてる？")
+    queries = [c.args[0] for c in a._active_memory().recall_async.call_args_list]
+    assert queries[0] == "昨日の天気覚えてる？"                 # 反復1の起点＝人の発話
+    assert "recall結果テキスト" in queries[1]                   # 反復2の起点＝完了O の内容
+
+
 def test_w_recall_uses_configured_n():
     # 枠が 3 だと自己モデル文などが混じったとき本命が押し出される（実機で観測）。
     # 件数は Config で決める（既定 5）。

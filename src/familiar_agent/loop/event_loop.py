@@ -234,10 +234,13 @@ class InformationProcessing:
         # 2. REC（想起）：O（＋現入力）→ W。W は派生なので反復末に捨てる。
         # 一律の規則：取込で書いた記録（＝鎖の先頭）は検索から外し、W へは決定的に加える。
         # 素通しだと問いと同一文の記録が必ず上位に来て、限られた枠から本物の記憶を押し出す。
+        # 手がかりは「取り込んだもの」＝鎖の先頭（反復1なら人の発話、反復2以降なら完了 O）。
+        # 最初の発話で探し続けると、いま届いた完了とは無関係な検索になる（④ の想起クエリ）。
         mem = agent._active_memory()
         origin_ids = [self._chain_head_id] if self._chain_head_id else None
+        cue = self._chain_head_content or utterance
         memories = await mem.recall_async(
-            utterance,
+            cue,
             n=MemoryConfig().recall_n,
             recall_mode="conversation",
             exclude_ids=origin_ids,
