@@ -212,6 +212,19 @@ def test_completion_supersedes_open_intent_and_records_search():
     assert "昨日の天気" in content and "recall結果テキスト" in content
 
 
+def test_intake_drains_inbox_in_place():
+    # 駆動体は `self._inbox.append(await queue.get())` の append を **await の前に** 束縛する。
+    # 取込が `_inbox` を作り直すと、駆動体は捨てられた古いリストへ積み、完了が失われる
+    # （実機で観測：受領 inbox=0 → 取込 items=0）。同一オブジェクトを空にして守る。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    ip = InformationProcessing(a)
+    before = ip._inbox
+    ip._inbox.append(("q", "結果", None))
+    assert asyncio.run(ip._intake()) == 1
+    assert ip._inbox is before        # 作り直さない
+    assert ip._inbox == []            # 中身だけ空にする
+
+
 def test_iteration_ends_when_tool_is_dispatched():
     # 1反復1出力：ツールを投げることも出力。投げた時点で反復は終わり、発話は持たない。
     a = _agent(stream_returns=[_turn([ToolCall(id="r", name="recall", input={"query": "q"})])])

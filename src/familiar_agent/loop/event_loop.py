@@ -112,7 +112,11 @@ class InformationProcessing:
     async def _intake(self) -> int:
         """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。"""
         agent = self._agent
-        items, self._inbox = self._inbox, []
+        # `_inbox` は作り直さず中身だけ移す。駆動体は `self._inbox.append(await get())` の
+        # append を await の前に束縛するので、ここで差し替えると駆動体が捨てられた古い
+        # リストへ積み、完了が黙って失われる（実機で観測）。
+        items = list(self._inbox)
+        self._inbox.clear()
         while not self._completion_queue.empty():
             items.append(self._completion_queue.get_nowait())
         logger.debug(
@@ -193,7 +197,9 @@ class InformationProcessing:
     async def _drive(self) -> None:
         while True:
             try:
-                self._inbox.append(await self._completion_queue.get())
+                # 属性の参照は await の後に行う（束縛のすり替わりを避ける・上の注記）。
+                item = await self._completion_queue.get()
+                self._inbox.append(item)
                 while not self._completion_queue.empty():
                     self._inbox.append(self._completion_queue.get_nowait())
                 logger.debug(
