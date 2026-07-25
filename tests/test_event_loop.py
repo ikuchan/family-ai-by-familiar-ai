@@ -51,6 +51,7 @@ def _agent(*, stream_returns, max_iters=3):
     a.backend = MagicMock()
     a.backend.make_user_message = MagicMock(return_value={"role": "user", "content": "x"})
     a.backend.stream_turn = AsyncMock(side_effect=list(stream_returns))
+    a._expected_turns = len(list(stream_returns))
     a._turn_arousal = AsyncMock(return_value=0.3)
     a._spawn_background_task = MagicMock()
     a._run_post_response_pipeline = MagicMock(return_value=MagicMock())
@@ -62,6 +63,24 @@ def _agent(*, stream_returns, max_iters=3):
 
 def _run(a, utterance="こんにちは", on_text=None):
     return asyncio.run(InformationProcessing(a).run_iteration(utterance, on_text=on_text))
+
+
+def _run_chain(a, utterance="こんにちは"):
+    """人の発話で反復を起こし、駆動体が起こす続きの反復も終わるまで待って発話を返す。"""
+    shown: list[str] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip.run_iteration(utterance, on_text=shown.append)
+        for _ in range(400):
+            if a.backend.stream_turn.await_count >= a._expected_turns and not ip._tasks:
+                break
+            await asyncio.sleep(0.005)
+        await asyncio.sleep(0.02)      # 最終反復の後始末が走るのを待つ
+        await ip.close()
+
+    asyncio.run(scenario())
+    return "".join(shown)
 
 
 # ── スライス1（発話のみ）─────────────────────────────
@@ -120,8 +139,7 @@ def test_recall_chains_via_completion_queue_then_says():
         _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "思い出したよ"})]),
     ])
-    out = _run(a)
-    assert out == "思い出したよ"
+    assert _run_chain(a) == "思い出したよ"
     assert a.backend.stream_turn.await_count == 2               # 2反復
     a._memory_tool.call.assert_awaited_once_with("recall", {"query": "運動会"})  # RH 実行
     # QC drain＝完了結果を O へ書込（反復2の取込）。
@@ -147,7 +165,7 @@ def test_open_intent_written_with_utterance_and_query():
         _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ])
-    _run(a, utterance="おはよう")
+    _run_chain(a, utterance="おはよう")
     intents = [
         c for c in a._memory.save_async_with_id.call_args_list
         if c.kwargs.get("direction") == "意図"
@@ -165,7 +183,7 @@ def test_completion_supersedes_open_intent_and_records_search():
         _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
     ])
-    _run(a, utterance="昨日の天気覚えてる？")
+    _run_chain(a, utterance="昨日の天気覚えてる？")
     # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図を supersede。
     a._memory.mark_superseded.assert_called_once_with("obs2", "obs3")
     completions = [
@@ -175,6 +193,45 @@ def test_completion_supersedes_open_intent_and_records_search():
     assert len(completions) == 1
     content = completions[0].args[0]
     assert "昨日の天気" in content and "recall結果テキスト" in content
+
+
+def test_iteration_ends_when_tool_is_dispatched():
+    # 1反復1出力：ツールを投げることも出力。投げた時点で反復は終わり、発話は持たない。
+    a = _agent(stream_returns=[_turn([ToolCall(id="r", name="recall", input={"query": "q"})])])
+    assert _run(a) == ""                       # 発話なしで反復終了
+    a.backend.stream_turn.assert_awaited_once()  # 同じ呼び出しの中で次周回へ進まない
+
+
+def test_driver_runs_next_iteration_when_completion_arrives():
+    # 次の反復は完了が QC に届いて初めて起きる（駆動体・キュー到来で起きる）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+    ])
+    shown: list[str] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        first = await ip.run_iteration("昨日の天気覚えてる？", on_text=shown.append)
+        for _ in range(200):                    # 駆動体が起こす2反復目を待つ
+            if shown:
+                break
+            await asyncio.sleep(0.01)
+        return first
+
+    assert asyncio.run(scenario()) == ""        # 1反復目は発話なし
+    assert "".join(shown) == "晴れてたよ"       # 2反復目が発話した
+
+
+def test_chain_cap_withholds_recall_tool():
+    # 連鎖が上限に達した反復では recall を渡さない＝発話を必ず出す（暴走防止）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ], max_iters=2)
+    _run_chain(a)
+    assert a.backend.stream_turn.call_args_list[0].kwargs["tools"] == [_SAY_DEF, _RECALL_DEF]
+    assert a.backend.stream_turn.call_args_list[1].kwargs["tools"] == [_SAY_DEF]
 
 
 def test_recall_is_dispatched_async_and_loop_waits_on_queue():
@@ -192,14 +249,21 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
 
     a._memory_tool.call = AsyncMock(side_effect=hang)
 
+    shown: list[str] = []
+
     async def scenario():
         ip = InformationProcessing(a)
-        task = asyncio.create_task(ip.run_iteration("こんにちは"))
+        assert await ip.run_iteration("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)          # 意図を書いて dispatch し終えた頃
         ip._completion_queue.put_nowait(("q", "外から届いた結果", None))
-        return await asyncio.wait_for(task, timeout=2.0)
+        for _ in range(400):
+            if shown:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
 
-    assert asyncio.run(scenario()) == "はい"
+    asyncio.run(scenario())
+    assert "".join(shown) == "はい"
 
 
 def test_new_intent_supersedes_still_live_previous_intent():
@@ -222,26 +286,10 @@ def test_resolved_intent_is_not_superseded_again():
         _turn([ToolCall(id="r", name="recall", input={"query": "q2"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ], max_iters=3)
-    _run(a)
+    _run_chain(a)
     calls = [c.args for c in a._memory.mark_superseded.call_args_list]
     assert ("obs2", "obs3") in calls                              # 完了 obs3 が意図 obs2 を解決
     assert not any(c[0] == "obs2" and c[1] != "obs3" for c in calls)
-
-
-def test_intent_records_cap_reached_on_last_iteration():
-    # 上限に達した反復で書く意図は「これ以上探さない」と持つ。次ターンの W で
-    # 「結果はまだ無い」と読まれて再検索が繰り返される自己増殖を止める。
-    a = _agent(
-        stream_returns=[_turn([ToolCall(id="r", name="recall", input={"query": "q"})])],
-        max_iters=1,
-    )
-    _run(a)
-    intents = [
-        c for c in a._memory.save_async_with_id.call_args_list
-        if c.kwargs.get("direction") == "意図"
-    ]
-    assert "上限" in intents[0].args[0]
-    assert "結果はまだ無い" not in intents[0].args[0]
 
 
 def test_recall_iteration_does_not_display_filler_text():
@@ -250,9 +298,7 @@ def test_recall_iteration_does_not_display_filler_text():
         _turn([ToolCall(id="r", name="recall", input={"query": "q"})], text="まず記憶を探すね！"),
         _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
     ])
-    shown: list[str] = []
-    _run(a, on_text=shown.append)
-    assert "".join(shown) == "晴れ"       # 前置きは出さず、発話だけ1回
+    assert _run_chain(a) == "晴れ"        # 前置きは出さず、発話だけ1回
     # 生成中のストリームを止める＝呼び手の on_text を stream_turn へ渡さない。
     assert all(c.kwargs["on_text"] is None for c in a.backend.stream_turn.call_args_list)
 
@@ -263,7 +309,7 @@ def test_iteration_context_is_injected_into_prompt():
         _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ], max_iters=3)
-    _run(a)
+    _run_chain(a)
     systems = [c.kwargs["system"] for c in a.backend.stream_turn.call_args_list]
     assert "1/3" in systems[0]
     assert "2/3" in systems[1]
@@ -275,7 +321,7 @@ def test_all_loop_os_are_superseded_via_pipeline():
         _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ])
-    _run(a)
+    _run_chain(a)
     _, kwargs = a._run_post_response_pipeline.call_args
     # 書いた O は3件（トリガ obs1・open 意図 obs2・完了 obs3）。意図 obs2 は完了が解決済みなので
     # ターン末の一括 supersede には載せない（「完了が意図を解決した」つながりを残すため）。
@@ -292,29 +338,13 @@ def test_max_iterations_bounds_the_chain():
         ],
         max_iters=2,
     )
-    out = _run(a)
-    assert out == ""                                           # say せず打ち切り
+    assert _run_chain(a) == ""                                 # 発話せず連鎖を閉じる
     assert a.backend.stream_turn.await_count == 2
 
 
 # ── 診断ログ（反復・決定・上限空終了）─────────────────
 
 _LOGGER = "familiar_agent.loop.event_loop"
-
-
-def test_warns_when_cap_reached_without_say(caplog):
-    # 上限まで recall を返し say 未決で終わる＝空応答経路 → WARNING が出る。
-    a = _agent(
-        stream_returns=[
-            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        ],
-        max_iters=2,
-    )
-    with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-        _run(a)
-    warns = [r for r in caplog.records if r.levelno == logging.WARNING]
-    assert any("上限" in r.getMessage() for r in warns)
 
 
 def test_no_warning_on_normal_say(caplog):
@@ -335,7 +365,7 @@ def test_info_summary_reports_iteration_count(caplog):
         ]
     )
     with caplog.at_level(logging.INFO, logger=_LOGGER):
-        _run(a)
+        _run_chain(a)
     infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
     assert any("反復=2" in m for m in infos)
 
@@ -349,7 +379,7 @@ def test_debug_lines_carry_iteration_number(caplog):
         ]
     )
     with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-        _run(a)
+        _run_chain(a)
     debugs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
     assert any("iter=1/3" in m for m in debugs)
-    assert any("iter=2/3" in m for m in debugs)
+    assert any("iter=2/3" in m for m in debugs)   # 駆動体が起こした2反復目

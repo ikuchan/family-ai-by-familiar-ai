@@ -75,6 +75,16 @@ class InformationProcessing:
         # 結果が届くまで待つ（イベント駆動＝キュー到来で起きる）。
         self._inflight = 0
         self._tasks: set[asyncio.Task] = set()
+        # 駆動体（QC 到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
+        self._driver: asyncio.Task | None = None
+        self._inbox: list[tuple[str, str, str | None]] = []
+        # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
+        self._chain = 0
+        self._utterance = ""
+        self._on_text = None
+        self._pending_intent: tuple[str, dict] = ("", {})
+        # 発話で連鎖が閉じるまでに書いたループ中 O（ターン観察で supersede する）。
+        self._loop_obs_ids: list[str] = []
 
     def _dispatch_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
         """RH：recall を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
@@ -93,15 +103,10 @@ class InformationProcessing:
             out = f"（recall を実行できなかった：{e}）"
         self._completion_queue.put_nowait((query, str(out), intent_id))
 
-    async def _intake(self, loop_obs_ids: list[str]) -> int:
-        """取込：QC を drain し、完了結果を O に書いて open 意図を解決する。
-
-        QC が空でも投げっぱなしの結果が未着なら、届くまでブロッキングで待つ。
-        """
+    async def _intake(self) -> int:
+        """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。"""
         agent = self._agent
-        items = []
-        if self._completion_queue.empty() and self._inflight > 0:
-            items.append(await self._completion_queue.get())
+        items, self._inbox = self._inbox, []
         while not self._completion_queue.empty():
             items.append(self._completion_queue.get_nowait())
 
@@ -116,7 +121,7 @@ class InformationProcessing:
                 **agent._observation_perspective(),
             )
             if obs_id:
-                loop_obs_ids.append(obs_id)
+                self._loop_obs_ids.append(obs_id)
                 # 完了が open 意図に再会して解決（[D-単一想起]）。これをしないと W に
                 # 「結果はまだ無い」が残り続け、同じ recall を繰り返す。
                 if intent_id:
@@ -126,33 +131,30 @@ class InformationProcessing:
                     logger.debug("event-loop open意図 %s を完了 %s で解決", intent_id, obs_id)
         return len(items)
 
-    def _tools(self) -> list[dict]:
-        """段階1スライス2で渡すツール＝say（発話）＋recall（内部・外部I/Oなし）のみ。"""
+    def _tools(self, *, with_recall: bool = True) -> list[dict]:
+        """渡すツール＝say（発話）＋recall。連鎖上限の反復では recall を外す。"""
         agent = self._agent
         say = agent._tts.get_tool_definitions() if agent._tts else []
+        if not with_recall:
+            return say
         recall = [
             d for d in agent._memory_tool.get_tool_definitions() if d.get("name") == "recall"
         ]
         return say + recall
 
     async def run_iteration(self, utterance: str, on_text=None) -> str:
-        """LPM：QC を drain して回す反復ループ。1反復＝1出力（say で終了）。
+        """人の発話で1反復を起こす。1反復＝1出力（発話 or ツール投げ）で終わる。
 
-        `on_text` は生成のストリーミング出力先（CUI/GUI へ逐次表示）。
+        ツールを投げた反復は発話を持たないので空文字を返す。続きは、完了が QC に届いて
+        駆動体が起こす次の反復が担う。`on_text` は出力先（駆動体が起こす反復も使う）。
         """
-        from ..capability_state import load_summary
-
         agent = self._agent
-        loop_obs_ids: list[str] = []
-        memories: list[dict] = []
-        text = ""
+        self._on_text = on_text or self._on_text
+        self._utterance = utterance
+        self._chain = 0
+        self._ensure_driver()
 
-        max_iters = max(1, agent.config.event_max_iterations)
-        outcome = "空"          # 結末：発話 | 沈黙 | 空（上限空終了）
-        iters_used = 0
-
-        # 取込：来た事実（人の発話）を O に書く（④シーケンス）。ループ中の O は中間なので
-        # ターン末にまとめて supersede し、恒久記録は会話 summary O が担う。
+        # 取込：来た事実（人の発話）を O に書く（④シーケンス）。
         trigger_id, _ = await agent._memory.save_async_with_id(
             utterance[:500],
             direction="発話",
@@ -161,129 +163,153 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         if trigger_id:
-            loop_obs_ids.append(trigger_id)
+            self._loop_obs_ids.append(trigger_id)
+        return await self._iterate()
 
-        for _i in range(max_iters):
-            iters_used = _i + 1
-            logger.debug("event-loop iter=%d/%d 開始", iters_used, max_iters)
-            # 1. 取込：QC を drain（未着なら届くまで待つ）。
-            drained = await self._intake(loop_obs_ids)
-            if drained:
-                logger.debug("event-loop iter=%d/%d QC取込=%d件", iters_used, max_iters, drained)
+    def _ensure_driver(self) -> None:
+        """駆動体：QC 到来で次の反復を起こす（イベント駆動・時計は見ない）。"""
+        if self._driver is None or self._driver.done():
+            self._driver = asyncio.create_task(self._drive())
 
-            # 2. REC（想起）：O（＋現入力）→ W。完了 O があれば関連で W に上がる。
-            mem = agent._active_memory()
-            memories = await mem.recall_async(utterance, recall_mode="conversation")
-            workspace_ctx = mem.format_for_context(memories)
+    async def _drive(self) -> None:
+        while True:
+            try:
+                self._inbox.append(await self._completion_queue.get())
+                while not self._completion_queue.empty():
+                    self._inbox.append(self._completion_queue.get_nowait())
+                await self._iterate()
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.exception("event-loop 駆動体で例外: %s", e)
 
-            system = build_event_system_prompt(
-                me_md=getattr(agent, "_me_md", ""),
-                family_md=getattr(agent, "_family_md", ""),
-                capabilities=load_summary(),
-                present_ctx=_present_ctx(agent),
-                pi_ctx=_pi_ctx(),
-                iter_ctx=(
-                    f"[反復] {iters_used}/{max_iters}"
-                    f"（残り {max_iters - iters_used} 回。最後の反復では必ず say で答える）"
-                ),
-                workspace_ctx=workspace_ctx,
-            )
+    async def close(self) -> None:
+        if self._driver is not None:
+            self._driver.cancel()
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await self._driver
+            self._driver = None
 
-            # 3. GEN（生成）：say＋recall のみ渡す。1回の stream_turn で多段はしない。
-            # 生成中はストリームしない（on_text を渡さない）：ツールを選ぶ反復でモデルが出す
-            # 前置きの地の文が反復ごとに表示され重複するため。出力は決定後に1回だけ。
-            user_msg = agent.backend.make_user_message(utterance)
-            result, _raw = await agent.backend.stream_turn(
-                system=system,
-                messages=[user_msg],
-                tools=self._tools(),
-                max_tokens=agent.config.max_tokens,
-                on_text=None,
-            )
+    async def _iterate(self) -> str:
+        """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。"""
+        from ..capability_state import load_summary
 
-            # say → 発話して終了（run() と同じ「先頭 say 採用」）。
-            say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
-            if say_tc is not None:
-                logger.debug("event-loop iter=%d/%d 決定=say", iters_used, max_iters)
-                outcome = "発話"
-                text = str(say_tc.input.get("text", "")).strip()
-                if text and agent._tts is not None:
-                    with contextlib.suppress(Exception):
-                        await agent._tts.call("say", {"text": text})
-                if text and on_text is not None:
-                    on_text(text)
-                break
+        agent = self._agent
+        utterance = self._utterance
+        max_chain = max(1, agent.config.event_max_iterations)
+        self._chain += 1
+        chain = self._chain
+        logger.debug("event-loop iter=%d/%d 開始", chain, max_chain)
 
-            # recall → RH が実行し結果を QC へ積んで次反復へ連鎖（O→W 経由で再会）。
-            recall_tc = next((tc for tc in result.tool_calls if tc.name == "recall"), None)
-            if recall_tc is not None:
-                logger.debug("event-loop iter=%d/%d 決定=recall", iters_used, max_iters)
-                # open 意図＝「何を思い出そうとしたか」を O に残す。これが無いと次反復の W が
-                # 前反復と同じに見え、モデルは同じ recall を繰り返す（実機で観測）。content は
-                # id でなく内容（元の発話と query）を持つ＝W に載ったとき意味が通る。
-                query = str(recall_tc.input.get("query", "")).strip()
-                # 上限に達した反復では「これ以上探さない」と書く。「結果はまだ無い」のまま残ると、
-                # 次ターンの W でまだ探索中と読まれ、再検索を繰り返す自己増殖になる。
-                tail = (
-                    "反復上限に達したので、これ以上は探さない。"
-                    if iters_used >= max_iters else "結果はまだ無い。"
-                )
-                intent_id, _ = await agent._memory.save_async_with_id(
-                    f"「{utterance}」について recall（query={query}）を要求した。{tail}"[:500],
-                    direction="意図",
-                    kind="observation",
-                    materialize_now=True,
-                    **agent._observation_perspective(),
-                )
-                # 意図の単一性：まだ生きている前の意図を、この新しい意図で supersede する。
-                # 意図はターン末の一括 supersede に載せない（完了が解決する側なので、
-                # ターン観察で上書きすると「完了が意図を解決した」つながりが消える）。
-                if intent_id:
-                    if self._live_intent_id and self._live_intent_id != intent_id:
-                        agent._memory.mark_superseded(self._live_intent_id, intent_id)
-                        logger.debug(
-                            "event-loop 前の意図 %s を新しい意図 %s で置換",
-                            self._live_intent_id, intent_id,
-                        )
-                    self._live_intent_id = intent_id
-                # RH へ投げて待たない。結果は QC 経由で次の反復の取込に届く。
-                self._dispatch_recall(dict(recall_tc.input), query, intent_id)
-                continue
+        # 1. 取込：駆動体が受けた完了を O に書き、open 意図を解決する。
+        drained = await self._intake()
+        if drained:
+            logger.debug("event-loop iter=%d/%d QC取込=%d件", chain, max_chain, drained)
 
-            # どちらも無ければ result.text へフォールバックして終了（表示はここで1回）。
-            logger.debug("event-loop iter=%d/%d 決定=none", iters_used, max_iters)
-            outcome = "沈黙"
-            text = (result.text or "").strip()
-            if text and on_text is not None:
-                on_text(text)
-            break
+        # 2. REC（想起）：O（＋現入力）→ W。W は派生なので反復末に捨てる。
+        mem = agent._active_memory()
+        memories = await mem.recall_async(utterance, recall_mode="conversation")
+        workspace_ctx = mem.format_for_context(memories)
 
-        # ターン総括：反復数と結末を1行で残す（本番 INFO でも再構成できる）。
-        logger.info(
-            "event-loop 終了: 反復=%d/%d 結末=%s text_len=%d",
-            iters_used, max_iters, outcome, len(text),
+        # 3. GEN（生成）：連鎖が上限に達した反復では recall を渡さない＝必ず発話させる。
+        capped = chain >= max_chain
+        system = build_event_system_prompt(
+            me_md=getattr(agent, "_me_md", ""),
+            family_md=getattr(agent, "_family_md", ""),
+            capabilities=load_summary(),
+            present_ctx=_present_ctx(agent),
+            pi_ctx=_pi_ctx(),
+            iter_ctx=(
+                f"[反復] {chain}/{max_chain}"
+                + ("（これ以上は探せない。いまある材料で答える）" if capped else "")
+            ),
+            workspace_ctx=workspace_ctx,
         )
-        if outcome == "空":
-            # 上限まで recall を連鎖し発話未決のまま打ち切られた＝空応答。
-            logger.warning(
-                "event-loop 反復上限 %d に達し発話未決のまま終了（空応答）", max_iters
-            )
+        # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
+        user_msg = agent.backend.make_user_message(utterance)
+        result, _raw = await agent.backend.stream_turn(
+            system=system,
+            messages=[user_msg],
+            tools=self._tools(with_recall=not capped),
+            max_tokens=agent.config.max_tokens,
+            on_text=None,
+        )
 
-        # 永続化＝既存 pipeline（utility LLM のみ）。消化した完了 O をターン観察で supersede。
+        # 出力その1＝発話（run() と同じ「先頭 say 採用」）。ここで反復は終わる。
+        say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+        if say_tc is not None:
+            logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
+            text = str(say_tc.input.get("text", "")).strip()
+            if text and agent._tts is not None:
+                with contextlib.suppress(Exception):
+                    await agent._tts.call("say", {"text": text})
+            if text and self._on_text is not None:
+                self._on_text(text)
+            await self._finish(text, memories, "発話")
+            return text
+
+        # 出力その2＝ツール投げ。投げた時点でこの反復は終わり、続きは完了が起こす次の反復。
+        # 上限の反復では recall を渡していないので、返ってきても投げない（連鎖を必ず閉じる）。
+        recall_tc = next((tc for tc in result.tool_calls if tc.name == "recall"), None)
+        if recall_tc is not None and not capped:
+            logger.debug("event-loop iter=%d/%d 決定=recall", chain, max_chain)
+            self._open_intent(utterance, dict(recall_tc.input))
+            logger.info("event-loop 反復 %d/%d 出力=ツール投げ（続きは完了で起きる）",
+                        chain, max_chain)
+            return ""
+
+        # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
+        logger.debug("event-loop iter=%d/%d 決定=none", chain, max_chain)
+        text = (result.text or "").strip()
+        if text and self._on_text is not None:
+            self._on_text(text)
+        await self._finish(text, memories, "沈黙")
+        return text
+
+    def _open_intent(self, utterance: str, tool_input: dict) -> None:
+        """open 意図を O に残し、RH へ投げる（待たない）。意図は常に高々1件に保つ。"""
+        self._pending_intent = (utterance, tool_input)
+        self._tasks.add(t := asyncio.create_task(self._write_intent_and_dispatch()))
+        t.add_done_callback(self._tasks.discard)
+
+    async def _write_intent_and_dispatch(self) -> None:
+        agent = self._agent
+        utterance, tool_input = self._pending_intent
+        query = str(tool_input.get("query", "")).strip()
+        intent_id, _ = await agent._memory.save_async_with_id(
+            f"「{utterance}」について recall（query={query}）を要求した。結果はまだ無い。"[:500],
+            direction="意図",
+            kind="observation",
+            materialize_now=True,
+            **agent._observation_perspective(),
+        )
+        if intent_id:
+            if self._live_intent_id and self._live_intent_id != intent_id:
+                agent._memory.mark_superseded(self._live_intent_id, intent_id)
+                logger.debug("event-loop 前の意図 %s を新しい意図 %s で置換",
+                             self._live_intent_id, intent_id)
+            self._live_intent_id = intent_id
+        self._dispatch_recall(tool_input, query, intent_id)
+
+    async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
+        """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""
+        agent = self._agent
+        logger.info("event-loop 終了: 反復=%d 結末=%s text_len=%d",
+                    self._chain, outcome, len(text))
+        obs_ids, self._loop_obs_ids = self._loop_obs_ids, []
+        self._chain = 0
         try:
-            arousal = await agent._turn_arousal(utterance, text)
+            arousal = await agent._turn_arousal(self._utterance, text)
             agent._spawn_background_task(
                 agent._run_post_response_pipeline(
-                    user_input=utterance, final_text=text,
+                    user_input=self._utterance, final_text=text,
                     camera_used=False, camera_image=None,
                     observation_action_name=None, observation_action_input=None,
                     companion_mood="engaged", is_desire_turn=False, desires=None,
                     arousal=arousal, memories=memories,
-                    superseded_ids=loop_obs_ids or None,
+                    superseded_ids=obs_ids or None,
                 ),
                 name="event-post-response",
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("event-loop persistence spawn failed: %s", e)
-
-        return text

@@ -2716,6 +2716,11 @@ class EmbodiedAgent:
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
 
+        # #11：I（情報処理機構）の駆動体を止める（QC 待ちで常駐しているため）。
+        ip = getattr(self, "_info_processing", None)
+        if ip is not None:
+            await ip.close()
+
         await self._drain_background_tasks()
 
         # Write today's self-narrative before shutting down.
