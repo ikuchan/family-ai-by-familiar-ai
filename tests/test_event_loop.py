@@ -177,6 +177,48 @@ def test_completion_supersedes_open_intent_and_records_search():
     assert "昨日の天気" in content and "recall結果テキスト" in content
 
 
+def test_new_intent_supersedes_still_live_previous_intent():
+    # 意図は常に高々1件。書込み時点で、まだ生きている前の意図を supersede する。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ])
+    ip = InformationProcessing(a)
+    ip._live_intent_id = "old-intent"
+    asyncio.run(ip.run_iteration("こんにちは"))
+    # obs1=トリガ / obs2=新しい意図。
+    assert ("old-intent", "obs2") in [c.args for c in a._memory.mark_superseded.call_args_list]
+
+
+def test_resolved_intent_is_not_superseded_again():
+    # 完了が解決した意図を、次の意図書込みで上書きしない（解決のつながりを残す）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q1"})]),
+        _turn([ToolCall(id="r", name="recall", input={"query": "q2"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ], max_iters=3)
+    _run(a)
+    calls = [c.args for c in a._memory.mark_superseded.call_args_list]
+    assert ("obs2", "obs3") in calls                              # 完了 obs3 が意図 obs2 を解決
+    assert not any(c[0] == "obs2" and c[1] != "obs3" for c in calls)
+
+
+def test_intent_records_cap_reached_on_last_iteration():
+    # 上限に達した反復で書く意図は「これ以上探さない」と持つ。次ターンの W で
+    # 「結果はまだ無い」と読まれて再検索が繰り返される自己増殖を止める。
+    a = _agent(
+        stream_returns=[_turn([ToolCall(id="r", name="recall", input={"query": "q"})])],
+        max_iters=1,
+    )
+    _run(a)
+    intents = [
+        c for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "意図"
+    ]
+    assert "上限" in intents[0].args[0]
+    assert "結果はまだ無い" not in intents[0].args[0]
+
+
 def test_recall_iteration_does_not_display_filler_text():
     # 1反復1出力：say を決めた反復以外は表示しない（前置きの地の文が反復ごとに出て重複した）。
     a = _agent(stream_returns=[

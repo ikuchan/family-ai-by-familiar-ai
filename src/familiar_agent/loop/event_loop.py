@@ -67,6 +67,10 @@ class InformationProcessing:
         # QC：完了キュー（Completion Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
         self._completion_queue: asyncio.Queue[tuple[str, str, str | None]] = asyncio.Queue()
+        # まだ解決されていない open 意図。意図は常に高々1件（新しい意図を書く時点で前を
+        # supersede する）。ループの出口は3つ（say・沈黙・上限）あり、完了による解決は次反復の
+        # 先頭でしか起きないので、書込み時点で単一性を保証しないと未解決の意図が溜まる。
+        self._live_intent_id: str | None = None
 
     def _tools(self) -> list[dict]:
         """段階1スライス2で渡すツール＝say（発話）＋recall（内部・外部I/Oなし）のみ。"""
@@ -127,6 +131,8 @@ class InformationProcessing:
                     # 「結果はまだ無い」が残り続け、同じ recall を繰り返す。
                     if intent_id:
                         agent._memory.mark_superseded(intent_id, obs_id)
+                        if self._live_intent_id == intent_id:
+                            self._live_intent_id = None
                         logger.debug("event-loop open意図 %s を完了 %s で解決", intent_id, obs_id)
             if drained:
                 logger.debug("event-loop iter=%d/%d QC取込=%d件", iters_used, max_iters, drained)
@@ -182,15 +188,30 @@ class InformationProcessing:
                 # 前反復と同じに見え、モデルは同じ recall を繰り返す（実機で観測）。content は
                 # id でなく内容（元の発話と query）を持つ＝W に載ったとき意味が通る。
                 query = str(recall_tc.input.get("query", "")).strip()
+                # 上限に達した反復では「これ以上探さない」と書く。「結果はまだ無い」のまま残ると、
+                # 次ターンの W でまだ探索中と読まれ、再検索を繰り返す自己増殖になる。
+                tail = (
+                    "反復上限に達したので、これ以上は探さない。"
+                    if iters_used >= max_iters else "結果はまだ無い。"
+                )
                 intent_id, _ = await agent._memory.save_async_with_id(
-                    f"「{utterance}」について recall（query={query}）を要求した。結果はまだ無い。"[:500],
+                    f"「{utterance}」について recall（query={query}）を要求した。{tail}"[:500],
                     direction="意図",
                     kind="observation",
                     materialize_now=True,
                     **agent._observation_perspective(),
                 )
+                # 意図の単一性：まだ生きている前の意図を、この新しい意図で supersede する。
                 # 意図はターン末の一括 supersede に載せない（完了が解決する側なので、
                 # ターン観察で上書きすると「完了が意図を解決した」つながりが消える）。
+                if intent_id:
+                    if self._live_intent_id and self._live_intent_id != intent_id:
+                        agent._memory.mark_superseded(self._live_intent_id, intent_id)
+                        logger.debug(
+                            "event-loop 前の意図 %s を新しい意図 %s で置換",
+                            self._live_intent_id, intent_id,
+                        )
+                    self._live_intent_id = intent_id
                 out, _ = await agent._memory_tool.call("recall", dict(recall_tc.input))
                 self._completion_queue.put_nowait((query, out, intent_id))
                 continue
