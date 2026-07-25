@@ -333,6 +333,15 @@ def test_recall_iteration_does_not_display_filler_text():
     assert all(c.kwargs["on_text"] is None for c in a.backend.stream_turn.call_args_list)
 
 
+def test_datetime_is_injected_into_prompt():
+    # 日時が無いと「一昨日」「昨日」を自分で解けず、利用者に日付を聞き返す（実機で観測）。
+    # 現行 run() と同じ書式 `(now :datetime "…")` で毎反復渡す。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    _run(a)
+    system = a.backend.stream_turn.call_args.kwargs["system"]
+    assert "(now :datetime " in system
+
+
 def test_iteration_context_is_injected_into_prompt():
     # 反復番号と上限をコンテキストで渡す（あと何回で結論すべきかモデルが判断できる）。
     a = _agent(stream_returns=[

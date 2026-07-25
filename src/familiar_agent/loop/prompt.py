@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+from ..store import clock
+
 # 静的な核。body は実機（目・首・声・net）。足は無し。音楽 MCP は実装時に追加。
 EVENT_SYSTEM_PROMPT = """\
 (agent :type embodied
@@ -72,14 +74,19 @@ def build_event_system_prompt(
     workspace_ctx: str,
     iter_ctx: str = "",
 ) -> str:
-    """案B：静的核 ＋ 自己認識 MI（ME/FAMILY/capabilities）＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。"""
+    """案B：静的核 ＋ 自己認識 MI（ME/FAMILY/capabilities）＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
+
+    日時は現行 run() と同じ書式で必ず入れる。これが無いと「昨日」「一昨日」を自分で解けず、
+    日付を利用者に聞き返すことになる（実機で観測）。
+    """
     stable = "\n\n---\n\n".join(
         p for p in [
             me_md, family_md,
             f"[My capabilities]\n{capabilities}" if capabilities else "",
         ] if p and p.strip()
     )
+    datetime_ctx = f'(now :datetime "{clock.now_local_str()}")'
     variable = "\n\n".join(
-        p for p in [present_ctx, pi_ctx, iter_ctx, workspace_ctx] if p and p.strip()
+        p for p in [datetime_ctx, present_ctx, pi_ctx, iter_ctx, workspace_ctx] if p and p.strip()
     )
     return "\n\n---\n\n".join(p for p in [EVENT_SYSTEM_PROMPT, stable, variable] if p and p.strip())
