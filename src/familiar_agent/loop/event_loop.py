@@ -337,14 +337,7 @@ class InformationProcessing:
 
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
-            text = decision.text
-            if agent._tts is not None:
-                with contextlib.suppress(Exception):
-                    await agent._tts.call("say", {"text": text})
-            if self._on_text is not None:
-                self._on_text(text)
-            await self._finish(text, memories, "発話")
-            return text
+            return await self._speak(decision.text, memories)
 
         # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
         if decision.branch == "action" and decision.query and not capped:
@@ -381,14 +374,7 @@ class InformationProcessing:
         say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
         if say_tc is not None:
             logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
-            text = str(say_tc.input.get("text", "")).strip()
-            if text and agent._tts is not None:
-                with contextlib.suppress(Exception):
-                    await agent._tts.call("say", {"text": text})
-            if text and self._on_text is not None:
-                self._on_text(text)
-            await self._finish(text, memories, "発話")
-            return text
+            return await self._speak(str(say_tc.input.get("text", "")).strip(), memories)
 
         # 出力その2＝ツール投げ。投げた時点でこの反復は終わり、続きは完了が起こす次の反復。
         # 上限の反復では recall を渡していないので、返ってきても投げない（連鎖を必ず閉じる）。
@@ -407,6 +393,45 @@ class InformationProcessing:
             self._on_text(text)
         await self._finish(text, memories, "沈黙")
         return text
+
+    async def _speak(self, text: str, memories: list[dict]) -> str:
+        """発話して反復を閉じる。聞く相手が居なければ話さず、後で話すために溜める。
+
+        身体を持つ以上、発話は相手が居て初めて意味を持つ（正本③ の配信ゲート＝結果有り＋在席）。
+        居ないときは「話したかったができなかった」を O に残して `pending_speech` へ積み、
+        次に人が現れたときに気づけるようにする。溜めたものの寿命（鮮度切れ・参照先 supersede で
+        失効）は `pending_speech` 側が持つ。
+        """
+        agent = self._agent
+        if not text:
+            await self._finish("", memories, "沈黙")
+            return ""
+        if agent._social_presence_permission() == 0.0:
+            await self._hold_speech(text)
+            logger.info("event-loop 在席が無いので発話を保留し pending_speech へ積む")
+            await self._finish("", memories, "保留")
+            return ""
+        if agent._tts is not None:
+            with contextlib.suppress(Exception):
+                await agent._tts.call("say", {"text": text})
+        if self._on_text is not None:
+            self._on_text(text)
+        await self._finish(text, memories, "発話")
+        return text
+
+    async def _hold_speech(self, text: str) -> None:
+        """話せなかった内容を O に残し、`pending_speech` へ積む（想起系は汚さない）。"""
+        agent = self._agent
+        obs_id, _ = await agent._memory.save_async_with_id(
+            f"話したかったが、聞く相手が居なかった：{text}"[:500],
+            direction="保留",
+            kind="observation",
+            materialize_now=True,
+            **agent._observation_perspective(),
+        )
+        if obs_id:
+            with contextlib.suppress(Exception):
+                agent._pending_store.add(obs_id, None)
 
     def _open_intent(self, utterance: str, tool_input: dict) -> None:
         """open 意図を O に残し、RH へ投げる（待たない）。意図は常に高々1件に保つ。"""

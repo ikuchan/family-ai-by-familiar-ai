@@ -54,6 +54,9 @@ def _agent(*, stream_returns, max_iters=3):
     a._utility_backend = MagicMock()
     a._utility_backend.complete = AsyncMock(return_value='{"branch":"full","effort":"high"}')
     a._expected_turns = len(list(stream_returns))
+    a._social_presence_permission = MagicMock(return_value=1.0)   # 既定＝誰か居る
+    a._pending_store = MagicMock()
+    a._pending_store.add = MagicMock(return_value="pending-1")
     a._turn_arousal = AsyncMock(return_value=0.3)
     a._spawn_background_task = MagicMock()
     a._run_post_response_pipeline = MagicMock(return_value=MagicMock())
@@ -333,6 +336,25 @@ def test_full_branch_passes_the_effort_chosen_by_the_arbiter():
         return_value='{"branch":"full","effort":"low"}')
     _run(a)
     assert a.backend.stream_turn.call_args.kwargs["effort"] == "low"
+
+
+def test_speech_is_held_as_pending_when_nobody_is_present():
+    # 身体を持つ以上、発話は聞く相手が居て初めて意味を持つ。居なければ話さず、
+    # 「話したかったができなかった」を pending_speech に積んで反復を終える。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
+    a._social_presence_permission = MagicMock(return_value=0.0)   # 誰も居ない
+    shown: list[str] = []
+    assert _run(a, on_text=shown.append) == ""       # 発話しない
+    a._tts.call.assert_not_awaited()                  # 音も出さない
+    assert shown == []                                # 画面にも出さない
+    a._pending_store.add.assert_called_once()         # 後で話すために積む
+
+
+def test_speech_goes_out_when_someone_is_present():
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
+    assert _run(a) == "ねえ聞いて"
+    a._tts.call.assert_awaited_once_with("say", {"text": "ねえ聞いて"})
+    a._pending_store.add.assert_not_called()          # 話せたので溜めない
 
 
 def test_agent_starts_tonic_only_when_event_loop_is_on():
