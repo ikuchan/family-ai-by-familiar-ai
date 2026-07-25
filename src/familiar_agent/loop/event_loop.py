@@ -217,6 +217,7 @@ class InformationProcessing:
     async def _iterate(self) -> str:
         """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。"""
         from ..capability_state import load_summary
+        from ..config import MemoryConfig
 
         agent = self._agent
         utterance = self._utterance
@@ -236,7 +237,10 @@ class InformationProcessing:
         mem = agent._active_memory()
         origin_ids = [self._chain_head_id] if self._chain_head_id else None
         memories = await mem.recall_async(
-            utterance, recall_mode="conversation", exclude_ids=origin_ids
+            utterance,
+            n=MemoryConfig().recall_n,
+            recall_mode="conversation",
+            exclude_ids=origin_ids,
         )
         origin_ctx = f"[取込] {self._chain_head_content}" if self._chain_head_content else ""
         workspace_ctx = "\n\n".join(

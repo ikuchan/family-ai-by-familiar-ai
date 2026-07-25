@@ -169,6 +169,8 @@ class MemoryConfig:
     recall_time_floor: float = field(  # t_floor
         default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.001)
     )
+    # W に載せる想起件数。枠が少ないと、自己モデル文などが混じったとき本命が押し出される。
+    recall_n: int = field(default_factory=lambda: _int_env("RECALL_N", 5))
     # 無関係排除の主たる足切り＝合成 final score の soft 床（生コサインではない）。
     # 0.05 起点（根拠台帳 §4・確定は5軸スコア分布の計測後）。
     recall_min_score: float = field(

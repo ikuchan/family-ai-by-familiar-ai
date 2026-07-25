@@ -176,6 +176,16 @@ def test_w_search_excludes_the_intake_origin():
     assert kwargs.get("exclude_ids") == ["obs1"]      # obs1＝取込で書いたトリガ O
 
 
+def test_w_recall_uses_configured_n():
+    # 枠が 3 だと自己モデル文などが混じったとき本命が押し出される（実機で観測）。
+    # 件数は Config で決める（既定 5）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    a.config.recall_n = 5
+    _run(a, utterance="おはよう")
+    _, kwargs = a._active_memory().recall_async.call_args
+    assert kwargs.get("n") == 5
+
+
 def test_w_includes_the_intake_origin_deterministically():
     # 検索から外すかわりに、起点は W へ必ず加える（コサインの運に任せない）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])

@@ -1373,7 +1373,7 @@ class MemoryTool:
     async def _recall(self, inp: dict, *,
                       exclude_ids: list[str] | None = None) -> tuple[str, None]:
         query = inp["query"]
-        n     = int(inp.get("n", 3))
+        n     = int(inp.get("n", MemoryConfig().recall_n))
         all_results: list[dict] = []
 
         # agent self
