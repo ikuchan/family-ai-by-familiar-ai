@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import time
 
 from .arbiter import arbitrate
 from .prompt import build_event_system_prompt
@@ -176,6 +177,10 @@ class InformationProcessing:
         駆動体が起こす次の反復が担う。`on_text` は出力先（駆動体が起こす反復も使う）。
         """
         agent = self._agent
+        # 人が話しかけた瞬間に在席の印を付ける。応答より前に付けないと、目の前の相手への
+        # 返事まで在席ゲートに止められる（実機で観測＝起動直後の1回目から詰まった）。
+        # 印は時刻なので、連鎖が長引いて相手が去れば自然に切れ、独り言にはならない。
+        agent._last_human_at = time.time()
         self._on_text = on_text or self._on_text
         self._utterance = utterance
         self._origin_kind = "発話"

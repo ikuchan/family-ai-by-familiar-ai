@@ -338,6 +338,17 @@ def test_full_branch_passes_the_effort_chosen_by_the_arbiter():
     assert a.backend.stream_turn.call_args.kwargs["effort"] == "low"
 
 
+def test_human_utterance_marks_presence_before_the_gate():
+    # 人が話しかけた時点で在席は立つ。反復に入る前に印を付けないと、応答前の在席判定が
+    # 「誰も居ない」になり、目の前の相手への返事まで保留になる（実機で観測）。
+    # 印を発話の受領時に付けることで、連鎖が長引いて相手が去った場合は在席が切れる
+    # （その場合は独り言にならず保留になる）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ"})])])
+    a._last_human_at = 0.0
+    _run(a, utterance="こんばんは")
+    assert a._last_human_at > 0.0          # 受領時に更新される
+
+
 def test_speech_is_held_as_pending_when_nobody_is_present():
     # 身体を持つ以上、発話は聞く相手が居て初めて意味を持つ。居なければ話さず、
     # 「話したかったができなかった」を pending_speech に積んで反復を終える。
