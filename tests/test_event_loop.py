@@ -177,6 +177,31 @@ def test_completion_supersedes_open_intent_and_records_search():
     assert "昨日の天気" in content and "recall結果テキスト" in content
 
 
+def test_recall_is_dispatched_async_and_loop_waits_on_queue():
+    # RH（実行担当）が非同期に実行し、LPM は QC 到来で起きる。recall 本体が返らなくても、
+    # 外から完了が届けばループは進む（同期 await のままでは進めない）。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ])
+    never = asyncio.Event()
+
+    async def hang(_name, _input):
+        await never.wait()
+        return ("届かない", None)
+
+    a._memory_tool.call = AsyncMock(side_effect=hang)
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        task = asyncio.create_task(ip.run_iteration("こんにちは"))
+        await asyncio.sleep(0.05)          # 意図を書いて dispatch し終えた頃
+        ip._completion_queue.put_nowait(("q", "外から届いた結果", None))
+        return await asyncio.wait_for(task, timeout=2.0)
+
+    assert asyncio.run(scenario()) == "はい"
+
+
 def test_new_intent_supersedes_still_live_previous_intent():
     # 意図は常に高々1件。書込み時点で、まだ生きている前の意図を supersede する。
     a = _agent(stream_returns=[

@@ -71,6 +71,60 @@ class InformationProcessing:
         # supersede する）。ループの出口は3つ（say・沈黙・上限）あり、完了による解決は次反復の
         # 先頭でしか起きないので、書込み時点で単一性を保証しないと未解決の意図が溜まる。
         self._live_intent_id: str | None = None
+        # RH（実行担当）が走らせている投げっぱなしの呼び出し。QC が空でもこれが残っていれば
+        # 結果が届くまで待つ（イベント駆動＝キュー到来で起きる）。
+        self._inflight = 0
+        self._tasks: set[asyncio.Task] = set()
+
+    def _dispatch_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
+        """RH：recall を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
+        self._inflight += 1
+        task = asyncio.create_task(self._run_recall(tool_input, query, intent_id))
+        self._tasks.add(task)
+        task.add_done_callback(self._tasks.discard)
+
+    async def _run_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
+        try:
+            out, _ = await self._agent._memory_tool.call("recall", tool_input)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop recall の実行に失敗: %s", e)
+            out = f"（recall を実行できなかった：{e}）"
+        self._completion_queue.put_nowait((query, str(out), intent_id))
+
+    async def _intake(self, loop_obs_ids: list[str]) -> int:
+        """取込：QC を drain し、完了結果を O に書いて open 意図を解決する。
+
+        QC が空でも投げっぱなしの結果が未着なら、届くまでブロッキングで待つ。
+        """
+        agent = self._agent
+        items = []
+        if self._completion_queue.empty() and self._inflight > 0:
+            items.append(await self._completion_queue.get())
+        while not self._completion_queue.empty():
+            items.append(self._completion_queue.get_nowait())
+
+        for query, result_text, intent_id in items:
+            self._inflight = max(0, self._inflight - 1)
+            # 探した事実と結果を1件に残す。open 意図と入れ替わるので W には結果つきが載る。
+            obs_id, _ = await agent._memory.save_async_with_id(
+                f"「{query}」を探した結果：{result_text}"[:500],
+                direction="完了",
+                kind="observation",
+                materialize_now=True,
+                **agent._observation_perspective(),
+            )
+            if obs_id:
+                loop_obs_ids.append(obs_id)
+                # 完了が open 意図に再会して解決（[D-単一想起]）。これをしないと W に
+                # 「結果はまだ無い」が残り続け、同じ recall を繰り返す。
+                if intent_id:
+                    agent._memory.mark_superseded(intent_id, obs_id)
+                    if self._live_intent_id == intent_id:
+                        self._live_intent_id = None
+                    logger.debug("event-loop open意図 %s を完了 %s で解決", intent_id, obs_id)
+        return len(items)
 
     def _tools(self) -> list[dict]:
         """段階1スライス2で渡すツール＝say（発話）＋recall（内部・外部I/Oなし）のみ。"""
@@ -112,28 +166,8 @@ class InformationProcessing:
         for _i in range(max_iters):
             iters_used = _i + 1
             logger.debug("event-loop iter=%d/%d 開始", iters_used, max_iters)
-            # 1. 取込：QC を drain し、完了結果を O に書く（consumed を控え末尾で supersede）。
-            drained = 0
-            while not self._completion_queue.empty():
-                drained += 1
-                query, result_text, intent_id = self._completion_queue.get_nowait()
-                # 探した事実と結果を1件に残す。open 意図と入れ替わるので W には結果つきが載る。
-                obs_id, _ = await agent._memory.save_async_with_id(
-                    f"「{query}」を探した結果：{result_text}"[:500],
-                    direction="完了",
-                    kind="observation",
-                    materialize_now=True,
-                    **agent._observation_perspective(),
-                )
-                if obs_id:
-                    loop_obs_ids.append(obs_id)
-                    # 完了が open 意図に再会して解決（[D-単一想起]）。これをしないと W に
-                    # 「結果はまだ無い」が残り続け、同じ recall を繰り返す。
-                    if intent_id:
-                        agent._memory.mark_superseded(intent_id, obs_id)
-                        if self._live_intent_id == intent_id:
-                            self._live_intent_id = None
-                        logger.debug("event-loop open意図 %s を完了 %s で解決", intent_id, obs_id)
+            # 1. 取込：QC を drain（未着なら届くまで待つ）。
+            drained = await self._intake(loop_obs_ids)
             if drained:
                 logger.debug("event-loop iter=%d/%d QC取込=%d件", iters_used, max_iters, drained)
 
@@ -212,8 +246,8 @@ class InformationProcessing:
                             self._live_intent_id, intent_id,
                         )
                     self._live_intent_id = intent_id
-                out, _ = await agent._memory_tool.call("recall", dict(recall_tc.input))
-                self._completion_queue.put_nowait((query, out, intent_id))
+                # RH へ投げて待たない。結果は QC 経由で次の反復の取込に届く。
+                self._dispatch_recall(dict(recall_tc.input), query, intent_id)
                 continue
 
             # どちらも無ければ result.text へフォールバックして終了（表示はここで1回）。
