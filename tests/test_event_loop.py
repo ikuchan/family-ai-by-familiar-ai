@@ -141,7 +141,9 @@ def test_recall_chains_via_completion_queue_then_says():
     ])
     assert _run_chain(a) == "思い出したよ"
     assert a.backend.stream_turn.await_count == 2               # 2反復
-    a._memory_tool.call.assert_awaited_once_with("recall", {"query": "運動会"})  # RH 実行
+    a._memory_tool.call.assert_awaited_once_with(                       # RH 実行
+        "recall", {"query": "運動会"}, exclude_ids=["obs2"]
+    )
     # QC drain＝完了結果を O へ書込（反復2の取込）。
     written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
     assert any("recall結果テキスト" in w for w in written)   # 完了 O に結果が入る
@@ -149,21 +151,32 @@ def test_recall_chains_via_completion_queue_then_says():
     assert kinds == {"observation"}
 
 
-def test_completion_supersedes_trigger_too():
-    # 完了 O を記録した時点で、その発話（トリガ O）も supersede する。探した結果が出れば
-    # その発話は処理済みなので、W に居座って本物の記憶を押し下げないようにする。
+def test_loop_records_form_a_single_chain():
+    # ループ記録は1本の鎖：トリガO → 意図O → 完了O。新しい記録が直前の生きた記録を
+    # supersede するので、生き残るのは常に鎖の先頭1件だけ。意図を書いた時点でトリガは
+    # 死ぬので、その意図が出した検索にトリガは出てこない。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
     ])
     _run_chain(a, utterance="昨日の天気覚えてる？")
-    # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図もトリガも supersede。
     calls = [c.args for c in a._memory.mark_superseded.call_args_list]
-    assert ("obs2", "obs3") in calls          # 意図の解決
-    assert ("obs1", "obs3") in calls          # トリガも同じ完了で解決
-    # 解決済みは、ターン末の一括 supersede に載せない（つながりを残すため）。
+    assert calls == [("obs1", "obs2"), ("obs2", "obs3")]   # トリガ→意図→完了
+    # ターン末に始末するのは鎖の先頭（＝生きている完了）だけ。
     _, kwargs = a._run_post_response_pipeline.call_args
     assert kwargs["superseded_ids"] == ["obs3"]
+
+
+def test_recall_tool_excludes_the_intent_that_issued_it():
+    # 意図 O は query を丸ごと含むので、その query で検索すれば必ず上位に来る（自己干渉）。
+    # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+    ])
+    _run_chain(a, utterance="昨日の天気覚えてる？")
+    _, kwargs = a._memory_tool.call.call_args
+    assert kwargs["exclude_ids"] == ["obs2"]      # obs2＝この検索を出した意図 O
 
 
 def test_trigger_utterance_written_to_o_at_intake():
@@ -201,7 +214,7 @@ def test_completion_supersedes_open_intent_and_records_search():
         _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
     ])
     _run_chain(a, utterance="昨日の天気覚えてる？")
-    # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図を supersede。
+    # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図を supersede（鎖の次）。
     assert ("obs2", "obs3") in [c.args for c in a._memory.mark_superseded.call_args_list]
     completions = [
         c for c in a._memory.save_async_with_id.call_args_list
@@ -294,32 +307,6 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
 
     asyncio.run(scenario())
     assert "".join(shown) == "はい"
-
-
-def test_new_intent_supersedes_still_live_previous_intent():
-    # 意図は常に高々1件。書込み時点で、まだ生きている前の意図を supersede する。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
-    ip = InformationProcessing(a)
-    ip._live_intent_id = "old-intent"
-    asyncio.run(ip.run_iteration("こんにちは"))
-    # obs1=トリガ / obs2=新しい意図。
-    assert ("old-intent", "obs2") in [c.args for c in a._memory.mark_superseded.call_args_list]
-
-
-def test_resolved_intent_is_not_superseded_again():
-    # 完了が解決した意図を、次の意図書込みで上書きしない（解決のつながりを残す）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q1"})]),
-        _turn([ToolCall(id="r", name="recall", input={"query": "q2"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ], max_iters=3)
-    _run_chain(a)
-    calls = [c.args for c in a._memory.mark_superseded.call_args_list]
-    assert ("obs2", "obs3") in calls                              # 完了 obs3 が意図 obs2 を解決
-    assert not any(c[0] == "obs2" and c[1] != "obs3" for c in calls)
 
 
 def test_recall_iteration_does_not_display_filler_text():

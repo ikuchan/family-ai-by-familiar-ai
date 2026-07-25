@@ -138,6 +138,7 @@ class ObservationStore:
         n: int,
         *,
         kind: str | None = None,
+        exclude_ids: list[str] | None = None,
     ) -> list[dict]:
         """situated 相関のコサイン順に n 件読む。**採点も足切りもしない**。
 
@@ -149,9 +150,13 @@ class ObservationStore:
         （視点合成・平均中心化）は呼び出し側の責任で、層は受け取った表現で引くだけ。
         """
         kind_clause = "AND o.kind = %s" if kind else ""
+        # 自分が出した検索が自分自身を拾わないようにする（id で狭く除外する）。
+        exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         params: list = [query_vector_sql, self._ctx.person_id]
         if kind:
             params.append(kind)
+        if exclude_ids:
+            params.append(list(exclude_ids))
         params += [query_vector_sql, n]
         # dumb 層は失敗を握り潰さない。例外は呼び出し側（recall）へ上げ、そこで方針
         # （loud に残す・degrade して []・keyword_fallback へ流さない）を持つ。0件と
@@ -175,6 +180,7 @@ class ObservationStore:
                     WHERE s.person_id = %s
                       AND o.superseded_by IS NULL
                       {kind_clause}
+                      {exclude_clause}
                     ORDER BY s.vector <=> %s::vector
                     LIMIT %s
                     """,

@@ -67,10 +67,10 @@ class InformationProcessing:
         # QC：完了キュー（Completion Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
         self._completion_queue: asyncio.Queue[tuple[str, str, str | None]] = asyncio.Queue()
-        # まだ解決されていない open 意図。意図は常に高々1件（新しい意図を書く時点で前を
-        # supersede する）。ループの出口は3つ（say・沈黙・上限）あり、完了による解決は次反復の
-        # 先頭でしか起きないので、書込み時点で単一性を保証しないと未解決の意図が溜まる。
-        self._live_intent_id: str | None = None
+        # ループ記録は1本の鎖にする：トリガO → 意図O → 完了O → 意図O2 → …。新しい記録を
+        # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
+        # これで前の記録が想起に出てこなくなり、除外は「その検索を出した意図自身」で足りる。
+        self._chain_head_id: str | None = None
         # RH（実行担当）が走らせている投げっぱなしの呼び出し。QC が空でもこれが残っていれば
         # 結果が届くまで待つ（イベント駆動＝キュー到来で起きる）。
         self._inflight = 0
@@ -83,10 +83,16 @@ class InformationProcessing:
         self._utterance = ""
         self._on_text = None
         self._pending_intent: tuple[str, dict] = ("", {})
-        # 発話で連鎖が閉じるまでに書いたループ中 O（ターンの記録で supersede する）。
-        self._loop_obs_ids: list[str] = []
-        # まだ解決されていないトリガ（人の発話）O。完了が出たらそれで解決する。
-        self._trigger_id: str | None = None
+
+
+    def _advance_chain(self, new_id: str | None) -> None:
+        """ループ記録の鎖を1つ進める（直前の生きた記録を新しい記録で supersede）。"""
+        if not new_id:
+            return
+        if self._chain_head_id and self._chain_head_id != new_id:
+            self._agent._memory.mark_superseded(self._chain_head_id, new_id)
+            logger.debug("event-loop 鎖を進める %.8s → %.8s", self._chain_head_id, new_id)
+        self._chain_head_id = new_id
 
     def _dispatch_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
         """RH：recall を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
@@ -97,7 +103,9 @@ class InformationProcessing:
 
     async def _run_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
         try:
-            out, _ = await self._agent._memory_tool.call("recall", tool_input)
+            out, _ = await self._agent._memory_tool.call(
+                "recall", tool_input, exclude_ids=[intent_id] if intent_id else None
+            )
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -134,23 +142,8 @@ class InformationProcessing:
                 materialize_now=True,
                 **agent._observation_perspective(),
             )
-            if obs_id:
-                self._loop_obs_ids.append(obs_id)
-                # 完了が open 意図に再会して解決（[D-単一想起]）。これをしないと W に
-                # 「結果はまだ無い」が残り続け、同じ recall を繰り返す。
-                if intent_id:
-                    agent._memory.mark_superseded(intent_id, obs_id)
-                    if self._live_intent_id == intent_id:
-                        self._live_intent_id = None
-                    logger.debug("event-loop open意図 %s を完了 %s で解決", intent_id, obs_id)
-                # 発話（トリガ O）も同じ完了で解決する。結果が出た時点でその発話は処理済みで、
-                # 生きたままだと問いと同一文なので想起で必ず1位に来て本物の記憶を押し下げる。
-                if self._trigger_id:
-                    agent._memory.mark_superseded(self._trigger_id, obs_id)
-                    with contextlib.suppress(ValueError):
-                        self._loop_obs_ids.remove(self._trigger_id)
-                    logger.debug("event-loop トリガ %s を完了 %s で解決", self._trigger_id, obs_id)
-                    self._trigger_id = None
+            # 完了が open 意図に再会して解決（[D-単一想起]）＝鎖を1つ進める。
+            self._advance_chain(obs_id)
         return len(items)
 
     def _tools(self, *, with_recall: bool = True) -> list[dict]:
@@ -184,9 +177,7 @@ class InformationProcessing:
             materialize_now=True,
             **agent._observation_perspective(),
         )
-        if trigger_id:
-            self._loop_obs_ids.append(trigger_id)
-            self._trigger_id = trigger_id
+        self._advance_chain(trigger_id)
         return await self._iterate()
 
     def _ensure_driver(self) -> None:
@@ -311,12 +302,9 @@ class InformationProcessing:
             materialize_now=True,
             **agent._observation_perspective(),
         )
-        if intent_id:
-            if self._live_intent_id and self._live_intent_id != intent_id:
-                agent._memory.mark_superseded(self._live_intent_id, intent_id)
-                logger.debug("event-loop 前の意図 %s を新しい意図 %s で置換",
-                             self._live_intent_id, intent_id)
-            self._live_intent_id = intent_id
+        # 意図を書いた時点でトリガ（や前回の完了）は死ぬ＝この検索には出てこない。
+        self._advance_chain(intent_id)
+        # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
         self._dispatch_recall(tool_input, query, intent_id)
 
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
@@ -324,8 +312,8 @@ class InformationProcessing:
         agent = self._agent
         logger.info("event-loop 終了: 反復=%d 結末=%s text_len=%d",
                     self._chain, outcome, len(text))
-        obs_ids, self._loop_obs_ids = self._loop_obs_ids, []
-        self._trigger_id = None
+        obs_ids = [self._chain_head_id] if self._chain_head_id else []
+        self._chain_head_id = None
         self._chain = 0
         try:
             arousal = await agent._turn_arousal(self._utterance, text)

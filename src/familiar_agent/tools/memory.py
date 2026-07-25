@@ -682,7 +682,8 @@ class ObservationMemory:
     def recall(self, query: str, n: int = 3, kind: str | None = None,
                min_score: float = 0.0,
                recall_mode: str = "system",
-               present_others: list[str] | None = None) -> list[dict]:
+               present_others: list[str] | None = None,
+               exclude_ids: list[str] | None = None) -> list[dict]:
         """Recall using situated vectors (pgvector cosine search).
 
         min_score:   合成 final score の soft 床（生コサインではない）。無関係の
@@ -723,7 +724,9 @@ class ObservationMemory:
                 min(n * _cfg.recall_overfetch_factor, _cfg.recall_overfetch_cap)
                 if min_score > 0.0 else n
             )
-            speaker_rows = self._observations.by_vector(q_sql, fetch_n, kind=kind)
+            speaker_rows = self._observations.by_vector(
+                q_sql, fetch_n, kind=kind, exclude_ids=exclude_ids
+            )
 
             # 候補の obs_id → 行（列は obs レベルなのでどの視点由来でも同じ）。
             row_by_id: dict[str, dict] = {r["id"]: r for r in speaker_rows}
@@ -739,6 +742,7 @@ class ObservationMemory:
                     sit_q = _situated_vector(q_vec, self._situated._get_perspective_vec(q), mu)
                     for r in self._observations.by_vector(
                         vec_to_sql(sit_q.tolist()), fetch_n, kind=kind,
+                        exclude_ids=exclude_ids,
                     ):
                         row_by_id.setdefault(r["id"], r)  # 新規候補だけ足す
                 # 在席他者由来で話者候補に無い記憶へ、話者視点の r を補って公平に採点する。
@@ -1261,11 +1265,13 @@ class MemoryTool:
             },
         ]
 
-    async def call(self, tool_name: str, tool_input: dict) -> tuple[str, str | None]:
+    async def call(self, tool_name: str, tool_input: dict, *,
+                   exclude_ids: list[str] | None = None) -> tuple[str, str | None]:
+        """`exclude_ids` は内部呼び出し用。自分が出した検索が自分自身を拾うのを防ぐ。"""
         if tool_name == "remember":
             return await self._remember(tool_input)
         if tool_name == "recall":
-            return await self._recall(tool_input)
+            return await self._recall(tool_input, exclude_ids=exclude_ids)
         if tool_name == "note_to_share":
             return await self._note_to_share(tool_input)
         return f"Unknown memory tool: {tool_name}", None
@@ -1358,21 +1364,26 @@ class MemoryTool:
         summary = " / ".join(results) if results else "書き込みなし"
         return f"記憶しました: {summary}", None
 
-    async def _recall(self, inp: dict) -> tuple[str, None]:
+    async def _recall(self, inp: dict, *,
+                      exclude_ids: list[str] | None = None) -> tuple[str, None]:
         query = inp["query"]
         n     = int(inp.get("n", 3))
         all_results: list[dict] = []
 
         # agent self
         agent_mem = self._agent_store
-        for m in await agent_mem.recall_async(query, n=n, recall_mode="conversation"):
+        for m in await agent_mem.recall_async(
+            query, n=n, recall_mode="conversation", exclude_ids=exclude_ids
+        ):
             m["_from"] = "自分"
             all_results.append(m)
 
         # all present persons
         for pid, mem in self._manager.get_all_present_memories():
             name = self._manager.get_person_name(pid)
-            for m in await mem.recall_async(query, n=n, recall_mode="conversation"):
+            for m in await mem.recall_async(
+                query, n=n, recall_mode="conversation", exclude_ids=exclude_ids
+            ):
                 m["_from"] = name
                 all_results.append(m)
 

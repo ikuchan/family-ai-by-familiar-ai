@@ -152,7 +152,7 @@ def _recall_facade(by_vector_seq, situated_cosines_fn, person_id="spk"):
     seq = list(by_vector_seq)
     calls = {"i": 0}
 
-    def _bv(q_sql, n, kind=None):
+    def _bv(q_sql, n, kind=None, exclude_ids=None):
         i = calls["i"]
         calls["i"] += 1
         return seq[i] if i < len(seq) else []
