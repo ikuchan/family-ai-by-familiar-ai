@@ -460,6 +460,23 @@ def test_driver_runs_next_iteration_when_completion_arrives():
     assert "".join(shown) == "晴れてたよ"       # 2反復目が発話した
 
 
+def test_tools_are_selected_by_the_action_set():
+    # ツールは「この反復で使える動作の集合」で選ぶ。足すときは表に1行加えるだけで済む
+    # ようにしておく（段階3 の次で see・look・search_deferred を載せる）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    ip = InformationProcessing(a)
+    assert ip._tools(actions=("say",)) == [_SAY_DEF]
+    assert ip._tools(actions=("say", "recall")) == [_SAY_DEF, _RECALL_DEF]
+    assert ip._tools(actions=()) == []
+
+
+def test_unknown_action_is_ignored_not_crashing():
+    # 表に無い動作名は黙って落とす（まだ繋いでいない身体を渡そうとしても壊れない）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    ip = InformationProcessing(a)
+    assert ip._tools(actions=("say", "walk")) == [_SAY_DEF]
+
+
 def test_chain_cap_withholds_recall_tool():
     # 連鎖が上限に達した反復では recall を渡さない＝発話を必ず出す（暴走防止）。
     a = _agent(stream_returns=[

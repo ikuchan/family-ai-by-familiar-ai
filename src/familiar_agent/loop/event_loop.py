@@ -184,16 +184,32 @@ class InformationProcessing:
             self._advance_chain(obs_id, f"「{query}」を探した結果：{result_text}"[:500])
         return len(items)
 
-    def _tools(self, *, with_recall: bool = True) -> list[dict]:
-        """渡すツール＝say（発話）＋recall。連鎖上限の反復では recall を外す。"""
+    # この反復で使える動作の表。値＝その動作のツール定義を agent から取り出す関数。
+    # 身体を1つ繋ぐたびにここへ1行足すだけで済むようにしてある（see・look・net など）。
+    # 例：("see", lambda a: a._camera.get_tool_definitions() if a._camera else [])
+    _ACTIONS: dict = {
+        "say": lambda a: a._tts.get_tool_definitions() if a._tts else [],
+        "recall": lambda a: [
+            d for d in a._memory_tool.get_tool_definitions() if d.get("name") == "recall"
+        ],
+    }
+
+    def _tools(self, *, actions: tuple[str, ...] = ("say", "recall")) -> list[dict]:
+        """この反復で使える動作のツール定義を返す。
+
+        表に無い名前は黙って落とす。まだ繋いでいない身体を渡そうとしても壊れないように
+        しておく（段階3 の次で see・look・search_deferred を載せる）。
+        """
         agent = self._agent
-        say = agent._tts.get_tool_definitions() if agent._tts else []
-        if not with_recall:
-            return say
-        recall = [
-            d for d in agent._memory_tool.get_tool_definitions() if d.get("name") == "recall"
-        ]
-        return say + recall
+        defs: list[dict] = []
+        for name in actions:
+            build = self._ACTIONS.get(name)
+            if build is None:
+                logger.debug("event-loop 未接続の動作を要求された（無視する）: %s", name)
+                continue
+            with contextlib.suppress(Exception):
+                defs.extend(build(agent))
+        return defs
 
     async def run_iteration(self, utterance: str, on_text=None) -> str:
         """人の発話で1反復を起こす。1反復＝1出力（発話 or ツール投げ）で終わる。
@@ -394,7 +410,8 @@ class InformationProcessing:
         result, _raw = await agent.backend.stream_turn(
             system=system,
             messages=[user_msg],
-            tools=self._tools(with_recall=not capped),
+            # 連鎖上限の反復では recall を外し、発話だけにして必ず閉じる。
+            tools=self._tools(actions=("say",) if capped else ("say", "recall")),
             max_tokens=agent.config.max_tokens,
             on_text=None,
             effort=decision.effort,
