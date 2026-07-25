@@ -56,9 +56,13 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
 class Tonic:
     """自律機構の常駐タスク。$P_T$ ごとに drive を進め、発火を QA へ積む。"""
 
-    def __init__(self, information_processing, *, period: float = TONIC_PERIOD_SEC) -> None:
+    def __init__(self, information_processing, *, period: float = TONIC_PERIOD_SEC,
+                 drive_cfg: DriveConfig | None = None) -> None:
         self._ip = information_processing
         self._period = period
+        # 自発の可否は `DRIVE5_AUTONOMOUS`（5欲求）で決める。旧 `DesireSystem`（15欲求）用の
+        # `AUTO_DESIRE` とは系統が違うので独立させる。
+        self._cfg = drive_cfg or DriveConfig()
         self._task: asyncio.Task | None = None
 
     def start(self) -> None:
@@ -84,10 +88,14 @@ class Tonic:
                 firing, accumulated = await step_drives(dt)
                 if not firing.any:
                     continue
+                if not self._cfg.autonomous:
+                    logger.debug("Drive fired: %s（DRIVE5_AUTONOMOUS が off なので積まない）",
+                                 select_fired_axis(firing, accumulated))
+                    continue
                 axis = select_fired_axis(firing, accumulated)
                 if axis is None:
                     continue
-                prompt = inner_voice_for(axis, DriveConfig())
+                prompt = inner_voice_for(axis, self._cfg)
                 logger.info("Drive fired: %s → QA へ積む", axis)
                 self._ip.push_affect(axis.upper(), prompt)
             except asyncio.CancelledError:

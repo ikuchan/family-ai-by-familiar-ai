@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from familiar_agent.config import DriveConfig
 from familiar_agent.core.drive_dynamics import DriveFiring
 from familiar_agent.drive_register import AiDrivers
 from familiar_agent.loop.tonic import TONIC_PERIOD_SEC, Tonic
@@ -61,6 +62,27 @@ def test_does_not_push_when_nothing_fires():
 
     asyncio.run(scenario())
     assert not ip.push_affect.called
+
+
+def test_respects_drive5_autonomous_switch():
+    # T が見るのは DRIVE5_AUTONOMOUS（5欲求の自発）であって、旧 DesireSystem 用の
+    # AUTO_DESIRE ではない。系統が違うので独立させる。
+    ip = _ip()
+    firing = DriveFiring(seeking=True, rest=False, bond=False, safety=False, esteem=False)
+
+    async def scenario():
+        cfg = DriveConfig()
+        object.__setattr__(cfg, "autonomous", False) if hasattr(cfg, "__setattr__") else None
+        cfg.autonomous = False
+        with patch("familiar_agent.loop.tonic.step_drives",
+                   new=AsyncMock(return_value=(firing, AiDrivers()))):
+            t = Tonic(ip, period=0.01, drive_cfg=cfg)
+            t.start()
+            await asyncio.sleep(0.08)
+            await t.close()
+
+    asyncio.run(scenario())
+    assert not ip.push_affect.called      # 自発が切られていれば積まない
 
 
 def test_close_stops_the_task():
