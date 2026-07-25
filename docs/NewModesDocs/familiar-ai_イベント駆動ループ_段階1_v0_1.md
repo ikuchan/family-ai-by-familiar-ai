@@ -30,8 +30,8 @@
 **内部ツール `recall` を QC（完了キュー）経由で連鎖**させる、`設計図_Mermaid` ③ I 詳細図の最小縦切り。外部I/Oの無い `recall` を題材に、取込→O→W の連鎖機構だけを先に作る。
 
 - **`InformationProcessing`（I：情報処理機構）**：`loop/event_loop.py` に新設。属性 `_completion_queue`（**QC**・`asyncio.Queue`）と、メソッド `run_iteration`（**LPM**：ループ核の drain 反復）を持つ。O・C（Config）・W・RH 相当のツール実行は既存実体を持つ `agent` を当面参照。AIF/DIF/QA/QD、ARB/APR/ACT/MNT のクラス分離は後続段階（stub しない）。
-- **反復フロー**（④シーケンス整合）：(1) **取込**＝QC を drain し完了結果を **O 書込**（`save_async_with_id`, kind=`observation`）、(2) **REC**＝`recall_async` で W 構築、(3) **GEN**＝`stream_turn([say, recall])`。**say**→発話して終了／**recall**→**RH**（`_memory_tool.call`）が実行し結果を **QC へ enqueue**→次反復。相関ID は使わず結果は O→W で再会（[D-単一想起]）。
-- **上限**：`event_max_iterations`（env `EVENT_MAX_ITERATIONS`・既定3）で打ち切る安全弁。
+- **反復フロー**（④シーケンス整合）：(1) **取込**＝QC を drain し完了結果を **O 書込**（`save_async_with_id`, kind=`observation`）、(2) **REC**＝`recall_async` で W 構築、(3) **GEN**＝`stream_turn([say, recall])`。**say**→発話して反復終了／**recall**→**RH** が非同期に実行し結果を **QC へ**（投げた時点で反復終了）。相関ID は使わず結果は O→W で再会（[D-単一想起]）。
+- **連鎖上限**：`event_max_iterations`（env `EVENT_MAX_ITERATIONS`・既定3）。上限の反復では recall を渡さない。
 - **supersede**：ループ中に書いた O（トリガ・open 意図・完了）の id を `_run_post_response_pipeline(superseded_ids=...)` へ渡し、ターン観察保存後にその id で `mark_superseded`。恒久記録は会話 summary O が担う。
 
 ### トリガ O と open 意図 O（同じ recall を繰り返す不具合の修正）
@@ -71,7 +71,6 @@ open 意図を書いただけでは足りなかった。実機で「昨日の天
 完了による解決だけでは足りなかった。**完了が意図を解決するのは次反復の先頭にある QC 取込だけ**で、ループの出口は3つ（say・沈黙・上限）ある。どの出口にも取込は無いので、最後の反復で書いた意図は構造上いつまでも未解決で残る。加えて空応答のターンでは永続化パイプラインが先頭で return するため、後始末が丸ごと飛ぶ。結果として未解決の意図が DB に溜まり、W に「結果はまだ無い」が並び、モデルは何度でも探し直した。
 
 - **書込み時点で単一にする**：新しい意図を書いたら、まだ生きている前の意図をその意図で supersede する（`_live_intent_id` で追跡し、完了が解決したときは外す）。出口がどれであっても、生きた意図は常に高々1件になる。
-- **上限を意図に書く**：上限に達した反復で書く意図は「反復上限に達したので、これ以上は探さない。」とする。次ターンの W で探索中と読まれて再検索が繰り返される自己増殖を止める。
 
 ### 出力を決定後の1回に限る
 
@@ -79,7 +78,7 @@ open 意図を書いただけでは足りなかった。実機で「昨日の天
 
 ### 反復番号の注入
 
-`build_event_system_prompt` に `iter_ctx` を足し、`[反復] 2/3（残り 1 回。最後の反復では必ず say で答える）` を毎反復渡す。あと何回で結論すべきかをモデルが判断できる。
+`build_event_system_prompt` に `iter_ctx` を足し、`[反復] 2/3` を毎反復渡す。上限の反復では `（これ以上は探せない。いまある材料で答える）` を添える。
 
 **挙動不変**：`EVENT_LOOP` off（既定）で現行 `run()` 経路のまま。
 
@@ -88,8 +87,7 @@ open 意図を書いただけでは足りなかった。実機で「昨日の天
 `run_iteration` は、反復の進行と結末を後からログだけで再構成できるよう記録する。挙動（分岐や出力）は変えず、記録だけを足している。
 
 - **反復ごと**（`debug`）：先頭に `iter=N/M`（N は 1 始まりの反復番号、M は上限）を付ける。反復頭 `event-loop iter=N/M 開始`、QC 取込 `event-loop iter=N/M QC取込=K件`（取込があった反復のみ）、決定直後 `event-loop iter=N/M 決定=say|recall|none`。どの反復のトレースかが一目で分かる。
-- **ターン終了**（`info`）：`event-loop 終了: 反復=N/M 結末=発話|沈黙|空 text_len=L` を1行。本番（INFO）でも反復数と結末が残る。**結末**は、say で終われば「発話」、say も recall も無い素テキストで終われば「沈黙」、どちらも決まらず上限まで回り切れば「空」。
-- **上限空終了**（`warning`）：結末が「空」のとき `event-loop 反復上限 M に達し発話未決のまま終了（空応答）` を出す。最終反復が recall で打ち切られ発話が未決のまま終わった経路を名指しする。
+- **連鎖の終了**（`info`）：発話で連鎖が閉じたとき `event-loop 終了: 反復=N 結末=発話|沈黙 text_len=L` を1行。ツールを投げて終わった反復は `event-loop 反復 N/M 出力=ツール投げ（続きは完了で起きる）` を出す。
 
 会話や記憶の中身はログに出さない（`text_len` の長さのみ）。
 
