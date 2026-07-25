@@ -24,20 +24,45 @@ logger = logging.getLogger(__name__)
 
 
 def _present_ctx(agent) -> str:
-    from ..core.helpers import format_present_ctx
+    """いま誰が居るかを渡す。「誰かが居る」ではなく「誰が居るか」を伝える。
 
+    自発発話は誰に向けたものかで内容が変わるので、名前と確信度を添える。誰も認識できて
+    いないときも黙らず、その事実を明示する（空文字だと、宛先が分からないまま話すことに
+    なる）。
+
+    **暫定である点**：ここで扱えるのは既知の人物だけで、「顔は見えるが誰か分からない
+    未知の人」を表せない。PMM の在席は InsightFace が埋める identity であり、設計が定める
+    presence（在/不在）とは別物である。**未知の在席者の扱いは残課題 #8**（在席系の精緻化）。
+    """
     pmm = getattr(agent, "_pmm", None)
-    if pmm is None:
-        return ""
-    try:
-        rows = pmm.presence_status()
-    except Exception:  # noqa: BLE001
-        return ""
+    rows: list = []
+    if pmm is not None:
+        try:
+            rows = pmm.presence_status()
+        except Exception:  # noqa: BLE001
+            rows = []
+
     if not rows:
-        return ""
-    speaker = next((r["name"] for r in rows if r.get("is_speaker")), "")
-    others = [r["name"] for r in rows if not r.get("is_speaker")]
-    return format_present_ctx(speaker, others)
+        # 誰も認識できていない。直近に話しかけられているなら、相手は居るが誰かは不明。
+        recently_spoken = False
+        with contextlib.suppress(Exception):
+            recently_spoken = agent._social_presence_permission() > 0.0
+        if recently_spoken:
+            return '(present :speaker "unconfirmed" :note "顔は確認できていないが直近に話しかけられた")'
+        return '(present :none true :note "誰も確認できていない")'
+
+    def _one(row: dict) -> str:
+        conf = row.get("confidence")
+        conf_s = f' :confidence {float(conf):.2f}' if conf is not None else ""
+        return f'"{row.get("name", "unknown")}"{conf_s}'
+
+    speaker = next((r for r in rows if r.get("is_speaker")), None)
+    others = [r for r in rows if not r.get("is_speaker")]
+    parts = ["(present"]
+    parts.append(f' :speaker {_one(speaker)}' if speaker else ' :speaker "unconfirmed"')
+    if others:
+        parts.append(" :others " + " ".join(_one(r) for r in others))
+    return "".join(parts) + ")"
 
 
 def _pi_ctx() -> str:

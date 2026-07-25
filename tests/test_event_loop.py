@@ -514,6 +514,32 @@ def test_recall_iteration_does_not_display_filler_text():
     assert all(c.kwargs["on_text"] is None for c in a.backend.stream_turn.call_args_list)
 
 
+def test_present_ctx_tells_who_is_there_with_confidence():
+    # 「誰かが居る」ではなく「誰が居るか」を渡す。確信度も添える（低い認識と高い認識を
+    # 同じに扱わない）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    a._pmm.presence_status = MagicMock(return_value=[
+        {"person_id": "p1", "name": "パパ", "confidence": 0.92, "is_speaker": True},
+        {"person_id": "p2", "name": "たいきくん", "confidence": 0.61, "is_speaker": False},
+    ])
+    _run(a)
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "パパ" in system and "たいきくん" in system
+    assert "0.92" in system and "0.61" in system      # 確信度も渡す
+
+
+def test_present_ctx_says_nobody_is_confirmed_when_no_one_is_recognised():
+    # 誰も認識できていないときに黙って空文字を渡すと、自発発話が誰に向けたものか
+    # 分からないまま出る。認識できていないことを明示する。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    a._pmm.presence_status = MagicMock(return_value=[])
+    a._social_presence_permission = MagicMock(return_value=1.0)   # 直近の発話で在席
+    _run(a)
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "(present" in system                       # 空文字にしない
+    assert "unconfirmed" in system or "確認できていない" in system
+
+
 def test_datetime_is_injected_into_prompt():
     # 日時が無いと「一昨日」「昨日」を自分で解けず、利用者に日付を聞き返す（実機で観測）。
     # 現行 run() と同じ書式 `(now :datetime "…")` で毎反復渡す。
