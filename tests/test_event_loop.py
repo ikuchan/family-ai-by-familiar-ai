@@ -335,6 +335,70 @@ def test_full_branch_passes_the_effort_chosen_by_the_arbiter():
     assert a.backend.stream_turn.call_args.kwargs["effort"] == "low"
 
 
+def test_agent_starts_tonic_only_when_event_loop_is_on():
+    # T は EVENT_LOOP on のときだけ立てる。off では従来の経路（GUI の描画ループ）が回すので、
+    # 両方が同時に drive を進めないようにする。
+    from familiar_agent.agent import EmbodiedAgent
+
+    async def build(event_loop_on: bool):
+        agent = MagicMock()
+        agent.config = MagicMock()
+        agent.config.event_loop = event_loop_on
+        agent._info_processing = None
+        agent._tonic = None
+        EmbodiedAgent._ensure_event_loop(agent)
+        ip, tonic = agent._info_processing, agent._tonic
+        await ip.close()
+        if tonic is not None:
+            await tonic.close()
+        return ip, tonic
+
+    ip_on, tonic_on = asyncio.run(build(True))
+    assert ip_on is not None and tonic_on is not None      # on では T を立てる
+    ip_off, tonic_off = asyncio.run(build(False))
+    assert ip_off is not None and tonic_off is None        # off では立てない
+
+
+def test_driver_wakes_on_the_affect_queue():
+    # 段階3：駆動体は QC と QA の union で起きる。情動（drive 発火）が積まれたら反復が回る。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ひとりごと"})])])
+    shown: list[str] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        ip.set_output(shown.append)          # 人の発話を待たずに出口を持てる
+        ip.start()                           # 駆動体だけ起こす
+        ip.push_affect("SEEKING", "何かを知りたい")
+        for _ in range(400):
+            if shown:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+
+    asyncio.run(scenario())
+    assert "".join(shown) == "ひとりごと"
+
+
+def test_affect_iteration_does_not_send_an_empty_user_message():
+    # 情動で起きた反復には人の発話が無い。空の user メッセージを送らず、内的な促しとして渡す。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        ip.start()
+        ip.push_affect("SEEKING", "何かを知りたい")
+        for _ in range(400):
+            if a.backend.make_user_message.call_count:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+
+    asyncio.run(scenario())
+    sent = a.backend.make_user_message.call_args.args[0]
+    assert sent.strip() != ""
+    assert "何かを知りたい" in sent
+
+
 def test_iteration_ends_when_tool_is_dispatched():
     # 1反復1出力：ツールを投げることも出力。投げた時点で反復は終わり、発話は持たない。
     a = _agent(stream_returns=[_turn([ToolCall(id="r", name="recall", input={"query": "q"})])])

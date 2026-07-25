@@ -77,12 +77,18 @@ class InformationProcessing:
         # 結果が届くまで待つ（イベント駆動＝キュー到来で起きる）。
         self._inflight = 0
         self._tasks: set[asyncio.Task] = set()
-        # 駆動体（QC 到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
+        # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
+        # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
+        self._affect_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
         self._inbox: list[tuple[str, str, str | None]] = []
         # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
         self._chain = 0
         self._utterance = ""
+        # 反復の起点。種別＝発話｜情動｜機器｜完了。情動や機器で起きた反復には人の発話が
+        # 無いので、起点の内容を手がかり・調停の入力・user メッセージに使う。
+        self._origin_kind = "発話"
         self._on_text = None
         self._pending_intent: tuple[str, dict] = ("", {})
 
@@ -172,6 +178,7 @@ class InformationProcessing:
         agent = self._agent
         self._on_text = on_text or self._on_text
         self._utterance = utterance
+        self._origin_kind = "発話"
         self._chain = 0
         self._ensure_driver()
 
@@ -186,27 +193,92 @@ class InformationProcessing:
         self._advance_chain(trigger_id, utterance[:500])
         return await self._iterate()
 
+    def set_output(self, on_text) -> None:
+        """発話の表示先を登録する。人の発話を待たずに出口が定まる（起動時にアプリが渡す）。"""
+        self._on_text = on_text
+
+    def start(self) -> None:
+        """駆動体だけを起こす。以後はキュー到来で反復が回る。"""
+        self._ensure_driver()
+
+    def push_affect(self, drive_name: str, prompt: str) -> None:
+        """T が drive 発火を QA へ積む（AIF 経由・I は時計を見ない）。"""
+        self._affect_queue.put_nowait((drive_name, prompt))
+
     def _ensure_driver(self) -> None:
         """駆動体：QC 到来で次の反復を起こす（イベント駆動・時計は見ない）。"""
         if self._driver is None or self._driver.done():
             self._driver = asyncio.create_task(self._drive())
 
     async def _drive(self) -> None:
+        """3キューの union を待ち、来たどれでも起きる（時計は見ない・正本③）。
+
+        待つのは受ける側だけで、時計を持つのは T（自律機構）である。上限は設けない：
+        終了は `close()` の cancel が待ちの最中でも即座に効くので、定期的に目を覚ます
+        必要がない（目を覚ますこと自体が「時計を見る」動作になる）。
+        """
         while True:
             try:
-                # 属性の参照は await の後に行う（束縛のすり替わりを避ける・上の注記）。
-                item = await self._completion_queue.get()
-                self._inbox.append(item)
+                # 待つ対象は配列で持つ（QD を足すときは1本加えるだけ）。
+                queues = [self._completion_queue, self._affect_queue]
+                waiters = {asyncio.ensure_future(q.get()): q for q in queues}
+                try:
+                    done, pending = await asyncio.wait(
+                        waiters, return_when=asyncio.FIRST_COMPLETED
+                    )
+                finally:
+                    pass
+                for task in pending:
+                    task.cancel()
+                affect = None
+                for task in done:
+                    item = task.result()
+                    if waiters[task] is self._completion_queue:
+                        self._inbox.append(item)
+                    else:
+                        affect = item
+                # 同じキューに溜まっている分もまとめて取る。
                 while not self._completion_queue.empty():
                     self._inbox.append(self._completion_queue.get_nowait())
-                logger.debug(
-                    "event-loop 駆動体が完了を受領（id=%s inbox=%d）", id(self), len(self._inbox)
-                )
-                await self._iterate()
+                if affect is None and not self._affect_queue.empty():
+                    affect = self._affect_queue.get_nowait()
+
+                if affect is not None:
+                    drive_name, prompt = affect
+                    logger.debug("event-loop 駆動体が情動を受領（%s）", drive_name)
+                    await self._begin_affect(drive_name, prompt)
+                else:
+                    logger.debug(
+                        "event-loop 駆動体が完了を受領（id=%s inbox=%d）",
+                        id(self), len(self._inbox),
+                    )
+                    await self._iterate()
             except asyncio.CancelledError:
+                for task in waiters:
+                    task.cancel()
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop 駆動体で例外: %s", e)
+
+    async def _begin_affect(self, drive_name: str, prompt: str) -> None:
+        """情動で新しい連鎖を始める。取込＝来た事実（情動）を O に書き、鎖の起点にする。
+
+        情動は中身を持たないので、取り込み時に想起で状況づける（正本③ 手順1・2）。
+        """
+        agent = self._agent
+        self._utterance = ""
+        self._origin_kind = "情動"
+        self._chain = 0
+        content = f"[内的な促し:{drive_name}] {prompt}"
+        obs_id, _ = await agent._memory.save_async_with_id(
+            content[:500],
+            direction="情動",
+            kind="observation",
+            materialize_now=True,
+            **agent._observation_perspective(),
+        )
+        self._advance_chain(obs_id, content[:500])
+        await self._iterate()
 
     async def close(self) -> None:
         if self._driver is not None:
@@ -256,7 +328,9 @@ class InformationProcessing:
         #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
         capped = chain >= max_chain
         decision = await arbitrate(
-            agent._utility_backend, utterance=utterance, workspace_ctx=workspace_ctx,
+            agent._utility_backend,
+            utterance=utterance or self._chain_head_content,
+            workspace_ctx=workspace_ctx,
         )
         logger.debug("event-loop iter=%d/%d 調停=%s effort=%s",
                      chain, max_chain, decision.branch, decision.effort)
@@ -274,7 +348,7 @@ class InformationProcessing:
 
         # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
         if decision.branch == "action" and decision.query and not capped:
-            self._open_intent(utterance, {"query": decision.query})
+            self._open_intent(utterance or self._chain_head_content, {"query": decision.query})
             logger.info("event-loop 反復 %d/%d 出力=ツール投げ（調停・続きは完了で起きる）",
                         chain, max_chain)
             return ""
@@ -291,7 +365,9 @@ class InformationProcessing:
             workspace_ctx=workspace_ctx,
         )
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
-        user_msg = agent.backend.make_user_message(utterance)
+        # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
+        # 何がこの反復を起こしたのか分からなくなる（API も空メッセージを受け付けない）。
+        user_msg = agent.backend.make_user_message(utterance or self._chain_head_content)
         result, _raw = await agent.backend.stream_turn(
             system=system,
             messages=[user_msg],
@@ -319,7 +395,7 @@ class InformationProcessing:
         recall_tc = next((tc for tc in result.tool_calls if tc.name == "recall"), None)
         if recall_tc is not None and not capped:
             logger.debug("event-loop iter=%d/%d 決定=recall", chain, max_chain)
-            self._open_intent(utterance, dict(recall_tc.input))
+            self._open_intent(utterance or self._chain_head_content, dict(recall_tc.input))
             logger.info("event-loop 反復 %d/%d 出力=ツール投げ（続きは完了で起きる）",
                         chain, max_chain)
             return ""
@@ -364,10 +440,11 @@ class InformationProcessing:
         self._chain_head_id = None
         self._chain = 0
         try:
-            arousal = await agent._turn_arousal(self._utterance, text)
+            origin = self._utterance or self._chain_head_content
+            arousal = await agent._turn_arousal(origin, text)
             agent._spawn_background_task(
                 agent._run_post_response_pipeline(
-                    user_input=self._utterance, final_text=text,
+                    user_input=origin, final_text=text,
                     camera_used=False, camera_image=None,
                     observation_action_name=None, observation_action_input=None,
                     companion_mood="engaged", is_desire_turn=False, desires=None,

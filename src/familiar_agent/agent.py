@@ -2710,6 +2710,25 @@ class EmbodiedAgent:
         except Exception as e:
             logger.warning("Could not write today's self narrative: %s", e)
 
+    def _ensure_event_loop(self, on_text=None) -> None:
+        """I（情報処理機構）と T（自律機構）を用意する。
+
+        T は時計を持つ唯一の側で、`EVENT_LOOP` on のときだけ立てる。off では従来の経路
+        （GUI の描画ループ）が drive を進めるので、両方が同時に進めないようにする。
+        """
+        from .loop.event_loop import InformationProcessing
+        from .loop.tonic import Tonic
+
+        if getattr(self, "_info_processing", None) is None:
+            self._info_processing = InformationProcessing(self)
+        if on_text is not None:
+            self._info_processing.set_output(on_text)
+        self._info_processing.start()
+        if getattr(self.config, "event_loop", False) is True:
+            if getattr(self, "_tonic", None) is None:
+                self._tonic = Tonic(self._info_processing)
+            self._tonic.start()
+
     async def close(self) -> None:
         """Clean up resources. Bounded by timeouts to avoid hanging on exit."""
         if self._camera:
@@ -2720,7 +2739,10 @@ class EmbodiedAgent:
             heartbeat.cancel()
             await asyncio.gather(heartbeat, return_exceptions=True)
 
-        # #11：I（情報処理機構）の駆動体を止める（QC 待ちで常駐しているため）。
+        # #11：T（自律機構）と I（情報処理機構）の常駐タスクを止める。
+        tonic = getattr(self, "_tonic", None)
+        if tonic is not None:
+            await tonic.close()
         ip = getattr(self, "_info_processing", None)
         if ip is not None:
             await ip.close()
@@ -2917,11 +2939,8 @@ class EmbodiedAgent:
         """
         # #11 段階1：EVENT_LOOP on の user turn は新イベント駆動ループへ排他切替（発話のみ）。
         if getattr(self.config, "event_loop", False) is True and user_input and not desire_name:
-            from .loop.event_loop import InformationProcessing
-
-            # I（情報処理機構）を生成し LPM の反復を回す。on_text は逐次表示先。
-            if getattr(self, "_info_processing", None) is None:
-                self._info_processing = InformationProcessing(self)
+            # I（情報処理機構）と T（自律機構）を用意し、LPM の反復を回す。
+            self._ensure_event_loop(on_text)
             return await self._info_processing.run_iteration(user_input, on_text=on_text)
 
         if desires is not None:
