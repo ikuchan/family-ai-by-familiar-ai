@@ -71,6 +71,7 @@ class InformationProcessing:
         # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
         # これで前の記録が想起に出てこなくなり、除外は「その検索を出した意図自身」で足りる。
         self._chain_head_id: str | None = None
+        self._chain_head_content: str = ""
         # RH（実行担当）が走らせている投げっぱなしの呼び出し。QC が空でもこれが残っていれば
         # 結果が届くまで待つ（イベント駆動＝キュー到来で起きる）。
         self._inflight = 0
@@ -85,14 +86,18 @@ class InformationProcessing:
         self._pending_intent: tuple[str, dict] = ("", {})
 
 
-    def _advance_chain(self, new_id: str | None) -> None:
-        """ループ記録の鎖を1つ進める（直前の生きた記録を新しい記録で supersede）。"""
+    def _advance_chain(self, new_id: str | None, content: str = "") -> None:
+        """ループ記録の鎖を1つ進める（直前の生きた記録を新しい記録で supersede）。
+
+        内容も持つのは、この先頭（取込の起点）を W へ決定的に加えるため。
+        """
         if not new_id:
             return
         if self._chain_head_id and self._chain_head_id != new_id:
             self._agent._memory.mark_superseded(self._chain_head_id, new_id)
             logger.debug("event-loop 鎖を進める %.8s → %.8s", self._chain_head_id, new_id)
         self._chain_head_id = new_id
+        self._chain_head_content = content
 
     def _dispatch_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
         """RH：recall を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
@@ -143,7 +148,7 @@ class InformationProcessing:
                 **agent._observation_perspective(),
             )
             # 完了が open 意図に再会して解決（[D-単一想起]）＝鎖を1つ進める。
-            self._advance_chain(obs_id)
+            self._advance_chain(obs_id, f"「{query}」を探した結果：{result_text}"[:500])
         return len(items)
 
     def _tools(self, *, with_recall: bool = True) -> list[dict]:
@@ -177,7 +182,7 @@ class InformationProcessing:
             materialize_now=True,
             **agent._observation_perspective(),
         )
-        self._advance_chain(trigger_id)
+        self._advance_chain(trigger_id, utterance[:500])
         return await self._iterate()
 
     def _ensure_driver(self) -> None:
@@ -226,9 +231,17 @@ class InformationProcessing:
             logger.debug("event-loop iter=%d/%d QC取込=%d件", chain, max_chain, drained)
 
         # 2. REC（想起）：O（＋現入力）→ W。W は派生なので反復末に捨てる。
+        # 一律の規則：取込で書いた記録（＝鎖の先頭）は検索から外し、W へは決定的に加える。
+        # 素通しだと問いと同一文の記録が必ず上位に来て、限られた枠から本物の記憶を押し出す。
         mem = agent._active_memory()
-        memories = await mem.recall_async(utterance, recall_mode="conversation")
-        workspace_ctx = mem.format_for_context(memories)
+        origin_ids = [self._chain_head_id] if self._chain_head_id else None
+        memories = await mem.recall_async(
+            utterance, recall_mode="conversation", exclude_ids=origin_ids
+        )
+        origin_ctx = f"[取込] {self._chain_head_content}" if self._chain_head_content else ""
+        workspace_ctx = "\n\n".join(
+            p for p in [origin_ctx, mem.format_for_context(memories)] if p and p.strip()
+        )
 
         # 3. GEN（生成）：連鎖が上限に達した反復では recall を渡さない＝必ず発話させる。
         capped = chain >= max_chain
@@ -295,15 +308,16 @@ class InformationProcessing:
         agent = self._agent
         utterance, tool_input = self._pending_intent
         query = str(tool_input.get("query", "")).strip()
+        content = f"「{utterance}」について recall（query={query}）を要求した。結果はまだ無い。"[:500]
         intent_id, _ = await agent._memory.save_async_with_id(
-            f"「{utterance}」について recall（query={query}）を要求した。結果はまだ無い。"[:500],
+            content,
             direction="意図",
             kind="observation",
             materialize_now=True,
             **agent._observation_perspective(),
         )
         # 意図を書いた時点でトリガ（や前回の完了）は死ぬ＝この検索には出てこない。
-        self._advance_chain(intent_id)
+        self._advance_chain(intent_id, content)
         # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
         self._dispatch_recall(tool_input, query, intent_id)
 

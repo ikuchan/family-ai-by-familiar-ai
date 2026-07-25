@@ -167,6 +167,24 @@ def test_loop_records_form_a_single_chain():
     assert kwargs["superseded_ids"] == ["obs3"]
 
 
+def test_w_search_excludes_the_intake_origin():
+    # 一律の規則：取込で書いた記録（＝鎖の先頭）は検索から外す。素通しだと、問いと同一文の
+    # トリガ O が必ず上位に来て、限られた枠から本物の記憶を押し出す。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    _run(a, utterance="おはよう")
+    _, kwargs = a._active_memory().recall_async.call_args
+    assert kwargs.get("exclude_ids") == ["obs1"]      # obs1＝取込で書いたトリガ O
+
+
+def test_w_includes_the_intake_origin_deterministically():
+    # 検索から外すかわりに、起点は W へ必ず加える（コサインの運に任せない）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    _run(a, utterance="おはよう")
+    system = a.backend.stream_turn.call_args.kwargs["system"]
+    assert "おはよう" in system                        # 起点（人の発話）
+    assert "[想起]昔の話" in system                    # 想起結果も従来どおり
+
+
 def test_recall_tool_excludes_the_intent_that_issued_it():
     # 意図 O は query を丸ごと含むので、その query で検索すれば必ず上位に来る（自己干渉）。
     # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
