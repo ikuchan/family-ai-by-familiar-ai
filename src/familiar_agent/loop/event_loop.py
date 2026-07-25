@@ -22,6 +22,11 @@ from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
 
+# 連鎖が続けられる反復で渡す動作。上限に達した反復では say だけにして必ず閉じる。
+_FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred")
+# 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
+_LOOKUP_ACTIONS = ("recall", "search_deferred", "fetch_deferred")
+
 
 def _present_ctx(agent) -> str:
     """いま誰が居るかを渡す。「誰かが居る」ではなく「誰が居るか」を伝える。
@@ -117,7 +122,7 @@ class InformationProcessing:
         # 無いので、起点の内容を手がかり・調停の入力・user メッセージに使う。
         self._origin_kind = "発話"
         self._on_text = None
-        self._pending_intent: tuple[str, dict] = ("", {})
+        self._pending_intent: tuple[str, dict, str] = ("", {}, "recall")
 
 
     def _advance_chain(self, new_id: str | None, content: str = "") -> None:
@@ -133,14 +138,31 @@ class InformationProcessing:
         self._chain_head_id = new_id
         self._chain_head_content = content
 
-    def _dispatch_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
-        """RH：recall を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
+    def _dispatch_lookup(self, action: str, tool_input: dict, query: str,
+                         intent_id: str | None) -> None:
+        """RH：調べる動作を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
         self._inflight += 1
-        task = asyncio.create_task(self._run_recall(tool_input, query, intent_id))
+        task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
 
-    async def _run_recall(self, tool_input: dict, query: str, intent_id: str | None) -> None:
+    async def _run_lookup(self, action: str, tool_input: dict, query: str,
+                          intent_id: str | None) -> None:
+        """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
+        agent = self._agent
+        if action != "recall":
+            tool = agent._deferred_search if action == "search_deferred" else agent._deferred_fetch
+            try:
+                await tool.call(action, tool_input)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.exception("event-loop %s の実行に失敗: %s", action, e)
+                self._completion_queue.put_nowait(
+                    (query, f"（{action} を実行できなかった：{e}）", intent_id))
+            # deferred の完了は `push_completion` 経由で QC へ届く（ここでは待たない）。
+            self._inflight = max(0, self._inflight - 1)
+            return
         try:
             out, _ = await self._agent._memory_tool.call(
                 "recall", tool_input, exclude_ids=[intent_id] if intent_id else None
@@ -405,9 +427,12 @@ class InformationProcessing:
 
         # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
         if decision.branch == "action" and decision.query and not capped:
-            self._open_intent(utterance or self._chain_head_content, {"query": decision.query})
-            logger.info("event-loop 反復 %d/%d 出力=ツール投げ（調停・続きは完了で起きる）",
-                        chain, max_chain)
+            # つなぎの一言はここで即出す（フルLLM を経由しないぶん速い・正本③ 段5 の内部二段）。
+            await self._say_filler(decision.text)
+            self._open_intent(utterance or self._chain_head_content,
+                              {"query": decision.query}, action=decision.action)
+            logger.info("event-loop 反復 %d/%d 出力=%s（調停・続きは完了で起きる）",
+                        chain, max_chain, decision.action)
             return ""
         system = build_event_system_prompt(
             me_md=getattr(agent, "_me_md", ""),
@@ -429,27 +454,33 @@ class InformationProcessing:
             system=system,
             messages=[user_msg],
             # 連鎖上限の反復では recall を外し、発話だけにして必ず閉じる。
-            tools=self._tools(actions=("say",) if capped else ("say", "recall")),
+            tools=self._tools(actions=("say",) if capped else _FULL_ACTIONS),
             max_tokens=agent.config.max_tokens,
             on_text=None,
             effort=decision.effort,
         )
 
-        # 出力その1＝発話（run() と同じ「先頭 say 採用」）。ここで反復は終わる。
         say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+        # 上限の反復では調べる動作を渡していないので、返ってきても投げない（連鎖を必ず閉じる）。
+        lookup_tc = None if capped else next(
+            (tc for tc in result.tool_calls if tc.name in _LOOKUP_ACTIONS), None
+        )
+
+        # 発話と動作が一緒に来たら、発話はつなぎとして出し、その反復の出力は動作とする。
+        # 以前は say を見つけた時点で閉じており、同じ応答に入っていた検索を捨てていた。
+        if lookup_tc is not None:
+            logger.debug("event-loop iter=%d/%d 決定=%s", chain, max_chain, lookup_tc.name)
+            if say_tc is not None:
+                await self._say_filler(str(say_tc.input.get("text", "")).strip())
+            self._open_intent(utterance or self._chain_head_content, dict(lookup_tc.input),
+                              action=lookup_tc.name)
+            logger.info("event-loop 反復 %d/%d 出力=%s（続きは完了で起きる）",
+                        chain, max_chain, lookup_tc.name)
+            return ""
+
         if say_tc is not None:
             logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
             return await self._speak(str(say_tc.input.get("text", "")).strip(), memories)
-
-        # 出力その2＝ツール投げ。投げた時点でこの反復は終わり、続きは完了が起こす次の反復。
-        # 上限の反復では recall を渡していないので、返ってきても投げない（連鎖を必ず閉じる）。
-        recall_tc = next((tc for tc in result.tool_calls if tc.name == "recall"), None)
-        if recall_tc is not None and not capped:
-            logger.debug("event-loop iter=%d/%d 決定=recall", chain, max_chain)
-            self._open_intent(utterance or self._chain_head_content, dict(recall_tc.input))
-            logger.info("event-loop 反復 %d/%d 出力=ツール投げ（続きは完了で起きる）",
-                        chain, max_chain)
-            return ""
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
         logger.debug("event-loop iter=%d/%d 決定=none", chain, max_chain)
@@ -485,6 +516,21 @@ class InformationProcessing:
         await self._finish(text, memories, "発話")
         return text
 
+    async def _say_filler(self, text: str) -> None:
+        """つなぎの一言を出す（内容にコミットしない前置き）。配信ゲートは同じく効かせる。
+
+        本応答ではないので、これで反復を閉じない。溜める（`pending_speech`）のも本応答の
+        役目なので、出せない場面では黙って落とす。
+        """
+        if not text or self._delivery_block_reason():
+            return
+        agent = self._agent
+        if agent._tts is not None:
+            with contextlib.suppress(Exception):
+                await agent._tts.call("say", {"text": text})
+        if self._on_text is not None:
+            self._on_text(text)
+
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。
 
@@ -513,17 +559,17 @@ class InformationProcessing:
             with contextlib.suppress(Exception):
                 agent._pending_store.add(obs_id, None)
 
-    def _open_intent(self, utterance: str, tool_input: dict) -> None:
+    def _open_intent(self, utterance: str, tool_input: dict, *, action: str = "recall") -> None:
         """open 意図を O に残し、RH へ投げる（待たない）。意図は常に高々1件に保つ。"""
-        self._pending_intent = (utterance, tool_input)
+        self._pending_intent = (utterance, tool_input, action)
         self._tasks.add(t := asyncio.create_task(self._write_intent_and_dispatch()))
         t.add_done_callback(self._tasks.discard)
 
     async def _write_intent_and_dispatch(self) -> None:
         agent = self._agent
-        utterance, tool_input = self._pending_intent
-        query = str(tool_input.get("query", "")).strip()
-        content = f"「{utterance}」について recall（query={query}）を要求した。結果はまだ無い。"[:500]
+        utterance, tool_input, action = self._pending_intent
+        query = str(tool_input.get("query") or tool_input.get("url", "")).strip()
+        content = f"「{utterance}」について {action}（{query}）を要求した。結果はまだ無い。"[:500]
         intent_id, _ = await agent._memory.save_async_with_id(
             content,
             direction="意図",
@@ -534,7 +580,7 @@ class InformationProcessing:
         # 意図を書いた時点でトリガ（や前回の完了）は死ぬ＝この検索には出てこない。
         self._advance_chain(intent_id, content)
         # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
-        self._dispatch_recall(tool_input, query, intent_id)
+        self._dispatch_lookup(action, tool_input, query, intent_id)
 
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
         """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""

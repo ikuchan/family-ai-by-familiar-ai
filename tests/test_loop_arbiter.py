@@ -45,6 +45,21 @@ def test_action_branch_carries_the_query():
     assert d.query == "昨日の天気"
 
 
+def test_action_branch_can_carry_a_filler_and_a_tool_name():
+    # つなぎの発話は軽量LLM に出させる（フルLLM を経由すると 2.9 秒かかるところが 0.7 秒）。
+    # どの動作で調べるかも軽量LLM が選ぶ（記憶を探すのと外を調べるのは別）。
+    d = _call('{"branch":"action","action":"search_deferred",'
+              '"query":"今日の天気","text":"調べてみるね"}')
+    assert d.branch == "action"
+    assert d.action == "search_deferred"
+    assert d.text == "調べてみるね"
+
+
+def test_action_defaults_to_recall_when_no_tool_is_named():
+    d = _call('{"branch":"action","query":"昨日の天気"}')
+    assert d.action == "recall"
+
+
 def test_unparsable_reply_falls_back_to_full():
     # 判定できないときは今までと同じ挙動（フル・effort=high）へ倒す＝退行しない。
     d = _call("よくわからない返事")

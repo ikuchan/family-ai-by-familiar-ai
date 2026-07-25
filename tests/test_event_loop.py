@@ -60,8 +60,10 @@ def _agent(*, stream_returns, max_iters=3):
     a._in_quiet_hours = MagicMock(return_value=False)             # 既定＝静穏時間ではない
     a._deferred_search = MagicMock()
     a._deferred_search.get_tool_definitions = MagicMock(return_value=[_SEARCH_DEF])
+    a._deferred_search.call = AsyncMock(return_value=("投げた", None))
     a._deferred_fetch = MagicMock()
     a._deferred_fetch.get_tool_definitions = MagicMock(return_value=[_FETCH_DEF])
+    a._deferred_fetch.call = AsyncMock(return_value=("投げた", None))
     a._pending_store = MagicMock()
     a._pending_store.add = MagicMock(return_value="pending-1")
     a._turn_arousal = AsyncMock(return_value=0.3)
@@ -105,7 +107,8 @@ def test_speaks_via_say_tool():
     a.backend.stream_turn.assert_awaited_once()
     a._tts.call.assert_awaited_once_with("say", {"text": "やあ、元気？"})
     _, kwargs = a.backend.stream_turn.call_args
-    assert kwargs.get("tools") == [_SAY_DEF, _RECALL_DEF]   # say＋recall のみ
+    # 発話・記憶・net（投げっぱなしの外部呼び出し）を渡す。
+    assert kwargs.get("tools") == [_SAY_DEF, _RECALL_DEF, _SEARCH_DEF, _FETCH_DEF]
     assert kwargs["max_tokens"] == 400
     assert "on_text" in kwargs
     # 取込でトリガ（発話）O を1件書くだけ（open 意図・完了 O は無い）。
@@ -504,6 +507,63 @@ def test_speech_is_held_during_quiet_hours():
     a._pending_store.add.assert_called_once()     # 後で話すために積む
 
 
+def test_full_branch_receives_the_net_actions():
+    # 表に載せるだけでは足りず、実際に渡す集合へ入れないとモデルは検索を投げられない
+    # （実機で「調べてみるね」と言ったまま何も起きなかった）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    _run(a)
+    tools = a.backend.stream_turn.call_args.kwargs["tools"]
+    assert _SEARCH_DEF in tools and _FETCH_DEF in tools
+
+
+def test_action_branch_speaks_the_filler_then_dispatches():
+    # つなぎの発話は調停が出す（フルLLM を経由しないので速い）。発話したうえで投げる。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
+    a._utility_backend.complete = AsyncMock(return_value=(
+        '{"branch":"action","action":"search_deferred",'
+        '"query":"今日の天気","text":"調べてみるね"}'))
+    shown: list[str] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
+        for _ in range(200):
+            if a._deferred_search.call.await_count:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+        return first
+
+    assert asyncio.run(scenario()) == ""          # 本来の出力はツール投げ
+    assert "".join(shown) == "調べてみるね"        # つなぎは即発話
+    a.backend.stream_turn.assert_not_awaited()    # フルLLM を起こさない
+    assert a._deferred_search.call.await_args.args[1] == {"query": "今日の天気"}
+
+
+def test_full_branch_keeps_the_tool_when_say_comes_along():
+    # フルLLM が「調べてみるね」と検索を同時に返したら、発話をつなぎとして扱い動作も投げる。
+    # 以前は say を見つけた時点で閉じ、検索を捨てていた。
+    a = _agent(stream_returns=[_turn([
+        ToolCall(id="s", name="say", input={"text": "調べてみるね"}),
+        ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"}),
+    ])])
+    shown: list[str] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
+        for _ in range(200):
+            if a._deferred_search.call.await_count:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+        return first
+
+    assert asyncio.run(scenario()) == ""
+    assert "".join(shown) == "調べてみるね"        # 発話はつなぎとして出す
+    assert a._deferred_search.call.await_count == 1  # 動作は捨てない
+
+
 def test_net_actions_are_available():
     # deferred（投げっぱなしの外部呼び出し）を投げられなければ、完了キュー経由の
     # 連鎖が意味を持たない。表に2行足すだけで載る。
@@ -537,7 +597,8 @@ def test_chain_cap_withholds_recall_tool():
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ], max_iters=2)
     _run_chain(a)
-    assert a.backend.stream_turn.call_args_list[0].kwargs["tools"] == [_SAY_DEF, _RECALL_DEF]
+    assert a.backend.stream_turn.call_args_list[0].kwargs["tools"] == [
+        _SAY_DEF, _RECALL_DEF, _SEARCH_DEF, _FETCH_DEF]
     assert a.backend.stream_turn.call_args_list[1].kwargs["tools"] == [_SAY_DEF]
 
 
