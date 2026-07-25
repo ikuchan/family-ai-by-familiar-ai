@@ -183,7 +183,7 @@ class JobQueue:
             if row["event_type"] == "memory.save":
                 return self._observations.materialize_save_event(
                     event_id, payload, dedup_window_secs=dedup_window_secs
-                )
+                ) is not None
             return False
         except Exception as e:
             logger.warning("materialize_event failed: %s", e)

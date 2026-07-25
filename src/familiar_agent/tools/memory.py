@@ -529,7 +529,7 @@ class ObservationMemory:
                 logger.warning("append_memory_event failed, continuing with direct save: %s", e, exc_info=True)
             obs_id = event_id or str(uuid.uuid4())
             _cfg = MemoryConfig()
-            return self._observations.materialize_save_event(
+            return bool(self._observations.materialize_save_event(
                 obs_id, payload,
                 dedup_window_secs=_cfg.dedup_window_secs,
                 writer_id=writer_id,
@@ -540,7 +540,7 @@ class ObservationMemory:
                 novelty_w_n=_cfg.novelty_w_n,
                 novelty_default=_cfg.novelty_default,
                 novelty_a0_cap=_cfg.novelty_a0_cap,
-            )
+            ))
         except Exception:
             # 保存の失敗（埋め込み次元不一致・モデル未ロード・コードバグ等の決定的
             # エラーを含む）はトレース付きで loud に残す。返りは False（ターンは落とさない）。
@@ -564,7 +564,9 @@ class ObservationMemory:
             if not kwargs.get("materialize_now", True) and event_id:
                 return event_id, True
             obs_id = event_id or str(uuid.uuid4())
-            ok = self._observations.materialize_save_event(
+            # 返るのは「この内容を保持する行の id」。重複スキップなら既存行の id なので、
+            # 呼び出し側は必ず実在する行を指す（supersede の宛先に使える）。
+            stored_id = self._observations.materialize_save_event(
                 obs_id, payload,
                 dedup_window_secs=MemoryConfig().dedup_window_secs,
                 writer_id=kwargs.get("writer_id"),
@@ -572,7 +574,7 @@ class ObservationMemory:
                 participants=kwargs.get("participants"),
                 scope=kwargs.get("scope", "speaker"),
             )
-            return (obs_id if ok else None), ok
+            return stored_id, stored_id is not None
         except Exception:
             logger.exception("save_with_id failed")
             return None, False

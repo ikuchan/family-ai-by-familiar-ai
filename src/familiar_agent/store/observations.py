@@ -576,7 +576,12 @@ class ObservationStore:
         novelty_w_n: float = 1.5,
         novelty_default: float = 0.5,
         novelty_a0_cap: float = 1.5,
-    ) -> bool:
+    ) -> str | None:
+        """この内容を保持する行の id を返す（重複スキップなら既存行の id）。失敗は None。
+
+        書かれていない id を返すと、それを宛先にした supersede が「どこも指さない」壊れた
+        記録になるため、重複時は必ず既にある行の id を返す。
+        """
         content   = str(payload.get("content", "")).strip()
         direction = str(payload.get("direction", "unknown"))
         kind      = str(payload.get("kind", "observation"))
@@ -589,7 +594,7 @@ class ObservationStore:
         emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else MoodPAD()
 
         if not content:
-            return False
+            return None
 
         image_data = _encode_image(image_path) if image_path else None
         vec = self._ctx.embedder.encode_document([content])[0]
@@ -605,7 +610,7 @@ class ObservationStore:
             with conn.cursor() as cur:
                 cur.execute("SELECT 1 FROM observations WHERE id=%s", (event_id,))
                 if cur.fetchone():
-                    return True
+                    return event_id
                 if dedup_window_secs > 0:
                     cur.execute(
                         "SELECT id FROM observations "
@@ -615,13 +620,14 @@ class ObservationStore:
                         "ORDER BY timestamp DESC LIMIT 1",
                         (self._ctx.person_id, content, kind, dedup_window_secs),
                     )
-                    if cur.fetchone():
+                    _dup = cur.fetchone()
+                    if _dup:
                         logger.debug(
                             "content dedup skip: (person_id=%.8s kind=%s content=%.40r) "
-                            "within %ds window",
-                            self._ctx.person_id, kind, content, dedup_window_secs,
+                            "within %ds window → 既存 %.8s を返す",
+                            self._ctx.person_id, kind, content, dedup_window_secs, _dup["id"],
                         )
-                        return True
+                        return str(_dup["id"])
                 # 取込 novelty（内容の新規性）→ a0。挿入前に測るので新観測は母集合に
                 # 居ない（=自分は含まれない）。視点は AGENT_SELF・self_model 除外。
                 novelty = self.content_novelty(
@@ -664,7 +670,7 @@ class ObservationStore:
             )
         except RuntimeError:
             self._situated.update_perspective_vec(self._ctx.person_id, np.array(vec, dtype=np.float32))
-        return True
+        return event_id
 
     def _mark_recalled(self, ids: list[str], *, reinforce_half_life: bool) -> None:
         """Reinforce recalled memories by updating decay tracking columns."""
@@ -710,5 +716,11 @@ class ObservationStore:
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
-                cur.execute("UPDATE observations SET superseded_by=%s WHERE id=%s", (new_id, old_id))
+                # 解決は先着が勝つ。既に解決済みの行を張り替えると「どの記録が解決したか」の
+                # つながりが失われる（重複スキップで同じ id を持つ側が後から解決を試みる）。
+                cur.execute(
+                    "UPDATE observations SET superseded_by=%s "
+                    "WHERE id=%s AND superseded_by IS NULL",
+                    (new_id, old_id),
+                )
             conn.commit()

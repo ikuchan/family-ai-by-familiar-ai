@@ -82,6 +82,61 @@ def test_dedup_skips_same_content_kind_within_window() -> None:
     assert n == 1, f"Expected 1 row after dedup, got {n}"
 
 
+def test_dedup_returns_existing_row_id() -> None:
+    """重複スキップ時は、既にある行の id を返す（書かれていない id を返さない）。
+
+    返した id が実在しないと、それを宛先にした supersede が「どこも指さない」壊れた記録に
+    なる（イベントループの意図 O が同じ文面を短時間に2回書いて踏んだ）。
+    """
+    mem = _make_memory()
+    pid = mem._person_id
+    content = f"重複id テスト_{uuid.uuid4()}"
+
+    original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
+    os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
+    try:
+        id1, ok1 = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
+        id2, ok2 = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
+    finally:
+        if original_window is None:
+            os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
+        else:
+            os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
+
+    assert ok1 and ok2
+    assert id2 == id1, "重複スキップ時は既存行の id を返す"
+    conn = _pg_conn()
+    with conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) AS n FROM observations WHERE id=%s", (id2,))
+        exists = cur.fetchone()["n"]
+    conn.close()
+    assert exists == 1, "返した id は実在する行を指す"
+
+
+def test_mark_superseded_does_not_overwrite() -> None:
+    """解決は先着が勝つ。既に supersede 済みの行は上書きしない。
+
+    重複スキップで既存 id を受け取った側が、飛行中の完了に解決された後で再び解決しようと
+    すると、「どの完了がこの意図を解決したか」のつながりが張り替わってしまう。
+    """
+    mem = _make_memory()
+    pid = mem._person_id
+    conn = _pg_conn()
+    now = datetime.now(timezone.utc)
+    old = _insert_obs_at(conn, pid, f"解決される_{uuid.uuid4()}", "utterance", now)
+    first = _insert_obs_at(conn, pid, f"先の解決_{uuid.uuid4()}", "utterance", now)
+    second = _insert_obs_at(conn, pid, f"後の解決_{uuid.uuid4()}", "utterance", now)
+
+    mem.mark_superseded(old, first)
+    mem.mark_superseded(old, second)      # 後から来ても張り替えない
+
+    with conn.cursor() as cur:
+        cur.execute("SELECT superseded_by FROM observations WHERE id=%s", (old,))
+        got = cur.fetchone()["superseded_by"]
+    conn.close()
+    assert got == first
+
+
 def test_dedup_allows_different_content() -> None:
     """Different content with same kind must both be inserted."""
 
