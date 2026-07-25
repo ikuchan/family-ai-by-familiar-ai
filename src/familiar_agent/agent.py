@@ -1258,16 +1258,26 @@ class EmbodiedAgent:
         )
 
     def _social_presence_permission(self) -> float:
-        """Return 1.0 when someone is present, 0.0 when the room is empty.
+        """誰か居れば 1.0、部屋が空なら 0.0。社会的発話と deferred 配信の共通ゲート。
 
-        Camera active: checks CameraPresenceWatcher / PMM for detected persons.
-        Camera inactive: allows social if a real user message arrived within 5 min.
+        在席の証拠は2つあり、**どちらかが立てば在席**とする。カメラの有無で根拠を
+        切り替えない。
+
+        1. 顔が検出されている（PMM に在席者が居る）
+        2. 直近5分以内に人が話しかけてきた（対話は在席の直接的な証拠）
+
+        以前はカメラが有効なとき 1 だけを見て確定しており、目の前で人が話しかけていても
+        顔が識別されなければ「誰も居ない」と判定して返事まで保留にしていた（実機で観測）。
+
+        **暫定である点の明示**：ここで使う `get_present_ids()` は InsightFace が埋める
+        **人物 id（誰か＝identity）**であって、設計が定める**在席（在/不在）**そのものでは
+        ない。正本は二層に分けており（在/不在＝T(G)・YOLO で連続／誰か＝I・InsightFace で
+        必要時）、identity を presence の代わりに使うのは暫定にすぎない。**二層の分離は
+        残課題 #8（在席系の精緻化）で扱う**。
         """
-        if getattr(self, "_presence_watcher", None) is not None:
-            pmm = getattr(self, "_pmm", None)
-            if pmm is not None and pmm.get_present_ids():
-                return 1.0
-            return 0.0
+        pmm = getattr(self, "_pmm", None)
+        if pmm is not None and pmm.get_present_ids():
+            return 1.0
         last = getattr(self, "_last_human_at", None)
         if last is None:
             return 0.0

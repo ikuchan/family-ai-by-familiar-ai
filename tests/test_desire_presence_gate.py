@@ -102,13 +102,26 @@ def test_camera_active_person_present_permits_social():
     assert stub._social_presence_permission() == 1.0
 
 
-def test_camera_active_no_person_blocks_social():
+def test_camera_active_no_person_but_recent_utterance_permits_social():
+    # 顔が見えなくても、話しかけられていれば人は居る（在席の証拠は顔と対話の二つで、
+    # どちらかが立てば在席）。以前は顔だけを見て確定し、目の前の相手への返事まで
+    # 保留にしていた。identity と presence の分離は残課題 #8。
     pmm = MagicMock()
     pmm.get_present_ids.return_value = []
-    stub = _agent_stub(_presence_watcher=MagicMock(), _pmm=pmm)
+    stub = _agent_stub(_presence_watcher=MagicMock(), _pmm=pmm,
+                       _last_human_at=time.time() - 30)
+    assert stub._social_presence_permission() == 1.0
+
+
+def test_camera_active_no_person_and_no_utterance_blocks_social():
+    pmm = MagicMock()
+    pmm.get_present_ids.return_value = []
+    stub = _agent_stub(_presence_watcher=MagicMock(), _pmm=pmm,
+                       _last_human_at=time.time() - 600)   # 10分前＝在席の証拠なし
     assert stub._social_presence_permission() == 0.0
 
 
-def test_camera_active_no_pmm_blocks_social():
-    stub = _agent_stub(_presence_watcher=MagicMock(), _pmm=None)
+def test_camera_active_no_pmm_falls_back_to_the_utterance():
+    stub = _agent_stub(_presence_watcher=MagicMock(), _pmm=None,
+                       _last_human_at=time.time() - 600)
     assert stub._social_presence_permission() == 0.0
