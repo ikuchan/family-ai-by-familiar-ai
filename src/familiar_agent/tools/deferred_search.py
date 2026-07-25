@@ -44,9 +44,27 @@ class DeferredSearchTool:
         self._search_fn = search_fn
         self._utility_backend = utility_backend
         self._pending: list[dict] = []
+        # 完了の渡し先（RH → 完了キュー）。繋がっていれば溜めずにここへ渡す。
+        # 繋がっていなければ従来どおり `_pending` に溜めてポーリングで拾われる（排他）。
+        self._completion_sink = None
         self._running: int = 0
         self._running_queries: set[str] = set()
         self._user_turn: bool = False
+
+    def set_completion_sink(self, sink) -> None:
+        """完了の渡し先を繋ぐ（`EVENT_LOOP` on のとき・引数は (query, result)）。"""
+        self._completion_sink = sink
+
+    def _deliver(self, query: str, result: str) -> bool:
+        """完了を渡し先へ。渡せたら True（溜めない＝二重配信を避ける）。"""
+        if self._completion_sink is None:
+            return False
+        try:
+            self._completion_sink(query, result)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("完了キューへ渡せなかったので溜める: %s", e)
+            return False
 
     def set_user_turn(self, value: bool) -> None:
         """Mark whether the current agent turn is user-initiated (vs. autonomous desire)."""
@@ -143,23 +161,25 @@ class DeferredSearchTool:
         try:
             result, _ = await self._search_fn(mcp_tool, {"query": query})
             logger.debug("deferred search _run completed (query=%r result_len=%d)", query, len(result))
-            if len(self._pending) < _MAX_PENDING:
+            if not self._deliver(query, result) and len(self._pending) < _MAX_PENDING:
                 self._pending.append({"query": query, "result": result, "source": source, "user_initiated": user_initiated})
         except asyncio.CancelledError:
             logger.warning("deferred search timed out after %ds (query=%r)", _SEARCH_TIMEOUT_SEC, query)
-            if len(self._pending) < _MAX_PENDING:
+            _msg = f"検索がタイムアウトしました（{_SEARCH_TIMEOUT_SEC}秒）: {query}"
+            if not self._deliver(query, _msg) and len(self._pending) < _MAX_PENDING:
                 self._pending.append({
                     "query": query,
-                    "result": f"検索がタイムアウトしました（{_SEARCH_TIMEOUT_SEC}秒）: {query}",
+                    "result": _msg,
                     "source": source,
                     "user_initiated": user_initiated,
                 })
         except Exception as exc:
             logger.warning("deferred search failed (query=%r): %s", query, exc)
-            if len(self._pending) < _MAX_PENDING:
+            _msg = f"検索中にエラーが発生しました: {exc}"
+            if not self._deliver(query, _msg) and len(self._pending) < _MAX_PENDING:
                 self._pending.append({
                     "query": query,
-                    "result": f"検索中にエラーが発生しました: {exc}",
+                    "result": _msg,
                     "source": source,
                     "user_initiated": user_initiated,
                 })

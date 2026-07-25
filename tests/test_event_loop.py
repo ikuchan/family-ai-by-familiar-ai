@@ -17,6 +17,8 @@ from familiar_agent.loop.event_loop import InformationProcessing
 _SAY_DEF = {"name": "say", "input_schema": {}}
 _RECALL_DEF = {"name": "recall", "input_schema": {}}
 _REMEMBER_DEF = {"name": "remember", "input_schema": {}}
+_SEARCH_DEF = {"name": "search_deferred", "input_schema": {}}
+_FETCH_DEF = {"name": "fetch_deferred", "input_schema": {}}
 
 
 def _turn(tool_calls, text=""):
@@ -55,6 +57,11 @@ def _agent(*, stream_returns, max_iters=3):
     a._utility_backend.complete = AsyncMock(return_value='{"branch":"full","effort":"high"}')
     a._expected_turns = len(list(stream_returns))
     a._social_presence_permission = MagicMock(return_value=1.0)   # 既定＝誰か居る
+    a._in_quiet_hours = MagicMock(return_value=False)             # 既定＝静穏時間ではない
+    a._deferred_search = MagicMock()
+    a._deferred_search.get_tool_definitions = MagicMock(return_value=[_SEARCH_DEF])
+    a._deferred_fetch = MagicMock()
+    a._deferred_fetch.get_tool_definitions = MagicMock(return_value=[_FETCH_DEF])
     a._pending_store = MagicMock()
     a._pending_store.add = MagicMock(return_value="pending-1")
     a._turn_arousal = AsyncMock(return_value=0.3)
@@ -368,6 +375,33 @@ def test_speech_goes_out_when_someone_is_present():
     a._pending_store.add.assert_not_called()          # 話せたので溜めない
 
 
+def test_deferred_is_wired_to_the_completion_queue_only_when_on():
+    # EVENT_LOOP on のときだけ deferred の完了をキューへ渡す。off では従来どおり溜めて
+    # ポーリングで拾われる（二重配信にしない＝排他）。
+    from familiar_agent.agent import EmbodiedAgent
+
+    async def build(event_loop_on: bool):
+        agent = MagicMock()
+        agent.config = MagicMock()
+        agent.config.event_loop = event_loop_on
+        agent._info_processing = None
+        agent._tonic = None
+        agent._deferred_search = MagicMock()
+        agent._deferred_fetch = MagicMock()
+        EmbodiedAgent._ensure_event_loop(agent)
+        ip, tonic = agent._info_processing, agent._tonic
+        await ip.close()
+        if tonic is not None:
+            await tonic.close()
+        return agent
+
+    on = asyncio.run(build(True))
+    on._deferred_search.set_completion_sink.assert_called_once()
+    on._deferred_fetch.set_completion_sink.assert_called_once()
+    off = asyncio.run(build(False))
+    off._deferred_search.set_completion_sink.assert_not_called()
+
+
 def test_agent_starts_tonic_only_when_event_loop_is_on():
     # T は EVENT_LOOP on のときだけ立てる。off では従来の経路（GUI の描画ループ）が回すので、
     # 両方が同時に drive を進めないようにする。
@@ -458,6 +492,25 @@ def test_driver_runs_next_iteration_when_completion_arrives():
 
     assert asyncio.run(scenario()) == ""        # 1反復目は発話なし
     assert "".join(shown) == "晴れてたよ"       # 2反復目が発話した
+
+
+def test_speech_is_held_during_quiet_hours():
+    # 静穏時間は「聞ける状態ではない」ので発話しない。判定を配信ゲートへ集める
+    # （以前は deferred の配信側だけが静穏を見ており、自発発話は素通りだった）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ"})])])
+    a._in_quiet_hours = MagicMock(return_value=True)
+    assert _run(a) == ""
+    a._tts.call.assert_not_awaited()
+    a._pending_store.add.assert_called_once()     # 後で話すために積む
+
+
+def test_net_actions_are_available():
+    # deferred（投げっぱなしの外部呼び出し）を投げられなければ、完了キュー経由の
+    # 連鎖が意味を持たない。表に2行足すだけで載る。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    ip = InformationProcessing(a)
+    assert ip._tools(actions=("search_deferred",)) == [_SEARCH_DEF]
+    assert ip._tools(actions=("fetch_deferred",)) == [_FETCH_DEF]
 
 
 def test_tools_are_selected_by_the_action_set():

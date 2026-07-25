@@ -108,6 +108,7 @@ class InformationProcessing:
         self._affect_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
         # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
+        self._loop: asyncio.AbstractEventLoop | None = None
         self._inbox: list[tuple[str, str, str | None]] = []
         # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
         self._chain = 0
@@ -192,6 +193,9 @@ class InformationProcessing:
         "recall": lambda a: [
             d for d in a._memory_tool.get_tool_definitions() if d.get("name") == "recall"
         ],
+        # net（投げっぱなしの外部呼び出し）。結果は完了キュー経由で後の反復に届く。
+        "search_deferred": lambda a: a._deferred_search.get_tool_definitions(),
+        "fetch_deferred": lambda a: a._deferred_fetch.get_tool_definitions(),
     }
 
     def _tools(self, *, actions: tuple[str, ...] = ("say", "recall")) -> list[dict]:
@@ -247,13 +251,27 @@ class InformationProcessing:
         """駆動体だけを起こす。以後はキュー到来で反復が回る。"""
         self._ensure_driver()
 
+    def push_completion(self, query: str, result: str) -> None:
+        """RH（資源ハンドラ）が deferred の完了を QC へ積む。
+
+        投げっぱなしの外部呼び出し（検索・取得）の結果は、完了キュー→O 経由で次の反復の
+        入力になる（正本③）。スレッドから呼ばれても届くよう、ループへ委譲する。
+        """
+        loop = getattr(self, "_loop", None)
+        item = (query, str(result), None)
+        if loop is not None and loop.is_running():
+            loop.call_soon_threadsafe(self._completion_queue.put_nowait, item)
+        else:
+            self._completion_queue.put_nowait(item)
+
     def push_affect(self, drive_name: str, prompt: str) -> None:
         """T が drive 発火を QA へ積む（AIF 経由・I は時計を見ない）。"""
         self._affect_queue.put_nowait((drive_name, prompt))
 
     def _ensure_driver(self) -> None:
-        """駆動体：QC 到来で次の反復を起こす（イベント駆動・時計は見ない）。"""
+        """駆動体：キュー到来で次の反復を起こす（イベント駆動・時計は見ない）。"""
         if self._driver is None or self._driver.done():
+            self._loop = asyncio.get_running_loop()
             self._driver = asyncio.create_task(self._drive())
 
     async def _drive(self) -> None:
@@ -453,9 +471,10 @@ class InformationProcessing:
         if not text:
             await self._finish("", memories, "沈黙")
             return ""
-        if agent._social_presence_permission() == 0.0:
+        blocked = self._delivery_block_reason()
+        if blocked:
             await self._hold_speech(text)
-            logger.info("event-loop 在席が無いので発話を保留し pending_speech へ積む")
+            logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
             await self._finish("", memories, "保留")
             return ""
         if agent._tts is not None:
@@ -465,6 +484,20 @@ class InformationProcessing:
             self._on_text(text)
         await self._finish(text, memories, "発話")
         return text
+
+    def _delivery_block_reason(self) -> str:
+        """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。
+
+        正本③ の「配信ゲート（結果有り＋在席）」に静穏時間を併せる。以前は静穏時間を
+        deferred の配信側だけが見ており、自発発話は素通りしていた。判定をここへ集める。
+        """
+        agent = self._agent
+        if agent._social_presence_permission() == 0.0:
+            return "聞く相手が居ない"
+        with contextlib.suppress(Exception):
+            if agent._in_quiet_hours():
+                return "静穏時間である"
+        return ""
 
     async def _hold_speech(self, text: str) -> None:
         """話せなかった内容を O に残し、`pending_speech` へ積む（想起系は汚さない）。"""

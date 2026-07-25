@@ -36,6 +36,8 @@ class DeferredFetchTool:
     ) -> None:
         self._fetch_fn = fetch_fn
         self._pending: list[dict] = []
+        # 完了の渡し先（RH → 完了キュー）。繋がっていれば溜めずに渡す（二重配信を避ける）。
+        self._completion_sink = None
         self._running: int = 0
         self._user_turn: bool = False
 
@@ -95,25 +97,41 @@ class DeferredFetchTool:
             None,
         )
 
+    def set_completion_sink(self, sink) -> None:
+        """完了の渡し先を繋ぐ（`EVENT_LOOP` on のとき・引数は (url, result)）。"""
+        self._completion_sink = sink
+
+    def _deliver(self, url: str, result: str) -> bool:
+        if self._completion_sink is None:
+            return False
+        try:
+            self._completion_sink(url, result)
+            return True
+        except Exception as e:  # noqa: BLE001
+            logger.warning("完了キューへ渡せなかったので溜める: %s", e)
+            return False
+
     async def _run(self, url: str, user_initiated: bool = False) -> None:
         try:
             result, _ = await self._fetch_fn("fetch", {"url": url})
-            if len(self._pending) < _MAX_PENDING:
+            if not self._deliver(url, result) and len(self._pending) < _MAX_PENDING:
                 self._pending.append({"url": url, "result": result, "user_initiated": user_initiated})
         except asyncio.CancelledError:
             logger.warning("deferred fetch timed out after %ds (url=%r)", _FETCH_TIMEOUT_SEC, url)
-            if len(self._pending) < _MAX_PENDING:
+            _msg = f"取得がタイムアウトしました（{_FETCH_TIMEOUT_SEC}秒）: {url}"
+            if not self._deliver(url, _msg) and len(self._pending) < _MAX_PENDING:
                 self._pending.append({
                     "url": url,
-                    "result": f"取得がタイムアウトしました（{_FETCH_TIMEOUT_SEC}秒）: {url}",
+                    "result": _msg,
                     "user_initiated": user_initiated,
                 })
         except Exception as exc:
             logger.warning("deferred fetch failed (url=%r): %s", url, exc)
-            if len(self._pending) < _MAX_PENDING:
+            _msg = f"取得中にエラーが発生しました: {exc}"
+            if not self._deliver(url, _msg) and len(self._pending) < _MAX_PENDING:
                 self._pending.append({
                     "url": url,
-                    "result": f"取得中にエラーが発生しました: {exc}",
+                    "result": _msg,
                     "user_initiated": user_initiated,
                 })
         finally:
