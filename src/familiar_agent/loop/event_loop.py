@@ -104,6 +104,10 @@ class InformationProcessing:
             logger.exception("event-loop recall の実行に失敗: %s", e)
             out = f"（recall を実行できなかった：{e}）"
         self._completion_queue.put_nowait((query, str(out), intent_id))
+        logger.debug(
+            "event-loop RH 完了をQCへ（id=%s qsize=%d 意図=%.8s）",
+            id(self), self._completion_queue.qsize(), intent_id or "-",
+        )
 
     async def _intake(self) -> int:
         """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。"""
@@ -111,6 +115,10 @@ class InformationProcessing:
         items, self._inbox = self._inbox, []
         while not self._completion_queue.empty():
             items.append(self._completion_queue.get_nowait())
+        logger.debug(
+            "event-loop 取込（id=%s items=%d inflight=%d qsize=%d）",
+            id(self), len(items), self._inflight, self._completion_queue.qsize(),
+        )
 
         for query, result_text, intent_id in items:
             self._inflight = max(0, self._inflight - 1)
@@ -188,6 +196,9 @@ class InformationProcessing:
                 self._inbox.append(await self._completion_queue.get())
                 while not self._completion_queue.empty():
                     self._inbox.append(self._completion_queue.get_nowait())
+                logger.debug(
+                    "event-loop 駆動体が完了を受領（id=%s inbox=%d）", id(self), len(self._inbox)
+                )
                 await self._iterate()
             except asyncio.CancelledError:
                 raise
