@@ -678,6 +678,21 @@ class InformationProcessing:
                 await agent._tts.call("say", {"text": text})
         if self._on_text is not None:
             self._on_text(text)
+        # 言ったことを O に残す。残さないと、次の反復の W に「もう一言伝えた」事実が
+        # 入らず、調停はそれを知らないまま同じことをまた言う（実機で1秒差に同じ文が
+        # 2回出た）。抑止で黙らせるのではなく、判断できる材料を渡して解く。
+        content = f"つなぎに言った：{text}"
+        obs_id, _ = await agent._memory.save_async_with_id(
+            content[:500],
+            direction="発話",
+            kind="observation",
+            materialize_now=True,
+            parent_id=self._parent_id,
+            **agent._observation_perspective(),
+        )
+        # 鎖に載せる（W の先頭に出る）。求めが決着したら他の子と一緒に閉じるので、
+        # 中身の無い前置きが記憶に残り続けることはない。
+        self._advance_chain(obs_id, content[:500])
 
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。

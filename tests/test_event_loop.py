@@ -952,3 +952,29 @@ def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
     shown: list[str] = []
     _run(a, on_text=shown.append)
     assert "えーっと" not in "".join(shown)
+
+
+def test_filler_is_recorded_so_the_arbiter_knows_it_already_spoke():
+    # つなぎは発話なのに O に残らず、次の反復の W に「もう一言伝えた」事実が入らなかった。
+    # 調停はそれを知らないので同じことをまた言う（実機で1秒差に同じ文が2回出た）。
+    # 抑止ではなく記録で解く：鎖に載れば W に現れ、調停が読んで判断できる。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "マイクラ"})]),
+        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+    ])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"action","action":"recall","query":"マイクラ",'
+                     '"text":"ちょっと調べてみますね"}')
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip.run_iteration("マインクラフトってどんなゲーム？")
+        head = ip._chain_head_content
+        await ip.close()
+        return head
+
+    head = asyncio.run(scenario())
+    said = [c for c in a._memory.save_async_with_id.call_args_list
+            if c.kwargs.get("direction") == "発話" and "調べてみますね" in c.args[0]]
+    assert len(said) == 1                      # つなぎが O に1件残る
+    assert "調べてみますね" in head             # 鎖に載る＝次の反復の W に出る
