@@ -47,3 +47,17 @@ def test_me_md_is_carried_verbatim_into_the_generation_prompt():
     prompt = build_self_understanding_prompt(me_md=me, manifest=_YAML)
     assert me in prompt                    # 逐語で渡す
     assert "そのまま" in prompt             # 変えずに残せと指示している
+
+
+def test_generation_asks_for_words_a_person_would_say():
+    # capabilities.yaml は実装から作られるので、放っておくと内部機構がそのまま能力になる
+    # （「予測誤差を最小限に抑える」「ソーシャルポリシーを提供する」）。自分を語る言葉と
+    # して不自然で、会話に漏れると生の内部指標を出さない制約にも触れる。
+    prompt = build_self_understanding_prompt(me_md="me", manifest=_YAML)
+    assert "仕組みの名前" in prompt
+    # 家族と暮らす伴侶であって、利用者に対するサービスではない。「ユーザーさんの…」が
+    # 27行並ぶと、その呼び方が家族への話しかけ方に滲む。
+    assert "「ユーザー」と呼ばない" in prompt
+    # 内部の名前を避けさせると機構ごとの区別が消え、似た文が並ぶ（「話を聞いて理解する」
+    # が3行）。行数より重ならないことを優先させる。
+    assert "同じことを書かない" in prompt
