@@ -150,6 +150,9 @@ class InformationProcessing:
         # 無いので、起点の内容を手がかり・調停の入力・user メッセージに使う。
         self._origin_kind = "発話"
         self._on_text = None
+        # 発話の通知先（GUI は「発話は on_action("say") で来る」前提で作られており、
+        # 素テキストは say の前の途中経過としてしか扱わない）。CUI は持たない。
+        self._on_action = None
         self._pending_intent: tuple[str, dict, str] = ("", {}, "recall")
 
 
@@ -311,9 +314,24 @@ class InformationProcessing:
         self._advance_chain(trigger_id, utterance[:500])
         return await self._iterate()
 
-    def set_output(self, on_text) -> None:
-        """発話の表示先を登録する。人の発話を待たずに出口が定まる（起動時にアプリが渡す）。"""
+    def _emit(self, text: str) -> None:
+        """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
+        if not text:
+            return
+        if self._on_text is not None:
+            self._on_text(text)
+        if self._on_action is not None:
+            with contextlib.suppress(Exception):
+                self._on_action("say", {"text": text})
+
+    def set_output(self, on_text, on_action=None) -> None:
+        """発話の表示先を登録する。人の発話を待たずに出口が定まる（起動時にアプリが渡す）。
+
+        `on_action`：GUI の表示経路。ログ表示・ひとりごと判定・音声タグの除去がそちらに
+        集まっているので、同じ約束（`("say", {"text": …})`）で通知すればそのまま効く。
+        """
         self._on_text = on_text
+        self._on_action = on_action or self._on_action
 
     def start(self) -> None:
         """駆動体だけを起こす。以後はキュー到来で反復が回る。"""
@@ -657,8 +675,8 @@ class InformationProcessing:
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
         logger.debug("event-loop iter=%d/%d 決定=none", chain, max_chain)
         text = (result.text or "").strip()
-        if text and self._on_text is not None:
-            self._on_text(text)
+        if text:
+            self._emit(text)
         await self._finish(text, memories, "沈黙")
         return text
 
@@ -683,8 +701,7 @@ class InformationProcessing:
         if agent._tts is not None:
             with contextlib.suppress(Exception):
                 await agent._tts.call("say", {"text": text})
-        if self._on_text is not None:
-            self._on_text(text)
+        self._emit(text)
         await self._finish(text, memories, "発話")
         return text
 
@@ -700,8 +717,7 @@ class InformationProcessing:
         if agent._tts is not None:
             with contextlib.suppress(Exception):
                 await agent._tts.call("say", {"text": text})
-        if self._on_text is not None:
-            self._on_text(text)
+        self._emit(text)
         # 言ったことを O に残す。残さないと、次の反復の W に「もう一言伝えた」事実が
         # 入らず、調停はそれを知らないまま同じことをまた言う（実機で1秒差に同じ文が
         # 2回出た）。抑止で黙らせるのではなく、判断できる材料を渡して解く。

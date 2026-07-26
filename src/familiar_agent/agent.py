@@ -2730,7 +2730,7 @@ class EmbodiedAgent:
         except Exception as e:
             logger.warning("Could not write today's self narrative: %s", e)
 
-    def _ensure_event_loop(self, on_text=None) -> None:
+    def _ensure_event_loop(self, on_text=None, on_action=None) -> None:
         """I（情報処理機構）と T（自律機構）を用意する。
 
         T は時計を持つ唯一の側で、`EVENT_LOOP` on のときだけ立てる。off では従来の経路
@@ -2741,8 +2741,8 @@ class EmbodiedAgent:
 
         if getattr(self, "_info_processing", None) is None:
             self._info_processing = InformationProcessing(self)
-        if on_text is not None:
-            self._info_processing.set_output(on_text)
+        if on_text is not None or on_action is not None:
+            self._info_processing.set_output(on_text, on_action=on_action)
         self._info_processing.start()
         if getattr(self.config, "event_loop", False) is True:
             if getattr(self, "_tonic", None) is None:
@@ -3010,7 +3010,10 @@ class EmbodiedAgent:
         # #11 段階1：EVENT_LOOP on の user turn は新イベント駆動ループへ排他切替（発話のみ）。
         if getattr(self.config, "event_loop", False) is True and user_input and not desire_name:
             # I（情報処理機構）と T（自律機構）を用意し、LPM の反復を回す。
-            self._ensure_event_loop(on_text)
+            # GUI は「発話は on_action("say") で来る」前提で作られている（素テキストは
+            # say の前の途中経過としてしか扱わず、say が出たら捨てる）。渡さないと GUI に
+            # 何も表示されない（実機で観測）。
+            self._ensure_event_loop(on_text, on_action)
             return await self._info_processing.run_iteration(user_input, on_text=on_text)
 
         if desires is not None:
