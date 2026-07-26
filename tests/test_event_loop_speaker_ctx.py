@@ -46,3 +46,25 @@ def test_face_recognised_speaker_wins_over_self_declared():
     rows = [{"name": "たいき", "is_speaker": True, "confidence": 0.92}]
     ctx = _present_ctx(_agent(rows=rows, explicit="パパ"))
     assert '"たいき"' in ctx and "パパ" not in ctx
+
+
+def test_who_we_think_we_are_talking_to_is_logged(caplog):
+    # 誰と話していると思って喋ったかが、後からログで確かめられること。これが無いと、
+    # 口調がおかしいときに「話者が渡っていない」のか「渡ったが口調が従っていない」のかを
+    # 切り分けられない（実機の検証で行き詰まった）。
+    import asyncio
+    import logging
+
+    from tests.test_event_loop import _agent as _loop_agent
+    from tests.test_event_loop import _turn
+    from familiar_agent.backend import ToolCall
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = _loop_agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    persons = PersonRegistry("あなた")
+    persons.set_active("パパ")
+    a._persons = persons
+    a._pmm.presence_status = MagicMock(return_value=[])
+    with caplog.at_level(logging.DEBUG, logger="familiar_agent.loop.event_loop"):
+        asyncio.run(InformationProcessing(a).run_iteration("おはよう"))
+    assert any("在席" in r.message and "パパ" in r.getMessage() for r in caplog.records)

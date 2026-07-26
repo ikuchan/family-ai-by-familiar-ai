@@ -457,6 +457,11 @@ class InformationProcessing:
         # 3. ARB（調停）：軽量LLM が会話の重さを自己判断し、出し方を3つへ振り分ける（段4）。
         #    フルLLM は「言語生成が要るとき」だけ起こす。実測で1ターン 10.5 秒のうち LLM が
         #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
+        # 誰と話していると思って喋ったかを残す。これが無いと、口調がおかしいときに
+        # 「話者が渡っていない」のか「渡ったが口調が従っていない」のかを切り分けられない。
+        present_ctx = _present_ctx(agent)
+        logger.debug("event-loop iter=%d/%d 在席=%s", chain, max_chain, present_ctx)
+
         capped = chain >= max_chain
         if capped:
             # 上限で打ち切ったことは、後からログだけで判別できる必要がある（DEBUG の
@@ -490,7 +495,7 @@ class InformationProcessing:
             me_md=getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             capabilities=load_summary(),
-            present_ctx=_present_ctx(agent),
+            present_ctx=present_ctx,
             pi_ctx=_pi_ctx(),
             iter_ctx=(
                 f"[反復] {chain}/{max_chain}"
