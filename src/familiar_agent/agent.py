@@ -2743,7 +2743,7 @@ class EmbodiedAgent:
         self._info_processing.start()
         if getattr(self.config, "event_loop", False) is True:
             if getattr(self, "_tonic", None) is None:
-                self._tonic = Tonic(self._info_processing)
+                self._tonic = Tonic(self._info_processing, agent=self)
             self._tonic.start()
             # RH（資源ハンドラ）の完了を QC へ渡す。off のままだと従来どおり溜めて
             # ポーリングで拾われるので、二重配信にならない（排他）。

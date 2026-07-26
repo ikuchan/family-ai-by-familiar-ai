@@ -131,6 +131,9 @@ class InformationProcessing:
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
         self._affect_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
+        # QD：DIFキュー（機器）。T が在席者の差分を人の出入りとして積む。
+        # 要素＝(種別＝入室｜退室, 内容, 保留していた発話を配るか)。
+        self._device_queue: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
         # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -329,6 +332,10 @@ class InformationProcessing:
         """T が drive 発火を QA へ積む（AIF 経由・I は時計を見ない）。"""
         self._affect_queue.put_nowait((drive_name, prompt))
 
+    def push_device(self, kind: str, content: str, *, release_pending: bool = False) -> None:
+        """T が人の出入りを QD へ積む（DIF 経由・I は時計を見ない）。"""
+        self._device_queue.put_nowait((kind, content, release_pending))
+
     def _ensure_driver(self) -> None:
         """駆動体：キュー到来で次の反復を起こす（イベント駆動・時計は見ない）。"""
         if self._driver is None or self._driver.done():
@@ -345,7 +352,7 @@ class InformationProcessing:
         while True:
             try:
                 # 待つ対象は配列で持つ（QD を足すときは1本加えるだけ）。
-                queues = [self._completion_queue, self._affect_queue]
+                queues = [self._completion_queue, self._affect_queue, self._device_queue]
                 waiters = {asyncio.ensure_future(q.get()): q for q in queues}
                 try:
                     done, pending = await asyncio.wait(
@@ -356,19 +363,29 @@ class InformationProcessing:
                 for task in pending:
                     task.cancel()
                 affect = None
+                device = None
                 for task in done:
                     item = task.result()
-                    if waiters[task] is self._completion_queue:
+                    q = waiters[task]
+                    if q is self._completion_queue:
                         self._inbox.append(item)
-                    else:
+                    elif q is self._affect_queue:
                         affect = item
+                    else:
+                        device = item
                 # 同じキューに溜まっている分もまとめて取る。
                 while not self._completion_queue.empty():
                     self._inbox.append(self._completion_queue.get_nowait())
                 if affect is None and not self._affect_queue.empty():
                     affect = self._affect_queue.get_nowait()
+                if device is None and not self._device_queue.empty():
+                    device = self._device_queue.get_nowait()
 
-                if affect is not None:
+                if device is not None:
+                    kind, content, release_pending = device
+                    logger.debug("event-loop 駆動体が機器を受領（%s）", kind)
+                    await self._begin_device(kind, content, release_pending)
+                elif affect is not None:
                     drive_name, prompt = affect
                     logger.debug("event-loop 駆動体が情動を受領（%s）", drive_name)
                     await self._begin_affect(drive_name, prompt)
@@ -406,6 +423,56 @@ class InformationProcessing:
         self._parent_id = obs_id
         self._advance_chain(obs_id, content[:500])
         await self._iterate()
+
+    async def _begin_device(self, kind: str, content: str, release_pending: bool) -> None:
+        """機器（人の出入り）で新しい連鎖を始める。取込＝来た事実を O に書き、鎖の起点にする。
+
+        `release_pending` が真なら、聞く相手が居らず保留していた発話を先に配る。在席が
+        ゼロから立ち上がった瞬間だけ真になる（寿命は `pending_speech` 側が持つので、
+        新しいキューは作らない）。
+        """
+        agent = self._agent
+        self._utterance = ""
+        self._origin_kind = "機器"
+        self._chain = 0
+        self._capped_hit = False
+        text = f"[{kind}] {content}"
+        held = await self._release_pending_speech() if release_pending else ""
+        if held:
+            text = f"{text}\n聞く相手が居ないあいだに話したかったこと：{held}"
+        obs_id, _ = await agent._memory.save_async_with_id(
+            text[:500],
+            direction="機器",
+            kind="observation",
+            materialize_now=True,
+            **agent._observation_perspective(),
+        )
+        self._parent_id = obs_id
+        self._advance_chain(obs_id, text[:500])
+        await self._iterate()
+
+    async def _release_pending_speech(self) -> str:
+        """保留していた発話を取り出す（鮮度切れは捨てる）。寿命は pending_speech 側が持つ。"""
+        store = getattr(self._agent, "_pending_store", None)
+        if store is None:
+            return ""
+        try:
+            from ..config import PendingSpeechConfig
+
+            cfg = PendingSpeechConfig()
+            now_epoch = time.time()
+            texts: list[str] = []
+            for row in store.list_active():
+                score = store.freshness_score(row, now_epoch, cfg)
+                if store.is_expired(row, score, cfg):
+                    store.delete(row["id"])
+                    continue
+                texts.append(row.get("content", ""))
+                store.delete(row["id"])
+            return " / ".join(t for t in texts if t)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("保留していた発話を取り出せなかった: %s", e)
+            return ""
 
     async def close(self) -> None:
         if self._driver is not None:

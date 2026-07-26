@@ -56,10 +56,15 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
 class Tonic:
     """自律機構の常駐タスク。$P_T$ ごとに drive を進め、発火を QA へ積む。"""
 
-    def __init__(self, information_processing, *, period: float = TONIC_PERIOD_SEC,
+    def __init__(self, information_processing, *, agent=None,
+                 period: float = TONIC_PERIOD_SEC,
                  drive_cfg: DriveConfig | None = None) -> None:
         self._ip = information_processing
+        self._agent = agent
         self._period = period
+        # 前回の在席者。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
+        # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
+        self._present_names: set[str] | None = None
         # 自発の可否は `DRIVE5_AUTONOMOUS`（5欲求）で決める。旧 `DesireSystem`（15欲求）用の
         # `AUTO_DESIRE` とは系統が違うので独立させる。
         self._cfg = drive_cfg or DriveConfig()
@@ -78,6 +83,37 @@ class Tonic:
                 pass
             self._task = None
 
+    def scan_presence(self) -> None:
+        """在席者の集合を見て、前回との差分を人の出入りとして QD へ積む。
+
+        身元はいま PMM（InsightFace）からしか取れない。設計（用語一覧の二層）では在/不在は
+        T(G) の presence レジスタ、誰かは I 側の解決器が担うので、**この情報源は暫定**である。
+        QD へ流すイベントの形（種別・誰が）は取得方法から独立させてあるので、#8 では
+        ここの読み出しを差し替えるだけで済む。
+
+        読むのはメモリ上の辞書（ロック付き）で、DB も I/O も触らない。
+        """
+        agent = self._agent
+        if agent is None:
+            return
+        try:
+            rows = agent._pmm.presence_status()
+        except Exception:  # noqa: BLE001
+            return
+        current = {str(r.get("name") or r.get("person_id") or "") for r in rows}
+        current.discard("")
+        previous, self._present_names = self._present_names, current
+        if previous is None:          # 起動直後の1回目は差分を取らない
+            return
+        # 保留していた発話を配るのは、在席がゼロから立ち上がった瞬間だけ。入室そのものは
+        # 毎回積むが、会話中に家族が増えるたび保留が割り込むのは避ける。
+        rose_from_zero = not previous and bool(current)
+        for name in sorted(current - previous):
+            self._ip.push_device("入室", f"{name} が来た", release_pending=rose_from_zero)
+            rose_from_zero = False    # 同時に2人来ても保留を配るのは1回
+        for name in sorted(previous - current):
+            self._ip.push_device("退室", f"{name} が居なくなった", release_pending=False)
+
     async def _run(self) -> None:
         last = time.monotonic()
         while True:
@@ -85,6 +121,7 @@ class Tonic:
                 await asyncio.sleep(self._period)
                 now = time.monotonic()
                 dt, last = now - last, now
+                self.scan_presence()
                 firing, accumulated = await step_drives(dt)
                 if not firing.any:
                     continue
