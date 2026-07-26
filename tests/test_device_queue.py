@@ -207,3 +207,41 @@ def test_held_speech_flows_into_w_with_when_it_was_wanted():
     device_mi = next(c.args[0] for c in a._memory.save_async_with_id.call_args_list
                      if c.kwargs.get("direction") == "機器")
     assert "こんばんは" not in device_mi
+
+
+def test_releasing_held_speech_is_logged_with_its_count():
+    # system プロンプトの全文は出していないので、件数を残さないと「載ったが触れられ
+    # なかった」のか「そもそも載っていない」のかを区別できない（実機で、配られたのに
+    # 発話がそれに触れなかった）。
+    import datetime as _dt
+    import logging
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = MagicMock()
+    a._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    a._observation_perspective = MagicMock(return_value={})
+    a._pending_store.list_active = MagicMock(return_value=[{
+        "id": "p1", "observation_id": "obs-held",
+        "created_at": _dt.datetime.now(_dt.timezone.utc), "content": "こんばんは",
+    }])
+    a._pending_store.freshness_score = MagicMock(return_value=1.0)
+    a._pending_store.is_expired = MagicMock(return_value=False)
+
+    records: list[str] = []
+
+    class _H(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("familiar_agent.loop.event_loop")
+    handler, old_level = _H(), logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.INFO)      # 既定は WARNING なので INFO が届かない
+    try:
+        ip = InformationProcessing(a)
+        asyncio.run(ip._release_pending_speech())
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old_level)
+    assert any("保留を配る：1件" in m for m in records)

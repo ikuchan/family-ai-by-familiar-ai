@@ -529,6 +529,11 @@ class InformationProcessing:
                 with contextlib.suppress(Exception):
                     self._agent._memory.mark_superseded(row["observation_id"], self._parent_id)
             self._released_speech = released
+            if released:
+                # 何件を W へ流したかを残す。system プロンプトの全文は出していないので、
+                # これが無いと「載ったが触れられなかった」のか「そもそも載っていない」のか
+                # を区別できない（実機で、配られたのに発話が触れなかった）。
+                logger.info("event-loop 保留を配る：%d件", len(released))
         except Exception as e:  # noqa: BLE001
             logger.exception("保留していた発話を取り出せなかった: %s", e)
 
