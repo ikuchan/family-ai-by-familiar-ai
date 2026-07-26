@@ -30,26 +30,38 @@ ARBITER_PROMPT = """\
 あなたは対話エージェントの内部で、次の一手を選ぶ調停器である。会話ではないので、
 挨拶や説明はせず、指定の JSON だけを返す。
 
-いま人から届いた言葉と、思い出している記憶を見て、次のどれかを選ぶ。
+いま人から届いた言葉と、いまの作業状態を見て、次のどれかを選ぶ。
 
 - "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
 - "full"   : 記憶を踏まえた言葉選びや、込み入った説明が要る。生成は別の大きなモデルが行う。
              どれくらい深く考えるべきかを effort に "low" / "medium" / "high" で書く。
-- "action" : まだ材料が足りず、先に調べる。どうやって調べるかを action に書く。
+- "action" : いまある材料では答えきれず、先に調べる。どうやって調べるかを action に書く。
              "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）。
              探す語を query に、待ってもらうための short な一言を text に書く
              （「調べてみるね」程度。内容にはまだ触れない）。
 
 判断の基準は自分で決めてよい。迷ったら "full" を選ぶ。
-記憶の中に「[調査中]」があれば、それは今まさに探している最中である。同じことを重ねて
-投げない（別のことを調べるのは構わない）。
+
+**分かれ目は、結果が届いたかどうかではなく、いまある材料が問いに答えるに足るかどうかである。**
+
+- 材料が無い　　　　　　　　　　　　　→ "action"（調べる）
+- 材料は届いたが、問いに答えきれない　→ "action"（別の角度・別の語で調べ直す）
+- 材料が問いに答えるに足る　　　　　　→ "full"（答える）
+
+作業状態には、あなた自身がいましたこと（何を・どうやって調べ、何が届いたか）が
+記録として並んでいる。それを読み、同じことを重ねて投げない（別のことを調べるのは構わない）。
 自分が覚えているはずのこと（家族の出来事・過去の会話）は "recall"、
 世の中のこと（天気・ニュース・調べもの）は "search_deferred" を選ぶ。
+{capped_note}
+[あなたは誰か]
+{me}
+
+text を書くときは、この人格として、この口調で書く。
 
 [人の言葉]
 {utterance}
 
-[思い出している記憶]
+[いまの作業状態]
 {workspace}
 
 次の形の JSON だけを返す（他には何も書かない）:
@@ -101,10 +113,27 @@ def _parse(reply: str) -> Decision | None:
     return Decision(branch=branch, text=text, effort=effort, action=action, query=query)
 
 
+_CAPPED_NOTE = """
+これ以上は調べられない（反復の上限に達した）。"action" は選べない。いまある材料で答える
+ことになるので "light" か "full" を選ぶ。
+"""
+
+
 async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
+                    me_md: str = "", capped: bool = False,
                     timeout: float = 2.0) -> Decision:
-    """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。"""
-    prompt = ARBITER_PROMPT.format(utterance=utterance, workspace=workspace_ctx or "（なし）")
+    """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
+
+    `me_md`：人格（ME）。**発話の出口は2つ**（ここの light／つなぎ と、フルLLM の答え）
+    なので、軽量側にも人格を渡さないと同じ人格が2つの口で違う口調で喋る。
+    `capped`：反復上限。渡さないと上限でも "action" を選び、その判断が丸ごと捨てられる。
+    """
+    prompt = ARBITER_PROMPT.format(
+        utterance=utterance,
+        workspace=workspace_ctx or "（なし）",
+        me=me_md or "（指定なし）",
+        capped_note=_CAPPED_NOTE if capped else "",
+    )
     try:
         reply = await asyncio.wait_for(backend.complete(prompt, 300), timeout=timeout)
     except asyncio.TimeoutError:

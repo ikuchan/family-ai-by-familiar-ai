@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock
 
-from familiar_agent.loop.arbiter import Decision, arbitrate
+from familiar_agent.loop.arbiter import ARBITER_PROMPT, Decision, arbitrate
 
 
 def _backend(reply: str):
@@ -77,3 +77,35 @@ def test_timeout_falls_back_to_full():
     d = asyncio.run(arbitrate(b, utterance="x", workspace_ctx="", timeout=0.05))
     assert d.branch == "full"
     assert d.effort == "high"
+
+
+def _prompt_of(backend) -> str:
+    """軽量LLM に実際に渡った文面。"""
+    return backend.complete.call_args.args[0]
+
+
+def test_arbiter_speaks_as_the_persona():
+    # 発話の出口は2つ（軽量LLM のつなぎ・light／フルLLM の答え）。軽量側にだけ人格が
+    # 渡っていないと、同じ人格が2つの口で違う口調で喋る（実機で「調べてくるね！」と
+    # 「調べてみますね。」が混ざった）。
+    b = _backend('{"branch":"light","text":"やあ"}')
+    asyncio.run(arbitrate(b, utterance="こんにちは", workspace_ctx="",
+                          me_md="名前： パジュ\n一人称：ぼく"))
+    assert "パジュ" in _prompt_of(b) and "ぼく" in _prompt_of(b)
+
+
+def test_arbiter_judges_sufficiency_not_mere_arrival():
+    # 「結果が届いたか」ではなく「答えるに足るか」で分ける。足りなければ別の角度で調べ直す。
+    assert "[調査中]" not in ARBITER_PROMPT      # 廃止した合成ラベル＝死んだ指示
+    assert "足る" in ARBITER_PROMPT
+
+
+def test_arbiter_is_told_when_no_more_looking_up_is_possible():
+    # 上限では action を選ばせない。いまは選ばせてコード側が捨てており、その反復の判断が
+    # まるごと無駄になる。
+    b = _backend('{"branch":"full"}')
+    asyncio.run(arbitrate(b, utterance="?", workspace_ctx="", capped=True))
+    assert "これ以上は調べられない" in _prompt_of(b)
+    b2 = _backend('{"branch":"full"}')
+    asyncio.run(arbitrate(b2, utterance="?", workspace_ctx="", capped=False))
+    assert "これ以上は調べられない" not in _prompt_of(b2)

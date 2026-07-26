@@ -448,6 +448,8 @@ class InformationProcessing:
             agent._utility_backend,
             utterance=utterance or self._chain_head_content,
             workspace_ctx=workspace_ctx,
+            me_md=getattr(agent, "_me_md", ""),
+            capped=capped,
         )
         logger.debug("event-loop iter=%d/%d 調停=%s effort=%s",
                      chain, max_chain, decision.branch, decision.effort)
@@ -473,7 +475,10 @@ class InformationProcessing:
             pi_ctx=_pi_ctx(),
             iter_ctx=(
                 f"[反復] {chain}/{max_chain}"
-                + ("（これ以上は探せない。いまある材料で答える）" if capped else "")
+                # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答える。
+                # 断りが無いと、材料不足のまま答えたことが相手に伝わらない。
+                + ("（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"
+                   "そのうえで現時点で分かることを返す）" if capped else "")
             ),
             workspace_ctx=workspace_ctx,
         )

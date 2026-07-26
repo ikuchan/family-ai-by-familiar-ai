@@ -293,6 +293,24 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
     assert len(done.args[0]) <= 8192          # 埋め込みの入力上限は超えない
 
 
+def test_capped_iteration_tells_the_full_llm_to_admit_it_could_not_finish():
+    # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから分かることを返す。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])],
+               max_iters=1)
+    _run(a, utterance="調べて")
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "上限に達した" in system and "現時点で分かること" in system
+
+
+def test_workspace_records_are_notes_not_a_script_to_read_aloud():
+    # W に載るループの記録は自分の覚え書き。内部の言い回し（「調べた結果が届いた」）を
+    # そのまま復唱した（実機で観測）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    _run(a, utterance="おはよう")
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "読み上げる文ではない" in system
+
+
 def test_w_presents_the_loop_records_as_mi_not_synthetic_labels():
     # W は「思い出している記憶」ではなく、いまの作業状態。ループの記録は MI としてそのまま
     # 並べ、合成ラベル（[取込]・[調査中]）は作らない。
