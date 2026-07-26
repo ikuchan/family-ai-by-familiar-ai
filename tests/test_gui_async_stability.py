@@ -474,6 +474,10 @@ async def test_gui_process_queue_fires_desires_outside_quiet_hours(monkeypatch):
     fake_agent = MagicMock()
     fake_agent._schedule_rule = _NeverQuietRule()
     fake_agent.should_deliver_deferred_result.return_value = False
+    # これは旧経路（GUI アイドルが自分でターンを起こす）の検査。イベント駆動ループが
+    # 既定になったあとは、アイドルの自発系は入口で飛ばされる。MagicMock のままだと
+    # `config.event_loop` が真になって黙って飛ばされるので、明示して旧経路を選ぶ。
+    fake_agent.config.event_loop = False
     win._agent = fake_agent
     win._agent_ready = True
 
