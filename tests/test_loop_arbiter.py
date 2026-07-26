@@ -138,7 +138,16 @@ def test_full_branch_also_writes_a_filler_that_avoids_committing_to_content():
 
 
 def test_second_filler_is_asked_to_continue_not_restart():
-    # 実機で「〜ですね！」で始まる前置きが3回続いた。黙らせるのではなく、続きとして
-    # 自然につながる言葉を書かせる。
+    # 実機で同じ言い回しの前置きが続いた。黙らせるのではなく、続きとして書かせる。
     assert "その続きとして書く" in ARBITER_PROMPT
-    assert "二言目は短く" in ARBITER_PROMPT
+    assert "二言目は" in ARBITER_PROMPT
+
+
+def test_prompt_holds_no_quotable_sample_utterances():
+    # カギ括弧で括った「そのまま言える文」を置くと、指示より強く働いて写される。
+    # 実機で2度起きた：「調べてみるね」がタメ口を固定し、「もう少しかかりそう」が
+    # 「それだけ？」への答えとしてそのまま出た。書き方の説明は残し、見本だけ置かない。
+    import re
+
+    for sample in re.findall(r"「([^」]*)」", ARBITER_PROMPT):
+        assert sample.startswith("〜") or len(sample) <= 3, f"見本が残っている: {sample}"
