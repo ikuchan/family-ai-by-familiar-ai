@@ -2975,6 +2975,35 @@ class EmbodiedAgent:
         inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
         desire_name: the desire that triggered this turn (empty for user turns).
         """
+        # ── Speaker identification ────────────────────────────────────────────
+        # /speaker command sets the session-default speaker.
+        _speaker_reply = self._handle_speaker_command(user_input)
+        if _speaker_reply is not None:
+            if on_text:
+                on_text(_speaker_reply)
+            return _speaker_reply
+
+        # Parse [name] / @name: prefix; strip it from user_input for the LLM.
+        user_input, _speaker_from_prefix = parsing.extract_speaker_prefix(user_input)
+        if _speaker_from_prefix:
+            self._persons.set_active(_speaker_from_prefix)
+            await self._sync_pmm_speaker(_speaker_from_prefix)
+
+        # ── File reload command ───────────────────────────────────────────────
+        _reload_reply = self._handle_reload_command(user_input)
+        if _reload_reply is not None:
+            if on_text:
+                on_text(_reload_reply)
+            return _reload_reply
+
+        # ── Thinking-mode slash-commands & natural-language shortcuts ────────
+        # These return immediately without calling the LLM.
+        _think_reply = self._handle_thinking_command(user_input)
+        if _think_reply is not None:
+            if on_text:
+                on_text(_think_reply)
+            return _think_reply
+
         # #11 段階1：EVENT_LOOP on の user turn は新イベント駆動ループへ排他切替（発話のみ）。
         if getattr(self.config, "event_loop", False) is True and user_input and not desire_name:
             # I（情報処理機構）と T（自律機構）を用意し、LPM の反復を回す。
@@ -3011,35 +3040,6 @@ class EmbodiedAgent:
                 )
             else:
                 self._cache_heartbeat_task = None
-
-        # ── Speaker identification ────────────────────────────────────────────
-        # /speaker command sets the session-default speaker.
-        _speaker_reply = self._handle_speaker_command(user_input)
-        if _speaker_reply is not None:
-            if on_text:
-                on_text(_speaker_reply)
-            return _speaker_reply
-
-        # Parse [name] / @name: prefix; strip it from user_input for the LLM.
-        user_input, _speaker_from_prefix = parsing.extract_speaker_prefix(user_input)
-        if _speaker_from_prefix:
-            self._persons.set_active(_speaker_from_prefix)
-            await self._sync_pmm_speaker(_speaker_from_prefix)
-
-        # ── File reload command ───────────────────────────────────────────────
-        _reload_reply = self._handle_reload_command(user_input)
-        if _reload_reply is not None:
-            if on_text:
-                on_text(_reload_reply)
-            return _reload_reply
-
-        # ── Thinking-mode slash-commands & natural-language shortcuts ────────
-        # These return immediately without calling the LLM.
-        _think_reply = self._handle_thinking_command(user_input)
-        if _think_reply is not None:
-            if on_text:
-                on_text(_think_reply)
-            return _think_reply
 
         self._turn_count += 1
         first_turn = self._turn_count == 1
