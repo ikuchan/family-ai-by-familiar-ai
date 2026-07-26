@@ -83,9 +83,13 @@ text を書くときは、この人格として、この相手に向けて、い
 [いまの作業状態]
 {workspace}
 
+相手が**いまは話しかけないでほしい**と伝えているなら、`silence` に true を書く。言い方は
+一つではない（うるさい、あとにして、いま集中したい、静かにして…）。頼まれたと読めるかで
+判断する。true にすると、その人が居るあいだ発話を止める。頼まれてもいないのに止めない。
+
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
- "action": "recall|search_deferred", "query": "…"}}
+ "action": "recall|search_deferred", "query": "…", "silence": false}}
 使わない項目は省いてよい。
 """
 
@@ -99,6 +103,7 @@ class Decision:
     effort: str = "high"  # full：思考の深さ
     action: str = "recall"  # action：どの動作で調べるか
     query: str = ""       # action：探す語
+    silence: bool = False  # 相手が「いまは話しかけないで」と伝えている
 
 
 _FALLBACK = Decision(branch="full", effort="high")
@@ -120,6 +125,7 @@ def _parse(reply: str) -> Decision | None:
     if effort not in _EFFORTS:
         effort = "high"
     text = str(data.get("text", "")).strip()
+    silence = bool(data.get("silence", False))
     query = str(data.get("query", "")).strip()
     action = str(data.get("action", "")).strip() or "recall"
     if action not in ("recall", "search_deferred", "fetch_deferred"):
@@ -129,7 +135,8 @@ def _parse(reply: str) -> Decision | None:
         return None
     if branch == "action" and not query:
         return None
-    return Decision(branch=branch, text=text, effort=effort, action=action, query=query)
+    return Decision(branch=branch, text=text, effort=effort, action=action, query=query,
+                    silence=silence)
 
 
 _CAPPED_NOTE = """

@@ -568,6 +568,10 @@ class InformationProcessing:
         )
         logger.debug("event-loop iter=%d/%d 調停=%s effort=%s",
                      chain, max_chain, decision.branch, decision.effort)
+        # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
+        # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
+        if decision.silence:
+            self._accept_silence()
 
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
@@ -712,12 +716,49 @@ class InformationProcessing:
         deferred の配信側だけが見ており、自発発話は素通りしていた。判定をここへ集める。
         """
         agent = self._agent
+        # 「黙っていて」と頼まれているあいだは、話しかけられても話さない。頼んだ人が
+        # 居なくなれば（退室）その時点で解け、期限（Config・既定60分）を過ぎても解ける。
+        # 判定だけで済むので解除の処理を別に持たない。言葉は捨てず pending_speech へ溜める。
+        with contextlib.suppress(Exception):
+            from ..silence_state import is_silenced, load_silence
+
+            if is_silenced(load_silence(), present=self._present_names(), now=time.time()):
+                return "黙っているよう頼まれている"
         if agent._social_presence_permission() == 0.0:
             return "聞く相手が居ない"
         with contextlib.suppress(Exception):
             if agent._in_quiet_hours():
                 return "静穏時間である"
         return ""
+
+    def _accept_silence(self) -> None:
+        """黙っている依頼を受ける。宛先は、いま話している相手。"""
+        agent = self._agent
+        with contextlib.suppress(Exception):
+            from ..silence_state import SilenceRequest, save_silence
+
+            who = ""
+            for row in agent._pmm.presence_status():
+                if row.get("is_speaker"):
+                    who = str(row.get("name") or "")
+                    break
+            if not who and getattr(agent._persons, "active_is_explicit", False):
+                who = agent._persons.active_name
+            if not who:
+                logger.info("黙っているよう頼まれたが、誰からか分からないので受けない")
+                return
+            minutes = max(1, int(getattr(agent.config, "silence_minutes", 60)))
+            save_silence(SilenceRequest(person=who, until=time.time() + minutes * 60))
+
+    def _present_names(self) -> set[str]:
+        """いま在席している人の名前（黙っている依頼の宛先と突き合わせる）。"""
+        names: set[str] = set()
+        with contextlib.suppress(Exception):
+            for row in self._agent._pmm.presence_status():
+                name = str(row.get("name") or "")
+                if name:
+                    names.add(name)
+        return names
 
     async def _hold_speech(self, text: str) -> None:
         """話せなかった内容を O に残し、`pending_speech` へ積む（想起系は汚さない）。"""

@@ -338,6 +338,8 @@ class AgentConfig:
     event_max_iterations: int = field(
         default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 5)
     )
+    # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
+    silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 60))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
     # 残って中身が消える。上限は埋め込みモデル bge-m3 の入力上限 8192 トークンに合わせる。
     # 1文字＝1トークンになる字もあるので、8192 *文字* なら常に 8192 トークン以下に収まり、
