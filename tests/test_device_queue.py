@@ -169,3 +169,41 @@ def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
     assert sizes == (1, 1)                    # どちらも消費されず残っている
     ip._begin_affect.assert_not_awaited()
     ip._begin_device.assert_not_awaited()
+
+
+def test_held_speech_flows_into_w_with_when_it_was_wanted():
+    # 保留していた発話は MI の content へ差し込まない（保留 O は想起でも W に上がるので
+    # 二重になる）。W に「いつ・何を言いたかったか」として流し、言葉の組み立ては任せる。
+    import datetime as _dt
+
+    from familiar_agent.backend import ToolCall
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from tests.test_event_loop import _agent, _turn
+
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "おかえり"})])])
+    created = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=7)
+    a._pending_store.list_active = MagicMock(return_value=[{
+        "id": "p1", "observation_id": "obs-held", "created_at": created,
+        "content": "話したかったが、聞く相手が居なかった：こんばんは。",
+    }])
+    a._pending_store.freshness_score = MagicMock(return_value=1.0)
+    a._pending_store.is_expired = MagicMock(return_value=False)
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip._begin_device("入室", "パパ が来た", True)
+        await ip.close()
+
+    asyncio.run(scenario())
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "聞く相手が居ないあいだに話したかったこと" in system
+    assert "約7時間前" in system                     # 経過時間
+    assert "こんばんは" in system
+    a._pending_store.delete.assert_called_once_with("p1")
+    # 配ったら元の O も閉じる（想起で上がり続けて蒸し返さないように）。
+    assert ("obs-held",) == a._memory.mark_superseded.call_args.args[:1]
+
+    # MI の content には差し込まない。
+    device_mi = next(c.args[0] for c in a._memory.save_async_with_id.call_args_list
+                     if c.kwargs.get("direction") == "機器")
+    assert "こんばんは" not in device_mi

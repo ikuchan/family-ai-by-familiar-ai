@@ -118,7 +118,11 @@ class TestEmbeddingModelIsReady:
 
         with patch.object(model, "_load", load_and_signal):
             model.pre_warm()
-        done.wait(timeout=2.0)
+        # 待ち切る。`done` は読込が終わった**まさにその瞬間**に立つので、上限は
+        # 「立たなければ落とす」ための保険でしかない。2秒にしていたため、並列実行で
+        # 負荷が高いときに読込が間に合わず、実装は正しいのに落ちた（本日2度）。
+        # ここが確かめたいのは準備完了になることであって、その速さではない。
+        assert done.wait(timeout=30.0) is True
         assert model.is_ready() is True
 
     def test_observation_memory_exposes_is_embedding_ready(self, tmp_path):

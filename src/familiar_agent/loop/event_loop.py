@@ -82,6 +82,16 @@ def _present_ctx(agent) -> str:
     return "".join(parts) + ")"
 
 
+def _when(created_at, now_epoch: float) -> str:
+    """いつのことかを「経過時間（時刻）」で書く。片方だけでは足りない。"""
+    with contextlib.suppress(Exception):
+        stamp = created_at.timestamp()
+        hours = (now_epoch - stamp) / 3600.0
+        ago = f"{int(hours * 60)}分前" if hours < 1 else f"約{int(hours)}時間前"
+        return f"{ago}（{created_at.astimezone().strftime('%m/%d %H:%M')}）"
+    return "いつか"
+
+
 def _pi_ctx() -> str:
     """mood/drive を PI として定性注入する（生値は出さない）。DB 失敗は空で degrade。"""
     try:
@@ -131,6 +141,8 @@ class InformationProcessing:
         # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく
         # 続きとして自然につなぐために見せる。
         self._said_fillers: list[str] = []
+        # 配る保留（「いつ・何を言いたかったか」）。W へ流し、反復が閉じたら捨てる。
+        self._released_speech: list[str] = []
         self._tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
@@ -469,9 +481,6 @@ class InformationProcessing:
         self._chain = 0
         self._capped_hit = False
         text = f"[{kind}] {content}"
-        held = await self._release_pending_speech() if release_pending else ""
-        if held:
-            text = f"{text}\n聞く相手が居ないあいだに話したかったこと：{held}"
         obs_id, _ = await agent._memory.save_async_with_id(
             text[:500],
             direction="機器",
@@ -481,30 +490,47 @@ class InformationProcessing:
         )
         self._parent_id = obs_id
         self._advance_chain(obs_id, text[:500])
+        if release_pending:
+            await self._release_pending_speech()
         await self._iterate()
 
-    async def _release_pending_speech(self) -> str:
-        """保留していた発話を取り出す（鮮度切れは捨てる）。寿命は pending_speech 側が持つ。"""
+    async def _release_pending_speech(self) -> None:
+        """保留していた発話を取り出し、**W へ流す分として持つ**（鮮度切れは捨てる）。
+
+        MI の content へ差し込まない。保留の記録（`direction="保留"`）は観測なので、想起でも
+        W に上がってくる（実機のログで、入室の反復の想起上位4件が保留 O だった）。content に
+        も差し込むと同じ話が二重に載る。
+
+        **いつ言いたかったか**を添える。経過時間だけだと「23時台に言いたかった」という文脈が
+        落ち、時刻だけだと日付をまたいだとき「昨夜」か「今朝」か決まらない。両方あれば、
+        言葉を組み立てる側が自然な言い方を選べる。
+
+        配った分は `pending_speech` から消し、元の O も supersede する（消さないと、想起で
+        W に上がり続けて何度も蒸し返す）。
+        """
         store = getattr(self._agent, "_pending_store", None)
         if store is None:
-            return ""
+            return
         try:
             from ..config import PendingSpeechConfig
 
             cfg = PendingSpeechConfig()
             now_epoch = time.time()
-            texts: list[str] = []
+            released: list[str] = []
             for row in store.list_active():
                 score = store.freshness_score(row, now_epoch, cfg)
                 if store.is_expired(row, score, cfg):
                     store.delete(row["id"])
                     continue
-                texts.append(row.get("content", ""))
+                content = str(row.get("content", "")).strip()
+                if content:
+                    released.append(f"- {_when(row.get('created_at'), now_epoch)}：{content}")
                 store.delete(row["id"])
-            return " / ".join(t for t in texts if t)
+                with contextlib.suppress(Exception):
+                    self._agent._memory.mark_superseded(row["observation_id"], self._parent_id)
+            self._released_speech = released
         except Exception as e:  # noqa: BLE001
             logger.exception("保留していた発話を取り出せなかった: %s", e)
-            return ""
 
     async def close(self) -> None:
         if self._driver is not None:
@@ -564,8 +590,13 @@ class InformationProcessing:
             lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
             said = ("すでに相手へ伝えた一言（言った順。次に何か言うなら、"
                     "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines)
+        held = ""
+        if self._released_speech:
+            held = ("聞く相手が居ないあいだに話したかったこと"
+                    "（いま伝えるなら、そのときのこととして話す）：\n"
+                    + "\n".join(self._released_speech))
         workspace_ctx = "\n\n".join(
-            p for p in [looked_up, said, self._chain_head_content,
+            p for p in [looked_up, said, held, self._chain_head_content,
                         mem.format_for_context(memories)]
             if p and p.strip()
         )
@@ -870,6 +901,7 @@ class InformationProcessing:
         self._in_flight_lookups.clear()
         self._lookup_action_by_query.clear()
         self._said_fillers.clear()
+        self._released_speech.clear()
         self._chain = 0
         self._capped_hit = False
         try:
