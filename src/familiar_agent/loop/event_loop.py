@@ -619,7 +619,11 @@ class InformationProcessing:
         # かかり、そのあいだ無音になる。つなぎで体感の待ち時間を埋める。**1つの work の
         # 内部二段**であって別の出力ではない（1反復1出力は保たれる）。
         # effort=low は実測 0.8〜3.6 秒で返るので挟まない（かえってテンポが悪くなる）。
-        if decision.branch == "full" and decision.text and decision.effort != "low":
+        # **材料が届いた反復でも挟まない**（`drained`）。待つものがもう無いのに「待って」と
+        # 言う理由がない。実機では、検索結果が届いた1秒後に「うん、任せてね！」が出て、
+        # 一言目（ですます）と本応答（ですます）のあいだでそこだけ口調が割れた。
+        if (decision.branch == "full" and decision.text
+                and decision.effort != "low" and not drained):
             await self._say_filler(decision.text)
 
         system = build_event_system_prompt(

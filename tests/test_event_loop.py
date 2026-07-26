@@ -1027,3 +1027,21 @@ def test_quiet_hours_do_not_silence_a_reply_to_a_person():
     a._in_quiet_hours = MagicMock(return_value=True)
     assert _run(a, utterance="こんばんは") == "やあ"
 
+
+
+def test_no_filler_once_the_material_has_arrived():
+    # つなぎは待ち時間を埋めるためのもの。結果が届いた反復では待つものが無い。
+    # 実機では検索結果の1秒後に「うん、任せてね！」が出て、そこだけ口調が割れた。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "答え"})]),
+    ])
+    replies = iter([
+        '{"branch":"action","action":"recall","query":"q","text":"調べますね"}',
+        '{"branch":"full","effort":"high","text":"うん、任せてね！"}',
+    ])
+    a._utility_backend.complete = AsyncMock(side_effect=lambda *_a, **_k: next(replies))
+    shown = _run_chain(a, utterance="調べて")
+    assert "調べますね" in shown          # 調べる前のつなぎは出す
+    assert "うん、任せてね" not in shown  # 届いたあとは出さない
+    assert "答え" in shown
