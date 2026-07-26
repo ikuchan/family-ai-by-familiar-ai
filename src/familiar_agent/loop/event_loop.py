@@ -752,9 +752,14 @@ class InformationProcessing:
                 return "黙っているよう頼まれている"
         if agent._social_presence_permission() == 0.0:
             return "聞く相手が居ない"
-        with contextlib.suppress(Exception):
-            if agent._in_quiet_hours():
-                return "静穏時間である"
+        # 静穏時間は「**自分から**話しかけない時間」で、話しかけられたのに黙るための
+        # ものではない。起点を区別せず掛けていたため、夜に話しかけても返事が出ず、
+        # 保留されて翌朝に届く動きになっていた（実機で観測）。在席と「黙っていて」の
+        # 依頼は起点によらず掛かるので、ここだけを分ける。
+        if self._origin_kind != "発話":
+            with contextlib.suppress(Exception):
+                if agent._in_quiet_hours():
+                    return "静穏時間である"
         return ""
 
     def _accept_silence(self) -> None:

@@ -641,11 +641,18 @@ def test_driver_runs_next_iteration_when_completion_arrives():
 
 
 def test_speech_is_held_during_quiet_hours():
-    # 静穏時間は「聞ける状態ではない」ので発話しない。判定を配信ゲートへ集める
-    # （以前は deferred の配信側だけが静穏を見ており、自発発話は素通りだった）。
+    # 静穏時間は「**自分から**話しかけない時間」。判定は配信ゲートに集めるが、掛ける
+    # 相手は自発だけにする（以前は起点を区別せず、話しかけられても黙って保留し、翌朝に
+    # 届く動きになっていた＝実機で観測）。ここは情動が起点＝自発なので止まる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ"})])])
     a._in_quiet_hours = MagicMock(return_value=True)
-    assert _run(a) == ""
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip._begin_affect("SEEKING", "なにか気になる")
+        await ip.close()
+
+    asyncio.run(scenario())
     a._tts.call.assert_not_awaited()
     a._pending_store.add.assert_called_once()     # 後で話すために積む
 
@@ -1010,3 +1017,13 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
     assert "すでに相手へ伝えた一言" in system
     assert "ちょっと調べてみますね" in system
     assert "recall結果テキスト" in system     # 完了は押し出されずに残る
+
+
+def test_quiet_hours_do_not_silence_a_reply_to_a_person():
+    # 静穏時間は「自分から話しかけない時間」。話しかけられたのに黙るためのものではない。
+    # 起点を区別せず掛けていたため、23時台に話しかけても返事が出ず、保留されて翌朝に
+    # 届く動きになっていた（実機で観測）。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ"})])])
+    a._in_quiet_hours = MagicMock(return_value=True)
+    assert _run(a, utterance="こんばんは") == "やあ"
+
