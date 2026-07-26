@@ -128,6 +128,9 @@ class InformationProcessing:
         self._in_flight_lookups: list[tuple[str, str]] = []
         # 完了 MI の content に「どうやって調べたか」を書くための対応（語→動作）。
         self._lookup_action_by_query: dict[str, str] = {}
+        # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく
+        # 続きとして自然につなぐために見せる。
+        self._said_fillers: list[str] = []
         self._tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
@@ -526,8 +529,15 @@ class InformationProcessing:
             lines = "\n".join(f"- {act}「{q}」"
                               for q, act in self._lookup_action_by_query.items())
             looked_up = f"この求めのために調べたもの（同じものを重ねて調べない）：\n{lines}"
+        # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
+        # （実機で「〜ですね！」で始まる前置きが3回続いた）。
+        said = ""
+        if self._said_fillers:
+            lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
+            said = ("すでに相手へ伝えた一言（言った順。次に何か言うなら、"
+                    "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines)
         workspace_ctx = "\n\n".join(
-            p for p in [looked_up, self._chain_head_content,
+            p for p in [looked_up, said, self._chain_head_content,
                         mem.format_for_context(memories)]
             if p and p.strip()
         )
@@ -681,18 +691,19 @@ class InformationProcessing:
         # 言ったことを O に残す。残さないと、次の反復の W に「もう一言伝えた」事実が
         # 入らず、調停はそれを知らないまま同じことをまた言う（実機で1秒差に同じ文が
         # 2回出た）。抑止で黙らせるのではなく、判断できる材料を渡して解く。
-        content = f"つなぎに言った：{text}"
-        obs_id, _ = await agent._memory.save_async_with_id(
-            content[:500],
+        # **鎖は進めない。** 鎖の先頭は「いま処理している対象」を1つ持つためのもので、
+        # つなぎはその対象ではない。進めると、直前に届いた完了を押し出して W から
+        # 消してしまい、フルLLM が材料を失う（実機で未回答に終わった）。
+        # 求めが決着したら他の子と一緒に閉じるので、記憶に残り続けることはない。
+        self._said_fillers.append(text)
+        await agent._memory.save_async_with_id(
+            f"つなぎに言った：{text}"[:500],
             direction="発話",
             kind="observation",
             materialize_now=True,
             parent_id=self._parent_id,
             **agent._observation_perspective(),
         )
-        # 鎖に載せる（W の先頭に出る）。求めが決着したら他の子と一緒に閉じるので、
-        # 中身の無い前置きが記憶に残り続けることはない。
-        self._advance_chain(obs_id, content[:500])
 
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。
@@ -757,6 +768,7 @@ class InformationProcessing:
         self._chain_head_id = None
         self._in_flight_lookups.clear()
         self._lookup_action_by_query.clear()
+        self._said_fillers.clear()
         self._chain = 0
         self._capped_hit = False
         try:

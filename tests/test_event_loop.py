@@ -977,4 +977,33 @@ def test_filler_is_recorded_so_the_arbiter_knows_it_already_spoke():
     said = [c for c in a._memory.save_async_with_id.call_args_list
             if c.kwargs.get("direction") == "発話" and "調べてみますね" in c.args[0]]
     assert len(said) == 1                      # つなぎが O に1件残る
-    assert "調べてみますね" in head             # 鎖に載る＝次の反復の W に出る
+    # **鎖は進めない。** 進めると直前に届いた完了を押し出し、フルLLM が材料を失う
+    # （実機で、想起の結果が W から消えて未回答に終わった）。
+    assert "つなぎに言った" not in head
+
+
+def test_w_lists_what_was_already_said_so_the_next_filler_continues():
+    # つなぎを言ったことが W に無いと、同じ言い回しを最初から言い直す。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "サッカー"})]),
+        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+    ])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"action","action":"recall","query":"サッカー",'
+                     '"text":"ちょっと調べてみますね"}')
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip.run_iteration("たいきのサッカーの練習は？")
+        ip.push_completion("サッカー", "recall結果テキスト")
+        for _ in range(200):
+            if a.backend.stream_turn.await_count >= 2:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+
+    asyncio.run(scenario())
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "すでに相手へ伝えた一言" in system
+    assert "ちょっと調べてみますね" in system
+    assert "recall結果テキスト" in system     # 完了は押し出されずに残る

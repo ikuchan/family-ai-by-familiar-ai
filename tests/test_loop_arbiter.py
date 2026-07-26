@@ -135,3 +135,10 @@ def test_filler_examples_do_not_fix_the_register():
 def test_full_branch_also_writes_a_filler_that_avoids_committing_to_content():
     # full のつなぎは答えの前に置かれるので、中身を先取りすると本応答と食い違う。
     assert "内容に触れない" in ARBITER_PROMPT
+
+
+def test_second_filler_is_asked_to_continue_not_restart():
+    # 実機で「〜ですね！」で始まる前置きが3回続いた。黙らせるのではなく、続きとして
+    # 自然につながる言葉を書かせる。
+    assert "その続きとして書く" in ARBITER_PROMPT
+    assert "二言目は短く" in ARBITER_PROMPT
