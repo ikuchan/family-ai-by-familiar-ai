@@ -738,6 +738,16 @@ class ObservationMemory:
             # r（関連）の素点＝話者視点 situated コサイン。話者候補はそのまま持っている。
             cos_by_id: dict[str, float] = {r["id"]: float(r["score"]) for r in speaker_rows}
 
+            # 新しさ軸の一次絞り（[D-想起合成] の多軸 union）。関連軸だけで候補を作ると、
+            # 話題が近くない限り直近の記録が候補にすら入らず、t 軸は並べ替えにしか
+            # 効かない。直前の会話を「思い出せない」のはこれが理由だった（実機で観測）。
+            # w_t=0 のプロファイルではこの軸を集めない（設計どおり重み>0 の軸だけ union）。
+            if _cfg.recall_w_t > 0.0:
+                for r in self._observations.by_recency(
+                    fetch_n, kind=kind, exclude_ids=exclude_ids
+                ):
+                    row_by_id.setdefault(r["id"], r)
+
             # 在席者相関 p（第5軸・役割2）の候補集合拡張（slice-2）。在席他者 q 視点でも
             # 候補を取って union し、話者の問いと無関係でも在席他者に結びつく記憶を W に上げる。
             # トグルで slice-1（話者候補の再採点のみ）へ退避できる。
@@ -756,6 +766,14 @@ class ObservationMemory:
                     cos_by_id.update(
                         self._observations.situated_cosines(q_sql, extra, self._person_id)
                     )
+
+            # 関連軸以外から入った候補には score 列が無いので、話者視点の r を補って
+            # 公平に採点する（在席者相関の拡張と同じやり方）。
+            missing = [oid for oid in row_by_id if oid not in cos_by_id]
+            if missing:
+                cos_by_id.update(
+                    self._observations.situated_cosines(q_sql, missing, self._person_id)
+                )
 
             # p は union 全体に対して計算。在席他者ゼロなら空＝各行 p=None で項落ち（不変）。
             p_by_id: dict[str, float] = {}

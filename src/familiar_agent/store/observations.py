@@ -188,6 +188,56 @@ class ObservationStore:
                 )
                 return list(cur.fetchall())
 
+    def by_recency(
+        self,
+        n: int,
+        *,
+        kind: str | None = None,
+        exclude_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """新しい順に n 件読む（新しさ軸の一次絞り）。**採点も足切りもしない**。
+
+        設計 [D-想起合成] の**多軸 union 一次絞り**の一本。重み>0 の各軸で
+        `ORDER BY … LIMIT N` を出して UNION し、和集合を再採点する、と定めてある。
+        関連軸（`by_vector`）だけで候補を作っていたため、話題が近くない限り直近の
+        記録が候補にすら入らず、t 軸は並べ替えにしか効いていなかった。
+
+        返り行は `by_vector` と同じ列に揃える（`score` は持たない。関連は呼び出し側が
+        `situated_cosines` で後から補う）。
+        """
+        kind_clause = "AND o.kind = %s" if kind else ""
+        exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
+        params: list = [self._ctx.person_id]
+        if kind:
+            params.append(kind)
+        if exclude_ids:
+            params.append(list(exclude_ids))
+        params.append(n)
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id, o.content, o.timestamp,
+                           o.direction, o.kind, o.emotion, o.image_path,
+                           COALESCE(o.activation_a0, 1.0) AS activation_a0,
+                           COALESCE(o.activation_n, 0) AS activation_n,
+                           COALESCE(o.recall_count, 0) AS recall_count,
+                           o.last_recalled_at,
+                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom
+                    FROM situated_embeddings s
+                    JOIN observations o ON o.id = s.obs_id
+                    WHERE s.person_id = %s
+                      AND o.superseded_by IS NULL
+                      {kind_clause}
+                      {exclude_clause}
+                    ORDER BY o.timestamp DESC
+                    LIMIT %s
+                    """,
+                    params,
+                )
+                return list(cur.fetchall())
+
     def content_novelty(self, mem_vec, conn, *, k: int, default: float) -> float:
         """内容の新規性 novelty ∈ [0,1]（課題5 v0.26）。
 
