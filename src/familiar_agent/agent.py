@@ -45,7 +45,7 @@ from .mental_state import (
     WorkingMemoryItem,
 )
 from .relationship import PersonRegistry, RelationshipTracker
-from .routines import parse_schedule_config
+from .routines import quiet_hours_rule
 from .concern_engine import ConcernEngine
 from .self_state import SelfState
 from .self_narrative import SelfNarrative
@@ -570,7 +570,7 @@ class EmbodiedAgent:
         self._appraisal = AppraisalEngine()
         self._social_policy = SocialPolicyEngine()
         self._mental_state_bus = MentalStateBus()
-        self._schedule_rule = parse_schedule_config(Path.home() / ".familiar_ai" / "schedule.conf")
+        self._schedule_rule = quiet_hours_rule()
         self._heartbeat = HeartbeatRuntime(
             memory=self._memory,
             quiet_rule=self._schedule_rule,
@@ -3019,9 +3019,7 @@ class EmbodiedAgent:
         if desires is not None:
             self._desires_ref = desires
         if not hasattr(self, "_schedule_rule"):
-            self._schedule_rule = parse_schedule_config(
-                Path.home() / ".familiar_ai" / "schedule.conf"
-            )
+            self._schedule_rule = quiet_hours_rule()
         if not hasattr(self, "_mental_state_bus"):
             self._mental_state_bus = MentalStateBus()
         if not hasattr(self, "_appraisal"):

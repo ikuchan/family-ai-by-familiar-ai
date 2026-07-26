@@ -338,6 +338,10 @@ class AgentConfig:
     event_max_iterations: int = field(
         default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 5)
     )
+    # 静穏時間＝**自分から**話しかけない時間帯（人への返事は掛からない）。出所は
+    # 環境変数 → ここの既定の2段だけ（旧 schedule.conf・ROUTINES.md は撤去）。
+    quiet_hours_start: int = field(default_factory=lambda: _int_env("QUIET_HOURS_START", 23))
+    quiet_hours_end: int = field(default_factory=lambda: _int_env("QUIET_HOURS_END", 7))
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
     silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 60))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが

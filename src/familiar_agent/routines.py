@@ -28,40 +28,18 @@ class RoutineDecision:
     notes: tuple[str, ...] = ()
 
 
-def parse_schedule_config(path: Path | None = None) -> QuietHoursRule:
-    # Check primary path first, then fall back to ROUTINES.md in cwd.
-    candidates: list[Path] = []
-    if path is not None:
-        candidates.append(path)
-    routines_md = Path.cwd() / "ROUTINES.md"
-    if routines_md not in candidates:
-        candidates.append(routines_md)
+def quiet_hours_rule() -> QuietHoursRule:
+    """静穏時間の規則を Config から作る。
 
-    start = 23
-    end = 7
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        found = False
-        for line in candidate.read_text(encoding="utf-8").splitlines():
-            stripped = line.strip()
-            if not stripped or stripped.startswith("#"):
-                continue
-            if "=" not in stripped:
-                continue
-            key, value = [part.strip() for part in stripped.split("=", 1)]
-            try:
-                if key == "quiet_hours_start":
-                    start = int(value)
-                    found = True
-                elif key == "quiet_hours_end":
-                    end = int(value)
-                    found = True
-            except ValueError:
-                continue
-        if found:
-            break
-    return QuietHoursRule(start_hour=start, end_hour=end)
+    出所は**環境変数（`QUIET_HOURS_START`／`QUIET_HOURS_END`）→ Config の既定**の2段だけ。
+    以前は `~/.familiar_ai/schedule.conf` と作業ディレクトリの `ROUTINES.md` も読んでいたが、
+    どちらも存在せず、コード内の既定（23〜7）が効いているだけだった。出所が4段あると、
+    どの値が効いているのかを確かめるのに4箇所を見ることになる。
+    """
+    from .config import AgentConfig
+
+    cfg = AgentConfig()
+    return QuietHoursRule(start_hour=cfg.quiet_hours_start, end_hour=cfg.quiet_hours_end)
 
 
 def load_optional_notes(base_dir: Path | None = None) -> dict[str, str]:
