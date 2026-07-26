@@ -478,6 +478,9 @@ class PersonRegistry:
         self._default_name = default_name
         self._trackers: dict[str, RelationshipTracker] = {}
         self._active_name: str = default_name
+        # 話者が明示されたか（`/speaker` や `[名前]`）。既定名のままを「その人と話している」
+        # と受け取ると、家族の誰かを決め打ちしてその人向けの口調で話し始めることになる。
+        self._active_explicit: bool = False
 
     def _get_or_create(self, name: str) -> RelationshipTracker:
         if name not in self._trackers:
@@ -497,11 +500,18 @@ class PersonRegistry:
     def default_name(self) -> str:
         return self._default_name
 
+    @property
+    def active_is_explicit(self) -> bool:
+        """話者が明示されたか。既定名のままなら偽。"""
+        return self._active_explicit
+
     def set_active(self, name: str) -> None:
         self._active_name = name
+        self._active_explicit = True
 
     def reset_to_default(self) -> None:
         self._active_name = self._default_name
+        self._active_explicit = False
 
     def known_names(self) -> list[str]:
         """Return all person names that have a DB row."""

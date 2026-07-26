@@ -48,6 +48,17 @@ def _present_ctx(agent) -> str:
             rows = []
 
     if not rows:
+        # 顔では誰も特定できていない。次は自己申告（`/speaker`・`[名前]`）を見る。カメラの
+        # 無い CUI では話者はここにしか現れず、これを読まないと相手が誰でも「分からない」に
+        # 倒れ、口調が丁寧語だけに固定される（実機で観測）。顔で確かめた話者とは由来が違う
+        # ので、そのことを添えて渡す（#8 で身元と在席を分けるときにこの区別が要る）。
+        declared = ""
+        with contextlib.suppress(Exception):
+            if agent._persons.active_is_explicit:
+                declared = agent._persons.active_name
+        if declared:
+            return (f'(present :speaker "{declared}" '
+                    ':note "顔は確認できていない。名前は自己申告による")')
         # 誰も認識できていない。直近に話しかけられているなら、相手は居るが誰かは不明。
         recently_spoken = False
         with contextlib.suppress(Exception):
@@ -126,6 +137,7 @@ class InformationProcessing:
         self._inbox: list[tuple[str, str, str | None]] = []
         # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
         self._chain = 0
+        self._capped_hit = False
         self._utterance = ""
         # 反復の起点。種別＝発話｜情動｜機器｜完了。情動や機器で起きた反復には人の発話が
         # 無いので、起点の内容を手がかり・調停の入力・user メッセージに使う。
@@ -277,6 +289,7 @@ class InformationProcessing:
         self._utterance = utterance
         self._origin_kind = "発話"
         self._chain = 0
+        self._capped_hit = False
         self._ensure_driver()
 
         # 取込：来た事実（人の発話）を O に書く（④シーケンス）。
@@ -381,6 +394,7 @@ class InformationProcessing:
         self._utterance = ""
         self._origin_kind = "情動"
         self._chain = 0
+        self._capped_hit = False
         content = f"[内的な促し:{drive_name}] {prompt}"
         obs_id, _ = await agent._memory.save_async_with_id(
             content[:500],
@@ -444,6 +458,11 @@ class InformationProcessing:
         #    フルLLM は「言語生成が要るとき」だけ起こす。実測で1ターン 10.5 秒のうち LLM が
         #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
         capped = chain >= max_chain
+        if capped:
+            # 上限で打ち切ったことは、後からログだけで判別できる必要がある（DEBUG の
+            # iter=N/M からは「たまたま N 回で終わった」のか「打ち切った」のか分からない）。
+            logger.info("event-loop 反復 %d/%d 上限に達したため探索を打ち切る", chain, max_chain)
+            self._capped_hit = True
         decision = await arbitrate(
             agent._utility_backend,
             utterance=utterance or self._chain_head_content,
@@ -622,8 +641,8 @@ class InformationProcessing:
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
         """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""
         agent = self._agent
-        logger.info("event-loop 終了: 反復=%d 結末=%s text_len=%d",
-                    self._chain, outcome, len(text))
+        logger.info("event-loop 終了: 反復=%d 結末=%s 上限到達=%s text_len=%d",
+                    self._chain, outcome, "はい" if self._capped_hit else "いいえ", len(text))
         # 親が決着したら、生きている子（その求めのために投げた調査）もまとめて閉じる。
         parent_id, self._parent_id = self._parent_id, None
         obs_ids = [self._chain_head_id] if self._chain_head_id else []
@@ -631,6 +650,7 @@ class InformationProcessing:
         self._in_flight_lookups.clear()
         self._lookup_action_by_query.clear()
         self._chain = 0
+        self._capped_hit = False
         try:
             origin = self._utterance or self._chain_head_content
             arousal = await agent._turn_arousal(origin, text)
