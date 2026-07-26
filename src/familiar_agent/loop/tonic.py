@@ -53,6 +53,11 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
     return await asyncio.to_thread(_work)
 
 
+def _names(names: set[str]) -> str:
+    """在席者の集合をログ用の1行にする。"""
+    return "・".join(sorted(names)) or "（なし）"
+
+
 class Tonic:
     """自律機構の常駐タスク。$P_T$ ごとに drive を進め、発火を QA へ積む。"""
 
@@ -103,10 +108,17 @@ class Tonic:
         current = {str(r.get("name") or r.get("person_id") or "") for r in rows}
         current.discard("")
         previous, self._present_names = self._present_names, current
-        if previous is None:          # 起動直後の1回目は差分を取らない
+        if previous is None:
+            # 起動直後の1回目は差分を取らない。ただし「いま誰が見えているか」は残す。
+            # これが無いと、イベントが出ないときに「T が回っていない」のか「誰も居ない」
+            # のかを区別できない（在席イベントを確かめる手立てが無かった）。
+            logger.debug("tonic 在席の初回走査：%s", "・".join(sorted(current)) or "誰も居ない")
             return
         # 保留していた発話を配るのは、在席がゼロから立ち上がった瞬間だけ。入室そのものは
         # 毎回積むが、会話中に家族が増えるたび保留が割り込むのは避ける。
+        if current != previous:
+            logger.info("tonic 在席の変化：%s → %s",
+                        _names(previous), _names(current))
         rose_from_zero = not previous and bool(current)
         for name in sorted(current - previous):
             self._ip.push_device("入室", f"{name} が来た", release_pending=rose_from_zero)

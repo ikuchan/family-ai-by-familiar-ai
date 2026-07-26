@@ -13,9 +13,31 @@ QD に積むのは**人の出入り**（入室・退室）。動体そのもの�
 from __future__ import annotations
 
 import asyncio
+import contextlib
+import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.tonic import Tonic
+
+
+@contextlib.contextmanager
+def _capture():
+    """`tonic` のログを拾う。"""
+    records: list[str] = []
+
+    class _H(logging.Handler):
+        def emit(self, record):
+            records.append(record.getMessage())
+
+    logger = logging.getLogger("familiar_agent.loop.tonic")
+    handler, old = _H(), logger.level
+    logger.addHandler(handler)
+    logger.setLevel(logging.DEBUG)
+    try:
+        yield records
+    finally:
+        logger.removeHandler(handler)
+        logger.setLevel(old)
 
 
 def _ip():
@@ -107,3 +129,16 @@ def test_device_queue_wakes_the_driver():
     ip = asyncio.run(scenario())
     ip._iterate.assert_awaited()
     assert ip._origin_kind == "機器"
+
+
+def test_presence_scan_leaves_a_trace_even_when_nothing_changes():
+    # イベントが出ないとき、「T が回っていない」のか「誰も居ない」のかを区別できる
+    # 必要がある。初回走査で見えているものを残し、変化したときは前後を残す。
+    ip = _ip()
+    t = Tonic(ip, agent=_agent_with(_rows(), _rows("パパ")))
+    with _capture() as logs:
+        t.scan_presence()          # 初回＝誰も居ない
+        t.scan_presence()          # パパが来た
+    joined = "\n".join(logs)
+    assert "初回走査" in joined and "誰も居ない" in joined
+    assert "在席の変化" in joined and "パパ" in joined
