@@ -2745,6 +2745,21 @@ class EmbodiedAgent:
             for tool in (self._deferred_search, self._deferred_fetch):
                 with contextlib.suppress(Exception):
                     tool.set_completion_sink(ip.push_completion)
+            # MCP とメモリワーカーの起動は run() の中にあり、イベントループの分岐は run() の
+            # 先頭で return するため到達しなかった。結果 MCP のツールが登録されず、検索が
+            # 「tool not found」で即失敗していた（実機で観測）。ここでも起こす。
+            self._start_background_services()
+
+    def _start_background_services(self) -> None:
+        """MCP とメモリワーカーを起こす（未起動なら）。run() とイベントループの両方から呼ぶ。"""
+        mcp = getattr(self, "_mcp", None)
+        if mcp is not None and not mcp.is_started:
+            task = getattr(self, "_mcp_start_task", None)
+            if task is None or task.done():
+                self._mcp_start_task = asyncio.ensure_future(mcp.start())
+        worker = getattr(self, "_memory_worker", None)
+        if worker is not None and not worker.is_running:
+            asyncio.ensure_future(worker.start())
 
     async def close(self) -> None:
         """Clean up resources. Bounded by timeouts to avoid hanging on exit."""

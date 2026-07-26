@@ -214,6 +214,30 @@ def test_w_recall_uses_configured_n():
     assert kwargs.get("n") == 5
 
 
+def test_in_flight_lookups_occupy_a_slot_in_w():
+    # 調査中は、その意図が W の枠を1つ専有する。想起の運に左右されると「いま探している」
+    # ことが調停に伝わらず、同じ問いへ二重に投げる（実機で「調べてみるね」が2回出た）。
+    # 複数の調査が並行しうるので、飛行中の数だけ枠を取る。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"})]),
+        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+    ])
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip.run_iteration("今日の天気を調べて")
+        for _ in range(200):
+            if a._deferred_search.call.await_count:
+                break
+            await asyncio.sleep(0.005)
+        await ip.run_iteration("それで？")          # 完了が来る前に次の反復
+        await ip.close()
+
+    asyncio.run(scenario())
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "調査中" in system and "今日の天気" in system
+
+
 def test_w_includes_the_intake_origin_deterministically():
     # 検索から外すかわりに、起点は W へ必ず加える（コサインの運に任せない）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
@@ -403,6 +427,40 @@ def test_deferred_is_wired_to_the_completion_queue_only_when_on():
     on._deferred_fetch.set_completion_sink.assert_called_once()
     off = asyncio.run(build(False))
     off._deferred_search.set_completion_sink.assert_not_called()
+
+
+def test_event_loop_path_starts_mcp_and_memory_worker():
+    # MCP とメモリワーカーの起動は run() の中にあり、イベントループの分岐は run() の先頭で
+    # return するため到達しなかった。結果 `brave_web_search` が「登録されていない」となり、
+    # 検索が 0ms で失敗していた（実機で観測）。CUI/GUI の違いではなく実装の欠落。
+    from familiar_agent.agent import EmbodiedAgent
+
+    async def build():
+        agent = MagicMock()
+        agent.config = MagicMock()
+        agent.config.event_loop = True
+        agent._info_processing = None
+        agent._tonic = None
+        agent._mcp = MagicMock()
+        agent._mcp.is_started = False
+        agent._mcp.start = AsyncMock()
+        agent._mcp_start_task = None
+        agent._memory_worker = MagicMock()
+        agent._memory_worker.is_running = False
+        agent._memory_worker.start = AsyncMock()
+        # MagicMock は未定義属性も返すので、検証対象の実体を明示的に束ねる。
+        agent._start_background_services = lambda: EmbodiedAgent._start_background_services(agent)
+        EmbodiedAgent._ensure_event_loop(agent)
+        await asyncio.sleep(0.02)
+        ip, tonic = agent._info_processing, agent._tonic
+        await ip.close()
+        if tonic is not None:
+            await tonic.close()
+        return agent
+
+    agent = asyncio.run(build())
+    assert agent._mcp.start.called                  # MCP を起こす
+    assert agent._memory_worker.start.called        # メモリワーカーも起こす
 
 
 def test_agent_starts_tonic_only_when_event_loop_is_on():

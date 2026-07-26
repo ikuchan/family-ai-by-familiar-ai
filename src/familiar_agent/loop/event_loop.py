@@ -107,6 +107,10 @@ class InformationProcessing:
         # RH（実行担当）が走らせている投げっぱなしの呼び出し。QC が空でもこれが残っていれば
         # 結果が届くまで待つ（イベント駆動＝キュー到来で起きる）。
         self._inflight = 0
+        # 飛行中の調査（動作, 探す語）。W の枠を1つずつ専有する。想起の運に任せると
+        # 「いま探している」ことが調停に伝わらず、同じ問いへ二重に投げる（実機で観測）。
+        # 複数の調査が並行しうるので集合ではなく列で持つ。
+        self._in_flight_lookups: list[tuple[str, str]] = []
         self._tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
@@ -142,6 +146,7 @@ class InformationProcessing:
                          intent_id: str | None) -> None:
         """RH：調べる動作を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
         self._inflight += 1
+        self._in_flight_lookups.append((action, query))
         task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -195,6 +200,10 @@ class InformationProcessing:
 
         for query, result_text, intent_id in items:
             self._inflight = max(0, self._inflight - 1)
+            for i, (_act, q) in enumerate(self._in_flight_lookups):
+                if q == query:
+                    del self._in_flight_lookups[i]
+                    break
             # 探した事実と結果を1件に残す。open 意図と入れ替わるので W には結果つきが載る。
             obs_id, _ = await agent._memory.save_async_with_id(
                 f"「{query}」を探した結果：{result_text}"[:500],
@@ -405,8 +414,14 @@ class InformationProcessing:
             exclude_ids=origin_ids,
         )
         origin_ctx = f"[取込] {self._chain_head_content}" if self._chain_head_content else ""
+        # 飛行中の調査は W の枠を専有する（結果はまだ無いが、探していることは今の作業状態）。
+        in_flight_ctx = "\n".join(
+            f"[調査中] {act}（{q}）を投げた。結果はまだ届いていない。"
+            for act, q in self._in_flight_lookups
+        )
         workspace_ctx = "\n\n".join(
-            p for p in [origin_ctx, mem.format_for_context(memories)] if p and p.strip()
+            p for p in [origin_ctx, in_flight_ctx, mem.format_for_context(memories)]
+            if p and p.strip()
         )
 
         # 3. ARB（調停）：軽量LLM が会話の重さを自己判断し、出し方を3つへ振り分ける（段4）。
