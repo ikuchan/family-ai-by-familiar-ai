@@ -103,6 +103,9 @@ class InformationProcessing:
         # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
         # これで前の記録が想起に出てこなくなり、除外は「その検索を出した意図自身」で足りる。
         self._chain_head_id: str | None = None
+        # 親＝この連鎖を起こした求め（人の発話 or 情動）。子＝そのために投げた調査。
+        # 孫は作らない。親が決着したら生きた子をまとめて閉じる（一段だけ・再帰なし）。
+        self._parent_id: str | None = None
         self._chain_head_content: str = ""
         # RH（実行担当）が走らせている投げっぱなしの呼び出し。QC が空でもこれが残っていれば
         # 結果が届くまで待つ（イベント駆動＝キュー到来で起きる）。
@@ -111,6 +114,8 @@ class InformationProcessing:
         # 「いま探している」ことが調停に伝わらず、同じ問いへ二重に投げる（実機で観測）。
         # 複数の調査が並行しうるので集合ではなく列で持つ。
         self._in_flight_lookups: list[tuple[str, str]] = []
+        # 完了 MI の content に「どうやって調べたか」を書くための対応（語→動作）。
+        self._lookup_action_by_query: dict[str, str] = {}
         self._tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
@@ -147,6 +152,7 @@ class InformationProcessing:
         """RH：調べる動作を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
         self._inflight += 1
         self._in_flight_lookups.append((action, query))
+        self._lookup_action_by_query[query] = action
         task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -205,11 +211,14 @@ class InformationProcessing:
                     del self._in_flight_lookups[i]
                     break
             # 探した事実と結果を1件に残す。open 意図と入れ替わるので W には結果つきが載る。
+            action = self._action_of(query)
+            done_content = f"「{query}」を {action} で調べた結果が届いた：{result_text}"[:500]
             obs_id, _ = await agent._memory.save_async_with_id(
-                f"「{query}」を探した結果：{result_text}"[:500],
+                done_content,
                 direction="完了",
                 kind="observation",
                 materialize_now=True,
+                parent_id=self._parent_id,
                 **agent._observation_perspective(),
             )
             # 完了が open 意図に再会して解決（[D-単一想起]）＝鎖を1つ進める。
@@ -228,6 +237,10 @@ class InformationProcessing:
         "search_deferred": lambda a: a._deferred_search.get_tool_definitions(),
         "fetch_deferred": lambda a: a._deferred_fetch.get_tool_definitions(),
     }
+
+    def _action_of(self, query: str) -> str:
+        """その語をどの動作で投げたか。分からなければ recall とみなす。"""
+        return self._lookup_action_by_query.get(query, "recall")
 
     def _tools(self, *, actions: tuple[str, ...] = ("say", "recall")) -> list[dict]:
         """この反復で使える動作のツール定義を返す。
@@ -271,6 +284,7 @@ class InformationProcessing:
             materialize_now=True,
             **agent._observation_perspective(),
         )
+        self._parent_id = trigger_id
         self._advance_chain(trigger_id, utterance[:500])
         return await self._iterate()
 
@@ -372,6 +386,7 @@ class InformationProcessing:
             materialize_now=True,
             **agent._observation_perspective(),
         )
+        self._parent_id = obs_id
         self._advance_chain(obs_id, content[:500])
         await self._iterate()
 
@@ -413,14 +428,12 @@ class InformationProcessing:
             recall_mode="conversation",
             exclude_ids=origin_ids,
         )
-        origin_ctx = f"[取込] {self._chain_head_content}" if self._chain_head_content else ""
-        # 飛行中の調査は W の枠を専有する（結果はまだ無いが、探していることは今の作業状態）。
-        in_flight_ctx = "\n".join(
-            f"[調査中] {act}（{q}）を投げた。結果はまだ届いていない。"
-            for act, q in self._in_flight_lookups
-        )
+        # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
+        # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
+        # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
+        # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
         workspace_ctx = "\n\n".join(
-            p for p in [origin_ctx, in_flight_ctx, mem.format_for_context(memories)]
+            p for p in [self._chain_head_content, mem.format_for_context(memories)]
             if p and p.strip()
         )
 
@@ -590,6 +603,7 @@ class InformationProcessing:
             direction="意図",
             kind="observation",
             materialize_now=True,
+            parent_id=self._parent_id,
             **agent._observation_perspective(),
         )
         # 意図を書いた時点でトリガ（や前回の完了）は死ぬ＝この検索には出てこない。
@@ -602,8 +616,12 @@ class InformationProcessing:
         agent = self._agent
         logger.info("event-loop 終了: 反復=%d 結末=%s text_len=%d",
                     self._chain, outcome, len(text))
+        # 親が決着したら、生きている子（その求めのために投げた調査）もまとめて閉じる。
+        parent_id, self._parent_id = self._parent_id, None
         obs_ids = [self._chain_head_id] if self._chain_head_id else []
         self._chain_head_id = None
+        self._in_flight_lookups.clear()
+        self._lookup_action_by_query.clear()
         self._chain = 0
         try:
             origin = self._utterance or self._chain_head_content
@@ -616,6 +634,7 @@ class InformationProcessing:
                     companion_mood="engaged", is_desire_turn=False, desires=None,
                     arousal=arousal, memories=memories,
                     superseded_ids=obs_ids or None,
+                    close_parent_id=parent_id,
                 ),
                 name="event-post-response",
             )

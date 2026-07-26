@@ -741,6 +741,7 @@ class EmbodiedAgent:
         arousal: float = 0.0,
         memories: list[dict] | None = None,
         superseded_ids: list[str] | None = None,
+        close_parent_id: str | None = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
@@ -847,6 +848,11 @@ class EmbodiedAgent:
             if superseded_ids and _supersede_target:
                 for _old in superseded_ids:
                     self._memory.mark_superseded(_old, _supersede_target)
+            # 親（人の求め・情動）が決着したら、生きている子（その求めのために投げた調査）も
+            # まとめて閉じる（親子2階層・一段だけ・再帰なし）。
+            if close_parent_id and _supersede_target:
+                with contextlib.suppress(Exception):
+                    self._memory.close_with_children(close_parent_id, _supersede_target)
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
             # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。

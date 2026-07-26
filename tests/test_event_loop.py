@@ -39,6 +39,7 @@ def _agent(*, stream_returns, max_iters=3):
     _ids = iter([f"obs{i}" for i in range(1, 20)])
     a._memory.save_async_with_id = AsyncMock(side_effect=lambda *_a, **_k: (next(_ids), True))
     a._memory.mark_superseded = MagicMock()
+    a._memory.close_with_children = MagicMock()
     a._observation_perspective = MagicMock(return_value={})
     a._memory_tool = MagicMock()
     a._memory_tool.get_tool_definitions = MagicMock(
@@ -214,10 +215,27 @@ def test_w_recall_uses_configured_n():
     assert kwargs.get("n") == 5
 
 
-def test_in_flight_lookups_occupy_a_slot_in_w():
-    # 調査中は、その意図が W の枠を1つ専有する。想起の運に左右されると「いま探している」
-    # ことが調停に伝わらず、同じ問いへ二重に投げる（実機で「調べてみるね」が2回出た）。
-    # 複数の調査が並行しうるので、飛行中の数だけ枠を取る。
+def test_children_are_linked_to_the_parent_and_closed_together():
+    # 親＝人の求め、子＝その求めのために投げた調査。子は parent_id で親に紐づき、
+    # 答えて親が決着したら、生きている子もまとめて閉じる（一段だけ・再帰なし）。
+    # deferred はモックだと完了が届かない（実体が sink を呼ぶ）ので、同期で返る recall で試す。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "今日の天気"})]),
+        _turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})]),
+    ])
+    assert _run_chain(a, utterance="今日の天気を調べて") == "晴れだよ"
+    intents = [c for c in a._memory.save_async_with_id.call_args_list
+               if c.kwargs.get("direction") == "意図"]
+    assert intents and intents[0].kwargs.get("parent_id") == "obs1"   # obs1＝親（求め）
+    # 実際に閉じるのは永続化パイプライン（ここではモック）。親の id が渡ることを見る。
+    _, kwargs = a._run_post_response_pipeline.call_args
+    assert kwargs["close_parent_id"] == "obs1"
+
+
+def test_completion_content_reads_as_this_chains_action():
+    # 完了 MI は「何を・どうやって調べた結果が届いたか」が content から読めること。
+    # 「探した結果：…」だけだと、自分がいましたことなのか昔の記憶なのか区別できず、
+    # 結果が W にあるのに調停がまた調べに行った（実機で観測）。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"})]),
         _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
@@ -226,16 +244,31 @@ def test_in_flight_lookups_occupy_a_slot_in_w():
     async def scenario():
         ip = InformationProcessing(a)
         await ip.run_iteration("今日の天気を調べて")
+        ip.push_completion("今日の天気", "西日本は暑い")
         for _ in range(200):
-            if a._deferred_search.call.await_count:
+            if any(c.kwargs.get("direction") == "完了"
+                   for c in a._memory.save_async_with_id.call_args_list):
                 break
             await asyncio.sleep(0.005)
-        await ip.run_iteration("それで？")          # 完了が来る前に次の反復
         await ip.close()
 
     asyncio.run(scenario())
+    done = next(c for c in a._memory.save_async_with_id.call_args_list
+                if c.kwargs.get("direction") == "完了")
+    content = done.args[0]
+    assert "search_deferred" in content      # どうやって調べたか
+    assert "今日の天気" in content            # 何を
+    assert "届いた" in content                # いま届いたこと
+
+
+def test_w_presents_the_loop_records_as_mi_not_synthetic_labels():
+    # W は「思い出している記憶」ではなく、いまの作業状態。ループの記録は MI としてそのまま
+    # 並べ、合成ラベル（[取込]・[調査中]）は作らない。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    _run(a, utterance="おはよう")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "調査中" in system and "今日の天気" in system
+    assert "[取込]" not in system and "[調査中]" not in system
+    assert "おはよう" in system               # MI の内容自体は載る
 
 
 def test_w_includes_the_intake_origin_deterministically():

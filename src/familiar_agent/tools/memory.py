@@ -367,6 +367,10 @@ class ObservationMemory:
     def mark_superseded(self, old_id: 'str', new_id: 'str') -> 'None':
         return self._observations.mark_superseded(old_id, new_id)
 
+    def close_with_children(self, parent_id: 'str', new_id: 'str') -> 'None':
+        """親を閉じ、生きている子（その求めのために投げた調査）も同じ記録で閉じる。"""
+        return self._observations.close_with_children(parent_id, new_id)
+
     def decay_importance(self, before_date: 'str', factor: 'float' = 0.95) -> 'int':
         return self._observations.decay_importance(before_date, factor)
 
@@ -552,7 +556,8 @@ class ObservationMemory:
         payload = dict(content=content, direction=kwargs.get("direction","unknown"),
                        kind=kwargs.get("kind","observation"), emotion=kwargs.get("emotion","neutral"),
                        image_path=kwargs.get("image_path"), override_date=kwargs.get("override_date"),
-                       emotion_pad=_pad.to_json_dict() if _pad else None)
+                       emotion_pad=_pad.to_json_dict() if _pad else None,
+                       parent_id=kwargs.get("parent_id"))
         try:
             event_id, created_new = self.append_memory_event(
                 "memory.save", payload,

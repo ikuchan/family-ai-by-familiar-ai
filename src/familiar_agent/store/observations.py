@@ -645,15 +645,16 @@ class ObservationStore:
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
                     " image_path,image_data,person_id,writer_id,subject_id,"
-                    " participants_json,scope,activation_a0,"
+                    " participants_json,scope,activation_a0,parent_id,"
                     " emotion_p,emotion_pn,emotion_a,emotion_dom) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
                      self._ctx.person_id,
                      writer_id or self._ctx.person_id,
                      subject_id or self._ctx.person_id,
                      participants_json, scope, activation_a0,
+                     payload.get("parent_id"),
                      emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom),
                 )
                 cur.execute(
@@ -717,6 +718,23 @@ class ObservationStore:
 
     async def decay_importance_async(self, *a, **kw):
         return await asyncio.to_thread(self.decay_importance, *a, **kw)
+
+    def close_with_children(self, parent_id: str, new_id: str) -> None:
+        """親を閉じ、生きている子も同じ記録で閉じる（親子2階層・一段だけ・再帰なし）。
+
+        調査は複数並行しうるので、親（求め）に子（調査）がぶら下がる。答えが出て親が決着
+        したら、その求めのために投げた調査はもう追わない。孫は作らない設計なので、子の子を
+        辿る必要はない。解決は先着が勝つ（`mark_superseded` と同じく上書きしない）。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE observations SET superseded_by=%s "
+                    "WHERE (id=%s OR parent_id=%s) AND superseded_by IS NULL AND id<>%s",
+                    (new_id, parent_id, parent_id, new_id),
+                )
+            conn.commit()
 
     def mark_superseded(self, old_id: str, new_id: str) -> None:
         with self._ctx.lock:
