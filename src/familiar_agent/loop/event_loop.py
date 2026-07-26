@@ -356,7 +356,17 @@ class InformationProcessing:
         while True:
             try:
                 # 待つ対象は配列で持つ（QD を足すときは1本加えるだけ）。
-                queues = [self._completion_queue, self._affect_queue, self._device_queue]
+                # **調査中は完了キューだけを待つ。** 飛行中の調査があるあいだに情動や
+                # 人の出入りで別の連鎖を始めると、1つの求めの途中に別の話が割り込む。
+                # 聞いている側には、軽量LLM とフルLLM が交互に喋る＝別々の人格が居る
+                # ように聞こえる（実機で観測）。QA・QD は**消費せずキューに残す**ので、
+                # 調査が終われば順に処理される（取りこぼしではなく待たせるだけ）。
+                # 代償：drive の発火と人の入退室への反応が、その求めが終わるまで遅れる。
+                queues = (
+                    [self._completion_queue]
+                    if self._inflight
+                    else [self._completion_queue, self._affect_queue, self._device_queue]
+                )
                 waiters = {asyncio.ensure_future(q.get()): q for q in queues}
                 try:
                     done, pending = await asyncio.wait(

@@ -142,3 +142,30 @@ def test_presence_scan_leaves_a_trace_even_when_nothing_changes():
     joined = "\n".join(logs)
     assert "初回走査" in joined and "誰も居ない" in joined
     assert "在席の変化" in joined and "パパ" in joined
+
+
+def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
+    # 調査中に情動や人の出入りで別の連鎖を始めると、1つの求めの途中に別の話が割り込む。
+    # QA・QD は消費せずキューに残す（取りこぼしではなく待たせるだけ）。
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = MagicMock()
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        ip._iterate = AsyncMock(return_value="")
+        ip._begin_affect = AsyncMock(return_value=None)
+        ip._begin_device = AsyncMock(return_value=None)
+        ip._inflight = 1                      # 調査が飛んでいる
+        ip._ensure_driver()
+        ip.push_affect("SEEKING", "なにか気になる")
+        ip.push_device("入室", "パパ が来た")
+        await asyncio.sleep(0.05)
+        sizes = (ip._affect_queue.qsize(), ip._device_queue.qsize())
+        await ip.close()
+        return ip, sizes
+
+    ip, sizes = asyncio.run(scenario())
+    assert sizes == (1, 1)                    # どちらも消費されず残っている
+    ip._begin_affect.assert_not_awaited()
+    ip._begin_device.assert_not_awaited()

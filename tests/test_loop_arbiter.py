@@ -138,9 +138,12 @@ def test_full_branch_also_writes_a_filler_that_avoids_committing_to_content():
 
 
 def test_second_filler_is_asked_to_continue_not_restart():
-    # 実機で同じ言い回しの前置きが続いた。黙らせるのではなく、続きとして書かせる。
+    # 実機で「調べてみるね」に相当する前置きが5回続いた。つなぎを止めるのではなく、
+    # 二言目以降を「まだ考えている最中だと伝わるだけの短い言葉」にさせる。軽量LLM と
+    # フルLLM が交互に喋ると、聞いている側には別々の人格が居るように聞こえる。
     assert "その続きとして書く" in ARBITER_PROMPT
-    assert "二言目は" in ARBITER_PROMPT
+    assert "二言目以降" in ARBITER_PROMPT
+    assert "同じ人が続けて言っている" in ARBITER_PROMPT
 
 
 def test_prompt_holds_no_quotable_sample_utterances():
