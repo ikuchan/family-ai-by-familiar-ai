@@ -38,6 +38,11 @@ _DEDUPE_WINDOW_SECS = 3.0
 _RECONNECT_POLL_SECS = 1.0
 _RECONNECT_BACKOFF_SECS = 2.0
 _BRACKETED_EVENT_RE = re.compile(r"[（(［\[]([^（）()\[\]［］]{1,40})[）)］\]]")
+# STT 自身が「聞き取れていない」と付ける印。**含まれていれば、後ろに文が続いても捨てる**。
+# 実機で「（聞き取り不能） え、サボさんも…」が通り抜け、聞き返し→その声をまた拾う→また
+# 聞き返す、で35秒に7回喋った。印が付いたものを LLM へ渡す理由がない。普通の括弧書き
+# （「あれ（きのう話したやつ）」）まで落とさないよう、印そのものだけを見る。
+_UNINTELLIGIBLE_MARKERS = ("聞き取り不能", "聞き取れません", "inaudible", "unintelligible")
 
 # Repetition-loop hallucination detection
 # ElevenLabs sometimes emits "で、で、で、..." or "え？え？え？" on noise/unclear audio.
@@ -81,12 +86,23 @@ def _looks_like_audio_event(text: str) -> bool:
     return not remainder.strip()
 
 
+def _has_unintelligible_marker(text: str) -> bool:
+    """STT が「聞き取れていない」と付けた印を含むか（括弧の中だけを見る）。"""
+    return any(
+        marker in inner
+        for inner in _BRACKETED_EVENT_RE.findall(text)
+        for marker in _UNINTELLIGIBLE_MARKERS
+    )
+
+
 def should_skip_stt(text: str) -> bool:
     """Return True if the transcript should be silently discarded."""
     text = text.strip()
     if len(text) < 2:
         return True
     if _looks_like_audio_event(text):
+        return True
+    if _has_unintelligible_marker(text):
         return True
     if _is_only_punct_or_symbol(text):
         return True
