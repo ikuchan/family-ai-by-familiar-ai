@@ -928,3 +928,27 @@ def test_w_lists_what_has_already_been_looked_up_in_this_chain():
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "この求めのために調べたもの" in system
     assert "fetch_deferred「https://example.com/1hour.html」" in system
+
+
+def test_full_branch_says_a_filler_first_when_thinking_deeply():
+    # 正本③ 段5：フルで答えると決めたときは、同じ同期フロー内で二段生成する。軽量LLM が
+    # つなぎを即答してから、続けてフルLLM を起こす（1つの work の内部二段＝1反復1出力）。
+    # フル生成は effort=high で10秒近くかかり、そのあいだ無音になる。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"full","effort":"high","text":"えーっと"}')
+    shown: list[str] = []
+    out = _run(a, on_text=shown.append)
+    assert out == "本応答"
+    assert "えーっと" in "".join(shown)           # つなぎが先に出る
+    assert "".join(shown).index("えーっと") < "".join(shown).index("本応答")
+
+
+def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
+    # effort=low のフル生成は実測 0.8〜3.6 秒。速いときに「えーっと」を挟むとテンポが悪い。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"full","effort":"low","text":"えーっと"}')
+    shown: list[str] = []
+    _run(a, on_text=shown.append)
+    assert "えーっと" not in "".join(shown)

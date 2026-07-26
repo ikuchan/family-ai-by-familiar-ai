@@ -124,3 +124,14 @@ def test_arbiter_gets_the_same_grounding_as_the_full_llm():
     for needle in ("パジュ", "記憶を探せる", "たいき：家族の長男",
                    ':speaker "たいき"', "14:39"):
         assert needle in p
+
+
+def test_filler_examples_do_not_fix_the_register():
+    # つなぎの見本が「調べてみるね」だと、その口調が相手に合わせる規則より近くにあり、
+    # パパ（大人＝ですます）にタメ口で「調べてくるね！」と返した（実機で観測）。
+    assert "調べてみるね" not in ARBITER_PROMPT
+
+
+def test_full_branch_also_writes_a_filler_that_avoids_committing_to_content():
+    # full のつなぎは答えの前に置かれるので、中身を先取りすると本応答と食い違う。
+    assert "内容に触れない" in ARBITER_PROMPT

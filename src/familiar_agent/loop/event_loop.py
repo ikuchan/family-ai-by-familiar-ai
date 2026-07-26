@@ -572,6 +572,14 @@ class InformationProcessing:
             logger.info("event-loop 反復 %d/%d 出力=%s（調停・続きは完了で起きる）",
                         chain, max_chain, decision.action)
             return ""
+
+        # (b) 軽量つなぎ→フル（正本③ 段5 の内部二段）。フル生成は effort=high で10秒近く
+        # かかり、そのあいだ無音になる。つなぎで体感の待ち時間を埋める。**1つの work の
+        # 内部二段**であって別の出力ではない（1反復1出力は保たれる）。
+        # effort=low は実測 0.8〜3.6 秒で返るので挟まない（かえってテンポが悪くなる）。
+        if decision.branch == "full" and decision.text and decision.effort != "low":
+            await self._say_filler(decision.text)
+
         system = build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
