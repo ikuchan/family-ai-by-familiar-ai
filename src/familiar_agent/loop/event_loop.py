@@ -212,7 +212,8 @@ class InformationProcessing:
                     break
             # 探した事実と結果を1件に残す。open 意図と入れ替わるので W には結果つきが載る。
             action = self._action_of(query)
-            done_content = f"「{query}」を {action} で調べた結果が届いた：{result_text}"[:500]
+            cap = agent.config.completion_content_max
+            done_content = f"「{query}」を {action} で調べた結果が届いた：{result_text}"[:cap]
             obs_id, _ = await agent._memory.save_async_with_id(
                 done_content,
                 direction="完了",
@@ -221,8 +222,10 @@ class InformationProcessing:
                 parent_id=self._parent_id,
                 **agent._observation_perspective(),
             )
-            # 完了が open 意図に再会して解決（[D-単一想起]）＝鎖を1つ進める。
-            self._advance_chain(obs_id, f"「{query}」を探した結果：{result_text}"[:500])
+            # 完了が open 意図に再会して解決（[D-単一想起]）＝鎖を1つ進める。W に載るのは
+            # O へ書いたのと同じ文面にする（別の言い回しを2つ持つと、調停が読むものと
+            # 記憶に残るものが食い違う）。
+            self._advance_chain(obs_id, done_content)
         return len(items)
 
     # この反復で使える動作の表。値＝その動作のツール定義を agent から取り出す関数。

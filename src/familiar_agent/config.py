@@ -331,8 +331,17 @@ class AgentConfig:
     # #11 段階1：イベント駆動ループ（人の発言→想起→1反復1出力）へ排他切替（既定 off）。
     event_loop: bool = field(default_factory=lambda: _bool_env("EVENT_LOOP", default=False))
     # 段階1スライス2：完了キュー経由の1反復1ツール連鎖の反復上限（暴走防止の安全弁）。
+    # ネットの調べものは search（リンクが返る）→ fetch（本文を読む）→ 答える で最低3手。
+    # 3 だと答える手が残らず、読めなかったときの取り直しの余地も無い（実機で観測）。
     event_max_iterations: int = field(
-        default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 3)
+        default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 5)
+    )
+    # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
+    # 残って中身が消える。上限は埋め込みモデル bge-m3 の入力上限 8192 トークンに合わせる。
+    # 1文字＝1トークンになる字もあるので、8192 *文字* なら常に 8192 トークン以下に収まり、
+    # 埋め込みが後ろを落とさない。W に載る量は W の枠と溢れで別に制御される。
+    completion_content_max: int = field(
+        default_factory=lambda: _int_env("COMPLETION_CONTENT_MAX", 8192)
     )
 
     # Platform: "anthropic" | "gemini" | "openai" | "kimi" | "glm"

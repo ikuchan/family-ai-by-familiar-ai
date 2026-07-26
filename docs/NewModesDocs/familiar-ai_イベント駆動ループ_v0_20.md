@@ -22,7 +22,8 @@
 
 - **`InformationProcessing`（I：情報処理機構）**：`loop/event_loop.py` に新設。属性 `_completion_queue`（**QC**・`asyncio.Queue`）と、メソッド `run_iteration`（**LPM**：ループ核の drain 反復）を持つ。O・C（Config）・W・RH 相当のツール実行は既存実体を持つ `agent` を当面参照。AIF/DIF/QA/QD、ARB/APR/ACT/MNT のクラス分離は後続段階（stub しない）。
 - **反復フロー**（④シーケンス整合）：(1) **取込**＝QC を drain し完了結果を **O 書込**（`save_async_with_id`, kind=`observation`）、(2) **REC**＝`recall_async` で W 構築、(3) **GEN**＝`stream_turn([say, recall])`。**say**→発話して反復終了／**recall**→**RH** が非同期に実行し結果を **QC へ**（投げた時点で反復終了）。相関ID は使わず結果は O→W で再会（[D-単一想起]）。
-- **連鎖上限**：`event_max_iterations`（env `EVENT_MAX_ITERATIONS`・既定3）。上限の反復では recall を渡さない。
+- **連鎖上限**：`event_max_iterations`（env `EVENT_MAX_ITERATIONS`・既定5）。上限の反復では recall を渡さない。既定が3だったとき、ネットの調べもの（`search_deferred` でリンクを得る→`fetch_deferred` で本文を読む→答える）が3手を使い切り、答える手が残らなかった（実機で観測）。
+- **完了 MI の content 上限**：`completion_content_max`（env `COMPLETION_CONTENT_MAX`・既定8192文字）。取ってきた本文を切ると、表なら見出しだけが残って中身が消える。値は埋め込みモデル bge-m3 の入力上限 8192 トークン（`sentence_bert_config.json` の `max_seq_length`）に合わせてある。1文字＝1トークンになる字もあるため、8192 *文字* なら常に 8192 トークン以下に収まり、埋め込みが後ろを落とさない。O に書く文面と W に載せる文面は同一にする。
 - **supersede**：ループ中に書いた O（トリガ・open 意図・完了）の id を `_run_post_response_pipeline(superseded_ids=...)` へ渡し、ターン観察保存後にその id で `mark_superseded`。恒久記録は会話 summary O が担う。
 
 ### トリガ O と open 意図 O（同じ recall を繰り返す不具合の修正）

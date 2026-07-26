@@ -73,6 +73,9 @@ def _agent(*, stream_returns, max_iters=3):
     a.config = MagicMock()
     a.config.max_tokens = 400
     a.config.event_max_iterations = max_iters
+    # 数値として使う設定は明示する。MagicMock のままだと `content[:cap]` の cap が
+    # `__index__`=1 と解釈され、content が黙って1文字に切られる（実際に起きた）。
+    a.config.completion_content_max = 8192
     return a
 
 
@@ -259,6 +262,35 @@ def test_completion_content_reads_as_this_chains_action():
     assert "search_deferred" in content      # どうやって調べたか
     assert "今日の天気" in content            # 何を
     assert "届いた" in content                # いま届いたこと
+
+
+def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
+    # 取ってきた本文を 500 字で切ると、表なら見出しだけが残って中身が消える（実機で観測：
+    # フルLLM が「データが読み取れなかった」と正しく報告した）。上限は埋め込みモデル
+    # bge-m3 の入力上限 8192 トークンに合わせる。1文字＝1トークンになる字もあるので、
+    # 8192 *文字* なら常に 8192 トークン以下に収まり、埋め込みが後ろを落とさない。
+    body = "気" * 6000                       # 500 でも 8192 でもない長さ
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"})]),
+        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+    ])
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip.run_iteration("今日の天気を調べて")
+        ip.push_completion("今日の天気", body)
+        for _ in range(200):
+            if any(c.kwargs.get("direction") == "完了"
+                   for c in a._memory.save_async_with_id.call_args_list):
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+
+    asyncio.run(scenario())
+    done = next(c for c in a._memory.save_async_with_id.call_args_list
+                if c.kwargs.get("direction") == "完了")
+    assert done.args[0].count("気") >= 6000   # 本文が丸ごと残る
+    assert len(done.args[0]) <= 8192          # 埋め込みの入力上限は超えない
 
 
 def test_w_presents_the_loop_records_as_mi_not_synthetic_labels():
