@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.9）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.10）
 
 ## 位置づけ
 本書は設計図の確定 **[D-活性]／[D-O書込]／[D-B定点]／[D-B分離]／[D-知覚]／[D-設定]** の**別紙詳細**。決定そのものは設計図にあり、本書は **定数台帳／現状コード所在（file:line・移行入力）／知覚パイプライン細部／移行申し送り** を保持する（決定の地の文は設計図に一元化し、本書では繰り返さない）。対象＝課題2 の項目1（活性）・項目2（O書込）・項目3（知覚在席）。**暫定値は課題5、移行は課題6/7**。
@@ -32,10 +32,9 @@
 | mood 平静値（baseline） | 減衰の収束先（全軸0.5＝(P,Pn,A,Dom)=(0.5,0.5,0.5,0.5)） | 人・固定 | PAD 成分ごと |
 | 覚醒（Arousal）入力重み | G の覚醒を mood に乗せる重み | 人・固定 | global |
 
-**MI.activation 系**
+**MI.activation 系**（**時間の定数を持たない**：$a$ は time では減らさない＝[D-活性]。時間減衰は新しさ $t$ が一本で担い、想起では $a$ と $t$ が加算部の別項として効く。旧「activation 減衰時定数（salience の指数減衰）」は、$t$ と二重に効くため削除した）
 | 定数 | 役割 | 種別 | 個数 |
 |---|---|---|---|
-| activation 減衰時定数 | salience の指数減衰の速さ | 人・固定 | global |
 | activation 初期化重み | 取込時 activation の初期値（relevance は廃止・seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分け・足さない・課題5 E） | 人・固定 | global |
 
 **周期**
@@ -169,6 +168,8 @@
 ---
 
 ## 更新履歴
+
+> v0.10：定数台帳から **activation 減衰時定数**を削除。$a$ は time では減らさない（[D-活性]）と確定しているのに、$a$ 自身が指数減衰する前提の定数が残っており、新しさ $t$ と二重に効く記述になっていた。
 
 > v0.9：カメラ動体検知→知覚ターン起動（案B）を反映。**DIF（純イベント駆動 I）は未実装**なので、動体イベントは当面**現行ターン駆動へ接地**する（将来 DIF ができたらそこへ載せ替え）。`recognition/motion_watcher.py`＝`CameraMotionWatcher`（`presence_watcher` と同型の asyncio タスク・ONVIF PullPoint 購読＝`create_pullpoint_manager`→`SetSynchronizationPoint`→`PullMessages` ループ・Tapo は HTTPS webhook 非対応のため pull 採用）。動体検知で `agent._note_motion` が保留フラグ `_motion_pending` を立て、GUI アイドルループ（deferred 配信と同位置）が拾って**知覚ターン**を起こす（`inner_voice`＝Config `motion_inner_voice`・行動は主LLM が選ぶ・見え驚きは既存 `see`→SceneTracker 経路）。デバウンス（既定60秒・`Debouncer`）でバーストを1ターンにまとめ、long-poll 待機（既定60秒）は通信管理値で検知遅延にならない。ゲート＝静穏/沈黙/入力待ちを避け、**在席は問わない**（不在時の動きも気づく）。Config `MOTION_WATCH`（既定 off）で opt-in。
 > v0.8：起動時キャッチアップ（案B）と Drive 新機能の既定 on 化を反映。(1) 停止中の経過を初回 tick に積む：`gui._initial_drive_tick_time` が `drive5.updated_at` を読み、初回 `dt = now − updated_at`（停止秒数）で `accumulate` する（`drive_register.load_drives_with_updated_at`／`catchup_dt`）。cap は設けず accumulate の [0,1] クリップ任せ。mood は起動時 snapshot 近似。(2) 実行時フラグ `DRIVE5_AUTONOMOUS`／`DRIVE5_SATISFY_LLM` の**コード既定を on** へ（新機能を前提）。明示無効化は env `=0`。legacy 経路は `=0` で従来どおり。

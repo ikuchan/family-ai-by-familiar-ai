@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.31・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.32・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -135,7 +135,7 @@ $$a_0 = \mathrm{clip}\big(w_s\,\widehat{S},\;0,\;C\big)\ (\text{カメラ起点}
 | $a$ 正規化 | $a_{norm}=\min(a/C,1)$ | 〔確定〕 | activation を $score$ 用に 0〜1 化。$C=2$ に従う形（D-1 承認） | 【設計確定】 |
 | floor（システム固定・非Config） | 0.0 | 〔確定〕 | 導出の下限（$n\to-\infty$ の漸近先）。$a\in[0,C]$。低活性は score 活性項で沈み min_score が切るため底上げ不要。発散回避は $x_0$ の $\varepsilon$ クランプで対応（案い・感情距離と共通） | 【新規仮置き→承認】 |
 | クランプ $\varepsilon$（システム固定・非Config・活性導出と感情距離で共通） | 0.001 | 〔確定〕 | $x_0\in[\varepsilon,1-\varepsilon]$。ロジット発散回避。システム全体で単一の定数として持つ | 【新規仮置き→承認】 |
-| 現 importance 日次減衰 | 0.95/日 | 〔仮〕 | $importance \leftarrow importance \cdot 0.95$。**廃止候補**（time 減衰は新しさ項へ） | 【コード事実】memory.py:1434（要再定義） |
+| 現 importance 日次減衰 | **廃止** | 〔確定〕 | 旧 $importance \leftarrow importance \cdot 0.95$。$a$ は time では減らさない（[D-活性]）。時間減衰は新しさ $t$ が一本で担い、想起では $a$ と $t$ が加算部の別項として効く。$a$ にも減衰を入れると $t$ と二重になる | 【コード事実】memory.py:1434（要再定義） |
 
 ---
 
@@ -243,6 +243,8 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 ---
 
 ## 更新履歴
+
+> v0.32：E節の「現 importance 日次減衰」を〔仮・廃止候補〕から**〔確定〕の廃止**へ。$a$ は time では減らさないと [D-活性] が確定しており、$a$ 自身の減衰を残すと新しさ $t$ と二重に効く。
 
 > v0.31：**発話を出してよいかの条件**の節を新設（静穏時間・沈黙依頼の長さ・反復上限・完了 MI の content 上限）。いずれも実機で決めた値で、Config にあるのに台帳へ載っていなかった。
 
