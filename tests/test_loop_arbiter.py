@@ -154,3 +154,17 @@ def test_prompt_holds_no_quotable_sample_utterances():
 
     for sample in re.findall(r"「([^」]*)」", ARBITER_PROMPT):
         assert sample.startswith("〜") or len(sample) <= 3, f"見本が残っている: {sample}"
+
+
+def test_tone_rule_sits_next_to_where_the_filler_is_asked_for():
+    # 口調の指示は分岐の説明から離れた位置にあり、短いつなぎのときだけ守られなかった
+    # （実機で、本応答はですますなのに待ってもらう一言だけタメ口）。つなぎを書けと
+    # 言っている場所の直後へ置く。キャッシュ境界（毎分変わる [いま]）より手前なので、
+    # 先頭からの一致長は変わらない。
+    tone = ARBITER_PROMPT.index("text の口調は")
+    # 分岐の説明（つなぎを書けと言っている場所）の直後で、他の材料より前。
+    assert ARBITER_PROMPT.index("これから調べると伝えるだけ") < tone
+    assert tone < ARBITER_PROMPT.index("判断の基準は自分で決めてよい")
+    # キャッシュ境界（毎分変わる [いま]）より手前なので、先頭からの一致長は変わらない。
+    assert tone < ARBITER_PROMPT.index("[いま]")
+    assert "短い一言でも同じ" in ARBITER_PROMPT
