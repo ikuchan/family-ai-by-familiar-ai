@@ -90,7 +90,7 @@ def test_arbiter_speaks_as_the_persona():
     # 「調べてみますね。」が混ざった）。
     b = _backend('{"branch":"light","text":"やあ"}')
     asyncio.run(arbitrate(b, utterance="こんにちは", workspace_ctx="",
-                          me_md="名前： パジュ\n一人称：ぼく"))
+                          self_understanding="名前： パジュ\n一人称：ぼく"))
     assert "パジュ" in _prompt_of(b) and "ぼく" in _prompt_of(b)
 
 
@@ -109,3 +109,18 @@ def test_arbiter_is_told_when_no_more_looking_up_is_possible():
     b2 = _backend('{"branch":"full"}')
     asyncio.run(arbitrate(b2, utterance="?", workspace_ctx="", capped=False))
     assert "これ以上は調べられない" not in _prompt_of(b2)
+
+
+def test_arbiter_gets_the_same_grounding_as_the_full_llm():
+    # 発話の出口は2つ。片方にだけ文脈を渡すと、症状が出るたび1つずつ足すことになる
+    # （人格を足した翌日、14時39分に「こんばんは」と言った＝日時が無かった）。
+    b = _backend('{"branch":"light","text":"やあ"}')
+    asyncio.run(arbitrate(b, utterance="こんにちは", workspace_ctx="",
+                          self_understanding="名前： パジュ\n## 私にできること\n- 記憶を探せる",
+                          family_md="たいき：家族の長男",
+                          present_ctx='(present :speaker "たいき")',
+                          now_ctx='(now :datetime "2026-07-26 14:39")'))
+    p = _prompt_of(b)
+    for needle in ("パジュ", "記憶を探せる", "たいき：家族の長男",
+                   ':speaker "たいき"', "14:39"):
+        assert needle in p

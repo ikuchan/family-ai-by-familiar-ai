@@ -17,9 +17,8 @@ def test_static_prompt_has_body_net_no_legs_and_family_bond():
 
 def test_build_includes_self_knowledge_present_pi_and_w():
     out = build_event_system_prompt(
-        me_md="[ME] ぼくの口調",
+        self_understanding="[ME] ぼくの口調\n\n## 私にできること\n- 能力の要約",
         family_md="[FAMILY] パパ・ママ",
-        capabilities="能力の要約",
         present_ctx="(present :speaker \"パパ\")",
         pi_ctx="[内部状態(PI)] 気分: おだやか / 欲求: SEEKING 高",
         workspace_ctx="[想起]昔の話",
@@ -34,9 +33,20 @@ def test_build_includes_self_knowledge_present_pi_and_w():
 
 def test_build_omits_retired_layers():
     out = build_event_system_prompt(
-        me_md="me", family_md="fam", capabilities="cap",
+        self_understanding="me", family_md="fam",
         present_ctx="", pi_ctx="pi", workspace_ctx="w",
     )
     joined = "\n".join(out)
     assert "[Interaction policy]" not in joined   # social_policy は載せない
     assert "interoception" not in joined           # 撤去対象は載せない
+
+
+def test_self_understanding_is_one_block_not_two():
+    # 人格（人が書く）と能力（実装から導く）を別々に注入すると、同じことを2箇所で述べて
+    # 食い違う（ME.md「カメラ：無い」に対し要約が「I can see ... using a camera」）。
+    # 案B：生成の時点で1枚にまとめ、注入も1本にする。
+    import inspect
+
+    sig = inspect.signature(build_event_system_prompt)
+    assert "self_understanding" in sig.parameters
+    assert "me_md" not in sig.parameters and "capabilities" not in sig.parameters

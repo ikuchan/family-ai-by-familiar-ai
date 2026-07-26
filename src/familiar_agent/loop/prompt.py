@@ -1,6 +1,8 @@
 """イベント駆動ループ（#11 段階1）の system プロンプト（案B・クリーン最小）。
 
-自己認識 MI（ME＋FAMILY＋capabilities）＋ 在席 ＋ PI（mood/drive 定性）＋ W（想起）を注入する。
+自己認識 MI（1枚）＋ FAMILY ＋ 在席 ＋ PI（mood/drive 定性）＋ W（想起）を注入する。
+自己認識は人格（人が書く ME.md）と「できること」（実装から導く）を**生成の時点で1枚に**
+まとめたもの。別々に注入していたときは同じことを2箇所で述べて食い違っていた。
 撤去対象（social_policy・mental_snapshot・interoception・relationship スカラ）は載せない。
 骨格キーワードとツール名は英語、ルール文は日本語。
 """
@@ -68,17 +70,16 @@ EVENT_SYSTEM_PROMPT = """\
 
 def build_event_system_prompt(
     *,
-    me_md: str,
+    self_understanding: str,
     family_md: str,
-    capabilities: str,
     present_ctx: str,
     pi_ctx: str,
     workspace_ctx: str,
     iter_ctx: str = "",
 ) -> tuple[str, str]:
-    """案B：静的核 ＋ 自己認識 MI（ME/FAMILY/capabilities）＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
+    """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
 
-    返りは **(安定部, 可変部)** の対。安定部（静的核＋ME＋FAMILY＋capabilities）は反復ごとに
+    返りは **(安定部, 可変部)** の対。安定部（静的核＋自己認識＋FAMILY）は反復ごとに
     変わらないので、backend がここへ `cache_control` を付けて再処理を省ける。1本の文字列で
     渡すとキャッシュが効かない。
 
@@ -86,10 +87,7 @@ def build_event_system_prompt(
     日付を利用者に聞き返すことになる（実機で観測）。
     """
     stable = "\n\n---\n\n".join(
-        p for p in [
-            me_md, family_md,
-            f"[My capabilities]\n{capabilities}" if capabilities else "",
-        ] if p and p.strip()
+        p for p in [self_understanding, family_md] if p and p.strip()
     )
     datetime_ctx = f'(now :datetime "{clock.now_local_str()}")'
     variable = "\n\n".join(

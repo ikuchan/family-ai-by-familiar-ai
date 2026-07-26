@@ -62,6 +62,65 @@ def load_manifest() -> str:
         return ""
 
 
+def filter_enabled(manifest: str, env: dict | None = None) -> str:
+    """有効な能力だけを残した manifest を返す。
+
+    `enabled_env: CAMERA_HOST` は「**条件つき**」であって「有効」ではない。環境変数が
+    実際に設定されているかを見ないと、繋がっていない身体を能力として語ることになる
+    （`ME.md`「カメラ：無い」に対し要約が「I can see ... using a camera」になっていた）。
+
+    yaml を解析せず行単位で扱うのは、`detail: >` の折り返しを保ったまま項目だけを落とす
+    ためで、整形し直すと生成側へ渡る文面が変わる。
+    """
+    import os as _os
+
+    environ = _os.environ if env is None else env
+    out: list[str] = []
+    block: list[str] = []
+    keep = True
+
+    def _flush() -> None:
+        if keep:
+            out.extend(block)
+        block.clear()
+
+    for line in manifest.splitlines(keepends=True):
+        is_item = line.lstrip().startswith("- id:")
+        if is_item:
+            _flush()
+            keep = True                     # 既定は残す（条件の記載が無ければ有効）
+        stripped = line.strip()
+        if stripped.startswith("enabled:"):
+            keep = stripped.split(":", 1)[1].strip().lower() == "true"
+        elif stripped.startswith("enabled_env:"):
+            keep = bool(environ.get(stripped.split(":", 1)[1].strip()))
+        if block or is_item:
+            block.append(line)
+        else:
+            out.append(line)                # 先頭の `capabilities:` など
+    _flush()
+    return "".join(out)
+
+
+def build_self_understanding_prompt(*, me_md: str, manifest: str) -> str:
+    """自己認識を1枚に組ませるプロンプト（案B）。
+
+    `ME.md` は**逐語で**渡し、変えずに残すよう指示する。要約させると丁寧さの規則のような
+    細かい指定が静かに落ち、人が書いた人格が生成物に上書きされる。生成が担うのは
+    「できること」の部分だけで、実装が変われば自己認識がそこに追随する。
+    """
+    return (
+        "あなた自身についての説明を1枚にまとめる。出力はその文章だけとし、前置きを書かない。\n\n"
+        "次の【私について】は人が書いたあなたの人格である。**一字も変えずそのまま**先頭に写す。\n"
+        "言い換え・要約・整形をしない。\n\n"
+        "そのうえで、下の能力一覧から、あなたが実際にできることを「## 私にできること」という\n"
+        "見出しの節にして続ける。一人称で、10〜20行の箇条書きにする。一覧に無いことは書かない。\n"
+        "【私について】に「無い」と書かれている体については、できると書かない。\n\n"
+        "【私について】\n" + me_md + "\n\n"
+        "【能力一覧】\n" + manifest + "\n"
+    )
+
+
 def load_summary() -> str:
     """Return the AI-written capability summary from agent_state, or ''."""
     try:

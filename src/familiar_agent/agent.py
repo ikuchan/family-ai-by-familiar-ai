@@ -78,10 +78,12 @@ from .loop.history import _flatten_history
 from .mcp_client import MCPClientManager, _resolve_config_path
 from .capability_state import (
     build_generation_prompt,
+    build_self_understanding_prompt,
     collect_manifest_context,
     load_manifest,
     load_summary,
     save_manifest,
+    filter_enabled,
     save_summary,
     should_refresh,
     should_regenerate_manifest,
@@ -1555,12 +1557,14 @@ class EmbodiedAgent:
         body_desc = self._get_body_description()
         base = re.sub(r"\(body.*?\)", body_desc, base, flags=re.DOTALL)
 
-        capability_summary = load_summary()
+        # 自己認識は1枚（案B）。人格（ME.md）と「できること」は生成の時点でまとめてあり、
+        # 別々に注入しない（同じことを2箇所で述べて食い違っていた）。まだ生成できていない
+        # 起動直後は ME.md そのものを使う。
+        self_understanding = load_summary() or self._me_md
         stable_parts = [p for p in [
-            self._me_md,
+            self_understanding,
             self._family_md,
             base,
-            f"[My capabilities]\n{capability_summary}" if capability_summary else "",
         ] if p]
         stable = "\n\n---\n\n".join(stable_parts)
 
@@ -2382,12 +2386,11 @@ class EmbodiedAgent:
         if not manifest:
             return
         try:
-            prompt = (
-                "Below is the capability manifest for this agent system.\n"
-                "Write a concise first-person summary (10–20 lines) of what you can do, "
-                "based only on capabilities marked enabled:true or with an enabled_env note. "
-                "Use natural language. Start each line with '- I can ...'.\n\n"
-                f"{manifest}"
+            # 自己認識は1枚（案B）。ME.md（人が書いた人格）を素材に、実装から導いた
+            # 「できること」を足す。有効条件は実際に評価する（条件つき≠有効）。
+            prompt = build_self_understanding_prompt(
+                me_md=getattr(self, "_me_md", ""),
+                manifest=filter_enabled(manifest),
             )
             summary = await self._utility_backend.complete(prompt, max_tokens=512)
             if summary:

@@ -17,6 +17,7 @@ import contextlib
 import logging
 import time
 
+from ..store import clock
 from .arbiter import arbitrate
 from .prompt import build_event_system_prompt
 
@@ -539,7 +540,10 @@ class InformationProcessing:
             agent._utility_backend,
             utterance=utterance or self._chain_head_content,
             workspace_ctx=workspace_ctx,
-            me_md=getattr(agent, "_me_md", ""),
+            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
+            family_md=getattr(agent, "_family_md", ""),
+            present_ctx=present_ctx,
+            now_ctx=f'(now :datetime "{clock.now_local_str()}")',
             capped=capped,
         )
         logger.debug("event-loop iter=%d/%d 調停=%s effort=%s",
@@ -559,9 +563,8 @@ class InformationProcessing:
                         chain, max_chain, decision.action)
             return ""
         system = build_event_system_prompt(
-            me_md=getattr(agent, "_me_md", ""),
+            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
-            capabilities=load_summary(),
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(),
             iter_ctx=(

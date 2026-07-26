@@ -56,7 +56,16 @@ ARBITER_PROMPT = """\
 [あなたは誰か]
 {me}
 
-text を書くときは、この人格として、この口調で書く。
+[一緒に暮らす人たち]
+{family}
+
+[いま]
+{now}
+
+[いま誰が居るか]
+{present}
+
+text を書くときは、この人格として、この相手に向けて、いまの時刻に合う言葉で書く。
 
 [人の言葉]
 {utterance}
@@ -120,18 +129,28 @@ _CAPPED_NOTE = """
 
 
 async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
-                    me_md: str = "", capped: bool = False,
-                    timeout: float = 2.0) -> Decision:
+                    self_understanding: str = "", family_md: str = "",
+                    present_ctx: str = "", now_ctx: str = "",
+                    capped: bool = False, timeout: float = 2.0) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
-    `me_md`：人格（ME）。**発話の出口は2つ**（ここの light／つなぎ と、フルLLM の答え）
-    なので、軽量側にも人格を渡さないと同じ人格が2つの口で違う口調で喋る。
-    `capped`：反復上限。渡さないと上限でも "action" を選び、その判断が丸ごと捨てられる。
+    **発話の出口は2つ**（ここの light とつなぎ、フルLLM の答え）なので、**フルと同じ
+    土台を渡す**。片方にだけ渡すと、症状が出るたび1つずつ足すことになる（人格を足した
+    翌日、14時39分に「こんばんは」と言った＝日時が無かった）。
+
+    - `self_understanding`：自己認識1枚（人格＋できること）。**何ができるかを知らずに
+      何をするかは選べない**ので、動作を選ぶこの器にこそ要る。
+    - `family_md`：誰が大人で誰が子どもかは家族の記述にしかなく、口調の規則に要る。
+    - `present_ctx`／`now_ctx`：誰に向けて・いつ話すか。
+    - `capped`：反復上限。渡さないと上限でも "action" を選び、その判断が丸ごと捨てられる。
     """
     prompt = ARBITER_PROMPT.format(
         utterance=utterance,
         workspace=workspace_ctx or "（なし）",
-        me=me_md or "（指定なし）",
+        me=self_understanding or "（指定なし）",
+        family=family_md or "（指定なし）",
+        present=present_ctx or "（分からない）",
+        now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
     )
     try:
