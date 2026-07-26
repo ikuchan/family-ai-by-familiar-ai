@@ -901,3 +901,30 @@ def test_debug_lines_carry_iteration_number(caplog):
     debugs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
     assert any("iter=1/3" in m for m in debugs)
     assert any("iter=2/3" in m for m in debugs)   # 駆動体が起こした2反復目
+
+
+def test_w_lists_what_has_already_been_looked_up_in_this_chain():
+    # 鎖は先頭1件しか生き残らないので、W に載るのは「いちばん新しい完了」だけ。しかも
+    # 取得結果は本文が長く（上限8192字）、何を取ったかがその中に埋もれる。実機では
+    # 同じ URL を2反復続けて取りに行き、1反復まるごと無駄になった。
+    # この求めのために何を調べたかを、短い一覧として別に見せる。
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="f", name="fetch_deferred",
+                        input={"url": "https://example.com/1hour.html"})]),
+        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+    ])
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip.run_iteration("今日はどんな天気？")
+        ip.push_completion("https://example.com/1hour.html", "時間別の表…")
+        for _ in range(200):
+            if a.backend.stream_turn.await_count >= 2:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+
+    asyncio.run(scenario())
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "この求めのために調べたもの" in system
+    assert "fetch_deferred「https://example.com/1hour.html」" in system

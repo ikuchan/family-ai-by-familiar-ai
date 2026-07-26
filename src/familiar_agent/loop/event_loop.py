@@ -517,8 +517,18 @@ class InformationProcessing:
         # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
         # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
         # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
+        # この求めのために何を調べたかを、短い一覧として別に見せる。鎖は先頭1件しか
+        # 生き残らないので W に載るのは「いちばん新しい完了」だけで、しかも取得結果は
+        # 本文が長く（上限8192字）、何を取ったかがその中に埋もれる。実機では同じ URL を
+        # 2反復続けて取りに行き、1反復まるごと無駄になった。
+        looked_up = ""
+        if self._lookup_action_by_query:
+            lines = "\n".join(f"- {act}「{q}」"
+                              for q, act in self._lookup_action_by_query.items())
+            looked_up = f"この求めのために調べたもの（同じものを重ねて調べない）：\n{lines}"
         workspace_ctx = "\n\n".join(
-            p for p in [self._chain_head_content, mem.format_for_context(memories)]
+            p for p in [looked_up, self._chain_head_content,
+                        mem.format_for_context(memories)]
             if p and p.strip()
         )
 
