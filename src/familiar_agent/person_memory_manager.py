@@ -262,8 +262,18 @@ class PersonMemoryManager:
         ]
 
     def get_person_name(self, person_id: str) -> str:
+        """呼びかけに使う名前。`display_name` は別名の一覧なので先頭だけを返す。
+
+        `display_name` は FAMILY.md の「呼び方」で "パパ、いくながさん、ゆうすけ" のように
+        読点区切りの一覧になる（`find_person_id_by_name` も割って照合している）。一覧のまま
+        渡すと在席の文脈が `(present :speaker "たいきくん、たいき")` になり、呼びかけも
+        モデルがどれを選ぶか任せになる。
+        """
         persons = {p["id"]: p for p in self.list_persons()}
-        return persons.get(person_id, {}).get("display_name", person_id[:8])
+        display = persons.get(person_id, {}).get("display_name", person_id[:8])
+        for sep in ("、", ","):
+            display = display.split(sep)[0]
+        return display.strip()
 
     def find_person_id_by_name(self, name: str) -> str | None:
         """Look up person UUID by name field or any alias in display_name.
