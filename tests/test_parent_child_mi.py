@@ -82,3 +82,32 @@ def test_closing_a_parent_closes_its_live_children() -> None:
     assert got[parent] == closer
     assert got[child_a] == closer      # 生きている子は全部閉じる
     assert got[child_b] == closer
+
+
+def test_the_answer_is_written_at_speak_time_and_survives_the_close():
+    """自分の答えを、背景の永続化を待たずに O へ書き、閉じても生き残らせる。
+
+    背景処理（要約・内省）は2秒かかる。そのあいだに次の反復が起きると「さっき何と
+    言ったか」を拾えない（実機で「それだけ？」に聞き返した）。かといって子として書くと、
+    求めの決着で `superseded_by` が入り、想起の候補（新しさ軸・関連軸とも
+    `superseded_by IS NULL`）から外れて結局見つけられない。
+    **閉じる側をこの記録にする**ことで、生き残るのはこの1件だけになる。
+    """
+    from familiar_agent.backend import ToolCall
+    from tests.test_event_loop import _agent, _run, _turn
+
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})])])
+    _run(a, utterance="今日の天気は？")
+
+    answers = [c for c in a._memory.save_async_with_id.call_args_list
+               if c.kwargs.get("direction") == "発話" and "自分が答えた" in c.args[0]]
+    assert len(answers) == 1
+    assert "晴れだよ" in answers[0].args[0]
+
+    # 閉じる側がこの記録であること（＝自分自身は閉じられない）。
+    assert a._memory.close_with_children.called
+    parent, new_id = a._memory.close_with_children.call_args.args
+    assert new_id != parent
+    # 背景の永続化には、この記録を supersede する対象として渡る（要約が恒久記録を担う）。
+    _, kwargs = a._run_post_response_pipeline.call_args
+    assert kwargs["superseded_ids"] == [new_id]

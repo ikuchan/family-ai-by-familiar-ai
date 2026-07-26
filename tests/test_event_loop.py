@@ -115,8 +115,9 @@ def test_speaks_via_say_tool():
     assert kwargs.get("tools") == [_SAY_DEF, _RECALL_DEF, _SEARCH_DEF, _FETCH_DEF]
     assert kwargs["max_tokens"] == 400
     assert "on_text" in kwargs
-    # 取込でトリガ（発話）O を1件書くだけ（open 意図・完了 O は無い）。
-    assert a._memory.save_async_with_id.await_count == 1
+    # 取込でトリガ（発話）O、発話時点で本応答 O の2件（open 意図・完了 O は無い）。
+    # 本応答を背景の永続化に任せると2秒遅れ、次の反復が「さっき何と言ったか」を拾えない。
+    assert a._memory.save_async_with_id.await_count == 2
     a._spawn_background_task.assert_called_once()
 
 
@@ -181,9 +182,10 @@ def test_loop_records_form_a_single_chain():
     _run_chain(a, utterance="昨日の天気覚えてる？")
     calls = [c.args for c in a._memory.mark_superseded.call_args_list]
     assert calls == [("obs1", "obs2"), ("obs2", "obs3")]   # トリガ→意図→完了
-    # ターン末に始末するのは鎖の先頭（＝生きている完了）だけ。
+    # ターン末に生き残るのは本応答 O（obs4）だけ。求めを閉じる側がこの記録なので、
+    # 意図・完了はここで閉じ、この1件が次の反復の候補に残る。要約が後から supersede する。
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert kwargs["superseded_ids"] == ["obs3"]
+    assert kwargs["superseded_ids"] == ["obs4"]
 
 
 def test_w_search_excludes_the_intake_origin():
@@ -841,10 +843,11 @@ def test_all_loop_os_are_superseded_via_pipeline():
     ])
     _run_chain(a)
     _, kwargs = a._run_post_response_pipeline.call_args
-    # 書いた O は3件（トリガ obs1・open 意図 obs2・完了 obs3）。意図 obs2 とトリガ obs1 は
-    # 完了が解決済みなので、ターン末の一括 supersede には載せない（つながりを残すため）。
-    assert a._memory.save_async_with_id.await_count == 3
-    assert kwargs["superseded_ids"] == ["obs3"]
+    # 書いた O は4件（トリガ obs1・open 意図 obs2・完了 obs3・本応答 obs4）。意図と
+    # トリガは完了が解決済みなので一括 supersede には載せない（つながりを残すため）。
+    # 生き残るのは本応答 obs4 だけで、要約が届いたらそれが supersede する。
+    assert a._memory.save_async_with_id.await_count == 4
+    assert kwargs["superseded_ids"] == ["obs4"]
 
 
 def test_max_iterations_bounds_the_chain():

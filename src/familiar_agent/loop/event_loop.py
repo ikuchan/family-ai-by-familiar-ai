@@ -762,10 +762,35 @@ class InformationProcessing:
         agent = self._agent
         logger.info("event-loop 終了: 反復=%d 結末=%s 上限到達=%s text_len=%d",
                     self._chain, outcome, "はい" if self._capped_hit else "いいえ", len(text))
+        # 自分が言ったことを、**発話の時点で同期に** O へ書く。背景の永続化（要約・内省）を
+        # 待つと2秒遅れ、そのあいだに次の反復が起きると「さっき何と言ったか」を拾えない
+        # （実機で「それだけ？」に聞き返した）。要約は後から来て、この記録を supersede する。
+        answer_id = None
+        if text:
+            with contextlib.suppress(Exception):
+                answer_id, _ = await agent._memory.save_async_with_id(
+                    f"自分が答えた：{text}"[:500],
+                    direction="発話",
+                    kind="observation",
+                    materialize_now=True,
+                    parent_id=self._parent_id,
+                    **agent._observation_perspective(),
+                )
         # 親が決着したら、生きている子（その求めのために投げた調査）もまとめて閉じる。
+        # **閉じる側をこの本応答 MI にする**。子として閉じられると `superseded_by` が入り、
+        # 想起の候補（新しさ軸・関連軸とも `superseded_by IS NULL`）から外れて、次のループで
+        # 見つけられなくなる。`close_with_children` は new_id 自身を除外するので生き残る。
         parent_id, self._parent_id = self._parent_id, None
         obs_ids = [self._chain_head_id] if self._chain_head_id else []
         self._chain_head_id = None
+        # いま閉じる（背景の永続化を待たない）。待つと、その2秒のあいだ意図・完了・つなぎが
+        # 生きたまま次の反復の候補に出る。閉じる側を本応答 MI にすることで、生き残るのは
+        # 「自分が答えた」1件だけになる。2秒後に届く会話要約がこの記録を supersede し、
+        # 恒久記録は要約が担う（[逐語を拡散想起から辿れるようにするのは今後の課題]）。
+        if answer_id and parent_id:
+            with contextlib.suppress(Exception):
+                agent._memory.close_with_children(parent_id, answer_id)
+            obs_ids = [answer_id]
         self._in_flight_lookups.clear()
         self._lookup_action_by_query.clear()
         self._said_fillers.clear()
