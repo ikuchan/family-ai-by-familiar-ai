@@ -48,3 +48,27 @@ def label_from_pad(pad: MoodPAD) -> str:
             best_d2 = d2
             best_label = label
     return best_label
+
+
+# 感情軸の一次絞り用ベクトル（4次元）。
+# e の距離 D²=Σ λ_i (logit(x_obs)-logit(x_mood))² は**ロジット空間の重み付きユークリッド
+# 距離**なので、√λ を畳み込んだ点を持てば pgvector の L2 距離がそのまま D になる。
+# λ を畳み込む以上、λ を変えたら格納値を一括で作り直す（案イ）。
+# ε は活性導出・感情距離と共通の 0.001（ロジットの発散を避ける）。
+_LOGIT_EPSILON = 0.001
+
+
+def pad_to_search_vector(
+    pad: tuple[float, float, float, float],
+    *,
+    lambdas: tuple[float, float, float, float] = (1.0, 1.0, 1.0, 1.0),
+    epsilon: float = _LOGIT_EPSILON,
+) -> list[float]:
+    """PAD を感情軸の検索空間（ロジット・√λ 畳み込み）へ写す。"""
+    import math
+
+    out: list[float] = []
+    for x, lam in zip(pad, lambdas):
+        x = min(max(float(x), epsilon), 1.0 - epsilon)
+        out.append(math.sqrt(lam) * math.log(x / (1.0 - x)))
+    return out

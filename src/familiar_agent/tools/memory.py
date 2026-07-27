@@ -776,6 +776,18 @@ class ObservationMemory:
                         self._observations.situated_cosines(q_sql, extra, self._person_id)
                     )
 
+            # 感情軸の一次絞り。出発点は**そのターンの気分**で、気分が動けば候補も変わる。
+            # 距離はロジット空間の L2（√λ 畳み込み済み）＝採点の D と同じもの。
+            if _cfg.recall_w_e > 0.0 and mood_pad is not None:
+                from ..emotion_pad import pad_to_search_vector
+
+                mood_vec = "[" + ",".join(
+                    f"{v:.6f}" for v in pad_to_search_vector(tuple(mood_pad))) + "]"
+                for r in self._observations.by_emotion(
+                    mood_vec, fetch_n, kind=kind, exclude_ids=exclude_ids
+                ):
+                    row_by_id.setdefault(r["id"], r)
+
             # 関連軸以外から入った候補には score 列が無いので、話者視点の r を補って
             # 公平に採点する（在席者相関の拡張と同じやり方）。
             missing = [oid for oid in row_by_id if oid not in cos_by_id]

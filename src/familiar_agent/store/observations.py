@@ -22,6 +22,7 @@ from typing import Any
 import numpy as np
 
 from ..db import vec_to_sql
+from ..emotion_pad import pad_to_search_vector
 from ..mood_register import MoodPAD
 from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
@@ -267,6 +268,61 @@ class ObservationStore:
                 return float("inf")
 
         return sorted(rows.values(), key=_distance)[:n]
+
+    def by_emotion(
+        self,
+        mood_vector_sql: str,
+        n: int,
+        *,
+        kind: str | None = None,
+        exclude_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """**いまの気分に近い順**に n 件読む（感情軸の一次絞り）。採点も足切りもしない。
+
+        感情の距離 D²=Σ λ_i (logit(x_obs)-logit(x_mood))² は**ロジット空間の重み付き
+        ユークリッド距離**なので、√λ を畳み込んだ4次元の点（`emotion_vec`）を持てば、
+        pgvector の L2 距離（`<->`）がそのまま D になる。
+
+        出発点は**そのターンの気分**で、気分が動けば候補も変わる。活性軸を一次絞りから
+        外したのは出発点も記録の値も動かないためで、この軸はその点が違う。
+
+        `mood_vector_sql` は pgvector の文字列表現。作り方（ロジット・√λ 畳み込み）は
+        呼び出し側の責任で、層は受け取った表現で引くだけ（`by_vector` と同じ約束）。
+        返り行は他の軸と同じ列に揃える（関連は呼び出し側が補う）。
+        """
+        kind_clause = "AND o.kind = %s" if kind else ""
+        exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
+        params: list = [self._ctx.person_id]
+        if kind:
+            params.append(kind)
+        if exclude_ids:
+            params.append(list(exclude_ids))
+        params += [mood_vector_sql, n]
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id, o.content, o.timestamp,
+                           o.direction, o.kind, o.emotion, o.image_path,
+                           COALESCE(o.activation_a0, 1.0) AS activation_a0,
+                           COALESCE(o.activation_n, 0) AS activation_n,
+                           COALESCE(o.recall_count, 0) AS recall_count,
+                           o.last_recalled_at,
+                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom
+                    FROM situated_embeddings s
+                    JOIN observations o ON o.id = s.obs_id
+                    WHERE s.person_id = %s
+                      AND o.superseded_by IS NULL
+                      AND o.emotion_vec IS NOT NULL
+                      {kind_clause}
+                      {exclude_clause}
+                    ORDER BY o.emotion_vec <-> %s::vector
+                    LIMIT %s
+                    """,
+                    params,
+                )
+                return list(cur.fetchall())
 
     def content_novelty(self, mem_vec, conn, *, k: int, default: float) -> float:
         """内容の新規性 novelty ∈ [0,1]（課題5 v0.26）。
@@ -726,8 +782,8 @@ class ObservationStore:
                     "(id,content,timestamp,direction,kind,emotion,"
                     " image_path,image_data,person_id,writer_id,subject_id,"
                     " participants_json,scope,activation_a0,parent_id,"
-                    " emotion_p,emotion_pn,emotion_a,emotion_dom) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    " emotion_p,emotion_pn,emotion_a,emotion_dom,emotion_vec) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
                      self._ctx.person_id,
@@ -735,7 +791,13 @@ class ObservationStore:
                      subject_id or self._ctx.person_id,
                      participants_json, scope, activation_a0,
                      payload.get("parent_id"),
-                     emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom),
+                     emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom,
+                     # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には
+                     # vector 型の列が要る）。λ を畳み込んでいるので λ 変更時は要再計算。
+                     "[" + ",".join(
+                         f"{v:.6f}" for v in pad_to_search_vector(
+                             (emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom))
+                     ) + "]"),
                 )
                 cur.execute(
                     "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
