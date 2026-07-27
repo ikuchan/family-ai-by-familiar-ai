@@ -349,6 +349,12 @@ class InformationProcessing:
             lines = "\n".join(f"- {act}「{q}」"
                               for q, act in self._lookup_action_by_query.items())
             looked_up = f"この求めのために調べたもの（同じものを重ねて調べない）：\n{lines}"
+        # 一覧が調停へ届いたかを残す。届いたのに従わないのか、そもそも届いていないのかを
+        # 区別できないと、直しようがない（実機で同じ検索が4回続いた）。
+        logger.debug("event-loop 調べたもの一覧＝%d件%s",
+                     len(self._lookup_action_by_query),
+                     "（" + "／".join(self._lookup_action_by_query) + "）"
+                     if self._lookup_action_by_query else "")
         # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
         # （実機で「〜ですね！」で始まる前置きが3回続いた）。
         said = ""

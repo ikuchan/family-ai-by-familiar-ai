@@ -168,3 +168,15 @@ def test_tone_rule_sits_next_to_where_the_filler_is_asked_for():
     # キャッシュ境界（毎分変わる [いま]）より手前なので、先頭からの一致長は変わらない。
     assert tone < ARBITER_PROMPT.index("[いま]")
     assert "短い一言でも同じ" in ARBITER_PROMPT
+
+
+def test_the_arbiter_has_a_way_out_when_nothing_more_can_be_found():
+    """行き止まりの出口を持たせる。
+
+    分かれ目が「材料が無い→調べる／答えきれない→調べ直す／足る→答える」の3つだけだと、
+    材料が足りない限り**必ず再検索へ向かう**。実機で、同じ `recall` を4反復続けて投げた
+    （語は MD5 まで一致・結果も毎回同じ）。一覧は調停に届いていた（機構としては確認済み）
+    ので、足りなかったのは「これ以上は分からない」と言う選択肢だった。
+    """
+    assert "分からないと伝える" in ARBITER_PROMPT
+    assert "すでに調べた語と同じ語では投げない" in ARBITER_PROMPT

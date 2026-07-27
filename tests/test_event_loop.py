@@ -1045,3 +1045,24 @@ def test_no_filler_once_the_material_has_arrived():
     assert "調べますね" in shown          # 調べる前のつなぎは出す
     assert "うん、任せてね" not in shown  # 届いたあとは出さない
     assert "答え" in shown
+
+
+def test_the_arbiter_sees_what_was_already_looked_up():
+    """2回目の反復で、調停に「この求めのために調べたもの」が届いていること。
+
+    実機で同じ `recall` を4反復続けて投げた（語は MD5 まで一致）。W に一覧は出している
+    はずだが、**届いたのに従わないのか、そもそも届いていないのか**を区別する手立てが
+    無かった。ここで機構として確かめる。
+    """
+    a = _agent(stream_returns=[
+        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+    ])
+    a._utility_backend.complete = AsyncMock(
+        return_value='{"branch":"action","action":"recall","query":"直近の天気","text":"調べますね"}')
+    _run_chain(a, utterance="どこの天気？")
+
+    prompts = [c.args[0] for c in a._utility_backend.complete.call_args_list]
+    assert len(prompts) >= 2, "2反復目まで回っていない"
+    assert "この求めのために調べたもの" in prompts[1]
+    assert "直近の天気" in prompts[1]
