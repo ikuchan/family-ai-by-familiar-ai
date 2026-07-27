@@ -16,6 +16,7 @@ import asyncio
 import contextlib
 import logging
 import time
+from datetime import datetime
 
 from ..store import clock
 from .arbiter import arbitrate
@@ -326,6 +327,40 @@ class InformationProcessing:
         self._advance_chain(trigger_id, utterance[:500])
         return await self._iterate()
 
+    def _compose_workspace(self, mem, memories: list[dict]) -> str:
+        """W を組む。調停が時間軸の基準を動かしたとき、同じ形で組み直せるようにする。"""
+        # この求めのために何を調べたかを、短い一覧として別に見せる。鎖は先頭1件しか
+        # 生き残らないので W に載るのは「いちばん新しい完了」だけで、しかも取得結果は
+        # 本文が長く（上限8192字）、何を取ったかがその中に埋もれる。実機では同じ URL を
+        # 2反復続けて取りに行き、1反復まるごと無駄になった。
+        looked_up = ""
+        if self._lookup_action_by_query:
+            lines = "\n".join(f"- {act}「{q}」"
+                              for q, act in self._lookup_action_by_query.items())
+            looked_up = f"この求めのために調べたもの（同じものを重ねて調べない）：\n{lines}"
+        # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
+        # （実機で「〜ですね！」で始まる前置きが3回続いた）。
+        said = ""
+        if self._said_fillers:
+            lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
+            said = ("すでに相手へ伝えた一言（言った順。次に何か言うなら、"
+                    "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines)
+        held = ""
+        if self._released_speech:
+            held = ("聞く相手が居ないあいだに話したかったこと"
+                    "（いま伝えるなら、そのときのこととして話す）：\n"
+                    + "\n".join(self._released_speech))
+        workspace_ctx = "\n\n".join(
+            p for p in [looked_up, said, held, self._chain_head_content,
+                        mem.format_for_context(memories)]
+            if p and p.strip()
+        )
+
+        # 3. ARB（調停）：軽量LLM が会話の重さを自己判断し、出し方を3つへ振り分ける（段4）。
+        #    フルLLM は「言語生成が要るとき」だけ起こす。実測で1ターン 10.5 秒のうち LLM が
+        #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
+        return workspace_ctx
+
     def _emit(self, text: str) -> None:
         """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
         if not text:
@@ -579,36 +614,8 @@ class InformationProcessing:
         # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
         # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
         # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
-        # この求めのために何を調べたかを、短い一覧として別に見せる。鎖は先頭1件しか
-        # 生き残らないので W に載るのは「いちばん新しい完了」だけで、しかも取得結果は
-        # 本文が長く（上限8192字）、何を取ったかがその中に埋もれる。実機では同じ URL を
-        # 2反復続けて取りに行き、1反復まるごと無駄になった。
-        looked_up = ""
-        if self._lookup_action_by_query:
-            lines = "\n".join(f"- {act}「{q}」"
-                              for q, act in self._lookup_action_by_query.items())
-            looked_up = f"この求めのために調べたもの（同じものを重ねて調べない）：\n{lines}"
-        # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
-        # （実機で「〜ですね！」で始まる前置きが3回続いた）。
-        said = ""
-        if self._said_fillers:
-            lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
-            said = ("すでに相手へ伝えた一言（言った順。次に何か言うなら、"
-                    "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines)
-        held = ""
-        if self._released_speech:
-            held = ("聞く相手が居ないあいだに話したかったこと"
-                    "（いま伝えるなら、そのときのこととして話す）：\n"
-                    + "\n".join(self._released_speech))
-        workspace_ctx = "\n\n".join(
-            p for p in [looked_up, said, held, self._chain_head_content,
-                        mem.format_for_context(memories)]
-            if p and p.strip()
-        )
+        workspace_ctx = self._compose_workspace(mem, memories)
 
-        # 3. ARB（調停）：軽量LLM が会話の重さを自己判断し、出し方を3つへ振り分ける（段4）。
-        #    フルLLM は「言語生成が要るとき」だけ起こす。実測で1ターン 10.5 秒のうち LLM が
-        #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
         # 誰と話していると思って喋ったかを残す。これが無いと、口調がおかしいときに
         # 「話者が渡っていない」のか「渡ったが口調が従っていない」のかを切り分けられない。
         present_ctx = _present_ctx(agent)
@@ -636,6 +643,20 @@ class InformationProcessing:
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
         if decision.silence:
             self._accept_silence()
+        # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
+        # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
+        # で、指定があったときだけ走る。
+        if decision.time_ref:
+            with contextlib.suppress(Exception):
+                ref = datetime.fromisoformat(decision.time_ref).timestamp()
+                span = decision.time_span_days or None
+                memories = await mem.recall_async(
+                    cue, n=MemoryConfig().recall_n, recall_mode="conversation",
+                    exclude_ids=origin_ids, time_ref=ref, time_span_days=span,
+                )
+                workspace_ctx = self._compose_workspace(mem, memories)
+                logger.info("event-loop 想起の基準を移す：%s（幅 %s 日）",
+                            decision.time_ref, decision.time_span_days or "既定")
 
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:

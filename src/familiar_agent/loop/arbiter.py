@@ -92,9 +92,15 @@ text を書くときは、この人格として、この相手に向けて、い
 一つではない（うるさい、あとにして、いま集中したい、静かにして…）。頼まれたと読めるかで
 判断する。true にすると、その人が居るあいだ発話を止める。頼まれてもいないのに止めない。
 
+人の言葉が**時期を指している**なら、想起の基準をそこへ動かす。`time_ref` にその時刻を
+ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方が指す**幅**を日数で
+書く。幅はその言い方がどれくらいの粗さで時期を指しているかで、広い言い方ほど大きい。
+時期を指していないなら両方とも省く（基準は現在時刻になる）。
+
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
- "action": "recall|search_deferred", "query": "…", "silence": false}}
+ "action": "recall|search_deferred", "query": "…", "silence": false,
+ "time_ref": "", "time_span_days": 0}}
 使わない項目は省いてよい。
 """
 
@@ -109,6 +115,10 @@ class Decision:
     action: str = "recall"  # action：どの動作で調べるか
     query: str = ""       # action：探す語
     silence: bool = False  # 相手が「いまは話しかけないで」と伝えている
+    # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
+    # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
+    time_ref: str = ""            # ISO 8601（例 "2025-08-15T00:00:00"）
+    time_span_days: float = 0.0   # 幅＝半減期（日）。0 は指定なし
 
 
 _FALLBACK = Decision(branch="full", effort="high")
@@ -131,6 +141,11 @@ def _parse(reply: str) -> Decision | None:
         effort = "high"
     text = str(data.get("text", "")).strip()
     silence = bool(data.get("silence", False))
+    time_ref = str(data.get("time_ref", "") or "").strip()
+    try:
+        time_span_days = float(data.get("time_span_days", 0) or 0)
+    except (TypeError, ValueError):
+        time_span_days = 0.0
     query = str(data.get("query", "")).strip()
     action = str(data.get("action", "")).strip() or "recall"
     if action not in ("recall", "search_deferred", "fetch_deferred"):
@@ -141,7 +156,7 @@ def _parse(reply: str) -> Decision | None:
     if branch == "action" and not query:
         return None
     return Decision(branch=branch, text=text, effort=effort, action=action, query=query,
-                    silence=silence)
+                    silence=silence, time_ref=time_ref, time_span_days=max(0.0, time_span_days))
 
 
 _CAPPED_NOTE = """

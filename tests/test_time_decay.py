@@ -28,10 +28,20 @@ def test_score_respects_floor():
     assert s.score(1e9) == 0.25
 
 
-def test_score_negative_elapsed_clamped_to_zero():
-    """now < origin（時計ズレ等）でも score は 1.0 を超えない。"""
-    s = DecayState(origin_epoch=1000.0, half_life_seconds=86400.0, floor=0.0)
-    assert s.score(500.0) == pytest.approx(1.0)
+def test_score_is_symmetric_around_the_reference():
+    """基準より**後**の記録も、隔たりに応じて減衰する（両側・絶対値）。
+
+    以前は `max(0, now - origin)` と負を切り捨てており、1.0 で頭打ちだった。基準時刻を
+    調停が過去へ動かせるようになったので（「去年の夏の話」）、それより後の記録が全部
+    1.0 になってしまう。隔たりは絶対値で測る。
+    """
+    ref = 1000.0
+    before = DecayState(origin_epoch=ref - 500.0, half_life_seconds=86400.0, floor=0.0)
+    after  = DecayState(origin_epoch=ref + 500.0, half_life_seconds=86400.0, floor=0.0)
+    assert before.score(ref) == pytest.approx(after.score(ref))
+    assert after.score(ref) < 1.0
+    # 基準そのものは 1.0。
+    assert DecayState(origin_epoch=ref, half_life_seconds=86400.0, floor=0.0).score(ref) == 1.0
 
 
 def test_reinforced_durability_extends_half_life():

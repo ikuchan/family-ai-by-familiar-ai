@@ -123,6 +123,7 @@ def _score_breakdown(
     mood_pad: tuple[float, float, float, float] | None = None,
     half_life_days: float,
     floor: float,
+    reference_epoch: float | None = None,
     c_lo: float = 0.0,
     c_hi: float = 1.0,
     w_r: float = 1.0,
@@ -151,10 +152,12 @@ def _score_breakdown(
         floor=floor,
         reinforce_count=max(0, recall_count),
     )
-    now_epoch = datetime.now(timezone.utc).timestamp()
+    # 時間軸の基準。既定は「いま」だが、調停が人の言葉から動かせる（「去年の夏の話」）。
+    ref_epoch = (reference_epoch if reference_epoch is not None
+                 else datetime.now(timezone.utc).timestamp())
 
     r = _stretch_relevance(cosine, c_lo=c_lo, c_hi=c_hi)
-    t = state.score(now_epoch)
+    t = state.score(ref_epoch)
     a = _derive_activation(float(activation_a0), int(activation_n))
 
     e: float | None = None
@@ -688,7 +691,9 @@ class ObservationMemory:
                min_score: float = 0.0,
                recall_mode: str = "system",
                present_others: list[str] | None = None,
-               exclude_ids: list[str] | None = None) -> list[dict]:
+               exclude_ids: list[str] | None = None,
+               time_ref: float | None = None,
+               time_span_days: float | None = None) -> list[dict]:
         """Recall using situated vectors (pgvector cosine search).
 
         min_score:   合成 final score の soft 床（生コサインではない）。無関係の
@@ -742,9 +747,13 @@ class ObservationMemory:
             # 話題が近くない限り直近の記録が候補にすら入らず、t 軸は並べ替えにしか
             # 効かない。直前の会話を「思い出せない」のはこれが理由だった（実機で観測）。
             # w_t=0 のプロファイルではこの軸を集めない（設計どおり重み>0 の軸だけ union）。
+            # 時間軸の一次絞り。基準時刻からの隔たりで取る（既定の基準は「いま」）。
+            # 幅の指定があるときは、書かれた時刻と使った時刻の両方で探す。
+            ref_epoch = time_ref if time_ref is not None else datetime.now(timezone.utc).timestamp()
             if _cfg.recall_w_t > 0.0:
-                for r in self._observations.by_recency(
-                    fetch_n, kind=kind, exclude_ids=exclude_ids
+                for r in self._observations.by_time(
+                    ref_epoch, fetch_n, span=time_span_days is not None,
+                    kind=kind, exclude_ids=exclude_ids,
                 ):
                     row_by_id.setdefault(r["id"], r)
 
@@ -801,7 +810,10 @@ class ObservationMemory:
                             row["emotion_a"], row["emotion_dom"],
                         ),
                         mood_pad=mood_pad,
-                        half_life_days=_cfg.recall_half_life_days,
+                        half_life_days=(time_span_days
+                                        if time_span_days is not None
+                                        else _cfg.recall_half_life_days),
+                        reference_epoch=ref_epoch,
                         floor=_cfg.recall_time_floor,
                         c_lo=_cfg.recall_c_lo,
                         c_hi=_cfg.recall_c_hi,

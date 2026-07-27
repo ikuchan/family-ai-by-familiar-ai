@@ -188,55 +188,85 @@ class ObservationStore:
                 )
                 return list(cur.fetchall())
 
-    def by_recency(
+    def by_time(
         self,
+        reference_epoch: float,
         n: int,
         *,
+        span: bool = False,
         kind: str | None = None,
         exclude_ids: list[str] | None = None,
     ) -> list[dict]:
-        """新しい順に n 件読む（新しさ軸の一次絞り）。**採点も足切りもしない**。
+        """**基準時刻に近い順**に n 件読む（時間軸の一次絞り）。採点も足切りもしない。
 
-        設計 [D-想起合成] の**多軸 union 一次絞り**の一本。重み>0 の各軸で
-        `ORDER BY … LIMIT N` を出して UNION し、和集合を再採点する、と定めてある。
-        関連軸（`by_vector`）だけで候補を作っていたため、話題が近くない限り直近の
-        記録が候補にすら入らず、t 軸は並べ替えにしか効いていなかった。
+        軸が表すのは「新しいこと」ではなく**基準時刻からの隔たり**である。既定では基準が
+        「いま」なので結果として新しさになるが、それは特別な場合にすぎない。調停が人の
+        言葉から基準を動かせる（「去年の夏の話」）ので、**基準の前後どちらからも取る**。
+        片側だけでは、基準より後の記録を取りこぼす。
 
-        返り行は `by_vector` と同じ列に揃える（`score` は持たない。関連は呼び出し側が
-        `situated_cosines` で後から補う）。
+        並べ替えの鍵は `COALESCE(last_recalled_at, timestamp)`＝**採点の起点と同じ**。
+        `timestamp` だけで並べると、「古いが最近よく使っている記憶」が候補に入らない。
+
+        `span`（幅の指定あり）のときは、**書かれた時刻と使った時刻の両方**で探す。その頃の
+        出来事（`timestamp`）と、その頃に思い出していたこと（`last_recalled_at`）は別の
+        手がかりで、時期を指定されたときはどちらも要る。
+
+        どの向きも索引を端から辿るだけなので、全走査にならない。返り行は `by_vector` と
+        同じ列に揃える（関連は呼び出し側が `situated_cosines` で補う）。
         """
+        keys = (["o.timestamp", "o.last_recalled_at"] if span
+                else ["COALESCE(o.last_recalled_at, o.timestamp)"])
         kind_clause = "AND o.kind = %s" if kind else ""
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
-        params: list = [self._ctx.person_id]
-        if kind:
-            params.append(kind)
-        if exclude_ids:
-            params.append(list(exclude_ids))
-        params.append(n)
+        columns = """o.id, o.content, o.timestamp,
+                     o.direction, o.kind, o.emotion, o.image_path,
+                     COALESCE(o.activation_a0, 1.0) AS activation_a0,
+                     COALESCE(o.activation_n, 0) AS activation_n,
+                     COALESCE(o.recall_count, 0) AS recall_count,
+                     o.last_recalled_at,
+                     o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom"""
+
+        def _one(key: str, cmp: str, order: str) -> tuple[str, list]:
+            params: list = [self._ctx.person_id]
+            if kind:
+                params.append(kind)
+            if exclude_ids:
+                params.append(list(exclude_ids))
+            params += [reference_epoch, n]
+            sql = f"""
+                SELECT {columns}
+                FROM situated_embeddings s
+                JOIN observations o ON o.id = s.obs_id
+                WHERE s.person_id = %s
+                  AND o.superseded_by IS NULL
+                  AND {key} IS NOT NULL
+                  {kind_clause}
+                  {exclude_clause}
+                  AND {key} {cmp} to_timestamp(%s)
+                ORDER BY {key} {order}
+                LIMIT %s
+            """
+            return sql, params
+
+        rows: dict[str, dict] = {}
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
-                cur.execute(
-                    f"""
-                    SELECT o.id, o.content, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path,
-                           COALESCE(o.activation_a0, 1.0) AS activation_a0,
-                           COALESCE(o.activation_n, 0) AS activation_n,
-                           COALESCE(o.recall_count, 0) AS recall_count,
-                           o.last_recalled_at,
-                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom
-                    FROM situated_embeddings s
-                    JOIN observations o ON o.id = s.obs_id
-                    WHERE s.person_id = %s
-                      AND o.superseded_by IS NULL
-                      {kind_clause}
-                      {exclude_clause}
-                    ORDER BY o.timestamp DESC
-                    LIMIT %s
-                    """,
-                    params,
-                )
-                return list(cur.fetchall())
+                for key in keys:
+                    for cmp, order in (("<=", "DESC"), (">", "ASC")):
+                        sql, params = _one(key, cmp, order)
+                        cur.execute(sql, params)
+                        for r in cur.fetchall():
+                            rows.setdefault(r["id"], dict(r))
+        # 基準に近い順へ整え、n 件に絞る（採点はしない）。
+        def _distance(row: dict) -> float:
+            stamp = row.get("last_recalled_at") or row.get("timestamp")
+            try:
+                return abs(reference_epoch - stamp.timestamp())
+            except Exception:  # noqa: BLE001
+                return float("inf")
+
+        return sorted(rows.values(), key=_distance)[:n]
 
     def content_novelty(self, mem_vec, conn, *, k: int, default: float) -> float:
         """内容の新規性 novelty ∈ [0,1]（課題5 v0.26）。
