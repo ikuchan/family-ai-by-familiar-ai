@@ -1,13 +1,11 @@
-"""Tests for Issue B: time-decay scoring and recall reinforcement.
+"""想起の時間軸（t）と、想起で強化しないことの検査。
 
-recall() uses: final_score = cosine × time_score × importance
-time_score   = max(FLOOR, exp(-elapsed_days / tau))
-tau          = half_life × 2^recall_count / ln(2)
+    score = r^(w_r) × M,  M = (w_t·t + w_e·e + w_a·a + w_p·p)/(w_t+w_e+w_a+w_p)
+    t     = max(t_floor, exp(-|ref - timestamp| / tau)),  tau = HL / ln 2
 
-recall_mode:
-  "conversation" → recall_count += 1 AND last_recalled_at = now()
-  "spontaneous"  → last_recalled_at = now() only
-  "system"       → no reinforcement
+**起点は書かれた時刻だけ**。強化A（想起回数で半減期を伸ばす）と強化B（使ったら若返る）は、
+どちらも想起では効かせない（課題5 F節）。強化B の更新契機（フルLLM が実際に参照した MI）
+の判定が未実装なので、仕組みごと後回しにしている。
 """
 
 from __future__ import annotations
@@ -86,49 +84,20 @@ def test_last_recalled_at_column_exists():
 
 
 # ---------------------------------------------------------------------------
-# recall_mode reinforcement
+# 想起では強化しない（強化B は仕組みごと後回し）
 # ---------------------------------------------------------------------------
 
 
-def test_recall_mode_param_accepted(memory):
-    """recall() accepts recall_mode parameter without error."""
-    memory.save("テスト記憶", kind="observation", emotion="neutral")
-    result = memory.recall("テスト", n=3, recall_mode="conversation")
-    assert isinstance(result, list)
+def test_recall_never_reinforces(memory):
+    """想起は `recall_count` も `last_recalled_at` も触らない。
 
-
-def test_recall_conversation_increments_recall_count(memory):
-    """recall_mode='conversation' increments recall_count on returned memories."""
-    memory.save("会話想起テスト", kind="observation", emotion="neutral")
-
-    conn = _fresh_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id, recall_count FROM observations WHERE content = %s AND person_id = %s",
-                ("会話想起テスト", memory._person_id),
-            )
-            before = cur.fetchone()
-        assert before["recall_count"] == 0
-
-        memory.recall("会話想起テスト", n=5, recall_mode="conversation")
-
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT recall_count FROM observations WHERE id = %s",
-                (before["id"],),
-            )
-            after = cur.fetchone()
-        assert after["recall_count"] == 1, (
-            f"recall_count should be 1 after conversation recall, got {after['recall_count']}"
-        )
-    finally:
-        conn.close()
-
-
-def test_recall_spontaneous_updates_last_recalled_at_only(memory):
-    """recall_mode='spontaneous' updates last_recalled_at but NOT recall_count."""
-    memory.save("自発想起テスト", kind="observation", emotion="neutral")
+    更新すべきは「フルLLM が実際に参照した MI」だけ（課題5 F節・強化B「想起では触らない」）
+    だが、その判定は未実装なので仕組みごと後回しにした。想起しただけで若返らせると、
+    t の起点が毎回 now に戻り、**一度上がった記録が自分を押し上げ続ける**。実機では
+    47日前の挨拶が t=1.000 で居座り、5秒前の自分の発話を W から押し出した
+    （「おかえりなさい」を2回言った）。
+    """
+    memory.save("強化しない確認", kind="observation", emotion="neutral")
 
     conn = _fresh_conn()
     try:
@@ -136,13 +105,11 @@ def test_recall_spontaneous_updates_last_recalled_at_only(memory):
             cur.execute(
                 "SELECT id, recall_count, last_recalled_at FROM observations "
                 "WHERE content = %s AND person_id = %s",
-                ("自発想起テスト", memory._person_id),
+                ("強化しない確認", memory._person_id),
             )
             before = cur.fetchone()
-        assert before["recall_count"] == 0
-        assert before["last_recalled_at"] is None
 
-        memory.recall("自発想起テスト", n=5, recall_mode="spontaneous")
+        memory.recall("強化しない確認", n=5)
 
         with conn.cursor() as cur:
             cur.execute(
@@ -150,38 +117,11 @@ def test_recall_spontaneous_updates_last_recalled_at_only(memory):
                 (before["id"],),
             )
             after = cur.fetchone()
-        assert after["recall_count"] == 0, "spontaneous must NOT increment recall_count"
-        assert after["last_recalled_at"] is not None, "spontaneous must set last_recalled_at"
+        assert after["recall_count"] == before["recall_count"]
+        assert after["last_recalled_at"] == before["last_recalled_at"]
     finally:
         conn.close()
 
-
-def test_recall_system_mode_does_not_reinforce(memory):
-    """recall_mode='system' (default) leaves recall_count and last_recalled_at unchanged."""
-    memory.save("システム想起テスト", kind="observation", emotion="neutral")
-
-    conn = _fresh_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT id FROM observations WHERE content = %s AND person_id = %s",
-                ("システム想起テスト", memory._person_id),
-            )
-            row = cur.fetchone()
-        obs_id = row["id"]
-
-        memory.recall("システム想起テスト", n=5, recall_mode="system")
-
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT recall_count, last_recalled_at FROM observations WHERE id = %s",
-                (obs_id,),
-            )
-            after = cur.fetchone()
-        assert after["recall_count"] == 0
-        assert after["last_recalled_at"] is None
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +147,7 @@ def test_time_decay_prioritizes_recent_over_old(memory):
 
     memory.save("記憶新しい", kind="observation", emotion="neutral")
 
-    results = memory.recall("記憶", n=10, recall_mode="system")
+    results = memory.recall("記憶", n=10)
     scores = {r["summary"]: r["score"] for r in results}
 
     assert "記憶新しい" in scores, "recent memory not found"

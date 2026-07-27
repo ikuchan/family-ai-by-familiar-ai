@@ -142,7 +142,11 @@ def _score_breakdown(
 
     式と各軸の意味は `_compute_final_score` の docstring にある。
     """
-    base = last_recalled_at if last_recalled_at is not None else ts
+    # 起点は**書かれた時刻**だけ。強化B（使ったら若返る）は仕組みごと後回しにした。
+    # `last_recalled_at` を起点にすると、想起で更新されるたびに t=1 へ戻り、一度上がった
+    # 記録が自分を押し上げ続ける（実機で 47日前の挨拶が t=1.000 で居座り、5秒前の自分の
+    # 発話を押し出した）。設計（課題5 F節）も「想起では触らない」と定めている。
+    base = ts
     origin = _to_epoch(base)
     if origin is None:
         origin = datetime.now(timezone.utc).timestamp()
@@ -694,7 +698,6 @@ class ObservationMemory:
 
     def recall(self, query: str, n: int = 3, kind: str | None = None,
                min_score: float = 0.0,
-               recall_mode: str = "system",
                present_others: list[str] | None = None,
                exclude_ids: list[str] | None = None,
                time_ref: float | None = None,
@@ -703,10 +706,6 @@ class ObservationMemory:
 
         min_score:   合成 final score の soft 床（生コサインではない）。無関係の
                      最終排除を担う（根拠台帳 §3–4）。床を課すときは候補を過剰取得する。
-        recall_mode: reinforcement mode (Issue B).
-          "conversation" → recall_count += 1 AND last_recalled_at = now()
-          "spontaneous"  → last_recalled_at = now() only
-          "system"       → no reinforcement (default)
 
         Scoring: `_compute_final_score` のハイブリッド合成（r・t・e・a）。
         Results are re-sorted by final_score before returning.
@@ -894,11 +893,11 @@ class ObservationMemory:
                             str(item["summary"])[:50],
                         )
 
-                if recall_mode in ("conversation", "spontaneous"):
-                    self._observations._mark_recalled(
-                        [r["memory_id"] for r in results],
-                        reinforce_half_life=(recall_mode == "conversation"),
-                    )
+                # **想起では強化しない。** 更新すべきは「フルLLM が実際に参照した MI」
+                # だけ（課題5 F節・強化B「想起では触らない」）だが、その判定は未実装なので
+                # 仕組みごと後回しにした。想起しただけで若返らせると、一度上がった記録が
+                # 自分を押し上げ続ける（実機で 47日前の挨拶が t=1.000 で居座った）。
+                # store 側の `_mark_recalled` は判定ができたときのために残す。
 
                 # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
                 # a0=0（score/activation 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
@@ -1431,7 +1430,7 @@ class MemoryTool:
         # agent self
         agent_mem = self._agent_store
         for m in await agent_mem.recall_async(
-            query, n=n, recall_mode="conversation", exclude_ids=exclude_ids
+            query, n=n, exclude_ids=exclude_ids
         ):
             m["_from"] = "自分"
             all_results.append(m)
@@ -1440,7 +1439,7 @@ class MemoryTool:
         for pid, mem in self._manager.get_all_present_memories():
             name = self._manager.get_person_name(pid)
             for m in await mem.recall_async(
-                query, n=n, recall_mode="conversation", exclude_ids=exclude_ids
+                query, n=n, exclude_ids=exclude_ids
             ):
                 m["_from"] = name
                 all_results.append(m)

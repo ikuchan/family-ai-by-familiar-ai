@@ -607,7 +607,6 @@ class InformationProcessing:
         memories = await mem.recall_async(
             cue,
             n=MemoryConfig().recall_n,
-            recall_mode="conversation",
             exclude_ids=origin_ids,
         )
         # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
@@ -651,7 +650,7 @@ class InformationProcessing:
                 ref = datetime.fromisoformat(decision.time_ref).timestamp()
                 span = decision.time_span_days or None
                 memories = await mem.recall_async(
-                    cue, n=MemoryConfig().recall_n, recall_mode="conversation",
+                    cue, n=MemoryConfig().recall_n,
                     exclude_ids=origin_ids, time_ref=ref, time_span_days=span,
                 )
                 workspace_ctx = self._compose_workspace(mem, memories)

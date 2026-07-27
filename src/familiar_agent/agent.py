@@ -786,7 +786,7 @@ class EmbodiedAgent:
         try:
             if camera_used:
                 recent_obs = await self._memory.recall_async(
-                    final_text[:200], n=6, kind="observation", recall_mode="system"
+                    final_text[:200], n=6, kind="observation"
                 )
                 past_scores = [m.get("score", 0.5) for m in recent_obs[:3]]
                 if past_scores:
@@ -2056,7 +2056,7 @@ class EmbodiedAgent:
             try:
                 assoc = await self._active_memory().recall_async(
                     seed.get("content", ""), n=assoc_max,
-                    min_score=MemoryConfig().recall_min_score, recall_mode="spontaneous",
+                    min_score=MemoryConfig().recall_min_score,
                 )
                 collected += assoc
             except Exception:
@@ -2710,7 +2710,7 @@ class EmbodiedAgent:
                 summary_hint = today_memories[0].get("content", "")[:200]
             else:
                 # Fall back to recent observations
-                recent = await self._memory.recall_async("", n=5, recall_mode="system")
+                recent = await self._memory.recall_async("", n=5)
                 summary_hint = " / ".join(m.get("content", "")[:60] for m in recent[:3])
 
             mood, _ = self._decayed_mood()
@@ -3181,7 +3181,7 @@ class EmbodiedAgent:
                 _memories_coro = (
                     _call_optional_async(recall_divergent, user_input, n=recall_n, fallback=[])
                     if recall_divergent is not None
-                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=MemoryConfig().recall_min_score, recall_mode="conversation", present_others=self._present_others_for_recall())
+                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=MemoryConfig().recall_min_score, present_others=self._present_others_for_recall())
                 )
                 (
                     memories,
