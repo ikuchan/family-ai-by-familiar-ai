@@ -317,6 +317,12 @@ class InformationProcessing:
         self._capped_hit = False
         self._ensure_driver()
 
+        # 調べかけの途中に話しかけられたら、**その調査を打ち切る**。人が言い直したとき、
+        # 前の調査を続ける意味はない（実機で「これはどこの地方の天気？」に答えられず、
+        # 言い直されたあとも同じ検索を繰り返した）。結果は捨てるが、**何を打ち切ったかは
+        # 記録に残す**。
+        await self._abort_investigation()
+
         # 取込：来た事実（人の発話）を O に書く（④シーケンス）。
         trigger_id, _ = await agent._memory.save_async_with_id(
             utterance[:500],
@@ -328,6 +334,52 @@ class InformationProcessing:
         self._parent_id = trigger_id
         self._advance_chain(trigger_id, utterance[:500])
         return await self._iterate()
+
+    async def _abort_investigation(self) -> None:
+        """飛行中の調査を打ち切る（人に話しかけられたとき）。
+
+        飛行中のツール呼び出しを止め、まだ取り込んでいない完了を捨て、**何を打ち切ったかを
+        O に残す**。その記録で親と生きた子を閉じるので、鎖は「打ち切った」1件へ収束する。
+
+        結果を捨てるのは、行き先の親が閉じるためで、残すと次の求めの W に無関係な完了が
+        載る。ただし**打ち切った事実は残す**（あとで「あのとき何を調べていたか」を辿れる）。
+        """
+        if not self._tasks and not self._in_flight_lookups and self._parent_id is None:
+            return
+        dropped = [f"{act}「{q}」" for act, q in self._in_flight_lookups]
+        for task in list(self._tasks):
+            task.cancel()
+        self._tasks.clear()
+        drained = 0
+        while not self._completion_queue.empty():
+            self._completion_queue.get_nowait()
+            drained += 1
+        drained += len(self._inbox)
+        self._inbox.clear()
+        self._inflight = 0
+        self._in_flight_lookups.clear()
+
+        parent_id, self._parent_id = self._parent_id, None
+        if dropped or drained:
+            logger.info("event-loop 調べかけを打ち切る（%s／取り込まなかった完了 %d件）",
+                        "・".join(dropped) or "投げた先なし", drained)
+        if parent_id:
+            content = ("話しかけられたので、調べかけを打ち切った："
+                       + ("・".join(dropped) if dropped else "（調査は無し）"))
+            with contextlib.suppress(Exception):
+                obs_id, _ = await self._agent._memory.save_async_with_id(
+                    content[:500], direction="中断", kind="observation",
+                    materialize_now=True, parent_id=parent_id,
+                    **self._agent._observation_perspective(),
+                )
+                if obs_id:
+                    self._agent._memory.close_with_children(parent_id, obs_id)
+        self._chain_head_id = None
+        self._chain_head_content = ""
+        self._lookup_action_by_query.clear()
+        self._said_fillers.clear()
+        self._released_speech.clear()
+        self._w_index = {}
 
     def _compose_workspace(self, mem, memories: list[dict]) -> str:
         """W を組む。調停が時間軸の基準を動かしたとき、同じ形で組み直せるようにする。
