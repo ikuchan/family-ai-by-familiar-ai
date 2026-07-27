@@ -379,6 +379,10 @@ class ObservationMemory:
     def mark_superseded(self, old_id: 'str', new_id: 'str') -> 'None':
         return self._observations.mark_superseded(old_id, new_id)
 
+    def apply_verdicts(self, verdicts: dict[str, str]) -> int:
+        """想起した記憶の扱いの申告を反映する（store 層へ委譲）。"""
+        return self._observations.apply_verdicts(verdicts)
+
     def close_with_children(self, parent_id: 'str', new_id: 'str') -> 'None':
         """親を閉じ、生きている子（その求めのために投げた調査）も同じ記録で閉じる。"""
         return self._observations.close_with_children(parent_id, new_id)
@@ -1212,7 +1216,9 @@ class ObservationMemory:
             conf_s = f" conf:{conf:.2f}"
             low = " low-confidence" if conf < 0.55 else ""
             emo  = f" [{m['emotion']}]" if m.get("emotion") and m["emotion"] != "neutral" else ""
-            sid  = str(m.get("memory_id",""))[:8] or "?"
+            # 12桁（ハイフンを除いた16進）。8桁だと記録が10万件規模でほぼ確実に衝突する。
+            # 照合は呼び出し側が対応表で行うので、写し間違いは一致せず件数のずれに出る。
+            sid  = str(m.get("memory_id","")).replace("-", "")[:12] or "?"
             lines.append(
                 f"- {m.get('date','?')} {m.get('time','?')} id:{sid}{score_s}{conf_s}{low}"
                 f" ({m.get('direction','?')}){emo}: {m['summary'][:120]}"

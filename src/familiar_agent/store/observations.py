@@ -821,6 +821,46 @@ class ObservationStore:
             self._situated.update_perspective_vec(self._ctx.person_id, np.array(vec, dtype=np.float32))
         return event_id
 
+    def apply_verdicts(self, verdicts: dict[str, str]) -> int:
+        """想起した記憶の扱いをフルLLM が申告したとおりに反映する（課題5 E節 段2）。
+
+        `verdicts`＝{完全な id: 判定}。判定は次の4つ。
+
+        - `important`（大事）　　　 `activation_n += 1` ＋ 時間の起点を更新
+        - `useless`（不要）　　　　 `activation_n -= 1` ＋ 時間の起点を更新
+        - `referred`（参照）　　　　時間の起点だけ更新
+        - `unused`（使わなかった）　何もしない
+
+        **参照した MI だけ再評価する**（設計）。想起しただけで更新すると、一度上がった
+        記録が自分を押し上げ続ける（実機で 47日前の挨拶が t=1.000 で居座った）。
+
+        返り値＝実際に触れた件数。
+        """
+        touched = {i: v for i, v in verdicts.items() if v in ("important", "useless", "referred")}
+        if not touched:
+            return 0
+        up = [i for i, v in touched.items() if v == "important"]
+        down = [i for i, v in touched.items() if v == "useless"]
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                # 触ったものは時間の起点を若返らせる（強化B）。
+                cur.execute(
+                    "UPDATE observations SET last_recalled_at = now(), "
+                    "recall_count = recall_count + 1 WHERE id = ANY(%s)",
+                    (list(touched),),
+                )
+                if up:
+                    cur.execute(
+                        "UPDATE observations SET activation_n = activation_n + 1 "
+                        "WHERE id = ANY(%s)", (up,))
+                if down:
+                    cur.execute(
+                        "UPDATE observations SET activation_n = activation_n - 1 "
+                        "WHERE id = ANY(%s)", (down,))
+            conn.commit()
+        return len(touched)
+
     def _mark_recalled(self, ids: list[str], *, reinforce_half_life: bool) -> None:
         """Reinforce recalled memories by updating decay tracking columns."""
         if not ids:

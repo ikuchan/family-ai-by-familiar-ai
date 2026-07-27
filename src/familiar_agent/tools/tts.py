@@ -244,6 +244,29 @@ class TTSTool:
                             "type": "string",
                             "description": "Text to speak. Can include ElevenLabs audio tags like [cheerful], [warmly].",
                         },
+                        # 想起した記憶をどう扱ったかの申告（課題5 E節 段2）。参照した MI だけ
+                        # 再評価する、という設計の更新契機がこれ。W に出した id で指す。
+                        "memory_verdicts": {
+                            "type": "array",
+                            "description": (
+                                "How each recalled memory in the workspace was used. "
+                                "One entry per memory shown, using the id printed there."
+                            ),
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "id": {"type": "string"},
+                                    "verdict": {
+                                        "type": "string",
+                                        # 英語で返させる（判定語の精度が上がる）。
+                                        # important=大事／useless=不要／referred=参照
+                                        # ／unused=使わなかった
+                                        "enum": ["important", "useless", "referred", "unused"],
+                                    },
+                                },
+                                "required": ["id", "verdict"],
+                            },
+                        },
                     },
                     "required": ["text"],
                 },

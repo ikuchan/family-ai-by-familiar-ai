@@ -144,6 +144,8 @@ class InformationProcessing:
         self._said_fillers: list[str] = []
         # 配る保留（「いつ・何を言いたかったか」）。W へ流し、反復が閉じたら捨てる。
         self._released_speech: list[str] = []
+        # W に出した id（12桁）→ 完全な id。フルLLM の申告の突き合わせに使う。
+        self._w_index: dict[str, str] = {}
         self._tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
@@ -328,7 +330,16 @@ class InformationProcessing:
         return await self._iterate()
 
     def _compose_workspace(self, mem, memories: list[dict]) -> str:
-        """W を組む。調停が時間軸の基準を動かしたとき、同じ形で組み直せるようにする。"""
+        """W を組む。調停が時間軸の基準を動かしたとき、同じ形で組み直せるようにする。
+
+        あわせて、W に出した id（12桁）と完全な id の**対応表**を作る。フルLLM の申告を
+        突き合わせるのに使う。前方一致で当てずっぽうに引くと、写し間違いが黙って別の記憶へ
+        適用されてしまう。
+        """
+        self._w_index = {
+            str(m.get("memory_id", "")).replace("-", "")[:12]: str(m.get("memory_id", ""))
+            for m in memories if m.get("memory_id")
+        }
         # この求めのために何を調べたかを、短い一覧として別に見せる。鎖は先頭1件しか
         # 生き残らないので W に載るのは「いちばん新しい完了」だけで、しかも取得結果は
         # 本文が長く（上限8192字）、何を取ったかがその中に埋もれる。実機では同じ URL を
@@ -360,6 +371,28 @@ class InformationProcessing:
         #    フルLLM は「言語生成が要るとき」だけ起こす。実測で1ターン 10.5 秒のうち LLM が
         #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
         return workspace_ctx
+
+    def _apply_memory_verdicts(self, raw) -> None:
+        """フルLLM が申告した「想起した記憶の扱い」を反映する（課題5 E節 段2）。
+
+        **照合できたものだけ適用する**。指示しても、落としたり無い id を足したりする。
+        欠けた分を「使わなかった」と決めつけると、申告漏れと本当に使わなかったことを
+        混同する。件数をログに残し、指示が守られているかを後から確かめられるようにする。
+        """
+        if not raw or not self._w_index:
+            return
+        verdicts: dict[str, str] = {}
+        for item in raw if isinstance(raw, list) else []:
+            if not isinstance(item, dict):
+                continue
+            full = self._w_index.get(str(item.get("id", "")).replace("-", "")[:12])
+            verdict = str(item.get("verdict", "")).strip().lower()
+            if full and verdict in ("important", "useless", "referred", "unused"):
+                verdicts[full] = verdict
+        logger.info("event-loop 記憶の判定 %d/%d 件", len(verdicts), len(self._w_index))
+        if verdicts:
+            with contextlib.suppress(Exception):
+                self._agent._memory.apply_verdicts(verdicts)
 
     def _emit(self, text: str) -> None:
         """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
@@ -730,6 +763,7 @@ class InformationProcessing:
 
         if say_tc is not None:
             logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
+            self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"))
             return await self._speak(str(say_tc.input.get("text", "")).strip(), memories)
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。

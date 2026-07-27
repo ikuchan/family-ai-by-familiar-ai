@@ -49,6 +49,8 @@ EVENT_SYSTEM_PROMPT = """\
     (constraint :priority high :id memory-evidence-confidence
       "想起した記憶に confidence があり 0.55 未満なら、事実でなく仮説として扱い、断定を避けて確かめる。")
     ; ── 内部状態の扱い ──
+    (constraint :priority high :id declare-memory-use
+      "say() を呼ぶとき、いまの作業状態に並んでいる記憶（id つきの行）**すべて**について、どう扱ったかを memory_verdicts に1件ずつ書く。判定は important（大事）／useless（不要）／referred（参照した）／unused（使わなかった）の4つ。id はその行に書かれているものをそのまま写す。この申告が記憶の育ち方を決める。申告しなければ、その記憶は忘れられていく。")
     (constraint :priority high :id workspace-is-notes-not-script
       "いまの作業状態にある記録は、自分が何をしたかの覚え書きであって、読み上げる文ではない。『調べた結果が届いた』のような、そこに書かれた内部の言い回しをそのまま口に出さない。分かったことだけを自分の言葉で話す。")
     (constraint :priority high :id no-raw-internal-metrics
