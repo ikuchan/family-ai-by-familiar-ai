@@ -146,6 +146,10 @@ class InformationProcessing:
         self._released_speech: list[str] = []
         # W に出した id（12桁）→ 完全な id。フルLLM の申告の突き合わせに使う。
         self._w_index: dict[str, str] = {}
+        # 拡散想起の母集合（WR）へ載せる、ループが作った記録の id。つなぎは載せない
+        # （中身が無く、共起として育てる価値がない）。中断はこの求めで閉じるが、次の
+        # 求めの WR に載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
+        self._wr_ids: list[str] = []
         self._tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
@@ -170,6 +174,11 @@ class InformationProcessing:
         self._on_action = None
         self._pending_intent: tuple[str, dict, str] = ("", {}, "recall")
 
+
+    def _note_wr(self, obs_id: str | None) -> None:
+        """拡散想起の母集合へ載せる記録を控える（意図・完了・中断・逐語）。"""
+        if obs_id and obs_id not in self._wr_ids:
+            self._wr_ids.append(obs_id)
 
     def _advance_chain(self, new_id: str | None, content: str = "") -> None:
         """ループ記録の鎖を1つ進める（直前の生きた記録を新しい記録で supersede）。
@@ -259,6 +268,7 @@ class InformationProcessing:
                 parent_id=self._parent_id,
                 **agent._observation_perspective(),
             )
+            self._note_wr(obs_id)
             # 完了が open 意図に再会して解決（[D-単一想起]）＝鎖を1つ進める。W に載るのは
             # O へ書いたのと同じ文面にする（別の言い回しを2つ持つと、調停が読むものと
             # 記憶に残るものが食い違う）。
@@ -373,6 +383,7 @@ class InformationProcessing:
                     **self._agent._observation_perspective(),
                 )
                 if obs_id:
+                    self._note_wr(obs_id)
                     self._agent._memory.close_with_children(parent_id, obs_id)
         self._chain_head_id = None
         self._chain_head_content = ""
@@ -977,6 +988,7 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         # 意図を書いた時点でトリガ（や前回の完了）は死ぬ＝この検索には出てこない。
+        self._note_wr(intent_id)
         self._advance_chain(intent_id, content)
         # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
         self._dispatch_lookup(action, tool_input, query, intent_id)
@@ -1000,6 +1012,7 @@ class InformationProcessing:
                     parent_id=self._parent_id,
                     **agent._observation_perspective(),
                 )
+        self._note_wr(answer_id)
         # 親が決着したら、生きている子（その求めのために投げた調査）もまとめて閉じる。
         # **閉じる側をこの本応答 MI にする**。子として閉じられると `superseded_by` が入り、
         # 想起の候補（新しさ軸・関連軸とも `superseded_by IS NULL`）から外れて、次のループで
@@ -1021,6 +1034,8 @@ class InformationProcessing:
         self._released_speech.clear()
         self._chain = 0
         self._capped_hit = False
+        # 母集合へ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
+        wr_ids, self._wr_ids = list(self._wr_ids), []
         try:
             origin = self._utterance or self._chain_head_content
             arousal = await agent._turn_arousal(origin, text)
@@ -1033,6 +1048,9 @@ class InformationProcessing:
                     arousal=arousal, memories=memories,
                     superseded_ids=obs_ids or None,
                     close_parent_id=parent_id,
+                    # ループが作った記録も拡散想起の母集合へ。載せないと、閉じた逐語へ
+                    # 辿り着く辺が WR に無い（実機で、逐語の WR 掲載数が0だった）。
+                    extra_wr_ids=wr_ids,
                 ),
                 name="event-post-response",
             )

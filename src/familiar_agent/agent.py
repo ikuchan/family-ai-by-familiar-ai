@@ -744,6 +744,7 @@ class EmbodiedAgent:
         memories: list[dict] | None = None,
         superseded_ids: list[str] | None = None,
         close_parent_id: str | None = None,
+        extra_wr_ids: "list[str] | None" = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
@@ -858,7 +859,7 @@ class EmbodiedAgent:
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
             # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
-            self._record_wr(memories, _new_ids)
+            self._record_wr(memories, list(_new_ids or []) + list(extra_wr_ids or []))
 
             await self._update_self_model(final_text, emotion)
             await self._maybe_update_self_narrative(
