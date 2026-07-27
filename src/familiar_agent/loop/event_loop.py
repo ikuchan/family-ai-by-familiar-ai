@@ -150,6 +150,11 @@ class InformationProcessing:
         # （中身が無く、共起として育てる価値がない）。中断はこの求めで閉じるが、次の
         # 求めの WR に載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
         self._wr_ids: list[str] = []
+        # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
+        # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
+        # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
+        self._generation = 0
+        self._lookup_generation: dict[str, int] = {}
         self._tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
@@ -199,6 +204,7 @@ class InformationProcessing:
         self._inflight += 1
         self._in_flight_lookups.append((action, query))
         self._lookup_action_by_query[query] = action
+        self._lookup_generation[query] = self._generation
         task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
@@ -369,6 +375,8 @@ class InformationProcessing:
         self._inflight = 0
         self._in_flight_lookups.clear()
 
+        self._generation += 1
+        self._lookup_generation.clear()
         parent_id, self._parent_id = self._parent_id, None
         if dropped or drained:
             logger.info("event-loop 調べかけを打ち切る（%s／取り込まなかった完了 %d件）",
@@ -492,6 +500,10 @@ class InformationProcessing:
         投げっぱなしの外部呼び出し（検索・取得）の結果は、完了キュー→O 経由で次の反復の
         入力になる（正本③）。スレッドから呼ばれても届くよう、ループへ委譲する。
         """
+        # 打ち切った求めの完了は捨てる。外部呼び出しは投げた時点で飛んでおり、止められない。
+        if self._lookup_generation.get(query, self._generation) != self._generation:
+            logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
+            return
         loop = getattr(self, "_loop", None)
         item = (query, str(result), None)
         if loop is not None and loop.is_running():
@@ -688,6 +700,10 @@ class InformationProcessing:
 
         agent = self._agent
         utterance = self._utterance
+        # この反復が属する世代。打ち切られたら（世代が進んだら）、フルLLM の返りを待って
+        # いる最中でも、出力せずに畳む。実機で、打ち切った直後に走っていた反復が
+        # fetch_deferred を投げ、返事も1つ余計に出た。
+        gen = self._generation
         max_chain = max(1, agent.config.event_max_iterations)
         self._chain += 1
         chain = self._chain
@@ -759,6 +775,10 @@ class InformationProcessing:
                 logger.info("event-loop 想起の基準を移す：%s（幅 %s 日）",
                             decision.time_ref, decision.time_span_days or "既定")
 
+        if gen != self._generation:
+            logger.info("event-loop 打ち切られた求めの反復なので畳む（調停後）")
+            return ""
+
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
             return await self._speak(decision.text, memories)
@@ -820,6 +840,10 @@ class InformationProcessing:
 
         # 発話と動作が一緒に来たら、発話はつなぎとして出し、その反復の出力は動作とする。
         # 以前は say を見つけた時点で閉じており、同じ応答に入っていた検索を捨てていた。
+        if gen != self._generation:
+            logger.info("event-loop 打ち切られた求めの反復なので畳む（生成後）")
+            return ""
+
         if lookup_tc is not None:
             logger.debug("event-loop iter=%d/%d 決定=%s", chain, max_chain, lookup_tc.name)
             if say_tc is not None:

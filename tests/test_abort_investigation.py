@@ -64,3 +64,44 @@ def test_nothing_happens_when_there_was_no_investigation():
     ip = InformationProcessing(a)
     asyncio.run(ip._abort_investigation())
     a._memory.save_async_with_id.assert_not_awaited()
+
+
+def test_a_running_iteration_is_folded_after_an_abort():
+    """打ち切られたら、走っている反復は出力せずに畳む。
+
+    打ち切りの時点で外部呼び出しは既に飛んでおり、反復もフルLLM の返りを待っている
+    最中なので、止めるには世代番号で見分けるしかない。実機では、打ち切った直後に
+    走っていた反復が `fetch_deferred` を投げ、返事も1つ余計に出た（「そうですか」が2回）。
+    """
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "余計な返事"})])])
+    shown: list[str] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        ip.set_output(shown.append)
+        ip._utterance = "前の問い"
+        ip._generation = 0
+        # 反復の途中で打ち切られた状況を作る（生成が返る前に世代が進む）。
+        original = a.backend.stream_turn
+
+        async def _bump(*args, **kwargs):
+            ip._generation += 1
+            return await original(*args, **kwargs)
+
+        a.backend.stream_turn = _bump
+        await ip._iterate()
+        await ip.close()
+
+    asyncio.run(scenario())
+    assert shown == []                       # 何も言わない
+    a._tts.call.assert_not_awaited()
+
+
+def test_a_completion_from_an_abandoned_request_is_dropped():
+    # 外部呼び出しは投げた時点で飛んでいる。打ち切ったあとに届いても捨てる。
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    ip = InformationProcessing(a)
+    ip._lookup_generation["明日の天気"] = 0
+    ip._generation = 1
+    ip.push_completion("明日の天気", "晴れ")
+    assert ip._completion_queue.empty()
