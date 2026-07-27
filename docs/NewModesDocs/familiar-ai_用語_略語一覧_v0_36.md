@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v0.35）
+# familiar-ai 用語・略語一覧（v0.36）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -82,7 +82,7 @@
 | MI／記憶モデル | 実行可能時点（廃止） | actionable_when | — | 〔**廃止**〕保留・actionable 判定は**調停が毎ターン W から行う**（field でなくロジック：即／優先度／到着＋ゲート）。 |
 | MI／記憶モデル | 動作対象（廃止） | target | — | 〔**廃止**〕動作の意図は content＋ハンドラ解釈（構造化コマンドを MI に持たない・[D-MIモデル]）。 |
 | MI／記憶モデル | 保持フラグ（廃止） | persist | — | 〔**廃止**〕W 派生化で非減衰保持の概念が消える。見た定点の印・直近記録曲は **O の MI として残り想起される**。 |
-| MI／記憶モデル | 重要度 | activation | — | **重要度**（現 `importance` の一般化）。**2段で動く**：段1＝機械＝取込時 `a0=clip(w_s·surprise+w_n·novelty,0,C)`（**relevance 廃止**）、機械想起では触らない／段2＝**フルLLM が参照した MI だけ**再評価（上げ下げ）＋freshness 更新、解決もフルLLM 宣言で落とす。open・pinned は高く保つ。**time では減らさない**。[D-想起合成]。**保存形式の実装（A-3-1）**：初期値 a0 を列 `activation_a0`（REAL・既定1.0）、正味デルタ回数 n を列 `activation_n`（INTEGER・既定0）に持ち、導出関数 `_derive_activation(a0, n)` で a を導出（a0 を正規化しロジットで無限区間へ→n·step 加算→ロジスティックで [floor,C] へ戻す）。定数 floor=0／C=2／ε=0.001／step=0.33 は Config 差し替え可の仮値（step=0.33 は取込 a0=0.75 から評価5回で実用上限1.5 に達する効き幅・課題5）。現 `importance` 列は当面残す（想起スコアが使用中・接続と廃止は後続）。 |
+| MI／記憶モデル | 重要度 | activation | — | **重要度**（現 `importance` の一般化）。**2段で動く**：段1＝機械＝取込時 `a0=clip(w_s·surprise+w_n·novelty,0,C)`（**relevance 廃止**）、機械想起では触らない／段2＝**フルLLM が参照した MI だけ**再評価（上げ下げ）＋freshness 更新、解決もフルLLM 宣言で落とす。open・pinned は高く保つ。**一次絞り軸には使わない**（$(a_0,n)$ からの導出値で、順序が2つの重み付き和になり索引の対象が無い）＝候補集合は他の軸が作り、$a$ は score の加算部でだけ効く（$w_a{=}1.5$）。**time では減らさない**。[D-想起合成]。**保存形式の実装（A-3-1）**：初期値 a0 を列 `activation_a0`（REAL・既定1.0）、正味デルタ回数 n を列 `activation_n`（INTEGER・既定0）に持ち、導出関数 `_derive_activation(a0, n)` で a を導出（a0 を正規化しロジットで無限区間へ→n·step 加算→ロジスティックで [floor,C] へ戻す）。定数 floor=0／C=2／ε=0.001／step=0.33 は Config 差し替え可の仮値（step=0.33 は取込 a0=0.75 から評価5回で実用上限1.5 に達する効き幅・課題5）。現 `importance` 列は当面残す（想起スコアが使用中・接続と廃止は後続）。 |
 | MI／記憶モデル | 活性の正味更新回数 | net delta count | n | activation を値 a で保存せず $(a_0,n)$ で保存し導出するための、正味デルタ回数（大事+1／不要−1）。$n$ を保存することで +1/−1 が可逆・対称になる（[D-想起合成]）。**実装列は `activation_n`（INTEGER・既定0）**。n を実際に増減させる評価の仕組みは後続（Phase 2）で、A-3-1 時点では移行・取込とも 0。 |
 | 全体 | 有界量の逆写像操作（共通イディオム） | bounded-value inverse-map op | — | 0〜1（有界区間）の量をロジット等で無限空間へ戻し、そこで線形操作（加算）して畳み込み関数で戻す共通手法。**感情距離（PAD）・activation 導出・新しさ漸近・drive の M→D 変調**に共通（4例）。可逆・対称・両端漸近を与える（[D-想起合成]）。 |
 | MI／記憶モデル | 想起スコア | score | — | **想起 score＝r^(w_r)×M（ハイブリッド）**＝関連 r^(w_r) は乗算ゲート（拒否権）、M＝(w_t·t+w_e·e+w_a·a)/(w_t+w_e+w_a)＝t/e/a の加重平均（[D-想起合成]・基底プロファイル (1,1,1,1.5)→base は r·(t+e+1.5a)/3.5）。優先・競合に使う。**実装（スライス3）**：`_compute_final_score` がこの式そのもの。r は `_stretch_relevance(cos, c_lo, c_hi)`（固定係数 min-max 伸長・確定値 0.0/1.0 では恒等）、e は `_emotion_match(obs_pad, mood_pad, sigma)`＝**今の気分と観測 PAD の距離**（mood は想起1回につき1つ読み全候補共通・読めなければ e 項を分子分母から外す）、a は `_derive_activation(a0,n)`。係数は `MemoryConfig` の `recall_c_lo`／`recall_c_hi`／`recall_w_r`／`recall_w_t`／`recall_w_e`／`recall_w_a`／`recall_emotion_sigma`／`recall_w_p`。**p は5軸目として実装済み**（`_score_breakdown` が p/w_p を加重平均へ・`_presence_correlation`＝在席他者視点・noisy-OR・候補集合拡張は `recall_presence_expand`）。薄い包み `_compute_final_score` 単体は今も p を渡さない4軸で、recall 経路が5軸。 |
@@ -207,6 +207,8 @@
 ---
 
 ## 更新履歴
+
+> v0.36：**重要度（activation）**の行に「一次絞り軸には使わない」を追記（導出値なので索引の対象が無い・score の加算部でだけ効く）。
 
 > v0.35：**沈黙依頼**・**静穏時間**・**つなぎ**を追加。いずれも実機で挙動を決めた語で、定義が資料に無いままコードとやり取りの中だけで使われていた。
 
