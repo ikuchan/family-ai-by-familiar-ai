@@ -150,7 +150,11 @@ def _score_breakdown(
         origin_epoch=origin,
         half_life_seconds=half_life_days * 86400.0,
         floor=floor,
-        reinforce_count=max(0, recall_count),
+        # **強化A（想起回数で実効半減期を伸ばす）は使わない。** `課題5` F節が廃止と
+        # 確定させている（重要さは activation の n が担い、t は純粋な時間減衰）。
+        # 残っていたため、`recall_count` が 20 なら半減期が 3×2^20 日＝8600年になり、
+        # **何度も想起された古い記録が永久に t=1** になっていた。実機で 47日前の挨拶が
+        # t=1.000 で上位を占め、5秒前の自分の発話を押し出した（「おかえりなさい」を2回）。
     )
     # 時間軸の基準。既定は「いま」だが、調停が人の言葉から動かせる（「去年の夏の話」）。
     ref_epoch = (reference_epoch if reference_epoch is not None
@@ -206,8 +210,9 @@ def _compute_final_score(
     重みが全0なら M=1（score は r だけ）。
 
     - r：`_stretch_relevance` でコサインを伸長した値。
-    - t：`DecayState`（強化A＝recall_count で実効半減期が倍、強化B＝
-      last_recalled_at を origin にして若返り）。時間減衰はこの軸に一元化し、
+    - t：`DecayState`（強化B＝last_recalled_at を origin にして若返り。**強化A＝
+      recall_count で半減期を伸ばす仕組みは使わない**＝`課題5` F節で廃止確定。
+      重要さは activation の n が担い、t は純粋な時間減衰）。時間減衰はこの軸に一元化し、
       importance の日次減衰は使わない（P-1・[D-想起合成]）。
     - e：`_emotion_match(obs_pad, mood_pad)`＝**今の気分と観測 PAD の距離**。
       記憶どうしの感情距離ではない（`感情ループ全体像` の `M → RECALL`）。

@@ -75,3 +75,29 @@ def test_time_axis_skips_dead_records_and_keeps_the_perspective_scope():
     src = inspect.getsource(ObservationStore.by_time)
     assert "o.superseded_by IS NULL" in src
     assert "s.person_id = %s" in src
+
+
+def test_recall_count_does_not_extend_the_half_life():
+    """強化A（想起回数で実効半減期を伸ばす）は想起の t 軸で使わない。
+
+    `課題5` F節が廃止と確定させている（重要さは activation の n が担い、t は純粋な
+    時間減衰）。実装に残っていたため `recall_count` が 20 なら半減期が 3×2^20 日＝
+    8600年になり、**何度も想起された古い記録が永久に t=1** になっていた。実機で 47日前の
+    挨拶が t=1.000 で上位を占め、5秒前の自分の発話を押し出した（「おかえりなさい」を2回）。
+    """
+    import datetime as dt
+
+    from familiar_agent.tools.memory import _score_breakdown
+
+    ref = dt.datetime(2026, 7, 27, tzinfo=dt.timezone.utc)
+    old_ts = ref - dt.timedelta(days=47)
+
+    def t_of(recall_count: int) -> float:
+        parts = _score_breakdown(
+            0.5, old_ts, None, recall_count, 1.0, 0,
+            half_life_days=3.0, floor=0.001, reference_epoch=ref.timestamp(),
+        )
+        return parts.t
+
+    assert t_of(0) < 0.01                      # 47日前は半減期3日でほぼ 0
+    assert t_of(20) == t_of(0)                 # 想起回数で伸びない
