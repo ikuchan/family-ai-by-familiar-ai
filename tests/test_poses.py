@@ -113,3 +113,32 @@ def test_the_three_real_poses_are_never_confused():
 
 def test_no_poses_means_never_on_one():
     assert nearest_pose([], 0.0, 0.0, _TOL) is None
+
+
+# --- pan と tilt の刻みの違い ---------------------------------------------
+
+
+def test_distance_is_measured_in_angle_not_in_normalised_units():
+    """実機（Tapo C211）の可動は pan が 340°、tilt が 70° である。
+
+    正規化値 $[-1,1]$ を角度に直すと pan は ×170、tilt は ×35 で、**同じ数値でも tilt の
+    ほうが5倍狭い角度**を表す。両軸を同じ重みで測ると tilt 側だけ5倍厳しくなり、実際には
+    ほとんど同じ向きなのに「移動中」と判定されて、その定点の「普通」が育たない。
+    """
+    base = [Pose("基準", 0.0, 0.0)]
+    # tilt に 0.15 ずれても、角度では 5.25°。しきい値 0.05 は pan で 8.5° なので、
+    # それより小さいずれである。同じ定点として扱えなければ、軸で扱いが食い違う。
+    assert nearest_pose(base, 0.0, 0.15, _TOL) is not None
+
+
+def test_a_pan_gap_wider_than_the_tolerance_is_a_different_pose():
+    # pan の 0.06 は 10.2° で、しきい値の 8.5° を超える。別の向き。
+    assert nearest_pose([Pose("基準", 0.0, 0.0)], 0.06, 0.0, _TOL) is None
+
+
+def test_a_large_tilt_gap_is_still_a_different_pose():
+    # 撮り直す前のプリセットは tilt が 0.214 違った（7.5°）。8.5° には収まらない…
+    # ではなく収まってしまうので、ここは「畳まれる」ことを確かめる。撮り直した効果は
+    # 位置の一致であって、距離の定義で別物にすることではない。
+    base = [Pose("出入り口", -0.129, -0.50)]
+    assert nearest_pose(base, -0.129, -0.2857, _TOL) is not None

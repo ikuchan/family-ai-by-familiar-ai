@@ -23,6 +23,14 @@ logger = logging.getLogger(__name__)
 # ONVIF の絶対 pan/tilt 空間（実機で確認：pan・tilt とも [-1, 1]）。
 _LIMIT = 1.0
 
+# 実機（Tapo C211）の機械可動範囲。正規化値 [-1,1] の全幅がこの角度に当たる。
+_PAN_RANGE_DEG = 340.0
+_TILT_RANGE_DEG = 70.0
+# 距離を pan の刻みに揃えるための係数。同じ正規化値でも tilt は 5 倍狭い角度を表すので、
+# 素のユークリッド距離では tilt 側だけ 5 倍厳しくなり、ほぼ同じ向きなのに「移動中」と
+# 判定されて、その定点の「普通」が育たない。
+_TILT_TO_PAN = _TILT_RANGE_DEG / _PAN_RANGE_DEG
+
 
 @dataclass(frozen=True)
 class Pose:
@@ -59,7 +67,12 @@ def parse_poses(text: str) -> list[Pose]:
 
 
 def _distance(a: Pose, b: Pose) -> float:
-    return math.hypot(a.pan - b.pan, a.tilt - b.tilt)
+    """向きの隔たり。**pan の正規化値に揃えて**測る（実質は角度差）。
+
+    しきい値を1つで済ませるには、両軸が同じ単位でなければならない。pan の 0.05 は 8.5°、
+    tilt の 0.05 は 1.75° で、素のまま足すと軸によって意味が変わる。
+    """
+    return math.hypot(a.pan - b.pan, (a.tilt - b.tilt) * _TILT_TO_PAN)
 
 
 def merge_poses(config: list[Pose], presets: list[Pose], tolerance: float) -> list[Pose]:
