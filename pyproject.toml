@@ -97,6 +97,13 @@ explicit = true
 markers = [
     "invariant: システムが守ると言っていることの生存確認（実 DB を使う・通常の一式とは別群で走らせる）",
 ]
+# 一式は 1867 件で 63 秒、最も遅い1件でも 13.2 秒（2026-07-28 実測）。止まったテストを
+# 待ち続けないよう、1件 60 秒で打ち切る。打ち切りが無かったため、11 分たっても終わらない
+# 実行が起きたときに、どのテストが止まっているのか分からなかった。
+timeout = 60
+# thread：ブロックしている C の呼び出し（DB 待ち・ネットワーク）も止められる。signal では
+# Python へ制御が戻るまで効かない。
+timeout_method = "thread"
 
 [tool.ruff]
 line-length = 100
@@ -120,6 +127,7 @@ dev      = [
     "pre-commit>=4.5.1",
     "ruff>=0.4.0",
     "pytest-xdist>=3.8.0",
+    "pytest-timeout>=2.3.0",
 ]
 gui      = ["PySide6>=6.7.0", "qasync>=0.27.0"]
 camera   = ["opencv-python>=4.00", "onvif-zeep-async>=4.0.0", "Pillow>=10.0.0", "zeroconf>=0.132.2"]

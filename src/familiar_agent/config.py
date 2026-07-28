@@ -88,10 +88,11 @@ class CameraConfig:
     # 定点（見回り・在席マップ・norm が共有する向き）。`名前:pan,tilt;…` の一行。
     # 値は ONVIF の正規化座標 [-1,1] で角度ではない。カメラのプリセットと合わせて使う。
     poses: str = field(default_factory=lambda: _env_value("CAMERA_POSES", default=""))
-    # 同じ定点とみなす距離。実機の3点は最小間隔 0.129 で、その半分以下に取る。厳密一致を
-    # 求めると絶対移動の誤差で毎回「移動中」になり、定点ごとの「普通」が育たない。
+    # 同じ定点とみなす距離。pan 換算の角度で測るので 0.02 ＝ 3.4°（`poses.py`）。厳密一致を
+    # 求めると絶対移動の誤差で毎回「移動中」になり定点ごとの「普通」が育たないが、実測の
+    # 誤差は 1e-6 未満なので、この値でも到着は取りこぼさない。
     pose_tolerance: float = field(
-        default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.05)
+        default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.02)
     )
 
     def stream_url(self, stream: str = "stream1") -> str | int:

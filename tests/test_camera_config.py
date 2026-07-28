@@ -114,3 +114,22 @@ def test_stream_url_default_is_stream1(monkeypatch):
     monkeypatch.setenv("CAMERA_PASSWORD", "pass")
     c = CameraConfig()
     assert c.stream_url() == c.stream_url("stream1")
+
+
+def test_the_pose_tolerance_defaults_to_two_hundredths():
+    """定点の同一視は **pan 換算で 3.4°**（0.02）まで。
+
+    最初は 0.05（8.5°）にしていたが、これは「3定点の最小間隔 0.129 の半分以下」という
+    pan だけの根拠で、角度で考え直すと粗すぎた。実機で撮った tilt=-0.29 と -0.50 の組
+    （7.5° 差）は見た目がはっきり違うのに、0.05 では同じ定点に畳まれてしまう。
+
+    絶対移動の実測誤差は $10^{-6}$ 未満（実機で確認）なので、下げても到着を「移動中」と
+    誤判定する余地は無い。
+    """
+    import os
+    from unittest.mock import patch
+
+    from familiar_agent.config import CameraConfig
+
+    with patch.dict(os.environ, {}, clear=True):
+        assert CameraConfig().pose_tolerance == 0.02
