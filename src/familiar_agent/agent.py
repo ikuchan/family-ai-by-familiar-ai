@@ -55,6 +55,7 @@ from .scene import SceneTracker
 from .attention_schema import AttentionSchema
 from .default_mode import DefaultModeProcessor
 from .meta_monitor import MetaGateDecision, MetaMonitor
+from .poses import Pose, build_pose_registry
 from .prediction import PredictionEngine
 from .social_policy import SocialPolicyDecision, SocialPolicyEngine
 from .workspace import GlobalWorkspace
@@ -589,7 +590,20 @@ class EmbodiedAgent:
         self._cached_temporal_ctx: str | None = None
         self._cached_companion_mood: str = "engaged"
 
+        # 定点。プリセットの読み出しに await が要るので、初めて要るときに一度だけ組む
+        # （`_init_tools` は同期で、ここではまだカメラへ問い合わせられない）。
+        self._poses: list[Pose] | None = None
+
         self._init_tools()
+
+    async def poses(self) -> list[Pose]:
+        """定点の一覧。在席マップ・norm・見回りが同じものを使う。"""
+        if self._poses is None:
+            cam = self.config.camera
+            self._poses = await build_pose_registry(
+                cam.poses, self._camera, cam.pose_tolerance
+            )
+        return self._poses
 
     def _tape_backend(self):
         """Return the backend used for extra planning/replanning checks.

@@ -25,6 +25,7 @@ from urllib.parse import urlparse
 import cv2
 from onvif import ONVIFCamera
 
+from ..poses import Pose
 from ..setup import _onvif_wsdl_dir
 
 logger = logging.getLogger(__name__)
@@ -279,6 +280,69 @@ class CameraTool:
         except Exception as e:
             logger.warning("Error processing frame: %s", e)
             return None, None
+
+    async def move_to(self, pan: float, tilt: float) -> str:
+        """定点へ向く（絶対 pan/tilt）。
+
+        見回りは「絶対 pan/tilt で1定点へ移動 → 観察」を1ステップとする（`ユースケース③`）。
+        相対移動では、誤差が積もって定点からずれていく。範囲外は手前で丸める（カメラに
+        拒否させるより、届く範囲まで動かすほうがよい）。
+        """
+        if not await self._ensure_connected():
+            return "Camera movement (PTZ) not supported for this source."
+        pan = max(-1.0, min(1.0, float(pan)))
+        tilt = max(-1.0, min(1.0, float(tilt)))
+        try:
+            await self._ptz.AbsoluteMove(
+                {
+                    "ProfileToken": self._profile_token,
+                    "Position": {"PanTilt": {"x": pan, "y": tilt}},
+                }
+            )
+            await asyncio.sleep(0.4)
+            return f"Turned to pan={pan:+.4f} tilt={tilt:+.4f}."
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Camera absolute move failed: %s", e)
+            return f"Camera move failed: {e}"
+
+    async def position(self) -> tuple[float, float] | None:
+        """いまどこを向いているか。読めなければ `None`。
+
+        分からないときに (0,0) を返すと、向いていない定点を向いていることにしてしまい、
+        その定点の「普通」と在席マップが別の場所の映像で汚れる。
+        """
+        if not await self._ensure_connected():
+            return None
+        try:
+            status = await self._ptz.GetStatus({"ProfileToken": self._profile_token})
+            pt = status.Position.PanTilt
+            return (float(pt.x), float(pt.y))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Camera position read failed: %s", e)
+            return None
+
+    async def presets(self) -> list[Pose]:
+        """カメラに登録されたプリセットを定点として読む。
+
+        人がカメラのアプリで足したものがそのまま定点になる。読めなければ空を返す
+        （Config の定点だけで動ける）。
+        """
+        if not await self._ensure_connected():
+            return []
+        try:
+            raw = await self._ptz.GetPresets({"ProfileToken": self._profile_token})
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Camera preset read failed: %s", e)
+            return []
+        out: list[Pose] = []
+        for item in raw or []:
+            pos = getattr(item, "PTZPosition", None)
+            pt = getattr(pos, "PanTilt", None) if pos is not None else None
+            if pt is None:
+                continue
+            name = str(getattr(item, "Name", None) or getattr(item, "token", ""))
+            out.append(Pose(name, float(pt.x), float(pt.y)))
+        return out
 
     async def move(self, direction: str, degrees: int = 30) -> str:
         if not await self._ensure_connected():
