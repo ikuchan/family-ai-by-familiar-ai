@@ -181,6 +181,29 @@ def _parse(reply: str) -> Decision | None:
                     silence_minutes=silence_minutes, time_ref=time_ref, time_span_days=max(0.0, time_span_days))
 
 
+def _watch_late(call, started: float, prompt_len: int) -> None:
+    """打ち切ったあとの呼び出しを裏で待ち、実際にかかった秒数を残す。
+
+    応答には使わない（もう倒してある）。時間切れの値を決めるための計測だけが目的。
+    """
+    async def _wait() -> None:
+        try:
+            await call
+        except Exception:  # noqa: BLE001
+            logger.debug("遅れて返るはずの調停が失敗した")
+            return
+        logger.info("調停が遅れて返った：%.2f 秒（プロンプト %d 字）",
+                    time.monotonic() - started, prompt_len)
+
+    task = asyncio.ensure_future(_wait())
+    # 参照を残さないと GC に回収されうる。終わったら自分で外れる。
+    _LATE_TASKS.add(task)
+    task.add_done_callback(_LATE_TASKS.discard)
+
+
+_LATE_TASKS: set = set()
+
+
 _CAPPED_NOTE = """
 これ以上は調べられない（反復の上限に達した）。"action" は選べない。いまある材料で答える
 ことになるので "light" か "full" を選ぶ。
@@ -213,12 +236,16 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
         capped_note=_CAPPED_NOTE if capped else "",
     )
     started = time.monotonic()
+    # 打ち切っても呼び出し自体は残す（shield）。倒す時刻は変えずに、**実際に何秒かかるか**を
+    # 裏で測るため。時間切れの秒数しか残らないと、2.1 秒なのか 10 秒なのか分からず、
+    # 時間切れの値を決められない（実機で「黙って」だけが 2 秒に掛かった）。
+    call = asyncio.ensure_future(backend.complete(prompt, 300))
     try:
-        reply = await asyncio.wait_for(backend.complete(prompt, 300), timeout=timeout)
-        # 何秒で返るかを残す。2 秒で足りない理由が長さなのか回線なのか分かっていない。
+        reply = await asyncio.wait_for(asyncio.shield(call), timeout=timeout)
         logger.info("調停 %.2f 秒（プロンプト %d 字）", time.monotonic() - started, len(prompt))
     except asyncio.TimeoutError:
         logger.warning("調停が %.1f 秒で返らなかったのでフルへ倒す", timeout)
+        _watch_late(call, started, len(prompt))
         return _FALLBACK
     except asyncio.CancelledError:
         raise
