@@ -93,3 +93,57 @@ def test_two_places_get_different_headings():
     from familiar_agent.loop.event_loop import _query_label
 
     assert _query_label("look", {"pose": "窓側"}) != _query_label("look", {"pose": "襖側"})
+
+
+# --- 見た印（どの定点を見たかが完了から読めること）------------------------
+
+
+def _ip_with_camera(position=(0.0, -0.5), poses=_POSES):
+    """イベント駆動ループに、定点を知っているカメラを挿す。"""
+    from tests.test_event_loop import _agent
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = _agent(stream_returns=[])
+    cam = MagicMock()
+    cam.call = AsyncMock(return_value=("You see the current view.", "B64"))
+    cam.position = AsyncMock(return_value=position)
+    a._camera = cam
+    a.poses = AsyncMock(return_value=poses)
+    a.config.camera.pose_tolerance = 0.02
+    return InformationProcessing(a), cam
+
+
+def test_the_completion_says_which_place_was_seen():
+    """`ユースケース③` の「見た定点の印」は、O の MI として残り W 構築で上がる。
+
+    別の記録を足すのではなく、既にある完了 MI から**どの定点を見たか**が読めればよい
+    （同じ出来事に2件残すと、想起でどちらも上がって W の枠を食う）。
+    """
+    from unittest.mock import patch
+
+    ip, _ = _ip_with_camera(position=(0.0, -0.5))     # 窓側
+    with patch("familiar_agent.loop.event_loop.extract_entities",
+               AsyncMock(return_value=[{"label": "desk"}])):
+        out = asyncio.run(ip._run_camera("see", {}))
+    assert "窓側" in out and "desk" in out
+
+
+def test_seeing_while_between_places_does_not_claim_a_place():
+    # どの定点でもない向きの映像に定点名を付けると、その定点の記録が別の場所で汚れる。
+    from unittest.mock import patch
+
+    ip, _ = _ip_with_camera(position=(-0.35, -0.5))
+    with patch("familiar_agent.loop.event_loop.extract_entities", AsyncMock(return_value=[])):
+        out = asyncio.run(ip._run_camera("see", {}))
+    assert "窓側" not in out and "襖側" not in out
+
+
+def test_seeing_without_poses_still_reports_what_was_seen():
+    from unittest.mock import patch
+
+    ip, _ = _ip_with_camera(poses=[])
+    with patch("familiar_agent.loop.event_loop.extract_entities",
+               AsyncMock(return_value=[{"label": "desk"}])):
+        out = asyncio.run(ip._run_camera("see", {}))
+    assert "desk" in out

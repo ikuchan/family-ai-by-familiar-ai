@@ -18,6 +18,7 @@ import logging
 import time
 from datetime import datetime
 
+from ..poses import nearest_pose
 from ..scene import extract_entities
 from ..store import clock
 from .arbiter import arbitrate
@@ -313,6 +314,11 @@ class InformationProcessing:
             return f"（{action} を実行できなかった：{e}）"
         if action != "see" or not image_b64:
             return str(text)
+        # どの定点を見たかを記録に残す。`ユースケース③` の「見た定点の印」で、これが
+        # activation で薄れ、W 構築で薄れた順に上がることで巡回が創発する。別の記録を
+        # 足さないのは、同じ出来事に2件残すと想起でどちらも上がって W の枠を食うため。
+        where = await self._current_pose_name()
+        prefix = f"{where}を見た。" if where else ""
         try:
             entities = await extract_entities(str(text), agent._scene_backend,
                                               image_b64=image_b64)
@@ -324,9 +330,34 @@ class InformationProcessing:
         labels = [str(d.get("label", "")).strip() for d in entities if d.get("label")]
         if not labels:
             logger.info("event-loop 見たが、意味づけは何も返さなかった")
-            return str(text)
-        logger.info("event-loop 見えたもの %d 件：%.60s", len(labels), "、".join(labels))
-        return f"{text} 見えたもの：" + "、".join(labels)
+            return f"{prefix}{text}"
+        logger.info("event-loop %s見えたもの %d 件：%.60s",
+                    f"{where}で" if where else "", len(labels), "、".join(labels))
+        return f"{prefix}{text} 見えたもの：" + "、".join(labels)
+
+    async def _current_pose_name(self) -> str:
+        """いま向いている定点の名前。どの定点でもない（移動中）なら空。
+
+        どの定点でもない向きの映像に定点名を付けると、その定点の記録が別の場所の景色で
+        汚れる（`知覚在席` §3-3 の振動中ゲートと同じ理由）。
+        """
+        agent = self._agent
+        try:
+            camera = getattr(agent, "_camera", None)
+            if camera is None:
+                return ""
+            poses = await agent.poses()
+            if not poses:
+                return ""
+            position = await camera.position()
+            if position is None:
+                return ""
+            pose = nearest_pose(poses, position[0], position[1],
+                                agent.config.camera.pose_tolerance)
+            return pose.name if pose else ""
+        except Exception:  # noqa: BLE001
+            logger.debug("いまどの定点を向いているか分からなかった")
+            return ""
 
     async def _intake(self) -> int:
         """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。"""
