@@ -470,6 +470,10 @@ class DriveConfig:
     rate: float = 1.665e-2      # 全欲求共通の基準レート（/秒・課題5 B〔確定〕）
     p_t: float = 0.5            # T-tick 周期（秒・課題5 A）
     mult: float = 1.0          # 時間帯倍率（課題10・既定1.0）
+    # 静穏時間の時間帯倍率（#13）。中立 mood（g_seeking = bias_seeking = 0.20）では
+    # 探索が 0 から Θ_fire へ至るまで 300 秒かかる。これを 3600 秒（1時間に1回程度）へ
+    # 伸ばすので 300 ÷ 3600 = 0.083。倍率は全欲求へ一律にかかる（設計式に軸の添字が無い）。
+    mult_quiet: float = 0.083
     learn: float = 1.0         # 学習倍率（課題10・既定1.0）
     epsilon: float = 0.001
     theta_fire: float = 1.0 - 0.001   # 発火閾値 Θ_fire = 1−ε

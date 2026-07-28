@@ -15,6 +15,8 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from dataclasses import replace
+from datetime import datetime
 
 from ..config import DriveConfig
 from ..core import drive_dynamics as dd
@@ -42,7 +44,7 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
     def _work() -> tuple[dd.DriveFiring, AiDrivers]:
         from ..db import get_db
 
-        cfg = DriveConfig()
+        cfg = effective_drive_cfg(DriveConfig())    # 深夜は蓄積が遅くなる（#13）
         mood = load_current_mood()          # 自己接続でロックを取り、抜ける
         database = get_db()
         with database.lock:
@@ -55,6 +57,21 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
         return firing, accumulated
 
     return await asyncio.to_thread(_work)
+
+
+def effective_drive_cfg(cfg: DriveConfig, now: datetime | None = None) -> DriveConfig:
+    """いまの時刻に応じた設定を返す。静穏時間なら蓄積を `mult_quiet` へ落とす（#13）。
+
+    時計を見るのは T の役なので判定をここに置く（`core.drive_dynamics` は時計を持たない
+    純関数として定義されている）。窓は静穏時間（`QUIET_HOURS_START`／`END`・既定 23〜7）を
+    そのまま使う。「自分から話しかけない時間」と「欲求が募る速さ」は別の事柄だが、窓を
+    二つ持つと、どちらが効いているかを二箇所で確かめることになる。
+    """
+    from ..routines import quiet_hours_rule
+
+    if not quiet_hours_rule().is_quiet(now):
+        return cfg
+    return replace(cfg, mult=cfg.mult_quiet)
 
 
 def _names(names: set[str]) -> str:
