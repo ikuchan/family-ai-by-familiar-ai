@@ -56,6 +56,7 @@ from .attention_schema import AttentionSchema
 from .default_mode import DefaultModeProcessor
 from .meta_monitor import MetaGateDecision, MetaMonitor
 from .poses import Pose, build_pose_registry
+from .presence_sensor import PresenceSensor
 from .prediction import PredictionEngine
 from .social_policy import SocialPolicyDecision, SocialPolicyEngine
 from .workspace import GlobalWorkspace
@@ -68,8 +69,8 @@ from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, PersonMemoryManager
 from .recognition.face import recognize_face_async
-from .recognition.motion_watcher import CameraMotionWatcher
-from .recognition.presence_watcher import CameraPresenceWatcher
+from .recognition.motion_events import MotionEventWatcher
+from .recognition.person_detector import PersonDetector
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .tools.tts import TTSTool
@@ -547,8 +548,8 @@ class EmbodiedAgent:
         self._pmm.on_switch(self._on_pmm_speaker_switch)
         self._memory_tool = MemoryTool(self._pmm)
         self._pending_store = self._memory_tool._pending_store
-        self._presence_watcher: CameraPresenceWatcher | None = None
-        self._motion_watcher: CameraMotionWatcher | None = None
+        self._presence_sensor: PresenceSensor | None = None
+        self._motion_events: MotionEventWatcher | None = None
         # 動体検知→知覚ターンの保留フラグ（GUI アイドルが拾って知覚ターンを起こす・案B）。
         self._motion_pending: bool = False
         self._coding = CodingTool(config.coding)
@@ -1033,18 +1034,22 @@ class EmbodiedAgent:
             logger.warning("SceneTracker init failed: %s", exc)
 
         if self._camera:
-            self._presence_watcher = CameraPresenceWatcher(
-                self._pmm,
-                camera=self.config.camera,
-                interval_sec=self.config.recognition.presence_interval_sec,
+            # 在/不在は YOLO で測る（登録が要らない）。誰かは PMM が必要時に解く。
+            cam_cfg = self.config.camera
+            self._presence_sensor = PresenceSensor(
+                camera=self._camera,
+                poses_getter=self.poses,
+                detector=PersonDetector(),
+                tolerance=cam_cfg.pose_tolerance,
+                window_sec=cam_cfg.presence_window_sec,
+                interval_sec=cam_cfg.presence_interval_sec,
             )
-            if self.config.recognition.motion_watch:
-                self._motion_watcher = CameraMotionWatcher(
-                    self.config.camera,
-                    self._note_motion,
-                    pull_timeout_sec=self.config.recognition.motion_pull_timeout_sec,
-                    debounce_sec=self.config.recognition.motion_debounce_sec,
-                )
+            # カメラが「動いた」と言ってきたら、間隔を待たずに確かめる。静止している人は
+            # 動体を出さないので、イベントだけでは足りず、間隔の確認と併せて使う。
+            self._motion_events = MotionEventWatcher(
+                lambda: getattr(self._camera, "_cam_onvif", None),
+                on_motion=self._presence_sensor.on_motion,
+            )
 
         # Register family members from FAMILY.md into persons DB
         self._register_family_from_md()
@@ -2761,7 +2766,8 @@ class EmbodiedAgent:
         self._info_processing.start()
         if getattr(self.config, "event_loop", False) is True:
             if getattr(self, "_tonic", None) is None:
-                self._tonic = Tonic(self._info_processing, agent=self)
+                self._tonic = Tonic(self._info_processing, agent=self,
+                                    presence=getattr(self, "_presence_sensor", None))
             self._tonic.start()
             # RH（資源ハンドラ）の完了を QC へ渡す。off のままだと従来どおり溜めて
             # ポーリングで拾われるので、二重配信にならない（排他）。
@@ -2828,18 +2834,13 @@ class EmbodiedAgent:
                 await asyncio.wait_for(self._mcp.stop(), timeout=2.0)
             except (asyncio.TimeoutError, Exception):
                 pass
-        _pw = getattr(self, "_presence_watcher", None)
-        if _pw is not None:
-            try:
-                await asyncio.wait_for(_pw.stop(), timeout=1.0)
-            except (asyncio.TimeoutError, Exception):
-                pass
-        _mw = getattr(self, "_motion_watcher", None)
-        if _mw is not None:
-            try:
-                await asyncio.wait_for(_mw.stop(), timeout=1.0)
-            except (asyncio.TimeoutError, Exception):
-                pass
+        for _watcher in (getattr(self, "_presence_sensor", None),
+                         getattr(self, "_motion_events", None)):
+            if _watcher is not None:
+                try:
+                    await asyncio.wait_for(_watcher.stop(), timeout=1.0)
+                except (asyncio.TimeoutError, Exception):  # noqa: BLE001, PERF203
+                    pass
         try:
             await asyncio.wait_for(asyncio.to_thread(self._memory.close), timeout=1.0)
         except (asyncio.TimeoutError, Exception):
@@ -3135,11 +3136,10 @@ class EmbodiedAgent:
                 self.backend.thinking_mode = self.config.thinking_mode
                 self._thinking_user_override = False
             self._persons.reset_to_default()
-            if self._presence_watcher:
-                asyncio.ensure_future(self._presence_watcher.start())
-            _mw = getattr(self, "_motion_watcher", None)
-            if _mw is not None:
-                asyncio.ensure_future(_mw.start())
+            for _watcher in (getattr(self, "_presence_sensor", None),
+                             getattr(self, "_motion_events", None)):
+                if _watcher is not None:
+                    asyncio.ensure_future(_watcher.start())
 
         # First turn: morning reconstruction — bridge yesterday's self to today's
         morning_ctx = ""

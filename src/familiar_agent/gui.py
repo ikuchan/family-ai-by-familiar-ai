@@ -1207,7 +1207,9 @@ class FamiliarWindow(QMainWindow):
         if time.perf_counter() < getattr(self, "_look_preview_until", 0.0):
             return
         agent = getattr(self, "_agent", None)
-        watcher = getattr(agent, "_presence_watcher", None) if agent is not None else None
+        # 在席の確認は `PresenceSensor` が行う（顔ベースの常駐から置き換え）。直近に見た
+        # フレームをそのまま在席確認のカメラ映像として出す。
+        watcher = getattr(agent, "_presence_sensor", None) if agent is not None else None
         if watcher is None:
             return
         try:

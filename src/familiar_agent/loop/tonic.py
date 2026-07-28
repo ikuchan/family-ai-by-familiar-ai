@@ -28,6 +28,10 @@ logger = logging.getLogger(__name__)
 # 周期を変えると蓄積そのものが変わる。勝手に動かさない。
 TONIC_PERIOD_SEC = 0.5
 
+# 顔も声も照合できていない在席者の呼び名。居ることは分かるが誰かは分からない状態で、
+# 「誰も居ない」とは区別する（用語一覧の二層：在/不在＝T、誰か＝I）。
+UNIDENTIFIED = "誰か"
+
 
 async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
     """1 tick 分の dynamics を回して永続化し、(発火, 蓄積後・放電前の drives) を返す。
@@ -63,9 +67,13 @@ class Tonic:
 
     def __init__(self, information_processing, *, agent=None,
                  period: float = TONIC_PERIOD_SEC,
-                 drive_cfg: DriveConfig | None = None) -> None:
+                 drive_cfg: DriveConfig | None = None,
+                 presence=None) -> None:
         self._ip = information_processing
         self._agent = agent
+        # 在/不在の情報源（`PresenceSensor`）。渡さなければ身元の情報源だけで判断する。
+        # agent から取りに行くと、テストの MagicMock が「常に誰か居る」を返してしまう。
+        self._presence = presence
         self._period = period
         # 前回の在席者。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
         # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
@@ -91,12 +99,11 @@ class Tonic:
     def scan_presence(self) -> None:
         """在席者の集合を見て、前回との差分を人の出入りとして QD へ積む。
 
-        身元はいま PMM（InsightFace）からしか取れない。設計（用語一覧の二層）では在/不在は
-        T(G) の presence レジスタ、誰かは I 側の解決器が担うので、**この情報源は暫定**である。
-        QD へ流すイベントの形（種別・誰が）は取得方法から独立させてあるので、#8 では
-        ここの読み出しを差し替えるだけで済む。
+        情報源は二層に分かれている（用語一覧）。**在/不在は `PresenceSensor`**（YOLO・登録が
+        要らない）、**誰かは PMM**（顔の照合・`/speaker` の自己申告）。照合が済んでいなければ
+        `UNIDENTIFIED` として扱い、居ることだけ伝える。
 
-        読むのはメモリ上の辞書（ロック付き）で、DB も I/O も触らない。
+        読むのはメモリ上の値で、DB も I/O も触らない（センサは別の常駐タスクが更新する）。
         """
         agent = self._agent
         if agent is None:
@@ -104,9 +111,25 @@ class Tonic:
         try:
             rows = agent._pmm.presence_status()
         except Exception:  # noqa: BLE001
-            return
+            rows = []
         current = {str(r.get("name") or r.get("person_id") or "") for r in rows}
         current.discard("")
+        # 在/不在は YOLO（登録が要らない）、名前は照合が済んだときだけ。名前が分からない
+        # ことと、誰も居ないことは別である。前者は「誰か」として、居ることだけ伝える。
+        sensor = self._presence
+        if sensor is not None:
+            try:
+                if sensor.room_occupied() and not current:
+                    current = {UNIDENTIFIED}
+            except Exception:  # noqa: BLE001
+                logger.debug("在席センサを読めなかったので身元の情報源だけで判断する")
+        previous_had_only_unidentified = self._present_names == {UNIDENTIFIED}
+        if previous_had_only_unidentified and current and UNIDENTIFIED not in current:
+            # 「誰か」で入室したあとに顔が照合できた。同じ人がそこに居続けているだけなので、
+            # 退室は起きていない。素朴に差分を取ると、退室と入室が1件ずつ飛ぶ。
+            logger.info("tonic 在席の身元が付いた：誰か → %s", _names(current))
+            self._present_names = current
+            return
         previous, self._present_names = self._present_names, current
         if previous is None:
             # 起動直後の1回目は差分を取らない。ただし「いま誰が見えているか」は残す。

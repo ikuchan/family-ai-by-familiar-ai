@@ -1,0 +1,143 @@
+"""在/不在を実際に測る器（撮る → 定点を特定 → YOLO → マップ更新）。
+
+`知覚在席` §3-2 の在/不在は **G（T 側・連続）** が担う。ここが部品を束ねる場所で、
+S3a（`presence_map`・`person_detector`）と S2（定点）と S3b（動体イベント）を繋ぐ。
+
+起こされ方は2つある。**カメラが「動いた」と言ってきたとき**と、**一定間隔（30秒）**。
+動体だけでは足りない。静止している人は動体を出さないので、動きが無いあいだも確かめる。
+
+**どの定点を見ているか分からないときは、何も記録しない。** 向きが読めない、または定点から
+離れている（移動中）ときに記録すると、別の場所の映像でその定点の在席が汚れる
+（`知覚在席` §3-3 の振動中ゲート）。
+"""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+from familiar_agent.poses import Pose
+from familiar_agent.presence_sensor import PresenceSensor
+
+_POSES = [Pose("窓側", 0.0, -0.5), Pose("出入り口", -0.129, -0.5)]
+
+
+def _sensor(*, position=(-0.129, -0.5), people=0, capture=("BASE64", "/tmp/f.jpg"),
+            poses=None):
+    camera = MagicMock()
+    camera.position = AsyncMock(return_value=position)
+    camera.capture = AsyncMock(return_value=capture)
+    detector = MagicMock()
+    detector.count = AsyncMock(return_value=people)
+    s = PresenceSensor(
+        camera=camera,
+        poses_getter=AsyncMock(return_value=_POSES if poses is None else poses),
+        detector=detector,
+        tolerance=0.02,
+        window_sec=120.0,
+        interval_sec=30.0,
+    )
+    return s, camera, detector
+
+
+# --- 1回の確認 -------------------------------------------------------------
+
+
+def test_seeing_a_person_marks_that_pose_as_occupied():
+    s, _, _ = _sensor(people=1)
+    assert asyncio.run(s.check_once()) == "出入り口"
+    assert s.room_occupied() is True
+    assert s.poses_seen() == ["出入り口"]
+
+
+def test_seeing_nobody_leaves_the_room_empty():
+    s, _, _ = _sensor(people=0)
+    assert asyncio.run(s.check_once()) == "出入り口"
+    assert s.room_occupied() is False
+
+
+def test_the_frame_is_only_analysed_once_per_check():
+    s, camera, detector = _sensor(people=1)
+    asyncio.run(s.check_once())
+    assert camera.capture.await_count == 1
+    assert detector.count.await_count == 1
+
+
+# --- 振動中ゲート ---------------------------------------------------------
+
+
+def test_a_position_between_poses_records_nothing():
+    # 移動中の映像は、どの定点のものでもない。
+    s, _, detector = _sensor(position=(-0.30, -0.5), people=1)
+    assert asyncio.run(s.check_once()) is None
+    assert s.room_occupied() is False
+    detector.count.assert_not_awaited()
+
+
+def test_an_unreadable_position_records_nothing():
+    # 向きが読めないのに記録すると、別の場所の映像で在席が汚れる。
+    s, _, detector = _sensor(position=None, people=1)
+    assert asyncio.run(s.check_once()) is None
+    detector.count.assert_not_awaited()
+
+
+def test_without_any_poses_nothing_is_recorded():
+    s, _, _ = _sensor(people=1, poses=[])
+    assert asyncio.run(s.check_once()) is None
+
+
+# --- 壊れたときの振る舞い -------------------------------------------------
+
+
+def test_a_failed_capture_records_nothing_rather_than_absence():
+    # 撮れなかったことを「誰も居ない」にすると、カメラの不調で人が消える。
+    s, camera, detector = _sensor(people=1, capture=(None, None))
+    assert asyncio.run(s.check_once()) is None
+    detector.count.assert_not_awaited()
+
+
+def test_a_camera_that_raises_does_not_kill_the_caller():
+    s, camera, _ = _sensor()
+    camera.position = AsyncMock(side_effect=RuntimeError("ptz offline"))
+    assert asyncio.run(s.check_once()) is None
+
+
+# --- 見た映像の受け渡し ---------------------------------------------------
+
+
+def test_the_latest_frame_is_kept_for_the_gui():
+    """GUI は在席確認のカメラ映像として直近フレームを表示する。
+
+    顔ベースの常駐（`presence_watcher`）を止めるので、その供給元をここが引き継ぐ。
+    止めたまま供給しないと、GUI から映像が消える。
+    """
+    s, _, _ = _sensor(people=0)
+    asyncio.run(s.check_once())
+    assert s.latest_frame_b64() == "BASE64"
+
+
+# --- 起こされ方 -----------------------------------------------------------
+
+
+def test_motion_triggers_a_check_without_waiting_for_the_interval():
+    s, camera, _ = _sensor(people=1)
+
+    async def go():
+        await s.start()
+        s.on_motion()                 # カメラが「動いた」と言ってきた
+        await asyncio.sleep(0.05)
+        await s.stop()
+
+    asyncio.run(go())
+    assert camera.capture.await_count >= 1
+
+
+def test_stopping_leaves_no_task_behind():
+    s, _, _ = _sensor()
+
+    async def go():
+        await s.start()
+        await s.stop()
+        return s._task
+
+    assert asyncio.run(go()) is None

@@ -94,6 +94,15 @@ class CameraConfig:
     pose_tolerance: float = field(
         default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.02)
     )
+    # 在席を確かめる間隔。カメラの動体イベントで起こされるので、短くする必要は無い。
+    presence_interval_sec: float = field(
+        default_factory=lambda: _float_env("CAMERA_PRESENCE_INTERVAL", 30.0)
+    )
+    # 滞留窓（`課題5` §I の在席 timeout）。静止している人は毎回検出されないので、
+    # この時間の内側は居るものとして扱う。
+    presence_window_sec: float = field(
+        default_factory=lambda: _float_env("CAMERA_PRESENCE_WINDOW", 120.0)
+    )
 
     def stream_url(self, stream: str = "stream1") -> str | int:
         """Build the RTSP or USB source URL — the single authoritative place.
