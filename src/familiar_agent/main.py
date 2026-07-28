@@ -20,11 +20,8 @@ from .realtime_stt_session import create_realtime_stt_session
 from .setup import run_cli_setup_wizard
 from ._i18n import BANNER, _t
 from ._ui_helpers import (
-    DESIRE_COOLDOWN,
     IDLE_CHECK_INTERVAL,
-    desire_tick_prompt,
     format_action as _format_action,
-    should_fire_idle_desire,
 )
 
 
@@ -116,7 +113,6 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
     # Persistent input queue — stdin reader runs as a background task
     # so user input is captured even while the agent is busy.
     input_queue: asyncio.Queue[str | None] = asyncio.Queue()
-    last_interaction_time: float = time.time()
 
     async def _stdin_reader() -> None:
         """Read stdin continuously into the queue."""
@@ -164,7 +160,6 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
             if pending:
                 # Process all buffered user messages before doing anything autonomous
                 for user_input in pending:
-                    last_interaction_time = time.time()
                     await _handle_user(
                         user_input, agent, desires, on_action, on_text, debug, input_queue
                     )
@@ -181,90 +176,8 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                 queued_input = None
 
             if queued_input is None and input_queue.empty():
-                # Always grow desires regardless of cooldown or auto_desire setting.
-                desires.tick()
-
-                # Deliver completed deferred search results immediately.
-                # Bypasses desire cooldown — this is a response to a user request, not an impulse.
-                if agent.should_deliver_deferred_result():
-                    last_interaction_time = time.time()
-                    await agent.run(
-                        "",
-                        on_action=on_action,
-                        on_text=on_text,
-                        desire_name="share_search_result",
-                        inner_voice="調べておいた検索結果が出た。ユーザーに知らせよう。",
-                        interrupt_queue=input_queue,
-                    )
-                    continue
-
-                # Skip firing if auto_desire is disabled
-                if not getattr(agent, "config", None) or not agent.config.auto_desire:
-                    continue
-                # Genuine idle — check desires, but respect cooldown after conversation
-                if not should_fire_idle_desire(
-                    agent_running=False,
-                    has_pending_input=not input_queue.empty(),
-                    last_interaction=last_interaction_time,
-                    now=time.time(),
-                    cooldown=DESIRE_COOLDOWN,
-                ):
-                    continue  # Still in post-conversation cooldown
-
-                # Peek at any pending input before firing desire
-                pending_items: list[str] = []
-                if not input_queue.empty():
-                    item = input_queue.get_nowait()
-                    if item is None:
-                        break
-                    if item:
-                        pending_items.append(item)
-
-                # Suppress social desires during quiet hours.
-                _schedule_rule = getattr(agent, "_schedule_rule", None)
-                if _schedule_rule is not None and _schedule_rule.is_quiet():
-                    continue
-
-                tick = desire_tick_prompt(desires, pending_items)
-                if tick:
-                    desire_name, prompt, _pending = tick
-                    try:
-                        murmur = _t(f"desire_{desire_name}")
-                    except KeyError:
-                        murmur = _t("desire_default")
-                    print(f"\n{murmur}\n")
-
-                    await agent.run(
-                        "",
-                        on_action=on_action,
-                        on_text=on_text,
-                        desires=desires,
-                        inner_voice=prompt,
-                        desire_name=desire_name,
-                        interrupt_queue=input_queue,
-                    )
-                    desires.satisfy(desire_name)
-                    desires.curiosity_target = None
-                elif pending_items:
-                    # Had pending input but no desire — process it as user message
-                    for msg in pending_items:
-                        await _handle_user(
-                            msg, agent, desires, on_action, on_text, debug, input_queue
-                        )
-                    continue
-
-                    # Flush any input that arrived during agent.run()
-                    buffered: list[str] = []
-                    while not input_queue.empty():
-                        item = input_queue.get_nowait()
-                        if item is None:
-                            raise EOFError
-                        if item:
-                            buffered.append(item)
-                    for msg in buffered:
-                        await _handle_user(
-                            msg, agent, desires, on_action, on_text, debug, input_queue
-                        )
+                # 入力を待つあいだの自発的な動きは、T（Tonic）が drive を回して QA へ積み、
+                # 完了は QC へ届く。CUI は入力を待つだけにする。
                 continue
 
             if queued_input:

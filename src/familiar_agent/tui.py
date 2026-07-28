@@ -27,15 +27,12 @@ from ._ui_helpers import (
     AdaptiveDesireCooldown,
     DESIRE_COOLDOWN as _DESIRE_COOLDOWN,
     IDLE_CHECK_INTERVAL as _IDLE_CHECK_INTERVAL,
-    INTERNAL_DESIRE_COOLDOWN as _INTERNAL_DESIRE_COOLDOWN,
     SILENCE_DURATION_SEC as _SILENCE_DURATION_SEC,
-    desire_tick_prompt,
     format_action as _format_action,
     format_tool_result as _format_tool_result,
     is_silence_request,
-    should_fire_idle_desire,
 )
-from .desires import is_internal_desire_turn, is_social_desire
+from .desires import is_internal_desire_turn
 from .realtime_stt_session import create_realtime_stt_controller, RealtimeSttController
 
 if TYPE_CHECKING:
@@ -257,7 +254,6 @@ class FamiliarApp(App):
         for line in _make_banner(include_commands=False).splitlines():
             log.write(f"[bold]{line}[/bold]" if "familiar-ai" in line else f"[dim]{line}[/dim]")
         self._log_system(_t("startup", log_path=str(self._log_path)))
-        self.set_interval(IDLE_CHECK_INTERVAL, self._desire_tick)
         self.run_worker(self._process_queue(), exclusive=False)
         # Start realtime STT if configured
         if self._realtime_stt:
@@ -541,89 +537,6 @@ class FamiliarApp(App):
                     await spinner_task
             stream.update("")
             self._agent_running = False
-
-    async def _desire_tick(self) -> None:
-        """Check desires and fire autonomous actions when idle."""
-        # Always grow desires regardless of cooldown or auto_desire setting.
-        self.desires.tick()
-
-        # Deliver completed deferred search results immediately (bypasses cooldown).
-        if self.agent.should_deliver_deferred_result():
-            self._last_interaction = time.time()
-            # Build inner_voice from pending query/URL names so the LLM knows
-            # what was fetched without needing a label in the context block itself.
-            _parts: list[str] = []
-            if self.agent._deferred_search.has_pending:
-                _parts.append(f"「{self.agent._deferred_search.pending_summary()}」の検索結果")
-            if self.agent._deferred_fetch.has_pending:
-                _parts.append(f"「{self.agent._deferred_fetch.pending_summary()}」のページ取得結果")
-            _what = "と".join(_parts) if _parts else "調べておいた結果"
-            await self._run_agent(
-                "",
-                inner_voice=(
-                    f"{_what}が届いた。"
-                    "いつものトーンで自然に報告しよう。改めての挨拶は不要。"
-                ),
-                desire_name="share_search_result",
-            )
-            return
-
-        # Skip firing if auto_desire is disabled (default OFF)
-        if not getattr(self.agent.config, "auto_desire", False):
-            return
-
-        now = time.time()
-
-        # Silence mode: user asked to be quiet
-        if now < self._silence_until:
-            return
-
-        # Peek at dominant desire to determine which cooldown to use
-        tick = desire_tick_prompt(self.desires, [])
-        if tick is None:
-            return
-
-        desire_name, prompt, _pending = tick
-
-        if is_social_desire(desire_name):
-            _last = self._last_social_fire
-            _cooldown = self._adaptive_cooldown.current
-        else:
-            _last = self._last_interaction
-            _cooldown = _INTERNAL_DESIRE_COOLDOWN
-
-        if not should_fire_idle_desire(
-            agent_running=self._agent_running,
-            has_pending_input=not self._input_queue.empty(),
-            last_interaction=_last,
-            now=now,
-            cooldown=_cooldown,
-        ):
-            return
-        if not should_fire_idle_desire(
-            agent_running=self._agent_running,
-            has_pending_input=not self._input_queue.empty(),
-            last_interaction=_last,
-            now=time.time(),
-            cooldown=_cooldown,
-        ):
-            return
-
-        try:
-            murmur = _t(f"desire_{desire_name}")
-        except KeyError:
-            murmur = _t("desire_default")
-        self._log_system(murmur)
-
-        _fired_at = time.time()
-        self._last_interaction = _fired_at
-        if is_social_desire(desire_name):
-            self._adaptive_cooldown.on_desire_fired()
-            self._last_social_fire = _fired_at
-
-        await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
-        self.desires.satisfy(desire_name)
-        self.desires.curiosity_target = None
 
     # ── Realtime STT (hands-free, always-on) ────────────────────
 

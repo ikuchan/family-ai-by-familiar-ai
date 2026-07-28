@@ -86,15 +86,12 @@ from .errors import FatalStartupError, check_embedding_fatal
 from ._ui_helpers import (
     AdaptiveDesireCooldown,
     IDLE_CHECK_INTERVAL,
-    INTERNAL_DESIRE_COOLDOWN,
     SILENCE_DURATION_SEC,
     clean_spoken_text,
-    desire_tick_prompt,
     format_action,
     format_chat_log_line,
     format_tool_result,
     is_silence_request,
-    should_fire_idle_desire,
 )
 from .bootstrap import resolve_env_path
 from .diagnostics import (
@@ -114,7 +111,7 @@ from .settings_schema import (
     setup_config_from_agent_config,
     validate_setup_config,
 )
-from .desires import is_internal_desire_turn, is_social_desire
+from .desires import is_internal_desire_turn
 from .setup import save_setup_config
 
 if TYPE_CHECKING:
@@ -1981,165 +1978,13 @@ class FamiliarWindow(QMainWindow):
             return None
 
     async def _process_queue(self) -> None:
-        """Dequeue user messages and run the agent; fire desires when idle."""
-        last_interaction = time.time()
+        """Dequeue user messages and run the agent."""
         while True:
             try:
                 text = await asyncio.wait_for(self._input_queue.get(), timeout=IDLE_CHECK_INTERVAL)
             except asyncio.TimeoutError:
-                now = time.time()
-                if self._closing:
-                    continue
-                if not getattr(self, "_agent_ready", True):
-                    continue
-                agent = getattr(self, "_agent", None)
-
-                # ここから下は「自分から動く」系（drive の蓄積と発火・deferred の配信・
-                # 旧 DesireSystem のターン）。イベント駆動ループでは T（Tonic）が drive を
-                # 回して QA へ積み、deferred の完了は QC へ届くので、同じ役目が二重に動く。
-                # 入口で1回だけ判定してまとめて飛ばす（#12 の撤去でこの塊ごと切り取れる）。
-                if bool(getattr(getattr(agent, "config", None), "event_loop", False)):
-                    continue
-
-                from .config import DriveConfig
-                if not hasattr(self, "_drive_cfg"):
-                    self._drive_cfg = DriveConfig()
-                _drive_cfg = self._drive_cfg
-
-                # legacy DesireSystem は autonomous OFF のときだけ育てる（完全排他）。
-                if not _drive_cfg.autonomous:
-                    self._desires.tick()
-
-                # 新5欲求の dynamics を回す（現 mood で蓄積・発火・放電して drive5 へ永続化）。
-                # GUI の DrivePanel で新5欲求が実時間で動くのが見える。発火は下で使う。
-                # 初回は drive5.updated_at 起点で停止中の経過も積む（案B 起動時キャッチアップ）。
-                _drive_now = time.time()
-                if not hasattr(self, "_last_drive_tick"):
-                    self._last_drive_tick = self._initial_drive_tick_time(_drive_now)
-                _drive_res = self._tick_drives(_drive_now - self._last_drive_tick)
-                self._last_drive_tick = _drive_now
-
-                # Deliver completed deferred search/fetch results immediately (bypasses cooldown).
-                agent = getattr(self, "_agent", None)
-                if agent is not None and agent.should_deliver_deferred_result():
-                    _parts: list[str] = []
-                    if agent._deferred_search.has_pending:
-                        _parts.append(f"「{agent._deferred_search.pending_summary()}」の検索結果")
-                    if agent._deferred_fetch.has_pending:
-                        _parts.append(f"「{agent._deferred_fetch.pending_summary()}」のページ取得結果")
-                    _what = "と".join(_parts) if _parts else "調べておいた結果"
-                    await self._run_agent(
-                        "",
-                        inner_voice=(
-                            f"{_what}が届いた。"
-                            "いつものトーンで自然に報告しよう。改めての挨拶は不要。"
-                        ),
-                        desire_name="share_search_result",
-                    )
-                    last_interaction = time.time()
-                    continue
-
-                # Drive Slice 2b：新5欲求の発火→自発ターン（autonomous ON では legacy と完全排他）。
-                if _drive_cfg.autonomous:
-                    from .core.drive_autonomy import (
-                        drive_gate,
-                        drive_snapshot,
-                        inner_voice_for,
-                        select_fired_axis,
-                    )
-                    if _drive_res is not None and now >= self._silence_until:
-                        _firing, _accum = _drive_res
-                        _axis = select_fired_axis(_firing, _accum)
-                        if _axis is not None:
-                            _rule = getattr(agent, "_schedule_rule", None)
-                            _quiet = bool(_rule is not None and _rule.is_quiet())
-                            _presence = (
-                                agent._social_presence_permission() if agent is not None else 0.0
-                            )
-                            if drive_gate(
-                                _axis,
-                                agent_running=self._agent_running,
-                                pending_input=not self._input_queue.empty(),
-                                quiet=_quiet,
-                                presence=_presence,
-                            ):
-                                _inner = inner_voice_for(_axis, _drive_cfg)
-                                _snap = drive_snapshot(_accum, _drive_cfg)
-                                _mkey = f"desire_drive_{_axis}"
-                                _murmur = _t(_mkey) if _t(_mkey) != _mkey else _t("desire_default")
-                                self._log.append_line(_murmur)
-                                await self._run_agent(
-                                    "",
-                                    inner_voice=f"{_inner}\n[今の欲求の状態] {_snap}",
-                                    desire_name=f"drive_{_axis}",
-                                )
-                                last_interaction = time.time()
-                    continue
-
-                # Skip firing if auto_desire is disabled (default OFF)
-                agent_config = getattr(getattr(self, "_agent", None), "config", None)
-                if agent_config is not None and not getattr(agent_config, "auto_desire", False):
-                    continue
-
-                # Silence mode: user asked to be quiet — block all social desires
-                if now < self._silence_until:
-                    continue
-
-                # Quiet hours: suppress all desires during scheduled sleep window
-                _agent_for_rule = getattr(self, "_agent", None)
-                _schedule_rule = getattr(_agent_for_rule, "_schedule_rule", None)
-                if _schedule_rule is not None and _schedule_rule.is_quiet():
-                    continue
-
-                # Peek at dominant desire to determine which cooldown to use
-                tick = desire_tick_prompt(self._desires, [])
-                if not tick:
-                    continue
-                desire_name, prompt, _ = tick
-
-                # Social desires: suppress when nobody is present (don't burn TTS credits talking to an empty room)
-                if is_social_desire(desire_name):
-                    _agent_ref = getattr(self, "_agent", None)
-                    if _agent_ref is not None and _agent_ref._social_presence_permission() == 0.0:
-                        continue
-
-                # Social desires use adaptive cooldown; internal use fixed INTERNAL_DESIRE_COOLDOWN
-                if is_social_desire(desire_name):
-                    _last = self._last_social_fire
-                    _cooldown = self._adaptive_cooldown.current
-                else:
-                    _last = last_interaction
-                    _cooldown = INTERNAL_DESIRE_COOLDOWN
-
-                if not should_fire_idle_desire(
-                    agent_running=self._agent_running,
-                    has_pending_input=not self._input_queue.empty(),
-                    last_interaction=_last,
-                    now=now,
-                    cooldown=_cooldown,
-                ):
-                    continue
-                # Second check: guard against race between tick and fire
-                if not should_fire_idle_desire(
-                    agent_running=self._agent_running,
-                    has_pending_input=not self._input_queue.empty(),
-                    last_interaction=_last,
-                    now=time.time(),
-                    cooldown=_cooldown,
-                ):
-                    continue
-
-                _murmur_key = f"desire_{desire_name}"
-                murmur = _t(_murmur_key) if _t(_murmur_key) != _murmur_key else _t("desire_default")
-                self._log.append_line(murmur)
-                await self._run_agent("", inner_voice=prompt, desire_name=desire_name)
-                self._desires.satisfy(desire_name)
-                self._desires.curiosity_target = None
-                _fired_at = time.time()
-                last_interaction = _fired_at
-                if is_social_desire(desire_name):
-                    self._adaptive_cooldown.on_desire_fired()
-                    self._last_social_fire = _fired_at
+                # 入力を待つあいだの自発的な動きは、T（Tonic）が drive を回して QA へ積み、
+                # 完了は QC へ届く。GUI は入力を待つだけにする。
                 continue
 
             if text is None:
@@ -2159,7 +2004,6 @@ class FamiliarWindow(QMainWindow):
             if is_silence_request(text):
                 self._silence_until = time.time() + SILENCE_DURATION_SEC
                 logger.info("Silence mode activated for %.0f seconds", SILENCE_DURATION_SEC)
-            last_interaction = time.time()
             logger.debug(
                 "GUI dequeued input (remaining queue=%d, running=%s)",
                 self._input_queue.qsize(),
