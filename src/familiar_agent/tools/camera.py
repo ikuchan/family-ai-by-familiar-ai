@@ -2,8 +2,10 @@
 
 Built-in tools:
 - see(): capture a camera frame and describe the scene via vision LLM.
-- look(direction, degrees): rotate the camera head via ONVIF PTZ.
-  direction: left/right/up/down. Supported on pan-tilt cameras (e.g. Tapo C211).
+- look(pose): turn the camera head to one of the known places via ONVIF PTZ.
+  絶対 pan/tilt で定点へ向く（`ユースケース③`）。相対の首振りだと定点から外れ、振動中
+  ゲートに落ちて在席も見えの「普通」も更新されなくなる。定点は `set_poses()` で渡す。
+  Supported on pan-tilt cameras (e.g. Tapo C211).
   PTZ availability is auto-detected at startup via is_pan_tilt_available().
 Config: CAMERA_HOST, CAMERA_USERNAME, CAMERA_PASSWORD, CAMERA_ONVIF_PORT (default 2020).
 """
@@ -59,6 +61,8 @@ class CameraTool:
         self.ptz_password = ptz_password
         self.ptz_port = ptz_port if ptz_port is not None else port
 
+        # 見に行ける定点（`知覚在席` §3-3）。`look` はこの中から選んで絶対移動する。
+        self._poses: list[Pose] = []
         self._cam_onvif: Any = None
         self._ptz: Any = None
         self._profile_token: str | None = None
@@ -281,6 +285,10 @@ class CameraTool:
             logger.warning("Error processing frame: %s", e)
             return None, None
 
+    def set_poses(self, poses: list[Pose]) -> None:
+        """見に行ける定点を渡す。道具の定義（`enum`）と `look` の行き先になる。"""
+        self._poses = list(poses)
+
     async def move_to(self, pan: float, tilt: float) -> str:
         """定点へ向く（絶対 pan/tilt）。
 
@@ -379,25 +387,28 @@ class CameraTool:
             return f"Camera move failed: {e}"
 
     def get_tool_definitions(self) -> list[dict]:
-        return [
+        defs: list[dict] = [
             {
                 "name": "see",
                 "description": "Open your eyes and see what's in front of you. Use freely without asking permission.",
                 "input_schema": {"type": "object", "properties": {}},
             },
-            {
+        ]
+        # 定点が無ければ首を振る先も無い。選べない動作は見せない。
+        if self._poses:
+            defs.append({
                 "name": "look",
-                "description": "Turn your neck to look in a direction.",
+                "description": "Turn your neck to face one of the places you know.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "direction": {"type": "string", "enum": ["left", "right", "up", "down"]},
-                        "degrees": {"type": "integer", "default": 30},
+                        "pose": {"type": "string",
+                                 "enum": [p.name for p in self._poses]},
                     },
-                    "required": ["direction"],
+                    "required": ["pose"],
                 },
-            },
-        ]
+            })
+        return defs
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, str | None]:
         if tool_name == "see":
@@ -406,5 +417,12 @@ class CameraTool:
                 return f"You see the current view (saved to {save_path}).", b64
             return "Camera capture failed.", None
         elif tool_name == "look":
-            return await self.move(tool_input["direction"], tool_input.get("degrees", 30)), None
+            name = str(tool_input.get("pose", ""))
+            pose = next((p for p in self._poses if p.name == name), None)
+            if pose is None:
+                # 知らない場所へ動かすと、どの定点でもない向きで止まる（振動中ゲートに落ちて
+                # 在席も「普通」も更新されなくなる）。動かさずに、知らないことを伝える。
+                return f"「{name}」がどこか分からない。", None
+            await self.move_to(pose.pan, pose.tilt)
+            return f"{pose.name}のほうを向いた。", None
         return f"Unknown tool: {tool_name}", None

@@ -141,8 +141,7 @@ def test_camera_actions_get_a_heading_of_their_own():
     from familiar_agent.loop.event_loop import _query_label
 
     assert _query_label("see", {}) != ""
-    assert _query_label("look", {"direction": "left"}) != _query_label(
-        "look", {"direction": "right"})
+    assert _query_label("look", {"pose": "窓側"}) != _query_label("look", {"pose": "襖側"})
 
 
 def test_the_heading_of_a_normal_lookup_is_unchanged():

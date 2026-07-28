@@ -209,7 +209,7 @@ SYSTEM_PROMPT = """
     ; ── Camera / legs independence ─────────────────────────────────────
     (constraint :priority critical :id camera-legs-independent
       "Camera is fixed. walk() moves vacuum body only — does NOT change camera view.
-       Use look() to change direction, not walk().")
+       Use look(pose) to face one of the places you know, not walk().")
 
     ; ── Camera failure ─────────────────────────────────────────────────
     (when (camera-fails)
@@ -607,6 +607,9 @@ class EmbodiedAgent:
             self._poses = await build_pose_registry(
                 cam.poses, self._camera, cam.pose_tolerance
             )
+            # `look` はこの一覧から選んで絶対移動する（道具の定義の enum にもなる）。
+            if self._camera is not None:
+                self._camera.set_poses(self._poses)
         return self._poses
 
     def _tape_backend(self):
@@ -1100,13 +1103,10 @@ class EmbodiedAgent:
         coding_tools = {"read_file", "edit_file", "glob", "grep", "bash"}
 
         if name in camera_tools and self._camera:
-            result = await self._camera.call(name, tool_input)
-            if name == "look":
-                self._exploration.record_move(
-                    tool_input.get("direction", "center"),
-                    tool_input.get("degrees", 30),
-                )
-            return result
+            # `look` は定点へ絶対移動する。相対移動の積算を追う `ExplorationTracker` は
+            # 前提が違うので繋がない（どこを見たかは「見た印」が O に残る）。器そのものの
+            # 撤去は #12（旧系統の撤去）で、旧 `run()` のプロンプトごと落とす。
+            return await self._camera.call(name, tool_input)
         elif name in mobility_tools and self._mobility:
             return await self._mobility.call(name, tool_input)
         elif name in tts_tools and self._tts:
@@ -2785,6 +2785,10 @@ class EmbodiedAgent:
 
         GUI と CUI の両方の入口から呼ぶ。何度呼んでも二重には立たない。
         """
+        # 定点を先に読む。`look` の道具定義（enum）がこれを要るので、遅れると最初の
+        # 反復で「見に行く」が選べない。
+        with contextlib.suppress(Exception):
+            await self.poses()
         self._ensure_event_loop()
         for watcher in (getattr(self, "_presence_sensor", None),
                         getattr(self, "_motion_events", None)):

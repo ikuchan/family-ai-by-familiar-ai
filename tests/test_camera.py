@@ -150,19 +150,21 @@ async def test_call_see_returns_error_when_capture_fails():
 
 
 @pytest.mark.asyncio
-async def test_call_look_delegates_to_move():
-    """call('look', ...) delegates to move() and returns its result."""
+async def test_call_look_turns_to_the_named_place():
+    """`look` は定点名を受け、絶対 pan/tilt で向く（相対の首振りは撤去した）。"""
+    from familiar_agent.poses import Pose
+
     cam = _make_camera_tool()
+    cam.set_poses([Pose("窓側", 0.0, -0.5)])
 
-    async def _fake_move(direction, degrees=30):
-        return f"Moved {direction} by {degrees}°"
+    async def _fake_move_to(pan, tilt):
+        return f"Turned to pan={pan} tilt={tilt}"
 
-    cam.move = _fake_move
+    cam.move_to = _fake_move_to
 
-    result, img = await cam.call("look", {"direction": "left", "degrees": 45})
+    result, img = await cam.call("look", {"pose": "窓側"})
 
-    assert "left" in result
-    assert "45" in result
+    assert "窓側" in result
     assert img is None
 
 

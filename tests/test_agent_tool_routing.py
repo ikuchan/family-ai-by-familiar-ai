@@ -128,16 +128,20 @@ async def test_execute_tool_camera_missing_returns_mcp_fallback():
 
 
 @pytest.mark.asyncio
-async def test_execute_tool_look_records_exploration():
-    """'look' with a direction updates the ExplorationTracker."""
+async def test_execute_tool_look_does_not_track_relative_moves():
+    """`look` は定点へ絶対移動する。
+
+    `ExplorationTracker` は相対移動の積算（左へ何度、右へ何度）を追う器で、定点とは前提が
+    違う。どこを見たかは「見た印」として O に残るので、ここでは繋がない。器そのものの撤去は
+    #12（旧系統の撤去）で、旧 `run()` のプロンプトごと落とす。
+    """
     agent = _make_agent(with_camera=True)
-    agent._camera.call = AsyncMock(return_value=("looked left", None))
+    agent._camera.call = AsyncMock(return_value=("窓側のほうを向いた。", None))
 
-    before_records_len = len(agent._exploration._records)
-    await agent._execute_tool("look", {"direction": "left", "degrees": 45})
-    after_records_len = len(agent._exploration._records)
+    before = len(agent._exploration._records)
+    await agent._execute_tool("look", {"pose": "窓側"})
 
-    assert after_records_len == before_records_len + 1
+    assert len(agent._exploration._records) == before
 
 
 # ---------------------------------------------------------------------------

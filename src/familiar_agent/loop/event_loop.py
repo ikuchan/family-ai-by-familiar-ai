@@ -32,10 +32,6 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 # （`recall` と同じ）。ここに入れないと 1反復1出力 が崩れる。
 _LOOKUP_ACTIONS = ("recall", "search_deferred", "fetch_deferred", "see", "look")
 
-# 首の向き（`look` の入力）。求めの見出しを日本語で作るために持つ。
-_DIRECTION_JA = {"left": "左", "right": "右", "up": "上", "down": "下"}
-
-
 def _query_label(action: str, tool_input: dict) -> str:
     """その求めの見出し。飛行中の一覧・完了の照合・W の「調べたもの」で鍵になる。
 
@@ -45,8 +41,7 @@ def _query_label(action: str, tool_input: dict) -> str:
     if action == "see":
         return "目の前を見る"
     if action == "look":
-        d = str(tool_input.get("direction", ""))
-        return f"首を{_DIRECTION_JA.get(d, d)}へ向ける"
+        return f"{tool_input.get('pose', '')}を見に行く"
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
