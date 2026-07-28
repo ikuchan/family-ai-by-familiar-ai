@@ -1043,11 +1043,12 @@ class EmbodiedAgent:
                 tolerance=cam_cfg.pose_tolerance,
                 window_sec=cam_cfg.presence_window_sec,
                 interval_sec=cam_cfg.presence_interval_sec,
+                min_gap_sec=cam_cfg.presence_min_gap_sec,
             )
             # カメラが「動いた」と言ってきたら、間隔を待たずに確かめる。静止している人は
             # 動体を出さないので、イベントだけでは足りず、間隔の確認と併せて使う。
             self._motion_events = MotionEventWatcher(
-                lambda: getattr(self._camera, "_cam_onvif", None),
+                self._connected_onvif,
                 on_motion=self._presence_sensor.on_motion,
             )
 
@@ -2749,6 +2750,17 @@ class EmbodiedAgent:
                 logger.info("Self-narrative written: %s", text.strip()[:60])
         except Exception as e:
             logger.warning("Could not write today's self narrative: %s", e)
+
+    async def _connected_onvif(self):
+        """ONVIF を繋いでから返す。動体イベントの購読先。
+
+        `_cam_onvif` は `_ensure_connected()` を呼ぶまで None なので、素の属性を渡すと
+        購読が「カメラが無い構成」とみなして静かに終わる（実機で観測）。
+        """
+        camera = self._camera
+        if camera is None or not await camera._ensure_connected():
+            return None
+        return camera._cam_onvif
 
     async def start_autonomy(self) -> None:
         """起動したら自律の側を回し始める（人の発話を待たない）。

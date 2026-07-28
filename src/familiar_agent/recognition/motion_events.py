@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import inspect
 import logging
 from collections.abc import Callable
 from typing import Any
@@ -91,6 +92,10 @@ class MotionEventWatcher:
     async def _subscribe(self) -> Any:
         """購読して PullPoint サービスを返す。"""
         onvif = self._onvif_getter()
+        # ONVIF はまだ繋がっていないことがある（`_cam_onvif` は `_ensure_connected()` を
+        # 呼ぶまで None）。繋いでから渡せるよう、待てる値も受け取る。
+        if inspect.isawaitable(onvif):
+            onvif = await onvif
         if onvif is None:
             return None
         events = await onvif.create_events_service()

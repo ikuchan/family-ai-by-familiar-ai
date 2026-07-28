@@ -161,3 +161,20 @@ def test_without_a_camera_the_watcher_simply_does_not_run():
         await w.stop()
 
     asyncio.run(go())   # 例外を出さないこと
+
+
+def test_the_onvif_source_may_need_connecting_first():
+    """`_cam_onvif` は `_ensure_connected()` を呼ぶまで `None` である。
+
+    起動直後は誰も呼んでいないので、素の属性を渡すと購読は「カメラが無い構成」とみなして
+    静かに終わる（実機で観測：購読のログが一度も出なかった）。繋いでから渡せるよう、
+    待てる値も受け取る。
+    """
+    onvif, _ = _onvif([_messages([])])
+
+    async def provider():
+        return onvif
+
+    w = MotionEventWatcher(provider, on_motion=lambda: None)
+    asyncio.run(w._subscribe())
+    assert onvif.create_events_service.await_count == 1

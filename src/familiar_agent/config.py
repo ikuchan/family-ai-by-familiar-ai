@@ -98,6 +98,12 @@ class CameraConfig:
     presence_interval_sec: float = field(
         default_factory=lambda: _float_env("CAMERA_PRESENCE_INTERVAL", 30.0)
     )
+    # 動体イベントで起こされたときの下限間隔。動いているあいだイベントは毎秒何件も飛ぶので、
+    # 素直に従うと 0.15 秒ごとに撮って YOLO を回すことになる（実機で観測）。動き始めの1件は
+    # 待たせず、続けて飛んでくるぶんだけ間引く。
+    presence_min_gap_sec: float = field(
+        default_factory=lambda: _float_env("CAMERA_PRESENCE_MIN_GAP", 3.0)
+    )
     # 滞留窓（`課題5` §I の在席 timeout）。静止している人は毎回検出されないので、
     # この時間の内側は居るものとして扱う。
     presence_window_sec: float = field(

@@ -141,3 +141,30 @@ def test_stopping_leaves_no_task_behind():
         return s._task
 
     assert asyncio.run(go()) is None
+
+
+# --- 確認の下限間隔 -------------------------------------------------------
+
+
+def test_the_first_event_fires_at_once():
+    """動き始めには即座に気づきたい。前回の確認から間が空いていれば待たない。"""
+    from familiar_agent.presence_sensor import _delay_before
+
+    assert _delay_before(last_check=0.0, now=10.0, min_gap=3.0) == 0.0
+
+
+def test_events_that_keep_coming_are_thinned_out():
+    """動いているあいだイベントは毎秒何件も飛ぶ。
+
+    そのたびに撮って YOLO を回すと、実機では 0.15 秒ごとに確認していた（電力と発熱の面で
+    放置できない）。前回の確認からの残り時間だけ待つ。
+    """
+    from familiar_agent.presence_sensor import _delay_before
+
+    assert abs(_delay_before(last_check=10.0, now=10.2, min_gap=3.0) - 2.8) < 1e-9
+
+
+def test_the_wait_never_goes_negative():
+    from familiar_agent.presence_sensor import _delay_before
+
+    assert _delay_before(last_check=0.0, now=100.0, min_gap=3.0) == 0.0

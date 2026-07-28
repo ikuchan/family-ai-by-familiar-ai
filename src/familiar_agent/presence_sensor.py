@@ -27,17 +27,30 @@ from .presence_map import PresenceMap
 logger = logging.getLogger(__name__)
 
 
+def _delay_before(last_check: float, now: float, min_gap: float) -> float:
+    """次の確認まで待つ秒数。前回から間が空いていれば 0（すぐ確かめる）。
+
+    動いているあいだ動体イベントは毎秒何件も飛ぶ。そのたびに撮って YOLO を回すと、実機では
+    **0.15 秒ごと**に確認していた。動き始めには即座に気づきたいので最初の1件は待たせず、
+    続けて飛んでくるぶんだけ間引く。
+    """
+    return max(0.0, min_gap - (now - last_check))
+
+
 class PresenceSensor:
     """定点ごとに人が居るかを見て、`PresenceMap` を更新し続ける。"""
 
     def __init__(self, camera: Any, poses_getter: Callable[[], Any], detector: Any,
-                 *, tolerance: float, window_sec: float, interval_sec: float) -> None:
+                 *, tolerance: float, window_sec: float, interval_sec: float,
+                 min_gap_sec: float = 3.0) -> None:
         self._camera = camera
         self._poses_getter = poses_getter
         self._detector = detector
         self._tolerance = tolerance
         self._window = window_sec
         self._interval = interval_sec
+        self._min_gap = min_gap_sec
+        self._last_check = float("-inf")
         self._map: PresenceMap | None = None
         self._frame_b64: str | None = None
         self._task: asyncio.Task | None = None
@@ -125,7 +138,13 @@ class PresenceSensor:
     async def _run(self) -> None:
         while True:
             await self.check_once()
+            self._last_check = time.monotonic()
             self._wake.clear()
-            with contextlib.suppress(TimeoutError, asyncio.TimeoutError):
+            try:
                 # 動体で起こされたら間隔を待たずに次を見る。
                 await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
+            except (TimeoutError, asyncio.TimeoutError):
+                continue                      # 動きが無いまま間隔が来た
+            delay = _delay_before(self._last_check, time.monotonic(), self._min_gap)
+            if delay > 0:
+                await asyncio.sleep(delay)
