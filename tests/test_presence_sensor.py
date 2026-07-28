@@ -168,3 +168,55 @@ def test_the_wait_never_goes_negative():
     from familiar_agent.presence_sensor import _delay_before
 
     assert _delay_before(last_check=0.0, now=100.0, min_gap=3.0) == 0.0
+
+
+# --- 見えの「普通」 -------------------------------------------------------
+
+
+def _sensor_with_norm(*, people=0, norm=None, observations=0, embedding=None):
+    s, camera, detector = _sensor(people=people)
+    encoder = MagicMock()
+    encoder.embed = AsyncMock(return_value=embedding if embedding is not None else [0.5] * 384)
+    store = MagicMock()
+    store.load = MagicMock(return_value=(norm, observations))
+    store.save = MagicMock()
+    s.attach_visual_norm(encoder, store)
+    return s, encoder, store
+
+
+def test_the_norm_grows_on_every_check():
+    s, _, store = _sensor_with_norm(norm=[0.5] * 384, observations=3)
+    asyncio.run(s.check_once())
+    assert store.save.call_args.kwargs["observations"] == 4
+
+
+def test_no_surprise_is_reported_before_the_norm_has_grown():
+    """5回見るまでは比較対象として使わない。
+
+    最初の1枚をそのまま「普通」にすると、そのとき写っていたものが基準になる。
+    """
+    s, _, _ = _sensor_with_norm(norm=[0.5] * 384, observations=1)
+    asyncio.run(s.check_once())
+    assert s.scene_surprise() is None
+
+
+def test_a_grown_norm_yields_a_distance():
+    s, _, _ = _sensor_with_norm(norm=[1.0] + [0.0] * 383, observations=5,
+                                embedding=[0.0, 1.0] + [0.0] * 382)
+    asyncio.run(s.check_once())
+    assert s.scene_surprise() is not None and s.scene_surprise() > 0.9
+
+
+def test_an_encoder_that_fails_does_not_stop_the_presence_check():
+    # 見えが取れなくても、人が居るかどうかは分かる。
+    s, encoder, store = _sensor_with_norm(people=1, norm=[0.5] * 384, observations=5)
+    encoder.embed = AsyncMock(return_value=None)
+    assert asyncio.run(s.check_once()) == "出入り口"
+    assert s.room_occupied() is True
+    store.save.assert_not_called()
+
+
+def test_without_an_encoder_the_sensor_works_as_before():
+    s, _, _ = _sensor(people=1)
+    assert asyncio.run(s.check_once()) == "出入り口"
+    assert s.scene_surprise() is None

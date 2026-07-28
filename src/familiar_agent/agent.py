@@ -71,6 +71,8 @@ from .person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, PersonMemor
 from .recognition.face import recognize_face_async
 from .recognition.motion_events import MotionEventWatcher
 from .recognition.person_detector import PersonDetector
+from .recognition.visual_encoder import VisualEncoder
+from .store.pose_norms import PoseNormStore
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .tools.tts import TTSTool
@@ -1045,6 +1047,13 @@ class EmbodiedAgent:
                 interval_sec=cam_cfg.presence_interval_sec,
                 min_gap_sec=cam_cfg.presence_min_gap_sec,
             )
+            # 見えの「普通」（`知覚在席` §3-4）。読めない環境でも在席（YOLO）は動き続ける。
+            try:
+                self._presence_sensor.attach_visual_norm(
+                    VisualEncoder(), PoseNormStore(_get_db().conn())
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("見えの普通を用意できなかった（景色の驚きは出ない）: %s", exc)
             # カメラが「動いた」と言ってきたら、間隔を待たずに確かめる。静止している人は
             # 動体を出さないので、イベントだけでは足りず、間隔の確認と併せて使う。
             self._motion_events = MotionEventWatcher(

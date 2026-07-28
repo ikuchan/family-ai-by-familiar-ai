@@ -23,6 +23,7 @@ from typing import Any
 
 from .poses import nearest_pose
 from .presence_map import PresenceMap
+from .visual_norm import cosine_distance, is_ready, update_ema
 
 logger = logging.getLogger(__name__)
 
@@ -52,6 +53,10 @@ class PresenceSensor:
         self._min_gap = min_gap_sec
         self._last_check = float("-inf")
         self._map: PresenceMap | None = None
+        # 見えの「普通」。無ければ在席だけを見る（S4 を入れる前と同じ動き）。
+        self._encoder: Any = None
+        self._norm_store: Any = None
+        self._scene_surprise: float | None = None
         self._frame_b64: str | None = None
         self._task: asyncio.Task | None = None
         # 動体イベントで即座に起こすための合図。間隔の待ちを飛び越える。
@@ -68,6 +73,19 @@ class PresenceSensor:
     def stalest_pose(self) -> str | None:
         """次に見に行くべき定点。見回り（S5）が使う。"""
         return self._map.stalest_pose(time.time()) if self._map else None
+
+    def attach_visual_norm(self, encoder: Any, store: Any) -> None:
+        """見えの「普通」を扱う部品を挿す（`知覚在席` §3-4 の見え層）。"""
+        self._encoder = encoder
+        self._norm_store = store
+
+    def scene_surprise(self) -> float | None:
+        """直近の $\\widehat{S}_{景色}$（定点の「普通」からのコサイン距離）。
+
+        「普通」が育つまで（既定5回）は `None`。比較対象が無いのに 0 を返すと、
+        「いつもどおり」と区別が付かない。
+        """
+        return self._scene_surprise
 
     def latest_frame_b64(self) -> str | None:
         """直近に見たフレーム。GUI が在席確認のカメラ映像として表示する。"""
@@ -113,6 +131,7 @@ class PresenceSensor:
         except Exception as e:  # noqa: BLE001
             logger.exception("在席の確認に失敗した（記録しない）: %s", e)
             return None
+        await self._update_scene_norm(pose.name, path)
         now = time.time()
         if people > 0:
             pmap.mark_seen(pose.name, now)
@@ -121,6 +140,32 @@ class PresenceSensor:
             pmap.mark_checked(pose.name, now)
             logger.debug("在席：%s に誰も居ない", pose.name)
         return pose.name
+
+    async def _update_scene_norm(self, pose_name: str, path: str) -> None:
+        """見えの「普通」を1枚ぶん育て、そこからの隔たりを控える。
+
+        見えが取れなくても在席の判定は続ける（人が居るかは YOLO が別に見ている）。
+        1回抜けても EMA は次で追いつく。
+        """
+        if self._encoder is None or self._norm_store is None:
+            return
+        try:
+            seen = await self._encoder.embed(path)
+            if seen is None:
+                return
+            norm, observations = self._norm_store.load(pose_name)
+            self._scene_surprise = (
+                cosine_distance(norm, seen) if norm is not None and is_ready(observations)
+                else None
+            )
+            if self._scene_surprise is not None:
+                logger.debug("見えの隔たり：%s は %.3f", pose_name, self._scene_surprise)
+            self._norm_store.save(pose_name, update_ema(norm, seen),
+                                  observations=observations + 1)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("見えの普通を更新できなかった（在席の判定は続ける）: %s", e)
 
     async def start(self) -> None:
         if self._task and not self._task.done():
