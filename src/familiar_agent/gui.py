@@ -2388,6 +2388,9 @@ class FamiliarWindow(QMainWindow):
             if not agent.is_embedding_ready:
                 self._set_startup_status(f"{_t('initializing')} memory...")
             self._agent_ready = True
+            # 自律の側（I・T・在席センサ・動体イベント）を、人の発話を待たずに回し始める。
+            # ここで立てないと、話しかけるまで在席も drive も一切動かない。
+            await agent.start_autonomy()
             self._set_last_error(None)
             self._set_input_enabled(True)
             if self._realtime_stt and self._realtime_stt_task is None:

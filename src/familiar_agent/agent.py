@@ -2750,6 +2750,25 @@ class EmbodiedAgent:
         except Exception as e:
             logger.warning("Could not write today's self narrative: %s", e)
 
+    async def start_autonomy(self) -> None:
+        """起動したら自律の側を回し始める（人の発話を待たない）。
+
+        `感情ループ全体像` は「起動源は Drive の時間蓄積と発火」と定めるが、実装では I も T も
+        在席センサも動体イベントも `run()` の中、しかも人の入力があるときにしか立たなかった。
+        起動しても、話しかけるまで何ひとつ回っていない。同じ根から3つの症状が出ていた。
+
+        - `/speaker` を最初に打つと入室イベントが立たない（T がまだ無い）
+        - 在席が「連続」にならない（`知覚在席` §3-2 は G（T 側・連続）と定める）
+        - 保留していた発話を配る起点（在席がゼロから立ち上がる瞬間）が来ない
+
+        GUI と CUI の両方の入口から呼ぶ。何度呼んでも二重には立たない。
+        """
+        self._ensure_event_loop()
+        for watcher in (getattr(self, "_presence_sensor", None),
+                        getattr(self, "_motion_events", None)):
+            if watcher is not None:
+                await watcher.start()
+
     def _ensure_event_loop(self, on_text=None, on_action=None) -> None:
         """I（情報処理機構）と T（自律機構）を用意する。
 

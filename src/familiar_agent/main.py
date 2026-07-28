@@ -108,6 +108,9 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
         print(f"\r  {_t('initializing_done')} ({int(time.time() - start_init)}s)          ")
         check_embedding_fatal(agent)  # #10：埋め込み読込失敗は致命
 
+    # 自律の側を、人の発話を待たずに回し始める（GUI と同じ約束）。
+    await agent.start_autonomy()
+
     loop = asyncio.get_event_loop()
 
     # Persistent input queue — stdin reader runs as a background task

@@ -59,6 +59,9 @@ async def test_initialize_agent_builds_agent_in_background(monkeypatch) -> None:
             self.config = config
             self.is_embedding_ready = True
 
+        async def start_autonomy(self) -> None:
+            """GUI は生成のあと自律の側を起こす。実物にある口なので偽物にも持たせる。"""
+
     monkeypatch.setattr("familiar_agent.agent.EmbodiedAgent", _FakeAgent)
 
     win = FamiliarWindow.__new__(FamiliarWindow)
