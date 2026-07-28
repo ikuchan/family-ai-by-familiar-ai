@@ -2,7 +2,6 @@
 
 Tests cover:
 - wander(): spontaneous memory recall + association when workspace is idle
-- consolidate(): find near-duplicate memories and mark for merging
 - as_coalition(): DMN output as a workspace Coalition (can win next cycle)
 - Activation only when workspace is idle (nothing ignited)
 """
@@ -23,7 +22,6 @@ def _make_memory_mock(memories: list[dict] | None = None) -> MagicMock:
     mem = MagicMock()
     mem.recall_async = AsyncMock(return_value=memories or [])
     mem.recall_curiosities_async = AsyncMock(return_value=memories or [])
-    mem.find_near_duplicates_async = AsyncMock(return_value=[])
     return mem
 
 
@@ -110,41 +108,6 @@ async def test_wander_low_urgency():
     result = await dmn.wander()
     assert result is not None
     assert result.urgency < 0.5  # wandering is never urgent
-
-
-# ── consolidate ────────────────────────────────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_consolidate_returns_zero_when_no_duplicates():
-    mem = _make_memory_mock()
-    mem.find_near_duplicates_async = AsyncMock(return_value=[])
-    dmn = DefaultModeProcessor(mem)
-    count = await dmn.consolidate()
-    assert count == 0
-
-
-@pytest.mark.asyncio
-async def test_consolidate_returns_count_of_processed_pairs():
-    mem = _make_memory_mock()
-    mem.find_near_duplicates_async = AsyncMock(
-        return_value=[
-            ("id1", "id2", 0.95),
-            ("id3", "id4", 0.91),
-        ]
-    )
-    dmn = DefaultModeProcessor(mem)
-    count = await dmn.consolidate()
-    assert count >= 0  # May not mark all depending on threshold
-
-
-@pytest.mark.asyncio
-async def test_consolidate_does_not_raise_on_empty_memory():
-    mem = _make_memory_mock(memories=[])
-    mem.find_near_duplicates_async = AsyncMock(return_value=[])
-    dmn = DefaultModeProcessor(mem)
-    count = await dmn.consolidate()  # Should not raise
-    assert count == 0
 
 
 # ── as_coalition (idle trigger) ────────────────────────────────────────────────

@@ -2,8 +2,7 @@
 
 Inspired by the brain's Default Mode Network (DMN), which activates when the
 mind is not focused on external tasks.  The processor wanders through past
-memories, surfaces associations as workspace Coalitions, and consolidates
-near-duplicate memories.
+memories and surfaces associations as workspace Coalitions.
 """
 
 from __future__ import annotations
@@ -17,9 +16,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Near-duplicate similarity threshold for consolidation
-_SIMILARITY_THRESHOLD = 0.85
-
 
 class DefaultModeProcessor:
     """Generates spontaneous associations from stored memories.
@@ -27,8 +23,7 @@ class DefaultModeProcessor:
     Parameters
     ----------
     memory:
-        A memory backend exposing ``recall_curiosities_async()`` and
-        ``find_near_duplicates_async()`` coroutines.
+        A memory backend exposing the ``recall_curiosities_async()`` coroutine.
     """
 
     def __init__(self, memory: ObservationMemory) -> None:
@@ -69,19 +64,6 @@ class DefaultModeProcessor:
         )
         self._last_coalition = coalition
         return coalition
-
-    async def consolidate(self) -> int:
-        """Find near-duplicate memories and return the count of processable pairs.
-
-        Returns 0 when no duplicates are found.  Never raises on empty memory.
-        """
-        duplicates = await self._memory.find_near_duplicates_async()
-        if not duplicates:
-            return 0
-
-        # Each entry is (id_a, id_b, similarity)
-        processed = [pair for pair in duplicates if pair[2] >= _SIMILARITY_THRESHOLD]
-        return len(processed)
 
     def as_coalition(self) -> Coalition | None:
         """Return the most recent Coalition produced by :meth:`wander`, or ``None``."""
