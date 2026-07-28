@@ -93,9 +93,17 @@ text を書くときは、この人格として、この相手に向けて、い
 [いまの作業状態]
 {workspace}
 
-相手が**いまは話しかけないでほしい**と伝えているなら、`silence` に true を書く。言い方は
-一つではない（うるさい、あとにして、いま集中したい、静かにして…）。頼まれたと読めるかで
-判断する。true にすると、その人が居るあいだ発話を止める。頼まれてもいないのに止めない。
+あなたの名前は {agent_name} である。**その名前で呼ばれたうえで**、いまは話しかけないで
+ほしいと伝えられたときだけ、`silence_minutes` に分数を書く。周囲の会話が紛れ込むので、
+名前を呼ばれていない依頼は、自分に向けられたものとして扱わない。
+
+- 分数を伴って頼まれた → その分数
+- 長さを言わずに頼まれた → **-1**（既定の長さを当てる）
+- 頼まれていない、または名前で呼ばれていない → **0**
+
+言い方は一つではない（うるさい、あとにして、いま集中したい、静かにして…）。頼まれたと
+読めるかで判断する。0 以外にすると、その人が居るあいだ発話を止める。頼まれてもいないのに
+止めない。
 
 人の言葉が**時期を指している**なら、想起の基準をそこへ動かす。`time_ref` にその時刻を
 ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方が指す**幅**を日数で
@@ -104,7 +112,7 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
- "action": "recall|search_deferred", "query": "…", "silence": false,
+ "action": "recall|search_deferred", "query": "…", "silence_minutes": 0,
  "time_ref": "", "time_span_days": 0}}
 使わない項目は省いてよい。
 """
@@ -119,7 +127,8 @@ class Decision:
     effort: str = "high"  # full：思考の深さ
     action: str = "recall"  # action：どの動作で調べるか
     query: str = ""       # action：探す語
-    silence: bool = False  # 相手が「いまは話しかけないで」と伝えている
+    # 黙る長さ（分）。0＝黙らない、-1＝頼まれたが長さの指定なし（受け側が既定を当てる）。
+    silence_minutes: int = 0
     # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
     # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
     time_ref: str = ""            # ISO 8601（例 "2025-08-15T00:00:00"）
@@ -145,7 +154,11 @@ def _parse(reply: str) -> Decision | None:
     if effort not in _EFFORTS:
         effort = "high"
     text = str(data.get("text", "")).strip()
-    silence = bool(data.get("silence", False))
+    try:
+        silence_minutes = int(data.get("silence_minutes", 0))
+    except (TypeError, ValueError):
+        # 読めない値で黙り込むと、解けるまで何も言えなくなる。
+        silence_minutes = 0
     time_ref = str(data.get("time_ref", "") or "").strip()
     try:
         time_span_days = float(data.get("time_span_days", 0) or 0)
@@ -161,7 +174,7 @@ def _parse(reply: str) -> Decision | None:
     if branch == "action" and not query:
         return None
     return Decision(branch=branch, text=text, effort=effort, action=action, query=query,
-                    silence=silence, time_ref=time_ref, time_span_days=max(0.0, time_span_days))
+                    silence_minutes=silence_minutes, time_ref=time_ref, time_span_days=max(0.0, time_span_days))
 
 
 _CAPPED_NOTE = """
@@ -170,7 +183,7 @@ _CAPPED_NOTE = """
 """
 
 
-async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
+async def arbitrate(backend, *, agent_name: str = "", utterance: str, workspace_ctx: str,
                     self_understanding: str = "", family_md: str = "",
                     present_ctx: str = "", now_ctx: str = "",
                     capped: bool = False, timeout: float = 2.0) -> Decision:
@@ -194,6 +207,7 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
         present=present_ctx or "（分からない）",
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
+        agent_name=agent_name or "（名前の指定なし）",
     )
     try:
         reply = await asyncio.wait_for(backend.complete(prompt, 300), timeout=timeout)

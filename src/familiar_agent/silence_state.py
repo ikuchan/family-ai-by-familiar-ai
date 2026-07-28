@@ -98,3 +98,16 @@ def clear_silence() -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning("黙っている依頼を消せなかった: %s", e)
     return None
+
+
+def resolve_minutes(asked: int, *, default: int, maximum: int) -> int:
+    """調停が返した分数を、実際に黙る分数へ直す。
+
+    `-1` は「頼まれたが長さの指定なし」で、既定を当てる（軽量LLM は既定値を知らない）。
+    上限を超える指定は**弾かずに丸める**。「3時間黙って」に黙らないより、上限まで黙るほうが
+    意図に近い。`0` はそのまま「黙らない」。
+    """
+    if asked == 0:
+        return 0
+    minutes = default if asked < 0 else asked
+    return min(minutes, maximum)

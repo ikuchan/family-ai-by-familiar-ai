@@ -847,6 +847,9 @@ class InformationProcessing:
             self._capped_hit = True
         decision = await arbitrate(
             agent._utility_backend,
+            # 沈黙依頼は、この名前で呼ばれたときだけ受ける（周囲の会話が紛れ込むため）。
+            agent_name="、".join(getattr(agent.config, "agent_names", None)
+                                or [getattr(agent.config, "agent_name", "")]),
             utterance=utterance or self._chain_head_content,
             workspace_ctx=workspace_ctx,
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
@@ -859,8 +862,8 @@ class InformationProcessing:
                      chain, max_chain, decision.branch, decision.effort)
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
-        if decision.silence:
-            self._accept_silence()
+        if decision.silence_minutes:
+            self._accept_silence(decision.silence_minutes)
         # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
         # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
         # で、指定があったときだけ走る。
@@ -1059,8 +1062,12 @@ class InformationProcessing:
                     return "静穏時間である"
         return ""
 
-    def _accept_silence(self) -> None:
-        """黙っている依頼を受ける。宛先は、いま話している相手。"""
+    def _accept_silence(self, asked_minutes: int) -> None:
+        """黙っている依頼を受ける。宛先は、いま話している相手。
+
+        `asked_minutes` は調停が読み取った分数で、`-1` は「頼まれたが長さの指定なし」。
+        既定と上限は Config が持つ。
+        """
         agent = self._agent
         with contextlib.suppress(Exception):
             from ..silence_state import SilenceRequest, save_silence
@@ -1075,7 +1082,15 @@ class InformationProcessing:
             if not who:
                 logger.info("黙っているよう頼まれたが、誰からか分からないので受けない")
                 return
-            minutes = max(1, int(getattr(agent.config, "silence_minutes", 60)))
+            from ..silence_state import resolve_minutes
+
+            minutes = resolve_minutes(
+                asked_minutes,
+                default=max(1, int(getattr(agent.config, "silence_minutes", 15))),
+                maximum=max(1, int(getattr(agent.config, "silence_max_minutes", 60))),
+            )
+            if minutes <= 0:
+                return
             save_silence(SilenceRequest(person=who, until=time.time() + minutes * 60))
 
     def _present_names(self) -> set[str]:

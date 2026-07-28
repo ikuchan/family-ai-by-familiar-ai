@@ -82,5 +82,6 @@
   "settings_saved_message": "Settings saved.\nRestart familiar-ai to apply all changes.",
   "gui_input_placeholder": "Type a message and press Enter…",
   "gui_cancel_turn_tooltip": "Cancel current turn (Esc)",
-  "thinking_status": "{name} is thinking... {seconds}s"
+  "thinking_status": "{name} is thinking... {seconds}s",
+  "settings_field_agent_names": "Names it answers to (ME.md):"
 }

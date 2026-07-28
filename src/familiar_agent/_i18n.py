@@ -3195,6 +3195,10 @@ _T: dict[str, dict[str, str]] = (
             "en": "Agent name:",
             "ja": "AI名:",
         },
+        "settings_field_agent_names": {
+            "en": "Names it answers to (ME.md):",
+            "ja": "名前として使える言葉（ME.md）:",
+        },
         "settings_field_companion_name": {
             "en": "Companion name:",
             "ja": "相棒名:",

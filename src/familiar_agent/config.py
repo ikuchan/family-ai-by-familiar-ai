@@ -343,7 +343,11 @@ class RecognitionConfig:
 @dataclass
 class AgentConfig:
     # Agent display name shown in TUI
-    agent_name: str = field(default_factory=lambda: os.environ.get("AGENT_NAME", "AI"))
+    # 名前は `ME.md`（「名前： …」）が持つ。env や設定画面からは与えない（正本を1つにする）。
+    agent_name: str = "AI"
+    # 名前として使える言葉の一覧（`ME.md` に読点で並べる）。沈黙依頼は、このどれかで
+    # 呼ばれたときだけ受ける。表示用の主たる名前は `agent_name`。
+    agent_names: list[str] = field(default_factory=list)
 
     # Name of the companion/user shown in TUI
     # 話者未識別時のデフォルトは中立ラベル「推定話者」（FAMILY.md 先頭メンバーへ derive しない）。
@@ -373,7 +377,12 @@ class AgentConfig:
         default_factory=lambda: _float_env("LOOKUP_SLOW_SECONDS", 5.0)
     )
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
-    silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 60))
+    # 「黙って」と頼まれたが長さを言われなかったときの既定。
+    silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 15))
+    # 長さを言われたときの上限。超える指定は弾かずにここへ丸める（黙らないより意図に近い）。
+    silence_max_minutes: int = field(
+        default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60)
+    )
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
     # 残って中身が消える。上限は埋め込みモデル bge-m3 の入力上限 8192 トークンに合わせる。
     # 1文字＝1トークンになる字もあるので、8192 *文字* なら常に 8192 トークン以下に収まり、

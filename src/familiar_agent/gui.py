@@ -981,6 +981,14 @@ class SettingsDialog(QDialog):
             tab.setStyleSheet("background: transparent;")
             form = QFormLayout(tab)
             self._style_form(form)
+            if section == "agent":
+                # 名前の正本は `ME.md` なので、ここでは書けない。ただし**どう呼べば
+                # 沈黙依頼が通るか**は見えている必要があるので、読むだけの行を置く。
+                names = list(getattr(config, "agent_names", None) or [])
+                shown = "、".join(names) if names else getattr(config, "agent_name", "")
+                label = QLabel(shown or "（ME.md に「名前： …」を書く）")
+                label.setWordWrap(True)
+                form.addRow(self._form_label("settings_field_agent_names"), label)
             for field in iter_setting_fields(section=section, setup_mode=setup_mode):
                 widget = self._create_field_widget(field)
                 self._field_widgets[field.attr] = widget

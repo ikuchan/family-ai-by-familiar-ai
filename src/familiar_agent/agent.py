@@ -539,10 +539,11 @@ class EmbodiedAgent:
         self._family_md: str = self._load_family_md()  # loaded once; restart to pick up changes
 
         # Auto-populate names from MD files when env vars are not explicitly set
-        if not os.environ.get("AGENT_NAME"):
-            me_name = parsing.parse_me_name(self._me_md)
-            if me_name:
-                config.agent_name = me_name
+        # 名前の正本は `ME.md`（「名前： …」）。env や設定画面からは与えない。
+        me_names = parsing.parse_me_names(self._me_md)
+        if me_names:
+            config.agent_names = me_names
+            config.agent_name = me_names[0]
         self._memory = ObservationMemory()
         self._memory_worker = MemoryJobWorker(self._memory)
         self._pmm = PersonMemoryManager(self._memory)
@@ -2951,10 +2952,10 @@ class EmbodiedAgent:
         lines.append("[リロード完了]")
         if self._me_md != old_me:
             lines.append("• ME.md を更新しました")
-            if not os.environ.get("AGENT_NAME"):
-                me_name = parsing.parse_me_name(self._me_md)
-                if me_name:
-                    self.config.agent_name = me_name
+            me_names = parsing.parse_me_names(self._me_md)
+            if me_names:
+                self.config.agent_names = me_names
+                self.config.agent_name = me_names[0]
         else:
             lines.append("• ME.md 変更なし")
         if self._family_md != old_family:

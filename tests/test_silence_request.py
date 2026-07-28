@@ -46,11 +46,12 @@ def test_arbiter_can_flag_a_silence_request():
     import asyncio
     from unittest.mock import AsyncMock
 
-    assert "silence" in ARBITER_PROMPT
+    assert "silence_minutes" in ARBITER_PROMPT
     b = AsyncMock()
-    b.complete = AsyncMock(return_value='{"branch":"light","text":"わかった","silence":true}')
+    b.complete = AsyncMock(
+        return_value='{"branch":"light","text":"わかった","silence_minutes":-1}')
     d: Decision = asyncio.run(arbitrate(b, utterance="ちょっと静かにして", workspace_ctx=""))
-    assert d.silence is True
+    assert d.silence_minutes == -1   # 頼まれたが長さの指定なし
 
 
 def test_silence_blocks_speech_even_when_spoken_to():
@@ -77,11 +78,17 @@ def test_silence_blocks_speech_even_when_spoken_to():
         ss.load_silence = original
 
 
-def test_default_duration_is_sixty_minutes():
+def test_default_duration_is_fifteen_minutes():
+    """長さを言われなかったときの既定。
+
+    60 分は長すぎた（言わずに頼んだだけで1時間黙る）。長さを言えるようになったので、
+    言わなかった場合の既定は短くしてよい。上限（`silence_max_minutes`）が 60 分。
+    """
     from familiar_agent.config import AgentConfig
 
     import os
     from unittest.mock import patch
 
     with patch.dict(os.environ, {}, clear=True):
-        assert AgentConfig().silence_minutes == 60
+        assert AgentConfig().silence_minutes == 15
+        assert AgentConfig().silence_max_minutes == 60

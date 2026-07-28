@@ -96,16 +96,9 @@ SECTION_LABELS = {
 }
 
 
+# 名前（`agent_name`）はここに置かない。正本は `ME.md` の「名前： …」で、設定画面から
+# 書けると正本が2つになる。GUI は読むだけにする。
 SETTINGS_FIELDS: tuple[SettingField, ...] = (
-    SettingField(
-        env_key="AGENT_NAME",
-        attr="agent_name",
-        section="agent",
-        label="settings_field_agent_name",
-        widget="text",
-        default="",
-        runtime_getter=lambda config: config.agent_name,
-    ),
     SettingField(
         env_key="COMPANION_NAME",
         attr="companion_name",

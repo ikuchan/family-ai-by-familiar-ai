@@ -22,6 +22,19 @@ def parse_me_name(text: str) -> str:
     return m.group(1).strip()
 
 
+def parse_me_names(text: str) -> list[str]:
+    """`ME.md` の「名前： …」から、名前として使える言葉を並びで取る。
+
+    沈黙依頼は名前で呼ばれたときだけ受けるので、どう呼ばれても通る必要がある。呼び方は
+    一つとは限らないので、読点かカンマで区切って並べられるようにする。
+    """
+    line = parse_me_name(text)
+    if not line:
+        return []
+    parts = re.split(r"[、,]", line)
+    return [p.strip() for p in parts if p.strip()]
+
+
 def parse_family_md(text: str) -> list[dict]:
     """Parse FAMILY.md into a list of {name, display_name} dicts.
 

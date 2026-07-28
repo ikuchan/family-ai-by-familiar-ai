@@ -100,5 +100,6 @@
   "gui_input_placeholder": "メッセージを入力して Enter…",
   "gui_cancel_turn_tooltip": "現在の応答を中断 (Esc)",
   "thinking_status": "{name}が思考中... {seconds}s",
-  "gui_estimated_speaker": "推定話者"
+  "gui_estimated_speaker": "推定話者",
+  "settings_field_agent_names": "名前として使える言葉（ME.md）:"
 }
