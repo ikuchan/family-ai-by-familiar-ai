@@ -26,7 +26,7 @@ def _ip_with_investigation():
     ip._in_flight_lookups = [("search_deferred", "明日の天気")]
     ip._lookup_action_by_query = {"明日の天気": "search_deferred"}
     ip._inflight = 1
-    ip._completion_queue.put_nowait(("明日の天気", "晴れ", "obs-child"))
+    ip._completion_queue.put_nowait(("明日の天気", "晴れ", "obs-child", "完了"))
     return a, ip
 
 

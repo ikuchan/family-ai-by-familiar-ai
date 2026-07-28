@@ -342,6 +342,12 @@ class AgentConfig:
     # 環境変数 → ここの既定の2段だけ（旧 schedule.conf・ROUTINES.md は撤去）。
     quiet_hours_start: int = field(default_factory=lambda: _int_env("QUIET_HOURS_START", 23))
     quiet_hours_end: int = field(default_factory=lambda: _int_env("QUIET_HOURS_END", 7))
+    # 調べものがこの秒数を超えても結果が来なければ、「まだかかっている」を1回だけ知らせる。
+    # 時計で定期的に起こすのではなく、**遅いという事実**が1回きりの起点になる。
+    # 実測は search_deferred が平均2.5秒・最長22.1秒、fetch と recall は3〜4秒以内。
+    lookup_slow_seconds: float = field(
+        default_factory=lambda: _float_env("LOOKUP_SLOW_SECONDS", 5.0)
+    )
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
     silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 60))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
