@@ -553,8 +553,6 @@ class EmbodiedAgent:
         self._pending_store = self._memory_tool._pending_store
         self._presence_sensor: PresenceSensor | None = None
         self._motion_events: MotionEventWatcher | None = None
-        # 動体検知→知覚ターンの保留フラグ（GUI アイドルが拾って知覚ターンを起こす・案B）。
-        self._motion_pending: bool = False
         self._coding = CodingTool(config.coding)
         self._exploration = ExplorationTracker()
         self._scene: SceneTracker | None = None  # initialized after DB ready in _init_tools
@@ -1248,10 +1246,6 @@ class EmbodiedAgent:
     def _active_memory(self) -> "ObservationMemory":
         """Return the current speaker's memory, or agent's own if no speaker is set."""
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
-
-    def _note_motion(self) -> None:
-        """MotionWatcher からのコールバック：動体を保留（GUI アイドルが知覚ターンを起こす）。"""
-        self._motion_pending = True
 
     def _record_wr(
         self, memories: "list[dict] | None", new_ids: "list[str | None] | None" = None

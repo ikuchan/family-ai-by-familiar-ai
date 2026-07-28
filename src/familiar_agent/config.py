@@ -309,23 +309,6 @@ class RecognitionConfig:
     presence_interval_sec: float = field(
         default_factory=lambda: _float_env("PRESENCE_INTERVAL_SEC", 30.0)
     )
-    # 動体検知（ONVIF PullPoint）→ 知覚ターン起動（案B・既定 off で導入）。
-    motion_watch: bool = field(default_factory=lambda: _bool_env("MOTION_WATCH", default=False))
-    # 反応頻度：一度動いたら次の反応まで最低これだけ空ける（バーストを1ターンにまとめる）。
-    motion_debounce_sec: float = field(
-        default_factory=lambda: _float_env("MOTION_DEBOUNCE_SEC", 60.0)
-    )
-    # PullPoint long-poll の待機（通信管理・検知遅延にはならない）。
-    motion_pull_timeout_sec: float = field(
-        default_factory=lambda: _float_env("MOTION_PULL_TIMEOUT_SEC", 60.0)
-    )
-    # 動体で起こす知覚ターンの内声（行動は主LLM が選ぶ・env で改善可）。
-    motion_inner_voice: str = field(
-        default_factory=lambda: os.environ.get(
-            "MOTION_INNER_VOICE",
-            "動きを感じた。カメラで確認して、必要なら自然に反応しよう。",
-        )
-    )
     # InsightFace のモデルパックと onnxruntime プロバイダ（CUDA→CPU フォールバック）。
     face_model: str = field(
         default_factory=lambda: os.environ.get("FACE_MODEL", "buffalo_l")

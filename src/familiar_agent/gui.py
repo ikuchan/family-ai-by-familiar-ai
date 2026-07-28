@@ -1994,27 +1994,10 @@ class FamiliarWindow(QMainWindow):
                     continue
                 agent = getattr(self, "_agent", None)
 
-                # 動体検知（案B）：MotionWatcher が立てた保留を拾い知覚ターンを起こす。
-                # 静穏・沈黙・入力待ちは避ける（在席は問わない＝不在時の動きも気づく）。
-                if agent is not None and getattr(agent, "_motion_pending", False) is True:
-                    agent._motion_pending = False
-                    _rule = getattr(agent, "_schedule_rule", None)
-                    _quiet = bool(_rule is not None and _rule.is_quiet())
-                    if (
-                        now >= self._silence_until
-                        and not _quiet
-                        and self._input_queue.empty()
-                    ):
-                        _mv = agent.config.recognition.motion_inner_voice
-                        await self._run_agent("", inner_voice=_mv, desire_name="motion")
-                        last_interaction = time.time()
-                    continue
-
                 # ここから下は「自分から動く」系（drive の蓄積と発火・deferred の配信・
                 # 旧 DesireSystem のターン）。イベント駆動ループでは T（Tonic）が drive を
                 # 回して QA へ積み、deferred の完了は QC へ届くので、同じ役目が二重に動く。
                 # 入口で1回だけ判定してまとめて飛ばす（#12 の撤去でこの塊ごと切り取れる）。
-                # 動体だけは新ループに受け皿が無いので上で通してある（移設は #12）。
                 if bool(getattr(getattr(agent, "config", None), "event_loop", False)):
                     continue
 

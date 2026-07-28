@@ -5,7 +5,7 @@
 
 既定を反転すると、GUI のアイドルループとイベント駆動ループが**同じ役目を二重に持つ**。
 drive の蓄積と発火（T が回す）・deferred の配信（QC へ届く）がそれで、アイドル側は
-入口で1回判定してまとめて飛ばす。動体だけは新ループに受け皿が無いので通す（移設は #12）。
+入口で1回判定してまとめて飛ばす。
 """
 
 from __future__ import annotations
@@ -34,7 +34,5 @@ def test_idle_loop_skips_self_initiated_work_when_the_new_loop_is_on():
     src = inspect.getsource(FamiliarWindow._process_queue)
     # 判定は1箇所だけ（#12 でこの塊ごと切り取れるように）。
     assert src.count('"event_loop", False') == 1
-    # 動体はゲートより前にある＝どちらの経路でも通る。
-    assert src.index("_motion_pending") < src.index('"event_loop", False')
     # drive の発火と deferred の配信はゲートより後＝新ループでは走らない。
     assert src.index('"event_loop", False') < src.index("should_deliver_deferred_result")
