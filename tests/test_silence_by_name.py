@@ -44,8 +44,13 @@ def test_a_broken_length_does_not_silence():
 # --- プロンプト -----------------------------------------------------------
 
 
-def test_the_prompt_has_a_slot_for_the_name_to_listen_for():
-    assert "{agent_name}" in ARBITER_PROMPT
+def test_the_name_comes_from_who_you_are_rather_than_a_separate_slot():
+    """名前は `ME.md`（「名前： …」）にあり、`[あなたは誰か]` に丸ごと入っている。
+
+    別枠でもう一度渡すと同じ情報が2箇所になる。規則のほうから、そこを指す。
+    """
+    assert "{agent_name}" not in ARBITER_PROMPT
+    assert "{me}" in ARBITER_PROMPT
 
 
 def test_the_prompt_requires_the_name_for_a_silence_request():

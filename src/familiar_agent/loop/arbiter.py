@@ -20,13 +20,23 @@ import asyncio
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
 _EFFORTS = ("low", "medium", "high")
 
+# 並びは**キャッシュが前方一致で効く**ことに合わせる。起動中ほぼ変わらないもの（人格・家族・
+# 規則）を先に置き、変わるもの（上限の但し書き・時刻・在席・人の言葉・作業状態）を後ろへ。
+# 実機で調停が 2 秒で返らず時間切れになり、沈黙依頼が読まれないまま倒れた。
 ARBITER_PROMPT = """\
+[あなたは誰か]
+{me}
+
+[一緒に暮らす人たち]
+{family}
+
 あなたは対話エージェントの内部で、次の一手を選ぶ調停器である。会話ではないので、
 挨拶や説明はせず、指定の JSON だけを返す。
 
@@ -72,13 +82,6 @@ ARBITER_PROMPT = """\
 言うことが無ければ text を空にしてよい。
 自分が覚えているはずのこと（家族の出来事・過去の会話）は "recall"、
 世の中のこと（天気・ニュース・調べもの）は "search_deferred" を選ぶ。
-{capped_note}
-[あなたは誰か]
-{me}
-
-[一緒に暮らす人たち]
-{family}
-
 [いま]
 {now}
 
@@ -87,15 +90,16 @@ ARBITER_PROMPT = """\
 
 text を書くときは、この人格として、この相手に向けて、いまの時刻に合う言葉で書く。
 
+{capped_note}
 [人の言葉]
 {utterance}
 
 [いまの作業状態]
 {workspace}
 
-あなたの名前は {agent_name} である。**その名前で呼ばれたうえで**、いまは話しかけないで
-ほしいと伝えられたときだけ、`silence_minutes` に分数を書く。周囲の会話が紛れ込むので、
-名前を呼ばれていない依頼は、自分に向けられたものとして扱わない。
+**[あなたは誰か] に書かれた自分の名前で呼ばれたうえで**、いまは話しかけないでほしいと
+伝えられたときだけ、`silence_minutes` に分数を書く。周囲の会話が紛れ込むので、名前を
+呼ばれていない依頼は、自分に向けられたものとして扱わない。
 
 - 分数を伴って頼まれた → その分数
 - 長さを言わずに頼まれた → **-1**（既定の長さを当てる）
@@ -183,7 +187,7 @@ _CAPPED_NOTE = """
 """
 
 
-async def arbitrate(backend, *, agent_name: str = "", utterance: str, workspace_ctx: str,
+async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
                     self_understanding: str = "", family_md: str = "",
                     present_ctx: str = "", now_ctx: str = "",
                     capped: bool = False, timeout: float = 2.0) -> Decision:
@@ -207,10 +211,12 @@ async def arbitrate(backend, *, agent_name: str = "", utterance: str, workspace_
         present=present_ctx or "（分からない）",
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
-        agent_name=agent_name or "（名前の指定なし）",
     )
+    started = time.monotonic()
     try:
         reply = await asyncio.wait_for(backend.complete(prompt, 300), timeout=timeout)
+        # 何秒で返るかを残す。2 秒で足りない理由が長さなのか回線なのか分かっていない。
+        logger.info("調停 %.2f 秒（プロンプト %d 字）", time.monotonic() - started, len(prompt))
     except asyncio.TimeoutError:
         logger.warning("調停が %.1f 秒で返らなかったのでフルへ倒す", timeout)
         return _FALLBACK

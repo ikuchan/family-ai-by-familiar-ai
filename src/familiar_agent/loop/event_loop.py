@@ -873,9 +873,6 @@ class InformationProcessing:
             self._capped_hit = True
         decision = await arbitrate(
             agent._utility_backend,
-            # 沈黙依頼は、この名前で呼ばれたときだけ受ける（周囲の会話が紛れ込むため）。
-            agent_name="、".join(getattr(agent.config, "agent_names", None)
-                                or [getattr(agent.config, "agent_name", "")]),
             utterance=utterance or self._chain_head_content,
             workspace_ctx=workspace_ctx,
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
