@@ -14,7 +14,7 @@ import os
 
 import math
 import uuid
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import psycopg2
 import psycopg2.extras

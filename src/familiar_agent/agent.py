@@ -27,23 +27,10 @@ from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内�
 )
 from typing import Any
 
-from .backend import AnthropicBackend, create_backend, create_scene_backend, create_utility_backend
-from .appraisal import AppraisalEngine
+from .backend import create_backend, create_scene_backend, create_utility_backend
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
-from .interoception import (
-    MCPInteroceptionProvider,
-    RuntimeInteroceptionProvider,
-    semantic_pressure,
-)
-from .mental_state import (
-    DriveVector,
-    MentalStateBus,
-    MentalStateSnapshot,
-    SocialState,
-    WorkingMemoryItem,
-)
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
 from .concern_engine import ConcernEngine
@@ -58,7 +45,6 @@ from .meta_monitor import MetaMonitor
 from .poses import Pose, build_pose_registry
 from .presence_sensor import PresenceSensor
 from .prediction import PredictionEngine
-from .social_policy import SocialPolicyDecision, SocialPolicyEngine
 from .workspace import GlobalWorkspace
 from .memory_worker import MemoryJobWorker
 from .legacy.tape import generate_plan
@@ -68,7 +54,6 @@ from .tools.deferred_fetch import DeferredFetchTool
 from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
 from .person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID, PersonMemoryManager
-from .recognition.face import recognize_face_async
 from .recognition.motion_events import MotionEventWatcher
 from .recognition.person_detector import PersonDetector
 from .recognition.visual_encoder import VisualEncoder
@@ -569,9 +554,6 @@ class EmbodiedAgent:
         self._attention_schema = AttentionSchema()
         self._dmn = DefaultModeProcessor(self._pmm.get_agent_memory())
         self._meta_monitor = MetaMonitor()
-        self._appraisal = AppraisalEngine()
-        self._social_policy = SocialPolicyEngine()
-        self._mental_state_bus = MentalStateBus()
         self._schedule_rule = quiet_hours_rule()
         self._heartbeat = HeartbeatRuntime(
             memory=self._memory,
@@ -658,22 +640,6 @@ class EmbodiedAgent:
                 task.cancel()
             await asyncio.gather(*still_pending, return_exceptions=True)
 
-    async def _cache_heartbeat_loop(self) -> None:
-        """Keep the Anthropic stable system-prompt block cached across idle periods.
-
-        Fires every 4 minutes so the 5-minute cache TTL never expires between turns.
-        Only active when the main backend is AnthropicBackend; a no-op otherwise.
-        """
-        try:
-            while True:
-                await asyncio.sleep(_CACHE_HEARTBEAT_INTERVAL)
-                stable, _ = self._system_prompt()
-                assert isinstance(self.backend, AnthropicBackend)
-                await self.backend.warm_cache(stable)
-        except asyncio.CancelledError:
-            pass
-        except Exception as e:
-            logger.warning("cache heartbeat loop exited unexpectedly: %s", e)
 
     def _drive_config(self) -> DriveConfig:
         cfg = getattr(self, "_drive_cfg_cache", None)
@@ -1136,92 +1102,17 @@ class EmbodiedAgent:
         else:
             return f"Tool '{name}' not available (check configuration).", None
 
-    @staticmethod
-    def _tool_timeout_seconds(name: str) -> float:
-        """Return per-tool timeout budget in seconds."""
-        return _TOOL_TIMEOUTS.get(name, _DEFAULT_TOOL_TIMEOUT)
 
     # brief-turn 判定は core/brief_turn.py が持つ。既存の呼び出し口を保つ薄い委譲。
     _is_candidate_brief_turn = staticmethod(brief_turn.is_candidate_brief_turn)
     _should_use_brief_reply_mode = staticmethod(brief_turn.should_use_brief_reply_mode)
 
-    def _tool_defs_for_turn(self, *, brief_reply_mode: bool) -> list[dict]:
-        tool_defs = self._all_tool_defs
-        if not brief_reply_mode:
-            return tool_defs
-        return [tool for tool in tool_defs if tool.get("name") in _BRIEF_REPLY_TOOL_NAMES]
 
     _brief_reply_prompt = staticmethod(brief_turn.brief_reply_prompt)
 
-    def _configure_backend_for_turn(
-        self,
-        *,
-        brief_reply_mode: bool,
-        user_input: str = "",
-    ) -> tuple[Any, Any] | None:
-        if not hasattr(self.backend, "thinking_mode"):
-            return None
 
-        # brief_reply_mode overrides everything: force thinking off for short acks
-        if brief_reply_mode:
-            previous = (
-                getattr(self.backend, "thinking_mode", None),
-                getattr(self.backend, "thinking_effort", None),
-            )
-            self.backend.thinking_mode = "disabled"
-            if hasattr(self.backend, "thinking_effort"):
-                self.backend.thinking_effort = "low"
-            return previous
 
-        # Auto-enable adaptive thinking for complex queries when the user has not
-        # explicitly set a thinking override this session.
-        if (
-            not getattr(self, "_thinking_user_override", False)
-            and self.backend.thinking_mode == "disabled"
-            and user_input
-            and self._is_complex_query(user_input)
-        ):
-            previous = (
-                getattr(self.backend, "thinking_mode", None),
-                getattr(self.backend, "thinking_effort", None),
-            )
-            self.backend.thinking_mode = "adaptive"
-            return previous
 
-        return None
-
-    @staticmethod
-    def _is_complex_query(text: str) -> bool:
-        """Return True when the query likely benefits from deeper reasoning."""
-        if len(text) > 200:
-            return True
-        return bool(_COMPLEX_QUERY_RE.search(text))
-
-    def _restore_backend_after_turn(self, snapshot: tuple[Any, Any] | None) -> None:
-        if snapshot is None:
-            return
-        thinking_mode, thinking_effort = snapshot
-        if hasattr(self.backend, "thinking_mode"):
-            self.backend.thinking_mode = thinking_mode
-        if hasattr(self.backend, "thinking_effort"):
-            self.backend.thinking_effort = thinking_effort
-
-    def _maybe_swap_internal_backend(
-        self, is_desire_turn: bool, desire_name: str
-    ) -> Any:
-        """Temporarily swap to utility backend for internal (non-social) desire turns.
-
-        Returns the saved original backend, or None if no swap was made.
-        Internal turns (look_around, explore, etc.) use Gemini Flash-Lite instead
-        of the main Sonnet backend to reduce cost.
-        """
-        if not is_desire_turn or not desire_name or is_social_desire(desire_name):
-            return None
-        if self._utility_backend is self.backend:
-            return None
-        saved = self.backend
-        self.backend = self._utility_backend
-        return saved
 
     @property
     def _evaluator(self) -> Evaluator:
@@ -1434,17 +1325,6 @@ class EmbodiedAgent:
                 return pid
         return present_ids[-1]
 
-    @staticmethod
-    def _drain_interrupt_queue(
-        interrupt_queue: asyncio.Queue[str | None], max_items: int = 6
-    ) -> list[str]:
-        """Drain pending user interrupts, preserving queue order."""
-        interrupts: list[str] = []
-        while len(interrupts) < max_items and not interrupt_queue.empty():
-            item = interrupt_queue.get_nowait()
-            if item:
-                interrupts.append(item)
-        return interrupts
 
     def _memory_dedupe_key(
         self,
@@ -1509,17 +1389,6 @@ class EmbodiedAgent:
             except Exception as exc:
                 logger.warning("Could not register family member %s: %s", m["name"], exc)
 
-    async def _apply_face_hint(self, img_path: str) -> None:
-        """Run face recognition on a captured image and sync result to PersonRegistry."""
-        hint = await recognize_face_async(img_path, self._pmm)
-        if hint is None:
-            return
-        switched = await self._pmm.apply_hint(hint)
-        if switched:
-            name = self._pmm.get_person_name(hint.person_id)
-            if name and name != hint.person_id[:8]:
-                self._persons.set_active(name)
-                logger.debug("Face recognition: switched speaker to %s", name)
 
     def _get_body_description(self) -> str:
         """Generate a text description of available hardware for the system prompt."""
@@ -1696,130 +1565,9 @@ class EmbodiedAgent:
         """Return exploration history for ICL-based direction steering."""
         return self._exploration.context_for_prompt(n=5)
 
-    def _collect_interoception(self):
-        mcp_path = os.environ.get("FAMILIAR_INTEROCEPTION_MCP_PATH", "").strip()
-        if mcp_path:
-            max_staleness = int(
-                os.environ.get("FAMILIAR_INTEROCEPTION_MCP_MAX_STALENESS", "45").strip() or "45"
-            )
-            signal = MCPInteroceptionProvider(
-                mcp_path,
-                max_staleness_seconds=max_staleness,
-            ).collect()
-            if signal.provider == "noop":
-                signal = RuntimeInteroceptionProvider(
-                    started_at=self._started_at,
-                    turn_count=self._turn_count,
-                    pending_tasks=len(getattr(self, "_background_tasks", set())),
-                    quiet_hours=(self._schedule_rule.start_hour, self._schedule_rule.end_hour),
-                ).collect()
-        else:
-            signal = RuntimeInteroceptionProvider(
-                started_at=self._started_at,
-                turn_count=self._turn_count,
-                pending_tasks=len(getattr(self, "_background_tasks", set())),
-                quiet_hours=(self._schedule_rule.start_hour, self._schedule_rule.end_hour),
-            ).collect()
-        return signal, semantic_pressure(signal)
 
-    def _provisional_relationship_update(
-        self,
-        *,
-        user_text: str,
-        social_policy: SocialPolicyDecision,
-    ) -> None:
-        lower = user_text.lower()
-        if any(token in lower for token in ("hurt", "傷つ", "前の返事")):
-            self._relationship.record_repair(user_text[:180], resolved=False)
-            self._relationship.note_trust_shift(
-                max(0.0, self._relationship.trust - 0.08), user_text[:180], confidence=0.8
-            )
-            self._relationship.record_failed_support_pattern(
-                "advice before validation", confidence=0.75
-            )
-        elif social_policy.primary_act == "delight_share":
-            self._relationship.note_intimacy_shift(
-                min(1.0, self._relationship.intimacy + 0.04),
-                "shared delight",
-                confidence=0.62,
-            )
-        elif social_policy.primary_act in {"fatigue_signal", "grief_signal", "venting"}:
-            self._relationship.record_support_preference(
-                "validate first before problem solving",
-                confidence=0.72,
-            )
-        if social_policy.primary_act == "boundary_assertion":
-            self._relationship.add_boundary(user_text[:120], severity=3)
-        if social_policy.primary_act == "playful_probe":
-            self._relationship.record_shared_ritual("light playful exchange", confidence=0.55)
 
-    @staticmethod
-    def _format_social_policy_prompt(policy: SocialPolicyDecision) -> str:
-        lines = [
-            "[Interaction policy]",
-            f"- primary-act: {policy.primary_act}",
-            f"- response-mode: {policy.response_mode}",
-            f"- softness: {policy.softness:.2f}",
-            f"- directness: {policy.directness:.2f}",
-            f"- initiative: {policy.initiative:.2f}",
-        ]
-        if policy.avoid_problem_solving:
-            lines.append("- validate before advice; do not rush into fixing")
-        if policy.should_recall_relational_memory:
-            lines.append("- relational memory is relevant if it naturally helps")
-        if policy.mention_memory:
-            lines.append("- a memory mention is allowed only if it fits naturally")
-        if policy.avoid_raw_interoception_numbers:
-            lines.append("- never mention raw internal/body metrics")
-        return "\n".join(lines)
 
-    def _build_mental_snapshot(
-        self,
-        *,
-        interoception_signal,
-        affect,
-        social_policy: SocialPolicyDecision,
-        working_memory: list[dict],
-        continuity_note: str,
-        desires: DesireSystem | None,
-    ) -> MentalStateSnapshot:
-        drive_levels = desires.drive_vector() if desires is not None else {}
-        dominant = desires.get_dominant() if desires is not None else None
-        working_items = [
-            WorkingMemoryItem(
-                memory_id=str(item.get("memory_id", "")),
-                summary=str(item.get("summary", "")),
-                source_kind=str(item.get("source_kind", item.get("kind", "memory"))),
-                salience=float(item.get("salience", item.get("confidence", 0.5))),
-                episode_id=item.get("episode_id"),
-            )
-            for item in working_memory[:5]
-        ]
-        return MentalStateSnapshot(
-            turn_index=self._turn_count,
-            created_at=clock.now_utc_iso(),
-            interoception=interoception_signal,
-            affect=affect,
-            social=SocialState(
-                primary_act=social_policy.primary_act,
-                response_mode=social_policy.response_mode,
-                trust=self._relationship.trust,
-                intimacy=self._relationship.intimacy,
-                repair_needed=social_policy.primary_act == "repair_attempt",
-                recall_relational_memory=social_policy.should_recall_relational_memory,
-                mention_memory=social_policy.mention_memory,
-                initiative=social_policy.initiative,
-                directness=social_policy.directness,
-                softness=social_policy.softness,
-            ),
-            drives=DriveVector(
-                levels=drive_levels,
-                dominant_drive=dominant[0] if dominant else None,
-                dominant_level=float(dominant[1]) if dominant else 0.0,
-            ),
-            working_memory=working_items,
-            continuity_note=continuity_note,
-        )
 
     async def _gather_workspace_context(
         self,
@@ -1922,16 +1670,6 @@ class EmbodiedAgent:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.emotion_for_turn(text, arousal)
 
-    def _present_others_for_recall(self) -> list[str]:
-        """在席者相関 p の対象＝在席者から AGENT_SELF と現話者を除いた在席他者（[D-在席相関]）。
-
-        話者は想起の視点シフト（役割1・r）で既に効くため p からは外す。自分も除く。
-        """
-        pmm = getattr(self, "_pmm", None)
-        if pmm is None:
-            return []
-        exclude = {AGENT_SELF_ID, pmm.current_speaker_id}
-        return [pid for pid in pmm.get_present_ids() if pid not in exclude]
 
     async def _turn_arousal(self, user_input: str, final_text: str) -> float:
         """A（評価器 arousal）＝内容の新規性 novelty（課題5 v0.26）。
