@@ -21,3 +21,6 @@ build/
 .release/
 *.spec
 src/familiar_agent/_version.py
+
+# 別セッションが作る git worktree（gitlink として紛れ込む）
+.claude/worktrees/

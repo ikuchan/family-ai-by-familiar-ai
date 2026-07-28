@@ -14,6 +14,11 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.backend import ToolCall, TurnResult
 from familiar_agent.loop.event_loop import InformationProcessing
 
+# 非同期の処理が届くのを待つ上限（0.005 秒 × この回数＝5秒）。条件が満たされた時点で
+# 抜けるので、通常の実行時間は変わらない。以前は 1〜2 秒相当で、負荷の高い実行（所要が
+# 通常の 2.4 倍だった回）に 1 件が待ちきれずに落ちた。
+_WAIT_TICKS = 1000
+
 _SAY_DEF = {"name": "say", "input_schema": {}}
 _RECALL_DEF = {"name": "recall", "input_schema": {}}
 _REMEMBER_DEF = {"name": "remember", "input_schema": {}}
@@ -93,7 +98,7 @@ def _run_chain(a, utterance="こんにちは"):
     async def scenario():
         ip = InformationProcessing(a)
         await ip.run_iteration(utterance, on_text=shown.append)
-        for _ in range(400):
+        for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= a._expected_turns and not ip._tasks:
                 break
             await asyncio.sleep(0.005)
@@ -253,7 +258,7 @@ def test_completion_content_reads_as_this_chains_action():
         ip = InformationProcessing(a)
         await ip.run_iteration("今日の天気を調べて")
         ip.push_completion("今日の天気", "西日本は暑い")
-        for _ in range(200):
+        for _ in range(_WAIT_TICKS):
             if any(c.kwargs.get("direction") == "完了"
                    for c in a._memory.save_async_with_id.call_args_list):
                 break
@@ -284,7 +289,7 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
         ip = InformationProcessing(a)
         await ip.run_iteration("今日の天気を調べて")
         ip.push_completion("今日の天気", body)
-        for _ in range(200):
+        for _ in range(_WAIT_TICKS):
             if any(c.kwargs.get("direction") == "完了"
                    for c in a._memory.save_async_with_id.call_args_list):
                 break
@@ -439,7 +444,7 @@ def test_action_branch_dispatches_recall_without_the_full_llm():
         first = await ip.run_iteration("こんにちは", on_text=shown.append)
         # 反復1でフルLLM を起こしていないこと（この後、駆動体が続きの反復を回す）。
         assert a.backend.stream_turn.await_count == 0
-        for _ in range(200):
+        for _ in range(_WAIT_TICKS):
             if a._memory_tool.call.await_count:
                 break
             await asyncio.sleep(0.005)
@@ -585,7 +590,7 @@ def test_driver_wakes_on_the_affect_queue():
         ip.set_output(shown.append)          # 人の発話を待たずに出口を持てる
         ip.start()                           # 駆動体だけ起こす
         ip.push_affect("SEEKING", "何かを知りたい")
-        for _ in range(400):
+        for _ in range(_WAIT_TICKS):
             if shown:
                 break
             await asyncio.sleep(0.005)
@@ -603,7 +608,7 @@ def test_affect_iteration_does_not_send_an_empty_user_message():
         ip = InformationProcessing(a)
         ip.start()
         ip.push_affect("SEEKING", "何かを知りたい")
-        for _ in range(400):
+        for _ in range(_WAIT_TICKS):
             if a.backend.make_user_message.call_count:
                 break
             await asyncio.sleep(0.005)
@@ -633,7 +638,7 @@ def test_driver_runs_next_iteration_when_completion_arrives():
     async def scenario():
         ip = InformationProcessing(a)
         first = await ip.run_iteration("昨日の天気覚えてる？", on_text=shown.append)
-        for _ in range(200):                    # 駆動体が起こす2反復目を待つ
+        for _ in range(_WAIT_TICKS):                    # 駆動体が起こす2反復目を待つ
             if shown:
                 break
             await asyncio.sleep(0.01)
@@ -680,7 +685,7 @@ def test_action_branch_speaks_the_filler_then_dispatches():
     async def scenario():
         ip = InformationProcessing(a)
         first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
-        for _ in range(200):
+        for _ in range(_WAIT_TICKS):
             if a._deferred_search.call.await_count:
                 break
             await asyncio.sleep(0.005)
@@ -705,7 +710,7 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
     async def scenario():
         ip = InformationProcessing(a)
         first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
-        for _ in range(200):
+        for _ in range(_WAIT_TICKS):
             if a._deferred_search.call.await_count:
                 break
             await asyncio.sleep(0.005)
@@ -777,7 +782,7 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
         assert await ip.run_iteration("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)          # 意図を書いて dispatch し終えた頃
         ip._completion_queue.put_nowait(("q", "外から届いた結果", None, "完了"))
-        for _ in range(400):
+        for _ in range(_WAIT_TICKS):
             if shown:
                 break
             await asyncio.sleep(0.005)
@@ -931,7 +936,7 @@ def test_w_lists_what_has_already_been_looked_up_in_this_chain():
         ip = InformationProcessing(a)
         await ip.run_iteration("今日はどんな天気？")
         ip.push_completion("https://example.com/1hour.html", "時間別の表…")
-        for _ in range(200):
+        for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= 2:
                 break
             await asyncio.sleep(0.005)
@@ -1009,7 +1014,7 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
         ip = InformationProcessing(a)
         await ip.run_iteration("たいきのサッカーの練習は？")
         ip.push_completion("サッカー", "recall結果テキスト")
-        for _ in range(200):
+        for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= 2:
                 break
             await asyncio.sleep(0.005)
