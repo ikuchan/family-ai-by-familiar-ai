@@ -15,7 +15,6 @@ import time
 
 from familiar_agent.silence_state import (
     SilenceRequest,
-    clear_silence,
     is_silenced,
 )
 

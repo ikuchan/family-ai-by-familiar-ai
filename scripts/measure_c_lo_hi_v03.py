@@ -4,7 +4,7 @@
 DB接続: familiar_agent.db.get_db() (memory.py と同じ)
 """
 from __future__ import annotations
-import os, sys, csv, json
+import os, shutil, sys
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 
@@ -14,7 +14,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql://familiar:familiar@localhost:
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
 from familiar_agent.db import get_db, sql_to_vec
-from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
+from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 RNG = np.random.default_rng(42)
 N_UNREL_PAIRS = 50_000
@@ -100,7 +100,6 @@ def semantic_related_pairs(
 ) -> tuple[np.ndarray, dict]:
     """同一日付ペア + 時間近接ペア（10分以内）でコサインを計算。
     vecs は中心化済みを渡す。"""
-    N = len(vecs)
     # timestamp を UTC aware に統一
     ts_aware = []
     for t in ts:
@@ -300,7 +299,6 @@ for label, pid in targets:
     results.append(r)
 
 # ── スクリプト自身を保存（成果物） ────────────────────────────
-import shutil
 shutil.copy(__file__, OUT / "measure_c_lo_hi_v03.py")
 
 # ── サマリ ────────────────────────────────────────────────────

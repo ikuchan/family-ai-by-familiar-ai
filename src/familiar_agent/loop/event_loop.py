@@ -17,6 +17,7 @@ import contextlib
 import logging
 import time
 from datetime import datetime
+from typing import Any
 
 from ..poses import nearest_pose
 from ..scene import extract_entities
@@ -668,7 +669,10 @@ class InformationProcessing:
                 # ように聞こえる（実機で観測）。QA・QD は**消費せずキューに残す**ので、
                 # 調査が終われば順に処理される（取りこぼしではなく待たせるだけ）。
                 # 代償：drive の発火と人の入退室への反応が、その求めが終わるまで遅れる。
-                queues = (
+                # 3つのキューは要素の形が違う（完了は4つ組、情動は2つ組、機器は3つ組）。
+                # union 待ちのあいだは形を問わないので、ここでは要素型を見ない。取り出した
+                # 後、どのキューから来たかで分岐して形を確定させる。
+                queues: list[asyncio.Queue[Any]] = (
                     [self._completion_queue]
                     if self._inflight
                     else [self._completion_queue, self._affect_queue, self._device_queue]
@@ -682,8 +686,8 @@ class InformationProcessing:
                     pass
                 for task in pending:
                     task.cancel()
-                affect = None
-                device = None
+                affect: Any = None
+                device: Any = None
                 for task in done:
                     item = task.result()
                     q = waiters[task]

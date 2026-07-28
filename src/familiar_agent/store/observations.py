@@ -262,6 +262,8 @@ class ObservationStore:
         # 基準に近い順へ整え、n 件に絞る（採点はしない）。
         def _distance(row: dict) -> float:
             stamp = row.get("last_recalled_at") or row.get("timestamp")
+            if stamp is None:
+                return float("inf")
             try:
                 return abs(reference_epoch - stamp.timestamp())
             except Exception:  # noqa: BLE001
@@ -467,9 +469,11 @@ class ObservationStore:
             if len(rows) < 2:
                 return []
             ids = [r["obs_id"] for r in rows]
-            vecs = np.array([_decode_vector(bytes(r["vector"])) for r in rows], dtype=np.float32)
-            norms = np.linalg.norm(vecs, axis=1, keepdims=True)
-            vecs = vecs / np.where(norms > 1e-8, norms, 1.0)
+            raw = np.array([_decode_vector(bytes(r["vector"])) for r in rows], dtype=np.float32)
+            norms = np.linalg.norm(raw, axis=1, keepdims=True)
+            # 除算の結果は float64 になる。名前を分けるのは、float32 の配列へ入れ直すと
+            # 型が食い違うため（計算そのものは変えない）。
+            vecs = raw / np.where(norms > 1e-8, norms, 1.0)
             # 全ペア類似度は BLAS の行列積で一括計算し、上三角（i<j）だけ取る。
             # Python の O(n^2) 二重ループを避ける（出力は同一）。
             sims = vecs @ vecs.T

@@ -368,7 +368,7 @@ class LegacySemanticLayer:
 
     def get_linked_memories(self, memory_id: str, direction: str = "both") -> list[dict]:
         try:
-            results = []
+            results: list[dict] = []
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 if direction in ("out", "both"):

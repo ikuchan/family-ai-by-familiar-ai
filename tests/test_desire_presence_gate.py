@@ -6,6 +6,7 @@ import time
 from unittest.mock import MagicMock
 
 
+from familiar_agent.agent import EmbodiedAgent
 from familiar_agent.desires import DesireSystem
 
 
@@ -63,7 +64,6 @@ class _MinimalAgent:
 
 
 # Attach the real method from agent.py
-from familiar_agent.agent import EmbodiedAgent
 _MinimalAgent._social_presence_permission = EmbodiedAgent._social_presence_permission
 
 

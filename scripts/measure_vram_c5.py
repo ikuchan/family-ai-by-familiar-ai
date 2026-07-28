@@ -2,7 +2,7 @@
 各モデルを独立プロセスで起動し nvidia-smi でロード前後を測定する。
 """
 from __future__ import annotations
-import os, sys, subprocess, json, time, csv, tempfile
+import os, sys, subprocess, json, time, csv
 from pathlib import Path
 
 OUT = Path.home() / "Downloads" / "measure_v03"

@@ -1251,7 +1251,8 @@ class GeminiBackend:
     @classmethod
     def _sanitize_schema(cls, schema: dict) -> dict:
         """Recursively remove JSON Schema keywords unsupported by Gemini."""
-        result = {}
+        # 値は dict にも list にも素の値にもなる（JSON Schema をそのまま写すため）。
+        result: dict[Any, Any] = {}
         for k, v in schema.items():
             if k in cls._GEMINI_UNSUPPORTED_SCHEMA_KEYS:
                 continue
@@ -1449,7 +1450,9 @@ class GeminiBackend:
         async def _call() -> str:
             resp = await self._client.aio.models.generate_content(
                 model=self.model,
-                contents=[{
+                # SDK の型定義は `inline_data` を含む素の dict を受け付けない形になって
+                # いるが、実行時には受け付ける（画像を渡す経路は実機で動いている）。
+                contents=[{  # type: ignore[arg-type]
                     "role": "user",
                     "parts": [
                         {"text": prompt},

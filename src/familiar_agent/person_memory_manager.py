@@ -23,15 +23,18 @@ returning sorted results from SQL — no full table scan needed.
 """
 from __future__ import annotations
 
-import asyncio
 import logging
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
-import numpy as np
+if TYPE_CHECKING:
+    # 実行時には読み込まない。`tools.memory` はこのモジュールを使う側なので、
+    # 実行時に import すると循環する。注釈は文字列のままで足りる。
+    from .tools.memory import ObservationMemory
+
 
 logger = logging.getLogger(__name__)
 
@@ -76,7 +79,7 @@ class PersonMemoryManager:
 
     def __init__(
         self,
-        base_memory: "ObservationMemory",  # type: ignore[name-defined]
+        base_memory: "ObservationMemory",
         switch_thresholds: dict[str, float] | None = None,
     ) -> None:
         self._base = base_memory
@@ -194,25 +197,25 @@ class PersonMemoryManager:
 
     # ── Memory access ──────────────────────────────────────────────────────
 
-    def get_speaker_memory(self) -> "ObservationMemory | None":  # type: ignore[name-defined]
+    def get_speaker_memory(self) -> "ObservationMemory | None":
         """Write target: current speaker's memory. None if no speaker known."""
         if self._speaker_id is None:
             return None
         return self._get_or_create(self._speaker_id)
 
-    def get_memory_for(self, person_id: str) -> "ObservationMemory":  # type: ignore[name-defined]
+    def get_memory_for(self, person_id: str) -> "ObservationMemory":
         return self._get_or_create(person_id)
 
-    def get_agent_memory(self) -> "ObservationMemory":  # type: ignore[name-defined]
+    def get_agent_memory(self) -> "ObservationMemory":
         return self._get_or_create(AGENT_SELF_ID)
 
     def get_all_present_memories(
         self,
-    ) -> list[tuple[str, "ObservationMemory"]]:  # type: ignore[name-defined]
+    ) -> list[tuple[str, "ObservationMemory"]]:
         """Read targets: memories of all present persons."""
         return [(pid, self._get_or_create(pid)) for pid in self.get_present_ids()]
 
-    def _get_or_create(self, person_id: str) -> "ObservationMemory":  # type: ignore[name-defined]
+    def _get_or_create(self, person_id: str) -> "ObservationMemory":
         if person_id not in self._instances:
             self._instances[person_id] = self._base.for_person(person_id)
         return self._instances[person_id]

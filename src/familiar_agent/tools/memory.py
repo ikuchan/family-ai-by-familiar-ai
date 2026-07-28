@@ -790,7 +790,7 @@ class ObservationMemory:
                 from ..emotion_pad import pad_to_search_vector
 
                 mood_vec = "[" + ",".join(
-                    f"{v:.6f}" for v in pad_to_search_vector(tuple(mood_pad))) + "]"
+                    f"{v:.6f}" for v in pad_to_search_vector(mood_pad)) + "]"
                 for r in self._observations.by_emotion(
                     mood_vec, fetch_n, kind=kind, exclude_ids=exclude_ids
                 ):

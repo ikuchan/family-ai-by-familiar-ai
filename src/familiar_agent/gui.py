@@ -76,8 +76,8 @@ except ImportError:
         def __call__(self, *a: object, **kw: object) -> "_QtCallable": return _QtCallable()
         def __getattr__(self, name: str) -> "_QtCallable": return _QtCallable()
 
-    QEasingCurve = QPropertyAnimation = QSize = Qt = QTimer = _QtCallable()  # type: ignore[assignment]
-    QIcon = QImage = QPixmap = _QtCallable()  # type: ignore[assignment]
+    QEasingCurve = QPropertyAnimation = QSize = Qt = QTimer = _QtCallable()  # type: ignore[misc,assignment]
+    QIcon = QImage = QPixmap = _QtCallable()  # type: ignore[misc,assignment]
 
 from . import __version__
 from ._i18n import _t

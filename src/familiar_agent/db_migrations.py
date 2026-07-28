@@ -89,7 +89,7 @@ def apply_migrations(
         if mid in applied:
             continue
         module = _load_module(path)
-        upgrade: Callable = getattr(module, "upgrade", None)
+        upgrade: Callable | None = getattr(module, "upgrade", None)
         if not callable(upgrade):
             raise RuntimeError(f"upgrade(conn) missing in {path}")
         try:
