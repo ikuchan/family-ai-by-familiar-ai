@@ -46,6 +46,9 @@ def _agent(*, stream_returns, max_iters=3):
         return_value=[_REMEMBER_DEF, _RECALL_DEF, {"name": "note_to_share"}]
     )
     a._memory_tool.call = AsyncMock(return_value=("recall結果テキスト", None))
+    # カメラ無しを明示する。MagicMock のままだと `get_tool_definitions()` が list でない
+    # 値を返し、動作の表がそれを黙って落とすので、何を確かめているのか分からなくなる。
+    a._camera = None
     a._pmm = MagicMock()
     a._pmm.presence_status = MagicMock(return_value=[])
     a._tts = MagicMock()

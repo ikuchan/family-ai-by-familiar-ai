@@ -18,6 +18,7 @@ import logging
 import time
 from datetime import datetime
 
+from ..scene import extract_entities
 from ..store import clock
 from .arbiter import arbitrate
 from .prompt import build_event_system_prompt
@@ -25,9 +26,36 @@ from .prompt import build_event_system_prompt
 logger = logging.getLogger(__name__)
 
 # 連鎖が続けられる反復で渡す動作。上限に達した反復では say だけにして必ず閉じる。
-_FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred")
+_FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "look")
 # 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
-_LOOKUP_ACTIONS = ("recall", "search_deferred", "fetch_deferred")
+# `see`・`look` も含める。結果はその場で返るが、それを見て何を言うかは次の反復が決める
+# （`recall` と同じ）。ここに入れないと 1反復1出力 が崩れる。
+_LOOKUP_ACTIONS = ("recall", "search_deferred", "fetch_deferred", "see", "look")
+
+# 首の向き（`look` の入力）。求めの見出しを日本語で作るために持つ。
+_DIRECTION_JA = {"left": "左", "right": "右", "up": "上", "down": "下"}
+
+
+def _query_label(action: str, tool_input: dict) -> str:
+    """その求めの見出し。飛行中の一覧・完了の照合・W の「調べたもの」で鍵になる。
+
+    `see` の入力は空で、`look` は向きしか持たない。`query`／`url` から取ると両方とも
+    空文字になり、別々の求めが同じ鍵で衝突する。動作ごとに見出しを作る。
+    """
+    if action == "see":
+        return "目の前を見る"
+    if action == "look":
+        d = str(tool_input.get("direction", ""))
+        return f"首を{_DIRECTION_JA.get(d, d)}へ向ける"
+    return str(tool_input.get("query") or tool_input.get("url", "")).strip()
+
+
+def _camera_tool_def(agent, name: str) -> list[dict]:
+    """カメラの道具定義から1つだけ取り出す。カメラが無ければ空。"""
+    cam = getattr(agent, "_camera", None)
+    if cam is None:
+        return []
+    return [d for d in cam.get_tool_definitions() if d.get("name") == name]
 
 
 def _present_ctx(agent) -> str:
@@ -237,6 +265,11 @@ class InformationProcessing:
                           intent_id: str | None) -> None:
         """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
         agent = self._agent
+        if action in ("see", "look"):
+            # 飛行中の数は減らさない。`recall` と同じく取込が1件につき1つ減らす。
+            out = await self._run_camera(action, tool_input)
+            self._completion_queue.put_nowait((query, out, intent_id, "完了"))
+            return
         if action != "recall":
             tool = agent._deferred_search if action == "search_deferred" else agent._deferred_fetch
             try:
@@ -264,6 +297,41 @@ class InformationProcessing:
             "event-loop RH 完了をQCへ（id=%s qsize=%d 意図=%.8s）",
             id(self), self._completion_queue.qsize(), intent_id or "-",
         )
+
+    async def _run_camera(self, action: str, tool_input: dict) -> str:
+        """目と首を動かし、**見えたものを言葉にして**返す。
+
+        `see` が返すテキストは「撮って保存した」と言うだけで、何が写っているかは画像の
+        ほうにある。完了キューはテキストしか運ばないので、`知覚在席` §3-2 が定める
+        意味づけ（I 側・必要時・VLM）を通す。首を振っただけの `look` に画像は無い。
+
+        カメラも VLM も落ちる前提の機器なので、例外はここで畳む。見た事実まで失うと
+        求めが閉じないまま残る。
+        """
+        agent = self._agent
+        try:
+            text, image_b64 = await agent._camera.call(action, tool_input)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop %s の実行に失敗: %s", action, e)
+            return f"（{action} を実行できなかった：{e}）"
+        if action != "see" or not image_b64:
+            return str(text)
+        try:
+            entities = await extract_entities(str(text), agent._scene_backend,
+                                              image_b64=image_b64)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop 見たものの意味づけに失敗: %s", e)
+            return str(text)
+        labels = [str(d.get("label", "")).strip() for d in entities if d.get("label")]
+        if not labels:
+            logger.info("event-loop 見たが、意味づけは何も返さなかった")
+            return str(text)
+        logger.info("event-loop 見えたもの %d 件：%.60s", len(labels), "、".join(labels))
+        return f"{text} 見えたもの：" + "、".join(labels)
 
     async def _intake(self) -> int:
         """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。"""
@@ -322,6 +390,9 @@ class InformationProcessing:
         # net（投げっぱなしの外部呼び出し）。結果は完了キュー経由で後の反復に届く。
         "search_deferred": lambda a: a._deferred_search.get_tool_definitions(),
         "fetch_deferred": lambda a: a._deferred_fetch.get_tool_definitions(),
+        # 身体。カメラが無ければ空を返し、繋がっていない身体は渡さない。
+        "see": lambda a: _camera_tool_def(a, "see"),
+        "look": lambda a: _camera_tool_def(a, "look"),
     }
 
     def _action_of(self, query: str) -> str:
@@ -1040,7 +1111,7 @@ class InformationProcessing:
     async def _write_intent_and_dispatch(self) -> None:
         agent = self._agent
         utterance, tool_input, action = self._pending_intent
-        query = str(tool_input.get("query") or tool_input.get("url", "")).strip()
+        query = _query_label(action, tool_input)
         content = f"「{utterance}」について {action}（{query}）を要求した。結果はまだ無い。"[:500]
         intent_id, _ = await agent._memory.save_async_with_id(
             content,
