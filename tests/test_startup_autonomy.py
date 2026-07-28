@@ -22,10 +22,9 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.agent import EmbodiedAgent
 
 
-def _agent(*, event_loop=True, sensor=True):
+def _agent(*, sensor=True):
     a = EmbodiedAgent.__new__(EmbodiedAgent)
     a.config = MagicMock()
-    a.config.event_loop = event_loop
     a._info_processing = None
     a._tonic = None
     a._presence_sensor = MagicMock(start=AsyncMock()) if sensor else None
@@ -55,14 +54,6 @@ def test_starting_twice_does_not_make_a_second_tonic():
     first = a._tonic
     asyncio.run(a.start_autonomy())
     assert a._tonic is first
-
-
-def test_nothing_starts_when_the_event_loop_is_off():
-    # 旧経路（`EVENT_LOOP=0`）では GUI の描画ループが drive を進める。両方が進めると
-    # 蓄積が二重になる。
-    a = _agent(event_loop=False)
-    asyncio.run(a.start_autonomy())
-    assert a._tonic is None
 
 
 def test_a_configuration_without_a_camera_still_starts():

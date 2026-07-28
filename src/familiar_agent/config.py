@@ -339,10 +339,6 @@ class AgentConfig:
         default_factory=lambda: os.environ.get("COMPANION_NAME", _t("gui_estimated_speaker"))
     )
 
-    # #11 段階5：イベント駆動ループを**既定**にし、旧 run() は `EVENT_LOOP=0` で残す。
-    # 撤去ではなく既定の反転。旧経路は比較対象として要る（`/speaker` の配線・会話履歴・
-    # 自己認識の注入は、いずれも旧経路と突き合わせて欠落を見つけた）。削除は #12。
-    event_loop: bool = field(default_factory=lambda: _bool_env("EVENT_LOOP", default=True))
     # 段階1スライス2：完了キュー経由の1反復1ツール連鎖の反復上限（暴走防止の安全弁）。
     # ネットの調べものは search（リンクが返る）→ fetch（本文を読む）→ 答える で最低3手。
     # 3 だと答える手が残らず、読めなかったときの取り直しの余地も無い（実機で観測）。

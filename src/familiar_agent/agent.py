@@ -28,7 +28,7 @@ from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内�
 from typing import Any
 
 from .backend import AnthropicBackend, create_backend, create_scene_backend, create_utility_backend
-from .appraisal import AppraisalContext, AppraisalEngine
+from .appraisal import AppraisalEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
@@ -54,14 +54,14 @@ from .exploration import ExplorationTracker
 from .scene import SceneTracker
 from .attention_schema import AttentionSchema
 from .default_mode import DefaultModeProcessor
-from .meta_monitor import MetaGateDecision, MetaMonitor
+from .meta_monitor import MetaMonitor
 from .poses import Pose, build_pose_registry
 from .presence_sensor import PresenceSensor
 from .prediction import PredictionEngine
 from .social_policy import SocialPolicyDecision, SocialPolicyEngine
 from .workspace import GlobalWorkspace
 from .memory_worker import MemoryJobWorker
-from .legacy.tape import check_plan_blocked, generate_plan, generate_replan
+from .legacy.tape import generate_plan
 from .tools.camera import CameraTool
 from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool
@@ -90,7 +90,6 @@ from .capability_state import (
     filter_enabled,
     save_summary,
     should_refresh,
-    should_regenerate_manifest,
     should_regenerate_on_startup,
 )
 
@@ -2792,8 +2791,7 @@ class EmbodiedAgent:
     def _ensure_event_loop(self, on_text=None, on_action=None) -> None:
         """I（情報処理機構）と T（自律機構）を用意する。
 
-        T は時計を持つ唯一の側で、`EVENT_LOOP` on のときだけ立てる。off では従来の経路
-        （GUI の描画ループ）が drive を進めるので、両方が同時に進めないようにする。
+        T は時計を持つ唯一の側で、drive を進めて発火を QA へ積む。
         """
         from .loop.event_loop import InformationProcessing
         from .loop.tonic import Tonic
@@ -2803,21 +2801,19 @@ class EmbodiedAgent:
         if on_text is not None or on_action is not None:
             self._info_processing.set_output(on_text, on_action=on_action)
         self._info_processing.start()
-        if getattr(self.config, "event_loop", False) is True:
-            if getattr(self, "_tonic", None) is None:
-                self._tonic = Tonic(self._info_processing, agent=self,
-                                    presence=getattr(self, "_presence_sensor", None))
-            self._tonic.start()
-            # RH（資源ハンドラ）の完了を QC へ渡す。off のままだと従来どおり溜めて
-            # ポーリングで拾われるので、二重配信にならない（排他）。
-            ip = self._info_processing
-            for tool in (self._deferred_search, self._deferred_fetch):
-                with contextlib.suppress(Exception):
-                    tool.set_completion_sink(ip.push_completion)
-            # MCP とメモリワーカーの起動は run() の中にあり、イベントループの分岐は run() の
-            # 先頭で return するため到達しなかった。結果 MCP のツールが登録されず、検索が
-            # 「tool not found」で即失敗していた（実機で観測）。ここでも起こす。
-            self._start_background_services()
+        if getattr(self, "_tonic", None) is None:
+            self._tonic = Tonic(self._info_processing, agent=self,
+                                presence=getattr(self, "_presence_sensor", None))
+        self._tonic.start()
+        # RH（資源ハンドラ）の完了を QC へ渡す。
+        ip = self._info_processing
+        for tool in (self._deferred_search, self._deferred_fetch):
+            with contextlib.suppress(Exception):
+                tool.set_completion_sink(ip.push_completion)
+        # MCP とメモリワーカーの起動は run() の中にあり、イベントループの分岐は run() の
+        # 先頭で return するため到達しなかった。結果 MCP のツールが登録されず、検索が
+        # 「tool not found」で即失敗していた（実機で観測）。ここでも起こす。
+        self._start_background_services()
 
     def _start_background_services(self) -> None:
         """MCP とメモリワーカーを起こす（未起動なら）。run() とイベントループの両方から呼ぶ。"""
@@ -3028,10 +3024,14 @@ class EmbodiedAgent:
         desire_name: str = "",
         interrupt_queue=None,
     ) -> str:
-        """Run one conversation turn with the agent loop.
+        """人の発話で1ターン回す。
 
-        inner_voice: agent's own desire/impulse (injected into system prompt, NOT a user message).
-        desire_name: the desire that triggered this turn (empty for user turns).
+        中身はイベント駆動ループ（I と T）が持つ。スラッシュコマンドだけは LLM を
+        呼ばずにここで返す。
+
+        `on_image`・`on_phase`・`on_tool_result`・`desires`・`inner_voice`・`desire_name`・
+        `interrupt_queue` は旧経路の引数で、いまはどれも使っていない。GUI と TUI が
+        渡しているので受けるだけにしてある（呼び出し側の整理は #12a の後段）。
         """
         # ── Speaker identification ────────────────────────────────────────────
         # /speaker command sets the session-default speaker.
@@ -3062,750 +3062,14 @@ class EmbodiedAgent:
                 on_text(_think_reply)
             return _think_reply
 
-        # #11 段階1：EVENT_LOOP on の user turn は新イベント駆動ループへ排他切替（発話のみ）。
-        if getattr(self.config, "event_loop", False) is True and user_input and not desire_name:
-            # I（情報処理機構）と T（自律機構）を用意し、LPM の反復を回す。
-            # GUI は「発話は on_action("say") で来る」前提で作られている（素テキストは
-            # say の前の途中経過としてしか扱わず、say が出たら捨てる）。渡さないと GUI に
-            # 何も表示されない（実機で観測）。
-            self._ensure_event_loop(on_text, on_action)
-            return await self._info_processing.run_iteration(user_input, on_text=on_text)
-
-        if desires is not None:
-            self._desires_ref = desires
-        if not hasattr(self, "_schedule_rule"):
-            self._schedule_rule = quiet_hours_rule()
-        if not hasattr(self, "_mental_state_bus"):
-            self._mental_state_bus = MentalStateBus()
-        if not hasattr(self, "_appraisal"):
-            self._appraisal = AppraisalEngine()
-        if not hasattr(self, "_social_policy"):
-            self._social_policy = SocialPolicyEngine()
-        if not hasattr(self, "_heartbeat"):
-            self._heartbeat = HeartbeatRuntime(
-                memory=getattr(self, "_memory", None),
-                quiet_rule=self._schedule_rule,
-            )
-        if not hasattr(self, "_last_tool_error"):
-            self._last_tool_error = None
-        if not hasattr(self, "_tool_failure_streak"):
-            self._tool_failure_streak = 0
-        if not hasattr(self, "_last_human_at"):
-            self._last_human_at = time.time()
-        if not hasattr(self, "_cache_heartbeat_task"):
-            if isinstance(self.backend, AnthropicBackend):
-                self._cache_heartbeat_task: asyncio.Task[None] | None = asyncio.create_task(
-                    self._cache_heartbeat_loop(), name="cache-heartbeat"
-                )
-            else:
-                self._cache_heartbeat_task = None
-
-        self._turn_count += 1
-        first_turn = self._turn_count == 1
-        memory_worker = getattr(self, "_memory_worker", None)
-        startup_phase = (
-            first_turn
-            or not self._memory.is_embedding_ready()
-            or (self._mcp is not None and not self._mcp.is_started)
-            or (memory_worker is not None and not memory_worker.is_running)
-        )
-        if on_phase:
-            on_phase("startup" if startup_phase else "thinking")
-
-        # Start MCP connections in background (non-blocking) and memory worker
-        if self._mcp and not self._mcp.is_started:
-            self._mcp_start_task = asyncio.ensure_future(self._mcp.start())
-        if memory_worker and not memory_worker.is_running:
-            await memory_worker.start()
-
-        is_desire_turn = bool(inner_voice and not user_input)
-        self._current_is_desire_turn = is_desire_turn
-        self._current_desire_name = desire_name
-
-        # Reset per-turn note registration counter for boost gating (Issue D).
-        if hasattr(self, "_memory_tool"):
-            self._memory_tool._notes_registered_this_turn = 0
-
-        # Tell the deferred tools whether this is a user-initiated turn so pending
-        # results can be tagged and quiet-hours bypassed for user-requested searches.
-        self._deferred_search.set_user_turn(not is_desire_turn)
-        self._deferred_fetch.set_user_turn(not is_desire_turn)
-
-        # Suppress social desire turns during quiet hours (don't wake the user).
-        # Exception: share_search_result bypasses quiet hours only when the user explicitly
-        # requested the search AND is still present (last message within 30 minutes).
-        if is_desire_turn and is_social_desire(desire_name):
-            _rule = getattr(self, "_schedule_rule", None)
-            if _rule is not None and _rule.is_quiet():
-                import time as _time
-                _user_recent = (
-                    _time.time() - getattr(self, "_last_human_at", 0) < 1800
-                )
-                _delivering_user_search = (
-                    desire_name == "share_search_result"
-                    and _user_recent
-                    and (
-                        self._deferred_search.has_user_initiated_pending
-                        or self._deferred_fetch.has_user_initiated_pending
-                    )
-                )
-                if not _delivering_user_search:
-                    logger.debug("Social desire '%s' suppressed: quiet hours", desire_name)
-                    return ""
-
-        candidate_brief_turn = self._is_candidate_brief_turn(
-            user_input,
-            is_desire_turn=is_desire_turn,
-        )
-
-        # If PMM speaker was never set (e.g. first turn, no face recognition), sync from PersonRegistry.
-        if getattr(self, "_pmm", None) and self._pmm.current_speaker_id is None:
-            await self._sync_pmm_speaker(self._persons.active_name)
-
-        # Fire mood inference immediately so it runs in parallel with all DB preprocessing.
-        # Awaited just before it is needed; overlap with unfinished_business + recall gather
-        # absorbs most of the Gemini round-trip.
-        _mood_task: asyncio.Task[str] | None = None
-        if not is_desire_turn and not candidate_brief_turn:
-            _mood_task = asyncio.create_task(self._infer_companion_mood(user_input))
-
-        # First turn: reset thinking mode and speaker to .env defaults (session-scoped)
-        if first_turn:
-            if hasattr(self.backend, "thinking_mode"):
-                self.backend.thinking_mode = self.config.thinking_mode
-                self._thinking_user_override = False
-            self._persons.reset_to_default()
-            for _watcher in (getattr(self, "_presence_sensor", None),
-                             getattr(self, "_motion_events", None)):
-                if _watcher is not None:
-                    asyncio.ensure_future(_watcher.start())
-
-        # First turn: morning reconstruction — bridge yesterday's self to today's
-        morning_ctx = ""
-        routine_state = self._heartbeat.routine_state()
-        if first_turn:
-            self._relationship.record_session()
-            routine_notes = self._heartbeat.morning_reconstruction_notes()
-            if candidate_brief_turn:
-                morning_ctx = routine_notes or ""
-            else:
-                morning_ctx = await self._morning_reconstruction(desires=desires)
-                if routine_notes:
-                    morning_ctx = (
-                        f"{morning_ctx}\n\n{routine_notes}" if morning_ctx else routine_notes
-                    )
-            backup_note = self._backup_status_note()
-            if backup_note:
-                morning_ctx = f"{morning_ctx}\n\n{backup_note}" if morning_ctx else backup_note
-
-        # Compact context if it has grown too large (GC-like: compress old turns)
-        if self._should_compact():
-            await self._compact_messages()
-
-        # Inject relevant past memories + emotional context (skip for desire-driven turns)
-        recall_n = 5 if self._post_compact else 3
-        self._post_compact = False  # consume the flag regardless
-        interoception_signal, interoception_pressure = self._collect_interoception()
-        prediction_signal = self._prediction.last_signal()
-        unfinished_business: list[dict] = []
-        if not candidate_brief_turn:
-            list_unfinished_business = getattr(self._memory, "list_unfinished_business_async", None)
-            unfinished_business = await _call_optional_async(
-                list_unfinished_business,
-                limit=3,
-                fallback=[],
-            )
-        companion_mood = "engaged"
-        working_memory: list[dict] = []
-        semantic_facts: list[dict] = []
-        behavior_policies: list[dict] = []
-        feelings: list[dict] = []
-        memories: list[dict] = []
-        recall_divergent = getattr(self._memory, "recall_divergent_async", None)
-        refresh_working = getattr(self._memory, "refresh_working_memory_async", None)
-        get_working = getattr(self._memory, "get_working_memory_async", None)
-        if not is_desire_turn:
-            if candidate_brief_turn:
-                companion_mood = self._cached_companion_mood or "engaged"
-                user_input_with_ctx = user_input
-                feelings_ctx = ""
-            else:
-                # Build the memories coroutine lazily so it runs inside gather,
-                # not sequentially before it (the eager-await fallback pattern was slow).
-                _memories_coro = (
-                    _call_optional_async(recall_divergent, user_input, n=recall_n, fallback=[])
-                    if recall_divergent is not None
-                    else self._active_memory().recall_async(user_input, n=recall_n, min_score=MemoryConfig().recall_min_score, present_others=self._present_others_for_recall())
-                )
-                (
-                    memories,
-                    feelings,
-                    semantic_facts,
-                    behavior_policies,
-                    working_memory,
-                ) = await asyncio.gather(
-                    _memories_coro,
-                    self._memory.recent_feelings_async(n=4),
-                    self._memory.recall_semantic_facts_async(user_input, n=3),
-                    self._memory.recall_behavior_policies_async(user_input, n=2),
-                    _call_optional_async(
-                        refresh_working,
-                        user_input,
-                        n=4,
-                        fallback=[],
-                    ),
-                )
-                # Mood task was fired before all DB preprocessing; by now it is
-                # likely already done (Gemini overlapped with recall gather).
-                try:
-                    companion_mood = (
-                        await _mood_task if _mood_task is not None
-                        else self._cached_companion_mood or "engaged"
-                    )
-                except Exception:
-                    companion_mood = self._cached_companion_mood or "engaged"
-                working_memory = await _call_optional_async(get_working, n=4, fallback=[])
-                temporal_ctx = self._cached_temporal_ctx
-                memory_parts = []
-                if memories:
-                    memory_parts.append(self._memory.format_for_context(memories))
-                if feelings:
-                    memory_parts.append(self._memory.format_feelings_for_context(feelings))
-                if semantic_facts:
-                    memory_parts.append(
-                        self._memory.format_semantic_facts_for_context(semantic_facts)
-                    )
-                if behavior_policies:
-                    memory_parts.append(
-                        self._memory.format_behavior_policies_for_context(behavior_policies)
-                    )
-                if temporal_ctx:
-                    memory_parts.append(temporal_ctx)
-                if memory_parts:
-                    user_input_with_ctx = user_input + "\n\n" + "\n\n".join(memory_parts)
-                else:
-                    user_input_with_ctx = user_input
-                feelings_ctx = (
-                    self._memory.format_feelings_for_context(feelings) if feelings else ""
-                )
-        else:
-            # Desire turn: no user context needed; feelings injected via interoception
-            feelings_ctx = ""
-            # Use a minimal placeholder — the real instruction is in inner_voice (system prompt).
-            # The previous "（内的衝動に従って行動）" marker was echoed verbatim by the LLM.
-            # "." is the shortest non-whitespace string accepted by the Anthropic API.
-            user_input_with_ctx = "."
-
-        if self._tool_failure_streak >= 2 and desires is not None:
-            desires.boost("self_protect", min(0.5, 0.15 * self._tool_failure_streak))
-
-        affect = self._appraisal.appraise(
-            AppraisalContext(
-                user_text=user_input,
-                companion_mood=companion_mood,
-                relationship_trust=self._relationship.trust,
-                relationship_intimacy=self._relationship.intimacy,
-                recalled_memory_summaries=tuple(m.get("summary", "") for m in memories[:3]),
-                prediction_signal=prediction_signal,
-                interoception=interoception_pressure,
-                blocked_drives=("tool_failure",) if self._tool_failure_streak else (),
-                unfinished_business_count=len(unfinished_business),
-            )
-        )
-
-        previous_response_hurt = any(
-            token in user_input.lower() for token in ("hurt", "傷つ", "前の返事", "嫌だった")
-        )
-        social_policy = self._social_policy.decide(
-            user_text=user_input,
-            affect=affect,
-            trust=self._relationship.trust,
-            intimacy=self._relationship.intimacy,
-            interoception=interoception_pressure,
-            previous_response_hurt=previous_response_hurt,
-        )
-        self._last_social_decision = social_policy
-        self._provisional_relationship_update(user_text=user_input, social_policy=social_policy)
-
-        if desires is not None:
-            context_affordances = {
-                "repair": 1.3 if social_policy.primary_act == "repair_attempt" else 1.0,
-                "care": 1.2
-                if social_policy.primary_act in {"fatigue_signal", "grief_signal", "venting"}
-                else 1.0,
-                "play": 1.15 if social_policy.primary_act == "playful_probe" else 0.9,
-                "attachment": 1.1 if affect.attachment_pull > 0.55 else 1.0,
-                "consolidate": 1.2 if unfinished_business else 1.0,
-                "self_protect": 1.2 if self._tool_failure_streak >= 2 else 1.0,
-            }
-            _presence = self._social_presence_permission()
-            _threat_factor = max(0.2, 1.0 - affect.threat * 0.35)
-            desires.update_context(
-                schedule_multiplier=routine_state.schedule_multiplier,
-                social_permission=_threat_factor * _presence if _presence > 0.0 else 0.0,
-                energy_budget=max(0.2, 1.0 - interoception_pressure.need_rest * 0.6),
-                unfinished_business_bonus=min(0.4, len(unfinished_business) * 0.1),
-                context_affordances=context_affordances,
-            )
-            if social_policy.primary_act == "repair_attempt":
-                desires.boost("repair", 0.45)
-            if social_policy.primary_act == "delight_share":
-                desires.boost("attachment", 0.18)
-            if social_policy.primary_act in {"fatigue_signal", "grief_signal"}:
-                desires.boost("care", 0.22)
-            if affect.frustration > 0.45:
-                desires.boost("self_protect", 0.12)
-
-        brief_reply_turn = self._should_use_brief_reply_mode(
-            user_input=user_input,
-            social_policy=social_policy,
-            is_desire_turn=is_desire_turn,
-        )
-
-        # Inject deferred results into messages (persistent history) before appending.
-        # This ensures the LLM can see delivered results in all subsequent turns.
-        _deferred_parts: list[str] = []
-        if _search_ctx := self._deferred_search.pending_context():
-            _deferred_parts.append(_search_ctx)
-        if _fetch_ctx := self._deferred_fetch.pending_context():
-            _deferred_parts.append(_fetch_ctx)
-        if _deferred_parts:
-            _deferred_block = "\n\n".join(_deferred_parts)
-            user_input_with_ctx = _deferred_block + "\n\n---\n\n" + user_input_with_ctx
-            # When results arrive alongside a user message, guide the LLM to report them.
-            if not inner_voice:
-                inner_voice = (
-                    "調べておいた結果が届いた。"
-                    "いつものトーンで自然にユーザーに伝えよう。改めての挨拶は不要。"
-                )
-
-        self.messages.append(self.backend.make_user_message(user_input_with_ctx))
-
-        # Use cached plan & workspace context from previous turn's post-response pipeline.
-        # These are computed in the background after each response and are ready for the
-        # next turn.  First turn uses empty defaults — morning_ctx dominates anyway.
-        plan_ctx = "" if brief_reply_turn else self._cached_plan_ctx
-        workspace_ctx = ""
-        continuity_ctx = ""
-        tape_backend = self._tape_backend()  # still needed for in-loop replanning
-        if not brief_reply_turn:
-            extra_coalitions = [affect.as_coalition()]
-            workspace_ctx = await self._gather_workspace_context(
-                # Delivery turns exclude desire coalitions: social impulses (greet etc.)
-                # would override the inner-voice directive to report search/fetch results.
-                # Affect, memory, attention etc. still compete to preserve personality tone.
-                desires=None if _deferred_parts else desires,
-                extra_coalitions=extra_coalitions,
-            )
-            if not workspace_ctx:
-                workspace_ctx = self._cached_workspace_ctx
-            continuity_ctx = self._self_continuity_context()
-            heartbeat_ctx = self._heartbeat.continuity_context_for_prompt()
-            if heartbeat_ctx:
-                continuity_ctx = (
-                    continuity_ctx
-                    + ("\n\n" if continuity_ctx else "")
-                    + "[Continuation]\n"
-                    + heartbeat_ctx
-                )
-            if unfinished_business:
-                continuity_ctx = (
-                    continuity_ctx
-                    + ("\n\n" if continuity_ctx else "")
-                    + "[Open unfinished business]\n"
-                    + "\n".join(f"- {item['summary'][:160]}" for item in unfinished_business[:3])
-                )
-            if plan_ctx:
-                logger.debug("TAPE plan (cached): %s", plan_ctx[:80])
-            if workspace_ctx:
-                logger.debug("GlobalWorkspace broadcast (cached): %s", workspace_ctx[:80])
-
-        mental_snapshot = self._build_mental_snapshot(
-            interoception_signal=interoception_signal,
-            affect=affect,
-            social_policy=social_policy,
-            working_memory=working_memory,
-            continuity_note="; ".join(item["summary"][:80] for item in unfinished_business[:2]),
-            desires=desires,
-        )
-        if brief_reply_turn:
-            mental_ctx = "\n\n".join(
-                part
-                for part in (
-                    self._format_social_policy_prompt(social_policy),
-                    self._brief_reply_prompt(),
-                )
-                if part
-            )
-        else:
-            mental_ctx = "\n\n".join(
-                part
-                for part in (
-                    self._mental_state_bus.summarize_recent_for_prompt(2),
-                    mental_snapshot.prompt_summary(),
-                    self._format_social_policy_prompt(social_policy),
-                )
-                if part
-            )
-
-        if on_phase and startup_phase:
-            on_phase("thinking")
-
-        camera_used = False
-        camera_image: str | None = None  # raw base64 JPEG from the latest `see` tool call
-        say_used = False
-        # 実際にユーザーへ届いた発話。2回目以降の say() は音声も画面表示も抑制される
-        # ので、届いた最初の1回だけを持つ。永続化はこれと本文の両方を使う。
-        spoken_text = ""
-        # ターン中に書かれた本文（考えたこと）。最後の周だけでなく、ツールを使った
-        # 周に書かれたものも自分がしたことなので拾う。
-        turn_thoughts: list[str] = []
-        say_nudge_used = False  # one-time say() nudge per turn (silence-control step 3)
-        final_text = "(no response)"
-        non_say_streak = 0  # consecutive tool calls without say()
-        observation_action_name: str | None = None
-        observation_action_input: dict | None = None
-        pending_view_action_name: str | None = None
-        pending_view_action_input: dict | None = None
-        turn_tools = self._tool_defs_for_turn(brief_reply_mode=brief_reply_turn)
-        turn_max_tokens = (
-            min(self.config.max_tokens, _BRIEF_REPLY_MAX_TOKENS)
-            if brief_reply_turn
-            else self.config.max_tokens
-        )
-        turn_max_iterations = _BRIEF_REPLY_MAX_ITERATIONS if brief_reply_turn else MAX_ITERATIONS
-        backend_turn_snapshot = self._configure_backend_for_turn(
-            brief_reply_mode=brief_reply_turn,
-            user_input=user_input,
-        )
-        _internal_backend_saved = self._maybe_swap_internal_backend(is_desire_turn, desire_name)
-        # 内的desireターンは結果を履歴に残さないためローカルコピーを使う。
-        # 通常ターンは本体参照。形式変換は各バックエンドの stream_turn 内部が行う（呼び出し側は変換しない）。
-        if _internal_backend_saved is not None:
-            # 非社会的な内的desireターンは会話履歴を引き継がない（直前発話の復唱を防ぐ）。
-            # 内的衝動は会話の残響でなく記憶の想起（system promptの[Resurfaced memory]）に基づく。
-            # 直前に追加した最小プレースホルダ "." のみを起点にする
-            # （messagesを空にすると Gemini の contents が空になり拒否されるため）。
-            # ターン内で生成されるメッセージは turn_messages.append で積まれ連続性は保たれる。
-            turn_messages = [self.messages[-1]]
-        else:
-            turn_messages = self.messages
-
-        try:
-            for i in range(turn_max_iterations):
-                logger.debug("Agent iteration %d", i + 1)
-
-                result, raw_content = await self.backend.stream_turn(
-                    system=self._system_prompt(
-                        feelings_ctx,
-                        morning_ctx,
-                        inner_voice=inner_voice,
-                        plan_ctx=plan_ctx,
-                        companion_mood=companion_mood,
-                        continuity_ctx=continuity_ctx,
-                        workspace_ctx=workspace_ctx,
-                        mental_ctx=mental_ctx,
-                    ),
-                    messages=turn_messages,
-                    tools=turn_tools,
-                    max_tokens=turn_max_tokens,
-                    on_text=on_text,
-                )
-                _text = (result.text or "").strip()
-                if _text and _text not in turn_thoughts:
-                    turn_thoughts.append(_text)
-                self._last_context_tokens = result.input_tokens
-                self._session_input_tokens += result.input_tokens
-                self._session_output_tokens += result.output_tokens
-
-                # HOT layer: record this step metacognitively
-                _focus = self._attention_schema.current_focus()
-                if _focus is not None:
-                    _action = result.stop_reason
-                    if result.stop_reason == "tool_use" and result.tool_calls:
-                        _action = result.tool_calls[0].name
-                    _conf = min(1.0, result.output_tokens / max(1, self.config.max_tokens))
-                    self._meta_monitor.record_step(_focus, action=_action, confidence=_conf)
-
-                if result.stop_reason == "end_turn":
-                    turn_messages.append(self.backend.make_assistant_message(result, raw_content))
-                    final_text = result.text or "(no response)"
-
-                    # One-time say() nudge (silence-control step 3): on a USER turn,
-                    # if the model wrote text but never spoke, prompt it once to add
-                    # a say(). It may still choose silence. Desire turns are exempt —
-                    # autonomous turns decide their own voicing via the gates above.
-                    if not say_used and not is_desire_turn and not say_nudge_used:
-                        say_nudge_used = True
-                        turn_messages.append(
-                            self.backend.make_user_message(
-                                "まだ声に出していない。必要なら say() で一言。"
-                                "不要なら何もしなくてよい。"
-                            )
-                        )
-                        continue
-
-                    gate_method = getattr(self._meta_monitor, "gate_response", None)
-                    gate: MetaGateDecision | None = None
-                    if callable(gate_method):
-                        maybe_gate = gate_method(
-                            user_text=user_input,
-                            candidate_response=final_text,
-                            social_policy=social_policy,
-                            last_error=self._last_tool_error,
-                        )
-                        if isinstance(maybe_gate, MetaGateDecision):
-                            gate = maybe_gate
-                    if gate is not None and gate.needs_repair and gate.repaired_response:
-                        final_text = gate.repaired_response
-
-                    continuation_status = "DONE"
-                    status_match = re.search(
-                        r"(?:^|\n)(DONE|CONTINUE:[^\n]+|DEFER:[^\n]+)\s*$", final_text
-                    )
-                    if status_match:
-                        continuation_status = status_match.group(1)
-                        final_text = final_text[: status_match.start(1)].rstrip() or "(no response)"
-                    self._heartbeat.apply_status(continuation_status)
-
-                    # Coherence gate: ask utility backend whether the response contains
-                    # a logical error. Only fires once to avoid infinite loops.
-                    _coherence_enabled = os.environ.get("FAMILIAR_COHERENCE_CHECK", "").strip() in (
-                        "1",
-                        "true",
-                        "yes",
-                    )
-                    if _coherence_enabled and not getattr(self, "_coherence_retried", False):
-                        violation = await self._check_response_coherence(final_text)
-                        if violation:
-                            self._coherence_retried = True
-                            turn_messages.append(
-                                self.backend.make_user_message(
-                                    f"[SELF-CHECK] Your previous response has a problem: "
-                                    f"{violation}. Please correct it and respond again."
-                                )
-                            )
-                            say_used = False
-                            continue
-
-                    self._coherence_retried = False
-
-                    # そのターンに自分がしたこと＝考えたこと（本文）と話したこと（say）。
-                    # 区別せず両方を残す。本文は say() が出ると画面からは捨てられるが、
-                    # 「考えたが言わなかったこと」として記憶には残す価値がある。
-                    turn_record = "\n".join(
-                        x for x in (*turn_thoughts, spoken_text) if x
-                    )
-                    if turn_record:
-                        try:
-                            self._mental_state_bus.append(mental_snapshot)
-                        except Exception as exc:  # noqa: BLE001
-                            logger.warning("Failed to persist mental state snapshot: %s", exc)
-                        # A（評価器 arousal）＝内容の novelty（外からの驚き。自発ターンは
-                        # final_text へフォールバック）。keyword appraisal の arousal は使わない。
-                        turn_arousal = await self._turn_arousal(user_input, turn_record)
-                        self._spawn_background_task(
-                            self._run_post_response_pipeline(
-                                user_input=user_input,
-                                final_text=turn_record,
-                                camera_used=camera_used,
-                                camera_image=camera_image,
-                                observation_action_name=observation_action_name,
-                                observation_action_input=observation_action_input,
-                                companion_mood=companion_mood,
-                                is_desire_turn=is_desire_turn,
-                                desires=desires,
-                                arousal=turn_arousal,
-                                memories=memories,
-                            ),
-                            name="post-response-pipeline",
-                        )
-                        # Regenerate capabilities.yaml during rest turns (at most once per day).
-                        if desire_name == "rest" and should_regenerate_manifest():
-                            self._spawn_background_task(
-                                self._regenerate_capability_manifest(),
-                                name="capability-manifest-regen",
-                            )
-
-                        # Boost share_memory when note_to_share was actually called
-                        # this turn (pending 登録経由の boost — Issue D).
-                        if (
-                            is_desire_turn
-                            and desire_name
-                            and not is_social_desire(desire_name)
-                            and desires is not None
-                        ):
-                            _notes_n = getattr(
-                                getattr(self, "_memory_tool", None),
-                                "_notes_registered_this_turn", 0
-                            )
-                            if _notes_n > 0:
-                                _share_boost = min(0.35, _notes_n * 0.15)
-                                desires.boost("share_memory", _share_boost)
-                                logger.debug(
-                                    "note_to_share ×%d → share_memory +%.2f",
-                                    _notes_n,
-                                    _share_boost,
-                                )
-
-                    return final_text
-
-                if result.stop_reason == "tool_use":
-                    collected: list[tuple[str, str | None]] = []
-                    for tc in result.tool_calls:
-                        if tc.name == "see":
-                            camera_used = True
-                            if pending_view_action_name is not None:
-                                observation_action_name = pending_view_action_name
-                                observation_action_input = dict(pending_view_action_input or {})
-                            else:
-                                observation_action_name = "see"
-                                observation_action_input = dict(tc.input)
-                            pending_view_action_name = None
-                            pending_view_action_input = None
-                        elif tc.name in {"look", "walk"}:
-                            pending_view_action_name = tc.name
-                            pending_view_action_input = dict(tc.input)
-                        # Capture whether say() was already used BEFORE updating say_used,
-                        # so we can suppress duplicate audio in the same turn.
-                        _is_duplicate_say = tc.name == "say" and say_used
-                        if tc.name == "say":
-                            if not _is_duplicate_say and not spoken_text:
-                                spoken_text = str(tc.input.get("text", "")).strip()
-                            say_used = True
-                            non_say_streak = 0
-                        else:
-                            non_say_streak += 1
-                        logger.info("Tool call: %s(%s)", tc.name, tc.input)
-                        if on_action and not _is_duplicate_say:
-                            on_action(tc.name, tc.input)
-
-                        if _is_duplicate_say:
-                            logger.warning(
-                                "say() called again in same turn — duplicate audio suppressed"
-                            )
-                            text, image = "(duplicate say suppressed: already spoke this turn)", None
-                        else:
-                            timeout_s = self._tool_timeout_seconds(tc.name)
-                            try:
-                                text, image = await asyncio.wait_for(
-                                    self._execute_tool(tc.name, tc.input),
-                                    timeout=timeout_s,
-                                )
-                                self._last_tool_error = None
-                                self._tool_failure_streak = 0
-                            except asyncio.TimeoutError:
-                                logger.warning("Tool %s timed out after %.1fs", tc.name, timeout_s)
-                                text, image = (
-                                    f"Tool timeout: {tc.name} exceeded {timeout_s:.1f}s.",
-                                    None,
-                                )
-                                self._last_tool_error = text
-                                self._tool_failure_streak += 1
-                            except Exception as e:
-                                logger.warning("Tool %s failed: %s", tc.name, e)
-                                text, image = f"Tool error: {e}", None
-                                self._last_tool_error = str(e)
-                                self._tool_failure_streak += 1
-
-                        if not _is_duplicate_say and (
-                            tape_backend
-                            and plan_ctx
-                            and await check_plan_blocked(
-                                tape_backend, plan_ctx, tc.name, tc.input, text
-                            )
-                        ):
-                            logger.info("TAPE: plan blocked after %s, replanning...", tc.name)
-                            replan = await generate_replan(
-                                tape_backend, plan_ctx, tc.name, tc.input, text
-                            )
-                            if replan:
-                                text = f"{text}\n\n[ADAPTIVE REPLAN] {replan}"
-                                logger.info("TAPE replan: %s", replan[:80])
-
-                        logger.info("Tool result: %s", text[:100])
-                        if tc.name == "see" and image:
-                            camera_image = image
-                            _path_m = re.search(r"\(saved to ([^)]+)\)", text)
-                            if _path_m:
-                                asyncio.ensure_future(
-                                    self._apply_face_hint(_path_m.group(1))
-                                )
-                        if image and on_image is not None:
-                            on_image(image)
-                        if on_tool_result is not None and not _is_duplicate_say:
-                            on_tool_result(tc.name, tc.input, text)
-                        collected.append((text, image))
-
-                    turn_messages.append(self.backend.make_assistant_message(result, raw_content))
-                    tool_msgs = self.backend.make_tool_results(result.tool_calls, collected)
-                    turn_messages.append(tool_msgs)
-
-                    if interrupt_queue is not None and not interrupt_queue.empty():
-                        interrupts = self._drain_interrupt_queue(interrupt_queue)
-                        if interrupts:
-                            head = " / ".join(interrupts[:3])
-                            if len(interrupts) > 3:
-                                head += f" (+{len(interrupts) - 3} more)"
-                            logger.debug("Consumed %d queued interrupts", len(interrupts))
-                            turn_messages.append(
-                                self.backend.make_user_message(
-                                    f"[User interrupted x{len(interrupts)}]: {head}. "
-                                    "Respond to this directly with say() now."
-                                )
-                            )
-                            non_say_streak = 0
-
-                    elif non_say_streak >= 2 and not say_used:
-                        turn_messages.append(
-                            self.backend.make_user_message(
-                                "REMINDER: Writing text is silent. You MUST call say() to be heard. "
-                                "Call say() NOW. Keep it to 1-2 sentences."
-                            )
-                        )
-                        non_say_streak = 0
-
-                    elif say_used and non_say_streak >= 2:
-                        turn_messages.append(
-                            self.backend.make_user_message(
-                                "You already spoke. Stop exploring and end your turn now."
-                            )
-                        )
-                        non_say_streak = 0
-
-                    continue
-
-                logger.warning("Unexpected stop_reason: %s", result.stop_reason)
-                break
-
-            logger.warning(
-                "Reached max iterations (%d). Forcing final response.",
-                turn_max_iterations,
-            )
-            turn_messages.append(
-                self.backend.make_user_message(
-                    "Please summarize what you found and provide your final answer now."
-                )
-            )
-            result, _ = await self.backend.stream_turn(
-                system=self._system_prompt(
-                    morning_ctx=morning_ctx,
-                    plan_ctx=plan_ctx,
-                    continuity_ctx=continuity_ctx,
-                    workspace_ctx=workspace_ctx,
-                    mental_ctx=mental_ctx,
-                ),
-                messages=turn_messages,
-                tools=[],
-                max_tokens=turn_max_tokens,
-                on_text=on_text,
-            )
-            return result.text or "(max iterations reached)"
-        finally:
-            self._restore_backend_after_turn(backend_turn_snapshot)
-            if _internal_backend_saved is not None:
-                # turn_messages はローカル変数なので self.messages は汚染されていない。復元不要。
-                self.backend = _internal_backend_saved
+        if not user_input:
+            return ""
+        # I（情報処理機構）と T（自律機構）を用意し、LPM の反復を回す。
+        # GUI は「発話は on_action("say") で来る」前提で作られている（素テキストは
+        # say の前の途中経過としてしか扱わず、say が出たら捨てる）。渡さないと GUI に
+        # 何も表示されない（実機で観測）。
+        self._ensure_event_loop(on_text, on_action)
+        return await self._info_processing.run_iteration(user_input, on_text=on_text)
 
     @property
     def stt(self) -> STTTool | None:

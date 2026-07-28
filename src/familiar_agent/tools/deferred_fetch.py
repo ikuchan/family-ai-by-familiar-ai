@@ -98,7 +98,7 @@ class DeferredFetchTool:
         )
 
     def set_completion_sink(self, sink) -> None:
-        """完了の渡し先を繋ぐ（`EVENT_LOOP` on のとき・引数は (url, result)）。"""
+        """完了の渡し先を繋ぐ（引数は (url, result)）。"""
         self._completion_sink = sink
 
     def _deliver(self, url: str, result: str) -> bool:

@@ -65,49 +65,21 @@ async def test_conversation_turn_persists_the_memory() -> None:
 
     2026-06-29 から 2026-07-20 まで、`say()` だけで話したターンで永続化が丸ごと
     飛ばされ、記憶が3週間書かれなかった。経路を問わず「ターンが記憶を残す」ことを
-    見る。
+    見る。#12a で旧 run() を撤去したので、いまの経路（イベント駆動ループ）で見る。
     """
-    from familiar_agent.agent import EmbodiedAgent
     from familiar_agent.backend import ToolCall
+    from familiar_agent.loop.event_loop import InformationProcessing
 
-    from tests.test_agent_react_loop import _make_agent, _patch_heavy, _turn
+    from tests.test_event_loop import _agent, _turn
 
-    agent = _make_agent(with_tts=True)
-    agent.backend.stream_turn = AsyncMock(
-        side_effect=[
-            (
-                _turn("tool_use", text="", tool_calls=[
-                    ToolCall(id="t1", name="say", input={"text": "おはよう"})
-                ]),
-                "",
-            ),
-            (_turn("end_turn", text=""), ""),
-        ]
-    )
+    agent = _agent(stream_returns=[
+        _turn([ToolCall(id="t1", name="say", input={"text": "おはよう"})])
+    ])
+    await InformationProcessing(agent).run_iteration("おはよう")
 
-    # 永続化パイプラインだけは本物を通す（保存が呼ばれるかを見たいため）。
-    ps = _patch_heavy({
-        "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline":
-            EmbodiedAgent._run_post_response_pipeline,
-    })
-    for p in ps:
-        p.start()
-    try:
-        await agent.run("おはよう")
-        # 永続化は背景タスクなので、run() を await しただけでは終わっていない。
-        await agent._drain_background_tasks()
-    finally:
-        for p in ps:
-            p.stop()
-
-    # 永続化は save_async／save_async_with_id のどちらかを通る（会話 save は id 捕捉で
-    # save_async_with_id・拡散想起 WR の新記憶↔W 接続のため）。経路を問わず残ることを見る。
-    _persisted = (
-        agent._memory.save_async.await_count
-        + agent._memory.save_async_with_id.await_count
-    )
-    assert _persisted >= 1, "ターンが記憶を残していない"
-
+    # 会話の保存は id を捕まえる必要がある（拡散想起 WR で新記憶と W を繋ぐため）ので
+    # `save_async_with_id` を通る。件数ではなく「1件以上残る」ことだけを見る。
+    assert agent._memory.save_async_with_id.await_count >= 1, "ターンが記憶を残していない"
 
 # ── 2. 想起の母集合に入る ───────────────────────────────────────────────────
 

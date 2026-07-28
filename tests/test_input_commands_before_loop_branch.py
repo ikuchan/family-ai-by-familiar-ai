@@ -17,7 +17,6 @@ from familiar_agent.agent import EmbodiedAgent as Agent
 def _agent():
     a = MagicMock(spec=Agent)
     a.config = MagicMock()
-    a.config.event_loop = True
     a._persons = MagicMock()
     a._persons.active_name = "あなた"
     a._persons.known_names = MagicMock(return_value=["パパ"])

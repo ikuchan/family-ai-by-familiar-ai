@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.mood_register import MoodPAD
 
 
 def _make_msg(role: str, text: str) -> dict:
@@ -239,45 +238,6 @@ class TestPostCompactionRecall:
         agent = _make_agent()
         assert hasattr(agent, "_last_context_tokens")
         assert agent._last_context_tokens == 0
-
-    def test_recall_n_larger_after_compact(self):
-        """When _post_compact is True, recall_async is called with n > 3."""
-        agent = _make_agent()
-        agent._post_compact = True
-        agent._turn_count = 1  # skip morning_reconstruction path
-        agent._mcp = None
-        agent._camera = None
-        agent._mobility = None
-        agent._tts = None
-        agent._stt = None
-        agent._coding = MagicMock()
-        agent._coding.get_tool_definitions = MagicMock(return_value=[])
-        agent._memory_tool = MagicMock()
-        agent._memory_tool.get_tool_definitions = MagicMock(return_value=[])
-
-        # Make stream_turn return end_turn immediately
-        from familiar_agent.backend import TurnResult
-
-        fake_result = TurnResult(stop_reason="end_turn", text="ok")
-        agent.backend.stream_turn = AsyncMock(return_value=(fake_result, []))
-        agent.backend.make_assistant_message = MagicMock(return_value=_make_msg("assistant", "ok"))
-        agent.backend.make_tool_results = MagicMock(return_value=_make_msg("user", ""))
-        agent._run_post_response_pipeline = AsyncMock()
-        agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), "neutral"))
-        agent._summarize_exchange = AsyncMock(return_value="summary")
-        agent._update_self_model = AsyncMock()
-        agent._memory.save_async = AsyncMock()
-        agent._should_compact = MagicMock(return_value=False)
-
-        asyncio.run(agent.run("hello"))
-
-        # recall_async should have been called with n > 3 (post-compact boost)
-        call_args = agent._memory.recall_async.call_args
-        n_used = call_args[1].get("n") or call_args[0][1]
-        assert n_used > 3, f"Expected n > 3 after compaction, got {n_used}"
-
-
-# ── _flatten_history ───────────────────────────────────────────────────────
 
 
 class TestFlattenHistory:

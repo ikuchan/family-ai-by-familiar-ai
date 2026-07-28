@@ -495,15 +495,13 @@ def test_speech_goes_out_when_someone_is_present():
     a._pending_store.add.assert_not_called()          # 話せたので溜めない
 
 
-def test_deferred_is_wired_to_the_completion_queue_only_when_on():
-    # EVENT_LOOP on のときだけ deferred の完了をキューへ渡す。off では従来どおり溜めて
-    # ポーリングで拾われる（二重配信にしない＝排他）。
+def test_deferred_is_wired_to_the_completion_queue():
+    # deferred の完了は完了キューへ渡す（ポーリングで拾う経路は #12a で撤去した）。
     from familiar_agent.agent import EmbodiedAgent
 
-    async def build(event_loop_on: bool):
+    async def build():
         agent = MagicMock()
         agent.config = MagicMock()
-        agent.config.event_loop = event_loop_on
         agent._info_processing = None
         agent._tonic = None
         agent._deferred_search = MagicMock()
@@ -515,11 +513,9 @@ def test_deferred_is_wired_to_the_completion_queue_only_when_on():
             await tonic.close()
         return agent
 
-    on = asyncio.run(build(True))
-    on._deferred_search.set_completion_sink.assert_called_once()
-    on._deferred_fetch.set_completion_sink.assert_called_once()
-    off = asyncio.run(build(False))
-    off._deferred_search.set_completion_sink.assert_not_called()
+    agent = asyncio.run(build())
+    agent._deferred_search.set_completion_sink.assert_called_once()
+    agent._deferred_fetch.set_completion_sink.assert_called_once()
 
 
 def test_event_loop_path_starts_mcp_and_memory_worker():
@@ -531,7 +527,6 @@ def test_event_loop_path_starts_mcp_and_memory_worker():
     async def build():
         agent = MagicMock()
         agent.config = MagicMock()
-        agent.config.event_loop = True
         agent._info_processing = None
         agent._tonic = None
         agent._mcp = MagicMock()
@@ -556,15 +551,13 @@ def test_event_loop_path_starts_mcp_and_memory_worker():
     assert agent._memory_worker.start.called        # メモリワーカーも起こす
 
 
-def test_agent_starts_tonic_only_when_event_loop_is_on():
-    # T は EVENT_LOOP on のときだけ立てる。off では従来の経路（GUI の描画ループ）が回すので、
-    # 両方が同時に drive を進めないようにする。
+def test_agent_starts_tonic():
+    # T（時計を持つ唯一の側）を立てる。drive を進めて発火を QA へ積むのは T の役目。
     from familiar_agent.agent import EmbodiedAgent
 
-    async def build(event_loop_on: bool):
+    async def build():
         agent = MagicMock()
         agent.config = MagicMock()
-        agent.config.event_loop = event_loop_on
         agent._info_processing = None
         agent._tonic = None
         EmbodiedAgent._ensure_event_loop(agent)
@@ -574,10 +567,8 @@ def test_agent_starts_tonic_only_when_event_loop_is_on():
             await tonic.close()
         return ip, tonic
 
-    ip_on, tonic_on = asyncio.run(build(True))
-    assert ip_on is not None and tonic_on is not None      # on では T を立てる
-    ip_off, tonic_off = asyncio.run(build(False))
-    assert ip_off is not None and tonic_off is None        # off では立てない
+    ip, tonic = asyncio.run(build())
+    assert ip is not None and tonic is not None
 
 
 def test_driver_wakes_on_the_affect_queue():

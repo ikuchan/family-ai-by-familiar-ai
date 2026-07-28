@@ -5,7 +5,7 @@
 GEN（生成）で進み、say で1出力して終わる／内部ツール（recall）は結果を QC へ積んで次反復へ
 連鎖する（[D-単一想起]：相関ID を使わず結果は O→W 経由で再会）。
 
-現行 run() と排他（`EVENT_LOOP` on の user turn のみ）。AIF/DIF/QA/QD、ARB/APR/ACT/MNT の
+人の発話はこの経路が処理する。AIF/DIF/QA/QD、ARB/APR/ACT/MNT の
 クラス分離は後続段階（ここでは stub しない）。永続化は既存 `_run_post_response_pipeline`
 （utility LLM のみ）を流用し、消化した完了 O はターン観察 id で supersede する。
 """

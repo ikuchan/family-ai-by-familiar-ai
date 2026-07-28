@@ -52,7 +52,7 @@ class DeferredSearchTool:
         self._user_turn: bool = False
 
     def set_completion_sink(self, sink) -> None:
-        """完了の渡し先を繋ぐ（`EVENT_LOOP` on のとき・引数は (query, result)）。"""
+        """完了の渡し先を繋ぐ（引数は (query, result)）。"""
         self._completion_sink = sink
 
     def _deliver(self, query: str, result: str) -> bool:

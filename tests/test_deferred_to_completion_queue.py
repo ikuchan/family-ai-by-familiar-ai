@@ -3,7 +3,7 @@
 正本③：「待たない（投げっぱなし）のは deferred 外部呼び出しだけで、その結果が
 **完了キュー→O 経由で次反復の入力**になる」。現状は3つの入口（CUI・GUI・TUI）が
 `should_deliver_deferred_result()` を毎周回で問い合わせるポーリングで、キューを介して
-いなかった。`EVENT_LOOP` on のときだけキューへ渡し、off では従来どおり溜める（排他）。
+いなかった。渡し先が繋がっていればキューへ渡す（#12a で3つの入口のポーリングは撤去した）。
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ def test_completion_goes_to_the_sink_when_wired():
 
 
 def test_completion_still_pends_when_no_sink():
-    # 旧経路（EVENT_LOOP off）では従来どおり溜める。二重配信にしない。
+    # 渡し先が無ければ溜める（テストや、まだ繋いでいない時点のため）。
     t = _tool()
     asyncio.run(t._run("明日の天気", "web_search", "user"))
     assert t.has_pending
