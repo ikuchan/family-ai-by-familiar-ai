@@ -213,7 +213,7 @@ _CAPPED_NOTE = """
 async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
                     self_understanding: str = "", family_md: str = "",
                     present_ctx: str = "", now_ctx: str = "",
-                    capped: bool = False, timeout: float = 2.0) -> Decision:
+                    capped: bool = False, timeout: float | None = None) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
     **発話の出口は2つ**（ここの light とつなぎ、フルLLM の答え）なので、**フルと同じ
@@ -225,6 +225,7 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
     - `family_md`：誰が大人で誰が子どもかは家族の記述にしかなく、口調の規則に要る。
     - `present_ctx`／`now_ctx`：誰に向けて・いつ話すか。
     - `capped`：反復上限。渡さないと上限でも "action" を選び、その判断が丸ごと捨てられる。
+    - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
     """
     prompt = ARBITER_PROMPT.format(
         utterance=utterance,
@@ -235,6 +236,9 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
     )
+    if timeout is None:
+        from ..config import AgentConfig
+        timeout = AgentConfig().arbiter_timeout_sec
     started = time.monotonic()
     # 打ち切っても呼び出し自体は残す（shield）。倒す時刻は変えずに、**実際に何秒かかるか**を
     # 裏で測るため。時間切れの秒数しか残らないと、2.1 秒なのか 10 秒なのか分からず、

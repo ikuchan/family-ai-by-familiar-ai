@@ -375,6 +375,13 @@ class AgentConfig:
     lookup_slow_seconds: float = field(
         default_factory=lambda: _float_env("LOOKUP_SLOW_SECONDS", 5.0)
     )
+    # 調停（軽量LLM）の時間切れ。届かなければフルへ倒す。普通の会話は 0.93〜1.10 秒だが、
+    # 「黙って」と頼まれたときは **4.18 秒**かかると実測した（判断が重い）。2.0 秒では
+    # 届かず、沈黙依頼が読まれないまま素通りしていた。0.8 秒の余裕を見て 5.0 とする。
+    # 倒れたときは応答がこの秒数だけ遅れるので、伸ばしすぎない。
+    arbiter_timeout_sec: float = field(
+        default_factory=lambda: _float_env("ARBITER_TIMEOUT_SEC", 5.0)
+    )
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
     # 「黙って」と頼まれたが長さを言われなかったときの既定。
     silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 15))
