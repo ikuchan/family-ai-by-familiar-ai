@@ -25,12 +25,6 @@ def test_now_local_str_has_timezone_suffix():
     assert s[:4].isdigit()  # 先頭は年
 
 
-def test_working_memory_item_created_at_is_aware_utc():
-    from familiar_agent.mental_state import WorkingMemoryItem
-
-    item = WorkingMemoryItem(memory_id="x", summary="s", source_kind="k", salience=0.5)
-    dt = datetime.fromisoformat(item.created_at)
-    assert dt.tzinfo is not None  # naive utcnow ではなく aware
 
 
 def test_now_local_iso_only_in_local_calendar_boundary():

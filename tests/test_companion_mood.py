@@ -127,22 +127,13 @@ class TestInferCompanionMood:
         from familiar_agent.exploration import ExplorationTracker
         from familiar_agent.self_narrative import SelfNarrative
         from familiar_agent.relationship import RelationshipTracker
-        from familiar_agent.workspace import GlobalWorkspace
         from familiar_agent.prediction import PredictionEngine
-        from familiar_agent.attention_schema import AttentionSchema
 
         agent._exploration = ExplorationTracker()
         agent._scene = None
         agent._self_narrative = SelfNarrative()
         agent._relationship = RelationshipTracker()
-        agent._workspace = GlobalWorkspace()
         agent._prediction = PredictionEngine()
-        agent._attention_schema = AttentionSchema()
-        agent._dmn = MagicMock()
-        agent._dmn.wander = AsyncMock(return_value=None)
-        agent._meta_monitor = MagicMock()
-        agent._meta_monitor.as_coalition = MagicMock(return_value=None)
-        agent._meta_monitor.record_step = MagicMock()
         agent._memory.as_coalition_async = AsyncMock(return_value=None)
         agent._memory_worker = MagicMock()
         agent._memory_worker.is_running = True
@@ -223,5 +214,3 @@ class TestInferCompanionMood:
         result = await agent._infer_companion_mood("I'm exhausted")
         assert result == "tired"
 
-
-# ── Tests for frustrated → desire boost ──────────────────────────────────────

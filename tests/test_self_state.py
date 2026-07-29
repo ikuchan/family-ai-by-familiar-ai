@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import pytest
 
 from familiar_agent.self_state import SelfState
-from familiar_agent.workspace import Coalition, GlobalWorkspace
+from familiar_agent.workspace import Coalition
 
 
 def _coalition(source: str, *, activation: float = 0.8, urgency: float = 0.5, novelty: float = 0.4):
@@ -118,14 +117,3 @@ def test_turn_context_carries_social_concern_forward():
     assert after["focus_stability"] > before["focus_stability"]
 
 
-@pytest.mark.asyncio
-async def test_workspace_listener_updates_self_state():
-    state = SelfState()
-    ws = GlobalWorkspace()
-    ws.register_broadcast_listener(state.on_broadcast)
-
-    before = state.snapshot()
-    await ws.notify_listeners(_coalition("prediction", novelty=0.8))
-    after = state.snapshot()
-
-    assert after != before

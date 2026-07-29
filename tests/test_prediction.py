@@ -5,7 +5,6 @@ Tests cover:
 - Prediction error computation (surprise = high error)
 - update() integrates observed entities into the model
 - compute_error() returns 0 for fully predicted entities, high for novel ones
-- Integration: PredictionEngine + GlobalWorkspace threshold modulation
 """
 
 from __future__ import annotations
@@ -136,32 +135,8 @@ def test_update_decreases_probability_for_absent_entities():
 # ── Integration: prediction error → workspace threshold ───────────────────────
 
 
-def test_prediction_error_lowers_workspace_threshold():
-    """High prediction error should lower GlobalWorkspace ignition threshold."""
-    from familiar_agent.workspace import GlobalWorkspace
-
-    pe = PredictionEngine()
-    ws = GlobalWorkspace(ignition_threshold=0.5)
-
-    # Compute error from novel entities
-    error = pe.compute_error(["dragon", "wizard"])
-    ws.apply_prediction_error(error)
-
-    assert ws.effective_threshold() < 0.5
 
 
-def test_no_prediction_error_keeps_threshold():
-    """Zero prediction error should keep the threshold at its base value."""
-    from familiar_agent.workspace import GlobalWorkspace
-
-    pe = PredictionEngine()
-    ws = GlobalWorkspace(ignition_threshold=0.5)
-
-    # No novelty — error should be 0
-    error = pe.compute_error([])
-    ws.apply_prediction_error(error)
-
-    assert ws.effective_threshold() == pytest.approx(0.5)
 
 
 # ── as_coalition ───────────────────────────────────────────────────────────────
