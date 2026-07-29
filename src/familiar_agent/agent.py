@@ -28,26 +28,21 @@ from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内�
 from typing import Any
 
 from .backend import create_backend, create_scene_backend, create_utility_backend
+from .concern_engine import ConcernEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
-from .concern_engine import ConcernEngine
 from .self_state import SelfState
 from .self_narrative import SelfNarrative
 from .mood_register import MoodPAD, nudge_current_mood
 from .exploration import ExplorationTracker
 from .scene import SceneTracker
-from .attention_schema import AttentionSchema
-from .default_mode import DefaultModeProcessor
-from .meta_monitor import MetaMonitor
 from .poses import Pose, build_pose_registry
 from .presence_sensor import PresenceSensor
 from .prediction import PredictionEngine
-from .workspace import GlobalWorkspace
 from .memory_worker import MemoryJobWorker
-from .legacy.tape import generate_plan
 from .tools.camera import CameraTool
 from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool
@@ -74,8 +69,6 @@ from .capability_state import (
     save_manifest,
     filter_enabled,
     save_summary,
-    should_refresh,
-    should_regenerate_on_startup,
 )
 
 logger = logging.getLogger(__name__)
@@ -545,15 +538,10 @@ class EmbodiedAgent:
         self._persons = PersonRegistry(default_name=config.companion_name)
         # Property alias so all existing self._relationship.* calls continue to work.
         # They always address the currently active speaker's tracker.
+        self._concerns = ConcernEngine()
         self._self_state = SelfState()
         self._self_narrative = SelfNarrative()
-        self._concerns = ConcernEngine()
-        self._workspace = GlobalWorkspace()
-        self._workspace.register_broadcast_listener(self._self_state.on_broadcast)
         self._prediction = PredictionEngine()
-        self._attention_schema = AttentionSchema()
-        self._dmn = DefaultModeProcessor(self._pmm.get_agent_memory())
-        self._meta_monitor = MetaMonitor()
         self._schedule_rule = quiet_hours_rule()
         self._heartbeat = HeartbeatRuntime(
             memory=self._memory,
@@ -568,10 +556,6 @@ class EmbodiedAgent:
         self._mood_set_at: float = time.time()
 
         # Deferred pre-response caches (computed in post-response, used next turn)
-        self._cached_plan_ctx: str = ""
-        self._cached_workspace_ctx: str = ""
-        self._cached_temporal_ctx: str | None = None
-        self._cached_companion_mood: str = "engaged"
 
         # 定点。プリセットの読み出しに await が要るので、初めて要るときに一度だけ組む
         # （`_init_tools` は同期で、ここではまだカメラへ問い合わせられない）。
@@ -591,13 +575,6 @@ class EmbodiedAgent:
                 self._camera.set_poses(self._poses)
         return self._poses
 
-    def _tape_backend(self):
-        """Return the backend used for extra planning/replanning checks.
-
-        TAPE is only worth the latency when a separate cheap utility backend exists.
-        If utility falls back to the main conversation model, skip the extra round-trips.
-        """
-        return None if self._utility_backend is self.backend else self._utility_backend
 
     def _spawn_background_task(self, coro: Coroutine[Any, Any, None], *, name: str) -> None:
         """Run non-critical post-turn work off the response critical path."""
@@ -801,9 +778,6 @@ class EmbodiedAgent:
                             agency_error=pred_signal.agency_error,
                             action_name=pred_signal.action_name,
                         )
-                    pred_coalition = self._prediction.as_coalition()
-                    if pred_coalition is not None:
-                        self._workspace.apply_prediction_error(pred_coalition.novelty)
                 _obs_id, _ = await self._memory.save_async_with_id(
                     final_text[:500],
                     direction="観察",
@@ -914,35 +888,6 @@ class EmbodiedAgent:
                 desires=desires,
             )
 
-            # ── Deferred pre-response work (results cached for next turn) ──
-            try:
-                tape_backend = self._tape_backend()
-                tool_names = [t["name"] for t in self._all_tool_defs] if tape_backend else []
-                deferred_plan_task = (
-                    generate_plan(tape_backend, user_input, tool_names)
-                    if tape_backend and not is_desire_turn and user_input.strip()
-                    else _noop_str()
-                )
-                (
-                    deferred_plan,
-                    deferred_workspace,
-                    deferred_mood,
-                    deferred_temporal,
-                ) = await asyncio.gather(
-                    deferred_plan_task,
-                    self._gather_workspace_context(desires=desires),
-                    self._infer_companion_mood(user_input),
-                    self._online_temporal_context(desires=desires),
-                )
-                self._cached_plan_ctx = deferred_plan
-                self._cached_workspace_ctx = deferred_workspace
-                self._cached_companion_mood = deferred_mood
-                self._cached_temporal_ctx = deferred_temporal
-                if desires is not None and deferred_mood == "frustrated":
-                    desires.boost("worry_companion", 0.3)
-                    logger.debug("Companion mood frustrated: boosting worry_companion")
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("Deferred pre-response caching failed: %s", exc)
 
         except Exception as exc:  # noqa: BLE001
             logger.warning("Post-response pipeline failed: %s", exc)
@@ -1031,22 +976,6 @@ class EmbodiedAgent:
         # Register family members from FAMILY.md into persons DB
         self._register_family_from_md()
 
-    @property
-    def _all_tool_defs(self) -> list[dict]:
-        defs = []
-        if self._camera:
-            defs.extend(self._camera.get_tool_definitions())
-        if self._mobility:
-            defs.extend(self._mobility.get_tool_definitions())
-        if self._tts:
-            defs.extend(self._tts.get_tool_definitions())
-        defs.extend(self._memory_tool.get_tool_definitions())
-        defs.extend(self._coding.get_tool_definitions())
-        defs.extend(self._deferred_search.get_tool_definitions())
-        defs.extend(self._deferred_fetch.get_tool_definitions())
-        if self._mcp:
-            defs.extend(self._mcp.get_tool_definitions())
-        return defs
 
     async def _mcp_search(self, tool_name: str, tool_input: dict) -> tuple[str, Any]:
         """Route a search call through MCP, waiting for MCP init if needed."""
@@ -1569,75 +1498,6 @@ class EmbodiedAgent:
 
 
 
-    async def _gather_workspace_context(
-        self,
-        desires: DesireSystem | None = None,
-        extra_coalitions: list | None = None,
-    ) -> str:
-        """Run one Global Workspace competition cycle and return the broadcast context.
-
-        Gathers coalitions from all available processors in parallel, runs the
-        ignition competition, and returns the winning coalition's context_block
-        plus a compact peripheral-awareness summary of non-winners.
-
-        Returns empty string if nothing reaches ignition threshold.
-        """
-        # Sync coalitions (wrap in to_thread to avoid blocking)
-        sync_tasks = [
-            asyncio.to_thread(self._exploration.as_coalition),
-            asyncio.to_thread(self._self_narrative.as_coalition),
-            asyncio.to_thread(self._prediction.as_coalition),
-            asyncio.to_thread(self._attention_schema.as_coalition),
-            asyncio.to_thread(self._meta_monitor.as_coalition),
-        ]
-        if self._scene is not None:
-            sync_tasks.append(asyncio.to_thread(self._scene.as_coalition))
-        if desires is not None:
-            sync_tasks.append(asyncio.to_thread(desires.as_coalition))
-
-        # Async coalitions
-        async_tasks = [
-            self._memory.as_coalition_async(),
-        ]
-
-        results = await asyncio.gather(*sync_tasks, *async_tasks, return_exceptions=True)
-
-        from .workspace import Coalition as _Coalition
-
-        coalitions = []
-        for r in results:
-            if isinstance(r, Exception):
-                logger.debug("Coalition gather error: %s", r)
-            elif isinstance(r, _Coalition):
-                coalitions.append(r)
-        for coalition in extra_coalitions or []:
-            if isinstance(coalition, _Coalition):
-                coalitions.append(coalition)
-
-        if not coalitions:
-            return ""
-
-        winner = self._workspace.compete(coalitions)
-        if winner is None:
-            logger.debug("GlobalWorkspace: nothing reached ignition threshold — activating DMN")
-            # Periodically refresh capability self-understanding during idle DMN cycles
-            if should_refresh(self._turn_count):
-                if should_regenerate_on_startup():
-                    asyncio.ensure_future(self._regenerate_capability_manifest())
-                else:
-                    asyncio.ensure_future(self._refresh_capability_summary())
-            # Default Mode Network: mind-wander when workspace is idle
-            dmn_coalition = await self._dmn.wander()
-            if dmn_coalition is None:
-                return ""
-            winner = dmn_coalition
-            coalitions.append(dmn_coalition)
-
-        others = [c for c in coalitions if c is not winner]
-        # Update attention schema with this turn's winner (AST)
-        self._attention_schema.update_focus(winner)
-        await self._workspace.notify_listeners(winner)
-        return self._workspace.broadcast(winner, others)
 
     @staticmethod
     def _select_context_blocks(
