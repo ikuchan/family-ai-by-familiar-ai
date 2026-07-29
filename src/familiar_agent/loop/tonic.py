@@ -23,6 +23,7 @@ from ..core import drive_dynamics as dd
 from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..drive_register import AiDrivers, load_drives, save_drives
 from ..mood_register import load_current_mood
+from .rest import run_rest_pass
 
 logger = logging.getLogger(__name__)
 
@@ -166,6 +167,24 @@ class Tonic:
         for name in sorted(previous - current):
             self._ip.push_device("退室", f"{name} が居なくなった", release_pending=False)
 
+    def _nobody_is_present(self) -> bool:
+        """誰も居ないか。在/不在の層（`PresenceSensor`・YOLO・登録が要らない）で見る。
+
+        身元の層（PMM の顔の照合）は使わない。顔が未登録なら、目の前に人が居ても
+        「誰も居ない」になる（#15 で実機に出た欠陥）。
+
+        **センサが無ければ偽を返す。** 「センサが無い」を「誰も居ない」と扱うと、カメラの
+        無い構成で REST が常に内省へ落ち、人が居ても話しかけなくなる。
+        """
+        sensor = self._presence
+        if sensor is None:
+            return False
+        try:
+            return not sensor.room_occupied()
+        except Exception:  # noqa: BLE001
+            logger.debug("在席センサを読めなかったので、内省へは回さない")
+            return False
+
     async def _run(self) -> None:
         last = time.monotonic()
         while True:
@@ -183,6 +202,12 @@ class Tonic:
                     continue
                 axis = select_fired_axis(firing, accumulated)
                 if axis is None:
+                    continue
+                if axis == "rest" and self._nobody_is_present():
+                    # 誰も居ないときの REST は内省へ回す（設計の折衷型・#2）。人へ話しかける
+                    # 相手が居ないので、自発ターンにしても保留されるだけである。
+                    logger.info("Drive fired: rest → 内省パスへ")
+                    await run_rest_pass(self._agent)
                     continue
                 prompt = inner_voice_for(axis, self._cfg)
                 logger.info("Drive fired: %s → QA へ積む", axis)
