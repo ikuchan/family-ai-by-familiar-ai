@@ -17,6 +17,18 @@ def _default_companion_name() -> str:
     return _t("default_companion_name")
 
 
+def _resolve_float(field: str, env_name: str, default: float) -> float:
+    """env > agent_state（内省の調整）> 既定 の順で決める（`config_overrides`）。
+
+    `config_overrides` は `db` を使い、`db` は `config` を読むので、import は関数の中で行う。
+    """
+    try:
+        from .config_overrides import resolve_float
+        return resolve_float(field, env_name, default)
+    except Exception:  # noqa: BLE001
+        return _float_env(env_name, default)
+
+
 def _float_env(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, str(default)))
@@ -199,6 +211,14 @@ class MemoryConfig:
     # 0.05 起点（根拠台帳 §4・確定は5軸スコア分布の計測後）。
     recall_min_score: float = field(
         default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.05)
+    )
+    # 蒸留（記-a-ろ）の材料から外す新規性の下限。a0 が低い O は「既にある記憶と似ている
+    # もの」で、実測でも同じ内容の繰り返しだった（`計測・設定値 根拠台帳`）。既定 0.47 は
+    # 実測分布の p10。**内省が範囲内（0.20〜0.70）で調整できる**（`config_overrides`）。
+    distill_min_a0: float = field(
+        default_factory=lambda: _resolve_float(
+            "MemoryConfig.distill_min_a0", "DISTILL_MIN_A0", 0.47
+        )
     )
     # 合成床を課すときの候補過剰取得。採点後に絞ると n を割るため n×factor（上限 cap）取る。
     recall_overfetch_factor: int = field(
