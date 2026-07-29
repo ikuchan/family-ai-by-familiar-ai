@@ -84,6 +84,7 @@ from ._i18n import _t
 from .core import parsing
 from .errors import FatalStartupError, check_embedding_fatal
 from ._ui_helpers import (
+    DuplicateInputFilter,
     AdaptiveDesireCooldown,
     IDLE_CHECK_INTERVAL,
     SILENCE_DURATION_SEC,
@@ -1109,6 +1110,9 @@ class FamiliarWindow(QMainWindow):
         self._agent_display_name = (config.agent_name or "Agent").strip() or "Agent"
         self._companion_display_name = _t("gui_estimated_speaker")
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
+        # 同じ入力が続けて積まれるのを落とす（キーボードと音声の両方に効かせる）。
+        from .config import AgentConfig
+        self._dedupe = DuplicateInputFilter(AgentConfig().input_dedupe_window_sec)
         self._agent_running = False
         self._agent_ready = False
         self._agent_init_failed = False
@@ -1740,6 +1744,18 @@ class FamiliarWindow(QMainWindow):
                 return str(st["name"])
         return self._companion_display_name
 
+    def _log_input_queued(self, source: str) -> None:
+        """入力を積んだことを残す。**どの入口から来たかを添える。**
+
+        実機で1つの発言に2回答えたとき、キーボードと音声のどちらから積まれたかを
+        区別できなかった（音声側は何もログを出していなかった）。
+        """
+        qsize = self._input_queue.qsize()
+        if qsize >= _GUI_QUEUE_WARN_SIZE:
+            logger.warning("GUI input queue backlog: %d（%s）", qsize, source)
+        else:
+            logger.info("GUI 入力を積んだ（%s・queue=%d）", source, qsize)
+
     def _on_send(self) -> None:
         if getattr(self, "_agent", None) is None and not getattr(self, "_agent_ready", True):
             self._stream.set_status(getattr(self, "_startup_status", "Initializing familiar-ai..."))
@@ -1781,13 +1797,12 @@ class FamiliarWindow(QMainWindow):
             if speaker:
                 agent._persons.set_active(speaker)
 
+        if not self._dedupe.accept(text):
+            logger.info("GUI 入力を落とした（直前と同じ・keyboard）: %s", text[:40])
+            return
         self._log.append_line(f"[{self._get_active_speaker()}] {text}")
         self._input_queue.put_nowait(text)
-        qsize = self._input_queue.qsize()
-        if qsize >= _GUI_QUEUE_WARN_SIZE:
-            logger.warning("GUI input queue backlog: %d", qsize)
-        else:
-            logger.debug("GUI input queued (size=%d)", qsize)
+        self._log_input_queued("keyboard")
 
     async def _do_reload(self) -> None:
         agent = getattr(self, "_agent", None)
@@ -1821,9 +1836,13 @@ class FamiliarWindow(QMainWindow):
         spoken = text.strip()
         if not spoken:
             return
+        if not self._dedupe.accept(spoken):
+            logger.info("GUI 入力を落とした（直前と同じ・stt）: %s", spoken[:40])
+            return
         self._stream.clear_status()
         self._log.append_line(f"[{self._get_active_speaker()}] {spoken}")
         self._input_queue.put_nowait(spoken)
+        self._log_input_queued("stt")
 
     def _on_realtime_stt_restart(self, reason: str) -> None:
         if self._closing:
