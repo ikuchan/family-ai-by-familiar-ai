@@ -115,6 +115,28 @@ def _ensure_go2rtc(api_url: str) -> None:
     logger.warning("go2rtc did not start in time")
 
 
+# 自分で起こした合成サーバー。終了時に止めるために持つ（人が別に立てたものは触らない）。
+_sbv2_proc: "subprocess.Popen | None" = None
+
+
+def stop_sbv2_server() -> None:
+    """自分で起こした合成サーバーを止める。
+
+    **GPU を握り続けさせない。** モデルを載せたまま残ると、他の作業で GPU を使うときに
+    邪魔になる。次の起動で読み込み（実測 2.8 秒）をやり直すことになるが、それは払える。
+
+    自分が起こしていないなら何もしない。人が別に立てている場合がある。
+    """
+    global _sbv2_proc
+    proc = _sbv2_proc
+    _sbv2_proc = None
+    if proc is None or proc.poll() is not None:
+        return
+    logger.info("SBV2 の合成サーバーを止める")
+    with contextlib.suppress(Exception):
+        proc.terminate()
+
+
 def _sbv2_is_alive(url: str) -> bool:
     """合成サーバーが応えるか。"""
     try:
@@ -146,7 +168,8 @@ def _spawn_sbv2(cfg) -> None:
     if ":" in host_port:
         env["SBV2_HOST"], env["SBV2_PORT"] = host_port.split(":", 1)
     logger.info("SBV2 の合成サーバーを起こす（%s・モデル %s）", python, cfg.sbv2_model)
-    subprocess.Popen(
+    global _sbv2_proc
+    _sbv2_proc = subprocess.Popen(
         [str(python), str(script)],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,

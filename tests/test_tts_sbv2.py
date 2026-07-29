@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import os
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 from familiar_agent.config import TTSConfig
@@ -117,3 +117,36 @@ def test_an_already_running_server_is_not_started_twice():
          patch("familiar_agent.tools.tts._sbv2_is_alive", return_value=True):
         ensure_sbv2_server(TTSConfig(), engine="sbv2", output="local")
     assert not spawn.called
+
+
+# ── 終了時に止める ──────────────────────────────────────────────────────────
+
+def test_the_server_we_started_is_stopped_on_close():
+    """自分で起こしたサーバーは終了時に止める。GPU を握り続けさせない。"""
+    from familiar_agent.tools import tts
+
+    proc = MagicMock()
+    proc.poll = MagicMock(return_value=None)          # 生きている
+    with patch("subprocess.Popen", return_value=proc), \
+         patch.object(tts.Path, "exists", return_value=True):
+        tts._spawn_sbv2(TTSConfig())
+    tts.stop_sbv2_server()
+    proc.terminate.assert_called_once()
+
+
+def test_a_server_we_did_not_start_is_left_alone():
+    """自分が起こしていないなら触らない（人が別に立てている場合がある）。"""
+    from familiar_agent.tools import tts
+
+    tts._sbv2_proc = None
+    tts.stop_sbv2_server()      # 例外を出さずに何もしない
+
+
+def test_an_already_dead_server_is_not_terminated_again():
+    from familiar_agent.tools import tts
+
+    proc = MagicMock()
+    proc.poll = MagicMock(return_value=0)             # 既に終わっている
+    tts._sbv2_proc = proc
+    tts.stop_sbv2_server()
+    proc.terminate.assert_not_called()

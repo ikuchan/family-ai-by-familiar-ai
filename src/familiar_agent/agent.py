@@ -2440,6 +2440,12 @@ class EmbodiedAgent:
         if self._camera:
             self._camera.close()
 
+        # TTS の合成サーバー（SBV2）を止める。GPU を握り続けさせない。
+        with contextlib.suppress(Exception):
+            from .tools.tts import stop_sbv2_server
+
+            stop_sbv2_server()
+
         heartbeat = getattr(self, "_cache_heartbeat_task", None)
         if heartbeat and not heartbeat.done():
             heartbeat.cancel()
