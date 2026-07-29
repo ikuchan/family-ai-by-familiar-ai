@@ -90,6 +90,9 @@ async def test_tts_payload_requests_pcm_format() -> None:
     tool.go2rtc_url = "http://localhost:1984"
     tool.go2rtc_stream = "test"
     tool._lock = __import__("asyncio").Lock()
+    # このテストが見るのは ElevenLabs の経路なので、合成の担い手を明示する
+    # （既定は SBV2＝ローカル合成で、外部 API を叩かない）。
+    tool.engine = "elevenlabs"
 
     captured_payload: dict = {}
     captured_url = ""

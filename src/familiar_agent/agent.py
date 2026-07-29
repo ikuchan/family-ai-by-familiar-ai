@@ -921,6 +921,10 @@ class EmbodiedAgent:
             tts.go2rtc_url,
             tts.go2rtc_stream,
             output=tts.output,
+            engine=tts.engine,
+            sbv2_url=tts.sbv2_url,
+            sbv2_style=tts.sbv2_style,
+            sbv2_weight=tts.sbv2_weight,
         )
 
         cfg_path = _resolve_config_path()
@@ -2423,6 +2427,13 @@ class EmbodiedAgent:
         worker = getattr(self, "_memory_worker", None)
         if worker is not None and not worker.is_running:
             asyncio.ensure_future(worker.start())
+        # TTS の合成サーバー（SBV2）を起こす。モデルの読み込みに十数秒かかるので、最初の
+        # 発話を待たせないよう起動時に投げておく（待たない・使う構成のときだけ）。
+        with contextlib.suppress(Exception):
+            from .tools.tts import ensure_sbv2_server
+
+            tts_cfg = self.config.tts
+            ensure_sbv2_server(tts_cfg, engine=tts_cfg.engine, output=tts_cfg.output)
 
     async def close(self) -> None:
         """Clean up resources. Bounded by timeouts to avoid hanging on exit."""

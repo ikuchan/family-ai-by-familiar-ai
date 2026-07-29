@@ -9,6 +9,7 @@ Config: ELEVENLABS_API_KEY, TTS_VOICE_ID, GO2RTC_URL, TTS_OUTPUT.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -114,6 +115,60 @@ def _ensure_go2rtc(api_url: str) -> None:
     logger.warning("go2rtc did not start in time")
 
 
+def _sbv2_is_alive(url: str) -> bool:
+    """合成サーバーが応えるか。"""
+    try:
+        with urllib.request.urlopen(f"{url}/health", timeout=2) as resp:
+            return resp.status == 200
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def _spawn_sbv2(cfg) -> None:
+    """合成サーバーを起こす（別プロセス・SBV2 専用の venv で走らせる）。
+
+    本体の venv では動かない（Python と torch の版が違う）。`SBV2_PYTHON` が指す
+    インタプリタで `scripts/sbv2_server.py` を実行する。
+    """
+    python = Path(os.path.expanduser(cfg.sbv2_python))
+    script = Path(__file__).resolve().parents[3] / "scripts" / "sbv2_server.py"
+    if not python.exists():
+        logger.warning("SBV2 の python が見つからない（合成は使えない）: %s", python)
+        return
+    if not script.exists():
+        logger.warning("SBV2 のサーバーが見つからない: %s", script)
+        return
+    env = dict(os.environ)
+    env["SBV2_MODEL"] = cfg.sbv2_model
+    env["SBV2_MODEL_DIR"] = os.path.expanduser(cfg.sbv2_model_dir)
+    # url から待ち受け先を渡す（既定 127.0.0.1:5001）。
+    host_port = cfg.sbv2_url.split("//", 1)[-1]
+    if ":" in host_port:
+        env["SBV2_HOST"], env["SBV2_PORT"] = host_port.split(":", 1)
+    logger.info("SBV2 の合成サーバーを起こす（%s・モデル %s）", python, cfg.sbv2_model)
+    subprocess.Popen(
+        [str(python), str(script)],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        env=env,
+    )
+
+
+def ensure_sbv2_server(cfg, *, engine: str, output: str) -> None:
+    """起動時に合成サーバーを起こす（使う構成のときだけ）。
+
+    **待たない。** モデルの読み込みに十数秒かかるので、起動を塞がずに投げておく。最初の
+    発話までに間に合わなければ、その1回だけ話せない（degrade して次から鳴る）。
+
+    使わない構成（別のエンジン・音を出さない）では起こさない。GPU と十数秒を無駄にしない。
+    """
+    if engine != "sbv2" or output == "silent":
+        return
+    if _sbv2_is_alive(cfg.sbv2_url):
+        return
+    _spawn_sbv2(cfg)
+
+
 class TTSTool:
     """Text-to-speech using ElevenLabs, played via go2rtc camera speaker and/or local speaker."""
 
@@ -125,7 +180,15 @@ class TTSTool:
         go2rtc_stream: str = "tapo_cam",
         output: str = "local",
         voice_guard: VoiceLoopGuard | None = None,
+        engine: str = "elevenlabs",
+        sbv2_url: str = "http://127.0.0.1:5001",
+        sbv2_style: str = "Neutral",
+        sbv2_weight: float = 1.0,
     ) -> None:
+        self.engine = engine
+        self.sbv2_url = sbv2_url
+        self.sbv2_style = sbv2_style
+        self.sbv2_weight = sbv2_weight
         self.api_key = api_key
         self.voice_id = voice_id
         self.go2rtc_url = go2rtc_url
@@ -139,13 +202,89 @@ class TTSTool:
             _ensure_go2rtc(self.go2rtc_url)
 
     async def say(self, text: str, output: str | None = None) -> str:
-        """Speak text aloud via ElevenLabs.
+        """声に出す。合成の担い手は `engine` で決まる。
 
-        output: "local" = PC speaker, "remote" = camera speaker (go2rtc), "both" = both.
-                Defaults to self.output when not specified.
+        `output`："local"＝PC のスピーカー／"remote"＝カメラのスピーカー（go2rtc）／
+        "both"＝両方／"silent"＝出さない（実機テスト用・**合成も走らせない**）。
 
-        Concurrent calls are serialized via self._lock so audio never overlaps.
+        同時に呼ばれても音が重ならないよう、`self._lock` で直列にする。
         """
+        if output is None:
+            output = self.output
+        if output == "silent":
+            return f"Said (silent): {text[:60]}"
+        if self.engine == "sbv2":
+            return await self._say_sbv2(text, output)
+        return await self._say_elevenlabs(text, output)
+
+    async def _say_sbv2(self, text: str, output: str) -> str:
+        """ローカルの Style-Bert-VITS2 で合成して鳴らす（出-a）。
+
+        サーバーが落ちていても例外は投げない。話せなかったことだけを返す（機器は落ちる
+        前提のもので、発話の失敗でターンごと壊すわけにはいかない）。
+        """
+        from .._ui_helpers import strip_stage_directions
+
+        text = strip_stage_directions(text)
+        if not text:
+            return "Said: (nothing to speak after cleaning)"
+        if len(text) > 200:
+            text = text[:197] + "..."
+
+        async with self._lock:
+            voice_guard = self._voice_guard or get_shared_voice_guard()
+            self._voice_guard = voice_guard
+            played_via: list[str] = []
+            tmp_path: str | None = None
+            voice_guard.on_tts_start(text)
+            try:
+                try:
+                    wav = await self._synth_sbv2(text)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("SBV2 で合成できなかったので話せなかった: %s", e)
+                    return f"話せなかった（合成に失敗）: {text[:40]}"
+                tmp_path = _write_tmp_audio(wav, suffix=".wav")
+                played_via = await self._play_paths(tmp_path, output)
+                if not played_via:
+                    return "話せなかった（鳴らせる出力が無い）"
+                return f"Said: {text[:50]}... (via {', '.join(played_via)})"
+            finally:
+                voice_guard.on_tts_end(text, played=bool(played_via))
+                if tmp_path is not None:
+                    with contextlib.suppress(OSError):
+                        os.unlink(tmp_path)
+
+    async def _synth_sbv2(self, text: str) -> bytes:
+        """合成サーバーへ投げて WAV を受け取る。"""
+        import aiohttp
+
+        payload = {"text": text, "style": self.sbv2_style, "weight": self.sbv2_weight}
+        timeout = aiohttp.ClientTimeout(total=30)
+        async with aiohttp.ClientSession(timeout=timeout) as session:
+            async with session.post(f"{self.sbv2_url}/synth", json=payload) as resp:
+                if resp.status != 200:
+                    body = await resp.text()
+                    raise OSError(f"SBV2 が {resp.status} を返した: {body[:80]}")
+                return await resp.read()
+
+    async def _play_paths(self, tmp_path: str, output: str) -> list[str]:
+        """出来た音声ファイルを、指定された出力へ鳴らす。鳴った先の名前を返す。"""
+        played_via: list[str] = []
+        if output in ("remote", "both"):
+            ok, msg = await asyncio.to_thread(
+                _play_via_go2rtc, tmp_path, self.go2rtc_url, self.go2rtc_stream
+            )
+            if ok:
+                played_via.append("camera")
+            else:
+                logger.warning("go2rtc playback failed: %s", msg)
+        if output in ("local", "both") or (output == "remote" and not played_via):
+            if await _play_local(tmp_path):
+                played_via.append("local")
+        return played_via
+
+    async def _say_elevenlabs(self, text: str, output: str) -> str:
+        """外部 API（ElevenLabs）で合成して鳴らす。SBV2 が動かないときの逃げ道。"""
         if not self.api_key:
             return f"(silent) {text}"
 
@@ -153,11 +292,6 @@ class TTSTool:
 
         from .._ui_helpers import strip_stage_directions
 
-        if output is None:
-            output = self.output
-        # 実機テストなどでスピーカー出力を止める（TTS_OUTPUT=silent）。合成 API も叩かない。
-        if output == "silent":
-            return f"Said (silent): {text[:60]}"
         # Drop parenthetical narration like '（静かに待つ）' (ElevenLabs would read
         # it aloud), but KEEP [audio tags] — eleven_v3 uses them for delivery.
         text = strip_stage_directions(text)

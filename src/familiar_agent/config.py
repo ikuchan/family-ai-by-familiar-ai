@@ -183,6 +183,23 @@ class TTSConfig:
     # Audio output routing: "local" = PC speaker only, "remote" = camera speaker only,
     # "both" = camera speaker + PC speaker simultaneously, "silent" = 出力しない（実機テスト用）。
     output: str = field(default_factory=lambda: os.environ.get("TTS_OUTPUT", "local"))
+    # 合成をどこでやるか。`sbv2`＝Style-Bert-VITS2（ローカル・既定）／`elevenlabs`＝外部 API。
+    # 設計（`計測・設定値 根拠台帳` §9）は SBV2 と声 jvnv-M2-jp を確定としている。**戻せる
+    # ようにしてある**（SBV2 が動かないとき `TTS_ENGINE=elevenlabs` で従来へ）。
+    engine: str = field(default_factory=lambda: os.environ.get("TTS_ENGINE", "sbv2"))
+    # SBV2 は別プロセスの HTTP サーバーとして動かす。本体は Python 3.11・torch 2.10 だが
+    # SBV2 は Python 3.12・torch 2.5・numpy 1.26.4 固定で、同じプロセスには載らない。
+    sbv2_url: str = field(default_factory=lambda: os.environ.get("SBV2_URL", "http://127.0.0.1:5001"))
+    sbv2_model: str = field(default_factory=lambda: os.environ.get("SBV2_MODEL", "jvnv-M2-jp"))
+    # style は当面固定。PAD→(style, style_weight) の写像は次段（台帳 §9 が「別途設計」）。
+    sbv2_style: str = field(default_factory=lambda: os.environ.get("SBV2_STYLE", "Neutral"))
+    sbv2_weight: float = field(default_factory=lambda: _float_env("SBV2_WEIGHT", 1.0))
+    sbv2_python: str = field(
+        default_factory=lambda: os.environ.get("SBV2_PYTHON", "~/tts_eval/sbv2_env/bin/python")
+    )
+    sbv2_model_dir: str = field(
+        default_factory=lambda: os.environ.get("SBV2_MODEL_DIR", "~/tts_eval/sbv2_models")
+    )
 
 
 @dataclass
