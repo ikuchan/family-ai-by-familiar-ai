@@ -449,10 +449,24 @@ class DriveConfig:
     rate: float = 1.665e-2      # 全欲求共通の基準レート（/秒・課題5 B〔確定〕）
     p_t: float = 0.5            # T-tick 周期（秒・課題5 A）
     mult: float = 1.0          # 時間帯倍率（課題10・既定1.0）
-    # 静穏時間の時間帯倍率（#13）。中立 mood（g_seeking = bias_seeking = 0.20）では
-    # 探索が 0 から Θ_fire へ至るまで 300 秒かかる。これを 3600 秒（1時間に1回程度）へ
-    # 伸ばすので 300 ÷ 3600 = 0.083。倍率は全欲求へ一律にかかる（設計式に軸の添字が無い）。
+    # 静穏時間の時間帯倍率は**軸ごとに違う**（設計式 mult_i(t)・#13）。
+    #
+    # 探索ほか4軸は 0.083。中立 mood（g_seeking = bias_seeking = 0.20）では探索が 0 から
+    # Θ_fire へ至るまで 300 秒かかるので、3600 秒（1時間に1回程度）へ伸ばすと 300÷3600。
+    #
+    # REST だけは抑えず、逆に募らせる。設計（`設計詳細：発火・mood 機構` §82）が「REST の
+    # 募りは別途バイアス＋時間帯倍率（夜高い）」と定めるためで、一律に掛けると正反対になる。
+    # 3.0 は「深夜8時間（23〜7時）に必ず1回・2回は起きない」から出した。中立 mood での
+    # 増分は毎秒 1.499e-5（rate × bias_rest）で、8時間ちょうど1回には 2.315 が要る。3.0 なら
+    # 1.295 溜まって閾値を 30% 上回り、2回に必要な 4.63 には届かない。
+    #
+    # bond・safety・esteem は探索と同じ 0.083 のままにしてある。これらに適した値は
+    # 検討していない（#13 は探索の頻度だけを見て決めた）。
     mult_quiet: float = 0.083
+    mult_quiet_rest: float = 3.0
+    # いま効いている REST の倍率（昼は `mult` と同じ 1.0）。静穏時間に
+    # `effective_drive_cfg`（T 側）が `mult_quiet_rest` へ差し替える。
+    mult_rest: float = 1.0
     learn: float = 1.0         # 学習倍率（課題10・既定1.0）
     epsilon: float = 0.001
     theta_fire: float = 1.0 - 0.001   # 発火閾値 Θ_fire = 1−ε
@@ -514,3 +528,11 @@ class DriveConfig:
     c_bond: tuple[float, float, float, float] = (-1.0, 0.5, 0.0, 0.25)
     c_esteem: tuple[float, float, float, float] = (-0.2, 0.2, 1.0, -0.4)
     c_rest: tuple[float, float, float, float] = (-0.68, -0.68, -0.68, 0.0)
+
+    def mult_for(self, axis: str) -> float:
+        """その軸に掛ける時間帯倍率を返す。
+
+        時計は見ない。静穏時間かどうかの判定は T が持ち（`loop/tonic.py` の
+        `effective_drive_cfg`）、ここは差し替え済みの値を軸名で引くだけにする。
+        """
+        return self.mult_rest if axis == "rest" else self.mult

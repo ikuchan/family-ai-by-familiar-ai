@@ -29,12 +29,12 @@
 ---
 
 ## B. 発火（drive 蓄積・閾値・放電）
-記号：$drive_i$ … 欲求 $i$ の蓄積量（$0\!\sim\!1$）。$rate$ … 全欲求共通の基準レート（/秒）。$mult(t)$ … 時間帯倍率（課題10）。$learn_i$ … 学習倍率（課題10）。$g_{D,i}(M)$ … M→D 変調項（変調行列・[D-発火]・別紙「設計詳細_発火・mood」）。$x_j$ … PAD 軸の生の感情値（全軸 [0,1]・中立0.5）。
+記号：$drive_i$ … 欲求 $i$ の蓄積量（$0\!\sim\!1$）。$rate$ … 全欲求共通の基準レート（/秒）。$mult_i(t)$ … 時間帯倍率（課題10）。$learn_i$ … 学習倍率（課題10）。$g_{D,i}(M)$ … M→D 変調項（変調行列・[D-発火]・別紙「設計詳細_発火・mood」）。$x_j$ … PAD 軸の生の感情値（全軸 [0,1]・中立0.5）。
 
 **神経科学の leaky integrator との対応**：膜電位＝$drive_i$／静止電位＝drive=0（中立の感情＝0.5）／閾値で all-or-none＝$\Theta_{fire}$ 超えで発火／発火後リセット＝放電 $q_i$。**リーク（入力やめば静止へ戻る自然減衰）は drive に独立項として持たず M→D 変調 $g_{D,i}(M)$ が吸収**（mood が充足方向なら入力が細る＝実質リーク）。**不応期は持たない**：(a) 放電で drive が下がり再蓄積に時間がかかるため連射が自然に防がれる／(b) 決定論的システムでノイズ誤発火がないため誤発火防止の不応期も不要。蓄積は**線形**（漸近 leaky にしない＝リークは mood 経由）。
 
 蓄積（毎 T-tick）：
-$$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate \cdot mult(t) \cdot learn_i \cdot g_{D,i}(M) \cdot P_T,\; 0,\; 1\big)$$
+$$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate \cdot mult_i(t) \cdot learn_i \cdot g_{D,i}(M) \cdot P_T,\; 0,\; 1\big)$$
 M→D 変調項（ロジット合成・有界量の逆写像操作）：
 $$g_{D,i}(M) = \mathrm{logistic}\Big(\mathrm{logit}(b_i) + \sum_j C_{ij}\cdot \mathrm{logit}(x_j)\Big)$$
 （$b_i$＝バイアス＝中立時の $g_{D,i}$／$C_{ij}$＝変調行列 5×4／$x_j$＝各 PAD 軸の生の感情値・**全軸 [0,1]・中立0.5**を $\mathrm{logit}(x_j)=\ln(x_j/(1-x_j))$ で畳み込み前へ戻す＝**中立0.5→0 なので引き算不要**）。**ロジット合成で 0/1 端に漸近＝崖なし・低頻度欲求の mood 過敏も緩和**。中立 mood（全軸0.5）では $\sum_j C_{ij}\,\mathrm{logit}(x_j)=0$ となり $g_{D,i}=b_i$。**rate は全欲求共通の固定値**・頻度差はバイアス $b_i$、mood 反応は行列 $C_{ij}$（役割分担）。変調項・変調行列・バイアスの機構と値表は別紙「設計詳細_発火・mood」。
@@ -239,7 +239,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 依存・要再定義の明示
 - **課題6**：5欲求の正式名称 → B の $rate$（共通）／バイアス $b_i$・変調行列 $C_{ij}$（別紙「設計詳細_発火・mood」）／emotion の PAD 化（畳み込み関数の確定）→ D の $e$（全軸ロジット逆写像・$D$）。
-- **課題10**：$mult(t)$・$learn_i$・quiet hours → B・G。
+- **課題10**：$mult_i(t)$・$learn_i$・quiet hours → B・G。
 - **課題7**：実機・カメラ FPS → A・I。
 - **[D-反復出力]**：1反復1出力 → G の $N_{max}$ の意味（安全弁）。
 - **課題11(j)(k)／課題6**：concern 統合・appraisal 改善 → E（importance 日次減衰の廃止候補）・J（concern 閾値の移行）。**失敗（agency_error）→情動（不快 Pn↑・支配 Dom↓・SAFETY↑）の写像**＝T 側で扱う（I の activation には入れない）。

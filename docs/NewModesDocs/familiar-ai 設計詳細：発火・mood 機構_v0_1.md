@@ -15,9 +15,9 @@
 ## 2. Drive 発火の機構
  
 ### 2.1 蓄積式（毎 T-tick）
-$$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate \cdot mult(t) \cdot learn_i \cdot g_{D,i}(M) \cdot P_T,\; 0,\; 1\big)$$
+$$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate \cdot mult_i(t) \cdot learn_i \cdot g_{D,i}(M) \cdot P_T,\; 0,\; 1\big)$$
 - $rate$＝全欲求共通の固定レート（課題5 B）。
-- $mult(t)$＝時間帯倍率（課題10）。
+- $mult_i(t)$＝時間帯倍率（軸ごと・課題10）。静穏時間は探索ほか4軸を 0.083 へ落とし、**REST だけは 3.0 で募らせる**（§82 の「夜高い」・値の根拠は `計測・設定値 根拠台帳` §16）。
 - $learn_i$＝学習倍率（課題10）。
 - $g_{D,i}(M)$＝M→D 変調項（下記）。
 - $P_T$＝T-tick 周期（0.5 秒・課題5 A）。

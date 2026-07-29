@@ -52,17 +52,25 @@ def g_d(mood: MoodPAD, cfg: DriveConfig | None = None) -> AiDrivers:
 def accumulate(
     drives: AiDrivers, mood: MoodPAD, *, dt: float | None = None, cfg: DriveConfig | None = None
 ) -> AiDrivers:
-    """1 tick 蓄積：`drive_i += rate·mult·learn·g_{D,i}(M)·dt`、clip[0,1]。"""
+    """1 tick 蓄積：`drive_i += rate·mult_i(t)·learn·g_{D,i}(M)·dt`、clip[0,1]。
+
+    倍率は軸ごとに違う（`cfg.mult_for`）。深夜は探索ほかを抑える一方、REST は逆に
+    募らせるためである。時刻の判定は T が済ませてあり、ここは軸名で引くだけにする。
+    """
     cfg = cfg or DriveConfig()
     dt = cfg.p_t if dt is None else dt
     g = g_d(mood, cfg)
-    step = cfg.rate * cfg.mult * cfg.learn * dt
+    base = cfg.rate * cfg.learn * dt
+
+    def _step(axis: str) -> float:
+        return base * cfg.mult_for(axis)
+
     return AiDrivers(
-        seeking=drives.seeking + step * g.seeking,
-        rest=drives.rest + step * g.rest,
-        bond=drives.bond + step * g.bond,
-        safety=drives.safety + step * g.safety,
-        esteem=drives.esteem + step * g.esteem,
+        seeking=drives.seeking + _step("seeking") * g.seeking,
+        rest=drives.rest + _step("rest") * g.rest,
+        bond=drives.bond + _step("bond") * g.bond,
+        safety=drives.safety + _step("safety") * g.safety,
+        esteem=drives.esteem + _step("esteem") * g.esteem,
     ).clipped()
 
 

@@ -37,12 +37,16 @@ def test_daytime_keeps_the_normal_multiplier():
 
 
 def test_accumulation_slows_by_the_quiet_multiplier():
-    """1 tick の増分が、深夜は昼間の `mult_quiet` 倍になる（全欲求一律）。"""
+    """1 tick の増分が、深夜は昼間の `mult_quiet` 倍になる（REST 以外）。
+
+    REST だけは別の倍率で募る（`test_rest_is_not_slowed_at_night_but_hastened`）。
+    """
     cfg = DriveConfig()
     day = accumulate(AiDrivers(), MoodPAD(), cfg=effective_drive_cfg(cfg, now=_DAYTIME))
     night = accumulate(AiDrivers(), MoodPAD(), cfg=effective_drive_cfg(cfg, now=_DEEP_NIGHT))
-    assert night.seeking == pytest.approx(day.seeking * cfg.mult_quiet, rel=1e-9)
-    assert night.rest == pytest.approx(day.rest * cfg.mult_quiet, rel=1e-9)
+    for axis in ("seeking", "bond", "safety", "esteem"):
+        assert getattr(night, axis) == pytest.approx(
+            getattr(day, axis) * cfg.mult_quiet, rel=1e-9), axis
 
 
 def test_seeking_fires_about_once_an_hour_at_night():
@@ -79,3 +83,44 @@ def test_step_drives_applies_the_time_of_day_multiplier():
     finally:
         tonic_module.effective_drive_cfg = original
     assert accumulated.seeking == pytest.approx(0.0, abs=1e-12)
+
+
+# ── 軸別の深夜倍率（REST は夜に募る）─────────────────────────────────────
+
+def test_rest_is_not_slowed_at_night_but_hastened():
+    """深夜の倍率は軸ごとに違う。REST だけは抑えず、逆に募らせる。
+
+    設計（`設計詳細：発火・mood 機構` §82）は「REST の募りは別途バイアス＋時間帯倍率
+    （夜高い）」と定める。全軸へ一律に 0.083 を掛けると、これと正反対になる。
+    """
+    cfg = effective_drive_cfg(DriveConfig(), now=_DEEP_NIGHT)
+    assert cfg.mult_for("rest") > 1.0            # 夜は募る
+    assert cfg.mult_for("seeking") == pytest.approx(DriveConfig().mult_quiet)
+
+
+def test_daytime_multipliers_are_one_for_every_axis():
+    cfg = effective_drive_cfg(DriveConfig(), now=_DAYTIME)
+    for axis in ("seeking", "rest", "bond", "safety", "esteem"):
+        assert cfg.mult_for(axis) == pytest.approx(1.0), axis
+
+
+def test_rest_fires_exactly_once_during_the_quiet_window():
+    """中立 mood の深夜（8時間）に、REST がちょうど1回発火する量まで溜まる。
+
+    2回は起きない（起きるには 2.0 が要る）。深夜の開始時に drive が 0 でも届くように、
+    閾値に対して余裕を持たせてある。
+    """
+    cfg = effective_drive_cfg(DriveConfig(), now=_DEEP_NIGHT)
+    night_sec = 8 * 3600
+    accumulated = cfg.rate * cfg.mult_for("rest") * cfg.learn * cfg.bias_rest * night_sec
+    assert accumulated >= cfg.theta_fire          # 必ず1回は起きる
+    assert accumulated < 2 * cfg.theta_fire       # 2回は起きない
+
+
+def test_accumulation_uses_the_per_axis_multiplier():
+    """蓄積が軸ごとの倍率を使う（REST だけ速く、他は遅く）。"""
+    cfg = DriveConfig()
+    day = accumulate(AiDrivers(), MoodPAD(), cfg=effective_drive_cfg(cfg, now=_DAYTIME))
+    night = accumulate(AiDrivers(), MoodPAD(), cfg=effective_drive_cfg(cfg, now=_DEEP_NIGHT))
+    assert night.rest > day.rest                  # REST は夜のほうが速い
+    assert night.seeking < day.seeking            # 探索は夜のほうが遅い

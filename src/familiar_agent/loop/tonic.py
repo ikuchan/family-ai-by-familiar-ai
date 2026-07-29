@@ -61,18 +61,22 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
 
 
 def effective_drive_cfg(cfg: DriveConfig, now: datetime | None = None) -> DriveConfig:
-    """いまの時刻に応じた設定を返す。静穏時間なら蓄積を `mult_quiet` へ落とす（#13）。
+    """いまの時刻に応じた設定を返す。静穏時間なら軸ごとの倍率へ差し替える（#13）。
 
     時計を見るのは T の役なので判定をここに置く（`core.drive_dynamics` は時計を持たない
     純関数として定義されている）。窓は静穏時間（`QUIET_HOURS_START`／`END`・既定 23〜7）を
     そのまま使う。「自分から話しかけない時間」と「欲求が募る速さ」は別の事柄だが、窓を
     二つ持つと、どちらが効いているかを二箇所で確かめることになる。
+
+    **REST だけは抑えず、逆に募らせる。** 設計（`設計詳細：発火・mood 機構` §82）が
+    「REST の募りは別途バイアス＋時間帯倍率（夜高い）」と定めるためで、一律に掛けると
+    正反対になる。値の根拠は `DriveConfig.mult_quiet_rest` のコメントにある。
     """
     from ..routines import quiet_hours_rule
 
     if not quiet_hours_rule().is_quiet(now):
         return cfg
-    return replace(cfg, mult=cfg.mult_quiet)
+    return replace(cfg, mult=cfg.mult_quiet, mult_rest=cfg.mult_quiet_rest)
 
 
 def _names(names: set[str]) -> str:
