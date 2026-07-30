@@ -332,6 +332,14 @@ class STTConfig:
     vad_silence_sec: float = field(
         default_factory=lambda: _float_env("STT_VAD_SILENCE_SEC", 1.0)
     )
+    # 書き起こしを「音声でなかった」として捨てる境目（`no_speech_prob` の上限）。
+    # Whisper は無音や物音に対して字幕の常套句（「ご視聴ありがとうございました」等）を
+    # 当てはめる。実機15件にラベルを付けて測ったところ、幻聴は全件 0.722 以上、本物は
+    # 全件 0.709 以下で完全に分かれたので、その直下を既定にする（根拠は計測台帳）。
+    # **境目の隙間は 0.013 しかない。** 実機で外れが出たらこの値を動かす。
+    no_speech_max: float = field(
+        default_factory=lambda: _float_env("STT_NO_SPEECH_MAX", 0.72)
+    )
     # 1つの発話区間の上限（秒）。雑音が続いたときにメモリと GPU を食い続けないための蓋。
     # whisper は 30 秒単位で処理するので、そこを境目にする。
     max_segment_sec: float = field(

@@ -258,3 +258,109 @@ def test_the_model_is_never_asked_to_decode_a_container():
 
     passed = model.transcribe.call_args.args[0]
     assert not isinstance(passed, (io.IOBase, bytes, bytearray))
+
+
+# ── 幻聴の切り分け（実機で「ご視聴ありがとうございました」が出た）─────────────
+#
+# 話していないのに定型句が書き起こされた。Whisper は音声でないもの（無音・物音・息）を
+# 渡されると、学習データの字幕によくある文を当てはめる。silero-vad は音の有無しか見ない
+# ので、物音が区間として切り出されると whisper へ渡って幻聴になる。
+#
+# 弾く前に**測る**。faster-whisper はセグメントごとに `no_speech_prob`（音声でない確率）と
+# `avg_logprob`（平均対数尤度）を返すので、幻聴のときと実際に話したときの値を集めてから
+# 閾値を決める。ここではまだ何も捨てない。
+#
+# 本文は info 以上へ出さない（会話内容のため）。数値と字数だけを info に出す。
+
+def test_each_segment_reports_its_no_speech_probability(caplog):
+    """セグメントごとに `no_speech_prob` と `avg_logprob` を残す。"""
+    import logging
+
+    import numpy as np
+
+    seg = MagicMock(text="ご視聴ありがとうございました", no_speech_prob=0.87,
+                    avg_logprob=-0.42, start=0.0, end=1.4)
+    model = MagicMock()
+    model.transcribe.return_value = ([seg], MagicMock(duration=1.4))
+
+    engine = LocalSttEngine(STTConfig())
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        with caplog.at_level(logging.INFO, logger="familiar_agent.tools.local_stt"):
+            engine._transcribe((np.zeros(_RATE, dtype=np.int16)).tobytes())
+
+    line = " ".join(caplog.messages)
+    assert "no_speech_prob=0.870" in line, f"確率を残していない: {line}"
+    assert "avg_logprob=-0.420" in line
+
+
+def test_the_measurement_line_does_not_leak_the_transcript(caplog):
+    """本文は info へ出さない（会話内容のため）。字数だけにする。"""
+    import logging
+
+    import numpy as np
+
+    seg = MagicMock(text="秘密の話", no_speech_prob=0.1, avg_logprob=-0.2,
+                    start=0.0, end=1.0)
+    model = MagicMock()
+    model.transcribe.return_value = ([seg], MagicMock(duration=1.0))
+
+    engine = LocalSttEngine(STTConfig())
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        with caplog.at_level(logging.INFO, logger="familiar_agent.tools.local_stt"):
+            engine._transcribe((np.zeros(_RATE, dtype=np.int16)).tobytes())
+
+    assert "秘密の話" not in " ".join(caplog.messages)
+
+
+# ── 幻聴を捨てる（`no_speech_prob` で切る）─────────────────────────────────────
+#
+# 実機で15件を測り、ラベルを付けたところ、次のように完全に分かれた。
+#
+# | `no_speech_prob` | 種別 |
+# |---|---|
+# | 0.890 / 0.880 / 0.849 / 0.799 / 0.785 / 0.722 | 幻聴（「ご視聴ありがとうございました」等） |
+# | 0.709 / 0.684 / 0.502 / 0.429 / 0.373 / 0.269 / 0.250 / 0.209 / 0.139 | 本物 |
+#
+# 幻聴は全件 0.722 以上、本物は全件 0.709 以下で、取り違えは無い。境目の直下 **0.72** を
+# 既定にする。`avg_logprob` は幻聴 −0.352〜−0.746・本物 −0.138〜−0.712 で重なるので使わない。
+#
+# **`no_speech_prob` は 30 秒の窓ごとの値**で、同じ書き起こしのセグメントは同じ値を持つ。
+# よってセグメント単位ではなく、その書き起こしをまるごと捨てる。
+
+def test_a_hallucination_above_the_threshold_is_dropped():
+    """0.72 を超えたら、書き起こしをまるごと捨てる（実測 0.785 の幻聴）。"""
+    import numpy as np
+
+    seg = MagicMock(text="ご視聴ありがとうございました", no_speech_prob=0.785,
+                    avg_logprob=-0.580, start=0.0, end=30.0)
+    model = MagicMock()
+    model.transcribe.return_value = ([seg], MagicMock(duration=3.1))
+
+    engine = LocalSttEngine(STTConfig())
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        assert engine._transcribe((np.zeros(_RATE, dtype=np.int16)).tobytes()) == ""
+
+
+def test_a_quiet_real_utterance_just_below_the_threshold_survives():
+    """0.709 は本物だった（「はい」のような短い返事）。落としてはいけない。"""
+    import numpy as np
+
+    seg = MagicMock(text="うん", no_speech_prob=0.709, avg_logprob=-0.712,
+                    start=0.0, end=2.0)
+    model = MagicMock()
+    model.transcribe.return_value = ([seg], MagicMock(duration=1.86))
+
+    engine = LocalSttEngine(STTConfig())
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        assert engine._transcribe((np.zeros(_RATE, dtype=np.int16)).tobytes()) == "うん"
+
+
+def test_the_no_speech_ceiling_has_a_default_and_can_be_moved():
+    """既定は実測の境目 0.72。実機で外れが出たら環境変数で動かす。"""
+    import os
+    from unittest.mock import patch as _patch
+
+    with _patch.dict(os.environ, {}, clear=True):
+        assert STTConfig().no_speech_max == pytest.approx(0.72)
+    with _patch.dict(os.environ, {"STT_NO_SPEECH_MAX": "0.9"}, clear=True):
+        assert STTConfig().no_speech_max == pytest.approx(0.9)

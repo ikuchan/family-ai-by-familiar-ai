@@ -230,7 +230,36 @@ class LocalSttEngine:
             language=(self._cfg.language or None),
             vad_filter=False,      # 区間は既に VAD で切ってある
         )
-        text = "".join(seg.text for seg in segments).strip()
+        # 話していないのに「ご視聴ありがとうございました」のような定型句が書き起こされる。
+        # Whisper は無音や物音に字幕の常套句を当てる。実機15件にラベルを付けて測ると、
+        # 幻聴は全件 `no_speech_prob` 0.722 以上、本物は全件 0.709 以下で分かれた。
+        # `avg_logprob` は重なるので使わない（幻聴のほうが尤度が高いことすらある）。
+        #
+        # **`no_speech_prob` は 30 秒の窓ごとの値**で、同じ書き起こしのセグメントは同じ値を
+        # 持つ。よってセグメント単位では捨て分けられず、まるごと採るか捨てるかになる。
+        # 本文は会話内容なので info へ出さず、字数だけにする。
+        parts: list[str] = []
+        no_speech = 0.0
+        for seg in segments:
+            parts.append(seg.text)
+            no_speech = max(no_speech, float(getattr(seg, "no_speech_prob", 0.0)))
+            logger.info(
+                "STT: セグメント（no_speech_prob=%.3f・avg_logprob=%.3f・%.1f〜%.1f 秒・%d 字）",
+                getattr(seg, "no_speech_prob", float("nan")),
+                getattr(seg, "avg_logprob", float("nan")),
+                getattr(seg, "start", 0.0),
+                getattr(seg, "end", 0.0),
+                len(seg.text.strip()),
+            )
+            logger.debug("STT: セグメントの本文: %s", seg.text.strip()[:120])
+        if parts and no_speech > self._cfg.no_speech_max:
+            logger.info(
+                "STT: 音声でないとみなして捨てた（no_speech_prob=%.3f > %.3f・%d 字）",
+                no_speech, self._cfg.no_speech_max, len("".join(parts).strip()),
+            )
+            logger.debug("STT: 捨てた本文: %s", "".join(parts).strip()[:120])
+            return ""
+        text = "".join(parts).strip()
         logger.info(
             "STT: 書き起こした（%d 字・%.2f 秒・音声 %.1f 秒）",
             len(text), time.monotonic() - started,
