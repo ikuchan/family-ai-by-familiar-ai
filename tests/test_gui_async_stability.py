@@ -77,9 +77,6 @@ def _make_window_stub() -> FamiliarWindow:
     win._look_preview_disabled = False
     win._realtime_stt = None
     win._realtime_stt_task = None
-    # 同じ入力を続けて積まないための器（実機で1つの発言に2回答えたため入れた）。
-    from familiar_agent._ui_helpers import DuplicateInputFilter
-    win._dedupe = DuplicateInputFilter(window_sec=3.0)
     win._desires = MagicMock()
     # このスタブは legacy デザイアループ機構の検証用。新 Drive 自発経路（既定 on）の判定は
     # 純関数テストで担保するため、ここでは legacy 経路へ明示オプトイン（autonomous=False）。

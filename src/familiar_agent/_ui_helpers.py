@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import os
 import re
-import time
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -352,32 +351,3 @@ def desire_tick_prompt(
         prompt = _t("desire_pending_note", note=pending_note, prompt=prompt)
 
     return desire_name, prompt, pending_note
-
-
-class DuplicateInputFilter:
-    """同じ入力が続けて積まれるのを落とす。
-
-    実機で1つの「おはよう。」に2回答えた（2026-07-30）。GUI のキューには入口が2つあり
-    （キーボードと音声）、どちらからでも積まれる。同じ文が短い間に続けて来たら落とす。
-
-    **言い直しは弾かない。** 人は聞こえなかったと思って同じことを言い直す。窓を短く取り、
-    それより後の同じ文は通す。窓は**受け入れた時刻から**測る。弾いた入力で延ばすと、
-    連打のあいだ永久に通らなくなる。
-    """
-
-    def __init__(self, window_sec: float = 3.0) -> None:
-        self._window = max(0.0, float(window_sec))
-        self._last_text: str = ""
-        self._last_at: float = 0.0
-
-    def accept(self, text: str, *, now: float | None = None) -> bool:
-        """受け付けるなら True。落とすなら False。"""
-        if self._window <= 0.0:
-            return True
-        stamp = time.time() if now is None else now
-        stripped = text.strip()
-        if stripped == self._last_text and (stamp - self._last_at) < self._window:
-            return False
-        self._last_text = stripped
-        self._last_at = stamp
-        return True

@@ -1,4 +1,4 @@
-# familiar-ai 音声入力から GUI への経路 v0.1
+# familiar-ai 音声入力から GUI への経路 v0.2
 
 > 常時集音した音声が書き起こされ、GUI の入力キューへ届くまでの実装済みの経路の記録。
 > 2026-07-30 時点のソースコード（ブランチ `develop-ikuchan`）を正とする。設計の正本は
@@ -22,8 +22,8 @@ flowchart TD
     LOC["区間切りと書き起こし：LocalSttEngine：silero-vad で区間を切り faster-whisper で起こす"]
     ELE["書き起こし（代替）：RealtimeSttClient：ElevenLabs の WebSocket へ音を流す"]
     REL["フィルタと中継：_committed_relay：捨てる印、重複、自己エコーを弾く"]
-    GUI1["GUI 入口：_on_realtime_stt_committed：重複を弾き、ログへ表示し、キューへ積む"]
-    KEY["GUI 入口：_on_send：キーボード入力を同じキューへ積む"]
+    GUI1["表示：_on_realtime_stt_committed：会話ログへ話者名つきで出す"]
+    KEY["GUI 入口：_on_send：キーボード入力をキューへ積む"]
     Q["入力キュー：_input_queue：入口2つ、キュー1本"]
     RUN["消費：_process_queue：1件ずつ取り出しエージェントのターンを回す"]
 
@@ -32,7 +32,8 @@ flowchart TD
     SES -->|"STT_ENGINE=elevenlabs"| ELE
     LOC --> REL
     ELE --> REL
-    REL --> GUI1 --> Q
+    REL -->|"表示だけ"| GUI1
+    REL -->|"入力"| Q
     KEY --> Q
     Q --> RUN
 ```
@@ -106,16 +107,23 @@ faster-whisper が復号と再標本化を行い、その途中で落ちる経�
 ## 5. GUI の入口（`gui.py`）
 
 GUI は起動時に `RealtimeSttController`（セッションの包み）を作り、表示用コールバックと
-`_input_queue` を配線する。確定文が届くと `_on_realtime_stt_committed` が動き、
-`DuplicateInputFilter.accept` を通し、チャットログへ話者名つきで表示し、キューへ積み、
-入口名 `stt` を添えてログを残す。キーボードの `_on_send` も同じフィルタとキューを通り、
-入口名は `keyboard` である。**入力キューは1本で、入口が2つ**という形になっており、
-実機で1つの発言に2回答えた件（2026-07-30）を受けて、入口名のログとこのフィルタが入った。
+`_input_queue` を配線する。**入力キューは1本で、入口が2つ**という形になっている。音声は
+セッションが段4の最後で直接キューへ積み、キーボードは `_on_send` が積む。
 
-`DuplicateInputFilter` は同じ文が `INPUT_DEDUPE_WINDOW_SEC`（3.0 秒）以内に続けて来たら
-落とす。窓は受け入れた時刻から測るので、聞こえなかったと思って言い直した同じ文は通る。
-段4の重複除去がセッション内（音声どうし）なのに対し、こちらは入口をまたぐ
-（音声とキーボードの衝突も弾く）。
+`_on_realtime_stt_committed` は**表示だけを担う**。「聞いています」の印を消し、チャット
+ログへ話者名つきで一行出し、入口名 `stt` を添えてログを残す。ここでキューへ積まない。
+セッションは確定文をこの差し込み口へ渡した**直後に**キューへも積むので、ここでも積むと
+1つの発言が必ず2件になり、ターンが2回走る。実機で1つの発言に2回答えた件（2026-07-30）は
+これが原因だった。
+
+**表示の口では重複を落とさない。** 入力は別の口から入るため、ここで落としても入力は
+止まらず、画面に出ないのにエージェントが答える食い違いになる。書き起こしどうしの重複は、
+両方の口より前にある段4（セッション内の 3 秒の窓と `VoiceLoopGuard`）が済ませている。
+キーボードは人が意図して打つものなので、重複を弾かない。
+
+入口名を添えたログのキュー長は、両方の入口で同じ数え方になるよう揃えてある。音声は
+積まれる前にログを出すため、`_log_input_queued` へ `pending=1` を渡して、積んでから出す
+キーボード側と一致させる。
 
 ## 6. 消費（`gui.py` の `_process_queue`）
 
@@ -138,19 +146,21 @@ GUI は起動時に `RealtimeSttController`（セッションの包み）を作�
 | `STT_MIN_SEGMENT_SEC` | 1.5 | これより短い区間は次の発話まで持ち越す（秒） |
 | `STT_HOLD_GIVE_UP_SEC` | 3.0 | 持ち越しを諦めて単独で書き起こすまでの無音（秒） |
 | `AUDIO_INPUT_DEVICE` | （既定機器） | マイクを名前の一部で選ぶ |
-| `INPUT_DEDUPE_WINDOW_SEC` | 3.0 | GUI 入口の重複を弾く窓（秒） |
 | `ELEVENLABS_API_KEY` | （空） | `STT_ENGINE=elevenlabs` のときだけ要る |
 
 ## 既知のずれ
 
 - GUI の起動メッセージが `🎤 Realtime STT ON (ElevenLabs)` という固定文字列で、ローカルの
   faster-whisper で動いていても ElevenLabs と表示する（`gui.py`）。
-- `直近の進め方と進捗` v0.59 の申し送りに「STT は ElevenLabs のまま」とあるが、常時集音は
-  ローカル化済みで既定がローカルである。進捗側の記述が実装より古い。
 
 ---
 
 ## 更新履歴
 
+> v0.2：**1つの発言に2回答えた件の真因と是正**を反映した。表示の口（`_on_realtime_stt_committed`）
+> がセッションとは別にキューへ積んでおり、1つの発言が必ず2件になっていた。表示の口から
+> キュー投入を外し、入力をセッションの1本にした。あわせて GUI 側の重複除去
+> （`DuplicateInputFilter` と `INPUT_DEDUPE_WINDOW_SEC`）を撤去した。重複除去は音声側の
+> 課題で、段4のセッション内で済んでいる。§5 と全体像の図、設定値表を書き換えた。
 > v0.1：初版。常時集音のローカル化（silero-vad と faster-whisper）後の経路を、2026-07-30
 > 時点のソースコードに基づいて記録した。

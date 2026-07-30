@@ -433,12 +433,6 @@ class AgentConfig:
     arbiter_timeout_sec: float = field(
         default_factory=lambda: _float_env("ARBITER_TIMEOUT_SEC", 5.0)
     )
-    # 同じ入力が続けて積まれるのを落とす窓（秒）。実機で1つの発言に2回答えた
-    # （キューに2件入っていた）。入口はキーボードと音声の2つあり、どちらからでも積まれる。
-    # **言い直しは弾かない**ので短く取る。0 にすると何も弾かない。
-    input_dedupe_window_sec: float = field(
-        default_factory=lambda: _float_env("INPUT_DEDUPE_WINDOW_SEC", 3.0)
-    )
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
     # 「黙って」と頼まれたが長さを言われなかったときの既定。
     silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 15))
