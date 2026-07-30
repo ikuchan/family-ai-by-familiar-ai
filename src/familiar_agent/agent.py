@@ -940,7 +940,8 @@ class EmbodiedAgent:
         if stt_cfg.elevenlabs_api_key:
             cam = self.config.camera
             rtsp_url = str(cam.stream_url("stream1")) if cam.is_rtsp() else ""
-            self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url)
+            self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url,
+                                engine=stt_cfg.engine, stt_config=stt_cfg)
 
         # World model: persistent scene entity tracker (Phase 1)
         # Shares the same PostgreSQL Database instance as ObservationMemory.
@@ -2434,6 +2435,14 @@ class EmbodiedAgent:
 
             tts_cfg = self.config.tts
             ensure_sbv2_server(tts_cfg, engine=tts_cfg.engine, output=tts_cfg.output)
+        # STT のモデル（faster-whisper）も起動時に読む。最初の書き起こしを待たせない。
+        # 読み込みは GPU を触るのでスレッドへ逃がす（起動を塞がない）。
+        with contextlib.suppress(Exception):
+            from .tools.stt import ensure_whisper_model
+
+            stt_cfg = self.config.stt
+            if stt_cfg.engine == "whisper":
+                asyncio.ensure_future(asyncio.to_thread(ensure_whisper_model, stt_cfg))
 
     async def close(self) -> None:
         """Clean up resources. Bounded by timeouts to avoid hanging on exit."""

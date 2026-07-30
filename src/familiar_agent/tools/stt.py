@@ -77,10 +77,64 @@ def _suppress_alsa_errors():
                 pass
 
 
+# 読み込んだ書き起こしモデル。**プロセスで1つだけ持つ。** 読み込みに数秒かかり VRAM も
+# 使うので、呼ばれるたびに読み直すわけにはいかない。
+_whisper_model = None
+
+
+def _build_whisper_model(cfg):
+    """`faster-whisper` のモデルを組む（差し替え点）。"""
+    from faster_whisper import WhisperModel
+
+    return WhisperModel(
+        cfg.whisper_model,
+        device=cfg.whisper_device,
+        compute_type=cfg.whisper_compute_type,
+    )
+
+
+def load_whisper_model(cfg):
+    """書き起こしモデルを返す（1度だけ読む）。読めなければ `None`。
+
+    読めなくても落とさない。**書き起こしができないだけ**にする（機器は落ちる前提のもので、
+    モデルが載らないことでターンごと壊すわけにはいかない）。
+    """
+    global _whisper_model
+    if _whisper_model is not None:
+        return _whisper_model
+    try:
+        started = time.monotonic()
+        _whisper_model = _build_whisper_model(cfg)
+        logger.info(
+            "STT: モデルを読んだ（%s・%s・%s・%.1f 秒）",
+            cfg.whisper_model, cfg.whisper_device, cfg.whisper_compute_type,
+            time.monotonic() - started,
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("STT: モデルを読めなかった（書き起こしは使えない）: %s", e)
+        _whisper_model = None
+    return _whisper_model
+
+
+def ensure_whisper_model(cfg) -> None:
+    """起動時にモデルを読む（使う構成のときだけ）。
+
+    **最初の書き起こしを待たせない。** 読み込みに数秒かかる。使わない構成
+    （`STT_ENGINE=elevenlabs`）では読まない（VRAM を無駄に占めない）。
+    """
+    if cfg.engine != "whisper":
+        return
+    load_whisper_model(cfg)
+
+
 class STTTool:
     """Record audio and transcribe via ElevenLabs Scribe."""
 
-    def __init__(self, api_key: str, language: str = "ja", rtsp_url: str = "") -> None:
+    def __init__(self, api_key: str, language: str = "ja", rtsp_url: str = "",
+                 engine: str = "elevenlabs", stt_config=None) -> None:
+        self.engine = engine
+        # モデルの設定（`STTConfig`）。渡されなければ書き起こしの時点で作る。
+        self._stt_config = stt_config
         self._api_key = api_key
         self._language = language
         self._rtsp_url = rtsp_url
@@ -100,7 +154,48 @@ class STTTool:
         if not audio_bytes:
             return ""
 
+        if self.engine == "whisper":
+            return await self._transcribe_whisper(audio_bytes)
         return await self._transcribe_elevenlabs(audio_bytes)
+
+    async def _transcribe_whisper(self, audio_bytes: bytes) -> str:
+        """ローカルの `faster-whisper` で書き起こす。
+
+        重い呼び出しなのでスレッドへ逃がす（GPU を回すあいだイベントループを塞がない）。
+        失敗しても例外は投げず空文字を返す（従来の経路と同じ degrade）。
+        """
+        if not audio_bytes:
+            return ""
+        cfg = self._stt_config
+        if cfg is None:
+            from ..config import STTConfig
+
+            cfg = STTConfig()
+        model = load_whisper_model(cfg)
+        if model is None:
+            return ""
+
+        def _work() -> str:
+            import io
+
+            started = time.monotonic()
+            segments, info = model.transcribe(
+                io.BytesIO(audio_bytes),
+                language=self._language or None,
+                vad_filter=True,          # 無音を落とす（幻聴のような書き起こしを抑える）
+            )
+            text = "".join(seg.text for seg in segments).strip()
+            logger.info(
+                "STT: 書き起こした（%d 字・%.2f 秒・音声 %.1f 秒）",
+                len(text), time.monotonic() - started, getattr(info, "duration", 0.0),
+            )
+            return text
+
+        try:
+            return await asyncio.to_thread(_work)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("STT: 書き起こしに失敗した: %s", e)
+            return ""
 
     # ── recording helpers ─────────────────────────────────────────────────
 

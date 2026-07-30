@@ -28,6 +28,9 @@ dependencies = [
     "uvloop>=0.22.1; sys_platform != 'win32'",
     "ultralytics>=8.4.81",
     "faster-whisper>=1.2.1",
+    # 発話区間の検出（silero-vad・MIT）。音量だけでは息継ぎで切れてしまう
+    # （実測：話した区間の下位 25% が無音と重なる）。torch/torchaudio は既にある。
+    "silero-vad>=6.2.1",
     "speechbrain>=1.1.0",
     "torchaudio==2.10.0",
     "insightface>=1.0.1",

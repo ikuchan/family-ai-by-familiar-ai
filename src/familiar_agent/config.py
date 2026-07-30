@@ -315,6 +315,18 @@ class STTConfig:
         default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", "")
     )
     language: str = field(default_factory=lambda: os.environ.get("STT_LANGUAGE", "ja"))
+    # 書き起こしをどこでやるか。`whisper`＝faster-whisper（ローカル・既定）／
+    # `elevenlabs`＝外部 API。設計（[D-知覚]）は faster-whisper を定めており、依存も
+    # 入っていた（未使用だった）。**戻せる**（`STT_ENGINE=elevenlabs`）。
+    engine: str = field(default_factory=lambda: os.environ.get("STT_ENGINE", "whisper"))
+    whisper_model: str = field(default_factory=lambda: os.environ.get("WHISPER_MODEL", "large-v3"))
+    # 量子化。`int8_float16` は large-v3 の精度をほぼ保って VRAM を約半分（2.5GB 程度）に
+    # する。VRAM の実測は本体 2.6GB＋SBV2 1.4GB＝4.2GB で空き 8.1GB（`根拠台帳` §8）。
+    # 精度が足りなければ `float16`（4.7GB）へ。
+    whisper_compute_type: str = field(
+        default_factory=lambda: os.environ.get("WHISPER_COMPUTE_TYPE", "int8_float16")
+    )
+    whisper_device: str = field(default_factory=lambda: os.environ.get("WHISPER_DEVICE", "cuda"))
 
 
 @dataclass
