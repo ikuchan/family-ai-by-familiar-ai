@@ -14,7 +14,8 @@ logger = logging.getLogger(__name__)
 
 TARGET_RATE = 16000  # ElevenLabs Realtime STT expects 16 kHz PCM
 CHANNELS = 1
-_BLOCK_MS = 100  # capture block size in milliseconds
+_BLOCK_MS = 96  # 取り込むブロックの長さ（ミリ秒）。16kHz で 1,536 サンプル＝512×3 になり、
+               # silero-vad が要求する 512 サンプルで割り切れる（余りを持ち越さない）。
 
 
 def _is_wsl2() -> bool:

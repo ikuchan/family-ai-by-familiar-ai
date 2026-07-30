@@ -327,6 +327,28 @@ class STTConfig:
         default_factory=lambda: os.environ.get("WHISPER_COMPUTE_TYPE", "int8_float16")
     )
     whisper_device: str = field(default_factory=lambda: os.environ.get("WHISPER_DEVICE", "cuda"))
+    # 常時集音で「発話が終わった」とみなす無音の長さ（秒）。ElevenLabs も 1.0 だった。
+    # 短くすると息継ぎで切れ、長くすると返事が遅れる。
+    vad_silence_sec: float = field(
+        default_factory=lambda: _float_env("STT_VAD_SILENCE_SEC", 1.0)
+    )
+    # 1つの発話区間の上限（秒）。雑音が続いたときにメモリと GPU を食い続けないための蓋。
+    # whisper は 30 秒単位で処理するので、そこを境目にする。
+    max_segment_sec: float = field(
+        default_factory=lambda: _float_env("STT_MAX_SEGMENT_SEC", 30.0)
+    )
+    # これより短い区間は、その場では書き起こさず次の発話まで持ち越して合わせる。実測で、
+    # 「今日は／7月30日10時45分／天気は曇りです」が3つに分断され、真ん中の 1.0 秒の区間が
+    # 'ジュージュージュー' に崩れた（一括で起こすと正しかった）。**短い断片では文脈が
+    # 足りない。** 1.4 秒の区間は正しく起こせていたので、境目はその間にある。
+    min_segment_sec: float = field(
+        default_factory=lambda: _float_env("STT_MIN_SEGMENT_SEC", 1.5)
+    )
+    # 持ち越したまま次が来ないとき、諦めて単独で書き起こすまでの無音（秒）。
+    # 「はい」だけの返事が永久に届かないのを避ける。
+    hold_give_up_sec: float = field(
+        default_factory=lambda: _float_env("STT_HOLD_GIVE_UP_SEC", 3.0)
+    )
 
 
 @dataclass

@@ -17,17 +17,17 @@ Usage (both modes)::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import re
 import time
 from collections.abc import Callable
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from .voice_guard import VoiceLoopGuard, get_shared_voice_guard
 
 if TYPE_CHECKING:
-    from .tools.realtime_stt import RealtimeSttClient
     from .tools.mic import MicCapture
 
 logger = logging.getLogger(__name__)
@@ -135,11 +135,21 @@ class RealtimeSttSession:
         language_code: str = "ja",
         *,
         voice_guard: VoiceLoopGuard | None = None,
+        stt_config=None,
     ) -> None:
+        # 書き起こしの担い手を決める設定（`STT_ENGINE`）。渡されなければ既定を作る。
+        if stt_config is None:
+            from .config import STTConfig
+
+            stt_config = STTConfig()
+        self._stt_config = stt_config
         self._api_key = api_key
         self._language_code = language_code.strip()
         self._voice_guard = voice_guard or get_shared_voice_guard()
-        self._stt_client: RealtimeSttClient | None = None
+        # 書き起こしの担い手。ローカル（`LocalSttEngine`）と WebSocket
+        # （`RealtimeSttClient`）の2種類あり、口の形は同じ（`connected`／`connect`／
+        # `close`／`send_audio`／`on_committed`）。共通の基底は置かず、型は緩めて扱う。
+        self._stt_client: Any = None
         self._mic_capture: MicCapture | None = None
         self._relay_task: asyncio.Task | None = None
         self._partial_task: asyncio.Task | None = None
@@ -269,6 +279,13 @@ class RealtimeSttSession:
     # ── internal relay tasks ─────────────────────────────────────────
 
     async def _connect_client(self) -> None:
+        """書き起こしの担い手を用意する。
+
+        `STT_ENGINE=whisper`（既定）ならローカル（silero-vad ＋ faster-whisper）、
+        `elevenlabs` なら従来の WebSocket。**口の形は同じ**なので、以降の経路
+        （配信のゲート・重複の除去・GUI への中継）は変わらない。
+        """
+        from .tools.local_stt import LocalSttEngine, should_use_local  # noqa: PLC0415
         from .tools.realtime_stt import RealtimeSttClient  # noqa: PLC0415
 
         async with self._connect_lock:
@@ -280,13 +297,30 @@ class RealtimeSttSession:
             if old_client is not None:
                 await old_client.close()
 
-            client = RealtimeSttClient(self._api_key, self._language_code)
+            client: Any
+            if should_use_local(self._stt_config):
+                client = LocalSttEngine(self._stt_config)
+                # 発話の始まりだけを知らせる（部分結果は出さない）。
+                client.on_speech_start = self._announce_listening
+            else:
+                client = RealtimeSttClient(self._api_key, self._language_code)
+                client.on_partial = self._incoming_partial
             client.on_committed = self._incoming_committed
-            client.on_partial = self._incoming_partial
             await client.connect()
             self._stt_client = client
             self._last_connected_at = time.time()
-            logger.info("Realtime STT transport connected")
+            logger.info("Realtime STT transport connected（%s）",
+                        type(client).__name__)
+
+    def _announce_listening(self) -> None:
+        """発話の始まりを GUI へ知らせる（「聞いています」の印）。
+
+        ローカルでは部分結果を出さない（途中で何度も書き起こすと GPU を無駄に回す）。
+        文字は出さず、聞いていることだけを伝える。
+        """
+        if self.on_partial is not None:
+            with contextlib.suppress(Exception):
+                self.on_partial("聞いています")
 
     async def _ensure_connected(self) -> bool:
         client = self._stt_client
@@ -429,21 +463,27 @@ class RealtimeSttController:
 def create_realtime_stt_session(
     voice_guard: VoiceLoopGuard | None = None,
 ) -> RealtimeSttSession | None:
-    """Create a session if ``REALTIME_STT=true`` and the API key is available.
+    """常時集音のセッションを作る（`REALTIME_STT=true` のとき）。
 
-    Returns ``None`` when realtime STT is not configured.
+    **API キーが要るのは ElevenLabs を使うときだけ**である。ローカル（既定）では要らない。
+    設定されていなければ `None`。
     """
+    from .config import STTConfig
+    from .tools.local_stt import should_use_local
+
     enabled = os.environ.get("REALTIME_STT", "").lower() in ("1", "true", "yes")
     api_key = os.environ.get("ELEVENLABS_API_KEY", "")
     language_code = os.environ.get("STT_LANGUAGE", "ja").strip()
+    stt_config = STTConfig()
 
     if not enabled:
         return None
-    if not api_key:
-        logger.warning("REALTIME_STT=true but ELEVENLABS_API_KEY is not set")
+    if not should_use_local(stt_config) and not api_key:
+        logger.warning("REALTIME_STT=true・STT_ENGINE=elevenlabs だが ELEVENLABS_API_KEY が無い")
         return None
 
-    return RealtimeSttSession(api_key, language_code=language_code, voice_guard=voice_guard)
+    return RealtimeSttSession(api_key, language_code=language_code, voice_guard=voice_guard,
+                              stt_config=stt_config)
 
 
 def create_realtime_stt_controller() -> RealtimeSttController | None:

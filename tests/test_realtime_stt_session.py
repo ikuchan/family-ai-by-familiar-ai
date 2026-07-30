@@ -124,6 +124,9 @@ async def test_ensure_connected_replaces_disconnected_client(monkeypatch) -> Non
 
     monkeypatch.setattr("familiar_agent.tools.realtime_stt.RealtimeSttClient", _FreshClient)
 
+    # このテストが見るのは「接続が切れたら担い手を差し替える」ことなので、WebSocket 版を
+    # 明示する（既定はローカル＝silero-vad ＋ faster-whisper で、繋ぐ相手がいない）。
+    monkeypatch.setenv("STT_ENGINE", "elevenlabs")
     session = RealtimeSttSession("dummy")
     stale = _StaleClient()
     session._stt_client = stale  # type: ignore[assignment]
