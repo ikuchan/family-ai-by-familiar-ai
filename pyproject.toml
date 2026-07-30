@@ -37,6 +37,7 @@ dependencies = [
     # CUDA-12 版 onnxruntime-gpu（1.27+）は Python>=3.11 が必要。requires-python は 3.10 の
     # ままにし、GPU 版は 3.11+ でだけ要求する（3.10 では顔認識が無効化されるだけ）。
     "onnxruntime-gpu>=1.24.3 ; python_version >= '3.11'",
+    "soxr>=1.1.0",
 ]
 
 [project.optional-dependencies]

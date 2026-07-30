@@ -20,7 +20,6 @@ ElevenLabs の WebSocket（`realtime_stt.py`）はサーバー側で VAD を持�
 from __future__ import annotations
 
 import asyncio
-import io
 import logging
 import time
 from typing import Callable
@@ -207,24 +206,27 @@ class LocalSttEngine:
         return "start" if "start" in result else "end"
 
     def _transcribe(self, audio: bytes) -> str:
-        """溜めた PCM を WAV にして書き起こす（差し替え点）。
+        """溜めた PCM をそのまま書き起こす（差し替え点）。
 
         モデルは `stt.py` と共有する（VRAM 1,936 MiB を二重に持たない）。
+
+        **WAV に包んで渡してはいけない。** faster-whisper は容れ物を渡されると PyAV で
+        復号し 16kHz へ再標本化する。その再標本化が `EAGAIN` を返したとき、PyAV が errno の
+        説明文を ascii で読もうとして落ちる（`LANG=ja_JP.UTF-8` では説明文が日本語）。
+        音はすでに 16kHz なので、float32 の配列を渡せば復号も再標本化も起きない。
         """
-        import soundfile as sf
+        import numpy as np
 
         from .stt import load_whisper_model
 
         model = load_whisper_model(self._cfg)
         if model is None:
             return ""
-        import numpy as np
 
-        buf = io.BytesIO()
-        sf.write(buf, np.frombuffer(audio, dtype=np.int16), _RATE, format="WAV")
+        samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
         started = time.monotonic()
         segments, info = model.transcribe(
-            io.BytesIO(buf.getvalue()),
+            samples,
             language=(self._cfg.language or None),
             vad_filter=False,      # 区間は既に VAD で切ってある
         )

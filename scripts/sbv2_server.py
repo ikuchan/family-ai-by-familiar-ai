@@ -81,11 +81,17 @@ def _load_model():
 def _synth(text: str, style: str, weight: float) -> bytes:
     """1文を合成して WAV のバイト列を返す。"""
     import soundfile as sf
+    from style_bert_vits2.nlp.japanese.normalizer import normalize_text
 
     if style not in _styles:
         logger.warning("style %r はこのモデルに無いので Neutral にする（あるのは %s）",
                        style, list(_styles))
         style = "Neutral"
+    # **正規化してから渡す。** `infer()` は正規化しないので、全角の記号（`！`『？』など）が
+    # そのまま音素変換へ行き `Input must be katakana only: ！` で 500 になる。
+    text = normalize_text(text)
+    if not text:
+        raise ValueError("正規化したら空になった")
     started = time.monotonic()
     rate, audio = _model.infer(text=text, style=style, style_weight=weight)
     buf = io.BytesIO()

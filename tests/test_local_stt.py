@@ -211,3 +211,50 @@ def test_the_merge_thresholds_have_defaults():
         cfg = STTConfig()
         assert cfg.min_segment_sec == pytest.approx(1.5)
         assert cfg.hold_give_up_sec == pytest.approx(3.0)
+
+
+# ── モデルへ渡す形 ─────────────────────────────────────────────────────────
+#
+# 実機で書き起こしが全く通らなかった。WAV に書いて `BytesIO` を渡していたため、
+# faster-whisper がそれを **PyAV** で復号し 16kHz へ再標本化していた。その再標本化が
+# `EAGAIN` を返したとき、**PyAV が errno の説明文を ascii で読もうとして落ちる**
+# （この環境は LANG=ja_JP.UTF-8 なので説明文が日本語）。
+#
+#   File "av/error.pyx", line 421, in av.error.err_check
+#   UnicodeDecodeError: 'ascii' codec can't decode byte 0xe3 in position 0
+#
+# **そもそも復号も再標本化も要らない。** 音はすでに 16kHz の PCM である。float32 の
+# numpy 配列をそのまま渡せば `decode_audio` を通らず、PyAV が経路から消える。
+
+def test_the_audio_reaches_the_model_as_float32_samples():
+    """WAV でもファイル様オブジェクトでもなく、16kHz の float32 配列を渡す。"""
+    import numpy as np
+
+    cfg = STTConfig()
+    engine = LocalSttEngine(cfg)
+    model = MagicMock()
+    model.transcribe.return_value = ([], MagicMock(duration=1.0))
+
+    pcm = (np.arange(_RATE, dtype=np.int16) % 1000).tobytes()   # 1 秒ぶん
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        engine._transcribe(pcm)
+
+    passed = model.transcribe.call_args.args[0]
+    assert isinstance(passed, np.ndarray), f"配列でなく {type(passed)} を渡している"
+    assert passed.dtype == np.float32
+    assert len(passed) == _RATE                 # 16kHz のまま（再標本化していない）
+    assert abs(passed).max() <= 1.0             # -1.0〜1.0 に正規化してある
+
+
+def test_the_model_is_never_asked_to_decode_a_container():
+    """PyAV を経路から外したことの反証側。ファイル様オブジェクトを渡していたら落ちる。"""
+    import io
+
+    engine = LocalSttEngine(STTConfig())
+    model = MagicMock()
+    model.transcribe.return_value = ([], MagicMock(duration=1.0))
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        engine._transcribe(b"\x00\x01" * _RATE)
+
+    passed = model.transcribe.call_args.args[0]
+    assert not isinstance(passed, (io.IOBase, bytes, bytearray))

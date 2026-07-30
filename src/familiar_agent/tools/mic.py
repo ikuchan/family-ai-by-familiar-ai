@@ -74,18 +74,34 @@ def probe_sounddevice_input() -> tuple[bool, str]:
     return True, f"{name} @ {sample_rate} Hz"
 
 
-def _resample(pcm_bytes: bytes, from_rate: int) -> bytes:
-    """Resample int16 mono PCM from *from_rate* to TARGET_RATE (16 kHz).
+class _Resampler:
+    """素の標本化率から 16 kHz へ落とす（int16 モノラル）。
 
-    Uses linear interpolation — fast, dependency-free, good enough for STT.
+    **間引く前に帯域を切らなければならない。** このマイク（Yamaha YVC-300）は 48,000 Hz で、
+    16,000 Hz へは正確に 3:1 である。以前は `np.interp` で位置を拾っていたが、それは
+    3 サンプルおきに間引くだけで、**低域通過フィルタを通していなかった**。8 kHz より上の
+    成分が折り返して band 内の雑音になり（エイリアシング）、常時集音の書き起こしが話した
+    内容と全く違うものになっていた。
+
+    `soxr.ResampleStream` は**フィルタの状態をまたいで保つ**ので、96 ミリ秒ずつ渡しても
+    境目に段差が入らない。1 つの取り込みにつき 1 つ持つ（状態を混ぜない）。
     """
-    if from_rate == TARGET_RATE:
-        return pcm_bytes
-    arr = np.frombuffer(pcm_bytes, dtype=np.int16)
-    n_out = int(len(arr) * TARGET_RATE / from_rate)
-    indices = np.linspace(0, len(arr) - 1, n_out)
-    resampled = np.interp(indices, np.arange(len(arr)), arr).astype(np.int16)
-    return resampled.tobytes()
+
+    def __init__(self, from_rate: int) -> None:
+        self._from_rate = from_rate
+        self._stream = None
+        if from_rate != TARGET_RATE:
+            import soxr
+
+            self._stream = soxr.ResampleStream(
+                from_rate, TARGET_RATE, 1, dtype="int16", quality="VHQ",
+            )
+
+    def process(self, pcm_bytes: bytes) -> bytes:
+        if self._stream is None or not pcm_bytes:
+            return pcm_bytes
+        arr = np.frombuffer(pcm_bytes, dtype=np.int16)
+        return self._stream.resample_chunk(arr).tobytes()
 
 
 class MicCapture:
@@ -135,6 +151,8 @@ class MicCapture:
             device_info = sd.query_devices(device=device_idx, kind="input")
             self._native_rate = int(device_info["default_samplerate"])
             block_size = int(self._native_rate * _BLOCK_MS / 1000)
+            # 取り込みごとに1つ持つ（フィルタの状態を前の取り込みと混ぜない）。
+            resampler = _Resampler(self._native_rate)
 
             logger.info(
                 "Microphone capture: device=%s native_rate=%d target_rate=%d",
@@ -146,7 +164,7 @@ class MicCapture:
             def _callback(indata, frames, time_info, status):  # noqa: ANN001, ARG001
                 if status:
                     logger.debug("Mic status: %s", status)
-                pcm = _resample(bytes(indata), self._native_rate)
+                pcm = resampler.process(bytes(indata))
                 if self._loop and not self._loop.is_closed():
                     self._loop.call_soon_threadsafe(
                         lambda b=pcm: self._loop.create_task(self._on_audio(b))
