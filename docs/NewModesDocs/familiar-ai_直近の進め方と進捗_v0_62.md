@@ -1,4 +1,4 @@
-# familiar-ai 直近の進め方と進捗（v0.61）
+# familiar-ai 直近の進め方と進捗（v0.62）
 
 > Phase 1（O/MI モデルの確立）の作業について、直近の進め方と現在地の記録。詳しい方法論は「出力に関する指示」に、段取りは課題8 に、値の根拠は課題5 と計測台帳にある。ここはその上での現在地のスナップショットである。
 
@@ -110,6 +110,8 @@
 
 - **`FAMILIAR_ENV_FILE` を使うと、コマンドラインで渡した環境変数が `.env` に負ける**。`bootstrap.py:60` が素の `.env` を `override=True` で読むためで、`DATABASE_URL=... FAMILIAR_ENV_FILE=.env.quiet ./run-gui.sh` としても `.env` 側の値が効く。実機確認でテスト DB へ向けたつもりが本番 DB を見ていた（本番は壊していない）。上書きしたい値は指定ファイル側に書く必要がある。docstring は「`.env.quiet` は上書きしたい数行だけで済む」と説明しており、**意図された挙動かどうかは確かめていない**。
 
+- **同じモジュールを提供する配布物が2つ入り、宣言と違うほうが使われていた**（2026-07-30・リポジトリ外）。合成が `！` を含む文で必ず 500 を返し、実機で「GUI には返事が出るのに声が出ない」状態になっていた。`~/tts_eval/sbv2_env` に `pyopenjtalk-dict`（`style-bert-vits2` が依存として宣言しているもの）と `pyopenjtalk-plus`（何にも依存されていない）の両方が入っており、同じ `pyopenjtalk` パッケージ名を後勝ちで `-plus` が占めていた。両者は記号の読みが違う。`!` に対して `-dict` は `pron="、"` を返すが、`-plus` は `pron="！"` を返す。`style-bert-vits2` 2.5.0 の `text_to_sep_kata` には `？` が全角で返る場合の分岐はあるが **`！` の分岐が無い**ため、`！` はどの受け皿にも入らず `Input must be katakana only: ！` で落ちる。`-plus` を外して `-dict` を入れ直し、`こんにちは！`・`やった！！！` が 200 で鳴ることを確認した。**`style-bert-vits2` は 2.5.0 が最新なので、上げて直る話ではない。** 環境を作り直すときは、`pyopenjtalk` を提供する配布物が1つだけであることを確かめる。あわせて `scripts/sbv2_server.py` の二重の正規化を落とした（`infer()` の中の `clean_text` が `normalize_text` を呼ぶので、呼び出し側では要らない）。
+
 - **`mcp-server-fetch` の依存を固定した**（2026-07-29・リポジトリ外）。`mcp` 2.0.0（7月28日公開）が `McpError` を `MCPError` へ改名し、`mcp-server-fetch`（最新 2026.7.10）が追随していないため、`uvx` が最新を解決して起動に失敗するようになった。`~/.familiar-ai.json` の `fetch` を `["--from", "mcp-server-fetch", "--with", "mcp<2", "mcp-server-fetch"]` へ変えて回避した（控えは `~/.familiar-ai.json.bak-20260729`）。**暫定である。** `mcp-server-fetch` が 2.0.0 対応版を出したら固定を外す。
 
 - **検索の MCP サーバーが空行を出す**。`search_deferred` を使うと `mcp.client.stdio: Failed to parse JSONRPC message from server` が数件出る（中身は空文字）。`fetch` は手で JSONRPC を送って検証し、空行を出さないことを確認した。犯人は `brave-search` か `tavily`（どちらも Node 製）だが、ロガーがサーバー名を出さないので特定できていない。**実害は無い**（同じ反復で検索も取得も成功している）。直す先はこちらのコードに無い。
@@ -130,6 +132,7 @@
 
 ## 更新履歴
 
+> v0.62：**合成が `！` を含む文で必ず落ちていた件の真因**（`pyopenjtalk` を提供する配布物が2つ入り、宣言外の `-plus` が使われていた）を申し送りへ足した。`-dict` へ戻して実機で鳴ることを確認し、`scripts/sbv2_server.py` の二重の正規化を落とした。あわせて起動メッセージが実物の担い手を名乗るようにした（GUI・TUI・CUI の3経路）。
 > v0.61：**1つの発言に2回答えた件の真因を特定して塞いだこと**を申し送りへ反映した。表示の口とセッションの両方がキューへ積んでいた。表示の口からキュー投入を外し、GUI 側の重複除去（`DuplicateInputFilter`・`INPUT_DEDUPE_WINDOW_SEC`）を撤去した。経路の記録の参照を『音声入力からGUIへの経路』v0.2 へ更新した。
 > v0.60：**出-a の STT ローカル化を反映**（faster-whisper と silero-vad・既定 `STT_ENGINE=whisper`・再標本化と受け渡しと TTS 正規化の3件の修正を含む）。申し送りの「STT の利用枠」を解消済みへ直して重複の1件を落とし、経路の記録（『音声入力からGUIへの経路』v0.1）への参照を足した。表題の版（v0.52 のままだった）をファイル名に揃えた。
 > v0.59：**出-a の TTS ローカル化**（Style-Bert-VITS2・実機確認済み）と、**1つの発言に2回答えた件**（原因未特定・入口のログと重複の弾きを入れた）を反映。

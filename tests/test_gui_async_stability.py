@@ -35,6 +35,8 @@ class _ManualRealtimeStt:
         self.on_restart: Callable[[str], None] | None = None
         self._queue: asyncio.Queue[str | None] | None = None
         self.started = False
+        # 起動メッセージが名乗る担い手。既定は `STT_ENGINE=whisper` のローカル。
+        self.engine_label = "faster-whisper"
 
     async def start(
         self, _loop: asyncio.AbstractEventLoop, committed_queue: asyncio.Queue[str | None]
@@ -149,7 +151,8 @@ async def test_gui_realtime_stt_callbacks_log_and_enqueue_text():
     assert fake_stt.started is True
     assert fake_stt.on_partial is not None
     assert fake_stt.on_committed is not None
-    win._log.append_line.assert_any_call("🎤 Realtime STT ON (ElevenLabs)")
+    # 担い手を名乗る（固定文字列ではない。`STT_ENGINE` を変えれば表示も変わる）。
+    win._log.append_line.assert_any_call("🎤 Realtime STT ON (faster-whisper)")
 
     fake_stt.on_partial("testing partial")
     win._stream.set_status.assert_called_with("🎤 testing partial")

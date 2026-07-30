@@ -174,6 +174,18 @@ class RealtimeSttSession:
         self.on_watchdog_restart: Callable[[str], None] | None = None
 
     @property
+    def engine_label(self) -> str:
+        """いま書き起こしを担っているものの名前。
+
+        担い手を選ぶのと同じ判定（`should_use_local`）から作る。別に持つと、片方だけ
+        直したときに表示と実物がずれる。実際に起動メッセージが `ElevenLabs` の固定文字列で、
+        既定のローカルで動いていても ElevenLabs と出していた。
+        """
+        from .tools.local_stt import should_use_local  # noqa: PLC0415
+
+        return "faster-whisper" if should_use_local(self._stt_config) else "ElevenLabs"
+
+    @property
     def active(self) -> bool:
         """True while the session is running."""
         return self._mic_capture is not None or self._monitor_task is not None
@@ -418,6 +430,10 @@ class RealtimeSttController:
         self.on_partial: Callable[[str], None] | None = None
         self.on_committed: Callable[[str], None] | None = None
         self.on_restart: Callable[[str], None] | None = None
+
+    @property
+    def engine_label(self) -> str:
+        return self._session.engine_label
 
     @property
     def active(self) -> bool:

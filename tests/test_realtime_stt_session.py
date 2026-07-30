@@ -281,3 +281,28 @@ def test_create_realtime_stt_controller_wraps_configured_session(monkeypatch) ->
 
     assert controller is not None
     assert isinstance(controller, RealtimeSttController)
+
+
+# ── 担い手の名前（GUI の起動メッセージが実物とずれていた）───────────────────────
+#
+# 起動メッセージが `🎤 Realtime STT ON (ElevenLabs)` の固定文字列で、既定のローカル
+# （faster-whisper）で動いていても ElevenLabs と表示していた。どちらで書き起こしている
+# かは実機の切り分けで最初に見る情報なので、実物を出す。
+#
+# 名前は**担い手を選ぶのと同じ判定**から作る。別々に持つと、片方だけ直したときにまた
+# ずれる。
+
+def test_the_engine_label_names_the_local_transcriber_by_default() -> None:
+    session = RealtimeSttSession("", "ja", stt_config=SimpleNamespace(engine="whisper"))
+    assert session.engine_label == "faster-whisper"
+
+
+def test_the_engine_label_names_elevenlabs_when_switched_back() -> None:
+    session = RealtimeSttSession("k", "ja", stt_config=SimpleNamespace(engine="elevenlabs"))
+    assert session.engine_label == "ElevenLabs"
+
+
+def test_the_controller_passes_the_engine_label_through() -> None:
+    """GUI が触るのは包み（`RealtimeSttController`）なので、そちらからも読める。"""
+    session = RealtimeSttSession("", "ja", stt_config=SimpleNamespace(engine="whisper"))
+    assert RealtimeSttController(session).engine_label == "faster-whisper"

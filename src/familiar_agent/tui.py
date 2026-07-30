@@ -571,7 +571,10 @@ class FamiliarApp(App):
                 f"🎤 Realtime STT restarting ({reason})"
             )
             await self._realtime_stt.start(loop, self._input_queue)
-            self._log_system("\U0001f3a4 Realtime STT ON (ElevenLabs)")
+            # 担い手はセッションに聞く（`STT_ENGINE` を変えれば表示も変わる）。
+            self._log_system(
+                f"\U0001f3a4 Realtime STT ON ({self._realtime_stt.engine_label})"
+            )
         except Exception as e:
             logger.warning("Realtime STT init failed: %s", e)
             self._log_system(f"\u26a0 Realtime STT init failed: {e}")

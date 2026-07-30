@@ -1862,7 +1862,9 @@ class FamiliarWindow(QMainWindow):
             self._realtime_stt.on_restart = self._on_realtime_stt_restart
             await self._realtime_stt.start(loop, self._input_queue)
             self._set_last_error(None)
-            self._log.append_line("🎤 Realtime STT ON (ElevenLabs)")
+            # 担い手はセッションに聞く。ここで名前を持つと、`STT_ENGINE` を切り替えた
+            # ときに表示だけ古いまま残る（実際に ElevenLabs の固定文字列が残っていた）。
+            self._log.append_line(f"🎤 Realtime STT ON ({self._realtime_stt.engine_label})")
         except Exception as exc:
             logger.warning("Realtime STT init failed: %s", exc)
             self._set_last_error(f"Realtime STT init failed: {exc}")

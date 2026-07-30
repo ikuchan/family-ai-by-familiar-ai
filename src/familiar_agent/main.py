@@ -134,7 +134,8 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
             )
             stt_session.on_committed = lambda t: print(f"\n  \U0001f3a4 {t}")
             await stt_session.start(loop, input_queue)
-            print("  \U0001f3a4 Realtime STT ON (ElevenLabs)")
+            # 担い手はセッションに聞く（`STT_ENGINE` を変えれば表示も変わる）。
+            print(f"  \U0001f3a4 Realtime STT ON ({stt_session.engine_label})")
         except Exception as e:
             logging.getLogger(__name__).warning("Realtime STT init failed: %s", e)
             print(f"  \u26a0 Realtime STT init failed: {e}")

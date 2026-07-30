@@ -120,3 +120,53 @@ def test_both_entrances_report_the_same_queue_size_for_one_input(caplog):
     assert "queue=1" in stt_line, f"音声側が積む前の数を出している: {stt_line}"
     assert "queue=1" in keyboard_line
     assert "stt" in stt_line and "keyboard" in keyboard_line
+
+
+# ── 起動メッセージは実物の担い手を出す ─────────────────────────────────────────
+#
+# `🎤 Realtime STT ON (ElevenLabs)` の固定文字列だったので、既定のローカル
+# （faster-whisper）で動いていても ElevenLabs と表示していた。どちらで書き起こして
+# いるかは実機の切り分けで最初に見る情報である。
+
+def test_the_startup_line_names_the_engine_actually_in_use():
+    """既定（ローカル）なら faster-whisper と出す。ElevenLabs とは出さない。"""
+    import asyncio
+
+    from familiar_agent.gui import FamiliarWindow
+
+    win = _stub_window()
+    win._realtime_stt = _StubController("faster-whisper")
+    win._set_last_error = lambda _err: None
+
+    asyncio.run(FamiliarWindow._start_realtime_stt(win))
+
+    line = win._log.lines[-1]
+    assert "faster-whisper" in line, f"担い手が出ていない: {line}"
+    assert "ElevenLabs" not in line
+
+
+def test_the_startup_line_names_elevenlabs_when_switched_back():
+    import asyncio
+
+    from familiar_agent.gui import FamiliarWindow
+
+    win = _stub_window()
+    win._realtime_stt = _StubController("ElevenLabs")
+    win._set_last_error = lambda _err: None
+
+    asyncio.run(FamiliarWindow._start_realtime_stt(win))
+
+    assert "ElevenLabs" in win._log.lines[-1]
+
+
+class _StubController:
+    """`_start_realtime_stt` が触る分だけ持つ包み。"""
+
+    def __init__(self, engine_label: str) -> None:
+        self.engine_label = engine_label
+        self.on_partial = None
+        self.on_committed = None
+        self.on_restart = None
+
+    async def start(self, loop, queue) -> None:
+        return None
