@@ -270,15 +270,25 @@ class InformationProcessing:
         if action != "recall":
             tool = agent._deferred_search if action == "search_deferred" else agent._deferred_fetch
             try:
-                await tool.call(action, tool_input)
+                text, dispatched = await tool.dispatch(tool_input)
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop %s の実行に失敗: %s", action, e)
                 self._completion_queue.put_nowait(
                     (query, f"（{action} を実行できなかった：{e}）", intent_id, "完了"))
-            # deferred の完了は `push_completion` 経由で QC へ届く（ここでは待たない）。
-            self._inflight = max(0, self._inflight - 1)
+                return
+            if not dispatched:
+                # 投げられなかった（クエリが空・同時実行の上限・同じ意図が進行中）。背景
+                # タスクが無いので完了も時間切れも来ない。ここで閉じないと飛行中の数が
+                # 戻らず、駆動体が完了キューだけを待ち続けて何も処理しなくなる。
+                logger.info("event-loop %s は投げられなかった：%.60s", action, text)
+                self._completion_queue.put_nowait((query, text, intent_id, "完了"))
+                return
+            # 投げられた。**ここで飛行中の数を減らさない。** 減らすと、結果が返る前に
+            # 「調査中ではない」ことになり、情動や機器で別の反復が起きて同じ調べものを
+            # 投げ直す（実機で1つの求めに検索が4本走り、つなぎを4回喋った）。減らすのは
+            # 完了の取込1点に揃える。
             return
         try:
             out, _ = await self._agent._memory_tool.call(
@@ -561,13 +571,21 @@ class InformationProcessing:
             lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
             said = ("すでに相手へ伝えた一言（言った順。次に何か言うなら、"
                     "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines)
+        # いま返事を待っている調べもの。これが無いと、調停は「まだ返っていない」ことを
+        # 知らないまま一言を書き、2回目以降も「これから調べてくる」と言い出す（実機で
+        # 「調べてくる」を3回喋った）。何と言うかは調停に任せ、こちらは事実だけ渡す。
+        waiting = ""
+        if self._in_flight_lookups:
+            lines = "\n".join(f"- {act}「{q}」" for act, q in self._in_flight_lookups)
+            waiting = ("いま返事を待っている調べもの（まだ結果は届いていない。"
+                       "改めて調べ直すのではなく、待っていることとして話す）：\n" + lines)
         held = ""
         if self._released_speech:
             held = ("聞く相手が居ないあいだに話したかったこと"
                     "（いま伝えるなら、そのときのこととして話す）：\n"
                     + "\n".join(self._released_speech))
         workspace_ctx = "\n\n".join(
-            p for p in [looked_up, said, held, self._chain_head_content,
+            p for p in [looked_up, waiting, said, held, self._chain_head_content,
                         mem.format_for_context(memories)]
             if p and p.strip()
         )

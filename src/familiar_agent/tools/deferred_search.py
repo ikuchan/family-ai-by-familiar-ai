@@ -10,7 +10,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONCURRENT = 3
 _MAX_PENDING = 10
-_SEARCH_TIMEOUT_SEC = 60
+_SEARCH_TIMEOUT_SEC = 30
 
 
 async def _cancel_after(task: "asyncio.Task[object]", delay: float) -> None:
@@ -119,16 +119,25 @@ class DeferredSearchTool:
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name != "search_deferred":
             return f"Unknown tool: {tool_name}", None
+        text, _dispatched = await self.dispatch(tool_input)
+        return text, None
 
+    async def dispatch(self, tool_input: dict) -> tuple[str, bool]:
+        """検索を投げる。2つ目の返り値は**背景タスクを作ったか**である。
+
+        作らずに帰る経路が3つある（クエリが空・同時実行の上限・同じ意図が進行中）。その
+        場合は完了も時間切れも永久に来ないので、飛行中として数えた側が自分で閉じなければ
+        ならない。文面で見分けると文言を直すたびに壊れるため、投げたかどうかを明示して返す。
+        """
         query = str(tool_input.get("query", "")).strip()
         if not query:
-            return "クエリが空です。", None
+            return "クエリが空です。", False
 
         if self._running >= _MAX_CONCURRENT:
             return (
                 f"同時に検索できるのは {_MAX_CONCURRENT} 件までです。"
                 "しばらくしてから再度お試しください。",
-                None,
+                False,
             )
 
         # Deduplicate: skip if same intent is already running or pending.
@@ -140,7 +149,7 @@ class DeferredSearchTool:
             if await self._is_same_intent(query, existing):
                 return (
                     f"「{existing}」の調査がすでに進行中です。結果は次のターンで届きます。",
-                    None,
+                    False,
                 )
 
         source = str(tool_input.get("source", "brave"))
@@ -153,7 +162,7 @@ class DeferredSearchTool:
         asyncio.create_task(_cancel_after(task, _SEARCH_TIMEOUT_SEC))
         return (
             f"「{query}」を {source} でバックグラウンド検索中… 次のターンで結果をお知らせします。",
-            None,
+            True,
         )
 
     async def _run(self, query: str, mcp_tool: str, source: str, user_initiated: bool = False) -> None:
@@ -173,6 +182,9 @@ class DeferredSearchTool:
                     "source": source,
                     "user_initiated": user_initiated,
                 })
+            # **再送出する。** 締切の見張り（`_cancel_after`）だけでなく、終了時のキャンセルも
+            # ここを通る。飲み込むと、止めようとしているのに止まらない節ができる。
+            raise
         except Exception as exc:
             logger.warning("deferred search failed (query=%r): %s", query, exc)
             _msg = f"検索中にエラーが発生しました: {exc}"

@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 _MAX_CONCURRENT = 3
 _MAX_PENDING = 10
-_FETCH_TIMEOUT_SEC = 60
+_FETCH_TIMEOUT_SEC = 30
 
 
 async def _cancel_after(task: "asyncio.Task[object]", delay: float) -> None:
@@ -76,16 +76,24 @@ class DeferredFetchTool:
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name != "fetch_deferred":
             return f"Unknown tool: {tool_name}", None
+        text, _dispatched = await self.dispatch(tool_input)
+        return text, None
 
+    async def dispatch(self, tool_input: dict) -> tuple[str, bool]:
+        """取得を投げる。2つ目の返り値は**背景タスクを作ったか**である。
+
+        作らずに帰る経路（URL が空・同時実行の上限）では完了も時間切れも来ないので、
+        飛行中として数えた側が自分で閉じる必要がある。`deferred_search` と同じ形にする。
+        """
         url = str(tool_input.get("url", "")).strip()
         if not url:
-            return "URLが空です。", None
+            return "URLが空です。", False
 
         if self._running >= _MAX_CONCURRENT:
             return (
                 f"同時に取得できるのは {_MAX_CONCURRENT} 件までです。"
                 "しばらくしてから再度お試しください。",
-                None,
+                False,
             )
 
         user_initiated = self._user_turn
@@ -94,7 +102,7 @@ class DeferredFetchTool:
         asyncio.create_task(_cancel_after(task, _FETCH_TIMEOUT_SEC))
         return (
             f"「{url}」をバックグラウンドで取得中… 次のターンで内容をお知らせします。",
-            None,
+            True,
         )
 
     def set_completion_sink(self, sink) -> None:
@@ -125,6 +133,8 @@ class DeferredFetchTool:
                     "result": _msg,
                     "user_initiated": user_initiated,
                 })
+            # **再送出する。** 締切の見張りだけでなく終了時のキャンセルもここを通る。
+            raise
         except Exception as exc:
             logger.warning("deferred fetch failed (url=%r): %s", url, exc)
             _msg = f"取得中にエラーが発生しました: {exc}"

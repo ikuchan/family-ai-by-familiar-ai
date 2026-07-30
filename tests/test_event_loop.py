@@ -70,9 +70,13 @@ def _agent(*, stream_returns, max_iters=3):
     a._deferred_search = MagicMock()
     a._deferred_search.get_tool_definitions = MagicMock(return_value=[_SEARCH_DEF])
     a._deferred_search.call = AsyncMock(return_value=("投げた", None))
+    # ループは `dispatch` を使う。2つ目は**背景タスクを作ったか**で、False だと
+    # 「投げられなかった」として完了が積まれ、次の反復が起きる（つなぎが二度出る）。
+    a._deferred_search.dispatch = AsyncMock(return_value=("投げた", True))
     a._deferred_fetch = MagicMock()
     a._deferred_fetch.get_tool_definitions = MagicMock(return_value=[_FETCH_DEF])
     a._deferred_fetch.call = AsyncMock(return_value=("投げた", None))
+    a._deferred_fetch.dispatch = AsyncMock(return_value=("投げた", True))
     a._pending_store = MagicMock()
     a._pending_store.add = MagicMock(return_value="pending-1")
     a._turn_arousal = AsyncMock(return_value=0.3)
@@ -677,7 +681,7 @@ def test_action_branch_speaks_the_filler_then_dispatches():
         ip = InformationProcessing(a)
         first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
-            if a._deferred_search.call.await_count:
+            if a._deferred_search.dispatch.await_count:
                 break
             await asyncio.sleep(0.005)
         await ip.close()
@@ -686,7 +690,7 @@ def test_action_branch_speaks_the_filler_then_dispatches():
     assert asyncio.run(scenario()) == ""          # 本来の出力はツール投げ
     assert "".join(shown) == "調べてみるね"        # つなぎは即発話
     a.backend.stream_turn.assert_not_awaited()    # フルLLM を起こさない
-    assert a._deferred_search.call.await_args.args[1] == {"query": "今日の天気"}
+    assert a._deferred_search.dispatch.await_args.args[0] == {"query": "今日の天気"}
 
 
 def test_full_branch_keeps_the_tool_when_say_comes_along():
@@ -702,7 +706,7 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
         ip = InformationProcessing(a)
         first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
-            if a._deferred_search.call.await_count:
+            if a._deferred_search.dispatch.await_count:
                 break
             await asyncio.sleep(0.005)
         await ip.close()
@@ -710,7 +714,7 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
 
     assert asyncio.run(scenario()) == ""
     assert "".join(shown) == "調べてみるね"        # 発話はつなぎとして出す
-    assert a._deferred_search.call.await_count == 1  # 動作は捨てない
+    assert a._deferred_search.dispatch.await_count == 1  # 動作は捨てない
 
 
 def test_net_actions_are_available():
