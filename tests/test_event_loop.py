@@ -200,13 +200,15 @@ def test_loop_records_form_a_single_chain():
     assert kwargs["superseded_ids"] == ["obs4"]
 
 
-def test_w_search_excludes_the_intake_origin():
-    # 一律の規則：取込で書いた記録（＝鎖の先頭）は検索から外す。素通しだと、問いと同一文の
-    # トリガ O が必ず上位に来て、限られた枠から本物の記憶を押し出す。
+def test_w_search_does_not_exclude_the_intake_origin():
+    # 取込 O を候補から外さない。手がかりは取込の content そのものなので、候補に入れば
+    # 必ず上位に来る。以前はこれを「枠を食う」と嫌って外し、代わりに W へ手組みで足して
+    # いたが、いま届いた結果を全文で見せる必要がある以上、1位に来るのが正しい順位である
+    # （正本 [D-想起起動]「O に乗った後は共通の流れで1本」）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a, utterance="おはよう")
     _, kwargs = a._active_memory().recall_async.call_args
-    assert kwargs.get("exclude_ids") == ["obs1"]      # obs1＝取込で書いたトリガ O
+    assert not kwargs.get("exclude_ids")
 
 
 def test_w_recall_query_follows_the_intake_origin():
@@ -327,22 +329,29 @@ def test_workspace_records_are_notes_not_a_script_to_read_aloud():
 
 
 def test_w_presents_the_loop_records_as_mi_not_synthetic_labels():
-    # W は「思い出している記憶」ではなく、いまの作業状態。ループの記録は MI としてそのまま
+    # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
     # 並べ、合成ラベル（[取込]・[調査中]）は作らない。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a, utterance="おはよう")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "[取込]" not in system and "[調査中]" not in system
-    assert "おはよう" in system               # MI の内容自体は載る
 
 
-def test_w_includes_the_intake_origin_deterministically():
-    # 検索から外すかわりに、起点は W へ必ず加える（コサインの運に任せない）。
+def test_w_includes_the_intake_origin_via_the_candidate_set():
+    # 取込 O は候補集合の一員として W に載る。以前は検索から外して W へ手組みで
+    # 足していたが、正本 [D-想起起動] は「O に乗った後は共通の流れで1本」と定める。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    # 想起が取込 O を返す（実機では自分で書いた O が候補に入る）。
+    a._active_memory().recall_async = AsyncMock(return_value=[
+        {"memory_id": "obs1", "summary": "おはよう", "fit": 0.9},
+        {"memory_id": "m1", "summary": "昔の話", "fit": 0.3},
+    ])
+    a._active_memory().format_for_context = MagicMock(
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
     _run(a, utterance="おはよう")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "おはよう" in system                        # 起点（人の発話）
-    assert "[想起]昔の話" in system                    # 想起結果も従来どおり
+    assert "おはよう" in system                        # 取込 O が W に載る
+    assert "昔の話" in system                          # 想起の他の記録も載る
 
 
 def test_recall_tool_excludes_the_intent_that_issued_it():
@@ -917,16 +926,23 @@ def test_debug_lines_carry_iteration_number(caplog):
     assert any("iter=2/3" in m for m in debugs)   # 駆動体が起こした2反復目
 
 
-def test_w_lists_what_has_already_been_looked_up_in_this_chain():
-    # 鎖は先頭1件しか生き残らないので、W に載るのは「いちばん新しい完了」だけ。しかも
-    # 取得結果は本文が長く（上限8192字）、何を取ったかがその中に埋もれる。実機では
-    # 同じ URL を2反復続けて取りに行き、1反復まるごと無駄になった。
-    # この求めのために何を調べたかを、短い一覧として別に見せる。
+def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():
+    # 実機で同じ URL を2反復続けて取りに行き、1反復まるごと無駄になった。以前は「この
+    # 求めのために調べたもの」を手組みの一覧として W へ足していたが、その中身は完了 O
+    # として O にある。候補集合の一員として W に載るので、手組みは要らない。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="f", name="fetch_deferred",
                         input={"url": "https://example.com/1hour.html"})]),
         _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
     ])
+    # 想起が完了 O を返す（実機では自分で書いた O が候補に入る）。
+    a._active_memory().recall_async = AsyncMock(return_value=[
+        {"memory_id": "obs3",
+         "summary": "「https://example.com/1hour.html」を fetch_deferred で調べた結果が届いた：時間別の表…",
+         "fit": 0.9},
+    ])
+    a._active_memory().format_for_context = MagicMock(
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -940,8 +956,8 @@ def test_w_lists_what_has_already_been_looked_up_in_this_chain():
 
     asyncio.run(scenario())
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "この求めのために調べたもの" in system
-    assert "fetch_deferred「https://example.com/1hour.html」" in system
+    assert "https://example.com/1hour.html" in system, "何を取ったかが W に無い"
+    assert "fetch_deferred" in system, "どう調べたかが W に無い"
 
 
 def test_full_branch_says_a_filler_first_when_thinking_deeply():
@@ -1006,6 +1022,13 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
         return_value='{"branch":"action","action":"recall","query":"サッカー",'
                      '"text":"ちょっと調べてみますね"}')
 
+    # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
+    a._active_memory().recall_async = AsyncMock(return_value=[
+        {"memory_id": "obs3", "summary": "「サッカー」を recall で調べた結果が届いた：recall結果テキスト", "fit": 0.9},
+    ])
+    a._active_memory().format_for_context = MagicMock(
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
+
     async def scenario():
         ip = InformationProcessing(a)
         await ip.run_iteration("たいきのサッカーの練習は？")
@@ -1020,7 +1043,8 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "すでに相手へ伝えた一言" in system
     assert "ちょっと調べてみますね" in system
-    assert "recall結果テキスト" in system     # 完了は押し出されずに残る
+    # 完了の内容は候補集合の一員として W に載る（手組みではない）。
+    assert "recall結果テキスト" in system
 
 
 def test_quiet_hours_do_not_silence_a_reply_to_a_person():
@@ -1064,9 +1088,19 @@ def test_the_arbiter_sees_what_was_already_looked_up():
     ])
     a._utility_backend.complete = AsyncMock(
         return_value='{"branch":"action","action":"recall","query":"直近の天気","text":"調べますね"}')
+    # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
+    a._active_memory().recall_async = AsyncMock(return_value=[
+        {"memory_id": "obs3", "summary": "「直近の天気」を recall で調べた結果が届いた：recall結果テキスト", "fit": 0.9},
+    ])
+    a._active_memory().format_for_context = MagicMock(
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
+
     _run_chain(a, utterance="どこの天気？")
 
     prompts = [c.args[0] for c in a._utility_backend.complete.call_args_list]
     assert len(prompts) >= 2, "2反復目まで回っていない"
-    assert "この求めのために調べたもの" in prompts[1]
-    assert "直近の天気" in prompts[1]
+    # 調べた事実は完了 O として W に載り、そこから調停へ届く（手組みの一覧ではない）。
+    # 調停のプロンプトは W を含むので、そのどれかに完了 O の内容が入っていればよい。
+    assert any("直近の天気" in p for p in prompts[1:]), (
+        "調べた事実が調停へ届いていない"
+    )

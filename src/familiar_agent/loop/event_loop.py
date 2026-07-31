@@ -575,31 +575,53 @@ class InformationProcessing:
         self._w_index = {}
 
     def _compose_workspace(self, mem, memories: list[dict]) -> str:
-        """W を組む。調停が時間軸の基準を動かしたとき、同じ形で組み直せるようにする。
+        """W を組む。候補集合を1本の経路で通し、枠に入るぶんだけ載せる。
+
+        正本 [D-想起起動] は「O に乗った後は共通の流れ（O → 根づき → W 構築〔5軸採点〕→
+        調停）で1本」と定める。以前は想起で拾った記録だけが採点を通り、ループ自身が O へ
+        書いた記録（意図 O・完了 O）は採点を通らず手組みの文字列として連結されていた。
+        そのため記録が W に載るかどうかが「畳むか畳まないか」で決まり、優先度の計算が
+        どこにも効いていなかった。手組みをやめ、中身は候補集合の一員として入る。
+
+        **1件の途中では切らない。** 枠（`workspace_max_chars`）を超えたら適合度の低い件から
+        丸ごと落とす。切ると調べた結果の枕だけが残って中身が消える（実機で
+        `「目の前を見る」を see で調べた結果が届いた：` だけが W に載った）。
 
         あわせて、W に出した id（12桁）と完全な id の**対応表**を作る。フルLLM の申告を
         突き合わせるのに使う。前方一致で当てずっぽうに引くと、写し間違いが黙って別の記憶へ
         適用されてしまう。
+
+        `said`（言ったつなぎ）と `held`（配る保留）は手組みのまま残す。どちらも O にあるが、
+        `held` は `pending_store` が鮮度と配達を管理しており、想起とは別の規則を持つ。
         """
+        from ..config import MemoryConfig
+
+        budget = MemoryConfig().workspace_max_chars
+
+        # 適合度の高い順に、枠へ入るぶんだけ採る。落ちたものは薄れた＝忘れたのであって、
+        # 抜けを検出する仕組みは置かない（W は速く薄れる・改めて調べるのが自然な振る舞い）。
+        ranked = sorted(memories, key=lambda m: float(m.get("fit", 0.0)), reverse=True)
+        kept: list[dict] = []
+        used = 0
+        for m in ranked:
+            size = len(str(m.get("summary", "")))
+            if kept and used + size > budget:
+                continue
+            kept.append(m)
+            used += size
+        dropped = len(memories) - len(kept)
+        if dropped:
+            # 何件落ちたかを残す。枠に収まったのか溢れたのかが分からないと、枠の値を
+            # 決められない。記憶の内容は出さない。
+            logger.info("event-loop W に入らなかった記録＝%d件（枠 %d 字・載せた %d 件）",
+                        dropped, budget, len(kept))
+        # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
+        memories = kept
+
         self._w_index = {
             str(m.get("memory_id", "")).replace("-", "")[:12]: str(m.get("memory_id", ""))
             for m in memories if m.get("memory_id")
         }
-        # この求めのために何を調べたかを、短い一覧として別に見せる。鎖は先頭1件しか
-        # 生き残らないので W に載るのは「いちばん新しい完了」だけで、しかも取得結果は
-        # 本文が長く（上限8192字）、何を取ったかがその中に埋もれる。実機では同じ URL を
-        # 2反復続けて取りに行き、1反復まるごと無駄になった。
-        looked_up = ""
-        if self._lookup_action_by_query:
-            lines = "\n".join(f"- {act}「{q}」"
-                              for q, act in self._lookup_action_by_query.items())
-            looked_up = f"この求めのために調べたもの（同じものを重ねて調べない）：\n{lines}"
-        # 一覧が調停へ届いたかを残す。届いたのに従わないのか、そもそも届いていないのかを
-        # 区別できないと、直しようがない（実機で同じ検索が4回続いた）。
-        logger.debug("event-loop 調べたもの一覧＝%d件%s",
-                     len(self._lookup_action_by_query),
-                     "（" + "／".join(self._lookup_action_by_query) + "）"
-                     if self._lookup_action_by_query else "")
         # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
         # （実機で「〜ですね！」で始まる前置きが3回続いた）。
         said = ""
@@ -607,29 +629,15 @@ class InformationProcessing:
             lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
             said = ("すでに相手へ伝えた一言（言った順。次に何か言うなら、"
                     "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines)
-        # いま返事を待っている調べもの。これが無いと、調停は「まだ返っていない」ことを
-        # 知らないまま一言を書き、2回目以降も「これから調べてくる」と言い出す（実機で
-        # 「調べてくる」を3回喋った）。何と言うかは調停に任せ、こちらは事実だけ渡す。
-        waiting = ""
-        if self._in_flight_lookups:
-            lines = "\n".join(f"- {act}「{q}」" for act, q in self._in_flight_lookups)
-            waiting = ("いま返事を待っている調べもの（まだ結果は届いていない。"
-                       "改めて調べ直すのではなく、待っていることとして話す）：\n" + lines)
         held = ""
         if self._released_speech:
             held = ("聞く相手が居ないあいだに話したかったこと"
                     "（いま伝えるなら、そのときのこととして話す）：\n"
                     + "\n".join(self._released_speech))
-        workspace_ctx = "\n\n".join(
-            p for p in [looked_up, waiting, said, held, self._chain_head_content,
-                        mem.format_for_context(memories)]
+        return "\n\n".join(
+            p for p in [said, held, mem.format_for_context(memories)]
             if p and p.strip()
         )
-
-        # 3. ARB（調停）：軽量LLM が会話の重さを自己判断し、出し方を3つへ振り分ける（段4）。
-        #    フルLLM は「言語生成が要るとき」だけ起こす。実測で1ターン 10.5 秒のうち LLM が
-        #    10.2 秒を占め、recall を投げるだけの反復にもフルを使っていた。
-        return workspace_ctx
 
     def _apply_memory_verdicts(self, raw) -> None:
         """フルLLM が申告した「想起した記憶の扱い」を反映する（課題5 E節 段2）。
@@ -905,7 +913,10 @@ class InformationProcessing:
         # 手がかりは「取り込んだもの」＝鎖の先頭（反復1なら人の発話、反復2以降なら完了 O）。
         # 最初の発話で探し続けると、いま届いた完了とは無関係な検索になる（④ の想起クエリ）。
         mem = agent._active_memory()
-        origin_ids = [self._chain_head_id] if self._chain_head_id else None
+        # **取込 O を候補から外さない。** 手がかりは取込の content そのものなので、候補に
+        # 入れば必ず上位に来る。以前はこれを「枠を食う」と嫌って外していたが、いま届いた
+        # 結果を全文で見せる必要がある以上、1位に来るのが正しい順位である。手組みで W へ
+        # 足すのをやめ、候補集合の一員として同じ採点を通す（正本 [D-想起起動] の1本の流れ）。
         cue = self._chain_head_content or utterance
         _mcfg = MemoryConfig()
         # 5軸の重みは trigger 種別で決める（`課題5_パラメータ仮案` §280）。選ぶ基準は
@@ -923,7 +934,6 @@ class InformationProcessing:
         memories = await mem.recall_async(
             cue,
             n=_mcfg.recall_k,
-            exclude_ids=origin_ids,
             min_score=_mcfg.recall_min_score,
             weights=weights,
             open_ids=self._open_ids(),
@@ -971,7 +981,7 @@ class InformationProcessing:
                 span = decision.time_span_days or None
                 memories = await mem.recall_async(
                     cue, n=_mcfg.recall_k,
-                    exclude_ids=origin_ids, time_ref=ref, time_span_days=span,
+                    time_ref=ref, time_span_days=span,
                     min_score=_mcfg.recall_min_score,
                     weights=weights,
                     open_ids=self._open_ids(),

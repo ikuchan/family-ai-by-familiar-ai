@@ -338,6 +338,16 @@ class MemoryConfig:
     recall_g_open: float = field(
         default_factory=lambda: _float_env("RECALL_G_OPEN", 1.0)
     )
+    # W 全体の字数枠。**1件の途中では切らず、超えたら適合度の低い件から丸ごと落とす。**
+    # 切ると調べた結果の枕だけが残って中身が消える（実機で `「目の前を見る」を see で
+    # 調べた結果が届いた：` だけが W に載った）。
+    # 40000 は、1つの求めで届きうる完了 O が全部同時に全文で載る大きさから決めた。反復上限
+    # 5 で5反復目は調べられないので完了は最大4件、1件の上限が 8192 字（`completion_content_max`）
+    # で 32768 字。これに余裕を見た値である。**この帯は未実測**（調停プロンプトの実測は
+    # 合計 8619 字まで）なので、実機で長さと秒数を測って確かめる。
+    workspace_max_chars: int = field(
+        default_factory=lambda: _int_env("WORKSPACE_MAX_CHARS", 40000)
+    )
     # 在席者相関 p の候補集合拡張（slice-2）。在席他者視点でも候補を取り union する退避弁。
     recall_presence_expand: bool = field(
         default_factory=lambda: _bool_env("RECALL_PRESENCE_EXPAND", default=True)
