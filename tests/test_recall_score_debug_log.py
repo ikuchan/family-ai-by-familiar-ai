@@ -36,7 +36,7 @@ def _seed() -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-            " person_id, activation_a0, activation_n, "
+            " person_id, groundedness_g0, groundedness_n, "
             " emotion_p, emotion_pn, emotion_a, emotion_dom) "
             "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (obs_id, _CONTENT, "unknown", "conversation", "neutral", DEFAULT_PERSON_ID,

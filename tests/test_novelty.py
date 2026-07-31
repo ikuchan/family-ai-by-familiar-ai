@@ -74,7 +74,7 @@ def _a0(content: str) -> float | None:
     c = psycopg2.connect(os.environ["DATABASE_URL"])
     c.autocommit = True
     with c.cursor() as cur:
-        cur.execute("SELECT activation_a0 FROM observations WHERE content=%s", (content,))
+        cur.execute("SELECT groundedness_g0 FROM observations WHERE content=%s", (content,))
         row = cur.fetchone()
     c.close()
     return float(row[0]) if row else None

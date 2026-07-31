@@ -199,7 +199,7 @@ The current graph upgrade adds:
 
 - `episodes`
 - `episode_memories`
-- `memory_activation`
+- `memory_salience`
 - `unfinished_business`
 
 Implemented APIs include:

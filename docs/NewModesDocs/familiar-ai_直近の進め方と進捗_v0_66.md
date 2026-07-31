@@ -1,4 +1,4 @@
-# familiar-ai 直近の進め方と進捗（v0.63）
+# familiar-ai 直近の進め方と進捗（v0.66）
 
 > Phase 1（O/MI モデルの確立）の作業について、直近の進め方と現在地の記録。詳しい方法論は「出力に関する指示」に、段取りは課題8 に、値の根拠は課題5 と計測台帳にある。ここはその上での現在地のスナップショットである。
 
@@ -20,7 +20,7 @@
 
 - A-1：器の導入（`PrimitiveMentalItem` と `MentalItem`）実装済み。
 - A-2：読み出し属性と器の対応表の調査完了。
-- A-3-1：活性の (a0,n) 保存形式。列 `activation_a0` と `activation_n`、導出関数 `_derive_activation`（step は課題5 で 0.33 に確定。当初 0.7 を修正済み）実装済みで未接続。
+- A-3-1：活性の (a0,n) 保存形式。列 `groundedness_g0` と `groundedness_n`、導出関数 `_derive_groundedness`（step は課題5 で 0.33 に確定。当初 0.7 を修正済み）実装済みで未接続。
 - A-3 の Phase 1 残務：`recall_count` と `last_recalled_at` を新しさ（t 軸）の若返りへ対応づけ、記述で完了。
 - A-3 の残り（導出値の想起接続、n 増減ほか）は Phase 2。
 
@@ -53,10 +53,10 @@
 
 段階C までで Phase 1 の実装可能面が尽きたため、Phase 2 の想起から着手した。以下はいずれも実装済みで、全体回帰は緑である。
 
-- P-1【実装済み・挙動変化】：活性の想起接続。`_compute_final_score` の `importance` を `_derive_activation(a0,n)` へ差し替え、`importance` の日次減衰を撤去して時間減衰を t 軸へ一元化した。
+- P-1【実装済み・挙動変化】：活性の想起接続。`_compute_final_score` の `importance` を `_derive_groundedness(a0,n)` へ差し替え、`importance` の日次減衰を撤去して時間減衰を t 軸へ一元化した。
 - P-3 スライス1【実装済み・未接続】：e 軸の純関数 `_emotion_match`（ガウシアン $e=\exp(-D^2/(2\sigma^2))$・全軸ロジット空間の軸重み付き PAD 距離）。スコアへは未接続。
 - P-3 書き込み PAD 化【実装済み・挙動変化】：マイグレーション024 で `observations` に PAD 4列を追加（W1a）、025 で既存行を一回限りの label→PAD 写像で埋め（W1b）、`emotion_pad.py` に PAD↔ラベルの正本と逆引き `label_from_pad` を新設（W2a）、`save` 系へ `emotion_pad` を通し（W2b-1）、評価器を PAD 直接出力へ差し替えた（W2b-2）。旧 `_infer_emotion`／`_EMOTION_PROMPT` は撤去済み（src の grep で0件）。挙動変化は、arousal が `A_GATE=0.25` 未満の静かなターンで評価器 LLM を起動せず mood を使う点と、ラベルが PAD 派生になる点である。
-- mood の PAD 化【実装済み・挙動変化】：`compute_n_pad`・`nudge_toward`（mood-a）、recall が各記憶に `emotion_pad` と `activation` を載せる（mood-b）、post-response pipeline で `nudge_current_mood` を呼ぶ（mood-c）。これで感情ループの上半分（W→N_PAD→M）が接続され、`load_current_mood` が実 mood を返す。
+- mood の PAD 化【実装済み・挙動変化】：`compute_n_pad`・`nudge_toward`（mood-a）、recall が各記憶に `emotion_pad` と `根づき` を載せる（mood-b）、post-response pipeline で `nudge_current_mood` を呼ぶ（mood-c）。これで感情ループの上半分（W→N_PAD→M）が接続され、`load_current_mood` が実 mood を返す。
 - 平均中心化【実装済み・挙動変化】：マイグレーション026 で `embedding_means`（`scope`／`scope_key` で複数行・`vector` は BYTEA・`dim` つき）を新設し global の mu を推定（C1）。純関数 `_situated_vector(mem_vec, p_vec, mu)` を新設し、situated の書き込みと recall のクエリの両方をこの関数へ通して片側だけ中心化する事故を構造で防ぎ、マイグレーション027 で既存 situated を再計算した（C2）。実装中に `db.lock`（再入不可）を保持したまま `load_embedding_mean` が同じロックを取り直すデッドロックを1件発見し、接続を引数で渡す形にして解消した（90秒ハング→0.84秒）。
 - スライス3（e 軸のスコア接続）【実装済み・挙動変化】：合成を純積からハイブリッドへ切り替え、`_stretch_relevance`（新設）で r を伸長し、`_emotion_match` を e として接続した。基底プロファイルは在席者ゼロの $(1,1,1,1.5)$。合成係数7つ（$c_{lo}$・$c_{hi}$・$w_r$・$w_t$・$w_e$・$w_a$・$\sigma$）を `MemoryConfig` へ出し、半減期と $t_{floor}$ の既定を課題5 v0.24 へ揃えた。これで想起の軸は r・t・a・e の4本になり、`_compute_final_score` が設計式と一致した。
 - c_lo／c_hi【決定済み】：中心化後の本番 `obs_embeddings` 2,525件を読み取り専用で計測し、無作為ペアの p50 が 0.4800→−0.0235、窓幅が 0.0918→0.2427（約2.6倍）になることを確認した。値域が [0,1] にほぼ収まるため **c_lo=0.0・c_hi=1.0**（伸長式は実装するが係数を効かせない）と決めた。根拠は計測台帳 v0.7 §3 にある。
@@ -70,7 +70,7 @@
 
 **想起の多軸 union は、設計が定める軸がすべて揃った。** 関連（HNSW）・時間（基準時刻の両側走査）・感情（`emotion_vec` の HNSW）・在席者相関（在席者視点の候補拡張）で、活性は導出値のため一次絞りには使わないと決めた（score の加算部で $w_a{=}1.5$ として効く）。
 
-**想起は一巡した。** 多軸 union（関連・時間・感情・在席者相関／活性は一次絞りに使わない）に加え、**段2 の更新契機**（フルLLM が `memory_verdicts` で申告した MI だけ activation と時間の起点を動かす）と、**拡散想起の母集合**（ループが作った意図・完了・中断・逐語を WR へ載せる）まで繋がった。既存行の PAD 埋め（W1b）も実施済み。
+**想起は一巡した。** 多軸 union（関連・時間・感情・在席者相関／活性は一次絞りに使わない）に加え、**段2 の更新契機**（フルLLM が `memory_verdicts` で申告した MI だけ 根づき と時間の起点を動かす）と、**拡散想起の母集合**（ループが作った意図・完了・中断・逐語を WR へ載せる）まで繋がった。既存行の PAD 埋め（W1b）も実施済み。
 
 **未了**：時間軸の式索引（`COALESCE(last_recalled_at, timestamp)`）は未作成で、いまは全走査（3370件で1〜2ms）。マイグレーション `2026-07-27-033`（`emotion_vec`＋HNSW＋既存行の埋め）は**本番へ適用済み**（`schema_migrations` で確認）。
 
@@ -99,7 +99,7 @@
 - **自己モデル文（`self_model` 685 件）を人の問いへの想起に含めるか**。a0 の再計算で上がる方向なので、想起の母集合から外すかを別途検討する。実測では `I am very concerned about the heat.` が3つの異なるクエリすべてで1位だった。
 - **CUI の入力欠落**（日本語入力中にアイドルループが 10 秒ごとにプロンプトを再描画し、未確定文字が落ちる）。原因の見当は付いているが、対応は見送りと判断した。
 - **`person_memory_manager.py` の静的解析 8 件**（`ObservationMemory` 未定義 6 件ほか）。今回の変更とは無関係な既存の指摘で、別セッションへ切り出す。
-- **現行 `run()` の想起件数**（`5 if _post_compact else 3`）は `recall_n` へ未統合。
+- **現行 `run()` の想起件数**（`5 if _post_compact else 3`）は `recall_k` へ未統合。
 - **P-2（参照申告で n 増減）** は新ループ待ちで保留。**MI 集約段の本体**（系統A・系統B の畳み込み）は REST 内省（課題10）待ち。**p 軸の実挙動**は顔と声の登録（知-d）待ち。
 - **調停の時間切れ**：5.0 秒に決めて Config へ出した（`計測・設定値 根拠台帳` §19）。**解消済み。**
 - **STT の利用枠**：ElevenLabs の無料枠を TTS と STT が共有し、使い切ると音声の実機確認ができなかった。**TTS に続き STT もローカル化したので解消済み**（2026-07-30）。`STT_ENGINE=elevenlabs` へ戻したときだけ枠が要る。
@@ -133,6 +133,12 @@
 ---
 
 ## 更新履歴
+
+> v0.66：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
+
+> v0.65：**W 構築の統一（改造方針 v0.2）の S2 を実装**した。5軸の重みを trigger 別（発話・機器・情動・完了）にし、重みを選ぶ基準を反復の手がかりに置いた（求めの起点は静穏時間のゲートが使うので書き換えない）。採用値はプロファイルに $\pm$ 幅の一様乱数を足したもので、幅は軸ごと・trigger 共通（0.3／0.1／0.2／0.3／0.1・仮値）。trigger・採用値・基底・上位のスコアを想起1回につき INFO へ残す。**trigger は4つになった**ので[D-想起起動] の3つ集約を改めた。残る S3〜S5（$a_{open}$、W の組み立てを候補集合へ統合、畳む処理の整理）は未着手。
+
+> v0.64：**W 構築の統一（改造方針 v0.1）の S1 を実装**した。想起を正本の2段へ分け（一次絞り件数 $N$＝`recall_primary_n`・既定50、W 載せ上限 $K$＝`recall_k`・既定7）、旧 `recall_n`（既定5）を改名で消し、床を課すときの候補過剰取得を撤去した。イベント駆動ループの想起に `min_score`（0.05）を渡すようにした。W に載る件数が 5 から 7 へ増えるので、実機での挙動確認が要る。残る S2〜S5（trigger 別の重み、$a_{open}$、W の組み立てを候補集合へ統合、畳む処理の整理）は未着手。
 
 > v0.63：**話していないのに書き起こされる幻聴を捨てるようにしたこと**を申し送りへ足した。実機15件のラベル付き計測で `no_speech_prob` が分かれることを確かめ、境目 0.72 を `STT_NO_SPEECH_MAX` の既定にした。根拠は計測台帳 §20（新設）。経路の記録の参照を『音声入力からGUIへの経路』v0.3 へ更新した。
 > v0.62：**合成が `！` を含む文で必ず落ちていた件の真因**（`pyopenjtalk` を提供する配布物が2つ入り、宣言外の `-plus` が使われていた）を申し送りへ足した。`-dict` へ戻して実機で鳴ることを確認し、`scripts/sbv2_server.py` の二重の正規化を落とした。あわせて起動メッセージが実物の担い手を名乗るようにした（GUI・TUI・CUI の3経路）。

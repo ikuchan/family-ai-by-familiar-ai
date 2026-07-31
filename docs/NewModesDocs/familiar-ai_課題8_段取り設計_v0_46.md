@@ -1,4 +1,4 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.38）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.46）
 
 ## 1. 依存の事実（コード根拠）
 
@@ -41,7 +41,7 @@
 - **A-0【完了】読み出しアクセス層寄せ**＝下の実装済み進捗（最初の一本〜4本目）。`_read_observations_by_kind` に4本を寄せ、単一・複数 kind に対応済み。段階A の接続点。
 - **進捗【実装済み・4本目＝読み出し層寄せの締め】**：`recent_feelings`（`kind IN ('feeling','conversation')`）を寄せるため、層の kind 引数を **`str | tuple[str,...]`** に拡張（複数値は `kind IN (...)`）。**層自体を変える初の一本**だが、str 分岐 SQL は従来とバイト同一で後方互換（既存3本は無変更・str 経路の回帰テストで保証・RED でタプル経路の失敗＝`operator does not exist: text = record` を確認）。追加テスト6件＋既存15件＋非回帰97件・全体テスト通過。**これで単純な kind 絞りの observations 読み出しは層に集約され、Phase 1 の読み出し層寄せは一区切り**（curiosities／self_model／day_summaries／recent_feelings の4本＋層の単一・複数 kind 対応）。
 - **読み出し層寄せの締め＝残る recall の申し送り**：層に寄せないものを理由付きで確定。別テーブルを読む（`recall_semantic_facts`＝semantic_facts／`recall_behavior_policies`＝behavior_policies／`recall_revisions`＝memory_revisions）、日付・時刻演算（`recall_on_this_day`＝EXTRACT MONTH/DAY／時刻近傍）、集約・存在確認・dedup・複合条件（situated 近傍を含む主 recall 系）は、いずれも「kind と person_id で新しい順に読む」形から外れ、検索・絞り込みロジックを含む。これらは**Phase 2 で「層の取り出しメソッド＋5軸スコアラ」に分解**する。渡し方の骨格（確定）：層は生 SQL/WHERE/LIKE を受けず、取り出しパターンごとの専用メソッド（`by_kind` 実装済み・将来 `by_vector`＝situated 近傍・`by_date` 等）で**構造化値**を受ける。LIKE 検索は O 一元化後に situated 近傍（r 軸採点）へ置き換わる見込みで、専用メソッドを残すかは Phase 2 で再考。データモデル本体は未着手。
-- **A-1【実装済み・最初の一歩】observations を器（MentalItem）として読む**（スキーマ変更なし）。基底クラス `PrimitiveMentalItem`（emotion／drive・A-1では未設定）と拡張クラス `MentalItem`（＋id／content／vector／supersedes／activation）を `memory.py` に導入。観測行から器を組み立てる変換関数 `_row_to_mental_item` を新設。`recall_self_model` の取得列に id／superseded_by／importance を加え、器を組み立てる経路を通す。**器は返り値には使わず、返り値の辞書は従来どおり**（外部挙動を保つ・器の利用は次の一本に分ける）。emotion・drive・vector は未設定（None）で、感情のPAD化・埋め込み取り込みは後続の段階。アクセス層 `_read_observations_by_kind` は無変更（取得列を増やしただけ・本体は git diff で無差分を確認）。テスト（`tests/test_mental_item.py` 新規3件）：変換関数の組み立て／継承関係／`recall_self_model` の外部挙動保存。既存関連テスト非破壊（115 passed）・全体テスト通過。**実機テスト：不要**（内部表現のみ・体感不変）。
+- **A-1【実装済み・最初の一歩】observations を器（MentalItem）として読む**（スキーマ変更なし）。基底クラス `PrimitiveMentalItem`（emotion／drive・A-1では未設定）と拡張クラス `MentalItem`（＋id／content／vector／supersedes／根づき）を `memory.py` に導入。観測行から器を組み立てる変換関数 `_row_to_mental_item` を新設。`recall_self_model` の取得列に id／superseded_by／importance を加え、器を組み立てる経路を通す。**器は返り値には使わず、返り値の辞書は従来どおり**（外部挙動を保つ・器の利用は次の一本に分ける）。emotion・drive・vector は未設定（None）で、感情のPAD化・埋め込み取り込みは後続の段階。アクセス層 `_read_observations_by_kind` は無変更（取得列を増やしただけ・本体は git diff で無差分を確認）。テスト（`tests/test_mental_item.py` 新規3件）：変換関数の組み立て／継承関係／`recall_self_model` の外部挙動保存。既存関連テスト非破壊（115 passed）・全体テスト通過。**実機テスト：不要**（内部表現のみ・体感不変）。
 - **A-2【調査完了】MI 属性最小化の準備**。器の属性を最小化する段階 B に備え、既存コードが観測を読み出すときに呼び出し側へ返していた属性を洗い、それぞれが新しい器（MentalItem）のどの属性に対応するかの対応表を作る調査。この段では廃止しない。実機テストは不要（調査のみ）。
 
   **当初想定と実環境の食い違い（記録）**：着手前に廃止候補として挙げていた名前（state_type・source・status・target・persist・pose・meta・urgency・novelty）は、observations テーブルのカラムには存在しなかった。これらは設計 [D-MIモデル] が廃止と定めた旧属性の名だが、現行の observations の実カラムではない。また当初 A-2 の対象に含めていた date・time カラムは、マイグレーション 016 が timestamp を TIMESTAMPTZ へ正規化した際に既に削除済みで、本番データベースに存在しない。A-2 の対象は「観測を読み出すコードが返していた属性」であり、DB のカラムそのものではない。この取り違えを記録に残す。
@@ -60,24 +60,24 @@
   | kind | row["kind"] | 器は kind を持たない設計（意味は content へ・[D-MIモデル]）。ただし読み出しの絞り込みに現用のため当面残す（整理は段階 B 以降） |
   | source_kind | row["kind"] | kind の重複（同じ row["kind"] を別キーで再掲）。器に持たない |
   | image_path | row["image_path"] | 器に写さない。将来の顔認識・画像想起（DIF 知覚）まで休眠。廃止の実装はその仕組みができてから（本番で 2624 件中 1 件のみ値を持つ） |
-  | activation の素 | row["importance"] | 器 `activation`（現 importance の一般化）。(a0,n) 導出は A-3 |
+  | 根づき の素 | row["importance"] | 器 `根づき`（現 importance の一般化）。(a0,n) 導出は A-3 |
   | supersedes の素 | row["superseded_by"] | 器 `supersedes` |
   | score／confidence／retrieval_method | 検索経路が算出 | 記憶そのものの属性でなく想起（5軸スコアリング）の産物。器に持たず Phase 2 のスコアラが付す |
 
   vector（器の属性）は、この読み出し経路では返していない（埋め込みは別テーブル situated_embeddings。器への取り込みは後続の段階）。drive（基底 PI の属性）も観測の読み出しにはなく、T レジスタ由来で段階 B の PI 構築で入る。
 
-  **後続段階への申し送り**：recall_count・last_recalled_at（017 で追加）は activation の導出と新しさ減衰を担うため A-3（activation の (a0,n) 導出）で役割を再編する。writer_id・subject_id・participants_json・scope（012 で追加した視点列。読み出しの絞り込みには未使用）は段階 C（person_id 所有者絞りの撤去と situated 相関整理）で相関サブテーブルへ整理する。
-- **A-3【一部実装済み】activation の (a0,n) 導出**。importance を activation へ一般化し、(a0,n) 保存・on-read 導出の器を作る（値の確定は課題5）。
-  - **A-3-1【実装済み・A-3 の最初の一歩】(a0,n) 保存形式と導出関数**。マイグレーション `2026-07-02-021_activation_a0_n.py` で observations に `activation_a0`（REAL NOT NULL・既定1.0）と `activation_n`（INTEGER NOT NULL・既定0）を追加。既存行は `importance` を NULL 防御（1.0）してから `activation_a0 = importance` で簡易移行（`importance` 列は削除せず残す）。`memory.py` に導出関数 `_derive_activation(a0, n, *, floor=0.0, c=2.0, epsilon=0.001, step=0.33)` を新設（a0 を [floor,c] で正規化しロジットで無限区間へ写し、n·step を足してロジスティックで [floor,c] へ戻す・n=0 で a=a0）。**導出値は想起スコアへ未接続**で、`recall` は従来どおり `cosine × time_score × importance` で `importance` を読む（`_derive_activation` の呼び出しは定義とテストのみで稼働経路ゼロ）。よって**外部挙動は不変**。step の既定は課題5 で確定した 0.33（取込 a0=0.75 から評価5回で実用上限1.5 に達する効き幅・キーワード引数で差し替え可・Config 配線は後続）。テスト（`tests/test_activation_derive.py` 新規7件）：純導出5件（n=0 恒等・n に単調・両端 floor/C へ漸近・±1 対称・a0=0.75 で5回1.5到達）とマイグレーション DB2件（列追加確認・importance→activation_a0 移行確認）。**実機テスト：不要**（未接続で体感不変）。
-  - **A-3 の Phase 1 残務【記述で完了・コード変更なし】recall_count・last_recalled_at の役割再編（対応づけの確定）**。A-2 で申し送った二列（017 で追加）を調査し、旧 recall の `_compute_final_score`（`final_score = cosine × time_score × importance`）と `_mark_recalled` の中だけで使われることを grep で確認（機械想起 conversation で `recall_count += 1` と `last_recalled_at = now()`、spontaneous で `last_recalled_at` のみ更新・system は無更新）。確定した対応づけ：`recall_count` は新しさ（t 軸）の若返り回数（`time_decay` の reinforce＝半減期倍化）、`last_recalled_at` は若返りの起点リセットに対応する。**activation の `n`（評価由来の正味デルタ）とは別系統で、想起回数からは引き継がない**。更新トリガは機械想起からフルLLM の参照申告へ移す（[D-想起合成]「機械想起では activation も freshness も触らない」）。二列は旧 recall スコアリングに閉じているため、Phase 1 では現状維持（旧 recall が読む・外部挙動不変）とし、コード再編は 5軸スコアラを載せる Phase 2 で行う。詳細は活性の別紙 v0.2 §4。
+  **後続段階への申し送り**：recall_count・last_recalled_at（017 で追加）は 根づき の導出と新しさ減衰を担うため A-3（根づき の (a0,n) 導出）で役割を再編する。writer_id・subject_id・participants_json・scope（012 で追加した視点列。読み出しの絞り込みには未使用）は段階 C（person_id 所有者絞りの撤去と situated 相関整理）で相関サブテーブルへ整理する。
+- **A-3【一部実装済み】根づき の (a0,n) 導出**。importance を 根づき へ一般化し、(a0,n) 保存・on-read 導出の器を作る（値の確定は課題5）。
+  - **A-3-1【実装済み・A-3 の最初の一歩】(a0,n) 保存形式と導出関数**。マイグレーション `2026-07-02-021_groundedness_g0_n.py` で observations に `groundedness_g0`（REAL NOT NULL・既定1.0）と `groundedness_n`（INTEGER NOT NULL・既定0）を追加。既存行は `importance` を NULL 防御（1.0）してから `groundedness_g0 = importance` で簡易移行（`importance` 列は削除せず残す）。`memory.py` に導出関数 `_derive_groundedness(a0, n, *, floor=0.0, c=2.0, epsilon=0.001, step=0.33)` を新設（a0 を [floor,c] で正規化しロジットで無限区間へ写し、n·step を足してロジスティックで [floor,c] へ戻す・n=0 で a=a0）。**導出値は想起スコアへ未接続**で、`recall` は従来どおり `cosine × time_score × importance` で `importance` を読む（`_derive_groundedness` の呼び出しは定義とテストのみで稼働経路ゼロ）。よって**外部挙動は不変**。step の既定は課題5 で確定した 0.33（取込 a0=0.75 から評価5回で実用上限1.5 に達する効き幅・キーワード引数で差し替え可・Config 配線は後続）。テスト（`tests/test_activation_derive.py` 新規7件）：純導出5件（n=0 恒等・n に単調・両端 floor/C へ漸近・±1 対称・a0=0.75 で5回1.5到達）とマイグレーション DB2件（列追加確認・importance→groundedness_g0 移行確認）。**実機テスト：不要**（未接続で体感不変）。
+  - **A-3 の Phase 1 残務【記述で完了・コード変更なし】recall_count・last_recalled_at の役割再編（対応づけの確定）**。A-2 で申し送った二列（017 で追加）を調査し、旧 recall の `_compute_final_score`（`final_score = cosine × time_score × importance`）と `_mark_recalled` の中だけで使われることを grep で確認（機械想起 conversation で `recall_count += 1` と `last_recalled_at = now()`、spontaneous で `last_recalled_at` のみ更新・system は無更新）。確定した対応づけ：`recall_count` は新しさ（t 軸）の若返り回数（`time_decay` の reinforce＝半減期倍化）、`last_recalled_at` は若返りの起点リセットに対応する。**根づき の `n`（評価由来の正味デルタ）とは別系統で、想起回数からは引き継がない**。更新トリガは機械想起からフルLLM の参照申告へ移す（[D-想起合成]「機械想起では 根づき も freshness も触らない」）。二列は旧 recall スコアリングに閉じているため、Phase 1 では現状維持（旧 recall が読む・外部挙動不変）とし、コード再編は 5軸スコアラを載せる Phase 2 で行う。詳細は活性の別紙 v0.2 §4。
   - **A-3 の残り【予定・Phase 2】**：導出値を想起スコアへ接続（Phase 2 の5軸スコアラで importance の代わりに導出 a を使う）、段2 の評価による `n` の増減機構、参照した MI の新しさ（t 軸）の若返り、解決時の a0 再測定。上の recall_count・last_recalled_at の再編コードもここに含む。テスト観点：(a0,n) からの導出が単調・可逆／既存 importance 読み出しと互換。**実機テスト：必要（節目①）**＝記憶を問う対話（ユースケース⑥）で、想起される記憶が従来と大きくずれないか体感確認（導出が想起へ効く段で行う）。
 
 段階B（T レジスタの分離）：
 - **B-1【実装済み・薄い縦切り】mood（PAD）レジスタの器**。`mood_register.py` を新設し、4軸 PAD の器 `MoodPAD`（P／Pn／A／Dom・全軸 [0,1]・中立0.5・`clipped`／`to_json_dict`／`from_json_dict`）、各軸を平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒（課題5 確定）で収束させる純関数 `decay_to_rest`（`rest+(x−rest)·2^(−経過/HL_M)`・DB 非依存）、agent_state への読み書き `load_mood`／`save_mood`（state_key `mood_pad`・self_state と同じ upsert・行が無ければ中立を返す）を置いた。収束先は各軸0.5の中点で、time_decay の floor 減衰とは別式。**emotion 文字列→PAD 写像 φ（課題11k・写像値 未確定）にも既存 mood にも未接続**＝agent.py の `_mood`／`_decayed_mood` と AffectiveState と mental_state_log は無変更で外部挙動不変（撤去は Phase 6）。φ 接続（旧データ移行と実行時 PAD 設定・評価器 LLM が P/Pn/Dom 直接出力・A は機械 A）は課題11k 確定後。新規マイグレーションなし（agent_state の新キー1つ・DDL なし）。テスト：`tests/test_mood_register.py` 新規7件（収束を上からと下からの両側・両軸独立漸近・範囲クリップ・agent_state 保存/読み出し往復・キー不在時の中立既定）。**実機テスト：不要**（未接続で体感不変・B-2 とまとめて節目②で確認）。
 - **B-2【一部実装済み・薄い縦切り・器のみ】drive（5欲求）レジスタの器**。`drive_register.py` を新設し、5欲求（SEEKING／REST／BOND／SAFETY／ESTEEM・集約は課題6-2 確定）の器 `AiDrivers`（各軸 float・[0,1]・静止（既定）0.0・`clipped`／`to_json_dict`／`from_json_dict`）、agent_state への読み書き `load_drives`／`save_drives`（state_key `drive5`・self_state と同じ upsert・行が無ければ全0.0 を返す）を置いた。**器と永続化だけ**で、蓄積と放電と mood 変調（dynamics）は作っていない。**既存の生きた15欲求 `DesireSystem`（agent_state["desires"]）にも `as_coalition` 経路にも未接続**＝desires.py と既存の "desires" キーは無変更で外部挙動不変（撤去は Phase 6）。旧15→新5 のデータ移行はしない（マッピングは課題6-2 で記録済み・移行は挙動切替の段）。新規マイグレーションなし（agent_state の新キー1つ・DDL なし）。テスト：`tests/test_drive_register.py` 新規5件（静止既定＝全0.0・範囲クリップ・JSON 往復・agent_state 保存/読み出し往復・キー不在時の全0.0 既定）。**実機テスト：不要**（未接続で体感不変）。
   - **B-2 の残り【予定・後続段】**：蓄積 dynamics（[D-活性] の `drive_i ← clip(drive_i + rate·mult·learn·g_{D,i}(M)·P_T, 0, 1)`・共通レートとバイアス b_i と変調行列 C_{ij} は課題5 B と発火・mood 別紙の暫定値）、全放電（発火時 −放電量）、mood M による変調 g_{D,i}(M)、PI.drive への surface、旧15→新5 のデータ移行と挙動切替。dynamics は mood レジスタ（B-1）の値と発火に依存するため後続。**実機テスト：必要（節目②）**＝数回の対話で、感情が自然に変化し平静へ戻るか・欲求が極端に振れないか体感確認（dynamics と surface が効く段で行う）。
-- **B-3【実装済み・薄い縦切り】PI 構築と PI→MI 拡張（構築関数のみ）**。`tif.py` を新設し、`build_primitive(emotion: MoodPAD, drive: AiDrivers) -> PrimitiveMentalItem`（発火ペイロード構築・emotion←M・drive←D）と `expand_to_mental(pi, *, id, content, vector=None, supersedes=None, activation=None) -> MentalItem`（I 取り込みでの PI→MI 拡張・pi の emotion と drive を引き継ぎ id 等を付与）の二つの純関数を置いた。emotion に B-1 の `MoodPAD`、drive に B-2 の `AiDrivers` を値として流用し、A-1 の器（`PrimitiveMentalItem`／`MentalItem`／`_row_to_mental_item`）は無変更（注釈 `object | None` のまま）。**実際の発火とループには未接続**で、両関数は稼働経路から呼ばれない＝外部挙動不変。DB 不使用の純関数（マイグレーションなし）。テスト：`tests/test_tif.py` 新規3件（`build_primitive` が M と D を運ぶ・`expand_to_mental` の引き継ぎと付与・`MentalItem` が `PrimitiveMentalItem` のサブクラス）。**実機テスト：不要**（未接続で体感不変）。
-  - **B-3 の残り【予定・後続段】**：I→T Nudge を MI として発し T が emotion をフィルタ（[D-T境界]）、N_PAD（W の MI の emotion を activation 重みで合成）、発火とループへの `build_primitive`／`expand_to_mental` の接続。いずれも想起（W・Phase 2）と MI.emotion の PAD 化（課題11k）と発火に依存するため後続。
+- **B-3【実装済み・薄い縦切り】PI 構築と PI→MI 拡張（構築関数のみ）**。`tif.py` を新設し、`build_primitive(emotion: MoodPAD, drive: AiDrivers) -> PrimitiveMentalItem`（発火ペイロード構築・emotion←M・drive←D）と `expand_to_mental(pi, *, id, content, vector=None, supersedes=None, 根づき=None) -> MentalItem`（I 取り込みでの PI→MI 拡張・pi の emotion と drive を引き継ぎ id 等を付与）の二つの純関数を置いた。emotion に B-1 の `MoodPAD`、drive に B-2 の `AiDrivers` を値として流用し、A-1 の器（`PrimitiveMentalItem`／`MentalItem`／`_row_to_mental_item`）は無変更（注釈 `object | None` のまま）。**実際の発火とループには未接続**で、両関数は稼働経路から呼ばれない＝外部挙動不変。DB 不使用の純関数（マイグレーションなし）。テスト：`tests/test_tif.py` 新規3件（`build_primitive` が M と D を運ぶ・`expand_to_mental` の引き継ぎと付与・`MentalItem` が `PrimitiveMentalItem` のサブクラス）。**実機テスト：不要**（未接続で体感不変）。
+  - **B-3 の残り【予定・後続段】**：I→T Nudge を MI として発し T が emotion をフィルタ（[D-T境界]）、N_PAD（W の MI の emotion を 根づき 重みで合成）、発火とループへの `build_primitive`／`expand_to_mental` の接続。いずれも想起（W・Phase 2）と MI.emotion の PAD 化（課題11k）と発火に依存するため後続。
 
 段階C（相関サブテーブルの整理）：
 - **C-1【実装済み】person_id 所有者絞りの撤去**。代替の相関経路を先に作り、そのあと所有者絞りを外す二段で進めた。第一段：situated 相関の読み出し層 `_read_observations_by_situated(person_id, n, columns, *, kind=None, keywords=())` を新設（`situated_embeddings s` を `observations o` に JOIN し `s.person_id` で紐づける・所有者に依らない母集合・timestamp DESC・ベクトル類似度は使わない・未接続・テスト10件）。第二段：`recall_day_summaries` をこの層へ付け替え、`observations.person_id` 所有者絞りを撤去（母集合が在席者相関へ変わる・戻り値の形は不変・既存 day_summary テスト4件を相関の意味論へ更新）。フォールバック二関数 `_recall_keyword_fallback`／`_recall_recency_fallback` は C-1 対象から外した（主 situated 経路が0件のときだけ発火し、その0件は「その person の situated 行が無い」ときに限るため、同じ situated 相関へ寄せると恒常的に空になる。所有者絞りのまま「situated 行を持たない観測」を拾う役目を残す）。「situated 行を持たない観測のフォールバック扱い」は別課題へ申し送り。完了条件（達成）：`recall_day_summaries` から `observations.person_id` 所有者絞りが消えた（書き込み側 `delete_day_summaries_for_date` とフォールバック二関数は対象外）。**実機テスト：不要**（C-2 とまとめて節目③）。
@@ -106,7 +106,7 @@
 - **進捗【実装済み・3本目】**：`recall_day_summaries` を層経由へ付け替え。person_id が固定の AGENT_SELF_ID でなく **`self._person_id`（在席者スコープ・実行時に決まる値）**でも**層のコードは無変更**（git diff で層ゼロ差分）＝層の再利用性を「AGENT_SELF_ID 固定・emotion 込み・在席者スコープ」の3パターンで実証。外部挙動不変・スキーマ変更なし。追加テスト4件（在席者スコープの分離テストを含む・person_id は persons への FK があるため既存の予約 ID＝DEFAULT_PERSON_ID/AGENT_SELF_ID を使用）＋既存97件 非回帰・全体テスト通過。次の一本は `recall_semantic_facts`・`recall_on_this_day` 等、kind 単純絞りでない recall（クエリ検索・日付演算を含む）で、層をそのまま使えるか別途検討が要る。
 
 ### Phase 2：recall 一本化＝5軸スコアラ（起点の切替）
-- 内容：旧 cosine 純積（:86）→ 新5軸（埋め込み平均中心化 → r 段階的関連係数〔ハード veto なし〕／t 新しさ／e 感情一致／a activation／p 在席者相関 noisy-OR／加重平均 M／min_score 足切り）。recall_* 群を1経路へ統合。**旧スコアと並走させずクリーン切替**。
+- 内容：旧 cosine 純積（:86）→ 新5軸（埋め込み平均中心化 → r 段階的関連係数〔ハード veto なし〕／t 新しさ／e 感情一致／a 根づき／p 在席者相関 noisy-OR／加重平均 M／min_score 足切り）。recall_* 群を1経路へ統合。**旧スコアと並走させずクリーン切替**。
 - 依存：Phase 1（O モデル）＋ Phase 0（bge-m3 ベクトル）。p の在席入力は Phase 3 まで暫定（在席ゼロ扱い可）。
 - テスト観点：5軸スコアの単調性・min_score 足切り・r 段階化（関連を veto しない）・noisy-OR の在席ゼロ時の分母処理・recall_* 統合後に各用途が従来近い結果を返す。
 - チェックポイント：**ここで再測定の min_score を確定**（c_lo/c_hi は Phase 0 後に測れるが、min_score は5軸実装後）。
@@ -164,7 +164,7 @@ Phase 2 を閉じる前に、`agent.py`（4,024行）と `tools/memory.py`（2,5
 - 依存：環-c は 知-a。環-d は移管先が要るので 記-a・知-e・環-b の後。
 - 完了条件：各旧名を grep して**残存ゼロ**（数えた件数でなく0件を証明）。**`getattr(self, "_x", None)` の形は `self._x` の検索に出ないので、判定に含める。**
 - テスト観点：撤去後に新経路だけで全機能が成立する回帰。
-- 撤去できなかったもの：`prediction`／`concern_engine`／`self_state`／`exploration` は `_run_post_response_pipeline` 経由で新経路が使う。`workspace.py` は `Coalition` が生きているのでファイルを残す。
+- 撤去できなかったもの：`prediction`／`concern_engine`／`exploration` は `_run_post_response_pipeline` 経由で新経路が使う。`self_state` は後に**撤去した**（書き込みだけが生きており、読み手が居なかった）。`workspace.py` は `Coalition` が生きているのでファイルを残す。
 
 ## 4. 並行可否
 
@@ -387,7 +387,7 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 
 **`grep` の判定に穴があった。** `getattr(self, "_x", None)` の形は `self._x` の検索に引っかからない。`_concerns`（`ConcernEngine`）を使用0件と誤判定して消したが、実際には毎ターン `update_from_turn` が呼ばれていた。`if ... is not None:` で守られているため、消しても例外は出ずテストも通る。`ruff`・`mypy`・テストのいずれも捕まえられない種類の誤りで、復帰させた。**使用0件の判定には `getattr` 形を含める。**
 
-**撤去できなかったもの**：`_prediction`・`_concerns`・`_self_state`・`_exploration` は `_run_post_response_pipeline` 経由で新経路から到達する。`ExplorationTracker` は「旧 `run()` のプロンプトごと落とす」と書いていたが、`_exploration_context` が今もプロンプトに文脈を載せている。`workspace.py` は `Coalition`（dataclass）を6モジュールが使うため、`GlobalWorkspace` クラスだけを落としてファイルは残した。
+**撤去できなかったもの**：`_prediction`・`_concerns`・`_exploration` は `_run_post_response_pipeline` 経由で新経路から到達する。`_self_state` は後に**撤去した**。`ExplorationTracker` は「旧 `run()` のプロンプトごと落とす」と書いていたが、`_exploration_context` が今もプロンプトに文脈を載せている。`workspace.py` は `Coalition`（dataclass）を6モジュールが使うため、`GlobalWorkspace` クラスだけを落としてファイルは残した。
 
 ### 記-a（REST 内省）
 
@@ -428,7 +428,7 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 |---|---|
 | 対象 | **前回の内省以降の O**（前回は `direction='休息'` で引く） |
 | 第1段の絞り | `direction` が `会話`・`観察`・`発話`・`好奇心` のもの。`完了`・`中断`・`意図`・`機器`・`保留` はループが自分のために書いた記録で、人との出来事ではない。`内省`（self_model）は蒸留の結果に近く、`記憶`（day_summary）は過去の要約そのものなので、材料に混ぜると二重に畳む |
-| 第2段の絞り | `activation_a0 >= distill_min_a0`（既定 0.47）。a0 が低い O は既にある記憶と似ているもので、実測でも同じ内容の繰り返しだった |
+| 第2段の絞り | `groundedness_g0 >= distill_min_a0`（既定 0.47）。a0 が低い O は既にある記憶と似ているもので、実測でも同じ内容の繰り返しだった |
 | LLM | **フル LLM**。既存の日次要約は軽量LLM だが、内省は他の仕事も同時にやるので質を取る |
 | 出力 | 自己エピソード（`kind='day_summary'`）。畳む対象はツールで指定する |
 | 畳む対象の選び方 | **LLM に選ばせる**。何を残すべきかは意味の判断で、機械の指標では決められない |
@@ -504,6 +504,8 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 - **静穏時間が人への返事まで止めていた**：起点を区別せず掛けており、夜に話しかけると返事が `pending_speech` へ溜まって翌朝に届く動きになっていた。
 
 ## 更新履歴
+
+> v0.46：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
 > v0.45：**出-a の TTS を完了**（Style-Bert-VITS2・実機確認済み）。残る STT の見立てを書いた（`faster-whisper` の依存は既にある・常時集音の VAD はマイクの HVAD を踏まえて計測してから決める）。
 > v0.44：**内省をツール駆動にすると決めた**（専用ループ・ツール5つ・LLM の呼び出しは 6〜10 回）。既存の `event_loop.py` に乗せないのは、発話を前提に組まれていて内省と噛み合わないためである。**調停の時間切れ（`arbiter_timeout_sec`）を自己調整の対象に加えた**（範囲 1.0〜10.0・値は LLM が判断し、集計は機械が渡す）。

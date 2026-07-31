@@ -4,7 +4,7 @@ Each processor (desires, scene, exploration, self_narrative, memory)
 produces a Coalition for the Global Workspace.  These tests verify:
   - Returns None when the processor has no data (empty state).
   - Returns a Coalition with correct source and valid field ranges.
-  - Field values (activation, urgency, novelty) are within [0, 1].
+  - Field values (dynamism, urgency, novelty) are within [0, 1].
 """
 
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _assert_valid_coalition(c: Coalition, expected_source: str) -> None:
     assert isinstance(c, Coalition)
     assert c.source == expected_source
     assert isinstance(c.summary, str) and len(c.summary) > 0
-    assert 0.0 <= c.activation <= 1.0
+    assert 0.0 <= c.dynamism <= 1.0
     assert 0.0 <= c.urgency <= 1.0
     assert 0.0 <= c.novelty <= 1.0
     assert isinstance(c.context_block, str) and len(c.context_block) > 0
@@ -92,7 +92,7 @@ def test_desire_coalition_activation_equals_desire_level(desires: DesireSystem) 
     desires.boost("greet_companion", 0.85)
     c = desires.as_coalition()
     assert c is not None
-    assert c.activation == pytest.approx(0.85, abs=0.05)
+    assert c.dynamism == pytest.approx(0.85, abs=0.05)
 
 
 def test_desire_coalition_context_block_has_inner_voice(desires: DesireSystem) -> None:
@@ -203,7 +203,7 @@ def test_scene_coalition_activation_is_avg_confidence(scene_tracker: SceneTracke
     }
     c = scene_tracker.as_coalition()
     assert c is not None
-    assert c.activation == pytest.approx(0.7, abs=0.01)
+    assert c.dynamism == pytest.approx(0.7, abs=0.01)
 
 
 def test_scene_coalition_urgency_low_without_people_events(scene_tracker: SceneTracker) -> None:
@@ -261,11 +261,11 @@ def test_narrative_coalition_summary_from_latest_entry(narrative: SelfNarrative)
 
 
 def test_narrative_coalition_fixed_activation(narrative: SelfNarrative) -> None:
-    """Narrative coalitions have a fixed activation of 0.4."""
+    """Narrative coalitions have a fixed dynamism of 0.4."""
     narrative.write("Some reflection.")
     c = narrative.as_coalition()
     assert c is not None
-    assert c.activation == pytest.approx(0.4)
+    assert c.dynamism == pytest.approx(0.4)
 
 
 def test_narrative_coalition_low_urgency(narrative: SelfNarrative) -> None:
@@ -345,12 +345,12 @@ def test_exploration_coalition_urgency_high_with_unvisited(
 
 
 def test_exploration_coalition_activation_bounded(exploration: ExplorationTracker) -> None:
-    """activation = min(1.0, avg_novelty + 0.2), so always <= 1.0."""
+    """dynamism = min(1.0, avg_novelty + 0.2), so always <= 1.0."""
     exploration.record_move("left", 30)
     exploration.record_novelty(0.95)
     c = exploration.as_coalition()
     assert c is not None
-    assert c.activation <= 1.0
+    assert c.dynamism <= 1.0
 
 
 # ── ObservationMemory.as_coalition_async ───────────────────────────────────────
@@ -417,7 +417,7 @@ async def test_memory_coalition_activation_from_top_confidence() -> None:
 
     c = await mem.as_coalition_async()
     assert c is not None
-    assert c.activation == pytest.approx(0.6)
+    assert c.dynamism == pytest.approx(0.6)
 
 
 @pytest.mark.asyncio

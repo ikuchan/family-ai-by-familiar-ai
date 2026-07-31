@@ -328,7 +328,7 @@ class PredictionEngine:
         """Return a workspace Coalition from the most recent prediction error.
 
         Returns None if no error has been computed yet (compute_error not called).
-        High prediction error → high activation + high novelty in the coalition.
+        High prediction error → high dynamism + high novelty in the coalition.
         """
         from .workspace import Coalition
 
@@ -342,8 +342,8 @@ class PredictionEngine:
             return None
 
         # Map error to coalition fields
-        # High error = high activation (demands attention) + high novelty
-        activation = min(1.0, error * 1.2)  # slight amplification
+        # High error = high dynamism (demands attention) + high novelty
+        dynamism = min(1.0, error * 1.2)  # slight amplification
         novelty = error
         urgency = min(1.0, max(error * 0.8, signal.agency_error))
 
@@ -366,7 +366,7 @@ class PredictionEngine:
         return Coalition(
             source="prediction",
             summary=summary,
-            activation=activation,
+            dynamism=dynamism,
             urgency=urgency,
             novelty=novelty,
             context_block=context,

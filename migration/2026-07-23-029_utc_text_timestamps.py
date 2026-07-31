@@ -50,6 +50,16 @@ def upgrade(conn) -> None:
     off_seconds = _offset_seconds()
     with conn.cursor() as cur:
         for table, cols in _TARGETS.items():
+            # 無い表は飛ばす。この一覧は「029 を書いた時点で存在した表」であって、その後の
+            # 表の増減を織り込んでいない。実際に `memory_activation` は `memory_salience`
+            # へ改名され、このマイグレーションを再実行する経路が全部落ちた。
+            # 効果は変わらない：新規 DB では表を作るマイグレーションが先に走るので、当時
+            # 存在した表はすべて揃っている。
+            cur.execute("SELECT to_regclass(%s)", (table,))
+            row = cur.fetchone()
+            present = row[0] if isinstance(row, tuple) else row["to_regclass"]
+            if present is None:
+                continue
             for col in cols:
                 # naive（tz サフィックス無し）だけ変換。ローカル→UTC は値からオフセットを引く。
                 cur.execute(

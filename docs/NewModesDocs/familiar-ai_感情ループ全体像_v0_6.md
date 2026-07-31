@@ -1,4 +1,4 @@
-# familiar-ai 感情ループ全体像（v0.5）
+# familiar-ai 感情ループ全体像（v0.6）
 
 ## このループの起動源は Drive である
 
@@ -16,7 +16,7 @@ graph TD
     EVAL["評価器：Appraiser（APR）：行動と遣り取りの感情を PAD で出す"]
     OBS["観測の感情：Observation PAD：会話 summary と生観測に保存する"]
     W["想起：Working memory（W）：想起した各 MI が emotion PAD を持つ"]
-    NPAD["感情トーン：N_PAD：W の PAD を activation 加重平均し自己認識 MI のフラット項を足す"]
+    NPAD["感情トーン：N_PAD：W の PAD を 根づき 加重平均し自己認識 MI のフラット項を足す"]
     M["気分：Mood（M）：PAD で持ち平静へ半減期600秒で減衰する"]
     GDM["気分から欲求への変調：g_D(M)：気分が欲求の蓄積レートを偏らせる"]
     VOICE["声色：Speech PAD：α·N_PAD＋(1−α)·M で発話音調へ写す"]
@@ -41,9 +41,9 @@ graph TD
 
 - **`T → D`（蓄積）**：`drive_i ← clip(drive_i + rate·mult_i(t)·learn_i·g_D,i(M)·P_T, 0, 1)`。全欲求共通のレートに、時間帯倍率と学習倍率と気分変調がかかる（発火/mood 別紙 §2.1）。
 - **`D → FIRE`（発火）**：`drive_i` が閾値 Θ_fire（≈1）を超えると発火し、放電で drive をほぼ0へ戻す。D が動く原則経路は「発火時の放電」と「M→D 変調」の2つで、I は drive を直接増減しない（§2.4・§2.5）。例外として、間接鎮静（M→D）が現状効いていないため、ターン完了時に軽量LLMが満たされた drive を発火時と同じ全放電で沈静化する明示ルートを実装済み（既定 off・ゲートは drive 値でなく W/MI・E・行動から作る・発火mood §2.5(3)）。
-- **`FIRE → EVAL → OBS`（感情の生成）**：評価器（軽量LLM）が現ターンの遣り取りを P/Pn/Dom で評価する。A（喚起）は機械値で、**a0 と同じく seed 種別で作る（内容系＝novelty＝1−近傍K件の類似度平均／カメラ起点＝見え驚き Ŝ）＝keyword ではない**。値踏みゲート A_gate=0.25 未満は評価器を呼ばず P/Pn/Dom を気分 M のまま置く。評価器は W を入力にとらず、気分をベースに現ターンから感情を出すので、記憶が無くても感情は生まれる。
+- **`FIRE → EVAL → OBS`（感情の生成）**：評価器（軽量LLM）が現ターンの遣り取りを P/Pn/Dom で評価する。A（高ぶり）は機械値で、**a0 と同じく seed 種別で作る（内容系＝novelty＝1−近傍K件の類似度平均／カメラ起点＝見え驚き Ŝ）＝keyword ではない**。値踏みゲート A_gate=0.25 未満は評価器を呼ばず P/Pn/Dom を気分 M のまま置く。評価器は W を入力にとらず、気分をベースに現ターンから感情を出すので、記憶が無くても感情は生まれる。
 - **`OBS → W`（想起・1ターン遅れ）**：現ターンの感情は記憶として保存され、**次ターン以降に想起されて初めて** W に入り気分に効く。現ターンの感情が同じターンの気分を動かす直接の経路は無い。
-- **`W → NPAD → M`（nudge）**：`N_PAD = (Σ a_i·PAD_i + C·self_pad)/(Σ a_i + C)`（C＝自己認識 MI の重み0.5・Config／self_pad＝自己認識 MI の emotion・既定中立で REST 書換可）を作り、`A_M ← max(A_M, A_N)`／`X_M ← X_M + A_N(X_N − X_M)`（X＝P,Pn,Dom）で気分を動かす。覚醒が高いほど強く引かれる。C は旧・activation 上限2.0 の流用をやめ、支配しない薄い錨へ是正（根拠台帳 §12）。
+- **`W → NPAD → M`（nudge）**：`N_PAD = (Σ a_i·PAD_i + C·self_pad)/(Σ a_i + C)`（C＝自己認識 MI の重み0.5・Config／self_pad＝自己認識 MI の emotion・既定中立で REST 書換可）を作り、`A_M ← max(A_M, A_N)`／`X_M ← X_M + A_N(X_N − X_M)`（X＝P,Pn,Dom）で気分を動かす。高ぶりが高いほど強く引かれる。C は旧・根づき 上限2.0 の流用をやめ、支配しない薄い錨へ是正（根拠台帳 §12）。
 - **`M → g_D(M) → D`（気分による欲求変調）**：`g_D,i(M) = logistic(logit(b_i) + Σ_j C_ij·logit(x_j))`。中立気分では `g = b_i`（中立発火頻度）。気分が充足方向なら当該欲求の蓄積が細り、実質のリークになる（§2.2・§2.3）。
 - **`M → VOICE`（声色）**：声色 PAD ＝ α·N_PAD ＋(1−α)·M（α=0.7・N_PAD 寄り）で発話音調へ写す（課題5 v0.19）。
 - **`M → RECALL`（e 軸）**：気分と観測 PAD の一致 e を想起スコアへ入れ、気分に近い記憶を上位に寄せる。
@@ -54,7 +54,7 @@ graph TD
 |---|---|
 | 評価器の PAD 出力（`FIRE → EVAL → OBS`） | 実装済み（W2b-2） |
 | 観測 PAD の保存（OBS） | 実装済み（W1a/W1b/W2a/W2b） |
-| W の PAD 露出（`OBS → W`） | 実装済み（mood-b・recall が PAD と activation を返す） |
+| W の PAD 露出（`OBS → W`） | 実装済み（mood-b・recall が PAD と 根づき を返す） |
 | N_PAD と nudge の純関数（`W → NPAD → M`） | 実装済み（mood-a） |
 | nudge のターン接続（M を実際に動かす・`W → NPAD → M`） | 実装済み（mood-c・`load_current_mood` が実 mood を返す） |
 | **`M → g_D(M) → D`（気分による欲求変調）** | **未実装**（`drive_register.py` は器のみ・B-2・dynamics 未着手） |
@@ -74,6 +74,8 @@ graph TD
 ---
 
 ## 更新履歴
+
+> v0.6：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
 > v0.5：実装状況の末尾に、順序方針（段取り v0.24）で起動源＝Drive 発火を意図的に後回しにしていることを明記。当面 感情ループは受け身のまま（大きな挙動変化は後回しとする戦略の代償）。
 > v0.4：機械 A の源と自己認識 MI の重み/emotion を実装と設計に合わせて訂正。**A（喚起・機械値）は a0 と同じく seed 種別で作る＝内容系は novelty／カメラは見え驚き Ŝ**（keyword ではない・課題5 v0.25 で明確化）。`W → NPAD → M` の自己認識 MI は、旧・activation 上限2.0 の流用をやめ**重み0.5（Config）＝支配しない薄い錨**へ是正し、その emotion は **agent_state に置き REST が書き換える**（既定中立・W が空のときのデフォルト感情・根拠台帳 §12）。

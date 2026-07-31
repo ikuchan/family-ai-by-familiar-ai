@@ -146,36 +146,3 @@ def test_decayed_mood_partial_decay() -> None:
     # Should be significantly less than original but still positive
     assert mood == "excited"
     assert intensity < original_intensity
-
-
-# ---------------------------------------------------------------------------
-# Tests: interoception includes mood feel
-# ---------------------------------------------------------------------------
-
-
-def test_interoception_includes_mood_feel_when_non_neutral() -> None:
-    from familiar_agent.agent import _interoception
-
-    result = _interoception(
-        started_at=time.time() - 60,
-        turn_count=2,
-        companion_mood="engaged",
-        agent_mood="excited",
-        agent_mood_intensity=0.8,
-    )
-    assert "excited" in result.lower() or "buzzing" in result.lower() or "mood" in result.lower()
-
-
-def test_interoception_no_mood_line_when_neutral() -> None:
-    from familiar_agent.agent import _interoception
-
-    result = _interoception(
-        started_at=time.time() - 60,
-        turn_count=2,
-        companion_mood="engaged",
-        agent_mood="neutral",
-        agent_mood_intensity=0.0,
-    )
-    # Should not add spurious mood content for neutral
-    assert "buzzing" not in result
-    assert "lingers" not in result

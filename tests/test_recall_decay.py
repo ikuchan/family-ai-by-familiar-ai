@@ -1,6 +1,6 @@
 """想起の時間軸（t）と、想起で強化しないことの検査。
 
-    score = r^(w_r) × M,  M = (w_t·t + w_e·e + w_a·a + w_p·p)/(w_t+w_e+w_a+w_p)
+    score = r^(w_r) × M,  M = (w_t·t + w_e·e + w_g·a + w_p·p)/(w_t+w_e+w_g+w_p)
     t     = max(t_floor, exp(-|ref - timestamp| / tau)),  tau = HL / ln 2
 
 **起点は書かれた時刻だけ**。強化A（想起回数で半減期を伸ばす）と強化B（使ったら若返る）は、
@@ -148,7 +148,7 @@ def test_time_decay_prioritizes_recent_over_old(memory):
     memory.save("記憶新しい", kind="observation", emotion="neutral")
 
     results = memory.recall("記憶", n=10)
-    scores = {r["summary"]: r["score"] for r in results}
+    scores = {r["summary"]: r["fit"] for r in results}
 
     assert "記憶新しい" in scores, "recent memory not found"
     assert "記憶古い" in scores, "old memory not found"

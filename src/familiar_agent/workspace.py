@@ -27,7 +27,7 @@ class Coalition:
     Attributes:
         source: Name of the originating processor (e.g. "desire", "scene").
         summary: Short natural-language description of the content.
-        activation: Base strength from the source processor (0.0–1.0).
+        dynamism: Base strength from the source processor (0.0–1.0).
         urgency: Time-sensitivity (e.g. "person appeared" = high urgency).
         novelty: How unexpected this content is (connects to prediction error).
         context_block: Formatted text for LLM prompt injection if this wins.
@@ -35,7 +35,7 @@ class Coalition:
 
     source: str
     summary: str
-    activation: float
+    dynamism: float
     urgency: float
     novelty: float
     context_block: str
@@ -43,9 +43,9 @@ class Coalition:
     def score(self) -> float:
         """Composite score used in workspace competition.
 
-        score = activation × (0.4×urgency + 0.3×novelty + 0.3)
+        score = dynamism × (0.4×urgency + 0.3×novelty + 0.3)
 
         The constant 0.3 ensures coalitions with zero urgency/novelty can
-        still compete if activation is high enough.
+        still compete if dynamism is high enough.
         """
-        return self.activation * (0.4 * self.urgency + 0.3 * self.novelty + 0.3)
+        return self.dynamism * (0.4 * self.urgency + 0.3 * self.novelty + 0.3)

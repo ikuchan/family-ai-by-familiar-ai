@@ -165,7 +165,7 @@ def test_as_coalition_returns_coalition_after_error_computed():
     assert c is not None
     assert isinstance(c, Coalition)
     assert c.source == "prediction"
-    assert 0.0 <= c.activation <= 1.0
+    assert 0.0 <= c.dynamism <= 1.0
     assert 0.0 <= c.urgency <= 1.0
     assert 0.0 <= c.novelty <= 1.0
 

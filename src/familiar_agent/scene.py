@@ -340,7 +340,7 @@ class SceneTracker:
         return Coalition(
             source="scene",
             summary=summary,
-            activation=avg_conf,
+            dynamism=avg_conf,
             urgency=urgency,
             novelty=novelty,
             context_block=context,

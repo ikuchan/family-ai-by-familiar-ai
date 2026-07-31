@@ -1,4 +1,4 @@
-# familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.5）
+# familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.6）
 
 v0.4：situated V2 の生成規則・移行を確定。関係初期集合＝presence/speaker/subject（視点列 participants_json/writer_id/subject_id から生成）。旧 `_remember` 複製モデル（scope speaker/witnessed/scene・kind utterance/witnessed/scene）の撤去を申し送りへ追加。移行写像を「既存観測1件→複数関係エッジ展開」へ精緻化。
 
@@ -10,7 +10,7 @@ v0.2：課題7 のコード確認を反映。GlobalWorkspace 行を精緻化（�
 
 0. 前提と読み方
 
-新設計の骨格：記憶は O に一元化（append＋supersede）、W は O からの派生ビュー（毎ターン想起で構築・退避/eviction/fade なし）、T 側は数値レジスタ（drive/mood/norm/presence）、記憶は 共通 MI（PI＝emotion(PAD)/drive、MI＝PI＋id/content/vector/supersedes/activation）。
+新設計の骨格：記憶は O に一元化（append＋supersede）、W は O からの派生ビュー（毎ターン想起で構築・退避/eviction/fade なし）、T 側は数値レジスタ（drive/mood/norm/presence）、記憶は 共通 MI（PI＝emotion(PAD)/drive、MI＝PI＋id/content/vector/supersedes/根づき）。
 確定先の表記：各対応の根拠ブロックを [D-…] で示す。値の確定先は課題5（パラメータ）・課題7（実測初期値）・課題11(k)（PAD 化）等。
 実装（撤去・新テーブル・マイグレーション・既存テスト修正）は課題8 で TDD として行う。本書は「何を何へ移すか」を確定する承認用で、コード手順は含めない。
 
@@ -20,7 +20,7 @@ v0.2：課題7 のコード確認を反映。GlobalWorkspace 行を精緻化（�
 | observations | 観測・記憶の本体 | O（単一エピソード記憶＝MI の本体） | [D-記憶単一化]／[D-O書込]／[D-MIモデル] |
 | obs_embeddings | 観測の埋め込み | MI.vector（関連軸の素材） | [D-想起合成]／[D-MIモデル] |
 | situated_embeddings | 人視点別の埋め込み | 相関サブテーブル（MI×person の situated・在席者相関 p の素材・person 別視点） | [D-在席相関]／[D-想起合成] |
-| memory_activation | 活性（重要度） | MI.activation（(a0,n) から導出・on-read） | [D-活性]／[D-想起合成] |
+| memory_salience | 活性（重要度） | MI.根づき（(a0,n) から導出・on-read） | [D-活性]／[D-想起合成] |
 | memory_events | イベントログ | O への取込の前段（O に吸収） | [D-O書込] |
 | memory_jobs | materialize ジョブ | O 投影の非同期ジョブ（保守器/REST） | [D-O書込] |
 | memory_revisions | 版履歴 | MI.supersedes（版履歴） | [D-記憶単一化]／[D-MIモデル] |
@@ -45,7 +45,7 @@ v0.2：課題7 のコード確認を反映。GlobalWorkspace 行を精緻化（�
 | GlobalWorkspace（workspace.py） | 作業記憶（名）／実体は coalition 競合＋ignition | 作業集合・broadcast の概念→W／競合・ignition 実装→調停・発火（記憶ストアでないため W へ直接転用は不可・課題7 で確認） | [D-記憶単一化]／[D-I内部] |
 | PendingSpeechStore | 未発話キュー | O の open 意図（W 派生） | [D-単一想起] |
 | ConcernEngine／Concern | 気がかり（最大5・自前 decay） | O の open 意図＋salience | [D-気がかり統合]（課題11j） |
-| AttentionSchema | 注意・焦点 | MI.activation／salience（焦点は W 構築で表す） | [D-活性] |
+| AttentionSchema | 注意・焦点 | MI.根づき／salience（焦点は W 構築で表す） | [D-活性] |
 | AffectiveState／MentalStateBus／Affect | 感情状態 | M（PAD・T レジスタ） | [D-B分離]／[D-活性] |
 | PredictionEngine／PredictionSignal | 予測・期待 | norm（T(G) private・予測の驚き） | [D-知覚]／[D-B分離] |
 | RelationshipTracker | 関係追跡 | 廃止＋移管（§3） | [D-在席相関] |
@@ -64,7 +64,7 @@ v0.2：課題7 のコード確認を反映。GlobalWorkspace 行を精緻化（�
 
 tape：廃止。事前の多段アクションプラン＋ループ中の block 判定・replan は、新ループ（1反復1出力・ターン内多段なし）の前提と衝突する。計画性は open 意図（O・想起で再会）＋フルLLM の行動組み立て＋調停の drive-serving 選択で代替し、専用プランレイヤは新設しない（[D-反復出力]）。
 memory_links：廃止。連想は vector 関連（r）へ一元化、明示したい関係は content に書く。MI 間の構造関係は supersedes（版履歴）のみ。旧実装は読み側（辿り取得）が未結線で、廃止しても現挙動は不変。連想の拡散は WR からの想起で代替（[D-WR拡散想起]）。
-exploration_state：廃止＋機能移管。探索履歴・未探索ヒント＝③見た定点の印（O の MI・activation on-read 減衰・最も薄れた定点を選ぶ）、novelty＝取込時算出、見回りの動機＝SEEKING、警戒＝[D-行動選択]、カメラ位置＝SS／DIF、カメラ読み＝[D-知覚]。テーブルは旧実装で未結線。
+exploration_state：廃止＋機能移管。探索履歴・未探索ヒント＝③見た定点の印（O の MI・根づき on-read 減衰・最も薄れた定点を選ぶ）、novelty＝取込時算出、見回りの動機＝SEEKING、警戒＝[D-行動選択]、カメラ位置＝SS／DIF、カメラ読み＝[D-知覚]。テーブルは旧実装で未結線。
 self_narrative_log：廃止＋移管。I が体験・対話・行動したことだけを O に書くので、その日の O はすべて自己の体験（自己エピソードでない O は存在しない）。よって person_id で自己を絞らず、REST 内省でその日の O を日付で読み返し、フルLLM が一人称の自己エピソード要約へ蒸留して 自己認識 MI の「自己エピソード部分」を supersede 更新（自己認識 MI＝能力＋方針＋自己エピソード部分・pinned）。meta_monitor の自己一貫性チェックも REST 内省へ（[D-在席相関]）。
 relationship_state：廃止＋移管。関係内容（傾向・好み・境界・履歴・evidence）＝O の MI（相手の person_id・相関サブテーブルで在席時に想起）。trust／intimacy は専用スカラを持たず、在席者相関＋感情想起で W に集まる関係記憶から評価器/フルLLM が都度導出。social ゲート（言及可否・関係記憶想起・積極度）＝[D-値踏み]・配信ゲート・自己認識 MI policy。REST が per-person の関係サマリを蒸留（自己エピソード部分と同型）（[D-在席相関]）。
 
@@ -78,7 +78,7 @@ person_id 保持メモ（[D-在席相関/V2] で更新）：**`observations.pers
 
 旧感情系 → PAD：AffectiveState/mental_state の感情を M（PAD）／MI の emotion(PAD) へ。emotion 文字列→PAD の写像（畳み込み関数 φ）は課題11(k)。全軸 [0,1]・中立0.5・両側（双極 P を P/Pn に分離）。
 旧15欲求 → 5欲求：SEEKING／REST／BOND／SAFETY／ESTEEM（PAD 4軸とマズロー5段階に対応）。DEFAULT_DESIRES 全15件の集約マッピングは確定済み（6-2）。ESTEEM は旧システムに出所がない新規追加軸（移行でなく新設計の gap）。蓄積レート等の値は課題5 B。
-失敗（agency_error）→ 情動：I の activation には入れず T 側の mood 変調（失敗→mood Pn↑/Dom↓→ESTEEM 変調・間接経路）。経路は確定、PAD 写像値は課題11(k) 据え置き。
+失敗（agency_error）→ 情動：I の 根づき には入れず T 側の mood 変調（失敗→mood Pn↑/Dom↓→ESTEEM 変調・間接経路）。経路は確定、PAD 写像値は課題11(k) 据え置き。
 
 6. 課題8 への申し送り（実装時）
 
@@ -95,5 +95,7 @@ DB 更新を伴うため、既存テストの修正要否を検討し、マイ�
 ---
 
 ## 更新履歴
+
+> v0.6：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
 > v0.5：一行に潰れていた「旧 DB テーブル → 新構成」対応表と「旧クラス → 新構成」対応表を Markdown テーブルへ復元（内容は保持）。旧運用の記述「全体テストはユーザー実施」を現行運用へ訂正。

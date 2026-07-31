@@ -39,7 +39,7 @@ def test_recall_semantic_includes_evidence_metadata() -> None:
     assert row["memory_id"]
     assert row["timestamp"]
     assert row["source_kind"] == "observation"
-    assert "score" in row
+    assert "fit" in row
     assert 0.0 <= float(row["confidence"]) <= 1.0
 
 

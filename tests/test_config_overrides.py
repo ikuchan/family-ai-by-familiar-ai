@@ -55,7 +55,7 @@ def test_a_value_outside_the_range_is_rejected():
 def test_an_unregistered_field_is_rejected():
     """範囲を登録していない値は、内省が変えられない（安全側）。"""
     assert save_override("DriveConfig.rate", 0.5) is False
-    assert save_override("MemoryConfig.recall_n", 9) is False
+    assert save_override("MemoryConfig.recall_k", 9) is False
 
 
 def test_connection_settings_are_protected():

@@ -81,7 +81,7 @@ def load_mood(conn) -> MoodPAD:
 
 
 # 自己認識 MI を Nudge に含むときの既定重み（Config `self_mi_weight` の pure-function 既定）。
-# 旧・activation 上限 C=2.0 の流用をやめ、支配しない薄い錨へ。実行時の値は
+# 旧・根づき上限 C=2.0 の流用をやめ、支配しない薄い錨へ。実行時の値は
 # nudge_current_mood が MemoryConfig から注入する。
 SELF_KNOWLEDGE_MI_WEIGHT = 0.5
 
@@ -95,9 +95,9 @@ def compute_n_pad(
     self_pad: "MoodPAD | None" = None,
     self_weight: float = SELF_KNOWLEDGE_MI_WEIGHT,
 ) -> MoodPAD:
-    """W の感情トーン N_PAD を activation 加重平均で作る（課題5）。
+    """W の感情トーン N_PAD を根づき加重平均で作る（課題5）。
 
-    `items`＝各 W MI の (PAD, activation 重み)。自己認識 MI（`self_pad`・重み
+    `items`＝各 W MI の (PAD, 根づきの重み)。自己認識 MI（`self_pad`・重み
     `self_weight`）を常に足すので、W が空でも自己 MI emotion を返す（デフォルト感情）。
     `self_pad` 未指定は中立。N_PAD_x=(Σ a_i x_i + C·self_x)/(Σ a_i + C)（C＝self_weight）。
     """
@@ -120,7 +120,7 @@ def compute_n_pad(
 def nudge_toward(mood: MoodPAD, n_pad: MoodPAD) -> MoodPAD:
     """W トーン N_PAD で mood を動かす（課題5・mood-a・未接続）。
 
-    覚醒が高いほど強く引かれる：A_M←max(A_M,A_N)／X_M←X_M+A_N(X_N−X_M)（X＝p,pn,dom）。
+    高ぶりが高いほど強く引かれる：A_M←max(A_M,A_N)／X_M←X_M+A_N(X_N−X_M)（X＝p,pn,dom）。
     push でなく漸近なので Dom の意味も壊れない。接続は mood-c。
     """
     a_n = n_pad.a
@@ -193,7 +193,7 @@ def decay_and_nudge(
     """mood を経過ぶん平静へ減衰させてから W トーン N_PAD へ nudge する（mood-c・純）。
 
     課題5：`decay_to_rest`（updated_at からの経過）→ `compute_n_pad`（W の PAD の
-    activation 加重平均＋自己認識 MI）→ `nudge_toward`。`self_pad`/`self_weight` は
+    根づき加重平均＋自己認識 MI）→ `nudge_toward`。`self_pad`/`self_weight` は
     自己認識 MI の emotion と重み（呼び出し側が store/Config から渡す）。
     """
     decayed = decay_to_rest(mood, elapsed_seconds)

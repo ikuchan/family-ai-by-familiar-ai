@@ -24,6 +24,40 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def apply_or_hold_migrations(conn, migration_dir=None) -> int:
+    """マイグレーションを適用する。ただし `HOLD_MIGRATIONS` があれば留める。
+
+    接続のたびに無条件で適用していたため、`migration/` へファイルを置いた時点で、次に
+    その DB へ繋いだプロセスが適用してしまい、適用の可否を人が握れなかった（列改名の
+    マイグレーションが意図せず本番へ入った）。起動時に `HOLD_MIGRATIONS=1` を渡せば
+    留められる。スクリプトへは書かない（書くと留めた状態が既定になる）。
+
+    **留めても起動は続く。** 未適用のまま動くと、コードが新しいスキーマを前提にして
+    いる場合に実行時へ跳ねるので、何が保留されているかを1件ずつ warning に残す。件数
+    だけでは、どれが保留かが分からない。保留が無いときは鳴らさない（毎回鳴ると読まれ
+    なくなる）。
+    """
+    from .db_migrations import (
+        apply_migrations,
+        default_migration_dir,
+        pending_migration_ids,
+    )
+
+    mig_dir = migration_dir or default_migration_dir()
+    if not os.getenv("HOLD_MIGRATIONS"):
+        return apply_migrations(conn, mig_dir)
+
+    pending = pending_migration_ids(conn, mig_dir)
+    for mid in pending:
+        logger.warning("マイグレーションを保留した（HOLD_MIGRATIONS）：%s", mid)
+    if pending:
+        logger.warning(
+            "保留 %d 件。スキーマが古いままなので、新しい列を前提にした処理は落ちる",
+            len(pending),
+        )
+    return 0
+
+
 def _mask_db_url(url: str) -> str:
     """DB URL のパスワードを伏せて返す（ログ・メッセージ用）。"""
     try:
@@ -103,8 +137,7 @@ class Database:
                 # まで走査を続ける。上限は max_scan_tuples（既定 20000）が抑える。
                 _cur.execute("SET hnsw.iterative_scan = relaxed_order")
             self._conn.commit()
-            from .db_migrations import apply_migrations, default_migration_dir
-            apply_migrations(self._conn, default_migration_dir())
+            apply_or_hold_migrations(self._conn)
             logger.debug("PostgreSQL connection established")
         elif self._conn.info.transaction_status == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
             # Recover from a failed transaction so subsequent queries don't all fail.

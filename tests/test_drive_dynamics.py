@@ -34,7 +34,7 @@ def test_g_d_neutral_mood_equals_bias():
 def test_g_d_direction_matches_design():
     # BOND：P 負が主駆動（寂しい＝P 低で募る）
     assert g_d(MoodPAD(p=0.1)).bond > _CFG.bias_bond
-    # SEEKING：A 主駆動（覚醒で探索）
+    # SEEKING：A 主駆動（高ぶりで探索）
     assert g_d(MoodPAD(a=0.9)).seeking > _CFG.bias_seeking
     # SAFETY：Dom 負が主駆動（無力・コントロール喪失で安全希求）
     assert g_d(MoodPAD(dom=0.1)).safety > _CFG.bias_safety

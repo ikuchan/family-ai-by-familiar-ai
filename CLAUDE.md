@@ -19,7 +19,7 @@ familiar-ai は、家庭で家族が使う、身体を持つ伴侶エージェ�
 
 - ReAct ツールループ
 - PostgreSQL 記憶（pgvector）と人ごとの `situated_embeddings`
-- 予測、ワークスペース、自己状態の層
+- 予測とワークスペースの層
 - 関係、評価、社会方針、欲求調整の明示的な状態層
 - capability manifest と定期的な自己理解の更新
 - カメラ、移動、TTS、STT、GUI、MCP の任意統合
@@ -73,7 +73,7 @@ JSON ファイルも使わない。
 | `obs_embeddings` | バイナリの埋め込みベクトル |
 | `situated_embeddings` | 人ごとの pgvector 埋め込み |
 | `episodes` / `episode_memories` | まとめた記憶エピソード |
-| `memory_activation` | 想起の顕著性追跡 |
+| `memory_salience` | 想起の顕著性追跡（撤去予定） |
 | `semantic_facts` | 抽出した事実 |
 | `behavior_policies` | 抽出した行動規則 |
 | `memory_revisions` | 編集履歴 |
@@ -84,7 +84,7 @@ JSON ファイルも使わない。
 | `persons` | 既知の人物レジストリ |
 | `mental_state_log` | 追記専用のメンタル状態スナップショット |
 | `self_narrative_log` | 一人称のセッション日記 |
-| `agent_state` | キーバリュー：desires, self_state, heartbeat, concerns, intervention_policy, capability_summary, mood_pad, drive5 |
+| `agent_state` | キーバリュー：desires, heartbeat, concerns, intervention_policy, capability_summary, mood_pad, drive5 |
 
 スキーマ変更は `migration/` 以下のタイムスタンプ付きファイルを通す。
 
@@ -186,8 +186,11 @@ uv run --group dev mypy src/familiar_agent
 - [ ] 生の内受容・身体指標がユーザー向けテキストへ漏れていない
 - [ ] 改名・撤去なら、旧名の `grep` が **0件**。
       数え上げたリストで代えない。除外するなら理由を1件ずつ明示する
-- [ ] 未実装の設計（新 O/MI データモデル、T レジスタ、trigger/cue、store アクセス層など）を
-      コードやこの file へ書いていない
+- [ ] 書いたコードに対応する設計が `docs/NewModesDocs/` にある。設計の無いコードを入れない
+      （設計だけが先にある状態は正常である。実装が設計に追いついていないことは欠陥ではない）
+- [ ] この file に未実装の予定を書いていない。ここの記述は「いま動いている実物の説明」として
+      読まれるので、予定を現在形で混ぜると、次のセッションがそれを実装済みと信じ、
+      無い機構を前提にコードを書く。予定は `docs/NewModesDocs/` に版番号つきで置く
 - [ ] テスト実行中に対象外のファイルを編集していない
 
 `ruff` と `mypy` は自分で回す。**全体テストも自分で回す。** `./scripts/run_tests.sh` は

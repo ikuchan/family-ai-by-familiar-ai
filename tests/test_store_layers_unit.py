@@ -214,7 +214,7 @@ def test_by_vector_returns_rows_without_scoring(layers, ctx) -> None:
     assert rows, "類似検索が何も返さない"
     for r in rows:
         assert -1.0001 <= float(r["score"]) <= 1.0001, "生のコサインでない値が返っている"
-    assert {"activation_a0", "activation_n", "emotion_p", "last_recalled_at"} <= set(rows[0])
+    assert {"groundedness_g0", "groundedness_n", "emotion_p", "last_recalled_at"} <= set(rows[0])
 
 
 def test_by_vector_filters_by_kind(layers) -> None:

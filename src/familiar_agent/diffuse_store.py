@@ -77,7 +77,7 @@ def fetch_diffuse_rows(conn, ids: "list[str]") -> "list[dict]":
             str(r[0]): {
                 "memory_id": str(r[0]), "summary": r[1], "timestamp": r[2],
                 "direction": r[3], "kind": r[4], "source_kind": r[4], "emotion": r[5],
-                "score": 0.0, "activation": 0.0, "retrieval_method": "diffuse",
+                "fit": 0.0, "groundedness": 0.0, "retrieval_method": "diffuse",
             }
             for r in cur.fetchall()
         }

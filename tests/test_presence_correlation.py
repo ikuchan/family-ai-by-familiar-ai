@@ -21,13 +21,13 @@ def _bd(**kw):
         ts=datetime.now(timezone.utc),
         last_recalled_at=None,
         recall_count=0,
-        activation_a0=0.4,
-        activation_n=0,
+        groundedness_g0=0.4,
+        groundedness_n=0,
         half_life_days=30.0,
         floor=0.1,
         w_t=1.0,
         w_e=1.0,
-        w_a=1.5,
+        w_g=1.5,
     )
     base.update(kw)
     return _score_breakdown(**base)
@@ -130,7 +130,7 @@ def _row(oid: str, score: float) -> dict:
     return {
         "id": oid, "content": f"content-{oid}", "timestamp": "2026-07-01T10:00:00+09:00",
         "direction": "in", "kind": "observation", "emotion": "neutral", "image_path": None,
-        "activation_a0": 1.0, "activation_n": 0, "recall_count": 0, "last_recalled_at": None,
+        "groundedness_g0": 1.0, "groundedness_n": 0, "recall_count": 0, "last_recalled_at": None,
         "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
         "score": score,
     }
@@ -238,7 +238,7 @@ def test_recall_present_others_raises_score():
         boosted = mem.recall("presence corr target", n=1, present_others=["q-person"])
         assert base and boosted
         # 在席他者 q が memory に強く結びつく（同じ埋め込み）→ p>0 で M が上がる。
-        assert boosted[0]["score"] > base[0]["score"]
+        assert boosted[0]["fit"] > base[0]["fit"]
     finally:
         for p in ps:
             p.stop()
@@ -263,7 +263,7 @@ def test_recall_no_present_others_unchanged():
         a = mem.recall("presence corr regression", n=1)
         b = mem.recall("presence corr regression", n=1, present_others=[])
         assert a and b
-        assert a[0]["score"] == pytest.approx(b[0]["score"])
+        assert a[0]["fit"] == pytest.approx(b[0]["fit"])
     finally:
         for p in ps:
             p.stop()

@@ -1,7 +1,7 @@
 """Tests for wiring the e 軸 into recall（Phase 2 スライス3・気分一致想起）.
 
 想起スコアがハイブリッド合成になり、e＝**今の気分と観測 PAD の距離**が加算部の
-一項として効く。同じコサイン・同じ時刻・同じ activation の2件を置き、感情だけを
+一項として効く。同じコサイン・同じ時刻・同じ 根づき の2件を置き、感情だけを
 変えたとき、気分に近いほうが上位へ来ることを見る。
 
 あわせてデッドロックの反証を置く：mood の読み出しは `db.lock` を取るので、
@@ -39,14 +39,14 @@ def _mem() -> ObservationMemory:
 
 
 def _seed(content: str, pad: tuple[float, float, float, float]) -> None:
-    """コサイン・時刻・activation を揃え、PAD だけが違う観測を置く。"""
+    """コサイン・時刻・根づき を揃え、PAD だけが違う観測を置く。"""
     obs_id = str(uuid.uuid4())
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-            " person_id, activation_a0, activation_n, "
+            " person_id, groundedness_g0, groundedness_n, "
             " emotion_p, emotion_pn, emotion_a, emotion_dom) "
             "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (obs_id, content, "unknown", "conversation", "neutral", DEFAULT_PERSON_ID,
@@ -70,7 +70,7 @@ def _set_mood(pad: MoodPAD) -> None:
 def _scores() -> dict[str, float]:
     with patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]):
         results = _mem().recall("emotion axis memory", n=50)
-    by_content = {r["summary"]: r["score"] for r in results}
+    by_content = {r["summary"]: r["fit"] for r in results}
     assert _CONTENT_GLAD in by_content and _CONTENT_GLUM in by_content, (
         "seeded observations were not recalled"
     )

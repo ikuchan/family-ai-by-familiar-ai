@@ -135,6 +135,21 @@ def _pi_ctx() -> str:
         return ""
 
 
+def _log_recall_weights(trigger, base, used, memories) -> None:
+    """採用した5軸重みと、その重みで出た上位のスコアを残す（INFO）。
+
+    重みは反復ごとに揺らぐので、後から「どの重みでどう並んだか」を紐づけられないと、
+    値を実挙動から選べない。**記憶の内容は出さない**（INFO 以上に会話・記憶内容を出さない
+    方針。中身は DEBUG の `recall score` の内訳にある）。
+    """
+    def _fmt(w):
+        return "(%.2f,%.2f,%.2f,%.2f,%.2f)" % (w.w_r, w.w_t, w.w_e, w.w_g, w.w_p)
+
+    top = "/".join("%.3f" % m["fit"] for m in memories[:3] if "fit" in m)
+    logger.info("event-loop 想起 trigger=%s w=%s 基底=%s 上位=%s %d件",
+                trigger, _fmt(used), _fmt(base), top or "なし", len(memories))
+
+
 class InformationProcessing:
     """I：情報処理機構（Information-processing）。③ I 詳細図の器。
 
@@ -177,6 +192,10 @@ class InformationProcessing:
         # （中身が無く、共起として育てる価値がない）。中断はこの求めで閉じるが、次の
         # 求めの WR に載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
         self._wr_ids: list[str] = []
+        # まだ結果が返っていない意図 O の id。活性の下限（a_open）を課す対象で、結果が
+        # 届いた時点で外す。「結果はまだ無い」という記録が、結果が届いたあとも浮き続ける
+        # 理由はない。
+        self._open_intent_ids: list[str] = []
         # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
@@ -208,6 +227,19 @@ class InformationProcessing:
         self._on_action = None
         self._pending_intent: tuple[str, dict, str] = ("", {}, "recall")
 
+
+    def _open_ids(self) -> list[str]:
+        """この求めの open な記録（活性に下限を課して W へ浮かせる対象）。
+
+        トリガ O（求めの親）と、まだ結果が返っていない意図 O である。トリガ O を求めが
+        閉じるまで open 扱いにするのは、完了で起きた反復では手がかりが**届いた結果の本文**に
+        変わり、元の人の問いとは語彙が重なるとは限らないためである。完了プロファイルは
+        関連を厳しく要求する（w_r=1.5）ので、下限が無いと「何のために調べていたか」が
+        W から落ちる。
+        """
+        ids = [self._parent_id] if self._parent_id else []
+        ids += [i for i in self._open_intent_ids if i not in ids]
+        return ids
 
     def _note_wr(self, obs_id: str | None) -> None:
         """拡散想起の母集合へ載せる記録を控える（意図・完了・中断・逐語）。"""
@@ -326,7 +358,7 @@ class InformationProcessing:
         if action != "see" or not image_b64:
             return str(text)
         # どの定点を見たかを記録に残す。`ユースケース③` の「見た定点の印」で、これが
-        # activation で薄れ、W 構築で薄れた順に上がることで巡回が創発する。別の記録を
+        # 根づきで薄れ、W 構築で薄れた順に上がることで巡回が創発する。別の記録を
         # 足さないのは、同じ出来事に2件残すと想起でどちらも上がって W の枠を食うため。
         where = await self._current_pose_name()
         prefix = f"{where}を見た。" if where else ""
@@ -393,6 +425,9 @@ class InformationProcessing:
             self._progress_pending = True
         for query, result_text, intent_id, _kind in items:
             self._inflight = max(0, self._inflight - 1)
+            # 結果が返ったので、この意図はもう open ではない。
+            if intent_id and intent_id in self._open_intent_ids:
+                self._open_intent_ids.remove(intent_id)
             for i, (_act, q) in enumerate(self._in_flight_lookups):
                 if q == query:
                     del self._in_flight_lookups[i]
@@ -533,6 +568,7 @@ class InformationProcessing:
                     self._agent._memory.close_with_children(parent_id, obs_id)
         self._chain_head_id = None
         self._chain_head_content = ""
+        self._open_intent_ids.clear()
         self._lookup_action_by_query.clear()
         self._said_fillers.clear()
         self._released_speech.clear()
@@ -871,11 +907,28 @@ class InformationProcessing:
         mem = agent._active_memory()
         origin_ids = [self._chain_head_id] if self._chain_head_id else None
         cue = self._chain_head_content or utterance
+        _mcfg = MemoryConfig()
+        # 5軸の重みは trigger 種別で決める（`課題5_パラメータ仮案` §280）。選ぶ基準は
+        # 「この求めを何が始めたか」ではなく **「この反復を何を手がかりに動くか」**である。
+        # 反復1の手がかりは人の言葉だが、完了が届いて起きた反復の手がかりは結果の本文で、
+        # 性質が違う。`_origin_kind` を書き換えないのは、そちらが静穏時間のゲート
+        # （`_should_hold`）に使われており、人に話しかけられて始まった求めを夜間に
+        # 保留させてしまうためである。
+        trigger = "完了" if drained else self._origin_kind
+        w_base = _mcfg.recall_weights(trigger)
+        weights = _mcfg.jitter_weights(w_base)
+        # 床（min_score）を渡す。渡さないと既定 0.0 で床が効かず、無関係な記録まで W の枠を
+        # 埋める。床は正本 [D-想起合成] が「無関係排除の主たる足切り」と定めるもので、
+        # 連想想起（`agent.py`）は既に渡していた。イベントループだけが渡していなかった。
         memories = await mem.recall_async(
             cue,
-            n=MemoryConfig().recall_n,
+            n=_mcfg.recall_k,
             exclude_ids=origin_ids,
+            min_score=_mcfg.recall_min_score,
+            weights=weights,
+            open_ids=self._open_ids(),
         )
+        _log_recall_weights(trigger, w_base, weights, memories)
         # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
         # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
         # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
@@ -917,8 +970,11 @@ class InformationProcessing:
                 ref = datetime.fromisoformat(decision.time_ref).timestamp()
                 span = decision.time_span_days or None
                 memories = await mem.recall_async(
-                    cue, n=MemoryConfig().recall_n,
+                    cue, n=_mcfg.recall_k,
                     exclude_ids=origin_ids, time_ref=ref, time_span_days=span,
+                    min_score=_mcfg.recall_min_score,
+                    weights=weights,
+                    open_ids=self._open_ids(),
                 )
                 workspace_ctx = self._compose_workspace(mem, memories)
                 logger.info("event-loop 想起の基準を移す：%s（幅 %s 日）",
@@ -1183,6 +1239,8 @@ class InformationProcessing:
         )
         # 意図を書いた時点でトリガ（や前回の完了）は死ぬ＝この検索には出てこない。
         self._note_wr(intent_id)
+        if intent_id:
+            self._open_intent_ids.append(intent_id)
         self._advance_chain(intent_id, content)
         # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
         self._dispatch_lookup(action, tool_input, query, intent_id)
@@ -1223,6 +1281,7 @@ class InformationProcessing:
                 agent._memory.close_with_children(parent_id, answer_id)
             obs_ids = [answer_id]
         self._in_flight_lookups.clear()
+        self._open_intent_ids.clear()
         self._lookup_action_by_query.clear()
         self._said_fillers.clear()
         self._released_speech.clear()

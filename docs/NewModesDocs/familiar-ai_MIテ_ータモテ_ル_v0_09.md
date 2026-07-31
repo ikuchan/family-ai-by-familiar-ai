@@ -1,4 +1,4 @@
-# familiar-ai MI データモデル（v0.08・最小・確定）
+# familiar-ai MI データモデル（v0.09・最小・確定）
 
 ## 0. 方針
 LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／由来／動作 等）は属性にせず `content` に置き LLM が解釈**する。属性は「**T が作る信号**」＋「**機械的必須**」だけ。MI は**単一クラス**（抽象基底・サブタイプは作らない）。
@@ -6,7 +6,7 @@ LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／
 ## 1. PI（基底）と MI（拡張）
  
 - **基底型 `PI`（Primitive MI）** ＝ T が作る「感じ＋欲」だけ：**`emotion`(PAD)・`drive`(5欠乏)**。
-- **`MI` ＝ `PI` ＋ `id`・`content`・`vector`・`supersedes`・`activation`**（I が「同定・意味・索引・版・salience」を足す）。**`content`・`vector` は T に無い**（I が付ける）。
+- **`MI` ＝ `PI` ＋ `id`・`content`・`vector`・`supersedes`・`根づき`**（I が「同定・意味・索引・版・salience」を足す）。**`content`・`vector` は T に無い**（I が付ける）。
 - **`timestamp` は store のメタdata**（O が書込時刻を持つ）。減衰／新しさに使うが**属性に数えない**。
 - norm/presence は T(G) の private レジスタで **PI/MI に含めない**（§3・[D-B分離]）。
 | 属性 | 型 | 定義域 | 層 | 想定した使い方 |
@@ -17,7 +17,7 @@ LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／
 | `content` | str | 自由文 | MI | 実体。**意味は全部ここ → LLM 解釈** |
 | `vector` | float[d] | 埋め込み(e5) | MI(索引) | 関連想起。**I の取り込みで計算**（embedding は I 資源） |
 | `supersedes` | UUID? | — | MI | 版チェーン（追記＋supersede） |
-| `activation` | float | [0,1]（clip・定数C） | MI（**I の salience**） | 強度＝salience かつ「開いている度（未解決）」。**取込時 surprise(+novelty+relevance) で初期化・store timestamp で on-read 減衰**。`status` はこれに吸収（開=高／解決＝落とす・supersede） |
+| `根づき` | float | [0,1]（clip・定数C） | MI（**I の salience**） | 強度＝salience かつ「開いている度（未解決）」。**取込時 surprise(+novelty+relevance) で初期化・store timestamp で on-read 減衰**。`status` はこれに吸収（開=高／解決＝落とす・supersede） |
  
 ### 値オブジェクト `emotion`(PAD)
 | 属性 | 型 | 定義域 |
@@ -29,7 +29,7 @@ LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／
  
 ### 廃止した属性と回収先
 - `pose` → `content`（位置は知覚が MI に落ちる時に content へ。**定点は T 内部だけで使う**）。
-- `status` → `activation`（開=高／解決=落とす・supersede）＋ `content`。
+- `status` → `根づき`（開=高／解決=落とす・supersede）＋ `content`。
 - `source`／`source_emotion`／`participants`／`scope` → `content`（LLM 解釈・関連想起）。`source_emotion` は**その MI 自身の `emotion`**。
 - `actionable_when` → 廃止。**調停が毎ターン W から判断**（即／優先度／到着＋ゲート）。field でなくロジック。
 - `target`（動作コマンド） → `content`（動作の意図）＋ハンドラ解釈（構造化コマンドを MI に持たない）。
@@ -37,15 +37,15 @@ LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／
 - `fire_payload` → 廃止。M/D は **PI＝`emotion`/`drive` に構造化済み**・源カテゴリは `content`。
 - `dedupe_key` → 廃止。完全一致重複防止は **O 書込の実装責務**で MI field でない。
 - `drive_tag` → **`drive`（PI 要素に昇格）**。content にシリアライズしない。
-- `urgency`／`novelty` → `activation`／`emotion.A`。
+- `urgency`／`novelty` → `根づき`／`emotion.A`。
 - `meta`／`state_type`／`state_value` → 廃止。
 - `timestamp` → **store メタdata**（属性でない）。
 - `score` → 導出（保存しない）。
 ## 2. 想起（W 構築）の重み ＝ 全部機械
  
-> recall score ＝ 関連 r(`vector`) × 加重平均( 新しさ t(store `timestamp`) ＋ 感情一致 e(mood との PAD 距離) ＋ `activation` a ＋ 在席者相関 p )
+> recall score ＝ 関連 r(`vector`) × 加重平均( 新しさ t(store `timestamp`) ＋ 感情一致 e(mood との PAD 距離) ＋ `根づき` a ＋ 在席者相関 p )
 
-5軸とも機械で取れるので **W 構築（毎ターン）に LLM 不要**（§7 の 5軸 r/t/e/a/p と一致）。LLM は評価／生成でのみ働き、**解決時に `activation` を落とす**（次ターンの機械想起が従う）。＝activation が「LLM の解釈」と「機械の想起」を繋ぐ一点。（重みの合成・値は課題5。）
+5軸とも機械で取れるので **W 構築（毎ターン）に LLM 不要**（§7 の 5軸 r/t/e/a/p と一致）。LLM は評価／生成でのみ働き、**解決時に `根づき` を落とす**（次ターンの機械想起が従う）。＝根づき が「LLM の解釈」と「機械の想起」を繋ぐ一点。（重みの合成・値は課題5。）
  
 ## 3. T の数値レジスタ（MI でない）＝ B の解体
  
@@ -54,7 +54,7 @@ B は「単一データモデル」ではなく、**T の内部レジスタ**に
 | register | 型 | 用途 | PI への surface |
 |---|---|---|---|
 | drive | float[5]（5欠乏） | D 蓄積・閾値発火 | **PI.drive**（発火＝発火欲・構造で載る） |
-| mood | PAD | M 減衰（**平静 P=0,Pn=0,A=0,Dom=0.5 へ漸近**）＋覚醒入力 | **PI.emotion**（発火＝M そのまま） |
+| mood | PAD | M 減衰（**平静 P=0,Pn=0,A=0,Dom=0.5 へ漸近**）＋高ぶり入力 | **PI.emotion**（発火＝M そのまま） |
 | norm | 定点別 EMA(vector)＋確率 | **G の知覚的驚き／異常の基準**（現在の見え vs norm → 驚き → `emotion.A`・③見回りの異常検知） | **なし**（T(G) private・I は想起しない） |
 | presence | 定点別 在/不在＋最終在席 | **G の在席**（H 相当・知覚/機材レベル） | **なし**（T(G) private・I は想起しない） |
  
@@ -67,7 +67,7 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 - `emotion` ← M(PAD)
 - `drive` ← D(5欠乏)
 - （発火源カテゴリ等の**記述は I が `content` へ**。drive は構造で載るので content シリアライズ不要。）
-**I の取り込みで PI → MI に拡張**：`id`・`content`（発火の記述）・`vector`（埋め込み）・`supersedes`・`activation`（取込 salience）を足す。**`timestamp` は store が書込時に付与**。
+**I の取り込みで PI → MI に拡張**：`id`・`content`（発火の記述）・`vector`（埋め込み）・`supersedes`・`根づき`（取込 salience）を足す。**`timestamp` は store が書込時に付与**。
  
 知覚は別経路（DIF→I）。**I→T の Nudge を PI/MI にするかは未決**（対称化可能）。
  
@@ -75,11 +75,11 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
  
 - **T 内部**：数値レジスタ（drive=5float・mood=PAD・norm=EMA・presence）。
 - **T↔I 境界**：**`PI`＝{emotion, drive}**（TIF が emotion←M・drive←D を構造で載せる。知覚は DIF→I）。
-- **I**：**MI＝PI＋{id, content, vector, supersedes, activation}**（O とその W 射影）。**timestamp は store メタdata**。W は store でなく**派生ビュー**。
+- **I**：**MI＝PI＋{id, content, vector, supersedes, 根づき}**（O とその W 射影）。**timestamp は store メタdata**。W は store でなく**派生ビュー**。
 ## 6. 未決（次段）
  
 - recall 重みの合成・値（課題5）。
-- `activation` の最終定義（取込初期化＝surprise+novelty+relevance／on-read 減衰、の方向は確定・微調整は検討継続）。
+- `根づき` の最終定義（取込初期化＝surprise+novelty+relevance／on-read 減衰、の方向は確定・微調整は検討継続）。
 
 ## 7. 意味・信念層（旧 semantic_facts／behavior_policies）の畳み込み〔設計確定・実装未着手〕
 
@@ -99,7 +99,7 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 
 **整理事項**：MI dataclass の `supersedes` フィールドは行の `superseded_by` から読んでおり（`memory.py`）、名は「前版を指す」だが実体は「次版に置き換えられた」。再帰想起を素直に書くため、畳み込み実装時にこの向きを整理する。
 
-**confidence の畳み込み〔確定〕**：confidence は**数値属性として持たず、信頼度を MI の `content` に自然文の注記として書く**にとどめる（「この方針は何度かうまくいっている」「まだ確信は薄い」等）。MI に confidence カラムも `(c0, m)` のような導出用スカラも足さない。理由は、confidence は検索に一切効かせない（5軸 r/t/e/a/p に入れない）ため機械可読なスカラである必要がなく、MIデータモデルの「属性は T 信号＋機械的必須だけ・意味は content」に沿うから。数値導出案（activation と同型に `(c0, m)` からロジスティックで導く案）は検討したうえで撤回した（検索に効かないので数値化の利得がない）。
+**confidence の畳み込み〔確定〕**：confidence は**数値属性として持たず、信頼度を MI の `content` に自然文の注記として書く**にとどめる（「この方針は何度かうまくいっている」「まだ確信は薄い」等）。MI に confidence カラムも `(c0, m)` のような導出用スカラも足さない。理由は、confidence は検索に一切効かせない（5軸 r/t/e/a/p に入れない）ため機械可読なスカラである必要がなく、MIデータモデルの「属性は T 信号＋機械的必須だけ・意味は content」に沿うから。数値導出案（根づき と同型に `(c0, m)` からロジスティックで導く案）は検討したうえで撤回した（検索に効かないので数値化の利得がない）。
 
 信頼度の更新（確証／反証／使われない）は、**REST 内省がその日の結末を読み、信念 MI の `content` を書き換えて supersede** することで反映する。確証＝結末が信念を裏づけた、反証＝使ったが結末が反した、使われない＝一定期間 W へ引かれず再検証されない、の三つを REST が読み取り、注記を強める／弱める／薄める。`adjust_*_confidence` の即時 ±delta と `memory_revisions` の confidence 版は、この REST 駆動の content 改訂に置き換わる（online の数値即時更新は持たない）。REST 内省は未実装のため、信頼度の更新は **Phase 2（REST）寄り**。
 
@@ -116,8 +116,8 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 | drive | **PI.drive ／ T の drive レジスタ**（MI でない） |
 | mood | **PI.emotion ／ T の mood レジスタ**（MI でない） |
 | norm／presence | **T(G) private レジスタ**（MI でない・I は想起しない） |
-| cue（きっかけ） | **O の MI**。想起（関連＋`activation`）で W に載る。専用種別なし |
-| intention／want（目標） | **O の open 意図 MI**（`content`＝意図）。未解決度は `activation` |
+| cue（きっかけ） | **O の MI**。想起（関連＋`根づき`）で W に載る。専用種別なし |
+| intention／want（目標） | **O の open 意図 MI**（`content`＝意図）。未解決度は `根づき` |
 | pending（結果待ち） | **概念廃止**。完了は関連＋未解決で O の open 意図を想起で再会（[D-単一想起]・相関ID 無し） |
 | suspended（退避） | **概念廃止**。W は毎ターン破棄・再構築。salience が下がれば載らないだけ（退避 store 無し） |
 | 動作要求／呼出要求 | **O の MI**（`content`＝動作・呼出の意図）。実行は調停→生成/動作（投げっぱなし） |
@@ -127,11 +127,13 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 | semantic_facts／behavior_policies | **キーレス supersede チェーンの信念 MI**（§7）。信頼度は content 注記・REST が更新。自己認識 MI の方針(policy)とは別（自己認識 MI 方針＝核＋Config・pinned／behavior_policies＝W 想起の belief MI）。REST が繰り返し確証された belief 方針を自己認識 MI の方針へ一般化蒸留する間接経路のみ |
 | timer | **課題9 で別途**（時刻 due の扱いは未確定） |
  
-**観測 MI の `content`（設計要求）**：観測種別に応じて自然文の中身が入る（LLM が解釈・構造化コマンドは持たない＝[D-MIモデル]）。**ユーザー発話**＝ASR テキスト／**機器イベント（カメラ等）**＝scene・VLM の記述テキスト（Y-2・部屋レベル・定点非記載）／**検索・取得**＝フルLLM が束を畳んだ consolidated 内容（生の結果でなく整理後・[D-O書込]／[D-検索]）／**音楽等の機器状態**＝出来事の記述（曲・プレイリストの変化）。これにより観測 MI 化時の値踏み入力「いま起きたこと」は当該 `content` から取れる（[D-値踏み]）。**open 意図の `content`＝意図**（上表）と合わせ、値踏み入力〔いま起きたこと＝観測 `content`／気がかり＝open 意図 `content`＋`activation`〕が設計要求として裏づく。
+**観測 MI の `content`（設計要求）**：観測種別に応じて自然文の中身が入る（LLM が解釈・構造化コマンドは持たない＝[D-MIモデル]）。**ユーザー発話**＝ASR テキスト／**機器イベント（カメラ等）**＝scene・VLM の記述テキスト（Y-2・部屋レベル・定点非記載）／**検索・取得**＝フルLLM が束を畳んだ consolidated 内容（生の結果でなく整理後・[D-O書込]／[D-検索]）／**音楽等の機器状態**＝出来事の記述（曲・プレイリストの変化）。これにより観測 MI 化時の値踏み入力「いま起きたこと」は当該 `content` から取れる（[D-値踏み]）。**open 意図の `content`＝意図**（上表）と合わせ、値踏み入力〔いま起きたこと＝観測 `content`／気がかり＝open 意図 `content`＋`根づき`〕が設計要求として裏づく。
 
 ---
 
 ## 更新履歴
+
+> v0.09：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
 > v0.08：§2 の recall スコアを 3軸から実装済みの5軸（r/t/e/a/p）へ更新し、§7（5軸前提）との齟齬を解消。タイトルの版表記をファイル名に一致させた。
 v1 を全面差し替え。本セッションの確定（LLM を解釈基盤に・属性最小化・B 解体・T↔I 境界＝PI）を反映。

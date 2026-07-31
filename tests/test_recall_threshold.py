@@ -58,7 +58,7 @@ def test_recall_filters_below_threshold(memory_with_data):
     # With encode_query returning [1,0,0] and encode_document returning [1,0,0],
     # cosine similarity = 1.0, so high threshold should still return the memory
     high = memory_with_data.recall("関連する内容", n=10, min_score=0.5)
-    assert all(m["score"] >= 0.5 for m in high)
+    assert all(m["fit"] >= 0.5 for m in high)
 
 
 def test_recall_high_threshold_excludes_all(memory_with_data):

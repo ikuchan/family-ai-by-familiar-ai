@@ -619,7 +619,7 @@ class DesireSystem:
         return Coalition(
             source="desire",
             summary=f"{name} ({level:.2f})",
-            activation=level,
+            dynamism=level,
             urgency=urgency_map.get(name, 0.3),
             novelty=0.0,
             context_block=f"[inner-voice] {prompt}",

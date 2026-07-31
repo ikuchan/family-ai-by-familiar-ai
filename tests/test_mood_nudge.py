@@ -1,6 +1,6 @@
 """Tests for mood の nudge と N_PAD 計算（mood-a・未接続）。
 
-課題5：N_PAD＝W 全 MI の PAD の activation 加重平均＋自己認識 MI のフラット項
+課題5：N_PAD＝W 全 MI の PAD の 根づき加重平均＋自己認識 MI のフラット項
 (0.5,0.5,0.5,0.5)・重み C=2.0。nudge は A_M←max(A_M,A_N)／X_M←X_M+A_N(X_N−X_M)。
 mood-a では未接続（接続は mood-c）。
 """
@@ -37,7 +37,7 @@ def test_n_pad_heavier_weight_pulls_further_from_flat() -> None:
 
 
 def test_self_knowledge_weight_default_is_half() -> None:
-    # activation 上限 C=2.0 の流用をやめ、支配しない薄い錨（既定 0.5・Config で差替可）
+    # 根づき上限 C=2.0 の流用をやめ、支配しない薄い錨（既定 0.5・Config で差替可）
     assert SELF_KNOWLEDGE_MI_WEIGHT == 0.5
 
 

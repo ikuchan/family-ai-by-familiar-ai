@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.12）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.13）
 
 ## 位置づけ
 本書は設計図の確定 **[D-活性]／[D-O書込]／[D-B定点]／[D-B分離]／[D-知覚]／[D-設定]** の**別紙詳細**。決定そのものは設計図にあり、本書は **定数台帳／現状コード所在（file:line・移行入力）／知覚パイプライン細部／移行申し送り** を保持する（決定の地の文は設計図に一元化し、本書では繰り返さない）。対象＝課題2 の項目1（活性）・項目2（O書込）・項目3（知覚在席）。**暫定値は課題5、移行は課題6/7**。
@@ -7,7 +7,7 @@
 
 ## 1. 活性（項目1）
 
-更新則の式・形は **[D-活性]**（drive＝蓄積／mood＝平静へ減衰／MI.activation＝on-read 指数減衰、放電＝放電量を引く、想起 score＝関連＋新しさ＋activation）。本書は**定数の全列挙と現状所在**。
+更新則の式・形は **[D-活性]**（drive＝蓄積／mood＝平静へ減衰／MI.根づき＝on-read 指数減衰、放電＝放電量を引く、想起 score＝関連＋新しさ＋根づき）。本書は**定数の全列挙と現状所在**。
 
 ### 1-1. 必要定数の全列挙（すべて Config（C）に保管）
 
@@ -30,12 +30,12 @@
 |---|---|---|---|
 | mood 減衰時定数 | 平静への指数減衰の速さ | 人・固定 | PAD 成分ごと |
 | mood 平静値（baseline） | 減衰の収束先（全軸0.5＝(P,Pn,A,Dom)=(0.5,0.5,0.5,0.5)） | 人・固定 | PAD 成分ごと |
-| 覚醒（Arousal）入力重み | G の覚醒を mood に乗せる重み | 人・固定 | global |
+| 高ぶり（Arousal）入力重み | G の高ぶりを mood に乗せる重み | 人・固定 | global |
 
-**MI.activation 系**（**時間の定数を持たない**：$a$ は time では減らさない＝[D-活性]。時間減衰は新しさ $t$ が一本で担い、想起では $a$ と $t$ が加算部の別項として効く。旧「activation 減衰時定数（salience の指数減衰）」は、$t$ と二重に効くため削除した）
+**MI.根づき 系**（**時間の定数を持たない**：$a$ は time では減らさない＝[D-活性]。時間減衰は新しさ $t$ が一本で担い、想起では $a$ と $t$ が加算部の別項として効く。旧「根づき 減衰時定数（salience の指数減衰）」は、$t$ と二重に効くため削除した）
 | 定数 | 役割 | 種別 | 個数 |
 |---|---|---|---|
-| activation 初期化重み | 取込時 activation の初期値（relevance は廃止・seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分け・足さない・課題5 E） | 人・固定 | global |
+| 根づき 初期化重み | 取込時 根づき の初期値（relevance は廃止・seed 種別で surprise（カメラ起点 $\widehat{S}$）／novelty（内容起点）を出し分け・足さない・課題5 E） | 人・固定 | global |
 
 **周期**
 | 定数 | 役割 | 種別 | 個数 |
@@ -61,7 +61,7 @@
 | 1人あたり参照数上限 | ギャラリーの参照埋め込み数 | 人・固定 | global |
 | 識別呼び出し方針 | InsightFace をいつ呼ぶか（新規出現時・要求時 等） | 人・固定 | global |
 
-**score 系（項目4 で確定）**：想起 score の重み（関連／新しさ／activation）。C に保管する点は同じ。
+**score 系（項目4 で確定）**：想起 score の重み（関連／新しさ／根づき）。C に保管する点は同じ。
 
 ### 1-2. Config（C）集約（[D-設定] の実装詳細）
 - **C＝全調整可能定数**（人の固定設定＋機械の学習倍率）。**機械が更新するのは学習倍率のみ**。
@@ -78,7 +78,7 @@
 | D 活性 上限・下限 | ②ハードコード | desires.py（cap 1.0／floor 0.0） |
 | mood baseline・各しきい | ②ハードコード | mental_state.py（AffectiveState 成分・0.0 等） |
 | concern 減衰 | ②ハードコード | concern_engine.py:22 `_DECAY=0.94`（concern_engine は [D-気がかり統合] で廃止・課題11） |
-| salience 初期値 | ②ハードコード | attention_schema.py:172 `activation=0.4` 等 |
+| salience 初期値 | ②ハードコード | attention_schema.py:172 `根づき=0.4` 等 |
 | norm EMA alpha・floor | ②ハードコード | prediction.py（`_DEFAULT_EMA_ALPHA`／`_PROB_FLOOR=0.01`） |
 | tick 周期 | ②ハードコード | _ui_helpers.py:285 `IDLE_CHECK_INTERVAL=10.0`（単一アイドル周期） |
 | 学習倍率／adjust_drive | ③無し（新規） | 現状の自己調整は memory.py の behavior_policy/semantic_fact confidence のみ |
@@ -155,7 +155,7 @@
 - **全定数を C へ集約**（現状の散在を移行）。`time_decay.py` 温存。
 - **ライセンス確認**：InsightFace の buffalo_l 等モデルパックは**非商用・研究用途のみ**（商用なら別経路）。DINOv2 は Apache-2.0。
 - **O 書込**：`_project_observation` の昇格を O 書込から分離（O は出来事のみ）。near-dup 統合（supersede）を **REST 内省**に追加（前景では検出のみ）。emotion 文字列→PAD。④曲変化検出を W 直近記録曲＋H 照合＋dedupe_key で実装。
-- **新しさ（t 軸）の若返り＝recall_count・last_recalled_at（017）の役割再編**（A-3 の Phase 1 残務・決定のみ・コードは Phase 2）：この二列は現在、旧 recall の `_compute_final_score`（`final_score = cosine × time_score × importance`）と `_mark_recalled` の中だけで使われる（grep 確認・機械想起 conversation で `recall_count += 1` と `last_recalled_at = now()`、spontaneous で `last_recalled_at` のみ、system は無更新）。新設計での対応づけ：`recall_count`＝新しさ（t 軸）の若返り回数（`time_decay` の reinforce＝半減期倍化）、`last_recalled_at`＝若返りの起点リセット。**activation の n（評価由来の正味デルタ）とは別系統で、想起回数からは引き継がない**。更新トリガは機械想起からフルLLM の参照申告へ移す（[D-想起合成]「機械想起では activation も freshness も触らない」）。二列は旧 recall スコアリングに閉じているため、Phase 1 では現状維持（旧 recall が読む・外部挙動不変）とし、再編のコードは 5軸スコアラを載せる Phase 2（t 軸の若返りと a 軸の (a0,n)）で行う。§1-3 の「減衰エンジン（流用可）＝time_decay.py（reinforce で半減期倍化）」がこの若返りの実体。
+- **新しさ（t 軸）の若返り＝recall_count・last_recalled_at（017）の役割再編**（A-3 の Phase 1 残務・決定のみ・コードは Phase 2）：この二列は現在、旧 recall の `_compute_final_score`（`final_score = cosine × time_score × importance`）と `_mark_recalled` の中だけで使われる（grep 確認・機械想起 conversation で `recall_count += 1` と `last_recalled_at = now()`、spontaneous で `last_recalled_at` のみ、system は無更新）。新設計での対応づけ：`recall_count`＝新しさ（t 軸）の若返り回数（`time_decay` の reinforce＝半減期倍化）、`last_recalled_at`＝若返りの起点リセット。**根づき の n（評価由来の正味デルタ）とは別系統で、想起回数からは引き継がない**。更新トリガは機械想起からフルLLM の参照申告へ移す（[D-想起合成]「機械想起では 根づき も freshness も触らない」）。二列は旧 recall スコアリングに閉じているため、Phase 1 では現状維持（旧 recall が読む・外部挙動不変）とし、再編のコードは 5軸スコアラを載せる Phase 2（t 軸の若返りと a 軸の (a0,n)）で行う。§1-3 の「減衰エンジン（流用可）＝time_decay.py（reinforce で半減期倍化）」がこの若返りの実体。
 
 ---
 
@@ -229,6 +229,8 @@ I も T も在席センサも動体イベントも、実装では `run()` の中
 ---
 
 ## 更新履歴
+
+> v0.13：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
 > v0.12：§3-6 に**見えの「普通」の実測**を追加（DINOv2 の速度・定点間の距離・138 件の分布）。tilt の 7.5° が pan の 22° より見えを大きく変えること、$\widehat{S}$ の min-max 係数は在席側が揃うまで決められないことを記録。
 > v0.11：**§3-6「実機で確かめたこと」を新設**（S1〜S3 の実装で得た事実）。可動範囲が軸で違うこと（pan 340°・tilt 70°）と、そのため定点の距離を pan 換算に揃えること。カメラ側の動体追尾が定点と競合し、切らないと在席が一度も記録されないこと。ONVIF のイベントは動体のみで人検出は出ないこと、購読の宛先を手で入れる必要があること、よく切れること。確認の頻度（30秒・下限3秒・滞留窓120秒）と YOLO の実測（初回1.9秒・以降8ミリ秒）。自律が起動時ではなく人の発話後にしか回っていなかったこと。**`CameraMotionWatcher`（v0.9 で入れた動体検知）は `MotionEventWatcher` へ置き換えた**（現行ターン駆動への接地から、QD 経由の在席センサ起こしへ）。

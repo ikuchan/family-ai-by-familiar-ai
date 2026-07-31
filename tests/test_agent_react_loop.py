@@ -181,11 +181,9 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
 
 # Patches that suppress heavy async sub-calls in run()
 _HEAVY_PATCHES = {
-    "familiar_agent.agent.EmbodiedAgent._morning_reconstruction": AsyncMock(return_value=""),
     "familiar_agent.agent.EmbodiedAgent._infer_companion_mood": AsyncMock(return_value="engaged"),
     "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(return_value=(MoodPAD(), "neutral")),
     "familiar_agent.agent.EmbodiedAgent._summarize_exchange": AsyncMock(return_value="summary"),
-    "familiar_agent.agent.EmbodiedAgent._online_temporal_context": AsyncMock(return_value=None),
     "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent._update_self_model": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent._maybe_update_self_narrative": AsyncMock(),
@@ -345,7 +343,7 @@ async def test_maybe_adapt_values_updates_curiosity_and_support_policies():
 
 
 @pytest.mark.asyncio
-async def test_post_response_pipeline_updates_self_continuity_state():
+async def test_post_response_pipeline_updates_concerns():
     from familiar_agent.agent import EmbodiedAgent
 
     agent = _make_agent()
@@ -382,7 +380,6 @@ async def test_post_response_pipeline_updates_self_continuity_state():
     )
 
     agent._concerns.update_from_turn.assert_called_once()
-    agent._self_state.apply_turn_context.assert_called_once()
 
 
 # ---------------------------------------------------------------------------

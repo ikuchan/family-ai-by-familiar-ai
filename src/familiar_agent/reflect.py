@@ -29,7 +29,7 @@ REFLECTION_PROMPT = """\
 気になる点があれば、以下のファイルを read_file() で読んでから edit_file() で直して。
 躾けてええよ。
 - src/familiar_agent/desires.py   （欲求の種類・強度・プロンプト文）
-- src/familiar_agent/agent.py     （SYSTEM_PROMPT, _interoception, nudgeパラメータなど）
+- src/familiar_agent/loop/prompt.py（EVENT_SYSTEM_PROMPT・プロンプトの組み立て）
 
 変更したら必ず bash("uv run ruff check src/ && uv run ruff format src/") を走らせること。
 変更しなかったらしなかったでええ。無理に変えなくていい。

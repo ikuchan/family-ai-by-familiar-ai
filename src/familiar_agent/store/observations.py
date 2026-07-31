@@ -170,8 +170,8 @@ class ObservationStore:
                     f"""
                     SELECT o.id, o.content, o.timestamp,
                            o.direction, o.kind, o.emotion, o.image_path,
-                           COALESCE(o.activation_a0, 1.0) AS activation_a0,
-                           COALESCE(o.activation_n, 0) AS activation_n,
+                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                           COALESCE(o.groundedness_n, 0) AS groundedness_n,
                            COALESCE(o.recall_count, 0) AS recall_count,
                            o.last_recalled_at,
                            o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
@@ -221,8 +221,8 @@ class ObservationStore:
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         columns = """o.id, o.content, o.timestamp,
                      o.direction, o.kind, o.emotion, o.image_path,
-                     COALESCE(o.activation_a0, 1.0) AS activation_a0,
-                     COALESCE(o.activation_n, 0) AS activation_n,
+                     COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                     COALESCE(o.groundedness_n, 0) AS groundedness_n,
                      COALESCE(o.recall_count, 0) AS recall_count,
                      o.last_recalled_at,
                      o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom"""
@@ -307,8 +307,8 @@ class ObservationStore:
                     f"""
                     SELECT o.id, o.content, o.timestamp,
                            o.direction, o.kind, o.emotion, o.image_path,
-                           COALESCE(o.activation_a0, 1.0) AS activation_a0,
-                           COALESCE(o.activation_n, 0) AS activation_n,
+                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                           COALESCE(o.groundedness_n, 0) AS groundedness_n,
                            COALESCE(o.recall_count, 0) AS recall_count,
                            o.last_recalled_at,
                            o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom
@@ -329,7 +329,7 @@ class ObservationStore:
     def content_novelty(self, mem_vec, conn, *, k: int, default: float) -> float:
         """内容の新規性 novelty ∈ [0,1]（課題5 v0.26）。
 
-        **視点は常に AGENT_SELF**（a0/A はエージェント自身の活性・喚起・話者ではない）。
+        **視点は常に AGENT_SELF**（g0/A はエージェント自身の根づき・高ぶり・話者ではない）。
         内容を AGENT_SELF 視点で situate し、AGENT_SELF スコープの situated 近傍 K 件の
         コサイン平均の裏返し（1−平均）＝関連 r の鏡。**self_model（自己認識 MI）は母集合
         から除く**。近傍が K 未満なら既定（初期の横並びを避ける）。
@@ -780,12 +780,12 @@ class ObservationStore:
                     np.asarray(vec, dtype=np.float32), conn,
                     k=novelty_k, default=novelty_default,
                 )
-                activation_a0 = max(0.0, min(novelty_a0_cap, novelty_w_n * novelty))
+                groundedness_g0 = max(0.0, min(novelty_a0_cap, novelty_w_n * novelty))
                 cur.execute(
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
                     " image_path,image_data,person_id,writer_id,subject_id,"
-                    " participants_json,scope,activation_a0,parent_id,"
+                    " participants_json,scope,groundedness_g0,parent_id,"
                     " emotion_p,emotion_pn,emotion_a,emotion_dom,emotion_vec) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
@@ -793,7 +793,7 @@ class ObservationStore:
                      self._ctx.person_id,
                      writer_id or self._ctx.person_id,
                      subject_id or self._ctx.person_id,
-                     participants_json, scope, activation_a0,
+                     participants_json, scope, groundedness_g0,
                      payload.get("parent_id"),
                      emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom,
                      # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には
@@ -830,8 +830,8 @@ class ObservationStore:
 
         `verdicts`＝{完全な id: 判定}。判定は次の4つ。
 
-        - `important`（大事）　　　 `activation_n += 1` ＋ 時間の起点を更新
-        - `useless`（不要）　　　　 `activation_n -= 1` ＋ 時間の起点を更新
+        - `important`（大事）　　　 `groundedness_n += 1` ＋ 時間の起点を更新
+        - `useless`（不要）　　　　 `groundedness_n -= 1` ＋ 時間の起点を更新
         - `referred`（参照）　　　　時間の起点だけ更新
         - `unused`（使わなかった）　何もしない
 
@@ -856,11 +856,11 @@ class ObservationStore:
                 )
                 if up:
                     cur.execute(
-                        "UPDATE observations SET activation_n = activation_n + 1 "
+                        "UPDATE observations SET groundedness_n = groundedness_n + 1 "
                         "WHERE id = ANY(%s)", (up,))
                 if down:
                     cur.execute(
-                        "UPDATE observations SET activation_n = activation_n - 1 "
+                        "UPDATE observations SET groundedness_n = groundedness_n - 1 "
                         "WHERE id = ANY(%s)", (down,))
             conn.commit()
         return len(touched)

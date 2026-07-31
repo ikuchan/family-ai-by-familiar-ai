@@ -80,7 +80,7 @@ def test_time_axis_skips_dead_records_and_keeps_the_perspective_scope():
 def test_recall_count_does_not_extend_the_half_life():
     """強化A（想起回数で実効半減期を伸ばす）は想起の t 軸で使わない。
 
-    `課題5` F節が廃止と確定させている（重要さは activation の n が担い、t は純粋な
+    `課題5` F節が廃止と確定させている（重要さは根づきの n が担い、t は純粋な
     時間減衰）。実装に残っていたため `recall_count` が 20 なら半減期が 3×2^20 日＝
     8600年になり、**何度も想起された古い記録が永久に t=1** になっていた。実機で 47日前の
     挨拶が t=1.000 で上位を占め、5秒前の自分の発話を押し出した（「おかえりなさい」を2回）。

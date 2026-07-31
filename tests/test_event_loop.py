@@ -222,14 +222,15 @@ def test_w_recall_query_follows_the_intake_origin():
     assert "recall結果テキスト" in queries[1]                   # 反復2の起点＝完了O の内容
 
 
-def test_w_recall_uses_configured_n():
+def test_w_recall_uses_configured_k():
     # 枠が 3 だと自己モデル文などが混じったとき本命が押し出される（実機で観測）。
-    # 件数は Config で決める（既定 5）。
+    # W に載せる件数は Config の K で決める（既定 7・正本の W 載せ上限）。
+    from familiar_agent.config import MemoryConfig
+
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    a.config.recall_n = 5
     _run(a, utterance="おはよう")
     _, kwargs = a._active_memory().recall_async.call_args
-    assert kwargs.get("n") == 5
+    assert kwargs.get("n") == MemoryConfig().recall_k == 7
 
 
 def test_children_are_linked_to_the_parent_and_closed_together():

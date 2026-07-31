@@ -2,7 +2,10 @@
 
 根拠台帳 §3–4 の確定方針では、関連 r は段階化して門にせず、無関係の最終排除は
 合成5軸スコアの床＝min_score が担う。ここでは (1) 床が合成スコアに効く（生コサイン
-ではない）、(2) 床を課すときは候補を過剰取得する、(3) store は素取得だけを持つ、を見る。
+ではない）、(2) store は素取得だけを持つ、を見る。
+
+候補をいくつ集めるかは床とは別の決定であり、一次絞り件数 N（軸あたり）が担う。
+その検証は `test_recall_primary_n.py` にある。
 """
 
 from __future__ import annotations
@@ -52,7 +55,7 @@ def test_min_score_floors_on_composite_not_cosine(memory):
     item = next((r for r in base if r["summary"] == content), None)
     assert item is not None, "床なしで対象が想起されない（前提が崩れている）"
 
-    composite = item["score"]
+    composite = item["fit"]
     cosine = item["confidence"] * 2.0 - 1.0
     assert composite < cosine, f"ギャップが無い（M=1）: composite={composite} cosine={cosine}"
 
@@ -61,40 +64,6 @@ def test_min_score_floors_on_composite_not_cosine(memory):
     assert content not in [r["summary"] for r in filtered], (
         "合成スコアが床未満なのに残っている（生コサインで絞っている）"
     )
-
-
-def test_overfetch_only_when_min_score_positive(memory):
-    """min_score>0 のとき候補を n*3（上限20）取り、0 のとき n ちょうど取る。"""
-    with (
-        patch.object(memory._observations, "by_vector", return_value=[]) as bv,
-        patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]),
-    ):
-        memory.recall("q", n=5, min_score=0.05)
-        assert bv.call_args.args[1] == 15, "min_score>0 で n*3 を取っていない"
-
-        bv.reset_mock()
-        memory.recall("q", n=10, min_score=0.05)
-        assert bv.call_args.args[1] == 20, "上限20 で頭打ちになっていない"
-
-        bv.reset_mock()
-        memory.recall("q", n=5, min_score=0.0)
-        assert bv.call_args.args[1] == 5, "min_score=0 で n ちょうどを取っていない"
-
-
-def test_overfetch_factor_and_cap_are_configurable(memory, monkeypatch):
-    """過剰取得の係数と上限は Config（env）で差し替えられる。"""
-    monkeypatch.setenv("RECALL_OVERFETCH_FACTOR", "5")
-    monkeypatch.setenv("RECALL_OVERFETCH_CAP", "40")
-    with (
-        patch.object(memory._observations, "by_vector", return_value=[]) as bv,
-        patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]),
-    ):
-        memory.recall("q", n=5, min_score=0.05)
-        assert bv.call_args.args[1] == 25, "factor=5 が効いていない（n*5）"
-
-        bv.reset_mock()
-        memory.recall("q", n=10, min_score=0.05)
-        assert bv.call_args.args[1] == 40, "cap=40 で頭打ちになっていない"
 
 
 def test_by_vector_has_no_min_cosine():

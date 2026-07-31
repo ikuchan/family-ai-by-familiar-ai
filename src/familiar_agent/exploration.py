@@ -139,7 +139,7 @@ class ExplorationTracker:
         return Coalition(
             source="exploration",
             summary=summary,
-            activation=min(1.0, avg_novelty + 0.2),
+            dynamism=min(1.0, avg_novelty + 0.2),
             urgency=urgency,
             novelty=avg_novelty,
             context_block=context,

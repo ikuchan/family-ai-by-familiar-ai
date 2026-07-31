@@ -223,7 +223,7 @@ TABLES = [
     "observations", "obs_embeddings", "memory_events", "memory_jobs",
     "semantic_facts", "behavior_policies", "memory_revisions",
     "memory_links", "episodes", "episode_memories",
-    "memory_activation", "unfinished_business",
+    "memory_salience", "unfinished_business",
     "scene_entities", "scene_events", "exploration_state",
     "relationship_state",
 ]

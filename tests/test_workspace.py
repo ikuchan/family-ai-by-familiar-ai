@@ -18,7 +18,7 @@ def test_coalition_score_basic():
     c = Coalition(
         source="desire",
         summary="want to look around",
-        activation=1.0,
+        dynamism=1.0,
         urgency=1.0,
         novelty=1.0,
         context_block="(desire look_around)",
@@ -30,7 +30,7 @@ def test_coalition_score_zero_activation():
     c = Coalition(
         source="memory",
         summary="nothing",
-        activation=0.0,
+        dynamism=0.0,
         urgency=1.0,
         novelty=1.0,
         context_block="",
@@ -39,11 +39,11 @@ def test_coalition_score_zero_activation():
 
 
 def test_coalition_score_weights():
-    # score = activation * (0.4*urgency + 0.3*novelty + 0.3*1.0)
+    # score = dynamism * (0.4*urgency + 0.3*novelty + 0.3*1.0)
     c = Coalition(
         source="scene",
         summary="person appeared",
-        activation=0.8,
+        dynamism=0.8,
         urgency=1.0,
         novelty=0.0,
         context_block="...",

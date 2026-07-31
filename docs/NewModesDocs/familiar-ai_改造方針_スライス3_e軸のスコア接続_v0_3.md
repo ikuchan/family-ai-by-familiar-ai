@@ -1,4 +1,4 @@
-# familiar-ai 改造方針：スライス3（e 軸のスコア接続・ハイブリッド合成）v0.2
+# familiar-ai 改造方針：スライス3（e 軸のスコア接続・ハイブリッド合成）v0.3
 
 ## 目的
 
@@ -55,7 +55,7 @@
 | `recall_w_r`（新規） | `RECALL_W_R` | 1.0 | $w_r$ |
 | `recall_w_t`（新規） | `RECALL_W_T` | 1.0 | $w_t$ |
 | `recall_w_e`（新規） | `RECALL_W_E` | 1.0 | $w_e$ |
-| `recall_w_a`（新規） | `RECALL_W_A` | 1.5 | $w_a$ |
+| `recall_w_g`（新規） | `RECALL_W_G` | 1.5 | $w_a$ |
 | `recall_emotion_sigma`（新規） | `RECALL_EMOTION_SIGMA` | 1.0 | $\sigma$ |
 
 $\lambda_i$ は4要素のタプルで env から取りにくいため、今回は `_emotion_match` の既定
@@ -79,7 +79,7 @@ $\mathrm{clip}((cos-c_{lo})/(c_{hi}-c_{lo}),0,1)$ を返す。$c_{hi}\le c_{lo}$
 ```
 r = _stretch_relevance(cosine, c_lo=..., c_hi=...)
 t = state.score(now_epoch)
-a = _derive_activation(a0, n)
+a = _derive_groundedness(a0, n)
 e = _emotion_match(obs_pad, mood_pad, sigma=...)
 denom = w_t + w_e + w_a
 M = 1.0 if denom <= 0 else (w_t*t + w_e*e + w_a*a) / denom
@@ -191,5 +191,7 @@ mood が読めない経路でも中立0.5で埋めずに済ませるためで、
 ---
 
 ## 更新履歴
+
+> v0.3：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
 > v0.2：【実装完了】e 軸のスコア接続は実装済み（`_score_breakdown` に w_e・`_emotion_match`・想起は純積からハイブリッド合成へ）。ドキュメント反映（課題5・用語・Mermaid）も実施済み。本書は履歴（改造方針の記録）。

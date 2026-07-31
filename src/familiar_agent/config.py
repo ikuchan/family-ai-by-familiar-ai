@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import random
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -202,6 +203,40 @@ class TTSConfig:
     )
 
 
+@dataclass(frozen=True)
+class RecallWeights:
+    """想起の5軸重み1組。`w_r` は関連ゲートの指数、残りは加算部 M の加重平均係数。"""
+
+    w_r: float
+    w_t: float
+    w_e: float
+    w_g: float
+    w_p: float
+
+
+# trigger 別の重みプロファイル（`課題5_パラメータ仮案` §280・値は仮値で実挙動で調整）。
+# 順は (w_r, w_t, w_e, w_g, w_p)。env 名の接尾辞は下の対応表による。
+#
+# 手がかりの性質が trigger ごとに違うので、同じ選び方はできない。発話は人の問いという
+# 信頼できる手がかりがあるので関連を厳しく要求し、誰に向けた話かが効くので w_p を上げる。
+# 機器は主題が「誰が入ってきたか」なので w_p が最も高い。情動は**手がかりが中身を持たない**
+# ため、関連を厳しくすると何も浮かばない（だから w_r を下げる）。完了は手がかりが結果本文で
+# 関連が信頼できるので厳しくし、調べた結果の選別に気分を効かせる理由がないので w_e を下げる。
+_TRIGGER_WEIGHT_DEFAULTS: dict[str, tuple[float, float, float, float, float]] = {
+    "発話": (1.5, 1.0, 0.8, 1.5, 1.5),
+    "機器": (1.2, 1.2, 0.8, 1.5, 2.0),
+    "情動": (0.5, 1.5, 1.5, 1.5, 1.0),
+    "完了": (1.5, 1.5, 0.5, 1.5, 1.0),
+}
+# env 名に日本語を使わないための対応。例：情動の w_r は `RECALL_W_R_AFFECT`。
+_TRIGGER_ENV_SUFFIX: dict[str, str] = {
+    "発話": "UTTERANCE",
+    "機器": "DEVICE",
+    "情動": "AFFECT",
+    "完了": "COMPLETION",
+}
+
+
 @dataclass
 class MemoryConfig:
     db_path: str = field(
@@ -222,8 +257,12 @@ class MemoryConfig:
     recall_time_floor: float = field(  # t_floor
         default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.001)
     )
-    # W に載せる想起件数。枠が少ないと、自己モデル文などが混じったとき本命が押し出される。
-    recall_n: int = field(default_factory=lambda: _int_env("RECALL_N", 5))
+    # W 載せ上限 K。min_score を超えた候補の上位・最大 K 件を W へ載せる（pinned は別枠）。
+    # **フルLLM へ渡す記憶数＝トークン量に直結**する。既定 7 は人間の作業記憶に倣った値で、
+    # 範囲 3〜20・K ≤ N（`課題5_パラメータ仮案` §92・確定）。枠が少ないと、自己モデル文など
+    # が混じったとき本命が押し出される（3 件で実機観測・根拠台帳 §14）。
+    # 候補をいくつ集めるかは下の `recall_primary_n`（N）が別に決める。
+    recall_k: int = field(default_factory=lambda: _int_env("RECALL_K", 7))
     # 無関係排除の主たる足切り＝合成 final score の soft 床（生コサインではない）。
     # 0.05 起点（根拠台帳 §4・確定は5軸スコア分布の計測後）。
     recall_min_score: float = field(
@@ -237,12 +276,13 @@ class MemoryConfig:
             "MemoryConfig.distill_min_a0", "DISTILL_MIN_A0", 0.47
         )
     )
-    # 合成床を課すときの候補過剰取得。採点後に絞ると n を割るため n×factor（上限 cap）取る。
-    recall_overfetch_factor: int = field(
-        default_factory=lambda: _int_env("RECALL_OVERFETCH_FACTOR", 3)
-    )
-    recall_overfetch_cap: int = field(
-        default_factory=lambda: _int_env("RECALL_OVERFETCH_CAP", 20)
+    # 一次絞り件数 N（軸あたり）。索引を持つ各軸が `ORDER BY … LIMIT N` で集める件数で、
+    # **フルLLM には渡らず再スコア用**なのでトークン量に関係しない。W に載る量は上の
+    # `recall_k`（正本の K）だけが決める。N ≥ K（`課題5_パラメータ仮案` §93・確定）。
+    # 床（min_score）を課すかどうかは採点後の話で、いくつ集めるかとは別の決定なので、
+    # 床の有無で N を増減させない。
+    recall_primary_n: int = field(
+        default_factory=lambda: _int_env("RECALL_PRIMARY_N", 50)
     )
     # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
     dedup_window_secs: int = field(
@@ -255,13 +295,49 @@ class MemoryConfig:
     recall_c_hi: float = field(  # c_hi
         default_factory=lambda: _float_env("RECALL_C_HI", 1.0)
     )
-    # 重みプロファイル。w_r は関連ゲートの指数、残りは加算部 M の加重平均係数。
-    # p 軸（w_p）は知覚待ちのため項ごと持たない。
+    # 基底の重みプロファイル（正本の (1,1,1,1.5,1.0)）。trigger を指定しない呼び出し
+    # （連想想起など）と、知らない trigger の落とし先に使う。trigger 別の値は下の
+    # `recall_weights()` が返す。
+    #
+    # **2種類の重みが混ざっている。** `w_r` は関連ゲートの**指数**で、式は
+    # `score = r^(w_r) × M`、`M = (w_t·t + w_e·e + w_g·a + w_p·p) / (w_t+w_e+w_g+w_p)`。
+    # r は [0,1] なので、**w_r を上げると関連の薄い候補がより強く罰される**（ゲートが
+    # 鋭くなる）。w_r=0 なら r^0=1 で関連を完全に無視する。残る4つは加重平均の係数で、
+    # 分母で正規化されるため**比だけが意味を持つ**（全部を2倍しても結果は変わらない）。
+    # 向きを取り違えると、関連を厳しくしたつもりが緩める側へ働く。
     recall_w_r: float = field(default_factory=lambda: _float_env("RECALL_W_R", 1.0))
     recall_w_t: float = field(default_factory=lambda: _float_env("RECALL_W_T", 1.0))
     recall_w_e: float = field(default_factory=lambda: _float_env("RECALL_W_E", 1.0))
-    recall_w_a: float = field(default_factory=lambda: _float_env("RECALL_W_A", 1.5))
+    recall_w_g: float = field(default_factory=lambda: _float_env("RECALL_W_G", 1.5))
     recall_w_p: float = field(default_factory=lambda: _float_env("RECALL_W_P", 1.0))
+    # 揺らぎの幅（軸ごと・絶対値・trigger 共通）。プロファイルの値に ±この幅の一様乱数を
+    # 足したものを採用値にする。**0 にすればその軸は揺れない**（テストと再現確認で止める）。
+    # 幅を広く取りすぎると trigger 別にした意味が消える。`w_r` はプロファイル間の差が 1.0
+    # （情動 0.5 と発話 1.5）なので、±0.3 はその性格が混ざらない範囲に収まる。`w_e` を
+    # 他より狭くしてあるのは、実測で e の値の幅が最も広く（0.037〜0.999）、同じ幅でも
+    # 順位への効きが大きいためである。
+    recall_w_r_jitter: float = field(
+        default_factory=lambda: _float_env("RECALL_W_R_JITTER", 0.3)
+    )
+    recall_w_t_jitter: float = field(
+        default_factory=lambda: _float_env("RECALL_W_T_JITTER", 0.1)
+    )
+    recall_w_e_jitter: float = field(
+        default_factory=lambda: _float_env("RECALL_W_E_JITTER", 0.2)
+    )
+    recall_w_g_jitter: float = field(
+        default_factory=lambda: _float_env("RECALL_W_G_JITTER", 0.3)
+    )
+    recall_w_p_jitter: float = field(
+        default_factory=lambda: _float_env("RECALL_W_P_JITTER", 0.1)
+    )
+    # open な記録の活性下限（`課題5_パラメータ仮案` §184・確定）。open の間だけ導出値に
+    # 下限を課す（a = max(導出, a_open)）。置き換えではないので、導出が下限より高い記録は
+    # 下がらない。既定 1.0 は「取込の既定より上、pinned より下」。範囲 0.5〜2.0。
+    # w_g=1.5 が加算部で最も重い係数なので、下限を課せば確実に W へ浮く。
+    recall_g_open: float = field(
+        default_factory=lambda: _float_env("RECALL_G_OPEN", 1.0)
+    )
     # 在席者相関 p の候補集合拡張（slice-2）。在席他者視点でも候補を取り union する退避弁。
     recall_presence_expand: bool = field(
         default_factory=lambda: _bool_env("RECALL_PRESENCE_EXPAND", default=True)
@@ -277,10 +353,50 @@ class MemoryConfig:
     novelty_default: float = field(default_factory=lambda: _float_env("NOVELTY_DEFAULT", 0.5))
     novelty_a0_cap: float = field(default_factory=lambda: _float_env("NOVELTY_A0_CAP", 1.5))
     # 自己認識 MI（W が空のときのデフォルト感情・外部 MI が入れば一員として参加）の重み。
-    # 旧・activation 上限 C=2.0 の流用をやめ、支配しない薄い錨へ（emotion は REST が育てる）。
+    # 旧・根づき上限 C=2.0 の流用をやめ、支配しない薄い錨へ（emotion は REST が育てる）。
     self_mi_weight: float = field(
         default_factory=lambda: _float_env("SELF_MI_WEIGHT", 0.5)
     )
+
+    def recall_weights(self, trigger: str) -> RecallWeights:
+        """trigger 種別の5軸重みを返す（`課題5_パラメータ仮案` §280）。
+
+        知らない trigger は基底（このクラスの `recall_w_*`）へ落とす。trigger を増やす
+        たびに例外で落ちるより、基底で動いて挙動が読めるほうがよい。
+        """
+        base = (self.recall_w_r, self.recall_w_t, self.recall_w_e,
+                self.recall_w_g, self.recall_w_p)
+        defaults = _TRIGGER_WEIGHT_DEFAULTS.get(trigger)
+        suffix = _TRIGGER_ENV_SUFFIX.get(trigger)
+        if defaults is None or suffix is None:
+            return RecallWeights(*base)
+        values = [
+            _float_env(f"RECALL_W_{axis}_{suffix}", default)
+            for axis, default in zip(("R", "T", "E", "G", "P"), defaults)
+        ]
+        return RecallWeights(*values)
+
+    def jitter_weights(
+        self, base: RecallWeights, rng: "random.Random | None" = None
+    ) -> RecallWeights:
+        """プロファイルの各軸に ±幅の一様乱数を足した採用値を返す。
+
+        値を仮値のまま固定すると、どの向きへ動かせばよいかが分からない。反復ごとに少し
+        振り、採用値と結果を INFO に残して、実挙動から良い値を選べるようにする。
+
+        幅 0 の軸は動かさない（テストと再現確認はこれで止める）。重みが負になると意味が
+        反転するので 0 で止める（幅より小さい基底を env で入れたときに起きうる）。
+        """
+        r = rng or random
+        widths = (self.recall_w_r_jitter, self.recall_w_t_jitter, self.recall_w_e_jitter,
+                  self.recall_w_g_jitter, self.recall_w_p_jitter)
+        values = [
+            max(0.0, w + (r.uniform(-width, width) if width > 0.0 else 0.0))
+            for w, width in zip(
+                (base.w_r, base.w_t, base.w_e, base.w_g, base.w_p), widths
+            )
+        ]
+        return RecallWeights(*values)
 
 
 @dataclass

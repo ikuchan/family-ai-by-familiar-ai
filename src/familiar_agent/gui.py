@@ -784,7 +784,7 @@ class MoodPanel(QWidget):
 
     _AXES = [
         ("p", "快 P", _ACCENT), ("pn", "不快 Pn", "#ff6b73"),
-        ("a", "喚起 A", "#ffb35f"), ("dom", "支配 Dom", "#7adcff"),
+        ("a", "高ぶり A", "#ffb35f"), ("dom", "支配 Dom", "#7adcff"),
     ]
 
     def __init__(self, parent: QWidget | None = None) -> None:

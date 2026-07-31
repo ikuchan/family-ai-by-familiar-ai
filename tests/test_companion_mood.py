@@ -1,7 +1,8 @@
-"""Tests for companion mood classifier and interoception companion field.
+"""相手の気分の判定（`_infer_companion_mood`）。
 
-Feature: _infer_companion_mood() classifies the companion's emotional state
-from their message text, and injects it into _interoception() as a felt quality.
+相手の文面から気分ラベルを決める。判定した気分を内受容テキストへ差し込む経路は、
+旧 ReAct のプロンプト組み立てごと撤去した（実行中のプロンプトは
+`build_event_system_prompt` が組む）。ここに残るのは判定そのもののテストである。
 """
 
 from __future__ import annotations
@@ -10,64 +11,6 @@ import time
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-
-
-# ── Tests for _interoception() companion field ────────────────────────────────
-
-
-class TestInteroceptionCompanionField:
-    """_interoception() includes a companion field when mood is provided."""
-
-    def _call_interoception(self, companion_mood: str) -> str:
-        from familiar_agent.agent import _interoception
-
-        return _interoception(started_at=time.time(), turn_count=1, companion_mood=companion_mood)
-
-    def test_contains_companion_field(self):
-        result = self._call_interoception("engaged")
-        assert "companion" in result
-
-    def test_engaged_mood(self):
-        result = self._call_interoception("engaged")
-        assert (
-            "here with me" in result.lower()
-            or "engaged" in result.lower()
-            or "here" in result.lower()
-        )
-
-    def test_tired_mood(self):
-        result = self._call_interoception("tired")
-        assert "tired" in result.lower()
-
-    def test_frustrated_mood(self):
-        result = self._call_interoception("frustrated")
-        assert "frustrated" in result.lower() or "bothering" in result.lower()
-
-    def test_absent_mood(self):
-        result = self._call_interoception("absent")
-        assert "quiet" in result.lower() or "absent" in result.lower() or "here" in result.lower()
-
-    def test_happy_mood(self):
-        result = self._call_interoception("happy")
-        assert "happy" in result.lower() or "good mood" in result.lower()
-
-    def test_default_mood_engaged(self):
-        """No companion_mood argument → defaults to engaged."""
-        from familiar_agent.agent import _interoception
-
-        result = _interoception(started_at=time.time(), turn_count=1)
-        assert "companion" in result
-
-    def test_result_is_sexpr_format(self):
-        """Result is in S-expression format used by the rest of interoception."""
-        result = self._call_interoception("happy")
-        assert result.startswith("(interoception")
-        assert ":private true" in result
-        assert "(companion" in result
-
-
-# ── Tests for _infer_companion_mood() ────────────────────────────────────────
-
 
 class TestInferCompanionMood:
     """_infer_companion_mood() returns a valid mood label from LLM backend."""

@@ -81,7 +81,7 @@ def test_diffuse_extend_adds_cooccurring_with_a0_zero():
     extra = mem._diffuse_extend([{"memory_id": a}, {"memory_id": b}], cfg)
     ids = [e["memory_id"] for e in extra]
     assert d in ids                                  # 共起候補を W へ足す
-    assert all(e["score"] == 0.0 for e in extra)     # a0=0（重み0）
+    assert all(e["fit"] == 0.0 for e in extra)     # a0=0（重み0）
     assert all(e["retrieval_method"] == "diffuse" for e in extra)
 
 

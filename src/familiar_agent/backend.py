@@ -564,7 +564,7 @@ class OpenAICompatibleBackend:
     def _flatten_messages(self, system: str | tuple[str, str], messages: list) -> list[dict]:
         """Build flat OpenAI message list with system prepended.
 
-        Accepts a (stable, variable) tuple from _system_prompt() and joins it
+        Accepts a (stable, variable) tuple from build_event_system_prompt() and joins it
         into a single system string — OpenAI-compatible APIs don't support
         multi-block system prompts with cache_control.
         """

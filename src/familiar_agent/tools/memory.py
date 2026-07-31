@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
-from ..config import MemoryConfig
+from ..config import MemoryConfig, RecallWeights
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
 from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memory 経由で引くための再輸出
@@ -100,12 +100,17 @@ def _stretch_relevance(cosine: float, *, c_lo: float, c_hi: float) -> float:
 
 @dataclass(frozen=True)
 class _ScoreParts:
-    """想起スコアと各軸の内訳。`e` は項を外したとき None。"""
+    """想起の採点の内訳。`e` は項を外したとき None。
 
-    score: float
+    2つの合成量がある。**地力（merit・記号 `m`）**＝加算部の加重平均で、時間経過を
+    含んだ重要度。関連は入らない。**適合度（fit・記号 `f`）**＝`r^(w_r) × m` で、
+    W を選ぶのはこれ。いまの問いへの適合を含むので、同じ記録でも問いが変われば変わる。
+    """
+
+    fit: float
     r: float
     t: float
-    a: float
+    g: float
     m: float
     e: float | None
     p: float | None = None
@@ -116,8 +121,8 @@ def _score_breakdown(
     ts,
     last_recalled_at,
     recall_count: int,
-    activation_a0: float,
-    activation_n: int,
+    groundedness_g0: float,
+    groundedness_n: int,
     *,
     obs_pad: tuple[float, float, float, float] | None = None,
     mood_pad: tuple[float, float, float, float] | None = None,
@@ -129,10 +134,11 @@ def _score_breakdown(
     w_r: float = 1.0,
     w_t: float = 1.0,
     w_e: float = 1.0,
-    w_a: float = 1.5,
+    w_g: float = 1.5,
     w_p: float = 0.0,
     p: float | None = None,
     sigma: float = 1.0,
+    g_floor: float = 0.0,
 ) -> _ScoreParts:
     """想起スコアと各軸の内訳を返す（合成式の正本）。
 
@@ -155,7 +161,7 @@ def _score_breakdown(
         half_life_seconds=half_life_days * 86400.0,
         floor=floor,
         # **強化A（想起回数で実効半減期を伸ばす）は使わない。** `課題5` F節が廃止と
-        # 確定させている（重要さは activation の n が担い、t は純粋な時間減衰）。
+        # 確定させている（重要さは根づきの n が担い、t は純粋な時間減衰）。
         # 残っていたため、`recall_count` が 20 なら半減期が 3×2^20 日＝8600年になり、
         # **何度も想起された古い記録が永久に t=1** になっていた。実機で 47日前の挨拶が
         # t=1.000 で上位を占め、5秒前の自分の発話を押し出した（「おかえりなさい」を2回）。
@@ -166,11 +172,13 @@ def _score_breakdown(
 
     r = _stretch_relevance(cosine, c_lo=c_lo, c_hi=c_hi)
     t = state.score(ref_epoch)
-    a = _derive_activation(float(activation_a0), int(activation_n))
+    # open な記録は下限で持ち上げる（a_open・`課題5_パラメータ仮案` §184）。max なので
+    # 導出が下限より高い記録は下がらない。open でない記録は g_floor=0.0 で素通りする。
+    g = max(_derive_groundedness(float(groundedness_g0), int(groundedness_n)), g_floor)
 
     e: float | None = None
-    numerator = w_t * t + w_a * a
-    denominator = w_t + w_a
+    numerator = w_t * t + w_g * g
+    denominator = w_t + w_g
     if obs_pad is not None and mood_pad is not None:
         e = _emotion_match(obs_pad, mood_pad, sigma=sigma)
         numerator += w_e * e
@@ -182,7 +190,7 @@ def _score_breakdown(
         denominator += w_p
 
     m = 1.0 if denominator <= 0.0 else numerator / denominator
-    return _ScoreParts(score=(r ** w_r) * m, r=r, t=t, a=a, m=m, e=e, p=p)
+    return _ScoreParts(fit=(r ** w_r) * m, r=r, t=t, g=g, m=m, e=e, p=p)
 
 
 def _compute_final_score(
@@ -190,8 +198,8 @@ def _compute_final_score(
     ts,
     last_recalled_at,
     recall_count: int,
-    activation_a0: float,
-    activation_n: int,
+    groundedness_g0: float,
+    groundedness_n: int,
     *,
     obs_pad: tuple[float, float, float, float] | None = None,
     mood_pad: tuple[float, float, float, float] | None = None,
@@ -202,12 +210,12 @@ def _compute_final_score(
     w_r: float = 1.0,
     w_t: float = 1.0,
     w_e: float = 1.0,
-    w_a: float = 1.5,
+    w_g: float = 1.5,
     sigma: float = 1.0,
 ) -> float:
     """想起スコアのハイブリッド合成（課題5 v0.24 D 節・Phase 2 スライス3）。
 
-        score = r^{w_r} × M,  M = (w_t·t + w_e·e + w_a·a) / (w_t + w_e + w_a)
+        score = r^{w_r} × M,  M = (w_t·t + w_e·e + w_g·a) / (w_t + w_e + w_g)
 
     関連 r だけが乗算ゲート（段階的関連係数）で、t・e・a は加重平均で補償的に
     束ねる。純積ではないので、一軸が低いだけで記憶が消えることはない。加算部の
@@ -216,14 +224,14 @@ def _compute_final_score(
     - r：`_stretch_relevance` でコサインを伸長した値。
     - t：`DecayState`（強化B＝last_recalled_at を origin にして若返り。**強化A＝
       recall_count で半減期を伸ばす仕組みは使わない**＝`課題5` F節で廃止確定。
-      重要さは activation の n が担い、t は純粋な時間減衰）。時間減衰はこの軸に一元化し、
+      重要さは根づきの n が担い、t は純粋な時間減衰）。時間減衰はこの軸に一元化し、
       importance の日次減衰は使わない（P-1・[D-想起合成]）。
     - e：`_emotion_match(obs_pad, mood_pad)`＝**今の気分と観測 PAD の距離**。
       記憶どうしの感情距離ではない（`感情ループ全体像` の `M → RECALL`）。
       mood_pad が None（mood を読めなかった経路）のときは e 項を分子分母から
       外す。中立0.5で埋めると「気分に一致する記憶」を偽って作ってしまうため。
       obs_pad が None のときも同様に外す。
-    - a：`_derive_activation(a0, n)`（イベント駆動・時間では減らさない）。
+    - a：`_derive_groundedness(a0, n)`（イベント駆動・時間では減らさない）。
     - p（在席者相関）は知覚待ちのため項ごと持たない。課題5 の「在席者ゼロなら
       w_p 項を外す」に一致する。
 
@@ -231,12 +239,12 @@ def _compute_final_score(
     （内訳ログと式を共有するため）。
     """
     return _score_breakdown(
-        cosine, ts, last_recalled_at, recall_count, activation_a0, activation_n,
+        cosine, ts, last_recalled_at, recall_count, groundedness_g0, groundedness_n,
         obs_pad=obs_pad, mood_pad=mood_pad,
         half_life_days=half_life_days, floor=floor,
         c_lo=c_lo, c_hi=c_hi,
-        w_r=w_r, w_t=w_t, w_e=w_e, w_a=w_a, sigma=sigma,
-    ).score
+        w_r=w_r, w_t=w_t, w_e=w_e, w_g=w_g, sigma=sigma,
+    ).fit
 
 
 # ── Helpers ────────────────────────────────────────────────────────────────
@@ -250,14 +258,14 @@ _ts_to_time = clock.ts_to_time
 
 
 
-def _derive_activation(
+def _derive_groundedness(
     a0: float, n: int, *, floor: float = 0.0, c: float = 2.0,
     epsilon: float = 0.001, step: float = 0.33,
 ) -> float:
     """初期値 a0 と正味デルタ回数 n から活性 a を導出する。
 
     a0 を [floor, c] で正規化し、ε で両端に寄せてロジットで無限区間へ写し、
-    n·step を足してロジスティックで [floor, c] へ戻す。n=0 なら a=a0。
+    n·step を足してロジスティックで [floor, c] へ戻す。n=0 なら g=g0。
     floor・c・ε・step は設定値（値の確定は課題5・Config から差し替え可）。
     """
     span = c - floor
@@ -705,11 +713,14 @@ class ObservationMemory:
                present_others: list[str] | None = None,
                exclude_ids: list[str] | None = None,
                time_ref: float | None = None,
-               time_span_days: float | None = None) -> list[dict]:
+               time_span_days: float | None = None,
+               weights: "RecallWeights | None" = None,
+               open_ids: list[str] | None = None) -> list[dict]:
         """Recall using situated vectors (pgvector cosine search).
 
         min_score:   合成 final score の soft 床（生コサインではない）。無関係の
-                     最終排除を担う（根拠台帳 §3–4）。床を課すときは候補を過剰取得する。
+                     最終排除を担う（根拠台帳 §3–4）。候補をいくつ集めるかは床とは別で、
+                     一次絞り件数 N（`recall_primary_n`）が決める。
 
         Scoring: `_compute_final_score` のハイブリッド合成（r・t・e・a）。
         Results are re-sorted by final_score before returning.
@@ -735,13 +746,20 @@ class ObservationMemory:
             q_sql = vec_to_sql(situated_q.tolist())
 
             _cfg = MemoryConfig()
-            # min_score は合成 final score の床。採点後に絞ると「n 件のうち床を
-            # 満たすもの」になり n を割るため、床を課すぶんだけ多めに取る
-            # （n×factor・上限 cap・いずれも Config）。
-            fetch_n = (
-                min(n * _cfg.recall_overfetch_factor, _cfg.recall_overfetch_cap)
-                if min_score > 0.0 else n
+            # 呼び出し側が trigger 別の採用値を渡してくる。渡さない経路（連想想起など）は
+            # 基底のプロファイルで採点する（挙動不変）。
+            _w = weights or RecallWeights(
+                _cfg.recall_w_r, _cfg.recall_w_t, _cfg.recall_w_e,
+                _cfg.recall_w_g, _cfg.recall_w_p,
             )
+            # open な記録（この求めのために書いた、まだ決着していない O）。活性に下限を
+            # 課して W へ浮かせる。集合にするのは行ごとに引くため。
+            _open = set(open_ids or ())
+            # 一次絞り件数 N（軸あたり・Config `recall_primary_n`）。各軸はここで N 件集め、
+            # 採点して上位 n 件（正本の W 載せ上限 K）へ絞る。N は再スコア用でフルLLM へは
+            # 渡らないので、トークン量とは無関係に広く取れる（`課題5_パラメータ仮案` §93）。
+            # 床（min_score）の有無で N を変えない。床は採点後に効く別の決定である。
+            fetch_n = _cfg.recall_primary_n
             speaker_rows = self._observations.by_vector(
                 q_sql, fetch_n, kind=kind, exclude_ids=exclude_ids
             )
@@ -823,8 +841,8 @@ class ObservationMemory:
                         row["timestamp"],
                         row["last_recalled_at"],
                         int(row["recall_count"]),
-                        float(row["activation_a0"]),
-                        int(row["activation_n"]),
+                        float(row["groundedness_g0"]),
+                        int(row["groundedness_n"]),
                         obs_pad=(
                             row["emotion_p"], row["emotion_pn"],
                             row["emotion_a"], row["emotion_dom"],
@@ -837,15 +855,16 @@ class ObservationMemory:
                         floor=_cfg.recall_time_floor,
                         c_lo=_cfg.recall_c_lo,
                         c_hi=_cfg.recall_c_hi,
-                        w_r=_cfg.recall_w_r,
-                        w_t=_cfg.recall_w_t,
-                        w_e=_cfg.recall_w_e,
-                        w_a=_cfg.recall_w_a,
-                        w_p=_cfg.recall_w_p,
+                        w_r=_w.w_r,
+                        w_t=_w.w_t,
+                        w_e=_w.w_e,
+                        w_g=_w.w_g,
+                        w_p=_w.w_p,
                         p=p_by_id.get(row["id"]),
                         sigma=_cfg.recall_emotion_sigma,
+                        g_floor=(_cfg.recall_g_open if row["id"] in _open else 0.0),
                     )
-                    final = parts.score
+                    final = parts.fit
                     # 合成スコアの soft 床。生コサインではなく最終スコアで絞る。
                     if min_score > 0.0 and final < min_score:
                         continue
@@ -861,20 +880,26 @@ class ObservationMemory:
                         "source_kind":      row["kind"],
                         "emotion":          row["emotion"],
                         "image_path":       row["image_path"],
-                        "score":            final,
+                        "fit":              final,
                         "confidence":       max(0.0, min(1.0, (cosine + 1.0) / 2.0)),
                         "retrieval_method": "semantic",
-                        # mood nudge（mood-c）の入力用に PAD と activation 重みを露出。追加のみで挙動不変。
+                        # mood nudge（mood-c）の入力用に PAD と根づきの重みを露出。追加のみで挙動不変。
+                        # **ここには a_open の下限を掛けない（意図的）。** この値は
+                        # `compute_n_pad` で N_PAD の加重平均の**重み**になる。実測の
+                        # 根づきは 0.057 程度（根拠台帳）で、open な記録を 1.0 で
+                        # 入れると調査中の mood をトリガ O がほぼ独占し、人の問い1件の
+                        # PAD が気分を決めてしまう。下限は「W から落とさない」ための
+                        # ものなので、採点に使う a にだけ効かせる。
                         "emotion_pad":      MoodPAD(
                             p=row["emotion_p"], pn=row["emotion_pn"],
                             a=row["emotion_a"], dom=row["emotion_dom"],
                         ),
-                        "activation":       _derive_activation(
-                            float(row["activation_a0"]), int(row["activation_n"]),
+                        "groundedness":       _derive_groundedness(
+                            float(row["groundedness_g0"]), int(row["groundedness_n"]),
                         ),
                     })
-                results.sort(key=lambda r: r["score"], reverse=True)
-                # 過剰取得したぶんを落とし、上位 n 件へ戻す。
+                results.sort(key=lambda r: r["fit"], reverse=True)
+                # 一次絞りで集めた N 件から、上位 n 件（正本の W 載せ上限 K）へ絞る。
                 results = results[:n]
 
                 # 想起順の内訳。実機確認で「なぜこの順なのか」を後から再構成する
@@ -891,7 +916,7 @@ class ObservationMemory:
                         b = breakdowns[item["memory_id"]]
                         logger.debug(
                             "  #%d recall score=%.4f r=%.3f t=%.3f a=%.3f e=%s | %s | %s",
-                            rank, item["score"], b.r, b.t, b.a,
+                            rank, item["fit"], b.r, b.t, b.g,
                             "なし" if b.e is None else "%.3f" % b.e,
                             _ts_to_date(item["timestamp"]),
                             str(item["summary"])[:50],
@@ -904,7 +929,7 @@ class ObservationMemory:
                 # store 側の `_mark_recalled` は判定ができたときのために残す。
 
                 # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
-                # a0=0（score/activation 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
+                # g0=0（適合度も根づきも 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
                 if _cfg.diffuse_recall and results:
                     results.extend(self._diffuse_extend(results, _cfg, seed_vec=q_vec))
 
@@ -1005,10 +1030,10 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall_day_summaries, n)
 
     # ── これから作り替えるもの（store/ へ移していない） ──────────────────
-    # episodes／memory_activation／unfinished_business を触る以下の一群は、
+    # episodes／memory_salience／unfinished_business を触る以下の一群は、
     # Phase 5 で作り替えが決まっているため、いま層へ移していない。
     #   - W（作業記憶）は O からの派生ビューで毎ターン作り直す（[D-記憶単一化]）
-    #     ので、memory_activation に溜める形自体が変わる
+    #     ので、memory_salience に溜める形自体が変わる
     #   - 明示リンクとエピソードは WR 拡散想起へ置き換わる（[D-WR拡散想起]）
     # いま移しても Phase 5 で捨てることになる。撤去が確定していないので
     # legacy/ にも入れない。作り替えの形が決まった段で行き先を決める。
@@ -1091,11 +1116,11 @@ class ObservationMemory:
             with self._db_lock:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
-                    cur.execute("DELETE FROM memory_activation WHERE source='working_memory'")
+                    cur.execute("DELETE FROM memory_salience WHERE source='working_memory'")
                 for item in recalled:
                     with conn.cursor() as cur:
                         cur.execute(
-                            "INSERT INTO memory_activation (id,memory_id,activation,source,context,episode_id,activated_at) "
+                            "INSERT INTO memory_salience (id,memory_id,salience,source,context,episode_id,activated_at) "
                             "VALUES (%s,%s,%s,'working_memory',%s,%s,%s)",
                             (str(uuid.uuid4()), item["memory_id"], float(item.get("confidence", 0.5)),
                              query, item.get("episode_id"), now),
@@ -1111,10 +1136,10 @@ class ObservationMemory:
                 conn = self._ensure_connected()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT ma.memory_id,ma.activation,ma.context,ma.episode_id,ma.activated_at,"
-                        "o.content FROM memory_activation ma "
-                        "JOIN observations o ON o.id=ma.memory_id "
-                        "WHERE ma.source='working_memory' ORDER BY ma.activation DESC",
+                        "SELECT ms.memory_id,ms.salience,ms.context,ms.episode_id,ms.activated_at,"
+                        "o.content FROM memory_salience ms "
+                        "JOIN observations o ON o.id=ms.memory_id "
+                        "WHERE ms.source='working_memory' ORDER BY ms.salience DESC",
                     )
                     return [dict(r) for r in cur.fetchall()]
         except Exception as e:
@@ -1188,7 +1213,7 @@ class ObservationMemory:
             return None
 
         confidences = [float(m.get("confidence", 0.5)) for m in memories]
-        activation = min(0.6, max(confidences))
+        dynamism = min(0.6, max(confidences))
 
         has_today = any(m.get("is_today") for m in memories)
         novelty = 0.4 if has_today else 0.2
@@ -1199,7 +1224,7 @@ class ObservationMemory:
         return Coalition(
             source="memory",
             summary=summary,
-            activation=activation,
+            dynamism=dynamism,
             urgency=0.1,
             novelty=novelty,
             context_block="[Memory recall]\n" + context,
@@ -1211,7 +1236,7 @@ class ObservationMemory:
         if not memories: return ""
         lines = ["[過去の記憶（証拠つき）: conf<0.55 は不確か]:"]
         for m in memories:
-            score_s = f" (類似度:{m['score']:.2f})" if "score" in m else ""
+            fit_s = f" (適合度:{m['fit']:.2f})" if "fit" in m else ""
             conf = float(m.get("confidence", 0.0))
             conf_s = f" conf:{conf:.2f}"
             low = " low-confidence" if conf < 0.55 else ""
@@ -1220,7 +1245,7 @@ class ObservationMemory:
             # 照合は呼び出し側が対応表で行うので、写し間違いは一致せず件数のずれに出る。
             sid  = str(m.get("memory_id","")).replace("-", "")[:12] or "?"
             lines.append(
-                f"- {m.get('date','?')} {m.get('time','?')} id:{sid}{score_s}{conf_s}{low}"
+                f"- {m.get('date','?')} {m.get('time','?')} id:{sid}{fit_s}{conf_s}{low}"
                 f" ({m.get('direction','?')}){emo}: {m['summary'][:120]}"
             )
         return "\n".join(lines)
@@ -1430,7 +1455,7 @@ class MemoryTool:
     async def _recall(self, inp: dict, *,
                       exclude_ids: list[str] | None = None) -> tuple[str, None]:
         query = inp["query"]
-        n     = int(inp.get("n", MemoryConfig().recall_n))
+        n     = int(inp.get("n", MemoryConfig().recall_k))
         all_results: list[dict] = []
 
         # agent self
@@ -1450,7 +1475,7 @@ class MemoryTool:
                 m["_from"] = name
                 all_results.append(m)
 
-        all_results.sort(key=lambda x: x.get("score", 0.0), reverse=True)
+        all_results.sort(key=lambda x: x.get("fit", 0.0), reverse=True)
         top = all_results[:n]
 
         if not top:
@@ -1458,7 +1483,7 @@ class MemoryTool:
 
         lines = []
         for m in top:
-            s = f" ({m['score']:.2f})" if "score" in m else ""
+            s = f" ({m['fit']:.2f})" if "fit" in m else ""
             lines.append(
                 f"[{m.get('_from','?')}] {m['date']} {m['time']}{s} [{m['emotion']}]: {m['summary'][:130]}"
             )

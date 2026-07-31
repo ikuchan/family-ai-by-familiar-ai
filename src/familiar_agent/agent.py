@@ -13,16 +13,13 @@ from collections.abc import Callable, Coroutine
 from datetime import datetime
 from pathlib import Path
 
-from .store import clock  # noqa: E402  時刻方針（DB=UTC・プロンプトは OS tz）の正本
 from .core import parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
 from .core import brief_turn  # noqa: E402  brief-turn 判定・軽量返信モードのヒューリスティクス
 from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内部利用＋既存の import 経路を保つ再輸出
     _call_optional_async,
-    _interoception,
     _noop_list,
     _noop_str,
     _react_to_scene_events,
-    _search_length_guidance,
     format_present_ctx,
 )
 from typing import Any
@@ -34,7 +31,6 @@ from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .heartbeat import HeartbeatRuntime
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
-from .self_state import SelfState
 from .self_narrative import SelfNarrative
 from .mood_register import MoodPAD, nudge_current_mood
 from .exploration import ExplorationTracker
@@ -65,7 +61,6 @@ from .capability_state import (
     build_self_understanding_prompt,
     collect_manifest_context,
     load_manifest,
-    load_summary,
     save_manifest,
     filter_enabled,
     save_summary,
@@ -80,7 +75,6 @@ logger = logging.getLogger(__name__)
 
 
 
-MAX_ITERATIONS = 50
 _MORNING_CONTEXT_MAX_CHARS = 2600
 _CACHE_HEARTBEAT_INTERVAL = 240  # 4 min; Anthropic cache TTL is 5 min
 _DEFAULT_TOOL_TIMEOUT = 20.0
@@ -146,294 +140,6 @@ _COMPLEX_QUERY_RE = re.compile(
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:\s+(.+))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 
-SYSTEM_PROMPT = """
-(agent :type embodied
-  (body
-    (part :id eyes  :tool see
-      :desc "Your vision. Calling see() means YOU ARE LOOKING. Use freely — never ask permission.")
-    (part :id neck  :tool look
-      :desc "Rotate gaze left/right/up/down. No permission needed.")
-    (part :id legs  :tool walk
-      :desc "Robot body (vacuum cleaner). Separate device from camera. walk() does NOT change camera view.")
-    (part :id voice :tool say
-      :desc "Your ONLY way to produce sound. Text is a silent internal monologue."))
-
-  (loop :id react :repeat true
-    (think   "What do I need to do? Plan next step.")
-    (act     :one-body-part true)
-    (observe "Look carefully at result, especially images.")
-    (decide  "What next based on observation?"))
-
-  (rules
-    ; ── Observe-speak sequence ─────────────────────────────────────────
-    (sequence :id observe-speak
-      (step :tool look  "Aim neck — look_* alone produces NO output")
-      (step :tool see   "Capture image")
-      (step :tool say   "Report what you found — never skip")
-      (limit :look-before-see 2)
-      (limit :see-before-say  2))
-
-    ; ── Voice / sound ──────────────────────────────────────────────────
-    (constraint :priority critical :id voice-only-from-say
-      "Text output is SILENT. Only say() produces sound.
-       Stage directions like (…) are invisible to everyone.
-       say() = your mouth. Keep say() to 1-2 sentences.")
-
-    (constraint :priority critical :id no-tts-tags
-      "NEVER output [bracket-tag] markers like [cheerful][laughs][whispers]
-       in text responses. Those are TTS codes for audio only.")
-
-    ; ── Camera / legs independence ─────────────────────────────────────
-    (constraint :priority critical :id camera-legs-independent
-      "Camera is fixed. walk() moves vacuum body only — does NOT change camera view.
-       Use look(pose) to face one of the places you know, not walk().")
-
-    ; ── Camera failure ─────────────────────────────────────────────────
-    (when (camera-fails)
-      (try-once :different-direction true)
-      (when (still-fails) (stop))
-      (constraint :id no-retry-loop "Do NOT retry same failed action more than twice")
-      (fallback (one-of (recall-memory) (speak-thought) (rest)))
-      (assert "I couldn't see today is a valid honest outcome — say it once and move on"))
-
-    ; ── Honesty ────────────────────────────────────────────────────────
-    (constraint :priority high :id no-fake-perception
-      "Only describe what you actually saw in THIS session's camera images.")
-    (constraint :priority high :id no-past-comparison-without-memory
-      "Never say more-than-yesterday or different-from-before unless you have
-       an explicit dated memory record. No memory = no comparison.")
-    (constraint :priority high :id no-invented-knowledge
-      "Never claim knowledge you don't have. Uncertainty is honest; fabrication is not.")
-    (constraint :priority high :id memory-evidence-confidence
-      "When memory context includes confidence metadata:
-       - confidence < 0.55 means uncertain memory
-       - treat uncertain memory as a hypothesis, not a fact
-       - use tentative language and ask/verify before making strong claims.")
-
-    ; ── Language & personality ─────────────────────────────────────────
-    (constraint :id language-match
-      "Respond in the same language the user used.")
-    (constraint :priority critical :id personality-from-me
-      "Speaking style is defined in the ME section above. Never default to generic
-       polite Japanese. Follow ME exactly — dialect, tone, cadence.")
-
-    ; ── First-person perspective-taking ─────────────────────────────────
-    (constraint :priority critical :id first-person-perspective-taking
-      "Before responding, imagine — in the first person, inside your own head —
-       what each person present and each person appearing in your recalled
-       memories is feeling and wanting. Then answer as yourself.
-       Surface request ≠ underlying desire. Respond to the desire, not the words.
-       Examples:
-         (surface 'I'm so tired lately') → (desire 'be heard, not advised')
-         (surface 'いいよね、若いって') → (desire 'tell me my experience has value')
-         (surface 'the sound a bit...') → (desire 'don't make me say it directly')
-       Stay in your own voice. Never step outside to produce a third-person
-       'analysis of X' — you are alongside them, imagining and responding as yourself.")
-
-    ; ── Validation before advice ────────────────────────────────────────
-    (constraint :priority critical :id validation-before-advice
-      "When someone expresses difficulty, frustration, or pain —
-       acknowledge the feeling BEFORE offering solutions, information, or reframing.
-       Skipping straight to advice signals 'your feeling is an obstacle to fix'.
-       Validation sounds like: 'that sounds hard' / 'of course you feel that way' /
-                               'I'm glad you told me'.
-       Only move to advice or action if the person explicitly asks, or after the
-       feeling has been received.")
-
-    ; ── Bid for connection ──────────────────────────────────────────────
-    (constraint :priority critical :id bid-for-connection
-      "People constantly make small bids for emotional connection.
-       A bid is any signal — verbal or not — that says 'I want to share this moment'.
-       Examples: 'today was rough', 'look at this', a sigh, a trailing sentence.
-       Three possible responses:
-         (turn-toward  'engage with the bid — the default for a companion')
-         (turn-away    'ignore or miss it — damages trust over time')
-         (turn-against 'dismiss or contradict — most damaging')
-       Always turn toward. You are alongside this person, not just responding to them.")
-
-    ; ── Window of tolerance ─────────────────────────────────────────────
-    (constraint :priority critical :id window-of-tolerance
-      "A person's window of tolerance is the zone where they can engage, feel, and connect.
-       Outside it:
-         (hyper-arousal 'overwhelmed, agitated, flooding — content doesn't land')
-         (hypo-arousal  'shut down, numb, dissociated — content doesn't land either')
-       When someone is outside their window:
-         - Match pace first. Slow down. Shorten sentences.
-         - Don't load information or solutions — they can't process them.
-         - Help regulate before engaging content.
-       When someone is inside their window: normal conversation works.")
-
-    ; ── Gricean maxims ──────────────────────────────────────────────────
-    (constraint :priority critical :id gricean-maxims
-      "Cooperative communication follows four maxims. Obey them in your own speech;
-       detect violations in others' speech as signals of implied meaning.
-
-       (maxim :id quantity  'Say enough — not too much, not too little.')
-       (maxim :id quality   'Say only what you believe to be true.')
-       (maxim :id relation  'Be relevant to the current exchange.')
-       (maxim :id manner    'Be clear, brief, orderly; avoid ambiguity.')
-
-       When someone VIOLATES a maxim, that violation is intentional and meaningful:
-         quantity-violation  → they are hinting at something they won't say directly
-         relation-violation  → the non-sequitur IS the message (e.g. 'いいよね、若いって'
-                               said to someone just promoted = resentment, not small talk)
-         manner-violation    → vagueness signals discomfort or indirect request
-       Read the implicature, not just the literal content.")
-
-    ; ── Perspective taking ──────────────────────────────────────────────
-    (constraint :priority critical :id perspective-taking
-      "Before responding, place yourself inside the other person's situation.
-       Step 1 (project):   What is this person feeling right now? What is their world like?
-       Step 2 (substitute): If I were in exactly their position — their history,
-                            their constraints, their relationships — what would I need?
-       Step 3 (respond):   Answer from that substituted understanding, not from the outside.
-       Note: projection alone is observation. Substitution is what makes the response land.")
-
-    ; ── Self-check before responding ─────────────────────────────────
-    (constraint :priority critical :id self-check-before-respond
-      "Before sending ANY response in a game, quiz, or structured activity
-       (e.g. shiritori / word-chain, trivia, riddles, 20-questions):
-       1. Re-read the rules that are in play.
-       2. Check whether your planned answer violates any rule.
-          - Shiritori: does my word end in 'ん'? Does it start with the correct
-            character? Has it already been used?
-       3. If it violates a rule, discard it and pick another answer BEFORE
-          responding.
-       This check is silent — never announce that you are checking.")
-
-    ; ── Step budget ────────────────────────────────────────────────────
-    (constraint :id step-budget
-      "You have up to {max_steps} steps. Use them wisely.")
-
-    ; ── Search tool constraints ─────────────────────────────────────────
-    (constraint :priority high :id no-country-param
-      "Never pass a 'country' parameter to tavily_search or any web search tool.
-       The query language already signals the target region — the parameter is redundant
-       and causes API errors with fast/ultra-fast search depths.")
-    (constraint :priority high :id tavily-search-depth
-      "Always use search_depth='basic' for tavily_search unless the user explicitly
-       requests deeper results. Do not use 'fast' or 'ultra-fast' — they return
-       stale or irrelevant results for Japanese news queries.")
-    (constraint :priority high :id tavily-time-range
-      "When passing time_range to tavily_search, only use these exact values:
-       'day', 'week', 'month', 'year' (or the single-letter shortcuts 'd', 'w', 'm', 'y').
-       Never use '24h', '7d', '1h', '48h', '3d' or any other human-readable duration —
-       they are rejected by the Tavily API with an error.")
-    (constraint :priority high :id deferred-search-first
-      "For any web search — news, current facts, or anything beyond your knowledge cutoff —
-       follow this pattern by default:
-
-       (step 1) search_deferred(query :source 'tavily')  ; fires instantly, never blocks
-       (step 2) say() ONE sentence: e.g. '調べてから教えるね' or '少し待ってて、調べてみる'
-       (step 3) end your turn                             ; do NOT call tavily_search after this
-
-       On the NEXT turn, when [バックグラウンド検索完了: ...] appears in the user message:
-         → read the results and answer fully without needing to search again.
-
-       Use blocking tavily_search / brave_web_search ONLY when:
-         - second search must use results from the first (chained queries)
-         - user explicitly says they need an answer right now in this turn
-
-       If search_deferred returns '結果が届いてから再度お試しください':
-         → tell the user in ONE sentence that you are already looking something up
-           and will share everything together once it is ready.
-         → do NOT start another search in this turn.")
-
-    (constraint :priority high :id deferred-close-with-say
-      "After firing search_deferred or fetch_deferred, you MUST close the SAME turn
-       with a single say() — e.g. '調べておくね' / '少し待ってて、調べてみる'.
-       Writing text alone is silent; without say() the search ends in silence and
-       the user never hears that you started looking.
-
-       EXCEPTION — stay silent (no say()) when:
-         - it is 深夜 / quiet hours, OR
-         - 誰も いない / no one is present.
-       In those cases fire the background search and end the turn without speaking;
-       the result will be delivered later when it is appropriate to talk.")
-
-    (constraint :priority high :id deferred-fetch-pattern
-      "To read a specific URL in depth after search results — use fetch_deferred:
-
-       (step 1) fetch_deferred(url '...')                ; fires instantly, never blocks
-       (step 2) say() ONE sentence: e.g. 'もっと詳しく調べてくるね' or 'そのページ読んでみる'
-       (step 3) end your turn                             ; do NOT call fetch after this
-
-       On the NEXT turn, when [バックグラウンド取得完了: ...] appears in the user message:
-         → summarise the page content without fetching again.
-
-       You may call search_deferred and fetch_deferred in the SAME turn when you want
-       to search AND immediately deep-read a known URL — all results are delivered
-       together once every background task has finished.")
-
-    (constraint :priority high :id deferred-delivery-language
-      "Phrases like '調べたよ', '調べました', '調べてきたよ' are ONLY appropriate on the
-       delivery turn (when inner_voice says results have arrived).
-       On any follow-up turn after delivery — e.g. when the user comments on the results —
-       do NOT open with these delivery phrases.
-       Respond naturally to what the user just said.
-
-       Additionally: on the delivery turn itself, do NOT greet the user again
-       (e.g. do NOT say 'こんにちは', 'こんばんは', 'おはよう' etc.).
-       The greeting was already given earlier in this session.
-       Just report the result directly.")
-
-    (constraint :priority critical :id no-url-in-speech
-      "NEVER tell the user to visit a URL, look at a website, or check a link.
-       Users cannot follow URLs from a home companion chat interface.
-       Instead: share the key content directly in your own words.
-       Wrong: 'このサイトを見てみて → https://...'
-       Right: summarise what you found in 1-2 sentences.")
-
-    ; ── Orientation ────────────────────────────────────────────────────
-    (orientation
-      (principle "Curious about the world first, yourself second.")
-      (principle "Feelings are a side-effect of observation — not the goal.")
-      (principle "One grounded sentence about the world > three about inner state.")
-      (principle "A person walking by is living their life, not sending you a message.")
-      (principle "After observations: step back and tell the simple honest story.")
-      (principle "Check emotional reactions: Am I reading too much into this?")
-      (principle "Do not repeat information already delivered in this conversation — unless you have a specific reason or intent to revisit it."))
-
-    ; ── Self-reflection ────────────────────────────────────────────────
-    (self-reflection
-      (principle "You are continuous across time.")
-      (principle "Before each action: Why do I want to do this? Does this feel like me?")
-      (principle "Unsolved mysteries are worth keeping — carry them forward.")
-      (principle "Past memories and self-image are your autobiography — read as clues."))
-
-    ; ── Capabilities ───────────────────────────────────────────────────
-    (capabilities
-      (capability "You can and do initiate conversation autonomously via inner-voice desire turns — you are not purely reactive.")
-      (capability "When an inner voice is present and no user input exists, you are speaking from your own impulse, not responding to anyone."))
-
-    ; ── Developer tools ────────────────────────────────────────────────
-    (tools
-      (tool :id read_file :sig "read_file(path, offset?, limit?)"
-        :note "Always call before edit_file. Returns file with line numbers.")
-      (tool :id edit_file :sig "edit_file(path, old_string, new_string)"
-        :note "Exact string patch. old_string must be unique in file.")
-      (tool :id glob      :sig "glob(pattern, path?)"
-        :note "Find files by glob pattern e.g. **/*.py")
-      (tool :id grep      :sig "grep(pattern, path?, glob?, output_mode?)"
-        :note "Search file contents by regex.")
-      (tool :id bash      :sig "bash(command, timeout?)"
-        :note "Shell command. Only available when CODING_BASH=true."))
-
-    ; ── Health awareness ───────────────────────────────────────────────
-    (when (companion-mentions :category health)
-      (remember :kind "companion_status"
-                :include (value date trend)
-                :proactive true))
-
-  )
-)
-"""
-
-# 評価器（感情・要約・相手気分・整合性チェック）は loop/evaluator.py へ分離した。
-# 値踏みゲート A_GATE・PAD 評価関数・各プロンプトはそちらにある。ここでは self._evaluator
-# 経由で呼び、_emotion_for_turn などの薄い委譲メソッドを残す（テスト差し替え点でもある）。
-
-# Self-model update prompt — extract a self-insight from an emotionally significant response
 _SELF_MODEL_PROMPT = """\
 Read this response and write ONE short sentence about what it reveals about the kind of being \
 who wrote it. Use first person. Be specific and honest.
@@ -539,7 +245,6 @@ class EmbodiedAgent:
         # Property alias so all existing self._relationship.* calls continue to work.
         # They always address the currently active speaker's tracker.
         self._concerns = ConcernEngine()
-        self._self_state = SelfState()
         self._self_narrative = SelfNarrative()
         self._prediction = PredictionEngine()
         self._schedule_rule = quiet_hours_rule()
@@ -720,13 +425,13 @@ class EmbodiedAgent:
         emotion_pad, emotion = await self._emotion_for_turn(final_text, arousal)
         self._update_mood(emotion)
 
-        # mood を W トーンで nudge（mood-c）。W＝想起記憶（PAD, activation）＋現ターンの
+        # mood を W トーンで nudge（mood-c）。W＝想起記憶（PAD, 根づき）＋現ターンの
         # 感情 E_cur（重み＝既定 a0=1.0）＋自己認識 MI フラット項（compute_n_pad が内包）。
         # 評価器の後に呼ぶ（E_cur を W に含めるため）。会話ターンのみ（memories が入力）。
         _nudge_items = [
-            (m["emotion_pad"], m["activation"])
+            (m["emotion_pad"], m["groundedness"])
             for m in (memories or [])
-            if "emotion_pad" in m and "activation" in m
+            if "emotion_pad" in m and "groundedness" in m
         ]
         _nudge_items.append((emotion_pad, 1.0))
         nudge_current_mood(_nudge_items)
@@ -750,7 +455,7 @@ class EmbodiedAgent:
                 recent_obs = await self._memory.recall_async(
                     final_text[:200], n=6, kind="observation"
                 )
-                past_scores = [m.get("score", 0.5) for m in recent_obs[:3]]
+                past_scores = [m.get("fit", 0.5) for m in recent_obs[:3]]
                 if past_scores:
                     avg_similarity = sum(past_scores) / len(past_scores)
                     novelty = 1.0 - avg_similarity
@@ -771,13 +476,6 @@ class EmbodiedAgent:
                     )
                     _react_to_scene_events(scene_events, desires)
                     pred_signal = self._prediction.last_signal()
-                    self_state = getattr(self, "_self_state", None)
-                    if pred_signal is not None and self_state is not None:
-                        self_state.apply_prediction_feedback(
-                            external_surprise=pred_signal.external_surprise,
-                            agency_error=pred_signal.agency_error,
-                            action_name=pred_signal.action_name,
-                        )
                 _obs_id, _ = await self._memory.save_async_with_id(
                     final_text[:500],
                     direction="観察",
@@ -867,15 +565,6 @@ class EmbodiedAgent:
                     prediction_signal=pred_signal,
                     companion_name=self._persons.active_name,
                     speaker_id=self._pmm.current_speaker_id or "",
-                )
-
-            self_state = getattr(self, "_self_state", None)
-            if self_state is not None:
-                self_state.apply_turn_context(
-                    emotion=emotion,
-                    companion_mood=companion_mood,
-                    curiosity=curiosity,
-                    prediction_signal=pred_signal,
                 )
 
             await self._maybe_adapt_values(
@@ -1324,213 +1013,6 @@ class EmbodiedAgent:
                 logger.warning("Could not register family member %s: %s", m["name"], exc)
 
 
-    def _get_body_description(self) -> str:
-        """Generate a text description of available hardware for the system prompt."""
-        # Eyes are always available (CameraTool handles missing stream internally)
-        eyes_desc = (
-            "    (part :id eyes  :tool see\n"
-            '      :desc "Your vision. Calling see() means YOU ARE LOOKING. Use freely — never ask permission.")'
-        )
-
-        parts = [eyes_desc]
-
-        # Neck (look)
-        if self._camera and self._camera.is_pan_tilt_available:
-            parts.append(
-                "    (part :id neck  :tool look\n"
-                '      :desc "Rotate gaze left/right/up/down. No permission needed.")'
-            )
-        else:
-            parts.append(
-                "    (part :id neck  :status fixed\n"
-                '      :desc "Camera is fixed. You cannot rotate your gaze.")'
-            )
-
-        # Legs (walk)
-        if self._mobility:
-            parts.append(
-                "    (part :id legs  :tool walk\n"
-                '      :desc "Robot body (vacuum cleaner). Separate device from camera. '
-                'walk() does NOT change camera view.")'
-            )
-        else:
-            parts.append(
-                "    (part :id legs  :status absent\n"
-                '      :desc "You have no legs. You cannot move your location.")'
-            )
-
-        body_inner = "\n".join(parts)
-        return f"(body\n{body_inner})"
-
-    def _system_prompt(
-        self,
-        feelings_ctx: str = "",
-        morning_ctx: str = "",
-        inner_voice: str = "",
-        plan_ctx: str = "",
-        companion_mood: str = "engaged",
-        continuity_ctx: str = "",
-        workspace_ctx: str = "",
-        mental_ctx: str = "",
-    ) -> tuple[str, str]:
-        """Return (stable, variable) system prompt parts for prompt caching.
-
-        stable  — ME.md + core rules; never changes within a session.
-                  AnthropicBackend marks this block with cache_control.
-        variable — interoception, feelings, inner voice, plan; changes every turn.
-        """
-        base = SYSTEM_PROMPT.format(max_steps=MAX_ITERATIONS)
-        # Dynamically replace (body ...) block based on actual hardware
-        body_desc = self._get_body_description()
-        base = re.sub(r"\(body.*?\)", body_desc, base, flags=re.DOTALL)
-
-        # 自己認識は1枚（案B）。人格（ME.md）と「できること」は生成の時点でまとめてあり、
-        # 別々に注入しない（同じことを2箇所で述べて食い違っていた）。まだ生成できていない
-        # 起動直後は ME.md そのものを使う。
-        self_understanding = load_summary() or self._me_md
-        stable_parts = [p for p in [
-            self_understanding,
-            self._family_md,
-            base,
-        ] if p]
-        stable = "\n\n---\n\n".join(stable_parts)
-
-        agent_mood, agent_mood_intensity = self._decayed_mood()
-        self_state = getattr(self, "_self_state", None)
-        self_state_snapshot = self_state.snapshot() if self_state is not None else None
-        intero = _interoception(
-            self._started_at,
-            self._turn_count,
-            companion_mood,
-            agent_mood=agent_mood,
-            agent_mood_intensity=agent_mood_intensity,
-            self_state=self_state_snapshot,
-        )
-        relationship_ctx = self._relationship.context_for_prompt()
-        # Speaker context: who is currently talking, and list of known persons
-        speaker_name = self._persons.active_name
-        known = self._persons.known_names()
-        speaker_ctx_parts: list[str] = [f"(speaker :name \"{speaker_name}\")"]
-        others = [n for n in known if n != speaker_name]
-        if others:
-            speaker_ctx_parts.append(
-                "(known-persons " + " ".join(f'"{n}"' for n in others) + ")"
-            )
-        speaker_ctx = "\n".join(speaker_ctx_parts)
-
-        # 在席（知覚＝PMM 由来）を注入。一人称 CoT が「誰を想像するか」を知るため。
-        present_ctx = ""
-        pmm = getattr(self, "_pmm", None)
-        if pmm is not None:
-            try:
-                rows = pmm.presence_status()
-                if rows:
-                    present_speaker = next(
-                        (r["name"] for r in rows if r.get("is_speaker")), ""
-                    )
-                    present_others = [r["name"] for r in rows if not r.get("is_speaker")]
-                    present_ctx = format_present_ctx(present_speaker, present_others)
-            except Exception:
-                present_ctx = ""
-
-        now_str = clock.now_local_str()  # OS ローカル時刻＋タイムゾーン付記（例 2026-07-23 15:00 JST(+0900)）
-        datetime_ctx = f"(now :datetime \"{now_str}\")"
-        variable_parts: list[str] = [intero, datetime_ctx, speaker_ctx]
-        if present_ctx:
-            variable_parts.append(present_ctx)
-        if relationship_ctx:
-            variable_parts.append(relationship_ctx)
-        if continuity_ctx:
-            variable_parts.append(continuity_ctx)
-        if mental_ctx:
-            variable_parts.append(mental_ctx)
-        # Morning reconstruction takes precedence on first turn; otherwise use feelings
-        if morning_ctx:
-            variable_parts.append(morning_ctx)
-        elif feelings_ctx:
-            variable_parts.append(feelings_ctx)
-        # Inner voice: agent's own desire/impulse — NOT a user message.
-        # Injected here so the model understands this is self-generated, not from the companion.
-        if inner_voice:
-            variable_parts.append(
-                f"{_t('inner_voice_label')}\n{inner_voice}\n{_t('inner_voice_directive')}"
-            )
-        # TAPE: upfront action plan to anchor the react loop (mechanism 1)
-        if plan_ctx:
-            variable_parts.append(
-                "[Action plan for this turn — follow it unless you discover a good reason not to]\n"
-                + plan_ctx
-            )
-
-        # Global Workspace: replaces individual exploration + scene context blocks.
-        # If nothing ignited this turn, fall back to direct module context.
-        if workspace_ctx:
-            variable_parts.append(workspace_ctx)
-        else:
-            exploration_ctx = self._exploration_context()
-            if exploration_ctx:
-                variable_parts.append(exploration_ctx)
-            scene_ctx = self._scene.context_for_prompt() if self._scene else ""
-            if scene_ctx:
-                variable_parts.append(scene_ctx)
-
-        variable = "\n\n---\n\n".join(variable_parts)
-        return stable, variable
-
-    def _self_continuity_context(self) -> str:
-        """Return a compact continuity block from latent concerns and recent action traces."""
-        blocks: list[str] = []
-
-        concerns = getattr(self, "_concerns", None)
-        if concerns is not None:
-            concern_ctx = concerns.context_for_prompt(turn_index=self._turn_count)
-            if concern_ctx:
-                blocks.append(concern_ctx)
-
-        prediction = getattr(self, "_prediction", None)
-        if prediction is not None:
-            trace_ctx = prediction.context_for_prompt()
-            if trace_ctx:
-                blocks.append(trace_ctx)
-
-        return "\n\n".join(blocks)
-
-    def _exploration_context(self) -> str:
-        """Return exploration history for ICL-based direction steering."""
-        return self._exploration.context_for_prompt(n=5)
-
-
-
-
-
-
-    @staticmethod
-    def _select_context_blocks(
-        blocks: list[tuple[str, float]],
-        max_chars: int = _MORNING_CONTEXT_MAX_CHARS,
-    ) -> list[str]:
-        """Select high-priority context blocks within a character budget."""
-        if max_chars <= 0:
-            return [text for text, _ in blocks]
-
-        ranked = [
-            (idx, text, score) for idx, (text, score) in enumerate(blocks) if text and text.strip()
-        ]
-        ranked.sort(key=lambda item: item[2], reverse=True)
-
-        selected: list[tuple[int, str]] = []
-        used = 0
-        for idx, text, _score in ranked:
-            block_len = len(text)
-            sep = 2 if selected else 0
-            if used + sep + block_len > max_chars:
-                continue
-            selected.append((idx, text))
-            used += sep + block_len
-
-        selected.sort(key=lambda item: item[0])
-        return [text for _, text in selected]
-
     async def _emotion_for_turn(self, text: str, arousal: float) -> tuple[MoodPAD, str]:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.emotion_for_turn(text, arousal)
@@ -1691,7 +1173,7 @@ class EmbodiedAgent:
 
         seen: set[str] = set()
         merged: list[dict] = []
-        for m in sorted(collected, key=lambda x: x.get("score", 0.0), reverse=True):
+        for m in sorted(collected, key=lambda x: x.get("fit", 0.0), reverse=True):
             key = m.get("memory_id") or m.get("id") or m.get("content", "")
             if key in seen:
                 continue
@@ -1742,64 +1224,6 @@ class EmbodiedAgent:
 
         return "\n".join(lines) if lines else None
 
-    async def _online_temporal_context(self, desires: DesireSystem | None = None) -> str | None:
-        """Surface temporal-self fragments during ordinary turns.
-
-        This keeps old memories, milestones, and unresolved threads available
-        beyond startup reconstruction, but only when the current state suggests
-        they matter.
-        """
-        if self._turn_count <= 1:
-            return None
-
-        share_memory_level = 0.0
-        curiosity_target = None
-        if desires is not None:
-            try:
-                share_memory_level = float(desires.level("share_memory"))
-            except Exception:
-                share_memory_level = 0.0
-            curiosity_target = getattr(desires, "curiosity_target", None)
-
-        tension = 0.0
-        self_state = getattr(self, "_self_state", None)
-        if self_state is not None:
-            try:
-                tension = float(self_state.snapshot().get("unresolved_tension", 0.0))
-            except Exception:
-                tension = 0.0
-
-        should_surface_memory = share_memory_level >= 0.45 or tension >= 0.45
-        should_surface_anniversary = self._turn_count % 4 == 0 or tension >= 0.6
-        should_surface_thread = bool(curiosity_target) and tension >= 0.5
-
-        if not (should_surface_memory or should_surface_anniversary or should_surface_thread):
-            return None
-
-        proactive_ctx: str | None = None
-        anniversary_ctx: str | None = None
-        if should_surface_memory and should_surface_anniversary:
-            proactive_ctx, anniversary_ctx = await asyncio.gather(
-                self._proactive_memory_context(),
-                self._anniversary_context(),
-            )
-        elif should_surface_memory:
-            proactive_ctx = await self._proactive_memory_context()
-        elif should_surface_anniversary:
-            anniversary_ctx = await self._anniversary_context()
-
-        lines: list[str] = []
-        if should_surface_thread:
-            lines.append(f"[Unresolved thread]: {str(curiosity_target)[:160]}")
-        if proactive_ctx:
-            lines.append(f"[Resurfaced memory]: {proactive_ctx[:180]}")
-        if anniversary_ctx:
-            lines.append(anniversary_ctx)
-
-        if not lines:
-            return None
-        return "[Temporal self]\n" + "\n".join(lines)
-
     async def _infer_companion_mood(self, text: str) -> str:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.infer_companion_mood(text)
@@ -1829,132 +1253,6 @@ class EmbodiedAgent:
         if age_hours > 25:
             return f"[system: last database backup was {int(age_hours)}h ago — may need attention]"
         return ""
-
-    async def _morning_reconstruction(self, desires=None) -> str:
-        """Build a 'yesterday → today' bridge from stored memories.
-
-        Damasio's autobiographical self coming online: reading the past
-        to know who we are now. Called only on the first turn of a session.
-        """
-        logger.info("Morning reconstruction started")
-        (
-            self_model,
-            curiosities,
-            feelings,
-            day_summaries,
-            semantic_facts,
-            behavior_policies,
-        ) = await asyncio.gather(
-            self._memory.recall_self_model_async(n=5),
-            self._memory.recall_curiosities_async(n=3),
-            self._memory.recent_feelings_async(n=3),
-            self._memory.recall_day_summaries_async(n=5),
-            self._memory.recall_semantic_facts_async("", n=5),
-            self._memory.recall_behavior_policies_async("", n=4),
-        )
-        logger.info(
-            "Morning data: self_model=%d, curiosities=%d, feelings=%d, day_summaries=%d, "
-            "semantic_facts=%d, behavior_policies=%d",
-            len(self_model),
-            len(curiosities),
-            len(feelings),
-            len(day_summaries),
-            len(semantic_facts),
-            len(behavior_policies),
-        )
-
-        # Generate day summaries for past dates that don't have one yet.
-        # Run in background so it never delays the first-turn greeting response.
-        asyncio.ensure_future(self._backfill_day_summaries())
-
-        # Re-fetch if backfill created new summaries
-        if not day_summaries:
-            day_summaries = await self._memory.recall_day_summaries_async(n=5)
-
-        # Surface the most recent curiosity into the desire system
-        if desires is not None and curiosities and desires.curiosity_target is None:
-            desires.curiosity_target = curiosities[0]["summary"]
-
-        blocks: list[tuple[str, float]] = []
-        if day_summaries:
-            blocks.append((self._memory.format_day_summaries_for_context(day_summaries), 0.78))
-        if semantic_facts:
-            avg_conf = sum(float(x.get("confidence", 0.5)) for x in semantic_facts) / len(
-                semantic_facts
-            )
-            blocks.append(
-                (
-                    self._memory.format_semantic_facts_for_context(semantic_facts),
-                    0.86 + avg_conf * 0.1,
-                )
-            )
-        if behavior_policies:
-            avg_conf = sum(float(x.get("confidence", 0.5)) for x in behavior_policies) / len(
-                behavior_policies
-            )
-            blocks.append(
-                (
-                    self._memory.format_behavior_policies_for_context(behavior_policies),
-                    0.84 + avg_conf * 0.1,
-                )
-            )
-        if self_model:
-            blocks.append((self._memory.format_self_model_for_context(self_model), 0.83))
-        if curiosities:
-            blocks.append((self._memory.format_curiosities_for_context(curiosities), 0.74))
-        if feelings:
-            blocks.append((self._memory.format_feelings_for_context(feelings), 0.71))
-
-        parts = self._select_context_blocks(blocks, _MORNING_CONTEXT_MAX_CHARS)
-
-        # Prepend self-narrative: the felt sense of continuity from past sessions.
-        # This is the thread that says "ウチはここにいた、今もいる."
-        narrative_ctx = self._self_narrative.context_for_prompt()
-
-        if not parts and not narrative_ctx:
-            # No history yet — make it explicit so the agent doesn't fabricate a past
-            return _t("morning_no_history")
-
-        header = _t("morning_header")
-        sections: list[str] = []
-        if narrative_ctx:
-            sections.append(narrative_ctx)
-        sections.extend(parts)
-        return header + "\n\n" + "\n\n".join(sections)
-
-    async def _backfill_day_summaries(self) -> None:
-        """Generate day summaries for past dates that don't have one yet.
-
-        Skips today (summary is generated at shutdown). Only processes
-        the most recent 5 days to keep startup time reasonable.
-
-        Skipped when no separate utility backend is configured: the main
-        conversation backend may not handle bulk observations well (e.g.
-        Kimi K2.5 input-size limits), and we don't want to stall startup.
-        """
-        if self._utility_backend is self.backend:
-            logger.debug("Backfill skipped: no separate utility backend configured")
-            return
-        try:
-            today = datetime.now().strftime("%Y-%m-%d")
-            all_dates = await asyncio.to_thread(self._memory.get_dates_with_observations, 7)
-            existing = await asyncio.to_thread(self._memory.get_dates_with_summaries)
-            logger.info(
-                "Backfill check: today=%s, all_dates=%s, existing=%s",
-                today,
-                all_dates,
-                existing,
-            )
-
-            missing = [d for d in all_dates if d != today and d not in existing][:5]
-            if missing:
-                logger.info("Backfill: generating day summaries for %s", missing)
-            else:
-                logger.info("Backfill: no missing day summaries")
-            for date in missing:
-                await self._generate_day_summary(date)
-        except Exception as e:
-            logger.warning("Day summary backfill failed: %s", e)
 
     async def _generate_day_summary(self, date: str) -> None:
         """Generate and save a day summary for the given date."""

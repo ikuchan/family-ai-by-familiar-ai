@@ -157,7 +157,7 @@ def test_supersede_keeps_the_original_row(memory) -> None:
 
 # ── 5. W が O から作れる（[D-記憶単一化]） ──────────────────────────────────
 
-def test_recall_returns_usable_scores(memory) -> None:
+def test_recall_returns_usable_fit(memory) -> None:
     """想起が候補を返し、スコアが有限かつ 0 以上。中身は問わない。"""
     memory.save(f"invariant recall {uuid.uuid4()}", direction="会話", kind="conversation")
 
@@ -168,9 +168,9 @@ def test_recall_returns_usable_scores(memory) -> None:
 
     assert results, "想起が何も返さない"
     for r in results:
-        score = r["score"]
-        assert math.isfinite(score), f"スコアが有限でない: {score}"
-        assert score >= 0.0, f"スコアが負: {score}"
+        fit = r["fit"]
+        assert math.isfinite(fit), f"適合度が有限でない: {fit}"
+        assert fit >= 0.0, f"適合度が負: {fit}"
 
 
 # ── 6・7. T レジスタが動き、放っておけば戻る（[D-B分離]／[D-値踏み]） ────────

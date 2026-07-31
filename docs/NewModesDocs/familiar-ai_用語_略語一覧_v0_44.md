@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v0.41）
+# familiar-ai 用語・略語一覧（v0.44）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -29,10 +29,10 @@
 | I | イベント駆動 | Event-driven | — | ループ核は3キューの union を待ち、来たどれでも起きる。時計は見ない（タイマーは T が due で情動を発火）。 |
 | I | 有界並行 | Bounded Concurrency | — | 外部呼び出し（LLM・MCP）の in-flight 数に固定上限を置く安定化。容量（構造）で頭打ちにし、期限（時間閾値）を使わない（[D-外部安定]）。上限は **$MaxConc$（同時実行）と $MaxPend$（保留）**の2つ。**$MaxConc$ は自前資源でなく外部 API レート制限の安全弁**（deferred は I/O 待ち・初期値は課題7）。 |
 | I | バックプレッシャ | Backpressure | — | 有界並行が満杯のとき新規ディスパッチを止める制御。コア側の統一インターフェースが一律に持つ（ハンドラは薄い契約）。**$MaxPend$ 超過は積まず「結果なし」で返す**（横上限＝1バッチ本数はこれに統合）。失敗理由（404/429/未投入）は峻別せず**結果あり/なしの2値のみ**・機械リトライなし（[D-外部安定]）。 |
-| I | 派生ビュー（W） | Derived View / Projection | — | W は書き込む store でなく、毎ターン O（＋現在入力）から projection で作り直す ephemeral な作業文脈。activation は構築時に O から算出（[D-記憶単一化]）。 |
-| I | 基底メンタルアイテム | Primitive MI | PI | MI の基底型。T が作る「感じ＋欲」だけ＝`emotion`(PAD)／`drive`(5欠乏)。`MI`＝`PI`＋`id`／`content`／`vector`／`supersedes`／`activation`（content・vector・activation は T に無く I が足す）。`timestamp` は store メタdata（属性でない）。発火は PI で境界を渡り I で MI に拡張（[D-MIモデル]/[D-T境界]）。**実装クラス名は `PrimitiveMentalItem`**（基底のデータ保持クラス）。感情属性 `emotion` は PAD または未設定（値の不在を表す `None`）を取り、評価前は未設定で持つ（評価結果としての中立と、未評価の未設定とを区別するため）。**PI 構築と PI→MI 拡張の実装は `tif.py`** の `build_primitive`（M と D から PI を作る）／`expand_to_mental`（PI に id 等を足して MI 化）＝emotion に `MoodPAD`・drive に `AiDrivers` を載せ、発火とループへ未接続（B-3）。 |
+| I | 派生ビュー（W） | Derived View / Projection | — | W は書き込む store でなく、毎ターン O（＋現在入力）から projection で作り直す ephemeral な作業文脈。根づき は構築時に O から算出（[D-記憶単一化]）。 |
+| I | 基底メンタルアイテム | Primitive MI | PI | MI の基底型。T が作る「感じ＋欲」だけ＝`emotion`(PAD)／`drive`(5欠乏)。`MI`＝`PI`＋`id`／`content`／`vector`／`supersedes`／`根づき`（content・vector・根づき は T に無く I が足す）。`timestamp` は store メタdata（属性でない）。発火は PI で境界を渡り I で MI に拡張（[D-MIモデル]/[D-T境界]）。**実装クラス名は `PrimitiveMentalItem`**（基底のデータ保持クラス）。感情属性 `emotion` は PAD または未設定（値の不在を表す `None`）を取り、評価前は未設定で持つ（評価結果としての中立と、未評価の未設定とを区別するため）。**PI 構築と PI→MI 拡張の実装は `tif.py`** の `build_primitive`（M と D から PI を作る）／`expand_to_mental`（PI に id 等を足して MI 化）＝emotion に `MoodPAD`・drive に `AiDrivers` を載せ、発火とループへ未接続（B-3）。 |
 | AIF | 旧 Activity Interface | Async Interface | AIF | I の出入り口。**[D-I内部] で T 接続専用**（情動を受け Nudge を送る・キュー書込）。機器は DIF、LLM/MCP は内部資源。**境界の型は発し手基準＝T は PI を発し／I は MI を発する。情報の処理は受け側**（T→I は I が PI→MI 拡張＝足す／I→T は T が MI→`emotion` フィルタ＝絞る・[D-T境界]）。 |
-| I／T境界 | ナッジ（Nudge） | Nudge | — | I→T の一方向の作用。**MI として発する**（I の素性＝MI）。中身＝`emotion`←N_PAD（W 感情トーン＝W 上 MI の emotion を activation 加重平均・自己認識 MI 含む）・`content`←Nudge 標識＋算出に用いた W 上 MI の id 配列・`drive`/`vector`/`supersedes` 無し・`activation` 無意味。T が受け側で `emotion` だけフィルタし M（気分）のみ変調（D に触れない）・O に残さない（[D-発火]・[D-T境界]）。 |
+| I／T境界 | ナッジ（Nudge） | Nudge | — | I→T の一方向の作用。**MI として発する**（I の素性＝MI）。中身＝`emotion`←N_PAD（W 感情トーン＝W 上 MI の emotion を 根づき 加重平均・自己認識 MI 含む）・`content`←Nudge 標識＋算出に用いた W 上 MI の id 配列・`drive`/`vector`/`supersedes` 無し・`根づき` 無意味。T が受け側で `emotion` だけフィルタし M（気分）のみ変調（D に触れない）・O に残さない（[D-発火]・[D-T境界]）。 |
 | DIF | 機器IF | Device Interface | DIF | 外部物理機器（カメラ・スピーカー・マイク・音楽）の入出力をキュー保持する I の出入り口。 |
 | SS | 自己状態 | Self-state | SS | 向き・発話中・再生中の現在値（記憶でなく proprioception）。 |
 | G | 外界監視 | Gaze | G | 普通でないことに気づく（価値判断はしない）。 |
@@ -56,16 +56,16 @@
 | G／DIF | 振動中ゲート | — | — | カメラ移動中は驚き計算をスキップする仕組み（自己運動で誤検知しない）。 |
 | G／DIF | 時刻（Clock） | — | — | TIF が D に渡す時刻。欠乏の蓄積レート修飾に使う。 |
 | M | 雰囲気 | Mood | M | 気分を保持し、平静へ減衰する。 |
-| M | 快・喚起・支配（感情3軸） | — | PAD | 感情を3軸で表す。P/Pn（快/不快・両価で独立）、A（覚醒）、Dom（支配＝対処可否）。**全軸 [0,1]・中立0.5・両側**（0＝皆無／0.5＝普通／1＝最大）。畳み込み前へ戻すときは全軸ロジット $\mathrm{logit}(x)=\ln(x/(1-x))$（中立0.5→0）。**mood レジスタの実装は `mood_register.py`** の `MoodPAD`（`p`／`pn`／`a`／`dom`・各軸[0,1]・中立0.5）＝平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad` へ永続・現状は未接続（B-1）。**観測側の感情 PAD は `observations` の列 `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`**（案B＝軸ごとの `double precision NOT NULL DEFAULT 0.5`・各列 CHECK 0..1・マイグレーション024）に格納する。**W1a（書き込み PAD 化）・W2（評価器の PAD 出力）・W1b（既存行を埋める）とも実施済み**。W1b は2段で行った：ラベルが `neutral` 以外の180件を `LABEL_PAD` で機械的に、`neutral` の1387件を**評価器へ20件ずつまとめて渡して**出し直す（基準は中立＝実行日の気分を混ぜない／過去行には機械 arousal が残っていないため **A も尋ねた**）。結果は全3370件で平均 P=0.610・Pn=0.298・A=0.556・Dom=0.538、既定のまま残るのは317件（埋め損ねではなく**評価器が中立と判定した結果**）。**一次絞り用に `emotion_vec`（`vector(4)`・ロジット空間・$\sqrt{\lambda}$ 畳み込み）を併せ持つ**（マイグレーション `2026-07-27-033`）。**PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`**（マイグレーション025 の `_LABEL_PAD` は凍結写し・値一致）、**PAD→ラベル逆引きは `label_from_pad`**（ユークリッド最近傍で12ラベルへ量子化・W2a・未接続）。観測行の PAD 列は `_row_to_mental_item` が `MoodPAD` として `MentalItem.emotion` に載せる（Y・W2a）。**観測の感情 PAD は評価器（軽量LLM）が P/Pn/Dom で直接出す**（`_evaluate_emotion_pad`・A_gate=0.25＝arousal 未満は評価器を呼ばず P/Pn/Dom＝M、A 軸は機械 arousal、解析失敗は mood フォールバック・W2b-2）。現在 mood は `load_current_mood()`（自己接続・読みだけ・更新は mood スライス）。ラベルは PAD から派生（`label_from_pad`）＝旧 `_infer_emotion`（ラベル直出し）は撤去。 |
+| M | 快・高ぶり・支配（感情3軸） | — | PAD | 感情を3軸で表す。P/Pn（快/不快・両価で独立）、A（高ぶり）、Dom（支配＝対処可否）。**全軸 [0,1]・中立0.5・両側**（0＝皆無／0.5＝普通／1＝最大）。畳み込み前へ戻すときは全軸ロジット $\mathrm{logit}(x)=\ln(x/(1-x))$（中立0.5→0）。**mood レジスタの実装は `mood_register.py`** の `MoodPAD`（`p`／`pn`／`a`／`dom`・各軸[0,1]・中立0.5）＝平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad` へ永続・現状は未接続（B-1）。**観測側の感情 PAD は `observations` の列 `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`**（案B＝軸ごとの `double precision NOT NULL DEFAULT 0.5`・各列 CHECK 0..1・マイグレーション024）に格納する。**W1a（書き込み PAD 化）・W2（評価器の PAD 出力）・W1b（既存行を埋める）とも実施済み**。W1b は2段で行った：ラベルが `neutral` 以外の180件を `LABEL_PAD` で機械的に、`neutral` の1387件を**評価器へ20件ずつまとめて渡して**出し直す（基準は中立＝実行日の気分を混ぜない／過去行には機械 arousal が残っていないため **A も尋ねた**）。結果は全3370件で平均 P=0.610・Pn=0.298・A=0.556・Dom=0.538、既定のまま残るのは317件（埋め損ねではなく**評価器が中立と判定した結果**）。**一次絞り用に `emotion_vec`（`vector(4)`・ロジット空間・$\sqrt{\lambda}$ 畳み込み）を併せ持つ**（マイグレーション `2026-07-27-033`）。**PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`**（マイグレーション025 の `_LABEL_PAD` は凍結写し・値一致）、**PAD→ラベル逆引きは `label_from_pad`**（ユークリッド最近傍で12ラベルへ量子化・W2a・未接続）。観測行の PAD 列は `_row_to_mental_item` が `MoodPAD` として `MentalItem.emotion` に載せる（Y・W2a）。**観測の感情 PAD は評価器（軽量LLM）が P/Pn/Dom で直接出す**（`_evaluate_emotion_pad`・A_gate=0.25＝arousal 未満は評価器を呼ばず P/Pn/Dom＝M、A 軸は機械 arousal、解析失敗は mood フォールバック・W2b-2）。現在 mood は `load_current_mood()`（自己接続・読みだけ・更新は mood スライス）。ラベルは PAD から派生（`label_from_pad`）＝旧 `_infer_emotion`（ラベル直出し）は撤去。 |
 | D | 情動 | Drive | D | 欠乏を蓄積し、修飾を受ける。閾値超えで発火。**drive レジスタの実装は `drive_register.py`** の `AiDrivers`（`seeking`／`rest`／`bond`／`safety`／`esteem`・各軸[0,1]・静止（既定）0.0）＝agent_state の state_key `drive5` へ `load_drives`／`save_drives` で永続・器のみで蓄積と放電と mood 変調は未実装・未接続（B-2）。 |
 | D | M→D 変調項 | mood-drive modulation | g_D | mood が drive 蓄積を変調する係数。$g_{D,i}=\mathrm{logistic}(\mathrm{logit}(b_i)+\sum_j C_{ij}\,\mathrm{logit}(x_j))$（ロジット合成・崖なし・両端漸近。$x_j$＝PAD 軸の生値・全軸中立0.5を logit で戻す＝引き算不要）。共通 rate に掛かる（[D-発火]・別紙「設計詳細_発火・mood」）。 |
 | D | 基準バイアス | drive bias | b_i | 中立 mood 時の $g_{D,i}$＝欲求 $i$ の中立発火頻度を決める Config（0〜1）。低いほど低頻度（[D-発火]）。 |
 | D | 変調行列 | modulation matrix | C_ij | 5 欲求×4 PAD 軸。mood の振れが各 drive の蓄積をどう変調するかの Config。振れ幅 ±6・係数絶対値上限1.0・**正係数=高いと募る／負係数=低いと募る**（全軸0.5両側）。5×4 の具体仮値は別紙「設計詳細_発火・mood」（[D-発火]）。 |
-| D | 探索 | SEEKING | — | 新しいもの・情報を見たい/知りたい欲求。PAD の A（覚醒）高・マズロー第5段（自己実現の探究）。 |
+| D | 探索 | SEEKING | — | 新しいもの・情報を見たい/知りたい欲求。PAD の A（高ぶり）高・マズロー第5段（自己実現の探究）。 |
 | D | つながり | — | BOND | 一緒にいたい＋**相手にとって意味ある存在でありたい（関係的承認を含む）**欲求。PAD の P（快）軸・マズロー第3段（所属と愛＋関係的承認）。 |
 | D | 安全 | — | SAFETY | 危険がないか確かめて安心したい欲求。PAD の Pn（不快）軸・マズロー第2段（安全）。 |
 | D | 承認・自尊 | — | ESTEEM | **競争的承認＋自己有能感**（他より優れている・うまくやれた・達成）を求める欲求。PAD の Dom（支配）軸・マズロー第4段（承認）。関係的承認は BOND 側。 |
-| D | 休息 | — | REST | 休みたい・整理したい欲求。PAD の A（覚醒）低・マズロー第1段（生理）。SEEKING と覚醒軸の両極。 |
+| D | 休息 | — | REST | 休みたい・整理したい欲求。PAD の A（高ぶり）低・マズロー第1段（生理）。SEEKING と高ぶり軸の両極。 |
 | B（解体） | 揮発記憶・T側 | Buffer | B | 直近の状態を保持し速やかに忘れる。 |
 | O | エピソード記憶・I側 | Observation | O | 感情つきの出来事を保持。ほぼ永続・検索可。 |
 | O | 追記（イベントログ） | — | — | O は出来事を追記する。書込は **I が起きている反復のみ**（起きていない間は記録しない・取りこぼし許容）。 |
@@ -76,19 +76,24 @@
 | O | 統合（consolidate） | — | — | 近傍重複を REST 内省（日次）でまとめて supersede すること（前景でやらない）。 |
 | O | 昇格（O の外） | — | — | 観測を意味事実/行動方針へ上げる処理。O 書込から分離し、O は出来事のみ持つ。 |
 | W | 作業記憶・I側 | Workspace | W | 前景の作業状態を保持。速く薄れる。 |
-| MI／記憶モデル | MI（メンタルアイテム：Mental Item） | — | — | 記憶 O のレコード。基底 **PI＝emotion/drive**、**MI＝PI＋id/content/vector/supersedes/activation**。timestamp は store メタdata。kind なし・意味は content→LLM 解釈（[D-MIモデル]・別紙 v2）。**実装クラス名は `MentalItem`**（`PrimitiveMentalItem` を継承し `id`／`content`／`vector`／`supersedes`／`activation` を足す拡張クラス）。 |
+| MI／記憶モデル | MI（メンタルアイテム：Mental Item） | — | — | 記憶 O のレコード。基底 **PI＝emotion/drive**、**MI＝PI＋id/content/vector/supersedes/根づき**。timestamp は store メタdata。kind なし・意味は content→LLM 解釈（[D-MIモデル]・別紙 v2）。**実装クラス名は `MentalItem`**（`PrimitiveMentalItem` を継承し `id`／`content`／`vector`／`supersedes`／`根づき` を足す拡張クラス）。 |
 | MI／記憶モデル | 状態種別（廃止） | state_type | — | 〔**廃止**〕B 解体（[D-B分離]）。drive→PI.drive／mood→PI.emotion／norm・presence→T(G) private レジスタ。 |
 | MI／記憶モデル | 出所（廃止） | source | — | 〔**廃止**〕由来は content（PI か否かは取込時に解決済み・[D-MIモデル]）。 |
-| MI／記憶モデル | 状態 | status | — | **open/closed**。**activation に吸収**（開=高／解決=落とす）。suspended（退避）は廃止。 |
+| MI／記憶モデル | 状態 | status | — | **open/closed**。**根づきに吸収**（開=高／解決=落とす）。suspended（退避）は廃止。 |
 | MI／記憶モデル | 実行可能時点（廃止） | actionable_when | — | 〔**廃止**〕保留・actionable 判定は**調停が毎ターン W から行う**（field でなくロジック：即／優先度／到着＋ゲート）。 |
 | MI／記憶モデル | 動作対象（廃止） | target | — | 〔**廃止**〕動作の意図は content＋ハンドラ解釈（構造化コマンドを MI に持たない・[D-MIモデル]）。 |
 | MI／記憶モデル | 保持フラグ（廃止） | persist | — | 〔**廃止**〕W 派生化で非減衰保持の概念が消える。見た定点の印・直近記録曲は **O の MI として残り想起される**。 |
-| MI／記憶モデル | 重要度 | activation | — | **重要度**（現 `importance` の一般化）。**2段で動く**：段1＝機械＝取込時 `a0=clip(w_s·surprise+w_n·novelty,0,C)`（**relevance 廃止**）、機械想起では触らない／段2＝**フルLLM が参照した MI だけ**再評価（上げ下げ）＋freshness 更新、解決もフルLLM 宣言で落とす。open・pinned は高く保つ。**一次絞り軸には使わない**（$(a_0,n)$ からの導出値で、順序が2つの重み付き和になり索引の対象が無い）＝候補集合は他の軸が作り、$a$ は score の加算部でだけ効く（$w_a{=}1.5$）。**time では減らさない**。[D-想起合成]。**保存形式の実装（A-3-1）**：初期値 a0 を列 `activation_a0`（REAL・既定1.0）、正味デルタ回数 n を列 `activation_n`（INTEGER・既定0）に持ち、導出関数 `_derive_activation(a0, n)` で a を導出（a0 を正規化しロジットで無限区間へ→n·step 加算→ロジスティックで [floor,C] へ戻す）。定数 floor=0／C=2／ε=0.001／step=0.33 は Config 差し替え可の仮値（step=0.33 は取込 a0=0.75 から評価5回で実用上限1.5 に達する効き幅・課題5）。現 `importance` 列は当面残す（想起スコアが使用中・接続と廃止は後続）。 |
-| MI／記憶モデル | 活性の正味更新回数 | net delta count | n | activation を値 a で保存せず $(a_0,n)$ で保存し導出するための、正味デルタ回数（大事+1／不要−1）。$n$ を保存することで +1/−1 が可逆・対称になる（[D-想起合成]）。**実装列は `activation_n`（INTEGER・既定0）**。n を実際に増減させる評価の仕組みは後続（Phase 2）で、A-3-1 時点では移行・取込とも 0。 |
-| 全体 | 有界量の逆写像操作（共通イディオム） | bounded-value inverse-map op | — | 0〜1（有界区間）の量をロジット等で無限空間へ戻し、そこで線形操作（加算）して畳み込み関数で戻す共通手法。**感情距離（PAD）・activation 導出・新しさ漸近・drive の M→D 変調**に共通（4例）。可逆・対称・両端漸近を与える（[D-想起合成]）。 |
-| MI／記憶モデル | 想起スコア | score | — | **想起 score＝r^(w_r)×M（ハイブリッド）**＝関連 r^(w_r) は乗算ゲート（拒否権）、M＝(w_t·t+w_e·e+w_a·a)/(w_t+w_e+w_a)＝t/e/a の加重平均（[D-想起合成]・基底プロファイル (1,1,1,1.5)→base は r·(t+e+1.5a)/3.5）。優先・競合に使う。**実装（スライス3）**：`_compute_final_score` がこの式そのもの。r は `_stretch_relevance(cos, c_lo, c_hi)`（固定係数 min-max 伸長・確定値 0.0/1.0 では恒等）、e は `_emotion_match(obs_pad, mood_pad, sigma)`＝**今の気分と観測 PAD の距離**（mood は想起1回につき1つ読み全候補共通・読めなければ e 項を分子分母から外す）、a は `_derive_activation(a0,n)`。係数は `MemoryConfig` の `recall_c_lo`／`recall_c_hi`／`recall_w_r`／`recall_w_t`／`recall_w_e`／`recall_w_a`／`recall_emotion_sigma`／`recall_w_p`。**p は5軸目として実装済み**（`_score_breakdown` が p/w_p を加重平均へ・`_presence_correlation`＝在席他者視点・noisy-OR・候補集合拡張は `recall_presence_expand`）。薄い包み `_compute_final_score` 単体は今も p を渡さない4軸で、recall 経路が5軸。 |
-| MI／記憶モデル | 重要度（現コード名） | importance | — | `_compute_final_score` の第3項。新設計の `activation` がこれを一般化（静的→イベント駆動の重要度）。[D-想起合成]。 |
-| MI／記憶モデル | 常時 W 包含 | pinned | — | `activation` を実質上限に保ち、recall_score に依らず毎ターン W に含める扱い。自己認識 MI に適用。 |
+| MI／記憶モデル | 根づき | groundedness | g | **根づき**（旧称 activation・現 `importance` の一般化）。**2段で動く**：段1＝機械＝取込時 `g0=clip(w_s·surprise+w_n·novelty,0,C)`（**relevance 廃止**）、機械想起では触らない／段2＝**フルLLM が参照した MI だけ**再評価（上げ下げ）＋freshness 更新、解決もフルLLM 宣言で落とす。open・pinned は高く保つ。**一次絞り軸には使わない**（$(a_0,n)$ からの導出値で、順序が2つの重み付き和になり索引の対象が無い）＝候補集合は他の軸が作り、$a$ は score の加算部でだけ効く（$w_a{=}1.5$）。**time では減らさない**。[D-想起合成]。**保存形式の実装（A-3-1）**：初期値 a0 を列 `groundedness_g0`（REAL・既定1.0）、正味デルタ回数 n を列 `groundedness_n`（INTEGER・既定0）に持ち、導出関数 `_derive_groundedness(a0, n)` で a を導出（a0 を正規化しロジットで無限区間へ→n·step 加算→ロジスティックで [floor,C] へ戻す）。定数 floor=0／C=2／ε=0.001／step=0.33 は Config 差し替え可の仮値（step=0.33 は取込 a0=0.75 から評価5回で実用上限1.5 に達する効き幅・課題5）。現 `importance` 列は当面残す（想起スコアが使用中・接続と廃止は後続）。 |
+| MI／記憶モデル | 高ぶり | arousal | a | 感情 PAD の A 軸。快不快と独立の高ぶりの度合い。列 `emotion_a`／`MoodPAD.a`。**根づきとは別物**で、旧称「高ぶり」「高ぶり」は用語を割っていたので廃止した。 |
+| I／ワークスペース | 勢い | dynamism | d | ワークスペース競合の候補（`Coalition`）が持つ基礎強度。提案元（欲求・情景・記憶・予測・探索・語り）が付ける。競合スコア＝勢い×(0.4×urgency+0.3×novelty+0.3)。DB に載らない実行時だけの量。 |
+| 想起 | 地力 | merit | m | 想起の採点の加算部＝$(w_t t + w_e e + w_g g + w_p p)/\sum w$。**時間経過を含んだ重要度**で、関連は含まない。同じ記録なら問いが変わっても変わらない。 |
+| 想起 | 適合度 | fit | f | 想起の最終値＝$r^{w_r} \times$ 地力。**W を選ぶのはこれ**。関連を含むので、同じ記録でも問いが変われば変わる。`recall()` の返り値キーは `fit`（store の `by_vector` が返す行の `score` は生コサインで別物）。 |
+| MI／記憶モデル | 顕著性 | salience | s | W を DB へ溜めていた旧方式（表 `memory_salience`・旧称 `memory_salience`）。W は O からの派生ビューで毎ターン作り直す設計に変わったため、溜める形自体が撤去予定である。 |
+| MI／記憶モデル | 根づきの正味更新回数 | net delta count | n | 根づきを値 g で保存せず $(g_0,n)$ で保存し導出するための、正味デルタ回数（大事+1／不要−1）。$n$ を保存することで +1/−1 が可逆・対称になる（[D-想起合成]）。**実装列は `groundedness_n`（INTEGER・既定0）**。n を実際に増減させる評価の仕組みは後続（Phase 2）で、A-3-1 時点では移行・取込とも 0。 |
+| 全体 | 有界量の逆写像操作（共通イディオム） | bounded-value inverse-map op | — | 0〜1（有界区間）の量をロジット等で無限空間へ戻し、そこで線形操作（加算）して畳み込み関数で戻す共通手法。**感情距離（PAD）・根づき 導出・新しさ漸近・drive の M→D 変調**に共通（4例）。可逆・対称・両端漸近を与える（[D-想起合成]）。 |
+| MI／記憶モデル | 適合度 | fit | f | **適合度＝r^(w_r)×地力（ハイブリッド）**＝関連 r^(w_r) は乗算ゲート（拒否権）、地力＝(w_t·t+w_e·e+w_a·a)/(w_t+w_e+w_a)＝t/e/a の加重平均（[D-想起合成]・基底プロファイル (1,1,1,1.5)→base は r·(t+e+1.5a)/3.5）。優先・競合に使う。**実装（スライス3）**：`_compute_final_score` がこの式そのもの。r は `_stretch_relevance(cos, c_lo, c_hi)`（固定係数 min-max 伸長・確定値 0.0/1.0 では恒等）、e は `_emotion_match(obs_pad, mood_pad, sigma)`＝**今の気分と観測 PAD の距離**（mood は想起1回につき1つ読み全候補共通・読めなければ e 項を分子分母から外す）、a は `_derive_groundedness(a0,n)`。係数は `MemoryConfig` の `recall_c_lo`／`recall_c_hi`／`recall_w_r`／`recall_w_t`／`recall_w_e`／`recall_w_g`／`recall_emotion_sigma`／`recall_w_p`。**p は5軸目として実装済み**（`_score_breakdown` が p/w_p を加重平均へ・`_presence_correlation`＝在席他者視点・noisy-OR・候補集合拡張は `recall_presence_expand`）。薄い包み `_compute_final_score` 単体は今も p を渡さない4軸で、recall 経路が5軸。 |
+| MI／記憶モデル | 重要度（現コード名） | importance | — | `_compute_final_score` の第3項。新設計の**根づき**がこれを一般化（静的→イベント駆動の重要度）。[D-想起合成]。 |
+| MI／記憶モデル | 常時 W 包含 | pinned | — | **根づき**を実質上限に保ち、recall_score に依らず毎ターン W に含める扱い。自己認識 MI に適用。 |
 | MI／記憶モデル | 自己認識 MI | Self-knowledge MI | — | 能力＋方針（policy）を保持する O の特別な MI。**実体＝フルLLM と評価器（軽量LLM）双方のシステムプロンプト**（候補集合・score の外で常に効く＝pinned の実体）。フルLLM に能力・方針＋「参照記憶の申告・再評価・解決宣言」を指示。**評価器にとって最重要**＝E（P/Pn/Dom）の出し方・意味づけ・重み決定がこれに従う（A の値・S 字混合の考え方〔A 高→今重視／低→M 寄り〕・M がベースである旨・分布指針を含む・課題6-1）。REST 内省で supersede 更新。policy 専用レイヤを置かずこれで代替（[D-想起合成]）。 |
 | MI／記憶モデル | 感情一致（想起） | Emotion congruence | — | M(PAD)↔MI.emotion(PAD) の距離が近い MI を想起で上げる項。情動発火で主に効く（[D-想起手がかり]・emotion の PAD 化＝課題11(k) 依存）。 |
 | MI／記憶モデル | 想起合成 | Recall composition | — | recall_score＝r^(w_r)×M（ハイブリッド＝関連だけ乗算ゲート・t/e/a は加重平均 M）。3 起動源で同一関数。候補集合＝多軸 union 一次絞り（各軸インデックス必須）。[D-想起合成]。 |
@@ -98,13 +103,13 @@
 | MI／記憶モデル | ターン内多段 | — | — | 1反復内で主LLM↔ツールを繰り返し複数行動をこなす型（現行実装のループ）。新設計では採らない＝1反復1出力。多段は反復の連なりで表す。[D-反復出力]。 |
 | MI／記憶モデル | 定型動作 | Routine action | — | 言語生成・複雑な組み立てを伴わない機器動作（見る・移動・再生・候補からの選択）。フルLLM を起こさず、機械の点数づけ＋軽量LLM の調停＋動作器で反復を閉じられる。[D-反復出力]。 |
 | MI／記憶モデル | 欲求充足志向 | drive-serving | — | 調停が「いまの欲（drive）を満たす候補」を選ぶこと。点数づけに drive を効かせる。 |
-| MI／記憶モデル | 重みプロファイル | Weight profile | — | 想起合成の各項（関連 r／時間 t／感情一致 e／activation a／在席者相関 p）の効きを決める重みベクトル (w_r,w_t,w_e,w_a,w_p)。seed が運ぶ。**w_r は関連ゲートの指数**（w_r=1 そのまま・w_r=0 でゲート無効化）、**w_t,w_e,w_a,w_p は加算部 M の加重平均係数**（w=0 で当該項を M から外す・w>1 で加重を増す）。在席者ゼロのターンは w_p 項を外す。基底 (1,1,1,1.5,1.0)。[D-想起合成]／[D-在席相関]。 |
+| MI／記憶モデル | 重みプロファイル | Weight profile | — | 想起合成の各項（関連 r／時間 t／感情一致 e／根づき g／在席者相関 p）の効きを決める重みベクトル (w_r,w_t,w_e,w_a,w_p)。seed が運ぶ。**w_r は関連ゲートの指数**（w_r=1 そのまま・w_r=0 でゲート無効化）、**w_t,w_e,w_a,w_p は加算部 M の加重平均係数**（w=0 で当該項を M から外す・w>1 で加重を増す）。在席者ゼロのターンは w_p 項を外す。基底 (1,1,1,1.5,1.0)。[D-想起合成]／[D-在席相関]。 |
 | MI／記憶モデル | 基底プロファイル | Base profile | — | 重みプロファイルの既定値＝(w_r,w_t,w_e,w_a,w_p)=**(1,1,1,1.5,1.0)**＝在席者がいる間は base＝r·(t+e+1.5a+1.0p)/4.5、在席者ゼロは p を外し r·(t+e+1.5a)/3.5（$w_e=1$・$w_a=1.5$・$w_p=1.0$ は加算部係数・$C=2$。**score 合成・候補集合拡張ともコードと一致（`recall_w_p`／`recall_presence_expand`）**）。指定が無い想起で使う。[D-想起合成]／[D-在席相関]。 |
 | MI／記憶モデル | 設定（恒久調整値） | Config | — | 自己認識 MI の**可変区画**。重みプロファイル恒久調整値など**型・範囲の決まった数値スロット**（自由文でない）。**REST のときだけ範囲内で更新可**（[D-自己認識分離]／[D-プロファイル調整]）。 |
 | MI／記憶モデル | 核（不変区画） | core (read-only) | — | 自己認識 MI のうち能力・基本方針・同一性の軸。**LLM 書き換え不可（読み取り専用）・人間のみ更新**（[D-自己認識分離]）。 |
 | 全体 | 値の範囲丸め | clamp | — | LLM が出した Config 値を機械的に許容範囲へ `clip` し範囲外を捨てる安全機構（クランプ）。自己認識の核を壊さないため（[D-自己認識分離]）。 |
-| MI／記憶モデル | 外的驚き | external surprise | — | 外界が予測と外れた度合い（中立的情報量）。activation 初期化 $a_0$ の surprise 項に使う。**失敗（agency_error）とは別物**（[D-想起合成]）。 |
-| T／情動 | 失敗（行為予測誤差） | agency error | — | 自分の行動が予測どおり達成されなかった度合い。**I の activation に入れず T 側で扱う**（生存リスク＝情動：不快 Pn↑・支配 Dom↓・SAFETY↑）。写像は課題11(k)/課題6（[D-T境界]）。 |
+| MI／記憶モデル | 外的驚き | external surprise | — | 外界が予測と外れた度合い（中立的情報量）。根づきの初期化 $g_0$ の surprise 項に使う。**失敗（agency_error）とは別物**（[D-想起合成]）。 |
+| T／情動 | 失敗（行為予測誤差） | agency error | — | 自分の行動が予測どおり達成されなかった度合い。**I の根づきに入れず T 側で扱う**（生存リスク＝情動：不快 Pn↑・支配 Dom↓・SAFETY↑）。写像は課題11(k)/課題6（[D-T境界]）。 |
 | MI／記憶モデル | 正規化 | Normalization | — | 想起合成の各素点（r/t/e/a）を比較可能なスケール（おおむね 0〜1）に揃えること。重みの効きを意味あるものにする前提。規約・値は課題5。 |
 | MI／記憶モデル | 生存期間 | Time To Live | TTL | 投げた deferred **外部呼び出しが結果を待つ上限時間**（超過で打ち切り・「結果なし」を返す）。**外部応答待ちのみで LLM 評価は含まない**。検索/取得とも **10 秒**・同期 blocking の $T_{tool}$ も同基準10秒（Config・課題5 H）。 |
 | MI／記憶モデル | Search ループ上限 | Search-loop limit | $L_{search}$ | 1調査（1つの開いた意図）で Search ラウンドを直列に重ねられる**縦の上限**。既定3（Config・課題5 H）。**Fetch・1バッチ本数（横）は上限なし**＝容量で頭打ち。到達で best-effort 終了（[D-検索]）。 |
@@ -121,10 +126,10 @@
 | 全体 | ロジット | logit | — | $\ln(x/(1-x))$。ロジスティック（シグモイド）の逆関数。Dom（中央0.5・両側）を元空間へ戻すのに使う（[D-想起合成]）。 |
 | MI／記憶モデル | — | put / get | — | 記憶への書き込み／読み出し。store へのアクセスはこの2つだけ。 |
 | MI／記憶モデル | 記憶の箱 | store | — | 記憶は **O 単一**（append＋supersede）。**W は O からの派生ビュー**（store でない）。T 側は数値レジスタ（B 解体・[D-B分離]）。 |
-| 活性／想起 | 活性更新則 | — | — | activation の時間変化。D＝蓄積＋賦活（発火時 −放電量）／M＝平静へ指数減衰＋覚醒入力／W・salience＝指数減衰（[D-活性]）。 |
+| 活性／想起 | 根づきの更新則 | — | — | 根づき・勢い・気分それぞれの時間変化。D＝蓄積＋賦活（発火時 −放電量）／M＝平静へ指数減衰＋高ぶり入力／W・salience＝指数減衰（[D-活性]）。 |
 | 活性／想起 | 指数減衰／時定数（τ） | — | — | `value→baseline` へ指数で近づく減衰。速さは時定数 τ（time_decay.py の half-life 換算）。 |
 | 活性／想起 | 賦活（Spike） | — | — | G の刺激が D に与える瞬間的な押し上げ。M で乗算修飾される。 |
-| 活性／想起 | 覚醒（Arousal）入力 | — | — | G の覚醒が M に与える入力。 |
+| 活性／想起 | 高ぶり（Arousal）入力 | — | — | G の高ぶりが M に与える入力。 |
 | 活性／想起 | 修飾ゲイン | — | — | M が D の蓄積/賦活を増減させる乗算係数。 |
 | 活性／想起 | 放電／放電量 | — | — | 発火時に D から引く量（閾値以下へ落とす）。再発火間隔＝放電量÷蓄積レートで創発（[D-発火]）。 |
 | 活性／想起 | 実効レート | — | — | D 蓄積レート＝基準値×時間帯倍率×学習倍率（各 D 個別・課題10）。 |
@@ -132,12 +137,12 @@
 | 活性／想起 | 定点更新（upsert） | — | — | B シングルトンを固定 id で上書き更新する（[D-B定点]）。 |
 | 周期・発火 | 発火（fire） | — | — | D が閾値を超え、T が I へ一方向に送る信号（MI）。**要求ではなく T 内の事象**で、I は応答も充足もしない（I は発火に責任を持たない）。**発火時に当該 D を放電して下げる**（次項）。 |
 | 周期・発火 | 放電 | — | — | 発火時に当該 D を閾値以下へ下げる T 内の処理。これが再発火の連射を防ぐため**不応期は置かない**。再発火の間隔は放電量と蓄積レートで決まる。 |
-| 周期・発火 | 作用（Nudge） | — | — | I→T の独立刺激。I が1ループ動いたとき **W 全 MI の感情を activation 加重平均した「W の感情トーン」**を **G の知覚と同列の T への入力**として送り、**T の M（気分）のみを変調**する（D には直接触れない）。重要な記憶の感情ほど効く・現在/過去で重み付けない・自己認識 MI（フラット）も含む。完了報告ではない（[D-発火]）。 |
-| 周期・発火 | 発火源カテゴリ | — | — | 発火の出どころ。G覚醒／M更新／純粋欠乏 の3種。 |
+| 周期・発火 | 作用（Nudge） | — | — | I→T の独立刺激。I が1ループ動いたとき **W 全 MI の感情を根づきで加重平均した「W の感情トーン」**を **G の知覚と同列の T への入力**として送り、**T の M（気分）のみを変調**する（D には直接触れない）。重要な記憶の感情ほど効く・現在/過去で重み付けない・自己認識 MI（フラット）も含む。完了報告ではない（[D-発火]）。 |
+| 周期・発火 | 発火源カテゴリ | — | — | 発火の出どころ。G高ぶり／M更新／純粋欠乏 の3種。 |
 | 周期・発火 | 純粋欠乏（発火） | — | — | 外的きっかけ無しに、D の蓄積だけで閾値を超える発火。 |
 | 周期・発火 | — | cue | — | 活動のきっかけになる MI。 |
-| 周期・発火 | 開いた意図（open 意図） | — | — | まだ配送/達成していない意図。**O の MI（status=open）**で表し想起で W に上がる。解決は **activation を落とす**（supersede は版履歴専用で使わない）。 |
-| 周期・発火 | 版超越（版履歴） | supersede | — | **版履歴専用**の更新方式。新版が旧版を無効化し版チェーン（履歴）を残す。**解決には使わない**（解決＝activation を落とす）。 |
+| 周期・発火 | 開いた意図（open 意図） | — | — | まだ配送/達成していない意図。**O の MI（status=open）**で表し想起で W に上がる。解決は **根づき を落とす**（supersede は版履歴専用で使わない）。 |
+| 周期・発火 | 版超越（版履歴） | supersede | — | **版履歴専用**の更新方式。新版が旧版を無効化し版チェーン（履歴）を残す。**解決には使わない**（解決＝根づき を落とす）。 |
 | 周期・発火 | 別シーケンス | — | — | 進行中の活動とは別に切り出して扱う、1つの cue→1活動のサイクル。 |
 | 周期・発火 | T-tick／I の反復 | T-tick / I-iteration | — | **T-tick**＝T の周期ループの1刻み（$P_T$）。**I の反復**＝I のイベント起動の1反復（周期ではない）。旧称「I-tick」は廃止（[D-周期]）。 |
 | 周期・発火 | 純イベント駆動（I） | Event-driven | — | I は時計を持たず3キュー（AIF/DIF/完了）でブロッキング待ちし、来たとき1反復で評価・行動。空回り・周期（$P_I$）なし。T のみ周期駆動（[D-周期]）。 |
@@ -195,8 +200,8 @@
 | 知覚 | 埋め込みモデル | multilingual-e5-small → bge-m3 | — | 観測の埋め込み生成。**bge-m3（1024次元）へ大型化確定**（品質重視・段階的関連の分離改善狙い・VRAM 余裕＝計測5）。既存 e5-small（384次元）から移行＝pgvector 列 384→1024・全観測再埋め込み・移行後に c_lo/c_hi/min_score 再測定（課題8）（[D-知覚]／[D-想起合成]）。 |
 | 想起 | 段階的関連係数 | — | — | 関連 r の扱い。実測で意味関連が無関係と重なりハード veto が関連の約64%を殺すと判明したため、c_lo 未満でも r=0 にせず連続の down-weight に留め、無関係の最終排除は min_score（合成5軸スコアの床）が担う（[D-想起合成]）。 |
 | 知覚 | 声色 PAD | Speech PAD | — | 発話の声色に乗せる感情。`α·N_PAD ＋ (1−α)·M`＝W の感情トーン（N_PAD）を主信号に、Mood（M）を底とするブレンド。α は Config `speech_pad_blend`（起点 0.7）。この PAD を PAD→(style, style_weight) 写像へ与える（[D-知覚]）。 |
-| 想起 | きっかけ | trigger | — | W 構築を起動する出来事。3つに集約＝会話入力（ASR）／知覚イベント（機器イベント・機械驚き A の二段ゲート・A≥0.25 で VLM 意味づけ）／情動発火（中身なし・既存 O から W で状況づけ）。タイマー＝時刻起因の情動発火・気がかり想起は独立 trigger 不要。5軸の重みは trigger 種別で決める（[D-想起起動]）。 |
-| 想起 | 手がかり | cue | — | trigger から取り出す想起の素。会話＝発話＋在席者＋mood／知覚＝知覚内容＋在席者＋mood／情動＝M congruence・新しさ・自己認識 MI。cue は1つの体験 O にまとまり、未解決なら open 意図。入口だけ trigger 固有で O に乗った後は共通の W 構築（O→W・5軸）（[D-想起起動]）。 |
+| 想起 | きっかけ | trigger | — | W 構築を起動する出来事。**4つ**＝会話入力（ASR）／知覚イベント（機器イベント・機械驚き A の二段ゲート・A≥0.25 で VLM 意味づけ）／情動発火（中身なし・既存 O から W で状況づけ）／完了（調べものの結果が完了キューへ届く）。当初は3つに集約していたが、完了の到着が次の反復を起こす実体が実機で必要だったため4つめを足した。タイマー＝時刻起因の情動発火・気がかり想起は独立 trigger 不要。5軸の重みは trigger 種別で決める（[D-想起起動]）。選ぶ基準は求めの起点ではなく**その反復が何を手がかりに動くか**で、採用値はプロファイルに ± 幅の一様乱数を足したもの。 |
+| 想起 | 手がかり | cue | — | trigger から取り出す想起の素。会話＝発話＋在席者＋mood／知覚＝知覚内容＋在席者＋mood／情動＝M congruence・新しさ・自己認識 MI／完了＝届いた結果の本文。cue は1つの体験 O にまとまり、未解決なら open 意図。入口だけ trigger 固有で O に乗った後は共通の W 構築（O→W・5軸）（[D-想起起動]）。 |
 | LLM | ローカルLLM | local LLM | — | 自機の GPU 上で動かす公開重み LLM。外部 API を介さない。課題7 再検討で軽量LLM（補助LLM）のローカル化候補として検討（[D-知覚]・課題7）。 |
 | LLM | Qwen | Qwen | — | アリババの公開重み LLM 系列（固有名詞）。軽量LLM ローカル化の候補（Qwen3／Qwen3.5 小型・Apache 2.0）。 |
 | LLM | 推論ランタイム | inference runtime | — | ローカル LLM を実行する基盤（Ollama／vLLM 等）。OpenAI 互換 API で呼べる。 |
@@ -226,6 +231,10 @@
 ---
 
 ## 更新履歴
+
+> v0.44：**6概念の呼び名を分けた**。`activation`・`a`・`score` という語に5つ以上の別の量が相乗りしていたので、日本語・英語・記号の頭文字をすべて分ける。根づき（groundedness・g）／高ぶり（arousal・a）／勢い（dynamism・d）／地力（merit・m）／顕著性（salience・s）／適合度（fit・f）。旧称「覚醒」「喚起」は高ぶりへ統一した（1つの行の中で割れていた）。
+
+> v0.43：**trigger を3つから4つへ**（完了を追加）。完了の到着が次の反復を起こす実体は実機で必要だった。cue の項にも完了（届いた結果の本文）を足した。重みを選ぶ基準が求めの起点ではなく反復の手がかりであること、採用値が ± 幅の一様乱数で揺らぐことを書いた。見出しの版がファイル名とずれていた（v0.41 と v0_42）ので揃えた。
 
 > v0.42：**課題の番号の付け方**を追加（群を表す漢字1文字＋英小文字・段は いろは・数字は使わない）。設計図の「課題 N」とは別の体系である旨も記した。
 

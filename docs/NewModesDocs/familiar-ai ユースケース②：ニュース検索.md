@@ -77,6 +77,6 @@ sequenceDiagram
 ## このユースケースからの要求（残課題への送り・状態付き）
 - **〔確定（機構）／値は課題5〕驚き S の動機づけ**：取得ニュースが予測とズレるほど読みたくなる流れ。**機構は [D-値踏み] で確定**＝A←機械的驚き（result/観測 vs O）→ mood/drive 変調、P/Pn/Dom←LLM 値踏み、**D→調停で drive-serving**。読みたくなる強さの**値は課題5**。
 - **〔確定（整理済み）〕人の在/不在を作業文脈に**：配信ゲートの在席＝**I 自前の InsightFace 判定**（[D-知覚]）、社会文脈の「人がいる/いない」＝**I 自身の観測（O）→想起で W**。T(G) の presence は private で I は読まない（[D-B分離]）＝**二重持ちでなく用途別**（T＝知覚驚き用／I＝ゲート・社会文脈用）。
-- **〔確定〕開いた意図の supersede 表現**：open 意図＝**O の MI（status=open）**、解決＝supersede（activation 落とす）。[D-MIモデル]／[D-単一想起]／[D-気がかり統合]。
+- **〔確定〕開いた意図の supersede 表現**：open 意図＝**O の MI（status=open）**、解決＝supersede（根づき 落とす）。[D-MIモデル]／[D-単一想起]／[D-気がかり統合]。
 - **〔確定・課題5 H〕deferred の値**：検索/取得 TTL＝10秒（外部応答待ちのみ）・$L_{search}$＝3・$MaxConc$=3（暫定・課題7）・$MaxPend$=7・同期化（即答は blocking）。タスク状態は結果あり/なしの2値・機械リトライなし（[D-外部安定]）。
 - **〔未対応・課題6/8〕移植**：`DeferredSearchTool`／`pending_context`／`user_initiated` タグの新フレーム流用（gap 分析＝課題6 → TDD 改造＝課題8）。

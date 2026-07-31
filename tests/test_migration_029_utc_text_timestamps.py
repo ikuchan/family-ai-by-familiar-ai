@@ -78,3 +78,31 @@ def test_already_aware_value_is_unchanged():
 
     assert _created_at(conn, pid) == aware  # 再変換されない（冪等）
     conn.close()
+
+
+def test_missing_table_is_skipped():
+    """対象表が存在しなくても落ちない。
+
+    `_TARGETS` は「029 を書いた時点で存在した表の一覧」であって、その後の表の増減を
+    織り込んでいない。表を改名すると（`memory_activation` → `memory_salience`）、この
+    マイグレーションを再実行する経路が全部落ちる。無い表は飛ばす。
+
+    効果は変わらない。新規 DB では、表を作るマイグレーションが先に走ってから 029 が
+    走るので、当時存在した表はすべて揃っている。
+    """
+    import importlib.util
+
+    path = Path(__file__).parent.parent / "migration" / _MIGRATION
+    spec = importlib.util.spec_from_file_location("utc_text_migration_probe", path)
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    spec.loader.exec_module(mod)  # type: ignore[union-attr]
+    assert "memory_activation" in mod._TARGETS, (
+        "前提が崩れている：029 は改名前の表名を持っているはず"
+    )
+
+    conn = _pg()
+    with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass('memory_activation') AS t")
+        assert cur.fetchone()["t"] is None, "旧表がまだ存在する（前提が崩れている）"
+    mod.upgrade(conn)      # 例外が出なければよい
+    conn.close()

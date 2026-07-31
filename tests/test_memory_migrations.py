@@ -69,7 +69,7 @@ def test_auto_applies_migrations_on_first_connect() -> None:
         "memory_jobs",
         "episodes",
         "episode_memories",
-        "memory_activation",
+        "memory_salience",
         "unfinished_business",
         "relationship_state",
     }.issubset(tables)

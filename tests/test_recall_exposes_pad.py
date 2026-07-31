@@ -1,7 +1,7 @@
-"""Tests for recall が PAD と activation 重みを露出する（mood-b）。
+"""Tests for recall が PAD と 根づきの重みを露出する（mood-b）。
 
-nudge（mood-c）の入力に、W の各記憶の PAD（MoodPAD）と activation 重み
-（_derive_activation(a0,n)）が要る。recall の返り dict にこの2フィールドを足す
+nudge（mood-c）の入力に、W の各記憶の PAD（MoodPAD）と 根づきの重み
+（_derive_groundedness(a0,n)）が要る。recall の返り dict にこの2フィールドを足す
 （追加のみ・挙動不変）。
 """
 
@@ -14,7 +14,7 @@ from unittest.mock import patch
 
 import psycopg2
 
-from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel, _derive_activation
+from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel, _derive_groundedness
 from familiar_agent.mood_register import MoodPAD
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 
@@ -34,7 +34,7 @@ def _seed_one(obs_id: str) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id, "
-            " activation_a0, activation_n, emotion_p, emotion_pn, emotion_a, emotion_dom) "
+            " groundedness_g0, groundedness_n, emotion_p, emotion_pn, emotion_a, emotion_dom) "
             "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (obs_id, "pad recall content", "unknown", "conversation", "happy", DEFAULT_PERSON_ID,
              0.75, 0, 0.8, 0.15, 0.55, 0.6),
@@ -62,12 +62,12 @@ def test_recall_exposes_emotion_pad() -> None:
     assert m["emotion_pad"] == MoodPAD(0.8, 0.15, 0.55, 0.6)
 
 
-# ── 2. activation 重み露出（n=0 なら a0） ───────────────────────────────────
+# ── 2. 根づきの重み露出（n=0 なら a0） ───────────────────────────────────
 def test_recall_exposes_activation_weight() -> None:
     obs_id = str(uuid.uuid4())
     _seed_one(obs_id)
     m = _recall_one(_mem())
-    assert m["activation"] == _derive_activation(0.75, 0)
+    assert m["groundedness"] == _derive_groundedness(0.75, 0)
 
 
 # ── 3. 既存キーは不変（反証） ───────────────────────────────────────────────
@@ -75,6 +75,6 @@ def test_recall_keeps_existing_keys() -> None:
     obs_id = str(uuid.uuid4())
     _seed_one(obs_id)
     m = _recall_one(_mem())
-    for key in ("memory_id", "summary", "emotion", "score", "kind"):
+    for key in ("memory_id", "summary", "emotion", "fit", "kind"):
         assert key in m
     assert m["emotion"] == "happy"  # 文字列 emotion は従来どおり

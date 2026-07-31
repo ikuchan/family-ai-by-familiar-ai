@@ -95,7 +95,7 @@ class SelfNarrative:
         return Coalition(
             source="narrative",
             summary=summary,
-            activation=0.4,
+            dynamism=0.4,
             urgency=0.1,
             novelty=0.1,
             context_block=context,
