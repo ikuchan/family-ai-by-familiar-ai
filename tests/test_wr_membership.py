@@ -65,6 +65,6 @@ def test_an_aborted_investigation_is_carried_to_the_next_pool():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     ip._parent_id = "obs-parent"
-    ip._in_flight_lookups = [("recall", "前の調査")]
+    ip._in_flight_lookups = [("recall", "前の調査", 1)]
     asyncio.run(ip._abort_investigation())
     assert ip._wr_ids, "中断の記録が母集合へ控えられていない"

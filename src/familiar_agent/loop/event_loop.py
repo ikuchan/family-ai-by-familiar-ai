@@ -163,7 +163,7 @@ class InformationProcessing:
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id, 種別)。種別＝完了｜進捗。
         # 「進捗」は結果ではないので、飛行中の数も一覧も触らず、意図も supersede しない。
-        self._completion_queue: asyncio.Queue[tuple[str, str, str | None, str]] = asyncio.Queue()
+        self._completion_queue: asyncio.Queue[tuple[str, str, str | None, str, int]] = asyncio.Queue()
         # ループ記録は1本の鎖にする：トリガO → 意図O → 完了O → 意図O2 → …。新しい記録を
         # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
         # これで前の記録が想起に出てこなくなり、除外は「その検索を出した意図自身」で足りる。
@@ -178,9 +178,17 @@ class InformationProcessing:
         # 飛行中の調査（動作, 探す語）。W の枠を1つずつ専有する。想起の運に任せると
         # 「いま探している」ことが調停に伝わらず、同じ問いへ二重に投げる（実機で観測）。
         # 複数の調査が並行しうるので集合ではなく列で持つ。
-        self._in_flight_lookups: list[tuple[str, str]] = []
+        self._in_flight_lookups: list[tuple[str, str, int]] = []
         # 完了 MI の content に「どうやって調べたか」を書くための対応（語→動作）。
         self._lookup_action_by_query: dict[str, str] = {}
+        # 調査の通し番号（求めの中で1から振る）。いま検索を識別しているのは語だけで、
+        # 同じ語を2回投げると区別できない。版の content へ「1番：… 2番：…」と列挙し、
+        # 届いた完了を番号で対応づけるために振る。求めをまたいだ突き合わせは要らないので、
+        # 一意な id ではなく通し番号で足りる。
+        self._lookup_seq = 0
+        # 語 → 通し番号。deferred の完了は `push_completion(query, result)` と語で届くので、
+        # そこから番号を引く。同じ語は二度投げないので、引き当ては一意になる。
+        self._lookup_index_by_query: dict[str, int] = {}
         # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく
         # 続きとして自然につなぐために見せる。
         self._said_fillers: list[str] = []
@@ -213,7 +221,7 @@ class InformationProcessing:
         # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._inbox: list[tuple[str, str, str | None, str]] = []
+        self._inbox: list[tuple[str, str, str | None, str, int]] = []
         # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
         self._chain = 0
         self._capped_hit = False
@@ -259,14 +267,36 @@ class InformationProcessing:
         self._chain_head_id = new_id
         self._chain_head_content = content
 
+    def _next_lookup_index(self) -> int:
+        """この求めの中での調査の通し番号を1つ進めて返す。"""
+        self._lookup_seq += 1
+        return self._lookup_seq
+
     def _dispatch_lookup(self, action: str, tool_input: dict, query: str,
                          intent_id: str | None) -> None:
         """RH：調べる動作を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
+        # **この求めで一度調べた語は、二度と調べない。** `deferred` は自前で同じ意図を
+        # 止めるが、`recall`・`see`・`look` は素通りで、実機では同じ `recall` を4反復
+        # 続けて投げた（語は MD5 まで一致）。4回とも同じ記憶を取ってきて無駄になった。
+        # `recall` は DB を引くだけなので、引き直しても結果は変わらず取り直しの意味がない。
+        # 止めた調査は完了として積む。投げずに黙って帰ると、完了も時間切れも来ないまま
+        # 飛行中の数だけが残り、駆動体が待ち続ける（`deferred` が投げられなかったときと
+        # 同じ形にする）。
+        if query in self._lookup_action_by_query:
+            logger.info("event-loop すでに調べた語なので投げない：%.40s", query)
+            self._completion_queue.put_nowait(
+                (query, f"「{query}」はこの求めですでに調べた。結果は W にある。",
+                 intent_id, "完了", 0))
+            return
+
         self._inflight += 1
-        self._in_flight_lookups.append((action, query))
+        index = self._next_lookup_index()
+        self._in_flight_lookups.append((action, query, index))
         self._lookup_action_by_query[query] = action
+        self._lookup_index_by_query[query] = index
         self._lookup_generation[query] = self._generation
-        task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id))
+        task = asyncio.create_task(
+            self._run_lookup(action, tool_input, query, intent_id, index))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         watch = asyncio.create_task(self._watch_slow_lookup(query, self._generation))
@@ -285,19 +315,19 @@ class InformationProcessing:
             await asyncio.sleep(seconds)
             if gen != self._generation:
                 return                      # 打ち切られた求めの見張り
-            if not any(q == query for _a, q in self._in_flight_lookups):
+            if not any(q == query for _a, q, _i in self._in_flight_lookups):
                 return                      # もう結果が来ている
             logger.info("event-loop 調べものが %.0f 秒を超えた：%.40s", seconds, query)
-            self._completion_queue.put_nowait((query, "", None, "進捗"))
+            self._completion_queue.put_nowait((query, "", None, "進捗", 0))
 
     async def _run_lookup(self, action: str, tool_input: dict, query: str,
-                          intent_id: str | None) -> None:
+                          intent_id: str | None, index: int = 0) -> None:
         """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
         agent = self._agent
         if action in ("see", "look"):
             # 飛行中の数は減らさない。`recall` と同じく取込が1件につき1つ減らす。
             out = await self._run_camera(action, tool_input)
-            self._completion_queue.put_nowait((query, out, intent_id, "完了"))
+            self._completion_queue.put_nowait((query, out, intent_id, "完了", index))
             return
         if action != "recall":
             tool = agent._deferred_search if action == "search_deferred" else agent._deferred_fetch
@@ -308,14 +338,14 @@ class InformationProcessing:
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop %s の実行に失敗: %s", action, e)
                 self._completion_queue.put_nowait(
-                    (query, f"（{action} を実行できなかった：{e}）", intent_id, "完了"))
+                    (query, f"（{action} を実行できなかった：{e}）", intent_id, "完了", index))
                 return
             if not dispatched:
                 # 投げられなかった（クエリが空・同時実行の上限・同じ意図が進行中）。背景
                 # タスクが無いので完了も時間切れも来ない。ここで閉じないと飛行中の数が
                 # 戻らず、駆動体が完了キューだけを待ち続けて何も処理しなくなる。
                 logger.info("event-loop %s は投げられなかった：%.60s", action, text)
-                self._completion_queue.put_nowait((query, text, intent_id, "完了"))
+                self._completion_queue.put_nowait((query, text, intent_id, "完了", index))
                 return
             # 投げられた。**ここで飛行中の数を減らさない。** 減らすと、結果が返る前に
             # 「調査中ではない」ことになり、情動や機器で別の反復が起きて同じ調べものを
@@ -331,7 +361,7 @@ class InformationProcessing:
         except Exception as e:  # noqa: BLE001
             logger.exception("event-loop recall の実行に失敗: %s", e)
             out = f"（recall を実行できなかった：{e}）"
-        self._completion_queue.put_nowait((query, str(out), intent_id, "完了"))
+        self._completion_queue.put_nowait((query, str(out), intent_id, "完了", index))
         logger.debug(
             "event-loop RH 完了をQCへ（id=%s qsize=%d 意図=%.8s）",
             id(self), self._completion_queue.qsize(), intent_id or "-",
@@ -417,18 +447,18 @@ class InformationProcessing:
             id(self), len(items), self._inflight, self._completion_queue.qsize(),
         )
 
-        progress = [q for q, _t, _i, kind in items if kind == "進捗"]
+        progress = [q for q, _t, _i, kind, _x in items if kind == "進捗"]
         items = [it for it in items if it[3] != "進捗"]
         if progress:
             # 「まだかかっている」は結果ではない。飛行中の数も一覧も触らず、意図も
             # supersede しない。次の反復で、調停に短い一言を書かせるためだけに起こす。
             self._progress_pending = True
-        for query, result_text, intent_id, _kind in items:
+        for query, result_text, intent_id, _kind, _index in items:
             self._inflight = max(0, self._inflight - 1)
             # 結果が返ったので、この意図はもう open ではない。
             if intent_id and intent_id in self._open_intent_ids:
                 self._open_intent_ids.remove(intent_id)
-            for i, (_act, q) in enumerate(self._in_flight_lookups):
+            for i, (_act, q, _idx) in enumerate(self._in_flight_lookups):
                 if q == query:
                     del self._in_flight_lookups[i]
                     break
@@ -503,6 +533,7 @@ class InformationProcessing:
         self._utterance = utterance
         self._origin_kind = "発話"
         self._chain = 0
+        self._lookup_seq = 0
         self._capped_hit = False
         self._ensure_driver()
 
@@ -535,7 +566,7 @@ class InformationProcessing:
         """
         if not self._tasks and not self._in_flight_lookups and self._parent_id is None:
             return
-        dropped = [f"{act}「{q}」" for act, q in self._in_flight_lookups]
+        dropped = [f"{idx}番：{act}「{q}」" for act, q, idx in self._in_flight_lookups]
         for task in list(self._tasks):
             task.cancel()
         self._tasks.clear()
@@ -570,6 +601,7 @@ class InformationProcessing:
         self._chain_head_content = ""
         self._open_intent_ids.clear()
         self._lookup_action_by_query.clear()
+        self._lookup_index_by_query.clear()
         self._said_fillers.clear()
         self._released_speech.clear()
         self._w_index = {}
@@ -684,7 +716,7 @@ class InformationProcessing:
         """駆動体だけを起こす。以後はキュー到来で反復が回る。"""
         self._ensure_driver()
 
-    def push_completion(self, query: str, result: str) -> None:
+    def push_completion(self, query: str, result: str, index: int = 0) -> None:
         """RH（資源ハンドラ）が deferred の完了を QC へ積む。
 
         投げっぱなしの外部呼び出し（検索・取得）の結果は、完了キュー→O 経由で次の反復の
@@ -695,7 +727,8 @@ class InformationProcessing:
             logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
             return
         loop = getattr(self, "_loop", None)
-        item = (query, str(result), None, "完了")
+        item = (query, str(result), None, "完了",
+                index or self._lookup_index_by_query.get(query, 0))
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(self._completion_queue.put_nowait, item)
         else:
@@ -797,6 +830,7 @@ class InformationProcessing:
         self._utterance = ""
         self._origin_kind = "情動"
         self._chain = 0
+        self._lookup_seq = 0
         self._capped_hit = False
         content = f"[内的な促し:{drive_name}] {prompt}"
         obs_id, _ = await agent._memory.save_async_with_id(
@@ -821,6 +855,7 @@ class InformationProcessing:
         self._utterance = ""
         self._origin_kind = "機器"
         self._chain = 0
+        self._lookup_seq = 0
         self._capped_hit = False
         text = f"[{kind}] {content}"
         obs_id, _ = await agent._memory.save_async_with_id(
@@ -1293,9 +1328,11 @@ class InformationProcessing:
         self._in_flight_lookups.clear()
         self._open_intent_ids.clear()
         self._lookup_action_by_query.clear()
+        self._lookup_index_by_query.clear()
         self._said_fillers.clear()
         self._released_speech.clear()
         self._chain = 0
+        self._lookup_seq = 0
         self._capped_hit = False
         # 母集合へ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
         wr_ids, self._wr_ids = list(self._wr_ids), []

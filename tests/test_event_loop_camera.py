@@ -79,7 +79,7 @@ def test_seeing_reports_what_was_recognised():
                AsyncMock(return_value=[{"label": "cat", "category": "animal", "confidence": 0.9},
                                        {"label": "mug", "category": "object", "confidence": 0.7}])):
         asyncio.run(ip._run_lookup("see", {}, "目の前を見る", None))
-    (_q, result, _i, kind) = _drain(ip)[0]
+    (_q, result, _i, kind, _idx) = _drain(ip)[0]
     assert kind == "完了"
     assert "cat" in result and "mug" in result
 
@@ -89,7 +89,7 @@ def test_seeing_still_reports_when_the_vlm_finds_nothing():
     ip = InformationProcessing(_with_camera())
     with patch("familiar_agent.loop.event_loop.extract_entities", AsyncMock(return_value=[])):
         asyncio.run(ip._run_lookup("see", {}, "目の前を見る", None))
-    (_q, result, _i, kind) = _drain(ip)[0]
+    (_q, result, _i, kind, _idx) = _drain(ip)[0]
     assert result.strip() != "" and kind == "完了"
 
 
@@ -97,7 +97,7 @@ def test_looking_reports_the_move_result():
     cam = _camera(call_return=("Moved left 30 degrees.", None))
     ip = InformationProcessing(_with_camera(cam))
     asyncio.run(ip._run_lookup("look", {"direction": "left"}, "首を左へ向ける", None))
-    (_q, result, _i, _k) = _drain(ip)[0]
+    (_q, result, _i, _k, _idx) = _drain(ip)[0]
     assert "Moved left" in result
 
 
@@ -117,7 +117,7 @@ def test_a_broken_camera_degrades_like_recall():
     cam.call = AsyncMock(side_effect=RuntimeError("camera offline"))
     ip = InformationProcessing(_with_camera(cam))
     asyncio.run(ip._run_lookup("see", {}, "目の前を見る", None))
-    (_q, result, _i, kind) = _drain(ip)[0]
+    (_q, result, _i, kind, _idx) = _drain(ip)[0]
     assert "camera offline" in result and kind == "完了"
 
 

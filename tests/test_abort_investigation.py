@@ -23,10 +23,10 @@ def _ip_with_investigation():
     ip = InformationProcessing(a)
     ip._parent_id = "obs-parent"
     ip._chain_head_id = "obs-child"
-    ip._in_flight_lookups = [("search_deferred", "明日の天気")]
+    ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
     ip._lookup_action_by_query = {"明日の天気": "search_deferred"}
     ip._inflight = 1
-    ip._completion_queue.put_nowait(("明日の天気", "晴れ", "obs-child", "完了"))
+    ip._completion_queue.put_nowait(("明日の天気", "晴れ", "obs-child", "完了", 1))
     return a, ip
 
 

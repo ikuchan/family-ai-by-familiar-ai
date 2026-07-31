@@ -419,7 +419,7 @@ def test_intake_drains_inbox_in_place():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     before = ip._inbox
-    ip._inbox.append(("q", "結果", None, "完了"))
+    ip._inbox.append(("q", "結果", None, "完了", 1))
     assert asyncio.run(ip._intake()) == 1
     assert ip._inbox is before        # 作り直さない
     assert ip._inbox == []            # 中身だけ空にする
@@ -786,7 +786,7 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
         ip = InformationProcessing(a)
         assert await ip.run_iteration("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)          # 意図を書いて dispatch し終えた頃
-        ip._completion_queue.put_nowait(("q", "外から届いた結果", None, "完了"))
+        ip._completion_queue.put_nowait(("q", "外から届いた結果", None, "完了", 1))
         for _ in range(_WAIT_TICKS):
             if shown:
                 break
