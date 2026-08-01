@@ -71,7 +71,9 @@ class TestEmbeddingModelPreWarm:
         call_count = 0
         barrier = threading.Barrier(3)  # sync 3 threads to maximize race
 
-        def fake_st(name):
+        # 本物の `SentenceTransformer` は `device` を受ける。`EMBEDDING_DEVICE` が
+        # 立っていると `_load` はそれを渡すので、偽物も同じ受け口を持たせる。
+        def fake_st(name, device=None):
             nonlocal call_count
             call_count += 1
             time.sleep(0.05)  # simulate slow load

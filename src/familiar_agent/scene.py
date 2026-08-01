@@ -77,11 +77,28 @@ async def extract_entities(
         data = json.loads(raw)
         entities = data.get("entities", [])
         if not isinstance(entities, list):
+            _log_unusable(raw, "entities が配列でない")
             return []
         return [e for e in entities if isinstance(e, dict) and "label" in e]
     except (json.JSONDecodeError, AttributeError, TypeError) as exc:
-        logger.debug("Entity extraction failed: %s", exc)
+        _log_unusable(raw, str(exc))
         return []
+
+
+# 記録に載せる返答の長さ。情景の説明は長く、全文を warning で出すとログが埋まる。
+_REPLY_HEAD_CHARS = 200
+
+
+def _log_unusable(raw: Any, reason: str) -> None:
+    """意味づけに使えない返答を、先頭を添えて残す。
+
+    実機で `see` が「意味づけは何も返さなかった」を出し続けたとき、失敗が debug で
+    例外の型しか出ておらず、**VLM が何を返したのかが分からなかった**。空文字なのか、
+    説明文なのか、JSON もどきなのかで対応が変わる。
+    """
+    text = "" if raw is None else str(raw)
+    head = text[:_REPLY_HEAD_CHARS] if text.strip() else "（空）"
+    logger.warning("情景の意味づけに使えない返答（%s）：%s", reason, head)
 
 
 class SceneTracker:

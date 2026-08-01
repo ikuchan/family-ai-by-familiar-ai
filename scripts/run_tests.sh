@@ -72,9 +72,17 @@ done
 # （invariant・実 DB を使う）。分けるのは、不変条件が通常の一式へ影響しないことを
 # 確かめられる形にしておくため。どちらかが赤ならコミットしない。
 EXIT_CODE=0
-# 並列度。ワーカーごとに別 DB を使う（conftest）。既定は論理CPU数（-n auto）。
+# 並列度。ワーカーごとに別 DB を使う（conftest）。
+#
+# **論理CPU数（この機体で12）に任せない。** 埋め込みモデル（bge-m3）は
+# ワーカーごとに読み込まれ、GPU で 1.7〜2.3GiB、CPU で 1140MiB を占める。この機体は
+# VRAM 11.63GiB・RAM 15GiB（swap 4GiB は常時ほぼ満杯）なので、12ワーカーではどちらの
+# 資源でも足りず、`CUDA out of memory` あるいはプロセスごとの即死で
+# `worker 'gwN' crashed` になる。落ちるテストは割り当て次第で変わるため再現しにくい。
+#
+# 4 は VRAM から決めた（2.3GiB × 4 = 9.2GiB < 11.63GiB）。
 # 直列に戻したいときは RUN_TESTS_PARALLEL="" で無効化できる。
-PARALLEL="${RUN_TESTS_PARALLEL:--n auto}"
+PARALLEL="${RUN_TESTS_PARALLEL:--n 4}"
 echo "── 通常の一式（${PARALLEL:-直列}）─────────────"
 uv run pytest -q $PARALLEL -m "not invariant" "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
 if [ "$EXIT_CODE" -eq 0 ]; then

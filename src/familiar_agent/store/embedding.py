@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import os
 import threading
 from collections import OrderedDict
 from typing import Any
@@ -64,6 +65,10 @@ class _EmbeddingModel:
 
     def __init__(self, model_name: str = EMBEDDING_MODEL) -> None:
         self._model_name = model_name
+        # 載せる先。未指定なら sentence-transformers の自動判定（GPU があれば GPU）に任せる。
+        # テストは `-n auto` でワーカーを並べ、**ワーカーごとに**モデルを載せるため、GPU では
+        # VRAM を使い切ってプロセスごと落ちる。テスト側で `cpu` を選んで奪い合いを断つ。
+        self.device: str | None = os.environ.get("EMBEDDING_DEVICE") or None
         self._model: Any = None
         self._failed = False
         self._lock = threading.Lock()
@@ -90,8 +95,13 @@ class _EmbeddingModel:
                 for name in ("sentence_transformers", "huggingface_hub", "transformers"):
                     logging.getLogger(name).setLevel(logging.ERROR)
                 try:
-                    from sentence_transformers import SentenceTransformer
-                    self._model = SentenceTransformer(self._model_name)
+                    import sentence_transformers
+                    if self.device:
+                        self._model = sentence_transformers.SentenceTransformer(
+                            self._model_name, device=self.device)
+                    else:
+                        self._model = sentence_transformers.SentenceTransformer(
+                            self._model_name)
                     logger.info("Embedding model loaded.")
                 except Exception as e:
                     self._failed = True
