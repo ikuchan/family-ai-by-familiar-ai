@@ -31,7 +31,8 @@ from .heartbeat import HeartbeatRuntime
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
 from .self_narrative import SelfNarrative
-from .mood_register import MoodPAD, nudge_current_mood
+from .io.aif import AIF, Nudge
+from .mood_register import MoodPAD
 from .exploration import ExplorationTracker
 from .scene import SceneTracker
 from .poses import Pose, build_pose_registry
@@ -246,6 +247,9 @@ class EmbodiedAgent:
         self._concerns = ConcernEngine()
         self._self_narrative = SelfNarrative()
         self._prediction = PredictionEngine()
+        # T との行き来はこの口へ集める（`設計図` ③-2 の4つの口）。I はループが
+        # 立ち上がる前のターンでも Nudge を返すので、ここで持たせる。
+        self._aif = AIF(None)
         self._schedule_rule = quiet_hours_rule()
         self._heartbeat = HeartbeatRuntime(
             memory=self._memory,
@@ -433,7 +437,9 @@ class EmbodiedAgent:
             if "emotion_pad" in m and "groundedness" in m
         ]
         _nudge_items.append((emotion_pad, 1.0))
-        nudge_current_mood(_nudge_items)
+        # T のレジスタは直接動かさない。行き来は AIF（自律機構接続）へ集める
+        # （`設計図` ③-2 の4つの口）。
+        self._aif.nudge(Nudge(items=_nudge_items))
 
         # そのターンで作った記憶 id（観察・会話）。WR 記録で W と共起させる。
         _new_ids: list[str | None] = []

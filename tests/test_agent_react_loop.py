@@ -9,6 +9,7 @@ import pytest
 
 from familiar_agent.backend import TurnResult
 from familiar_agent.exploration import ExplorationTracker
+from familiar_agent.io.aif import AIF
 from familiar_agent.mood_register import MoodPAD
 
 
@@ -170,6 +171,9 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     agent._self_state = MagicMock()
     agent._self_state.snapshot = MagicMock(return_value={"unresolved_tension": 0.2})
     agent._prediction = PredictionEngine()
+    # T との行き来の口（`設計図` ③-2）。実物は `__init__` が持たせるが、この
+    # ヘルパーは `__new__` で組み立てるので、ここでも持たせる。
+    agent._aif = AIF(None)
     agent._memory_worker = MagicMock()
     agent._memory_worker.is_running = True
     agent._mood = "neutral"

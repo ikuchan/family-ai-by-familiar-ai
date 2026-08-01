@@ -20,6 +20,7 @@ from datetime import datetime
 
 from ..config import DriveConfig
 from ..core import drive_dynamics as dd
+from ..io.aif import AIF, Firing
 from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..drive_register import AiDrivers, load_drives, save_drives
 from ..mood_register import load_current_mood
@@ -92,6 +93,9 @@ class Tonic:
                  drive_cfg: DriveConfig | None = None,
                  presence=None) -> None:
         self._ip = information_processing
+        # T は I の中身を直接呼ばない。行き来は AIF（自律機構接続）へ集める
+        # （`設計図` ③-2 の4つの口）。
+        self._aif = AIF(information_processing)
         self._agent = agent
         # 在/不在の情報源（`PresenceSensor`）。渡さなければ身元の情報源だけで判断する。
         # agent から取りに行くと、テストの MagicMock が「常に誰か居る」を返してしまう。
@@ -215,7 +219,7 @@ class Tonic:
                     continue
                 prompt = inner_voice_for(axis, self._cfg)
                 logger.info("Drive fired: %s → QA へ積む", axis)
-                self._ip.push_affect(axis.upper(), prompt)
+                self._aif.fire(Firing(axis=axis, inner_voice=prompt))
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
