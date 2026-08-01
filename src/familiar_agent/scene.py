@@ -18,6 +18,7 @@ import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
+from .core.helpers import strip_code_fence
 from .db import Database
 
 if TYPE_CHECKING:
@@ -74,7 +75,9 @@ async def extract_entities(
             raw = await backend.complete(
                 f"{_EXTRACT_SYSTEM}\n\nScene description:\n{description}"
             )
-        data = json.loads(raw)
+        # 返答は素の JSON とは限らない。実機の VLM は同じ画像でも回ごとに
+        # ```json で包んだり包まなかったりする。
+        data = json.loads(strip_code_fence(str(raw)))
         entities = data.get("entities", [])
         if not isinstance(entities, list):
             _log_unusable(raw, "entities が配列でない")

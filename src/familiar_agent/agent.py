@@ -465,17 +465,12 @@ class EmbodiedAgent:
                 self._exploration.record_novelty(novelty)
                 if desires is not None:
                     desires.boost("look_around", novelty * 0.3)
-                if self._scene is not None:
-                    scene_events = await self._scene.update(
-                        final_text[:500],
-                        self._scene_backend,
-                        prediction_engine=self._prediction,
-                        action_name=observation_action_name,
-                        action_input=observation_action_input,
-                        image_b64=camera_image,
-                    )
-                    _react_to_scene_events(scene_events, desires)
-                    pred_signal = self._prediction.last_signal()
+                # 場面の更新はここから外した。この経路は `loop/event_loop.py` の1箇所
+                # からしか来ず、そこは `camera_image=None`・`action_name=None` を渡す。
+                # つまり意味づけに掛かるのはカメラ画像ではなく**自分の発話テキスト**で、
+                # そこから拾ったラベルが `scene_entities` に入り、`person` を含めば
+                # `greet_companion` が跳ねた。在/不在は `PresenceSensor`（YOLO）が担う
+                # （`知覚在席` §3-2 は在/不在を G＝T 側・連続の担当と定める）。
                 _obs_id, _ = await self._memory.save_async_with_id(
                     final_text[:500],
                     direction="観察",

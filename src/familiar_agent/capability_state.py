@@ -21,6 +21,7 @@ from pathlib import Path
 
 import psycopg2.extras
 
+from .core.helpers import strip_code_fence
 from .db import get_db
 
 logger = logging.getLogger(__name__)
@@ -296,12 +297,6 @@ def build_generation_prompt(context: str, existing_yaml: str) -> str:
 
 def save_manifest(yaml_content: str) -> None:
     """Write yaml_content to capabilities.yaml, stripping accidental markdown fences."""
-    text = yaml_content.strip()
-    for fence in ("```yaml", "```yml", "```"):
-        if text.startswith(fence):
-            text = text[len(fence):]
-    if text.endswith("```"):
-        text = text[:-3]
-    text = text.strip()
+    text = strip_code_fence(yaml_content)
     _MANIFEST_PATH.write_text(text + "\n", encoding="utf-8")
     logger.info("capabilities.yaml regenerated (%d chars)", len(text))

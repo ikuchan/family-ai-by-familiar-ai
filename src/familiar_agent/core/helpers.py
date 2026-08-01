@@ -24,6 +24,27 @@ async def _noop_list() -> list:
     return []
 
 
+def strip_code_fence(text: str) -> str:
+    """LLM の返答を包む Markdown のコードフェンスを剥がす。
+
+    「JSON だけを返せ」と指示しても、モデルは ```` ```json ```` で包んで返すことがある。
+    実機の llava:7b は**同じ画像・同じプロンプトでも回ごとに変わり**、包む回と包まない回が
+    混ざる。包まれた回は `json.loads` が先頭で落ちるため、症状が間欠的に見える。
+
+    見るのは先頭と末尾だけである。本文の途中にある ```` ``` ```` は、返答そのものが
+    コード片を含む場合に意味を持つので消さない。閉じが欠けた返答（生成が打ち切られた
+    場合）でも、開きだけは剥がす。
+    """
+    body = text.strip()
+    for fence in ("```json", "```yaml", "```yml", "```"):
+        if body.startswith(fence):
+            body = body[len(fence):]
+            break
+    if body.endswith("```"):
+        body = body[:-3]
+    return body.strip()
+
+
 async def _call_optional_async(
     method: Any | None,
     *args,
