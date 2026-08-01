@@ -178,6 +178,10 @@ uv run --group dev mypy src/familiar_agent
 ./scripts/run_tests.sh -m "<開発内容を短く（日本語可）>"
 ```
 
+**`docs/` の md しか変えていないなら、検査は要らない。** `git add` と `git commit` で直接
+コミットする。コードに触れていない変更にテストを回しても、確かめられることが無いまま
+2分待つことになる。コードと md を一緒に変えたときは、下の全項目を満たす。
+
 - [ ] `ruff` が緑
 - [ ] `mypy` が緑
 - [ ] `./scripts/run_tests.sh` が緑
