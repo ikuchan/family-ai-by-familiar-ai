@@ -46,15 +46,14 @@ def _saved(agent, direction: str) -> list[str]:
 
 
 def test_a_seen_result_is_written_as_its_own_record() -> None:
-    """`see` の結果は `direction="観察"` の独立した記録になる。"""
+    """見たことは `direction="観察"` の独立した記録になる。
+
+    書き手は `_run_camera`（実際にカメラを回した経路）である。中身の検証は
+    `test_seen_mark_content` にある。
+    """
     async def scenario():
         a, ip = _ip()
-        ip._lookup_action_by_query["目の前を見る"] = "see"
-        ip._lookup_index_by_query["目の前を見る"] = 1
-        ip._completion_queue.put_nowait(
-            ("目の前を見る", "窓側を見た。写真を撮って保存した 見えたもの：椅子、窓",
-             None, "完了", 1))
-        await ip._intake()
+        await ip._write_seen_mark("窓側を見た。見えたもの：椅子、窓")
         await ip.close()
         return a
 
@@ -69,10 +68,7 @@ def test_the_seen_record_is_not_folded() -> None:
     """見た印は畳まない（畳むと想起の候補から外れ、薄れの順序が作れない）。"""
     async def scenario():
         a, ip = _ip()
-        ip._lookup_action_by_query["目の前を見る"] = "see"
-        ip._completion_queue.put_nowait(
-            ("目の前を見る", "襖側を見た。見えたもの：戸", None, "完了", 1))
-        await ip._intake()
+        await ip._write_seen_mark("襖側を見た。見えたもの：戸")
         # さらに版が進んでも、観察の記録は畳まれない。
         ip._completion_queue.put_nowait(("語", "結果", None, "完了", 2))
         await ip._intake()

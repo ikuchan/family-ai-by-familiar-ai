@@ -478,8 +478,7 @@ class InformationProcessing:
         if action != "see" or not image_b64:
             return str(text)
         # どの定点を見たかを記録に残す。`ユースケース③` の「見た定点の印」で、これが
-        # 根づきで薄れ、W 構築で薄れた順に上がることで巡回が創発する。別の記録を
-        # 足さないのは、同じ出来事に2件残すと想起でどちらも上がって W の枠を食うため。
+        # 根づきで薄れ、W 構築で薄れた順に上がることで巡回が創発する。
         where = await self._current_pose_name()
         prefix = f"{where}を見た。" if where else ""
         try:
@@ -496,6 +495,16 @@ class InformationProcessing:
             return f"{prefix}{text}"
         logger.info("event-loop %s見えたもの %d 件：%.60s",
                     f"{where}で" if where else "", len(labels), "、".join(labels))
+        # 印は**見たことだけ**にする。`see` が返す "You see the current view
+        # (saved to …)" は撮ったことを LLM へ伝える文で、見た内容ではない。想起は
+        # 印の文でベクトルを作るので、毎回同じ英語の定型句とファイルパスが入ると
+        # ノイズになる（実機で観測）。
+        mark = f"{prefix}見えたもの：" + "、".join(labels)
+        # **書くのはここである。** 実際にカメラを回して意味づけが通った経路だけを
+        # 通る。取込の側で `action == "see"` を見て書くと、重複抑止で弾かれた完了
+        # （「すでに調べた。結果は W にある」）まで印になり、見ていないのに見た印が
+        # 立つ（実機で観測）。
+        await self._write_seen_mark(mark)
         return f"{prefix}{text} 見えたもの：" + "、".join(labels)
 
     async def _current_pose_name(self) -> str:
@@ -552,14 +561,10 @@ class InformationProcessing:
             action = self._action_of(query)
             index = _index or self._lookup_index_by_query.get(query, 0)
             if action == "see":
-                # 見たことは**鎖の外**へ独立した記録として書く。会話の「自分が答えた」
-                # と同じ位置である。版の中にしか無いと、版が畳まれたときに定点ごとの
-                # 「最後に見てからどれだけ経ったか」が O から消え、`ユースケース③` の
-                # 定める巡回の創発（W が次の薄れた定点を選ぶ）が成り立たない。
-                await self._write_seen_mark(result_text)
-                # 版には結果を載せない。載せると同じ出来事が2件になり、想起で
-                # どちらも上がって W の枠を食う。求めの状態としては「何番が届いたか」
-                # だけあればよい。
+                # 版には結果を載せない。見たことは `_run_camera` が鎖の外へ独立した
+                # 記録として書いており（会話の「自分が答えた」と同じ位置）、版にも
+                # 載せると同じ出来事が2件になって、想起でどちらも上がり W の枠を食う。
+                # 求めの状態としては「何番が届いたか」だけあればよい。
                 result_text = "（見たことは観察に記録した）"
             self._lookup_results.append((index, action, query, result_text))
         if items:
