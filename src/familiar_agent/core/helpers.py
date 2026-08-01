@@ -1,17 +1,14 @@
 """agent.py から切り出した module レベルの純関数（loop 非依存・境界R B2）。
 
-内受容の felt-sense 文字列生成、シーンイベント→欲求ブースト、在席文脈の整形、
-検索の長さガイド、任意 async 呼び出しの安全ラッパ、asyncio.gather 用の no-op。
+内受容の felt-sense 文字列生成、在席文脈の整形、検索の長さガイド、LLM 返答の
+コードフェンス剥がし、任意 async 呼び出しの安全ラッパ、asyncio.gather 用の no-op。
 これらは EmbodiedAgent の制御流れ（run/ReAct）に依存しない純関数である。
 """
 
 from __future__ import annotations
 
 import inspect
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:
-    from ..desires import DesireSystem
+from typing import Any
 
 
 async def _noop_str() -> str:
@@ -63,24 +60,6 @@ async def _call_optional_async(
     if result.__class__.__module__.startswith("unittest.mock"):
         return fallback
     return result
-
-
-def _react_to_scene_events(events: list[dict], desires: DesireSystem | None) -> None:
-    """Translate SceneTracker events into desire boosts.
-
-    Called after scene.update() to wire physical presence detection into
-    the desire system.  desires may be None (no-op).
-    """
-    if desires is None or not events:
-        return
-    for event in events:
-        event_type = event.get("event_type", "")
-        label = (event.get("entity_label") or "").lower()
-        if "person" in label:
-            if event_type == "appeared":
-                desires.boost("greet_companion", 0.6)
-            elif event_type == "disappeared":
-                desires.boost("worry_companion", 0.2)
 
 
 def format_present_ctx(speaker_name: str, other_present: list[str]) -> str:

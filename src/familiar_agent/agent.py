@@ -19,7 +19,6 @@ from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内�
     _call_optional_async,
     _noop_list,
     _noop_str,
-    _react_to_scene_events,
     format_present_ctx,
 )
 from typing import Any
