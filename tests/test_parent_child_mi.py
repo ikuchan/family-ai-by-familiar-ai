@@ -58,31 +58,22 @@ def test_parent_id_column_exists() -> None:
     assert row is not None
 
 
-def test_closing_a_parent_closes_its_live_children() -> None:
-    from familiar_agent.tools.memory import ObservationMemory
-    from unittest.mock import patch
-    from familiar_agent.tools.memory import _EmbeddingModel
+def test_parent_child_links_survive_without_bulk_closing() -> None:
+    """親子の紐づけ（`parent_id`）は残す。まとめて畳む操作だけを撤去した。
 
+    求めは1本の版チェーンとして進むので、親子のファンアウトを畳む必要が無い。ただし
+    `parent_id` そのものは、どの求めのために書かれた記録かを辿るのに使う。
+    """
     conn = _conn()
     tag = uuid.uuid4().hex[:8]
     parent = _plant(conn, f"{tag} 求め")
-    child_a = _plant(conn, f"{tag} 調査A", parent_id=parent)
-    child_b = _plant(conn, f"{tag} 調査B", parent_id=parent)
-    closer = _plant(conn, f"{tag} 決着")
-
-    with patch.object(_EmbeddingModel, "pre_warm"):
-        mem = ObservationMemory()
-    mem.close_with_children(parent, closer)
+    child = _plant(conn, f"{tag} 版1", parent_id=parent)
 
     with conn.cursor() as cur:
-        cur.execute("SELECT id, superseded_by FROM observations WHERE id = ANY(%s)",
-                    ([parent, child_a, child_b],))
-        got = {r["id"]: r["superseded_by"] for r in cur.fetchall()}
+        cur.execute("SELECT parent_id FROM observations WHERE id = %s", (child,))
+        got = cur.fetchone()
     conn.close()
-    assert got[parent] == closer
-    assert got[child_a] == closer      # 生きている子は全部閉じる
-    assert got[child_b] == closer
-
+    assert got and str(got[0] if not isinstance(got, dict) else got["parent_id"]) == parent
 
 def test_the_answer_is_written_at_speak_time_and_survives_the_close():
     """自分の答えを、背景の永続化を待たずに O へ書き、閉じても生き残らせる。
@@ -104,10 +95,8 @@ def test_the_answer_is_written_at_speak_time_and_survives_the_close():
     assert len(answers) == 1
     assert "晴れだよ" in answers[0].args[0]
 
-    # 閉じる側がこの記録であること（＝自分自身は閉じられない）。
-    assert a._memory.close_with_children.called
-    parent, new_id = a._memory.close_with_children.call_args.args
-    assert new_id != parent
+    # **この記録は鎖の外**。何も畳まない（求めの版チェーンは別に進む）。
+    assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"
     # 背景の永続化には、この記録を supersede する対象として渡る（要約が恒久記録を担う）。
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert kwargs["superseded_ids"] == [new_id]
+    assert kwargs["superseded_ids"], "答えの記録が渡っていない"

@@ -189,6 +189,15 @@ class InformationProcessing:
         # 語 → 通し番号。deferred の完了は `push_completion(query, result)` と語で届くので、
         # そこから番号を引く。同じ語は二度投げないので、引き当ては一意になる。
         self._lookup_index_by_query: dict[str, int] = {}
+        # 求めそのものの文面。**どの版にも入れる。** 前の版は畳まれて辿れなくなるので、
+        # 各版が単独で「何を聞かれたか」を持たないと、求めの文脈が失われる。
+        self._origin_text = ""
+        # 届いた結果 (通し番号, 動作, 語, 結果)。版の content へ並べる材料。
+        self._lookup_results: list[tuple[int, str, str, str]] = []
+        # いま生きている版の id。次の版がこれを畳む（1本の鎖）。
+        self._version_id: str | None = None
+        # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
+        self._exclude_from_lookup: str | None = None
         # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく
         # 続きとして自然につなぐために見せる。
         self._said_fillers: list[str] = []
@@ -200,10 +209,6 @@ class InformationProcessing:
         # （中身が無く、共起として育てる価値がない）。中断はこの求めで閉じるが、次の
         # 求めの WR に載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
         self._wr_ids: list[str] = []
-        # まだ結果が返っていない意図 O の id。活性の下限（a_open）を課す対象で、結果が
-        # 届いた時点で外す。「結果はまだ無い」という記録が、結果が届いたあとも浮き続ける
-        # 理由はない。
-        self._open_intent_ids: list[str] = []
         # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
@@ -239,14 +244,16 @@ class InformationProcessing:
     def _open_ids(self) -> list[str]:
         """この求めの open な記録（活性に下限を課して W へ浮かせる対象）。
 
-        トリガ O（求めの親）と、まだ結果が返っていない意図 O である。トリガ O を求めが
+        発話の記録（求めの親）と、**いま生きている版**である。版チェーンでは生きている版は
+        常に1つなので、飛行中の意図を別に数える必要はない。トリガ O を求めが
         閉じるまで open 扱いにするのは、完了で起きた反復では手がかりが**届いた結果の本文**に
         変わり、元の人の問いとは語彙が重なるとは限らないためである。完了プロファイルは
         関連を厳しく要求する（w_r=1.5）ので、下限が無いと「何のために調べていたか」が
         W から落ちる。
         """
         ids = [self._parent_id] if self._parent_id else []
-        ids += [i for i in self._open_intent_ids if i not in ids]
+        if self._version_id and self._version_id not in ids:
+            ids.append(self._version_id)
         return ids
 
     def _note_wr(self, obs_id: str | None) -> None:
@@ -266,6 +273,59 @@ class InformationProcessing:
             logger.debug("event-loop 鎖を進める %.8s → %.8s", self._chain_head_id, new_id)
         self._chain_head_id = new_id
         self._chain_head_content = content
+
+    async def _write_version(self, *, aborted: bool = False) -> str | None:
+        """求めの新しい版を書き、直前の版を畳む。
+
+        求めは1本の版チェーンとして進む。`superseded_by` は版履歴だけを表すので、用語一覧の
+        定義（「版履歴専用。解決には使わない」）と一致する。親子のファンアウトではないので
+        親子をまとめて畳む操作は要らない（撤去済み）。
+
+        人の発話の記録と、自分が答えた記録は**鎖の外**にある。畳まない。
+        """
+        agent = self._agent
+        content = self._version_content(aborted=aborted)
+        version_id, _ = await agent._memory.save_async_with_id(
+            content[:agent.config.completion_content_max],
+            direction="求め",
+            kind="observation",
+            materialize_now=True,
+            parent_id=self._parent_id,
+            **agent._observation_perspective(),
+        )
+        if version_id:
+            self._note_wr(version_id)
+            if self._version_id and self._version_id != version_id:
+                agent._memory.mark_superseded(self._version_id, version_id)
+            self._version_id = version_id
+            # 手がかり（次の反復の想起クエリ）は、いまの版そのものにする。
+            self._chain_head_id = version_id
+            self._chain_head_content = content
+        return version_id
+
+    def _version_content(self, *, aborted: bool = False) -> str:
+        """いまの求めの状態を、1つの版の content として組み立てる。
+
+        求めは1本の版チェーンとして進み、各版が状態を表す。**どの版にも求めそのものを
+        入れる**（前の版は畳まれて想起の候補から外れるので、辿る道が残らない）。
+
+        並行する調査は通し番号で列挙し、鎖は分岐させない。状態は「求め」の状態であって
+        個々の調査の状態ではないので、3件飛んでいても求めの状態はひとつである。
+
+        結果はここでは切らない。切るなら書き込みの上限で切る。ここで切ると、どこで短く
+        なったのかが追えなくなる。
+        """
+        parts: list[str] = []
+        for idx, act, query, result in sorted(self._lookup_results):
+            parts.append(f"{idx}番：{act}「{query}」の結果が届いた：{result}")
+        for act, query, idx in sorted(self._in_flight_lookups, key=lambda x: x[2]):
+            verb = "を打ち切った" if aborted else "を起動中"
+            parts.append(f"{idx}番：{act}「{query}」{verb}")
+
+        head = f"「{self._origin_text}」と聞かれた"
+        if not parts:
+            return head + ("（打ち切った）" if aborted else "")
+        return f"「{self._origin_text}」と聞かれ、" + "／".join(parts)
 
     def _next_lookup_index(self) -> int:
         """この求めの中での調査の通し番号を1つ進めて返す。"""
@@ -354,7 +414,8 @@ class InformationProcessing:
             return
         try:
             out, _ = await self._agent._memory_tool.call(
-                "recall", tool_input, exclude_ids=[intent_id] if intent_id else None
+                "recall", tool_input,
+                exclude_ids=[self._exclude_from_lookup] if self._exclude_from_lookup else None
             )
         except asyncio.CancelledError:
             raise
@@ -434,7 +495,6 @@ class InformationProcessing:
 
     async def _intake(self) -> int:
         """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。"""
-        agent = self._agent
         # `_inbox` は作り直さず中身だけ移す。駆動体は `self._inbox.append(await get())` の
         # append を await の前に束縛するので、ここで差し替えると駆動体が捨てられた古い
         # リストへ積み、完了が黙って失われる（実機で観測）。
@@ -455,30 +515,17 @@ class InformationProcessing:
             self._progress_pending = True
         for query, result_text, intent_id, _kind, _index in items:
             self._inflight = max(0, self._inflight - 1)
-            # 結果が返ったので、この意図はもう open ではない。
-            if intent_id and intent_id in self._open_intent_ids:
-                self._open_intent_ids.remove(intent_id)
             for i, (_act, q, _idx) in enumerate(self._in_flight_lookups):
                 if q == query:
                     del self._in_flight_lookups[i]
                     break
-            # 探した事実と結果を1件に残す。open 意図と入れ替わるので W には結果つきが載る。
+            # 届いた結果を控える。版の content へ通し番号つきで並べる材料になる。
             action = self._action_of(query)
-            cap = agent.config.completion_content_max
-            done_content = f"「{query}」を {action} で調べた結果が届いた：{result_text}"[:cap]
-            obs_id, _ = await agent._memory.save_async_with_id(
-                done_content,
-                direction="完了",
-                kind="observation",
-                materialize_now=True,
-                parent_id=self._parent_id,
-                **agent._observation_perspective(),
-            )
-            self._note_wr(obs_id)
-            # 完了が open 意図に再会して解決（[D-単一想起]）＝鎖を1つ進める。W に載るのは
-            # O へ書いたのと同じ文面にする（別の言い回しを2つ持つと、調停が読むものと
-            # 記憶に残るものが食い違う）。
-            self._advance_chain(obs_id, done_content)
+            index = _index or self._lookup_index_by_query.get(query, 0)
+            self._lookup_results.append((index, action, query, result_text))
+        if items:
+            # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。
+            await self._write_version()
         return len(items)
 
     # この反復で使える動作の表。値＝その動作のツール定義を agent から取り出す関数。
@@ -532,6 +579,9 @@ class InformationProcessing:
         self._on_text = on_text or self._on_text
         self._utterance = utterance
         self._origin_kind = "発話"
+        self._origin_text = utterance[:500]
+        self._version_id = None
+        self._lookup_results.clear()
         self._chain = 0
         self._lookup_seq = 0
         self._capped_hit = False
@@ -552,7 +602,9 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         self._parent_id = trigger_id
-        self._advance_chain(trigger_id, utterance[:500])
+        # 発話の記録は**鎖の外**。版チェーンは `_write_version` が別に進める。
+        self._chain_head_id = trigger_id
+        self._chain_head_content = utterance[:500]
         return await self._iterate()
 
     async def _abort_investigation(self) -> None:
@@ -577,29 +629,23 @@ class InformationProcessing:
         drained += len(self._inbox)
         self._inbox.clear()
         self._inflight = 0
-        self._in_flight_lookups.clear()
 
         self._generation += 1
         self._lookup_generation.clear()
-        parent_id, self._parent_id = self._parent_id, None
         if dropped or drained:
             logger.info("event-loop 調べかけを打ち切る（%s／取り込まなかった完了 %d件）",
                         "・".join(dropped) or "投げた先なし", drained)
-        if parent_id:
-            content = ("話しかけられたので、調べかけを打ち切った："
-                       + ("・".join(dropped) if dropped else "（調査は無し）"))
+        if self._parent_id:
+            # 打ち切りも版のひとつ。何を打ち切ったかは版の content が持つので、
+            # **飛行中の一覧を消す前**に、かつ親を捨てる前に書く。
             with contextlib.suppress(Exception):
-                obs_id, _ = await self._agent._memory.save_async_with_id(
-                    content[:500], direction="中断", kind="observation",
-                    materialize_now=True, parent_id=parent_id,
-                    **self._agent._observation_perspective(),
-                )
-                if obs_id:
-                    self._note_wr(obs_id)
-                    self._agent._memory.close_with_children(parent_id, obs_id)
+                await self._write_version(aborted=True)
+        self._parent_id = None
+        self._in_flight_lookups.clear()
+        self._version_id = None
+        self._lookup_results.clear()
         self._chain_head_id = None
         self._chain_head_content = ""
-        self._open_intent_ids.clear()
         self._lookup_action_by_query.clear()
         self._lookup_index_by_query.clear()
         self._said_fillers.clear()
@@ -829,6 +875,9 @@ class InformationProcessing:
         agent = self._agent
         self._utterance = ""
         self._origin_kind = "情動"
+        self._origin_text = f"[内的な促し:{drive_name}] {prompt}"[:500]
+        self._version_id = None
+        self._lookup_results.clear()
         self._chain = 0
         self._lookup_seq = 0
         self._capped_hit = False
@@ -854,6 +903,9 @@ class InformationProcessing:
         agent = self._agent
         self._utterance = ""
         self._origin_kind = "機器"
+        self._origin_text = f"[{kind}] {content}"[:500]
+        self._version_id = None
+        self._lookup_results.clear()
         self._chain = 0
         self._lookup_seq = 0
         self._capped_hit = False
@@ -1270,25 +1322,23 @@ class InformationProcessing:
         t.add_done_callback(self._tasks.discard)
 
     async def _write_intent_and_dispatch(self) -> None:
-        agent = self._agent
-        utterance, tool_input, action = self._pending_intent
+        _utterance, tool_input, action = self._pending_intent
         query = _query_label(action, tool_input)
-        content = f"「{utterance}」について {action}（{query}）を要求した。結果はまだ無い。"[:500]
-        intent_id, _ = await agent._memory.save_async_with_id(
-            content,
-            direction="意図",
-            kind="observation",
-            materialize_now=True,
-            parent_id=self._parent_id,
-            **agent._observation_perspective(),
-        )
-        # 意図を書いた時点でトリガ（や前回の完了）は死ぬ＝この検索には出てこない。
-        self._note_wr(intent_id)
-        if intent_id:
-            self._open_intent_ids.append(intent_id)
-        self._advance_chain(intent_id, content)
-        # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
-        self._dispatch_lookup(action, tool_input, query, intent_id)
+        # **先に投げる。** 版の content は飛行中の一覧を含むので、投げてから書かないと
+        # 「1番：… を起動中」が入らない。投げられなかった場合（重複など）は完了が積まれ、
+        # 次の取込で版が書かれる。
+        self._dispatch_lookup(action, tool_input, query, None)
+        version_id = await self._write_version()
+        # 自分が出した検索が、いま書いたばかりの版そのものを拾わないように狭く除外する。
+        # 版の content は語を丸ごと含むので、その語で探せば必ず上位に来る。
+        self._exclude_from_lookup = version_id
+        # 発話の記録は鎖の外だが、検索を始めたことはそこからも辿れたほうがよい。
+        # 一度だけ足す（何を調べているかは版の側が持つ）。埋め込みの作り直しを含むので
+        # 別スレッドへ逃がす（同期呼び出しでイベントループを止めない）。
+        if self._parent_id:
+            with contextlib.suppress(Exception):
+                await asyncio.to_thread(
+                    self._agent._memory.note_lookup_started, self._parent_id)
 
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
         """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""
@@ -1310,23 +1360,15 @@ class InformationProcessing:
                     **agent._observation_perspective(),
                 )
         self._note_wr(answer_id)
-        # 親が決着したら、生きている子（その求めのために投げた調査）もまとめて閉じる。
-        # **閉じる側をこの本応答 MI にする**。子として閉じられると `superseded_by` が入り、
-        # 想起の候補（新しさ軸・関連軸とも `superseded_by IS NULL`）から外れて、次のループで
-        # 見つけられなくなる。`close_with_children` は new_id 自身を除外するので生き残る。
+        # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
+        # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
+        # 畳む（未実装・`設計方針_求めの版チェーン`）。
         parent_id, self._parent_id = self._parent_id, None
-        obs_ids = [self._chain_head_id] if self._chain_head_id else []
+        obs_ids = [answer_id] if answer_id else []
+        self._version_id = None
         self._chain_head_id = None
-        # いま閉じる（背景の永続化を待たない）。待つと、その2秒のあいだ意図・完了・つなぎが
-        # 生きたまま次の反復の候補に出る。閉じる側を本応答 MI にすることで、生き残るのは
-        # 「自分が答えた」1件だけになる。2秒後に届く会話要約がこの記録を supersede し、
-        # 恒久記録は要約が担う（[逐語を拡散想起から辿れるようにするのは今後の課題]）。
-        if answer_id and parent_id:
-            with contextlib.suppress(Exception):
-                agent._memory.close_with_children(parent_id, answer_id)
-            obs_ids = [answer_id]
         self._in_flight_lookups.clear()
-        self._open_intent_ids.clear()
+        self._lookup_results.clear()
         self._lookup_action_by_query.clear()
         self._lookup_index_by_query.clear()
         self._said_fillers.clear()

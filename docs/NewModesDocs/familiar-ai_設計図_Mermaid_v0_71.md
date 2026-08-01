@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.70）
+# familiar-ai 設計図（Mermaid一式・v0.71）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -388,6 +388,8 @@ sequenceDiagram
 ---
 
 ## 更新履歴
+
+> v0.71：「store と I/F」台帳を**求めの版チェーン**へ更新した。`superseded_by` が版履歴と解決の2つを兼ねていたのを解き、`close_with_children` を撤去した（`parent_id` は残す）。求めは `direction="求め"` の1本の鎖として進み、新しい版が直前の版だけを畳む。
 
 > v0.70：「store と I/F」台帳の W 構築を、候補集合の1本の経路へ統合した形へ更新した。取込 O を検索から外して手組みで W へ足すのをやめ、量は $K$ と字数枠（`workspace_max_chars`・既定 40000）で抑える（1件の途中では切らず丸ごと落とす）。
 

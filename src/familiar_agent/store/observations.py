@@ -905,22 +905,47 @@ class ObservationStore:
     async def decay_importance_async(self, *a, **kw):
         return await asyncio.to_thread(self.decay_importance, *a, **kw)
 
-    def close_with_children(self, parent_id: str, new_id: str) -> None:
-        """親を閉じ、生きている子も同じ記録で閉じる（親子2階層・一段だけ・再帰なし）。
+    def append_and_reembed(self, obs_id: str, note: str) -> bool:
+        """content の末尾へ note を足し、埋め込みを作り直す。既にあれば何もしない。
 
-        調査は複数並行しうるので、親（求め）に子（調査）がぶら下がる。答えが出て親が決着
-        したら、その求めのために投げた調査はもう追わない。孫は作らない設計なので、子の子を
-        辿る必要はない。解決は先着が勝つ（`mark_superseded` と同じく上書きしない）。
+        **作り直しが要る。** 埋め込みは書き込み時に content から作られるので、あとから
+        足すだけだと content と situated ベクトルが食い違う。想起はベクトルで探すので、
+        足した文言は検索に効かず、W へ出る文面だけが変わってしまう。
+
+        実測で「500字の埋め込みと挿入」は 26ms（根拠台帳 §15）。LLM 呼び出しが1ターン
+        10.5 秒のうち 10.2 秒を占めることに比べれば誤差である。
+
+        足したときだけ True を返す。記録が無い場合は False（落とさない）。
         """
+        import numpy as np
+
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
+                cur.execute("SELECT content FROM observations WHERE id = %s", (obs_id,))
+                row = cur.fetchone()
+            if not row:
+                logger.warning("append_and_reembed: 記録が見つからない: %.8s", obs_id)
+                return False
+            content = str(row["content"] if isinstance(row, dict) else row[0])
+            if note in content:
+                return False
+            content = f"{content}\n{note}"
+
+            vec = self._ctx.embedder.encode_document([content])[0]
+            blob = np.array(vec, dtype=np.float32).tobytes()
+            with conn.cursor() as cur:
+                cur.execute("UPDATE observations SET content = %s WHERE id = %s",
+                            (content, obs_id))
                 cur.execute(
-                    "UPDATE observations SET superseded_by=%s "
-                    "WHERE (id=%s OR parent_id=%s) AND superseded_by IS NULL AND id<>%s",
-                    (new_id, parent_id, parent_id, new_id),
+                    "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
+                    "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",
+                    (obs_id, blob),
                 )
+            self._situated.refresh_situated_embeddings(
+                conn, obs_id, np.array(vec, dtype=np.float32))
             conn.commit()
+        return True
 
     def mark_superseded(self, old_id: str, new_id: str) -> None:
         with self._ctx.lock:

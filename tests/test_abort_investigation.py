@@ -39,26 +39,6 @@ def test_pending_completions_are_dropped():
     assert ip._lookup_action_by_query == {}
 
 
-def test_what_was_dropped_is_recorded():
-    a, ip = _ip_with_investigation()
-    asyncio.run(ip._abort_investigation())
-    written = [c for c in a._memory.save_async_with_id.call_args_list
-               if c.kwargs.get("direction") == "中断"]
-    assert len(written) == 1
-    assert "search_deferred「明日の天気」" in written[0].args[0]
-    assert written[0].kwargs["parent_id"] == "obs-parent"
-
-
-def test_the_record_closes_the_abandoned_chain():
-    # 打ち切りの記録で親と生きた子を閉じる（鎖は1件へ収束する）。
-    a, ip = _ip_with_investigation()
-    asyncio.run(ip._abort_investigation())
-    parent, new_id = a._memory.close_with_children.call_args.args
-    assert parent == "obs-parent"
-    assert new_id != parent
-    assert ip._parent_id is None and ip._chain_head_id is None
-
-
 def test_nothing_happens_when_there_was_no_investigation():
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
@@ -105,3 +85,23 @@ def test_a_completion_from_an_abandoned_request_is_dropped():
     ip._generation = 1
     ip.push_completion("明日の天気", "晴れ")
     assert ip._completion_queue.empty()
+
+
+def test_the_abort_is_written_as_a_version():
+    """打ち切りは求めの版として書く。
+
+    以前は `direction="中断"` の記録を書き、`close_with_children` で親と生きた子を閉じて
+    いた。版チェーンでは打ち切りも求めの状態のひとつなので、1つの版として書き、直前の版
+    だけを畳む（親子のファンアウトは無い）。
+    """
+    a, ip = _ip_with_investigation()
+    asyncio.run(ip._abort_investigation())
+
+    versions = [c for c in a._memory.save_async_with_id.call_args_list
+                if c.kwargs.get("direction") == "求め"]
+    assert len(versions) == 1, f"打ち切りの版が1件でない: {len(versions)}"
+    body = str(versions[0].args[0])
+    assert "打ち切った" in body, f"打ち切りが分からない: {body}"
+    assert "search_deferred「明日の天気」" in body, "何を打ち切ったかが残っていない"
+    assert versions[0].kwargs["parent_id"] == "obs-parent"
+    assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"

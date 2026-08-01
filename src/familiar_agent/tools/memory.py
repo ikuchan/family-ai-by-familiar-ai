@@ -391,9 +391,23 @@ class ObservationMemory:
         """想起した記憶の扱いの申告を反映する（store 層へ委譲）。"""
         return self._observations.apply_verdicts(verdicts)
 
-    def close_with_children(self, parent_id: 'str', new_id: 'str') -> 'None':
-        """親を閉じ、生きている子（その求めのために投げた調査）も同じ記録で閉じる。"""
-        return self._observations.close_with_children(parent_id, new_id)
+    # 発話の記録へ足す印。**一度だけ**足す。何を調べているかは求めの版が持つので、
+    # 発話の記録が持つ必要はない（二重に持つと、どちらが正かが曖昧になる）。
+    LOOKUP_STARTED_NOTE = "検索を始めた"
+
+    def note_lookup_started(self, obs_id: str) -> bool:
+        """発話の記録へ「検索を始めた」を一度だけ足し、埋め込みを作り直す。
+
+        発話の記録は求めの版チェーンの外にあるが、検索を始めたことはそこからも辿れた
+        ほうがよい。足したときだけ True を返す。
+        """
+        if not obs_id:
+            return False
+        try:
+            return self._observations.append_and_reembed(obs_id, self.LOOKUP_STARTED_NOTE)
+        except Exception:
+            logger.exception("note_lookup_started failed: %.8s", obs_id)
+            return False
 
     def decay_importance(self, before_date: 'str', factor: 'float' = 0.95) -> 'int':
         return self._observations.decay_importance(before_date, factor)

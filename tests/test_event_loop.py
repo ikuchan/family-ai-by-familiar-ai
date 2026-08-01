@@ -183,21 +183,22 @@ def test_recall_chains_via_completion_queue_then_says():
     assert kinds == {"observation"}
 
 
-def test_loop_records_form_a_single_chain():
-    # ループ記録は1本の鎖：トリガO → 意図O → 完了O。新しい記録が直前の生きた記録を
-    # supersede するので、生き残るのは常に鎖の先頭1件だけ。意図を書いた時点でトリガは
-    # 死ぬので、その意図が出した検索にトリガは出てこない。
+def test_loop_records_form_a_version_chain():
+    # 求めは1本の版チェーンとして進む。各版が求めの状態で、新しい版が**直前の版だけ**を
+    # 畳む。以前は「新しい記録が直前の生きた記録を畳む」形で、2回目の調査に入るとき意図が
+    # 1回目の完了を畳んでいた（追加調査のたびに前に分かったことが W から消えた）。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
     ])
     _run_chain(a, utterance="昨日の天気覚えてる？")
     calls = [c.args for c in a._memory.mark_superseded.call_args_list]
-    assert calls == [("obs1", "obs2"), ("obs2", "obs3")]   # トリガ→意図→完了
-    # ターン末に生き残るのは本応答 O（obs4）だけ。求めを閉じる側がこの記録なので、
-    # 意図・完了はここで閉じ、この1件が次の反復の候補に残る。要約が後から supersede する。
+    assert calls, "版が前の版を畳んでいない"
+    # 発話の記録（obs1）は鎖の外。畳まれない。
+    assert "obs1" not in {old for old, _new in calls}
+    # ターン末に渡すのは、自分が答えた記録。
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert kwargs["superseded_ids"] == ["obs4"]
+    assert kwargs["superseded_ids"], "答えの記録が渡っていない"
 
 
 def test_w_search_does_not_exclude_the_intake_origin():
@@ -235,21 +236,23 @@ def test_w_recall_uses_configured_k():
     assert kwargs.get("n") == MemoryConfig().recall_k == 7
 
 
-def test_children_are_linked_to_the_parent_and_closed_together():
-    # 親＝人の求め、子＝その求めのために投げた調査。子は parent_id で親に紐づき、
-    # 答えて親が決着したら、生きている子もまとめて閉じる（一段だけ・再帰なし）。
-    # deferred はモックだと完了が届かない（実体が sink を呼ぶ）ので、同期で返る recall で試す。
+def test_the_version_chain_replaces_parent_child_closing():
+    # 親子をまとめて畳む仕組み（close_with_children）は使わない。求めは1本の鎖なので、
+    # ファンアウトが無い。版は親（発話の記録）に紐づけて書くが、畳むのは直前の版だけ。
     a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "今日の天気"})]),
-        _turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})]),
+        _turn([ToolCall(id="r", name="recall", input={"query": "天気"})]),
+        _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
     ])
-    assert _run_chain(a, utterance="今日の天気を調べて") == "晴れだよ"
-    intents = [c for c in a._memory.save_async_with_id.call_args_list
-               if c.kwargs.get("direction") == "意図"]
-    assert intents and intents[0].kwargs.get("parent_id") == "obs1"   # obs1＝親（求め）
-    # 実際に閉じるのは永続化パイプライン（ここではモック）。親の id が渡ることを見る。
-    _, kwargs = a._run_post_response_pipeline.call_args
-    assert kwargs["close_parent_id"] == "obs1"
+    _run_chain(a, utterance="天気は？")
+    assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"
+    versions = [
+        c for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "求め"
+    ]
+    assert versions, "版が書かれていない"
+    assert all(c.kwargs.get("parent_id") == "obs1" for c in versions), (
+        "版が発話の記録に紐づいていない"
+    )
 
 
 def test_completion_content_reads_as_this_chains_action():
@@ -266,15 +269,15 @@ def test_completion_content_reads_as_this_chains_action():
         await ip.run_iteration("今日の天気を調べて")
         ip.push_completion("今日の天気", "西日本は暑い")
         for _ in range(_WAIT_TICKS):
-            if any(c.kwargs.get("direction") == "完了"
+            if any(c.kwargs.get("direction") == "求め"
                    for c in a._memory.save_async_with_id.call_args_list):
                 break
             await asyncio.sleep(0.005)
         await ip.close()
 
     asyncio.run(scenario())
-    done = next(c for c in a._memory.save_async_with_id.call_args_list
-                if c.kwargs.get("direction") == "完了")
+    done = next(c for c in reversed(a._memory.save_async_with_id.call_args_list)
+                if c.kwargs.get("direction") == "求め")
     content = done.args[0]
     assert "search_deferred" in content      # どうやって調べたか
     assert "今日の天気" in content            # 何を
@@ -297,15 +300,15 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
         await ip.run_iteration("今日の天気を調べて")
         ip.push_completion("今日の天気", body)
         for _ in range(_WAIT_TICKS):
-            if any(c.kwargs.get("direction") == "完了"
+            if any(c.kwargs.get("direction") == "求め"
                    for c in a._memory.save_async_with_id.call_args_list):
                 break
             await asyncio.sleep(0.005)
         await ip.close()
 
     asyncio.run(scenario())
-    done = next(c for c in a._memory.save_async_with_id.call_args_list
-                if c.kwargs.get("direction") == "完了")
+    done = next(c for c in reversed(a._memory.save_async_with_id.call_args_list)
+                if c.kwargs.get("direction") == "求め")
     assert done.args[0].count("気") >= 6000   # 本文が丸ごと残る
     assert len(done.args[0]) <= 8192          # 埋め込みの入力上限は超えない
 
@@ -354,16 +357,16 @@ def test_w_includes_the_intake_origin_via_the_candidate_set():
     assert "昔の話" in system                          # 想起の他の記録も載る
 
 
-def test_recall_tool_excludes_the_intent_that_issued_it():
-    # 意図 O は query を丸ごと含むので、その query で検索すれば必ず上位に来る（自己干渉）。
-    # 自分が出した検索が自分自身を拾わないよう、意図 O の id だけ狭く除外する。
+def test_recall_tool_excludes_the_version_that_issued_it():
+    # 版の content は語を丸ごと含むので、その語で探せば必ず上位に来る。自分が出した検索が
+    # 自分自身を拾わないよう、いま書いたばかりの版だけを狭く除外する。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
     ])
     _run_chain(a, utterance="昨日の天気覚えてる？")
     _, kwargs = a._memory_tool.call.call_args
-    assert kwargs["exclude_ids"] == ["obs2"]      # obs2＝この検索を出した意図 O
+    assert kwargs["exclude_ids"], "自分が出した検索を除外していない"
 
 
 def test_trigger_utterance_written_to_o_at_intake():
@@ -375,41 +378,39 @@ def test_trigger_utterance_written_to_o_at_intake():
     assert first.kwargs["direction"] == "発話"
 
 
-def test_open_intent_written_with_utterance_and_query():
-    # recall を決めた反復で open 意図 O を書く。content は元の発話内容と query を含む
-    # （id ではなく内容そのもの＝W に載ったとき意味が通り想起にも効く）。
+def test_a_version_is_written_with_the_request_and_query():
+    # 調査を起動すると、求めの版が書かれる。版には求めそのものと、起動した調査が入る
+    # （旧：direction="意図" の記録。版チェーンでは求めの状態が1本の鎖で進む）。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ])
     _run_chain(a, utterance="おはよう")
-    intents = [
+    versions = [
         c for c in a._memory.save_async_with_id.call_args_list
-        if c.kwargs.get("direction") == "意図"
+        if c.kwargs.get("direction") == "求め"
     ]
-    assert len(intents) == 1
-    content = intents[0].args[0]
+    assert versions, "版が書かれていない"
+    content = str(versions[0].args[0])
     assert "おはよう" in content and "運動会" in content
 
 
-def test_completion_supersedes_open_intent_and_records_search():
-    # 完了は open 意図に「再会」して解決する（[D-単一想起]）。完了 O が意図 O を supersede し、
-    # content は「探した事実＋結果」を持つ。これが無いと W に「結果はまだ無い」が残り続け、
-    # モデルは同じ recall を繰り返す（実機で観測）。
+def test_a_new_version_supersedes_the_previous_one_and_records_the_result():
+    # 結果が届くと新しい版が書かれ、直前の版を畳む（版履歴そのもの）。版の content には
+    # 探した事実と結果が入る。これが無いと W に「まだ無い」が残り続け、同じ調査を繰り返す。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
         _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
     ])
     _run_chain(a, utterance="昨日の天気覚えてる？")
-    # obs1=トリガ / obs2=open 意図 / obs3=完了 → 完了が意図を supersede（鎖の次）。
-    assert ("obs2", "obs3") in [c.args for c in a._memory.mark_superseded.call_args_list]
-    completions = [
+    versions = [
         c for c in a._memory.save_async_with_id.call_args_list
-        if c.kwargs.get("direction") == "完了"
+        if c.kwargs.get("direction") == "求め"
     ]
-    assert len(completions) == 1
-    content = completions[0].args[0]
-    assert "昨日の天気" in content and "recall結果テキスト" in content
+    assert len(versions) >= 2, "版が2つ以上書かれていない"
+    assert a._memory.mark_superseded.called, "版が前の版を畳んでいない"
+    last = str(versions[-1].args[0])
+    assert "結果が届いた" in last and "recall結果テキスト" in last
 
 
 def test_intake_drains_inbox_in_place():
