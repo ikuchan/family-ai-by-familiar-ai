@@ -437,7 +437,9 @@ class EmbodiedAgent:
 
         # そのターンで作った記憶 id（観察・会話）。WR 記録で W と共起させる。
         _new_ids: list[str | None] = []
-        _obs_id: str | None = None      # 観察 O はカメラを使ったターンだけ書かれる。
+        # 観察 O をここで書くのはやめた（上記）。None のまま残すのは、下の
+        # supersede の宛先が `_obs_id or _conv_id` で会話へ落ちるためである。
+        _obs_id: str | None = None
 
         # 案Y：満たされた drive を軽量LLMで判定し発火時と同じ全放電で沈静化（既定 off）。
         await self._maybe_discharge_satisfied_drives(
@@ -464,22 +466,12 @@ class EmbodiedAgent:
                 self._exploration.record_novelty(novelty)
                 if desires is not None:
                     desires.boost("look_around", novelty * 0.3)
-                # 場面の更新はここから外した。この経路は `loop/event_loop.py` の1箇所
-                # からしか来ず、そこは `camera_image=None`・`action_name=None` を渡す。
-                # つまり意味づけに掛かるのはカメラ画像ではなく**自分の発話テキスト**で、
-                # そこから拾ったラベルが `scene_entities` に入り、`person` を含めば
-                # `greet_companion` が跳ねた。在/不在は `PresenceSensor`（YOLO）が担う
-                # （`知覚在席` §3-2 は在/不在を G＝T 側・連続の担当と定める）。
-                _obs_id, _ = await self._memory.save_async_with_id(
-                    final_text[:500],
-                    direction="観察",
-                    kind="observation",
-                    dedupe_key=self._memory_dedupe_key("observation", final_text[:500]),
-                    materialize_now=False,
-                    emotion_pad=emotion_pad,
-                    **self._observation_perspective(),
-                )
-                _new_ids.append(_obs_id)
+                # 場面の更新と `観察` の書き込みはここから外した。この経路は
+                # `loop/event_loop.py` の1箇所からしか来ず、そこは `camera_used=False`・
+                # `camera_image=None`・`action_name=None` を渡すので、**どちらも一度も
+                # 到達しない**。書いていた中身も `final_text`（自分の応答）で、同じ
+                # テキストは `direction="発話"` の「自分が答えた：…」として既に残る。
+                # 見た印は `InformationProcessing._write_seen_mark` が書く（定点名つき）。
 
             summary = await self._summarize_exchange(user_input, final_text)
             _conv_id, _ = await self._active_memory().save_async_with_id(

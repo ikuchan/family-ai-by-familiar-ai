@@ -303,6 +303,31 @@ class InformationProcessing:
             self._chain_head_content = content
         return version_id
 
+    async def _write_seen_mark(self, content: str) -> str | None:
+        """見たことを O へ書く（`direction="観察"`・鎖の外・畳まない）。
+
+        旧 `run()` がカメラを使ったターンで書いていた記録の続きである（本番に 256 件
+        あり、2026-07-24 で途絶えている）。新しいループへ移るとき `camera_used` が
+        渡らなくなって書き込みが到達しなくなり、見た印が失われていた。同じ意味の
+        記録なので `direction` は分けない。
+
+        旧との違いは、`see` の完了が**どの定点を見たか**を頭に付けることである
+        （`_run_camera`）。定点名が入って初めて、W が「次はここを見る番だ」を選べる。
+        """
+        agent = self._agent
+        obs_id, _ = await agent._memory.save_async_with_id(
+            content[:agent.config.completion_content_max],
+            direction="観察",
+            kind="observation",
+            materialize_now=True,
+            parent_id=self._parent_id,
+            **agent._observation_perspective(),
+        )
+        # W へ載せる。版から結果を落としたので、この経路が無いと `see` した反復の
+        # 次で、調停が何が見えたかを知らないまま返事を作る。
+        self._note_wr(obs_id)
+        return obs_id
+
     def _version_content(self, *, aborted: bool = False) -> str:
         """いまの求めの状態を、1つの版の content として組み立てる。
 
@@ -526,6 +551,16 @@ class InformationProcessing:
             # 届いた結果を控える。版の content へ通し番号つきで並べる材料になる。
             action = self._action_of(query)
             index = _index or self._lookup_index_by_query.get(query, 0)
+            if action == "see":
+                # 見たことは**鎖の外**へ独立した記録として書く。会話の「自分が答えた」
+                # と同じ位置である。版の中にしか無いと、版が畳まれたときに定点ごとの
+                # 「最後に見てからどれだけ経ったか」が O から消え、`ユースケース③` の
+                # 定める巡回の創発（W が次の薄れた定点を選ぶ）が成り立たない。
+                await self._write_seen_mark(result_text)
+                # 版には結果を載せない。載せると同じ出来事が2件になり、想起で
+                # どちらも上がって W の枠を食う。求めの状態としては「何番が届いたか」
+                # だけあればよい。
+                result_text = "（見たことは観察に記録した）"
             self._lookup_results.append((index, action, query, result_text))
         if items:
             # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。
