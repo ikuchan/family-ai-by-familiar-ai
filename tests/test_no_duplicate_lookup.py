@@ -125,3 +125,45 @@ def test_a_new_request_clears_the_history() -> None:
         return got
 
     assert len(asyncio.run(scenario())) == 1, "求めが変わったのに調べられない"
+
+
+def test_a_blocked_lookup_is_counted_as_inflight() -> None:
+    """止めた調査も飛行中として数える。
+
+    完了を積む以上、飛行中として数えないと帳尻が合わない。取込は**積まれた完了1件につき
+    `_inflight` を1つ減らす**ので、増やさずに積むと実際より小さくなる。飛行中の調査が
+    残っているのに 0 になると、駆動体が「調査中ではない」とみなして待ち方を変える。
+    """
+    async def scenario():
+        a, ip = _ip_with_slow_recall()
+        ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
+        first = ip._inflight
+        ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
+        second = ip._inflight
+        for t in list(ip._tasks):
+            t.cancel()
+        await ip.close()
+        return first, second
+
+    first, second = asyncio.run(scenario())
+    assert first == 1, f"投げた調査が数えられていない: {first}"
+    assert second == 2, f"止めた調査が数えられていない: {second}"
+
+
+def test_inflight_returns_to_zero_after_intake() -> None:
+    """積んだぶんを取り込むと、飛行中の数が 0 へ戻る（増減が釣り合う）。"""
+    async def scenario():
+        a, ip = _ip_with_slow_recall()
+        ip._dispatch_lookup("recall", {"query": "語"}, "語", None)
+        ip._dispatch_lookup("recall", {"query": "語"}, "語", None)   # 止められる
+        ip._in_flight_lookups.clear()          # 1件目の結果が届いた体にする
+        ip._completion_queue.put_nowait(("語", "結果", None, "完了", 1))
+        await ip._intake()
+        got = ip._inflight
+        for t in list(ip._tasks):
+            t.cancel()
+        await ip.close()
+        return got
+
+    # 2 増えて 2 減る（止めた分の完了＋届いた分の完了）。
+    assert asyncio.run(scenario()) == 0, "飛行中の数が釣り合っていない"

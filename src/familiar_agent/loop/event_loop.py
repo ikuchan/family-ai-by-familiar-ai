@@ -344,9 +344,13 @@ class InformationProcessing:
         # 同じ形にする）。
         if query in self._lookup_action_by_query:
             logger.info("event-loop すでに調べた語なので投げない：%.40s", query)
+            # **飛行中として数えてから積む。** 取込は積まれた完了1件につき `_inflight` を
+            # 1つ減らすので、増やさずに積むと実際より小さくなる。飛行中の調査が残って
+            # いるのに 0 になると、駆動体が「調査中ではない」とみなして待ち方を変える。
+            self._inflight += 1
             self._completion_queue.put_nowait(
                 (query, f"「{query}」はこの求めですでに調べた。結果は W にある。",
-                 intent_id, "完了", 0))
+                 intent_id, "完了", self._lookup_index_by_query.get(query, 0)))
             return
 
         self._inflight += 1
