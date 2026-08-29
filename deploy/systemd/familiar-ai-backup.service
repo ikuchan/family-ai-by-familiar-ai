@@ -1,0 +1,32 @@
+[Unit]
+Description=familiar_ai の日次バックアップ
+Documentation=file:///home/yusuke-ikunaga/Desktop/family-ai-by-familiar-ai/scripts/backup_db.sh
+# db コンテナへ docker compose exec するので、docker が上がってから走らせる
+After=docker.service network-online.target
+Requires=docker.service
+
+[Service]
+Type=oneshot
+
+# root ではなく本人で走らせる。バックアップの所有者が本人のままになり、
+# rclone の設定も ~/.config/rclone をそのまま使える。
+User=yusuke-ikunaga
+Group=yusuke-ikunaga
+# docker.sock は root:docker の 660。User= だけでは補助グループが付かないので明示する。
+SupplementaryGroups=docker
+Environment=HOME=/home/yusuke-ikunaga
+
+# /data/backups 直下ではなく nightly/ を使う。backup_db.sh のローテーションは
+# find が再帰するため、直下を渡すと restore-source/ に置いた 8/21 のダンプが
+# 7日後に消える。
+Environment=BACKUP_DIR=/data/backups/nightly
+Environment=KEEP_DAYS=7
+Environment=GDRIVE_REMOTE=pajubackup:familiar_ai_backups
+Environment=GDRIVE_DAYS=30
+
+ExecStart=/home/yusuke-ikunaga/Desktop/family-ai-by-familiar-ai/scripts/backup_db.sh
+
+# 失敗を見落とさないよう、標準出力と標準エラーは journald に残す。
+# /data/logs へは書かない（HDD が回り続けて夜間に音が出る）。
+StandardOutput=journal
+StandardError=journal

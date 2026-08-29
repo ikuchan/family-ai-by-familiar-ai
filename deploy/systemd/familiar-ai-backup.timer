@@ -1,0 +1,14 @@
+[Unit]
+Description=familiar_ai の日次バックアップ（毎晩 03:00）
+
+[Timer]
+# 旧環境と同じ時刻。残ったダンプのファイル名が familiar_ai_20260821_030002.sql.gz
+# であることから、03:00 に走っていたと分かる。
+OnCalendar=*-*-* 03:00:00
+# 電源が落ちていて 03:00 を逃したぶんは、次の起動時に走らせる。
+# 一晩ぶん飛ばすより、昼に HDD が数十秒回るほうがましだと判断した。
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
