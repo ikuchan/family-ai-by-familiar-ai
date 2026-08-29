@@ -24,3 +24,9 @@ src/familiar_agent/_version.py
 
 # 別セッションが作る git worktree（gitlink として紛れ込む）
 .claude/worktrees/
+
+# npx skills で入れた skill の実体（skills-lock.json だけ追跡し、実体は再取得する）。
+# run_tests.sh が緑のとき git add -A するので、無視しないと 175 ファイル 7.0MB が
+# 巻き添えでコミットされる。
+.agents/
+.claude/skills/archify
