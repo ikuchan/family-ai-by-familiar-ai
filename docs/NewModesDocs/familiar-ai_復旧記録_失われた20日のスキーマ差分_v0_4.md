@@ -1,4 +1,4 @@
-# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.3）
+# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.4）
 
 ## この文書が記録すること
 
@@ -65,14 +65,21 @@ ERROR / WARNING / FATAL   0 件
 までなので、039 から 054 までの 16 件が失われたぶんにあたる。名前と適用時刻は、その20日間の
 作業を順に並べたものとして読める。
 
-| 適用時刻 | 名前 |
-|---|---|
-| 08-03 05:54 | `039_drop_dead_columns` `040_drop_dedupe_key` `041_drop_unfinished_business` `042_drop_observations_person_id` |
-| 08-11 12:41〜13:08 | `043_drop_recall_count` `044_situated_memories` `045_drop_perspective_vec` `046_situated_index_names` `047_situated_roles` |
-| 08-11 23:00 | `048_inner_records_belong_to_the_agent` |
-| 08-12 14:39 | `049_emotion_vec_cosine_index` |
-| 08-14 07:10 | `050_emotion_pad_may_be_unmeasured` |
-| 08-15 21:44 | `051_remove_the_per_turn_self_model` `052_fold_the_filler_utterances` `053_drop_the_dangling_rows` `054_retire_the_fillers` |
+**`schema_migrations.applied_at` は UTC である。**日本時間はこれに9時間を足す。ダンプの
+ファイル名は JST なので、両者を並べるときは必ず揃えること。この取り違えは実際に起きており、
+「8月3日 14時52分のダンプは 039 の適用より前か後か」の判断が9時間ぶん逆になった。
+
+| 適用時刻（UTC） | 日本時間 | 名前 |
+|---|---|---|
+| 08-03 05:54 | 08-03 14:54 | `039_drop_dead_columns` `040_drop_dedupe_key` `041_drop_unfinished_business` `042_drop_observations_person_id` |
+| 08-11 12:41〜13:08 | 08-11 21:41〜22:08 | `043_drop_recall_count` `044_situated_memories` `045_drop_perspective_vec` `046_situated_index_names` `047_situated_roles` |
+| 08-11 23:00 | 08-12 08:00 | `048_inner_records_belong_to_the_agent` |
+| 08-12 14:39 | 08-12 23:39 | `049_emotion_vec_cosine_index` |
+| 08-14 07:10 | 08-14 16:10 | `050_emotion_pad_may_be_unmeasured` |
+| 08-15 21:44 | 08-16 06:44 | `051_remove_the_per_turn_self_model` `052_fold_the_filler_utterances` `053_drop_the_dangling_rows` `054_retire_the_fillers` |
+
+日本時間で見ると、048 は8月12日の朝、051 から 054 は8月16日の早朝である。名前の日付
+（`2026-08-11-048`、`2026-08-15-051`）とは1日ずれるが、これは書いた日と流した日の違いである。
 
 039 と 041 は、8月1日のコミット（課題8 v0.52 に `importance` と `unfinished_business` 表の
 撤去を課題として足したもの）の翌日にあたる。課題として書いた撤去を、そのまま実行している。
@@ -293,6 +300,11 @@ docker compose exec -T db-test pg_dump -U familiar --schema-only --no-owner --no
 生成物と、ダンプから抜いたスキーマ一式は、リポジトリ外の `~/familiar_ai_restore/` に置いてある。
 
 ## 更新履歴
+
+> v0.4：**`schema_migrations.applied_at` が UTC であることを明記し、日本時間を併記した**
+> （2026-08-30）。この取り違えで「8月3日 14時52分のダンプが 039 の適用より前か後か」の判断が
+> 9時間ぶん逆になっていた。正しくは適用が 14時54分 JST で、そのダンプは直前である。おかげで
+> 039 から 042 の4本ぶんの差を、前後のダンプから切り出せた。
 
 > v0.3：**情動の収縮の原因を取り違えていたので訂正し、失われた20日が選んだ答えを記録した**
 > （2026-08-30）。v0.2 は「情-a の tuning 保留の効きに見える」と書いたが、外れである。真因は
