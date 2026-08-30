@@ -1,0 +1,21 @@
+[Unit]
+Description=familiar_ai の設定と人格の日次バックアップ
+Documentation=file:///home/yusuke-ikunaga/Desktop/family-ai-by-familiar-ai/scripts/backup_config.sh
+# docker は要らない。rclone だけを使うので、ネットワークが上がっていればよい。
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+
+# rclone の設定は ~/.config/rclone にあるので、本人の権限で走らせる。
+User=yusuke-ikunaga
+Group=yusuke-ikunaga
+Environment=HOME=/home/yusuke-ikunaga
+
+Environment=CONFIG_REMOTE=pajubackup:familiar_ai_config
+
+ExecStart=/home/yusuke-ikunaga/Desktop/family-ai-by-familiar-ai/scripts/backup_config.sh
+
+StandardOutput=journal
+StandardError=journal
