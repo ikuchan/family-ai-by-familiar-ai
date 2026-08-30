@@ -1,0 +1,12 @@
+[Unit]
+Description=familiar_ai の設定と人格の日次バックアップ（毎晩 03:10）
+
+[Timer]
+# DB のバックアップ（03:00）とずらす。同時に走らせると docker と rclone が
+# 帯域と CPU を取り合い、どちらの所要時間も読めなくなる。
+OnCalendar=*-*-* 03:10:00
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target
