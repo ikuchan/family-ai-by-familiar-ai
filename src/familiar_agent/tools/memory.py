@@ -444,8 +444,8 @@ class ObservationMemory:
         )
 
     # キュー（store/jobs.py）
-    def append_memory_event(self, event_type: 'str', payload: 'dict', dedupe_key: 'str | None' = None, queue_job: 'bool' = True, job_type: 'str' = 'materialize_observation') -> 'tuple[str | None, bool]':
-        return self._jobs.append_memory_event(event_type, payload, dedupe_key, queue_job, job_type)
+    def append_memory_event(self, event_type: 'str', payload: 'dict', queue_job: 'bool' = True, job_type: 'str' = 'materialize_observation') -> 'tuple[str | None, bool]':
+        return self._jobs.append_memory_event(event_type, payload, queue_job, job_type)
 
     async def append_memory_event_async(self, *a, **kw):
         return await self._jobs.append_memory_event_async(*a, **kw)
@@ -534,7 +534,6 @@ class ObservationMemory:
         emotion: str = "neutral",
         image_path: str | None = None,
         override_date: str | None = None,
-        dedupe_key: str | None = None,
         materialize_now: bool = True,
         writer_id: str | None = None,
         subject_id: str | None = None,
@@ -551,11 +550,9 @@ class ObservationMemory:
             event_id: str | None = None
             try:
                 event_id, created_new = self.append_memory_event(
-                    "memory.save", payload, dedupe_key=dedupe_key,
+                    "memory.save", payload,
                     queue_job=True, job_type="materialize_observation",
                 )
-                if dedupe_key and event_id and not created_new:
-                    return True
                 if not materialize_now and event_id:
                     return True
             except Exception as e:
@@ -590,11 +587,8 @@ class ObservationMemory:
         try:
             event_id, created_new = self.append_memory_event(
                 "memory.save", payload,
-                dedupe_key=kwargs.get("dedupe_key"),
                 queue_job=True, job_type="materialize_observation",
             )
-            if kwargs.get("dedupe_key") and event_id and not created_new:
-                return event_id, True
             if not kwargs.get("materialize_now", True) and event_id:
                 return event_id, True
             obs_id = event_id or str(uuid.uuid4())

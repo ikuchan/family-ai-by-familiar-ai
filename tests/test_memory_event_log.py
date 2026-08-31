@@ -54,23 +54,25 @@ def test_save_appends_event_and_pending_job() -> None:
     conn.close()
 
 
-def test_save_with_dedupe_key_is_idempotent() -> None:
+def test_same_content_within_the_window_is_written_once() -> None:
+    """040 で鍵を落としたあと、重複防止は時間窓が担う。
+
+    鍵（`memory_events.dedupe_key`）はキューへ積む段で弾いていた。時間窓は
+    `observations` へ書く段で弾く。掛かる場所が違うので、`memory_events` は2件に
+    なるが、**記憶そのものは1件に収まる**。
+    """
     with (
         patch.object(_EmbeddingModel, "pre_warm"),
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
         mem = ObservationMemory()
-        assert mem.save("same payload", kind="conversation", dedupe_key="turn-1-conversation")
-        assert mem.save("same payload", kind="conversation", dedupe_key="turn-1-conversation")
+        assert mem.save("same payload", kind="conversation")
+        assert mem.save("same payload", kind="conversation")
 
     conn = _pg_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM memory_events")
-        assert cur.fetchone()[0] == 1
-        cur.execute("SELECT COUNT(*) FROM memory_jobs")
-        assert cur.fetchone()[0] == 1
         cur.execute("SELECT COUNT(*) FROM observations")
-        assert cur.fetchone()[0] == 1
+        assert cur.fetchone()[0] == 1, "時間窓が二度目を弾けていない"
     conn.close()
 
 
