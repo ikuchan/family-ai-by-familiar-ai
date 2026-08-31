@@ -1,4 +1,4 @@
-# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.5）
+# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.6）
 
 ## この文書が記録すること
 
@@ -288,7 +288,7 @@ emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else MoodPAD()
 | 本 | 状態 | 対応する課題8 の項目 |
 |---|---|---|
 | 041 `drop_unfinished_business` | **復元済み**（2026-08-31） | 記-d |
-| 039 `drop_dead_columns` | 未着手 | 記-d（`importance` と `scope`） |
+| 039 `drop_dead_columns` | **復元済み**（2026-08-31） | 記-d（`importance` と `scope`） |
 | 040 `drop_dedupe_key` | 未着手 | 課題8 に該当なし |
 | 042 `drop_observations_person_id` | 未着手 | 記-d。C-1 のフォールバックの行き先待ち |
 | 043 から 054 | 未着手 | 一部のみ対応あり |
@@ -314,6 +314,28 @@ migration/2026-08-02-041_drop_unfinished_business.py
 落とした。
 
 **マイグレーションを1本ずつ復元する作業は、その周りの死んだコードを見つける手段でもある。**
+
+### 039 で分かったこと
+
+列を落とすときは、**テストが自前の SQL で書いている経路まで数える。** 039 の一度目の全体
+テストで15件が赤になり、そのうち11件がこれだった。`src/` の書き手だけを洗って「読み手0件・
+書き手3箇所」と数えたが、`INSERT INTO observations` を含むテストが30ファイルあり、うち5つが
+`scope` 列へ書いていた。
+
+残る4件は、視点列を組む2つの関数（`_observation_perspective`／`_conversation_perspective`）の
+返り値から `scope` が消えたことだった。テストは仕様を書いているので、テストを黙って直すのでは
+なく、関数の説明とテストの仕様を「視点列は3項目」へ揃えた。誰との遣り取りかは `writer_id` と
+`subject_id` が持っており、`scope` は同じことを別の語で重ねていた。
+
+**同じ名前が別のものを指すとき、完了条件の grep は0件にならない。** `scope` には3つの別物が
+ある。道具 `remember` の引数（「誰のぶんを書くか」の分岐）、`embedding_means.scope`（別テーブル）、
+`_memory_dedupe_key` の引数（DB 列でない）である。完了条件は「`observations` の列としての
+`scope` が0件」と読み替えた。課題8 の「旧名 grep で0件」をそのまま当てると、達成できない条件に
+なる。
+
+実データも、列と引数が別物であることを示していた。8月3日時点の分布は `speaker` 3,503、
+`scene` 1,574、`witnessed` 3 で、道具の enum にある `all` は列に一度も入っていない。`all` を
+受けると `speaker` と `witnessed` の両方の枝を通り、それぞれ別の値として書くためである。
 
 ## `agent_state` のキーが証言するもの
 
@@ -356,6 +378,12 @@ docker compose exec -T db-test pg_dump -U familiar --schema-only --no-owner --no
 生成物と、ダンプから抜いたスキーマ一式は、リポジトリ外の `~/familiar_ai_restore/` に置いてある。
 
 ## 更新履歴
+
+> v0.6：**039（`importance` と `scope` の撤去）を復元した**（2026-08-31）。列を落とすときは
+> テストが自前の SQL で書いている経路まで数える、という教訓を書いた。一度目の全体テストで
+> 15件が赤になり、11件がこれだった。残る4件は視点列を組む関数の返り値から `scope` が消えた
+> ことで、テストではなく仕様の側を実態へ揃えた。同じ名前が別のものを指すとき完了条件の grep は
+> 0件にならないことも記録した（`scope` には別物が3種ある）。
 
 > v0.5：**16本の復元を始め、最初の1本（041）を記録した**（2026-08-31）。id は原本と同じにする、
 > という原則を書いた。本番の `schema_migrations` に記録が残っているので、同じ id なら本番では
