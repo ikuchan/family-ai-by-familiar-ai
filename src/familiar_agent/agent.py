@@ -27,7 +27,6 @@ from .backend import create_backend, create_scene_backend, create_utility_backen
 from .concern_engine import ConcernEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
-from .heartbeat import HeartbeatRuntime
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
 from .self_narrative import SelfNarrative
@@ -251,10 +250,6 @@ class EmbodiedAgent:
         # 立ち上がる前のターンでも Nudge を返すので、ここで持たせる。
         self._aif = AIF(None)
         self._schedule_rule = quiet_hours_rule()
-        self._heartbeat = HeartbeatRuntime(
-            memory=self._memory,
-            quiet_rule=self._schedule_rule,
-        )
         self._last_tool_error: str | None = None
         self._tool_failure_streak: int = 0
 

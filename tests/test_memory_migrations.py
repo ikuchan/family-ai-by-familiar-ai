@@ -70,7 +70,6 @@ def test_auto_applies_migrations_on_first_connect() -> None:
         "episodes",
         "episode_memories",
         "memory_salience",
-        "unfinished_business",
         "relationship_state",
     }.issubset(tables)
 

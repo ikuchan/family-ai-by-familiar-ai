@@ -11,7 +11,6 @@ Config: DATABASE_URL.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import math
 import uuid
@@ -1044,7 +1043,7 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall_day_summaries, n)
 
     # ── これから作り替えるもの（store/ へ移していない） ──────────────────
-    # episodes／memory_salience／unfinished_business を触る以下の一群は、
+    # episodes／memory_salience を触る以下の一群は、
     # Phase 5 で作り替えが決まっているため、いま層へ移していない。
     #   - W（作業記憶）は O からの派生ビューで毎ターン作り直す（[D-記憶単一化]）
     #     ので、memory_salience に溜める形自体が変わる
@@ -1158,56 +1157,6 @@ class ObservationMemory:
                     return [dict(r) for r in cur.fetchall()]
         except Exception as e:
             logger.warning("get_working_memory failed: %s", e); return []
-
-    def open_unfinished_business(
-        self,
-        summary: str,
-        source: str = "agent",
-        metadata: dict | None = None,
-        related_memory_id: str | None = None,
-    ) -> str:
-        """Create an open unfinished-business record and return its ID."""
-        item_id = str(uuid.uuid4())
-        now = clock.now_utc_iso()
-        sql = (
-            "INSERT INTO unfinished_business "
-            "(id,summary,status,source,related_memory_id,metadata_json,created_at) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s)"
-        )
-        params = (
-            item_id, summary, "open", source,
-            related_memory_id, json.dumps(metadata or {}), now,
-        )
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(sql, params)
-                conn.commit()
-        except Exception as e:
-            logger.warning("open_unfinished_business failed: %s", e)
-        return item_id
-
-    def list_unfinished_business(self, status: str = "open", n: int = 50) -> list[dict]:
-        """Return unfinished-business records with the given status."""
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT id,summary,status,source,created_at,metadata_json "
-                        "FROM unfinished_business WHERE status=%s "
-                        "ORDER BY created_at DESC LIMIT %s",
-                        (status, n),
-                    )
-                    rows = cur.fetchall()
-            return [dict(r) for r in rows]
-        except Exception as e:
-            logger.warning("list_unfinished_business failed: %s", e)
-            return []
-
-    async def list_unfinished_business_async(self, status: str = "open", n: int = 50) -> list[dict]:
-        return await asyncio.to_thread(self.list_unfinished_business, status, n)
 
     async def as_coalition_async(self):
         """Surface recently-stored memories as a workspace coalition.
