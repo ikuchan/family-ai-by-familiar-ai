@@ -34,7 +34,6 @@ def _insert_observation(
     content: str,
     kind: str = "observation",
     emotion: str = "neutral",
-    importance: float = 1.0,
 ) -> str:
     obs_id = str(uuid.uuid4())
     now = datetime.now()
@@ -43,11 +42,11 @@ def _insert_observation(
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,direction,kind,emotion,importance,person_id) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,kind,emotion,person_id) "
+                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
                 (
                     obs_id, content, now,
-                    "test", kind, emotion, importance, mem._person_id,
+                    "test", kind, emotion, mem._person_id,
                 ),
             )
         conn.commit()
@@ -67,89 +66,6 @@ def _pg_columns(table: str) -> set[str]:
     return cols
 
 
-# ---------------------------------------------------------------------------
-# Tests: importance column
-# ---------------------------------------------------------------------------
-
-
-def test_observations_has_importance_column() -> None:
-    assert "importance" in _pg_columns("observations")
-
-
-def test_importance_defaults_to_one() -> None:
-    mem = _make_memory()
-    obs_id = _insert_observation(mem, "default importance check")
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT importance FROM observations WHERE id=%s", (obs_id,))
-        row = cur.fetchone()
-    conn.close()
-    assert row is not None
-    assert abs(row[0] - 1.0) < 1e-6
-
-
-def test_decay_importance_reduces_old_records() -> None:
-    mem = _make_memory()
-    obs_id = _insert_observation(mem, "old memory", importance=1.0)
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("UPDATE observations SET timestamp='2025-01-01T00:00:00' WHERE id=%s", (obs_id,))
-    conn.commit()
-    conn.close()
-
-    mem.decay_importance(before_date="2026-01-01", factor=0.95)
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT importance FROM observations WHERE id=%s", (obs_id,))
-        row = cur.fetchone()
-    conn.close()
-    assert abs(row[0] - 0.95) < 1e-4
-
-
-def test_decay_importance_skips_recent_records() -> None:
-    from datetime import date
-    mem = _make_memory()
-    today = date.today().isoformat()
-    obs_id = _insert_observation(mem, "fresh memory", importance=1.0)
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("UPDATE observations SET timestamp=%s WHERE id=%s", (today + "T12:00:00", obs_id))
-    conn.commit()
-    conn.close()
-
-    mem.decay_importance(before_date=today, factor=0.95)
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT importance FROM observations WHERE id=%s", (obs_id,))
-        row = cur.fetchone()
-    conn.close()
-    assert abs(row[0] - 1.0) < 1e-6
-
-
-def test_decay_importance_is_cumulative() -> None:
-    mem = _make_memory()
-    obs_id = _insert_observation(mem, "old memory", importance=1.0)
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("UPDATE observations SET timestamp='2020-01-01T00:00:00' WHERE id=%s", (obs_id,))
-    conn.commit()
-    conn.close()
-
-    mem.decay_importance(before_date="2026-01-01", factor=0.9)
-    mem.decay_importance(before_date="2026-01-01", factor=0.9)
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT importance FROM observations WHERE id=%s", (obs_id,))
-        row = cur.fetchone()
-    conn.close()
-    assert abs(row[0] - 0.81) < 1e-4
-
-
-# ---------------------------------------------------------------------------
-# Tests: superseded_by column
 # ---------------------------------------------------------------------------
 
 

@@ -717,7 +717,6 @@ class ObservationStore:
         writer_id: str | None = None,
         subject_id: str | None = None,
         participants: list[str] | None = None,
-        scope: str = "speaker",
         novelty_k: int = 7,
         novelty_w_n: float = 1.5,
         novelty_default: float = 0.5,
@@ -785,15 +784,15 @@ class ObservationStore:
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
                     " image_path,image_data,person_id,writer_id,subject_id,"
-                    " participants_json,scope,groundedness_g0,parent_id,"
+                    " participants_json,groundedness_g0,parent_id,"
                     " emotion_p,emotion_pn,emotion_a,emotion_dom,emotion_vec) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
                      self._ctx.person_id,
                      writer_id or self._ctx.person_id,
                      subject_id or self._ctx.person_id,
-                     participants_json, scope, groundedness_g0,
+                     participants_json, groundedness_g0,
                      payload.get("parent_id"),
                      emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom,
                      # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には
@@ -889,21 +888,6 @@ class ObservationStore:
         except Exception as e:
             logger.warning("_mark_recalled failed: %s", e)
 
-    def decay_importance(self, before_date: str, factor: float = 0.95) -> int:
-        with self._ctx.lock:
-            conn = self._ctx.conn()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE observations SET importance = importance * %s "
-                    "WHERE timestamp::date < %s::date AND person_id = %s AND superseded_by IS NULL",
-                    (factor, before_date, self._ctx.person_id),
-                )
-                count = cur.rowcount
-            conn.commit()
-        return count
-
-    async def decay_importance_async(self, *a, **kw):
-        return await asyncio.to_thread(self.decay_importance, *a, **kw)
 
     def append_and_reembed(self, obs_id: str, note: str) -> bool:
         """content の末尾へ note を足し、埋め込みを作り直す。既にあれば何もしない。

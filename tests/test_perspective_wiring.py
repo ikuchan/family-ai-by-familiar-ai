@@ -1,7 +1,10 @@
-"""P1：知覚→save の視点列配線（writer_id/subject_id/participants/scope を PMM から）。
+"""P1：知覚→save の視点列配線（writer_id／subject_id／participants を PMM から）。
 
-観察＝エージェント自身の情景観察（writer=AGENT_SELF・scope=scene・subject は話者 floor DEFAULT）。
-会話＝話者との遣り取り（writer=subject=話者 floor DEFAULT・scope=speaker）。participants は在席者。
+観察＝エージェント自身の情景観察（writer=AGENT_SELF・subject は話者 floor DEFAULT）。
+会話＝話者との遣り取り（writer=subject=話者 floor DEFAULT）。participants は在席者。
+
+視点の絞りを表す列は 039 で落とした。誰との遣り取りかは writer_id と
+subject_id が持っており、同じことを別の語で重ねていた。
 """
 
 from __future__ import annotations
@@ -27,7 +30,6 @@ def test_observation_perspective_with_speaker():
         writer_id=AGENT_SELF_ID,
         subject_id="PERSON-A",
         participants=["PERSON-A", "PERSON-B"],
-        scope="scene",
     )
 
 
@@ -36,7 +38,6 @@ def test_observation_perspective_floors_to_default():
     p = EmbodiedAgent._observation_perspective(s)
     assert p["writer_id"] == AGENT_SELF_ID
     assert p["subject_id"] == DEFAULT_PERSON_ID  # 話者不在は floor で DEFAULT
-    assert p["scope"] == "scene"
 
 
 def test_conversation_perspective_with_speaker():
@@ -46,7 +47,6 @@ def test_conversation_perspective_with_speaker():
         writer_id="PERSON-A",
         subject_id="PERSON-A",
         participants=["PERSON-A"],
-        scope="speaker",
     )
 
 
@@ -55,4 +55,3 @@ def test_conversation_perspective_floors_to_default():
     p = EmbodiedAgent._conversation_perspective(s)
     assert p["writer_id"] == DEFAULT_PERSON_ID
     assert p["subject_id"] == DEFAULT_PERSON_ID
-    assert p["scope"] == "speaker"

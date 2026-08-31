@@ -27,12 +27,12 @@ _NOW = datetime(2026, 6, 1, 12, 0, 0)
 
 
 def _insert_obs(cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime,
-                 importance: float = 1.0, superseded_by: str | None = None) -> None:
+                 groundedness_g0: float = 1.0, superseded_by: str | None = None) -> None:
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion, person_id, importance, superseded_by) "
+        "(id, content, timestamp, direction, kind, emotion, person_id, groundedness_g0, superseded_by) "
         "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral", person_id, importance, superseded_by),
+        (obs_id, content, ts, "unknown", kind, "neutral", person_id, groundedness_g0, superseded_by),
     )
 
 
@@ -49,7 +49,7 @@ def test_row_to_mental_item_builds_from_row() -> None:
     with conn.cursor() as cur:
         _insert_obs(
             cur, "sm-1", "self model content", "self_model", AGENT_SELF_ID, _NOW,
-            importance=0.7, superseded_by="sm-0",
+            groundedness_g0=0.7, superseded_by="sm-0",
         )
     conn.close()
 
@@ -58,7 +58,7 @@ def test_row_to_mental_item_builds_from_row() -> None:
         kind="self_model",
         person_id=AGENT_SELF_ID,
         n=1,
-        columns=("id", "content", "timestamp", "emotion", "superseded_by", "importance"),
+        columns=("id", "content", "timestamp", "emotion", "superseded_by", "groundedness_g0"),
     )
     row = rows[0]
 
@@ -78,7 +78,7 @@ def test_row_to_mental_item_builds_from_row() -> None:
 
 def test_row_to_mental_item_loads_pad_emotion() -> None:
     row = {
-        "id": "x", "content": "c", "superseded_by": None, "importance": 1.0,
+        "id": "x", "content": "c", "superseded_by": None, "groundedness_g0": 1.0,
         "emotion_p": 0.8, "emotion_pn": 0.15, "emotion_a": 0.55, "emotion_dom": 0.6,
     }
     item = _row_to_mental_item(row)
@@ -86,7 +86,7 @@ def test_row_to_mental_item_loads_pad_emotion() -> None:
 
 
 def test_row_to_mental_item_pad_defaults_neutral_when_absent() -> None:
-    row = {"id": "x", "content": "c", "superseded_by": None, "importance": 1.0}
+    row = {"id": "x", "content": "c", "superseded_by": None, "groundedness_g0": 1.0}
     item = _row_to_mental_item(row)
     assert item.emotion == MoodPAD()
 

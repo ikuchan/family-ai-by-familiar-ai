@@ -191,10 +191,10 @@ def test_migration_clears_situated_embeddings() -> None:
         cur.execute(
             "INSERT INTO observations "
             "(id,content,timestamp,direction,kind,emotion,person_id,writer_id,subject_id,"
-            " participants_json,scope) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s)",
+            " participants_json) "
+            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s)",
             (obs_id, "migration test", "unknown", "utterance", "neutral",
-             pid, pid, pid, "[]", "speaker"),
+             pid, pid, pid, "[]"),
         )
         cur.execute(
             "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) "
@@ -231,10 +231,10 @@ def test_migration_clears_obs_embeddings() -> None:
         cur.execute(
             "INSERT INTO observations "
             "(id,content,timestamp,direction,kind,emotion,person_id,writer_id,subject_id,"
-            " participants_json,scope) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s)",
+            " participants_json) "
+            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s)",
             (obs_id, "obs embedding test", "unknown", "utterance", "neutral",
-             pid, pid, pid, "[]", "speaker"),
+             pid, pid, pid, "[]"),
         )
         fake_blob = vec_to_sql(np.zeros(1024).tolist())
         cur.execute(

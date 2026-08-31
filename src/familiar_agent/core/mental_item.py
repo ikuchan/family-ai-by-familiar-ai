@@ -39,7 +39,9 @@ def _row_to_mental_item(row) -> MentalItem:
         id=row["id"],
         content=row["content"],
         supersedes=row["superseded_by"],
-        activation=row["importance"],
+        # `importance` は P-1 で役目を失い 039 で落とした。値は 021 が
+        # `groundedness_g0` へ移してある。(a0,n) からの導出は Phase 2。
+        activation=row["groundedness_g0"],
         emotion=MoodPAD(
             p=row.get("emotion_p", 0.5),
             pn=row.get("emotion_pn", 0.5),
