@@ -408,12 +408,6 @@ class ObservationMemory:
             logger.exception("note_lookup_started failed: %.8s", obs_id)
             return False
 
-    def decay_importance(self, before_date: 'str', factor: 'float' = 0.95) -> 'int':
-        return self._observations.decay_importance(before_date, factor)
-
-    async def decay_importance_async(self, *a, **kw):
-        return await self._observations.decay_importance_async(*a, **kw)
-
     def get_dates_with_observations(self, days: 'int' = 7) -> 'list[str]':
         return self._observations.get_dates_with_observations(days)
 
@@ -545,7 +539,6 @@ class ObservationMemory:
         writer_id: str | None = None,
         subject_id: str | None = None,
         participants: list[str] | None = None,
-        scope: str = "speaker",
         emotion_pad: MoodPAD | None = None,
     ) -> bool:
         # PAD は payload へ dict で載せる（JSON 往復可・遅延マテリアライズも通る）。
@@ -576,7 +569,6 @@ class ObservationMemory:
                 writer_id=writer_id,
                 subject_id=subject_id,
                 participants=participants,
-                scope=scope,
                 novelty_k=_cfg.novelty_k,
                 novelty_w_n=_cfg.novelty_w_n,
                 novelty_default=_cfg.novelty_default,
@@ -614,7 +606,6 @@ class ObservationMemory:
                 writer_id=kwargs.get("writer_id"),
                 subject_id=kwargs.get("subject_id"),
                 participants=kwargs.get("participants"),
-                scope=kwargs.get("scope", "speaker"),
             )
             return stored_id, stored_id is not None
         except Exception:
@@ -992,7 +983,7 @@ class ObservationMemory:
             kind="self_model",
             person_id=AGENT_SELF_ID,
             n=n,
-            columns=("id", "content", "timestamp", "emotion", "superseded_by", "importance",
+            columns=("id", "content", "timestamp", "emotion", "superseded_by", "groundedness_g0",
                      "emotion_p", "emotion_pn", "emotion_a", "emotion_dom"),
         )
         # A-1: 器を組み立てる経路を通す。返り値には使わず外部挙動を保つ（利用は次の一本）。
@@ -1360,7 +1351,7 @@ class MemoryTool:
                 content, kind="utterance", emotion=emotion,
                 image_path=image_path,
                 writer_id=speaker_id, subject_id=speaker_id,
-                participants=present_ids, scope="speaker",
+                participants=present_ids,
             )
             if ok:
                 results.append(f"[{self._manager.get_person_name(speaker_id)}] 話者")
@@ -1377,7 +1368,7 @@ class MemoryTool:
                 await mem.save_async(
                     witnessed, kind="witnessed", emotion=emotion,
                     writer_id=pid, subject_id=speaker_id,
-                    participants=present_ids, scope="witnessed",
+                    participants=present_ids,
                 )
             listeners = [self._manager.get_person_name(p)
                          for p, _ in self._manager.get_all_present_memories()
@@ -1392,7 +1383,7 @@ class MemoryTool:
             scene_txt = f"[場面] 参加者: {', '.join(pnames)} / 発言者: {sp_name} / {content}"
             await self._agent_store.save_async(
                 scene_txt, kind="scene", emotion=emotion,
-                participants=present_ids, scope="scene",
+                participants=present_ids,
                 writer_id=AGENT_SELF_ID,
             )
             results.append("[agent_self] 場面記録")
@@ -1405,7 +1396,7 @@ class MemoryTool:
                 content, kind="utterance", emotion=emotion,
                 image_path=image_path,
                 writer_id=speaker_id, subject_id=speaker_id,
-                participants=present_ids, scope="speaker",
+                participants=present_ids,
             )
             if ok:
                 results.append(f"[{self._manager.get_person_name(speaker_id)}] 話者（在席者なし）")

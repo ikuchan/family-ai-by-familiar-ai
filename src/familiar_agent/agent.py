@@ -773,17 +773,19 @@ class EmbodiedAgent:
             writer_id=AGENT_SELF_ID,
             subject_id=speaker,
             participants=self._pmm.get_present_ids(),
-            scope="scene",
         )
 
     def _conversation_perspective(self) -> dict:
-        """会話 summary の視点列（P1）。書き手＝主体＝話者 floor DEFAULT・在席者・scope speaker。"""
+        """会話 summary の視点列（P1）。書き手＝主体＝話者 floor DEFAULT・在席者。
+
+        `scope` は 039 で列ごと落とした。誰との遣り取りかは writer_id と subject_id が
+        持っており、`scope` は同じことを別の語で重ねていた。
+        """
         speaker = self._pmm.current_speaker_id or DEFAULT_PERSON_ID
         return dict(
             writer_id=speaker,
             subject_id=speaker,
             participants=self._pmm.get_present_ids(),
-            scope="speaker",
         )
 
     def _social_presence_permission(self) -> float:

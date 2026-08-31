@@ -31,7 +31,7 @@ def test_writing_is_owned_by_the_store_layer() -> None:
             f"{name} が memory.py にも定義されている（二重実装）"
 
     # 外から呼ばれるものは委譲が残る。ただし SQL は持たない。
-    for name in ("mark_superseded", "decay_importance"):
+    for name in ("mark_superseded",):
         m = re.search(rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S)
         assert m, f"{name} の委譲が要る（外から呼ばれる）"
         assert "cur.execute" not in m.group(0), f"{name} の SQL が memory.py に残っている"

@@ -43,10 +43,10 @@ def _insert_obs(cur, *, subject=None, participants="[]", supseded=False, ts="202
     oid = str(uuid.uuid4())
     cur.execute(
         "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-        "participants_json, scope, subject_id, superseded_by) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "participants_json, subject_id, superseded_by) "
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (oid, "c", ts, "会話", "conversation", "neutral",
-         participants, "speaker", subject, (str(uuid.uuid4()) if supseded else None)),
+         participants, subject, (str(uuid.uuid4()) if supseded else None)),
     )
     return oid
 

@@ -81,7 +81,7 @@ def test_migrates_observations_has_all_columns() -> None:
         mem.append_memory_event("memory.save", {"content": "x"}, queue_job=False)
 
     cols = _pg_columns("observations")
-    for name in ("kind", "emotion", "image_path", "image_data", "importance", "superseded_by"):
+    for name in ("kind", "emotion", "image_path", "image_data", "superseded_by"):
         assert name in cols, f"Missing column: {name}"
 
 
