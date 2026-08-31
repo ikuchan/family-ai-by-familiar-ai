@@ -15,7 +15,6 @@ from unittest.mock import patch
 import psycopg2
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
-from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -25,8 +24,8 @@ _NOW = datetime(2026, 6, 1, 12, 0, 0)
 def _insert_obs(cur, obs_id, content, ts, superseded_by=None):
     cur.execute(
         "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-        "person_id, superseded_by) VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-        (obs_id, content, ts, "unknown", "self_model", "neutral", AGENT_SELF_ID, superseded_by),
+        " superseded_by) VALUES (%s,%s,%s,%s,%s,%s,%s)",
+        (obs_id, content, ts, "unknown", "self_model", "neutral", superseded_by),
     )
 
 

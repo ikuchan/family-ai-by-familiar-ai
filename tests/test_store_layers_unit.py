@@ -64,9 +64,9 @@ def test_situated_rows_are_created_for_each_person(ctx) -> None:
     conn = ctx.conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, person_id) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s)",
-            (obs_id, f"unit situated {obs_id}", "会話", "conversation", DEFAULT_PERSON_ID),
+            "INSERT INTO observations (id, content, timestamp, direction, kind) "
+            "VALUES (%s,%s,NOW(),%s,%s)",
+            (obs_id, f"unit situated {obs_id}", "会話", "conversation"),
         )
     conn.commit()
 
@@ -99,7 +99,7 @@ def test_saved_observation_is_readable_by_kind(layers) -> None:
         {"content": content, "direction": "会話", "kind": "curiosity", "emotion": "neutral"},
     )
     rows = observations._read_observations_by_kind(
-        "curiosity", DEFAULT_PERSON_ID, 50, ("content",)
+        "curiosity", 50, ("content",)
     )
     assert any(r["content"] == content for r in rows)
 
@@ -118,18 +118,22 @@ def test_supersede_marks_the_old_row_without_deleting_it(layers) -> None:
     assert len(chain) >= 2, "版チェーンに旧版が残っていない"
 
 
-def test_reader_filters_by_person(layers, ctx) -> None:
-    """person が違えば読めない（by_kind は person で絞る）。"""
+def test_reader_does_not_filter_by_person(layers, ctx) -> None:
+    """by_kind は所有者で絞らない（042 で `observations.person_id` を落とした）。
+
+    042 の前は「person が違えば読めない」を仕様としていたが、所有者は実データで
+    `default` に潰れており人を分けていなかった。人の視点で絞るのは situated 側。
+    """
     _, observations, _ = layers
     content = f"unit person {uuid.uuid4()}"
     observations.materialize_save_event(
         str(uuid.uuid4()),
         {"content": content, "direction": "会話", "kind": "curiosity"},
     )
-    other = observations._read_observations_by_kind(
-        "curiosity", str(uuid.uuid4()), 50, ("content",)
+    rows = observations._read_observations_by_kind(
+        "curiosity", 50, ("content",)
     )
-    assert all(r["content"] != content for r in other)
+    assert any(r["content"] == content for r in rows)
 
 
 # ── JobQueue ────────────────────────────────────────────────────────────────
@@ -148,7 +152,7 @@ def test_job_round_trip_from_enqueue_to_materialize(layers) -> None:
 
     assert jobs.materialize_event(event_id) is True
     rows = observations._read_observations_by_kind(
-        "conversation", DEFAULT_PERSON_ID, 100, ("content",)
+        "conversation", 100, ("content",)
     )
     assert any(r["content"] == content for r in rows)
 
