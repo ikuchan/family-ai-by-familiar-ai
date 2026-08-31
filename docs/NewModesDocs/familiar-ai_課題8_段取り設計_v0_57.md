@@ -1,4 +1,4 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.56）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.57）
 
 ## 1. 依存の事実（コード根拠）
 
@@ -390,7 +390,18 @@ OIF を先にしたのは依存が最も少ないためである。記憶は呼�
 
 **`importance` は旧列である。** P-1 で「日次減衰は使わない・時間減衰は t 軸へ一元化」と決めたときに役目を失った。いま読むのは `core/mental_item.py` が `activation` へ入れている1箇所だけで、その MI は実装のどこにも繋がっていない。
 
+**`unfinished_business` 表は落とした**（2026-08-31・041 として復元）。以下は当時の調査で、
+撤去の理由の記録として残す。実際に落とすときには、書き手の上流まで死んでいることが分かった
+（下の追記を見ること）。
+
 **`unfinished_business` 表も落とす。** 同じ概念に実装が2つある。用語一覧は開いた意図を「**O の MI（status=open）で表し想起で W に上がる**」と定め、いまのループはそのとおり `direction="意図"` の記録として書いている。一方 `unfinished_business` は専用の表で、`heartbeat._persist_remainder`（話が途中で切れた理由を残す）が書く1箇所だけが呼び、**読む側は本番コードに0件**である（`list_unfinished_business` を呼ぶのはテスト1件のみ）。`desires` の `_unfinished_business_bonus` は名前が似ているだけの別物で、この表を読まない。書き込みを O の記録へ付け替えれば、表ごと落とせる。
+
+**撤去して分かったこと（2026-08-31）。** `heartbeat._persist_remainder` を呼ぶ
+`HeartbeatRuntime.apply_status` は、環-c（旧 `run()` の撤去・2026-07-29）で呼び出し側を
+失っていた。本番から呼ばれるメソッドは全部で0件、`agent.py` は生成するだけで一度も使わず、
+`agent_state` の `heartbeat` も7月24日 17時51分（日本時間）で止まっていた。**表だけでなく
+`HeartbeatRuntime` ごと落とした**（`heartbeat.py` 184行・`memory` の読み書き3メソッド）。
+`routines.py` は `quiet_hours_rule()` が生きているので残している。
 
 **`emotion`（文字列）は残す**（2026-08-01 決定）。PAD から導出できるが、`concern_engine` が値で分岐しており、列として持つほうが素直である。
 
@@ -480,6 +491,13 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 **結果を捨てるために毎ターン処理を回していた。** `_run_post_response_pipeline` が `_cached_plan_ctx` ほか4つのキャッシュを埋めていたが、読み出しは0件だった。新経路は W を `loop/event_loop.py` の `_compose_workspace` で自前に組む。`generate_plan`（LLM 呼び出し）を毎ターン回して捨てていたことになる。
 
 **`grep` の判定に穴があった。** `getattr(self, "_x", None)` の形は `self._x` の検索に引っかからない。`_concerns`（`ConcernEngine`）を使用0件と誤判定して消したが、実際には毎ターン `update_from_turn` が呼ばれていた。`if ... is not None:` で守られているため、消しても例外は出ずテストも通る。`ruff`・`mypy`・テストのいずれも捕まえられない種類の誤りで、復帰させた。**使用0件の判定には `getattr` 形を含める。**
+
+**撤去し損ねたもの（2026-08-31 に判明）**：`HeartbeatRuntime`。`apply_status` を呼ぶ旧 `run()`
+を段階2で落としたとき、器のほうが残った。本番からの呼び出しは全メソッド0件で、`agent.py` は
+生成するだけだった。1か月気づかなかったのは、生成が例外を出さず、`ruff`・`mypy`・テストの
+いずれも「作るだけで使わないオブジェクト」を捕まえないためである。041（`unfinished_business`
+の撤去）で表をたどって初めて見つかった。**「使用0件の判定」は `getattr` 形だけでなく、
+生成だけされて呼ばれない器も見落とす。**
 
 **撤去できなかったもの**：`_prediction`・`_concerns`・`_exploration` は `_run_post_response_pipeline` 経由で新経路から到達する。`_self_state` は後に**撤去した**。`ExplorationTracker` は「旧 `run()` のプロンプトごと落とす」と書いていたが、`_exploration_context` が今もプロンプトに文脈を載せている。`workspace.py` は `Coalition`（dataclass）を6モジュールが使うため、`GlobalWorkspace` クラスだけを落としてファイルは残した。
 
@@ -598,6 +616,12 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 - **静穏時間が人への返事まで止めていた**：起点を区別せず掛けており、夜に話しかけると返事が `pending_speech` へ溜まって翌朝に届く動きになっていた。
 
 ## 更新履歴
+
+> v0.57：**記-d の `unfinished_business` を撤去し（041 の復元）、環-c の取りこぼしを記録した**
+> （2026-08-31）。表だけでなく `HeartbeatRuntime` ごと落ちた。書き手 `_persist_remainder` を呼ぶ
+> `apply_status` が環-c で呼び出し側を失っており、本番から呼ばれるメソッドは全部で0件、
+> `agent.py` は生成するだけだった。環-c の節へ「撤去し損ねたもの」として記録し、使用0件の判定は
+> `getattr` 形だけでなく「生成だけされて呼ばれない器」も見落とす、と書き足した。
 
 > v0.56：**記-d の実行時刻を日本時間で書き直した**（2026-08-30）。`schema_migrations.applied_at`
 > は UTC で、05:54 は日本時間の 14時54分である。日付は変わらないが、ダンプのファイル名（JST）と
