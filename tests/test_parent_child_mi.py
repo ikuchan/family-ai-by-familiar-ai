@@ -38,10 +38,10 @@ def _plant(conn, content: str, parent_id: str | None = None) -> str:
             (_AGENT_SELF, "__self__"),
         )
         cur.execute(
-            "INSERT INTO observations (id,content,timestamp,direction,kind,emotion,"
+            "INSERT INTO observations (id,content,timestamp,direction,kind,emotion,person_id,"
             " writer_id,subject_id,participants_json,parent_id) "
-            "VALUES (%s,%s,%s,'unknown','observation','neutral',%s,%s,'[]',%s)",
-            (oid, content, datetime.now(timezone.utc), _AGENT_SELF,
+            "VALUES (%s,%s,%s,'unknown','observation','neutral',%s,%s,%s,'[]',%s)",
+            (oid, content, datetime.now(timezone.utc), _AGENT_SELF, _AGENT_SELF,
              _AGENT_SELF, parent_id),
         )
     conn.commit()

@@ -23,11 +23,11 @@ _DB_URL = os.environ["DATABASE_URL"]
 _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=clock.local_tz())
 
 
-def _insert_obs(cur, obs_id: str, content: str, kind: str, ts: datetime) -> None:
+def _insert_obs(cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral"),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, "neutral", person_id),
     )
 
 
@@ -42,13 +42,13 @@ def test_read_observations_by_kind_returns_newest_first() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "old-1", "old curiosity", "curiosity", _NOW - timedelta(hours=2))
-        _insert_obs(cur, "mid-2", "mid curiosity", "curiosity", _NOW - timedelta(hours=1))
-        _insert_obs(cur, "new-3", "new curiosity", "curiosity", _NOW)
+        _insert_obs(cur, "old-1", "old curiosity", "curiosity", AGENT_SELF_ID, _NOW - timedelta(hours=2))
+        _insert_obs(cur, "mid-2", "mid curiosity", "curiosity", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "new-3", "new curiosity", "curiosity", AGENT_SELF_ID, _NOW)
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
 
     assert len(rows) == 3
     assert rows[0]["content"] == "new curiosity"
@@ -61,12 +61,12 @@ def test_read_observations_by_kind_respects_limit() -> None:
     conn.autocommit = True
     with conn.cursor() as cur:
         for i in range(5):
-            _insert_obs(cur, f"c-{i}", f"curiosity {i}", "curiosity",
+            _insert_obs(cur, f"c-{i}", f"curiosity {i}", "curiosity", AGENT_SELF_ID,
                         _NOW + timedelta(minutes=i))
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
 
     assert len(rows) == 3
 
@@ -77,50 +77,42 @@ def test_read_observations_by_kind_filters_by_kind() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "obs-1", "curiosity row", "curiosity", _NOW)
-        _insert_obs(cur, "obs-2", "observation row", "observation", _NOW + timedelta(seconds=1))
-        _insert_obs(cur, "obs-3", "feeling row", "feeling", _NOW + timedelta(seconds=2))
+        _insert_obs(cur, "obs-1", "curiosity row", "curiosity", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "obs-2", "observation row", "observation", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
+        _insert_obs(cur, "obs-3", "feeling row", "feeling", AGENT_SELF_ID, _NOW + timedelta(seconds=2))
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     assert len(rows) == 1
     assert rows[0]["content"] == "curiosity row"
 
 
-def test_read_observations_by_kind_does_not_filter_by_owner() -> None:
-    """kind が合う行はすべて返る（所有者では絞らない）。
-
-    042 の前はここが「1件だけ返る」ことを仕様として固定していた。だが所有者は
-    実データで `default` に潰れており、分かれて見えたのはこの fixture が
-    `person_id` を明示して書いていたからだった。列が無くなったので、この層で
-    人を分ける手立ては無い。人の視点で絞るなら `_read_observations_by_situated`。
-    所有者絞りが本当に消えたことは
-    `test_migration_042_drop_observations_person_id.py` が for_person で見る。
-    """
+def test_read_observations_by_kind_filters_by_person_id() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "self-1", "agent curiosity", "curiosity", _NOW)
-        _insert_obs(cur, "user-1", "user curiosity", "curiosity", _NOW + timedelta(seconds=1))
+        _insert_obs(cur, "self-1", "agent curiosity", "curiosity", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "user-1", "user curiosity", "curiosity", DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1))
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
-    assert {r["content"] for r in rows} == {"agent curiosity", "user curiosity"}
+    assert len(rows) == 1
+    assert rows[0]["content"] == "agent curiosity"
 
 
 def test_read_observations_by_kind_returns_empty_when_none_match() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "obs-1", "some feeling", "feeling", _NOW)
+        _insert_obs(cur, "obs-1", "some feeling", "feeling", AGENT_SELF_ID, _NOW)
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     assert rows == []
 
@@ -131,8 +123,8 @@ def test_recall_curiosities_returns_expected_shape() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "cur-1", "first curiosity", "curiosity", _NOW - timedelta(hours=1))
-        _insert_obs(cur, "cur-2", "second curiosity", "curiosity", _NOW)
+        _insert_obs(cur, "cur-1", "first curiosity", "curiosity", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "cur-2", "second curiosity", "curiosity", AGENT_SELF_ID, _NOW)
     conn.close()
 
     mem = _mem()
@@ -155,12 +147,12 @@ def test_recall_curiosities_returns_empty_when_none() -> None:
 # ── 4. recall_self_model の付け替え後の戻り値の形（emotion 込み経路） ────────
 
 def _insert_obs_with_emotion(
-    cur, obs_id: str, content: str, kind: str, ts: datetime, emotion: str
+    cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime, emotion: str
 ) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, emotion),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, emotion, person_id),
     )
 
 
@@ -181,11 +173,11 @@ def test_recall_self_model_returns_expected_shape_newest_first_with_limit() -> N
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs_with_emotion(cur, "sm-1", "first self model", "self_model",
+        _insert_obs_with_emotion(cur, "sm-1", "first self model", "self_model", AGENT_SELF_ID,
                                   _NOW - timedelta(hours=2), "neutral")
-        _insert_obs_with_emotion(cur, "sm-2", "second self model", "self_model",
+        _insert_obs_with_emotion(cur, "sm-2", "second self model", "self_model", AGENT_SELF_ID,
                                   _NOW - timedelta(hours=1), "neutral")
-        _insert_obs_with_emotion(cur, "sm-3", "third self model", "self_model",
+        _insert_obs_with_emotion(cur, "sm-3", "third self model", "self_model", AGENT_SELF_ID,
                                   _NOW, "neutral")
     conn.close()
 
@@ -205,9 +197,9 @@ def test_recall_self_model_returns_distinct_emotion_values_unchanged() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs_with_emotion(cur, "sm-emo-1", "neutral self model", "self_model",
+        _insert_obs_with_emotion(cur, "sm-emo-1", "neutral self model", "self_model", AGENT_SELF_ID,
                                   _NOW - timedelta(hours=1), "neutral")
-        _insert_obs_with_emotion(cur, "sm-emo-2", "happy self model", "self_model",
+        _insert_obs_with_emotion(cur, "sm-emo-2", "happy self model", "self_model", AGENT_SELF_ID,
                                   _NOW, "happy")
     conn.close()
 
@@ -219,31 +211,21 @@ def test_recall_self_model_returns_distinct_emotion_values_unchanged() -> None:
     assert by_summary["neutral self model"] == "neutral"
 
 
-def test_recall_self_model_returns_every_self_model_row() -> None:
-    """自己理解は kind だけで絞る。所有者では絞らない。
-
-    042 の前はここに `person_id=AGENT_SELF_ID` が付いており、このテストは
-    「1件だけ返る」を仕様として固定していた。だが書き込みは文脈の person
-    （実質 `default`）で入るので、本番では一致する行が1件も無く、
-    `recall_self_model` は**常に空を返していた**（2026-08-03 時点で self_model
-    958 行のすべてが `default`）。通っていたのは、この fixture が
-    `AGENT_SELF_ID` を明示して植えていたからである。所有者列ごと落として、
-    書き込みと読み出しの食い違いを解消した。
-    """
+def test_recall_self_model_filters_by_agent_self_id() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs_with_emotion(cur, "sm-self", "agent self model", "self_model",
+        _insert_obs_with_emotion(cur, "sm-self", "agent self model", "self_model", AGENT_SELF_ID,
                                   _NOW, "neutral")
         _insert_obs_with_emotion(cur, "sm-other", "other person self model", "self_model",
-                                  _NOW + timedelta(seconds=1), "neutral")
+                                  DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1), "neutral")
     conn.close()
 
     mem = _mem()
     result = mem.recall_self_model(n=10)
 
-    assert {r["summary"] for r in result} == {"agent self model", "other person self model"}
-    assert result[0]["summary"] == "other person self model", "新しい順でない"
+    assert len(result) == 1
+    assert result[0]["summary"] == "agent self model"
 
 
 def test_recall_self_model_returns_empty_when_none() -> None:
@@ -258,11 +240,11 @@ def test_recall_day_summaries_returns_expected_shape_newest_first_with_limit() -
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs_with_emotion(cur, "ds-1", "first day summary", "day_summary",
+        _insert_obs_with_emotion(cur, "ds-1", "first day summary", "day_summary", DEFAULT_PERSON_ID,
                                   _NOW - timedelta(hours=2), "neutral")
-        _insert_obs_with_emotion(cur, "ds-2", "second day summary", "day_summary",
+        _insert_obs_with_emotion(cur, "ds-2", "second day summary", "day_summary", DEFAULT_PERSON_ID,
                                   _NOW - timedelta(hours=1), "neutral")
-        _insert_obs_with_emotion(cur, "ds-3", "third day summary", "day_summary",
+        _insert_obs_with_emotion(cur, "ds-3", "third day summary", "day_summary", DEFAULT_PERSON_ID,
                                   _NOW, "neutral")
         _insert_situated(cur, "se-ds-1", "ds-1", DEFAULT_PERSON_ID)
         _insert_situated(cur, "se-ds-2", "ds-2", DEFAULT_PERSON_ID)
@@ -291,11 +273,11 @@ def test_recall_day_summaries_correlates_by_situated_not_owner() -> None:
     with conn.cursor() as cur:
         # 所有者は AGENT_SELF_ID だが DEFAULT_PERSON_ID の situated 行がある → 返る
         _insert_obs_with_emotion(cur, "ds-corr", "correlated day summary", "day_summary",
-                                  _NOW, "neutral")
+                                  AGENT_SELF_ID, _NOW, "neutral")
         _insert_situated(cur, "se-corr", "ds-corr", DEFAULT_PERSON_ID)
         # 所有者は DEFAULT_PERSON_ID だが DEFAULT_PERSON_ID の situated 行が無い → 返らない
         _insert_obs_with_emotion(cur, "ds-uncorr", "uncorrelated day summary", "day_summary",
-                                  _NOW + timedelta(seconds=1), "neutral")
+                                  DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1), "neutral")
         _insert_situated(cur, "se-uncorr", "ds-uncorr", AGENT_SELF_ID)
     conn.close()
 
@@ -311,9 +293,9 @@ def test_recall_day_summaries_returns_distinct_emotion_values_unchanged() -> Non
     conn.autocommit = True
     with conn.cursor() as cur:
         _insert_obs_with_emotion(cur, "ds-emo-1", "neutral day summary", "day_summary",
-                                  _NOW - timedelta(hours=1), "neutral")
+                                  DEFAULT_PERSON_ID, _NOW - timedelta(hours=1), "neutral")
         _insert_obs_with_emotion(cur, "ds-emo-2", "happy day summary", "day_summary",
-                                  _NOW, "happy")
+                                  DEFAULT_PERSON_ID, _NOW, "happy")
         _insert_situated(cur, "se-emo-1", "ds-emo-1", DEFAULT_PERSON_ID)
         _insert_situated(cur, "se-emo-2", "ds-emo-2", DEFAULT_PERSON_ID)
     conn.close()
@@ -338,13 +320,13 @@ def test_read_observations_by_kind_accepts_tuple_of_kinds() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "mk-1", "a feeling", "feeling", _NOW - timedelta(hours=2))
-        _insert_obs(cur, "mk-2", "a conversation", "conversation", _NOW - timedelta(hours=1))
-        _insert_obs(cur, "mk-3", "a curiosity", "curiosity", _NOW)
+        _insert_obs(cur, "mk-1", "a feeling", "feeling", AGENT_SELF_ID, _NOW - timedelta(hours=2))
+        _insert_obs(cur, "mk-2", "a conversation", "conversation", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "mk-3", "a curiosity", "curiosity", AGENT_SELF_ID, _NOW)
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     contents = {r["content"] for r in rows}
     assert contents == {"a feeling", "a conversation"}
@@ -355,13 +337,13 @@ def test_read_observations_by_kind_tuple_respects_order_and_limit() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "mk-old", "old feeling", "feeling", _NOW - timedelta(hours=2))
-        _insert_obs(cur, "mk-mid", "mid conversation", "conversation", _NOW - timedelta(hours=1))
-        _insert_obs(cur, "mk-new", "new feeling", "feeling", _NOW)
+        _insert_obs(cur, "mk-old", "old feeling", "feeling", AGENT_SELF_ID, _NOW - timedelta(hours=2))
+        _insert_obs(cur, "mk-mid", "mid conversation", "conversation", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "mk-new", "new feeling", "feeling", AGENT_SELF_ID, _NOW)
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), 2, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 2, ("content", "timestamp"))
 
     assert len(rows) == 2
     assert rows[0]["content"] == "new feeling"
@@ -373,12 +355,12 @@ def test_read_observations_by_kind_str_path_unchanged_after_tuple_support() -> N
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "sk-1", "curiosity row", "curiosity", _NOW)
-        _insert_obs(cur, "sk-2", "feeling row", "feeling", _NOW + timedelta(seconds=1))
+        _insert_obs(cur, "sk-1", "curiosity row", "curiosity", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "sk-2", "feeling row", "feeling", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
 
     assert len(rows) == 1
     assert rows[0]["content"] == "curiosity row"
@@ -390,11 +372,11 @@ def test_recent_feelings_returns_expected_shape_newest_first_with_limit() -> Non
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs_with_emotion(cur, "rf-1", "first feeling", "feeling",
+        _insert_obs_with_emotion(cur, "rf-1", "first feeling", "feeling", DEFAULT_PERSON_ID,
                                   _NOW - timedelta(hours=2), "neutral")
-        _insert_obs_with_emotion(cur, "rf-2", "first conversation", "conversation",
+        _insert_obs_with_emotion(cur, "rf-2", "first conversation", "conversation", DEFAULT_PERSON_ID,
                                   _NOW - timedelta(hours=1), "neutral")
-        _insert_obs_with_emotion(cur, "rf-3", "second feeling", "feeling",
+        _insert_obs_with_emotion(cur, "rf-3", "second feeling", "feeling", DEFAULT_PERSON_ID,
                                   _NOW, "happy")
     conn.close()
 
@@ -416,11 +398,11 @@ def test_recent_feelings_excludes_other_kinds() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs_with_emotion(cur, "rf-feeling", "a feeling", "feeling",
+        _insert_obs_with_emotion(cur, "rf-feeling", "a feeling", "feeling", DEFAULT_PERSON_ID,
                                   _NOW - timedelta(seconds=1), "neutral")
-        _insert_obs_with_emotion(cur, "rf-conv", "a conversation", "conversation",
+        _insert_obs_with_emotion(cur, "rf-conv", "a conversation", "conversation", DEFAULT_PERSON_ID,
                                   _NOW, "neutral")
-        _insert_obs_with_emotion(cur, "rf-curiosity", "a curiosity", "curiosity",
+        _insert_obs_with_emotion(cur, "rf-curiosity", "a curiosity", "curiosity", DEFAULT_PERSON_ID,
                                   _NOW + timedelta(seconds=1), "neutral")
     conn.close()
 

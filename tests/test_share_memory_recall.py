@@ -57,10 +57,10 @@ def _make_mem_with_timestamps(rows: list[tuple[str, str]]) -> ObservationMemory:
             for content, ts_str in rows:
                 cur.execute(
                     "INSERT INTO observations "
-                    "(id,content,timestamp,direction,kind,emotion) "
-                    "VALUES (%s,%s,%s,%s,%s,%s)",
+                    "(id,content,timestamp,direction,kind,emotion,person_id) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
                     (str(uuid.uuid4()), content, ts_str, "unknown",
-                     "conversation", "neutral"),
+                     "conversation", "neutral", person_id),
                 )
         conn.commit()
     finally:

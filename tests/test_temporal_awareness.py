@@ -47,15 +47,17 @@ def _memory_with_rows(rows: list[dict]) -> ObservationMemory:
             with conn.cursor() as cur:
                 cur.execute(
                     "INSERT INTO observations "
-                    "(id,content,timestamp,direction,kind,emotion) "
-                    "VALUES (%s,%s,%s,%s,%s,%s)",
+                    "(id,content,timestamp,direction,kind,emotion,person_id) "
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s)",
                     (
                         str(uuid.uuid4()),
                         row["content"],
                         obs_ts,
                         "unknown",
                         row.get("kind", "conversation"),
-                        row.get("emotion", "neutral")),
+                        row.get("emotion", "neutral"),
+                        person_id,
+                    ),
                 )
         conn.commit()
 

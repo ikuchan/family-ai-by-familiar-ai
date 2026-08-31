@@ -62,7 +62,7 @@ logger = logging.getLogger(__name__)
 
 DB_PATH_UNUSED = ""          # kept for API compatibility, ignored
 
-# Time-window dedup: identical (writer_id, content, kind) within this many seconds
+# Time-window dedup: identical (person_id, content, kind) within this many seconds
 # is treated as a duplicate and silently skipped. Set to 0 to disable.
 
 
@@ -958,6 +958,7 @@ class ObservationMemory:
     def recent_feelings(self, n: int = 5) -> list[dict]:
         rows = self._observations._read_observations_by_kind(
             kind=("feeling", "conversation"),
+            person_id=self._person_id,
             n=n,
             columns=("content", "timestamp", "emotion"),
         )
@@ -971,15 +972,10 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recent_feelings, n)
 
     def recall_self_model(self, n: int = 5) -> list[dict]:
-        """自己理解の記録を新しい順に返す。kind だけで絞る。
-
-        042 の前はここに `person_id=AGENT_SELF_ID` が付いていたが、書き込みは
-        文脈の person（実質 `default`）で入っていたため一致する行が無く、
-        本番では常に空を返していた（2026-08-03 時点で self_model 958 行の
-        すべてが `default`）。所有者列を落として食い違いごと解消する。
-        """
+        """Always uses AGENT_SELF_ID scope — agent's own self-understanding."""
         rows = self._observations._read_observations_by_kind(
             kind="self_model",
+            person_id=AGENT_SELF_ID,
             n=n,
             columns=("id", "content", "timestamp", "emotion", "superseded_by", "groundedness_g0",
                      "emotion_p", "emotion_pn", "emotion_a", "emotion_dom"),
@@ -998,9 +994,9 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall_self_model, n)
 
     def recall_curiosities(self, n: int = 5) -> list[dict]:
-        """気になりの記録を新しい順に返す。kind だけで絞る（理由は recall_self_model と同じ）。"""
         rows = self._observations._read_observations_by_kind(
             kind="curiosity",
+            person_id=AGENT_SELF_ID,
             n=n,
             columns=("content", "timestamp"),
         )
