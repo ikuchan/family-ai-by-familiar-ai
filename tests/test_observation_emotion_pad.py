@@ -19,6 +19,7 @@ import psycopg2.errors
 import psycopg2.extras
 import pytest
 
+from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -48,9 +49,9 @@ def _run_migration(conn) -> None:
 def _insert_observation(cur, obs_id: str) -> None:
     """PAD 列を指定しない既存経路と同型の INSERT。"""
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s, %s, NOW(), %s, %s, %s)",
-        (obs_id, "emotion pad test", "unknown", "conversation", "neutral"),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
+        "VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
+        (obs_id, "emotion pad test", "unknown", "conversation", "neutral", AGENT_SELF_ID),
     )
 
 

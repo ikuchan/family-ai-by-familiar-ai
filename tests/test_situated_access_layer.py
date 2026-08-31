@@ -28,13 +28,13 @@ _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
 
 def _insert_obs(
-    cur, obs_id: str, content: str, kind: str, ts: datetime,
+    cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime,
     emotion: str = "neutral", superseded_by: str | None = None,
 ) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, superseded_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, emotion, superseded_by),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id, superseded_by) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, emotion, person_id, superseded_by),
     )
 
 
@@ -56,9 +56,9 @@ def test_read_by_situated_returns_newest_first() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "old-1", "old", "conversation", _NOW - timedelta(hours=2))
-        _insert_obs(cur, "mid-2", "mid", "conversation", _NOW - timedelta(hours=1))
-        _insert_obs(cur, "new-3", "new", "conversation", _NOW)
+        _insert_obs(cur, "old-1", "old", "conversation", AGENT_SELF_ID, _NOW - timedelta(hours=2))
+        _insert_obs(cur, "mid-2", "mid", "conversation", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "new-3", "new", "conversation", AGENT_SELF_ID, _NOW)
         _insert_situated(cur, "se-old", "old-1", AGENT_SELF_ID)
         _insert_situated(cur, "se-mid", "mid-2", AGENT_SELF_ID)
         _insert_situated(cur, "se-new", "new-3", AGENT_SELF_ID)
@@ -75,7 +75,7 @@ def test_read_by_situated_respects_limit() -> None:
     conn.autocommit = True
     with conn.cursor() as cur:
         for i in range(5):
-            _insert_obs(cur, f"c-{i}", f"row {i}", "conversation", _NOW + timedelta(minutes=i))
+            _insert_obs(cur, f"c-{i}", f"row {i}", "conversation", AGENT_SELF_ID, _NOW + timedelta(minutes=i))
             _insert_situated(cur, f"se-{i}", f"c-{i}", AGENT_SELF_ID)
     conn.close()
 
@@ -92,7 +92,7 @@ def test_read_by_situated_includes_non_owner_when_correlated() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "owned-by-other", "other owned", "conversation", _NOW)
+        _insert_obs(cur, "owned-by-other", "other owned", "conversation", DEFAULT_PERSON_ID, _NOW)
         _insert_situated(cur, "se-corr", "owned-by-other", AGENT_SELF_ID)
     conn.close()
 
@@ -107,7 +107,7 @@ def test_read_by_situated_excludes_when_no_correlation_row() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "self-owned", "self owned", "conversation", _NOW)
+        _insert_obs(cur, "self-owned", "self owned", "conversation", AGENT_SELF_ID, _NOW)
         # AGENT_SELF_ID の situated 行は作らず、DEFAULT_PERSON_ID の行だけ作る
         _insert_situated(cur, "se-other", "self-owned", DEFAULT_PERSON_ID)
     conn.close()
@@ -123,8 +123,8 @@ def test_read_by_situated_filters_by_kind() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "ds-1", "a day summary", "day_summary", _NOW)
-        _insert_obs(cur, "cv-1", "a conversation", "conversation", _NOW + timedelta(seconds=1))
+        _insert_obs(cur, "ds-1", "a day summary", "day_summary", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "cv-1", "a conversation", "conversation", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
         _insert_situated(cur, "se-ds", "ds-1", AGENT_SELF_ID)
         _insert_situated(cur, "se-cv", "cv-1", AGENT_SELF_ID)
     conn.close()
@@ -140,8 +140,8 @@ def test_read_by_situated_filters_by_keywords() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "kw-hit", "we talked about ramen today", "conversation", _NOW)
-        _insert_obs(cur, "kw-miss", "nothing relevant here", "conversation", _NOW + timedelta(seconds=1))
+        _insert_obs(cur, "kw-hit", "we talked about ramen today", "conversation", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "kw-miss", "nothing relevant here", "conversation", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
         _insert_situated(cur, "se-hit", "kw-hit", AGENT_SELF_ID)
         _insert_situated(cur, "se-miss", "kw-miss", AGENT_SELF_ID)
     conn.close()
@@ -155,8 +155,8 @@ def test_read_by_situated_empty_keywords_returns_all() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "a-1", "alpha", "conversation", _NOW)
-        _insert_obs(cur, "b-1", "beta", "conversation", _NOW + timedelta(seconds=1))
+        _insert_obs(cur, "a-1", "alpha", "conversation", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "b-1", "beta", "conversation", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
         _insert_situated(cur, "se-a", "a-1", AGENT_SELF_ID)
         _insert_situated(cur, "se-b", "b-1", AGENT_SELF_ID)
     conn.close()
@@ -172,7 +172,7 @@ def test_read_by_situated_passes_through_emotion_column() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "emo-1", "happy row", "conversation", _NOW, emotion="happy")
+        _insert_obs(cur, "emo-1", "happy row", "conversation", AGENT_SELF_ID, _NOW, emotion="happy")
         _insert_situated(cur, "se-emo", "emo-1", AGENT_SELF_ID)
     conn.close()
 
@@ -187,8 +187,8 @@ def test_read_by_situated_excludes_superseded() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "live-1", "live row", "conversation", _NOW)
-        _insert_obs(cur, "dead-1", "superseded row", "conversation",
+        _insert_obs(cur, "live-1", "live row", "conversation", AGENT_SELF_ID, _NOW)
+        _insert_obs(cur, "dead-1", "superseded row", "conversation", AGENT_SELF_ID,
                     _NOW + timedelta(seconds=1), superseded_by="live-1")
         _insert_situated(cur, "se-live", "live-1", AGENT_SELF_ID)
         _insert_situated(cur, "se-dead", "dead-1", AGENT_SELF_ID)

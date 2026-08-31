@@ -18,6 +18,7 @@ from familiar_agent.tools.memory import (
     _row_to_mental_item,
 )
 from familiar_agent.mood_register import MoodPAD
+from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -25,13 +26,13 @@ _DB_URL = os.environ["DATABASE_URL"]
 _NOW = datetime(2026, 6, 1, 12, 0, 0)
 
 
-def _insert_obs(cur, obs_id: str, content: str, kind: str, ts: datetime,
+def _insert_obs(cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime,
                  groundedness_g0: float = 1.0, superseded_by: str | None = None) -> None:
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion, groundedness_g0, superseded_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral", groundedness_g0, superseded_by),
+        "(id, content, timestamp, direction, kind, emotion, person_id, groundedness_g0, superseded_by) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, "neutral", person_id, groundedness_g0, superseded_by),
     )
 
 
@@ -47,7 +48,7 @@ def test_row_to_mental_item_builds_from_row() -> None:
     conn.autocommit = True
     with conn.cursor() as cur:
         _insert_obs(
-            cur, "sm-1", "self model content", "self_model", _NOW,
+            cur, "sm-1", "self model content", "self_model", AGENT_SELF_ID, _NOW,
             groundedness_g0=0.7, superseded_by="sm-0",
         )
     conn.close()
@@ -55,6 +56,7 @@ def test_row_to_mental_item_builds_from_row() -> None:
     mem = _mem()
     rows = mem._observations._read_observations_by_kind(
         kind="self_model",
+        person_id=AGENT_SELF_ID,
         n=1,
         columns=("id", "content", "timestamp", "emotion", "superseded_by", "groundedness_g0"),
     )
@@ -124,8 +126,8 @@ def test_recall_self_model_returns_same_shape_newest_first() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "sm-old", "old self model", "self_model", _NOW - timedelta(hours=1))
-        _insert_obs(cur, "sm-new", "new self model", "self_model", _NOW)
+        _insert_obs(cur, "sm-old", "old self model", "self_model", AGENT_SELF_ID, _NOW - timedelta(hours=1))
+        _insert_obs(cur, "sm-new", "new self model", "self_model", AGENT_SELF_ID, _NOW)
     conn.close()
 
     mem = _mem()

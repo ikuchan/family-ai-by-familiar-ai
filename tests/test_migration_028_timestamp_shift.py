@@ -21,6 +21,7 @@ from pathlib import Path
 import psycopg2
 import psycopg2.extras
 
+from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -46,9 +47,9 @@ def _insert(conn, content: str, ts_sql: str) -> str:
     obs_id = str(uuid.uuid4())
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind) "
-            f"VALUES (%s, %s, {ts_sql}, %s, %s)",
-            (obs_id, content, "会話", "conversation"),
+            "INSERT INTO observations (id, content, timestamp, direction, kind, person_id) "
+            f"VALUES (%s, %s, {ts_sql}, %s, %s, %s)",
+            (obs_id, content, "会話", "conversation", DEFAULT_PERSON_ID),
         )
     return obs_id
 

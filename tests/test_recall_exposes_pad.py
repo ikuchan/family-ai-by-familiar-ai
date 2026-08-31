@@ -33,10 +33,10 @@ def _seed_one(obs_id: str) -> None:
     conn.autocommit = True
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
+            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id, "
             " groundedness_g0, groundedness_n, emotion_p, emotion_pn, emotion_a, emotion_dom) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, "pad recall content", "unknown", "conversation", "happy",
+            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (obs_id, "pad recall content", "unknown", "conversation", "happy", DEFAULT_PERSON_ID,
              0.75, 0, 0.8, 0.15, 0.55, 0.6),
         )
         cur.execute(

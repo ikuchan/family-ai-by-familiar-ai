@@ -27,27 +27,27 @@ def _make_memory() -> ObservationMemory:
         return ObservationMemory()
 
 
-def _obs_count(conn, writer_id: str, content: str, kind: str) -> int:
-    """042 で所有者列が消えたので書き手で数える（重複判定の絞りと同じ軸）。"""
+def _obs_count(conn, person_id: str, content: str, kind: str) -> int:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) AS n FROM observations "
-            "WHERE writer_id=%s AND content=%s AND kind=%s AND superseded_by IS NULL",
-            (writer_id, content, kind),
+            "WHERE person_id=%s AND content=%s AND kind=%s AND superseded_by IS NULL",
+            (person_id, content, kind),
         )
         return cur.fetchone()["n"]
 
 
-def _insert_obs_at(conn, writer_id: str, content: str, kind: str, ts: datetime) -> str:
+def _insert_obs_at(conn, person_id: str, content: str, kind: str, ts: datetime) -> str:
     """Direct INSERT bypassing dedup logic — used to plant fixtures."""
     obs_id = str(uuid.uuid4())
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations "
-            "(id,content,timestamp,direction,kind,emotion,writer_id,subject_id,"
+            "(id,content,timestamp,direction,kind,emotion,person_id,writer_id,subject_id,"
             " participants_json) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, content, ts, "unknown", kind, "neutral", writer_id, writer_id, "[]"),
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            (obs_id, content, ts, "unknown", kind, "neutral",
+             person_id, person_id, person_id, "[]"),
         )
     conn.commit()
     return obs_id
@@ -57,7 +57,7 @@ def _insert_obs_at(conn, writer_id: str, content: str, kind: str, ts: datetime) 
 
 
 def test_dedup_skips_same_content_kind_within_window() -> None:
-    """Same (writer_id, content, kind) within window → only 1 row inserted."""
+    """Same (person_id, content, kind) within window → only 1 row inserted."""
 
     mem = _make_memory()
     pid = mem._person_id
@@ -266,7 +266,7 @@ def test_purge_migration_removes_duplicate_embeddings() -> None:
         # Only one unsuperseded row should remain
         cur.execute(
             "SELECT COUNT(*) AS n FROM observations "
-            "WHERE writer_id=%s AND content=%s AND kind=%s AND superseded_by IS NULL",
+            "WHERE person_id=%s AND content=%s AND kind=%s AND superseded_by IS NULL",
             (pid, content, "utterance"),
         )
         remaining = cur.fetchone()["n"]
@@ -274,7 +274,7 @@ def test_purge_migration_removes_duplicate_embeddings() -> None:
         # Superseded rows must have superseded_by set to the first id
         cur.execute(
             "SELECT COUNT(*) AS n FROM observations "
-            "WHERE writer_id=%s AND content=%s AND kind=%s AND superseded_by IS NOT NULL",
+            "WHERE person_id=%s AND content=%s AND kind=%s AND superseded_by IS NOT NULL",
             (pid, content, "utterance"),
         )
         superseded = cur.fetchone()["n"]
@@ -344,47 +344,3 @@ def test_purge_migration_respects_60s_boundary() -> None:
 
     assert rows[oid_early] is None, "Early observation was wrongly superseded"
     assert rows[oid_late]  is None, "Late observation (90s apart) was wrongly superseded"
-
-
-def _obs_count_any_writer(conn, content: str, kind: str) -> int:
-    """書き手を問わず数える（別の書き手の行が残っているかを見るため）。"""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM observations "
-            "WHERE content=%s AND kind=%s AND superseded_by IS NULL",
-            (content, kind),
-        )
-        return cur.fetchone()["n"]
-
-
-def test_dedup_keeps_rows_from_different_writers() -> None:
-    """別の書き手が同じ文面を窓の内に書いたら、畳まない。
-
-    042 で所有者絞り（`observations.person_id`）を落とすとき、重複判定の絞りを
-    外すのでなく書き手へ移す。重複とは「同じ書き手が同じ内容を同じ kind で
-    30秒以内に」であって、家族の二人が同じ挨拶をしたものは重複ではない。
-    """
-    from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
-
-    mem = _make_memory()
-    content = f"別書き手テスト_{uuid.uuid4()}"
-
-    original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
-    os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
-    try:
-        mem.save_with_id(content, kind="utterance",
-                         writer_id=AGENT_SELF_ID, subject_id=AGENT_SELF_ID)
-        mem.save_with_id(content, kind="utterance",
-                         writer_id=DEFAULT_PERSON_ID, subject_id=DEFAULT_PERSON_ID)
-    finally:
-        if original_window is None:
-            os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
-        else:
-            os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
-
-    conn = _pg_conn()
-    try:
-        n = _obs_count_any_writer(conn, content, "utterance")
-    finally:
-        conn.close()
-    assert n == 2, f"別の書き手の行まで畳まれた（{n} 行）"
