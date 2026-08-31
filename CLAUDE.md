@@ -79,12 +79,11 @@ JSON ファイルも使わない。
 | `memory_revisions` | 編集履歴 |
 | `memory_events` / `memory_jobs` | 非同期ジョブキュー |
 | `memory_links` | 連想リンク |
-| `unfinished_business` | 開いた懸案 |
 | `relationship_state` | 人ごとの関係データ |
 | `persons` | 既知の人物レジストリ |
 | `mental_state_log` | 追記専用のメンタル状態スナップショット |
 | `self_narrative_log` | 一人称のセッション日記 |
-| `agent_state` | キーバリュー：desires, heartbeat, concerns, intervention_policy, capability_summary, mood_pad, drive5 |
+| `agent_state` | キーバリュー：desires, concerns, capability_summary, mood_pad, drive5, addressee_doubts, relation_judged_until |
 
 スキーマ変更は `migration/` 以下のタイムスタンプ付きファイルを通す。
 
