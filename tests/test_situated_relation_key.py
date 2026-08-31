@@ -68,9 +68,9 @@ def test_migration_defaults_relation_key_to_presence() -> None:
     _run_migration(conn)
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-            "VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
-            (obs_id, "relation_key default test", "unknown", "conversation", "neutral", AGENT_SELF_ID),
+            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+            "VALUES (%s, %s, NOW(), %s, %s, %s)",
+            (obs_id, "relation_key default test", "unknown", "conversation", "neutral"),
         )
         # relation_key を指定しない既存経路と同型の INSERT
         cur.execute(
@@ -94,9 +94,9 @@ def test_unique_obs_person_still_holds() -> None:
     _run_migration(conn)
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-            "VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
-            (obs_id, "unique test", "unknown", "conversation", "neutral", AGENT_SELF_ID),
+            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+            "VALUES (%s, %s, NOW(), %s, %s, %s)",
+            (obs_id, "unique test", "unknown", "conversation", "neutral"),
         )
         cur.execute(
             "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",

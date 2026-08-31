@@ -190,9 +190,9 @@ def test_backfill_centers_existing_situated() -> None:
     conn = _pg_conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s)",
-            (obs_id, "backfill target", "unknown", "conversation", "neutral", person_id),
+            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+            "VALUES (%s,%s,NOW(),%s,%s,%s)",
+            (obs_id, "backfill target", "unknown", "conversation", "neutral"),
         )
         cur.execute(
             "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s,%s)",

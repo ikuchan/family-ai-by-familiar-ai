@@ -42,12 +42,11 @@ def _insert_observation(
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,direction,kind,emotion,person_id) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,kind,emotion) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
                 (
                     obs_id, content, now,
-                    "test", kind, emotion, mem._person_id,
-                ),
+                    "test", kind, emotion),
             )
         conn.commit()
     return obs_id
