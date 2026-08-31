@@ -73,7 +73,6 @@ _TRUNCATE_TABLES = [
     "memory_links",
     "episode_memories",
     "memory_salience",
-    "unfinished_business",
     "memory_revisions",
     "behavior_policies",
     "semantic_facts",
