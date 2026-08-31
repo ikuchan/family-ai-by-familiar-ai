@@ -19,8 +19,14 @@ services:
   db-test:
     image: pgvector/pgvector:pg16
     profiles: ["test"]
-    # テスト DB は永続性不要（データは毎回作り直す）。fsync/WAL 同期を切って、
-    # 並列化で増えた複数 DB があっても起動・再起動を速くする。本番 db には付けない。
+    # スキーマは pgdata-test に残る（毎回は作り直さない）。マイグレーションは
+    # schema_migrations に記録が残るぶん2回目以降 skip されるので、初回適用が
+    # 検証されるのは新しいマイグレーションを足した最初の1回だけである。
+    # コードを巻き戻しても列は戻らないため、そのときは
+    # `docker volume rm family-ai-by-familiar-ai_pgdata-test` で作り直す
+    # （`down -v` は本番の pgdata も消すので使わない）。
+    # fsync/WAL 同期を切って、並列化で増えた複数 DB があっても起動・再起動を速くする。
+    # 本番 db には付けない。
     command:
       - "postgres"
       - "-c"

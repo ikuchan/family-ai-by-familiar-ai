@@ -94,6 +94,12 @@ JSON ファイルも使わない。
 | `familiar_ai` | 本番 | 5432（Docker） |
 | `familiar_test` | テスト | 5433（Docker `--profile test`） |
 
+テスト DB のスキーマは `pgdata-test` ボリュームに残り、毎回は作り直されない。適用済みの
+マイグレーションは `schema_migrations` の記録で skip されるので、**初回適用が検証されるのは
+新しいマイグレーションを足した最初の1回だけ**である。コードを巻き戻しても落とした列は戻らない
+ので、**巻き戻したら `docker volume rm family-ai-by-familiar-ai_pgdata-test` でテスト DB を
+作り直す**。`docker compose down -v` は本番の `pgdata` も消すので使わない。
+
 ## 開発ルール
 
 - Python 3.10 以上
