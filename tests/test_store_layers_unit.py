@@ -166,28 +166,6 @@ def test_failed_job_retries_then_becomes_dead_letter(layers) -> None:
     assert jobs.mark_job_failed(job_id, "unit test", retry_delay=0.0, max_attempts=1) == "dead_letter"
 
 
-def test_duplicate_event_is_not_queued_twice(layers, ctx) -> None:
-    """同じ dedupe_key のイベントは二重に積まれず、既存のものが返る。
-
-    「新規でない」だけを見ると、重複を弾いた場合と、書き込みに失敗した場合を
-    区別できない（失敗しても新規でないと返る）。**同じ event_id が返ること**と
-    **行が1件しかないこと**まで見る。
-    """
-    _, _, jobs = layers
-    key = f"unit dedupe {uuid.uuid4()}"
-    payload = {"content": key, "direction": "会話", "kind": "conversation"}
-    first_id, first_new = jobs.append_memory_event("memory.save", payload, dedupe_key=key)
-    second_id, second_new = jobs.append_memory_event("memory.save", payload, dedupe_key=key)
-
-    assert first_new is True and first_id
-    assert second_new is False, "同じ dedupe_key で二重に積まれた"
-    assert second_id == first_id, "既存のイベントが返っていない（弾けていない）"
-
-    conn = ctx.conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT count(*) AS n FROM memory_events WHERE dedupe_key = %s", (key,))
-        assert int(cur.fetchone()["n"]) == 1
-
 
 # ── ObservationStore.by_vector（S6c） ───────────────────────────────────────
 

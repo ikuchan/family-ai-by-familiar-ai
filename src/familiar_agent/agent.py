@@ -3,7 +3,6 @@
 from __future__ import annotations
 import asyncio
 import contextlib
-import hashlib
 import logging
 import math
 import os
@@ -480,7 +479,6 @@ class EmbodiedAgent:
                 direction="会話",
                 kind="conversation",
                 emotion=emotion,
-                dedupe_key=self._memory_dedupe_key("conversation", summary),
                 materialize_now=False,
                 emotion_pad=emotion_pad,
                 **self._conversation_perspective(),
@@ -531,7 +529,6 @@ class EmbodiedAgent:
                         direction="好奇心",
                         kind="curiosity",
                         emotion="curious",
-                        dedupe_key=self._memory_dedupe_key("curiosity", curiosity),
                         materialize_now=False,
                     )
                     logger.info("Curiosity persisted: %s", curiosity)
@@ -933,18 +930,6 @@ class EmbodiedAgent:
         return present_ids[-1]
 
 
-    def _memory_dedupe_key(
-        self,
-        kind: str,
-        content: str,
-        scope: str = "turn",
-        scope_id: str | None = None,
-    ) -> str:
-        """Build a stable dedupe key to avoid duplicate writes on retries."""
-        digest = hashlib.sha1(content.encode("utf-8", errors="ignore")).hexdigest()[:12]
-        resolved_scope_id = scope_id or str(self._turn_count)
-        return f"{scope}:{resolved_scope_id}:{kind}:{digest}"
-
     def _load_me_md(self) -> str:
         """Load ME.md personality file if it exists."""
         from pathlib import Path
@@ -1271,9 +1256,6 @@ class EmbodiedAgent:
                     kind="day_summary",
                     emotion="neutral",
                     override_date=date,
-                    dedupe_key=self._memory_dedupe_key(
-                        "day_summary", summary[:200], scope="day", scope_id=date
-                    ),
                     materialize_now=False,
                 )
                 logger.info("Day summary generated for %s: %s", date, summary[:80])
@@ -1343,7 +1325,6 @@ class EmbodiedAgent:
                     direction="内省",
                     kind="self_model",
                     emotion=emotion,
-                    dedupe_key=self._memory_dedupe_key("self_model", insight),
                     materialize_now=False,
                 )
                 logger.info("Self-model updated: %s", insight[:60])

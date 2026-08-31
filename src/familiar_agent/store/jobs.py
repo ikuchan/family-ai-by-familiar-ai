@@ -56,7 +56,6 @@ class JobQueue:
         self,
         event_type: str,
         payload: dict,
-        dedupe_key: str | None = None,
         queue_job: bool = True,
         job_type: str = "materialize_observation",
     ) -> tuple[str | None, bool]:
@@ -65,22 +64,12 @@ class JobQueue:
         try:
             with self._ctx.lock:
                 conn = self._ctx.conn()
-                if dedupe_key:
-                    with conn.cursor() as cur:
-                        cur.execute("SELECT event_id FROM memory_events WHERE dedupe_key = %s", (dedupe_key,))
-                        row = cur.fetchone()
-                    if row:
-                        eid = str(row["event_id"])
-                        if queue_job:
-                            self._enqueue_job(conn, eid, job_type, now)
-                        conn.commit()
-                        return eid, False
                 eid = str(uuid.uuid4())
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO memory_events (event_id,created_at,event_type,dedupe_key,payload_json,person_id) "
-                        "VALUES (%s,%s,%s,%s,%s,%s)",
-                        (eid, now, event_type, dedupe_key, payload_json, self._ctx.person_id),
+                        "INSERT INTO memory_events (event_id,created_at,event_type,payload_json,person_id) "
+                        "VALUES (%s,%s,%s,%s,%s)",
+                        (eid, now, event_type, payload_json, self._ctx.person_id),
                     )
                 if queue_job:
                     self._enqueue_job(conn, eid, job_type, now)
