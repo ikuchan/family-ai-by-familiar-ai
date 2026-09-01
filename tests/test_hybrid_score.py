@@ -43,7 +43,6 @@ def _score(
         cosine,
         _now(),
         _now(),
-        0,
         a0,
         n,
         obs_pad=obs_pad,

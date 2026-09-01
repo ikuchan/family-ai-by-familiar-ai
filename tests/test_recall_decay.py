@@ -48,23 +48,6 @@ def _fresh_conn():
 # ---------------------------------------------------------------------------
 
 
-def test_recall_count_column_exists():
-    """observations.recall_count must exist with DEFAULT 0 after migration 017."""
-    conn = _fresh_conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute("""
-                SELECT column_default, is_nullable
-                FROM information_schema.columns
-                WHERE table_name = 'observations' AND column_name = 'recall_count'
-            """)
-            row = cur.fetchone()
-        assert row is not None, "recall_count column not found"
-        assert "0" in str(row["column_default"]), f"expected DEFAULT 0, got: {row['column_default']}"
-    finally:
-        conn.close()
-
-
 def test_last_recalled_at_column_exists():
     """observations.last_recalled_at must exist and be nullable after migration 017."""
     conn = _fresh_conn()
@@ -89,7 +72,7 @@ def test_last_recalled_at_column_exists():
 
 
 def test_recall_never_reinforces(memory):
-    """想起は `recall_count` も `last_recalled_at` も触らない。
+    """想起は時間の起点（`last_recalled_at`）を触らない。
 
     更新すべきは「フルLLM が実際に参照した MI」だけ（課題5 F節・強化B「想起では触らない」）
     だが、その判定は未実装なので仕組みごと後回しにした。想起しただけで若返らせると、
@@ -103,7 +86,7 @@ def test_recall_never_reinforces(memory):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, recall_count, last_recalled_at FROM observations "
+                "SELECT id, last_recalled_at FROM observations "
                 "WHERE content = %s AND person_id = %s",
                 ("強化しない確認", memory._person_id),
             )
@@ -113,11 +96,10 @@ def test_recall_never_reinforces(memory):
 
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT recall_count, last_recalled_at FROM observations WHERE id = %s",
+                "SELECT last_recalled_at FROM observations WHERE id = %s",
                 (before["id"],),
             )
             after = cur.fetchone()
-        assert after["recall_count"] == before["recall_count"]
         assert after["last_recalled_at"] == before["last_recalled_at"]
     finally:
         conn.close()

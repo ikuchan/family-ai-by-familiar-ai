@@ -21,7 +21,7 @@ def _score(a0: float, n: int) -> float:
     # 全体テストのように実行まで時間が空いたとき t が減衰して期待値とずれる）。
     now = datetime.now(timezone.utc)
     return _compute_final_score(
-        1.0, now, None, 0, a0, n, half_life_days=30.0, floor=0.0
+        1.0, now, None, a0, n, half_life_days=30.0, floor=0.0
     )
 
 

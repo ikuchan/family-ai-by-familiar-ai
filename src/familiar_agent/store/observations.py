@@ -172,7 +172,6 @@ class ObservationStore:
                            o.direction, o.kind, o.emotion, o.image_path,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
                            COALESCE(o.groundedness_n, 0) AS groundedness_n,
-                           COALESCE(o.recall_count, 0) AS recall_count,
                            o.last_recalled_at,
                            o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
                            1 - (s.vector <=> %s::vector) AS score
@@ -223,7 +222,6 @@ class ObservationStore:
                      o.direction, o.kind, o.emotion, o.image_path,
                      COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
                      COALESCE(o.groundedness_n, 0) AS groundedness_n,
-                     COALESCE(o.recall_count, 0) AS recall_count,
                      o.last_recalled_at,
                      o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom"""
 
@@ -309,7 +307,6 @@ class ObservationStore:
                            o.direction, o.kind, o.emotion, o.image_path,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
                            COALESCE(o.groundedness_n, 0) AS groundedness_n,
-                           COALESCE(o.recall_count, 0) AS recall_count,
                            o.last_recalled_at,
                            o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom
                     FROM situated_embeddings s
@@ -849,8 +846,8 @@ class ObservationStore:
             with conn.cursor() as cur:
                 # 触ったものは時間の起点を若返らせる（強化B）。
                 cur.execute(
-                    "UPDATE observations SET last_recalled_at = now(), "
-                    "recall_count = recall_count + 1 WHERE id = ANY(%s)",
+                    "UPDATE observations SET last_recalled_at = now() "
+                    "WHERE id = ANY(%s)",
                     (list(touched),),
                 )
                 if up:
@@ -864,26 +861,24 @@ class ObservationStore:
             conn.commit()
         return len(touched)
 
-    def _mark_recalled(self, ids: list[str], *, reinforce_half_life: bool) -> None:
-        """Reinforce recalled memories by updating decay tracking columns."""
+    def _mark_recalled(self, ids: list[str]) -> None:
+        """時間の起点を若返らせる（強化B）。
+
+        043 で `recall_count` を落としたので、実効半減期を伸ばす分岐（強化A）は
+        無くなり、起点の更新だけが残った。**本番からの呼び出しは0件**で、実働は
+        `apply_verdicts` が担う。同じことをする機構が2つあるが、`last_recalled_at`
+        を `situated_memories` へ移す 044 でどちらを残すかを決める。
+        """
         if not ids:
             return
         try:
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
-                    if reinforce_half_life:
-                        cur.execute(
-                            "UPDATE observations "
-                            "SET recall_count = recall_count + 1, last_recalled_at = now() "
-                            "WHERE id = ANY(%s)",
-                            (ids,),
-                        )
-                    else:
-                        cur.execute(
-                            "UPDATE observations SET last_recalled_at = now() WHERE id = ANY(%s)",
-                            (ids,),
-                        )
+                    cur.execute(
+                        "UPDATE observations SET last_recalled_at = now() WHERE id = ANY(%s)",
+                        (ids,),
+                    )
                 conn.commit()
         except Exception as e:
             logger.warning("_mark_recalled failed: %s", e)
