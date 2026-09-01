@@ -650,11 +650,12 @@ class ObservationMemory:
             return {}
         mu = self._situated._embedding_mu()
         one_minus: dict[str, float] = {oid: 1.0 for oid in obs_ids}
+        # クエリのベクトルは人に依らない（045）。人が効くのは、どの面と突き合わせるか
+        # （`situated_cosines` の person 絞り）である。
+        sit_q_sql = vec_to_sql(_situated_vector(q_vec, mu).tolist())
         for q in present_others:
-            p_vec_q = self._situated._get_perspective_vec(q)
-            sit_q = _situated_vector(q_vec, p_vec_q, mu)
             cosines = self._observations.situated_cosines(
-                vec_to_sql(sit_q.tolist()), list(obs_ids), q,
+                sit_q_sql, list(obs_ids), q,
             )
             for oid, cos in cosines.items():
                 r_pq = _stretch_relevance(cos, c_lo=c_lo, c_hi=c_hi)
@@ -737,8 +738,7 @@ class ObservationMemory:
             q_vec = _coerce_to_embedding_dim(
                 np.array(self._embedder.encode_query([query])[0], dtype=np.float32)
             )
-            p_vec = self._situated._get_perspective_vec(self._person_id)
-            situated_q = _situated_vector(q_vec, p_vec, self._situated._embedding_mu())
+            situated_q = _situated_vector(q_vec, self._situated._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
 
             _cfg = MemoryConfig()
@@ -784,10 +784,11 @@ class ObservationMemory:
             # トグルで slice-1（話者候補の再採点のみ）へ退避できる。
             if present_others and _cfg.recall_presence_expand:
                 mu = self._situated._embedding_mu()
+                # クエリのベクトルは人に依らない（045）ので一度だけ作る。
+                sit_q_sql = vec_to_sql(_situated_vector(q_vec, mu).tolist())
                 for q in present_others:
-                    sit_q = _situated_vector(q_vec, self._situated._get_perspective_vec(q), mu)
                     for r in self._observations.by_vector(
-                        vec_to_sql(sit_q.tolist()), fetch_n, kind=kind,
+                        sit_q_sql, fetch_n, kind=kind,
                         exclude_ids=exclude_ids,
                     ):
                         row_by_id.setdefault(r["id"], r)  # 新規候補だけ足す

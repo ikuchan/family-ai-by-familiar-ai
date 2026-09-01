@@ -337,7 +337,7 @@ class ObservationStore:
         から除く**。近傍が K 未満なら既定（初期の横並びを避ける）。
         """
         try:
-            v_sit = self._situated.situate(mem_vec, AGENT_SELF_ID, conn)
+            v_sit = self._situated.situate(mem_vec, conn)
             q_sql = vec_to_sql(v_sit.tolist())
             with conn.cursor() as cur:
                 cur.execute(
@@ -815,15 +815,8 @@ class ObservationStore:
             self._legacy.project_observation(conn, event_id, content, kind, emotion)
             conn.commit()
 
-        # Update this person's perspective vector in background
-        try:
-            loop = asyncio.get_running_loop()
-            loop.run_in_executor(
-                None,
-                lambda: self._situated.update_perspective_vec(self._ctx.person_id, np.array(vec, dtype=np.float32)),
-            )
-        except RuntimeError:
-            self._situated.update_perspective_vec(self._ctx.person_id, np.array(vec, dtype=np.float32))
+        # 人ごとの視点を育てる背景更新は 045 で落とした。ベクトルの差は人でなく
+        # 関係が作る（047 の関係項）ので、視点を学習する先が無い。
         return event_id
 
     def apply_verdicts(self, verdicts: dict[str, str]) -> int:

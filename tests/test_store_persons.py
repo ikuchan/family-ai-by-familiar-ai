@@ -1,6 +1,6 @@
 """Tests for store/persons.py（人物レジストリの切り出し・S6d）.
 
-`persons` は人物レジストリで、視点ベクトル（`perspective_vec`）もこの表に載る。
+`persons` は人物レジストリ。視点ベクトル（`perspective_vec`）は 045 で落とした。
 ストアの一部だが、観測とは別の表なので持ち主を分ける。
 
 外からは `person_memory_manager.py` が `ObservationMemory` 越しに呼ぶので、

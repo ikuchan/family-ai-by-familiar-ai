@@ -48,13 +48,8 @@ def layers(ctx):
 
 # ── SituatedVectors ─────────────────────────────────────────────────────────
 
-def test_perspective_vector_round_trips(ctx) -> None:
-    """視点ベクトルを更新すると、次に読んだとき反映されている。"""
-    situated = SituatedVectors(ctx)
-    before = situated._get_perspective_vec(DEFAULT_PERSON_ID)
-    situated.update_perspective_vec(DEFAULT_PERSON_ID, np.ones(1024, dtype=np.float32))
-    after = situated._get_perspective_vec(DEFAULT_PERSON_ID)
-    assert not np.allclose(before, after)
+# `test_perspective_vector_round_trips` は 045 で落とした。人ごとの視点ベクトルを育てる
+# 仕組みごと撤去したためで、ベクトルの差は人でなく関係が作る（047 の関係項）。
 
 
 def test_situated_rows_are_created_for_each_person(ctx) -> None:

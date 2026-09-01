@@ -1,7 +1,7 @@
 """視点ベクトルと situated 行の作成・保存。
 
-`situated_memories` は記憶を「誰の視点から見たか」に寄せたベクトルで、想起の
-母集合を作る（[D-在席相関/V2]）。人ごとの視点ベクトル `perspective_vec` と、
+`situated_memories` は記憶を関係の面ごとに持つ表で、その面のベクトルが想起の
+母集合を作る（[D-在席相関/V2]）。ベクトルは「観測 × 関係」で決まり人には依らない。
 中心化に使う埋め込みの平均 mu（`embedding_means`）もここに属する。
 
 **ベクトルの作成と保存だけを持つ。**想起（W の構築）は持たない。書き込みと
@@ -17,23 +17,21 @@ import uuid
 import numpy as np
 
 from ..db import get_db, vec_to_sql
-from ..person_memory_manager import AGENT_SELF_ID, ALPHA
+from ..person_memory_manager import AGENT_SELF_ID
 from .embedding import (
     EMBEDDING_DIM,
     _coerce_to_embedding_dim,
     _decode_vector,
-    _encode_vector,
     _normalise,
 )
 
-from . import clock
 from .context import StoreContext
 
 logger = logging.getLogger(__name__)
 
 
 def _situated_vector(
-    mem_vec: "np.ndarray", p_vec: "np.ndarray", mu: "np.ndarray | None",
+    mem_vec: "np.ndarray", mu: "np.ndarray | None",
 ) -> "np.ndarray":
     """situated ベクトルを作る（平均中心化 C2）。
 
@@ -43,11 +41,14 @@ def _situated_vector(
 
     **書き込み（situated 生成）と問い合わせ（recall のクエリ）は必ずこの同じ関数を通す**。
     片方だけ中心化すると別空間になりコサインが無意味になるため、式を1箇所に集約する。
-    mu が None（未推定・次元不一致）なら中心化せず従来式で返す（フォールバック）。
+    mu が None（未推定・次元不一致）なら中心化せず素のベクトルを正規化して返す。
+
+    **人の視点は入らない**（045）。かつては視点ベクトルを係数つきで足して人ごとに
+    寄せていたが、
+    差は 047 が足す関係項が担う。ベクトルは「観測 × 関係」だけで決まり、面の言葉
+    （役割の接頭辞＋出来事の本文）から作るので誰かは入らない（[D-在席相関/V2]）。
     """
-    composed = mem_vec + ALPHA * p_vec
-    if mu is not None:
-        composed = composed - mu
+    composed = mem_vec - mu if mu is not None else mem_vec
     return _normalise(composed)
 
 
@@ -112,47 +113,18 @@ class SituatedVectors:
             self._mu_cache = load_embedding_mean(EMBEDDING_DIM, conn)
         return self._mu_cache
 
-    def situate(self, mem_vec: np.ndarray, person_id: str, conn) -> np.ndarray:
-        """内容ベクトルを person 視点で situated 化する（recall のクエリと同じ式）。
+    def situate(self, mem_vec: np.ndarray, conn) -> np.ndarray:
+        """内容ベクトルを situated 化する（recall のクエリと同じ式）。
 
-        conn を渡すのは、書き込み経路（ロック保持中）から呼ぶため（p_vec・mu の読みで
-        ロックを取り直さない）。novelty 算出などで内容の situated クエリを作るのに使う。
+        conn を渡すのは、書き込み経路（ロック保持中）から呼ぶため（mu の読みでロックを
+        取り直さない）。novelty 算出などで内容の situated クエリを作るのに使う。
+        **人は取らない**（045 で視点項が消えた）。
         """
-        p_vec = self._get_perspective_vec_with_conn(person_id, conn)
-        mu = self._embedding_mu(conn)
         return _situated_vector(
-            _coerce_to_embedding_dim(np.asarray(mem_vec, dtype=np.float32)), p_vec, mu
+            _coerce_to_embedding_dim(np.asarray(mem_vec, dtype=np.float32)),
+            self._embedding_mu(conn),
         )
 
-    def _get_perspective_vec_with_conn(self, person_id: str, conn) -> np.ndarray:
-        """Load perspective vector using an already-open connection (no lock)."""
-        with conn.cursor() as cur:
-            cur.execute("SELECT perspective_vec FROM persons WHERE id = %s", (person_id,))
-            row = cur.fetchone()
-        if row and row["perspective_vec"]:
-            return _coerce_to_embedding_dim(_decode_vector(bytes(row["perspective_vec"])))
-        return np.zeros(EMBEDDING_DIM, dtype=np.float32)
-
-    def _get_perspective_vec(self, person_id: str) -> np.ndarray:
-        """Load person's perspective vector from DB. Returns zeros if none."""
-        with self._ctx.lock:
-            conn = self._ctx.conn()
-            return self._get_perspective_vec_with_conn(person_id, conn)
-
-    def update_perspective_vec(self, person_id: str, mem_vec: np.ndarray, lr: float = 0.05) -> None:
-        """Moving-average update of person's perspective vector."""
-        mem_vec = _coerce_to_embedding_dim(mem_vec)
-        old = self._get_perspective_vec(person_id)
-        new = _normalise((1.0 - lr) * old + lr * mem_vec)
-        blob = _encode_vector(new.tolist())
-        with self._ctx.lock:
-            conn = self._ctx.conn()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE persons SET perspective_vec = %s, updated_at = %s WHERE id = %s",
-                    (blob, clock.now_utc_iso(), person_id),
-                )
-            conn.commit()
 
     def _upsert_situated_embedding(
         self,
@@ -169,9 +141,8 @@ class SituatedVectors:
         生成の多型化（speaker/subject）は後続スライス。
         """
         mem_vec = _coerce_to_embedding_dim(mem_vec)
-        p_vec = self._get_perspective_vec_with_conn(person_id, conn)
         # 書き込み経路は db.lock を保持したまま来るので conn を渡す（再入不可のため）。
-        situated = _situated_vector(mem_vec, p_vec, self._embedding_mu(conn))
+        situated = _situated_vector(mem_vec, self._embedding_mu(conn))
         vec_str = vec_to_sql(situated.tolist())
         with conn.cursor() as cur:
             cur.execute(
