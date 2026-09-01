@@ -146,12 +146,12 @@ def test_the_hnsw_index_exists() -> None:
             SELECT indexname, indexdef
             FROM pg_indexes
             WHERE tablename = 'situated_memories'
-              AND indexname = 'idx_se_hnsw'
+              AND indexname = 'idx_situated_hnsw'
         """)
         row = cur.fetchone()
     conn.close()
 
-    assert row is not None, "idx_se_hnsw not found after migration"
+    assert row is not None, "idx_situated_hnsw not found after migration"
     assert "hnsw" in row["indexdef"].lower()
 
 # ── 流し直しをやめた理由（044・2026-09-01）─────────────────────────────
