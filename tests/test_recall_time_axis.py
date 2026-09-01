@@ -50,11 +50,12 @@ def test_span_is_the_half_life():
     assert abs(_state(ref - span, half_life_seconds=span).score(ref) - 0.5) < 1e-6
 
 
-def test_time_axis_uses_the_same_origin_as_scoring():
-    # 採点は last_recalled_at（無ければ timestamp）を起点にする。一次絞りが
-    # timestamp だけで並べていると、「古いが最近よく使う記憶」が候補に入らない。
+def test_time_axis_orders_by_the_facet_origin():
+    # 起点は**面**が持つ（044）。timestamp だけで並べると「古いが最近よく使う記憶」が
+    # 候補に入らない。なお採点の起点は書かれた時刻だけで、ここと一致しない（強化B は
+    # 仕組みごと後回し）。並べ替えだけが起点を見ている。
     src = inspect.getsource(ObservationStore.by_time)
-    assert "COALESCE(o.last_recalled_at, o.timestamp)" in src
+    assert "COALESCE(s.last_recalled_at, o.timestamp)" in src
 
 
 def test_time_axis_scans_both_sides_of_the_reference():
@@ -67,7 +68,7 @@ def test_time_axis_scans_both_sides_of_the_reference():
 def test_time_axis_uses_both_columns_when_a_span_is_given():
     # 幅の指定があるときは、書かれた時刻と使った時刻の両方で探す。
     src = inspect.getsource(ObservationStore.by_time)
-    assert "o.timestamp" in src and "o.last_recalled_at" in src
+    assert "o.timestamp" in src and "s.last_recalled_at" in src
     assert "span" in inspect.signature(ObservationStore.by_time).parameters
 
 

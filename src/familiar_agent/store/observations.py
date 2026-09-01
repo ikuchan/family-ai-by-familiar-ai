@@ -102,7 +102,7 @@ class ObservationStore:
     ) -> list[dict]:
         """observations を situated 相関で person に紐づけ、新しい順に n 件読む dumb な読み出し。
 
-        所有者絞り（observations.person_id）でなく situated_embeddings を JOIN し
+        所有者絞り（observations.person_id）でなく situated_memories を JOIN し
         s.person_id で紐づける（母集合はその person の視点で状況化された観測・所有者に依らない）。
         順序は timestamp DESC でベクトル類似度は使わない。kind と keywords（content LIKE の OR）は任意。
         採点・想起判断・trigger 判断は持たない。行(dict)のリストを返す。失敗時は空リスト。
@@ -123,7 +123,7 @@ class ObservationStore:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
-                        f"SELECT {col_sql} FROM situated_embeddings s "
+                        f"SELECT {col_sql} FROM situated_memories s "
                         "JOIN observations o ON o.id = s.obs_id "
                         f"WHERE {' AND '.join(clauses)} "
                         "ORDER BY o.timestamp DESC LIMIT %s",
@@ -171,11 +171,11 @@ class ObservationStore:
                     SELECT o.id, o.content, o.timestamp,
                            o.direction, o.kind, o.emotion, o.image_path,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
-                           COALESCE(o.groundedness_n, 0) AS groundedness_n,
-                           o.last_recalled_at,
+                           COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                           s.last_recalled_at,
                            o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
                            1 - (s.vector <=> %s::vector) AS score
-                    FROM situated_embeddings s
+                    FROM situated_memories s
                     JOIN observations o ON o.id = s.obs_id
                     WHERE s.person_id = %s
                       AND o.superseded_by IS NULL
@@ -204,8 +204,13 @@ class ObservationStore:
         言葉から基準を動かせる（「去年の夏の話」）ので、**基準の前後どちらからも取る**。
         片側だけでは、基準より後の記録を取りこぼす。
 
-        並べ替えの鍵は `COALESCE(last_recalled_at, timestamp)`＝**採点の起点と同じ**。
-        `timestamp` だけで並べると、「古いが最近よく使っている記憶」が候補に入らない。
+        並べ替えの鍵は `COALESCE(s.last_recalled_at, o.timestamp)`。`timestamp` だけで
+        並べると、「古いが最近よく使っている記憶」が候補に入らない。起点は**面**が持つ
+        （044・`設計図` [D-在席相関/V2]）ので、どの面を通って引いたかで並びが変わる。
+
+        **採点の起点とは一致しない。** 採点は書かれた時刻（`o.timestamp`）だけを起点に
+        しており、`last_recalled_at` は受け取るが使っていない（強化B は仕組みごと
+        後回し）。起点を実際に見ているのは、この並べ替えだけである。
 
         `span`（幅の指定あり）のときは、**書かれた時刻と使った時刻の両方**で探す。その頃の
         出来事（`timestamp`）と、その頃に思い出していたこと（`last_recalled_at`）は別の
@@ -214,15 +219,15 @@ class ObservationStore:
         どの向きも索引を端から辿るだけなので、全走査にならない。返り行は `by_vector` と
         同じ列に揃える（関連は呼び出し側が `situated_cosines` で補う）。
         """
-        keys = (["o.timestamp", "o.last_recalled_at"] if span
-                else ["COALESCE(o.last_recalled_at, o.timestamp)"])
+        keys = (["o.timestamp", "s.last_recalled_at"] if span
+                else ["COALESCE(s.last_recalled_at, o.timestamp)"])
         kind_clause = "AND o.kind = %s" if kind else ""
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         columns = """o.id, o.content, o.timestamp,
                      o.direction, o.kind, o.emotion, o.image_path,
                      COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
-                     COALESCE(o.groundedness_n, 0) AS groundedness_n,
-                     o.last_recalled_at,
+                     COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                     s.last_recalled_at,
                      o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom"""
 
         def _one(key: str, cmp: str, order: str) -> tuple[str, list]:
@@ -234,7 +239,7 @@ class ObservationStore:
             params += [reference_epoch, n]
             sql = f"""
                 SELECT {columns}
-                FROM situated_embeddings s
+                FROM situated_memories s
                 JOIN observations o ON o.id = s.obs_id
                 WHERE s.person_id = %s
                   AND o.superseded_by IS NULL
@@ -306,10 +311,10 @@ class ObservationStore:
                     SELECT o.id, o.content, o.timestamp,
                            o.direction, o.kind, o.emotion, o.image_path,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
-                           COALESCE(o.groundedness_n, 0) AS groundedness_n,
-                           o.last_recalled_at,
+                           COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                           s.last_recalled_at,
                            o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom
-                    FROM situated_embeddings s
+                    FROM situated_memories s
                     JOIN observations o ON o.id = s.obs_id
                     WHERE s.person_id = %s
                       AND o.superseded_by IS NULL
@@ -337,7 +342,7 @@ class ObservationStore:
             with conn.cursor() as cur:
                 cur.execute(
                     "SELECT 1 - (s.vector <=> %s::vector) AS c "
-                    "FROM situated_embeddings s JOIN observations o ON o.id = s.obs_id "
+                    "FROM situated_memories s JOIN observations o ON o.id = s.obs_id "
                     "WHERE s.person_id = %s AND o.superseded_by IS NULL "
                     "  AND o.kind <> 'self_model' "
                     "ORDER BY s.vector <=> %s::vector LIMIT %s",
@@ -357,7 +362,7 @@ class ObservationStore:
         """指定 obs_id 群について、person_id 視点の situated コサインを返す（[D-在席相関]）。
 
         在席者相関 p の素点用。ベクトルの作り方（視点合成・平均中心化）は呼び出し側の
-        責任で、層は受け取った表現で `situated_embeddings` を person_id 絞りで引くだけ。
+        責任で、層は受け取った表現で `situated_memories` を person_id 絞りで引くだけ。
         該当 situated 行が無い obs_id は結果に含めない（呼び出し側で 0 相当に畳む）。
         """
         if not obs_ids:
@@ -368,7 +373,7 @@ class ObservationStore:
                 with conn.cursor() as cur:
                     cur.execute(
                         "SELECT s.obs_id, 1 - (s.vector <=> %s::vector) AS c "
-                        "FROM situated_embeddings s JOIN observations o ON o.id = s.obs_id "
+                        "FROM situated_memories s JOIN observations o ON o.id = s.obs_id "
                         "WHERE s.person_id = %s AND o.superseded_by IS NULL "
                         "  AND s.obs_id = ANY(%s)",
                         (query_vector_sql, person_id, list(obs_ids)),
@@ -806,7 +811,7 @@ class ObservationStore:
                 )
             # Pre-compute situated embeddings for all persons
             mem_vec = np.array(vec, dtype=np.float32)
-            self._situated.refresh_situated_embeddings(conn, event_id, mem_vec)
+            self._situated.refresh_situated_memories(conn, event_id, mem_vec)
             self._legacy.project_observation(conn, event_id, content, kind, emotion)
             conn.commit()
 
@@ -844,44 +849,25 @@ class ObservationStore:
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
-                # 触ったものは時間の起点を若返らせる（強化B）。
+                # 触ったものは時間の起点を若返らせる（強化B）。**更新するのは面**で
+                # あって出来事ではない（044）。どの面を通って思い出したかで変わる量なので、
+                # いま引いている person の面だけを動かす。
+                pid = self._ctx.person_id
                 cur.execute(
-                    "UPDATE observations SET last_recalled_at = now() "
-                    "WHERE id = ANY(%s)",
-                    (list(touched),),
+                    "UPDATE situated_memories SET last_recalled_at = now() "
+                    "WHERE person_id = %s AND obs_id = ANY(%s)",
+                    (pid, list(touched)),
                 )
                 if up:
                     cur.execute(
-                        "UPDATE observations SET groundedness_n = groundedness_n + 1 "
-                        "WHERE id = ANY(%s)", (up,))
+                        "UPDATE situated_memories SET groundedness_n = groundedness_n + 1 "
+                        "WHERE person_id = %s AND obs_id = ANY(%s)", (pid, up))
                 if down:
                     cur.execute(
-                        "UPDATE observations SET groundedness_n = groundedness_n - 1 "
-                        "WHERE id = ANY(%s)", (down,))
+                        "UPDATE situated_memories SET groundedness_n = groundedness_n - 1 "
+                        "WHERE person_id = %s AND obs_id = ANY(%s)", (pid, down))
             conn.commit()
         return len(touched)
-
-    def _mark_recalled(self, ids: list[str]) -> None:
-        """時間の起点を若返らせる（強化B）。
-
-        043 で `recall_count` を落としたので、実効半減期を伸ばす分岐（強化A）は
-        無くなり、起点の更新だけが残った。**本番からの呼び出しは0件**で、実働は
-        `apply_verdicts` が担う。同じことをする機構が2つあるが、`last_recalled_at`
-        を `situated_memories` へ移す 044 でどちらを残すかを決める。
-        """
-        if not ids:
-            return
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "UPDATE observations SET last_recalled_at = now() WHERE id = ANY(%s)",
-                        (ids,),
-                    )
-                conn.commit()
-        except Exception as e:
-            logger.warning("_mark_recalled failed: %s", e)
 
 
     def append_and_reembed(self, obs_id: str, note: str) -> bool:
@@ -921,7 +907,7 @@ class ObservationStore:
                     "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",
                     (obs_id, blob),
                 )
-            self._situated.refresh_situated_embeddings(
+            self._situated.refresh_situated_memories(
                 conn, obs_id, np.array(vec, dtype=np.float32))
             conn.commit()
         return True

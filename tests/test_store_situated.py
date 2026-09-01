@@ -1,6 +1,6 @@
 """Tests for store/situated.py（視点ベクトルと situated 行の切り出し）.
 
-`situated_embeddings` は記憶を「誰の視点から見たか」に寄せたベクトルで、想起の
+`situated_memories` は記憶を「誰の視点から見たか」に寄せたベクトルで、想起の
 母集合を作る（[D-在席相関/V2]）。人ごとの視点ベクトル `perspective_vec` と、
 埋め込みの平均 `embedding_means`（中心化に使う mu）もここに属する。
 
@@ -25,7 +25,7 @@ def test_observation_memory_holds_the_situated_layer() -> None:
 
     assert "ctx" in inspect.signature(SituatedVectors.__init__).parameters
     assert not issubclass(ObservationMemory, SituatedVectors)
-    assert hasattr(SituatedVectors, "refresh_situated_embeddings")
+    assert hasattr(SituatedVectors, "refresh_situated_memories")
 
 
 def test_situated_vector_is_normalised() -> None:
@@ -52,11 +52,11 @@ def test_memory_module_no_longer_writes_situated_rows() -> None:
     src = pathlib.Path("src/familiar_agent/tools/memory.py").read_text()
     for name in ("perspective_vec", "embedding_means"):
         assert not re.search(rf"\b{name}\b", src), f"{name} が memory.py に残っている"
-    assert "INSERT INTO situated_embeddings" not in src
-    assert "UPDATE situated_embeddings" not in src
+    assert "INSERT INTO situated_memories" not in src
+    assert "UPDATE situated_memories" not in src
 
 
 def test_situated_module_owns_the_vectors() -> None:
     src = pathlib.Path("src/familiar_agent/store/situated.py").read_text()
-    for name in ("situated_embeddings", "perspective_vec", "embedding_means"):
+    for name in ("situated_memories", "perspective_vec", "embedding_means"):
         assert re.search(rf"\b{name}\b", src), f"{name} が移動先に無い"

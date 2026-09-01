@@ -34,10 +34,18 @@ def _columns(table: str) -> set[str]:
 
 
 def test_observations_has_the_new_columns() -> None:
-    """列は `groundedness_g0` と `groundedness_n`。"""
-    cols = _columns("observations")
-    assert "groundedness_g0" in cols, "groundedness_g0 が無い（マイグレーション未適用）"
-    assert "groundedness_n" in cols, "groundedness_n が無い（マイグレーション未適用）"
+    """素は `groundedness_g0`（出来事）と `groundedness_n`（面）に分かれる。
+
+    044 で `groundedness_n` を `situated_memories` へ移した。取込の驚き `g0` は
+    **パジュにとっての驚き**で取り込んだ瞬間に1回だけ測るので出来事に残り、`n`（大事・
+    不要の回数）はどの面を通って思い出したかで変わるので面に付く
+    （`設計図` [D-在席相関/V2]・`MIデータモデル` §5）。
+    """
+    obs = _columns("observations")
+    assert "groundedness_g0" in obs, "groundedness_g0 が無い（マイグレーション未適用）"
+    assert "groundedness_n" not in obs, "groundedness_n が出来事の側に残っている"
+    facet = _columns("situated_memories")
+    assert "groundedness_n" in facet, "groundedness_n が面に無い"
 
 
 def test_observations_no_longer_has_the_old_columns() -> None:

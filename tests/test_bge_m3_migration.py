@@ -4,9 +4,6 @@ from __future__ import annotations
 
 import os
 
-import importlib.util
-import uuid
-from pathlib import Path
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -28,21 +25,6 @@ def _pg_conn():
     conn.autocommit = False
     return conn
 
-
-def _run_migration(conn) -> None:
-    migration_path = (
-        Path(__file__).parent.parent
-        / "migration"
-        / "2026-06-29-020_bge_m3_situated_embeddings.py"
-    )
-    spec = importlib.util.spec_from_file_location("bge_m3_migration", migration_path)
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    mod.upgrade(conn)
-    conn.commit()
-
-
-# ── Unit: constants ──────────────────────────────────────────────────────────
 
 
 def test_embedding_model_is_bge_m3() -> None:
@@ -133,16 +115,15 @@ def test_pad_or_truncate_truncates_long_vector() -> None:
 # ── DB: migration schema check ───────────────────────────────────────────────
 
 
-def test_migration_vector_column_becomes_1024() -> None:
-    """After the migration, situated_embeddings.vector must be vector(1024)."""
+def test_the_vector_column_is_1024() -> None:
+    """`situated_memories.vector` は vector(1024)（020 が確立した姿）。"""
     conn = _pg_conn()
-    _run_migration(conn)
 
     with conn.cursor() as cur:
         cur.execute("""
             SELECT atttypmod
             FROM pg_attribute
-            WHERE attrelid = 'situated_embeddings'::regclass
+            WHERE attrelid = 'situated_memories'::regclass
               AND attname = 'vector'
               AND attnum > 0
         """)
@@ -156,16 +137,15 @@ def test_migration_vector_column_becomes_1024() -> None:
     )
 
 
-def test_migration_hnsw_index_recreated() -> None:
-    """After the migration, an HNSW index on vector must exist."""
+def test_the_hnsw_index_exists() -> None:
+    """vector に HNSW 索引が張られている（020 が確立した姿・改名は 046）。"""
     conn = _pg_conn()
-    _run_migration(conn)
 
     with conn.cursor() as cur:
         cur.execute("""
             SELECT indexname, indexdef
             FROM pg_indexes
-            WHERE tablename = 'situated_embeddings'
+            WHERE tablename = 'situated_memories'
               AND indexname = 'idx_se_hnsw'
         """)
         row = cur.fetchone()
@@ -174,81 +154,11 @@ def test_migration_hnsw_index_recreated() -> None:
     assert row is not None, "idx_se_hnsw not found after migration"
     assert "hnsw" in row["indexdef"].lower()
 
-
-def test_migration_clears_situated_embeddings() -> None:
-    """Migration must leave situated_embeddings empty (re-embedding fills it)."""
-
-    pid = str(uuid.uuid4())
-    obs_id = str(uuid.uuid4())
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
-            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (pid, f"test_{pid[:8]}", f"label_{pid[:8]}", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
-        )
-        cur.execute(
-            "INSERT INTO observations "
-            "(id,content,timestamp,direction,kind,emotion,person_id,writer_id,subject_id,"
-            " participants_json) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, "migration test", "unknown", "utterance", "neutral",
-             pid, pid, pid, "[]"),
-        )
-        cur.execute(
-            "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) "
-            "VALUES (%s, %s, %s, %s::vector)",
-            (str(uuid.uuid4()), obs_id, pid,
-             "[" + ",".join(["0"] * 1024) + "]"),
-        )
-    conn.commit()
-
-    _run_migration(conn)
-
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS n FROM situated_embeddings")
-        n = cur.fetchone()["n"]
-    conn.close()
-
-    assert n == 0, f"Expected empty table after migration, got {n} rows"
-
-
-def test_migration_clears_obs_embeddings() -> None:
-    """Migration must leave obs_embeddings empty (re-embedding fills it)."""
-    from familiar_agent.db import vec_to_sql
-
-    pid = str(uuid.uuid4())
-    obs_id = str(uuid.uuid4())
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
-            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING",
-            (pid, f"test_{pid[:8]}", f"label_{pid[:8]}", "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
-        )
-        cur.execute(
-            "INSERT INTO observations "
-            "(id,content,timestamp,direction,kind,emotion,person_id,writer_id,subject_id,"
-            " participants_json) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, "obs embedding test", "unknown", "utterance", "neutral",
-             pid, pid, pid, "[]"),
-        )
-        fake_blob = vec_to_sql(np.zeros(1024).tolist())
-        cur.execute(
-            "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
-            "ON CONFLICT DO NOTHING",
-            (obs_id, fake_blob),
-        )
-    conn.commit()
-
-    _run_migration(conn)
-
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) AS n FROM obs_embeddings")
-        n = cur.fetchone()["n"]
-    conn.close()
-
-    assert n == 0, f"Expected empty obs_embeddings after migration, got {n} rows"
+# ── 流し直しをやめた理由（044・2026-09-01）─────────────────────────────
+# マイグレーションは一度しか流れない。後の版がスキーマを変えれば、前の版はもう流せない。
+# 044 が `situated_embeddings` を `situated_memories` へ改名し、`observations` から
+# `last_recalled_at` と `groundedness_n` を落としたので、旧名を前提としたマイグレーションを
+# テストから呼び出せなくなった。過去のマイグレーションは適用済みの歴史なので書き換えない。
+# よって「流して効果を見る」形をやめ、「**いまの姿**を確かめる」形へ寄せた。
+# 流したときの一回きりの効果（表が空になる・重複が消える）は事後に確かめられないので、
+# そのテストは仕様ごと落とした。

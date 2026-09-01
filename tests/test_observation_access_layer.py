@@ -156,7 +156,7 @@ def _insert_obs_with_emotion(
     )
 
 
-# situated_embeddings.vector は vector(1024)。recall_day_summaries は situated 相関で
+# situated_memories.vector は vector(1024)。recall_day_summaries は situated 相関で
 # 引くため、返ってほしい観測には対象 person の situated 行が要る。ベクトルは順序に
 # 使わない（timestamp DESC）が、コサイン索引がゼロノルムを嫌うので非ゼロを入れる。
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
@@ -164,7 +164,7 @@ _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
 def _insert_situated(cur, se_id: str, obs_id: str, person_id: str) -> None:
     cur.execute(
-        "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",
+        "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",
         (se_id, obs_id, person_id, _VEC),
     )
 

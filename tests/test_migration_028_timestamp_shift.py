@@ -113,25 +113,3 @@ def test_runner_applies_it_only_once() -> None:
     conn.close()
 
 
-def test_last_recalled_at_is_left_alone() -> None:
-    """last_recalled_at は SQL の now() で書かれており正しいので触らない。"""
-    conn = _pg()
-    obs_id = _insert(conn, f"tz keep {uuid.uuid4()}", "now() + interval '9 hours'")
-    with conn.cursor() as cur:
-        cur.execute(
-            "UPDATE observations SET last_recalled_at = now() WHERE id = %s", (obs_id,)
-        )
-        cur.execute(
-            "SELECT last_recalled_at FROM observations WHERE id = %s", (obs_id,)
-        )
-        before = cur.fetchone()["last_recalled_at"]
-
-    _run_migration(conn)
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT last_recalled_at FROM observations WHERE id = %s", (obs_id,)
-        )
-        after = cur.fetchone()["last_recalled_at"]
-    assert after == before, "last_recalled_at が動いている"
-    conn.close()

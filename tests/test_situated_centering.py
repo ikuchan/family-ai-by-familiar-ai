@@ -30,7 +30,7 @@ from familiar_agent.person_memory_manager import ALPHA
 
 
 _DB_URL = os.environ["DATABASE_URL"]
-_BACKFILL_MIGRATION = "2026-07-18-027_center_situated_embeddings.py"
+_BACKFILL_MIGRATION = "2026-07-18-027_center_situated_memories.py"
 
 
 def _pg_conn():
@@ -70,7 +70,7 @@ def _read_situated(obs_id: str, person_id: str) -> np.ndarray:
     conn = _pg_conn()
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT vector FROM situated_embeddings WHERE obs_id=%s AND person_id=%s",
+            "SELECT vector FROM situated_memories WHERE obs_id=%s AND person_id=%s",
             (obs_id, person_id),
         )
         row = cur.fetchone()
@@ -179,36 +179,8 @@ def _run_backfill(conn) -> None:
     conn.commit()
 
 
-def test_backfill_centers_existing_situated() -> None:
-    mu = _fixed_vec(40)
-    doc_vec = _fixed_vec(41)
-    person_id = str(uuid.uuid4())
-    obs_id = str(uuid.uuid4())
-    legacy = _normalise(doc_vec)
-
-    _ensure_person(person_id)
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s)",
-            (obs_id, "backfill target", "unknown", "conversation", "neutral", person_id),
-        )
-        cur.execute(
-            "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s,%s)",
-            (obs_id, doc_vec.tobytes()),
-        )
-        cur.execute(
-            "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) VALUES (%s,%s,%s,%s)",
-            (str(uuid.uuid4()), obs_id, person_id,
-             "[" + ",".join(str(float(x)) for x in legacy) + "]"),
-        )
-    conn.close()
-
-    _set_mu(mu)
-    conn = _pg_conn()
-    _run_backfill(conn)
-    conn.close()
-
-    stored = _read_situated(obs_id, person_id)
-    assert np.allclose(stored, _normalise(doc_vec - mu), atol=1e-5)
+# `test_backfill_centers_existing_situated` は 044 で落とした。027 は
+# `situated_embeddings` を `persons.perspective_vec` で書き換える一括再計算で、改名後は
+# 流せない（045 で `perspective_vec` も落ちる）。中心化そのものは純関数
+# `_situated_vector` のテストが確かめており、書込と問合せが同じ空間にいることは
+# `test_write_and_query_share_space` が確かめている。

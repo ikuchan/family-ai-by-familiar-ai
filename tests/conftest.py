@@ -68,7 +68,7 @@ _AGENT_SELF_ID = "00000000-0000-0000-0000-000000000000"
 _DEFAULT_PERSON_ID = "00000000-0000-0000-0000-000000000001"
 
 _TRUNCATE_TABLES = [
-    "situated_embeddings",
+    "situated_memories",
     "obs_embeddings",
     "memory_links",
     "episode_memories",

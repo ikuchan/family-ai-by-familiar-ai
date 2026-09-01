@@ -233,63 +233,10 @@ def _run_purge_migration(conn) -> None:
     conn.commit()
 
 
-def test_purge_migration_removes_duplicate_embeddings() -> None:
-    """Purge migration supersedes duplicates and removes their embeddings."""
-    mem = _make_memory()
-    pid = mem._person_id
-    content = f"purgeテスト_{uuid.uuid4()}"
-    now = datetime.now(tz=timezone.utc)
-
-    conn = _pg_conn()
-    # Plant 5 duplicates within 5 seconds
-    ids = []
-    for i in range(5):
-        oid = _insert_obs_at(conn, pid, content, "utterance", now + timedelta(seconds=i))
-        ids.append(oid)
-
-    # Insert a fake situated_embedding for each (vector not important for this test)
-    from familiar_agent.db import vec_to_sql
-    import numpy as np
-    fake_vec = vec_to_sql(np.zeros(1024).tolist())
-    with conn.cursor() as cur:
-        for oid in ids:
-            cur.execute(
-                "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) "
-                "VALUES (%s, %s, %s, %s::vector) ON CONFLICT DO NOTHING",
-                (str(uuid.uuid4()), oid, pid, fake_vec),
-            )
-    conn.commit()
-
-    _run_purge_migration(conn)
-
-    with conn.cursor() as cur:
-        # Only one unsuperseded row should remain
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM observations "
-            "WHERE person_id=%s AND content=%s AND kind=%s AND superseded_by IS NULL",
-            (pid, content, "utterance"),
-        )
-        remaining = cur.fetchone()["n"]
-
-        # Superseded rows must have superseded_by set to the first id
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM observations "
-            "WHERE person_id=%s AND content=%s AND kind=%s AND superseded_by IS NOT NULL",
-            (pid, content, "utterance"),
-        )
-        superseded = cur.fetchone()["n"]
-
-        # Embeddings for superseded rows must be gone
-        cur.execute(
-            "SELECT COUNT(*) AS n FROM situated_embeddings WHERE obs_id = ANY(%s)",
-            (ids[1:],),  # all but the first
-        )
-        leftover_emb = cur.fetchone()["n"]
-    conn.close()
-
-    assert remaining == 1, f"Expected 1 unsuperseded, got {remaining}"
-    assert superseded == 4, f"Expected 4 superseded, got {superseded}"
-    assert leftover_emb == 0, f"Expected 0 leftover embeddings, got {leftover_emb}"
+# `test_purge_migration_removes_duplicate_embeddings` は 044 で落とした。019 は重複が
+# あるときだけ `situated_embeddings` を DELETE するので、実際に purge する経路だけが
+# 改名後に流せなくなった。purge は一度きりの掃除で、これから重複を作らせないのは
+# 書き込み側の時間窓（`test_dedup_skips_same_content_kind_within_window`）である。
 
 
 def test_purge_migration_keeps_non_duplicates() -> None:

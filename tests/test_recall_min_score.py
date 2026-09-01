@@ -39,8 +39,13 @@ def _age_observation(content: str, days: int) -> None:
     raw.autocommit = True
     with raw.cursor() as cur:
         cur.execute(
-            "UPDATE observations SET timestamp=%s, last_recalled_at=NULL WHERE content=%s",
+            "UPDATE observations SET timestamp=%s WHERE content=%s",
             (old, content),
+        )
+        cur.execute(
+            "UPDATE situated_memories SET last_recalled_at=NULL WHERE obs_id IN "
+            "(SELECT id::text FROM observations WHERE content=%s)",
+            (content,),
         )
     raw.close()
 

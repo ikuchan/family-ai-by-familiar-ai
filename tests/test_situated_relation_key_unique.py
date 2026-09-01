@@ -8,9 +8,7 @@ from __future__ import annotations
 
 import os
 
-import importlib.util
 import uuid
-from pathlib import Path
 
 import numpy as np
 import psycopg2
@@ -31,16 +29,6 @@ def _pg_conn():
     return conn
 
 
-def _run_migration(conn) -> None:
-    migration_path = (
-        Path(__file__).parent.parent / "migration" / "2026-07-12-023_situated_relation_key_unique.py"
-    )
-    spec = importlib.util.spec_from_file_location("situated_relation_key_unique_migration", migration_path)
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    mod.upgrade(conn)
-    conn.commit()
-
 
 def _insert_obs(cur, obs_id: str) -> None:
     cur.execute(
@@ -54,16 +42,15 @@ def test_unique_includes_relation_key() -> None:
     """同一 (obs_id, person_id) でも relation_key が違えば2行入る。同一 triple は違反。"""
     obs_id = str(uuid.uuid4())
     conn = _pg_conn()
-    _run_migration(conn)
     with conn.cursor() as cur:
         _insert_obs(cur, obs_id)
         cur.execute(
-            "INSERT INTO situated_embeddings (id, obs_id, person_id, vector, relation_key) "
+            "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
             "VALUES (%s, %s, %s, %s, 'presence')",
             (str(uuid.uuid4()), obs_id, AGENT_SELF_ID, _VEC),
         )
         cur.execute(
-            "INSERT INTO situated_embeddings (id, obs_id, person_id, vector, relation_key) "
+            "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
             "VALUES (%s, %s, %s, %s, 'speaker')",
             (str(uuid.uuid4()), obs_id, AGENT_SELF_ID, _VEC),
         )
@@ -71,7 +58,7 @@ def test_unique_includes_relation_key() -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT relation_key FROM situated_embeddings WHERE obs_id=%s AND person_id=%s "
+            "SELECT relation_key FROM situated_memories WHERE obs_id=%s AND person_id=%s "
             "ORDER BY relation_key",
             (obs_id, AGENT_SELF_ID),
         )
@@ -83,7 +70,7 @@ def test_unique_includes_relation_key() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO situated_embeddings (id, obs_id, person_id, vector, relation_key) "
+                "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
                 "VALUES (%s, %s, %s, %s, 'presence')",
                 (str(uuid.uuid4()), obs_id, AGENT_SELF_ID, _VEC),
             )
@@ -99,7 +86,6 @@ def test_upsert_separate_row_per_relation_key() -> None:
     """_upsert_situated_embedding が relation_key ごとに別行を作り、同 key 再upsertは更新。"""
     obs_id = str(uuid.uuid4())
     conn = _pg_conn()
-    _run_migration(conn)
     with conn.cursor() as cur:
         _insert_obs(cur, obs_id)
     conn.commit()
@@ -115,7 +101,7 @@ def test_upsert_separate_row_per_relation_key() -> None:
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT relation_key FROM situated_embeddings WHERE obs_id=%s AND person_id=%s "
+            "SELECT relation_key FROM situated_memories WHERE obs_id=%s AND person_id=%s "
             "ORDER BY relation_key",
             (obs_id, AGENT_SELF_ID),
         )
