@@ -29,7 +29,7 @@ def _row(obs_id: str) -> dict:
     """採点まで届く最小の行。活性は既定の低い側に置く（下限の効きを見るため）。"""
     return {
         "id": obs_id, "content": "むかしの話", "timestamp": None,
-        "last_recalled_at": None, "recall_count": 0,
+        "last_recalled_at": None,
         "groundedness_g0": 0.1, "groundedness_n": 0,
         "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
         "direction": "発話", "kind": "observation", "emotion": "neutral",

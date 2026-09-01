@@ -206,7 +206,7 @@ def test_weights_reach_the_scorer() -> None:
 
     row = {
         "id": "obs-1", "content": "むかしの話", "timestamp": None,
-        "last_recalled_at": None, "recall_count": 0,
+        "last_recalled_at": None,
         "groundedness_g0": 1.0, "groundedness_n": 0,
         "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
         "direction": "発話", "kind": "observation", "emotion": "neutral",

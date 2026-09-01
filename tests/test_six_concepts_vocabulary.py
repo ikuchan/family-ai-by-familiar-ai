@@ -74,7 +74,7 @@ def test_the_six_names_all_resolve() -> None:
     assert MemoryConfig().recall_w_g > 0                               # 根づきの重み
     assert "w_g" in RecallWeights.__dataclass_fields__
     assert "dynamism" in Coalition.__dataclass_fields__                # 勢い
-    parts = _score_breakdown(0.5, None, None, 0, 1.0, 0,
+    parts = _score_breakdown(0.5, None, None, 1.0, 0,
                              half_life_days=3.0, floor=0.001)
     assert hasattr(parts, "m") and hasattr(parts, "fit")               # 地力・適合度
     assert hasattr(parts, "g")                                         # 根づきの軸

@@ -20,7 +20,6 @@ def _bd(**kw):
         cosine=0.8,
         ts=datetime.now(timezone.utc),
         last_recalled_at=None,
-        recall_count=0,
         groundedness_g0=0.4,
         groundedness_n=0,
         half_life_days=30.0,
@@ -130,7 +129,7 @@ def _row(oid: str, score: float) -> dict:
     return {
         "id": oid, "content": f"content-{oid}", "timestamp": "2026-07-01T10:00:00+09:00",
         "direction": "in", "kind": "observation", "emotion": "neutral", "image_path": None,
-        "groundedness_g0": 1.0, "groundedness_n": 0, "recall_count": 0, "last_recalled_at": None,
+        "groundedness_g0": 1.0, "groundedness_n": 0, "last_recalled_at": None,
         "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
         "score": score,
     }

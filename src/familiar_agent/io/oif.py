@@ -66,7 +66,6 @@ class MI:
     # 根づき と 新しさ は**素**で持ち、導出は計算する。
     groundedness_g0: float = 1.0
     groundedness_n: int = 0
-    recall_count: int = 0
     last_recalled_at: datetime | None = None
 
     # 視点。拡散想起のエンティティ辺（`diffuse_store.recall_by_person`）が使う。

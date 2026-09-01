@@ -29,7 +29,7 @@ _EXPECTED = {
     "parent_id", "superseded_by",
     "pad",
     "groundedness_g0", "groundedness_n",
-    "recall_count", "last_recalled_at",
+    "last_recalled_at",
     "writer_id", "subject_id", "participants",
     "image_path", "image_data",
 }
@@ -49,10 +49,14 @@ class TestMI:
             assert name not in got, f"{name} は導出値なので属性に持たない"
 
     def test_removed_columns_are_not_attributes(self) -> None:
-        """撤去する列は持たない（記-d）。"""
+        """撤去する列は持たない。
+
+        `scope` と `importance` は 記-d が 039 で、`recall_count` は 043 が撤去した。
+        `person_id` は situated V2 が撤去する（`設計方針_OIF` v0.2）。
+        """
         got = {f.name for f in dataclasses.fields(MI)}
-        for name in ("person_id", "scope", "importance"):
-            assert name not in got, f"{name} は撤去する列（記-d）"
+        for name in ("person_id", "scope", "importance", "recall_count"):
+            assert name not in got, f"{name} は撤去する列"
 
     def test_kind_is_derived_from_direction(self) -> None:
         """`kind` は `direction` から決まる。"""

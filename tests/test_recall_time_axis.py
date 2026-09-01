@@ -77,27 +77,29 @@ def test_time_axis_skips_dead_records_and_keeps_the_perspective_scope():
     assert "s.person_id = %s" in src
 
 
-def test_recall_count_does_not_extend_the_half_life():
-    """強化A（想起回数で実効半減期を伸ばす）は想起の t 軸で使わない。
+def test_the_half_life_cannot_be_extended_by_use():
+    """強化A（想起回数で実効半減期を伸ばす）の入口がもう無い。
 
-    `課題5` F節が廃止と確定させている（重要さは根づきの n が担い、t は純粋な
-    時間減衰）。実装に残っていたため `recall_count` が 20 なら半減期が 3×2^20 日＝
-    8600年になり、**何度も想起された古い記録が永久に t=1** になっていた。実機で 47日前の
-    挨拶が t=1.000 で上位を占め、5秒前の自分の発話を押し出した（「おかえりなさい」を2回）。
+    `課題5` F節が廃止と確定させ（重要さは根づきの n が担い、t は純粋な時間減衰）、
+    043 で `recall_count` を列ごと落とした。かつて効いていた頃は想起回数が 20 なら
+    半減期が 3×2^20 日＝8600年になり、**何度も想起された古い記録が永久に t=1** だった
+    （実機で 47日前の挨拶が t=1.000 で上位を占め、5秒前の自分の発話を押し出した）。
+
+    伸ばす手立てが無いことは、採点の正本が回数を受け取らないことで固定する。
+    残る t は純粋な時間減衰なので、47日前は半減期3日でほぼ 0 になる。
     """
     import datetime as dt
+    import inspect
 
     from familiar_agent.tools.memory import _score_breakdown
 
+    # 回数を受け取る口が無い（引数に戻すと、また半減期を伸ばせてしまう）
+    assert "recall_count" not in inspect.signature(_score_breakdown).parameters
+
     ref = dt.datetime(2026, 7, 27, tzinfo=dt.timezone.utc)
     old_ts = ref - dt.timedelta(days=47)
-
-    def t_of(recall_count: int) -> float:
-        parts = _score_breakdown(
-            0.5, old_ts, None, recall_count, 1.0, 0,
-            half_life_days=3.0, floor=0.001, reference_epoch=ref.timestamp(),
-        )
-        return parts.t
-
-    assert t_of(0) < 0.01                      # 47日前は半減期3日でほぼ 0
-    assert t_of(20) == t_of(0)                 # 想起回数で伸びない
+    parts = _score_breakdown(
+        0.5, old_ts, None, 1.0, 0,
+        half_life_days=3.0, floor=0.001, reference_epoch=ref.timestamp(),
+    )
+    assert parts.t < 0.01                      # 47日前は半減期3日でほぼ 0

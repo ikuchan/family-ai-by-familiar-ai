@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.13）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.14）
 
 ## 位置づけ
 本書は設計図の確定 **[D-活性]／[D-O書込]／[D-B定点]／[D-B分離]／[D-知覚]／[D-設定]** の**別紙詳細**。決定そのものは設計図にあり、本書は **定数台帳／現状コード所在（file:line・移行入力）／知覚パイプライン細部／移行申し送り** を保持する（決定の地の文は設計図に一元化し、本書では繰り返さない）。対象＝課題2 の項目1（活性）・項目2（O書込）・項目3（知覚在席）。**暫定値は課題5、移行は課題6/7**。
@@ -157,6 +157,11 @@
 - **O 書込**：`_project_observation` の昇格を O 書込から分離（O は出来事のみ）。near-dup 統合（supersede）を **REST 内省**に追加（前景では検出のみ）。emotion 文字列→PAD。④曲変化検出を W 直近記録曲＋H 照合＋dedupe_key で実装。
 - **新しさ（t 軸）の若返り＝recall_count・last_recalled_at（017）の役割再編**（A-3 の Phase 1 残務・決定のみ・コードは Phase 2）：この二列は現在、旧 recall の `_compute_final_score`（`final_score = cosine × time_score × importance`）と `_mark_recalled` の中だけで使われる（grep 確認・機械想起 conversation で `recall_count += 1` と `last_recalled_at = now()`、spontaneous で `last_recalled_at` のみ、system は無更新）。新設計での対応づけ：`recall_count`＝新しさ（t 軸）の若返り回数（`time_decay` の reinforce＝半減期倍化）、`last_recalled_at`＝若返りの起点リセット。**根づき の n（評価由来の正味デルタ）とは別系統で、想起回数からは引き継がない**。更新トリガは機械想起からフルLLM の参照申告へ移す（[D-想起合成]「機械想起では 根づき も freshness も触らない」）。二列は旧 recall スコアリングに閉じているため、Phase 1 では現状維持（旧 recall が読む・外部挙動不変）とし、再編のコードは 5軸スコアラを載せる Phase 2（t 軸の若返りと a 軸の (a0,n)）で行う。§1-3 の「減衰エンジン（流用可）＝time_decay.py（reinforce で半減期倍化）」がこの若返りの実体。
 
+  **`recall_count` は 043 で撤去した**（2026-09-01）。強化A（実効半減期を `2^recall_count` で
+  伸ばす）は `課題5` F 節が廃止と確定させており、採点側は既に使っていなかった。若返りの起点
+  `last_recalled_at` は残り、更新は `apply_verdicts`（フルLLM の `memory_verdicts` 申告）が担う。
+  **`last_recalled_at` そのものは 044 で `situated_memories` へ移る**（人ごとの量になる）。
+
 ---
 
 ## 3-6. 実機で確かめたこと（2026-07-28・S1〜S3 実装時）
@@ -229,6 +234,10 @@ I も T も在席センサも動体イベントも、実装では `run()` の中
 ---
 
 ## 更新履歴
+
+> v0.14：**`recall_count` の撤去（043）を反映した**（2026-09-01）。強化A は廃止確定で
+> 採点側は既に使っておらず、列だけが残っていた。若返りの起点 `last_recalled_at` は残るが、
+> 044 で `situated_memories` へ移り人ごとの量になる。
 
 > v0.13：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 

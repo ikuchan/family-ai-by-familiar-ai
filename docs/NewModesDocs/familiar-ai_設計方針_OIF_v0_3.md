@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：記憶接続 OIF（v0.1）
+# familiar-ai 設計方針：記憶接続 OIF（v0.3）
 
 ## この文書が決めること
 
@@ -14,7 +14,7 @@
 
 ベクトル埋め込みも隠れていない。`is_embedding_ready()` と `embedding_failed()` が公開面に出ており、設計の「ベクトル埋め込みは OIF の内側」と食い違う。
 
-## MI（18属性）
+## MI（17属性）
 
 `observations` の列を、読み手ごとに調べて決めた。主想起・拡散想起・プロンプトのいずれからも読まれない列は入れない。計算で作れるものも入れない。
 
@@ -38,7 +38,6 @@ class MI:
     groundedness_g0: float          # 根づき の素
     groundedness_n: int
 
-    recall_count: int               # 新しさ の素
     last_recalled_at: datetime | None
 
     writer_id: str                  # 視点。拡散想起のエンティティ辺が使う
@@ -67,7 +66,7 @@ class MI:
 | `emotion_vec` | PAD から機械的に作る索引。感情軸の一次絞り（`by_emotion`）が pgvector の L2 距離で引くために、$\sqrt{\lambda}$ を畳み込んだ4次元の点として持つ。意味としては PAD と同じもの |
 | `obs_embeddings`／`situated_embeddings` のベクトル | 別テーブルの索引。想起の SQL が JOIN で使う |
 | 採点（`fit`・`r`・`t`・`e`・`g`・`m`・`p`） | 想起のたびに算出する導出値。保存しない |
-| `person_id`・`scope`・`importance` | 読み手が居ないか旧い。記-d で撤去する |
+| `person_id`・`scope`・`importance` | 読み手が居ないか旧い。`scope` と `importance` は 記-d で撤去した（039）。`person_id` は situated V2 が撤去する（[D-在席相関/V2]・`gap分析` §4／§6） |
 
 ## OIF の公開面（8つ）
 
@@ -169,10 +168,26 @@ class Verdict(Enum):
 
 **`MemoryTool`（LLM が呼ぶ `recall` の道具）を触らない。** 設計では動作器（ACT）が扱うもので、OIF ではない。
 
-**列の撤去をしない。** `person_id`・`scope`・`importance`・`unfinished_business` の撤去は 記-d が引き取る。
+**列の撤去をしない。** `scope`・`importance`・`unfinished_business` の撤去は 記-d が引き取る（039・041 で完了）。
+`person_id` は 記-d でなく **situated V2** が引き取る。`gap分析` §4／§6 と `設計図` [D-在席相関/V2] が
+「既存データは所有者 person を写像で situated へ移す」「列削除は V2 で行う」と定めており、
+関係エッジの生成より先に落とすと写像の材料が無くなるためである。
 
 ---
 
 ## 更新履歴
+
+> v0.3：**MI から `recall_count` を外した（18属性 → 17属性）**（2026-09-01）。この列は
+> 強化A（実効半減期を `2^recall_count` で伸ばす）のためのもので、`課題5` F 節が
+> 廃止を確定させていた。採点側は既に使っておらず（引数で受け取るだけで `DecayState`
+> へ渡していない）、043 で列ごと撤去した。時間の起点 `last_recalled_at` は残る。
+
+> v0.2：**`person_id` の撤去先を 記-d から situated V2 へ直した**（2026-09-01）。v0.1 は
+> `person_id`・`scope`・`importance` をまとめて「記-d で撤去する」と書いていたが、
+> `gap分析` v0.6 §4／§6 と `設計図` [D-在席相関/V2] は `person_id` について
+> 「列削除は V2 で行う・既存データは所有者 person を写像で situated へ移す」と定めており、
+> 文書どうしが食い違っていた。実際に 記-d の一部として撤去しようとして巻き戻した
+> （`復旧記録` v0.8）。`scope` と `importance` は 039 で、`unfinished_business` は 041 で
+> 記-d が撤去済みである。
 
 > v0.1：環-e-い（OIF を作る）の設計方針。`ObservationMemory` の公開面72種のうち本番から呼ばれる22種を調べ、8つの口へまとめた。`observations` の列を読み手ごとに調べ、MI を18属性で決めた。`kind` は `direction` から導出、`emotion_vec` とベクトルは索引、採点は導出値として MI に入れない。`View`（見方）を書き込み側の視点と語で分けた。待ち行列（`memory_jobs`）は内側へ入れ、`unfinished_business` は 記-d へ送った。

@@ -26,7 +26,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel, _sco
 def _row(obs_id: str = "obs-1") -> dict:
     return {
         "id": obs_id, "content": "むかしの話", "timestamp": None,
-        "last_recalled_at": None, "recall_count": 0,
+        "last_recalled_at": None,
         "groundedness_g0": 1.0, "groundedness_n": 0,
         "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
         "direction": "発話", "kind": "observation", "emotion": "neutral",
@@ -37,7 +37,7 @@ def _row(obs_id: str = "obs-1") -> dict:
 def test_breakdown_exposes_fit_and_merit() -> None:
     """内訳は `fit`（適合度）と `m`（地力）を持ち、旧名 `score` は持たない。"""
     parts = _score_breakdown(
-        0.5, None, None, 0, 1.0, 0,
+        0.5, None, None, 1.0, 0,
         half_life_days=3.0, floor=0.001,
     )
     assert hasattr(parts, "fit"), "適合度 fit が無い"
@@ -48,7 +48,7 @@ def test_breakdown_exposes_fit_and_merit() -> None:
 def test_fit_is_relevance_gate_times_merit() -> None:
     """`fit = r^(w_r) × m`。関連ゲートは指数、地力は加重平均。"""
     parts = _score_breakdown(
-        0.5, None, None, 0, 1.0, 0,
+        0.5, None, None, 1.0, 0,
         half_life_days=3.0, floor=0.001, w_r=2.0,
     )
     assert parts.fit == pytest.approx((parts.r ** 2.0) * parts.m)
@@ -56,9 +56,9 @@ def test_fit_is_relevance_gate_times_merit() -> None:
 
 def test_merit_excludes_relevance() -> None:
     """地力は関連を含まない（$w_r$ を変えても動かない）。"""
-    a = _score_breakdown(0.5, None, None, 0, 1.0, 0,
+    a = _score_breakdown(0.5, None, None, 1.0, 0,
                          half_life_days=3.0, floor=0.001, w_r=1.0)
-    b = _score_breakdown(0.5, None, None, 0, 1.0, 0,
+    b = _score_breakdown(0.5, None, None, 1.0, 0,
                          half_life_days=3.0, floor=0.001, w_r=3.0)
     assert a.m == pytest.approx(b.m), "地力が関連の重みで動いている"
     assert a.fit != pytest.approx(b.fit), "適合度が関連の重みで動いていない"
