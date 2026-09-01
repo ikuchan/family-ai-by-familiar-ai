@@ -18,7 +18,7 @@ Perspective vectors (design α)
 Each person has a perspective_vec stored in persons.perspective_vec.
 At memory-write time every registered person gets a situated_embedding
 pre-computed as:  normalise(mem_vec + ALPHA * person_vec).
-At recall time the query is issued directly against situated_embeddings,
+At recall time the query is issued directly against situated_memories,
 returning sorted results from SQL — no full table scan needed.
 """
 from __future__ import annotations

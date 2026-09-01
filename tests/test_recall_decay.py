@@ -48,18 +48,26 @@ def _fresh_conn():
 # ---------------------------------------------------------------------------
 
 
-def test_last_recalled_at_column_exists():
-    """observations.last_recalled_at must exist and be nullable after migration 017."""
+def test_the_time_origin_lives_on_the_facet():
+    """時間の起点は出来事でなく**面**が持つ（044）。
+
+    017 は `observations.last_recalled_at` として入れたが、044 で
+    `situated_memories` へ移した。どの面を通って思い出したかで変わる量だからである
+    （`設計図` [D-在席相関/V2]・`MIデータモデル` §5）。
+    """
     conn = _fresh_conn()
     try:
         with conn.cursor() as cur:
             cur.execute("""
-                SELECT data_type, is_nullable
+                SELECT table_name, data_type, is_nullable
                 FROM information_schema.columns
-                WHERE table_name = 'observations' AND column_name = 'last_recalled_at'
+                WHERE column_name = 'last_recalled_at'
+                  AND table_name IN ('observations', 'situated_memories')
             """)
-            row = cur.fetchone()
-        assert row is not None, "last_recalled_at column not found"
+            rows = {r["table_name"]: r for r in cur.fetchall()}
+        assert "observations" not in rows, "出来事の側に残っている"
+        row = rows.get("situated_memories")
+        assert row is not None, "面が起点を持っていない"
         assert row["is_nullable"] == "YES", "last_recalled_at must be nullable"
         assert "timestamp" in row["data_type"], f"unexpected type: {row['data_type']}"
     finally:
@@ -86,8 +94,9 @@ def test_recall_never_reinforces(memory):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, last_recalled_at FROM observations "
-                "WHERE content = %s AND person_id = %s",
+                "SELECT o.id, s.last_recalled_at FROM observations o "
+                "JOIN situated_memories s ON s.obs_id = o.id::text "
+                "WHERE o.content = %s AND s.person_id = %s",
                 ("強化しない確認", memory._person_id),
             )
             before = cur.fetchone()
@@ -96,8 +105,9 @@ def test_recall_never_reinforces(memory):
 
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT last_recalled_at FROM observations WHERE id = %s",
-                (before["id"],),
+                "SELECT last_recalled_at FROM situated_memories "
+                "WHERE obs_id = %s AND person_id = %s",
+                (before["id"], memory._person_id),
             )
             after = cur.fetchone()
         assert after["last_recalled_at"] == before["last_recalled_at"]

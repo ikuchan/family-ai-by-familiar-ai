@@ -4,7 +4,7 @@ Built-in tools:
 - remember(content, emotion, scope): store an observation in PostgreSQL.
   scope: "speaker" | "witnessed" | "scene" | "all".
 - recall(hint, n): retrieve semantically similar memories via pgvector cosine similarity.
-Storage: PostgreSQL + pgvector (situated_embeddings, bge-m3).
+Storage: PostgreSQL + pgvector (situated_memories, bge-m3).
 Memory is scoped per person via PersonMemoryManager (person_id).
 Config: DATABASE_URL.
 """
@@ -921,7 +921,8 @@ class ObservationMemory:
                 # だけ（課題5 F節・強化B「想起では触らない」）だが、その判定は未実装なので
                 # 仕組みごと後回しにした。想起しただけで若返らせると、一度上がった記録が
                 # 自分を押し上げ続ける（実機で 47日前の挨拶が t=1.000 で居座った）。
-                # store 側の `_mark_recalled` は判定ができたときのために残す。
+                # 若返りの口は `apply_verdicts` の一本だけである（044 で二重だった
+                # `_mark_recalled` を落とした）。更新するのは出来事でなく**面**。
 
                 # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
                 # g0=0（適合度も根づきも 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。

@@ -1,6 +1,6 @@
 """Tests for the situated-correlation read layer (_read_observations_by_situated).
 
-所有者絞り（observations.person_id）でなく situated 相関（situated_embeddings を
+所有者絞り（observations.person_id）でなく situated 相関（situated_memories を
 JOIN し s.person_id で person に紐づける）で観測を読む層。順序は timestamp DESC。
 第一段では未接続で、既存の想起経路からは呼ばれない。
 """
@@ -22,7 +22,7 @@ _DB_URL = os.environ["DATABASE_URL"]
 
 _NOW = datetime(2026, 6, 1, 12, 0, 0)
 
-# situated_embeddings.vector は vector(1024)。層はベクトルを使わない（timestamp 順）が
+# situated_memories.vector は vector(1024)。層はベクトルを使わない（timestamp 順）が
 # 挿入には有効な非ゼロベクトルが要る（コサイン索引がゼロノルムを嫌う）。
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
@@ -40,7 +40,7 @@ def _insert_obs(
 
 def _insert_situated(cur, se_id: str, obs_id: str, person_id: str) -> None:
     cur.execute(
-        "INSERT INTO situated_embeddings (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",
+        "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",
         (se_id, obs_id, person_id, _VEC),
     )
 

@@ -9,7 +9,7 @@
 その値は採点に一切効いていなかった。
 
 若返り（時間の起点の更新）は `apply_verdicts` が担う。`_mark_recalled` にも同じ
-UPDATE があるが、**本番からの呼び出しは0件**である（去就は 044 で決める）。
+UPDATE があったが、**本番からの呼び出しは0件**だったので 044 で撤去した。
 """
 
 from __future__ import annotations
@@ -47,13 +47,15 @@ def test_observations_has_no_recall_count_column() -> None:
     assert "recall_count" not in _columns()
 
 
-def test_the_other_decay_columns_survive() -> None:
-    """落とすのは `recall_count` だけ。時間の起点と根づきの素は残る。
+def test_the_intake_surprise_survives() -> None:
+    """落とすのは `recall_count` だけ。取込の驚きは出来事に残る。
 
-    `last_recalled_at` は 044 で `situated_memories` へ移すので、043 では動かさない。
+    `last_recalled_at` と `groundedness_n` は 043 の時点では観測にあったが、044 で
+    `situated_memories` へ移した。ここで確かめるのは、**出来事に残るべきもの**が
+    残っていることである。
     """
     cols = _columns()
-    for name in ("timestamp", "last_recalled_at", "groundedness_g0", "groundedness_n"):
+    for name in ("timestamp", "groundedness_g0"):
         assert name in cols, name
 
 
@@ -77,11 +79,16 @@ def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
 
     列を落とすと同じ UPDATE 文の中の `recall_count = recall_count + 1` が
     `UndefinedColumn` で落ちるので、ここが落ちれば外し忘れである。
+
+    044 で起点は**面**へ移ったので、確かめるのも面の側である。
     """
     from unittest.mock import patch
 
     from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
+    from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
+
+    vec = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
     obs_id = str(uuid.uuid4())
     conn = _conn()
     try:
@@ -91,6 +98,11 @@ def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
                 "(id, content, timestamp, direction, kind, emotion) "
                 "VALUES (%s, %s, now(), %s, %s, %s)",
                 (obs_id, f"若返りテスト_{obs_id}", "unknown", "observation", "neutral"),
+            )
+            cur.execute(
+                "INSERT INTO situated_memories (id, obs_id, person_id, vector) "
+                "VALUES (%s, %s, %s, %s)",
+                (str(uuid.uuid4()), obs_id, DEFAULT_PERSON_ID, vec),
             )
     finally:
         conn.close()
@@ -104,9 +116,11 @@ def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT last_recalled_at FROM observations WHERE id = %s", (obs_id,)
+                "SELECT last_recalled_at FROM situated_memories "
+                "WHERE obs_id = %s AND person_id = %s",
+                (obs_id, DEFAULT_PERSON_ID),
             )
             row = cur.fetchone()
     finally:
         conn.close()
-    assert row is not None and row["last_recalled_at"] is not None, "時間の起点が更新されない"
+    assert row is not None and row["last_recalled_at"] is not None, "面の時間の起点が更新されない"

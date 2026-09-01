@@ -70,12 +70,12 @@ def test_situated_rows_are_created_for_each_person(ctx) -> None:
         )
     conn.commit()
 
-    situated.refresh_situated_embeddings(conn, obs_id, np.ones(1024, dtype=np.float32))
+    situated.refresh_situated_memories(conn, obs_id, np.ones(1024, dtype=np.float32))
     conn.commit()
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT count(*) AS n FROM situated_embeddings WHERE obs_id = %s", (obs_id,)
+            "SELECT count(*) AS n FROM situated_memories WHERE obs_id = %s", (obs_id,)
         )
         assert int(cur.fetchone()["n"]) >= 1
 

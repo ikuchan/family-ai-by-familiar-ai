@@ -1,4 +1,4 @@
-# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.11）
+# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.12）
 
 ## この文書が記録すること
 
@@ -316,7 +316,8 @@ emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else MoodPAD()
 | 040 `drop_dedupe_key` | **復元済み**（2026-08-31） | 課題8 に該当なし |
 | 042 `drop_observations_person_id` | **調査済み・実装は V2 の段へ送った**（2026-09-01） | 記-d でなく situated V2（043〜047）。設計が「列削除は V2 で行う」と定める |
 | 043 `drop_recall_count` | **復元済み**（2026-09-01） | situated V2 の前段。強化A の廃止（課題5 F 節） |
-| 044 から 054 | 未着手 | 一部のみ対応あり |
+| 044 `situated_memories` | **復元済み**（2026-09-01） | 索引を記憶にする段。`_mark_recalled` も撤去 |
+| 045 から 054 | 未着手 | 一部のみ対応あり |
 
 ### マイグレーションの id は原本と同じにする
 
@@ -478,6 +479,49 @@ situated_memories の person 分布（2026-08-21 時点・8682 行）
 **`groundedness_n≠0` は `__self__` だけだった**（+1 が 45 行・−1 が 37 行）。`memory_verdicts`
 はフルLLM が自分の視点で申告するので、他者の行には付かない。
 
+### 044 で分かったこと
+
+**3つの SELECT はすでに situated を JOIN していた。** `by_vector`・`by_time`・`by_emotion`
+はいずれも `FROM situated_memories s JOIN observations o` の形なので、面へ付け替えるのは
+`o.groundedness_n` を `s.groundedness_n` に書き換えるだけで済んだ。JOIN を足す必要はない。
+
+**採点は時間の起点を使っていない。** `_score_breakdown` は `last_recalled_at` を引数で
+受け取るが、起点は書かれた時刻（`o.timestamp`）だけである（強化B は仕組みごと後回し）。
+起点を実際に見ているのは `by_time` の並べ替えだけだった。043 の `recall_count` と同じ形だが、
+**強化B は設計で生きている**（`課題5` F 節）ので引数は残した。撤去した `recall_count` は
+強化A が設計ごと廃止されていたからである。
+
+`by_time` の docstring にあった「並べ替えの鍵は `COALESCE(last_recalled_at, timestamp)`＝
+**採点の起点と同じ**」は事実でなかったので、この機会に実物へ直した。
+
+**`_mark_recalled` を撤去した。** 本番からの呼び出しが0件で、`apply_verdicts` と同じことを
+していた。若返りの口は `apply_verdicts` の一本になった。
+
+**`apply_verdicts` は「その視点の面だけ」を動かす。** `WHERE person_id = %s AND obs_id =
+ANY(%s)` で、いま引いている person の面に限る。どの面を通って思い出したかで変わる量だからで、
+出来事の全部の面を動かすと「人ごと」の誤った枠組みに戻ってしまう。
+
+**時間軸の索引が失われた。** 035 は `observations (COALESCE(last_recalled_at, timestamp))`
+という**式索引**を張っていたが、044 で `last_recalled_at` が面へ移ったので索引ごと消えた。
+`by_time` の並べ替えの鍵は `COALESCE(s.last_recalled_at, o.timestamp)` という**二表にまたがる
+式**になり、単一の式索引では張れない。044 が張った `idx_situated_recency (person_id,
+last_recalled_at)` は面の側だけを覆う。**時間軸の一次絞りが全走査に戻っている可能性がある。**
+計測台帳 §17 は「時間軸の式索引は効果未計測」としており、いまは**索引そのものが無い**。
+実測して張り直しを検討する必要がある（申し送り）。
+
+**歴史のマイグレーションは流し直せない。** `tests/` の 14 file が `migration/` を直接読み込んで
+`upgrade()` を呼んでいた。044 の改名と列移動で、旧名を前提としたものが流せなくなった。
+マイグレーションは一度しか流れないので、後の版がスキーマを変えれば前の版は流し直せない
+——**改名という操作が構造的に持つ性質**である。過去のマイグレーションは適用済みの歴史なので
+書き換えず、テストを「流して効果を見る」から「**いまの姿を確かめる**」形へ寄せた。
+流したときの一回きりの効果（表が空になる・重複が消える・backfill が値を書き換える）は
+事後に確かめられないので、そのテストは仕様ごと落とした（bge-m3 の clears 2件・019 の purge
+1件・027 の backfill 1件・035 は file ごと）。**045〜047 でも同じ判断が要る。**
+
+**検算で3件の誤検出が出た。** `INSERT` の列数と `%s` の数を突き合わせる検算で、
+`%s::vector` のキャスト付きプレースホルダを数え落としていた。`v == "%s"` の厳密一致でなく
+`v.count("%s")` で数える。**検算そのものにも取りこぼしがある。**
+
 ### 申し送り：日次要約が重複している
 
 ```
@@ -534,6 +578,12 @@ docker compose exec -T db-test pg_dump -U familiar --schema-only --no-owner --no
 生成物と、ダンプから抜いたスキーマ一式は、リポジトリ外の `~/familiar_ai_restore/` に置いてある。
 
 ## 更新履歴
+
+> v0.12：**044（`situated_embeddings` → `situated_memories`）を復元した**（2026-09-01）。
+> 索引を記憶にする段で、`content`・時間の起点・根づきの `n` が面に付き、`observations`
+> からは2列が消えた。取込の驚き `groundedness_g0` だけが出来事に残る。`_mark_recalled`
+> （本番0件・二重）を撤去し、若返りの口を `apply_verdicts` の一本にした。採点が起点を
+> 使っていなかったこと、`%s::vector` を検算が数え落としたことも記録した。
 
 > v0.11：**`content` と時間の起点と根づきを面へ移した理由を、本人の証言として記録した**
 > （2026-09-01）。設計ドキュメントに理由が無く推測にとどめていたが、求めの版チェーンで

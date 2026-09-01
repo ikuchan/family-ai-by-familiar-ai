@@ -94,7 +94,7 @@ def test_saved_observation_gets_vectors(memory) -> None:
         obs_id = cur.fetchone()["id"]
         obs_vec = _count(cur, "SELECT count(*) FROM obs_embeddings WHERE obs_id = %s", (obs_id,))
         sit = _count(
-            cur, "SELECT count(*) FROM situated_embeddings WHERE obs_id = %s", (obs_id,)
+            cur, "SELECT count(*) FROM situated_memories WHERE obs_id = %s", (obs_id,)
         )
     conn.close()
     assert obs_vec == 1, "埋め込みが無い"

@@ -1,6 +1,6 @@
 """視点ベクトルと situated 行の作成・保存。
 
-`situated_embeddings` は記憶を「誰の視点から見たか」に寄せたベクトルで、想起の
+`situated_memories` は記憶を「誰の視点から見たか」に寄せたベクトルで、想起の
 母集合を作る（[D-在席相関/V2]）。人ごとの視点ベクトル `perspective_vec` と、
 中心化に使う埋め込みの平均 mu（`embedding_means`）もここに属する。
 
@@ -175,13 +175,13 @@ class SituatedVectors:
         vec_str = vec_to_sql(situated.tolist())
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO situated_embeddings (id, obs_id, person_id, vector, relation_key) "
+                "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
                 "VALUES (%s, %s, %s, %s::vector, %s) "
                 "ON CONFLICT (obs_id, person_id, relation_key) DO UPDATE SET vector = EXCLUDED.vector",
                 (str(uuid.uuid4()), obs_id, person_id, vec_str, relation_key),
             )
 
-    def refresh_situated_embeddings(self, conn, obs_id: str, mem_vec: np.ndarray) -> None:
+    def refresh_situated_memories(self, conn, obs_id: str, mem_vec: np.ndarray) -> None:
         """Pre-compute situated vectors for ALL registered persons + agent self."""
         with conn.cursor() as cur:
             cur.execute("SELECT id FROM persons")
