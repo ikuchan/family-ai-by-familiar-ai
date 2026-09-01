@@ -26,7 +26,6 @@ from familiar_agent.tools.memory import (
     _normalise,
     _situated_vector,
 )
-from familiar_agent.person_memory_manager import ALPHA
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -104,18 +103,16 @@ def _mem(person_id: str, doc_vec: np.ndarray) -> ObservationMemory:
 # ── 1. 純関数：mu あり／なし ───────────────────────────────────────────────
 def test_situated_vector_centers_when_mu_present() -> None:
     mem_vec = _fixed_vec(1)
-    p_vec = _fixed_vec(2)
     mu = _fixed_vec(3)
-    got = _situated_vector(mem_vec, p_vec, mu)
-    expected = _normalise(mem_vec + ALPHA * p_vec - mu)
+    got = _situated_vector(mem_vec, mu)
+    expected = _normalise(mem_vec - mu)
     assert np.allclose(got, expected)
 
 
 def test_situated_vector_falls_back_when_mu_none() -> None:
     mem_vec = _fixed_vec(1)
-    p_vec = _fixed_vec(2)
-    got = _situated_vector(mem_vec, p_vec, None)
-    expected = _normalise(mem_vec + ALPHA * p_vec)
+    got = _situated_vector(mem_vec, None)
+    expected = _normalise(mem_vec)
     assert np.allclose(got, expected)
 
 

@@ -15,9 +15,9 @@ Memory access
 
 Perspective vectors (design α)
 -------------------------------
-Each person has a perspective_vec stored in persons.perspective_vec.
+Situated vectors are keyed by (obs_id, person_id, relation_key).
 At memory-write time every registered person gets a situated_embedding
-pre-computed as:  normalise(mem_vec + ALPHA * person_vec).
+pre-computed as:  normalise(mem_vec - mu)  (045: no per-person term).
 At recall time the query is issued directly against situated_memories,
 returning sorted results from SQL — no full table scan needed.
 """
@@ -43,7 +43,6 @@ AGENT_SELF_ID     = "00000000-0000-0000-0000-000000000000"
 DEFAULT_PERSON_ID = "00000000-0000-0000-0000-000000000001"
 
 # Perspective vector blend weight (0 = no perspective, 1 = full person bias)
-ALPHA: float = 0.30
 # Auto-switch threshold for non-manual/llm hints
 AUTO_SWITCH_THRESHOLD: float = 0.75
 # Seconds without camera/voice signal before requesting re-detection

@@ -67,7 +67,6 @@ def _facade_for_corr(cosines_by_person: dict[str, dict[str, float]]):
     mem = ObservationMemory.__new__(ObservationMemory)
     situated = MagicMock()
     situated._embedding_mu.return_value = None
-    situated._get_perspective_vec.return_value = None
 
     def _situate_dummy(*a, **k):
         return None
@@ -145,7 +144,6 @@ def _recall_facade(by_vector_seq, situated_cosines_fn, person_id="spk"):
     mem._embedder = emb
     sit = MagicMock()
     sit._embedding_mu.return_value = None
-    sit._get_perspective_vec.return_value = None
     mem._situated = sit
     obs = MagicMock()
     seq = list(by_vector_seq)
