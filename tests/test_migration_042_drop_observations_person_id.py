@@ -51,9 +51,9 @@ def _insert(cur, obs_id: str, content: str, kind: str, writer_id: str, ts: datet
     """所有者列を書かずに観測を1件植える（042 後の列構成で書けることも兼ねて確かめる）。"""
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion, writer_id, subject_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral", writer_id, writer_id),
+        "(id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, "neutral" ),
     )
 
 
@@ -147,17 +147,32 @@ def test_dedup_keeps_rows_from_different_writers() -> None:
 
     重複判定の絞りを外すのでなく**書き手**へ移す。家族の二人が同じ挨拶をしたものは
     重複ではない。
+
+    **別の人は実在の人で試す。** 042 の時点では `writer_id` の列で判定していたので
+    `default` と `__self__` を別の値として使えた。段5 で判定が `actor` の面へ移り、
+    048 の規則で「話者が解決できなかった記録の `actor` は `__self__`」になったため、
+    `default` はもう別人にならない。`default` は人ではなく「まだ分からない」の置き場である。
     """
+    who = str(uuid.uuid4())
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persons (id, name, created_at, updated_at) "
+                "VALUES (%s,%s,now(),now()) ON CONFLICT (id) DO NOTHING",
+                (who, f"n-{who[:8]}"),
+            )
+    finally:
+        conn.close()
+
     mem = _mem()
     content = f"別書き手テスト_{uuid.uuid4()}"
 
     original = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
     os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
-        mem.save_with_id(content, kind="utterance",
-                         writer_id=AGENT_SELF_ID, subject_id=AGENT_SELF_ID)
-        mem.save_with_id(content, kind="utterance",
-                         writer_id=DEFAULT_PERSON_ID, subject_id=DEFAULT_PERSON_ID)
+        mem.save_with_id(content, kind="utterance", writer_id=AGENT_SELF_ID)
+        mem.save_with_id(content, kind="utterance", writer_id=who)
     finally:
         if original is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)

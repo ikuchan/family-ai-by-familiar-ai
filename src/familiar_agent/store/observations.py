@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 from datetime import date as _date, datetime
 from typing import Any
@@ -767,11 +766,11 @@ class ObservationStore:
         now = clock.now_utc()
         save_ts = clock.end_of_day_utc(override_date) if override_date else now
 
-        participants_json = json.dumps(participants or [], ensure_ascii=False)
         # 042：重複とは「同じ**書き手**が同じ内容を同じ kind で窓の内に」であって、
-        # 家族の二人が同じ挨拶をしたものは重複ではない。
+        # 家族の二人が同じ挨拶をしたものは重複ではない。段5 で列は落ちたが、書き手は
+        # `actor` の面が引き取った。`subject_id` は誰も読んでいなかったので落とした
+        # （実在の 397 件は全件がその人の面を既に持っていた）。
         writer = writer_id or self._ctx.person_id
-        subject = subject_id or self._ctx.person_id
 
         with self._ctx.lock:
             conn = self._ctx.conn()
@@ -780,13 +779,20 @@ class ObservationStore:
                 if cur.fetchone():
                     return event_id
                 if dedup_window_secs > 0:
+                    # 書き手は `actor` の面が持つ（段5）。列を落としたので面へ問う。
+                    # 判定は INSERT の前なので、既にある行の面はもう立っている。
+                    # 048 と同じく、話者が解決できなかった記録の `actor` は `__self__`。
+                    from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
+                    _writer_facet = AGENT_SELF_ID if writer == DEFAULT_PERSON_ID else writer
                     cur.execute(
-                        "SELECT id FROM observations "
-                        "WHERE writer_id = %s AND content = %s AND kind = %s "
-                        "  AND timestamp >= now() - (%s * INTERVAL '1 second') "
-                        "  AND superseded_by IS NULL "
-                        "ORDER BY timestamp DESC LIMIT 1",
-                        (writer, content, kind, dedup_window_secs),
+                        "SELECT o.id FROM observations o "
+                        "JOIN situated_memories s ON s.obs_id = o.id "
+                        "  AND s.relation_key = 'actor' AND s.person_id = %s "
+                        "WHERE o.content = %s AND o.kind = %s "
+                        "  AND o.timestamp >= now() - (%s * INTERVAL '1 second') "
+                        "  AND o.superseded_by IS NULL "
+                        "ORDER BY o.timestamp DESC LIMIT 1",
+                        (_writer_facet, content, kind, dedup_window_secs),
                     )
                     _dup = cur.fetchone()
                     if _dup:
@@ -806,14 +812,12 @@ class ObservationStore:
                 cur.execute(
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
-                    " image_path,image_data,writer_id,subject_id,"
-                    " participants_json,groundedness_g0,parent_id,"
+                    " image_path,image_data,groundedness_g0,parent_id,"
                     " emotion_p,emotion_pn,emotion_a,emotion_dom,emotion_vec) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (event_id, content, save_ts,
                      direction, kind, emotion, image_path, image_data,
-                     writer, subject,
-                     participants_json, groundedness_g0,
+                     groundedness_g0,
                      payload.get("parent_id"),
                      emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom,
                      # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には
@@ -828,9 +832,12 @@ class ObservationStore:
                     "ON CONFLICT DO NOTHING",
                     (event_id, blob),
                 )
-            # Pre-compute situated embeddings for all persons
+            # 面を立てる。材料（誰がしたこと・誰が居たか）は引数で渡す（段5）。
             mem_vec = np.array(vec, dtype=np.float32)
-            self._situated.refresh_situated_memories(conn, event_id, mem_vec)
+            self._situated.refresh_situated_memories(
+                conn, event_id, mem_vec,
+                body=content, writer_id=writer, participants=list(participants or []),
+            )
             self._legacy.project_observation(conn, event_id, content, kind, emotion)
             conn.commit()
 
@@ -919,8 +926,10 @@ class ObservationStore:
                     "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",
                     (obs_id, blob),
                 )
-            self._situated.refresh_situated_memories(
-                conn, obs_id, np.array(vec, dtype=np.float32))
+            # 面を作り直さず、いま立っている面をなぞる（段5）。誰との関係かは面が
+            # 持っており、観測の側にはもう残っていない。
+            self._situated.reembed_facets(
+                conn, obs_id, np.array(vec, dtype=np.float32), content)
             conn.commit()
         return True
 

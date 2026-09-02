@@ -58,16 +58,15 @@ def _person(cur, name: str) -> str:
 
 
 def _plant(cur, obs_id: str, content: str, *, writer: str, participants: list[str]):
-    import json
-
+    """観測を1件植える。**誰がしたこと・誰が居たかは面が持つ**ので、観測には書かない
+    （段5）。`writer`／`participants` は、呼び出し側が面を立てるときに渡す材料である。"""
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion, writer_id, "
-        " subject_id, participants_json) "
-        "VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, "unknown", "observation", "neutral",
-         writer, writer, json.dumps(participants)),
+        "(id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s, %s, now(), %s, %s, %s)",
+        (obs_id, content, "unknown", "observation", "neutral"),
     )
+    return {"body": content, "writer_id": writer, "participants": participants}
 
 
 def _facets(obs_id: str) -> list[dict]:
@@ -93,14 +92,14 @@ def test_actor_is_one_row_per_observation() -> None:
     try:
         with conn.cursor() as cur:
             who = _person(cur, f"actor試験_{obs_id[:8]}")
-            _plant(cur, obs_id, f"actor テスト_{obs_id}", writer=who, participants=[])
+            _material = _plant(cur, obs_id, f"actor テスト_{obs_id}", writer=who, participants=[])
     finally:
         conn.close()
 
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32))
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
     finally:
         conn.close()
 
@@ -120,14 +119,14 @@ def test_present_is_one_row_per_participant_with_a_label() -> None:
             who = _person(cur, f"actor_{obs_id[:8]}")
             a = _person(cur, f"在席A_{obs_id[:8]}")
             b = _person(cur, f"在席B_{obs_id[:8]}")
-            _plant(cur, obs_id, body, writer=who, participants=[a, b])
+            _material = _plant(cur, obs_id, body, writer=who, participants=[a, b])
     finally:
         conn.close()
 
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32))
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
     finally:
         conn.close()
 
@@ -148,14 +147,14 @@ def test_unrelated_people_get_no_facet() -> None:
         with conn.cursor() as cur:
             who = _person(cur, f"actor_{obs_id[:8]}")
             bystander = _person(cur, f"無関係_{obs_id[:8]}")
-            _plant(cur, obs_id, f"無関係テスト_{obs_id}", writer=who, participants=[])
+            _material = _plant(cur, obs_id, f"無関係テスト_{obs_id}", writer=who, participants=[])
     finally:
         conn.close()
 
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32))
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
     finally:
         conn.close()
 
@@ -186,15 +185,15 @@ def test_inner_records_belong_to_the_agent() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _plant(cur, obs_id, f"内なる記録_{obs_id}",
-                   writer=DEFAULT_PERSON_ID, participants=[])
+            _material = _plant(cur, obs_id, f"内なる記録_{obs_id}",
+                               writer=DEFAULT_PERSON_ID, participants=[])
     finally:
         conn.close()
 
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32))
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
     finally:
         conn.close()
 

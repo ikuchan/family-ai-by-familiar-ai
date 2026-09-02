@@ -43,11 +43,9 @@ def _insert_obs_at(conn, person_id: str, content: str, kind: str, ts: datetime) 
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations "
-            "(id,content,timestamp,direction,kind,emotion,writer_id,subject_id,"
-            " participants_json) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, content, ts, "unknown", kind, "neutral",
-             person_id, person_id, "[]"),
+            "(id,content,timestamp,direction,kind,emotion) "
+            "VALUES (%s,%s,%s,%s,%s,%s)",
+            (obs_id, content, ts, "unknown", kind, "neutral"),
         )
     conn.commit()
     return obs_id
