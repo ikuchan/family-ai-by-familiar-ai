@@ -1260,22 +1260,15 @@ class InformationProcessing:
             with contextlib.suppress(Exception):
                 await agent._tts.call("say", {"text": text})
         self._emit(text)
-        # 言ったことを O に残す。残さないと、次の反復の W に「もう一言伝えた」事実が
-        # 入らず、調停はそれを知らないまま同じことをまた言う（実機で1秒差に同じ文が
-        # 2回出た）。抑止で黙らせるのではなく、判断できる材料を渡して解く。
-        # **鎖は進めない。** 鎖の先頭は「いま処理している対象」を1つ持つためのもので、
-        # つなぎはその対象ではない。進めると、直前に届いた完了を押し出して W から
-        # 消してしまい、フルLLM が材料を失う（実機で未回答に終わった）。
-        # 求めが決着したら他の子と一緒に閉じるので、記憶に残り続けることはない。
+        # 言ったことを覚えておく。覚えないと、調停は「もう一言伝えた」ことを知らないまま
+        # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
+        # 判断できる材料を渡して解く。
+        #
+        # **O には書かない**（054）。この一覧はそのままプロンプトへ載るので
+        # （「すでに相手へ伝えた一言」）、次の反復へ伝えるのに記憶は要らない。以前は両方を
+        # 持っており、O の側だけが 337 行たまって想起の候補を食っていた。つなぎは間を
+        # つなぐ一言で、あとから思い出すものではない。
         self._said_fillers.append(text)
-        await agent._memory.save_async_with_id(
-            f"つなぎに言った：{text}"[:500],
-            direction="発話",
-            kind="observation",
-            materialize_now=True,
-            parent_id=self._parent_id,
-            **agent._observation_perspective(),
-        )
 
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。

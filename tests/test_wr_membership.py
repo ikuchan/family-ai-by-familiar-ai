@@ -51,10 +51,10 @@ def test_the_filler_is_not_put_into_the_pool():
     a._utility_backend.complete = AsyncMock(
         return_value='{"branch":"action","action":"recall","query":"q","text":"調べますね"}')
     _run_chain(a, utterance="調べて")
-    written = {c.args[0]: c for c in a._memory.save_async_with_id.call_args_list}
-    filler_ids = [i for i, (content, _) in enumerate(written.items()) if "つなぎに言った" in content]
-    assert filler_ids, "つなぎが書かれていない（前提が崩れている）"
-    # つなぎの id は、書かれた順で分かる。母集合には入っていないこと。
+    # 054 でつなぎは O に書かなくなったので、**そもそも母集合に入りようがない**。
+    # 書かれていないことを確かめる（以前は「書かれたうえで母集合から外す」形だった）。
+    assert all("つなぎ" not in (c.args[0] if c.args else "")
+               for c in a._memory.save_async_with_id.call_args_list), "つなぎを O へ書いている"
     assert all("つなぎ" not in c.args[0]
                for c in a._memory.save_async_with_id.call_args_list
                if c.args[0] in _extra_wr_ids(a))
