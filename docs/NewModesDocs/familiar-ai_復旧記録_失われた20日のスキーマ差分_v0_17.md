@@ -1,4 +1,4 @@
-# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.16）
+# familiar-ai 復旧記録：失われた20日のスキーマ差分（v0.17）
 
 ## この文書が記録すること
 
@@ -322,6 +322,25 @@ emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else MoodPAD()
 | 047 `situated_roles` | **復元済み**（2026-09-02） | 関係エッジの機械的な土台（段①）。意味役割は REST へ |
 | 048 `inner_records_belong_to_the_agent` | **復元済み**（2026-09-02） | 話者未解決の `actor` を `__self__` へ |
 | 049 から 054 | 未着手 | 一部のみ対応あり |
+
+**049 と 050 は、本番のスキーマから中身が読める**（2026-09-02 に確認）。
+
+| 本 | 名前 | 本番スキーマに残る実体 |
+|---|---|---|
+| 049 | `emotion_vec_cosine_index` | `idx_obs_emotion_vec` ＝ `hnsw (emotion_vec vector_cosine_ops)` |
+| 050 | `emotion_pad_may_be_unmeasured` | `emotion_p`／`emotion_pn`／`emotion_dom` が NULL 許容へ（`emotion_a` は NOT NULL のまま） |
+| 051 | `remove_the_per_turn_self_model` | データ操作。スキーマに痕跡が無い |
+| 052 | `fold_the_filler_utterances` | 同上 |
+| 053 | `drop_the_dangling_rows` | 同上 |
+| 054 | `retire_the_fillers` | 同上 |
+
+**実機を動かせるかを測った。** 本番の `observations` 6433 行のうち、PAD が NULL の行は
+**0 件**である（`emotion_vec` だけ 49 行が NULL）。049・050 は索引の追加と制約の緩和なので、
+いまのコードが本番 DB に当たって落ちる箇所は見当たらない。**【推測】**051〜054 は
+「毎ターンの `self_model` を作るのをやめる」「相槌を畳んで廃止する」という**機能の変更**で、
+そのコードは失われている。いまのコードにその変更は入っていないので、動かすと 8月15日に
+掃除したはずの行がまた溜まり始める。**起動して様子を見るだけならできる。日常運用に戻すのは
+051〜054 を戻してからにする。**
 
 ### マイグレーションの id は原本と同じにする
 
@@ -710,6 +729,11 @@ docker compose exec -T db-test pg_dump -U familiar --schema-only --no-owner --no
 > `situated_memories.person_id` は所有者でなく**誰と関係する面か**である。同じ出来事が
 > 関係の面ごとに複数行になり（`actor`／`about`／`addressee` …）、二列はその面ごとに付く。
 > 必要なのはパジュにとっての驚きとパジュにとっての時間であって、他人にとってのそれではない。
+
+> v0.17：**段4（拡張想起の関係辺を situated の面へ・共通の記憶）を実装し、049・050 の
+> 中身を本番スキーマから特定した**（2026-09-02）。段4 は失われた16本には無い新規作業で、
+> 視点列3つの読み手を無くすためのものである。あわせて、実機を動かせるかを測った
+> （PAD が NULL の行は 0 件・051〜054 は機能の変更なので日常運用は復元後）。
 
 > v0.16：**042（`observations.person_id` の撤去）を復元した**（2026-09-02）。047 で
 > `actor` と `present` の面が立ち、設計が定めた順序（関係生成が立ってから列を落とす）の条件が
