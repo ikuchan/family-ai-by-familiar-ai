@@ -733,7 +733,6 @@ class ObservationStore:
         *,
         dedup_window_secs: int = 30,
         writer_id: str | None = None,
-        subject_id: str | None = None,
         participants: list[str] | None = None,
         novelty_k: int = 7,
         novelty_w_n: float = 1.5,

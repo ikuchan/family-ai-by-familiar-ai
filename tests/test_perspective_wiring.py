@@ -1,10 +1,14 @@
-"""P1：知覚→save の視点列配線（writer_id／subject_id／participants を PMM から）。
+"""P1：知覚→save の面の材料の配線（`writer_id`／`participants` を PMM から）。
 
-観察＝エージェント自身の情景観察（writer=AGENT_SELF・subject は話者 floor DEFAULT）。
-会話＝話者との遣り取り（writer=subject=話者 floor DEFAULT）。participants は在席者。
+観察＝エージェント自身の情景観察（書き手＝`__self__`）。会話＝話者との遣り取り
+（書き手＝話者 floor DEFAULT）。`participants` は在席者で、書いた直後に `present` の面になる。
 
-視点の絞りを表す列は 039 で落とした。誰との遣り取りかは writer_id と
-subject_id が持っており、同じことを別の語で重ねていた。
+**`subject_id` は撤去した**（056・段5 の残り）。列を落としたあとも引数だけが残り、受け取って
+捨てていた。誰についての記録かは `about` の面が持つ。実在の人を指す 397 件は、その全件が
+その人の面を既に持っていた（2026-08-21 のダンプ）。
+
+視点の絞りを表す `scope` は 039 で落とした。誰との遣り取りかは `actor` と `present` の面が
+持っており、同じことを別の語で重ねていた。
 """
 
 from __future__ import annotations
@@ -24,20 +28,20 @@ def _mock_self(speaker_id, present):
 
 
 def test_observation_perspective_with_speaker():
+    """観察はパジュが書く。誰が居たかは知覚から来る。"""
     s = _mock_self("PERSON-A", ["PERSON-A", "PERSON-B"])
     p = EmbodiedAgent._observation_perspective(s)
     assert p == dict(
         writer_id=AGENT_SELF_ID,
-        subject_id="PERSON-A",
         participants=["PERSON-A", "PERSON-B"],
     )
 
 
-def test_observation_perspective_floors_to_default():
+def test_observation_perspective_does_not_depend_on_the_speaker():
+    """話者が分からなくても観察は書ける（書き手はパジュだから）。"""
     s = _mock_self(None, [])
     p = EmbodiedAgent._observation_perspective(s)
-    assert p["writer_id"] == AGENT_SELF_ID
-    assert p["subject_id"] == DEFAULT_PERSON_ID  # 話者不在は floor で DEFAULT
+    assert p == dict(writer_id=AGENT_SELF_ID, participants=[])
 
 
 def test_conversation_perspective_with_speaker():
@@ -45,13 +49,18 @@ def test_conversation_perspective_with_speaker():
     p = EmbodiedAgent._conversation_perspective(s)
     assert p == dict(
         writer_id="PERSON-A",
-        subject_id="PERSON-A",
         participants=["PERSON-A"],
     )
 
 
 def test_conversation_perspective_floors_to_default():
+    """話者不在は floor で `default`。048 で、その `actor` は `__self__` へ寄る。"""
     s = _mock_self(None, [])
     p = EmbodiedAgent._conversation_perspective(s)
     assert p["writer_id"] == DEFAULT_PERSON_ID
-    assert p["subject_id"] == DEFAULT_PERSON_ID
+
+
+def test_neither_perspective_carries_a_subject():
+    """`subject_id` を渡さない（反証側）。"""
+    for fn in (EmbodiedAgent._observation_perspective, EmbodiedAgent._conversation_perspective):
+        assert "subject_id" not in fn(_mock_self("PERSON-A", ["PERSON-A"]))

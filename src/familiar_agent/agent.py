@@ -756,24 +756,27 @@ class EmbodiedAgent:
             logger.warning("WR record failed: %s", e)
 
     def _observation_perspective(self) -> dict:
-        """知覚観察の視点列（P1）。書き手＝エージェント自身・情景観察・主体は話者 floor DEFAULT。"""
-        speaker = self._pmm.current_speaker_id or DEFAULT_PERSON_ID
+        """知覚観察の面の材料（P1）。書き手＝エージェント自身、在席者は知覚から。
+
+        列は 056 で落ちた。ここが渡すのは**面を立てる材料**で、書いた直後に `actor` と
+        `present` の面になる。
+        """
         return dict(
             writer_id=AGENT_SELF_ID,
-            subject_id=speaker,
             participants=self._pmm.get_present_ids(),
         )
 
     def _conversation_perspective(self) -> dict:
-        """会話 summary の視点列（P1）。書き手＝主体＝話者 floor DEFAULT・在席者。
+        """会話 summary の面の材料（P1）。書き手＝話者 floor DEFAULT・在席者。
 
-        `scope` は 039 で列ごと落とした。誰との遣り取りかは writer_id と subject_id が
-        持っており、`scope` は同じことを別の語で重ねていた。
+        `scope` は 039 で列ごと落とした。誰との遣り取りかは `actor` と `present` の面が
+        持っており、`scope` は同じことを別の語で重ねていた。`subject_id` は 056 で列ごと
+        落とし、引数の受け渡しも撤去した（実在の人を指す 397 件は全件がその人の面を既に
+        持っていた）。
         """
         speaker = self._pmm.current_speaker_id or DEFAULT_PERSON_ID
         return dict(
             writer_id=speaker,
-            subject_id=speaker,
             participants=self._pmm.get_present_ids(),
         )
 

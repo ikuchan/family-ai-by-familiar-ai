@@ -552,7 +552,6 @@ class ObservationMemory:
         override_date: str | None = None,
         materialize_now: bool = True,
         writer_id: str | None = None,
-        subject_id: str | None = None,
         participants: list[str] | None = None,
         emotion_pad: MoodPAD | None = None,
     ) -> bool:
@@ -580,7 +579,6 @@ class ObservationMemory:
                 obs_id, payload,
                 dedup_window_secs=_cfg.dedup_window_secs,
                 writer_id=writer_id,
-                subject_id=subject_id,
                 participants=participants,
                 novelty_k=_cfg.novelty_k,
                 novelty_w_n=_cfg.novelty_w_n,
@@ -616,7 +614,6 @@ class ObservationMemory:
                 obs_id, payload,
                 dedup_window_secs=MemoryConfig().dedup_window_secs,
                 writer_id=kwargs.get("writer_id"),
-                subject_id=kwargs.get("subject_id"),
                 participants=kwargs.get("participants"),
             )
             return stored_id, stored_id is not None
@@ -1388,7 +1385,7 @@ class MemoryTool:
             mem_id, ok = await store.save_async_with_id(
                 content, kind="utterance", emotion=emotion,
                 image_path=image_path,
-                writer_id=speaker_id, subject_id=speaker_id,
+                writer_id=speaker_id,
                 participants=present_ids,
             )
             if ok:
@@ -1405,7 +1402,7 @@ class MemoryTool:
                 witnessed = f"[{sp_name}が言った] {content}"
                 await mem.save_async(
                     witnessed, kind="witnessed", emotion=emotion,
-                    writer_id=pid, subject_id=speaker_id,
+                    writer_id=pid,
                     participants=present_ids,
                 )
             listeners = [self._manager.get_person_name(p)
@@ -1433,7 +1430,7 @@ class MemoryTool:
             mem_id, ok = await store.save_async_with_id(
                 content, kind="utterance", emotion=emotion,
                 image_path=image_path,
-                writer_id=speaker_id, subject_id=speaker_id,
+                writer_id=speaker_id,
                 participants=present_ids,
             )
             if ok:

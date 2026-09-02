@@ -216,7 +216,6 @@ class OIF:
             emotion_pad=mi.pad,
             parent_id=mi.parent_id,
             writer_id=writer_id,
-            subject_id=writer_id,
             participants=participants,
             image_path=mi.image_path,
             materialize_now=now,
