@@ -1,4 +1,4 @@
-# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.3）
+# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.4）
 
 ## 目的とシナリオ
 
@@ -11,7 +11,7 @@
 現在の W から連想で MI を足す **spreading 根づき** という点は両案で共通で、違うのは**たどる辺(edge)の種類**だけである。これを2種類の辺として1つの再帰に束ねる。
 
 - **(A) 共起辺（WRDB）**：経験的な連想。「**過去に一緒に想起された**」MI をたどる。
-- **(B) エンティティ辺（視点列）**：意味的な連想。想起 MI が**誰/何の話か**を種にして、その人や主題でさらに想起する（不在の人へ広がる）。
+- **(B) エンティティ辺（関係の面）**：意味的な連想。想起 MI が**誰/何の話か**を種にして、その人や主題でさらに想起する（不在の人へ広がる）。種も母集合も `situated_memories` の面から引く（段4）。
 
 両者は相補的で、(B) が不在の人を W へ呼び込み、(A) がその人と過去に一緒に想起された文脈を厚くする、という**交互再帰**になる。
 
@@ -50,9 +50,13 @@
 薄い縦切りで実装した（各スライスは pytest で通る最小の一本・実装後 `DIFFUSE_RECALL` を既定 on へ）。
 
 1. **WRDB スキーマ＋WR 記録【済】**：`wr_records`／`wr_record_items(wr_id, mi_id)`（migration 030）。`wr_store.save_wr`。ターン後（`agent._record_wr`）に**そのターンの W（想起 MI）＋そのターンに作った記憶（観察・会話 id）を1つの WR として共起記録**（`combine_wr_ids`・新記憶↔W の接続）。
-2. **(B) エンティティ辺【済】**：`core/diffuse.select_entity_seeds`（視点列から種 person・subject 最優先・自分/話者/DEFAULT 除外）＋`diffuse_store.recall_by_person`（subject_id または participants に含む現行版観測を新しい順）。LLM フリー。
+2. **(B) エンティティ辺【済】**：`core/diffuse.select_entity_seeds`（**関係の面**から種 person・`about`→`present`→`actor` の順・自分/話者/DEFAULT 除外）＋`diffuse_store.recall_by_person`（その人が `about` か `present` の面を持つ現行版観測を新しい順）。LLM フリー。
+
+   **段4（2026-09-02）で視点列から面へ移した。** それまでは `subject_id`／`participants_json`／`writer_id` を読んでいた。047 で situated の person が「誰の視点で符号化したか」から「**どの関係の面か**」へ変わったので、面で引けるようになった。`fetch_perspectives` は `fetch_relation_persons` へ改名。**母集合に `actor` は入れない**——その人が「やった」だけの記録まで入れると、パジュ自身が書いた記録（`actor` が `__self__` の 5949 行）がどの種からも湧く。種にするのと母集合にするのは別の問いである。
+
+6. **共通の記憶【済・段4】**：`diffuse_store.shared_memory_ids`。在席者が**2人以上**いるとき、その**全員**が関係を持つ観測を候補へ足す（役割は問わない）。片方としか関係の無い観測は入れない。2026-08-21 のダンプで 190 件が該当する。
 3. **(A) 共起辺【済】**：`diffuse_store.cooccurring_mi_ids`（WRDB から共起≥2 の WR の要素 MI・現 W と `self_model` 除外）。
-4. **再帰結線【済・4a】**：`core/diffuse.diffuse_ids`（有界再帰・K/D）で (A)+(B) 候補を W へ **a0=0** で足す。`ObservationMemory._diffuse_extend` を `recall()` の top-n 確定＋`_mark_recalled` の**後**に append（**reinforce しない＝DB 非破壊**）。
+4. **再帰結線【済・4a】**：`core/diffuse.diffuse_ids`（有界再帰・K/D）で (A)+(B) 候補を W へ **a0=0** で足す。`ObservationMemory._diffuse_extend` を `recall()` の top-n 確定の**後**に append（**reinforce しない＝DB 非破壊**）。044 まではここに `_mark_recalled` があったが、若返りの口が二重だったので撤去し、`apply_verdicts` の一本にした。
 5. **新規性の精緻化【済・4b】**：`diffuse_store.order_ids_by_farthest`（候補を seed=クエリ vec から**遠い順＝コサイン低い順＝新規性高い順**に並べ替え・埋め込み無しは末尾）で novel を優先。
 
 **Config**：`DIFFUSE_RECALL`（既定 on・`=0` で無効化）／`DIFFUSE_MAX_ADD`（K=4）／`DIFFUSE_MAX_DEPTH`（D=2）。`memory_links` の撤去そのものは Phase 6。
@@ -67,6 +71,11 @@
 ---
 
 ## 更新履歴
+
+> v0.4：**(B) エンティティ辺を関係の面へ移し、共通の記憶を足した**（段4・2026-09-02）。
+> 種は `about`→`present`→`actor` の順、母集合は `about`／`present` の面（`actor` は入れない）。
+> 在席者が2人以上いるとき、その全員が関係を持つ観測を候補へ足す。あわせて、044 で撤去した
+> `_mark_recalled` の記述が残っていたのを直した。
 
 > v0.3：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
