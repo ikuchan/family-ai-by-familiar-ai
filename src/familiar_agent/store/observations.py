@@ -753,8 +753,12 @@ class ObservationStore:
         override_date = payload.get("override_date")
         # PAD は payload 経由（to_json_dict/from_json_dict）。未指定は中立（列既定と同値）。
         # 呼び出し側の PAD 引き渡しは W2b-2。
+        # PAD は**未測定でありうる**（050）。測れなかったものを中立で埋めると、
+        # 「測ったのか埋めたのか」が後から見分けられず、感情軸の母集合が一点に潰れる
+        # （実データで 6433 行中 2941 行がそうなっていた）。A（高ぶり）は機械値なので
+        # 常に入る。
         pad_dict = payload.get("emotion_pad")
-        emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else MoodPAD()
+        emotion_pad = MoodPAD.from_json_dict(pad_dict) if pad_dict else None
 
         if not content:
             return None
@@ -809,6 +813,13 @@ class ObservationStore:
                     k=novelty_k, default=novelty_default,
                 )
                 groundedness_g0 = max(0.0, min(novelty_a0_cap, novelty_w_n * novelty))
+                # A（高ぶり）は機械値で、a0 と同じく内容の新規性から作る（`感情ループ全体像`）。
+                # 呼び出し側が測って渡していればそれを使い、無ければここで測った novelty を
+                # 使う（同じ量を二度測らない）。**PAD が未測定でも A は入る**（050）。
+                _arousal = payload.get("arousal")
+                if _arousal is None:
+                    _arousal = emotion_pad.a if emotion_pad is not None else novelty
+                emotion_a = min(1.0, max(0.0, float(_arousal)))
                 cur.execute(
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion,"
@@ -819,10 +830,15 @@ class ObservationStore:
                      direction, kind, emotion, image_path, image_data,
                      groundedness_g0,
                      payload.get("parent_id"),
-                     emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom,
-                     # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には
-                     # vector 型の列が要る）。λ を畳み込んでいるので λ 変更時は要再計算。
-                     "[" + ",".join(
+                     None if emotion_pad is None else emotion_pad.p,
+                     None if emotion_pad is None else emotion_pad.pn,
+                     emotion_a,
+                     None if emotion_pad is None else emotion_pad.dom,
+                     # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には vector 型の
+                     # 列が要る）。λ を畳み込んでいるので λ 変更時は要再計算。**PAD が
+                     # 揃わなければ作らない**（050）。`by_emotion` は
+                     # `emotion_vec IS NOT NULL` で絞るので、未測定は感情軸から自然に外れる。
+                     None if emotion_pad is None else "[" + ",".join(
                          f"{v:.6f}" for v in pad_to_search_vector(
                              (emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom))
                      ) + "]"),

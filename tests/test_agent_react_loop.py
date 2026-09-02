@@ -186,7 +186,7 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
 # Patches that suppress heavy async sub-calls in run()
 _HEAVY_PATCHES = {
     "familiar_agent.agent.EmbodiedAgent._infer_companion_mood": AsyncMock(return_value="engaged"),
-    "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(return_value=(MoodPAD(), "neutral")),
+    "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(return_value=(MoodPAD(), 0.5, "neutral")),
     "familiar_agent.agent.EmbodiedAgent._summarize_exchange": AsyncMock(return_value="summary"),
     "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent._update_self_model": AsyncMock(),
@@ -359,7 +359,7 @@ async def test_post_response_pipeline_updates_concerns():
             external_surprise=0.18,
         )
     )
-    agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), "tender"))
+    agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
     agent._update_self_model = AsyncMock()
     agent._maybe_update_self_narrative = AsyncMock()
@@ -478,7 +478,7 @@ async def test_pipeline_supersedes_loop_obs_without_camera():
     from familiar_agent.agent import EmbodiedAgent
 
     agent = _make_agent()
-    agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), "tender"))
+    agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
     agent._update_self_model = AsyncMock()
     agent._maybe_update_self_narrative = AsyncMock()
