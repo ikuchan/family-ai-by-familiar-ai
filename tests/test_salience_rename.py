@@ -69,16 +69,15 @@ def test_working_memory_read_uses_the_new_names() -> None:
     """
     import uuid
 
-    from familiar_agent.person_memory_manager import AGENT_SELF_ID
     from familiar_agent.tools.memory import ObservationMemory
 
     obs_id = str(uuid.uuid4())
     conn = _pg()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id)"
-            " VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
-            (obs_id, "顕著性の読み出しテスト", "unknown", "observation", "neutral", AGENT_SELF_ID),
+            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion)"
+            " VALUES (%s, %s, NOW(), %s, %s, %s)",
+            (obs_id, "顕著性の読み出しテスト", "unknown", "observation", "neutral"),
         )
         cur.execute(
             "INSERT INTO memory_salience (id, memory_id, salience, source, context, activated_at)"

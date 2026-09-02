@@ -16,7 +16,6 @@ from pathlib import Path
 import psycopg2
 import psycopg2.extras
 
-from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -57,9 +56,9 @@ def _run_backfill_migration(conn):
 
 def _insert(cur, obs_id: str, emotion: str) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-        "VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
-        (obs_id, "backfill test", "unknown", "conversation", emotion, AGENT_SELF_ID),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s, %s, NOW(), %s, %s, %s)",
+        (obs_id, "backfill test", "unknown", "conversation", emotion),
     )
 
 

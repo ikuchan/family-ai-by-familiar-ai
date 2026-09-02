@@ -62,11 +62,11 @@ def _plant(cur, obs_id: str, content: str, *, writer: str, participants: list[st
 
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion, person_id, writer_id, "
+        "(id, content, timestamp, direction, kind, emotion, writer_id, "
         " subject_id, participants_json) "
-        "VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s, %s)",
+        "VALUES (%s, %s, now(), %s, %s, %s, %s, %s, %s)",
         (obs_id, content, "unknown", "observation", "neutral",
-         DEFAULT_PERSON_ID, writer, writer, json.dumps(participants)),
+         writer, writer, json.dumps(participants)),
     )
 
 

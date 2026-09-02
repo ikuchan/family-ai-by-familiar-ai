@@ -31,8 +31,8 @@ def _obs_count(conn, person_id: str, content: str, kind: str) -> int:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) AS n FROM observations "
-            "WHERE person_id=%s AND content=%s AND kind=%s AND superseded_by IS NULL",
-            (person_id, content, kind),
+            "WHERE content=%s AND kind=%s AND superseded_by IS NULL",
+            (content, kind),
         )
         return cur.fetchone()["n"]
 
@@ -43,11 +43,11 @@ def _insert_obs_at(conn, person_id: str, content: str, kind: str, ts: datetime) 
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations "
-            "(id,content,timestamp,direction,kind,emotion,person_id,writer_id,subject_id,"
+            "(id,content,timestamp,direction,kind,emotion,writer_id,subject_id,"
             " participants_json) "
-            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+            "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s)",
             (obs_id, content, ts, "unknown", kind, "neutral",
-             person_id, person_id, person_id, "[]"),
+             person_id, person_id, "[]"),
         )
     conn.commit()
     return obs_id

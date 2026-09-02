@@ -59,9 +59,9 @@ def test_situated_rows_are_created_for_each_person(ctx) -> None:
     conn = ctx.conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, person_id) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s)",
-            (obs_id, f"unit situated {obs_id}", "会話", "conversation", DEFAULT_PERSON_ID),
+            "INSERT INTO observations (id, content, timestamp, direction, kind) "
+            "VALUES (%s,%s,NOW(),%s,%s)",
+            (obs_id, f"unit situated {obs_id}", "会話", "conversation"),
         )
     conn.commit()
 
@@ -94,7 +94,7 @@ def test_saved_observation_is_readable_by_kind(layers) -> None:
         {"content": content, "direction": "会話", "kind": "curiosity", "emotion": "neutral"},
     )
     rows = observations._read_observations_by_kind(
-        "curiosity", DEFAULT_PERSON_ID, 50, ("content",)
+        "curiosity", 50, ("content",)
     )
     assert any(r["content"] == content for r in rows)
 
@@ -113,18 +113,26 @@ def test_supersede_marks_the_old_row_without_deleting_it(layers) -> None:
     assert len(chain) >= 2, "版チェーンに旧版が残っていない"
 
 
-def test_reader_filters_by_person(layers, ctx) -> None:
-    """person が違えば読めない（by_kind は person で絞る）。"""
+def test_the_person_scope_lives_in_situated_not_in_the_owner_column(layers) -> None:
+    """人で分かれるのは situated の面であって、観測の所有者列ではない（042）。
+
+    042 の前はここが「person が違えば by_kind で読めない」を仕様として固定していた。
+    所有者列を落としたので、kind が合えば誰の文脈からでも読める。人の視点で絞る役は
+    situated が担い、面を持たない person からは引けないままである。
+    """
     _, observations, _ = layers
     content = f"unit person {uuid.uuid4()}"
     observations.materialize_save_event(
         str(uuid.uuid4()),
         {"content": content, "direction": "会話", "kind": "curiosity"},
     )
-    other = observations._read_observations_by_kind(
-        "curiosity", str(uuid.uuid4()), 50, ("content",)
+    rows = observations._read_observations_by_kind("curiosity", 50, ("content",))
+    assert any(r["content"] == content for r in rows), "所有者絞りが残っている"
+
+    other = observations._read_observations_by_situated(
+        str(uuid.uuid4()), 50, ("content",)
     )
-    assert all(r["content"] != content for r in other)
+    assert all(r["content"] != content for r in other), "面の無い person から引けている"
 
 
 # ── JobQueue ────────────────────────────────────────────────────────────────
@@ -143,7 +151,7 @@ def test_job_round_trip_from_enqueue_to_materialize(layers) -> None:
 
     assert jobs.materialize_event(event_id) is True
     rows = observations._read_observations_by_kind(
-        "conversation", DEFAULT_PERSON_ID, 100, ("content",)
+        "conversation", 100, ("content",)
     )
     assert any(r["content"] == content for r in rows)
 

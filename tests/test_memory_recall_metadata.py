@@ -11,7 +11,6 @@ import psycopg2
 import psycopg2.extras
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
-from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -54,8 +53,8 @@ def test_recall_fallback_includes_metadata_and_low_confidence() -> None:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,direction,kind,emotion,person_id) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,kind,emotion) "
+                "VALUES (%s,%s,%s,%s,%s,%s)",
                 (
                     "legacy-row-1",
                     "older memory without embedding",
@@ -63,8 +62,7 @@ def test_recall_fallback_includes_metadata_and_low_confidence() -> None:
                     "unknown",
                     "conversation",
                     "neutral",
-                    DEFAULT_PERSON_ID,
-                ),
+                    ),
             )
         conn.commit()
         conn.close()
