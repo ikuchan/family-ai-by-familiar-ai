@@ -176,24 +176,22 @@ class ObservationStore:
                 # なら（noisy-OR 等）ここだけを直す。
                 cur.execute(
                     f"""
-                    SELECT * FROM (
-                      SELECT DISTINCT ON (o.id)
-                             o.id, o.content, o.timestamp,
-                             o.direction, o.kind, o.emotion, o.image_path,
-                             COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
-                             COALESCE(s.groundedness_n, 0) AS groundedness_n,
-                             s.last_recalled_at,
-                             o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
-                             1 - (s.vector <=> %s::vector) AS score
-                      FROM situated_memories s
-                      JOIN observations o ON o.id = s.obs_id
-                      WHERE s.person_id = %s
-                        AND o.superseded_by IS NULL
-                        {kind_clause}
-                        {exclude_clause}
-                      ORDER BY o.id, s.vector <=> %s::vector
-                    ) t
-                    ORDER BY t.score DESC
+                    SELECT o.id, o.timestamp,
+                           o.direction, o.kind, o.emotion, o.image_path,
+                           s.id AS facet_id, s.person_id, s.relation_key,
+                           COALESCE(s.content, o.content) AS content,
+                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                           COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                           s.last_recalled_at,
+                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                           1 - (s.vector <=> %s::vector) AS score
+                    FROM situated_memories s
+                    JOIN observations o ON o.id = s.obs_id
+                    WHERE s.person_id = %s
+                      AND o.superseded_by IS NULL
+                      {kind_clause}
+                      {exclude_clause}
+                    ORDER BY s.vector <=> %s::vector
                     LIMIT %s
                     """,
                     params,
@@ -235,8 +233,10 @@ class ObservationStore:
                 else ["COALESCE(s.last_recalled_at, o.timestamp)"])
         kind_clause = "AND o.kind = %s" if kind else ""
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
-        columns = """o.id, o.content, o.timestamp,
+        columns = """o.id, o.timestamp,
                      o.direction, o.kind, o.emotion, o.image_path,
+                     s.id AS facet_id, s.person_id, s.relation_key,
+                     COALESCE(s.content, o.content) AS content,
                      COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
                      COALESCE(s.groundedness_n, 0) AS groundedness_n,
                      s.last_recalled_at,
@@ -273,7 +273,8 @@ class ObservationStore:
                         sql, params = _one(key, cmp, order)
                         cur.execute(sql, params)
                         for r in cur.fetchall():
-                            rows.setdefault(r["id"], dict(r))
+                            # 畳む鍵は**面**（案3）。同じ出来事の別の面は別の候補である。
+                            rows.setdefault(r["facet_id"], dict(r))
         # 基準に近い順へ整え、n 件に絞る（採点はしない）。
         def _distance(row: dict) -> float:
             stamp = row.get("last_recalled_at") or row.get("timestamp")
@@ -319,30 +320,28 @@ class ObservationStore:
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
-                # **1観測1候補へ畳む**（047）。感情の距離は出来事が持つ（`o.emotion_vec`）
-                # ので面ごとに差が無い。代表は**最も根づいた面**（同点なら関係名の順）で、
-                # 選び方が DB の返す順に依存しないようにする。
+                # **面ごとに返す**（案3）。感情の距離は出来事が持つ（`o.emotion_vec`）ので
+                # 面ごとに差は無いが、根づきの `n` と時間の起点は面ごとに違う。畳むと、
+                # どの面を通って思い出したかが消える。
                 cur.execute(
                     f"""
-                    SELECT * FROM (
-                      SELECT DISTINCT ON (o.id)
-                             o.id, o.content, o.timestamp,
-                             o.direction, o.kind, o.emotion, o.image_path,
-                             COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
-                             COALESCE(s.groundedness_n, 0) AS groundedness_n,
-                             s.last_recalled_at,
-                             o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
-                             o.emotion_vec <-> %s::vector AS _d
-                      FROM situated_memories s
-                      JOIN observations o ON o.id = s.obs_id
-                      WHERE s.person_id = %s
-                        AND o.superseded_by IS NULL
-                        AND o.emotion_vec IS NOT NULL
-                        {kind_clause}
-                        {exclude_clause}
-                      ORDER BY o.id, s.groundedness_n DESC, s.relation_key
-                    ) t
-                    ORDER BY t._d
+                    SELECT o.id, o.timestamp,
+                           o.direction, o.kind, o.emotion, o.image_path,
+                           s.id AS facet_id, s.person_id, s.relation_key,
+                           COALESCE(s.content, o.content) AS content,
+                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                           COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                           s.last_recalled_at,
+                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                           o.emotion_vec <-> %s::vector AS _d
+                    FROM situated_memories s
+                    JOIN observations o ON o.id = s.obs_id
+                    WHERE s.person_id = %s
+                      AND o.superseded_by IS NULL
+                      AND o.emotion_vec IS NOT NULL
+                      {kind_clause}
+                      {exclude_clause}
+                    ORDER BY _d
                     LIMIT %s
                     """,
                     params,

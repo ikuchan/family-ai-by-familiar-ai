@@ -30,7 +30,9 @@ _EXPECTED = {
     "pad",
     "groundedness_g0", "groundedness_n",
     "last_recalled_at",
-    "writer_id", "subject_id", "participants",
+    # 面の同定（案3）。視点3属性（`writer_id`／`subject_id`／`participants`）が
+    # ここへ置き換わった。誰との関係かは面が持つ。
+    "obs_id", "person_id", "relation_key",
     "image_path", "image_data",
 }
 
@@ -49,14 +51,25 @@ class TestMI:
             assert name not in got, f"{name} は導出値なので属性に持たない"
 
     def test_removed_columns_are_not_attributes(self) -> None:
-        """撤去する列は持たない。
+        """撤去した列は持たない。
 
-        `scope` と `importance` は 記-d が 039 で、`recall_count` は 043 が撤去した。
-        `person_id` は situated V2 が撤去する（`設計方針_OIF` v0.2）。
+        `scope` と `importance` は 記-d が 039 で、`recall_count` は 043 が、
+        所有者の `person_id` は 042 が撤去した。
         """
         got = {f.name for f in dataclasses.fields(MI)}
-        for name in ("person_id", "scope", "importance", "recall_count"):
-            assert name not in got, f"{name} は撤去する列"
+        for name in ("scope", "importance", "recall_count"):
+            assert name not in got, f"{name} は撤去した列"
+
+    def test_the_perspective_columns_became_the_facet(self) -> None:
+        """視点3属性は面へ置き換わった（案3）。
+
+        `MI.person_id` は**所有者ではなく、誰との関係か**である。042 が撤去したのは
+        `observations.person_id`（所有者）で、面の `person_id` とは別のものである。
+        """
+        got = {f.name for f in dataclasses.fields(MI)}
+        for name in ("writer_id", "subject_id", "participants"):
+            assert name not in got, f"{name} は面が引き取った"
+        assert {"obs_id", "person_id", "relation_key"} <= got
 
     def test_kind_is_derived_from_direction(self) -> None:
         """`kind` は `direction` から決まる。"""

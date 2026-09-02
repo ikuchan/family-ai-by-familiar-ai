@@ -207,11 +207,14 @@ def test_inner_records_belong_to_the_agent() -> None:
 
 # ── 想起：1観測1候補へ畳む ─────────────────────────────────────────
 
-def test_recall_returns_one_candidate_per_observation() -> None:
-    """同じ観測に複数の面が立っても、候補には1回しか出ない。
+def test_recall_returns_one_candidate_per_facet() -> None:
+    """同じ観測に立った面は、それぞれ独立した候補として出る（案3・2026-09-02）。
 
-    047 で `actor` と `present` が同じ人に立ちうるようになる（自分が在席者に
-    含まれるとき）。畳まないと K=7 の枠を1つの記憶が複数食う。
+    047 の時点では「1観測1候補へ畳む」ことを仕様にしていた。畳まないと K=7 の枠を
+    1つの記憶が複数食う、という理由である。**案3 で畳むのをやめた**。MI が指すのは
+    出来事でなく面で、同じ出来事に2つの関わり方で触れたことは、畳んで消してよい情報
+    ではないからである。実測でも、想起は必ず1視点で引くので、視点を固定すると同じ観測の
+    面は 1.00〜1.14 枚しか並ばない（本番 8月21日）。
     """
     obs_id = str(uuid.uuid4())
     vec = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
@@ -233,7 +236,8 @@ def test_recall_returns_one_candidate_per_observation() -> None:
     store = _mem().for_person(AGENT_SELF_ID)._observations
     rows = store.by_vector(vec, 50, kind=None, exclude_ids=None)
     hits = [r for r in rows if str(r["id"]) == obs_id]
-    assert len(hits) == 1, f"同じ観測が候補に {len(hits)} 回出ている"
+    assert len(hits) == 2, f"面ごとに出ていない（{len(hits)} 回）"
+    assert {r["relation_key"] for r in hits} == {"actor", "present"}
 
 
 def test_situated_cosines_takes_the_strongest_facet() -> None:
