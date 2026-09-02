@@ -1,8 +1,11 @@
 """拡散想起 (B) エンティティ辺の純ロジック（LLM フリー・機械的）。
 
-現 W の MI の視点列（writer_id/subject_id/participants_json）から、再想起の種にする
-person を選ぶ。話題の主体 subject を最優先、次いで participants、writer。自分・現話者・
-既定話者は除外する（役割1 の r で既に効く話者を二重に数えない）。想起本体は後続。
+現 W の MI の**関係の面**から、再想起の種にする person を選ぶ。話題の主体（`about`）を
+最優先、次いでそばに居た人（`present`）、やった人（`actor`）。自分・現話者・既定話者は
+除外する（役割1 の r で既に効く話者を二重に数えない）。想起本体は後続。
+
+段4 で視点列（`writer_id`／`subject_id`／`participants_json`）から面へ移した。人と記憶の
+結びつきは situated が担う（[D-在席相関/V2]）。役割名は 047 が定めたものである。
 """
 
 from __future__ import annotations
@@ -42,10 +45,19 @@ def diffuse_ids(
     return added
 
 
+#: 種にする役割と、その優先順。`about`（話題の主体）→ `present`（そばに居た）→
+#: `actor`（やった人）。047 が機械で立てるのは `actor` と `present` だけで、`about` は
+#: REST 内省（記-a-ほ）が本文から抽出して足すまで空である。
+SEED_ROLE_ORDER = ("about", "present", "actor")
+
+
 def select_entity_seeds(
-    perspectives: "list[dict]", exclude: "set[str] | frozenset[str] | None" = None
+    relations: "list[dict]", exclude: "set[str] | frozenset[str] | None" = None
 ) -> "list[str]":
-    """視点列から再想起の種 person を選ぶ。subject 優先・participants・writer の順で重複除去。"""
+    """関係の面から再想起の種 person を選ぶ。`about`→`present`→`actor` の順で重複除去。
+
+    受け取るのは面の行（`person_id`／`relation_key`）のリストである。
+    """
     ex = set(exclude or ())
     seen: set[str] = set()
     out: list[str] = []
@@ -56,11 +68,8 @@ def select_entity_seeds(
             seen.add(p)
             out.append(p)
 
-    for row in perspectives:              # 1) subject（話題の主体）最優先
-        add(row.get("subject_id"))
-    for row in perspectives:              # 2) participants（在席者）
-        for pid in (row.get("participants") or []):
-            add(pid)
-    for row in perspectives:              # 3) writer（書き手）
-        add(row.get("writer_id"))
+    for role in SEED_ROLE_ORDER:
+        for row in relations:
+            if str(row.get("relation_key") or "") == role:
+                add(row.get("person_id"))
     return out

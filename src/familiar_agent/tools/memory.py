@@ -662,32 +662,44 @@ class ObservationMemory:
                 one_minus[oid] *= (1.0 - r_pq)
         return {oid: 1.0 - om for oid, om in one_minus.items()}
 
-    def _diffuse_extend(self, results: list[dict], cfg, seed_vec=None) -> list[dict]:
+    def _diffuse_extend(self, results: list[dict], cfg, seed_vec=None,
+                        present_others: "list[str] | None" = None) -> list[dict]:
         """拡散想起 (A)共起＋(B)主体で W を有界再帰で広げ、a0=0 の W 要素（dict）を返す。
 
         seed_vec があれば候補を seed から遠い順（新規性高い順）に並べ替えて novel を優先する（4b）。
+
+        在席者が2人以上いるとき、(B) 辺へ**共通の記憶**（全員が関係を持つ観測）を足す（段4）。
         """
         try:
             from ..core.diffuse import diffuse_ids, select_entity_seeds
             from ..diffuse_store import (
                 cooccurring_mi_ids,
                 fetch_diffuse_rows,
-                fetch_perspectives,
+                fetch_relation_persons,
                 order_ids_by_farthest,
                 recall_by_person,
+                shared_memory_ids,
             )
             from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 
             seed_ids = [r["memory_id"] for r in results]
             exclude = {AGENT_SELF_ID, DEFAULT_PERSON_ID, self._person_id}
+            # 共通の記憶は「その場に居合わせた人たち」で引く。現話者も在席者である。
+            # パジュ自身と既定の置き場は人ではないので外す。
+            present_ids = [
+                p for p in dict.fromkeys([self._person_id, *(present_others or [])])
+                if p and p not in {AGENT_SELF_ID, DEFAULT_PERSON_ID}
+            ]
             cap = max(1, cfg.diffuse_max_add)
             with self._db_lock:
                 conn = self._db.conn()
 
                 def _get_candidates(known: list[str]) -> list[str]:
                     cands = list(cooccurring_mi_ids(conn, known, min_shared=2, limit=cap * 4))
-                    for pid in select_entity_seeds(fetch_perspectives(conn, known), exclude)[:cap]:
+                    for pid in select_entity_seeds(fetch_relation_persons(conn, known), exclude)[:cap]:
                         cands += recall_by_person(conn, pid, limit=cap)
+                    # 段4：居合わせた人たちで共有している出来事。2人以上のときだけ効く。
+                    cands += shared_memory_ids(conn, present_ids, limit=cap)
                     # 4b：seed から遠い順（新規性高い順）に並べ替えて novel を優先する。
                     if seed_vec is not None:
                         cands = order_ids_by_farthest(conn, cands, seed_vec)
@@ -699,7 +711,7 @@ class ObservationMemory:
                 )
                 extra = fetch_diffuse_rows(conn, added)
             if extra:
-                logger.info("diffuse recall: +%d MI（(A)共起/(B)主体）", len(extra))
+                logger.info("diffuse recall: +%d MI（(A)共起/(B)関係の面）", len(extra))
             return extra
         except Exception:
             logger.warning("diffuse recall failed", exc_info=True)
@@ -928,7 +940,8 @@ class ObservationMemory:
                 # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
                 # g0=0（適合度も根づきも 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
                 if _cfg.diffuse_recall and results:
-                    results.extend(self._diffuse_extend(results, _cfg, seed_vec=q_vec))
+                    results.extend(self._diffuse_extend(
+                        results, _cfg, seed_vec=q_vec, present_others=present_others))
 
                 return results
 
