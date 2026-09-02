@@ -86,16 +86,24 @@ Reply with the label only (one English word)."""
 
 
 async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: float,
-                                *, a_gate: float = A_GATE) -> "MoodPAD":
-    """観測の感情を PAD で評価する（W2b-2）。
+                                *, a_gate: float = A_GATE) -> "tuple[MoodPAD | None, float]":
+    """観測の感情を PAD で評価する（W2b-2）。**測れたかどうかを返り値で表す**（050）。
 
-    A は機械 arousal。arousal<a_gate は評価器を呼ばず P/Pn/Dom＝M（mood）。以上は
-    評価器（軽量LLM）へ投げ、固定順3数値を正規表現で拾い [0,1] クランプして
-    MoodPAD(p, pn, a=arousal, dom) にする。3つ未満・例外は mood フォールバック。
+    返すのは `(PAD, A)` で、**測れなかったときの PAD は `None`** である。A は機械 arousal
+    なので常に返る（内容の新規性 novelty から作る）。
+
+    `arousal < a_gate` は評価器を呼ばない。以上は評価器（軽量LLM）へ投げ、固定順3数値を
+    正規表現で拾い [0,1] クランプして `MoodPAD(p, pn, a=arousal, dom)` にする。
+
+    **測れないときに気分で埋めない**（050）。埋めた値は測ったものではないので、感情軸の
+    母集合に混ぜてはいけない。実データでは、この「埋める」が 6433 行のうち 2941 行を
+    PAD 全部 0.5＝ゼロベクトルに潰し、感情軸が候補を並べ替えられなくなっていた。
+    0.5 が入っていると「測ったのか埋めたのか」を後から見分けられず、REST 内省が埋め直す
+    余地も消える。3つ未満・例外も同じく未測定にする（測れなかったのは同じである）。
     """
     a = min(1.0, max(0.0, arousal))
     if a < a_gate:
-        return MoodPAD(p=mood.p, pn=mood.pn, a=a, dom=mood.dom)
+        return None, a
     try:
         mood_str = f"{mood.p:.2f} {mood.pn:.2f} {mood.dom:.2f}"
         raw = await backend.complete(
@@ -105,10 +113,10 @@ async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: fl
         if len(nums) < 3:
             raise ValueError("evaluator did not return three numbers")
         p, pn, dom = (min(1.0, max(0.0, float(nums[i]))) for i in range(3))
-        return MoodPAD(p=p, pn=pn, a=a, dom=dom)
+        return MoodPAD(p=p, pn=pn, a=a, dom=dom), a
     except Exception as e:
-        logger.warning("emotion PAD evaluation failed, falling back to mood: %s", e)
-        return MoodPAD(p=mood.p, pn=mood.pn, a=a, dom=mood.dom)
+        logger.warning("emotion PAD evaluation failed, leaving it unmeasured: %s", e)
+        return None, a
 
 
 def _companion_mood_heuristic(text: str) -> str:
@@ -218,16 +226,23 @@ class Evaluator:
         self._utility_backend = utility_backend
         self.backend = backend
 
-    async def emotion_for_turn(self, text: str, arousal: float) -> tuple[MoodPAD, str]:
-        """ターンの感情を PAD で評価し、派生ラベルと合わせて返す（W2b-2）。
+    async def emotion_for_turn(
+        self, text: str, arousal: float
+    ) -> "tuple[MoodPAD | None, float, str]":
+        """ターンの感情を PAD で評価し、A と派生ラベルを合わせて返す（W2b-2）。
 
-        現在の mood をベースに評価器（軽量LLM）が P/Pn/Dom を出し（A は機械 arousal・
-        A_gate 未満は mood）、`label_from_pad` で最近傍ラベルを導く。mood は読みだけ。
+        返すのは `(PAD, A, ラベル)` で、**測れなかったときの PAD は `None`**（050）。
+        現在の mood をベースに評価器（軽量LLM）が P/Pn/Dom を出す（A は機械 arousal・
+        A_gate 未満は呼ばない）。mood は読みだけ。
+
+        **未測定のラベルは `neutral`。** `observations.emotion` は NOT NULL で、粗い分類に
+        すぎない（正は PAD である）。ラベルまで欠かせると既存の読み手が全部 None を扱う
+        ことになり、得るものより失うものが大きい。
         """
-        pad = await _evaluate_emotion_pad(
+        pad, a = await _evaluate_emotion_pad(
             self._utility_backend, text, load_current_mood(), arousal
         )
-        return pad, label_from_pad(pad)
+        return pad, a, ("neutral" if pad is None else label_from_pad(pad))
 
     async def infer_companion_mood(self, text: str) -> str:
         """Classify companion's emotional state from their message. Returns mood label.

@@ -10,7 +10,6 @@ import inspect
 
 import pytest
 
-from familiar_agent.mood_register import MoodPAD
 
 
 def test_evaluator_class_exists_with_injected_backends() -> None:
@@ -55,11 +54,16 @@ def test_agent_does_not_redefine_evaluator_bodies() -> None:
 
 
 @pytest.mark.asyncio
-async def test_emotion_for_turn_returns_pad_and_label() -> None:
-    """emotion_for_turn は (MoodPAD, ラベル) を返す（A_gate 未満は評価器を呼ばない）。"""
+async def test_emotion_for_turn_returns_pad_arousal_and_label() -> None:
+    """emotion_for_turn は (PAD, A, ラベル) を返す。**測れなければ PAD は None**（050）。
+
+    A_gate 未満では評価器を呼ばないので PAD は未測定になる。A は機械値なので返り、
+    ラベルは `neutral`（`observations.emotion` は NOT NULL の粗い分類で、正は PAD）。
+    """
     from familiar_agent.loop.evaluator import Evaluator
 
     ev = Evaluator(utility_backend=object(), backend=object())
-    pad, label = await ev.emotion_for_turn("淡々とした文", arousal=0.0)
-    assert isinstance(pad, MoodPAD)
-    assert isinstance(label, str) and label
+    pad, arousal, label = await ev.emotion_for_turn("淡々とした文", arousal=0.0)
+    assert pad is None
+    assert arousal == 0.0
+    assert label == "neutral"

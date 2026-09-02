@@ -63,7 +63,13 @@ def test_save_with_pad_writes_columns() -> None:
 
 
 # ── 2. PAD 無し保存は中立0.5（外部挙動不変） ───────────────────────────────
-def test_save_without_pad_defaults_neutral() -> None:
+def test_save_without_pad_leaves_it_unmeasured() -> None:
+    """PAD を渡さなければ**未測定**として書く（050）。A だけは機械値なので入る。
+
+    050 の前は中立（0.5×4）で埋めていた。埋めると「測ったのか埋めたのか」が後から
+    見分けられず、感情軸の母集合が一点に潰れる（本番 6433 行のうち 2941 行がそうなって
+    いた）。REST 内省が埋め直す余地も消える。
+    """
     mem = _mem()
     with patch.object(_EmbeddingModel, "encode_document", return_value=[_FIXED_VEC]):
         obs_id, _ = mem.save_with_id(
@@ -71,7 +77,9 @@ def test_save_without_pad_defaults_neutral() -> None:
             materialize_now=True,
         )
     assert obs_id is not None
-    assert _pad_of(obs_id) == (0.5, 0.5, 0.5, 0.5)
+    p, pn, a, dom = _pad_of(obs_id)
+    assert (p, pn, dom) == (None, None, None)
+    assert a is not None, "A（高ぶり）は機械値なので常に入る"
 
 
 # ── 3. 遅延 payload 往復（json.loads 後の dict を from_json_dict で戻す） ────

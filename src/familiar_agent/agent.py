@@ -331,7 +331,7 @@ class EmbodiedAgent:
         *,
         user_input: str,
         final_text: str,
-        emotion_pad: MoodPAD,
+        emotion_pad: "MoodPAD | None",   # 未測定でありうる（050）
         memories: list[dict] | None,
         camera_used: bool,
         is_desire_turn: bool,
@@ -351,7 +351,9 @@ class EmbodiedAgent:
             satisfaction_gate,
         )
 
-        pad_move = pad_distance(emotion_pad, MoodPAD())  # 中立からのズレ＝affect の大きさ（上下両方向）
+        # 中立からのズレ＝affect の大きさ（上下両方向）。**未測定なら 0**（050）——
+        # 測れていないものを「中立だった」と読んで沈静化の判断に使わない。
+        pad_move = 0.0 if emotion_pad is None else pad_distance(emotion_pad, MoodPAD())
         if not satisfaction_gate(
             memories_nonempty=bool(memories),
             pad_move=pad_move,
@@ -419,7 +421,9 @@ class EmbodiedAgent:
 
         # 感情を PAD で1回評価し、ラベルは PAD から派生（W2b-2）。ターンの観測（生観測・
         # 会話 summary）にこの PAD を書き、派生ラベルは既存消費者へ渡す。
-        emotion_pad, emotion = await self._emotion_for_turn(final_text, arousal)
+        # PAD は測れないことがある（050）。`emotion_pad` が None なら未測定で、
+        # 気分では埋めない。A（高ぶり）は機械値なので常に返る。
+        emotion_pad, emotion_a, emotion = await self._emotion_for_turn(final_text, arousal)
         self._update_mood(emotion)
 
         # mood を W トーンで nudge（mood-c）。W＝想起記憶（PAD, 根づき）＋現ターンの
@@ -428,7 +432,9 @@ class EmbodiedAgent:
         _nudge_items = [
             (m["emotion_pad"], m["groundedness"])
             for m in (memories or [])
-            if "emotion_pad" in m and "groundedness" in m
+            # PAD が未測定の記憶は nudge の材料にしない（050）。測っていない中立で
+            # 気分を引っ張ると、静かなターンほど気分が中立へ寄る。
+            if m.get("emotion_pad") is not None and "groundedness" in m
         ]
         _nudge_items.append((emotion_pad, 1.0))
         # T のレジスタは直接動かさない。行き来は AIF（自律機構接続）へ集める
@@ -481,6 +487,7 @@ class EmbodiedAgent:
                 emotion=emotion,
                 materialize_now=False,
                 emotion_pad=emotion_pad,
+                arousal=emotion_a,
                 **self._conversation_perspective(),
             )
             _new_ids.append(_conv_id)
@@ -982,7 +989,9 @@ class EmbodiedAgent:
                 logger.warning("Could not register family member %s: %s", m["name"], exc)
 
 
-    async def _emotion_for_turn(self, text: str, arousal: float) -> tuple[MoodPAD, str]:
+    async def _emotion_for_turn(
+        self, text: str, arousal: float
+    ) -> "tuple[MoodPAD | None, float, str]":
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.emotion_for_turn(text, arousal)
 

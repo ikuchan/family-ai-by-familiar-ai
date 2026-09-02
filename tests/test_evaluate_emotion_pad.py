@@ -29,31 +29,37 @@ def _run(coro):
     return asyncio.run(coro)
 
 
-# ── 1. A<A_gate：評価器を呼ばず mood ベース ─────────────────────────────────
-def test_below_gate_uses_mood_without_backend() -> None:
+# ── 1. A<A_gate：評価器を呼ばず**未測定** ──────────────────────────────────
+def test_below_gate_leaves_the_pad_unmeasured() -> None:
+    """050 で「気分で埋める」をやめた。測っていないものを中立で埋めると、感情軸の
+    母集合が一点に潰れ、REST 内省が埋め直す余地も消える。A は機械値なので返る。"""
     backend = _FakeBackend("0.9 0.1 0.9")
-    pad = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=A_GATE - 0.05))
+    pad, a = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=A_GATE - 0.05))
     assert backend.calls == 0
-    assert pad == MoodPAD(_MOOD.p, _MOOD.pn, A_GATE - 0.05, _MOOD.dom)
+    assert pad is None
+    assert a == A_GATE - 0.05
 
 
 # ── 2. A>=A_gate：3数値を解析して PAD（A は機械値） ─────────────────────────
 def test_at_gate_parses_three_numbers() -> None:
     backend = _FakeBackend("0.7 0.2 0.6")
-    pad = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=0.8))
+    pad, a = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=0.8))
     assert backend.calls == 1
     assert pad == MoodPAD(0.7, 0.2, 0.8, 0.6)
+    assert a == 0.8
 
 
-# ── 3. 解析失敗 → mood フォールバック ───────────────────────────────────────
-def test_parse_failure_falls_back_to_mood() -> None:
+# ── 3. 解析失敗 → **未測定**（気分で埋めない） ─────────────────────────────
+def test_parse_failure_leaves_the_pad_unmeasured() -> None:
+    """測れなかったのはゲート未満と同じである（050）。"""
     backend = _FakeBackend("I think it's happy!")
-    pad = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=0.8))
-    assert pad == MoodPAD(_MOOD.p, _MOOD.pn, 0.8, _MOOD.dom)
+    pad, a = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=0.8))
+    assert pad is None
+    assert a == 0.8
 
 
 # ── 4. 範囲外はクランプ ─────────────────────────────────────────────────────
 def test_out_of_range_values_are_clamped() -> None:
     backend = _FakeBackend("1.5 -0.1 0.6")
-    pad = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=0.8))
+    pad, _a = _run(_evaluate_emotion_pad(backend, "text", _MOOD, arousal=0.8))
     assert pad == MoodPAD(1.0, 0.0, 0.8, 0.6)

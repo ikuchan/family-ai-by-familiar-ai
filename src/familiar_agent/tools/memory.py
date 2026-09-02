@@ -255,6 +255,24 @@ _ts_to_time = clock.ts_to_time
 
 
 
+def _obs_pad_of(row) -> "tuple[float, float, float, float] | None":
+    """観測行から採点用の PAD を作る。**測れていなければ None**（050）。
+
+    P/Pn/Dom のどれかが NULL なら未測定である。A（高ぶり）は機械値なので常に入るが、
+    A だけでは感情の一致を測れない（`LABEL_PAD` は4次元で、e 軸は PAD 距離である）。
+    """
+    p, pn, dom = row["emotion_p"], row["emotion_pn"], row["emotion_dom"]
+    if p is None or pn is None or dom is None:
+        return None
+    return (float(p), float(pn), float(row["emotion_a"]), float(dom))
+
+
+def _mood_pad_of(row) -> "MoodPAD | None":
+    """観測行から W へ載せる PAD を作る。**測れていなければ None**（050）。"""
+    quad = _obs_pad_of(row)
+    return None if quad is None else MoodPAD(p=quad[0], pn=quad[1], a=quad[2], dom=quad[3])
+
+
 def _derive_groundedness(
     a0: float, n: int, *, floor: float = 0.0, c: float = 2.0,
     epsilon: float = 0.001, step: float = 0.33,
@@ -581,6 +599,8 @@ class ObservationMemory:
                        kind=kwargs.get("kind","observation"), emotion=kwargs.get("emotion","neutral"),
                        image_path=kwargs.get("image_path"), override_date=kwargs.get("override_date"),
                        emotion_pad=_pad.to_json_dict() if _pad else None,
+                       # A（高ぶり）は機械値なので、PAD が測れなくても入る（050）。
+                       arousal=kwargs.get("arousal"),
                        parent_id=kwargs.get("parent_id"))
         try:
             event_id, created_new = self.append_memory_event(
@@ -851,10 +871,10 @@ class ObservationMemory:
                         row["last_recalled_at"],
                         float(row["groundedness_g0"]),
                         int(row["groundedness_n"]),
-                        obs_pad=(
-                            row["emotion_p"], row["emotion_pn"],
-                            row["emotion_a"], row["emotion_dom"],
-                        ),
+                        # PAD は未測定でありうる（050）。**測れていない記録に感情の
+                        # 一致を問わない**——`obs_pad=None` で e 軸が外れ、残りの軸で
+                        # 採点される（`_score_breakdown` は e が無い場合を扱える）。
+                        obs_pad=_obs_pad_of(row),
                         mood_pad=mood_pad,
                         half_life_days=(time_span_days
                                         if time_span_days is not None
@@ -907,10 +927,9 @@ class ObservationMemory:
                         # 入れると調査中の mood をトリガ O がほぼ独占し、人の問い1件の
                         # PAD が気分を決めてしまう。下限は「W から落とさない」ための
                         # ものなので、採点に使う a にだけ効かせる。
-                        "emotion_pad":      MoodPAD(
-                            p=row["emotion_p"], pn=row["emotion_pn"],
-                            a=row["emotion_a"], dom=row["emotion_dom"],
-                        ),
+                        # 未測定なら載せない（050）。載せる側で中立に潰すと、mood nudge が
+                        # 「測っていない中立」に引かれる。
+                        "emotion_pad":      _mood_pad_of(row),
                         "groundedness":       _derive_groundedness(
                             float(row["groundedness_g0"]), int(row["groundedness_n"]),
                         ),
