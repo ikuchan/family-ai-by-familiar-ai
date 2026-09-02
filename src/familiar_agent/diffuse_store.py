@@ -1,12 +1,14 @@
 """拡散想起 (B) エンティティ辺の DB 読み（dumb・LLM フリー）。
 
-person 中心の再想起＝その人が主体（subject_id）または参加者（participants_json）である
-現行版の観測を、新しい順に取る。採点や想起判断は持たない（拡散結線は後続スライス）。
+person 中心の再想起＝その人が**話題の主体**（`about`）か**そばに居た**（`present`）面を
+持つ現行版の観測を、新しい順に取る。採点や想起判断は持たない。
+
+段4 で視点列から situated の面へ移した。**母集合に `actor` は入れない。** その人が
+「やった」だけの記録まで入れると、パジュ自身が書いた記録（`actor` が `__self__` の
+6433 行）がどの種からも湧く。種として使うのと、母集合にするのは別の問いである。
 """
 
 from __future__ import annotations
-
-import json
 
 import numpy as np
 
@@ -42,24 +44,21 @@ def order_ids_by_farthest(conn, ids: "list[str]", seed_vec) -> "list[str]":
     return sorted(ids, key=lambda i: (i not in cos, cos.get(i, 1.0)))
 
 
-def fetch_perspectives(conn, ids: "list[str]") -> "list[dict]":
-    """観測 id 群の視点列（subject_id/participants/writer_id）を取る（(B) の種抽出用）。"""
+def fetch_relation_persons(conn, ids: "list[str]") -> "list[dict]":
+    """観測 id 群の関係の面（誰が・どの役割で）を取る（(B) の種抽出用）。
+
+    返すのは `person_id` と `relation_key` の行で、並べ替えは `select_entity_seeds` が
+    役割の優先順で行う。ここは dumb な読み出しに徹する。
+    """
     if not ids:
         return []
-    out: list[dict] = []
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT subject_id, participants_json, writer_id FROM observations "
-            "WHERE id::text = ANY(%s)",
+            "SELECT person_id, relation_key FROM situated_memories "
+            "WHERE obs_id = ANY(%s)",
             ([str(i) for i in ids],),
         )
-        for subj, part_json, writer in cur.fetchall():
-            try:
-                participants = json.loads(part_json) if part_json else []
-            except (ValueError, TypeError):
-                participants = []
-            out.append({"subject_id": subj, "participants": participants, "writer_id": writer})
-    return out
+        return [{"person_id": r[0], "relation_key": r[1]} for r in cur.fetchall()]
 
 
 def fetch_diffuse_rows(conn, ids: "list[str]") -> "list[dict]":
@@ -117,13 +116,43 @@ def cooccurring_mi_ids(
 
 
 def recall_by_person(conn, person_id: str, limit: int = 5) -> "list[str]":
-    """person が subject または participant の観測 id を新しい順に返す（現行版のみ）。"""
+    """その person が `about` か `present` の面を持つ観測 id を新しい順に返す（現行版のみ）。
+
+    同じ観測に両方の面が立つことがあるので、観測ごとに畳んで返す。
+    """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id FROM observations "
-            "WHERE (subject_id = %s OR participants_json::jsonb ? %s) "
-            "AND superseded_by IS NULL "
-            "ORDER BY timestamp DESC LIMIT %s",
-            (person_id, person_id, limit),
+            "SELECT s.obs_id FROM situated_memories s "
+            "JOIN observations o ON o.id = s.obs_id AND o.superseded_by IS NULL "
+            "WHERE s.person_id = %s AND s.relation_key IN (\'about\', \'present\') "
+            "GROUP BY s.obs_id, o.timestamp "
+            "ORDER BY o.timestamp DESC LIMIT %s",
+            (person_id, limit),
+        )
+        return [row[0] for row in cur.fetchall()]
+
+
+def shared_memory_ids(
+    conn, person_ids: "list[str]", limit: int = 20
+) -> "list[str]":
+    """在席者**全員**が関係を持つ観測 id を新しい順に返す（共通の記憶・段4）。
+
+    その場に居合わせた人たちで共有している出来事である。片方としか関係の無い観測は
+    入れない。在席者が一人なら「共通の」記憶は無いので空を返す。
+
+    役割は問わない。誰かが話題で誰かが居ただけ、という混ざり方も共有には違いない。
+    """
+    pids = list(dict.fromkeys(str(p) for p in person_ids if p))
+    if len(pids) < 2:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT s.obs_id FROM situated_memories s "
+            "JOIN observations o ON o.id = s.obs_id AND o.superseded_by IS NULL "
+            "WHERE s.person_id = ANY(%s) "
+            "GROUP BY s.obs_id, o.timestamp "
+            "HAVING count(DISTINCT s.person_id) = %s "
+            "ORDER BY o.timestamp DESC LIMIT %s",
+            (pids, len(pids), limit),
         )
         return [row[0] for row in cur.fetchall()]

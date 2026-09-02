@@ -68,9 +68,10 @@ class MI:
     groundedness_n: int = 0
     last_recalled_at: datetime | None = None
 
-    # 視点。拡散想起のエンティティ辺（`diffuse_store.recall_by_person`）が使う。
-    # situated では代替できない（situated の person は「誰の視点で符号化したか」で、
-    # ここが要るのは「誰についての記録か」である）。
+    # 視点。**読み手はもう居ない**（段4）。拡散想起のエンティティ辺が唯一の読み手だったが、
+    # 047 で situated の person が「誰の視点で符号化したか」から「**どの関係の面か**」に
+    # 変わったので、`about`（誰についての記録か）と `present`（誰が居たか）の面で引ける
+    # ようになり、面へ移した。列そのものの撤去は段5 で行う。
     writer_id: str = ""
     subject_id: str = ""
     participants: tuple[str, ...] = ()
