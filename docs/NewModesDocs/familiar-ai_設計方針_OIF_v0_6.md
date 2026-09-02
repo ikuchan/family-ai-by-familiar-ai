@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：記憶接続 OIF（v0.5）
+# familiar-ai 設計方針：記憶接続 OIF（v0.6）
 
 ## この文書が決めること
 
@@ -177,6 +177,13 @@ class Verdict(Enum):
 ---
 
 ## 更新履歴
+
+> v0.6：**MI の同定を面へ移した**（案3・2026-09-02 実装）。`id` は面
+> （`situated_memories.id`）、`obs_id`／`person_id`／`relation_key` が面を同定する。
+> 視点3属性（`writer_id`／`subject_id`／`participants`）は落とし、誰がしたこと・誰が
+> 居たかは `OIF.write(mi, writer_id=…, participants=…)` の引数で渡す（**書く前の MI は
+> 面を持てない**ので、面の3つは `timestamp` と同じく「書くときは空でよい」）。属性数は
+> 16 のまま（v0.5 まで「17」と書いていたのは実装と食い違っていた）。
 
 > v0.5：**042 の記述を実データに合わせて直した**（2026-09-02）。`recall_curiosities` は
 > 生存 104 行が読めるようになったが、`recall_self_model` は 051 が `self_model` を全廃した
