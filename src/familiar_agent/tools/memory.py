@@ -31,7 +31,7 @@ from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memo
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..legacy.semantic_layer import LegacySemanticLayer
 from ..store import clock
-from ..store.context import StoreContext
+from ..store.context import StoreContext, viewpoint_of
 from ..store.jobs import JobQueue
 from ..store.persons import PersonRegistry
 from ..store.observations import ObservationStore
@@ -796,7 +796,7 @@ class ObservationMemory:
                 extra = [oid for oid in row_by_id if oid not in cos_by_id]
                 if extra:
                     cos_by_id.update(
-                        self._observations.situated_cosines(q_sql, extra, self._person_id)
+                        self._observations.situated_cosines(q_sql, extra, viewpoint_of(self._person_id))
                     )
 
             # 感情軸の一次絞り。出発点は**そのターンの気分**で、気分が動けば候補も変わる。
@@ -816,7 +816,7 @@ class ObservationMemory:
             missing = [oid for oid in row_by_id if oid not in cos_by_id]
             if missing:
                 cos_by_id.update(
-                    self._observations.situated_cosines(q_sql, missing, self._person_id)
+                    self._observations.situated_cosines(q_sql, missing, viewpoint_of(self._person_id))
                 )
 
             # p は union 全体に対して計算。在席他者ゼロなら空＝各行 p=None で項落ち（不変）。
@@ -1010,9 +1010,10 @@ class ObservationMemory:
 
     def recall_day_summaries(self, n: int = 5) -> list[dict]:
         # C-1: 所有者絞り（observations.person_id）でなく situated 相関で在席者に紐づける。
-        # 母集合は所有者に依らず、この memory の person_id の視点で状況化された観測。
+        # 母集合は所有者に依らず、**視点**の面に紐づいた観測（`default` は視点でないので
+        # `__self__` へ寄る＝047）。
         rows = self._observations._read_observations_by_situated(
-            person_id=self._person_id,
+            person_id=viewpoint_of(self._person_id),
             n=n,
             columns=("content", "timestamp", "emotion"),
             kind="day_summary",

@@ -217,7 +217,9 @@ def test_recall_present_others_raises_score():
     for p in ps:
         p.start()
     try:
-        # 在席他者 q を persons へ登録（save 時に q 視点の situated 行が作られる）。
+        # 在席他者 q を persons へ登録し、**実際に在席させて保存する**。
+        # 047 の前は登録人物全員に面が立ったので登録だけで足りたが、いまは
+        # 関係のある人にしか立たない。q を `participants` に入れて `present` の面を作る。
         c = psycopg2.connect(os.environ["DATABASE_URL"])
         c.autocommit = True
         with c.cursor() as cur:
@@ -229,7 +231,8 @@ def test_recall_present_others_raises_score():
         c.close()
 
         mem = ObservationMemory()
-        mem.save("presence corr target", kind="observation")
+        mem.save("presence corr target", kind="observation",
+                 participants=["q-person"])
 
         base = mem.recall("presence corr target", n=1)
         boosted = mem.recall("presence corr target", n=1, present_others=["q-person"])

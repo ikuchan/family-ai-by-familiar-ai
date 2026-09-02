@@ -246,9 +246,9 @@ def test_recall_day_summaries_returns_expected_shape_newest_first_with_limit() -
                                   _NOW - timedelta(hours=1), "neutral")
         _insert_obs_with_emotion(cur, "ds-3", "third day summary", "day_summary", DEFAULT_PERSON_ID,
                                   _NOW, "neutral")
-        _insert_situated(cur, "se-ds-1", "ds-1", DEFAULT_PERSON_ID)
-        _insert_situated(cur, "se-ds-2", "ds-2", DEFAULT_PERSON_ID)
-        _insert_situated(cur, "se-ds-3", "ds-3", DEFAULT_PERSON_ID)
+        _insert_situated(cur, "se-ds-1", "ds-1", AGENT_SELF_ID)
+        _insert_situated(cur, "se-ds-2", "ds-2", AGENT_SELF_ID)
+        _insert_situated(cur, "se-ds-3", "ds-3", AGENT_SELF_ID)
     conn.close()
 
     mem = _mem()
@@ -265,20 +265,23 @@ def test_recall_day_summaries_returns_expected_shape_newest_first_with_limit() -
 
 
 def test_recall_day_summaries_correlates_by_situated_not_owner() -> None:
-    """付け替え後は所有者絞りでなく situated 相関で引く。所有者が別人でも、この memory の
-    person_id の situated 行があれば返り（相関で含む）、situated 行が無ければ所有していても
-    返らない（相関が母集合を決める）。"""
+    """所有者絞りでなく situated 相関で引く。**視点**の面があれば所有者が別人でも返り、
+    面が無ければ所有していても返らない（相関が母集合を決める）。
+
+    視点は `viewpoint_of`（047）で決まる。`default` は視点でなく「話者が未解決」の
+    置き場なので、既定の memory の視点は `__self__` である。
+    """
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        # 所有者は AGENT_SELF_ID だが DEFAULT_PERSON_ID の situated 行がある → 返る
+        # 所有者は DEFAULT_PERSON_ID だが視点（__self__）の面がある → 返る
         _insert_obs_with_emotion(cur, "ds-corr", "correlated day summary", "day_summary",
-                                  AGENT_SELF_ID, _NOW, "neutral")
-        _insert_situated(cur, "se-corr", "ds-corr", DEFAULT_PERSON_ID)
-        # 所有者は DEFAULT_PERSON_ID だが DEFAULT_PERSON_ID の situated 行が無い → 返らない
+                                  DEFAULT_PERSON_ID, _NOW, "neutral")
+        _insert_situated(cur, "se-corr", "ds-corr", AGENT_SELF_ID)
+        # 所有者は AGENT_SELF_ID だが視点の面が無い（別人の面だけ）→ 返らない
         _insert_obs_with_emotion(cur, "ds-uncorr", "uncorrelated day summary", "day_summary",
-                                  DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1), "neutral")
-        _insert_situated(cur, "se-uncorr", "ds-uncorr", AGENT_SELF_ID)
+                                  AGENT_SELF_ID, _NOW + timedelta(seconds=1), "neutral")
+        _insert_situated(cur, "se-uncorr", "ds-uncorr", DEFAULT_PERSON_ID)
     conn.close()
 
     mem = _mem()
@@ -296,8 +299,8 @@ def test_recall_day_summaries_returns_distinct_emotion_values_unchanged() -> Non
                                   DEFAULT_PERSON_ID, _NOW - timedelta(hours=1), "neutral")
         _insert_obs_with_emotion(cur, "ds-emo-2", "happy day summary", "day_summary",
                                   DEFAULT_PERSON_ID, _NOW, "happy")
-        _insert_situated(cur, "se-emo-1", "ds-emo-1", DEFAULT_PERSON_ID)
-        _insert_situated(cur, "se-emo-2", "ds-emo-2", DEFAULT_PERSON_ID)
+        _insert_situated(cur, "se-emo-1", "ds-emo-1", AGENT_SELF_ID)
+        _insert_situated(cur, "se-emo-2", "ds-emo-2", AGENT_SELF_ID)
     conn.close()
 
     mem = _mem()

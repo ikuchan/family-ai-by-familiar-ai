@@ -153,7 +153,8 @@ class ObservationStore:
         kind_clause = "AND o.kind = %s" if kind else ""
         # 自分が出した検索が自分自身を拾わないようにする（id で狭く除外する）。
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
-        params: list = [query_vector_sql, self._ctx.person_id]
+        # situated を引くのは**視点**（`default` は視点でないので `__self__` へ寄る）。
+        params: list = [query_vector_sql, self._ctx.viewpoint]
         if kind:
             params.append(kind)
         if exclude_ids:
@@ -166,22 +167,30 @@ class ObservationStore:
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
+                # **1観測1候補へ畳む**（047）。同じ記憶に複数の面が立つので、
+                # 畳まないと K の枠を1つの記憶が複数食う。代表は**最もコサインの
+                # 高い面**＝その問いに最も強く届く関係で代表させる。束ね方を変える
+                # なら（noisy-OR 等）ここだけを直す。
                 cur.execute(
                     f"""
-                    SELECT o.id, o.content, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path,
-                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
-                           COALESCE(s.groundedness_n, 0) AS groundedness_n,
-                           s.last_recalled_at,
-                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
-                           1 - (s.vector <=> %s::vector) AS score
-                    FROM situated_memories s
-                    JOIN observations o ON o.id = s.obs_id
-                    WHERE s.person_id = %s
-                      AND o.superseded_by IS NULL
-                      {kind_clause}
-                      {exclude_clause}
-                    ORDER BY s.vector <=> %s::vector
+                    SELECT * FROM (
+                      SELECT DISTINCT ON (o.id)
+                             o.id, o.content, o.timestamp,
+                             o.direction, o.kind, o.emotion, o.image_path,
+                             COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                             COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                             s.last_recalled_at,
+                             o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                             1 - (s.vector <=> %s::vector) AS score
+                      FROM situated_memories s
+                      JOIN observations o ON o.id = s.obs_id
+                      WHERE s.person_id = %s
+                        AND o.superseded_by IS NULL
+                        {kind_clause}
+                        {exclude_clause}
+                      ORDER BY o.id, s.vector <=> %s::vector
+                    ) t
+                    ORDER BY t.score DESC
                     LIMIT %s
                     """,
                     params,
@@ -231,7 +240,7 @@ class ObservationStore:
                      o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom"""
 
         def _one(key: str, cmp: str, order: str) -> tuple[str, list]:
-            params: list = [self._ctx.person_id]
+            params: list = [self._ctx.viewpoint]
             if kind:
                 params.append(kind)
             if exclude_ids:
@@ -297,31 +306,40 @@ class ObservationStore:
         """
         kind_clause = "AND o.kind = %s" if kind else ""
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
-        params: list = [self._ctx.person_id]
+        # 並べ替えの式を SELECT へ出した（畳み込みのため）ので、気分ベクトルが先頭に来る。
+        params: list = [mood_vector_sql, self._ctx.viewpoint]
         if kind:
             params.append(kind)
         if exclude_ids:
             params.append(list(exclude_ids))
-        params += [mood_vector_sql, n]
+        params.append(n)
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
+                # **1観測1候補へ畳む**（047）。感情の距離は出来事が持つ（`o.emotion_vec`）
+                # ので面ごとに差が無い。代表は**最も根づいた面**（同点なら関係名の順）で、
+                # 選び方が DB の返す順に依存しないようにする。
                 cur.execute(
                     f"""
-                    SELECT o.id, o.content, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path,
-                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
-                           COALESCE(s.groundedness_n, 0) AS groundedness_n,
-                           s.last_recalled_at,
-                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom
-                    FROM situated_memories s
-                    JOIN observations o ON o.id = s.obs_id
-                    WHERE s.person_id = %s
-                      AND o.superseded_by IS NULL
-                      AND o.emotion_vec IS NOT NULL
-                      {kind_clause}
-                      {exclude_clause}
-                    ORDER BY o.emotion_vec <-> %s::vector
+                    SELECT * FROM (
+                      SELECT DISTINCT ON (o.id)
+                             o.id, o.content, o.timestamp,
+                             o.direction, o.kind, o.emotion, o.image_path,
+                             COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                             COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                             s.last_recalled_at,
+                             o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                             o.emotion_vec <-> %s::vector AS _d
+                      FROM situated_memories s
+                      JOIN observations o ON o.id = s.obs_id
+                      WHERE s.person_id = %s
+                        AND o.superseded_by IS NULL
+                        AND o.emotion_vec IS NOT NULL
+                        {kind_clause}
+                        {exclude_clause}
+                      ORDER BY o.id, s.groundedness_n DESC, s.relation_key
+                    ) t
+                    ORDER BY t._d
                     LIMIT %s
                     """,
                     params,
@@ -371,11 +389,15 @@ class ObservationStore:
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
+                    # **複数の面があるときは max で束ねる**（047）。dict へ素直に
+                    # 詰めると最後の行で上書きされ、どの面が採られるかが DB の返す順に
+                    # 依存する（非決定的）。最も強く結びつく面で代表させる。
                     cur.execute(
-                        "SELECT s.obs_id, 1 - (s.vector <=> %s::vector) AS c "
+                        "SELECT s.obs_id, MAX(1 - (s.vector <=> %s::vector)) AS c "
                         "FROM situated_memories s JOIN observations o ON o.id = s.obs_id "
                         "WHERE s.person_id = %s AND o.superseded_by IS NULL "
-                        "  AND s.obs_id = ANY(%s)",
+                        "  AND s.obs_id = ANY(%s) "
+                        "GROUP BY s.obs_id",
                         (query_vector_sql, person_id, list(obs_ids)),
                     )
                     return {row["obs_id"]: float(row["c"]) for row in cur.fetchall()}
@@ -845,7 +867,7 @@ class ObservationStore:
                 # 触ったものは時間の起点を若返らせる（強化B）。**更新するのは面**で
                 # あって出来事ではない（044）。どの面を通って思い出したかで変わる量なので、
                 # いま引いている person の面だけを動かす。
-                pid = self._ctx.person_id
+                pid = self._ctx.viewpoint
                 cur.execute(
                     "UPDATE situated_memories SET last_recalled_at = now() "
                     "WHERE person_id = %s AND obs_id = ANY(%s)",

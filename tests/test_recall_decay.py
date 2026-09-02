@@ -14,6 +14,8 @@ import os
 from unittest.mock import patch
 
 import psycopg2
+
+from familiar_agent.store.context import viewpoint_of
 import psycopg2.extras
 import pytest
 
@@ -97,7 +99,7 @@ def test_recall_never_reinforces(memory):
                 "SELECT o.id, s.last_recalled_at FROM observations o "
                 "JOIN situated_memories s ON s.obs_id = o.id::text "
                 "WHERE o.content = %s AND s.person_id = %s",
-                ("強化しない確認", memory._person_id),
+                ("強化しない確認", viewpoint_of(memory._person_id)),
             )
             before = cur.fetchone()
 
@@ -107,7 +109,7 @@ def test_recall_never_reinforces(memory):
             cur.execute(
                 "SELECT last_recalled_at FROM situated_memories "
                 "WHERE obs_id = %s AND person_id = %s",
-                (before["id"], memory._person_id),
+                (before["id"], viewpoint_of(memory._person_id)),
             )
             after = cur.fetchone()
         assert after["last_recalled_at"] == before["last_recalled_at"]

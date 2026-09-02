@@ -22,7 +22,7 @@ import psycopg2
 
 from familiar_agent.db import get_db
 from familiar_agent.mood_register import MoodPAD, save_mood
-from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
+from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 
@@ -54,7 +54,7 @@ def _seed(content: str, pad: tuple[float, float, float, float]) -> None:
         )
         cur.execute(
             "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s,%s,%s,%s)",
-            (str(uuid.uuid4()), obs_id, DEFAULT_PERSON_ID, _VEC),
+            (str(uuid.uuid4()), obs_id, AGENT_SELF_ID, _VEC),
         )
     conn.close()
 

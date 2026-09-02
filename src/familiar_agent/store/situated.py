@@ -17,7 +17,7 @@ import uuid
 import numpy as np
 
 from ..db import get_db, vec_to_sql
-from ..person_memory_manager import AGENT_SELF_ID
+from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 from .embedding import (
     EMBEDDING_DIM,
     _coerce_to_embedding_dim,
@@ -132,13 +132,16 @@ class SituatedVectors:
         obs_id: str,
         person_id: str,
         mem_vec: np.ndarray,
-        relation_key: str = "presence",
+        relation_key: str = "present",
+        content: "str | None" = None,
     ) -> None:
-        """Compute and store situated vector for one person under a relation_key.
+        """一つの面（obs × person × relation）のベクトルと言葉を書く。
 
         relation_key は関係の帳簿ラベル（[D-在席相関/V2]）。同定キーは
         (obs_id, person_id, relation_key) で、同じ関係の再計算は vector を更新する。
-        生成の多型化（speaker/subject）は後続スライス。
+
+        `content` は**その面から見た言葉**＝`[役割の札] ` ＋ 出来事の本文。
+        `actor` だけは持たない（全観測に立つので書き直す意味がない）。
         """
         mem_vec = _coerce_to_embedding_dim(mem_vec)
         # 書き込み経路は db.lock を保持したまま来るので conn を渡す（再入不可のため）。
@@ -146,19 +149,76 @@ class SituatedVectors:
         vec_str = vec_to_sql(situated.tolist())
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
-                "VALUES (%s, %s, %s, %s::vector, %s) "
-                "ON CONFLICT (obs_id, person_id, relation_key) DO UPDATE SET vector = EXCLUDED.vector",
-                (str(uuid.uuid4()), obs_id, person_id, vec_str, relation_key),
+                "INSERT INTO situated_memories "
+                "(id, obs_id, person_id, vector, relation_key, content) "
+                "VALUES (%s, %s, %s, %s::vector, %s, %s) "
+                "ON CONFLICT (obs_id, person_id, relation_key) DO UPDATE SET "
+                "  vector = EXCLUDED.vector, content = EXCLUDED.content",
+                (str(uuid.uuid4()), obs_id, person_id, vec_str, relation_key, content),
             )
 
     def refresh_situated_memories(self, conn, obs_id: str, mem_vec: np.ndarray) -> None:
-        """Pre-compute situated vectors for ALL registered persons + agent self."""
+        """その観測に**関係のある人**の面だけを立てる（047）。
+
+        **面の生成は二段である。** ここが担うのは段①＝機械で確実に出るものだけ。
+
+          `actor`（誰がやったか）  ← `writer_id`。観測1件につき必ず1行。content 無し
+          `present`（誰が居たか）  ← `participants_json` の各在席者。
+                                     content は `[そばに居た] ` ＋ 出来事の本文
+
+        段②（`addressee`／`about`／`experiencer`／`beneficiary`／`companion`／
+        `source`／`owner` …）は **REST 内省が本文を読んで足す**。既存の観測にも
+        さかのぼって足していく（[D-在席相関/V2]「relation_key 語彙は REST が育て・畳む」）。
+
+        **047 の前は登録人物全員＋AGENT_SELF に行を作っていた**（観測1件につき人数ぶん）。
+        全員に同じベクトルが入るので、その人がその記憶とどう関わったかを表していなかった。
+
+        `writer_id` が `default`（話者未解決）のときは `actor` を `__self__` にする
+        （048「内なる記録はエージェントのもの」）。話者が解決できなかった記録は、
+        パジュ自身がしたことだからである。
+        """
+        import json
+
         with conn.cursor() as cur:
-            cur.execute("SELECT id FROM persons")
-            person_ids = [row["id"] for row in cur.fetchall()]
-        for pid in person_ids:
-            self._upsert_situated_embedding(conn, obs_id, pid, mem_vec)
-        # Always include AGENT_SELF_ID
-        if AGENT_SELF_ID not in person_ids:
-            self._upsert_situated_embedding(conn, obs_id, AGENT_SELF_ID, mem_vec)
+            cur.execute(
+                "SELECT content, writer_id, participants_json FROM observations WHERE id = %s",
+                (obs_id,),
+            )
+            row = cur.fetchone()
+        if row is None:
+            return
+
+        body = row["content"] or ""
+        writer = str(row["writer_id"] or DEFAULT_PERSON_ID)
+        # 048：話者が解決できなかった記録は、パジュ自身がしたこと。
+        actor = AGENT_SELF_ID if writer == DEFAULT_PERSON_ID else writer
+
+        raw = row["participants_json"]
+        try:
+            participants = json.loads(raw) if isinstance(raw, str) else (raw or [])
+        except (TypeError, ValueError):
+            participants = []
+
+        wanted: list[tuple[str, str, str | None]] = [(actor, "actor", None)]
+        for pid in participants:
+            if not pid:
+                continue
+            wanted.append((str(pid), "present", f"[そばに居た] {body}"))
+
+        for pid, key, content in wanted:
+            self._upsert_situated_embedding(conn, obs_id, pid, mem_vec,
+                                            relation_key=key, content=content)
+
+        # 関係の無くなった面は落とす。**段②（REST が足した意味役割）は残す**ので、
+        # 対象は機械が立てる2種（`actor`／`present`）に限る。
+        keep_p = [p for p, _, _ in wanted]
+        keep_r = [k for _, k, _ in wanted]
+        with conn.cursor() as cur:
+            cur.execute(
+                "DELETE FROM situated_memories sm "
+                "WHERE sm.obs_id = %s AND sm.relation_key IN ('actor', 'present') "
+                "  AND NOT EXISTS ("
+                "    SELECT 1 FROM unnest(%s::text[], %s::text[]) AS k(p, r) "
+                "     WHERE k.p = sm.person_id AND k.r = sm.relation_key)",
+                (obs_id, keep_p, keep_r),
+            )
