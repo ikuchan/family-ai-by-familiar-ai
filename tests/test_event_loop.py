@@ -993,10 +993,13 @@ def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
     assert "えーっと" not in "".join(shown)
 
 
-def test_filler_is_recorded_so_the_arbiter_knows_it_already_spoke():
-    # つなぎは発話なのに O に残らず、次の反復の W に「もう一言伝えた」事実が入らなかった。
-    # 調停はそれを知らないので同じことをまた言う（実機で1秒差に同じ文が2回出た）。
-    # 抑止ではなく記録で解く：鎖に載れば W に現れ、調停が読んで判断できる。
+def test_the_filler_is_remembered_for_the_prompt_but_not_written_to_memory():
+    # つなぎを言ったことは、調停が知らないと同じことをまた言う（実機で1秒差に同じ文が
+    # 2回出た）。抑止ではなく材料で解く。
+    #
+    # **材料は `_said_fillers` が持つ。O には書かない**（054）。この一覧はそのまま
+    # プロンプトへ載るので（「すでに相手へ伝えた一言」）、次の反復へ伝えるのに記憶は
+    # 要らない。以前は両方を持っており、O の側だけが 337 行たまって想起の候補を食っていた。
     a = _agent(stream_returns=[
         _turn([ToolCall(id="r", name="recall", input={"query": "マイクラ"})]),
         _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
@@ -1009,13 +1012,15 @@ def test_filler_is_recorded_so_the_arbiter_knows_it_already_spoke():
         ip = InformationProcessing(a)
         await ip.run_iteration("マインクラフトってどんなゲーム？")
         head = ip._chain_head_content
+        fillers = list(ip._said_fillers)
         await ip.close()
-        return head
+        return head, fillers
 
-    head = asyncio.run(scenario())
-    said = [c for c in a._memory.save_async_with_id.call_args_list
-            if c.kwargs.get("direction") == "発話" and "調べてみますね" in c.args[0]]
-    assert len(said) == 1                      # つなぎが O に1件残る
+    head, said_fillers = asyncio.run(scenario())
+    written = [c for c in a._memory.save_async_with_id.call_args_list
+               if "調べてみますね" in (c.args[0] if c.args else "")]
+    assert written == [], "つなぎを O へ書いている"
+    assert any("調べてみますね" in t for t in said_fillers), "言ったことを覚えていない"
     # **鎖は進めない。** 進めると直前に届いた完了を押し出し、フルLLM が材料を失う
     # （実機で、想起の結果が W から消えて未回答に終わった）。
     assert "つなぎに言った" not in head
