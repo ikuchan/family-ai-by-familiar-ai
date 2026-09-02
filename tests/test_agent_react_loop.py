@@ -189,7 +189,6 @@ _HEAVY_PATCHES = {
     "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(return_value=(MoodPAD(), 0.5, "neutral")),
     "familiar_agent.agent.EmbodiedAgent._summarize_exchange": AsyncMock(return_value="summary"),
     "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline": AsyncMock(),
-    "familiar_agent.agent.EmbodiedAgent._update_self_model": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent._maybe_update_self_narrative": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent._maybe_adapt_values": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent.extract_curiosity": AsyncMock(return_value=None),
@@ -361,7 +360,6 @@ async def test_post_response_pipeline_updates_concerns():
     )
     agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
-    agent._update_self_model = AsyncMock()
     agent._maybe_update_self_narrative = AsyncMock()
     agent._maybe_adapt_values = AsyncMock()
     agent.extract_curiosity = AsyncMock(return_value="The window light still feels important.")
@@ -480,7 +478,6 @@ async def test_pipeline_supersedes_loop_obs_without_camera():
     agent = _make_agent()
     agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
-    agent._update_self_model = AsyncMock()
     agent._maybe_update_self_narrative = AsyncMock()
     agent._maybe_adapt_values = AsyncMock()
     agent._active_memory = MagicMock(return_value=agent._memory)
