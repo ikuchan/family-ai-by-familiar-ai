@@ -876,11 +876,20 @@ class ObservationMemory:
                     # 合成スコアの soft 床。生コサインではなく最終スコアで絞る。
                     if min_score > 0.0 and final < min_score:
                         continue
-                    breakdowns[row["id"]] = parts
+                    # 採点の鍵は**面**（案3）。同じ出来事の別の面は別の候補なので、
+                    # 出来事の id を鍵にすると後から来た面が前の面の内訳を消す。
+                    _facet = row.get("facet_id") or row["id"]
+                    breakdowns[_facet] = parts
                     results.append({
                         "memory_id":        row["id"],
+                        "facet_id":         _facet,
+                        "person_id":        row.get("person_id", ""),
+                        "relation_key":     row.get("relation_key", ""),
                         "timestamp":        row["timestamp"],
                         "summary":          row["content"],
+                        "groundedness_g0":  row.get("groundedness_g0", 1.0),
+                        "groundedness_n":   row.get("groundedness_n", 0),
+                        "last_recalled_at": row.get("last_recalled_at"),
                         "date":             _ts_to_date(row["timestamp"]),
                         "time":             _ts_to_time(row["timestamp"]),
                         "direction":        row["direction"],
@@ -921,12 +930,13 @@ class ObservationMemory:
                         len(results),
                     )
                     for rank, item in enumerate(results[:10], start=1):
-                        b = breakdowns[item["memory_id"]]
+                        b = breakdowns[item["facet_id"]]
                         logger.debug(
-                            "  #%d recall score=%.4f r=%.3f t=%.3f a=%.3f e=%s | %s | %s",
+                            "  #%d recall score=%.4f r=%.3f t=%.3f a=%.3f e=%s | %s | %s | %s",
                             rank, item["fit"], b.r, b.t, b.g,
                             "なし" if b.e is None else "%.3f" % b.e,
                             _ts_to_date(item["timestamp"]),
+                            item.get("relation_key", ""),
                             str(item["summary"])[:50],
                         )
 

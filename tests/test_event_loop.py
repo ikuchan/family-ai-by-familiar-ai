@@ -268,8 +268,12 @@ def test_completion_content_reads_as_this_chains_action():
         ip = InformationProcessing(a)
         await ip.run_iteration("今日の天気を調べて")
         ip.push_completion("今日の天気", "西日本は暑い")
+        # **求めは版チェーンなので、「求めの記録があるか」では待てない。**
+        # 版1（「…を起動中」）が書かれた時点で真になり、待ちたい完了の版が書かれる前に
+        # 抜けてしまう。並列実行のときだけ落ちる形になる。**完了を反映した版そのもの**を
+        # 待つ（`求めの版チェーン`）。
         for _ in range(_WAIT_TICKS):
-            if any(c.kwargs.get("direction") == "求め"
+            if any("届いた" in (c.args[0] if c.args else "")
                    for c in a._memory.save_async_with_id.call_args_list):
                 break
             await asyncio.sleep(0.005)
@@ -299,8 +303,12 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
         ip = InformationProcessing(a)
         await ip.run_iteration("今日の天気を調べて")
         ip.push_completion("今日の天気", body)
+        # **求めは版チェーンなので、「求めの記録があるか」では待てない。**
+        # 版1（「…を起動中」）が書かれた時点で真になり、待ちたい完了の版が書かれる前に
+        # 抜けてしまう。並列実行のときだけ落ちる形になる。**完了を反映した版そのもの**を
+        # 待つ（`求めの版チェーン`）。
         for _ in range(_WAIT_TICKS):
-            if any(c.kwargs.get("direction") == "求め"
+            if any("届いた" in (c.args[0] if c.args else "")
                    for c in a._memory.save_async_with_id.call_args_list):
                 break
             await asyncio.sleep(0.005)

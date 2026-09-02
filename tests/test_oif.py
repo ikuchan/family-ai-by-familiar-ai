@@ -88,13 +88,26 @@ class TestWrite:
     async def test_the_mi_becomes_the_stored_fields(self) -> None:
         """MI の属性が、そのまま書き込みへ渡る。"""
         oif, mem = _oif()
-        await oif.write(_mi(direction="発話", parent_id="起点", writer_id="書いた人"))
+        await oif.write(_mi(direction="発話", parent_id="起点"))
         content, kw = mem.saved[0]
         assert content == "覚えておくこと"
         assert kw["direction"] == "発話"
         assert kw["kind"] == "observation", "kind が direction から作られていない"
         assert kw["parent_id"] == "起点"
+
+    @pytest.mark.asyncio
+    async def test_who_did_it_and_who_was_there_are_write_arguments(self) -> None:
+        """誰がしたこと・誰が居たかは、MI の属性でなく書き込みの引数で渡す（案3）。
+
+        面が立つのは書いた後なので、書き込み前の MI は面を持てない。読むときの MI は
+        面を指すので、視点を属性として持ち回る必要がない。
+        """
+        oif, mem = _oif()
+        await oif.write(_mi(direction="会話"),
+                        writer_id="書いた人", participants=["居た人"])
+        _, kw = mem.saved[0]
         assert kw["writer_id"] == "書いた人"
+        assert kw["participants"] == ["居た人"]
 
     @pytest.mark.asyncio
     async def test_now_false_defers_materialization(self) -> None:

@@ -40,18 +40,35 @@ _DEFAULT_KIND = "observation"
 
 @dataclass
 class MI:
-    """記憶項目。O の1行に対応する。
+    """記憶項目。**出来事 × 関係の面**の1つに対応する（案3・2026-09-02）。
 
-    属性は 18 で、読み手ごとに調べて決めた。主想起・拡散想起・プロンプトのいずれからも
+    044 で situated が索引から記憶になり、面ごとの言葉・時間の起点・根づきの `n` が面へ
+    移った。想起も面のベクトルで探している。**MI が指すのは面である。**
+
+    **出来事ごとの量と面ごとの量を混ぜない。** `content`・`groundedness_n`・
+    `last_recalled_at` は面のもの、`groundedness_g0`（取込の驚き）・`timestamp`・
+    `parent_id`・`superseded_by` は出来事のものである（`MIデータモデル` §5）。
+
+    表は分けたままにしてある。`superseded_by` が `observations` の列にしかないことが
+    「**畳んでも面は残る**」を構造として保証しており、版チェーンはこれに依存している。
+
+    読み手ごとに調べて決めた点は変えていない。主想起・拡散想起・プロンプトのいずれからも
     読まれない列は入れず、計算で作れるものも入れない（`kind`・`emotion_vec`・ベクトル・
-    採点）。撤去する列（`person_id`・`scope`・`importance`）も入れない。
+    採点）。撤去した列（`person_id` の所有者・`scope`・`importance`）も入れない。
     """
 
+    # `id` は面（`situated_memories.id`）で、upsert しても保たれる。
     id: str
-    content: str
+    content: str            # 【面】の言葉。面が持たないとき（actor）は出来事の本文
     # 書くときは空でよい（O が書込時刻を付ける）。読んだ MI には必ず入っている。
     timestamp: datetime | None
     direction: str
+
+    # 面の同定。**書くときは空でよい**（まだ面が立っていない）。読んだ MI には必ず入る。
+    # 誰がしたこと・誰が居たかは `OIF.write` の引数で渡し、書いた直後に面が立つ。
+    obs_id: str = ""
+    person_id: str = ""     # 誰との関係か（**所有者ではない**）
+    relation_key: str = ""  # どの役割か（actor / present / about / …）
 
     emotion: str = "neutral"
 
@@ -67,14 +84,6 @@ class MI:
     groundedness_g0: float = 1.0
     groundedness_n: int = 0
     last_recalled_at: datetime | None = None
-
-    # 視点。**読み手はもう居ない**（段4）。拡散想起のエンティティ辺が唯一の読み手だったが、
-    # 047 で situated の person が「誰の視点で符号化したか」から「**どの関係の面か**」に
-    # 変わったので、`about`（誰についての記録か）と `present`（誰が居たか）の面で引ける
-    # ようになり、面へ移した。列そのものの撤去は段5 で行う。
-    writer_id: str = ""
-    subject_id: str = ""
-    participants: tuple[str, ...] = ()
 
     image_path: str | None = None
     image_data: str | None = None
@@ -182,8 +191,21 @@ class OIF:
     def __init__(self, memory) -> None:
         self._memory = memory
 
-    async def write(self, mi: MI, *, now: bool = True) -> str:
-        """記憶を1件書き、その id を返す。空欄は書き込み側が埋める。"""
+    async def write(
+        self,
+        mi: MI,
+        *,
+        now: bool = True,
+        writer_id: str | None = None,
+        participants: "list[str] | None" = None,
+    ) -> str:
+        """記憶を1件書き、**出来事の** id を返す。空欄は書き込み側が埋める。
+
+        `writer_id`（誰がしたことか）と `participants`（誰が居たか）は**書き込みの材料**で、
+        MI の属性ではない（案3）。書いた直後に `actor` と `present` の面が立ち、以後は
+        その面が「誰との関係か」を持つ。読むときの MI は面を指すので、視点を属性として
+        持ち回る必要がない。
+        """
         logger.debug("OIF write ← %s／%d字／%s", mi.direction, len(mi.content),
                      _head(mi.content))
         obs_id, _ = await self._memory.save_async_with_id(
@@ -193,9 +215,9 @@ class OIF:
             emotion=mi.emotion,
             emotion_pad=mi.pad,
             parent_id=mi.parent_id,
-            writer_id=mi.writer_id,
-            subject_id=mi.subject_id,
-            participants=list(mi.participants),
+            writer_id=writer_id,
+            subject_id=writer_id,
+            participants=participants,
             image_path=mi.image_path,
             materialize_now=now,
         )
@@ -266,17 +288,28 @@ class OIF:
 def _to_recalled(row: dict) -> Recalled:
     """想起が返す行を MI ＋ 採点へ移す。
 
-    `summary`／`memory_id` は O 側の `content`／`id` と同じものが別の名前で出ている。
-    ここで名前を1つに揃える。
+    `summary` は面の言葉（面が持たなければ出来事の本文）、`memory_id` は出来事の id、
+    `facet_id` は面の id である。**MI の `id` は面**で、出来事は `obs_id` が指す。
+
+    `memory_id` が出来事のままなのは、拡散想起の種・除外・supersede・WR の記録が
+    すべて出来事の id で動いているためである。
     """
     return Recalled(
         mi=MI(
-            id=str(row.get("memory_id", "")),
+            id=str(row.get("facet_id") or row.get("memory_id", "")),
+            obs_id=str(row.get("memory_id", "")),
+            person_id=str(row.get("person_id", "")),
+            relation_key=str(row.get("relation_key", "")),
             content=str(row.get("summary", "")),
             timestamp=row.get("timestamp"),
             direction=str(row.get("direction", "")),
             emotion=str(row.get("emotion", "neutral")),
             pad=row.get("emotion_pad") or MoodPAD(),
+            parent_id=row.get("parent_id"),
+            superseded_by=row.get("superseded_by"),
+            groundedness_g0=float(row.get("groundedness_g0", 1.0)),
+            groundedness_n=int(row.get("groundedness_n", 0)),
+            last_recalled_at=row.get("last_recalled_at"),
             image_path=row.get("image_path"),
         ),
         fit=float(row.get("fit", 0.0)),
