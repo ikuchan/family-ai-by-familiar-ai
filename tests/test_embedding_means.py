@@ -18,7 +18,6 @@ import psycopg2
 import psycopg2.extras
 
 from familiar_agent.tools.memory import load_embedding_mean
-from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -53,9 +52,9 @@ def _clear() -> None:
 def _insert_obs_with_vec(cur, vec: np.ndarray) -> None:
     obs_id = str(uuid.uuid4())
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-        "VALUES (%s,%s,NOW(),%s,%s,%s,%s)",
-        (obs_id, "mu test", "unknown", "conversation", "neutral", AGENT_SELF_ID),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s,%s,NOW(),%s,%s,%s)",
+        (obs_id, "mu test", "unknown", "conversation", "neutral"),
     )
     cur.execute(
         "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s)",

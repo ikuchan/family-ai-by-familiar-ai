@@ -957,7 +957,6 @@ class ObservationMemory:
     def recent_feelings(self, n: int = 5) -> list[dict]:
         rows = self._observations._read_observations_by_kind(
             kind=("feeling", "conversation"),
-            person_id=self._person_id,
             n=n,
             columns=("content", "timestamp", "emotion"),
         )
@@ -971,10 +970,14 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recent_feelings, n)
 
     def recall_self_model(self, n: int = 5) -> list[dict]:
-        """Always uses AGENT_SELF_ID scope — agent's own self-understanding."""
+        """パジュ自身の自己理解を新しい順に返す。
+
+        042 の前はここが `person_id=AGENT_SELF_ID` で絞っていたが、書き込みは文脈の
+        person で入るため、8月3日時点の `self_model` 958 行は**全件**が `default` で、
+        **この関数は本番で常に空を返していた**。所有者列ごと外れて食い違いが消えた。
+        """
         rows = self._observations._read_observations_by_kind(
             kind="self_model",
-            person_id=AGENT_SELF_ID,
             n=n,
             columns=("id", "content", "timestamp", "emotion", "superseded_by", "groundedness_g0",
                      "emotion_p", "emotion_pn", "emotion_a", "emotion_dom"),
@@ -995,7 +998,6 @@ class ObservationMemory:
     def recall_curiosities(self, n: int = 5) -> list[dict]:
         rows = self._observations._read_observations_by_kind(
             kind="curiosity",
-            person_id=AGENT_SELF_ID,
             n=n,
             columns=("content", "timestamp"),
         )

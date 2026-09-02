@@ -63,10 +63,10 @@ def _insert_obs(memory: ObservationMemory, content: str, superseded_by: str | No
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,direction,kind,emotion,person_id,superseded_by) "
-                "VALUES (%s,%s,now(),%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,kind,emotion,superseded_by) "
+                "VALUES (%s,%s,now(),%s,%s,%s,%s)",
                 (obs_id, content, "unknown", "conversation", "neutral",
-                 memory._person_id, superseded_by),
+                 superseded_by),
             )
         conn.commit()
     finally:

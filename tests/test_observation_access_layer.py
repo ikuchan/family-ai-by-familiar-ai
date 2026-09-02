@@ -25,9 +25,9 @@ _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=clock.local_tz())
 
 def _insert_obs(cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral", person_id),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, "neutral"),
     )
 
 
@@ -48,7 +48,7 @@ def test_read_observations_by_kind_returns_newest_first() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", 3, ("content", "timestamp"))
 
     assert len(rows) == 3
     assert rows[0]["content"] == "new curiosity"
@@ -66,7 +66,7 @@ def test_read_observations_by_kind_respects_limit() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", 3, ("content", "timestamp"))
 
     assert len(rows) == 3
 
@@ -83,13 +83,20 @@ def test_read_observations_by_kind_filters_by_kind() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
 
     assert len(rows) == 1
     assert rows[0]["content"] == "curiosity row"
 
 
-def test_read_observations_by_kind_filters_by_person_id() -> None:
+def test_read_observations_by_kind_does_not_filter_by_owner() -> None:
+    """kind が合う行はすべて返る。**人では絞らない**（042）。
+
+    042 の前はここが「1件だけ返る」を仕様として固定していた。だが所有者列は実データで
+    `default` に潰れており（5080 行中 4904 行）、分かれて見えたのはこの fixture が
+    `person_id` を明示して書いていたからだった。人の視点で絞る役は situated が担う
+    （`_read_observations_by_situated`）。
+    """
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
@@ -98,10 +105,9 @@ def test_read_observations_by_kind_filters_by_person_id() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
 
-    assert len(rows) == 1
-    assert rows[0]["content"] == "agent curiosity"
+    assert {r["content"] for r in rows} == {"agent curiosity", "user curiosity"}
 
 
 def test_read_observations_by_kind_returns_empty_when_none_match() -> None:
@@ -112,7 +118,7 @@ def test_read_observations_by_kind_returns_empty_when_none_match() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
 
     assert rows == []
 
@@ -150,9 +156,9 @@ def _insert_obs_with_emotion(
     cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime, emotion: str
 ) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, emotion, person_id),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, emotion),
     )
 
 
@@ -211,7 +217,14 @@ def test_recall_self_model_returns_distinct_emotion_values_unchanged() -> None:
     assert by_summary["neutral self model"] == "neutral"
 
 
-def test_recall_self_model_filters_by_agent_self_id() -> None:
+def test_recall_self_model_returns_every_self_model_row() -> None:
+    """自己理解は所有者で絞らない（042）。
+
+    042 の前はここが `person_id=AGENT_SELF_ID` の1件だけを期待していた。だが書き込みは
+    文脈の person で入るため、8月3日時点の `self_model` 958 行は**全件**が `default`
+    で、**本番ではこの関数が常に空を返していた**。パジュの自己理解は1つしかないので、
+    所有者で分ける意味がそもそも無い。
+    """
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
@@ -224,8 +237,7 @@ def test_recall_self_model_filters_by_agent_self_id() -> None:
     mem = _mem()
     result = mem.recall_self_model(n=10)
 
-    assert len(result) == 1
-    assert result[0]["summary"] == "agent self model"
+    assert {r["summary"] for r in result} == {"agent self model", "other person self model"}
 
 
 def test_recall_self_model_returns_empty_when_none() -> None:
@@ -329,7 +341,7 @@ def test_read_observations_by_kind_accepts_tuple_of_kinds() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), 10, ("content", "timestamp"))
 
     contents = {r["content"] for r in rows}
     assert contents == {"a feeling", "a conversation"}
@@ -346,7 +358,7 @@ def test_read_observations_by_kind_tuple_respects_order_and_limit() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), AGENT_SELF_ID, 2, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind(("feeling", "conversation"), 2, ("content", "timestamp"))
 
     assert len(rows) == 2
     assert rows[0]["content"] == "new feeling"
@@ -363,7 +375,7 @@ def test_read_observations_by_kind_str_path_unchanged_after_tuple_support() -> N
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_kind("curiosity", AGENT_SELF_ID, 10, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_kind("curiosity", 10, ("content", "timestamp"))
 
     assert len(rows) == 1
     assert rows[0]["content"] == "curiosity row"

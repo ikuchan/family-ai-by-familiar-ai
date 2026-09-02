@@ -32,9 +32,9 @@ def _pg_conn():
 
 def _insert_obs(cur, obs_id: str) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-        "VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
-        (obs_id, "slice2 test", "unknown", "conversation", "neutral", AGENT_SELF_ID),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s, %s, NOW(), %s, %s, %s)",
+        (obs_id, "slice2 test", "unknown", "conversation", "neutral"),
     )
 
 

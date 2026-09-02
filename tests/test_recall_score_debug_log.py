@@ -36,11 +36,10 @@ def _seed() -> None:
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-            " person_id, groundedness_g0, "
+            " groundedness_g0, "
             " emotion_p, emotion_pn, emotion_a, emotion_dom) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, _CONTENT, "unknown", "conversation", "neutral", DEFAULT_PERSON_ID,
-             1.0, 0.8, 0.2, 0.6, 0.5),
+            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s)",
+            (obs_id, _CONTENT, "unknown", "conversation", "neutral", 1.0, 0.8, 0.2, 0.6, 0.5),
         )
         cur.execute(
             "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s,%s,%s,%s)",

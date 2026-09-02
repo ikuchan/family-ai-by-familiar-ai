@@ -53,9 +53,9 @@ def test_relation_key_defaults_to_present() -> None:
     conn = _pg_conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-            "VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
-            (obs_id, "relation_key default test", "unknown", "conversation", "neutral", AGENT_SELF_ID),
+            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+            "VALUES (%s, %s, NOW(), %s, %s, %s)",
+            (obs_id, "relation_key default test", "unknown", "conversation", "neutral"),
         )
         # relation_key を指定しない既存経路と同型の INSERT
         cur.execute(
@@ -83,9 +83,9 @@ def test_the_same_relation_cannot_be_written_twice() -> None:
     conn = _pg_conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, person_id) "
-            "VALUES (%s, %s, NOW(), %s, %s, %s, %s)",
-            (obs_id, "unique test", "unknown", "conversation", "neutral", AGENT_SELF_ID),
+            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+            "VALUES (%s, %s, NOW(), %s, %s, %s)",
+            (obs_id, "unique test", "unknown", "conversation", "neutral"),
         )
         cur.execute(
             "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",

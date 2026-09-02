@@ -132,8 +132,8 @@ def test_time_decay_prioritizes_recent_over_old(memory):
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE observations SET timestamp = now() - interval '60 days' "
-                "WHERE content = %s AND person_id = %s",
-                ("記憶古い", memory._person_id),
+                "WHERE content = %s",
+                ("記憶古い",),
             )
         conn.commit()
     finally:

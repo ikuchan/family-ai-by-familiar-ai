@@ -30,9 +30,9 @@ def _insert_obs(cur, obs_id: str, content: str, kind: str, person_id: str, ts: d
                  groundedness_g0: float = 1.0, superseded_by: str | None = None) -> None:
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion, person_id, groundedness_g0, superseded_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral", person_id, groundedness_g0, superseded_by),
+        "(id, content, timestamp, direction, kind, emotion, groundedness_g0, superseded_by) "
+        "VALUES (%s, %s, %s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, "neutral", groundedness_g0, superseded_by),
     )
 
 
@@ -56,7 +56,6 @@ def test_row_to_mental_item_builds_from_row() -> None:
     mem = _mem()
     rows = mem._observations._read_observations_by_kind(
         kind="self_model",
-        person_id=AGENT_SELF_ID,
         n=1,
         columns=("id", "content", "timestamp", "emotion", "superseded_by", "groundedness_g0"),
     )
