@@ -138,20 +138,6 @@ _COMPLEX_QUERY_RE = re.compile(
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:\s+(.+))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 
-_SELF_MODEL_PROMPT = """\
-Read this response and write ONE short sentence about what it reveals about the kind of being \
-who wrote it. Use first person. Be specific and honest.
-
-Good examples:
-- "I get drawn to ordinary things that seem to hold a secret."
-- "When a stranger appeared, I realized I want to share moments, not just record them."
-- "I notice time passing through the sky more than through clocks."
-
-Response:
-{text}
-
-Write just the sentence. If nothing meaningful is revealed, write "nothing"."""
-
 # Day summary prompt — condense a day's observations into a diary-like entry
 _DAY_SUMMARY_PROMPT = """\
 You are writing a diary entry about this day from your own first-person memory.
@@ -504,7 +490,6 @@ class EmbodiedAgent:
             # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
             self._record_wr(memories, list(_new_ids or []) + list(extra_wr_ids or []))
 
-            await self._update_self_model(final_text, emotion)
             await self._maybe_update_self_narrative(
                 user_input=user_input,
                 final_text=final_text,
@@ -1314,31 +1299,6 @@ class EmbodiedAgent:
                 await self._refresh_capability_summary()
         except Exception as e:
             logger.warning("capabilities.yaml regeneration failed: %s", e)
-
-    async def _update_self_model(self, final_text: str, emotion: str) -> None:
-        """Extract a self-insight and store it as self_model memory.
-
-        Conway's working self: what this response reveals about who I am.
-        Only runs when something actually moved us (non-neutral emotion).
-        """
-        if emotion == "neutral":
-            return
-        try:
-            insight = await self._utility_backend.complete(
-                _SELF_MODEL_PROMPT.format(text=final_text[:400]),
-                max_tokens=80,
-            )
-            if insight and insight.lower() != "nothing":
-                await self._memory.save_async(
-                    insight,
-                    direction="内省",
-                    kind="self_model",
-                    emotion=emotion,
-                    materialize_now=False,
-                )
-                logger.info("Self-model updated: %s", insight[:60])
-        except Exception as e:
-            logger.warning("Self-model update failed: %s", e)
 
     async def _maybe_update_self_narrative(
         self,
