@@ -65,7 +65,9 @@ def test_situated_rows_are_created_for_each_person(ctx) -> None:
         )
     conn.commit()
 
-    situated.refresh_situated_memories(conn, obs_id, np.ones(1024, dtype=np.float32))
+    situated.refresh_situated_memories(
+        conn, obs_id, np.ones(1024, dtype=np.float32),
+        body=f"unit situated {obs_id}", writer_id=DEFAULT_PERSON_ID, participants=[])
     conn.commit()
 
     with conn.cursor() as cur:

@@ -126,6 +126,32 @@ class SituatedVectors:
         )
 
 
+    def reembed_facets(self, conn, obs_id: str, mem_vec: np.ndarray, body: str) -> None:
+        """本文が変わったとき、**いま立っている面をなぞって**ベクトルを作り直す（段5）。
+
+        面を作り直さないのは、**面が正**だからである。誰との関係かは面が持っており、
+        観測の側にはもう残っていない。作り直そうとすると材料が無い。
+
+        **REST が足した意味役割の面も、ここでベクトルが新しくなる。** 以前は `actor` と
+        `present` を作り直すだけだったので、`about` などの面は古い本文のベクトルを持った
+        まま取り残されていた。想起はベクトルで探すので、取り残されると本文と食い違う。
+
+        **言葉は機械が立てた面だけ書き直す。** `present` の `[そばに居た] ` ＋ 本文は機械が
+        作ったものなので本文に追随させるが、REST が本文を読んで書いた言葉は REST のもので、
+        機械が上書きしてよいものではない（段①と段②の切り分け・047）。
+        """
+        situated = _situated_vector(
+            _coerce_to_embedding_dim(mem_vec), self._embedding_mu(conn)
+        )
+        vec_str = vec_to_sql(situated.tolist())
+        with conn.cursor() as cur:
+            cur.execute(
+                "UPDATE situated_memories SET vector = %s::vector, "
+                "  content = CASE WHEN relation_key = %s THEN %s ELSE content END "
+                "WHERE obs_id = %s",
+                (vec_str, "present", f"[そばに居た] {body}", obs_id),
+            )
+
     def _upsert_situated_embedding(
         self,
         conn,
@@ -157,7 +183,16 @@ class SituatedVectors:
                 (str(uuid.uuid4()), obs_id, person_id, vec_str, relation_key, content),
             )
 
-    def refresh_situated_memories(self, conn, obs_id: str, mem_vec: np.ndarray) -> None:
+    def refresh_situated_memories(
+        self,
+        conn,
+        obs_id: str,
+        mem_vec: np.ndarray,
+        *,
+        body: str,
+        writer_id: str,
+        participants: "list[str] | None" = None,
+    ) -> None:
         """その観測に**関係のある人**の面だけを立てる（047）。
 
         **面の生成は二段である。** ここが担うのは段①＝機械で確実に出るものだけ。
@@ -176,28 +211,16 @@ class SituatedVectors:
         `writer_id` が `default`（話者未解決）のときは `actor` を `__self__` にする
         （048「内なる記録はエージェントのもの」）。話者が解決できなかった記録は、
         パジュ自身がしたことだからである。
+
+        **材料は引数で受け取る**（段5）。以前は `obs_id` から観測を読み直していたが、
+        `writer_id` と `participants_json` の列を落としたので読む先が無い。誰がしたこと・
+        誰が居たかは書き込みの瞬間に分かっているので、そのまま渡す。立った面が以後の正で、
+        観測の行に残しておく必要はない。
         """
-        import json
-
-        with conn.cursor() as cur:
-            cur.execute(
-                "SELECT content, writer_id, participants_json FROM observations WHERE id = %s",
-                (obs_id,),
-            )
-            row = cur.fetchone()
-        if row is None:
-            return
-
-        body = row["content"] or ""
-        writer = str(row["writer_id"] or DEFAULT_PERSON_ID)
+        writer = str(writer_id or DEFAULT_PERSON_ID)
         # 048：話者が解決できなかった記録は、パジュ自身がしたこと。
         actor = AGENT_SELF_ID if writer == DEFAULT_PERSON_ID else writer
-
-        raw = row["participants_json"]
-        try:
-            participants = json.loads(raw) if isinstance(raw, str) else (raw or [])
-        except (TypeError, ValueError):
-            participants = []
+        participants = list(participants or [])
 
         wanted: list[tuple[str, str, str | None]] = [(actor, "actor", None)]
         for pid in participants:

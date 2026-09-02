@@ -22,9 +22,9 @@ def _conn():
 
 def _obs(cur, oid, kind="conversation"):
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-        "participants_json) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (oid, "c", "2020-01-01", "会話", kind, "neutral", "[]"),
+        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (oid, "c", "2020-01-01", "会話", kind, "neutral"),
     )
 
 
