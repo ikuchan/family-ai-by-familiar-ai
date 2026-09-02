@@ -86,7 +86,7 @@ def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
 
     from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
-    from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
+    from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
     vec = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
     obs_id = str(uuid.uuid4())
@@ -102,7 +102,7 @@ def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
             cur.execute(
                 "INSERT INTO situated_memories (id, obs_id, person_id, vector) "
                 "VALUES (%s, %s, %s, %s)",
-                (str(uuid.uuid4()), obs_id, DEFAULT_PERSON_ID, vec),
+                (str(uuid.uuid4()), obs_id, AGENT_SELF_ID, vec),
             )
     finally:
         conn.close()
@@ -118,7 +118,7 @@ def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
             cur.execute(
                 "SELECT last_recalled_at FROM situated_memories "
                 "WHERE obs_id = %s AND person_id = %s",
-                (obs_id, DEFAULT_PERSON_ID),
+                (obs_id, AGENT_SELF_ID),
             )
             row = cur.fetchone()
     finally:

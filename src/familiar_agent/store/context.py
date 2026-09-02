@@ -19,6 +19,25 @@ from ..db_migrations import apply_migrations, default_migration_dir
 from .db_compat import _RealDictConnWrapper, _SQLiteConnWrapper
 
 
+def viewpoint_of(person_id: str) -> str:
+    """その person で想起するとき、どの面を通って引くか（047）。
+
+    **`default` は視点ではない。** 書き込み側で「話者がまだ分からない」を表す置き場で
+    あって、人ではない。関係の面（`situated_memories`）は実在の人と `__self__` にしか
+    立たないので、`default` のまま引くと母集合が空になる。
+
+    話者が解決できなかった記録はパジュ自身がしたことなので（048「内なる記録は
+    エージェントのもの」）、視点も `__self__` へ寄せる。実物（2026-08-21）でも
+    `default` の面は1件も無く、`last_recalled_at` が入るのは `__self__` の行だけだった。
+
+    **書き込み側の `person_id` は変えない。** 誰が書いたか（`writer_id`）と、誰の視点で
+    引くかは別の問いである。規則はここ1箇所に置く。
+    """
+    from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
+
+    return AGENT_SELF_ID if person_id == DEFAULT_PERSON_ID else person_id
+
+
 @dataclass
 class StoreContext:
     """層が共有する道具。"""
@@ -27,6 +46,11 @@ class StoreContext:
     lock: threading.Lock
     person_id: str
     embedder: Any
+
+    @property
+    def viewpoint(self) -> str:
+        """想起がどの面を通って引くか（`viewpoint_of` の規則）。"""
+        return viewpoint_of(self.person_id)
 
     def conn(self) -> Any:
         """現在の接続を返す。未適用のマイグレーションがあればここで当てる。"""

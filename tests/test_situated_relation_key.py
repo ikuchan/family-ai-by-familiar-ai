@@ -46,8 +46,8 @@ def test_the_relation_key_column_exists() -> None:
     assert cols == {"relation_key"}
 
 
-def test_relation_key_defaults_to_presence() -> None:
-    """既存の書き込み経路（relation_key を指定しない INSERT）で 'presence' が入る。"""
+def test_relation_key_defaults_to_present() -> None:
+    """relation_key を指定しない INSERT で 'present' が入る（047 で既定を改めた）。"""
     obs_id = str(uuid.uuid4())
     se_id = str(uuid.uuid4())
     conn = _pg_conn()
@@ -69,7 +69,7 @@ def test_relation_key_defaults_to_presence() -> None:
     conn.commit()
     conn.close()
 
-    assert row["relation_key"] == "presence"
+    assert row["relation_key"] == "present"
 
 
 def test_the_same_relation_cannot_be_written_twice() -> None:
