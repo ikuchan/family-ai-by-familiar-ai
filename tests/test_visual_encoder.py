@@ -18,7 +18,7 @@ from familiar_agent.recognition.visual_encoder import VisualEncoder
 
 def _encoder(vector=None):
     e = VisualEncoder()
-    e._model = MagicMock()
+    e._mr_model = MagicMock()
     e._processor = MagicMock()
     e._embed_sync = MagicMock(return_value=vector)
     return e
@@ -47,7 +47,7 @@ def test_a_model_that_cannot_load_yields_nothing_rather_than_raising():
 
 def test_a_failed_encoding_yields_nothing():
     e = VisualEncoder()
-    e._model = MagicMock()
+    e._mr_model = MagicMock()
     e._processor = MagicMock()
     e._embed_sync = MagicMock(side_effect=RuntimeError("cuda oom"))
     assert asyncio.run(e.embed("/tmp/a.jpg")) is None
