@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.85）
+# familiar-ai 設計図（Mermaid一式・v0.86）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -323,6 +323,16 @@ flowchart TD
 | 符号化器（見え・DINOv2／顔・InsightFace）・検出器（YOLO）・書き起こし（STT）・音声合成（TTS） | **DIF の内側** | 機器に密着（カメラの絵・マイクの音・スピーカー） |
 | 主LLM・軽量LLM・VLM | **どの口にも属さない** | 記憶にも機器にも属さず、生成器・評価器・調停器・動作器が直接使う |
 
+**MCP も同じ原則で置き場が決まる**（2026-09-03 決定）。一律に「外部」とはしない。
+
+| MCP | 置き場 | 理由 |
+|---|---|---|
+| MCP-音楽 | **DIF の内側** | スピーカーを鳴らす。[D-会話減音]（会話中は音楽を絞る DIF 側の反射）が既にそう扱っている |
+| MCP-検索 | **内部資源**（実行担当 TEX が呼ぶ） | 何にも密着しない |
+| **MCP-メモ**（`obsidian-memo`） | **内部資源**（同上） | 同上。**stdio ＝ 同じ機械のサブプロセス**で、物理世界の向こうではない |
+
+**これは [D-I内部] の「LLM・MCP・検索は内部資源として扱い、DIF を通さず資源ハンドラが呼ぶ」へ戻す形である。** ③-2（v0.72）が MCP も「外部」に数えて食い違っていた。実装もはじめから [D-I内部] 側に立っており、`mcp_client.py` の冒頭に「**身体に関わる道具（カメラ・TTS・移動）は組み込みのまま、MCP はそれ以外**」と書かれている。
+
 **主LLM を DIF の向こうから外した。** v0.72 で「外部は身体／MCP-音楽／MCP-検索／主LLM の4つに束ね、すべて DIF の向こうへ置く」としたが、これは [D-I内部] の「**LLM・MCP・検索は内部資源として扱い（外部＝身体が接する物理世界だけ）、DIF を通さず資源ハンドラが呼ぶ**」と食い違っていた。図の中でも扱いが割れており、軽量LLM（ULM）だけが DIF を通らず同期で直接呼ばれていた。**外部は「身体が接する物理世界」に純化する。**
 
 **線は同期と非同期を分ける。** 太い実線＝同期（呼んだところへその場で返る）、点線＝非同期（投げて先へ進み、結果は IIF の待ち行列へ入る）。
@@ -334,6 +344,8 @@ graph TD
   BODY["身体：Body：カメラ・マイク・スピーカー"]
   MMUS["音楽：MCP-Music：再生と曲送り"]
   MSRC["検索：MCP-Search：検索と取得"]
+  MMEMO["メモ：MCP-Memo：家族が残した覚え書きを読み書きする"]
+  TEX["実行担当：Tool Executor（TEX）：MCP・検索・ツールを呼ぶ内部資源ハンドラ"]
   MLLM["主LLM：Main LLM（MLLM）：応答と動作要求を作る。投げて先へ進み、結果は IIF へ"]
   DIF["機器接続：Device Interface（DIF）：外部の機械との唯一の出入り口"]
   IIF["内部接続：Internal Interface（IIF）：非同期のやりとりが通る1本の口。きっかけと結果が並ぶ待ち行列を持つ"]
@@ -353,7 +365,6 @@ graph TD
   T <-.->|"情動と Nudge：affect and nudge"| AIF
   BODY <-.->|"撮る・話す・声：capture speak voice"| DIF
   MMUS <-.->|"再生と状態：play and state"| DIF
-  MSRC <-.->|"検索と結果：search and result"| DIF
   AIF <-.->|"きっかけと Nudge：trigger and nudge"| IIF
   DIF <-.->|"きっかけと要求：trigger and request"| IIF
 
@@ -369,6 +380,9 @@ graph TD
   APR ==>|"感情と要約：emotion and summary"| ULM
   ACT ==>|"意味づけ：meaning"| ULM
   GEN -.->|"指示と応答：prompt and reply"| MLLM
+  ACT -.->|"道具の要求と結果：tool request and result"| TEX
+  TEX -.->|"検索と結果：search and result"| MSRC
+  TEX -.->|"覚え書きの読み書き：read and write notes"| MMEMO
 
   REC ==>|"読み出し：read"| OIF
   LPM ==>|"追記：append"| OIF
@@ -382,19 +396,20 @@ graph TD
   class AIF,DIF,OIF,IIF gate
   class T,LPM,REC,ARB,APR,GEN,ACT,MNT,ULM proc
   class O store
-  class BODY,MMUS,MSRC ext
+  class BODY,MMUS ext
+  class MSRC,MMEMO ext
+  class TEX proc
   class MLLM proc
 ```
 
 **モデル資源（MR）は図に描かない。** 型枠は「どのコンポーネントが何と話すか」ではなく、**重みを持つものが共通で守る約束**だからである。線を引くと、口が型枠に従うように読めてしまう。従うのは口ではなく、口の内側にあるモデルである。
 
-### 外部は3つに束ねる
+### 外部は2つに束ねる
 
 | 外部 | 中身 |
 |---|---|
 | 身体 | カメラ・マイク・スピーカー |
-| MCP-音楽 | 再生と曲送り |
-| MCP-検索 | 検索と取得 |
+| MCP-音楽 | 再生と曲送り（スピーカーを鳴らすので身体に密着する） |
 
 **外部は「身体が接する物理世界」と、その先にある機械である。** v0.72 では主LLM も外部に数えていたが、[D-I内部] の定義（外部＝身体が接する物理世界だけ）と食い違っていたので外した（v0.85・出-c）。**主LLM は資源**で、生成器が直接呼ぶ。投げて先へ進み、結果は IIF の待ち行列へ入る。
 
@@ -518,6 +533,14 @@ sequenceDiagram
 ---
 
 ## 更新履歴
+
+> v0.86：**MCP の置き場を「何に密着しているか」で決め、MCP-メモを足した**
+> （2026-09-03）。一律に「外部」とはせず、**MCP-音楽は DIF の内側**（スピーカーを鳴らす）、
+> **MCP-検索と MCP-メモは内部資源**（実行担当 TEX が呼ぶ）とした。③-2（v0.72）が MCP も
+> 外部に数えて [D-I内部] と食い違っていたのを、[D-I内部] 側へ戻した形である。実装も
+> はじめからそちら側に立っていた（`mcp_client.py`：身体に関わる道具は組み込みのまま、
+> MCP はそれ以外）。**外部は2つ**（身体・MCP-音楽）になった。`obsidian-memo` は
+> **外部の記憶＝人と共有する書き置き**として位置づける（想起には混ざらない）。
 
 > v0.85：**モデルは口でなく資源であることを決め、主LLM を DIF の向こうから外した**
 > （2026-09-03・出-c）。v0.72 の「外部は身体／MCP-音楽／MCP-検索／主LLM の4つ」は
