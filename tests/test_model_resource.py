@@ -1,0 +1,139 @@
+"""モデル資源（MR）の型枠が、重みを持つものの共通の関心事を引き受ける（出-c）。
+
+**同じ形が3回、少しずつ違って書かれていた。** `_EmbeddingModel`・`VisualEncoder`・
+`PersonDetector` は同じ問題を同じ順序で解いていながら、失敗フラグの名前（`_failed` と
+`_load_failed`）も、読み込み口の形（`pre_warm()` ／ `_ensure_model() -> bool` ／
+`-> Any`）も、載せる先の決め方（環境変数／`torch.cuda.is_available()`／指定なし）も
+揃っていなかった。並行制御に至っては、3つのうち1つにしか無い。
+
+型枠が引き受けるのは**推論そのものではなく、モデルを持つことに伴う関心事**である。
+失敗の約束は**宣言で分ける**——致命なら例外、そうでなければ縮退（出-b が「埋め込みは
+致命」と決めた結果が、コードの一行に出る形にする）。
+"""
+
+from __future__ import annotations
+
+import threading
+
+import pytest
+
+from familiar_agent.core.model_resource import ModelResource
+
+
+class _Fake(ModelResource):
+    """読み込みの回数を数えるだけの模型。"""
+
+    def __init__(self, *, fails: bool = False, **kw) -> None:
+        super().__init__(**kw)
+        self.loads = 0
+        self._fails = fails
+
+    def _load(self):
+        self.loads += 1
+        if self._fails:
+            raise RuntimeError("重みが取れない")
+        return object()
+
+
+# ── ① 読めないときは縮退する（既定） ───────────────────────────────────────
+
+def test_a_missing_model_degrades_instead_of_raising() -> None:
+    """重みが取れない環境でも、他の機能は動き続ける。"""
+    r = _Fake(name="試し", fails=True)
+    assert r.ensure() is None
+    assert r.ready is False
+
+
+# ── ② 致命だと宣言したものは例外を投げる（反証側） ─────────────────────────
+
+def test_a_fatal_resource_raises() -> None:
+    """`fatal=True` は「これが無ければ続けられない」の宣言（出-b・埋め込みが該当）。"""
+    r = _Fake(name="試し", fatal=True, fails=True)
+    with pytest.raises(RuntimeError):
+        r.ensure()
+
+
+# ── ③ 二度目以降は試さない ─────────────────────────────────────────────────
+
+def test_a_failed_load_is_not_retried() -> None:
+    """失敗を記憶する。毎回試すと、重みの無い環境で呼ぶたび重くなる。"""
+    r = _Fake(name="試し", fails=True)
+    for _ in range(5):
+        assert r.ensure() is None
+    assert r.loads == 1
+
+
+def test_a_successful_load_happens_once() -> None:
+    r = _Fake(name="試し")
+    first = r.ensure()
+    assert r.ensure() is first
+    assert r.loads == 1
+    assert r.ready is True
+
+
+# ── ④ 並行して呼んでも読み込みは1回だけ ───────────────────────────────────
+
+def test_concurrent_callers_load_only_once() -> None:
+    """いま `VisualEncoder` と `PersonDetector` には並行制御が無い。
+
+    在席の常駐と想起が同時に触れば、重いモデルを二重に読む。型枠が引き受ける。
+    """
+    import time
+
+    class _Slow(_Fake):
+        def _load(self):
+            time.sleep(0.05)          # 読み込みに時間がかかるものを模す
+            return super()._load()
+
+    r = _Slow(name="試し")
+    got: list = []
+    threads = [threading.Thread(target=lambda: got.append(r.ensure())) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+
+    assert r.loads == 1, f"{r.loads} 回読み込んでいる"
+    assert len({id(g) for g in got}) == 1, "スレッドごとに別のモデルを掴んでいる"
+
+
+# ── ⑤ 載せる先の決め方 ─────────────────────────────────────────────────────
+
+def test_the_device_comes_from_the_environment_first(monkeypatch) -> None:
+    """環境変数が最優先。テストは並列で走るので、GPU の奪い合いを断つために要る。"""
+    monkeypatch.setenv("試し_DEVICE", "cpu")
+    r = _Fake(name="試し", device_env="試し_DEVICE")
+    assert r.device == "cpu"
+
+
+def test_the_device_falls_back_to_cpu_without_cuda(monkeypatch) -> None:
+    """`cuda` が無ければ `cpu`。3つのうち1つしか自動判定していなかった。"""
+    monkeypatch.delenv("試し_DEVICE", raising=False)
+    r = _Fake(name="試し", device_env="試し_DEVICE")
+    r._cuda_available = lambda: False    # type: ignore[method-assign]
+    assert r.device == "cpu"
+
+
+def test_the_device_prefers_cuda_when_present(monkeypatch) -> None:
+    monkeypatch.delenv("試し_DEVICE", raising=False)
+    r = _Fake(name="試し", device_env="試し_DEVICE")
+    r._cuda_available = lambda: True     # type: ignore[method-assign]
+    assert r.device == "cuda"
+
+
+# ── ⑥ YOLO を型枠へ移しても、挙動は変わらない ─────────────────────────────
+
+def test_the_person_detector_conforms_to_the_type() -> None:
+    from familiar_agent.recognition.person_detector import PersonDetector
+
+    assert issubclass(PersonDetector, ModelResource)
+
+
+def test_the_person_detector_still_reports_nobody_when_the_model_is_missing() -> None:
+    """読めないときは「見えなかった」（0人）。誤って「居る」と言うより安全である。"""
+    import asyncio
+
+    from familiar_agent.recognition.person_detector import PersonDetector
+
+    d = PersonDetector(model_name="存在しない重み.pt")
+    assert asyncio.run(d.count(object())) == 0
