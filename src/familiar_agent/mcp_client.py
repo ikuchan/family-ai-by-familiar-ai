@@ -19,6 +19,12 @@ Example config:
           "command": "npx",
           "args": ["-y", "@modelcontextprotocol/server-filesystem", "/home/user"]
         },
+        "obsidian-memo": {
+          "type": "stdio",
+          "command": "python",
+          "args": ["-m", "memo_mcp"],
+          "cwd": "/path/to/ObsidianMemo"
+        },
         "memory": {
           "type": "sse",
           "url": "http://localhost:3000/sse"
@@ -177,12 +183,15 @@ class MCPClientManager:
             command = cfg.get("command", "")
             args: list[str] = cfg.get("args", [])
             env: dict[str, str] | None = cfg.get("env") or None
+            # そのディレクトリに居ることを前提にした起動がある（`python -m memo_mcp` など）。
+            # 渡さないとモジュールが見つからない。`~/.claude.json` にもある標準の欄。
+            cwd: str | None = cfg.get("cwd") or None
 
             if not command:
                 logger.warning("MCP server '%s': missing 'command', skipping", name)
                 return
 
-            params = StdioServerParameters(command=command, args=args, env=env)
+            params = StdioServerParameters(command=command, args=args, env=env, cwd=cwd)
             read, write = await ctx.enter_async_context(stdio_client(params))
             session: Any = await ctx.enter_async_context(ClientSession(read, write))
             await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)

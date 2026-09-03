@@ -150,6 +150,22 @@ capabilities:
       MCP servers, exposing their tools to the agent. Supported transports include
       stdio and SSE. Implemented in `mcp_client.py`.
     enabled_env: MCP_CONFIG
+  - id: shared_notes
+    summary: Look up the household's shared notes — the rules the family lives by
+    detail: >
+      A memo server (`obsidian-memo`) exposes the family's Obsidian vault over MCP.
+      These are notes people wrote, not the agent's own memories, and they are
+      never mixed into recall: the agent's memory (observations) and the
+      household's notes stay separate stores. Right now the vault exposes one
+      tool, `get_house_rules`, which returns the rules currently in force — which
+      days games and YouTube are allowed, how long, breaks, the three minutes of
+      exercise on getting home. Use it when a child asks whether they may play,
+      when checking what day it is for that, or when the rules themselves matter.
+      It returns what is agreed now, not a memory of a past conversation.
+      Treated as a tool: read it when the question needs what is written down,
+      not on every turn. Runs as a local stdio subprocess on the same machine.
+      Requires MCP_CONFIG or ~/.familiar-ai.json to list the server.
+    enabled_env: MCP_CONFIG
   - id: interoception_bridge
     summary: Provide and semantically map internal bodily signals
     detail: >

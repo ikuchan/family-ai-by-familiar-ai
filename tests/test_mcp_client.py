@@ -655,3 +655,22 @@ async def test_tavily_search_valid_time_range_unchanged(tmp_path: Path) -> None:
         _, kwargs = sess.call_tool.call_args
         sent = kwargs["arguments"]
         assert sent["time_range"] == valid, f"Valid value {valid!r} should be unchanged"
+
+
+# ── cwd（作業ディレクトリ）を渡す ────────────────────────────────────────────
+
+def test_stdio_server_receives_its_working_directory() -> None:
+    """設定の `cwd` を stdio のパラメータへ渡す。
+
+    `python -m memo_mcp` のように**そのディレクトリに居ることを前提**にした起動があり、
+    渡さないとモジュールが見つからない。`cwd` は Claude Code の `~/.claude.json` にもある
+    標準の欄で、MCP の SDK（`StdioServerParameters`）も受け取れる。渡していなかったので
+    足した（2026-09-03）。
+    """
+    import inspect
+
+    from familiar_agent import mcp_client
+
+    src = inspect.getsource(mcp_client)
+    assert 'cfg.get("cwd")' in src, "設定から cwd を読んでいない"
+    assert "cwd=cwd" in src, "stdio のパラメータへ cwd を渡していない"
