@@ -137,3 +137,80 @@ def test_the_person_detector_still_reports_nobody_when_the_model_is_missing() ->
 
     d = PersonDetector(model_name="存在しない重み.pt")
     assert asyncio.run(d.count(object())) == 0
+
+
+# ── ⑦ 機器やライブラリが無いのは「永続的な失敗」──────────────────────────
+
+class _NoLibrary(_Fake):
+    def _load(self):
+        self.loads += 1
+        raise ImportError("insightface が入っていない")
+
+
+class _Flaky(_Fake):
+    """2回目で読めるようになるもの（VRAM の一時不足などを模す）。"""
+
+    def _load(self):
+        self.loads += 1
+        if self.loads < 2:
+            raise RuntimeError("いま VRAM が足りない")
+        return object()
+
+
+def test_a_missing_library_is_never_retried_even_with_retries() -> None:
+    """カメラやマイクが無い構成では、ライブラリごと入っていないことがある。
+
+    これは**永続的な失敗**なので、何度試しても同じである。再試行すると、呼ぶたびに
+    数秒を失うだけになる（`load_whisper_model` は書き起こしのたびに呼ばれる）。
+    """
+    r = _NoLibrary(name="試し", retries=5)
+    for _ in range(4):
+        assert r.ensure() is None
+    assert r.loads == 1, f"永続的な失敗を {r.loads} 回試している"
+
+
+def test_a_missing_weight_file_is_never_retried() -> None:
+    class _NoWeights(_Fake):
+        def _load(self):
+            self.loads += 1
+            raise FileNotFoundError("重みが無い")
+
+    r = _NoWeights(name="試し", retries=5)
+    r.ensure(); r.ensure()
+    assert r.loads == 1
+
+
+def test_a_temporary_failure_is_retried_up_to_the_limit() -> None:
+    """一時的な失敗は待って試す。いまは一度失敗すると再起動まで二度と読まない。"""
+    r = _Flaky(name="試し", retries=2)
+    assert r.ensure() is None      # 1回目は失敗
+    assert r.ensure() is not None  # 2回目で読めた
+    assert r.loads == 2
+
+
+def test_retries_are_exhausted_and_then_remembered() -> None:
+    """使い切ったら記憶する。**永久に試し続けない。**"""
+    r = _Fake(name="試し", fails=True, retries=2)
+    for _ in range(6):
+        assert r.ensure() is None
+    assert r.loads == 3, f"上限（1+2）を超えて {r.loads} 回試している"
+
+
+# ── ⑧ 先読み（起動時・別スレッド・起動を止めない）─────────────────────────
+
+def test_pre_warm_loads_in_the_background() -> None:
+    """起動時に読み始めて、最初の呼び出しを待たせない。**起動は止めない。**"""
+    import time
+
+    class _Slow(_Fake):
+        def _load(self):
+            time.sleep(0.05)
+            return super()._load()
+
+    r = _Slow(name="試し")
+    started = time.monotonic()
+    r.pre_warm()
+    assert time.monotonic() - started < 0.04, "先読みが起動を止めている"
+
+    assert r.ensure() is not None    # 読み終わるまで待って受け取る
+    assert r.loads == 1, "先読みと本読みで二重に読んでいる"

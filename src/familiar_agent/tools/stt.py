@@ -15,6 +15,8 @@ import logging
 import time
 from typing import TYPE_CHECKING
 
+from ..core.model_resource import ModelResource
+
 import contextlib
 import ctypes
 import os
@@ -77,11 +79,6 @@ def _suppress_alsa_errors():
                 pass
 
 
-# 読み込んだ書き起こしモデル。**プロセスで1つだけ持つ。** 読み込みに数秒かかり VRAM も
-# 使うので、呼ばれるたびに読み直すわけにはいかない。
-_whisper_model = None
-
-
 def _build_whisper_model(cfg):
     """`faster-whisper` のモデルを組む（差し替え点）。"""
     from faster_whisper import WhisperModel
@@ -93,27 +90,42 @@ def _build_whisper_model(cfg):
     )
 
 
-def load_whisper_model(cfg):
-    """書き起こしモデルを返す（1度だけ読む）。読めなければ `None`。
+class _WhisperModel(ModelResource):
+    """書き起こしのモデルを持つ。
 
-    読めなくても落とさない。**書き起こしができないだけ**にする（機器は落ちる前提のもので、
-    モデルが載らないことでターンごと壊すわけにはいかない）。
+    **縮退する側**である（`fatal=False`）——読めなくても落とさない。書き起こしができない
+    だけにする（機器は落ちる前提のもので、モデルが載らないことでターンごと壊すわけには
+    いかない）。**マイクが無い構成では `faster-whisper` ごと入っていないことがある**が、
+    それは永続的な失敗として型枠が扱うので、呼ぶたびに読み直すことはない（出-c・以前は
+    失敗を記憶しておらず、書き起こしのたびに数秒を失っていた）。
     """
-    global _whisper_model
-    if _whisper_model is not None:
-        return _whisper_model
-    try:
+
+    def __init__(self, cfg) -> None:
+        super().__init__(name="書き起こし", fatal=False)
+        self._cfg = cfg
+
+    def _load(self):
         started = time.monotonic()
-        _whisper_model = _build_whisper_model(cfg)
+        model = _build_whisper_model(self._cfg)
         logger.info(
             "STT: モデルを読んだ（%s・%s・%s・%.1f 秒）",
-            cfg.whisper_model, cfg.whisper_device, cfg.whisper_compute_type,
-            time.monotonic() - started,
+            self._cfg.whisper_model, self._cfg.whisper_device,
+            self._cfg.whisper_compute_type, time.monotonic() - started,
         )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("STT: モデルを読めなかった（書き起こしは使えない）: %s", e)
-        _whisper_model = None
-    return _whisper_model
+        return model
+
+
+# プロセスで1つだけ持つ。読み込みに数秒かかり VRAM も使うので、呼ばれるたびに読み直す
+# わけにはいかない。
+_whisper: "_WhisperModel | None" = None
+
+
+def load_whisper_model(cfg):
+    """書き起こしモデルを返す（1度だけ読む）。読めなければ `None`。"""
+    global _whisper
+    if _whisper is None:
+        _whisper = _WhisperModel(cfg)
+    return _whisper.ensure()
 
 
 def ensure_whisper_model(cfg) -> None:
