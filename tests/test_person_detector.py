@@ -23,7 +23,9 @@ def _result(n_boxes):
 
 def _detector(model):
     d = PersonDetector()
-    d._model = model          # 遅延読込を飛ばす
+    # 遅延読込を飛ばす。読み込みと失敗の扱いは モデル資源（MR）の型枠が持つので、
+    # 差し込む先も型枠の名前になった（出-c）。
+    d._mr_model = model
     return d
 
 
