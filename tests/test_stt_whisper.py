@@ -89,7 +89,8 @@ def test_the_model_is_loaded_once_and_reused():
     """読み込みは数秒かかる。2回目以降は読み直さない。"""
     from familiar_agent.tools import stt
 
-    stt._whisper_model = None
+    # 読み込みの状態はモデル資源（MR）が持つので、リセットは入れ物ごと捨てる（出-c）。
+    stt._whisper = None
     fake = MagicMock()
     with patch("familiar_agent.tools.stt._build_whisper_model", return_value=fake) as build:
         first = stt.load_whisper_model(STTConfig())
@@ -102,7 +103,8 @@ def test_the_model_is_not_loaded_for_another_engine():
     """使わない構成では読まない（VRAM 2.5GB を無駄に占めない）。"""
     from familiar_agent.tools import stt
 
-    stt._whisper_model = None
+    # 読み込みの状態はモデル資源（MR）が持つので、リセットは入れ物ごと捨てる（出-c）。
+    stt._whisper = None
     with patch.dict(os.environ, {"STT_ENGINE": "elevenlabs"}, clear=True), \
          patch("familiar_agent.tools.stt._build_whisper_model") as build:
         stt.ensure_whisper_model(STTConfig())
@@ -113,7 +115,8 @@ def test_a_failed_load_does_not_raise():
     """モデルを読めなくても落とさない。書き起こしができないだけにする。"""
     from familiar_agent.tools import stt
 
-    stt._whisper_model = None
+    # 読み込みの状態はモデル資源（MR）が持つので、リセットは入れ物ごと捨てる（出-c）。
+    stt._whisper = None
     with patch("familiar_agent.tools.stt._build_whisper_model", side_effect=OSError("no gpu")):
         assert stt.load_whisper_model(STTConfig()) is None
 

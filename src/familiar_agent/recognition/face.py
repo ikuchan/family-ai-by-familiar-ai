@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 
 from ..config import RecognitionConfig
+from ..core.model_resource import ModelResource
 from .embedding_store import EmbeddingStore, best_match
 
 if TYPE_CHECKING:
@@ -26,8 +27,8 @@ logger = logging.getLogger(__name__)
 
 FACE_EMB_DB = Path.home() / ".familiar_ai" / "face_embeddings.pkl"
 
-_MODEL: Any = None          # InsightFace FaceAnalysis の遅延シングルトン
 _STORE: EmbeddingStore | None = None
+_FACE: "_FaceModel | None" = None    # プロセスで1つだけ持つ（読込が重い）
 
 
 def _face_store() -> EmbeddingStore:
@@ -37,33 +38,40 @@ def _face_store() -> EmbeddingStore:
     return _STORE
 
 
-def _get_model(cfg: RecognitionConfig) -> Any:
-    """InsightFace の FaceAnalysis を1回だけ構築する。失敗時は None。"""
-    global _MODEL
-    if _MODEL is not None:
-        return _MODEL
-    try:
+class _FaceModel(ModelResource):
+    """InsightFace の FaceAnalysis を持つ。
+
+    **縮退する側**である（`fatal=False`）——顔が分からなくても、在/不在の判定（YOLO）と
+    会話は動き続ける。**insightface が入っていない構成は永続的な失敗**として型枠が扱うので、
+    呼ぶたびに読み直すことはない（出-c・以前は失敗を記憶していなかった）。
+    """
+
+    def __init__(self, cfg: RecognitionConfig) -> None:
+        super().__init__(name="顔認識")
+        self._cfg = cfg
+
+    def _load(self) -> Any:
         import onnxruntime as ort
 
         from insightface.app import FaceAnalysis
-    except ImportError:
-        logger.debug("insightface 未インストール。顔認識を飛ばす")
-        return None
-    try:
+
         # nvidia pip ホイールの CUDA/cuDNN を先読みし、onnxruntime の CUDA プロバイダが
         # libcublasLt.so.12 等を見つけられるようにする。これが無いと provider の .so が
         # ロードできず、警告だけ出して黙って CPU に落ちる（torch は自前で preload する
         # ので影響を受けないが、onnxruntime は自動では load しない）。
         if hasattr(ort, "preload_dlls"):
             ort.preload_dlls()
-        app = FaceAnalysis(name=cfg.face_model, providers=cfg.provider_list())
+        app = FaceAnalysis(name=self._cfg.face_model, providers=self._cfg.provider_list())
         app.prepare(ctx_id=0)
-        _MODEL = app
-        logger.info("InsightFace ロード完了（model=%s）", cfg.face_model)
-        return _MODEL
-    except Exception as e:
-        logger.warning("InsightFace のロードに失敗（顔認識を無効化）: %s", e)
-        return None
+        return app
+
+
+def _get_model(cfg: RecognitionConfig) -> Any:
+    """InsightFace の FaceAnalysis を1回だけ構築する。失敗時は None。"""
+    global _FACE
+    if _FACE is None:
+        _FACE = _FaceModel(cfg)
+    return _FACE.ensure()
 
 
 def _extract_face_embedding(image_path: str, cfg: RecognitionConfig) -> np.ndarray | None:

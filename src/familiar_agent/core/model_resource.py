@@ -13,6 +13,16 @@
 いたのは誤りではなく、出-b が「埋め込みは致命・他は縮退」と決めた結果である。**どちらを
 選んだかがコードの一行に出る**形にした。
 
+**永続的な失敗と一時的な失敗を分ける。** カメラやマイクが無い構成では、ライブラリごと
+入っていないことがある（`ImportError`）し、重みが取れないこともある（`FileNotFoundError`）。
+**これらは何度試しても同じ**なので、`retries` の指定に関わらず即座に記憶して二度と試さない。
+再試行すると呼ぶたびに数秒を失うだけになる（`load_whisper_model` は書き起こしのたびに
+呼ばれる）。一時的な失敗（VRAM の不足・重みの取得中のネットワーク断）だけを `retries` の
+回数まで試し、**使い切ったら記憶する。永久に試し続けない。**
+
+**先読みは起動時に、別スレッドで行う。** `pre_warm()` は起動を止めない。読み終わる前に
+最初の呼び出しが来たら、そこで待つ。
+
 **モデルは口ではなく資源である**（`設計図` v0.85）。置き場は「何に密着しているか」で決まる
 ——言語の符号化器は OIF の内側、見え・顔・検出・音声は DIF の内側、LLM はどの口にも
 属さない。この型枠はそのどれにも共通で効く。
@@ -28,6 +38,11 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+#: 何度試しても結果が変わらない失敗。ライブラリが入っていない（`ImportError`）、
+#: 重みが取れない（`FileNotFoundError`／`OSError`）。カメラやマイクの無い構成では
+#: これが普通に起きるので、再試行の対象にしない。
+_PERMANENT = (ImportError, FileNotFoundError)
+
 
 class ModelResource(ABC):
     """重みを持つものの共通の型枠。
@@ -41,15 +56,18 @@ class ModelResource(ABC):
         name: str,
         fatal: bool = False,
         device_env: str | None = None,
+        retries: int = 0,
     ) -> None:
         """
         `name` はログに出る呼び名（「人検出」「見えのエンコーダ」など）。
         `fatal` は「これが無ければ続けられない」の宣言。既定は縮退（False）。
         `device_env` は載せる先を指定する環境変数の名前（無ければ自動判定だけ）。
+        `retries` は**一時的な失敗**を試し直す回数。既定は 0（一度きり）。
         """
         self._mr_name = name
         self._mr_fatal = fatal
         self._mr_device_env = device_env
+        self._mr_retries_left = max(0, retries)
         self._mr_model: Any = None
         self._mr_failed = False
         self._mr_lock = threading.Lock()
@@ -73,7 +91,19 @@ class ModelResource(ABC):
             try:
                 self._mr_model = self._load()
                 logger.info("%sのモデルを読み込んだ（%s）", self._mr_name, self.device)
+            except _PERMANENT as e:
+                # 無いものは何度試しても無い。回数に関わらず記憶する。
+                self._mr_failed = True
+                if self._mr_fatal:
+                    logger.exception("%sのモデルが無い（続けられない）", self._mr_name)
+                    raise
+                logger.warning("%sのモデルが無いので使わない（%s）", self._mr_name, e)
             except Exception as e:  # noqa: BLE001
+                if self._mr_retries_left > 0:
+                    self._mr_retries_left -= 1
+                    logger.warning("%sのモデルを読み込めない（あと %d 回試す）: %s",
+                                   self._mr_name, self._mr_retries_left + 1, e)
+                    return None
                 self._mr_failed = True
                 if self._mr_fatal:
                     logger.exception("%sのモデルを読み込めない（続けられない）", self._mr_name)
@@ -81,6 +111,16 @@ class ModelResource(ABC):
                 logger.exception("%sのモデルを読み込めない（縮退して続ける）: %s",
                                  self._mr_name, e)
             return self._mr_model
+
+    def pre_warm(self) -> None:
+        """起動時に読み始める。**起動は止めない**（別スレッドで走る）。
+
+        読み終わる前に最初の呼び出しが来たら、`ensure()` が錠の前で待って同じものを返す
+        （二重に読まない）。
+        """
+        threading.Thread(
+            target=self.ensure, daemon=True, name=f"prewarm-{self._mr_name}"
+        ).start()
 
     @property
     def ready(self) -> bool:
