@@ -16,37 +16,32 @@ import asyncio
 import logging
 from typing import Any
 
+from ..core.model_resource import ModelResource
+
 logger = logging.getLogger(__name__)
 
 _MODEL_NAME = "facebook/dinov2-small"
 
 
-class VisualEncoder:
-    """画像1枚を 384 次元のベクトルにする。"""
+class VisualEncoder(ModelResource):
+    """画像1枚を 384 次元のベクトルにする。
+
+    **縮退する側**である（`fatal=False`）——重みが取れなければ景色の驚きは出ないが、
+    在席の判定（YOLO）は動き続ける。読み込みと失敗の扱いは モデル資源（MR）の型枠が持つ
+    （出-c）。
+    """
 
     def __init__(self, model_name: str = _MODEL_NAME) -> None:
+        super().__init__(name="見えのエンコーダ", device_env="VISUAL_ENCODER_DEVICE")
         self._model_name = model_name
-        self._model: Any = None
         self._processor: Any = None
-        self._load_failed = False
 
-    def _ensure_model(self) -> bool:
-        if self._model is not None or self._load_failed:
-            return self._model is not None
-        try:
-            import torch
-            import transformers
+    def _load(self) -> Any:
+        import transformers
 
-            self._processor = transformers.AutoImageProcessor.from_pretrained(self._model_name)
-            model = transformers.AutoModel.from_pretrained(self._model_name)
-            self._device = "cuda" if torch.cuda.is_available() else "cpu"
-            self._model = model.to(self._device).eval()
-            logger.info("見えのエンコーダを読み込んだ: %s（%s）", self._model_name, self._device)
-        except Exception as e:  # noqa: BLE001
-            # 重みが取れない環境でも、在席の判定（YOLO）は動き続ける。二度目以降は試さない。
-            logger.exception("見えのエンコーダを読み込めない（景色の驚きは出ない）: %s", e)
-            self._load_failed = True
-        return self._model is not None
+        self._processor = transformers.AutoImageProcessor.from_pretrained(self._model_name)
+        model = transformers.AutoModel.from_pretrained(self._model_name)
+        return model.to(self.device).eval()
 
     def _embed_sync(self, image_path: str) -> list[float] | None:
         import torch
@@ -54,9 +49,9 @@ class VisualEncoder:
 
         with Image.open(image_path) as image:
             inputs = self._processor(images=image.convert("RGB"), return_tensors="pt")
-        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+        inputs = {k: v.to(self.device) for k, v in inputs.items()}
         with torch.no_grad():
-            out = self._model(**inputs)
+            out = self.ensure()(**inputs)
         return out.pooler_output[0].detach().cpu().tolist()
 
     async def embed(self, image_path: str) -> list[float] | None:
@@ -64,7 +59,7 @@ class VisualEncoder:
 
         GPU の重い呼び出しなのでイベントループの外へ出す（`コード規約` の並行処理）。
         """
-        if not self._ensure_model():
+        if self.ensure() is None:
             return None
         try:
             return await asyncio.to_thread(self._embed_sync, image_path)
