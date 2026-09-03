@@ -11,12 +11,12 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import os
-import threading
 from collections import OrderedDict
 from typing import Any
 
 import numpy as np
+
+from ..core.model_resource import ModelResource
 
 logger = logging.getLogger(__name__)
 
@@ -60,53 +60,45 @@ def _coerce_to_embedding_dim(vec: np.ndarray) -> np.ndarray:
 
 # ── Lazy embedding model ───────────────────────────────────────────────────
 
-class _EmbeddingModel:
+class _EmbeddingModel(ModelResource):
+    """言語の符号化器（bge-m3）。記憶に密着するので OIF の内側に置く。
+
+    **致命の側**である（`fatal=False` のまま扱い、失敗は `failed` で外へ知らせる）。
+    出-b が「埋め込みは致命」と決めているが、判定は呼び出し側（`memory.py`）が
+    `failed` を見て行う形になっており、ここで例外を投げると起動そのものが壊れる。
+    その形は変えない。
+
+    載せる先は**未指定なら sentence-transformers の自動判定に任せる**（型枠の `device` が
+    `None` を返す）。テストは並列にワーカーを起こし、**ワーカーごとに**モデルを載せるため、
+    GPU では VRAM を使い切ってプロセスごと落ちる（実測で `CUDA out of memory`）。
+    テスト側で `EMBEDDING_DEVICE=cpu` を選んで奪い合いを断つ。
+    """
+
     _CACHE_SIZE = 128
 
     def __init__(self, model_name: str = EMBEDDING_MODEL) -> None:
+        super().__init__(name="埋め込み", device_env="EMBEDDING_DEVICE")
         self._model_name = model_name
-        # 載せる先。未指定なら sentence-transformers の自動判定（GPU があれば GPU）に任せる。
-        # テストは `-n auto` でワーカーを並べ、**ワーカーごとに**モデルを載せるため、GPU では
-        # VRAM を使い切ってプロセスごと落ちる。テスト側で `cpu` を選んで奪い合いを断つ。
-        self.device: str | None = os.environ.get("EMBEDDING_DEVICE") or None
-        self._model: Any = None
-        self._failed = False
-        self._lock = threading.Lock()
-        self._ready = threading.Event()
         self._q_cache: OrderedDict[str, list[float]] = OrderedDict()
         self._d_cache: OrderedDict[str, list[float]] = OrderedDict()
 
-    def pre_warm(self) -> None:
-        t = threading.Thread(target=self._load, daemon=True, name="embedding-prewarm")
-        t.start()
-
     def is_ready(self) -> bool:
-        return self._ready.is_set()
+        """読み込みが**済んだか**（成功・失敗を問わず、試し終えたか）。
 
-    def failed(self) -> bool:
-        """モデル読込に失敗したか（#10・致命判定用）。"""
-        return self._failed
+        型枠の `ready` は「使える状態か」なので、失敗したときに偽になる。ここが表すのは
+        「先読みが終わったか」で、意味が違うため別に持つ。
+        """
+        return self.ready or self.failed
 
-    def _load(self) -> None:
-        if self._model is not None or self._failed:
-            return
-        with self._lock:
-            if self._model is None and not self._failed:
-                for name in ("sentence_transformers", "huggingface_hub", "transformers"):
-                    logging.getLogger(name).setLevel(logging.ERROR)
-                try:
-                    import sentence_transformers
-                    if self.device:
-                        self._model = sentence_transformers.SentenceTransformer(
-                            self._model_name, device=self.device)
-                    else:
-                        self._model = sentence_transformers.SentenceTransformer(
-                            self._model_name)
-                    logger.info("Embedding model loaded.")
-                except Exception as e:
-                    self._failed = True
-                    logger.warning("Embedding model load failed: %s", e)
-                self._ready.set()
+    def _load(self) -> Any:
+        for name in ("sentence_transformers", "huggingface_hub", "transformers"):
+            logging.getLogger(name).setLevel(logging.ERROR)
+        import sentence_transformers
+
+        if self.device:
+            return sentence_transformers.SentenceTransformer(
+                self._model_name, device=self.device)
+        return sentence_transformers.SentenceTransformer(self._model_name)
 
     def _zeros(self, n: int) -> list[list[float]]:
         return [[0.0] * EMBEDDING_DIM for _ in range(n)]
@@ -132,14 +124,14 @@ class _EmbeddingModel:
             cache.popitem(last=False)
 
     def encode_document(self, texts: list[str]) -> list[list[float]]:
-        self._load()
-        if self._model is None:
+        model = self.ensure()
+        if model is None:
             return self._zeros(len(texts))
         miss_idx, miss_texts, results = self._lookup(self._d_cache, texts)
         if miss_texts:
             try:
-                new = self._model.encode(miss_texts, normalize_embeddings=True,
-                                         show_progress_bar=False).tolist()
+                new = model.encode(miss_texts, normalize_embeddings=True,
+                                   show_progress_bar=False).tolist()
             except Exception as e:
                 logger.warning("encode_document failed: %s", e); return self._zeros(len(texts))
             self._store(self._d_cache, miss_texts, new)
@@ -147,14 +139,14 @@ class _EmbeddingModel:
         return results  # type: ignore
 
     def encode_query(self, texts: list[str]) -> list[list[float]]:
-        self._load()
-        if self._model is None:
+        model = self.ensure()
+        if model is None:
             return self._zeros(len(texts))
         miss_idx, miss_texts, results = self._lookup(self._q_cache, texts)
         if miss_texts:
             try:
-                new = self._model.encode(miss_texts, normalize_embeddings=True,
-                                         show_progress_bar=False).tolist()
+                new = model.encode(miss_texts, normalize_embeddings=True,
+                                   show_progress_bar=False).tolist()
             except Exception as e:
                 logger.warning("encode_query failed: %s", e); return self._zeros(len(texts))
             self._store(self._q_cache, miss_texts, new)

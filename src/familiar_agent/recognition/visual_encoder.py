@@ -41,7 +41,23 @@ class VisualEncoder(ModelResource):
 
         self._processor = transformers.AutoImageProcessor.from_pretrained(self._model_name)
         model = transformers.AutoModel.from_pretrained(self._model_name)
-        return model.to(self.device).eval()
+        return model.to(self._torch_device).eval()
+
+    @property
+    def _torch_device(self) -> str:
+        """`transformers` は載せる先を明示しないと CPU のままなので、ここで決める。
+
+        型枠の `device` は「指定が無ければ `None`＝ライブラリに任せる」だが、
+        `model.to(None)` は使えない。**このモデルだけは自動判定まで自分で持つ。**
+        """
+        if self.device:
+            return self.device
+        try:
+            import torch
+
+            return "cuda" if torch.cuda.is_available() else "cpu"
+        except Exception:  # noqa: BLE001
+            return "cpu"
 
     def _embed_sync(self, image_path: str) -> list[float] | None:
         import torch
@@ -49,7 +65,7 @@ class VisualEncoder(ModelResource):
 
         with Image.open(image_path) as image:
             inputs = self._processor(images=image.convert("RGB"), return_tensors="pt")
-        inputs = {k: v.to(self.device) for k, v in inputs.items()}
+        inputs = {k: v.to(self._torch_device) for k, v in inputs.items()}
         with torch.no_grad():
             out = self.ensure()(**inputs)
         return out.pooler_output[0].detach().cpu().tolist()

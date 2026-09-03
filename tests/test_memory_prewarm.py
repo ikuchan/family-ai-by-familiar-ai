@@ -27,7 +27,12 @@ class TestEmbeddingModelPreWarm:
         assert callable(model.pre_warm)
 
     def test_pre_warm_starts_background_thread(self):
-        """pre_warm() must start a daemon thread named 'embedding-prewarm'."""
+        """先読みはデーモンスレッドで走る（起動を止めない）。
+
+        **スレッドの名前は固定しない。** 読み込みと先読みはモデル資源（MR）の型枠が
+        持つようになり（出-c）、名前は型枠が付ける。確かめたいのは「別スレッドで走り、
+        デーモンである」ことである。
+        """
         model = _EmbeddingModel("some-model")
 
         started_threads: list[threading.Thread] = []
@@ -44,7 +49,7 @@ class TestEmbeddingModelPreWarm:
 
         assert len(started_threads) == 1
         t = started_threads[0]
-        assert t.name == "embedding-prewarm"
+        assert "prewarm" in t.name, f"先読みのスレッドと分かる名前でない: {t.name}"
         assert t.daemon is True
 
     def test_pre_warm_calls_load(self):
@@ -59,14 +64,13 @@ class TestEmbeddingModelPreWarm:
             model.pre_warm()
             assert load_event.wait(timeout=2.0), "_load() was not called within 2 seconds"
 
-    def test_lock_attribute_exists(self):
-        """_EmbeddingModel must have a _lock attribute (threading.Lock)."""
-        model = _EmbeddingModel("some-model")
-        assert hasattr(model, "_lock"), "_EmbeddingModel must have a _lock attribute"
-        assert isinstance(model._lock, type(threading.Lock()))
-
     def test_load_is_idempotent_with_lock(self):
-        """_load() called concurrently must only instantiate SentenceTransformer once."""
+        """並行して呼んでも `SentenceTransformer` は1回しか作らない。
+
+        錠はモデル資源（MR）の型枠が持つ（出-c）。ここで確かめるのは、**埋め込みの
+        経路を通しても**その保証が効くことである（型枠自体の並行制御は
+        `test_model_resource.py` が見る）。
+        """
         model = _EmbeddingModel("some-model")
         call_count = 0
         barrier = threading.Barrier(3)  # sync 3 threads to maximize race
@@ -84,7 +88,7 @@ class TestEmbeddingModelPreWarm:
 
             def load_via_barrier():
                 barrier.wait()  # all 3 threads arrive simultaneously
-                model._load()
+                model.ensure()
 
             threads = [threading.Thread(target=load_via_barrier) for _ in range(3)]
             for t in threads:
@@ -104,7 +108,7 @@ class TestEmbeddingModelIsReady:
     def test_is_ready_true_after_load(self):
         model = _EmbeddingModel("some-model")
         with patch("sentence_transformers.SentenceTransformer", return_value=MagicMock()):
-            model._load()
+            model.ensure()
         assert model.is_ready() is True
 
     def test_is_ready_true_after_prewarm_completes(self):
@@ -114,9 +118,12 @@ class TestEmbeddingModelIsReady:
         original_load = model._load
 
         def load_and_signal():
+            # 型枠は `_load()` の**戻り値**を受け取って持つ（出-c）。返さないと
+            # 読み込めなかったことになる。
             with patch("sentence_transformers.SentenceTransformer", return_value=MagicMock()):
-                original_load()
+                loaded = original_load()
             done.set()
+            return loaded
 
         with patch.object(model, "_load", load_and_signal):
             model.pre_warm()

@@ -90,7 +90,8 @@ class ModelResource(ABC):
                 return self._mr_model
             try:
                 self._mr_model = self._load()
-                logger.info("%sのモデルを読み込んだ（%s）", self._mr_name, self.device)
+                logger.info("%sのモデルを読み込んだ（%s）",
+                            self._mr_name, self.device or "載せる先はライブラリ任せ")
             except _PERMANENT as e:
                 # 無いものは何度試しても無い。回数に関わらず記憶する。
                 self._mr_failed = True
@@ -133,25 +134,17 @@ class ModelResource(ABC):
         return self._mr_failed
 
     @property
-    def device(self) -> str:
-        """載せる先。**環境変数 → 自動判定 → CPU** の順で決める。
+    def device(self) -> str | None:
+        """載せる先。**指定が無ければ `None`＝ライブラリに任せる。**
 
-        環境変数を最優先にするのは、テストが並列に走るためである（ワーカーごとにモデルを
-        載せると GPU の VRAM を使い切ってプロセスごと落ちる）。
+        環境変数を見るのは、テストが並列に走るためである（ワーカーごとにモデルを載せると
+        GPU の VRAM を使い切ってプロセスごと落ちる。実測で `CUDA out of memory` が出た）。
+
+        **型枠が `cuda`／`cpu` を決めてしまわない。** どこへ載せるかを一番よく知っているのは
+        ライブラリのほうで、「明示せず任せる」は正当な選択である。実際、YOLO は device を
+        渡しておらず（ultralytics 任せ）、埋め込みは「自動のときは device を渡さない
+        （従来と同じ呼び方）」を実測から決めている。
         """
-        if self._mr_device_env:
-            chosen = os.environ.get(self._mr_device_env, "").strip()
-            if chosen:
-                return chosen
-        return "cuda" if self._cuda_available() else "cpu"
-
-    def _cuda_available(self) -> bool:
-        """GPU が使えるか。`torch` が無い構成でも落ちない。"""
-        try:
-            import torch
-        except Exception:  # noqa: BLE001
-            return False
-        try:
-            return bool(torch.cuda.is_available())
-        except Exception:  # noqa: BLE001
-            return False
+        if not self._mr_device_env:
+            return None
+        return os.environ.get(self._mr_device_env, "").strip() or None
