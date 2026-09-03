@@ -365,7 +365,8 @@ class ObservationMemory:
         return self._embedder.is_ready()
 
     def embedding_failed(self) -> bool:
-        return self._embedder.failed()
+        # `failed` はモデル資源（MR）の型枠が持つ属性になった（出-c）。
+        return self._embedder.failed
 
     def close(self) -> None:
         self._db.close()

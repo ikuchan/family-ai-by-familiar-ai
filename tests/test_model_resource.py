@@ -106,19 +106,22 @@ def test_the_device_comes_from_the_environment_first(monkeypatch) -> None:
     assert r.device == "cpu"
 
 
-def test_the_device_falls_back_to_cpu_without_cuda(monkeypatch) -> None:
-    """`cuda` が無ければ `cpu`。3つのうち1つしか自動判定していなかった。"""
+def test_an_unset_device_means_leave_it_to_the_library(monkeypatch) -> None:
+    """**指定が無ければ `None`＝ライブラリに任せる。**
+
+    型枠が `cuda`／`cpu` のどちらかを必ず決めてしまうと、「明示せず任せる」という選択が
+    できなくなる。これは埋め込み固有の都合ではない——YOLO も実際には device を渡して
+    おらず（ultralytics 任せ）、埋め込みは「自動のときは device を渡さない（従来と同じ
+    呼び方）」を実測（GPU の VRAM を使い切ってワーカーが落ちた）から決めている。
+    どこへ載せるかを知っているのはライブラリのほうである。
+    """
     monkeypatch.delenv("試し_DEVICE", raising=False)
-    r = _Fake(name="試し", device_env="試し_DEVICE")
-    r._cuda_available = lambda: False    # type: ignore[method-assign]
-    assert r.device == "cpu"
+    assert _Fake(name="試し", device_env="試し_DEVICE").device is None
 
 
-def test_the_device_prefers_cuda_when_present(monkeypatch) -> None:
-    monkeypatch.delenv("試し_DEVICE", raising=False)
-    r = _Fake(name="試し", device_env="試し_DEVICE")
-    r._cuda_available = lambda: True     # type: ignore[method-assign]
-    assert r.device == "cuda"
+def test_a_resource_without_a_device_setting_is_also_none() -> None:
+    """環境変数の名前すら渡さないものは、当然 `None`（YOLO がこれ）。"""
+    assert _Fake(name="試し").device is None
 
 
 # ── ⑥ YOLO を型枠へ移しても、挙動は変わらない ─────────────────────────────
