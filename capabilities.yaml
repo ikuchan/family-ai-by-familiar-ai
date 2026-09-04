@@ -150,22 +150,33 @@ capabilities:
       MCP servers, exposing their tools to the agent. Supported transports include
       stdio and SSE. Implemented in `mcp_client.py`.
     enabled_env: MCP_CONFIG
-  - id: shared_notes
-    summary: Look up the household's shared notes — the rules the family lives by
+  - id: house_rules
+    summary: Look up the rules the family currently lives by
     detail: >
-      A memo server (`obsidian-memo`) exposes the family's Obsidian vault over MCP.
-      These are notes people wrote, not the agent's own memories, and they are
-      never mixed into recall: the agent's memory (observations) and the
-      household's notes stay separate stores. Right now the vault exposes one
-      tool, `get_house_rules`, which returns the rules currently in force — which
+      `get_house_rules` returns the household rules in force right now — which
       days games and YouTube are allowed, how long, breaks, the three minutes of
-      exercise on getting home. Use it when a child asks whether they may play,
-      when checking what day it is for that, or when the rules themselves matter.
-      It returns what is agreed now, not a memory of a past conversation.
+      exercise on getting home. The reply already says what day it is in JST and
+      whether today is a game day, so there is no need to work that out.
+      Use it when a child asks whether they may play, or whenever the rules
+      themselves matter. It returns what is agreed now, not a memory of a past
+      conversation — and it says when it was last updated.
+      The rules live in the family's notes, not in the agent's memory, so they
+      are never mixed into recall. Anyone in the family may ask.
       Treated as a tool: read it when the question needs what is written down,
-      not on every turn. Runs as a local stdio subprocess on the same machine.
-      Requires MCP_CONFIG or ~/.familiar-ai.json to list the server.
+      not on every turn.
     enabled_env: MCP_CONFIG
+  - id: family_notes_deep_question
+    summary: Ask a long question of the family's own written records (Yusuke only)
+    detail: >
+      `ask_vault_yusuke` is not a search. A session that can read the whole
+      three-year archive of notes reads, thinks, and answers — so it takes tens
+      of seconds and must ride the deferred path, never a synchronous wait.
+      NOT CONNECTED YET (2026-09-04). The archive holds private material, so this
+      tool must be absent from the tool list on anyone else's turn. The speaker
+      gate is this side's responsibility — the server cannot see who is talking.
+      Until that gate exists, this capability stays off. See the design note
+      `設計方針_家の記録との接続`.
+    enabled: false
   - id: interoception_bridge
     summary: Provide and semantically map internal bodily signals
     detail: >
