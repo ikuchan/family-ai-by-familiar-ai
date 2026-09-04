@@ -56,6 +56,22 @@ def _is_transient_error(exc: BaseException) -> bool:
     return any(m in s for m in _TRANSIENT_MARKERS)
 
 
+_INVALID_ARGUMENT_MARKERS = ("invalid_argument", "invalid_request_error")
+
+
+def _is_invalid_argument(exc: BaseException) -> bool:
+    """送ったものの形が受け付けられなかった（400）か。
+
+    同じものを送り直しても直らないので、再試行の合図ではなく、**別の送り方へ進む**
+    合図に使う。`_is_transient_error` とは排他である（400 は一時的ではない）。
+    """
+    code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
+    if code == 400:
+        return True
+    s = str(exc).lower()
+    return any(m in s for m in _INVALID_ARGUMENT_MARKERS)
+
+
 async def _retry_transient(fn, *, attempts: int, base_sec: float, label: str):
     """`fn`（async・無引数）を一時的エラーで指数バックオフ再試行する。恒久エラーは即送出。"""
     for i in range(attempts):

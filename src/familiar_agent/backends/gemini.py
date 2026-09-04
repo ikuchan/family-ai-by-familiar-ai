@@ -12,12 +12,21 @@ from collections.abc import Callable
 from typing import Any
 
 from .shared import (
+    _is_invalid_argument,
     _retry_transient,
     _ThinkingTagFilter,
 )
 from .types import ToolCall, TurnResult
 
 logger = logging.getLogger(__name__)
+
+# 思考を切る言い方は、モデルによって通るものが違う（2026-09-04 に実測）。
+#   `thinking_budget=0`   2.5-flash / 2.5-flash-lite / 3.1-flash-lite / 3.5-flash で通る。
+#                         3.5-flash-lite だけが 400 INVALID_ARGUMENT で拒む
+#   `thinking_level=low`  3.5-flash-lite で通る。2.5 系は 400 で拒む
+#   送らない               2.5-flash-lite / 3.1-flash-lite / 3.5-flash-lite なら思考しない
+# 3.8-flash はどの言い方でも思考をやめないので、短い答えを頼む口には使えない。
+_THINK_OFF_FORMS = ("budget", "level", "none")
 
 
 class GeminiBackend:
@@ -45,6 +54,43 @@ class GeminiBackend:
             self._retry_base = float(os.environ.get("GEMINI_RETRY_BASE_SEC", "0.5"))
         except ValueError:
             self._retry_base = 0.5
+        # 思考を切る言い方のうち、このモデルで通ったもの。空は「まだ交渉していない」。
+        self._think_off = ""
+
+    # ── 思考を切る交渉 ─────────────────────────────────────────────
+
+    def _thinking_config(self, form: str) -> Any:
+        """`_THINK_OFF_FORMS` の一つを、SDK の設定オブジェクトへ直す。"""
+        types = self._types
+        if form == "budget":
+            return types.ThinkingConfig(thinking_budget=0)
+        if form == "level":
+            return types.ThinkingConfig(thinking_level="low")
+        return None
+
+    async def _with_think_off(self, run: Callable[[Any], Any], label: str) -> Any:
+        """思考を切る言い方を順に試して `run` を呼び、通ったものを覚える。
+
+        次の言い方へ進む理由は **400 だけ**である。一時的エラー（503 等）は `run` の
+        内側の `_retry_transient` が見るので、ここまで上がってきたら送出する。
+
+        一度決まれば以後は交渉しない。インスタンスはモデルを固定して作るので、
+        実質モデルごとに1回である。
+        """
+        forms = (self._think_off,) if self._think_off else _THINK_OFF_FORMS
+        last: Exception = RuntimeError("思考を切る言い方を一つも試していない")
+        for form in forms:
+            try:
+                out = await run(self._thinking_config(form))
+            except Exception as exc:  # noqa: BLE001
+                if not _is_invalid_argument(exc):
+                    raise
+                last = exc
+                logger.info("%s: %s は %s に拒まれた。次の言い方を試す", label, form, self.model)
+                continue
+            self._think_off = form
+            return out
+        raise last
 
     # ── message factories ─────────────────────────────────────────
 
@@ -211,24 +257,30 @@ class GeminiBackend:
         if isinstance(system, tuple):
             system = "\n\n---\n\n".join(s for s in system if s)
         types = self._types
-        config = types.GenerateContentConfig(
-            system_instruction=system,
-            tools=self._convert_tools(tools) if tools else None,
-            max_output_tokens=max_tokens,
-            thinking_config=types.ThinkingConfig(thinking_budget=0),
-        )
         contents = self._flatten_messages(messages)
+
+        async def _open(thinking: Any) -> Any:
+            return await self._client.aio.models.generate_content_stream(
+                model=self.model,
+                contents=contents,  # type: ignore[arg-type]
+                config=types.GenerateContentConfig(
+                    system_instruction=system,
+                    tools=self._convert_tools(tools) if tools else None,
+                    max_output_tokens=max_tokens,
+                    thinking_config=thinking,
+                ),
+            )
+
+        # 対話ターンも同じ交渉を通す。ここを決め打ちにすると、思考を切る言い方を拒む
+        # モデルを `PLATFORM=gemini` に選んだとき、主LLM ごと 400 で落ちる。
+        stream = await self._with_think_off(_open, "gemini.stream_turn")
 
         text_chunks: list[str] = []
         tool_calls: list[ToolCall] = []
         raw_parts: list = []
         _tf = _ThinkingTagFilter()
 
-        async for chunk in await self._client.aio.models.generate_content_stream(
-            model=self.model,
-            contents=contents,  # type: ignore[arg-type]
-            config=config,
-        ):
+        async for chunk in stream:
             if not chunk.candidates:
                 continue
             content = chunk.candidates[0].content
@@ -267,22 +319,25 @@ class GeminiBackend:
     async def complete(self, prompt: str, max_tokens: int) -> str:
         types = self._types
 
-        async def _call() -> str:
-            resp = await self._client.aio.models.generate_content(
-                model=self.model,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    max_output_tokens=max_tokens,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                ),
-            )
-            return (resp.text or "").strip()
+        async def _run(thinking: Any) -> str:
+            async def _call() -> str:
+                resp = await self._client.aio.models.generate_content(
+                    model=self.model,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=max_tokens,
+                        thinking_config=thinking,
+                    ),
+                )
+                return (resp.text or "").strip()
 
-        try:
             return await _retry_transient(
                 _call, attempts=self._retry_attempts, base_sec=self._retry_base,
                 label="gemini.complete",
             )
+
+        try:
+            return await self._with_think_off(_run, "gemini.complete")
         except Exception as e:
             logger.warning("complete() failed: %s", e)
             return ""
@@ -291,30 +346,33 @@ class GeminiBackend:
         """Vision completion — sends base64 JPEG alongside text prompt."""
         types = self._types
 
-        async def _call() -> str:
-            resp = await self._client.aio.models.generate_content(
-                model=self.model,
-                # SDK の型定義は `inline_data` を含む素の dict を受け付けない形になって
-                # いるが、実行時には受け付ける（画像を渡す経路は実機で動いている）。
-                contents=[{  # type: ignore[arg-type]
-                    "role": "user",
-                    "parts": [
-                        {"text": prompt},
-                        {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
-                    ],
-                }],
-                config=types.GenerateContentConfig(
-                    max_output_tokens=max_tokens,
-                    thinking_config=types.ThinkingConfig(thinking_budget=0),
-                ),
-            )
-            return (resp.text or "").strip()
+        async def _run(thinking: Any) -> str:
+            async def _call() -> str:
+                resp = await self._client.aio.models.generate_content(
+                    model=self.model,
+                    # SDK の型定義は `inline_data` を含む素の dict を受け付けない形になって
+                    # いるが、実行時には受け付ける（画像を渡す経路は実機で動いている）。
+                    contents=[{  # type: ignore[arg-type]
+                        "role": "user",
+                        "parts": [
+                            {"text": prompt},
+                            {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                        ],
+                    }],
+                    config=types.GenerateContentConfig(
+                        max_output_tokens=max_tokens,
+                        thinking_config=thinking,
+                    ),
+                )
+                return (resp.text or "").strip()
 
-        try:
             return await _retry_transient(
                 _call, attempts=self._retry_attempts, base_sec=self._retry_base,
                 label="gemini.complete_with_image",
             )
+
+        try:
+            return await self._with_think_off(_run, "gemini.complete_with_image")
         except Exception as e:
             logger.warning("complete_with_image() failed: %s", e)
             return ""
