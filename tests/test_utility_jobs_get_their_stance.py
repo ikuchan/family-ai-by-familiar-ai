@@ -103,3 +103,32 @@ def test_without_a_context_provider_nothing_changes():
     be = _backend()
     asyncio.run(_evaluator(be).emotion_for_turn("やった！", 0.9, mood=MoodPAD()))
     assert be.complete.await_args.kwargs.get("system") is None
+
+
+# ── 残り2つ：欲求の列挙（パジュ）と 同一意図の判定（計器）──────────────────
+
+def test_the_same_intent_check_measures_from_outside():
+    """語の比較で、感情も人格も関わらない。人格を渡す理由が無い。"""
+    from familiar_agent.tools.deferred_search import DeferredSearchTool
+
+    be = _backend("yes")
+    seen = {}
+
+    def ctx(stance, *, with_rules=False):
+        seen["intent"] = (stance, with_rules)
+        return "＜計器＞"
+
+    tool = DeferredSearchTool(AsyncMock(), utility_backend=be, context=ctx)
+    assert asyncio.run(tool._is_same_intent("東京の天気", "明日の東京の天気")) is True
+    assert seen["intent"] == (Stance.INSTRUMENT, False)
+    assert be.complete.await_args.kwargs["system"] == "＜計器＞"
+
+
+def test_the_same_intent_check_works_without_a_context_provider():
+    """提供者が無ければ立ち位置を渡さない（いままでと同じ）。"""
+    from familiar_agent.tools.deferred_search import DeferredSearchTool
+
+    be = _backend("yes")
+    tool = DeferredSearchTool(AsyncMock(), utility_backend=be)
+    assert asyncio.run(tool._is_same_intent("あ", "い")) is True
+    assert be.complete.await_args.kwargs.get("system") is None

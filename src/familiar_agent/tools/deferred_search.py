@@ -42,9 +42,13 @@ class DeferredSearchTool:
         self,
         search_fn: Callable[[str, dict], Awaitable[tuple[str, Any]]],
         utility_backend: Any = None,
+        context: Any = None,
     ) -> None:
         self._search_fn = search_fn
         self._utility_backend = utility_backend
+        # `context(stance, *, with_rules)` は立ち位置と文脈を返す（出-e）。渡さなければ
+        # 立ち位置を渡さない（いままでと同じ）。
+        self._context = context
         self._pending: list[dict] = []
         # 完了の渡し先（RH → 完了キュー）。繋がっていれば溜めずにここへ渡す。
         # 繋がっていなければ従来どおり `_pending` に溜めてポーリングで拾われる（排他）。
@@ -114,10 +118,18 @@ class DeferredSearchTool:
         # 同じ調査を二重に投げる（`求めの版チェーン`「同じ語は二度と調べない」）。
         # 例外時の落とし先とも揃える（以前は例外なら文字列比較、読めなければ「いいえ」と
         # 割れていた）。
+        # **外から測る立ち位置。** 語の比較で、感情も人格も関わらない。
+        from ..core.context_parts import Stance
+
+        # `getattr` で引くのは、`__init__` を通さずに組み立てる呼び出しがあるためである
+        # （`getattr` 形は grep に出ないので、撤去のときは名前で探しても見つからない）。
+        ctx = getattr(self, "_context", None)
+        system = ctx(Stance.INSTRUMENT, with_rules=False) if ctx else None
         answer = await ask_yes_no(
             self._utility_backend,
             _SAME_INTENT_PROMPT.format(a=existing_query, b=new_query),
             max_tokens=5,
+            system=system,
         )
         return answer if answer is not None else (new_query == existing_query)
 
