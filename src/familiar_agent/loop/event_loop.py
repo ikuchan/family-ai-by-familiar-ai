@@ -28,11 +28,18 @@ from .prompt import build_event_system_prompt
 logger = logging.getLogger(__name__)
 
 # 連鎖が続けられる反復で渡す動作。上限に達した反復では say だけにして必ず閉じる。
-_FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "look")
+_FULL_ACTIONS = (
+    "say", "recall", "search_deferred", "fetch_deferred", "see", "look",
+    "house_rules",
+)
 # 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
 # `see`・`look` も含める。結果はその場で返るが、それを見て何を言うかは次の反復が決める
 # （`recall` と同じ）。ここに入れないと 1反復1出力 が崩れる。
-_LOOKUP_ACTIONS = ("recall", "search_deferred", "fetch_deferred", "see", "look")
+_LOOKUP_ACTIONS = (
+    "recall", "search_deferred", "fetch_deferred", "see", "look",
+    # 家の決まりは即座に返るが、それを見て何を言うかは次の反復が決める（`recall` と同じ）。
+    "house_rules",
+)
 
 def _query_label(action: str, tool_input: dict) -> str:
     """その求めの見出し。飛行中の一覧・完了の照合・W の「調べたもの」で鍵になる。
@@ -45,6 +52,27 @@ def _query_label(action: str, tool_input: dict) -> str:
     if action == "look":
         return f"{tool_input.get('pose', '')}を見に行く"
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
+
+
+def _mcp_tool_def(agent, name: str) -> list[dict]:
+    """MCP の道具を**名前で1本だけ**取り出す。
+
+    **話者ゲートはこちら側の責任である。** サーバー側からは誰が話しているか見えないので、
+    個人ティアの道具名には人が入っている（`ask_vault_yusuke`）。**名前に人が入っている
+    道具は、その人のターン以外では出さない**——`description` でお願いするのではなく、
+    定義リストから落とす。存在しない道具は呼べない。
+
+    **ここが名前を明示して1本だけ取り出すのは、その守り方の実装である。** 動作の表
+    （`_ACTIONS`）に載せた名前しか主LLM へ渡らないので、載せていない道具は出ようがない。
+    いまは話者を見る仕組みがまだ無いため、**家族ティアだけを載せている**
+    （`設計方針_家の記録との接続` §5「安全側に倒す」）。
+    """
+    mcp = getattr(agent, "_mcp", None)
+    if mcp is None:
+        return []
+    with contextlib.suppress(Exception):
+        return [d for d in mcp.get_tool_definitions() if d.get("name") == name]
+    return []
 
 
 def _camera_tool_def(agent, name: str) -> list[dict]:
@@ -586,6 +614,9 @@ class InformationProcessing:
         # 身体。カメラが無ければ空を返し、繋がっていない身体は渡さない。
         "see": lambda a: _camera_tool_def(a, "see"),
         "look": lambda a: _camera_tool_def(a, "look"),
+        # 家の決まり（`obsidian-memo`）。**家族ティアだけ**を載せる——個人ティア
+        # （`ask_vault_yusuke`）は話者ゲートができるまで載せない。
+        "house_rules": lambda a: _mcp_tool_def(a, "get_house_rules"),
     }
 
     def _action_of(self, query: str) -> str:
