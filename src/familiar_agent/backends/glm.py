@@ -10,6 +10,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from .shared import _with_system
 from .types import ToolCall, TurnResult
 
 logger = logging.getLogger(__name__)
@@ -173,12 +174,14 @@ class GLMBackend:
             ]
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(
+        self, prompt: str, max_tokens: int, *, system: str | None = None
+    ) -> str:
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,
                 max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
+                messages=_with_system(prompt, system),
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:

@@ -10,6 +10,8 @@ thinking` は16箇所、`_retry_transient` と `_is_transient_error` は8箇所�
 
 from __future__ import annotations
 
+from typing import Any
+
 import asyncio
 import json
 import logging
@@ -54,6 +56,19 @@ def _is_transient_error(exc: BaseException) -> bool:
         return True
     s = str(exc).lower()
     return any(m in s for m in _TRANSIENT_MARKERS)
+
+
+def _with_system(prompt: str, system: str | None) -> list[Any]:
+    """OpenAI 互換の `messages` を組む。システム文があれば先頭へ置く（出-e）。
+
+    返りを `list[Any]` にしてあるのは、SDK が要求する `ChatCompletionMessageParam` の
+    合併型へ素の dict が代入できないためである（実行時には受け付ける）。
+    """
+    msgs: list[Any] = []
+    if system:
+        msgs.append({"role": "system", "content": system})
+    msgs.append({"role": "user", "content": prompt})
+    return msgs
 
 
 _INVALID_ARGUMENT_MARKERS = ("invalid_argument", "invalid_request_error")

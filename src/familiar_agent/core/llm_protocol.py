@@ -55,8 +55,14 @@ class LLMBackend(Protocol):
         """1往復を流す。`on_text` へ届いた端から渡し、まとめた結果を返す。"""
         ...
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(
+        self, prompt: str, max_tokens: int, *, system: str | None = None
+    ) -> str:
         """1問1答。**返るのは文字列だけ**である。
+
+        `system` は立ち位置と文脈（出-e）。**native な口で渡す**——プロンプトの先頭へ
+        足すのとは別物で、モデルはシステム文と利用者の文を違う重みで扱う。native な口を
+        持たない `cli` だけが前置きで代替する。既定 `None` なら、渡さないのと同じである。
 
         形のある答え（数値・選択・はい／いいえ・JSON）が要るなら
         `core.structured_ask` の口を通す——ここで直に受けて呼び出し側が解釈すると、

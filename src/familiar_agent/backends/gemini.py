@@ -316,7 +316,9 @@ class GeminiBackend:
         raw_assistant = {"role": "model", "parts": raw_parts}
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(
+        self, prompt: str, max_tokens: int, *, system: str | None = None
+    ) -> str:
         types = self._types
 
         async def _run(thinking: Any) -> str:
@@ -325,6 +327,7 @@ class GeminiBackend:
                     model=self.model,
                     contents=prompt,
                     config=types.GenerateContentConfig(
+                        system_instruction=system,
                         max_output_tokens=max_tokens,
                         thinking_config=thinking,
                     ),

@@ -287,15 +287,21 @@ class AnthropicBackend:
         except Exception as e:
             logger.debug("cache heartbeat skipped (non-critical): %s", e)
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(
+        self, prompt: str, max_tokens: int, *, system: str | None = None
+    ) -> str:
         """Simple completion (no tools, no streaming) for utility calls."""
         try:
             logger.debug("complete() calling %s with %d chars", self.model, len(prompt))
-            resp = await self.client.messages.create(
-                model=self.model,
-                max_tokens=max_tokens,
-                messages=[{"role": "user", "content": prompt}],
-            )
+            msgs: list = [{"role": "user", "content": prompt}]
+            if system:
+                resp = await self.client.messages.create(
+                    model=self.model, max_tokens=max_tokens, messages=msgs, system=system,
+                )
+            else:
+                resp = await self.client.messages.create(
+                    model=self.model, max_tokens=max_tokens, messages=msgs,
+                )
             from anthropic.types import TextBlock
 
             first = resp.content[0] if resp.content else None
