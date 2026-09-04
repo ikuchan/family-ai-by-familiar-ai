@@ -13,7 +13,7 @@ import copy
 
 import pytest
 
-from familiar_agent.backend import AnthropicBackend
+from familiar_agent.backends import AnthropicBackend
 
 
 def _tool_result_msg(tool_use_id: str, text: str, image_b64: str | None = None) -> dict:
@@ -242,7 +242,7 @@ class TestCompactImagesAppliedInStreamTurn:
         from unittest.mock import AsyncMock, MagicMock
         from unittest.mock import patch
 
-        from familiar_agent.backend import AnthropicBackend
+        from familiar_agent.backends import AnthropicBackend
 
         with patch("anthropic.AsyncAnthropic"):
             backend = AnthropicBackend.__new__(AnthropicBackend)

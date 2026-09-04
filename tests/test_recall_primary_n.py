@@ -81,7 +81,7 @@ def test_event_loop_passes_min_score() -> None:
     床は正本 [D-想起合成] が「無関係排除の主たる足切り」と定めるもので、連想想起
     （`agent.py`）は既に渡していた。イベントループだけが渡していなかった。
     """
-    from familiar_agent.backend import ToolCall
+    from familiar_agent.backends import ToolCall
 
     from tests.test_event_loop import _agent, _run_chain, _turn
 

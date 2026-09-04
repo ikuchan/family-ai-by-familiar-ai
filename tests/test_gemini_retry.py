@@ -10,7 +10,7 @@ import asyncio
 
 import pytest
 
-from familiar_agent.backend import _is_transient_error, _retry_transient
+from familiar_agent.backends import _is_transient_error, _retry_transient
 
 
 # ── 一時的か恒久かの判定 ─────────────────────────────────────────────────────

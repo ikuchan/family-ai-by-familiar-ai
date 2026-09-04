@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any, Protocol, runtime_checkable
 
-from ..backend import ToolCall, TurnResult
+from ..backends import ToolCall, TurnResult
 
 
 @runtime_checkable

@@ -83,7 +83,7 @@ def test_the_answer_is_written_at_speak_time_and_survives_the_close():
     `superseded_by IS NULL`）から外れて結局見つけられない。
     **閉じる側をこの記録にする**ことで、生き残るのはこの1件だけになる。
     """
-    from familiar_agent.backend import ToolCall
+    from familiar_agent.backends import ToolCall
     from tests.test_event_loop import _agent, _run, _turn
 
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})])])

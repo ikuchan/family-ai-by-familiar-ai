@@ -12,7 +12,7 @@ import pytest
 
 
 def _make_backend(thinking_mode: str = "adaptive", model: str = "claude-sonnet-4-6"):
-    from familiar_agent.backend import AnthropicBackend
+    from familiar_agent.backends import AnthropicBackend
 
     with patch("anthropic.AsyncAnthropic"):
         b = AnthropicBackend.__new__(AnthropicBackend)

@@ -22,7 +22,7 @@ from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内�
 )
 from typing import Any
 
-from .backend import create_backend, create_scene_backend, create_utility_backend
+from .backends import create_backend, create_scene_backend, create_utility_backend
 from .concern_engine import ConcernEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire

@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from familiar_agent.backend import AnthropicBackend
+from familiar_agent.backends import AnthropicBackend
 
 
 def _backend(effort: str = "high") -> AnthropicBackend:

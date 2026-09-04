@@ -9,7 +9,7 @@ from __future__ import annotations
 import logging
 
 
-from familiar_agent.backend import GeminiBackend
+from familiar_agent.backends import GeminiBackend
 
 
 # ---------------------------------------------------------------------------

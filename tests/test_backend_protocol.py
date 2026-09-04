@@ -15,7 +15,7 @@ import inspect
 
 import pytest
 
-from familiar_agent.backend import (
+from familiar_agent.backends import (
     AnthropicBackend,
     CLIBackend,
     GeminiBackend,

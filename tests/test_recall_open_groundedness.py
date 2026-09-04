@@ -18,7 +18,7 @@ from unittest.mock import patch
 
 import pytest
 
-from familiar_agent.backend import ToolCall
+from familiar_agent.backends import ToolCall
 from familiar_agent.config import MemoryConfig
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 

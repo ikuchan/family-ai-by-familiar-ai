@@ -16,7 +16,7 @@ import logging
 
 import pytest
 
-from familiar_agent.backend import ToolCall
+from familiar_agent.backends import ToolCall
 from familiar_agent.config import MemoryConfig
 
 from tests.test_event_loop import _agent, _run, _turn
