@@ -78,3 +78,24 @@ async def test_a_good_reply_logs_nothing(caplog) -> None:
 
     assert len(got) == 1 and got[0]["label"] == "chair"
     assert not [r for r in caplog.records if r.levelno >= logging.WARNING], "成功で鳴っている"
+
+
+@pytest.mark.asyncio
+async def test_the_text_fallback_passes_a_token_budget(caplog) -> None:
+    """説明文だけを読む経路も `max_tokens` を渡す。
+
+    **渡していなかった。** `complete(self, prompt, max_tokens)` は必須引数なので、
+    画像が無いときの経路は Anthropic のバックエンドで**必ず例外**になっていた
+    （2026-09-04 に、情景の意味づけを実測しようとして見つけた）。出-d より前からの
+    不具合で、画像がある経路（`complete_with_image`）が主だったため表に出ていなかった。
+    """
+    seen = {}
+
+    class _Strict:
+        async def complete(self, prompt, max_tokens):     # 必須引数のまま受ける
+            seen["max_tokens"] = max_tokens
+            return '{"entities": [{"label": "chair"}]}'
+
+    got = await extract_entities("説明", _Strict())
+    assert got == [{"label": "chair"}]
+    assert seen.get("max_tokens"), "max_tokens を渡していない"
