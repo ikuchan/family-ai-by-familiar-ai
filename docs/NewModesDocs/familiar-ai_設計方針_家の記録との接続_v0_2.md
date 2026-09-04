@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.1）
+# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.2）
 
 ## この文書が決めること
 
@@ -85,6 +85,11 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 **いまは事故にならないが、順序を間違えられない。** `_ACTIONS` に MCP を足した瞬間、
 話者ゲートが無ければ `ask_vault_yusuke` が誰のターンでも見える。
 
+**この節は着手前の実測である。**§5 の決定に従って `house_rules` を足したので、いまの
+`_FULL_ACTIONS` は7つある。`_ACTIONS` の項目は `_mcp_tool_def(a, "get_house_rules")` で
+名前を1つに絞っており、`ask_vault_yusuke` は項目そのものが無い。**構造で落ちている**ので、
+`description` の書き方に依存しない（2026-09-04 に確認）。
+
 ## 5. 決めたこと（2026-09-04）
 
 **`get_house_rules` だけを先に繋ぐ。** 話者ゲートの要らない家族ティアなので、いま繋いでも
@@ -101,13 +106,33 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 - **`capabilities.yaml` にルールの本文を書かない。** 実体は Vault にあり、実際に
   2026-09-01 に変わった。コピーするとそこが古くなる。**参照だけ書く**
 
-## 7. 相手側の未了（こちらは待つだけ）
+## 7. 起動時のインタプリタ（未対応）
+
+`~/.familiar-ai.json` の `command` は `"python"` である。**この機械に `python` は無く、
+`/usr/bin/python3` だけである**（2026-09-04 に `command -v` で確認）。それでもいま上がるのは、
+`uv run familiar` で起こすと `python` が `.venv/bin/python` へ解決されるためで、**起動の
+仕方に依存している**。venv の外から起こせば上がらない。
+
+確実にするなら `command` をフルパスにする。`memo_mcp` は依存ゼロなので venv を分ける必要が
+なく、こちらの `.venv/bin/python`（3.11.16）でそのまま動くことは
+`--selftest` で確かめた（`initialize` から `get_house_rules` まで1往復ずつ通った）。
+
+**まだ変えていない。**実機まわりの作業として後回しにしている。
+
+## 8. 相手側の未了（こちらは待つだけ）
 
 - ヘッドレスでの権限の挙動が未実測（`MEMO_MCP_PERMISSION_MODE`）
 - サーバー機の git 認証
 - 「帰ってきた子に、パジュから言うのか／聞かれたら答えるのか」は本人の回答待ち
 
 ## 更新履歴
+
+> v0.2：**§4 に、着手後の状態を追記した**（2026-09-04）。`house_rules` を足したので
+> `_FULL_ACTIONS` は7つになり、§4 の「MCP の道具は載っていない」は着手前の記録になった。
+> `ask_vault_yusuke` は `_ACTIONS` に項目が無く、構造で落ちていることを確かめた。
+> **§7（起動時のインタプリタ）を新設。**この機械に `python` が無く `python3` だけであること、
+> `uv run` 配下では解決するので起動の仕方に依存していること、`.venv/bin/python`（3.11.16）で
+> `--selftest` が通ることを記録した。変更は後回しにしている。§7 は §8 へ繰り下げた。
 
 > v0.1：`obsidian-memo` が繋がったので、こちら側の判断を起こした（2026-09-04）。
 > **話者ゲートを掛ける場所がまだ無い**ことを実測で確かめ（`_build_tool_definitions()` は
