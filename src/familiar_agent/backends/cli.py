@@ -162,5 +162,11 @@ class CLIBackend:
         raw: dict[str, Any] = {"role": "assistant", "content": text}
         return TurnResult(stop_reason=stop, text=clean_text, tool_calls=tool_calls), raw
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(
+        self, prompt: str, max_tokens: int, *, system: str | None = None
+    ) -> str:
+        # CLI にはシステム文の口が無いので前置きで代替する。**ここだけ他と揃わない**——
+        # モデルはシステム文と利用者の文を違う重みで扱うので、同じ効きは期待できない。
+        if system:
+            return await self._run(system + "\n\n---\n\n" + prompt)
         return await self._run(prompt)

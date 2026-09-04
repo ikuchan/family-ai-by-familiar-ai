@@ -11,6 +11,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .shared import (
+    _with_system,
     _TOOL_CALL_RE,
     _build_tools_system,
     _parse_tool_calls_from_text,
@@ -291,13 +292,15 @@ class OpenAICompatibleBackend:
             ]
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(
+        self, prompt: str, max_tokens: int, *, system: str | None = None
+    ) -> str:
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         try:
             resp = await self.client.chat.completions.create(  # type: ignore[call-overload]
                 model=self.model,
                 **{tokens_key: max_tokens},
-                messages=[{"role": "user", "content": prompt}],
+                messages=_with_system(prompt, system),
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:

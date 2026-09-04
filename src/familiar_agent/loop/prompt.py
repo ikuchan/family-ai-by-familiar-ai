@@ -70,6 +70,27 @@ EVENT_SYSTEM_PROMPT = """\
 """
 
 
+def rules_section() -> str:
+    """`EVENT_SYSTEM_PROMPT` の `(rules ...)` 節を括弧の対応で切り出す（出-e）。
+
+    整合チェックは「規則違反があるか」を判定する仕事で、その規則の正本はここにしかない。
+    渡さなければ照合する相手が無く、実測では違反18件中3件しか捕まえなかった。
+
+    行数や位置で切らないのは、S 式が編集されても壊れないようにするためである。
+    """
+    start = EVENT_SYSTEM_PROMPT.index("  (rules")
+    depth = 0
+    for i in range(start, len(EVENT_SYSTEM_PROMPT)):
+        ch = EVENT_SYSTEM_PROMPT[i]
+        if ch == "(":
+            depth += 1
+        elif ch == ")":
+            depth -= 1
+            if depth == 0:
+                return EVENT_SYSTEM_PROMPT[start:i + 1]
+    raise ValueError("(rules ...) の括弧が閉じていない")
+
+
 def build_event_system_prompt(
     *,
     self_understanding: str,
