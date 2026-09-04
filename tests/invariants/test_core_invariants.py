@@ -67,7 +67,7 @@ async def test_conversation_turn_persists_the_memory() -> None:
     飛ばされ、記憶が3週間書かれなかった。経路を問わず「ターンが記憶を残す」ことを
     見る。#12a で旧 run() を撤去したので、いまの経路（イベント駆動ループ）で見る。
     """
-    from familiar_agent.backend import ToolCall
+    from familiar_agent.backends import ToolCall
     from familiar_agent.loop.event_loop import InformationProcessing
 
     from tests.test_event_loop import _agent, _turn

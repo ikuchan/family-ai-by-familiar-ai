@@ -19,7 +19,7 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from familiar_agent.backend import ToolCall
+from familiar_agent.backends import ToolCall
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.prompt import EVENT_SYSTEM_PROMPT
 from tests.test_event_loop import _agent, _run, _turn

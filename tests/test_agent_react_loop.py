@@ -7,7 +7,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from familiar_agent.backend import TurnResult
+from familiar_agent.backends import TurnResult
 from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.io.aif import AIF
 from familiar_agent.mood_register import MoodPAD

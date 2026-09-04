@@ -176,7 +176,7 @@ def test_held_speech_flows_into_w_with_when_it_was_wanted():
     # 二重になる）。W に「いつ・何を言いたかったか」として流し、言葉の組み立ては任せる。
     import datetime as _dt
 
-    from familiar_agent.backend import ToolCall
+    from familiar_agent.backends import ToolCall
     from familiar_agent.loop.event_loop import InformationProcessing
     from tests.test_event_loop import _agent, _turn
 

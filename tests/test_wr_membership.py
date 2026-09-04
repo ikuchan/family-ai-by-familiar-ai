@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import asyncio
 
-from familiar_agent.backend import ToolCall
+from familiar_agent.backends import ToolCall
 from familiar_agent.loop.event_loop import InformationProcessing
 from tests.test_event_loop import _agent, _run, _run_chain, _turn
 

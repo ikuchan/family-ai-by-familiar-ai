@@ -11,7 +11,7 @@ import asyncio
 import logging
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.backend import ToolCall, TurnResult
+from familiar_agent.backends import ToolCall, TurnResult
 from familiar_agent.loop.event_loop import InformationProcessing
 
 # 非同期の処理が届くのを待つ上限（0.005 秒 × この回数＝5秒）。条件が満たされた時点で

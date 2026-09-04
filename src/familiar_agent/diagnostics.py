@@ -154,7 +154,7 @@ def format_gui_diagnostics(snapshot: GuiDiagnosticsSnapshot) -> str:
 
 async def test_backend_connection(config: "AgentConfig") -> tuple[bool, str]:
     """Best-effort LLM backend smoke test."""
-    from .backend import create_backend  # noqa: PLC0415
+    from .backends import create_backend  # noqa: PLC0415
 
     if not config.api_key and config.platform != "cli":
         return False, "API_KEY is not set."

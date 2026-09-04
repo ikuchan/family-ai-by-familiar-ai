@@ -10,7 +10,7 @@ class TestTurnResultUsageFields:
 
     def test_turn_result_has_input_tokens(self):
         """TurnResult dataclass must have input_tokens field (default 0)."""
-        from familiar_agent.backend import TurnResult
+        from familiar_agent.backends import TurnResult
 
         r = TurnResult(stop_reason="end_turn", text="hi")
         assert hasattr(r, "input_tokens"), "TurnResult must have input_tokens"
@@ -18,7 +18,7 @@ class TestTurnResultUsageFields:
 
     def test_turn_result_has_output_tokens(self):
         """TurnResult dataclass must have output_tokens field (default 0)."""
-        from familiar_agent.backend import TurnResult
+        from familiar_agent.backends import TurnResult
 
         r = TurnResult(stop_reason="end_turn", text="hi")
         assert hasattr(r, "output_tokens"), "TurnResult must have output_tokens"
@@ -26,7 +26,7 @@ class TestTurnResultUsageFields:
 
     def test_turn_result_accepts_token_values(self):
         """TurnResult can be created with non-zero token counts."""
-        from familiar_agent.backend import TurnResult
+        from familiar_agent.backends import TurnResult
 
         r = TurnResult(stop_reason="end_turn", text="hi", input_tokens=100, output_tokens=50)
         assert r.input_tokens == 100
@@ -40,7 +40,7 @@ class TestAnthropicBackendTracksUsage:
         """stream_turn result.input_tokens == response.usage.input_tokens."""
         import asyncio
         from unittest.mock import MagicMock
-        from familiar_agent.backend import AnthropicBackend
+        from familiar_agent.backends import AnthropicBackend
         from familiar_agent.config import AgentConfig
 
         cfg = MagicMock(spec=AgentConfig)

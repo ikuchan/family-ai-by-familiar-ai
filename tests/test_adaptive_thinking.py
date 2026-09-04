@@ -20,37 +20,37 @@ class TestSupportsAdaptiveThinking:
     """_supports_adaptive_thinking() — model detection."""
 
     def test_sonnet_4_6_is_supported(self):
-        from familiar_agent.backend import _supports_adaptive_thinking
+        from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("claude-sonnet-4-6") is True
 
     def test_sonnet_4_partial_name(self):
-        from familiar_agent.backend import _supports_adaptive_thinking
+        from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("claude-sonnet-4-5-20251022") is True
 
     def test_opus_4_6_is_supported(self):
-        from familiar_agent.backend import _supports_adaptive_thinking
+        from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("claude-opus-4-6") is True
 
     def test_opus_4_partial_name(self):
-        from familiar_agent.backend import _supports_adaptive_thinking
+        from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("claude-opus-4") is True
 
     def test_haiku_not_supported(self):
-        from familiar_agent.backend import _supports_adaptive_thinking
+        from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("claude-haiku-4-5-20251001") is False
 
     def test_sonnet_3_5_not_supported(self):
-        from familiar_agent.backend import _supports_adaptive_thinking
+        from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("claude-3-5-sonnet-20241022") is False
 
     def test_empty_string_not_supported(self):
-        from familiar_agent.backend import _supports_adaptive_thinking
+        from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("") is False
 
@@ -68,7 +68,7 @@ class TestBuildThinkingParams:
         thinking_budget: int = 10000,
         thinking_effort: str = "high",
     ):
-        from familiar_agent.backend import AnthropicBackend
+        from familiar_agent.backends import AnthropicBackend
 
         with patch("anthropic.AsyncAnthropic"):
             return AnthropicBackend(
@@ -179,7 +179,7 @@ class TestStreamTurnThinkingIntegration:
         return block
 
     def _make_backend(self, model: str, thinking_mode: str, thinking_effort: str = "high"):
-        from familiar_agent.backend import AnthropicBackend
+        from familiar_agent.backends import AnthropicBackend
 
         with patch("anthropic.AsyncAnthropic"):
             return AnthropicBackend(

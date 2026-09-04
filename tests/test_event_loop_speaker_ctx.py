@@ -57,7 +57,7 @@ def test_who_we_think_we_are_talking_to_is_logged(caplog):
 
     from tests.test_event_loop import _agent as _loop_agent
     from tests.test_event_loop import _turn
-    from familiar_agent.backend import ToolCall
+    from familiar_agent.backends import ToolCall
     from familiar_agent.loop.event_loop import InformationProcessing
 
     a = _loop_agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])

@@ -10,7 +10,7 @@ import os
 from unittest.mock import patch
 
 
-from familiar_agent.backend import create_scene_backend
+from familiar_agent.backends import create_scene_backend
 from familiar_agent.config import AgentConfig
 
 
@@ -68,7 +68,7 @@ def test_create_scene_backend_returns_none_when_key_set_but_no_platform():
 
 def test_create_scene_backend_anthropic():
     """Creates an AnthropicBackend when platform='anthropic'."""
-    from familiar_agent.backend import AnthropicBackend
+    from familiar_agent.backends import AnthropicBackend
 
     config = _config_with_scene(platform="anthropic", api_key="sk-test")
     result = create_scene_backend(config)
@@ -93,7 +93,7 @@ def test_create_scene_backend_anthropic_custom_model():
 
 def test_create_scene_backend_openai():
     """Creates an OpenAICompatibleBackend when platform='openai'."""
-    from familiar_agent.backend import OpenAICompatibleBackend
+    from familiar_agent.backends import OpenAICompatibleBackend
 
     config = _config_with_scene(platform="openai", api_key="sk-test")
     result = create_scene_backend(config)
@@ -102,7 +102,7 @@ def test_create_scene_backend_openai():
 
 def test_create_scene_backend_gemini():
     """Creates a GeminiBackend when platform='gemini'."""
-    from familiar_agent.backend import GeminiBackend
+    from familiar_agent.backends import GeminiBackend
 
     config = _config_with_scene(platform="gemini", api_key="gm-test")
     result = create_scene_backend(config)
@@ -146,7 +146,7 @@ def test_agent_config_scene_platform_from_env():
 
 def test_sanitize_schema_removes_exclusive_bounds():
     """exclusiveMaximum and exclusiveMinimum are stripped from Gemini schemas."""
-    from familiar_agent.backend import GeminiBackend
+    from familiar_agent.backends import GeminiBackend
     schema = {
         "type": "object",
         "properties": {
@@ -168,7 +168,7 @@ def test_sanitize_schema_removes_exclusive_bounds():
 
 def test_sanitize_schema_preserves_supported_keys():
     """Standard JSON Schema keys like type, description, enum are preserved."""
-    from familiar_agent.backend import GeminiBackend
+    from familiar_agent.backends import GeminiBackend
     schema = {
         "type": "object",
         "properties": {
@@ -186,7 +186,7 @@ def test_sanitize_schema_preserves_supported_keys():
 
 def test_sanitize_schema_strips_nested_unsupported():
     """Nested schemas inside properties are also sanitized."""
-    from familiar_agent.backend import GeminiBackend
+    from familiar_agent.backends import GeminiBackend
     schema = {
         "type": "object",
         "properties": {
