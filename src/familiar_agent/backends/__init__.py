@@ -24,6 +24,7 @@ from .kimi import KimiBackend
 from .openai_compat import OpenAICompatibleBackend
 from .shared import (
     _build_tools_system,
+    _is_invalid_argument,
     _is_transient_error,
     _parse_tool_calls_from_text,
     _retry_transient,
@@ -37,6 +38,6 @@ __all__ = [
     "KimiBackend", "OpenAICompatibleBackend",
     "ToolCall", "TurnResult",
     "create_backend", "create_scene_backend", "create_utility_backend",
-    "_build_tools_system", "_is_transient_error", "_parse_tool_calls_from_text",
+    "_build_tools_system", "_is_invalid_argument", "_is_transient_error", "_parse_tool_calls_from_text",
     "_retry_transient", "_supports_adaptive_thinking", "_ThinkingTagFilter",
 ]
