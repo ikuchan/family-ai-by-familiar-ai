@@ -26,6 +26,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: 実体の一覧は短い JSON なので、これで足りる（`ask_json` の既定と揃える）。
+_EXTRACT_MAX_TOKENS = 512
+
 _EXTRACT_SYSTEM = """\
 You are a scene-analysis assistant. Given a description of what an AI agent sees,
 extract the distinct entities (people, objects, locations/features) and return them
@@ -81,7 +84,9 @@ async def extract_entities(
         # 変わるので、先頭を添えて残す（実機で `see` が失敗し続けたとき、VLM が何を返した
         # のか分からなかった）。読み取り自体は共通の `read_json` に任せる。
         try:
-            raw_text = str(await backend.complete(text_prompt) or "")
+            # `max_tokens` は必須（渡していなかったので、この経路は Anthropic の
+            # バックエンドで必ず例外になっていた・2026-09-04 に実測で見つけた）。
+            raw_text = str(await backend.complete(text_prompt, _EXTRACT_MAX_TOKENS) or "")
         except Exception as exc:  # noqa: BLE001
             _log_unusable("", str(exc))
             return []
