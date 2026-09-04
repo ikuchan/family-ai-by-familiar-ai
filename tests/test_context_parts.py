@@ -98,3 +98,59 @@ def test_the_stable_half_repeats_exactly_so_the_cache_can_hit():
 
 def test_a_context_with_nothing_variable_has_an_empty_variable_half():
     assert build_context(stance=Stance.INSTRUMENT).variable == ""
+
+
+# ── 静的核を渡すなら、立ち位置の一文は置かない ──────────────────────────────
+
+def test_the_static_core_replaces_the_stance_line():
+    """静的核の `(identity ...)` が同じことを厚く言っている。二度書かない。"""
+    ctx = build_context(
+        stance=Stance.PAJU, core="（静的核）",
+        self_understanding=_ME, family=_FAMILY,
+    )
+    assert ctx.stable.startswith("[身体と決まり]")
+    assert "あなたはパジュである" not in ctx.stable
+    assert "（静的核）" in ctx.stable
+
+
+def test_without_the_static_core_the_stance_line_leads():
+    """軽量LLM には静的核を渡さないので、立ち位置の一文が代わりを務める。"""
+    ctx = build_context(stance=Stance.PAJU, self_understanding=_ME, family=_FAMILY)
+    assert ctx.stable.startswith("あなたはパジュである")
+
+
+def test_the_stable_half_is_labelled():
+    ctx = build_context(
+        stance=Stance.INSTRUMENT, core="（静的核）", self_understanding=_ME,
+        family=_FAMILY, rules="（規則）",
+    )
+    for label in ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]", "[守っている決まり]"):
+        assert label in ctx.stable, label
+    i = [ctx.stable.index(x) for x in
+         ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]", "[守っている決まり]")]
+    assert i == sorted(i)
+
+
+def test_the_inner_state_sits_between_presence_and_iteration():
+    """主LLM の可変部の並び：いま → 在席 → 内部状態 → 反復 → 作業状態。"""
+    ctx = build_context(
+        stance=Stance.INSTRUMENT, now="ＮＯＷ", presence="ＩＮ",
+        inner_state="ＰＩ", iteration="ＩＴ", workspace="ＷＳ",
+    )
+    v = ctx.variable
+    assert v.index("ＮＯＷ") < v.index("ＩＮ") < v.index("ＰＩ") < v.index("ＩＴ") < v.index("ＷＳ")
+
+
+# ── 静的核があるなら、欠けていても組める ────────────────────────────────────
+
+def test_the_static_core_carries_the_identity_so_parts_may_be_missing():
+    """身元を担うのが静的核なら、自己認識や家族が無くても組める。
+
+    `FAMILY.md` が無い機体や、自己認識をまだ生成していない初回起動がある。そこで
+    落とすと**主LLM のターンごと落ちる**。要求が要るのは、立ち位置の一文しか身元が
+    無いとき（＝軽量LLM）である。
+    """
+    ctx = build_context(stance=Stance.PAJU, core="（静的核）")
+    assert ctx.stable.startswith("[身体と決まり]")
+    ctx2 = build_context(stance=Stance.PAJU, core="（静的核）", self_understanding=_ME)
+    assert _ME in ctx2.stable

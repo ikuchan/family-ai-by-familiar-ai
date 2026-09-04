@@ -109,12 +109,17 @@ def build_event_system_prompt(
     日時は現行 run() と同じ書式で必ず入れる。これが無いと「昨日」「一昨日」を自分で解けず、
     日付を利用者に聞き返すことになる（実機で観測）。
     """
-    stable = "\n\n---\n\n".join(
-        p for p in [self_understanding, family_md] if p and p.strip()
+    from ..core.context_parts import Stance, build_context
+
+    ctx = build_context(
+        stance=Stance.PAJU,
+        core=EVENT_SYSTEM_PROMPT,
+        self_understanding=self_understanding,
+        family=family_md,
+        now=f'(now :datetime "{clock.now_local_str()}")',
+        presence=present_ctx,
+        inner_state=pi_ctx,
+        iteration=iter_ctx,
+        workspace=workspace_ctx,
     )
-    datetime_ctx = f'(now :datetime "{clock.now_local_str()}")'
-    variable = "\n\n".join(
-        p for p in [datetime_ctx, present_ctx, pi_ctx, iter_ctx, workspace_ctx] if p and p.strip()
-    )
-    stable_all = "\n\n---\n\n".join(p for p in [EVENT_SYSTEM_PROMPT, stable] if p and p.strip())
-    return stable_all, variable
+    return ctx.stable, ctx.variable

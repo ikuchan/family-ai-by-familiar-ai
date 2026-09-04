@@ -1,7 +1,11 @@
-"""既存の2箇所を出-e の口へ寄せても、出る文字列が変わらないこと。
+"""主LLM のシステムプロンプトの組み立て（出-e で口へ寄せたあと）。
 
-**動いているものを触るので、先に現状を固定する。** ここが落ちたら、寄せ方が挙動を
-変えている。環-e が「挙動を変えない」で進めているのと同じやり方である。
+**書式は意図して変えた**（2026-09-05・案ロ-1）。区切りの `---` をやめ、安定部の3つへ
+見出しを付ける。既存2箇所が別々の書式で同じ不変条件を守っていたので、口へ寄せるには
+どちらかへ揃える必要があった。**立ち位置の一文は置かない**——静的核の `(identity ...)` が
+同じことを厚く言っており、二度書くことになる。
+
+**並びは変えていない。** 事故の原因になったのは書式ではなく並びである。
 
 `ARBITER_PROMPT` の並びは実機の事故から来ている。調停が2秒で返らず時間切れになり、
 沈黙依頼が読まれないまま倒れた。前方一致キャッシュが効くよう、起動中ほぼ変わらないものを
@@ -17,7 +21,7 @@ _ME = "私は パジュ である。"
 _FAMILY = "ゆうすけ（大人）"
 
 
-def test_the_event_system_prompt_is_assembled_as_before():
+def test_the_event_system_prompt_is_labelled_and_ordered():
     stable, variable = build_event_system_prompt(
         self_understanding=_ME,
         family_md=_FAMILY,
@@ -26,10 +30,13 @@ def test_the_event_system_prompt_is_assembled_as_before():
         workspace_ctx="（作業状態）",
         iter_ctx="[反復] 1/3",
     )
-    # 安定部＝静的核 → 自己認識 → FAMILY を区切りでつないだもの
-    assert stable.startswith("(agent :type embodied")
+    # 安定部＝静的核 → 自己認識 → FAMILY。見出し付き、立ち位置の一文は無し。
+    assert stable.startswith("[身体と決まり]")
+    assert "あなたはパジュである" not in stable
+    assert "(agent :type embodied" in stable
+    assert stable.index("[身体と決まり]") < stable.index("[あなたは誰か]") < stable.index(
+        "[一緒に暮らす人たち]")
     assert stable.index(_ME) < stable.index(_FAMILY)
-    assert "\n\n---\n\n" in stable
     # 可変部は日時 → 在席 → 内部状態 → 反復 → 作業状態
     for a, b in zip(("(now :datetime", "（在席）", "（内部状態）", "[反復] 1/3"),
                     ("（在席）", "（内部状態）", "[反復] 1/3", "（作業状態）")):
