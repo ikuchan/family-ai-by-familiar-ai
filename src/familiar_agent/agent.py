@@ -23,6 +23,7 @@ from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内�
 from typing import Any
 
 from .backends import create_backend, create_scene_backend, create_utility_backend
+from .core.context_parts import Stance as _Stance
 from .concern_engine import ConcernEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
@@ -711,6 +712,33 @@ class EmbodiedAgent:
 
 
 
+    def _stance_context(self, stance: "_Stance", *, with_rules: bool = False) -> "str | None":
+        """立ち位置と文脈を組む（出-e）。**部品は正本から取り、控えを持たない。**
+
+        人格とできることは `capability_state.load_summary()`、家族は `FAMILY.md`、
+        規則は `loop.prompt.rules_section()` が正本である。ここへ写しを置くと、正本が
+        変わったときにここだけ古くなる。
+
+        材料が欠けたら `None` を返す。`FAMILY.md` が無い機体や、自己認識をまだ生成して
+        いない初回起動で**ターンごと落とさない**。そのときは立ち位置を渡さずに続く
+        （いままでと同じ挙動）。
+        """
+        from .capability_state import load_summary
+        from .core.context_parts import build_context
+        from .loop.prompt import rules_section
+
+        first_person = stance is _Stance.PAJU
+        try:
+            return build_context(
+                stance=stance,
+                self_understanding=(load_summary() or self._me_md) if first_person else "",
+                family=self._family_md if first_person else "",
+                rules=rules_section() if with_rules else "",
+            ).stable
+        except ValueError as e:
+            logger.warning("立ち位置を組めなかったので渡さずに続ける: %s", e)
+            return None
+
     @property
     def _evaluator(self) -> Evaluator:
         """評価器（loop/evaluator.py）を現在の backend から導出して返す。
@@ -726,7 +754,8 @@ class EmbodiedAgent:
             or ev._utility_backend is not self._utility_backend
             or ev.backend is not self.backend
         ):
-            ev = Evaluator(self._utility_backend, self.backend)
+            ev = Evaluator(self._utility_backend, self.backend,
+                           context=self._stance_context)
             self.__dict__["_evaluator_obj"] = ev
         return ev
 

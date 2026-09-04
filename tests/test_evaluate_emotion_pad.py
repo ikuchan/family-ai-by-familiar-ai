@@ -17,7 +17,8 @@ class _FakeBackend:
         self._reply = reply
         self.calls = 0
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *,
+                       system: str | None = None) -> str:
         self.calls += 1
         return self._reply
 

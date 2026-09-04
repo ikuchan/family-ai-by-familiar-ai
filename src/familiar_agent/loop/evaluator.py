@@ -17,6 +17,7 @@ import logging
 
 from .._i18n import _t
 from ..core.structured_ask import ask_choice, ask_numbers
+from ..core.context_parts import Stance as _Stance
 from ..emotion_pad import label_from_pad
 from ..mood_register import MoodPAD, load_current_mood
 from .history import _flatten_history
@@ -54,22 +55,37 @@ A_GATE = 0.25
 
 # 評価器（軽量LLM）へ観測の感情を P/Pn/Dom で出させるプロンプト（W2b-2・論点5b）。
 # A 軸は機械 arousal なので尋ねない。最終的には自己認識 MI のシステムプロンプトへ統合する。
+# **感情を作るのはパジュである**（出-e・2026-09-05）。外から採点する計器ではないので、
+# 「このやり取りを採点せよ」ではなく「自分が何を感じたか」を聞く。
+#
+# **評価や推論の指示を置かない。** 軸の目盛り・P と Pn が独立であること・平静の位置・
+# いまの気分・出力の形式だけを渡す。旧版は「正直に見れば全部の軸が低くなる。中程度では
+# ない」と**答えの側を指示**しており、場面のあいだの幅が 0.77 から 0.46 へ潰れた。
+#
+# **平静の位置は伝える。** 事実であって指示ではない。これが無いと中立の場面が 0.41 まで
+# 上がる（伝えると 0.21 へ戻り、幅は保たれる・`根拠台帳` §25.8）。
+#
+# **誰も見ないことを伝える。** 人に読ませる言葉として整えると、角が丸まって真ん中へ寄る。
 _EMOTION_PAD_PROMPT = """\
-Rate the emotion of this exchange on three axes, each 0.0 to 1.0:
-- P  (pleasure):    how pleasant.   0 not at all, 1 very pleasant
-- Pn (displeasure): how unpleasant. 0 not at all, 1 very unpleasant
-- Dom (dominance):  0 powerless, 0.5 neutral, 1 fully in control
+いまのやり取りで、あなた自身が何を感じたかを3つの数で書く。各 0.0〜1.0。
 
-P and Pn are separate one-sided amounts, not two ends of one scale. An exchange that stirs nothing gets low P and low Pn; one that is both sweet and painful gets both high.
+- P  （快）  ： 心地よさの大きさ。0＝まったく無い、1＝とても大きい
+- Pn （不快）： 嫌さの大きさ。    0＝まったく無い、1＝とても大きい
+- Dom（掌握）： 0＝どうにもできない、0.5＝ふつう、1＝すっかり手の内
 
-Current mood baseline (P Pn Dom): {mood}
-Move from this baseline only as the exchange warrants.
+P と Pn は別々の量で、1本の尺度の両端ではない。両方とも大きいことも、両方とも小さい
+こともある。
 
-Text:
+この3軸は、何も起きていないとき P=0.10 / Pn=0.10 / Dom=0.50 へ落ち着く。それが平静である。
+いまのあなたの気分（P Pn Dom）：{mood}
+
+この3つの数は、あなた以外だれも見ない。人に読ませる言葉ではないので、整えず、
+感じたままの大きさをそのまま書く。
+
+やり取り：
 {text}
 
-Reply with exactly three decimals in order P Pn Dom, space-separated \
-(e.g. "0.7 0.2 0.6"). Nothing else."""
+P Pn Dom の順に小数を3つ、空白で区切って書く（例 "0.7 0.2 0.6"）。ほかには何も書かない。"""
 
 # Conversation save prompt — distill what happened into one sentence
 _SUMMARY_PROMPT = """\
@@ -91,7 +107,8 @@ Reply with the label only (one English word)."""
 
 
 async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: float,
-                                *, a_gate: float = A_GATE) -> "tuple[MoodPAD | None, float]":
+                                *, a_gate: float = A_GATE,
+                                system: str | None = None) -> "tuple[MoodPAD | None, float]":
     """観測の感情を PAD で評価する（W2b-2）。**測れたかどうかを返り値で表す**（050）。
 
     返すのは `(PAD, A)` で、**測れなかったときの PAD は `None`** である。A は機械 arousal
@@ -117,6 +134,7 @@ async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: fl
         _EMOTION_PAD_PROMPT.format(text=text[:400], mood=mood_str),
         count=3,
         max_tokens=20,
+        system=system,
     )
     if nums is None:
         return None, a
@@ -227,12 +245,24 @@ class Evaluator:
     避けて発見的手法やスキップに落とす。
     """
 
-    def __init__(self, utility_backend, backend) -> None:
+    def __init__(self, utility_backend, backend, *, context=None) -> None:
+        """`context(stance, *, with_rules)` は立ち位置と文脈を返す（出-e）。
+
+        渡さなければ立ち位置を渡さない（いままでと同じ）。材料が欠けたときも `None` を
+        返してよい——`FAMILY.md` が無い機体でターンを落とさない。
+        """
         self._utility_backend = utility_backend
         self.backend = backend
+        self._context = context
+
+    def _stance(self, stance, *, with_rules: bool = False) -> "str | None":
+        """立ち位置と文脈を引く。提供者が無ければ `None`。"""
+        if self._context is None:
+            return None
+        return self._context(stance, with_rules=with_rules)
 
     async def emotion_for_turn(
-        self, text: str, arousal: float
+        self, text: str, arousal: float, *, mood: "MoodPAD | None" = None
     ) -> "tuple[MoodPAD | None, float, str]":
         """ターンの感情を PAD で評価し、A と派生ラベルを合わせて返す（W2b-2）。
 
@@ -244,8 +274,11 @@ class Evaluator:
         すぎない（正は PAD である）。ラベルまで欠かせると既存の読み手が全部 None を扱う
         ことになり、得るものより失うものが大きい。
         """
+        # **感情を作るのはパジュである**（出-e）。外から採点する計器ではない。
         pad, a = await _evaluate_emotion_pad(
-            self._utility_backend, text, load_current_mood(), arousal
+            self._utility_backend, text,
+            load_current_mood() if mood is None else mood, arousal,
+            system=self._stance(_Stance.PAJU),
         )
         return pad, a, ("neutral" if pad is None else label_from_pad(pad))
 
@@ -261,11 +294,13 @@ class Evaluator:
         # Skip LLM call when utility == main backend (no dedicated cheap model available).
         if self._utility_backend is self.backend:
             return _companion_mood_heuristic(text)
+        # 家族の気持ちを読むのはパジュがすることなので、一人称で立つ。
         label = await ask_choice(
             self._utility_backend,
             _COMPANION_MOOD_PROMPT.format(text=text[:300]),
             choices=_COMPANION_MOODS,
             max_tokens=10,
+            system=self._stance(_Stance.PAJU),
         )
         # **読めなかったときに「乗り気」と断定しない**（出-d）。同じファイルにある語ベースの
         # 判定へ落とす。「読めなかったから既定」より根拠がある。
@@ -300,9 +335,12 @@ class Evaluator:
         context = "\n".join(context_parts[-6:])
 
         try:
+            # **自分で自分は検査できない。** ここだけ外から測る立ち位置で、規則を
+            # システム文で受け取る（規則の正本は `EVENT_SYSTEM_PROMPT` の `(rules ...)`）。
             result = await self._utility_backend.complete(
                 _COHERENCE_CHECK_PROMPT.format(context=context, response=response[:300]),
                 max_tokens=60,
+                system=self._stance(_Stance.INSTRUMENT, with_rules=True),
             )
             result = result.strip()
             if result.upper().startswith("OK"):
@@ -315,6 +353,7 @@ class Evaluator:
 
     async def summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """Distill an exchange into one sentence for memory storage."""
+        # 自分の記憶に残す言葉なので、一人称で立つ。
         result = await self._utility_backend.complete(
             _SUMMARY_PROMPT.format(
                 lang=_t("summary_lang"),
@@ -322,5 +361,6 @@ class Evaluator:
                 agent=agent_response[:200],
             ),
             max_tokens=80,
+            system=self._stance(_Stance.PAJU),
         )
         return result or agent_response[:100]

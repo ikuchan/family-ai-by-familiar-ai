@@ -143,7 +143,8 @@ class _MockUtilityBackend:
         self.response = response
         self.calls: list[str] = []
 
-    async def complete(self, prompt: str, max_tokens: int) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *,
+                       system: str | None = None) -> str:
         self.calls.append(prompt)
         return self.response
 
@@ -239,7 +240,8 @@ async def test_utility_llm_error_falls_back_to_exact_match():
     """If utility LLM raises, exact match is used as fallback."""
 
     class _BrokenBackend:
-        async def complete(self, prompt: str, max_tokens: int) -> str:
+        async def complete(self, prompt: str, max_tokens: int, *,
+                       system: str | None = None) -> str:
             raise RuntimeError("LLM unavailable")
 
     fn = AsyncMock(return_value=("r", None))
