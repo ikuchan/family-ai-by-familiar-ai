@@ -79,8 +79,12 @@ def test_nudge_current_mood_decays_nudges_and_saves() -> None:
     assert got != start
 
 
-def test_nudge_current_mood_empty_items_pulls_toward_neutral() -> None:
+def test_nudge_current_mood_empty_items_pulls_toward_the_rest_point() -> None:
     _set_mood_with_updated_at(MoodPAD(0.9, 0.1, 0.9, 0.1), datetime.now(timezone.utc))
     got = nudge_current_mood([])
-    # フラット項のみ→ N_PAD 中立、A_N=0.5 で中立へ半分寄る
-    assert got.p < 0.9 and got.pn > 0.1
+    # W が空なら N_PAD は自己認識 MI だけ＝軸ごとの戻り先 (0.10, 0.10, 0.50, 0.50)。
+    # 戻り先より上の軸は下がり、下の軸は上がる。
+    assert got.p < 0.9      # 0.10 へ向かって下がる
+    assert got.a < 0.9      # 0.50 へ向かって下がる
+    assert got.dom > 0.1    # 0.50 へ向かって上がる
+    assert got.pn <= 0.1    # すでに戻り先にあるので動かない（上がらない）

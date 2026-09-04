@@ -32,12 +32,15 @@ def test_compute_n_pad_light_self_weight_lets_ecur_move():
     from familiar_agent.mood_register import compute_n_pad
 
     ecur = MoodPAD(0.9, 0.1, 0.8, 0.6)
-    n = compute_n_pad([(ecur, 1.0)], self_pad=MoodPAD(), self_weight=0.5)
-    # N_PAD.p = (1.0*0.9 + 0.5*0.5)/(1.0+0.5) = 0.7667
-    assert n.p > 0.7
-    # 旧 weight 2.0 なら (0.9+1.0)/3.0=0.633 で 0.7 未満だった
-    old = compute_n_pad([(ecur, 1.0)], self_pad=MoodPAD(), self_weight=2.0)
-    assert old.p < 0.7
+    light = compute_n_pad([(ecur, 1.0)], self_pad=MoodPAD(), self_weight=0.5)
+    heavy = compute_n_pad([(ecur, 1.0)], self_pad=MoodPAD(), self_weight=2.0)
+    # 自己認識 MI の既定は (0.10, 0.10, 0.50, 0.50)（案A）。錨が E_cur の 0.9 より下に
+    # あるので、重みが増えるほど N_PAD は引き下げられる。
+    #   light = (0.9 + 0.5*0.10)/1.5 = 0.6333    heavy = (0.9 + 2.0*0.10)/3.0 = 0.3667
+    # 絶対値の閾値でなく大小で見る。錨の位置を動かしてもこの関係は変わらない。
+    assert light.p > heavy.p
+    # 軽い側では E_cur が錨より現ターン寄りに N_PAD を保てる（中点より上に残る）。
+    assert light.p > 0.5
 
 
 def test_self_mi_emotion_roundtrip_and_default_neutral():

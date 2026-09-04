@@ -1,12 +1,16 @@
 """PAD (Pleasure/Pain, Arousal, Dominance) mood register.
 
 Holds mood M as four independent axes (p, pn, a, dom), each decaying
-toward the midpoint rest state M_rest=(0.5,0.5,0.5,0.5) with a half-life
-of HALF_LIFE_SECONDS=600s, persisted under agent_state key "mood_pad".
+toward its own rest value (REST_PAD) with a half-life of
+HALF_LIFE_SECONDS=600s, persisted under agent_state key "mood_pad".
 
-Unlike time_decay.DecayState (which decays a value toward a floor), mood
-axes below 0.5 rise back toward it, so this module decays toward the
-midpoint rather than toward zero.
+The rest point differs per axis. P (pleasure) and Pn (displeasure) are
+one-sided amounts, so with nothing happening they fall back to "none"
+(0.10). A (arousal) and Dom (dominance) run between two opposite poles,
+so their calm point is the midpoint 0.50.
+
+Unlike time_decay.DecayState (which decays a value toward a floor), an
+axis below its rest value rises back toward it.
 
 This is a thin vertical slice (Phase 1 B-1): the register, its decay
 function, and its persistence exist here but are not wired to anything —
@@ -24,17 +28,22 @@ from datetime import datetime, timezone
 
 logger = logging.getLogger(__name__)
 
-REST = 0.5
+# 何も起きていないときに気分が戻る先。**軸ごとに違う**（案A・2026-09-04）。
+# 快と不快は片側の量なので、何も起きなければ「無い」へ戻る。高ぶりと支配は
+# 両極の軸なので中点 0.5 が平静である。実体は下の `REST_PAD`（MoodPAD が
+# まだ定義されていないので、既定値はここの2定数から書く）。
+REST_P = 0.10
+REST_MID = 0.5
 HALF_LIFE_SECONDS = 600.0
 MOOD_STATE_KEY = "mood_pad"
 
 
 @dataclass(frozen=True)
 class MoodPAD:
-    p: float = 0.5
-    pn: float = 0.5
-    a: float = 0.5
-    dom: float = 0.5
+    p: float = REST_P
+    pn: float = REST_P
+    a: float = REST_MID
+    dom: float = REST_MID
 
     def clipped(self) -> "MoodPAD":
         return replace(
@@ -51,23 +60,32 @@ class MoodPAD:
     @classmethod
     def from_json_dict(cls, data: dict) -> "MoodPAD":
         return cls(
-            p=data.get("p", REST),
-            pn=data.get("pn", REST),
-            a=data.get("a", REST),
-            dom=data.get("dom", REST),
+            p=data.get("p", REST_P),
+            pn=data.get("pn", REST_P),
+            a=data.get("a", REST_MID),
+            dom=data.get("dom", REST_MID),
         )
 
 
+#: 何も起きていないときの気分。軸ごとの戻り先である（案A）。
+REST_PAD = MoodPAD()
+
+
 def decay_to_rest(
-    mood: MoodPAD, elapsed_seconds: float, *, rest: float = REST, half_life: float = HALF_LIFE_SECONDS,
+    mood: MoodPAD, elapsed_seconds: float, *, rest: MoodPAD = REST_PAD,
+    half_life: float = HALF_LIFE_SECONDS,
 ) -> MoodPAD:
-    """Decay each axis toward `rest`, halving the distance every `half_life` seconds."""
+    """各軸を自分の戻り先へ、`half_life` 秒ごとに距離を半分にして近づける。
+
+    戻り先は軸ごとに違う（案A）。単一の値で4軸を戻すと、快と不快が
+    「中程度ある」状態へ居座り、`nostalgic` に近い位置が平静になってしまう。
+    """
     factor = 2.0 ** (-max(0.0, elapsed_seconds) / half_life)
     return MoodPAD(
-        p=rest + (mood.p - rest) * factor,
-        pn=rest + (mood.pn - rest) * factor,
-        a=rest + (mood.a - rest) * factor,
-        dom=rest + (mood.dom - rest) * factor,
+        p=rest.p + (mood.p - rest.p) * factor,
+        pn=rest.pn + (mood.pn - rest.pn) * factor,
+        a=rest.a + (mood.a - rest.a) * factor,
+        dom=rest.dom + (mood.dom - rest.dom) * factor,
     ).clipped()
 
 

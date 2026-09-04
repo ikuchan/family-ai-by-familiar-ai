@@ -67,8 +67,9 @@ def test_row_to_mental_item_builds_from_row() -> None:
     assert item.content == "self model content"
     assert item.supersedes == "sm-0"
     assert item.activation == 0.7
-    # Y: PAD 列を SELECT していない行は row.get 既定0.5で中立 MoodPAD になる
-    assert item.emotion == MoodPAD()
+    # PAD 列を SELECT していない行は、感情も高ぶりも分からない。中立で埋めない。
+    assert item.emotion is None
+    assert item.arousal is None
     assert item.drive is None
     assert item.vector is None
 
@@ -84,10 +85,16 @@ def test_row_to_mental_item_loads_pad_emotion() -> None:
     assert item.emotion == MoodPAD(0.8, 0.15, 0.55, 0.6)
 
 
-def test_row_to_mental_item_pad_defaults_neutral_when_absent() -> None:
+def test_row_to_mental_item_leaves_the_feeling_unset_when_absent() -> None:
+    """以前は既定 0.5 で中立に埋めていた。**その性質は意図して捨てた。**
+
+    `用語_略語一覧` の PI 項が「評価結果としての中立と、未評価の未設定とを区別する
+    ため」評価前は未設定で持つと定めている。埋めるとその区別が消える。
+    """
     row = {"id": "x", "content": "c", "superseded_by": None, "groundedness_g0": 1.0}
     item = _row_to_mental_item(row)
-    assert item.emotion == MoodPAD()
+    assert item.emotion is None
+    assert item.arousal is None
 
 
 # ── 0. 新居 core/mental_item から引ける（境界R B1） ─────────────────────────

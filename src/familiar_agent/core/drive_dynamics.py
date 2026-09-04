@@ -5,7 +5,8 @@
 loop（T-tick・自発ターン）への接続と legacy `DesireSystem` の置換は後続スライス。
 
 - 蓄積：`drive_i += rate·mult·learn·g_{D,i}(M)·dt`（clip[0,1]）。
-- 変調：`g_{D,i}(M) = logistic(logit(b_i) + Σ_j C_ij·logit(x_j))`（中立 mood で g=b_i）。
+- 変調：`g_{D,i}(M) = logistic(logit(b_i) + Σ_j C_ij·(logit(x_j) − logit(r_j)))`
+  （`r` は軸ごとの平静＝`REST_PAD`。平静 mood で g=b_i）。
 - 発火：`drive_i ≥ Θ_fire` で発火、放電 `q` で ~0 へ。I は drive を直接動かさない。
 """
 
@@ -16,7 +17,7 @@ from dataclasses import dataclass
 
 from ..config import DriveConfig
 from ..drive_register import AiDrivers
-from ..mood_register import MoodPAD
+from ..mood_register import REST_PAD, MoodPAD
 
 _EPS = 1e-9
 
@@ -31,21 +32,37 @@ def _logistic(z: float) -> float:
     return 1.0 / (1.0 + math.exp(-z))
 
 
-def _gain(bias: float, coeffs: tuple[float, float, float, float], pad: tuple[float, ...]) -> float:
-    z = _logit(bias) + sum(c * _logit(x) for c, x in zip(coeffs, pad))
+def _gain(
+    bias: float,
+    coeffs: tuple[float, float, float, float],
+    pad: tuple[float, ...],
+    rest: tuple[float, ...],
+) -> float:
+    z = _logit(bias) + sum(
+        c * (_logit(x) - _logit(r)) for c, x, r in zip(coeffs, pad, rest)
+    )
     return _logistic(z)
 
 
-def g_d(mood: MoodPAD, cfg: DriveConfig | None = None) -> AiDrivers:
-    """各欲求の気分変調ゲイン g_{D,i}(M)（中立 mood で b_i に一致）。"""
+def g_d(
+    mood: MoodPAD, cfg: DriveConfig | None = None, *, rest: MoodPAD = REST_PAD
+) -> AiDrivers:
+    """各欲求の気分変調ゲイン g_{D,i}(M)（平静 mood で b_i に一致）。
+
+    各項は**平静からのずれ**である。ロジットを絶対値で足すと項が消えるのは 0.5 の
+    ときだけで、案A で快と不快の平静が 0.10 へ動いたあとは、何も起きていなくても
+    蓄積速度がずれてしまう。差にしておけば、平静をどこに置いても
+    「平静では g = b_i」（`感情ループ全体像`）が成り立つ。
+    """
     cfg = cfg or DriveConfig()
     pad = (mood.p, mood.pn, mood.a, mood.dom)
+    rest_t = (rest.p, rest.pn, rest.a, rest.dom)
     return AiDrivers(
-        seeking=_gain(cfg.bias_seeking, cfg.c_seeking, pad),
-        rest=_gain(cfg.bias_rest, cfg.c_rest, pad),
-        bond=_gain(cfg.bias_bond, cfg.c_bond, pad),
-        safety=_gain(cfg.bias_safety, cfg.c_safety, pad),
-        esteem=_gain(cfg.bias_esteem, cfg.c_esteem, pad),
+        seeking=_gain(cfg.bias_seeking, cfg.c_seeking, pad, rest_t),
+        rest=_gain(cfg.bias_rest, cfg.c_rest, pad, rest_t),
+        bond=_gain(cfg.bias_bond, cfg.c_bond, pad, rest_t),
+        safety=_gain(cfg.bias_safety, cfg.c_safety, pad, rest_t),
+        esteem=_gain(cfg.bias_esteem, cfg.c_esteem, pad, rest_t),
     )
 
 

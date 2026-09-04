@@ -56,9 +56,11 @@ A_GATE = 0.25
 # A 軸は機械 arousal なので尋ねない。最終的には自己認識 MI のシステムプロンプトへ統合する。
 _EMOTION_PAD_PROMPT = """\
 Rate the emotion of this exchange on three axes, each 0.0 to 1.0:
-- P  (pleasure):    0 none, 0.5 neutral, 1 very pleasant
-- Pn (displeasure): 0 none, 0.5 neutral, 1 very unpleasant
+- P  (pleasure):    how pleasant.   0 not at all, 1 very pleasant
+- Pn (displeasure): how unpleasant. 0 not at all, 1 very unpleasant
 - Dom (dominance):  0 powerless, 0.5 neutral, 1 fully in control
+
+P and Pn are separate one-sided amounts, not two ends of one scale. An exchange that stirs nothing gets low P and low Pn; one that is both sweet and painful gets both high.
 
 Current mood baseline (P Pn Dom): {mood}
 Move from this baseline only as the exchange warrants.
