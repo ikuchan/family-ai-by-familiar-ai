@@ -361,9 +361,11 @@ class EmbodiedAgent:
         )
         # 5軸のうち当てはまるものを列挙させる（出-d）。「無ければ none」と聞いているので、
         # **空集合は取れた答えであって失敗ではない**。読めなかったときは `None` が返る。
+        # **パジュとして立つ。** 自分の欲求が満たされたかは、自分にしか分からない。
         axes = await ask_subset(
             self._utility_backend, prompt,
             choices=frozenset(_SATISFACTION_AXES), max_tokens=32,
+            system=self._stance_context(_Stance.PAJU),
         )
         if not axes:
             return
@@ -597,7 +599,8 @@ class EmbodiedAgent:
         elif os.environ.get("MCP_CONFIG"):
             logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
 
-        self._deferred_search = DeferredSearchTool(self._mcp_search, self._utility_backend)
+        self._deferred_search = DeferredSearchTool(
+            self._mcp_search, self._utility_backend, context=self._stance_context)
         self._deferred_fetch = DeferredFetchTool(self._mcp_search)
 
         stt_cfg = self.config.stt
