@@ -20,11 +20,19 @@ import argparse
 import asyncio
 import collections
 import os
+import pathlib
 import statistics
 import sys
 import time
 
 sys.path.insert(0, "src")
+
+# `.env` を自前で読む（この道具は familiar の起動経路を通らない）。
+for _line in pathlib.Path(".env").read_text().splitlines():
+    _line = _line.strip()
+    if _line and not _line.startswith("#") and "=" in _line:
+        _k, _v = _line.split("=", 1)
+        os.environ.setdefault(_k.strip(), _v.strip())
 
 import psycopg2  # noqa: E402
 import psycopg2.extras  # noqa: E402
