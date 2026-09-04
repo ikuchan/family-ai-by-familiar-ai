@@ -36,10 +36,16 @@ _NO = ("no", "false", "different", "いいえ", "違", "異な")
 _NONE_WORDS = ("none", "なし", "無し", "ありません")
 
 
-async def _ask(backend, prompt: str, max_tokens: int, want: str) -> str | None:
-    """軽量LLM を呼び、生の返事を返す。落ちたら `None`（例外は投げない）。"""
+async def _ask(
+    backend, prompt: str, max_tokens: int, want: str, system: str | None = None
+) -> str | None:
+    """軽量LLM を呼び、生の返事を返す。落ちたら `None`（例外は投げない）。
+
+    `system` は立ち位置と文脈（出-e）。**native な口で渡す**ので、プロンプトの先頭へ
+    足すのとは効きが違う。
+    """
     try:
-        raw = await backend.complete(prompt, max_tokens=max_tokens)
+        raw = await backend.complete(prompt, max_tokens=max_tokens, system=system)
     except Exception as e:  # noqa: BLE001
         logger.warning("形のある答えを求めたが呼び出しに失敗した（%s）: %s", want, e)
         return None
@@ -54,9 +60,10 @@ def _unusable(want: str, raw: str) -> None:
 async def ask_numbers(
     backend, prompt: str, *, count: int, lo: float = 0.0, hi: float = 1.0,
     max_tokens: int = 20,
+    system: str | None = None,
 ) -> "tuple[float, ...] | None":
     """数値を `count` 個、出てきた順に読む。範囲へ丸める。足りなければ `None`。"""
-    raw = await _ask(backend, prompt, max_tokens, f"数値{count}個")
+    raw = await _ask(backend, prompt, max_tokens, f"数値{count}個", system)
     if raw is None:
         return None
     nums = _NUMBER.findall(raw)
@@ -72,12 +79,13 @@ async def ask_numbers(
 
 async def ask_choice(
     backend, prompt: str, *, choices: "set[str] | frozenset[str]", max_tokens: int = 10,
+    system: str | None = None,
 ) -> str | None:
     """選択肢から1つ選ばせる。**2つ以上あてはまるなら選べていない**ので `None`。
 
     短く答えろと指示しても文で返すことがあるので、含まれていれば拾う。
     """
-    raw = await _ask(backend, prompt, max_tokens, "選択肢1つ")
+    raw = await _ask(backend, prompt, max_tokens, "選択肢1つ", system)
     if raw is None:
         return None
     low = raw.lower()
@@ -88,9 +96,9 @@ async def ask_choice(
     return hit[0]
 
 
-async def ask_yes_no(backend, prompt: str, *, max_tokens: int = 5) -> bool | None:
+async def ask_yes_no(backend, prompt: str, *, max_tokens: int = 5, system: str | None = None) -> bool | None:
     """はい／いいえ。**どちらとも読めなければ `None`**（黙って偽にしない）。"""
-    raw = await _ask(backend, prompt, max_tokens, "はい／いいえ")
+    raw = await _ask(backend, prompt, max_tokens, "はい／いいえ", system)
     if raw is None:
         return None
     low = raw.lower()
@@ -104,13 +112,14 @@ async def ask_yes_no(backend, prompt: str, *, max_tokens: int = 5) -> bool | Non
 
 async def ask_subset(
     backend, prompt: str, *, choices: "set[str] | frozenset[str]", max_tokens: int = 32,
+    system: str | None = None,
 ) -> "frozenset[str] | None":
     """選択肢のうち当てはまるものを列挙させる。
 
     **「どれも無い」は取れた答えであって失敗ではない**ので、空集合を返す。何も読めない
     ときだけ `None`。
     """
-    raw = await _ask(backend, prompt, max_tokens, "選択肢の部分集合")
+    raw = await _ask(backend, prompt, max_tokens, "選択肢の部分集合", system)
     if raw is None:
         return None
     low = raw.lower()
@@ -139,13 +148,13 @@ def read_json(raw: str) -> "dict[str, Any] | None":
     return loaded if isinstance(loaded, dict) else None
 
 
-async def ask_json(backend, prompt: str, *, max_tokens: int = 512) -> "dict[str, Any] | None":
+async def ask_json(backend, prompt: str, *, max_tokens: int = 512, system: str | None = None) -> "dict[str, Any] | None":
     """JSON の物体を求める。読めなければ `None`（読めなかったことは記録する）。
 
     生の返事を見て独自に記録したい呼び出し側は、`complete` を自分で呼んで `read_json` を
     使う（`scene.py` は「空だったのか説明文だったのか」で対応が変わる）。
     """
-    raw = await _ask(backend, prompt, max_tokens, "JSON")
+    raw = await _ask(backend, prompt, max_tokens, "JSON", system)
     if raw is None:
         return None
     data = read_json(raw)

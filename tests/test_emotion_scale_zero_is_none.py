@@ -25,21 +25,41 @@ _NEUTRAL_PN = 0.10
 
 # ── 段1：口の目盛り ─────────────────────────────────────────────────────────
 
-def test_the_prompt_does_not_call_the_midpoint_neutral_for_p_and_pn():
-    """快と不快の行から「中立」の語を外す。0 が中立なのか 0.5 が中立なのかを迷わせない。"""
-    lines = _EMOTION_PAD_PROMPT.splitlines()
-    p_line = next(ln for ln in lines if ln.lstrip().startswith("- P "))
-    pn_line = next(ln for ln in lines if ln.lstrip().startswith("- Pn"))
-    assert "neutral" not in p_line, p_line
-    assert "neutral" not in pn_line, pn_line
+def _axis_line(head: str) -> str:
+    return next(ln for ln in _EMOTION_PAD_PROMPT.splitlines() if ln.lstrip().startswith(head))
 
 
-def test_the_prompt_still_calls_the_midpoint_neutral_for_dominance():
+def test_the_pleasure_axes_have_no_midpoint_anchor():
+    """快と不快は片側の量。0 が「無い」で、真ん中に印を置かない。
+
+    どちらも 0＝まったく無い ↔ 1＝とても大きい で、0.5 に名前が付いていないこと。
+    印を置くと、中立の出来事をどこへ置くかが決まらなくなる（それが案A の出発点だった）。
+    """
+    for head in ("- P ", "- Pn"):
+        line = _axis_line(head)
+        assert "まったく無い" in line, line
+        assert "0.5" not in line, line
+
+
+def test_the_dominance_axis_keeps_its_midpoint():
     """Dom は 0＝無力 ↔ 1＝掌握 の両極なので 0.5 が中点で正しい。ここは変えない。"""
-    dom_line = next(
-        ln for ln in _EMOTION_PAD_PROMPT.splitlines() if ln.lstrip().startswith("- Dom")
-    )
-    assert "neutral" in dom_line, dom_line
+    line = _axis_line("- Dom")
+    assert "0.5" in line, line
+
+
+def test_the_prompt_states_where_the_axes_rest():
+    """平静の位置は事実として伝える（指示ではない）。無いと中立が真ん中へ寄る。"""
+    assert "P=0.10 / Pn=0.10 / Dom=0.50" in _EMOTION_PAD_PROMPT
+
+
+def test_the_prompt_asks_what_paju_felt_rather_than_a_rating():
+    """感情を作るのはパジュである。外から採点させない。"""
+    assert "あなた自身が何を感じたか" in _EMOTION_PAD_PROMPT
+    assert "Rate the emotion" not in _EMOTION_PAD_PROMPT
+
+
+def test_the_prompt_says_nobody_else_reads_it():
+    assert "あなた以外だれも見ない" in _EMOTION_PAD_PROMPT
 
 
 # ── 段2：中立の位置 ─────────────────────────────────────────────────────────
