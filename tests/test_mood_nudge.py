@@ -23,11 +23,13 @@ def test_n_pad_empty_is_neutral() -> None:
     assert compute_n_pad([]) == MoodPAD()
 
 
-def test_n_pad_single_item_blends_with_flat() -> None:
-    # (w*v + C*0.5)/(w + C)、C=0.5（既定 self_weight）、item weight=2.0
-    # p=(2*1.0+0.5*0.5)/2.5=0.9, pn=(2*0.0+0.25)/2.5=0.1
+def test_n_pad_single_item_blends_with_the_self_mi() -> None:
+    # (w*v + C*self_x)/(w + C)。C=0.5（既定 self_weight）・item weight=2.0。
+    # 自己認識 MI の既定は軸ごとの戻り先 (0.10, 0.10, 0.50, 0.50)（案A）。
+    #   p  =(2*1.0+0.5*0.10)/2.5=0.82   pn =(2*0.0+0.5*0.10)/2.5=0.02
+    #   a  =(2*1.0+0.5*0.50)/2.5=0.90   dom=(2*0.0+0.5*0.50)/2.5=0.10
     n = compute_n_pad([(MoodPAD(1.0, 0.0, 1.0, 0.0), 2.0)])
-    assert n == MoodPAD(0.9, 0.1, 0.9, 0.1)
+    assert n == MoodPAD(0.82, 0.02, 0.90, 0.10)
 
 
 def test_n_pad_heavier_weight_pulls_further_from_flat() -> None:

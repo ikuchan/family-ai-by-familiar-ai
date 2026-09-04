@@ -36,10 +36,25 @@ def test_label_pad_covers_expected_labels() -> None:
         assert all(0.0 <= x <= 1.0 for x in pad), label
 
 
-# ── 2. 正本と凍結写し（マイグレーション025）の一致 ─────────────────────────
-def test_label_pad_matches_frozen_migration_copy() -> None:
+# ── 2. 正本と凍結写し（マイグレーション025）の関係 ─────────────────────────
+# 025 は過去の一度きりの実行を再現する凍結写しなので、あとから値を直さない。
+# 案A（2026-09-04）で `neutral` だけを動かしたため、いま食い違うのはその1点である。
+# 残り11点が一致していることを固定し、動いた1点は明示して差を追える形にする。
+
+def test_label_pad_matches_frozen_migration_copy_except_neutral() -> None:
     mod = _load_backfill_migration()
-    assert LABEL_PAD == mod._LABEL_PAD
+    assert set(LABEL_PAD) == set(mod._LABEL_PAD)
+    for label in LABEL_PAD:
+        if label == "neutral":
+            continue
+        assert LABEL_PAD[label] == mod._LABEL_PAD[label], label
+
+
+def test_the_frozen_copy_still_holds_the_old_neutral() -> None:
+    """025 は案A の前の中立を持ったままであること（写しを直していない証拠）。"""
+    mod = _load_backfill_migration()
+    assert mod._LABEL_PAD["neutral"] == (0.50, 0.50, 0.50, 0.50)
+    assert LABEL_PAD["neutral"] == (0.10, 0.10, 0.50, 0.50)
 
 
 # ── 3. 表の厳密値 → そのラベル ──────────────────────────────────────────────

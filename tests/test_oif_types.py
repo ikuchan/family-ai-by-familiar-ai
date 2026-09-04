@@ -95,7 +95,7 @@ class TestMI:
     def test_pad_defaults_to_neutral(self) -> None:
         mi = MI(id="x", content="c", timestamp=datetime.now(), direction="観察")
         assert isinstance(mi.pad, MoodPAD)
-        assert mi.pad.p == pytest.approx(0.5)
+        assert mi.pad.p == pytest.approx(0.10)  # 平静は軸ごと（案A）
 
 
 class TestCue:

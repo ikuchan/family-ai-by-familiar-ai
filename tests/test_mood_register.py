@@ -23,32 +23,33 @@ def _db_conn():
     return conn
 
 
-# ── decay direction: from above (0.5 < x) settles downward ──────────────────
+# ── 減衰の向き：戻り先より上からは下がる ────────────────────────────────────
+# 戻り先は軸ごとに違う（案A）。P と Pn は 0.10、A と Dom は 0.50 である。
 
-def test_decay_neutral_stays_neutral() -> None:
-    m = MoodPAD()  # all axes 0.5
-    out = decay_to_rest(m, 600.0)
-    assert (out.p, out.pn, out.a, out.dom) == (0.5, 0.5, 0.5, 0.5)
+def test_decay_at_rest_stays_at_rest() -> None:
+    out = decay_to_rest(MoodPAD(), 600.0)
+    assert (out.p, out.pn, out.a, out.dom) == (0.10, 0.10, 0.50, 0.50)
 
 
 def test_decay_converges_from_above() -> None:
     out = decay_to_rest(MoodPAD(p=0.9), 600.0)
-    assert abs(out.p - 0.7) < 1e-9  # 0.5 + (0.9-0.5)*0.5 after one half-life
+    assert abs(out.p - 0.5) < 1e-9  # 0.10 + (0.9-0.10)*0.5 ＝ 半減期1つぶん
 
 
-# ── decay direction: from below (x < 0.5) settles upward ────────────────────
-# Falsification: a floor(0)-decay implementation would push this toward 0.05,
-# not 0.3 — this test only passes for a midpoint-rest implementation.
+# ── 減衰の向き：戻り先より下からは上がる ────────────────────────────────────
+# 反証：0 へ落とす実装なら Dom は 0.10 へ向かう。中点へ戻る実装でしか 0.35 にならない。
 
 def test_decay_converges_from_below() -> None:
-    out = decay_to_rest(MoodPAD(pn=0.1), 600.0)
-    assert abs(out.pn - 0.3) < 1e-9  # 0.5 + (0.1-0.5)*0.5 after one half-life
+    out = decay_to_rest(MoodPAD(dom=0.2), 600.0)
+    assert abs(out.dom - 0.35) < 1e-9  # 0.50 + (0.2-0.50)*0.5
 
 
-def test_decay_axes_independent_and_asymptote() -> None:
+def test_decay_axes_settle_at_their_own_rest() -> None:
     out = decay_to_rest(MoodPAD(p=0.9, pn=0.1, a=0.8, dom=0.2), 6000.0)
-    for v in (out.p, out.pn, out.a, out.dom):
-        assert abs(v - 0.5) < 1e-3  # after many half-lives, all axes settle at rest
+    assert abs(out.p - 0.10) < 1e-3
+    assert abs(out.pn - 0.10) < 1e-3
+    assert abs(out.a - 0.50) < 1e-3
+    assert abs(out.dom - 0.50) < 1e-3
 
 
 def test_clip_range() -> None:
@@ -72,4 +73,4 @@ def test_load_default_when_absent() -> None:
     got = load_mood(conn)  # mood_pad key not present
     conn.close()
 
-    assert (got.p, got.pn, got.a, got.dom) == (0.5, 0.5, 0.5, 0.5)
+    assert (got.p, got.pn, got.a, got.dom) == (0.10, 0.10, 0.50, 0.50)
