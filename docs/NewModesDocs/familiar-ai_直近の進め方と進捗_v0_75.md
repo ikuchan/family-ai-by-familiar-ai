@@ -138,6 +138,8 @@
 
 - **同じモジュールを提供する配布物が2つ入り、宣言と違うほうが使われていた**（2026-07-30・リポジトリ外）。合成が `！` を含む文で必ず 500 を返し、実機で「GUI には返事が出るのに声が出ない」状態になっていた。`~/tts_eval/sbv2_env` に `pyopenjtalk-dict`（`style-bert-vits2` が依存として宣言しているもの）と `pyopenjtalk-plus`（何にも依存されていない）の両方が入っており、同じ `pyopenjtalk` パッケージ名を後勝ちで `-plus` が占めていた。両者は記号の読みが違う。`!` に対して `-dict` は `pron="、"` を返すが、`-plus` は `pron="！"` を返す。`style-bert-vits2` 2.5.0 の `text_to_sep_kata` には `？` が全角で返る場合の分岐はあるが **`！` の分岐が無い**ため、`！` はどの受け皿にも入らず `Input must be katakana only: ！` で落ちる。`-plus` を外して `-dict` を入れ直し、`こんにちは！`・`やった！！！` が 200 で鳴ることを確認した。**`style-bert-vits2` は 2.5.0 が最新なので、上げて直る話ではない。** 環境を作り直すときは、`pyopenjtalk` を提供する配布物が1つだけであることを確かめる。あわせて `scripts/sbv2_server.py` の二重の正規化を落とした（`infer()` の中の `clean_text` が `normalize_text` を呼ぶので、呼び出し側では要らない）。
 
+- **`~/.familiar-ai.json` の `command` が `"python"` で、この機械に `python` が無い**（2026-09-04・リポジトリ外）。あるのは `/usr/bin/python3` だけである。それでも `obsidian-memo` が上がるのは、`uv run familiar` で起こすと `python` が `.venv/bin/python` へ解決されるためで、**起動の仕方に依存している**。venv の外から起こせば上がらない。確実にするならフルパス（`/home/yusuke-ikunaga/Desktop/family-ai-by-familiar-ai/.venv/bin/python`）にする。`memo_mcp` は依存ゼロなのでこちらの venv（3.11.16）でそのまま動き、`--selftest` が `initialize` から `get_house_rules` まで通ることは確かめた。**まだ変えていない**（実機まわりの作業として後回し）。詳細は `設計方針_家の記録との接続` §7。
+
 - **`mcp-server-fetch` の依存を固定した**（2026-07-29・リポジトリ外）。`mcp` 2.0.0（7月28日公開）が `McpError` を `MCPError` へ改名し、`mcp-server-fetch`（最新 2026.7.10）が追随していないため、`uvx` が最新を解決して起動に失敗するようになった。`~/.familiar-ai.json` の `fetch` を `["--from", "mcp-server-fetch", "--with", "mcp<2", "mcp-server-fetch"]` へ変えて回避した（控えは `~/.familiar-ai.json.bak-20260729`）。**暫定である。** `mcp-server-fetch` が 2.0.0 対応版を出したら固定を外す。
 
 - **検索の MCP サーバーが空行を出す**。`search_deferred` を使うと `mcp.client.stdio: Failed to parse JSONRPC message from server` が数件出る（中身は空文字）。`fetch` は手で JSONRPC を送って検証し、空行を出さないことを確認した。犯人は `brave-search` か `tavily`（どちらも Node 製）だが、ロガーがサーバー名を出さないので特定できていない。**実害は無い**（同じ反復で検索も取得も成功している）。直す先はこちらのコードに無い。
@@ -157,6 +159,8 @@
 ---
 
 ## 更新履歴
+
+> v0.75：**家の記録の申し送りを受け直した**（2026-09-04）。新しかったのは1件で、`~/.familiar-ai.json` の `command` が `"python"` なのにこの機械に `python` が無い件である（保留・申し送りへ追記）。話者ゲートは 知-f、`capabilities.yaml` と `get_house_rules` の接続は完了済みで、いずれも紐付けは変わらない。MCP そのものの置き場は 環-e-は（DIF）である。
 
 > v0.73：**OIF と AIF を実装した**（2026-08-01）。OIF は公開面8つ・MI 18属性で記憶との唯一の出入り口になり、AIF は T と I の直接呼び2箇所を引き取った。どちらも挙動は変えていない。設計は `設計方針_OIF` v0.1 と `設計図` ③-2 にある。次は 環-e-は（DIF）。
 
