@@ -12,13 +12,12 @@ Architecture:
 
 from __future__ import annotations
 
-import json
 import logging
 import uuid
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from .core.helpers import strip_code_fence
+from .core.structured_ask import read_json
 from .db import Database
 
 if TYPE_CHECKING:
@@ -59,33 +58,42 @@ async def extract_entities(
     Returns a list of dicts with keys: label, category, confidence.
     Returns [] on any parse error.
     """
-    try:
-        if image_b64 and hasattr(backend, "complete_with_image"):
-            vision_prompt = (
-                f"{_EXTRACT_SYSTEM}\n\n"
-                "Analyze this camera image directly and extract all visible entities."
-            )
+    text_prompt = f"{_EXTRACT_SYSTEM}\n\nScene description:\n{description}"
+    data = None
+    if image_b64 and hasattr(backend, "complete_with_image"):
+        vision_prompt = (
+            f"{_EXTRACT_SYSTEM}\n\n"
+            "Analyze this camera image directly and extract all visible entities."
+        )
+        # 画像の経路は口を通さない（`complete_with_image` は口の対象外）。返答が素の
+        # JSON とは限らないのは同じなので、コードフェンスは剥がす。
+        try:
             raw = await backend.complete_with_image(vision_prompt, image_b64)
-            if not raw:
-                # Fall back to text description if vision call returned nothing
-                raw = await backend.complete(
-                    f"{_EXTRACT_SYSTEM}\n\nScene description:\n{description}"
-                )
-        else:
-            raw = await backend.complete(
-                f"{_EXTRACT_SYSTEM}\n\nScene description:\n{description}"
-            )
-        # 返答は素の JSON とは限らない。実機の VLM は同じ画像でも回ごとに
-        # ```json で包んだり包まなかったりする。
-        data = json.loads(strip_code_fence(str(raw)))
-        entities = data.get("entities", [])
-        if not isinstance(entities, list):
-            _log_unusable(raw, "entities が配列でない")
+        except Exception as exc:  # noqa: BLE001
+            _log_unusable("", str(exc))
+            raw = ""
+        if raw:
+            data = read_json(str(raw))
+            if data is None:
+                _log_unusable(raw, "JSON として読めない")
+    if data is None:
+        # **ここは記録を自分で持つ**（出-d）。「空だったのか説明文だったのか」で対応が
+        # 変わるので、先頭を添えて残す（実機で `see` が失敗し続けたとき、VLM が何を返した
+        # のか分からなかった）。読み取り自体は共通の `read_json` に任せる。
+        try:
+            raw_text = str(await backend.complete(text_prompt) or "")
+        except Exception as exc:  # noqa: BLE001
+            _log_unusable("", str(exc))
             return []
-        return [e for e in entities if isinstance(e, dict) and "label" in e]
-    except (json.JSONDecodeError, AttributeError, TypeError) as exc:
-        _log_unusable(raw, str(exc))
+        data = read_json(raw_text)
+        if data is None:
+            _log_unusable(raw_text, "JSON として読めない")
+            return []
+    entities = data.get("entities", [])
+    if not isinstance(entities, list):
+        _log_unusable(str(data), "entities が配列でない")
         return []
+    return [e for e in entities if isinstance(e, dict) and "label" in e]
 
 
 # 記録に載せる返答の長さ。情景の説明は長く、全文を warning で出すとログが埋まる。

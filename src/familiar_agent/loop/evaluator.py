@@ -14,14 +14,17 @@ agent.py から分離した、次の4つを持つ。
 from __future__ import annotations
 
 import logging
-import re
 
 from .._i18n import _t
+from ..core.structured_ask import ask_choice, ask_numbers
 from ..emotion_pad import label_from_pad
 from ..mood_register import MoodPAD, load_current_mood
 from .history import _flatten_history
 
 logger = logging.getLogger(__name__)
+
+#: 相手の気分として選ばせる5つ。`_companion_mood_heuristic` が返す語と揃える。
+_COMPANION_MOODS = frozenset({"engaged", "tired", "frustrated", "absent", "happy"})
 
 
 # ── プロンプトとパラメータ ───────────────────────────────────────────────────
@@ -104,19 +107,19 @@ async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: fl
     a = min(1.0, max(0.0, arousal))
     if a < a_gate:
         return None, a
-    try:
-        mood_str = f"{mood.p:.2f} {mood.pn:.2f} {mood.dom:.2f}"
-        raw = await backend.complete(
-            _EMOTION_PAD_PROMPT.format(text=text[:400], mood=mood_str), max_tokens=20
-        )
-        nums = re.findall(r"-?[0-9]*\.?[0-9]+", raw)
-        if len(nums) < 3:
-            raise ValueError("evaluator did not return three numbers")
-        p, pn, dom = (min(1.0, max(0.0, float(nums[i]))) for i in range(3))
-        return MoodPAD(p=p, pn=pn, a=a, dom=dom), a
-    except Exception as e:
-        logger.warning("emotion PAD evaluation failed, leaving it unmeasured: %s", e)
+    mood_str = f"{mood.p:.2f} {mood.pn:.2f} {mood.dom:.2f}"
+    # 数値を拾って範囲へ丸めるのは口が持つ（出-d）。3つ揃わなければ `None` が返り、
+    # ここは未測定として扱う。呼び出しが落ちても口は例外を投げない。
+    nums = await ask_numbers(
+        backend,
+        _EMOTION_PAD_PROMPT.format(text=text[:400], mood=mood_str),
+        count=3,
+        max_tokens=20,
+    )
+    if nums is None:
         return None, a
+    p, pn, dom = nums
+    return MoodPAD(p=p, pn=pn, a=a, dom=dom), a
 
 
 def _companion_mood_heuristic(text: str) -> str:
@@ -256,12 +259,15 @@ class Evaluator:
         # Skip LLM call when utility == main backend (no dedicated cheap model available).
         if self._utility_backend is self.backend:
             return _companion_mood_heuristic(text)
-        label = await self._utility_backend.complete(
-            _COMPANION_MOOD_PROMPT.format(text=text[:300]), max_tokens=10
+        label = await ask_choice(
+            self._utility_backend,
+            _COMPANION_MOOD_PROMPT.format(text=text[:300]),
+            choices=_COMPANION_MOODS,
+            max_tokens=10,
         )
-        label = label.strip().lower()
-        valid = {"engaged", "tired", "frustrated", "absent", "happy"}
-        return label if label in valid else "engaged"
+        # **読めなかったときに「乗り気」と断定しない**（出-d）。同じファイルにある語ベースの
+        # 判定へ落とす。「読めなかったから既定」より根拠がある。
+        return label if label is not None else _companion_mood_heuristic(text)
 
     async def check_response_coherence(self, response: str, messages: list) -> str | None:
         """Check whether the agent's response contains a logical error or rule violation.

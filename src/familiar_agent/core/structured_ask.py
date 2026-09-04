@@ -123,22 +123,32 @@ async def ask_subset(
     return None
 
 
-async def ask_json(backend, prompt: str, *, max_tokens: int = 512) -> "dict[str, Any] | None":
-    """JSON の物体を読む。**コードフェンスは剥がす。**
+def read_json(raw: str) -> "dict[str, Any] | None":
+    """文字列から JSON の物体を読む。**コードフェンスは剥がす。** 読めなければ `None`。
 
     実機の VLM は同じ画像・同じプロンプトでも回ごとに ```` ```json ```` で包んだり包まな
     かったりする（`core.helpers.strip_code_fence` の実測）。配列だけを返してきたときは、
     物体を求めているので取れなかったものとして扱う。
+
+    **記録はしない。** 呼ぶ側が生の返事を持っているので、どう残すかは呼ぶ側が決める。
+    """
+    try:
+        loaded = json.loads(strip_code_fence(raw))
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return None
+    return loaded if isinstance(loaded, dict) else None
+
+
+async def ask_json(backend, prompt: str, *, max_tokens: int = 512) -> "dict[str, Any] | None":
+    """JSON の物体を求める。読めなければ `None`（読めなかったことは記録する）。
+
+    生の返事を見て独自に記録したい呼び出し側は、`complete` を自分で呼んで `read_json` を
+    使う（`scene.py` は「空だったのか説明文だったのか」で対応が変わる）。
     """
     raw = await _ask(backend, prompt, max_tokens, "JSON")
     if raw is None:
         return None
-    try:
-        data = json.loads(strip_code_fence(raw))
-    except (json.JSONDecodeError, TypeError, ValueError):
+    data = read_json(raw)
+    if data is None:
         _unusable("JSON", raw)
-        return None
-    if not isinstance(data, dict):
-        _unusable("JSON（物体でない）", raw)
-        return None
     return data

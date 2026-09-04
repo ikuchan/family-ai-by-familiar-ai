@@ -331,11 +331,14 @@ class EmbodiedAgent:
         if not cfg.satisfy_llm:
             return
         from .core.drive_satisfaction import (
+            _AXES as _SATISFACTION_AXES,
+        )
+        from .core.drive_satisfaction import (
             apply_satisfaction,
             pad_distance,
-            parse_satisfied_axes,
             satisfaction_gate,
         )
+        from .core.structured_ask import ask_subset
 
         # 中立からのズレ＝affect の大きさ（上下両方向）。**未測定なら 0**（050）——
         # 測れていないものを「中立だった」と読んで沈静化の判断に使わない。
@@ -355,12 +358,12 @@ class EmbodiedAgent:
             "満たされたものだけを小文字の名前で列挙し、無ければ none とだけ答えてください。\n"
             f"[ユーザー] {user_input[:400]}\n[エージェント] {final_text[:400]}"
         )
-        try:
-            raw = await self._utility_backend.complete(prompt, max_tokens=32)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("satisfaction check LLM failed: %s", e)
-            return
-        axes = parse_satisfied_axes(raw)
+        # 5軸のうち当てはまるものを列挙させる（出-d）。「無ければ none」と聞いているので、
+        # **空集合は取れた答えであって失敗ではない**。読めなかったときは `None` が返る。
+        axes = await ask_subset(
+            self._utility_backend, prompt,
+            choices=frozenset(_SATISFACTION_AXES), max_tokens=32,
+        )
         if not axes:
             return
 

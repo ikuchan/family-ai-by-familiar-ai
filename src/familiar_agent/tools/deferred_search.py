@@ -6,6 +6,8 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
+from ..core.structured_ask import ask_yes_no
+
 logger = logging.getLogger(__name__)
 
 _MAX_CONCURRENT = 3
@@ -107,14 +109,17 @@ class DeferredSearchTool:
         """Return True if new_query and existing_query share the same search intent."""
         if self._utility_backend is None:
             return new_query == existing_query
-        try:
-            answer = await self._utility_backend.complete(
-                _SAME_INTENT_PROMPT.format(a=existing_query, b=new_query),
-                max_tokens=5,
-            )
-            return answer.strip().lower().startswith("yes")
-        except Exception:
-            return new_query == existing_query
+        # **読めなかったら文字列の一致で決める**（出-d）。以前は `.startswith("yes")` で
+        # 見ており、モデルが「はい、同じです」と日本語で答えると**偽**になった。偽になると
+        # 同じ調査を二重に投げる（`求めの版チェーン`「同じ語は二度と調べない」）。
+        # 例外時の落とし先とも揃える（以前は例外なら文字列比較、読めなければ「いいえ」と
+        # 割れていた）。
+        answer = await ask_yes_no(
+            self._utility_backend,
+            _SAME_INTENT_PROMPT.format(a=existing_query, b=new_query),
+            max_tokens=5,
+        )
+        return answer if answer is not None else (new_query == existing_query)
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name != "search_deferred":
