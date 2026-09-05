@@ -91,7 +91,9 @@ def test_arbiter_speaks_as_the_persona():
     b = _backend('{"branch":"light","text":"やあ"}')
     asyncio.run(arbitrate(b, utterance="こんにちは", workspace_ctx="",
                           self_understanding="名前： パジュ\n一人称：ぼく"))
-    assert "パジュ" in _prompt_of(b) and "ぼく" in _prompt_of(b)
+    # 人格はシステム文で渡す（出-e-に）。**片方の口にだけ渡さない**という性質は同じ。
+    system = b.complete.await_args.kwargs["system"]
+    assert "パジュ" in system and "ぼく" in system
 
 
 def test_arbiter_judges_sufficiency_not_mere_arrival():
@@ -120,10 +122,14 @@ def test_arbiter_gets_the_same_grounding_as_the_full_llm():
                           family_md="たいき：家族の長男",
                           present_ctx='(present :speaker "たいき")',
                           now_ctx='(now :datetime "2026-07-26 14:39")'))
-    p = _prompt_of(b)
-    for needle in ("パジュ", "記憶を探せる", "たいき：家族の長男",
-                   ':speaker "たいき"', "14:39"):
-        assert needle in p
+    # 文脈は2箇所へ分かれた（出-e-に）。**合わせて見る**——身元はシステム文、
+    # いま誰が居るかと時刻はプロンプトである。片方にだけ渡す形へ戻っていないこと。
+    system = b.complete.await_args.kwargs["system"]
+    prompt = _prompt_of(b)
+    for needle in ("パジュ", "記憶を探せる", "たいき：家族の長男"):
+        assert needle in system, needle
+    for needle in (':speaker "たいき"', "14:39"):
+        assert needle in prompt, needle
 
 
 def test_filler_examples_do_not_fix_the_register():

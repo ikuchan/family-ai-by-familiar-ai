@@ -20,19 +20,27 @@ def _pos(marker: str) -> int:
     return i
 
 
-def test_who_you_are_comes_before_anything_that_changes():
-    # `[あなたは誰か]` と `[一緒に暮らす人たち]` は起動中ほぼ変わらない。
-    assert _pos("[あなたは誰か]") < _pos("[いま]")
-    assert _pos("[一緒に暮らす人たち]") < _pos("[いま]")
+def test_who_you_are_is_not_in_the_changing_half():
+    """身元はシステム文へ移した（出-e-に）。**プロンプトには残っていない。**
+
+    以前は1本の文字列だったので「先に置く」ことで守っていた。分けたので、順序を人が
+    守る必要が無くなった——システム文は常に先である。
+    """
+    # 中身（差し込み口）はプロンプトから消えている。
+    assert "{me}" not in ARBITER_PROMPT
+    assert "{family}" not in ARBITER_PROMPT
+    # 名前だけは残る。**どこに書いてあるかを指すため**で、そこは「はじめに渡された」と
+    # 言い直した（システム文へ移ったので「下の」ではない）。
+    assert "はじめに渡された" in ARBITER_PROMPT
 
 
-def test_the_iteration_cap_note_is_not_in_the_stable_part():
+def test_the_iteration_cap_note_is_in_the_changing_half():
     """上限の但し書きは5反復に1回だけ現れる（通常は空文字）。
 
-    固定のものより前に置くと、現れた回に後ろ全部が作り直しになる。
+    安定な身元はシステム文にあるので、これが現れてもそちらは作り直しにならない。
     """
-    assert _pos("{capped_note}") > _pos("[あなたは誰か]")
-    assert _pos("{capped_note}") > _pos("[一緒に暮らす人たち]")
+    assert "{capped_note}" in ARBITER_PROMPT
+    assert _pos("{capped_note}") > _pos("[いま]")
 
 
 def test_what_the_person_said_comes_last():
@@ -42,12 +50,12 @@ def test_what_the_person_said_comes_last():
 
 
 def test_the_name_is_not_passed_separately():
-    # `ME.md` の「名前： …」が `[あなたは誰か]` に入っている。二重に渡さない。
+    # `ME.md` の「名前： …」が `[あなたは誰か]`（システム文）に入っている。二重に渡さない。
     assert "{agent_name}" not in ARBITER_PROMPT
 
 
 def test_the_silence_rule_points_at_who_you_are():
-    # 名前を別枠で渡さない代わりに、どこに書いてあるかを指す。
+    # 名前を別枠で渡さない代わりに、どこに書いてあるかを指す。指す先はシステム文にある。
     assert "あなたは誰か" in ARBITER_PROMPT.split("silence_minutes")[0][-600:]
 
 
@@ -64,9 +72,12 @@ def test_the_arbiter_speaks_as_paju_not_as_a_mechanism():
     **待ってもらう一言と本応答は、同じパジュの2つの出口である。** 実機では、本応答が
     ですますなのに待ってもらう一言だけタメ口になった。同じ人の言葉として揃わなかった。
     """
+    from familiar_agent.core.context_parts import Stance, build_context
+
     assert "対話エージェントの内部で" not in ARBITER_PROMPT
     assert "調停器である" not in ARBITER_PROMPT
-    assert "あなたはパジュである" in ARBITER_PROMPT
+    system = build_context(stance=Stance.PAJU, self_understanding="me", family="fam").stable
+    assert system.startswith("あなたはパジュである")
 
 
 def test_the_arbiter_still_answers_only_json():
@@ -92,9 +103,66 @@ def test_the_identity_block_matches_what_the_context_mouth_builds():
     """
     from familiar_agent.core.context_parts import Stance, build_context
 
-    built = build_context(stance=Stance.PAJU, self_understanding="{me}", family="{family}").stable
-    assert ARBITER_PROMPT.startswith("あなたはパジュである")
-    for block in ("[あなたは誰か]\n{me}", "[一緒に暮らす人たち]\n{family}"):
+    built = build_context(stance=Stance.PAJU, self_understanding="＜私＞", family="＜家＞").stable
+    assert built.startswith("あなたはパジュである")
+    for block in ("[あなたは誰か]\n＜私＞", "[一緒に暮らす人たち]\n＜家＞"):
         assert block in built, block
-        assert block in ARBITER_PROMPT, block
-    assert ARBITER_PROMPT.index("[あなたは誰か]") < ARBITER_PROMPT.index("[一緒に暮らす人たち]")
+    assert built.index("[あなたは誰か]") < built.index("[一緒に暮らす人たち]")
+
+
+# ── 構造を寄せる：安定はシステム文へ、可変と指示はプロンプトへ（出-e-に）──────
+
+def test_the_stable_identity_goes_into_the_system_text():
+    """**1本の文字列だったのは、`complete()` にシステム文の口が無かったからである。**
+
+    出-e-い で口を作ったので分けられる。安定（立ち位置＋人格＋家族）はシステム文へ、
+    課題の指示と可変の data はプロンプトへ。**交互に並ぶ問題は消える**——「口調の注意」が
+    `[いま]` の直後にあるのも、JSON の指示が最後にあるのも、どちらもプロンプト側の話に
+    なるからである。他の6仕事と同じ形になり、システム文は呼び出し間で同一なので
+    前方一致キャッシュが最大限効く。
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from familiar_agent.loop.arbiter import arbitrate
+
+    be = MagicMock()
+    be.complete = AsyncMock(return_value='{"branch": "full", "effort": "high"}')
+    asyncio.run(arbitrate(
+        be, utterance="やあ", workspace_ctx="（なし）",
+        self_understanding="＜自己認識＞", family_md="＜家族＞",
+        present_ctx="（在席）", now_ctx="（いま）", timeout=5.0,
+    ))
+    system = be.complete.await_args.kwargs["system"]
+    prompt = be.complete.await_args.args[0]
+
+    # 安定はシステム文にだけある
+    assert system.startswith("あなたはパジュである")
+    assert "＜自己認識＞" in system and "＜家族＞" in system
+    assert "＜自己認識＞" not in prompt and "＜家族＞" not in prompt
+
+    # 可変と指示はプロンプトにだけある
+    for changing in ("（在席）", "（いま）", "やあ"):
+        assert changing in prompt, changing
+        assert changing not in system, changing
+    assert "JSON だけを返す" in prompt
+    assert "JSON だけを返す" not in system
+
+
+def test_the_system_text_repeats_exactly_so_the_cache_can_hit():
+    """人の言葉が変わってもシステム文は一字一句同じ。"""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from familiar_agent.loop.arbiter import arbitrate
+
+    seen = []
+    for utterance in ("おはよう", "おやすみ"):
+        be = MagicMock()
+        be.complete = AsyncMock(return_value='{"branch": "full"}')
+        asyncio.run(arbitrate(
+            be, utterance=utterance, workspace_ctx="（なし）",
+            self_understanding="＜自己認識＞", family_md="＜家族＞", timeout=5.0,
+        ))
+        seen.append(be.complete.await_args.kwargs["system"])
+    assert seen[0] == seen[1]

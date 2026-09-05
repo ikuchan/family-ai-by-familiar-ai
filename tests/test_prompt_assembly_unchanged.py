@@ -46,18 +46,20 @@ def test_the_event_system_prompt_is_labelled_and_ordered():
         assert changing not in stable, changing
 
 
-def test_the_arbiter_prompt_keeps_stable_before_changing():
-    """人格・家族・規則が先、時刻・在席・言葉・作業状態が後（前方一致キャッシュ）。"""
-    order = ["[あなたは誰か]", "[一緒に暮らす人たち]", "{me}", "{family}"]
-    for name in order:
-        assert name in ARBITER_PROMPT, name
-    i_me = ARBITER_PROMPT.index("{me}")
-    i_family = ARBITER_PROMPT.index("{family}")
+def test_the_arbiter_no_longer_needs_to_order_the_stable_part_by_hand():
+    """安定部はシステム文へ移した（出-e-に）。**順序を人が守る必要が無くなった。**
+
+    以前は1本の文字列だったので「人格・家族を先に置く」ことでキャッシュを効かせていた。
+    分けたので、システム文は常に先である。プロンプトに残るのは可変と課題の指示だけで、
+    その中の並び（時刻 → 在席 → 言葉 → 作業状態）は変えていない。
+    """
+    assert "{me}" not in ARBITER_PROMPT
+    assert "{family}" not in ARBITER_PROMPT
     i_now = ARBITER_PROMPT.index("{now}")
+    i_present = ARBITER_PROMPT.index("{present}")
     i_utterance = ARBITER_PROMPT.index("{utterance}")
     i_workspace = ARBITER_PROMPT.index("{workspace}")
-    assert i_me < i_family < i_now
-    assert i_now < i_utterance < i_workspace
+    assert i_now < i_present < i_utterance < i_workspace
 
 
 def test_the_arbiter_prompt_places_the_rules_before_the_moment():

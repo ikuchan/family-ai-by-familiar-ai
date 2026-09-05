@@ -49,8 +49,13 @@ def test_the_name_comes_from_who_you_are_rather_than_a_separate_slot():
 
     別枠でもう一度渡すと同じ情報が2箇所になる。規則のほうから、そこを指す。
     """
+    from familiar_agent.core.context_parts import Stance, build_context
+
     assert "{agent_name}" not in ARBITER_PROMPT
-    assert "{me}" in ARBITER_PROMPT
+    # 人格はシステム文へ移った（出-e-に）。規則の側は、そこを指す言葉を持つ。
+    built = build_context(stance=Stance.PAJU, self_understanding="me", family="fam").stable
+    assert "[あなたは誰か]" in built
+    assert "はじめに渡された [あなたは誰か]" in ARBITER_PROMPT
 
 
 def test_the_prompt_requires_the_name_for_a_silence_request():

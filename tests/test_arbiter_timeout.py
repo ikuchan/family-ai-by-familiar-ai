@@ -31,7 +31,7 @@ def test_a_reply_that_arrives_within_the_timeout_is_used():
     """4.2 秒で返る調停（「黙って」の実測に近い）を、時間切れにしない。"""
     backend = MagicMock()
 
-    async def _slow(prompt, max_tokens):
+    async def _slow(prompt, max_tokens, *, system=None):
         await asyncio.sleep(0.05)
         return '{"branch":"light","text":"わかった"}'
 
