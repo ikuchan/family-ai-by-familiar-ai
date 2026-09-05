@@ -49,3 +49,52 @@ def test_the_name_is_not_passed_separately():
 def test_the_silence_rule_points_at_who_you_are():
     # 名前を別枠で渡さない代わりに、どこに書いてあるかを指す。
     assert "あなたは誰か" in ARBITER_PROMPT.split("silence_minutes")[0][-600:]
+
+
+# ── 立ち位置：調停器はパジュの心そのものである（出-e-に・2026-09-05）──────────
+
+def test_the_arbiter_speaks_as_paju_not_as_a_mechanism():
+    """**調停器はパジュの心そのものである。** 自分を機構として名乗らない。
+
+    書き直す前は「あなたは対話エージェントの内部で、次の一手を選ぶ調停器である」と、
+    パジュを外から眺めて「その中の部品」として自分を置いていた。`[あなたは誰か]` で
+    人格を渡しながら次の行で調停器を名乗るのは食い違いで、PAD 評価が「このやり取りを
+    採点せよ」だったのと同じ種類の誤りである。
+
+    **待ってもらう一言と本応答は、同じパジュの2つの出口である。** 実機では、本応答が
+    ですますなのに待ってもらう一言だけタメ口になった。同じ人の言葉として揃わなかった。
+    """
+    assert "対話エージェントの内部で" not in ARBITER_PROMPT
+    assert "調停器である" not in ARBITER_PROMPT
+    assert "あなたはパジュである" in ARBITER_PROMPT
+
+
+def test_the_arbiter_still_answers_only_json():
+    """一人称にしても、返すのは JSON だけである（会話ではない）。"""
+    assert "JSON だけを返す" in ARBITER_PROMPT
+    assert "挨拶や説明はせず" in ARBITER_PROMPT
+
+
+def test_the_three_branches_are_unchanged():
+    """分岐の名前と役割は変えない。書き直すのは自己規定だけである。"""
+    for branch in ('"light"', '"full"', '"action"'):
+        assert branch in ARBITER_PROMPT, branch
+    assert "recall" in ARBITER_PROMPT
+    assert "search_deferred" in ARBITER_PROMPT
+
+
+def test_the_identity_block_matches_what_the_context_mouth_builds():
+    """調停の先頭は、文脈の口が組む安定部と**同じ形**である（出-e）。
+
+    構造そのものは寄せられなかった（調停は安定と可変が交互に並び、指示が data の位置に
+    合わせて置かれている）。だが**先頭の身元の塊だけは同じ形**にしておく。ここが割れると、
+    パジュが場所によって違う名乗り方をすることになる。
+    """
+    from familiar_agent.core.context_parts import Stance, build_context
+
+    built = build_context(stance=Stance.PAJU, self_understanding="{me}", family="{family}").stable
+    assert ARBITER_PROMPT.startswith("あなたはパジュである")
+    for block in ("[あなたは誰か]\n{me}", "[一緒に暮らす人たち]\n{family}"):
+        assert block in built, block
+        assert block in ARBITER_PROMPT, block
+    assert ARBITER_PROMPT.index("[あなたは誰か]") < ARBITER_PROMPT.index("[一緒に暮らす人たち]")
