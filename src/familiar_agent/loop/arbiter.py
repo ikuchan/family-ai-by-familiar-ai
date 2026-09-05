@@ -36,16 +36,14 @@ _EFFORTS = ("low", "medium", "high")
 # 並びは**キャッシュが前方一致で効く**ことに合わせる。起動中ほぼ変わらないもの（人格・家族・
 # 規則）を先に置き、変わるもの（上限の但し書き・時刻・在席・人の言葉・作業状態）を後ろへ。
 # 実機で調停が 2 秒で返らず時間切れになり、沈黙依頼が読まれないまま倒れた。
+#: 安定部（立ち位置＋人格＋家族）は**システム文で渡す**。1本の文字列だったのは
+#: `complete()` にシステム文の口が無かったからで、出-e-い でその口を作った。分けると
+#: 「安定を先、可変を後」を人が守る必要が無くなり（システム文は常に先）、呼び出し間で
+#: 一字一句同じなので前方一致キャッシュが最大限効く。
+#: 課題の指示は可変の data と同じプロンプト側に置く。**交互に並ぶ問題はここで消える**
+#: ——「口調の注意」が `[いま]` の直後にあるのも、JSON の指示が最後にあるのも、
+#: どちらもプロンプト側の話になる。
 ARBITER_PROMPT = """\
-あなたはパジュである。いま、自分が次に何をするかを決める。以下は、あなた自身と、
-あなたが暮らす家族の記述である。
-
-[あなたは誰か]
-{me}
-
-[一緒に暮らす人たち]
-{family}
-
 これは口に出す言葉ではなく、自分の中の決めごとである。挨拶や説明はせず、指定の
 JSON だけを返す。
 
@@ -61,7 +59,7 @@ JSON だけを返す。
              探す語を query に、待ってもらうための短い一言を text に書く
              （これから調べると伝えるだけ。**内容に触れない**）。
 
-**text の口調は、下の【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か
+**text の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か
 子どもかで丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。実機では
 大人（ですます）に対し、本応答はですますなのに待ってもらう一言だけタメ口になった。
 一つのやり取りの中で丁寧さを混ぜない。
@@ -106,7 +104,7 @@ text を書くときは、この人格として、この相手に向けて、い
 [いまの作業状態]
 {workspace}
 
-**[あなたは誰か] に書かれた自分の名前で呼ばれたうえで**、いまは話しかけないでほしいと
+**はじめに渡された [あなたは誰か] に書かれた自分の名前で呼ばれたうえで**、いまは話しかけないでほしいと
 伝えられたときだけ、`silence_minutes` に分数を書く。周囲の会話が紛れ込むので、名前を
 呼ばれていない依頼は、自分に向けられたものとして扱わない。
 
@@ -236,11 +234,17 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
     - `capped`：反復上限。渡さないと上限でも "action" を選び、その判断が丸ごと捨てられる。
     - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
     """
+    from ..core.context_parts import Stance, build_context
+
+    # 安定はシステム文へ、課題の指示と可変の data はプロンプトへ（出-e-に）。
+    system = build_context(
+        stance=Stance.PAJU,
+        self_understanding=self_understanding or "（指定なし）",
+        family=family_md or "（指定なし）",
+    ).stable
     prompt = ARBITER_PROMPT.format(
         utterance=utterance,
         workspace=workspace_ctx or "（なし）",
-        me=self_understanding or "（指定なし）",
-        family=family_md or "（指定なし）",
         present=present_ctx or "（分からない）",
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
@@ -252,7 +256,7 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
     # 打ち切っても呼び出し自体は残す（shield）。倒す時刻は変えずに、**実際に何秒かかるか**を
     # 裏で測るため。時間切れの秒数しか残らないと、2.1 秒なのか 10 秒なのか分からず、
     # 時間切れの値を決められない（実機で「黙って」だけが 2 秒に掛かった）。
-    call = asyncio.ensure_future(backend.complete(prompt, 300))
+    call = asyncio.ensure_future(backend.complete(prompt, 300, system=system))
     try:
         reply = await asyncio.wait_for(asyncio.shield(call), timeout=timeout)
         logger.info("調停 %.2f 秒（プロンプト %d 字）", time.monotonic() - started, len(prompt))

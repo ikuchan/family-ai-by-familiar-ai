@@ -21,7 +21,7 @@ from familiar_agent.loop.arbiter import arbitrate
 def _backend(delay: float, reply: str = '{"branch":"light","text":"はい"}'):
     b = MagicMock()
 
-    async def _complete(prompt, max_tokens=300):
+    async def _complete(prompt, max_tokens=300, *, system=None):
         await asyncio.sleep(delay)
         return reply
 
