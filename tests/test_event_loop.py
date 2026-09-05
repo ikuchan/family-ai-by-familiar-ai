@@ -115,6 +115,16 @@ def _run_chain(a, utterance="こんにちは"):
 
 # ── スライス1（発話のみ）─────────────────────────────
 
+def _names(defs) -> list:
+    """道具の名前だけを見る。
+
+    **`cache_control` の印は比較の対象にしない**（出-i）。道具の並びの最後に付く印は
+    キャッシュの境目であって、どの道具を渡すかとは別のことである。ここが守っているのは
+    「どの動作を渡すか」なので、名前で比べる。
+    """
+    return [d["name"] for d in defs]
+
+
 def test_speaks_via_say_tool():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ、元気？"})])])
     out = _run(a)
@@ -124,7 +134,8 @@ def test_speaks_via_say_tool():
     a._tts.call.assert_awaited_once_with("say", {"text": "やあ、元気？"})
     _, kwargs = a.backend.stream_turn.call_args
     # 発話・記憶・net（投げっぱなしの外部呼び出し）を渡す。
-    assert kwargs.get("tools") == [_SAY_DEF, _RECALL_DEF, _SEARCH_DEF, _FETCH_DEF]
+    assert _names(kwargs.get("tools")) == [
+        _SAY_DEF["name"], _RECALL_DEF["name"], _SEARCH_DEF["name"], _FETCH_DEF["name"]]
     assert kwargs["max_tokens"] == 400
     assert "on_text" in kwargs
     # 取込でトリガ（発話）O、発話時点で本応答 O の2件（open 意図・完了 O は無い）。
@@ -685,7 +696,8 @@ def test_full_branch_receives_the_net_actions():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a)
     tools = a.backend.stream_turn.call_args.kwargs["tools"]
-    assert _SEARCH_DEF in tools and _FETCH_DEF in tools
+    assert _SEARCH_DEF["name"] in _names(tools)
+    assert _FETCH_DEF["name"] in _names(tools)
 
 
 def test_action_branch_speaks_the_filler_then_dispatches():
@@ -741,8 +753,8 @@ def test_net_actions_are_available():
     # 連鎖が意味を持たない。表に2行足すだけで載る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    assert ip._tools(actions=("search_deferred",)) == [_SEARCH_DEF]
-    assert ip._tools(actions=("fetch_deferred",)) == [_FETCH_DEF]
+    assert _names(ip._tools(actions=("search_deferred",))) == [_SEARCH_DEF["name"]]
+    assert _names(ip._tools(actions=("fetch_deferred",))) == [_FETCH_DEF["name"]]
 
 
 def test_tools_are_selected_by_the_action_set():
@@ -750,8 +762,8 @@ def test_tools_are_selected_by_the_action_set():
     # ようにしておく（段階3 の次で see・look・search_deferred を載せる）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    assert ip._tools(actions=("say",)) == [_SAY_DEF]
-    assert ip._tools(actions=("say", "recall")) == [_SAY_DEF, _RECALL_DEF]
+    assert _names(ip._tools(actions=("say",))) == [_SAY_DEF["name"]]
+    assert _names(ip._tools(actions=("say", "recall"))) == [_SAY_DEF["name"], _RECALL_DEF["name"]]
     assert ip._tools(actions=()) == []
 
 
@@ -759,7 +771,7 @@ def test_unknown_action_is_ignored_not_crashing():
     # 表に無い動作名は黙って落とす（まだ繋いでいない身体を渡そうとしても壊れない）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    assert ip._tools(actions=("say", "walk")) == [_SAY_DEF]
+    assert _names(ip._tools(actions=("say", "walk"))) == [_SAY_DEF["name"]]
 
 
 def test_chain_cap_withholds_recall_tool():
@@ -769,9 +781,10 @@ def test_chain_cap_withholds_recall_tool():
         _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
     ], max_iters=2)
     _run_chain(a)
-    assert a.backend.stream_turn.call_args_list[0].kwargs["tools"] == [
-        _SAY_DEF, _RECALL_DEF, _SEARCH_DEF, _FETCH_DEF]
-    assert a.backend.stream_turn.call_args_list[1].kwargs["tools"] == [_SAY_DEF]
+    assert _names(a.backend.stream_turn.call_args_list[0].kwargs["tools"]) == [
+        _SAY_DEF["name"], _RECALL_DEF["name"], _SEARCH_DEF["name"], _FETCH_DEF["name"]]
+    assert _names(a.backend.stream_turn.call_args_list[1].kwargs["tools"]) == [
+        _SAY_DEF["name"]]
 
 
 def test_recall_is_dispatched_async_and_loop_waits_on_queue():
