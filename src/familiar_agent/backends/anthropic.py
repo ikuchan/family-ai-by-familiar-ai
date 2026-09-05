@@ -265,27 +265,52 @@ class AnthropicBackend:
             response.content,
         )
 
-    async def warm_cache(self, stable_system: str) -> None:
-        """Ping Anthropic with the stable system prompt to keep the 5-min cache TTL alive.
+    # ── キャッシュの寿命（出-i）──────────────────────────────────
+    # **中身を持つのはここだけ。** `ephemeral` は保存料が無く5分で自然に消えるので、
+    # `forget` は API を呼ばずに手元の鍵を落とすだけでよい。Gemini の明示キャッシュは
+    # 消さないと課金が続くが、そちらは 出-g で取り下げた（安定部 1,012 トークンが
+    # 最小長 1,024 に届かず、作れても保存料のほうが高い）。
 
-        Sends a minimal 1-token request.  The cache_read vs cache_creation token counts
-        in the response tell us whether the block was already warm.
+    def warm_keys(self) -> "set[str]":
+        """いま生きていると見ている鍵。**載せられた確認が取れたものだけ**が入る。"""
+        return set(getattr(self, "_warm", {}))
+
+    async def warm(self, key: str, stable: str) -> None:
+        """安定部をキャッシュへ載せ、生かす（TTL 5分を跨がせる心拍）。
+
+        1トークンだけ返させる。載せるのが目的で、答えは要らない。
+
+        **載せられなくてもターンは回る。** キャッシュは速さと安さのためのもので、
+        機能ではない。失敗したら鍵を覚えないので、次の心拍でやり直す。
         """
         try:
-            sys_param = self._build_system_param((stable_system, ""))
             resp = await self.client.messages.create(
                 model=self.model,
                 max_tokens=1,
-                system=sys_param,  # type: ignore[arg-type]
+                system=self._build_system_param((stable, "")),  # type: ignore[arg-type]
                 messages=[{"role": "user", "content": "."}],
             )
-            usage = resp.usage
-            if usage:
-                read = getattr(usage, "cache_read_input_tokens", 0) or 0
-                write = getattr(usage, "cache_creation_input_tokens", 0) or 0
-                logger.debug("cache heartbeat ok — cache_read=%d cache_write=%d", read, write)
-        except Exception as e:
-            logger.debug("cache heartbeat skipped (non-critical): %s", e)
+        except Exception as e:  # noqa: BLE001
+            logger.debug("キャッシュを温められなかった（続行する）: %s", e)
+            return
+        usage = getattr(resp, "usage", None)
+        read = getattr(usage, "cache_read_input_tokens", 0) or 0
+        write = getattr(usage, "cache_creation_input_tokens", 0) or 0
+        if not getattr(self, "_warm", None):
+            self._warm: dict[str, str] = {}
+        self._warm[key] = stable
+        logger.debug("キャッシュを温めた key=%s 読み=%d 書き=%d", key, read, write)
+
+    async def forget(self, key: str) -> None:
+        """その安定部の鍵を落とす。
+
+        **API は呼ばない。** `ephemeral` に保存料は無く、送らなくなれば5分で自然に消える。
+        """
+        getattr(self, "_warm", {}).pop(key, None)
+
+    async def aclose(self) -> None:
+        """全部の鍵を落とす（終了時）。同じ理由で API は呼ばない。"""
+        getattr(self, "_warm", {}).clear()
 
     async def complete(
         self, prompt: str, max_tokens: int, *, system: str | None = None

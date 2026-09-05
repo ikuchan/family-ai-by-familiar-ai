@@ -170,3 +170,16 @@ class CLIBackend:
         if system:
             return await self._run(system + "\n\n---\n\n" + prompt)
         return await self._run(prompt)
+
+    # ── キャッシュの寿命（出-i）──────────────────────────────────
+    # **このモデルはキャッシュを持たない。** 黙って何もしない（例外も投げない）ので、
+    # 呼ぶ側は種類を見分けずに済む。持たないことが普通である面を必須にしない。
+
+    async def warm(self, key: str, stable: str) -> None:
+        return None
+
+    async def forget(self, key: str) -> None:
+        return None
+
+    async def aclose(self) -> None:
+        return None
