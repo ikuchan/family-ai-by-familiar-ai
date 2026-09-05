@@ -623,11 +623,23 @@ class InformationProcessing:
         """その語をどの動作で投げたか。分からなければ recall とみなす。"""
         return self._lookup_action_by_query.get(query, "recall")
 
-    def _tools(self, *, actions: tuple[str, ...] = ("say", "recall")) -> list[dict]:
+    def _tools(self, *, actions: tuple[str, ...] = ("say", "recall"),
+               cache_tools: bool = True) -> list[dict]:
         """この反復で使える動作のツール定義を返す。
 
         表に無い名前は黙って落とす。まだ繋いでいない身体を渡そうとしても壊れないように
         しておく（段階3 の次で see・look・search_deferred を載せる）。
+
+        **道具の定義もキャッシュに載せる**（出-i）。安定部だけ（3,342トークン）では
+        Haiku 系の最小長 4,096 に届かず**1回も効かない**。道具（2,329トークン）を載せると
+        跨いで**安定部ごと全部が乗り**、1000ターン1反復で 738円 → 366円 になる。
+
+        印は**最後の1つ**に付ける。`cache_control` は「ここまで」を意味する境目なので、
+        道具の並びの末尾に付ければ**道具全体とその前の安定部**が範囲に入る。複数付けると
+        区切りが増え、書き込みが増える。
+
+        `cache_tools=False` は、**安定部だけで効くモデル**のためにある（`sonnet-5` は
+        最小長が低く、道具を載せると読み出し料が増えて 581円 → 635円 と高くなる）。
         """
         agent = self._agent
         defs: list[dict] = []
@@ -638,6 +650,11 @@ class InformationProcessing:
                 continue
             with contextlib.suppress(Exception):
                 defs.extend(build(agent))
+        if cache_tools and defs:
+            # **共有されている定義を書き換えない。** `get_tool_definitions()` は同じ辞書を
+            # 返すことがあり、そこへ印を付けると次に取ったときも残る（`cache_tools=False`
+            # が効かなくなる）。最後の1つだけを写して印を付ける。
+            defs[-1] = {**defs[-1], "cache_control": {"type": "ephemeral"}}
         return defs
 
     async def run_iteration(self, utterance: str, on_text=None) -> str:
