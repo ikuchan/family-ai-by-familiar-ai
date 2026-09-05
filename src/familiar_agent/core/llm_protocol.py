@@ -55,6 +55,29 @@ class LLMBackend(Protocol):
         """1往復を流す。`on_text` へ届いた端から渡し、まとめた結果を返す。"""
         ...
 
+    async def warm(self, key: str, stable: str) -> None:
+        """安定部をキャッシュへ載せ、生かす（出-i）。
+
+        `key` は**安定部ごとの鍵**である。実物では3本——主LLM のターン、パジュとして
+        （調停と軽量の4仕事が共用）、外から測る＋規則。
+
+        **キャッシュを持たないものは何もしない。** 呼ぶ側が種類を見分けずに済むよう、
+        例外も投げない。**載せられなくてもターンは回る**——キャッシュは速さと安さの
+        ためのもので、機能ではない。
+        """
+        ...
+
+    async def forget(self, key: str) -> None:
+        """その安定部のキャッシュを捨てる（出-i）。
+
+        自己認識が更新されて安定部が変わったときに呼ぶ。
+        """
+        ...
+
+    async def aclose(self) -> None:
+        """全部捨てて後始末する（出-i）。終了時に呼ぶ。"""
+        ...
+
     async def complete(
         self, prompt: str, max_tokens: int, *, system: str | None = None
     ) -> str:
