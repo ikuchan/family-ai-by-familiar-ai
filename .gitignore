@@ -30,3 +30,6 @@ src/familiar_agent/_version.py
 # 巻き添えでコミットされる。
 .agents/
 .claude/skills/archify
+
+# macOS（別マシンから持ち込まれる）
+.DS_Store
