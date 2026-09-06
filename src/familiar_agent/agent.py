@@ -27,6 +27,7 @@ from .core.context_parts import Stance as _Stance
 from .concern_engine import ConcernEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
+from .store.relations import KIND_FOLD
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
 from .self_narrative import SelfNarrative
@@ -68,12 +69,6 @@ from .capability_state import (
 logger = logging.getLogger(__name__)
 
 
-
-
-
-
-
-
 _MORNING_CONTEXT_MAX_CHARS = 2600
 _CACHE_HEARTBEAT_INTERVAL = 240  # 4 min; Anthropic cache TTL is 5 min
 _DEFAULT_TOOL_TIMEOUT = 20.0
@@ -103,23 +98,27 @@ _THINK_COMMAND_RE = re.compile(
 )
 # Exact natural-language phrases that toggle thinking (only when the ENTIRE
 # message matches — avoids false positives mid-sentence)
-_THINK_ON_EXACT = frozenset({
-    "深く考えて",
-    "深く考えてください",
-    "よく考えて",
-    "じっくり考えて",
-    "thinking on",
-    "enable thinking",
-})
-_THINK_OFF_EXACT = frozenset({
-    "考えなくていい",
-    "考えなくていいです",
-    "すぐに答えて",
-    "シンプルに答えて",
-    "thinking off",
-    "disable thinking",
-    "no thinking",
-})
+_THINK_ON_EXACT = frozenset(
+    {
+        "深く考えて",
+        "深く考えてください",
+        "よく考えて",
+        "じっくり考えて",
+        "thinking on",
+        "enable thinking",
+    }
+)
+_THINK_OFF_EXACT = frozenset(
+    {
+        "考えなくていい",
+        "考えなくていいです",
+        "すぐに答えて",
+        "シンプルに答えて",
+        "thinking off",
+        "disable thinking",
+        "no thinking",
+    }
+)
 # Patterns that hint a query benefits from deeper reasoning.
 # Matched against user_input to auto-enable adaptive thinking for that turn.
 _COMPLEX_QUERY_RE = re.compile(
@@ -171,14 +170,6 @@ Write in third person. Be concise.
 Write just the summary paragraph."""
 
 
-
-
-
-
-
-
-
-
 class EmbodiedAgent:
     """Real-world exploration agent using a pluggable LLM backend."""
 
@@ -203,7 +194,7 @@ class EmbodiedAgent:
         self._mobility: MobilityTool | None = None
         self._tts: TTSTool | None = None
         self._stt: STTTool | None = None
-        self._me_md: str = self._load_me_md()          # loaded once; restart to pick up changes
+        self._me_md: str = self._load_me_md()  # loaded once; restart to pick up changes
         self._family_md: str = self._load_family_md()  # loaded once; restart to pick up changes
 
         # Auto-populate names from MD files when env vars are not explicitly set
@@ -256,14 +247,11 @@ class EmbodiedAgent:
         """定点の一覧。在席マップ・norm・見回りが同じものを使う。"""
         if self._poses is None:
             cam = self.config.camera
-            self._poses = await build_pose_registry(
-                cam.poses, self._camera, cam.pose_tolerance
-            )
+            self._poses = await build_pose_registry(cam.poses, self._camera, cam.pose_tolerance)
             # `look` はこの一覧から選んで絶対移動する（道具の定義の enum にもなる）。
             if self._camera is not None:
                 self._camera.set_poses(self._poses)
         return self._poses
-
 
     def _spawn_background_task(self, coro: Coroutine[Any, Any, None], *, name: str) -> None:
         """Run non-critical post-turn work off the response critical path."""
@@ -306,7 +294,6 @@ class EmbodiedAgent:
                 task.cancel()
             await asyncio.gather(*still_pending, return_exceptions=True)
 
-
     def _drive_config(self) -> DriveConfig:
         cfg = getattr(self, "_drive_cfg_cache", None)
         if cfg is None:
@@ -318,7 +305,7 @@ class EmbodiedAgent:
         *,
         user_input: str,
         final_text: str,
-        emotion_pad: "MoodPAD | None",   # 未測定でありうる（050）
+        emotion_pad: "MoodPAD | None",  # 未測定でありうる（050）
         memories: list[dict] | None,
         camera_used: bool,
         is_desire_turn: bool,
@@ -363,8 +350,10 @@ class EmbodiedAgent:
         # **空集合は取れた答えであって失敗ではない**。読めなかったときは `None` が返る。
         # **パジュとして立つ。** 自分の欲求が満たされたかは、自分にしか分からない。
         axes = await ask_subset(
-            self._utility_backend, prompt,
-            choices=frozenset(_SATISFACTION_AXES), max_tokens=32,
+            self._utility_backend,
+            prompt,
+            choices=frozenset(_SATISFACTION_AXES),
+            max_tokens=32,
             system=self._stance_context(_Stance.PAJU),
         )
         if not axes:
@@ -490,7 +479,7 @@ class EmbodiedAgent:
             _supersede_target = _obs_id or _conv_id
             if superseded_ids and _supersede_target:
                 for _old in superseded_ids:
-                    self._memory.mark_superseded(_old, _supersede_target)
+                    self._memory.mark_superseded(_old, _supersede_target, kind=KIND_FOLD)
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
             # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
@@ -554,7 +543,6 @@ class EmbodiedAgent:
                 desires=desires,
             )
 
-
         except Exception as exc:  # noqa: BLE001
             logger.warning("Post-response pipeline failed: %s", exc)
 
@@ -600,15 +588,21 @@ class EmbodiedAgent:
             logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
 
         self._deferred_search = DeferredSearchTool(
-            self._mcp_search, self._utility_backend, context=self._stance_context)
+            self._mcp_search, self._utility_backend, context=self._stance_context
+        )
         self._deferred_fetch = DeferredFetchTool(self._mcp_search)
 
         stt_cfg = self.config.stt
         if stt_cfg.elevenlabs_api_key:
             cam = self.config.camera
             rtsp_url = str(cam.stream_url("stream1")) if cam.is_rtsp() else ""
-            self._stt = STTTool(stt_cfg.elevenlabs_api_key, stt_cfg.language, rtsp_url,
-                                engine=stt_cfg.engine, stt_config=stt_cfg)
+            self._stt = STTTool(
+                stt_cfg.elevenlabs_api_key,
+                stt_cfg.language,
+                rtsp_url,
+                engine=stt_cfg.engine,
+                stt_config=stt_cfg,
+            )
 
         # World model: persistent scene entity tracker (Phase 1)
         # Shares the same PostgreSQL Database instance as ObservationMemory.
@@ -648,7 +642,6 @@ class EmbodiedAgent:
         # Register family members from FAMILY.md into persons DB
         self._register_family_from_md()
 
-
     async def _mcp_search(self, tool_name: str, tool_input: dict) -> tuple[str, Any]:
         """Route a search call through MCP, waiting for MCP init if needed."""
         mcp_task = getattr(self, "_mcp_start_task", None)
@@ -678,8 +671,9 @@ class EmbodiedAgent:
             # LLMが内的ターンで say() を呼ぶと presence/quiet ゲートをバイパスし、
             # 無人・深夜でも繰り返し発言してしまうため。
             # 「話したいことを溜めて後で話す」機能は Issue D 本体(pending_speech)で実装予定。
-            if (getattr(self, "_current_is_desire_turn", False)
-                    and not is_social_desire(getattr(self, "_current_desire_name", ""))):
+            if getattr(self, "_current_is_desire_turn", False) and not is_social_desire(
+                getattr(self, "_current_desire_name", "")
+            ):
                 return "(internal turn: speaking is suppressed)", None
             return await self._tts.call(name, tool_input)
         elif name in memory_tools:
@@ -703,17 +697,11 @@ class EmbodiedAgent:
         else:
             return f"Tool '{name}' not available (check configuration).", None
 
-
     # brief-turn 判定は core/brief_turn.py が持つ。既存の呼び出し口を保つ薄い委譲。
     _is_candidate_brief_turn = staticmethod(brief_turn.is_candidate_brief_turn)
     _should_use_brief_reply_mode = staticmethod(brief_turn.should_use_brief_reply_mode)
 
-
     _brief_reply_prompt = staticmethod(brief_turn.brief_reply_prompt)
-
-
-
-
 
     def _stance_context(self, stance: "_Stance", *, with_rules: bool = False) -> "str | None":
         """立ち位置と文脈を組む（出-e）。**部品は正本から取り、控えを持たない。**
@@ -757,8 +745,7 @@ class EmbodiedAgent:
             or ev._utility_backend is not self._utility_backend
             or ev.backend is not self.backend
         ):
-            ev = Evaluator(self._utility_backend, self.backend,
-                           context=self._stance_context)
+            ev = Evaluator(self._utility_backend, self.backend, context=self._stance_context)
             self.__dict__["_evaluator_obj"] = ev
         return ev
 
@@ -851,9 +838,22 @@ class EmbodiedAgent:
 
     # Keywords that suggest the internal turn found something worth sharing.
     _INTERNAL_SHARE_PATTERNS: tuple[str, ...] = (
-        "気になる", "面白い", "面白そう", "発見", "気づい", "思い出",
-        "不思議", "見つけ", "変化", "新しい",
-        "found", "discovered", "interesting", "noticed", "curious", "changed",
+        "気になる",
+        "面白い",
+        "面白そう",
+        "発見",
+        "気づい",
+        "思い出",
+        "不思議",
+        "見つけ",
+        "変化",
+        "新しい",
+        "found",
+        "discovered",
+        "interesting",
+        "noticed",
+        "curious",
+        "changed",
     )
 
     @classmethod
@@ -917,9 +917,7 @@ class EmbodiedAgent:
             elif tgt in per_pid_score:
                 per_pid_score[tgt] += score
 
-        content_strength = {
-            pid: per_pid_score[pid] + null_score_sum for pid in present_ids
-        }
+        content_strength = {pid: per_pid_score[pid] + null_score_sum for pid in present_ids}
         content_total = sum(content_strength.values())
 
         # 2) relationship score per person
@@ -940,7 +938,11 @@ class EmbodiedAgent:
         wr = cfg.weight_relation
         scores: dict[str, float] = {}
         for pid in present_ids:
-            nc = content_strength[pid] / content_total if content_total > 0 else 1.0 / len(present_ids)
+            nc = (
+                content_strength[pid] / content_total
+                if content_total > 0
+                else 1.0 / len(present_ids)
+            )
             nr = relation[pid] / relation_total if relation_total > 0 else 1.0 / len(present_ids)
             scores[pid] = wc * nc + wr * nr
 
@@ -958,7 +960,6 @@ class EmbodiedAgent:
             if r <= cumulative:
                 return pid
         return present_ids[-1]
-
 
     def _load_me_md(self) -> str:
         """Load ME.md personality file if it exists."""
@@ -1011,13 +1012,11 @@ class EmbodiedAgent:
             except Exception as exc:
                 logger.warning("Could not register family member %s: %s", m["name"], exc)
 
-
     async def _emotion_for_turn(
         self, text: str, arousal: float
     ) -> "tuple[MoodPAD | None, float, str]":
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.emotion_for_turn(text, arousal)
-
 
     async def _turn_arousal(self, user_input: str, final_text: str) -> float:
         """A（評価器 arousal）＝内容の新規性 novelty（課題5 v0.26）。
@@ -1122,10 +1121,7 @@ class EmbodiedAgent:
                 addressee = self._select_addressee(present_ids, alive, cfg)
                 if addressee:
                     # 相手向け(target=addressee) + target=NULL を鮮度順に max_per_turn まで
-                    eligible = [
-                        r for r in alive
-                        if r.get("target_person_id") in (addressee, None)
-                    ]
+                    eligible = [r for r in alive if r.get("target_person_id") in (addressee, None)]
                     eligible.sort(
                         key=lambda r: pending_store.freshness_score(r, now_epoch, cfg),
                         reverse=True,
@@ -1143,17 +1139,21 @@ class EmbodiedAgent:
         # ── Issue C フォールスルー: 2-stage 連想想起 ──────────────────────
         now = datetime.now()
         hour, month = now.hour, now.month
-        hour_w    = int(os.environ.get("SHARE_MEMORY_HOUR_WINDOW",  "3"))
-        month_w   = int(os.environ.get("SHARE_MEMORY_MONTH_WINDOW", "1"))
-        pool_k    = int(os.environ.get("SHARE_MEMORY_SEED_POOL_K",  "3"))
-        assoc_max = int(os.environ.get("SHARE_MEMORY_ASSOC_MAX",    "3"))
-        total_max = int(os.environ.get("SHARE_MEMORY_TOTAL_MAX",    "4"))
+        hour_w = int(os.environ.get("SHARE_MEMORY_HOUR_WINDOW", "3"))
+        month_w = int(os.environ.get("SHARE_MEMORY_MONTH_WINDOW", "1"))
+        pool_k = int(os.environ.get("SHARE_MEMORY_SEED_POOL_K", "3"))
+        assoc_max = int(os.environ.get("SHARE_MEMORY_ASSOC_MAX", "3"))
+        total_max = int(os.environ.get("SHARE_MEMORY_TOTAL_MAX", "4"))
 
         candidates: list[dict] = []
         for _pid, mem in present:
             candidates += await asyncio.to_thread(
-                mem.pick_seed_candidates, hour, month,
-                hour_window=hour_w, month_window=month_w, k=pool_k,
+                mem.pick_seed_candidates,
+                hour,
+                month,
+                hour_window=hour_w,
+                month_window=month_w,
+                k=pool_k,
             )
         if not candidates:
             return None
@@ -1165,7 +1165,8 @@ class EmbodiedAgent:
         for seed in seeds:
             try:
                 assoc = await self._active_memory().recall_async(
-                    seed.get("content", ""), n=assoc_max,
+                    seed.get("content", ""),
+                    n=assoc_max,
                     min_score=MemoryConfig().recall_min_score,
                 )
                 collected += assoc
@@ -1505,6 +1506,7 @@ class EmbodiedAgent:
         # explicitly asked for this and is effectively present, even if camera
         # face recognition has not registered them in _present.
         import time as _time
+
         _user_recent = _time.time() - getattr(self, "_last_human_at", 0) < 1800
         _user_initiated = _user_recent and (
             self._deferred_search.has_user_initiated_pending
@@ -1521,16 +1523,22 @@ class EmbodiedAgent:
             rule = getattr(self, "_schedule_rule", None)
             if rule is not None:
                 from datetime import datetime
+
                 if rule.is_quiet(datetime.now()):
                     return False
 
         # Gate 4: social policy
         last_policy = getattr(self, "_last_social_decision", None)
         if last_policy is not None:
-            _BLOCKED = frozenset({
-                "grief_signal", "venting", "fatigue_signal",
-                "repair_attempt", "boundary_assertion",
-            })
+            _BLOCKED = frozenset(
+                {
+                    "grief_signal",
+                    "venting",
+                    "fatigue_signal",
+                    "repair_attempt",
+                    "boundary_assertion",
+                }
+            )
             if last_policy.primary_act in _BLOCKED:
                 return False
 
@@ -1656,8 +1664,10 @@ class EmbodiedAgent:
         with contextlib.suppress(Exception):
             await self.poses()
         self._ensure_event_loop()
-        for watcher in (getattr(self, "_presence_sensor", None),
-                        getattr(self, "_motion_events", None)):
+        for watcher in (
+            getattr(self, "_presence_sensor", None),
+            getattr(self, "_motion_events", None),
+        ):
             if watcher is not None:
                 await watcher.start()
 
@@ -1675,8 +1685,9 @@ class EmbodiedAgent:
             self._info_processing.set_output(on_text, on_action=on_action)
         self._info_processing.start()
         if getattr(self, "_tonic", None) is None:
-            self._tonic = Tonic(self._info_processing, agent=self,
-                                presence=getattr(self, "_presence_sensor", None))
+            self._tonic = Tonic(
+                self._info_processing, agent=self, presence=getattr(self, "_presence_sensor", None)
+            )
         self._tonic.start()
         # RH（資源ハンドラ）の完了を QC へ渡す。
         ip = self._info_processing
@@ -1763,8 +1774,10 @@ class EmbodiedAgent:
                 await asyncio.wait_for(self._mcp.stop(), timeout=2.0)
             except (asyncio.TimeoutError, Exception):
                 pass
-        for _watcher in (getattr(self, "_presence_sensor", None),
-                         getattr(self, "_motion_events", None)):
+        for _watcher in (
+            getattr(self, "_presence_sensor", None),
+            getattr(self, "_motion_events", None),
+        ):
             if _watcher is not None:
                 try:
                     await asyncio.wait_for(_watcher.stop(), timeout=1.0)

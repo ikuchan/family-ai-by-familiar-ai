@@ -12,6 +12,14 @@ import psycopg2
 import psycopg2.extras
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
+from tests.hidden_helper import LIVE, hidden_by
+import pytest
+from tests.hidden_helper import has_superseded_by_column
+
+_SKIP = pytest.mark.skipif(
+    not has_superseded_by_column(),
+    reason="059 が `observations.superseded_by` を落としたので、その列へ書く旧マイグレーションを\n再実行して確かめることはできない（`設計方針_MI間の関係` 段 2）",
+)
 
 _DB_URL = os.environ["DATABASE_URL"]
 
@@ -30,8 +38,8 @@ def _make_memory() -> ObservationMemory:
 def _obs_count(conn, person_id: str, content: str, kind: str) -> int:
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT COUNT(*) AS n FROM observations "
-            "WHERE content=%s AND kind=%s AND superseded_by IS NULL",
+            "SELECT COUNT(*) AS n FROM observations o "
+            "WHERE content=%s AND kind=%s AND " + LIVE.format(alias="o"),
             (content, kind),
         )
         return cur.fetchone()["n"]
@@ -126,11 +134,10 @@ def test_mark_superseded_does_not_overwrite() -> None:
     second = _insert_obs_at(conn, pid, f"後の解決_{uuid.uuid4()}", "utterance", now)
 
     mem.mark_superseded(old, first)
-    mem.mark_superseded(old, second)      # 後から来ても張り替えない
+    mem.mark_superseded(old, second)  # 後から来ても張り替えない
 
     with conn.cursor() as cur:
-        cur.execute("SELECT superseded_by FROM observations WHERE id=%s", (old,))
-        got = cur.fetchone()["superseded_by"]
+        got = hidden_by(cur, old)
     conn.close()
     assert got == first
 
@@ -219,13 +226,12 @@ def test_dedup_disabled_when_window_zero() -> None:
 
 def _run_purge_migration(conn) -> None:
     import importlib.util
+
     migration_path = (
-        Path(__file__).parent.parent
-        / "migration"
-        / "2026-06-29-019_purge_utterance_duplicates.py"
+        Path(__file__).parent.parent / "migration" / "2026-06-29-019_purge_utterance_duplicates.py"
     )
     spec = importlib.util.spec_from_file_location("purge_migration", migration_path)
-    mod  = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
+    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     mod.upgrade(conn)
     conn.commit()
@@ -237,6 +243,7 @@ def _run_purge_migration(conn) -> None:
 # 書き込み側の時間窓（`test_dedup_skips_same_content_kind_within_window`）である。
 
 
+@_SKIP
 def test_purge_migration_keeps_non_duplicates() -> None:
     """Purge migration must not touch observations that are not duplicates."""
     mem = _make_memory()
@@ -264,6 +271,7 @@ def test_purge_migration_keeps_non_duplicates() -> None:
         assert row["superseded_by"] is None, f"Non-duplicate was superseded: {row}"
 
 
+@_SKIP
 def test_purge_migration_respects_60s_boundary() -> None:
     """Observations > 60 s apart with same content must not be merged."""
     mem = _make_memory()
@@ -274,7 +282,7 @@ def test_purge_migration_respects_60s_boundary() -> None:
     conn = _pg_conn()
     # Two observations 90 seconds apart — should NOT be merged
     oid_early = _insert_obs_at(conn, pid, content, "utterance", now)
-    oid_late  = _insert_obs_at(conn, pid, content, "utterance", now + timedelta(seconds=90))
+    oid_late = _insert_obs_at(conn, pid, content, "utterance", now + timedelta(seconds=90))
     conn.commit()
 
     _run_purge_migration(conn)
@@ -288,4 +296,4 @@ def test_purge_migration_respects_60s_boundary() -> None:
     conn.close()
 
     assert rows[oid_early] is None, "Early observation was wrongly superseded"
-    assert rows[oid_late]  is None, "Late observation (90s apart) was wrongly superseded"
+    assert rows[oid_late] is None, "Late observation (90s apart) was wrongly superseded"

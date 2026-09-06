@@ -4,6 +4,7 @@ Single shared connection with threading.Lock — same pattern as the
 original sqlite3 implementation, so all asyncio.to_thread() callers
 are safe without any additional changes.
 """
+
 from __future__ import annotations
 
 import logging
@@ -81,7 +82,10 @@ def _connect_with_retry(url: str, attempts: int = 3, delay: float = 1.0):
             if i < attempts - 1:
                 logger.warning(
                     "PostgreSQL 接続に失敗（%d/%d・%.0fs 後に再試行）: %s",
-                    i + 1, attempts, delay, e,
+                    i + 1,
+                    attempts,
+                    delay,
+                    e,
                 )
                 if delay > 0:
                     time.sleep(delay)
@@ -89,6 +93,7 @@ def _connect_with_retry(url: str, attempts: int = 3, delay: float = 1.0):
         f"PostgreSQL に接続できません（{_mask_db_url(url)}）。"
         f"DB が起動しているか・DATABASE_URL を確認してください。詳細: {last}"
     )
+
 
 _INSTANCE: "Database | None" = None
 _INSTANCE_LOCK = threading.Lock()
@@ -127,10 +132,11 @@ class Database:
             # ローカルオフセットへ固定する。timestamp::date・EXTRACT・psycopg2 の返す
             # datetime がローカルになる。挿入（now_utc）と TEXT 列比較は非影響。
             from .store.clock import local_utc_offset
+
             with self._conn.cursor() as _cur:
                 _cur.execute(f"SET TIME ZONE INTERVAL '{local_utc_offset()}' HOUR TO MINUTE")
                 # 絞り込み付きベクトル検索の取りこぼし対策（pgvector 0.8 の反復スキャン）。
-                # HNSW 索引は vector 単体に張られ、person_id や superseded_by の絞り込みは
+                # HNSW 索引は vector 単体に張られ、person_id や現行かどうかの絞り込みは
                 # 索引が近傍候補を集めた「後」に当たる。同じ観測を人数分の視点で持つため
                 # 候補の大半が落ち、母集合が数千件あっても 0〜1 件しか残らないことがある
                 # （実機で 0 件を観測）。反復スキャンは、絞り込みを通った行が必要数に達する
@@ -146,7 +152,9 @@ class Database:
             except Exception as exc:
                 # 失敗トランザクションからの回復。rollback 自体が失敗しても続行するが、
                 # 無音にはしない（接続不調の兆候を残す・ログ方針）。
-                logger.debug("rollback after failed transaction did not succeed: %s", exc, exc_info=True)
+                logger.debug(
+                    "rollback after failed transaction did not succeed: %s", exc, exc_info=True
+                )
         return self._conn
 
     def cursor(self) -> "psycopg2.extras.RealDictCursor":
@@ -170,7 +178,9 @@ class Database:
                 except Exception as exc:
                     # テアダウン。commit/close が落ちても _conn は下の finally で捨てるが、
                     # 無音にはしない（ログ方針）。
-                    logger.debug("connection commit/close during teardown failed: %s", exc, exc_info=True)
+                    logger.debug(
+                        "connection commit/close during teardown failed: %s", exc, exc_info=True
+                    )
                 finally:
                     self._conn = None
 

@@ -26,6 +26,7 @@ from familiar_agent.mood_register import (
     decay_to_rest,
     nudge_current_mood,
 )
+from tests.hidden_helper import hidden_by
 
 pytestmark = pytest.mark.invariant
 
@@ -46,6 +47,7 @@ def _count(cur, sql: str, params=()) -> int:
 
 
 # ── 1. 追記される（[D-O書込]） ───────────────────────────────────────────────
+
 
 def test_saving_adds_an_observation(memory) -> None:
     """保存すると観測が1件増える。経路の中身は問わない。"""
@@ -72,16 +74,18 @@ async def test_conversation_turn_persists_the_memory() -> None:
 
     from tests.test_event_loop import _agent, _turn
 
-    agent = _agent(stream_returns=[
-        _turn([ToolCall(id="t1", name="say", input={"text": "おはよう"})])
-    ])
+    agent = _agent(
+        stream_returns=[_turn([ToolCall(id="t1", name="say", input={"text": "おはよう"})])]
+    )
     await InformationProcessing(agent).run_iteration("おはよう")
 
     # 会話の保存は id を捕まえる必要がある（拡散想起 WR で新記憶と W を繋ぐため）ので
     # `save_async_with_id` を通る。件数ではなく「1件以上残る」ことだけを見る。
     assert agent._memory.save_async_with_id.await_count >= 1, "ターンが記憶を残していない"
 
+
 # ── 2. 想起の母集合に入る ───────────────────────────────────────────────────
+
 
 def test_saved_observation_gets_vectors(memory) -> None:
     """保存した観測に埋め込みと situated 行が付く。無ければ想起で引けない。"""
@@ -93,15 +97,14 @@ def test_saved_observation_gets_vectors(memory) -> None:
         cur.execute("SELECT id FROM observations WHERE content = %s", (content,))
         obs_id = cur.fetchone()["id"]
         obs_vec = _count(cur, "SELECT count(*) FROM obs_embeddings WHERE obs_id = %s", (obs_id,))
-        sit = _count(
-            cur, "SELECT count(*) FROM situated_memories WHERE obs_id = %s", (obs_id,)
-        )
+        sit = _count(cur, "SELECT count(*) FROM situated_memories WHERE obs_id = %s", (obs_id,))
     conn.close()
     assert obs_vec == 1, "埋め込みが無い"
     assert sit >= 1, "situated 行が無い"
 
 
 # ── 3. 遅延書き込みが最後まで届く（[D-O書込] のイベントログ） ────────────────
+
 
 def test_deferred_write_reaches_observations(memory) -> None:
     """materialize_now=False で積んだ書き込みが、観測として現れる。"""
@@ -129,6 +132,7 @@ def test_deferred_write_reaches_observations(memory) -> None:
 
 # ── 4. 追記であって削除でない（[D-データモデル]） ───────────────────────────
 
+
 def test_supersede_keeps_the_original_row(memory) -> None:
     """supersede しても元の行は消えない。"""
     old = f"invariant supersede old {uuid.uuid4()}"
@@ -146,16 +150,17 @@ def test_supersede_keeps_the_original_row(memory) -> None:
     memory.mark_superseded(old_id, new_id)
 
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT superseded_by FROM observations WHERE id = %s", (old_id,)
-        )
+        cur.execute("SELECT id FROM observations WHERE id = %s", (old_id,))
         row = cur.fetchone()
+        # 畳む印は関係にある（段 2）。行そのものは残る。
+        got = hidden_by(cur, old_id)
     conn.close()
     assert row is not None, "元の行が消えている（追記モデルが壊れている）"
-    assert str(row["superseded_by"]) == str(new_id)
+    assert str(got) == str(new_id)
 
 
 # ── 5. W が O から作れる（[D-記憶単一化]） ──────────────────────────────────
+
 
 def test_recall_returns_usable_fit(memory) -> None:
     """想起が候補を返し、スコアが有限かつ 0 以上。中身は問わない。"""
@@ -174,6 +179,7 @@ def test_recall_returns_usable_fit(memory) -> None:
 
 
 # ── 6・7. T レジスタが動き、放っておけば戻る（[D-B分離]／[D-値踏み]） ────────
+
 
 def test_mood_is_persisted_after_a_nudge() -> None:
     """nudge の後、mood が保存されている。"""
@@ -196,6 +202,9 @@ def test_mood_returns_toward_rest_when_left_alone() -> None:
     far = MoodPAD(1.0, 0.0, 1.0, 1.0)
     decayed = decay_to_rest(far, elapsed_seconds=1800.0)
     for before, after in (
-        (far.p, decayed.p), (far.pn, decayed.pn), (far.a, decayed.a), (far.dom, decayed.dom)
+        (far.p, decayed.p),
+        (far.pn, decayed.pn),
+        (far.a, decayed.a),
+        (far.dom, decayed.dom),
     ):
         assert abs(after - 0.5) < abs(before - 0.5), "中立へ寄っていない"

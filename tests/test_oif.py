@@ -15,7 +15,14 @@ from datetime import date, datetime
 import pytest
 
 from familiar_agent.io.oif import (
-    MI, OIF, Cue, Health, Recalled, Span, Verdict, View,
+    MI,
+    OIF,
+    Cue,
+    Health,
+    Recalled,
+    Span,
+    Verdict,
+    View,
 )
 
 _LOGGER = "familiar_agent.io.oif"
@@ -47,7 +54,8 @@ class _Memory:
     async def content_novelty_async(self, content):
         return 0.42
 
-    def mark_superseded(self, old, new):
+    def mark_superseded(self, old, new, kind="未分類"):
+        # 畳む理由も受け取る（段 2）。約束を変えたので偽物も追随する。
         self.superseded.append((old, new))
         return True
 
@@ -73,7 +81,7 @@ def _oif() -> tuple[OIF, _Memory]:
 def _mi(**kw) -> MI:
     base = dict(id="", content="覚えておくこと", timestamp=datetime.now(), direction="観察")
     base.update(kw)
-    return MI(**base)          # type: ignore[arg-type]
+    return MI(**base)  # type: ignore[arg-type]
 
 
 class TestWrite:
@@ -103,8 +111,7 @@ class TestWrite:
         面を指すので、視点を属性として持ち回る必要がない。
         """
         oif, mem = _oif()
-        await oif.write(_mi(direction="会話"),
-                        writer_id="書いた人", participants=["居た人"])
+        await oif.write(_mi(direction="会話"), writer_id="書いた人", participants=["居た人"])
         _, kw = mem.saved[0]
         assert kw["writer_id"] == "書いた人"
         assert kw["participants"] == ["居た人"]
@@ -144,10 +151,17 @@ class TestRecall:
     async def test_it_returns_recalled_not_dicts(self) -> None:
         """戻りは `Recalled`（MI ＋ 採点）で、dict ではない。"""
         oif, mem = _oif()
-        mem.rows = [{
-            "memory_id": "m1", "summary": "本文", "timestamp": datetime.now(),
-            "direction": "会話", "emotion": "happy", "fit": 0.8, "groundedness": 0.6,
-        }]
+        mem.rows = [
+            {
+                "memory_id": "m1",
+                "summary": "本文",
+                "timestamp": datetime.now(),
+                "direction": "会話",
+                "emotion": "happy",
+                "fit": 0.8,
+                "groundedness": 0.6,
+            }
+        ]
         got = await oif.recall(Cue(text="x"))
         assert len(got) == 1
         assert isinstance(got[0], Recalled)
@@ -232,6 +246,4 @@ class TestDebugTrail:
         oif, _ = _oif()
         with caplog.at_level(logging.INFO, logger=_LOGGER):
             await oif.write(_mi(content="覚えておくこと"))
-        assert not [r for r in caplog.records if r.levelno >= logging.INFO], (
-            "INFO 以上に出ている"
-        )
+        assert not [r for r in caplog.records if r.levelno >= logging.INFO], "INFO 以上に出ている"

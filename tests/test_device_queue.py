@@ -18,6 +18,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.tonic import Tonic
+from familiar_agent.store.relations import KIND_RESOLVE
 
 
 @contextlib.contextmanager
@@ -55,8 +56,7 @@ def _agent_with(*presence_sequence):
 
 
 def _rows(*names):
-    return [{"person_id": n, "name": n, "confidence": 0.9, "is_speaker": False}
-            for n in names]
+    return [{"person_id": n, "name": n, "confidence": 0.9, "is_speaker": False} for n in names]
 
 
 def _scan(tonic, times):
@@ -137,8 +137,8 @@ def test_presence_scan_leaves_a_trace_even_when_nothing_changes():
     ip = _ip()
     t = Tonic(ip, agent=_agent_with(_rows(), _rows("パパ")))
     with _capture() as logs:
-        t.scan_presence()          # 初回＝誰も居ない
-        t.scan_presence()          # パパが来た
+        t.scan_presence()  # 初回＝誰も居ない
+        t.scan_presence()  # パパが来た
     joined = "\n".join(logs)
     assert "初回走査" in joined and "誰も居ない" in joined
     assert "在席の変化" in joined and "パパ" in joined
@@ -156,7 +156,7 @@ def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
         ip._iterate = AsyncMock(return_value="")
         ip._begin_affect = AsyncMock(return_value=None)
         ip._begin_device = AsyncMock(return_value=None)
-        ip._inflight = 1                      # 調査が飛んでいる
+        ip._inflight = 1  # 調査が飛んでいる
         ip._ensure_driver()
         ip.push_affect("SEEKING", "なにか気になる")
         ip.push_device("入室", "パパ が来た")
@@ -166,7 +166,7 @@ def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
         return ip, sizes
 
     ip, sizes = asyncio.run(scenario())
-    assert sizes == (1, 1)                    # どちらも消費されず残っている
+    assert sizes == (1, 1)  # どちらも消費されず残っている
     ip._begin_affect.assert_not_awaited()
     ip._begin_device.assert_not_awaited()
 
@@ -182,10 +182,16 @@ def test_held_speech_flows_into_w_with_when_it_was_wanted():
 
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "おかえり"})])])
     created = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=7)
-    a._pending_store.list_active = MagicMock(return_value=[{
-        "id": "p1", "observation_id": "obs-held", "created_at": created,
-        "content": "話したかったが、聞く相手が居なかった：こんばんは。",
-    }])
+    a._pending_store.list_active = MagicMock(
+        return_value=[
+            {
+                "id": "p1",
+                "observation_id": "obs-held",
+                "created_at": created,
+                "content": "話したかったが、聞く相手が居なかった：こんばんは。",
+            }
+        ]
+    )
     a._pending_store.freshness_score = MagicMock(return_value=1.0)
     a._pending_store.is_expired = MagicMock(return_value=False)
 
@@ -197,15 +203,20 @@ def test_held_speech_flows_into_w_with_when_it_was_wanted():
     asyncio.run(scenario())
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "聞く相手が居ないあいだに話したかったこと" in system
-    assert "約7時間前" in system                     # 経過時間
+    assert "約7時間前" in system  # 経過時間
     assert "こんばんは" in system
     a._pending_store.delete.assert_called_once_with("p1")
     # 配ったら元の O も閉じる（想起で上がり続けて蒸し返さないように）。
     assert ("obs-held",) == a._memory.mark_superseded.call_args.args[:1]
+    # 保留していたことが果たされたので閉じる。改訂ではない（段 2）。
+    assert a._memory.mark_superseded.call_args.kwargs["kind"] == KIND_RESOLVE
 
     # MI の content には差し込まない。
-    device_mi = next(c.args[0] for c in a._memory.save_async_with_id.call_args_list
-                     if c.kwargs.get("direction") == "機器")
+    device_mi = next(
+        c.args[0]
+        for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "機器"
+    )
     assert "こんばんは" not in device_mi
 
 
@@ -221,10 +232,16 @@ def test_releasing_held_speech_is_logged_with_its_count():
     a = MagicMock()
     a._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
     a._observation_perspective = MagicMock(return_value={})
-    a._pending_store.list_active = MagicMock(return_value=[{
-        "id": "p1", "observation_id": "obs-held",
-        "created_at": _dt.datetime.now(_dt.timezone.utc), "content": "こんばんは",
-    }])
+    a._pending_store.list_active = MagicMock(
+        return_value=[
+            {
+                "id": "p1",
+                "observation_id": "obs-held",
+                "created_at": _dt.datetime.now(_dt.timezone.utc),
+                "content": "こんばんは",
+            }
+        ]
+    )
     a._pending_store.freshness_score = MagicMock(return_value=1.0)
     a._pending_store.is_expired = MagicMock(return_value=False)
 
@@ -237,7 +254,7 @@ def test_releasing_held_speech_is_logged_with_its_count():
     logger = logging.getLogger("familiar_agent.loop.event_loop")
     handler, old_level = _H(), logger.level
     logger.addHandler(handler)
-    logger.setLevel(logging.INFO)      # 既定は WARNING なので INFO が届かない
+    logger.setLevel(logging.INFO)  # 既定は WARNING なので INFO が届かない
     try:
         ip = InformationProcessing(a)
         asyncio.run(ip._release_pending_speech())

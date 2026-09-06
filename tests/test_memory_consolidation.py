@@ -12,6 +12,7 @@ import psycopg2
 import psycopg2.extras
 
 from familiar_agent.tools.memory import ObservationMemory, _encode_vector
+from tests.hidden_helper import hidden_by
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -45,8 +46,13 @@ def _insert_observation(
                 "(id,content,timestamp,direction,kind,emotion) "
                 "VALUES (%s,%s,%s,%s,%s,%s)",
                 (
-                    obs_id, content, now,
-                    "test", kind, emotion, ),
+                    obs_id,
+                    content,
+                    now,
+                    "test",
+                    kind,
+                    emotion,
+                ),
             )
         conn.commit()
     return obs_id
@@ -68,11 +74,12 @@ def _pg_columns(table: str) -> set[str]:
 # ---------------------------------------------------------------------------
 
 
-def test_observations_has_superseded_by_column() -> None:
-    assert "superseded_by" in _pg_columns("observations")
+def test_observations_has_no_superseded_by_column() -> None:
+    """畳む印は関係へ移した（段 2）。列が残っていると古い道へ書けてしまう。"""
+    assert "superseded_by" not in _pg_columns("observations")
 
 
-def test_mark_superseded_sets_superseded_by() -> None:
+def test_mark_superseded_records_the_new_side_in_a_relation() -> None:
     mem = _make_memory()
     old_id = _insert_observation(mem, "old version of memory")
     new_id = _insert_observation(mem, "updated version of memory")
@@ -80,10 +87,9 @@ def test_mark_superseded_sets_superseded_by() -> None:
 
     conn = _pg_conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT superseded_by FROM observations WHERE id=%s", (old_id,))
-        row = cur.fetchone()
+        got = hidden_by(cur, old_id)
     conn.close()
-    assert row[0] == new_id
+    assert got == new_id
 
 
 def test_recall_excludes_superseded_records() -> None:
@@ -111,6 +117,7 @@ def test_recall_includes_non_superseded_records() -> None:
 
 def test_find_near_duplicates_returns_pairs() -> None:
     import numpy as np
+
     mem = _make_memory()
 
     vec = np.ones(1024, dtype=np.float32)
@@ -162,6 +169,7 @@ def test_find_near_duplicates_failure_is_loud(caplog) -> None:
 
 def test_find_near_duplicates_skips_already_superseded() -> None:
     import numpy as np
+
     mem = _make_memory()
 
     vec = np.ones(1024, dtype=np.float32)

@@ -14,8 +14,8 @@ from ..mood_register import MoodPAD
 
 @dataclass
 class PrimitiveMentalItem:
-    emotion: object | None = None   # PAD または未設定。A-1では未設定(None)
-    drive: object | None = None     # 5欠乏 または未設定。A-1では未設定(None)
+    emotion: object | None = None  # PAD または未設定。A-1では未設定(None)
+    drive: object | None = None  # 5欠乏 または未設定。A-1では未設定(None)
 
 
 @dataclass
@@ -47,13 +47,17 @@ def _row_to_mental_item(row) -> MentalItem:
     drive・vector は後続で未設定。
     """
     axes = (
-        row.get("emotion_p"), row.get("emotion_pn"),
-        row.get("emotion_a"), row.get("emotion_dom"),
+        row.get("emotion_p"),
+        row.get("emotion_pn"),
+        row.get("emotion_a"),
+        row.get("emotion_dom"),
     )
     return MentalItem(
         id=row["id"],
         content=row["content"],
-        supersedes=row["superseded_by"],
+        # 版の相手は関係が持つ（`設計方針_MI間の関係` 段 2 で列を落とした）。読み手が
+        # 渡してきたときだけ載せる。要る経路が出たら、そこで関係から引いて渡す。
+        supersedes=row.get("superseded_by"),
         # `importance` は P-1 で役目を失い 039 で落とした。値は 021 が
         # `groundedness_g0` へ移してある。(a0,n) からの導出は Phase 2。
         activation=row["groundedness_g0"],

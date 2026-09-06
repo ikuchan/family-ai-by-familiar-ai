@@ -8,6 +8,7 @@ Storage: PostgreSQL + pgvector (situated_memories, bge-m3).
 Memory is scoped per person via PersonMemoryManager (person_id).
 Config: DATABASE_URL.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -30,6 +31,7 @@ from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memo
 )
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..legacy.semantic_layer import LegacySemanticLayer
+from ..store.relations import KIND_UNCLASSIFIED
 from ..store import clock
 from ..store.context import StoreContext, viewpoint_of
 from ..store.jobs import JobQueue
@@ -60,7 +62,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-DB_PATH_UNUSED = ""          # kept for API compatibility, ignored
+DB_PATH_UNUSED = ""  # kept for API compatibility, ignored
 
 # Time-window dedup: identical (person_id, content, kind) within this many seconds
 # is treated as a duplicate and silently skipped. Set to 0 to disable.
@@ -165,8 +167,9 @@ def _score_breakdown(
         # （実機で 47日前の挨拶が t=1.000 で上位を占め、5秒前の自分の発話を押し出した）。
     )
     # 時間軸の基準。既定は「いま」だが、調停が人の言葉から動かせる（「去年の夏の話」）。
-    ref_epoch = (reference_epoch if reference_epoch is not None
-                 else datetime.now(timezone.utc).timestamp())
+    ref_epoch = (
+        reference_epoch if reference_epoch is not None else datetime.now(timezone.utc).timestamp()
+    )
 
     r = _stretch_relevance(cosine, c_lo=c_lo, c_hi=c_hi)
     t = state.score(ref_epoch)
@@ -188,7 +191,7 @@ def _score_breakdown(
         denominator += w_p
 
     m = 1.0 if denominator <= 0.0 else numerator / denominator
-    return _ScoreParts(fit=(r ** w_r) * m, r=r, t=t, g=g, m=m, e=e, p=p)
+    return _ScoreParts(fit=(r**w_r) * m, r=r, t=t, g=g, m=m, e=e, p=p)
 
 
 def _compute_final_score(
@@ -236,11 +239,22 @@ def _compute_final_score(
     （内訳ログと式を共有するため）。
     """
     return _score_breakdown(
-        cosine, ts, last_recalled_at, groundedness_g0, groundedness_n,
-        obs_pad=obs_pad, mood_pad=mood_pad,
-        half_life_days=half_life_days, floor=floor,
-        c_lo=c_lo, c_hi=c_hi,
-        w_r=w_r, w_t=w_t, w_e=w_e, w_g=w_g, sigma=sigma,
+        cosine,
+        ts,
+        last_recalled_at,
+        groundedness_g0,
+        groundedness_n,
+        obs_pad=obs_pad,
+        mood_pad=mood_pad,
+        half_life_days=half_life_days,
+        floor=floor,
+        c_lo=c_lo,
+        c_hi=c_hi,
+        w_r=w_r,
+        w_t=w_t,
+        w_e=w_e,
+        w_g=w_g,
+        sigma=sigma,
     ).fit
 
 
@@ -249,10 +263,6 @@ def _compute_final_score(
 # 時刻の整形は store/clock.py が持つ。既存の呼び出し名はそのまま使えるようにする。
 _ts_to_date = clock.ts_to_date
 _ts_to_time = clock.ts_to_time
-
-
-
-
 
 
 def _obs_pad_of(row) -> "tuple[float, float, float, float] | None":
@@ -274,8 +284,13 @@ def _mood_pad_of(row) -> "MoodPAD | None":
 
 
 def _derive_groundedness(
-    a0: float, n: int, *, floor: float = 0.0, c: float = 2.0,
-    epsilon: float = 0.001, step: float = 0.33,
+    a0: float,
+    n: int,
+    *,
+    floor: float = 0.0,
+    c: float = 2.0,
+    epsilon: float = 0.001,
+    step: float = 0.33,
 ) -> float:
     """初期値 a0 と正味デルタ回数 n から活性 a を導出する。
 
@@ -309,6 +324,7 @@ def _emotion_match(
     `mood_pad` には**今の気分**を渡す（記憶どうしの感情距離ではない）。
     `_compute_final_score` の加算部の一項として使う（スライス3 で接続）。
     """
+
     def _logit(x: float) -> float:
         x = min(max(x, epsilon), 1.0 - epsilon)
         return math.log(x / (1.0 - x))
@@ -322,14 +338,17 @@ def _emotion_match(
 
 # ── ObservationMemory ──────────────────────────────────────────────────────
 
+
 class ObservationMemory:
     """PostgreSQL-backed memory store scoped to one person_id."""
 
-    _embedder: "_EmbeddingModel" = _EmbeddingModel()  # class-level default; tests can patch via __class__
+    _embedder: "_EmbeddingModel" = (
+        _EmbeddingModel()
+    )  # class-level default; tests can patch via __class__
 
     def __init__(
         self,
-        db_path: str = DB_PATH_UNUSED,          # ignored, kept for compat
+        db_path: str = DB_PATH_UNUSED,  # ignored, kept for compat
         model_name: str = EMBEDDING_MODEL,
         person_id: str = DEFAULT_PERSON_ID,
     ) -> None:
@@ -339,7 +358,13 @@ class ObservationMemory:
         self._embedder = _EmbeddingModel(model_name)
         self._build_layers()
         import os
-        if os.environ.get("FAMILIAR_EMBEDDING_PREWARM", "1").lower() not in {"0","false","no","off"}:
+
+        if os.environ.get("FAMILIAR_EMBEDDING_PREWARM", "1").lower() not in {
+            "0",
+            "false",
+            "no",
+            "off",
+        }:
             self._embedder.pre_warm()
 
     def _build_layers(self) -> None:
@@ -348,8 +373,10 @@ class ObservationMemory:
         向きは jobs → observations → situated / legacy の一方向。
         """
         self._ctx = StoreContext(
-            db=self._db, lock=self._db_lock,
-            person_id=self._person_id, embedder=self._embedder,
+            db=self._db,
+            lock=self._db_lock,
+            person_id=self._person_id,
+            embedder=self._embedder,
         )
         self._situated = SituatedVectors(self._ctx)
         self._legacy = LegacySemanticLayer(self._ctx)
@@ -384,7 +411,6 @@ class ObservationMemory:
         """TEXT 列向けの現在時刻（store/clock.py の使い分けに従う）。"""
         return clock.now_utc_iso()
 
-
     # ── 層への委譲 ────────────────────────────────────────────────────────
     # 公開面は従来どおり ObservationMemory に集める（呼び出し側を変えないため）。
     # 委譲するのは**外から呼ばれるものだけ**で、層の内部ヘルパーは委譲しない
@@ -393,15 +419,19 @@ class ObservationMemory:
     # 自動転送（__getattr__）は使わない。何が公開面かがコードから読めなくなる。
 
     # 人物レジストリ（store/persons.py）
-    def register_person(self, name: str, display_name: str = "", person_id: str | None = None) -> str:
+    def register_person(
+        self, name: str, display_name: str = "", person_id: str | None = None
+    ) -> str:
         return self._persons_store.register_person(name, display_name, person_id)
 
     def list_persons(self) -> list[dict]:
         return self._persons_store.list_persons()
 
     # 観測（store/observations.py）
-    def mark_superseded(self, old_id: 'str', new_id: 'str') -> 'None':
-        return self._observations.mark_superseded(old_id, new_id)
+    def mark_superseded(
+        self, old_id: "str", new_id: "str", kind: "str" = KIND_UNCLASSIFIED
+    ) -> "bool":
+        return self._observations.mark_superseded(old_id, new_id, kind)
 
     def apply_verdicts(self, verdicts: dict[str, str]) -> int:
         """想起した記憶の扱いの申告を反映する（store 層へ委譲）。"""
@@ -425,30 +455,31 @@ class ObservationMemory:
             logger.exception("note_lookup_started failed: %.8s", obs_id)
             return False
 
-    def get_dates_with_observations(self, days: 'int' = 7) -> 'list[str]':
+    def get_dates_with_observations(self, days: "int" = 7) -> "list[str]":
         return self._observations.get_dates_with_observations(days)
 
-    def get_dates_with_summaries(self) -> 'list[str]':
+    def get_dates_with_summaries(self) -> "list[str]":
         return self._observations.get_dates_with_summaries()
 
-    def get_observations_for_date(self, date: 'str', limit: 'int' = 50) -> 'list[dict]':
+    def get_observations_for_date(self, date: "str", limit: "int" = 50) -> "list[dict]":
         return self._observations.get_observations_for_date(date, limit)
 
-    def delete_day_summaries_for_date(self, date: 'str') -> 'int':
+    def delete_day_summaries_for_date(self, date: "str") -> "int":
         return self._observations.delete_day_summaries_for_date(date)
 
-    def recall_on_this_day(self, month: 'int', day: 'int', n: 'int' = 5) -> 'list[dict]':
+    def recall_on_this_day(self, month: "int", day: "int", n: "int" = 5) -> "list[dict]":
         return self._observations.recall_on_this_day(month, day, n)
 
-    async def recall_on_this_day_async(self, month: 'int', day: 'int', n: 'int' = 5) -> 'list[dict]':
+    async def recall_on_this_day_async(
+        self, month: "int", day: "int", n: "int" = 5
+    ) -> "list[dict]":
         return await self._observations.recall_on_this_day_async(month, day, n)
 
-    def get_earliest_date(self) -> 'str | None':
+    def get_earliest_date(self) -> "str | None":
         return self._observations.get_earliest_date()
 
-    async def get_earliest_date_async(self) -> 'str | None':
+    async def get_earliest_date_async(self) -> "str | None":
         return await self._observations.get_earliest_date_async()
-
 
     def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
         return self._observations.find_near_duplicates(threshold)
@@ -461,69 +492,92 @@ class ObservationMemory:
         )
 
     # キュー（store/jobs.py）
-    def append_memory_event(self, event_type: 'str', payload: 'dict', queue_job: 'bool' = True, job_type: 'str' = 'materialize_observation') -> 'tuple[str | None, bool]':
+    def append_memory_event(
+        self,
+        event_type: "str",
+        payload: "dict",
+        queue_job: "bool" = True,
+        job_type: "str" = "materialize_observation",
+    ) -> "tuple[str | None, bool]":
         return self._jobs.append_memory_event(event_type, payload, queue_job, job_type)
 
     async def append_memory_event_async(self, *a, **kw):
         return await self._jobs.append_memory_event_async(*a, **kw)
 
-    def claim_pending_jobs(self, limit: 'int' = 10) -> 'list[dict]':
+    def claim_pending_jobs(self, limit: "int" = 10) -> "list[dict]":
         return self._jobs.claim_pending_jobs(limit)
 
-    def mark_job_done(self, job_id: 'str') -> 'bool':
+    def mark_job_done(self, job_id: "str") -> "bool":
         return self._jobs.mark_job_done(job_id)
 
-    def mark_job_failed(self, job_id: 'str', error: 'str', retry_delay: 'float' = 10.0, max_attempts: 'int' = 3) -> 'str':
+    def mark_job_failed(
+        self, job_id: "str", error: "str", retry_delay: "float" = 10.0, max_attempts: "int" = 3
+    ) -> "str":
         return self._jobs.mark_job_failed(job_id, error, retry_delay, max_attempts)
 
-    def materialize_event(self, event_id: 'str') -> 'bool':
+    def materialize_event(self, event_id: "str") -> "bool":
         return self._jobs.materialize_event(event_id)
 
-
     # 撤去予定の層（legacy/semantic_layer.py・Phase 6 で消える）
-    def recall_semantic_facts(self, query: 'str', n: 'int' = 5) -> 'list[dict]':
+    def recall_semantic_facts(self, query: "str", n: "int" = 5) -> "list[dict]":
         return self._legacy.recall_semantic_facts(query, n)
 
     async def recall_semantic_facts_async(self, *a, **kw):
         return await self._legacy.recall_semantic_facts_async(*a, **kw)
 
-    def recall_behavior_policies(self, query: 'str', n: 'int' = 5) -> 'list[dict]':
+    def recall_behavior_policies(self, query: "str", n: "int" = 5) -> "list[dict]":
         return self._legacy.recall_behavior_policies(query, n)
 
     async def recall_behavior_policies_async(self, *a, **kw):
         return await self._legacy.recall_behavior_policies_async(*a, **kw)
 
-    def recall_revisions(self, entity_type: 'str' = 'semantic_fact', entity_key: 'str | None' = None, n: 'int' = 50) -> 'list[dict]':
+    def recall_revisions(
+        self, entity_type: "str" = "semantic_fact", entity_key: "str | None" = None, n: "int" = 50
+    ) -> "list[dict]":
         return self._legacy.recall_revisions(entity_type, entity_key, n)
 
-    def adjust_semantic_fact_confidence(self, key: 'str', delta: 'float', reason: 'str' = ''):
+    def adjust_semantic_fact_confidence(self, key: "str", delta: "float", reason: "str" = ""):
         return self._legacy.adjust_semantic_fact_confidence(key, delta, reason)
 
-    async def adjust_semantic_fact_confidence_async(self, key: 'str', delta: 'float', reason: 'str' = ''):
+    async def adjust_semantic_fact_confidence_async(
+        self, key: "str", delta: "float", reason: "str" = ""
+    ):
         return await self._legacy.adjust_semantic_fact_confidence_async(key, delta, reason)
 
-    def adjust_behavior_policy_confidence(self, key: 'str', delta: 'float', reason: 'str' = ''):
+    def adjust_behavior_policy_confidence(self, key: "str", delta: "float", reason: "str" = ""):
         return self._legacy.adjust_behavior_policy_confidence(key, delta, reason)
 
-    async def adjust_behavior_policy_confidence_async(self, key: 'str', delta: 'float', reason: 'str' = '', policy_text: 'str' = '', trigger_context: 'str' = '', action_hint: 'str' = ''):
-        return await self._legacy.adjust_behavior_policy_confidence_async(key, delta, reason, policy_text, trigger_context, action_hint)
+    async def adjust_behavior_policy_confidence_async(
+        self,
+        key: "str",
+        delta: "float",
+        reason: "str" = "",
+        policy_text: "str" = "",
+        trigger_context: "str" = "",
+        action_hint: "str" = "",
+    ):
+        return await self._legacy.adjust_behavior_policy_confidence_async(
+            key, delta, reason, policy_text, trigger_context, action_hint
+        )
 
-    def link_memories(self, src: 'str', tgt: 'str', link_type: 'str' = 'related', note: 'str | None' = None) -> 'bool':
+    def link_memories(
+        self, src: "str", tgt: "str", link_type: "str" = "related", note: "str | None" = None
+    ) -> "bool":
         return self._legacy.link_memories(src, tgt, link_type, note)
 
     async def link_memories_async(self, *a, **kw):
         return await self._legacy.link_memories_async(*a, **kw)
 
-    def get_linked_memories(self, memory_id: 'str', direction: 'str' = 'both') -> 'list[dict]':
+    def get_linked_memories(self, memory_id: "str", direction: "str" = "both") -> "list[dict]":
         return self._legacy.get_linked_memories(memory_id, direction)
 
     async def get_linked_memories_async(self, *a, **kw):
         return await self._legacy.get_linked_memories_async(*a, **kw)
 
-    def format_semantic_facts_for_context(self, facts: 'list[dict]') -> 'str':
+    def format_semantic_facts_for_context(self, facts: "list[dict]") -> "str":
         return self._legacy.format_semantic_facts_for_context(facts)
 
-    def format_behavior_policies_for_context(self, policies: 'list[dict]') -> 'str':
+    def format_behavior_policies_for_context(self, policies: "list[dict]") -> "str":
         return self._legacy.format_behavior_policies_for_context(policies)
 
     # ── Person management ──────────────────────────────────────────────────
@@ -532,16 +586,15 @@ class ObservationMemory:
         """Return a lightweight view of this memory scoped to another person."""
         obj = object.__new__(ObservationMemory)
         obj._person_id = person_id
-        obj._db        = self._db
-        obj._db_lock   = self._db_lock
-        obj._embedder  = self._embedder
+        obj._db = self._db
+        obj._db_lock = self._db_lock
+        obj._embedder = self._embedder
         obj._build_layers()
         return obj
 
     # ── Perspective vector ─────────────────────────────────────────────────
 
     # ── Event / job queue ──────────────────────────────────────────────────
-
 
     def save(
         self,
@@ -558,34 +611,46 @@ class ObservationMemory:
     ) -> bool:
         # PAD は payload へ dict で載せる（JSON 往復可・遅延マテリアライズも通る）。
         # 呼び出し側の PAD 引き渡しは W2b-2。未指定は中立で外部挙動不変。
-        payload = dict(content=content, direction=direction, kind=kind,
-                       emotion=emotion, image_path=image_path,
-                       override_date=override_date,
-                       emotion_pad=emotion_pad.to_json_dict() if emotion_pad else None)
+        payload = dict(
+            content=content,
+            direction=direction,
+            kind=kind,
+            emotion=emotion,
+            image_path=image_path,
+            override_date=override_date,
+            emotion_pad=emotion_pad.to_json_dict() if emotion_pad else None,
+        )
         try:
             event_id: str | None = None
             try:
                 event_id, created_new = self.append_memory_event(
-                    "memory.save", payload,
-                    queue_job=True, job_type="materialize_observation",
+                    "memory.save",
+                    payload,
+                    queue_job=True,
+                    job_type="materialize_observation",
                 )
                 if not materialize_now and event_id:
                     return True
             except Exception as e:
                 # 直接 save へフォールバックする回復経路。trace は残す。
-                logger.warning("append_memory_event failed, continuing with direct save: %s", e, exc_info=True)
+                logger.warning(
+                    "append_memory_event failed, continuing with direct save: %s", e, exc_info=True
+                )
             obs_id = event_id or str(uuid.uuid4())
             _cfg = MemoryConfig()
-            return bool(self._observations.materialize_save_event(
-                obs_id, payload,
-                dedup_window_secs=_cfg.dedup_window_secs,
-                writer_id=writer_id,
-                participants=participants,
-                novelty_k=_cfg.novelty_k,
-                novelty_w_n=_cfg.novelty_w_n,
-                novelty_default=_cfg.novelty_default,
-                novelty_a0_cap=_cfg.novelty_a0_cap,
-            ))
+            return bool(
+                self._observations.materialize_save_event(
+                    obs_id,
+                    payload,
+                    dedup_window_secs=_cfg.dedup_window_secs,
+                    writer_id=writer_id,
+                    participants=participants,
+                    novelty_k=_cfg.novelty_k,
+                    novelty_w_n=_cfg.novelty_w_n,
+                    novelty_default=_cfg.novelty_default,
+                    novelty_a0_cap=_cfg.novelty_a0_cap,
+                )
+            )
         except Exception:
             # 保存の失敗（埋め込み次元不一致・モデル未ロード・コードバグ等の決定的
             # エラーを含む）はトレース付きで loud に残す。返りは False（ターンは落とさない）。
@@ -594,17 +659,24 @@ class ObservationMemory:
 
     def save_with_id(self, content: str, **kwargs) -> tuple[str | None, bool]:
         _pad = kwargs.get("emotion_pad")
-        payload = dict(content=content, direction=kwargs.get("direction","unknown"),
-                       kind=kwargs.get("kind","observation"), emotion=kwargs.get("emotion","neutral"),
-                       image_path=kwargs.get("image_path"), override_date=kwargs.get("override_date"),
-                       emotion_pad=_pad.to_json_dict() if _pad else None,
-                       # A（高ぶり）は機械値なので、PAD が測れなくても入る（050）。
-                       arousal=kwargs.get("arousal"),
-                       parent_id=kwargs.get("parent_id"))
+        payload = dict(
+            content=content,
+            direction=kwargs.get("direction", "unknown"),
+            kind=kwargs.get("kind", "observation"),
+            emotion=kwargs.get("emotion", "neutral"),
+            image_path=kwargs.get("image_path"),
+            override_date=kwargs.get("override_date"),
+            emotion_pad=_pad.to_json_dict() if _pad else None,
+            # A（高ぶり）は機械値なので、PAD が測れなくても入る（050）。
+            arousal=kwargs.get("arousal"),
+            parent_id=kwargs.get("parent_id"),
+        )
         try:
             event_id, created_new = self.append_memory_event(
-                "memory.save", payload,
-                queue_job=True, job_type="materialize_observation",
+                "memory.save",
+                payload,
+                queue_job=True,
+                job_type="materialize_observation",
             )
             if not kwargs.get("materialize_now", True) and event_id:
                 return event_id, True
@@ -612,7 +684,8 @@ class ObservationMemory:
             # 返るのは「この内容を保持する行の id」。重複スキップなら既存行の id なので、
             # 呼び出し側は必ず実在する行を指す（supersede の宛先に使える）。
             stored_id = self._observations.materialize_save_event(
-                obs_id, payload,
+                obs_id,
+                payload,
                 dedup_window_secs=MemoryConfig().dedup_window_secs,
                 writer_id=kwargs.get("writer_id"),
                 participants=kwargs.get("participants"),
@@ -646,16 +719,23 @@ class ObservationMemory:
         with self._db_lock:
             conn = self._ctx.conn()
             return self._observations.content_novelty(
-                np.asarray(vec, dtype=np.float32), conn,
-                k=cfg.novelty_k, default=cfg.novelty_default,
+                np.asarray(vec, dtype=np.float32),
+                conn,
+                k=cfg.novelty_k,
+                default=cfg.novelty_default,
             )
 
     async def content_novelty_async(self, content: str) -> float:
         return await asyncio.to_thread(self.content_novelty, content)
 
     def _presence_correlation(
-        self, q_vec, obs_ids: list[str], present_others: list[str],
-        *, c_lo: float, c_hi: float,
+        self,
+        q_vec,
+        obs_ids: list[str],
+        present_others: list[str],
+        *,
+        c_lo: float,
+        c_hi: float,
     ) -> dict[str, float]:
         """在席者相関 p（obs_id → [0,1]・課題5 v0.26／[D-在席相関]）。
 
@@ -673,15 +753,18 @@ class ObservationMemory:
         sit_q_sql = vec_to_sql(_situated_vector(q_vec, mu).tolist())
         for q in present_others:
             cosines = self._observations.situated_cosines(
-                sit_q_sql, list(obs_ids), q,
+                sit_q_sql,
+                list(obs_ids),
+                q,
             )
             for oid, cos in cosines.items():
                 r_pq = _stretch_relevance(cos, c_lo=c_lo, c_hi=c_hi)
-                one_minus[oid] *= (1.0 - r_pq)
+                one_minus[oid] *= 1.0 - r_pq
         return {oid: 1.0 - om for oid, om in one_minus.items()}
 
-    def _diffuse_extend(self, results: list[dict], cfg, seed_vec=None,
-                        present_others: "list[str] | None" = None) -> list[dict]:
+    def _diffuse_extend(
+        self, results: list[dict], cfg, seed_vec=None, present_others: "list[str] | None" = None
+    ) -> list[dict]:
         """拡散想起 (A)共起＋(B)主体で W を有界再帰で広げ、a0=0 の W 要素（dict）を返す。
 
         seed_vec があれば候補を seed から遠い順（新規性高い順）に並べ替えて novel を優先する（4b）。
@@ -705,7 +788,8 @@ class ObservationMemory:
             # 共通の記憶は「その場に居合わせた人たち」で引く。現話者も在席者である。
             # パジュ自身と既定の置き場は人ではないので外す。
             present_ids = [
-                p for p in dict.fromkeys([self._person_id, *(present_others or [])])
+                p
+                for p in dict.fromkeys([self._person_id, *(present_others or [])])
                 if p and p not in {AGENT_SELF_ID, DEFAULT_PERSON_ID}
             ]
             cap = max(1, cfg.diffuse_max_add)
@@ -714,7 +798,9 @@ class ObservationMemory:
 
                 def _get_candidates(known: list[str]) -> list[str]:
                     cands = list(cooccurring_mi_ids(conn, known, min_shared=2, limit=cap * 4))
-                    for pid in select_entity_seeds(fetch_relation_persons(conn, known), exclude)[:cap]:
+                    for pid in select_entity_seeds(fetch_relation_persons(conn, known), exclude)[
+                        :cap
+                    ]:
                         cands += recall_by_person(conn, pid, limit=cap)
                     # 段4：居合わせた人たちで共有している出来事。2人以上のときだけ効く。
                     cands += shared_memory_ids(conn, present_ids, limit=cap)
@@ -724,8 +810,10 @@ class ObservationMemory:
                     return cands
 
                 added = diffuse_ids(
-                    seed_ids, _get_candidates,
-                    max_add=cap, max_depth=max(1, cfg.diffuse_max_depth),
+                    seed_ids,
+                    _get_candidates,
+                    max_add=cap,
+                    max_depth=max(1, cfg.diffuse_max_depth),
                 )
                 extra = fetch_diffuse_rows(conn, added)
             if extra:
@@ -735,14 +823,19 @@ class ObservationMemory:
             logger.warning("diffuse recall failed", exc_info=True)
             return []
 
-    def recall(self, query: str, n: int = 3, kind: str | None = None,
-               min_score: float = 0.0,
-               present_others: list[str] | None = None,
-               exclude_ids: list[str] | None = None,
-               time_ref: float | None = None,
-               time_span_days: float | None = None,
-               weights: "RecallWeights | None" = None,
-               open_ids: list[str] | None = None) -> list[dict]:
+    def recall(
+        self,
+        query: str,
+        n: int = 3,
+        kind: str | None = None,
+        min_score: float = 0.0,
+        present_others: list[str] | None = None,
+        exclude_ids: list[str] | None = None,
+        time_ref: float | None = None,
+        time_span_days: float | None = None,
+        weights: "RecallWeights | None" = None,
+        open_ids: list[str] | None = None,
+    ) -> list[dict]:
         """Recall using situated vectors (pgvector cosine search).
 
         min_score:   合成 final score の soft 床（生コサインではない）。無関係の
@@ -775,8 +868,11 @@ class ObservationMemory:
             # 呼び出し側が trigger 別の採用値を渡してくる。渡さない経路（連想想起など）は
             # 基底のプロファイルで採点する（挙動不変）。
             _w = weights or RecallWeights(
-                _cfg.recall_w_r, _cfg.recall_w_t, _cfg.recall_w_e,
-                _cfg.recall_w_g, _cfg.recall_w_p,
+                _cfg.recall_w_r,
+                _cfg.recall_w_t,
+                _cfg.recall_w_e,
+                _cfg.recall_w_g,
+                _cfg.recall_w_p,
             )
             # open な記録（この求めのために書いた、まだ決着していない O）。活性に下限を
             # 課して W へ浮かせる。集合にするのは行ごとに引くため。
@@ -804,8 +900,11 @@ class ObservationMemory:
             ref_epoch = time_ref if time_ref is not None else datetime.now(timezone.utc).timestamp()
             if _cfg.recall_w_t > 0.0:
                 for r in self._observations.by_time(
-                    ref_epoch, fetch_n, span=time_span_days is not None,
-                    kind=kind, exclude_ids=exclude_ids,
+                    ref_epoch,
+                    fetch_n,
+                    span=time_span_days is not None,
+                    kind=kind,
+                    exclude_ids=exclude_ids,
                 ):
                     row_by_id.setdefault(r["id"], r)
 
@@ -818,7 +917,9 @@ class ObservationMemory:
                 sit_q_sql = vec_to_sql(_situated_vector(q_vec, mu).tolist())
                 for q in present_others:
                     for r in self._observations.by_vector(
-                        sit_q_sql, fetch_n, kind=kind,
+                        sit_q_sql,
+                        fetch_n,
+                        kind=kind,
                         exclude_ids=exclude_ids,
                     ):
                         row_by_id.setdefault(r["id"], r)  # 新規候補だけ足す
@@ -826,7 +927,9 @@ class ObservationMemory:
                 extra = [oid for oid in row_by_id if oid not in cos_by_id]
                 if extra:
                     cos_by_id.update(
-                        self._observations.situated_cosines(q_sql, extra, viewpoint_of(self._person_id))
+                        self._observations.situated_cosines(
+                            q_sql, extra, viewpoint_of(self._person_id)
+                        )
                     )
 
             # 感情軸の一次絞り。出発点は**そのターンの気分**で、気分が動けば候補も変わる。
@@ -834,8 +937,7 @@ class ObservationMemory:
             if _cfg.recall_w_e > 0.0 and mood_pad is not None:
                 from ..emotion_pad import pad_to_search_vector
 
-                mood_vec = "[" + ",".join(
-                    f"{v:.6f}" for v in pad_to_search_vector(mood_pad)) + "]"
+                mood_vec = "[" + ",".join(f"{v:.6f}" for v in pad_to_search_vector(mood_pad)) + "]"
                 for r in self._observations.by_emotion(
                     mood_vec, fetch_n, kind=kind, exclude_ids=exclude_ids
                 ):
@@ -846,15 +948,20 @@ class ObservationMemory:
             missing = [oid for oid in row_by_id if oid not in cos_by_id]
             if missing:
                 cos_by_id.update(
-                    self._observations.situated_cosines(q_sql, missing, viewpoint_of(self._person_id))
+                    self._observations.situated_cosines(
+                        q_sql, missing, viewpoint_of(self._person_id)
+                    )
                 )
 
             # p は union 全体に対して計算。在席他者ゼロなら空＝各行 p=None で項落ち（不変）。
             p_by_id: dict[str, float] = {}
             if present_others:
                 p_by_id = self._presence_correlation(
-                    q_vec, list(row_by_id), present_others,
-                    c_lo=_cfg.recall_c_lo, c_hi=_cfg.recall_c_hi,
+                    q_vec,
+                    list(row_by_id),
+                    present_others,
+                    c_lo=_cfg.recall_c_lo,
+                    c_hi=_cfg.recall_c_hi,
                 )
 
             rows = list(row_by_id.values())
@@ -874,9 +981,11 @@ class ObservationMemory:
                         # 採点される（`_score_breakdown` は e が無い場合を扱える）。
                         obs_pad=_obs_pad_of(row),
                         mood_pad=mood_pad,
-                        half_life_days=(time_span_days
-                                        if time_span_days is not None
-                                        else _cfg.recall_half_life_days),
+                        half_life_days=(
+                            time_span_days
+                            if time_span_days is not None
+                            else _cfg.recall_half_life_days
+                        ),
                         reference_epoch=ref_epoch,
                         floor=_cfg.recall_time_floor,
                         c_lo=_cfg.recall_c_lo,
@@ -898,40 +1007,43 @@ class ObservationMemory:
                     # 出来事の id を鍵にすると後から来た面が前の面の内訳を消す。
                     _facet = row.get("facet_id") or row["id"]
                     breakdowns[_facet] = parts
-                    results.append({
-                        "memory_id":        row["id"],
-                        "facet_id":         _facet,
-                        "person_id":        row.get("person_id", ""),
-                        "relation_key":     row.get("relation_key", ""),
-                        "timestamp":        row["timestamp"],
-                        "summary":          row["content"],
-                        "groundedness_g0":  row.get("groundedness_g0", 1.0),
-                        "groundedness_n":   row.get("groundedness_n", 0),
-                        "last_recalled_at": row.get("last_recalled_at"),
-                        "date":             _ts_to_date(row["timestamp"]),
-                        "time":             _ts_to_time(row["timestamp"]),
-                        "direction":        row["direction"],
-                        "kind":             row["kind"],
-                        "source_kind":      row["kind"],
-                        "emotion":          row["emotion"],
-                        "image_path":       row["image_path"],
-                        "fit":              final,
-                        "confidence":       max(0.0, min(1.0, (cosine + 1.0) / 2.0)),
-                        "retrieval_method": "semantic",
-                        # mood nudge（mood-c）の入力用に PAD と根づきの重みを露出。追加のみで挙動不変。
-                        # **ここには a_open の下限を掛けない（意図的）。** この値は
-                        # `compute_n_pad` で N_PAD の加重平均の**重み**になる。実測の
-                        # 根づきは 0.057 程度（根拠台帳）で、open な記録を 1.0 で
-                        # 入れると調査中の mood をトリガ O がほぼ独占し、人の問い1件の
-                        # PAD が気分を決めてしまう。下限は「W から落とさない」ための
-                        # ものなので、採点に使う a にだけ効かせる。
-                        # 未測定なら載せない（050）。載せる側で中立に潰すと、mood nudge が
-                        # 「測っていない中立」に引かれる。
-                        "emotion_pad":      _mood_pad_of(row),
-                        "groundedness":       _derive_groundedness(
-                            float(row["groundedness_g0"]), int(row["groundedness_n"]),
-                        ),
-                    })
+                    results.append(
+                        {
+                            "memory_id": row["id"],
+                            "facet_id": _facet,
+                            "person_id": row.get("person_id", ""),
+                            "relation_key": row.get("relation_key", ""),
+                            "timestamp": row["timestamp"],
+                            "summary": row["content"],
+                            "groundedness_g0": row.get("groundedness_g0", 1.0),
+                            "groundedness_n": row.get("groundedness_n", 0),
+                            "last_recalled_at": row.get("last_recalled_at"),
+                            "date": _ts_to_date(row["timestamp"]),
+                            "time": _ts_to_time(row["timestamp"]),
+                            "direction": row["direction"],
+                            "kind": row["kind"],
+                            "source_kind": row["kind"],
+                            "emotion": row["emotion"],
+                            "image_path": row["image_path"],
+                            "fit": final,
+                            "confidence": max(0.0, min(1.0, (cosine + 1.0) / 2.0)),
+                            "retrieval_method": "semantic",
+                            # mood nudge（mood-c）の入力用に PAD と根づきの重みを露出。追加のみで挙動不変。
+                            # **ここには a_open の下限を掛けない（意図的）。** この値は
+                            # `compute_n_pad` で N_PAD の加重平均の**重み**になる。実測の
+                            # 根づきは 0.057 程度（根拠台帳）で、open な記録を 1.0 で
+                            # 入れると調査中の mood をトリガ O がほぼ独占し、人の問い1件の
+                            # PAD が気分を決めてしまう。下限は「W から落とさない」ための
+                            # ものなので、採点に使う a にだけ効かせる。
+                            # 未測定なら載せない（050）。載せる側で中立に潰すと、mood nudge が
+                            # 「測っていない中立」に引かれる。
+                            "emotion_pad": _mood_pad_of(row),
+                            "groundedness": _derive_groundedness(
+                                float(row["groundedness_g0"]),
+                                int(row["groundedness_n"]),
+                            ),
+                        }
+                    )
                 results.sort(key=lambda r: r["fit"], reverse=True)
                 # 一次絞りで集めた N 件から、上位 n 件（正本の W 載せ上限 K）へ絞る。
                 results = results[:n]
@@ -941,16 +1053,20 @@ class ObservationMemory:
                 if logger.isEnabledFor(logging.DEBUG):
                     logger.debug(
                         "recall score: query=%r person=%s mood=%s 候補%d件",
-                        query[:60], self._person_id,
-                        "なし" if mood_pad is None
-                        else "(%.2f,%.2f,%.2f,%.2f)" % mood_pad,
+                        query[:60],
+                        self._person_id,
+                        "なし" if mood_pad is None else "(%.2f,%.2f,%.2f,%.2f)" % mood_pad,
                         len(results),
                     )
                     for rank, item in enumerate(results[:10], start=1):
                         b = breakdowns[item["facet_id"]]
                         logger.debug(
                             "  #%d recall score=%.4f r=%.3f t=%.3f a=%.3f e=%s | %s | %s | %s",
-                            rank, item["fit"], b.r, b.t, b.g,
+                            rank,
+                            item["fit"],
+                            b.r,
+                            b.t,
+                            b.g,
                             "なし" if b.e is None else "%.3f" % b.e,
                             _ts_to_date(item["timestamp"]),
                             item.get("relation_key", ""),
@@ -967,8 +1083,11 @@ class ObservationMemory:
                 # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
                 # g0=0（適合度も根づきも 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
                 if _cfg.diffuse_recall and results:
-                    results.extend(self._diffuse_extend(
-                        results, _cfg, seed_vec=q_vec, present_others=present_others))
+                    results.extend(
+                        self._diffuse_extend(
+                            results, _cfg, seed_vec=q_vec, present_others=present_others
+                        )
+                    )
 
                 return results
 
@@ -1001,8 +1120,12 @@ class ObservationMemory:
             columns=("content", "timestamp", "emotion"),
         )
         return [
-            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
-             "time": _ts_to_time(r["timestamp"]), "emotion": r["emotion"]}
+            {
+                "summary": r["content"],
+                "date": _ts_to_date(r["timestamp"]),
+                "time": _ts_to_time(r["timestamp"]),
+                "emotion": r["emotion"],
+            }
             for r in rows
         ]
 
@@ -1019,16 +1142,29 @@ class ObservationMemory:
         rows = self._observations._read_observations_by_kind(
             kind="self_model",
             n=n,
-            columns=("id", "content", "timestamp", "emotion", "superseded_by", "groundedness_g0",
-                     "emotion_p", "emotion_pn", "emotion_a", "emotion_dom"),
+            columns=(
+                "id",
+                "content",
+                "timestamp",
+                "emotion",
+                "groundedness_g0",
+                "emotion_p",
+                "emotion_pn",
+                "emotion_a",
+                "emotion_dom",
+            ),
         )
         # A-1: 器を組み立てる経路を通す。返り値には使わず外部挙動を保つ（利用は次の一本）。
         # Y（W2a）：PAD 列を渡すことで組み立てる MI が実 PAD を emotion に載せる。返り値の
         # dict は content/timestamp/emotion しか使わないので外部挙動は不変。
         _items = [_row_to_mental_item(r) for r in rows]
         return [
-            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
-             "time": _ts_to_time(r["timestamp"]), "emotion": r["emotion"]}
+            {
+                "summary": r["content"],
+                "date": _ts_to_date(r["timestamp"]),
+                "time": _ts_to_time(r["timestamp"]),
+                "emotion": r["emotion"],
+            }
             for r in rows
         ]
 
@@ -1042,8 +1178,11 @@ class ObservationMemory:
             columns=("content", "timestamp"),
         )
         return [
-            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
-             "time": _ts_to_time(r["timestamp"])}
+            {
+                "summary": r["content"],
+                "date": _ts_to_date(r["timestamp"]),
+                "time": _ts_to_time(r["timestamp"]),
+            }
             for r in rows
         ]
 
@@ -1061,8 +1200,12 @@ class ObservationMemory:
             kind="day_summary",
         )
         return [
-            {"summary": r["content"], "date": _ts_to_date(r["timestamp"]),
-             "time": _ts_to_time(r["timestamp"]), "emotion": r["emotion"]}
+            {
+                "summary": r["content"],
+                "date": _ts_to_date(r["timestamp"]),
+                "time": _ts_to_time(r["timestamp"]),
+                "emotion": r["emotion"],
+            }
             for r in rows
         ]
 
@@ -1093,7 +1236,8 @@ class ObservationMemory:
                 conn.commit()
             return episode_id
         except Exception as e:
-            logger.warning("create_episode failed: %s", e); return None
+            logger.warning("create_episode failed: %s", e)
+            return None
 
     def append_to_episode(self, episode_id: str, memory_id: str) -> bool:
         try:
@@ -1115,7 +1259,8 @@ class ObservationMemory:
                 conn.commit()
             return True
         except Exception as e:
-            logger.warning("append_to_episode failed: %s", e); return False
+            logger.warning("append_to_episode failed: %s", e)
+            return False
 
     def recall_divergent(self, query: str, n: int = 10) -> list[dict]:
         try:
@@ -1136,16 +1281,19 @@ class ObservationMemory:
             results = []
             for m in base:
                 ep = ep_rows.get(m["memory_id"])
-                results.append({
-                    "memory_id": m["memory_id"],
-                    "content": m.get("summary", ""),
-                    "episode_id": ep["episode_id"] if ep else None,
-                    "position": ep["position"] if ep else None,
-                    "confidence": m.get("confidence", 0.5),
-                })
+                results.append(
+                    {
+                        "memory_id": m["memory_id"],
+                        "content": m.get("summary", ""),
+                        "episode_id": ep["episode_id"] if ep else None,
+                        "position": ep["position"] if ep else None,
+                        "confidence": m.get("confidence", 0.5),
+                    }
+                )
             return results
         except Exception as e:
-            logger.warning("recall_divergent failed: %s", e); return []
+            logger.warning("recall_divergent failed: %s", e)
+            return []
 
     def refresh_working_memory(self, query: str, n: int = 10) -> list[dict]:
         try:
@@ -1162,13 +1310,20 @@ class ObservationMemory:
                         cur.execute(
                             "INSERT INTO memory_salience (id,memory_id,salience,source,context,episode_id,activated_at) "
                             "VALUES (%s,%s,%s,'working_memory',%s,%s,%s)",
-                            (str(uuid.uuid4()), item["memory_id"], float(item.get("confidence", 0.5)),
-                             query, item.get("episode_id"), now),
+                            (
+                                str(uuid.uuid4()),
+                                item["memory_id"],
+                                float(item.get("confidence", 0.5)),
+                                query,
+                                item.get("episode_id"),
+                                now,
+                            ),
                         )
                 conn.commit()
             return recalled
         except Exception as e:
-            logger.warning("refresh_working_memory failed: %s", e); return []
+            logger.warning("refresh_working_memory failed: %s", e)
+            return []
 
     def get_working_memory(self) -> list[dict]:
         try:
@@ -1183,7 +1338,8 @@ class ObservationMemory:
                     )
                     return [dict(r) for r in cur.fetchall()]
         except Exception as e:
-            logger.warning("get_working_memory failed: %s", e); return []
+            logger.warning("get_working_memory failed: %s", e)
+            return []
 
     async def as_coalition_async(self):
         """Surface recently-stored memories as a workspace coalition.
@@ -1223,25 +1379,27 @@ class ObservationMemory:
     # ── Format helpers (unchanged from original) ───────────────────────────
 
     def format_for_context(self, memories: list[dict]) -> str:
-        if not memories: return ""
+        if not memories:
+            return ""
         lines = ["[過去の記憶（証拠つき）: conf<0.55 は不確か]:"]
         for m in memories:
             fit_s = f" (適合度:{m['fit']:.2f})" if "fit" in m else ""
             conf = float(m.get("confidence", 0.0))
             conf_s = f" conf:{conf:.2f}"
             low = " low-confidence" if conf < 0.55 else ""
-            emo  = f" [{m['emotion']}]" if m.get("emotion") and m["emotion"] != "neutral" else ""
+            emo = f" [{m['emotion']}]" if m.get("emotion") and m["emotion"] != "neutral" else ""
             # 12桁（ハイフンを除いた16進）。8桁だと記録が10万件規模でほぼ確実に衝突する。
             # 照合は呼び出し側が対応表で行うので、写し間違いは一致せず件数のずれに出る。
-            sid  = str(m.get("memory_id","")).replace("-", "")[:12] or "?"
+            sid = str(m.get("memory_id", "")).replace("-", "")[:12] or "?"
             lines.append(
-                f"- {m.get('date','?')} {m.get('time','?')} id:{sid}{fit_s}{conf_s}{low}"
-                f" ({m.get('direction','?')}){emo}: {m['summary'][:120]}"
+                f"- {m.get('date', '?')} {m.get('time', '?')} id:{sid}{fit_s}{conf_s}{low}"
+                f" ({m.get('direction', '?')}){emo}: {m['summary'][:120]}"
             )
         return "\n".join(lines)
 
     def format_feelings_for_context(self, f: list[dict]) -> str:
-        if not f: return ""
+        if not f:
+            return ""
         lines = ["[最近の気持ち・出来事]:"]
         for x in f:
             emo = f"[{x['emotion']}] " if x.get("emotion") and x["emotion"] != "neutral" else ""
@@ -1249,17 +1407,24 @@ class ObservationMemory:
         return "\n".join(lines)
 
     def format_self_model_for_context(self, sm: list[dict]) -> str:
-        if not sm: return ""
-        return "".join(["[うちという存在 — 経験から積み上げてきた自己像]:\n"] +
-                        [f"- {m['summary'][:120]}\n" for m in sm])
+        if not sm:
+            return ""
+        return "".join(
+            ["[うちという存在 — 経験から積み上げてきた自己像]:\n"]
+            + [f"- {m['summary'][:120]}\n" for m in sm]
+        )
 
     def format_curiosities_for_context(self, cs: list[dict]) -> str:
-        if not cs: return ""
-        return "".join(["[まだ謎のまま・続きが気になること]:\n"] +
-                        [f"- {c['date']} {c['time']}: {c['summary'][:120]}\n" for c in cs])
+        if not cs:
+            return ""
+        return "".join(
+            ["[まだ謎のまま・続きが気になること]:\n"]
+            + [f"- {c['date']} {c['time']}: {c['summary'][:120]}\n" for c in cs]
+        )
 
     def format_day_summaries_for_context(self, ss: list[dict]) -> str:
-        if not ss: return ""
+        if not ss:
+            return ""
         lines = ["[私が覚えていること — 過去の日々]:"]
         for s in ss:
             lines.append(f"- {s['date']}: {s['summary'][:200]}")
@@ -1268,12 +1433,14 @@ class ObservationMemory:
 
 # ── MemoryTool ─────────────────────────────────────────────────────────────
 
+
 class MemoryTool:
     """Agent-callable memory tools, routed through PersonMemoryManager."""
 
     def __init__(self, manager: "PersonMemoryManager") -> None:
         self._manager = manager
         from .pending_speech_store import PendingSpeechStore
+
         self._pending_store = PendingSpeechStore()
         self._notes_registered_this_turn: int = 0
 
@@ -1299,16 +1466,22 @@ class MemoryTool:
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "content":   {"type": "string"},
-                        "emotion":   {"type": "string",
-                                      "enum": ["neutral","happy","sad","curious","excited","moved"]},
-                        "scope":     {"type": "string",
-                                      "enum": ["speaker","witnessed","scene","all"],
-                                      "default": "speaker"},
-                        "image_path":{"type": "string"},
-                        "link_to":   {"type": "string"},
-                        "link_type": {"type": "string",
-                                      "enum": ["related","similar","caused_by","leads_to"]},
+                        "content": {"type": "string"},
+                        "emotion": {
+                            "type": "string",
+                            "enum": ["neutral", "happy", "sad", "curious", "excited", "moved"],
+                        },
+                        "scope": {
+                            "type": "string",
+                            "enum": ["speaker", "witnessed", "scene", "all"],
+                            "default": "speaker",
+                        },
+                        "image_path": {"type": "string"},
+                        "link_to": {"type": "string"},
+                        "link_type": {
+                            "type": "string",
+                            "enum": ["related", "similar", "caused_by", "leads_to"],
+                        },
                     },
                     "required": ["content"],
                 },
@@ -1320,7 +1493,7 @@ class MemoryTool:
                     "type": "object",
                     "properties": {
                         "query": {"type": "string"},
-                        "n":     {"type": "integer"},
+                        "n": {"type": "integer"},
                     },
                     "required": ["query"],
                 },
@@ -1336,15 +1509,16 @@ class MemoryTool:
                     "type": "object",
                     "properties": {
                         "observation_id": {"type": "string"},
-                        "target":         {"type": "string"},
+                        "target": {"type": "string"},
                     },
                     "required": ["observation_id"],
                 },
             },
         ]
 
-    async def call(self, tool_name: str, tool_input: dict, *,
-                   exclude_ids: list[str] | None = None) -> tuple[str, str | None]:
+    async def call(
+        self, tool_name: str, tool_input: dict, *, exclude_ids: list[str] | None = None
+    ) -> tuple[str, str | None]:
         """`exclude_ids` は内部呼び出し用。自分が出した検索が自分自身を拾うのを防ぐ。"""
         if tool_name == "remember":
             return await self._remember(tool_input)
@@ -1368,23 +1542,25 @@ class MemoryTool:
         return "話したいこととして登録しました。", None
 
     async def _remember(self, inp: dict) -> tuple[str, None]:
-        scope      = inp.get("scope", "speaker")
-        content    = inp["content"]
-        emotion    = inp.get("emotion", "neutral")
+        scope = inp.get("scope", "speaker")
+        content = inp["content"]
+        emotion = inp.get("emotion", "neutral")
         image_path = inp.get("image_path")
-        link_to    = inp.get("link_to")
-        link_type  = inp.get("link_type", "related")
+        link_to = inp.get("link_to")
+        link_type = inp.get("link_type", "related")
 
         present_ids = self._manager.get_present_ids()
         # 話者未解決なら既定話者 DEFAULT_PERSON_ID を writer/subject に使う（floor）。
-        speaker_id  = self._manager.current_speaker_id or DEFAULT_PERSON_ID
+        speaker_id = self._manager.current_speaker_id or DEFAULT_PERSON_ID
         results: list[str] = []
 
         # speaker
         if scope in ("speaker", "all"):
             store = self._write_store  # フォールバックで None にならない
             mem_id, ok = await store.save_async_with_id(
-                content, kind="utterance", emotion=emotion,
+                content,
+                kind="utterance",
+                emotion=emotion,
                 image_path=image_path,
                 writer_id=speaker_id,
                 participants=present_ids,
@@ -1402,23 +1578,29 @@ class MemoryTool:
                     continue
                 witnessed = f"[{sp_name}が言った] {content}"
                 await mem.save_async(
-                    witnessed, kind="witnessed", emotion=emotion,
+                    witnessed,
+                    kind="witnessed",
+                    emotion=emotion,
                     writer_id=pid,
                     participants=present_ids,
                 )
-            listeners = [self._manager.get_person_name(p)
-                         for p, _ in self._manager.get_all_present_memories()
-                         if p != speaker_id]
+            listeners = [
+                self._manager.get_person_name(p)
+                for p, _ in self._manager.get_all_present_memories()
+                if p != speaker_id
+            ]
             if listeners:
                 results.append(f"[{', '.join(listeners)}] 目撃")
 
         # scene
         if scope in ("scene", "all"):
-            sp_name   = self._manager.get_person_name(speaker_id) if speaker_id else "不明"
-            pnames    = [self._manager.get_person_name(p) for p in present_ids]
+            sp_name = self._manager.get_person_name(speaker_id) if speaker_id else "不明"
+            pnames = [self._manager.get_person_name(p) for p in present_ids]
             scene_txt = f"[場面] 参加者: {', '.join(pnames)} / 発言者: {sp_name} / {content}"
             await self._agent_store.save_async(
-                scene_txt, kind="scene", emotion=emotion,
+                scene_txt,
+                kind="scene",
+                emotion=emotion,
                 participants=present_ids,
                 writer_id=AGENT_SELF_ID,
             )
@@ -1429,7 +1611,9 @@ class MemoryTool:
         if not results:
             store = self._write_store
             mem_id, ok = await store.save_async_with_id(
-                content, kind="utterance", emotion=emotion,
+                content,
+                kind="utterance",
+                emotion=emotion,
                 image_path=image_path,
                 writer_id=speaker_id,
                 participants=present_ids,
@@ -1442,26 +1626,21 @@ class MemoryTool:
         summary = " / ".join(results) if results else "書き込みなし"
         return f"記憶しました: {summary}", None
 
-    async def _recall(self, inp: dict, *,
-                      exclude_ids: list[str] | None = None) -> tuple[str, None]:
+    async def _recall(self, inp: dict, *, exclude_ids: list[str] | None = None) -> tuple[str, None]:
         query = inp["query"]
-        n     = int(inp.get("n", MemoryConfig().recall_k))
+        n = int(inp.get("n", MemoryConfig().recall_k))
         all_results: list[dict] = []
 
         # agent self
         agent_mem = self._agent_store
-        for m in await agent_mem.recall_async(
-            query, n=n, exclude_ids=exclude_ids
-        ):
+        for m in await agent_mem.recall_async(query, n=n, exclude_ids=exclude_ids):
             m["_from"] = "自分"
             all_results.append(m)
 
         # all present persons
         for pid, mem in self._manager.get_all_present_memories():
             name = self._manager.get_person_name(pid)
-            for m in await mem.recall_async(
-                query, n=n, exclude_ids=exclude_ids
-            ):
+            for m in await mem.recall_async(query, n=n, exclude_ids=exclude_ids):
                 m["_from"] = name
                 all_results.append(m)
 
@@ -1475,6 +1654,6 @@ class MemoryTool:
         for m in top:
             s = f" ({m['fit']:.2f})" if "fit" in m else ""
             lines.append(
-                f"[{m.get('_from','?')}] {m['date']} {m['time']}{s} [{m['emotion']}]: {m['summary'][:130]}"
+                f"[{m.get('_from', '?')}] {m['date']} {m['time']}{s} [{m['emotion']}]: {m['summary'][:130]}"
             )
         return "\n".join(lines), None

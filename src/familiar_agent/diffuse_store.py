@@ -14,6 +14,8 @@ import numpy as np
 
 from .store.embedding import _decode_vector
 
+from .store.relations import not_hidden
+
 
 def order_ids_by_farthest(conn, ids: "list[str]", seed_vec) -> "list[str]":
     """候補 id を seed ベクトルから遠い順（コサイン低い順＝新規性高い順）に並べ替える（4b）。
@@ -54,8 +56,7 @@ def fetch_relation_persons(conn, ids: "list[str]") -> "list[dict]":
         return []
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT person_id, relation_key FROM situated_memories "
-            "WHERE obs_id = ANY(%s)",
+            "SELECT person_id, relation_key FROM situated_memories WHERE obs_id = ANY(%s)",
             ([str(i) for i in ids],),
         )
         return [{"person_id": r[0], "relation_key": r[1]} for r in cur.fetchall()]
@@ -74,9 +75,16 @@ def fetch_diffuse_rows(conn, ids: "list[str]") -> "list[dict]":
         )
         by_id = {
             str(r[0]): {
-                "memory_id": str(r[0]), "summary": r[1], "timestamp": r[2],
-                "direction": r[3], "kind": r[4], "source_kind": r[4], "emotion": r[5],
-                "fit": 0.0, "groundedness": 0.0, "retrieval_method": "diffuse",
+                "memory_id": str(r[0]),
+                "summary": r[1],
+                "timestamp": r[2],
+                "direction": r[3],
+                "kind": r[4],
+                "source_kind": r[4],
+                "emotion": r[5],
+                "fit": 0.0,
+                "groundedness": 0.0,
+                "retrieval_method": "diffuse",
             }
             for r in cur.fetchall()
         }
@@ -123,8 +131,8 @@ def recall_by_person(conn, person_id: str, limit: int = 5) -> "list[str]":
     with conn.cursor() as cur:
         cur.execute(
             "SELECT s.obs_id FROM situated_memories s "
-            "JOIN observations o ON o.id = s.obs_id AND o.superseded_by IS NULL "
-            "WHERE s.person_id = %s AND s.relation_key IN (\'about\', \'present\') "
+            f"JOIN observations o ON o.id = s.obs_id AND {not_hidden('o')} "
+            "WHERE s.person_id = %s AND s.relation_key IN ('about', 'present') "
             "GROUP BY s.obs_id, o.timestamp "
             "ORDER BY o.timestamp DESC LIMIT %s",
             (person_id, limit),
@@ -132,9 +140,7 @@ def recall_by_person(conn, person_id: str, limit: int = 5) -> "list[str]":
         return [row[0] for row in cur.fetchall()]
 
 
-def shared_memory_ids(
-    conn, person_ids: "list[str]", limit: int = 20
-) -> "list[str]":
+def shared_memory_ids(conn, person_ids: "list[str]", limit: int = 20) -> "list[str]":
     """在席者**全員**が関係を持つ観測 id を新しい順に返す（共通の記憶・段4）。
 
     その場に居合わせた人たちで共有している出来事である。片方としか関係の無い観測は
@@ -148,7 +154,7 @@ def shared_memory_ids(
     with conn.cursor() as cur:
         cur.execute(
             "SELECT s.obs_id FROM situated_memories s "
-            "JOIN observations o ON o.id = s.obs_id AND o.superseded_by IS NULL "
+            f"JOIN observations o ON o.id = s.obs_id AND {not_hidden('o')} "
             "WHERE s.person_id = ANY(%s) "
             "GROUP BY s.obs_id, o.timestamp "
             "HAVING count(DISTINCT s.person_id) = %s "

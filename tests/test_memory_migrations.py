@@ -81,8 +81,10 @@ def test_migrates_observations_has_all_columns() -> None:
         mem.append_memory_event("memory.save", {"content": "x"}, queue_job=False)
 
     cols = _pg_columns("observations")
-    for name in ("kind", "emotion", "image_path", "image_data", "superseded_by"):
+    for name in ("kind", "emotion", "image_path", "image_data"):
         assert name in cols, f"Missing column: {name}"
+    # 畳む印は関係へ移した（段 2）。列が残っていると古い道へ書けてしまう。
+    assert "superseded_by" not in cols
 
 
 def test_migrations_are_idempotent_across_restarts() -> None:
@@ -98,6 +100,7 @@ def test_migrations_are_idempotent_across_restarts() -> None:
 
     # Reset singleton and reconnect — migrations must not re-run
     import familiar_agent.db as db_module
+
     with db_module._INSTANCE_LOCK:
         if db_module._INSTANCE is not None:
             try:

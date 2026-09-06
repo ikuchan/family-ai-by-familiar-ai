@@ -16,6 +16,7 @@ import psycopg2
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
+from tests.hidden_helper import hide
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -28,14 +29,24 @@ _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
 
 def _insert_obs(
-    cur, obs_id: str, content: str, kind: str, person_id: str, ts: datetime,
-    emotion: str = "neutral", superseded_by: str | None = None,
+    cur,
+    obs_id: str,
+    content: str,
+    kind: str,
+    person_id: str,
+    ts: datetime,
+    emotion: str = "neutral",
+    superseded_by: str | None = None,
 ) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, superseded_by) "
-        "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, emotion, superseded_by),
+        "INSERT INTO observations "
+        "(id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", kind, emotion),
     )
+    # 畳む印は関係にある（段 2）。相手を渡したら、その相手で現行から外す。
+    if superseded_by:
+        hide(cur, obs_id, superseded_by)
 
 
 def _insert_situated(cur, se_id: str, obs_id: str, person_id: str) -> None:
@@ -52,6 +63,7 @@ def _mem() -> ObservationMemory:
 
 # ── 1. situated 相関で person に紐づき、新しい順に返る ──────────────────────
 
+
 def test_read_by_situated_returns_newest_first() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
@@ -65,7 +77,9 @@ def test_read_by_situated_returns_newest_first() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_situated(
+        AGENT_SELF_ID, 3, ("content", "timestamp")
+    )
 
     assert [r["content"] for r in rows] == ["new", "mid", "old"]
 
@@ -75,16 +89,26 @@ def test_read_by_situated_respects_limit() -> None:
     conn.autocommit = True
     with conn.cursor() as cur:
         for i in range(5):
-            _insert_obs(cur, f"c-{i}", f"row {i}", "conversation", AGENT_SELF_ID, _NOW + timedelta(minutes=i))
+            _insert_obs(
+                cur,
+                f"c-{i}",
+                f"row {i}",
+                "conversation",
+                AGENT_SELF_ID,
+                _NOW + timedelta(minutes=i),
+            )
             _insert_situated(cur, f"se-{i}", f"c-{i}", AGENT_SELF_ID)
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 3, ("content", "timestamp"))
+    rows = mem._observations._read_observations_by_situated(
+        AGENT_SELF_ID, 3, ("content", "timestamp")
+    )
     assert len(rows) == 3
 
 
 # ── 2. 母集合の反証：所有者絞りでなく situated 相関である ──────────────────
+
 
 def test_read_by_situated_includes_non_owner_when_correlated() -> None:
     """DEFAULT_PERSON_ID が所有する観測でも、AGENT_SELF_ID の situated 行があれば
@@ -119,35 +143,57 @@ def test_read_by_situated_excludes_when_no_correlation_row() -> None:
 
 # ── 3. kind 絞り ────────────────────────────────────────────────────────────
 
+
 def test_read_by_situated_filters_by_kind() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
         _insert_obs(cur, "ds-1", "a day summary", "day_summary", AGENT_SELF_ID, _NOW)
-        _insert_obs(cur, "cv-1", "a conversation", "conversation", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
+        _insert_obs(
+            cur,
+            "cv-1",
+            "a conversation",
+            "conversation",
+            AGENT_SELF_ID,
+            _NOW + timedelta(seconds=1),
+        )
         _insert_situated(cur, "se-ds", "ds-1", AGENT_SELF_ID)
         _insert_situated(cur, "se-cv", "cv-1", AGENT_SELF_ID)
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), kind="day_summary")
+    rows = mem._observations._read_observations_by_situated(
+        AGENT_SELF_ID, 10, ("content",), kind="day_summary"
+    )
     assert [r["content"] for r in rows] == ["a day summary"]
 
 
 # ── 4. keywords 絞り（content LIKE の OR）／空 keywords で全件 ───────────────
 
+
 def test_read_by_situated_filters_by_keywords() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
-        _insert_obs(cur, "kw-hit", "we talked about ramen today", "conversation", AGENT_SELF_ID, _NOW)
-        _insert_obs(cur, "kw-miss", "nothing relevant here", "conversation", AGENT_SELF_ID, _NOW + timedelta(seconds=1))
+        _insert_obs(
+            cur, "kw-hit", "we talked about ramen today", "conversation", AGENT_SELF_ID, _NOW
+        )
+        _insert_obs(
+            cur,
+            "kw-miss",
+            "nothing relevant here",
+            "conversation",
+            AGENT_SELF_ID,
+            _NOW + timedelta(seconds=1),
+        )
         _insert_situated(cur, "se-hit", "kw-hit", AGENT_SELF_ID)
         _insert_situated(cur, "se-miss", "kw-miss", AGENT_SELF_ID)
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), keywords=("ramen",))
+    rows = mem._observations._read_observations_by_situated(
+        AGENT_SELF_ID, 10, ("content",), keywords=("ramen",)
+    )
     assert [r["content"] for r in rows] == ["we talked about ramen today"]
 
 
@@ -162,11 +208,14 @@ def test_read_by_situated_empty_keywords_returns_all() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content",), keywords=())
+    rows = mem._observations._read_observations_by_situated(
+        AGENT_SELF_ID, 10, ("content",), keywords=()
+    )
     assert {r["content"] for r in rows} == {"alpha", "beta"}
 
 
 # ── 5. columns 受け渡し（emotion 込み経路） ─────────────────────────────────
+
 
 def test_read_by_situated_passes_through_emotion_column() -> None:
     conn = psycopg2.connect(_DB_URL)
@@ -177,19 +226,29 @@ def test_read_by_situated_passes_through_emotion_column() -> None:
     conn.close()
 
     mem = _mem()
-    rows = mem._observations._read_observations_by_situated(AGENT_SELF_ID, 10, ("content", "emotion"))
+    rows = mem._observations._read_observations_by_situated(
+        AGENT_SELF_ID, 10, ("content", "emotion")
+    )
     assert rows[0]["emotion"] == "happy"
 
 
-# ── 6. superseded_by が非 NULL の観測は除外 ────────────────────────────────
+# ── 6. 役割「旧」を持つ観測は除外 ──────────────────────────────────────────
+
 
 def test_read_by_situated_excludes_superseded() -> None:
     conn = psycopg2.connect(_DB_URL)
     conn.autocommit = True
     with conn.cursor() as cur:
         _insert_obs(cur, "live-1", "live row", "conversation", AGENT_SELF_ID, _NOW)
-        _insert_obs(cur, "dead-1", "superseded row", "conversation", AGENT_SELF_ID,
-                    _NOW + timedelta(seconds=1), superseded_by="live-1")
+        _insert_obs(
+            cur,
+            "dead-1",
+            "superseded row",
+            "conversation",
+            AGENT_SELF_ID,
+            _NOW + timedelta(seconds=1),
+            superseded_by="live-1",
+        )
         _insert_situated(cur, "se-live", "live-1", AGENT_SELF_ID)
         _insert_situated(cur, "se-dead", "dead-1", AGENT_SELF_ID)
     conn.close()
@@ -200,6 +259,7 @@ def test_read_by_situated_excludes_superseded() -> None:
 
 
 # ── 7. 該当なしで空リスト ──────────────────────────────────────────────────
+
 
 def test_read_by_situated_returns_empty_when_none() -> None:
     mem = _mem()

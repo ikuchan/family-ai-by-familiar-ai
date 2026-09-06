@@ -30,6 +30,13 @@ from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
+import pytest
+from tests.hidden_helper import has_superseded_by_column
+
+_SKIP = pytest.mark.skipif(
+    not has_superseded_by_column(),
+    reason="059 が `observations.superseded_by` を落としたので、その列へ書く旧マイグレーションを\n再実行して確かめることはできない（`設計方針_MI間の関係` 段 2）",
+)
 
 _DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-08-15-051_remove_the_per_turn_self_model.py"
@@ -81,13 +88,12 @@ def _exists(table: str, obs_id: str) -> bool:
 
 # ── ① 退避表がある ──────────────────────────────────────────────────────────
 
+
 def test_the_quarantine_table_exists() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT to_regclass('observations_removed_self_model') AS t"
-            )
+            cur.execute("SELECT to_regclass('observations_removed_self_model') AS t")
             assert cur.fetchone()["t"] is not None
     finally:
         conn.close()
@@ -95,6 +101,8 @@ def test_the_quarantine_table_exists() -> None:
 
 # ── ② 退避する（削除しない） ────────────────────────────────────────────────
 
+
+@_SKIP
 def test_the_migration_moves_the_rows_instead_of_deleting_them() -> None:
     """内省の自己記述は退避表へ移り、`observations` から消える。戻せる形で残る。"""
     mine = _plant("内省", "self_model")
@@ -107,6 +115,7 @@ def test_the_migration_moves_the_rows_instead_of_deleting_them() -> None:
     assert _exists("observations", other), "関係のない記録まで動かしている"
 
 
+@_SKIP
 def test_the_migration_is_idempotent() -> None:
     """二度流しても壊れない（移すものが無いだけ）。"""
     _run_migration()
@@ -114,6 +123,7 @@ def test_the_migration_is_idempotent() -> None:
 
 
 # ── ③④ 毎ターン書くのをやめた ──────────────────────────────────────────────
+
 
 def test_the_agent_no_longer_writes_a_self_model_every_turn() -> None:
     """`_update_self_model` は無い。毎ターン軽量LLM を呼んで書く経路そのものを外した。"""
