@@ -34,6 +34,8 @@ KIND_REVISION = "改訂"  # 版が進み、前の版が現在の状態として�
 KIND_FOLD = "畳み込み"  # 逐語が要約に吸われた。畳まれた側は誤りではない
 KIND_RESOLVE = "解決"  # 保留していたことが果たされた
 KIND_ADVANCE = "前進"  # 記録の鎖が一つ進んだ
+KIND_EXCHANGE = "やりとり"  # 一つのターンの記録（起点・版・見た・答え・要約）
+KIND_SUCCESSION = "継起"  # ターンどうしの前後
 KIND_UNCLASSIFIED = "未分類"  # 059 が移した既存の辺。どの書き手が作ったか判別できない
 
 
@@ -103,6 +105,24 @@ class RelationStore:
         except UniqueViolation:
             return False
         return rid is not None
+
+    def latest_member(self, kind: str, role: str) -> "str | None":
+        """その種類・その役割の項のうち、いちばん新しい関係のもの。
+
+        起動直後は持ち越しが空なので、ここから連なりを継ぐ。無ければ None（最初の
+        ターンには前が無い）。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT m.obs_id FROM relation_members m "
+                    "JOIN relations r ON r.id = m.relation_id AND r.kind = %s "
+                    "WHERE m.role = %s ORDER BY r.id DESC LIMIT 1",
+                    (kind, role),
+                )
+                row = cur.fetchone()
+        return None if row is None else str(row["obs_id"])
 
     def members_of(self, relation_id: int) -> list[dict]:
         """関係の項を位置の昇順で返す。位置を持たない項は末尾に置く。"""

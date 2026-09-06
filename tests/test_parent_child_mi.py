@@ -50,8 +50,10 @@ def _plant(conn, content: str, parent_id: str | None = None) -> str:
 def test_parent_id_column_exists() -> None:
     conn = _conn()
     with conn.cursor() as cur:
-        cur.execute("SELECT column_name FROM information_schema.columns "
-                    "WHERE table_name='observations' AND column_name='parent_id'")
+        cur.execute(
+            "SELECT column_name FROM information_schema.columns "
+            "WHERE table_name='observations' AND column_name='parent_id'"
+        )
         row = cur.fetchone()
     conn.close()
     assert row is not None
@@ -74,6 +76,7 @@ def test_parent_child_links_survive_without_bulk_closing() -> None:
     conn.close()
     assert got and str(got[0] if not isinstance(got, dict) else got["parent_id"]) == parent
 
+
 def test_the_answer_is_written_at_speak_time_and_survives_the_close():
     """自分の答えを、背景の永続化を待たずに O へ書き、閉じても生き残らせる。
 
@@ -89,13 +92,16 @@ def test_the_answer_is_written_at_speak_time_and_survives_the_close():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})])])
     _run(a, utterance="今日の天気は？")
 
-    answers = [c for c in a._memory.save_async_with_id.call_args_list
-               if c.kwargs.get("direction") == "発話" and "自分が答えた" in c.args[0]]
+    answers = [
+        c
+        for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "発話" and "自分が答えた" in c.args[0]
+    ]
     assert len(answers) == 1
     assert "晴れだよ" in answers[0].args[0]
 
     # **この記録は鎖の外**。何も畳まない（求めの版チェーンは別に進む）。
     assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"
-    # 背景の永続化には、この記録を supersede する対象として渡る（要約が恒久記録を担う）。
+    # 背景の永続化には、やりとりの項として渡る（段 3。畳まないので逐語は残る）。
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert kwargs["superseded_ids"], "答えの記録が渡っていない"
+    assert any(r == "答え" for _, r in kwargs["exchange"]), "答えの記録が渡っていない"
