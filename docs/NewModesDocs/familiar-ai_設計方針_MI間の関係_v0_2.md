@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：MI 間の関係（v0.1・未実装）
+# familiar-ai 設計方針：MI 間の関係（v0.2・段 1 まで実装済み）
 
 ## この文書の位置づけ
 
@@ -76,9 +76,20 @@ CREATE TABLE relation_members (
     relation_id bigint NOT NULL REFERENCES relations(id) ON DELETE CASCADE,
     obs_id      text   NOT NULL,
     role        text   NOT NULL,
-    position    int
+    position    int,
+    PRIMARY KEY (relation_id, obs_id, role)
 );
+
+CREATE INDEX idx_relation_members_obs ON relation_members(obs_id, role);
+CREATE INDEX idx_relations_kind        ON relations(kind);
 ```
+
+主キーを `(relation_id, obs_id, role)` にするのは、同じ観測が同じ関係の同じ役割で二度入る
+形が、改訂にも継起にもやりとりにも共起にも無いためである。項を数え上げる側の取り違えが、
+黙って通らずにここで落ちる。
+
+索引は二つ置く。`idx_relation_members_obs` は観測から関係を引く道で、段 2 の想起の絞りが
+ここを通る。`idx_relations_kind` は種類で絞る道である。
 
 三つの語を定める。
 
@@ -135,10 +146,25 @@ CREATE TABLE relation_members (
 
 段ごとに検証を通し、コミットする。
 
-### 段 1：器を作る
+### 段 1：器を作る（実装済み・2026-09-06）
 
-`relations` と `relation_members` を追加するマイグレーションを書き、読み書きの口を
-`store/` に置く。既存の経路からは呼ばない。**挙動は変わらない。**
+`relations` と `relation_members` を `migration/2026-09-06-058_relations.py` で追加し、
+読み書きの口を `src/familiar_agent/store/relations.py`（`RelationStore`）に置いた。
+既存の経路からは呼んでいないので、挙動は変わらない。
+
+公開面は三つである。
+
+- **`add(kind, members)`**：関係を一つ書き、その id を返す。`members` は
+  `(観測 id, 役割, 位置)` の並びで、空なら書かず `None` を返す。ヘッダと項は同じ
+  トランザクションで書き、途中で落ちたら両方を戻す。項の無い関係が残ると、関係の数が
+  実際のつながりの数と合わなくなる
+- **`members_of(relation_id)`**：項を位置の昇順で返す。位置を持たない項は `NULLS LAST`
+  で末尾に置く
+- **`relations_for(obs_id, kind=None, role=None)`**：その観測が項として入る関係の id を
+  古い順に返す
+
+想起の絞りと連なりの辿りは、この段では置いていない。使う段で問い合わせの形が決まって
+から足す。先回りして置くと、実際には要らない形の口が残る。
 
 ### 段 2：改訂を移す
 
@@ -202,6 +228,10 @@ day_summary の記録を書くだけである。計測が見た置換先は、�
 ## 未実装であることの確認
 
 この文書は実装前の設計である。段 1 に着手した時点で、実装済みの段だけを本文へ書き加える。
+
+> v0.2：段 1 を実装した。`relations` と `relation_members` を 058 で作り、`RelationStore`
+> を `store/` に置いた。主キーを `(relation_id, obs_id, role)` にし、索引を二つ置いたことと、
+> 公開面が三つであることを本文へ書き加えた。既存の経路からは呼んでいないので挙動は変わらない。
 
 > v0.1：新規。記録どうしの関係を二項の列から多項の関係へ移す設計を定めた。`superseded_by`
 > 列は落とし、改訂も関係の一種として表す。やりとりを問いと版と答えと要約の多項の関係として
