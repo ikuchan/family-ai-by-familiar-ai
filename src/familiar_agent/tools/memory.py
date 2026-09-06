@@ -31,7 +31,12 @@ from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memo
 )
 from ..db_migrations import apply_migrations, default_migration_dir
 from ..legacy.semantic_layer import LegacySemanticLayer
-from ..store.relations import KIND_UNCLASSIFIED
+from ..store.relations import (
+    KIND_EXCHANGE,
+    KIND_SUCCESSION,
+    KIND_UNCLASSIFIED,
+    RelationStore,
+)
 from ..store import clock
 from ..store.context import StoreContext, viewpoint_of
 from ..store.jobs import JobQueue
@@ -432,6 +437,20 @@ class ObservationMemory:
         self, old_id: "str", new_id: "str", kind: "str" = KIND_UNCLASSIFIED
     ) -> "bool":
         return self._observations.mark_superseded(old_id, new_id, kind)
+
+    def record_exchange(self, members: "list[tuple[str, str, int]]") -> "int | None":
+        """一つのターンの記録を、順序つきのやりとりとして残す（段 3）。"""
+        return RelationStore(self._ctx).add(KIND_EXCHANGE, list(members))
+
+    def record_succession(self, prev_id: "str", next_id: "str") -> "int | None":
+        """前のターンの起点と、今のターンの起点をつなぐ（段 3）。"""
+        return RelationStore(self._ctx).add(
+            KIND_SUCCESSION, [(prev_id, "前", 0), (next_id, "後", 1)]
+        )
+
+    def latest_exchange_origin(self) -> "str | None":
+        """いちばん新しいやりとりの起点。起動後の最初のターンで、連なりを継ぐのに使う。"""
+        return RelationStore(self._ctx).latest_member(KIND_EXCHANGE, "起点")
 
     def apply_verdicts(self, verdicts: dict[str, str]) -> int:
         """想起した記憶の扱いの申告を反映する（store 層へ委譲）。"""

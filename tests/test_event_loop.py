@@ -65,8 +65,8 @@ def _agent(*, stream_returns, max_iters=3):
     a._utility_backend = MagicMock()
     a._utility_backend.complete = AsyncMock(return_value='{"branch":"full","effort":"high"}')
     a._expected_turns = len(list(stream_returns))
-    a._social_presence_permission = MagicMock(return_value=1.0)   # 既定＝誰か居る
-    a._in_quiet_hours = MagicMock(return_value=False)             # 既定＝静穏時間ではない
+    a._social_presence_permission = MagicMock(return_value=1.0)  # 既定＝誰か居る
+    a._in_quiet_hours = MagicMock(return_value=False)  # 既定＝静穏時間ではない
     a._deferred_search = MagicMock()
     a._deferred_search.get_tool_definitions = MagicMock(return_value=[_SEARCH_DEF])
     a._deferred_search.call = AsyncMock(return_value=("投げた", None))
@@ -106,7 +106,7 @@ def _run_chain(a, utterance="こんにちは"):
             if a.backend.stream_turn.await_count >= a._expected_turns and not ip._tasks:
                 break
             await asyncio.sleep(0.005)
-        await asyncio.sleep(0.02)      # 最終反復の後始末が走るのを待つ
+        await asyncio.sleep(0.02)  # 最終反復の後始末が走るのを待つ
         await ip.close()
 
     asyncio.run(scenario())
@@ -114,6 +114,7 @@ def _run_chain(a, utterance="こんにちは"):
 
 
 # ── スライス1（発話のみ）─────────────────────────────
+
 
 def _names(defs) -> list:
     """道具の名前だけを見る。
@@ -126,7 +127,9 @@ def _names(defs) -> list:
 
 
 def test_speaks_via_say_tool():
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ、元気？"})])])
+    a = _agent(
+        stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ、元気？"})])]
+    )
     out = _run(a)
     assert out == "やあ、元気？"
     a._active_memory().recall_async.assert_awaited_once()
@@ -135,7 +138,11 @@ def test_speaks_via_say_tool():
     _, kwargs = a.backend.stream_turn.call_args
     # 発話・記憶・net（投げっぱなしの外部呼び出し）を渡す。
     assert _names(kwargs.get("tools")) == [
-        _SAY_DEF["name"], _RECALL_DEF["name"], _SEARCH_DEF["name"], _FETCH_DEF["name"]]
+        _SAY_DEF["name"],
+        _RECALL_DEF["name"],
+        _SEARCH_DEF["name"],
+        _FETCH_DEF["name"],
+    ]
     assert kwargs["max_tokens"] == 400
     assert "on_text" in kwargs
     # 取込でトリガ（発話）O、発話時点で本応答 O の2件（open 意図・完了 O は無い）。
@@ -145,10 +152,16 @@ def test_speaks_via_say_tool():
 
 
 def test_takes_first_say_and_suppresses_duplicate():
-    a = _agent(stream_returns=[_turn([
-        ToolCall(id="t", name="say", input={"text": "先頭だけ"}),
-        ToolCall(id="t", name="say", input={"text": "重複は捨てる"}),
-    ])])
+    a = _agent(
+        stream_returns=[
+            _turn(
+                [
+                    ToolCall(id="t", name="say", input={"text": "先頭だけ"}),
+                    ToolCall(id="t", name="say", input={"text": "重複は捨てる"}),
+                ]
+            )
+        ]
+    )
     assert _run(a) == "先頭だけ"
     a._tts.call.assert_awaited_once_with("say", {"text": "先頭だけ"})
 
@@ -176,20 +189,23 @@ def test_fallback_text_emitted_once():
 
 # ── スライス2（QC 連鎖・supersede・上限）─────────────
 
+
 def test_recall_chains_via_completion_queue_then_says():
     # 反復1＝recall を呼ぶ／反復2＝say。RH が recall を実行→QC→次反復で O 書込→発話。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "思い出したよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "思い出したよ"})]),
+        ]
+    )
     assert _run_chain(a) == "思い出したよ"
-    assert a.backend.stream_turn.await_count == 2               # 2反復
-    a._memory_tool.call.assert_awaited_once_with(                       # RH 実行
+    assert a.backend.stream_turn.await_count == 2  # 2反復
+    a._memory_tool.call.assert_awaited_once_with(  # RH 実行
         "recall", {"query": "運動会"}, exclude_ids=["obs2"]
     )
     # QC drain＝完了結果を O へ書込（反復2の取込）。
     written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
-    assert any("recall結果テキスト" in w for w in written)   # 完了 O に結果が入る
+    assert any("recall結果テキスト" in w for w in written)  # 完了 O に結果が入る
     kinds = {c.kwargs["kind"] for c in a._memory.save_async_with_id.call_args_list}
     assert kinds == {"observation"}
 
@@ -198,18 +214,20 @@ def test_loop_records_form_a_version_chain():
     # 求めは1本の版チェーンとして進む。各版が求めの状態で、新しい版が**直前の版だけ**を
     # 畳む。以前は「新しい記録が直前の生きた記録を畳む」形で、2回目の調査に入るとき意図が
     # 1回目の完了を畳んでいた（追加調査のたびに前に分かったことが W から消えた）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
     calls = [c.args for c in a._memory.mark_superseded.call_args_list]
     assert calls, "版が前の版を畳んでいない"
     # 発話の記録（obs1）は鎖の外。畳まれない。
     assert "obs1" not in {old for old, _new in calls}
-    # ターン末に渡すのは、自分が答えた記録。
+    # ターン末に渡すのは、そのターンの記録の並び（段 3）。答えは畳まず、項として並ぶ。
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert kwargs["superseded_ids"], "答えの記録が渡っていない"
+    assert ("obs4", "答え") in kwargs["exchange"], "答えの記録が渡っていない"
 
 
 def test_w_search_does_not_exclude_the_intake_origin():
@@ -226,14 +244,16 @@ def test_w_search_does_not_exclude_the_intake_origin():
 def test_w_recall_query_follows_the_intake_origin():
     # 想起の手がかりは「取り込んだもの」＝鎖の先頭。反復2以降も最初の発話で探し続けると、
     # いま届いた完了とは無関係な検索になる（④ の「想起クエリ（手がかり）」）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
     queries = [c.args[0] for c in a._active_memory().recall_async.call_args_list]
-    assert queries[0] == "昨日の天気覚えてる？"                 # 反復1の起点＝人の発話
-    assert "recall結果テキスト" in queries[1]                   # 反復2の起点＝完了O の内容
+    assert queries[0] == "昨日の天気覚えてる？"  # 反復1の起点＝人の発話
+    assert "recall結果テキスト" in queries[1]  # 反復2の起点＝完了O の内容
 
 
 def test_w_recall_uses_configured_k():
@@ -250,14 +270,17 @@ def test_w_recall_uses_configured_k():
 def test_the_version_chain_replaces_parent_child_closing():
     # 親子をまとめて畳む仕組み（close_with_children）は使わない。求めは1本の鎖なので、
     # ファンアウトが無い。版は親（発話の記録）に紐づけて書くが、畳むのは直前の版だけ。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
+        ]
+    )
     _run_chain(a, utterance="天気は？")
     assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"
     versions = [
-        c for c in a._memory.save_async_with_id.call_args_list
+        c
+        for c in a._memory.save_async_with_id.call_args_list
         if c.kwargs.get("direction") == "求め"
     ]
     assert versions, "版が書かれていない"
@@ -270,10 +293,12 @@ def test_completion_content_reads_as_this_chains_action():
     # 完了 MI は「何を・どうやって調べた結果が届いたか」が content から読めること。
     # 「探した結果：…」だけだと、自分がいましたことなのか昔の記憶なのか区別できず、
     # 結果が W にあるのに調停がまた調べに行った（実機で観測）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"})]),
-        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"})]),
+            _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+        ]
+    )
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -284,19 +309,24 @@ def test_completion_content_reads_as_this_chains_action():
         # 抜けてしまう。並列実行のときだけ落ちる形になる。**完了を反映した版そのもの**を
         # 待つ（`求めの版チェーン`）。
         for _ in range(_WAIT_TICKS):
-            if any("届いた" in (c.args[0] if c.args else "")
-                   for c in a._memory.save_async_with_id.call_args_list):
+            if any(
+                "届いた" in (c.args[0] if c.args else "")
+                for c in a._memory.save_async_with_id.call_args_list
+            ):
                 break
             await asyncio.sleep(0.005)
         await ip.close()
 
     asyncio.run(scenario())
-    done = next(c for c in reversed(a._memory.save_async_with_id.call_args_list)
-                if c.kwargs.get("direction") == "求め")
+    done = next(
+        c
+        for c in reversed(a._memory.save_async_with_id.call_args_list)
+        if c.kwargs.get("direction") == "求め"
+    )
     content = done.args[0]
-    assert "search_deferred" in content      # どうやって調べたか
-    assert "今日の天気" in content            # 何を
-    assert "届いた" in content                # いま届いたこと
+    assert "search_deferred" in content  # どうやって調べたか
+    assert "今日の天気" in content  # 何を
+    assert "届いた" in content  # いま届いたこと
 
 
 def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
@@ -304,11 +334,13 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
     # フルLLM が「データが読み取れなかった」と正しく報告した）。上限は埋め込みモデル
     # bge-m3 の入力上限 8192 トークンに合わせる。1文字＝1トークンになる字もあるので、
     # 8192 *文字* なら常に 8192 トークン以下に収まり、埋め込みが後ろを落とさない。
-    body = "気" * 6000                       # 500 でも 8192 でもない長さ
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"})]),
-        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
-    ])
+    body = "気" * 6000  # 500 でも 8192 でもない長さ
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"})]),
+            _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+        ]
+    )
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -319,23 +351,29 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
         # 抜けてしまう。並列実行のときだけ落ちる形になる。**完了を反映した版そのもの**を
         # 待つ（`求めの版チェーン`）。
         for _ in range(_WAIT_TICKS):
-            if any("届いた" in (c.args[0] if c.args else "")
-                   for c in a._memory.save_async_with_id.call_args_list):
+            if any(
+                "届いた" in (c.args[0] if c.args else "")
+                for c in a._memory.save_async_with_id.call_args_list
+            ):
                 break
             await asyncio.sleep(0.005)
         await ip.close()
 
     asyncio.run(scenario())
-    done = next(c for c in reversed(a._memory.save_async_with_id.call_args_list)
-                if c.kwargs.get("direction") == "求め")
-    assert done.args[0].count("気") >= 6000   # 本文が丸ごと残る
-    assert len(done.args[0]) <= 8192          # 埋め込みの入力上限は超えない
+    done = next(
+        c
+        for c in reversed(a._memory.save_async_with_id.call_args_list)
+        if c.kwargs.get("direction") == "求め"
+    )
+    assert done.args[0].count("気") >= 6000  # 本文が丸ごと残る
+    assert len(done.args[0]) <= 8192  # 埋め込みの入力上限は超えない
 
 
 def test_capped_iteration_tells_the_full_llm_to_admit_it_could_not_finish():
     # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから分かることを返す。
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])],
-               max_iters=1)
+    a = _agent(
+        stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])], max_iters=1
+    )
     _run(a, utterance="調べて")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "上限に達した" in system and "現時点で分かること" in system
@@ -364,25 +402,30 @@ def test_w_includes_the_intake_origin_via_the_candidate_set():
     # 足していたが、正本 [D-想起起動] は「O に乗った後は共通の流れで1本」と定める。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     # 想起が取込 O を返す（実機では自分で書いた O が候補に入る）。
-    a._active_memory().recall_async = AsyncMock(return_value=[
-        {"memory_id": "obs1", "summary": "おはよう", "fit": 0.9},
-        {"memory_id": "m1", "summary": "昔の話", "fit": 0.3},
-    ])
+    a._active_memory().recall_async = AsyncMock(
+        return_value=[
+            {"memory_id": "obs1", "summary": "おはよう", "fit": 0.9},
+            {"memory_id": "m1", "summary": "昔の話", "fit": 0.3},
+        ]
+    )
     a._active_memory().format_for_context = MagicMock(
-        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms)
+    )
     _run(a, utterance="おはよう")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "おはよう" in system                        # 取込 O が W に載る
-    assert "昔の話" in system                          # 想起の他の記録も載る
+    assert "おはよう" in system  # 取込 O が W に載る
+    assert "昔の話" in system  # 想起の他の記録も載る
 
 
 def test_recall_tool_excludes_the_version_that_issued_it():
     # 版の content は語を丸ごと含むので、その語で探せば必ず上位に来る。自分が出した検索が
     # 自分自身を拾わないよう、いま書いたばかりの版だけを狭く除外する。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
     _, kwargs = a._memory_tool.call.call_args
     assert kwargs["exclude_ids"], "自分が出した検索を除外していない"
@@ -400,13 +443,16 @@ def test_trigger_utterance_written_to_o_at_intake():
 def test_a_version_is_written_with_the_request_and_query():
     # 調査を起動すると、求めの版が書かれる。版には求めそのものと、起動した調査が入る
     # （旧：direction="意図" の記録。版チェーンでは求めの状態が1本の鎖で進む）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "運動会"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
     _run_chain(a, utterance="おはよう")
     versions = [
-        c for c in a._memory.save_async_with_id.call_args_list
+        c
+        for c in a._memory.save_async_with_id.call_args_list
         if c.kwargs.get("direction") == "求め"
     ]
     assert versions, "版が書かれていない"
@@ -417,13 +463,16 @@ def test_a_version_is_written_with_the_request_and_query():
 def test_a_new_version_supersedes_the_previous_one_and_records_the_result():
     # 結果が届くと新しい版が書かれ、直前の版を畳む（版履歴そのもの）。版の content には
     # 探した事実と結果が入る。これが無いと W に「まだ無い」が残り続け、同じ調査を繰り返す。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
     versions = [
-        c for c in a._memory.save_async_with_id.call_args_list
+        c
+        for c in a._memory.save_async_with_id.call_args_list
         if c.kwargs.get("direction") == "求め"
     ]
     assert len(versions) >= 2, "版が2つ以上書かれていない"
@@ -441,8 +490,8 @@ def test_intake_drains_inbox_in_place():
     before = ip._inbox
     ip._inbox.append(("q", "結果", None, "完了", 1))
     assert asyncio.run(ip._intake()) == 1
-    assert ip._inbox is before        # 作り直さない
-    assert ip._inbox == []            # 中身だけ空にする
+    assert ip._inbox is before  # 作り直さない
+    assert ip._inbox == []  # 中身だけ空にする
 
 
 def test_system_prompt_is_split_for_caching():
@@ -452,25 +501,23 @@ def test_system_prompt_is_split_for_caching():
     _run(a)
     system = a.backend.stream_turn.call_args.kwargs["system"]
     assert isinstance(system, tuple) and len(system) == 2
-    assert "[ME] 口調" in system[0]          # 安定部
-    assert "[想起]昔の話" in system[1]        # 可変部
+    assert "[ME] 口調" in system[0]  # 安定部
+    assert "[想起]昔の話" in system[1]  # 可変部
 
 
 def test_light_branch_speaks_without_the_full_llm():
     # 軽量LLM が「短文で足りる」と判断した反復は、フルLLM を呼ばずに閉じる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"light","text":"やあ！元気？"}')
+    a._utility_backend.complete = AsyncMock(return_value='{"branch":"light","text":"やあ！元気？"}')
     assert _run(a) == "やあ！元気？"
-    a.backend.stream_turn.assert_not_awaited()      # フルLLM を起こさない
+    a.backend.stream_turn.assert_not_awaited()  # フルLLM を起こさない
     a._tts.call.assert_awaited_once_with("say", {"text": "やあ！元気？"})
 
 
 def test_action_branch_dispatches_recall_without_the_full_llm():
     # 探すと決まっている反復も、フルLLM を起こさずに recall を投げて閉じる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","query":"昨日の天気"}')
+    a._utility_backend.complete = AsyncMock(return_value='{"branch":"action","query":"昨日の天気"}')
     shown: list[str] = []
 
     async def scenario():
@@ -487,14 +534,13 @@ def test_action_branch_dispatches_recall_without_the_full_llm():
         return first, query
 
     first, query = asyncio.run(scenario())
-    assert first == ""                                   # 発話を持たない反復
-    assert query == {"query": "昨日の天気"}              # 調停が決めた語で投げる
+    assert first == ""  # 発話を持たない反復
+    assert query == {"query": "昨日の天気"}  # 調停が決めた語で投げる
 
 
 def test_full_branch_passes_the_effort_chosen_by_the_arbiter():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"low"}')
+    a._utility_backend.complete = AsyncMock(return_value='{"branch":"full","effort":"low"}')
     _run(a)
     assert a.backend.stream_turn.call_args.kwargs["effort"] == "low"
 
@@ -507,26 +553,26 @@ def test_human_utterance_marks_presence_before_the_gate():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ"})])])
     a._last_human_at = 0.0
     _run(a, utterance="こんばんは")
-    assert a._last_human_at > 0.0          # 受領時に更新される
+    assert a._last_human_at > 0.0  # 受領時に更新される
 
 
 def test_speech_is_held_as_pending_when_nobody_is_present():
     # 身体を持つ以上、発話は聞く相手が居て初めて意味を持つ。居なければ話さず、
     # 「話したかったができなかった」を pending_speech に積んで反復を終える。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
-    a._social_presence_permission = MagicMock(return_value=0.0)   # 誰も居ない
+    a._social_presence_permission = MagicMock(return_value=0.0)  # 誰も居ない
     shown: list[str] = []
-    assert _run(a, on_text=shown.append) == ""       # 発話しない
-    a._tts.call.assert_not_awaited()                  # 音も出さない
-    assert shown == []                                # 画面にも出さない
-    a._pending_store.add.assert_called_once()         # 後で話すために積む
+    assert _run(a, on_text=shown.append) == ""  # 発話しない
+    a._tts.call.assert_not_awaited()  # 音も出さない
+    assert shown == []  # 画面にも出さない
+    a._pending_store.add.assert_called_once()  # 後で話すために積む
 
 
 def test_speech_goes_out_when_someone_is_present():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
     assert _run(a) == "ねえ聞いて"
     a._tts.call.assert_awaited_once_with("say", {"text": "ねえ聞いて"})
-    a._pending_store.add.assert_not_called()          # 話せたので溜めない
+    a._pending_store.add.assert_not_called()  # 話せたので溜めない
 
 
 def test_deferred_is_wired_to_the_completion_queue():
@@ -581,8 +627,8 @@ def test_event_loop_path_starts_mcp_and_memory_worker():
         return agent
 
     agent = asyncio.run(build())
-    assert agent._mcp.start.called                  # MCP を起こす
-    assert agent._memory_worker.start.called        # メモリワーカーも起こす
+    assert agent._mcp.start.called  # MCP を起こす
+    assert agent._memory_worker.start.called  # メモリワーカーも起こす
 
 
 def test_agent_starts_tonic():
@@ -612,8 +658,8 @@ def test_driver_wakes_on_the_affect_queue():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip.set_output(shown.append)          # 人の発話を待たずに出口を持てる
-        ip.start()                           # 駆動体だけ起こす
+        ip.set_output(shown.append)  # 人の発話を待たずに出口を持てる
+        ip.start()  # 駆動体だけ起こす
         ip.push_affect("SEEKING", "何かを知りたい")
         for _ in range(_WAIT_TICKS):
             if shown:
@@ -648,29 +694,31 @@ def test_affect_iteration_does_not_send_an_empty_user_message():
 def test_iteration_ends_when_tool_is_dispatched():
     # 1反復1出力：ツールを投げることも出力。投げた時点で反復は終わり、発話は持たない。
     a = _agent(stream_returns=[_turn([ToolCall(id="r", name="recall", input={"query": "q"})])])
-    assert _run(a) == ""                       # 発話なしで反復終了
+    assert _run(a) == ""  # 発話なしで反復終了
     a.backend.stream_turn.assert_awaited_once()  # 同じ呼び出しの中で次周回へ進まない
 
 
 def test_driver_runs_next_iteration_when_completion_arrives():
     # 次の反復は完了が QC に届いて初めて起きる（駆動体・キュー到来で起きる）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     shown: list[str] = []
 
     async def scenario():
         ip = InformationProcessing(a)
         first = await ip.run_iteration("昨日の天気覚えてる？", on_text=shown.append)
-        for _ in range(_WAIT_TICKS):                    # 駆動体が起こす2反復目を待つ
+        for _ in range(_WAIT_TICKS):  # 駆動体が起こす2反復目を待つ
             if shown:
                 break
             await asyncio.sleep(0.01)
         return first
 
-    assert asyncio.run(scenario()) == ""        # 1反復目は発話なし
-    assert "".join(shown) == "晴れてたよ"       # 2反復目が発話した
+    assert asyncio.run(scenario()) == ""  # 1反復目は発話なし
+    assert "".join(shown) == "晴れてたよ"  # 2反復目が発話した
 
 
 def test_speech_is_held_during_quiet_hours():
@@ -687,7 +735,7 @@ def test_speech_is_held_during_quiet_hours():
 
     asyncio.run(scenario())
     a._tts.call.assert_not_awaited()
-    a._pending_store.add.assert_called_once()     # 後で話すために積む
+    a._pending_store.add.assert_called_once()  # 後で話すために積む
 
 
 def test_full_branch_receives_the_net_actions():
@@ -703,9 +751,12 @@ def test_full_branch_receives_the_net_actions():
 def test_action_branch_speaks_the_filler_then_dispatches():
     # つなぎの発話は調停が出す（フルLLM を経由しないので速い）。発話したうえで投げる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
-    a._utility_backend.complete = AsyncMock(return_value=(
-        '{"branch":"action","action":"search_deferred",'
-        '"query":"今日の天気","text":"調べてみるね"}'))
+    a._utility_backend.complete = AsyncMock(
+        return_value=(
+            '{"branch":"action","action":"search_deferred",'
+            '"query":"今日の天気","text":"調べてみるね"}'
+        )
+    )
     shown: list[str] = []
 
     async def scenario():
@@ -718,19 +769,25 @@ def test_action_branch_speaks_the_filler_then_dispatches():
         await ip.close()
         return first
 
-    assert asyncio.run(scenario()) == ""          # 本来の出力はツール投げ
-    assert "".join(shown) == "調べてみるね"        # つなぎは即発話
-    a.backend.stream_turn.assert_not_awaited()    # フルLLM を起こさない
+    assert asyncio.run(scenario()) == ""  # 本来の出力はツール投げ
+    assert "".join(shown) == "調べてみるね"  # つなぎは即発話
+    a.backend.stream_turn.assert_not_awaited()  # フルLLM を起こさない
     assert a._deferred_search.dispatch.await_args.args[0] == {"query": "今日の天気"}
 
 
 def test_full_branch_keeps_the_tool_when_say_comes_along():
     # フルLLM が「調べてみるね」と検索を同時に返したら、発話をつなぎとして扱い動作も投げる。
     # 以前は say を見つけた時点で閉じ、検索を捨てていた。
-    a = _agent(stream_returns=[_turn([
-        ToolCall(id="s", name="say", input={"text": "調べてみるね"}),
-        ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"}),
-    ])])
+    a = _agent(
+        stream_returns=[
+            _turn(
+                [
+                    ToolCall(id="s", name="say", input={"text": "調べてみるね"}),
+                    ToolCall(id="r", name="search_deferred", input={"query": "今日の天気"}),
+                ]
+            )
+        ]
+    )
     shown: list[str] = []
 
     async def scenario():
@@ -744,7 +801,7 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
         return first
 
     assert asyncio.run(scenario()) == ""
-    assert "".join(shown) == "調べてみるね"        # 発話はつなぎとして出す
+    assert "".join(shown) == "調べてみるね"  # 発話はつなぎとして出す
     assert a._deferred_search.dispatch.await_count == 1  # 動作は捨てない
 
 
@@ -776,24 +833,32 @@ def test_unknown_action_is_ignored_not_crashing():
 
 def test_chain_cap_withholds_recall_tool():
     # 連鎖が上限に達した反復では recall を渡さない＝発話を必ず出す（暴走防止）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ], max_iters=2)
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ],
+        max_iters=2,
+    )
     _run_chain(a)
     assert _names(a.backend.stream_turn.call_args_list[0].kwargs["tools"]) == [
-        _SAY_DEF["name"], _RECALL_DEF["name"], _SEARCH_DEF["name"], _FETCH_DEF["name"]]
-    assert _names(a.backend.stream_turn.call_args_list[1].kwargs["tools"]) == [
-        _SAY_DEF["name"]]
+        _SAY_DEF["name"],
+        _RECALL_DEF["name"],
+        _SEARCH_DEF["name"],
+        _FETCH_DEF["name"],
+    ]
+    assert _names(a.backend.stream_turn.call_args_list[1].kwargs["tools"]) == [_SAY_DEF["name"]]
 
 
 def test_recall_is_dispatched_async_and_loop_waits_on_queue():
     # RH（実行担当）が非同期に実行し、LPM は QC 到来で起きる。recall 本体が返らなくても、
     # 外から完了が届けばループは進む（同期 await のままでは進めない）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
     never = asyncio.Event()
 
     async def hang(_name, _input):
@@ -807,7 +872,7 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
     async def scenario():
         ip = InformationProcessing(a)
         assert await ip.run_iteration("こんにちは", on_text=shown.append) == ""
-        await asyncio.sleep(0.05)          # 意図を書いて dispatch し終えた頃
+        await asyncio.sleep(0.05)  # 意図を書いて dispatch し終えた頃
         ip._completion_queue.put_nowait(("q", "外から届いた結果", None, "完了", 1))
         for _ in range(_WAIT_TICKS):
             if shown:
@@ -821,11 +886,15 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
 
 def test_recall_iteration_does_not_display_filler_text():
     # 1反復1出力：say を決めた反復以外は表示しない（前置きの地の文が反復ごとに出て重複した）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})], text="まず記憶を探すね！"),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
-    ])
-    assert _run_chain(a) == "晴れ"        # 前置きは出さず、発話だけ1回
+    a = _agent(
+        stream_returns=[
+            _turn(
+                [ToolCall(id="r", name="recall", input={"query": "q"})], text="まず記憶を探すね！"
+            ),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
+        ]
+    )
+    assert _run_chain(a) == "晴れ"  # 前置きは出さず、発話だけ1回
     # 生成中のストリームを止める＝呼び手の on_text を stream_turn へ渡さない。
     assert all(c.kwargs["on_text"] is None for c in a.backend.stream_turn.call_args_list)
 
@@ -834,14 +903,16 @@ def test_present_ctx_tells_who_is_there_with_confidence():
     # 「誰かが居る」ではなく「誰が居るか」を渡す。確信度も添える（低い認識と高い認識を
     # 同じに扱わない）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    a._pmm.presence_status = MagicMock(return_value=[
-        {"person_id": "p1", "name": "パパ", "confidence": 0.92, "is_speaker": True},
-        {"person_id": "p2", "name": "たいきくん", "confidence": 0.61, "is_speaker": False},
-    ])
+    a._pmm.presence_status = MagicMock(
+        return_value=[
+            {"person_id": "p1", "name": "パパ", "confidence": 0.92, "is_speaker": True},
+            {"person_id": "p2", "name": "たいきくん", "confidence": 0.61, "is_speaker": False},
+        ]
+    )
     _run(a)
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "パパ" in system and "たいきくん" in system
-    assert "0.92" in system and "0.61" in system      # 確信度も渡す
+    assert "0.92" in system and "0.61" in system  # 確信度も渡す
 
 
 def test_present_ctx_says_nobody_is_confirmed_when_no_one_is_recognised():
@@ -849,10 +920,10 @@ def test_present_ctx_says_nobody_is_confirmed_when_no_one_is_recognised():
     # 分からないまま出る。認識できていないことを明示する。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     a._pmm.presence_status = MagicMock(return_value=[])
-    a._social_presence_permission = MagicMock(return_value=1.0)   # 直近の発話で在席
+    a._social_presence_permission = MagicMock(return_value=1.0)  # 直近の発話で在席
     _run(a)
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "(present" in system                       # 空文字にしない
+    assert "(present" in system  # 空文字にしない
     assert "unconfirmed" in system or "確認できていない" in system
 
 
@@ -867,29 +938,39 @@ def test_datetime_is_injected_into_prompt():
 
 def test_iteration_context_is_injected_into_prompt():
     # 反復番号と上限をコンテキストで渡す（あと何回で結論すべきかモデルが判断できる）。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ], max_iters=3)
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ],
+        max_iters=3,
+    )
     _run_chain(a)
     systems = ["\n".join(c.kwargs["system"]) for c in a.backend.stream_turn.call_args_list]
     assert "1/3" in systems[0]
     assert "2/3" in systems[1]
 
 
-def test_all_loop_os_are_superseded_via_pipeline():
-    # トリガ・open 意図・完了 のループ中 O は、すべてターン末に supersede される。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
+def test_all_loop_os_become_one_exchange():
+    # 起点・open 意図・完了・本応答は、ターン末に一つのやりとりとして並ぶ（段 3）。
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
     _run_chain(a)
     _, kwargs = a._run_post_response_pipeline.call_args
-    # 書いた O は4件（トリガ obs1・open 意図 obs2・完了 obs3・本応答 obs4）。意図と
-    # トリガは完了が解決済みなので一括 supersede には載せない（つながりを残すため）。
-    # 生き残るのは本応答 obs4 だけで、要約が届いたらそれが supersede する。
+    # 書いた O は4件（起点 obs1・open 意図 obs2・完了 obs3・本応答 obs4）。
+    # **どれも畳まない**（段 3）。四つとも一つのやりとりの項として順序つきで並び、
+    # 会話要約が末尾に足される。
     assert a._memory.save_async_with_id.await_count == 4
-    assert kwargs["superseded_ids"] == ["obs4"]
+    assert kwargs["exchange"] == [
+        ("obs1", "起点"),
+        ("obs2", "版"),
+        ("obs3", "版"),
+        ("obs4", "答え"),
+    ]
 
 
 def test_max_iterations_bounds_the_chain():
@@ -901,7 +982,7 @@ def test_max_iterations_bounds_the_chain():
         ],
         max_iters=2,
     )
-    assert _run_chain(a) == ""                                 # 発話せず連鎖を閉じる
+    assert _run_chain(a) == ""  # 発話せず連鎖を閉じる
     assert a.backend.stream_turn.await_count == 2
 
 
@@ -945,26 +1026,40 @@ def test_debug_lines_carry_iteration_number(caplog):
         _run_chain(a)
     debugs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
     assert any("iter=1/3" in m for m in debugs)
-    assert any("iter=2/3" in m for m in debugs)   # 駆動体が起こした2反復目
+    assert any("iter=2/3" in m for m in debugs)  # 駆動体が起こした2反復目
 
 
 def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():
     # 実機で同じ URL を2反復続けて取りに行き、1反復まるごと無駄になった。以前は「この
     # 求めのために調べたもの」を手組みの一覧として W へ足していたが、その中身は完了 O
     # として O にある。候補集合の一員として W に載るので、手組みは要らない。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="f", name="fetch_deferred",
-                        input={"url": "https://example.com/1hour.html"})]),
-        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn(
+                [
+                    ToolCall(
+                        id="f",
+                        name="fetch_deferred",
+                        input={"url": "https://example.com/1hour.html"},
+                    )
+                ]
+            ),
+            _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+        ]
+    )
     # 想起が完了 O を返す（実機では自分で書いた O が候補に入る）。
-    a._active_memory().recall_async = AsyncMock(return_value=[
-        {"memory_id": "obs3",
-         "summary": "「https://example.com/1hour.html」を fetch_deferred で調べた結果が届いた：時間別の表…",
-         "fit": 0.9},
-    ])
+    a._active_memory().recall_async = AsyncMock(
+        return_value=[
+            {
+                "memory_id": "obs3",
+                "summary": "「https://example.com/1hour.html」を fetch_deferred で調べた結果が届いた：時間別の表…",
+                "fit": 0.9,
+            },
+        ]
+    )
     a._active_memory().format_for_context = MagicMock(
-        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms)
+    )
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -988,11 +1083,12 @@ def test_full_branch_says_a_filler_first_when_thinking_deeply():
     # フル生成は effort=high で10秒近くかかり、そのあいだ無音になる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"high","text":"えーっと"}')
+        return_value='{"branch":"full","effort":"high","text":"えーっと"}'
+    )
     shown: list[str] = []
     out = _run(a, on_text=shown.append)
     assert out == "本応答"
-    assert "えーっと" in "".join(shown)           # つなぎが先に出る
+    assert "えーっと" in "".join(shown)  # つなぎが先に出る
     assert "".join(shown).index("えーっと") < "".join(shown).index("本応答")
 
 
@@ -1000,7 +1096,8 @@ def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
     # effort=low のフル生成は実測 0.8〜3.6 秒。速いときに「えーっと」を挟むとテンポが悪い。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"low","text":"えーっと"}')
+        return_value='{"branch":"full","effort":"low","text":"えーっと"}'
+    )
     shown: list[str] = []
     _run(a, on_text=shown.append)
     assert "えーっと" not in "".join(shown)
@@ -1013,13 +1110,16 @@ def test_the_filler_is_remembered_for_the_prompt_but_not_written_to_memory():
     # **材料は `_said_fillers` が持つ。O には書かない**（054）。この一覧はそのまま
     # プロンプトへ載るので（「すでに相手へ伝えた一言」）、次の反復へ伝えるのに記憶は
     # 要らない。以前は両方を持っており、O の側だけが 337 行たまって想起の候補を食っていた。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "マイクラ"})]),
-        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "マイクラ"})]),
+            _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+        ]
+    )
     a._utility_backend.complete = AsyncMock(
         return_value='{"branch":"action","action":"recall","query":"マイクラ",'
-                     '"text":"ちょっと調べてみますね"}')
+        '"text":"ちょっと調べてみますね"}'
+    )
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -1030,8 +1130,11 @@ def test_the_filler_is_remembered_for_the_prompt_but_not_written_to_memory():
         return head, fillers
 
     head, said_fillers = asyncio.run(scenario())
-    written = [c for c in a._memory.save_async_with_id.call_args_list
-               if "調べてみますね" in (c.args[0] if c.args else "")]
+    written = [
+        c
+        for c in a._memory.save_async_with_id.call_args_list
+        if "調べてみますね" in (c.args[0] if c.args else "")
+    ]
     assert written == [], "つなぎを O へ書いている"
     assert any("調べてみますね" in t for t in said_fillers), "言ったことを覚えていない"
     # **鎖は進めない。** 進めると直前に届いた完了を押し出し、フルLLM が材料を失う
@@ -1041,20 +1144,30 @@ def test_the_filler_is_remembered_for_the_prompt_but_not_written_to_memory():
 
 def test_w_lists_what_was_already_said_so_the_next_filler_continues():
     # つなぎを言ったことが W に無いと、同じ言い回しを最初から言い直す。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "サッカー"})]),
-        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "サッカー"})]),
+            _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+        ]
+    )
     a._utility_backend.complete = AsyncMock(
         return_value='{"branch":"action","action":"recall","query":"サッカー",'
-                     '"text":"ちょっと調べてみますね"}')
+        '"text":"ちょっと調べてみますね"}'
+    )
 
     # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
-    a._active_memory().recall_async = AsyncMock(return_value=[
-        {"memory_id": "obs3", "summary": "「サッカー」を recall で調べた結果が届いた：recall結果テキスト", "fit": 0.9},
-    ])
+    a._active_memory().recall_async = AsyncMock(
+        return_value=[
+            {
+                "memory_id": "obs3",
+                "summary": "「サッカー」を recall で調べた結果が届いた：recall結果テキスト",
+                "fit": 0.9,
+            },
+        ]
+    )
     a._active_memory().format_for_context = MagicMock(
-        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms)
+    )
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -1083,21 +1196,24 @@ def test_quiet_hours_do_not_silence_a_reply_to_a_person():
     assert _run(a, utterance="こんばんは") == "やあ"
 
 
-
 def test_no_filler_once_the_material_has_arrived():
     # つなぎは待ち時間を埋めるためのもの。結果が届いた反復では待つものが無い。
     # 実機では検索結果の1秒後に「うん、任せてね！」が出て、そこだけ口調が割れた。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "答え"})]),
-    ])
-    replies = iter([
-        '{"branch":"action","action":"recall","query":"q","text":"調べますね"}',
-        '{"branch":"full","effort":"high","text":"うん、任せてね！"}',
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "答え"})]),
+        ]
+    )
+    replies = iter(
+        [
+            '{"branch":"action","action":"recall","query":"q","text":"調べますね"}',
+            '{"branch":"full","effort":"high","text":"うん、任せてね！"}',
+        ]
+    )
     a._utility_backend.complete = AsyncMock(side_effect=lambda *_a, **_k: next(replies))
     shown = _run_chain(a, utterance="調べて")
-    assert "調べますね" in shown          # 調べる前のつなぎは出す
+    assert "調べますね" in shown  # 調べる前のつなぎは出す
     assert "うん、任せてね" not in shown  # 届いたあとは出さない
     assert "答え" in shown
 
@@ -1109,18 +1225,28 @@ def test_the_arbiter_sees_what_was_already_looked_up():
     はずだが、**届いたのに従わないのか、そもそも届いていないのか**を区別する手立てが
     無かった。ここで機構として確かめる。
     """
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"直近の天気","text":"調べますね"}')
+        return_value='{"branch":"action","action":"recall","query":"直近の天気","text":"調べますね"}'
+    )
     # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
-    a._active_memory().recall_async = AsyncMock(return_value=[
-        {"memory_id": "obs3", "summary": "「直近の天気」を recall で調べた結果が届いた：recall結果テキスト", "fit": 0.9},
-    ])
+    a._active_memory().recall_async = AsyncMock(
+        return_value=[
+            {
+                "memory_id": "obs3",
+                "summary": "「直近の天気」を recall で調べた結果が届いた：recall結果テキスト",
+                "fit": 0.9,
+            },
+        ]
+    )
     a._active_memory().format_for_context = MagicMock(
-        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms))
+        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms)
+    )
 
     _run_chain(a, utterance="どこの天気？")
 
@@ -1128,6 +1254,4 @@ def test_the_arbiter_sees_what_was_already_looked_up():
     assert len(prompts) >= 2, "2反復目まで回っていない"
     # 調べた事実は完了 O として W に載り、そこから調停へ届く（手組みの一覧ではない）。
     # 調停のプロンプトは W を含むので、そのどれかに完了 O の内容が入っていればよい。
-    assert any("直近の天気" in p for p in prompts[1:]), (
-        "調べた事実が調停へ届いていない"
-    )
+    assert any("直近の天気" in p for p in prompts[1:]), "調べた事実が調停へ届いていない"

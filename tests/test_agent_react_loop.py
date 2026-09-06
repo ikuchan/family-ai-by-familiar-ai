@@ -11,7 +11,6 @@ from familiar_agent.backends import TurnResult
 from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.io.aif import AIF
 from familiar_agent.mood_register import MoodPAD
-from familiar_agent.store.relations import KIND_FOLD
 
 
 # ---------------------------------------------------------------------------
@@ -411,11 +410,12 @@ class TestInQuietHoursHelper:
 
 
 @pytest.mark.asyncio
-async def test_pipeline_supersedes_loop_obs_without_camera():
-    """イベントループのターン（camera_used=False）でもループ中 O の後始末が走る。
+async def test_pipeline_records_the_exchange_without_camera():
+    """イベントループのターン（camera_used=False）でもターンの後始末が走る。
 
-    supersede をカメラ分岐の中に置いていたため、イベントループのターンでは一度も走らず、
-    トリガ O が残り続けて W を汚した（実機で観測）。カメラ無しでも会話 O で始末する。
+    以前は supersede をカメラ分岐の中に置いていたため、イベントループのターンでは一度も
+    走らなかった（実機で観測）。段 3 で畳むのをやめたあとも、やりとりを残す側が同じ穴に
+    落ちないことを、カメラ無しの経路で確かめる。
     """
     from familiar_agent.agent import EmbodiedAgent
 
@@ -427,6 +427,7 @@ async def test_pipeline_supersedes_loop_obs_without_camera():
     agent._active_memory = MagicMock(return_value=agent._memory)
     agent._memory.save_async_with_id = AsyncMock(return_value=("conv-1", True))
     agent._memory.mark_superseded = MagicMock()
+    agent._memory.record_exchange = MagicMock(return_value=1)
 
     await EmbodiedAgent._run_post_response_pipeline(
         agent,
@@ -439,12 +440,13 @@ async def test_pipeline_supersedes_loop_obs_without_camera():
         companion_mood="engaged",
         is_desire_turn=False,
         desires=None,
-        superseded_ids=["loop-1", "loop-2"],
+        exchange=[("loop-1", "起点"), ("loop-2", "答え")],
     )
 
-    calls = [c.args for c in agent._memory.mark_superseded.call_args_list]
-    assert ("loop-1", "conv-1") in calls
-    assert ("loop-2", "conv-1") in calls
-    # 逐語が要約に吸われただけで、畳まれた側が誤りになったのではない（段 2）。
-    kinds = {c.kwargs.get("kind") for c in agent._memory.mark_superseded.call_args_list}
-    assert kinds == {KIND_FOLD}
+    assert agent._memory.record_exchange.call_args.args[0] == [
+        ("loop-1", "起点", 0),
+        ("loop-2", "答え", 1),
+        ("conv-1", "要約", 2),
+    ]
+    # 畳まない（段 3）。逐語が消えると細部のベクトルが無くなる。
+    agent._memory.mark_superseded.assert_not_called()

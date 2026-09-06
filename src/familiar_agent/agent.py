@@ -27,7 +27,6 @@ from .core.context_parts import Stance as _Stance
 from .concern_engine import ConcernEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
-from .store.relations import KIND_FOLD
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
 from .self_narrative import SelfNarrative
@@ -388,14 +387,14 @@ class EmbodiedAgent:
         desires: DesireSystem | None,
         arousal: float = 0.0,
         memories: list[dict] | None = None,
-        superseded_ids: list[str] | None = None,
         close_parent_id: str | None = None,
+        exchange: "list[tuple[str, str]] | None" = None,
         extra_wr_ids: "list[str] | None" = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
-        superseded_ids: イベントループが消化した完了 O の id。ターンの観察保存後、その
-        観察 id で supersede して想起から外す（完了結果の中間 O を残さない）。
+        exchange: そのターンが作った記録の (観測 id, 役割) の並び。会話要約を末尾へ
+        足して、一つのやりとりの関係として残す（`設計方針_MI間の関係` 段 3）。
         """
         if not final_text or final_text == "(no response)":
             return
@@ -473,13 +472,16 @@ class EmbodiedAgent:
             )
             _new_ids.append(_conv_id)
 
-            # イベントループが残したループ中 O を、このターンの記録で supersede（想起除外）。
-            # カメラ分岐の中に置くと、カメラを使わないイベントループのターンでは一度も走らず
-            # トリガ O が W に残り続ける（実機で観測）。観察が無ければ会話 O を宛先にする。
-            _supersede_target = _obs_id or _conv_id
-            if superseded_ids and _supersede_target:
-                for _old in superseded_ids:
-                    self._memory.mark_superseded(_old, _supersede_target, kind=KIND_FOLD)
+            # **答えの逐語は畳まない**（段 3）。畳むと想起の母集合から消え、残るのは
+            # 軽量LLM の一文だけになる。細部のベクトルが無ければ、細部での近接は起きない。
+            # 逐語と会話要約は、粒度の違う別々の記憶として並ぶ。
+
+            # そのターンの記録を、順序つきの一つのやりとりとして残す。要約は最後に来る。
+            if exchange and _conv_id:
+                _members = [(i, r, n) for n, (i, r) in enumerate(exchange)]
+                _members.append((_conv_id, "要約", len(_members)))
+                with contextlib.suppress(Exception):
+                    self._memory.record_exchange(_members)
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
             # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。

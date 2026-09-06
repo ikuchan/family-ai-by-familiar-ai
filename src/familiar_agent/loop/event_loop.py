@@ -258,7 +258,12 @@ class InformationProcessing:
         # 拡散想起の母集合（WR）へ載せる、ループが作った記録の id。つなぎは載せない
         # （中身が無く、共起として育てる価値がない）。中断はこの求めで閉じるが、次の
         # 求めの WR に載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
-        self._wr_ids: list[str] = []
+        # (観測 id, 役割)。役割は 起点・版・見た・答え（`_note_wr`）。
+        self._wr_ids: list[tuple[str, str]] = []
+        # 前のターンの起点。継起の辺を張るのに使う。起動直後は空なので、最初の
+        # ターンで一度だけ DB から引き直す（`_seeded_origin`）。
+        self._last_origin_id: str | None = None
+        self._seeded_origin = False
         # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
@@ -305,10 +310,38 @@ class InformationProcessing:
             ids.append(self._version_id)
         return ids
 
-    def _note_wr(self, obs_id: str | None) -> None:
-        """拡散想起の母集合へ載せる記録を控える（意図・完了・中断・逐語）。"""
-        if obs_id and obs_id not in self._wr_ids:
-            self._wr_ids.append(obs_id)
+    def _begin_origin(self, obs_id: str | None) -> None:
+        """このターンの起点を控え、前のターンとつなぐ（段 3）。
+
+        前後を時刻で決めない。会話要約は背景で二秒遅れて書かれるので、時刻順に並べると
+        やりとりが入れ違う。辺そのものが順序を持つ。
+
+        持ち越しは再起動で消える。消えたまま進むと、そこで連なりが切れて直近を辿れなく
+        なるので、起動後の最初のターンだけ DB から引き直す。
+        """
+        if not obs_id:
+            return
+        self._note_wr(obs_id, "起点")
+        if not self._seeded_origin:
+            self._seeded_origin = True
+            with contextlib.suppress(Exception):
+                self._last_origin_id = self._agent._memory.latest_exchange_origin()
+        if self._last_origin_id and self._last_origin_id != obs_id:
+            with contextlib.suppress(Exception):
+                self._agent._memory.record_succession(self._last_origin_id, obs_id)
+        self._last_origin_id = obs_id
+
+    def _note_wr(self, obs_id: str | None, role: str) -> None:
+        """このターンが作った記録を、役割つきで控える。
+
+        **一つの並びが二つの用を賄う。** 拡散想起の母集合（WR）へ渡す id と、やりとりの
+        関係の項が、どちらもここから出る。別々に持つと、片方へ足し忘れたときに気づけない。
+
+        役割は 起点・版・見た・答え。会話要約は背景で遅れて作られるので、ここには来ない
+        （`_run_post_response_pipeline` が末尾に足す）。
+        """
+        if obs_id and all(obs_id != i for i, _ in self._wr_ids):
+            self._wr_ids.append((obs_id, role))
 
     def _advance_chain(self, new_id: str | None, content: str = "") -> None:
         """ループ記録の鎖を1つ進める（直前の生きた記録を新しい記録で supersede）。
@@ -343,7 +376,7 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         if version_id:
-            self._note_wr(version_id)
+            self._note_wr(version_id, "版")
             if self._version_id and self._version_id != version_id:
                 agent._memory.mark_superseded(self._version_id, version_id, kind=KIND_REVISION)
             self._version_id = version_id
@@ -374,7 +407,7 @@ class InformationProcessing:
         )
         # W へ載せる。版から結果を落としたので、この経路が無いと `see` した反復の
         # 次で、調停が何が見えたかを知らないまま返事を作る。
-        self._note_wr(obs_id)
+        self._note_wr(obs_id, "見た")
         return obs_id
 
     def _version_content(self, *, aborted: bool = False) -> str:
@@ -732,6 +765,9 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         self._parent_id = trigger_id
+        # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
+        # やりとりの関係にも拡散想起の母集合にも入らない。
+        self._begin_origin(trigger_id)
         # 発話の記録は**鎖の外**。版チェーンは `_write_version` が別に進める。
         self._chain_head_id = trigger_id
         self._chain_head_content = utterance[:500]
@@ -1035,6 +1071,7 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         self._parent_id = obs_id
+        self._begin_origin(obs_id)
         self._advance_chain(obs_id, content[:500])
         await self._iterate()
 
@@ -1063,6 +1100,7 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         self._parent_id = obs_id
+        self._begin_origin(obs_id)
         self._advance_chain(obs_id, text[:500])
         if release_pending:
             await self._release_pending_speech()
@@ -1530,12 +1568,11 @@ class InformationProcessing:
                     parent_id=self._parent_id,
                     **agent._observation_perspective(),
                 )
-        self._note_wr(answer_id)
+        self._note_wr(answer_id, "答え")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
         parent_id, self._parent_id = self._parent_id, None
-        obs_ids = [answer_id] if answer_id else []
         self._version_id = None
         self._chain_head_id = None
         self._in_flight_lookups.clear()
@@ -1547,8 +1584,9 @@ class InformationProcessing:
         self._chain = 0
         self._lookup_seq = 0
         self._capped_hit = False
-        # 母集合へ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
-        wr_ids, self._wr_ids = list(self._wr_ids), []
+        # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
+        noted, self._wr_ids = list(self._wr_ids), []
+        wr_ids = [i for i, _ in noted]
         try:
             origin = self._utterance or self._chain_head_content
             arousal = await agent._turn_arousal(origin, text)
@@ -1565,8 +1603,10 @@ class InformationProcessing:
                     desires=None,
                     arousal=arousal,
                     memories=memories,
-                    superseded_ids=obs_ids or None,
                     close_parent_id=parent_id,
+                    # このターンの記録を、順序つきの一つのやりとりとして残す。会話要約は
+                    # 背景で作られるので、向こうで末尾に足す。
+                    exchange=noted or None,
                     # ループが作った記録も拡散想起の母集合へ。載せないと、閉じた逐語へ
                     # 辿り着く辺が WR に無い（実機で、逐語の WR 掲載数が0だった）。
                     extra_wr_ids=wr_ids,
