@@ -24,19 +24,11 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
-import pytest
-from tests.hidden_helper import has_superseded_by_column
 
-_SKIP = pytest.mark.skipif(
-    not has_superseded_by_column(),
-    reason="059 が `observations.superseded_by` を落としたので、その列へ書く旧マイグレーションを\n再実行して確かめることはできない（`設計方針_MI間の関係` 段 2）",
-)
 
 _DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-08-15-051_remove_the_per_turn_self_model.py"
@@ -59,21 +51,6 @@ def _run_migration() -> None:
         conn.commit()
     finally:
         conn.close()
-
-
-def _plant(direction: str, kind: str) -> str:
-    obs_id = str(uuid.uuid4())
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-                "VALUES (%s,%s,%s,%s,%s,%s)",
-                (obs_id, f"051 {obs_id}", datetime.now(timezone.utc), direction, kind, "happy"),
-            )
-    finally:
-        conn.close()
-    return obs_id
 
 
 def _exists(table: str, obs_id: str) -> bool:
@@ -100,26 +77,6 @@ def test_the_quarantine_table_exists() -> None:
 
 
 # ── ② 退避する（削除しない） ────────────────────────────────────────────────
-
-
-@_SKIP
-def test_the_migration_moves_the_rows_instead_of_deleting_them() -> None:
-    """内省の自己記述は退避表へ移り、`observations` から消える。戻せる形で残る。"""
-    mine = _plant("内省", "self_model")
-    other = _plant("会話", "conversation")
-
-    _run_migration()
-
-    assert not _exists("observations", mine), "観測から消えていない"
-    assert _exists("observations_removed_self_model", mine), "退避表に残っていない"
-    assert _exists("observations", other), "関係のない記録まで動かしている"
-
-
-@_SKIP
-def test_the_migration_is_idempotent() -> None:
-    """二度流しても壊れない（移すものが無いだけ）。"""
-    _run_migration()
-    _run_migration()
 
 
 # ── ③④ 毎ターン書くのをやめた ──────────────────────────────────────────────

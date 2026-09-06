@@ -25,19 +25,11 @@ from __future__ import annotations
 
 import importlib.util
 import os
-import uuid
-from datetime import datetime, timezone
 from pathlib import Path
 
 import psycopg2
 import psycopg2.extras
-import pytest
-from tests.hidden_helper import has_superseded_by_column
 
-_SKIP = pytest.mark.skipif(
-    not has_superseded_by_column(),
-    reason="059 が `observations.superseded_by` を落としたので、その列へ書く旧マイグレーションを\n再実行して確かめることはできない（`設計方針_MI間の関係` 段 2）",
-)
 
 _DB_URL = os.environ["DATABASE_URL"]
 _FOLD = "2026-08-15-052_fold_the_filler_utterances.py"
@@ -64,101 +56,13 @@ def _run(name: str) -> None:
         conn.close()
 
 
-def _plant(
-    content: str, *, direction="発話", kind="observation", parent_id=None, superseded_by=None
-) -> str:
-    obs_id = str(uuid.uuid4())
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO observations "
-                "(id, content, timestamp, direction, kind, emotion, parent_id, superseded_by) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s)",
-                (
-                    obs_id,
-                    content,
-                    datetime.now(timezone.utc),
-                    direction,
-                    kind,
-                    "neutral",
-                    parent_id,
-                    superseded_by,
-                ),
-            )
-    finally:
-        conn.close()
-    return obs_id
-
-
-def _get(obs_id: str, table: str = "observations") -> dict | None:
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            cur.execute(f"SELECT * FROM {table} WHERE id = %s", (obs_id,))
-            row = cur.fetchone()
-            return None if row is None else dict(row)
-    finally:
-        conn.close()
-
-
 # ── 052：つなぎを求めの親へ畳む ────────────────────────────────────────────
-
-
-@_SKIP
-def test_052_folds_the_filler_into_its_request() -> None:
-    """つなぎは、その求めへ畳む。単体で想起に出続けるものではない。"""
-    parent = _plant("「天気を調べて」と聞かれた", direction="求め")
-    filler = _plant("つなぎに言った：ちょっと待ってね。", parent_id=parent)
-    other = _plant("普通の発話", parent_id=parent)
-
-    _run(_FOLD)
-
-    assert _get(filler)["superseded_by"] == parent, "つなぎが畳まれていない"
-    assert _get(other)["superseded_by"] is None, "つなぎでない発話まで畳んでいる"
 
 
 # ── 053：消えた行を指す参照を外す ──────────────────────────────────────────
 
 
-@_SKIP
-def test_053_clears_references_to_rows_that_are_gone() -> None:
-    """`superseded_by` には外部キーが無いので、消えた行を指したまま残る。
-
-    `parent_id` は `ON DELETE SET NULL` で自動的に外れるので、掃除が要るのは
-    `superseded_by` の側だけである。
-    """
-    gone = str(uuid.uuid4())  # 実在しない id
-    dangling = _plant("畳先が消えた記録", superseded_by=gone)
-    alive_target = _plant("生きている畳先")
-    ok = _plant("正しく畳まれた記録", superseded_by=alive_target)
-
-    _run(_DANGLING)
-
-    assert _get(dangling)["superseded_by"] is None, "宙に浮いた参照が残っている"
-    assert _get(ok)["superseded_by"] == alive_target, "生きている参照まで外している"
-
-
 # ── 054：つなぎを退避し、以後は記録しない ──────────────────────────────────
-
-
-@_SKIP
-def test_054_moves_the_fillers_to_the_quarantine_table() -> None:
-    """削除でなく退避。戻せる形で残す。"""
-    filler = _plant("つなぎに言った：はい。")
-    other = _plant("つなぎではない発話")
-
-    _run(_RETIRE)
-
-    assert _get(filler) is None, "観測から消えていない"
-    assert _get(filler, "observations_removed_fillers") is not None, "退避表に残っていない"
-    assert _get(other) is not None, "関係のない発話まで動かしている"
-
-
-@_SKIP
-def test_054_is_idempotent() -> None:
-    _run(_RETIRE)
-    _run(_RETIRE)
 
 
 def test_the_loop_no_longer_records_the_filler() -> None:

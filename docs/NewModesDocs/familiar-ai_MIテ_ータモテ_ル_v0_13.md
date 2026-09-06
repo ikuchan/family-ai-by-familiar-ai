@@ -1,4 +1,4 @@
-# familiar-ai MI データモデル（v0.12・最小・確定）
+# familiar-ai MI データモデル（v0.13・最小・確定）
 
 ## 0. 方針
 LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／由来／動作 等）は属性にせず `content` に置き LLM が解釈**する。属性は「**T が作る信号**」＋「**機械的必須**」だけ。MI は**単一クラス**（抽象基底・サブタイプは作らない）。
@@ -7,8 +7,8 @@ LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／
  
 - **基底型 `PI`（Primitive MI）** ＝ T が作る「感じ＋欲」だけ：**`emotion`(PAD)・`drive`(5欠乏)**。
 - **`MI` ＝ `PI` ＋ `id`・`content`・`vector`・`supersedes`・`根づき`**（I が「同定・意味・索引・版・salience」を足す）。**`content`・`vector` は T に無い**（I が付ける）。
-- **MI が指すのは「出来事 × 関係の面」である**（案3・2026-09-02 実装）。`id` は面（`situated_memories.id`）で、どの出来事の面かは `obs_id` が、誰との関係かは `person_id` が、どの役割かは `relation_key` が持つ。§5 が「記憶は面に付く」と定めたことの、器の側の帰結である。**表は分けたまま**にしてある（`observations` ＋ `situated_memories`）。`superseded_by` が出来事の列にしかないことが「**畳んでも面は残る**」を構造として保証しており、1表へ統合するとその保証が運用の約束へ落ちるためである。
-- **出来事ごとの量と面ごとの量を混ぜない。** `content`・`last_recalled_at`・`根づきの n` は面、`a0`・`timestamp`・`parent_id`・`superseded_by` は出来事のものである（§5 の表）。
+- **MI が指すのは「出来事 × 関係の面」である**（案3・2026-09-02 実装）。`id` は面（`situated_memories.id`）で、どの出来事の面かは `obs_id` が、誰との関係かは `person_id` が、どの役割かは `relation_key` が持つ。§5 が「記憶は面に付く」と定めたことの、器の側の帰結である。**表は分けたまま**にしてある（`observations` ＋ `situated_memories`）。畳む印が面の側に無いことが「**畳んでも面は残る**」を構造として保証しており、1表へ統合するとその保証が運用の約束へ落ちるためである。059 以降、その印は関係（`relations` と `relation_members`）にある（`設計方針_MI間の関係`）。
+- **出来事ごとの量と面ごとの量を混ぜない。** `content`・`last_recalled_at`・`根づきの n` は面、`a0`・`timestamp`・`parent_id` は出来事のものである（§5 の表）。畳む印はどちらにも置かず、関係が持つ。
 - **書くときの MI は面を持たない。** 面が立つのは書いた後なので、`obs_id`・`person_id`・`relation_key` は空でよい（`timestamp` と同じ扱い）。誰がしたこと・誰が居たかは書き込みの引数で渡す（`OIF.write(mi, writer_id=…, participants=…)`）。
 - **`timestamp` は store のメタdata**（O が書込時刻を持つ）。減衰／新しさに使うが**属性に数えない**。
 - norm/presence は T(G) の private レジスタで **PI/MI に含めない**（§3・[D-B分離]）。
@@ -92,7 +92,7 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 しか残らない。文字列は版が進むたび書き直されるので、正確には復元できない。求めの版チェーンは
 「質問される → 調査する → 結果をまとめて出力する → 当初の質問と調査結果を畳んで回答を作る」と
 進むので、この取りこぼしが実際に起きる。面を別々の記憶として残せば、畳んでも面は残る
-（`superseded_by` は `observations` の条件で、面の行はそのまま生き続ける）。
+（畳む印は出来事の側の条件で、面の行はそのまま生き続ける）。
 
 したがって次のように分かれる。**主体はパジュ一人で、変わるのは面である**（他人の記憶空間は
 無い＝[D-在席相関]「その日の O はすべて自己の体験」）。
@@ -165,13 +165,13 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 
 **方針は MI へ畳み込む**。key と revisions は MI の `supersedes` 版チェーンへ写す。
 
-- **identity ＝ supersede チェーンの到達可能性**。identity キーは足さない。信念を更新するたびに新 MI を書き、旧 MI を `superseded_by = 新id` で閉じる。
-- **revisions ＝ 祖先の再帰想起**。現行版（`superseded_by IS NULL`）を起点に `WITH RECURSIVE` で祖先へさかのぼれば、その信念の改訂履歴が chain から再構成できる（旧本文・旧 confidence は旧 MI に残る）。`superseded_by` には索引 `idx_obs_superseded` があり再帰は安価。多対一の収束（重複を最古へ畳む）も既存の型。**【実装済み・未接続】**この再帰想起の器を `memory.py` の `_read_supersede_chain(head_id, columns)` として新設（現行版を起点に `superseded_by` を `WITH RECURSIVE` でさかのぼり head〔depth 0〕＋祖先を depth 昇順で返す dumb な読み出し・採点や想起判断は持たない・既存経路からは未接続・テスト4件）。系統B の畳み込み本体（投影の撤去と REST 駆動の content 改訂）は Phase 2。
-- **W への取り込み ＝ `superseded_by IS NULL`**。既存の全想起経路がこの絞りを持つので、chain の現行版だけが W に載る。今の「キーごとに生きた1行」と同じ効果が追加機構なしで出る。
+- **identity ＝ supersede チェーンの到達可能性**。identity キーは足さない。信念を更新するたびに新 MI を書き、旧 MI を種類 `改訂` の関係の `旧` として閉じる（059 以前は `superseded_by = 新id` だった）。
+- **revisions ＝ 祖先の再帰想起**。現行版（役割 `旧` を持たないもの）を起点に `WITH RECURSIVE` で祖先へさかのぼれば、その信念の改訂履歴が chain から再構成できる（旧本文・旧 confidence は旧 MI に残る）。`relation_members(obs_id, role)` に索引があり再帰は安価。多対一の収束（重複を最古へ畳む）も既存の型。**【実装済み・未接続】**この再帰想起の器を `memory.py` の `_read_supersede_chain(head_id, columns)` として新設（現行版を起点に関係の `旧` と `新` を `WITH RECURSIVE` でさかのぼり head〔depth 0〕＋祖先を depth 昇順で返す dumb な読み出し・採点や想起判断は持たない・既存経路からは未接続・テスト4件）。系統B の畳み込み本体（投影の撤去と REST 駆動の content 改訂）は Phase 2。
+- **W への取り込み ＝ 役割 `旧` を持たないもの**。既存の全想起経路がこの絞りを持つので、chain の現行版だけが W に載る。今の「キーごとに生きた1行」と同じ効果が追加機構なしで出る。
 
-**残る書き込み側の紐づけ**：chain は linkage を記録するが、新しい信念版が来たとき `mark_superseded` に渡す old_id（どの現行 MI を置き換えるか）を何が同定するかは別問題。キーを外すので、この同定は**類似度／REST に寄せる**（`find_near_duplicates` のベクトル近傍、または REST 内省が意味的に同じ現行 MI を見つけて supersede）。固定キーの即時投影 `_project_observation` は、キーレス化で類似度／REST ベースの supersede へ置き換わる。REST 内省は未実装のため、**書き込み側 consolidation は Phase 2（REST）寄り**。読み出し側（再帰想起で履歴・`superseded_by IS NULL` で現行版）は既存機構で成立する。
+**残る書き込み側の紐づけ**：chain は linkage を記録するが、新しい信念版が来たとき `mark_superseded` に渡す old_id（どの現行 MI を置き換えるか）を何が同定するかは別問題。キーを外すので、この同定は**類似度／REST に寄せる**（`find_near_duplicates` のベクトル近傍、または REST 内省が意味的に同じ現行 MI を見つけて supersede）。固定キーの即時投影 `_project_observation` は、キーレス化で類似度／REST ベースの supersede へ置き換わる。REST 内省は未実装のため、**書き込み側 consolidation は Phase 2（REST）寄り**。読み出し側（再帰想起で履歴・役割 `旧` の不在で現行版）は既存機構で成立する。
 
-**整理事項**：MI dataclass の `supersedes` フィールドは行の `superseded_by` から読んでおり（`memory.py`）、名は「前版を指す」だが実体は「次版に置き換えられた」。再帰想起を素直に書くため、畳み込み実装時にこの向きを整理する。
+**整理事項**：MI dataclass の `supersedes` フィールドは、名は「前版を指す」だが実体は「次版に置き換えられた」である。059 で列が消え、読み手が渡したときだけ入る形になった（本番の読み手は 0 件）。再帰想起を素直に書くため、畳み込み実装時にこの向きを整理する。
 
 **confidence の畳み込み〔確定〕**：confidence は**数値属性として持たず、信頼度を MI の `content` に自然文の注記として書く**にとどめる（「この方針は何度かうまくいっている」「まだ確信は薄い」等）。MI に confidence カラムも `(c0, m)` のような導出用スカラも足さない。理由は、confidence は検索に一切効かせない（5軸 r/t/e/a/p に入れない）ため機械可読なスカラである必要がなく、MIデータモデルの「属性は T 信号＋機械的必須だけ・意味は content」に沿うから。数値導出案（根づき と同型に `(c0, m)` からロジスティックで導く案）は検討したうえで撤回した（検索に効かないので数値化の利得がない）。
 
@@ -206,6 +206,12 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 ---
 
 ## 更新履歴
+
+> v0.13：**畳む印を列から関係へ移したことを反映した**（2026-09-06・059・`設計方針_MI間の関係`）。
+> `superseded_by` は `observations` の列ではなくなり、種類 `改訂` の関係の役割 `旧` が担う。
+> 「畳んでも面は残る」の根拠を、列の所在から印の所在へ言い直した。identity・revisions・W への
+> 取り込みの記述も、役割 `旧` を見る形へ改めた。`supersedes` フィールドは読み手が渡したときだけ
+> 入る（本番の読み手は 0 件）。
 
 > v0.12：**MI の同定を出来事から面へ移した**（案3・2026-09-02 実装）。§5 が「記憶は面に
 > 付く」と定めていたのに、器は 044 以前の「観測1行」のままで、想起は `DISTINCT ON (o.id)`

@@ -4,8 +4,7 @@ from __future__ import annotations
 
 import os
 import uuid
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from datetime import datetime, timezone
 from unittest.mock import patch
 
 import psycopg2
@@ -13,13 +12,7 @@ import psycopg2.extras
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from tests.hidden_helper import LIVE, hidden_by
-import pytest
-from tests.hidden_helper import has_superseded_by_column
 
-_SKIP = pytest.mark.skipif(
-    not has_superseded_by_column(),
-    reason="059 が `observations.superseded_by` を落としたので、その列へ書く旧マイグレーションを\n再実行して確かめることはできない（`設計方針_MI間の関係` 段 2）",
-)
 
 _DB_URL = os.environ["DATABASE_URL"]
 
@@ -224,76 +217,7 @@ def test_dedup_disabled_when_window_zero() -> None:
 # ── B: purge マイグレーション ─────────────────────────────────
 
 
-def _run_purge_migration(conn) -> None:
-    import importlib.util
-
-    migration_path = (
-        Path(__file__).parent.parent / "migration" / "2026-06-29-019_purge_utterance_duplicates.py"
-    )
-    spec = importlib.util.spec_from_file_location("purge_migration", migration_path)
-    mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
-    spec.loader.exec_module(mod)  # type: ignore[union-attr]
-    mod.upgrade(conn)
-    conn.commit()
-
-
 # `test_purge_migration_removes_duplicate_embeddings` は 044 で落とした。019 は重複が
 # あるときだけ `situated_embeddings` を DELETE するので、実際に purge する経路だけが
 # 改名後に流せなくなった。purge は一度きりの掃除で、これから重複を作らせないのは
 # 書き込み側の時間窓（`test_dedup_skips_same_content_kind_within_window`）である。
-
-
-@_SKIP
-def test_purge_migration_keeps_non_duplicates() -> None:
-    """Purge migration must not touch observations that are not duplicates."""
-    mem = _make_memory()
-    pid = mem._person_id
-    c1 = f"一意A_{uuid.uuid4()}"
-    c2 = f"一意B_{uuid.uuid4()}"
-    now = datetime.now(tz=timezone.utc)
-
-    conn = _pg_conn()
-    oid1 = _insert_obs_at(conn, pid, c1, "utterance", now)
-    oid2 = _insert_obs_at(conn, pid, c2, "utterance", now + timedelta(seconds=1))
-    conn.commit()
-
-    _run_purge_migration(conn)
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT superseded_by FROM observations WHERE id = ANY(%s)",
-            ([oid1, oid2],),
-        )
-        rows = cur.fetchall()
-    conn.close()
-
-    for row in rows:
-        assert row["superseded_by"] is None, f"Non-duplicate was superseded: {row}"
-
-
-@_SKIP
-def test_purge_migration_respects_60s_boundary() -> None:
-    """Observations > 60 s apart with same content must not be merged."""
-    mem = _make_memory()
-    pid = mem._person_id
-    content = f"時間境界テスト_{uuid.uuid4()}"
-    now = datetime.now(tz=timezone.utc)
-
-    conn = _pg_conn()
-    # Two observations 90 seconds apart — should NOT be merged
-    oid_early = _insert_obs_at(conn, pid, content, "utterance", now)
-    oid_late = _insert_obs_at(conn, pid, content, "utterance", now + timedelta(seconds=90))
-    conn.commit()
-
-    _run_purge_migration(conn)
-
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT id, superseded_by FROM observations WHERE id = ANY(%s)",
-            ([oid_early, oid_late],),
-        )
-        rows = {r["id"]: r["superseded_by"] for r in cur.fetchall()}
-    conn.close()
-
-    assert rows[oid_early] is None, "Early observation was wrongly superseded"
-    assert rows[oid_late] is None, "Late observation (90s apart) was wrongly superseded"
