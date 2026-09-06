@@ -23,6 +23,7 @@ from ..store import clock
 from ..store.db_compat import _RealDictConnWrapper
 
 from ..store.context import StoreContext
+from ..store.relations import not_hidden
 
 logger = logging.getLogger(__name__)
 
@@ -51,14 +52,19 @@ class LegacySemanticLayer:
                         (self._ctx.person_id, like, like, like, like, n),
                     )
                     return [
-                        {"key":r["fact_key"],"summary":r["fact_text"],
-                         "source_memory_id":r["source_memory_id"],
-                         "confidence":float(r["confidence"]),"tags":r["tags"],
-                         "last_seen_at":r["last_seen_at"]}
+                        {
+                            "key": r["fact_key"],
+                            "summary": r["fact_text"],
+                            "source_memory_id": r["source_memory_id"],
+                            "confidence": float(r["confidence"]),
+                            "tags": r["tags"],
+                            "last_seen_at": r["last_seen_at"],
+                        }
                         for r in cur.fetchall()
                     ]
         except Exception as e:
-            logger.warning("recall_semantic_facts failed: %s", e); return []
+            logger.warning("recall_semantic_facts failed: %s", e)
+            return []
 
     async def recall_semantic_facts_async(self, *a, **kw):
         return await asyncio.to_thread(self.recall_semantic_facts, *a, **kw)
@@ -88,10 +94,16 @@ class LegacySemanticLayer:
                     "(id,entity_type,entity_key,previous_text,new_text,"
                     "previous_confidence,new_confidence,source_memory_id,reason,created_at) "
                     "VALUES (%s,'semantic_fact',%s,%s,%s,%s,%s,%s,'upsert',%s)",
-                    (str(uuid.uuid4()), key,
-                     existing["fact_text"], text,
-                     float(existing["confidence"]), confidence,
-                     source_memory_id, now),
+                    (
+                        str(uuid.uuid4()),
+                        key,
+                        existing["fact_text"],
+                        text,
+                        float(existing["confidence"]),
+                        confidence,
+                        source_memory_id,
+                        now,
+                    ),
                 )
         if existing:
             with conn.cursor() as cur:
@@ -99,8 +111,7 @@ class LegacySemanticLayer:
                     "UPDATE semantic_facts SET fact_text=%s,confidence=%s,"
                     "source_memory_id=%s,tags=%s,updated_at=%s,last_seen_at=%s "
                     "WHERE person_id=%s AND fact_key=%s",
-                    (text, confidence, source_memory_id, tags, now, now,
-                     self._ctx.person_id, key),
+                    (text, confidence, source_memory_id, tags, now, now, self._ctx.person_id, key),
                 )
         else:
             with conn.cursor() as cur:
@@ -109,8 +120,18 @@ class LegacySemanticLayer:
                     "(id,fact_key,fact_text,source_memory_id,confidence,tags,"
                     "last_seen_at,created_at,updated_at,person_id) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (str(uuid.uuid4()), key, text, source_memory_id,
-                     confidence, tags, now, now, now, self._ctx.person_id),
+                    (
+                        str(uuid.uuid4()),
+                        key,
+                        text,
+                        source_memory_id,
+                        confidence,
+                        tags,
+                        now,
+                        now,
+                        now,
+                        self._ctx.person_id,
+                    ),
                 )
 
     def _upsert_behavior_policy_locked(
@@ -138,10 +159,16 @@ class LegacySemanticLayer:
                     "(id,entity_type,entity_key,previous_text,new_text,"
                     "previous_confidence,new_confidence,source_memory_id,reason,created_at) "
                     "VALUES (%s,'behavior_policy',%s,%s,%s,%s,%s,%s,'upsert',%s)",
-                    (str(uuid.uuid4()), key,
-                     existing["policy_text"], text,
-                     float(existing["confidence"]), confidence,
-                     source_memory_id, now),
+                    (
+                        str(uuid.uuid4()),
+                        key,
+                        existing["policy_text"],
+                        text,
+                        float(existing["confidence"]),
+                        confidence,
+                        source_memory_id,
+                        now,
+                    ),
                 )
         if existing:
             with conn.cursor() as cur:
@@ -150,8 +177,17 @@ class LegacySemanticLayer:
                     "SET policy_text=%s,trigger_context=%s,action_hint=%s,"
                     "confidence=%s,source_memory_id=%s,updated_at=%s,last_seen_at=%s "
                     "WHERE policy_key=%s AND person_id=%s",
-                    (text, trigger_context, action_hint, confidence, source_memory_id,
-                     now, now, key, self._ctx.person_id),
+                    (
+                        text,
+                        trigger_context,
+                        action_hint,
+                        confidence,
+                        source_memory_id,
+                        now,
+                        now,
+                        key,
+                        self._ctx.person_id,
+                    ),
                 )
         else:
             with conn.cursor() as cur:
@@ -160,8 +196,19 @@ class LegacySemanticLayer:
                     "(id,policy_key,policy_text,trigger_context,action_hint,"
                     "source_memory_id,confidence,last_seen_at,created_at,updated_at,person_id) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (str(uuid.uuid4()), key, text, trigger_context, action_hint,
-                     source_memory_id, confidence, now, now, now, self._ctx.person_id),
+                    (
+                        str(uuid.uuid4()),
+                        key,
+                        text,
+                        trigger_context,
+                        action_hint,
+                        source_memory_id,
+                        confidence,
+                        now,
+                        now,
+                        now,
+                        self._ctx.person_id,
+                    ),
                 )
 
     def project_observation(
@@ -170,27 +217,37 @@ class LegacySemanticLayer:
         try:
             if kind == "self_model":
                 self._upsert_semantic_fact_locked(
-                    conn, "self_model:core", content,
-                    confidence=0.85, source_memory_id=obs_id, tags="self_model",
+                    conn,
+                    "self_model:core",
+                    content,
+                    confidence=0.85,
+                    source_memory_id=obs_id,
+                    tags="self_model",
                 )
             elif kind == "curiosity":
                 self._upsert_behavior_policy_locked(
-                    conn, "curiosity:active", content,
-                    trigger_context="idle", action_hint="look_around",
-                    confidence=0.75, source_memory_id=obs_id,
+                    conn,
+                    "curiosity:active",
+                    content,
+                    trigger_context="idle",
+                    action_hint="look_around",
+                    confidence=0.75,
+                    source_memory_id=obs_id,
                 )
             elif kind == "conversation" and emotion == "moved":
                 self._upsert_behavior_policy_locked(
-                    conn, "conversation:support", content,
-                    trigger_context="conversation", action_hint="respond_supportively",
-                    confidence=0.80, source_memory_id=obs_id,
+                    conn,
+                    "conversation:support",
+                    content,
+                    trigger_context="conversation",
+                    action_hint="respond_supportively",
+                    confidence=0.80,
+                    source_memory_id=obs_id,
                 )
         except Exception as e:
             logger.warning("_project_observation failed: %s", e)
 
-    def adjust_behavior_policy_confidence(
-        self, key: str, delta: float, reason: str = ""
-    ):
+    def adjust_behavior_policy_confidence(self, key: str, delta: float, reason: str = ""):
         try:
             now = clock.now_utc_iso()
             with self._ctx.lock:
@@ -211,9 +268,16 @@ class LegacySemanticLayer:
                         "(id,entity_type,entity_key,previous_text,new_text,"
                         "previous_confidence,new_confidence,source_memory_id,reason,created_at) "
                         "VALUES (%s,'behavior_policy',%s,%s,%s,%s,%s,NULL,%s,%s)",
-                        (str(uuid.uuid4()), key,
-                         row["policy_text"], row["policy_text"],
-                         float(row["confidence"]), new_conf, reason, now),
+                        (
+                            str(uuid.uuid4()),
+                            key,
+                            row["policy_text"],
+                            row["policy_text"],
+                            float(row["confidence"]),
+                            new_conf,
+                            reason,
+                            now,
+                        ),
                     )
                 with conn.cursor() as cur:
                     cur.execute(
@@ -224,7 +288,8 @@ class LegacySemanticLayer:
                 conn.commit()
             return new_conf
         except Exception as e:
-            logger.warning("adjust_behavior_policy_confidence failed: %s", e); return None
+            logger.warning("adjust_behavior_policy_confidence failed: %s", e)
+            return None
 
     async def adjust_behavior_policy_confidence_async(
         self,
@@ -236,13 +301,16 @@ class LegacySemanticLayer:
         action_hint: str = "",
     ):
         """Async wrapper: adjust confidence, upserting the policy if policy_text is given."""
+
         def _run():
             if policy_text:
                 try:
                     with self._ctx.lock:
                         conn = self._ctx.conn()
                         self._upsert_behavior_policy_locked(
-                            conn, key, policy_text,
+                            conn,
+                            key,
+                            policy_text,
                             trigger_context=trigger_context,
                             action_hint=action_hint,
                         )
@@ -250,11 +318,10 @@ class LegacySemanticLayer:
                 except Exception as e:
                     logger.warning("adjust_behavior_policy_confidence_async upsert failed: %s", e)
             return self.adjust_behavior_policy_confidence(key, delta, reason)
+
         return await asyncio.to_thread(_run)
 
-    def adjust_semantic_fact_confidence(
-        self, key: str, delta: float, reason: str = ""
-    ):
+    def adjust_semantic_fact_confidence(self, key: str, delta: float, reason: str = ""):
         try:
             now = clock.now_utc_iso()
             with self._ctx.lock:
@@ -275,9 +342,16 @@ class LegacySemanticLayer:
                         "(id,entity_type,entity_key,previous_text,new_text,"
                         "previous_confidence,new_confidence,source_memory_id,reason,created_at) "
                         "VALUES (%s,'semantic_fact',%s,%s,%s,%s,%s,NULL,%s,%s)",
-                        (str(uuid.uuid4()), key,
-                         row["fact_text"], row["fact_text"],
-                         float(row["confidence"]), new_conf, reason, now),
+                        (
+                            str(uuid.uuid4()),
+                            key,
+                            row["fact_text"],
+                            row["fact_text"],
+                            float(row["confidence"]),
+                            new_conf,
+                            reason,
+                            now,
+                        ),
                     )
                 with conn.cursor() as cur:
                     cur.execute(
@@ -288,7 +362,8 @@ class LegacySemanticLayer:
                 conn.commit()
             return new_conf
         except Exception as e:
-            logger.warning("adjust_semantic_fact_confidence failed: %s", e); return None
+            logger.warning("adjust_semantic_fact_confidence failed: %s", e)
+            return None
 
     async def adjust_semantic_fact_confidence_async(self, key: str, delta: float, reason: str = ""):
         return await asyncio.to_thread(self.adjust_semantic_fact_confidence, key, delta, reason)
@@ -317,7 +392,8 @@ class LegacySemanticLayer:
                     cur.execute(sql, params)
                     return [dict(r) for r in cur.fetchall()]
         except Exception as e:
-            logger.warning("recall_revisions failed: %s", e); return []
+            logger.warning("recall_revisions failed: %s", e)
+            return []
 
     def recall_behavior_policies(self, query: str, n: int = 5) -> list[dict]:
         like = f"%{query.strip()}%" if query.strip() else "%"
@@ -336,19 +412,27 @@ class LegacySemanticLayer:
                         (self._ctx.person_id, like, like, like, like, like, n),
                     )
                     return [
-                        {"key":r["policy_key"],"summary":r["policy_text"],
-                         "trigger_context":r["trigger_context"],"action_hint":r["action_hint"],
-                         "source_memory_id":r["source_memory_id"],
-                         "confidence":float(r["confidence"]),"last_seen_at":r["last_seen_at"]}
+                        {
+                            "key": r["policy_key"],
+                            "summary": r["policy_text"],
+                            "trigger_context": r["trigger_context"],
+                            "action_hint": r["action_hint"],
+                            "source_memory_id": r["source_memory_id"],
+                            "confidence": float(r["confidence"]),
+                            "last_seen_at": r["last_seen_at"],
+                        }
                         for r in cur.fetchall()
                     ]
         except Exception as e:
-            logger.warning("recall_behavior_policies failed: %s", e); return []
+            logger.warning("recall_behavior_policies failed: %s", e)
+            return []
 
     async def recall_behavior_policies_async(self, *a, **kw):
         return await asyncio.to_thread(self.recall_behavior_policies, *a, **kw)
 
-    def link_memories(self, src: str, tgt: str, link_type: str = "related", note: str | None = None) -> bool:
+    def link_memories(
+        self, src: str, tgt: str, link_type: str = "related", note: str | None = None
+    ) -> bool:
         try:
             with self._ctx.lock:
                 conn = self._ctx.conn()
@@ -361,7 +445,8 @@ class LegacySemanticLayer:
                 conn.commit()
             return True
         except Exception as e:
-            logger.warning("link_memories failed: %s", e); return False
+            logger.warning("link_memories failed: %s", e)
+            return False
 
     async def link_memories_async(self, *a, **kw):
         return await asyncio.to_thread(self.link_memories, *a, **kw)
@@ -377,11 +462,16 @@ class LegacySemanticLayer:
                             "SELECT o.id,o.content,o.timestamp,o.emotion,o.kind,"
                             "ml.link_type,ml.note FROM memory_links ml "
                             "JOIN observations o ON o.id=ml.target_id "
-                            "WHERE ml.source_id=%s AND o.superseded_by IS NULL",
+                            f"WHERE ml.source_id=%s AND {not_hidden('o')}",
                             (memory_id,),
                         )
                         results.extend(
-                            {**dict(r), "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"]), "link_direction": "→"}
+                            {
+                                **dict(r),
+                                "date": clock.ts_to_date(r["timestamp"]),
+                                "time": clock.ts_to_time(r["timestamp"]),
+                                "link_direction": "→",
+                            }
                             for r in cur.fetchall()
                         )
                 if direction in ("in", "both"):
@@ -390,30 +480,42 @@ class LegacySemanticLayer:
                             "SELECT o.id,o.content,o.timestamp,o.emotion,o.kind,"
                             "ml.link_type,ml.note FROM memory_links ml "
                             "JOIN observations o ON o.id=ml.source_id "
-                            "WHERE ml.target_id=%s AND o.superseded_by IS NULL",
+                            f"WHERE ml.target_id=%s AND {not_hidden('o')}",
                             (memory_id,),
                         )
                         results.extend(
-                            {**dict(r), "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"]), "link_direction": "←"}
+                            {
+                                **dict(r),
+                                "date": clock.ts_to_date(r["timestamp"]),
+                                "time": clock.ts_to_time(r["timestamp"]),
+                                "link_direction": "←",
+                            }
                             for r in cur.fetchall()
                         )
             return results
         except Exception as e:
-            logger.warning("get_linked_memories failed: %s", e); return []
+            logger.warning("get_linked_memories failed: %s", e)
+            return []
 
     async def get_linked_memories_async(self, *a, **kw):
         return await asyncio.to_thread(self.get_linked_memories, *a, **kw)
 
     def format_semantic_facts_for_context(self, facts: list[dict]) -> str:
-        if not facts: return ""
+        if not facts:
+            return ""
         lines = ["[安定した事実（semantic memory）]:"]
         for f in facts:
-            lines.append(f"- conf:{float(f.get('confidence',0)):.2f} key:{str(f.get('key','?'))[:24]}: {str(f.get('summary',''))[:140]}")
+            lines.append(
+                f"- conf:{float(f.get('confidence', 0)):.2f} key:{str(f.get('key', '?'))[:24]}: {str(f.get('summary', ''))[:140]}"
+            )
         return "\n".join(lines)
 
     def format_behavior_policies_for_context(self, policies: list[dict]) -> str:
-        if not policies: return ""
+        if not policies:
+            return ""
         lines = ["[行動方針（policy memory）]:"]
         for p in policies:
-            lines.append(f"- conf:{float(p.get('confidence',0)):.2f} trigger:{str(p.get('trigger_context',''))[:24]} action:{str(p.get('action_hint',''))[:32]}: {str(p.get('summary',''))[:140]}")
+            lines.append(
+                f"- conf:{float(p.get('confidence', 0)):.2f} trigger:{str(p.get('trigger_context', ''))[:24]} action:{str(p.get('action_hint', ''))[:32]}: {str(p.get('summary', ''))[:140]}"
+            )
         return "\n".join(lines)

@@ -15,6 +15,7 @@ from unittest.mock import patch
 import psycopg2
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
+from tests.hidden_helper import hide
 
 
 _DB_URL = os.environ["DATABASE_URL"]
@@ -22,11 +23,15 @@ _NOW = datetime(2026, 6, 1, 12, 0, 0)
 
 
 def _insert_obs(cur, obs_id, content, ts, superseded_by=None):
+    """観測を1件書く。相手を渡したら、その相手で現行から外す（段 2）。"""
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-        "superseded_by) VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (obs_id, content, ts, "unknown", "self_model", "neutral", superseded_by),
+        "INSERT INTO observations "
+        "(id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (obs_id, content, ts, "unknown", "self_model", "neutral"),
     )
+    if superseded_by:
+        hide(cur, obs_id, superseded_by)
 
 
 def _mem():

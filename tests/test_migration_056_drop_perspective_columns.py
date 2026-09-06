@@ -27,6 +27,7 @@ import psycopg2.extras
 from unittest.mock import patch
 
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
+from tests.hidden_helper import LIVE
 
 _DB_URL = os.environ["DATABASE_URL"]
 _DIM = 1024
@@ -61,6 +62,7 @@ def _facets(obs_id: str) -> dict[tuple[str, str], dict]:
 
 # ── ① 列が消えた ────────────────────────────────────────────────────────────
 
+
 def test_the_three_perspective_columns_are_gone() -> None:
     conn = _conn()
     try:
@@ -77,6 +79,7 @@ def test_the_three_perspective_columns_are_gone() -> None:
 
 
 # ── ② 重複判定は書き手の面で効く ────────────────────────────────────────────
+
 
 def test_dedup_folds_the_same_writer_and_keeps_different_writers() -> None:
     """同じ人が窓の内に同じことを書けば畳み、別の人なら畳まない。
@@ -117,8 +120,8 @@ def test_dedup_folds_the_same_writer_and_keeps_different_writers() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT content, count(*) AS n FROM observations "
-                "WHERE content IN (%s, %s) AND superseded_by IS NULL GROUP BY 1",
+                "SELECT content, count(*) AS n FROM observations o "
+                "WHERE content IN (%s, %s) AND " + LIVE.format(alias="o") + " GROUP BY 1",
                 (same, other),
             )
             got = {r["content"]: r["n"] for r in cur.fetchall()}
@@ -129,6 +132,7 @@ def test_dedup_folds_the_same_writer_and_keeps_different_writers() -> None:
 
 
 # ── ③④ 面の材料は引数で渡る ────────────────────────────────────────────────
+
 
 def test_the_facet_builder_does_not_read_the_observation_row() -> None:
     """面を立てるのに `observations` を読み直さない（材料は引数で来る）。"""
@@ -180,8 +184,12 @@ def test_the_facets_stand_from_the_arguments_alone() -> None:
     with mem._db.lock:
         conn2 = mem._db.conn()
         mem._situated.refresh_situated_memories(
-            conn2, obs_id, np.ones(_DIM, dtype=np.float32),
-            body=body, writer_id=AGENT_SELF_ID, participants=[other],
+            conn2,
+            obs_id,
+            np.ones(_DIM, dtype=np.float32),
+            body=body,
+            writer_id=AGENT_SELF_ID,
+            participants=[other],
         )
         conn2.commit()
 
@@ -192,6 +200,7 @@ def test_the_facets_stand_from_the_arguments_alone() -> None:
 
 
 # ── ⑤ 本文の更新は面をなぞる ────────────────────────────────────────────────
+
 
 def test_appending_refreshes_every_facet_without_dropping_the_semantic_ones() -> None:
     """本文を足すと、REST が足した意味役割の面もベクトルが新しくなり、面は消えない。
@@ -209,14 +218,19 @@ def test_appending_refreshes_every_facet_without_dropping_the_semantic_ones() ->
                 "VALUES (%s,%s,now(),%s,%s,%s)",
                 (obs_id, body, "会話", "conversation", "neutral"),
             )
-            for key, content in (("actor", None),
-                                 ("about", f"[自分のこと] {body}")):
+            for key, content in (("actor", None), ("about", f"[自分のこと] {body}")):
                 cur.execute(
                     "INSERT INTO situated_memories "
                     "(id, obs_id, person_id, vector, relation_key, content) "
                     "VALUES (%s,%s,%s,%s::vector,%s,%s)",
-                    (str(uuid.uuid4()), obs_id, AGENT_SELF_ID,
-                     "[" + ",".join(["0.01"] * _DIM) + "]", key, content),
+                    (
+                        str(uuid.uuid4()),
+                        obs_id,
+                        AGENT_SELF_ID,
+                        "[" + ",".join(["0.01"] * _DIM) + "]",
+                        key,
+                        content,
+                    ),
                 )
     finally:
         conn.close()
@@ -226,8 +240,10 @@ def test_appending_refreshes_every_facet_without_dropping_the_semantic_ones() ->
     after = _facets(obs_id)
 
     assert set(before) == set(after), "面が消えた、または増えた"
-    assert after[(AGENT_SELF_ID, "about")]["v"] != before[(AGENT_SELF_ID, "about")]["v"], \
+    assert after[(AGENT_SELF_ID, "about")]["v"] != before[(AGENT_SELF_ID, "about")]["v"], (
         "REST が足した面のベクトルが古いまま"
+    )
     assert after[(AGENT_SELF_ID, "actor")]["v"] != before[(AGENT_SELF_ID, "actor")]["v"]
-    assert after[(AGENT_SELF_ID, "about")]["content"] == f"[自分のこと] {body}", \
+    assert after[(AGENT_SELF_ID, "about")]["content"] == f"[自分のこと] {body}", (
         "REST が書いた言葉を機械が書き換えている"
+    )

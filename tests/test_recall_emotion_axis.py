@@ -46,15 +46,15 @@ def test_lambdas_are_folded_into_the_stored_vector():
     # 重み付き距離を素の L2 にするため、√λ を畳み込む（案イ）。
     v1 = pad_to_search_vector((0.8, 0.5, 0.5, 0.5), lambdas=(1.0, 1.0, 1.0, 1.0))
     v4 = pad_to_search_vector((0.8, 0.5, 0.5, 0.5), lambdas=(4.0, 1.0, 1.0, 1.0))
-    assert abs(v4[0] - 2.0 * v1[0]) < 1e-9      # √4 = 2 倍
+    assert abs(v4[0] - 2.0 * v1[0]) < 1e-9  # √4 = 2 倍
 
 
 def test_by_emotion_searches_the_nearest_in_that_space():
     src = inspect.getsource(ObservationStore.by_emotion)
     assert "emotion_vec" in src
-    assert "<->" in src                          # pgvector の L2 距離
-    assert "o.superseded_by IS NULL" in src      # 死んだ記録は候補にしない
-    assert "s.person_id = %s" in src             # 視点スコープは他軸と揃える
+    assert "<->" in src  # pgvector の L2 距離
+    assert "not_hidden(" in src and "{live}" in src  # 死んだ記録は候補にしない（段 2）
+    assert "s.person_id = %s" in src  # 視点スコープは他軸と揃える
 
 
 def test_by_emotion_returns_the_same_columns_as_the_other_axes():

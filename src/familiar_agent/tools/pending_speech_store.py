@@ -6,6 +6,7 @@ observations とは独立し、想起系テーブルを汚染しない（フッ�
 鮮度切れ or 参照先 supersede で失効。意図が古びたら話さない。
 reinforce_count は強化A用カラム。増やす契機の検出は別 Issue。本モジュールでは 0 固定。
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,6 +21,7 @@ import psycopg2.extras
 
 from ..config import PendingSpeechConfig
 from ..time_decay import DecayState
+from ..store.relations import hidden
 
 logger = logging.getLogger(__name__)
 
@@ -37,9 +39,7 @@ class PendingSpeechStore:
 
     def _ensure_connected(self) -> Any:
         if self._conn is None or self._conn.closed:
-            self._conn = psycopg2.connect(
-                self._url, cursor_factory=psycopg2.extras.RealDictCursor
-            )
+            self._conn = psycopg2.connect(self._url, cursor_factory=psycopg2.extras.RealDictCursor)
         return self._conn
 
     def add(self, observation_id: str, target_person_id: str | None) -> str | None:
@@ -47,9 +47,7 @@ class PendingSpeechStore:
         with self._lock:
             conn = self._ensure_connected()
             with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT 1 FROM observations WHERE id = %s", (observation_id,)
-                )
+                cur.execute("SELECT 1 FROM observations WHERE id = %s", (observation_id,))
                 if cur.fetchone() is None:
                     conn.rollback()
                     return None
@@ -63,14 +61,15 @@ class PendingSpeechStore:
             return pid
 
     def list_active(self) -> list[dict]:
-        """全 pending を返す（observations の content/timestamp/superseded_by を JOIN）。"""
+        """全 pending を返す（observations の content/timestamp と、隠れたかを JOIN）。"""
         with self._lock:
             conn = self._ensure_connected()
             with conn.cursor() as cur:
-                cur.execute("""
+                cur.execute(f"""
                     SELECT ps.id, ps.observation_id, ps.target_person_id,
                            ps.created_at, ps.reinforce_count,
-                           o.content, o.timestamp, o.superseded_by
+                           o.content, o.timestamp,
+                           {hidden("o")} AS superseded
                     FROM pending_speech ps
                     JOIN observations o ON o.id = ps.observation_id
                     ORDER BY ps.created_at
@@ -105,7 +104,7 @@ class PendingSpeechStore:
         return state.score(now_epoch)
 
     def is_expired(self, row: dict, score: float, cfg: PendingSpeechConfig) -> bool:
-        """鮮度切れ or 参照先 supersede で失効と判定する。"""
+        """鮮度切れ、または参照先が現行でなくなったら失効と判定する。"""
         if score < cfg.expire_threshold:
             return True
-        return row.get("superseded_by") is not None
+        return bool(row.get("superseded"))

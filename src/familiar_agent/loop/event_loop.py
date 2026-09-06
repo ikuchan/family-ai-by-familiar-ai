@@ -23,23 +23,34 @@ from ..poses import nearest_pose
 from ..scene import extract_entities
 from ..store import clock
 from .arbiter import arbitrate
+from ..store.relations import KIND_ADVANCE, KIND_RESOLVE, KIND_REVISION
 from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
 
 # 連鎖が続けられる反復で渡す動作。上限に達した反復では say だけにして必ず閉じる。
 _FULL_ACTIONS = (
-    "say", "recall", "search_deferred", "fetch_deferred", "see", "look",
+    "say",
+    "recall",
+    "search_deferred",
+    "fetch_deferred",
+    "see",
+    "look",
     "house_rules",
 )
 # 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
 # `see`・`look` も含める。結果はその場で返るが、それを見て何を言うかは次の反復が決める
 # （`recall` と同じ）。ここに入れないと 1反復1出力 が崩れる。
 _LOOKUP_ACTIONS = (
-    "recall", "search_deferred", "fetch_deferred", "see", "look",
+    "recall",
+    "search_deferred",
+    "fetch_deferred",
+    "see",
+    "look",
     # 家の決まりは即座に返るが、それを見て何を言うかは次の反復が決める（`recall` と同じ）。
     "house_rules",
 )
+
 
 def _query_label(action: str, tool_input: dict) -> str:
     """その求めの見出し。飛行中の一覧・完了の照合・W の「調べたもの」で鍵になる。
@@ -112,8 +123,10 @@ def _present_ctx(agent) -> str:
             if agent._persons.active_is_explicit:
                 declared = agent._persons.active_name
         if declared:
-            return (f'(present :speaker "{declared}" '
-                    ':note "顔は確認できていない。名前は自己申告による")')
+            return (
+                f'(present :speaker "{declared}" '
+                ':note "顔は確認できていない。名前は自己申告による")'
+            )
         # 誰も認識できていない。直近に話しかけられているなら、相手は居るが誰かは不明。
         recently_spoken = False
         with contextlib.suppress(Exception):
@@ -124,13 +137,13 @@ def _present_ctx(agent) -> str:
 
     def _one(row: dict) -> str:
         conf = row.get("confidence")
-        conf_s = f' :confidence {float(conf):.2f}' if conf is not None else ""
+        conf_s = f" :confidence {float(conf):.2f}" if conf is not None else ""
         return f'"{row.get("name", "unknown")}"{conf_s}'
 
     speaker = next((r for r in rows if r.get("is_speaker")), None)
     others = [r for r in rows if not r.get("is_speaker")]
     parts = ["(present"]
-    parts.append(f' :speaker {_one(speaker)}' if speaker else ' :speaker "unconfirmed"')
+    parts.append(f" :speaker {_one(speaker)}" if speaker else ' :speaker "unconfirmed"')
     if others:
         parts.append(" :others " + " ".join(_one(r) for r in others))
     return "".join(parts) + ")"
@@ -170,12 +183,19 @@ def _log_recall_weights(trigger, base, used, memories) -> None:
     値を実挙動から選べない。**記憶の内容は出さない**（INFO 以上に会話・記憶内容を出さない
     方針。中身は DEBUG の `recall score` の内訳にある）。
     """
+
     def _fmt(w):
         return "(%.2f,%.2f,%.2f,%.2f,%.2f)" % (w.w_r, w.w_t, w.w_e, w.w_g, w.w_p)
 
     top = "/".join("%.3f" % m["fit"] for m in memories[:3] if "fit" in m)
-    logger.info("event-loop 想起 trigger=%s w=%s 基底=%s 上位=%s %d件",
-                trigger, _fmt(used), _fmt(base), top or "なし", len(memories))
+    logger.info(
+        "event-loop 想起 trigger=%s w=%s 基底=%s 上位=%s %d件",
+        trigger,
+        _fmt(used),
+        _fmt(base),
+        top or "なし",
+        len(memories),
+    )
 
 
 class InformationProcessing:
@@ -191,7 +211,9 @@ class InformationProcessing:
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id, 種別)。種別＝完了｜進捗。
         # 「進捗」は結果ではないので、飛行中の数も一覧も触らず、意図も supersede しない。
-        self._completion_queue: asyncio.Queue[tuple[str, str, str | None, str, int]] = asyncio.Queue()
+        self._completion_queue: asyncio.Queue[tuple[str, str, str | None, str, int]] = (
+            asyncio.Queue()
+        )
         # ループ記録は1本の鎖にする：トリガO → 意図O → 完了O → 意図O2 → …。新しい記録を
         # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
         # これで前の記録が想起に出てこなくなり、除外は「その検索を出した意図自身」で足りる。
@@ -268,7 +290,6 @@ class InformationProcessing:
         self._on_action = None
         self._pending_intent: tuple[str, dict, str] = ("", {}, "recall")
 
-
     def _open_ids(self) -> list[str]:
         """この求めの open な記録（活性に下限を課して W へ浮かせる対象）。
 
@@ -297,7 +318,7 @@ class InformationProcessing:
         if not new_id:
             return
         if self._chain_head_id and self._chain_head_id != new_id:
-            self._agent._memory.mark_superseded(self._chain_head_id, new_id)
+            self._agent._memory.mark_superseded(self._chain_head_id, new_id, kind=KIND_ADVANCE)
             logger.debug("event-loop 鎖を進める %.8s → %.8s", self._chain_head_id, new_id)
         self._chain_head_id = new_id
         self._chain_head_content = content
@@ -305,16 +326,16 @@ class InformationProcessing:
     async def _write_version(self, *, aborted: bool = False) -> str | None:
         """求めの新しい版を書き、直前の版を畳む。
 
-        求めは1本の版チェーンとして進む。`superseded_by` は版履歴だけを表すので、用語一覧の
-        定義（「版履歴専用。解決には使わない」）と一致する。親子のファンアウトではないので
-        親子をまとめて畳む操作は要らない（撤去済み）。
+        求めは1本の版チェーンとして進む。畳むのは版が進んだからで、種類は `改訂` である
+        （`設計方針_MI間の関係`）。親子のファンアウトではないので親子をまとめて畳む操作は
+        要らない（撤去済み）。
 
         人の発話の記録と、自分が答えた記録は**鎖の外**にある。畳まない。
         """
         agent = self._agent
         content = self._version_content(aborted=aborted)
         version_id, _ = await agent._memory.save_async_with_id(
-            content[:agent.config.completion_content_max],
+            content[: agent.config.completion_content_max],
             direction="求め",
             kind="observation",
             materialize_now=True,
@@ -324,7 +345,7 @@ class InformationProcessing:
         if version_id:
             self._note_wr(version_id)
             if self._version_id and self._version_id != version_id:
-                agent._memory.mark_superseded(self._version_id, version_id)
+                agent._memory.mark_superseded(self._version_id, version_id, kind=KIND_REVISION)
             self._version_id = version_id
             # 手がかり（次の反復の想起クエリ）は、いまの版そのものにする。
             self._chain_head_id = version_id
@@ -344,7 +365,7 @@ class InformationProcessing:
         """
         agent = self._agent
         obs_id, _ = await agent._memory.save_async_with_id(
-            content[:agent.config.completion_content_max],
+            content[: agent.config.completion_content_max],
             direction="観察",
             kind="observation",
             materialize_now=True,
@@ -385,8 +406,9 @@ class InformationProcessing:
         self._lookup_seq += 1
         return self._lookup_seq
 
-    def _dispatch_lookup(self, action: str, tool_input: dict, query: str,
-                         intent_id: str | None) -> None:
+    def _dispatch_lookup(
+        self, action: str, tool_input: dict, query: str, intent_id: str | None
+    ) -> None:
         """RH：調べる動作を非同期に実行し、結果を QC へ積む（投げっぱなし・待たない）。"""
         # **この求めで一度調べた語は、二度と調べない。** `deferred` は自前で同じ意図を
         # 止めるが、`recall`・`see`・`look` は素通りで、実機では同じ `recall` を4反復
@@ -402,8 +424,14 @@ class InformationProcessing:
             # いるのに 0 になると、駆動体が「調査中ではない」とみなして待ち方を変える。
             self._inflight += 1
             self._completion_queue.put_nowait(
-                (query, f"「{query}」はこの求めですでに調べた。結果は W にある。",
-                 intent_id, "完了", self._lookup_index_by_query.get(query, 0)))
+                (
+                    query,
+                    f"「{query}」はこの求めですでに調べた。結果は W にある。",
+                    intent_id,
+                    "完了",
+                    self._lookup_index_by_query.get(query, 0),
+                )
+            )
             return
 
         self._inflight += 1
@@ -412,8 +440,7 @@ class InformationProcessing:
         self._lookup_action_by_query[query] = action
         self._lookup_index_by_query[query] = index
         self._lookup_generation[query] = self._generation
-        task = asyncio.create_task(
-            self._run_lookup(action, tool_input, query, intent_id, index))
+        task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id, index))
         self._tasks.add(task)
         task.add_done_callback(self._tasks.discard)
         watch = asyncio.create_task(self._watch_slow_lookup(query, self._generation))
@@ -431,14 +458,15 @@ class InformationProcessing:
         with contextlib.suppress(asyncio.CancelledError):
             await asyncio.sleep(seconds)
             if gen != self._generation:
-                return                      # 打ち切られた求めの見張り
+                return  # 打ち切られた求めの見張り
             if not any(q == query for _a, q, _i in self._in_flight_lookups):
-                return                      # もう結果が来ている
+                return  # もう結果が来ている
             logger.info("event-loop 調べものが %.0f 秒を超えた：%.40s", seconds, query)
             self._completion_queue.put_nowait((query, "", None, "進捗", 0))
 
-    async def _run_lookup(self, action: str, tool_input: dict, query: str,
-                          intent_id: str | None, index: int = 0) -> None:
+    async def _run_lookup(
+        self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
+    ) -> None:
         """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
         agent = self._agent
         if action in ("see", "look"):
@@ -455,7 +483,8 @@ class InformationProcessing:
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop %s の実行に失敗: %s", action, e)
                 self._completion_queue.put_nowait(
-                    (query, f"（{action} を実行できなかった：{e}）", intent_id, "完了", index))
+                    (query, f"（{action} を実行できなかった：{e}）", intent_id, "完了", index)
+                )
                 return
             if not dispatched:
                 # 投げられなかった（クエリが空・同時実行の上限・同じ意図が進行中）。背景
@@ -471,8 +500,9 @@ class InformationProcessing:
             return
         try:
             out, _ = await self._agent._memory_tool.call(
-                "recall", tool_input,
-                exclude_ids=[self._exclude_from_lookup] if self._exclude_from_lookup else None
+                "recall",
+                tool_input,
+                exclude_ids=[self._exclude_from_lookup] if self._exclude_from_lookup else None,
             )
         except asyncio.CancelledError:
             raise
@@ -482,7 +512,9 @@ class InformationProcessing:
         self._completion_queue.put_nowait((query, str(out), intent_id, "完了", index))
         logger.debug(
             "event-loop RH 完了をQCへ（id=%s qsize=%d 意図=%.8s）",
-            id(self), self._completion_queue.qsize(), intent_id or "-",
+            id(self),
+            self._completion_queue.qsize(),
+            intent_id or "-",
         )
 
     async def _run_camera(self, action: str, tool_input: dict) -> str:
@@ -510,8 +542,7 @@ class InformationProcessing:
         where = await self._current_pose_name()
         prefix = f"{where}を見た。" if where else ""
         try:
-            entities = await extract_entities(str(text), agent._scene_backend,
-                                              image_b64=image_b64)
+            entities = await extract_entities(str(text), agent._scene_backend, image_b64=image_b64)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -521,8 +552,12 @@ class InformationProcessing:
         if not labels:
             logger.info("event-loop 見たが、意味づけは何も返さなかった")
             return f"{prefix}{text}"
-        logger.info("event-loop %s見えたもの %d 件：%.60s",
-                    f"{where}で" if where else "", len(labels), "、".join(labels))
+        logger.info(
+            "event-loop %s見えたもの %d 件：%.60s",
+            f"{where}で" if where else "",
+            len(labels),
+            "、".join(labels),
+        )
         # 印は**見たことだけ**にする。`see` が返す "You see the current view
         # (saved to …)" は撮ったことを LLM へ伝える文で、見た内容ではない。想起は
         # 印の文でベクトルを作るので、毎回同じ英語の定型句とファイルパスが入ると
@@ -552,8 +587,7 @@ class InformationProcessing:
             position = await camera.position()
             if position is None:
                 return ""
-            pose = nearest_pose(poses, position[0], position[1],
-                                agent.config.camera.pose_tolerance)
+            pose = nearest_pose(poses, position[0], position[1], agent.config.camera.pose_tolerance)
             return pose.name if pose else ""
         except Exception:  # noqa: BLE001
             logger.debug("いまどの定点を向いているか分からなかった")
@@ -570,7 +604,10 @@ class InformationProcessing:
             items.append(self._completion_queue.get_nowait())
         logger.debug(
             "event-loop 取込（id=%s items=%d inflight=%d qsize=%d）",
-            id(self), len(items), self._inflight, self._completion_queue.qsize(),
+            id(self),
+            len(items),
+            self._inflight,
+            self._completion_queue.qsize(),
         )
 
         progress = [q for q, _t, _i, kind, _x in items if kind == "進捗"]
@@ -623,8 +660,9 @@ class InformationProcessing:
         """その語をどの動作で投げたか。分からなければ recall とみなす。"""
         return self._lookup_action_by_query.get(query, "recall")
 
-    def _tools(self, *, actions: tuple[str, ...] = ("say", "recall"),
-               cache_tools: bool = True) -> list[dict]:
+    def _tools(
+        self, *, actions: tuple[str, ...] = ("say", "recall"), cache_tools: bool = True
+    ) -> list[dict]:
         """この反復で使える動作のツール定義を返す。
 
         表に無い名前は黙って落とす。まだ繋いでいない身体を渡そうとしても壊れないように
@@ -725,8 +763,11 @@ class InformationProcessing:
         self._generation += 1
         self._lookup_generation.clear()
         if dropped or drained:
-            logger.info("event-loop 調べかけを打ち切る（%s／取り込まなかった完了 %d件）",
-                        "・".join(dropped) or "投げた先なし", drained)
+            logger.info(
+                "event-loop 調べかけを打ち切る（%s／取り込まなかった完了 %d件）",
+                "・".join(dropped) or "投げた先なし",
+                drained,
+            )
         if self._parent_id:
             # 打ち切りも版のひとつ。何を打ち切ったかは版の content が持つので、
             # **飛行中の一覧を消す前**に、かつ親を捨てる前に書く。
@@ -783,30 +824,38 @@ class InformationProcessing:
         if dropped:
             # 何件落ちたかを残す。枠に収まったのか溢れたのかが分からないと、枠の値を
             # 決められない。記憶の内容は出さない。
-            logger.info("event-loop W に入らなかった記録＝%d件（枠 %d 字・載せた %d 件）",
-                        dropped, budget, len(kept))
+            logger.info(
+                "event-loop W に入らなかった記録＝%d件（枠 %d 字・載せた %d 件）",
+                dropped,
+                budget,
+                len(kept),
+            )
         # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
         memories = kept
 
         self._w_index = {
             str(m.get("memory_id", "")).replace("-", "")[:12]: str(m.get("memory_id", ""))
-            for m in memories if m.get("memory_id")
+            for m in memories
+            if m.get("memory_id")
         }
         # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
         # （実機で「〜ですね！」で始まる前置きが3回続いた）。
         said = ""
         if self._said_fillers:
             lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
-            said = ("すでに相手へ伝えた一言（言った順。次に何か言うなら、"
-                    "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines)
+            said = (
+                "すでに相手へ伝えた一言（言った順。次に何か言うなら、"
+                "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines
+            )
         held = ""
         if self._released_speech:
-            held = ("聞く相手が居ないあいだに話したかったこと"
-                    "（いま伝えるなら、そのときのこととして話す）：\n"
-                    + "\n".join(self._released_speech))
+            held = (
+                "聞く相手が居ないあいだに話したかったこと"
+                "（いま伝えるなら、そのときのこととして話す）：\n"
+                + "\n".join(self._released_speech)
+            )
         return "\n\n".join(
-            p for p in [said, held, mem.format_for_context(memories)]
-            if p and p.strip()
+            p for p in [said, held, mem.format_for_context(memories)] if p and p.strip()
         )
 
     def _apply_memory_verdicts(self, raw) -> None:
@@ -865,8 +914,13 @@ class InformationProcessing:
             logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
             return
         loop = getattr(self, "_loop", None)
-        item = (query, str(result), None, "完了",
-                index or self._lookup_index_by_query.get(query, 0))
+        item = (
+            query,
+            str(result),
+            None,
+            "完了",
+            index or self._lookup_index_by_query.get(query, 0),
+        )
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(self._completion_queue.put_nowait, item)
         else:
@@ -912,9 +966,7 @@ class InformationProcessing:
                 )
                 waiters = {asyncio.ensure_future(q.get()): q for q in queues}
                 try:
-                    done, pending = await asyncio.wait(
-                        waiters, return_when=asyncio.FIRST_COMPLETED
-                    )
+                    done, pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
                 finally:
                     pass
                 for task in pending:
@@ -949,7 +1001,8 @@ class InformationProcessing:
                 else:
                     logger.debug(
                         "event-loop 駆動体が完了を受領（id=%s inbox=%d）",
-                        id(self), len(self._inbox),
+                        id(self),
+                        len(self._inbox),
                     )
                     await self._iterate()
             except asyncio.CancelledError:
@@ -1048,7 +1101,9 @@ class InformationProcessing:
                     released.append(f"- {_when(row.get('created_at'), now_epoch)}：{content}")
                 store.delete(row["id"])
                 with contextlib.suppress(Exception):
-                    self._agent._memory.mark_superseded(row["observation_id"], self._parent_id)
+                    self._agent._memory.mark_superseded(
+                        row["observation_id"], self._parent_id, kind=KIND_RESOLVE
+                    )
             self._released_speech = released
             if released:
                 # 何件を W へ流したかを残す。system プロンプトの全文は出していないので、
@@ -1145,8 +1200,13 @@ class InformationProcessing:
             now_ctx=f'(now :datetime "{clock.now_local_str()}")',
             capped=capped,
         )
-        logger.debug("event-loop iter=%d/%d 調停=%s effort=%s",
-                     chain, max_chain, decision.branch, decision.effort)
+        logger.debug(
+            "event-loop iter=%d/%d 調停=%s effort=%s",
+            chain,
+            max_chain,
+            decision.branch,
+            decision.effort,
+        )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
         if decision.silence_minutes:
@@ -1159,15 +1219,20 @@ class InformationProcessing:
                 ref = datetime.fromisoformat(decision.time_ref).timestamp()
                 span = decision.time_span_days or None
                 memories = await mem.recall_async(
-                    cue, n=_mcfg.recall_k,
-                    time_ref=ref, time_span_days=span,
+                    cue,
+                    n=_mcfg.recall_k,
+                    time_ref=ref,
+                    time_span_days=span,
                     min_score=_mcfg.recall_min_score,
                     weights=weights,
                     open_ids=self._open_ids(),
                 )
                 workspace_ctx = self._compose_workspace(mem, memories)
-                logger.info("event-loop 想起の基準を移す：%s（幅 %s 日）",
-                            decision.time_ref, decision.time_span_days or "既定")
+                logger.info(
+                    "event-loop 想起の基準を移す：%s（幅 %s 日）",
+                    decision.time_ref,
+                    decision.time_span_days or "既定",
+                )
 
         if gen != self._generation:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（調停後）")
@@ -1190,10 +1255,17 @@ class InformationProcessing:
         if decision.branch == "action" and decision.query and not capped:
             # つなぎの一言はここで即出す（フルLLM を経由しないぶん速い・正本③ 段5 の内部二段）。
             await self._say_filler(decision.text)
-            self._open_intent(utterance or self._chain_head_content,
-                              {"query": decision.query}, action=decision.action)
-            logger.info("event-loop 反復 %d/%d 出力=%s（調停・続きは完了で起きる）",
-                        chain, max_chain, decision.action)
+            self._open_intent(
+                utterance or self._chain_head_content,
+                {"query": decision.query},
+                action=decision.action,
+            )
+            logger.info(
+                "event-loop 反復 %d/%d 出力=%s（調停・続きは完了で起きる）",
+                chain,
+                max_chain,
+                decision.action,
+            )
             return ""
 
         # (b) 軽量つなぎ→フル（正本③ 段5 の内部二段）。フル生成は effort=high で10秒近く
@@ -1203,8 +1275,7 @@ class InformationProcessing:
         # **材料が届いた反復でも挟まない**（`drained`）。待つものがもう無いのに「待って」と
         # 言う理由がない。実機では、検索結果が届いた1秒後に「うん、任せてね！」が出て、
         # 一言目（ですます）と本応答（ですます）のあいだでそこだけ口調が割れた。
-        if (decision.branch == "full" and decision.text
-                and decision.effort != "low" and not drained):
+        if decision.branch == "full" and decision.text and decision.effort != "low" and not drained:
             await self._say_filler(decision.text)
 
         system = build_event_system_prompt(
@@ -1216,8 +1287,12 @@ class InformationProcessing:
                 f"[反復] {chain}/{max_chain}"
                 # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答える。
                 # 断りが無いと、材料不足のまま答えたことが相手に伝わらない。
-                + ("（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"
-                   "そのうえで現時点で分かることを返す）" if capped else "")
+                + (
+                    "（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"
+                    "そのうえで現時点で分かることを返す）"
+                    if capped
+                    else ""
+                )
             ),
             workspace_ctx=workspace_ctx,
         )
@@ -1237,8 +1312,10 @@ class InformationProcessing:
 
         say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
         # 上限の反復では調べる動作を渡していないので、返ってきても投げない（連鎖を必ず閉じる）。
-        lookup_tc = None if capped else next(
-            (tc for tc in result.tool_calls if tc.name in _LOOKUP_ACTIONS), None
+        lookup_tc = (
+            None
+            if capped
+            else next((tc for tc in result.tool_calls if tc.name in _LOOKUP_ACTIONS), None)
         )
 
         # 発話と動作が一緒に来たら、発話はつなぎとして出し、その反復の出力は動作とする。
@@ -1251,10 +1328,15 @@ class InformationProcessing:
             logger.debug("event-loop iter=%d/%d 決定=%s", chain, max_chain, lookup_tc.name)
             if say_tc is not None:
                 await self._say_filler(str(say_tc.input.get("text", "")).strip())
-            self._open_intent(utterance or self._chain_head_content, dict(lookup_tc.input),
-                              action=lookup_tc.name)
-            logger.info("event-loop 反復 %d/%d 出力=%s（続きは完了で起きる）",
-                        chain, max_chain, lookup_tc.name)
+            self._open_intent(
+                utterance or self._chain_head_content, dict(lookup_tc.input), action=lookup_tc.name
+            )
+            logger.info(
+                "event-loop 反復 %d/%d 出力=%s（続きは完了で起きる）",
+                chain,
+                max_chain,
+                lookup_tc.name,
+            )
             return ""
 
         if say_tc is not None:
@@ -1422,14 +1504,18 @@ class InformationProcessing:
         # 別スレッドへ逃がす（同期呼び出しでイベントループを止めない）。
         if self._parent_id:
             with contextlib.suppress(Exception):
-                await asyncio.to_thread(
-                    self._agent._memory.note_lookup_started, self._parent_id)
+                await asyncio.to_thread(self._agent._memory.note_lookup_started, self._parent_id)
 
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
         """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""
         agent = self._agent
-        logger.info("event-loop 終了: 反復=%d 結末=%s 上限到達=%s text_len=%d",
-                    self._chain, outcome, "はい" if self._capped_hit else "いいえ", len(text))
+        logger.info(
+            "event-loop 終了: 反復=%d 結末=%s 上限到達=%s text_len=%d",
+            self._chain,
+            outcome,
+            "はい" if self._capped_hit else "いいえ",
+            len(text),
+        )
         # 自分が言ったことを、**発話の時点で同期に** O へ書く。背景の永続化（要約・内省）を
         # 待つと2秒遅れ、そのあいだに次の反復が起きると「さっき何と言ったか」を拾えない
         # （実機で「それだけ？」に聞き返した）。要約は後から来て、この記録を supersede する。
@@ -1468,11 +1554,17 @@ class InformationProcessing:
             arousal = await agent._turn_arousal(origin, text)
             agent._spawn_background_task(
                 agent._run_post_response_pipeline(
-                    user_input=origin, final_text=text,
-                    camera_used=False, camera_image=None,
-                    observation_action_name=None, observation_action_input=None,
-                    companion_mood="engaged", is_desire_turn=False, desires=None,
-                    arousal=arousal, memories=memories,
+                    user_input=origin,
+                    final_text=text,
+                    camera_used=False,
+                    camera_image=None,
+                    observation_action_name=None,
+                    observation_action_input=None,
+                    companion_mood="engaged",
+                    is_desire_turn=False,
+                    desires=None,
+                    arousal=arousal,
+                    memories=memories,
                     superseded_ids=obs_ids or None,
                     close_parent_id=parent_id,
                     # ループが作った記録も拡散想起の母集合へ。載せないと、閉じた逐語へ

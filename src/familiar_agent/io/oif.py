@@ -19,6 +19,7 @@ from enum import Enum
 from typing import TYPE_CHECKING
 
 from ..mood_register import MoodPAD
+from ..store.relations import KIND_REVISION
 
 if TYPE_CHECKING:
     from ..config import RecallWeights
@@ -47,10 +48,11 @@ class MI:
 
     **出来事ごとの量と面ごとの量を混ぜない。** `content`・`groundedness_n`・
     `last_recalled_at` は面のもの、`groundedness_g0`（取込の驚き）・`timestamp`・
-    `parent_id`・`superseded_by` は出来事のものである（`MIデータモデル` §5）。
+    `parent_id` は出来事のものである（`MIデータモデル` §5）。
 
-    表は分けたままにしてある。`superseded_by` が `observations` の列にしかないことが
-    「**畳んでも面は残る**」を構造として保証しており、版チェーンはこれに依存している。
+    表は分けたままにしてある。畳む印が面の側に無いことが「**畳んでも面は残る**」を
+    構造として保証しており、版チェーンはこれに依存している。畳む印は関係の側にある
+    （`設計方針_MI間の関係` 段 2 で `superseded_by` 列を落とした）。
 
     読み手ごとに調べて決めた点は変えていない。主想起・拡散想起・プロンプトのいずれからも
     読まれない列は入れず、計算で作れるものも入れない（`kind`・`emotion_vec`・ベクトル・
@@ -59,7 +61,7 @@ class MI:
 
     # `id` は面（`situated_memories.id`）で、upsert しても保たれる。
     id: str
-    content: str            # 【面】の言葉。面が持たないとき（actor）は出来事の本文
+    content: str  # 【面】の言葉。面が持たないとき（actor）は出来事の本文
     # 書くときは空でよい（O が書込時刻を付ける）。読んだ MI には必ず入っている。
     timestamp: datetime | None
     direction: str
@@ -67,12 +69,13 @@ class MI:
     # 面の同定。**書くときは空でよい**（まだ面が立っていない）。読んだ MI には必ず入る。
     # 誰がしたこと・誰が居たかは `OIF.write` の引数で渡し、書いた直後に面が立つ。
     obs_id: str = ""
-    person_id: str = ""     # 誰との関係か（**所有者ではない**）
+    person_id: str = ""  # 誰との関係か（**所有者ではない**）
     relation_key: str = ""  # どの役割か（actor / present / about / …）
 
     emotion: str = "neutral"
 
     # 版。`parent_id` は過去（この記録を起こしたもの）を、`superseded_by` は未来
+    # （この記録を置き換えたもの）を指す。後者は関係から引いて渡されたときだけ入る。
     # （この記録を置き換えた版）を指す。実データで4通りの組み合わせがすべて存在し、
     # 片方から他方を導けない。
     parent_id: str | None = None
@@ -95,6 +98,7 @@ class MI:
 
 
 # ── 想起の引数と戻り ────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class Cue:
@@ -121,10 +125,10 @@ class View:
     語を分けないと中身が混ざる。
     """
 
-    k: int = 7                                   # W へ載せる上限（課題5 の確定値）
-    floor: float = 0.05                          # 合成スコアの床
-    weights: "RecallWeights | None" = None       # 5軸の重み（trigger 別）
-    present: tuple[str, ...] = ()                # 在席者（p 軸）
+    k: int = 7  # W へ載せる上限（課題5 の確定値）
+    floor: float = 0.05  # 合成スコアの床
+    weights: "RecallWeights | None" = None  # 5軸の重み（trigger 別）
+    present: tuple[str, ...] = ()  # 在席者（p 軸）
     time_ref: float | None = None
     time_span_days: float | None = None
 
@@ -148,10 +152,10 @@ class Verdict(Enum):
     挨拶が新しさ 1.000 で居座った）。
     """
 
-    IMPORTANT = "important"     # 根づき +1 ＋ 新しさの起点を更新
-    USELESS = "useless"         # 根づき −1 ＋ 同上
-    REFERRED = "referred"       # 新しさの起点だけ更新
-    UNUSED = "unused"           # 何もしない
+    IMPORTANT = "important"  # 根づき +1 ＋ 新しさの起点を更新
+    USELESS = "useless"  # 根づき −1 ＋ 同上
+    REFERRED = "referred"  # 新しさの起点だけ更新
+    UNUSED = "unused"  # 何もしない
 
 
 @dataclass(frozen=True)
@@ -206,8 +210,7 @@ class OIF:
         その面が「誰との関係か」を持つ。読むときの MI は面を指すので、視点を属性として
         持ち回る必要がない。
         """
-        logger.debug("OIF write ← %s／%d字／%s", mi.direction, len(mi.content),
-                     _head(mi.content))
+        logger.debug("OIF write ← %s／%d字／%s", mi.direction, len(mi.content), _head(mi.content))
         obs_id, _ = await self._memory.save_async_with_id(
             mi.content,
             direction=mi.direction,
@@ -236,8 +239,7 @@ class OIF:
         rows = await self._memory.recall_async(
             cue.text,
             n=view.k,
-            kind=_KIND_OF_DIRECTION.get(cue.direction or "", None)
-            if cue.direction else None,
+            kind=_KIND_OF_DIRECTION.get(cue.direction or "", None) if cue.direction else None,
             min_score=view.floor,
             present_others=list(view.present) or None,
             exclude_ids=list(cue.exclude) or None,
@@ -256,9 +258,12 @@ class OIF:
         logger.debug("OIF novelty ← %d字 → %.3f", len(content), got)
         return got
 
-    def supersede(self, old_id: str, new_id: str) -> bool:
-        """old を new の版で置き換える。先着勝ち。"""
-        got = bool(self._memory.mark_superseded(old_id, new_id))
+    def supersede(self, old_id: str, new_id: str, kind: str = KIND_REVISION) -> bool:
+        """old を現行から外し、new を新しい側にする。先着勝ち。
+
+        `kind` は畳む理由で、隠すかどうかには効かない（役割 `旧` が決める）。
+        """
+        got = bool(self._memory.mark_superseded(old_id, new_id, kind))
         logger.debug("OIF supersede ← %s→%s → %s", old_id, new_id, got)
         return got
 
@@ -278,8 +283,10 @@ class OIF:
 
     def health(self) -> Health:
         """使える状態か（埋め込みが載っているか、失敗していないか）。"""
-        got = Health(ready=bool(self._memory.is_embedding_ready()),
-                     failed=bool(self._memory.embedding_failed()))
+        got = Health(
+            ready=bool(self._memory.is_embedding_ready()),
+            failed=bool(self._memory.embedding_failed()),
+        )
         logger.debug("OIF health → ready=%s failed=%s", got.ready, got.failed)
         return got
 
@@ -317,5 +324,12 @@ def _to_recalled(row: dict) -> Recalled:
 
 
 __all__ = [
-    "MI", "OIF", "Cue", "View", "Recalled", "Verdict", "Span", "Health",
+    "MI",
+    "OIF",
+    "Cue",
+    "View",
+    "Recalled",
+    "Verdict",
+    "Span",
+    "Health",
 ]

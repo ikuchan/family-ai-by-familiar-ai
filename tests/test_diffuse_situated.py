@@ -27,6 +27,7 @@ from familiar_agent.diffuse_store import (
     recall_by_person,
     shared_memory_ids,
 )
+from tests.hidden_helper import hide
 
 _DB_URL = os.environ["DATABASE_URL"]
 _DIM = 1024
@@ -49,11 +50,14 @@ def _vec_sql(seed: int) -> str:
 def _obs(cur, ts: str = "2020-01-01", superseded: bool = False) -> str:
     oid = str(uuid.uuid4())
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, superseded_by) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s)",
-        (oid, f"段4 {oid}", ts, "会話", "conversation", "neutral",
-         (str(uuid.uuid4()) if superseded else None)),
+        "INSERT INTO observations "
+        "(id, content, timestamp, direction, kind, emotion) "
+        "VALUES (%s,%s,%s,%s,%s,%s)",
+        (oid, f"段4 {oid}", ts, "会話", "conversation", "neutral"),
     )
+    # 畳む印は関係にある（段 2）。
+    if superseded:
+        hide(cur, oid, str(uuid.uuid4()))
     return oid
 
 
@@ -74,6 +78,7 @@ def _person(cur, pid: str) -> None:
 
 
 # ── ① 種は面から取り、`about`→`present`→`actor` の順に並ぶ ──────────────────
+
 
 def test_seeds_come_from_facets_in_role_order() -> None:
     """種の優先順は「話題の主体 → そばに居た → やった人」。"""
@@ -128,10 +133,13 @@ def test_the_diffuse_edge_no_longer_reads_the_perspective_columns() -> None:
     for mod in (diffuse_store, diffuse):
         for sql in sql_literals(mod):
             for col in ("subject_id", "participants_json", "writer_id"):
-                assert col not in sql, f"{mod.__name__} の SQL がまだ {col} を読んでいる：{sql[:90]}"
+                assert col not in sql, (
+                    f"{mod.__name__} の SQL がまだ {col} を読んでいる：{sql[:90]}"
+                )
 
 
 # ── ② 母集合は `about` と `present` の面。`actor` だけの観測は入らない ───────
+
 
 def test_the_pool_is_about_and_present_not_actor() -> None:
     """その人が「やった」だけの記録は、その人を種にした再想起の母集合に入れない。
@@ -163,6 +171,7 @@ def test_the_pool_is_about_and_present_not_actor() -> None:
 
 # ── ③④ 共通の記憶：在席者2人**以上**が、ともに関係を持つ観測 ────────────────
 
+
 def test_shared_memory_needs_every_present_person() -> None:
     """二人がともに関係を持つ観測だけを返す。片方だけの観測は返さない。"""
     tag = uuid.uuid4().hex[:8]
@@ -170,7 +179,8 @@ def test_shared_memory_needs_every_present_person() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _person(cur, X); _person(cur, Y)
+            _person(cur, X)
+            _person(cur, Y)
             both = _obs(cur, ts="2025-01-01")
             only_x = _obs(cur, ts="2025-02-01")
             _facet(cur, both, X, "present")

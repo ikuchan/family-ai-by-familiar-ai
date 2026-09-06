@@ -35,7 +35,7 @@ def test_distance_is_symmetric_around_the_reference():
     before = _state(ref - 86400.0).score(ref)
     after = _state(ref + 86400.0).score(ref)
     assert abs(before - after) < 1e-9
-    assert before < 1.0                      # 1日離れていれば 1 より小さい
+    assert before < 1.0  # 1日離れていれば 1 より小さい
 
 
 def test_the_reference_itself_scores_one():
@@ -74,7 +74,8 @@ def test_time_axis_uses_both_columns_when_a_span_is_given():
 
 def test_time_axis_skips_dead_records_and_keeps_the_perspective_scope():
     src = inspect.getsource(ObservationStore.by_time)
-    assert "o.superseded_by IS NULL" in src
+    # 畳む印は関係にある（段 2）。述語は `not_hidden` が1箇所で組む。
+    assert "not_hidden(" in src and "{live}" in src
     assert "s.person_id = %s" in src
 
 
@@ -100,7 +101,13 @@ def test_the_half_life_cannot_be_extended_by_use():
     ref = dt.datetime(2026, 7, 27, tzinfo=dt.timezone.utc)
     old_ts = ref - dt.timedelta(days=47)
     parts = _score_breakdown(
-        0.5, old_ts, None, 1.0, 0,
-        half_life_days=3.0, floor=0.001, reference_epoch=ref.timestamp(),
+        0.5,
+        old_ts,
+        None,
+        1.0,
+        0,
+        half_life_days=3.0,
+        floor=0.001,
+        reference_epoch=ref.timestamp(),
     )
-    assert parts.t < 0.01                      # 47日前は半減期3日でほぼ 0
+    assert parts.t < 0.01  # 47日前は半減期3日でほぼ 0

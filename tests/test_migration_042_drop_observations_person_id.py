@@ -29,6 +29,7 @@ import psycopg2.extras
 
 from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 from familiar_agent.store import clock
+from tests.hidden_helper import LIVE
 
 _DB_URL = os.environ["DATABASE_URL"]
 _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=clock.local_tz())
@@ -53,7 +54,7 @@ def _insert(cur, obs_id: str, content: str, kind: str, writer_id: str, ts: datet
         "INSERT INTO observations "
         "(id, content, timestamp, direction, kind, emotion) "
         "VALUES (%s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral" ),
+        (obs_id, content, ts, "unknown", kind, "neutral"),
     )
 
 
@@ -97,16 +98,21 @@ def test_read_observations_by_kind_does_not_filter_by_owner() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _insert(cur, f"k-self-{tag}", f"agent curiosity {tag}", "curiosity",
-                    AGENT_SELF_ID, _NOW)
-            _insert(cur, f"k-user-{tag}", f"user curiosity {tag}", "curiosity",
-                    DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1))
+            _insert(
+                cur, f"k-self-{tag}", f"agent curiosity {tag}", "curiosity", AGENT_SELF_ID, _NOW
+            )
+            _insert(
+                cur,
+                f"k-user-{tag}",
+                f"user curiosity {tag}",
+                "curiosity",
+                DEFAULT_PERSON_ID,
+                _NOW + timedelta(seconds=1),
+            )
     finally:
         conn.close()
 
-    rows = _mem()._observations._read_observations_by_kind(
-        "curiosity", 50, ("id", "content")
-    )
+    rows = _mem()._observations._read_observations_by_kind("curiosity", 50, ("id", "content"))
     contents = {r["content"] for r in rows}
     assert f"agent curiosity {tag}" in contents
     assert f"user curiosity {tag}" in contents
@@ -125,10 +131,15 @@ def test_the_fallbacks_do_not_filter_by_owner() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _insert(cur, f"f-a-{tag}", f"fallback {tag} alpha", "observation",
-                    AGENT_SELF_ID, _NOW)
-            _insert(cur, f"f-b-{tag}", f"fallback {tag} beta", "observation",
-                    DEFAULT_PERSON_ID, _NOW + timedelta(seconds=1))
+            _insert(cur, f"f-a-{tag}", f"fallback {tag} alpha", "observation", AGENT_SELF_ID, _NOW)
+            _insert(
+                cur,
+                f"f-b-{tag}",
+                f"fallback {tag} beta",
+                "observation",
+                DEFAULT_PERSON_ID,
+                _NOW + timedelta(seconds=1),
+            )
     finally:
         conn.close()
 
@@ -183,8 +194,8 @@ def test_dedup_keeps_rows_from_different_writers() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT COUNT(*) AS n FROM observations "
-                "WHERE content=%s AND kind=%s AND superseded_by IS NULL",
+                "SELECT COUNT(*) AS n FROM observations o "
+                "WHERE content=%s AND kind=%s AND " + LIVE.format(alias="o"),
                 (content, "utterance"),
             )
             n = cur.fetchone()["n"]

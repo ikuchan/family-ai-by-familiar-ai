@@ -26,6 +26,7 @@ from ..mood_register import MoodPAD
 from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
 from .context import StoreContext
+from .relations import KIND_UNCLASSIFIED, RelationStore, not_hidden
 from .embedding import _decode_vector, _encode_vector
 
 logger = logging.getLogger(__name__)
@@ -37,6 +38,7 @@ def _encode_image(image_path: str) -> str | None:
     try:
         import base64, io
         from PIL import Image
+
         with Image.open(image_path) as img:
             img.thumbnail(_THUMB_SIZE, Image.Resampling.LANCZOS)
             buf = io.BytesIO()
@@ -59,7 +61,6 @@ class ObservationStore:
         self._ctx = ctx
         self._situated = situated
         self._legacy = legacy
-
 
     def _read_observations_by_kind(
         self, kind: str | tuple[str, ...], n: int, columns: tuple[str, ...]
@@ -96,11 +97,17 @@ class ObservationStore:
                         )
                     return list(cur.fetchall())
         except Exception as e:
-            logger.warning("_read_observations_by_kind failed: %s", e); return []
+            logger.warning("_read_observations_by_kind failed: %s", e)
+            return []
 
     def _read_observations_by_situated(
-        self, person_id: str, n: int, columns: tuple[str, ...],
-        *, kind: str | None = None, keywords: tuple[str, ...] = (),
+        self,
+        person_id: str,
+        n: int,
+        columns: tuple[str, ...],
+        *,
+        kind: str | None = None,
+        keywords: tuple[str, ...] = (),
     ) -> list[dict]:
         """observations を situated 相関で person に紐づけ、新しい順に n 件読む dumb な読み出し。
 
@@ -110,7 +117,7 @@ class ObservationStore:
         採点・想起判断・trigger 判断は持たない。行(dict)のリストを返す。失敗時は空リスト。
         """
         col_sql = ", ".join(f"o.{c}" for c in columns)
-        clauses = ["s.person_id=%s", "o.superseded_by IS NULL"]
+        clauses = ["s.person_id=%s", not_hidden("o")]
         params: list = [person_id]
         if kind is not None:
             clauses.append("o.kind=%s")
@@ -133,7 +140,8 @@ class ObservationStore:
                     )
                     return list(cur.fetchall())
         except Exception as e:
-            logger.warning("_read_observations_by_situated failed: %s", e); return []
+            logger.warning("_read_observations_by_situated failed: %s", e)
+            return []
 
     def by_vector(
         self,
@@ -153,6 +161,7 @@ class ObservationStore:
         （視点合成・平均中心化）は呼び出し側の責任で、層は受け取った表現で引くだけ。
         """
         kind_clause = "AND o.kind = %s" if kind else ""
+        live = not_hidden("o")
         # 自分が出した検索が自分自身を拾わないようにする（id で狭く除外する）。
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         # situated を引くのは**視点**（`default` は視点でないので `__self__` へ寄る）。
@@ -187,7 +196,7 @@ class ObservationStore:
                     FROM situated_memories s
                     JOIN observations o ON o.id = s.obs_id
                     WHERE s.person_id = %s
-                      AND o.superseded_by IS NULL
+                      AND {live}
                       {kind_clause}
                       {exclude_clause}
                     ORDER BY s.vector <=> %s::vector
@@ -228,9 +237,13 @@ class ObservationStore:
         どの向きも索引を端から辿るだけなので、全走査にならない。返り行は `by_vector` と
         同じ列に揃える（関連は呼び出し側が `situated_cosines` で補う）。
         """
-        keys = (["o.timestamp", "s.last_recalled_at"] if span
-                else ["COALESCE(s.last_recalled_at, o.timestamp)"])
+        keys = (
+            ["o.timestamp", "s.last_recalled_at"]
+            if span
+            else ["COALESCE(s.last_recalled_at, o.timestamp)"]
+        )
         kind_clause = "AND o.kind = %s" if kind else ""
+        live = not_hidden("o")
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         columns = """o.id, o.timestamp,
                      o.direction, o.kind, o.emotion, o.image_path,
@@ -253,7 +266,7 @@ class ObservationStore:
                 FROM situated_memories s
                 JOIN observations o ON o.id = s.obs_id
                 WHERE s.person_id = %s
-                  AND o.superseded_by IS NULL
+                  AND {live}
                   AND {key} IS NOT NULL
                   {kind_clause}
                   {exclude_clause}
@@ -274,6 +287,7 @@ class ObservationStore:
                         for r in cur.fetchall():
                             # 畳む鍵は**面**（案3）。同じ出来事の別の面は別の候補である。
                             rows.setdefault(r["facet_id"], dict(r))
+
         # 基準に近い順へ整え、n 件に絞る（採点はしない）。
         def _distance(row: dict) -> float:
             stamp = row.get("last_recalled_at") or row.get("timestamp")
@@ -308,6 +322,7 @@ class ObservationStore:
         返り行は他の軸と同じ列に揃える（関連は呼び出し側が補う）。
         """
         kind_clause = "AND o.kind = %s" if kind else ""
+        live = not_hidden("o")
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         # 並べ替えの式を SELECT へ出した（畳み込みのため）ので、気分ベクトルが先頭に来る。
         params: list = [mood_vector_sql, self._ctx.viewpoint]
@@ -336,7 +351,7 @@ class ObservationStore:
                     FROM situated_memories s
                     JOIN observations o ON o.id = s.obs_id
                     WHERE s.person_id = %s
-                      AND o.superseded_by IS NULL
+                      AND {live}
                       AND o.emotion_vec IS NOT NULL
                       {kind_clause}
                       {exclude_clause}
@@ -362,7 +377,7 @@ class ObservationStore:
                 cur.execute(
                     "SELECT 1 - (s.vector <=> %s::vector) AS c "
                     "FROM situated_memories s JOIN observations o ON o.id = s.obs_id "
-                    "WHERE s.person_id = %s AND o.superseded_by IS NULL "
+                    f"WHERE s.person_id = %s AND {not_hidden('o')} "
                     "  AND o.kind <> 'self_model' "
                     "ORDER BY s.vector <=> %s::vector LIMIT %s",
                     (q_sql, AGENT_SELF_ID, q_sql, k),
@@ -376,7 +391,10 @@ class ObservationStore:
         return max(0.0, min(1.0, 1.0 - sum(cosines) / len(cosines)))
 
     def situated_cosines(
-        self, query_vector_sql: str, obs_ids: list[str], person_id: str,
+        self,
+        query_vector_sql: str,
+        obs_ids: list[str],
+        person_id: str,
     ) -> dict[str, float]:
         """指定 obs_id 群について、person_id 視点の situated コサインを返す（[D-在席相関]）。
 
@@ -396,7 +414,7 @@ class ObservationStore:
                     cur.execute(
                         "SELECT s.obs_id, MAX(1 - (s.vector <=> %s::vector)) AS c "
                         "FROM situated_memories s JOIN observations o ON o.id = s.obs_id "
-                        "WHERE s.person_id = %s AND o.superseded_by IS NULL "
+                        f"WHERE s.person_id = %s AND {not_hidden('o')} "
                         "  AND s.obs_id = ANY(%s) "
                         "GROUP BY s.obs_id",
                         (query_vector_sql, person_id, list(obs_ids)),
@@ -413,6 +431,7 @@ class ObservationStore:
         cond = " OR ".join(["o.content LIKE %s"] * len(keywords))
         params: list = [f"%{kw}%" for kw in keywords]
         kind_clause = "AND o.kind = %s" if kind else ""
+        live = not_hidden("o")
         if kind:
             params.append(kind)
         params.append(n)
@@ -425,7 +444,7 @@ class ObservationStore:
                            o.direction, o.kind, o.emotion, o.image_path
                     FROM observations o
                     WHERE ({cond}) {kind_clause}
-                      AND o.superseded_by IS NULL
+                      AND {live}
                     ORDER BY o.timestamp DESC LIMIT %s
                     """,
                     params,
@@ -433,13 +452,18 @@ class ObservationStore:
                 rows = cur.fetchall()
         return [
             {
-                "memory_id": r["id"], "timestamp": r["timestamp"],
+                "memory_id": r["id"],
+                "timestamp": r["timestamp"],
                 "summary": r["content"],
-                "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"]),
-                "direction": r["direction"], "kind": r["kind"],
-                "source_kind": r["kind"], "emotion": r["emotion"],
+                "date": clock.ts_to_date(r["timestamp"]),
+                "time": clock.ts_to_time(r["timestamp"]),
+                "direction": r["direction"],
+                "kind": r["kind"],
+                "source_kind": r["kind"],
+                "emotion": r["emotion"],
                 "image_path": r["image_path"],
-                "confidence": 0.45, "retrieval_method": "keyword",
+                "confidence": 0.45,
+                "retrieval_method": "keyword",
             }
             for r in rows
         ]
@@ -458,25 +482,31 @@ class ObservationStore:
                         f"SELECT o.id, o.content, o.timestamp, "
                         f"o.direction, o.kind, o.emotion, o.image_path "
                         f"FROM observations o "
-                        f"WHERE o.superseded_by IS NULL {kind_clause} "
+                        f"WHERE {not_hidden('o')} {kind_clause} "
                         f"ORDER BY o.timestamp DESC LIMIT %s",
                         params,
                     )
                     rows = cur.fetchall()
             return [
                 {
-                    "memory_id": r["id"], "timestamp": r["timestamp"],
+                    "memory_id": r["id"],
+                    "timestamp": r["timestamp"],
                     "summary": r["content"],
-                    "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"]),
-                    "direction": r["direction"], "kind": r["kind"],
-                    "source_kind": r["kind"], "emotion": r["emotion"],
+                    "date": clock.ts_to_date(r["timestamp"]),
+                    "time": clock.ts_to_time(r["timestamp"]),
+                    "direction": r["direction"],
+                    "kind": r["kind"],
+                    "source_kind": r["kind"],
+                    "emotion": r["emotion"],
                     "image_path": r["image_path"],
-                    "confidence": 0.3, "retrieval_method": "recency",
+                    "confidence": 0.3,
+                    "retrieval_method": "recency",
                 }
                 for r in rows
             ]
         except Exception as e:
-            logger.warning("recency_fallback failed: %s", e); return []
+            logger.warning("recency_fallback failed: %s", e)
+            return []
 
     def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
         """Return pairs of non-superseded observations whose vectors are >= threshold similar."""
@@ -487,7 +517,7 @@ class ObservationStore:
                     cur.execute(
                         "SELECT e.obs_id, e.vector FROM obs_embeddings e "
                         "JOIN observations o ON o.id = e.obs_id "
-                        "WHERE o.superseded_by IS NULL"
+                        f"WHERE {not_hidden('o')}"
                     )
                     rows = cur.fetchall()
             if len(rows) < 2:
@@ -530,24 +560,25 @@ class ObservationStore:
         Each sub-pool uses ORDER BY RANDOM() LIMIT k for lightweight diversity.
         time-of-day / seasonal proximity replaces the old time-label cosine query.
         """
-        _COMMON = (
-            "WHERE superseded_by IS NULL AND kind != 'day_summary' "
-        )
+        _COMMON = f"WHERE {not_hidden('observations')} AND kind != 'day_summary' "
         sql_hour = (
-            "SELECT id, content, timestamp FROM observations " + _COMMON +
-            "AND LEAST(ABS(EXTRACT(HOUR FROM timestamp)-%s), "
+            "SELECT id, content, timestamp FROM observations "
+            + _COMMON
+            + "AND LEAST(ABS(EXTRACT(HOUR FROM timestamp)-%s), "
             "          24-ABS(EXTRACT(HOUR FROM timestamp)-%s)) <= %s "
             "ORDER BY RANDOM() LIMIT %s"
         )
         sql_month = (
-            "SELECT id, content, timestamp FROM observations " + _COMMON +
-            "AND LEAST(ABS(EXTRACT(MONTH FROM timestamp)-%s), "
+            "SELECT id, content, timestamp FROM observations "
+            + _COMMON
+            + "AND LEAST(ABS(EXTRACT(MONTH FROM timestamp)-%s), "
             "          12-ABS(EXTRACT(MONTH FROM timestamp)-%s)) <= %s "
             "ORDER BY RANDOM() LIMIT %s"
         )
         sql_rand = (
-            "SELECT id, content, timestamp FROM observations " + _COMMON +
-            "ORDER BY RANDOM() LIMIT %s"
+            "SELECT id, content, timestamp FROM observations "
+            + _COMMON
+            + "ORDER BY RANDOM() LIMIT %s"
         )
         try:
             with self._ctx.lock:
@@ -570,16 +601,13 @@ class ObservationStore:
             logger.warning("pick_seed_candidates failed: %s", e)
             return []
 
+    def _read_supersede_chain(self, head_id: str, columns: tuple[str, ...]) -> list[dict]:
+        """現行版 MI（head_id）を起点に版チェーンを再構成する dumb な読み出し。
 
-    def _read_supersede_chain(
-        self, head_id: str, columns: tuple[str, ...]
-    ) -> list[dict]:
-        """現行版 MI（head_id）を起点に supersede の版チェーンを再構成する dumb な読み出し。
-
-        `superseded_by`（旧→新を指す）を再帰でさかのぼり、head（depth 0）と祖先
-        （旧版）を depth 昇順（新→旧）で返す。系統B 畳み込みの改訂履歴の再構成に使う
-        （§7）。採点・想起判断は持たない。既存経路からは未接続。失敗時は空リスト。
-        head_id が存在しなければ空リスト。
+        関係の `旧` と `新` を再帰でさかのぼり、head（depth 0）と祖先（旧版）を depth
+        昇順（新→旧）で返す。ある記録の一つ前は、それを `新` に持つ関係の `旧` である。
+        系統B 畳み込みの改訂履歴の再構成に使う（§7）。採点・想起判断は持たない。
+        既存経路からは未接続。失敗時は空リスト。head_id が存在しなければ空リスト。
         """
         col_sql = ", ".join(f"o.{c}" for c in columns)
         try:
@@ -590,8 +618,12 @@ class ObservationStore:
                         "WITH RECURSIVE chain AS ("
                         "  SELECT id, 0 AS depth FROM observations WHERE id=%s"
                         "  UNION ALL"
-                        "  SELECT o.id, c.depth+1 FROM observations o "
-                        "    JOIN chain c ON o.superseded_by = c.id"
+                        "  SELECT older.obs_id AS id, c.depth+1 FROM chain c "
+                        "    JOIN relation_members newer "
+                        "      ON newer.obs_id = c.id AND newer.role = '新' "
+                        "    JOIN relation_members older "
+                        "      ON older.relation_id = newer.relation_id "
+                        "     AND older.role = '旧'"
                         ") "
                         f"SELECT {col_sql} FROM chain c JOIN observations o ON o.id = c.id "
                         "ORDER BY c.depth",
@@ -599,13 +631,17 @@ class ObservationStore:
                     )
                     return list(cur.fetchall())
         except Exception as e:
-            logger.warning("_read_supersede_chain failed: %s", e); return []
+            logger.warning("_read_supersede_chain failed: %s", e)
+            return []
 
     def get_dates_with_observations(self, days: int = 7) -> list[str]:
         """Return distinct dates (YYYY-MM-DD) that have observations within the last N days."""
         try:
             from datetime import timedelta
-            cutoff = (datetime.fromisoformat(clock.now_local_iso()) - timedelta(days=days)).strftime("%Y-%m-%d")
+
+            cutoff = (
+                datetime.fromisoformat(clock.now_local_iso()) - timedelta(days=days)
+            ).strftime("%Y-%m-%d")
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
@@ -617,7 +653,8 @@ class ObservationStore:
                     )
                     return [row["d"].isoformat() for row in cur.fetchall()]
         except Exception as e:
-            logger.warning("get_dates_with_observations failed: %s", e); return []
+            logger.warning("get_dates_with_observations failed: %s", e)
+            return []
 
     def get_dates_with_summaries(self) -> list[str]:
         """Return distinct dates (YYYY-MM-DD) that already have a day_summary observation."""
@@ -628,11 +665,11 @@ class ObservationStore:
                     cur.execute(
                         "SELECT DISTINCT timestamp::date AS d FROM observations "
                         "WHERE kind='day_summary' ORDER BY d DESC",
-                    
                     )
                     return [row["d"].isoformat() for row in cur.fetchall()]
         except Exception as e:
-            logger.warning("get_dates_with_summaries failed: %s", e); return []
+            logger.warning("get_dates_with_summaries failed: %s", e)
+            return []
 
     def get_observations_for_date(self, date: str, limit: int = 50) -> list[dict]:
         """Return observations for a specific date (YYYY-MM-DD), oldest first."""
@@ -650,16 +687,19 @@ class ObservationStore:
                     rows = cur.fetchall()
             result = []
             for row in rows:
-                result.append({
-                    "id": row["id"],
-                    "content": row["content"],
-                    "emotion": row["emotion"] or "neutral",
-                    "kind": row["kind"] or "conversation",
-                    "time": clock.ts_to_time(row["timestamp"]),
-                })
+                result.append(
+                    {
+                        "id": row["id"],
+                        "content": row["content"],
+                        "emotion": row["emotion"] or "neutral",
+                        "kind": row["kind"] or "conversation",
+                        "time": clock.ts_to_time(row["timestamp"]),
+                    }
+                )
             return result
         except Exception as e:
-            logger.warning("get_observations_for_date failed: %s", e); return []
+            logger.warning("get_observations_for_date failed: %s", e)
+            return []
 
     def delete_day_summaries_for_date(self, date: str) -> int:
         """Delete all day_summary observations for a given date. Returns deleted row count."""
@@ -675,7 +715,8 @@ class ObservationStore:
                 conn.commit()
             return count
         except Exception as e:
-            logger.warning("delete_day_summaries_for_date failed: %s", e); return 0
+            logger.warning("delete_day_summaries_for_date failed: %s", e)
+            return 0
 
     # -- Importance decay, supersession, links, episodes --
 
@@ -691,16 +732,21 @@ class ObservationStore:
                         "WHERE EXTRACT(MONTH FROM timestamp) = %s "
                         "  AND EXTRACT(DAY FROM timestamp) = %s "
                         "  AND timestamp::date < %s "
-                        "  AND superseded_by IS NULL "
+                        f"  AND {not_hidden('observations')} "
                         "ORDER BY timestamp DESC LIMIT %s",
                         (month, day, today, n),
                     )
                     return [
-                        {**dict(r), "date": clock.ts_to_date(r["timestamp"]), "time": clock.ts_to_time(r["timestamp"])}
+                        {
+                            **dict(r),
+                            "date": clock.ts_to_date(r["timestamp"]),
+                            "time": clock.ts_to_time(r["timestamp"]),
+                        }
                         for r in cur.fetchall()
                     ]
         except Exception as e:
-            logger.warning("recall_on_this_day failed: %s", e); return []
+            logger.warning("recall_on_this_day failed: %s", e)
+            return []
 
     async def recall_on_this_day_async(self, month: int, day: int, n: int = 5) -> list[dict]:
         return await asyncio.to_thread(self.recall_on_this_day, month, day, n)
@@ -712,7 +758,8 @@ class ObservationStore:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT MIN(timestamp::date) AS earliest FROM observations WHERE superseded_by IS NULL",
+                        f"SELECT MIN(timestamp::date) AS earliest FROM observations "
+                        f"WHERE {not_hidden('observations')}",
                     )
                     row = cur.fetchone()
                 if row is None:
@@ -720,11 +767,11 @@ class ObservationStore:
                 val = row["earliest"]
                 return str(val) if val is not None else None
         except Exception as e:
-            logger.warning("get_earliest_date failed: %s", e); return None
+            logger.warning("get_earliest_date failed: %s", e)
+            return None
 
     async def get_earliest_date_async(self) -> str | None:
         return await asyncio.to_thread(self.get_earliest_date)
-
 
     def materialize_save_event(
         self,
@@ -744,10 +791,10 @@ class ObservationStore:
         書かれていない id を返すと、それを宛先にした supersede が「どこも指さない」壊れた
         記録になるため、重複時は必ず既にある行の id を返す。
         """
-        content   = str(payload.get("content", "")).strip()
+        content = str(payload.get("content", "")).strip()
         direction = str(payload.get("direction", "unknown"))
-        kind      = str(payload.get("kind", "observation"))
-        emotion   = str(payload.get("emotion", "neutral"))
+        kind = str(payload.get("kind", "observation"))
+        emotion = str(payload.get("emotion", "neutral"))
         image_path = payload.get("image_path")
         override_date = payload.get("override_date")
         # PAD は payload 経由（to_json_dict/from_json_dict）。未指定は中立（列既定と同値）。
@@ -786,6 +833,7 @@ class ObservationStore:
                     # 判定は INSERT の前なので、既にある行の面はもう立っている。
                     # 048 と同じく、話者が解決できなかった記録の `actor` は `__self__`。
                     from ..person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
+
                     _writer_facet = AGENT_SELF_ID if writer == DEFAULT_PERSON_ID else writer
                     cur.execute(
                         "SELECT o.id FROM observations o "
@@ -793,7 +841,7 @@ class ObservationStore:
                         "  AND s.relation_key = 'actor' AND s.person_id = %s "
                         "WHERE o.content = %s AND o.kind = %s "
                         "  AND o.timestamp >= now() - (%s * INTERVAL '1 second') "
-                        "  AND o.superseded_by IS NULL "
+                        f"  AND {not_hidden('o')} "
                         "ORDER BY o.timestamp DESC LIMIT 1",
                         (_writer_facet, content, kind, dedup_window_secs),
                     )
@@ -802,14 +850,20 @@ class ObservationStore:
                         logger.debug(
                             "content dedup skip: (writer_id=%.8s kind=%s content=%.40r) "
                             "within %ds window → 既存 %.8s を返す",
-                            writer, kind, content, dedup_window_secs, _dup["id"],
+                            writer,
+                            kind,
+                            content,
+                            dedup_window_secs,
+                            _dup["id"],
                         )
                         return str(_dup["id"])
                 # 取込 novelty（内容の新規性）→ a0。挿入前に測るので新観測は母集合に
                 # 居ない（=自分は含まれない）。視点は AGENT_SELF・self_model 除外。
                 novelty = self.content_novelty(
-                    np.asarray(vec, dtype=np.float32), conn,
-                    k=novelty_k, default=novelty_default,
+                    np.asarray(vec, dtype=np.float32),
+                    conn,
+                    k=novelty_k,
+                    default=novelty_default,
                 )
                 groundedness_g0 = max(0.0, min(novelty_a0_cap, novelty_w_n * novelty))
                 # A（高ぶり）は機械値で、a0 と同じく内容の新規性から作る（`感情ループ全体像`）。
@@ -825,22 +879,36 @@ class ObservationStore:
                     " image_path,image_data,groundedness_g0,parent_id,"
                     " emotion_p,emotion_pn,emotion_a,emotion_dom,emotion_vec) "
                     "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-                    (event_id, content, save_ts,
-                     direction, kind, emotion, image_path, image_data,
-                     groundedness_g0,
-                     payload.get("parent_id"),
-                     None if emotion_pad is None else emotion_pad.p,
-                     None if emotion_pad is None else emotion_pad.pn,
-                     emotion_a,
-                     None if emotion_pad is None else emotion_pad.dom,
-                     # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には vector 型の
-                     # 列が要る）。λ を畳み込んでいるので λ 変更時は要再計算。**PAD が
-                     # 揃わなければ作らない**（050）。`by_emotion` は
-                     # `emotion_vec IS NOT NULL` で絞るので、未測定は感情軸から自然に外れる。
-                     None if emotion_pad is None else "[" + ",".join(
-                         f"{v:.6f}" for v in pad_to_search_vector(
-                             (emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom))
-                     ) + "]"),
+                    (
+                        event_id,
+                        content,
+                        save_ts,
+                        direction,
+                        kind,
+                        emotion,
+                        image_path,
+                        image_data,
+                        groundedness_g0,
+                        payload.get("parent_id"),
+                        None if emotion_pad is None else emotion_pad.p,
+                        None if emotion_pad is None else emotion_pad.pn,
+                        emotion_a,
+                        None if emotion_pad is None else emotion_pad.dom,
+                        # 感情軸の一次絞り用（PAD から導けるが、pgvector の索引には vector 型の
+                        # 列が要る）。λ を畳み込んでいるので λ 変更時は要再計算。**PAD が
+                        # 揃わなければ作らない**（050）。`by_emotion` は
+                        # `emotion_vec IS NOT NULL` で絞るので、未測定は感情軸から自然に外れる。
+                        None
+                        if emotion_pad is None
+                        else "["
+                        + ",".join(
+                            f"{v:.6f}"
+                            for v in pad_to_search_vector(
+                                (emotion_pad.p, emotion_pad.pn, emotion_pad.a, emotion_pad.dom)
+                            )
+                        )
+                        + "]",
+                    ),
                 )
                 cur.execute(
                     "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
@@ -850,8 +918,12 @@ class ObservationStore:
             # 面を立てる。材料（誰がしたこと・誰が居たか）は引数で渡す（段5）。
             mem_vec = np.array(vec, dtype=np.float32)
             self._situated.refresh_situated_memories(
-                conn, event_id, mem_vec,
-                body=content, writer_id=writer, participants=list(participants or []),
+                conn,
+                event_id,
+                mem_vec,
+                body=content,
+                writer_id=writer,
+                participants=list(participants or []),
             )
             self._legacy.project_observation(conn, event_id, content, kind, emotion)
             conn.commit()
@@ -895,14 +967,17 @@ class ObservationStore:
                 if up:
                     cur.execute(
                         "UPDATE situated_memories SET groundedness_n = groundedness_n + 1 "
-                        "WHERE person_id = %s AND obs_id = ANY(%s)", (pid, up))
+                        "WHERE person_id = %s AND obs_id = ANY(%s)",
+                        (pid, up),
+                    )
                 if down:
                     cur.execute(
                         "UPDATE situated_memories SET groundedness_n = groundedness_n - 1 "
-                        "WHERE person_id = %s AND obs_id = ANY(%s)", (pid, down))
+                        "WHERE person_id = %s AND obs_id = ANY(%s)",
+                        (pid, down),
+                    )
             conn.commit()
         return len(touched)
-
 
     def append_and_reembed(self, obs_id: str, note: str) -> bool:
         """content の末尾へ note を足し、埋め込みを作り直す。既にあれば何もしない。
@@ -934,8 +1009,7 @@ class ObservationStore:
             vec = self._ctx.embedder.encode_document([content])[0]
             blob = np.array(vec, dtype=np.float32).tobytes()
             with conn.cursor() as cur:
-                cur.execute("UPDATE observations SET content = %s WHERE id = %s",
-                            (content, obs_id))
+                cur.execute("UPDATE observations SET content = %s WHERE id = %s", (content, obs_id))
                 cur.execute(
                     "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
                     "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",
@@ -943,20 +1017,16 @@ class ObservationStore:
                 )
             # 面を作り直さず、いま立っている面をなぞる（段5）。誰との関係かは面が
             # 持っており、観測の側にはもう残っていない。
-            self._situated.reembed_facets(
-                conn, obs_id, np.array(vec, dtype=np.float32), content)
+            self._situated.reembed_facets(conn, obs_id, np.array(vec, dtype=np.float32), content)
             conn.commit()
         return True
 
-    def mark_superseded(self, old_id: str, new_id: str) -> None:
-        with self._ctx.lock:
-            conn = self._ctx.conn()
-            with conn.cursor() as cur:
-                # 解決は先着が勝つ。既に解決済みの行を張り替えると「どの記録が解決したか」の
-                # つながりが失われる（重複スキップで同じ id を持つ側が後から解決を試みる）。
-                cur.execute(
-                    "UPDATE observations SET superseded_by=%s "
-                    "WHERE id=%s AND superseded_by IS NULL",
-                    (new_id, old_id),
-                )
-            conn.commit()
+    def mark_superseded(self, old_id: str, new_id: str, kind: str = KIND_UNCLASSIFIED) -> bool:
+        """`old_id` を現行から外し、`new_id` を新しい側として関係で結ぶ。
+
+        先着が勝つのは変わらない。守っているのが列の `WHERE ... IS NULL` から部分一意
+        索引へ移っただけである。二度目は何もせず `False` を返す。
+
+        `kind` は理由を言うだけで、隠すかどうかには効かない（役割 `旧` が決める）。
+        """
+        return RelationStore(self._ctx).hide(old_id, new_id, kind)

@@ -3,6 +3,7 @@
 pending_speech テーブルへの追加・一覧・削除・鮮度計算・失効判定・FK CASCADE を検証する。
 observations とは独立し、想起系テーブルには触れない。
 """
+
 from __future__ import annotations
 
 import os
@@ -17,6 +18,7 @@ from unittest.mock import patch
 from familiar_agent.config import PendingSpeechConfig
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 from familiar_agent.tools.pending_speech_store import PendingSpeechStore
+from tests.hidden_helper import hide
 
 
 # ---------------------------------------------------------------------------
@@ -56,17 +58,16 @@ def _make_memory() -> ObservationMemory:
         return ObservationMemory(person_id=person_id)
 
 
-def _insert_obs(memory: ObservationMemory, content: str, superseded_by: str | None = None) -> str:
+def _insert_obs(memory: ObservationMemory, content: str) -> str:
     obs_id = str(uuid.uuid4())
     conn = _pg_conn()
     try:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,direction,kind,emotion,superseded_by) "
-                "VALUES (%s,%s,now(),%s,%s,%s,%s)",
-                (obs_id, content, "unknown", "conversation", "neutral",
-                 superseded_by),
+                "(id,content,timestamp,direction,kind,emotion) "
+                "VALUES (%s,%s,now(),%s,%s,%s)",
+                (obs_id, content, "unknown", "conversation", "neutral"),
             )
         conn.commit()
     finally:
@@ -83,6 +84,7 @@ def _insert_obs(memory: ObservationMemory, content: str, superseded_by: str | No
 def store():
     import psycopg2 as _psycopg2
     from familiar_agent.db_migrations import apply_migrations, default_migration_dir
+
     _mc = _psycopg2.connect(_TEST_DB_URL)
     apply_migrations(_mc, default_migration_dir())
     _mc.commit()
@@ -160,13 +162,13 @@ def test_list_active_includes_content(store, memory):
     assert row.get("content") == "コンテンツ確認"
 
 
-def test_list_active_includes_superseded_by(store, memory):
-    """list_active の各行に observations.superseded_by が含まれる。"""
+def test_list_active_includes_whether_it_is_hidden(store, memory):
+    """list_active の各行に、参照先がもう現行でないかが入る（段 2）。"""
     obs_id = _insert_obs(memory, "superseded確認")
     store.add(obs_id, None)
     rows = store.list_active()
     row = next(r for r in rows if r["observation_id"] == obs_id)
-    assert "superseded_by" in row
+    assert "superseded" in row
 
 
 # ---------------------------------------------------------------------------
@@ -258,10 +260,8 @@ def test_expired_by_supersede(store, memory, cfg):
     conn = _pg_conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "UPDATE observations SET superseded_by = %s WHERE id = %s",
-                (new_id, obs_id),
-            )
+            # 畳む印は関係にある（段 2）。
+            hide(cur, obs_id, new_id)
         conn.commit()
     finally:
         conn.close()

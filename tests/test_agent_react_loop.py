@@ -11,6 +11,7 @@ from familiar_agent.backends import TurnResult
 from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.io.aif import AIF
 from familiar_agent.mood_register import MoodPAD
+from familiar_agent.store.relations import KIND_FOLD
 
 
 # ---------------------------------------------------------------------------
@@ -97,7 +98,6 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mem_tool.get_tool_definitions = MagicMock(return_value=[])
     mem_tool.call = AsyncMock(return_value=("remembered", None))
     agent._memory_tool = mem_tool
-
 
     coding = MagicMock()
     coding.get_tool_definitions = MagicMock(return_value=[])
@@ -186,7 +186,9 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
 # Patches that suppress heavy async sub-calls in run()
 _HEAVY_PATCHES = {
     "familiar_agent.agent.EmbodiedAgent._infer_companion_mood": AsyncMock(return_value="engaged"),
-    "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(return_value=(MoodPAD(), 0.5, "neutral")),
+    "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(
+        return_value=(MoodPAD(), 0.5, "neutral")
+    ),
     "familiar_agent.agent.EmbodiedAgent._summarize_exchange": AsyncMock(return_value="summary"),
     "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent._maybe_update_self_narrative": AsyncMock(),
@@ -210,37 +212,14 @@ def _patch_heavy(extra: dict | None = None):
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Tests: tool_use → end_turn sequence
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Tests: 発話は say() だけが担う（auto-say 撤去）
 # ---------------------------------------------------------------------------
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -263,28 +242,14 @@ def _nudge_messages(agent) -> list:
     return out
 
 
-
-
-
-
-
-
-
-
 # ---------------------------------------------------------------------------
 # Tests: morning reconstruction on first turn
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
 # ---------------------------------------------------------------------------
 # Tests: online temporal self + adaptive values
 # ---------------------------------------------------------------------------
-
-
 
 
 @pytest.mark.asyncio
@@ -339,12 +304,6 @@ async def test_maybe_adapt_values_updates_curiosity_and_support_policies():
 # ---------------------------------------------------------------------------
 
 
-
-
-
-
-
-
 @pytest.mark.asyncio
 async def test_post_response_pipeline_updates_concerns():
     from familiar_agent.agent import EmbodiedAgent
@@ -396,10 +355,6 @@ def _system_text(system: str | tuple) -> str:
     return system
 
 
-
-
-
-
 # ---------------------------------------------------------------------------
 # Quiet-hours bypass for share_search_result (user-initiated)
 # ---------------------------------------------------------------------------
@@ -411,10 +366,6 @@ def _make_quiet_rule():
     rule.start_hour = 21
     rule.end_hour = 5
     return rule
-
-
-
-
 
 
 # ---------------------------------------------------------------------------
@@ -453,17 +404,10 @@ class TestInQuietHoursHelper:
         assert agent._in_quiet_hours() is False
 
 
-
-
-
 # ---------------------------------------------------------------------------
 # Internal desire turns pass Anthropic-format messages to utility backend
 # (format conversion is handled inside each backend's stream_turn, not at agent level)
 # ---------------------------------------------------------------------------
-
-
-
-
 
 
 @pytest.mark.asyncio
@@ -501,3 +445,6 @@ async def test_pipeline_supersedes_loop_obs_without_camera():
     calls = [c.args for c in agent._memory.mark_superseded.call_args_list]
     assert ("loop-1", "conv-1") in calls
     assert ("loop-2", "conv-1") in calls
+    # 逐語が要約に吸われただけで、畳まれた側が誤りになったのではない（段 2）。
+    kinds = {c.kwargs.get("kind") for c in agent._memory.mark_superseded.call_args_list}
+    assert kinds == {KIND_FOLD}
