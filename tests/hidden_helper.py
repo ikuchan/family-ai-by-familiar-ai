@@ -54,22 +54,3 @@ LIVE = (
     "NOT EXISTS (SELECT 1 FROM relation_members _rm "
     "WHERE _rm.obs_id = {alias}.id AND _rm.role = '旧')"
 )
-
-
-def has_superseded_by_column() -> bool:
-    """`observations.superseded_by` がまだ有るか。
-
-    059 が落としたので、通常は偽である。旧マイグレーションを**再実行**して確かめる
-    検査は、書き込み先の列が無くなった時点で対象を失う。列を戻した人が居れば、
-    その検査はまた動く。
-    """
-    import os
-
-    import psycopg2
-
-    with psycopg2.connect(os.environ["DATABASE_URL"]) as conn, conn.cursor() as cur:
-        cur.execute(
-            "SELECT 1 FROM information_schema.columns "
-            "WHERE table_name = 'observations' AND column_name = 'superseded_by'"
-        )
-        return cur.fetchone() is not None
