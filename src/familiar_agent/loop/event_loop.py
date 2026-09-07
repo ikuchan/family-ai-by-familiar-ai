@@ -229,8 +229,12 @@ class InformationProcessing:
         self._completion_queue: asyncio.Queue[tuple[str, str, str | None, str, int]] = (
             asyncio.Queue()
         )
-        # 外の機械（声・調べもの）へはこの口だけを通す（環-e-は）。
-        self._dif = DIF(agent)
+        # 外の機械（声・調べもの）へはこの口だけを通す（環-e-は）。要るものだけを渡す。
+        self._dif = DIF(
+            tts=agent._tts,
+            search=agent._deferred_search,
+            fetch=agent._deferred_fetch,
+        )
         # ループ記録は1本の鎖にする：トリガO → 意図O → 完了O → 意図O2 → …。新しい記録を
         # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
         # これで前の記録が想起に出てこなくなり、除外は「その検索を出した意図自身」で足りる。

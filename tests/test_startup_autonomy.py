@@ -29,6 +29,9 @@ def _agent(*, sensor=True):
     a._tonic = None
     a._presence_sensor = MagicMock(start=AsyncMock()) if sensor else None
     a._motion_events = MagicMock(start=AsyncMock()) if sensor else None
+    # ループは生成のときに機器を DIF へ渡す。`__init__` を通さない土台なので、
+    # 実機体が必ず持つものはここで置く（無い機体の `_tts` は None）。
+    a._tts = None
     a._deferred_search = MagicMock()
     a._deferred_fetch = MagicMock()
     return a
@@ -58,5 +61,5 @@ def test_starting_twice_does_not_make_a_second_tonic():
 
 def test_a_configuration_without_a_camera_still_starts():
     a = _agent(sensor=False)
-    asyncio.run(a.start_autonomy())     # 例外を出さないこと
+    asyncio.run(a.start_autonomy())  # 例外を出さないこと
     assert a._tonic is not None

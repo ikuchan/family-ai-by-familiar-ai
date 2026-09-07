@@ -28,12 +28,17 @@ _TRAIL_CHARS = 24
 class DIF:
     """I と外部の機械の唯一の出入り口。
 
-    掴んでいる相手を持ち替えず、`agent` 越しに読む。道具は起動の途中で差し替わる
-    ことがあり、生成時に写しを取ると古い相手を掴んだままになる。
+    **要るものだけを受け取る。** `agent` を丸ごと持てば、口はその 89 個の属性すべてに
+    手が届く。届く必要のないものへ届く形は、口を1枚挟んだ意味を消す。
+
+    `tts` は声の担い手（無い機体では `None`）、`search` と `fetch` は調べものの道具。
+    どれも `agent` の `__init__` で一度作られたきりで差し替わらないので、写しを持つ。
     """
 
-    def __init__(self, agent) -> None:
-        self._agent = agent
+    def __init__(self, *, tts=None, search=None, fetch=None) -> None:
+        self._tts = tts
+        self._search = search
+        self._fetch = fetch
 
     # ── 声 ────────────────────────────────────────────────────────────────
 
@@ -44,8 +49,7 @@ class DIF:
         整え方・`say` の説明・規則 `no-tts-tags` の3箇所がこの値を見る。声の担い手を
         知っているのは DIF なので、聞き先をここへ寄せる。
         """
-        tts = self._agent._tts
-        return bool(tts and tts.understands_tags)
+        return bool(self._tts and self._tts.understands_tags)
 
     async def speak(self, text: str) -> None:
         """声に出す。
@@ -53,12 +57,11 @@ class DIF:
         **例外は飲む。** 機器は落ちる前提のもので、声が出せなかったことでターンごと
         壊すわけにはいかない（移す前と同じ扱い）。
         """
-        tts = self._agent._tts
-        if tts is None:
+        if self._tts is None:
             return
         logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
         with contextlib.suppress(Exception):
-            await tts.call("say", {"text": text})
+            await self._tts.call("say", {"text": text})
 
     # ── 調べもの ──────────────────────────────────────────────────────────
 
@@ -68,8 +71,7 @@ class DIF:
         **ここでは畳まない。** 投げられなかったときに開いた意図を閉じるのは呼び手の
         仕事で、口が例外を飲むと飛行中の数が合わなくなる。
         """
-        agent = self._agent
-        tool = agent._deferred_search if kind == "search_deferred" else agent._deferred_fetch
+        tool = self._search if kind == "search_deferred" else self._fetch
         logger.debug("DIF lookup → %s", kind)
         return await tool.dispatch(params)
 
