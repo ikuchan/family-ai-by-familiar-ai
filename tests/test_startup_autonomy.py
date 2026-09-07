@@ -32,6 +32,7 @@ def _agent(*, sensor=True):
     # ループは生成のときに機器を DIF へ渡す。`__init__` を通さない土台なので、
     # 実機体が必ず持つものはここで置く（無い機体の `_tts` は None）。
     a._tts = None
+    a._mcp = None
     a._deferred_search = MagicMock()
     a._deferred_fetch = MagicMock()
     return a

@@ -20,6 +20,7 @@ from datetime import datetime
 
 from ..config import DriveConfig
 from ..core import drive_dynamics as dd
+from ..io.dif import DIF
 from ..io.aif import AIF, Firing
 from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..drive_register import AiDrivers, load_drives, save_drives
@@ -43,11 +44,12 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
     重い呼び出しではないが DB を触るのでスレッドへ逃がす。`load_current_mood` は内部で
     `db.lock` を取り再入できないため、ロックを取る前に読む（既存 GUI 実装と同じ順序）。
     """
+
     def _work() -> tuple[dd.DriveFiring, AiDrivers]:
         from ..db import get_db
 
-        cfg = effective_drive_cfg(DriveConfig())    # 深夜は蓄積が遅くなる（#13）
-        mood = load_current_mood()          # 自己接続でロックを取り、抜ける
+        cfg = effective_drive_cfg(DriveConfig())  # 深夜は蓄積が遅くなる（#13）
+        mood = load_current_mood()  # 自己接続でロックを取り、抜ける
         database = get_db()
         with database.lock:
             conn = database.conn()
@@ -88,14 +90,21 @@ def _names(names: set[str]) -> str:
 class Tonic:
     """自律機構の常駐タスク。$P_T$ ごとに drive を進め、発火を QA へ積む。"""
 
-    def __init__(self, information_processing, *, agent=None,
-                 period: float = TONIC_PERIOD_SEC,
-                 drive_cfg: DriveConfig | None = None,
-                 presence=None) -> None:
+    def __init__(
+        self,
+        information_processing,
+        *,
+        agent=None,
+        period: float = TONIC_PERIOD_SEC,
+        drive_cfg: DriveConfig | None = None,
+        presence=None,
+    ) -> None:
         self._ip = information_processing
         # T は I の中身を直接呼ばない。行き来は AIF（自律機構接続）へ集める
         # （`設計図` ③-2 の4つの口）。
         self._aif = AIF(information_processing)
+        # 人の出入りはカメラが出す機器の出来事なので、QD＝DIF を通す（環-e-は）。
+        self._dif = DIF(loop=information_processing)
         self._agent = agent
         # 在/不在の情報源（`PresenceSensor`）。渡さなければ身元の情報源だけで判断する。
         # agent から取りに行くと、テストの MagicMock が「常に誰か居る」を返してしまう。
@@ -166,14 +175,13 @@ class Tonic:
         # 保留していた発話を配るのは、在席がゼロから立ち上がった瞬間だけ。入室そのものは
         # 毎回積むが、会話中に家族が増えるたび保留が割り込むのは避ける。
         if current != previous:
-            logger.info("tonic 在席の変化：%s → %s",
-                        _names(previous), _names(current))
+            logger.info("tonic 在席の変化：%s → %s", _names(previous), _names(current))
         rose_from_zero = not previous and bool(current)
         for name in sorted(current - previous):
-            self._ip.push_device("入室", f"{name} が来た", release_pending=rose_from_zero)
-            rose_from_zero = False    # 同時に2人来ても保留を配るのは1回
+            self._dif.device("入室", f"{name} が来た", release_pending=rose_from_zero)
+            rose_from_zero = False  # 同時に2人来ても保留を配るのは1回
         for name in sorted(previous - current):
-            self._ip.push_device("退室", f"{name} が居なくなった", release_pending=False)
+            self._dif.device("退室", f"{name} が居なくなった", release_pending=False)
 
     def _nobody_is_present(self) -> bool:
         """誰も居ないか。在/不在の層（`PresenceSensor`・YOLO・登録が要らない）で見る。
@@ -205,8 +213,10 @@ class Tonic:
                 if not firing.any:
                     continue
                 if not self._cfg.autonomous:
-                    logger.debug("Drive fired: %s（DRIVE5_AUTONOMOUS が off なので積まない）",
-                                 select_fired_axis(firing, accumulated))
+                    logger.debug(
+                        "Drive fired: %s（DRIVE5_AUTONOMOUS が off なので積まない）",
+                        select_fired_axis(firing, accumulated),
+                    )
                     continue
                 axis = select_fired_axis(firing, accumulated)
                 if axis is None:
