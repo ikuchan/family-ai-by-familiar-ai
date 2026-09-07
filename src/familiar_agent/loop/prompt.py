@@ -70,25 +70,50 @@ EVENT_SYSTEM_PROMPT = """\
 """
 
 
-def rules_section() -> str:
-    """`EVENT_SYSTEM_PROMPT` の `(rules ...)` 節を括弧の対応で切り出す（出-e）。
-
-    整合チェックは「規則違反があるか」を判定する仕事で、その規則の正本はここにしかない。
-    渡さなければ照合する相手が無く、実測では違反18件中3件しか捕まえなかった。
-
-    行数や位置で切らないのは、S 式が編集されても壊れないようにするためである。
-    """
-    start = EVENT_SYSTEM_PROMPT.index("  (rules")
+def _span(text: str, start: int) -> int:
+    """`start` の `(` に対応する `)` の次の位置を返す。閉じていなければ ValueError。"""
     depth = 0
-    for i in range(start, len(EVENT_SYSTEM_PROMPT)):
-        ch = EVENT_SYSTEM_PROMPT[i]
+    for i in range(start, len(text)):
+        ch = text[i]
         if ch == "(":
             depth += 1
         elif ch == ")":
             depth -= 1
             if depth == 0:
-                return EVENT_SYSTEM_PROMPT[start : i + 1]
-    raise ValueError("(rules ...) の括弧が閉じていない")
+                return i + 1
+    raise ValueError(f"括弧が閉じていない（{start} から）")
+
+
+def drop_constraint(text: str, rule_id: str) -> str:
+    """`:id <rule_id>` を持つ `(constraint ...)` を1つ、括弧の対応で取り除く。
+
+    行数や位置で切らないのは、S 式が編集されても壊れないようにするためである。
+    直前の空白と改行も一緒に落とす（残すと空行が開く）。
+    """
+    marker = f":id {rule_id}\n"
+    at = text.find(marker)
+    if at < 0:
+        return text
+    start = text.rindex("(constraint", 0, at)
+    end = _span(text, start)
+    # 直前の行頭の空白ごと落とす。
+    head = text.rindex("\n", 0, start)
+    return text[:head] + text[end:]
+
+
+def rules_section(*, allow_tts_tags: bool = False) -> str:
+    """`EVENT_SYSTEM_PROMPT` の `(rules ...)` 節を括弧の対応で切り出す（出-e）。
+
+    整合チェックは「規則違反があるか」を判定する仕事で、その規則の正本はここにしかない。
+    渡さなければ照合する相手が無く、実測では違反18件中3件しか捕まえなかった。
+
+    `allow_tts_tags` は、合成の担い手が角括弧タグを解するとき（`TTSTool.understands_tags`）
+    に真になる。そのときは `no-tts-tags` を外す——解する担い手では、タグは話し方の指示で
+    あって違反ではない。
+    """
+    start = EVENT_SYSTEM_PROMPT.index("  (rules")
+    sec = EVENT_SYSTEM_PROMPT[start : _span(EVENT_SYSTEM_PROMPT, start)]
+    return drop_constraint(sec, "no-tts-tags") if allow_tts_tags else sec
 
 
 def build_event_system_prompt(
@@ -100,6 +125,7 @@ def build_event_system_prompt(
     workspace_ctx: str,
     iter_ctx: str = "",
     recent_ctx: str = "",
+    allow_tts_tags: bool = False,
 ) -> tuple[str, str]:
     """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
 
@@ -112,9 +138,12 @@ def build_event_system_prompt(
     """
     from ..core.context_parts import Stance, build_context
 
+    core = EVENT_SYSTEM_PROMPT
+    if allow_tts_tags:
+        core = drop_constraint(core, "no-tts-tags")
     ctx = build_context(
         stance=Stance.PAJU,
-        core=EVENT_SYSTEM_PROMPT,
+        core=core,
         self_understanding=self_understanding,
         family=family_md,
         now=f'(now :datetime "{clock.now_local_str()}")',

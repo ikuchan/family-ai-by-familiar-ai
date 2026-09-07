@@ -1,7 +1,8 @@
 """TTS tool - voice of the embodied agent.
 
 Built-in tools:
-- say(text): speak aloud via ElevenLabs streaming TTS. Supports audio style tags e.g. [cheerful].
+- say(text): speak aloud. 合成の担い手は TTS_ENGINE で決まる（sbv2＝ローカル・既定／
+  elevenlabs＝外部 API）。角括弧タグ [cheerful] を渡せるのは解する担い手だけ。
   When ELEVENLABS_API_KEY is unset, runs in display-only (silent) mode — text is shown but not spoken.
 Config: ELEVENLABS_API_KEY, TTS_VOICE_ID, GO2RTC_URL, TTS_OUTPUT.
 """
@@ -116,6 +117,11 @@ def _ensure_go2rtc(api_url: str) -> None:
 
 
 # 自分で起こした合成サーバー。終了時に止めるために持つ（人が別に立てたものは触らない）。
+# 角括弧タグ（[cheerful] など）を指示として解する担い手。ここに載っていない担い手には
+# 渡さない——解さないモデルへ渡せば、そのまま音になるか、音素として崩れる。
+TAG_AWARE_ENGINES = ("elevenlabs",)
+
+
 _sbv2_proc: "subprocess.Popen | None" = None
 
 
@@ -224,6 +230,26 @@ class TTSTool:
         if self.api_key:
             _ensure_go2rtc(self.go2rtc_url)
 
+    @property
+    def understands_tags(self) -> bool:
+        """この担い手が角括弧タグを指示として解するか。
+
+        整え方・`say` の説明・規則の3箇所がこの1つの値を見る。担い手を切り替えたときに
+        どれかだけが取り残されないようにするためである。
+        """
+        return self.engine in TAG_AWARE_ENGINES
+
+    def _clean_for_speech(self, text: str) -> str:
+        """声にする前に整える。丸括弧のト書きは常に落とす（読み上げても意味が無い）。
+
+        角括弧タグは、解する担い手にだけ残す。
+        """
+        from .._ui_helpers import clean_spoken_text, strip_stage_directions
+
+        if self.understands_tags:
+            return strip_stage_directions(text)
+        return clean_spoken_text(text)
+
     async def say(self, text: str, output: str | None = None) -> str:
         """声に出す。合成の担い手は `engine` で決まる。
 
@@ -246,9 +272,7 @@ class TTSTool:
         サーバーが落ちていても例外は投げない。話せなかったことだけを返す（機器は落ちる
         前提のもので、発話の失敗でターンごと壊すわけにはいかない）。
         """
-        from .._ui_helpers import strip_stage_directions
-
-        text = strip_stage_directions(text)
+        text = self._clean_for_speech(text)
         if not text:
             return "Said: (nothing to speak after cleaning)"
         if len(text) > 200:
@@ -313,11 +337,9 @@ class TTSTool:
 
         import aiohttp
 
-        from .._ui_helpers import strip_stage_directions
-
-        # Drop parenthetical narration like '（静かに待つ）' (ElevenLabs would read
-        # it aloud), but KEEP [audio tags] — eleven_v3 uses them for delivery.
-        text = strip_stage_directions(text)
+        # 丸括弧のト書き（'（静かに待つ）'）は落とし、[audio tags] は残す——eleven_v3 は
+        # それを話し方の指示として解する。
+        text = self._clean_for_speech(text)
         if not text:
             return "Said: (nothing to speak after cleaning)"
         if len(text) > 200:
@@ -399,7 +421,13 @@ class TTSTool:
                     "properties": {
                         "text": {
                             "type": "string",
-                            "description": "Text to speak. Can include ElevenLabs audio tags like [cheerful], [warmly].",
+                            "description": (
+                                "Text to speak. Can include ElevenLabs audio tags "
+                                "like [cheerful], [warmly]."
+                                if self.understands_tags
+                                else "Text to speak. Plain text only — bracket tags "
+                                "are stripped and have no effect."
+                            ),
                         },
                         # 想起した記憶をどう扱ったかの申告（課題5 E節 段2）。参照した MI だけ
                         # 再評価する、という設計の更新契機がこれ。W に出した id で指す。

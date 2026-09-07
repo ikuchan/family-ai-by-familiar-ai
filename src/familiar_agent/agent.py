@@ -726,7 +726,11 @@ class EmbodiedAgent:
                 stance=stance,
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
-                rules=rules_section() if with_rules else "",
+                rules=(
+                    rules_section(allow_tts_tags=bool(self._tts and self._tts.understands_tags))
+                    if with_rules
+                    else ""
+                ),
             ).stable
         except ValueError as e:
             logger.warning("立ち位置を組めなかったので渡さずに続ける: %s", e)
