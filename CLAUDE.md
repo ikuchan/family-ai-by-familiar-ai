@@ -66,9 +66,9 @@ familiar-ai は、家庭で家族が使う、身体を持つ伴侶エージェ�
 アイドルの DMN サイクル（ワークスペースの勝者なし）では、`capabilities.yaml`
 から自己理解を定期的に更新する。
 
-**遅延配信ターンは、いま起きない。** `should_deliver_deferred_result()`（`agent.py`）は
-定義だけが残り、**呼び手が本番コードに0件**である。完了した `search_deferred` /
-`fetch_deferred` の結果は、駆動体が起こす通常の反復で配信される。
+**遅延配信ターンという別経路は無い。** 完了した `search_deferred` / `fetch_deferred` の
+結果は、完了キュー → O → 次の反復として配信される。在席・静穏時間・「黙っていて」の依頼は
+`InformationProcessing._delivery_block_reason()` が1箇所で見る。
 
 以前のプロンプトのみの社会ロジックは、もはや全体像ではない。決定論的な状態層が、
 生入力と応答計画のあいだに入っている。

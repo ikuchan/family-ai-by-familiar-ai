@@ -821,6 +821,22 @@ Style-Bert-VITS2（声 jvnv-M2-jp）、STT は faster-whisper（`large-v3`・cud
 **完了条件は数え上げでなく検索で置いた。** テストが manifest から `` `*.py` `` の参照を全部
 引き、`src/familiar_agent/` に実在しないものが0件であることを見る。項を足すたびに効く。
 
+**到達不能だった2つの経路を撤去した**（2026-09-08・出-j の続き）。
+
+| 撤去したもの | なぜ到達不能だったか |
+|---|---|
+| `core/brief_turn.py`（file ごと）・`agent.py` の束ね3つと `_BRIEF_REPLY_*` 定数3つ | 3つの関数を**呼ぶ箇所が src にも tests にも0件**。型注釈も撤去済みの `social_policy` module を指していた |
+| `agent.should_deliver_deferred_result()`・`_last_social_decision` の分岐・`tests/test_deferred_delivery.py`（30本） | CUI・GUI・TUI が毎周回問い合わせていたゲート。#12a でその3つのポーリングを撤去し、完了は**完了キュー→O→次反復**へ移していた。`_last_social_decision` を代入する箇所も0件で、その分岐には到達しない |
+
+**ゲートは失っていない。** 在席・静穏時間・「黙っていて」の依頼は
+`InformationProcessing._delivery_block_reason()` が引き継いでおり、その docstring が
+「以前は静穏時間を deferred の配信側だけが見ており、自発発話は素通りしていた。判定を
+ここへ集める」と書いている。撤去したのは**移管後に残った側**である。
+
+証明は数え上げでなく**旧名で引いて0件**で置いた（`tests/test_dead_social_paths_removed.py`）。
+あわせて `tests/test_no_phantom_imports.py` が、`src/` の相対 import の行き先が実在するかを
+AST で全件確かめる。
+
 **CLAUDE.md の「実行時アーキテクチャ」も直した。** 12段のターンの流れは旧 `run()` のもので、
 環-c の撤去後は**そのどれも `agent.py` に無かった**（「内受容の収集」「社会方針の選択」
 「応答のメタゲート」はソースに語すら無い）。いまの `run_iteration()` と `_iterate()` の
