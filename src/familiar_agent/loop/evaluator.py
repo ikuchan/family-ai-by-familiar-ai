@@ -21,7 +21,6 @@ from ..core.structured_ask import ask_choice, ask_numbers
 from ..core.context_parts import Stance as _Stance
 from ..emotion_pad import label_from_pad
 from ..mood_register import MoodPAD, load_current_mood
-from .history import _flatten_history
 
 logger = logging.getLogger(__name__)
 
@@ -31,25 +30,25 @@ _COMPANION_MOODS = frozenset({"engaged", "tired", "frustrated", "absent", "happy
 
 # ── プロンプトとパラメータ ───────────────────────────────────────────────────
 
-# Response coherence check — catch logical self-contradictions before delivery
+# 発話の前に規則違反を見る（出-f）。**規則の写しをここに置かない。** 正本は
+# `EVENT_SYSTEM_PROMPT` の `(rules ...)` で、システム文として渡る。写しを持てば、正本が
+# 変わったときにここだけ古くなる。
 _COHERENCE_CHECK_PROMPT = """\
-You are a logical consistency checker. Given the recent conversation and the agent's \
-planned response, determine whether the response contains a logical error, rule violation, \
-or self-contradiction.
+いま言おうとしている応答が、規則に反していないかを見る。
 
-Examples of violations:
-- In shiritori (word-chain game): responding with a word that ends in 'ん'
-- Claiming something that directly contradicts what was just said
-- Giving an answer that violates the stated rules of an ongoing activity
+規則はシステム文にある。それと、下に並んだ事実だけで照らす。**書かれていないことを
+推測しない。** 事実に無いことは、反しているとも反していないとも言えない。
 
-Recent conversation:
-{context}
+{facts}
 
-Agent's planned response:
+直近のやりとり：
+{recent}
+
+言おうとしている応答：
 {response}
 
-If the response is logically consistent, reply with exactly: OK
-If there is a violation, reply with a brief description of the violation (one sentence)."""
+規則に反していなければ、OK とだけ書く。
+反していれば、どの規則にどう反しているかを一文で書く。ほかには何も書かない。"""
 
 # 値踏みゲート（課題5・Config 差し替え可）。A<A_GATE は評価器を呼ばず P/Pn/Dom＝M。
 A_GATE = 0.25
@@ -358,39 +357,28 @@ class Evaluator:
         m = re.search(r"(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])", text.lower())
         return m.group(0) if m else None
 
-    async def check_response_coherence(self, response: str, messages: list) -> str | None:
-        """Check whether the agent's response contains a logical error or rule violation.
+    async def check_response_coherence(
+        self, response: str, *, recent: str = "", facts: str = ""
+    ) -> "str | None":
+        """応答が規則に反していないかを見る。反していればその説明、無ければ None（出-f）。
 
-        Uses the utility backend for a lightweight reflection pass.  Returns None if
-        the response is coherent, or a short violation description if not.
-        Skipped when no dedicated utility backend exists (same heuristic as TAPE).
+        `facts` は機械が集めた事実（`loop/coherence.facts_ctx`）で、`recent` は直近の
+        やりとりである。**どちらもここで作らない。** 見たかどうかも記憶が載ったかどうかも、
+        知っているのはループであって評価器ではない。
 
-        `messages` は生の会話履歴（ネスト list を含みうる）。走査前に flatten する。
+        以前は `agent.messages`（会話履歴）を渡していたが、**この list は追記する箇所が
+        1つも無く、いつも空だった**（環-c の撤去で会話履歴そのものが失われている）。
         """
         if self._utility_backend is self.backend:
             return None
         if not response or response == "(no response)":
             return None
 
-        # Build a compact context from the last few messages (user + assistant text only)
-        context_parts: list[str] = []
-        for msg in _flatten_history(messages[-6:]):  # tool結果はネストlist。走査前に展開
-            role = msg.get("role", "")
-            content = msg.get("content", "")
-            if isinstance(content, str) and content:
-                context_parts.append(f"{role}: {content[:200]}")
-            elif isinstance(content, list):
-                for block in content:
-                    if isinstance(block, dict) and block.get("type") == "text":
-                        context_parts.append(f"{role}: {block['text'][:200]}")
-                        break
-        context = "\n".join(context_parts[-6:])
-
         try:
             # **自分で自分は検査できない。** ここだけ外から測る立ち位置で、規則を
             # システム文で受け取る（規則の正本は `EVENT_SYSTEM_PROMPT` の `(rules ...)`）。
             result = await self._utility_backend.complete(
-                _COHERENCE_CHECK_PROMPT.format(context=context, response=response[:300]),
+                _COHERENCE_CHECK_PROMPT.format(facts=facts, recent=recent, response=response[:300]),
                 max_tokens=60,
                 system=self._stance(_Stance.INSTRUMENT, with_rules=True),
             )

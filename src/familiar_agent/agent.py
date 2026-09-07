@@ -721,13 +721,16 @@ class EmbodiedAgent:
         from .loop.prompt import rules_section
 
         first_person = stance is _Stance.PAJU
+        # `_tts` は __init__ を通さない機体（テストの素の機体）には無い。ここは材料が
+        # 欠けたら渡さずに続く口なので、無いことで落とさない。
+        tts = getattr(self, "_tts", None)
         try:
             return build_context(
                 stance=stance,
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
                 rules=(
-                    rules_section(allow_tts_tags=bool(self._tts and self._tts.understands_tags))
+                    rules_section(allow_tts_tags=bool(tts and tts.understands_tags))
                     if with_rules
                     else ""
                 ),
@@ -1230,9 +1233,15 @@ class EmbodiedAgent:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.infer_companion_mood(text)
 
-    async def _check_response_coherence(self, response: str) -> str | None:
-        """評価器へ委譲（loop/evaluator.py）。生の会話履歴を渡す。"""
-        return await self._evaluator.check_response_coherence(response, self.messages)
+    async def _check_response_coherence(
+        self, response: str, *, recent: str = "", facts: str = ""
+    ) -> "str | None":
+        """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。
+
+        材料はループが集めて渡す。**会話履歴は渡さない**——`self.messages` は追記する
+        箇所が1つも無く、いつも空である（出-f）。
+        """
+        return await self._evaluator.check_response_coherence(response, recent=recent, facts=facts)
 
     async def _summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""

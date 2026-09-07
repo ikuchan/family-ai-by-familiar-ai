@@ -25,6 +25,7 @@ def _resolve_float(field: str, env_name: str, default: float) -> float:
     """
     try:
         from .config_overrides import resolve_float
+
         return resolve_float(field, env_name, default)
     except Exception:  # noqa: BLE001
         return _float_env(env_name, default)
@@ -104,9 +105,7 @@ class CameraConfig:
     # 同じ定点とみなす距離。pan 換算の角度で測るので 0.02 ＝ 3.4°（`poses.py`）。厳密一致を
     # 求めると絶対移動の誤差で毎回「移動中」になり定点ごとの「普通」が育たないが、実測の
     # 誤差は 1e-6 未満なので、この値でも到着は取りこぼさない。
-    pose_tolerance: float = field(
-        default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.02)
-    )
+    pose_tolerance: float = field(default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.02))
     # 在席を確かめる間隔。カメラの動体イベントで起こされるので、短くする必要は無い。
     presence_interval_sec: float = field(
         default_factory=lambda: _float_env("CAMERA_PRESENCE_INTERVAL", 30.0)
@@ -190,7 +189,9 @@ class TTSConfig:
     engine: str = field(default_factory=lambda: os.environ.get("TTS_ENGINE", "sbv2"))
     # SBV2 は別プロセスの HTTP サーバーとして動かす。本体は Python 3.11・torch 2.10 だが
     # SBV2 は Python 3.12・torch 2.5・numpy 1.26.4 固定で、同じプロセスには載らない。
-    sbv2_url: str = field(default_factory=lambda: os.environ.get("SBV2_URL", "http://127.0.0.1:5001"))
+    sbv2_url: str = field(
+        default_factory=lambda: os.environ.get("SBV2_URL", "http://127.0.0.1:5001")
+    )
     sbv2_model: str = field(default_factory=lambda: os.environ.get("SBV2_MODEL", "jvnv-M2-jp"))
     # style は当面固定。PAD→(style, style_weight) の写像は次段（台帳 §9 が「別途設計」）。
     sbv2_style: str = field(default_factory=lambda: os.environ.get("SBV2_STYLE", "Neutral"))
@@ -265,9 +266,7 @@ class MemoryConfig:
     recall_k: int = field(default_factory=lambda: _int_env("RECALL_K", 7))
     # 無関係排除の主たる足切り＝合成 final score の soft 床（生コサインではない）。
     # 0.05 起点（根拠台帳 §4・確定は5軸スコア分布の計測後）。
-    recall_min_score: float = field(
-        default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.05)
-    )
+    recall_min_score: float = field(default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.05))
     # 蒸留（記-a-ろ）の材料から外す新規性の下限。a0 が低い O は「既にある記憶と似ている
     # もの」で、実測でも同じ内容の繰り返しだった（`計測・設定値 根拠台帳`）。既定 0.47 は
     # 実測分布の p10。**内省が範囲内（0.20〜0.70）で調整できる**（`config_overrides`）。
@@ -281,13 +280,9 @@ class MemoryConfig:
     # `recall_k`（正本の K）だけが決める。N ≥ K（`課題5_パラメータ仮案` §93・確定）。
     # 床（min_score）を課すかどうかは採点後の話で、いくつ集めるかとは別の決定なので、
     # 床の有無で N を増減させない。
-    recall_primary_n: int = field(
-        default_factory=lambda: _int_env("RECALL_PRIMARY_N", 50)
-    )
+    recall_primary_n: int = field(default_factory=lambda: _int_env("RECALL_PRIMARY_N", 50))
     # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
-    dedup_window_secs: int = field(
-        default_factory=lambda: _int_env("MEMORY_DEDUP_WINDOW_SECS", 30)
-    )
+    dedup_window_secs: int = field(default_factory=lambda: _int_env("MEMORY_DEDUP_WINDOW_SECS", 30))
     # r 軸の min-max 伸長係数。現行値では恒等（根拠台帳 v0.7 §3 の計測で決定）。
     recall_c_lo: float = field(  # c_lo
         default_factory=lambda: _float_env("RECALL_C_LO", 0.0)
@@ -316,28 +311,16 @@ class MemoryConfig:
     # （情動 0.5 と発話 1.5）なので、±0.3 はその性格が混ざらない範囲に収まる。`w_e` を
     # 他より狭くしてあるのは、実測で e の値の幅が最も広く（0.037〜0.999）、同じ幅でも
     # 順位への効きが大きいためである。
-    recall_w_r_jitter: float = field(
-        default_factory=lambda: _float_env("RECALL_W_R_JITTER", 0.3)
-    )
-    recall_w_t_jitter: float = field(
-        default_factory=lambda: _float_env("RECALL_W_T_JITTER", 0.1)
-    )
-    recall_w_e_jitter: float = field(
-        default_factory=lambda: _float_env("RECALL_W_E_JITTER", 0.2)
-    )
-    recall_w_g_jitter: float = field(
-        default_factory=lambda: _float_env("RECALL_W_G_JITTER", 0.3)
-    )
-    recall_w_p_jitter: float = field(
-        default_factory=lambda: _float_env("RECALL_W_P_JITTER", 0.1)
-    )
+    recall_w_r_jitter: float = field(default_factory=lambda: _float_env("RECALL_W_R_JITTER", 0.3))
+    recall_w_t_jitter: float = field(default_factory=lambda: _float_env("RECALL_W_T_JITTER", 0.1))
+    recall_w_e_jitter: float = field(default_factory=lambda: _float_env("RECALL_W_E_JITTER", 0.2))
+    recall_w_g_jitter: float = field(default_factory=lambda: _float_env("RECALL_W_G_JITTER", 0.3))
+    recall_w_p_jitter: float = field(default_factory=lambda: _float_env("RECALL_W_P_JITTER", 0.1))
     # open な記録の活性下限（`課題5_パラメータ仮案` §184・確定）。open の間だけ導出値に
     # 下限を課す（a = max(導出, a_open)）。置き換えではないので、導出が下限より高い記録は
     # 下がらない。既定 1.0 は「取込の既定より上、pinned より下」。範囲 0.5〜2.0。
     # w_g=1.5 が加算部で最も重い係数なので、下限を課せば確実に W へ浮く。
-    recall_g_open: float = field(
-        default_factory=lambda: _float_env("RECALL_G_OPEN", 1.0)
-    )
+    recall_g_open: float = field(default_factory=lambda: _float_env("RECALL_G_OPEN", 1.0))
     # W 全体の字数枠。**1件の途中では切らず、超えたら適合度の低い件から丸ごと落とす。**
     # 切ると調べた結果の枕だけが残って中身が消える（実機で `「目の前を見る」を see で
     # 調べた結果が届いた：` だけが W に載った）。
@@ -345,9 +328,7 @@ class MemoryConfig:
     # 5 で5反復目は調べられないので完了は最大4件、1件の上限が 8192 字（`completion_content_max`）
     # で 32768 字。これに余裕を見た値である。**この帯は未実測**（調停プロンプトの実測は
     # 合計 8619 字まで）なので、実機で長さと秒数を測って確かめる。
-    workspace_max_chars: int = field(
-        default_factory=lambda: _int_env("WORKSPACE_MAX_CHARS", 40000)
-    )
+    workspace_max_chars: int = field(default_factory=lambda: _int_env("WORKSPACE_MAX_CHARS", 40000))
     # 在席者相関 p の候補集合拡張（slice-2）。在席他者視点でも候補を取り union する退避弁。
     recall_presence_expand: bool = field(
         default_factory=lambda: _bool_env("RECALL_PRESENCE_EXPAND", default=True)
@@ -364,9 +345,7 @@ class MemoryConfig:
     novelty_a0_cap: float = field(default_factory=lambda: _float_env("NOVELTY_A0_CAP", 1.5))
     # 自己認識 MI（W が空のときのデフォルト感情・外部 MI が入れば一員として参加）の重み。
     # 旧・根づき上限 C=2.0 の流用をやめ、支配しない薄い錨へ（emotion は REST が育てる）。
-    self_mi_weight: float = field(
-        default_factory=lambda: _float_env("SELF_MI_WEIGHT", 0.5)
-    )
+    self_mi_weight: float = field(default_factory=lambda: _float_env("SELF_MI_WEIGHT", 0.5))
 
     def recall_weights(self, trigger: str) -> RecallWeights:
         """trigger 種別の5軸重みを返す（`課題5_パラメータ仮案` §280）。
@@ -374,8 +353,7 @@ class MemoryConfig:
         知らない trigger は基底（このクラスの `recall_w_*`）へ落とす。trigger を増やす
         たびに例外で落ちるより、基底で動いて挙動が読めるほうがよい。
         """
-        base = (self.recall_w_r, self.recall_w_t, self.recall_w_e,
-                self.recall_w_g, self.recall_w_p)
+        base = (self.recall_w_r, self.recall_w_t, self.recall_w_e, self.recall_w_g, self.recall_w_p)
         defaults = _TRIGGER_WEIGHT_DEFAULTS.get(trigger)
         suffix = _TRIGGER_ENV_SUFFIX.get(trigger)
         if defaults is None or suffix is None:
@@ -398,13 +376,16 @@ class MemoryConfig:
         反転するので 0 で止める（幅より小さい基底を env で入れたときに起きうる）。
         """
         r = rng or random
-        widths = (self.recall_w_r_jitter, self.recall_w_t_jitter, self.recall_w_e_jitter,
-                  self.recall_w_g_jitter, self.recall_w_p_jitter)
+        widths = (
+            self.recall_w_r_jitter,
+            self.recall_w_t_jitter,
+            self.recall_w_e_jitter,
+            self.recall_w_g_jitter,
+            self.recall_w_p_jitter,
+        )
         values = [
             max(0.0, w + (r.uniform(-width, width) if width > 0.0 else 0.0))
-            for w, width in zip(
-                (base.w_r, base.w_t, base.w_e, base.w_g, base.w_p), widths
-            )
+            for w, width in zip((base.w_r, base.w_t, base.w_e, base.w_g, base.w_p), widths)
         ]
         return RecallWeights(*values)
 
@@ -414,24 +395,16 @@ class PendingSpeechConfig:
     half_life_days: float = field(
         default_factory=lambda: _float_env("PENDING_SPEECH_HALF_LIFE_DAYS", 1.0)
     )
-    floor: float = field(
-        default_factory=lambda: _float_env("PENDING_SPEECH_FLOOR", 0.01)
-    )
+    floor: float = field(default_factory=lambda: _float_env("PENDING_SPEECH_FLOOR", 0.01))
     expire_threshold: float = field(
         default_factory=lambda: _float_env("PENDING_SPEECH_EXPIRE_THRESHOLD", 0.1)
     )
-    max_per_turn: int = field(
-        default_factory=lambda: _int_env("PENDING_SPEECH_MAX", 2)
-    )
-    weight_content: float = field(
-        default_factory=lambda: _float_env("ADDRESS_WEIGHT_CONTENT", 1.0)
-    )
+    max_per_turn: int = field(default_factory=lambda: _int_env("PENDING_SPEECH_MAX", 2))
+    weight_content: float = field(default_factory=lambda: _float_env("ADDRESS_WEIGHT_CONTENT", 1.0))
     weight_relation: float = field(
         default_factory=lambda: _float_env("ADDRESS_WEIGHT_RELATION", 1.0)
     )
-    temperature: float = field(
-        default_factory=lambda: _float_env("ADDRESS_TEMPERATURE", 1.0)
-    )
+    temperature: float = field(default_factory=lambda: _float_env("ADDRESS_TEMPERATURE", 1.0))
 
 
 @dataclass
@@ -455,34 +428,24 @@ class STTConfig:
     whisper_device: str = field(default_factory=lambda: os.environ.get("WHISPER_DEVICE", "cuda"))
     # 常時集音で「発話が終わった」とみなす無音の長さ（秒）。ElevenLabs も 1.0 だった。
     # 短くすると息継ぎで切れ、長くすると返事が遅れる。
-    vad_silence_sec: float = field(
-        default_factory=lambda: _float_env("STT_VAD_SILENCE_SEC", 1.0)
-    )
+    vad_silence_sec: float = field(default_factory=lambda: _float_env("STT_VAD_SILENCE_SEC", 1.0))
     # 書き起こしを「音声でなかった」として捨てる境目（`no_speech_prob` の上限）。
     # Whisper は無音や物音に対して字幕の常套句（「ご視聴ありがとうございました」等）を
     # 当てはめる。実機15件にラベルを付けて測ったところ、幻聴は全件 0.722 以上、本物は
     # 全件 0.709 以下で完全に分かれたので、その直下を既定にする（根拠は計測台帳）。
     # **境目の隙間は 0.013 しかない。** 実機で外れが出たらこの値を動かす。
-    no_speech_max: float = field(
-        default_factory=lambda: _float_env("STT_NO_SPEECH_MAX", 0.72)
-    )
+    no_speech_max: float = field(default_factory=lambda: _float_env("STT_NO_SPEECH_MAX", 0.72))
     # 1つの発話区間の上限（秒）。雑音が続いたときにメモリと GPU を食い続けないための蓋。
     # whisper は 30 秒単位で処理するので、そこを境目にする。
-    max_segment_sec: float = field(
-        default_factory=lambda: _float_env("STT_MAX_SEGMENT_SEC", 30.0)
-    )
+    max_segment_sec: float = field(default_factory=lambda: _float_env("STT_MAX_SEGMENT_SEC", 30.0))
     # これより短い区間は、その場では書き起こさず次の発話まで持ち越して合わせる。実測で、
     # 「今日は／7月30日10時45分／天気は曇りです」が3つに分断され、真ん中の 1.0 秒の区間が
     # 'ジュージュージュー' に崩れた（一括で起こすと正しかった）。**短い断片では文脈が
     # 足りない。** 1.4 秒の区間は正しく起こせていたので、境目はその間にある。
-    min_segment_sec: float = field(
-        default_factory=lambda: _float_env("STT_MIN_SEGMENT_SEC", 1.5)
-    )
+    min_segment_sec: float = field(default_factory=lambda: _float_env("STT_MIN_SEGMENT_SEC", 1.5))
     # 持ち越したまま次が来ないとき、諦めて単独で書き起こすまでの無音（秒）。
     # 「はい」だけの返事が永久に届かないのを避ける。
-    hold_give_up_sec: float = field(
-        default_factory=lambda: _float_env("STT_HOLD_GIVE_UP_SEC", 3.0)
-    )
+    hold_give_up_sec: float = field(default_factory=lambda: _float_env("STT_HOLD_GIVE_UP_SEC", 3.0))
 
 
 @dataclass
@@ -496,12 +459,8 @@ class CodingConfig:
 @dataclass
 class RecognitionConfig:
     # 認識しきい値（cosine）＝「既知の人か」。face=ArcFace / voice=ECAPA。仮置き・実機で調整。
-    face_threshold: float = field(
-        default_factory=lambda: _float_env("FACE_THRESHOLD", 0.35)
-    )
-    voice_threshold: float = field(
-        default_factory=lambda: _float_env("VOICE_THRESHOLD", 0.25)
-    )
+    face_threshold: float = field(default_factory=lambda: _float_env("FACE_THRESHOLD", 0.35))
+    voice_threshold: float = field(default_factory=lambda: _float_env("VOICE_THRESHOLD", 0.25))
     # 自動切替しきい値（cosine）＝「話者を切り替えるほど確信あるか」。認識より少し上。
     # cosine 尺度が顔・声で違うため source 別に持つ（仮置き・実機で調整）。
     face_switch_threshold: float = field(
@@ -515,9 +474,7 @@ class RecognitionConfig:
         default_factory=lambda: _float_env("PRESENCE_INTERVAL_SEC", 30.0)
     )
     # InsightFace のモデルパックと onnxruntime プロバイダ（CUDA→CPU フォールバック）。
-    face_model: str = field(
-        default_factory=lambda: os.environ.get("FACE_MODEL", "buffalo_l")
-    )
+    face_model: str = field(default_factory=lambda: os.environ.get("FACE_MODEL", "buffalo_l"))
     providers: str = field(
         default_factory=lambda: os.environ.get(
             "RECOGNITION_PROVIDERS", "CUDAExecutionProvider,CPUExecutionProvider"
@@ -547,8 +504,12 @@ class AgentConfig:
     # 段階1スライス2：完了キュー経由の1反復1ツール連鎖の反復上限（暴走防止の安全弁）。
     # ネットの調べものは search（リンクが返る）→ fetch（本文を読む）→ 答える で最低3手。
     # 3 だと答える手が残らず、読めなかったときの取り直しの余地も無い（実機で観測）。
-    event_max_iterations: int = field(
-        default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 5)
+    event_max_iterations: int = field(default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 5))
+    # 発話の前に規則違反を見るか（出-f）。**既定は on。** 判定は軽量LLM で、機械は
+    # 見たか・記憶が載ったかという事実を添えるだけである（`loop/coherence.py`）。
+    # 違反が出たら主LLM へ1回だけ差し戻す。切るときは `FAMILIAR_COHERENCE_CHECK=0`。
+    coherence_check: bool = field(
+        default_factory=lambda: _bool_env("FAMILIAR_COHERENCE_CHECK", default=True)
     )
     # 静穏時間＝**自分から**話しかけない時間帯（人への返事は掛からない）。出所は
     # 環境変数 → ここの既定の2段だけ（旧 schedule.conf・ROUTINES.md は撤去）。
@@ -571,9 +532,7 @@ class AgentConfig:
     # 「黙って」と頼まれたが長さを言われなかったときの既定。
     silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 15))
     # 長さを言われたときの上限。超える指定は弾かずにここへ丸める（黙らないより意図に近い）。
-    silence_max_minutes: int = field(
-        default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60)
-    )
+    silence_max_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
     # 残って中身が消える。上限は埋め込みモデル bge-m3 の入力上限 8192 トークンに合わせる。
     # 1文字＝1トークンになる字もあるので、8192 *文字* なら常に 8192 トークン以下に収まり、
@@ -658,9 +617,10 @@ class DriveConfig:
     値は設計の確定/仮値をそのまま既定にする（仮値の最終決定は課題8・実機）。
     b_i＝中立発火頻度のバイアス、c_*＝変調行列 C_ij（軸順 P, Pn, A, Dom）。
     """
-    rate: float = 1.665e-2      # 全欲求共通の基準レート（/秒・課題5 B〔確定〕）
-    p_t: float = 0.5            # T-tick 周期（秒・課題5 A）
-    mult: float = 1.0          # 時間帯倍率（課題10・既定1.0）
+
+    rate: float = 1.665e-2  # 全欲求共通の基準レート（/秒・課題5 B〔確定〕）
+    p_t: float = 0.5  # T-tick 周期（秒・課題5 A）
+    mult: float = 1.0  # 時間帯倍率（課題10・既定1.0）
     # 静穏時間の時間帯倍率は**軸ごとに違う**（設計式 mult_i(t)・#13）。
     #
     # 探索ほか4軸は 0.083。中立 mood（g_seeking = bias_seeking = 0.20）では探索が 0 から
@@ -679,9 +639,9 @@ class DriveConfig:
     # いま効いている REST の倍率（昼は `mult` と同じ 1.0）。静穏時間に
     # `effective_drive_cfg`（T 側）が `mult_quiet_rest` へ差し替える。
     mult_rest: float = 1.0
-    learn: float = 1.0         # 学習倍率（課題10・既定1.0）
+    learn: float = 1.0  # 学習倍率（課題10・既定1.0）
     epsilon: float = 0.001
-    theta_fire: float = 1.0 - 0.001   # 発火閾値 Θ_fire = 1−ε
+    theta_fire: float = 1.0 - 0.001  # 発火閾値 Θ_fire = 1−ε
     discharge_q: float = 1.0 - 0.001  # 放電量 q = 1−ε（全放電）
 
     # バイアス b_i（中立時 g_{D,i}=b_i・0〜1・仮値）
@@ -707,32 +667,47 @@ class DriveConfig:
 
     # 発火→自発ターンの内声（[D-行動選択]・行動は指定せず主LLM が O と文脈から選ぶ）。
     # env で上書きして改善できる（VOICE_SEEKING 等）。
-    voice_seeking: str = field(default_factory=lambda: os.environ.get(
-        "VOICE_SEEKING",
-        "探索したい気持ちが募っている。言葉にするだけで終えず、まず see・検索・look などの"
-        "具体的な行動を1つ選んで実行し、その結果を踏まえて話す。探索する当てが本当に無いなら、"
-        "「今は探索する当てがない」と理由まで結論づけて記憶に残す（曖昧に『気になることがある』"
-        "と言って終えない）。"))
-    voice_rest: str = field(default_factory=lambda: os.environ.get(
-        "VOICE_REST",
-        "休みたい気持ちが募っている。言葉にするだけで終えず、静かに落ち着くか活動を控えるかを"
-        "具体的に選んで実行する。休む必要が特に無いなら、「今は休む必要はない」と理由まで"
-        "結論づけて記憶に残す（曖昧に終えない）。"))
-    voice_bond: str = field(default_factory=lambda: os.environ.get(
-        "VOICE_BOND",
-        "つながりたい気持ちが募っている。言葉にするだけで終えず、相手へ具体的に働きかけるか"
-        "気にかける行動を1つ選んで実行する。今つながる相手や機会が無いなら、"
-        "「今はつながる相手がいない」と理由まで結論づけて記憶に残す（曖昧に終えない）。"))
-    voice_safety: str = field(default_factory=lambda: os.environ.get(
-        "VOICE_SAFETY",
-        "確かめたい・守りたい気持ちが募っている。言葉にするだけで終えず、see・look で見回るか"
-        "状況を具体的に確認する行動を1つ選んで実行する。特に確かめることが無いなら、"
-        "「今は確かめることはない」と理由まで結論づけて記憶に残す（曖昧に終えない）。"))
-    voice_esteem: str = field(default_factory=lambda: os.environ.get(
-        "VOICE_ESTEEM",
-        "認められたい・役に立ちたい気持ちが募っている。言葉にするだけで終えず、何か示すか"
-        "貢献する具体的な行動を1つ選んで実行する。今できる貢献が無いなら、"
-        "「今は貢献できることがない」と理由まで結論づけて記憶に残す（曖昧に終えない）。"))
+    voice_seeking: str = field(
+        default_factory=lambda: os.environ.get(
+            "VOICE_SEEKING",
+            "探索したい気持ちが募っている。言葉にするだけで終えず、まず see・検索・look などの"
+            "具体的な行動を1つ選んで実行し、その結果を踏まえて話す。探索する当てが本当に無いなら、"
+            "「今は探索する当てがない」と理由まで結論づけて記憶に残す（曖昧に『気になることがある』"
+            "と言って終えない）。",
+        )
+    )
+    voice_rest: str = field(
+        default_factory=lambda: os.environ.get(
+            "VOICE_REST",
+            "休みたい気持ちが募っている。言葉にするだけで終えず、静かに落ち着くか活動を控えるかを"
+            "具体的に選んで実行する。休む必要が特に無いなら、「今は休む必要はない」と理由まで"
+            "結論づけて記憶に残す（曖昧に終えない）。",
+        )
+    )
+    voice_bond: str = field(
+        default_factory=lambda: os.environ.get(
+            "VOICE_BOND",
+            "つながりたい気持ちが募っている。言葉にするだけで終えず、相手へ具体的に働きかけるか"
+            "気にかける行動を1つ選んで実行する。今つながる相手や機会が無いなら、"
+            "「今はつながる相手がいない」と理由まで結論づけて記憶に残す（曖昧に終えない）。",
+        )
+    )
+    voice_safety: str = field(
+        default_factory=lambda: os.environ.get(
+            "VOICE_SAFETY",
+            "確かめたい・守りたい気持ちが募っている。言葉にするだけで終えず、see・look で見回るか"
+            "状況を具体的に確認する行動を1つ選んで実行する。特に確かめることが無いなら、"
+            "「今は確かめることはない」と理由まで結論づけて記憶に残す（曖昧に終えない）。",
+        )
+    )
+    voice_esteem: str = field(
+        default_factory=lambda: os.environ.get(
+            "VOICE_ESTEEM",
+            "認められたい・役に立ちたい気持ちが募っている。言葉にするだけで終えず、何か示すか"
+            "貢献する具体的な行動を1つ選んで実行する。今できる貢献が無いなら、"
+            "「今は貢献できることがない」と理由まで結論づけて記憶に残す（曖昧に終えない）。",
+        )
+    )
 
     # 変調行列 C_ij（各欲求の [P, Pn, A, Dom]・絶対値≤1.0・仮値）
     c_seeking: tuple[float, float, float, float] = (0.0, -0.5, 1.0, 0.4)

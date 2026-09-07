@@ -6,7 +6,6 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 
-
 def _make_msg(role: str, text: str) -> dict:
     return {"role": role, "content": text}
 
@@ -291,7 +290,10 @@ class TestCompactMessagesWithNestedToolResults:
 
         # 要約マーカー + recent 2件
         assert len(agent.messages) == 3
-        assert "summary" in agent.messages[0]["content"].lower() or len(agent.messages[0]["content"]) > 0
+        assert (
+            "summary" in agent.messages[0]["content"].lower()
+            or len(agent.messages[0]["content"]) > 0
+        )
 
     def test_recent_slice_structure_preserved(self):
         """_compact_messages 後も recent スライスの構造がそのまま残る。"""
@@ -312,22 +314,32 @@ class TestCompactMessagesWithNestedToolResults:
         assert agent.messages[2] is recent_b
 
 
-# ── _check_response_coherence with nested tool results ─────────────────────
+# ── _check_response_coherence は会話履歴を読まない ──────────────────────────
 
 
-class TestCheckResponseCoherenceWithNestedToolResults:
-    def test_no_error_when_last_6_has_nested_list(self):
-        """直近6件にネストlist要素が含まれても AttributeError が出ない。"""
+class TestCheckResponseCoherenceIgnoresHistory:
+    def test_the_conversation_history_is_not_read(self):
+        """整合チェックは `agent.messages` を読まない（出-f）。
+
+        以前はここへ生の会話履歴を渡しており、ネスト list を走査前に flatten していた。
+        **その list は追記する箇所が1つも無く、いつも空だった**（環-c の撤去で会話履歴
+        そのものが失われている）。いまは材料をループが集めて渡す。
+
+        ネストしたままの履歴を置いても触られないこと（＝走査していないこと）を見る。
+        """
         agent = _make_agent()
-        # utility_backend を別モックにしてループが実行される状態にする
-        agent._utility_backend = MagicMock()
-        agent._utility_backend.complete = AsyncMock(return_value="ok")
+        # 評価器は `_utility_backend` と `backend` から property が都度導くので、
+        # 差し替えるのは agent 側である（評価器へ直接入れても次の参照で作り直される）。
+        util = MagicMock()
+        util.complete = AsyncMock(return_value="OK")
+        agent._utility_backend = util
 
         agent.messages = [
             _make_msg("user", "hello"),
-            [{"role": "user", "content": [{"type": "tool_result", "content": "data"}]}],  # ネストlist
+            [{"role": "user", "content": [{"type": "tool_result", "content": "data"}]}],
             _make_msg("assistant", "reply"),
         ]
-        # AttributeError を出さず None か文字列を返すこと
-        result = asyncio.run(agent._check_response_coherence("some response"))
-        assert result is None or isinstance(result, str)
+        assert asyncio.run(agent._check_response_coherence("some response")) is None
+
+        prompt = util.complete.await_args.args[0]
+        assert "hello" not in prompt and "reply" not in prompt
