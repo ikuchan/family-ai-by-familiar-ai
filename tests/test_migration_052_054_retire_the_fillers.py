@@ -65,15 +65,20 @@ def _run(name: str) -> None:
 # ── 054：つなぎを退避し、以後は記録しない ──────────────────────────────────
 
 
-def test_the_loop_no_longer_records_the_filler() -> None:
-    """つなぎを O へ書く経路そのものを外した。"""
+def test_the_loop_records_the_filler_again_but_hides_it() -> None:
+    """つなぎを O へ書く経路は戻した（段 4）。ただし想起には出さない。
+
+    054 が外したのは、想起の候補を食うからだった。役割が「想起に出さない」を担う形に
+    なったので（`設計方針_MI間の関係` 段 2）、**項として持ちながら想起から外せる**。
+    退避した 337 行は戻さない。
+    """
     import inspect
 
     from familiar_agent.loop import event_loop
+    from familiar_agent.store.relations import HIDDEN_ROLES
 
-    assert "つなぎに言った" not in inspect.getsource(event_loop), (
-        "つなぎを O へ書く経路が残っている"
-    )
+    assert "つなぎに言った" in inspect.getsource(event_loop), "つなぎを O へ書いていない"
+    assert "つなぎ" in HIDDEN_ROLES, "つなぎが想起に出てしまう"
 
 
 def test_the_said_fillers_list_stays() -> None:

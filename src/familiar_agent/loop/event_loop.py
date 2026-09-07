@@ -264,10 +264,11 @@ class InformationProcessing:
         # である。母集合への持ち越しは打ち切りでも消さないが、やりとりは打ち切りで
         # 区切る。二つの用は、区切りの規則が違う。
         self._exchange_from = 0
-        # 前のターンの起点。継起の辺を張るのに使う。起動直後は空なので、最初の
-        # ターンで一度だけ DB から引き直す（`_seeded_origin`）。
-        self._last_origin_id: str | None = None
-        self._seeded_origin = False
+        # 直近のやりとりを、どこから見せるかのカーソル。**繋ぐためではない。**
+        # 辺を書くのは `follows` だけである。起動直後は空なので、最初に要るときに
+        # 一度だけ DB から引く。
+        self._show_from: str | None = None
+        self._show_seeded = False
         # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
@@ -315,25 +316,15 @@ class InformationProcessing:
         return ids
 
     def _begin_origin(self, obs_id: str | None) -> None:
-        """このターンの起点を控え、前のターンとつなぐ（段 3）。
+        """このターンの起点を控える。
 
-        前後を時刻で決めない。会話要約は背景で二秒遅れて書かれるので、時刻順に並べると
-        やりとりが入れ違う。辺そのものが順序を持つ。
-
-        持ち越しは再起動で消える。消えたまま進むと、そこで連なりが切れて直近を辿れなく
-        なるので、起動後の最初のターンだけ DB から引き直す。
+        **何に続くかはここで決めない。** 続き先は、そのターンを作るのに使った W の中に
+        しかない（`_apply_follows`）。段 3 では「直前の起点へ無条件に繋ぐ」形にしていたが、
+        それは鎖の種類を機構の側で数え上げることになり、並行して走る本数に上限が生まれた。
         """
         if not obs_id:
             return
         self._note_wr(obs_id, "起点")
-        if not self._seeded_origin:
-            self._seeded_origin = True
-            with contextlib.suppress(Exception):
-                self._last_origin_id = self._agent._memory.latest_exchange_origin()
-        if self._last_origin_id and self._last_origin_id != obs_id:
-            with contextlib.suppress(Exception):
-                self._agent._memory.record_succession(self._last_origin_id, obs_id)
-        self._last_origin_id = obs_id
 
     def _close_exchange(self) -> "list[tuple[str, str]] | None":
         """いまのやりとりの区間を切り出し、次の始まりを進める。
@@ -343,6 +334,11 @@ class InformationProcessing:
         """
         members = self._wr_ids[self._exchange_from :]
         self._exchange_from = len(self._wr_ids)
+        # 次のターンは、いま閉じたやりとりから見せる。
+        for obs_id, role in members:
+            if role == "起点":
+                self._show_from = obs_id
+                break
         return members or None
 
     def _note_wr(self, obs_id: str | None, role: str) -> None:
@@ -917,6 +913,51 @@ class InformationProcessing:
             p for p in [said, held, mem.format_for_context(memories)] if p and p.strip()
         )
 
+    def _recent_ctx(self) -> str:
+        """直近のやりとりを逐語で組む（段 4）。
+
+        **切らない。** W は 120 字で切るが、細部が要るからこの設計にしたので、ここで
+        縮めると意味がない。O の書き込み上限が 500 字なので、1件あたり最大 500 字である。
+
+        起点は「直前に閉じたやりとり」である。**このターンの起点からは辿れない。** まだ
+        どのやりとりにも属していない（やりとりを書くのは反復が閉じたあと）。
+        """
+        agent = self._agent
+        if not self._show_seeded:
+            self._show_seeded = True
+            with contextlib.suppress(Exception):
+                self._show_from = agent._memory.latest_exchange_origin()
+        if not self._show_from:
+            return ""
+        rows: list = []
+        with contextlib.suppress(Exception):
+            rows = agent._memory.recent_exchanges(self._show_from)
+        if not rows:
+            return ""
+        lines = []
+        for r in rows:
+            when = clock.ts_to_time(r.get("timestamp"))
+            who = "わたし" if str(r.get("role")) in ("答え", "つなぎ") else "相手"
+            lines.append(f"- {when} {who}：{r.get('content', '')}")
+        return "[直近のやりとり（古い順）]\n" + "\n".join(lines)
+
+    def _apply_follows(self, raw) -> None:
+        """このターンが何に続くかを、W の id で受け取って継起へ書く（段 4）。
+
+        **W に無い id は捨てる。** 前方一致で当てずっぽうに引くと、写し間違いが黙って別の
+        記憶へ繋がる。突き合わせは `memory_verdicts` と同じ対応表を通す。
+
+        自分の起点を名指しても繋がない。自己ループはさかのぼりが止まらなくなる。
+        """
+        if not self._parent_id or not self._w_index:
+            return
+        full = self._w_index.get(str(raw or "").replace("-", "")[:12])
+        if not full or full == self._parent_id:
+            return
+        logger.info("event-loop このターンは %.8s に続く", full)
+        with contextlib.suppress(Exception):
+            self._agent._memory.record_succession(full, self._parent_id)
+
     def _apply_memory_verdicts(self, raw) -> None:
         """フルLLM が申告した「想起した記憶の扱い」を反映する（課題5 E節 段2）。
 
@@ -1344,6 +1385,7 @@ class InformationProcessing:
             family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(),
+            recent_ctx=self._recent_ctx(),
             iter_ctx=(
                 f"[反復] {chain}/{max_chain}"
                 # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答える。
@@ -1403,6 +1445,7 @@ class InformationProcessing:
         if say_tc is not None:
             logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
             self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"))
+            self._apply_follows(say_tc.input.get("follows"))
             return await self._speak(str(say_tc.input.get("text", "")).strip(), memories)
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
@@ -1455,11 +1498,19 @@ class InformationProcessing:
         # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
         # 判断できる材料を渡して解く。
         #
-        # **O には書かない**（054）。この一覧はそのままプロンプトへ載るので
-        # （「すでに相手へ伝えた一言」）、次の反復へ伝えるのに記憶は要らない。以前は両方を
-        # 持っており、O の側だけが 337 行たまって想起の候補を食っていた。つなぎは間を
-        # つなぐ一言で、あとから思い出すものではない。
         self._said_fillers.append(text)
+        # **O へ書く**（段 4）。054 で外したのは、想起の候補を食うからだった。役割が
+        # 「想起に出さない」を担う形になったので、項として持ちながら想起から外せる。
+        # 書かないと、相手が聞いた会話とパジュが読み返す会話が食い違う。
+        obs_id, _ = await agent._memory.save_async_with_id(
+            f"つなぎに言った：{text}"[:500],
+            direction="発話",
+            kind="observation",
+            materialize_now=True,
+            parent_id=self._parent_id,
+            **agent._observation_perspective(),
+        )
+        self._note_wr(obs_id, "つなぎ")
 
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。

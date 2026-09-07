@@ -442,15 +442,19 @@ class ObservationMemory:
         """一つのターンの記録を、順序つきのやりとりとして残す（段 3）。"""
         return RelationStore(self._ctx).add(KIND_EXCHANGE, list(members))
 
+    def latest_exchange_origin(self) -> "str | None":
+        """いちばん新しいやりとりの起点。直近のやりとりを、どこから見せるかのカーソル。"""
+        return RelationStore(self._ctx).latest_member(KIND_EXCHANGE, "起点")
+
+    def recent_exchanges(self, origin_id: "str") -> "list[dict]":
+        """継起をさかのぼり、各やりとりの口に出した項を古い順に返す。"""
+        return RelationStore(self._ctx).recent_exchanges(origin_id)
+
     def record_succession(self, prev_id: "str", next_id: "str") -> "int | None":
         """前のターンの起点と、今のターンの起点をつなぐ（段 3）。"""
         return RelationStore(self._ctx).add(
             KIND_SUCCESSION, [(prev_id, "前", 0), (next_id, "後", 1)]
         )
-
-    def latest_exchange_origin(self) -> "str | None":
-        """いちばん新しいやりとりの起点。起動後の最初のターンで、連なりを継ぐのに使う。"""
-        return RelationStore(self._ctx).latest_member(KIND_EXCHANGE, "起点")
 
     def apply_verdicts(self, verdicts: dict[str, str]) -> int:
         """想起した記憶の扱いの申告を反映する（store 層へ委譲）。"""

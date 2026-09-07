@@ -1103,13 +1103,13 @@ def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
     assert "えーっと" not in "".join(shown)
 
 
-def test_the_filler_is_remembered_for_the_prompt_but_not_written_to_memory():
+def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
     # つなぎを言ったことは、調停が知らないと同じことをまた言う（実機で1秒差に同じ文が
-    # 2回出た）。抑止ではなく材料で解く。
+    # 2回出た）。抑止ではなく材料で解く。その材料は `_said_fillers` が持つ。
     #
-    # **材料は `_said_fillers` が持つ。O には書かない**（054）。この一覧はそのまま
-    # プロンプトへ載るので（「すでに相手へ伝えた一言」）、次の反復へ伝えるのに記憶は
-    # 要らない。以前は両方を持っており、O の側だけが 337 行たまって想起の候補を食っていた。
+    # **O へも書く**（段 4）。054 で外したのは想起の候補を食うからだったが、役割が
+    # 「想起に出さない」を担う形になったので、項として持ちながら想起から外せる。書かないと、
+    # 相手が聞いた会話とパジュが読み返す会話が食い違う。
     a = _agent(
         stream_returns=[
             _turn([ToolCall(id="r", name="recall", input={"query": "マイクラ"})]),
@@ -1135,7 +1135,8 @@ def test_the_filler_is_remembered_for_the_prompt_but_not_written_to_memory():
         for c in a._memory.save_async_with_id.call_args_list
         if "調べてみますね" in (c.args[0] if c.args else "")
     ]
-    assert written == [], "つなぎを O へ書いている"
+    assert written, "つなぎを O へ書いていない"
+    assert written[0].args[0].startswith("つなぎに言った："), written[0].args[0]
     assert any("調べてみますね" in t for t in said_fillers), "言ったことを覚えていない"
     # **鎖は進めない。** 進めると直前に届いた完了を押し出し、フルLLM が材料を失う
     # （実機で、想起の結果が W から消えて未回答に終わった）。

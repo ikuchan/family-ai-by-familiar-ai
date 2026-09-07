@@ -29,6 +29,12 @@ Member = tuple[str, str, "int | None"]
 # なので、帰結をこの役割に担わせ、種類は理由だけを言う（`設計方針_MI間の関係` v0.3）。
 ROLE_OLD = "旧"
 
+# 「口に出したが、覚えておく中身がない」を表す役割。つなぎの一言がこれにあたる。
+ROLE_FILLER = "つなぎ"
+
+# **想起に出さない役割。** 理由は二つあるが、帰結は同じである。
+HIDDEN_ROLES = (ROLE_OLD, ROLE_FILLER)
+
 # 種類は、隠す理由を言うだけである。隠すかどうかは役割 `旧` が決める。
 KIND_REVISION = "改訂"  # 版が進み、前の版が現在の状態としては誤りになった
 KIND_FOLD = "畳み込み"  # 逐語が要約に吸われた。畳まれた側は誤りではない
@@ -53,9 +59,10 @@ def not_hidden(alias: str = "o") -> str:
 
 def hidden(alias: str = "o") -> str:
     """その観測がもう現行でないことを表す SQL の述語を返す。`not_hidden` の裏。"""
+    _roles = ", ".join(f"'{r}'" for r in HIDDEN_ROLES)
     return (
         "EXISTS (SELECT 1 FROM relation_members _rm "
-        f"WHERE _rm.obs_id = {alias}.id AND _rm.role = '{ROLE_OLD}')"
+        f"WHERE _rm.obs_id = {alias}.id AND _rm.role IN ({_roles}))"
     )
 
 
@@ -109,8 +116,8 @@ class RelationStore:
     def latest_member(self, kind: str, role: str) -> "str | None":
         """その種類・その役割の項のうち、いちばん新しい関係のもの。
 
-        起動直後は持ち越しが空なので、ここから連なりを継ぐ。無ければ None（最初の
-        ターンには前が無い）。
+        **繋ぐためではなく、どこから見せるかのカーソルである。** 起動直後は持ち回りが
+        空なので、ここから直近のやりとりの表示を始める。無ければ None。
         """
         with self._ctx.lock:
             conn = self._ctx.conn()
@@ -123,6 +130,50 @@ class RelationStore:
                 )
                 row = cur.fetchone()
         return None if row is None else str(row["obs_id"])
+
+    def recent_exchanges(
+        self, origin_id: str, *, roles: "tuple[str, ...]" = ("起点", "つなぎ", "答え")
+    ) -> list[dict]:
+        """`origin_id` から継起をさかのぼり、各やりとりの項を古い順に返す。
+
+        **上限を持たせない。** 会話はどこかで始まってどこかで終わるので、根で自然に
+        止まる。何歩まで、と決めるのは、鎖の長さを機構の側で決めることになる。
+
+        返すのは口に出したものだけである（既定は 起点・つなぎ・答え）。`版` と `見た` は
+        内部の作業記録で、会話ではない。混ぜると、調べている途中の文字列が履歴として
+        読まれる。
+
+        返りは `content`・`role`・`direction`・`timestamp`・`depth` を持つ dict の並び。
+        `depth` は 0 が渡した起点で、さかのぼるほど大きい。並びは古い順である。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "WITH RECURSIVE walk AS ("
+                    "  SELECT %s::text AS obs_id, 0 AS depth"
+                    "  UNION ALL"
+                    "  SELECT prev.obs_id, w.depth + 1 FROM walk w"
+                    "    JOIN relation_members nxt"
+                    "      ON nxt.obs_id = w.obs_id AND nxt.role = '後'"
+                    "    JOIN relations nr"
+                    "      ON nr.id = nxt.relation_id AND nr.kind = %s"
+                    "    JOIN relation_members prev"
+                    "      ON prev.relation_id = nxt.relation_id AND prev.role = '前'"
+                    ") "
+                    "SELECT o.content, m.role, o.direction, o.timestamp, w.depth "
+                    "FROM walk w "
+                    "JOIN relation_members head"
+                    "  ON head.obs_id = w.obs_id AND head.role = '起点' "
+                    "JOIN relations r"
+                    "  ON r.id = head.relation_id AND r.kind = %s "
+                    "JOIN relation_members m ON m.relation_id = r.id "
+                    "JOIN observations o ON o.id = m.obs_id "
+                    "WHERE m.role = ANY(%s) "
+                    "ORDER BY w.depth DESC, m.position",
+                    (origin_id, KIND_SUCCESSION, KIND_EXCHANGE, list(roles)),
+                )
+                return [dict(r) for r in cur.fetchall()]
 
     def members_of(self, relation_id: int) -> list[dict]:
         """関係の項を位置の昇順で返す。位置を持たない項は末尾に置く。"""

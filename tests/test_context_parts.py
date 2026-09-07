@@ -25,6 +25,7 @@ _FAMILY = "# 家族\nゆうすけ（大人）\nはるか（子ども）"
 
 # ── 規則の節を切り出す ──────────────────────────────────────────────────────
 
+
 def test_the_rules_section_is_cut_out_by_matching_parentheses():
     """行数や位置ではなく括弧の対応で切る。S 式が編集されても壊れない。"""
     sec = rules_section()
@@ -35,6 +36,7 @@ def test_the_rules_section_is_cut_out_by_matching_parentheses():
 
 
 # ── 一人称は単独では成り立たない ────────────────────────────────────────────
+
 
 def test_speaking_as_paju_needs_the_self_and_the_family():
     ctx = build_context(stance=Stance.PAJU, self_understanding=_ME, family=_FAMILY)
@@ -59,6 +61,7 @@ def test_measuring_from_outside_needs_neither():
 
 # ── 選んだ部品だけが入る ────────────────────────────────────────────────────
 
+
 def test_only_the_chosen_parts_are_present():
     ctx = build_context(stance=Stance.INSTRUMENT, rules="（規則）")
     assert "（規則）" in ctx.stable
@@ -68,10 +71,15 @@ def test_only_the_chosen_parts_are_present():
 
 # ── 安定が先、可変が後 ──────────────────────────────────────────────────────
 
+
 def test_the_changing_parts_stay_out_of_the_stable_half():
     ctx = build_context(
-        stance=Stance.PAJU, self_understanding=_ME, family=_FAMILY,
-        now="(now :datetime \"2026-09-05 12:00\")", presence="（在席）", workspace="（作業状態）",
+        stance=Stance.PAJU,
+        self_understanding=_ME,
+        family=_FAMILY,
+        now='(now :datetime "2026-09-05 12:00")',
+        presence="（在席）",
+        workspace="（作業状態）",
     )
     for changing in ("2026-09-05", "（在席）", "（作業状態）"):
         assert changing not in ctx.stable, changing
@@ -81,8 +89,11 @@ def test_the_changing_parts_stay_out_of_the_stable_half():
 def test_the_variable_half_keeps_the_documented_order():
     """いま → 在席 → 反復 → 作業状態。既存2箇所が守っていた並びである。"""
     ctx = build_context(
-        stance=Stance.INSTRUMENT, now="ＮＯＷ", presence="ＩＮ",
-        iteration="ＩＴ", workspace="ＷＳ",
+        stance=Stance.INSTRUMENT,
+        now="ＮＯＷ",
+        presence="ＩＮ",
+        iteration="ＩＴ",
+        workspace="ＷＳ",
     )
     v = ctx.variable
     assert v.index("ＮＯＷ") < v.index("ＩＮ") < v.index("ＩＴ") < v.index("ＷＳ")
@@ -102,11 +113,14 @@ def test_a_context_with_nothing_variable_has_an_empty_variable_half():
 
 # ── 静的核を渡すなら、立ち位置の一文は置かない ──────────────────────────────
 
+
 def test_the_static_core_replaces_the_stance_line():
     """静的核の `(identity ...)` が同じことを厚く言っている。二度書かない。"""
     ctx = build_context(
-        stance=Stance.PAJU, core="（静的核）",
-        self_understanding=_ME, family=_FAMILY,
+        stance=Stance.PAJU,
+        core="（静的核）",
+        self_understanding=_ME,
+        family=_FAMILY,
     )
     assert ctx.stable.startswith("[身体と決まり]")
     assert "あなたはパジュである" not in ctx.stable
@@ -121,27 +135,69 @@ def test_without_the_static_core_the_stance_line_leads():
 
 def test_the_stable_half_is_labelled():
     ctx = build_context(
-        stance=Stance.INSTRUMENT, core="（静的核）", self_understanding=_ME,
-        family=_FAMILY, rules="（規則）",
+        stance=Stance.INSTRUMENT,
+        core="（静的核）",
+        self_understanding=_ME,
+        family=_FAMILY,
+        rules="（規則）",
     )
     for label in ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]", "[守っている決まり]"):
         assert label in ctx.stable, label
-    i = [ctx.stable.index(x) for x in
-         ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]", "[守っている決まり]")]
+    i = [
+        ctx.stable.index(x)
+        for x in ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]", "[守っている決まり]")
+    ]
     assert i == sorted(i)
+
+
+def test_the_recent_talk_sits_between_iteration_and_workspace():
+    """直近のやりとりは、反復と作業状態のあいだに置く（段 4）。
+
+    「さっき何があったか」を「何を覚えているか」の直前に置く。作業状態より後ろにすると、
+    想起の一覧のあとに会話が来て、どちらが目の前の話か読み取りにくい。
+    """
+    ctx = build_context(
+        stance=Stance.PAJU,
+        core="核",
+        now="ＮＷ",
+        presence="ＰＲ",
+        inner_state="ＰＩ",
+        iteration="ＩＴ",
+        recent="ＲＣ",
+        workspace="ＷＳ",
+    )
+    order = [ctx.variable.index(t) for t in ("ＮＷ", "ＰＲ", "ＰＩ", "ＩＴ", "ＲＣ", "ＷＳ")]
+    assert order == sorted(order), ctx.variable
+
+
+def test_no_recent_talk_leaves_no_room_for_it():
+    """空なら見出しごと出ない。空の見出しは「無い」ではなく「調べたが無い」と読まれる。"""
+    ctx = build_context(
+        stance=Stance.PAJU,
+        core="核",
+        iteration="ＩＴ",
+        workspace="ＷＳ",
+        recent="",
+    )
+    assert "ＩＴ\n\nＷＳ" in ctx.variable
 
 
 def test_the_inner_state_sits_between_presence_and_iteration():
     """主LLM の可変部の並び：いま → 在席 → 内部状態 → 反復 → 作業状態。"""
     ctx = build_context(
-        stance=Stance.INSTRUMENT, now="ＮＯＷ", presence="ＩＮ",
-        inner_state="ＰＩ", iteration="ＩＴ", workspace="ＷＳ",
+        stance=Stance.INSTRUMENT,
+        now="ＮＯＷ",
+        presence="ＩＮ",
+        inner_state="ＰＩ",
+        iteration="ＩＴ",
+        workspace="ＷＳ",
     )
     v = ctx.variable
     assert v.index("ＮＯＷ") < v.index("ＩＮ") < v.index("ＰＩ") < v.index("ＩＴ") < v.index("ＷＳ")
 
 
 # ── 静的核があるなら、欠けていても組める ────────────────────────────────────
+
 
 def test_the_static_core_carries_the_identity_so_parts_may_be_missing():
     """身元を担うのが静的核なら、自己認識や家族が無くても組める。
