@@ -711,16 +711,13 @@ class EmbodiedAgent:
         from .loop.prompt import rules_section
 
         first_person = stance is _Stance.PAJU
-        # `_tts` は __init__ を通さない機体（テストの素の機体）には無い。ここは材料が
-        # 欠けたら渡さずに続く口なので、無いことで落とさない。
-        tts = getattr(self, "_tts", None)
         try:
             return build_context(
                 stance=stance,
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
                 rules=(
-                    rules_section(allow_tts_tags=bool(tts and tts.understands_tags))
+                    rules_section(allow_tts_tags=bool(self._tts and self._tts.understands_tags))
                     if with_rules
                     else ""
                 ),

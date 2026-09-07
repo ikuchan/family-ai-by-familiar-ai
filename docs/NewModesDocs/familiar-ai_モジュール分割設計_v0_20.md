@@ -209,6 +209,57 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 | **環-e-は** | **DIF を作る**。身体（カメラ・マイク・スピーカー）・MCP-音楽・MCP-検索への呼び出しを1つの口へ集める（**主LLM は入らない**・出-c で資源にした） | `io/dif.py` | 不変（中は同期の転送）・**段1（声と調べもの）は完了**（2026-09-08） |
 | **環-e-に** | **実体を切り出す**。生成器（GEN）・動作器（ACT）・想起（REC）を `loop/event_loop.py` から出す | `loop/generator.py`・`loop/actor.py`・`loop/recall.py` | 不変 |
 
+### 残っている「外から私的属性を触る」（実測・2026-09-08）
+
+口を作っても、**実体が割れていること自体は解けない**。切り出し（環-e-に）を待つあいだ、
+どこがどれだけ触っているかを測って残す。数え上げは網羅の証明にならないが、**減ったことは
+同じ数え方で見える**。
+
+`agent.py` は 1,923 行・**属性 89 個**。ほかのファイルから `agent._…` を触る回数は次のとおり。
+
+| ファイル | 回数 |
+|---|---|
+| `loop/event_loop.py` | **46** |
+| `io/dif.py` | 0（2026-09-08 に 4 → 0。要るものだけを受け取る形へ） |
+| `tui.py` | 3 |
+| `loop/rest.py` | 2 |
+| `loop/tonic.py` | 1 |
+| `gui.py` | 1 |
+
+`loop/event_loop.py` が触る種類は 17 ある。
+
+```
+17回 agent._memory            8回 agent._observation_perspective
+ 4回 agent._persons           2回 agent._social_presence_permission
+ 2回 agent._pmm               2回 agent._evaluator
+ 1回ずつ _utility_backend／_turn_arousal／_spawn_background_task／_scene_backend／
+         _run_post_response_pipeline／_pending_store／_memory_tool／_last_human_at／
+         _in_quiet_hours／_camera／_active_memory
+```
+
+`_` で始まる名前は「外から触らない」という約束である。**その約束を、いちばん大きな相手が
+46 回破っている。** これは2つのクラスというより、**1つの実体が2つのファイルに割れている**
+状態で、`InformationProcessing` は `EmbodiedAgent` の続きを別ファイルで書いている。
+**これを解くのが 環-e-に である。**
+
+### そのほかの、いま残っている崩れ
+
+| 場所 | 何が崩れているか | 引き取り先 |
+|---|---|---|
+| `agent.py` の `RelationStore(self._memory._ctx)` | `_memory` の私的な中身をさらに1段掘る。`ObservationMemory` が接続を返す面を持たないので外から抜いている | **環-e-い**（OIF）。記憶の口が接続を貸す面を持てば消える |
+| `tools/*.py` の `call(tool_name, …)` が文字列で分岐 | 多態でなく `if` の連なり | **崩れではない**。外から来る道具の名前は文字列で、LLM の呼び出しをそのまま受ける形である |
+
+**デメテルの2段連鎖は `._memory._ctx` の1件だけ**である（`agent._x._y` の形はほかに無い）。
+`loop/` と `io/` に `isinstance` は5件あるが、多態にすべきものを型で捌いてはいない。
+
+### 自分の属性を `getattr` で読まない（2026-09-08）
+
+`_stance_context` が `getattr(self, "_tts", None)` と書いていた。`__init__` を通さない
+テストの土台が `_tts` を置かず `AttributeError` になったので守ったものだが、**自分の属性を
+防御的に読む形は「この物の形は決まっていない」と言っているのと同じ**である。実機体は
+`__init__` で必ず `_tts` を持つ。守りを外し、土台の側（`tests/test_compaction.py`・
+`tests/test_startup_autonomy.py`）で実機体が必ず持つものを置く形へ直した。
+
 **OIF を先にしたのは、依存が最も少ないためである。** 記憶は呼ばれる側であって、他のコンポーネントを呼ばない。
 
 **AIF がその次なのは、触る箇所が2つしかないためである。** T→I の情動発火は `tonic.py` が `InformationProcessing.push_affect()` を直接呼び、I→T の Nudge は `agent.py` が `nudge_current_mood()` を直接呼ぶ。**T と I が互いの中身に手を伸ばしている**が、口を1枚挟むだけで済み、キューへの書き方は変えない。
