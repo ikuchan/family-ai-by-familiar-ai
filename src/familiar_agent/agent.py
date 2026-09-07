@@ -13,7 +13,6 @@ from datetime import datetime
 from pathlib import Path
 
 from .core import parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
-from .core import brief_turn  # noqa: E402  brief-turn 判定・軽量返信モードのヒューリスティクス
 from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内部利用＋既存の import 経路を保つ再輸出
     _call_optional_async,
     _noop_list,
@@ -84,9 +83,6 @@ _TOOL_TIMEOUTS: dict[str, float] = {
     "grep": 20.0,
     "bash": 45.0,
 }
-_BRIEF_REPLY_MAX_ITERATIONS = 2
-_BRIEF_REPLY_MAX_TOKENS = 120
-_BRIEF_REPLY_TOOL_NAMES = frozenset({"say", "search_deferred", "fetch_deferred"})
 
 # ── Thinking-mode switching ──────────────────────────────────────────────────
 # Accepts:  /think [on|off|adaptive|disabled|status]
@@ -698,12 +694,6 @@ class EmbodiedAgent:
             return await self._mcp.call(name, tool_input)
         else:
             return f"Tool '{name}' not available (check configuration).", None
-
-    # brief-turn 判定は core/brief_turn.py が持つ。既存の呼び出し口を保つ薄い委譲。
-    _is_candidate_brief_turn = staticmethod(brief_turn.is_candidate_brief_turn)
-    _should_use_brief_reply_mode = staticmethod(brief_turn.should_use_brief_reply_mode)
-
-    _brief_reply_prompt = staticmethod(brief_turn.brief_reply_prompt)
 
     def _stance_context(self, stance: "_Stance", *, with_rules: bool = False) -> "str | None":
         """立ち位置と文脈を組む（出-e）。**部品は正本から取り、控えを持たない。**
@@ -1488,70 +1478,6 @@ class EmbodiedAgent:
         except Exception as e:
             logger.warning("Curiosity extraction failed: %s", e)
         return None
-
-    def should_deliver_deferred_result(self) -> bool:
-        """Return True when a proactive deferred-search delivery turn should fire.
-
-        Four gates must all pass:
-          1. Pending results exist
-          2. Someone is present (camera: person detected; no camera: recent user message)
-          3. Quiet-hours mode is not active
-          4. Current social context allows interruption
-             (blocked during grief / venting / emotional repair / boundary)
-        """
-        if not getattr(self, "_deferred_search", None):
-            return False
-        # Gate 1: at least one result is ready
-        search_pending = self._deferred_search.has_pending
-        fetch_pending = self._deferred_fetch.has_pending
-        if not (search_pending or fetch_pending):
-            return False
-        # Wait until all concurrent tasks finish so results are delivered together
-        if self._deferred_search.is_running or self._deferred_fetch.is_running:
-            return False
-
-        # A user-initiated search whose requester was active within 30 minutes
-        # bypasses both the presence gate and the quiet-hours gate: the user
-        # explicitly asked for this and is effectively present, even if camera
-        # face recognition has not registered them in _present.
-        import time as _time
-
-        _user_recent = _time.time() - getattr(self, "_last_human_at", 0) < 1800
-        _user_initiated = _user_recent and (
-            self._deferred_search.has_user_initiated_pending
-            or self._deferred_fetch.has_user_initiated_pending
-        )
-
-        # Gate 2: presence — reuse the same logic as social desires.
-        # Bypassed for user-initiated recent searches (see above).
-        if not _user_initiated and self._social_presence_permission() == 0.0:
-            return False
-
-        # Gate 3: quiet mode — bypassed for user-initiated recent searches.
-        if not _user_initiated:
-            rule = getattr(self, "_schedule_rule", None)
-            if rule is not None:
-                from datetime import datetime
-
-                if rule.is_quiet(datetime.now()):
-                    return False
-
-        # Gate 4: social policy
-        last_policy = getattr(self, "_last_social_decision", None)
-        if last_policy is not None:
-            _BLOCKED = frozenset(
-                {
-                    "grief_signal",
-                    "venting",
-                    "fatigue_signal",
-                    "repair_attempt",
-                    "boundary_assertion",
-                }
-            )
-            if last_policy.primary_act in _BLOCKED:
-                return False
-
-        return True
 
     def _should_compact(self, threshold_tokens: int = 20_000) -> bool:
         """Return True when context is large enough to warrant compaction.

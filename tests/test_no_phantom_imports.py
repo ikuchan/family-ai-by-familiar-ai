@@ -1,6 +1,6 @@
 """実在しない module を import していないこと。
 
-`core/brief_turn.py` が `TYPE_CHECKING` の中で `from ..social_policy import
+`core/brief_turn.py`（のちに到達不能として撤去）が `TYPE_CHECKING` の中で `from ..social_policy import
 SocialPolicyDecision` を書いていた。**その module は存在しない。** 実行時には評価されない
 ので落ちず、mypy も追えないまま通っていた。型が実体を指していない状態である。
 
