@@ -7,10 +7,22 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING
+from typing import Protocol
 
-if TYPE_CHECKING:
-    from ..social_policy import SocialPolicyDecision
+
+class SocialDecision(Protocol):
+    """社会方針の判断のうち、ここが読むところだけ。
+
+    以前は `..social_policy` の `SocialPolicyDecision` を `TYPE_CHECKING` で指していたが、
+    **その module は撤去されていて存在しない**（`loop/prompt.py` 冒頭が撤去対象に挙げている）。
+    実行時に評価されないので落ちず、型だけが実体の無いところを指していた。
+
+    読むのは `primary_act` の1つだけなので、その形を宣言する。呼ぶ側が何を渡すかに縛られず、
+    型は実在するものを指す。
+    """
+
+    primary_act: str
+
 
 _BRIEF_GREETING_PATTERNS = (
     r"^おはよ",
@@ -73,7 +85,7 @@ def is_candidate_brief_turn(user_input: str, *, is_desire_turn: bool) -> bool:
 def should_use_brief_reply_mode(
     *,
     user_input: str,
-    social_policy: SocialPolicyDecision,
+    social_policy: SocialDecision,
     is_desire_turn: bool,
 ) -> bool:
     if is_desire_turn:
