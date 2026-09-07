@@ -42,7 +42,32 @@ KIND_RESOLVE = "解決"  # 保留していたことが果たされた
 KIND_ADVANCE = "前進"  # 記録の鎖が一つ進んだ
 KIND_EXCHANGE = "やりとり"  # 一つのターンの記録（起点・版・見た・答え・要約）
 KIND_SUCCESSION = "継起"  # ターンどうしの前後
+KIND_COOCCURRENCE = "共起"  # ある反復で一緒に活性した記録の集まり（順序を持たない）
 KIND_UNCLASSIFIED = "未分類"  # 059 が移した既存の辺。どの書き手が作ったか判別できない
+
+
+def _first(row):
+    """1列だけの行から値を取り出す。
+
+    呼び手が渡してくる接続は、経路によって tuple を返したり dict を返したりする
+    （層は `RealDictCursor` で包むが、拡散想起は素の接続を持ち回している）。
+    """
+    if hasattr(row, "values"):
+        return list(row.values())[0]
+    return row[0]
+
+
+def combine_wr_ids(
+    memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
+) -> "list[str]":
+    """共起に入れる id ＝そのターンの W（想起 MI）＋作った記憶。順序保存で重複除去。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for raw in [m.get("memory_id") for m in (memories or [])] + list(new_ids or []):
+        if raw and str(raw) not in seen:
+            seen.add(str(raw))
+            out.append(str(raw))
+    return out
 
 
 def not_hidden(alias: str = "o") -> str:
@@ -130,6 +155,57 @@ class RelationStore:
                 )
                 row = cur.fetchone()
         return None if row is None else str(row["obs_id"])
+
+    def record_cooccurrence(self, obs_ids: "list[str]") -> "int | None":
+        """ある反復で一緒に活性した記録を、一つの共起として残す。"""
+        return self.add(KIND_COOCCURRENCE, [(o, "項", None) for o in obs_ids])
+
+    def cooccurring(
+        self,
+        obs_ids: "list[str]",
+        min_shared: int = 2,
+        limit: int = 20,
+        *,
+        conn: "object | None" = None,
+    ) -> list[str]:
+        """渡した id と `min_shared` 件以上重なる過去の共起から、残りの id を返す。
+
+        **種類で絞る。** 一つの表に全部の関係が載っているので、絞りを落とすと同じターンの
+        問いと答え（やりとり）が共起として返ってくる。
+
+        渡した id 自身と、自己認識の記録（`kind='self_model'`）は除く。
+
+        **既に錠を持っている呼び手は `conn` を渡す。** 錠は再入できないので、拡散想起の
+        ように外側で錠を取ったまま呼ぶ経路が、ここで取り直すと止まる。
+        """
+        ids = [str(o) for o in obs_ids if o]
+        if len(ids) < min_shared:
+            return []
+        if conn is not None:
+            return self._cooccurring(conn, ids, min_shared, limit)
+        with self._ctx.lock:
+            return self._cooccurring(self._ctx.conn(), ids, min_shared, limit)
+
+    def _cooccurring(self, conn, ids: list, min_shared: int, limit: int) -> list[str]:
+        """共起の本体。錠は呼び手が持つ。"""
+        with conn.cursor() as cur:
+            cur.execute(
+                "WITH matched AS ("
+                "  SELECT m.relation_id FROM relation_members m"
+                "    JOIN relations r ON r.id = m.relation_id AND r.kind = %s"
+                "  WHERE m.obs_id = ANY(%s)"
+                "  GROUP BY m.relation_id"
+                "  HAVING count(DISTINCT m.obs_id) >= %s"
+                ") "
+                "SELECT DISTINCT i.obs_id FROM relation_members i "
+                "JOIN matched t ON t.relation_id = i.relation_id "
+                "JOIN observations o ON o.id::text = i.obs_id "
+                " AND o.kind <> 'self_model' "
+                "WHERE NOT (i.obs_id = ANY(%s)) "
+                "LIMIT %s",
+                (KIND_COOCCURRENCE, ids, min_shared, ids, limit),
+            )
+            return [str(_first(r)) for r in cur.fetchall()]
 
     def recent_exchanges(
         self, origin_id: str, *, roles: "tuple[str, ...]" = ("起点", "つなぎ", "答え")
