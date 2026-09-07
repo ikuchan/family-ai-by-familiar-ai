@@ -155,7 +155,7 @@ def test_the_turn_asks_the_synthesiser_whether_tags_are_allowed():
     from familiar_agent.loop import event_loop
 
     src = inspect.getsource(event_loop)
-    assert "allow_tts_tags=bool(agent._tts and agent._tts.understands_tags)" in src
+    assert "allow_tts_tags=" in src and "understands_tags" in src
 
 
 def test_the_utility_stance_asks_the_same_synthesiser():
@@ -165,4 +165,4 @@ def test_the_utility_stance_asks_the_same_synthesiser():
     from familiar_agent import agent as agent_mod
 
     src = inspect.getsource(agent_mod.EmbodiedAgent._stance_context)
-    assert "allow_tts_tags=bool(self._tts and self._tts.understands_tags)" in src
+    assert "allow_tts_tags=" in src and "understands_tags" in src

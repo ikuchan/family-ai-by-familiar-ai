@@ -24,6 +24,7 @@ from ..scene import extract_entities
 from ..store import clock
 from .arbiter import arbitrate
 from ..store.relations import KIND_ADVANCE, KIND_RESOLVE, KIND_REVISION
+from .coherence import facts_ctx
 from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -1405,12 +1406,14 @@ class InformationProcessing:
         if decision.branch == "full" and decision.text and decision.effort != "low" and not drained:
             await self._say_filler(decision.text)
 
+        # 整合チェックにも同じものを渡すので、いったん変数へ出す。
+        recent_ctx = self._recent_ctx(await _settled(follows_task))
         system = build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(),
-            recent_ctx=self._recent_ctx(await _settled(follows_task)),
+            recent_ctx=recent_ctx,
             iter_ctx=(
                 f"[反復] {chain}/{max_chain}"
                 # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答える。
@@ -1472,7 +1475,34 @@ class InformationProcessing:
         if say_tc is not None:
             logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
             self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"))
-            return await self._speak(str(say_tc.input.get("text", "")).strip(), memories)
+            text = str(say_tc.input.get("text", "")).strip()
+            violation = await self._coherence_violation(text, recent_ctx, memories)
+            if violation:
+                # **1回だけ**言い直させる。直した応答は検査しない（際限なく往復させない）。
+                # 差し戻しは新しい1通で投げる。say の tool_use を含む往復をそのまま組むと、
+                # 結果を返さないまま次を送ることになり backend が受け付けない。
+                logger.info("event-loop 整合チェックが違反を捕まえた：%s", violation)
+                retry, _raw2 = await agent.backend.stream_turn(
+                    system=system,
+                    messages=[
+                        agent.backend.make_user_message(
+                            f"{utterance or self._chain_head_content}\n\n"
+                            f"[SELF-CHECK] いま言おうとした「{text}」には問題がある："
+                            f"{violation}\nこれを直して、もう一度 say() で答える。"
+                        )
+                    ],
+                    tools=self._tools(actions=("say",)),
+                    max_tokens=agent.config.max_tokens,
+                    on_text=None,
+                    effort=decision.effort,
+                )
+                retry_tc = next((tc for tc in retry.tool_calls if tc.name == "say"), None)
+                if retry_tc is not None:
+                    self._apply_memory_verdicts(retry_tc.input.get("memory_verdicts"))
+                    text = str(retry_tc.input.get("text", "")).strip() or text
+                else:
+                    logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
+            return await self._speak(text, memories)
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
         logger.debug("event-loop iter=%d/%d 決定=none", chain, max_chain)
@@ -1481,6 +1511,22 @@ class InformationProcessing:
             self._emit(text)
         await self._finish(text, memories, "沈黙")
         return text
+
+    async def _coherence_violation(
+        self, text: str, recent: str, memories: list[dict]
+    ) -> "str | None":
+        """発話の前に規則違反を見る（出-f）。違反の説明を返す。無ければ None。
+
+        **応答の文字列を機械で削らない。** 機械が出すのは、見たか・記憶が載ったかという
+        推測の要らない事実だけで、規則に反するかどうかの判断は軽量LLM がする。
+        """
+        agent = self._agent
+        if not agent.config.coherence_check or not text:
+            return None
+        saw = any(role == "見た" for _, role in self._wr_ids)
+        return await agent._evaluator.check_response_coherence(
+            text, recent=recent, facts=facts_ctx(saw=saw, memories=memories)
+        )
 
     async def _speak(self, text: str, memories: list[dict]) -> str:
         """発話して反復を閉じる。聞く相手が居なければ話さず、後で話すために溜める。

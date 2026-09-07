@@ -33,6 +33,7 @@ def _evaluator(be, *, context=None):
 
 # ── 立ち位置が届く ──────────────────────────────────────────────────────────
 
+
 def test_the_pad_reading_speaks_as_paju():
     be = _backend()
     seen = {}
@@ -68,7 +69,7 @@ def test_the_coherence_check_measures_from_outside_and_needs_the_rules():
         return "＜計器＋規則＞"
 
     ev = _evaluator(be, context=ctx)
-    asyncio.run(ev.check_response_coherence("はい", [{"role": "user", "content": "やあ"}]))
+    asyncio.run(ev.check_response_coherence("はい", recent="やあ", facts="見たか：いいえ"))
     assert seen["coh"] == (Stance.INSTRUMENT, True)
     assert be.complete.await_args.kwargs["system"] == "＜計器＋規則＞"
 
@@ -86,6 +87,7 @@ def test_the_one_line_summary_speaks_as_paju():
 
 
 # ── 材料が欠けても落ちない ──────────────────────────────────────────────────
+
 
 def test_a_missing_part_falls_back_to_no_stance():
     """`FAMILY.md` が無い機体でターンを落とさない。いままでと同じ挙動へ落ちる。"""
@@ -106,6 +108,7 @@ def test_without_a_context_provider_nothing_changes():
 
 
 # ── 残り2つ：欲求の列挙（パジュ）と 同一意図の判定（計器）──────────────────
+
 
 def test_the_same_intent_check_measures_from_outside():
     """語の比較で、感情も人格も関わらない。人格を渡す理由が無い。"""
