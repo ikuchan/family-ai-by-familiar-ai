@@ -14,6 +14,7 @@ agent.py から分離した、次の4つを持つ。
 from __future__ import annotations
 
 import logging
+import re
 
 from .._i18n import _t
 from ..core.structured_ask import ask_choice, ask_numbers
@@ -88,6 +89,22 @@ P と Pn は別々の量で、1本の尺度の両端ではない。両方とも�
 P Pn Dom の順に小数を3つ、空白で区切って書く（例 "0.7 0.2 0.6"）。ほかには何も書かない。"""
 
 # Conversation save prompt — distill what happened into one sentence
+# 続き先の判定（`根拠台帳` §29）。実験で 36 場面すべてを当てた言い方をそのまま使う。
+_FOLLOWS_PROMPT = """\
+いま話しかけられた言葉が、下に並んだ記憶のどれかの続きかを見分ける。
+
+続きとは、同じ話題・同じ用件・同じ相手のやりとりが、そのまま先へ進んだものを指す。
+「さっきの話」「それ」「その」のような指す言葉があれば、指す先が並びの中にあるかを見る。
+話題が変わる合図（「話は変わるけど」）や、やりとりを終える言葉（「おやすみ」）は続きではない。
+
+記憶（各行の先頭が id）：
+{workspace}
+
+いま話しかけられた言葉：{utterance}
+
+続きなら、その記憶の id を12桁そのまま書く。どれの続きでもなければ none と書く。
+ほかには何も書かない。"""
+
 _SUMMARY_PROMPT = """\
 Summarize this exchange in one sentence that captures the emotional core. \
 Write in {lang}.
@@ -106,9 +123,15 @@ Message: {text}
 Reply with the label only (one English word)."""
 
 
-async def _evaluate_emotion_pad(backend, text: str, mood: "MoodPAD", arousal: float,
-                                *, a_gate: float = A_GATE,
-                                system: str | None = None) -> "tuple[MoodPAD | None, float]":
+async def _evaluate_emotion_pad(
+    backend,
+    text: str,
+    mood: "MoodPAD",
+    arousal: float,
+    *,
+    a_gate: float = A_GATE,
+    system: str | None = None,
+) -> "tuple[MoodPAD | None, float]":
     """観測の感情を PAD で評価する（W2b-2）。**測れたかどうかを返り値で表す**（050）。
 
     返すのは `(PAD, A)` で、**測れなかったときの PAD は `None`** である。A は機械 arousal
@@ -276,8 +299,10 @@ class Evaluator:
         """
         # **感情を作るのはパジュである**（出-e）。外から採点する計器ではない。
         pad, a = await _evaluate_emotion_pad(
-            self._utility_backend, text,
-            load_current_mood() if mood is None else mood, arousal,
+            self._utility_backend,
+            text,
+            load_current_mood() if mood is None else mood,
+            arousal,
             system=self._stance(_Stance.PAJU),
         )
         return pad, a, ("neutral" if pad is None else label_from_pad(pad))
@@ -305,6 +330,33 @@ class Evaluator:
         # **読めなかったときに「乗り気」と断定しない**（出-d）。同じファイルにある語ベースの
         # 判定へ落とす。「読めなかったから既定」より根拠がある。
         return label if label is not None else _companion_mood_heuristic(text)
+
+    async def judge_follows(self, workspace_ctx: str, utterance: str) -> "str | None":
+        """いまのやり取りが、W のどれの続きかを見分ける（`根拠台帳` §29）。
+
+        **続き先は W の中にしかない。** そのとき頭にあったものだけが、続きになりうる。
+        W が空なら続き先はありえないので、呼ばない。
+
+        主LLM に `say` の欄で名指させる形は、続きの場面の 36.1% しか返さなかった。応答を
+        作る仕事の傍らでは、判定が後ろに置かれる。ここは判定だけをさせる。
+
+        返りは12桁の id か `None`。形が崩れた返りをそのまま id として使わない
+        （`_apply_follows` の突き合わせで落ちるが、ここでも落としておく）。
+        """
+        if not workspace_ctx.strip() or not utterance.strip():
+            return None
+        out = await self._utility_backend.complete(
+            _FOLLOWS_PROMPT.format(workspace=workspace_ctx, utterance=utterance),
+            max_tokens=40,
+            system=self._stance(_Stance.INSTRUMENT),
+        )
+        text = str(out or "")
+        if "none" in text.lower():
+            return None
+        # **12桁のまとまりを探す。** 16進の文字を拾い集めると、地の文の `d` や `a` が
+        # 頭に付いて、実在しない id ができる（「id は 0123456789ab です」→ `d0123456789a`）。
+        m = re.search(r"(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])", text.lower())
+        return m.group(0) if m else None
 
     async def check_response_coherence(self, response: str, messages: list) -> str | None:
         """Check whether the agent's response contains a logical error or rule violation.

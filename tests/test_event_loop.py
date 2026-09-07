@@ -40,6 +40,9 @@ def _agent(*, stream_returns, max_iters=3):
     mem.format_for_context = MagicMock(return_value="[想起]昔の話")
     a._active_memory = MagicMock(return_value=mem)
     a._memory = MagicMock()
+    # 続き先の判定（`根拠台帳` §29）。既定は「続きではない」。約束を変えたので偽物も
+    # 追随する。返さないと `ensure_future` に非 awaitable が渡って落ちる。
+    a._evaluator.judge_follows = AsyncMock(return_value=None)
     # 書込みごとに別 id を返す（トリガ／open 意図／完了 を区別して検証するため）。
     _ids = iter([f"obs{i}" for i in range(1, 20)])
     a._memory.save_async_with_id = AsyncMock(side_effect=lambda *_a, **_k: (next(_ids), True))
