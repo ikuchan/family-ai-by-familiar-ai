@@ -52,6 +52,19 @@ _LOOKUP_ACTIONS = (
 )
 
 
+async def _settled(task):
+    """待ち合わせて結果を返す。落ちたら None（繋がない側へ倒す）。
+
+    判定が来ないターンは新しい話の始まりとして扱う。誤って繋ぐと、関係のない会話が
+    文脈に混ざる（`設計方針_MI間の関係`）。
+    """
+    try:
+        return await task
+    except Exception as e:  # noqa: BLE001
+        logger.debug("続き先の判定を受け取れなかった（続行する）: %s", e)
+        return None
+
+
 def _query_label(action: str, tool_input: dict) -> str:
     """その求めの見出し。飛行中の一覧・完了の照合・W の「調べたもの」で鍵になる。
 
@@ -913,8 +926,11 @@ class InformationProcessing:
             p for p in [said, held, mem.format_for_context(memories)] if p and p.strip()
         )
 
-    def _recent_ctx(self) -> str:
+    def _recent_ctx(self, follows: "str | None") -> str:
         """直近のやりとりを逐語で組む（段 4）。
+
+        **続きでなければ載せない。** 判定（`根拠台帳` §29）が続き先を返さなかったターンは、
+        新しい話の始まりである。前のやりとりを載せると、関係のない会話が文脈に混ざる。
 
         **切らない。** W は 120 字で切るが、細部が要るからこの設計にしたので、ここで
         縮めると意味がない。O の書き込み上限が 500 字なので、1件あたり最大 500 字である。
@@ -922,7 +938,11 @@ class InformationProcessing:
         起点は「直前に閉じたやりとり」である。**このターンの起点からは辿れない。** まだ
         どのやりとりにも属していない（やりとりを書くのは反復が閉じたあと）。
         """
+        if not follows:
+            return ""
         agent = self._agent
+        # 判定が続き先を返した。その辺は `_link_follows` が書く。
+        self._link_follows(follows)
         if not self._show_seeded:
             self._show_seeded = True
             with contextlib.suppress(Exception):
@@ -941,18 +961,17 @@ class InformationProcessing:
             lines.append(f"- {when} {who}：{r.get('content', '')}")
         return "[直近のやりとり（古い順）]\n" + "\n".join(lines)
 
-    def _apply_follows(self, raw) -> None:
-        """このターンが何に続くかを、W の id で受け取って継起へ書く（段 4）。
+    def _link_follows(self, full: "str | None") -> None:
+        """判定が返した続き先へ、継起の辺を張る（`根拠台帳` §29）。
 
-        **W に無い id は捨てる。** 前方一致で当てずっぽうに引くと、写し間違いが黙って別の
-        記憶へ繋がる。突き合わせは `memory_verdicts` と同じ対応表を通す。
+        **W に無い id は捨てる。** 判定は12桁の形で返すが、実在するかまでは見ていない。
+        突き合わせは `memory_verdicts` と同じ対応表を通す。
 
-        自分の起点を名指しても繋がない。自己ループはさかのぼりが止まらなくなる。
+        自分の起点を指しても繋がない。自己ループはさかのぼりが止まらなくなる。
         """
-        if not self._parent_id or not self._w_index:
+        if not full or not self._parent_id or not self._w_index:
             return
-        full = self._w_index.get(str(raw or "").replace("-", "")[:12])
-        if not full or full == self._parent_id:
+        if full not in set(self._w_index.values()) or full == self._parent_id:
             return
         logger.info("event-loop このターンは %.8s に続く", full)
         with contextlib.suppress(Exception):
@@ -1280,6 +1299,12 @@ class InformationProcessing:
         # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
         # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
         workspace_ctx = self._compose_workspace(mem, memories)
+        # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
+        # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
+        # 直前で、そこは待つ（続きでなければ直近のやりとりを載せてはいけない）。
+        follows_task = asyncio.ensure_future(
+            agent._evaluator.judge_follows(workspace_ctx, utterance or "")
+        )
 
         # 誰と話していると思って喋ったかを残す。これが無いと、口調がおかしいときに
         # 「話者が渡っていない」のか「渡ったが口調が従っていない」のかを切り分けられない。
@@ -1385,7 +1410,7 @@ class InformationProcessing:
             family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(),
-            recent_ctx=self._recent_ctx(),
+            recent_ctx=self._recent_ctx(await _settled(follows_task)),
             iter_ctx=(
                 f"[反復] {chain}/{max_chain}"
                 # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答える。
@@ -1445,7 +1470,6 @@ class InformationProcessing:
         if say_tc is not None:
             logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
             self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"))
-            self._apply_follows(say_tc.input.get("follows"))
             return await self._speak(str(say_tc.input.get("text", "")).strip(), memories)
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。

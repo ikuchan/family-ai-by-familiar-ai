@@ -12,6 +12,8 @@ import asyncio
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
+from unittest.mock import AsyncMock
+
 from familiar_agent.backends import ToolCall
 from familiar_agent.loop.event_loop import InformationProcessing
 from tests.test_event_loop import _agent, _run, _turn
@@ -40,6 +42,7 @@ def _rows():
 
 def test_the_recent_talk_reaches_the_system_text():
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
+    a._evaluator.judge_follows = AsyncMock(return_value="m1")
     a._memory.recent_exchanges = MagicMock(return_value=_rows())
     _run(a, utterance="開会式って何時だっけ")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
@@ -52,6 +55,7 @@ def test_the_verbatim_is_not_shortened():
     """W は 120 字で切るが、ここは切らない。切ると細部が消える。"""
     long = "あ" * 400
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
+    a._evaluator.judge_follows = AsyncMock(return_value="m1")
     a._memory.recent_exchanges = MagicMock(
         return_value=[
             {"content": long, "role": "答え", "direction": "発話", "timestamp": _NOW, "depth": 0},
@@ -65,6 +69,7 @@ def test_the_verbatim_is_not_shortened():
 def test_nothing_is_shown_when_there_is_no_chain():
     """空の見出しは「無い」ではなく「調べたが無い」と読まれる。出さない。"""
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
+    a._evaluator.judge_follows = AsyncMock(return_value="m1")
     a._memory.recent_exchanges = MagicMock(return_value=[])
     _run(a, utterance="はじめまして")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
@@ -78,6 +83,7 @@ def test_the_walk_starts_from_the_last_closed_exchange():
     """
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
     a._memory.latest_exchange_origin = MagicMock(return_value="前回の起点")
+    a._evaluator.judge_follows = AsyncMock(return_value="m1")
     a._memory.recent_exchanges = MagicMock(return_value=[])
     _run(a, utterance="ねえ")
     assert a._memory.recent_exchanges.call_args.args[0] == "前回の起点"
@@ -93,6 +99,7 @@ def test_the_cursor_moves_to_the_exchange_that_just_closed():
         ]
     )
     a._memory.latest_exchange_origin = MagicMock(return_value=None)
+    a._evaluator.judge_follows = AsyncMock(return_value="m1")
     a._memory.recent_exchanges = MagicMock(return_value=[])
 
     async def scenario():
@@ -104,3 +111,18 @@ def test_the_cursor_moves_to_the_exchange_that_just_closed():
     # ふたつめのターンは、ひとつめの起点（obs1）から見せる。
     assert a._memory.recent_exchanges.call_args.args[0] == "obs1"
     assert a._memory.latest_exchange_origin.call_count == 1
+
+
+def test_nothing_is_shown_when_this_turn_continues_nothing():
+    """判定が続き先を返さなければ、直近のやりとりを載せない（`根拠台帳` §29）。
+
+    載せると、関係のない会話が文脈に混ざる。新しい話の始まりに前の話は要らない。
+    """
+    a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
+    a._evaluator.judge_follows = AsyncMock(return_value=None)
+    a._memory.latest_exchange_origin = MagicMock(return_value="前回の起点")
+    a._memory.recent_exchanges = MagicMock(return_value=_rows())
+    _run(a, utterance="はじめまして")
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "直近のやりとり" not in system
+    a._memory.recent_exchanges.assert_not_called()
