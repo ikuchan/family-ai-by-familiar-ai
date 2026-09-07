@@ -1423,6 +1423,8 @@ class InformationProcessing:
                 )
             ),
             workspace_ctx=workspace_ctx,
+            # 角括弧タグを許すかは合成の担い手が決める（`TTSTool.understands_tags`）。
+            allow_tts_tags=bool(agent._tts and agent._tts.understands_tags),
         )
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
