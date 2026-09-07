@@ -793,6 +793,40 @@ day_summary の記録を書くだけである。計測が見た置換先は、�
 
 **依存**：無い。いつでも着手できる。段いだけ先に進めてよい。
 
+#### 実装した（2026-09-07・段い・段ろとも）
+
+**段い**：3件を `enabled: true` にし、`detail` をローカル既定へ書き直した。TTS は
+Style-Bert-VITS2（声 jvnv-M2-jp）、STT は faster-whisper（`large-v3`・cuda）＋silero-vad で、
+どちらも鍵は要らない。外部 API は `TTS_ENGINE=elevenlabs`／`STT_ENGINE=elevenlabs` で戻せる
+逃げ道である。**落とす仕組み自体は生きている**ことを対で確かめた（`camera_vision` は
+`CAMERA_HOST` が無ければ落ち、あれば残る）。
+
+**段ろ**：7件を追った結果は次のとおり。
+
+| 項 | 追った結果 | 処置 |
+|---|---|---|
+| `theory_of_mind` | `tools/tom.py` は撤去済み。狙いは規則 `first-person-perspective-taking` が引き継ぐ | **項ごと落とす** |
+| `social_policy` | module が無い。`loop/prompt.py` 冒頭も「撤去対象」と書いている | **項ごと落とす** |
+| `interoception_bridge` | 同上。felt-sense の文字列生成は `core/helpers.py` にある | **項ごと落とす** |
+| `meta_monitor` | module も「メタゲート」という語もソースに無い | **項ごと落とす** |
+| `appraisal_engine` | 感情の評価は生きている。判定は `loop/evaluator.py`、器と量子化は `emotion_pad.py`・`mood_register.py` | 参照先を直す |
+| `default_mode_network` | DMN は `agent.py` と `capability_state.py` が回す | 参照先を直す |
+| `tape_planning` | `legacy/tape.py` にあるが**本番の呼び手は0件**。環-d の撤去対象 | 参照先を直し、呼び手が無いことを書く |
+
+**`capability_state._KEY_MODULES` も痩せていた。** 自己理解の材料に挙げた14件のうち
+**6件が実在せず**、`if not f.exists(): continue` で黙って飛ばされていた。実在するものだけに
+直し、いま効いている `emotion_pad.py`・`mood_register.py`・`loop/` の3つ・`store/relations.py`
+を足した。
+
+**完了条件は数え上げでなく検索で置いた。** テストが manifest から `` `*.py` `` の参照を全部
+引き、`src/familiar_agent/` に実在しないものが0件であることを見る。項を足すたびに効く。
+
+**CLAUDE.md の「実行時アーキテクチャ」も直した。** 12段のターンの流れは旧 `run()` のもので、
+環-c の撤去後は**そのどれも `agent.py` に無かった**（「内受容の収集」「社会方針の選択」
+「応答のメタゲート」はソースに語すら無い）。いまの `run_iteration()` と `_iterate()` の
+流れへ書き直し、**遅延配信ターンが起きないこと**（`should_deliver_deferred_result()` の
+呼び手が0件）も明記した。
+
 ### 出-f（整合チェックを繋ぎ直す）
 
 **立てた**（2026-09-05）。整合チェック（`check_response_coherence`）は

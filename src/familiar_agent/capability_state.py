@@ -36,21 +36,25 @@ _ROOT = _SRC.parent.parent
 
 _SECRET_KEYWORDS = frozenset({"API_KEY", "PASSWORD", "SECRET", "TOKEN", "WEBHOOK"})
 
+# 自己理解を組むとき docstring を材料にする module。**実在するものだけを挙げる。**
+# 無い名前は `collect_manifest_context` が黙って飛ばすので、材料が痩せても気づけない
+# （appraisal.py・social_policy.py・interoception.py・default_mode.py・meta_monitor.py
+# は撤去済み、tape.py は `legacy/` へ移っており、6件が飛ばされていた）。
 _KEY_MODULES = [
     "desires.py",
     "relationship.py",
-    "appraisal.py",
-    "social_policy.py",
     "self_narrative.py",
     "mcp_client.py",
-    "interoception.py",
-    "default_mode.py",
     "prediction.py",
     "workspace.py",
     "memory_worker.py",
-    "meta_monitor.py",
-    "tape.py",
     "concern_engine.py",
+    "emotion_pad.py",
+    "mood_register.py",
+    "loop/evaluator.py",
+    "loop/event_loop.py",
+    "loop/coherence.py",
+    "store/relations.py",
 ]
 
 
@@ -89,7 +93,7 @@ def filter_enabled(manifest: str, env: dict | None = None) -> str:
         is_item = line.lstrip().startswith("- id:")
         if is_item:
             _flush()
-            keep = True                     # 既定は残す（条件の記載が無ければ有効）
+            keep = True  # 既定は残す（条件の記載が無ければ有効）
         stripped = line.strip()
         if stripped.startswith("enabled:"):
             keep = stripped.split(":", 1)[1].strip().lower() == "true"
@@ -98,7 +102,7 @@ def filter_enabled(manifest: str, env: dict | None = None) -> str:
         if block or is_item:
             block.append(line)
         else:
-            out.append(line)                # 先頭の `capabilities:` など
+            out.append(line)  # 先頭の `capabilities:` など
     _flush()
     return "".join(out)
 
@@ -142,6 +146,7 @@ def load_summary() -> str:
                 row = cur.fetchone()
         if row:
             import json
+
             return str(json.loads(row["value_json"]))
     except Exception as e:
         logger.warning("Could not load capability summary: %s", e)
@@ -152,6 +157,7 @@ def save_summary(text: str) -> None:
     """Persist the AI-written capability summary to agent_state."""
     try:
         import json
+
         now = datetime.now(timezone.utc).isoformat()
         db = get_db()
         with db.lock:

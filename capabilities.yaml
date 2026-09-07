@@ -78,34 +78,33 @@ capabilities:
       modules.
     enabled: true
   - id: realtime_stt
-    summary: Transcribe spoken audio in real-time using ElevenLabs
+    summary: Transcribe spoken audio in real-time
     detail: >
-      Utilizes the ElevenLabs WebSocket API for real-time Speech-to-Text (Scribe v2).
-      It maintains a persistent WebSocket connection and streams PCM audio,
-      leveraging ElevenLabs VAD for speech boundary detection. Implemented in
-      `tools/realtime_stt.py`.
-    enabled_env: ELEVENLABS_API_KEY
+      Continuous listening. Audio is transcribed locally by faster-whisper by
+      default (STT_ENGINE=whisper, model large-v3 on cuda, no API key needed), with
+      silero-vad marking speech boundaries; STT_ENGINE=elevenlabs switches to the
+      ElevenLabs WebSocket API (Scribe v2) instead. Implemented in
+      `tools/realtime_stt.py` and `realtime_stt_session.py`.
+    enabled: true
   - id: stt
-    summary: Transcribe spoken audio using ElevenLabs Scribe API
+    summary: Transcribe a recorded stretch of spoken audio
     detail: >
-      Performs Speech-to-Text transcription using the ElevenLabs Scribe API.
-      It can record audio from the local PC microphone (via sounddevice) or
-      a camera RTSP stream (via PyAV) as a fallback. Implemented in `tools/stt.py`.
-    enabled_env: ELEVENLABS_API_KEY
-  - id: theory_of_mind
-    summary: Enable perspective-taking and social reasoning
-    detail: >
-      The Theory of Mind tool helps the agent understand and reason about the
-      mental states of others before responding. This is crucial for empathetic
-      and contextually aware interactions. Uses `tools/tom.py`.
+      Records audio from the local PC microphone (via sounddevice) or a camera RTSP
+      stream (via PyAV) as a fallback, then transcribes it. Transcription runs
+      locally on faster-whisper by default (STT_ENGINE=whisper, no API key needed);
+      STT_ENGINE=elevenlabs uses the ElevenLabs Scribe API instead. Implemented in
+      `tools/stt.py` and `tools/local_stt.py`.
     enabled: true
   - id: tts
     summary: Speak responses aloud via text-to-speech
     detail: >
-      The Text-to-Speech tool generates spoken output for the agent. It supports
-      backends like ElevenLabs and go2rtc for camera speakers. VoiceGuard prevents
-      TTS output from feeding back into STT. Implemented in `tools/tts.py`.
-    enabled_env: ELEVENLABS_API_KEY
+      The Text-to-Speech tool generates spoken output for the agent. Synthesis runs
+      locally on a Style-Bert-VITS2 server by default (TTS_ENGINE=sbv2, voice
+      jvnv-M2-jp, no API key needed); TTS_ENGINE=elevenlabs switches to the external
+      API. Audio plays on the PC speaker and/or a camera speaker via go2rtc.
+      VoiceGuard prevents TTS output from feeding back into STT. Implemented in
+      `tools/tts.py`.
+    enabled: true
   - id: desire_system
     summary: Drive autonomous motivations and goal-directed behavior
     detail: >
@@ -125,16 +124,10 @@ capabilities:
   - id: appraisal_engine
     summary: Deterministically update affective state based on inputs
     detail: >
-      The deterministic appraisal engine updates the agent's low-dimensional
-      affective state (e.g., valence, arousal) based on incoming information.
-      Implemented in `appraisal.py`.
-    enabled: true
-  - id: social_policy
-    summary: Explicit layer for turn-level interaction decisions
-    detail: >
-      This module provides an explicit social-policy layer that guides the agent's
-      interaction decisions on a turn-by-turn basis, ensuring appropriate social
-      behavior. Implemented in `social_policy.py`.
+      Affective state is updated each turn from the PAD values the utility LLM
+      returns for the incoming observation. The judging prompt and the parsing live
+      in `loop/evaluator.py`; the PAD dataclass, the label quantisation and the
+      mood register live in `emotion_pad.py` and `mood_register.py`.
     enabled: true
   - id: self_narrative
     summary: Maintain a first-person autobiographical diary of sessions
@@ -177,19 +170,12 @@ capabilities:
       Until that gate exists, this capability stays off. See the design note
       `設計方針_家の記録との接続`.
     enabled: false
-  - id: interoception_bridge
-    summary: Provide and semantically map internal bodily signals
-    detail: >
-      The interoception bridge connects to providers of internal bodily signals
-      and maps them semantically, contributing to the agent's self-awareness.
-      Implemented in `interoception.py`.
-    enabled: true
   - id: default_mode_network
     summary: Process spontaneous memory recall during idle time
     detail: >
-      Inspired by the brain's Default Mode Network, this processor wanders through
-      past memories during idle periods, surfacing associations and consolidating
-      memories. Implemented in `default_mode.py`.
+      Inspired by the brain's Default Mode Network. On idle cycles (no workspace
+      winner) the agent refreshes its self-understanding from capabilities.yaml.
+      Driven from `agent.py` and `capability_state.py`.
     enabled: true
   - id: prediction_error_engine
     summary: Minimize prediction error based on the Free Energy Principle
@@ -212,19 +198,12 @@ capabilities:
       ensuring efficient and asynchronous memory management. Implemented in
       `memory_worker.py`.
     enabled: true
-  - id: meta_monitor
-    summary: Monitor metacognitive state and update self-model
-    detail: >
-      The MetaMonitor, implementing a Higher-Order Theory (HOT) layer, records
-      metacognitive states, detects inconsistencies, and produces session summaries
-      for diary and self-model updates. Implemented in `meta_monitor.py`.
-    enabled: true
   - id: tape_planning
     summary: Implement TAPE-inspired planning for embodied agents
     detail: >
       Adapts TAPE planning for embodied agents, including lightweight plan generation
-      and adaptive replanning mechanisms to guide action sequences. Implemented in
-      `tape.py`.
+      and adaptive replanning. Kept in `legacy/tape.py`; **no production caller
+      remains** — scheduled for removal with the retired stores.
     enabled: true
   - id: concern_engine
     summary: Manage lightweight active concerns for self-continuity
