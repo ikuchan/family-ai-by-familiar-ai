@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.agent import EmbodiedAgent
 from familiar_agent.backends import ToolCall
 from tests.test_event_loop import _agent, _run, _turn
+from familiar_agent.loop.event_loop import InformationProcessing
 
 
 def _exchange(a):
@@ -103,3 +104,35 @@ def test_no_relation_is_written_when_the_turn_left_nothing():
     )
 
     agent._memory.record_exchange.assert_not_called()
+
+
+def test_an_interrupted_turn_does_not_leak_into_the_next_one():
+    """話しかけられて調べかけを打ち切ったら、そこで一つのやりとりが閉じる。
+
+    閉じないと、打ち切られた問いと新しい問いが**一つのやりとり**に入る（起点が2つ）。
+    母集合への持ち越しは別で、打ち切りの記録は次のターンの WR にも載り続ける。
+    """
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "明日は晴れだよ"})]),
+        ]
+    )
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        await ip.run_iteration("昨日の天気覚えてる？")
+        # 調べかけの途中で話しかける。
+        await ip.run_iteration("それより明日の予定は？")
+
+    asyncio.run(scenario())
+
+    # 打ち切りで閉じたやりとりに、新しい問いは入っていない。
+    aborted = a._memory.record_exchange.call_args.args[0]
+    assert [r for _, r, _ in aborted].count("起点") == 1, aborted
+
+    # 続くターンのやりとりにも、起点は1つだけ。
+    _, kwargs = a._run_post_response_pipeline.call_args
+    assert [r for _, r in kwargs["exchange"]].count("起点") == 1, kwargs["exchange"]
+    # 母集合へは、打ち切りの分も持ち越して渡る。
+    assert "obs1" in kwargs["extra_wr_ids"]

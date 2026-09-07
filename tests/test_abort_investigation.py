@@ -17,9 +17,11 @@ from tests.test_event_loop import _agent, _turn
 
 
 def _ip_with_investigation():
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
     ip = InformationProcessing(a)
     ip._parent_id = "obs-parent"
     ip._chain_head_id = "obs-child"
@@ -73,7 +75,7 @@ def test_a_running_iteration_is_folded_after_an_abort():
         await ip.close()
 
     asyncio.run(scenario())
-    assert shown == []                       # 何も言わない
+    assert shown == []  # 何も言わない
     a._tts.call.assert_not_awaited()
 
 
@@ -97,11 +99,55 @@ def test_the_abort_is_written_as_a_version():
     a, ip = _ip_with_investigation()
     asyncio.run(ip._abort_investigation())
 
-    versions = [c for c in a._memory.save_async_with_id.call_args_list
-                if c.kwargs.get("direction") == "求め"]
+    versions = [
+        c
+        for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "求め"
+    ]
     assert len(versions) == 1, f"打ち切りの版が1件でない: {len(versions)}"
     body = str(versions[0].args[0])
     assert "打ち切った" in body, f"打ち切りが分からない: {body}"
     assert "search_deferred「明日の天気」" in body, "何を打ち切ったかが残っていない"
     assert versions[0].kwargs["parent_id"] == "obs-parent"
     assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"
+
+
+def test_the_abort_closes_the_exchange():
+    """打ち切りでやりとりを閉じる。
+
+    打ち切りの版の親は、打ち切られた求めの起点である（`_parent_id` を捨てる前に書く）。
+    ところが、やりとりの項は `_finish` までに控えた並びから作られ、打ち切りは `_finish` を
+    通らない。閉じないと並びが次のターンへ持ち越され、**一つのやりとりに起点が2つ**入る
+    （聞かれて答える前に話題が変わった分と、新しい問いが混ざる）。
+
+    答えも要約も無いやりとりになるが、それが起きた事実そのものである。
+    """
+    a, ip = _ip_with_investigation()
+    ip._wr_ids = [("obs1", "起点"), ("obs2", "版")]
+
+    asyncio.run(ip._abort_investigation())
+
+    members = a._memory.record_exchange.call_args.args[0]
+    roles = [r for _, r, _ in members]
+    assert roles.count("起点") == 1, f"起点が1つでない: {members}"
+    assert "答え" not in roles, "答えていないのに答えの項がある"
+    assert [i for i, _, _ in members][:2] == ["obs1", "obs2"]
+    # 打ち切りの版も同じやりとりに入る（親は同じ起点）。
+    assert roles[-1] == "版"
+
+
+def test_the_carry_over_for_the_diffuse_pool_survives_the_abort():
+    """母集合への持ち越しは残す。
+
+    打ち切った調査と、言い直した問いの共起は、たどる価値がある（WR の約束）。やりとりを
+    閉じることと、母集合へ持ち越すことは別の規則である。ここが一緒に消えると、打ち切りの
+    記録へ辿り着く辺が拡散想起から無くなる。
+    """
+    a, ip = _ip_with_investigation()
+    ip._wr_ids = [("obs1", "起点"), ("obs2", "版")]
+
+    asyncio.run(ip._abort_investigation())
+
+    assert [i for i, _ in ip._wr_ids][:2] == ["obs1", "obs2"], "持ち越しまで消している"
+    # 次のやりとりは、打ち切りの次から始まる。
+    assert ip._exchange_from == len(ip._wr_ids)
