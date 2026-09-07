@@ -758,26 +758,20 @@ class EmbodiedAgent:
     def _record_wr(
         self, memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
     ) -> None:
-        """そのターンの W（想起 MI）＋そのターンに作った記憶を1つの WR として共起記録する。
+        """そのターンの W（想起 MI）＋そのターンに作った記憶を1つの共起として記録する。
 
         新記憶↔W の接続を作る（拡散想起の母集合・記録のみ・挙動不変）。id は重複除去する。
+        器は関係へ移した（段 5）。
         """
-        from .wr_store import combine_wr_ids
+        from .store.relations import RelationStore, combine_wr_ids
 
         mi_ids = combine_wr_ids(memories, new_ids)
         if not mi_ids:
             return
         try:
-            from .db import get_db
-            from .wr_store import save_wr
-
-            db = get_db()
-            with db.lock:
-                conn = db.conn()
-                save_wr(conn, mi_ids)
-                conn.commit()
+            RelationStore(self._memory._ctx).record_cooccurrence(mi_ids)
         except Exception as e:  # noqa: BLE001
-            logger.warning("WR record failed: %s", e)
+            logger.warning("共起の記録に失敗: %s", e)
 
     def _observation_perspective(self) -> dict:
         """知覚観察の面の材料（P1）。書き手＝エージェント自身、在席者は知覚から。

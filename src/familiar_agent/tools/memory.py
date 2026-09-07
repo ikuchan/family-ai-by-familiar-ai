@@ -797,7 +797,6 @@ class ObservationMemory:
         try:
             from ..core.diffuse import diffuse_ids, select_entity_seeds
             from ..diffuse_store import (
-                cooccurring_mi_ids,
                 fetch_diffuse_rows,
                 fetch_relation_persons,
                 order_ids_by_farthest,
@@ -820,7 +819,13 @@ class ObservationMemory:
                 conn = self._db.conn()
 
                 def _get_candidates(known: list[str]) -> list[str]:
-                    cands = list(cooccurring_mi_ids(conn, known, min_shared=2, limit=cap * 4))
+                    # 共起は関係の器から引く（段 5）。種類で絞るのは層の側の仕事である。
+                    # 錠は外側で取っているので、接続を渡して取り直させない。
+                    cands = list(
+                        RelationStore(self._ctx).cooccurring(
+                            known, min_shared=2, limit=cap * 4, conn=conn
+                        )
+                    )
                     for pid in select_entity_seeds(fetch_relation_persons(conn, known), exclude)[
                         :cap
                     ]:
