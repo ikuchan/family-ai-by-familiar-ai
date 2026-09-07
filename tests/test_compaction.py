@@ -37,6 +37,9 @@ def _make_agent():
     agent.backend.complete = AsyncMock(return_value="summary text")
     agent.backend.make_user_message = lambda t: _make_msg("user", t)
     agent._utility_backend = agent.backend
+    # `__init__` を通さない土台なので、実機体が必ず持つものはここで置く
+    # （声の無い機体の `_tts` は None）。
+    agent._tts = None
 
     agent._memory = MagicMock()
     agent._memory.content_novelty_async = AsyncMock(return_value=0.5)
