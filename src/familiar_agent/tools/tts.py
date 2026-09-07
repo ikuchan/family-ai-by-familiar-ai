@@ -401,6 +401,16 @@ class TTSTool:
                             "type": "string",
                             "description": "Text to speak. Can include ElevenLabs audio tags like [cheerful], [warmly].",
                         },
+                        # このターンが何に続くか（段 4）。W に出した id で指す。**続き先は
+                        # W の中にしかない。** そのとき頭にあったものだけが、続きになりうる。
+                        "follows": {
+                            "type": "string",
+                            "description": (
+                                "The id of the workspace memory this turn continues, "
+                                "if it continues one. Use the id printed there. "
+                                "Omit when this starts something new."
+                            ),
+                        },
                         # 想起した記憶をどう扱ったかの申告（課題5 E節 段2）。参照した MI だけ
                         # 再評価する、という設計の更新契機がこれ。W に出した id で指す。
                         "memory_verdicts": {
@@ -507,7 +517,11 @@ async def _play_via_sounddevice(audio_path: str) -> bool:
                 if native_rate != samplerate and native_rate > 0:
                     ratio = native_rate // samplerate
                     if ratio > 0:
-                        data = np.repeat(data, ratio, axis=0) if data.ndim > 1 else np.repeat(data, ratio)
+                        data = (
+                            np.repeat(data, ratio, axis=0)
+                            if data.ndim > 1
+                            else np.repeat(data, ratio)
+                        )
                     play_rate = native_rate
                 else:
                     play_rate = samplerate

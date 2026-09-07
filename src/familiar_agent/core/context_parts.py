@@ -63,12 +63,15 @@ def build_context(
     presence: str = "",
     inner_state: str = "",
     iteration: str = "",
+    recent: str = "",
     workspace: str = "",
 ) -> Context:
     """部品を選び、安定 → 可変の順に組む。
 
     並びは呼ぶ側が決められない。順序は前方一致キャッシュが効く条件であり、呼ぶたびに手で
-    守らせると、いつか崩れる。可変部は **いま → 在席 → 内部状態 → 反復 → 作業状態**。
+    守らせると、いつか崩れる。可変部は **いま → 在席 → 内部状態 → 反復 → 直近のやりとり → 作業状態**。直近の
+    やりとりを作業状態の直前へ置くのは、「さっき何があったか」を「何を覚えているか」の
+    手前に出すためである。
 
     `stance=PAJU` は `self_understanding` と `family` を要る。自分が誰で誰と暮らして
     いるかを知らなければ、パジュにはなれない。
@@ -78,16 +81,20 @@ def build_context(
     （軽量LLM）のための代用である。
 
     可変部の各部品は**自分で名乗る**（`(now …)`・`(present …)`・`[内部状態(PI)]`・
-    `[反復]`・`[過去の記憶…]`）ので、ここでは見出しを足さない。
+    `[反復]`・`[直近のやりとり…]`・`[過去の記憶…]`）ので、ここでは見出しを足さない。
     """
     # 要求が効くのは、立ち位置の一文しか身元が無いとき（＝静的核を渡さない軽量LLM）。
     # 静的核があれば `(identity ...)` が身元を担うので、欠けていても組める。`FAMILY.md` が
     # 無い機体や、自己認識をまだ生成していない初回起動で、主LLM のターンごと落とさない。
     if stance is Stance.PAJU and not (core and core.strip()):
-        missing = [n for n, v in (("自己認識", self_understanding), ("家族", family)) if not v.strip()]
+        missing = [
+            n for n, v in (("自己認識", self_understanding), ("家族", family)) if not v.strip()
+        ]
         if missing:
             raise ValueError(
-                "パジュとして立つには " + "と".join(missing) + " が要る（一人称は単独では成り立たない）"
+                "パジュとして立つには "
+                + "と".join(missing)
+                + " が要る（一人称は単独では成り立たない）"
             )
 
     stable_parts: list[str] = []
@@ -104,7 +111,9 @@ def build_context(
             stable_parts.append(label + "\n" + text.strip())
 
     variable_parts = [
-        t.strip() for t in (now, presence, inner_state, iteration, workspace) if t and t.strip()
+        t.strip()
+        for t in (now, presence, inner_state, iteration, recent, workspace)
+        if t and t.strip()
     ]
 
     return Context(

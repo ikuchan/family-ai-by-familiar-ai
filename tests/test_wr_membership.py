@@ -45,7 +45,7 @@ def test_intent_and_completion_are_put_into_the_diffuse_pool():
     assert _extra_wr_ids(a) == ["obs1", "obs2", "obs3", "obs4"]
 
 
-def test_the_filler_is_not_put_into_the_pool():
+def test_the_filler_is_written_and_pooled():
     from unittest.mock import AsyncMock
 
     a = _agent(
@@ -58,17 +58,10 @@ def test_the_filler_is_not_put_into_the_pool():
         return_value='{"branch":"action","action":"recall","query":"q","text":"調べますね"}'
     )
     _run_chain(a, utterance="調べて")
-    # 054 でつなぎは O に書かなくなったので、**そもそも母集合に入りようがない**。
-    # 書かれていないことを確かめる（以前は「書かれたうえで母集合から外す」形だった）。
-    assert all(
-        "つなぎ" not in (c.args[0] if c.args else "")
-        for c in a._memory.save_async_with_id.call_args_list
-    ), "つなぎを O へ書いている"
-    assert all(
-        "つなぎ" not in c.args[0]
-        for c in a._memory.save_async_with_id.call_args_list
-        if c.args[0] in _extra_wr_ids(a)
-    )
+    # つなぎは O へ書く（段 4）。**ただし母集合には載せる。** 想起から外すのは役割が
+    # 担っており、拡散想起は役割を見ない。載せないと、聞こえた一言へ辿り着く辺が無い。
+    written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
+    assert any(str(t).startswith("つなぎに言った：") for t in written), "つなぎを書いていない"
 
 
 def test_an_aborted_investigation_is_carried_to_the_next_pool():
