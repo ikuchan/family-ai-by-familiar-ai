@@ -24,6 +24,7 @@ from ..scene import extract_entities
 from ..store import clock
 from .arbiter import arbitrate
 from ..store.relations import KIND_ADVANCE, KIND_RESOLVE, KIND_REVISION
+from ..io.dif import DIF
 from .coherence import facts_ctx
 from .prompt import build_event_system_prompt
 
@@ -228,6 +229,8 @@ class InformationProcessing:
         self._completion_queue: asyncio.Queue[tuple[str, str, str | None, str, int]] = (
             asyncio.Queue()
         )
+        # 外の機械（声・調べもの）へはこの口だけを通す（環-e-は）。
+        self._dif = DIF(agent)
         # ループ記録は1本の鎖にする：トリガO → 意図O → 完了O → 意図O2 → …。新しい記録を
         # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
         # これで前の記録が想起に出てこなくなり、除外は「その検索を出した意図自身」で足りる。
@@ -525,16 +528,14 @@ class InformationProcessing:
         self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
     ) -> None:
         """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
-        agent = self._agent
         if action in ("see", "look"):
             # 飛行中の数は減らさない。`recall` と同じく取込が1件につき1つ減らす。
             out = await self._run_camera(action, tool_input)
             self._completion_queue.put_nowait((query, out, intent_id, "完了", index))
             return
         if action != "recall":
-            tool = agent._deferred_search if action == "search_deferred" else agent._deferred_fetch
             try:
-                text, dispatched = await tool.dispatch(tool_input)
+                text, dispatched = await self._dif.lookup(action, tool_input)
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
@@ -1426,8 +1427,8 @@ class InformationProcessing:
                 )
             ),
             workspace_ctx=workspace_ctx,
-            # 角括弧タグを許すかは合成の担い手が決める（`TTSTool.understands_tags`）。
-            allow_tts_tags=bool(agent._tts and agent._tts.understands_tags),
+            # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
+            allow_tts_tags=self._dif.understands_tags,
         )
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
@@ -1536,7 +1537,6 @@ class InformationProcessing:
         次に人が現れたときに気づけるようにする。溜めたものの寿命（鮮度切れ・参照先 supersede で
         失効）は `pending_speech` 側が持つ。
         """
-        agent = self._agent
         if not text:
             await self._finish("", memories, "沈黙")
             return ""
@@ -1546,9 +1546,7 @@ class InformationProcessing:
             logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
             await self._finish("", memories, "保留")
             return ""
-        if agent._tts is not None:
-            with contextlib.suppress(Exception):
-                await agent._tts.call("say", {"text": text})
+        await self._dif.speak(text)
         self._emit(text)
         await self._finish(text, memories, "発話")
         return text
@@ -1562,9 +1560,7 @@ class InformationProcessing:
         if not text or self._delivery_block_reason():
             return
         agent = self._agent
-        if agent._tts is not None:
-            with contextlib.suppress(Exception):
-                await agent._tts.call("say", {"text": text})
+        await self._dif.speak(text)
         self._emit(text)
         # 言ったことを覚えておく。覚えないと、調停は「もう一言伝えた」ことを知らないまま
         # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
