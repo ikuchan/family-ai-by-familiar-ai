@@ -260,6 +260,10 @@ class InformationProcessing:
         # 求めの WR に載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
         # (観測 id, 役割)。役割は 起点・版・見た・答え（`_note_wr`）。
         self._wr_ids: list[tuple[str, str]] = []
+        # いまのやりとりが、その並びのどこから始まったか。**やりとりは並びの一区間**
+        # である。母集合への持ち越しは打ち切りでも消さないが、やりとりは打ち切りで
+        # 区切る。二つの用は、区切りの規則が違う。
+        self._exchange_from = 0
         # 前のターンの起点。継起の辺を張るのに使う。起動直後は空なので、最初の
         # ターンで一度だけ DB から引き直す（`_seeded_origin`）。
         self._last_origin_id: str | None = None
@@ -330,6 +334,16 @@ class InformationProcessing:
             with contextlib.suppress(Exception):
                 self._agent._memory.record_succession(self._last_origin_id, obs_id)
         self._last_origin_id = obs_id
+
+    def _close_exchange(self) -> "list[tuple[str, str]] | None":
+        """いまのやりとりの区間を切り出し、次の始まりを進める。
+
+        母集合への持ち越し（`_wr_ids`）はそのまま残す。打ち切った調査と、言い直した問いの
+        共起は、たどる価値があるためである。
+        """
+        members = self._wr_ids[self._exchange_from :]
+        self._exchange_from = len(self._wr_ids)
+        return members or None
 
     def _note_wr(self, obs_id: str | None, role: str) -> None:
         """このターンが作った記録を、役割つきで控える。
@@ -809,6 +823,15 @@ class InformationProcessing:
             # **飛行中の一覧を消す前**に、かつ親を捨てる前に書く。
             with contextlib.suppress(Exception):
                 await self._write_version(aborted=True)
+            # ここまでが一つのやりとりである。打ち切りの版の親は、この求めの起点だから
+            # である。閉じないと並びが次のターンへ持ち越され、一つのやりとりに起点が2つ
+            # 入る。答えも要約も無いやりとりになるが、それが起きた事実そのものである。
+            _aborted = self._close_exchange()
+            if _aborted:
+                with contextlib.suppress(Exception):
+                    self._agent._memory.record_exchange(
+                        [(i, r, n) for n, (i, r) in enumerate(_aborted)]
+                    )
         self._parent_id = None
         self._in_flight_lookups.clear()
         self._version_id = None
@@ -1585,8 +1608,10 @@ class InformationProcessing:
         self._lookup_seq = 0
         self._capped_hit = False
         # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
-        noted, self._wr_ids = list(self._wr_ids), []
-        wr_ids = [i for i, _ in noted]
+        # やりとりは**区間**、母集合は**全部**である（打ち切りの分も次へ持ち越している）。
+        noted = self._close_exchange() or []
+        wr_ids = [i for i, _ in self._wr_ids]
+        self._wr_ids, self._exchange_from = [], 0
         try:
             origin = self._utterance or self._chain_head_content
             arousal = await agent._turn_arousal(origin, text)
