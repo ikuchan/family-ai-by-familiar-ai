@@ -21,19 +21,23 @@ def _agent_with_mcp(names: list[str]):
     a = MagicMock()
     a._mcp = MagicMock()
     a._mcp.get_tool_definitions.return_value = [
-        {"name": n, "description": f"{n} の説明", "input_schema": {"type": "object"}}
-        for n in names
+        {"name": n, "description": f"{n} の説明", "input_schema": {"type": "object"}} for n in names
     ]
     return a
 
 
 def _tool_names(agent, actions: tuple[str, ...]) -> set[str]:
+    from familiar_agent.io.dif import DIF
+
     ip = InformationProcessing.__new__(InformationProcessing)
     ip._agent = agent
+    # 道具の定義は口が答える（環-e-は 段2）。`__init__` を通さない土台なので置く。
+    ip._dif = DIF(mcp=agent._mcp)
     return {d["name"] for d in ip._tools(actions=actions)}
 
 
 # ── ① 家族ティアは渡る ─────────────────────────────────────────────────────
+
 
 def test_the_house_rules_tool_is_offered() -> None:
     got = _tool_names(_agent_with_mcp(["get_house_rules"]), ("house_rules",))
@@ -41,6 +45,7 @@ def test_the_house_rules_tool_is_offered() -> None:
 
 
 # ── ② 名前に人が入っている道具は渡さない ───────────────────────────────────
+
 
 def test_a_personal_tool_is_never_offered_yet() -> None:
     """**話者ゲートができるまで、個人ティアは出さない。**
@@ -62,6 +67,7 @@ def test_the_rule_is_by_name_not_by_a_fixed_list() -> None:
 
 # ── ③ MCP が無い構成でも壊れない ───────────────────────────────────────────
 
+
 def test_no_mcp_means_no_tool() -> None:
     a = MagicMock()
     a._mcp = None
@@ -69,6 +75,7 @@ def test_no_mcp_means_no_tool() -> None:
 
 
 # ── ④ 主LLM へ実際に渡る（動作の一覧に載っている）─────────────────────────
+
 
 def test_the_house_rules_action_reaches_the_full_llm() -> None:
     """`_ACTIONS` に置いただけでは渡らない。連鎖が続く反復の一覧にも要る。"""

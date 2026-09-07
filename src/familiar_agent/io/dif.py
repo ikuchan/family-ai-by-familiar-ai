@@ -31,14 +31,22 @@ class DIF:
     **要るものだけを受け取る。** `agent` を丸ごと持てば、口はその 89 個の属性すべてに
     手が届く。届く必要のないものへ届く形は、口を1枚挟んだ意味を消す。
 
-    `tts` は声の担い手（無い機体では `None`）、`search` と `fetch` は調べものの道具。
-    どれも `agent` の `__init__` で一度作られたきりで差し替わらないので、写しを持つ。
+    `tts` は声の担い手（無い機体では `None`）、`search` と `fetch` は調べものの道具、
+    `mcp` は MCP の道具を持つ側。どれも `agent` の `__init__` で一度作られたきりで
+    差し替わらないので、写しを持つ。`loop` は機器の出来事を受ける側（I）で、外から
+    中へ入る向きだけが使う。
+
+    **持つ側ごとに1つ作る。** I は外へ出る向き（`tts`・`search`・`fetch`・`mcp`）を、
+    T は中へ入る向き（`loop`）を持つ。AIF が `tonic.py` と `agent.py` に1つずつ在るのと
+    同じで、口は薄い転がしなので、要る向きだけを持てばよい。
     """
 
-    def __init__(self, *, tts=None, search=None, fetch=None) -> None:
+    def __init__(self, *, tts=None, search=None, fetch=None, mcp=None, loop=None) -> None:
         self._tts = tts
         self._search = search
         self._fetch = fetch
+        self._mcp = mcp
+        self._loop = loop
 
     # ── 声 ────────────────────────────────────────────────────────────────
 
@@ -50,6 +58,10 @@ class DIF:
         知っているのは DIF なので、聞き先をここへ寄せる。
         """
         return bool(self._tts and self._tts.understands_tags)
+
+    def speak_defs(self) -> list[dict]:
+        """声の道具の定義。無い機体では空。"""
+        return self._tts.get_tool_definitions() if self._tts else []
 
     async def speak(self, text: str) -> None:
         """声に出す。
@@ -65,6 +77,11 @@ class DIF:
 
     # ── 調べもの ──────────────────────────────────────────────────────────
 
+    def lookup_defs(self, kind: str) -> list[dict]:
+        """調べものの道具の定義。"""
+        tool = self._search if kind == "search_deferred" else self._fetch
+        return tool.get_tool_definitions()
+
     async def lookup(self, kind: str, params: dict) -> tuple[str, bool]:
         """調べものを投げる。返りは (文面, 背景タスクを作ったか)。
 
@@ -74,6 +91,35 @@ class DIF:
         tool = self._search if kind == "search_deferred" else self._fetch
         logger.debug("DIF lookup → %s", kind)
         return await tool.dispatch(params)
+
+    # ── MCP の道具 ────────────────────────────────────────────────────────
+
+    def tool_defs(self, name: str) -> list[dict]:
+        """MCP の道具を**名前で1本だけ**取り出す。
+
+        **話者ゲートはこちら側の責任である。** サーバー側からは誰が話しているか見えない
+        ので、個人ティアの道具名には人が入っている（`ask_vault_yusuke`）。**名前に人が
+        入っている道具は、その人のターン以外では出さない**——`description` でお願いする
+        のではなく、定義リストから落とす。存在しない道具は呼べない。
+
+        MCP のサーバーは落ちる前提のもので、引けなければ空で返す。
+        """
+        if self._mcp is None:
+            return []
+        with contextlib.suppress(Exception):
+            return [d for d in self._mcp.get_tool_definitions() if d.get("name") == name]
+        return []
+
+    # ── 機器の出来事（外 → I） ─────────────────────────────────────────────
+
+    def device(self, kind: str, content: str, *, release_pending: bool = False) -> None:
+        """人の出入りなど、機器が出した出来事を I の待ち行列へ入れる。
+
+        カメラが出す事実なので DIF の担当である（T が渡すのは、時計を持つのが T
+        だからにすぎない）。
+        """
+        logger.debug("DIF device → %s／%s", kind, content[:_TRAIL_CHARS])
+        self._loop.push_device(kind, content, release_pending=release_pending)
 
 
 __all__ = ["DIF"]

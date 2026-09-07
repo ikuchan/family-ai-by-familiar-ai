@@ -80,27 +80,6 @@ def _query_label(action: str, tool_input: dict) -> str:
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
-def _mcp_tool_def(agent, name: str) -> list[dict]:
-    """MCP の道具を**名前で1本だけ**取り出す。
-
-    **話者ゲートはこちら側の責任である。** サーバー側からは誰が話しているか見えないので、
-    個人ティアの道具名には人が入っている（`ask_vault_yusuke`）。**名前に人が入っている
-    道具は、その人のターン以外では出さない**——`description` でお願いするのではなく、
-    定義リストから落とす。存在しない道具は呼べない。
-
-    **ここが名前を明示して1本だけ取り出すのは、その守り方の実装である。** 動作の表
-    （`_ACTIONS`）に載せた名前しか主LLM へ渡らないので、載せていない道具は出ようがない。
-    いまは話者を見る仕組みがまだ無いため、**家族ティアだけを載せている**
-    （`設計方針_家の記録との接続` §5「安全側に倒す」）。
-    """
-    mcp = getattr(agent, "_mcp", None)
-    if mcp is None:
-        return []
-    with contextlib.suppress(Exception):
-        return [d for d in mcp.get_tool_definitions() if d.get("name") == name]
-    return []
-
-
 def _camera_tool_def(agent, name: str) -> list[dict]:
     """カメラの道具定義から1つだけ取り出す。カメラが無ければ空。"""
     cam = getattr(agent, "_camera", None)
@@ -234,6 +213,7 @@ class InformationProcessing:
             tts=agent._tts,
             search=agent._deferred_search,
             fetch=agent._deferred_fetch,
+            mcp=agent._mcp,
         )
         # ループ記録は1本の鎖にする：トリガO → 意図O → 完了O → 意図O2 → …。新しい記録を
         # 書くたび直前の生きた記録を supersede するので、生き残るのは常に鎖の先頭1件だけ。
@@ -699,23 +679,24 @@ class InformationProcessing:
             await self._write_version()
         return len(items)
 
-    # この反復で使える動作の表。値＝その動作のツール定義を agent から取り出す関数。
+    # この反復で使える動作の表。値＝その動作のツール定義を取り出す関数で、引数はループ。
     # 身体を1つ繋ぐたびにここへ1行足すだけで済むようにしてある（see・look・net など）。
-    # 例：("see", lambda a: a._camera.get_tool_definitions() if a._camera else [])
+    # **口が持っている機器の定義は口が答える**（`_dif`）。まだ口を通していないものだけが
+    # `ip._agent` を見る（カメラは 段3・記憶は OIF の担当）。
     _ACTIONS: dict = {
-        "say": lambda a: a._tts.get_tool_definitions() if a._tts else [],
-        "recall": lambda a: [
-            d for d in a._memory_tool.get_tool_definitions() if d.get("name") == "recall"
+        "say": lambda ip: ip._dif.speak_defs(),
+        "recall": lambda ip: [
+            d for d in ip._agent._memory_tool.get_tool_definitions() if d.get("name") == "recall"
         ],
         # net（投げっぱなしの外部呼び出し）。結果は完了キュー経由で後の反復に届く。
-        "search_deferred": lambda a: a._deferred_search.get_tool_definitions(),
-        "fetch_deferred": lambda a: a._deferred_fetch.get_tool_definitions(),
+        "search_deferred": lambda ip: ip._dif.lookup_defs("search_deferred"),
+        "fetch_deferred": lambda ip: ip._dif.lookup_defs("fetch_deferred"),
         # 身体。カメラが無ければ空を返し、繋がっていない身体は渡さない。
-        "see": lambda a: _camera_tool_def(a, "see"),
-        "look": lambda a: _camera_tool_def(a, "look"),
+        "see": lambda ip: _camera_tool_def(ip._agent, "see"),
+        "look": lambda ip: _camera_tool_def(ip._agent, "look"),
         # 家の決まり（`obsidian-memo`）。**家族ティアだけ**を載せる——個人ティア
         # （`ask_vault_yusuke`）は話者ゲートができるまで載せない。
-        "house_rules": lambda a: _mcp_tool_def(a, "get_house_rules"),
+        "house_rules": lambda ip: ip._dif.tool_defs("get_house_rules"),
     }
 
     def _action_of(self, query: str) -> str:
@@ -741,7 +722,6 @@ class InformationProcessing:
         `cache_tools=False` は、**安定部だけで効くモデル**のためにある（`sonnet-5` は
         最小長が低く、道具を載せると読み出し料が増えて 581円 → 635円 と高くなる）。
         """
-        agent = self._agent
         defs: list[dict] = []
         for name in actions:
             build = self._ACTIONS.get(name)
@@ -749,7 +729,7 @@ class InformationProcessing:
                 logger.debug("event-loop 未接続の動作を要求された（無視する）: %s", name)
                 continue
             with contextlib.suppress(Exception):
-                defs.extend(build(agent))
+                defs.extend(build(self))
         if cache_tools and defs:
             # **共有されている定義を書き換えない。** `get_tool_definitions()` は同じ辞書を
             # 返すことがあり、そこへ印を付けると次に取ったときも残る（`cache_tools=False`

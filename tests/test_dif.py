@@ -22,9 +22,9 @@ import pytest
 from familiar_agent.io.dif import DIF
 
 
-def _dif(*, tts=None, search=None, fetch=None) -> DIF:
-    """**口は agent を知らない。** 要るのは声と2つの道具だけである。"""
-    return DIF(tts=tts, search=search, fetch=fetch)
+def _dif(*, tts=None, search=None, fetch=None, mcp=None, loop=None) -> DIF:
+    """**口は agent を知らない。** 転送する相手だけを受け取る。"""
+    return DIF(tts=tts, search=search, fetch=fetch, mcp=mcp, loop=loop)
 
 
 # ── 声 ─────────────────────────────────────────────────────────────────────
@@ -130,3 +130,67 @@ def test_the_loop_reaches_for_a_device_only_when_it_wires_the_port():
     text = src.read_text(encoding="utf-8")
     for name in ("agent._tts", "agent._deferred_search", "agent._deferred_fetch"):
         assert text.count(name) <= 1, f"{name} を呼び出しの場所で掴み直している"
+
+
+# ── MCP の道具の定義（段2） ────────────────────────────────────────────────
+
+
+def test_one_mcp_tool_definition_is_taken_by_name():
+    """**話者ゲートはこちら側の責任である。** 名前で1本だけ取り出し、載せない道具は
+    そもそも定義リストに出さない（存在しない道具は呼べない）。"""
+    mcp = MagicMock()
+    mcp.get_tool_definitions = MagicMock(
+        return_value=[
+            {"name": "get_house_rules"},
+            {"name": "ask_vault_yusuke"},
+        ]
+    )
+    got = _dif(mcp=mcp).tool_defs("get_house_rules")
+    assert got == [{"name": "get_house_rules"}]
+
+
+def test_no_mcp_means_no_definitions():
+    assert _dif(mcp=None).tool_defs("get_house_rules") == []
+
+
+def test_a_broken_mcp_yields_no_definitions_instead_of_raising():
+    """MCP のサーバーは落ちる前提のもの。道具が引けなくてもターンごと壊さない。"""
+    mcp = MagicMock()
+    mcp.get_tool_definitions = MagicMock(side_effect=OSError("繋がらない"))
+    assert _dif(mcp=mcp).tool_defs("get_house_rules") == []
+
+
+# ── 機器の出来事を I へ（段2） ──────────────────────────────────────────────
+
+
+def test_a_device_event_reaches_the_loop():
+    """人の出入りはカメラが出す機器の出来事で、QD＝DIF の担当である。"""
+    loop = MagicMock()
+    _dif(loop=loop).device("入室", "パパ が来た", release_pending=True)
+    loop.push_device.assert_called_once_with("入室", "パパ が来た", release_pending=True)
+
+
+def test_leaving_does_not_release_pending_speech_by_default():
+    loop = MagicMock()
+    _dif(loop=loop).device("退室", "パパ が居なくなった")
+    loop.push_device.assert_called_once_with("退室", "パパ が居なくなった", release_pending=False)
+
+
+def test_the_tonic_no_longer_pushes_into_the_loop_itself():
+    """T が I の中身へ直接手を伸ばしていないこと。"""
+    from pathlib import Path
+
+    src = Path(__file__).parent.parent / "src/familiar_agent/loop/tonic.py"
+    assert "_ip.push_device" not in src.read_text(encoding="utf-8")
+
+
+def test_the_port_answers_what_its_own_devices_can_do():
+    """口が持っている機器の定義は、口が答える（呼び手が機器を掴み直さないため）。"""
+    tts = MagicMock()
+    tts.get_tool_definitions = MagicMock(return_value=[{"name": "say"}])
+    search = MagicMock()
+    search.get_tool_definitions = MagicMock(return_value=[{"name": "search_deferred"}])
+    d = _dif(tts=tts, search=search)
+    assert d.speak_defs() == [{"name": "say"}]
+    assert d.lookup_defs("search_deferred") == [{"name": "search_deferred"}]
+    assert _dif(tts=None).speak_defs() == []
