@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from tests.test_event_loop import _agent, _turn
 
 
@@ -25,9 +25,7 @@ def _ip_with_investigation():
     ip = InformationProcessing(a)
     ip._request_id = "obs-parent"
     ip._chain_head_id = "obs-child"
-    ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
-    ip._lookup_action_by_query = {"明日の天気": "search_deferred"}
-    ip._inflight = 1
+    ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
     ip._completion_queue.put_nowait(("明日の天気", "晴れ", "obs-child", "完了", 1))
     return a, ip
 
@@ -36,9 +34,8 @@ def test_pending_completions_are_dropped():
     a, ip = _ip_with_investigation()
     asyncio.run(ip._abort_lookups())
     assert ip._completion_queue.empty()
-    assert ip._inflight == 0
-    assert ip._in_flight_lookups == []
-    assert ip._lookup_action_by_query == {}
+    assert ip._in_flight_count == 0
+    assert ip._lookups == []
 
 
 def test_nothing_happens_when_there_was_no_investigation():
@@ -83,7 +80,7 @@ def test_a_completion_from_an_abandoned_request_is_dropped():
     # 外部呼び出しは投げた時点で飛んでいる。打ち切ったあとに届いても捨てる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    ip._lookup_generation["明日の天気"] = 0
+    ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
     ip._request_generation = 1
     ip.push_completion("明日の天気", "晴れ")
     assert ip._completion_queue.empty()

@@ -12,6 +12,8 @@ QD に積むのは**人の出入り**（入室・退室）。動体そのもの�
 
 from __future__ import annotations
 
+from familiar_agent.loop.event_loop import Lookup
+
 import asyncio
 import contextlib
 import logging
@@ -156,7 +158,9 @@ def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
         ip._iterate = AsyncMock(return_value="")
         ip._begin_affect = AsyncMock(return_value=None)
         ip._begin_device = AsyncMock(return_value=None)
-        ip._inflight = 1  # 調査が飛んでいる
+        ip._lookups = [
+            Lookup(index=1, action="recall", query="q", generation=0)
+        ]  # 調査が飛んでいる
         ip._ensure_driver()
         ip.push_affect("SEEKING", "なにか気になる")
         ip.push_device("入室", "パパ が来た")

@@ -13,7 +13,7 @@ import asyncio
 from unittest.mock import AsyncMock
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from tests.test_event_loop import _agent, _turn
 
 
@@ -33,7 +33,7 @@ def test_a_slow_lookup_raises_a_progress_event_once():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
+        ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
         await ip._watch_slow_lookup("明日の天気", ip._request_generation)
         return ip
 
@@ -48,7 +48,7 @@ def test_no_progress_event_once_the_result_has_arrived():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._in_flight_lookups = []  # もう結果が来ている
+        ip._lookups = []  # もう結果が来ている
         await ip._watch_slow_lookup("明日の天気", ip._request_generation)
         return ip
 
@@ -61,7 +61,7 @@ def test_no_progress_event_for_an_abandoned_request():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
+        ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
         ip._request_generation = 1  # 見張りを立てたあとに打ち切られた
         await ip._watch_slow_lookup("明日の天気", 0)
         return ip
@@ -81,8 +81,7 @@ def test_a_progress_iteration_only_says_a_filler():
         ip = InformationProcessing(a)
         ip.set_output(shown.append)
         ip._utterance = "明日の天気は？"
-        ip._inflight = 1
-        ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
+        ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
         ip._completion_queue.put_nowait(("明日の天気", "", None, "進捗", 0))
         await ip._iterate()
         await ip.close()
@@ -91,5 +90,7 @@ def test_a_progress_iteration_only_says_a_filler():
     ip = asyncio.run(scenario())
     assert "もう少しかかりそうです" in "".join(shown)
     assert "本応答" not in "".join(shown)  # 閉じない
-    assert ip._inflight == 1  # 飛行中のまま
-    assert ip._in_flight_lookups == [("search_deferred", "明日の天気", 1)]
+    assert ip._in_flight_count == 1  # 飛行中のまま
+    assert [(lk.action, lk.query, lk.index) for lk in ip._lookups] == [
+        ("search_deferred", "明日の天気", 1)
+    ]

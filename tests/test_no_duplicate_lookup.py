@@ -43,7 +43,7 @@ def test_the_same_query_is_not_dispatched_twice() -> None:
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
-        got = list(ip._in_flight_lookups)
+        got = [(lk.action, lk.query, lk.index) for lk in ip._lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -85,15 +85,16 @@ def test_a_finished_query_is_still_blocked() -> None:
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "済んだ語"}, "済んだ語", None)
         # 結果が届いて飛行中から外れた状態を作る。
-        ip._in_flight_lookups.clear()
+        ip._lookups.clear()
         ip._dispatch_lookup("recall", {"query": "済んだ語"}, "済んだ語", None)
-        got = list(ip._in_flight_lookups)
+        got = [(lk.action, lk.query, lk.index) for lk in ip._lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return got
 
-    assert asyncio.run(scenario()) == [], "済んだ語をもう一度調べている"
+    # 器は1件のまま。二度目は投げられず、新しい器も作られない。
+    assert asyncio.run(scenario()) == [("recall", "済んだ語", 1)], "済んだ語をもう一度調べている"
 
 
 def test_a_different_query_still_goes_out() -> None:
@@ -103,7 +104,7 @@ def test_a_different_query_still_goes_out() -> None:
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "ひとつめ"}, "ひとつめ", None)
         ip._dispatch_lookup("recall", {"query": "ふたつめ"}, "ふたつめ", None)
-        got = [(q, idx) for _act, q, idx in ip._in_flight_lookups]
+        got = [(lk.query, lk.index) for lk in ip._lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -123,7 +124,7 @@ def test_a_new_request_clears_the_history() -> None:
         ip._background_tasks.clear()
         await ip._abort_lookups()  # 求めの区切り
         ip._dispatch_lookup("recall", {"query": "天気"}, "天気", None)
-        got = list(ip._in_flight_lookups)
+        got = [(lk.action, lk.query, lk.index) for lk in ip._lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -132,45 +133,46 @@ def test_a_new_request_clears_the_history() -> None:
     assert len(asyncio.run(scenario())) == 1, "求めが変わったのに調べられない"
 
 
-def test_a_blocked_lookup_is_counted_as_inflight() -> None:
-    """止めた調査も飛行中として数える。
+def test_a_blocked_lookup_does_not_add_a_second_record() -> None:
+    """止めた調査で器を増やさない（環-g・段は で挙動が変わった）。
 
-    完了を積む以上、飛行中として数えないと帳尻が合わない。取込は**積まれた完了1件につき
-    `_inflight` を1つ減らす**ので、増やさずに積むと実際より小さくなる。飛行中の調査が
-    残っているのに 0 になると、駆動体が「調査中ではない」とみなして待ち方を変える。
+    以前は「飛行中の数」を手で持っており、止めた調査でも数だけ増やし、取込が減らすことで
+    帳尻を合わせていた。**いまは数が器から導かれる**ので、増やす必要がない。器を2つ作ると、
+    同じ語で引いたときどちらが返るか決まらなくなる。
     """
 
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
-        first = ip._inflight
+        first = (ip._in_flight_count, len(ip._lookups))
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
-        second = ip._inflight
+        second = (ip._in_flight_count, len(ip._lookups))
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return first, second
 
     first, second = asyncio.run(scenario())
-    assert first == 1, f"投げた調査が数えられていない: {first}"
-    assert second == 2, f"止めた調査が数えられていない: {second}"
+    assert first == (1, 1), f"投げた調査が器に無い: {first}"
+    assert second == (1, 1), f"止めた調査で器が増えている: {second}"
 
 
-def test_inflight_returns_to_zero_after_intake() -> None:
-    """積んだぶんを取り込むと、飛行中の数が 0 へ戻る（増減が釣り合う）。"""
+def test_the_count_returns_to_zero_when_the_result_arrives() -> None:
+    """結果が届けば飛行中でなくなる。**手で減らさない**（数は導出）。"""
 
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)  # 止められる
-        ip._in_flight_lookups.clear()  # 1件目の結果が届いた体にする
+        before = ip._in_flight_count
         ip._completion_queue.put_nowait(("語", "結果", None, "完了", 1))
         await ip._intake()
-        got = ip._inflight
+        after = ip._in_flight_count
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
-        return got
+        return before, after
 
-    # 2 増えて 2 減る（止めた分の完了＋届いた分の完了）。
-    assert asyncio.run(scenario()) == 0, "飛行中の数が釣り合っていない"
+    before, after = asyncio.run(scenario())
+    assert before == 1
+    assert after == 0, f"結果が届いたのに飛行中のまま: {after}"

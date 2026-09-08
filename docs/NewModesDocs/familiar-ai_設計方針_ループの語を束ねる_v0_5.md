@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：ループの語を束ねる（環-g・v0.4）
+# familiar-ai 設計方針：ループの語を束ねる（環-g・v0.5）
 
 ## この文書の位置づけ
 
@@ -364,7 +364,7 @@ if not self._show_seeded:
 |---|---|---|
 | **g-い** | **撤去済みの略語 `WR` を落とす**（5ファイル・6箇所） | 変わらない |
 | **g-ろ** | **紛らわしい名前を直す**（属性16・メソッドと module 関数8） | 変わらない |
-| **g-は** | **調べものを1つの器へ**（① ③ ⑥） | **変わる** |
+| **g-は** | **調べものを1つの器へ**（① ③ ⑥） | **変わる**・**完了**（2026-09-08） |
 | **g-に** | **いま生きている記録を1本に**。`_chain_head_id` と `_advance_chain` を撤去。`前進` を書かなくなる。始め方3つを揃える（②） | **変わる** |
 | **g-ほ** | **(id, 内容) の組**を同じ形に（④） | 変わりうる |
 | **g-へ** | **`_show_seeded` を消す**（⑤の付随） | 変わりうる |
@@ -376,7 +376,36 @@ if not self._show_seeded:
 
 ## 5. 挙動が変わるところ
 
-### g-は（調べものを1つの器へ）
+### g-は の実装（2026-09-08・完了）
+
+`Lookup`（`index`・`action`・`query`・`generation`・`result`）を `loop/event_loop.py` に置き、
+`_lookups: list[Lookup]` の1本にした。**飛行中は `result is None`** で表す。
+
+| 旧 | 新しい引き方 |
+|---|---|
+| `_in_flight_lookups` | `lk.in_flight` のもの |
+| `_lookup_action_by_query` | `_lookup_of(query).action` |
+| `_lookup_index_by_query` | `_lookup_of(query).index` |
+| `_lookup_generation` | `_lookup_of(query).generation` |
+| `_lookup_results` | `result is not None` のもの |
+| `_inflight` | `_in_flight_count`（**導出**） |
+| `_lookup_seq` | `_next_lookup_index()`＝`len(_lookups) + 1`（**導出**） |
+| `_pending_intent` | `_pending_lookup`（名前だけ・器へは入れない。投げる前の控えで、`Lookup` はまだ無い） |
+
+**手で揃える箇所が5つから0になった。**
+
+#### 挙動が変わったところ（2つ）
+
+**① 「既に調べた語」で器を増やさない。** 以前は `_inflight` だけ増やして列に積まず、完了を
+積んで取込が減らすことで釣り合わせていた。いまは数が導出なので、その必要がない。器を2つ
+作ると、語で引いたときどちらが返るか決まらなくなる。**完了だけを積む**（投げずに黙って
+帰ると、完了も時間切れも来ないまま駆動体が待ち続ける）。
+
+**② 通し番号は呼ぶだけでは増えない。** 以前は `_lookup_seq` を持ち、`_next_lookup_index()`
+が呼ぶたびに繰り上げていた。いまは `len(_lookups) + 1` なので、**器を1件足したときにだけ**
+繰り上がる。
+
+### g-は（挙動の変化・当初の見込み）
 
 同じ結果になるように作るが、作り方が変わる以上、実機で確かめるまで同じだと断定しない。
 

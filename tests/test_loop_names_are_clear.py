@@ -101,14 +101,8 @@ def test_the_new_names_are_there():
 def test_the_kept_names_are_untouched():
     """あとの段で消えるものは改名しない（`設計方針_ループの語を束ねる` §3「対象外」）。"""
     src = (_ROOT / "src/familiar_agent/loop/event_loop.py").read_text(encoding="utf-8")
-    for kept in (
-        "_chain_head_id",
-        "_chain_head_content",
-        "_advance_chain",
-        "_lookup_generation",
-        "_show_seeded",
-        "_inflight",
-    ):
+    # 段は（調べものの器）で消えたものは、ここから外している。
+    for kept in ("_chain_head_id", "_chain_head_content", "_advance_chain", "_show_seeded"):
         assert kept in src, kept
 
 
