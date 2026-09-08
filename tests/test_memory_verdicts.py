@@ -31,8 +31,12 @@ def test_the_say_tool_accepts_verdicts():
     schema = TTSTool.get_tool_definitions(MagicMock())[0]["input_schema"]
     verdicts = schema["properties"]["memory_verdicts"]
     assert verdicts["items"]["properties"]["verdict"]["enum"] == [
-        "important", "useless", "referred", "unused"]
-    assert "memory_verdicts" not in schema["required"]      # 省略可
+        "important",
+        "useless",
+        "referred",
+        "unused",
+    ]
+    assert "memory_verdicts" not in schema["required"]  # 省略可
 
 
 def test_the_prompt_asks_for_every_recalled_memory():
@@ -44,11 +48,13 @@ def test_verdicts_are_matched_through_the_index_not_by_prefix_guessing():
     # 写し間違いは一致せず、黙って別の記憶へ適用されない。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    ip._w_index = {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}
-    ip._apply_memory_verdicts([
-        {"id": "aaaaaaaaaaaa", "verdict": "important"},
-        {"id": "zzzzzzzzzzzz", "verdict": "useless"},      # W に無い id
-    ])
+    ip._w_id_map = {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}
+    ip._apply_memory_verdicts(
+        [
+            {"id": "aaaaaaaaaaaa", "verdict": "important"},
+            {"id": "zzzzzzzzzzzz", "verdict": "useless"},  # W に無い id
+        ]
+    )
     applied = a._memory.apply_verdicts.call_args.args[0]
     assert applied == {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "important"}
 
@@ -65,5 +71,7 @@ def test_the_workspace_prints_twelve_digit_ids():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a, utterance="おはよう")
     ip = InformationProcessing(a)
-    ip._compose_workspace(a._active_memory(), [{"memory_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}])
-    assert list(ip._w_index) == ["aaaaaaaabbbb"]
+    ip._compose_workspace(
+        a._active_memory(), [{"memory_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}]
+    )
+    assert list(ip._w_id_map) == ["aaaaaaaabbbb"]

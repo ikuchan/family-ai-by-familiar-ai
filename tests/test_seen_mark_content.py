@@ -53,13 +53,16 @@ def _ip():
     a = _agent(stream_returns=[])
     a._camera = _Camera()
     ip = InformationProcessing(a)
-    ip._origin_text = "周りを見て"
+    ip._request_text = "周りを見て"
     return a, ip
 
 
 def _observations(agent) -> list[str]:
-    return [c.args[0] for c in agent._memory.save_async_with_id.call_args_list
-            if c.kwargs.get("direction") == "観察"]
+    return [
+        c.args[0]
+        for c in agent._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "観察"
+    ]
 
 
 def _patch_scene(ip, labels):
@@ -74,6 +77,7 @@ def _patch_scene(ip, labels):
 
 def test_the_camera_boilerplate_is_not_recorded(monkeypatch) -> None:
     """カメラの定型文とファイルパスを印に残さない。"""
+
     async def scenario():
         a, ip = _ip()
         _patch_scene(ip, ["child", "adult"])
@@ -91,6 +95,7 @@ def test_the_camera_boilerplate_is_not_recorded(monkeypatch) -> None:
 
 def test_the_mark_keeps_the_pose_and_the_labels(monkeypatch) -> None:
     """印には定点名と見えたものが入る。"""
+
     async def scenario():
         a, ip = _ip()
         _patch_scene(ip, ["child", "desk"])
@@ -107,12 +112,19 @@ def test_the_mark_keeps_the_pose_and_the_labels(monkeypatch) -> None:
 
 def test_a_blocked_lookup_leaves_no_mark() -> None:
     """弾かれた調査は印を残さない（カメラを回していない）。"""
+
     async def scenario():
         a, ip = _ip()
         ip._lookup_action_by_query["目の前を見る"] = "see"
         ip._completion_queue.put_nowait(
-            ("目の前を見る", "「目の前を見る」はこの求めですでに調べた。結果は W にある。",
-             None, "完了", 1))
+            (
+                "目の前を見る",
+                "「目の前を見る」はこの求めですでに調べた。結果は W にある。",
+                None,
+                "完了",
+                1,
+            )
+        )
         await ip._intake()
         await ip.close()
         return a
@@ -123,6 +135,7 @@ def test_a_blocked_lookup_leaves_no_mark() -> None:
 
 def test_look_alone_leaves_no_mark(monkeypatch) -> None:
     """首を振っただけでは印を残さない（観察していない）。"""
+
     async def scenario():
         a, ip = _ip()
         await ip._run_camera("look", {"pose": "窓側"})
@@ -135,6 +148,7 @@ def test_look_alone_leaves_no_mark(monkeypatch) -> None:
 
 def test_a_failed_capture_leaves_no_mark(monkeypatch) -> None:
     """撮れなかったときは印を残さない（見ていない）。"""
+
     async def scenario():
         a, ip = _ip()
 

@@ -23,7 +23,7 @@ def _ip_with_investigation():
         ]
     )
     ip = InformationProcessing(a)
-    ip._parent_id = "obs-parent"
+    ip._request_id = "obs-parent"
     ip._chain_head_id = "obs-child"
     ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
     ip._lookup_action_by_query = {"明日の天気": "search_deferred"}
@@ -34,7 +34,7 @@ def _ip_with_investigation():
 
 def test_pending_completions_are_dropped():
     a, ip = _ip_with_investigation()
-    asyncio.run(ip._abort_investigation())
+    asyncio.run(ip._abort_lookups())
     assert ip._completion_queue.empty()
     assert ip._inflight == 0
     assert ip._in_flight_lookups == []
@@ -44,7 +44,7 @@ def test_pending_completions_are_dropped():
 def test_nothing_happens_when_there_was_no_investigation():
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    asyncio.run(ip._abort_investigation())
+    asyncio.run(ip._abort_lookups())
     a._memory.save_async_with_id.assert_not_awaited()
 
 
@@ -62,12 +62,12 @@ def test_a_running_iteration_is_folded_after_an_abort():
         ip = InformationProcessing(a)
         ip.set_output(shown.append)
         ip._utterance = "前の問い"
-        ip._generation = 0
+        ip._request_generation = 0
         # 反復の途中で打ち切られた状況を作る（生成が返る前に世代が進む）。
         original = a.backend.stream_turn
 
         async def _bump(*args, **kwargs):
-            ip._generation += 1
+            ip._request_generation += 1
             return await original(*args, **kwargs)
 
         a.backend.stream_turn = _bump
@@ -84,7 +84,7 @@ def test_a_completion_from_an_abandoned_request_is_dropped():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     ip._lookup_generation["明日の天気"] = 0
-    ip._generation = 1
+    ip._request_generation = 1
     ip.push_completion("明日の天気", "晴れ")
     assert ip._completion_queue.empty()
 
@@ -97,7 +97,7 @@ def test_the_abort_is_written_as_a_version():
     だけを畳む（親子のファンアウトは無い）。
     """
     a, ip = _ip_with_investigation()
-    asyncio.run(ip._abort_investigation())
+    asyncio.run(ip._abort_lookups())
 
     versions = [
         c
@@ -115,7 +115,7 @@ def test_the_abort_is_written_as_a_version():
 def test_the_abort_closes_the_exchange():
     """打ち切りでやりとりを閉じる。
 
-    打ち切りの版の親は、打ち切られた求めの起点である（`_parent_id` を捨てる前に書く）。
+    打ち切りの版の親は、打ち切られた求めの起点である（`_request_id` を捨てる前に書く）。
     ところが、やりとりの項は `_finish` までに控えた並びから作られ、打ち切りは `_finish` を
     通らない。閉じないと並びが次のターンへ持ち越され、**一つのやりとりに起点が2つ**入る
     （聞かれて答える前に話題が変わった分と、新しい問いが混ざる）。
@@ -125,7 +125,7 @@ def test_the_abort_closes_the_exchange():
     a, ip = _ip_with_investigation()
     ip._turn_records = [("obs1", "起点"), ("obs2", "版")]
 
-    asyncio.run(ip._abort_investigation())
+    asyncio.run(ip._abort_lookups())
 
     members = a._memory.record_exchange.call_args.args[0]
     roles = [r for _, r, _ in members]
@@ -146,8 +146,8 @@ def test_the_carry_over_for_the_diffuse_pool_survives_the_abort():
     a, ip = _ip_with_investigation()
     ip._turn_records = [("obs1", "起点"), ("obs2", "版")]
 
-    asyncio.run(ip._abort_investigation())
+    asyncio.run(ip._abort_lookups())
 
     assert [i for i, _ in ip._turn_records][:2] == ["obs1", "obs2"], "持ち越しまで消している"
     # 次のやりとりは、打ち切りの次から始まる。
-    assert ip._exchange_from == len(ip._turn_records)
+    assert ip._exchange_start == len(ip._turn_records)

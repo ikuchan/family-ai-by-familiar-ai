@@ -23,7 +23,7 @@ def _run_turns(a, *utterances):
     async def scenario():
         ip = InformationProcessing(a)
         for u in utterances:
-            await ip.run_iteration(u)
+            await ip.begin_request(u)
 
     asyncio.run(scenario())
 

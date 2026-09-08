@@ -77,7 +77,7 @@ async def test_conversation_turn_persists_the_memory() -> None:
     agent = _agent(
         stream_returns=[_turn([ToolCall(id="t1", name="say", input={"text": "おはよう"})])]
     )
-    await InformationProcessing(agent).run_iteration("おはよう")
+    await InformationProcessing(agent).begin_request("おはよう")
 
     # 会話の保存は id を捕まえる必要がある（拡散想起 WR で新記憶と W を繋ぐため）ので
     # `save_async_with_id` を通る。件数ではなく「1件以上残る」ことだけを見る。

@@ -23,8 +23,11 @@ from tests.test_event_loop import _agent, _run_chain, _turn
 
 def _versions(a) -> list:
     """書かれた版の記録（direction="求め"）を、書かれた順に返す。"""
-    return [c for c in a._memory.save_async_with_id.call_args_list
-            if c.kwargs.get("direction") == "求め"]
+    return [
+        c
+        for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == "求め"
+    ]
 
 
 def _supersedes(a) -> list[tuple]:
@@ -33,10 +36,12 @@ def _supersedes(a) -> list[tuple]:
 
 def test_a_version_is_written_when_a_lookup_starts() -> None:
     """調査を起動すると版が書かれ、前の版を畳む。"""
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
 
     versions = _versions(a)
@@ -46,10 +51,12 @@ def test_a_version_is_written_when_a_lookup_starts() -> None:
 
 def test_each_version_supersedes_the_previous_one() -> None:
     """版チェーンは1本。新しい版が直前の版だけを畳む。"""
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
 
     calls = _supersedes(a)
@@ -61,10 +68,12 @@ def test_each_version_supersedes_the_previous_one() -> None:
 
 def test_the_utterance_record_is_outside_the_chain() -> None:
     """人の発話の記録は鎖の外。畳まれない。"""
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
+        ]
+    )
     _run_chain(a, utterance="天気は？")
     folded = {old for old, _new in _supersedes(a)}
     assert "obs1" not in folded, "発話の記録が畳まれている"
@@ -72,20 +81,24 @@ def test_the_utterance_record_is_outside_the_chain() -> None:
 
 def test_close_with_children_is_not_used() -> None:
     """`close_with_children` は使わない（親子のファンアウトではなく1本の鎖）。"""
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れ"})]),
+        ]
+    )
     _run_chain(a, utterance="天気は？")
     assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"
 
 
 def test_the_version_carries_the_request_and_the_result() -> None:
     """版の content に、求めそのものと届いた結果が入る。"""
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
 
     bodies = [str(c.args[0]) for c in _versions(a)]
@@ -97,7 +110,7 @@ def test_abort_writes_a_version() -> None:
     """打ち切りも版のひとつとして書く。
 
     調べかけの途中で話しかけられた場合を作る。求めが閉じたあとでは畳む対象が無いので、
-    調査を飛行中のまま `_abort_investigation` を呼ぶ。
+    調査を飛行中のまま `_abort_lookups` を呼ぶ。
     """
     import asyncio
 
@@ -111,18 +124,16 @@ def test_abort_writes_a_version() -> None:
 
         a._memory_tool.call = _never_returns
         ip = InformationProcessing(a)
-        ip._origin_text = "天気は？"
-        ip._parent_id = "obs1"
+        ip._request_text = "天気は？"
+        ip._request_id = "obs1"
         ip._dispatch_lookup("recall", {"query": "天気"}, "天気", None)
-        await ip._abort_investigation()
-        for t in list(ip._tasks):
+        await ip._abort_lookups()
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return a
 
     a = asyncio.run(scenario())
     bodies = [str(c.args[0]) for c in _versions(a)]
-    assert any("打ち切った" in b for b in bodies), (
-        f"打ち切りが版として残っていない: {bodies}"
-    )
+    assert any("打ち切った" in b for b in bodies), f"打ち切りが版として残っていない: {bodies}"
     assert any("天気は？" in b for b in bodies), "求めが版に入っていない"

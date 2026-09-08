@@ -68,7 +68,7 @@ def test_an_aborted_investigation_is_carried_to_the_next_pool():
     # 中断はその求めで閉じるが、次の求めの WR に載る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    ip._parent_id = "obs-parent"
+    ip._request_id = "obs-parent"
     ip._in_flight_lookups = [("recall", "前の調査", 1)]
-    asyncio.run(ip._abort_investigation())
+    asyncio.run(ip._abort_lookups())
     assert ip._turn_records, "中断の記録が母集合へ控えられていない"

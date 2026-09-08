@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.17）
+# familiar-ai モジュール分割設計（v0.27）
 
 ## この文書が決めること
 
@@ -53,10 +53,10 @@ SS（自己状態）   Config（全調整可能定数）
 | 設計上の実体 | いまの居場所 | 行数 | 主なもの |
 |---|---|---|---|
 | 生成器 | `event_loop.py` | 350 | `_iterate`（205 行）・`_compose_workspace`・`_apply_memory_verdicts`・`_finish` |
-| ループ管理 | `event_loop.py` | 325 | `_drive`・`_intake`・`run_iteration`・`_begin_affect`・`_begin_device`・`push_*` |
+| ループ管理 | `event_loop.py` | 325 | `_drive`・`_intake`・`begin_request`・`_begin_affect`・`_begin_device`・`push_*` |
 | 動作器／資源ハンドラ | `event_loop.py` | 200 | `_dispatch_lookup`・`_run_lookup`・`_run_camera`・`_tools` |
 | 発話ゲート | `event_loop.py` | 190 | `_speak`・`_delivery_block_reason`・`_hold_speech`・`_accept_silence` |
-| O 書込 | `event_loop.py` | 136 | `_write_version`・`_write_seen_mark`・`_open_intent` |
+| O 書込 | `event_loop.py` | 136 | `_write_version`・`_write_seen_mark`・`_start_lookup` |
 | 評価器 | `loop/evaluator.py`・`loop/arbiter.py` | 566 | **切り出し済み** |
 | O のアクセス層 | `store/` | — | **切り出し済み** |
 | W 構築の採点 | `tools/memory.py` の `_score_breakdown` 周辺 | — | `core/recall_score.py` へは未抽出 |
@@ -222,20 +222,20 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 
 | 書き | 読み | 状態 |
 |---|---|---|
-| 7 | 9 | `_parent_id` |
-| 6 | 2 | `_version_id` |
+| 7 | 9 | `_request_id` |
+| 6 | 2 | `_live_version_id` |
 | 6 | 1 | `_lookup_results` |
 | 5 | 1 | `_chain_head_id` |
-| 5 | 1 | `_capped_hit` |
-| 4 | 2 | `_w_index` |
+| 5 | 1 | `_iterations_capped` |
+| 4 | 2 | `_w_id_map` |
 | 4 | 1 | `_said_fillers` |
-| 4 | 1 | `_released_speech` |
+| 4 | 1 | `_speech_to_deliver` |
 
 （数え方：あるメソッドの中に代入または破壊的操作があれば書き手、それ以外の出現が
 あれば読み手として、1メソッドを1回と数える。）
 
 振る舞いで3つに切ると、**同じ状態を複数のファイルが書く**ことになる。実際に候補を測ると、
-`_said_fillers` と `_released_speech` は**動作器が書き、想起が読む**。`_parent_id` は
+`_said_fillers` と `_speech_to_deliver` は**動作器が書き、想起が読む**。`_request_id` は
 想起・動作器の両方が読み、7箇所が書く。**書き手が7つある変数を3ファイルへ分けることは
 できない。** 分ければ、追跡すべき経路が1本増えるだけである。
 
@@ -246,9 +246,9 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 | 複雑さの源は **state と control**。最大のものは可変状態。essential と accidental を分ける | Moseley & Marks, *Out of the Tar Pit*（2006） | 38個の可変状態のうちどれが essential かを決めないまま切ると、**ファイル境界そのものが accidental complexity になる** |
 | 核は純粋、殻が効果。**核は殻を呼び返さない** | Bernhardt, *Functional Core / Imperative Shell*（2012） | `_speak` が `_finish` を呼んでいる。**核が殻を呼び返している形**である |
 | イベント駆動へ落とすと **stack ripping**（呼び出し階層が破片になる）が起きる。自動スタック管理を保て | Adya et al., *Cooperative Task Management without Manual Stack Management*, USENIX ATC 2002 | `_iterate` の 269行は破片を1箇所に集めた形。素朴に割ると再発する。**`async`/`await` の直線を崩す切り方は採らない** |
-| 散らばった真偽値でなく、階層と並行を持つ明示的な状態機械で表す | Harel, *Statecharts: A Visual Formalism for Complex Systems*（1987） | `_capped_hit`（書き5・読み1）のように**書き手だけ多いフラグ**が散っている。状態機械が真偽値へ潰れた跡である |
+| 散らばった真偽値でなく、階層と並行を持つ明示的な状態機械で表す | Harel, *Statecharts: A Visual Formalism for Complex Systems*（1987） | `_iterations_capped`（書き5・読み1）のように**書き手だけ多いフラグ**が散っている。状態機械が真偽値へ潰れた跡である |
 | 段を**明示的なキュー**でつなぎ、段は自分の中だけを持つ | Welsh, Culler & Brewer, *SEDA*, SOSP 2001 | このループは既に3つのキュー（完了・情動・機器）を持ち、`_drive` がその union を待つ。**段の境目はキューという形で既に在る**。負荷制御（resource controller）の部分は採らない——ここでは負荷は問題でない |
-| 分岐した制御は必ず合流する | Smith, *Notes on structured concurrency*（2018） | `follows_task` を `_settled()` で受けるのは合流している例。`_driver`・`_tasks` は投げっぱなしの側。**切り出しで新しい投げっぱなしを作らない** |
+| 分岐した制御は必ず合流する | Smith, *Notes on structured concurrency*（2018） | `follows_task` を `_result_or_none()` で受けるのは合流している例。`_driver`・`_background_tasks` は投げっぱなしの側。**切り出しで新しい投げっぱなしを作らない** |
 
 #### 改めた順序
 
@@ -287,19 +287,19 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 初期化と設定のときだけ置かれ、あとは読まれるだけのもの。
 
 `_agent`（読み手 **24 メソッド**）・`_dif`・`_loop`・`_driver`・`_on_text`・`_on_action`・
-`_tasks`・キュー3つ（`_completion_queue`・`_affect_queue`・`_device_queue`）
+`_background_tasks`・キュー3つ（`_completion_queue`・`_affect_queue`・`_device_queue`）
 
 **持ち主は `InformationProcessing` 自身（ループ管理）。** ここは動かさない。
 
 ##### ロ．求め（連鎖）の寿命
 
-**この束が、いちばん大きい。** 連鎖の始まり3つ（`run_iteration`・`_begin_affect`・
+**この束が、いちばん大きい。** 連鎖の始まり3つ（`begin_request`・`_begin_affect`・
 `_begin_device`）で置き直され、`_finish` で畳まれる。
 
-`_utterance`・`_origin_kind`・`_origin_text`・`_chain`・`_capped_hit`・`_parent_id`・
-`_version_id`・`_chain_head_id`・`_chain_head_content`・`_lookup_results`・`_lookup_seq`・
-`_said_fillers`・`_released_speech`・`_exchange_from`・`_turn_records`・`_show_from`・
-`_show_seeded`・`_generation`
+`_utterance`・`_trigger_kind`・`_request_text`・`_iterations`・`_iterations_capped`・`_request_id`・
+`_live_version_id`・`_chain_head_id`・`_chain_head_content`・`_lookup_results`・`_lookup_seq`・
+`_said_fillers`・`_speech_to_deliver`・`_exchange_start`・`_turn_records`・`_recent_cursor`・
+`_show_seeded`・`_request_generation`
 
 **18 個ある。** どれも「1つの求めが始まってから終わるまで」だけ生きる。
 
@@ -307,13 +307,13 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 
 投げてから完了が届くまでの寿命。
 
-`_in_flight_lookups`・`_inflight`・`_inbox`・`_lookup_action_by_query`・
-`_lookup_index_by_query`・`_lookup_generation`・`_exclude_from_lookup`・`_pending_intent`・
-`_progress_pending`
+`_in_flight_lookups`・`_inflight`・`_drained_completions`・`_lookup_action_by_query`・
+`_lookup_index_by_query`・`_lookup_generation`・`_recall_exclude_id`・`_pending_intent`・
+`_slow_notice_received`
 
 ##### ニ．反復の寿命
 
-`_w_index`。`_compose_workspace` が作り、同じ反復の `_link_follows` と
+`_w_id_map`。`_compose_workspace` が作り、同じ反復の `_link_follows` と
 `_apply_memory_verdicts` が読む。W は派生であって反復末に捨てる、という設計そのままである。
 
 #### 振る舞いで切れない理由が、ここに出ている
@@ -321,10 +321,10 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 設計の当初案は 生成器・動作器・想起の3つへ割ることだった。**ロの束（18個）は、その3つの
 どれにも属さない。**
 
-- `_said_fillers` と `_released_speech` は**動作器が書き、想起が読む**
-- `_parent_id` は 7箇所が書き 9箇所が読む。書き手には連鎖の始まり・想起（`_link_follows`）・
-  調べもの（`_write_intent_and_dispatch`）・終わり（`_finish`）が並ぶ
-- `_capped_hit`・`_chain`・`_lookup_seq`・`_lookup_results` は、**書き手が始まりの3つと
+- `_said_fillers` と `_speech_to_deliver` は**動作器が書き、想起が読む**
+- `_request_id` は 7箇所が書き 9箇所が読む。書き手には連鎖の始まり・想起（`_link_follows`）・
+  調べもの（`_dispatch_and_write_version`）・終わり（`_finish`）が並ぶ
+- `_iterations_capped`・`_iterations`・`_lookup_seq`・`_lookup_results` は、**書き手が始まりの3つと
   `_finish` だけ**である。これは振る舞いの印ではなく、**寿命の印**である
 
 **ロは「1つの求め」という寿命でまとまった束であり、振る舞いで割ることはできない。**
@@ -369,7 +369,7 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 | 関数 | 移したか | 理由 |
 |---|---|---|
 | `_present_ctx`・`_pi_ctx` | 移した | どちらも `build_event_system_prompt` の材料で、まとまりがある |
-| `_when`（8行） | 移さない | 呼び手は `_release_pending_speech`（動作器）ただ1つ。生成器の持ち物ではない |
+| `_elapsed_label`（8行） | 移さない | 呼び手は `_release_pending_speech`（動作器）ただ1つ。生成器の持ち物ではない |
 | `_query_label`・`_camera_tool_def` | 移さない | 調べものと知覚の持ち物で、その file はまだ無い（`see`・`look` は 知-c 待ち） |
 | `_log_recall_weights` | 移さない | 想起の持ち物。`loop/recall.py` はまだ無い |
 | `_tools` | 移さない | 動作の表（`_ACTIONS`）と口（`_dif`）を通すので、ループ自身を要る |

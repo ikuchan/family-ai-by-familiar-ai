@@ -36,7 +36,7 @@ def _run_with_action(a, utterance="こんにちは"):
     actions: list[tuple[str, dict]] = []
     ip = InformationProcessing(a)
     ip.set_output(lambda _t: None, on_action=lambda n, i: actions.append((n, i)))
-    asyncio.run(ip.run_iteration(utterance))
+    asyncio.run(ip.begin_request(utterance))
     return actions
 
 
@@ -48,12 +48,15 @@ def test_answer_is_reported_as_a_say_action():
 def test_filler_is_reported_as_a_say_action_too():
     # つなぎも発話なので、同じ経路で画面に出す。出さないと、調べているあいだ GUI が
     # 無反応に見える。
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+        ]
+    )
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"q","text":"調べてみますね"}')
+        return_value='{"branch":"action","action":"recall","query":"q","text":"調べてみますね"}'
+    )
     actions = _run_with_action(a, "調べて")
     assert ("say", {"text": "調べてみますね"}) in actions
 
