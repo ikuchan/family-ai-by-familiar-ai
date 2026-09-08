@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：ループの語を束ねる（環-g・v0.3）
+# familiar-ai 設計方針：ループの語を束ねる（環-g・v0.4）
 
 ## この文書の位置づけ
 
@@ -252,77 +252,131 @@ if not self._show_seeded:
 `_generation`（求めの世代・打ち切りで進む）と `_lookup_generation`（語→そのときの世代）。
 後者は ① の器へ吸収する。
 
-## 3. 語の対応表（案）
+## 3. 改名の対応表（v0.4 で確定）
 
-**改名の証明は数え上げでなく「旧名で引いて0件」で置く。**
+**改名を先にやる。** 名前が正しくなってから中身を変えるほうが、変える対象を見誤らない。
+改名は「旧名で引いて0件」で証明でき、挙動を変えないので、先にやっても危険が増えない。
 
-**この表は v0.1 時点の見立てで作ったもので、消える変数を含んでいる。** 実際の改名は
-**g-ほ で一度にやる**ので、そのときに書き直す。ここに残すのは、どの語をどう呼ぶかの
-方向を示すためである。
+**消えると決まっているものは改名しない。** 器へ吸収されるもの（下の「対象外」）を改名するのは
+無駄である。
 
-| 旧名 | 新名（案） | 指すもの |
+### g-い：撤去済みの略語 `WR` を落とす
+
+用語一覧は **WRDB を撤去した**（060）と記している。WR は種類 `共起` の関係として
+`relations` に載るようになった。**にもかかわらず `WR` を名前に持つコードが残っている。**
+
+しかも `_wr_ids` の実体は、いまや**「このターンが作った記録と、その役割」**である。拡散想起の
+母集合にも使い、やりとりの関係の項にもなる。**WR は2つの用のうち片方の、しかも撤去された
+呼び名**である。
+
+| 旧名 | 新名 | 場所 | 呼び手（src／tests） |
+|---|---|---|---|
+| `_wr_ids` | `_turn_records` | `loop/event_loop.py` | 9／6 |
+| `_note_wr` | `_note_record` | `loop/event_loop.py` | 8／0 |
+| `combine_wr_ids` | `combine_cooccurring_ids` | `store/relations.py` | 3／3 |
+| `_record_wr` | `_record_cooccurrence` | `agent.py` | 2／0 |
+| `extra_wr_ids` | `extra_cooccurring_ids` | `agent.py` | 3／2 |
+
+あわせて `agent.py` のコメント2箇所と `loop/coherence.py` の docstring 1箇所を直す。
+
+**完了条件：`grep -rn "wr_ids\|_note_wr\|_record_wr" src/ tests/` が0件。**
+`config.py` の `[D-WR拡散想起]` は設計文書の固定 ID なので残す（**理由を明示して除外する**）。
+
+### g-ろ：紛らわしい名前
+
+#### 属性
+
+| 旧名 | 新名 | なぜ |
 |---|---|---|
-| `_chain` | `_iterations` | この求めで回った反復の回数 |
-| `_capped_hit` | `_iterations_capped` | 反復の上限に達したか |
-| `_chain_head_id` | `_live_record_id` | supersede 鎖の先頭＝いま生きている記録 |
-| `_chain_head_content` | `_live_record_content` | 同上の内容 |
-| `_parent_id` | `_request_id` | 求めそのものの O の id |
-| `_origin_text` | `_request_text` | 求めの文面 |
-| `_origin_kind` | `_trigger_kind` | 何がこの反復を起こしたか（発話｜情動｜機器｜完了） |
-| `_generation` | `_request_generation` | 求めの世代（打ち切りで進む） |
-| `_version_id` | `_live_version_id` | いま生きている版 |
-| `_exclude_from_lookup` | `_recall_exclude_id` | `recall` が自分の版を拾わないための除外 |
-| `_exchange_from` | `_exchange_start` | やりとりの区間の先頭（`_wr_ids` の添字） |
-| `_show_from` | `_recent_cursor` | 直近のやりとりをどこから見せるか（記録 id） |
-| `_show_seeded` | `_recent_cursor_seeded` | そのカーソルを DB から引いたか |
-| `_inflight`・`_in_flight_lookups`・`_lookup_action_by_query`・`_lookup_index_by_query`・`_lookup_generation`・`_lookup_results` | `_lookups: list[Lookup]` | 1件を表す器の列 |
-| `_open_intent()` | `_start_lookup()` | 調べものを始める（O へは書かない） |
-| `_write_intent_and_dispatch()` | `_dispatch_and_write_version()` | 投げてから版を書く |
-| `_pending_intent` | `_pending_lookup` | 投げる前に控える1件 |
+| `_loop` | `_asyncio_loop` | このクラス自体がイベントループなので、`_loop` がどちらを指すか読めない |
+| `_inbox` | `_drained_completions` | 一般名詞すぎて、3つのキューのどれとも読める。実体は完了キューから取り出した控え |
+| `_tasks` | `_background_tasks` | 何のタスクか読めない。実体は投げっぱなしの背景タスク |
+| `_origin_kind` | `_trigger_kind` | `_origin_text` と対に見えるが別物。さらに `origin` はやりとりの役割「起点」と衝突する |
+| `_origin_text` | `_request_text` | 実体は**求めの文面**であって、反復の起点ではない |
+| `_parent_id` | `_request_id` | 「親」を連想させるが、実体は**求めの O の id** |
+| `_chain` | `_iterations` | 「連鎖」が3つの意味を持つ。実体は**反復の回数** |
+| `_capped_hit` | `_iterations_capped` | 何が capped か読めない |
+| `_generation` | `_request_generation` | 何の世代か読めない。実体は**求めの世代** |
+| `_version_id` | `_live_version_id` | 「いま生きている版」であることが名前に無い |
+| `_exclude_from_lookup` | `_recall_exclude_id` | 除外するのは `recall` の検索であって lookup 全般ではない |
+| `_w_index` | `_w_id_map` | `index` が索引か添字か読めない。実体は 12桁 id → 完全な id の対応表 |
+| `_exchange_from` | `_exchange_start` | `from` が値なのか位置なのか読めない。実体は並びの添字 |
+| `_show_from` | `_recent_cursor` | 同上。実体は「直近のやりとりをどこから見せるか」の記録 id |
+| `_progress_pending` | `_slow_notice_received` | 「進捗が保留」と読めるが、実体は**「まだかかっている」を受けた**という印 |
+| `_released_speech` | `_speech_to_deliver` | `released` が済んだことか、これからかが読めない。実体は**これから W へ流す分** |
 
-**日本語の語も1つに決める。**
+**変えないもの**：`_agent`・`_dif`・`_driver`・`_on_text`・`_on_action`・3つのキュー・
+`_utterance`・`_said_fillers`。どれも名前と実体が合っている。
 
-| 語 | 意味 | 使わない語 |
+#### メソッド・module 関数
+
+| 旧名 | 新名 | なぜ |
 |---|---|---|
-| **求め** | 始まりから発話で閉じるまでの1単位 | 「連鎖」を求めの意味で使わない |
-| **反復** | 求めの中の1回 | 「連鎖長」 |
+| `run_iteration` | `begin_request` | **公開面。** 名前は「1反復を回す」だが、実体は**求めを始める**（反復は中で複数回りうる）。呼び手は src 3／tests 28 |
+| `_begin_origin` | `_note_origin` | `begin` だが、実際は控えるだけ（`_note_record` を1回呼ぶ） |
+| `_abort_investigation` | `_abort_lookups` | `investigation` は用語一覧にない。実体は**調べもの**の打ち切り |
+| `_action_of` | `_action_of_query` | 何の何かが読めない |
+| `_open_intent` | `_start_lookup` | **O へ何も書かない**のに「O に残す」と読める |
+| `_write_intent_and_dispatch` | `_dispatch_and_write_version` | 書くのは意図でなく**版**。しかも順序は「投げてから書く」 |
+| `_settled`（module） | `_result_or_none` | 何が settled なのか読めない |
+| `_when`（module） | `_elapsed_label` | 実体は「経過時間（時刻）」の文字列 |
+
+**変えないもの**：`_iterate`（1反復・用語と合う）・`_intake`・`_compose_workspace`・
+`_recent_ctx`・`_link_follows`・`_apply_memory_verdicts`・`_emit`・`set_output`・`start`・
+`close`・`push_*` 3つ・`_ensure_driver`・`_drive`・`_begin_affect`・`_begin_device`・
+`_release_pending_speech`・`_coherence_violation`・`_speak`・`_say_filler`・
+`_delivery_block_reason`・`_accept_silence`・`_present_names`・`_hold_speech`・`_finish`・
+`_write_version`・`_write_seen_mark`・`_version_content`・`_open_ids`・`_close_exchange`・
+`_tools`・`_dispatch_lookup`・`_watch_slow_lookup`・`_run_lookup`・`_query_label`・
+`_log_recall_weights`。
+
+#### 触らないもの
+
+**`_run_camera`・`_camera_tool_def`・`_current_pose_name`。** 知-c が実機で挙動を追っている
+最中で、改名は挙動を変えないが、**diff に現れると切り分けの邪魔になる**（環-e-は 段3 と同じ理由）。
+
+#### 対象外（あとの段で消えるので改名しない）
+
+`_inflight`・`_in_flight_lookups`・`_lookup_action_by_query`・`_lookup_index_by_query`・
+`_lookup_generation`・`_lookup_results`・`_lookup_seq`・`_pending_intent`（g-は で器へ）／
+`_chain_head_id`・`_advance_chain`（g-に で撤去）／`_chain_head_content`（g-ほ で扱う）／
+`_show_seeded`（g-へ で消す）／`_next_lookup_index`（g-は で消える見込み）
+
+### 日本語の語（用語一覧 v0.55 に追記済み）
+
+| 語 | 意味 | この意味で使わない語 |
+|---|---|---|
+| **求め** | 始まりから発話で閉じるまでの1単位 | 「連鎖」 |
+| **反復** | 求めの中の1回。1反復＝1出力 | 「連鎖長」 |
 | **記録の鎖** | O の supersede の連なり | 「鎖」単独 |
 | **版** | 求めの状態を書いた O の記録 | 「意図O」 |
 | **調べもの** | 1件の外部呼び出し | 「調査」「検索」の混用 |
 | **やりとり** | 1ターンの記録を順序つきで束ねた関係 | — |
+| **起点** | やりとりの中で、そのターンを始めた記録の役割 | 求めや鎖の先頭を「起点」と呼ばない |
 
 ## 4. 段取り
 
-**挙動が変わるものを全部先にやり、改名は最後に一度でまとめる。**
+**改名を先に、挙動の変更をあとに。** 名前が正しくなってから中身を変えるほうが、変える対象を
+見誤らない。改名は「旧名で引いて0件」で証明でき、挙動を変えないので、先にやっても危険が
+増えない。
 
-理由は2つある。
-
-1. **改名は「旧名で引いて0件」で証明できる安全な操作である。** 挙動の変更と混ぜると、
-   壊れたときにどちらが原因かを切り分けられない
-2. **挙動の変更で変数がいくつも消える**（`_inflight`・`_in_flight_lookups`・`_lookup_*` の4つ・
-   `_chain_head_id`・`_pending_intent`・`_show_seeded`）。先に消せば、**改名の対応表が
-   半分以下になる**
-
-| 段 | 1つにするもの | 挙動 |
+| 段 | 中身 | 挙動 |
 |---|---|---|
-| **g-い** | **調べもの** — 6つの入れ物 ＋ `_pending_intent`（③）＋ `_lookup_generation`（⑥） | **変わる** |
-| **g-ろ** | **いま生きている記録** — `_chain_head_id` を撤去し `_version_id` へ一本化。`_advance_chain` を撤去。始め方3つを揃える（②） | **変わる** |
-| **g-は** | **(id, 内容) の組** — 求めと、いま生きている記録。2組を同じ形にする（④） | **変わりうる** |
-| **g-に** | **`_show_seeded` を消す** — 「一度きり」を真偽値でなく `_show_from is None` で表す（⑤の付随） | **変わりうる** |
-| **g-ほ** | **改名をまとめて1回**（②の語・④の名前・⑤のカーソル名・関数名） | **変わらない** |
+| **g-い** | **撤去済みの略語 `WR` を落とす**（5ファイル・6箇所） | 変わらない |
+| **g-ろ** | **紛らわしい名前を直す**（属性16・メソッドと module 関数8） | 変わらない |
+| **g-は** | **調べものを1つの器へ**（① ③ ⑥） | **変わる** |
+| **g-に** | **いま生きている記録を1本に**。`_chain_head_id` と `_advance_chain` を撤去。`前進` を書かなくなる。始め方3つを揃える（②） | **変わる** |
+| **g-ほ** | **(id, 内容) の組**を同じ形に（④） | 変わりうる |
+| **g-へ** | **`_show_seeded` を消す**（⑤の付随） | 変わりうる |
 
-**g-い を先にする。** いちばん重複が濃く、手で揃えている箇所が5つあり、ずれの危険が実在する。
+**改名を2つに割る。** `WR` は**撤去済みの略語が残っている**という別の性質の問題で、
+`store/relations.py` と `agent.py` にも及ぶ。混ぜると grep の範囲が広がりすぎる。
 
-**g-ろ は g-い の次。** ②で撤去する `_chain_head_id` は④の片方でもあるので、g-は はそのあと。
-
-**g-ほ の対応表は、g-に が済んだ時点で書き直す。** いまの §3 は v0.1 時点の見立てで作った
-もので、**消える変数を含んでいる**。段が進むたびに短くなるので、最後にまとめて確定させる。
-
-**1段ずつコミットする。** g-ほ は旧名で引いて0件を確かめてから閉じる。
+**1段ずつコミットする。** 改名の段は、旧名で引いて0件を確かめてから閉じる。
 
 ## 5. 挙動が変わるところ
 
-### g-い（調べものを1つの器へ）
+### g-は（調べものを1つの器へ）
 
 同じ結果になるように作るが、作り方が変わる以上、実機で確かめるまで同じだと断定しない。
 
@@ -330,7 +384,7 @@ if not self._show_seeded:
    1件積んで即座に結果を入れる形になる。飛行中の数は導出になるので、釣り合いは機械が守る。
 2. **`_finish` が列だけ空にして数を触らない点。** 器に統一すれば、空にすれば数も0になる。
 
-### g-ろ（いま生きている記録を1本に）
+### g-に（いま生きている記録を1本に）
 
 **`前進`（`KIND_ADVANCE`）の関係が、これから書かれなくなる。**
 
@@ -346,13 +400,13 @@ if not self._show_seeded:
 **始め方が揃う。** いまは人の発話だけ `_advance_chain` を通らない。揃えることで、3つの
 入口が同じ手順で求めを始める。
 
-### g-は（(id, 内容) の組）
+### g-ほ（(id, 内容) の組）
 
 2組を同じ形にするだけで、値の意味は変えない。**変わりうる**としているのは、いま片方が
 `_write_version` の中で暗黙に更新されており、明示にすると更新の時点がずれる可能性がある
 ためである。実装で確かめる。
 
-### g-に（`_show_seeded` を消す）
+### g-へ（`_show_seeded` を消す）
 
 **DB にやりとりが1件も無いあいだ、毎ターン `latest_exchange_origin()` を引きに行く**
 ようになる。いまは起動から一度きりである。
@@ -361,7 +415,7 @@ if not self._show_seeded:
 引き直しは起きない。**空の DB は初回起動のときだけ**なので、増える呼び出しは限られる
 見込みだが、実測していない。
 
-### g-ほ（改名をまとめて1回）
+### g-い・g-ろ（改名）
 
 **挙動を変えない。** 旧名で引いて0件になることが完了条件である。
 
@@ -369,9 +423,10 @@ if not self._show_seeded:
 
 - **旧名で引いて0件**（数え上げたリストで代えない。除外するなら理由を1件ずつ明示する）
 - `ruff` / `mypy` / 全体テストが緑
-- g-い は、**飛行中の数が導出になったことをテストで見る**（手で揃える箇所が0）
-- g-ろ は、**`_advance_chain` と `_chain_head_id` の grep が0件**であること。あわせて、**3つの入口が同じ手順で求めを始める**ことをテストで見る
-- g-ほ は、**§3 の対応表を書き直してから**着手する（そこまでに消えた変数を落とす）
+- g-い・g-ろ は、**旧名で引いて0件**。除外するものは理由を1件ずつ明示する
+- g-は は、**飛行中の数が導出になったことをテストで見る**（手で揃える箇所が0）
+- g-に は、**`_advance_chain` と `_chain_head_id` の grep が0件**であること。あわせて、**3つの入口が同じ手順で求めを始める**ことをテストで見る
+
 - 用語一覧（`用語_略語一覧`）へ、上の日本語の語を追記する
 - `モジュール分割設計` の 環-e-に の節へ、環-g が先であることを書く
 
