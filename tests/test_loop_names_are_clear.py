@@ -110,3 +110,20 @@ def test_the_kept_names_are_untouched():
         "_inflight",
     ):
         assert kept in src, kept
+
+
+def test_the_ports_do_not_call_the_information_processing_a_loop():
+    """`_loop` が正反対の2つを指していた（環-g・段ろ の続き）。
+
+    `loop/event_loop.py` の `_loop` は **asyncio のイベントループ**だが、
+    `io/aif.py` と `io/dif.py` の `_loop` は **I（`InformationProcessing`）そのもの**
+    である。`loop/tonic.py` は同じものを `_ip` と呼んでおり、呼び方が3通りに割れていた。
+
+    口は `_ip` に揃える（T の側の呼び方に合わせる）。
+    """
+    import re
+
+    for name in ("io/aif.py", "io/dif.py"):
+        src = (_ROOT / "src/familiar_agent" / name).read_text(encoding="utf-8")
+        assert not re.search(r"self\._loop\b", src), name
+        assert "self._ip" in src, name

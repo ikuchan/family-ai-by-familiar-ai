@@ -2,7 +2,7 @@
 
 設計（`設計図` ③-2）は出入り口を4つ（IIF・DIF・AIF・OIF）と定め、この4つ以外に
 コンポーネントどうしが直接つながる線を置かない。ところが**外部の機械へは口が無く**、
-`loop/event_loop.py` がスピーカー・カメラ・調べものの道具を直接掴んでいた。
+`ip/event_loop.py` がスピーカー・カメラ・調べものの道具を直接掴んでいた。
 
 **挙動は変えない。** 返り値の形も、例外の畳み方も、順序もそのままで、口は転送し、
 通ったものを debug に残すだけである。
@@ -22,9 +22,9 @@ import pytest
 from familiar_agent.io.dif import DIF
 
 
-def _dif(*, tts=None, search=None, fetch=None, mcp=None, loop=None) -> DIF:
+def _dif(*, tts=None, search=None, fetch=None, mcp=None, ip=None) -> DIF:
     """**口は agent を知らない。** 転送する相手だけを受け取る。"""
-    return DIF(tts=tts, search=search, fetch=fetch, mcp=mcp, loop=loop)
+    return DIF(tts=tts, search=search, fetch=fetch, mcp=mcp, ip=ip)
 
 
 # ── 声 ─────────────────────────────────────────────────────────────────────
@@ -165,15 +165,15 @@ def test_a_broken_mcp_yields_no_definitions_instead_of_raising():
 
 def test_a_device_event_reaches_the_loop():
     """人の出入りはカメラが出す機器の出来事で、QD＝DIF の担当である。"""
-    loop = MagicMock()
-    _dif(loop=loop).device("入室", "パパ が来た", release_pending=True)
-    loop.push_device.assert_called_once_with("入室", "パパ が来た", release_pending=True)
+    ip = MagicMock()
+    _dif(ip=ip).device("入室", "パパ が来た", release_pending=True)
+    ip.push_device.assert_called_once_with("入室", "パパ が来た", release_pending=True)
 
 
 def test_leaving_does_not_release_pending_speech_by_default():
-    loop = MagicMock()
-    _dif(loop=loop).device("退室", "パパ が居なくなった")
-    loop.push_device.assert_called_once_with("退室", "パパ が居なくなった", release_pending=False)
+    ip = MagicMock()
+    _dif(ip=ip).device("退室", "パパ が居なくなった")
+    ip.push_device.assert_called_once_with("退室", "パパ が居なくなった", release_pending=False)
 
 
 def test_the_tonic_no_longer_pushes_into_the_loop_itself():

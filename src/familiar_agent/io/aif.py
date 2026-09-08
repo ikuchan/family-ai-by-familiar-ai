@@ -52,22 +52,21 @@ class Nudge:
 class AIF:
     """T と I の唯一の出入り口。
 
-    `loop` は I（`InformationProcessing`）、`nudge` は T の mood レジスタを動かす関数
+    `ip` は I（`InformationProcessing`）、`nudge` は T の mood レジスタを動かす関数
     （既定は `mood_register.nudge_current_mood`）。関数で受け取るのは、DB を触らずに
     試せるようにするためである。
     """
 
-    def __init__(self, loop, *, nudge: Callable | None = None) -> None:
-        self._loop = loop
+    def __init__(self, ip, *, nudge: Callable | None = None) -> None:
+        self._ip = ip
         self._nudge = nudge
 
     def fire(self, firing: Firing) -> None:
         """T の発火を I へ渡す（T → I）。"""
-        logger.debug("AIF fire ← %s／%s", firing.axis,
-                     firing.inner_voice[:_TRAIL_CHARS])
+        logger.debug("AIF fire ← %s／%s", firing.axis, firing.inner_voice[:_TRAIL_CHARS])
         # I が受ける軸名は大文字。ここで揃えるのは、T 側が小文字の軸名で回している
         # ためで、変換を口の中に閉じておけば両側が相手の書き方を知らずに済む。
-        self._loop.push_affect(firing.axis.upper(), firing.inner_voice)
+        self._ip.push_affect(firing.axis.upper(), firing.inner_voice)
 
     def nudge(self, nudge: Nudge) -> "MoodPAD":
         """I の作用を T の mood レジスタへ渡す（I → T）。新しい mood を返す。"""
@@ -75,10 +74,10 @@ class AIF:
         fn = self._nudge
         if fn is None:
             from ..mood_register import nudge_current_mood
+
             fn = nudge_current_mood
         got = fn(nudge.items)
-        logger.debug("AIF nudge → (%.2f,%.2f,%.2f,%.2f)",
-                     got.p, got.pn, got.a, got.dom)
+        logger.debug("AIF nudge → (%.2f,%.2f,%.2f,%.2f)", got.p, got.pn, got.a, got.dom)
         return got
 
 
