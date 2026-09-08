@@ -102,9 +102,10 @@ def test_the_kept_names_are_untouched():
     """あとの段で消えるものは改名しない（`設計方針_ループの語を束ねる` §3「対象外」）。"""
     src = (_ROOT / "src/familiar_agent/loop/event_loop.py").read_text(encoding="utf-8")
     # 段は（調べものの器）で消えたものは、ここから外している。
-    # 段に（いま生きている記録を1本に）で消えたものも、ここから外している。
-    for kept in ("_show_seeded",):
-        assert kept in src, kept
+    # 段に・段へ で消えたものは、ここから外している。**いまは残す対象が無い**ので、
+    # 対象外にしたものが本当に消えたことを見る（`設計方針_ループの語を束ねる` §3）。
+    for gone in ("_chain_head_id", "_chain_head_content", "_advance_chain", "_show_seeded"):
+        assert gone not in src, f"{gone} が残っている"
 
 
 def test_the_ports_do_not_call_the_information_processing_a_loop():
