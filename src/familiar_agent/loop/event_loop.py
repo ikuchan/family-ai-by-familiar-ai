@@ -214,7 +214,6 @@ class InformationProcessing:
         # 辺を書くのは `follows` だけである。起動直後は空なので、最初に要るときに
         # 一度だけ DB から引く。
         self._recent_cursor: str | None = None
-        self._show_seeded = False
         # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
@@ -861,8 +860,11 @@ class InformationProcessing:
         agent = self._agent
         # 判定が続き先を返した。その辺は `_link_follows` が書く。
         self._link_follows(follows)
-        if not self._show_seeded:
-            self._show_seeded = True
+        # **カーソル自身が「まだ引いていない」を表す。** 以前は真偽値を別に持っており、
+        # 一度立つと二度と戻らなかった。DB にやりとりが1件も無いまま立つと、次に
+        # `_close_exchange` が値を入れるまで直近のやりとりが載らなかった（環-g・段へ）。
+        # 1件でもあれば一度で埋まり、以後は `_close_exchange` が更新するので引き直さない。
+        if not self._recent_cursor:
             with contextlib.suppress(Exception):
                 self._recent_cursor = agent._memory.latest_exchange_origin()
         if not self._recent_cursor:
