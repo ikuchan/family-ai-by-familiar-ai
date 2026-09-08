@@ -1271,7 +1271,9 @@ class InformationProcessing:
 
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
-            return await self._speak(decision.text, memories)
+            spoken, outcome = await self._speak(decision.text)
+            await self._finish(spoken, memories, outcome)
+            return spoken
 
         # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
         if decision.branch == "action" and decision.query and not capped:
@@ -1394,7 +1396,9 @@ class InformationProcessing:
                     text = str(retry_tc.input.get("text", "")).strip() or text
                 else:
                     logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
-            return await self._speak(text, memories)
+            spoken, outcome = await self._speak(text)
+            await self._finish(spoken, memories, outcome)
+            return spoken
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
         logger.debug("event-loop iter=%d/%d 決定=none", chain, max_chain)
@@ -1420,27 +1424,28 @@ class InformationProcessing:
             text, recent=recent, facts=facts_ctx(saw=saw, memories=memories)
         )
 
-    async def _speak(self, text: str, memories: list[dict]) -> str:
-        """発話して反復を閉じる。聞く相手が居なければ話さず、後で話すために溜める。
+    async def _speak(self, text: str) -> tuple[str, str]:
+        """声に出す。返りは **(実際に出した文, 結末)**。**反復は閉じない。**
 
         身体を持つ以上、発話は相手が居て初めて意味を持つ（正本③ の配信ゲート＝結果有り＋在席）。
         居ないときは「話したかったができなかった」を O に残して `pending_speech` へ積み、
         次に人が現れたときに気づけるようにする。溜めたものの寿命（鮮度切れ・参照先 supersede で
         失効）は `pending_speech` 側が持つ。
+
+        **閉じるのは呼び手（`_iterate`）である**（環-e-に・段4）。以前はここが `_finish` を
+        3通りに呼び分けており、話す動作が求めの寿命の終わりまで持っていた。核が殻を呼び返す
+        形で、結末を決めるのも `memories` を受け取るのも、閉じるためだけだった。
         """
         if not text:
-            await self._finish("", memories, "沈黙")
-            return ""
+            return "", "沈黙"
         blocked = self._delivery_block_reason()
         if blocked:
             await self._hold_speech(text)
             logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
-            await self._finish("", memories, "保留")
-            return ""
+            return "", "保留"
         await self._dif.speak(text)
         self._emit(text)
-        await self._finish(text, memories, "発話")
-        return text
+        return text, "発話"
 
     async def _say_filler(self, text: str) -> None:
         """つなぎの一言を出す（内容にコミットしない前置き）。配信ゲートは同じく効かせる。
