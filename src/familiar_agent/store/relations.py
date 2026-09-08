@@ -57,7 +57,7 @@ def _first(row):
     return row[0]
 
 
-def combine_wr_ids(
+def combine_cooccurring_ids(
     memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
 ) -> "list[str]":
     """共起に入れる id ＝そのターンの W（想起 MI）＋作った記憶。順序保存で重複除去。"""

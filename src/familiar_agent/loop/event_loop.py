@@ -185,11 +185,12 @@ class InformationProcessing:
         self._released_speech: list[str] = []
         # W に出した id（12桁）→ 完全な id。フルLLM の申告の突き合わせに使う。
         self._w_index: dict[str, str] = {}
-        # 拡散想起の母集合（WR）へ載せる、ループが作った記録の id。つなぎは載せない
-        # （中身が無く、共起として育てる価値がない）。中断はこの求めで閉じるが、次の
-        # 求めの WR に載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
-        # (観測 id, 役割)。役割は 起点・版・見た・答え（`_note_wr`）。
-        self._wr_ids: list[tuple[str, str]] = []
+        # このターンが作った記録と、その役割（観測 id, 役割）。**一つの並びが二つの用を
+        # 賄う**：拡散想起の母集合（共起の関係）へ載せる id と、やりとりの関係の項。
+        # 役割は 起点・版・見た・つなぎ・答え（`_note_record`）。つなぎは共起に載せない
+        # （中身が無く、育てる価値がない）。中断はこの求めで閉じるが、次の求めの共起には
+        # 載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
+        self._turn_records: list[tuple[str, str]] = []
         # いまのやりとりが、その並びのどこから始まったか。**やりとりは並びの一区間**
         # である。母集合への持ち越しは打ち切りでも消さないが、やりとりは打ち切りで
         # 区切る。二つの用は、区切りの規則が違う。
@@ -254,16 +255,16 @@ class InformationProcessing:
         """
         if not obs_id:
             return
-        self._note_wr(obs_id, "起点")
+        self._note_record(obs_id, "起点")
 
     def _close_exchange(self) -> "list[tuple[str, str]] | None":
         """いまのやりとりの区間を切り出し、次の始まりを進める。
 
-        母集合への持ち越し（`_wr_ids`）はそのまま残す。打ち切った調査と、言い直した問いの
-        共起は、たどる価値があるためである。
+        母集合への持ち越し（`_turn_records`）はそのまま残す。打ち切った調査と、言い直した
+        問いの共起は、たどる価値があるためである。
         """
-        members = self._wr_ids[self._exchange_from :]
-        self._exchange_from = len(self._wr_ids)
+        members = self._turn_records[self._exchange_from :]
+        self._exchange_from = len(self._turn_records)
         # 次のターンは、いま閉じたやりとりから見せる。
         for obs_id, role in members:
             if role == "起点":
@@ -271,17 +272,18 @@ class InformationProcessing:
                 break
         return members or None
 
-    def _note_wr(self, obs_id: str | None, role: str) -> None:
+    def _note_record(self, obs_id: str | None, role: str) -> None:
         """このターンが作った記録を、役割つきで控える。
 
-        **一つの並びが二つの用を賄う。** 拡散想起の母集合（WR）へ渡す id と、やりとりの
-        関係の項が、どちらもここから出る。別々に持つと、片方へ足し忘れたときに気づけない。
+        **一つの並びが二つの用を賄う。** 拡散想起の母集合（共起の関係）へ渡す id と、
+        やりとりの関係の項が、どちらもここから出る。別々に持つと、片方へ足し忘れたときに
+        気づけない。
 
         役割は 起点・版・見た・答え。会話要約は背景で遅れて作られるので、ここには来ない
         （`_run_post_response_pipeline` が末尾に足す）。
         """
-        if obs_id and all(obs_id != i for i, _ in self._wr_ids):
-            self._wr_ids.append((obs_id, role))
+        if obs_id and all(obs_id != i for i, _ in self._turn_records):
+            self._turn_records.append((obs_id, role))
 
     def _advance_chain(self, new_id: str | None, content: str = "") -> None:
         """ループ記録の鎖を1つ進める（直前の生きた記録を新しい記録で supersede）。
@@ -316,7 +318,7 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         if version_id:
-            self._note_wr(version_id, "版")
+            self._note_record(version_id, "版")
             if self._version_id and self._version_id != version_id:
                 agent._memory.mark_superseded(self._version_id, version_id, kind=KIND_REVISION)
             self._version_id = version_id
@@ -347,7 +349,7 @@ class InformationProcessing:
         )
         # W へ載せる。版から結果を落としたので、この経路が無いと `see` した反復の
         # 次で、調停が何が見えたかを知らないまま返事を作る。
-        self._note_wr(obs_id, "見た")
+        self._note_record(obs_id, "見た")
         return obs_id
 
     def _version_content(self, *, aborted: bool = False) -> str:
@@ -1437,7 +1439,7 @@ class InformationProcessing:
         agent = self._agent
         if not agent.config.coherence_check or not text:
             return None
-        saw = any(role == "見た" for _, role in self._wr_ids)
+        saw = any(role == "見た" for _, role in self._turn_records)
         return await agent._evaluator.check_response_coherence(
             text, recent=recent, facts=facts_ctx(saw=saw, memories=memories)
         )
@@ -1491,7 +1493,7 @@ class InformationProcessing:
             parent_id=self._parent_id,
             **agent._observation_perspective(),
         )
-        self._note_wr(obs_id, "つなぎ")
+        self._note_record(obs_id, "つなぎ")
 
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。
@@ -1623,7 +1625,7 @@ class InformationProcessing:
                     parent_id=self._parent_id,
                     **agent._observation_perspective(),
                 )
-        self._note_wr(answer_id, "答え")
+        self._note_record(answer_id, "答え")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
@@ -1642,8 +1644,8 @@ class InformationProcessing:
         # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
         # やりとりは**区間**、母集合は**全部**である（打ち切りの分も次へ持ち越している）。
         noted = self._close_exchange() or []
-        wr_ids = [i for i, _ in self._wr_ids]
-        self._wr_ids, self._exchange_from = [], 0
+        turn_records = [i for i, _ in self._turn_records]
+        self._turn_records, self._exchange_from = [], 0
         try:
             origin = self._utterance or self._chain_head_content
             arousal = await agent._turn_arousal(origin, text)
@@ -1666,7 +1668,7 @@ class InformationProcessing:
                     exchange=noted or None,
                     # ループが作った記録も拡散想起の母集合へ。載せないと、閉じた逐語へ
                     # 辿り着く辺が WR に無い（実機で、逐語の WR 掲載数が0だった）。
-                    extra_wr_ids=wr_ids,
+                    extra_cooccurring_ids=turn_records,
                 ),
                 name="event-post-response",
             )
