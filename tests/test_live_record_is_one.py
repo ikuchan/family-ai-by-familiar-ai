@@ -58,11 +58,11 @@ def test_the_cue_survives_under_its_own_name():
     assert "_cue" in src
 
 
-def test_all_three_starts_do_the_same_thing():
+def test_all_three_starts_go_through_one_place():
     """人の発話・情動・機器で、求めの始め方が揃っていること。
 
-    以前は人の発話だけ `_advance_chain` を通らず、直に代入していた。同じ場面でも
-    `前進` が書かれるかどうかが起点で違った。
+    以前は人の発話だけ `_advance_chain` を通らず、同じ場面でも `前進` が書かれるかどうかが
+    起点で違った。段に で手順を揃え、**環-e-に 段3 で1箇所（`_begin_request`）へまとめた**。
     """
     import ast
 
@@ -73,17 +73,24 @@ def test_all_three_starts_do_the_same_thing():
         for n in ast.parse(text).body
         if isinstance(n, ast.ClassDef) and n.name == "InformationProcessing"
     )
-    starts = {}
+    bodies = {}
     for m in cls.body:
         if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name in (
             "begin_request",
             "_begin_affect",
             "_begin_device",
+            "_begin_request",
         ):
-            starts[m.name] = "\n".join(lines[m.lineno - 1 : m.end_lineno])
-    assert set(starts) == {"begin_request", "_begin_affect", "_begin_device"}
-    for name, body in starts.items():
-        assert "self._request_id = " in body, f"{name}：求めの id を置いていない"
-        assert "self._note_origin(" in body, f"{name}：起点を控えていない"
-        assert "self._cue = " in body, f"{name}：手がかりを置いていない"
-        assert "_advance_chain" not in body, f"{name}：鎖を進めている"
+            bodies[m.name] = "\n".join(lines[m.lineno - 1 : m.end_lineno])
+    assert set(bodies) == {"begin_request", "_begin_affect", "_begin_device", "_begin_request"}
+
+    # 3つの入口は、1箇所を通るだけ
+    for name in ("begin_request", "_begin_affect", "_begin_device"):
+        assert "self._begin_request(" in bodies[name], name
+        assert "_advance_chain" not in bodies[name], name
+
+    # その1箇所が、求めの id・起点・手がかりを置く
+    one = bodies["_begin_request"]
+    assert "self._request_id = " in one
+    assert "self._note_origin(" in one
+    assert "self._cue = " in one
