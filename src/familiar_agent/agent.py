@@ -385,7 +385,7 @@ class EmbodiedAgent:
         memories: list[dict] | None = None,
         close_parent_id: str | None = None,
         exchange: "list[tuple[str, str]] | None" = None,
-        extra_wr_ids: "list[str] | None" = None,
+        extra_cooccurring_ids: "list[str] | None" = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
@@ -417,7 +417,7 @@ class EmbodiedAgent:
         # （`設計図` ③-2 の4つの口）。
         self._aif.nudge(Nudge(items=_nudge_items))
 
-        # そのターンで作った記憶 id（観察・会話）。WR 記録で W と共起させる。
+        # そのターンで作った記憶 id（観察・会話）。共起の記録で W と結ぶ。
         _new_ids: list[str | None] = []
         # 観察 O をここで書くのはやめた（上記）。None のまま残すのは、下の
         # supersede の宛先が `_obs_id or _conv_id` で会話へ落ちるためである。
@@ -480,8 +480,10 @@ class EmbodiedAgent:
                     self._memory.record_exchange(_members)
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
-            # 1つの WR として共起記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
-            self._record_wr(memories, list(_new_ids or []) + list(extra_wr_ids or []))
+            # **1つの共起**として記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
+            self._record_cooccurrence(
+                memories, list(_new_ids or []) + list(extra_cooccurring_ids or [])
+            )
 
             await self._maybe_update_self_narrative(
                 user_input=user_input,
@@ -749,7 +751,7 @@ class EmbodiedAgent:
         """Return the current speaker's memory, or agent's own if no speaker is set."""
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
 
-    def _record_wr(
+    def _record_cooccurrence(
         self, memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
     ) -> None:
         """そのターンの W（想起 MI）＋そのターンに作った記憶を1つの共起として記録する。
@@ -757,9 +759,9 @@ class EmbodiedAgent:
         新記憶↔W の接続を作る（拡散想起の母集合・記録のみ・挙動不変）。id は重複除去する。
         器は関係へ移した（段 5）。
         """
-        from .store.relations import RelationStore, combine_wr_ids
+        from .store.relations import RelationStore, combine_cooccurring_ids
 
-        mi_ids = combine_wr_ids(memories, new_ids)
+        mi_ids = combine_cooccurring_ids(memories, new_ids)
         if not mi_ids:
             return
         try:

@@ -22,7 +22,7 @@ CONF_UNCERTAIN = 0.55
 def facts_ctx(*, saw: bool, memories: list[dict]) -> str:
     """この反復でループが知っていることを、そのまま並べる。
 
-    `saw` は役割 `見た` が並びに載ったか（`see` の完了で `_note_wr` が付ける）。
+    `saw` は役割 `見た` が並びに載ったか（`see` の完了で `_note_record` が付ける）。
     `memories` は W に実際に載った記録で、落とされたものは含まない——載らなかった記憶は
     主LLM が見ていないので、それを材料と呼べない。
     """

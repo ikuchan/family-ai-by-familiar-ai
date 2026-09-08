@@ -298,7 +298,7 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 
 `_utterance`・`_origin_kind`・`_origin_text`・`_chain`・`_capped_hit`・`_parent_id`・
 `_version_id`・`_chain_head_id`・`_chain_head_content`・`_lookup_results`・`_lookup_seq`・
-`_said_fillers`・`_released_speech`・`_exchange_from`・`_wr_ids`・`_show_from`・
+`_said_fillers`・`_released_speech`・`_exchange_from`・`_turn_records`・`_show_from`・
 `_show_seeded`・`_generation`
 
 **18 個ある。** どれも「1つの求めが始まってから終わるまで」だけ生きる。

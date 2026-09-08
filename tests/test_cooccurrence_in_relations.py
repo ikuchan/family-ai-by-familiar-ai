@@ -15,7 +15,7 @@ import pytest
 from familiar_agent.db import get_db
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.store.context import StoreContext
-from familiar_agent.store.relations import RelationStore, combine_wr_ids
+from familiar_agent.store.relations import RelationStore, combine_cooccurring_ids
 
 
 @pytest.fixture
@@ -81,5 +81,5 @@ def test_an_empty_group_is_not_written(store):
 def test_combine_keeps_order_and_drops_duplicates():
     """WR に入れる id は、W の想起 MI ＋ そのターンの新記憶。順序保存で重複除去。"""
     memories = [{"memory_id": "w1"}, {"memory_id": "w2"}, {"memory_id": "w1"}]
-    assert combine_wr_ids(memories, [None, "obs1", "w1"]) == ["w1", "w2", "obs1"]
-    assert combine_wr_ids(None, None) == []
+    assert combine_cooccurring_ids(memories, [None, "obs1", "w1"]) == ["w1", "w2", "obs1"]
+    assert combine_cooccurring_ids(None, None) == []

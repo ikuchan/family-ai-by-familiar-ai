@@ -41,8 +41,11 @@ def _ip(origin: str = "周りを見て"):
 
 def _saved(agent, direction: str) -> list[str]:
     """その direction で書かれた content を、書かれた順に返す。"""
-    return [c.args[0] for c in agent._memory.save_async_with_id.call_args_list
-            if c.kwargs.get("direction") == direction]
+    return [
+        c.args[0]
+        for c in agent._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == direction
+    ]
 
 
 def test_a_seen_result_is_written_as_its_own_record() -> None:
@@ -51,6 +54,7 @@ def test_a_seen_result_is_written_as_its_own_record() -> None:
     書き手は `_run_camera`（実際にカメラを回した経路）である。中身の検証は
     `test_seen_mark_content` にある。
     """
+
     async def scenario():
         a, ip = _ip()
         await ip._write_seen_mark("窓側を見た。見えたもの：椅子、窓")
@@ -66,6 +70,7 @@ def test_a_seen_result_is_written_as_its_own_record() -> None:
 
 def test_the_seen_record_is_not_folded() -> None:
     """見た印は畳まない（畳むと想起の候補から外れ、薄れの順序が作れない）。"""
+
     async def scenario():
         a, ip = _ip()
         await ip._write_seen_mark("襖側を見た。見えたもの：戸")
@@ -83,11 +88,13 @@ def test_the_seen_record_is_not_folded() -> None:
 
 def test_the_version_does_not_carry_what_was_seen() -> None:
     """版に見えたものを載せない（同じ出来事を2件にしない）。"""
+
     async def scenario():
         a, ip = _ip()
         ip._lookup_action_by_query["目の前を見る"] = "see"
         ip._completion_queue.put_nowait(
-            ("目の前を見る", "窓側を見た。見えたもの：椅子、窓", None, "完了", 1))
+            ("目の前を見る", "窓側を見た。見えたもの：椅子、窓", None, "完了", 1)
+        )
         await ip._intake()
         await ip.close()
         return a
@@ -100,11 +107,13 @@ def test_the_version_does_not_carry_what_was_seen() -> None:
 
 def test_the_version_still_says_the_lookup_finished() -> None:
     """版には「何番が届いたか」は残す（求めの状態は分かる必要がある）。"""
+
     async def scenario():
         a, ip = _ip()
         ip._lookup_action_by_query["目の前を見る"] = "see"
         ip._completion_queue.put_nowait(
-            ("目の前を見る", "窓側を見た。見えたもの：椅子", None, "完了", 1))
+            ("目の前を見る", "窓側を見た。見えたもの：椅子", None, "完了", 1)
+        )
         await ip._intake()
         await ip.close()
         return a
@@ -117,11 +126,11 @@ def test_the_version_still_says_the_lookup_finished() -> None:
 
 def test_other_lookups_still_carry_their_result_in_the_version() -> None:
     """`recall` や検索の結果は従来どおり版に載る（分けるのは `see` だけ）。"""
+
     async def scenario():
         a, ip = _ip("昨日の天気は？")
         ip._lookup_action_by_query["昨日 天気"] = "search_deferred"
-        ip._completion_queue.put_nowait(
-            ("昨日 天気", "西日本は晴れだった", None, "完了", 1))
+        ip._completion_queue.put_nowait(("昨日 天気", "西日本は晴れだった", None, "完了", 1))
         await ip._intake()
         await ip.close()
         return a
@@ -138,13 +147,15 @@ def test_the_seen_record_reaches_the_workspace() -> None:
     版から見えたものを落とすので、この経路が無いと `see` した反復の次で、調停が
     何が見えたかを知らないまま返事を作る。
     """
+
     async def scenario():
         a, ip = _ip()
         ip._lookup_action_by_query["目の前を見る"] = "see"
         ip._completion_queue.put_nowait(
-            ("目の前を見る", "窓側を見た。見えたもの：椅子", None, "完了", 1))
+            ("目の前を見る", "窓側を見た。見えたもの：椅子", None, "完了", 1)
+        )
         await ip._intake()
-        got = list(ip._wr_ids)
+        got = list(ip._turn_records)
         await ip.close()
         return a, got
 

@@ -20,9 +20,9 @@ from familiar_agent.loop.event_loop import InformationProcessing
 from tests.test_event_loop import _agent, _run, _run_chain, _turn
 
 
-def _extra_wr_ids(a):
+def _extra_cooccurring_ids(a):
     _, kwargs = a._run_post_response_pipeline.call_args
-    return list(kwargs.get("extra_wr_ids") or [])
+    return list(kwargs.get("extra_cooccurring_ids") or [])
 
 
 def test_the_answer_is_put_into_the_diffuse_pool():
@@ -30,7 +30,7 @@ def test_the_answer_is_put_into_the_diffuse_pool():
     _run(a, utterance="今日の天気は？")
     # obs1=起点 / obs2=逐語。**起点も載せる**（段 3）。載せないと、問いだけが母集合に
     # 入らず、拡散想起が問いから答えへ辿れない。
-    assert _extra_wr_ids(a) == ["obs1", "obs2"]
+    assert _extra_cooccurring_ids(a) == ["obs1", "obs2"]
 
 
 def test_intent_and_completion_are_put_into_the_diffuse_pool():
@@ -42,7 +42,7 @@ def test_intent_and_completion_are_put_into_the_diffuse_pool():
     )
     _run_chain(a, utterance="調べて")
     # obs2=意図 / obs3=完了 / obs4=逐語。
-    assert _extra_wr_ids(a) == ["obs1", "obs2", "obs3", "obs4"]
+    assert _extra_cooccurring_ids(a) == ["obs1", "obs2", "obs3", "obs4"]
 
 
 def test_the_filler_is_written_and_pooled():
@@ -71,4 +71,4 @@ def test_an_aborted_investigation_is_carried_to_the_next_pool():
     ip._parent_id = "obs-parent"
     ip._in_flight_lookups = [("recall", "前の調査", 1)]
     asyncio.run(ip._abort_investigation())
-    assert ip._wr_ids, "中断の記録が母集合へ控えられていない"
+    assert ip._turn_records, "中断の記録が母集合へ控えられていない"

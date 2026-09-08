@@ -110,7 +110,7 @@ CREATE INDEX idx_relations_kind        ON relations(kind);
 | 解決 | 旧、新 | あり（2 項） | `event_loop.py:1051`（配れた保留発話） |
 | 前進 | 旧、新 | あり（2 項） | `event_loop.py:300`（鎖の前進） |
 | 継起 | 前、後 | あり | `_begin_origin`（ターンどうしの起点をつなぐ） |
-| やりとり | 起点、版、見た、答え、要約 | あり（多項） | `_note_wr` と `record_exchange` |
+| やりとり | 起点、版、見た、答え、要約 | あり（多項） | `_note_record` と `record_exchange` |
 | 共起 | 項（W の全要素） | 無し（多項） | `record_cooccurrence`（060 で `wr_records` から移した） |
 
 やりとりが多項であることが、二項の列では表せなかったものにあたる。問いと答えを別々の辺で
@@ -262,10 +262,10 @@ CREATE UNIQUE INDEX idx_relation_members_old
 会話要約は背景タスクである。全部が揃うのは `_run_post_response_pipeline` の中なので、
 関係はそこで一度に書く。`_finish` は `(観測 id, 役割)` の並びを渡すだけである。
 
-**一つの並びが二つの用を賄う。** `_note_wr(obs_id, role)` が控えた並びから、拡散想起の
+**一つの並びが二つの用を賄う。** `_note_record(obs_id, role)` が控えた並びから、拡散想起の
 母集合（WR）へ渡す id と、やりとりの項の両方が出る。別々に持つと、片方へ足し忘れたときに
 気づけない。**起点をこの並びに載せたので、問いが WR にも入るようになった。** それまで
-`_note_wr` を呼ぶのは版と見た結果と答えだけで、問いだけが母集合から漏れていた。
+`_note_record` を呼ぶのは版と見た結果と答えだけで、問いだけが母集合から漏れていた。
 
 **ただし、二つの用は区切りの規則が違う。** 母集合への持ち越しは打ち切りでも消さない
 （打ち切った調査と、言い直した問いの共起は、たどる価値がある）。一方でやりとりは、打ち切り
@@ -379,7 +379,7 @@ CREATE UNIQUE INDEX idx_relation_members_old
 第三に、**行が tuple でも dict でも来る**。拡散想起は素の接続を持ち回っており、層が包む
 `RealDictCursor` とは違う。1列の読み出しを両対応にした。
 
-`wr_store.py` は撤去した。純関数の `combine_wr_ids` は `store/relations.py` へ移した。
+`wr_store.py` は撤去した。純関数の `combine_cooccurring_ids`（当時 `combine_wr_ids`）は `store/relations.py` へ移した。
 
 **測っていないことが二つある。** 移行そのものの所要時間（本番の WR は 030 以降のターン分
 あり、1本ずつ書く）と、共起の検索が遅くなったかである。結合が一つ増えている。

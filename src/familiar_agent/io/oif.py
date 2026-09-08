@@ -297,7 +297,7 @@ def _to_recalled(row: dict) -> Recalled:
     `summary` は面の言葉（面が持たなければ出来事の本文）、`memory_id` は出来事の id、
     `facet_id` は面の id である。**MI の `id` は面**で、出来事は `obs_id` が指す。
 
-    `memory_id` が出来事のままなのは、拡散想起の種・除外・supersede・WR の記録が
+    `memory_id` が出来事のままなのは、拡散想起の種・除外・supersede・共起の記録が
     すべて出来事の id で動いているためである。
     """
     return Recalled(

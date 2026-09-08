@@ -135,4 +135,4 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
     _, kwargs = a._run_post_response_pipeline.call_args
     assert [r for _, r in kwargs["exchange"]].count("起点") == 1, kwargs["exchange"]
     # 母集合へは、打ち切りの分も持ち越して渡る。
-    assert "obs1" in kwargs["extra_wr_ids"]
+    assert "obs1" in kwargs["extra_cooccurring_ids"]

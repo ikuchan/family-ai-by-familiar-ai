@@ -1,4 +1,4 @@
-# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.5）
+# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.6）
 
 ## 目的とシナリオ
 
@@ -49,7 +49,7 @@
 
 薄い縦切りで実装した（各スライスは pytest で通る最小の一本・実装後 `DIFFUSE_RECALL` を既定 on へ）。
 
-1. **WR の記録【済】**：`wr_records`／`wr_record_items(wr_id, mi_id)`（migration 030）。**060 で種類 `共起` の関係へ移した**（`設計方針_MI間の関係` 段 5）。いまの口は `RelationStore.record_cooccurrence` で、`wr_store.py` は撤去した。ターン後（`agent._record_wr`）に**そのターンの W（想起 MI）＋そのターンに作った記憶（観察・会話 id）を1つの WR として共起記録**（`combine_wr_ids`・新記憶↔W の接続）。
+1. **WR の記録【済】**：`wr_records`／`wr_record_items(wr_id, mi_id)`（migration 030）。**060 で種類 `共起` の関係へ移した**（`設計方針_MI間の関係` 段 5）。いまの口は `RelationStore.record_cooccurrence` で、`wr_store.py` は撤去した。ターン後（`agent._record_cooccurrence`）に**そのターンの W（想起 MI）＋そのターンに作った記憶（観察・会話 id）を**1つの共起**として記録**（`combine_cooccurring_ids`・新記憶↔W の接続）。
 2. **(B) エンティティ辺【済】**：`core/diffuse.select_entity_seeds`（**関係の面**から種 person・`about`→`present`→`actor` の順・自分/話者/DEFAULT 除外）＋`diffuse_store.recall_by_person`（その人が `about` か `present` の面を持つ現行版観測を新しい順）。LLM フリー。
 
    **段4（2026-09-02）で視点列から面へ移した。** それまでは `subject_id`／`participants_json`／`writer_id` を読んでいた。047 で situated の person が「誰の視点で符号化したか」から「**どの関係の面か**」へ変わったので、面で引けるようになった。`fetch_perspectives` は `fetch_relation_persons` へ改名。**母集合に `actor` は入れない**——その人が「やった」だけの記録まで入れると、パジュ自身が書いた記録（`actor` が `__self__` の 5949 行）がどの種からも湧く。種にするのと母集合にするのは別の問いである。
