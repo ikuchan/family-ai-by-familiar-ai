@@ -26,6 +26,7 @@ from .arbiter import arbitrate
 from ..store.relations import KIND_ADVANCE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from .coherence import facts_ctx
+from .generator import _pi_ctx, _present_ctx
 from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -88,61 +89,6 @@ def _camera_tool_def(agent, name: str) -> list[dict]:
     return [d for d in cam.get_tool_definitions() if d.get("name") == name]
 
 
-def _present_ctx(agent) -> str:
-    """いま誰が居るかを渡す。「誰かが居る」ではなく「誰が居るか」を伝える。
-
-    自発発話は誰に向けたものかで内容が変わるので、名前と確信度を添える。誰も認識できて
-    いないときも黙らず、その事実を明示する（空文字だと、宛先が分からないまま話すことに
-    なる）。
-
-    **暫定である点**：ここで扱えるのは既知の人物だけで、「顔は見えるが誰か分からない
-    未知の人」を表せない。PMM の在席は InsightFace が埋める identity であり、設計が定める
-    presence（在/不在）とは別物である。**未知の在席者の扱いは残課題 #8**（在席系の精緻化）。
-    """
-    pmm = getattr(agent, "_pmm", None)
-    rows: list = []
-    if pmm is not None:
-        try:
-            rows = pmm.presence_status()
-        except Exception:  # noqa: BLE001
-            rows = []
-
-    if not rows:
-        # 顔では誰も特定できていない。次は自己申告（`/speaker`・`[名前]`）を見る。カメラの
-        # 無い CUI では話者はここにしか現れず、これを読まないと相手が誰でも「分からない」に
-        # 倒れ、口調が丁寧語だけに固定される（実機で観測）。顔で確かめた話者とは由来が違う
-        # ので、そのことを添えて渡す（#8 で身元と在席を分けるときにこの区別が要る）。
-        declared = ""
-        with contextlib.suppress(Exception):
-            if agent._persons.active_is_explicit:
-                declared = agent._persons.active_name
-        if declared:
-            return (
-                f'(present :speaker "{declared}" '
-                ':note "顔は確認できていない。名前は自己申告による")'
-            )
-        # 誰も認識できていない。直近に話しかけられているなら、相手は居るが誰かは不明。
-        recently_spoken = False
-        with contextlib.suppress(Exception):
-            recently_spoken = agent._social_presence_permission() > 0.0
-        if recently_spoken:
-            return '(present :speaker "unconfirmed" :note "顔は確認できていないが直近に話しかけられた")'
-        return '(present :none true :note "誰も確認できていない")'
-
-    def _one(row: dict) -> str:
-        conf = row.get("confidence")
-        conf_s = f" :confidence {float(conf):.2f}" if conf is not None else ""
-        return f'"{row.get("name", "unknown")}"{conf_s}'
-
-    speaker = next((r for r in rows if r.get("is_speaker")), None)
-    others = [r for r in rows if not r.get("is_speaker")]
-    parts = ["(present"]
-    parts.append(f" :speaker {_one(speaker)}" if speaker else ' :speaker "unconfirmed"')
-    if others:
-        parts.append(" :others " + " ".join(_one(r) for r in others))
-    return "".join(parts) + ")"
-
-
 def _when(created_at, now_epoch: float) -> str:
     """いつのことかを「経過時間（時刻）」で書く。片方だけでは足りない。"""
     with contextlib.suppress(Exception):
@@ -151,23 +97,6 @@ def _when(created_at, now_epoch: float) -> str:
         ago = f"{int(hours * 60)}分前" if hours < 1 else f"約{int(hours)}時間前"
         return f"{ago}（{created_at.astimezone().strftime('%m/%d %H:%M')}）"
     return "いつか"
-
-
-def _pi_ctx() -> str:
-    """mood/drive を PI として定性注入する（生値は出さない）。DB 失敗は空で degrade。"""
-    try:
-        from ..config import DriveConfig
-        from ..core.drive_autonomy import drive_snapshot
-        from ..drive_register import load_current_drives
-        from ..emotion_pad import label_from_pad
-        from ..mood_register import load_current_mood
-
-        mood = load_current_mood()
-        drives = load_current_drives()
-        return f"[内部状態(PI)] 気分: {label_from_pad(mood)} / 欲求: {drive_snapshot(drives, DriveConfig())}"
-    except Exception as e:  # noqa: BLE001
-        logger.debug("PI ctx unavailable: %s", e)
-        return ""
 
 
 def _log_recall_weights(trigger, base, used, memories) -> None:
