@@ -96,7 +96,7 @@ def _agent(*, stream_returns, max_iters=3):
 
 
 def _run(a, utterance="こんにちは", on_text=None):
-    return asyncio.run(InformationProcessing(a).run_iteration(utterance, on_text=on_text))
+    return asyncio.run(InformationProcessing(a).begin_request(utterance, on_text=on_text))
 
 
 def _run_chain(a, utterance="こんにちは"):
@@ -105,9 +105,9 @@ def _run_chain(a, utterance="こんにちは"):
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration(utterance, on_text=shown.append)
+        await ip.begin_request(utterance, on_text=shown.append)
         for _ in range(_WAIT_TICKS):
-            if a.backend.stream_turn.await_count >= a._expected_turns and not ip._tasks:
+            if a.backend.stream_turn.await_count >= a._expected_turns and not ip._background_tasks:
                 break
             await asyncio.sleep(0.005)
         await asyncio.sleep(0.02)  # 最終反復の後始末が走るのを待つ
@@ -306,7 +306,7 @@ def test_completion_content_reads_as_this_chains_action():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("今日の天気を調べて")
+        await ip.begin_request("今日の天気を調べて")
         ip.push_completion("今日の天気", "西日本は暑い")
         # **求めは版チェーンなので、「求めの記録があるか」では待てない。**
         # 版1（「…を起動中」）が書かれた時点で真になり、待ちたい完了の版が書かれる前に
@@ -348,7 +348,7 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("今日の天気を調べて")
+        await ip.begin_request("今日の天気を調べて")
         ip.push_completion("今日の天気", body)
         # **求めは版チェーンなので、「求めの記録があるか」では待てない。**
         # 版1（「…を起動中」）が書かれた時点で真になり、待ちたい完了の版が書かれる前に
@@ -486,16 +486,16 @@ def test_a_new_version_supersedes_the_previous_one_and_records_the_result():
 
 
 def test_intake_drains_inbox_in_place():
-    # 駆動体は `self._inbox.append(await queue.get())` の append を **await の前に** 束縛する。
-    # 取込が `_inbox` を作り直すと、駆動体は捨てられた古いリストへ積み、完了が失われる
+    # 駆動体は `self._drained_completions.append(await queue.get())` の append を **await の前に** 束縛する。
+    # 取込が `_drained_completions` を作り直すと、駆動体は捨てられた古いリストへ積み、完了が失われる
     # （実機で観測：受領 inbox=0 → 取込 items=0）。同一オブジェクトを空にして守る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    before = ip._inbox
-    ip._inbox.append(("q", "結果", None, "完了", 1))
+    before = ip._drained_completions
+    ip._drained_completions.append(("q", "結果", None, "完了", 1))
     assert asyncio.run(ip._intake()) == 1
-    assert ip._inbox is before  # 作り直さない
-    assert ip._inbox == []  # 中身だけ空にする
+    assert ip._drained_completions is before  # 作り直さない
+    assert ip._drained_completions == []  # 中身だけ空にする
 
 
 def test_system_prompt_is_split_for_caching():
@@ -526,7 +526,7 @@ def test_action_branch_dispatches_recall_without_the_full_llm():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.run_iteration("こんにちは", on_text=shown.append)
+        first = await ip.begin_request("こんにちは", on_text=shown.append)
         # 反復1でフルLLM を起こしていないこと（この後、駆動体が続きの反復を回す）。
         assert a.backend.stream_turn.await_count == 0
         for _ in range(_WAIT_TICKS):
@@ -714,7 +714,7 @@ def test_driver_runs_next_iteration_when_completion_arrives():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.run_iteration("昨日の天気覚えてる？", on_text=shown.append)
+        first = await ip.begin_request("昨日の天気覚えてる？", on_text=shown.append)
         for _ in range(_WAIT_TICKS):  # 駆動体が起こす2反復目を待つ
             if shown:
                 break
@@ -765,7 +765,7 @@ def test_action_branch_speaks_the_filler_then_dispatches():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
+        first = await ip.begin_request("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._deferred_search.dispatch.await_count:
                 break
@@ -796,7 +796,7 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.run_iteration("今日の天気を調べて", on_text=shown.append)
+        first = await ip.begin_request("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._deferred_search.dispatch.await_count:
                 break
@@ -875,7 +875,7 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
 
     async def scenario():
         ip = InformationProcessing(a)
-        assert await ip.run_iteration("こんにちは", on_text=shown.append) == ""
+        assert await ip.begin_request("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)  # 意図を書いて dispatch し終えた頃
         ip._completion_queue.put_nowait(("q", "外から届いた結果", None, "完了", 1))
         for _ in range(_WAIT_TICKS):
@@ -1067,7 +1067,7 @@ def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("今日はどんな天気？")
+        await ip.begin_request("今日はどんな天気？")
         ip.push_completion("https://example.com/1hour.html", "時間別の表…")
         for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= 2:
@@ -1127,7 +1127,7 @@ def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("マインクラフトってどんなゲーム？")
+        await ip.begin_request("マインクラフトってどんなゲーム？")
         head = ip._chain_head_content
         fillers = list(ip._said_fillers)
         await ip.close()
@@ -1176,7 +1176,7 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("たいきのサッカーの練習は？")
+        await ip.begin_request("たいきのサッカーの練習は？")
         ip.push_completion("サッカー", "recall結果テキスト")
         for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= 2:

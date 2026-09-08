@@ -121,9 +121,9 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("昨日の天気覚えてる？")
+        await ip.begin_request("昨日の天気覚えてる？")
         # 調べかけの途中で話しかける。
-        await ip.run_iteration("それより明日の予定は？")
+        await ip.begin_request("それより明日の予定は？")
 
     asyncio.run(scenario())
 

@@ -48,7 +48,11 @@ def test_unknown_trigger_falls_back_to_base() -> None:
     cfg = MemoryConfig()
     w = cfg.recall_weights("知らない種別")
     assert (w.w_r, w.w_t, w.w_e, w.w_g, w.w_p) == (
-        cfg.recall_w_r, cfg.recall_w_t, cfg.recall_w_e, cfg.recall_w_g, cfg.recall_w_p
+        cfg.recall_w_r,
+        cfg.recall_w_t,
+        cfg.recall_w_e,
+        cfg.recall_w_g,
+        cfg.recall_w_p,
     )
 
 
@@ -69,8 +73,13 @@ def no_jitter(monkeypatch):
 def test_jitter_widths_defaults() -> None:
     """軸ごとの揺らぎ幅（絶対値・trigger 共通）の既定値。"""
     cfg = MemoryConfig()
-    assert (cfg.recall_w_r_jitter, cfg.recall_w_t_jitter, cfg.recall_w_e_jitter,
-            cfg.recall_w_g_jitter, cfg.recall_w_p_jitter) == (0.3, 0.1, 0.2, 0.3, 0.1)
+    assert (
+        cfg.recall_w_r_jitter,
+        cfg.recall_w_t_jitter,
+        cfg.recall_w_e_jitter,
+        cfg.recall_w_g_jitter,
+        cfg.recall_w_p_jitter,
+    ) == (0.3, 0.1, 0.2, 0.3, 0.1)
 
 
 def test_jitter_stays_within_the_width() -> None:
@@ -79,8 +88,13 @@ def test_jitter_stays_within_the_width() -> None:
 
     cfg = MemoryConfig()
     base = cfg.recall_weights("完了")
-    widths = (cfg.recall_w_r_jitter, cfg.recall_w_t_jitter, cfg.recall_w_e_jitter,
-              cfg.recall_w_g_jitter, cfg.recall_w_p_jitter)
+    widths = (
+        cfg.recall_w_r_jitter,
+        cfg.recall_w_t_jitter,
+        cfg.recall_w_e_jitter,
+        cfg.recall_w_g_jitter,
+        cfg.recall_w_p_jitter,
+    )
     rng = random.Random(0)
     for _ in range(200):
         w = cfg.jitter_weights(base, rng)
@@ -137,10 +151,12 @@ def test_completion_driven_iteration_uses_the_completion_profile(no_jitter) -> N
     である。反復1の手がかりは人の言葉だが、反復2の手がかりは届いた結果の本文であり、
     性質が違う。
     """
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
 
     calls = a._active_memory().recall_async.call_args_list
@@ -177,21 +193,23 @@ def test_completion_driven_iteration_keeps_the_origin_kind() -> None:
 
     from familiar_agent.loop.event_loop import InformationProcessing
 
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("昨日の天気覚えてる？")
+        await ip.begin_request("昨日の天気覚えてる？")
         for _ in range(400):
-            if a.backend.stream_turn.await_count >= a._expected_turns and not ip._tasks:
+            if a.backend.stream_turn.await_count >= a._expected_turns and not ip._background_tasks:
                 break
             await asyncio.sleep(0.005)
         await asyncio.sleep(0.02)
         await ip.close()
-        return ip._origin_kind
+        return ip._trigger_kind
 
     assert asyncio.run(scenario()) == "発話"
 
@@ -205,12 +223,21 @@ def test_weights_reach_the_scorer() -> None:
     from familiar_agent.config import RecallWeights
 
     row = {
-        "id": "obs-1", "content": "むかしの話", "timestamp": None,
+        "id": "obs-1",
+        "content": "むかしの話",
+        "timestamp": None,
         "last_recalled_at": None,
-        "groundedness_g0": 1.0, "groundedness_n": 0,
-        "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
-        "direction": "発話", "kind": "observation", "emotion": "neutral",
-        "image_path": None, "score": 0.5,
+        "groundedness_g0": 1.0,
+        "groundedness_n": 0,
+        "emotion_p": 0.5,
+        "emotion_pn": 0.5,
+        "emotion_a": 0.5,
+        "emotion_dom": 0.5,
+        "direction": "発話",
+        "kind": "observation",
+        "emotion": "neutral",
+        "image_path": None,
+        "score": 0.5,
     }
     with (
         patch.object(_EmbeddingModel, "pre_warm"),

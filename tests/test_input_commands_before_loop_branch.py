@@ -22,7 +22,7 @@ def _agent():
     a._persons.known_names = MagicMock(return_value=["パパ"])
     a._sync_pmm_speaker = AsyncMock()
     a._info_processing = MagicMock()
-    a._info_processing.run_iteration = AsyncMock(return_value="LLM が答えた")
+    a._info_processing.begin_request = AsyncMock(return_value="LLM が答えた")
     a._ensure_event_loop = MagicMock()
     # 実物の解釈を通す（spec の MagicMock は None でない値を返して早期 return する）。
     a._handle_speaker_command = lambda ui: Agent._handle_speaker_command(a, ui)
@@ -37,7 +37,7 @@ def test_speaker_command_is_handled_on_the_event_loop_path():
     a._persons.set_active.assert_called_once_with("パパ")
     assert "パパ" in reply
     # コマンドなので LLM を起こさない。
-    a._info_processing.run_iteration.assert_not_awaited()
+    a._info_processing.begin_request.assert_not_awaited()
 
 
 def test_speaker_prefix_is_stripped_on_the_event_loop_path():
@@ -45,4 +45,4 @@ def test_speaker_prefix_is_stripped_on_the_event_loop_path():
     asyncio.run(Agent.run(a, "[たいき] こんにちは"))
     a._persons.set_active.assert_called_once_with("たいき")
     # 前置きを外した本文だけが反復へ渡る。
-    assert a._info_processing.run_iteration.await_args.args[0] == "こんにちは"
+    assert a._info_processing.begin_request.await_args.args[0] == "こんにちは"

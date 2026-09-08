@@ -1,4 +1,4 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.90）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.104）
 
 ## 1. 依存の事実（コード根拠）
 
@@ -478,13 +478,13 @@ native な口を持つのは5つで、`cli` だけプロンプトの先頭へ足
 
 ```
 1096  memories = await mem.recall_async(...)        ← 想起
-1108  workspace_ctx = self._compose_workspace(...)  ← ここで self._w_index が確定
+1108  workspace_ctx = self._compose_workspace(...)  ← ここで self._w_id_map が確定
 1215  tools=self._tools(actions=_FULL_ACTIONS)      ← 道具を組む（毎反復・その場で）
 1211  stream_turn(system=..., tools=tools, ...)
 1245  self._apply_memory_verdicts(...)
 ```
 
-**`_tools()` は毎反復その場で組まれ、`self._w_index` はその前に確定している。** 渡す材料は
+**`_tools()` は毎反復その場で組まれ、`self._w_id_map` はその前に確定している。** 渡す材料は
 既にある。必要な変更は `_tools()` に引数を1つ足すことと、`_ACTIONS["say"]` の組み立てだけで、
 **`TTSTool` の静的な定義は触らない**（反復ごとの上書きを `event_loop` 側で行う）。
 バックエンドは `tools` をそのまま API へ渡すので、透過する。
@@ -737,8 +737,8 @@ Anthropic 側の `cache_control` と同じ性質になる。
 **立てたときの前提が二つとも実コードと違っていた。**
 
 第一に、「閉じられていない 174 件は、答えたはずの問いがまだ答えていないものとして W に
-残り続ける」は成り立たない。W へ浮かせる下限は `_open_ids` が返す `self._parent_id` と
-`self._version_id` に掛かり、両方とも `_finish`（`event_loop.py:1451`・`1453`）で捨てられる。
+残り続ける」は成り立たない。W へ浮かせる下限は `_open_ids` が返す `self._request_id` と
+`self._live_version_id` に掛かり、両方とも `_finish`（`event_loop.py:1451`・`1453`）で捨てられる。
 ターンをまたがない。
 
 第二に、「閉じている 347 件は、ほとんどが日次要約による」も、現行コードの説明としては
@@ -841,7 +841,7 @@ AST で全件確かめる。
 
 **CLAUDE.md の「実行時アーキテクチャ」も直した。** 12段のターンの流れは旧 `run()` のもので、
 環-c の撤去後は**そのどれも `agent.py` に無かった**（「内受容の収集」「社会方針の選択」
-「応答のメタゲート」はソースに語すら無い）。いまの `run_iteration()` と `_iterate()` の
+「応答のメタゲート」はソースに語すら無い）。いまの `begin_request()` と `_iterate()` の
 流れへ書き直し、**遅延配信ターンが起きないこと**（`should_deliver_deferred_result()` の
 呼び手が0件）も明記した。
 
@@ -954,11 +954,11 @@ OIF を先にしたのは依存が最も少ないためである。記憶は呼�
 | # | いま | 中身 |
 |---|---|---|
 | ① | 調べもの **6つの入れ物** | 「どの動作で」「何という語で」を**3通りで持つ**。`_inflight` と `_in_flight_lookups` を**5箇所で手で揃えている** |
-| ② | 「いま生きている記録」を追う変数が **2つ** | `_write_version` が同じ id を `_version_id` と `_chain_head_id` の両方へ入れる。畳む仕組みも `改訂` と `前進` の2本 |
-| ③ | `_pending_intent` が ① の器そのもの | `_open_intent()` は **O へ何も書かない**。`_write_intent_and_dispatch()` が書くのは**版**。控えの中身は動作と道具入力で、`Lookup` の持ち物 |
-| ④ | 「(id, 内容)」の組が **2つ** | 求め（`_parent_id`＋`_origin_text`）と、いま生きている記録（`_chain_head_id`＋`_chain_head_content`） |
-| ⑤ | カーソル **2つ** | `_exchange_from`（添字）と `_show_from`（id）。規則の違いが名前から読めない |
-| ⑥ | 「世代」**2つ** | `_generation` と `_lookup_generation` |
+| ② | 「いま生きている記録」を追う変数が **2つ** | `_write_version` が同じ id を `_live_version_id` と `_chain_head_id` の両方へ入れる。畳む仕組みも `改訂` と `前進` の2本 |
+| ③ | `_pending_intent` が ① の器そのもの | `_start_lookup()` は **O へ何も書かない**。`_dispatch_and_write_version()` が書くのは**版**。控えの中身は動作と道具入力で、`Lookup` の持ち物 |
+| ④ | 「(id, 内容)」の組が **2つ** | 求め（`_request_id`＋`_request_text`）と、いま生きている記録（`_chain_head_id`＋`_chain_head_content`） |
+| ⑤ | カーソル **2つ** | `_exchange_start`（添字）と `_recent_cursor`（id）。規則の違いが名前から読めない |
+| ⑥ | 「世代」**2つ** | `_request_generation` と `_lookup_generation` |
 
 **環-e とは別の課題にした。** 環-e は「挙動を変えない」を守りとするが、環-g は
 **重複を消す＝どちらかを正にする**ので挙動に触れる。混ぜると、挙動が変わったときの原因を
@@ -988,7 +988,7 @@ OIF を先にしたのは依存が最も少ないためである。記憶は呼�
 記録と役割**で、拡散想起の母集合とやりとりの項の両方を賄う。**WR は片方の、しかも撤去された
 呼び名**である。
 
-**`run_iteration` も直す。** 名前は「1反復を回す」だが、実体は**求めを始める**（反復は中で
+**`begin_request` も直す。** 名前は「1反復を回す」だが、実体は**求めを始める**（反復は中で
 複数回りうる）。呼び手は src 3・tests 28。
 
 **`see`・`look` まわりは触らない**（`_run_camera`・`_camera_tool_def`・`_current_pose_name`）。
@@ -1367,7 +1367,7 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 > 求めていない（`required` に入っていない）、規則が14個の制約に埋もれている、12桁の id を
 > W から写させている。**案イ**（記憶がある反復だけ `say` のスキーマを差し替え、`required` に
 > 入れ、id を `enum` にする）を採る。**現状の入力から構築でき、関数構成は変えない**——
-> `_tools()` は毎反復その場で組まれ、`self._w_index` はその前に確定している。
+> `_tools()` は毎反復その場で組まれ、`self._w_id_map` はその前に確定している。
 > **この差はモデルの優劣ではない可能性がある**ので、出-h は主LLM の選定より前に置く。
 
 > v0.85：**出-g（Gemini に明示キャッシュを入れる）を型枠として置いた**（2026-09-05）。実装は

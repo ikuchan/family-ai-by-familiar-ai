@@ -35,7 +35,7 @@ from tests.test_event_loop import _agent
 def _ip(origin: str = "周りを見て"):
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
-    ip._origin_text = origin
+    ip._request_text = origin
     return a, ip
 
 

@@ -34,7 +34,7 @@ def test_a_slow_lookup_raises_a_progress_event_once():
     async def scenario():
         ip = InformationProcessing(a)
         ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
-        await ip._watch_slow_lookup("明日の天気", ip._generation)
+        await ip._watch_slow_lookup("明日の天気", ip._request_generation)
         return ip
 
     ip = asyncio.run(scenario())
@@ -48,8 +48,8 @@ def test_no_progress_event_once_the_result_has_arrived():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._in_flight_lookups = []            # もう結果が来ている
-        await ip._watch_slow_lookup("明日の天気", ip._generation)
+        ip._in_flight_lookups = []  # もう結果が来ている
+        await ip._watch_slow_lookup("明日の天気", ip._request_generation)
         return ip
 
     assert asyncio.run(scenario())._completion_queue.empty()
@@ -62,7 +62,7 @@ def test_no_progress_event_for_an_abandoned_request():
     async def scenario():
         ip = InformationProcessing(a)
         ip._in_flight_lookups = [("search_deferred", "明日の天気", 1)]
-        ip._generation = 1                    # 見張りを立てたあとに打ち切られた
+        ip._request_generation = 1  # 見張りを立てたあとに打ち切られた
         await ip._watch_slow_lookup("明日の天気", 0)
         return ip
 
@@ -73,7 +73,8 @@ def test_a_progress_iteration_only_says_a_filler():
     # つなぎだけ出して閉じない。飛行中の数も触らない。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"high","text":"もう少しかかりそうです"}')
+        return_value='{"branch":"full","effort":"high","text":"もう少しかかりそうです"}'
+    )
     shown: list[str] = []
 
     async def scenario():
@@ -89,6 +90,6 @@ def test_a_progress_iteration_only_says_a_filler():
 
     ip = asyncio.run(scenario())
     assert "もう少しかかりそうです" in "".join(shown)
-    assert "本応答" not in "".join(shown)          # 閉じない
-    assert ip._inflight == 1                      # 飛行中のまま
+    assert "本応答" not in "".join(shown)  # 閉じない
+    assert ip._inflight == 1  # 飛行中のまま
     assert ip._in_flight_lookups == [("search_deferred", "明日の天気", 1)]

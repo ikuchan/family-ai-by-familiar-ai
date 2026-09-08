@@ -38,12 +38,13 @@ def _ip_with_slow_recall():
 
 def test_the_same_query_is_not_dispatched_twice() -> None:
     """同じ語を2回投げようとしても、2回目は投げない。"""
+
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
         got = list(ip._in_flight_lookups)
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return got
@@ -53,6 +54,7 @@ def test_the_same_query_is_not_dispatched_twice() -> None:
 
 def test_a_blocked_lookup_is_pushed_as_a_completion() -> None:
     """止めた調査は完了として積む（駆動体が待ち続けないため）。"""
+
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
@@ -62,7 +64,7 @@ def test_a_blocked_lookup_is_pushed_as_a_completion() -> None:
         items = []
         while not ip._completion_queue.empty():
             items.append(ip._completion_queue.get_nowait())
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return items
@@ -78,6 +80,7 @@ def test_a_finished_query_is_still_blocked() -> None:
 
     `recall` は DB を引くだけなので、引き直しても結果は変わらない。取り直しに意味がない。
     """
+
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "済んだ語"}, "済んだ語", None)
@@ -85,7 +88,7 @@ def test_a_finished_query_is_still_blocked() -> None:
         ip._in_flight_lookups.clear()
         ip._dispatch_lookup("recall", {"query": "済んだ語"}, "済んだ語", None)
         got = list(ip._in_flight_lookups)
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return got
@@ -95,12 +98,13 @@ def test_a_finished_query_is_still_blocked() -> None:
 
 def test_a_different_query_still_goes_out() -> None:
     """違う語は通る（止めるのは重複だけ）。"""
+
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "ひとつめ"}, "ひとつめ", None)
         ip._dispatch_lookup("recall", {"query": "ふたつめ"}, "ふたつめ", None)
         got = [(q, idx) for _act, q, idx in ip._in_flight_lookups]
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return got
@@ -110,16 +114,17 @@ def test_a_different_query_still_goes_out() -> None:
 
 def test_a_new_request_clears_the_history() -> None:
     """求めが変われば、同じ語をまた調べられる。"""
+
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "天気"}, "天気", None)
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
-        ip._tasks.clear()
-        await ip._abort_investigation()          # 求めの区切り
+        ip._background_tasks.clear()
+        await ip._abort_lookups()  # 求めの区切り
         ip._dispatch_lookup("recall", {"query": "天気"}, "天気", None)
         got = list(ip._in_flight_lookups)
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return got
@@ -134,13 +139,14 @@ def test_a_blocked_lookup_is_counted_as_inflight() -> None:
     `_inflight` を1つ減らす**ので、増やさずに積むと実際より小さくなる。飛行中の調査が
     残っているのに 0 になると、駆動体が「調査中ではない」とみなして待ち方を変える。
     """
+
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
         first = ip._inflight
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
         second = ip._inflight
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return first, second
@@ -152,15 +158,16 @@ def test_a_blocked_lookup_is_counted_as_inflight() -> None:
 
 def test_inflight_returns_to_zero_after_intake() -> None:
     """積んだぶんを取り込むと、飛行中の数が 0 へ戻る（増減が釣り合う）。"""
+
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)
-        ip._dispatch_lookup("recall", {"query": "語"}, "語", None)   # 止められる
-        ip._in_flight_lookups.clear()          # 1件目の結果が届いた体にする
+        ip._dispatch_lookup("recall", {"query": "語"}, "語", None)  # 止められる
+        ip._in_flight_lookups.clear()  # 1件目の結果が届いた体にする
         ip._completion_queue.put_nowait(("語", "結果", None, "完了", 1))
         await ip._intake()
         got = ip._inflight
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return got

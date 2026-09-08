@@ -104,8 +104,8 @@ def test_the_cursor_moves_to_the_exchange_that_just_closed():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("ひとつめ")
-        await ip.run_iteration("ふたつめ")
+        await ip.begin_request("ひとつめ")
+        await ip.begin_request("ふたつめ")
 
     asyncio.run(scenario())
     # ふたつめのターンは、ひとつめの起点（obs1）から見せる。

@@ -1,6 +1,6 @@
 """旧 ReAct のプロンプト組み立ての撤去。
 
-`agent.run()` は特殊コマンドを処理したあと `InformationProcessing.run_iteration` へ委譲
+`agent.run()` は特殊コマンドを処理したあと `InformationProcessing.begin_request` へ委譲
 するだけで、旧プロンプトの組み立てには到達しない。実行中のプロンプトは
 `build_event_system_prompt`（`loop/prompt.py`）が組む。
 
@@ -50,8 +50,11 @@ def test_event_prompt_is_the_live_path() -> None:
     from familiar_agent.loop.prompt import build_event_system_prompt
 
     stable, variable = build_event_system_prompt(
-        self_understanding="me", family_md="family",
-        present_ctx="present", pi_ctx="pi", workspace_ctx="w",
+        self_understanding="me",
+        family_md="family",
+        present_ctx="present",
+        pi_ctx="pi",
+        workspace_ctx="w",
     )
     assert stable and variable, "実行中のプロンプトが組めていない"
 

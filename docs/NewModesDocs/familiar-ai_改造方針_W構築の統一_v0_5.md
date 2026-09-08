@@ -1,4 +1,4 @@
-# familiar-ai 改造方針：W 構築の統一（v0.4・完了）
+# familiar-ai 改造方針：W 構築の統一（v0.5・完了）
 
 ## この文書の位置づけ
 
@@ -164,7 +164,7 @@ $N$ と $K$ へ書き分ける。
 ### S2：trigger 別の重みプロファイル
 
 Config に4プロファイルを持たせ、`recall()` へ重みを渡せるようにする。省略時は現在の Config
-値を使い、挙動を変えない。`_iterate` が `_origin_kind` からプロファイルを選んで渡す。
+値を使い、挙動を変えない。`_iterate` が `_trigger_kind` からプロファイルを選んで渡す。
 
 RED は、情動起点の反復で $w_r$＝0.5 が採点に渡ることを確かめるテストである。現在は 1.0 が
 渡るので落ちる。
@@ -223,7 +223,7 @@ RED は、意図 O を書いたときに `mark_superseded` が呼ばれないこ
 既存テストのうち `test_event_loop.py:185`（`test_loop_records_form_a_single_chain`）は期待が
 `[("obs1","obs2"),("obs2","obs3")]` であり、新しい期待は `[("obs2","obs3")]` だけになる。
 テスト名と docstring も実際の姿へ改める。`test_event_loop.py:385`（完了が意図を畳む）は
-そのまま通る。`_abort_investigation` は既に `close_with_children` で畳んでおり、
+そのまま通る。`_abort_lookups` は既に `close_with_children` で畳んでおり、
 `_chain_head_id` を捨てる処理を新しい入れ物へ合わせるだけである。
 
 ## ドキュメント反映

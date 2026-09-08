@@ -1,4 +1,4 @@
-# familiar-ai イベント駆動ループ（#11・段階5）（v0.40）
+# familiar-ai イベント駆動ループ（#11・段階5）（v0.41）
 
 ## 位置づけ
 
@@ -11,8 +11,8 @@
 - **`loop/prompt.py`**：案B（クリーン最小・日本語ルール）の system プロンプト。
   - 静的核 `EVENT_SYSTEM_PROMPT`＝`(agent :type embodied (body eyes/neck/voice/**net**・**足なし**))`＋`(loop :one-output-per-iteration)`＋`(identity :id family-bond)`（家族の一員・切れない関係・時に厳しく・誰よりも愛する）＋rules（正直・**no-raw-internal-metrics**〔social_policy から移植〕・一人称視点取り・validation・bid・人格・言語）。net＝`search_deferred`/`fetch_deferred`（結果は後の反復で届く）。
   - `build_event_system_prompt(...)`＝静的核＋**自己認識 MI（ME.md＋FAMILY.md＋capabilities）**＋在席＋**PI（mood/drive 定性・生値なし）**＋W。**撤去対象（social_policy・mental_snapshot・interoception・relationship スカラ）は載せない**。
-- **`loop/event_loop.py`**：`run_iteration(agent, utterance)`＝`recall`（5軸＋拡散込み）で W→system 構築→`stream_turn(tools=[])` で1発話→永続化は既存 `_run_post_response_pipeline`（**utility LLM のみ・フルLLM 不使用**）を spawn。
-- **Config**：`EVENT_LOOP`（既定 off）。**`run()` 先頭で on の user turn のみ `run_iteration` へ排他切替**（`is True` 厳格判定・自発ターンは対象外）。
+- **`loop/event_loop.py`**：`begin_request(agent, utterance)`＝`recall`（5軸＋拡散込み）で W→system 構築→`stream_turn(tools=[])` で1発話→永続化は既存 `_run_post_response_pipeline`（**utility LLM のみ・フルLLM 不使用**）を spawn。
+- **Config**：`EVENT_LOOP`（既定 off）。**`run()` 先頭で on の user turn のみ `begin_request` へ排他切替**（`is True` 厳格判定・自発ターンは対象外）。
 
 **挙動不変**：`EVENT_LOOP` off（既定）で現行 `run()` 経路のまま・全体テスト緑。
 
@@ -20,7 +20,7 @@
 
 **内部ツール `recall` を QC（完了キュー）経由で連鎖**させる、`設計図_Mermaid` ③ I 詳細図の最小縦切り。外部I/Oの無い `recall` を題材に、取込→O→W の連鎖機構だけを先に作る。
 
-- **`InformationProcessing`（I：情報処理機構）**：`loop/event_loop.py` に新設。属性 `_completion_queue`（**QC**・`asyncio.Queue`）と、メソッド `run_iteration`（**LPM**：ループ核の drain 反復）を持つ。O・C（Config）・W・RH 相当のツール実行は既存実体を持つ `agent` を当面参照。AIF/DIF/QA/QD、ARB/APR/ACT/MNT のクラス分離は後続段階（stub しない）。
+- **`InformationProcessing`（I：情報処理機構）**：`loop/event_loop.py` に新設。属性 `_completion_queue`（**QC**・`asyncio.Queue`）と、メソッド `begin_request`（**LPM**：ループ核の drain 反復）を持つ。O・C（Config）・W・RH 相当のツール実行は既存実体を持つ `agent` を当面参照。AIF/DIF/QA/QD、ARB/APR/ACT/MNT のクラス分離は後続段階（stub しない）。
 - **反復フロー**（④シーケンス整合）：(1) **取込**＝QC を drain し完了結果を **O 書込**（`save_async_with_id`, kind=`observation`）、(2) **REC**＝`recall_async` で W 構築、(3) **GEN**＝`stream_turn([say, recall])`。**say**→発話して反復終了／**recall**→**RH** が非同期に実行し結果を **QC へ**（投げた時点で反復終了）。相関ID は使わず結果は O→W で再会（[D-単一想起]）。
 - **連鎖上限**：`event_max_iterations`（env `EVENT_MAX_ITERATIONS`・既定5）。上限の反復では recall を渡さない。既定が3だったとき、ネットの調べもの（`search_deferred` でリンクを得る→`fetch_deferred` で本文を読む→答える）が3手を使い切り、答える手が残らなかった（実機で観測）。
 - **完了 MI の content 上限**：`completion_content_max`（env `COMPLETION_CONTENT_MAX`・既定8192文字）。取ってきた本文を切ると、表なら見出しだけが残って中身が消える。値は埋め込みモデル bge-m3 の入力上限 8192 トークン（`sentence_bert_config.json` の `max_seq_length`）に合わせてある。1文字＝1トークンになる字もあるため、8192 *文字* なら常に 8192 トークン以下に収まり、埋め込みが後ろを落とさない。O に書く文面と W に載せる文面は同一にする。
@@ -131,9 +131,9 @@ W に載せる件数は `MemoryConfig.recall_k`（env `RECALL_K`・**既定 7**�
 
 5軸の重みは trigger 種別で決める（`課題5_パラメータ仮案` の D 節）。選ぶ基準は「この求めを何が始めたか」ではなく、**この反復が何を手がかりに動くか**である。反復1の手がかりは人の言葉だが、完了が届いて起きた反復の手がかりは結果の本文で、性質が違う。取込で完了を1件でも書いたなら、その反復の trigger は「完了」になる。
 
-**起点（`_origin_kind`）は書き換えない。** 起点は静穏時間のゲート（`_should_hold`）が使っており、「自分から話しかける時間帯か」を判断する。完了で起きた反復のたびに起点を「完了」へ書き換えると、人に話しかけられて始まった求めが夜間にゲートへ掛かり、返事が保留されて翌朝に届く。重みの選択は反復ごとの局所的な判断なので、起点とは別に持つ。
+**起点（`_trigger_kind`）は書き換えない。** 起点は静穏時間のゲート（`_should_hold`）が使っており、「自分から話しかける時間帯か」を判断する。完了で起きた反復のたびに起点を「完了」へ書き換えると、人に話しかけられて始まった求めが夜間にゲートへ掛かり、返事が保留されて翌朝に届く。重みの選択は反復ごとの局所的な判断なので、起点とは別に持つ。
 
-なお `_origin_kind` に「完了」が入る経路は元々無く、設定されるのは発話・情動・機器の3つだけだった。
+なお `_trigger_kind` に「完了」が入る経路は元々無く、設定されるのは発話・情動・機器の3つだけだった。
 
 ### 重みの揺らぎと INFO ログ
 
@@ -184,16 +184,16 @@ RH 完了をQCへ（qsize=1 意図=523a0066）
 取込（items=0 inflight=1 qsize=0）  ← 完了が消えた
 ```
 
-駆動体の `self._inbox.append(await self._completion_queue.get())` は、**`append` を await の前に束縛する**。待っている間に取込が `items, self._inbox = self._inbox, []` で受け皿を差し替えると、await から戻った駆動体は**捨てられた古いリスト**へ積む。取込が待機中に挟まったときだけ完了が失われる、タイミング依存の取りこぼしだった。
+駆動体の `self._drained_completions.append(await self._completion_queue.get())` は、**`append` を await の前に束縛する**。待っている間に取込が `items, self._drained_completions = self._drained_completions, []` で受け皿を差し替えると、await から戻った駆動体は**捨てられた古いリスト**へ積む。取込が待機中に挟まったときだけ完了が失われる、タイミング依存の取りこぼしだった。
 
 - **取込は受け皿を作り直さない**：`list(...)` で中身を写して `clear()` で空にする（同一オブジェクトを保つ）。
-- **駆動体は await の後に属性を引く**：`item = await get()` してから `self._inbox.append(item)`。
+- **駆動体は await の後に属性を引く**：`item = await get()` してから `self._drained_completions.append(item)`。
 
 ### 反復の終端と駆動体
 
-`run_iteration` の中に `for _i in range(max_iters)` を置き、1ターンで最大3反復を一気に回していた。これは反復とターンの混同で、④シーケンスの「**1反復＝1ステップ**で境界が中断点」に反する。反復の出力は発話とは限らず、**動作（ツールを投げること）も出力**なので、`recall` を投げた時点でその反復は終わる。
+`begin_request` の中に `for _i in range(max_iters)` を置き、1ターンで最大3反復を一気に回していた。これは反復とターンの混同で、④シーケンスの「**1反復＝1ステップ**で境界が中断点」に反する。反復の出力は発話とは限らず、**動作（ツールを投げること）も出力**なので、`recall` を投げた時点でその反復は終わる。
 
-- **`run_iteration` は1反復だけ**実行して終わる。ツールを投げた反復は発話を持たないので空文字を返す。
+- **`begin_request` は1反復だけ**実行して終わる。ツールを投げた反復は発話を持たないので空文字を返す。
 - **駆動体**（`_drive`）を段階1に前倒しで実装した。QC 到来で起き、次の反復を回す（時計は見ない）。発話は起きた反復が直近の出力先（`on_text`）へ出す。駆動体は `agent.close()` で止める。
 - **連鎖上限**：発話が出るまでの連鎖長を数え、上限に達した反復では **`recall` をツールとして渡さない**（返ってきても投げない）。これで連鎖は必ず閉じ、発話が出る。
 
@@ -229,7 +229,7 @@ RH 完了をQCへ（qsize=1 意図=523a0066）
 
 ## 診断ログ（実装済み）
 
-`run_iteration` は、反復の進行と結末を後からログだけで再構成できるよう記録する。挙動（分岐や出力）は変えず、記録だけを足している。
+`begin_request` は、反復の進行と結末を後からログだけで再構成できるよう記録する。挙動（分岐や出力）は変えず、記録だけを足している。
 
 - **反復ごと**（`debug`）：先頭に `iter=N/M`（N は 1 始まりの反復番号、M は上限）を付ける。反復頭 `event-loop iter=N/M 開始`、QC 取込 `event-loop iter=N/M QC取込=K件`（取込があった反復のみ）、決定直後 `event-loop iter=N/M 決定=say|recall|none`。どの反復のトレースかが一目で分かる。
 - **連鎖の終了**（`info`）：発話で連鎖が閉じたとき `event-loop 終了: 反復=N 結末=発話|沈黙 text_len=L` を1行。ツールを投げて終わった反復は `event-loop 反復 N/M 出力=ツール投げ（続きは完了で起きる）` を出す。
@@ -424,7 +424,7 @@ iter=2/3 調停=full effort=medium        ← 言葉にすると判断
 
 ### 静穏時間は自分から話しかけない時間
 
-起点を区別せずに掛けており、**話しかけられても黙って `pending_speech` へ溜め、翌朝に届く**動きになっていた。人の発話が起点の反復（`_origin_kind == "発話"`）には掛けない。在席と沈黙依頼は起点によらず掛かるので、静穏時間だけを分ける。
+起点を区別せずに掛けており、**話しかけられても黙って `pending_speech` へ溜め、翌朝に届く**動きになっていた。人の発話が起点の反復（`_trigger_kind == "発話"`）には掛けない。在席と沈黙依頼は起点によらず掛かるので、静穏時間だけを分ける。
 
 出所は**環境変数（`QUIET_HOURS_START`／`QUIET_HOURS_END`）→ Config の既定（23〜7）の2段だけ**。`~/.familiar_ai/schedule.conf` と `ROUTINES.md` の読み取りは撤去した。どちらも存在せずコード内の既定が効いているだけで、出所が4段あるとどの値が効いているのかを確かめるのに4箇所を見ることになる。
 
@@ -446,7 +446,7 @@ MI の content へ差し込まない。保留の記録（`direction="保留"`）
 
 **同じ語で4反復続けて調べた。** 意図（投げた語）も完了（返った結果）も MD5 まで一致していた。W には「この求めのために調べたもの」の一覧が届いており（検査で確認済み）、**同じ状態から同じ判断を返していた**だけである。調停の分かれ目に**行き止まりの出口が無く**、材料が足りない限り再検索へ向かうしかなかった。「調べたが答えが得られず、試せる角度も無い → 分からないと伝える」を足し、「すでに調べた語と同じ語では投げない」と明記した。
 
-**話しかけられたら調べかけを打ち切る。** 人が言い直したなら前の調査を続ける意味がない。飛行中の呼び出しを止め、取り込んでいない完了は捨て、**何を打ち切ったかは O に残す**（`direction="中断"`）。その記録で親と生きた子を閉じる。人の発話は3キューを通らず `run_iteration` を直接呼ぶので、打ち切らないと**駆動体の反復と同じ状態を共有したまま並走**していた。
+**話しかけられたら調べかけを打ち切る。** 人が言い直したなら前の調査を続ける意味がない。飛行中の呼び出しを止め、取り込んでいない完了は捨て、**何を打ち切ったかは O に残す**（`direction="中断"`）。その記録で親と生きた子を閉じる。人の発話は3キューを通らず `begin_request` を直接呼ぶので、打ち切らないと**駆動体の反復と同じ状態を共有したまま並走**していた。
 
 **想起した記憶の扱いをフルLLM が申告する。** `say` に `memory_verdicts`（`important`／`useless`／`referred`／`unused`）を足し、W に出た記憶すべてについて返させる。判定語は英語（精度が上がる）。これが段2 の更新契機で、**想起しただけでは何も更新しない**。
 
@@ -524,7 +524,7 @@ I も T も在席センサも動体イベントも、実装では `run()` の中
 
 > v0.38：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
-> v0.37：**想起の重みを trigger 別にした**（`課題5_パラメータ仮案` の D 節が傾向だけ確定していたもの）。重みを選ぶ基準は「この求めを何が始めたか」ではなく「この反復が何を手がかりに動くか」で、取込で完了を書いた反復は trigger が「完了」になる。**起点（`_origin_kind`）は書き換えない**（静穏時間のゲートが使っており、書き換えると人に話しかけられて始まった求めが夜間に保留される）。採用値はプロファイルに $\pm$ 幅の一様乱数を足したもので、trigger・採用値・基底・上位のスコアを想起1回につき INFO へ1行残す（記憶の内容は出さない）。
+> v0.37：**想起の重みを trigger 別にした**（`課題5_パラメータ仮案` の D 節が傾向だけ確定していたもの）。重みを選ぶ基準は「この求めを何が始めたか」ではなく「この反復が何を手がかりに動くか」で、取込で完了を書いた反復は trigger が「完了」になる。**起点（`_trigger_kind`）は書き換えない**（静穏時間のゲートが使っており、書き換えると人に話しかけられて始まった求めが夜間に保留される）。採用値はプロファイルに $\pm$ 幅の一様乱数を足したもので、trigger・採用値・基底・上位のスコアを想起1回につき INFO へ1行残す（記憶の内容は出さない）。
 
 > v0.36：**想起を正本の2段へ分けた**。W 載せ上限 $K$（`recall_k`・既定 7）と一次絞り件数 $N$（`recall_primary_n`・既定 50）を別のつまみにし、旧 `recall_n`（既定 5）は改名で消えた。各軸が 5 件しか集めていなかったのが 50 件になる。床を課すときの候補過剰取得は $N$ に役目を譲って撤去した。イベント駆動ループの想起が `min_score`（0.05）を渡していなかったのも是正した（既定 0.0 で床が効いていなかった）。
 
@@ -560,6 +560,6 @@ I も T も在席センサも動体イベントも、実装では `run()` の中
 > v0.6：意図の単一性を書込み時点で保証し（新しい意図が生きている前の意図を supersede）、上限に達した反復の意図には「これ以上は探さない」と書くようにした。
 > v0.5：完了が open 意図を supersede して解決するようにし（「結果はまだ無い」が残り再検索する不具合の修正）、生成中のストリームを止めて出力を決定後の1回に限り、反復番号をコンテキストへ注入した。
 > v0.4：取込でトリガ（人の発話）O を、recall 決定時に open 意図 O を書くようにした（同じ recall を繰り返して空応答になる不具合の修正）。
-> v0.3：`run_iteration` に診断ログを追加（反復番号つき debug、ターン終了の info 総括、上限空終了の warning）。挙動不変。
-> v0.2：スライス2（内部ツール recall を QC 経由で連鎖）を実装。I（情報処理機構）を `InformationProcessing` クラスとして起こし、QC（完了キュー）と LPM（ループ核＝`run_iteration`）を実体化。
+> v0.3：`begin_request` に診断ログを追加（反復番号つき debug、ターン終了の info 総括、上限空終了の warning）。挙動不変。
+> v0.2：スライス2（内部ツール recall を QC 経由で連鎖）を実装。I（情報処理機構）を `InformationProcessing` クラスとして起こし、QC（完了キュー）と LPM（ループ核＝`begin_request`）を実体化。
 > v0.1：段階1スライス1（人の発言→拡散込み想起→1反復1出力）を実装。正本＝`I内部設計根拠`・`設計図_Mermaid` ③。

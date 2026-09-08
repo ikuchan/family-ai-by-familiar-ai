@@ -35,7 +35,7 @@ def test_advancing_the_chain_says_it_is_a_step_forward() -> None:
 def test_a_new_version_says_it_is_a_revision() -> None:
     a = _agent()
     ip = InformationProcessing(a)
-    ip._version_id = "ver-1"
+    ip._live_version_id = "ver-1"
 
     asyncio.run(ip._write_version())
 

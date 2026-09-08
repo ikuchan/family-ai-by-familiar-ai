@@ -33,16 +33,18 @@ def test_index_starts_at_one_and_increments() -> None:
 
 def test_index_resets_per_request() -> None:
     """求めが変われば振り直す（求めをまたいだ突き合わせは要らない）。"""
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
-        _turn([ToolCall(id="t2", name="say", input={"text": "はい"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
+            _turn([ToolCall(id="t2", name="say", input={"text": "はい"})]),
+        ]
+    )
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.run_iteration("ひとつめ")
+        await ip.begin_request("ひとつめ")
         first = ip._next_lookup_index()
-        await ip.run_iteration("ふたつめ")
+        await ip.begin_request("ふたつめ")
         second = ip._next_lookup_index()
         await ip.close()
         return first, second
@@ -71,6 +73,7 @@ def test_distinct_queries_get_distinct_indexes() -> None:
     語は二度と調べない・`test_no_duplicate_lookup`）、番号が要るのは並行する別々の調査を
     見分けるためである。
     """
+
     async def scenario():
         a = _agent(stream_returns=[])
 
@@ -83,11 +86,12 @@ def test_distinct_queries_get_distinct_indexes() -> None:
         ip._dispatch_lookup("recall", {"query": "ふたつめ"}, "ふたつめ", None)
         got = [(q, idx) for _act, q, idx in ip._in_flight_lookups]
         await ip.close()
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         return got
 
     assert asyncio.run(scenario()) == [("ひとつめ", 1), ("ふたつめ", 2)]
+
 
 def test_deferred_completion_gets_its_index_from_the_query() -> None:
     """deferred の完了は語で届くので、語から通し番号を引く。
@@ -95,6 +99,7 @@ def test_deferred_completion_gets_its_index_from_the_query() -> None:
     `deferred_search` / `deferred_fetch` は `sink(query, result)` と2引数で呼ぶので、
     番号を知らない。同じ語はこの求めで二度投げないので、語からの引き当ては一意になる。
     """
+
     async def scenario():
         a = _agent(stream_returns=[])
 
@@ -110,7 +115,7 @@ def test_deferred_completion_gets_its_index_from_the_query() -> None:
         # deferred と同じく、語と結果だけで積む。
         ip.push_completion("にばんめ", "結果")
         item = ip._completion_queue.get_nowait()
-        for t in list(ip._tasks):
+        for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
         return item
