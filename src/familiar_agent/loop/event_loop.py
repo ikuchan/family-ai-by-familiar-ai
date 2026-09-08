@@ -674,6 +674,37 @@ class InformationProcessing:
             defs[-1] = {**defs[-1], "cache_control": {"type": "ephemeral"}}
         return defs
 
+    async def _begin_request(self, *, kind: str, text: str, utterance: str = "") -> None:
+        """求めを始める。**3つの入口（発話・情動・機器）はここを通る。**
+
+        やることは同じである——求めをリセットし、来た事実を O へ書き、求めの id を置き、
+        起点を控え、手がかりを置く。入口ごとに違うのは、起点の種別・文面・`_utterance`
+        の3つだけなので、それだけを受け取る（`モジュール分割設計` 環-e-に）。
+
+        **鎖は進めない。** 求めの中は版チェーン（`_write_version` の `改訂`）が担い、
+        求めをまたいで畳む理由はない（環-g・段に）。
+        """
+        agent = self._agent
+        self._utterance = utterance
+        self._trigger_kind = kind
+        self._request_text = text[:500]
+        self._live_version_id = None
+        self._lookups.clear()
+        self._iterations = 0
+        self._iterations_capped = False
+        obs_id, _ = await agent._memory.save_async_with_id(
+            text[:500],
+            direction=kind,
+            kind="observation",
+            materialize_now=True,
+            **agent._observation_perspective(),
+        )
+        self._request_id = obs_id
+        # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
+        # やりとりの関係にも拡散想起の母集合にも入らない。
+        self._note_origin(obs_id)
+        self._cue = text[:500]
+
     async def begin_request(self, utterance: str, on_text=None) -> str:
         """人の発話で1反復を起こす。1反復＝1出力（発話 or ツール投げ）で終わる。
 
@@ -686,13 +717,6 @@ class InformationProcessing:
         # 印は時刻なので、連鎖が長引いて相手が去れば自然に切れ、独り言にはならない。
         agent._last_human_at = time.time()
         self._on_text = on_text or self._on_text
-        self._utterance = utterance
-        self._trigger_kind = "発話"
-        self._request_text = utterance[:500]
-        self._live_version_id = None
-        self._lookups.clear()
-        self._iterations = 0
-        self._iterations_capped = False
         self._ensure_driver()
 
         # 調べかけの途中に話しかけられたら、**その調査を打ち切る**。人が言い直したとき、
@@ -701,21 +725,7 @@ class InformationProcessing:
         # 記録に残す**。
         await self._abort_lookups()
 
-        # 取込：来た事実（人の発話）を O に書く（④シーケンス）。
-        trigger_id, _ = await agent._memory.save_async_with_id(
-            utterance[:500],
-            direction="発話",
-            kind="observation",
-            materialize_now=True,
-            **agent._observation_perspective(),
-        )
-        self._request_id = trigger_id
-        # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
-        # やりとりの関係にも拡散想起の母集合にも入らない。
-        self._note_origin(trigger_id)
-        # 来た事実を手がかりにする。**鎖は進めない**——求めの中は版チェーン
-        # （`_write_version` の `改訂`）が担い、求めをまたいで畳む理由はない（環-g・段に）。
-        self._cue = utterance[:500]
+        await self._begin_request(kind="発話", text=utterance, utterance=utterance)
         return await self._iterate()
 
     async def _abort_lookups(self) -> None:
@@ -1057,25 +1067,7 @@ class InformationProcessing:
 
         情動は中身を持たないので、取り込み時に想起で状況づける（正本③ 手順1・2）。
         """
-        agent = self._agent
-        self._utterance = ""
-        self._trigger_kind = "情動"
-        self._request_text = f"[内的な促し:{drive_name}] {prompt}"[:500]
-        self._live_version_id = None
-        self._lookups.clear()
-        self._iterations = 0
-        self._iterations_capped = False
-        content = f"[内的な促し:{drive_name}] {prompt}"
-        obs_id, _ = await agent._memory.save_async_with_id(
-            content[:500],
-            direction="情動",
-            kind="observation",
-            materialize_now=True,
-            **agent._observation_perspective(),
-        )
-        self._request_id = obs_id
-        self._note_origin(obs_id)
-        self._cue = content[:500]
+        await self._begin_request(kind="情動", text=f"[内的な促し:{drive_name}] {prompt}")
         await self._iterate()
 
     async def _begin_device(self, kind: str, content: str, release_pending: bool) -> None:
@@ -1085,25 +1077,7 @@ class InformationProcessing:
         ゼロから立ち上がった瞬間だけ真になる（寿命は `pending_speech` 側が持つので、
         新しいキューは作らない）。
         """
-        agent = self._agent
-        self._utterance = ""
-        self._trigger_kind = "機器"
-        self._request_text = f"[{kind}] {content}"[:500]
-        self._live_version_id = None
-        self._lookups.clear()
-        self._iterations = 0
-        self._iterations_capped = False
-        text = f"[{kind}] {content}"
-        obs_id, _ = await agent._memory.save_async_with_id(
-            text[:500],
-            direction="機器",
-            kind="observation",
-            materialize_now=True,
-            **agent._observation_perspective(),
-        )
-        self._request_id = obs_id
-        self._note_origin(obs_id)
-        self._cue = text[:500]
+        await self._begin_request(kind="機器", text=f"[{kind}] {content}")
         if release_pending:
             await self._release_pending_speech()
         await self._iterate()
