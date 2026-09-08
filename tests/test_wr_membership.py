@@ -16,7 +16,7 @@ from __future__ import annotations
 import asyncio
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from tests.test_event_loop import _agent, _run, _run_chain, _turn
 
 
@@ -69,6 +69,6 @@ def test_an_aborted_investigation_is_carried_to_the_next_pool():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     ip._request_id = "obs-parent"
-    ip._in_flight_lookups = [("recall", "前の調査", 1)]
+    ip._lookups = [Lookup(index=1, action="recall", query="前の調査", generation=0)]
     asyncio.run(ip._abort_lookups())
     assert ip._turn_records, "中断の記録が母集合へ控えられていない"

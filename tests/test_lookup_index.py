@@ -1,7 +1,7 @@
 """調査の通し番号（設計方針『求めの版チェーン』V1）。
 
 いま検索を識別しているのは**語だけ**である。完了キューの要素は `(語, 結果, 意図 id, 種別)`
-で、同じ語で2回投げると区別できない。`_lookup_action_by_query`（語→動作）も語が鍵なので、
+で、同じ語で2回投げると区別できない。器（`Lookup`）も語で引くので、
 重複すると上書きされる。
 
 求めの中の通し番号を振る。求めをまたいだ突き合わせは要らないので、一意な id ではなく
@@ -17,18 +17,24 @@ from __future__ import annotations
 import asyncio
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 
 from tests.test_event_loop import _agent, _turn
 
 
 def test_index_starts_at_one_and_increments() -> None:
-    """通し番号は1から始まり、投げるたびに増える。"""
+    """通し番号は1から始まり、器が増えるたびに繰り上がる。
+
+    **番号は器の数から決まる**（環-g・段は）。以前は専用のカウンタを持っており、呼ぶ
+    たびに増えた。いまは呼ぶだけでは増えない——増えるのは器を1件足したときである。
+    """
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
-    assert ip._next_lookup_index() == 1
-    assert ip._next_lookup_index() == 2
-    assert ip._next_lookup_index() == 3
+    for expected in (1, 2, 3):
+        assert ip._next_lookup_index() == expected
+        ip._lookups.append(
+            Lookup(index=expected, action="recall", query=f"q{expected}", generation=0)
+        )
 
 
 def test_index_resets_per_request() -> None:
@@ -84,7 +90,7 @@ def test_distinct_queries_get_distinct_indexes() -> None:
         ip = InformationProcessing(a)
         ip._dispatch_lookup("recall", {"query": "ひとつめ"}, "ひとつめ", None)
         ip._dispatch_lookup("recall", {"query": "ふたつめ"}, "ふたつめ", None)
-        got = [(q, idx) for _act, q, idx in ip._in_flight_lookups]
+        got = [(lk.query, lk.index) for lk in ip._lookups]
         await ip.close()
         for t in list(ip._background_tasks):
             t.cancel()
