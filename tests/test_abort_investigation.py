@@ -24,7 +24,6 @@ def _ip_with_investigation():
     )
     ip = InformationProcessing(a)
     ip._request_id = "obs-parent"
-    ip._chain_head_id = "obs-child"
     ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
     ip._completion_queue.put_nowait(("明日の天気", "晴れ", "obs-child", "完了", 1))
     return a, ip

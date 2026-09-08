@@ -24,12 +24,28 @@ def _agent() -> MagicMock:
     return a
 
 
-def test_advancing_the_chain_says_it_is_a_step_forward() -> None:
-    a = _agent()
-    ip = InformationProcessing(a)
-    ip._chain_head_id = "old-1"
-    ip._advance_chain("new-1", "内容")
-    assert a._memory.mark_superseded.call_args.kwargs["kind"] == KIND_ADVANCE
+def test_the_step_forward_kind_is_no_longer_written() -> None:
+    """`前進` は書かれなくなった（環-g・段に）。
+
+    実際に発火するのは「前の求めが閉じないまま、情動または機器で次が始まった」ときだけ
+    で、畳まれるのは**別々の求めの起点どうし**だった。改訂・畳み込み・解決のどれにも
+    当たらない。求めの中は `改訂` が担うので、求めをまたいで畳む理由はない。
+
+    **定数は残す**（既存の記録が参照している）。
+    """
+    import io
+    import tokenize
+    from pathlib import Path
+
+    loop = Path(__file__).parent.parent / "src/familiar_agent/loop/event_loop.py"
+    with open(loop, "rb") as f:
+        code = " ".join(
+            t.string
+            for t in tokenize.tokenize(io.BytesIO(f.read()).readline)
+            if t.type not in (tokenize.COMMENT, tokenize.STRING)
+        )
+    assert "KIND_ADVANCE" not in code
+    assert KIND_ADVANCE == "前進"
 
 
 def test_a_new_version_says_it_is_a_revision() -> None:

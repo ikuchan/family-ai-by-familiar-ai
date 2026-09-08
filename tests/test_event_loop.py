@@ -1128,7 +1128,7 @@ def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
     async def scenario():
         ip = InformationProcessing(a)
         await ip.begin_request("マインクラフトってどんなゲーム？")
-        head = ip._chain_head_content
+        head = ip._cue
         fillers = list(ip._said_fillers)
         await ip.close()
         return head, fillers
