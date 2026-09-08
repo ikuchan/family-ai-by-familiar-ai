@@ -33,20 +33,20 @@ class DIF:
 
     `tts` は声の担い手（無い機体では `None`）、`search` と `fetch` は調べものの道具、
     `mcp` は MCP の道具を持つ側。どれも `agent` の `__init__` で一度作られたきりで
-    差し替わらないので、写しを持つ。`loop` は機器の出来事を受ける側（I）で、外から
-    中へ入る向きだけが使う。
+    差し替わらないので、写しを持つ。`ip` は機器の出来事を受ける側の I（`InformationProcessing`）で、
+    外から中へ入る向きだけが使う。
 
     **持つ側ごとに1つ作る。** I は外へ出る向き（`tts`・`search`・`fetch`・`mcp`）を、
-    T は中へ入る向き（`loop`）を持つ。AIF が `tonic.py` と `agent.py` に1つずつ在るのと
+    T は中へ入る向き（`ip`）を持つ。AIF が `tonic.py` と `agent.py` に1つずつ在るのと
     同じで、口は薄い転がしなので、要る向きだけを持てばよい。
     """
 
-    def __init__(self, *, tts=None, search=None, fetch=None, mcp=None, loop=None) -> None:
+    def __init__(self, *, tts=None, search=None, fetch=None, mcp=None, ip=None) -> None:
         self._tts = tts
         self._search = search
         self._fetch = fetch
         self._mcp = mcp
-        self._loop = loop
+        self._ip = ip
 
     # ── 声 ────────────────────────────────────────────────────────────────
 
@@ -119,7 +119,7 @@ class DIF:
         だからにすぎない）。
         """
         logger.debug("DIF device → %s／%s", kind, content[:_TRAIL_CHARS])
-        self._loop.push_device(kind, content, release_pending=release_pending)
+        self._ip.push_device(kind, content, release_pending=release_pending)
 
 
 __all__ = ["DIF"]

@@ -104,7 +104,7 @@ class Tonic:
         # （`設計図` ③-2 の4つの口）。
         self._aif = AIF(information_processing)
         # 人の出入りはカメラが出す機器の出来事なので、QD＝DIF を通す（環-e-は）。
-        self._dif = DIF(loop=information_processing)
+        self._dif = DIF(ip=information_processing)
         self._agent = agent
         # 在/不在の情報源（`PresenceSensor`）。渡さなければ身元の情報源だけで判断する。
         # agent から取りに行くと、テストの MagicMock が「常に誰か居る」を返してしまう。

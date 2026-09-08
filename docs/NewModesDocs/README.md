@@ -1,4 +1,4 @@
-# familiar-ai 設計ドキュメント索引（v0.76）
+# familiar-ai 設計ドキュメント索引（v0.77）
 
 `docs/NewModesDocs/` は、familiar-ai の設計と計画の正本を置く場所である。実装に手を付ける前に、触る領域の正本をここで確かめる。
 
@@ -177,6 +177,8 @@
 > v0.49：設計方針「MI 間の関係」を v0.2 へリンクを更新した（058＝`relations` と `relation_members` を作り、`RelationStore` を置いた）。
 
 > v0.50：設計方針「MI 間の関係」を v0.3 へリンクを更新した（段 2 で六つの書き手を全部移す。役割 `旧` が現行でないことを表す）。
+
+> v0.77：口（AIF・DIF）が I を `_loop` と呼んでいたのを `_ip` へ揃えた（`event_loop.py` の `_loop` は asyncio のループで、正反対を指していた）。
 
 > v0.76：環-g 段ろ＝紛らわしい名前を直した（`_parent_id`→`_request_id`、`_chain`→`_iterations`、`run_iteration`→`begin_request` ほか）。課題8 v0.104・設計図 v0.93・イベント駆動ループ v0.41・モジュール分割設計 v0.27・MI間の関係 v0.12・求めの版チェーン v0.5・W構築の統一 v0.5 へリンクを更新した。
 

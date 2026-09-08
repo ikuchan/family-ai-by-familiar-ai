@@ -25,7 +25,7 @@ from familiar_agent.mood_register import MoodPAD
 _LOGGER = "familiar_agent.io.aif"
 
 
-class _Loop:
+class _IP:
     """I のふり。積まれたものを控える。"""
 
     def __init__(self) -> None:
@@ -35,38 +35,38 @@ class _Loop:
         self.affects.append((drive_name, prompt))
 
 
-def _aif(loop=None, nudged=None):
+def _aif(ip=None, nudged=None):
     """AIF を組み立てる。mood 側は関数で差し替える（DB を触らない）。"""
-    loop = loop or _Loop()
+    ip = ip or _IP()
     calls: list = []
 
     def _nudge(items):
         calls.append(items)
         return MoodPAD(p=0.6, pn=0.4, a=0.5, dom=0.5)
 
-    return AIF(loop, nudge=_nudge), loop, calls
+    return AIF(ip, nudge=_nudge), ip, calls
 
 
 class TestFiring:
     """T → I（情動発火）。"""
 
     def test_a_firing_reaches_the_loop(self) -> None:
-        aif, loop, _ = _aif()
+        aif, ip, _ = _aif()
         aif.fire(Firing(axis="seeking", inner_voice="探索したい気持ちが募っている"))
-        assert loop.affects == [("SEEKING", "探索したい気持ちが募っている")]
+        assert ip.affects == [("SEEKING", "探索したい気持ちが募っている")]
 
     def test_the_axis_is_upper_cased(self) -> None:
         """I へ渡す軸名は大文字（いまの `push_affect` の呼ばれ方に合わせる）。"""
-        aif, loop, _ = _aif()
+        aif, ip, _ = _aif()
         aif.fire(Firing(axis="safety", inner_voice="確かめたい"))
-        assert loop.affects[0][0] == "SAFETY"
+        assert ip.affects[0][0] == "SAFETY"
 
     def test_a_firing_is_frozen(self) -> None:
         import dataclasses
 
         f = Firing(axis="rest", inner_voice="休みたい")
         with pytest.raises(dataclasses.FrozenInstanceError):
-            f.axis = "bond"          # type: ignore[misc]
+            f.axis = "bond"  # type: ignore[misc]
 
 
 class TestNudge:
@@ -109,9 +109,7 @@ class TestDebugTrail:
         aif, _, _ = _aif()
         with caplog.at_level(logging.INFO, logger=_LOGGER):
             aif.fire(Firing(axis="seeking", inner_voice="探索したい"))
-        assert not [r for r in caplog.records if r.levelno >= logging.INFO], (
-            "INFO 以上に出ている"
-        )
+        assert not [r for r in caplog.records if r.levelno >= logging.INFO], "INFO 以上に出ている"
 
 
 class TestWiring:
