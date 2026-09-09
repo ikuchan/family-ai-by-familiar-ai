@@ -209,7 +209,7 @@ def test_completion_driven_iteration_keeps_the_origin_kind() -> None:
             await asyncio.sleep(0.005)
         await asyncio.sleep(0.02)
         await ip.close()
-        return ip._trigger_kind
+        return ip._req.trigger_kind
 
     assert asyncio.run(scenario()) == "発話"
 

@@ -51,7 +51,7 @@ def test_the_step_forward_kind_is_no_longer_written() -> None:
 def test_a_new_version_says_it_is_a_revision() -> None:
     a = _agent()
     ip = InformationProcessing(a)
-    ip._live_version_id = "ver-1"
+    ip._req.live_version_id = "ver-1"
 
     asyncio.run(ip._write_version())
 

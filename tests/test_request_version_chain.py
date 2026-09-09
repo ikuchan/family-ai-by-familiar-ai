@@ -124,8 +124,8 @@ def test_abort_writes_a_version() -> None:
 
         a._memory_tool.call = _never_returns
         ip = InformationProcessing(a)
-        ip._request_text = "天気は？"
-        ip._request_id = "obs1"
+        ip._req.request_text = "天気は？"
+        ip._req.request_id = "obs1"
         ip._dispatch_lookup("recall", {"query": "天気"}, "天気", None)
         await ip._abort_lookups()
         for t in list(ip._background_tasks):

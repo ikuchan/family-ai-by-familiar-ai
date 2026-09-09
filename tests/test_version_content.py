@@ -24,7 +24,7 @@ from tests.test_event_loop import _agent
 
 def _ip(origin: str = "昨日の天気覚えてる？"):
     ip = InformationProcessing(_agent(stream_returns=[]))
-    ip._request_text = origin
+    ip._req.request_text = origin
     return ip
 
 

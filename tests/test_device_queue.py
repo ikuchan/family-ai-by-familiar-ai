@@ -130,7 +130,7 @@ def test_device_queue_wakes_the_driver():
 
     ip = asyncio.run(scenario())
     ip._iterate.assert_awaited()
-    assert ip._trigger_kind == "機器"
+    assert ip._req.trigger_kind == "機器"
 
 
 def test_presence_scan_leaves_a_trace_even_when_nothing_changes():

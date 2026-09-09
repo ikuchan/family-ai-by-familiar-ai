@@ -23,7 +23,7 @@ def _ip_with_investigation():
         ]
     )
     ip = InformationProcessing(a)
-    ip._request_id = "obs-parent"
+    ip._req.request_id = "obs-parent"
     ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
     ip._completion_queue.put_nowait(
         Completion(kind="完了", query="明日の天気", result="晴れ", intent_id="obs-child", index=1)
@@ -59,7 +59,7 @@ def test_a_running_iteration_is_folded_after_an_abort():
     async def scenario():
         ip = InformationProcessing(a)
         ip.set_output(shown.append)
-        ip._utterance = "前の問い"
+        ip._req.utterance = "前の問い"
         ip._request_generation = 0
         # 反復の途中で打ち切られた状況を作る（生成が返る前に世代が進む）。
         original = a.backend.stream_turn

@@ -19,12 +19,15 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.backends import ToolCall
 from familiar_agent.backends.types import TurnResult
 from familiar_agent.loop.event_loop import Decision, InformationProcessing
+from familiar_agent.loop.request import Request
 
 
 def _ip(gen: int = 0):
     ip = InformationProcessing.__new__(InformationProcessing)
+    # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
+    ip._req = Request()
     ip._request_generation = gen
-    ip._cue = "手がかり"
+    ip._req.cue = "手がかり"
     ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
     ip._apply_memory_verdicts = MagicMock()

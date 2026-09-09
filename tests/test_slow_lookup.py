@@ -80,7 +80,7 @@ def test_a_progress_iteration_only_says_a_filler():
     async def scenario():
         ip = InformationProcessing(a)
         ip.set_output(shown.append)
-        ip._utterance = "明日の天気は？"
+        ip._req.utterance = "明日の天気は？"
         ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
         ip._completion_queue.put_nowait(Completion(kind="進捗", query="明日の天気"))
         await ip._iterate()

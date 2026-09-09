@@ -23,18 +23,21 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.backends import ToolCall
 from familiar_agent.backends.types import TurnResult
 from familiar_agent.loop.event_loop import Completion, Decision, InformationProcessing
+from familiar_agent.loop.request import Request
 
 
 def _ip():
     ip = InformationProcessing.__new__(InformationProcessing)
+    # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
+    ip._req = Request()
     ip._completion_queue = asyncio.Queue()
     ip._drained_completions = []
     ip._lookups = []
     ip._background_tasks = set()
     ip._request_generation = 0
     ip._asyncio_loop = None
-    ip._cue = "手がかり"
-    ip._request_id = "req-1"
+    ip._req.cue = "手がかり"
+    ip._req.request_id = "req-1"
     ip._write_version = AsyncMock(return_value="ver-1")
     a = MagicMock()
     a.config.max_tokens = 1000

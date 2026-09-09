@@ -232,13 +232,6 @@ class InformationProcessing:
             mcp=agent._mcp,
         )
 
-        # 親＝この連鎖を起こした求め（人の発話 or 情動）。子＝そのために投げた調査。
-        # 孫は作らない。親が決着したら生きた子をまとめて閉じる（一段だけ・再帰なし）。
-        self._request_id: str | None = None
-        # この反復の手がかり。**いま生きている記録の内容**である。求めの始まりでは来た事実
-        # （発話・情動・機器）で、版が書かれたあとはその版の content になる。想起のクエリ・
-        # 調停の入力・user メッセージの3つがこれを読む。
-        self._cue: str = ""
         # この求めで投げた調べもの（1件＝1つの `Lookup`）。**飛行中も届いた分も同じ列**に
         # 並ぶ（`result` が `None` なら飛行中）。以前は6つの入れ物に3通りで持ち、数と列を
         # 5箇所で手で揃えていた（環-g・段は）。
@@ -248,11 +241,6 @@ class InformationProcessing:
         # 番号で対応づけるために振る。求めをまたいだ突き合わせは要らないので、一意な id では
         # なく通し番号で足りる。
         self._lookups: list[Lookup] = []
-        # 求めそのものの文面。**どの版にも入れる。** 前の版は畳まれて辿れなくなるので、
-        # 各版が単独で「何を聞かれたか」を持たないと、求めの文脈が失われる。
-        self._request_text = ""
-        # いま生きている版の id。次の版がこれを畳む（1本の鎖）。
-        self._live_version_id: str | None = None
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
         self._recall_exclude_id: str | None = None
         # W に出した id（12桁）→ 完全な id。フルLLM の申告の突き合わせに使う。
@@ -278,14 +266,9 @@ class InformationProcessing:
         self._driver: asyncio.Task | None = None
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
         self._drained_completions: list[Completion] = []
-        # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
         # 求めの寿命の状態は `Request` が持つ（に-5-に）。**`None` にしない**——求めが無い
         # ことは `request_id is None` が表す約束を、そのまま器の中へ持ち込む。
         self._req = Request()
-        self._utterance = ""
-        # 反復の起点。種別＝発話｜情動｜機器｜完了。情動や機器で起きた反復には人の発話が
-        # 無いので、起点の内容を手がかり・調停の入力・user メッセージに使う。
-        self._trigger_kind = "発話"
         self._on_text = None
         # 発話の通知先（GUI は「発話は on_action("say") で来る」前提で作られており、
         # 素テキストは say の前の途中経過としてしか扱わない）。CUI は持たない。
@@ -303,9 +286,9 @@ class InformationProcessing:
         関連を厳しく要求する（w_r=1.5）ので、下限が無いと「何のために調べていたか」が
         W から落ちる。
         """
-        ids = [self._request_id] if self._request_id else []
-        if self._live_version_id and self._live_version_id not in ids:
-            ids.append(self._live_version_id)
+        ids = [self._req.request_id] if self._req.request_id else []
+        if self._req.live_version_id and self._req.live_version_id not in ids:
+            ids.append(self._req.live_version_id)
         return ids
 
     def _note_origin(self, obs_id: str | None) -> None:
@@ -363,16 +346,18 @@ class InformationProcessing:
             direction="求め",
             kind="observation",
             materialize_now=True,
-            parent_id=self._request_id,
+            parent_id=self._req.request_id,
             **agent._observation_perspective(),
         )
         if version_id:
             self._note_record(version_id, "版")
-            if self._live_version_id and self._live_version_id != version_id:
-                agent._memory.mark_superseded(self._live_version_id, version_id, kind=KIND_REVISION)
-            self._live_version_id = version_id
+            if self._req.live_version_id and self._req.live_version_id != version_id:
+                agent._memory.mark_superseded(
+                    self._req.live_version_id, version_id, kind=KIND_REVISION
+                )
+            self._req.live_version_id = version_id
             # 手がかり（次の反復の想起クエリ）は、いまの版そのものにする。
-            self._cue = content
+            self._req.cue = content
         return version_id
 
     async def _write_seen_mark(self, content: str) -> str | None:
@@ -392,7 +377,7 @@ class InformationProcessing:
             direction="観察",
             kind="observation",
             materialize_now=True,
-            parent_id=self._request_id,
+            parent_id=self._req.request_id,
             **agent._observation_perspective(),
         )
         # W へ載せる。版から結果を落としたので、この経路が無いと `see` した反復の
@@ -431,10 +416,10 @@ class InformationProcessing:
             else:
                 parts.append(f"{lk.index}番：{lk.action}「{lk.query}」の結果が届いた：{lk.result}")
 
-        head = f"「{self._request_text}」と聞かれた"
+        head = f"「{self._req.request_text}」と聞かれた"
         if not parts:
             return head + ("（打ち切った）" if aborted else "")
-        return f"「{self._request_text}」と聞かれ、" + "／".join(parts)
+        return f"「{self._req.request_text}」と聞かれ、" + "／".join(parts)
 
     @property
     def _in_flight_count(self) -> int:
@@ -884,10 +869,10 @@ class InformationProcessing:
         求めをまたいで畳む理由はない（環-g・段に）。
         """
         agent = self._agent
-        self._utterance = utterance
-        self._trigger_kind = kind
-        self._request_text = text[:500]
-        self._live_version_id = None
+        self._req.utterance = utterance
+        self._req.trigger_kind = kind
+        self._req.request_text = text[:500]
+        self._req.live_version_id = None
         self._lookups.clear()
         self._req.iterations = 0
         self._req.iterations_capped = False
@@ -898,11 +883,11 @@ class InformationProcessing:
             materialize_now=True,
             **agent._observation_perspective(),
         )
-        self._request_id = obs_id
+        self._req.request_id = obs_id
         # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
         # やりとりの関係にも拡散想起の母集合にも入らない。
         self._note_origin(obs_id)
-        self._cue = text[:500]
+        self._req.cue = text[:500]
 
     async def begin_request(self, utterance: str, on_text=None) -> str:
         """人の発話で1反復を起こす。1反復＝1出力（発話 or ツール投げ）で終わる。
@@ -937,7 +922,7 @@ class InformationProcessing:
         載る。ただし**打ち切った事実は残す**（あとで「あのとき何を調べていたか」を辿れる）。
         """
         in_flight = [lk for lk in self._lookups if lk.in_flight]
-        if not self._background_tasks and not in_flight and self._request_id is None:
+        if not self._background_tasks and not in_flight and self._req.request_id is None:
             return
         dropped = [f"{lk.index}番：{lk.action}「{lk.query}」" for lk in in_flight]
         for task in list(self._background_tasks):
@@ -957,7 +942,7 @@ class InformationProcessing:
                 "・".join(dropped) or "投げた先なし",
                 drained,
             )
-        if self._request_id:
+        if self._req.request_id:
             # 打ち切りも版のひとつ。何を打ち切ったかは版の content が持つので、
             # **飛行中の一覧を消す前**に、かつ親を捨てる前に書く。
             with contextlib.suppress(Exception):
@@ -971,10 +956,10 @@ class InformationProcessing:
                     self._agent._memory.record_exchange(
                         [(i, r, n) for n, (i, r) in enumerate(_aborted)]
                     )
-        self._request_id = None
-        self._live_version_id = None
+        self._req.request_id = None
+        self._req.live_version_id = None
         self._lookups.clear()
-        self._cue = ""
+        self._req.cue = ""
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
         self._w_id_map = {}
@@ -1098,13 +1083,13 @@ class InformationProcessing:
 
         自分の起点を指しても繋がない。自己ループはさかのぼりが止まらなくなる。
         """
-        if not full or not self._request_id or not self._w_id_map:
+        if not full or not self._req.request_id or not self._w_id_map:
             return
-        if full not in set(self._w_id_map.values()) or full == self._request_id:
+        if full not in set(self._w_id_map.values()) or full == self._req.request_id:
             return
         logger.info("event-loop このターンは %.8s に続く", full)
         with contextlib.suppress(Exception):
-            self._agent._memory.record_succession(full, self._request_id)
+            self._agent._memory.record_succession(full, self._req.request_id)
 
     def _apply_memory_verdicts(self, raw, w_id_map: "dict[str, str] | None" = None) -> None:
         """フルLLM が申告した「想起した記憶の扱い」を反映する（課題5 E節 段2）。
@@ -1321,7 +1306,7 @@ class InformationProcessing:
                 store.delete(row["id"])
                 with contextlib.suppress(Exception):
                     self._agent._memory.mark_superseded(
-                        row["observation_id"], self._request_id, kind=KIND_RESOLVE
+                        row["observation_id"], self._req.request_id, kind=KIND_RESOLVE
                     )
             self._req.speech_to_deliver = released
             if released:
@@ -1388,7 +1373,7 @@ class InformationProcessing:
         from ..config import MemoryConfig
 
         agent = self._agent
-        utterance = self._utterance
+        utterance = self._req.utterance
         # この反復が属する世代。打ち切られたら（世代が進んだら）、フルLLM の返りを待って
         # いる最中でも、出力せずに畳む。実機で、打ち切った直後に走っていた反復が
         # fetch_deferred を投げ、返事も1つ余計に出た。
@@ -1423,7 +1408,7 @@ class InformationProcessing:
         # 入れば必ず上位に来る。以前はこれを「枠を食う」と嫌って外していたが、いま届いた
         # 結果を全文で見せる必要がある以上、1位に来るのが正しい順位である。手組みで W へ
         # 足すのをやめ、候補集合の一員として同じ採点を通す（正本 [D-想起起動] の1本の流れ）。
-        cue = self._cue or utterance
+        cue = self._req.cue or utterance
         _mcfg = MemoryConfig()
         # 5軸の重みは trigger 種別で決める（`課題5_パラメータ仮案` §280）。選ぶ基準は
         # 「この求めを何が始めたか」ではなく **「この反復を何を手がかりに動くか」**である。
@@ -1431,7 +1416,7 @@ class InformationProcessing:
         # 性質が違う。`_trigger_kind` を書き換えないのは、そちらが静穏時間のゲート
         # （`_should_hold`）に使われており、人に話しかけられて始まった求めを夜間に
         # 保留させてしまうためである。
-        trigger = "完了" if drained else self._trigger_kind
+        trigger = "完了" if drained else self._req.trigger_kind
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
         memories, workspace_ctx = await self._recall_workspace(mem, cue, weights=weights)
@@ -1462,7 +1447,7 @@ class InformationProcessing:
             self._req.iterations_capped = True
         decision = await arbitrate(
             agent._utility_backend,
-            utterance=utterance or self._cue,
+            utterance=utterance or self._req.cue,
             workspace_ctx=workspace_ctx,
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -1524,7 +1509,7 @@ class InformationProcessing:
             # つなぎの一言はここで即出す（フルLLM を経由しないぶん速い・正本③ 段5 の内部二段）。
             await self._say_filler(decision.text)
             self._start_lookup(
-                utterance or self._cue,
+                utterance or self._req.cue,
                 {"query": decision.query},
                 action=decision.action,
             )
@@ -1564,7 +1549,7 @@ class InformationProcessing:
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
         # 何がこの反復を起こしたのか分からなくなる（API も空メッセージを受け付けない）。
-        user_msg = agent.backend.make_user_message(utterance or self._cue)
+        user_msg = agent.backend.make_user_message(utterance or self._req.cue)
         # **投げて終わる。** 返りは QC を通り、次の反復（出す反復）が実行する。
         self._dispatch_main_llm(
             messages=[user_msg],
@@ -1619,7 +1604,9 @@ class InformationProcessing:
         if lookup_tc is not None:
             if say_tc is not None:
                 await self._say_filler(str(say_tc.input.get("text", "")).strip())
-            self._start_lookup(utterance or self._cue, dict(lookup_tc.input), action=lookup_tc.name)
+            self._start_lookup(
+                utterance or self._req.cue, dict(lookup_tc.input), action=lookup_tc.name
+            )
             logger.info("event-loop 出力=%s（続きは完了で起きる）", lookup_tc.name)
             return ""
 
@@ -1643,7 +1630,7 @@ class InformationProcessing:
                 self._dispatch_main_llm(
                     messages=[
                         agent.backend.make_user_message(
-                            f"{utterance or self._cue}\n\n"
+                            f"{utterance or self._req.cue}\n\n"
                             f"[SELF-CHECK] いま言おうとした「{text}」には問題がある："
                             f"{violation}\nこれを直して、もう一度 say() で答える。"
                         )
@@ -1742,7 +1729,7 @@ class InformationProcessing:
             direction="発話",
             kind="observation",
             materialize_now=True,
-            parent_id=self._request_id,
+            parent_id=self._req.request_id,
             **agent._observation_perspective(),
         )
         self._note_record(obs_id, "つなぎ")
@@ -1768,7 +1755,7 @@ class InformationProcessing:
         # ものではない。起点を区別せず掛けていたため、夜に話しかけても返事が出ず、
         # 保留されて翌朝に届く動きになっていた（実機で観測）。在席と「黙っていて」の
         # 依頼は起点によらず掛かるので、ここだけを分ける。
-        if self._trigger_kind != "発話":
+        if self._req.trigger_kind != "発話":
             with contextlib.suppress(Exception):
                 if agent._in_quiet_hours():
                     return "静穏時間である"
@@ -1864,9 +1851,11 @@ class InformationProcessing:
         # 発話の記録は鎖の外だが、検索を始めたことはそこからも辿れたほうがよい。
         # 一度だけ足す（何を調べているかは版の側が持つ）。埋め込みの作り直しを含むので
         # 別スレッドへ逃がす（同期呼び出しでイベントループを止めない）。
-        if self._request_id:
+        if self._req.request_id:
             with contextlib.suppress(Exception):
-                await asyncio.to_thread(self._agent._memory.note_lookup_started, self._request_id)
+                await asyncio.to_thread(
+                    self._agent._memory.note_lookup_started, self._req.request_id
+                )
 
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
         """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""
@@ -1899,15 +1888,15 @@ class InformationProcessing:
                     direction="発話" if spoken else "独白",
                     kind="observation",
                     materialize_now=True,
-                    parent_id=self._request_id,
+                    parent_id=self._req.request_id,
                     **agent._observation_perspective(),
                 )
         self._note_record(answer_id, "答え" if spoken else "独白")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
-        parent_id, self._request_id = self._request_id, None
-        self._live_version_id = None
+        parent_id, self._req.request_id = self._req.request_id, None
+        self._req.live_version_id = None
         self._lookups.clear()
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
@@ -1919,7 +1908,7 @@ class InformationProcessing:
         turn_records = [i for i, _ in self._req.turn_records]
         self._req.turn_records, self._req.exchange_start = [], 0
         try:
-            origin = self._utterance or self._cue
+            origin = self._req.utterance or self._req.cue
             arousal = await agent._turn_arousal(origin, text)
             agent._spawn_background_task(
                 agent._run_post_response_pipeline(

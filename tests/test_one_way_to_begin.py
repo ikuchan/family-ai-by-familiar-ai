@@ -15,7 +15,7 @@
 | 前にやること | 在席の印・出力先・打ち切り | — | — |
 | 後にやること | — | — | 保留を配る（`release_pending`） |
 
-**4つの状態（`_req.iterations`・`_request_text`・`_trigger_kind`・`_utterance`）の書き手が
+**4つの状態（`iterations`・`request_text`・`trigger_kind`・`utterance`）の書き手が
 3つから1つになる。** 器を作らずに、書き手そのものを減らす（`モジュール分割設計`）。
 """
 
@@ -53,7 +53,12 @@ def test_the_three_entries_do_not_set_the_state_themselves():
     """**4つの状態を置くのは1箇所だけ**にする。"""
     for name in ("begin_request", "_begin_affect", "_begin_device"):
         body = _method(name)
-        for field in ("_req.iterations", "_request_text", "_trigger_kind", "_utterance"):
+        for field in (
+            "_req.iterations",
+            "_req.request_text",
+            "_req.trigger_kind",
+            "_req.utterance",
+        ):
             assert f"self.{field} = " not in body, f"{name} が {field} を直に置いている"
 
 
