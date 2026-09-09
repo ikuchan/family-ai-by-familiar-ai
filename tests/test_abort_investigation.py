@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing, Lookup
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Completion
 from tests.test_event_loop import _agent, _turn
 
 
@@ -25,7 +25,9 @@ def _ip_with_investigation():
     ip = InformationProcessing(a)
     ip._request_id = "obs-parent"
     ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
-    ip._completion_queue.put_nowait(("明日の天気", "晴れ", "obs-child", "完了", 1))
+    ip._completion_queue.put_nowait(
+        Completion(kind="完了", query="明日の天気", result="晴れ", intent_id="obs-child", index=1)
+    )
     return a, ip
 
 

@@ -25,11 +25,20 @@ from familiar_agent.loop.event_loop import _FULL_ACTIONS, _LOOKUP_ACTIONS, Infor
 
 def _camera(call_return=("You see the current view (saved to /tmp/a.jpg).", "BASE64")):
     cam = MagicMock()
-    cam.get_tool_definitions = MagicMock(return_value=[
-        {"name": "see", "description": "see", "input_schema": {"type": "object", "properties": {}}},
-        {"name": "look", "description": "look", "input_schema": {"type": "object",
-                                                                 "properties": {}}},
-    ])
+    cam.get_tool_definitions = MagicMock(
+        return_value=[
+            {
+                "name": "see",
+                "description": "see",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+            {
+                "name": "look",
+                "description": "look",
+                "input_schema": {"type": "object", "properties": {}},
+            },
+        ]
+    )
     cam.call = AsyncMock(return_value=call_return)
     return cam
 
@@ -75,11 +84,18 @@ def test_seeing_is_a_lookup():
 
 def test_seeing_reports_what_was_recognised():
     ip = InformationProcessing(_with_camera())
-    with patch("familiar_agent.loop.event_loop.extract_entities",
-               AsyncMock(return_value=[{"label": "cat", "category": "animal", "confidence": 0.9},
-                                       {"label": "mug", "category": "object", "confidence": 0.7}])):
+    with patch(
+        "familiar_agent.loop.event_loop.extract_entities",
+        AsyncMock(
+            return_value=[
+                {"label": "cat", "category": "animal", "confidence": 0.9},
+                {"label": "mug", "category": "object", "confidence": 0.7},
+            ]
+        ),
+    ):
         asyncio.run(ip._run_lookup("see", {}, "目の前を見る", None))
-    (_q, result, _i, kind, _idx) = _drain(ip)[0]
+    _c = _drain(ip)[0]
+    result, kind = _c.result, _c.kind
     assert kind == "完了"
     assert "cat" in result and "mug" in result
 
@@ -89,7 +105,8 @@ def test_seeing_still_reports_when_the_vlm_finds_nothing():
     ip = InformationProcessing(_with_camera())
     with patch("familiar_agent.loop.event_loop.extract_entities", AsyncMock(return_value=[])):
         asyncio.run(ip._run_lookup("see", {}, "目の前を見る", None))
-    (_q, result, _i, kind, _idx) = _drain(ip)[0]
+    _c = _drain(ip)[0]
+    result, kind = _c.result, _c.kind
     assert result.strip() != "" and kind == "完了"
 
 
@@ -97,7 +114,7 @@ def test_looking_reports_the_move_result():
     cam = _camera(call_return=("Moved left 30 degrees.", None))
     ip = InformationProcessing(_with_camera(cam))
     asyncio.run(ip._run_lookup("look", {"direction": "left"}, "首を左へ向ける", None))
-    (_q, result, _i, _k, _idx) = _drain(ip)[0]
+    result = _drain(ip)[0].result
     assert "Moved left" in result
 
 
@@ -117,14 +134,17 @@ def test_a_broken_camera_degrades_like_recall():
     cam.call = AsyncMock(side_effect=RuntimeError("camera offline"))
     ip = InformationProcessing(_with_camera(cam))
     asyncio.run(ip._run_lookup("see", {}, "目の前を見る", None))
-    (_q, result, _i, kind, _idx) = _drain(ip)[0]
+    _c = _drain(ip)[0]
+    result, kind = _c.result, _c.kind
     assert "camera offline" in result and kind == "完了"
 
 
 def test_the_vlm_failing_does_not_lose_the_observation():
     ip = InformationProcessing(_with_camera())
-    with patch("familiar_agent.loop.event_loop.extract_entities",
-               AsyncMock(side_effect=RuntimeError("vlm down"))):
+    with patch(
+        "familiar_agent.loop.event_loop.extract_entities",
+        AsyncMock(side_effect=RuntimeError("vlm down")),
+    ):
         asyncio.run(ip._run_lookup("see", {}, "目の前を見る", None))
     assert len(_drain(ip)) == 1
 

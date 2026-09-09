@@ -12,7 +12,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall, TurnResult
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing, Completion
 
 # 非同期の処理が届くのを待つ上限（0.005 秒 × この回数＝5秒）。条件が満たされた時点で
 # 抜けるので、通常の実行時間は変わらない。以前は 1〜2 秒相当で、負荷の高い実行（所要が
@@ -492,7 +492,7 @@ def test_intake_drains_inbox_in_place():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     before = ip._drained_completions
-    ip._drained_completions.append(("q", "結果", None, "完了", 1))
+    ip._drained_completions.append(Completion(kind="完了", query="q", result="結果", index=1))
     assert asyncio.run(ip._intake()) == 1
     assert ip._drained_completions is before  # 作り直さない
     assert ip._drained_completions == []  # 中身だけ空にする
@@ -877,7 +877,9 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
         ip = InformationProcessing(a)
         assert await ip.begin_request("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)  # 意図を書いて dispatch し終えた頃
-        ip._completion_queue.put_nowait(("q", "外から届いた結果", None, "完了", 1))
+        ip._completion_queue.put_nowait(
+            Completion(kind="完了", query="q", result="外から届いた結果", index=1)
+        )
         for _ in range(_WAIT_TICKS):
             if shown:
                 break

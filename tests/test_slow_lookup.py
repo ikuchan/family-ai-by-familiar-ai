@@ -13,7 +13,7 @@ import asyncio
 from unittest.mock import AsyncMock
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing, Lookup
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Completion
 from tests.test_event_loop import _agent, _turn
 
 
@@ -39,7 +39,7 @@ def test_a_slow_lookup_raises_a_progress_event_once():
 
     ip = asyncio.run(scenario())
     assert ip._completion_queue.qsize() == 1
-    assert ip._completion_queue.get_nowait()[3] == "進捗"
+    assert ip._completion_queue.get_nowait().kind == "進捗"
 
 
 def test_no_progress_event_once_the_result_has_arrived():
@@ -82,7 +82,7 @@ def test_a_progress_iteration_only_says_a_filler():
         ip.set_output(shown.append)
         ip._utterance = "明日の天気は？"
         ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
-        ip._completion_queue.put_nowait(("明日の天気", "", None, "進捗", 0))
+        ip._completion_queue.put_nowait(Completion(kind="進捗", query="明日の天気"))
         await ip._iterate()
         await ip.close()
         return ip
