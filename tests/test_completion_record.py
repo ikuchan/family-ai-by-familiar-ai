@@ -14,7 +14,7 @@ QC の要素は `(語, 結果, 意図id, 種別, 番号)` の5つ組で、**位�
 from __future__ import annotations
 
 import asyncio
-from familiar_agent.loop.event_loop import Completion, InformationProcessing
+from familiar_agent.loop.event_loop import Completion, Decision, InformationProcessing
 
 
 def _ip():
@@ -50,15 +50,23 @@ def test_a_decision_carries_the_turn_result_and_the_workspace():
     tr = TurnResult(
         stop_reason="tool_use", text="", tool_calls=[ToolCall("t", "say", {"text": "はい"})]
     )
-    c = Completion(
-        kind="決定",
-        decision=tr,
+    # **W は `Decision` が持つ。** `Completion` の側に `memories` と `w_id_map` を並べると、
+    # 種別が `決定` のときだけ意味を持つ欄が2つ増える。返りと W は必ず一緒に動くので、
+    # 1つの器へまとめた（環-h ②）。
+    d = Decision(
+        result=tr,
         memories=[{"memory_id": "m1"}],
         w_id_map={"abcdef123456": "m1"},
+        recent_ctx="",
+        system=None,
+        effort="high",
+        capped=False,
     )
-    assert c.decision is tr
-    assert c.memories == [{"memory_id": "m1"}]
-    assert c.w_id_map == {"abcdef123456": "m1"}
+    c = Completion(kind="決定", decision=d)
+    assert c.decision is d
+    assert c.decision.result is tr
+    assert c.decision.memories == [{"memory_id": "m1"}]
+    assert c.decision.w_id_map == {"abcdef123456": "m1"}
 
 
 # ── 積む側が器を使うこと ────────────────────────────────────────────────────

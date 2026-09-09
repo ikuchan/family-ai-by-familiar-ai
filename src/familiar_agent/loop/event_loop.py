@@ -126,6 +126,32 @@ def _log_recall_weights(trigger, base, used, memories) -> None:
 
 
 @dataclass
+class Decision:
+    """主LLM の返りと、**投げたときに見ていたもの**（環-h・段は）。
+
+    主LLM は投げっぱなしになり、返りは別の反復（出す反復）で実行される。そのあいだに別の
+    完了が届けば、求めの寿命の状態（`_w_id_map`・想起した W）は上書きされる。だから
+    **返りと一緒に運ぶ**。
+
+    - `memories`：共起は「その反復で一緒に活性した記録」なので、**主LLM が見た W** でなければ
+      意味がない
+    - `w_id_map`：申告（`memory_verdicts`）は W に印字された12桁で返るので、その W を作った
+      ときの対応表でないと引けない
+    - `system`・`effort`：整合チェックの差し戻しで**主LLM をもう一度呼ぶ**のに要る
+    - `capped`：上限の反復では調べる動作を渡していないので、返ってきても投げない
+    """
+
+    result: "TurnResult"
+    memories: list[dict]
+    w_id_map: dict[str, str]
+    recent_ctx: str
+    system: object
+    effort: "str | None"
+    capped: bool
+    retried: bool = False
+
+
+@dataclass
 class Completion:
     """資源から返ってきたもの。QC（完了キュー）に並ぶ1件（環-h・段い）。
 
@@ -138,7 +164,7 @@ class Completion:
     |---|---|---|
     | `完了` | 調べものが終わった | `query`・`result`・`index` |
     | `進捗` | 調べものが遅い（`_watch_slow_lookup`） | `query` |
-    | `決定` | 主LLM が返った | `decision`・`memories`・`w_id_map` |
+    | `決定` | 主LLM が返った | `decision`（`Decision`） |
 
     **`決定` は投げたときの W を一緒に運ぶ。** 共起は「その反復で一緒に活性した記録」なので
     主LLM が実際に見た W でなければ意味がなく、申告（`memory_verdicts`）は W に印字された
@@ -151,9 +177,7 @@ class Completion:
     result: str = ""
     intent_id: "str | None" = None
     index: int = 0
-    decision: "TurnResult | None" = None
-    memories: "list[dict] | None" = None
-    w_id_map: "dict[str, str] | None" = None
+    decision: "Decision | None" = None
 
 
 @dataclass
@@ -398,6 +422,17 @@ class InformationProcessing:
         """
         parts: list[str] = []
         for lk in sorted(self._lookups, key=lambda x: x.index):
+            if lk.action == "主LLM":
+                # 主LLM には探す語が無く、**返りの中身も版には載せない**（`see` と同じで、
+                # 中身は `_finish` の「自分が答えた」が持つ）。求めの状態としては
+                # 「何番が返ったか」だけあればよい。
+                if aborted:
+                    parts.append(f"{lk.index}番：考えるのを打ち切った")
+                elif lk.in_flight:
+                    parts.append(f"{lk.index}番：考えている")
+                else:
+                    parts.append(f"{lk.index}番：考えて答えた")
+                continue
             if lk.in_flight:
                 verb = "を打ち切った" if aborted else "を起動中"
                 parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{verb}")
@@ -413,6 +448,18 @@ class InformationProcessing:
     def _in_flight_count(self) -> int:
         """まだ結果が届いていない調べものの数。**手で数えず、器の列から導く。**"""
         return sum(1 for lk in self._lookups if lk.in_flight)
+
+    @property
+    def _thinking_round(self) -> int:
+        """この求めで、主LLM を呼ぶのが何回目か（これから呼ぶ回を含む）。
+
+        主LLM を投げっぱなしにしてからは、返りで反復を 0 へ戻すので `[反復] N/M` は
+        常に小さいままになり、**何回目かの手がかりが消えた**。器（`_lookups`）は求めの
+        終わりに空になるので、そこの `主LLM` を数えれば求めごとの回数になる。
+
+        機械の歯止めは置かない。**回数を材料として渡し、切り上げるかは判断に任せる。**
+        """
+        return sum(1 for lk in self._lookups if lk.action == "主LLM") + 1
 
     def _lookup_of(self, query: str) -> "Lookup | None":
         """語で1件を引く。同じ語は二度投げないので、引き当ては一意になる。"""
@@ -479,6 +526,98 @@ class InformationProcessing:
                 return  # もう結果が来ている
             logger.info("event-loop 調べものが %.0f 秒を超えた：%.40s", seconds, query)
             self._completion_queue.put_nowait(Completion(kind="進捗", query=query))
+
+    def _dispatch_main_llm(
+        self,
+        *,
+        messages: list,
+        system,
+        effort: "str | None",
+        capped: bool,
+        memories: list[dict],
+        w_id_map: dict[str, str],
+        recent_ctx: str,
+        retried: bool = False,
+    ) -> None:
+        """主LLM を投げる（**待たない**・環-h・段は）。
+
+        調べものと同じ扱いにする——`_lookups` へ1件積んで飛行中に数え、版に載せ、世代で
+        打ち切れるようにする。**重複の判定は通さない**（同じ求めで何度も呼ぶ）。
+        """
+        index = self._next_lookup_index()
+        self._lookups.append(
+            Lookup(
+                index=index,
+                action="主LLM",
+                query=f"主LLM{index}",
+                generation=self._request_generation,
+            )
+        )
+        task = asyncio.create_task(
+            self._run_main_llm(
+                index=index,
+                messages=messages,
+                system=system,
+                effort=effort,
+                capped=capped,
+                memories=memories,
+                w_id_map=w_id_map,
+                recent_ctx=recent_ctx,
+                retried=retried,
+            )
+        )
+        self._background_tasks.add(task)
+        task.add_done_callback(self._background_tasks.discard)
+
+    async def _run_main_llm(
+        self,
+        *,
+        index: int,
+        messages: list,
+        system,
+        effort: "str | None",
+        capped: bool,
+        memories: list[dict],
+        w_id_map: dict[str, str],
+        recent_ctx: str,
+        retried: bool,
+    ) -> None:
+        """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
+        agent = self._agent
+        try:
+            result, _raw = await agent.backend.stream_turn(
+                system=system,
+                messages=messages,
+                # 連鎖上限の反復では recall を外し、発話だけにして必ず閉じる。
+                tools=self._tools(actions=("say",) if capped else _FULL_ACTIONS),
+                max_tokens=agent.config.max_tokens,
+                on_text=None,
+                effort=effort,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop 主LLM の呼び出しに失敗: %s", e)
+            from ..backends.types import TurnResult as _TR
+
+            result = _TR(stop_reason="end_turn", text="")
+        self._completion_queue.put_nowait(
+            Completion(
+                kind="決定",
+                query=f"主LLM{index}",
+                index=index,
+                decision=Decision(
+                    result=result,
+                    memories=memories,
+                    w_id_map=w_id_map,
+                    recent_ctx=recent_ctx,
+                    system=system,
+                    effort=effort,
+                    capped=capped,
+                    retried=retried,
+                ),
+            )
+        )
 
     async def _run_lookup(
         self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
@@ -621,8 +760,13 @@ class InformationProcessing:
             logger.debug("いまどの定点を向いているか分からなかった")
             return ""
 
-    async def _intake(self) -> int:
-        """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。"""
+    async def _intake(self) -> "tuple[int, Decision | None]":
+        """取込：駆動体が受けた完了（と QC の残り）を O に書き、open 意図を解決する。
+
+        返りは (取り込んだ件数, 主LLM の決定 or None)。**決定があれば「出す反復」になる**
+        （環-h・段は）。決定も器へ入れて飛行中から外すが、**版には中身を載せない**——
+        `see` と同じで、中身は `_finish` の「自分が答えた」が持つ。
+        """
         # `_drained_completions` は作り直さず中身だけ移す。駆動体は `self._drained_completions.append(await get())` の
         # append を await の前に束縛するので、ここで差し替えると駆動体が捨てられた古い
         # リストへ積み、完了が黙って失われる（実機で観測）。
@@ -644,9 +788,15 @@ class InformationProcessing:
             # 「まだかかっている」は結果ではない。飛行中の数も一覧も触らず、意図も
             # supersede しない。次の反復で、調停に短い一言を書かせるためだけに起こす。
             self._slow_notice_received = True
+        decided: "Decision | None" = None
         for c in items:
             # 届いた結果を器へ入れる。**これで飛行中でなくなる**（数は導出）。
             query, result_text = c.query, c.result
+            if c.kind == "決定":
+                decided = c.decision
+                # 版には返りの中身を載せない（`see` と同じ）。求めの状態としては
+                # 「何番が返ったか」だけあればよい。
+                result_text = "（返りを実行した）"
             lk = self._lookup_of(query)
             action = lk.action if lk is not None else "recall"
             if action == "see":
@@ -660,7 +810,7 @@ class InformationProcessing:
         if items:
             # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。
             await self._write_version()
-        return len(items)
+        return len(items), decided
 
     # この反復で使える動作の表。値＝その動作のツール定義を取り出す関数で、引数はループ。
     # 身体を1つ繋ぐたびにここへ1行足すだけで済むようにしてある（see・look・net など）。
@@ -954,24 +1104,29 @@ class InformationProcessing:
         with contextlib.suppress(Exception):
             self._agent._memory.record_succession(full, self._request_id)
 
-    def _apply_memory_verdicts(self, raw) -> None:
+    def _apply_memory_verdicts(self, raw, w_id_map: "dict[str, str] | None" = None) -> None:
         """フルLLM が申告した「想起した記憶の扱い」を反映する（課題5 E節 段2）。
 
         **照合できたものだけ適用する**。指示しても、落としたり無い id を足したりする。
         欠けた分を「使わなかった」と決めつけると、申告漏れと本当に使わなかったことを
         混同する。件数をログに残し、指示が守られているかを後から確かめられるようにする。
+
+        **対応表は受け取る**（環-h・段は）。主LLM は投げっぱなしで、返るまでに別の完了が
+        届けば `self._w_id_map` は作り直されている。**主LLM が見た W の対応表**でないと、
+        12桁が当たってしまったときに黙って別の記憶へ適用される。
         """
-        if not raw or not self._w_id_map:
+        table = self._w_id_map if w_id_map is None else w_id_map
+        if not raw or not table:
             return
         verdicts: dict[str, str] = {}
         for item in raw if isinstance(raw, list) else []:
             if not isinstance(item, dict):
                 continue
-            full = self._w_id_map.get(str(item.get("id", "")).replace("-", "")[:12])
+            full = table.get(str(item.get("id", "")).replace("-", "")[:12])
             verdict = str(item.get("verdict", "")).strip().lower()
             if full and verdict in ("important", "useless", "referred", "unused"):
                 verdicts[full] = verdict
-        logger.info("event-loop 記憶の判定 %d/%d 件", len(verdicts), len(self._w_id_map))
+        logger.info("event-loop 記憶の判定 %d/%d 件", len(verdicts), len(table))
         if verdicts:
             with contextlib.suppress(Exception):
                 self._agent._memory.apply_verdicts(verdicts)
@@ -1194,12 +1349,32 @@ class InformationProcessing:
         # fetch_deferred を投げ、返事も1つ余計に出た。
         gen = self._request_generation
         max_chain = max(1, agent.config.event_max_iterations)
+        # 1. 取込：駆動体が受けた完了を O に書き、open 意図を解決する。
+        drained, decided = await self._intake()
+        if decided is not None:
+            # **出す反復は数えない。** 数えるのは軽量LLM が司る反復だけである。さらに
+            # **主LLM の返りで 0 へ戻す**——主LLM が調査結果を見て「足りない」と判断した
+            # なら、それは新しい一巡である。上限は暴走防止の安全弁であって、材料を見た
+            # うえで再度調べることを止めるためのものではない
+            # （`設計方針_主LLMを投げっぱなしにする` ⑤）。
+            self._iterations = 0
+            self._iterations_capped = False
+            # **出す反復。** 想起も調停も回さない——回すと軽量LLM が主LLM の決定を覆せて
+            # しまい、「そのまま出す」と矛盾する（`設計方針_主LLMを投げっぱなしにする`）。
+            return await self._act_on_decision(
+                decided.result,
+                memories=decided.memories,
+                recent_ctx=decided.recent_ctx,
+                utterance=utterance,
+                system=decided.system,
+                effort=decided.effort,
+                gen=gen,
+                capped=decided.capped,
+                w_id_map=decided.w_id_map,
+            )
+        # ここから先は**決める反復**である（決定は上で捌いて返っている）。数えるのはここだけ。
         self._iterations += 1
         chain = self._iterations
-        logger.debug("event-loop iter=%d/%d 開始", chain, max_chain)
-
-        # 1. 取込：駆動体が受けた完了を O に書き、open 意図を解決する。
-        drained = await self._intake()
         if drained:
             logger.debug("event-loop iter=%d/%d QC取込=%d件", chain, max_chain, drained)
 
@@ -1250,7 +1425,13 @@ class InformationProcessing:
         # 誰と話していると思って喋ったかを残す。これが無いと、口調がおかしいときに
         # 「話者が渡っていない」のか「渡ったが口調が従っていない」のかを切り分けられない。
         present_ctx = _present_ctx(agent)
-        logger.debug("event-loop iter=%d/%d 在席=%s", chain, max_chain, present_ctx)
+        # **この求めで何回目に考えるか。** 主LLM の返りで反復は 0 へ戻るので、`iter=N/M`
+        # だけではどの一巡か分からない（ログでも、渡す文脈でも同じ）。ここで1度だけ数え、
+        # ログ・調停・主LLM の三箇所へ同じ値を渡す（別々に数えると食い違う）。
+        round_ = self._thinking_round
+        logger.debug(
+            "event-loop iter=%d/%d 考え=%d回目 在席=%s", chain, max_chain, round_, present_ctx
+        )
 
         capped = chain >= max_chain
         if capped:
@@ -1267,6 +1448,7 @@ class InformationProcessing:
             present_ctx=present_ctx,
             now_ctx=f'(now :datetime "{clock.now_local_str()}")',
             capped=capped,
+            thinking_round=round_,
         )
         logger.debug(
             "event-loop iter=%d/%d 調停=%s effort=%s",
@@ -1358,6 +1540,8 @@ class InformationProcessing:
             recent_ctx=recent_ctx,
             iter_ctx=(
                 f"[反復] {chain}/{max_chain}"
+                # 何回目に考えているか。反復の数は返りで戻るので、これが唯一の手がかり。
+                + f"（この件を考えるのは {round_} 回目）"
                 # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答える。
                 # 断りが無いと、材料不足のまま答えたことが相手に伝わらない。
                 + (
@@ -1375,26 +1559,24 @@ class InformationProcessing:
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
         # 何がこの反復を起こしたのか分からなくなる（API も空メッセージを受け付けない）。
         user_msg = agent.backend.make_user_message(utterance or self._cue)
-        result, _raw = await agent.backend.stream_turn(
-            system=system,
+        # **投げて終わる。** 返りは QC を通り、次の反復（出す反復）が実行する。
+        self._dispatch_main_llm(
             messages=[user_msg],
-            # 連鎖上限の反復では recall を外し、発話だけにして必ず閉じる。
-            tools=self._tools(actions=("say",) if capped else _FULL_ACTIONS),
-            max_tokens=agent.config.max_tokens,
-            on_text=None,
-            effort=decision.effort,
-        )
-
-        return await self._act_on_decision(
-            result,
-            memories=memories,
-            recent_ctx=recent_ctx,
-            utterance=utterance,
             system=system,
             effort=decision.effort,
-            gen=gen,
             capped=capped,
+            memories=memories,
+            w_id_map=dict(self._w_id_map),
+            recent_ctx=recent_ctx,
         )
+        await self._write_version()
+        logger.info(
+            "event-loop 反復 %d/%d 考え=%d回目 出力=主LLM（続きは返りで起きる）",
+            chain,
+            max_chain,
+            round_,
+        )
+        return ""
 
     async def _act_on_decision(
         self,
@@ -1407,6 +1589,7 @@ class InformationProcessing:
         effort: "str | None",
         gen: int,
         capped: bool,
+        w_id_map: "dict[str, str] | None" = None,
     ) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
 
@@ -1442,7 +1625,7 @@ class InformationProcessing:
             return ""
 
         if say_tc is not None:
-            self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"))
+            self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"), w_id_map)
             text = str(say_tc.input.get("text", "")).strip()
             violation = await self._coherence_violation(text, recent_ctx, memories)
             if violation:
@@ -1466,7 +1649,7 @@ class InformationProcessing:
                 )
                 retry_tc = next((tc for tc in retry.tool_calls if tc.name == "say"), None)
                 if retry_tc is not None:
-                    self._apply_memory_verdicts(retry_tc.input.get("memory_verdicts"))
+                    self._apply_memory_verdicts(retry_tc.input.get("memory_verdicts"), w_id_map)
                     text = str(retry_tc.input.get("text", "")).strip() or text
                 else:
                     logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
@@ -1676,8 +1859,10 @@ class InformationProcessing:
         """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""
         agent = self._agent
         logger.info(
-            "event-loop 終了: 反復=%d 結末=%s 上限到達=%s text_len=%d",
-            self._iterations,
+            # **数えるのは考えた回数**。反復は主LLM の返りで 0 へ戻るので、閉じた時点では
+            # 常に 0 で、この求めに何回かかったかを伝えない（環-h）。
+            "event-loop 終了: 考えた回数=%d 結末=%s 上限到達=%s text_len=%d",
+            self._thinking_round - 1,
             outcome,
             "はい" if self._iterations_capped else "いいえ",
             len(text),

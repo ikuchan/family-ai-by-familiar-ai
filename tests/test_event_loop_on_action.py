@@ -27,16 +27,30 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall
-from tests.test_event_loop import _agent, _turn
+from tests.test_event_loop import _WAIT_TICKS, _agent, _turn
 
 from familiar_agent.loop.event_loop import InformationProcessing
 
 
 def _run_with_action(a, utterance="こんにちは"):
+    """発話が出るまで待って、通知された動作を返す。
+
+    環-h で主LLM は投げっぱなしになり、`begin_request` は投げた時点で返る。発話は
+    駆動体が起こす**出す反復**で出るので、そこまで待たないと何も通知されていない。
+    """
     actions: list[tuple[str, dict]] = []
-    ip = InformationProcessing(a)
-    ip.set_output(lambda _t: None, on_action=lambda n, i: actions.append((n, i)))
-    asyncio.run(ip.begin_request(utterance))
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        ip.set_output(lambda _t: None, on_action=lambda n, i: actions.append((n, i)))
+        await ip.begin_request(utterance)
+        for _ in range(_WAIT_TICKS):
+            if any(n == "say" for n, _i in actions):
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+
+    asyncio.run(scenario())
     return actions
 
 

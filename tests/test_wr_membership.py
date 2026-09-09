@@ -20,6 +20,11 @@ from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from tests.test_event_loop import _agent, _run, _run_chain, _turn
 
 
+def _written_ids(a):
+    """このターンで O へ書いた記録の id を、書いた順に並べる（土台が振る obs1, obs2, …）。"""
+    return [f"obs{i}" for i in range(1, a._memory.save_async_with_id.await_count + 1)]
+
+
 def _extra_cooccurring_ids(a):
     _, kwargs = a._run_post_response_pipeline.call_args
     return list(kwargs.get("extra_cooccurring_ids") or [])
@@ -28,9 +33,10 @@ def _extra_cooccurring_ids(a):
 def test_the_answer_is_put_into_the_diffuse_pool():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})])])
     _run(a, utterance="今日の天気は？")
-    # obs1=起点 / obs2=逐語。**起点も載せる**（段 3）。載せないと、問いだけが母集合に
-    # 入らず、拡散想起が問いから答えへ辿れない。
-    assert _extra_cooccurring_ids(a) == ["obs1", "obs2"]
+    # **起点も載せる**（段 3）。載せないと、問いだけが母集合に入らず、拡散想起が問いから
+    # 答えへ辿れない。**件数は固定しない**——環-h で主LLM の投げと返りにも版が書かれ、
+    # 増えた。守るのは「このターンで書いた記録が残らず載る」ことである。
+    assert _extra_cooccurring_ids(a) == _written_ids(a)
 
 
 def test_intent_and_completion_are_put_into_the_diffuse_pool():
@@ -41,8 +47,7 @@ def test_intent_and_completion_are_put_into_the_diffuse_pool():
         ]
     )
     _run_chain(a, utterance="調べて")
-    # obs2=意図 / obs3=完了 / obs4=逐語。
-    assert _extra_cooccurring_ids(a) == ["obs1", "obs2", "obs3", "obs4"]
+    assert _extra_cooccurring_ids(a) == _written_ids(a)
 
 
 def test_the_filler_is_written_and_pooled():

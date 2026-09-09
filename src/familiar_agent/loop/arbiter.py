@@ -97,7 +97,7 @@ JSON だけを返す。
 
 text を書くときは、この人格として、この相手に向けて、いまの時刻に合う言葉で書く。
 
-{capped_note}
+{capped_note}{thinking_note}
 [人の言葉]
 {utterance}
 
@@ -133,17 +133,17 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 class Decision:
     """調停の結果。`branch` 以外はその分岐でだけ意味を持つ。"""
 
-    branch: str           # light | full | action
-    text: str = ""        # light：発話／action：つなぎの一言
+    branch: str  # light | full | action
+    text: str = ""  # light：発話／action：つなぎの一言
     effort: str = "high"  # full：思考の深さ
     action: str = "recall"  # action：どの動作で調べるか
-    query: str = ""       # action：探す語
+    query: str = ""  # action：探す語
     # 黙る長さ（分）。0＝黙らない、-1＝頼まれたが長さの指定なし（受け側が既定を当てる）。
     silence_minutes: int = 0
     # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
     # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
-    time_ref: str = ""            # ISO 8601（例 "2025-08-15T00:00:00"）
-    time_span_days: float = 0.0   # 幅＝半減期（日）。0 は指定なし
+    time_ref: str = ""  # ISO 8601（例 "2025-08-15T00:00:00"）
+    time_span_days: float = 0.0  # 幅＝半減期（日）。0 は指定なし
 
 
 _FALLBACK = Decision(branch="full", effort="high")
@@ -184,8 +184,16 @@ def _parse(reply: str) -> Decision | None:
         return None
     if branch == "action" and not query:
         return None
-    return Decision(branch=branch, text=text, effort=effort, action=action, query=query,
-                    silence_minutes=silence_minutes, time_ref=time_ref, time_span_days=max(0.0, time_span_days))
+    return Decision(
+        branch=branch,
+        text=text,
+        effort=effort,
+        action=action,
+        query=query,
+        silence_minutes=silence_minutes,
+        time_ref=time_ref,
+        time_span_days=max(0.0, time_span_days),
+    )
 
 
 def _watch_late(call, started: float, prompt_len: int) -> None:
@@ -193,14 +201,18 @@ def _watch_late(call, started: float, prompt_len: int) -> None:
 
     応答には使わない（もう倒してある）。時間切れの値を決めるための計測だけが目的。
     """
+
     async def _wait() -> None:
         try:
             await call
         except Exception:  # noqa: BLE001
             logger.debug("遅れて返るはずの調停が失敗した")
             return
-        logger.info("調停が遅れて返った：%.2f 秒（プロンプト %d 字）",
-                    time.monotonic() - started, prompt_len)
+        logger.info(
+            "調停が遅れて返った：%.2f 秒（プロンプト %d 字）",
+            time.monotonic() - started,
+            prompt_len,
+        )
 
     task = asyncio.ensure_future(_wait())
     # 参照を残さないと GC に回収されうる。終わったら自分で外れる。
@@ -211,16 +223,31 @@ def _watch_late(call, started: float, prompt_len: int) -> None:
 _LATE_TASKS: set = set()
 
 
+_THINKING_NOTE = """
+この件で答えを組み立てるのは {round} 回目である。回を重ねても材料が増えていないなら、
+それはもう分からないということなので、**これ以上は調べず**（"action" を選ばず）、
+いまある材料で答えるほうへ回す。
+"""
+
 _CAPPED_NOTE = """
 これ以上は調べられない（反復の上限に達した）。"action" は選べない。いまある材料で答える
 ことになるので "light" か "full" を選ぶ。
 """
 
 
-async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
-                    self_understanding: str = "", family_md: str = "",
-                    present_ctx: str = "", now_ctx: str = "",
-                    capped: bool = False, timeout: float | None = None) -> Decision:
+async def arbitrate(
+    backend,
+    *,
+    utterance: str,
+    workspace_ctx: str,
+    self_understanding: str = "",
+    family_md: str = "",
+    present_ctx: str = "",
+    now_ctx: str = "",
+    capped: bool = False,
+    thinking_round: int = 1,
+    timeout: float | None = None,
+) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
     **発話の出口は2つ**（ここの light とつなぎ、フルLLM の答え）なので、**フルと同じ
@@ -232,6 +259,9 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
     - `family_md`：誰が大人で誰が子どもかは家族の記述にしかなく、口調の規則に要る。
     - `present_ctx`／`now_ctx`：誰に向けて・いつ話すか。
     - `capped`：反復上限。渡さないと上限でも "action" を選び、その判断が丸ごと捨てられる。
+    - `thinking_round`：この求めで主LLM を呼ぶのが何回目か。主LLM を投げっぱなしにして
+      から反復の数が返りで戻るようになったので、**回数はここでしか分からない**。
+      2 回目以降だけ載せる（1 回目に「1 回目である」と言っても何も足さない）。
     - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
     """
     from ..core.context_parts import Stance, build_context
@@ -248,9 +278,11 @@ async def arbitrate(backend, *, utterance: str, workspace_ctx: str,
         present=present_ctx or "（分からない）",
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
+        thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
     )
     if timeout is None:
         from ..config import AgentConfig
+
         timeout = AgentConfig().arbiter_timeout_sec
     started = time.monotonic()
     # 打ち切っても呼び出し自体は残す（shield）。倒す時刻は変えずに、**実際に何秒かかるか**を
