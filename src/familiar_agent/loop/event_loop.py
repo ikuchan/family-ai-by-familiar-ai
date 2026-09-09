@@ -31,7 +31,7 @@ from ..store.relations import KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from .coherence import facts_ctx
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
-from .request import Request
+from .request import Lookup, Request
 from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -186,30 +186,6 @@ class Completion:
     decision: "Decision | None" = None
 
 
-@dataclass
-class Lookup:
-    """1件の調べもの（環-g・段は）。
-
-    以前は「どの動作で」「何という語で」が**6つの入れ物に3通りで**入っていた。
-    `_inflight`（数）と `_in_flight_lookups`（列）は名前も意味もほぼ同じで、5箇所で
-    別々に動かしていた。1件を1つの器にすれば、**飛行中の数は導出になり**、釣り合いを
-    手で守らずに済む。
-
-    `generation` は投げたときの求めの世代。打ち切ったあとに届いた完了を捨てるのに使う。
-    """
-
-    index: int
-    action: str
-    query: str
-    generation: int
-    result: "str | None" = None
-
-    @property
-    def in_flight(self) -> bool:
-        """まだ結果が届いていないか。"""
-        return self.result is None
-
-
 class InformationProcessing:
     """I：情報処理機構（Information-processing）。③ I 詳細図の器。
 
@@ -232,15 +208,6 @@ class InformationProcessing:
             mcp=agent._mcp,
         )
 
-        # この求めで投げた調べもの（1件＝1つの `Lookup`）。**飛行中も届いた分も同じ列**に
-        # 並ぶ（`result` が `None` なら飛行中）。以前は6つの入れ物に3通りで持ち、数と列を
-        # 5箇所で手で揃えていた（環-g・段は）。
-        #
-        # 通し番号は求めの中で1から振る。いま調べものを識別しているのは語だけで、同じ語を
-        # 2回投げると区別できない。版の content へ「1番：… 2番：…」と列挙し、届いた完了を
-        # 番号で対応づけるために振る。求めをまたいだ突き合わせは要らないので、一意な id では
-        # なく通し番号で足りる。
-        self._lookups: list[Lookup] = []
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
         self._recall_exclude_id: str | None = None
         # W に出した id（12桁）→ 完全な id。フルLLM の申告の突き合わせに使う。
@@ -398,7 +365,7 @@ class InformationProcessing:
         なったのかが追えなくなる。
         """
         parts: list[str] = []
-        for lk in sorted(self._lookups, key=lambda x: x.index):
+        for lk in sorted(self._req.lookups, key=lambda x: x.index):
             if lk.action == "主LLM":
                 # 主LLM には探す語が無く、**返りの中身も版には載せない**（`see` と同じで、
                 # 中身は `_finish` の「自分が答えた」が持つ）。求めの状態としては
@@ -424,7 +391,7 @@ class InformationProcessing:
     @property
     def _in_flight_count(self) -> int:
         """まだ結果が届いていない調べものの数。**手で数えず、器の列から導く。**"""
-        return sum(1 for lk in self._lookups if lk.in_flight)
+        return sum(1 for lk in self._req.lookups if lk.in_flight)
 
     @property
     def _thinking_round(self) -> int:
@@ -436,15 +403,15 @@ class InformationProcessing:
 
         機械の歯止めは置かない。**回数を材料として渡し、切り上げるかは判断に任せる。**
         """
-        return sum(1 for lk in self._lookups if lk.action == "主LLM") + 1
+        return sum(1 for lk in self._req.lookups if lk.action == "主LLM") + 1
 
     def _lookup_of(self, query: str) -> "Lookup | None":
         """語で1件を引く。同じ語は二度投げないので、引き当ては一意になる。"""
-        return next((lk for lk in self._lookups if lk.query == query), None)
+        return next((lk for lk in self._req.lookups if lk.query == query), None)
 
     def _next_lookup_index(self) -> int:
         """この求めの中での通し番号。**器の数から決まる**（別の変数で数えない）。"""
-        return len(self._lookups) + 1
+        return len(self._req.lookups) + 1
 
     def _dispatch_lookup(
         self, action: str, tool_input: dict, query: str, intent_id: str | None
@@ -476,7 +443,7 @@ class InformationProcessing:
             return
 
         index = self._next_lookup_index()
-        self._lookups.append(
+        self._req.lookups.append(
             Lookup(index=index, action=action, query=query, generation=self._request_generation)
         )
         task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id, index))
@@ -527,7 +494,7 @@ class InformationProcessing:
         （2026-09-09 の決定）。
         """
         index = self._next_lookup_index()
-        self._lookups.append(
+        self._req.lookups.append(
             Lookup(
                 index=index,
                 action="主LLM",
@@ -873,7 +840,7 @@ class InformationProcessing:
         self._req.trigger_kind = kind
         self._req.request_text = text[:500]
         self._req.live_version_id = None
-        self._lookups.clear()
+        self._req.lookups.clear()
         self._req.iterations = 0
         self._req.iterations_capped = False
         obs_id, _ = await agent._memory.save_async_with_id(
@@ -921,7 +888,7 @@ class InformationProcessing:
         結果を捨てるのは、行き先の親が閉じるためで、残すと次の求めの W に無関係な完了が
         載る。ただし**打ち切った事実は残す**（あとで「あのとき何を調べていたか」を辿れる）。
         """
-        in_flight = [lk for lk in self._lookups if lk.in_flight]
+        in_flight = [lk for lk in self._req.lookups if lk.in_flight]
         if not self._background_tasks and not in_flight and self._req.request_id is None:
             return
         dropped = [f"{lk.index}番：{lk.action}「{lk.query}」" for lk in in_flight]
@@ -958,7 +925,7 @@ class InformationProcessing:
                     )
         self._req.request_id = None
         self._req.live_version_id = None
-        self._lookups.clear()
+        self._req.lookups.clear()
         self._req.cue = ""
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
@@ -1897,7 +1864,7 @@ class InformationProcessing:
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
         parent_id, self._req.request_id = self._req.request_id, None
         self._req.live_version_id = None
-        self._lookups.clear()
+        self._req.lookups.clear()
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
         self._req.iterations = 0

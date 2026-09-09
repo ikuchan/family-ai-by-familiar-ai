@@ -32,7 +32,7 @@ def test_index_starts_at_one_and_increments() -> None:
     ip = InformationProcessing(a)
     for expected in (1, 2, 3):
         assert ip._next_lookup_index() == expected
-        ip._lookups.append(
+        ip._req.lookups.append(
             Lookup(index=expected, action="recall", query=f"q{expected}", generation=0)
         )
 
@@ -92,7 +92,7 @@ def test_distinct_queries_get_distinct_indexes() -> None:
         ip = InformationProcessing(a)
         ip._dispatch_lookup("recall", {"query": "ひとつめ"}, "ひとつめ", None)
         ip._dispatch_lookup("recall", {"query": "ふたつめ"}, "ふたつめ", None)
-        got = [(lk.query, lk.index) for lk in ip._lookups]
+        got = [(lk.query, lk.index) for lk in ip._req.lookups]
         await ip.close()
         for t in list(ip._background_tasks):
             t.cancel()

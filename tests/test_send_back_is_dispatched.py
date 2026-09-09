@@ -38,7 +38,7 @@ def _ip():
     ip._request_generation = 0
     ip._req.cue = "手がかり"
     ip._req.request_id = "req-1"
-    ip._lookups = []
+    ip._req.lookups = []
     ip._background_tasks = set()
     ip._completion_queue = asyncio.Queue()
     ip._say_filler = AsyncMock()

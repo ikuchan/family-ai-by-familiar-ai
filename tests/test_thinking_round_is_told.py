@@ -18,11 +18,14 @@ from __future__ import annotations
 
 from familiar_agent.loop.arbiter import ARBITER_PROMPT, arbitrate
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
+from familiar_agent.loop.request import Request
 
 
 def _ip(rounds: int = 0):
     ip = InformationProcessing.__new__(InformationProcessing)
-    ip._lookups = [
+    # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
+    ip._req = Request()
+    ip._req.lookups = [
         Lookup(index=i + 1, action="主LLM", query=f"主LLM{i + 1}", generation=0, result="済")
         for i in range(rounds)
     ]
@@ -42,7 +45,7 @@ def test_each_past_call_raises_the_round():
 
 def test_lookups_other_than_the_main_llm_are_not_counted():
     ip = _ip(1)
-    ip._lookups.append(Lookup(index=9, action="recall", query="q", generation=0))
+    ip._req.lookups.append(Lookup(index=9, action="recall", query="q", generation=0))
     assert ip._thinking_round == 2
 
 

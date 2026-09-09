@@ -22,6 +22,7 @@ import re
 from pathlib import Path
 
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
+from familiar_agent.loop.request import Request
 
 _LOOP = Path(__file__).parent.parent / "src/familiar_agent/loop/event_loop.py"
 
@@ -30,7 +31,9 @@ def _ip() -> InformationProcessing:
     from unittest.mock import MagicMock
 
     ip = InformationProcessing.__new__(InformationProcessing)
-    ip._lookups = []
+    # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
+    ip._req = Request()
+    ip._req.lookups = []
     ip._request_generation = 0
     ip._agent = MagicMock()
     return ip
@@ -56,7 +59,7 @@ def test_a_lookup_with_a_result_is_no_longer_in_flight():
 def test_the_in_flight_count_is_derived_not_kept():
     """**手で揃えない。** 数は器の列から導く。"""
     ip = _ip()
-    ip._lookups = [
+    ip._req.lookups = [
         Lookup(index=1, action="recall", query="a", generation=0),
         Lookup(index=2, action="recall", query="b", generation=0, result="来た"),
         Lookup(index=3, action="recall", query="c", generation=0),
@@ -66,7 +69,7 @@ def test_the_in_flight_count_is_derived_not_kept():
 
 def test_a_lookup_is_found_by_its_query():
     ip = _ip()
-    ip._lookups = [Lookup(index=7, action="see", query="目の前", generation=3)]
+    ip._req.lookups = [Lookup(index=7, action="see", query="目の前", generation=3)]
     got = ip._lookup_of("目の前")
     assert (got.index, got.action, got.generation) == (7, "see", 3)
     assert ip._lookup_of("知らない語") is None
@@ -76,7 +79,7 @@ def test_the_index_counts_up_within_one_request():
     """通し番号は器の数から決まる（別の変数で数えない）。"""
     ip = _ip()
     assert ip._next_lookup_index() == 1
-    ip._lookups.append(Lookup(index=1, action="recall", query="a", generation=0))
+    ip._req.lookups.append(Lookup(index=1, action="recall", query="a", generation=0))
     assert ip._next_lookup_index() == 2
 
 

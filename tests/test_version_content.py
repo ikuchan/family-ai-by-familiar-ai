@@ -37,7 +37,7 @@ def test_version_one_is_just_the_request() -> None:
 def test_in_flight_is_listed_with_its_index() -> None:
     """飛行中の調査を通し番号つきで並べる。"""
     ip = _ip()
-    ip._lookups = [Lookup(index=1, action="search_deferred", query="昨日 天気", generation=0)]
+    ip._req.lookups = [Lookup(index=1, action="search_deferred", query="昨日 天気", generation=0)]
     got = ip._version_content()
     assert "「昨日の天気覚えてる？」と聞かれ" in got, "求めが落ちている"
     assert "1番：search_deferred「昨日 天気」を起動中" in got, f"飛行中が並んでいない: {got}"
@@ -46,7 +46,7 @@ def test_in_flight_is_listed_with_its_index() -> None:
 def test_parallel_lookups_are_all_listed() -> None:
     """並行する調査は全部並べる（鎖は分岐させない）。"""
     ip = _ip("今日の天気は？")
-    ip._lookups = [
+    ip._req.lookups = [
         Lookup(index=1, action="search_deferred", query="今日 天気", generation=0),
         Lookup(index=2, action="fetch_deferred", query="example.com/a", generation=0),
     ]
@@ -58,7 +58,7 @@ def test_parallel_lookups_are_all_listed() -> None:
 def test_arrived_results_are_listed_with_their_index() -> None:
     """届いた結果は通し番号つきで並べる。"""
     ip = _ip()
-    ip._lookups = [
+    ip._req.lookups = [
         Lookup(
             index=1, action="search_deferred", query="昨日 天気", generation=0, result="晴れだった"
         )
@@ -72,7 +72,7 @@ def test_arrived_results_are_listed_with_their_index() -> None:
 def test_arrived_and_in_flight_are_both_listed() -> None:
     """届いた分と待っている分が混在しても、両方を番号で並べる。"""
     ip = _ip("今日の天気は？")
-    ip._lookups = [
+    ip._req.lookups = [
         Lookup(
             index=1, action="search_deferred", query="今日 天気", generation=0, result="リンク一覧"
         ),
@@ -90,14 +90,14 @@ def test_the_result_body_is_not_truncated_here() -> None:
     """
     long_body = "あ" * 3000
     ip = _ip()
-    ip._lookups = [Lookup(index=1, action="recall", query="語", generation=0, result=long_body)]
+    ip._req.lookups = [Lookup(index=1, action="recall", query="語", generation=0, result=long_body)]
     assert long_body in ip._version_content(), "組み立てで切っている"
 
 
 def test_aborted_version() -> None:
     """打ち切りも版のひとつ。何を打ち切ったかを残す。"""
     ip = _ip()
-    ip._lookups = [Lookup(index=1, action="search_deferred", query="昨日 天気", generation=0)]
+    ip._req.lookups = [Lookup(index=1, action="search_deferred", query="昨日 天気", generation=0)]
     got = ip._version_content(aborted=True)
     assert "打ち切った" in got, f"打ち切りが分からない: {got}"
     assert "1番：search_deferred「昨日 天気」" in got, "何を打ち切ったかが残っていない"
@@ -106,7 +106,7 @@ def test_aborted_version() -> None:
 def test_origin_is_carried_in_every_version() -> None:
     """どの版にも求めそのものが入る（前の版は畳まれて辿れなくなる）。"""
     ip = _ip("たいきのサッカーは？")
-    ip._lookups = [
+    ip._req.lookups = [
         Lookup(index=1, action="recall", query="サッカー", generation=0, result="水曜"),
         Lookup(index=2, action="search_deferred", query="会場", generation=0),
     ]

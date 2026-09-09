@@ -33,7 +33,9 @@ def test_a_slow_lookup_raises_a_progress_event_once():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
+        ip._req.lookups = [
+            Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)
+        ]
         await ip._watch_slow_lookup("明日の天気", ip._request_generation)
         return ip
 
@@ -48,7 +50,7 @@ def test_no_progress_event_once_the_result_has_arrived():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._lookups = []  # もう結果が来ている
+        ip._req.lookups = []  # もう結果が来ている
         await ip._watch_slow_lookup("明日の天気", ip._request_generation)
         return ip
 
@@ -61,7 +63,9 @@ def test_no_progress_event_for_an_abandoned_request():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
+        ip._req.lookups = [
+            Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)
+        ]
         ip._request_generation = 1  # 見張りを立てたあとに打ち切られた
         await ip._watch_slow_lookup("明日の天気", 0)
         return ip
@@ -81,7 +85,9 @@ def test_a_progress_iteration_only_says_a_filler():
         ip = InformationProcessing(a)
         ip.set_output(shown.append)
         ip._req.utterance = "明日の天気は？"
-        ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
+        ip._req.lookups = [
+            Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)
+        ]
         ip._completion_queue.put_nowait(Completion(kind="進捗", query="明日の天気"))
         await ip._iterate()
         await ip.close()
@@ -91,6 +97,6 @@ def test_a_progress_iteration_only_says_a_filler():
     assert "もう少しかかりそうです" in "".join(shown)
     assert "本応答" not in "".join(shown)  # 閉じない
     assert ip._in_flight_count == 1  # 飛行中のまま
-    assert [(lk.action, lk.query, lk.index) for lk in ip._lookups] == [
+    assert [(lk.action, lk.query, lk.index) for lk in ip._req.lookups] == [
         ("search_deferred", "明日の天気", 1)
     ]

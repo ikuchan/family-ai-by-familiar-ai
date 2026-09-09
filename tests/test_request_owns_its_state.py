@@ -20,7 +20,7 @@ from __future__ import annotations
 import inspect
 
 from familiar_agent.loop.event_loop import InformationProcessing
-from familiar_agent.loop.request import Request
+from familiar_agent.loop.request import Lookup, Request
 
 
 # ── 束 A：数え ─────────────────────────────────────────────────────────────
@@ -105,6 +105,36 @@ def test_no_live_request_is_still_the_absent_id():
     assert Request().request_id is None
 
 
+# ── 束 E：台帳 ─────────────────────────────────────────────────────────────
+
+
+def test_the_request_owns_its_ledger():
+    """この求めで投げた調べもの（主LLM を含む）。`_begin_request`・打ち切り・`_finish`
+    で空になる＝求めの寿命である。
+
+    **`request_generation` は入れない。** あれは打ち切りの検出に使う単調増加で、求めごとに
+    戻せば「打ち切ったあとに届いた完了」を捨てられなくなる。装置の寿命である。
+    """
+    r = Request()
+    assert r.lookups == []
+
+
+def test_each_request_gets_its_own_ledger():
+    a, b = Request(), Request()
+    a.lookups.append(Lookup(index=1, action="recall", query="q", generation=0))
+    assert b.lookups == []
+
+
+def test_the_ledger_lives_with_the_request():
+    """`Lookup` は求めの台帳の一員なので、器と同じ file に置く。
+
+    `event_loop` からも引けること（既存の呼び手を壊さない）。
+    """
+    from familiar_agent.loop import event_loop, request
+
+    assert event_loop.Lookup is request.Lookup
+
+
 # ── 持ち主 ─────────────────────────────────────────────────────────────────
 
 
@@ -129,3 +159,4 @@ def test_the_old_flat_names_are_gone():
     for name in ("_request_id", "_request_text", "_live_version_id", "_cue", "_utterance"):
         assert f"self.{name}" not in src, name
     assert "self._trigger_kind" not in src
+    assert "self._lookups" not in src

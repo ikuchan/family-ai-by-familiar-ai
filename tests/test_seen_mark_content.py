@@ -115,7 +115,7 @@ def test_a_blocked_lookup_leaves_no_mark() -> None:
 
     async def scenario():
         a, ip = _ip()
-        ip._lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
+        ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._completion_queue.put_nowait(
             Completion(
                 kind="完了",

@@ -27,6 +27,30 @@ from dataclasses import dataclass, field
 
 
 @dataclass
+class Lookup:
+    """1件の調べもの（環-g・段は）。
+
+    以前は「どの動作で」「何という語で」が**6つの入れ物に3通りで**入っていた。
+    `_inflight`（数）と `_in_flight_lookups`（列）は名前も意味もほぼ同じで、5箇所で
+    別々に動かしていた。1件を1つの器にすれば、**飛行中の数は導出になり**、釣り合いを
+    手で守らずに済む。
+
+    `generation` は投げたときの求めの世代。打ち切ったあとに届いた完了を捨てるのに使う。
+    """
+
+    index: int
+    action: str
+    query: str
+    generation: int
+    result: "str | None" = None
+
+    @property
+    def in_flight(self) -> bool:
+        """まだ結果が届いていないか。"""
+        return self.result is None
+
+
+@dataclass
 class Request:
     """1つの求めの寿命だけ生きる状態。
 
@@ -55,6 +79,14 @@ class Request:
     # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
     iterations: int = 0
     iterations_capped: bool = False
+    # この求めで投げた調べもの（1件＝1つの `Lookup`）。**飛行中も届いた分も同じ列**に並ぶ
+    # （`result` が `None` なら飛行中）。主LLM も `action="主LLM"` としてここへ並ぶ（環-h）。
+    #
+    # 通し番号は求めの中で1から振る。いま調べものを識別しているのは語だけで、同じ語を2回
+    # 投げると区別できない。版の content へ「1番：… 2番：…」と列挙し、届いた完了を番号で
+    # 対応づけるために振る。求めをまたいだ突き合わせは要らないので、一意な id ではなく
+    # 通し番号で足りる。
+    lookups: list[Lookup] = field(default_factory=list)
     # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく続きとして
     # 自然につなぐために見せる。
     said_fillers: list[str] = field(default_factory=list)

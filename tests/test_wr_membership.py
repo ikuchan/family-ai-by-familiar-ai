@@ -74,6 +74,6 @@ def test_an_aborted_investigation_is_carried_to_the_next_pool():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     ip._req.request_id = "obs-parent"
-    ip._lookups = [Lookup(index=1, action="recall", query="前の調査", generation=0)]
+    ip._req.lookups = [Lookup(index=1, action="recall", query="前の調査", generation=0)]
     asyncio.run(ip._abort_lookups())
     assert ip._req.turn_records, "中断の記録が母集合へ控えられていない"

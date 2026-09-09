@@ -91,7 +91,7 @@ def test_the_version_does_not_carry_what_was_seen() -> None:
 
     async def scenario():
         a, ip = _ip()
-        ip._lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
+        ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._completion_queue.put_nowait(
             Completion(
                 kind="完了",
@@ -115,7 +115,7 @@ def test_the_version_still_says_the_lookup_finished() -> None:
 
     async def scenario():
         a, ip = _ip()
-        ip._lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
+        ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._completion_queue.put_nowait(
             Completion(
                 kind="完了", query="目の前を見る", result="窓側を見た。見えたもの：椅子", index=1
@@ -136,7 +136,7 @@ def test_other_lookups_still_carry_their_result_in_the_version() -> None:
 
     async def scenario():
         a, ip = _ip("昨日の天気は？")
-        ip._lookups.append(
+        ip._req.lookups.append(
             Lookup(index=1, action="search_deferred", query="昨日 天気", generation=0)
         )
         ip._completion_queue.put_nowait(
@@ -161,7 +161,7 @@ def test_the_seen_record_reaches_the_workspace() -> None:
 
     async def scenario():
         a, ip = _ip()
-        ip._lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
+        ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._completion_queue.put_nowait(
             Completion(
                 kind="完了", query="目の前を見る", result="窓側を見た。見えたもの：椅子", index=1
