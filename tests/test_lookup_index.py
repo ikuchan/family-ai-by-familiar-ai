@@ -56,8 +56,10 @@ def test_index_resets_per_request() -> None:
         return first, second
 
     first, second = asyncio.run(scenario())
-    assert first == 1, "1つめの求めで1から始まっていない"
-    assert second == 1, "求めが変わったのに振り直していない"
+    # **1番は主LLM が取る**（環-h・段は）。主LLM も調べものと同じ器に積むので、求めを
+    # 始めた時点で1件入っており、次の調べものは2番から始まる。
+    assert first == 2, "1つめの求めで主LLM の次から始まっていない"
+    assert second == 2, "求めが変わったのに振り直していない"
 
 
 def test_completion_queue_carries_the_index() -> None:

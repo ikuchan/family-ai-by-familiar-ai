@@ -96,7 +96,32 @@ def _agent(*, stream_returns, max_iters=3):
 
 
 def _run(a, utterance="こんにちは", on_text=None):
-    return asyncio.run(InformationProcessing(a).begin_request(utterance, on_text=on_text))
+    """人の発話で求めを始め、**発話が出るまで**待って、その文を返す。
+
+    環-h で主LLM が投げっぱなしになり、`begin_request` は空文字で返るようになった
+    （発話は駆動体が起こす次の反復＝出す反復で出る）。1反復だけ待つ形では取りこぼす。
+    """
+    shown: list[str] = []
+
+    def _tap(text: str) -> None:
+        shown.append(text)
+        if on_text is not None:
+            on_text(text)
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        first = await ip.begin_request(utterance, on_text=_tap)
+        if first:
+            shown.append(first)
+        for _ in range(_WAIT_TICKS):
+            if shown:
+                break
+            await asyncio.sleep(0.005)
+        await asyncio.sleep(0.02)  # 後始末が走るのを待つ
+        await ip.close()
+
+    asyncio.run(scenario())
+    return shown[-1] if shown else ""
 
 
 def _run_chain(a, utterance="こんにちは"):
@@ -149,9 +174,12 @@ def test_speaks_via_say_tool():
     ]
     assert kwargs["max_tokens"] == 400
     assert "on_text" in kwargs
-    # 取込でトリガ（発話）O、発話時点で本応答 O の2件（open 意図・完了 O は無い）。
-    # 本応答を背景の永続化に任せると2秒遅れ、次の反復が「さっき何と言ったか」を拾えない。
-    assert a._memory.save_async_with_id.await_count == 2
+    # 4件：取込でトリガ（発話）O、**主LLM を投げるときの版**、**返ったときの版**、
+    # 発話時点で本応答 O。主LLM は投げっぱなしになり、調べものと同じく投げるとき・
+    # 返るときに版が書かれる（環-h ①）。本応答を背景の永続化に任せると2秒遅れ、
+    # 次の反復が「さっき何と言ったか」を拾えない。
+    kinds = [c.kwargs.get("direction") for c in a._memory.save_async_with_id.call_args_list]
+    assert kinds == ["発話", "求め", "求め", "発話"], kinds
     a._spawn_background_task.assert_called_once()
 
 
@@ -204,9 +232,11 @@ def test_recall_chains_via_completion_queue_then_says():
     )
     assert _run_chain(a) == "思い出したよ"
     assert a.backend.stream_turn.await_count == 2  # 2反復
-    a._memory_tool.call.assert_awaited_once_with(  # RH 実行
-        "recall", {"query": "運動会"}, exclude_ids=["obs2"]
-    )
+    call = a._memory_tool.call.await_args  # RH 実行
+    assert call.args == ("recall", {"query": "運動会"})
+    # **id の位置で見ない。** 環-h で主LLM の投げと返りにも版が書かれ、番号がずれた。
+    # 守るのは「いま書いたばかりの版 1 件だけを外す」という形である。
+    assert len(call.kwargs["exclude_ids"]) == 1
     # QC drain＝完了結果を O へ書込（反復2の取込）。
     written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
     assert any("recall結果テキスト" in w for w in written)  # 完了 O に結果が入る
@@ -231,7 +261,9 @@ def test_loop_records_form_a_version_chain():
     assert "obs1" not in {old for old, _new in calls}
     # ターン末に渡すのは、そのターンの記録の並び（段 3）。答えは畳まず、項として並ぶ。
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert ("obs4", "答え") in kwargs["exchange"], "答えの記録が渡っていない"
+    # **id の位置で見ない。** 環-h で主LLM の投げと返りにも版が書かれ、番号がずれた。
+    roles = [r for _i, r in kwargs["exchange"]]
+    assert "答え" in roles, f"答えの記録が渡っていない: {kwargs['exchange']}"
 
 
 def test_w_search_does_not_exclude_the_intake_origin():
@@ -307,6 +339,15 @@ def test_completion_content_reads_as_this_chains_action():
     async def scenario():
         ip = InformationProcessing(a)
         await ip.begin_request("今日の天気を調べて")
+        # 環-h で `begin_request` は主LLM を投げた時点で返るようになった。調べものが
+        # 起動する前に完了を押すと、待ち受ける調べものが無く、結果が宙に浮く。
+        for _ in range(_WAIT_TICKS):
+            if any(
+                "起動中" in (c.args[0] if c.args else "")
+                for c in a._memory.save_async_with_id.call_args_list
+            ):
+                break
+            await asyncio.sleep(0.005)
         ip.push_completion("今日の天気", "西日本は暑い")
         # **求めは版チェーンなので、「求めの記録があるか」では待てない。**
         # 版1（「…を起動中」）が書かれた時点で真になり、待ちたい完了の版が書かれる前に
@@ -349,6 +390,15 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
     async def scenario():
         ip = InformationProcessing(a)
         await ip.begin_request("今日の天気を調べて")
+        # 環-h で `begin_request` は主LLM を投げた時点で返るようになった。調べものが
+        # 起動する前に完了を押すと、待ち受ける調べものが無く、結果が宙に浮く。
+        for _ in range(_WAIT_TICKS):
+            if any(
+                "起動中" in (c.args[0] if c.args else "")
+                for c in a._memory.save_async_with_id.call_args_list
+            ):
+                break
+            await asyncio.sleep(0.005)
         ip.push_completion("今日の天気", body)
         # **求めは版チェーンなので、「求めの記録があるか」では待てない。**
         # 版1（「…を起動中」）が書かれた時点で真になり、待ちたい完了の版が書かれる前に
@@ -460,8 +510,10 @@ def test_a_version_is_written_with_the_request_and_query():
         if c.kwargs.get("direction") == "求め"
     ]
     assert versions, "版が書かれていない"
-    content = str(versions[0].args[0])
-    assert "おはよう" in content and "運動会" in content
+    # **調べる語は、主LLM が返ってから載る。** 環-h で主LLM が投げっぱなしになり、
+    # 最初の版は「考えている」だけになった（何を調べるかはまだ決まっていない）。
+    contents = [str(c.args[0]) for c in versions]
+    assert any("おはよう" in c and "運動会" in c for c in contents), contents
 
 
 def test_a_new_version_supersedes_the_previous_one_and_records_the_result():
@@ -493,7 +545,7 @@ def test_intake_drains_inbox_in_place():
     ip = InformationProcessing(a)
     before = ip._drained_completions
     ip._drained_completions.append(Completion(kind="完了", query="q", result="結果", index=1))
-    assert asyncio.run(ip._intake()) == 1
+    assert asyncio.run(ip._intake()) == (1, None)  # (件数, 主LLM の決定)
     assert ip._drained_completions is before  # 作り直さない
     assert ip._drained_completions == []  # 中身だけ空にする
 
@@ -697,9 +749,24 @@ def test_affect_iteration_does_not_send_an_empty_user_message():
 
 def test_iteration_ends_when_tool_is_dispatched():
     # 1反復1出力：ツールを投げることも出力。投げた時点で反復は終わり、発話は持たない。
+    # 環-h で主LLM は投げっぱなしになったので、**呼び出し回数では見ない**（返りを実行する
+    # 反復が別に起きるため）。見るのは「発話を持たないこと」と「道具を投げたこと」である。
     a = _agent(stream_returns=[_turn([ToolCall(id="r", name="recall", input={"query": "q"})])])
-    assert _run(a) == ""  # 発話なしで反復終了
-    a.backend.stream_turn.assert_awaited_once()  # 同じ呼び出しの中で次周回へ進まない
+    shown = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        first = await ip.begin_request("こんにちは", on_text=shown.append)
+        for _ in range(_WAIT_TICKS):
+            if a._memory_tool.call.await_count:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
+        return first
+
+    assert asyncio.run(scenario()) == ""  # 発話なしで反復終了
+    assert shown == []  # 出す反復も発話を持たない
+    a._memory_tool.call.assert_awaited()  # 道具は投げられた
 
 
 def test_driver_runs_next_iteration_when_completion_arrives():
@@ -734,7 +801,15 @@ def test_speech_is_held_during_quiet_hours():
 
     async def scenario():
         ip = InformationProcessing(a)
+        # 実物では `_begin_affect` は駆動体の中から呼ばれる。ここは直に呼ぶので、
+        # 先に駆動体を起こす——環-h で主LLM の返りを受けるのが駆動体になった。
+        ip.start()
         await ip._begin_affect("SEEKING", "なにか気になる")
+        # 環-h で主LLM は投げっぱなしになった。保留は返りを受ける反復で起きる。
+        for _ in range(_WAIT_TICKS):
+            if a._pending_store.add.called:
+                break
+            await asyncio.sleep(0.005)
         await ip.close()
 
     asyncio.run(scenario())
@@ -835,23 +910,33 @@ def test_unknown_action_is_ignored_not_crashing():
     assert _names(ip._tools(actions=("say", "walk"))) == [_SAY_DEF["name"]]
 
 
+def _arbiter_says(*replies: str):
+    """調停（軽量LLM）の返しを順に差し替える。使い切ったら最後の返しを繰り返す。"""
+    seq = list(replies)
+
+    async def _complete(*_a, **_k):
+        return seq.pop(0) if len(seq) > 1 else seq[0]
+
+    return _complete
+
+
+_ACT = '{"branch":"action","action":"recall","query":"%s","text":"","effort":"high"}'
+_FULL = '{"branch":"full","effort":"high"}'
+
+
 def test_chain_cap_withholds_recall_tool():
     # 連鎖が上限に達した反復では recall を渡さない＝発話を必ず出す（暴走防止）。
+    #
+    # **上限が縛るのは、決める反復の連なりだけである**（環-h）。主LLM の返りは反復を 0 へ
+    # 戻すので、調停が続けて "action" を選んだときにしか上限には届かない。ここは
+    # 上限 2 で、1反復目に調べさせ、2反復目（＝上限）で主LLM へ渡る形を作る。
     a = _agent(
-        stream_returns=[
-            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-        ],
+        stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])],
         max_iters=2,
     )
+    a._utility_backend.complete = AsyncMock(side_effect=_arbiter_says(_ACT % "q1", _FULL))
     _run_chain(a)
-    assert _names(a.backend.stream_turn.call_args_list[0].kwargs["tools"]) == [
-        _SAY_DEF["name"],
-        _RECALL_DEF["name"],
-        _SEARCH_DEF["name"],
-        _FETCH_DEF["name"],
-    ]
-    assert _names(a.backend.stream_turn.call_args_list[1].kwargs["tools"]) == [_SAY_DEF["name"]]
+    assert _names(a.backend.stream_turn.call_args_list[0].kwargs["tools"]) == [_SAY_DEF["name"]]
 
 
 def test_recall_is_dispatched_async_and_loop_waits_on_queue():
@@ -943,7 +1028,10 @@ def test_datetime_is_injected_into_prompt():
 
 
 def test_iteration_context_is_injected_into_prompt():
-    # 反復番号と上限をコンテキストで渡す（あと何回で結論すべきかモデルが判断できる）。
+    # 反復番号と上限をコンテキストで渡す（あと何回調べられるかモデルが判断できる）。
+    #
+    # **反復の数はこの求めの長さを表さない**（環-h）。主LLM の返りで 0 へ戻るので、2回目に
+    # 考えるときも「1/3」である。何回目かは**考えた回数**のほうが持つ。
     a = _agent(
         stream_returns=[
             _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
@@ -954,7 +1042,9 @@ def test_iteration_context_is_injected_into_prompt():
     _run_chain(a)
     systems = ["\n".join(c.kwargs["system"]) for c in a.backend.stream_turn.call_args_list]
     assert "1/3" in systems[0]
-    assert "2/3" in systems[1]
+    assert "1/3" in systems[1]
+    assert "1 回目" in systems[0]
+    assert "2 回目" in systems[1]
 
 
 def test_all_loop_os_become_one_exchange():
@@ -967,29 +1057,31 @@ def test_all_loop_os_become_one_exchange():
     )
     _run_chain(a)
     _, kwargs = a._run_post_response_pipeline.call_args
-    # 書いた O は4件（起点 obs1・open 意図 obs2・完了 obs3・本応答 obs4）。
-    # **どれも畳まない**（段 3）。四つとも一つのやりとりの項として順序つきで並び、
-    # 会話要約が末尾に足される。
-    assert a._memory.save_async_with_id.await_count == 4
-    assert kwargs["exchange"] == [
-        ("obs1", "起点"),
-        ("obs2", "版"),
-        ("obs3", "版"),
-        ("obs4", "答え"),
-    ]
+    # **どれも畳まない**（段 3）。書いた O は残らず一つのやりとりの項として順序つきで並び、
+    # 会話要約が末尾に足される。**件数は固定しない**——環-h で主LLM の投げと返りにも版が
+    # 書かれ、増えた。守るのは「書いた分だけ並ぶ」「先頭が起点・末尾が答え・あいだは版」。
+    written = a._memory.save_async_with_id.await_count
+    exchange = kwargs["exchange"]
+    assert len(exchange) == written
+    roles = [r for _i, r in exchange]
+    assert roles[0] == "起点"
+    assert roles[-1] == "答え"
+    assert set(roles[1:-1]) == {"版"}
 
 
 def test_max_iterations_bounds_the_chain():
-    # 常に recall を返すモデルでも上限（2）で打ち切る（暴走防止）。
+    # 常に "action" を返す調停でも、上限（2）で調べるのをやめて主LLM へ渡す（暴走防止）。
+    # 語を変え続けるので「すでに調べた語」では止まらない——止めるのは上限だけである。
     a = _agent(
-        stream_returns=[
-            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-        ],
+        stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])],
         max_iters=2,
     )
-    assert _run_chain(a) == ""  # 発話せず連鎖を閉じる
-    assert a.backend.stream_turn.await_count == 2
+    a._utility_backend.complete = AsyncMock(
+        side_effect=_arbiter_says(_ACT % "q1", _ACT % "q2", _ACT % "q3")
+    )
+    assert _run_chain(a) == "はい"
+    assert a._memory_tool.call.await_count == 1  # 上限までの1回だけ調べた
+    assert a.backend.stream_turn.await_count == 1  # 上限の反復で主LLM へ渡った
 
 
 # ── 診断ログ（反復・決定・上限空終了）─────────────────
@@ -1006,8 +1098,10 @@ def test_no_warning_on_normal_say(caplog):
     assert not any("上限" in r.getMessage() for r in warns)
 
 
-def test_info_summary_reports_iteration_count(caplog):
-    # ターン終了時の INFO 総括に反復数が載る（本番ログで再構成できる）。
+def test_info_summary_reports_how_many_times_it_thought(caplog):
+    # ターン終了時の INFO 総括に**考えた回数**が載る（本番ログで再構成できる）。
+    # 反復の数では代えられない——主LLM の返りで 0 へ戻るので、閉じた時点では常に 0 で、
+    # この求めに何回かかったかを伝えない（環-h）。
     a = _agent(
         stream_returns=[
             _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
@@ -1017,11 +1111,11 @@ def test_info_summary_reports_iteration_count(caplog):
     with caplog.at_level(logging.INFO, logger=_LOGGER):
         _run_chain(a)
     infos = [r.getMessage() for r in caplog.records if r.levelno == logging.INFO]
-    assert any("反復=2" in m for m in infos)
+    assert any("考えた回数=2" in m for m in infos)
 
 
 def test_debug_lines_carry_iteration_number(caplog):
-    # debug 行に反復番号（iter=N/M）が付き、どの反復か分かる。
+    # debug 行に反復番号（iter=N/M）と考えた回数が付き、どの一巡か分かる。
     a = _agent(
         stream_returns=[
             _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
@@ -1031,8 +1125,10 @@ def test_debug_lines_carry_iteration_number(caplog):
     with caplog.at_level(logging.DEBUG, logger=_LOGGER):
         _run_chain(a)
     debugs = [r.getMessage() for r in caplog.records if r.levelno == logging.DEBUG]
-    assert any("iter=1/3" in m for m in debugs)
-    assert any("iter=2/3" in m for m in debugs)  # 駆動体が起こした2反復目
+    # 主LLM の返りで反復は 0 へ戻るので、二巡目も iter=1/3 である（環-h）。
+    # どの一巡かを見分けるのは**考えた回数**のほう。
+    assert any("iter=1/3 考え=1回目" in m for m in debugs)
+    assert any("iter=1/3 考え=2回目" in m for m in debugs)  # 駆動体が起こした二巡目
 
 
 def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():

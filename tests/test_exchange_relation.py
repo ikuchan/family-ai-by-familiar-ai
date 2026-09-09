@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.agent import EmbodiedAgent
 from familiar_agent.backends import ToolCall
-from tests.test_event_loop import _agent, _run, _turn
+from tests.test_event_loop import _WAIT_TICKS, _agent, _run, _turn
 from familiar_agent.loop.event_loop import InformationProcessing
 
 
@@ -27,8 +27,12 @@ def test_the_turn_hands_over_its_records_in_order():
     """起点が先、答えが後。順序は関係の `position` になる。"""
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})])])
     _run(a, utterance="今日の天気は？")
-    # obs1=起点 / obs2=答えの逐語。
-    assert _exchange(a) == [("obs1", "起点"), ("obs2", "答え")]
+    # **件数は固定しない。** 環-h で主LLM の投げと返りにも版が書かれ、あいだが増えた。
+    # 守るのは順序——先頭が起点、末尾が答え、あいだは求めの版である。
+    roles = [r for _i, r in _exchange(a)]
+    assert roles[0] == "起点"
+    assert roles[-1] == "答え"
+    assert set(roles[1:-1]) == {"版"}
 
 
 def test_a_silent_turn_hands_over_no_answer():
@@ -119,11 +123,33 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
         ]
     )
 
+    # 調べものが返らないようにする。返ると1つめの求めがそのまま答えてしまい、
+    # 「調べかけを打ち切る」場面にならない。
+    never = asyncio.Event()
+
+    async def hang(*_args, **_kwargs):
+        # `exclude_ids` も来るので**すべて受ける**。取りこぼすと TypeError が
+        # 「recall を実行できなかった」完了として畳まれ、止まらずに先へ進む。
+        await never.wait()
+        return ("届かない", None)
+
+    a._memory_tool.call = AsyncMock(side_effect=hang)
+
     async def scenario():
         ip = InformationProcessing(a)
         await ip.begin_request("昨日の天気覚えてる？")
+        # 環-h で主LLM は投げっぱなしになった。調べかけになるまで待つ。
+        for _ in range(_WAIT_TICKS):
+            if a._memory_tool.call.called:
+                break
+            await asyncio.sleep(0.005)
         # 調べかけの途中で話しかける。
         await ip.begin_request("それより明日の予定は？")
+        for _ in range(_WAIT_TICKS):
+            if a._run_post_response_pipeline.called:
+                break
+            await asyncio.sleep(0.005)
+        await ip.close()
 
     asyncio.run(scenario())
 
