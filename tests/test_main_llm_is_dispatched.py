@@ -201,15 +201,13 @@ def test_the_verdicts_use_the_map_that_the_main_llm_saw():
     )
     asyncio.run(
         ip._act_on_decision(
-            TurnResult("tool_use", "", [said]),
-            memories=[],
-            recent_ctx="",
+            _decision(
+                result=TurnResult("tool_use", "", [said]),
+                memories=[],
+                w_id_map={"abcdef123456": "主LLM が見た記憶"},  # 持ち越した表
+            ),
             utterance="こんばんは",
-            system=("安定", "可変"),
-            effort="high",
             gen=0,
-            capped=False,
-            w_id_map={"abcdef123456": "主LLM が見た記憶"},  # 持ち越した表
         )
     )
     a._memory.apply_verdicts.assert_called_once_with({"主LLM が見た記憶": "important"})
