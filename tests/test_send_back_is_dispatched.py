@@ -25,7 +25,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall
 from familiar_agent.backends.types import TurnResult
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import Decision, InformationProcessing
 
 _VIOLATION = "見ていないのに見たと言っている"
 
@@ -65,16 +65,19 @@ def _say(text="そこに本があるね", **extra):
 def _run(ip, result, *, retried=False, original_text="", gen=0):
     return asyncio.run(
         ip._act_on_decision(
-            result,
-            memories=[],
-            recent_ctx="",
+            Decision(
+                result=result,
+                memories=[],
+                w_id_map={},
+                recent_ctx="",
+                system=("安定", "可変"),
+                effort="high",
+                capped=False,
+                retried=retried,
+                original_text=original_text,
+            ),
             utterance="そこに何がある？",
-            system=("安定", "可変"),
-            effort="high",
             gen=gen,
-            capped=False,
-            retried=retried,
-            original_text=original_text,
         )
     )
 

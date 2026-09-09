@@ -18,7 +18,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall
 from familiar_agent.backends.types import TurnResult
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import Decision, InformationProcessing
 
 
 def _ip(gen: int = 0):
@@ -45,18 +45,22 @@ def _turn(*calls: ToolCall, text: str = "") -> TurnResult:
 
 
 def _run(ip, result, *, gen=0, memories=None, capped=False, retried=False, original_text=""):
+    """**器のまま渡す**（に-5-い）。呼び口でばらさない。"""
     return asyncio.run(
         ip._act_on_decision(
-            result,
-            memories=memories if memories is not None else [],
-            recent_ctx="",
+            Decision(
+                result=result,
+                memories=memories if memories is not None else [],
+                w_id_map={},
+                recent_ctx="",
+                system=("安定", "可変"),
+                effort="high",
+                capped=capped,
+                retried=retried,
+                original_text=original_text,
+            ),
             utterance="こんばんは",
-            system=("安定", "可変"),
-            effort="high",
             gen=gen,
-            capped=capped,
-            retried=retried,
-            original_text=original_text,
         )
     )
 

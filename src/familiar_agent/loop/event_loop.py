@@ -1376,19 +1376,7 @@ class InformationProcessing:
             self._iterations_capped = False
             # **出す反復。** 想起も調停も回さない——回すと軽量LLM が主LLM の決定を覆せて
             # しまい、「そのまま出す」と矛盾する（`設計方針_主LLMを投げっぱなしにする`）。
-            return await self._act_on_decision(
-                decided.result,
-                memories=decided.memories,
-                recent_ctx=decided.recent_ctx,
-                utterance=utterance,
-                system=decided.system,
-                effort=decided.effort,
-                gen=gen,
-                capped=decided.capped,
-                w_id_map=decided.w_id_map,
-                retried=decided.retried,
-                original_text=decided.original_text,
-            )
+            return await self._act_on_decision(decided, utterance=utterance, gen=gen)
         # ここから先は**決める反復**である（決定は上で捌いて返っている）。数えるのはここだけ。
         self._iterations += 1
         chain = self._iterations
@@ -1595,21 +1583,7 @@ class InformationProcessing:
         )
         return ""
 
-    async def _act_on_decision(
-        self,
-        result: "TurnResult",
-        *,
-        memories: list[dict],
-        recent_ctx: str,
-        utterance: str,
-        system,
-        effort: "str | None",
-        gen: int,
-        capped: bool,
-        w_id_map: "dict[str, str] | None" = None,
-        retried: bool = False,
-        original_text: str = "",
-    ) -> str:
+    async def _act_on_decision(self, decision: Decision, *, utterance: str, gen: int) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
 
         出口は4つある——打ち切られた求め／道具投げ／発話／素テキスト。**閉じるかどうかは
@@ -1618,19 +1592,21 @@ class InformationProcessing:
         環-h では主LLM が投げっぱなしになり、**返りは別の反復（出す反復）で実行される**。
         いま切り出しておけば、h-は で**呼び元が変わるだけ**になる。
 
-        `system` と `effort` を受け取るのは、整合チェックの差し戻しで**主LLM をもう一度
-        呼ぶ**ためである（`設計方針_主LLMを投げっぱなしにする`）。
+        **器のまま受け取る**（に-5-い）。`Decision` は返りと「投げたときに見ていたもの」を
+        束ねた器なので、呼び口でばらさない。ばらせば、欄が増えるたびに呼び口も伸びる。
+        引数で足すのは、器が持っていないものだけ——`utterance`（誰の言葉で始まった求めか）
+        と `gen`（この反復が属する世代）である。
 
         差し戻しも投げっぱなしなので（段は-2）、**出す反復は1つの求めで2回起きうる**。
-        1回目は検査して違反なら投げ返し、2回目（`retried`）は検査せずそのまま出す。
+        1回目は検査して違反なら投げ返し、2回目（`decision.retried`）は検査せずそのまま出す。
         """
         agent = self._agent
-        say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+        say_tc = next((tc for tc in decision.result.tool_calls if tc.name == "say"), None)
         # 上限の反復では調べる動作を渡していないので、返ってきても投げない（連鎖を必ず閉じる）。
         lookup_tc = (
             None
-            if capped
-            else next((tc for tc in result.tool_calls if tc.name in _LOOKUP_ACTIONS), None)
+            if decision.capped
+            else next((tc for tc in decision.result.tool_calls if tc.name in _LOOKUP_ACTIONS), None)
         )
 
         # 発話と動作が一緒に来たら、発話はつなぎとして出し、その反復の出力は動作とする。
@@ -1647,11 +1623,13 @@ class InformationProcessing:
             return ""
 
         if say_tc is not None:
-            self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"), w_id_map)
+            self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"), decision.w_id_map)
             text = str(say_tc.input.get("text", "")).strip()
             # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
             violation = (
-                None if retried else await self._coherence_violation(text, recent_ctx, memories)
+                None
+                if decision.retried
+                else await self._coherence_violation(text, decision.recent_ctx, decision.memories)
             )
             if violation:
                 # 差し戻しは新しい1通で投げる。say の tool_use を含む往復をそのまま組むと、
@@ -1669,35 +1647,35 @@ class InformationProcessing:
                             f"{violation}\nこれを直して、もう一度 say() で答える。"
                         )
                     ],
-                    system=system,
-                    effort=effort,
-                    capped=capped,
-                    memories=memories,
-                    w_id_map=dict(w_id_map or {}),
-                    recent_ctx=recent_ctx,
+                    system=decision.system,
+                    effort=decision.effort,
+                    capped=decision.capped,
+                    memories=decision.memories,
+                    w_id_map=dict(decision.w_id_map),
+                    recent_ctx=decision.recent_ctx,
                     retried=True,
                     original_text=text,
                 )
                 await self._write_version()
                 return ""
             spoken, outcome = await self._speak(text)
-            await self._finish(spoken, memories, outcome)
+            await self._finish(spoken, decision.memories, outcome)
             return spoken
 
-        if retried and original_text:
+        if decision.retried and decision.original_text:
             # 言い直しが say を返さなかった。**元の応答で出す**（黙るよりはよい）。
             logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
-            spoken, outcome = await self._speak(original_text)
-            await self._finish(spoken, memories, outcome)
+            spoken, outcome = await self._speak(decision.original_text)
+            await self._finish(spoken, decision.memories, outcome)
             return spoken
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
         # **声にはならない**（音になるのは say() だけ）。`_finish` が `独白` として残す。
         logger.debug("event-loop 決定=none（素テキスト）")
-        text = (result.text or "").strip()
+        text = (decision.result.text or "").strip()
         if text:
             self._emit(text)
-        await self._finish(text, memories, "沈黙")
+        await self._finish(text, decision.memories, "沈黙")
         return text
 
     async def _coherence_violation(
