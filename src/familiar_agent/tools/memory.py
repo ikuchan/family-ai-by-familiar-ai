@@ -1376,7 +1376,7 @@ class ObservationMemory:
         as a Coalition so the workspace can inject relevant context into the
         LLM prompt.  Returns None when there are no stored memories yet.
         """
-        from ..workspace import Coalition
+        from ..coalition import Coalition
 
         memories = await self.recall_async("", n=5)
         if not memories:

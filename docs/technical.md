@@ -20,7 +20,7 @@ The pre-response pipeline now follows this order:
 6. appraise low-dimensional affect (`appraisal.py`)
 7. choose social policy (`social_policy.py`)
 8. regulate drives (`desires.py`)
-9. run workspace competition (`workspace.py`)
+9. run workspace competition (`coalition.py` holds the `Coalition` container; the competition itself was removed in #12a)
 10. plan and execute the ReAct loop
 11. gate the candidate response (`meta_monitor.py`)
 12. finalize the reply
@@ -335,7 +335,7 @@ That separation matters for both safety and realism. For example, interoception 
 
 The upgrade preserves and reuses the strongest existing components:
 
-- `workspace.py` for coalition competition
+- `coalition.py` for the coalition container (renamed from `workspace.py` on 2026-09-10; `loop/workspace.py` builds W)
 - `self_state.py` for latent bodily carryover
 - `self_narrative.py` for autobiographical continuity
 - `prediction.py` for surprise and agency error

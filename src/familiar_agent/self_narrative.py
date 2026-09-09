@@ -13,7 +13,7 @@ import psycopg2.extras
 from .db import get_db
 
 if TYPE_CHECKING:
-    from .workspace import Coalition
+    from .coalition import Coalition
 
 logger = logging.getLogger(__name__)
 
@@ -84,7 +84,7 @@ class SelfNarrative:
         return "過去のウチからの続き:\n" + "\n".join(lines)
 
     def as_coalition(self) -> Coalition | None:
-        from .workspace import Coalition
+        from .coalition import Coalition
 
         context = self.context_for_prompt()
         if not context:

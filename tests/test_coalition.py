@@ -1,6 +1,7 @@
 """ワークスペース候補（Coalition）の採点。
 
-競合と放送を行っていた GlobalWorkspace は #12a で撤去した。
+競合と放送を行っていた GlobalWorkspace は #12a で撤去した。器だけが残り、6モジュールが
+それを渡すために使う。**W を組むのはこの器ではない**（`loop/workspace.py` の `compose()`）。
 """
 
 from __future__ import annotations
@@ -8,7 +9,7 @@ from __future__ import annotations
 
 import pytest
 
-from familiar_agent.workspace import Coalition
+from familiar_agent.coalition import Coalition
 
 
 # ── Coalition ─────────────────────────────────────────────────────────────────

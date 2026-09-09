@@ -22,7 +22,7 @@ from .db import Database
 
 if TYPE_CHECKING:
     from .prediction import PredictionEngine
-    from .workspace import Coalition
+    from .coalition import Coalition
 
 logger = logging.getLogger(__name__)
 
@@ -168,9 +168,7 @@ class SceneTracker:
             with self._db.lock:
                 conn = self._db.conn()
                 with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT label, category, confidence, entity_id FROM scene_entities"
-                    )
+                    cur.execute("SELECT label, category, confidence, entity_id FROM scene_entities")
                     rows = cur.fetchall()
             self._current_entities = {
                 r["label"]: {
@@ -344,7 +342,7 @@ class SceneTracker:
 
     def as_coalition(self) -> Coalition | None:
         """Return a workspace Coalition from the current scene state."""
-        from .workspace import Coalition
+        from .coalition import Coalition
 
         if not self._current_entities:
             return None

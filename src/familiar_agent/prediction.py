@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
-    from .workspace import Coalition
+    from .coalition import Coalition
 
 # Default EMA smoothing factor: 0.3 means 30% weight on new observation.
 # Higher alpha → faster adaptation (less stable model).
@@ -330,7 +330,7 @@ class PredictionEngine:
         Returns None if no error has been computed yet (compute_error not called).
         High prediction error → high dynamism + high novelty in the coalition.
         """
-        from .workspace import Coalition
+        from .coalition import Coalition
 
         signal = self._last_signal
         if signal is None or self._last_error is None:

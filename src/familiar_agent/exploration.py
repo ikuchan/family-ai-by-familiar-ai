@@ -18,7 +18,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from .workspace import Coalition
+    from .coalition import Coalition
 
 
 # Directions that the camera can face
@@ -123,7 +123,7 @@ class ExplorationTracker:
 
     def as_coalition(self) -> Coalition | None:
         """Return a workspace Coalition from recent exploration state."""
-        from .workspace import Coalition
+        from .coalition import Coalition
 
         if not self._records:
             return None

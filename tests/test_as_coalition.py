@@ -21,7 +21,7 @@ from familiar_agent.desires import TRIGGER_THRESHOLD, DesireSystem
 from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.scene import SceneTracker
 from familiar_agent.self_narrative import SelfNarrative
-from familiar_agent.workspace import Coalition
+from familiar_agent.coalition import Coalition
 
 
 # ── helpers ────────────────────────────────────────────────────────────────────

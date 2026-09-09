@@ -135,10 +135,6 @@ def test_update_decreases_probability_for_absent_entities():
 # ── Integration: prediction error → workspace threshold ───────────────────────
 
 
-
-
-
-
 # ── as_coalition ───────────────────────────────────────────────────────────────
 
 
@@ -155,7 +151,7 @@ def test_as_coalition_returns_none_when_no_recent_error():
 
 
 def test_as_coalition_returns_coalition_after_error_computed():
-    from familiar_agent.workspace import Coalition
+    from familiar_agent.coalition import Coalition
 
     pe = PredictionEngine()
     pe.update(["chair"])

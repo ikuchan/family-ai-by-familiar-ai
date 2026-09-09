@@ -164,7 +164,7 @@ Phase 2 を閉じる前に、`agent.py`（4,024行）と `tools/memory.py`（2,5
 - 依存：環-c は 知-a。環-d は移管先が要るので 記-a・知-e・環-b の後。
 - 完了条件：各旧名を grep して**残存ゼロ**（数えた件数でなく0件を証明）。**`getattr(self, "_x", None)` の形は `self._x` の検索に出ないので、判定に含める。**
 - テスト観点：撤去後に新経路だけで全機能が成立する回帰。
-- 撤去できなかったもの：`prediction`／`concern_engine`／`exploration` は `_run_post_response_pipeline` 経由で新経路が使う。`self_state` は後に**撤去した**（書き込みだけが生きており、読み手が居なかった）。`workspace.py` は `Coalition` が生きているのでファイルを残す。
+- 撤去できなかったもの：`prediction`／`concern_engine`／`exploration` は `_run_post_response_pipeline` 経由で新経路が使う。`self_state` は後に**撤去した**（書き込みだけが生きており、読み手が居なかった）。`workspace.py` は `Coalition` が生きているのでファイルを残す（2026-09-10 に **`coalition.py`** へ改名。`loop/workspace.py` と名前が重なったため）。
 
 ## 4. 並行可否
 
@@ -1269,7 +1269,7 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 の撤去）で表をたどって初めて見つかった。**「使用0件の判定」は `getattr` 形だけでなく、
 生成だけされて呼ばれない器も見落とす。**
 
-**撤去できなかったもの**：`_prediction`・`_concerns`・`_exploration` は `_run_post_response_pipeline` 経由で新経路から到達する。`_self_state` は後に**撤去した**。`ExplorationTracker` は「旧 `run()` のプロンプトごと落とす」と書いていたが、`_exploration_context` が今もプロンプトに文脈を載せている。`workspace.py` は `Coalition`（dataclass）を6モジュールが使うため、`GlobalWorkspace` クラスだけを落としてファイルは残した。
+**撤去できなかったもの**：`_prediction`・`_concerns`・`_exploration` は `_run_post_response_pipeline` 経由で新経路から到達する。`_self_state` は後に**撤去した**。`ExplorationTracker` は「旧 `run()` のプロンプトごと落とす」と書いていたが、`_exploration_context` が今もプロンプトに文脈を載せている。`workspace.py` は `Coalition`（dataclass）を6モジュールが使うため、`GlobalWorkspace` クラスだけを落としてファイルは残した（2026-09-10 に **`coalition.py`** へ改名）。
 
 ### 記-a（REST 内省）
 

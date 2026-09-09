@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.36）
+# familiar-ai モジュール分割設計（v0.37）
 
 ## この文書が決めること
 
@@ -559,13 +559,34 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 | 直したもの | 中身 |
 |---|---|
 | `設計図_Mermaid` の撤去台帳（v0.94） | 「競合と放送は `loop/event_loop.py` の `_compose_workspace` が持つ」→ `loop/workspace.py` の `compose()` |
-| `familiar_agent/workspace.py` の docstring | 同じ理由で移動先を指し直した。**この file は候補の器（`Coalition`）だけを持つ**——W を組み立てるのはここではない |
+| `familiar_agent/workspace.py` の docstring | 同じ理由で移動先を指し直した。**この file は候補の器（`Coalition`）だけを持つ**——W を組み立てるのはここではない（その後 `coalition.py` へ改名・下記） |
 
-**`workspace.py` が2つある。** `familiar_agent/workspace.py`（`Coalition` の器・6モジュールが
-使う）と `loop/workspace.py`（W を組む）で、package が違うので import は衝突しないが、
-**名前は重なっている**。前者は `GlobalWorkspace` 撤去後の残りで、中身は器だけなので名前が
-実態と合っていない。**改名は別に立てる**（環-g と同じで、名前を直すのは挙動を変えないぶんとして
-分ける）。
+##### 後始末：`workspace.py` が2つあったので、器のほうを改名した（2026-09-10）
+
+`familiar_agent/workspace.py`（`Coalition` の器）と `loop/workspace.py`（W を組む）で、
+package が違うので import は衝突しないが、**開いた人は同じ名前の file を2つ見る**ことに
+なっていた。前者は `GlobalWorkspace` 撤去後の残りで、中身は器だけなので**名前が実態と合って
+いない**。そちらを **`familiar_agent/coalition.py`** へ改めた。
+
+| | |
+|---|---|
+| 付け替えた import | src 6ファイル・テスト 5ファイル（12箇所） |
+| 旧名の grep | **0件**（絶無を確かめるテストと、改名そのものを記録した更新履歴を除く） |
+| テストの改名 | `tests/test_workspace.py` → `tests/test_coalition.py`（`test_workspace_unified.py`・`test_workspace_is_the_core.py` は W を見るほうなので触らない） |
+| 能力表 | `capabilities.yaml` と `capability_state.py` の `_KEY_MODULES` も指し直した |
+
+**能力表の食い違いは、出-j で入れた検査が捕まえた。** `test_every_module_it_points_at_exists`
+（能力表が指す file を全部引いて実在を確かめる）と `test_the_key_modules_list_only_names_files_that_exist`
+の2つが落ちた。自己理解は毎回この file から組み直されるので、直さなければ**パジュは
+実装の無い module を語り続ける**。
+
+これで **`workspace` という名前が指すのは、W を組む側だけ**になった。環-g（ループの語を
+束ねる）と同じ性質の作業である——同じものに複数の名前が付く／違うものに同じ名前が付く、の
+どちらも読み手の負担になる。**挙動は変えていない。**
+
+**器の file に、読み手の居ない定数が2つ残っている**（`_MIN_THRESHOLD`・`_ERROR_SENSITIVITY`）。
+`GlobalWorkspace` の発火閾値のなごりで、grep すると参照は0件である。**撤去は別に立てる**
+（改名と撤去を混ぜない）。
 
 ##### に-5-に-2：作業記憶 W を核として出した（2026-09-10）
 
@@ -1247,7 +1268,9 @@ backends/cli.py          166 行
 > 寿命で切る。基準1（設計のコンポーネントに合わせる）より優先する」。**コンポーネントは
 > 「何をするか」の分け方であって、状態の持ち主の分け方ではない**——両者を一致させられるという
 > 前提のほうが誤りだった。`設計図_Mermaid`（v0.94）と `familiar_agent/workspace.py` の、
-> W の在り処を指す記述も直した。**`workspace.py` が2つある**ことは残課題として記録した。
+> W の在り処を指す記述も直した。**あわせて `familiar_agent/workspace.py` を `coalition.py` へ
+> 改名した**（`workspace.py` が2つある状態を解消・src 6／テスト 5ファイルの import を付け替え・
+> 旧名 grep 0件）。器に残る読み手0件の定数2つは、撤去として別に立てる。
 
 > v0.35：**に-5-に-2 を実装した**（2026-09-10）。`loop/workspace.py` を作り、W をめぐる
 > 174 行をモジュール関数として出した（`event_loop.py` 1,905 → **1,738行**）。`_iterate` と
