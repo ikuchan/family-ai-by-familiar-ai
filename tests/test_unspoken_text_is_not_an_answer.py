@@ -29,6 +29,7 @@ from familiar_agent.store.relations import HIDDEN_ROLES
 
 def _ip():
     from familiar_agent.loop.event_loop import InformationProcessing
+    from familiar_agent.loop.request import Request
 
     ip = InformationProcessing.__new__(InformationProcessing)
     a = MagicMock()
@@ -38,8 +39,10 @@ def _ip():
     a._spawn_background_task = MagicMock()
     a._run_post_response_pipeline = MagicMock()
     ip._agent = a
-    ip._iterations = 1
-    ip._iterations_capped = False
+    # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
+    ip._req = Request()
+    ip._req.iterations = 1
+    ip._req.iterations_capped = False
     ip._request_id = "req-1"
     ip._live_version_id = None
     ip._lookups = []

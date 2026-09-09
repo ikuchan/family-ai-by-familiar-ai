@@ -31,6 +31,7 @@ from ..store.relations import KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from .coherence import facts_ctx
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
+from .request import Request
 from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -293,8 +294,9 @@ class InformationProcessing:
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
         self._drained_completions: list[Completion] = []
         # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
-        self._iterations = 0
-        self._iterations_capped = False
+        # 求めの寿命の状態は `Request` が持つ（に-5-に）。**`None` にしない**——求めが無い
+        # ことは `request_id is None` が表す約束を、そのまま器の中へ持ち込む。
+        self._req = Request()
         self._utterance = ""
         # 反復の起点。種別＝発話｜情動｜機器｜完了。情動や機器で起きた反復には人の発話が
         # 無いので、起点の内容を手がかり・調停の入力・user メッセージに使う。
@@ -902,8 +904,8 @@ class InformationProcessing:
         self._request_text = text[:500]
         self._live_version_id = None
         self._lookups.clear()
-        self._iterations = 0
-        self._iterations_capped = False
+        self._req.iterations = 0
+        self._req.iterations_capped = False
         obs_id, _ = await agent._memory.save_async_with_id(
             text[:500],
             direction=kind,
@@ -1415,14 +1417,14 @@ class InformationProcessing:
             # なら、それは新しい一巡である。上限は暴走防止の安全弁であって、材料を見た
             # うえで再度調べることを止めるためのものではない
             # （`設計方針_主LLMを投げっぱなしにする` ⑤）。
-            self._iterations = 0
-            self._iterations_capped = False
+            self._req.iterations = 0
+            self._req.iterations_capped = False
             # **出す反復。** 想起も調停も回さない——回すと軽量LLM が主LLM の決定を覆せて
             # しまい、「そのまま出す」と矛盾する（`設計方針_主LLMを投げっぱなしにする`）。
             return await self._act_on_decision(decided, utterance=utterance, gen=gen)
         # ここから先は**決める反復**である（決定は上で捌いて返っている）。数えるのはここだけ。
-        self._iterations += 1
-        chain = self._iterations
+        self._req.iterations += 1
+        chain = self._req.iterations
         if drained:
             logger.debug("event-loop iter=%d/%d QC取込=%d件", chain, max_chain, drained)
 
@@ -1472,7 +1474,7 @@ class InformationProcessing:
             # 上限で打ち切ったことは、後からログだけで判別できる必要がある（DEBUG の
             # iter=N/M からは「たまたま N 回で終わった」のか「打ち切った」のか分からない）。
             logger.info("event-loop 反復 %d/%d 上限に達したため探索を打ち切る", chain, max_chain)
-            self._iterations_capped = True
+            self._req.iterations_capped = True
         decision = await arbitrate(
             agent._utility_backend,
             utterance=utterance or self._cue,
@@ -1890,7 +1892,7 @@ class InformationProcessing:
             "event-loop 終了: 考えた回数=%d 結末=%s 上限到達=%s text_len=%d",
             self._thinking_round - 1,
             outcome,
-            "はい" if self._iterations_capped else "いいえ",
+            "はい" if self._req.iterations_capped else "いいえ",
             len(text),
         )
         # 自分が言ったことを、**発話の時点で同期に** O へ書く。背景の永続化（要約・内省）を
@@ -1924,8 +1926,8 @@ class InformationProcessing:
         self._lookups.clear()
         self._said_fillers.clear()
         self._speech_to_deliver.clear()
-        self._iterations = 0
-        self._iterations_capped = False
+        self._req.iterations = 0
+        self._req.iterations_capped = False
         # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
         # やりとりは**区間**、母集合は**全部**である（打ち切りの分も次へ持ち越している）。
         noted = self._close_exchange() or []
