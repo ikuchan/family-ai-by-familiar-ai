@@ -80,6 +80,31 @@ def test_each_request_gets_its_own_turn_records():
     assert b.turn_records == []
 
 
+# ── 束 D：版 ───────────────────────────────────────────────────────────────
+
+
+def test_the_request_owns_the_version_chain():
+    """求めそのもの（文面・起点の id・生きている版）と、この求めの手がかり。
+
+    どれも `_begin_request` で置き直され、`_finish` と打ち切りで戻る。
+    """
+    r = Request()
+    assert r.request_id is None
+    assert r.live_version_id is None
+    assert r.request_text == ""
+    assert r.cue == ""
+    assert r.utterance == ""
+    assert r.trigger_kind == "発話"
+
+
+def test_no_live_request_is_still_the_absent_id():
+    """**求めが無いことは `request_id is None` が表す。** 器を `None` にはしない。"""
+    r = Request()
+    assert r.request_id is None
+    r.request_id = "obs1"
+    assert Request().request_id is None
+
+
 # ── 持ち主 ─────────────────────────────────────────────────────────────────
 
 
@@ -101,3 +126,6 @@ def test_the_old_flat_names_are_gone():
     assert "self._speech_to_deliver" not in src
     assert "self._turn_records" not in src
     assert "self._exchange_start" not in src
+    for name in ("_request_id", "_request_text", "_live_version_id", "_cue", "_utterance"):
+        assert f"self.{name}" not in src, name
+    assert "self._trigger_kind" not in src

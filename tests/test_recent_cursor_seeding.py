@@ -38,10 +38,13 @@ def _code_only() -> str:
 
 def _ip(cursor=None, latest="past-1", rows=None):
     from familiar_agent.loop.event_loop import InformationProcessing
+    from familiar_agent.loop.request import Request
 
     ip = InformationProcessing.__new__(InformationProcessing)
+    # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
+    ip._req = Request()
     ip._recent_cursor = cursor
-    ip._request_id = "req-1"
+    ip._req.request_id = "req-1"
     ip._w_id_map = {}
     a = MagicMock()
     a._memory.latest_exchange_origin = MagicMock(return_value=latest)

@@ -53,7 +53,7 @@ def _ip():
     a = _agent(stream_returns=[])
     a._camera = _Camera()
     ip = InformationProcessing(a)
-    ip._request_text = "周りを見て"
+    ip._req.request_text = "周りを見て"
     return a, ip
 
 

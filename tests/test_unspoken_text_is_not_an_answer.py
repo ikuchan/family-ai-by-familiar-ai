@@ -43,16 +43,16 @@ def _ip():
     ip._req = Request()
     ip._req.iterations = 1
     ip._req.iterations_capped = False
-    ip._request_id = "req-1"
-    ip._live_version_id = None
+    ip._req.request_id = "req-1"
+    ip._req.live_version_id = None
     ip._lookups = []
     ip._req.said_fillers = []
     ip._req.speech_to_deliver = []
     ip._req.turn_records = []
     ip._req.exchange_start = 0
     ip._recent_cursor = None
-    ip._utterance = "こんばんは"
-    ip._cue = ""
+    ip._req.utterance = "こんばんは"
+    ip._req.cue = ""
     ip._close_exchange = MagicMock(return_value=[])
     # `_finish` は最後に並びを空にするので、控えた分をここへ写して見る。
     noted: list[tuple[str, str]] = []

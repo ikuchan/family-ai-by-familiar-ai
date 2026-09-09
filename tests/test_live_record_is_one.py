@@ -52,10 +52,13 @@ def test_the_advance_kind_is_no_longer_written():
 
 
 def test_the_cue_survives_under_its_own_name():
-    """手がかり（いま生きている記録の内容）は残る。7箇所が読んでいる。"""
+    """手がかり（いま生きている記録の内容）は残る。7箇所が読んでいる。
+
+    に-5-に-1 で持ち主が `Request` になり、名前は `_cue` から `cue` になった。
+    """
     src = _code_only()
     assert not re.search(r"\b_chain_head_content\b", src)
-    assert "_cue" in src
+    assert re.search(r"\bcue\b", src)
 
 
 def test_all_three_starts_go_through_one_place():
@@ -91,6 +94,6 @@ def test_all_three_starts_go_through_one_place():
 
     # その1箇所が、求めの id・起点・手がかりを置く
     one = bodies["_begin_request"]
-    assert "self._request_id = " in one
+    assert "self._req.request_id = " in one
     assert "self._note_origin(" in one
-    assert "self._cue = " in one
+    assert "self._req.cue = " in one
