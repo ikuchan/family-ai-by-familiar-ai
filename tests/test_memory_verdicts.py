@@ -17,10 +17,12 @@
 
 from __future__ import annotations
 
+from familiar_agent.loop import workspace
+from familiar_agent.loop.request import Request
+
 from unittest.mock import MagicMock
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.prompt import EVENT_SYSTEM_PROMPT
 from tests.test_event_loop import _agent, _run, _turn
 
@@ -47,13 +49,13 @@ def test_the_prompt_asks_for_every_recalled_memory():
 def test_verdicts_are_matched_through_the_index_not_by_prefix_guessing():
     # 写し間違いは一致せず、黙って別の記憶へ適用されない。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    ip = InformationProcessing(a)
-    ip._w_id_map = {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}
-    ip._apply_memory_verdicts(
+    workspace.apply_memory_verdicts(
+        a,
         [
             {"id": "aaaaaaaaaaaa", "verdict": "important"},
             {"id": "zzzzzzzzzzzz", "verdict": "useless"},  # W に無い id
-        ]
+        ],
+        {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
     )
     applied = a._memory.apply_verdicts.call_args.args[0]
     assert applied == {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "important"}
@@ -61,8 +63,8 @@ def test_verdicts_are_matched_through_the_index_not_by_prefix_guessing():
 
 def test_nothing_is_applied_when_the_workspace_had_no_memories():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    ip = InformationProcessing(a)
-    ip._apply_memory_verdicts([{"id": "aaaaaaaaaaaa", "verdict": "important"}])
+    # **対応表に既定値は無い**（に-5-に-2）。空を渡せば何も当たらない。
+    workspace.apply_memory_verdicts(a, [{"id": "aaaaaaaaaaaa", "verdict": "important"}], {})
     a._memory.apply_verdicts.assert_not_called()
 
 
@@ -70,8 +72,7 @@ def test_the_workspace_prints_twelve_digit_ids():
     # 8桁だと記録が10万件規模でほぼ確実に衝突する。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a, utterance="おはよう")
-    ip = InformationProcessing(a)
-    ip._compose_workspace(
-        a._active_memory(), [{"memory_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}]
+    _text, id_map = workspace.compose(
+        a._active_memory(), [{"memory_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}], Request()
     )
-    assert list(ip._w_id_map) == ["aaaaaaaabbbb"]
+    assert list(id_map) == ["aaaaaaaabbbb"]

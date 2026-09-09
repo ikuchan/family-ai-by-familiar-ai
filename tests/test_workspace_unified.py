@@ -12,6 +12,9 @@
 
 from __future__ import annotations
 
+from familiar_agent.loop import workspace
+from familiar_agent.loop.request import Request
+
 import logging
 
 import pytest
@@ -50,9 +53,7 @@ def test_handmade_blocks_are_gone() -> None:
     """
     import inspect
 
-    from familiar_agent.loop.event_loop import InformationProcessing
-
-    src = inspect.getsource(InformationProcessing._compose_workspace)
+    src = inspect.getsource(workspace.compose)
     for gone in ("この求めのために調べたもの", "いま返事を待っている調べもの"):
         assert gone not in src, f"手組みの文字列『{gone}』が残っている"
 
@@ -74,30 +75,24 @@ def test_items_are_never_truncated() -> None:
     切ると、調べた結果の枕だけが残って中身が消える（実機で `「目の前を見る」を see で
     調べた結果が届いた：` だけが W に載った）。
     """
-    from familiar_agent.loop.event_loop import InformationProcessing
 
-    a = _agent(stream_returns=[])
-    ip = InformationProcessing(a)
     long_body = "あ" * 3000
     memories = [{"memory_id": "m1", "summary": long_body, "fit": 0.9}]
-    out = ip._compose_workspace(_mem_stub(memories), memories)
+    out, _ = workspace.compose(_mem_stub(memories), memories, Request())
     assert long_body in out, "1件が途中で切られている"
 
 
 def test_overflow_drops_whole_items_lowest_fit_first(caplog) -> None:
     """字数枠を超えたら、適合度の低い件から丸ごと落とす。落とした件数を残す。"""
-    from familiar_agent.loop.event_loop import InformationProcessing
 
-    a = _agent(stream_returns=[])
-    ip = InformationProcessing(a)
     budget = MemoryConfig().workspace_max_chars
-    big = "大" * (budget // 2 + 100)          # 2件で枠を超える大きさ
+    big = "大" * (budget // 2 + 100)  # 2件で枠を超える大きさ
     memories = [
         {"memory_id": "hi", "summary": big + "上位", "fit": 0.9},
         {"memory_id": "lo", "summary": big + "下位", "fit": 0.1},
     ]
-    with caplog.at_level(logging.INFO, logger="familiar_agent.loop.event_loop"):
-        out = ip._compose_workspace(_mem_stub(memories), memories)
+    with caplog.at_level(logging.INFO, logger="familiar_agent.loop.workspace"):
+        out, _ = workspace.compose(_mem_stub(memories), memories, Request())
 
     assert "上位" in out, "適合度の高い件が落ちている"
     assert "下位" not in out, "枠を超えたのに落ちていない"
@@ -109,15 +104,9 @@ def test_overflow_drops_whole_items_lowest_fit_first(caplog) -> None:
 
 def test_within_budget_keeps_everything() -> None:
     """枠に収まるなら何も落とさない（普通の会話では当たらない）。"""
-    from familiar_agent.loop.event_loop import InformationProcessing
 
-    a = _agent(stream_returns=[])
-    ip = InformationProcessing(a)
-    memories = [
-        {"memory_id": f"m{i}", "summary": f"みじかい記憶{i}", "fit": 0.5}
-        for i in range(7)
-    ]
-    out = ip._compose_workspace(_mem_stub(memories), memories)
+    memories = [{"memory_id": f"m{i}", "summary": f"みじかい記憶{i}", "fit": 0.5} for i in range(7)]
+    out, _ = workspace.compose(_mem_stub(memories), memories, Request())
     for i in range(7):
         assert f"みじかい記憶{i}" in out, f"{i} 件目が落ちている"
 

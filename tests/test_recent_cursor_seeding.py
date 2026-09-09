@@ -45,7 +45,6 @@ def _ip(cursor=None, latest="past-1", rows=None):
     ip._req = Request()
     ip._recent_cursor = cursor
     ip._req.request_id = "req-1"
-    ip._w_id_map = {}
     a = MagicMock()
     a._memory.latest_exchange_origin = MagicMock(return_value=latest)
     a._memory.recent_exchanges = MagicMock(return_value=rows or [])
@@ -59,7 +58,7 @@ def test_the_boolean_is_gone():
 
 def test_an_empty_cursor_is_filled_from_the_store():
     ip, a = _ip(cursor=None)
-    ip._recent_ctx("follows-1")
+    ip._recent_ctx("follows-1", {})
     a._memory.latest_exchange_origin.assert_called_once()
     assert ip._recent_cursor == "past-1"
 
@@ -67,13 +66,13 @@ def test_an_empty_cursor_is_filled_from_the_store():
 def test_a_filled_cursor_is_not_looked_up_again():
     """1件でもあれば一度で埋まり、以後は引き直さない。"""
     ip, a = _ip(cursor="already")
-    ip._recent_ctx("follows-1")
+    ip._recent_ctx("follows-1", {})
     a._memory.latest_exchange_origin.assert_not_called()
 
 
 def test_an_empty_store_is_tried_again_next_turn():
     """**挙動の変化。** 以前は一度きりで、空だと二度と引かなかった。"""
     ip, a = _ip(cursor=None, latest=None)
-    ip._recent_ctx("follows-1")
-    ip._recent_ctx("follows-1")
+    ip._recent_ctx("follows-1", {})
+    ip._recent_ctx("follows-1", {})
     assert a._memory.latest_exchange_origin.call_count == 2
