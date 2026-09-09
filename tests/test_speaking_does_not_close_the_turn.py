@@ -122,4 +122,6 @@ def test_only_the_iteration_closes_the_turn():
             continue
         if "self._finish(" in "\n".join(lines[m.lineno - 1 : m.end_lineno]):
             callers.add(m.name)
-    assert callers == {"_iterate"}, callers
+    # 環-h・段ろ で、主LLM の返りを実行する部分を `_act_on_decision` へ出した。
+    # **閉じるのは、その決定を実行している側**である（話す動作ではない）。
+    assert callers == {"_iterate", "_act_on_decision"}, callers

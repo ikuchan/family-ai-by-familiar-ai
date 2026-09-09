@@ -1385,6 +1385,41 @@ class InformationProcessing:
             effort=decision.effort,
         )
 
+        return await self._act_on_decision(
+            result,
+            memories=memories,
+            recent_ctx=recent_ctx,
+            utterance=utterance,
+            system=system,
+            effort=decision.effort,
+            gen=gen,
+            capped=capped,
+        )
+
+    async def _act_on_decision(
+        self,
+        result: "TurnResult",
+        *,
+        memories: list[dict],
+        recent_ctx: str,
+        utterance: str,
+        system,
+        effort: "str | None",
+        gen: int,
+        capped: bool,
+    ) -> str:
+        """主LLM の決定を実行する（環-h・段ろ）。
+
+        出口は4つある——打ち切られた求め／道具投げ／発話／素テキスト。**閉じるかどうかは
+        決定で決まる**：道具を投げた反復は閉じず、続きは完了で起きる。
+
+        環-h では主LLM が投げっぱなしになり、**返りは別の反復（出す反復）で実行される**。
+        いま切り出しておけば、h-は で**呼び元が変わるだけ**になる。
+
+        `system` と `effort` を受け取るのは、整合チェックの差し戻しで**主LLM をもう一度
+        呼ぶ**ためである（`設計方針_主LLMを投げっぱなしにする`）。
+        """
+        agent = self._agent
         say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
         # 上限の反復では調べる動作を渡していないので、返ってきても投げない（連鎖を必ず閉じる）。
         lookup_tc = (
@@ -1400,20 +1435,13 @@ class InformationProcessing:
             return ""
 
         if lookup_tc is not None:
-            logger.debug("event-loop iter=%d/%d 決定=%s", chain, max_chain, lookup_tc.name)
             if say_tc is not None:
                 await self._say_filler(str(say_tc.input.get("text", "")).strip())
             self._start_lookup(utterance or self._cue, dict(lookup_tc.input), action=lookup_tc.name)
-            logger.info(
-                "event-loop 反復 %d/%d 出力=%s（続きは完了で起きる）",
-                chain,
-                max_chain,
-                lookup_tc.name,
-            )
+            logger.info("event-loop 出力=%s（続きは完了で起きる）", lookup_tc.name)
             return ""
 
         if say_tc is not None:
-            logger.debug("event-loop iter=%d/%d 決定=say", chain, max_chain)
             self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"))
             text = str(say_tc.input.get("text", "")).strip()
             violation = await self._coherence_violation(text, recent_ctx, memories)
@@ -1434,7 +1462,7 @@ class InformationProcessing:
                     tools=self._tools(actions=("say",)),
                     max_tokens=agent.config.max_tokens,
                     on_text=None,
-                    effort=decision.effort,
+                    effort=effort,
                 )
                 retry_tc = next((tc for tc in retry.tool_calls if tc.name == "say"), None)
                 if retry_tc is not None:
@@ -1447,7 +1475,8 @@ class InformationProcessing:
             return spoken
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
-        logger.debug("event-loop iter=%d/%d 決定=none", chain, max_chain)
+        # **声にはならない**（音になるのは say() だけ）。`_finish` が `独白` として残す。
+        logger.debug("event-loop 決定=none（素テキスト）")
         text = (result.text or "").strip()
         if text:
             self._emit(text)
