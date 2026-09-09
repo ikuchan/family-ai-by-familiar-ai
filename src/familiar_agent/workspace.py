@@ -2,8 +2,11 @@
 
 各処理系が「W に載せたいもの」を同じ形で差し出すための dataclass を置く。競合と
 放送を行っていた `GlobalWorkspace` は #12a で撤去した（登録した listener は発火せず、
-競合の結果を読む経路も無くなっていた）。いまの W は `loop/event_loop.py` の
-`_compose_workspace` が組み立てる。
+競合の結果を読む経路も無くなっていた）。
+
+**W を組み立てるのはここではない。** `loop/workspace.py` の `compose()` である
+（2026-09-10・環-e-に の に-5-に-2 で `loop/event_loop.py` から移した）。この file が
+持つのは候補の器だけで、6モジュールがそれを渡すために import している。
 """
 
 from __future__ import annotations

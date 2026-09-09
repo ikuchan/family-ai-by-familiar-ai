@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.93）
+# familiar-ai 設計図（Mermaid一式・v0.94）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -496,7 +496,7 @@ sequenceDiagram
 | `EVENT_LOOP` フラグと分岐 | 既定の反転（#11 段階5）から撤去へ |
 | GUI・TUI・CUI のアイドル自発系 | 321 行。同じ役目は T（Tonic）が QA へ積み、完了は QC へ届く |
 | 旧の動体検知（`CameraMotionWatcher`） | 起動元が0件で動いていなかった。動体は `MotionEventWatcher` → `PresenceSensor` が在席の走査を早める用途で使う |
-| `GlobalWorkspace` クラス | 競合と放送は `loop/event_loop.py` の `_compose_workspace` が持つ。`Coalition`（dataclass）は6モジュールが使うので `workspace.py` は残す |
+| `GlobalWorkspace` クラス | 競合と放送は `loop/workspace.py` の `compose()` が持つ（2026-09-10・環-e-に の に-5-に-2 で `loop/event_loop.py` の `_compose_workspace` から移した）。`Coalition`（dataclass）は6モジュールが使うので `familiar_agent/workspace.py` は残す |
 | `mental_state` / `interoception` / `appraisal` / `social_policy` / `meta_monitor` / `attention_schema` / `default_mode` | 互いを参照するだけの島になっていた |
 
 **生きているもの**：`prediction`・`concern_engine`・`exploration` は `_run_post_response_pipeline` 経由で新経路が使う。`self_state`（自己状態6軸）は**撤去した**。毎ターン書き込んでいたが、読み出す経路が2つとも死んでいた（旧 ReAct のプロンプト組み立てと、テストからしか呼ばれない文脈生成）。保存行もマイグレーション038 で落とす。
@@ -533,6 +533,14 @@ sequenceDiagram
 ---
 
 ## 更新履歴
+
+> v0.94：**撤去台帳の在り処を直した**（2026-09-10・環-e-に の に-5-に-2）。W を組み立てるのは
+> `loop/event_loop.py` の `_compose_workspace` ではなく、`loop/workspace.py` の `compose()`
+> である。**この図が定めるコンポーネント（GEN・ACT・REC・LPM…）は変えていない**——変えたのは
+> file の割り方で、`モジュール分割設計` が「振る舞いで割る」から「寿命で割る」へ改めた。
+> 実測で、振る舞いで割ると可変状態 30 個中 14 個が実体の境界をまたぐ。**コンポーネントは
+> 「何をするか」の分け方であって、file の分け方ではない**——両者を一致させる前提のほうが
+> 誤りだった。
 
 > v0.91：台帳の**直近のやりとり**を、判定者の差し戻しに合わせて直した（`根拠台帳` §29）。続き先の判定は軽量LLM の専用の仕事になり、`say` の `follows` 欄は撤去した。
 
