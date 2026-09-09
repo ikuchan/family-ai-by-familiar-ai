@@ -41,6 +41,45 @@ def test_a_fresh_request_starts_from_zero():
     assert Request().iterations_capped is False
 
 
+# ── 束 B：発話の持ち越し ───────────────────────────────────────────────────
+
+
+def test_the_request_owns_what_was_already_said():
+    """つなぎと、配る保留。どちらも打ち切りと `_finish` で空になる＝求めの寿命である。"""
+    r = Request()
+    assert r.said_fillers == []
+    assert r.speech_to_deliver == []
+
+
+def test_each_request_gets_its_own_lists():
+    """**入れ物を共有しない。** 既定値を1つにすると、次の求めに前の一言が残る。"""
+    a, b = Request(), Request()
+    a.said_fillers.append("調べますね")
+    a.speech_to_deliver.append("さっき言いたかったこと")
+    assert b.said_fillers == []
+    assert b.speech_to_deliver == []
+
+
+# ── 束 C：やりとり ─────────────────────────────────────────────────────────
+
+
+def test_the_request_owns_the_turn_records():
+    """このターンが作った記録と、やりとりの切り出し位置。`_finish` で空へ戻る。
+
+    **`recent_cursor` はここに入れない。** あれは会話の履歴をたどる位置で、求めごとに
+    戻らない（`_note_origin` と `_recent_ctx` が書くだけ）。装置の寿命である。
+    """
+    r = Request()
+    assert r.turn_records == []
+    assert r.exchange_start == 0
+
+
+def test_each_request_gets_its_own_turn_records():
+    a, b = Request(), Request()
+    a.turn_records.append(("obs1", "起点"))
+    assert b.turn_records == []
+
+
 # ── 持ち主 ─────────────────────────────────────────────────────────────────
 
 
@@ -58,3 +97,7 @@ def test_the_old_flat_names_are_gone():
     src = inspect.getsource(InformationProcessing)
     assert "self._iterations" not in src
     assert "self._iterations_capped" not in src
+    assert "self._said_fillers" not in src
+    assert "self._speech_to_deliver" not in src
+    assert "self._turn_records" not in src
+    assert "self._exchange_start" not in src

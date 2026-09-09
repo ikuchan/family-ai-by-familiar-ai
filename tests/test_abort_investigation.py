@@ -121,7 +121,7 @@ def test_the_abort_closes_the_exchange():
     答えも要約も無いやりとりになるが、それが起きた事実そのものである。
     """
     a, ip = _ip_with_investigation()
-    ip._turn_records = [("obs1", "起点"), ("obs2", "版")]
+    ip._req.turn_records = [("obs1", "起点"), ("obs2", "版")]
 
     asyncio.run(ip._abort_lookups())
 
@@ -142,10 +142,10 @@ def test_the_carry_over_for_the_diffuse_pool_survives_the_abort():
     記録へ辿り着く辺が拡散想起から無くなる。
     """
     a, ip = _ip_with_investigation()
-    ip._turn_records = [("obs1", "起点"), ("obs2", "版")]
+    ip._req.turn_records = [("obs1", "起点"), ("obs2", "版")]
 
     asyncio.run(ip._abort_lookups())
 
-    assert [i for i, _ in ip._turn_records][:2] == ["obs1", "obs2"], "持ち越しまで消している"
+    assert [i for i, _ in ip._req.turn_records][:2] == ["obs1", "obs2"], "持ち越しまで消している"
     # 次のやりとりは、打ち切りの次から始まる。
-    assert ip._exchange_start == len(ip._turn_records)
+    assert ip._req.exchange_start == len(ip._req.turn_records)

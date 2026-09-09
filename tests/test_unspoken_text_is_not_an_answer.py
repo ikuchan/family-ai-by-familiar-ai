@@ -46,10 +46,10 @@ def _ip():
     ip._request_id = "req-1"
     ip._live_version_id = None
     ip._lookups = []
-    ip._said_fillers = []
-    ip._speech_to_deliver = []
-    ip._turn_records = []
-    ip._exchange_start = 0
+    ip._req.said_fillers = []
+    ip._req.speech_to_deliver = []
+    ip._req.turn_records = []
+    ip._req.exchange_start = 0
     ip._recent_cursor = None
     ip._utterance = "こんばんは"
     ip._cue = ""

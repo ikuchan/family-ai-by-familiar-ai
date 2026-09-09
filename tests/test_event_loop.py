@@ -1237,7 +1237,7 @@ def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
         ip = InformationProcessing(a)
         await ip.begin_request("マインクラフトってどんなゲーム？")
         head = ip._cue
-        fillers = list(ip._said_fillers)
+        fillers = list(ip._req.said_fillers)
         await ip.close()
         return head, fillers
 

@@ -168,7 +168,7 @@ def test_the_seen_record_reaches_the_workspace() -> None:
             )
         )
         await ip._intake()
-        got = list(ip._turn_records)
+        got = list(ip._req.turn_records)
         await ip.close()
         return a, got
 

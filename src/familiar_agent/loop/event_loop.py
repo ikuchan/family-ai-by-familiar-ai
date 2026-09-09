@@ -255,23 +255,8 @@ class InformationProcessing:
         self._live_version_id: str | None = None
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
         self._recall_exclude_id: str | None = None
-        # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく
-        # 続きとして自然につなぐために見せる。
-        self._said_fillers: list[str] = []
-        # 配る保留（「いつ・何を言いたかったか」）。W へ流し、反復が閉じたら捨てる。
-        self._speech_to_deliver: list[str] = []
         # W に出した id（12桁）→ 完全な id。フルLLM の申告の突き合わせに使う。
         self._w_id_map: dict[str, str] = {}
-        # このターンが作った記録と、その役割（観測 id, 役割）。**一つの並びが二つの用を
-        # 賄う**：拡散想起の母集合（共起の関係）へ載せる id と、やりとりの関係の項。
-        # 役割は 起点・版・見た・つなぎ・答え（`_note_record`）。つなぎは共起に載せない
-        # （中身が無く、育てる価値がない）。中断はこの求めで閉じるが、次の求めの共起には
-        # 載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
-        self._turn_records: list[tuple[str, str]] = []
-        # いまのやりとりが、その並びのどこから始まったか。**やりとりは並びの一区間**
-        # である。母集合への持ち越しは打ち切りでも消さないが、やりとりは打ち切りで
-        # 区切る。二つの用は、区切りの規則が違う。
-        self._exchange_start = 0
         # 直近のやりとりを、どこから見せるかのカーソル。**繋ぐためではない。**
         # 辺を書くのは `follows` だけである。起動直後は空なので、最初に要るときに
         # 一度だけ DB から引く。
@@ -340,8 +325,8 @@ class InformationProcessing:
         母集合への持ち越し（`_turn_records`）はそのまま残す。打ち切った調査と、言い直した
         問いの共起は、たどる価値があるためである。
         """
-        members = self._turn_records[self._exchange_start :]
-        self._exchange_start = len(self._turn_records)
+        members = self._req.turn_records[self._req.exchange_start :]
+        self._req.exchange_start = len(self._req.turn_records)
         # 次のターンは、いま閉じたやりとりから見せる。
         for obs_id, role in members:
             if role == "起点":
@@ -359,8 +344,8 @@ class InformationProcessing:
         役割は 起点・版・見た・答え。会話要約は背景で遅れて作られるので、ここには来ない
         （`_run_post_response_pipeline` が末尾に足す）。
         """
-        if obs_id and all(obs_id != i for i, _ in self._turn_records):
-            self._turn_records.append((obs_id, role))
+        if obs_id and all(obs_id != i for i, _ in self._req.turn_records):
+            self._req.turn_records.append((obs_id, role))
 
     async def _write_version(self, *, aborted: bool = False) -> str | None:
         """求めの新しい版を書き、直前の版を畳む。
@@ -990,8 +975,8 @@ class InformationProcessing:
         self._live_version_id = None
         self._lookups.clear()
         self._cue = ""
-        self._said_fillers.clear()
-        self._speech_to_deliver.clear()
+        self._req.said_fillers.clear()
+        self._req.speech_to_deliver.clear()
         self._w_id_map = {}
 
     def _compose_workspace(self, mem, memories: list[dict]) -> str:
@@ -1050,18 +1035,18 @@ class InformationProcessing:
         # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
         # （実機で「〜ですね！」で始まる前置きが3回続いた）。
         said = ""
-        if self._said_fillers:
-            lines = "\n".join(f"- 「{t}」" for t in self._said_fillers)
+        if self._req.said_fillers:
+            lines = "\n".join(f"- 「{t}」" for t in self._req.said_fillers)
             said = (
                 "すでに相手へ伝えた一言（言った順。次に何か言うなら、"
                 "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines
             )
         held = ""
-        if self._speech_to_deliver:
+        if self._req.speech_to_deliver:
             held = (
                 "聞く相手が居ないあいだに話したかったこと"
                 "（いま伝えるなら、そのときのこととして話す）：\n"
-                + "\n".join(self._speech_to_deliver)
+                + "\n".join(self._req.speech_to_deliver)
             )
         return "\n\n".join(
             p for p in [said, held, mem.format_for_context(memories)] if p and p.strip()
@@ -1338,7 +1323,7 @@ class InformationProcessing:
                     self._agent._memory.mark_superseded(
                         row["observation_id"], self._request_id, kind=KIND_RESOLVE
                     )
-            self._speech_to_deliver = released
+            self._req.speech_to_deliver = released
             if released:
                 # 何件を W へ流したかを残す。system プロンプトの全文は出していないので、
                 # これが無いと「載ったが触れられなかった」のか「そもそも載っていない」のか
@@ -1705,7 +1690,7 @@ class InformationProcessing:
         agent = self._agent
         if not agent.config.coherence_check or not text:
             return None
-        saw = any(role == "見た" for _, role in self._turn_records)
+        saw = any(role == "見た" for _, role in self._req.turn_records)
         return await agent._evaluator.check_response_coherence(
             text, recent=recent, facts=facts_ctx(saw=saw, memories=memories)
         )
@@ -1748,7 +1733,7 @@ class InformationProcessing:
         # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
         # 判断できる材料を渡して解く。
         #
-        self._said_fillers.append(text)
+        self._req.said_fillers.append(text)
         # **O へ書く**（段 4）。054 で外したのは、想起の候補を食うからだった。役割が
         # 「想起に出さない」を担う形になったので、項として持ちながら想起から外せる。
         # 書かないと、相手が聞いた会話とパジュが読み返す会話が食い違う。
@@ -1924,15 +1909,15 @@ class InformationProcessing:
         parent_id, self._request_id = self._request_id, None
         self._live_version_id = None
         self._lookups.clear()
-        self._said_fillers.clear()
-        self._speech_to_deliver.clear()
+        self._req.said_fillers.clear()
+        self._req.speech_to_deliver.clear()
         self._req.iterations = 0
         self._req.iterations_capped = False
         # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
         # やりとりは**区間**、母集合は**全部**である（打ち切りの分も次へ持ち越している）。
         noted = self._close_exchange() or []
-        turn_records = [i for i, _ in self._turn_records]
-        self._turn_records, self._exchange_start = [], 0
+        turn_records = [i for i, _ in self._req.turn_records]
+        self._req.turn_records, self._req.exchange_start = [], 0
         try:
             origin = self._utterance or self._cue
             arousal = await agent._turn_arousal(origin, text)

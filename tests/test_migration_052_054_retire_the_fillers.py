@@ -84,7 +84,7 @@ def test_the_loop_records_the_filler_again_but_hides_it() -> None:
 def test_the_said_fillers_list_stays() -> None:
     """**プロンプトへ載せる側は残す**（反証側）。
 
-    「もう一言伝えた」を次の反復へ伝えるのは `_said_fillers` の役目で、O への記録は
+    「もう一言伝えた」を次の反復へ伝えるのは `said_fillers`（求めの器）の役目で、O への記録は
     二重に持っていたぶんである。こちらまで外すと、同じ言い回しを最初から言い直す。
     """
     import inspect
@@ -92,5 +92,5 @@ def test_the_said_fillers_list_stays() -> None:
     from familiar_agent.loop import event_loop
 
     src = inspect.getsource(event_loop)
-    assert "_said_fillers" in src
+    assert "said_fillers" in src
     assert "すでに相手へ伝えた一言" in src
