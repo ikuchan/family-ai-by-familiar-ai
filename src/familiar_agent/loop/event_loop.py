@@ -1352,6 +1352,49 @@ class InformationProcessing:
                 await self._driver
             self._driver = None
 
+    async def _recall_workspace(
+        self,
+        mem,
+        cue: str,
+        *,
+        weights,
+        time_ref: "float | None" = None,
+        time_span_days: "float | None" = None,
+    ) -> "tuple[list[dict], str]":
+        """想起して W を組み、**(W に載った記録, 作業状態) を返す**（に-5-ろ）。
+
+        呼び手は2つ——反復の頭（いまが基準）と、調停が時期を指したときの引き直しである。
+        同じ呼び出しが2度書かれていて、片方を直してもう片方を忘れれば、基準を移した反復
+        だけ床が効かないといった食い違いが黙って入る（床＝`min_score` は実際に、連想想起
+        には渡っていてイベントループにだけ渡っていなかった）。
+
+        記録と W を一緒に返すのは、**W が記録から組まれる派生**だからである。別々に取れば
+        片方だけ古くなる。
+
+        **重みは呼び手が持つ。** `jitter_weights` は乱数を足すので、ここで作り直すと
+        引き直しのたびに別の重みになる。同じ反復のあいだは同じ重みでなければならない。
+
+        床（`min_score`）を渡す。渡さないと既定 0.0 で床が効かず、無関係な記録まで W の枠を
+        埋める。床は正本 [D-想起合成] が「無関係排除の主たる足切り」と定めるものである。
+        """
+        from ..config import MemoryConfig
+
+        cfg = MemoryConfig()
+        memories = await mem.recall_async(
+            cue,
+            n=cfg.recall_k,
+            min_score=cfg.recall_min_score,
+            weights=weights,
+            open_ids=self._open_ids(),
+            time_ref=time_ref,
+            time_span_days=time_span_days,
+        )
+        # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
+        # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
+        # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
+        # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
+        return memories, self._compose_workspace(mem, memories)
+
     async def _iterate(self) -> str:
         """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。"""
         from ..capability_state import load_summary
@@ -1404,22 +1447,8 @@ class InformationProcessing:
         trigger = "完了" if drained else self._trigger_kind
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
-        # 床（min_score）を渡す。渡さないと既定 0.0 で床が効かず、無関係な記録まで W の枠を
-        # 埋める。床は正本 [D-想起合成] が「無関係排除の主たる足切り」と定めるもので、
-        # 連想想起（`agent.py`）は既に渡していた。イベントループだけが渡していなかった。
-        memories = await mem.recall_async(
-            cue,
-            n=_mcfg.recall_k,
-            min_score=_mcfg.recall_min_score,
-            weights=weights,
-            open_ids=self._open_ids(),
-        )
+        memories, workspace_ctx = await self._recall_workspace(mem, cue, weights=weights)
         _log_recall_weights(trigger, w_base, weights, memories)
-        # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
-        # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
-        # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
-        # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
-        workspace_ctx = self._compose_workspace(mem, memories)
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
         # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
         # 直前で、そこは待つ（続きでなければ直近のやりとりを載せてはいけない）。
@@ -1471,18 +1500,13 @@ class InformationProcessing:
         # で、指定があったときだけ走る。
         if decision.time_ref:
             with contextlib.suppress(Exception):
-                ref = datetime.fromisoformat(decision.time_ref).timestamp()
-                span = decision.time_span_days or None
-                memories = await mem.recall_async(
+                memories, workspace_ctx = await self._recall_workspace(
+                    mem,
                     cue,
-                    n=_mcfg.recall_k,
-                    time_ref=ref,
-                    time_span_days=span,
-                    min_score=_mcfg.recall_min_score,
                     weights=weights,
-                    open_ids=self._open_ids(),
+                    time_ref=datetime.fromisoformat(decision.time_ref).timestamp(),
+                    time_span_days=decision.time_span_days or None,
                 )
-                workspace_ctx = self._compose_workspace(mem, memories)
                 logger.info(
                     "event-loop 想起の基準を移す：%s（幅 %s 日）",
                     decision.time_ref,
