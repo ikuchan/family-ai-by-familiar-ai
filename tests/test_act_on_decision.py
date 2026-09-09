@@ -44,7 +44,7 @@ def _turn(*calls: ToolCall, text: str = "") -> TurnResult:
     return TurnResult(stop_reason="tool_use", text=text, tool_calls=list(calls))
 
 
-def _run(ip, result, *, gen=0, memories=None, capped=False):
+def _run(ip, result, *, gen=0, memories=None, capped=False, retried=False, original_text=""):
     return asyncio.run(
         ip._act_on_decision(
             result,
@@ -55,6 +55,8 @@ def _run(ip, result, *, gen=0, memories=None, capped=False):
             effort="high",
             gen=gen,
             capped=capped,
+            retried=retried,
+            original_text=original_text,
         )
     )
 
@@ -123,14 +125,27 @@ def test_at_the_cap_a_tool_call_is_ignored():
 
 
 def test_a_violation_sends_it_back_once():
+    """違反なら投げ返し、**閉じない**（段は-2 で投げっぱなしになった）。
+
+    言い直しは完了キューを通って次の出す反復が出す。詳しい形は
+    `tests/test_send_back_is_dispatched.py` が見る。
+    """
     ip, a = _ip()
     ip._coherence_violation = AsyncMock(return_value="見ていないのに見たと言っている")
-    a.backend.stream_turn = AsyncMock(
-        return_value=(_turn(ToolCall("r", "say", {"text": "直した"})), None)
-    )
-    _run(ip, _turn(ToolCall("t", "say", {"text": "そこに本があるね"})))
-    a.backend.stream_turn.assert_awaited_once()
-    ip._speak.assert_awaited_once_with("直した")
+    ip._dispatch_main_llm = MagicMock()
+    ip._write_version = AsyncMock(return_value="ver-1")
+    assert _run(ip, _turn(ToolCall("t", "say", {"text": "そこに本があるね"}))) == ""
+    a.backend.stream_turn.assert_not_awaited()
+    ip._dispatch_main_llm.assert_called_once()
+    ip._speak.assert_not_awaited()
+
+
+def test_the_reworded_answer_is_spoken_without_another_check():
+    """言い直しの返りは検査せずそのまま出す（1回だけ）。"""
+    ip, _a = _ip()
+    ip._speak = AsyncMock(return_value=("直した", "発話"))
+    assert _run(ip, _turn(ToolCall("t", "say", {"text": "直した"})), retried=True) == "直した"
+    ip._coherence_violation.assert_not_awaited()
 
 
 # ── 切り出せていること ──────────────────────────────────────────────────────

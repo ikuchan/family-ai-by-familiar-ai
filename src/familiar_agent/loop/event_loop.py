@@ -139,6 +139,10 @@ class Decision:
       ときの対応表でないと引けない
     - `system`・`effort`：整合チェックの差し戻しで**主LLM をもう一度呼ぶ**のに要る
     - `capped`：上限の反復では調べる動作を渡していないので、返ってきても投げない
+    - `retried`：これは言い直しの返りか。真なら**もう検査しない**（1回だけ）
+    - `original_text`：言い直しが `say` を返さなかったときの戻り先。差し戻しが同期
+      だったころは同じ関数の変数だったので運ぶ必要がなかったが、投げっぱなしにすると
+      失われる（段は-2）
     """
 
     result: "TurnResult"
@@ -149,6 +153,7 @@ class Decision:
     effort: "str | None"
     capped: bool
     retried: bool = False
+    original_text: str = ""
 
 
 @dataclass
@@ -538,11 +543,16 @@ class InformationProcessing:
         w_id_map: dict[str, str],
         recent_ctx: str,
         retried: bool = False,
+        original_text: str = "",
     ) -> None:
         """主LLM を投げる（**待たない**・環-h・段は）。
 
         調べものと同じ扱いにする——`_lookups` へ1件積んで飛行中に数え、版に載せ、世代で
         打ち切れるようにする。**重複の判定は通さない**（同じ求めで何度も呼ぶ）。
+
+        整合チェックの差し戻し（言い直し）も**この口から投げる**。同じ口を通るので、
+        言い直しも `action="主LLM"` として積まれ、**考えた回数に数えられる**
+        （2026-09-09 の決定）。
         """
         index = self._next_lookup_index()
         self._lookups.append(
@@ -564,6 +574,7 @@ class InformationProcessing:
                 w_id_map=w_id_map,
                 recent_ctx=recent_ctx,
                 retried=retried,
+                original_text=original_text,
             )
         )
         self._background_tasks.add(task)
@@ -581,6 +592,7 @@ class InformationProcessing:
         w_id_map: dict[str, str],
         recent_ctx: str,
         retried: bool,
+        original_text: str = "",
     ) -> None:
         """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
         agent = self._agent
@@ -588,8 +600,10 @@ class InformationProcessing:
             result, _raw = await agent.backend.stream_turn(
                 system=system,
                 messages=messages,
-                # 連鎖上限の反復では recall を外し、発話だけにして必ず閉じる。
-                tools=self._tools(actions=("say",) if capped else _FULL_ACTIONS),
+                # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
+                # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
+                # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
+                tools=self._tools(actions=("say",) if capped or retried else _FULL_ACTIONS),
                 max_tokens=agent.config.max_tokens,
                 on_text=None,
                 effort=effort,
@@ -615,6 +629,7 @@ class InformationProcessing:
                     effort=effort,
                     capped=capped,
                     retried=retried,
+                    original_text=original_text,
                 ),
             )
         )
@@ -1371,6 +1386,8 @@ class InformationProcessing:
                 gen=gen,
                 capped=decided.capped,
                 w_id_map=decided.w_id_map,
+                retried=decided.retried,
+                original_text=decided.original_text,
             )
         # ここから先は**決める反復**である（決定は上で捌いて返っている）。数えるのはここだけ。
         self._iterations += 1
@@ -1590,6 +1607,8 @@ class InformationProcessing:
         gen: int,
         capped: bool,
         w_id_map: "dict[str, str] | None" = None,
+        retried: bool = False,
+        original_text: str = "",
     ) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
 
@@ -1601,6 +1620,9 @@ class InformationProcessing:
 
         `system` と `effort` を受け取るのは、整合チェックの差し戻しで**主LLM をもう一度
         呼ぶ**ためである（`設計方針_主LLMを投げっぱなしにする`）。
+
+        差し戻しも投げっぱなしなので（段は-2）、**出す反復は1つの求めで2回起きうる**。
+        1回目は検査して違反なら投げ返し、2回目（`retried`）は検査せずそのまま出す。
         """
         agent = self._agent
         say_tc = next((tc for tc in result.tool_calls if tc.name == "say"), None)
@@ -1627,14 +1649,19 @@ class InformationProcessing:
         if say_tc is not None:
             self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"), w_id_map)
             text = str(say_tc.input.get("text", "")).strip()
-            violation = await self._coherence_violation(text, recent_ctx, memories)
+            # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
+            violation = (
+                None if retried else await self._coherence_violation(text, recent_ctx, memories)
+            )
             if violation:
-                # **1回だけ**言い直させる。直した応答は検査しない（際限なく往復させない）。
                 # 差し戻しは新しい1通で投げる。say の tool_use を含む往復をそのまま組むと、
                 # 結果を返さないまま次を送ることになり backend が受け付けない。
+                #
+                # **ここで閉じない。** 話してしまえば、この求めに答えが2件書かれる。言い直しは
+                # 完了キューを通って**次の出す反復**が出す（段は-2）。同期で待っていたころは、
+                # そのあいだ打ち切りが効かなかった。
                 logger.info("event-loop 整合チェックが違反を捕まえた：%s", violation)
-                retry, _raw2 = await agent.backend.stream_turn(
-                    system=system,
+                self._dispatch_main_llm(
                     messages=[
                         agent.backend.make_user_message(
                             f"{utterance or self._cue}\n\n"
@@ -1642,18 +1669,25 @@ class InformationProcessing:
                             f"{violation}\nこれを直して、もう一度 say() で答える。"
                         )
                     ],
-                    tools=self._tools(actions=("say",)),
-                    max_tokens=agent.config.max_tokens,
-                    on_text=None,
+                    system=system,
                     effort=effort,
+                    capped=capped,
+                    memories=memories,
+                    w_id_map=dict(w_id_map or {}),
+                    recent_ctx=recent_ctx,
+                    retried=True,
+                    original_text=text,
                 )
-                retry_tc = next((tc for tc in retry.tool_calls if tc.name == "say"), None)
-                if retry_tc is not None:
-                    self._apply_memory_verdicts(retry_tc.input.get("memory_verdicts"), w_id_map)
-                    text = str(retry_tc.input.get("text", "")).strip() or text
-                else:
-                    logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
+                await self._write_version()
+                return ""
             spoken, outcome = await self._speak(text)
+            await self._finish(spoken, memories, outcome)
+            return spoken
+
+        if retried and original_text:
+            # 言い直しが say を返さなかった。**元の応答で出す**（黙るよりはよい）。
+            logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
+            spoken, outcome = await self._speak(original_text)
             await self._finish(spoken, memories, outcome)
             return spoken
 
