@@ -56,7 +56,6 @@ def test_a_turn_does_not_follow_itself():
 
     async def scenario():
         ip = InformationProcessing(a)
-        ip._w_id_map = {"obs1": "obs1"}
         await ip.begin_request("こんにちは")
 
     asyncio.run(scenario())

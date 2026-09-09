@@ -86,11 +86,13 @@ def test_the_said_fillers_list_stays() -> None:
 
     「もう一言伝えた」を次の反復へ伝えるのは `said_fillers`（求めの器）の役目で、O への記録は
     二重に持っていたぶんである。こちらまで外すと、同じ言い回しを最初から言い直す。
+
+    プロンプトへ載せるのは W を組む側（に-5-に-2 で `loop/workspace.py` へ移した）。
     """
     import inspect
 
-    from familiar_agent.loop import event_loop
+    from familiar_agent.loop import workspace
 
-    src = inspect.getsource(event_loop)
+    src = inspect.getsource(workspace)
     assert "said_fillers" in src
     assert "すでに相手へ伝えた一言" in src

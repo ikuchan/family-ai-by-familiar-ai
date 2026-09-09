@@ -43,7 +43,6 @@ def _ip():
     ip._completion_queue = asyncio.Queue()
     ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
-    ip._apply_memory_verdicts = MagicMock()
     ip._coherence_violation = AsyncMock(return_value=None)
     ip._speak = AsyncMock(return_value=("直した", "発話"))
     ip._finish = AsyncMock()

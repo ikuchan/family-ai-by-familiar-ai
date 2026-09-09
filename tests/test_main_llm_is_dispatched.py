@@ -187,11 +187,12 @@ def test_the_iteration_acts_on_a_decision_without_arbitrating():
 def test_the_verdicts_use_the_map_that_the_main_llm_saw():
     """**飛行中に別の完了が届いても、申告が正しい記憶へ当たる。**
 
-    主LLM が返るまでに別の完了が届けば `self._w_id_map` は作り直されている。12桁が
-    当たってしまえば、申告が黙って別の記憶へ適用される。だから**返りと一緒に運ぶ**。
+    主LLM が返るまでに、W も対応表も次の反復のもので作り直される。12桁が当たってしまえば、
+    申告が黙って別の記憶へ適用される。だから**返りと一緒に運ぶ**。
+
+    に-5-に-2 で対応表は属性でなくなったので、`Decision` が唯一の持ち場である。
     """
     ip, a = _ip()
-    ip._w_id_map = {"abcdef123456": "あとで作り直された別の記憶"}  # 飛行中に上書きされた体
     ip._speak = AsyncMock(return_value=("はい", "発話"))
     ip._finish = AsyncMock()
     ip._coherence_violation = AsyncMock(return_value=None)

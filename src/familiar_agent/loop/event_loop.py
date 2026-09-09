@@ -31,6 +31,7 @@ from ..store.relations import KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from .coherence import facts_ctx
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
+from . import workspace
 from .request import Lookup, Request
 from .prompt import build_event_system_prompt
 
@@ -131,8 +132,8 @@ class Decision:
     """主LLM の返りと、**投げたときに見ていたもの**（環-h・段は）。
 
     主LLM は投げっぱなしになり、返りは別の反復（出す反復）で実行される。そのあいだに別の
-    完了が届けば、求めの寿命の状態（`_w_id_map`・想起した W）は上書きされる。だから
-    **返りと一緒に運ぶ**。
+    完了が届けば、W も対応表も次の反復のもので作り直される。だから**返りと一緒に運ぶ**。
+    に-5-に-2 で対応表は属性でなくなったので、いまは**ここが唯一の持ち場**である。
 
     - `memories`：共起は「その反復で一緒に活性した記録」なので、**主LLM が見た W** でなければ
       意味がない
@@ -210,8 +211,6 @@ class InformationProcessing:
 
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
         self._recall_exclude_id: str | None = None
-        # W に出した id（12桁）→ 完全な id。フルLLM の申告の突き合わせに使う。
-        self._w_id_map: dict[str, str] = {}
         # 直近のやりとりを、どこから見せるかのカーソル。**繋ぐためではない。**
         # 辺を書くのは `follows` だけである。起動直後は空なので、最初に要るときに
         # 一度だけ DB から引く。
@@ -242,21 +241,6 @@ class InformationProcessing:
         self._on_action = None
         # 投げる前に控える1件（`_start_lookup` が置き、背景タスクが読む）。
         self._pending_lookup: tuple[str, dict, str] = ("", {}, "recall")
-
-    def _open_ids(self) -> list[str]:
-        """この求めの open な記録（活性に下限を課して W へ浮かせる対象）。
-
-        発話の記録（求めの親）と、**いま生きている版**である。版チェーンでは生きている版は
-        常に1つなので、飛行中の意図を別に数える必要はない。トリガ O を求めが
-        閉じるまで open 扱いにするのは、完了で起きた反復では手がかりが**届いた結果の本文**に
-        変わり、元の人の問いとは語彙が重なるとは限らないためである。完了プロファイルは
-        関連を厳しく要求する（w_r=1.5）ので、下限が無いと「何のために調べていたか」が
-        W から落ちる。
-        """
-        ids = [self._req.request_id] if self._req.request_id else []
-        if self._req.live_version_id and self._req.live_version_id not in ids:
-            ids.append(self._req.live_version_id)
-        return ids
 
     def _note_origin(self, obs_id: str | None) -> None:
         """このターンの起点を控える。
@@ -929,83 +913,13 @@ class InformationProcessing:
         self._req.cue = ""
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
-        self._w_id_map = {}
 
-    def _compose_workspace(self, mem, memories: list[dict]) -> str:
-        """W を組む。候補集合を1本の経路で通し、枠に入るぶんだけ載せる。
-
-        正本 [D-想起起動] は「O に乗った後は共通の流れ（O → 根づき → W 構築〔5軸採点〕→
-        調停）で1本」と定める。以前は想起で拾った記録だけが採点を通り、ループ自身が O へ
-        書いた記録（意図 O・完了 O）は採点を通らず手組みの文字列として連結されていた。
-        そのため記録が W に載るかどうかが「畳むか畳まないか」で決まり、優先度の計算が
-        どこにも効いていなかった。手組みをやめ、中身は候補集合の一員として入る。
-
-        **1件の途中では切らない。** 枠（`workspace_max_chars`）を超えたら適合度の低い件から
-        丸ごと落とす。切ると調べた結果の枕だけが残って中身が消える（実機で
-        `「目の前を見る」を see で調べた結果が届いた：` だけが W に載った）。
-
-        あわせて、W に出した id（12桁）と完全な id の**対応表**を作る。フルLLM の申告を
-        突き合わせるのに使う。前方一致で当てずっぽうに引くと、写し間違いが黙って別の記憶へ
-        適用されてしまう。
-
-        `said`（言ったつなぎ）と `held`（配る保留）は手組みのまま残す。どちらも O にあるが、
-        `held` は `pending_store` が鮮度と配達を管理しており、想起とは別の規則を持つ。
-        """
-        from ..config import MemoryConfig
-
-        budget = MemoryConfig().workspace_max_chars
-
-        # 適合度の高い順に、枠へ入るぶんだけ採る。落ちたものは薄れた＝忘れたのであって、
-        # 抜けを検出する仕組みは置かない（W は速く薄れる・改めて調べるのが自然な振る舞い）。
-        ranked = sorted(memories, key=lambda m: float(m.get("fit", 0.0)), reverse=True)
-        kept: list[dict] = []
-        used = 0
-        for m in ranked:
-            size = len(str(m.get("summary", "")))
-            if kept and used + size > budget:
-                continue
-            kept.append(m)
-            used += size
-        dropped = len(memories) - len(kept)
-        if dropped:
-            # 何件落ちたかを残す。枠に収まったのか溢れたのかが分からないと、枠の値を
-            # 決められない。記憶の内容は出さない。
-            logger.info(
-                "event-loop W に入らなかった記録＝%d件（枠 %d 字・載せた %d 件）",
-                dropped,
-                budget,
-                len(kept),
-            )
-        # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
-        memories = kept
-
-        self._w_id_map = {
-            str(m.get("memory_id", "")).replace("-", "")[:12]: str(m.get("memory_id", ""))
-            for m in memories
-            if m.get("memory_id")
-        }
-        # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
-        # （実機で「〜ですね！」で始まる前置きが3回続いた）。
-        said = ""
-        if self._req.said_fillers:
-            lines = "\n".join(f"- 「{t}」" for t in self._req.said_fillers)
-            said = (
-                "すでに相手へ伝えた一言（言った順。次に何か言うなら、"
-                "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines
-            )
-        held = ""
-        if self._req.speech_to_deliver:
-            held = (
-                "聞く相手が居ないあいだに話したかったこと"
-                "（いま伝えるなら、そのときのこととして話す）：\n"
-                + "\n".join(self._req.speech_to_deliver)
-            )
-        return "\n\n".join(
-            p for p in [said, held, mem.format_for_context(memories)] if p and p.strip()
-        )
-
-    def _recent_ctx(self, follows: "str | None") -> str:
+    def _recent_ctx(self, follows: "str | None", w_id_map: "dict[str, str]") -> str:
         """直近のやりとりを逐語で組む（段 4）。
+
+        **対応表は引数で受け取る**（に-5-に-2）。W は反復ごとに作り直すので、属性に置くと
+        主LLM が飛行中に別の完了が届いたとき表が入れ替わり、12桁が当たれば辺が別の記録へ
+        張られる。
 
         **続きでなければ載せない。** 判定（`根拠台帳` §29）が続き先を返さなかったターンは、
         新しい話の始まりである。前のやりとりを載せると、関係のない会話が文脈に混ざる。
@@ -1019,8 +933,8 @@ class InformationProcessing:
         if not follows:
             return ""
         agent = self._agent
-        # 判定が続き先を返した。その辺は `_link_follows` が書く。
-        self._link_follows(follows)
+        # 判定が続き先を返した。その辺は `workspace.link_follows` が書く。
+        workspace.link_follows(self._agent, self._req, w_id_map, follows)
         # **カーソル自身が「まだ引いていない」を表す。** 以前は真偽値を別に持っており、
         # 一度立つと二度と戻らなかった。DB にやりとりが1件も無いまま立つと、次に
         # `_close_exchange` が値を入れるまで直近のやりとりが載らなかった（環-g・段へ）。
@@ -1041,49 +955,6 @@ class InformationProcessing:
             who = "わたし" if str(r.get("role")) in ("答え", "つなぎ") else "相手"
             lines.append(f"- {when} {who}：{r.get('content', '')}")
         return "[直近のやりとり（古い順）]\n" + "\n".join(lines)
-
-    def _link_follows(self, full: "str | None") -> None:
-        """判定が返した続き先へ、継起の辺を張る（`根拠台帳` §29）。
-
-        **W に無い id は捨てる。** 判定は12桁の形で返すが、実在するかまでは見ていない。
-        突き合わせは `memory_verdicts` と同じ対応表を通す。
-
-        自分の起点を指しても繋がない。自己ループはさかのぼりが止まらなくなる。
-        """
-        if not full or not self._req.request_id or not self._w_id_map:
-            return
-        if full not in set(self._w_id_map.values()) or full == self._req.request_id:
-            return
-        logger.info("event-loop このターンは %.8s に続く", full)
-        with contextlib.suppress(Exception):
-            self._agent._memory.record_succession(full, self._req.request_id)
-
-    def _apply_memory_verdicts(self, raw, w_id_map: "dict[str, str] | None" = None) -> None:
-        """フルLLM が申告した「想起した記憶の扱い」を反映する（課題5 E節 段2）。
-
-        **照合できたものだけ適用する**。指示しても、落としたり無い id を足したりする。
-        欠けた分を「使わなかった」と決めつけると、申告漏れと本当に使わなかったことを
-        混同する。件数をログに残し、指示が守られているかを後から確かめられるようにする。
-
-        **対応表は受け取る**（環-h・段は）。主LLM は投げっぱなしで、返るまでに別の完了が
-        届けば `self._w_id_map` は作り直されている。**主LLM が見た W の対応表**でないと、
-        12桁が当たってしまったときに黙って別の記憶へ適用される。
-        """
-        table = self._w_id_map if w_id_map is None else w_id_map
-        if not raw or not table:
-            return
-        verdicts: dict[str, str] = {}
-        for item in raw if isinstance(raw, list) else []:
-            if not isinstance(item, dict):
-                continue
-            full = table.get(str(item.get("id", "")).replace("-", "")[:12])
-            verdict = str(item.get("verdict", "")).strip().lower()
-            if full and verdict in ("important", "useless", "referred", "unused"):
-                verdicts[full] = verdict
-        logger.info("event-loop 記憶の判定 %d/%d 件", len(verdicts), len(table))
-        if verdicts:
-            with contextlib.suppress(Exception):
-                self._agent._memory.apply_verdicts(verdicts)
 
     def _emit(self, text: str) -> None:
         """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
@@ -1291,49 +1162,6 @@ class InformationProcessing:
                 await self._driver
             self._driver = None
 
-    async def _recall_workspace(
-        self,
-        mem,
-        cue: str,
-        *,
-        weights,
-        time_ref: "float | None" = None,
-        time_span_days: "float | None" = None,
-    ) -> "tuple[list[dict], str]":
-        """想起して W を組み、**(W に載った記録, 作業状態) を返す**（に-5-ろ）。
-
-        呼び手は2つ——反復の頭（いまが基準）と、調停が時期を指したときの引き直しである。
-        同じ呼び出しが2度書かれていて、片方を直してもう片方を忘れれば、基準を移した反復
-        だけ床が効かないといった食い違いが黙って入る（床＝`min_score` は実際に、連想想起
-        には渡っていてイベントループにだけ渡っていなかった）。
-
-        記録と W を一緒に返すのは、**W が記録から組まれる派生**だからである。別々に取れば
-        片方だけ古くなる。
-
-        **重みは呼び手が持つ。** `jitter_weights` は乱数を足すので、ここで作り直すと
-        引き直しのたびに別の重みになる。同じ反復のあいだは同じ重みでなければならない。
-
-        床（`min_score`）を渡す。渡さないと既定 0.0 で床が効かず、無関係な記録まで W の枠を
-        埋める。床は正本 [D-想起合成] が「無関係排除の主たる足切り」と定めるものである。
-        """
-        from ..config import MemoryConfig
-
-        cfg = MemoryConfig()
-        memories = await mem.recall_async(
-            cue,
-            n=cfg.recall_k,
-            min_score=cfg.recall_min_score,
-            weights=weights,
-            open_ids=self._open_ids(),
-            time_ref=time_ref,
-            time_span_days=time_span_days,
-        )
-        # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
-        # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
-        # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
-        # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
-        return memories, self._compose_workspace(mem, memories)
-
     async def _iterate(self) -> str:
         """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。"""
         from ..capability_state import load_summary
@@ -1386,7 +1214,9 @@ class InformationProcessing:
         trigger = "完了" if drained else self._req.trigger_kind
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
-        memories, workspace_ctx = await self._recall_workspace(mem, cue, weights=weights)
+        memories, workspace_ctx, w_id_map = await workspace.recall(
+            mem, cue, weights=weights, req=self._req
+        )
         _log_recall_weights(trigger, w_base, weights, memories)
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
         # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
@@ -1439,10 +1269,11 @@ class InformationProcessing:
         # で、指定があったときだけ走る。
         if decision.time_ref:
             with contextlib.suppress(Exception):
-                memories, workspace_ctx = await self._recall_workspace(
+                memories, workspace_ctx, w_id_map = await workspace.recall(
                     mem,
                     cue,
                     weights=weights,
+                    req=self._req,
                     time_ref=datetime.fromisoformat(decision.time_ref).timestamp(),
                     time_span_days=decision.time_span_days or None,
                 )
@@ -1499,7 +1330,7 @@ class InformationProcessing:
             await self._say_filler(decision.text)
 
         # 整合チェックにも同じものを渡すので、いったん変数へ出す。
-        recent_ctx = self._recent_ctx(await _result_or_none(follows_task))
+        recent_ctx = self._recent_ctx(await _result_or_none(follows_task), w_id_map)
         system = build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -1524,7 +1355,7 @@ class InformationProcessing:
             effort=decision.effort,
             capped=capped,
             memories=memories,
-            w_id_map=dict(self._w_id_map),
+            w_id_map=dict(w_id_map),
             recent_ctx=recent_ctx,
         )
         await self._write_version()
@@ -1578,7 +1409,9 @@ class InformationProcessing:
             return ""
 
         if say_tc is not None:
-            self._apply_memory_verdicts(say_tc.input.get("memory_verdicts"), decision.w_id_map)
+            workspace.apply_memory_verdicts(
+                agent, say_tc.input.get("memory_verdicts"), decision.w_id_map
+            )
             text = str(say_tc.input.get("text", "")).strip()
             # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
             violation = (
