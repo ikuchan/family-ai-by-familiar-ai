@@ -575,17 +575,27 @@ def test_action_branch_dispatches_recall_without_the_full_llm():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
     a._utility_backend.complete = AsyncMock(return_value='{"branch":"action","query":"昨日の天気"}')
     shown: list[str] = []
+    # **調べものを返さない。** 返ると駆動体が続きの反復を回し、同じ語なので投げられず、
+    # 上限まで進んで主LLM が起きる。数で「この反復は起こしていない」と言えなくなるので、
+    # ここで止める（環-h で主LLM が投げっぱなしになり、その窓が広がった）。
+    never = asyncio.Event()
+
+    async def hang(*_args, **_kwargs):
+        await never.wait()
+        return ("届かない", None)
+
+    a._memory_tool.call = AsyncMock(side_effect=hang)
 
     async def scenario():
         ip = InformationProcessing(a)
         first = await ip.begin_request("こんにちは", on_text=shown.append)
-        # 反復1でフルLLM を起こしていないこと（この後、駆動体が続きの反復を回す）。
-        assert a.backend.stream_turn.await_count == 0
         for _ in range(_WAIT_TICKS):
-            if a._memory_tool.call.await_count:
+            if a._memory_tool.call.called:
                 break
             await asyncio.sleep(0.005)
-        query = a._memory_tool.call.await_args.args[1]
+        # 調べものを投げるところまで来て、なお主LLM は起きていない。
+        assert a.backend.stream_turn.await_count == 0
+        query = a._memory_tool.call.call_args.args[1]
         await ip.close()
         return first, query
 
