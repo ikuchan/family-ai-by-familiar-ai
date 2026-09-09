@@ -69,7 +69,7 @@ def test_nothing_to_say_is_silence():
 def test_a_blocked_delivery_is_held():
     ip = _ip(blocked="聞く相手が居ない")
     assert asyncio.run(ip._speak("はい")) == ("", "保留")
-    ip._hold_speech.assert_awaited_once_with("はい")
+    ip._hold_speech.assert_awaited_once_with("はい", "聞く相手が居ない")
     ip._dif.speak.assert_not_awaited()
 
 

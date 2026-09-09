@@ -1440,7 +1440,7 @@ class InformationProcessing:
             return "", "沈黙"
         blocked = self._delivery_block_reason()
         if blocked:
-            await self._hold_speech(text)
+            await self._hold_speech(text, blocked)
             logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
             return "", "保留"
         await self._dif.speak(text)
@@ -1544,11 +1544,26 @@ class InformationProcessing:
                     names.add(name)
         return names
 
-    async def _hold_speech(self, text: str) -> None:
-        """話せなかった内容を O に残し、`pending_speech` へ積む（想起系は汚さない）。"""
+    # 配信ゲートが返す理由を、記録に書く形（過去形）へ言い換える。**表に無い理由は
+    # そのまま書く**——増えたときに黙って誤った文へ倒さないためである。
+    _HELD_REASON_PAST = {
+        "黙っているよう頼まれている": "黙っているよう頼まれていた",
+        "聞く相手が居ない": "聞く相手が居なかった",
+        "静穏時間である": "静穏時間だった",
+    }
+
+    async def _hold_speech(self, text: str, reason: str) -> None:
+        """話せなかった内容を O に残し、`pending_speech` へ積む（想起系は汚さない）。
+
+        **止められた理由も書く。** 以前は理由に関わらず「聞く相手が居なかった」と固定で
+        書いており、「黙っていてと言われたのでやめた」が「誰も居なかった」として残って
+        いた。保留は後で配られるので（`_release_pending_speech`）、パジュはその文面を
+        読んで話し始める。理由が違えば、話し出し方も違う。
+        """
         agent = self._agent
+        why = self._HELD_REASON_PAST.get(reason, reason)
         obs_id, _ = await agent._memory.save_async_with_id(
-            f"話したかったが、聞く相手が居なかった：{text}"[:500],
+            f"話したかったが、{why}：{text}"[:500],
             direction="保留",
             kind="observation",
             materialize_now=True,
