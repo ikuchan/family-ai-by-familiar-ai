@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing, Completion
 
 from tests.test_event_loop import _agent
 
@@ -71,8 +71,8 @@ def test_a_blocked_lookup_is_pushed_as_a_completion() -> None:
 
     items = asyncio.run(scenario())
     assert items, "止めたのに完了が積まれていない"
-    assert items[0][3] == "完了", f"種別が完了でない: {items[0]}"
-    assert "調べた" in items[0][1], f"すでに調べた旨が入っていない: {items[0][1]}"
+    assert items[0].kind == "完了", f"種別が完了でない: {items[0]}"
+    assert "調べた" in items[0].result, f"すでに調べた旨が入っていない: {items[0].result}"
 
 
 def test_a_finished_query_is_still_blocked() -> None:
@@ -165,7 +165,7 @@ def test_the_count_returns_to_zero_when_the_result_arrives() -> None:
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)  # 止められる
         before = ip._in_flight_count
-        ip._completion_queue.put_nowait(("語", "結果", None, "完了", 1))
+        ip._completion_queue.put_nowait(Completion(kind="完了", query="語", result="結果", index=1))
         await ip._intake()
         after = ip._in_flight_count
         for t in list(ip._background_tasks):

@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import asyncio
 
-from familiar_agent.loop.event_loop import InformationProcessing, Lookup
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Completion
 
 from tests.test_event_loop import _agent
 
@@ -117,12 +117,11 @@ def test_a_blocked_lookup_leaves_no_mark() -> None:
         a, ip = _ip()
         ip._lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._completion_queue.put_nowait(
-            (
-                "目の前を見る",
-                "「目の前を見る」はこの求めですでに調べた。結果は W にある。",
-                None,
-                "完了",
-                1,
+            Completion(
+                kind="完了",
+                query="目の前を見る",
+                result="「目の前を見る」はこの求めですでに調べた。結果は W にある。",
+                index=1,
             )
         )
         await ip._intake()

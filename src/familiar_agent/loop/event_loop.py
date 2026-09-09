@@ -18,7 +18,10 @@ from dataclasses import dataclass
 import logging
 import time
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ..backends.types import TurnResult
 
 from ..poses import nearest_pose
 from ..scene import extract_entities
@@ -123,6 +126,37 @@ def _log_recall_weights(trigger, base, used, memories) -> None:
 
 
 @dataclass
+class Completion:
+    """資源から返ってきたもの。QC（完了キュー）に並ぶ1件（環-h・段い）。
+
+    以前は `(語, 結果, 意図id, 種別, 番号)` の5つ組で、**位置で意味が決まっていた**。種別に
+    よって埋まる欄が違う（`進捗` は結果も番号も持たない）のに、位置で運んでいた。
+
+    種別は3つ。
+
+    | 種別 | いつ | 埋まる欄 |
+    |---|---|---|
+    | `完了` | 調べものが終わった | `query`・`result`・`index` |
+    | `進捗` | 調べものが遅い（`_watch_slow_lookup`） | `query` |
+    | `決定` | 主LLM が返った | `decision`・`memories`・`w_id_map` |
+
+    **`決定` は投げたときの W を一緒に運ぶ。** 共起は「その反復で一緒に活性した記録」なので
+    主LLM が実際に見た W でなければ意味がなく、申告（`memory_verdicts`）は W に印字された
+    12桁で返るので、その W を作ったときの対応表でないと引けない（`設計方針_主LLMを投げっぱなし
+    にする` ②）。求めの寿命の状態に頼ると、飛行中に別の完了が届いたとき上書きされる。
+    """
+
+    kind: str
+    query: str = ""
+    result: str = ""
+    intent_id: "str | None" = None
+    index: int = 0
+    decision: "TurnResult | None" = None
+    memories: "list[dict] | None" = None
+    w_id_map: "dict[str, str] | None" = None
+
+
+@dataclass
 class Lookup:
     """1件の調べもの（環-g・段は）。
 
@@ -159,9 +193,7 @@ class InformationProcessing:
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id, 種別)。種別＝完了｜進捗。
         # 「進捗」は結果ではないので、飛行中の数も一覧も触らず、意図も supersede しない。
-        self._completion_queue: asyncio.Queue[tuple[str, str, str | None, str, int]] = (
-            asyncio.Queue()
-        )
+        self._completion_queue: asyncio.Queue[Completion] = asyncio.Queue()
         # 外の機械（声・調べもの）へはこの口だけを通す（環-e-は）。要るものだけを渡す。
         self._dif = DIF(
             tts=agent._tts,
@@ -230,7 +262,7 @@ class InformationProcessing:
         # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
-        self._drained_completions: list[tuple[str, str, str | None, str, int]] = []
+        self._drained_completions: list[Completion] = []
         # 発話が出るまでの連鎖長（発話でリセット）。上限に達した反復は recall を渡さない。
         self._iterations = 0
         self._iterations_capped = False
@@ -409,12 +441,12 @@ class InformationProcessing:
             # 取る必要もない（環-g・段は で挙動が変わったところ）。完了だけを積む——投げずに
             # 黙って帰ると、完了も時間切れも来ないまま駆動体が待ち続ける。
             self._completion_queue.put_nowait(
-                (
-                    query,
-                    f"「{query}」はこの求めですでに調べた。結果は W にある。",
-                    intent_id,
-                    "完了",
-                    seen.index,
+                Completion(
+                    kind="完了",
+                    query=query,
+                    result=f"「{query}」はこの求めですでに調べた。結果は W にある。",
+                    intent_id=intent_id,
+                    index=seen.index,
                 )
             )
             return
@@ -446,7 +478,7 @@ class InformationProcessing:
             if lk is None or not lk.in_flight:
                 return  # もう結果が来ている
             logger.info("event-loop 調べものが %.0f 秒を超えた：%.40s", seconds, query)
-            self._completion_queue.put_nowait((query, "", None, "進捗", 0))
+            self._completion_queue.put_nowait(Completion(kind="進捗", query=query))
 
     async def _run_lookup(
         self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
@@ -455,7 +487,9 @@ class InformationProcessing:
         if action in ("see", "look"):
             # 飛行中の数は減らさない。`recall` と同じく取込が1件につき1つ減らす。
             out = await self._run_camera(action, tool_input)
-            self._completion_queue.put_nowait((query, out, intent_id, "完了", index))
+            self._completion_queue.put_nowait(
+                Completion(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
+            )
             return
         if action != "recall":
             try:
@@ -465,7 +499,13 @@ class InformationProcessing:
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop %s の実行に失敗: %s", action, e)
                 self._completion_queue.put_nowait(
-                    (query, f"（{action} を実行できなかった：{e}）", intent_id, "完了", index)
+                    Completion(
+                        kind="完了",
+                        query=query,
+                        result=f"（{action} を実行できなかった：{e}）",
+                        intent_id=intent_id,
+                        index=index,
+                    )
                 )
                 return
             if not dispatched:
@@ -473,7 +513,11 @@ class InformationProcessing:
                 # タスクが無いので完了も時間切れも来ない。ここで閉じないと飛行中の数が
                 # 戻らず、駆動体が完了キューだけを待ち続けて何も処理しなくなる。
                 logger.info("event-loop %s は投げられなかった：%.60s", action, text)
-                self._completion_queue.put_nowait((query, text, intent_id, "完了", index))
+                self._completion_queue.put_nowait(
+                    Completion(
+                        kind="完了", query=query, result=text, intent_id=intent_id, index=index
+                    )
+                )
                 return
             # 投げられた。**ここで飛行中の数を減らさない。** 減らすと、結果が返る前に
             # 「調査中ではない」ことになり、情動や機器で別の反復が起きて同じ調べものを
@@ -491,7 +535,9 @@ class InformationProcessing:
         except Exception as e:  # noqa: BLE001
             logger.exception("event-loop recall の実行に失敗: %s", e)
             out = f"（recall を実行できなかった：{e}）"
-        self._completion_queue.put_nowait((query, str(out), intent_id, "完了", index))
+        self._completion_queue.put_nowait(
+            Completion(kind="完了", query=query, result=str(out), intent_id=intent_id, index=index)
+        )
         logger.debug(
             "event-loop RH 完了をQCへ（id=%s qsize=%d 意図=%.8s）",
             id(self),
@@ -592,14 +638,15 @@ class InformationProcessing:
             self._completion_queue.qsize(),
         )
 
-        progress = [q for q, _t, _i, kind, _x in items if kind == "進捗"]
-        items = [it for it in items if it[3] != "進捗"]
+        progress = [c for c in items if c.kind == "進捗"]
+        items = [c for c in items if c.kind != "進捗"]
         if progress:
             # 「まだかかっている」は結果ではない。飛行中の数も一覧も触らず、意図も
             # supersede しない。次の反復で、調停に短い一言を書かせるためだけに起こす。
             self._slow_notice_received = True
-        for query, result_text, intent_id, _kind, _index in items:
+        for c in items:
             # 届いた結果を器へ入れる。**これで飛行中でなくなる**（数は導出）。
+            query, result_text = c.query, c.result
             lk = self._lookup_of(query)
             action = lk.action if lk is not None else "recall"
             if action == "see":
@@ -964,12 +1011,11 @@ class InformationProcessing:
             logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
             return
         loop = getattr(self, "_asyncio_loop", None)
-        item = (
-            query,
-            str(result),
-            None,
-            "完了",
-            index or (_lk.index if _lk is not None else 0),
+        item = Completion(
+            kind="完了",
+            query=query,
+            result=str(result),
+            index=index or (_lk.index if _lk is not None else 0),
         )
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(self._completion_queue.put_nowait, item)

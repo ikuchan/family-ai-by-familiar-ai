@@ -1,0 +1,91 @@
+"""完了キューが運ぶものを、器にする（環-h・段い）。
+
+QC の要素は `(語, 結果, 意図id, 種別, 番号)` の5つ組で、**位置で意味が決まっていた**。
+種別は既に `完了` と `進捗` の2つあり、`進捗` では `結果`・`意図id`・`番号` が埋まらない。
+**種別ごとに埋まる欄が違うものを、位置で運んでいた。**
+
+環-h では主LLM の返りも QC へ載る（種別 `決定`）。運ぶのは `TurnResult`（道具の呼び出し）と、
+**投げたときの W**（`memories`・`w_id_map`）である。6つ目・7つ目・8つ目を位置で足せば、
+読む側が数えることになる。
+
+段は（`Lookup`）と同じく、**1件を表す器**にする。**この段では挙動を変えない。**
+"""
+
+from __future__ import annotations
+
+import asyncio
+from familiar_agent.loop.event_loop import Completion, InformationProcessing
+
+
+def _ip():
+    ip = InformationProcessing.__new__(InformationProcessing)
+    ip._completion_queue = asyncio.Queue()
+    ip._lookups = []
+    ip._request_generation = 0
+    ip._asyncio_loop = None
+    return ip
+
+
+# ── 器 ─────────────────────────────────────────────────────────────────────
+
+
+def test_a_finished_lookup_carries_its_result():
+    c = Completion(kind="完了", query="明日の天気", result="晴れ", index=1)
+    assert (c.kind, c.query, c.result, c.index) == ("完了", "明日の天気", "晴れ", 1)
+    assert c.decision is None
+
+
+def test_a_slow_notice_carries_only_the_query():
+    """`進捗` は結果ではない。飛行中の数も一覧も触らない。"""
+    c = Completion(kind="進捗", query="明日の天気")
+    assert c.result == ""
+    assert c.index == 0
+
+
+def test_a_decision_carries_the_turn_result_and_the_workspace():
+    """主LLM の返りは、**投げたときの W** と一緒に運ぶ（環-h ②）。"""
+    from familiar_agent.backends import ToolCall
+    from familiar_agent.backends.types import TurnResult
+
+    tr = TurnResult(
+        stop_reason="tool_use", text="", tool_calls=[ToolCall("t", "say", {"text": "はい"})]
+    )
+    c = Completion(
+        kind="決定",
+        decision=tr,
+        memories=[{"memory_id": "m1"}],
+        w_id_map={"abcdef123456": "m1"},
+    )
+    assert c.decision is tr
+    assert c.memories == [{"memory_id": "m1"}]
+    assert c.w_id_map == {"abcdef123456": "m1"}
+
+
+# ── 積む側が器を使うこと ────────────────────────────────────────────────────
+
+
+def test_push_completion_puts_a_record():
+    ip = _ip()
+    ip.push_completion("明日の天気", "晴れ", index=3)
+    got = ip._completion_queue.get_nowait()
+    assert isinstance(got, Completion)
+    assert (got.kind, got.query, got.result, got.index) == ("完了", "明日の天気", "晴れ", 3)
+
+
+def test_nothing_reads_the_queue_by_position():
+    """位置で読む書き方が残っていないこと（`item[3]` のような）。"""
+    import io
+    import re
+    import tokenize
+    from pathlib import Path
+
+    loop = Path(__file__).parent.parent / "src/familiar_agent/loop/event_loop.py"
+    with open(loop, "rb") as f:
+        code = " ".join(
+            t.string
+            for t in tokenize.tokenize(io.BytesIO(f.read()).readline)
+            if t.type not in (tokenize.COMMENT, tokenize.STRING)
+        )
+    # 5つ組をほどく書き方
+    assert "for query , result_text , intent_id , _kind , _index in items" not in code
+    assert not re.search(r"\bit \[ 3 \]", code)

@@ -69,7 +69,7 @@ def test_completion_queue_carries_the_index() -> None:
     ip = InformationProcessing(a)
     ip.push_completion("さっかー", "結果", index=2)
     item = ip._completion_queue.get_nowait()
-    assert item[4] == 2, f"通し番号が運ばれていない: {item}"
+    assert item.index == 2, f"通し番号が運ばれていない: {item}"
 
 
 def test_distinct_queries_get_distinct_indexes() -> None:
@@ -127,4 +127,4 @@ def test_deferred_completion_gets_its_index_from_the_query() -> None:
         return item
 
     item = asyncio.run(scenario())
-    assert item[4] == 2, f"語から通し番号を引けていない: {item}"
+    assert item.index == 2, f"語から通し番号を引けていない: {item}"
