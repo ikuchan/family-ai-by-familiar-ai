@@ -23,7 +23,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 
 @dataclass
@@ -36,3 +36,20 @@ class Request:
 
     iterations: int = 0
     iterations_capped: bool = False
+    # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく続きとして
+    # 自然につなぐために見せる。
+    said_fillers: list[str] = field(default_factory=list)
+    # 配る保留（「いつ・何を言いたかったか」）。W へ流し、反復が閉じたら捨てる。
+    speech_to_deliver: list[str] = field(default_factory=list)
+    # このターンが作った記録と、その役割（観測 id, 役割）。**一つの並びが二つの用を
+    # 賄う**：拡散想起の母集合（共起の関係）へ載せる id と、やりとりの関係の項。
+    # 役割は 起点・版・見た・つなぎ・答え（`_note_record`）。つなぎは共起に載せない
+    # （中身が無く、育てる価値がない）。中断はこの求めで閉じるが、次の求めの共起には
+    # 載る（打ち切った調査と言い直した問いの共起は、たどる価値がある）。
+    turn_records: list[tuple[str, str]] = field(default_factory=list)
+    # いまのやりとりが、その並びのどこから始まったか。**やりとりは並びの一区間**である。
+    # 母集合への持ち越しは打ち切りでも消さないが、やりとりは打ち切りで区切る。二つの用は、
+    # 区切りの規則が違う。
+    exchange_start: int = 0
+    # **入れ物は求めごとに別にする**（`default_factory`）。既定値を1つにすると、次の求めへ
+    # 前の一言や前のターンの記録が残る。
