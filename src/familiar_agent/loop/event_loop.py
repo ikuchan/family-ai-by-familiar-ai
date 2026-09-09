@@ -30,7 +30,7 @@ from .arbiter import arbitrate
 from ..store.relations import KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from .coherence import facts_ctx
-from .generator import _pi_ctx, _present_ctx
+from .generator import _iter_ctx, _pi_ctx, _present_ctx
 from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
@@ -1567,18 +1567,8 @@ class InformationProcessing:
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(),
             recent_ctx=recent_ctx,
-            iter_ctx=(
-                f"[反復] {chain}/{max_chain}"
-                # 何回目に考えているか。反復の数は返りで戻るので、これが唯一の手がかり。
-                + f"（この件を考えるのは {round_} 回目）"
-                # 上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答える。
-                # 断りが無いと、材料不足のまま答えたことが相手に伝わらない。
-                + (
-                    "（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"
-                    "そのうえで現時点で分かることを返す）"
-                    if capped
-                    else ""
-                )
+            iter_ctx=_iter_ctx(
+                chain=chain, max_chain=max_chain, thinking_round=round_, capped=capped
             ),
             workspace_ctx=workspace_ctx,
             # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。

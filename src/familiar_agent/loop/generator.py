@@ -74,6 +74,27 @@ def _present_ctx(agent) -> str:
     return "".join(parts) + ")"
 
 
+def _iter_ctx(*, chain: int, max_chain: int, thinking_round: int, capped: bool) -> str:
+    """この反復がどこに居るかを、主LLM へ渡す1行に組む。
+
+    材料は数と真偽だけで、**ループの可変状態を1つも読まない**（に-5-は）。
+
+    - `chain`／`max_chain`：**決める反復**の何回目か（環-h ⑤）。主LLM の返りで 0 へ戻るので、
+      この数は求めの長さを表さない
+    - `thinking_round`：この求めで主LLM を呼ぶのが何回目か。**求めの長さを表すのはこちら**
+      である（環-h ⑥-2）。反復のリセットで手がかりが消えたので、回数そのものを渡す
+    - `capped`：上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答えさせる。
+      断りが無いと、材料不足のまま答えたことが相手に伝わらない
+    """
+    text = f"[反復] {chain}/{max_chain}（この件を考えるのは {thinking_round} 回目）"
+    if capped:
+        text += (
+            "（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"
+            "そのうえで現時点で分かることを返す）"
+        )
+    return text
+
+
 def _pi_ctx() -> str:
     """mood/drive を PI として定性注入する（生値は出さない）。DB 失敗は空で degrade。"""
     try:
