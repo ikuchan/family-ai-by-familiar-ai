@@ -1595,18 +1595,26 @@ class InformationProcessing:
         # 自分が言ったことを、**発話の時点で同期に** O へ書く。背景の永続化（要約・内省）を
         # 待つと2秒遅れ、そのあいだに次の反復が起きると「さっき何と言ったか」を拾えない
         # （実機で「それだけ？」に聞き返した）。要約は後から来て、この記録を supersede する。
+        #
+        # **声になったかで書き分ける。** 主LLM が `say` を呼ばず地の文だけを返した反復は、
+        # 画面には出るが**声にはなっていない**（規則 `voice-only-from-say`）。それを
+        # 「自分が答えた」と書くと、相手が聞いていない文が答えとして残り、`_recent_ctx` が
+        # 「わたし」として読み返す。**残す価値はある**ので、区別して残す——役割 `独白` は
+        # やりとりの項にならないが（`recent_exchanges` が引く役割に無い）、拡散想起の
+        # 母集合には入る（`HIDDEN_ROLES` に入れない）。
+        spoken = outcome == "発話"
         answer_id = None
         if text:
             with contextlib.suppress(Exception):
                 answer_id, _ = await agent._memory.save_async_with_id(
-                    f"自分が答えた：{text}"[:500],
-                    direction="発話",
+                    (f"自分が答えた：{text}" if spoken else f"考えたが言わなかった：{text}")[:500],
+                    direction="発話" if spoken else "独白",
                     kind="observation",
                     materialize_now=True,
                     parent_id=self._request_id,
                     **agent._observation_perspective(),
                 )
-        self._note_record(answer_id, "答え")
+        self._note_record(answer_id, "答え" if spoken else "独白")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
