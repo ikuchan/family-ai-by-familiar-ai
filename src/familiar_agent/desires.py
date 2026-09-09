@@ -17,7 +17,7 @@ from .db import get_db
 from ._i18n import _t
 
 if TYPE_CHECKING:
-    from .workspace import Coalition
+    from .coalition import Coalition
 
 logger = logging.getLogger(__name__)
 
@@ -85,36 +85,37 @@ def _internal_rate(n_cycles: float) -> float:
 # Social desires use _rate() (DESIRE_COOLDOWN); internal desires use _internal_rate().
 GROWTH_RATES = {
     # ── Social desires (user-facing, Sonnet backend) ───────────────────────
-    "greet_companion":  _rate(5),       # n=5  →  7.5 min  (morning ×1.3 → 5.8 min)
-    "share_memory":     _rate(4),       # n=4  →  6 min    (evening ×1.4 → 4.3 min)
-    "attachment":       _rate(8),       # n=8  → 12 min
-    "care":             _rate(8),       # n=8  → 12 min
-    "play":             _rate(8),       # n=8  → 12 min
-    "repair":           0.0,            # manual only — grows via boost()
+    "greet_companion": _rate(5),  # n=5  →  7.5 min  (morning ×1.3 → 5.8 min)
+    "share_memory": _rate(4),  # n=4  →  6 min    (evening ×1.4 → 4.3 min)
+    "attachment": _rate(8),  # n=8  → 12 min
+    "care": _rate(8),  # n=8  → 12 min
+    "play": _rate(8),  # n=8  → 12 min
+    "repair": 0.0,  # manual only — grows via boost()
     # worry_companion intentionally omitted — only grows via detect_worry_signal()
-
     # ── Internal desires (no user output, utility backend) ─────────────────
-    "look_around":      _internal_rate(3),   # n=3  →  fires every 3 × INTERNAL_COOLDOWN
-    "explore":          _internal_rate(5),
-    "rest":             _internal_rate(6),
+    "look_around": _internal_rate(3),  # n=3  →  fires every 3 × INTERNAL_COOLDOWN
+    "explore": _internal_rate(5),
+    "rest": _internal_rate(6),
     "browse_curiosity": _internal_rate(30),  # matches min_interval_seconds=2700
-    "curiosity":        _internal_rate(4),
-    "reflect":          _internal_rate(12),
-    "consolidate":      _internal_rate(20),
-    "self_protect":     0.0,                 # manual only — grows via boost()
+    "curiosity": _internal_rate(4),
+    "reflect": _internal_rate(12),
+    "consolidate": _internal_rate(20),
+    "self_protect": 0.0,  # manual only — grows via boost()
 }
 
 # Desires that require the full conversation backend and presence gating.
-_SOCIAL_DESIRE_NAMES: frozenset[str] = frozenset({
-    "greet_companion",
-    "worry_companion",
-    "share_memory",
-    "attachment",
-    "care",
-    "repair",
-    "play",
-    "share_search_result",  # delivery turns are user-facing; must use the full social backend
-})
+_SOCIAL_DESIRE_NAMES: frozenset[str] = frozenset(
+    {
+        "greet_companion",
+        "worry_companion",
+        "share_memory",
+        "attachment",
+        "care",
+        "repair",
+        "play",
+        "share_search_result",  # delivery turns are user-facing; must use the full social backend
+    }
+)
 
 
 def is_social_desire(name: str) -> bool:
@@ -131,6 +132,7 @@ def is_internal_desire_turn(desire_name: str) -> bool:
     turns return False.
     """
     return bool(desire_name) and not is_social_desire(desire_name)
+
 
 # ── Worry signal detection ─────────────────────────────────────────────────────
 
@@ -376,7 +378,9 @@ class DesireSystem:
             with db.lock:
                 conn = db.conn()
                 with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                    cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", ("desires",))
+                    cur.execute(
+                        "SELECT value_json FROM agent_state WHERE state_key = %s", ("desires",)
+                    )
                     row = cur.fetchone()
             if row:
                 self._desires = json.loads(row["value_json"])
@@ -593,7 +597,7 @@ class DesireSystem:
 
     def as_coalition(self) -> Coalition | None:
         """Return a workspace Coalition from the dominant desire, if any."""
-        from .workspace import Coalition
+        from .coalition import Coalition
 
         result = self.get_dominant()
         if result is None:

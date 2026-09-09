@@ -189,7 +189,9 @@ capabilities:
     detail: >
       The Global Workspace, inspired by GWT/GNWT, acts as an integration layer
       where specialized processors compete for a shared workspace, broadcasting
-      their content. Implemented in `workspace.py`.
+      their content. The competition and broadcast were removed in #12a; what
+      remains is the `Coalition` container in `coalition.py`. The workspace
+      itself is rebuilt each iteration by `loop/workspace.py`.
     enabled: true
   - id: memory_worker
     summary: Handle background jobs for durable memory operations

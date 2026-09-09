@@ -58,7 +58,7 @@ JSONL append-only logging with replay support.
 
 **Working memory** — Recent context + workspace coalitions
 
-### Layer D: Intervention Engine → `concern_engine.py` + `desires.py` + `intervention_policy.py` + `workspace.py`
+### Layer D: Intervention Engine → `concern_engine.py` + `desires.py` + `intervention_policy.py` + `coalition.py`
 
 **concern_engine.py** — Active unresolved concerns with decay:
 - Categories: general, agency, companion, curiosity, affect

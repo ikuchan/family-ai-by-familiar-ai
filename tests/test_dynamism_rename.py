@@ -18,12 +18,13 @@ import pathlib
 
 import pytest
 
-from familiar_agent.workspace import Coalition
+from familiar_agent.coalition import Coalition
 
 
 def _coalition(**kw) -> Coalition:
-    base = dict(source="test", summary="s", dynamism=0.8, urgency=0.5,
-                novelty=0.5, context_block="")
+    base = dict(
+        source="test", summary="s", dynamism=0.8, urgency=0.5, novelty=0.5, context_block=""
+    )
     base.update(kw)
     return Coalition(**base)  # type: ignore[arg-type]
 
@@ -58,7 +59,7 @@ def test_old_name_is_gone_from_source() -> None:
     # 概念3 を扱うファイルだけを見る。ほかの `activation` は別概念（根づき・顕著性）で、
     # それぞれの改名で別に扱う。
     targets = [
-        "src/familiar_agent/workspace.py",
+        "src/familiar_agent/coalition.py",
         "src/familiar_agent/desires.py",
         "src/familiar_agent/scene.py",
         "src/familiar_agent/prediction.py",

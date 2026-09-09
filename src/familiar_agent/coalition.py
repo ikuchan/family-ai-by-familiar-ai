@@ -4,9 +4,13 @@
 放送を行っていた `GlobalWorkspace` は #12a で撤去した（登録した listener は発火せず、
 競合の結果を読む経路も無くなっていた）。
 
-**W を組み立てるのはここではない。** `loop/workspace.py` の `compose()` である
-（2026-09-10・環-e-に の に-5-に-2 で `loop/event_loop.py` から移した）。この file が
-持つのは候補の器だけで、6モジュールがそれを渡すために import している。
+**この file が持つのは候補の器だけで、W を組み立てる役目は無い。** W を組むのは
+`loop/workspace.py` の `compose()` である。以前この file は `workspace.py` という名前
+だったが、に-5-に-2 で W を組む側が `loop/workspace.py` になり、**同じ名前の file が2つ**に
+なった。名前が実態と合っていないこちらを `coalition.py` へ改めた（2026-09-10）。
+
+6モジュール（`prediction`・`exploration`・`self_narrative`・`scene`・`desires`・
+`tools/memory`）が器を渡すために import している。
 """
 
 from __future__ import annotations

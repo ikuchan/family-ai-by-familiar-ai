@@ -35,12 +35,12 @@ _RETIRED = {
 
 # 旧名を**検証の対象として**文字列で持つファイル。
 _ALLOWED = {
-    "test_six_concepts_vocabulary.py",          # このテスト自身
-    "test_groundedness_rename.py",              # 根づきの改名を旧名で確かめる
-    "test_salience_rename.py",                  # 顕著性の改名を旧名で確かめる
-    "test_dynamism_rename.py",                  # 勢いの改名を旧名で確かめる
-    "test_fit_and_merit_rename.py",             # 適合度の改名を旧名で確かめる
-    "test_self_state_removed.py",               # 撤去した自己状態の軸名を持つ
+    "test_six_concepts_vocabulary.py",  # このテスト自身
+    "test_groundedness_rename.py",  # 根づきの改名を旧名で確かめる
+    "test_salience_rename.py",  # 顕著性の改名を旧名で確かめる
+    "test_dynamism_rename.py",  # 勢いの改名を旧名で確かめる
+    "test_fit_and_merit_rename.py",  # 適合度の改名を旧名で確かめる
+    "test_self_state_removed.py",  # 撤去した自己状態の軸名を持つ
     "test_migration_029_utc_text_timestamps.py",  # 凍結マイグレーションの前提を確かめる
 }
 
@@ -57,10 +57,13 @@ def test_retired_name_is_gone(retired, replacement) -> None:
     """撤去した呼び名がコードへ戻っていない。"""
     root = pathlib.Path(__file__).resolve().parents[1]
     pattern = re.compile(rf"(?<![A-Za-z0-9_]){re.escape(retired)}(?![A-Za-z0-9_])")
-    stale = [str(p.relative_to(root)) for p in _sources()
-             if pattern.search(p.read_text(encoding="utf-8"))]
-    assert not stale, (
-        f"旧名『{retired}』が残っている（→『{replacement}』）:\n" + "\n".join(sorted(stale))
+    stale = [
+        str(p.relative_to(root))
+        for p in _sources()
+        if pattern.search(p.read_text(encoding="utf-8"))
+    ]
+    assert not stale, f"旧名『{retired}』が残っている（→『{replacement}』）:\n" + "\n".join(
+        sorted(stale)
     )
 
 
@@ -68,13 +71,12 @@ def test_the_six_names_all_resolve() -> None:
     """6概念の名前が実際に引ける（表と実装がずれていない）。"""
     from familiar_agent.config import MemoryConfig, RecallWeights
     from familiar_agent.tools.memory import _derive_groundedness, _score_breakdown
-    from familiar_agent.workspace import Coalition
+    from familiar_agent.coalition import Coalition
 
-    assert _derive_groundedness(0.5, 0) == pytest.approx(0.5)          # 根づき
-    assert MemoryConfig().recall_w_g > 0                               # 根づきの重み
+    assert _derive_groundedness(0.5, 0) == pytest.approx(0.5)  # 根づき
+    assert MemoryConfig().recall_w_g > 0  # 根づきの重み
     assert "w_g" in RecallWeights.__dataclass_fields__
-    assert "dynamism" in Coalition.__dataclass_fields__                # 勢い
-    parts = _score_breakdown(0.5, None, None, 1.0, 0,
-                             half_life_days=3.0, floor=0.001)
-    assert hasattr(parts, "m") and hasattr(parts, "fit")               # 地力・適合度
-    assert hasattr(parts, "g")                                         # 根づきの軸
+    assert "dynamism" in Coalition.__dataclass_fields__  # 勢い
+    parts = _score_breakdown(0.5, None, None, 1.0, 0, half_life_days=3.0, floor=0.001)
+    assert hasattr(parts, "m") and hasattr(parts, "fit")  # 地力・適合度
+    assert hasattr(parts, "g")  # 根づきの軸

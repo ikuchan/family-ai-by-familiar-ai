@@ -46,7 +46,7 @@ _KEY_MODULES = [
     "self_narrative.py",
     "mcp_client.py",
     "prediction.py",
-    "workspace.py",
+    "coalition.py",
     "memory_worker.py",
     "concern_engine.py",
     "emotion_pad.py",
