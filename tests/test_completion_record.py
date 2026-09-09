@@ -15,12 +15,15 @@ from __future__ import annotations
 
 import asyncio
 from familiar_agent.loop.event_loop import Completion, Decision, InformationProcessing
+from familiar_agent.loop.request import Request
 
 
 def _ip():
     ip = InformationProcessing.__new__(InformationProcessing)
+    # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
+    ip._req = Request()
     ip._completion_queue = asyncio.Queue()
-    ip._lookups = []
+    ip._req.lookups = []
     ip._request_generation = 0
     ip._asyncio_loop = None
     return ip

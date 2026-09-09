@@ -24,7 +24,7 @@ def _ip_with_investigation():
     )
     ip = InformationProcessing(a)
     ip._req.request_id = "obs-parent"
-    ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
+    ip._req.lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
     ip._completion_queue.put_nowait(
         Completion(kind="完了", query="明日の天気", result="晴れ", intent_id="obs-child", index=1)
     )
@@ -36,7 +36,7 @@ def test_pending_completions_are_dropped():
     asyncio.run(ip._abort_lookups())
     assert ip._completion_queue.empty()
     assert ip._in_flight_count == 0
-    assert ip._lookups == []
+    assert ip._req.lookups == []
 
 
 def test_nothing_happens_when_there_was_no_investigation():
@@ -81,7 +81,7 @@ def test_a_completion_from_an_abandoned_request_is_dropped():
     # 外部呼び出しは投げた時点で飛んでいる。打ち切ったあとに届いても捨てる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
-    ip._lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
+    ip._req.lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
     ip._request_generation = 1
     ip.push_completion("明日の天気", "晴れ")
     assert ip._completion_queue.empty()

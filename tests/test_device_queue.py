@@ -158,7 +158,7 @@ def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
         ip._iterate = AsyncMock(return_value="")
         ip._begin_affect = AsyncMock(return_value=None)
         ip._begin_device = AsyncMock(return_value=None)
-        ip._lookups = [
+        ip._req.lookups = [
             Lookup(index=1, action="recall", query="q", generation=0)
         ]  # 調査が飛んでいる
         ip._ensure_driver()

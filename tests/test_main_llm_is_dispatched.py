@@ -32,7 +32,7 @@ def _ip():
     ip._req = Request()
     ip._completion_queue = asyncio.Queue()
     ip._drained_completions = []
-    ip._lookups = []
+    ip._req.lookups = []
     ip._background_tasks = set()
     ip._request_generation = 0
     ip._asyncio_loop = None
@@ -102,7 +102,7 @@ def test_the_dispatched_main_llm_appears_in_the_lookups():
         )
         for t in list(ip._background_tasks):
             t.cancel()
-        return [(lk.action, lk.in_flight) for lk in ip._lookups]
+        return [(lk.action, lk.in_flight) for lk in ip._req.lookups]
 
     assert asyncio.run(scenario()) == [("主LLM", True)]
 
@@ -141,7 +141,7 @@ def test_the_return_lands_in_the_queue_with_what_it_saw():
 
 def test_intake_hands_the_decision_back():
     ip, _a = _ip()
-    ip._lookups = []
+    ip._req.lookups = []
     ip._drained_completions = [Completion(kind="決定", decision=_decision())]
     drained, decided = asyncio.run(ip._intake())
     assert decided is not None
@@ -153,7 +153,7 @@ def test_the_version_does_not_carry_the_返り():
     from familiar_agent.loop.event_loop import Lookup
 
     ip, _a = _ip()
-    ip._lookups = [Lookup(index=1, action="主LLM", query="主LLM1", generation=0)]
+    ip._req.lookups = [Lookup(index=1, action="主LLM", query="主LLM1", generation=0)]
     ip._drained_completions = [
         Completion(
             kind="決定",
@@ -164,8 +164,8 @@ def test_the_version_does_not_carry_the_返り():
         )
     ]
     asyncio.run(ip._intake())
-    assert "秘密の答え" not in (ip._lookups[0].result or "")
-    assert ip._lookups[0].in_flight is False  # 飛行中ではなくなる
+    assert "秘密の答え" not in (ip._req.lookups[0].result or "")
+    assert ip._req.lookups[0].in_flight is False  # 飛行中ではなくなる
 
 
 # ── 出す反復 ───────────────────────────────────────────────────────────────

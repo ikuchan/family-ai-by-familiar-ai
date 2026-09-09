@@ -45,7 +45,7 @@ def _ip():
     ip._req.iterations_capped = False
     ip._req.request_id = "req-1"
     ip._req.live_version_id = None
-    ip._lookups = []
+    ip._req.lookups = []
     ip._req.said_fillers = []
     ip._req.speech_to_deliver = []
     ip._req.turn_records = []

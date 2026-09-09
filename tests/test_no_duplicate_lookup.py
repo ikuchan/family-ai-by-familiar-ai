@@ -43,7 +43,7 @@ def test_the_same_query_is_not_dispatched_twice() -> None:
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
-        got = [(lk.action, lk.query, lk.index) for lk in ip._lookups]
+        got = [(lk.action, lk.query, lk.index) for lk in ip._req.lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -85,9 +85,9 @@ def test_a_finished_query_is_still_blocked() -> None:
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "済んだ語"}, "済んだ語", None)
         # 結果が届いて飛行中から外れた状態を作る。
-        ip._lookups.clear()
+        ip._req.lookups.clear()
         ip._dispatch_lookup("recall", {"query": "済んだ語"}, "済んだ語", None)
-        got = [(lk.action, lk.query, lk.index) for lk in ip._lookups]
+        got = [(lk.action, lk.query, lk.index) for lk in ip._req.lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -104,7 +104,7 @@ def test_a_different_query_still_goes_out() -> None:
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "ひとつめ"}, "ひとつめ", None)
         ip._dispatch_lookup("recall", {"query": "ふたつめ"}, "ふたつめ", None)
-        got = [(lk.query, lk.index) for lk in ip._lookups]
+        got = [(lk.query, lk.index) for lk in ip._req.lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -124,7 +124,7 @@ def test_a_new_request_clears_the_history() -> None:
         ip._background_tasks.clear()
         await ip._abort_lookups()  # 求めの区切り
         ip._dispatch_lookup("recall", {"query": "天気"}, "天気", None)
-        got = [(lk.action, lk.query, lk.index) for lk in ip._lookups]
+        got = [(lk.action, lk.query, lk.index) for lk in ip._req.lookups]
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -144,9 +144,9 @@ def test_a_blocked_lookup_does_not_add_a_second_record() -> None:
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
-        first = (ip._in_flight_count, len(ip._lookups))
+        first = (ip._in_flight_count, len(ip._req.lookups))
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
-        second = (ip._in_flight_count, len(ip._lookups))
+        second = (ip._in_flight_count, len(ip._req.lookups))
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
