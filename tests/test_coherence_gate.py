@@ -163,5 +163,6 @@ async def test_a_violation_sends_the_draft_back_once():
 
     from familiar_agent.loop import event_loop
 
-    src = inspect.getsource(event_loop.InformationProcessing._iterate)
+    # 差し戻しは `_act_on_decision` にある（環-h・段ろ で切り出した）。
+    src = inspect.getsource(event_loop.InformationProcessing._act_on_decision)
     assert "[SELF-CHECK]" in src
