@@ -461,7 +461,16 @@ Make sure `ELEVENLABS_API_KEY` is set. Without it, voice is disabled and the age
 
 ## Technical background
 
-Curious about how it works? See [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) for the research and design decisions behind familiar-ai — ReAct, SayCan, Reflexion, Voyager, the desire system, Global Workspace Theory, and more.
+Curious about how it works? The current design lives in
+[docs/NewModesDocs/](./docs/NewModesDocs/) — the event-driven loop, the memory model, and the
+reasoning behind each decision. These documents are written in Japanese and kept as the working
+source of truth; [docs/NewModesDocs/README.md](./docs/NewModesDocs/README.md) is the index.
+For the module layout, see [docs/ソースツリー.md](./docs/%E3%82%BD%E3%83%BC%E3%82%B9%E3%83%84%E3%83%AA%E3%83%BC.md).
+
+[docs/OldDocs/technical.md](./docs/OldDocs/technical.md) describes the **earlier** ReAct
+pipeline — ReAct, SayCan, Reflexion, Voyager, the desire system, Global Workspace Theory. That
+pipeline was removed; the document is kept as a record of the thinking, not as a description of
+what runs today.
 
 ---
 
