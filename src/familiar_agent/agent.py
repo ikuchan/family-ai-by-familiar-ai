@@ -383,7 +383,6 @@ class EmbodiedAgent:
         desires: DesireSystem | None,
         arousal: float = 0.0,
         memories: list[dict] | None = None,
-        close_parent_id: str | None = None,
         exchange: "list[tuple[str, str]] | None" = None,
         extra_cooccurring_ids: "list[str] | None" = None,
     ) -> None:
