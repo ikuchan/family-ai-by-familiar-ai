@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.38）
+# familiar-ai モジュール分割設計（v0.39）
 
 ## この文書が決めること
 
@@ -541,8 +541,8 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 
 | file | 行 | 寿命 | 中身 |
 |---|---|---|---|
-| `event_loop.py` | 1,759 | **装置** | 口（`set_output`・`push_*`・`start`・`close`・`begin_request`）・駆動体・キュー3つ・背景タスク・**殻**（`_iterate`・`_act_on_decision`） |
-| `workspace.py` | 200 | **反復** | W を組み、W から引く |
+| `event_loop.py` | 1,822 | **装置** | 口（`set_output`・`push_*`・`start`・`close`・`begin_request`）・駆動体・キュー3つ・背景タスク・**殻**（`_iterate`・`_act_on_decision`） |
+| `workspace.py` | 267 | **反復** | W を組み、W から引く。**申告を軽量LLM へ聞く**（`ask_verdicts`・出-h-ろ） |
 | `request.py` | 109 | **求め** | 求めの状態と `Lookup` |
 | `generator.py` | 116 | — | 状態を触らない材料組み（在席・内部状態・反復の文脈） |
 | `arbiter.py` | 309 | — | 調停（軽量LLM） |
@@ -1280,6 +1280,13 @@ backends/cli.py          166 行
 ---
 
 ## 更新履歴
+
+> v0.39：**`workspace.py` に申告を聞く口が入った**（2026-09-11・出-h-ろ）。`ask_verdicts()`
+> が軽量LLM へ1回聞き、`apply_memory_verdicts()` が当てる。あわせて
+> `apply_memory_verdicts` の第1引数を `agent` から **`mem`（想起に使った記憶そのもの）**へ
+> 変えた——`situated_memories` は人ごとで、基底の記憶へ書くと視点が `__self__` へ寄り、
+> 話者が同定されている場面で申告が0行に当たっていた。行数は `event_loop.py` 1,759 → 1,822、
+> `workspace.py` 200 → 267。
 
 > v0.38：**群C の点検で、file 一覧の行数を実測へ直した**（2026-09-10）。コメントの手入れで
 > 数字が動いていた。`arbiter.py` と `evaluator.py` が1行に潰れていた表の崩れも直し、行数に
