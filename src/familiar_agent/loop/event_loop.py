@@ -190,8 +190,21 @@ class Completion:
 class InformationProcessing:
     """I：情報処理機構（Information-processing）。③ I 詳細図の器。
 
-    段階1で実体化するのは **QC（完了キュー）** と **LPM（ループ核）＝`begin_request`** のみ。
-    O・C（Config）・W・RH 相当のツール実行は既存実体を持つ `agent` を当面参照する。
+    この class が持つのは**装置の寿命**（起動から終了まで）のものだけである——3つのキュー、
+    駆動体、外との口（`set_output`・`push_*`・`start`・`close`・`begin_request`）、背景タスク。
+    それ以外の寿命は別の持ち主にある（環-e-に の に-5-に）。
+
+    | 寿命 | 持ち主 |
+    |---|---|
+    | 装置：起動〜終了 | **ここ** |
+    | 求め：始まり〜閉じる | `loop/request.py` の `Request`（`self._req`） |
+    | 反復：1反復 | 引数と返り値で渡す（`loop/workspace.py`） |
+
+    **`_iterate` と `_act_on_decision` はここに残る。** どちらも `_dispatch_main_llm`・
+    `_finish`・`_speak`・`_write_version` を呼び返す**殻**で、別 file へ出せば逆参照が要る
+    （Functional core / Imperative shell）。
+
+    O・C（Config）・RH 相当のツール実行は、既存実体を持つ `agent` を当面参照する。
     """
 
     def __init__(self, agent):
@@ -246,7 +259,8 @@ class InformationProcessing:
         """このターンの起点を控える。
 
         **何に続くかはここで決めない。** 続き先は、そのターンを作るのに使った W の中に
-        しかない（`_apply_follows`）。段 3 では「直前の起点へ無条件に繋ぐ」形にしていたが、
+        しかない（`workspace.link_follows`）。段 3 では「直前の起点へ無条件に繋ぐ」形に
+        していたが、
         それは鎖の種類を機構の側で数え上げることになり、並行して走る本数に上限が生まれた。
         """
         if not obs_id:
@@ -256,7 +270,7 @@ class InformationProcessing:
     def _close_exchange(self) -> "list[tuple[str, str]] | None":
         """いまのやりとりの区間を切り出し、次の始まりを進める。
 
-        母集合への持ち越し（`_turn_records`）はそのまま残す。打ち切った調査と、言い直した
+        母集合への持ち越し（`self._req.turn_records`）はそのまま残す。打ち切った調査と、言い直した
         問いの共起は、たどる価値があるためである。
         """
         members = self._req.turn_records[self._req.exchange_start :]
@@ -382,7 +396,7 @@ class InformationProcessing:
         """この求めで、主LLM を呼ぶのが何回目か（これから呼ぶ回を含む）。
 
         主LLM を投げっぱなしにしてからは、返りで反復を 0 へ戻すので `[反復] N/M` は
-        常に小さいままになり、**何回目かの手がかりが消えた**。器（`_lookups`）は求めの
+        常に小さいままになり、**何回目かの手がかりが消えた**。器（`self._req.lookups`）は求めの
         終わりに空になるので、そこの `主LLM` を数えれば求めごとの回数になる。
 
         機械の歯止めは置かない。**回数を材料として渡し、切り上げるかは判断に任せる。**
@@ -470,7 +484,7 @@ class InformationProcessing:
     ) -> None:
         """主LLM を投げる（**待たない**・環-h・段は）。
 
-        調べものと同じ扱いにする——`_lookups` へ1件積んで飛行中に数え、版に載せ、世代で
+        調べものと同じ扱いにする——求めの台帳（`self._req.lookups`）へ1件積んで飛行中に数え、版に載せ、世代で
         打ち切れるようにする。**重複の判定は通さない**（同じ求めで何度も呼ぶ）。
 
         整合チェックの差し戻し（言い直し）も**この口から投げる**。同じ口を通るので、
@@ -813,7 +827,7 @@ class InformationProcessing:
         """求めを始める。**3つの入口（発話・情動・機器）はここを通る。**
 
         やることは同じである——求めをリセットし、来た事実を O へ書き、求めの id を置き、
-        起点を控え、手がかりを置く。入口ごとに違うのは、起点の種別・文面・`_utterance`
+        起点を控え、手がかりを置く。入口ごとに違うのは、起点の種別・文面・`utterance`
         の3つだけなので、それだけを受け取る（`モジュール分割設計` 環-e-に）。
 
         **鎖は進めない。** 求めの中は版チェーン（`_write_version` の `改訂`）が担い、
@@ -867,10 +881,11 @@ class InformationProcessing:
         """飛行中の調査を打ち切る（人に話しかけられたとき）。
 
         飛行中のツール呼び出しを止め、まだ取り込んでいない完了を捨て、**何を打ち切ったかを
-        O に残す**。その記録で親と生きた子を閉じるので、鎖は「打ち切った」1件へ収束する。
+        O に残す**。打ち切りも版のひとつなので、直前の版を `改訂` で畳む——鎖は「打ち切った」
+        1件へ収束する（親と子をまとめて閉じる操作は要らない・`_write_version`）。
 
-        結果を捨てるのは、行き先の親が閉じるためで、残すと次の求めの W に無関係な完了が
-        載る。ただし**打ち切った事実は残す**（あとで「あのとき何を調べていたか」を辿れる）。
+        結果を捨てるのは、残すと次の求めの W に無関係な完了が載るためである。ただし
+        **打ち切った事実は残す**（あとで「あのとき何を調べていたか」を辿れる）。
         """
         in_flight = [lk for lk in self._req.lookups if lk.in_flight]
         if not self._background_tasks and not in_flight and self._req.request_id is None:
@@ -1208,8 +1223,8 @@ class InformationProcessing:
         # 5軸の重みは trigger 種別で決める（`課題5_パラメータ仮案` §280）。選ぶ基準は
         # 「この求めを何が始めたか」ではなく **「この反復を何を手がかりに動くか」**である。
         # 反復1の手がかりは人の言葉だが、完了が届いて起きた反復の手がかりは結果の本文で、
-        # 性質が違う。`_trigger_kind` を書き換えないのは、そちらが静穏時間のゲート
-        # （`_should_hold`）に使われており、人に話しかけられて始まった求めを夜間に
+        # 性質が違う。`self._req.trigger_kind` を書き換えないのは、そちらが静穏時間のゲート
+        # （`_delivery_block_reason`）に使われており、人に話しかけられて始まった求めを夜間に
         # 保留させてしまうためである。
         trigger = "完了" if drained else self._req.trigger_kind
         w_base = _mcfg.recall_weights(trigger)
@@ -1658,7 +1673,15 @@ class InformationProcessing:
                 )
 
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
-        """発話で連鎖が閉じた反復の後始末：総括ログと永続化（ループ中 O を supersede）。"""
+        """求めが閉じた反復の後始末：総括ログと永続化。
+
+        閉じ方は `outcome` が持つ——`発話`（声になった）・`沈黙`（地の文だけで声にならず
+        `独白` として残る）・`保留`（配信ゲートに止められた）。**発話だけではない。**
+
+        **ここでは何も畳まない。** 求めの版チェーンは `_write_version` が `改訂` で畳み、
+        自分が答えた記録は鎖の外にある。要約と内省は背景で遅れて来て、その記録を supersede
+        する。
+        """
         agent = self._agent
         logger.info(
             # **数えるのは考えた回数**。反復は主LLM の返りで 0 へ戻るので、閉じた時点では

@@ -10,7 +10,7 @@
       → claim_pending_jobs で拾って materialize → observations に現れる
 
 この2テーブルを触るのはこのモジュールだけにする。実体化の本体
-（`_materialize_save_event`）は observations 側の仕事なので、宿主から借りる。
+（`materialize_save_event`）は observations 側の仕事なので、宿主から借りる。
 """
 
 from __future__ import annotations
@@ -60,7 +60,9 @@ class JobQueue:
         job_type: str = "materialize_observation",
     ) -> tuple[str | None, bool]:
         now = clock.now_utc_iso()
-        payload_json = json.dumps(payload, ensure_ascii=False, separators=(",",":"), sort_keys=True)
+        payload_json = json.dumps(
+            payload, ensure_ascii=False, separators=(",", ":"), sort_keys=True
+        )
         try:
             with self._ctx.lock:
                 conn = self._ctx.conn()
@@ -111,6 +113,8 @@ class JobQueue:
                     payload = json.loads(row["payload_json"])
                 except Exception:
                     payload = {"raw_payload": row["payload_json"]}
+                # 鍵の列を揃えてある（読むための表なので整形させない）。
+                # fmt: off
                 claimed.append({
                     "job_id":     row["job_id"],
                     "event_id":   row["event_id"],
@@ -119,6 +123,7 @@ class JobQueue:
                     "event_type": row["event_type"],
                     "payload":    payload,
                 })
+                # fmt: on
             conn.commit()
         return claimed
 
@@ -133,7 +138,9 @@ class JobQueue:
             conn.commit()
             return True
 
-    def mark_job_failed(self, job_id: str, error: str, retry_delay: float = 10.0, max_attempts: int = 3) -> str:
+    def mark_job_failed(
+        self, job_id: str, error: str, retry_delay: float = 10.0, max_attempts: int = 3
+    ) -> str:
         now = datetime.fromisoformat(clock.now_utc_iso())
         with self._ctx.lock:
             conn = self._ctx.conn()
@@ -144,8 +151,11 @@ class JobQueue:
                 return "missing"
             attempts = int(row["attempts"])
             status = "dead_letter" if attempts >= max_attempts else "pending"
-            avail = now.isoformat() if status == "dead_letter" else \
-                    (now + timedelta(seconds=max(retry_delay, 0.0))).isoformat()
+            avail = (
+                now.isoformat()
+                if status == "dead_letter"
+                else (now + timedelta(seconds=max(retry_delay, 0.0))).isoformat()
+            )
             with conn.cursor() as cur:
                 cur.execute(
                     "UPDATE memory_jobs SET status=%s,available_at=%s,last_error=%s,updated_at=%s WHERE job_id=%s",
@@ -170,9 +180,12 @@ class JobQueue:
                 return False
             payload = json.loads(row["payload_json"])
             if row["event_type"] == "memory.save":
-                return self._observations.materialize_save_event(
-                    event_id, payload, dedup_window_secs=dedup_window_secs
-                ) is not None
+                return (
+                    self._observations.materialize_save_event(
+                        event_id, payload, dedup_window_secs=dedup_window_secs
+                    )
+                    is not None
+                )
             return False
         except Exception as e:
             logger.warning("materialize_event failed: %s", e)

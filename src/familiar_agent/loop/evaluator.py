@@ -340,7 +340,7 @@ class Evaluator:
         作る仕事の傍らでは、判定が後ろに置かれる。ここは判定だけをさせる。
 
         返りは12桁の id か `None`。形が崩れた返りをそのまま id として使わない
-        （`_apply_follows` の突き合わせで落ちるが、ここでも落としておく）。
+        （`workspace.link_follows` の突き合わせで落ちるが、ここでも落としておく）。
         """
         if not workspace_ctx.strip() or not utterance.strip():
             return None

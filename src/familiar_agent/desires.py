@@ -83,39 +83,44 @@ def _internal_rate(n_cycles: float) -> float:
 
 
 # Social desires use _rate() (DESIRE_COOLDOWN); internal desires use _internal_rate().
+# 値とコメントの列を揃えてある（読むための表なので整形させない）。`# fmt: off` は
+# その行がまるごと指示でないと効かないので、註釈は別の行に置く。
+# fmt: off
 GROWTH_RATES = {
     # ── Social desires (user-facing, Sonnet backend) ───────────────────────
-    "greet_companion": _rate(5),  # n=5  →  7.5 min  (morning ×1.3 → 5.8 min)
-    "share_memory": _rate(4),  # n=4  →  6 min    (evening ×1.4 → 4.3 min)
-    "attachment": _rate(8),  # n=8  → 12 min
-    "care": _rate(8),  # n=8  → 12 min
-    "play": _rate(8),  # n=8  → 12 min
-    "repair": 0.0,  # manual only — grows via boost()
+    "greet_companion":  _rate(5),       # n=5  →  7.5 min  (morning ×1.3 → 5.8 min)
+    "share_memory":     _rate(4),       # n=4  →  6 min    (evening ×1.4 → 4.3 min)
+    "attachment":       _rate(8),       # n=8  → 12 min
+    "care":             _rate(8),       # n=8  → 12 min
+    "play":             _rate(8),       # n=8  → 12 min
+    "repair":           0.0,            # manual only — grows via boost()
     # worry_companion intentionally omitted — only grows via detect_worry_signal()
+
     # ── Internal desires (no user output, utility backend) ─────────────────
-    "look_around": _internal_rate(3),  # n=3  →  fires every 3 × INTERNAL_COOLDOWN
-    "explore": _internal_rate(5),
-    "rest": _internal_rate(6),
+    "look_around":      _internal_rate(3),   # n=3  →  fires every 3 × INTERNAL_COOLDOWN
+    "explore":          _internal_rate(5),
+    "rest":             _internal_rate(6),
     "browse_curiosity": _internal_rate(30),  # matches min_interval_seconds=2700
-    "curiosity": _internal_rate(4),
-    "reflect": _internal_rate(12),
-    "consolidate": _internal_rate(20),
-    "self_protect": 0.0,  # manual only — grows via boost()
+    "curiosity":        _internal_rate(4),
+    "reflect":          _internal_rate(12),
+    "consolidate":      _internal_rate(20),
+    "self_protect":     0.0,                 # manual only — grows via boost()
 }
+# fmt: on
 
 # Desires that require the full conversation backend and presence gating.
-_SOCIAL_DESIRE_NAMES: frozenset[str] = frozenset(
-    {
-        "greet_companion",
-        "worry_companion",
-        "share_memory",
-        "attachment",
-        "care",
-        "repair",
-        "play",
-        "share_search_result",  # delivery turns are user-facing; must use the full social backend
-    }
-)
+# fmt: off
+_SOCIAL_DESIRE_NAMES: frozenset[str] = frozenset({
+    "greet_companion",
+    "worry_companion",
+    "share_memory",
+    "attachment",
+    "care",
+    "repair",
+    "play",
+    "share_search_result",  # delivery turns are user-facing; must use the full social backend
+})
+# fmt: on
 
 
 def is_social_desire(name: str) -> bool:

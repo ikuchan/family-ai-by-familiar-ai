@@ -31,7 +31,8 @@ logger = logging.getLogger(__name__)
 
 
 def _situated_vector(
-    mem_vec: "np.ndarray", mu: "np.ndarray | None",
+    mem_vec: "np.ndarray",
+    mu: "np.ndarray | None",
 ) -> "np.ndarray":
     """situated ベクトルを作る（平均中心化 C2）。
 
@@ -60,14 +61,13 @@ def load_embedding_mean(dim: int, conn=None) -> "np.ndarray | None":
     ときは None を返し、呼び出し側は**中心化しない**でフォールバックする。
 
     `conn` を渡すとその接続で読む。`db.lock` は**再入不可**で、書き込み経路
-    （`_materialize_save_event`）はロックを保持したまま situated 生成を呼ぶため、
+    （`materialize_save_event`）はロックを保持したまま situated 生成を呼ぶため、
     そこから来るときは必ず `conn` を渡してロックを取り直さない（二重取得でデッドロックする）。
     """
     if conn is not None:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT dim, vector FROM embedding_means "
-                "WHERE scope = %s AND scope_key = %s",
+                "SELECT dim, vector FROM embedding_means WHERE scope = %s AND scope_key = %s",
                 ("global", ""),
             )
             row = cur.fetchone()
@@ -77,14 +77,15 @@ def load_embedding_mean(dim: int, conn=None) -> "np.ndarray | None":
             conn2 = db.conn()
             with conn2.cursor() as cur:
                 cur.execute(
-                    "SELECT dim, vector FROM embedding_means "
-                    "WHERE scope = %s AND scope_key = %s",
+                    "SELECT dim, vector FROM embedding_means WHERE scope = %s AND scope_key = %s",
                     ("global", ""),
                 )
                 row = cur.fetchone()
     if not row:
         return None
-    stored_dim, blob = (row[0], row[1]) if not isinstance(row, dict) else (row["dim"], row["vector"])
+    stored_dim, blob = (
+        (row[0], row[1]) if not isinstance(row, dict) else (row["dim"], row["vector"])
+    )
     if stored_dim != dim or blob is None:
         return None
     return _decode_vector(bytes(blob))
@@ -125,7 +126,6 @@ class SituatedVectors:
             self._embedding_mu(conn),
         )
 
-
     def reembed_facets(self, conn, obs_id: str, mem_vec: np.ndarray, body: str) -> None:
         """本文が変わったとき、**いま立っている面をなぞって**ベクトルを作り直す（段5）。
 
@@ -140,9 +140,7 @@ class SituatedVectors:
         作ったものなので本文に追随させるが、REST が本文を読んで書いた言葉は REST のもので、
         機械が上書きしてよいものではない（段①と段②の切り分け・047）。
         """
-        situated = _situated_vector(
-            _coerce_to_embedding_dim(mem_vec), self._embedding_mu(conn)
-        )
+        situated = _situated_vector(_coerce_to_embedding_dim(mem_vec), self._embedding_mu(conn))
         vec_str = vec_to_sql(situated.tolist())
         with conn.cursor() as cur:
             cur.execute(
@@ -229,8 +227,9 @@ class SituatedVectors:
             wanted.append((str(pid), "present", f"[そばに居た] {body}"))
 
         for pid, key, content in wanted:
-            self._upsert_situated_embedding(conn, obs_id, pid, mem_vec,
-                                            relation_key=key, content=content)
+            self._upsert_situated_embedding(
+                conn, obs_id, pid, mem_vec, relation_key=key, content=content
+            )
 
         # 関係の無くなった面は落とす。**段②（REST が足した意味役割）は残す**ので、
         # 対象は機械が立てる2種（`actor`／`present`）に限る。
