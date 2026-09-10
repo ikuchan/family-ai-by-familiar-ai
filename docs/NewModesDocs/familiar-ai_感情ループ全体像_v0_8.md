@@ -1,4 +1,4 @@
-# familiar-ai 感情ループ全体像（v0.7）
+# familiar-ai 感情ループ全体像（v0.8）
 
 ## このループの起動源は Drive である
 
@@ -62,12 +62,12 @@ graph TD
 | W の PAD 露出（`OBS → W`） | 実装済み（mood-b・recall が PAD と 根づき を返す） |
 | N_PAD と nudge の純関数（`W → NPAD → M`） | 実装済み（mood-a） |
 | nudge のターン接続（M を実際に動かす・`W → NPAD → M`） | 実装済み（mood-c・`load_current_mood` が実 mood を返す） |
-| **`M → g_D(M) → D`（気分による欲求変調）** | **未実装**（`drive_register.py` は器のみ・B-2・dynamics 未着手） |
-| Drive の蓄積 dynamics・発火 | 未実装（現在の自律駆動は legacy `DesireSystem`） |
+| **`M → g_D(M) → D`（気分による欲求変調）** | **実装済み**（2026-09-10 確認。`core/drive_dynamics.py` の `g_d(mood, cfg)` を `accumulate` が毎回掛け、`loop/tonic.py` が回す） |
+| Drive の蓄積 dynamics・発火 | **実装済み**（`dd.accumulate` → `dd.fired` → `dd.discharge` を `tonic.py` が時間で回して永続化する）。legacy `DesireSystem` は GUI・TUI・REPL の入口が組み立てるが、**自律の駆動源は T（`tonic.py`）である** |
 | `M → VOICE`（声色） | 未実装（[D-知覚]・TTS） |
 | `M → RECALL`（e 軸をスコアへ） | 実装済み（スライス3・合成をハイブリッド化し `_compute_final_score` が e を加算部の一項として使う） |
 
-気分 M の最重要の効き先である `g_D(M)`（Drive 変調）は未実装のままである。ただしスライス3 で e 軸が繋がったので、M が live に出る先は評価器のベースと想起順の2つになった。声色と Drive 変調が繋がって初めて、気分が振る舞い全体に滲む。
+気分 M の最重要の効き先である `g_D(M)`（Drive 変調）も繋がった（2026-09-10 確認）。ただしスライス3 で e 軸が繋がったので、M が live に出る先は評価器のベースと想起順の2つになった。声色と Drive 変調が繋がって初めて、気分が振る舞い全体に滲む。
 
 なおこの未実装は設計の遅れではなく順序方針である（段取り v0.24）。起動源＝Drive 発火・dynamics 接続は「大きな挙動変化は後回し」に該当し、意図的に後ろへ置く。**当面 感情ループは受け身のまま**（ユーザー入力に応じて A＝novelty で評価器が起動し mood が動く経路までが生きている）。自律側の起動源は、リファクタリングと土台の後に繋ぐ。
 
@@ -79,6 +79,11 @@ graph TD
 ---
 
 ## 更新履歴
+
+> v0.8：**`g_D(M)` と Drive の蓄積 dynamics を「未実装」から実装済みへ直した**
+> （2026-09-10・群D の点検）。`core/drive_dynamics.py` の `accumulate` が `g_d(mood, cfg)` を
+> 掛け、`loop/tonic.py` が `accumulate → fired → discharge` を時間で回している。
+> **気分の最重要の効き先は繋がっている。**
 
 > v0.7：**値踏みゲートの下では PAD を未測定のまま残すと書き改めた**（2026-09-03・050）。
 > 以前は「気分 M のまま置く」としていたが、埋めると「測ったのか埋めたのか」が後から
