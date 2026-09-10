@@ -52,8 +52,8 @@ def _with_camera(cam=None):
 def _drain(ip):
     """完了キューに積まれたものを取り出す。"""
     out = []
-    while not ip._completion_queue.empty():
-        out.append(ip._completion_queue.get_nowait())
+    while not ip._triggers.empty():
+        out.append(ip._triggers.get_nowait())
     return out
 
 

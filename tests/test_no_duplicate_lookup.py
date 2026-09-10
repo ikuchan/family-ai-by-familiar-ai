@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 
-from familiar_agent.loop.event_loop import InformationProcessing, Completion
+from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 
 from tests.test_event_loop import _agent
 
@@ -58,12 +58,12 @@ def test_a_blocked_lookup_is_pushed_as_a_completion() -> None:
     async def scenario():
         a, ip = _ip_with_slow_recall()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
-        while not ip._completion_queue.empty():
-            ip._completion_queue.get_nowait()
+        while not ip._triggers.empty():
+            ip._triggers.get_nowait()
         ip._dispatch_lookup("recall", {"query": "同じ語"}, "同じ語", None)
         items = []
-        while not ip._completion_queue.empty():
-            items.append(ip._completion_queue.get_nowait())
+        while not ip._triggers.empty():
+            items.append(ip._triggers.get_nowait())
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()
@@ -165,7 +165,7 @@ def test_the_count_returns_to_zero_when_the_result_arrives() -> None:
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)  # 止められる
         before = ip._in_flight_count
-        ip._completion_queue.put_nowait(Completion(kind="完了", query="語", result="結果", index=1))
+        ip._triggers.put_nowait(Trigger(kind="完了", query="語", result="結果", index=1))
         await ip._intake()
         after = ip._in_flight_count
         for t in list(ip._background_tasks):

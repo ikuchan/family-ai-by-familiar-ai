@@ -88,7 +88,7 @@ def test_an_aborted_request_does_not_cancel_the_verdicts():
     """**打ち切りで申告を消さない。** 主LLM の返りは古くなるが、申告は事実である。"""
     ip = _ip()
     ip._background_tasks = set()
-    ip._completion_queue = asyncio.Queue()
+    ip._triggers = asyncio.Queue()
     ip._drained_completions = []
     ip._request_generation = 0
 

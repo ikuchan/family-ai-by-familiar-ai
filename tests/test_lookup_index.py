@@ -62,7 +62,7 @@ def test_index_resets_per_request() -> None:
     assert second == 2, "求めが変わったのに振り直していない"
 
 
-def test_completion_queue_carries_the_index() -> None:
+def test_triggers_carries_the_index() -> None:
     """完了キューの要素が通し番号を運ぶ。
 
     これが無いと、届いた完了がどの調査のものか、語でしか照合できない。
@@ -70,7 +70,7 @@ def test_completion_queue_carries_the_index() -> None:
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
     ip.push_completion("さっかー", "結果", index=2)
-    item = ip._completion_queue.get_nowait()
+    item = ip._triggers.get_nowait()
     assert item.index == 2, f"通し番号が運ばれていない: {item}"
 
 
@@ -118,11 +118,11 @@ def test_deferred_completion_gets_its_index_from_the_query() -> None:
         ip = InformationProcessing(a)
         ip._dispatch_lookup("recall", {"query": "いちばんめ"}, "いちばんめ", None)
         ip._dispatch_lookup("recall", {"query": "にばんめ"}, "にばんめ", None)
-        while not ip._completion_queue.empty():
-            ip._completion_queue.get_nowait()
+        while not ip._triggers.empty():
+            ip._triggers.get_nowait()
         # deferred と同じく、語と結果だけで積む。
         ip.push_completion("にばんめ", "結果")
-        item = ip._completion_queue.get_nowait()
+        item = ip._triggers.get_nowait()
         for t in list(ip._background_tasks):
             t.cancel()
         await ip.close()

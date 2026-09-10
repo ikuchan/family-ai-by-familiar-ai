@@ -40,7 +40,7 @@ def _ip():
     ip._req.request_id = "req-1"
     ip._req.lookups = []
     ip._background_tasks = set()
-    ip._completion_queue = asyncio.Queue()
+    ip._triggers = asyncio.Queue()
     ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
     ip._coherence_violation = AsyncMock(return_value=None)
