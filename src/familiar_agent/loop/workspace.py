@@ -1,11 +1,12 @@
 """作業記憶 W：反復ごとに組み、反復ごとに捨てる（環-e-に・に-5-に-2）。
 
 `_iterate` と `_act_on_decision` は**殻**である——`_dispatch_main_llm`・`_finish`・`_speak`・
-`_write_version` を呼び返すので、別 file へ出せば `InformationProcessing` への逆参照が要り、
-に-4 で断った「核が殻を呼び返す」形が戻る。**殻は `event_loop.py` に残す。**
+`_write_version` などを **10個と8個**呼び返す（ここへ移す前は 11個と9個）。別 file へ出せば
+`InformationProcessing` への逆参照が要り、に-4 で断った「核が殻を呼び返す」形が戻る。
+**殻は `event_loop.py` に残す。**
 
-ここに集めたのは、W をめぐる**何も呼び返さない**ぶんである（Functional core /
-Imperative shell）。W の索引（12桁 → 完全な id）を組み、W から引く。
+ここに集めたのは、W をめぐる**何も呼び返さない**ぶん（移す前の `event_loop.py` で 174 行）
+である（Functional core / Imperative shell）。W の索引（12桁 → 完全な id）を組み、W から引く。
 
 **class を作らずモジュール関数にする**（`loop/generator.py` と同じ形）。W は反復ごとに
 作り直すもので、長生きの持ち主に抱えさせると寿命が混ざる（に-2「ニ．反復の寿命は束に

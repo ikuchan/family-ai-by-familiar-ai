@@ -1,11 +1,12 @@
 """作業記憶 W を、殻から出す（環-e-に・に-5-に-2）。
 
 `_iterate`（202行）と `_act_on_decision`（97行）は、`_dispatch_main_llm`・`_finish`・
-`_speak`・`_write_version` など**11個と9個を呼び返す**。この2つは**殻そのもの**なので、
+`_speak`・`_write_version` など**11個と9個を呼び返していた**（移したあとは 10個と8個）。
+この2つは**殻そのもの**なので、
 別 file へ出せば `InformationProcessing` への逆参照が要り、に-4 で断ったばかりの
 「核が殻を呼び返す」形が戻る。**殻は残す。**
 
-一方、W をめぐる 174 行は**何も呼び返さない**。`_w_id_map` は W の索引、`compose` が組み、
+一方、W をめぐる 174 行は**何も呼び返さない**。対応表は W の索引、`compose` が組み、
 `recall` が中身を入れ、`link_follows` と `apply_memory_verdicts` が W の id を使う。
 これが核である（Functional core / Imperative shell）。
 
