@@ -20,12 +20,6 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Minimum ignition threshold floor (prevents runaway suppression)
-_MIN_THRESHOLD = 0.05
-
-# How much each unit of prediction error lowers the threshold
-_ERROR_SENSITIVITY = 0.15
-
 
 @dataclass
 class Coalition:

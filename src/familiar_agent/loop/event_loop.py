@@ -1718,7 +1718,7 @@ class InformationProcessing:
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
-        parent_id, self._req.request_id = self._req.request_id, None
+        self._req.request_id = None
         self._req.live_version_id = None
         self._req.lookups.clear()
         self._req.said_fillers.clear()
@@ -1746,7 +1746,6 @@ class InformationProcessing:
                     desires=None,
                     arousal=arousal,
                     memories=memories,
-                    close_parent_id=parent_id,
                     # このターンの記録を、順序つきの一つのやりとりとして残す。会話要約は
                     # 背景で作られるので、向こうで末尾に足す。
                     exchange=noted or None,
