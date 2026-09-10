@@ -83,24 +83,43 @@ def test_the_prompt_asks_for_every_recalled_memory():
 
 def test_verdicts_are_matched_through_the_index_not_by_prefix_guessing():
     # 写し間違いは一致せず、黙って別の記憶へ適用されない。
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    mem = MagicMock()
     workspace.apply_memory_verdicts(
-        a,
+        mem,
         [
             {"id": "aaaaaaaaaaaa", "verdict": "important"},
             {"id": "zzzzzzzzzzzz", "verdict": "useless"},  # W に無い id
         ],
         {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
     )
-    applied = a._memory.apply_verdicts.call_args.args[0]
+    applied = mem.apply_verdicts.call_args.args[0]
     assert applied == {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "important"}
 
 
-def test_nothing_is_applied_when_the_workspace_had_no_memories():
+def test_verdicts_land_on_the_memory_that_the_recall_came_from():
+    """**申告は、想起に使った記憶オブジェクトへ当てる**（出-h-ろ ③）。
+
+    想起は `agent._active_memory()`＝**話者の面**を通る（`event_loop.py`）。申告が
+    `agent._memory`（基底＝`__self__` の面）へ行くと、話者が同定されている場面で
+    `UPDATE ... WHERE person_id = '__self__'` が0行を返し、**申告が効かない**。
+    `situated_memories` は人ごとなので、引いた面と書く面は同じでなければならない。
+    """
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
+    speaker_mem = MagicMock()  # 話者の面（`_active_memory()` が返すもの）
+    workspace.apply_memory_verdicts(
+        speaker_mem,
+        [{"id": "aaaaaaaaaaaa", "verdict": "important"}],
+        {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
+    )
+    speaker_mem.apply_verdicts.assert_called_once()
+    a._memory.apply_verdicts.assert_not_called()  # 基底の面へは行かない
+
+
+def test_nothing_is_applied_when_the_workspace_had_no_memories():
+    mem = MagicMock()
     # **対応表に既定値は無い**（に-5-に-2）。空を渡せば何も当たらない。
-    workspace.apply_memory_verdicts(a, [{"id": "aaaaaaaaaaaa", "verdict": "important"}], {})
-    a._memory.apply_verdicts.assert_not_called()
+    workspace.apply_memory_verdicts(mem, [{"id": "aaaaaaaaaaaa", "verdict": "important"}], {})
+    mem.apply_verdicts.assert_not_called()
 
 
 def test_the_workspace_prints_twelve_digit_ids():

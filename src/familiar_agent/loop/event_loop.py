@@ -139,6 +139,9 @@ class Decision:
       意味がない
     - `w_id_map`：申告（`memory_verdicts`）は W に印字された12桁で返るので、その W を作った
       ときの対応表でないと引けない
+    - `mem`：**申告を当てる面**。`situated_memories` は人ごとで、想起は話者の面を通る
+      （`_active_memory()`）。基底の記憶へ書くと視点が `__self__` へ寄り、話者が同定
+      されている場面で申告が0行に当たる（出-h-ろ ③）
     - `system`・`effort`：整合チェックの差し戻しで**主LLM をもう一度呼ぶ**のに要る
     - `capped`：上限の反復では調べる動作を渡していないので、返ってきても投げない
     - `retried`：これは言い直しの返りか。真なら**もう検査しない**（1回だけ）
@@ -150,6 +153,7 @@ class Decision:
     result: "TurnResult"
     memories: list[dict]
     w_id_map: dict[str, str]
+    mem: object
     recent_ctx: str
     system: object
     effort: "str | None"
@@ -235,6 +239,10 @@ class InformationProcessing:
         # 「まだかかっている」を受けたか。次の反復でつなぎだけ出して閉じない。
         self._slow_notice_received = False
         self._background_tasks: set[asyncio.Task] = set()
+        # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
+        # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
+        # 事実で、あとから古くならない（出-h-ろ）。
+        self._verdict_tasks: set[asyncio.Task] = set()
         # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
         # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
         self._affect_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
@@ -478,6 +486,7 @@ class InformationProcessing:
         capped: bool,
         memories: list[dict],
         w_id_map: dict[str, str],
+        mem: object,
         recent_ctx: str,
         retried: bool = False,
         original_text: str = "",
@@ -509,6 +518,7 @@ class InformationProcessing:
                 capped=capped,
                 memories=memories,
                 w_id_map=w_id_map,
+                mem=mem,
                 recent_ctx=recent_ctx,
                 retried=retried,
                 original_text=original_text,
@@ -527,6 +537,7 @@ class InformationProcessing:
         capped: bool,
         memories: list[dict],
         w_id_map: dict[str, str],
+        mem: object,
         recent_ctx: str,
         retried: bool,
         original_text: str = "",
@@ -561,6 +572,7 @@ class InformationProcessing:
                     result=result,
                     memories=memories,
                     w_id_map=w_id_map,
+                    mem=mem,
                     recent_ctx=recent_ctx,
                     system=system,
                     effort=effort,
@@ -1314,6 +1326,15 @@ class InformationProcessing:
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
             spoken, outcome = await self._speak(decision.text)
+            # **記憶が育つ経路は申告1本しかない。** 主LLM を起こさない反復もそこを通す
+            # （出-h-ろ）。聞くのは背景で、閉じるのは待たない。
+            self._declare_light_memory_use(
+                utterance=utterance or self._req.cue,
+                reply=spoken or decision.text,
+                workspace_ctx=workspace_ctx,
+                w_id_map=w_id_map,
+                mem=mem,
+            )
             await self._finish(spoken, memories, outcome)
             return spoken
 
@@ -1371,6 +1392,7 @@ class InformationProcessing:
             capped=capped,
             memories=memories,
             w_id_map=dict(w_id_map),
+            mem=mem,
             recent_ctx=recent_ctx,
         )
         await self._write_version()
@@ -1425,7 +1447,7 @@ class InformationProcessing:
 
         if say_tc is not None:
             workspace.apply_memory_verdicts(
-                agent, say_tc.input.get("memory_verdicts"), decision.w_id_map
+                decision.mem, say_tc.input.get("memory_verdicts"), decision.w_id_map
             )
             text = str(say_tc.input.get("text", "")).strip()
             # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
@@ -1455,6 +1477,7 @@ class InformationProcessing:
                     capped=decision.capped,
                     memories=decision.memories,
                     w_id_map=dict(decision.w_id_map),
+                    mem=decision.mem,
                     recent_ctx=decision.recent_ctx,
                     retried=True,
                     original_text=text,
@@ -1496,6 +1519,46 @@ class InformationProcessing:
         return await agent._evaluator.check_response_coherence(
             text, recent=recent, facts=facts_ctx(saw=saw, memories=memories)
         )
+
+    def _declare_light_memory_use(
+        self,
+        *,
+        utterance: str,
+        reply: str,
+        workspace_ctx: str,
+        w_id_map: dict[str, str],
+        mem: object,
+    ) -> None:
+        """**軽量LLM** が答えて閉じた反復の申告を、背景で聞いて当てる（出-h-ろ）。
+
+        **待たない。** 申告は答えを出したあとの後片付けで、発話を待たせる理由がない
+        （実測 1.03 秒）。
+
+        **投げるときに写して閉じ込める。** 走っているあいだに次の反復が来れば、ループの
+        `w_id_map` も `mem` も作り直されている。12桁が偶然当たれば黙って別の記憶へ当たり、
+        面が変われば別の人の記憶が育つ。だから引数で受け、ここで写す（環-h ②・出-h-ろ ③）。
+        """
+        if not w_id_map:
+            return
+        w_id_map = dict(w_id_map)
+        backend = self._agent._utility_backend
+
+        async def _run() -> None:
+            try:
+                raw = await workspace.ask_verdicts(
+                    backend, utterance=utterance, reply=reply, workspace_ctx=workspace_ctx
+                )
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                # 握りつぶさない。申告が出ていないことに気づけないと、記憶が育たない
+                # 理由が分からなくなる。
+                logger.warning("event-loop 軽量LLM の申告を聞けなかった: %s", e)
+                return
+            workspace.apply_memory_verdicts(mem, raw, w_id_map)
+
+        self._verdict_tasks.add(task := asyncio.create_task(_run()))
+        task.add_done_callback(self._verdict_tasks.discard)
 
     async def _speak(self, text: str) -> tuple[str, str]:
         """声に出す。返りは **(実際に出した文, 結末)**。**反復は閉じない。**

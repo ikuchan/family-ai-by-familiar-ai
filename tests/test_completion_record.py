@@ -14,6 +14,7 @@ QC の要素は `(語, 結果, 意図id, 種別, 番号)` の5つ組で、**位�
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import MagicMock
 from familiar_agent.loop.event_loop import Completion, Decision, InformationProcessing
 from familiar_agent.loop.request import Request
 
@@ -60,6 +61,7 @@ def test_a_decision_carries_the_turn_result_and_the_workspace():
         result=tr,
         memories=[{"memory_id": "m1"}],
         w_id_map={"abcdef123456": "m1"},
+        mem=MagicMock(),
         recent_ctx="",
         system=None,
         effort="high",

@@ -51,6 +51,7 @@ def _decision(**kw) -> Decision:
         result=TurnResult(stop_reason="tool_use", text="", tool_calls=[]),
         memories=[{"memory_id": "m1"}],
         w_id_map={"abcdef123456": "m1"},
+        mem=MagicMock(),
         recent_ctx="",
         system=("安定", "可変"),
         effort="high",
@@ -76,6 +77,7 @@ def test_dispatching_counts_the_main_llm_as_in_flight():
             capped=False,
             memories=[],
             w_id_map={},
+            mem=MagicMock(),
             recent_ctx="",
         )
         got = ip._in_flight_count
@@ -98,6 +100,7 @@ def test_the_dispatched_main_llm_appears_in_the_lookups():
             capped=False,
             memories=[],
             w_id_map={},
+            mem=MagicMock(),
             recent_ctx="",
         )
         for t in list(ip._background_tasks):
@@ -121,6 +124,7 @@ def test_the_return_lands_in_the_queue_with_what_it_saw():
             capped=True,
             memories=[{"memory_id": "m1"}],
             w_id_map={"abcdef123456": "m1"},
+            mem=MagicMock(),
             recent_ctx="R",
         )
         for t in list(ip._background_tasks):
@@ -196,7 +200,7 @@ def test_the_verdicts_use_the_map_that_the_main_llm_saw():
     ip._speak = AsyncMock(return_value=("はい", "発話"))
     ip._finish = AsyncMock()
     ip._coherence_violation = AsyncMock(return_value=None)
-    a._memory.apply_verdicts = MagicMock()
+    seen_mem = MagicMock()  # 主LLM が見た W を作った面（出-h-ろ ③）
 
     said = ToolCall(
         "t",
@@ -209,9 +213,11 @@ def test_the_verdicts_use_the_map_that_the_main_llm_saw():
                 result=TurnResult("tool_use", "", [said]),
                 memories=[],
                 w_id_map={"abcdef123456": "主LLM が見た記憶"},  # 持ち越した表
+                mem=seen_mem,
             ),
             utterance="こんばんは",
             gen=0,
         )
     )
-    a._memory.apply_verdicts.assert_called_once_with({"主LLM が見た記憶": "important"})
+    seen_mem.apply_verdicts.assert_called_once_with({"主LLM が見た記憶": "important"})
+    a._memory.apply_verdicts.assert_not_called()  # 基底の面へは行かない
