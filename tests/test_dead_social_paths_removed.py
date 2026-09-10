@@ -6,7 +6,7 @@ staticmethod として束ねていたが、**呼ぶ箇所が src にも tests �
 
 **遅延配信のポーリング** — `should_deliver_deferred_result()` は、CUI・GUI・TUI が毎周回
 問い合わせていたゲートである。#12a でその3つのポーリングを撤去し、完了は
-**完了キュー→O→次反復**へ移した（`test_deferred_to_completion_queue.py`）。ゲート自体は
+**完了キュー→O→次反復**へ移した（`test_deferred_to_triggers.py`）。ゲート自体は
 `InformationProcessing._delivery_block_reason()` が引き継いでいる（在席・静穏時間・
 「黙っていて」の依頼）。関数だけが残り、`_last_social_decision` を代入する箇所も0件で、
 その分岐には到達しなかった。

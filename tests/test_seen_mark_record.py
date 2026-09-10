@@ -27,7 +27,7 @@ from __future__ import annotations
 
 import asyncio
 
-from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Completion
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigger
 
 from tests.test_event_loop import _agent
 
@@ -75,7 +75,7 @@ def test_the_seen_record_is_not_folded() -> None:
         a, ip = _ip()
         await ip._write_seen_mark("襖側を見た。見えたもの：戸")
         # さらに版が進んでも、観察の記録は畳まれない。
-        ip._completion_queue.put_nowait(Completion(kind="完了", query="語", result="結果", index=2))
+        ip._triggers.put_nowait(Trigger(kind="完了", query="語", result="結果", index=2))
         await ip._intake()
         await ip.close()
         return a
@@ -92,8 +92,8 @@ def test_the_version_does_not_carry_what_was_seen() -> None:
     async def scenario():
         a, ip = _ip()
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
-        ip._completion_queue.put_nowait(
-            Completion(
+        ip._triggers.put_nowait(
+            Trigger(
                 kind="完了",
                 query="目の前を見る",
                 result="窓側を見た。見えたもの：椅子、窓",
@@ -116,8 +116,8 @@ def test_the_version_still_says_the_lookup_finished() -> None:
     async def scenario():
         a, ip = _ip()
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
-        ip._completion_queue.put_nowait(
-            Completion(
+        ip._triggers.put_nowait(
+            Trigger(
                 kind="完了", query="目の前を見る", result="窓側を見た。見えたもの：椅子", index=1
             )
         )
@@ -139,8 +139,8 @@ def test_other_lookups_still_carry_their_result_in_the_version() -> None:
         ip._req.lookups.append(
             Lookup(index=1, action="search_deferred", query="昨日 天気", generation=0)
         )
-        ip._completion_queue.put_nowait(
-            Completion(kind="完了", query="昨日 天気", result="西日本は晴れだった", index=1)
+        ip._triggers.put_nowait(
+            Trigger(kind="完了", query="昨日 天気", result="西日本は晴れだった", index=1)
         )
         await ip._intake()
         await ip.close()
@@ -162,8 +162,8 @@ def test_the_seen_record_reaches_the_workspace() -> None:
     async def scenario():
         a, ip = _ip()
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
-        ip._completion_queue.put_nowait(
-            Completion(
+        ip._triggers.put_nowait(
+            Trigger(
                 kind="完了", query="目の前を見る", result="窓側を見た。見えたもの：椅子", index=1
             )
         )

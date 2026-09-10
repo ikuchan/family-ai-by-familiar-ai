@@ -12,7 +12,7 @@ from __future__ import annotations
 import asyncio
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Completion
+from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigger
 from tests.test_event_loop import _agent, _turn
 
 
@@ -25,8 +25,8 @@ def _ip_with_investigation():
     ip = InformationProcessing(a)
     ip._req.request_id = "obs-parent"
     ip._req.lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
-    ip._completion_queue.put_nowait(
-        Completion(kind="完了", query="明日の天気", result="晴れ", intent_id="obs-child", index=1)
+    ip._triggers.put_nowait(
+        Trigger(kind="完了", query="明日の天気", result="晴れ", intent_id="obs-child", index=1)
     )
     return a, ip
 
@@ -34,7 +34,7 @@ def _ip_with_investigation():
 def test_pending_completions_are_dropped():
     a, ip = _ip_with_investigation()
     asyncio.run(ip._abort_lookups())
-    assert ip._completion_queue.empty()
+    assert ip._triggers.empty()
     assert ip._in_flight_count == 0
     assert ip._req.lookups == []
 
@@ -84,7 +84,7 @@ def test_a_completion_from_an_abandoned_request_is_dropped():
     ip._req.lookups = [Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)]
     ip._request_generation = 1
     ip.push_completion("明日の天気", "晴れ")
-    assert ip._completion_queue.empty()
+    assert ip._triggers.empty()
 
 
 def test_the_abort_is_written_as_a_version():

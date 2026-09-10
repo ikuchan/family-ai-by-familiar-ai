@@ -18,7 +18,7 @@ from dataclasses import dataclass
 import logging
 import time
 from datetime import datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..backends.types import TurnResult
@@ -162,20 +162,35 @@ class Decision:
     original_text: str = ""
 
 
+#: **新しい求めを始めるきっかけ**（ほかは、開いている求めの続きとして取り込む）。
+_NEW_REQUEST_KINDS = ("機器", "情動")
+#: どちらも来ていたら機器を先に採る。3本のキューを `asyncio.wait` の union で待って
+#: いたころ、取り出したあとの分岐がこの順だった（環-f-い-1 でその規則をここへ移した）。
+_TRIGGER_PRIORITY = {"機器": 2, "情動": 1}
+
+
 @dataclass
-class Completion:
-    """資源から返ってきたもの。QC（完了キュー）に並ぶ1件（環-h・段い）。
+class Trigger:
+    """**きっかけ**：W 構築を起動する出来事。IIF の待ち行列に並ぶ1件（環-f-い-1）。
+
+    用語一覧の「きっかけ（trigger）」そのものである——**会話入力・知覚イベント・情動発火・
+    完了の4つ**。`Completion`（資源から返ってきたもの）という名前だったが、情動と機器も同じ
+    列に並ぶようになったので、中身に合う語へ改めた（2026-09-11）。
 
     以前は `(語, 結果, 意図id, 種別, 番号)` の5つ組で、**位置で意味が決まっていた**。種別に
     よって埋まる欄が違う（`進捗` は結果も番号も持たない）のに、位置で運んでいた。
-
-    種別は3つ。
 
     | 種別 | いつ | 埋まる欄 |
     |---|---|---|
     | `完了` | 調べものが終わった | `query`・`result`・`index` |
     | `進捗` | 調べものが遅い（`_watch_slow_lookup`） | `query` |
     | `決定` | 主LLM が返った | `decision`（`Decision`） |
+    | `情動` | drive が発火した（AIF 経由） | `query`（drive の名）・`result`（促しの文） |
+    | `機器` | 人が出入りした（DIF 経由） | `query`（種別）・`result`（中身）・`release_pending` |
+
+    **会話入力だけが、まだこの列を通らない**（`begin_request` が同期で入る）。列へ入れると
+    GUI と CUI の約束が変わる（返り値がターンの終わりを表さなくなる）ので、環-f-い-2 で
+    別に判断する。
 
     **`決定` は投げたときの W を一緒に運ぶ。** 共起は「その反復で一緒に活性した記録」なので
     主LLM が実際に見た W でなければ意味がなく、申告（`memory_verdicts`）は W に印字された
@@ -189,6 +204,8 @@ class Completion:
     intent_id: "str | None" = None
     index: int = 0
     decision: "Decision | None" = None
+    # `機器` だけが使う。在席がゼロから立ち上がった瞬間に真で、保留した発話を先に配る。
+    release_pending: bool = False
 
 
 class InformationProcessing:
@@ -213,11 +230,11 @@ class InformationProcessing:
 
     def __init__(self, agent):
         self._agent = agent
-        # QC：完了キュー（Completion Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
+        # QC：完了キュー（Trigger Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id, 種別)。種別＝完了｜進捗。
         # 「進捗」は結果ではないので、飛行中の数も一覧も触らず、意図も supersede しない。
-        self._completion_queue: asyncio.Queue[Completion] = asyncio.Queue()
+        self._triggers: asyncio.Queue[Trigger] = asyncio.Queue()
         # 外の機械（声・調べもの）へはこの口だけを通す（環-e-は）。要るものだけを渡す。
         self._dif = DIF(
             tts=agent._tts,
@@ -243,16 +260,19 @@ class InformationProcessing:
         # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
         # 事実で、あとから古くならない（出-h-ろ）。
         self._verdict_tasks: set[asyncio.Task] = set()
-        # QA：AIFキュー（情動）。T（自律機構）が drive 発火を積む。要素＝(欲求名, 促しの内容)。
-        # 3キュー（QA/QD/完了）は同じ器で待つので、待つ対象は配列で持つ（QD は1本足すだけ）。
-        self._affect_queue: asyncio.Queue[tuple[str, str]] = asyncio.Queue()
-        # QD：DIFキュー（機器）。T が在席者の差分を人の出入りとして積む。
-        # 要素＝(種別＝入室｜退室, 内容, 保留していた発話を配るか)。
-        self._device_queue: asyncio.Queue[tuple[str, str, bool]] = asyncio.Queue()
+        # **保留箱**：調査中に届いた情動・機器を避けておく場所（環-f-い-1）。
+        #
+        # 待ち行列が3本だったころは「調査中は完了キューだけを待つ」ことで、情動と機器を
+        # **キューに残して**待たせていた。1本の列は先頭からしか取れないので、取り出して
+        # から避ける形へ改めた。**意味は同じ**——取りこぼしではなく待たせるだけである。
+        #
+        # 打ち切り（言い直し）でも捨てない。捨てるのは完了だけで、情動と機器は別の
+        # きっかけであり、言い直しで無かったことにはならない。
+        self._held: list[Trigger] = []
         # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
-        self._drained_completions: list[Completion] = []
+        self._drained_completions: list[Trigger] = []
         # 求めの寿命の状態は `Request` が持つ（に-5-に）。**`None` にしない**——求めが無い
         # ことは `request_id is None` が表す約束を、そのまま器の中へ持ち込む。
         self._req = Request()
@@ -437,8 +457,8 @@ class InformationProcessing:
             # 決まらない。飛行中の数は器から導くので、以前のように数だけ増やして釣り合いを
             # 取る必要もない（環-g・段は で挙動が変わったところ）。完了だけを積む——投げずに
             # 黙って帰ると、完了も時間切れも来ないまま駆動体が待ち続ける。
-            self._completion_queue.put_nowait(
-                Completion(
+            self._triggers.put_nowait(
+                Trigger(
                     kind="完了",
                     query=query,
                     result=f"「{query}」はこの求めですでに調べた。結果は W にある。",
@@ -475,7 +495,7 @@ class InformationProcessing:
             if lk is None or not lk.in_flight:
                 return  # もう結果が来ている
             logger.info("event-loop 調べものが %.0f 秒を超えた：%.40s", seconds, query)
-            self._completion_queue.put_nowait(Completion(kind="進捗", query=query))
+            self._triggers.put_nowait(Trigger(kind="進捗", query=query))
 
     def _dispatch_main_llm(
         self,
@@ -563,8 +583,8 @@ class InformationProcessing:
             from ..backends.types import TurnResult as _TR
 
             result = _TR(stop_reason="end_turn", text="")
-        self._completion_queue.put_nowait(
-            Completion(
+        self._triggers.put_nowait(
+            Trigger(
                 kind="決定",
                 query=f"主LLM{index}",
                 index=index,
@@ -590,8 +610,8 @@ class InformationProcessing:
         if action in ("see", "look"):
             # 飛行中の数は減らさない。`recall` と同じく取込が1件につき1つ減らす。
             out = await self._run_camera(action, tool_input)
-            self._completion_queue.put_nowait(
-                Completion(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
+            self._triggers.put_nowait(
+                Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
         if action != "recall":
@@ -601,8 +621,8 @@ class InformationProcessing:
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop %s の実行に失敗: %s", action, e)
-                self._completion_queue.put_nowait(
-                    Completion(
+                self._triggers.put_nowait(
+                    Trigger(
                         kind="完了",
                         query=query,
                         result=f"（{action} を実行できなかった：{e}）",
@@ -616,10 +636,8 @@ class InformationProcessing:
                 # タスクが無いので完了も時間切れも来ない。ここで閉じないと飛行中の数が
                 # 戻らず、駆動体が完了キューだけを待ち続けて何も処理しなくなる。
                 logger.info("event-loop %s は投げられなかった：%.60s", action, text)
-                self._completion_queue.put_nowait(
-                    Completion(
-                        kind="完了", query=query, result=text, intent_id=intent_id, index=index
-                    )
+                self._triggers.put_nowait(
+                    Trigger(kind="完了", query=query, result=text, intent_id=intent_id, index=index)
                 )
                 return
             # 投げられた。**ここで飛行中の数を減らさない。** 減らすと、結果が返る前に
@@ -638,13 +656,13 @@ class InformationProcessing:
         except Exception as e:  # noqa: BLE001
             logger.exception("event-loop recall の実行に失敗: %s", e)
             out = f"（recall を実行できなかった：{e}）"
-        self._completion_queue.put_nowait(
-            Completion(kind="完了", query=query, result=str(out), intent_id=intent_id, index=index)
+        self._triggers.put_nowait(
+            Trigger(kind="完了", query=query, result=str(out), intent_id=intent_id, index=index)
         )
         logger.debug(
             "event-loop RH 完了をQCへ（id=%s qsize=%d 意図=%.8s）",
             id(self),
-            self._completion_queue.qsize(),
+            self._triggers.qsize(),
             intent_id or "-",
         )
 
@@ -736,14 +754,14 @@ class InformationProcessing:
         # リストへ積み、完了が黙って失われる（実機で観測）。
         items = list(self._drained_completions)
         self._drained_completions.clear()
-        while not self._completion_queue.empty():
-            items.append(self._completion_queue.get_nowait())
+        while not self._triggers.empty():
+            items.append(self._triggers.get_nowait())
         logger.debug(
             "event-loop 取込（id=%s items=%d inflight=%d qsize=%d）",
             id(self),
             len(items),
             self._in_flight_count,
-            self._completion_queue.qsize(),
+            self._triggers.qsize(),
         )
 
         progress = [c for c in items if c.kind == "進捗"]
@@ -907,9 +925,14 @@ class InformationProcessing:
             task.cancel()
         self._background_tasks.clear()
         drained = 0
-        while not self._completion_queue.empty():
-            self._completion_queue.get_nowait()
-            drained += 1
+        while not self._triggers.empty():
+            item = self._triggers.get_nowait()
+            # **捨てるのは完了だけ。** 情動と機器は別のきっかけで、言い直しで無かったことに
+            # はならない（キューが3本だったころも、打ち切りは完了キューしか触らなかった）。
+            if item.kind in _NEW_REQUEST_KINDS:
+                self._held.append(item)
+            else:
+                drained += 1
         drained += len(self._drained_completions)
         self._drained_completions.clear()
 
@@ -1018,102 +1041,126 @@ class InformationProcessing:
             logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
             return
         loop = getattr(self, "_asyncio_loop", None)
-        item = Completion(
+        item = Trigger(
             kind="完了",
             query=query,
             result=str(result),
             index=index or (_lk.index if _lk is not None else 0),
         )
         if loop is not None and loop.is_running():
-            loop.call_soon_threadsafe(self._completion_queue.put_nowait, item)
+            loop.call_soon_threadsafe(self._triggers.put_nowait, item)
         else:
-            self._completion_queue.put_nowait(item)
+            self._triggers.put_nowait(item)
 
     def push_affect(self, drive_name: str, prompt: str) -> None:
-        """T が drive 発火を QA へ積む（AIF 経由・I は時計を見ない）。"""
-        self._affect_queue.put_nowait((drive_name, prompt))
+        """T が drive 発火を待ち行列へ積む（AIF 経由・I は時計を見ない）。"""
+        self._triggers.put_nowait(Trigger(kind="情動", query=drive_name, result=prompt))
 
     def push_device(self, kind: str, content: str, *, release_pending: bool = False) -> None:
-        """T が人の出入りを QD へ積む（DIF 経由・I は時計を見ない）。"""
-        self._device_queue.put_nowait((kind, content, release_pending))
+        """T が人の出入りを待ち行列へ積む（DIF 経由・I は時計を見ない）。"""
+        self._triggers.put_nowait(
+            Trigger(kind="機器", query=kind, result=content, release_pending=release_pending)
+        )
 
     def _ensure_driver(self) -> None:
-        """駆動体：キュー到来で次の反復を起こす（イベント駆動・時計は見ない）。"""
+        """駆動体：待ち行列の到来で次の反復を起こす（イベント駆動・時計は見ない）。
+
+        **装置が event loop より長生きすることがある。** `asyncio.run` を2度呼ぶ形（テスト）や、
+        GUI が回す loop を作り直す形である。`asyncio.Queue` は**最初に使った loop に縛られる**
+        ので、そのままだと次の loop で `is bound to a different event loop` が出続ける。
+        loop が変わったら中身を移して作り直す。
+        """
+        loop = asyncio.get_running_loop()
+        if self._asyncio_loop is not None and self._asyncio_loop is not loop:
+            logger.debug("event-loop 別の event loop になったので待ち行列を作り直す")
+            old, self._triggers = self._triggers, asyncio.Queue()
+            while not old.empty():
+                self._triggers.put_nowait(old.get_nowait())
+            if self._driver is not None:
+                self._driver.cancel()
+                self._driver = None
+        self._asyncio_loop = loop
         if self._driver is None or self._driver.done():
-            self._asyncio_loop = asyncio.get_running_loop()
             self._driver = asyncio.create_task(self._drive())
 
+    async def _take_trigger(self) -> "Trigger | None":
+        """次に処理するきっかけを1つ返す。`None` は「届いた完了を取り込んで反復する」。
+
+        **順序づけはここ1箇所にある**（環-f-い-1）。以前は3つに散っていた——キューの分け方
+        （調査中は完了キューだけを待つ）・取り出したあとの分岐（機器 ＞ 情動 ＞ 完了）・
+        受け箱への溜め方である。入口を1つ足すたびに3箇所を触ることになっていた。
+
+        規則は3つ。
+
+        1. **調査中は、新しい求めを始めるきっかけを待たせる**（保留箱へ）。飛行中の調査が
+           あるあいだに情動や人の出入りで別の連鎖を始めると、1つの求めの途中に別の話が
+           割り込む。聞いている側には、軽量LLM と主LLM が交互に喋る＝別々の人格が居るように
+           聞こえる（実機で観測）。**取りこぼしではなく待たせるだけ**である。
+        2. **完了は受け箱へまとめて溜める。** 1反復でまとめて取り込む。
+        3. **新しい求めを始めるきっかけは1つだけ選ぶ**（機器 ＞ 情動）。**選ばれなかった
+           ほうは保留箱へ回す。** 3本のキューだったころは、機器と情動が同時に届くと情動を
+           取り出したまま黙って捨てていた（`if device is not None: … elif affect …`）。
+        """
+        while True:
+            # 調査が終わっていれば、待たせていたぶんを先に片づける。
+            if not self._in_flight_count and self._held:
+                return self._held.pop(0)
+            batch = [await self._triggers.get()]
+            while not self._triggers.empty():
+                batch.append(self._triggers.get_nowait())
+            chosen: "Trigger | None" = None
+            for item in batch:
+                if item.kind not in _NEW_REQUEST_KINDS:
+                    self._drained_completions.append(item)
+                elif self._in_flight_count:
+                    self._held.append(item)
+                elif chosen is None:
+                    chosen = item
+                elif _TRIGGER_PRIORITY[item.kind] > _TRIGGER_PRIORITY[chosen.kind]:
+                    self._held.append(chosen)
+                    chosen = item
+                else:
+                    self._held.append(item)
+            if chosen is not None:
+                return chosen
+            if self._drained_completions:
+                return None
+            # 全部が保留箱へ回った（調査中に情動・機器だけが届いた）。もう一度待つ。
+
     async def _drive(self) -> None:
-        """3キューの union を待ち、来たどれでも起きる（時計は見ない・正本③）。
+        """待ち行列の到来で次の反復を起こす（イベント駆動・時計は見ない・正本③）。
 
         待つのは受ける側だけで、時計を持つのは T（自律機構）である。上限は設けない：
         終了は `close()` の cancel が待ちの最中でも即座に効くので、定期的に目を覚ます
         必要がない（目を覚ますこと自体が「時計を見る」動作になる）。
+
+        **待ち行列は1本である**（IIF・環-f-い-1）。会話入力・知覚イベント・情動発火・完了の
+        4つのきっかけが同じ列に並ぶ（会話入力だけはまだ `begin_request` が同期で入る）。
         """
         while True:
             try:
-                # 待つ対象は配列で持つ（QD を足すときは1本加えるだけ）。
-                # **調査中は完了キューだけを待つ。** 飛行中の調査があるあいだに情動や
-                # 人の出入りで別の連鎖を始めると、1つの求めの途中に別の話が割り込む。
-                # 聞いている側には、軽量LLM とフルLLM が交互に喋る＝別々の人格が居る
-                # ように聞こえる（実機で観測）。QA・QD は**消費せずキューに残す**ので、
-                # 調査が終われば順に処理される（取りこぼしではなく待たせるだけ）。
-                # 代償：drive の発火と人の入退室への反応が、その求めが終わるまで遅れる。
-                # 3つのキューは要素の形が違う（完了は4つ組、情動は2つ組、機器は3つ組）。
-                # union 待ちのあいだは形を問わないので、ここでは要素型を見ない。取り出した
-                # 後、どのキューから来たかで分岐して形を確定させる。
-                queues: list[asyncio.Queue[Any]] = (
-                    [self._completion_queue]
-                    if self._in_flight_count
-                    else [self._completion_queue, self._affect_queue, self._device_queue]
-                )
-                waiters = {asyncio.ensure_future(q.get()): q for q in queues}
-                try:
-                    done, pending = await asyncio.wait(waiters, return_when=asyncio.FIRST_COMPLETED)
-                finally:
-                    pass
-                for task in pending:
-                    task.cancel()
-                affect: Any = None
-                device: Any = None
-                for task in done:
-                    item = task.result()
-                    q = waiters[task]
-                    if q is self._completion_queue:
-                        self._drained_completions.append(item)
-                    elif q is self._affect_queue:
-                        affect = item
-                    else:
-                        device = item
-                # 同じキューに溜まっている分もまとめて取る。
-                while not self._completion_queue.empty():
-                    self._drained_completions.append(self._completion_queue.get_nowait())
-                if affect is None and not self._affect_queue.empty():
-                    affect = self._affect_queue.get_nowait()
-                if device is None and not self._device_queue.empty():
-                    device = self._device_queue.get_nowait()
-
-                if device is not None:
-                    kind, content, release_pending = device
-                    logger.debug("event-loop 駆動体が機器を受領（%s）", kind)
-                    await self._begin_device(kind, content, release_pending)
-                elif affect is not None:
-                    drive_name, prompt = affect
-                    logger.debug("event-loop 駆動体が情動を受領（%s）", drive_name)
-                    await self._begin_affect(drive_name, prompt)
-                else:
+                trigger = await self._take_trigger()
+                if trigger is None:
                     logger.debug(
                         "event-loop 駆動体が完了を受領（id=%s inbox=%d）",
                         id(self),
                         len(self._drained_completions),
                     )
                     await self._iterate()
+                elif trigger.kind == "機器":
+                    logger.debug("event-loop 駆動体が機器を受領（%s）", trigger.query)
+                    await self._begin_device(trigger.query, trigger.result, trigger.release_pending)
+                else:
+                    logger.debug("event-loop 駆動体が情動を受領（%s）", trigger.query)
+                    await self._begin_affect(trigger.query, trigger.result)
             except asyncio.CancelledError:
-                for task in waiters:
-                    task.cancel()
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop 駆動体で例外: %s", e)
+                # **必ず一度譲る。** 待つ前に投げる例外（作り直し前の待ち行列など）だと、
+                # ここで譲らなければ await を挟まない密な繰り返しになり、event loop ごと
+                # 止まる（実機では固まって見える）。
+                await asyncio.sleep(0)
 
     async def _begin_affect(self, drive_name: str, prompt: str) -> None:
         """情動で新しい連鎖を始める。取込＝来た事実（情動）を O に書き、鎖の起点にする。

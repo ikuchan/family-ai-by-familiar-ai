@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import MagicMock
-from familiar_agent.loop.event_loop import Completion, Decision, InformationProcessing
+from familiar_agent.loop.event_loop import Trigger, Decision, InformationProcessing
 from familiar_agent.loop.request import Request
 
 
@@ -23,7 +23,7 @@ def _ip():
     ip = InformationProcessing.__new__(InformationProcessing)
     # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
     ip._req = Request()
-    ip._completion_queue = asyncio.Queue()
+    ip._triggers = asyncio.Queue()
     ip._req.lookups = []
     ip._request_generation = 0
     ip._asyncio_loop = None
@@ -34,14 +34,14 @@ def _ip():
 
 
 def test_a_finished_lookup_carries_its_result():
-    c = Completion(kind="完了", query="明日の天気", result="晴れ", index=1)
+    c = Trigger(kind="完了", query="明日の天気", result="晴れ", index=1)
     assert (c.kind, c.query, c.result, c.index) == ("完了", "明日の天気", "晴れ", 1)
     assert c.decision is None
 
 
 def test_a_slow_notice_carries_only_the_query():
     """`進捗` は結果ではない。飛行中の数も一覧も触らない。"""
-    c = Completion(kind="進捗", query="明日の天気")
+    c = Trigger(kind="進捗", query="明日の天気")
     assert c.result == ""
     assert c.index == 0
 
@@ -54,7 +54,7 @@ def test_a_decision_carries_the_turn_result_and_the_workspace():
     tr = TurnResult(
         stop_reason="tool_use", text="", tool_calls=[ToolCall("t", "say", {"text": "はい"})]
     )
-    # **W は `Decision` が持つ。** `Completion` の側に `memories` と `w_id_map` を並べると、
+    # **W は `Decision` が持つ。** `Trigger` の側に `memories` と `w_id_map` を並べると、
     # 種別が `決定` のときだけ意味を持つ欄が2つ増える。返りと W は必ず一緒に動くので、
     # 1つの器へまとめた（環-h ②）。
     d = Decision(
@@ -67,7 +67,7 @@ def test_a_decision_carries_the_turn_result_and_the_workspace():
         effort="high",
         capped=False,
     )
-    c = Completion(kind="決定", decision=d)
+    c = Trigger(kind="決定", decision=d)
     assert c.decision is d
     assert c.decision.result is tr
     assert c.decision.memories == [{"memory_id": "m1"}]
@@ -80,8 +80,8 @@ def test_a_decision_carries_the_turn_result_and_the_workspace():
 def test_push_completion_puts_a_record():
     ip = _ip()
     ip.push_completion("明日の天気", "晴れ", index=3)
-    got = ip._completion_queue.get_nowait()
-    assert isinstance(got, Completion)
+    got = ip._triggers.get_nowait()
+    assert isinstance(got, Trigger)
     assert (got.kind, got.query, got.result, got.index) == ("完了", "明日の天気", "晴れ", 3)
 
 

@@ -108,7 +108,7 @@ def test_pending_speech_is_released_only_when_presence_rises_from_zero():
     assert releases == [True, False]
 
 
-def test_device_queue_wakes_the_driver():
+def test_a_device_trigger_wakes_the_driver():
     from familiar_agent.loop.event_loop import InformationProcessing
 
     a = MagicMock()
@@ -148,7 +148,9 @@ def test_presence_scan_leaves_a_trace_even_when_nothing_changes():
 
 def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
     # 調査中に情動や人の出入りで別の連鎖を始めると、1つの求めの途中に別の話が割り込む。
-    # QA・QD は消費せずキューに残す（取りこぼしではなく待たせるだけ）。
+    # **保留箱へ避ける**（環-f-い-1）。待ち行列が3本だったころは「調査中は完了キューだけを
+    # 待つ」ことでキューに残していた。1本の列は先頭からしか取れないので、取り出してから
+    # 避ける形へ改めた。意味は同じ——取りこぼしではなく待たせるだけである。
     from familiar_agent.loop.event_loop import InformationProcessing
 
     a = MagicMock()
@@ -165,12 +167,12 @@ def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
         ip.push_affect("SEEKING", "なにか気になる")
         ip.push_device("入室", "パパ が来た")
         await asyncio.sleep(0.05)
-        sizes = (ip._affect_queue.qsize(), ip._device_queue.qsize())
+        held = [t.kind for t in ip._held]
         await ip.close()
-        return ip, sizes
+        return ip, held
 
-    ip, sizes = asyncio.run(scenario())
-    assert sizes == (1, 1)  # どちらも消費されず残っている
+    ip, held = asyncio.run(scenario())
+    assert sorted(held) == ["情動", "機器"]  # どちらも保留箱で待っている
     ip._begin_affect.assert_not_awaited()
     ip._begin_device.assert_not_awaited()
 
@@ -266,3 +268,92 @@ def test_releasing_held_speech_is_logged_with_its_count():
         logger.removeHandler(handler)
         logger.setLevel(old_level)
     assert any("保留を配る：1件" in m for m in records)
+
+
+def test_two_new_request_triggers_do_not_lose_one():
+    """**新しい求めを始めるきっかけを取りこぼさない**（環-f-い-1）。
+
+    3本のキューだったころは、機器と情動が同時に届くと**情動を取り出したまま黙って捨てて
+    いた**（`if device is not None: … elif affect is not None:`）。1本の列では、選ばれ
+    なかったほうが保留箱へ回り、次の周で処理される。機器が先なのは以前と同じ。
+    """
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    async def scenario():
+        ip = InformationProcessing(MagicMock())
+        ip._iterate = AsyncMock(return_value="")
+        ip._begin_affect = AsyncMock(return_value=None)
+        ip._begin_device = AsyncMock(return_value=None)
+        ip.push_affect("SEEKING", "なにか気になる")
+        ip.push_device("入室", "パパ が来た")
+        first = await ip._take_trigger()
+        second = await ip._take_trigger()
+        return first, second
+
+    first, second = asyncio.run(scenario())
+    assert first.kind == "機器"  # 機器が先
+    assert second.kind == "情動"  # 情動は捨てられず、次に出てくる
+
+
+def test_an_abort_keeps_the_new_request_triggers():
+    """**打ち切りで捨てるのは完了だけ。** 情動と機器は別のきっかけで、言い直しで無かった
+    ことにはならない（キューが3本だったころも、打ち切りは完了キューしか触らなかった）。"""
+    from familiar_agent.loop.event_loop import InformationProcessing, Trigger
+
+    async def scenario():
+        ip = InformationProcessing(MagicMock())
+        ip._write_version = AsyncMock(return_value="v")
+        ip._req.request_id = "req-1"
+        ip._triggers.put_nowait(Trigger(kind="完了", query="q", result="r"))
+        ip.push_affect("SEEKING", "なにか気になる")
+        await ip._abort_lookups()
+        return [t.kind for t in ip._held], ip._triggers.qsize()
+
+    held, left = asyncio.run(scenario())
+    assert held == ["情動"] and left == 0
+
+
+def test_a_new_event_loop_gets_a_fresh_queue():
+    """**装置は event loop より長生きすることがある**（環-f-い-1 で見つけた）。
+
+    `asyncio.Queue` は最初に使った loop に縛られる。`asyncio.run` を2度呼ぶ形（テスト）や
+    GUI が loop を作り直す形では、次の loop で `is bound to a different event loop` が
+    出続ける。**積んであったものは移す**——別の loop になったからといって、待っている
+    きっかけが消えてよい理由はない。
+    """
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    ip = InformationProcessing(MagicMock())
+
+    async def first():
+        ip._ensure_driver()
+        ip.push_affect("SEEKING", "なにか気になる")
+        await ip.close()
+
+    asyncio.run(first())
+    before = ip._triggers
+
+    async def second():
+        ip._ensure_driver()
+        got = ip._triggers is not before and ip._triggers.qsize() == 1
+        await ip.close()
+        return got
+
+    assert asyncio.run(second()), "待ち行列が作り直されず、中身も移っていない"
+
+
+def test_the_driver_yields_even_when_it_only_sees_exceptions():
+    """**駆動体は必ず一度譲る。** 待つ前に投げる例外だと、譲らなければ await を挟まない
+    密な繰り返しになり、event loop ごと止まる（実機では固まって見える）。"""
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    async def scenario():
+        ip = InformationProcessing(MagicMock())
+        ip._take_trigger = AsyncMock(side_effect=RuntimeError("待つ前に落ちた"))
+        ip._ensure_driver()
+        # 譲らなければ、この sleep は永久に戻らない。
+        await asyncio.sleep(0.02)
+        await ip.close()
+        return True
+
+    assert asyncio.run(scenario())

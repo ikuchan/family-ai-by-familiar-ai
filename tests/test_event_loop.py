@@ -12,7 +12,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall, TurnResult
-from familiar_agent.loop.event_loop import InformationProcessing, Completion
+from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 
 # 非同期の処理が届くのを待つ上限（0.005 秒 × この回数＝5秒）。条件が満たされた時点で
 # 抜けるので、通常の実行時間は変わらない。以前は 1〜2 秒相当で、負荷の高い実行（所要が
@@ -222,7 +222,7 @@ def test_fallback_text_emitted_once():
 # ── スライス2（QC 連鎖・supersede・上限）─────────────
 
 
-def test_recall_chains_via_completion_queue_then_says():
+def test_recall_chains_via_triggers_then_says():
     # 反復1＝recall を呼ぶ／反復2＝say。RH が recall を実行→QC→次反復で O 書込→発話。
     a = _agent(
         stream_returns=[
@@ -544,7 +544,7 @@ def test_intake_drains_inbox_in_place():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     before = ip._drained_completions
-    ip._drained_completions.append(Completion(kind="完了", query="q", result="結果", index=1))
+    ip._drained_completions.append(Trigger(kind="完了", query="q", result="結果", index=1))
     assert asyncio.run(ip._intake()) == (1, None)  # (件数, 主LLM の決定)
     assert ip._drained_completions is before  # 作り直さない
     assert ip._drained_completions == []  # 中身だけ空にする
@@ -641,7 +641,7 @@ def test_speech_goes_out_when_someone_is_present():
     a._pending_store.add.assert_not_called()  # 話せたので溜めない
 
 
-def test_deferred_is_wired_to_the_completion_queue():
+def test_deferred_is_wired_to_the_triggers():
     # deferred の完了は完了キューへ渡す（ポーリングで拾う経路は #12a で撤去した）。
     from familiar_agent.agent import EmbodiedAgent
 
@@ -717,8 +717,8 @@ def test_agent_starts_tonic():
     assert ip is not None and tonic is not None
 
 
-def test_driver_wakes_on_the_affect_queue():
-    # 段階3：駆動体は QC と QA の union で起きる。情動（drive 発火）が積まれたら反復が回る。
+def test_driver_wakes_on_an_affect_trigger():
+    # 駆動体は**1本の待ち行列**で起きる（環-f-い-1）。情動（drive 発火）が積まれたら反復が回る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ひとりごと"})])])
     shown: list[str] = []
 
@@ -972,9 +972,7 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
         ip = InformationProcessing(a)
         assert await ip.begin_request("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)  # 意図を書いて dispatch し終えた頃
-        ip._completion_queue.put_nowait(
-            Completion(kind="完了", query="q", result="外から届いた結果", index=1)
-        )
+        ip._triggers.put_nowait(Trigger(kind="完了", query="q", result="外から届いた結果", index=1))
         for _ in range(_WAIT_TICKS):
             if shown:
                 break

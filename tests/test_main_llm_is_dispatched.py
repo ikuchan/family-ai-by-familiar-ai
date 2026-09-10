@@ -22,7 +22,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall
 from familiar_agent.backends.types import TurnResult
-from familiar_agent.loop.event_loop import Completion, Decision, InformationProcessing
+from familiar_agent.loop.event_loop import Trigger, Decision, InformationProcessing
 from familiar_agent.loop.request import Request
 
 
@@ -30,7 +30,7 @@ def _ip():
     ip = InformationProcessing.__new__(InformationProcessing)
     # `__new__` は `__init__` を通らないので、求めの器は自分で置く（に-5-に-1）。
     ip._req = Request()
-    ip._completion_queue = asyncio.Queue()
+    ip._triggers = asyncio.Queue()
     ip._drained_completions = []
     ip._req.lookups = []
     ip._background_tasks = set()
@@ -129,7 +129,7 @@ def test_the_return_lands_in_the_queue_with_what_it_saw():
         )
         for t in list(ip._background_tasks):
             await t
-        return ip._completion_queue.get_nowait()
+        return ip._triggers.get_nowait()
 
     c = asyncio.run(scenario())
     assert c.kind == "決定"
@@ -146,7 +146,7 @@ def test_the_return_lands_in_the_queue_with_what_it_saw():
 def test_intake_hands_the_decision_back():
     ip, _a = _ip()
     ip._req.lookups = []
-    ip._drained_completions = [Completion(kind="決定", decision=_decision())]
+    ip._drained_completions = [Trigger(kind="決定", decision=_decision())]
     drained, decided = asyncio.run(ip._intake())
     assert decided is not None
     assert decided.result.stop_reason == "tool_use"
@@ -159,7 +159,7 @@ def test_the_version_does_not_carry_the_返り():
     ip, _a = _ip()
     ip._req.lookups = [Lookup(index=1, action="主LLM", query="主LLM1", generation=0)]
     ip._drained_completions = [
-        Completion(
+        Trigger(
             kind="決定",
             query="主LLM1",
             decision=_decision(
