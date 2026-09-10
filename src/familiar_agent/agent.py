@@ -1658,6 +1658,33 @@ class EmbodiedAgent:
             if stt_cfg.engine == "whisper":
                 asyncio.ensure_future(asyncio.to_thread(ensure_whisper_model, stt_cfg))
 
+    async def _close_backends(self) -> None:
+        """バックエンドのキャッシュを後始末する（出-i の呼び手）。
+
+        **呼び手はここ1つだけである。** 心拍（定期的に `warm`）は入れないと決めた——
+        温めると書き込みが丸ごと上乗せになり（1.063 ＋ 0.085 ＝ 1.148円 対 1.063円）、
+        得られるのは1ターン目の書き込みが起動時へ前倒しになることだけである。
+
+        **同じ実体を二度閉じない。** 軽量LLM や場面用を設定していなければ主LLM と同じ物を
+        指す（`create_utility_backend(config) or self.backend`）。
+
+        **閉じられなくても終了は続く。** キャッシュは速さと安さのためのもので、機能では
+        ない。`anthropic` の `aclose` は手元の鍵を落とすだけだが、消さないと課金が続く
+        バックエンドが将来入っても、閉じ口はここに揃う。
+        """
+        seen: set[int] = set()
+        for backend in (self.backend, self._utility_backend, self._scene_backend):
+            if backend is None or id(backend) in seen:
+                continue
+            seen.add(id(backend))
+            aclose = getattr(backend, "aclose", None)
+            if aclose is None:
+                continue
+            try:
+                await aclose()
+            except Exception as e:  # noqa: BLE001, PERF203
+                logger.debug("バックエンドを閉じられなかった（続行する）: %s", e)
+
     async def close(self) -> None:
         """Clean up resources. Bounded by timeouts to avoid hanging on exit."""
         if self._camera:
@@ -1669,10 +1696,7 @@ class EmbodiedAgent:
 
             stop_sbv2_server()
 
-        heartbeat = getattr(self, "_cache_heartbeat_task", None)
-        if heartbeat and not heartbeat.done():
-            heartbeat.cancel()
-            await asyncio.gather(heartbeat, return_exceptions=True)
+        await self._close_backends()
 
         # #11：T（自律機構）と I（情報処理機構）の常駐タスクを止める。
         tonic = getattr(self, "_tonic", None)

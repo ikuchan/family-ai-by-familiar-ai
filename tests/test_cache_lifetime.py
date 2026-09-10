@@ -31,8 +31,14 @@ from familiar_agent.backends import (
 )
 from familiar_agent.core.llm_protocol import LLMBackend
 
-_ALL = (AnthropicBackend, CLIBackend, GeminiBackend, GLMBackend,
-        KimiBackend, OpenAICompatibleBackend)
+_ALL = (
+    AnthropicBackend,
+    CLIBackend,
+    GeminiBackend,
+    GLMBackend,
+    KimiBackend,
+    OpenAICompatibleBackend,
+)
 
 
 def test_the_promise_carries_the_three_lifetime_mouths():
@@ -49,8 +55,10 @@ def test_every_backend_answers_the_three(cls):
 
 
 @pytest.mark.parametrize(
-    "cls", [c for c in _ALL if c is not AnthropicBackend],
-    ids=[c.__name__ for c in _ALL if c is not AnthropicBackend])
+    "cls",
+    [c for c in _ALL if c is not AnthropicBackend],
+    ids=[c.__name__ for c in _ALL if c is not AnthropicBackend],
+)
 def test_a_backend_without_a_cache_does_nothing(cls):
     """持たないものは黙って何もしない。**例外を投げない**（呼ぶ側が種類を見分けずに済む）。"""
     be = object.__new__(cls)
@@ -61,6 +69,7 @@ def test_a_backend_without_a_cache_does_nothing(cls):
 
 # ── Anthropic だけが中身を持つ ──────────────────────────────────────────────
 
+
 def _anthropic_with_fake():
     seen: dict = {}
 
@@ -68,9 +77,9 @@ def _anthropic_with_fake():
         async def create(self, **kw):
             seen.update(kw)
             return SimpleNamespace(
-                usage=SimpleNamespace(cache_creation_input_tokens=5348,
-                                      cache_read_input_tokens=0),
-                content=[])
+                usage=SimpleNamespace(cache_creation_input_tokens=5348, cache_read_input_tokens=0),
+                content=[],
+            )
 
     be = AnthropicBackend(api_key="dummy", model="claude-haiku-4-5-20251001")
     be.client = SimpleNamespace(messages=_Messages())  # type: ignore[assignment]
@@ -83,7 +92,7 @@ def test_warming_sends_the_stable_part_with_cache_control():
     blocks = seen["system"]
     assert blocks[0]["text"] == "＜安定部＞"
     assert blocks[0]["cache_control"] == {"type": "ephemeral"}
-    assert seen["max_tokens"] == 1          # 1トークンで足りる（載せるだけ）
+    assert seen["max_tokens"] == 1  # 1トークンで足りる（載せるだけ）
 
 
 def test_warming_remembers_which_keys_are_alive():
@@ -122,6 +131,7 @@ def test_warming_the_same_key_again_replaces_the_stable_part():
 
 def test_a_failure_to_warm_is_not_fatal():
     """温められなくてもターンは回る。キャッシュは速さと安さのためのもので、機能ではない。"""
+
     class _Messages:
         async def create(self, **kw):
             raise RuntimeError("529 overloaded")
@@ -129,4 +139,65 @@ def test_a_failure_to_warm_is_not_fatal():
     be = AnthropicBackend(api_key="dummy", model="m")
     be.client = SimpleNamespace(messages=_Messages())  # type: ignore[assignment]
     asyncio.run(be.warm("paju", "＜安定部＞"))
-    assert be.warm_keys() == set()          # 載らなかったので覚えない
+    assert be.warm_keys() == set()  # 載らなかったので覚えない
+
+
+# ── 誰が呼ぶか（出-i・呼び手）─────────────────────────────────────────────
+
+
+def _agent_with_backends(*backends):
+    """終了だけを見るための、最小の器。"""
+    from familiar_agent.agent import EmbodiedAgent
+
+    a = object.__new__(EmbodiedAgent)
+    a._camera = None
+    a.backend, a._utility_backend, a._scene_backend = backends
+    return a
+
+
+def test_shutting_down_closes_every_backend_once():
+    """**終了時に後始末する。** 口を持つ以上、閉じる人が要る。
+
+    心拍は入れない（v0.88 で計算した——`warm` は書き込みが丸ごと上乗せになり、1ターン目の
+    書き込みが起動時へ前倒しになるだけである）。だから**呼び手は終了時の1つだけ**になる。
+    """
+    from unittest.mock import AsyncMock, MagicMock
+
+    a = _agent_with_backends(MagicMock(), MagicMock(), MagicMock())
+    for b in (a.backend, a._utility_backend, a._scene_backend):
+        b.aclose = AsyncMock()
+    asyncio.run(a._close_backends())
+    for b in (a.backend, a._utility_backend, a._scene_backend):
+        b.aclose.assert_awaited_once()
+
+
+def test_the_same_backend_is_not_closed_twice():
+    """**同じ実体を二度閉じない。** 軽量LLM を設定していなければ主LLM と同じ物を指す
+    （`create_utility_backend(config) or self.backend`）。"""
+    from unittest.mock import AsyncMock, MagicMock
+
+    shared = MagicMock()
+    shared.aclose = AsyncMock()
+    a = _agent_with_backends(shared, shared, shared)
+    asyncio.run(a._close_backends())
+    shared.aclose.assert_awaited_once()
+
+
+def test_a_backend_that_cannot_close_does_not_stop_the_shutdown():
+    """閉じられなくても終了は続く。キャッシュは速さと安さのためで、機能ではない。"""
+    from unittest.mock import AsyncMock, MagicMock
+
+    bad, good = MagicMock(), MagicMock()
+    bad.aclose = AsyncMock(side_effect=RuntimeError("落ちた"))
+    good.aclose = AsyncMock()
+    a = _agent_with_backends(bad, good, good)
+    asyncio.run(a._close_backends())
+    good.aclose.assert_awaited_once()
+
+
+def test_no_dead_heartbeat_cleanup_remains():
+    """**作られないタスクの後始末を残さない。** 心拍は入れないと決めた（v0.88）のに、
+    `_cache_heartbeat_task` を畳む3行だけが `close()` に残っていた。"""
+    from familiar_agent.agent import EmbodiedAgent
+
+    assert "_cache_heartbeat_task" not in inspect.getsource(EmbodiedAgent.close)
