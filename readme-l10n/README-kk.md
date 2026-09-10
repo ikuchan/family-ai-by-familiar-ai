@@ -383,7 +383,7 @@ Any camera that supports RTSP works. Tested: **Tapo C220** (ONVIF+RTSP) and **Eu
 
 ## Техникалық негіз
 
-Қалай жұмыс істейтінін білгіңіз келе ме? familiar-ai үшін зерттеу жүргізген және дизайн шешімдерін қараңыз [docs/technical.md](./docs/technical.md) — ReAct, SayCan, Reflexion, Voyager, талаптар жүйесі және басқалар.
+Қалай жұмыс істейтінін білгіңіз келе ме? familiar-ai үшін зерттеу жүргізген және дизайн шешімдерін қараңыз [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) — ReAct, SayCan, Reflexion, Voyager, талаптар жүйесі және басқалар.
 
 ---
 

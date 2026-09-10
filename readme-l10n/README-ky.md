@@ -383,7 +383,7 @@ Any camera that supports RTSP works. Tested: **Tapo C220** (ONVIF+RTSP) and **Eu
 
 ## Техникалык фон
 
-Кайда мектеп бар, ал кандайча иштейт? [docs/technical.md](./docs/technical.md) бөлүмүндө familiar-ai'нын изилдөөлөрүнө жана долбоорлоо чечимдерине кайрылып көрүңүз — ReAct, SayCan, Reflexion, Voyager, тилек системасы жана башкалар.
+Кайда мектеп бар, ал кандайча иштейт? [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) бөлүмүндө familiar-ai'нын изилдөөлөрүнө жана долбоорлоо чечимдерине кайрылып көрүңүз — ReAct, SayCan, Reflexion, Voyager, тилек системасы жана башкалар.
 
 ---
 

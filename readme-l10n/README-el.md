@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## Τεχνικό Υπόβαθρο
 
-Είσαι περίεργος για το πώς λειτουργεί; Δες το [docs/technical.md](./docs/technical.md) για την έρευνα και τις σχεδιαστικές αποφάσεις πίσω από το familiar-ai — ReAct, SayCan, Reflexion, Voyager, το σύστημα επιθυμιών, και περισσότερα.
+Είσαι περίεργος για το πώς λειτουργεί; Δες το [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) για την έρευνα και τις σχεδιαστικές αποφάσεις πίσω από το familiar-ai — ReAct, SayCan, Reflexion, Voyager, το σύστημα επιθυμιών, και περισσότερα.
 
 ---
 

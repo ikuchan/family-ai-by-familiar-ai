@@ -384,7 +384,7 @@ Gwnewch yn siŵr bod `ELEVENLABS_API_KEY` wedi'i gosod. Hebddo, mae llais wedi'i
 
 ## Cefndir technegol
 
-Oeddet ti'n chwilfrydedd am sut mae'n gweithio? Gweler [docs/technical.md](./docs/technical.md) am y ymchwil a'r penderfyniadau dylunio yn y tu ôl i familiar-ai — ReAct, SayCan, Reflexion, Voyager, y system dymuniad, a mwy.
+Oeddet ti'n chwilfrydedd am sut mae'n gweithio? Gweler [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) am y ymchwil a'r penderfyniadau dylunio yn y tu ôl i familiar-ai — ReAct, SayCan, Reflexion, Voyager, y system dymuniad, a mwy.
 
 ---
 

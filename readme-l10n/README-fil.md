@@ -384,7 +384,7 @@ Siguraduhing itinatakda ang `ELEVENLABS_API_KEY`. Kung wala ito, ang boses ay hi
 
 ## Teknikal na background
 
-Nais mo bang malaman kung paano ito gumagana? Tingnan ang [docs/technical.md](./docs/technical.md) para sa mga pananaliksik at disenyong desisyon sa likod ng familiar-ai — ReAct, SayCan, Reflexion, Voyager, ang sistema ng pagnanais, at higit pa.
+Nais mo bang malaman kung paano ito gumagana? Tingnan ang [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) para sa mga pananaliksik at disenyong desisyon sa likod ng familiar-ai — ReAct, SayCan, Reflexion, Voyager, ang sistema ng pagnanais, at higit pa.
 
 ---
 

@@ -383,7 +383,7 @@ Déantar deimhin go mbeidh `ELEVENLABS_API_KEY` socraithe. Murach sin, tá guth 
 
 ## Cúlra teicniúil
 
-Fonn ar conas a oibríonn sé? Féach [docs/technical.md](./docs/technical.md) don taighde agus na cinntí dearaidh a bhaineann le familiar-ai — ReAct, SayCan, Reflexion, Voyager, an córas dóchais, agus níos mó.
+Fonn ar conas a oibríonn sé? Féach [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) don taighde agus na cinntí dearaidh a bhaineann le familiar-ai — ReAct, SayCan, Reflexion, Voyager, an córas dóchais, agus níos mó.
 
 ---
 

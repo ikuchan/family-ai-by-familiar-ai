@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## الخلفية التقنية
 
-هل أنت فضولي حول كيفية عمله؟ انظر [docs/technical.md](./docs/technical.md) للبحث والقرارات التصميمية وراء familiar-ai — ReAct، SayCan، Reflexion، Voyager، نظام الرغبات، والمزيد.
+هل أنت فضولي حول كيفية عمله؟ انظر [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) للبحث والقرارات التصميمية وراء familiar-ai — ReAct، SayCan، Reflexion، Voyager، نظام الرغبات، والمزيد.
 
 ---
 

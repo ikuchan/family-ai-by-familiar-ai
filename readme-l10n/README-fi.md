@@ -384,7 +384,7 @@ Varmista, että `ELEVENLABS_API_KEY` on asetettu. Ilman tätä ääni on pois p�
 
 ## Tekninen tausta
 
-Kiinnostavatko miten tämä toimii? Katso [docs/technical.md](./docs/technical.md) tutkimuksen ja suunnittelupäätösten takaa familiar-ai:lle — ReAct, SayCan, Reflexion, Voyager, halujärjestelmä ja paljon muuta.
+Kiinnostavatko miten tämä toimii? Katso [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) tutkimuksen ja suunnittelupäätösten takaa familiar-ai:lle — ReAct, SayCan, Reflexion, Voyager, halujärjestelmä ja paljon muuta.
 
 ---
 

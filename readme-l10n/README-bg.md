@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## Технически фон
 
-Любопитен за начина, по който работи? Вижте [docs/technical.md](./docs/technical.md) за изследванията и проектните решения зад familiar-ai — ReAct, SayCan, Reflexion, Voyager, системата за желания и много други.
+Любопитен за начина, по който работи? Вижте [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) за изследванията и проектните решения зад familiar-ai — ReAct, SayCan, Reflexion, Voyager, системата за желания и много други.
 
 ---
 

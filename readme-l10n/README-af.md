@@ -382,7 +382,7 @@ Maak seker dat `ELEVENLABS_API_KEY` ingesteld is. Sonder dit, is die stem deakti
 
 ## Tegniese agtergrond
 
-Nuuskierig oor hoe dit werk? Sien [docs/technical.md](./docs/technical.md) vir die navorsing en ontwerpbeslissings agter familiar-ai — ReAct, SayCan, Reflexion, Voyager, die verlangstelsel, en meer.
+Nuuskierig oor hoe dit werk? Sien [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) vir die navorsing en ontwerpbeslissings agter familiar-ai — ReAct, SayCan, Reflexion, Voyager, die verlangstelsel, en meer.
 
 ---
 

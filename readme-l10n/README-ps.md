@@ -384,7 +384,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## تخنیکي شالید
 
-د دې څرنګه کار کولو په اړه غږیدل؟ د familiar-ai د شالید په اړه د څیړنې او ډیزاین پریکړو لپاره [docs/technical.md](./docs/technical.md) وګورئ — ReAct، SayCan، Reflexion، Voyager، د غوښتنو سیسټم، او نور.
+د دې څرنګه کار کولو په اړه غږیدل؟ د familiar-ai د شالید په اړه د څیړنې او ډیزاین پریکړو لپاره [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) وګورئ — ReAct، SayCan، Reflexion، Voyager، د غوښتنو سیسټم، او نور.
 
 ---
 

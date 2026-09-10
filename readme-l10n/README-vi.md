@@ -383,7 +383,7 @@ Hãy chắc chắn rằng `ELEVENLABS_API_KEY` đã được thiết lập. Nế
 
 ## Nền tảng kỹ thuật
 
-Bạn muốn biết nó hoạt động như thế nào? Xem [docs/technical.md](./docs/technical.md) để biết nghiên cứu và quyết định thiết kế đằng sau familiar-ai — ReAct, SayCan, Reflexion, Voyager, hệ thống mong muốn, và nhiều hơn nữa.
+Bạn muốn biết nó hoạt động như thế nào? Xem [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) để biết nghiên cứu và quyết định thiết kế đằng sau familiar-ai — ReAct, SayCan, Reflexion, Voyager, hệ thống mong muốn, và nhiều hơn nữa.
 
 ---
 

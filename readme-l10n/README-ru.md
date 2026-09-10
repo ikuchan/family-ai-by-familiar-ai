@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## Технический фон
 
-Любопытно, как это работает? Смотрите [docs/technical.md](./docs/technical.md) для исследований и дизайнерских решений, лежащих в основе familiar-ai — ReAct, SayCan, Reflexion, Voyager, система желаний и многое другое.
+Любопытно, как это работает? Смотрите [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) для исследований и дизайнерских решений, лежащих в основе familiar-ai — ReAct, SayCan, Reflexion, Voyager, система желаний и многое другое.
 
 ---
 

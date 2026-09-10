@@ -383,7 +383,7 @@ Anerstécht sécher datt `ELEVENLABS_API_KEY` gesetzt ass. Ouni dat ass d'Audio 
 
 ## Technesch Hannergrond
 
-Interesséiert fir wéi et funktionnéiert? Kuck [docs/technical.md](./docs/technical.md) fir d'Recherche a Design-Entscheedungen déi hannert familiar-ai steet — ReAct, SayCan, Reflexion, Voyager, d'Wënschsystem, an méi.
+Interesséiert fir wéi et funktionnéiert? Kuck [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) fir d'Recherche a Design-Entscheedungen déi hannert familiar-ai steet — ReAct, SayCan, Reflexion, Voyager, d'Wënschsystem, an méi.
 
 ---
 

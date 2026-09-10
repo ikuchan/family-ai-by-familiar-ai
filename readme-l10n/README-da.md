@@ -383,7 +383,7 @@ Sørg for, at `ELEVENLABS_API_KEY` er indstillet. Uden det, er stemmen deaktiver
 
 ## Teknisk baggrund
 
-Nysgerrig på hvordan det fungerer? Se [docs/technical.md](./docs/technical.md) for forskningen og designbeslutningerne bag familiar-ai — ReAct, SayCan, Reflexion, Voyager, desire-systemet og mere.
+Nysgerrig på hvordan det fungerer? Se [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) for forskningen og designbeslutningerne bag familiar-ai — ReAct, SayCan, Reflexion, Voyager, desire-systemet og mere.
 
 ---
 

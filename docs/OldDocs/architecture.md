@@ -1,4 +1,21 @@
-# familiar-ai Architecture — Neighbor Intelligence Stack
+# familiar-ai Architecture — Neighbor Intelligence Stack（旧版・旧 ReAct 経路の記録）
+
+> ⚠ **（旧版）この文書は、撤去した旧 ReAct 経路の記録である。いまの実物ではない。**
+>
+> ここが説明しているターンの進み方と層の対応は、**#12a（環-c）で撤去した**。名指しで
+> 説明している `interoception.py`・`appraisal.py`・`social_policy.py`・`meta_monitor.py`・
+> `mental_state.py`・`self_state.py`・`attention_schema.py`・`default_mode.py`・
+> `tools/tom.py`・`heartbeat.py` は、いずれもリポジトリに無い。保存先として書いてある
+> `~/.familiar_ai/*.jsonl` も無い（保存は PostgreSQL のみ）。
+>
+> **いまの設計の正本は `docs/NewModesDocs/`** にある。構造は `設計図_Mermaid`、語は
+> `用語_略語一覧`、段階と現在地は `課題8_段取り設計` である。ターンの中身は `agent.py`
+> ではなくイベント駆動ループ（`loop/event_loop.py`）が持つ。
+>
+> 撤去したものの台帳は `設計図_Mermaid` の「撤去済み（#12a）」節にある。
+> （2026-09-10 に `docs/` 直下から `docs/OldDocs/` へ移し、この印を打った。）
+
+---
 
 This document maps familiar-ai's cognitive architecture to the Neighbor Intelligence Stack (NIS) design framework.
 

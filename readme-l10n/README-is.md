@@ -382,7 +382,7 @@ Gakktu úr skugga um að `ELEVENLABS_API_KEY` sé stillt. Án þess er röddin �
 
 ## Tæknileg bakgrunnur
 
-Forvitinn um hvernig þetta virkar? Sjá [docs/technical.md](./docs/technical.md) fyrir rannsóknir og hönnun ákvarðanir á bak við familiar-ai — ReAct, SayCan, Reflexion, Voyager, þrákerfið, og fleira.
+Forvitinn um hvernig þetta virkar? Sjá [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) fyrir rannsóknir og hönnun ákvarðanir á bak við familiar-ai — ReAct, SayCan, Reflexion, Voyager, þrákerfið, og fleira.
 
 ---
 

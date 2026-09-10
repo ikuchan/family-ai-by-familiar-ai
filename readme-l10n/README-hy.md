@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## Տեխնիկական ֆոն
 
-Հետաքննեք, թե ինչպես է դա աշխատում: Դիտեք [docs/technical.md](./docs/technical.md), որը ցույց է տալիս հետազոտության և նախագծման որոշումները, որոնք կապված են familiar-ai-ի հետ. — ReAct, SayCan, Reflexion, Voyager, ցանկության համակարգ և ավելին։
+Հետաքննեք, թե ինչպես է դա աշխատում: Դիտեք [docs/OldDocs/technical.md](./docs/OldDocs/technical.md), որը ցույց է տալիս հետազոտության և նախագծման որոշումները, որոնք կապված են familiar-ai-ի հետ. — ReAct, SayCan, Reflexion, Voyager, ցանկության համակարգ և ավելին։
 
 ---
 

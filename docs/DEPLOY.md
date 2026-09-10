@@ -202,18 +202,21 @@ sudo journalctl -u familiar -f   # ログ確認
 
 ---
 
-## 9. 既存 SQLite データの移行
+## 9. 既存 SQLite データの移行（**この節は使えない**）
 
-元の familiar-ai (v0.5) からデータを移行する場合:
+元の familiar-ai (v0.5) からデータを移行する場合の手順として書いたが、
+**`scripts/migrate_sqlite_to_pg.py` はリポジトリに存在しない**（2026-09-10 確認）。
+下のコードは当時の内容の写しで、そのままでは動かない（列の構成が 039〜060 の
+マイグレーションで変わっている）。移行が必要になったら書き直すこと。
 
 ```bash
-# スクリプトを実行
+# スクリプトを実行（※ 上記のとおり、この file は無い）
 SQLITE_PATH=~/.familiar_ai/observations.db \
 DATABASE_URL=postgresql://familiar:familiar@localhost:5432/familiar_ai \
 uv run python scripts/migrate_sqlite_to_pg.py
 ```
 
-`scripts/migrate_sqlite_to_pg.py` の内容:
+当時の `scripts/migrate_sqlite_to_pg.py` の内容:
 
 ```python
 import sqlite3, psycopg2, os, struct

@@ -385,7 +385,7 @@ Any camera that supports RTSP works. Tested: **Tapo C220** (ONVIF+RTSP) and **Eu
 
 ## సాంకేతిక నేపథ్యం
 
-ఎలా పనిచేస్తుందో కనిపెడ్దాం? familiar-ai వెనుక పరిశోధనమును మరియు రూపకల్పన నిర్ణయాలను [docs/technical.md](./docs/technical.md) లో చూడండి — ReAct, SayCan, Reflexion, Voyager, ఇష్టత వ్యవస్థ, మరియు మరింత.
+ఎలా పనిచేస్తుందో కనిపెడ్దాం? familiar-ai వెనుక పరిశోధనమును మరియు రూపకల్పన నిర్ణయాలను [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) లో చూడండి — ReAct, SayCan, Reflexion, Voyager, ఇష్టత వ్యవస్థ, మరియు మరింత.
 
 ---
 

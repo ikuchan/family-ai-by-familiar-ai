@@ -383,7 +383,7 @@ Tabbatar cewa `ELEVENLABS_API_KEY` an saita. Idan ba haka ba, murya ta zama akas
 
 ## Bayanin fasaha
 
-Kana sha'awar yadda yake aiki? Duba [docs/technical.md](./docs/technical.md) don binciken da shawarar zane a bayan familiar-ai — ReAct, SayCan, Reflexion, Voyager, tsarin sha'awa, da ƙari.
+Kana sha'awar yadda yake aiki? Duba [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) don binciken da shawarar zane a bayan familiar-ai — ReAct, SayCan, Reflexion, Voyager, tsarin sha'awa, da ƙari.
 
 ---
 

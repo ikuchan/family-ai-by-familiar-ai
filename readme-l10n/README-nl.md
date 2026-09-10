@@ -382,7 +382,7 @@ Zorg ervoor dat `ELEVENLABS_API_KEY` is ingesteld. Zonder dit is de spraak uitge
 
 ## Technische achtergrond
 
-Ben je nieuwsgierig naar hoe het werkt? Zie [docs/technical.md](./docs/technical.md) voor het onderzoek en de ontwerpbeslissingen achter familiar-ai — ReAct, SayCan, Reflexion, Voyager, het verlangen-systeem, en meer.
+Ben je nieuwsgierig naar hoe het werkt? Zie [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) voor het onderzoek en de ontwerpbeslissingen achter familiar-ai — ReAct, SayCan, Reflexion, Voyager, het verlangen-systeem, en meer.
 
 ---
 

@@ -384,7 +384,7 @@ Győződj meg róla, hogy az `ELEVENLABS_API_KEY` be van állítva. Nélküle a 
 
 ## Technikai háttér
 
-Kíváncsi vagy, hogyan működik? Nézd meg a [docs/technical.md](./docs/technical.md) fájlt a familiar-ai mögött meghúzódó kutatásról és tervezési döntésekről — ReAct, SayCan, Reflexion, Voyager, a vágy rendszer, és még sok más.
+Kíváncsi vagy, hogyan működik? Nézd meg a [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) fájlt a familiar-ai mögött meghúzódó kutatásról és tervezési döntésekről — ReAct, SayCan, Reflexion, Voyager, a vágy rendszer, és még sok más.
 
 ---
 

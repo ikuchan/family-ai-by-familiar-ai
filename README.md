@@ -461,7 +461,7 @@ Make sure `ELEVENLABS_API_KEY` is set. Without it, voice is disabled and the age
 
 ## Technical background
 
-Curious about how it works? See [docs/technical.md](./docs/technical.md) for the research and design decisions behind familiar-ai — ReAct, SayCan, Reflexion, Voyager, the desire system, Global Workspace Theory, and more.
+Curious about how it works? See [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) for the research and design decisions behind familiar-ai — ReAct, SayCan, Reflexion, Voyager, the desire system, Global Workspace Theory, and more.
 
 ---
 

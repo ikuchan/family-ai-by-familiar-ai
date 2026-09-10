@@ -383,7 +383,7 @@ Onetsetani kuti `ELEVENLABS_API_KEY` ikukhazikidwa. Popanda izo, mawu siyikhale 
 
 ## Technical background
 
-Mukuzonda momwe imagwirira ntchito? Onani [docs/technical.md](./docs/technical.md) pomwe muonera kafuko kake ndi kuchita kapena ndondomeko zaposachedwa za familiar-ai — ReAct, SayCan, Reflexion, Voyager, njira yofuna, ndi zina zambiri.
+Mukuzonda momwe imagwirira ntchito? Onani [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) pomwe muonera kafuko kake ndi kuchita kapena ndondomeko zaposachedwa za familiar-ai — ReAct, SayCan, Reflexion, Voyager, njira yofuna, ndi zina zambiri.
 
 ---
 

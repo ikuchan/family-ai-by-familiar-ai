@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## רקע טכני
 
-סקרן לגבי איך זה עובד? ראה [docs/technical.md](./docs/technical.md) עבור מחקר והחלטות עיצוב מאחורי familiar-ai — ReAct, SayCan, Reflexion, Voyager, מערכת הרצון, ועוד.
+סקרן לגבי איך זה עובד? ראה [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) עבור מחקר והחלטות עיצוב מאחורי familiar-ai — ReAct, SayCan, Reflexion, Voyager, מערכת הרצון, ועוד.
 
 ---
 

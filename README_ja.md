@@ -364,7 +364,7 @@ RTSP対応カメラなら映像取得（see）は動作します。PTZ（首振�
 
 ## 技術的な詳細
 
-- アーキテクチャ: [docs/architecture.md](./docs/architecture.md)
+- アーキテクチャ: [docs/OldDocs/architecture.md](./docs/OldDocs/architecture.md)
 - このブランチの変更点: [docs/CHANGES.md](./docs/CHANGES.md)
-- 設計思想: [docs/technical.md](./docs/technical.md)
+- 設計思想: [docs/OldDocs/technical.md](./docs/OldDocs/technical.md)
 - 開発者向け: [CLAUDE.md](./CLAUDE.md)
