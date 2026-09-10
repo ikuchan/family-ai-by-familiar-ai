@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.37）
+# familiar-ai モジュール分割設計（v0.38）
 
 ## この文書が決めること
 
@@ -541,15 +541,18 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 
 | file | 行 | 寿命 | 中身 |
 |---|---|---|---|
-| `event_loop.py` | 1,737 | **装置** | 口（`set_output`・`push_*`・`start`・`close`・`begin_request`）・駆動体・キュー3つ・背景タスク・**殻**（`_iterate`・`_act_on_decision`） |
-| `workspace.py` | 199 | **反復** | W を組み、W から引く |
-| `request.py` | 106 | **求め** | 求めの状態と `Lookup` |
-| `generator.py` | 112 | — | 状態を触らない材料組み（在席・内部状態・反復の文脈） |
-| `arbiter.py` | 308 / `evaluator.py` | 406 | — | 軽量LLM の仕事（切り出し済み） |
+| `event_loop.py` | 1,759 | **装置** | 口（`set_output`・`push_*`・`start`・`close`・`begin_request`）・駆動体・キュー3つ・背景タスク・**殻**（`_iterate`・`_act_on_decision`） |
+| `workspace.py` | 200 | **反復** | W を組み、W から引く |
+| `request.py` | 109 | **求め** | 求めの状態と `Lookup` |
+| `generator.py` | 116 | — | 状態を触らない材料組み（在席・内部状態・反復の文脈） |
+| `arbiter.py` | 309 | — | 調停（軽量LLM） |
+| `evaluator.py` | 406 | — | 評価器（軽量LLM の6仕事） |
 | `prompt.py` | 156 | — | 静的なプロンプトの正本 |
-| `tonic.py` | 237 / `rest.py` 41 / `history.py` 28 / `coherence.py` 36 | — | 既に切り出してあったもの |
+| `tonic.py` 237 ／ `rest.py` 41 ／ `history.py` 28 ／ `coherence.py` 36 | — | — | 既に切り出してあったもの |
 
-**`event_loop.py` は 1,737 行のまま残る。** 中身の 205 行は `_iterate`、95 行は
+（行数は 2026-09-10 の実測。以後の変更で動く。）
+
+**`event_loop.py` は 1,759 行のまま残る。** 中身の 205 行は `_iterate`、99 行は
 `_act_on_decision` で、この2つは**殻そのもの**（10個と8個を呼び返す）である。行数を減らす
 ことは目的ではない——目的は「開いた人が何の file かを言えること」で、いまは
 **「装置と殻」**と言える。
@@ -1277,6 +1280,17 @@ backends/cli.py          166 行
 ---
 
 ## 更新履歴
+
+> v0.38：**群C の点検で、file 一覧の行数を実測へ直した**（2026-09-10）。コメントの手入れで
+> 数字が動いていた。`arbiter.py` と `evaluator.py` が1行に潰れていた表の崩れも直し、行数に
+> 計測日を添えた（以後の変更で動くため）。**v0.37 の項が抜けていたので遡って書いた**——
+> file 名だけ版を上げて更新履歴を落としており、計測台帳と同じ抜けだった。
+
+> v0.37：**`familiar_agent/workspace.py` を `coalition.py` へ改名した**（2026-09-10）。
+> に-5-に-2 で W を組む `loop/workspace.py` を作り、`workspace.py` が2つになっていた。器だけを
+> 持つこちらは名前が実態と合っていない。src 6／テスト 5ファイルの import を付け替え、旧名の
+> grep は 0件。あわせて、読み手0件だったもの2つ（`coalition.py` の発火閾値・
+> `_run_post_response_pipeline` の `close_parent_id`）を落とした。
 
 > v0.36：**に-5-に-3 を完了し、分割の基準へ基準4 を足した**（2026-09-10）。「状態がまたぐなら
 > 寿命で切る。基準1（設計のコンポーネントに合わせる）より優先する」。**コンポーネントは
