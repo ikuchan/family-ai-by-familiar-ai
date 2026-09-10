@@ -384,7 +384,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## ਤਕਨੀਕੀ ਪਿਛੋਕੜ
 
-ਇਹ ਕਿਵੇਂ ਕੰਮ ਕਰਦਾ ਹੈ ਦੇ ਬਾਰੇ ਜਿਗਿਆਸਾ? familiar-ai ਦੇ ਪਿਛਾਂਸਾ ਅਤੇ ਡਿਜ਼ਾਈਨ ਦੇ ਫੈਸਲੇ ਲਈ [docs/technical.md](./docs/technical.md) ਨੂੰ ਦੇਖੋ — ReAct, SayCan, Reflexion, Voyager, ਇਛਾ ਪ੍ਰਣਾਲੀ, ਅਤੇ ਹੋਰ।
+ਇਹ ਕਿਵੇਂ ਕੰਮ ਕਰਦਾ ਹੈ ਦੇ ਬਾਰੇ ਜਿਗਿਆਸਾ? familiar-ai ਦੇ ਪਿਛਾਂਸਾ ਅਤੇ ਡਿਜ਼ਾਈਨ ਦੇ ਫੈਸਲੇ ਲਈ [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) ਨੂੰ ਦੇਖੋ — ReAct, SayCan, Reflexion, Voyager, ਇਛਾ ਪ੍ਰਣਾਲੀ, ਅਤੇ ਹੋਰ।
 
 ---
 

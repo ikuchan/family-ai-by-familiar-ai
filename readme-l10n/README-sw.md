@@ -382,7 +382,7 @@ Hakikisha `ELEVENLABS_API_KEY` imewekwa. Bila hiyo, sauti inazuiliwa na wakala a
 
 ## Muktadha wa kiufundi
 
-Unataka kujua inavyofanya kazi? Tazama [docs/technical.md](./docs/technical.md) kwa utafiti na maamuzi ya muundo nyuma ya familiar-ai — ReAct, SayCan, Reflexion, Voyager, mfumo wa tamaa, na mengineyo.
+Unataka kujua inavyofanya kazi? Tazama [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) kwa utafiti na maamuzi ya muundo nyuma ya familiar-ai — ReAct, SayCan, Reflexion, Voyager, mfumo wa tamaa, na mengineyo.
 
 ---
 

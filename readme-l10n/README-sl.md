@@ -383,7 +383,7 @@ Prepričajte se, da je nastavljen `ELEVENLABS_API_KEY`. Brez tega je glas onemog
 
 ## Tehnična ozadja
 
-Ste radovedni, kako deluje? Oglejte si [docs/technical.md](./docs/technical.md) za raziskave in oblikovne odločitve, ki stojijo za familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem želja in še več.
+Ste radovedni, kako deluje? Oglejte si [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) za raziskave in oblikovne odločitve, ki stojijo za familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem želja in še več.
 
 ---
 

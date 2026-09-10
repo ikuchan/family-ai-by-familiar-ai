@@ -383,7 +383,7 @@ Görüntüler ve metin, işlemesi için seçtiğiniz LLM API'sine gönderilir. A
 
 ## Teknik arka plan
 
-Nasıl çalıştığıyla ilgili meraklı mısınız? familiar-ai'nin arkasındaki araştırma ve tasarım kararları için [docs/technical.md](./docs/technical.md) dosyasına göz atın — ReAct, SayCan, Reflexion, Voyager, arzu sistemi ve daha fazlası.
+Nasıl çalıştığıyla ilgili meraklı mısınız? familiar-ai'nin arkasındaki araştırma ve tasarım kararları için [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) dosyasına göz atın — ReAct, SayCan, Reflexion, Voyager, arzu sistemi ve daha fazlası.
 
 ---
 

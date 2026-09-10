@@ -383,7 +383,7 @@ Vaizdai ir tekstas siunčiami tavo pasirinktam LLM API apdoroti. Prisiminimai sa
 
 ## Techninė informacija
 
-Ar įdomu, kaip tai veikia? Žiūrėkite [docs/technical.md](./docs/technical.md) už tyrimus ir dizaino sprendimus už familiar-ai — ReAct, SayCan, Reflexion, Voyager, norų sistemą ir dar daugiau.
+Ar įdomu, kaip tai veikia? Žiūrėkite [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) už tyrimus ir dizaino sprendimus už familiar-ai — ReAct, SayCan, Reflexion, Voyager, norų sistemą ir dar daugiau.
 
 ---
 

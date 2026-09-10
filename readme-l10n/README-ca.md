@@ -382,7 +382,7 @@ Assegura't que `ELEVENLABS_API_KEY` està establert. Sense ella, la veu està de
 
 ## Antecedents tècnics
 
-Curiós sobre com funciona? Veure [docs/technical.md](./docs/technical.md) per a la investigació i les decisions de disseny darrere familiar-ai — ReAct, SayCan, Reflexion, Voyager, el sistema de desig, i més.
+Curiós sobre com funciona? Veure [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) per a la investigació i les decisions de disseny darrere familiar-ai — ReAct, SayCan, Reflexion, Voyager, el sistema de desig, i més.
 
 ---
 

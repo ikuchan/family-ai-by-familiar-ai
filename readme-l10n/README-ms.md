@@ -384,7 +384,7 @@ Pastikan `ELEVENLABS_API_KEY` ditetapkan. Tanpa itu, suara dilumpuhkan dan agen 
 
 ## Latar belakang teknik
 
-Ingin tahu bagaimana ia berfungsi? Lihat [docs/technical.md](./docs/technical.md) untuk penyelidikan dan keputusan reka bentuk di sebalik familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem keinginan, dan banyak lagi.
+Ingin tahu bagaimana ia berfungsi? Lihat [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) untuk penyelidikan dan keputusan reka bentuk di sebalik familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem keinginan, dan banyak lagi.
 
 ---
 

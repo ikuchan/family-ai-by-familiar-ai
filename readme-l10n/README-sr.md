@@ -382,7 +382,7 @@ Uverite se da je `ELEVENLABS_API_KEY` postavljen. Bez njega, glas je onemogućen
 
 ## Tehnička pozadina
 
-Radoznali ste kako to funkcioniše? Pogledajte [docs/technical.md](./docs/technical.md) za istraživanje i odluke o dizajnu iza familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem želja i još mnogo toga.
+Radoznali ste kako to funkcioniše? Pogledajte [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) za istraživanje i odluke o dizajnu iza familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem želja i još mnogo toga.
 
 ---
 

@@ -383,7 +383,7 @@ Upewnij się, że `ELEVENLABS_API_KEY` jest ustawiony. Bez niego głos jest wył
 
 ## Tło techniczne
 
-Ciekawe, jak to działa? Zobacz [docs/technical.md](./docs/technical.md) dla badań i decyzji projektowych stojących za familiar-ai — ReAct, SayCan, Reflexion, Voyager, system pragnień i inne.
+Ciekawe, jak to działa? Zobacz [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) dla badań i decyzji projektowych stojących za familiar-ai — ReAct, SayCan, Reflexion, Voyager, system pragnień i inne.
 
 ---
 

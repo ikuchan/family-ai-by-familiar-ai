@@ -160,7 +160,8 @@ EOF
 uv run pytest tests/ -v --tb=short
 ```
 
-テストファイルの置き場: `tests/test_memory.py`, `tests/test_person.py`
+テストファイルの置き場: `tests/`（2026-09-10 時点で 100 本超。`test_memory.py` と
+`test_person.py` は分割・改名されて存在しない。いま何があるかは `ls tests/` を見る）
 
 ---
 

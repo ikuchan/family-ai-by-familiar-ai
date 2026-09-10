@@ -384,7 +384,7 @@ Veenduge, et `ELEVENLABS_API_KEY` oleks seadistatud. Ilma selleta on hääl keel
 
 ## Tehniline taust
 
-Soovid teada, kuidas see töötab? Vaata [docs/technical.md](./docs/technical.md), et teada saada uurimusest ja kavandamisotsustest, mis on seotud familiar-ai-ga — ReAct, SayCan, Reflexion, Voyager, soovide süsteem ja palju muud.
+Soovid teada, kuidas see töötab? Vaata [docs/OldDocs/technical.md](./docs/OldDocs/technical.md), et teada saada uurimusest ja kavandamisotsustest, mis on seotud familiar-ai-ga — ReAct, SayCan, Reflexion, Voyager, soovide süsteem ja palju muud.
 
 ---
 

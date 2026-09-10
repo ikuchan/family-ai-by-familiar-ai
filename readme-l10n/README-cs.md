@@ -384,7 +384,7 @@ Ujistěte se, že je nastaveno `ELEVENLABS_API_KEY`. Bez něj je hlas deaktivov�
 
 ## Technické pozadí
 
-Zajímá vás, jak to funguje? Podívejte se na [docs/technical.md](./docs/technical.md) pro výzkum a rozhodování o designu za familiar-ai — ReAct, SayCan, Reflexion, Voyager, systém touh a další.
+Zajímá vás, jak to funguje? Podívejte se na [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) pro výzkum a rozhodování o designu za familiar-ai — ReAct, SayCan, Reflexion, Voyager, systém touh a další.
 
 ---
 

@@ -383,7 +383,7 @@ Asigură-te că `ELEVENLABS_API_KEY` este setat. Fără el, vocea este dezactiva
 
 ## Fundamente tehnice
 
-Curios cum funcționează? Vezi [docs/technical.md](./docs/technical.md) pentru cercetările și deciziile de design din spatele familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistemul de dorințe și multe altele.
+Curios cum funcționează? Vezi [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) pentru cercetările și deciziile de design din spatele familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistemul de dorințe și multe altele.
 
 ---
 

@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## ტექნიკურად ინფორმაცია
 
-ინტერესდებით როგორ მუშაობს? ნახეთ [docs/technical.md](./docs/technical.md) familiar-ai-ის კვლევის და დიზაინის გადაწყვეტილებების შესახებ — ReAct, SayCan, Reflexion, Voyager, სურვილის სისტემა და სხვა.
+ინტერესდებით როგორ მუშაობს? ნახეთ [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) familiar-ai-ის კვლევის და დიზაინის გადაწყვეტილებების შესახებ — ReAct, SayCan, Reflexion, Voyager, სურვილის სისტემა და სხვა.
 
 ---
 

@@ -384,7 +384,7 @@ Se till att `ELEVENLABS_API_KEY` är inställt. Utan det är rösten inaktiverad
 
 ## Teknisk bakgrund
 
-Nyfiken på hur det fungerar? Se [docs/technical.md](./docs/technical.md) för forskningen och designbesluten bakom familiar-ai — ReAct, SayCan, Reflexion, Voyager, önskesystemet och mer.
+Nyfiken på hur det fungerar? Se [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) för forskningen och designbesluten bakom familiar-ai — ReAct, SayCan, Reflexion, Voyager, önskesystemet och mer.
 
 ---
 

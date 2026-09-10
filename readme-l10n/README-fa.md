@@ -384,7 +384,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## پس‌زمینه فنی
 
-کنجکاوید که چگونه کار می‌کند؟ برای تحقیقات و تصمیمات طراحی پشت familiar-ai به [docs/technical.md](./docs/technical.md) مراجعه کنید — ReAct، SayCan، Reflexion، Voyager، سیستم تمایل و بیشتر.
+کنجکاوید که چگونه کار می‌کند؟ برای تحقیقات و تصمیمات طراحی پشت familiar-ai به [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) مراجعه کنید — ReAct، SayCan، Reflexion، Voyager، سیستم تمایل و بیشتر.
 
 ---
 

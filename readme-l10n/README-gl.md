@@ -383,7 +383,7 @@ Asegúrate de que `ELEVENLABS_API_KEY` está configurado. Sen el, a voz está de
 
 ## Antecedentes técnicos
 
-Curioso sobre como funciona? Vexa [docs/technical.md](./docs/technical.md) para as investigacións e decisións de deseño detrás de familiar-ai — ReAct, SayCan, Reflexion, Voyager, o sistema de desexo, e máis.
+Curioso sobre como funciona? Vexa [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) para as investigacións e decisións de deseño detrás de familiar-ai — ReAct, SayCan, Reflexion, Voyager, o sistema de desexo, e máis.
 
 ---
 

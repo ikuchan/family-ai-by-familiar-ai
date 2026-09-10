@@ -382,7 +382,7 @@ Siguroha nga ang `ELEVENLABS_API_KEY` nakaset. Kung wala, ang tingog disabled ug
 
 ## Teknikal nga background
 
-Curious ka ba kung unsaon kini nagtrabaho? Tan-awa ang [docs/technical.md](./docs/technical.md) alang sa research ug disenyo nga mga desisyon nga nagatuyok sa familiar-ai — ReAct, SayCan, Reflexion, Voyager, ang desire system, ug daghan pa.
+Curious ka ba kung unsaon kini nagtrabaho? Tan-awa ang [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) alang sa research ug disenyo nga mga desisyon nga nagatuyok sa familiar-ai — ReAct, SayCan, Reflexion, Voyager, ang desire system, ug daghan pa.
 
 ---
 

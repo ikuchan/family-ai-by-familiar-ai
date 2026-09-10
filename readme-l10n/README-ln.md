@@ -383,7 +383,7 @@ Senga `ELEVENLABS_API_KEY` ekoti. Soki te, lobá esengaka mpe agent еzali na mo
 
 ## Technical background
 
-Olingi koyeba ndenge esalaka? Tanga [docs/technical.md](./docs/technical.md) mpo na masolo na nzela ya familiar-ai — ReAct, SayCan, Reflexion, Voyager, bisaleli ya koluka, mpe makambo mosusu.
+Olingi koyeba ndenge esalaka? Tanga [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) mpo na masolo na nzela ya familiar-ai — ReAct, SayCan, Reflexion, Voyager, bisaleli ya koluka, mpe makambo mosusu.
 
 ---
 

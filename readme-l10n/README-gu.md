@@ -384,7 +384,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## ટેકનિકલ પૃષ્ઠભૂમિ
 
-તે કેવી રીતે કાર્ય કરે છે તે વિશે જિજ્ઞાસુ છો? familiar-ai ની પાછળના સંશોધન અને ડિઝાઇન નીઆણ માટે [docs/technical.md](./docs/technical.md) જુઓ - ReAct, SayCan, Reflexion, Voyager, ઇચ્છા સિસ્ટમ, અને વધુ.
+તે કેવી રીતે કાર્ય કરે છે તે વિશે જિજ્ઞાસુ છો? familiar-ai ની પાછળના સંશોધન અને ડિઝાઇન નીઆણ માટે [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) જુઓ - ReAct, SayCan, Reflexion, Voyager, ઇચ્છા સિસ્ટમ, અને વધુ.
 
 ---
 

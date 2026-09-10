@@ -384,7 +384,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## Тэхнічны фон
 
-Ці цікава, як гэта працуе? Паглядзіце [docs/technical.md](./docs/technical.md) на даследаванні і дызайнерскія рашэнні за familiar-ai — ReAct, SayCan, Reflexion, Voyager, сістэма жаданняў і многае іншае.
+Ці цікава, як гэта працуе? Паглядзіце [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) на даследаванні і дызайнерскія рашэнні за familiar-ai — ReAct, SayCan, Reflexion, Voyager, сістэма жаданняў і многае іншае.
 
 ---
 

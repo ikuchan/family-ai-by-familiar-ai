@@ -383,7 +383,7 @@ Pastikan `ELEVENLABS_API_KEY` diatur. Tanpa itu, suara dinonaktifkan dan agen ja
 
 ## Latar Belakang Teknis
 
-Penasaran bagaimana cara kerjanya? Lihat [docs/technical.md](./docs/technical.md) untuk penelitian dan keputusan desain di balik familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem keinginan, dan lainnya.
+Penasaran bagaimana cara kerjanya? Lihat [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) untuk penelitian dan keputusan desain di balik familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem keinginan, dan lainnya.
 
 ---
 

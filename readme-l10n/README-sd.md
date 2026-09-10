@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## فني پٺڀرائي
 
-ڪيئن ڪم ڪري ٿو بابت تجسس؟ ڏسو [docs/technical.md](./docs/technical.md) جي لاءِ ان دريافت ۽ ڊزائن جا فيصلن familiar-ai جي پويان — ReAct، SayCan، Reflexion، Voyager، خواهش نظام، ۽ وڌيڪ.
+ڪيئن ڪم ڪري ٿو بابت تجسس؟ ڏسو [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) جي لاءِ ان دريافت ۽ ڊزائن جا فيصلن familiar-ai جي پويان — ReAct، SayCan، Reflexion، Voyager، خواهش نظام، ۽ وڌيڪ.
 
 ---
 

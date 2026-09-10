@@ -384,7 +384,7 @@ Priksa manawa `ELEVENLABS_API_KEY` disetel. Tanpa iki, suara dinonaktifake lan a
 
 ## Latar belakang teknis
 
-Penasaran babagan carane kerjane? Deleng [docs/technical.md](./docs/technical.md) kanggo riset lan keputusan desain ing balik familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem keinginan, lan liya-liyane.
+Penasaran babagan carane kerjane? Deleng [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) kanggo riset lan keputusan desain ing balik familiar-ai — ReAct, SayCan, Reflexion, Voyager, sistem keinginan, lan liya-liyane.
 
 ---
 

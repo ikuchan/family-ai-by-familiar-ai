@@ -382,7 +382,7 @@ Asegúrate de que `ELEVENLABS_API_KEY` esté establecido. Sin ello, la voz está
 
 ## Antecedentes técnicos
 
-¿Tienes curiosidad sobre cómo funciona? Consulta [docs/technical.md](./docs/technical.md) para ver la investigación y decisiones de diseño detrás de familiar-ai — ReAct, SayCan, Reflexion, Voyager, el sistema de deseos, y más.
+¿Tienes curiosidad sobre cómo funciona? Consulta [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) para ver la investigación y decisiones de diseño detrás de familiar-ai — ReAct, SayCan, Reflexion, Voyager, el sistema de deseos, y más.
 
 ---
 

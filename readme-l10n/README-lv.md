@@ -384,7 +384,7 @@ Pārliecinieties, ka ir iestatīta `ELEVENLABS_API_KEY`. Bez tā balss ir atslē
 
 ## Tehniskais fons
 
-Interesē, kā tas darbojas? Skatiet [docs/technical.md](./docs/technical.md) pētījumus un dizaina lēmumus, kas stāv aiz familiar-ai — ReAct, SayCan, Reflexion, Voyager, vēlmes sistēma un vēl daudz vairāk.
+Interesē, kā tas darbojas? Skatiet [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) pētījumus un dizaina lēmumus, kas stāv aiz familiar-ai — ReAct, SayCan, Reflexion, Voyager, vēlmes sistēma un vēl daudz vairāk.
 
 ---
 

@@ -383,7 +383,7 @@ tail -f ~/.cache/familiar-ai/chat.log
 
 ## Техничка позадина
 
-Дали сте љубопитни за тоа како функционира? Погледнете [docs/technical.md](./docs/technical.md) за истражување и дизајн одлуки зад familiar-ai — ReAct, SayCan, Reflexion, Voyager, системот за желби и многу повеќе.
+Дали сте љубопитни за тоа како функционира? Погледнете [docs/OldDocs/technical.md](./docs/OldDocs/technical.md) за истражување и дизајн одлуки зад familiar-ai — ReAct, SayCan, Reflexion, Voyager, системот за желби и многу повеќе.
 
 ---
 
