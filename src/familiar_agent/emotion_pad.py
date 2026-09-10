@@ -8,7 +8,8 @@
 PAD を12点のどれかへ丸めるだけなので素朴なユークリッドで十分で、e 軸の logit 距離
 (`_emotion_match`) は引き込まない（それは想起採点用で、モジュールも重い）。
 
-この段（W2a）では `label_from_pad` は未接続で、実行時の呼び出しは W2b（評価器が
+`label_from_pad` は **GUI が気分の表示に使っている**（`gui.py`・2026-09-10 確認）。
+W2a を書いた時点では未接続で、実行時の呼び出しは W2b（評価器が
 PAD を出し、消費者向けにラベルを派生させる段）で繋ぐ。
 """
 
@@ -17,6 +18,8 @@ from __future__ import annotations
 from .mood_register import MoodPAD
 
 # ラベル → (P, Pn, A, Dom)。emotion_pad が生きた正本、マイグレーション025 は凍結写し。
+# 値の列を揃えてある（読むための表なので整形させない）。
+# fmt: off
 LABEL_PAD: dict[str, tuple[float, float, float, float]] = {
     "happy":     (0.80, 0.15, 0.55, 0.60),
     "excited":   (0.85, 0.15, 0.85, 0.65),
@@ -35,6 +38,7 @@ LABEL_PAD: dict[str, tuple[float, float, float, float]] = {
     # 025 の凍結写しは過去の実行の再現なので、この点は写しと食い違う。
     "neutral":   (0.10, 0.10, 0.50, 0.50),
 }
+# fmt: on
 
 
 def label_from_pad(pad: MoodPAD) -> str:

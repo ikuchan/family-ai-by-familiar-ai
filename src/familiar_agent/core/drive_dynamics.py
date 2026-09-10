@@ -1,8 +1,10 @@
-"""Drive 起動源の dynamics（蓄積・気分変調・発火・放電）＝純関数（Slice 1・未接続）。
+"""Drive 起動源の dynamics（蓄積・気分変調・発火・放電）＝純関数。
 
 感情ループ全体像の `T→D`（蓄積）・`M→g_D(M)→D`（気分変調）・`D→FIRE`（発火/放電）を
 `AiDrivers`＋`MoodPAD` 上の純関数で実装する。式・値は発火mood §2／課題5 B 由来。
-loop（T-tick・自発ターン）への接続と legacy `DesireSystem` の置換は後続スライス。
+**loop へは接続済み**（2026-09-10 確認）——`loop/tonic.py` が `accumulate` → `fired` →
+`discharge` を時間で回して永続化する。legacy `DesireSystem` の置換だけが残っている
+（GUI・TUI・REPL の入口がまだ組み立てるが、自律の駆動源は T である）。
 
 - 蓄積：`drive_i += rate·mult·learn·g_{D,i}(M)·dt`（clip[0,1]）。
 - 変調：`g_{D,i}(M) = logistic(logit(b_i) + Σ_j C_ij·(logit(x_j) − logit(r_j)))`
@@ -38,15 +40,11 @@ def _gain(
     pad: tuple[float, ...],
     rest: tuple[float, ...],
 ) -> float:
-    z = _logit(bias) + sum(
-        c * (_logit(x) - _logit(r)) for c, x, r in zip(coeffs, pad, rest)
-    )
+    z = _logit(bias) + sum(c * (_logit(x) - _logit(r)) for c, x, r in zip(coeffs, pad, rest))
     return _logistic(z)
 
 
-def g_d(
-    mood: MoodPAD, cfg: DriveConfig | None = None, *, rest: MoodPAD = REST_PAD
-) -> AiDrivers:
+def g_d(mood: MoodPAD, cfg: DriveConfig | None = None, *, rest: MoodPAD = REST_PAD) -> AiDrivers:
     """各欲求の気分変調ゲイン g_{D,i}(M)（平静 mood で b_i に一致）。
 
     各項は**平静からのずれ**である。ロジットを絶対値で足すと項が消えるのは 0.5 の
@@ -94,6 +92,7 @@ def accumulate(
 @dataclass(frozen=True)
 class DriveFiring:
     """どの欲求が発火したか（drive_i ≥ Θ_fire）。"""
+
     seeking: bool = False
     rest: bool = False
     bond: bool = False
