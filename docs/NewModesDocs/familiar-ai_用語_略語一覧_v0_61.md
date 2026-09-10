@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v0.60）
+# familiar-ai 用語・略語一覧（v0.61）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -61,8 +61,8 @@
 | G／DIF | 振動中ゲート | — | — | カメラ移動中は驚き計算をスキップする仕組み（自己運動で誤検知しない）。 |
 | G／DIF | 時刻（Clock） | — | — | TIF が D に渡す時刻。欠乏の蓄積レート修飾に使う。 |
 | M | 雰囲気 | Mood | M | 気分を保持し、平静へ減衰する。 |
-| M | 快・高ぶり・支配（感情3軸） | — | PAD | 感情を3軸で表す。P/Pn（快/不快・両価で独立）、A（高ぶり）、Dom（支配＝対処可否）。**全軸 [0,1]・中立0.5・両側**（0＝皆無／0.5＝普通／1＝最大）。畳み込み前へ戻すときは全軸ロジット $\mathrm{logit}(x)=\ln(x/(1-x))$（中立0.5→0）。**mood レジスタの実装は `mood_register.py`** の `MoodPAD`（`p`／`pn`／`a`／`dom`・各軸[0,1]・中立0.5）＝平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad` へ永続・現状は未接続（B-1）。**観測側の感情 PAD は `observations` の列 `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`**（案B＝軸ごとの `double precision NOT NULL DEFAULT 0.5`・各列 CHECK 0..1・マイグレーション024）に格納する。**W1a（書き込み PAD 化）・W2（評価器の PAD 出力）・W1b（既存行を埋める）とも実施済み**。W1b は2段で行った：ラベルが `neutral` 以外の180件を `LABEL_PAD` で機械的に、`neutral` の1387件を**評価器へ20件ずつまとめて渡して**出し直す（基準は中立＝実行日の気分を混ぜない／過去行には機械 arousal が残っていないため **A も尋ねた**）。結果は全3370件で平均 P=0.610・Pn=0.298・A=0.556・Dom=0.538、既定のまま残るのは317件（埋め損ねではなく**評価器が中立と判定した結果**）。**一次絞り用に `emotion_vec`（`vector(4)`・ロジット空間・$\sqrt{\lambda}$ 畳み込み）を併せ持つ**（マイグレーション `2026-07-27-033`）。**PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`**（マイグレーション025 の `_LABEL_PAD` は凍結写し・値一致）、**PAD→ラベル逆引きは `label_from_pad`**（ユークリッド最近傍で12ラベルへ量子化・W2a・未接続）。観測行の PAD 列は `_row_to_mental_item` が `MoodPAD` として `MentalItem.emotion` に載せる（Y・W2a）。**観測の感情 PAD は評価器（軽量LLM）が P/Pn/Dom で直接出す**（`_evaluate_emotion_pad`・A_gate=0.25＝arousal 未満は評価器を呼ばず P/Pn/Dom＝M、A 軸は機械 arousal、解析失敗は mood フォールバック・W2b-2）。現在 mood は `load_current_mood()`（自己接続・読みだけ・更新は mood スライス）。ラベルは PAD から派生（`label_from_pad`）＝旧 `_infer_emotion`（ラベル直出し）は撤去。 |
-| D | 情動 | Drive | D | 欠乏を蓄積し、修飾を受ける。閾値超えで発火。**drive レジスタの実装は `drive_register.py`** の `AiDrivers`（`seeking`／`rest`／`bond`／`safety`／`esteem`・各軸[0,1]・静止（既定）0.0）＝agent_state の state_key `drive5` へ `load_drives`／`save_drives` で永続・器のみで蓄積と放電と mood 変調は未実装・未接続（B-2）。 |
+| M | 快・高ぶり・支配（感情3軸） | — | PAD | 感情を3軸で表す。P/Pn（快/不快・両価で独立）、A（高ぶり）、Dom（支配＝対処可否）。**全軸 [0,1]・中立0.5・両側**（0＝皆無／0.5＝普通／1＝最大）。畳み込み前へ戻すときは全軸ロジット $\mathrm{logit}(x)=\ln(x/(1-x))$（中立0.5→0）。**mood レジスタの実装は `mood_register.py`** の `MoodPAD`（`p`／`pn`／`a`／`dom`・各軸[0,1]・中立0.5）＝平静 M_rest=(0.5,0.5,0.5,0.5) へ半減期 HL_M=600秒で収束する `decay_to_rest`・agent_state の state_key `mood_pad` へ永続・**接続済み**（2026-09-10 確認。`loop/generator.py` が主LLM の文脈へ載せ、`loop/tonic.py` が欲求の変調に使う）。**観測側の感情 PAD は `observations` の列 `emotion_p`／`emotion_pn`／`emotion_a`／`emotion_dom`**（案B＝軸ごとの `double precision NOT NULL DEFAULT 0.5`・各列 CHECK 0..1・マイグレーション024）に格納する。**W1a（書き込み PAD 化）・W2（評価器の PAD 出力）・W1b（既存行を埋める）とも実施済み**。W1b は2段で行った：ラベルが `neutral` 以外の180件を `LABEL_PAD` で機械的に、`neutral` の1387件を**評価器へ20件ずつまとめて渡して**出し直す（基準は中立＝実行日の気分を混ぜない／過去行には機械 arousal が残っていないため **A も尋ねた**）。結果は全3370件で平均 P=0.610・Pn=0.298・A=0.556・Dom=0.538、既定のまま残るのは317件（埋め損ねではなく**評価器が中立と判定した結果**）。**一次絞り用に `emotion_vec`（`vector(4)`・ロジット空間・$\sqrt{\lambda}$ 畳み込み）を併せ持つ**（マイグレーション `2026-07-27-033`）。**PAD↔感情ラベルの生きた正本は `emotion_pad.py` の `LABEL_PAD`**（マイグレーション025 の `_LABEL_PAD` は凍結写し・値一致）、**PAD→ラベル逆引きは `label_from_pad`**（ユークリッド最近傍で12ラベルへ量子化・W2a。**GUI が気分の表示に使う**）。観測行の PAD 列は `_row_to_mental_item` が `MoodPAD` として `MentalItem.emotion` に載せる（Y・W2a）。**観測の感情 PAD は評価器（軽量LLM）が P/Pn/Dom で直接出す**（`_evaluate_emotion_pad`・A_gate=0.25＝arousal 未満は評価器を呼ばず P/Pn/Dom＝M、A 軸は機械 arousal、解析失敗は mood フォールバック・W2b-2）。現在 mood は `load_current_mood()`（自己接続・読みだけ・更新は mood スライス）。ラベルは PAD から派生（`label_from_pad`）＝旧 `_infer_emotion`（ラベル直出し）は撤去。 |
+| D | 情動 | Drive | D | 欠乏を蓄積し、修飾を受ける。閾値超えで発火。**drive レジスタの実装は `drive_register.py`** の `AiDrivers`（`seeking`／`rest`／`bond`／`safety`／`esteem`・各軸[0,1]・静止（既定）0.0）＝agent_state の state_key `drive5` へ `load_drives`／`save_drives` で永続・**接続済み**（2026-09-10 確認。蓄積・気分変調・発火・放電は `core/drive_dynamics.py` の純関数が持ち、`loop/tonic.py` が時間で回す）。 |
 | D | M→D 変調項 | mood-drive modulation | g_D | mood が drive 蓄積を変調する係数。$g_{D,i}=\mathrm{logistic}(\mathrm{logit}(b_i)+\sum_j C_{ij}\,\mathrm{logit}(x_j))$（ロジット合成・崖なし・両端漸近。$x_j$＝PAD 軸の生値・全軸中立0.5を logit で戻す＝引き算不要）。共通 rate に掛かる（[D-発火]・別紙「設計詳細_発火・mood」）。 |
 | D | 基準バイアス | drive bias | b_i | 中立 mood 時の $g_{D,i}$＝欲求 $i$ の中立発火頻度を決める Config（0〜1）。低いほど低頻度（[D-発火]）。 |
 | D | 変調行列 | modulation matrix | C_ij | 5 欲求×4 PAD 軸。mood の振れが各 drive の蓄積をどう変調するかの Config。振れ幅 ±6・係数絶対値上限1.0・**正係数=高いと募る／負係数=低いと募る**（全軸0.5両側）。5×4 の具体仮値は別紙「設計詳細_発火・mood」（[D-発火]）。 |
@@ -261,6 +261,11 @@
 ---
 
 ## 更新履歴
+
+> v0.61：**レジスタの「未接続」を実物へ直した**（2026-09-10・群E の点検）。`MoodPAD` と
+> `AiDrivers` はどちらも接続済みで、`loop/tonic.py` が回している。`label_from_pad` も GUI が
+> 使っている。**`tif.py`（`build_primitive`・`expand_to_mental`）だけは本当に未接続**で、
+> 呼ぶ者が0件だった——そちらはそのまま残した。
 
 > v0.60：**実装状況の印を実物に合わせた**（2026-09-10・群A の点検）。
 > **声色 PAD は未実装**——`speech_pad_blend` は Config に無く、TTS は固定の `sbv2_style` を

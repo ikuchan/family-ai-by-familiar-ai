@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.15）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.16）
 
 ## 位置づけ
 本書は設計図の確定 **[D-活性]／[D-O書込]／[D-B定点]／[D-B分離]／[D-知覚]／[D-設定]** の**別紙詳細**。決定そのものは設計図にあり、本書は **定数台帳／現状コード所在（file:line・移行入力）／知覚パイプライン細部／移行申し送り** を保持する（決定の地の文は設計図に一元化し、本書では繰り返さない）。対象＝課題2 の項目1（活性）・項目2（O書込）・項目3（知覚在席）。**暫定値は課題5、移行は課題6/7**。
@@ -113,7 +113,7 @@
 | レジスタ | 現状 | 移行 |
 |---|---|---|
 | drive（float[5]） | `agent_state["drive5"]` | **【Slice 2a/2b 実装済み・接続】** 器＝`drive_register.py`（5欲求 SEEKING／REST／BOND／SAFETY／ESTEEM の `AiDrivers`・各軸 [0,1]・静止0.0／`agent_state` の state_key `drive5`・`load_drives`・`save_drives`）。dynamics＝`core/drive_dynamics.py`（蓄積 $g_{D,i}(M)$・発火 $\Theta_{fire}$・放電 $q$）。`gui._process_queue` のアイドルで毎周回 tick し `drive5` へ永続化する（Slice 2a）。`DRIVE5_AUTONOMOUS`（既定 off）が on で発火→自発ターン結線＝`core/drive_autonomy.py`（`select_fired_axis`・`drive_gate`・`inner_voice_for`・`drive_snapshot`）。ターンには発火軸の内声（Config 文字列・[D-行動選択]）と drive5 定性スナップショットを同梱する。off では既存15欲求 `DesireSystem` が駆動し完全排他（旧15→新5 移行は後続）。PI.drive の全ターンサーフェスは後続で、現状は自発ターンへのスナップショット同梱のみ |
-| mood（PAD） | 毎ターン再計算 | **T の mood レジスタとして永続化**（`agent_state` へ）。発火で PI.emotion へ。**【B-1 実装済み・器のみ・未接続】** `mood_register.py`＝4軸 PAD の器 `MoodPAD`／各軸を M_rest=(0.5,0.5,0.5,0.5) へ半減期600秒で収束させる `decay_to_rest`／`agent_state`（state_key `mood_pad`）の `load_mood`・`save_mood`。emotion→PAD 写像 φ（課題11k）と既存 mood へは未接続で外部挙動不変 |
+| mood（PAD） | 毎ターン再計算 | **T の mood レジスタとして永続化**（`agent_state` へ）。発火で PI.emotion へ。**【B-1 実装済み・接続済み】**（2026-09-10 確認。`loop/generator.py` が主LLM の文脈へ載せ、`loop/tonic.py` が読んで欲求の変調に使う） `mood_register.py`＝4軸 PAD の器 `MoodPAD`／各軸を M_rest=(0.5,0.5,0.5,0.5) へ半減期600秒で収束させる `decay_to_rest`／`agent_state`（state_key `mood_pad`）の `load_mood`・`save_mood`。emotion→PAD 写像 φ（課題11k）と既存 mood へは未接続で外部挙動不変 |
 | norm（定点別 EMA＋確率） | prediction.py の `P(entity)` EMA | **定点キーに拡張**＋DINOv2 定点別「普通」。T(G) private |
 | presence（定点別 在席） | `self._present` を都度導出 | **YOLO 由来の定点別 presence マップ**（新規）。T(G) private |
 
@@ -147,9 +147,9 @@
 
 ## 4. 移行への申し送り（課題6/7）
 - 配信ゲート：`should_deliver_deferred_result`（agent.py:2858）を **4→2 ゲート化**（quiet-hours・社会的文脈を撤去。ゲート＝結果有り／在席。決定は用語一覧・[配信ゲート]）。
-- mood を **T の mood レジスタ**として永続化（現状は再計算）。発火時 PI.emotion へ surface。**【B-1 実装済み・器のみ・未接続】** レジスタ `MoodPAD` と M_rest への半減期600秒収束 `decay_to_rest` と agent_state 永続（state_key `mood_pad`）を `mood_register.py` に新設。φ 接続（課題11k）と発火時 surface は後続。
+- mood を **T の mood レジスタ**として永続化（現状は再計算）。発火時 PI.emotion へ surface。**【B-1 実装済み・接続済み】**（2026-09-10 確認。`loop/generator.py` が主LLM の文脈へ載せ、`loop/tonic.py` が読んで欲求の変調に使う） レジスタ `MoodPAD` と M_rest への半減期600秒収束 `decay_to_rest` と agent_state 永続（state_key `mood_pad`）を `mood_register.py` に新設。φ 接続（課題11k）と発火時 surface は後続。
 - norm：prediction.py の EMA を**定点キーに拡張**＋DINOv2 定点別「普通」。**視覚エンコーダは新規採用**（課題7「DINO 有無」の答え＝現状無し → **DINOv2 を入れる**）。
-- drive：既存 `agent_state["desires"]` を流用（旧欲求名→新5欲求は課題6）。**【B-2 実装済み・器のみ・未接続】** 新5欲求の器 `AiDrivers` と agent_state 永続（state_key `drive5`・"desires" とは別キー）を `drive_register.py` に新設。生きた15欲求は温存し未接続。蓄積 dynamics と PI.drive surface と旧15→新5 移行は後続。
+- drive：既存 `agent_state["desires"]` を流用（旧欲求名→新5欲求は課題6）。**【B-2 実装済み・接続済み】**（2026-09-10 確認。`loop/tonic.py` が `core/drive_dynamics.py` の `accumulate`／`fired`／`discharge` を時間で回す） 新5欲求の器 `AiDrivers` と agent_state 永続（state_key `drive5`・"desires" とは別キー）を `drive_register.py` に新設。生きた15欲求は温存し未接続。蓄積 dynamics と PI.drive surface と旧15→新5 移行は後続。
 - 在席：**YOLO（新規）**＋pose 条件付き presence マップ。**DeepFace 廃止・InsightFace 採用**。
 - 形の差異：放電（×0.5→引く）、tick（単一 IDLE_CHECK→T-tick 周期＋I イベント駆動）。
 - **全定数を C へ集約**（現状の散在を移行）。`time_decay.py` 温存。
@@ -237,6 +237,12 @@ I も T も在席センサも動体イベントも、実装では `run()` の中
 ---
 
 ## 更新履歴
+
+> v0.16：**mood と drive のレジスタを「器のみ・未接続」から接続済みへ直した**
+> （2026-09-10・群E の点検）。mood は `loop/generator.py` が主LLM の文脈へ載せ、
+> `loop/tonic.py` が欲求の変調に使う。drive は `tonic.py` が `core/drive_dynamics.py` の
+> `accumulate`／`fired`／`discharge` を時間で回す。**群D で `感情ループ全体像` と `設計図` に
+> 見つけたのと同じ誤りが、ここにも残っていた。**
 
 > v0.15：**`last_recalled_at` の移動先を「人ごと」でなく「関係の面ごと」と書き直した**
 > （2026-09-01）。記憶はすべてパジュの体験であり、別の人の記憶空間は存在しない。
