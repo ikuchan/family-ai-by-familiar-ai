@@ -48,9 +48,9 @@ def test_index_resets_per_request() -> None:
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("ひとつめ")
+        await ip.push_utterance("ひとつめ")
         first = ip._next_lookup_index()
-        await ip.begin_request("ふたつめ")
+        await ip.push_utterance("ふたつめ")
         second = ip._next_lookup_index()
         await ip.close()
         return first, second

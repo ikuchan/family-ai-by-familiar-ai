@@ -88,7 +88,7 @@ def test_the_new_names_are_there():
     from familiar_agent.loop.event_loop import InformationProcessing
 
     for name in (
-        "begin_request",
+        "push_utterance",
         "_note_origin",
         "_abort_lookups",
         "_action_of_query",

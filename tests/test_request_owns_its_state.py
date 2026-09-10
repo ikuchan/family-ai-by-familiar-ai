@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 import inspect
+import re
 
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.request import Lookup, Request
@@ -156,7 +157,10 @@ def test_the_old_flat_names_are_gone():
     assert "self._speech_to_deliver" not in src
     assert "self._turn_records" not in src
     assert "self._exchange_start" not in src
+    # **語の切れ目で見る。** 部分一致だと `self._utterance_iteration(` のような別の名前を
+    # 旧名と取り違える（環-f-い-2 で実際に起きた）。旧名は「その属性」であって、その綴りで
+    # 始まる別の名前ではない。
     for name in ("_request_id", "_request_text", "_live_version_id", "_cue", "_utterance"):
-        assert f"self.{name}" not in src, name
+        assert not re.search(rf"self\.{name}\b", src), name
     assert "self._trigger_kind" not in src
     assert "self._lookups" not in src

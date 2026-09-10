@@ -51,7 +51,7 @@ def test_there_is_one_place_that_begins_a_request():
 
 def test_the_three_entries_do_not_set_the_state_themselves():
     """**4つの状態を置くのは1箇所だけ**にする。"""
-    for name in ("begin_request", "_begin_affect", "_begin_device"):
+    for name in ("_utterance_iteration", "_begin_affect", "_begin_device"):
         body = _method(name)
         for field in (
             "_req.iterations",
@@ -63,7 +63,7 @@ def test_the_three_entries_do_not_set_the_state_themselves():
 
 
 def test_each_entry_goes_through_the_one_place():
-    for name in ("begin_request", "_begin_affect", "_begin_device"):
+    for name in ("_utterance_iteration", "_begin_affect", "_begin_device"):
         assert "self._begin_request(" in _method(name), name
 
 

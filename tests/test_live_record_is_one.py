@@ -79,16 +79,21 @@ def test_all_three_starts_go_through_one_place():
     bodies = {}
     for m in cls.body:
         if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and m.name in (
-            "begin_request",
+            "_utterance_iteration",
             "_begin_affect",
             "_begin_device",
             "_begin_request",
         ):
             bodies[m.name] = "\n".join(lines[m.lineno - 1 : m.end_lineno])
-    assert set(bodies) == {"begin_request", "_begin_affect", "_begin_device", "_begin_request"}
+    assert set(bodies) == {
+        "_utterance_iteration",
+        "_begin_affect",
+        "_begin_device",
+        "_begin_request",
+    }
 
     # 3つの入口は、1箇所を通るだけ
-    for name in ("begin_request", "_begin_affect", "_begin_device"):
+    for name in ("_utterance_iteration", "_begin_affect", "_begin_device"):
         assert "self._begin_request(" in bodies[name], name
         assert "_advance_chain" not in bodies[name], name
 

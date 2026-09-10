@@ -1933,7 +1933,7 @@ class EmbodiedAgent:
         # say の前の途中経過としてしか扱わず、say が出たら捨てる）。渡さないと GUI に
         # 何も表示されない（実機で観測）。
         self._ensure_event_loop(on_text, on_action)
-        return await self._info_processing.begin_request(user_input, on_text=on_text)
+        return await self._info_processing.push_utterance(user_input, on_text=on_text)
 
     @property
     def stt(self) -> STTTool | None:
