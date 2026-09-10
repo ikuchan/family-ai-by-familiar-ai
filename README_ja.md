@@ -364,7 +364,10 @@ RTSP対応カメラなら映像取得（see）は動作します。PTZ（首振�
 
 ## 技術的な詳細
 
-- アーキテクチャ: [docs/OldDocs/architecture.md](./docs/OldDocs/architecture.md)
-- このブランチの変更点: [docs/CHANGES.md](./docs/CHANGES.md)
-- 設計思想: [docs/OldDocs/technical.md](./docs/OldDocs/technical.md)
+- **設計の正本**: [docs/NewModesDocs/](./docs/NewModesDocs/)（[索引](./docs/NewModesDocs/README.md)）
+  — イベント駆動ループ・記憶モデル・各判断の理由。**いま動いているものはここに書いてある**
+- モジュール構成: [docs/ソースツリー.md](./docs/%E3%82%BD%E3%83%BC%E3%82%B9%E3%83%84%E3%83%AA%E3%83%BC.md)（実物から生成）
 - 開発者向け: [CLAUDE.md](./CLAUDE.md)
+- このブランチの変更点: [docs/CHANGES.md](./docs/CHANGES.md)
+- **旧版**: [docs/OldDocs/](./docs/OldDocs/README.md) — 撤去した旧 ReAct 経路の記録
+  （`technical.md`＝設計思想・`architecture.md`＝層の対応づけ）。**いまの実物ではない**
