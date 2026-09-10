@@ -66,5 +66,5 @@ def test_who_we_think_we_are_talking_to_is_logged(caplog):
     a._persons = persons
     a._pmm.presence_status = MagicMock(return_value=[])
     with caplog.at_level(logging.DEBUG, logger="familiar_agent.loop.event_loop"):
-        asyncio.run(InformationProcessing(a).begin_request("おはよう"))
+        asyncio.run(InformationProcessing(a).push_utterance("おはよう"))
     assert any("在席" in r.message and "パパ" in r.getMessage() for r in caplog.records)

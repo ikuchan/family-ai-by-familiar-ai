@@ -137,14 +137,14 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("昨日の天気覚えてる？")
+        await ip.push_utterance("昨日の天気覚えてる？")
         # 環-h で主LLM は投げっぱなしになった。調べかけになるまで待つ。
         for _ in range(_WAIT_TICKS):
             if a._memory_tool.call.called:
                 break
             await asyncio.sleep(0.005)
         # 調べかけの途中で話しかける。
-        await ip.begin_request("それより明日の予定は？")
+        await ip.push_utterance("それより明日の予定は？")
         for _ in range(_WAIT_TICKS):
             if a._run_post_response_pipeline.called:
                 break

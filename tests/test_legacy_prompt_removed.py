@@ -1,6 +1,6 @@
 """旧 ReAct のプロンプト組み立ての撤去。
 
-`agent.run()` は特殊コマンドを処理したあと `InformationProcessing.begin_request` へ委譲
+`agent.run()` は特殊コマンドを処理したあと `InformationProcessing.push_utterance` へ委譲
 するだけで、旧プロンプトの組み立てには到達しない。実行中のプロンプトは
 `build_event_system_prompt`（`loop/prompt.py`）が組む。
 

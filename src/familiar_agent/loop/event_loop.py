@@ -163,10 +163,14 @@ class Decision:
 
 
 #: **新しい求めを始めるきっかけ**（ほかは、開いている求めの続きとして取り込む）。
-_NEW_REQUEST_KINDS = ("機器", "情動")
-#: どちらも来ていたら機器を先に採る。3本のキューを `asyncio.wait` の union で待って
-#: いたころ、取り出したあとの分岐がこの順だった（環-f-い-1 でその規則をここへ移した）。
-_TRIGGER_PRIORITY = {"機器": 2, "情動": 1}
+_NEW_REQUEST_KINDS = ("会話入力", "機器", "情動")
+#: 複数来ていたらこの順に採る。**人の言葉が最優先**である（環-f-い-2）。機器が情動より
+#: 先なのは、3本のキューを `asyncio.wait` の union で待っていたころ、取り出したあとの
+#: 分岐がこの順だったため（環-f-い-1 でその規則をここへ移した）。
+_TRIGGER_PRIORITY = {"会話入力": 3, "機器": 2, "情動": 1}
+#: **調査中でも待たせないきっかけ。** 人が言い直したら前の調査は打ち切る側なので、
+#: 保留箱へは入れない（`push_utterance` が積む前に打ち切っている）。
+_NEVER_HELD_KINDS = ("会話入力",)
 
 
 @dataclass
@@ -187,10 +191,15 @@ class Trigger:
     | `決定` | 主LLM が返った | `decision`（`Decision`） |
     | `情動` | drive が発火した（AIF 経由） | `query`（drive の名）・`result`（促しの文） |
     | `機器` | 人が出入りした（DIF 経由） | `query`（種別）・`result`（中身）・`release_pending` |
+    | `会話入力` | 人が話しかけた | `query`（人の言葉）・`future`（呼び手が待っている） |
 
-    **会話入力だけが、まだこの列を通らない**（`begin_request` が同期で入る）。列へ入れると
-    GUI と CUI の約束が変わる（返り値がターンの終わりを表さなくなる）ので、環-f-い-2 で
-    別に判断する。
+    **`会話入力` だけが返事を持って帰る。** 呼び手（GUI・CUI）はその反復の出力を待っている
+    ので、`future` に入れて返す。待っているのは呼び手だけで、**反復は駆動体の上で回る**
+    （環-f-い-2）。
+
+    **種別に `発話` を使わない。** その語はコードの中で3つの別物を指している——人が話しかけた
+    こと・パジュがつないだ一言・パジュが答えたこと（`direction="発話"` として DB にも入って
+    いる）。用語一覧が定めるきっかけの語は `会話入力` である。
 
     **`決定` は投げたときの W を一緒に運ぶ。** 共起は「その反復で一緒に活性した記録」なので
     主LLM が実際に見た W でなければ意味がなく、申告（`memory_verdicts`）は W に印字された
@@ -206,13 +215,15 @@ class Trigger:
     decision: "Decision | None" = None
     # `機器` だけが使う。在席がゼロから立ち上がった瞬間に真で、保留した発話を先に配る。
     release_pending: bool = False
+    # `会話入力` だけが使う。呼び手がここで返事を待っている。
+    future: "asyncio.Future[str] | None" = None
 
 
 class InformationProcessing:
     """I：情報処理機構（Information-processing）。③ I 詳細図の器。
 
     この class が持つのは**装置の寿命**（起動から終了まで）のものだけである——3つのキュー、
-    駆動体、外との口（`set_output`・`push_*`・`start`・`close`・`begin_request`）、背景タスク。
+    駆動体、外との口（`set_output`・`push_*`・`start`・`close`）、背景タスク。
     それ以外の寿命は別の持ち主にある（環-e-に の に-5-に）。
 
     | 寿命 | 持ち主 |
@@ -854,7 +865,7 @@ class InformationProcessing:
         return defs
 
     async def _begin_request(self, *, kind: str, text: str, utterance: str = "") -> None:
-        """求めを始める。**3つの入口（発話・情動・機器）はここを通る。**
+        """求めを始める。**3つの入口（会話入力・情動・機器）はここを通る。**
 
         やることは同じである——求めをリセットし、来た事実を O へ書き、求めの id を置き、
         起点を控え、手がかりを置く。入口ごとに違うのは、起点の種別・文面・`utterance`
@@ -884,11 +895,23 @@ class InformationProcessing:
         self._note_origin(obs_id)
         self._req.cue = text[:500]
 
-    async def begin_request(self, utterance: str, on_text=None) -> str:
-        """人の発話で1反復を起こす。1反復＝1出力（発話 or ツール投げ）で終わる。
+    async def push_utterance(self, utterance: str, on_text=None) -> str:
+        """人の言葉を待ち行列へ積み、**その反復の出力**を返す（環-f-い-2）。
 
-        ツールを投げた反復は発話を持たないので空文字を返す。続きは、完了が QC に届いて
-        駆動体が起こす次の反復が担う。`on_text` は出力先（駆動体が起こす反復も使う）。
+        4つのきっかけ（会話入力・知覚イベント・情動発火・完了）が同じ列に並ぶ。積む口が
+        `push_completion`・`push_affect`・`push_device` と揃い、**順序づけは
+        `_take_trigger()` の1箇所**にある。
+
+        **返すのは求めの終わりではなく、最初の反復の出力である。** 1反復＝1出力なので、
+        ツールを投げた反復は発話を持たず空文字を返す。続きは、完了が列へ届いて駆動体が
+        起こす次の反復が担う。呼び手（GUI・CUI）が待っているのもここまでで、これは
+        `begin_request` だったころと同じ意味である。
+
+        **打ち切りはここでやる。** 積む前に前の調査を止める。駆動体側へ移すと、走っている
+        反復が終わるまで打ち切りが遅れる（調停の時間切れなら最大5秒）。打ち切りは「人が
+        言い直した」瞬間の判断であって、順序づけではない。
+
+        `on_text` は出力先（駆動体が起こす反復も使う）。
         """
         agent = self._agent
         # 人が話しかけた瞬間に在席の印を付ける。応答より前に付けないと、目の前の相手への
@@ -904,8 +927,9 @@ class InformationProcessing:
         # 記録に残す**。
         await self._abort_lookups()
 
-        await self._begin_request(kind="発話", text=utterance, utterance=utterance)
-        return await self._iterate()
+        fut: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
+        self._triggers.put_nowait(Trigger(kind="会話入力", query=utterance, future=fut))
+        return await fut
 
     async def _abort_lookups(self) -> None:
         """飛行中の調査を打ち切る（人に話しかけられたとき）。
@@ -1097,9 +1121,13 @@ class InformationProcessing:
            割り込む。聞いている側には、軽量LLM と主LLM が交互に喋る＝別々の人格が居るように
            聞こえる（実機で観測）。**取りこぼしではなく待たせるだけ**である。
         2. **完了は受け箱へまとめて溜める。** 1反復でまとめて取り込む。
-        3. **新しい求めを始めるきっかけは1つだけ選ぶ**（機器 ＞ 情動）。**選ばれなかった
-           ほうは保留箱へ回す。** 3本のキューだったころは、機器と情動が同時に届くと情動を
-           取り出したまま黙って捨てていた（`if device is not None: … elif affect …`）。
+        3. **新しい求めを始めるきっかけは1つだけ選ぶ**（会話入力 ＞ 機器 ＞ 情動）。
+           **選ばれなかったものは保留箱へ回す。** 3本のキューだったころは、機器と情動が
+           同時に届くと情動を取り出したまま黙って捨てていた
+           （`if device is not None: … elif affect …`）。
+
+        **優先順位は「同時に届いた中から1つ選ぶとき」の規則である。** 保留箱で待っている
+        ものは**待った順に**片づく（待たせたのだから、待った順で出す）。
         """
         while True:
             # 調査が終わっていれば、待たせていたぶんを先に片づける。
@@ -1112,7 +1140,7 @@ class InformationProcessing:
             for item in batch:
                 if item.kind not in _NEW_REQUEST_KINDS:
                     self._drained_completions.append(item)
-                elif self._in_flight_count:
+                elif self._in_flight_count and item.kind not in _NEVER_HELD_KINDS:
                     self._held.append(item)
                 elif chosen is None:
                     chosen = item
@@ -1135,7 +1163,7 @@ class InformationProcessing:
         必要がない（目を覚ますこと自体が「時計を見る」動作になる）。
 
         **待ち行列は1本である**（IIF・環-f-い-1）。会話入力・知覚イベント・情動発火・完了の
-        4つのきっかけが同じ列に並ぶ（会話入力だけはまだ `begin_request` が同期で入る）。
+        **4つのきっかけが同じ列に並ぶ**（会話入力・知覚イベント・情動発火・完了）。
         """
         while True:
             try:
@@ -1147,6 +1175,9 @@ class InformationProcessing:
                         len(self._drained_completions),
                     )
                     await self._iterate()
+                elif trigger.kind == "会話入力":
+                    logger.debug("event-loop 駆動体が会話入力を受領")
+                    await self._begin_utterance(trigger)
                 elif trigger.kind == "機器":
                     logger.debug("event-loop 駆動体が機器を受領（%s）", trigger.query)
                     await self._begin_device(trigger.query, trigger.result, trigger.release_pending)
@@ -1161,6 +1192,52 @@ class InformationProcessing:
                 # ここで譲らなければ await を挟まない密な繰り返しになり、event loop ごと
                 # 止まる（実機では固まって見える）。
                 await asyncio.sleep(0)
+
+    async def _begin_utterance(self, trigger: "Trigger") -> None:
+        """会話入力で新しい連鎖を始め、**その反復の出力を待ち手へ返す**（環-f-い-2）。
+
+        **待ち手が中断したら反復も止める。** GUI の停止ボタンは呼び手のタスクを cancel
+        する形で、以前は反復がそのタスクの上で回っていたので cancel がそのまま効いた。
+        列へ移すと反復は駆動体の上で回るので、待ち手の cancel を受けてこちらから止める。
+        止めたことは駆動体の外へ出さない——駆動体まで畳むと、次のきっかけで起きなくなる。
+        """
+        fut = trigger.future
+        if fut is None or fut.done():
+            # 待ち手がもう居ない（中断された・呼び手が消えた）。反復を始める理由がない。
+            return
+        stopped = False
+        task = asyncio.create_task(self._utterance_iteration(trigger.query))
+
+        def _stop(f: "asyncio.Future[str]") -> None:
+            nonlocal stopped
+            if f.cancelled() and not task.done():
+                stopped = True
+                task.cancel()
+
+        fut.add_done_callback(_stop)
+        try:
+            spoken = await task
+        except asyncio.CancelledError:
+            if stopped:
+                logger.info("event-loop 待ち手が中断したので反復を止めた")
+                return
+            raise
+        except Exception as e:  # noqa: BLE001
+            if not fut.done():
+                fut.set_exception(e)
+            return
+        if not fut.done():
+            fut.set_result(spoken)
+            # **待っている呼び手を、次のきっかけより先に起こす。** 待ち行列が空でなければ
+            # `Queue.get()` は譲らずに返るので、譲らなければ駆動体がそのまま次の反復まで
+            # 進み、呼び手の `await` はそのあとで再開する。`begin_request` だったころは
+            # 反復が呼び手のタスクの上で回っていて、戻った時点が求めの続きより前だった。
+            await asyncio.sleep(0)
+
+    async def _utterance_iteration(self, utterance: str) -> str:
+        """人の言葉を O へ書き、1反復回す。**打ち切りは `push_utterance` が済ませている。**"""
+        await self._begin_request(kind="発話", text=utterance, utterance=utterance)
+        return await self._iterate()
 
     async def _begin_affect(self, drive_name: str, prompt: str) -> None:
         """情動で新しい連鎖を始める。取込＝来た事実（情動）を O に書き、鎖の起点にする。
@@ -1230,6 +1307,11 @@ class InformationProcessing:
             logger.exception("保留していた発話を取り出せなかった: %s", e)
 
     async def close(self) -> None:
+        # **待たせたままの呼び手を残さない。** 列と保留箱に会話入力が残っていると、
+        # `push_utterance` の `await` が永久に返らない（環-f-い-2）。
+        for item in list(self._held) + list(self._triggers._queue):  # type: ignore[attr-defined]
+            if item.future is not None and not item.future.done():
+                item.future.cancel()
         if self._driver is not None:
             self._driver.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):

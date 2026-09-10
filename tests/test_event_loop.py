@@ -98,7 +98,7 @@ def _agent(*, stream_returns, max_iters=3):
 def _run(a, utterance="こんにちは", on_text=None):
     """人の発話で求めを始め、**発話が出るまで**待って、その文を返す。
 
-    環-h で主LLM が投げっぱなしになり、`begin_request` は空文字で返るようになった
+    環-h で主LLM が投げっぱなしになり、`push_utterance` は空文字で返るようになった
     （発話は駆動体が起こす次の反復＝出す反復で出る）。1反復だけ待つ形では取りこぼす。
     """
     shown: list[str] = []
@@ -110,7 +110,7 @@ def _run(a, utterance="こんにちは", on_text=None):
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.begin_request(utterance, on_text=_tap)
+        first = await ip.push_utterance(utterance, on_text=_tap)
         if first:
             shown.append(first)
         for _ in range(_WAIT_TICKS):
@@ -130,7 +130,7 @@ def _run_chain(a, utterance="こんにちは"):
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request(utterance, on_text=shown.append)
+        await ip.push_utterance(utterance, on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= a._expected_turns and not ip._background_tasks:
                 break
@@ -338,8 +338,8 @@ def test_completion_content_reads_as_this_chains_action():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("今日の天気を調べて")
-        # 環-h で `begin_request` は主LLM を投げた時点で返るようになった。調べものが
+        await ip.push_utterance("今日の天気を調べて")
+        # 環-h で `push_utterance` は主LLM を投げた時点で返るようになった。調べものが
         # 起動する前に完了を押すと、待ち受ける調べものが無く、結果が宙に浮く。
         for _ in range(_WAIT_TICKS):
             if any(
@@ -389,8 +389,8 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("今日の天気を調べて")
-        # 環-h で `begin_request` は主LLM を投げた時点で返るようになった。調べものが
+        await ip.push_utterance("今日の天気を調べて")
+        # 環-h で `push_utterance` は主LLM を投げた時点で返るようになった。調べものが
         # 起動する前に完了を押すと、待ち受ける調べものが無く、結果が宙に浮く。
         for _ in range(_WAIT_TICKS):
             if any(
@@ -588,7 +588,7 @@ def test_action_branch_dispatches_recall_without_the_full_llm():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.begin_request("こんにちは", on_text=shown.append)
+        first = await ip.push_utterance("こんにちは", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._memory_tool.call.called:
                 break
@@ -766,7 +766,7 @@ def test_iteration_ends_when_tool_is_dispatched():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.begin_request("こんにちは", on_text=shown.append)
+        first = await ip.push_utterance("こんにちは", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._memory_tool.call.await_count:
                 break
@@ -791,7 +791,7 @@ def test_driver_runs_next_iteration_when_completion_arrives():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.begin_request("昨日の天気覚えてる？", on_text=shown.append)
+        first = await ip.push_utterance("昨日の天気覚えてる？", on_text=shown.append)
         for _ in range(_WAIT_TICKS):  # 駆動体が起こす2反復目を待つ
             if shown:
                 break
@@ -850,7 +850,7 @@ def test_action_branch_speaks_the_filler_then_dispatches():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.begin_request("今日の天気を調べて", on_text=shown.append)
+        first = await ip.push_utterance("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._deferred_search.dispatch.await_count:
                 break
@@ -881,7 +881,7 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
 
     async def scenario():
         ip = InformationProcessing(a)
-        first = await ip.begin_request("今日の天気を調べて", on_text=shown.append)
+        first = await ip.push_utterance("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._deferred_search.dispatch.await_count:
                 break
@@ -970,7 +970,7 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
 
     async def scenario():
         ip = InformationProcessing(a)
-        assert await ip.begin_request("こんにちは", on_text=shown.append) == ""
+        assert await ip.push_utterance("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)  # 意図を書いて dispatch し終えた頃
         ip._triggers.put_nowait(Trigger(kind="完了", query="q", result="外から届いた結果", index=1))
         for _ in range(_WAIT_TICKS):
@@ -1173,7 +1173,7 @@ def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("今日はどんな天気？")
+        await ip.push_utterance("今日はどんな天気？")
         ip.push_completion("https://example.com/1hour.html", "時間別の表…")
         for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= 2:
@@ -1233,7 +1233,7 @@ def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("マインクラフトってどんなゲーム？")
+        await ip.push_utterance("マインクラフトってどんなゲーム？")
         head = ip._req.cue
         fillers = list(ip._req.said_fillers)
         await ip.close()
@@ -1282,7 +1282,7 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("たいきのサッカーの練習は？")
+        await ip.push_utterance("たいきのサッカーの練習は？")
         ip.push_completion("サッカー", "recall結果テキスト")
         for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= 2:

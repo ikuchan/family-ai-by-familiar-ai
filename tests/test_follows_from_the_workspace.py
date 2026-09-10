@@ -56,7 +56,7 @@ def test_a_turn_does_not_follow_itself():
 
     async def scenario():
         ip = InformationProcessing(a)
-        await ip.begin_request("こんにちは")
+        await ip.push_utterance("こんにちは")
 
     asyncio.run(scenario())
     a._memory.record_succession.assert_not_called()
