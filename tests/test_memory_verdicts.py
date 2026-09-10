@@ -38,7 +38,42 @@ def test_the_say_tool_accepts_verdicts():
         "referred",
         "unused",
     ]
-    assert "memory_verdicts" not in schema["required"]  # 省略可
+    assert "memory_verdicts" in schema["required"]  # 必須（出-h-い）
+
+
+def test_the_schema_tells_how_to_choose_each_verdict():
+    """**4つの判定に、別々の引き金を与える。**
+
+    引き金が無いと、無難な `referred` が全件に並び、W の記憶が一斉に若返る（47日前の
+    挨拶が居座った形）。逆に「迷うなら unused」だけだと `important` が1件も出ず、
+    `groundedness_n` が増えない。**両側へ倒れないよう、条件で分ける。**
+    """
+    from familiar_agent.tools.tts import TTSTool
+
+    schema = TTSTool.get_tool_definitions(MagicMock())[0]["input_schema"]
+    desc = schema["properties"]["memory_verdicts"]["description"]
+    for verdict in ("important", "useless", "referred", "unused"):
+        assert f"`{verdict}`" in desc, f"{verdict} の引き金が書かれていない"
+    # `important` と `referred` を分ける軸は「この反復だけか、この先も効くか」。
+    assert "beyond this turn" in desc and "only for this turn" in desc
+    # 欠けさせない指示。
+    assert "every id" in desc
+
+
+def test_the_schema_is_the_same_every_turn():
+    """**道具の定義は反復をまたいで変わらない。**
+
+    道具は安定部と同じキャッシュ範囲にある（出-i）。W の id を `enum` へ入れると、想起が
+    変わるたび定義が変わり、毎ターン書き直しになる（1000ターン 366円 → 738円）。
+    実測では `enum` の有無で申告の成績は変わらなかったので、入れない。
+    """
+    from familiar_agent.tools.tts import TTSTool
+
+    a = TTSTool.get_tool_definitions(MagicMock())[0]
+    b = TTSTool.get_tool_definitions(MagicMock())[0]
+    assert a == b
+    id_schema = a["input_schema"]["properties"]["memory_verdicts"]["items"]["properties"]["id"]
+    assert "enum" not in id_schema
 
 
 def test_the_prompt_asks_for_every_recalled_memory():

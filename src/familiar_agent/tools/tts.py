@@ -433,13 +433,32 @@ class TTSTool:
                         # 再評価する、という設計の更新契機がこれ。W に出した id で指す。
                         "memory_verdicts": {
                             "type": "array",
+                            # **4つの判定に、別々の引き金を与える**（出-h-い）。1文だけの
+                            # 説明では、24回中9回で件数が欠け、判定は無難な `referred` へ
+                            # 倒れていた（並んだ記憶が一斉に若返る形）。条件で分けると
+                            # 欠落は 0 になり、`important` も出るようになった。
                             "description": (
-                                "How each recalled memory in the workspace was used. "
-                                "One entry per memory shown, using the id printed there."
+                                "How each memory in the workspace was used. One entry for "
+                                "every id listed there — leave none out. Copy each id exactly "
+                                "as printed. Choose by these tests:\n"
+                                "- `important`: you drew on it in your reply AND it matters "
+                                "beyond this turn (the person asked about it, or it is "
+                                "something you want to keep knowing about them).\n"
+                                "- `referred`: you drew on it in your reply, but only for "
+                                "this turn.\n"
+                                "- `useless`: you looked at it and it was not worth "
+                                "recalling here.\n"
+                                "- `unused`: you did not draw on it at all. This is the "
+                                "plain answer for memories your reply never touched — "
+                                "most entries will be this."
                             ),
                             "items": {
                                 "type": "object",
                                 "properties": {
+                                    # **W の id を `enum` に入れない。** 道具の定義は安定部と
+                                    # 同じキャッシュ範囲にあり（出-i）、想起のたびに変われば
+                                    # 毎ターン書き直しになる（1000ターン 366円 → 738円）。
+                                    # 実測では `enum` の有無で申告の成績は変わらなかった。
                                     "id": {"type": "string"},
                                     "verdict": {
                                         "type": "string",
@@ -453,7 +472,9 @@ class TTSTool:
                             },
                         },
                     },
-                    "required": ["text"],
+                    # **申告を必須にする**（出-h-い）。任意のままだと、規則側に日本語で
+                    # 書いてあっても出ないことがある。記憶が育つ経路は申告1本しかない。
+                    "required": ["text", "memory_verdicts"],
                 },
             },
         ]
