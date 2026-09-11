@@ -108,7 +108,23 @@ def compose(mem, memories: list[dict], req: Request) -> "tuple[str, dict[str, st
             "聞く相手が居ないあいだに話したかったこと"
             "（いま伝えるなら、そのときのこととして話す）：\n" + "\n".join(req.speech_to_deliver)
         )
-    text = "\n\n".join(p for p in [said, held, mem.format_for_context(memories)] if p and p.strip())
+    # **誰の記録かを添える。** `actor` の面（`situated_memories`）が「誰がやったか」を
+    # 持っており、`direction` も `やりとり` の役割もその代わりにはならない。面が立って
+    # いない記録は入らないので、その行は主体を言わない（名前を捏造しない）。
+    #
+    # **渡された記録を書き換えない。** 主体は印字のためのもので、呼び手が持つ記録
+    # （共起・申告が使う）に足す理由がない。写しに載せる。
+    shown = memories
+    with contextlib.suppress(Exception):
+        names = mem.actor_names_of([str(m.get("memory_id", "")) for m in memories])
+        if names:
+            shown = [
+                {**m, "actor_name": names[str(m.get("memory_id", ""))]}
+                if str(m.get("memory_id", "")) in names
+                else m
+                for m in memories
+            ]
+    text = "\n\n".join(p for p in [said, held, mem.format_for_context(shown)] if p and p.strip())
     return text, id_map
 
 

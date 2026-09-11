@@ -100,6 +100,30 @@ class SituatedVectors:
     def __init__(self, ctx: StoreContext) -> None:
         self._ctx = ctx
 
+    def actors_of(self, obs_ids: "list[str]") -> "dict[str, str]":
+        """その記録たちの **`actor` 面**（誰がやったか）を `obs_id → person_id` で返す。
+
+        面は二段で立つが、`actor` は段①＝機械で確実に出るもので、**観測1件につき必ず
+        1行**である（`_upsert_situated_embedding` の呼び出し）。ただし面が立つのは
+        `materialize_now` のときなので、**まだ立っていない記録はここに出ない**。
+        呼び手は「無ければ主体を言わない」を選べる（名前を捏造しない）。
+
+        索引は `situated_memories(obs_id)` 側で引く。W に載るのは最大 `recall_k` 件なので
+        1回の問い合わせで足りる。
+        """
+        ids = [str(i) for i in obs_ids if i]
+        if not ids:
+            return {}
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT obs_id, person_id FROM situated_memories "
+                    "WHERE relation_key = 'actor' AND obs_id = ANY(%s)",
+                    (ids,),
+                )
+                return {str(r["obs_id"]): str(r["person_id"]) for r in cur.fetchall()}
+
     def _embedding_mu(self, conn=None) -> "np.ndarray | None":
         """平均中心化に使う mu を返す（C2・遅延読み込みで1回だけ）。
 

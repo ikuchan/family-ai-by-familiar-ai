@@ -516,6 +516,11 @@ class EmbodiedAgent:
                         kind="curiosity",
                         emotion="curious",
                         materialize_now=False,
+                        # **書き手を明示する。** 渡さないと書く側の `person_id` に落ち、
+                        # いまは基底（`default`）なので規則 048 で `__self__` になる。
+                        # 正しい値だが、2つの既定の一致に支えられているだけで、読んでも
+                        # 分からない。話者スコープの記憶へ差し替えれば黙って変わる。
+                        writer_id=AGENT_SELF_ID,
                     )
                     logger.info("Curiosity persisted: %s", curiosity)
 
@@ -1287,6 +1292,8 @@ class EmbodiedAgent:
                     emotion="neutral",
                     override_date=date,
                     materialize_now=False,
+                    # 日次要約はパジュが書く。既定任せにしない（上記と同じ理由）。
+                    writer_id=AGENT_SELF_ID,
                 )
                 logger.info("Day summary generated for %s: %s", date, summary[:80])
                 # 時間減衰は想起の t 軸（time_score）へ一元化したため、importance の
