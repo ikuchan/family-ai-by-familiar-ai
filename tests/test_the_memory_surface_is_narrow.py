@@ -83,5 +83,9 @@ def test_the_faces_we_keep_are_still_there():
 
 
 def test_the_surface_got_narrower():
-    """絞った結果を数で残す。**動いたら書き換える**（数は隠さない）。"""
+    """絞った結果を数で残す。**動いたら書き換える**（数は隠さない）。
+
+    73 → **65 種**（役割の終わった8面を落とした）。記憶へ直につながる線は
+    **24 → 12 箇所**（`agent.py` は 16 → 4）。
+    """
     assert len(_public_faces()) <= 65
