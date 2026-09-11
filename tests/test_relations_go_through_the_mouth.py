@@ -107,3 +107,27 @@ def test_the_kinds_say_what_the_relation_is():
     src = (_SRC / "loop" / "event_loop.py").read_text(encoding="utf-8")
     assert "KIND_EXCHANGE" in src
     assert (KIND_EXCHANGE, KIND_SUCCESSION, KIND_COOCCURRENCE) == ("やりとり", "継起", "共起")
+
+
+# ── ベクトル埋め込みは口の内側 ──────────────────────────────────────────────
+
+
+def test_the_embedding_is_asked_through_the_mouth():
+    """**ベクトル埋め込みは OIF の内側にある**（`設計図` ③-2）。
+
+    `agent` が記憶の `is_embedding_ready()`／`embedding_failed()` を直に見ていた。UI・
+    `main`・`errors` は `agent` 経由なので外へは漏れていなかったが、`agent` の2行が
+    設計と食い違っていた。使える状態かは口が答える（`OIF.health`）。
+    """
+    from unittest.mock import MagicMock
+
+    from familiar_agent.agent import EmbodiedAgent
+    from familiar_agent.io.oif import Health
+
+    a = EmbodiedAgent.__new__(EmbodiedAgent)
+    a._memory = MagicMock()
+    a._oif = MagicMock(health=MagicMock(return_value=Health(ready=True, failed=False)))
+    assert a.is_embedding_ready is True
+    assert a.embedding_failed() is False
+    a._memory.is_embedding_ready.assert_not_called()
+    a._memory.embedding_failed.assert_not_called()

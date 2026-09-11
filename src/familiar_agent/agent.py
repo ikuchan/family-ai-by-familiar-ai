@@ -1545,12 +1545,19 @@ class EmbodiedAgent:
 
     @property
     def is_embedding_ready(self) -> bool:
-        """Return True once the embedding model has finished loading."""
-        return self._memory.is_embedding_ready()
+        """Return True once the embedding model has finished loading.
+
+        **ベクトル埋め込みは OIF の内側にある**（`設計図` ③-2）。記憶の面を直に見ると、
+        設計の「埋め込みは口の内側」と食い違う（環-e-い）。
+        """
+        return self._oif.health().ready
 
     def embedding_failed(self) -> bool:
-        """埋め込みモデルの読込に失敗したか（#10・致命）。記憶が死ぬので fail-fast する。"""
-        return self._memory.embedding_failed()
+        """埋め込みモデルの読込に失敗したか（#10・致命）。記憶が死ぬので fail-fast する。
+
+        使える状態かは口が答える（`OIF.health`・環-e-い）。
+        """
+        return self._oif.health().failed
 
     async def _write_today_narrative(self) -> None:
         """Write a one-sentence self-description for today's session.
