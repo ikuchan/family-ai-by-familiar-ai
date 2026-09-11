@@ -200,13 +200,13 @@ class EmbodiedAgent:
             config.agent_names = me_names
             config.agent_name = me_names[0]
         self._memory = ObservationMemory()
-        # **記憶ストア O との唯一の出入り口**（`設計図` ③-2・環-e-い）。書き込み側だけが
-        # ここを通る（想起と関係はまだ——関係は 058〜060 で入った機構で OIF に口が無く、
-        # 想起は器が違う）。**どの面へ書くかは `writer_id` が決める**ので、載せる記憶は
-        # 基底でよい。
-        self._oif = OIF(self._memory)
         self._memory_worker = MemoryJobWorker(self._memory)
         self._pmm = PersonMemoryManager(self._memory)
+        # **記憶ストア O との唯一の出入り口**（`設計図` ③-2・環-e-い）。書き込み・関係・
+        # 埋め込みはここを通る（想起はまだ——器が違う）。**どの面へ書くかは `writer_id` が
+        # 決める**ので、載せる記憶は基底でよい。読むときの面は `View.viewpoint` が言い、
+        # **人ごとの実体は `pmm` が持つ**（1人につき1つ。口が作り直すと実体が増える）。
+        self._oif = OIF(self._memory, for_person=self._pmm.get_memory_for)
         self._desires_ref: "DesireSystem | None" = None
         self._pmm.on_switch(self._on_pmm_speaker_switch)
         self._memory_tool = MemoryTool(self._pmm)

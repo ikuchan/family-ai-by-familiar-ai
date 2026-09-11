@@ -140,6 +140,10 @@ class View:
     語を分けないと中身が混ざる。
     """
 
+    # **誰の面から引くか。** `situated_memories` は人ごとで、想起は話者の面を通る。
+    # 空なら口が持つ記憶のまま（基底＝視点は `__self__` に寄る）。docstring が「読むときの
+    # 視点」と名乗っていたのに、この欄が無かった（環-e-い・2026-09-11）。
+    viewpoint: str = ""
     k: int = 7  # W へ載せる上限（課題5 の確定値）
     floor: float = 0.05  # 合成スコアの床
     weights: "RecallWeights | None" = None  # 5軸の重み（trigger 別）
@@ -207,8 +211,21 @@ class OIF:
     8つの口だけで、待ち行列（`memory_jobs`）は内側の都合として隠す。
     """
 
-    def __init__(self, memory) -> None:
+    def __init__(self, memory, *, for_person=None) -> None:
+        """`memory`＝既定の記憶。`for_person`＝その人の面を返すもの（`View.viewpoint` 用）。
+
+        **人ごとの実体は呼び手が持つ。** `PersonMemoryManager` が1人につき1つ持っており、
+        口が `ObservationMemory.for_person` を都度呼ぶと実体が増える。渡されなければ
+        その `for_person` へ落ちる（テストと、人を持たない呼び手のため）。
+        """
         self._memory = memory
+        self._for_person = for_person or getattr(memory, "for_person", None)
+
+    def _through(self, viewpoint: str):
+        """その視点で引く記憶を返す。視点が無ければ既定の記憶のまま。"""
+        if not viewpoint or self._for_person is None:
+            return self._memory
+        return self._for_person(viewpoint)
 
     async def write(
         self,
@@ -261,8 +278,14 @@ class OIF:
 
     async def recall(self, cue: Cue, view: View = View()) -> list[Recalled]:
         """手がかりで探し、適合度の高い順に返す。"""
-        logger.debug("OIF recall ← %s／k=%d／床=%.2f", _head(cue.text), view.k, view.floor)
-        rows = await self._memory.recall_async(
+        logger.debug(
+            "OIF recall ← %s／k=%d／床=%.2f／面=%s",
+            _head(cue.text),
+            view.k,
+            view.floor,
+            view.viewpoint or "既定",
+        )
+        rows = await self._through(view.viewpoint).recall_async(
             cue.text,
             n=view.k,
             kind=_KIND_OF_DIRECTION.get(cue.direction or "", None) if cue.direction else None,
