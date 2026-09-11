@@ -19,7 +19,7 @@ from __future__ import annotations
 CONF_UNCERTAIN = 0.55
 
 
-def facts_ctx(*, saw: bool, memories: list[dict]) -> str:
+def facts_ctx(*, saw: bool, memories: "list") -> str:
     """この反復でループが知っていることを、そのまま並べる。
 
     `saw` は役割 `見た` が並びに載ったか（`see` の完了で `_note_record` が付ける）。
@@ -30,7 +30,12 @@ def facts_ctx(*, saw: bool, memories: list[dict]) -> str:
     if not memories:
         mem = "0件（『昨日より』『前と違う』と言える材料は無い）"
     else:
-        dates = " / ".join(str(m.get("date", "?")) for m in memories)
-        low = sum(1 for m in memories if float(m.get("confidence", 1.0)) < CONF_UNCERTAIN)
+        # 想起は口を通るので、受け取るのは `Recalled`（環-e-い）。日付は記録の時刻から作る。
+        from ..store import clock
+
+        dates = " / ".join(
+            clock.ts_to_date(r.mi.timestamp) if r.mi.timestamp else "?" for r in memories
+        )
+        low = sum(1 for r in memories if r.confidence < CONF_UNCERTAIN)
         mem = f"{len(memories)}件（{dates}。うち conf<{CONF_UNCERTAIN} が{low}件）"
     return f"[この反復で分かっていること]\n見たか：{seen}\n作業状態に並んだ記憶：{mem}"

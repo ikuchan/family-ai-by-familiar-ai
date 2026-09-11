@@ -16,11 +16,11 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock
 
-from familiar_agent.tools.memory import ObservationMemory as _OM
+from familiar_agent.tools.memory import subject_line as _line_of
 
 
 def _line(direction: str, name: str | None) -> str:
-    return _OM._subject_line(direction, name)
+    return _line_of(direction, name)
 
 
 def test_an_utterance_names_who_said_it():
@@ -58,14 +58,29 @@ def test_the_workspace_attaches_the_subject_from_the_actor_face():
     from familiar_agent.loop import workspace
     from familiar_agent.loop.request import Request
 
-    mem = MagicMock()
-    mem.actor_names_of.return_value = {"m1": "ゆうすけ"}
-    mem.format_for_context.side_effect = lambda ms: "|".join(str(m.get("actor_name")) for m in ms)
-    memories = [{"memory_id": "m1", "summary": "あ"}, {"memory_id": "m2", "summary": "い"}]
-    text, _ = workspace.compose(mem, memories, Request())
-    assert text == "ゆうすけ|None"  # 面の無い m2 には添えない
-    # **渡した記録は書き換えない。** 主体は印字のためのものである。
-    assert memories == [{"memory_id": "m1", "summary": "あ"}, {"memory_id": "m2", "summary": "い"}]
+    from datetime import datetime
+
+    from familiar_agent.io.oif import MI, Recalled
+
+    def _r(obs_id, content):
+        return Recalled(
+            mi=MI(
+                id=obs_id,
+                obs_id=obs_id,
+                content=content,
+                timestamp=datetime(2026, 9, 11, 15, 0),
+                direction="発話",
+            ),
+            fit=0.5,
+            groundedness=1.0,
+            confidence=0.8,
+        )
+
+    oif = MagicMock()
+    oif.actors.return_value = {"m1": "ゆうすけ"}
+    text, _ = workspace.compose(oif, [_r("m1", "あ"), _r("m2", "い")], Request())
+    assert "ゆうすけが言った: あ" in text
+    assert "発話: い" in text  # 面の無い m2 は種別だけ（名前を捏造しない）
 
 
 def test_the_names_come_from_the_actor_face_only():

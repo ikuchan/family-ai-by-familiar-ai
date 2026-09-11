@@ -30,6 +30,7 @@ from .arbiter import arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from ..io.oif import MI
+from ..person_memory_manager import AGENT_SELF_ID
 from .coherence import facts_ctx
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
 from . import workspace
@@ -117,7 +118,7 @@ def _log_recall_weights(trigger, base, used, memories) -> None:
     def _fmt(w):
         return "(%.2f,%.2f,%.2f,%.2f,%.2f)" % (w.w_r, w.w_t, w.w_e, w.w_g, w.w_p)
 
-    top = "/".join("%.3f" % m["fit"] for m in memories[:3] if "fit" in m)
+    top = "/".join("%.3f" % r.fit for r in memories[:3])
     logger.info(
         "event-loop 想起 trigger=%s w=%s 基底=%s 上位=%s %d件",
         trigger,
@@ -1366,6 +1367,10 @@ class InformationProcessing:
         # 手がかりは「取り込んだもの」＝鎖の先頭（反復1なら人の発話、反復2以降なら完了 O）。
         # 最初の発話で探し続けると、いま届いた完了とは無関係な検索になる（④ の想起クエリ）。
         mem = agent._active_memory()
+        # **誰の面から引くか。** `_active_memory()` と同じ選び方である（話者が居なければ
+        # パジュ自身）。想起は口を通すので、面は `View.viewpoint` で言う（環-e-い）。
+        # 申告（`apply_memory_verdicts`）はまだ記憶そのものを受け取るので `mem` も持つ。
+        viewpoint = agent._pmm.current_speaker_id or AGENT_SELF_ID
         # **取込 O を候補から外さない。** 手がかりは取込の content そのものなので、候補に
         # 入れば必ず上位に来る。以前はこれを「枠を食う」と嫌って外していたが、いま届いた
         # 結果を全文で見せる必要がある以上、1位に来るのが正しい順位である。手組みで W へ
@@ -1382,7 +1387,7 @@ class InformationProcessing:
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
         memories, workspace_ctx, w_id_map = await workspace.recall(
-            mem, cue, weights=weights, req=self._req
+            agent._oif, cue, viewpoint=viewpoint, weights=weights, req=self._req
         )
         _log_recall_weights(trigger, w_base, weights, memories)
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
@@ -1437,8 +1442,9 @@ class InformationProcessing:
         if decision.time_ref:
             with contextlib.suppress(Exception):
                 memories, workspace_ctx, w_id_map = await workspace.recall(
-                    mem,
+                    agent._oif,
                     cue,
+                    viewpoint=viewpoint,
                     weights=weights,
                     req=self._req,
                     time_ref=datetime.fromisoformat(decision.time_ref).timestamp(),

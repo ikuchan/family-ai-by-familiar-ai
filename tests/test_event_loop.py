@@ -37,10 +37,14 @@ def _agent(*, stream_returns, max_iters=3):
     a._me_md = "[ME] 口調"
     a._family_md = "[FAMILY] 家族"
     mem = MagicMock()
-    mem.recall_async = AsyncMock(return_value=[{"memory_id": "m1", "summary": "昔の話"}])
+    # 想起は口を通る（環-e-い）。返すのは**store の行**で、口が `Recalled` へ移す。
+    mem.recall_async = AsyncMock(
+        return_value=[{"memory_id": "m1", "summary": "昔の話", "fit": 0.7, "confidence": 0.8}]
+    )
     mem.format_for_context = MagicMock(return_value="[想起]昔の話")
     a._active_memory = MagicMock(return_value=mem)
     a._memory = MagicMock()
+    a._memory.actor_names_of = MagicMock(return_value={})
     # 続き先の判定（`根拠台帳` §29）。既定は「続きではない」。約束を変えたので偽物も
     # 追随する。返さないと `ensure_future` に非 awaitable が渡って落ちる。
     a._evaluator.judge_follows = AsyncMock(return_value=None)
@@ -55,7 +59,9 @@ def _agent(*, stream_returns, max_iters=3):
     # 一緒に守られる。面の材料は、パジュ自身と話者の2つを置く。
     a._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
     a._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
-    a._oif = OIF(a._memory)
+    # **どの面から引いても同じ偽物を返す。** 口は本物なので、`Recalled` への移し替えと
+    # 視点の受け渡しはそのまま効く。
+    a._oif = OIF(a._memory, for_person=lambda _pid: mem)
     a._memory_tool = MagicMock()
     a._memory_tool.get_tool_definitions = MagicMock(
         return_value=[_REMEMBER_DEF, _RECALL_DEF, {"name": "note_to_share"}]
@@ -564,7 +570,8 @@ def test_system_prompt_is_split_for_caching():
     system = a.backend.stream_turn.call_args.kwargs["system"]
     assert isinstance(system, tuple) and len(system) == 2
     assert "[ME] 口調" in system[0]  # 安定部
-    assert "[想起]昔の話" in system[1]  # 可変部
+    # W は核が組む（環-e-い）。記憶の `format_for_context` は通らない。
+    assert "昔の話" in system[1] and "id:m1" in system[1]  # 可変部
 
 
 def test_light_branch_speaks_without_the_full_llm():

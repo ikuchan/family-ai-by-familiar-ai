@@ -17,10 +17,31 @@
 
 from __future__ import annotations
 
+
 import inspect
 
 from familiar_agent.loop import workspace
 from familiar_agent.loop.request import Request
+
+
+def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話"):
+    """想起は口から `Recalled` で来る（環-e-い）。"""
+    from datetime import datetime
+
+    from familiar_agent.io.oif import MI, Recalled
+
+    return Recalled(
+        mi=MI(
+            id=obs_id,
+            obs_id=obs_id,
+            content=content,
+            timestamp=datetime(2026, 9, 11, 15, 0),
+            direction=direction,
+        ),
+        fit=fit,
+        groundedness=1.0,
+        confidence=conf,
+    )
 
 
 # ── 核であること ───────────────────────────────────────────────────────────
@@ -61,12 +82,11 @@ def test_compose_returns_both_the_text_and_the_index():
     """W と、12桁 → 完全な id の対応表。**対応表は W から導かれる**ので一緒に返す。"""
     from unittest.mock import MagicMock
 
-    mem = MagicMock()
-    mem.format_for_context = MagicMock(return_value="[想起]昔の話")
+    oif = MagicMock(actors=MagicMock(return_value={}))
     text, id_map = workspace.compose(
-        mem, [{"memory_id": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "summary": "昔の話"}], Request()
+        oif, [_rec("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa", "昔の話")], Request()
     )
-    assert "[想起]昔の話" in text
+    assert "昔の話" in text
     assert id_map == {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"}
 
 

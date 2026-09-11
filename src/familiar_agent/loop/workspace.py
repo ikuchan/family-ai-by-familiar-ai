@@ -20,6 +20,8 @@ import json
 import logging
 import re
 
+from ..io.oif import Cue, Recalled, View
+from ..store import clock
 from ..store.relations import KIND_SUCCESSION
 from .request import Request
 
@@ -41,7 +43,7 @@ def open_ids(req: Request) -> list[str]:
     return ids
 
 
-def compose(mem, memories: list[dict], req: Request) -> "tuple[str, dict[str, str]]":
+def compose(mem, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[str, str]]":
     """W を組み、**(W の文字列, 12桁 → 完全な id の対応表) を返す**。
 
     正本 [D-想起起動] は「O に乗った後は共通の流れ（O → 根づき → W 構築〔5軸採点〕→
@@ -67,14 +69,14 @@ def compose(mem, memories: list[dict], req: Request) -> "tuple[str, dict[str, st
 
     # 適合度の高い順に、枠へ入るぶんだけ採る。落ちたものは薄れた＝忘れたのであって、
     # 抜けを検出する仕組みは置かない（W は速く薄れる・改めて調べるのが自然な振る舞い）。
-    ranked = sorted(memories, key=lambda m: float(m.get("fit", 0.0)), reverse=True)
-    kept: list[dict] = []
+    ranked = sorted(memories, key=lambda r: r.fit, reverse=True)
+    kept: "list[Recalled]" = []
     used = 0
-    for m in ranked:
-        size = len(str(m.get("summary", "")))
+    for r in ranked:
+        size = len(r.mi.content)
         if kept and used + size > budget:
             continue
-        kept.append(m)
+        kept.append(r)
         used += size
     dropped = len(memories) - len(kept)
     if dropped:
@@ -89,11 +91,7 @@ def compose(mem, memories: list[dict], req: Request) -> "tuple[str, dict[str, st
     # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
     memories = kept
 
-    id_map = {
-        str(m.get("memory_id", "")).replace("-", "")[:12]: str(m.get("memory_id", ""))
-        for m in memories
-        if m.get("memory_id")
-    }
+    id_map = {r.mi.obs_id.replace("-", "")[:12]: r.mi.obs_id for r in memories if r.mi.obs_id}
     # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
     # （実機で「〜ですね！」で始まる前置きが3回続いた）。
     said = ""
@@ -115,24 +113,53 @@ def compose(mem, memories: list[dict], req: Request) -> "tuple[str, dict[str, st
     #
     # **渡された記録を書き換えない。** 主体は印字のためのもので、呼び手が持つ記録
     # （共起・申告が使う）に足す理由がない。写しに載せる。
-    shown = memories
+    names: "dict[str, str]" = {}
     with contextlib.suppress(Exception):
-        names = mem.actor_names_of([str(m.get("memory_id", "")) for m in memories])
-        if names:
-            shown = [
-                {**m, "actor_name": names[str(m.get("memory_id", ""))]}
-                if str(m.get("memory_id", "")) in names
-                else m
-                for m in memories
-            ]
-    text = "\n\n".join(p for p in [said, held, mem.format_for_context(shown)] if p and p.strip())
+        names = mem.actors([r.mi.obs_id for r in memories])
+    text = "\n\n".join(p for p in [said, held, _lines(memories, names)] if p and p.strip())
     return text, id_map
 
 
+#: 確かさがこれを下回ったら印を付ける（`format_for_context` から引き継いだ値）。
+_CONF_LOW = 0.55
+
+
+def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
+    """W の1行を組む。**核の仕事**である（環-e-い）。
+
+    以前は `ObservationMemory.format_for_context` が組んでいたが、`Recalled` を受ける形に
+    すると**記憶が OIF の器を知る**ことになる（依存が逆向き）。W を組むのは核なので、
+    ここへ移した。`agent` 側の呼び手は辞書のままなので、記憶の面は残してある。
+
+    **12桁で指す。** 8桁だと記録が10万件規模でほぼ確実に衝突する。照合は呼び出し側が
+    対応表で行うので、写し間違いは一致せず件数のずれに出る。
+    """
+    if not memories:
+        return ""
+    # **読み込み時に引かない。** `tools.memory` は埋め込みを抱えるので、W を組むときだけ引く。
+    from ..tools.memory import subject_line
+
+    out = ["[過去の記憶（証拠つき）: conf<0.55 は不確か]:"]
+    for r in memories:
+        mi = r.mi
+        low = " low-confidence" if r.confidence < _CONF_LOW else ""
+        emo = f" [{mi.emotion}]" if mi.emotion and mi.emotion != "neutral" else ""
+        sid = mi.obs_id.replace("-", "")[:12] or "?"
+        day = clock.ts_to_date(mi.timestamp) if mi.timestamp else "?"
+        at = clock.ts_to_time(mi.timestamp) if mi.timestamp else "?"
+        subject = subject_line(mi.direction, names.get(mi.obs_id))
+        out.append(
+            f"- {day} {at} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
+            f" {subject}{emo}: {mi.content[:120]}"
+        )
+    return "\n".join(out)
+
+
 async def recall(
-    mem,
+    oif,
     cue: str,
     *,
+    viewpoint: str = "",
     weights,
     req: Request,
     time_ref: "float | None" = None,
@@ -157,20 +184,24 @@ async def recall(
     from ..config import MemoryConfig
 
     cfg = MemoryConfig()
-    memories = await mem.recall_async(
-        cue,
-        n=cfg.recall_k,
-        min_score=cfg.recall_min_score,
-        weights=weights,
-        open_ids=open_ids(req),
-        time_ref=time_ref,
-        time_span_days=time_span_days,
+    # **口を通す**（環-e-い）。`viewpoint` が無いと、口が持つ基底の記憶＝`__self__` の面
+    # から引いてしまう（記-f の直しを逆向きに壊す）。
+    memories = await oif.recall(
+        Cue(text=cue, open_ids=tuple(open_ids(req))),
+        View(
+            viewpoint=viewpoint,
+            k=cfg.recall_k,
+            floor=cfg.recall_min_score,
+            weights=weights,
+            time_ref=time_ref,
+            time_span_days=time_span_days,
+        ),
     )
     # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
     # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
     # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
     # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
-    text, id_map = compose(mem, memories, req)
+    text, id_map = compose(oif, memories, req)
     return memories, text, id_map
 
 

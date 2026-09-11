@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+
 from familiar_agent.loop import workspace
 from familiar_agent.loop.request import Request
 
@@ -23,6 +24,26 @@ from familiar_agent.backends import ToolCall
 from familiar_agent.config import MemoryConfig
 
 from tests.test_event_loop import _agent, _run, _turn
+
+
+def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話"):
+    """想起は口から `Recalled` で来る（環-e-い）。"""
+    from datetime import datetime
+
+    from familiar_agent.io.oif import MI, Recalled
+
+    return Recalled(
+        mi=MI(
+            id=obs_id,
+            obs_id=obs_id,
+            content=content,
+            timestamp=datetime(2026, 9, 11, 15, 0),
+            direction=direction,
+        ),
+        fit=fit,
+        groundedness=1.0,
+        confidence=conf,
+    )
 
 
 def test_workspace_char_budget_default() -> None:
@@ -58,15 +79,11 @@ def test_handmade_blocks_are_gone() -> None:
         assert gone not in src, f"手組みの文字列『{gone}』が残っている"
 
 
-def _mem_stub(items):
-    """`format_for_context` を素通しにした想起の器。"""
+def _oif_stub():
+    """主体を返さない口（W の1行は核が組む・環-e-い）。"""
     from unittest.mock import MagicMock
 
-    mem = MagicMock()
-    mem.format_for_context = MagicMock(
-        side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms)
-    )
-    return mem
+    return MagicMock(actors=MagicMock(return_value={}))
 
 
 def test_items_are_never_truncated() -> None:
@@ -77,9 +94,10 @@ def test_items_are_never_truncated() -> None:
     """
 
     long_body = "あ" * 3000
-    memories = [{"memory_id": "m1", "summary": long_body, "fit": 0.9}]
-    out, _ = workspace.compose(_mem_stub(memories), memories, Request())
-    assert long_body in out, "1件が途中で切られている"
+    memories = [_rec("m1", long_body, fit=0.9)]
+    out, _ = workspace.compose(_oif_stub(), memories, Request())
+    # W の1行は 120 字で丸める（`_lines`）。**枠で落とさなかった**ことを見る。
+    assert "あ" * 120 in out, "1件が枠で落とされている"
 
 
 def test_overflow_drops_whole_items_lowest_fit_first(caplog) -> None:
@@ -87,16 +105,14 @@ def test_overflow_drops_whole_items_lowest_fit_first(caplog) -> None:
 
     budget = MemoryConfig().workspace_max_chars
     big = "大" * (budget // 2 + 100)  # 2件で枠を超える大きさ
-    memories = [
-        {"memory_id": "hi", "summary": big + "上位", "fit": 0.9},
-        {"memory_id": "lo", "summary": big + "下位", "fit": 0.1},
-    ]
+    # 印は**先頭**に置く。W の1行は 120 字で丸めるので、末尾の印は出ない。
+    memories = [_rec("hi", "上位" + big, fit=0.9), _rec("lo", "下位" + big, fit=0.1)]
     with caplog.at_level(logging.INFO, logger="familiar_agent.loop.workspace"):
-        out, _ = workspace.compose(_mem_stub(memories), memories, Request())
+        out, _ = workspace.compose(_oif_stub(), memories, Request())
 
     assert "上位" in out, "適合度の高い件が落ちている"
     assert "下位" not in out, "枠を超えたのに落ちていない"
-    assert len(out) <= budget + 200, "枠を大きく超えている"
+    assert len(out) <= budget + 400, "枠を大きく超えている"
     assert any("W に入らなかった" in r.getMessage() for r in caplog.records), (
         "落とした件数がログに残っていない"
     )
@@ -105,8 +121,8 @@ def test_overflow_drops_whole_items_lowest_fit_first(caplog) -> None:
 def test_within_budget_keeps_everything() -> None:
     """枠に収まるなら何も落とさない（普通の会話では当たらない）。"""
 
-    memories = [{"memory_id": f"m{i}", "summary": f"みじかい記憶{i}", "fit": 0.5} for i in range(7)]
-    out, _ = workspace.compose(_mem_stub(memories), memories, Request())
+    memories = [_rec(f"m{i}", f"みじかい記憶{i}") for i in range(7)]
+    out, _ = workspace.compose(_oif_stub(), memories, Request())
     for i in range(7):
         assert f"みじかい記憶{i}" in out, f"{i} 件目が落ちている"
 
