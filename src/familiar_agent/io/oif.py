@@ -199,8 +199,8 @@ class OIF:
         self,
         mi: MI,
         *,
+        writer_id: str,
         now: bool = True,
-        writer_id: str | None = None,
         participants: "list[str] | None" = None,
     ) -> str:
         """記憶を1件書き、**出来事の** id を返す。空欄は書き込み側が埋める。
@@ -209,7 +209,18 @@ class OIF:
         MI の属性ではない（案3）。書いた直後に `actor` と `present` の面が立ち、以後は
         その面が「誰との関係か」を持つ。読むときの MI は面を指すので、視点を属性として
         持ち回る必要がない。
+
+        **書き手は必須である**（記-f・2026-09-11）。既定を置くと、渡し忘れたときに
+        `writer = writer_id or self._ctx.person_id` へ落ち、**書く側のインスタンス次第**に
+        なる。`好奇心` と `記憶` が実際にその形だった——2つの既定の一致で結果は正しかった
+        が、読んでも分からず、記憶を差し替えれば黙って変わる。**渡し忘れたら落ちるほうが、
+        黙って別の人の記録になるより良い**（`apply_memory_verdicts` の対応表と同じ判断）。
+
+        空文字も受け取らない。`None` を弾いても空で素通りできれば同じことになる。
+        パジュ自身の記録なら `AGENT_SELF_ID` を、人の言葉ならその人の id を渡す。
         """
+        if not writer_id:
+            raise ValueError("誰の記録かを渡していない（OIF.write の writer_id）")
         logger.debug("OIF write ← %s／%d字／%s", mi.direction, len(mi.content), _head(mi.content))
         obs_id, _ = await self._memory.save_async_with_id(
             mi.content,
