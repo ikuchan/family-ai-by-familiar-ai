@@ -43,7 +43,7 @@ def open_ids(req: Request) -> list[str]:
     return ids
 
 
-def compose(mem, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[str, str]]":
+def compose(oif, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[str, str]]":
     """W を組み、**(W の文字列, 12桁 → 完全な id の対応表) を返す**。
 
     正本 [D-想起起動] は「O に乗った後は共通の流れ（O → 根づき → W 構築〔5軸採点〕→
@@ -115,7 +115,7 @@ def compose(mem, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[s
     # （共起・申告が使う）に足す理由がない。写しに載せる。
     names: "dict[str, str]" = {}
     with contextlib.suppress(Exception):
-        names = mem.actors([r.mi.obs_id for r in memories])
+        names = oif.actors([r.mi.obs_id for r in memories])
     text = "\n\n".join(p for p in [said, held, _lines(memories, names)] if p and p.strip())
     return text, id_map
 
