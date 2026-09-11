@@ -29,6 +29,7 @@ from ..store import clock
 from .arbiter import arbitrate
 from ..store.relations import KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
+from ..io.oif import MI
 from .coherence import facts_ctx
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
 from . import workspace
@@ -345,20 +346,20 @@ class InformationProcessing:
         """
         agent = self._agent
         content = self._version_content(aborted=aborted)
-        version_id, _ = await agent._memory.save_async_with_id(
-            content[: agent.config.completion_content_max],
-            direction="求め",
-            kind="observation",
-            materialize_now=True,
-            parent_id=self._req.request_id,
+        version_id = await agent._oif.write(
+            MI(
+                id="",
+                content=content[: agent.config.completion_content_max],
+                timestamp=None,
+                direction="求め",
+                parent_id=self._req.request_id,
+            ),
             **agent._observation_perspective(),
         )
         if version_id:
             self._note_record(version_id, "版")
             if self._req.live_version_id and self._req.live_version_id != version_id:
-                agent._memory.mark_superseded(
-                    self._req.live_version_id, version_id, kind=KIND_REVISION
-                )
+                agent._oif.supersede(self._req.live_version_id, version_id, kind=KIND_REVISION)
             self._req.live_version_id = version_id
             # 手がかり（次の反復の想起クエリ）は、いまの版そのものにする。
             self._req.cue = content
@@ -376,12 +377,14 @@ class InformationProcessing:
         （`_run_camera`）。定点名が入って初めて、W が「次はここを見る番だ」を選べる。
         """
         agent = self._agent
-        obs_id, _ = await agent._memory.save_async_with_id(
-            content[: agent.config.completion_content_max],
-            direction="観察",
-            kind="observation",
-            materialize_now=True,
-            parent_id=self._req.request_id,
+        obs_id = await agent._oif.write(
+            MI(
+                id="",
+                content=content[: agent.config.completion_content_max],
+                timestamp=None,
+                direction="観察",
+                parent_id=self._req.request_id,
+            ),
             **agent._observation_perspective(),
         )
         # W へ載せる。版から結果を落としたので、この経路が無いと `see` した反復の
@@ -893,11 +896,8 @@ class InformationProcessing:
             if kind == "発話"
             else agent._observation_perspective()
         )
-        obs_id, _ = await agent._memory.save_async_with_id(
-            text[:500],
-            direction=kind,
-            kind="observation",
-            materialize_now=True,
+        obs_id = await agent._oif.write(
+            MI(id="", content=text[:500], timestamp=None, direction=kind),
             **perspective,
         )
         self._req.request_id = obs_id
@@ -1305,7 +1305,7 @@ class InformationProcessing:
                     )
                 store.delete(row["id"])
                 with contextlib.suppress(Exception):
-                    self._agent._memory.mark_superseded(
+                    self._agent._oif.supersede(
                         row["observation_id"], self._req.request_id, kind=KIND_RESOLVE
                     )
             self._req.speech_to_deliver = released
@@ -1742,12 +1742,14 @@ class InformationProcessing:
         # **O へ書く**（段 4）。054 で外したのは、想起の候補を食うからだった。役割が
         # 「想起に出さない」を担う形になったので、項として持ちながら想起から外せる。
         # 書かないと、相手が聞いた会話とパジュが読み返す会話が食い違う。
-        obs_id, _ = await agent._memory.save_async_with_id(
-            f"つなぎに言った：{text}"[:500],
-            direction="発話",
-            kind="observation",
-            materialize_now=True,
-            parent_id=self._req.request_id,
+        obs_id = await agent._oif.write(
+            MI(
+                id="",
+                content=f"つなぎに言った：{text}"[:500],
+                timestamp=None,
+                direction="発話",
+                parent_id=self._req.request_id,
+            ),
             **agent._observation_perspective(),
         )
         self._note_record(obs_id, "つなぎ")
@@ -1838,11 +1840,13 @@ class InformationProcessing:
         """
         agent = self._agent
         why = self._HELD_REASON_PAST.get(reason, reason)
-        obs_id, _ = await agent._memory.save_async_with_id(
-            f"話したかったが、{why}：{text}"[:500],
-            direction="保留",
-            kind="observation",
-            materialize_now=True,
+        obs_id = await agent._oif.write(
+            MI(
+                id="",
+                content=f"話したかったが、{why}：{text}"[:500],
+                timestamp=None,
+                direction="保留",
+            ),
             **agent._observation_perspective(),
         )
         if obs_id:
@@ -1871,8 +1875,8 @@ class InformationProcessing:
         # 別スレッドへ逃がす（同期呼び出しでイベントループを止めない）。
         if self._req.request_id:
             with contextlib.suppress(Exception):
-                await asyncio.to_thread(
-                    self._agent._memory.note_lookup_started, self._req.request_id
+                await self._agent._oif.append(
+                    self._req.request_id, self._agent._memory.LOOKUP_STARTED_NOTE
                 )
 
     async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
@@ -1909,12 +1913,16 @@ class InformationProcessing:
         answer_id = None
         if text:
             with contextlib.suppress(Exception):
-                answer_id, _ = await agent._memory.save_async_with_id(
-                    (f"自分が答えた：{text}" if spoken else f"考えたが言わなかった：{text}")[:500],
-                    direction="発話" if spoken else "独白",
-                    kind="observation",
-                    materialize_now=True,
-                    parent_id=self._req.request_id,
+                answer_id = await agent._oif.write(
+                    MI(
+                        id="",
+                        content=(
+                            f"自分が答えた：{text}" if spoken else f"考えたが言わなかった：{text}"
+                        )[:500],
+                        timestamp=None,
+                        direction="発話" if spoken else "独白",
+                        parent_id=self._req.request_id,
+                    ),
                     **agent._observation_perspective(),
                 )
         self._note_record(answer_id, "答え" if spoken else "独白")

@@ -12,6 +12,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall, TurnResult
+from familiar_agent.io.oif import OIF
 from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 
 # 非同期の処理が届くのを待つ上限（0.005 秒 × この回数＝5秒）。条件が満たされた時点で
@@ -49,7 +50,12 @@ def _agent(*, stream_returns, max_iters=3):
     a._memory.save_async_with_id = AsyncMock(side_effect=lambda *_a, **_k: (next(_ids), True))
     a._memory.mark_superseded = MagicMock()
     a._memory.close_with_children = MagicMock()
-    a._observation_perspective = MagicMock(return_value={})
+    # **書き込みは OIF を通る**（環-e-い）。口は本物を使い、内側の記憶だけ偽物にする——
+    # そうすれば `save_async_with_id` への検証がそのまま効き、口の約束（書き手が必須）も
+    # 一緒に守られる。面の材料は、パジュ自身と話者の2つを置く。
+    a._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
+    a._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
+    a._oif = OIF(a._memory)
     a._memory_tool = MagicMock()
     a._memory_tool.get_tool_definitions = MagicMock(
         return_value=[_REMEMBER_DEF, _RECALL_DEF, {"name": "note_to_share"}]

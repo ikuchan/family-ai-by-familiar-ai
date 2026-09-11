@@ -58,8 +58,12 @@ def test_every_write_to_o_says_who():
 
 
 def test_there_are_writes_to_find():
-    """**反証側。** 走査が空振りしていれば、上のテストは何も守っていない。"""
-    assert len(_writes()) >= 10
+    """**反証側。** 走査が空振りしていれば、上のテストは何も守っていない。
+
+    件数は 環-e-い で 15 → 9 に減った。ループの6箇所が OIF を通るようになり、その先は
+    `io/oif.py` の1箇所（既に数えている）へ集まったためである。
+    """
+    assert len(_writes()) >= 8
 
 
 def test_the_memory_mouth_requires_a_writer():

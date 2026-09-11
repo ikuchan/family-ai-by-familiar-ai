@@ -274,7 +274,7 @@ class OIF:
 
         `kind` は畳む理由で、隠すかどうかには効かない（役割 `旧` が決める）。
         """
-        got = bool(self._memory.mark_superseded(old_id, new_id, kind))
+        got = bool(self._memory.mark_superseded(old_id, new_id, kind=kind))
         logger.debug("OIF supersede ← %s→%s → %s", old_id, new_id, got)
         return got
 
