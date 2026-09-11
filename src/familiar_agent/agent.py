@@ -1032,7 +1032,7 @@ class EmbodiedAgent:
         発火）でユーザー入力が無いときは、エージェント自身の応答 final_text へフォールバック。
         """
         content = user_input if (user_input and user_input.strip()) else (final_text or "")
-        return await self._memory.content_novelty_async(content)
+        return await self._oif.novelty(content)
 
     # Emotion intensity by label (higher = stronger felt quality)
     _MOOD_INTENSITY: dict[str, float] = {
@@ -1220,9 +1220,8 @@ class EmbodiedAgent:
 
         # Milestone: days since first memory
         try:
-            earliest = await self._memory.get_earliest_date_async()
-            if earliest:
-                first_date = datetime.fromisoformat(earliest).date()
+            first_date = (await self._oif.span()).earliest
+            if first_date:
                 days = (today - first_date).days
                 if days >= 7:
                     # Fire on weekly boundaries and round numbers

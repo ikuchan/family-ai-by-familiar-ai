@@ -31,7 +31,15 @@ def test_observation_memory_holds_the_legacy_layer() -> None:
 
 
 def test_public_methods_are_still_reachable() -> None:
-    """agent.py が呼んでいる入口が残っている。"""
+    """旧経路の入口のうち、**まだ落としていないもの**が残っている。
+
+    **`format_*_for_context` は落とした**（環-e-い・2026-09-12）。この2つを呼んでいたのは
+    旧 ReAct 経路で、経路そのものは 環-c で撤去済みだった——docstring は「agent.py が呼んで
+    いる」と書いていたが、実際には**どこからも呼ばれていなかった**。
+
+    残りは `memory_links` の撤去（D-2・**新経路が通って実証されてから**）と、記-a が使う
+    ものである。
+    """
     for name in (
         "recall_semantic_facts_async",
         "recall_behavior_policies_async",
@@ -39,8 +47,6 @@ def test_public_methods_are_still_reachable() -> None:
         "adjust_behavior_policy_confidence_async",
         "link_memories_async",
         "get_linked_memories_async",
-        "format_semantic_facts_for_context",
-        "format_behavior_policies_for_context",
     ):
         assert hasattr(ObservationMemory, name), name
 

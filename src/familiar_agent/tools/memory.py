@@ -34,7 +34,6 @@ from ..db_migrations import apply_migrations, default_migration_dir
 from ..legacy.semantic_layer import LegacySemanticLayer
 from ..store.relations import (
     KIND_EXCHANGE,
-    KIND_SUCCESSION,
     KIND_UNCLASSIFIED,
     RelationStore,
 )
@@ -485,10 +484,6 @@ class ObservationMemory:
         """
         return RelationStore(self._ctx).add(kind, list(members))
 
-    def record_exchange(self, members: "list[tuple[str, str, int]]") -> "int | None":
-        """一つのターンの記録を、順序つきのやりとりとして残す（段 3）。"""
-        return RelationStore(self._ctx).add(KIND_EXCHANGE, list(members))
-
     def latest_exchange_origin(self) -> "str | None":
         """いちばん新しいやりとりの起点。直近のやりとりを、どこから見せるかのカーソル。"""
         return RelationStore(self._ctx).latest_member(KIND_EXCHANGE, "起点")
@@ -496,12 +491,6 @@ class ObservationMemory:
     def recent_exchanges(self, origin_id: "str") -> "list[dict]":
         """継起をさかのぼり、各やりとりの口に出した項を古い順に返す。"""
         return RelationStore(self._ctx).recent_exchanges(origin_id)
-
-    def record_succession(self, prev_id: "str", next_id: "str") -> "int | None":
-        """前のターンの起点と、今のターンの起点をつなぐ（段 3）。"""
-        return RelationStore(self._ctx).add(
-            KIND_SUCCESSION, [(prev_id, "前", 0), (next_id, "後", 1)]
-        )
 
     def apply_verdicts(self, verdicts: dict[str, str]) -> int:
         """想起した記憶の扱いの申告を反映する（store 層へ委譲）。"""
@@ -643,12 +632,6 @@ class ObservationMemory:
 
     async def get_linked_memories_async(self, *a, **kw):
         return await self._legacy.get_linked_memories_async(*a, **kw)
-
-    def format_semantic_facts_for_context(self, facts: "list[dict]") -> "str":
-        return self._legacy.format_semantic_facts_for_context(facts)
-
-    def format_behavior_policies_for_context(self, policies: "list[dict]") -> "str":
-        return self._legacy.format_behavior_policies_for_context(policies)
 
     # ── Person management ──────────────────────────────────────────────────
 
@@ -1490,39 +1473,6 @@ class ObservationMemory:
                 f"- {m.get('date', '?')} {m.get('time', '?')} id:{sid}{fit_s}{conf_s}{low}"
                 f" {subject}{emo}: {m['summary'][:120]}"
             )
-        return "\n".join(lines)
-
-    def format_feelings_for_context(self, f: list[dict]) -> str:
-        if not f:
-            return ""
-        lines = ["[最近の気持ち・出来事]:"]
-        for x in f:
-            emo = f"[{x['emotion']}] " if x.get("emotion") and x["emotion"] != "neutral" else ""
-            lines.append(f"- {x['date']} {x['time']} {emo}{x['summary'][:120]}")
-        return "\n".join(lines)
-
-    def format_self_model_for_context(self, sm: list[dict]) -> str:
-        if not sm:
-            return ""
-        return "".join(
-            ["[うちという存在 — 経験から積み上げてきた自己像]:\n"]
-            + [f"- {m['summary'][:120]}\n" for m in sm]
-        )
-
-    def format_curiosities_for_context(self, cs: list[dict]) -> str:
-        if not cs:
-            return ""
-        return "".join(
-            ["[まだ謎のまま・続きが気になること]:\n"]
-            + [f"- {c['date']} {c['time']}: {c['summary'][:120]}\n" for c in cs]
-        )
-
-    def format_day_summaries_for_context(self, ss: list[dict]) -> str:
-        if not ss:
-            return ""
-        lines = ["[私が覚えていること — 過去の日々]:"]
-        for s in ss:
-            lines.append(f"- {s['date']}: {s['summary'][:200]}")
         return "\n".join(lines)
 
 
