@@ -88,7 +88,7 @@ class TestWrite:
     @pytest.mark.asyncio
     async def test_it_writes_and_returns_the_id(self) -> None:
         oif, mem = _oif()
-        got = await oif.write(_mi())
+        got = await oif.write(_mi(), writer_id="__self__")
         assert got == "書いた-id"
         assert mem.saved, "書いていない"
 
@@ -96,7 +96,7 @@ class TestWrite:
     async def test_the_mi_becomes_the_stored_fields(self) -> None:
         """MI の属性が、そのまま書き込みへ渡る。"""
         oif, mem = _oif()
-        await oif.write(_mi(direction="発話", parent_id="起点"))
+        await oif.write(_mi(direction="発話", parent_id="起点"), writer_id="__self__")
         content, kw = mem.saved[0]
         assert content == "覚えておくこと"
         assert kw["direction"] == "発話"
@@ -120,7 +120,7 @@ class TestWrite:
     async def test_now_false_defers_materialization(self) -> None:
         """now=False なら実体化を背景へ回す。"""
         oif, mem = _oif()
-        await oif.write(_mi(), now=False)
+        await oif.write(_mi(), writer_id="__self__", now=False)
         assert mem.saved[0][1]["materialize_now"] is False
 
 
@@ -221,7 +221,7 @@ class TestDebugTrail:
     async def test_each_gate_leaves_a_debug_line(self, caplog) -> None:
         oif, _ = _oif()
         with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-            await oif.write(_mi())
+            await oif.write(_mi(), writer_id="__self__")
             await oif.recall(Cue(text="昨日の天気"))
             oif.supersede("a", "b")
         msgs = [r.getMessage() for r in caplog.records]
@@ -235,7 +235,7 @@ class TestDebugTrail:
         body = "秘密の話" * 100
         oif, _ = _oif()
         with caplog.at_level(logging.DEBUG, logger=_LOGGER):
-            await oif.write(_mi(content=body))
+            await oif.write(_mi(content=body), writer_id="__self__")
         for m in (r.getMessage() for r in caplog.records):
             assert len(m) < 200, f"ログが長すぎる（本文を出している）: {len(m)}字"
             assert body not in m, "本文をそのまま出している"
@@ -245,5 +245,5 @@ class TestDebugTrail:
         """INFO 以上には記憶の内容を出さない。"""
         oif, _ = _oif()
         with caplog.at_level(logging.INFO, logger=_LOGGER):
-            await oif.write(_mi(content="覚えておくこと"))
+            await oif.write(_mi(content="覚えておくこと"), writer_id="__self__")
         assert not [r for r in caplog.records if r.levelno >= logging.INFO], "INFO 以上に出ている"
