@@ -56,7 +56,7 @@ def _memory_with_rows(rows: list[dict]) -> ObservationMemory:
                         "unknown",
                         row.get("kind", "conversation"),
                         row.get("emotion", "neutral"),
-                        ),
+                    ),
                 )
         conn.commit()
 
@@ -74,6 +74,13 @@ def _last_year_same_day() -> str:
     except ValueError:
         # Feb 29 edge case
         return (today - timedelta(days=365)).strftime("%Y-%m-%d")
+
+
+def _oif(mem):
+    """記憶の広がりは口が答える（環-e-い）。**口は本物・内側の記憶だけ偽物**にする。"""
+    from familiar_agent.io.oif import OIF
+
+    return OIF(mem)
 
 
 def _weeks_ago(n: int) -> str:
@@ -187,6 +194,7 @@ async def test_anniversary_context_returns_string_when_anniversary_exists() -> N
     agent._memory.recall_on_this_day_async = AsyncMock(
         return_value=[{"content": "去年の今日はカメラを設置した", "date": anniversary_date}]
     )
+    agent._oif = _oif(agent._memory)
     agent._memory.get_earliest_date_async = AsyncMock(return_value=_weeks_ago(30))
 
     result = await agent._anniversary_context()
@@ -202,6 +210,7 @@ async def test_anniversary_context_includes_milestone_at_7_days() -> None:
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     agent._memory = MagicMock()
     agent._memory.recall_on_this_day_async = AsyncMock(return_value=[])
+    agent._oif = _oif(agent._memory)
     agent._memory.get_earliest_date_async = AsyncMock(return_value=_weeks_ago(1))  # 7 days
 
     result = await agent._anniversary_context()
@@ -216,6 +225,7 @@ async def test_anniversary_context_returns_none_when_nothing_notable() -> None:
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     agent._memory = MagicMock()
     agent._memory.recall_on_this_day_async = AsyncMock(return_value=[])
+    agent._oif = _oif(agent._memory)
     agent._memory.get_earliest_date_async = AsyncMock(
         return_value=_weeks_ago(3)
     )  # 21 days, no milestone
@@ -224,6 +234,7 @@ async def test_anniversary_context_returns_none_when_nothing_notable() -> None:
     # No anniversary, 21 days is divisible by 7 → milestone!
     # Actually 21 = 3*7, so it IS a milestone. Let's use a non-milestone day.
     # Use 3 days (not divisible by 7, not a round number milestone)
+    agent._oif = _oif(agent._memory)
     agent._memory.get_earliest_date_async = AsyncMock(
         return_value=(date.today() - timedelta(days=3)).strftime("%Y-%m-%d")
     )
@@ -238,9 +249,8 @@ async def test_anniversary_context_no_crash_on_none_earliest_date() -> None:
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     agent._memory = MagicMock()
     agent._memory.recall_on_this_day_async = AsyncMock(return_value=[])
+    agent._oif = _oif(agent._memory)
     agent._memory.get_earliest_date_async = AsyncMock(return_value=None)
 
     result = await agent._anniversary_context()
     assert result is None
-
-

@@ -18,6 +18,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 # ── content_novelty のロジック（conn をモック・DB 不要） ─────────────────────
 
+
 class _FakeCursor:
     def __init__(self, rows):
         self._rows = rows
@@ -69,6 +70,7 @@ def test_content_novelty_default_when_few_neighbors():
 
 
 # ── a0 への配線（実 DB・autouse truncate で空スタート） ─────────────────────
+
 
 def _a0(content: str) -> float | None:
     c = psycopg2.connect(os.environ["DATABASE_URL"])
@@ -128,6 +130,7 @@ def test_novelty_excludes_self_model():
 
 def test_content_novelty_facade_empty_returns_default():
     from familiar_agent.config import MemoryConfig
+
     ps = _fixed_embed()
     for p in ps:
         p.start()
@@ -148,9 +151,13 @@ async def test_turn_arousal_prefers_user_input_else_final_text():
 
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     agent._memory = MagicMock()
+    # 新しさは口が答える（環-e-い）。**口は本物・内側の記憶だけ偽物**にする。
+    from familiar_agent.io.oif import OIF
+
     agent._memory.content_novelty_async = AsyncMock(
         side_effect=lambda c: 0.9 if c == "user says X" else 0.1
     )
+    agent._oif = OIF(agent._memory)
     # user_input があればそれで測る
     assert await agent._turn_arousal("user says X", "agent text") == pytest.approx(0.9)
     # 自発ターン（user_input 空）は final_text へフォールバック
