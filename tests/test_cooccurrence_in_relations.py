@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+
 import uuid
 
 import pytest
@@ -16,6 +17,26 @@ from familiar_agent.db import get_db
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.store.context import StoreContext
 from familiar_agent.store.relations import RelationStore, combine_cooccurring_ids
+
+
+def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話"):
+    """想起は口から `Recalled` で来る（環-e-い）。"""
+    from datetime import datetime
+
+    from familiar_agent.io.oif import MI, Recalled
+
+    return Recalled(
+        mi=MI(
+            id=obs_id,
+            obs_id=obs_id,
+            content=content,
+            timestamp=datetime(2026, 9, 11, 15, 0),
+            direction=direction,
+        ),
+        fit=fit,
+        groundedness=1.0,
+        confidence=conf,
+    )
 
 
 @pytest.fixture
@@ -80,6 +101,7 @@ def test_an_empty_group_is_not_written(store):
 
 def test_combine_keeps_order_and_drops_duplicates():
     """WR に入れる id は、W の想起 MI ＋ そのターンの新記憶。順序保存で重複除去。"""
-    memories = [{"memory_id": "w1"}, {"memory_id": "w2"}, {"memory_id": "w1"}]
+    # 想起は口から `Recalled` で来る（環-e-い）。共起は**出来事の id** で動く。
+    memories = [_rec("w1"), _rec("w2"), _rec("w1")]
     assert combine_cooccurring_ids(memories, [None, "obs1", "w1"]) == ["w1", "w2", "obs1"]
     assert combine_cooccurring_ids(None, None) == []

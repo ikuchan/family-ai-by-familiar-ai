@@ -63,8 +63,8 @@ def test_the_agent_hands_the_mouth_the_cached_faces():
     assert "for_person=self._pmm.get_memory_for" in src
 
 
-def test_the_recall_is_not_switched_over_yet():
-    """**残したものを黙って落とさない。** 呼び替えは器の移行とセットで行う。"""
+def test_the_recall_now_goes_through_the_mouth():
+    """呼び替えも済んだ（器の移行とセットで行った・環-e-い）。"""
     import pathlib
 
     w = (
@@ -74,4 +74,5 @@ def test_the_recall_is_not_switched_over_yet():
         / "loop"
         / "workspace.py"
     ).read_text(encoding="utf-8")
-    assert "mem.recall_async(" in w, "想起が口へ移っている（残りの記述を直すこと）"
+    assert "mem.recall_async(" not in w
+    assert "oif.recall(" in w

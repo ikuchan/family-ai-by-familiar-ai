@@ -18,6 +18,7 @@
 
 from __future__ import annotations
 
+
 import asyncio
 import inspect
 from unittest.mock import AsyncMock, MagicMock
@@ -27,11 +28,32 @@ from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.request import Request
 
 
+def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話"):
+    """想起は口から `Recalled` で来る（環-e-い）。"""
+    from datetime import datetime
+
+    from familiar_agent.io.oif import MI, Recalled
+
+    return Recalled(
+        mi=MI(
+            id=obs_id,
+            obs_id=obs_id,
+            content=content,
+            timestamp=datetime(2026, 9, 11, 15, 0),
+            direction=direction,
+        ),
+        fit=fit,
+        groundedness=1.0,
+        confidence=conf,
+    )
+
+
 def _mem():
-    mem = MagicMock()
-    mem.recall_async = AsyncMock(return_value=[{"memory_id": "m1"}])
-    mem.format_for_context = MagicMock(return_value="[作業状態]")
-    return mem
+    """想起は口を通る（環-e-い）。口が `Recalled` を返し、W は核が組む。"""
+    return MagicMock(
+        recall=AsyncMock(return_value=[_rec("m1", "昔の話")]),
+        actors=MagicMock(return_value={}),
+    )
 
 
 # ── 器 ─────────────────────────────────────────────────────────────────────
@@ -43,8 +65,8 @@ def test_it_returns_both_the_records_and_the_workspace():
     memories, text, id_map = asyncio.run(
         workspace.recall(mem, "手がかり", weights=None, req=Request())
     )
-    assert memories == [{"memory_id": "m1"}]
-    assert "[作業状態]" in text
+    assert [r.mi.obs_id for r in memories] == ["m1"]
+    assert "昔の話" in text
     assert id_map == {"m1": "m1"}  # 対応表も一緒に返る（W から導かれる）
 
 
@@ -63,7 +85,7 @@ def test_the_floor_is_always_passed():
     """床（min_score）は両方の呼び出しに効く。2度書きだと片方が抜ける。"""
     mem = _mem()
     asyncio.run(workspace.recall(mem, "手がかり", weights=None, req=Request()))
-    assert mem.recall_async.await_args.kwargs["min_score"] is not None
+    assert mem.recall.await_args.args[1].floor is not None
 
 
 def test_a_time_reference_can_be_moved():
@@ -73,17 +95,17 @@ def test_a_time_reference_can_be_moved():
             mem, "手がかり", weights=None, req=Request(), time_ref=1.0, time_span_days=30.0
         )
     )
-    kw = mem.recall_async.await_args.kwargs
-    assert kw["time_ref"] == 1.0
-    assert kw["time_span_days"] == 30.0
+    view = mem.recall.await_args.args[1]
+    assert view.time_ref == 1.0
+    assert view.time_span_days == 30.0
 
 
 def test_without_a_time_reference_the_present_is_the_basis():
     mem = _mem()
     asyncio.run(workspace.recall(mem, "手がかり", weights=None, req=Request()))
-    kw = mem.recall_async.await_args.kwargs
-    assert kw["time_ref"] is None
-    assert kw["time_span_days"] is None
+    view = mem.recall.await_args.args[1]
+    assert view.time_ref is None
+    assert view.time_span_days is None
 
 
 # ── 呼び手 ─────────────────────────────────────────────────────────────────

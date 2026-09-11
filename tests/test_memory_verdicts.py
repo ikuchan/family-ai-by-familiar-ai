@@ -17,6 +17,7 @@
 
 from __future__ import annotations
 
+
 from familiar_agent.loop import workspace
 from familiar_agent.loop.request import Request
 
@@ -25,6 +26,26 @@ from unittest.mock import MagicMock
 from familiar_agent.backends import ToolCall
 from familiar_agent.loop.prompt import EVENT_SYSTEM_PROMPT
 from tests.test_event_loop import _agent, _run, _turn
+
+
+def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話"):
+    """想起は口から `Recalled` で来る（環-e-い）。"""
+    from datetime import datetime
+
+    from familiar_agent.io.oif import MI, Recalled
+
+    return Recalled(
+        mi=MI(
+            id=obs_id,
+            obs_id=obs_id,
+            content=content,
+            timestamp=datetime(2026, 9, 11, 15, 0),
+            direction=direction,
+        ),
+        fit=fit,
+        groundedness=1.0,
+        confidence=conf,
+    )
 
 
 def test_the_say_tool_accepts_verdicts():
@@ -127,6 +148,6 @@ def test_the_workspace_prints_twelve_digit_ids():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a, utterance="おはよう")
     _text, id_map = workspace.compose(
-        a._active_memory(), [{"memory_id": "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"}], Request()
+        a._oif, [_rec("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")], Request()
     )
     assert list(id_map) == ["aaaaaaaabbbb"]

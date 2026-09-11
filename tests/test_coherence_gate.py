@@ -15,11 +15,32 @@
 
 from __future__ import annotations
 
+
 import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
+
+
+def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話", day=(2026, 9, 11)):
+    """想起は口から `Recalled` で来る（環-e-い）。"""
+    from datetime import datetime
+
+    from familiar_agent.io.oif import MI, Recalled
+
+    return Recalled(
+        mi=MI(
+            id=obs_id,
+            obs_id=obs_id,
+            content=content,
+            timestamp=datetime(*day, 15, 0),
+            direction=direction,
+        ),
+        fit=fit,
+        groundedness=1.0,
+        confidence=conf,
+    )
 
 
 # ── 事実を組む（機械の仕事） ────────────────────────────────────────────────
@@ -52,8 +73,8 @@ def test_the_dates_of_the_recalled_memories_are_listed():
     out = facts_ctx(
         saw=False,
         memories=[
-            {"date": "2026-08-14", "confidence": 0.80},
-            {"date": "2026-09-02", "confidence": 0.40},
+            _rec("m1", conf=0.80, day=(2026, 8, 14)),
+            _rec("m2", conf=0.40, day=(2026, 9, 2)),
         ],
     )
     assert "2026-08-14" in out and "2026-09-02" in out
@@ -67,7 +88,7 @@ def test_the_uncertain_memories_are_counted():
     assert CONF_UNCERTAIN == 0.55
     out = facts_ctx(
         saw=False,
-        memories=[{"date": "d1", "confidence": 0.40}, {"date": "d2", "confidence": 0.90}],
+        memories=[_rec("m1", conf=0.40), _rec("m2", conf=0.90)],
     )
     assert "1件" in out.split("うち")[1]
 

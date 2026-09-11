@@ -58,12 +58,17 @@ def _first(row):
 
 
 def combine_cooccurring_ids(
-    memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
+    memories: "list | None", new_ids: "list[str | None] | None" = None
 ) -> "list[str]":
-    """共起に入れる id ＝そのターンの W（想起 MI）＋作った記憶。順序保存で重複除去。"""
+    """共起に入れる id ＝そのターンの W（想起 MI）＋作った記憶。順序保存で重複除去。
+
+    W は口から `Recalled` として来る（環-e-い）。共起は**出来事の id** で動くので
+    `mi.obs_id` を使う（面の id ではない）。
+    """
     seen: set[str] = set()
     out: list[str] = []
-    for raw in [m.get("memory_id") for m in (memories or [])] + list(new_ids or []):
+    _w = [getattr(getattr(m, "mi", None), "obs_id", None) for m in (memories or [])]
+    for raw in _w + list(new_ids or []):
         if raw and str(raw) not in seen:
             seen.add(str(raw))
             out.append(str(raw))

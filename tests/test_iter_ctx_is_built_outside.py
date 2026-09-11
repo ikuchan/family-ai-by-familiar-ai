@@ -64,9 +64,11 @@ def test_the_iteration_got_shorter():
     `event_loop.py` 全体は 1,905 → 1,737 行なので、**核を出す代わりに殻の呼び口が伸びた**
     という取引である。数は隠さず、動いたら書き換える。
 
+    環-e-い で **220 行へ 5 行増えた**（想起を口へ通し、どの面から引くかを言うようになった）。
+
     出-h-ろ で **215 行へ 10 行増えた**。`light` で閉じる反復にも申告の口を通したためで
     （`_declare_light_memory_use`）、**記憶が育つ経路を1本に保つ**ための増分である。
     中身は殻の呼び口1つ（背景で投げるだけ）で、判断は核（`workspace.ask_verdicts`）にある。
     """
     src = inspect.getsource(InformationProcessing._iterate)
-    assert len(src.split("\n")) <= 215, "薄くなっていない"
+    assert len(src.split("\n")) <= 220, "薄くなっていない"

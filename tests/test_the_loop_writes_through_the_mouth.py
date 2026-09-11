@@ -69,13 +69,11 @@ def test_the_agent_holds_one_mouth():
 
 
 def test_what_is_left_is_named():
-    """**残したものを黙って落とさない。** 想起はまだ口を通らない——`OIF.recall` は
-    `Cue`／`View` を受けて `Recalled` を返すが、いまのループは辞書の並びを受け取り、
-    `compose`・`format_for_context`・申告の突き合わせがその形に乗っている。
+    """**残したものを黙って落とさない。** 書き込み・関係・埋め込み・想起は通した。
 
-    関係は通した（環-e-い・`link`／`exchanges`／`latest_origin`）。
+    残るのは**公開面を絞ること**（`ObservationMemory` は 72 種）と、`loop/rest.py` の
+    `kind` の食い違い（記-a で決める）である。
     """
-    assert _direct_memory_calls("recall_async") or True  # 想起は `_active_memory()` 経由
     w = (_LOOP / "workspace.py").read_text(encoding="utf-8")
-    assert "mem.recall_async(" in w, "想起が口へ移っている（残りの記述を直すこと）"
-    assert "mem.format_for_context(" in w
+    assert "mem.recall_async(" not in w and "mem.format_for_context(" not in w
+    assert "oif.recall(" in w

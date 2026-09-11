@@ -162,6 +162,9 @@ class Recalled:
     mi: MI
     fit: float
     groundedness: float
+    # どれだけ確かか（0〜1）。生コサインを 0〜1 へ移したもので、**保存する値ではない**
+    # ので `MI` には入れない。W の1行と整合チェックの材料がこれを読む。
+    confidence: float = 0.0
 
 
 class Verdict(Enum):
@@ -335,6 +338,16 @@ class OIF:
         logger.debug("OIF exchanges ← %.8s → %d件", origin_id, len(got))
         return got
 
+    def actors(self, obs_ids: "Sequence[str]") -> "dict[str, str]":
+        """その記録たちの**主体**を `記録の id → 名前` で返す（`__self__` は `わたし`）。
+
+        「誰がやったか」は `actor` の面が持つ（記-f）。面が立っていない記録は入らない
+        ——呼び手は主体を言わない（名前を捏造しない）。
+        """
+        got = self._memory.actor_names_of(list(obs_ids))
+        logger.debug("OIF actors ← %d件 → %d件", len(obs_ids), len(got))
+        return got
+
     def latest_origin(self) -> "str | None":
         """いちばん新しいやりとりの起点。**繋ぐためではなく、どこから見せるかのカーソル**。"""
         got = self._memory.latest_exchange_origin()
@@ -409,6 +422,7 @@ def _to_recalled(row: dict) -> Recalled:
         ),
         fit=float(row.get("fit", 0.0)),
         groundedness=float(row.get("groundedness", 0.0)),
+        confidence=float(row.get("confidence", 0.0)),
     )
 
 

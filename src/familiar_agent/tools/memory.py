@@ -345,6 +345,42 @@ def _emotion_match(
 # ── ObservationMemory ──────────────────────────────────────────────────────
 
 
+#: **W の1行は言葉で書く。** `(会話)` のような種別の語をそのまま括弧に入れた形は、
+#: 読み手（主LLM・軽量LLM）が対応表を知っていて初めて意味になる記号である。とくに
+#: 誰の記録かは、種別と主体を並べただけでは読みにならない（`(会話・ゆうすけ)` は
+#: 「ゆうすけが書いた」とも読める）。**種別ごとに、主体の入る文面を持つ。**
+#:
+#: `{名}` にその記録の主体（`actor` の面）が入る。`__self__` は `わたし`。
+SUBJECT_PHRASE: dict = {
+    "発話": "{名}が言った",
+    "独白": "{名}が考えた（言わなかった）",
+    "会話": "{名}との会話",
+    "観察": "{名}が見た",
+    "求め": "{名}が調べていたこと",
+    "保留": "{名}が言えずにいたこと",
+    "情動": "{名}の内から起きたこと",
+    "機器": "{名}のまわりで起きたこと",
+    "記憶": "その日のまとめ",
+    "好奇心": "{名}が気になったこと",
+    "内省": "{名}のふり返り",
+}
+
+
+def subject_line(direction: str, name: "str | None") -> str:
+    """その記録が何で、誰のものかを**言葉で**返す。
+
+    **分からないほうを落とす。** 種別を知らなければ主体だけ言い（`ゆうすけの記録`）、
+    主体が分からなければ種別だけ言う（`会話`）。名前を捏造しない——`actor` の面は
+    `materialize_now` で立つので、W に載る時点でまだ無いことがある。
+    """
+    phrase = SUBJECT_PHRASE.get(direction or "")
+    if phrase and name:
+        return phrase.format(名=name)
+    if name:
+        return f"{name}の記録"
+    return direction or "記録"
+
+
 class ObservationMemory:
     """PostgreSQL-backed memory store scoped to one person_id."""
 
@@ -1417,41 +1453,6 @@ class ObservationMemory:
 
     # ── Format helpers (unchanged from original) ───────────────────────────
 
-    #: **W の1行は言葉で書く。** `(会話)` のような種別の語をそのまま括弧に入れた形は、
-    #: 読み手（主LLM・軽量LLM）が対応表を知っていて初めて意味になる記号である。とくに
-    #: 誰の記録かは、種別と主体を並べただけでは読みにならない（`(会話・ゆうすけ)` は
-    #: 「ゆうすけが書いた」とも読める）。**種別ごとに、主体の入る文面を持つ。**
-    #:
-    #: `{名}` にその記録の主体（`actor` の面）が入る。`__self__` は `わたし`。
-    _SUBJECT_PHRASE: dict = {
-        "発話": "{名}が言った",
-        "独白": "{名}が考えた（言わなかった）",
-        "会話": "{名}との会話",
-        "観察": "{名}が見た",
-        "求め": "{名}が調べていたこと",
-        "保留": "{名}が言えずにいたこと",
-        "情動": "{名}の内から起きたこと",
-        "機器": "{名}のまわりで起きたこと",
-        "記憶": "その日のまとめ",
-        "好奇心": "{名}が気になったこと",
-        "内省": "{名}のふり返り",
-    }
-
-    @classmethod
-    def _subject_line(cls, direction: str, name: "str | None") -> str:
-        """その記録が何で、誰のものかを**言葉で**返す。
-
-        **分からないほうを落とす。** 種別を知らなければ主体だけ言い（`ゆうすけの記録`）、
-        主体が分からなければ種別だけ言う（`会話`）。名前を捏造しない——`actor` の面は
-        `materialize_now` で立つので、W に載る時点でまだ無いことがある。
-        """
-        phrase = cls._SUBJECT_PHRASE.get(direction or "")
-        if phrase and name:
-            return phrase.format(名=name)
-        if name:
-            return f"{name}の記録"
-        return direction or "記録"
-
     def actor_names_of(self, obs_ids: "list[str]") -> "dict[str, str]":
         """その記録たちの主体を `obs_id → 名前` で返す。`__self__` は `わたし`。
 
@@ -1484,7 +1485,7 @@ class ObservationMemory:
             # 12桁（ハイフンを除いた16進）。8桁だと記録が10万件規模でほぼ確実に衝突する。
             # 照合は呼び出し側が対応表で行うので、写し間違いは一致せず件数のずれに出る。
             sid = str(m.get("memory_id", "")).replace("-", "")[:12] or "?"
-            subject = self._subject_line(str(m.get("direction", "")), m.get("actor_name"))
+            subject = subject_line(str(m.get("direction", "")), m.get("actor_name"))
             lines.append(
                 f"- {m.get('date', '?')} {m.get('time', '?')} id:{sid}{fit_s}{conf_s}{low}"
                 f" {subject}{emo}: {m['summary'][:120]}"
