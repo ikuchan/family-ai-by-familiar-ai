@@ -17,6 +17,7 @@ import math
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -437,6 +438,16 @@ class ObservationMemory:
         self, old_id: "str", new_id: "str", kind: "str" = KIND_UNCLASSIFIED
     ) -> "bool":
         return self._observations.mark_superseded(old_id, new_id, kind)
+
+    def link(self, kind: "str", members: "Sequence[tuple[str, str, int | None]]") -> "int | None":
+        """関係を1つ書く（種類は `kind` が言う）。
+
+        **一つの関係が何個でも項を持つ**（`設計方針_MI間の関係`）。改訂・継起・やりとり・
+        共起が同じ器に載るので、書く口も1つでよい。以前は用途ごとの面（`record_exchange`
+        ほか）に分かれており、共起だけは面が無く、呼び手が `RelationStore(self._ctx)` と
+        **私的属性を掴んで**いた。
+        """
+        return RelationStore(self._ctx).add(kind, list(members))
 
     def record_exchange(self, members: "list[tuple[str, str, int]]") -> "int | None":
         """一つのターンの記録を、順序つきのやりとりとして残す（段 3）。"""

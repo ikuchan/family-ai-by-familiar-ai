@@ -21,6 +21,7 @@ from __future__ import annotations
 import io
 import re
 import tokenize
+from familiar_agent.io.oif import OIF
 from unittest.mock import MagicMock
 from pathlib import Path
 
@@ -47,6 +48,8 @@ def _ip(cursor=None, latest="past-1", rows=None):
     ip._req.request_id = "req-1"
     a = MagicMock()
     a._memory.latest_exchange_origin = MagicMock(return_value=latest)
+    # 関係は OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**にする。
+    a._oif = OIF(a._memory)
     a._memory.recent_exchanges = MagicMock(return_value=rows or [])
     ip._agent = a
     return ip, a

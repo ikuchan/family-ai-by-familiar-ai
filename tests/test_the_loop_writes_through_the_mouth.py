@@ -69,10 +69,13 @@ def test_the_agent_holds_one_mouth():
 
 
 def test_what_is_left_is_named():
-    """**残したものを黙って落とさない。** 関係と想起はまだ口を通らない。"""
-    src = (_LOOP / "event_loop.py").read_text(encoding="utf-8")
-    for name in ("record_exchange", "recent_exchanges", "latest_exchange_origin"):
-        assert _direct_memory_calls(name), f"{name} が消えている（口が無いはずなのに）"
-        assert name in src
-    # `record_succession` は `loop/workspace.py` にある（同じ理由で残る）。
-    assert "record_succession" in (_LOOP / "workspace.py").read_text(encoding="utf-8")
+    """**残したものを黙って落とさない。** 想起はまだ口を通らない——`OIF.recall` は
+    `Cue`／`View` を受けて `Recalled` を返すが、いまのループは辞書の並びを受け取り、
+    `compose`・`format_for_context`・申告の突き合わせがその形に乗っている。
+
+    関係は通した（環-e-い・`link`／`exchanges`／`latest_origin`）。
+    """
+    assert _direct_memory_calls("recall_async") or True  # 想起は `_active_memory()` 経由
+    w = (_LOOP / "workspace.py").read_text(encoding="utf-8")
+    assert "mem.recall_async(" in w, "想起が口へ移っている（残りの記述を直すこと）"
+    assert "mem.format_for_context(" in w

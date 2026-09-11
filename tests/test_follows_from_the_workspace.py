@@ -28,7 +28,10 @@ def test_the_named_memory_becomes_what_this_turn_follows():
     _judge(a, "m1")
     _run(a, utterance="さっきの話だけど")
     # 前＝判定が返した記憶、後＝このターンの起点。
-    assert a._memory.record_succession.call_args.args == ("m1", "obs1")
+    # 前＝判定が返した記憶、後＝このターンの起点。関係は口を通る（環-e-い）。
+    kind, members = a._memory.link.call_args.args
+    assert kind == "継起"
+    assert members == [("m1", "前", 0), ("obs1", "後", 1)]
 
 
 def test_an_id_that_is_not_in_the_workspace_is_ignored():
@@ -36,7 +39,7 @@ def test_an_id_that_is_not_in_the_workspace_is_ignored():
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
     _judge(a, "deadbeefdead")
     _run(a, utterance="こんにちは")
-    a._memory.record_succession.assert_not_called()
+    a._memory.link.assert_not_called()
 
 
 def test_naming_nothing_leaves_the_turn_as_a_root():
@@ -46,7 +49,7 @@ def test_naming_nothing_leaves_the_turn_as_a_root():
     )
     _judge(a, None)
     _run(a, utterance="はじめまして")
-    a._memory.record_succession.assert_not_called()
+    a._memory.link.assert_not_called()
 
 
 def test_a_turn_does_not_follow_itself():
@@ -59,7 +62,7 @@ def test_a_turn_does_not_follow_itself():
         await ip.push_utterance("こんにちは")
 
     asyncio.run(scenario())
-    a._memory.record_succession.assert_not_called()
+    a._memory.link.assert_not_called()
 
 
 def test_a_failing_judge_does_not_stop_the_turn():
@@ -67,4 +70,4 @@ def test_a_failing_judge_does_not_stop_the_turn():
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
     a._evaluator.judge_follows = AsyncMock(side_effect=RuntimeError("軽量LLM が落ちた"))
     assert _run(a, utterance="ねえ") == "うん"
-    a._memory.record_succession.assert_not_called()
+    a._memory.link.assert_not_called()

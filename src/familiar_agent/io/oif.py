@@ -16,6 +16,7 @@ import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime
 from enum import Enum
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 
 from ..mood_register import MoodPAD
@@ -95,6 +96,20 @@ class MI:
     def kind(self) -> str:
         """`direction` から決まる粗い分類。表に無いものは observation。"""
         return _KIND_OF_DIRECTION.get(self.direction, _DEFAULT_KIND)
+
+
+@dataclass(frozen=True)
+class Said:
+    """やりとりの中で口に出した1件（関係の項）。
+
+    `role` は `起点`（相手が言った）・`つなぎ`・`答え`（どちらもパジュが言った）。
+    `depth` は 0 が渡した起点で、さかのぼるほど大きい。
+    """
+
+    content: str
+    role: str
+    when: "datetime | None"
+    depth: int
 
 
 # ── 想起の引数と戻り ────────────────────────────────────────────────────────
@@ -262,6 +277,46 @@ class OIF:
         out = [_to_recalled(r) for r in (rows or [])]
         logger.debug("OIF recall → %d件", len(out))
         return out
+
+    # ── 関係（MI 間のつながり）──────────────────────────────────────────
+    # 関係は 058〜060（2026-09-06〜07）で入った機構で、2026-08-01 に設計したこの口に
+    # 面が無かった。呼び手は7箇所あり、うち1つは記憶の私的属性（`_ctx`）を掴んでいた。
+
+    def link(self, kind: str, members: "Sequence[tuple[str, str, int | None]]") -> "int | None":
+        """関係を1つ書き、その id を返す。**書く口は1つ**で、種類は `kind` が言う。
+
+        `members` は `(記録の id, 役割, 位置)` の並び。位置は順序を持たない関係で `None`。
+        種類の語は `store/relations.py` の定数（`KIND_EXCHANGE` ほか）を使う。
+
+        畳む（`supersede`）だけは別の面である——先着勝ちで、部分一意索引が二本目を落とす。
+        """
+        got = self._memory.link(kind, members)
+        logger.debug("OIF link ← %s／%d項 → %s", kind, len(members), got)
+        return got
+
+    def exchanges(self, origin_id: str) -> "list[Said]":
+        """継起をさかのぼり、各やりとりで**口に出した**項を古い順に返す。
+
+        `版` と `見た` は内部の作業記録で会話ではないので入らない（store 側の既定）。
+        """
+        rows = self._memory.recent_exchanges(origin_id)
+        got = [
+            Said(
+                content=str(r.get("content", "")),
+                role=str(r.get("role", "")),
+                when=r.get("timestamp"),
+                depth=int(r.get("depth", 0)),
+            )
+            for r in (rows or [])
+        ]
+        logger.debug("OIF exchanges ← %.8s → %d件", origin_id, len(got))
+        return got
+
+    def latest_origin(self) -> "str | None":
+        """いちばん新しいやりとりの起点。**繋ぐためではなく、どこから見せるかのカーソル**。"""
+        got = self._memory.latest_exchange_origin()
+        logger.debug("OIF latest_origin → %s", got)
+        return got
 
     async def novelty(self, content: str) -> float:
         """その内容がどれだけ新しいか（0〜1）。近い記憶があるほど低い。"""

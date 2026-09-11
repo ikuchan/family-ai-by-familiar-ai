@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from familiar_agent.io.oif import OIF
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -92,6 +93,7 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mem.get_dates_with_summaries = MagicMock(return_value=[])
     mem.as_coalition_async = AsyncMock(return_value=None)
     agent._memory = mem
+    agent._oif = OIF(mem)  # 関係も書き込みも口を通る（環-e-い）
 
     mem_tool = MagicMock()
     mem_tool.get_tool_definitions = MagicMock(return_value=[])
@@ -443,7 +445,10 @@ async def test_pipeline_records_the_exchange_without_camera():
         exchange=[("loop-1", "起点"), ("loop-2", "答え")],
     )
 
-    assert agent._memory.record_exchange.call_args.args[0] == [
+    # 関係は口を通る（環-e-い）。**書く口は1つ**なので、やりとりも共起も同じ `link` に
+    # 来る。**種類で選ぶ**——最後の呼び出しを見ると共起を拾う。
+    _exchange = [c.args[1] for c in agent._memory.link.call_args_list if c.args[0] == "やりとり"]
+    assert _exchange and _exchange[-1] == [
         ("loop-1", "起点", 0),
         ("loop-2", "答え", 1),
         ("conv-1", "要約", 2),

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+from familiar_agent.io.oif import OIF
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.agent import EmbodiedAgent
@@ -27,7 +28,8 @@ def _agent():
     agent._active_memory = MagicMock(return_value=agent._memory)
     agent._memory.save_async_with_id = AsyncMock(return_value=("conv-1", True))
     agent._memory.mark_superseded = MagicMock()
-    agent._memory.record_exchange = MagicMock(return_value=1)
+    agent._memory.link = MagicMock(return_value=1)  # 関係は口を通る（環-e-い）
+    agent._oif = OIF(agent._memory)
     agent._conversation_perspective = MagicMock(return_value={})
     return agent
 
@@ -62,7 +64,7 @@ def test_the_verbatim_and_the_summary_both_survive():
     agent = _agent()
     _run(agent, exchange=[("obs1", "起点"), ("obs2", "答え")])
 
-    members = agent._memory.record_exchange.call_args.args[0]
+    members = agent._memory.link.call_args.args[1]  # link(kind, members)
     assert ("obs2", "答え", 1) in members  # 逐語
     assert ("conv-1", "要約", 2) in members  # 要約
     directions = [

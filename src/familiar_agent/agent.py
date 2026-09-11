@@ -478,11 +478,13 @@ class EmbodiedAgent:
             # 逐語と会話要約は、粒度の違う別々の記憶として並ぶ。
 
             # そのターンの記録を、順序つきの一つのやりとりとして残す。要約は最後に来る。
+            from .store.relations import KIND_EXCHANGE
+
             if exchange and _conv_id:
                 _members = [(i, r, n) for n, (i, r) in enumerate(exchange)]
                 _members.append((_conv_id, "要約", len(_members)))
                 with contextlib.suppress(Exception):
-                    self._memory.record_exchange(_members)
+                    self._oif.link(KIND_EXCHANGE, _members)
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
             # **1つの共起**として記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
@@ -769,13 +771,16 @@ class EmbodiedAgent:
         新記憶↔W の接続を作る（拡散想起の母集合・記録のみ・挙動不変）。id は重複除去する。
         器は関係へ移した（段 5）。
         """
-        from .store.relations import RelationStore, combine_cooccurring_ids
+        from .store.relations import KIND_COOCCURRENCE, combine_cooccurring_ids
 
         mi_ids = combine_cooccurring_ids(memories, new_ids)
         if not mi_ids:
             return
         try:
-            RelationStore(self._memory._ctx).record_cooccurrence(mi_ids)
+            # **記憶の私的属性を掴まない**（環-e-い）。以前は `RelationStore(self._memory._ctx)`
+            # と、記憶の内部構造を外から組み立てていた。共起は順序を持たない関係なので
+            # 位置は `None`。
+            self._oif.link(KIND_COOCCURRENCE, [(str(i), "項", None) for i in mi_ids])
         except Exception as e:  # noqa: BLE001
             logger.warning("共起の記録に失敗: %s", e)
 
