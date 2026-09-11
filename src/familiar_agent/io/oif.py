@@ -237,6 +237,7 @@ class OIF:
         writer_id: str,
         now: bool = True,
         participants: "list[str] | None" = None,
+        arousal: "float | None" = None,
     ) -> str:
         """記憶を1件書き、**出来事の** id を返す。空欄は書き込み側が埋める。
 
@@ -256,6 +257,10 @@ class OIF:
         """
         if not writer_id:
             raise ValueError("誰の記録かを渡していない（OIF.write の writer_id）")
+        # **その日づけは MI が持つ。** 日次要約は「その日のこと」として残すので、書いた
+        # 時刻ではなくその日の終わりを時刻にする（`override_date`）。`timestamp` が空なら
+        # いまの時刻になる。
+        override_date = mi.timestamp.strftime("%Y-%m-%d") if mi.timestamp else None
         logger.debug("OIF write ← %s／%d字／%s", mi.direction, len(mi.content), _head(mi.content))
         obs_id, _ = await self._memory.save_async_with_id(
             mi.content,
@@ -268,6 +273,9 @@ class OIF:
             participants=participants,
             image_path=mi.image_path,
             materialize_now=now,
+            override_date=override_date,
+            # そのとき外からどれだけ揺さぶられたか（a0／A の源）。測っていなければ渡さない。
+            arousal=arousal,
         )
         logger.debug("OIF write → %s", obs_id)
         return str(obs_id or "")
@@ -288,10 +296,27 @@ class OIF:
             view.floor,
             view.viewpoint or "既定",
         )
-        rows = await self._through(view.viewpoint).recall_async(
+        mem = self._through(view.viewpoint)
+        # **手がかりの欄が、どう探すかを言う**（`Cue` の docstring）。以前は別メソッドに
+        # 分かれていたものを、欄の違いで表す。
+        if cue.on_month_day:
+            month, day = cue.on_month_day
+            rows = await mem.recall_on_this_day_async(month, day, view.k)
+        elif cue.direction == "記憶" and not cue.text:
+            # その日のまとめは**新しい順**に採る。手がかりが無いので似ている順では引けない。
+            rows = await mem.recall_day_summaries_async(n=view.k)
+        else:
+            rows = await self._recall_by_cue(mem, cue, view)
+        out = [_to_recalled(r) for r in (rows or [])]
+        logger.debug("OIF recall → %d件", len(out))
+        return out
+
+    async def _recall_by_cue(self, mem, cue: "Cue", view: "View") -> list:
+        """手がかりの言葉で、似ている順に探す（いちばん普通の道）。"""
+        return await mem.recall_async(
             cue.text,
             n=view.k,
-            kind=_KIND_OF_DIRECTION.get(cue.direction or "", None) if cue.direction else None,
+            kind=_KIND_OF_DIRECTION.get(cue.direction, _DEFAULT_KIND) if cue.direction else None,
             min_score=view.floor,
             present_others=list(view.present) or None,
             exclude_ids=list(cue.exclude) or None,
@@ -300,9 +325,6 @@ class OIF:
             weights=view.weights,
             open_ids=list(cue.open_ids) or None,
         )
-        out = [_to_recalled(r) for r in (rows or [])]
-        logger.debug("OIF recall → %d件", len(out))
-        return out
 
     # ── 関係（MI 間のつながり）──────────────────────────────────────────
     # 関係は 058〜060（2026-09-06〜07）で入った機構で、2026-08-01 に設計したこの口に
@@ -404,11 +426,11 @@ def _to_recalled(row: dict) -> Recalled:
     """
     return Recalled(
         mi=MI(
-            id=str(row.get("facet_id") or row.get("memory_id", "")),
-            obs_id=str(row.get("memory_id", "")),
+            id=str(row.get("facet_id") or row.get("memory_id") or row.get("id", "")),
+            obs_id=str(row.get("memory_id") or row.get("id", "")),
             person_id=str(row.get("person_id", "")),
             relation_key=str(row.get("relation_key", "")),
-            content=str(row.get("summary", "")),
+            content=str(row.get("summary") or row.get("content", "")),
             timestamp=row.get("timestamp"),
             direction=str(row.get("direction", "")),
             emotion=str(row.get("emotion", "neutral")),

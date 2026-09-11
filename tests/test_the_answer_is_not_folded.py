@@ -30,7 +30,7 @@ def _agent():
     agent._memory.mark_superseded = MagicMock()
     agent._memory.link = MagicMock(return_value=1)  # 関係は口を通る（環-e-い）
     agent._oif = OIF(agent._memory)
-    agent._conversation_perspective = MagicMock(return_value={})
+    agent._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
     return agent
 
 
