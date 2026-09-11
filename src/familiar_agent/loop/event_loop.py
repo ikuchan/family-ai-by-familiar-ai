@@ -882,12 +882,23 @@ class InformationProcessing:
         self._req.lookups.clear()
         self._req.iterations = 0
         self._req.iterations_capped = False
+        # **人の言葉は、その人がやったことである。** `actor` の面（`situated_memories`）は
+        # 話者に立てる。想起は `_active_memory()`＝話者の面を引くので、`__self__` の面に
+        # しか立てないと、**その人の面にはその人が言ったことが1件も無くなる**。
+        #
+        # 情動と機器はパジュ自身のことなので `__self__` でよい。3つの入口で違うのはここと、
+        # 起点の種別・文面・`utterance` である。
+        perspective = (
+            agent._conversation_perspective()
+            if kind == "発話"
+            else agent._observation_perspective()
+        )
         obs_id, _ = await agent._memory.save_async_with_id(
             text[:500],
             direction=kind,
             kind="observation",
             materialize_now=True,
-            **agent._observation_perspective(),
+            **perspective,
         )
         self._req.request_id = obs_id
         # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
