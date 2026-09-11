@@ -20,6 +20,7 @@ import json
 import logging
 import re
 
+from ..store.relations import KIND_SUCCESSION
 from .request import Request
 
 logger = logging.getLogger(__name__)
@@ -187,7 +188,7 @@ def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | N
         return
     logger.info("event-loop このターンは %.8s に続く", full)
     with contextlib.suppress(Exception):
-        agent._memory.record_succession(full, req.request_id)
+        agent._oif.link(KIND_SUCCESSION, [(full, "前", 0), (req.request_id, "後", 1)])
 
 
 #: **軽量LLM へ申告だけを聞く。** 調停の JSON へ足すと、実測で `light` を選ぶ側へ判断が

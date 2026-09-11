@@ -27,7 +27,7 @@ from ..poses import nearest_pose
 from ..scene import extract_entities
 from ..store import clock
 from .arbiter import arbitrate
-from ..store.relations import KIND_RESOLVE, KIND_REVISION
+from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from ..io.oif import MI
 from .coherence import facts_ctx
@@ -989,8 +989,8 @@ class InformationProcessing:
             _aborted = self._close_exchange()
             if _aborted:
                 with contextlib.suppress(Exception):
-                    self._agent._memory.record_exchange(
-                        [(i, r, n) for n, (i, r) in enumerate(_aborted)]
+                    self._agent._oif.link(
+                        KIND_EXCHANGE, [(i, r, n) for n, (i, r) in enumerate(_aborted)]
                     )
         self._req.request_id = None
         self._req.live_version_id = None
@@ -1026,19 +1026,19 @@ class InformationProcessing:
         # 1件でもあれば一度で埋まり、以後は `_close_exchange` が更新するので引き直さない。
         if not self._recent_cursor:
             with contextlib.suppress(Exception):
-                self._recent_cursor = agent._memory.latest_exchange_origin()
+                self._recent_cursor = agent._oif.latest_origin()
         if not self._recent_cursor:
             return ""
         rows: list = []
         with contextlib.suppress(Exception):
-            rows = agent._memory.recent_exchanges(self._recent_cursor)
+            rows = agent._oif.exchanges(self._recent_cursor)
         if not rows:
             return ""
         lines = []
         for r in rows:
-            when = clock.ts_to_time(r.get("timestamp"))
-            who = "わたし" if str(r.get("role")) in ("答え", "つなぎ") else "相手"
-            lines.append(f"- {when} {who}：{r.get('content', '')}")
+            when = clock.ts_to_time(r.when)
+            who = "わたし" if r.role in ("答え", "つなぎ") else "相手"
+            lines.append(f"- {when} {who}：{r.content}")
         return "[直近のやりとり（古い順）]\n" + "\n".join(lines)
 
     def _emit(self, text: str) -> None:

@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import asyncio
+from familiar_agent.io.oif import OIF
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.agent import EmbodiedAgent
@@ -54,8 +55,11 @@ def _pipeline_agent():
     agent._maybe_discharge_satisfied_drives = AsyncMock()
     agent._active_memory = MagicMock(return_value=agent._memory)
     agent._memory.save_async_with_id = AsyncMock(return_value=("conv-1", True))
-    agent._memory.record_exchange = MagicMock(return_value=1)
-    agent._conversation_perspective = MagicMock(return_value={})
+    agent._memory.link = MagicMock(return_value=1)  # 関係は口を通る（環-e-い）
+    agent._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
+    # 関係も書き込みも OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**に
+    # すれば、記憶への検証がそのまま効く。
+    agent._oif = OIF(agent._memory)
     return agent
 
 
@@ -79,7 +83,7 @@ def test_the_summary_is_appended_as_the_last_member():
         )
     )
 
-    members = agent._memory.record_exchange.call_args.args[0]
+    members = agent._memory.link.call_args.args[1]  # link(kind, members)
     assert members == [
         ("obs1", "起点", 0),
         ("obs2", "答え", 1),
@@ -107,7 +111,7 @@ def test_no_relation_is_written_when_the_turn_left_nothing():
         )
     )
 
-    agent._memory.record_exchange.assert_not_called()
+    agent._memory.link.assert_not_called()
 
 
 def test_an_interrupted_turn_does_not_leak_into_the_next_one():
@@ -154,7 +158,7 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
     asyncio.run(scenario())
 
     # 打ち切りで閉じたやりとりに、新しい問いは入っていない。
-    aborted = a._memory.record_exchange.call_args.args[0]
+    aborted = a._memory.link.call_args.args[1]  # link(kind, members)
     assert [r for _, r, _ in aborted].count("起点") == 1, aborted
 
     # 続くターンのやりとりにも、起点は1つだけ。

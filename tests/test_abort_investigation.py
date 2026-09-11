@@ -125,7 +125,7 @@ def test_the_abort_closes_the_exchange():
 
     asyncio.run(ip._abort_lookups())
 
-    members = a._memory.record_exchange.call_args.args[0]
+    members = a._memory.link.call_args.args[1]  # link(kind, members)
     roles = [r for _, r, _ in members]
     assert roles.count("起点") == 1, f"起点が1つでない: {members}"
     assert "答え" not in roles, "答えていないのに答えの項がある"
