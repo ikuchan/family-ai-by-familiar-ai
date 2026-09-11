@@ -30,7 +30,8 @@ from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
 from .self_narrative import SelfNarrative
 from .io.aif import AIF, Nudge
-from .io.oif import OIF
+from .store import clock
+from .io.oif import MI, OIF, Cue, View
 from .mood_register import MoodPAD
 from .exploration import ExplorationTracker
 from .scene import SceneTracker
@@ -440,10 +441,10 @@ class EmbodiedAgent:
 
         try:
             if camera_used:
-                recent_obs = await self._memory.recall_async(
-                    final_text[:200], n=6, kind="observation"
+                recent_obs = await self._oif.recall(
+                    Cue(text=final_text[:200], direction="観察"), View(k=6)
                 )
-                past_scores = [m.get("fit", 0.5) for m in recent_obs[:3]]
+                past_scores = [r.fit for r in recent_obs[:3]]
                 if past_scores:
                     avg_similarity = sum(past_scores) / len(past_scores)
                     novelty = 1.0 - avg_similarity
@@ -461,13 +462,18 @@ class EmbodiedAgent:
                 # 見た印は `InformationProcessing._write_seen_mark` が書く（定点名つき）。
 
             summary = await self._summarize_exchange(user_input, final_text)
-            _conv_id, _ = await self._active_memory().save_async_with_id(
-                summary,
-                direction="会話",
-                kind="conversation",
-                emotion=emotion,
-                materialize_now=False,
-                emotion_pad=emotion_pad,
+            _conv_id = await self._oif.write(
+                MI(
+                    id="",
+                    content=summary,
+                    timestamp=None,
+                    direction="会話",
+                    emotion=emotion,
+                    # **測っていなければ既定のまま**（050・中立で埋めると測ったのか
+                    # 埋めたのかが見分けられなくなる）。
+                    pad=emotion_pad if emotion_pad is not None else MoodPAD(),
+                ),
+                now=False,
                 arousal=emotion_a,
                 **self._conversation_perspective(),
             )
@@ -518,17 +524,16 @@ class EmbodiedAgent:
                 if curiosity:
                     desires.curiosity_target = curiosity
                     desires.boost("look_around", 0.3)
-                    await self._memory.save_async(
-                        curiosity,
-                        direction="好奇心",
-                        kind="curiosity",
-                        emotion="curious",
-                        materialize_now=False,
-                        # **書き手を明示する。** 渡さないと書く側の `person_id` に落ち、
-                        # いまは基底（`default`）なので規則 048 で `__self__` になる。
-                        # 正しい値だが、2つの既定の一致に支えられているだけで、読んでも
-                        # 分からない。話者スコープの記憶へ差し替えれば黙って変わる。
+                    await self._oif.write(
+                        MI(
+                            id="",
+                            content=curiosity,
+                            timestamp=None,
+                            direction="好奇心",
+                            emotion="curious",
+                        ),
                         writer_id=AGENT_SELF_ID,
+                        now=False,
                     )
                     logger.info("Curiosity persisted: %s", curiosity)
 
@@ -1168,33 +1173,44 @@ class EmbodiedAgent:
         seed_n = _random.choice([1, 2])
         seeds = _random.sample(candidates, min(seed_n, len(candidates)))
 
-        collected: list[dict] = list(seeds)
+        collected: "list[tuple[str, str, float]]" = [
+            (
+                str(m.get("memory_id") or m.get("id") or ""),
+                str(m.get("content") or m.get("summary") or ""),
+                float(m.get("fit", 0.0)),
+            )
+            for m in seeds
+        ]
         for seed in seeds:
             try:
-                assoc = await self._active_memory().recall_async(
-                    seed.get("content", ""),
-                    n=assoc_max,
-                    min_score=MemoryConfig().recall_min_score,
+                assoc = await self._oif.recall(
+                    Cue(text=seed.get("content", "")),
+                    View(
+                        viewpoint=self._pmm.current_speaker_id or AGENT_SELF_ID,
+                        k=assoc_max,
+                        floor=MemoryConfig().recall_min_score,
+                    ),
                 )
-                collected += assoc
+                # 連想は口から `Recalled` で来る（環-e-い）。種は store の行のままなので、
+                # **(id, 中身, 適合度) の3つ組へ揃えてから混ぜる**。
+                collected += [(r.mi.obs_id, r.mi.content, r.fit) for r in assoc]
             except Exception:
                 pass
 
         seen: set[str] = set()
-        merged: list[dict] = []
-        for m in sorted(collected, key=lambda x: x.get("fit", 0.0), reverse=True):
-            key = m.get("memory_id") or m.get("id") or m.get("content", "")
-            if key in seen:
+        merged: list[tuple[str, str, float]] = []
+        for key, content, fit in sorted(collected, key=lambda x: x[2], reverse=True):
+            if (key or content) in seen:
                 continue
-            seen.add(key)
-            merged.append(m)
+            seen.add(key or content)
+            merged.append((key, content, fit))
             if len(merged) >= total_max:
                 break
 
         if not merged:
             return None
 
-        contents = [m.get("content", "") or m.get("summary", "") for m in merged]
+        contents = [c for _k, c, _f in merged]
         contents = [c for c in contents if c]
         return " / ".join(contents) if contents else None
 
@@ -1209,12 +1225,11 @@ class EmbodiedAgent:
 
         # On-this-day memories (same month-day, past years)
         try:
-            anniversaries = await self._memory.recall_on_this_day_async(today.month, today.day)
-            for mem in anniversaries[:2]:
-                content = mem.get("content", "")
-                mem_date = mem.get("date", "")
-                if content and mem_date:
-                    lines.append(f"[On this day]: {content} ({mem_date})")
+            anniversaries = await self._oif.recall(Cue(on_month_day=(today.month, today.day)))
+            for r in anniversaries[:2]:
+                mem_date = clock.ts_to_date(r.mi.timestamp) if r.mi.timestamp else ""
+                if r.mi.content and mem_date:
+                    lines.append(f"[On this day]: {r.mi.content} ({mem_date})")
         except Exception:
             pass
 
@@ -1295,15 +1310,17 @@ class EmbodiedAgent:
                 timeout=30.0,
             )
             if summary:
-                await self._memory.save_async(
-                    summary,
-                    direction="記憶",
-                    kind="day_summary",
-                    emotion="neutral",
-                    override_date=date,
-                    materialize_now=False,
-                    # 日次要約はパジュが書く。既定任せにしない（上記と同じ理由）。
+                # **その日のこととして残す。** 日づけは MI の時刻が言う（口が `override_date` へ
+                # 移す）。書いた時刻ではない。
+                await self._oif.write(
+                    MI(
+                        id="",
+                        content=summary,
+                        timestamp=datetime.fromisoformat(date),
+                        direction="記憶",
+                    ),
                     writer_id=AGENT_SELF_ID,
+                    now=False,
                 )
                 logger.info("Day summary generated for %s: %s", date, summary[:80])
                 # 時間減衰は想起の t 軸（time_score）へ一元化したため、importance の
@@ -1567,13 +1584,13 @@ class EmbodiedAgent:
         if self._turn_count == 0:
             return  # No conversation happened — nothing to narrate
         try:
-            today_memories = await self._memory.recall_day_summaries_async(n=1)
+            today_memories = await self._oif.recall(Cue(direction="記憶"), View(k=1))
             if today_memories:
-                summary_hint = today_memories[0].get("content", "")[:200]
+                summary_hint = today_memories[0].mi.content[:200]
             else:
                 # Fall back to recent observations
-                recent = await self._memory.recall_async("", n=5)
-                summary_hint = " / ".join(m.get("content", "")[:60] for m in recent[:3])
+                recent = await self._oif.recall(Cue(), View(k=5))
+                summary_hint = " / ".join(r.mi.content[:60] for r in recent[:3])
 
             mood, _ = self._decayed_mood()
             prompt = (

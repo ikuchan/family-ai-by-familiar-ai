@@ -17,11 +17,27 @@ import inspect
 
 
 def test_the_pipeline_does_not_write_an_observation() -> None:
-    """ターン後の処理が `観察` を書かない。"""
+    """ターン後の処理が `観察` を**書かない**。
+
+    **語ではなく構文で見る。** 環-e-い で、同じ処理が新しさを測るために `観察` を
+    **読む**ようになった（`Cue(direction="観察")`）。語で探すとその読みに当たる。
+    """
+    import ast
+    import textwrap
+
     from familiar_agent.agent import EmbodiedAgent
 
-    src = inspect.getsource(EmbodiedAgent._run_post_response_pipeline)
-    assert 'direction="観察"' not in src, "到達しない観察の書き込みが残っている"
+    tree = ast.parse(textwrap.dedent(inspect.getsource(EmbodiedAgent._run_post_response_pipeline)))
+    writes = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+        name = getattr(node.func, "attr", "")
+        if name not in ("write", "save", "save_async", "save_async_with_id"):
+            continue
+        if "観察" in ast.unparse(node):
+            writes.append(ast.unparse(node)[:60])
+    assert not writes, f"到達しない観察の書き込みが残っている: {writes}"
 
 
 def test_the_loop_writes_the_seen_mark_instead() -> None:
