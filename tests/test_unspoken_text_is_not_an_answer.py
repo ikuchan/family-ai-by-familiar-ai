@@ -34,7 +34,13 @@ def _ip():
     ip = InformationProcessing.__new__(InformationProcessing)
     a = MagicMock()
     a._memory.save_async_with_id = AsyncMock(return_value=("obs-1", True))
-    a._observation_perspective = MagicMock(return_value={})
+    from familiar_agent.io.oif import OIF
+
+    # 書き込みは OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**にすれば、
+    # `save_async_with_id` への検証がそのまま効く。書き手は口が必須で求める。
+    a._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
+    a._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
+    a._oif = OIF(a._memory)
     a._turn_arousal = AsyncMock(return_value=0.5)
     a._spawn_background_task = MagicMock()
     a._run_post_response_pipeline = MagicMock()

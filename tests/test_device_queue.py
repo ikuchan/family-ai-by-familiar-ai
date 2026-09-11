@@ -114,7 +114,13 @@ def test_a_device_trigger_wakes_the_driver():
     a = MagicMock()
     a._memory = MagicMock()
     a._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
-    a._observation_perspective = MagicMock(return_value={})
+    from familiar_agent.io.oif import OIF
+
+    # 書き込みは OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**にすれば、
+    # `save_async_with_id` への検証がそのまま効く。書き手は口が必須で求める。
+    a._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
+    a._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
+    a._oif = OIF(a._memory)
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -237,7 +243,13 @@ def test_releasing_held_speech_is_logged_with_its_count():
 
     a = MagicMock()
     a._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
-    a._observation_perspective = MagicMock(return_value={})
+    from familiar_agent.io.oif import OIF
+
+    # 書き込みは OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**にすれば、
+    # `save_async_with_id` への検証がそのまま効く。書き手は口が必須で求める。
+    a._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
+    a._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
+    a._oif = OIF(a._memory)
     a._pending_store.list_active = MagicMock(
         return_value=[
             {

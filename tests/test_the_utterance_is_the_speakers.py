@@ -18,6 +18,7 @@ import asyncio
 import inspect
 from unittest.mock import AsyncMock, MagicMock
 
+from familiar_agent.io.oif import OIF
 from familiar_agent.loop.event_loop import InformationProcessing
 
 
@@ -31,6 +32,9 @@ def _ip():
     a._observation_perspective.return_value = {"writer_id": "__self__", "participants": []}
     a._conversation_perspective.return_value = {"writer_id": "話者", "participants": []}
     a._memory.save_async_with_id = AsyncMock(return_value=("obs-1", None))
+    # 書き込みは OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**にすれば、
+    # `save_async_with_id` への検証がそのまま効く。
+    a._oif = OIF(a._memory)
     ip._agent = a
     return ip, a
 
