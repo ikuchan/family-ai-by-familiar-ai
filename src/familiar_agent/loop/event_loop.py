@@ -2041,6 +2041,13 @@ class InformationProcessing:
         if not text:
             return "", "沈黙"
         blocked = self._delivery_block_reason()
+        if blocked and self._req.said_fillers and blocked != "黙っているよう頼まれている":
+            # **つなぎを出したなら本応答も出す**（環-i）。つなぎと本応答は別々にゲートを引く
+            # ので、あいだで在席の証拠（顔の検出・5 分の窓）が切れると「見てみますね」だけ
+            # 出て本文が保留になった（実機）。つなぎを聞いた相手が居た事実を優先する。
+            # 名前で呼ばれた「黙っていて」だけは、つなぎの後でも守る。
+            logger.info("event-loop %s が、つなぎを出した相手へ本応答を出す", blocked)
+            blocked = ""
         if blocked:
             if self._req.trigger_kind == "情動":
                 # **独り言は相手が居なければ言わない、し、あとでも言わない**（情-c）。
