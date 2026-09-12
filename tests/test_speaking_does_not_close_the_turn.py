@@ -41,7 +41,10 @@ def _method_src(name: str) -> str:
 def _ip(blocked: str = ""):
     from familiar_agent.loop.event_loop import InformationProcessing
 
+    from familiar_agent.loop.request import Request
+
     ip = InformationProcessing.__new__(InformationProcessing)
+    ip._req = Request()  # 起点は既定（人の発話扱い）。独り言の分岐は情-c のテストが見る
     ip._delivery_block_reason = MagicMock(return_value=blocked)
     ip._dif = MagicMock(speak=AsyncMock())
     ip._emit = MagicMock()

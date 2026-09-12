@@ -425,6 +425,25 @@ class InformationProcessing:
         self._note_record(obs_id, "見た")
         return obs_id
 
+    def _build_system(
+        self, *, present_ctx: str, recent_ctx: str, workspace_ctx: str, iter_ctx: str
+    ) -> "tuple[str, str]":
+        """主LLM の system 文（安定部・可変部）を組む。材料の出所はここに集める。"""
+        from ..capability_state import load_summary
+
+        agent = self._agent
+        return build_event_system_prompt(
+            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
+            family_md=getattr(agent, "_family_md", ""),
+            present_ctx=present_ctx,
+            pi_ctx=_pi_ctx(),
+            recent_ctx=recent_ctx,
+            iter_ctx=iter_ctx,
+            workspace_ctx=workspace_ctx,
+            # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
+            allow_tts_tags=self._dif.understands_tags,
+        )
+
     def _researched(self) -> bool:
         """この求めでネット調査（`search_deferred`／`fetch_deferred`）を投げたか（返事の予算用）。"""
         return any(lk.action in ("search_deferred", "fetch_deferred") for lk in self._req.lookups)
@@ -460,6 +479,11 @@ class InformationProcessing:
         """
         found = self._seen_image(memories)
         if found is None:
+            return text
+        if self._req.trigger_kind == "情動" and self._delivery_block_reason():
+            # **不在の独り言には写真を添えない**（情-c）。言わない返事に 1 枚 ≈ 970 トークンを
+            # 掛けない（実機では主LLM 費の 4 割がここだった）。見た印と即席ラベルは残る。
+            logger.info("event-loop 不在の独り言なので写真を添えない")
             return text
         b64, path = found
         logger.info("event-loop 主LLM に画像を添える：%s", Path(path).name)
@@ -1538,7 +1562,6 @@ class InformationProcessing:
 
     async def _iterate(self) -> str:
         """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。"""
-        from ..capability_state import load_summary
         from ..config import MemoryConfig
 
         agent = self._agent
@@ -1726,12 +1749,10 @@ class InformationProcessing:
         budget = reply_budget.decide(
             effort=decision.effort, researched=self._researched(), w_count=len(memories)
         )
-        system = build_event_system_prompt(
-            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
-            family_md=getattr(agent, "_family_md", ""),
+        system = self._build_system(
             present_ctx=present_ctx,
-            pi_ctx=_pi_ctx(),
             recent_ctx=recent_ctx,
+            workspace_ctx=workspace_ctx,
             iter_ctx=_iter_ctx(
                 chain=chain,
                 max_chain=max_chain,
@@ -1739,9 +1760,6 @@ class InformationProcessing:
                 capped=capped,
                 budget=budget,
             ),
-            workspace_ctx=workspace_ctx,
-            # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
-            allow_tts_tags=self._dif.understands_tags,
         )
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
@@ -2024,6 +2042,13 @@ class InformationProcessing:
             return "", "沈黙"
         blocked = self._delivery_block_reason()
         if blocked:
+            if self._req.trigger_kind == "情動":
+                # **独り言は相手が居なければ言わない、し、あとでも言わない**（情-c）。
+                # その場に居なければ無かったことになる。ただし思ったこと自体は残す——本文を
+                # 返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
+                # 理由（居ない／静穏時間／黙っていて）に依らず同じ。
+                logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
+                return text, "独白"
             await self._hold_speech(text, blocked)
             logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
             return "", "保留"
@@ -2191,7 +2216,8 @@ class InformationProcessing:
         """求めが閉じた反復の後始末：総括ログと永続化。
 
         閉じ方は `outcome` が持つ——`発話`（声になった）・`沈黙`（地の文だけで声にならず
-        `独白` として残る）・`保留`（配信ゲートに止められた）。**発話だけではない。**
+        `独白` として残る）・`保留`（配信ゲートに止められた）・`独白`（相手が居ない独り言。
+        積まずに、思ったことだけ残す・情-c）。**発話だけではない。**
 
         **ここでは何も畳まない。** 求めの版チェーンは `_write_version` が `改訂` で畳み、
         自分が答えた記録は鎖の外にある。要約と内省は背景で遅れて来て、その記録を supersede
