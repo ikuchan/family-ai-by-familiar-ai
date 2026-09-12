@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：発火・mood 機構（v0.2）
+# familiar-ai 設計詳細：発火・mood 機構（v0.3）
 
 本書は、Drive 発火（蓄積式・変調項・閾値・放電）と mood（PAD 全軸0.5中立化）の機構と、変調行列 $C_{ij}$・バイアス $b_i$ の具体仮値、各欲求の性格、発火レンジをまとめる別紙。式・形の確定は **[D-発火]／[D-活性]／[D-値踏み]／[D-B分離]／[D-想起合成]**、パラメータの承認状態と所在は **課題5 B/C**。本書はそれらの機構を一望し、変調行列・バイアス・発火レンジの値表を持つ。検討中の内容は含まず、確定（または確定見込みの仮値）のみ記す。
  
@@ -44,6 +44,22 @@ $$g_{D,i}(M) = \mathrm{logistic}\Big(\mathrm{logit}(b_i) + \sum_j C_{ij}\cdot \m
 - (3) 例外ルート＝ターン完了時の軽量LLM充足放電〔実装済み・既定 off〕。上記の間接経路 (2) が現状ほぼ効いていないため、例外として I 側に明示鎮静を置く。ターン完了時、軽量LLM（Utility＝Gemini flash-lite）がそのターンの結果を読み、満たされた drive を **(1) と同じ全放電 $q=1-\varepsilon$** で沈静化する。起動ゲートは **drive 値を使わず**（鎮静対象をその値でゲートする循環を避ける）、W/MI（想起の有無）・E（現ターン感情 PAD の中立からの距離・上下両方向）・行動の OR で作る。Config `DRIVE5_SATISFY_LLM`（既定 off）。実装＝`core/drive_satisfaction.py`＋`agent._maybe_discharge_satisfied_drives`。
 ---
  
+### 2-b. ひとりの回数（情-d・2026-09-13）
+
+人と会話しないかぎり、SEEKING・SAFETY・BOND の発火間隔は**倍々に伸びる**。軸ごとの整数
+$n_i$（ひとりの回数）を持ち、蓄積式の倍率に $2^{-n_i}$ を掛ける：
+
+$$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate\cdot mult_i(t)\cdot learn\cdot 2^{-n_i}\cdot g_{D,i}(M)\cdot P_T,\ 0,\ 1\big)$$
+
+- 発火で $n_i \leftarrow \min(20, n_i+1)$。人の発話（`_last_human_at`）が最後に会話を見た時刻
+  `reset_at` より新しければ全軸 $n_i \leftarrow 0$（会話で基準へ戻る）。入退室は会話でない。
+- REST・ESTEEM は持たない（REST は夜に募らせる別の規則があり、ESTEEM は 12 時間に 1 回）。
+- 不在 22 時間の見込み：SEEKING 5→10→20→40→80→160→320→640 分で 8 回、SAFETY 6 回、BOND 3 回。
+- 実装：`core/solitude.py`（純関数）・`core/drive_dynamics.accumulate(solitude=)`・T の tick
+  （`loop/tonic.step_drives(last_human_at=)`）が更新・`agent_state` の鍵 `drive5_solitude` に永続化。
+  発火のログに「ひとり n 回目・次は約 X 分後」を添える。
+- 由来：実機（2026-09-12）で中立の SEEKING が 5 分ごとに 1 時間 16 回起き、費用の大半になった。
+
 ## 3. バイアス $b_i$ 仮値（中立発火頻度）
  
 共通レート固定・バイアスで中立頻度を作り分ける。用例の積み上げ（③見回り・①帰宅・⑤⑥動機・内省）から決定。
@@ -131,6 +147,7 @@ $$g_{D,i}(M) = \mathrm{logistic}\Big(\mathrm{logit}(b_i) + \sum_j C_{ij}\cdot \m
 
 ## 更新履歴
 
+> v0.3：**§2-b ひとりの回数**を追加（2026-09-13・情-d）。会話しないかぎり SEEKING・SAFETY・BOND の間隔が倍々に伸びる。
 > v0.2：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 
 > v2：§2.5 に例外ルート (3)「ターン完了時の軽量LLM充足放電」を追記（実装済み・既定 off）。設計原則「I は D を直接動かさない」は保ちつつ、間接経路 (2) が現状効いていないための例外として I 側に明示鎮静を置く。ゲートは drive 値でなく W/MI・E・行動から作る。

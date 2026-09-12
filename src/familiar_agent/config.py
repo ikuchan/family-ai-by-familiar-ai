@@ -535,7 +535,8 @@ class AgentConfig:
     )
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
     # 「黙って」と頼まれたが長さを言われなかったときの既定。
-    silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 15))
+    # 既定 60 分（課題5 G 章〔確定〕・2026-09-13 にコードを揃えた。以前は 15）。
+    silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 60))
     # 長さを言われたときの上限。超える指定は弾かずにここへ丸める（黙らないより意図に近い）。
     silence_max_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが

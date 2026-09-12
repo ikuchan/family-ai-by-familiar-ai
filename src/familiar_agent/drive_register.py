@@ -17,10 +17,16 @@ is unchanged.
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 from dataclasses import dataclass, replace
 from datetime import datetime, timezone
 
+if TYPE_CHECKING:
+    from .core.solitude import Solitude
+
 DRIVE_STATE_KEY = "drive5"
+#: ひとりの回数（情-d）。drive5 と同じ表に別の鍵で置く。
+SOLITUDE_STATE_KEY = "drive5_solitude"
 
 
 @dataclass(frozen=True)
@@ -43,8 +49,11 @@ class AiDrivers:
 
     def to_json_dict(self) -> dict:
         return {
-            "seeking": self.seeking, "rest": self.rest, "bond": self.bond,
-            "safety": self.safety, "esteem": self.esteem,
+            "seeking": self.seeking,
+            "rest": self.rest,
+            "bond": self.bond,
+            "safety": self.safety,
+            "esteem": self.esteem,
         }
 
     @classmethod
@@ -110,4 +119,28 @@ def save_drives(conn, drives: AiDrivers) -> None:
             "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
             " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
             (DRIVE_STATE_KEY, json.dumps(drives.to_json_dict()), now),
+        )
+
+
+def load_solitude(conn) -> "Solitude":
+    """ひとりの回数（情-d）を読む。行が無ければ既定（全軸 0・未記録）。"""
+    from .core.solitude import Solitude
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT value_json FROM agent_state WHERE state_key = %s", (SOLITUDE_STATE_KEY,)
+        )
+        row = cur.fetchone()
+    if not row:
+        return Solitude()
+    return Solitude.from_json_dict(json.loads(row[0]))
+
+
+def save_solitude(conn, solitude: "Solitude") -> None:
+    now = datetime.now(timezone.utc).isoformat()
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
+            " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
+            (SOLITUDE_STATE_KEY, json.dumps(solitude.to_json_dict()), now),
         )

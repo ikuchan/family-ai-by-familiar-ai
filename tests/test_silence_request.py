@@ -47,10 +47,9 @@ def test_arbiter_can_flag_a_silence_request():
 
     assert "silence_minutes" in ARBITER_PROMPT
     b = AsyncMock()
-    b.complete = AsyncMock(
-        return_value='{"branch":"light","text":"わかった","silence_minutes":-1}')
+    b.complete = AsyncMock(return_value='{"branch":"light","text":"わかった","silence_minutes":-1}')
     d: Decision = asyncio.run(arbitrate(b, utterance="ちょっと静かにして", workspace_ctx=""))
-    assert d.silence_minutes == -1   # 頼まれたが長さの指定なし
+    assert d.silence_minutes == -1  # 頼まれたが長さの指定なし
 
 
 def test_silence_blocks_speech_even_when_spoken_to():
@@ -64,8 +63,8 @@ def test_silence_blocks_speech_even_when_spoken_to():
     a._pmm.presence_status = MagicMock(
         return_value=[{"name": "パパ", "is_speaker": True, "confidence": 1.0}]
     )
-    a._social_presence_permission = MagicMock(return_value=1.0)   # 相手は居る
-    a._in_quiet_hours = MagicMock(return_value=False)             # 静穏時間でもない
+    a._social_presence_permission = MagicMock(return_value=1.0)  # 相手は居る
+    a._in_quiet_hours = MagicMock(return_value=False)  # 静穏時間でもない
     ip = InformationProcessing(a)
     req = SilenceRequest(person="パパ", until=_time.time() + 600)
     import familiar_agent.silence_state as ss
@@ -77,11 +76,12 @@ def test_silence_blocks_speech_even_when_spoken_to():
         ss.load_silence = original
 
 
-def test_default_duration_is_fifteen_minutes():
+def test_default_duration_is_an_hour():
     """長さを言われなかったときの既定。
 
-    60 分は長すぎた（言わずに頼んだだけで1時間黙る）。長さを言えるようになったので、
-    言わなかった場合の既定は短くしてよい。上限（`silence_max_minutes`）が 60 分。
+    一度 15 分へ縮めたが（「言わずに頼んだだけで 1 時間黙るのは長い」）、2026-09-13 に
+    **60 分**へ戻した（課題5 G 章〔確定〕・情-d）。「黙って」と頼まれたら 1 時間は黙る。
+    上限（`silence_max_minutes`）も 60 分。
     """
     from familiar_agent.config import AgentConfig
 
@@ -89,5 +89,5 @@ def test_default_duration_is_fifteen_minutes():
     from unittest.mock import patch
 
     with patch.dict(os.environ, {}, clear=True):
-        assert AgentConfig().silence_minutes == 15
+        assert AgentConfig().silence_minutes == 60
         assert AgentConfig().silence_max_minutes == 60
