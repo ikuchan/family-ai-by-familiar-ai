@@ -53,6 +53,7 @@ try:
         QVBoxLayout,
         QWidget,
     )
+
     _QT_AVAILABLE = True
 except ImportError:
     _QT_AVAILABLE = False
@@ -70,11 +71,16 @@ except ImportError:
     QApplication = QComboBox = QDialogButtonBox = QFormLayout = _QtBase  # type: ignore[misc,assignment]
     QHBoxLayout = QLineEdit = QMessageBox = QProgressBar = _QtBase  # type: ignore[misc,assignment]
     QPushButton = QSizePolicy = QSplitter = QTabWidget = QVBoxLayout = _QtBase  # type: ignore[misc,assignment]
+
     class _QtCallable:  # type: ignore[no-redef]
         """Callable stub for Qt symbols used as class-level constants."""
+
         def __init__(self, *a: object, **kw: object) -> None: ...
-        def __call__(self, *a: object, **kw: object) -> "_QtCallable": return _QtCallable()
-        def __getattr__(self, name: str) -> "_QtCallable": return _QtCallable()
+        def __call__(self, *a: object, **kw: object) -> "_QtCallable":
+            return _QtCallable()
+
+        def __getattr__(self, name: str) -> "_QtCallable":
+            return _QtCallable()
 
     QEasingCurve = QPropertyAnimation = QSize = Qt = QTimer = _QtCallable()  # type: ignore[misc,assignment]
     QIcon = QImage = QPixmap = _QtCallable()  # type: ignore[misc,assignment]
@@ -202,6 +208,8 @@ class _IMEAwareScrollArea(QScrollArea):
         except Exception:
             pass
         return super().viewportEvent(event)  # type: ignore[return-value]
+
+
 _SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 _APP_ICON_ENV = "FAMILIAR_APP_ICON"
 
@@ -541,6 +549,41 @@ class ChatLog(QScrollArea):
 
         self._vbox.addWidget(row)
         self._scroll_to_bottom()
+        self._log_added(row, text)
+
+    def _log_added(self, row: QWidget, text: str) -> None:
+        """吹き出しを**足した**ことをログに残す（2026-09-12 実機で露見）。
+
+        `chat.log` は「表示関数に渡した」までしか証言しない。渡したあと足したか、足した
+        あと画面内に来たか（自動スクロール）は、ここが無いと画面を見ている人にしか
+        分からない。足した直後は Qt がまだ描いていないので、1周まわったあとに可視かを
+        改めて残す。
+        """
+        sb = self.verticalScrollBar()
+        n = self._vbox.count() - 1  # 先頭の伸縮1つを除いた通し番号
+        head = text.replace("\n", " ")[:30]
+        logger.info(
+            "GUI 吹き出し %d件目を足した スクロール=%d/%d 「%s」", n, sb.value(), sb.maximum(), head
+        )
+
+        def _after() -> None:
+            # 1周のあいだに窓ごと消えていることがある（閉じた直後）。それも事実として残す。
+            try:
+                visible = row.isVisible()
+                pos, top = sb.value(), sb.maximum()
+            except RuntimeError:
+                logger.info("GUI 吹き出し %d件目 描いたあと 窓ごと消えていた 「%s」", n, head)
+                return
+            logger.info(
+                "GUI 吹き出し %d件目 描いたあと 可視=%s スクロール=%d/%d 「%s」",
+                n,
+                "はい" if visible else "いいえ",
+                pos,
+                top,
+                head,
+            )
+
+        QTimer.singleShot(0, _after)
 
 
 # ---------------------------------------------------------------------------
@@ -696,8 +739,12 @@ class CameraView(QLabel):
 # ---------------------------------------------------------------------------
 
 _SOURCE_LABELS = {
-    "face": "顔", "voice": "声", "manual": "手動",
-    "auto": "自動", "text": "文", "llm": "推定",
+    "face": "顔",
+    "voice": "声",
+    "manual": "手動",
+    "auto": "自動",
+    "text": "文",
+    "llm": "推定",
 }
 
 
@@ -783,8 +830,10 @@ class MoodPanel(QWidget):
     """気分（PAD 4軸）＋派生感情ラベル。2秒ごとに mood レジスタを読む。"""
 
     _AXES = [
-        ("p", "快 P", _ACCENT), ("pn", "不快 Pn", "#ff6b73"),
-        ("a", "高ぶり A", "#ffb35f"), ("dom", "支配 Dom", "#7adcff"),
+        ("p", "快 P", _ACCENT),
+        ("pn", "不快 Pn", "#ff6b73"),
+        ("a", "高ぶり A", "#ffb35f"),
+        ("dom", "支配 Dom", "#7adcff"),
     ]
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -835,8 +884,10 @@ class DrivePanel(QWidget):
     """欲動 drive5。2秒ごとに drive レジスタを読む。"""
 
     _AXES = [
-        ("seeking", "探索", "#5ea1ff"), ("rest", "休息", "#8a94a6"),
-        ("bond", "絆", "#ff7ea3"), ("safety", "安全", "#7adcff"),
+        ("seeking", "探索", "#5ea1ff"),
+        ("rest", "休息", "#8a94a6"),
+        ("bond", "絆", "#ff7ea3"),
+        ("safety", "安全", "#7adcff"),
         ("esteem", "承認", "#c17aff"),
     ]
 
@@ -1379,6 +1430,7 @@ class FamiliarWindow(QMainWindow):
         self._ime_btn.clicked.connect(self._on_ime_toggle_clicked)
         # check if fcitx5-remote is available
         import shutil as _shutil
+
         self._ime_btn.setVisible(bool(_shutil.which("fcitx5-remote")))
         header_layout.addWidget(self._ime_btn)
 
@@ -1707,6 +1759,7 @@ class FamiliarWindow(QMainWindow):
 
     def _on_ime_toggle_clicked(self) -> None:
         import subprocess as _sp
+
         try:
             _sp.run(["fcitx5-remote", "-t"], timeout=1)
         except Exception:
@@ -1720,6 +1773,7 @@ class FamiliarWindow(QMainWindow):
         if btn is None or not btn.isVisible():
             return
         import subprocess as _sp
+
         try:
             r = _sp.run(["fcitx5-remote"], capture_output=True, timeout=1)
             active = r.stdout.strip() == b"2"
@@ -1781,9 +1835,7 @@ class FamiliarWindow(QMainWindow):
             in_tok = getattr(agent, "_session_input_tokens", 0) if agent else 0
             out_tok = getattr(agent, "_session_output_tokens", 0) if agent else 0
             total = (in_tok / 1_000_000 * 3.0) + (out_tok / 1_000_000 * 15.0)
-            self._log.append_line(
-                f"📊 in: {in_tok:,}  out: {out_tok:,}  💰 ${total:.4f}"
-            )
+            self._log.append_line(f"📊 in: {in_tok:,}  out: {out_tok:,}  💰 ${total:.4f}")
             return
         if text.startswith("/btw "):
             question = text[5:].strip()
@@ -1974,7 +2026,9 @@ class FamiliarWindow(QMainWindow):
             with db.lock:
                 conn = db.conn()
                 drives = load_drives(conn)
-                accumulated = dd.accumulate(drives, mood, dt=dt)  # 放電前＝スナップショット/順位付け用
+                accumulated = dd.accumulate(
+                    drives, mood, dt=dt
+                )  # 放電前＝スナップショット/順位付け用
                 firing = dd.fired(accumulated)
                 persisted = dd.discharge(accumulated, firing) if firing.any else accumulated
                 save_drives(conn, persisted)
@@ -1990,10 +2044,20 @@ class FamiliarWindow(QMainWindow):
                     "DRIVE obs: mood=(%.2f,%.2f,%.2f,%.2f) "
                     "g_D(seek=%.3f,safe=%.3f,bond=%.3f,est=%.3f,rest=%.3f) "
                     "drive(seek=%.2f,safe=%.2f,bond=%.2f,est=%.2f,rest=%.2f)",
-                    mood.p, mood.pn, mood.a, mood.dom,
-                    g.seeking, g.safety, g.bond, g.esteem, g.rest,
-                    accumulated.seeking, accumulated.safety, accumulated.bond,
-                    accumulated.esteem, accumulated.rest,
+                    mood.p,
+                    mood.pn,
+                    mood.a,
+                    mood.dom,
+                    g.seeking,
+                    g.safety,
+                    g.bond,
+                    g.esteem,
+                    g.rest,
+                    accumulated.seeking,
+                    accumulated.safety,
+                    accumulated.bond,
+                    accumulated.esteem,
+                    accumulated.rest,
                 )
             return firing, accumulated
         except Exception as e:  # noqa: BLE001
@@ -2045,7 +2109,9 @@ class FamiliarWindow(QMainWindow):
         """
         return bool(display) and not desire_name
 
-    async def _run_agent(self, user_input: str, inner_voice: str = "", desire_name: str = "") -> None:
+    async def _run_agent(
+        self, user_input: str, inner_voice: str = "", desire_name: str = ""
+    ) -> None:
         if self._agent is None:
             self._stream.set_status(self._startup_status)
             return
@@ -2364,6 +2430,7 @@ def run_gui(config: "AgentConfig", desires: "DesireSystem") -> None:
     _saved_tty = None
     try:
         import termios
+
         if sys.stdin.isatty():
             _saved_tty = termios.tcgetattr(sys.stdin.fileno())
     except Exception:
@@ -2407,6 +2474,7 @@ def run_gui(config: "AgentConfig", desires: "DesireSystem") -> None:
     if _saved_tty is not None:
         try:
             import termios
+
             termios.tcsetattr(sys.stdin.fileno(), termios.TCSANOW, _saved_tty)
         except Exception:
             pass

@@ -1073,8 +1073,12 @@ class InformationProcessing:
         if self._on_text is not None:
             self._on_text(text)
         if self._on_action is not None:
-            with contextlib.suppress(Exception):
+            # 表示先で落ちても発話は止めない。ただし**黙らない**——握りつぶすと
+            # 「表示関数に渡したのに画面に無い」を追えない（2026-09-12 実機で露見）。
+            try:
                 self._on_action("say", {"text": text})
+            except Exception:  # noqa: BLE001
+                logger.exception("event-loop 表示先が受け取れなかった：%.40s", text)
 
     def set_output(self, on_text, on_action=None) -> None:
         """発話の表示先を登録する。人の発話を待たずに出口が定まる（起動時にアプリが渡す）。
