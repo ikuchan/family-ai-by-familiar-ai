@@ -40,6 +40,15 @@ def open_ids(req: Request) -> list[str]:
     ids = [req.request_id] if req.request_id else []
     if req.live_version_id and req.live_version_id not in ids:
         ids.append(req.live_version_id)
+    # **この求めで見たもの**（見た印）も浮かせる（2026-09-12 実機で露見）。`see` の帰りは
+    # 版に載せない（同じ出来事が2件になって枠を食う）ので、中身は見た印だけが持つ。
+    # 似ている順の採点に任せると「何が見えますか？」に `見えたもの：table…` が載らず、
+    # 主LLM は見たらしいが何が見えたか書いていない版を渡されて、もう一度 `see` を出した。
+    # 新しい欄は作らない——役割は `turn_records` に控えてある。前のやりとりのぶんは
+    # `exchange_start` より前なので入らない。
+    for obs_id, role in req.turn_records[req.exchange_start :]:
+        if role == "見た" and obs_id and obs_id not in ids:
+            ids.append(obs_id)
     return ids
 
 
