@@ -181,7 +181,7 @@ def test_the_iteration_acts_on_a_decision_without_arbitrating():
 
     src = inspect.getsource(InformationProcessing._iterate)
     i_act = src.index("_act_on_decision(")
-    i_arb = src.index("arbitrate(")
+    i_arb = src.index("_decide(")  # 調停はここから呼ぶ（see の帰りは飛ばす）
     assert i_act < i_arb, "調停より前に決定を実行していない"
 
 

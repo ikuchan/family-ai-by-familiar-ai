@@ -94,18 +94,19 @@ def test_the_camera_boilerplate_is_not_recorded(monkeypatch) -> None:
 
 
 def test_the_mark_keeps_the_pose_and_the_labels(monkeypatch) -> None:
-    """印には定点名と見えたものが入る。"""
+    """印には定点名と見えたものが入る。VLM の意味づけは背景で返り、印を差し替える。"""
 
     async def scenario():
         a, ip = _ip()
         _patch_scene(ip, ["child", "desk"])
         monkeypatch.setattr(ip, "_current_pose_name", lambda: _async("窓側"))
         await ip._run_camera("see", {})
+        await asyncio.gather(*ip._background_tasks)
         await ip.close()
         return a
 
     a = asyncio.run(scenario())
-    got = _observations(a)[0]
+    got = _observations(a)[-1]
     assert "窓側を見た" in got, f"定点名が無い: {got}"
     assert "child" in got and "desk" in got, f"見えたものが無い: {got}"
 

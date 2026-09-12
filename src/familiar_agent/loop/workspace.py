@@ -182,7 +182,7 @@ async def recall(
     req: Request,
     time_ref: "float | None" = None,
     time_span_days: "float | None" = None,
-) -> "tuple[list[dict], str, dict[str, str]]":
+) -> "tuple[list[Recalled], str, dict[str, str]]":
     """想起して W を組み、**(W に載った記録, 作業状態, 対応表) を返す**（に-5-ろ）。
 
     呼び手は2つ——反復の頭（いまが基準）と、調停が時期を指したときの引き直しである。

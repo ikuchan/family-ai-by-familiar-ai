@@ -55,6 +55,31 @@ class PersonDetector(ModelResource):
             return 0
         return sum(len(r.boxes) for r in results)
 
+    def _labels_sync(self, frame: Any) -> list[str]:
+        model = self.ensure()
+        if model is None:
+            return []
+        try:
+            results = model.predict(frame, verbose=False)
+            names = getattr(model, "names", {}) or {}
+            out: list[str] = []
+            for r in results:
+                for c in r.boxes.cls.tolist():
+                    out.append(str(names.get(int(c), int(c))))
+            return out
+        except Exception as e:  # noqa: BLE001
+            logger.exception("見えたものの名付けに失敗したので空として扱う: %s", e)
+            return []
+
+    async def labels(self, frame: Any) -> list[str]:
+        """フレームに写っているものの名前（COCO 80 種・重複はそのまま＝個数）。
+
+        `see` の帰りを VLM で待たないための**即席の意味づけ**である。VLM のほうが細かい
+        （引き出し・ポスター）が 2 秒かかるので、まずこれで印を書き、VLM は背景で差し替える
+        （`イベント駆動ループ` v0.43）。`count` と同じモデルを使い、読込は 1 回で済む。
+        """
+        return await asyncio.to_thread(self._labels_sync, frame)
+
     async def count(self, frame: Any) -> int:
         """フレーム（ファイルパスか配列）に写っている人の数。
 

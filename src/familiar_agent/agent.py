@@ -213,6 +213,8 @@ class EmbodiedAgent:
         self._memory_tool = MemoryTool(self._pmm)
         self._pending_store = self._memory_tool._pending_store
         self._presence_sensor: PresenceSensor | None = None
+        # 人検出（YOLO）。在席と `see` の即席の意味づけで共有（カメラが無ければ None）。
+        self._person_detector: PersonDetector | None = None
         self._motion_events: MotionEventWatcher | None = None
         self._coding = CodingTool(config.coding)
         self._exploration = ExplorationTracker()
@@ -636,10 +638,12 @@ class EmbodiedAgent:
         if self._camera:
             # 在/不在は YOLO で測る（登録が要らない）。誰かは PMM が必要時に解く。
             cam_cfg = self.config.camera
+            # 1つを在席とループ（`see` の即席の意味づけ）で共有する。重みの読込は 1 回。
+            self._person_detector = PersonDetector()
             self._presence_sensor = PresenceSensor(
                 camera=self._camera,
                 poses_getter=self.poses,
-                detector=PersonDetector(),
+                detector=self._person_detector,
                 tolerance=cam_cfg.pose_tolerance,
                 window_sec=cam_cfg.presence_window_sec,
                 interval_sec=cam_cfg.presence_interval_sec,
