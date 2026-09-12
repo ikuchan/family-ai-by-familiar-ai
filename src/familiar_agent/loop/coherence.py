@@ -19,14 +19,25 @@ from __future__ import annotations
 CONF_UNCERTAIN = 0.55
 
 
-def facts_ctx(*, saw: bool, memories: "list") -> str:
+def facts_ctx(
+    *, saw: bool, memories: "list", picture: bool = False, seen: "str | None" = None
+) -> str:
     """この反復でループが知っていることを、そのまま並べる。
 
     `saw` は役割 `見た` が並びに載ったか（`see` の完了で `_note_record` が付ける）。
+    `picture` は主LLM が**画像そのもの**を受け取ったか、`seen` は見た印の文（ラベル列）。
+    軽量LLM は画像を持たないので、主LLM が画像を見て語ったことを「与えられていない」と
+    誤って違反にしないよう、受け取った事実と写っていたものの名前を渡す（2026-09-12 実機で、
+    人が2人見えると正しく語った返事を `no-fake-perception` で差し戻した）。
     `memories` は W に実際に載った記録で、落とされたものは含まない——載らなかった記憶は
     主LLM が見ていないので、それを材料と呼べない。
     """
-    seen = "はい（この反復で see を呼んだ）" if saw else "いいえ（この反復で see を呼んでいない）"
+    seen_line = (
+        "はい（この求めで see を呼んだ）" if saw else "いいえ（この求めで see を呼んでいない）"
+    )
+    pic = "はい（主LLM は写真そのものを見ている）" if picture else "いいえ"
+    if seen:
+        pic += f"。印：{seen[:160]}"
     if not memories:
         mem = "0件（『昨日より』『前と違う』と言える材料は無い）"
     else:
@@ -38,4 +49,7 @@ def facts_ctx(*, saw: bool, memories: "list") -> str:
         )
         low = sum(1 for r in memories if r.confidence < CONF_UNCERTAIN)
         mem = f"{len(memories)}件（{dates}。うち conf<{CONF_UNCERTAIN} が{low}件）"
-    return f"[この反復で分かっていること]\n見たか：{seen}\n作業状態に並んだ記憶：{mem}"
+    return (
+        f"[この反復で分かっていること]\n見たか：{seen_line}\n画像を受け取った：{pic}\n"
+        f"作業状態に並んだ記憶：{mem}"
+    )

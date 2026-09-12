@@ -43,9 +43,14 @@ def _camera(call_return=("You see the current view (saved to /tmp/a.jpg).", "BAS
     return cam
 
 
-def _with_camera(cam=None):
+def _with_camera(cam=None, labels=("cat", "mug")):
     a = _agent(stream_returns=[])
     a._camera = cam if cam is not None else _camera()
+    a._camera.last_capture_path = "/tmp/capture.jpg"
+    # 完了に載る「見えたもの」は即席の意味づけ（ローカルの人検出）が出す。VLM は背景で
+    # 印を差し替えるだけで、完了の文には出ない（`イベント駆動ループ` v0.43）。
+    a._person_detector = MagicMock()
+    a._person_detector.labels = AsyncMock(return_value=list(labels))
     return a
 
 

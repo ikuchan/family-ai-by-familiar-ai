@@ -54,7 +54,7 @@ def test_without_poses_there_is_nothing_to_look_at():
     # 定点が無ければ首を振る先も無い。道具ごと出さない（選べない動作を見せない）。
     names = {d["name"] for d in _tool(poses=[]).get_tool_definitions()}
     assert "look" not in names
-    assert "see" in names          # 見ること自体はできる
+    assert "see" in names  # 見ること自体はできる
 
 
 # --- 呼び出し -------------------------------------------------------------
@@ -70,7 +70,7 @@ def test_the_reply_names_the_place_it_turned_to():
     cam = _tool()
     text, image = asyncio.run(cam.call("look", {"pose": "窓側"}))
     assert "窓側" in text
-    assert image is None           # 首を振っただけで画像は無い
+    assert image is None  # 首を振っただけで画像は無い
 
 
 def test_an_unknown_place_is_refused_rather_than_moving_somewhere_odd():
@@ -108,7 +108,12 @@ def _ip_with_camera(position=(0.0, -0.5), poses=_POSES):
     cam = MagicMock()
     cam.call = AsyncMock(return_value=("You see the current view.", "B64"))
     cam.position = AsyncMock(return_value=position)
+    cam.last_capture_path = "/tmp/capture.jpg"
     a._camera = cam
+    # 完了に載る「見えたもの」は即席の意味づけ（ローカルの人検出）が出す。VLM は背景で
+    # 印を差し替えるだけで、完了の文には出ない（`イベント駆動ループ` v0.43）。
+    a._person_detector = MagicMock()
+    a._person_detector.labels = AsyncMock(return_value=["desk"])
     a.poses = AsyncMock(return_value=poses)
     a.config.camera.pose_tolerance = 0.02
     return InformationProcessing(a), cam
@@ -122,9 +127,11 @@ def test_the_completion_says_which_place_was_seen():
     """
     from unittest.mock import patch
 
-    ip, _ = _ip_with_camera(position=(0.0, -0.5))     # 窓側
-    with patch("familiar_agent.loop.event_loop.extract_entities",
-               AsyncMock(return_value=[{"label": "desk"}])):
+    ip, _ = _ip_with_camera(position=(0.0, -0.5))  # 窓側
+    with patch(
+        "familiar_agent.loop.event_loop.extract_entities",
+        AsyncMock(return_value=[{"label": "desk"}]),
+    ):
         out = asyncio.run(ip._run_camera("see", {}))
     assert "窓側" in out and "desk" in out
 
@@ -143,7 +150,9 @@ def test_seeing_without_poses_still_reports_what_was_seen():
     from unittest.mock import patch
 
     ip, _ = _ip_with_camera(poses=[])
-    with patch("familiar_agent.loop.event_loop.extract_entities",
-               AsyncMock(return_value=[{"label": "desk"}])):
+    with patch(
+        "familiar_agent.loop.event_loop.extract_entities",
+        AsyncMock(return_value=[{"label": "desk"}]),
+    ):
         out = asyncio.run(ip._run_camera("see", {}))
     assert "desk" in out

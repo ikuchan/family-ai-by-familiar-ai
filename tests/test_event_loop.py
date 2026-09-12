@@ -70,6 +70,7 @@ def _agent(*, stream_returns, max_iters=3):
     # カメラ無しを明示する。MagicMock のままだと `get_tool_definitions()` が list でない
     # 値を返し、動作の表がそれを黙って落とすので、何を確かめているのか分からなくなる。
     a._camera = None
+    a._person_detector = None
     a._pmm = MagicMock()
     a._pmm.presence_status = MagicMock(return_value=[])
     a._tts = MagicMock()

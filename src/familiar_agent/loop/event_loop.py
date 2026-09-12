@@ -13,6 +13,8 @@ GEN（生成）で進み、say で1出力して終わる／内部ツール（rec
 from __future__ import annotations
 
 import asyncio
+import base64
+from pathlib import Path
 import contextlib
 from dataclasses import dataclass
 import logging
@@ -26,10 +28,10 @@ if TYPE_CHECKING:
 from ..poses import nearest_pose
 from ..scene import extract_entities
 from ..store import clock
-from .arbiter import arbitrate
+from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
-from ..io.oif import MI
+from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .coherence import facts_ctx
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
@@ -153,7 +155,7 @@ class Decision:
     """
 
     result: "TurnResult"
-    memories: list[dict]
+    memories: "list[Recalled]"
     w_id_map: dict[str, str]
     mem: object
     recent_ctx: str
@@ -268,6 +270,8 @@ class InformationProcessing:
         self._request_generation = 0
         # 「まだかかっている」を受けたか。次の反復でつなぎだけ出して閉じない。
         self._slow_notice_received = False
+        # see の帰りで起きた反復か。調停を飛ばして主LLM へ戻す（`_decide`）。
+        self._see_returned = False
         self._background_tasks: set[asyncio.Task] = set()
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
         # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
@@ -366,8 +370,12 @@ class InformationProcessing:
             self._req.cue = content
         return version_id
 
-    async def _write_seen_mark(self, content: str) -> str | None:
+    async def _write_seen_mark(self, content: str, *, image_path: str | None = None) -> str | None:
         """見たことを O へ書く（`direction="観察"`・鎖の外・畳まない）。
+
+        `image_path` は撮った画像の在りか。**この求めのあいだ主LLM が画像そのものを見る**
+        ための手がかりで（`_seen_image`）、印の文（ラベル列）は想起・埋め込みの材料として
+        別に残る——「見て語る」と「覚えて探す」は役目が違う（`イベント駆動ループ` v0.43）。
 
         旧 `run()` がカメラを使ったターンで書いていた記録の続きである（本番に 256 件
         あり、2026-07-24 で途絶えている）。新しいループへ移るとき `camera_used` が
@@ -391,6 +399,7 @@ class InformationProcessing:
                 timestamp=None,
                 direction="観察",
                 parent_id=self._req.request_id,
+                image_path=image_path,
             ),
             **agent._observation_perspective(),
         )
@@ -398,6 +407,100 @@ class InformationProcessing:
         # 浮かせる**（docstring）。
         self._note_record(obs_id, "見た")
         return obs_id
+
+    def _seen_image(self, memories: "list | None") -> "tuple[str, str] | None":
+        """この求めで**最後に見た**画像を (base64, 在りか) で返す。無ければ None。
+
+        `turn_records` の役割 `見た` のうち最後のものが W（`memories`）に載っていて、その
+        記録が `image_path` を持つとき、ファイルを読む。**この求めの最新1枚だけ**である
+        （1枚 ≈ 970 トークン。求めが閉じれば要らないし、見直したなら新しいほうが正しい）。
+        過去の記憶の画像は添えない。ファイルが消えていれば文字だけで進む（落とさない）。
+        """
+        seen = [i for i, r in self._req.turn_records[self._req.exchange_start :] if r == "見た"]
+        if not seen:
+            return None
+        last = seen[-1]
+        rec = next((r for r in (memories or []) if r.mi.obs_id == last), None)
+        path = getattr(getattr(rec, "mi", None), "image_path", None)
+        if not path:
+            return None
+        try:
+            data = Path(path).read_bytes()
+        except OSError as e:
+            logger.warning("event-loop 見た画像を読めないので文字だけで進む: %s", e)
+            return None
+        return base64.b64encode(data).decode(), path
+
+    def _user_content(self, text: str, memories: "list | None") -> "str | list":
+        """主LLM へ渡す本文。この求めで見た画像があれば**画像ブロックを添える**。
+
+        画像を受け取るのは主LLM だけである（調停・整合チェック・申告の軽量LLM は文字だけ）。
+        見ると決めたのは主LLM 自身で、見たものを語るのも主LLM だからである。
+        """
+        found = self._seen_image(memories)
+        if found is None:
+            return text
+        b64, path = found
+        logger.info("event-loop 主LLM に画像を添える：%s", Path(path).name)
+        return [
+            {"type": "text", "text": text},
+            {
+                "type": "image",
+                "source": {"type": "base64", "media_type": "image/jpeg", "data": b64},
+            },
+        ]
+
+    async def _refine_seen_mark(
+        self,
+        old_id: str,
+        *,
+        text: str,
+        image_b64: str,
+        image_path: str | None,
+        prefix: str,
+        gen: int,
+    ) -> None:
+        """VLM の意味づけが返ったら、即席の印（YOLO）を**新しい版で差し替える**（背景）。
+
+        差し替えは要約・内省と同じ型——遅れて来た中身が元の記録を supersede する。
+        `turn_records` の `見た` の id も新へ差し替えるので、`open_ids` は新を浮かせ、
+        `_seen_image` も新から画像を引く。求めがもう別の世代なら O の差し替えだけ行う
+        （並びは次の求めのものになっている）。VLM が空・失敗なら何もしない（即席の文が残る）。
+        """
+        agent = self._agent
+        try:
+            entities = await extract_entities(text, agent._scene_backend, image_b64=image_b64)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop 見たものの意味づけに失敗: %s", e)
+            return
+        labels = [str(d.get("label", "")).strip() for d in entities if d.get("label")]
+        if not labels:
+            logger.info("event-loop 見たが、意味づけは何も返さなかった（即席の印を残す）")
+            return
+        logger.info("event-loop 意味づけが返った %d 件：%.60s", len(labels), "、".join(labels))
+        new_id = await agent._oif.write(
+            MI(
+                id="",
+                content=f"{prefix}見えたもの：{'、'.join(labels)}"[
+                    : agent.config.completion_content_max
+                ],
+                timestamp=None,
+                direction="観察",
+                parent_id=self._req.request_id if gen == self._request_generation else None,
+                image_path=image_path,
+            ),
+            **agent._observation_perspective(),
+        )
+        if not new_id:
+            return
+        agent._oif.supersede(old_id, new_id, kind=KIND_REVISION)
+        if gen != self._request_generation:
+            return
+        self._req.turn_records = [
+            (new_id if (i == old_id and r == "見た") else i, r) for i, r in self._req.turn_records
+        ]
 
     def _version_content(self, *, aborted: bool = False) -> str:
         """いまの求めの状態を、1つの版の content として組み立てる。
@@ -540,7 +643,7 @@ class InformationProcessing:
         system,
         effort: "str | None",
         capped: bool,
-        memories: list[dict],
+        memories: "list[Recalled]",
         w_id_map: dict[str, str],
         mem: object,
         recent_ctx: str,
@@ -591,7 +694,7 @@ class InformationProcessing:
         system,
         effort: "str | None",
         capped: bool,
-        memories: list[dict],
+        memories: "list[Recalled]",
         w_id_map: dict[str, str],
         mem: object,
         recent_ctx: str,
@@ -726,19 +829,14 @@ class InformationProcessing:
         # 根づきで薄れ、W 構築で薄れた順に上がることで巡回が創発する。
         where = await self._current_pose_name()
         prefix = f"{where}を見た。" if where else ""
-        try:
-            entities = await extract_entities(str(text), agent._scene_backend, image_b64=image_b64)
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            logger.exception("event-loop 見たものの意味づけに失敗: %s", e)
-            return str(text)
-        labels = [str(d.get("label", "")).strip() for d in entities if d.get("label")]
-        if not labels:
-            logger.info("event-loop 見たが、意味づけは何も返さなかった")
-            return f"{prefix}{text}"
+        image_path = getattr(agent._camera, "last_capture_path", None)
+        # **VLM を待たない。** 意味づけ（Gemini へ画像を送る）は実測 2.3 秒で、`see` の帰りの
+        # ほぼ全部だった。まずローカルの人検出（YOLO・COCO 80 種・数十ミリ秒）で即席の印を
+        # 書いて完了を積み、主LLM は画像そのものを見て話す（`_seen_image`）。VLM は背景で
+        # 投げ、返ったら印を差し替える（`_refine_seen_mark`）——記憶の文はそちらの細かさで残る。
+        labels = await self._quick_labels(image_path)
         logger.info(
-            "event-loop %s見えたもの %d 件：%.60s",
+            "event-loop %s見えたもの（即席）%d 件：%.60s",
             f"{where}で" if where else "",
             len(labels),
             "、".join(labels),
@@ -747,13 +845,38 @@ class InformationProcessing:
         # (saved to …)" は撮ったことを LLM へ伝える文で、見た内容ではない。想起は
         # 印の文でベクトルを作るので、毎回同じ英語の定型句とファイルパスが入ると
         # ノイズになる（実機で観測）。
-        mark = f"{prefix}見えたもの：" + "、".join(labels)
-        # **書くのはここである。** 実際にカメラを回して意味づけが通った経路だけを
-        # 通る。取込の側で `action == "see"` を見て書くと、重複抑止で弾かれた完了
-        # （「すでに調べた。結果は W にある」）まで印になり、見ていないのに見た印が
-        # 立つ（実機で観測）。
-        await self._write_seen_mark(mark)
+        mark = f"{prefix}見えたもの：{'、'.join(labels)}" if labels else (prefix or "見た。")
+        # **書くのはここである。** 実際にカメラを回した経路だけを通る。取込の側で
+        # `action == "see"` を見て書くと、重複抑止で弾かれた完了（「すでに調べた。結果は
+        # W にある」）まで印になり、見ていないのに見た印が立つ（実機で観測）。
+        obs_id = await self._write_seen_mark(mark, image_path=image_path)
+        if obs_id:
+            task = asyncio.create_task(
+                self._refine_seen_mark(
+                    obs_id,
+                    text=str(text),
+                    image_b64=image_b64,
+                    image_path=image_path,
+                    prefix=prefix,
+                    gen=self._request_generation,
+                )
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
         return f"{prefix}{text} 見えたもの：" + "、".join(labels)
+
+    async def _quick_labels(self, image_path: str | None) -> list[str]:
+        """即席の意味づけ（ローカルの人検出モデルで、写っているものの名前）。無ければ空。"""
+        detector = getattr(self._agent, "_person_detector", None)
+        if detector is None or not image_path:
+            return []
+        try:
+            return list(await detector.labels(image_path))
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop 即席の意味づけに失敗: %s", e)
+            return []
 
     async def _current_pose_name(self) -> str:
         """いま向いている定点の名前。どの定点でもない（移動中）なら空。
@@ -818,6 +941,7 @@ class InformationProcessing:
             lk = self._lookup_of(query)
             action = lk.action if lk is not None else "recall"
             if action == "see":
+                self._see_returned = True
                 # 版には結果を載せない。見たことは `_run_camera` が鎖の外へ独立した
                 # 記録として書いており（会話の「自分が答えた」と同じ位置）、版にも
                 # 載せると同じ出来事が2件になって、想起でどちらも上がり W の枠を食う。
@@ -1453,16 +1577,12 @@ class InformationProcessing:
                     "event-loop 反復 %d/%d 上限に達したため探索を打ち切る", chain, max_chain
                 )
             self._req.iterations_capped = True
-        decision = await arbitrate(
-            agent._utility_backend,
+        decision = await self._decide(
             utterance=utterance or self._req.cue,
             workspace_ctx=workspace_ctx,
-            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
-            family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
-            now_ctx=f'(now :datetime "{clock.now_local_str()}")',
             capped=capped,
-            thinking_round=round_,
+            round_=round_,
         )
         logger.debug(
             "event-loop iter=%d/%d 調停=%s effort=%s",
@@ -1568,7 +1688,9 @@ class InformationProcessing:
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
         # 何がこの反復を起こしたのか分からなくなる（API も空メッセージを受け付けない）。
-        user_msg = agent.backend.make_user_message(utterance or self._req.cue)
+        user_msg = agent.backend.make_user_message(
+            self._user_content(utterance or self._req.cue, memories)
+        )
         # **投げて終わる。** 返りは QC を通り、次の反復（出す反復）が実行する。
         self._dispatch_main_llm(
             messages=[user_msg],
@@ -1588,6 +1710,35 @@ class InformationProcessing:
             round_,
         )
         return ""
+
+    async def _decide(
+        self, *, utterance: str, workspace_ctx: str, present_ctx: str, capped: bool, round_: int
+    ) -> "ArbiterDecision":
+        """この反復の分岐を決める。**see の帰りは調停を飛ばして主LLM へ戻す。**
+
+        見ると決めたのは主LLM 自身で、画像を受け取るのも主LLM だけである（`_user_content`）。
+        ここで軽量LLM に判定し直させると、`light` を選んで**画像を見ずに**即席のラベル文だけ
+        で答えたり、`recall` へ逸れたりする（2026-09-12 実機）。判定し直す理由が無いうえ、
+        調停の約 1 秒も消える。思考の深さは see を出したときの値を引き継ぐ。
+        """
+        from ..capability_state import load_summary
+
+        agent = self._agent
+        if self._see_returned:
+            self._see_returned = False
+            logger.info("event-loop see の帰りなので調停を飛ばして主LLM へ戻す")
+            return ArbiterDecision(branch="full", effort=self._req.see_effort or "high")
+        return await arbitrate(
+            agent._utility_backend,
+            utterance=utterance,
+            workspace_ctx=workspace_ctx,
+            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
+            family_md=getattr(agent, "_family_md", ""),
+            present_ctx=present_ctx,
+            now_ctx=f'(now :datetime "{clock.now_local_str()}")',
+            capped=capped,
+            thinking_round=round_,
+        )
 
     async def _act_on_decision(self, decision: Decision, *, utterance: str, gen: int) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
@@ -1624,6 +1775,8 @@ class InformationProcessing:
         if lookup_tc is not None:
             if say_tc is not None:
                 await self._say_filler(str(say_tc.input.get("text", "")).strip())
+            if lookup_tc.name == "see":
+                self._req.see_effort = decision.effort
             self._start_lookup(
                 utterance or self._req.cue, dict(lookup_tc.input), action=lookup_tc.name
             )
@@ -1652,9 +1805,12 @@ class InformationProcessing:
                 self._dispatch_main_llm(
                     messages=[
                         agent.backend.make_user_message(
-                            f"{utterance or self._req.cue}\n\n"
-                            f"[SELF-CHECK] いま言おうとした「{text}」には問題がある："
-                            f"{violation}\nこれを直して、もう一度 say() で答える。"
+                            self._user_content(
+                                f"{utterance or self._req.cue}\n\n"
+                                f"[SELF-CHECK] いま言おうとした「{text}」には問題がある："
+                                f"{violation}\nこれを直して、もう一度 say() で答える。",
+                                decision.memories,
+                            )
                         )
                     ],
                     system=decision.system,
@@ -1690,7 +1846,7 @@ class InformationProcessing:
         return text
 
     async def _coherence_violation(
-        self, text: str, recent: str, memories: list[dict]
+        self, text: str, recent: str, memories: "list[Recalled]"
     ) -> "str | None":
         """発話の前に規則違反を見る（出-f）。違反の説明を返す。無ければ None。
 
@@ -1701,8 +1857,15 @@ class InformationProcessing:
         if not agent.config.coherence_check or not text:
             return None
         saw = any(role == "見た" for _, role in self._req.turn_records)
+        found = self._seen_image(memories)
+        seen_mark = None
+        if found is not None:
+            rec = next((r for r in memories if getattr(r.mi, "image_path", None) == found[1]), None)
+            seen_mark = rec.mi.content if rec is not None else None
         return await agent._evaluator.check_response_coherence(
-            text, recent=recent, facts=facts_ctx(saw=saw, memories=memories)
+            text,
+            recent=recent,
+            facts=facts_ctx(saw=saw, memories=memories, picture=found is not None, seen=seen_mark),
         )
 
     def _declare_light_memory_use(
@@ -1924,7 +2087,7 @@ class InformationProcessing:
                     self._req.request_id, self._agent._memory.LOOKUP_STARTED_NOTE
                 )
 
-    async def _finish(self, text: str, memories: list[dict], outcome: str) -> None:
+    async def _finish(self, text: str, memories: "list[Recalled]", outcome: str) -> None:
         """求めが閉じた反復の後始末：総括ログと永続化。
 
         閉じ方は `outcome` が持つ——`発話`（声になった）・`沈黙`（地の文だけで声にならず

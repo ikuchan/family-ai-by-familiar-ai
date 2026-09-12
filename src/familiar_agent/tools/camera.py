@@ -82,6 +82,9 @@ class CameraTool:
 
         self._cap: cv2.VideoCapture | None = None
         self._last_frame: Any = None
+        # 直近に撮って保存した画像の在りか。見た印がこれを持ち、その求めのあいだ主LLM が
+        # 画像そのものを見る（`イベント駆動ループ` v0.43）。`call()` の返りは変えない。
+        self.last_capture_path: str | None = None
         self._running = False
         self._thread: threading.Thread | None = None
         self._lock = threading.Lock()
@@ -291,6 +294,7 @@ class CameraTool:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             save_path = CAPTURE_DIR / f"capture_{timestamp}.jpg"
             save_path.write_bytes(data)
+            self.last_capture_path = str(save_path)
 
             return b64, str(save_path)
         except Exception as e:
@@ -402,7 +406,11 @@ class CameraTool:
         defs: list[dict] = [
             {
                 "name": "see",
-                "description": "Open your eyes and see what's in front of you. Use freely without asking permission.",
+                "description": (
+                    "Open your eyes and see what's in front of you. Use freely without asking "
+                    "permission. The picture arrives in the next iteration; if it is already "
+                    "here, do not call see() again — just talk about what you see."
+                ),
                 "input_schema": {"type": "object", "properties": {}},
             },
         ]
