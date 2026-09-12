@@ -203,7 +203,7 @@ Phase 0（BUG-1・bge-m3 移行）は実機で完了。残る段取りの判断�
 
 | 順 | 束 | 課題 | 項目 | 状態 | 待っているもの・中身 |
 |---|---|---|---|---|---|
-| 1-1 | **1. いま壊れているもの** | **出-m** | **検索と取得の MCP を繋ぎ直す**（2026-09-13 新設） | **未着手** | `search_deferred` は MCP の `brave_web_search` を呼ぶが、`~/.familiar-ai.json` に `obsidian-memo` しか無い（開発機の故障で `brave-search`／`fetch` の設定と鍵が失われた）。調べものが 0.00 秒で「道具が無い」と返り、主LLM が「検索の道具が無い」と答える（実機 2026-09-13 00:22）。直し方は `.env.example:217-238`（Brave の鍵は無料 2,000 件/月・`npx` はある）。`fetch_deferred` も同じ（`mcp-server-fetch`・依存固定の申し送りあり） |
+| 1-1 | **1. いま壊れているもの** | **出-m** | **検索と取得の MCP を繋ぎ直す**（2026-09-13 新設） | **未着手** | `search_deferred` は MCP の `brave_web_search` を呼ぶが、`~/.familiar-ai.json` に `obsidian-memo` しか無い（開発機の故障で `brave-search`／`fetch` の設定と鍵が失われた）。調べものが 0.00 秒で「道具が無い」と返り、主LLM が「検索の道具が無い」と答える（実機 2026-09-13 00:22）。直し方は `.env.example:217-238`。2026-09-13 に `~/.familiar-ai.json` へ `brave-search`・`tavily`（`tavily-mcp@0.2.22`）・`fetch`（`uvx mcp-server-fetch`）を追記し、3 つとも起動して `brave_web_search`／`tavily_search`／`fetch` を出すことを確かめた（仮の鍵）。**鍵の置き換えは人が行う。Brave の鍵は有効化できていない**（同日）。調停が投げる `search_deferred` は `source` を渡さず既定の brave へ行くので、Brave が使えないあいだ調停経由の検索は失敗する（主LLM が `source='tavily'` を指定したときだけ通る）。既定を tavily に変える案は出したが、いまは変えないと決めた（同日） |
 | 1-2 | | **記-g** | **PAD の測り直し**（057 の後始末・2026-09-13 新設） | **未着手** | `uv run python scripts/remeasure_emotion_pad.py`（下見）→ `--apply`（11 分・約 25 円・6,433 件）。測っていない状態で見た想起順は、あとで変わる（`emotion_vec IS NOT NULL` で絞るため）。実機確認の段取り 4 |
 | 2-1 | **2. 実機で確かめていないもの** | **知-c** | 昼夜の見回り——**首が実際に回る**（シナリオ A） | 実装済み・**未確認** | 無人で見回りを待つか `look` を起こす。see しか動かしていない |
 | 2-2 | | — | シナリオ D：`light` で閉じた反復の後にも申告が出る・返事は待たない | 未確認 | 写真つき調停（v0.46）で初めて `light` が選ばれうる |
