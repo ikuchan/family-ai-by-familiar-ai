@@ -134,7 +134,7 @@ class OpenAICompatibleBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
-        effort: str | None = None,   # 署名を揃えるだけ（未対応）
+        effort: str | None = None,  # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         sys_str: str = (
             "\n\n---\n\n".join(s for s in system if s) if isinstance(system, tuple) else system
@@ -292,9 +292,7 @@ class OpenAICompatibleBackend:
             ]
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
-    async def complete(
-        self, prompt: str, max_tokens: int, *, system: str | None = None
-    ) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         try:
             resp = await self.client.chat.completions.create(  # type: ignore[call-overload]
@@ -307,22 +305,29 @@ class OpenAICompatibleBackend:
             logger.warning("complete() failed: %s", e)
             return ""
 
-    async def complete_with_image(self, prompt: str, image_b64: str, max_tokens: int = 512) -> str:
+    async def complete_with_image(
+        self, prompt: str, image_b64: str, max_tokens: int = 512, *, system: str | None = None
+    ) -> str:
         """Vision completion — for local VLMs (Ollama llava, qwen2-vl, etc.)."""
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
+        head: list = [{"role": "system", "content": system}] if system else []
         try:
             resp = await self.client.chat.completions.create(  # type: ignore[call-overload]
                 model=self.model,
                 **{tokens_key: max_tokens},
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image_url", "image_url": {
-                            "url": f"data:image/jpeg;base64,{image_b64}"
-                        }},
-                    ],
-                }],
+                messages=head
+                + [
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image_url",
+                                "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                            },
+                        ],
+                    }
+                ],
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:

@@ -1583,13 +1583,7 @@ class InformationProcessing:
             present_ctx=present_ctx,
             capped=capped,
             round_=round_,
-        )
-        logger.debug(
-            "event-loop iter=%d/%d 調停=%s effort=%s",
-            chain,
-            max_chain,
-            decision.branch,
-            decision.effort,
+            memories=memories,
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
@@ -1714,7 +1708,14 @@ class InformationProcessing:
         return ""
 
     async def _decide(
-        self, *, utterance: str, workspace_ctx: str, present_ctx: str, capped: bool, round_: int
+        self,
+        *,
+        utterance: str,
+        workspace_ctx: str,
+        present_ctx: str,
+        capped: bool,
+        round_: int,
+        memories: "list[Recalled] | None" = None,
     ) -> "ArbiterDecision":
         """この反復の分岐を決める。**see の帰りは、出した側が判断する。**
 
@@ -1724,20 +1725,28 @@ class InformationProcessing:
         実機）。判定し直す理由が無いうえ、調停の約 1 秒も消える。思考の深さは see を出した
         ときの値を引き継ぐ。
 
-        調停が見ると決めたなら（v0.44）、帰りも調停が判断する。W には即席のラベルの見た印が
-        浮いており、写真そのものは主LLM にだけ渡ることをプロンプトが告げている。`full` なら
-        主LLM は写真つき、`light` なら軽量LLM がラベルだけで答える。
+        調停が見ると決めたなら（v0.44）、帰りも調停が判断する。**そのときは調停にも写真を
+        渡す**（v0.46）。即席のラベル（YOLO）はこの部屋で `bench` 1 語になり、材料不足で毎回
+        full へ倒れた（実機）。写真があれば `light` で「机と椅子が見えます」と答えられる。
         """
         from ..capability_state import load_summary
 
         agent = self._agent
+        image_b64: "str | None" = None
         if self._see_returned:
             self._see_returned = False
             if self._req.see_by == "主LLM":
                 logger.info("event-loop 主LLM が出した see の帰りなので調停を飛ばして主LLM へ戻す")
                 return ArbiterDecision(branch="full", effort=self._req.see_effort or "high")
-            logger.info("event-loop 調停が出した see の帰りなので調停が判断する")
-        return await arbitrate(
+            found = self._seen_image(memories)
+            image_b64 = found[0] if found else None
+            logger.info(
+                "event-loop 調停が出した see の帰りなので調停が判断する（写真%s）",
+                "つき" if image_b64 else "なし",
+            )
+        # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない。
+        logger.debug("event-loop 調停へ渡す W:\n%s", workspace_ctx)
+        decision = await arbitrate(
             agent._utility_backend,
             utterance=utterance,
             workspace_ctx=workspace_ctx,
@@ -1748,7 +1757,16 @@ class InformationProcessing:
             capped=capped,
             thinking_round=round_,
             can_see=getattr(agent, "_camera", None) is not None,
+            image_b64=image_b64,
         )
+        # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
+        logger.info(
+            "event-loop 調停=%s effort=%s action=%s",
+            decision.branch,
+            decision.effort,
+            decision.action if decision.branch == "action" else "-",
+        )
+        return decision
 
     async def _act_on_decision(self, decision: Decision, *, utterance: str, gen: int) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
