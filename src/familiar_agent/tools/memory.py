@@ -500,6 +500,10 @@ class ObservationMemory:
         """
         return RelationStore(self._ctx).add(kind, list(members))
 
+    def exchange_roles_of(self, obs_ids: "list[str]") -> "dict[str, str]":
+        """その記録たちが `やりとり` で取っている役割（起点・つなぎ・答え・要約・…）。"""
+        return RelationStore(self._ctx).roles_of(list(obs_ids), KIND_EXCHANGE)
+
     def latest_exchange_origin(self) -> "str | None":
         """いちばん新しいやりとりの起点。直近のやりとりを、どこから見せるかのカーソル。"""
         return RelationStore(self._ctx).latest_member(KIND_EXCHANGE, "起点")

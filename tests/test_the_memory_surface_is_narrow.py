@@ -87,5 +87,8 @@ def test_the_surface_got_narrower():
 
     73 → **65 種**（役割の終わった8面を落とした）。記憶へ直につながる線は
     **24 → 12 箇所**（`agent.py` は 16 → 4）。
+
+    2026-09-12 に **66 種**へ1つ足した（`exchange_roles_of`——誰が言ったかを役割から
+    引く口。相手の言葉が「わたしが言った」と印字されていたのを直すため）。
     """
-    assert len(_public_faces()) <= 65
+    assert len(_public_faces()) <= 66

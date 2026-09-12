@@ -370,6 +370,17 @@ class OIF:
         logger.debug("OIF actors ← %d件 → %d件", len(obs_ids), len(got))
         return got
 
+    def roles(self, obs_ids: "Sequence[str]") -> "dict[str, str]":
+        """その記録たちが**やりとり**で取っている役割を `記録の id → 役割` で返す。
+
+        **誰が言ったかは、ここが持つ。** `起点` は相手、`答え`・`つなぎ` はパジュ。`actor` の
+        面は「誰の記憶か」であって、話者が解決できないと規則 048 で `__self__` に寄る
+        （相手の言葉が「わたしが言った」と印字されていた・2026-09-12）。
+        """
+        got = self._memory.exchange_roles_of(list(obs_ids))
+        logger.debug("OIF roles ← %d件 → %d件", len(obs_ids), len(got))
+        return got
+
     def latest_origin(self) -> "str | None":
         """いちばん新しいやりとりの起点。**繋ぐためではなく、どこから見せるかのカーソル**。"""
         got = self._memory.latest_exchange_origin()

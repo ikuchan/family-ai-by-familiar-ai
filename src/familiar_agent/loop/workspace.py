@@ -125,6 +125,15 @@ def compose(oif, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[s
     names: "dict[str, str]" = {}
     with contextlib.suppress(Exception):
         names = oif.actors([r.mi.obs_id for r in memories])
+    # **誰が言ったかは役割が持つ。** 話者が解決できないと `actor` の面は規則 048 で
+    # `__self__` に寄り、相手の言葉が「わたしが言った」になる。`起点` は相手である。
+    # いまの求めの分はまだ関係に無いので `turn_records` から、閉じた分は関係から。
+    roles: "dict[str, str]" = {i: r for i, r in req.turn_records if i}
+    with contextlib.suppress(Exception):
+        roles = {**oif.roles([r.mi.obs_id for r in memories]), **roles}
+    for r in memories:
+        if roles.get(r.mi.obs_id) == "起点" and names.get(r.mi.obs_id, "わたし") == "わたし":
+            names[r.mi.obs_id] = "相手"
     text = "\n\n".join(p for p in [said, held, _lines(memories, names)] if p and p.strip())
     return text, id_map
 
