@@ -21,28 +21,33 @@ from datetime import datetime
 import pytest
 
 from familiar_agent.io.oif import MI, Cue, Health, Recalled, Span, Verdict, View
-from familiar_agent.mood_register import MoodPAD
 
 _EXPECTED = {
-    "id", "content", "timestamp",
-    "direction", "emotion",
-    "parent_id", "superseded_by",
+    "id",
+    "content",
+    "timestamp",
+    "direction",
+    "emotion",
+    "parent_id",
+    "superseded_by",
     "pad",
-    "groundedness_g0", "groundedness_n",
+    "groundedness_g0",
+    "groundedness_n",
     "last_recalled_at",
     # 面の同定（案3）。視点3属性（`writer_id`／`subject_id`／`participants`）が
     # ここへ置き換わった。誰との関係かは面が持つ。
-    "obs_id", "person_id", "relation_key",
-    "image_path", "image_data",
+    "obs_id",
+    "person_id",
+    "relation_key",
+    "image_path",
+    "image_data",
 }
 
 
 class TestMI:
     def test_the_attributes_are_fixed(self) -> None:
         got = {f.name for f in dataclasses.fields(MI)}
-        assert got == _EXPECTED, (
-            f"欠け: {_EXPECTED - got}\n余り: {got - _EXPECTED}"
-        )
+        assert got == _EXPECTED, f"欠け: {_EXPECTED - got}\n余り: {got - _EXPECTED}"
 
     def test_derived_values_are_not_attributes(self) -> None:
         """計算で作れるものは持たない。"""
@@ -75,10 +80,13 @@ class TestMI:
         """`kind` は `direction` から決まる。"""
         mi = MI(id="x", content="c", timestamp=datetime.now(), direction="会話")
         assert mi.kind == "conversation"
-        assert MI(id="y", content="c", timestamp=datetime.now(),
-                  direction="内省").kind == "self_model"
-        assert MI(id="z", content="c", timestamp=datetime.now(),
-                  direction="好奇心").kind == "curiosity"
+        assert (
+            MI(id="y", content="c", timestamp=datetime.now(), direction="内省").kind == "self_model"
+        )
+        assert (
+            MI(id="z", content="c", timestamp=datetime.now(), direction="好奇心").kind
+            == "curiosity"
+        )
 
     def test_unknown_direction_falls_back_to_observation(self) -> None:
         """表に無い direction は observation に落とす（8つの direction がそうなっている）。"""
@@ -87,15 +95,22 @@ class TestMI:
 
     def test_the_two_version_columns_are_separate(self) -> None:
         """`parent_id`（過去へ）と `superseded_by`（未来へ）は別のもの。"""
-        mi = MI(id="x", content="c", timestamp=datetime.now(), direction="発話",
-                parent_id="起点", superseded_by="次の版")
+        mi = MI(
+            id="x",
+            content="c",
+            timestamp=datetime.now(),
+            direction="発話",
+            parent_id="起点",
+            superseded_by="次の版",
+        )
         assert mi.parent_id == "起点"
         assert mi.superseded_by == "次の版"
 
-    def test_pad_defaults_to_neutral(self) -> None:
+    def test_pad_is_none_until_measured(self) -> None:
+        """未測定は None であって中立ではない（050）。中立で埋めると nudge が静かな
+        ターンほど気分を中立へ引く。"""
         mi = MI(id="x", content="c", timestamp=datetime.now(), direction="観察")
-        assert isinstance(mi.pad, MoodPAD)
-        assert mi.pad.p == pytest.approx(0.10)  # 平静は軸ごと（案A）
+        assert mi.pad is None
 
 
 class TestCue:
@@ -105,13 +120,12 @@ class TestCue:
     def test_the_ways_of_looking_are_separate_fields(self) -> None:
         """日付・月日・種別は別の欄（いま別メソッドになっているものをまとめる）。"""
         got = {f.name for f in dataclasses.fields(Cue)}
-        assert got == {"text", "direction", "on_date", "on_month_day",
-                       "exclude", "open_ids"}, got
+        assert got == {"text", "direction", "on_date", "on_month_day", "exclude", "open_ids"}, got
 
     def test_a_cue_is_frozen(self) -> None:
         cue = Cue(text="x")
         with pytest.raises(dataclasses.FrozenInstanceError):
-            cue.text = "y"          # type: ignore[misc]
+            cue.text = "y"  # type: ignore[misc]
 
 
 class TestView:
@@ -123,7 +137,7 @@ class TestView:
 
     def test_a_view_is_frozen(self) -> None:
         with pytest.raises(dataclasses.FrozenInstanceError):
-            View().k = 3            # type: ignore[misc]
+            View().k = 3  # type: ignore[misc]
 
 
 class TestRecalled:
@@ -138,8 +152,7 @@ class TestRecalled:
 
 class TestVerdict:
     def test_the_four_values(self) -> None:
-        assert {v.value for v in Verdict} == {
-            "important", "useless", "referred", "unused"}
+        assert {v.value for v in Verdict} == {"important", "useless", "referred", "unused"}
 
 
 class TestSmallReturns:
