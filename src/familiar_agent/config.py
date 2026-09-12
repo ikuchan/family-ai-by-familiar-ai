@@ -505,6 +505,11 @@ class AgentConfig:
     # ネットの調べものは search（リンクが返る）→ fetch（本文を読む）→ 答える で最低3手。
     # 3 だと答える手が残らず、読めなかったときの取り直しの余地も無い（実機で観測）。
     event_max_iterations: int = field(default_factory=lambda: _int_env("EVENT_MAX_ITERATIONS", 5))
+    # **考えた回数の上限**（1つの求めで主LLM を呼ぶ回数・暴走の歯止め）。反復の上限とは別に
+    # 置く——主LLM の返りで反復は 0 へ戻るので（環-h）、反復の上限は輪が閉じたときに効かない。
+    # 実機（2026-09-12）でカメラが映像を返さず、主LLM が「目の前を見る」を57回出し続けた。
+    # 5回考えて答えが出ないなら、6回目で出る見込みは薄い。仮値。
+    max_thinking_rounds: int = field(default_factory=lambda: _int_env("MAX_THINKING_ROUNDS", 5))
     # 発話の前に規則違反を見るか（出-f）。**既定は on。** 判定は軽量LLM で、機械は
     # 見たか・記憶が載ったかという事実を添えるだけである（`loop/coherence.py`）。
     # 違反が出たら主LLM へ1回だけ差し戻す。切るときは `FAMILIAR_COHERENCE_CHECK=0`。

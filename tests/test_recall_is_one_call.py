@@ -82,7 +82,9 @@ def test_the_caller_owns_the_weights():
 
 
 def test_the_floor_is_always_passed():
-    """床（min_score）は両方の呼び出しに効く。2度書きだと片方が抜ける。"""
+    """床（min_score）は両方の呼び出しに効く。2度書きだと片方が抜ける。    暴走の歯止め（2026-09-12）で **231 行へ 6 行増えた**。考えた回数の上限で打ち切ったことを
+    反復の上限と区別してログに残すぶんである（後から「どちらの上限か」を判別するため）。
+    """
     mem = _mem()
     asyncio.run(workspace.recall(mem, "手がかり", weights=None, req=Request()))
     assert mem.recall.await_args.args[1].floor is not None
@@ -119,4 +121,4 @@ def test_the_iteration_does_not_recall_by_hand_anymore():
 
 def test_the_iteration_got_shorter():
     src = inspect.getsource(InformationProcessing._iterate)
-    assert len(src.split("\n")) <= 225, "薄くなっていない"
+    assert len(src.split("\n")) <= 231, "薄くなっていない"
