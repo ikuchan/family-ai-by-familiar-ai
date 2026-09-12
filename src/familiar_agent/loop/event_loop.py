@@ -1647,6 +1647,8 @@ class InformationProcessing:
         if decision.branch == "action" and decision.query and not capped:
             # つなぎの一言はここで即出す（フルLLM を経由しないぶん速い・正本③ 段5 の内部二段）。
             await self._say_filler(decision.text)
+            if decision.action == "see":
+                self._req.see_by = "調停"  # 帰りの判断も調停がする（`_decide`）
             self._start_lookup(
                 utterance or self._req.cue,
                 {"query": decision.query},
@@ -1714,20 +1716,27 @@ class InformationProcessing:
     async def _decide(
         self, *, utterance: str, workspace_ctx: str, present_ctx: str, capped: bool, round_: int
     ) -> "ArbiterDecision":
-        """この反復の分岐を決める。**see の帰りは調停を飛ばして主LLM へ戻す。**
+        """この反復の分岐を決める。**see の帰りは、出した側が判断する。**
 
-        見ると決めたのは主LLM 自身で、画像を受け取るのも主LLM だけである（`_user_content`）。
-        ここで軽量LLM に判定し直させると、`light` を選んで**画像を見ずに**即席のラベル文だけ
-        で答えたり、`recall` へ逸れたりする（2026-09-12 実機）。判定し直す理由が無いうえ、
-        調停の約 1 秒も消える。思考の深さは see を出したときの値を引き継ぐ。
+        主LLM が見ると決めたなら、その続きは主LLM（調停を飛ばす）。画像を受け取るのも主LLM
+        だけである（`_user_content`）。ここで軽量LLM に判定し直させると、`light` を選んで
+        **画像を見ずに**即席のラベル文だけで答えたり、`recall` へ逸れたりした（2026-09-12
+        実機）。判定し直す理由が無いうえ、調停の約 1 秒も消える。思考の深さは see を出した
+        ときの値を引き継ぐ。
+
+        調停が見ると決めたなら（v0.44）、帰りも調停が判断する。W には即席のラベルの見た印が
+        浮いており、写真そのものは主LLM にだけ渡ることをプロンプトが告げている。`full` なら
+        主LLM は写真つき、`light` なら軽量LLM がラベルだけで答える。
         """
         from ..capability_state import load_summary
 
         agent = self._agent
         if self._see_returned:
             self._see_returned = False
-            logger.info("event-loop see の帰りなので調停を飛ばして主LLM へ戻す")
-            return ArbiterDecision(branch="full", effort=self._req.see_effort or "high")
+            if self._req.see_by == "主LLM":
+                logger.info("event-loop 主LLM が出した see の帰りなので調停を飛ばして主LLM へ戻す")
+                return ArbiterDecision(branch="full", effort=self._req.see_effort or "high")
+            logger.info("event-loop 調停が出した see の帰りなので調停が判断する")
         return await arbitrate(
             agent._utility_backend,
             utterance=utterance,
@@ -1738,6 +1747,7 @@ class InformationProcessing:
             now_ctx=f'(now :datetime "{clock.now_local_str()}")',
             capped=capped,
             thinking_round=round_,
+            can_see=getattr(agent, "_camera", None) is not None,
         )
 
     async def _act_on_decision(self, decision: Decision, *, utterance: str, gen: int) -> str:
@@ -1777,6 +1787,7 @@ class InformationProcessing:
                 await self._say_filler(str(say_tc.input.get("text", "")).strip())
             if lookup_tc.name == "see":
                 self._req.see_effort = decision.effort
+                self._req.see_by = "主LLM"
             self._start_lookup(
                 utterance or self._req.cue, dict(lookup_tc.input), action=lookup_tc.name
             )

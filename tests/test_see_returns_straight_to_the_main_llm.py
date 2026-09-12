@@ -23,6 +23,7 @@ def test_after_a_see_completion_the_arbiter_is_skipped() -> None:
     async def scenario():
         a, ip = _ip()
         ip._req.see_effort = "medium"
+        ip._req.see_by = "主LLM"
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._triggers.put_nowait(
             Trigger(kind="完了", query="目の前を見る", result="（見えた）", index=1)
@@ -43,6 +44,7 @@ def test_after_a_see_completion_the_arbiter_is_skipped() -> None:
 def test_the_shortcut_is_used_once() -> None:
     async def scenario():
         a, ip = _ip()
+        ip._req.see_by = "主LLM"
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._triggers.put_nowait(
             Trigger(kind="完了", query="目の前を見る", result="（見えた）", index=1)

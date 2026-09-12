@@ -55,9 +55,9 @@ JSON だけを返す。
              effort が "low" でないなら、待ってもらうための短い一言を text に書く
              （相槌・受けだけ。**内容に触れない**。答えを先取りすると本応答と食い違う）。
 - "action" : いまある材料では答えきれず、先に調べる。どうやって調べるかを action に書く。
-             "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）。
+             "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
              探す語を query に、待ってもらうための短い一言を text に書く
-             （これから調べると伝えるだけ。**内容に触れない**）。
+             （これから調べると伝えるだけ。**内容に触れない**）。{see_note}
 
 **text の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か
 子どもかで丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。実機では
@@ -123,7 +123,7 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
- "action": "recall|search_deferred", "query": "…", "silence_minutes": 0,
+ "action": "{actions}", "query": "…", "silence_minutes": 0,
  "time_ref": "", "time_span_days": 0}}
 使わない項目は省いてよい。
 """
@@ -148,8 +148,17 @@ class Decision:
 
 _FALLBACK = Decision(branch="full", effort="high")
 
+#: `see` の見出しは入力に依らず固定（`event_loop._query_label`）。調停が投げても主LLM が
+#: 投げても同じ鍵になり、「すでに調べた語は投げない」の抑止がそのまま効く。
+SEE_QUERY = "目の前を見る"
+_SEE_OPTION = 'か "see"（目の前を見る＝カメラ。見えているものを聞かれた・部屋の様子を確かめる必要があるとき。query は要らない）'
+_SEE_NOTE = (
+    "\n             作業状態の『わたしが見た』の行は即席のラベルで、**写真そのものは主LLM にだけ渡る**。"
+    '写真を見て語る必要があるなら "full"。'
+)
 
-def _parse(reply: str) -> Decision | None:
+
+def _parse(reply: str, *, can_see: bool = False) -> Decision | None:
     """軽量LLM の返事から JSON を拾う。前後に地の文が混じっても拾えるようにする。"""
     match = re.search(r"\{.*\}", reply or "", re.S)
     if not match:
@@ -177,8 +186,11 @@ def _parse(reply: str) -> Decision | None:
         time_span_days = 0.0
     query = str(data.get("query", "")).strip()
     action = str(data.get("action", "")).strip() or "recall"
-    if action not in ("recall", "search_deferred", "fetch_deferred"):
+    allowed = ("recall", "search_deferred", "fetch_deferred") + (("see",) if can_see else ())
+    if action not in allowed:
         action = "recall"
+    if action == "see":
+        query = SEE_QUERY  # 見出しは固定。`(c)` 分岐は query が空だと full へ落ちる
     # 分岐に必要なものが無ければ判定できていない＝倒す。
     if branch == "light" and not text:
         return None
@@ -247,6 +259,7 @@ async def arbitrate(
     capped: bool = False,
     thinking_round: int = 1,
     timeout: float | None = None,
+    can_see: bool = False,
 ) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
@@ -264,6 +277,8 @@ async def arbitrate(
       だから回数そのものを渡す（同じ値をログと主LLM のプロンプトへも渡している）。
       2 回目以降だけ載せる（1 回目に「1 回目である」と言っても何も足さない）。
     - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
+    - `can_see`：カメラがあるか。あるときだけ `see` を候補に載せる（無い構成で選ばせて
+      空振りさせない）。帰りの判断は出した側に返る（`event_loop._decide`）。
     """
     from ..core.context_parts import Stance, build_context
 
@@ -280,6 +295,9 @@ async def arbitrate(
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
         thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
+        see_option=_SEE_OPTION if can_see else "",
+        see_note=_SEE_NOTE if can_see else "",
+        actions="recall|search_deferred|see" if can_see else "recall|search_deferred",
     )
     if timeout is None:
         from ..config import AgentConfig
@@ -302,7 +320,7 @@ async def arbitrate(
     except Exception as e:  # noqa: BLE001
         logger.warning("調停に失敗したのでフルへ倒す: %s", e)
         return _FALLBACK
-    decision = _parse(reply)
+    decision = _parse(reply, can_see=can_see)
     if decision is None:
         logger.warning("調停の返事を読めなかったのでフルへ倒す: %.80r", reply)
         return _FALLBACK
