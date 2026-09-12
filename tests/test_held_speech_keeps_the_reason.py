@@ -80,7 +80,10 @@ def test_the_text_itself_is_still_kept():
 
 def test_speaking_passes_the_reason_it_already_has():
     """`_speak` は理由を持っている（ログへ出している）。渡すだけである。"""
+    from familiar_agent.loop.request import Request
+
     ip, _a = _ip()
+    ip._req = Request()  # 起点は既定（人の発話）。独り言は積まない（情-c）
     ip._delivery_block_reason = MagicMock(return_value="黙っているよう頼まれている")
     ip._hold_speech = AsyncMock()
     ip._dif = MagicMock(speak=AsyncMock())

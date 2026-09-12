@@ -823,8 +823,17 @@ def test_speech_is_held_during_quiet_hours():
     # 静穏時間は「**自分から**話しかけない時間」。判定は配信ゲートに集めるが、掛ける
     # 相手は自発だけにする（以前は起点を区別せず、話しかけられても黙って保留し、翌朝に
     # 届く動きになっていた＝実機で観測）。ここは情動が起点＝自発なので止まる。
+    # **積まない**（情-c・2026-09-13）：独り言はその場で言えなければ無かったことになり、
+    # 思ったことだけ「考えたが言わなかった」（役割 独白）で残る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ"})])])
     a._in_quiet_hours = MagicMock(return_value=True)
+
+    def _monologues():
+        return [
+            c.args[0]
+            for c in a._memory.save_async_with_id.call_args_list
+            if c.kwargs.get("direction") == "独白"
+        ]
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -832,16 +841,17 @@ def test_speech_is_held_during_quiet_hours():
         # 先に駆動体を起こす——環-h で主LLM の返りを受けるのが駆動体になった。
         ip.start()
         await ip._begin_affect("SEEKING", "なにか気になる")
-        # 環-h で主LLM は投げっぱなしになった。保留は返りを受ける反復で起きる。
+        # 環-h で主LLM は投げっぱなしになった。独白の記録は返りを受ける反復で書かれる。
         for _ in range(_WAIT_TICKS):
-            if a._pending_store.add.called:
+            if _monologues():
                 break
             await asyncio.sleep(0.005)
         await ip.close()
 
     asyncio.run(scenario())
     a._tts.call.assert_not_awaited()
-    a._pending_store.add.assert_called_once()  # 後で話すために積む
+    a._pending_store.add.assert_not_called()  # 積まない
+    assert _monologues() == ["考えたが言わなかった：ねえ"]
 
 
 def test_full_branch_receives_the_net_actions():
