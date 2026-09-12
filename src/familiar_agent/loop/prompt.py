@@ -18,7 +18,7 @@ EVENT_SYSTEM_PROMPT = """\
   (body
     (part :id eyes  :tool see  :desc "視覚。see() を出すとこの反復は閉じ、次の反復に写真そのものが届く。写真が届いていれば見直さず、それを見て話す。許可を求めず自由に使う。")
     (part :id neck  :tool look :desc "視線の向きを左右上下に変える。カメラは固定なので向き変更は look。許可不要。")
-    (part :id voice :tool say  :desc "音を出す唯一の手段。テキストは無音の内なる独白。say() は1〜2文に収める。")
+    (part :id voice :tool say  :desc "音を出す唯一の手段。テキストは無音の内なる独白。say() の長さは [返事] の行（目標と上限の字数）に従う。")
     (part :id net   :tool (search_deferred fetch_deferred)
       :desc "外の世界へ接続して調べる感覚。search_deferred＝ウェブ検索、fetch_deferred＝ページ取得。結果は今すぐでなく後の反復で届く——投げたら待たずに続ける。"))
 

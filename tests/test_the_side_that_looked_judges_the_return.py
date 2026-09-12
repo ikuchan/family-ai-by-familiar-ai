@@ -51,7 +51,6 @@ def test_a_see_thrown_by_the_main_llm_skips_the_arbiter() -> None:
     async def scenario():
         a, ip = _ip()
         ip._req.see_by = "主LLM"
-        ip._req.see_effort = "medium"
         await _returned_see(ip)
         with patch("familiar_agent.loop.event_loop.arbitrate", new=AsyncMock()) as arb:
             d = await ip._decide(
@@ -61,7 +60,7 @@ def test_a_see_thrown_by_the_main_llm_skips_the_arbiter() -> None:
         return d, arb
 
     d, arb = asyncio.run(scenario())
-    assert not arb.called and d.branch == "full" and d.effort == "medium"
+    assert not arb.called and d.branch == "full" and d.effort == "low"
 
 
 def test_the_arbiter_is_told_whether_it_can_see() -> None:

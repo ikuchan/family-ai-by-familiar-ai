@@ -35,7 +35,7 @@ from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .coherence import facts_ctx
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
-from . import workspace
+from . import reply_budget, workspace
 from .request import Lookup, Request
 from .prompt import build_event_system_prompt
 
@@ -178,6 +178,7 @@ class Decision:
     system: object
     effort: "str | None"
     capped: bool
+    max_tokens: int = 0  # 返事の予算（出-k-ろ）。言い直しも同じ値で呼ぶ
     retried: bool = False
     original_text: str = ""
 
@@ -424,6 +425,10 @@ class InformationProcessing:
         self._note_record(obs_id, "見た")
         return obs_id
 
+    def _researched(self) -> bool:
+        """この求めでネット調査（`search_deferred`／`fetch_deferred`）を投げたか（返事の予算用）。"""
+        return any(lk.action in ("search_deferred", "fetch_deferred") for lk in self._req.lookups)
+
     def _seen_image(self, memories: "list | None") -> "tuple[str, str] | None":
         """この求めで**最後に見た**画像を (base64, 在りか) で返す。無ければ None。
 
@@ -663,6 +668,7 @@ class InformationProcessing:
         w_id_map: dict[str, str],
         mem: object,
         recent_ctx: str,
+        max_tokens: int,
         retried: bool = False,
         original_text: str = "",
     ) -> None:
@@ -695,6 +701,7 @@ class InformationProcessing:
                 w_id_map=w_id_map,
                 mem=mem,
                 recent_ctx=recent_ctx,
+                max_tokens=max_tokens,
                 retried=retried,
                 original_text=original_text,
             )
@@ -714,6 +721,7 @@ class InformationProcessing:
         w_id_map: dict[str, str],
         mem: object,
         recent_ctx: str,
+        max_tokens: int,
         retried: bool,
         original_text: str = "",
     ) -> None:
@@ -728,7 +736,8 @@ class InformationProcessing:
                 # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
                 # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
                 tools=self._tools(actions=("say",) if capped or retried else _FULL_ACTIONS),
-                max_tokens=agent.config.max_tokens,
+                # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
+                max_tokens=max_tokens,
                 on_text=None,
                 effort=effort,
             )
@@ -743,6 +752,9 @@ class InformationProcessing:
         # 所要時間を出していたのは調停だけで、主LLM はログの時刻差から手で引くしかなかった。
         say = next((tc for tc in result.tool_calls if tc.name == "say"), None)
         chars = len(str(say.input.get("text", ""))) if say else len(result.text or "")
+        if result.stop_reason == "max_tokens":
+            # 予算で切れた。返事は捨てない（`say` が壊れていれば素テキストへ倒れる既存経路）。
+            logger.info("event-loop 主LLM の出力が max_tokens=%d で切れた", max_tokens)
         logger.info(
             "event-loop 主LLM %.2f 秒（effort=%s 道具=%s %d 字 写真=%s）",
             time.monotonic() - started,
@@ -765,6 +777,7 @@ class InformationProcessing:
                     system=system,
                     effort=effort,
                     capped=capped,
+                    max_tokens=max_tokens,
                     retried=retried,
                     original_text=original_text,
                 ),
@@ -1709,6 +1722,10 @@ class InformationProcessing:
 
         # 整合チェックにも同じものを渡すので、いったん変数へ出す。
         recent_ctx = self._recent_ctx(await _result_or_none(follows_task), w_id_map)
+        # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。
+        budget = reply_budget.decide(
+            effort=decision.effort, researched=self._researched(), w_count=len(memories)
+        )
         system = build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -1716,7 +1733,11 @@ class InformationProcessing:
             pi_ctx=_pi_ctx(),
             recent_ctx=recent_ctx,
             iter_ctx=_iter_ctx(
-                chain=chain, max_chain=max_chain, thinking_round=round_, capped=capped
+                chain=chain,
+                max_chain=max_chain,
+                thinking_round=round_,
+                capped=capped,
+                budget=budget,
             ),
             workspace_ctx=workspace_ctx,
             # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
@@ -1738,6 +1759,7 @@ class InformationProcessing:
             w_id_map=dict(w_id_map),
             mem=mem,
             recent_ctx=recent_ctx,
+            max_tokens=budget.max_tokens,
         )
         await self._write_version()
         logger.info(
@@ -1778,7 +1800,8 @@ class InformationProcessing:
             self._see_returned = False
             if self._req.see_by == "主LLM":
                 logger.info("event-loop 主LLM が出した see の帰りなので調停を飛ばして主LLM へ戻す")
-                return ArbiterDecision(branch="full", effort=self._req.see_effort or "high")
+                # 見えたものを語るだけなので low（課題5 G 章「ループ側で決まる effort」）。
+                return ArbiterDecision(branch="full", effort="low")
             found = self._seen_image(memories)
             image_b64 = found[0] if found else None
             logger.info(
@@ -1845,7 +1868,6 @@ class InformationProcessing:
             if say_tc is not None:
                 await self._say_filler(str(say_tc.input.get("text", "")).strip())
             if lookup_tc.name == "see":
-                self._req.see_effort = decision.effort
                 self._req.see_by = "主LLM"
             self._start_lookup(
                 utterance or self._req.cue, dict(lookup_tc.input), action=lookup_tc.name
@@ -1890,6 +1912,7 @@ class InformationProcessing:
                     w_id_map=dict(decision.w_id_map),
                     mem=decision.mem,
                     recent_ctx=decision.recent_ctx,
+                    max_tokens=decision.max_tokens,
                     retried=True,
                     original_text=text,
                 )

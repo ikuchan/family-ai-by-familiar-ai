@@ -52,6 +52,7 @@ def test_the_main_llm_logs_seconds_and_what_came_back(caplog) -> None:
                 w_id_map={},
                 mem=None,
                 recent_ctx="",
+                max_tokens=1024,
                 retried=False,
             )
         await ip.close()

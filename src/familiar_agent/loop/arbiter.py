@@ -17,7 +17,7 @@
   実測 2.9 秒かかるところ、調停だけなら 0.7 秒で反応が返る（正本③ 段5 の「内部二段」を
   action 分岐へ当てたもの）。
 
-判定できないとき・時間切れは **full／effort=high** へ倒す（従来と同じ挙動＝退行しない）。
+判定できないとき・時間切れは **full／effort=low** へ倒す（2026-09-12 に high から改めた・課題5 G 章）。
 """
 
 from __future__ import annotations
@@ -51,7 +51,10 @@ JSON だけを返す。
 
 - "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
 - "full"   : 記憶を踏まえた言葉選びや、込み入った説明が要る。生成は別の大きなモデルが行う。
-             どれくらい深く考えるべきかを effort に "low" / "medium" / "high" で書く。
+             どれくらい深く考えるべきかを effort に書く。**既定は "low"**。
+             "medium" は次の3つのときだけ：(1) ひと言で表せない複雑な気持ちを受け止める
+             (2) 4 つ以上の記憶を踏まえて応える (3) 調べた結果をまとめる。
+             "high" は、人がよく考えるよう**明示的に**求めたときだけ。
              effort が "low" でないなら、待ってもらうための短い一言を text に書く
              （相槌・受けだけ。**内容に触れない**。答えを先取りすると本応答と食い違う）。
 - "action" : いまある材料では答えきれず、先に調べる。どうやって調べるかを action に書く。
@@ -135,7 +138,7 @@ class Decision:
 
     branch: str  # light | full | action
     text: str = ""  # light：発話／action：つなぎの一言
-    effort: str = "high"  # full：思考の深さ
+    effort: str = "low"  # full：思考の深さ（既定 low・課題5 G 章）
     action: str = "recall"  # action：どの動作で調べるか
     query: str = ""  # action：探す語
     # 黙る長さ（分）。0＝黙らない、-1＝頼まれたが長さの指定なし（受け側が既定を当てる）。
@@ -146,7 +149,8 @@ class Decision:
     time_span_days: float = 0.0  # 幅＝半減期（日）。0 は指定なし
 
 
-_FALLBACK = Decision(branch="full", effort="high")
+# 倒れたときも low（2026-09-12 決定・課題5 G 章）。以前は high で、Sonnet では 2 倍遅かった。
+_FALLBACK = Decision(branch="full", effort="low")
 
 #: `see` の見出しは入力に依らず固定（`event_loop._query_label`）。調停が投げても主LLM が
 #: 投げても同じ鍵になり、「すでに調べた語は投げない」の抑止がそのまま効く。
@@ -180,9 +184,9 @@ def _parse(reply: str, *, can_see: bool = False) -> Decision | None:
     branch = str(data.get("branch", "")).strip().lower()
     if branch not in ("light", "full", "action"):
         return None
-    effort = str(data.get("effort", "high")).strip().lower()
+    effort = str(data.get("effort", "low")).strip().lower()
     if effort not in _EFFORTS:
-        effort = "high"
+        effort = "low"
     text = str(data.get("text", "")).strip()
     try:
         silence_minutes = int(data.get("silence_minutes", 0))

@@ -186,7 +186,9 @@ def test_speaks_via_say_tool():
         _SEARCH_DEF["name"],
         _FETCH_DEF["name"],
     ]
-    assert kwargs["max_tokens"] == 400
+    # `config.max_tokens`（400）は使わない。返事の予算から固定する（出-k-ろ）。この偽の
+    # 調停は effort=high を返すので：上限 160 字×2 ＋ 申告分（W 1 件×20＋60）＋ 思考分 2048。
+    assert kwargs["max_tokens"] == 160 * 2 + (1 * 20 + 60) + 2048
     assert "on_text" in kwargs
     # 4件：取込でトリガ（発話）O、**主LLM を投げるときの版**、**返ったときの版**、
     # 発話時点で本応答 O。主LLM は投げっぱなしになり、調べものと同じく投げるとき・
