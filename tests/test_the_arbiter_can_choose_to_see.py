@@ -38,3 +38,10 @@ def test_the_prompt_offers_see_only_with_a_camera() -> None:
 
 def test_the_prompt_says_the_photo_goes_to_the_main_llm() -> None:
     assert "写真そのものは主LLM" in _prompt_of(True)
+
+
+def test_the_prompt_lets_light_answer_from_the_labels() -> None:
+    """ラベルで足りる問いは light（v0.45）。写真を見て語るなら full。"""
+    prompt = _prompt_of(True)
+    assert 'そのラベルで "light"' in prompt
+    assert "80 種" in prompt
