@@ -129,14 +129,32 @@ class GeminiBackend:
     # ── API calls ─────────────────────────────────────────────────
 
     # JSON Schema keywords unsupported by Gemini FunctionDeclaration
-    _GEMINI_UNSUPPORTED_SCHEMA_KEYS: frozenset[str] = frozenset({
-        "exclusiveMaximum", "exclusiveMinimum",
-        "$schema", "$id", "$ref", "$comment",
-        "additionalItems", "contains", "patternProperties",
-        "dependencies", "propertyNames", "const",
-        "if", "then", "else", "allOf", "anyOf", "oneOf", "not",
-        "examples", "readOnly", "writeOnly",
-    })
+    _GEMINI_UNSUPPORTED_SCHEMA_KEYS: frozenset[str] = frozenset(
+        {
+            "exclusiveMaximum",
+            "exclusiveMinimum",
+            "$schema",
+            "$id",
+            "$ref",
+            "$comment",
+            "additionalItems",
+            "contains",
+            "patternProperties",
+            "dependencies",
+            "propertyNames",
+            "const",
+            "if",
+            "then",
+            "else",
+            "allOf",
+            "anyOf",
+            "oneOf",
+            "not",
+            "examples",
+            "readOnly",
+            "writeOnly",
+        }
+    )
 
     @classmethod
     def _sanitize_schema(cls, schema: dict) -> dict:
@@ -150,8 +168,7 @@ class GeminiBackend:
                 result[k] = cls._sanitize_schema(v)
             elif isinstance(v, list):
                 result[k] = [
-                    cls._sanitize_schema(item) if isinstance(item, dict) else item
-                    for item in v
+                    cls._sanitize_schema(item) if isinstance(item, dict) else item for item in v
                 ]
             else:
                 result[k] = v
@@ -162,13 +179,16 @@ class GeminiBackend:
         declarations = []
         for t in tool_defs:
             try:
-                declarations.append(types.FunctionDeclaration(
-                    name=t["name"],
-                    description=t["description"],
-                    parameters=self._sanitize_schema(t["input_schema"]),
-                ))
+                declarations.append(
+                    types.FunctionDeclaration(
+                        name=t["name"],
+                        description=t["description"],
+                        parameters=self._sanitize_schema(t["input_schema"]),
+                    )
+                )
             except Exception as e:
                 import logging
+
                 logging.getLogger(__name__).warning(
                     "Skipping tool %s for Gemini (schema error): %s", t["name"], e
                 )
@@ -252,7 +272,7 @@ class GeminiBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
-        effort: str | None = None,   # 署名を揃えるだけ（未対応）
+        effort: str | None = None,  # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         if isinstance(system, tuple):
             system = "\n\n---\n\n".join(s for s in system if s)
@@ -316,9 +336,7 @@ class GeminiBackend:
         raw_assistant = {"role": "model", "parts": raw_parts}
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
-    async def complete(
-        self, prompt: str, max_tokens: int, *, system: str | None = None
-    ) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         types = self._types
 
         async def _run(thinking: Any) -> str:
@@ -335,7 +353,9 @@ class GeminiBackend:
                 return (resp.text or "").strip()
 
             return await _retry_transient(
-                _call, attempts=self._retry_attempts, base_sec=self._retry_base,
+                _call,
+                attempts=self._retry_attempts,
+                base_sec=self._retry_base,
                 label="gemini.complete",
             )
 
@@ -345,8 +365,14 @@ class GeminiBackend:
             logger.warning("complete() failed: %s", e)
             return ""
 
-    async def complete_with_image(self, prompt: str, image_b64: str, max_tokens: int = 512) -> str:
-        """Vision completion — sends base64 JPEG alongside text prompt."""
+    async def complete_with_image(
+        self, prompt: str, image_b64: str, max_tokens: int = 512, *, system: str | None = None
+    ) -> str:
+        """Vision completion — sends base64 JPEG alongside text prompt.
+
+        `system` は文字だけの `complete()` と同じ口（調停が写真つきで判断するとき、人格・
+        家族を同じ形で渡す・v0.46）。
+        """
         types = self._types
 
         async def _run(thinking: Any) -> str:
@@ -355,14 +381,17 @@ class GeminiBackend:
                     model=self.model,
                     # SDK の型定義は `inline_data` を含む素の dict を受け付けない形になって
                     # いるが、実行時には受け付ける（画像を渡す経路は実機で動いている）。
-                    contents=[{  # type: ignore[arg-type]
-                        "role": "user",
-                        "parts": [
-                            {"text": prompt},
-                            {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
-                        ],
-                    }],
+                    contents=[
+                        {  # type: ignore[arg-type]
+                            "role": "user",
+                            "parts": [
+                                {"text": prompt},
+                                {"inline_data": {"mime_type": "image/jpeg", "data": image_b64}},
+                            ],
+                        }
+                    ],
                     config=types.GenerateContentConfig(
+                        system_instruction=system,
                         max_output_tokens=max_tokens,
                         thinking_config=thinking,
                     ),
@@ -370,7 +399,9 @@ class GeminiBackend:
                 return (resp.text or "").strip()
 
             return await _retry_transient(
-                _call, attempts=self._retry_attempts, base_sec=self._retry_base,
+                _call,
+                attempts=self._retry_attempts,
+                base_sec=self._retry_base,
                 label="gemini.complete_with_image",
             )
 

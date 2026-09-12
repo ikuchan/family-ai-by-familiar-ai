@@ -238,7 +238,9 @@ class AnthropicBackend:
                 _wait = 60 * (_attempt + 1)
                 logger.warning(
                     "Anthropic 429 rate limit — waiting %ds before retry %d/%d",
-                    _wait, _attempt + 1, _rate_limit_retries,
+                    _wait,
+                    _attempt + 1,
+                    _rate_limit_retries,
                 )
                 await asyncio.sleep(_wait)
 
@@ -312,20 +314,23 @@ class AnthropicBackend:
         """全部の鍵を落とす（終了時）。同じ理由で API は呼ばない。"""
         getattr(self, "_warm", {}).clear()
 
-    async def complete(
-        self, prompt: str, max_tokens: int, *, system: str | None = None
-    ) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         """Simple completion (no tools, no streaming) for utility calls."""
         try:
             logger.debug("complete() calling %s with %d chars", self.model, len(prompt))
             msgs: list = [{"role": "user", "content": prompt}]
             if system:
                 resp = await self.client.messages.create(
-                    model=self.model, max_tokens=max_tokens, messages=msgs, system=system,
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=msgs,
+                    system=system,
                 )
             else:
                 resp = await self.client.messages.create(
-                    model=self.model, max_tokens=max_tokens, messages=msgs,
+                    model=self.model,
+                    max_tokens=max_tokens,
+                    messages=msgs,
                 )
             from anthropic.types import TextBlock
 
@@ -343,25 +348,34 @@ class AnthropicBackend:
             logger.warning("complete() failed: %s", e)
             return ""
 
-    async def complete_with_image(self, prompt: str, image_b64: str, max_tokens: int = 512) -> str:
+    async def complete_with_image(
+        self, prompt: str, image_b64: str, max_tokens: int = 512, *, system: str | None = None
+    ) -> str:
         """Vision completion — sends base64 JPEG alongside text prompt."""
         try:
             from anthropic.types import TextBlock
 
+            extra: dict = {"system": system} if system else {}
             resp = await self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
-                messages=[{
-                    "role": "user",
-                    "content": [
-                        {"type": "text", "text": prompt},
-                        {"type": "image", "source": {
-                            "type": "base64",
-                            "media_type": "image/jpeg",
-                            "data": image_b64,
-                        }},
-                    ],
-                }],
+                **extra,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {"type": "text", "text": prompt},
+                            {
+                                "type": "image",
+                                "source": {
+                                    "type": "base64",
+                                    "media_type": "image/jpeg",
+                                    "data": image_b64,
+                                },
+                            },
+                        ],
+                    }
+                ],
             )
             first = resp.content[0] if resp.content else None
             return first.text.strip() if isinstance(first, TextBlock) else ""

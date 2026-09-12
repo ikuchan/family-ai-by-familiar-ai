@@ -155,6 +155,12 @@ _SEE_OPTION = 'か "see"（目の前を見る＝カメラ。見えているも�
 #: 見た印のラベルはローカルの人検出（YOLO・80 種・1 枚 8 ms）が出す。棚や引き出しは無く、
 #: 机が dining table になる粗さだが、「何が見える？」に「椅子とテーブル」と返すには足りる。
 #: 写真そのものは主LLM にだけ渡るので、細かく語るなら full（v0.45）。
+#: 写真を添えたときの但し書き（v0.46）。調停が自分で見に行った帰りだけ。
+_SEE_NOTE_WITH_PHOTO = (
+    "\n             **写真を添えた**（いま見えているもの）。見えているものを聞かれただけなら、"
+    '写真を見て "light" に答えてよい。込み入った説明や記憶を踏まえる必要があるなら "full"'
+    "（主LLM にも同じ写真が渡る）。"
+)
 _SEE_NOTE = (
     "\n             作業状態の『わたしが見た』の行は即席のラベル（写っている物の名前・80 種の粗さ）。"
     '見えているものを聞かれただけなら、**そのラベルで "light" に答えてよい**。'
@@ -264,6 +270,7 @@ async def arbitrate(
     thinking_round: int = 1,
     timeout: float | None = None,
     can_see: bool = False,
+    image_b64: str | None = None,
 ) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
@@ -283,6 +290,9 @@ async def arbitrate(
     - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
     - `can_see`：カメラがあるか。あるときだけ `see` を候補に載せる（無い構成で選ばせて
       空振りさせない）。帰りの判断は出した側に返る（`event_loop._decide`）。
+    - `image_b64`：調停が自分で見に行った帰りの写真（v0.46）。即席のラベルは部屋によって
+      `bench` 1 語になり材料不足で full へ倒れたので、写真そのものを見せて light で答えられる
+      ようにする。担い手が写真を受けられなければ（`complete_with_image` 無し）文字だけで進む。
     """
     from ..core.context_parts import Stance, build_context
 
@@ -300,7 +310,7 @@ async def arbitrate(
         capped_note=_CAPPED_NOTE if capped else "",
         thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
         see_option=_SEE_OPTION if can_see else "",
-        see_note=_SEE_NOTE if can_see else "",
+        see_note=(_SEE_NOTE_WITH_PHOTO if image_b64 else _SEE_NOTE) if can_see else "",
         actions="recall|search_deferred|see" if can_see else "recall|search_deferred",
     )
     if timeout is None:
@@ -311,7 +321,12 @@ async def arbitrate(
     # 打ち切っても呼び出し自体は残す（shield）。倒す時刻は変えずに、**実際に何秒かかるか**を
     # 裏で測るため。時間切れの秒数しか残らないと、2.1 秒なのか 10 秒なのか分からず、
     # 時間切れの値を決められない（実機で「黙って」だけが 2 秒に掛かった）。
-    call = asyncio.ensure_future(backend.complete(prompt, 300, system=system))
+    if image_b64 and hasattr(backend, "complete_with_image"):
+        call = asyncio.ensure_future(
+            backend.complete_with_image(prompt, image_b64, 300, system=system)
+        )
+    else:
+        call = asyncio.ensure_future(backend.complete(prompt, 300, system=system))
     try:
         reply = await asyncio.wait_for(asyncio.shield(call), timeout=timeout)
         logger.info("調停 %.2f 秒（プロンプト %d 字）", time.monotonic() - started, len(prompt))
