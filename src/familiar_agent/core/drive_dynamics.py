@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from ..config import DriveConfig
 from ..drive_register import AiDrivers
 from ..mood_register import REST_PAD, MoodPAD
+from .solitude import Solitude
 
 _EPS = 1e-9
 
@@ -65,20 +66,29 @@ def g_d(mood: MoodPAD, cfg: DriveConfig | None = None, *, rest: MoodPAD = REST_P
 
 
 def accumulate(
-    drives: AiDrivers, mood: MoodPAD, *, dt: float | None = None, cfg: DriveConfig | None = None
+    drives: AiDrivers,
+    mood: MoodPAD,
+    *,
+    dt: float | None = None,
+    cfg: DriveConfig | None = None,
+    solitude: Solitude | None = None,
 ) -> AiDrivers:
-    """1 tick 蓄積：`drive_i += rate·mult_i(t)·learn·g_{D,i}(M)·dt`、clip[0,1]。
+    """1 tick 蓄積：`drive_i += rate·mult_i(t)·learn·2^(−n_i)·g_{D,i}(M)·dt`、clip[0,1]。
 
     倍率は軸ごとに違う（`cfg.mult_for`）。深夜は探索ほかを抑える一方、REST は逆に
     募らせるためである。時刻の判定は T が済ませてあり、ここは軸名で引くだけにする。
+
+    `solitude`（ひとりの回数・情-d）は、人と会話しないかぎり SEEKING・SAFETY・BOND の
+    間隔を倍々に伸ばす。None なら 1 倍（従来どおり）。
     """
     cfg = cfg or DriveConfig()
     dt = cfg.p_t if dt is None else dt
     g = g_d(mood, cfg)
     base = cfg.rate * cfg.learn * dt
+    lonely = solitude or Solitude()
 
     def _step(axis: str) -> float:
-        return base * cfg.mult_for(axis)
+        return base * cfg.mult_for(axis) * lonely.factor(axis)
 
     return AiDrivers(
         seeking=drives.seeking + _step("seeking") * g.seeking,

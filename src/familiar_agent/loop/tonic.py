@@ -23,7 +23,8 @@ from ..core import drive_dynamics as dd
 from ..io.dif import DIF
 from ..io.aif import AIF, Firing
 from ..core.drive_autonomy import inner_voice_for, select_fired_axis
-from ..drive_register import AiDrivers, load_drives, save_drives
+from ..core.solitude import AXES, next_interval_minutes
+from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives, save_solitude
 from ..mood_register import load_current_mood
 from .rest import run_rest_pass
 
@@ -38,11 +39,16 @@ TONIC_PERIOD_SEC = 0.5
 UNIDENTIFIED = "誰か"
 
 
-async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
+async def step_drives(
+    dt: float, *, last_human_at: float | None = None
+) -> tuple[dd.DriveFiring, AiDrivers]:
     """1 tick 分の dynamics を回して永続化し、(発火, 蓄積後・放電前の drives) を返す。
 
     重い呼び出しではないが DB を触るのでスレッドへ逃がす。`load_current_mood` は内部で
     `db.lock` を取り再入できないため、ロックを取る前に読む（既存 GUI 実装と同じ順序）。
+
+    `last_human_at`（人が最後に話しかけた epoch 秒・情-d）：ひとりの回数の `reset_at` より
+    新しければ全軸 0 へ戻す（会話で基準の間隔へ戻る）。発火した軸は数える。
     """
 
     def _work() -> tuple[dd.DriveFiring, AiDrivers]:
@@ -54,10 +60,23 @@ async def step_drives(dt: float) -> tuple[dd.DriveFiring, AiDrivers]:
         with database.lock:
             conn = database.conn()
             drives = load_drives(conn)
-            accumulated = dd.accumulate(drives, mood, dt=dt, cfg=cfg)
+            lonely = load_solitude(conn)
+            if last_human_at is not None and (
+                lonely.reset_at is None or last_human_at > lonely.reset_at
+            ):
+                lonely = lonely.reset(at=last_human_at)
+            accumulated = dd.accumulate(drives, mood, dt=dt, cfg=cfg, solitude=lonely)
             firing = dd.fired(accumulated, cfg)
             persisted = dd.discharge(accumulated, firing, cfg) if firing.any else accumulated
             save_drives(conn, persisted)
+            for axis in AXES:
+                if getattr(firing, axis):
+                    lonely = lonely.fired(axis)
+            save_solitude(conn, lonely)
+            # **ここで確定する。** 共有接続は autocommit ではなく、`save_drives` も
+            # `save_solitude` も commit しない。以前は次に誰かが commit するまで drive5 が
+            # 宙に浮いていた（別の接続からは見えない・落ちれば消える）。
+            conn.commit()
         return firing, accumulated
 
     return await asyncio.to_thread(_work)
@@ -183,6 +202,24 @@ class Tonic:
         for name in sorted(previous - current):
             self._dif.device("退室", f"{name} が居なくなった", release_pending=False)
 
+    def _solitude_note(self, axis: str) -> str:
+        """ログ用：ひとり何回目で、次はおよそ何分後か（情-d）。読めなければ空。"""
+        if axis not in AXES:
+            return ""
+        try:
+            from ..db import get_db
+
+            database = get_db()
+            with database.lock:
+                lonely = load_solitude(database.conn())
+        except Exception:  # noqa: BLE001
+            return ""
+        cfg = effective_drive_cfg(self._cfg)
+        return (
+            f"（ひとり {getattr(lonely, axis)} 回目・次は約"
+            f" {next_interval_minutes(axis, lonely, cfg):.0f} 分後）"
+        )
+
     def _nobody_is_present(self) -> bool:
         """誰も居ないか。在/不在の層（`PresenceSensor`・YOLO・登録が要らない）で見る。
 
@@ -209,7 +246,9 @@ class Tonic:
                 now = time.monotonic()
                 dt, last = now - last, now
                 self.scan_presence()
-                firing, accumulated = await step_drives(dt)
+                firing, accumulated = await step_drives(
+                    dt, last_human_at=getattr(self._agent, "_last_human_at", None)
+                )
                 if not firing.any:
                     continue
                 if not self._cfg.autonomous:
@@ -228,7 +267,7 @@ class Tonic:
                     await run_rest_pass(self._agent)
                     continue
                 prompt = inner_voice_for(axis, self._cfg)
-                logger.info("Drive fired: %s → QA へ積む", axis)
+                logger.info("Drive fired: %s → QA へ積む%s", axis, self._solitude_note(axis))
                 self._aif.fire(Firing(axis=axis, inner_voice=prompt))
             except asyncio.CancelledError:
                 raise
