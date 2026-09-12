@@ -256,6 +256,26 @@ class RelationStore:
                 )
                 return [dict(r) for r in cur.fetchall()]
 
+    def roles_of(self, obs_ids: "list[str]", kind: str = KIND_EXCHANGE) -> dict[str, str]:
+        """その記録たちが、その種類の関係で取っている役割を `obs_id → 役割` で返す。
+
+        **種類で絞る。** 1つの記録は何本もの関係に入る（やりとり・継起・共起・改訂）。
+        `やりとり` に絞れば、1つの記録の役割は1つに決まる（区間で切っているため）。
+        """
+        ids = [str(i) for i in obs_ids if i]
+        if not ids:
+            return {}
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT m.obs_id, m.role FROM relation_members m "
+                    "JOIN relations r ON r.id = m.relation_id AND r.kind = %s "
+                    "WHERE m.obs_id = ANY(%s)",
+                    (kind, ids),
+                )
+                return {str(row["obs_id"]): str(row["role"]) for row in cur.fetchall()}
+
     def members_of(self, relation_id: int) -> list[dict]:
         """関係の項を位置の昇順で返す。位置を持たない項は末尾に置く。"""
         with self._ctx.lock:
