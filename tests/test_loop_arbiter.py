@@ -22,8 +22,7 @@ def _backend(reply: str):
 
 def _call(reply: str, timeout: float = 2.0) -> Decision:
     return asyncio.run(
-        arbitrate(_backend(reply), utterance="こんにちは", workspace_ctx="[想起]…",
-                  timeout=timeout)
+        arbitrate(_backend(reply), utterance="こんにちは", workspace_ctx="[想起]…", timeout=timeout)
     )
 
 
@@ -48,8 +47,9 @@ def test_action_branch_carries_the_query():
 def test_action_branch_can_carry_a_filler_and_a_tool_name():
     # つなぎの発話は軽量LLM に出させる（フルLLM を経由すると 2.9 秒かかるところが 0.7 秒）。
     # どの動作で調べるかも軽量LLM が選ぶ（記憶を探すのと外を調べるのは別）。
-    d = _call('{"branch":"action","action":"search_deferred",'
-              '"query":"今日の天気","text":"調べてみるね"}')
+    d = _call(
+        '{"branch":"action","action":"search_deferred","query":"今日の天気","text":"調べてみるね"}'
+    )
     assert d.branch == "action"
     assert d.action == "search_deferred"
     assert d.text == "調べてみるね"
@@ -61,10 +61,10 @@ def test_action_defaults_to_recall_when_no_tool_is_named():
 
 
 def test_unparsable_reply_falls_back_to_full():
-    # 判定できないときは今までと同じ挙動（フル・effort=high）へ倒す＝退行しない。
+    # 判定できないときはフルへ倒す。effort は既定の low（2026-09-12・課題5 G 章）。
     d = _call("よくわからない返事")
     assert d.branch == "full"
-    assert d.effort == "high"
+    assert d.effort == "low"
 
 
 def test_timeout_falls_back_to_full():
@@ -76,7 +76,7 @@ def test_timeout_falls_back_to_full():
     b.complete = AsyncMock(side_effect=slow)
     d = asyncio.run(arbitrate(b, utterance="x", workspace_ctx="", timeout=0.05))
     assert d.branch == "full"
-    assert d.effort == "high"
+    assert d.effort == "low"  # 倒れたときも low（課題5 G 章）
 
 
 def _prompt_of(backend) -> str:
@@ -89,8 +89,14 @@ def test_arbiter_speaks_as_the_persona():
     # 渡っていないと、同じ人格が2つの口で違う口調で喋る（実機で「調べてくるね！」と
     # 「調べてみますね。」が混ざった）。
     b = _backend('{"branch":"light","text":"やあ"}')
-    asyncio.run(arbitrate(b, utterance="こんにちは", workspace_ctx="",
-                          self_understanding="名前： パジュ\n一人称：ぼく"))
+    asyncio.run(
+        arbitrate(
+            b,
+            utterance="こんにちは",
+            workspace_ctx="",
+            self_understanding="名前： パジュ\n一人称：ぼく",
+        )
+    )
     # 人格はシステム文で渡す（出-e-に）。**片方の口にだけ渡さない**という性質は同じ。
     system = b.complete.await_args.kwargs["system"]
     assert "パジュ" in system and "ぼく" in system
@@ -98,7 +104,7 @@ def test_arbiter_speaks_as_the_persona():
 
 def test_arbiter_judges_sufficiency_not_mere_arrival():
     # 「結果が届いたか」ではなく「答えるに足るか」で分ける。足りなければ別の角度で調べ直す。
-    assert "[調査中]" not in ARBITER_PROMPT      # 廃止した合成ラベル＝死んだ指示
+    assert "[調査中]" not in ARBITER_PROMPT  # 廃止した合成ラベル＝死んだ指示
     assert "足る" in ARBITER_PROMPT
 
 
@@ -117,11 +123,17 @@ def test_arbiter_gets_the_same_grounding_as_the_full_llm():
     # 発話の出口は2つ。片方にだけ文脈を渡すと、症状が出るたび1つずつ足すことになる
     # （人格を足した翌日、14時39分に「こんばんは」と言った＝日時が無かった）。
     b = _backend('{"branch":"light","text":"やあ"}')
-    asyncio.run(arbitrate(b, utterance="こんにちは", workspace_ctx="",
-                          self_understanding="名前： パジュ\n## 私にできること\n- 記憶を探せる",
-                          family_md="たいき：家族の長男",
-                          present_ctx='(present :speaker "たいき")',
-                          now_ctx='(now :datetime "2026-07-26 14:39")'))
+    asyncio.run(
+        arbitrate(
+            b,
+            utterance="こんにちは",
+            workspace_ctx="",
+            self_understanding="名前： パジュ\n## 私にできること\n- 記憶を探せる",
+            family_md="たいき：家族の長男",
+            present_ctx='(present :speaker "たいき")',
+            now_ctx='(now :datetime "2026-07-26 14:39")',
+        )
+    )
     # 文脈は2箇所へ分かれた（出-e-に）。**合わせて見る**——身元はシステム文、
     # いま誰が居るかと時刻はプロンプトである。片方にだけ渡す形へ戻っていないこと。
     system = b.complete.await_args.kwargs["system"]

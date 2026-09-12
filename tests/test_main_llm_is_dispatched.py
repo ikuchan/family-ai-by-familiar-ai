@@ -79,6 +79,7 @@ def test_dispatching_counts_the_main_llm_as_in_flight():
             w_id_map={},
             mem=MagicMock(),
             recent_ctx="",
+            max_tokens=1024,
         )
         got = ip._in_flight_count
         for t in list(ip._background_tasks):
@@ -102,6 +103,7 @@ def test_the_dispatched_main_llm_appears_in_the_lookups():
             w_id_map={},
             mem=MagicMock(),
             recent_ctx="",
+            max_tokens=1024,
         )
         for t in list(ip._background_tasks):
             t.cancel()
@@ -126,6 +128,7 @@ def test_the_return_lands_in_the_queue_with_what_it_saw():
             w_id_map={"abcdef123456": "m1"},
             mem=MagicMock(),
             recent_ctx="R",
+            max_tokens=1024,
         )
         for t in list(ip._background_tasks):
             await t

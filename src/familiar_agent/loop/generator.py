@@ -78,7 +78,7 @@ def _present_ctx(agent) -> str:
     return "".join(parts) + ")"
 
 
-def _iter_ctx(*, chain: int, max_chain: int, thinking_round: int, capped: bool) -> str:
+def _iter_ctx(*, chain: int, max_chain: int, thinking_round: int, capped: bool, budget=None) -> str:
     """この反復がどこに居るかを、主LLM へ渡す1行に組む。
 
     材料は数と真偽だけで、**ループの可変状態を1つも読まない**（に-5-は）。
@@ -89,8 +89,12 @@ def _iter_ctx(*, chain: int, max_chain: int, thinking_round: int, capped: bool) 
       である（環-h ⑥-2）。反復のリセットで手がかりが消えたので、回数そのものを渡す
     - `capped`：上限では、黙って手持ちで繕わず「調べきれなかった」と断ってから答えさせる。
       断りが無いと、材料不足のまま答えたことが相手に伝わらない
+    - `budget`：返事の予算（`reply_budget.ReplyBudget`）。長さは規則の文言でなく**数字で**
+      渡す（出-k-ろ）。無ければ行を足さない
     """
     text = f"[反復] {chain}/{max_chain}（この件を考えるのは {thinking_round} 回目）"
+    if budget is not None:
+        text = budget.line() + "\n" + text
     if capped:
         text += (
             "（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"

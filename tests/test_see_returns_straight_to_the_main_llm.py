@@ -22,7 +22,6 @@ def _ip():
 def test_after_a_see_completion_the_arbiter_is_skipped() -> None:
     async def scenario():
         a, ip = _ip()
-        ip._req.see_effort = "medium"
         ip._req.see_by = "主LLM"
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
         ip._triggers.put_nowait(
@@ -38,7 +37,7 @@ def test_after_a_see_completion_the_arbiter_is_skipped() -> None:
 
     d, arb = asyncio.run(scenario())
     assert not arb.called
-    assert d.branch == "full" and d.effort == "medium"
+    assert d.branch == "full" and d.effort == "low"  # 見えたものを語るだけ（課題5 G 章）
 
 
 def test_the_shortcut_is_used_once() -> None:
@@ -80,8 +79,8 @@ def test_a_recall_completion_still_goes_through_the_arbiter() -> None:
     assert asyncio.run(scenario()).called
 
 
-def test_the_main_llm_effort_is_remembered_when_it_asks_to_see() -> None:
+def test_the_main_llm_marks_itself_when_it_asks_to_see() -> None:
     import inspect
 
     src = inspect.getsource(InformationProcessing._act_on_decision)
-    assert 'lookup_tc.name == "see"' in src and "see_effort" in src
+    assert 'lookup_tc.name == "see"' in src and 'see_by = "主LLM"' in src
