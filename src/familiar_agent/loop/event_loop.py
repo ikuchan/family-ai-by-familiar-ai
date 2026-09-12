@@ -376,6 +376,12 @@ class InformationProcessing:
 
         旧との違いは、`see` の完了が**どの定点を見たか**を頭に付けることである
         （`_run_camera`）。定点名が入って初めて、W が「次はここを見る番だ」を選べる。
+
+        **この求めのあいだ、W へ浮かせる。** `see` の帰りは版に載せない（同じ出来事が
+        2件になって枠を食う）ので、見えたものを持つのはこの記録だけである。役割 `見た` で
+        控えると、`workspace.open_ids` が求めのあいだ活性に下限を課して W へ載せる。
+        似ている順の採点に任せていたときは載らず、主LLM が `see` を5回出した
+        （2026-09-12 実機）。
         """
         agent = self._agent
         obs_id = await agent._oif.write(
@@ -388,8 +394,8 @@ class InformationProcessing:
             ),
             **agent._observation_perspective(),
         )
-        # W へ載せる。版から結果を落としたので、この経路が無いと `see` した反復の
-        # 次で、調停が何が見えたかを知らないまま返事を作る。
+        # 役割 `見た` で控える。やりとりの関係と共起の材料になり、**`open_ids` が W へ
+        # 浮かせる**（docstring）。
         self._note_record(obs_id, "見た")
         return obs_id
 
