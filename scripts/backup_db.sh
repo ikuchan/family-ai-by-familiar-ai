@@ -22,6 +22,23 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
+# `.env` を読む。**設定の置き場を1箇所にする**ため。
+#
+# 夜間の自動実行は systemd の `Environment=` で値を渡しており正しく動いていたが、
+# **手で回すと既定の `google drive:…` を探して失敗していた**（2026-09-04 以降、機外の
+# 控えが上がっていたのは自動実行のぶんだけ）。片方だけ設定されている状態は気づきにくい。
+#
+# **既に環境にある値を上書きしない**（`-u` で未設定のものだけ入れる）。systemd の
+# `Environment=` と、手で付けた `VAR=... ./backup_db.sh` が勝つ。
+if [ -f "$PROJECT_DIR/.env" ]; then
+    set -a
+    # shellcheck disable=SC1091
+    . <(grep -E '^[A-Za-z_][A-Za-z0-9_]*=' "$PROJECT_DIR/.env" | while IFS='=' read -r k v; do
+        [ -z "${!k+x}" ] && printf '%s=%s\n' "$k" "$v"
+    done)
+    set +a
+fi
+
 DB_NAME="${DB_NAME:-familiar_ai}"
 BACKUP_DIR="${BACKUP_DIR:-$HOME/.familiar_ai/backups}"
 KEEP_DAYS="${KEEP_DAYS:-7}"
