@@ -13,7 +13,7 @@ OIF はその 22 種を **8 つの口**へまとめ、`ObservationMemory`（と�
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import date, datetime
 from enum import Enum
 from collections.abc import Sequence
@@ -82,7 +82,9 @@ class MI:
     parent_id: str | None = None
     superseded_by: str | None = None
 
-    pad: MoodPAD = field(default_factory=MoodPAD)
+    # **未測定でありうる**（050）。`None` は「測っていない」で、中立とは違う。中立で埋めると
+    # 測ったのか埋めたのかが後から見分けられず、気分の材料が一点に潰れる。
+    pad: "MoodPAD | None" = None
 
     # 根づき と 新しさ は**素**で持ち、導出は計算する。
     groundedness_g0: float = 1.0
@@ -445,7 +447,7 @@ def _to_recalled(row: dict) -> Recalled:
             timestamp=row.get("timestamp"),
             direction=str(row.get("direction", "")),
             emotion=str(row.get("emotion", "neutral")),
-            pad=row.get("emotion_pad") or MoodPAD(),
+            pad=row.get("emotion_pad"),  # 未測定なら None のまま（050）
             parent_id=row.get("parent_id"),
             superseded_by=row.get("superseded_by"),
             groundedness_g0=float(row.get("groundedness_g0", 1.0)),

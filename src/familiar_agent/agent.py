@@ -31,7 +31,7 @@ from .routines import quiet_hours_rule
 from .self_narrative import SelfNarrative
 from .io.aif import AIF, Nudge
 from .store import clock
-from .io.oif import MI, OIF, Cue, View
+from .io.oif import MI, OIF, Cue, Recalled, View
 from .mood_register import MoodPAD
 from .exploration import ExplorationTracker
 from .scene import SceneTracker
@@ -308,7 +308,7 @@ class EmbodiedAgent:
         user_input: str,
         final_text: str,
         emotion_pad: "MoodPAD | None",  # 未測定でありうる（050）
-        memories: list[dict] | None,
+        memories: "list[Recalled] | None",
         camera_used: bool,
         is_desire_turn: bool,
     ) -> None:
@@ -389,7 +389,7 @@ class EmbodiedAgent:
         is_desire_turn: bool,
         desires: DesireSystem | None,
         arousal: float = 0.0,
-        memories: list[dict] | None = None,
+        memories: "list[Recalled] | None" = None,
         exchange: "list[tuple[str, str]] | None" = None,
         extra_cooccurring_ids: "list[str] | None" = None,
     ) -> None:
@@ -411,14 +411,17 @@ class EmbodiedAgent:
         # mood を W トーンで nudge（mood-c）。W＝想起記憶（PAD, 根づき）＋現ターンの
         # 感情 E_cur（重み＝既定 a0=1.0）＋自己認識 MI フラット項（compute_n_pad が内包）。
         # 評価器の後に呼ぶ（E_cur を W に含めるため）。会話ターンのみ（memories が入力）。
+        # W は口から `Recalled` で来る（環-e-い）。
         _nudge_items = [
-            (m["emotion_pad"], m["groundedness"])
-            for m in (memories or [])
+            (r.mi.pad, r.groundedness)
+            for r in (memories or [])
             # PAD が未測定の記憶は nudge の材料にしない（050）。測っていない中立で
             # 気分を引っ張ると、静かなターンほど気分が中立へ寄る。
-            if m.get("emotion_pad") is not None and "groundedness" in m
+            if r.mi.pad is not None
         ]
-        _nudge_items.append((emotion_pad, 1.0))
+        # いまのターンの感情も**測れていなければ**材料にしない（050）。
+        if emotion_pad is not None:
+            _nudge_items.append((emotion_pad, 1.0))
         # T のレジスタは直接動かさない。行き来は AIF（自律機構接続）へ集める
         # （`設計図` ③-2 の4つの口）。
         self._aif.nudge(Nudge(items=_nudge_items))
@@ -769,7 +772,7 @@ class EmbodiedAgent:
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
 
     def _record_cooccurrence(
-        self, memories: "list[dict] | None", new_ids: "list[str | None] | None" = None
+        self, memories: "list[Recalled] | None", new_ids: "list[str | None] | None" = None
     ) -> None:
         """そのターンの W（想起 MI）＋そのターンに作った記憶を1つの共起として記録する。
 
