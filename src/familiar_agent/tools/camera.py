@@ -17,6 +17,7 @@ import base64
 import contextlib
 import logging
 import os
+import re
 import threading
 import time
 from datetime import datetime
@@ -33,6 +34,18 @@ from ..setup import _onvif_wsdl_dir
 logger = logging.getLogger(__name__)
 
 CAPTURE_DIR = Path.home() / ".familiar_ai" / "captures"
+
+
+def _mask_source(source) -> str:
+    """ログに出す前に、URL の認証情報を伏せる。
+
+    `rtsp://user:pass@host/...` をそのまま出すと、**パスワードがログ file と画面に残る**
+    （実機で 2026-09-12 に露見）。ホストと経路は残す——切り分けにはそれで足りる。
+    """
+    text = str(source)
+    if "://" not in text:
+        return text
+    return re.sub(r"://[^@/]*@", "://***:***@", text)
 
 
 class CameraTool:
@@ -120,9 +133,7 @@ class CameraTool:
             if isinstance(source, str) and source.startswith("rtsp://"):
                 # stimeout: socket-level read timeout in microseconds (5 s).
                 # Reduces dead-stream recovery from 30–47 s to ~5 s.
-                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = (
-                    "rtsp_transport;tcp|stimeout;5000000"
-                )
+                os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] = "rtsp_transport;tcp|stimeout;5000000"
             return cv2.VideoCapture(
                 source, cv2.CAP_FFMPEG if isinstance(source, str) else cv2.CAP_ANY
             )
@@ -131,11 +142,11 @@ class CameraTool:
             self._cap = _open_cap()
 
             if not self._cap.isOpened():
-                logger.error("Failed to open camera source: %s", source)
+                logger.error("Failed to open camera source: %s", _mask_source(source))
                 self._running = False
                 return
 
-            logger.info("Camera capture thread started for source: %s", source)
+            logger.info("Camera capture thread started for source: %s", _mask_source(source))
 
             while self._running:
                 ret, frame = self._cap.read()
@@ -241,6 +252,7 @@ class CameraTool:
 
     def _get_stream_url(self) -> str | int:
         from ..config import CameraConfig
+
         return CameraConfig(
             host=str(self.host) if self.host is not None else "",
             username=self.username or "",
@@ -396,18 +408,19 @@ class CameraTool:
         ]
         # 定点が無ければ首を振る先も無い。選べない動作は見せない。
         if self._poses:
-            defs.append({
-                "name": "look",
-                "description": "Turn your neck to face one of the places you know.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "pose": {"type": "string",
-                                 "enum": [p.name for p in self._poses]},
+            defs.append(
+                {
+                    "name": "look",
+                    "description": "Turn your neck to face one of the places you know.",
+                    "input_schema": {
+                        "type": "object",
+                        "properties": {
+                            "pose": {"type": "string", "enum": [p.name for p in self._poses]},
+                        },
+                        "required": ["pose"],
                     },
-                    "required": ["pose"],
-                },
-            })
+                }
+            )
         return defs
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, str | None]:

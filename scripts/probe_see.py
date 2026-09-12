@@ -17,7 +17,7 @@ import logging
 import re
 import sys
 
-from familiar_agent.backend import create_scene_backend, create_utility_backend
+from familiar_agent.backends import create_scene_backend, create_utility_backend
 from familiar_agent.config import AgentConfig
 from familiar_agent.scene import _EXTRACT_SYSTEM, extract_entities
 from familiar_agent.tools.camera import CameraTool
@@ -33,14 +33,18 @@ async def main() -> int:
         return 1
 
     camera = CameraTool(
-        cam_cfg.host, cam_cfg.username, cam_cfg.password, cam_cfg.port,
+        cam_cfg.host,
+        cam_cfg.username,
+        cam_cfg.password,
+        cam_cfg.port,
         preview=False,
-        ptz_host=cam_cfg.ptz_host, ptz_username=cam_cfg.ptz_username,
-        ptz_password=cam_cfg.ptz_password, ptz_port=cam_cfg.ptz_port,
+        ptz_host=cam_cfg.ptz_host,
+        ptz_username=cam_cfg.ptz_username,
+        ptz_password=cam_cfg.ptz_password,
+        ptz_port=cam_cfg.ptz_port,
     )
     backend = create_scene_backend(cfg) or create_utility_backend(cfg)
-    print(f"意味づけの担い手 = {type(backend).__name__} "
-          f"{getattr(backend, 'model', '')}")
+    print(f"意味づけの担い手 = {type(backend).__name__} {getattr(backend, 'model', '')}")
 
     # 集音と同じで、RTSP は開くまで待つ。`__init__` が撮影スレッドを起こすので
     # （`camera.py:77`）、最初のフレームが届くまで数秒かかる。実機の `see` は
@@ -60,8 +64,9 @@ async def main() -> int:
     print(f"画像 = {len(image_b64)} 字（base64）")
 
     print("\n── VLM の生の返答 ──────────────")
-    prompt = (f"{_EXTRACT_SYSTEM}\n\n"
-              "Analyze this camera image directly and extract all visible entities.")
+    prompt = (
+        f"{_EXTRACT_SYSTEM}\n\nAnalyze this camera image directly and extract all visible entities."
+    )
     raw = await backend.complete_with_image(prompt, image_b64)
     print(repr(raw)[:3000])
 
