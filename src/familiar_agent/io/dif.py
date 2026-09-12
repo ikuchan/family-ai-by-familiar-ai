@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import contextlib
+import time
 import logging
 
 logger = logging.getLogger(__name__)
@@ -72,8 +73,11 @@ class DIF:
         if self._tts is None:
             return
         logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
+        started = time.monotonic()
         with contextlib.suppress(Exception):
             await self._tts.call("say", {"text": text})
+        # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
+        logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
 
     # ── 調べもの ──────────────────────────────────────────────────────────
 

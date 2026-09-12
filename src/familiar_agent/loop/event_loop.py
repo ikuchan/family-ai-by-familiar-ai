@@ -91,6 +91,22 @@ def _query_label(action: str, tool_input: dict) -> str:
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
+def _has_image(messages: list) -> bool:
+    """本文に画像ブロックが含まれるか（ログ用）。担い手ごとの形の違いは `type` で吸収する。"""
+    for m in messages:
+        content = m.get("content") if isinstance(m, dict) else None
+        if isinstance(content, list) and any(
+            isinstance(c, dict) and c.get("type") == "image" for c in content
+        ):
+            return True
+        parts = m.get("parts") if isinstance(m, dict) else None
+        if isinstance(parts, list) and any(
+            isinstance(c, dict) and "inline_data" in c for c in parts
+        ):
+            return True
+    return False
+
+
 def _camera_tool_def(agent, name: str) -> list[dict]:
     """カメラの道具定義から1つだけ取り出す。カメラが無ければ空。"""
     cam = getattr(agent, "_camera", None)
@@ -703,6 +719,7 @@ class InformationProcessing:
     ) -> None:
         """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
         agent = self._agent
+        started = time.monotonic()
         try:
             result, _raw = await agent.backend.stream_turn(
                 system=system,
@@ -722,6 +739,18 @@ class InformationProcessing:
             from ..backends.types import TurnResult as _TR
 
             result = _TR(stop_reason="end_turn", text="")
+        # **生成の秒数は必ず残す**（出-k-い）。何が返ったか（道具・字数・写真の有無）も添える。
+        # 所要時間を出していたのは調停だけで、主LLM はログの時刻差から手で引くしかなかった。
+        say = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+        chars = len(str(say.input.get("text", ""))) if say else len(result.text or "")
+        logger.info(
+            "event-loop 主LLM %.2f 秒（effort=%s 道具=%s %d 字 写真=%s）",
+            time.monotonic() - started,
+            effort or "-",
+            "/".join(tc.name for tc in result.tool_calls) or "なし",
+            chars,
+            "あり" if _has_image(messages) else "なし",
+        )
         self._triggers.put_nowait(
             Trigger(
                 kind="決定",
@@ -743,6 +772,18 @@ class InformationProcessing:
         )
 
     async def _run_lookup(
+        self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
+    ) -> None:
+        """調べものを実行し、**かかった秒数を必ず残す**（出-k-い）。中身は `_run_lookup_body`。"""
+        started = time.monotonic()
+        try:
+            await self._run_lookup_body(action, tool_input, query, intent_id, index)
+        finally:
+            logger.info(
+                "event-loop 調べもの %s %.2f 秒：%.40s", action, time.monotonic() - started, query
+            )
+
+    async def _run_lookup_body(
         self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
     ) -> None:
         """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
@@ -1891,11 +1932,18 @@ class InformationProcessing:
         if found is not None:
             rec = next((r for r in memories if getattr(r.mi, "image_path", None) == found[1]), None)
             seen_mark = rec.mi.content if rec is not None else None
-        return await agent._evaluator.check_response_coherence(
+        started = time.monotonic()
+        violation = await agent._evaluator.check_response_coherence(
             text,
             recent=recent,
             facts=facts_ctx(saw=saw, memories=memories, picture=found is not None, seen=seen_mark),
         )
+        logger.info(
+            "event-loop 整合チェック %.2f 秒（違反=%s）",
+            time.monotonic() - started,
+            "あり" if violation else "なし",
+        )
+        return violation
 
     def _declare_light_memory_use(
         self,
