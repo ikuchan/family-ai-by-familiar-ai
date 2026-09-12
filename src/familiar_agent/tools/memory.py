@@ -380,6 +380,22 @@ def subject_line(direction: str, name: "str | None") -> str:
     return direction or "記録"
 
 
+def _seat_open_records(results: list[dict], *, open_ids: set, n: int) -> list[dict]:
+    """open な記録に W の席を予約し、残りを採点順で埋める（2026-09-12 実機で露見）。
+
+    open は「この求めのために書いた、まだ決着していない記録」で、**似ている順で競わせる
+    ものではない**。以前は根づきの底上げだけで、手がかりが版の文面だと他の版が「似ている」
+    として上位を独占し、この求めで見たもの（`見えたもの：…`）が候補に在っても載らなかった。
+    主LLM は「見たらしいが何が見えたか書いていない」版を渡され、`see` を5回出した。
+
+    候補に無いものは載せられない（一次絞りの側の話）。open どうしは採点順、枠は超えない。
+    """
+    ranked = sorted(results, key=lambda r: r["fit"], reverse=True)
+    seated = [r for r in ranked if r.get("memory_id") in open_ids][:n]
+    rest = [r for r in ranked if r.get("memory_id") not in open_ids]
+    return seated + rest[: max(0, n - len(seated))]
+
+
 class ObservationMemory:
     """PostgreSQL-backed memory store scoped to one person_id."""
 
@@ -1059,7 +1075,9 @@ class ObservationMemory:
                     )
                     final = parts.fit
                     # 合成スコアの soft 床。生コサインではなく最終スコアで絞る。
-                    if min_score > 0.0 and final < min_score:
+                    # **open な記録は床の対象外。** この求めのために書いたものは、手がかりと似て
+                    # いなくても載せる（実機で見た印が fit=0.010 で床 0.05 に落ち、席に着く前に消えた）。
+                    if min_score > 0.0 and final < min_score and row["id"] not in _open:
                         continue
                     # 採点の鍵は**面**（案3）。同じ出来事の別の面は別の候補なので、
                     # 出来事の id を鍵にすると後から来た面が前の面の内訳を消す。
@@ -1102,9 +1120,10 @@ class ObservationMemory:
                             ),
                         }
                     )
-                results.sort(key=lambda r: r["fit"], reverse=True)
                 # 一次絞りで集めた N 件から、上位 n 件（正本の W 載せ上限 K）へ絞る。
-                results = results[:n]
+                # **open な記録は席を予約する**——採点では負けても、この求めのために
+                # 書いたものは必ず載せる。
+                results = _seat_open_records(results, open_ids=_open, n=n)
 
                 # 想起順の内訳。実機確認で「なぜこの順なのか」を後から再構成する
                 # ために出す。記憶内容を含むうえ想起のたびに走るので debug 限定。
