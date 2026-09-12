@@ -101,6 +101,7 @@ def _agent(*, stream_returns, max_iters=3):
     a.config = MagicMock()
     a.config.max_tokens = 400
     a.config.event_max_iterations = max_iters
+    a.config.max_thinking_rounds = 5  # 考えた回数の上限（暴走の歯止め）
     # 数値として使う設定は明示する。MagicMock のままだと `content[:cap]` の cap が
     # `__index__`=1 と解釈され、content が黙って1文字に切られる（実際に起きた）。
     a.config.completion_content_max = 8192

@@ -69,6 +69,8 @@ def test_the_iteration_got_shorter():
     出-h-ろ で **215 行へ 10 行増えた**。`light` で閉じる反復にも申告の口を通したためで
     （`_declare_light_memory_use`）、**記憶が育つ経路を1本に保つ**ための増分である。
     中身は殻の呼び口1つ（背景で投げるだけ）で、判断は核（`workspace.ask_verdicts`）にある。
+        暴走の歯止め（2026-09-12）で **231 行へ 6 行増えた**。考えた回数の上限で打ち切ったことを
+    反復の上限と区別してログに残すぶんである（後から「どちらの上限か」を判別するため）。
     """
     src = inspect.getsource(InformationProcessing._iterate)
-    assert len(src.split("\n")) <= 220, "薄くなっていない"
+    assert len(src.split("\n")) <= 231, "薄くなっていない"

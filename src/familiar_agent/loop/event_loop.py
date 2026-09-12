@@ -435,6 +435,21 @@ class InformationProcessing:
         return sum(1 for lk in self._req.lookups if lk.in_flight)
 
     @property
+    def _thinking_capped(self) -> bool:
+        """**考えた回数が上限に達したか**（暴走の歯止め・2026-09-12 実機で露見）。
+
+        反復の上限（`event_max_iterations`）は、主LLM の返りで反復が 0 へ戻るので、輪が
+        閉じたときには効かない。実機ではカメラが映像を返さず `see` が空で完了し、主LLM が
+        「目の前を見る」を57回出し続けた——同じ語は二度と投げず**完了として積む**ので、その
+        完了が次の反復を起こし、主LLM が同じ要求を出す。止めたのは人の手だった。
+
+        「考えた回数を材料として渡し、主LLM に判断させる」（環-h）は、この実測で否定された。
+        `考え=57回目` と渡していても止まらなかった。見えるはずのものが見えていない状況で
+        もう一度見ようとするのは自然な判断で、指示では止まらない。**機械の歯止めを置く。**
+        """
+        return self._thinking_round >= max(1, self._agent.config.max_thinking_rounds)
+
+    @property
     def _thinking_round(self) -> int:
         """この求めで、主LLM を呼ぶのが何回目か（これから呼ぶ回を含む）。
 
@@ -1408,11 +1423,22 @@ class InformationProcessing:
             "event-loop iter=%d/%d 考え=%d回目 在席=%s", chain, max_chain, round_, present_ctx
         )
 
-        capped = chain >= max_chain
+        # **上限は2つ。** 反復（1回の一巡の長さ）と、考えた回数（求め全体で主LLM を呼んだ数）。
+        # 反復は主LLM の返りで 0 へ戻るので、輪が閉じたときは考えた回数だけが効く。
+        capped = chain >= max_chain or self._thinking_capped
         if capped:
             # 上限で打ち切ったことは、後からログだけで判別できる必要がある（DEBUG の
             # iter=N/M からは「たまたま N 回で終わった」のか「打ち切った」のか分からない）。
-            logger.info("event-loop 反復 %d/%d 上限に達したため探索を打ち切る", chain, max_chain)
+            if self._thinking_capped:
+                logger.info(
+                    "event-loop 考えた回数 %d/%d 上限に達したため探索を打ち切る",
+                    round_,
+                    self._agent.config.max_thinking_rounds,
+                )
+            else:
+                logger.info(
+                    "event-loop 反復 %d/%d 上限に達したため探索を打ち切る", chain, max_chain
+                )
             self._req.iterations_capped = True
         decision = await arbitrate(
             agent._utility_backend,
