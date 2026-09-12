@@ -90,6 +90,12 @@ async def main() -> None:
     ap.add_argument("-m", "--model", action="append", dest="models")
     ap.add_argument("-n", type=int, default=3)
     ap.add_argument("--no-photo", action="store_true")
+    ap.add_argument(
+        "--effort",
+        choices=["low", "medium", "high"],
+        default=None,
+        help="全条件をこの深さで測る（省略時は既定＋写真つきだけ low を足す）",
+    )
     args = ap.parse_args()
     models = args.models or ["claude-haiku-4-5-20251001", "claude-sonnet-4-5"]
 
@@ -116,12 +122,12 @@ async def main() -> None:
         os.environ["MODEL"] = model
         os.environ["PLATFORM"] = "anthropic"
         backend = create_backend(AgentConfig())
-        conds: list[tuple[str, str | None, object]] = [("文字だけ", None, _QUESTION)]
+        conds: list[tuple[str, str | None, object]] = [("文字だけ", args.effort, _QUESTION)]
         if image_b64:
             conds.append(
                 (
                     "写真つき",
-                    None,
+                    args.effort,
                     [
                         {"type": "text", "text": _QUESTION},
                         {
@@ -135,7 +141,7 @@ async def main() -> None:
                     ],
                 )
             )
-            if _supports_adaptive_thinking(model):
+            if args.effort is None and _supports_adaptive_thinking(model):
                 conds.append(("写真つき", "low", conds[-1][2]))
         for label, effort, content in conds:
             secs, chars, toks = [], [], []
@@ -152,7 +158,9 @@ async def main() -> None:
                 samples.append(
                     f"[{model} {label} effort={effort or '-'}] {sec:.2f}s {n_chars}字: {text[:80]}"
                 )
-            eff = effort or ("-" if not _supports_adaptive_thinking(model) else "既定(high)")
+            eff = (
+                "送られない" if not _supports_adaptive_thinking(model) else (effort or "既定(high)")
+            )
             if failed or not secs:
                 print(f"| {model} | {label} | {eff} | 失敗：{failed} | | |")
                 continue
