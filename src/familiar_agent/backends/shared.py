@@ -95,19 +95,27 @@ async def _retry_transient(fn, *, attempts: int, base_sec: float, label: str):
         except Exception as e:  # noqa: BLE001
             if not _is_transient_error(e) or i == attempts - 1:
                 raise
-            delay = base_sec * (2 ** i)
+            delay = base_sec * (2**i)
             logger.warning(
-                "%s transient error (retry %d/%d in %.1fs): %s", label, i + 1, attempts - 1, delay, e
+                "%s transient error (retry %d/%d in %.1fs): %s",
+                label,
+                i + 1,
+                attempts - 1,
+                delay,
+                e,
             )
             if delay > 0:
                 await asyncio.sleep(delay)
 
 
-_ADAPTIVE_THINKING_MODELS = ("sonnet-4", "opus-4")
+# 実 API で確かめた（2026-09-12・出-k-い）：4.6 と 5 系は `thinking: adaptive` を受け、
+# `claude-sonnet-4-5` と `claude-haiku-4-5` は 400（"adaptive thinking is not supported"）。
+# 以前の "sonnet-4" 前方一致は 4.5 も当ててしまい、主LLM を 4.5 にすると毎回 400 になった。
+_ADAPTIVE_THINKING_MODELS = ("sonnet-4-6", "opus-4-6", "sonnet-5", "opus-5")
 
 
 def _supports_adaptive_thinking(model: str) -> bool:
-    """Return True if the model supports adaptive thinking (Sonnet 4.x / Opus 4.x)."""
+    """Return True if the model supports adaptive thinking (Sonnet/Opus 4.6 and the 5 family)."""
     return any(m in model for m in _ADAPTIVE_THINKING_MODELS)
 
 
@@ -191,13 +199,13 @@ class _ThinkingTagFilter:
                         self._buf = self._buf[-tail:]
                     break
                 out.append(self._buf[:idx])
-                self._buf = self._buf[idx + len(self._OPEN):]
+                self._buf = self._buf[idx + len(self._OPEN) :]
                 self._in_thinking = True
             else:
                 idx = self._buf.find(self._CLOSE)
                 if idx == -1:
                     break  # still inside block — buffer everything
-                self._buf = self._buf[idx + len(self._CLOSE):]
+                self._buf = self._buf[idx + len(self._CLOSE) :]
                 self._in_thinking = False
         return "".join(out)
 

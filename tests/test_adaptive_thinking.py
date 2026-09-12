@@ -24,20 +24,27 @@ class TestSupportsAdaptiveThinking:
 
         assert _supports_adaptive_thinking("claude-sonnet-4-6") is True
 
-    def test_sonnet_4_partial_name(self):
+    def test_sonnet_4_5_is_not_supported(self):
+        """実 API が 400 を返す（2026-09-12 実測）。前方一致 "sonnet-4" は 4.5 を巻き込んでいた。"""
         from familiar_agent.backends import _supports_adaptive_thinking
 
-        assert _supports_adaptive_thinking("claude-sonnet-4-5-20251022") is True
+        assert _supports_adaptive_thinking("claude-sonnet-4-5-20251022") is False
+
+    def test_the_5_family_is_supported(self):
+        from familiar_agent.backends import _supports_adaptive_thinking
+
+        assert _supports_adaptive_thinking("claude-sonnet-5") is True
+        assert _supports_adaptive_thinking("claude-opus-5") is True
 
     def test_opus_4_6_is_supported(self):
         from familiar_agent.backends import _supports_adaptive_thinking
 
         assert _supports_adaptive_thinking("claude-opus-4-6") is True
 
-    def test_opus_4_partial_name(self):
+    def test_opus_4_bare_name_is_not_assumed(self):
         from familiar_agent.backends import _supports_adaptive_thinking
 
-        assert _supports_adaptive_thinking("claude-opus-4") is True
+        assert _supports_adaptive_thinking("claude-opus-4") is False
 
     def test_haiku_not_supported(self):
         from familiar_agent.backends import _supports_adaptive_thinking
