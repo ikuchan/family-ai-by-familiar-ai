@@ -91,7 +91,7 @@ JSON だけを返す。
 
 text を書くときは、この人格として、この相手に向けて、いまの時刻に合う言葉で書く。
 
-{capped_note}{thinking_note}{recent}{heading}
+{capped_note}{thinking_note}{heading}
 {utterance}
 
 [いまの作業状態]
@@ -329,7 +329,6 @@ async def arbitrate(
     timeout: float | None = None,
     can_see: bool = False,
     image_b64: str | None = None,
-    recent_ctx: str = "",
     origin: str = "発話",
     extra_actions: tuple[str, ...] = (),
 ) -> Decision:
@@ -355,8 +354,9 @@ async def arbitrate(
       あるときだけ候補に載せる。query は要らない（見出しは固定）。
     - `origin`：求めの起点（`発話`／`機器`／`情動`）。`情動` なら「返事」でなく「自分の行動を
       決める」型のプロンプトにする（見出し `[いま湧いたこと]`・許可も理由も要らない・つなぎ無し）。
-    - `recent_ctx`：直近のやりとり（最新 2 往復・無条件）。無いと「明日の天気は？」の次の
-      「調べて」を新しい検索にする（2026-09-13 実機）。
+    - 直近のやりとりは `workspace_ctx` の先頭の枠として入っている（記-h）。主LLM と同じ
+      作り方で、窓の幅（`recent_exchanges_arbiter`）だけが狭い。無いと「明日の天気は？」の
+      次の「調べて」を新しい検索にする（2026-09-13 実機）。
     - `image_b64`：調停が自分で見に行った帰りの写真（v0.46）。即席のラベルは部屋によって
       `bench` 1 語になり材料不足で full へ倒れたので、写真そのものを見せて light で答えられる
       ようにする。担い手が写真を受けられなければ（`complete_with_image` 無し）文字だけで進む。
@@ -384,7 +384,6 @@ async def arbitrate(
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
         thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
-        recent=(recent_ctx.rstrip() + "\n\n") if recent_ctx else "",
         actions="|".join(
             ["recall", "search_deferred"]
             + (["see"] if can_see else [])

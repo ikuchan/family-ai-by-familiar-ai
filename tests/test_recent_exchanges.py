@@ -80,3 +80,19 @@ def test_a_root_on_its_own_returns_just_itself(ctx):
 
 def test_an_unknown_origin_returns_nothing(ctx):
     assert RelationStore(ctx).recent_exchanges(str(uuid.uuid4())) == []
+
+
+def test_the_latest_origins_come_in_time_order_regardless_of_edges(ctx):
+    """時系列で最新 n 往復の起点（記-h）。継起の辺が無くても、新しい順に取れる。
+
+    直近のやりとりは「最近何があったか」で、辺の有無に関係なく要る（実機で、こうきと話した
+    直後の入室の反復に直近が渡らず「おかえり」と挨拶した・2026-09-13）。
+    """
+    store = RelationStore(ctx)
+    now = datetime.now(timezone.utc)
+    a = _turn(ctx, store, 1, None, now - timedelta(minutes=3))
+    b = _turn(ctx, store, 2, None, now - timedelta(minutes=2))  # 辺なし
+    c = _turn(ctx, store, 3, None, now - timedelta(minutes=1))  # 辺なし
+    assert store.latest_origins(2) == [c, b]
+    assert store.latest_origins(5) == [c, b, a]
+    assert store.latest_origins(0) == []

@@ -197,6 +197,27 @@ class RelationStore:
                 row = cur.fetchone()
         return None if row is None else str(row["obs_id"])
 
+    def latest_origins(self, n: int, kind: str = KIND_EXCHANGE) -> list[str]:
+        """時系列で新しい順に、やりとりの起点を n 件返す（記-h）。
+
+        **辺は見ない。** 直近のやりとりは「最近何があったか」で、継起の辺があるかどうかに
+        関係なく要る（辺だけを頼ると、話題が切り替わった瞬間に直近が空になる）。順序は
+        起点 O の時刻で決める（関係 id の順だと、遅れて書かれた関係が先に来る）。
+        """
+        if n <= 0:
+            return []
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT m.obs_id FROM relation_members m "
+                    "JOIN relations r ON r.id = m.relation_id AND r.kind = %s "
+                    "JOIN observations o ON o.id = m.obs_id "
+                    "WHERE m.role = '起点' ORDER BY o.timestamp DESC, r.id DESC LIMIT %s",
+                    (kind, int(n)),
+                )
+                return [str(r["obs_id"]) for r in cur.fetchall()]
+
     def record_cooccurrence(self, obs_ids: "list[str]") -> "int | None":
         """ある反復で一緒に活性した記録を、一つの共起として残す。"""
         return self.add(KIND_COOCCURRENCE, [(o, "項", None) for o in obs_ids])
@@ -260,7 +281,7 @@ class RelationStore:
         内部の作業記録で、会話ではない。混ぜると、調べている途中の文字列が履歴として
         読まれる。
 
-        返りは `content`・`role`・`direction`・`timestamp`・`depth` を持つ dict の並び。
+        返りは `obs_id`・`content`・`role`・`direction`・`timestamp`・`depth` を持つ dict の並び。
         `depth` は 0 が渡した起点で、さかのぼるほど大きい。並びは古い順である。
         """
         with self._ctx.lock:
@@ -278,7 +299,7 @@ class RelationStore:
                     "    JOIN relation_members prev"
                     "      ON prev.relation_id = nxt.relation_id AND prev.role = '前'"
                     ") "
-                    "SELECT o.content, m.role, o.direction, o.timestamp, w.depth "
+                    "SELECT o.id AS obs_id, o.content, m.role, o.direction, o.timestamp, w.depth "
                     "FROM walk w "
                     "JOIN relation_members head"
                     "  ON head.obs_id = w.obs_id AND head.role = '起点' "

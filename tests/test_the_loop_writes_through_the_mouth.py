@@ -11,7 +11,7 @@
 通した箇所すべてで**誰の記録かが明示される**。
 
 **残すもの。** 関係（`record_exchange`・`record_succession`・`recent_exchanges`・
-`latest_exchange_origin`）は OIF に口が無い——関係は 058〜060 で入った機構で、2026-08-01 に
+`latest_exchange_origin`——当時の名。いまは `latest_exchange_origins`）は OIF に口が無い——関係は 058〜060 で入った機構で、2026-08-01 に
 設計した OIF が追いついていない。想起は器が違う（`Recalled` 対 辞書の並び）。`loop/rest.py`
 は `direction='内省'` に `kind='observation'` を渡しており、OIF の表（`内省`→`self_model`）と
 食い違う——どちらが正かは記-a（REST 内省）で決める。

@@ -5,7 +5,7 @@
 `say()` だけ。テキストや（ト書き）は誰にも聞こえない」と定めている。
 
 ところが `_finish` は、それを `自分が答えた：…`・`direction="発話"`・役割 `答え` で
-記録していた。**相手が聞いていない文が、答えとして記憶に残る。** しかも `_recent_ctx` は
+記録していた。**相手が聞いていない文が、答えとして記憶に残る。** しかも直近のやりとりの枠は
 役割 `答え` を「わたし」として並べるので、**パジュは自分が言っていないことを言ったことと
 して読み返す**。
 
@@ -56,7 +56,6 @@ def _ip():
     ip._req.speech_to_deliver = []
     ip._req.turn_records = []
     ip._req.exchange_start = 0
-    ip._recent_cursor = None
     ip._req.utterance = "こんばんは"
     ip._req.cue = ""
     ip._close_exchange = MagicMock(return_value=[])

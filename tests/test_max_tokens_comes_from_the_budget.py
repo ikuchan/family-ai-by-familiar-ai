@@ -29,7 +29,7 @@ def _run(max_tokens: int, stop_reason: str, caplog):
                 memories=[],
                 w_id_map={},
                 mem=None,
-                recent_ctx="",
+                recent_frame="",
                 retried=False,
                 max_tokens=max_tokens,
             )

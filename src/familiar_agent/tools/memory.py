@@ -508,9 +508,9 @@ class ObservationMemory:
         """その記録たちが `やりとり` で取っている役割（起点・つなぎ・答え・要約・…）。"""
         return RelationStore(self._ctx).roles_of(list(obs_ids), KIND_EXCHANGE)
 
-    def latest_exchange_origin(self) -> "str | None":
-        """いちばん新しいやりとりの起点。直近のやりとりを、どこから見せるかのカーソル。"""
-        return RelationStore(self._ctx).latest_member(KIND_EXCHANGE, "起点")
+    def latest_exchange_origins(self, n: int) -> list[str]:
+        """時系列で新しい順に、やりとりの起点を n 件（記-h・辺は見ない）。"""
+        return RelationStore(self._ctx).latest_origins(int(n), KIND_EXCHANGE)
 
     def recent_exchanges(self, origin_id: "str") -> "list[dict]":
         """継起をさかのぼり、各やりとりの口に出した項を古い順に返す。"""

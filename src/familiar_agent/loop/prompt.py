@@ -124,7 +124,6 @@ def build_event_system_prompt(
     pi_ctx: str,
     workspace_ctx: str,
     iter_ctx: str = "",
-    recent_ctx: str = "",
     allow_tts_tags: bool = False,
     origin: str = "発話",
 ) -> tuple[str, str]:
@@ -155,7 +154,6 @@ def build_event_system_prompt(
         presence=present_ctx,
         inner_state=pi_ctx,
         iteration=iter_ctx,
-        recent=recent_ctx,
         workspace=workspace_ctx,
     )
     return ctx.stable, ctx.variable

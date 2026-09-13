@@ -68,7 +68,7 @@ def test_the_request_owns_the_turn_records():
     """このターンが作った記録と、やりとりの切り出し位置。`_finish` で空へ戻る。
 
     **`recent_cursor` はここに入れない。** あれは会話の履歴をたどる位置で、求めごとに
-    戻らない（`_note_origin` と `_recent_ctx` が書くだけ）。装置の寿命である。
+    戻らない（`_note_origin` と `link_follows` が書くだけ）。装置の寿命である。
     """
     r = Request()
     assert r.turn_records == []

@@ -72,7 +72,7 @@ def _run(ip, result, *, retried=False, original_text="", gen=0):
                 memories=[],
                 w_id_map={},
                 mem=MagicMock(),
-                recent_ctx="",
+                recent_frame="",
                 system=("安定", "可変"),
                 effort="high",
                 capped=False,

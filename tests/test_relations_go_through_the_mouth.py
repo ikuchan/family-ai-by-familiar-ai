@@ -74,7 +74,7 @@ def test_relations_are_not_written_outside_the_mouth():
             "record_succession",
             "record_cooccurrence",
             "recent_exchanges",
-            "latest_exchange_origin",
+            "latest_exchange_origins",
         )
     }
     left = {k: v for k, v in left.items() if v}
@@ -85,15 +85,16 @@ def test_the_mouth_has_one_way_to_write_a_relation():
     """**反証側。** 呼び出しが消えただけで口を通っていなければ、何も守っていない。"""
     from familiar_agent.io.oif import OIF
 
-    for name in ("link", "exchanges", "latest_origin"):
+    for name in ("link", "exchanges", "latest_origins"):
         assert hasattr(OIF, name), name
     src = "".join(
         (_SRC / p).read_text(encoding="utf-8")
         for p in ("agent.py", "loop/workspace.py", "loop/event_loop.py")
     )
     assert src.count("_oif.link(") == 4  # やりとり2・継起1・共起1
-    assert src.count("_oif.exchanges(") == 1
-    assert src.count("_oif.latest_origin()") == 1
+    # 直近の枠は `workspace` が口（`oif.latest_origins`・`oif.exchanges`）で引く（記-h）。
+    assert src.count("oif.latest_origins(") == 1
+    assert src.count("oif.exchanges(") == 1
 
 
 def test_the_kinds_say_what_the_relation_is():

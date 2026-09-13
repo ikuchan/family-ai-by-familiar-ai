@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：MI 間の関係（v0.15・全 5 段 実装済み）
+# familiar-ai 設計方針：MI 間の関係（v0.16・全 5 段 実装済み）
 
 ## この文書の位置づけ
 
@@ -361,7 +361,7 @@ CREATE UNIQUE INDEX idx_relation_members_old
 主LLM が `follows` を実際に返すかである。後者は `memory_verdicts` と同じく、規則に書いても
 守られないことがある。
 
-### 段 4 改訂：直近のやりとりは W の枠（設計済み・2026-09-13・未実装）
+### 段 4 改訂：直近のやりとりは W の枠（実装済み・2026-09-13）
 
 **直近のやりとりは、想起と同じく O からの派生ビューであり、W の枠の一つとして `compose()` が組む。**
 調停（軽量LLM）と主LLM は**同じ作り方**の W を受け取り、記憶に関する差は**窓の大きさ**だけである。
@@ -391,6 +391,13 @@ CREATE UNIQUE INDEX idx_relation_members_old
 主LLM だけが判定を待って載せる・載せないを決めていたため、調停と主LLM で記憶が食い違っていた
 （調停は継起の範囲で無条件、主LLM は判定つき）。表示のカーソル（`_recent_cursor`）も要らなくなる
 （時刻順に引くため）。
+
+**実装**（2026-09-13）：`RelationStore.latest_origins(n)`（起点 O の時刻順・辺は見ない）→ `OIF.latest_origins`／
+`OIF.exchanges`（継起の walk・`Said` に `obs_id` を足した）→ `workspace.recent_chains`（窓の最大幅で 1 度引く）→
+`workspace.render_recent(n)`。`workspace.recall()` は `Workspace`（記録・`for_arbiter`・`for_main`・対応表）を返し、
+調停は `for_arbiter`、主LLM は `for_main` を受け取る。`compose()` は直近に載った id を過去の列から除く。
+`_recent_rows`／`_recent_for_arbiter`／`_recent_ctx`／`_recent_cursor`／`OIF.latest_origin` と、`arbitrate`・
+`build_event_system_prompt` の `recent_ctx` 引数は撤去した。判定の受け取りは `link_follows` だけになった。
 
 **判定の結果（続き／途切れ／未判定）の記録**：いまは辺の有無しか残らず、「判定して途切れ」と
 「判定していない（入室・情動が起点）」「判定が落ちた」を区別できない。W の組み立てには効かないが、
@@ -523,6 +530,7 @@ day_summary の記録を書くだけである。計測が見た置換先は、�
 
 ## 更新履歴
 
+> v0.16：段 4 改訂を**実装済み**にした（2026-09-13・記-h）。
 > v0.15：**段 4 改訂——直近のやりとりを W の枠として `compose()` に一本化し、時系列の最新 $n$ 往復（無条件）＋継起の鎖とする。$n$ は軽量LLM／主LLM で別々に Config に持ち、REST 内省で見直す**（2026-09-13・設計のみ）。
 > v0.14：**やりとりの関係を反復を閉じるときに同期で書き、会話要約は背景で末尾へ足す**（2026-09-13・`extend` を足した）。
 > v0.13：**移った名前を実物へ合わせた**（2026-09-10・群D の点検）。W の組み立てと W から
