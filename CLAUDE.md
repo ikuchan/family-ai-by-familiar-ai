@@ -63,8 +63,9 @@ familiar-ai は、家庭で家族が使う、身体を持つ伴侶エージェ�
 
 内部状態（mood・drive）は定性ラベルで渡す。**生の小数は主LLM に届かない。**
 
-アイドルの DMN サイクル（ワークスペースの勝者なし）では、`capabilities.yaml`
-から自己理解を定期的に更新する。
+REST 内省は誰も居ないときに回る（`loop/rest.py`）。いま動いているのは骨格と、REST の
+自発ターンで 1 日 1 回までの `capabilities.yaml` の再生成だけである。設計は 4 層
+（出来事→自己像→設定値→能力・`課題8` 記-a・`用語一覧`）で、実装はこれから。
 
 **遅延配信ターンという別経路は無い。** 完了した `search_deferred` / `fetch_deferred` の
 結果は、完了キュー → O → 次の反復として配信される。在席・静穏時間・「黙っていて」の依頼は
@@ -95,7 +96,7 @@ JSON ファイルも使わない。
 | `relationship_state` | 人ごとの関係データ |
 | `persons` | 既知の人物レジストリ |
 | `mental_state_log` | 追記専用のメンタル状態スナップショット |
-| `self_narrative_log` | 一人称のセッション日記 |
+| `self_narrative_log` | 一人称のセッション日記（REST 内省の層 1 で代替し撤去予定・環-d） |
 | `agent_state` | キーバリュー：desires, concerns, capability_summary, mood_pad, drive5, addressee_doubts, relation_judged_until |
 
 スキーマ変更は `migration/` 以下のタイムスタンプ付きファイルを通す。

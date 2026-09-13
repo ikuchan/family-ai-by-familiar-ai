@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.97）
+# familiar-ai 設計図（Mermaid一式・v0.98）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -356,7 +356,7 @@ graph TD
   APR["評価器：Appraiser（APR）：驚き・感情・値踏み・意味づけ・要約"]
   GEN["生成器：Generator（GEN）：指示を組み立て応答と動作要求を解釈する"]
   ACT["動作器：Actuator（ACT）：動作要求を渡す。発話の可否もここで決める"]
-  MNT["統合保守器：Maintainer（MNT）：REST 内省・near-dup 統合・supersede"]
+  MNT["統合保守器：Maintainer（MNT）：REST 内省（4 層：出来事→自己像→設定値→能力）・supersede"]
 
   ULM["軽量LLM：Utility LLM（ULM）：呼んだところへその場で返す。複数のコンポーネントが内側で使う"]
   OIF["記憶接続：Observation Interface（OIF）：記憶との唯一の出入り口。ベクトル埋め込みもここが持つ"]
@@ -541,6 +541,7 @@ sequenceDiagram
 
 ## 更新履歴
 
+> v0.98：MNT の説明を REST 内省の 4 層（`用語一覧` v0.70）に合わせた（2026-09-14）。
 > v0.97：**③-2 の「1本の待ち行列」に4つのきっかけが揃った**（2026-09-11・環-f-い-2）。
 > 会話入力も `push_utterance` で列を通る。反復は駆動体の上で回り、呼び手は `Future` で
 > その反復の出力を待つ（約束は変わらない）。
