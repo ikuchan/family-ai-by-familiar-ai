@@ -74,3 +74,47 @@ def test_the_arbiter_prompt_offers_the_schedule_when_available() -> None:
     b2.complete = AsyncMock(return_value='{"branch": "full"}')
     asyncio.run(arbitrate(b2, utterance="今日の予定は？", workspace_ctx=""))
     assert '"family_schedule"' not in b2.complete.call_args.args[0]
+
+
+def test_the_arbiters_choice_reaches_the_tool_with_the_arguments_it_takes() -> None:
+    """調停の決定を道具の入力へ変えるとき、道具ごとの引数の違いを守る。
+
+    実機（2026-09-13 15:52）で、調停が `family_schedule` を選ぶと入力が常に
+    `{"query": "家族の予定を見る"}` になり、カレンダー MCP が
+    `TypeError: … unexpected keyword argument 'query'` を返した。家の決まりも同じ。
+    語を持つのは `notion_search` だけで、見出しが固定の道具には空の入力を渡す。
+    """
+    from familiar_agent.loop.event_loop import _tool_input_for
+
+    assert _tool_input_for("family_schedule", "家族の予定を見る") == {}
+    assert _tool_input_for("house_rules", "家の決まりを見る") == {}
+    assert _tool_input_for("journal", "日次記録を見る") == {}
+    assert _tool_input_for("notion_search", "サッカー教室") == {"query": "サッカー教室"}
+    # MCP 以外の動作は従来どおり語をそのまま渡す。
+    assert _tool_input_for("recall", "昨日の天気") == {"query": "昨日の天気"}
+    assert _tool_input_for("search_deferred", "今日の天気") == {"query": "今日の天気"}
+
+
+def test_the_arbiter_branch_calls_the_calendar_tool_without_a_query() -> None:
+    """調停の決定（動作名と語）から投げた反復の末端で、MCP が `{}` で呼ばれ、見出しも保たれる。"""
+    from familiar_agent.loop.event_loop import _tool_input_for
+
+    async def scenario():
+        a = _agent(stream_returns=[])
+        mcp = MagicMock()
+        mcp.call = AsyncMock(return_value=("【いま】…\n予定は入っていない。", None))
+        ip = InformationProcessing(a)
+        ip._dif = DIF(mcp=mcp)
+        ip._start_lookup(
+            "今日の予定は？",
+            _tool_input_for("family_schedule", "家族の予定を見る"),
+            action="family_schedule",
+        )
+        await asyncio.sleep(0.05)
+        item = ip._triggers.get_nowait()
+        await ip.close()
+        return mcp.call.call_args, item
+
+    call, item = asyncio.run(scenario())
+    assert call.args[0] == "get_family_schedule" and call.args[1] == {}
+    assert item.query == "家族の予定を見る" and "予定は入っていない" in item.result

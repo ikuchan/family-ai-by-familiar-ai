@@ -112,6 +112,20 @@ def _query_label(action: str, tool_input: dict) -> str:
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
+def _tool_input_for(action: str, query: str) -> dict:
+    """調停の決定（動作名と語）を、その道具が受け取る入力へ変える。
+
+    語を受け取るのは見出しに `{query}` を持つ道具だけ。見出しが固定の MCP の道具
+    （`family_schedule`・`house_rules`・`journal`）へ `query` を渡すと、サーバーが
+    `unexpected keyword argument 'query'` で落ちる（2026-09-13 実機・J と K）。その結果が
+    「届いた」ことになり、主LLM が正しい引数で呼び直しても同語二度投げ禁止に止められ、
+    上限まで空回りして「見つかりませんでした」と答えた。
+    """
+    if action in _MCP_LOOKUPS and "{query}" not in _MCP_LOOKUPS[action][1]:
+        return {}
+    return {"query": query}
+
+
 def _has_image(messages: list) -> bool:
     """本文に画像ブロックが含まれるか（ログ用）。担い手ごとの形の違いは `type` で吸収する。"""
     for m in messages:
@@ -1837,7 +1851,7 @@ class InformationProcessing:
                 self._req.see_by = "調停"  # 帰りの判断も調停がする（`_decide`）
             self._start_lookup(
                 utterance or self._req.cue,
-                {"query": decision.query},
+                _tool_input_for(decision.action, decision.query),
                 action=decision.action,
             )
             logger.info(
