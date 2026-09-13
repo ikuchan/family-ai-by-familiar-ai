@@ -55,3 +55,39 @@ def test_the_agent_starts_the_warmup_in_the_background() -> None:
 
     src = inspect.getsource(EmbodiedAgent._start_background_services)
     assert "warm_models(" in src
+
+
+def test_the_one_time_services_are_primed_only_once(monkeypatch) -> None:
+    """ウォームアップ・TTS 起こし・Whisper 読み込みは 1 回だけ（環-k・2026-09-14）。
+
+    `_start_background_services` は `_ensure_event_loop` の末尾で呼ばれ、それは起動時と
+    **人の発話のたび**（`run()`）に走る。MCP とワーカーは `is_started` で守られていたが、
+    温めは守られておらず、実機で `人検出を温めた` が起動時に 2 回・発話ごとに 1 回出て、
+    そのたびに YOLO のダミー推論が走っていた（2026-09-13 21:21）。
+    """
+    import asyncio
+    from unittest.mock import MagicMock
+
+    from familiar_agent import agent as agent_mod
+    from familiar_agent.agent import EmbodiedAgent
+
+    calls: list[str] = []
+
+    async def fake_warm(**_kw):
+        calls.append("warm")
+
+    monkeypatch.setattr("familiar_agent.core.warmup.warm_models", fake_warm)
+    a = MagicMock(spec=[])
+    a._mcp = None
+    a._memory_worker = None
+    a.config = MagicMock()
+    a.config.stt.engine = "elevenlabs"
+
+    async def scenario():
+        for _ in range(3):
+            EmbodiedAgent._start_background_services(a)
+        await asyncio.sleep(0)
+
+    asyncio.run(scenario())
+    assert calls == ["warm"], f"温めが {len(calls)} 回走った"
+    assert agent_mod is not None

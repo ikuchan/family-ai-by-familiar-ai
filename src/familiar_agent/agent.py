@@ -1710,6 +1710,13 @@ class EmbodiedAgent:
         worker = getattr(self, "_memory_worker", None)
         if worker is not None and not worker.is_running:
             asyncio.ensure_future(worker.start())
+        # ここから下は**一度でよいもの**（環-k・2026-09-14）。この関数は `_ensure_event_loop`
+        # の末尾で呼ばれ、それは起動時と人の発話のたび（`run()`）に走る。MCP とワーカーは
+        # 自分の状態で再入を止めるが、温めは止めておらず、発話ごとに YOLO のダミー推論が
+        # 走っていた（実機 2026-09-13）。
+        if getattr(self, "_services_primed", False):
+            return
+        self._services_primed = True
         # TTS の合成サーバー（SBV2）を起こす。モデルの読み込みに十数秒かかるので、最初の
         # 発話を待たせないよう起動時に投げておく（待たない・使う構成のときだけ）。
         with contextlib.suppress(Exception):
