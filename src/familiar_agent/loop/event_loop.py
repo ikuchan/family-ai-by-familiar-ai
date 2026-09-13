@@ -1431,8 +1431,12 @@ class InformationProcessing:
         入力になる（正本③）。スレッドから呼ばれても届くよう、ループへ委譲する。
         """
         # 打ち切った求めの完了は捨てる。外部呼び出しは投げた時点で飛んでおり、止められない。
+        # deferred の完了は必ず器（`_dispatch_lookup`）を作ってから飛ぶので、**器の無い完了は
+        # 打ち切られたものしか無い**（打ち切りは器を空にする）。世代だけ見ていると器が
+        # 消えたあとの完了が素通りし、停止ボタンで打ち切った求めが反復 2/5 として続いた
+        # （2026-09-13 実機・M）。
         _lk = self._lookup_of(query)
-        if _lk is not None and _lk.generation != self._request_generation:
+        if _lk is None or _lk.generation != self._request_generation:
             logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
             return
         loop = getattr(self, "_asyncio_loop", None)
