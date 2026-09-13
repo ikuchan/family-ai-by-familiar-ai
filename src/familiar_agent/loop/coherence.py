@@ -19,8 +19,34 @@ from __future__ import annotations
 CONF_UNCERTAIN = 0.55
 
 
+def used_lines(raw, w_id_map: "dict[str, str]", memories: "list") -> list[str]:
+    """主LLM が `referred`／`important` と申告した記憶の中身（W の行の本文）を返す。
+
+    照合は `apply_memory_verdicts` と同じ対応表（12 桁 → 完全な id）で行う。当たらない id は捨てる。
+    """
+    if not raw or not w_id_map:
+        return []
+    by_id = {r.mi.obs_id: r.mi.content for r in memories if getattr(r, "mi", None)}
+    out: list[str] = []
+    for item in raw if isinstance(raw, list) else []:
+        if not isinstance(item, dict):
+            continue
+        verdict = str(item.get("verdict", "")).strip().lower()
+        if verdict not in ("referred", "important"):
+            continue
+        full = w_id_map.get(str(item.get("id", "")).replace("-", "")[:12])
+        if full and full in by_id:
+            out.append(by_id[full])
+    return out
+
+
 def facts_ctx(
-    *, saw: bool, memories: "list", picture: bool = False, seen: "str | None" = None
+    *,
+    saw: bool,
+    memories: "list",
+    picture: bool = False,
+    seen: "str | None" = None,
+    used: "list[str] | None" = None,
 ) -> str:
     """この反復でループが知っていることを、そのまま並べる。
 
@@ -31,6 +57,9 @@ def facts_ctx(
     人が2人見えると正しく語った返事を `no-fake-perception` で差し戻した）。
     `memories` は W に実際に載った記録で、落とされたものは含まない——載らなかった記憶は
     主LLM が見ていないので、それを材料と呼べない。
+    `used` は主LLM が `referred`／`important` と申告した記憶の**中身**（2026-09-13）。件数と
+    日付だけでは、記憶にある天気で答えた返事が「検索も提示も無いのに事実を言った」
+    （`no-invented-knowledge`）に見えた。根拠が作業状態にあることを、中身で示す。
     """
     seen_line = (
         "はい（この求めで see を呼んだ）" if saw else "いいえ（この求めで see を呼んでいない）"
@@ -49,7 +78,12 @@ def facts_ctx(
         )
         low = sum(1 for r in memories if r.confidence < CONF_UNCERTAIN)
         mem = f"{len(memories)}件（{dates}。うち conf<{CONF_UNCERTAIN} が{low}件）"
+    if used:
+        leaned = "\n".join(f"  - {u[:200]}" for u in used)
+        leaned_line = f"主LLM が使ったと申告した記憶（{len(used)}件・これが根拠）：\n{leaned}"
+    else:
+        leaned_line = "主LLM が使ったと申告した記憶：申告なし"
     return (
         f"[この反復で分かっていること]\n見たか：{seen_line}\n画像を受け取った：{pic}\n"
-        f"作業状態に並んだ記憶：{mem}"
+        f"作業状態に並んだ記憶：{mem}\n{leaned_line}"
     )
