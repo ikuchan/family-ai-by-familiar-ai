@@ -31,6 +31,7 @@ from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
+from ..core import measure
 from ..core.tool_text import tool_calls_from_text
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
@@ -84,17 +85,17 @@ _LOOKUP_ACTIONS = (
 )
 
 
-async def _result_or_none(task):
-    """待ち合わせて結果を返す。落ちたら None（繋がない側へ倒す）。
+async def _result_or_failure(task) -> "tuple[str | None, bool]":
+    """待ち合わせて (結果, 落ちたか) を返す。落ちたら (None, True)（繋がない側へ倒す）。
 
     判定が来ないターンは新しい話の始まりとして扱う。誤って繋ぐと、関係のない会話が
-    文脈に混ざる（`設計方針_MI間の関係`）。
+    文脈に混ざる（`設計方針_MI間の関係`）。落ちたことは計測ログに残す（記-i）。
     """
     try:
-        return await task
+        return await task, False
     except Exception as e:  # noqa: BLE001
         logger.debug("続き先の判定を受け取れなかった（続行する）: %s", e)
-        return None
+        return None, True
 
 
 def _query_label(action: str, tool_input: dict) -> str:
@@ -1850,8 +1851,8 @@ class InformationProcessing:
         if decision.branch == "full" and decision.text and decision.effort != "low" and not drained:
             await self._say_filler(decision.text)
 
-        follows = await _result_or_none(follows_task)  # 辺を書くだけ・W は変えない（記-h）
-        workspace.link_follows(self._agent, self._req, w_id_map, follows)
+        # 判定は辺を書くだけで W は変えない（記-h）。結末は計測ログへ（記-i）。
+        await self._note_follows(ws.for_main, utterance or "", w_id_map, follows_task)
         # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。
         budget = reply_budget.decide(
             effort=decision.effort,
@@ -2112,6 +2113,35 @@ class InformationProcessing:
             "あり" if violation else "なし",
         )
         return violation
+
+    async def _note_follows(
+        self, w_text: str, utterance: str, w_id_map: "dict[str, str]", follows_task
+    ) -> None:
+        """続き先の判定を受け取り、辺を書き、結末を計測ログへ 1 行書く（記-i）。
+
+        結末は 5 通り——続き（辺を書いた）／途切れ（none）／未判定（言葉が無い・W が空で
+        判定を呼んでいない）／落ちた（例外・時間切れ）／不一致（返った id が W に無い・自分の
+        起点）。以前は「続き」しか形に残らず、継起が 0 本のとき「判定が壊れている」のか
+        「続きの場面が無かった」のかを切り分けられなかった。REST 内省が読む（記-a-に）。
+        """
+        follows, failed = await _result_or_failure(follows_task)
+        linked = workspace.link_follows(self._agent, self._req, w_id_map, follows)
+        if not w_text.strip() or not utterance.strip():
+            outcome = "未判定"
+        elif failed:
+            outcome = "落ちた"
+        elif follows is None:
+            outcome = "途切れ"
+        elif linked:
+            outcome = "続き"
+        else:
+            outcome = "不一致"
+        measure.record(
+            "続き先",
+            結末=outcome,
+            相手=(follows or "-")[:12] if outcome == "続き" else "-",
+            起点=(self._req.request_id or "-").replace("-", "")[:12],
+        )
 
     def _checker_facts(
         self,

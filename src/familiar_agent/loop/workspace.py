@@ -370,7 +370,7 @@ async def recall(
     )
 
 
-def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | None") -> None:
+def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | None") -> bool:
     """判定が返した続き先へ、継起の辺を張る（`根拠台帳` §29）。
 
     **W に無い id は捨てる。** 判定は12桁の形で返すが、実在するかまでは見ていない。
@@ -379,12 +379,13 @@ def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | N
     自分の起点を指しても繋がない。自己ループはさかのぼりが止まらなくなる。
     """
     if not full or not req.request_id or not w_id_map:
-        return
+        return False
     if full not in set(w_id_map.values()) or full == req.request_id:
-        return
+        return False
     logger.info("event-loop このターンは %.8s に続く", full)
     with contextlib.suppress(Exception):
         agent._oif.link(KIND_SUCCESSION, [(full, "前", 0), (req.request_id, "後", 1)])
+    return True
 
 
 #: **軽量LLM へ申告だけを聞く。** 調停の JSON へ足すと、実測で `light` を選ぶ側へ判断が

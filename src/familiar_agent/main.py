@@ -46,6 +46,7 @@ def setup_logging(debug: bool = False) -> None:
     if log_file.exists() and log_file.stat().st_size > 0:
         import shutil
         from datetime import datetime
+
         stamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         shutil.move(str(log_file), str(logs_dir / f"app.{stamp}.log"))
         # Remove archived files older than 14 days
@@ -61,19 +62,23 @@ def setup_logging(debug: bool = False) -> None:
 
     # Rotate daily at midnight, keep 14 days of backups (archived into logs/)
     from logging.handlers import TimedRotatingFileHandler
+
     file_handler = TimedRotatingFileHandler(
         log_file, when="midnight", interval=1, backupCount=14, encoding="utf-8"
     )
     file_handler.namer = lambda name: str(logs_dir / Path(name).name)
     from . import __version__
+
     # 全行にバージョンを含め、更新反映を行単位で判別可能にする
     file_handler.setFormatter(
-        logging.Formatter(
-            f"%(asctime)s [{__version__}] [%(levelname)s] %(name)s: %(message)s"
-        )
+        logging.Formatter(f"%(asctime)s [{__version__}] [%(levelname)s] %(name)s: %(message)s")
     )
     root.addHandler(file_handler)
     root.setLevel(level)
+    # 計測ログ（REST 内省が読む・`rest_logs/measure.log`・起動時に回転しない・記-i）。
+    from .core import measure
+
+    measure.setup(log_dir)
     logging.getLogger(__name__).info("familiar-ai %s starting", __version__)
 
     # Reduce noise from 3rd party libs

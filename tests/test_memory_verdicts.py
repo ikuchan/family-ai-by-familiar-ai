@@ -171,5 +171,8 @@ def test_the_loop_counts_verdicts_against_the_past_column():
 
     src = inspect.getsource(InformationProcessing._iterate)
     assert "w_id_map=dict(ws.verdict_map)" in src
-    # 続き先の辺は両方の枠を名指せる。
-    assert "link_follows(self._agent, self._req, w_id_map, follows)" in src
+    # 続き先の辺は両方の枠を名指せる（`_note_follows` が `id_map` で照合する）。
+    assert "w_id_map, follows_task" in src
+    assert "link_follows(self._agent, self._req, w_id_map, follows)" in inspect.getsource(
+        InformationProcessing._note_follows
+    )
