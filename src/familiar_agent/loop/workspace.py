@@ -187,6 +187,10 @@ def render_recent(
         sid = r.obs_id.replace("-", "")[:12]
         if r.role in ("答え", "つなぎ"):
             who = "わたし"
+        elif getattr(r, "direction", "発話") in ("情動", "機器"):
+            # 人の言葉でない起点（内的な促し・入室）。「相手」と書くと、自分の内側や
+            # 機器の出来事が誰かの発言に読める（実機 2026-09-13 21:21）。
+            who = "きっかけ"
         else:
             who = names.get(r.obs_id) or "相手"
             who = "相手" if who == "わたし" else who

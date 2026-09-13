@@ -20,9 +20,16 @@ from familiar_agent.loop import workspace
 _T0 = datetime(2026, 9, 13, 17, 30, tzinfo=timezone.utc)
 
 
-def _said(obs_id: str, content: str, role: str, minute: int, depth: int = 0) -> Said:
+def _said(
+    obs_id: str, content: str, role: str, minute: int, depth: int = 0, direction: str = "発話"
+) -> Said:
     return Said(
-        obs_id=obs_id, content=content, role=role, when=_T0 + timedelta(minutes=minute), depth=depth
+        obs_id=obs_id,
+        content=content,
+        role=role,
+        when=_T0 + timedelta(minutes=minute),
+        depth=depth,
+        direction=direction,
     )
 
 
@@ -91,6 +98,26 @@ def test_each_line_carries_a_twelve_digit_id_and_who_said_it():
     assert "id:3f2b9c1d8e7a" in text and id_map["3f2b9c1d8e7a"] == "3f2b9c1d8e7a6b5c4d3e2f1a0b9c"
     assert "こうき：お話できる？" in text
     assert "わたし：もちろん" in text
+
+
+def test_an_origin_that_is_not_a_persons_words_is_not_labelled_as_the_other_side():
+    """情動・入室が起点のやりとりは「相手：」ではなく「きっかけ：」（実機 2026-09-13 21:21）。"""
+    chains = {
+        "q1": [
+            _said("q1", "[内的な促し:SEEKING] 探索したい", "起点", 0, direction="情動"),
+            _said("a1", "見てみよう", "答え", 1),
+        ],
+        "q2": [
+            _said("q2", "[入室] こうき が来た", "起点", 5, direction="機器"),
+            _said("a2", "おかえり", "答え", 6),
+        ],
+        "q3": [_said("q3", "おはなしできる？", "起点", 9), _said("a3", "もちろん", "答え", 10)],
+    }
+    _, text, _ = workspace.recent_window(_oif(["q3", "q2", "q1"], chains), 3)
+    assert "きっかけ：[内的な促し:SEEKING] 探索したい" in text
+    assert "きっかけ：[入室] こうき が来た" in text
+    assert "相手：おはなしできる？" in text
+    assert text.count("相手：") == 1
 
 
 def test_zero_or_no_exchanges_gives_an_empty_frame():

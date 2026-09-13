@@ -113,6 +113,7 @@ class Said:
     role: str
     when: "datetime | None"
     depth: int
+    direction: str = "発話"  # 起点が人の言葉でない（`情動`・`機器`）ことを印字で分けるため
 
 
 # ── 想起の引数と戻り ────────────────────────────────────────────────────────
@@ -365,6 +366,7 @@ class OIF:
             Said(
                 obs_id=str(r.get("obs_id", "")),
                 content=str(r.get("content", "")),
+                direction=str(r.get("direction", "") or "発話"),
                 role=str(r.get("role", "")),
                 when=r.get("timestamp"),
                 depth=int(r.get("depth", 0)),
