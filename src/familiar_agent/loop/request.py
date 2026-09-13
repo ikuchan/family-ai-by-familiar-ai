@@ -43,6 +43,8 @@ class Lookup:
     query: str
     generation: int
     result: "str | None" = None
+    #: 道具の失敗で終わった（出-o）。結果ではない。文は「道具が使えず失敗した」だけ。
+    failed: bool = False
 
     @property
     def in_flight(self) -> bool:
@@ -108,6 +110,11 @@ class Request:
     # この求めで最後に撮った写真の在りか。W に載っているかに依らず主LLM・調停へ渡す
     # （W で探すと、VLM の差し替えが検索に載る前の瞬間に「写真なし」になった・2026-09-13）。
     seen_image_path: str | None = None
+    # この求めのあいだに**道具が使えなかった**動作（出-o）。候補（主LLM の道具定義・調停の
+    # `extra_actions`）から外す——名前で呼べなければ、同じ道具を叩き直す空回りは構造で
+    # 起きない。再試行はしない：失敗の中身（`TypeError` など）は対処できる情報でなく、
+    # 代わりのある道具（検索の Brave／Tavily）は道具の側で切り替える。求めが閉じれば戻る。
+    failed_actions: set[str] = field(default_factory=set)
     # いまのやりとりが、その並びのどこから始まったか。**やりとりは並びの一区間**である。
     # 母集合への持ち越しは打ち切りでも消さないが、やりとりは打ち切りで区切る。二つの用は、
     # 区切りの規則が違う。

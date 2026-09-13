@@ -38,7 +38,9 @@ def test_running_the_search_calls_the_mcp_tool_with_the_query() -> None:
     async def scenario():
         a = _agent(stream_returns=[])
         mcp = MagicMock()
-        mcp.call = AsyncMock(return_value=("「サッカー」で 3 件：…", None))
+        mcp.call_result = AsyncMock(
+            return_value=MagicMock(text="「サッカー」で 3 件：…", image=None, ok=True)
+        )
         ip = InformationProcessing(a)
         ip._dif = DIF(mcp=mcp)
         await ip._run_lookup(
@@ -46,7 +48,7 @@ def test_running_the_search_calls_the_mcp_tool_with_the_query() -> None:
         )
         item = ip._triggers.get_nowait()
         await ip.close()
-        return mcp.call.call_args, item
+        return mcp.call_result.call_args, item
 
     call, item = asyncio.run(scenario())
     assert call.args[0] == "search_notion" and call.args[1] == {"query": "サッカー"}

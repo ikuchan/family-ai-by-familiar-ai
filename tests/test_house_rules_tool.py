@@ -29,8 +29,11 @@ def _agent_with_mcp(names: list[str]):
 def _tool_names(agent, actions: tuple[str, ...]) -> set[str]:
     from familiar_agent.io.dif import DIF
 
+    from familiar_agent.loop.request import Request
+
     ip = InformationProcessing.__new__(InformationProcessing)
     ip._agent = agent
+    ip._req = Request()  # 失敗した道具の集合を見る（出-o）
     # 道具の定義は口が答える（環-e-は 段2）。`__init__` を通さない土台なので置く。
     ip._dif = DIF(mcp=agent._mcp)
     return {d["name"] for d in ip._tools(actions=actions)}

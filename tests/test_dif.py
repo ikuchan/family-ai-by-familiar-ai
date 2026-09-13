@@ -194,3 +194,27 @@ def test_the_port_answers_what_its_own_devices_can_do():
     assert d.speak_defs() == [{"name": "say"}]
     assert d.lookup_defs("search_deferred") == [{"name": "search_deferred"}]
     assert _dif(tts=None).speak_defs() == []
+
+
+def test_call_tool_reports_whether_the_tool_worked():
+    """口は道具の失敗を印で伝える（出-o）。生の文は本文に残るが、呼び手はそれを人へ渡さない。"""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from familiar_agent.io.dif import DIF
+
+    mcp = MagicMock()
+    mcp.call_result = AsyncMock(
+        return_value=SimpleNamespace(text="TypeError: …", image=None, ok=False)
+    )
+    dif = DIF(mcp=mcp)
+    text, ok = asyncio.run(dif.call_tool("get_family_schedule", {}))
+    assert ok is False and "TypeError" in text
+    mcp.call_result = AsyncMock(
+        return_value=SimpleNamespace(text="予定は入っていない。", image=None, ok=True)
+    )
+    text, ok = asyncio.run(dif.call_tool("get_family_schedule", {}))
+    assert ok is True and text == "予定は入っていない。"
+    # 口が無ければ失敗。
+    text, ok = asyncio.run(DIF(mcp=None).call_tool("get_family_schedule", {}))
+    assert ok is False

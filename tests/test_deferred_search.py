@@ -7,11 +7,12 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from familiar_agent.mcp_client import CallResult
 from familiar_agent.tools.deferred_search import DeferredSearchTool
 
 
 def _make_tool(result: str = "search result") -> tuple[DeferredSearchTool, AsyncMock]:
-    fn = AsyncMock(return_value=(result, None))
+    fn = AsyncMock(return_value=CallResult(result, None, True))
     return DeferredSearchTool(fn), fn
 
 
@@ -130,7 +131,7 @@ async def test_search_error_stored_as_pending_result():
     await tool.call("search_deferred", {"query": "fail query"})
     await asyncio.sleep(0)
     ctx = tool.pending_context()
-    assert "エラー" in ctx
+    assert "道具が使えず失敗した" in ctx  # 生の文（network error）は人へ渡さない（出-o）
 
 
 # ── Deduplication tests ───────────────────────────────────────────────────────
@@ -143,8 +144,7 @@ class _MockUtilityBackend:
         self.response = response
         self.calls: list[str] = []
 
-    async def complete(self, prompt: str, max_tokens: int, *,
-                       system: str | None = None) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         self.calls.append(prompt)
         return self.response
 
@@ -153,7 +153,9 @@ class _MockUtilityBackend:
 async def test_first_search_skips_utility_llm():
     """When no existing searches exist, utility LLM is never called."""
     backend = _MockUtilityBackend("yes")
-    tool = DeferredSearchTool(AsyncMock(return_value=("r", None)), utility_backend=backend)
+    tool = DeferredSearchTool(
+        AsyncMock(return_value=CallResult("r", None, True)), utility_backend=backend
+    )
     result, _ = await tool.call("search_deferred", {"query": "first query"})
     assert "バックグラウンド" in result
     assert len(backend.calls) == 0
@@ -163,7 +165,7 @@ async def test_first_search_skips_utility_llm():
 async def test_same_intent_blocked_by_utility_llm():
     """Utility LLM returning yes blocks the duplicate search."""
     backend = _MockUtilityBackend("yes")
-    fn = AsyncMock(return_value=("r", None))
+    fn = AsyncMock(return_value=CallResult("r", None, True))
     tool = DeferredSearchTool(fn, utility_backend=backend)
 
     await tool.call("search_deferred", {"query": "日本 最新ニュース"})
@@ -178,7 +180,7 @@ async def test_same_intent_blocked_by_utility_llm():
 async def test_different_intent_allowed_by_utility_llm():
     """Utility LLM returning no allows the second search to proceed."""
     backend = _MockUtilityBackend("no")
-    fn = AsyncMock(return_value=("r", None))
+    fn = AsyncMock(return_value=CallResult("r", None, True))
     tool = DeferredSearchTool(fn, utility_backend=backend)
 
     await tool.call("search_deferred", {"query": "日本 最新ニュース"})
@@ -192,7 +194,7 @@ async def test_different_intent_allowed_by_utility_llm():
 @pytest.mark.asyncio
 async def test_no_utility_backend_exact_match_blocks_duplicate():
     """Without utility backend, exact string match blocks duplicate."""
-    fn = AsyncMock(return_value=("r", None))
+    fn = AsyncMock(return_value=CallResult("r", None, True))
     tool = DeferredSearchTool(fn)
 
     await tool.call("search_deferred", {"query": "same query"})
@@ -203,7 +205,7 @@ async def test_no_utility_backend_exact_match_blocks_duplicate():
 @pytest.mark.asyncio
 async def test_no_utility_backend_different_query_allowed():
     """Without utility backend, different query string proceeds."""
-    fn = AsyncMock(return_value=("r", None))
+    fn = AsyncMock(return_value=CallResult("r", None, True))
     tool = DeferredSearchTool(fn)
 
     await tool.call("search_deferred", {"query": "query A"})
@@ -214,7 +216,7 @@ async def test_no_utility_backend_different_query_allowed():
 @pytest.mark.asyncio
 async def test_running_query_tracked_and_removed():
     """Query is in _running_queries while executing and removed on completion."""
-    fn = AsyncMock(return_value=("r", None))
+    fn = AsyncMock(return_value=CallResult("r", None, True))
     tool = DeferredSearchTool(fn)
 
     await tool.call("search_deferred", {"query": "track me"})
@@ -226,7 +228,7 @@ async def test_running_query_tracked_and_removed():
 @pytest.mark.asyncio
 async def test_pending_query_also_blocks_duplicate():
     """A query already delivered to _pending blocks the same query again."""
-    fn = AsyncMock(return_value=("r", None))
+    fn = AsyncMock(return_value=CallResult("r", None, True))
     tool = DeferredSearchTool(fn)
     tool._pending = [{"query": "cached query", "result": "...", "source": "brave"}]
 
@@ -240,11 +242,10 @@ async def test_utility_llm_error_falls_back_to_exact_match():
     """If utility LLM raises, exact match is used as fallback."""
 
     class _BrokenBackend:
-        async def complete(self, prompt: str, max_tokens: int, *,
-                       system: str | None = None) -> str:
+        async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
             raise RuntimeError("LLM unavailable")
 
-    fn = AsyncMock(return_value=("r", None))
+    fn = AsyncMock(return_value=CallResult("r", None, True))
     tool = DeferredSearchTool(fn, utility_backend=_BrokenBackend())
 
     await tool.call("search_deferred", {"query": "identical"})
@@ -305,3 +306,51 @@ def test_deferred_search_tooldef_requires_say_in_own_words() -> None:
     assert "say()" in desc
     # Must mention reporting in own words (not raw source text)
     assert any(kw in desc for kw in ("自分の言葉", "口語", "だよ", "みたい"))
+
+
+# ── 道具の失敗：片方が使えなければもう片方で（出-o・2026-09-13） ───────────────
+
+
+def _ok(text: str):
+    from familiar_agent.mcp_client import CallResult
+
+    return CallResult(text, None, True)
+
+
+def _bad(text: str = "MCP tool 'brave_web_search' error: 401"):
+    from familiar_agent.mcp_client import CallResult
+
+    return CallResult(text, None, False)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_source_falls_back_to_the_other_one():
+    """検索は Brave と Tavily の 2 つを持つ。片方が使えなければ、もう片方で続ける。"""
+    fn = AsyncMock(side_effect=[_bad(), _ok("tavily の結果")])
+    tool = DeferredSearchTool(fn)
+    delivered: list = []
+    tool.set_completion_sink(lambda q, r, **kw: delivered.append((q, r, kw)))
+    await tool.call("search_deferred", {"query": "今日の天気"})
+    for _ in range(50):
+        if delivered:
+            break
+        await asyncio.sleep(0.005)
+    assert [c.args[0] for c in fn.call_args_list] == ["brave_web_search", "tavily_search"]
+    q, r, kw = delivered[0]
+    assert r == "tavily の結果" and kw.get("failed", False) is False
+
+
+@pytest.mark.asyncio
+async def test_both_sources_failing_is_delivered_as_a_tool_failure_without_the_raw_error():
+    fn = AsyncMock(side_effect=[_bad(), _bad("MCP tool 'tavily_search' error: 500")])
+    tool = DeferredSearchTool(fn)
+    delivered: list = []
+    tool.set_completion_sink(lambda q, r, **kw: delivered.append((q, r, kw)))
+    await tool.call("search_deferred", {"query": "今日の天気"})
+    for _ in range(50):
+        if delivered:
+            break
+        await asyncio.sleep(0.005)
+    q, r, kw = delivered[0]
+    assert kw.get("failed") is True
+    assert "道具が使えず失敗した" in r and "401" not in r and "500" not in r

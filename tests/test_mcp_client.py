@@ -8,7 +8,7 @@ from __future__ import annotations
 import json
 import sys
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -462,9 +462,7 @@ async def test_tavily_search_without_country_is_unchanged(tmp_path: Path) -> Non
 async def test_other_tools_country_param_not_stripped(tmp_path: Path) -> None:
     """'country' is only stripped from tavily_search; other tools are not affected."""
     cfg = tmp_path / "cfg.json"
-    cfg.write_text(
-        json.dumps({"mcpServers": {"other": {"type": "stdio", "command": "other-cmd"}}})
-    )
+    cfg.write_text(json.dumps({"mcpServers": {"other": {"type": "stdio", "command": "other-cmd"}}}))
     sess = _session(_tool("some_tool"))
 
     text_block = MagicMock()
@@ -574,7 +572,13 @@ async def test_tavily_search_normalizes_invalid_time_range(tmp_path: Path) -> No
 
     from familiar_agent.mcp_client import MCPClientManager
 
-    for invalid, expected in [("24h", "day"), ("7d", "week"), ("30d", "month"), ("48h", "day"), ("3d", "week")]:
+    for invalid, expected in [
+        ("24h", "day"),
+        ("7d", "week"),
+        ("30d", "month"),
+        ("48h", "day"),
+        ("3d", "week"),
+    ]:
         sess = _session(_tool("tavily_search"))
         text_block = MagicMock()
         text_block.type = "text"
@@ -592,7 +596,9 @@ async def test_tavily_search_normalizes_invalid_time_range(tmp_path: Path) -> No
 
         _, kwargs = sess.call_tool.call_args
         sent = kwargs["arguments"]
-        assert sent["time_range"] == expected, f"{invalid!r} should map to {expected!r}, got {sent['time_range']!r}"
+        assert sent["time_range"] == expected, (
+            f"{invalid!r} should map to {expected!r}, got {sent['time_range']!r}"
+        )
 
 
 @pytest.mark.asyncio
@@ -601,9 +607,7 @@ async def test_call_times_out_and_returns_error(tmp_path: Path, monkeypatch) -> 
     import asyncio
 
     cfg = tmp_path / "cfg.json"
-    cfg.write_text(
-        json.dumps({"mcpServers": {"slow": {"type": "stdio", "command": "slow-cmd"}}})
-    )
+    cfg.write_text(json.dumps({"mcpServers": {"slow": {"type": "stdio", "command": "slow-cmd"}}}))
     sess = _session(_tool("slow_tool"))
 
     async def _hang(*args, **kwargs):
@@ -659,6 +663,7 @@ async def test_tavily_search_valid_time_range_unchanged(tmp_path: Path) -> None:
 
 # ── cwd（作業ディレクトリ）を渡す ────────────────────────────────────────────
 
+
 def test_stdio_server_receives_its_working_directory() -> None:
     """設定の `cwd` を stdio のパラメータへ渡す。
 
@@ -674,3 +679,68 @@ def test_stdio_server_receives_its_working_directory() -> None:
     src = inspect.getsource(mcp_client)
     assert 'cfg.get("cwd")' in src, "設定から cwd を読んでいない"
     assert "cwd=cwd" in src, "stdio のパラメータへ cwd を渡していない"
+
+
+# ── 道具の失敗を印で返す（出-o・2026-09-13） ──────────────────────────────────
+
+
+def _mgr_with(tmp_path, sess):
+    cfg = tmp_path / "cfg.json"
+    cfg.write_text(
+        json.dumps({"mcpServers": {"mem": {"type": "sse", "url": "http://localhost:9000/sse"}}})
+    )
+    from familiar_agent.mcp_client import MCPClientManager
+
+    return cfg, MCPClientManager
+
+
+def _text_result(text: str, *, is_error: bool = False):
+    block = MagicMock()
+    block.type = "text"
+    block.text = text
+    r = MagicMock()
+    r.content = [block]
+    r.isError = is_error
+    return r
+
+
+@pytest.mark.asyncio
+async def test_call_result_reports_ok_on_a_normal_result(tmp_path):
+    sess = _session(_tool("remember"))
+    sess.call_tool = AsyncMock(return_value=_text_result("ok!"))
+    cfg, MCPClientManager = _mgr_with(tmp_path, sess)
+    with patch.dict(sys.modules, _patch_mcp([sess])):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        r = await mgr.call_result("remember", {"text": "x"})
+    assert (r.text, r.image, r.ok) == ("ok!", None, True)
+
+
+@pytest.mark.asyncio
+async def test_call_result_reports_a_tool_side_error(tmp_path):
+    """サーバーが `isError` で返した失敗（J の `TypeError`）は、本文でなく印で分かる。"""
+    sess = _session(_tool("get_family_schedule"))
+    sess.call_tool = AsyncMock(return_value=_text_result("TypeError: …", is_error=True))
+    cfg, MCPClientManager = _mgr_with(tmp_path, sess)
+    with patch.dict(sys.modules, _patch_mcp([sess])):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        r = await mgr.call_result("get_family_schedule", {})
+    assert r.ok is False and "TypeError" in r.text
+
+
+@pytest.mark.asyncio
+async def test_call_result_reports_not_found_and_exceptions_as_failures(tmp_path):
+    sess = _session(_tool("remember"))
+    sess.call_tool = AsyncMock(side_effect=RuntimeError("boom"))
+    cfg, MCPClientManager = _mgr_with(tmp_path, sess)
+    with patch.dict(sys.modules, _patch_mcp([sess])):
+        mgr = MCPClientManager(config_path=cfg)
+        await mgr.start()
+        mgr._reconnect_server = AsyncMock(return_value=False)
+        missing = await mgr.call_result("nonexistent", {})
+        broken = await mgr.call_result("remember", {"text": "x"})
+        # `call` は従来どおり本文と画像だけを返す（呼び手を変えない）。
+        text, image = await mgr.call("nonexistent", {})
+    assert missing.ok is False and broken.ok is False
+    assert image is None and "not found" in text

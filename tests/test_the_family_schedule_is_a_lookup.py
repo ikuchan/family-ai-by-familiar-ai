@@ -39,13 +39,17 @@ def test_running_the_lookup_calls_the_mcp_tool_and_queues_the_result() -> None:
     async def scenario():
         a = _agent(stream_returns=[])
         mcp = MagicMock()
-        mcp.call = AsyncMock(return_value=("【いま】…\n- 09-14（月） 運動会（終日）", None))
+        mcp.call_result = AsyncMock(
+            return_value=MagicMock(
+                text="【いま】…\n- 09-14（月） 運動会（終日）", image=None, ok=True
+            )
+        )
         ip = InformationProcessing(a)
         ip._dif = DIF(mcp=mcp)
         await ip._run_lookup("family_schedule", {"days": 1}, "家族の予定を見る", None, 1)
         item = ip._triggers.get_nowait()
         await ip.close()
-        return mcp.call.call_args, item
+        return mcp.call_result.call_args, item
 
     call, item = asyncio.run(scenario())
     assert call.args[0] == "get_family_schedule" and call.args[1] == {"days": 1}
@@ -102,7 +106,9 @@ def test_the_arbiter_branch_calls_the_calendar_tool_without_a_query() -> None:
     async def scenario():
         a = _agent(stream_returns=[])
         mcp = MagicMock()
-        mcp.call = AsyncMock(return_value=("【いま】…\n予定は入っていない。", None))
+        mcp.call_result = AsyncMock(
+            return_value=MagicMock(text="【いま】…\n予定は入っていない。", image=None, ok=True)
+        )
         ip = InformationProcessing(a)
         ip._dif = DIF(mcp=mcp)
         ip._start_lookup(
@@ -113,7 +119,7 @@ def test_the_arbiter_branch_calls_the_calendar_tool_without_a_query() -> None:
         await asyncio.sleep(0.05)
         item = ip._triggers.get_nowait()
         await ip.close()
-        return mcp.call.call_args, item
+        return mcp.call_result.call_args, item
 
     call, item = asyncio.run(scenario())
     assert call.args[0] == "get_family_schedule" and call.args[1] == {}

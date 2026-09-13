@@ -98,17 +98,19 @@ class DIF:
 
     # ── MCP の道具 ────────────────────────────────────────────────────────
 
-    async def call_tool(self, name: str, params: dict) -> str:
-        """MCP の同期の道具を呼び、文面を返す（`get_house_rules`・`get_family_schedule`）。
+    async def call_tool(self, name: str, params: dict) -> tuple[str, bool]:
+        """MCP の同期の道具を呼び、(文面, 使えたか) を返す（`get_house_rules`・`get_family_schedule`）。
 
-        口が無ければ「繋がっていない」と返す。MCP のサーバーは落ちる前提のもので、
-        `MCPClientManager.call` は例外を投げずに失敗を文で返す。
+        口が無ければ (「繋がっていない」, False)。MCP のサーバーは落ちる前提のもので、
+        `MCPClientManager.call_result` は例外を投げずに失敗を印（`ok`）で返す（出-o）。
+        失敗の本文は生のエラー文で、**人へ渡す情報ではない**（対処できない）。呼び手は
+        ログに残し、「道具が使えなかった」として扱う。
         """
         if self._mcp is None:
-            return f"（{name} は繋がっていない）"
+            return f"（{name} は繋がっていない）", False
         logger.debug("DIF call_tool → %s", name)
-        text, _ = await self._mcp.call(name, dict(params or {}))
-        return str(text)
+        r = await self._mcp.call_result(name, dict(params or {}))
+        return str(r.text), bool(r.ok)
 
     def tool_defs(self, name: str) -> list[dict]:
         """MCP の道具を**名前で1本だけ**取り出す。
