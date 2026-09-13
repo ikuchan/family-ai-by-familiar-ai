@@ -1764,7 +1764,7 @@ class InformationProcessing:
                 utterance=utterance or self._req.cue,
                 reply=spoken or decision.text,
                 workspace_ctx=workspace_ctx,
-                w_id_map=w_id_map,
+                w_id_map=ws.verdict_map,
                 mem=mem,
             )
             await self._finish(spoken, memories, outcome)
@@ -1832,7 +1832,7 @@ class InformationProcessing:
             effort=decision.effort,
             capped=capped,
             memories=memories,
-            w_id_map=dict(w_id_map),
+            w_id_map=dict(ws.verdict_map),  # 申告の母数は過去の列だけ（出-n 4）
             mem=mem,
             recent_frame=ws.recent_text(ws.n_main),
             max_tokens=budget.max_tokens,
@@ -1982,13 +1982,23 @@ class InformationProcessing:
                 # 完了キューを通って**次の出す反復**が出す（段は-2）。同期で待っていたころは、
                 # そのあいだ打ち切りが効かなかった。
                 logger.info("event-loop 整合チェックが違反を捕まえた：%s", violation)
+                # 言い直しに根拠を添える（出-n）。違反の一文だけだと、検査しない 2 度目に
+                # 別の捏造が出た（2026-09-13 16:32「東京は晴れ 30℃」）。
+                facts = self._checker_facts(
+                    decision.memories,
+                    verdicts=say_tc.input.get("memory_verdicts"),
+                    w_id_map=decision.w_id_map,
+                )
                 self._dispatch_main_llm(
                     messages=[
                         agent.backend.make_user_message(
                             self._user_content(
                                 f"{utterance or self._req.cue}\n\n"
                                 f"[SELF-CHECK] いま言おうとした「{text}」には問題がある："
-                                f"{violation}\nこれを直して、もう一度 say() で答える。",
+                                f"{violation}\n使ってよい事実は次のとおり。事実に無いことは"
+                                f"言わない（分からないなら分からないと言う）。\n"
+                                f"{facts}\n"
+                                f"これを直して、もう一度 say() で答える。",
                                 decision.memories,
                             )
                         )
@@ -2043,23 +2053,11 @@ class InformationProcessing:
         agent = self._agent
         if not agent.config.coherence_check or not text:
             return None
-        saw = any(role == "見た" for _, role in self._req.turn_records)
-        found = self._seen_image(memories)
-        seen_mark = None
-        if found is not None:
-            rec = next((r for r in memories if getattr(r.mi, "image_path", None) == found[1]), None)
-            seen_mark = rec.mi.content if rec is not None else None
         started = time.monotonic()
         violation = await agent._evaluator.check_response_coherence(
             text,
             recent=recent,
-            facts=facts_ctx(
-                saw=saw,
-                memories=memories,
-                picture=found is not None,
-                seen=seen_mark,
-                used=used_lines(verdicts, w_id_map or {}, memories),
-            ),
+            facts=self._checker_facts(memories, verdicts=verdicts, w_id_map=w_id_map),
         )
         logger.info(
             "event-loop 整合チェック %.2f 秒（違反=%s）",
@@ -2067,6 +2065,35 @@ class InformationProcessing:
             "あり" if violation else "なし",
         )
         return violation
+
+    def _checker_facts(
+        self,
+        memories: "list[Recalled]",
+        *,
+        verdicts=None,
+        w_id_map: "dict[str, str] | None" = None,
+    ) -> str:
+        """整合チェックへ渡す事実（出-n）。言い直しにも同じものを添える。
+
+        届いた結果（この求めの open な記録＝版・完了 O）は、主LLM が申告しなくても根拠に
+        なる。届いたことはループが知っているので、申告の有無に頼らない。
+        """
+        saw = any(role == "見た" for _, role in self._req.turn_records)
+        found = self._seen_image(memories)
+        seen_mark = None
+        if found is not None:
+            rec = next((r for r in memories if getattr(r.mi, "image_path", None) == found[1]), None)
+            seen_mark = rec.mi.content if rec is not None else None
+        open_set = set(workspace.open_ids(self._req))
+        arrived = [r.mi.content for r in memories if r.mi.obs_id in open_set and r.mi.content]
+        return facts_ctx(
+            saw=saw,
+            memories=memories,
+            picture=found is not None,
+            seen=seen_mark,
+            used=used_lines(verdicts, w_id_map or {}, memories),
+            arrived=arrived,
+        )
 
     def _declare_light_memory_use(
         self,

@@ -726,7 +726,7 @@ class EmbodiedAgent:
         """立ち位置と文脈を組む（出-e）。**部品は正本から取り、控えを持たない。**
 
         人格とできることは `capability_state.load_summary()`、家族は `FAMILY.md`、
-        規則は `loop.prompt.rules_section()` が正本である。ここへ写しを置くと、正本が
+        規則は `loop.prompt.rules_section()` が正本である（チェッカーへは `rules_for_checker()`）。ここへ写しを置くと、正本が
         変わったときにここだけ古くなる。
 
         材料が欠けたら `None` を返す。`FAMILY.md` が無い機体や、自己認識をまだ生成して
@@ -735,7 +735,7 @@ class EmbodiedAgent:
         """
         from .capability_state import load_summary
         from .core.context_parts import build_context
-        from .loop.prompt import rules_section
+        from .loop.prompt import rules_for_checker
 
         first_person = stance is _Stance.PAJU
         try:
@@ -743,8 +743,10 @@ class EmbodiedAgent:
                 stance=stance,
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
+                # `with_rules` の呼び手は整合チェックだけ。渡すのは判定できる規則に絞った版
+                # （出-n・`CHECKER_RULE_IDS`）。
                 rules=(
-                    rules_section(allow_tts_tags=bool(self._tts and self._tts.understands_tags))
+                    rules_for_checker(allow_tts_tags=bool(self._tts and self._tts.understands_tags))
                     if with_rules
                     else ""
                 ),

@@ -151,3 +151,25 @@ def test_the_workspace_prints_twelve_digit_ids():
         a._oif, [_rec("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")], Request()
     )
     assert list(id_map) == ["aaaaaaaabbbb"]
+
+
+def test_the_rule_asks_for_the_past_column_not_every_id_on_the_page():
+    """規則文は「過去の記憶の列」の id つきの行を対象にする（出-n 4）。直近の枠は対象外。"""
+    from familiar_agent.loop.prompt import EVENT_SYSTEM_PROMPT
+
+    at = EVENT_SYSTEM_PROMPT.index(":id declare-memory-use")
+    rule = EVENT_SYSTEM_PROMPT[at : at + 400]
+    assert "過去の記憶" in rule
+    assert "直近のやりとり" in rule
+
+
+def test_the_loop_counts_verdicts_against_the_past_column():
+    """`_dispatch_main_llm` に渡る対応表は `verdict_map`（過去の列）である。"""
+    import inspect
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    src = inspect.getsource(InformationProcessing._iterate)
+    assert "w_id_map=dict(ws.verdict_map)" in src
+    # 続き先の辺は両方の枠を名指せる。
+    assert "link_follows(self._agent, self._req, w_id_map, follows)" in src

@@ -187,3 +187,117 @@ async def test_a_violation_sends_the_draft_back_once():
     # 差し戻しは `_act_on_decision` にある（環-h・段ろ で切り出した）。
     src = inspect.getsource(event_loop.InformationProcessing._act_on_decision)
     assert "[SELF-CHECK]" in src
+
+
+# ── チェッカーに渡す規則は「文と事実で判定できるもの」だけ（出-n・2026-09-13） ──
+
+
+def test_the_checker_only_gets_rules_it_can_judge_from_the_text_and_the_facts():
+    """2 日間の違反 31 件のうち、`declare-memory-use` 絡みが 43 文（複数出るので超える）。
+    申告（`say` の引数）はチェッカーに渡っておらず、文だけを見て「申告が欠けている」と
+    言っていた。判定できないものを判定させない。"""
+    from familiar_agent.loop.prompt import CHECKER_RULE_IDS, rules_for_checker
+
+    text = rules_for_checker()
+    for rid in (
+        "no-fake-perception",
+        "no-invented-knowledge",
+        "no-past-comparison-without-memory",
+        "memory-evidence-confidence",
+        "workspace-is-notes-not-script",
+        "no-raw-internal-metrics",
+        "no-tts-tags",
+    ):
+        assert f":id {rid}\n" in text, rid
+        assert rid in CHECKER_RULE_IDS
+    for rid in (
+        "declare-memory-use",  # 申告は `say` の引数で、文には無い（機械が数えている）
+        "voice-only-from-say",  # `say` を呼んだかは機械が知っている
+        "first-person-perspective-taking",
+        "validation-before-advice",
+        "bid-for-connection",
+        "personality-from-me",
+        "language-match",
+    ):
+        assert f":id {rid}\n" not in text, rid
+    # 正本（主LLM へ渡る規則）は変わらない。
+    from familiar_agent.loop.prompt import rules_section
+
+    assert ":id declare-memory-use\n" in rules_section()
+
+
+def test_the_checker_still_drops_tts_tags_when_the_voice_understands_them():
+    from familiar_agent.loop.prompt import rules_for_checker
+
+    assert ":id no-tts-tags\n" not in rules_for_checker(allow_tts_tags=True)
+
+
+def test_the_agent_hands_the_checker_rules_to_the_instrument_stance():
+    """`with_rules=True` の呼び手はチェッカーだけ。そこへ渡るのは絞った規則である。"""
+    from unittest.mock import MagicMock
+
+    from familiar_agent.agent import EmbodiedAgent
+    from familiar_agent.core.context_parts import Stance
+
+    a = MagicMock()
+    a._me_md, a._family_md, a._tts = "", "", None
+    system = EmbodiedAgent._stance_context(a, Stance.INSTRUMENT, with_rules=True)
+    assert system is not None
+    assert ":id no-invented-knowledge\n" in system
+    assert ":id declare-memory-use\n" not in system
+
+
+# ── 材料を切らない・申告に頼らない（出-n・2026-09-13） ─────────────────────────
+
+
+def test_the_arrived_results_are_facts_whether_or_not_they_were_declared():
+    """この求めで届いた結果（版・完了 O）は、主LLM が申告しなくても事実として渡る。
+
+    15:55 実機：検索結果に「雨のち曇 · 最高 · 25 ℃」があるのに「事実に含まれていない」と
+    差し戻された。申告した記憶の中身は 200 字で切られ、そこから先が見えなかった。
+    """
+    from familiar_agent.loop.coherence import facts_ctx
+
+    long = (
+        "「明日の天気は？」と聞かれ、1番：search_deferred の結果が届いた："
+        + "x" * 300
+        + "雨のち曇 · 最高 · 25 ℃"
+    )
+    out = facts_ctx(saw=False, memories=[], arrived=[long])
+    assert "この求めで届いた結果" in out
+    assert "最高 · 25 ℃" in out, "届いた結果が切られている"
+
+
+def test_the_declared_memories_are_not_cut_at_200_chars():
+    from familiar_agent.loop.coherence import facts_ctx
+
+    body = "a" * 480 + "末尾の事実"
+    out = facts_ctx(saw=False, memories=[], used=[body])
+    assert "末尾の事実" in out
+
+
+def test_a_very_long_arrived_result_is_capped_but_generously():
+    from familiar_agent.loop.coherence import ARRIVED_CHARS, facts_ctx
+
+    out = facts_ctx(saw=False, memories=[], arrived=["y" * (ARRIVED_CHARS + 500)])
+    assert out.count("y") == ARRIVED_CHARS and ARRIVED_CHARS >= 2000
+
+
+def test_the_loop_hands_the_arrived_results_to_the_checker_without_a_declaration():
+    """ループは open な記録（この求めの版・完了）の中身を `arrived` として渡す。"""
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from familiar_agent.loop.request import Request
+
+    ip = InformationProcessing.__new__(InformationProcessing)
+    ip._req = Request()
+    ip._req.request_id = "req-1"
+    ip._req.live_version_id = "ver-2"
+    ip._req.turn_records = []
+    ip._agent = MagicMock()
+    ip._agent.config.coherence_check = True
+    ip._seen_image = MagicMock(return_value=None)
+    arrived = _rec("ver-2", content="1番：search_deferred の結果が届いた：雨のち曇 · 最高 · 25 ℃")
+    old = _rec("m1", content="昔の話")
+    facts = ip._checker_facts([arrived, old], verdicts=None, w_id_map={})
+    assert "この求めで届いた結果" in facts and "最高 · 25 ℃" in facts
+    assert "昔の話" not in facts  # 申告されていない過去の記憶は根拠にならない

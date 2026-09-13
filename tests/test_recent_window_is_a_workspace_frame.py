@@ -175,3 +175,18 @@ def test_the_two_windows_are_the_same_build_with_a_different_width():
     assert narrow.split("[過去の記憶")[1] == wide.split("[過去の記憶")[1]
     # 直近は 1 度しか引かない（窓の最大で引いて、狭い方は切り出す）。
     assert oif.latest_origins.call_count == 1
+
+
+def test_the_verdict_map_holds_only_the_past_column():
+    """申告の母数は過去の記憶の列だけ（出-n 4・2026-09-13）。
+
+    記-h で直近の行にも id を印字し対応表に入れたため `記憶の判定 7/19 件` のように母数が
+    増えた。直近は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
+    判定（続き先）は両方を名指せるので `id_map` は両方を持つ。
+    """
+    chains = {"q2": [_said("q2", "お話できる？", "起点", 5), _said("a2", "もちろん", "答え", 6)]}
+    oif = _oif(["q2"], chains)
+    oif.roles = MagicMock(return_value={})
+    ws = _ws(oif, [_recalled("a2", "もちろん"), _recalled("m9", "去年の夏の話")], n_main=2)
+    assert set(ws.verdict_map.values()) == {"m9"}  # a2 は直近の枠に載ったので過去の列に無い
+    assert set(ws.id_map.values()) == {"q2", "a2", "m9"}

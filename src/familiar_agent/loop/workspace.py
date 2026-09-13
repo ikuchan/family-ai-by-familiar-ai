@@ -233,6 +233,9 @@ class Workspace:
     n_arbiter: int
     n_main: int
     id_map: "dict[str, str]" = field(default_factory=dict)
+    #: 申告（`memory_verdicts`）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
+    #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
+    verdict_map: "dict[str, str]" = field(default_factory=dict)
 
     @classmethod
     def build(
@@ -244,6 +247,7 @@ class Workspace:
         _rows, _text, recent_ids = render_recent(oif, chains, max(n_arbiter, n_main))
         _past, past_ids = compose(oif, memories, req, exclude=set(recent_ids.values()))
         ws.id_map = {**past_ids, **recent_ids}
+        ws.verdict_map = {k: v for k, v in past_ids.items() if v not in set(recent_ids.values())}
         return ws
 
     def recent_text(self, n: int) -> str:

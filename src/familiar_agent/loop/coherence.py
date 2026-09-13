@@ -18,6 +18,10 @@ from __future__ import annotations
 # 規則 `memory-evidence-confidence` が「仮説として扱う」と定める境目。
 CONF_UNCERTAIN = 0.55
 
+#: この求めで届いた結果（版・完了 O）を事実として渡すときの 1 件の上限（出-n）。O の上限は
+#: 500 字だが完了 O は 8192 字まであるので、検索結果の数値が後ろにあっても入る幅を取る。
+ARRIVED_CHARS = 2000
+
 
 def used_lines(raw, w_id_map: "dict[str, str]", memories: "list") -> list[str]:
     """主LLM が `referred`／`important` と申告した記憶の中身（W の行の本文）を返す。
@@ -47,6 +51,7 @@ def facts_ctx(
     picture: bool = False,
     seen: "str | None" = None,
     used: "list[str] | None" = None,
+    arrived: "list[str] | None" = None,
 ) -> str:
     """この反復でループが知っていることを、そのまま並べる。
 
@@ -60,6 +65,11 @@ def facts_ctx(
     `used` は主LLM が `referred`／`important` と申告した記憶の**中身**（2026-09-13）。件数と
     日付だけでは、記憶にある天気で答えた返事が「検索も提示も無いのに事実を言った」
     （`no-invented-knowledge`）に見えた。根拠が作業状態にあることを、中身で示す。
+
+    `arrived` はこの求めで**届いた結果**（open な版・完了 O の content・出-n）。主LLM が申告
+    しなくても事実として渡す——届いたことはループが知っている。**切らない**（1 件
+    `ARRIVED_CHARS` まで）。申告した記憶を 200 字で切っていたため、検索結果の「雨のち曇 ·
+    最高 · 25 ℃」が見えず「事実に無い」と差し戻された（2026-09-13 15:55）。
     """
     seen_line = (
         "はい（この求めで see を呼んだ）" if saw else "いいえ（この求めで see を呼んでいない）"
@@ -79,11 +89,16 @@ def facts_ctx(
         low = sum(1 for r in memories if r.confidence < CONF_UNCERTAIN)
         mem = f"{len(memories)}件（{dates}。うち conf<{CONF_UNCERTAIN} が{low}件）"
     if used:
-        leaned = "\n".join(f"  - {u[:200]}" for u in used)
+        leaned = "\n".join(f"  - {u[:ARRIVED_CHARS]}" for u in used)
         leaned_line = f"主LLM が使ったと申告した記憶（{len(used)}件・これが根拠）：\n{leaned}"
     else:
         leaned_line = "主LLM が使ったと申告した記憶：申告なし"
+    if arrived:
+        got = "\n".join(f"  - {a[:ARRIVED_CHARS]}" for a in arrived)
+        arrived_line = f"\nこの求めで届いた結果（{len(arrived)}件・これも根拠）：\n{got}"
+    else:
+        arrived_line = ""
     return (
         f"[この反復で分かっていること]\n見たか：{seen_line}\n画像を受け取った：{pic}\n"
-        f"作業状態に並んだ記憶：{mem}\n{leaned_line}"
+        f"作業状態に並んだ記憶：{mem}\n{leaned_line}{arrived_line}"
     )
