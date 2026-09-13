@@ -71,6 +71,13 @@ class Server:
             raise RuntimeError(
                 "FAMILY_CALENDAR_ICS が設定されていない（ファミリーカレンダーの秘密の ICS の URL）"
             )
+        if not _looks_like_ics(self.ics_url):
+            # 共有リンク（`…/calendar/u/0?cid=…`）を貼られた（2026-09-13 実機）。ICS は末尾が
+            # `basic.ics`。設定 →「カレンダーの統合」→「非公開 URL（iCal 形式）」。
+            raise RuntimeError(
+                "FAMILY_CALENDAR_ICS が ICS の URL ではない（末尾が .ics でない）。"
+                "Google カレンダーの設定 →「カレンダーの統合」→「非公開 URL（iCal 形式）」の値を置く"
+            )
         days = max(1, min(14, int(days)))
         cal = parse_ics(self.fetch_ics(self.ics_url))
         now = self.now().astimezone(TZ)
@@ -167,12 +174,38 @@ class Server:
                 sys.stdout.flush()
 
 
+def _url_from_mcp_config() -> str:
+    """`~/.familiar-ai.json` の `family-calendar` の `env` から URL を読む。
+
+    アプリが子プロセスを起こすときは `env` が渡るが、ターミナルから `--selftest` を叩くと
+    渡らない（2026-09-13 実機）。手で叩いても同じ設定で動くように、同じ file を見る。
+    """
+    import json
+    import os
+
+    path = os.path.expanduser(os.environ.get("MCP_CONFIG", "~/.familiar-ai.json"))
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cfg = json.load(fh)
+        return str(cfg["mcpServers"]["family-calendar"]["env"]["FAMILY_CALENDAR_ICS"])
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+def _looks_like_ics(url: str) -> bool:
+    return url.startswith("https://") and url.rstrip("/").endswith(".ics")
+
+
 def build(
     *, ics_url: str | None = None, fetch_ics: Callable[[str], str] | None = None, now=None
 ) -> Server:
     import os
 
-    url = os.environ.get("FAMILY_CALENDAR_ICS", "") if ics_url is None else ics_url
+    url = (
+        (os.environ.get("FAMILY_CALENDAR_ICS") or _url_from_mcp_config())
+        if ics_url is None
+        else ics_url
+    )
     kwargs: dict[str, Any] = {"ics_url": url}
     if fetch_ics is not None:
         kwargs["fetch_ics"] = fetch_ics

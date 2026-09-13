@@ -120,3 +120,35 @@ def test_initialize_and_ping() -> None:
     assert init["result"]["protocolVersion"] == "2024-11-05"
     assert s.handle({"jsonrpc": "2.0", "id": 2, "method": "ping"})["result"] == {}
     assert s.handle({"jsonrpc": "2.0", "method": "notifications/initialized"}) is None
+
+
+def test_a_share_link_is_rejected_with_guidance() -> None:
+    s = _server(url="https://calendar.google.com/calendar/u/0?cid=abc")
+    res = s.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 6,
+            "method": "tools/call",
+            "params": {"name": "get_family_schedule", "arguments": {}},
+        }
+    )
+    assert res["result"]["isError"] is True
+    assert "iCal 形式" in res["result"]["content"][0]["text"]
+
+
+def test_build_reads_the_url_from_the_mcp_config(tmp_path, monkeypatch) -> None:
+    import json
+
+    cfg = tmp_path / "familiar-ai.json"
+    cfg.write_text(
+        json.dumps(
+            {
+                "mcpServers": {
+                    "family-calendar": {"env": {"FAMILY_CALENDAR_ICS": "https://x/basic.ics"}}
+                }
+            }
+        )
+    )
+    monkeypatch.setenv("MCP_CONFIG", str(cfg))
+    monkeypatch.delenv("FAMILY_CALENDAR_ICS", raising=False)
+    assert srv.build().ics_url == "https://x/basic.ics"
