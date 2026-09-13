@@ -825,23 +825,24 @@ class EmbodiedAgent:
         )
 
     def _social_presence_permission(self) -> float:
-        """誰か居れば 1.0、部屋が空なら 0.0。社会的発話と deferred 配信の共通ゲート。
+        """**誰かがいれば** 1.0、部屋が空なら 0.0。社会的発話と deferred 配信の共通ゲート。
 
-        在席の証拠は2つあり、**どちらかが立てば在席**とする。カメラの有無で根拠を
-        切り替えない。
+        「誰かがいる」と「知っている人がいる」は別である（知-h・2026-09-13）。判断の順は
+        **居るか → 誰か**で、証拠は3つあり、**どれかが立てば在席**とする。
 
-        1. 顔が検出されている（PMM に在席者が居る）
-        2. 直近5分以内に人が話しかけてきた（対話は在席の直接的な証拠）
+        1. 在/不在の層が人を見ている（`PresenceSensor.room_occupied()`・YOLO・登録が要らない）
+        2. 顔が照合されている（PMM に在席者が居る＝知っている人）
+        3. 直近5分以内に人が話しかけてきた（対話は在席の直接的な証拠）
 
-        以前はカメラが有効なとき 1 だけを見て確定しており、目の前で人が話しかけていても
-        顔が識別されなければ「誰も居ない」と判定して返事まで保留にしていた（実機で観測）。
-
-        **暫定である点の明示**：ここで使う `get_present_ids()` は InsightFace が埋める
-        **人物 id（誰か＝identity）**であって、設計が定める**在席（在/不在）**そのものでは
-        ない。正本は二層に分けており（在/不在＝T(G)・YOLO で連続／誰か＝I・InsightFace で
-        必要時）、identity を presence の代わりに使うのは暫定にすぎない。**二層の分離は
-        残課題 #8（在席系の精緻化）で扱う**。
+        以前は 2 と 3 しか見ておらず、顔が未登録なら目の前に人が居ても「誰も居ない」になり、
+        独り言が独白へ落ちた（実機）。センサが無い構成では 2 と 3 だけで決める（従来どおり）。
+        「誰か」は主LLM へ渡す在席（`_present_ctx`）が別に言う。
         """
+        sensor = getattr(self, "_presence_sensor", None)
+        if sensor is not None:
+            with contextlib.suppress(Exception):
+                if sensor.room_occupied() is True:
+                    return 1.0
         pmm = getattr(self, "_pmm", None)
         if pmm is not None and pmm.get_present_ids():
             return 1.0
