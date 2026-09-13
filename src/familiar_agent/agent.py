@@ -55,7 +55,7 @@ from .tools.tts import TTSTool
 from ._i18n import _t
 from .loop.evaluator import Evaluator
 from .loop.history import _flatten_history
-from .mcp_client import MCPClientManager, _resolve_config_path
+from .mcp_client import CallResult, MCPClientManager, _resolve_config_path
 from .capability_state import (
     build_generation_prompt,
     build_self_understanding_prompt,
@@ -667,14 +667,18 @@ class EmbodiedAgent:
         # Register family members from FAMILY.md into persons DB
         self._register_family_from_md()
 
-    async def _mcp_search(self, tool_name: str, tool_input: dict) -> tuple[str, Any]:
-        """Route a search call through MCP, waiting for MCP init if needed."""
+    async def _mcp_search(self, tool_name: str, tool_input: dict) -> "CallResult":
+        """Route a search call through MCP, waiting for MCP init if needed.
+
+        返りは `CallResult`（本文・画像・**ok**）。deferred の検索・取得が、道具の失敗を
+        印で受け取って代わりの道具へ回すため（出-o）。
+        """
         mcp_task = getattr(self, "_mcp_start_task", None)
         if mcp_task and not mcp_task.done():
             await mcp_task
         if self._mcp:
-            return await self._mcp.call(tool_name, tool_input)
-        return "MCP が利用できません。", None
+            return await self._mcp.call_result(tool_name, tool_input)
+        return CallResult("MCP が利用できません。", None, False)
 
     async def _execute_tool(self, name: str, tool_input: dict) -> tuple[str, str | None]:
         """Route tool call to the right handler. Returns (text, image_b64_or_None)."""

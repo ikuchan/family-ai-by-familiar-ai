@@ -112,6 +112,16 @@ def _query_label(action: str, tool_input: dict) -> str:
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
+def _action_family(action: str) -> str:
+    """道具名（主LLM が呼ぶ）を動作名（候補の表の鍵）に正規化する（`get_family_schedule` → `family_schedule`）。"""
+    if action in _MCP_LOOKUPS:
+        tool = _MCP_LOOKUPS[action][0]
+        for name, (t, _label) in _MCP_LOOKUPS.items():
+            if t == tool and not name.startswith("get_") and name != "search_notion":
+                return name
+    return action
+
+
 def _tool_input_for(action: str, query: str) -> dict:
     """調停の決定（動作名と語）を、その道具が受け取る入力へ変える。
 
@@ -268,6 +278,8 @@ class Trigger:
     result: str = ""
     intent_id: "str | None" = None
     index: int = 0
+    #: 調べものが**道具の失敗**で終わった（出-o）。結果ではなく「その道具はいま使えない」。
+    failed: bool = False
     decision: "Decision | None" = None
     # `機器` だけが使う。在席がゼロから立ち上がった瞬間に真で、保留した発話を先に配る。
     release_pending: bool = False
@@ -605,6 +617,9 @@ class InformationProcessing:
             if lk.in_flight:
                 verb = "を打ち切った" if aborted else "を起動中"
                 parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{verb}")
+            elif lk.failed:
+                # 結果ではない。生のエラー文は載せない（対処できる情報ではない・出-o）。
+                parts.append(f"{lk.index}番：{lk.action}「{lk.query}」は道具が使えず失敗した")
             else:
                 parts.append(f"{lk.index}番：{lk.action}「{lk.query}」の結果が届いた：{lk.result}")
 
@@ -874,15 +889,28 @@ class InformationProcessing:
         if action in _MCP_LOOKUPS:
             # MCP の同期の道具。結果はその場で返るので、完了として積む（`recall` と同じ）。
             tool_name = _MCP_LOOKUPS[action][0]
+            failed = False
             try:
-                out = await self._dif.call_tool(tool_name, tool_input)
+                out, ok = await self._dif.call_tool(tool_name, tool_input)
+                if not ok:
+                    # 生の文（`TypeError …`）は対処できる情報ではない。ログにだけ残し、
+                    # 人へは「道具が使えなかった」だけを運ぶ（出-o）。
+                    logger.warning("event-loop %s が使えなかった：%.200s", tool_name, out)
+                    out, failed = f"「{query}」は道具が使えず失敗した", True
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop %s の実行に失敗: %s", tool_name, e)
-                out = f"（{tool_name} を実行できなかった：{e}）"
+                out, failed = f"「{query}」は道具が使えず失敗した", True
             self._triggers.put_nowait(
-                Trigger(kind="完了", query=query, result=str(out), intent_id=intent_id, index=index)
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=str(out),
+                    intent_id=intent_id,
+                    index=index,
+                    failed=failed,
+                )
             )
             return
         if action != "recall":
@@ -896,9 +924,10 @@ class InformationProcessing:
                     Trigger(
                         kind="完了",
                         query=query,
-                        result=f"（{action} を実行できなかった：{e}）",
+                        result=f"「{query}」は道具が使えず失敗した",
                         intent_id=intent_id,
                         index=index,
+                        failed=True,
                     )
                 )
                 return
@@ -1084,6 +1113,10 @@ class InformationProcessing:
                 result_text = "（見えたものは、作業状態の『わたしが見た』の行にある）"
             if lk is not None:
                 lk.result = result_text
+                lk.failed = bool(getattr(c, "failed", False))
+                if lk.failed:
+                    # その求めのあいだ、この道具を候補から外す（構造で呼び直しを起こさない）。
+                    self._req.failed_actions.add(_action_family(lk.action))
         if items:
             # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。
             await self._write_version()
@@ -1114,6 +1147,14 @@ class InformationProcessing:
         "journal": lambda ip: ip._dif.tool_defs("get_journal"),
     }
 
+    def _extra_actions(self) -> tuple[str, ...]:
+        """調停に載せる MCP の同期の道具。繋がっているものだけ、かつこの求めで失敗していないもの。"""
+        return tuple(
+            a
+            for a in ("house_rules", "family_schedule", "notion_search", "journal")
+            if a not in self._req.failed_actions and self._ACTIONS[a](self)
+        )
+
     def _action_of_query(self, query: str) -> str:
         """その語をどの動作で投げたか。分からなければ recall とみなす。"""
         lk = self._lookup_of(query)
@@ -1139,10 +1180,16 @@ class InformationProcessing:
         最小長が低く、道具を載せると読み出し料が増えて 581円 → 635円 と高くなる）。
         """
         defs: list[dict] = []
+        # この求めで道具が使えなかった動作（出-o）。求めの器が無い呼び方（土台だけの試験）でも
+        # 落ちないよう、無ければ空とみなす。
+        failed = getattr(getattr(self, "_req", None), "failed_actions", ())
         for name in actions:
             build = self._ACTIONS.get(name)
             if build is None:
                 logger.debug("event-loop 未接続の動作を要求された（無視する）: %s", name)
+                continue
+            if name in failed:
+                # この求めで道具が使えなかった動作は渡さない（出-o・呼び直しを構造で止める）。
                 continue
             with contextlib.suppress(Exception):
                 defs.extend(build(self))
@@ -1286,6 +1333,7 @@ class InformationProcessing:
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
+        self._req.failed_actions.clear()
 
     def _emit(self, text: str) -> None:
         """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
@@ -1346,7 +1394,9 @@ class InformationProcessing:
         """駆動体だけを起こす。以後はキュー到来で反復が回る。"""
         self._ensure_driver()
 
-    def push_completion(self, query: str, result: str, index: int = 0) -> None:
+    def push_completion(
+        self, query: str, result: str, index: int = 0, *, failed: bool = False
+    ) -> None:
         """RH（資源ハンドラ）が deferred の完了を QC へ積む。
 
         投げっぱなしの外部呼び出し（検索・取得）の結果は、完了キュー→O 経由で次の反復の
@@ -1367,6 +1417,7 @@ class InformationProcessing:
             query=query,
             result=str(result),
             index=index or (_lk.index if _lk is not None else 0),
+            failed=failed,
         )
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(self._triggers.put_nowait, item)
@@ -1899,11 +1950,7 @@ class InformationProcessing:
             can_see=getattr(agent, "_camera", None) is not None,
             image_b64=image_b64,
             origin=self._req.trigger_kind,
-            extra_actions=tuple(
-                a
-                for a in ("house_rules", "family_schedule", "notion_search", "journal")
-                if self._ACTIONS[a](self)
-            ),
+            extra_actions=self._extra_actions(),
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
@@ -2407,6 +2454,7 @@ class InformationProcessing:
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
+        self._req.failed_actions.clear()
         self._req.iterations = 0
         self._req.iterations_capped = False
         self._notify_request_state(False)

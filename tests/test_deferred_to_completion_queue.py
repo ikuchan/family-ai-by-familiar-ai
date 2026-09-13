@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from familiar_agent.mcp_client import CallResult
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -15,7 +17,9 @@ from familiar_agent.tools.deferred_search import DeferredSearchTool
 
 
 def _tool(sink=None) -> DeferredSearchTool:
-    t = DeferredSearchTool(AsyncMock(return_value=("検索の結果", None)), MagicMock())
+    t = DeferredSearchTool(
+        AsyncMock(return_value=CallResult("検索の結果", None, True)), MagicMock()
+    )
     if sink is not None:
         t.set_completion_sink(sink)
     return t
@@ -23,7 +27,7 @@ def _tool(sink=None) -> DeferredSearchTool:
 
 def test_completion_goes_to_the_sink_when_wired():
     got: list[tuple[str, str]] = []
-    t = _tool(sink=lambda query, result: got.append((query, result)))
+    t = _tool(sink=lambda query, result, **_kw: got.append((query, result)))
     asyncio.run(t._run("明日の天気", "web_search", "user"))
     assert got == [("明日の天気", "検索の結果")]
 
@@ -37,7 +41,7 @@ def test_completion_still_pends_when_no_sink():
 
 def test_sink_replaces_pending_not_duplicates():
     got: list[tuple[str, str]] = []
-    t = _tool(sink=lambda query, result: got.append((query, result)))
+    t = _tool(sink=lambda query, result, **_kw: got.append((query, result)))
     asyncio.run(t._run("明日の天気", "web_search", "user"))
     assert len(got) == 1
-    assert not t.has_pending      # キューへ渡したぶんは溜めない（二重配信の防止）
+    assert not t.has_pending  # キューへ渡したぶんは溜めない（二重配信の防止）

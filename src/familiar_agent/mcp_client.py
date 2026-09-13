@@ -36,6 +36,7 @@ Example config:
 from __future__ import annotations
 
 import asyncio
+from dataclasses import dataclass
 import json
 import logging
 import os
@@ -44,6 +45,16 @@ from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class CallResult:
+    """MCP の道具を 1 回呼んだ結果。`ok` が偽なら**道具が使えなかった**（本文は失敗の説明）。"""
+
+    text: str
+    image: "str | None"
+    ok: bool
+
 
 _DEFAULT_CONFIG = Path.home() / ".familiar-ai.json"
 
@@ -85,7 +96,7 @@ def _compress_tavily_result(text: str) -> str:
         if any(line.startswith(p) for p in _TAVILY_SKIP_PREFIXES):
             continue
         if line.startswith("Content: "):
-            body = line[len("Content: "):]
+            body = line[len("Content: ") :]
             if len(body) > _TAVILY_CONTENT_CHARS:
                 body = body[:_TAVILY_CONTENT_CHARS] + "…"
             out.append(f"Content: {body}")
@@ -238,7 +249,9 @@ class MCPClientManager:
 
         for name, cfg in self._servers.items():
             try:
-                await self._connect_one(name, cfg, ClientSession, StdioServerParameters, stdio_client)
+                await self._connect_one(
+                    name, cfg, ClientSession, StdioServerParameters, stdio_client
+                )
             except Exception as e:
                 self._failed_servers.append(name)
                 logger.warning(
@@ -306,7 +319,9 @@ class MCPClientManager:
             new_stack = AsyncExitStack()
             self._server_stacks[name] = new_stack
             await asyncio.wait_for(
-                self._connect_one(name, cfg, ClientSession, StdioServerParameters, stdio_client, stack=new_stack),
+                self._connect_one(
+                    name, cfg, ClientSession, StdioServerParameters, stdio_client, stack=new_stack
+                ),
                 timeout=_CONNECT_TIMEOUT,
             )
             logger.info("MCP server '%s' reconnected successfully", name)
@@ -322,17 +337,35 @@ class MCPClientManager:
 
     async def call(self, tool_name: str, tool_input: dict[str, Any]) -> tuple[str, str | None]:
         """Call a tool on the appropriate MCP server. Never raises — returns error as text."""
+        r = await self.call_result(tool_name, tool_input)
+        return r.text, r.image
+
+    async def call_result(self, tool_name: str, tool_input: dict[str, Any]) -> "CallResult":
+        """`call` と同じ呼び出しで、**失敗を印（`ok`）で返す**（出-o・2026-09-13）。
+
+        失敗は 4 通りある——道具が無い・サーバーが繋がっていない・呼び出しが落ちた（時間切れ・
+        例外）・サーバーが `isError` で返した（自作 MCP の `TypeError` など）。以前は全部が
+        本文の文字列になり、呼び手は成功と見分けられなかった。生の文は本文に残す（ログ用）が、
+        呼び手はそれを人へ渡さず「道具が使えなかった」として扱う。
+        """
         server_name = self._tool_router.get(tool_name)
         if server_name is None:
-            return f"MCP tool '{tool_name}' not found.", None
+            return CallResult(f"MCP tool '{tool_name}' not found.", None, False)
 
         session = self._sessions.get(server_name)
         if session is None:
-            return f"MCP server '{server_name}' is not connected.", None
+            return CallResult(f"MCP server '{server_name}' is not connected.", None, False)
 
         if tool_name == "tavily_search":
             tool_input = {k: v for k, v in tool_input.items() if k != "country"}
-            _time_range_map = {"24h": "day", "7d": "week", "30d": "month", "1h": "day", "48h": "day", "3d": "week"}
+            _time_range_map = {
+                "24h": "day",
+                "7d": "week",
+                "30d": "month",
+                "1h": "day",
+                "48h": "day",
+                "3d": "week",
+            }
             if "time_range" in tool_input and tool_input["time_range"] in _time_range_map:
                 tool_input = dict(tool_input)
                 tool_input["time_range"] = _time_range_map[tool_input["time_range"]]
@@ -345,16 +378,18 @@ class MCPClientManager:
             )
         except asyncio.TimeoutError:
             logger.warning("MCP tool '%s' call timed out after %.0fs", tool_name, _call_timeout)
-            return f"MCP tool '{tool_name}' timed out after {_call_timeout:.0f}s", None
+            return CallResult(
+                f"MCP tool '{tool_name}' timed out after {_call_timeout:.0f}s", None, False
+            )
         except Exception as e:
             logger.warning("MCP tool '%s' session error, attempting reconnect: %s", tool_name, e)
             reconnected = await self._reconnect_server(server_name)
             if not reconnected:
-                return f"MCP tool '{tool_name}' error: {e}", None
+                return CallResult(f"MCP tool '{tool_name}' error: {e}", None, False)
             # Retry once with the fresh session.
             new_session = self._sessions.get(server_name)
             if new_session is None:
-                return f"MCP tool '{tool_name}' error: {e}", None
+                return CallResult(f"MCP tool '{tool_name}' error: {e}", None, False)
             try:
                 result = await asyncio.wait_for(
                     new_session.call_tool(tool_name, arguments=tool_input),
@@ -362,7 +397,7 @@ class MCPClientManager:
                 )
             except Exception as e2:
                 logger.warning("MCP tool '%s' retry failed: %s", tool_name, e2)
-                return f"MCP tool '{tool_name}' error: {e2}", None
+                return CallResult(f"MCP tool '{tool_name}' error: {e2}", None, False)
 
         # Extract text and optional image from content blocks
         text_parts: list[str] = []
@@ -380,4 +415,8 @@ class MCPClientManager:
         text = "\n".join(text_parts) if text_parts else "(no output)"
         if tool_name == "tavily_search":
             text = _compress_tavily_result(text)
-        return text, image_b64
+        # サーバー側の失敗（`isError`）。本文はサーバーが書いた失敗の説明である。
+        is_error = bool(getattr(result, "isError", False))
+        if is_error:
+            logger.warning("MCP tool '%s' returned isError: %.200s", tool_name, text)
+        return CallResult(text, image_b64, not is_error)

@@ -7,11 +7,13 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from familiar_agent.mcp_client import CallResult
+
 from familiar_agent.tools.deferred_fetch import DeferredFetchTool
 
 
 def _make_tool(result: str = "page content") -> tuple[DeferredFetchTool, AsyncMock]:
-    fn = AsyncMock(return_value=(result, None))
+    fn = AsyncMock(return_value=CallResult(result, None, True))
     return DeferredFetchTool(fn), fn
 
 

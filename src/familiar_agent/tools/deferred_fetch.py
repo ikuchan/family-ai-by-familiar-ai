@@ -32,7 +32,7 @@ class DeferredFetchTool:
 
     def __init__(
         self,
-        fetch_fn: Callable[[str, dict], Awaitable[tuple[str, Any]]],
+        fetch_fn: Callable[[str, dict], Awaitable[Any]],  # MCP の `call_result`（本文・画像・ok）
     ) -> None:
         self._fetch_fn = fetch_fn
         self._pending: list[dict] = []
@@ -106,14 +106,14 @@ class DeferredFetchTool:
         )
 
     def set_completion_sink(self, sink) -> None:
-        """完了の渡し先を繋ぐ（引数は (url, result)）。"""
+        """完了の渡し先を繋ぐ（引数は (url, result, *, failed)）。"""
         self._completion_sink = sink
 
-    def _deliver(self, url: str, result: str) -> bool:
+    def _deliver(self, url: str, result: str, *, failed: bool = False) -> bool:
         if self._completion_sink is None:
             return False
         try:
-            self._completion_sink(url, result)
+            self._completion_sink(url, result, failed=failed)
             return True
         except Exception as e:  # noqa: BLE001
             logger.warning("完了キューへ渡せなかったので溜める: %s", e)
@@ -121,29 +121,45 @@ class DeferredFetchTool:
 
     async def _run(self, url: str, user_initiated: bool = False) -> None:
         try:
-            result, _ = await self._fetch_fn("fetch", {"url": url})
+            r = await self._fetch_fn("fetch", {"url": url})
+            if not r.ok:
+                # 取得の道具に代わりは無い。生の文はログにだけ（出-o）。
+                logger.warning("deferred fetch の道具が使えなかった（%.120s）", r.text)
+                _msg = f"「{url}」は取得の道具が使えず失敗した"
+                if not self._deliver(url, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
+                    self._pending.append(
+                        {"url": url, "result": _msg, "user_initiated": user_initiated}
+                    )
+                return
+            result = r.text
             if not self._deliver(url, result) and len(self._pending) < _MAX_PENDING:
-                self._pending.append({"url": url, "result": result, "user_initiated": user_initiated})
+                self._pending.append(
+                    {"url": url, "result": result, "user_initiated": user_initiated}
+                )
         except asyncio.CancelledError:
             logger.warning("deferred fetch timed out after %ds (url=%r)", _FETCH_TIMEOUT_SEC, url)
             _msg = f"取得がタイムアウトしました（{_FETCH_TIMEOUT_SEC}秒）: {url}"
-            if not self._deliver(url, _msg) and len(self._pending) < _MAX_PENDING:
-                self._pending.append({
-                    "url": url,
-                    "result": _msg,
-                    "user_initiated": user_initiated,
-                })
+            if not self._deliver(url, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
+                self._pending.append(
+                    {
+                        "url": url,
+                        "result": _msg,
+                        "user_initiated": user_initiated,
+                    }
+                )
             # **再送出する。** 締切の見張りだけでなく終了時のキャンセルもここを通る。
             raise
         except Exception as exc:
             logger.warning("deferred fetch failed (url=%r): %s", url, exc)
             _msg = f"取得中にエラーが発生しました: {exc}"
-            if not self._deliver(url, _msg) and len(self._pending) < _MAX_PENDING:
-                self._pending.append({
-                    "url": url,
-                    "result": _msg,
-                    "user_initiated": user_initiated,
-                })
+            if not self._deliver(url, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
+                self._pending.append(
+                    {
+                        "url": url,
+                        "result": _msg,
+                        "user_initiated": user_initiated,
+                    }
+                )
         finally:
             self._running -= 1
 

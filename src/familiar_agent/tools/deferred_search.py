@@ -19,14 +19,15 @@ async def _cancel_after(task: "asyncio.Task[object]", delay: float) -> None:
     await asyncio.sleep(delay)
     if not task.done():
         task.cancel()
+
+
 _SOURCE_TO_TOOL = {
     "brave": "brave_web_search",
     "tavily": "tavily_search",
 }
 
 _SAME_INTENT_PROMPT = (
-    "次の2つの検索クエリは同じ調査の意図ですか？ yes か no だけ答えてください。\n"
-    "A: {a}\nB: {b}"
+    "次の2つの検索クエリは同じ調査の意図ですか？ yes か no だけ答えてください。\nA: {a}\nB: {b}"
 )
 
 
@@ -40,7 +41,7 @@ class DeferredSearchTool:
 
     def __init__(
         self,
-        search_fn: Callable[[str, dict], Awaitable[tuple[str, Any]]],
+        search_fn: Callable[[str, dict], Awaitable[Any]],  # MCP の `call_result`（本文・画像・ok）
         utility_backend: Any = None,
         context: Any = None,
     ) -> None:
@@ -58,15 +59,18 @@ class DeferredSearchTool:
         self._user_turn: bool = False
 
     def set_completion_sink(self, sink) -> None:
-        """完了の渡し先を繋ぐ（引数は (query, result)）。"""
+        """完了の渡し先を繋ぐ（引数は (query, result, *, failed)）。"""
         self._completion_sink = sink
 
-    def _deliver(self, query: str, result: str) -> bool:
-        """完了を渡し先へ。渡せたら True（溜めない＝二重配信を避ける）。"""
+    def _deliver(self, query: str, result: str, *, failed: bool = False) -> bool:
+        """完了を渡し先へ。渡せたら True（溜めない＝二重配信を避ける）。
+
+        `failed` は**道具が使えなかった**（出-o）。結果ではないので、受け手は候補から外す。
+        """
         if self._completion_sink is None:
             return False
         try:
-            self._completion_sink(query, result)
+            self._completion_sink(query, result, failed=failed)
             return True
         except Exception as e:  # noqa: BLE001
             logger.warning("完了キューへ渡せなかったので溜める: %s", e)
@@ -159,9 +163,7 @@ class DeferredSearchTool:
 
         # Deduplicate: skip if same intent is already running or pending.
         # existing_queries is empty on the first search → no utility LLM call needed.
-        existing_queries = list(self._running_queries) + [
-            item["query"] for item in self._pending
-        ]
+        existing_queries = list(self._running_queries) + [item["query"] for item in self._pending]
         for existing in existing_queries:
             if await self._is_same_intent(query, existing):
                 return (
@@ -182,36 +184,80 @@ class DeferredSearchTool:
             True,
         )
 
-    async def _run(self, query: str, mcp_tool: str, source: str, user_initiated: bool = False) -> None:
+    async def _run(
+        self, query: str, mcp_tool: str, source: str, user_initiated: bool = False
+    ) -> None:
         logger.debug("deferred search _run started (query=%r mcp_tool=%r)", query, mcp_tool)
         try:
-            result, _ = await self._search_fn(mcp_tool, {"query": query})
-            logger.debug("deferred search _run completed (query=%r result_len=%d)", query, len(result))
+            # 検索の道具は 2 つ（Brave／Tavily）。指定された側が使えなければ、もう片方で
+            # 続ける（出-o）。同じ道具を叩き直す再試行はしない——失敗の中身（鍵・上限・
+            # 型）は対処できる情報でなく、代わりがあるならそれで続けるのが正しい。
+            r = await self._search_fn(mcp_tool, {"query": query})
+            if not r.ok:
+                other = next((t for t in _SOURCE_TO_TOOL.values() if t != mcp_tool), None)
+                logger.warning(
+                    "deferred search %s が使えなかった（%.120s）→ %s", mcp_tool, r.text, other
+                )
+                if other is not None:
+                    r = await self._search_fn(other, {"query": query})
+            if not r.ok:
+                logger.warning("deferred search 両方の道具が使えなかった（%.120s）", r.text)
+                _msg = f"「{query}」は検索の道具が使えず失敗した"
+                if (
+                    not self._deliver(query, _msg, failed=True)
+                    and len(self._pending) < _MAX_PENDING
+                ):
+                    self._pending.append(
+                        {
+                            "query": query,
+                            "result": _msg,
+                            "source": source,
+                            "user_initiated": user_initiated,
+                        }
+                    )
+                return
+            result = r.text
+            logger.debug(
+                "deferred search _run completed (query=%r result_len=%d)", query, len(result)
+            )
             if not self._deliver(query, result) and len(self._pending) < _MAX_PENDING:
-                self._pending.append({"query": query, "result": result, "source": source, "user_initiated": user_initiated})
+                self._pending.append(
+                    {
+                        "query": query,
+                        "result": result,
+                        "source": source,
+                        "user_initiated": user_initiated,
+                    }
+                )
         except asyncio.CancelledError:
-            logger.warning("deferred search timed out after %ds (query=%r)", _SEARCH_TIMEOUT_SEC, query)
+            logger.warning(
+                "deferred search timed out after %ds (query=%r)", _SEARCH_TIMEOUT_SEC, query
+            )
             _msg = f"検索がタイムアウトしました（{_SEARCH_TIMEOUT_SEC}秒）: {query}"
-            if not self._deliver(query, _msg) and len(self._pending) < _MAX_PENDING:
-                self._pending.append({
-                    "query": query,
-                    "result": _msg,
-                    "source": source,
-                    "user_initiated": user_initiated,
-                })
+            if not self._deliver(query, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
+                self._pending.append(
+                    {
+                        "query": query,
+                        "result": _msg,
+                        "source": source,
+                        "user_initiated": user_initiated,
+                    }
+                )
             # **再送出する。** 締切の見張り（`_cancel_after`）だけでなく、終了時のキャンセルも
             # ここを通る。飲み込むと、止めようとしているのに止まらない節ができる。
             raise
         except Exception as exc:
             logger.warning("deferred search failed (query=%r): %s", query, exc)
-            _msg = f"検索中にエラーが発生しました: {exc}"
-            if not self._deliver(query, _msg) and len(self._pending) < _MAX_PENDING:
-                self._pending.append({
-                    "query": query,
-                    "result": _msg,
-                    "source": source,
-                    "user_initiated": user_initiated,
-                })
+            _msg = f"「{query}」は検索の道具が使えず失敗した"
+            if not self._deliver(query, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
+                self._pending.append(
+                    {
+                        "query": query,
+                        "result": _msg,
+                        "source": source,
+                        "user_initiated": user_initiated,
+                    }
+                )
         finally:
             self._running -= 1
             self._running_queries.discard(query)
