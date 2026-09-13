@@ -34,7 +34,9 @@
 }}}
 ```
 
-`cd mcp && python -m calendar_mcp --selftest` で initialize → tools/list → tools/call を 1 往復ずつ流す（実際に ICS を取る）。
+`cd mcp && python -m calendar_mcp --selftest` で initialize → tools/list → tools/call を 1 往復ずつ流す（実際に ICS を取る）。ターミナルからは `env` が渡らないので、サーバーは `~/.familiar-ai.json` の `family-calendar` の `env` も読む。
+
+**⚠ URL は「非公開 URL（iCal 形式）」**（末尾が `basic.ics`）。カレンダーの共有リンク（`…/calendar/u/0?cid=…`）ではない（2026-09-13 に取り違えがあった）。Google カレンダー（PC）→ マイカレンダーの「︙」→「設定と共有」→「カレンダーの統合」にある。形が違えば道具はその旨を返す。
 
 ## 4. 確かめること（実機）
 
