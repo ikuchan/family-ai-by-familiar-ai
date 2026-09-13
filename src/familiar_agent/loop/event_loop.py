@@ -51,7 +51,16 @@ _FULL_ACTIONS = (
     "see",
     "look",
     "house_rules",
+    "family_schedule",
 )
+# MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
+# 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
+_MCP_LOOKUPS: dict[str, tuple[str, str]] = {
+    "house_rules": ("get_house_rules", "家の決まりを見る"),
+    "get_house_rules": ("get_house_rules", "家の決まりを見る"),
+    "family_schedule": ("get_family_schedule", "家族の予定を見る"),
+    "get_family_schedule": ("get_family_schedule", "家族の予定を見る"),
+}
 # 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
 # `see`・`look` も含める。結果はその場で返るが、それを見て何を言うかは次の反復が決める
 # （`recall` と同じ）。ここに入れないと 1反復1出力 が崩れる。
@@ -61,8 +70,10 @@ _LOOKUP_ACTIONS = (
     "fetch_deferred",
     "see",
     "look",
-    # 家の決まりは即座に返るが、それを見て何を言うかは次の反復が決める（`recall` と同じ）。
-    "house_rules",
+    # MCP の同期の道具は即座に返るが、それを見て何を言うかは次の反復が決める（`recall` と
+    # 同じ）。**主LLM は道具名で呼ぶ**ので、動作名だけでなく道具名も並べる（2026-09-13 まで
+    # 動作名 `house_rules` しか無く、主LLM が `get_house_rules` を呼んでも捨てられていた）。
+    *_MCP_LOOKUPS.keys(),
 )
 
 
@@ -89,6 +100,8 @@ def _query_label(action: str, tool_input: dict) -> str:
         return "目の前を見る"
     if action == "look":
         return f"{tool_input.get('pose', '')}を見に行く"
+    if action in _MCP_LOOKUPS:
+        return _MCP_LOOKUPS[action][1]
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
@@ -847,6 +860,20 @@ class InformationProcessing:
                 Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
+        if action in _MCP_LOOKUPS:
+            # MCP の同期の道具。結果はその場で返るので、完了として積む（`recall` と同じ）。
+            tool_name = _MCP_LOOKUPS[action][0]
+            try:
+                out = await self._dif.call_tool(tool_name, tool_input)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:  # noqa: BLE001
+                logger.exception("event-loop %s の実行に失敗: %s", tool_name, e)
+                out = f"（{tool_name} を実行できなかった：{e}）"
+            self._triggers.put_nowait(
+                Trigger(kind="完了", query=query, result=str(out), intent_id=intent_id, index=index)
+            )
+            return
         if action != "recall":
             try:
                 text, dispatched = await self._dif.lookup(action, tool_input)
@@ -1069,6 +1096,8 @@ class InformationProcessing:
         # 家の決まり（`obsidian-memo`）。**家族ティアだけ**を載せる——個人ティア
         # （`ask_vault_yusuke`）は話者ゲートができるまで載せない。
         "house_rules": lambda ip: ip._dif.tool_defs("get_house_rules"),
+        # 家族の予定（`family-calendar`・知-j）。家族ティアなのでゲート無し。
+        "family_schedule": lambda ip: ip._dif.tool_defs("get_family_schedule"),
     }
 
     def _action_of_query(self, query: str) -> str:
@@ -1921,6 +1950,9 @@ class InformationProcessing:
             can_see=getattr(agent, "_camera", None) is not None,
             image_b64=image_b64,
             origin=self._req.trigger_kind,
+            extra_actions=tuple(
+                a for a in ("house_rules", "family_schedule") if self._ACTIONS[a](self)
+            ),
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(

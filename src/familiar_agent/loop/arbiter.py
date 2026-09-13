@@ -174,6 +174,18 @@ _HEADING_SELF = "[いま湧いたこと]"
 
 _FALLBACK = Decision(branch="full", effort="low")
 
+#: MCP の同期の道具（動作名 → 見出し・説明）。候補に載せるのは繋がっているときだけ。
+_EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
+    "house_rules": (
+        "家の決まりを見る",
+        '"house_rules"（家の決まり・ゲームをしていい曜日・帰宅時の約束を引く。query は要らない）',
+    ),
+    "family_schedule": (
+        "家族の予定を見る",
+        '"family_schedule"（家族の予定・今日／明日の予定・何時から、を引く。query は要らない）',
+    ),
+}
+
 #: `see` の見出しは入力に依らず固定（`event_loop._query_label`）。調停が投げても主LLM が
 #: 投げても同じ鍵になり、「すでに調べた語は投げない」の抑止がそのまま効く。
 SEE_QUERY = "目の前を見る"
@@ -194,7 +206,9 @@ _SEE_NOTE = (
 )
 
 
-def _parse(reply: str, *, can_see: bool = False, origin: str = "発話") -> Decision | None:
+def _parse(
+    reply: str, *, can_see: bool = False, origin: str = "発話", extra_actions: tuple[str, ...] = ()
+) -> Decision | None:
     """軽量LLM の返事から JSON を拾う。前後に地の文が混じっても拾えるようにする。"""
     match = re.search(r"\{.*\}", reply or "", re.S)
     if not match:
@@ -222,11 +236,17 @@ def _parse(reply: str, *, can_see: bool = False, origin: str = "発話") -> Deci
         time_span_days = 0.0
     query = str(data.get("query", "")).strip()
     action = str(data.get("action", "")).strip() or "recall"
-    allowed = ("recall", "search_deferred", "fetch_deferred") + (("see",) if can_see else ())
+    allowed = (
+        ("recall", "search_deferred", "fetch_deferred")
+        + (("see",) if can_see else ())
+        + tuple(a for a in extra_actions if a in _EXTRA_ACTIONS)
+    )
     if action not in allowed:
         action = "recall"
     if action == "see":
         query = SEE_QUERY  # 見出しは固定。`(c)` 分岐は query が空だと full へ落ちる
+    elif action in _EXTRA_ACTIONS:
+        query = _EXTRA_ACTIONS[action][0]
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
         text = ""
@@ -302,6 +322,7 @@ async def arbitrate(
     image_b64: str | None = None,
     recent_ctx: str = "",
     origin: str = "発話",
+    extra_actions: tuple[str, ...] = (),
 ) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
@@ -321,6 +342,8 @@ async def arbitrate(
     - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
     - `can_see`：カメラがあるか。あるときだけ `see` を候補に載せる（無い構成で選ばせて
       空振りさせない）。帰りの判断は出した側に返る（`event_loop._decide`）。
+    - `extra_actions`：いま繋がっている MCP の同期の道具（`house_rules`／`family_schedule`）。
+      あるときだけ候補に載せる。query は要らない（見出しは固定）。
     - `origin`：求めの起点（`発話`／`機器`／`情動`）。`情動` なら「返事」でなく「自分の行動を
       決める」型のプロンプトにする（見出し `[いま湧いたこと]`・許可も理由も要らない・つなぎ無し）。
     - `recent_ctx`：直近のやりとり（最新 2 往復・無条件）。無いと「明日の天気は？」の次の
@@ -341,7 +364,8 @@ async def arbitrate(
     prompt = ARBITER_PROMPT.format(
         lead=_LEAD_SELF if self_doing else _LEAD_REPLY,
         branches=(_BRANCHES_SELF if self_doing else _BRANCHES_REPLY).format(
-            see_option=_SEE_OPTION if can_see else "",
+            see_option=(_SEE_OPTION if can_see else "")
+            + "".join(f"か {_EXTRA_ACTIONS[a][1]}" for a in extra_actions if a in _EXTRA_ACTIONS),
             see_note=(_SEE_NOTE_WITH_PHOTO if image_b64 else _SEE_NOTE) if can_see else "",
         ),
         heading=_HEADING_SELF if self_doing else _HEADING_REPLY,
@@ -352,7 +376,11 @@ async def arbitrate(
         capped_note=_CAPPED_NOTE if capped else "",
         thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
         recent=(recent_ctx.rstrip() + "\n\n") if recent_ctx else "",
-        actions="recall|search_deferred|see" if can_see else "recall|search_deferred",
+        actions="|".join(
+            ["recall", "search_deferred"]
+            + (["see"] if can_see else [])
+            + [a for a in extra_actions if a in _EXTRA_ACTIONS]
+        ),
     )
     if timeout is None:
         from ..config import AgentConfig
@@ -380,7 +408,7 @@ async def arbitrate(
     except Exception as e:  # noqa: BLE001
         logger.warning("調停に失敗したのでフルへ倒す: %s", e)
         return _FALLBACK
-    decision = _parse(reply, can_see=can_see, origin=origin)
+    decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
     if decision is None:
         logger.warning("調停の返事を読めなかったのでフルへ倒す: %.80r", reply)
         return _FALLBACK

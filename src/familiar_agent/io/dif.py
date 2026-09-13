@@ -98,6 +98,18 @@ class DIF:
 
     # ── MCP の道具 ────────────────────────────────────────────────────────
 
+    async def call_tool(self, name: str, params: dict) -> str:
+        """MCP の同期の道具を呼び、文面を返す（`get_house_rules`・`get_family_schedule`）。
+
+        口が無ければ「繋がっていない」と返す。MCP のサーバーは落ちる前提のもので、
+        `MCPClientManager.call` は例外を投げずに失敗を文で返す。
+        """
+        if self._mcp is None:
+            return f"（{name} は繋がっていない）"
+        logger.debug("DIF call_tool → %s", name)
+        text, _ = await self._mcp.call(name, dict(params or {}))
+        return str(text)
+
     def tool_defs(self, name: str) -> list[dict]:
         """MCP の道具を**名前で1本だけ**取り出す。
 

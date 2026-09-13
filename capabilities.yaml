@@ -143,6 +143,19 @@ capabilities:
       MCP servers, exposing their tools to the agent. Supported transports include
       stdio and SSE. Implemented in `mcp_client.py`.
     enabled_env: MCP_CONFIG
+  - id: family_schedule
+    summary: Look up the family's schedule for today or the coming days
+    detail: >
+      `get_family_schedule` returns what is on the family calendar — today by
+      default, or the next few days when asked — with the current date, weekday
+      and time already written at the top, so there is no need to work out what
+      day it is. Use it when someone asks about today's or tomorrow's plans, or
+      what time something starts. The schedule lives in the family's calendar,
+      not in the agent's memory, so it is never mixed into recall, and it says
+      when it was fetched. Anyone in the family may ask.
+      Treated as a tool: read it when the question needs what is on the
+      calendar, not on every turn.
+    enabled_env: MCP_CONFIG
   - id: house_rules
     summary: Look up the rules the family currently lives by
     detail: >
