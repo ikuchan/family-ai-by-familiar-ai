@@ -76,6 +76,60 @@ def test_silence_blocks_speech_even_when_spoken_to():
         ss.load_silence = original
 
 
+def _ip_silenced_by(asker: str, *, speaker: str, others: tuple[str, ...] = ()):
+    """`asker` に黙れと頼まれ、いま `speaker` が話している装置。他の在席者は `others`。"""
+    import time as _time
+    from unittest.mock import MagicMock
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = MagicMock()
+    rows = [{"name": speaker, "is_speaker": True, "confidence": 1.0}]
+    rows += [{"name": n, "is_speaker": False, "confidence": 1.0} for n in others]
+    a._pmm.presence_status = MagicMock(return_value=rows)
+    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._in_quiet_hours = MagicMock(return_value=False)
+    ip = InformationProcessing(a)
+    req = SilenceRequest(person=asker, until=_time.time() + 600)
+    return ip, req
+
+
+def _gate_with(ip, req) -> str:
+    import familiar_agent.silence_state as ss
+
+    original, ss.load_silence = ss.load_silence, lambda: req
+    try:
+        return ip._delivery_block_reason()
+    finally:
+        ss.load_silence = original
+
+
+def test_a_reply_to_someone_else_passes_while_the_asker_is_still_there():
+    """頼んだ本人以外が話しかけたら、その返事は通す（案イ・2026-09-13）。
+
+    実機で、たいきの「だまってて」のあとパパが「今度の火曜日の天気は？」と聞いても、
+    たいきが居る限り答えが `pending_speech` に溜まった。たいきの依頼は「ぼくの邪魔を
+    しないで」であって、パパの質問まで止めるものではない。依頼は消さない——たいきへの
+    返事と自発の発話は止めたまま、退室か時間で解ける。
+    """
+    ip, req = _ip_silenced_by("たいきくん", speaker="パパ", others=("たいきくん",))
+    ip._req.trigger_kind = "発話"
+    assert _gate_with(ip, req) == ""
+
+
+def test_the_asker_is_still_answered_with_silence():
+    ip, req = _ip_silenced_by("たいきくん", speaker="たいきくん", others=("パパ",))
+    ip._req.trigger_kind = "発話"
+    assert _gate_with(ip, req) == "黙っているよう頼まれている"
+
+
+def test_spontaneous_speech_stays_blocked_even_if_someone_else_spoke_last():
+    # 自発（情動が起点）は、最後に話した人が誰であっても止めたまま。
+    ip, req = _ip_silenced_by("たいきくん", speaker="パパ", others=("たいきくん",))
+    ip._req.trigger_kind = "情動"
+    assert _gate_with(ip, req) == "黙っているよう頼まれている"
+
+
 def test_default_duration_is_an_hour():
     """長さを言われなかったときの既定。
 
