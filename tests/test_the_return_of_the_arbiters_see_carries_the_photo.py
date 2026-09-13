@@ -41,7 +41,7 @@ def test_the_photo_goes_to_the_arbiter_when_it_looked(tmp_path) -> None:
         a = _agent(stream_returns=[])
         ip = InformationProcessing(a)
         ip._req.see_by = "調停"
-        ip._req.turn_records = [("起点", "起点"), ("見た1", "見た")]
+        ip._req.seen_image_path = str(path)
         await _returned_see(ip)
         with patch(
             "familiar_agent.loop.event_loop.arbitrate",

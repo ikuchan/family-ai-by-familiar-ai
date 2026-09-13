@@ -10,10 +10,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.io.oif import MI, Recalled
 from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
@@ -86,25 +84,13 @@ def test_any_block_reason_silences_a_monologue() -> None:
         assert got[1] == "独白" and held == 0, reason
 
 
-def _recalled(obs_id, image_path):
-    mi = MI(
-        id=obs_id,
-        content="見た",
-        timestamp=datetime.now(),
-        direction="観察",
-        obs_id=obs_id,
-        image_path=image_path,
-    )
-    return Recalled(mi=mi, fit=0.5, groundedness=0.5, confidence=0.6)
-
-
 def test_an_absent_monologue_gets_no_photo(tmp_path, caplog) -> None:
     path = tmp_path / "a.jpg"
     path.write_bytes(b"JPEG")
     ip, _ = _ip(trigger_kind="情動", blocked="聞く相手が居ない")
-    ip._req.turn_records = [("起点", "起点"), ("見た1", "見た")]
+    ip._req.seen_image_path = str(path)
     with caplog.at_level(logging.INFO, logger="familiar_agent.loop.event_loop"):
-        out = ip._user_content("x", [_recalled("見た1", str(path))])
+        out = ip._user_content("x", [])
     assert out == "x"
     assert any("写真を添えない" in r.getMessage() for r in caplog.records)
 
@@ -113,13 +99,13 @@ def test_a_monologue_with_someone_present_keeps_the_photo(tmp_path) -> None:
     path = tmp_path / "a.jpg"
     path.write_bytes(b"JPEG")
     ip, _ = _ip(trigger_kind="情動", blocked="")
-    ip._req.turn_records = [("起点", "起点"), ("見た1", "見た")]
-    assert isinstance(ip._user_content("x", [_recalled("見た1", str(path))]), list)
+    ip._req.seen_image_path = str(path)
+    assert isinstance(ip._user_content("x", []), list)
 
 
 def test_a_reply_to_a_person_keeps_the_photo_even_if_blocked(tmp_path) -> None:
     path = tmp_path / "a.jpg"
     path.write_bytes(b"JPEG")
     ip, _ = _ip(trigger_kind="発話", blocked="聞く相手が居ない")
-    ip._req.turn_records = [("起点", "起点"), ("見た1", "見た")]
-    assert isinstance(ip._user_content("x", [_recalled("見た1", str(path))]), list)
+    ip._req.seen_image_path = str(path)
+    assert isinstance(ip._user_content("x", []), list)

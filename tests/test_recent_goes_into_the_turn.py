@@ -110,7 +110,10 @@ def test_the_cursor_moves_to_the_exchange_that_just_closed():
     asyncio.run(scenario())
     # ふたつめのターンは、ひとつめの起点（obs1）から見せる。
     assert a._memory.recent_exchanges.call_args.args[0] == "obs1"
-    assert a._memory.latest_exchange_origin.call_count == 1
+    # カーソルが埋まったあとは引き直さない。ひとつめのターンでは、調停（直近 2 往復を
+    # 無条件で見る・v0.50）と主LLM の直近の両方が空のカーソルで引くので、回数は 1 に限らない。
+    assert all(c.args == () for c in a._memory.latest_exchange_origin.call_args_list)
+    assert a._memory.recent_exchanges.call_args_list[-1].args[0] == "obs1"
 
 
 def test_nothing_is_shown_when_this_turn_continues_nothing():
@@ -125,4 +128,4 @@ def test_nothing_is_shown_when_this_turn_continues_nothing():
     _run(a, utterance="はじめまして")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "直近のやりとり" not in system
-    a._memory.recent_exchanges.assert_not_called()
+    # 調停は直近 2 往復を無条件で見る（v0.50）ので、口は引かれる。主LLM に載らないことが要点。

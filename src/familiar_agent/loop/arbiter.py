@@ -100,8 +100,7 @@ JSON だけを返す。
 
 text を書くときは、この人格として、この相手に向けて、いまの時刻に合う言葉で書く。
 
-{capped_note}{thinking_note}
-[人の言葉]
+{capped_note}{thinking_note}{recent}[人の言葉]
 {utterance}
 
 [いまの作業状態]
@@ -275,6 +274,7 @@ async def arbitrate(
     timeout: float | None = None,
     can_see: bool = False,
     image_b64: str | None = None,
+    recent_ctx: str = "",
 ) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
@@ -294,6 +294,8 @@ async def arbitrate(
     - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
     - `can_see`：カメラがあるか。あるときだけ `see` を候補に載せる（無い構成で選ばせて
       空振りさせない）。帰りの判断は出した側に返る（`event_loop._decide`）。
+    - `recent_ctx`：直近のやりとり（最新 2 往復・無条件）。無いと「明日の天気は？」の次の
+      「調べて」を新しい検索にする（2026-09-13 実機）。
     - `image_b64`：調停が自分で見に行った帰りの写真（v0.46）。即席のラベルは部屋によって
       `bench` 1 語になり材料不足で full へ倒れたので、写真そのものを見せて light で答えられる
       ようにする。担い手が写真を受けられなければ（`complete_with_image` 無し）文字だけで進む。
@@ -313,6 +315,7 @@ async def arbitrate(
         now=now_ctx or "（分からない）",
         capped_note=_CAPPED_NOTE if capped else "",
         thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
+        recent=(recent_ctx.rstrip() + "\n\n") if recent_ctx else "",
         see_option=_SEE_OPTION if can_see else "",
         see_note=(_SEE_NOTE_WITH_PHOTO if image_b64 else _SEE_NOTE) if can_see else "",
         actions="recall|search_deferred|see" if can_see else "recall|search_deferred",

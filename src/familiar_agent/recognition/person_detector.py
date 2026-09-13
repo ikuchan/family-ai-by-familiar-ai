@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 from typing import Any
 
 from ..core.model_resource import ModelResource
@@ -38,6 +39,10 @@ class PersonDetector(ModelResource):
     def __init__(self, model_name: str = _DEFAULT_MODEL) -> None:
         super().__init__(name="人検出", device_env="YOLO_DEVICE")
         self._model_name = model_name
+        # **推論は直列にする。** 在席（`count`）と即席ラベル（`labels`）が同じモデルを別スレッド
+        # から同時に呼ぶと、読込直後の融合処理が競合して `'Conv' object has no attribute 'bn'`
+        # で落ちた（2026-09-13 実機）。モデル資源の鍵は読込だけを守っている。
+        self._infer_lock = threading.Lock()
 
     def _load(self) -> Any:
         import ultralytics
@@ -49,7 +54,8 @@ class PersonDetector(ModelResource):
         if model is None:
             return 0
         try:
-            results = model.predict(frame, classes=[_PERSON_CLASS], verbose=False)
+            with self._infer_lock:
+                results = model.predict(frame, classes=[_PERSON_CLASS], verbose=False)
         except Exception as e:  # noqa: BLE001
             logger.exception("人検出に失敗したので見えなかったものとして扱う: %s", e)
             return 0
@@ -60,7 +66,8 @@ class PersonDetector(ModelResource):
         if model is None:
             return []
         try:
-            results = model.predict(frame, verbose=False)
+            with self._infer_lock:
+                results = model.predict(frame, verbose=False)
             names = getattr(model, "names", {}) or {}
             out: list[str] = []
             for r in results:
@@ -70,6 +77,12 @@ class PersonDetector(ModelResource):
         except Exception as e:  # noqa: BLE001
             logger.exception("見えたものの名付けに失敗したので空として扱う: %s", e)
             return []
+
+    def warm(self) -> None:
+        """読み込んで、空の 1 枚を通す（融合処理まで済ませる・起動時の温め）。"""
+        import numpy as np
+
+        self._labels_sync(np.zeros((64, 64, 3), dtype=np.uint8))
 
     async def labels(self, frame: Any) -> list[str]:
         """フレームに写っているものの名前（COCO 80 種・重複はそのまま＝個数）。

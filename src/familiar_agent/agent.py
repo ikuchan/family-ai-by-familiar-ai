@@ -215,6 +215,8 @@ class EmbodiedAgent:
         self._presence_sensor: PresenceSensor | None = None
         # 人検出（YOLO）。在席と `see` の即席の意味づけで共有（カメラが無ければ None）。
         self._person_detector: PersonDetector | None = None
+        # 見えのエンコーダ（DINOv2）。起動時に温めるため参照を持つ。
+        self._visual_encoder: VisualEncoder | None = None
         self._motion_events: MotionEventWatcher | None = None
         self._coding = CodingTool(config.coding)
         self._exploration = ExplorationTracker()
@@ -651,8 +653,9 @@ class EmbodiedAgent:
             )
             # 見えの「普通」（`知覚在席` §3-4）。読めない環境でも在席（YOLO）は動き続ける。
             try:
+                self._visual_encoder = VisualEncoder()
                 self._presence_sensor.attach_visual_norm(
-                    VisualEncoder(), PoseNormStore(_get_db().conn())
+                    self._visual_encoder, PoseNormStore(_get_db().conn())
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("見えの普通を用意できなかった（景色の驚きは出ない）: %s", exc)
@@ -1697,6 +1700,17 @@ class EmbodiedAgent:
 
             tts_cfg = self.config.tts
             ensure_sbv2_server(tts_cfg, engine=tts_cfg.engine, output=tts_cfg.output)
+        # 人検出（YOLO）と見えのエンコーダ（DINOv2）も起動時に温める。最初の see が
+        # 読込込みで 5.3 秒かかり、「5 秒超え」のつなぎまで出た（2026-09-13 実機）。
+        with contextlib.suppress(Exception):
+            from .core.warmup import warm_models
+
+            asyncio.ensure_future(
+                warm_models(
+                    detector=getattr(self, "_person_detector", None),
+                    encoder=getattr(self, "_visual_encoder", None),
+                )
+            )
         # STT のモデル（faster-whisper）も起動時に読む。最初の書き起こしを待たせない。
         # 読み込みは GPU を触るのでスレッドへ逃がす（起動を塞がない）。
         with contextlib.suppress(Exception):

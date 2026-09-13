@@ -70,6 +70,10 @@ class VisualEncoder(ModelResource):
             out = self.ensure()(**inputs)
         return out.pooler_output[0].detach().cpu().tolist()
 
+    def warm(self) -> None:
+        """読み込むだけ（起動時の温め）。"""
+        self.ensure()
+
     async def embed(self, image_path: str) -> list[float] | None:
         """画像を埋め込む。読めなければ `None`。
 
