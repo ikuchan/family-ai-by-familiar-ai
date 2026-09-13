@@ -2271,11 +2271,17 @@ class InformationProcessing:
         # 「黙っていて」と頼まれているあいだは、話しかけられても話さない。頼んだ人が
         # 居なくなれば（退室）その時点で解け、期限（Config・既定60分）を過ぎても解ける。
         # 判定だけで済むので解除の処理を別に持たない。言葉は捨てず pending_speech へ溜める。
+        # **頼んだ本人以外が話しかけたときの返事だけは通す**（案イ・2026-09-13）。依頼は
+        # 「自分の邪魔をしないで」であって、他の人の質問まで止めるものではない。依頼は
+        # 消さないので、本人への返事と自発の発話は止めたままである。
         with contextlib.suppress(Exception):
             from ..silence_state import is_silenced, load_silence
 
-            if is_silenced(load_silence(), present=self._present_names(), now=time.time()):
-                return "黙っているよう頼まれている"
+            req = load_silence()
+            if is_silenced(req, present=self._present_names(), now=time.time()):
+                spoken_by = self._current_speaker_name() if self._req.trigger_kind == "発話" else ""
+                if not spoken_by or req is None or spoken_by == req.person:
+                    return "黙っているよう頼まれている"
         if agent._social_presence_permission() == 0.0:
             return "聞く相手が居ない"
         # 静穏時間は「**自分から**話しかけない時間」で、話しかけられたのに黙るための
@@ -2298,13 +2304,7 @@ class InformationProcessing:
         with contextlib.suppress(Exception):
             from ..silence_state import SilenceRequest, save_silence
 
-            who = ""
-            for row in agent._pmm.presence_status():
-                if row.get("is_speaker"):
-                    who = str(row.get("name") or "")
-                    break
-            if not who and getattr(agent._persons, "active_is_explicit", False):
-                who = agent._persons.active_name
+            who = self._current_speaker_name()
             if not who:
                 logger.info("黙っているよう頼まれたが、誰からか分からないので受けない")
                 return
@@ -2318,6 +2318,22 @@ class InformationProcessing:
             if minutes <= 0:
                 return
             save_silence(SilenceRequest(person=who, until=time.time() + minutes * 60))
+
+    def _current_speaker_name(self) -> str:
+        """いま話している相手の名前。分からなければ空文字。
+
+        在席表の `is_speaker` を先に見て、無ければ `/speaker` で明示された名前を使う。
+        黙っている依頼の宛先を決めるのと、その依頼を誰の返事に掛けるかを決めるのは、
+        同じ「誰が話しているか」なので 1 箇所で引く。
+        """
+        agent = self._agent
+        with contextlib.suppress(Exception):
+            for row in agent._pmm.presence_status():
+                if row.get("is_speaker"):
+                    return str(row.get("name") or "")
+        if getattr(agent._persons, "active_is_explicit", False):
+            return str(agent._persons.active_name or "")
+        return ""
 
     def _present_names(self) -> set[str]:
         """いま在席している人の名前（黙っている依頼の宛先と突き合わせる）。"""
