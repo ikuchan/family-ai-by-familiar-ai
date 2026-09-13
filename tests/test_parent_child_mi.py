@@ -102,6 +102,7 @@ def test_the_answer_is_written_at_speak_time_and_survives_the_close():
 
     # **この記録は鎖の外**。何も畳まない（求めの版チェーンは別に進む）。
     assert not a._memory.close_with_children.called, "close_with_children を呼んでいる"
-    # 背景の永続化には、やりとりの項として渡る（段 3。畳まないので逐語は残る）。
-    _, kwargs = a._run_post_response_pipeline.call_args
-    assert any(r == "答え" for _, r in kwargs["exchange"]), "答えの記録が渡っていない"
+    # やりとりの項として同期で書かれる（段 3。畳まないので逐語は残る）。
+    from tests.test_event_loop import _exchange_members
+
+    assert any(r == "答え" for _, r in _exchange_members(a)), "答えの記録が渡っていない"

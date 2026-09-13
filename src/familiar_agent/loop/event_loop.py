@@ -2467,6 +2467,15 @@ class InformationProcessing:
         noted = self._close_exchange() or []
         turn_records = [i for i, _ in self._req.turn_records]
         self._req.turn_records, self._req.exchange_start = [], 0
+        # **やりとりの関係はここで同期で書く。** 背景（要約待ち）で書くと、閉じた 0.1 秒後に
+        # 起きた反復（待たされていた入室）が直近のやりとりを空で引く（2026-09-13 実機）。
+        # 要約は背景でできたときに、この関係の末尾へ足される。
+        exchange_id: int | None = None
+        if noted:
+            with contextlib.suppress(Exception):
+                exchange_id = agent._oif.link(
+                    KIND_EXCHANGE, [(i, r, n) for n, (i, r) in enumerate(noted)]
+                )
         try:
             origin = self._req.utterance or self._req.cue
             arousal = await agent._turn_arousal(origin, text)
@@ -2483,9 +2492,8 @@ class InformationProcessing:
                     desires=None,
                     arousal=arousal,
                     memories=memories,
-                    # このターンの記録を、順序つきの一つのやりとりとして残す。会話要約は
-                    # 背景で作られるので、向こうで末尾に足す。
-                    exchange=noted or None,
+                    # 会話要約は背景で作られるので、向こうでこの関係の末尾に足す。
+                    exchange_id=exchange_id,
                     # ループが作った記録も拡散想起の母集合へ。載せないと、閉じた逐語へ
                     # 辿り着く辺が WR に無い（実機で、逐語の WR 掲載数が0だった）。
                     extra_cooccurring_ids=turn_records,

@@ -128,6 +128,42 @@ class RelationStore:
                 raise
         return rid
 
+    def extend(self, relation_id: int, members: "list[Member]") -> int:
+        """既にある関係の末尾へ項を足す。足した数を返す。
+
+        やりとりの関係は反復を閉じるときに書くが、会話要約は背景で遅れて来る。関係を
+        要約待ちにすると、閉じた直後の反復から直近のやりとりが見えない（2026-09-13 実機）。
+        位置を持たない項は、いまの最大位置の次から順に置く。
+        """
+        rows = [(str(o), str(r), p) for o, r, p in members if o]
+        if not rows:
+            return 0
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT COALESCE(MAX(position), -1) AS last FROM relation_members "
+                        "WHERE relation_id = %s",
+                        (relation_id,),
+                    )
+                    nxt = int(cur.fetchone()["last"]) + 1
+                    placed = []
+                    for o, r, p in rows:
+                        if p is None:
+                            p, nxt = nxt, nxt + 1
+                        placed.append((relation_id, o, r, p))
+                    cur.executemany(
+                        "INSERT INTO relation_members "
+                        "(relation_id, obs_id, role, position) VALUES (%s, %s, %s, %s)",
+                        placed,
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return len(rows)
+
     def hide(self, old_id: str, new_id: str, kind: str = KIND_UNCLASSIFIED) -> bool:
         """`old_id` を現行から外し、`new_id` を新しい側として関係で結ぶ。
 

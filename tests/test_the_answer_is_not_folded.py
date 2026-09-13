@@ -55,18 +55,18 @@ def _run(agent, **kw):
 def test_the_turn_folds_nothing():
     """ターンの後始末で畳む操作を一切しない。"""
     agent = _agent()
-    _run(agent, exchange=[("obs1", "起点"), ("obs2", "答え")])
+    _run(agent, exchange_id=3)
     agent._memory.mark_superseded.assert_not_called()
 
 
 def test_the_verbatim_and_the_summary_both_survive():
     """逐語は関係の項として残り、会話要約は記録として書かれる。どちらも消えない。"""
     agent = _agent()
-    _run(agent, exchange=[("obs1", "起点"), ("obs2", "答え")])
+    _run(agent, exchange_id=3)
 
-    members = agent._memory.link.call_args.args[1]  # link(kind, members)
-    assert ("obs2", "答え", 1) in members  # 逐語
-    assert ("conv-1", "要約", 2) in members  # 要約
+    # 逐語は閉じるときに書かれた関係（id=3）の項として残り、要約はその末尾へ足される。
+    rid, members = agent._memory.extend.call_args.args  # extend(relation_id, members)
+    assert rid == 3 and ("conv-1", "要約", None) in members  # 要約
     directions = [
         c.kwargs.get("direction") for c in agent._memory.save_async_with_id.call_args_list
     ]
