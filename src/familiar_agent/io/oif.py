@@ -344,6 +344,16 @@ class OIF:
         logger.debug("OIF link ← %s／%d項 → %s", kind, len(members), got)
         return got
 
+    def extend(self, relation_id: int, members: "Sequence[tuple[str, str, int | None]]") -> int:
+        """既にある関係の末尾へ項を足す。位置を空けた項は最大位置の次に置かれる。
+
+        やりとりの関係は反復を閉じるときに `link` で書き、会話要約は背景でできたときに
+        ここから足す（2026-09-13）。
+        """
+        got = self._memory.extend(relation_id, members)
+        logger.debug("OIF extend ← %s／%d項 → %s", relation_id, len(members), got)
+        return got
+
     def exchanges(self, origin_id: str) -> "list[Said]":
         """継起をさかのぼり、各やりとりで**口に出した**項を古い順に返す。
 

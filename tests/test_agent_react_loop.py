@@ -442,16 +442,12 @@ async def test_pipeline_records_the_exchange_without_camera():
         companion_mood="engaged",
         is_desire_turn=False,
         desires=None,
-        exchange=[("loop-1", "起点"), ("loop-2", "答え")],
+        exchange_id=9,
     )
 
-    # 関係は口を通る（環-e-い）。**書く口は1つ**なので、やりとりも共起も同じ `link` に
-    # 来る。**種類で選ぶ**——最後の呼び出しを見ると共起を拾う。
-    _exchange = [c.args[1] for c in agent._memory.link.call_args_list if c.args[0] == "やりとり"]
-    assert _exchange and _exchange[-1] == [
-        ("loop-1", "起点", 0),
-        ("loop-2", "答え", 1),
-        ("conv-1", "要約", 2),
-    ]
+    # 関係は口を通る（環-e-い）。やりとりの関係は閉じるときに書かれており、背景は
+    # 要約をその末尾へ足す（`extend`）。
+    rid, members = agent._memory.extend.call_args.args
+    assert rid == 9 and members == [("conv-1", "要約", None)]
     # 畳まない（段 3）。逐語が消えると細部のベクトルが無くなる。
     agent._memory.mark_superseded.assert_not_called()

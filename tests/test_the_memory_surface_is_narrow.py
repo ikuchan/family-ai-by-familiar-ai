@@ -90,5 +90,7 @@ def test_the_surface_got_narrower():
 
     2026-09-12 に **66 種**へ1つ足した（`exchange_roles_of`——誰が言ったかを役割から
     引く口。相手の言葉が「わたしが言った」と印字されていたのを直すため）。
+    2026-09-13 に **67 種**へ1つ足した（`extend`——既にある関係の末尾へ項を足す口。
+    やりとりの関係を閉じるときに書き、会話要約を背景で足すため）。
     """
-    assert len(_public_faces()) <= 66
+    assert len(_public_faces()) <= 67

@@ -15,13 +15,13 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.agent import EmbodiedAgent
 from familiar_agent.backends import ToolCall
-from tests.test_event_loop import _WAIT_TICKS, _agent, _run, _turn
+from tests.test_event_loop import _WAIT_TICKS, _agent, _exchange_members, _run, _turn
 from familiar_agent.loop.event_loop import InformationProcessing
 
 
 def _exchange(a):
-    _, kwargs = a._run_post_response_pipeline.call_args
-    return list(kwargs.get("exchange") or [])
+    """閉じるときに同期で書かれたやりとりの項（2026-09-13 まで背景へ `exchange=` で渡していた）。"""
+    return _exchange_members(a)
 
 
 def test_the_turn_hands_over_its_records_in_order():
@@ -64,7 +64,11 @@ def _pipeline_agent():
 
 
 def test_the_summary_is_appended_as_the_last_member():
-    """会話要約は最後に来る。背景で遅れて作られるが、位置は末尾で決まっている。"""
+    """会話要約は最後に来る。背景で遅れて作られるが、位置は末尾で決まっている。
+
+    やりとりの関係そのものは反復を閉じるときに同期で書かれる（2026-09-13）。背景は
+    その関係の id を受け取り、要約を**末尾へ足す**だけである。
+    """
     agent = _pipeline_agent()
 
     asyncio.run(
@@ -79,16 +83,14 @@ def test_the_summary_is_appended_as_the_last_member():
             companion_mood="engaged",
             is_desire_turn=False,
             desires=None,
-            exchange=[("obs1", "起点"), ("obs2", "答え")],
+            exchange_id=7,
         )
     )
 
-    members = agent._memory.link.call_args.args[1]  # link(kind, members)
-    assert members == [
-        ("obs1", "起点", 0),
-        ("obs2", "答え", 1),
-        ("conv-1", "要約", 2),
-    ]
+    rid, members = agent._memory.extend.call_args.args  # extend(relation_id, members)
+    assert rid == 7 and members == [("conv-1", "要約", None)]
+    # 背景では関係を**新たに作らない**。
+    assert not [c for c in agent._memory.link.call_args_list if c.args[0] == "やりとり"]
 
 
 def test_no_relation_is_written_when_the_turn_left_nothing():
@@ -107,11 +109,12 @@ def test_no_relation_is_written_when_the_turn_left_nothing():
             companion_mood="engaged",
             is_desire_turn=False,
             desires=None,
-            exchange=None,
+            exchange_id=None,
         )
     )
 
     agent._memory.link.assert_not_called()
+    agent._memory.extend.assert_not_called()
 
 
 def test_an_interrupted_turn_does_not_leak_into_the_next_one():
@@ -163,6 +166,26 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
 
     # 続くターンのやりとりにも、起点は1つだけ。
     _, kwargs = a._run_post_response_pipeline.call_args
-    assert [r for _, r in kwargs["exchange"]].count("起点") == 1, kwargs["exchange"]
+    assert [r for _, r in _exchange_members(a)].count("起点") == 1, _exchange_members(a)
     # 母集合へは、打ち切りの分も持ち越して渡る。
     assert "obs1" in kwargs["extra_cooccurring_ids"]
+
+
+def test_the_exchange_is_linked_before_the_background_pipeline_starts():
+    """やりとりの関係は反復を閉じるときに**同期で**書く（2026-09-13 実機・F）。
+
+    背景の要約待ちで書いていたため、閉じた 0.1 秒後に起きた入室の反復が
+    `OIF exchanges → 0件` を引き、直近のやりとりが空のまま調停へ渡った（関係が書かれた
+    のは 2.4 秒後）。こうきと話した直後に「おかえり、こうき！」と挨拶した。
+    """
+    a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])])
+    a._memory.link = MagicMock(return_value=55)
+    _run(a, utterance="お話できる？")
+
+    exchanges = [c.args[1] for c in a._memory.link.call_args_list if c.args[0] == "やりとり"]
+    assert exchanges, "反復を閉じるときにやりとりの関係が書かれていない"
+    roles = [r for _i, r, _p in exchanges[-1]]
+    assert "起点" in roles and "答え" in roles, roles
+    _, kwargs = a._run_post_response_pipeline.call_args
+    assert kwargs["exchange_id"] == 55
+    assert "exchange" not in kwargs

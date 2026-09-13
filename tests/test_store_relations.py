@@ -46,6 +46,24 @@ def test_members_come_back_in_position_order() -> None:
     assert [m["role"] for m in got] == ["問い", "版", "答え"]
 
 
+def test_members_can_be_appended_after_the_relation_exists() -> None:
+    """既にある関係の末尾へ項を足せる（要約は背景で遅れて来る・2026-09-13）。
+
+    位置を持たせずに渡した項は、いまの最大位置の次に置かれる。
+    """
+    store = RelationStore(_ctx())
+    ask, ans, conv = _oid(), _oid(), _oid()
+    rid = store.add("やりとり", [(ask, "起点", 0), (ans, "答え", 1)])
+    assert rid is not None
+    store.extend(rid, [(conv, "要約", None)])
+    got = store.members_of(rid)
+    assert [(m["obs_id"], m["role"], m["position"]) for m in got] == [
+        (ask, "起点", 0),
+        (ans, "答え", 1),
+        (conv, "要約", 2),
+    ]
+
+
 def test_a_relation_without_order_keeps_every_member() -> None:
     """共起に前後は無い。位置を空けても項は全部返る。"""
     store = RelationStore(_ctx())

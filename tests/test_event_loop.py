@@ -138,6 +138,17 @@ def _run(a, utterance="こんにちは", on_text=None):
     return shown[-1] if shown else ""
 
 
+def _exchange_members(a) -> list:
+    """反復を閉じるときに同期で書かれた、最後のやりとりの項（(記録の id, 役割) の並び）。
+
+    2026-09-13 まで背景の後始末に `exchange=` で渡していたが、関係は閉じるときに `link` で
+    書き、背景は id だけを受け取るようになった。
+    """
+    calls = [c.args[1] for c in a._memory.link.call_args_list if c.args[0] == "やりとり"]
+    assert calls, "やりとりの関係が書かれていない"
+    return [(i, r) for i, r, _p in calls[-1]]
+
+
 def _run_chain(a, utterance="こんにちは"):
     """人の発話で反復を起こし、駆動体が起こす続きの反復も終わるまで待って発話を返す。"""
     shown: list[str] = []
@@ -276,10 +287,9 @@ def test_loop_records_form_a_version_chain():
     # 発話の記録（obs1）は鎖の外。畳まれない。
     assert "obs1" not in {old for old, _new in calls}
     # ターン末に渡すのは、そのターンの記録の並び（段 3）。答えは畳まず、項として並ぶ。
-    _, kwargs = a._run_post_response_pipeline.call_args
     # **id の位置で見ない。** 環-h で主LLM の投げと返りにも版が書かれ、番号がずれた。
-    roles = [r for _i, r in kwargs["exchange"]]
-    assert "答え" in roles, f"答えの記録が渡っていない: {kwargs['exchange']}"
+    roles = [r for _i, r in _exchange_members(a)]
+    assert "答え" in roles, f"答えの記録が渡っていない: {roles}"
 
 
 def test_w_search_does_not_exclude_the_intake_origin():
@@ -1091,12 +1101,11 @@ def test_all_loop_os_become_one_exchange():
         ]
     )
     _run_chain(a)
-    _, kwargs = a._run_post_response_pipeline.call_args
     # **どれも畳まない**（段 3）。書いた O は残らず一つのやりとりの項として順序つきで並び、
     # 会話要約が末尾に足される。**件数は固定しない**——環-h で主LLM の投げと返りにも版が
     # 書かれ、増えた。守るのは「書いた分だけ並ぶ」「先頭が起点・末尾が答え・あいだは版」。
     written = a._memory.save_async_with_id.await_count
-    exchange = kwargs["exchange"]
+    exchange = _exchange_members(a)
     assert len(exchange) == written
     roles = [r for _i, r in exchange]
     assert roles[0] == "起点"

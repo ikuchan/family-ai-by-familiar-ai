@@ -394,13 +394,13 @@ class EmbodiedAgent:
         desires: DesireSystem | None,
         arousal: float = 0.0,
         memories: "list[Recalled] | None" = None,
-        exchange: "list[tuple[str, str]] | None" = None,
+        exchange_id: "int | None" = None,
         extra_cooccurring_ids: "list[str] | None" = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
-        exchange: そのターンが作った記録の (観測 id, 役割) の並び。会話要約を末尾へ
-        足して、一つのやりとりの関係として残す（`設計方針_MI間の関係` 段 3）。
+        exchange_id: 反復を閉じるときに同期で書いたやりとりの関係の id。会話要約を
+            その末尾へ足す（無ければ足さない）。
         """
         if not final_text or final_text == "(no response)":
             return
@@ -490,14 +490,12 @@ class EmbodiedAgent:
             # 軽量LLM の一文だけになる。細部のベクトルが無ければ、細部での近接は起きない。
             # 逐語と会話要約は、粒度の違う別々の記憶として並ぶ。
 
-            # そのターンの記録を、順序つきの一つのやりとりとして残す。要約は最後に来る。
-            from .store.relations import KIND_EXCHANGE
-
-            if exchange and _conv_id:
-                _members = [(i, r, n) for n, (i, r) in enumerate(exchange)]
-                _members.append((_conv_id, "要約", len(_members)))
+            # やりとりの関係は反復を閉じるときに同期で書かれている（`_finish`）。要約は
+            # その末尾へ足す。関係を要約待ちにすると、閉じた直後の反復から直近のやりとりが
+            # 見えない（2026-09-13 実機・入室の反復が `exchanges → 0件` を引いた）。
+            if exchange_id and _conv_id:
                 with contextlib.suppress(Exception):
-                    self._oif.link(KIND_EXCHANGE, _members)
+                    self._oif.extend(exchange_id, [(_conv_id, "要約", None)])
 
             # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
             # **1つの共起**として記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。

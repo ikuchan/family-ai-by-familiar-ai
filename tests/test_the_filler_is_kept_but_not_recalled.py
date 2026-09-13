@@ -67,11 +67,10 @@ def test_the_filler_joins_the_exchange_in_order():
             _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
         ]
     )
-    from tests.test_event_loop import _run_chain
+    from tests.test_event_loop import _exchange_members, _run_chain
 
     _run_chain(a)
-    _, kwargs = a._run_post_response_pipeline.call_args
-    roles = [r for _, r in kwargs["exchange"]]
+    roles = [r for _, r in _exchange_members(a)]
     assert "つなぎ" in roles, roles
     assert roles.index("つなぎ") < roles.index("答え"), roles
 
