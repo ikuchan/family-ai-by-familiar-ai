@@ -1656,6 +1656,18 @@ class EmbodiedAgent:
             if watcher is not None:
                 await watcher.start()
 
+    async def interrupt(self, *, reason: str = "停止ボタン") -> None:
+        """いま開いている求めを打ち切る（GUI の停止ボタン・環-j）。ループが無ければ何もしない。"""
+        ip = getattr(self, "_info_processing", None)
+        if ip is None:
+            return
+        await ip.abort_current(reason=reason)
+
+    def set_request_state_listener(self, listener) -> None:
+        """求めが開いた／閉じたの通知先を登録する（GUI の停止ボタンが従う・環-j）。"""
+        self._ensure_event_loop()
+        self._info_processing.set_request_state_listener(listener)
+
     def _ensure_event_loop(self, on_text=None, on_action=None) -> None:
         """I（情報処理機構）と T（自律機構）を用意する。
 

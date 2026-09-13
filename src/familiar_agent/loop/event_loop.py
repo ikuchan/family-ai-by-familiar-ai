@@ -314,6 +314,8 @@ class InformationProcessing:
         # 発話の通知先（GUI は「発話は on_action("say") で来る」前提で作られており、
         # 素テキストは say の前の途中経過としてしか扱わない）。CUI は持たない。
         self._on_action = None
+        # 求めが開いているかの通知先（GUI の停止ボタンが従う・環-j）。
+        self._on_request_state = None
         # 投げる前に控える1件（`_start_lookup` が置き、背景タスクが読む）。
         self._pending_lookup: tuple[str, dict, str] = ("", {}, "recall")
 
@@ -1127,6 +1129,7 @@ class InformationProcessing:
             **perspective,
         )
         self._req.request_id = obs_id
+        self._notify_request_state(True)
         # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
         # やりとりの関係にも拡散想起の母集合にも入らない。
         self._note_origin(obs_id)
@@ -1307,6 +1310,38 @@ class InformationProcessing:
                 self._on_action("say", {"text": text})
             except Exception:  # noqa: BLE001
                 logger.exception("event-loop 表示先が受け取れなかった：%.40s", text)
+
+    def set_request_state_listener(self, listener) -> None:
+        """求めが開いた／閉じたを知らせる先を登録する（環-j）。
+
+        GUI の停止ボタンはこれに従う。会話入力の `Future` は最初の反復で解決するので、
+        調べものを投げた時点で GUI のターンは終わり、続きの反復（駆動体の上）には待ち手が
+        居ない。求めが開いているあいだ停止を有効にしておき、押されたら `abort_current`。
+        """
+        self._on_request_state = listener
+
+    def _notify_request_state(self, open_: bool) -> None:
+        listener = getattr(self, "_on_request_state", None)  # 殻だけの器（テスト）でも落ちない
+        if listener is None:
+            return
+        try:
+            listener(open_)
+        except Exception:  # noqa: BLE001
+            logger.exception("event-loop 求めの状態を知らせられなかった")
+
+    async def abort_current(self, *, reason: str = "停止") -> None:
+        """いま開いている求めを丸ごと打ち切る（停止ボタン・環-j）。
+
+        話しかけ直しの打ち切り（`_abort_lookups`）と同じ口を使う——飛行中の調べものと
+        主LLM の背景タスクを cancel し、未取込の完了を捨て、世代を進め、打ち切った版を
+        O に残す。世代が進むので、飛行中だった返りは出す前に畳まれる。**すでに鳴り始めた
+        声は止められない**（合成済みの再生は別課題）。
+        """
+        if self._req.request_id is None and not self._background_tasks:
+            return
+        logger.info("event-loop %s により求めを打ち切る", reason)
+        await self._abort_lookups()
+        self._notify_request_state(False)
 
     def set_output(self, on_text, on_action=None) -> None:
         """発話の表示先を登録する。人の発話を待たずに出口が定まる（起動時にアプリが渡す）。
@@ -2311,6 +2346,7 @@ class InformationProcessing:
         self._req.seen_image_path = None
         self._req.iterations = 0
         self._req.iterations_capped = False
+        self._notify_request_state(False)
         # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
         # やりとりは**区間**、母集合は**全部**である（打ち切りの分も次へ持ち越している）。
         noted = self._close_exchange() or []

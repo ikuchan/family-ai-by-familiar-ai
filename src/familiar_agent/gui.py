@@ -1156,6 +1156,7 @@ class FamiliarWindow(QMainWindow):
         super().__init__()
         self._config = config
         self._agent: EmbodiedAgent | None = None
+        self._request_open = False  # ループの求めが開いているか（停止ボタンが従う・環-j）
         self._desires = desires
         self._agent_display_name = (config.agent_name or "Agent").strip() or "Agent"
         self._companion_display_name = _t("gui_estimated_speaker")
@@ -1955,21 +1956,34 @@ class FamiliarWindow(QMainWindow):
         super().keyPressEvent(event)
 
     def _cancel_turn(self, reason: str = "user") -> None:
-        """Cancel current turn if running.
+        """Cancel current turn if running, and abort the open request (環-j).
 
         reason: "user" (explicit cancel) or "shutdown" (window/app exit).
+
+        会話入力の `Future` は最初の反復で解決するので、調べものを投げた時点で GUI のターンは
+        終わる。続きの反復は駆動体の上で回るので、ターンのタスクを cancel するだけでは届かない。
+        求めが開いていれば `agent.interrupt()` で丸ごと打ち切る。
         """
-        if not self._agent_running:
+        request_open = getattr(self, "_request_open", False)
+        if not self._agent_running and not request_open:
             return
         self._cancel_requested = True
         if self._agent_task and not self._agent_task.done():
             self._agent_task.cancel()
+        agent = getattr(self, "_agent", None)
+        if request_open and agent is not None:
+            self._create_task(agent.interrupt(reason="停止ボタン"))
         if reason == "user":
             self._log.append_line("[interrupted]")
         logger.info("GUI turn cancel requested (%s), queue=%d", reason, self._input_queue.qsize())
 
+    def _on_request_state(self, open_: bool) -> None:
+        """ループから「求めが開いた／閉じた」を受ける（環-j）。停止ボタンはこれにも従う。"""
+        self._request_open = bool(open_)
+        self._stop_btn.setEnabled(self._agent_running or self._request_open)
+
     def _set_turn_ui_state(self, running: bool) -> None:
-        self._stop_btn.setEnabled(running)
+        self._stop_btn.setEnabled(running or getattr(self, "_request_open", False))
 
     def _thinking_status_text(self, elapsed_sec: int) -> str:
         """Status line shown while waiting for the first response chunk."""
@@ -2315,6 +2329,9 @@ class FamiliarWindow(QMainWindow):
             # 自律の側（I・T・在席センサ・動体イベント）を、人の発話を待たずに回し始める。
             # ここで立てないと、話しかけるまで在席も drive も一切動かない。
             await agent.start_autonomy()
+            # 求めが開いているあいだ停止ボタンを効かせる（環-j）。
+            with contextlib.suppress(Exception):
+                agent.set_request_state_listener(self._on_request_state)
             self._set_last_error(None)
             self._set_input_enabled(True)
             if self._realtime_stt and self._realtime_stt_task is None:
