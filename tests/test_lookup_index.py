@@ -69,6 +69,7 @@ def test_triggers_carries_the_index() -> None:
     """
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
+    ip._req.lookups.append(Lookup(index=2, action="recall", query="さっかー", generation=0))
     ip.push_completion("さっかー", "結果", index=2)
     item = ip._triggers.get_nowait()
     assert item.index == 2, f"通し番号が運ばれていない: {item}"

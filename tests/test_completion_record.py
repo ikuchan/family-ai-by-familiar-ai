@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 from unittest.mock import MagicMock
-from familiar_agent.loop.event_loop import Trigger, Decision, InformationProcessing
+from familiar_agent.loop.event_loop import Decision, InformationProcessing, Lookup, Trigger
 from familiar_agent.loop.request import Request
 
 
@@ -79,6 +79,10 @@ def test_a_decision_carries_the_turn_result_and_the_workspace():
 
 def test_push_completion_puts_a_record():
     ip = _ip()
+    # 完了は器のある語だけ受け取る（器の無い完了は打ち切られたもの・M）。
+    ip._req.lookups.append(
+        Lookup(index=3, action="search_deferred", query="明日の天気", generation=0)
+    )
     ip.push_completion("明日の天気", "晴れ", index=3)
     got = ip._triggers.get_nowait()
     assert isinstance(got, Trigger)

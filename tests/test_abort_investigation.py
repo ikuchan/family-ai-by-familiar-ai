@@ -87,6 +87,21 @@ def test_a_completion_from_an_abandoned_request_is_dropped():
     assert ip._triggers.empty()
 
 
+def test_a_completion_arriving_after_the_real_abort_is_dropped():
+    """実物の打ち切りを通したあとに届いた完了も捨てる。
+
+    上のテストは器を古い世代のまま手で置いていたが、実物の `_abort_lookups` は最後に
+    器を空にする。器が無いと世代の照合ができず、完了がそのまま積まれて、打ち切ったはずの
+    求めが反復 2/5 として続いた（2026-09-13 16:27・停止ボタン・M）。deferred の完了は
+    必ず器を作ってから飛ぶので、器の無い完了は打ち切られたものしか無い。
+    """
+    a, ip = _ip_with_investigation()
+    asyncio.run(ip._abort_lookups())
+    assert ip._req.lookups == []
+    ip.push_completion("明日の天気", "晴れ")  # 打ち切り後に外部から届いた
+    assert ip._triggers.empty(), "打ち切った求めの完了が積まれた"
+
+
 def test_the_abort_is_written_as_a_version():
     """打ち切りは求めの版として書く。
 
