@@ -17,6 +17,7 @@ from dataclasses import dataclass
 _DEFAULT = (40, 80)  # low／medium・調べていない
 _HIGH = (80, 160)  # 人が「よく考えて」と明示したとき
 _RESEARCHED = (160, 240)  # この求めでネット調査をした（effort に依らず優先）
+_SOLILOQUY = (20, 40)  # 情動が起点（独り言・情-e）
 
 #: 思考分（トークン）。effort ごとに、考えるかもしれない分を積む。
 _THINKING = {"low": 256, "medium": 1024, "high": 2048}
@@ -35,12 +36,19 @@ class ReplyBudget:
     limit: int  # 上限字数（主LLM に渡す）
     max_tokens: int  # API の出力上限
 
+    soliloquy: bool = False  # 情動が起点（独り言）。誰にも向けない・言わなくてもよい
+
     def line(self) -> str:
         """主LLM へ渡す 1 行。"""
+        if self.soliloquy:
+            return (
+                f"[独り言] 目標 {self.target} 字・{self.limit} 字以内"
+                "（言わなくてもよい。誰にも向けない）"
+            )
         return f"[返事] 目標 {self.target} 字・{self.limit} 字以内"
 
 
-def decide(*, effort: str, researched: bool, w_count: int) -> ReplyBudget:
+def decide(*, effort: str, researched: bool, w_count: int, origin: str = "発話") -> ReplyBudget:
     """長さと `max_tokens` を決める。
 
     - `effort`：調停が決めた思考の深さ（low／medium／high。知らない値は low）
@@ -48,7 +56,9 @@ def decide(*, effort: str, researched: bool, w_count: int) -> ReplyBudget:
     - `w_count`：W に載った記憶の件数（申告 1 件ずつぶんのトークン）
     """
     effort = effort if effort in _THINKING else "low"
-    if researched:
+    if origin == "情動":
+        target, limit = _SOLILOQUY
+    elif researched:
         target, limit = _RESEARCHED
     elif effort == "high":
         target, limit = _HIGH
@@ -57,4 +67,6 @@ def decide(*, effort: str, researched: bool, w_count: int) -> ReplyBudget:
     max_tokens = (
         limit * _TOKENS_PER_CHAR + (w_count * _PER_VERDICT + _SAY_OVERHEAD) + _THINKING[effort]
     )
-    return ReplyBudget(target=target, limit=limit, max_tokens=max_tokens)
+    return ReplyBudget(
+        target=target, limit=limit, max_tokens=max_tokens, soliloquy=origin == "情動"
+    )

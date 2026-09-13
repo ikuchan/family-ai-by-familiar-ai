@@ -91,7 +91,7 @@ def test_an_absent_monologue_gets_no_photo(tmp_path, caplog) -> None:
     ip._req.seen_image_path = str(path)
     with caplog.at_level(logging.INFO, logger="familiar_agent.loop.event_loop"):
         out = ip._user_content("x", [])
-    assert out == "x"
+    assert isinstance(out, str) and out.startswith("[いま湧いたこと]")  # 文字だけ（情-e の枠つき）
     assert any("写真を添えない" in r.getMessage() for r in caplog.records)
 
 

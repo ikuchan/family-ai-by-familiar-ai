@@ -26,6 +26,7 @@ from familiar_agent.drive_register import AiDrivers
 
 # ── Config：排他フラグと内声 ─────────────────────────────────────────────────
 
+
 def test_autonomous_flag_default_on():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("DRIVE5_AUTONOMOUS", None)
@@ -43,16 +44,21 @@ def test_inner_voice_present_for_all_axes():
         assert inner_voice_for(axis, cfg).strip()  # 空でない
 
 
-def test_all_voices_direct_conclusion_to_memory():
-    """全自発内声：当てが無ければ結論づけて記憶に残す（filler で終えない）を促す。"""
+def test_all_voices_say_only_what_arose():
+    """全自発内声：湧いた気持ちだけを言う（情-e・2026-09-13）。
+
+    以前は「当てが無ければ理由まで結論づけて記憶に残す」「具体的な行動を」と要求しており、
+    主LLM が存在しない理由を作った。自発なので許可も理由も要らない。
+    """
     cfg = DriveConfig()
     for axis in ("seeking", "rest", "bond", "safety", "esteem"):
         v = inner_voice_for(axis, cfg)
-        assert "結論づけて記憶に残す" in v  # 当てが無ければ結論を O へ
-        assert "具体" in v                  # 具体的な行動を促す
+        assert "理由" not in v and "結論づけて" not in v
+        assert "話す" not in v
 
 
 # ── select_fired_axis ────────────────────────────────────────────────────────
+
 
 def test_select_fired_axis_none_when_no_firing():
     assert select_fired_axis(DriveFiring(), AiDrivers()) is None
@@ -72,34 +78,47 @@ def test_select_fired_axis_picks_highest_accumulated():
 
 # ── drive_gate ───────────────────────────────────────────────────────────────
 
+
 def test_gate_blocks_when_agent_running():
-    assert drive_gate("seeking", agent_running=True, pending_input=False,
-                      quiet=False, presence=0.0) is False
+    assert (
+        drive_gate("seeking", agent_running=True, pending_input=False, quiet=False, presence=0.0)
+        is False
+    )
 
 
 def test_gate_blocks_when_pending_input():
-    assert drive_gate("seeking", agent_running=False, pending_input=True,
-                      quiet=False, presence=0.0) is False
+    assert (
+        drive_gate("seeking", agent_running=False, pending_input=True, quiet=False, presence=0.0)
+        is False
+    )
 
 
 def test_gate_blocks_when_quiet():
-    assert drive_gate("seeking", agent_running=False, pending_input=False,
-                      quiet=True, presence=0.0) is False
+    assert (
+        drive_gate("seeking", agent_running=False, pending_input=False, quiet=True, presence=0.0)
+        is False
+    )
 
 
 def test_gate_internal_axis_passes_without_presence():
-    assert drive_gate("seeking", agent_running=False, pending_input=False,
-                      quiet=False, presence=0.0) is True
+    assert (
+        drive_gate("seeking", agent_running=False, pending_input=False, quiet=False, presence=0.0)
+        is True
+    )
 
 
 def test_gate_social_axis_blocked_without_presence():
-    assert drive_gate("bond", agent_running=False, pending_input=False,
-                      quiet=False, presence=0.0) is False
+    assert (
+        drive_gate("bond", agent_running=False, pending_input=False, quiet=False, presence=0.0)
+        is False
+    )
 
 
 def test_gate_social_axis_passes_with_presence():
-    assert drive_gate("bond", agent_running=False, pending_input=False,
-                      quiet=False, presence=1.0) is True
+    assert (
+        drive_gate("bond", agent_running=False, pending_input=False, quiet=False, presence=1.0)
+        is True
+    )
 
 
 def test_social_drives_are_bond_and_esteem():
@@ -107,6 +126,7 @@ def test_social_drives_are_bond_and_esteem():
 
 
 # ── 定性ラベルの帯（Config 可変・低<0.5 / 中 / 高≥0.75） ─────────────────────
+
 
 def test_level_band_defaults():
     cfg = DriveConfig()

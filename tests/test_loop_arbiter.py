@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.arbiter import ARBITER_PROMPT, Decision, arbitrate
 
@@ -150,9 +150,17 @@ def test_filler_examples_do_not_fix_the_register():
     assert "調べてみるね" not in ARBITER_PROMPT
 
 
+def _rendered_reply_prompt() -> str:
+    """人の発話が起点のとき、軽量LLM に実際に渡る文面（分岐の説明は起点で差し替わる・情-e）。"""
+    b = MagicMock()
+    b.complete = AsyncMock(return_value='{"branch": "full"}')
+    asyncio.run(arbitrate(b, utterance="x", workspace_ctx="", origin="発話"))
+    return b.complete.call_args.args[0]
+
+
 def test_full_branch_also_writes_a_filler_that_avoids_committing_to_content():
     # full のつなぎは答えの前に置かれるので、中身を先取りすると本応答と食い違う。
-    assert "内容に触れない" in ARBITER_PROMPT
+    assert "内容に触れない" in _rendered_reply_prompt()
 
 
 def test_second_filler_is_asked_to_continue_not_restart():
@@ -179,13 +187,14 @@ def test_tone_rule_sits_next_to_where_the_filler_is_asked_for():
     # （実機で、本応答はですますなのに待ってもらう一言だけタメ口）。つなぎを書けと
     # 言っている場所の直後へ置く。キャッシュ境界（毎分変わる [いま]）より手前なので、
     # 先頭からの一致長は変わらない。
-    tone = ARBITER_PROMPT.index("text の口調は")
+    prompt = _rendered_reply_prompt()
+    tone = prompt.index("text の口調は")
     # 分岐の説明（つなぎを書けと言っている場所）の直後で、他の材料より前。
-    assert ARBITER_PROMPT.index("これから調べると伝えるだけ") < tone
-    assert tone < ARBITER_PROMPT.index("判断の基準は自分で決めてよい")
+    assert prompt.index("これから調べると伝えるだけ") < tone
+    assert tone < prompt.index("判断の基準は自分で決めてよい")
     # キャッシュ境界（毎分変わる [いま]）より手前なので、先頭からの一致長は変わらない。
-    assert tone < ARBITER_PROMPT.index("[いま]")
-    assert "短い一言でも同じ" in ARBITER_PROMPT
+    assert tone < prompt.index("[いま]")
+    assert "短い一言でも同じ" in prompt
 
 
 def test_the_arbiter_has_a_way_out_when_nothing_more_can_be_found():
