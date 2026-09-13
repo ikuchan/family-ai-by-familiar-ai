@@ -33,7 +33,7 @@ from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
-from .coherence import facts_ctx
+from .coherence import facts_ctx, used_lines
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
 from . import reply_budget, workspace
 from .request import Lookup, Request
@@ -1964,7 +1964,13 @@ class InformationProcessing:
             violation = (
                 None
                 if decision.retried
-                else await self._coherence_violation(text, decision.recent_ctx, decision.memories)
+                else await self._coherence_violation(
+                    text,
+                    decision.recent_ctx,
+                    decision.memories,
+                    verdicts=say_tc.input.get("memory_verdicts"),
+                    w_id_map=decision.w_id_map,
+                )
             )
             if violation:
                 # 差し戻しは新しい1通で投げる。say の tool_use を含む往復をそのまま組むと、
@@ -2019,7 +2025,13 @@ class InformationProcessing:
         return text
 
     async def _coherence_violation(
-        self, text: str, recent: str, memories: "list[Recalled]"
+        self,
+        text: str,
+        recent: str,
+        memories: "list[Recalled]",
+        *,
+        verdicts=None,
+        w_id_map: "dict[str, str] | None" = None,
     ) -> "str | None":
         """発話の前に規則違反を見る（出-f）。違反の説明を返す。無ければ None。
 
@@ -2039,7 +2051,13 @@ class InformationProcessing:
         violation = await agent._evaluator.check_response_coherence(
             text,
             recent=recent,
-            facts=facts_ctx(saw=saw, memories=memories, picture=found is not None, seen=seen_mark),
+            facts=facts_ctx(
+                saw=saw,
+                memories=memories,
+                picture=found is not None,
+                seen=seen_mark,
+                used=used_lines(verdicts, w_id_map or {}, memories),
+            ),
         )
         logger.info(
             "event-loop 整合チェック %.2f 秒（違反=%s）",
