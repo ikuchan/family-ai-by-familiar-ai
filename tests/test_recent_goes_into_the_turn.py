@@ -83,7 +83,7 @@ def test_nothing_is_shown_when_there_is_nothing_recent():
     _with_recent(a, [])
     _run(a, utterance="ねえ")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "直近のやりとり" not in system
+    assert "[直近のやりとり（" not in system  # 枠の見出し（規則文は枠の名を挙げるので語では見ない）
 
 
 def test_the_recent_frame_is_read_by_time_not_by_a_cursor():

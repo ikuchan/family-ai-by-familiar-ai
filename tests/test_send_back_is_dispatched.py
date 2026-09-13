@@ -128,6 +128,23 @@ def test_the_send_back_message_names_the_violation():
     assert _VIOLATION in sent
 
 
+def test_the_send_back_carries_the_facts_to_rewrite_from():
+    """言い直しに根拠を添える（出-n・2026-09-13）。
+
+    違反の一文だけ渡すと、2 度目は検査されないまま別の捏造が出た（16:32「東京は晴れ 30℃」）。
+    使ってよい事実（届いた結果・申告した記憶）と「事実に無いことは言わない」を明示する。
+    """
+    ip, _a = _ip()
+    ip._coherence_violation = AsyncMock(return_value=_VIOLATION)
+    ip._checker_facts = MagicMock(
+        return_value="[この反復で分かっていること]\n…雨のち曇 · 最高 · 25 ℃"
+    )
+    _run(ip, _say())
+    sent = ip._dispatch_main_llm.call_args.kwargs["messages"][0]["content"]
+    assert "使ってよい事実" in sent and "雨のち曇 · 最高 · 25 ℃" in sent
+    assert "事実に無いことは言わない" in sent
+
+
 def test_the_send_back_writes_a_version():
     """投げた事実は版に載る（`N番：考えている`）。載らないと求めの状態が飛ぶ。"""
     ip, _a = _ip()

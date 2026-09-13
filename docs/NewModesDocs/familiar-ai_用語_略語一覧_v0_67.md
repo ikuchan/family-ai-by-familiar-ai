@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v0.66）
+# familiar-ai 用語・略語一覧（v0.67）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -86,6 +86,7 @@
 | O | 統合（consolidate） | — | — | 近傍重複を REST 内省（日次）でまとめて supersede すること（前景でやらない）。 |
 | O | 昇格（O の外） | — | — | 観測を意味事実/行動方針へ上げる処理。O 書込から分離し、O は出来事のみ持つ。 |
 | W | 作業記憶・I側 | Workspace | W | 前景の作業状態を保持。速く薄れる。 |
+| I | チェッカーの規則 | checker rules | `CHECKER_RULE_IDS` | 整合チェック（軽量LLM）に渡す規則の部分集合。文と機械の事実だけで反しているか言える 7 つ（`no-fake-perception`・`no-invented-knowledge`・`no-past-comparison-without-memory`・`memory-evidence-confidence`・`workspace-is-notes-not-script`・`no-raw-internal-metrics`・`no-tts-tags`）。正本 `(rules …)` から `rules_for_checker()` が落として作る（出-n・2026-09-13）。 |
 | MI／記憶モデル | MI（メンタルアイテム：Mental Item） | — | — | 記憶 O のレコード。基底 **PI＝emotion/drive**、**MI＝PI＋id/content/vector/supersedes/根づき**。timestamp は store メタdata。kind なし・意味は content→LLM 解釈（[D-MIモデル]・別紙 v2）。**実装クラス名は `MentalItem`**（`PrimitiveMentalItem` を継承し `id`／`content`／`vector`／`supersedes`／`根づき` を足す拡張クラス）。 |
 | MI／記憶モデル | 状態種別（廃止） | state_type | — | 〔**廃止**〕B 解体（[D-B分離]）。drive→PI.drive／mood→PI.emotion／norm・presence→T(G) private レジスタ。 |
 | MI／記憶モデル | 出所（廃止） | source | — | 〔**廃止**〕由来は content（PI か否かは取込時に解決済み・[D-MIモデル]）。 |
@@ -265,6 +266,7 @@
 
 ## 更新履歴
 
+> v0.67：**チェッカーの規則**を追加（2026-09-13・出-n）。
 > v0.66：**直近のやりとり**を「W の先頭の枠（時系列 $n$ 往復＋継起の鎖・窓は軽量／主で別）」に書き換えた（2026-09-13・記-h）。
 > v0.65：**返事の予算（reply budget）**を追加（2026-09-12・出-k-ろ）。**ひとりの回数（solitude）**を追加（2026-09-13・情-d）。
 > v0.64：**「誰がやったか」は `actor` の面が持つ**ことを明記した（2026-09-11・記-f）。
