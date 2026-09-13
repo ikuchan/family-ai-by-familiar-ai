@@ -184,6 +184,15 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
         "家族の予定を見る",
         '"family_schedule"（家族の予定・今日／明日の予定・何時から、を引く。query は要らない）',
     ),
+    # 見出しが空のものは query が要る（探す語を query に書く）。
+    "notion_search": (
+        "",
+        '"notion_search"（家の記録の目次を探す。前に決めたこと・経緯・「〜について書いてある？」。探す語を query に）',
+    ),
+    "journal": (
+        "日次記録を見る",
+        '"journal"（日ごとの記録・最近よく眠れているか・調子。query は要らない）',
+    ),
 }
 
 #: `see` の見出しは入力に依らず固定（`event_loop._query_label`）。調停が投げても主LLM が
@@ -245,8 +254,8 @@ def _parse(
         action = "recall"
     if action == "see":
         query = SEE_QUERY  # 見出しは固定。`(c)` 分岐は query が空だと full へ落ちる
-    elif action in _EXTRA_ACTIONS:
-        query = _EXTRA_ACTIONS[action][0]
+    elif action in _EXTRA_ACTIONS and _EXTRA_ACTIONS[action][0]:
+        query = _EXTRA_ACTIONS[action][0]  # 見出しが固定の道具。query が要るものはそのまま
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
         text = ""

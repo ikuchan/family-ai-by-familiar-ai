@@ -156,6 +156,20 @@ capabilities:
       Treated as a tool: read it when the question needs what is on the
       calendar, not on every turn.
     enabled_env: MCP_CONFIG
+  - id: notion_memo
+    summary: Search the family's written notes and read the daily log
+    detail: >
+      `search_notion` searches the table of contents of the family's written
+      notes (page name, a one-line abstract, where the note lives, when it was
+      updated). Use it when someone asks what was decided before, how something
+      came about, or whether something is written down somewhere. It returns
+      the table of contents, not the full text. `get_journal` returns the last
+      few days of the daily log (morning mood, fatigue, sleep). Both live in
+      the family's notes, not in the agent's memory, so they are never mixed
+      into recall, and both say when they were fetched. Anyone in the family
+      may ask. Treated as tools: read them when the question needs what is
+      written down, not on every turn.
+    enabled_env: MCP_CONFIG
   - id: house_rules
     summary: Look up the rules the family currently lives by
     detail: >

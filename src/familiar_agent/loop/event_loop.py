@@ -52,6 +52,8 @@ _FULL_ACTIONS = (
     "look",
     "house_rules",
     "family_schedule",
+    "notion_search",
+    "journal",
 )
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
@@ -60,6 +62,11 @@ _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
     "get_house_rules": ("get_house_rules", "家の決まりを見る"),
     "family_schedule": ("get_family_schedule", "家族の予定を見る"),
     "get_family_schedule": ("get_family_schedule", "家族の予定を見る"),
+    # Notion（知-k）。検索は語を持つので見出しに語を入れる（`_query_label` が組む）。
+    "notion_search": ("search_notion", "Notion で「{query}」を探す"),
+    "search_notion": ("search_notion", "Notion で「{query}」を探す"),
+    "journal": ("get_journal", "日次記録を見る"),
+    "get_journal": ("get_journal", "日次記録を見る"),
 }
 # 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
 # `see`・`look` も含める。結果はその場で返るが、それを見て何を言うかは次の反復が決める
@@ -101,7 +108,7 @@ def _query_label(action: str, tool_input: dict) -> str:
     if action == "look":
         return f"{tool_input.get('pose', '')}を見に行く"
     if action in _MCP_LOOKUPS:
-        return _MCP_LOOKUPS[action][1]
+        return _MCP_LOOKUPS[action][1].format(query=str(tool_input.get("query", "")).strip())
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
@@ -1098,6 +1105,9 @@ class InformationProcessing:
         "house_rules": lambda ip: ip._dif.tool_defs("get_house_rules"),
         # 家族の予定（`family-calendar`・知-j）。家族ティアなのでゲート無し。
         "family_schedule": lambda ip: ip._dif.tool_defs("get_family_schedule"),
+        # Notion の目次と日次記録（`notion-memo`・知-k）。中身は基本すべて家族ティア。
+        "notion_search": lambda ip: ip._dif.tool_defs("search_notion"),
+        "journal": lambda ip: ip._dif.tool_defs("get_journal"),
     }
 
     def _action_of_query(self, query: str) -> str:
@@ -1951,7 +1961,9 @@ class InformationProcessing:
             image_b64=image_b64,
             origin=self._req.trigger_kind,
             extra_actions=tuple(
-                a for a in ("house_rules", "family_schedule") if self._ACTIONS[a](self)
+                a
+                for a in ("house_rules", "family_schedule", "notion_search", "journal")
+                if self._ACTIONS[a](self)
             ),
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
