@@ -423,6 +423,8 @@ class InformationProcessing:
         # 役割 `見た` で控える。やりとりの関係と共起の材料になり、**`open_ids` が W へ
         # 浮かせる**（docstring）。
         self._note_record(obs_id, "見た")
+        if image_path:
+            self._req.seen_image_path = image_path
         return obs_id
 
     def _build_system(
@@ -448,20 +450,17 @@ class InformationProcessing:
         """この求めでネット調査（`search_deferred`／`fetch_deferred`）を投げたか（返事の予算用）。"""
         return any(lk.action in ("search_deferred", "fetch_deferred") for lk in self._req.lookups)
 
-    def _seen_image(self, memories: "list | None") -> "tuple[str, str] | None":
+    def _seen_image(self, memories: "list | None" = None) -> "tuple[str, str] | None":
         """この求めで**最後に見た**画像を (base64, 在りか) で返す。無ければ None。
 
-        `turn_records` の役割 `見た` のうち最後のものが W（`memories`）に載っていて、その
-        記録が `image_path` を持つとき、ファイルを読む。**この求めの最新1枚だけ**である
-        （1枚 ≈ 970 トークン。求めが閉じれば要らないし、見直したなら新しいほうが正しい）。
-        過去の記憶の画像は添えない。ファイルが消えていれば文字だけで進む（落とさない）。
+        在りかは求めが持つ（`Request.seen_image_path`・`_write_seen_mark` が置く）。**W に
+        載っているかは見ない**——W で探すと、VLM の差し替え（新しい記録）が検索に載る前の
+        瞬間に「写真なし」になり、調停が see を出し直した（2026-09-13 実機）。**この求めの
+        最新1枚だけ**である（1枚 ≈ 970 トークン。求めが閉じれば要らないし、見直したなら
+        新しいほうが正しい）。過去の記憶の画像は添えない。ファイルが消えていれば文字だけで
+        進む（落とさない）。
         """
-        seen = [i for i, r in self._req.turn_records[self._req.exchange_start :] if r == "見た"]
-        if not seen:
-            return None
-        last = seen[-1]
-        rec = next((r for r in (memories or []) if r.mi.obs_id == last), None)
-        path = getattr(getattr(rec, "mi", None), "image_path", None)
+        path = self._req.seen_image_path
         if not path:
             return None
         try:
@@ -1225,6 +1224,45 @@ class InformationProcessing:
         self._req.cue = ""
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
+        self._req.seen_image_path = None
+
+    def _recent_rows(self) -> list:
+        """直近のやりとりの行（口に出した項・古い順）。口を引くのはここ 1 箇所。
+
+        **カーソル自身が「まだ引いていない」を表す。** 以前は真偽値を別に持っており、
+        一度立つと二度と戻らなかった。DB にやりとりが1件も無いまま立つと、次に
+        `_close_exchange` が値を入れるまで直近のやりとりが載らなかった（環-g・段へ）。
+        1件でもあれば一度で埋まり、以後は `_close_exchange` が更新するので引き直さない。
+        """
+        agent = self._agent
+        if not self._recent_cursor:
+            with contextlib.suppress(Exception):
+                self._recent_cursor = agent._oif.latest_origin()
+        if not self._recent_cursor:
+            return []
+        rows: list = []
+        with contextlib.suppress(Exception):
+            rows = agent._oif.exchanges(self._recent_cursor)
+        return rows
+
+    def _recent_for_arbiter(self, exchanges: int = 2) -> str:
+        """調停へ渡す直近のやりとり（**最新 2 往復・無条件**）。
+
+        主LLM への直近（`_recent_ctx`）は続き先の判定を待って載せる。調停はその判定と並走
+        しているので待てない。待たずに、直近だけを短く渡す——「明日の天気は？」の次の
+        「調べて」を、調停が新しい検索（今日のニュース）にした（2026-09-13 実機）。
+        """
+        rows = self._recent_rows()
+        if not rows:
+            return ""
+        # `depth` は 0 が渡した起点で、さかのぼるほど大きい。新しい側から N 往復ぶん。
+        depths = sorted({r.depth for r in rows})[:exchanges]
+        recent = [r for r in rows if r.depth in depths]
+        lines = [
+            f"- {clock.ts_to_time(r.when)} {'わたし' if r.role in ('答え', 'つなぎ') else '相手'}：{r.content}"
+            for r in recent
+        ]
+        return "[直近のやりとり（古い順・最新 2 往復）]\n" + "\n".join(lines)
 
     def _recent_ctx(self, follows: "str | None", w_id_map: "dict[str, str]") -> str:
         """直近のやりとりを逐語で組む（段 4）。
@@ -1244,21 +1282,9 @@ class InformationProcessing:
         """
         if not follows:
             return ""
-        agent = self._agent
         # 判定が続き先を返した。その辺は `workspace.link_follows` が書く。
         workspace.link_follows(self._agent, self._req, w_id_map, follows)
-        # **カーソル自身が「まだ引いていない」を表す。** 以前は真偽値を別に持っており、
-        # 一度立つと二度と戻らなかった。DB にやりとりが1件も無いまま立つと、次に
-        # `_close_exchange` が値を入れるまで直近のやりとりが載らなかった（環-g・段へ）。
-        # 1件でもあれば一度で埋まり、以後は `_close_exchange` が更新するので引き直さない。
-        if not self._recent_cursor:
-            with contextlib.suppress(Exception):
-                self._recent_cursor = agent._oif.latest_origin()
-        if not self._recent_cursor:
-            return ""
-        rows: list = []
-        with contextlib.suppress(Exception):
-            rows = agent._oif.exchanges(self._recent_cursor)
+        rows = self._recent_rows()
         if not rows:
             return ""
         lines = []
@@ -1832,6 +1858,7 @@ class InformationProcessing:
             agent._utility_backend,
             utterance=utterance,
             workspace_ctx=workspace_ctx,
+            recent_ctx=self._recent_for_arbiter(),
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
@@ -2071,6 +2098,12 @@ class InformationProcessing:
         """
         if not text or self._delivery_block_reason():
             return
+        if text.rstrip().endswith(("？", "?")):
+            # **つなぎは疑問文にしない。** 調停が検索を投げながら「何を調べましょうか？」と
+            # 聞き返した（2026-09-13 実機）。相手は答えるべきか待つべきか分からない。規則は
+            # 文で頼んでいたが守られなかったので、機械で落とす。
+            logger.info("event-loop つなぎが疑問文なので出さない：%.40s", text)
+            return
         agent = self._agent
         await self._dif.speak(text)
         self._emit(text)
@@ -2275,6 +2308,7 @@ class InformationProcessing:
         self._req.lookups.clear()
         self._req.said_fillers.clear()
         self._req.speech_to_deliver.clear()
+        self._req.seen_image_path = None
         self._req.iterations = 0
         self._req.iterations_capped = False
         # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
