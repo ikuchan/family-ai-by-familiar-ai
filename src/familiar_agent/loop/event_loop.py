@@ -16,7 +16,7 @@ import asyncio
 import base64
 from pathlib import Path
 import contextlib
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import logging
 import time
 from datetime import datetime
@@ -31,6 +31,7 @@ from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
+from ..core.tool_text import tool_calls_from_text
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .coherence import facts_ctx, used_lines
@@ -446,6 +447,7 @@ class InformationProcessing:
             workspace_ctx=workspace_ctx,
             # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
             allow_tts_tags=self._dif.understands_tags,
+            origin=self._req.trigger_kind,
         )
 
     def _researched(self) -> bool:
@@ -478,6 +480,9 @@ class InformationProcessing:
         画像を受け取るのは主LLM だけである（調停・整合チェック・申告の軽量LLM は文字だけ）。
         見ると決めたのは主LLM 自身で、見たものを語るのも主LLM だからである。
         """
+        if self._req.trigger_kind == "情動":
+            # 自発の求めは「人の言葉」ではない（情-e）。湧いたこととして渡す。
+            text = f"[いま湧いたこと] {text}\n（これは自分がしたくなったことで、誰かに頼まれたのではない。許可は要らない。理由も要らない。誰にも断らず、何をするかだけ決める）"
         found = self._seen_image(memories)
         if found is None:
             return text
@@ -773,6 +778,16 @@ class InformationProcessing:
             from ..backends.types import TurnResult as _TR
 
             result = _TR(stop_reason="end_turn", text="")
+        if not result.tool_calls and "<invoke name=" in (result.text or ""):
+            # 道具呼び出しを**文で**書いてきた（Sonnet 5・約 50 回に 1 回）。読めるなら呼び出しに
+            # 直す。素テキストのままだと画面と O に `<invoke …>` がそのまま出る。
+            recovered = tool_calls_from_text(result.text)
+            if recovered:
+                logger.info(
+                    "event-loop 主LLM が道具呼び出しを文で書いたので拾い直す：%s",
+                    "/".join(tc.name for tc in recovered),
+                )
+                result = replace(result, stop_reason="tool_use", text="", tool_calls=recovered)
         # **生成の秒数は必ず残す**（出-k-い）。何が返ったか（道具・字数・写真の有無）も添える。
         # 所要時間を出していたのは調停だけで、主LLM はログの時刻差から手で引くしかなかった。
         say = next((tc for tc in result.tool_calls if tc.name == "say"), None)
@@ -1808,7 +1823,10 @@ class InformationProcessing:
         recent_ctx = self._recent_ctx(await _result_or_none(follows_task), w_id_map)
         # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。
         budget = reply_budget.decide(
-            effort=decision.effort, researched=self._researched(), w_count=len(memories)
+            effort=decision.effort,
+            researched=self._researched(),
+            w_count=len(memories),
+            origin=self._req.trigger_kind,
         )
         system = self._build_system(
             present_ctx=present_ctx,
@@ -1902,6 +1920,7 @@ class InformationProcessing:
             thinking_round=round_,
             can_see=getattr(agent, "_camera", None) is not None,
             image_b64=image_b64,
+            origin=self._req.trigger_kind,
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(

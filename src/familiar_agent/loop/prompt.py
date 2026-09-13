@@ -126,6 +126,7 @@ def build_event_system_prompt(
     iter_ctx: str = "",
     recent_ctx: str = "",
     allow_tts_tags: bool = False,
+    origin: str = "発話",
 ) -> tuple[str, str]:
     """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
 
@@ -141,6 +142,10 @@ def build_event_system_prompt(
     core = EVENT_SYSTEM_PROMPT
     if allow_tts_tags:
         core = drop_constraint(core, "no-tts-tags")
+    if origin == "情動":
+        # 自発の求めは「応答」ではない（情-e）。「応答の前に…相手の望みを想像して答える」は
+        # 相手が居る前提の規則なので落とす。
+        core = drop_constraint(core, "first-person-perspective-taking")
     ctx = build_context(
         stance=Stance.PAJU,
         core=core,

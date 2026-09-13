@@ -52,6 +52,59 @@ def _system_parts():
     return me, fam
 
 
+_VOICE_NEW = "探索したい気持ちが湧いている。見る・調べる・首を向ける、のどれかをする。したくなければ何もしなくてよい。"
+_CUE_IMPL = (
+    f"[いま湧いたこと] [内的な促し:seeking] {_VOICE_NEW}\n"
+    "（これは自分がしたくなったことで、誰かに頼まれたのではない。許可は要らない。理由も要らない。誰にも断らず、何をするかだけ決める）"
+)
+
+
+async def _arbiter_impl(backend, me, fam):
+    from familiar_agent.loop import arbiter as arb
+
+    return await arb.arbitrate(
+        backend,
+        utterance=f"[内的な促し:seeking] {_VOICE_NEW}",
+        workspace_ctx=_WORKSPACE,
+        self_understanding=me,
+        family_md=fam,
+        present_ctx='(present :speaker "unconfirmed" :note "誰か居るが顔は確認できていない")',
+        now_ctx='(now :datetime "2026-09-13 12:40")',
+        can_see=True,
+        origin="情動",
+    )
+
+
+async def _main_llm_impl(backend, me, fam):
+    from familiar_agent.loop.prompt import build_event_system_prompt
+    from familiar_agent.tools.tts import TTSTool
+
+    system = build_event_system_prompt(
+        self_understanding=me,
+        family_md=fam,
+        present_ctx='(present :speaker "unconfirmed" :note "誰か居るが顔は確認できていない")',
+        pi_ctx="(inner-state :mood 落ち着いている :drive 探索が高い)",
+        workspace_ctx=_WORKSPACE,
+        iter_ctx="[独り言] 目標 20 字・40 字以内（言わなくてもよい。誰にも向けない）\n[反復] 1/5（この件を考えるのは 1 回目）",
+        origin="情動",
+    )
+    tools = TTSTool.get_tool_definitions(SimpleNamespace(understands_tags=False))  # type: ignore[arg-type]
+    result, _ = await backend.stream_turn(
+        system=system,
+        messages=[backend.make_user_message(_CUE_IMPL)],
+        tools=tools,
+        max_tokens=600,
+        on_text=None,
+        effort="low",
+    )
+    say = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+    return (
+        f"say:{say.input.get('text', '')}"
+        if say
+        else f"{'/'.join(tc.name for tc in result.tool_calls) or 'text'}:{(result.text or '')[:60]}"
+    )
+
+
 async def _arbiter(backend, me, fam, cue, *, self_heading: bool):
     from familiar_agent.loop import arbiter as arb
 
@@ -108,6 +161,7 @@ async def _main_llm(backend, me, fam, content):
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("-n", type=int, default=4)
+    ap.add_argument("--baseline", action="store_true", help="旧 A／B も回す")
     args = ap.parse_args()
     from familiar_agent.backends import create_backend, create_utility_backend
     from familiar_agent.bootstrap import load_app_bootstrap
@@ -119,6 +173,19 @@ async def main() -> None:
     main_llm = create_backend(cfg)
     me, fam = _system_parts()
     print(f"主LLM {cfg.model} / 軽量LLM {getattr(light, 'model', '?')} / 各 {args.n} 回\n")
+    print("== C 実装した渡し方（情-e）")
+    print("  調停：")
+    for _ in range(args.n):
+        d = await _arbiter_impl(light, me, fam)
+        print(
+            f"    branch={d.branch} action={d.action if d.branch == 'action' else '-'} text=「{d.text[:50]}」"
+        )
+    print("  主LLM：")
+    for _ in range(args.n):
+        print("    " + (await _main_llm_impl(main_llm, me, fam))[:110])
+    print()
+    if not args.baseline:
+        return
     for label, cue, self_heading in (
         ("A いまの渡し方", _CUE_NOW, False),
         ("B 自分の中から湧いたこと", _CUE_SELF, True),

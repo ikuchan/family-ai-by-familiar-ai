@@ -47,20 +47,8 @@ ARBITER_PROMPT = """\
 これは口に出す言葉ではなく、自分の中の決めごとである。挨拶や説明はせず、指定の
 JSON だけを返す。
 
-いま人から届いた言葉と、いまの作業状態を見て、次のどれかを選ぶ。
-
-- "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
-- "full"   : 記憶を踏まえた言葉選びや、込み入った説明が要る。生成は別の大きなモデルが行う。
-             どれくらい深く考えるべきかを effort に書く。**既定は "low"**。
-             "medium" は次の3つのときだけ：(1) ひと言で表せない複雑な気持ちを受け止める
-             (2) 4 つ以上の記憶を踏まえて応える (3) 調べた結果をまとめる。
-             "high" は、人がよく考えるよう**明示的に**求めたときだけ。
-             effort が "low" でないなら、待ってもらうための短い一言を text に書く
-             （相槌・受けだけ。**内容に触れない**。答えを先取りすると本応答と食い違う）。
-- "action" : いまある材料では答えきれず、先に調べる。どうやって調べるかを action に書く。
-             "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
-             探す語を query に、待ってもらうための短い一言を text に書く
-             （これから調べると伝えるだけ。**内容に触れない**）。{see_note}
+{lead}
+{branches}
 
 **text の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か
 子どもかで丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。実機では
@@ -103,7 +91,7 @@ JSON だけを返す。
 
 text を書くときは、この人格として、この相手に向けて、いまの時刻に合う言葉で書く。
 
-{capped_note}{thinking_note}{recent}[人の言葉]
+{capped_note}{thinking_note}{recent}{heading}
 {utterance}
 
 [いまの作業状態]
@@ -152,6 +140,38 @@ class Decision:
 
 
 # 倒れたときも low（2026-09-12 決定・課題5 G 章）。以前は high で、Sonnet では 2 倍遅かった。
+#: 人の発話・機器が起点のとき（返事の型）。
+_LEAD_REPLY = "いま人から届いた言葉と、いまの作業状態を見て、次のどれかを選ぶ。"
+_BRANCHES_REPLY = """\
+- "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
+- "full"   : 記憶を踏まえた言葉選びや、込み入った説明が要る。生成は別の大きなモデルが行う。
+             どれくらい深く考えるべきかを effort に書く。**既定は "low"**。
+             "medium" は次の3つのときだけ：(1) ひと言で表せない複雑な気持ちを受け止める
+             (2) 4 つ以上の記憶を踏まえて応える (3) 調べた結果をまとめる。
+             "high" は、人がよく考えるよう**明示的に**求めたときだけ。
+             effort が "low" でないなら、待ってもらうための短い一言を text に書く
+             （相槌・受けだけ。**内容に触れない**。答えを先取りすると本応答と食い違う）。
+- "action" : いまある材料では答えきれず、先に調べる。どうやって調べるかを action に書く。
+             "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
+             探す語を query に、待ってもらうための短い一言を text に書く
+             （これから調べると伝えるだけ。**内容に触れない**）。{see_note}"""
+_HEADING_REPLY = "[人の言葉]"
+
+#: 情動が起点のとき（自分の行動を決める型・情-e）。自発なので、許可も理由も要らない。
+#: つなぎは書かせない（つなぎは相手への返事の前置き）。
+_LEAD_SELF = (
+    "いま自分の中から湧いたことと、いまの作業状態を見て、何をするかを決める。"
+    "これは自分がしたくなったことで、誰かに頼まれたのではない。**許可は要らない。理由も要らない。**"
+    "誰かに断ったり、待ってもらったりしない。"
+)
+_BRANCHES_SELF = """\
+- "light"  : 短くひとこと言う（言わなくてもよい。text を空にすれば黙る）。あなたが text に書く。
+- "full"   : 考えてから言う・する。生成は別の大きなモデルが行う。effort は "low"。text は空。
+- "action" : 見る・調べる・首を向ける。どうやってかを action に書く。
+             "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
+             探す語を query に。**text は空**（誰にも断らない）。{see_note}"""
+_HEADING_SELF = "[いま湧いたこと]"
+
 _FALLBACK = Decision(branch="full", effort="low")
 
 #: `see` の見出しは入力に依らず固定（`event_loop._query_label`）。調停が投げても主LLM が
@@ -174,7 +194,7 @@ _SEE_NOTE = (
 )
 
 
-def _parse(reply: str, *, can_see: bool = False) -> Decision | None:
+def _parse(reply: str, *, can_see: bool = False, origin: str = "発話") -> Decision | None:
     """軽量LLM の返事から JSON を拾う。前後に地の文が混じっても拾えるようにする。"""
     match = re.search(r"\{.*\}", reply or "", re.S)
     if not match:
@@ -207,6 +227,9 @@ def _parse(reply: str, *, can_see: bool = False) -> Decision | None:
         action = "recall"
     if action == "see":
         query = SEE_QUERY  # 見出しは固定。`(c)` 分岐は query が空だと full へ落ちる
+    # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
+    if origin == "情動" and branch != "light":
+        text = ""
     # 分岐に必要なものが無ければ判定できていない＝倒す。
     if branch == "light" and not text:
         return None
@@ -278,6 +301,7 @@ async def arbitrate(
     can_see: bool = False,
     image_b64: str | None = None,
     recent_ctx: str = "",
+    origin: str = "発話",
 ) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
@@ -297,6 +321,8 @@ async def arbitrate(
     - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
     - `can_see`：カメラがあるか。あるときだけ `see` を候補に載せる（無い構成で選ばせて
       空振りさせない）。帰りの判断は出した側に返る（`event_loop._decide`）。
+    - `origin`：求めの起点（`発話`／`機器`／`情動`）。`情動` なら「返事」でなく「自分の行動を
+      決める」型のプロンプトにする（見出し `[いま湧いたこと]`・許可も理由も要らない・つなぎ無し）。
     - `recent_ctx`：直近のやりとり（最新 2 往復・無条件）。無いと「明日の天気は？」の次の
       「調べて」を新しい検索にする（2026-09-13 実機）。
     - `image_b64`：調停が自分で見に行った帰りの写真（v0.46）。即席のラベルは部屋によって
@@ -311,7 +337,14 @@ async def arbitrate(
         self_understanding=self_understanding or "（指定なし）",
         family=family_md or "（指定なし）",
     ).stable
+    self_doing = origin == "情動"
     prompt = ARBITER_PROMPT.format(
+        lead=_LEAD_SELF if self_doing else _LEAD_REPLY,
+        branches=(_BRANCHES_SELF if self_doing else _BRANCHES_REPLY).format(
+            see_option=_SEE_OPTION if can_see else "",
+            see_note=(_SEE_NOTE_WITH_PHOTO if image_b64 else _SEE_NOTE) if can_see else "",
+        ),
+        heading=_HEADING_SELF if self_doing else _HEADING_REPLY,
         utterance=utterance,
         workspace=workspace_ctx or "（なし）",
         present=present_ctx or "（分からない）",
@@ -319,8 +352,6 @@ async def arbitrate(
         capped_note=_CAPPED_NOTE if capped else "",
         thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
         recent=(recent_ctx.rstrip() + "\n\n") if recent_ctx else "",
-        see_option=_SEE_OPTION if can_see else "",
-        see_note=(_SEE_NOTE_WITH_PHOTO if image_b64 else _SEE_NOTE) if can_see else "",
         actions="recall|search_deferred|see" if can_see else "recall|search_deferred",
     )
     if timeout is None:
@@ -349,7 +380,7 @@ async def arbitrate(
     except Exception as e:  # noqa: BLE001
         logger.warning("調停に失敗したのでフルへ倒す: %s", e)
         return _FALLBACK
-    decision = _parse(reply, can_see=can_see)
+    decision = _parse(reply, can_see=can_see, origin=origin)
     if decision is None:
         logger.warning("調停の返事を読めなかったのでフルへ倒す: %.80r", reply)
         return _FALLBACK

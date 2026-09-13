@@ -44,9 +44,10 @@ def test_the_iteration_cap_note_is_in_the_changing_half():
 
 
 def test_what_the_person_said_comes_last():
-    # 毎回変わるものほど後ろ。
-    assert _pos("[人の言葉]") > _pos("[いま誰が居るか]")
-    assert _pos("[いまの作業状態]") > _pos("[人の言葉]")
+    # 毎回変わるものほど後ろ。見出しは起点で差し替わる（`[人の言葉]`／`[いま湧いたこと]`・情-e）
+    # ので、雛形では `{heading}` の位置で見る。
+    assert _pos("{heading}") > _pos("[いま誰が居るか]")
+    assert _pos("[いまの作業状態]") > _pos("{heading}")
 
 
 def test_the_name_is_not_passed_separately():
@@ -60,6 +61,7 @@ def test_the_silence_rule_points_at_who_you_are():
 
 
 # ── 立ち位置：調停器はパジュの心そのものである（出-e-に・2026-09-05）──────────
+
 
 def test_the_arbiter_speaks_as_paju_not_as_a_mechanism():
     """**調停器はパジュの心そのものである。** 自分を機構として名乗らない。
@@ -112,6 +114,7 @@ def test_the_identity_block_matches_what_the_context_mouth_builds():
 
 # ── 構造を寄せる：安定はシステム文へ、可変と指示はプロンプトへ（出-e-に）──────
 
+
 def test_the_stable_identity_goes_into_the_system_text():
     """**1本の文字列だったのは、`complete()` にシステム文の口が無かったからである。**
 
@@ -128,11 +131,18 @@ def test_the_stable_identity_goes_into_the_system_text():
 
     be = MagicMock()
     be.complete = AsyncMock(return_value='{"branch": "full", "effort": "high"}')
-    asyncio.run(arbitrate(
-        be, utterance="やあ", workspace_ctx="（なし）",
-        self_understanding="＜自己認識＞", family_md="＜家族＞",
-        present_ctx="（在席）", now_ctx="（いま）", timeout=5.0,
-    ))
+    asyncio.run(
+        arbitrate(
+            be,
+            utterance="やあ",
+            workspace_ctx="（なし）",
+            self_understanding="＜自己認識＞",
+            family_md="＜家族＞",
+            present_ctx="（在席）",
+            now_ctx="（いま）",
+            timeout=5.0,
+        )
+    )
     system = be.complete.await_args.kwargs["system"]
     prompt = be.complete.await_args.args[0]
 
@@ -160,9 +170,15 @@ def test_the_system_text_repeats_exactly_so_the_cache_can_hit():
     for utterance in ("おはよう", "おやすみ"):
         be = MagicMock()
         be.complete = AsyncMock(return_value='{"branch": "full"}')
-        asyncio.run(arbitrate(
-            be, utterance=utterance, workspace_ctx="（なし）",
-            self_understanding="＜自己認識＞", family_md="＜家族＞", timeout=5.0,
-        ))
+        asyncio.run(
+            arbitrate(
+                be,
+                utterance=utterance,
+                workspace_ctx="（なし）",
+                self_understanding="＜自己認識＞",
+                family_md="＜家族＞",
+                timeout=5.0,
+            )
+        )
         seen.append(be.complete.await_args.kwargs["system"])
     assert seen[0] == seen[1]
