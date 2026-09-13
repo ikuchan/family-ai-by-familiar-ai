@@ -62,12 +62,11 @@ def _mem():
 def test_it_returns_both_the_records_and_the_workspace():
     """W は記録から組むので、**2つで1つ**である。別々に呼べば片方だけ古くなる。"""
     mem = _mem()
-    memories, text, id_map = asyncio.run(
-        workspace.recall(mem, "手がかり", weights=None, req=Request())
-    )
-    assert [r.mi.obs_id for r in memories] == ["m1"]
-    assert "昔の話" in text
-    assert id_map == {"m1": "m1"}  # 対応表も一緒に返る（W から導かれる）
+    ws = asyncio.run(workspace.recall(mem, "手がかり", weights=None, req=Request()))
+    # 記-h：返るのは `Workspace`——記録・窓ごとの文・対応表が 1 つの器に居る。
+    assert [r.mi.obs_id for r in ws.memories] == ["m1"]
+    assert "昔の話" in ws.for_main and "昔の話" in ws.for_arbiter
+    assert ws.id_map == {"m1": "m1"}  # 対応表も一緒に返る（W から導かれる）
 
 
 def test_the_caller_owns_the_weights():

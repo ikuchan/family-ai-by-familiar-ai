@@ -125,13 +125,6 @@ def test_the_index_is_not_an_attribute():
     assert "_w_id_map" not in src
 
 
-def test_the_recent_context_takes_the_index():
-    """`_recent_ctx` は続き先の辺を張るので、その反復の対応表を受け取る。"""
-    from familiar_agent.loop.event_loop import InformationProcessing
-
-    assert "w_id_map" in inspect.signature(InformationProcessing._recent_ctx).parameters
-
-
 def test_the_abort_has_nothing_to_clear():
     """属性が無いので、打ち切りが表を片付ける行も無くなる。"""
     from familiar_agent.loop.event_loop import InformationProcessing

@@ -27,7 +27,7 @@ def test_the_decision_carries_everything_the_action_needs():
         "result",
         "memories",
         "w_id_map",
-        "recent_ctx",
+        "recent_frame",
         "system",
         "effort",
         "capped",

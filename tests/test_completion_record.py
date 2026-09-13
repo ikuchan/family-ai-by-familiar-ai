@@ -62,7 +62,7 @@ def test_a_decision_carries_the_turn_result_and_the_workspace():
         memories=[{"memory_id": "m1"}],
         w_id_map={"abcdef123456": "m1"},
         mem=MagicMock(),
-        recent_ctx="",
+        recent_frame="",
         system=None,
         effort="high",
         capped=False,

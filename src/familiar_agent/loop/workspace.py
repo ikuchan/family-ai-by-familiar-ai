@@ -19,6 +19,7 @@ import contextlib
 import json
 import logging
 import re
+from dataclasses import dataclass, field
 
 from ..io.oif import Cue, Recalled, View
 from ..store import clock
@@ -52,7 +53,9 @@ def open_ids(req: Request) -> list[str]:
     return ids
 
 
-def compose(oif, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[str, str]]":
+def compose(
+    oif, memories: "list[Recalled]", req: Request, *, exclude: "set[str] | None" = None
+) -> "tuple[str, dict[str, str]]":
     """W を組み、**(W の文字列, 12桁 → 完全な id の対応表) を返す**。
 
     正本 [D-想起起動] は「O に乗った後は共通の流れ（O → 根づき → W 構築〔5軸採点〕→
@@ -99,6 +102,9 @@ def compose(oif, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[s
         )
     # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
     memories = kept
+    # 直近のやりとりの枠に載った記録は、過去の列には出さない（同じ話が二重に載る）。
+    # 対応表には残す——申告は直近の行の id でも来る。
+    shown = [r for r in memories if not (exclude and r.mi.obs_id in exclude)]
 
     id_map = {r.mi.obs_id.replace("-", "")[:12]: r.mi.obs_id for r in memories if r.mi.obs_id}
     # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
@@ -135,16 +141,129 @@ def compose(oif, memories: "list[Recalled]", req: Request) -> "tuple[str, dict[s
         if roles.get(r.mi.obs_id) == "起点" and names.get(r.mi.obs_id, "わたし") == "わたし":
             names[r.mi.obs_id] = "相手"
     text = "\n\n".join(
-        p for p in [said, held, _lines(memories, names, full=set(open_ids(req)))] if p and p.strip()
+        p for p in [said, held, _lines(shown, names, full=set(open_ids(req)))] if p and p.strip()
     )
     return text, id_map
+
+
+def recent_chains(oif, n: int) -> "list[tuple[str, list]]":
+    """直近 n 往復の起点と、各起点から継起をさかのぼった鎖（新しい順）。引くのは 1 度。"""
+    if n <= 0:
+        return []
+    origins: list[str] = []
+    with contextlib.suppress(Exception):
+        origins = list(oif.latest_origins(n))
+    out: "list[tuple[str, list]]" = []
+    for origin in origins:
+        chain: list = []
+        with contextlib.suppress(Exception):
+            chain = list(oif.exchanges(origin))
+        out.append((origin, chain))
+    return out
+
+
+def render_recent(
+    oif, chains: "list[tuple[str, list]]", n: int
+) -> "tuple[list, str, dict[str, str]]":
+    """直近の枠を文にする。窓 n は新しい側から n 往復（鎖ごと）。"""
+    if n <= 0:
+        return [], "", {}
+    seen: set[str] = set()
+    rows: list = []
+    for _origin, chain in chains[:n]:
+        for r in chain:
+            if r.obs_id and r.obs_id not in seen:
+                seen.add(r.obs_id)
+                rows.append(r)
+    if not rows:
+        return [], "", {}
+    rows.sort(key=lambda r: r.when.timestamp() if r.when else 0.0)
+    names: "dict[str, str]" = {}
+    with contextlib.suppress(Exception):
+        names = dict(oif.actors([r.obs_id for r in rows]))
+    id_map = {r.obs_id.replace("-", "")[:12]: r.obs_id for r in rows}
+    lines = [f"[直近のやりとり（古い順・最新 {n} 往復と、それに続く話）]"]
+    for r in rows:
+        sid = r.obs_id.replace("-", "")[:12]
+        if r.role in ("答え", "つなぎ"):
+            who = "わたし"
+        else:
+            who = names.get(r.obs_id) or "相手"
+            who = "相手" if who == "わたし" else who
+        lines.append(f"- {clock.ts_to_time(r.when)} id:{sid} {who}：{r.content}")
+    return rows, "\n".join(lines), id_map
+
+
+def recent_window(oif, n: int) -> "tuple[list, str, dict[str, str]]":
+    """直近のやりとりの枠（記-h・`設計方針_MI間の関係` v0.15 段 4 改訂）。
+
+    **時系列で最新 n 往復（無条件）＋ 各々から継起の辺があるぶんさかのぼった鎖。**
+    「最近何があったか」は辺の有無に関係なく要り、「この話題の糸」は辺が担う。
+    返りは (載せた項, 文, 12桁→完全な id の対応表)。項は時刻順（古い順）で、同じ記録は
+    1 度しか載せない（2 つの往復が同じ根に繋がることがある）。
+
+    **いまの反復の続き先の判定は待たない。** 判定の結果は継起の辺として書かれ、次以降の
+    反復がここでさかのぼるのに使う。以前は主LLM だけが判定を待って「続きでなければ
+    載せない」としており、調停（判定を待てない）と主LLM で記憶が食い違っていた。
+    継起だけを頼っていたため、話題が切り替わった直後は直近が空になり、こうきと話した直後の
+    入室の反復で「おかえり、こうき！」と挨拶した（2026-09-13・F）。
+
+    各行に 12 桁の id を印字して対応表に入れる。判定と申告が直近の記録も名指せる。
+    """
+    return render_recent(oif, recent_chains(oif, n), n)
+
+
+@dataclass
+class Workspace:
+    """W——調停と主LLM が受け取る作業状態。**組み方は 1 つ、違うのは窓の幅だけ**（記-h）。
+
+    枠は 3 つ：直近のやりとり（時系列 n 往復＋継起の鎖）→ いまの求めの作業状態（開いている
+    版は全文）→ 過去の記憶（想起）。後ろ 2 つは `compose()` が組む。直近は窓の最大幅で
+    1 度だけ引き、`render(n)` が狭い側を切り出す。
+    """
+
+    oif: object
+    memories: "list[Recalled]"
+    req: Request
+    chains: "list[tuple[str, list]]"
+    n_arbiter: int
+    n_main: int
+    id_map: "dict[str, str]" = field(default_factory=dict)
+
+    @classmethod
+    def build(
+        cls, oif, memories: "list[Recalled]", req: Request, *, n_arbiter: int, n_main: int
+    ) -> "Workspace":
+        chains = recent_chains(oif, max(n_arbiter, n_main))
+        ws = cls(oif, memories, req, chains, n_arbiter, n_main)
+        # 対応表は最も広い窓で作る（申告・判定はどちらの窓の id でも来る）。
+        _rows, _text, recent_ids = render_recent(oif, chains, max(n_arbiter, n_main))
+        _past, past_ids = compose(oif, memories, req, exclude=set(recent_ids.values()))
+        ws.id_map = {**past_ids, **recent_ids}
+        return ws
+
+    def recent_text(self, n: int) -> str:
+        return render_recent(self.oif, self.chains, n)[1]
+
+    def render(self, n: int) -> str:
+        _rows, recent, recent_ids = render_recent(self.oif, self.chains, n)
+        past, _ = compose(self.oif, self.memories, self.req, exclude=set(recent_ids.values()))
+        return "\n\n".join(p for p in (recent, past) if p and p.strip())
+
+    @property
+    def for_arbiter(self) -> str:
+        return self.render(self.n_arbiter)
+
+    @property
+    def for_main(self) -> str:
+        return self.render(self.n_main)
 
 
 #: 確かさがこれを下回ったら印を付ける（`format_for_context` から引き継いだ値）。
 _CONF_LOW = 0.55
 
 
-#: 過去の記憶の 1 行に載せる字数。細部が要るときは `_recent_ctx`（逐語）が担う。
+#: 過去の記憶の 1 行に載せる字数。細部が要るときは直近のやりとりの枠（逐語）が担う。
 _PAST_CHARS = 120
 
 
@@ -196,8 +315,8 @@ async def recall(
     req: Request,
     time_ref: "float | None" = None,
     time_span_days: "float | None" = None,
-) -> "tuple[list[Recalled], str, dict[str, str]]":
-    """想起して W を組み、**(W に載った記録, 作業状態, 対応表) を返す**（に-5-ろ）。
+) -> "Workspace":
+    """想起して W を組み、**`Workspace`（W に載った記録・窓ごとの文・対応表）を返す**（に-5-ろ）。
 
     呼び手は2つ——反復の頭（いまが基準）と、調停が時期を指したときの引き直しである。
     同じ呼び出しが2度書かれていて、片方を直してもう片方を忘れれば、基準を移した反復
@@ -233,8 +352,14 @@ async def recall(
     # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
     # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
     # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
-    text, id_map = compose(oif, memories, req)
-    return memories, text, id_map
+    # 直近のやりとりは W の枠として一緒に組む（記-h）。窓は軽量LLM／主LLM で別。
+    return Workspace.build(
+        oif,
+        memories,
+        req,
+        n_arbiter=cfg.recent_exchanges_arbiter,
+        n_main=cfg.recent_exchanges_main,
+    )
 
 
 def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | None") -> None:

@@ -52,7 +52,7 @@ def _decision(**kw) -> Decision:
         memories=[{"memory_id": "m1"}],
         w_id_map={"abcdef123456": "m1"},
         mem=MagicMock(),
-        recent_ctx="",
+        recent_frame="",
         system=("安定", "可変"),
         effort="high",
         capped=False,
@@ -78,7 +78,7 @@ def test_dispatching_counts_the_main_llm_as_in_flight():
             memories=[],
             w_id_map={},
             mem=MagicMock(),
-            recent_ctx="",
+            recent_frame="",
             max_tokens=1024,
         )
         got = ip._in_flight_count
@@ -102,7 +102,7 @@ def test_the_dispatched_main_llm_appears_in_the_lookups():
             memories=[],
             w_id_map={},
             mem=MagicMock(),
-            recent_ctx="",
+            recent_frame="",
             max_tokens=1024,
         )
         for t in list(ip._background_tasks):
@@ -127,7 +127,7 @@ def test_the_return_lands_in_the_queue_with_what_it_saw():
             memories=[{"memory_id": "m1"}],
             w_id_map={"abcdef123456": "m1"},
             mem=MagicMock(),
-            recent_ctx="R",
+            recent_frame="R",
             max_tokens=1024,
         )
         for t in list(ip._background_tasks):
@@ -140,7 +140,7 @@ def test_the_return_lands_in_the_queue_with_what_it_saw():
     assert d.result is tr
     assert d.memories == [{"memory_id": "m1"}]
     assert d.w_id_map == {"abcdef123456": "m1"}
-    assert (d.recent_ctx, d.effort, d.capped) == ("R", "low", True)
+    assert (d.recent_frame, d.effort, d.capped) == ("R", "low", True)
 
 
 # ── 取り込む ───────────────────────────────────────────────────────────────

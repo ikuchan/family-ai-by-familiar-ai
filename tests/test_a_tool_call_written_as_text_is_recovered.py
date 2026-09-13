@@ -52,7 +52,7 @@ def test_the_loop_recovers_and_logs(caplog) -> None:
                 memories=[],
                 w_id_map={},
                 mem=None,
-                recent_ctx="",
+                recent_frame="",
                 retried=False,
                 max_tokens=500,
             )

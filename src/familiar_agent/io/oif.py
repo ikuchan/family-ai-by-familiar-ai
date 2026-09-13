@@ -108,6 +108,7 @@ class Said:
     `depth` は 0 が渡した起点で、さかのぼるほど大きい。
     """
 
+    obs_id: str
     content: str
     role: str
     when: "datetime | None"
@@ -362,6 +363,7 @@ class OIF:
         rows = self._memory.recent_exchanges(origin_id)
         got = [
             Said(
+                obs_id=str(r.get("obs_id", "")),
                 content=str(r.get("content", "")),
                 role=str(r.get("role", "")),
                 when=r.get("timestamp"),
@@ -393,10 +395,14 @@ class OIF:
         logger.debug("OIF roles ← %d件 → %d件", len(obs_ids), len(got))
         return got
 
-    def latest_origin(self) -> "str | None":
-        """いちばん新しいやりとりの起点。**繋ぐためではなく、どこから見せるかのカーソル**。"""
-        got = self._memory.latest_exchange_origin()
-        logger.debug("OIF latest_origin → %s", got)
+    def latest_origins(self, n: int) -> list[str]:
+        """時系列で新しい順に、やりとりの起点を n 件（記-h）。
+
+        **辺は見ない。** 直近のやりとりは「最近何があったか」で、継起の辺があるかどうかに
+        関係なく要る。各起点からのさかのぼりは `exchanges` が担う。
+        """
+        got = self._memory.latest_exchange_origins(n)
+        logger.debug("OIF latest_origins ← %d → %d件", n, len(got))
         return got
 
     async def novelty(self, content: str) -> float:

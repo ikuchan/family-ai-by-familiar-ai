@@ -209,7 +209,7 @@ class Decision:
     memories: "list[Recalled]"
     w_id_map: dict[str, str]
     mem: object
-    recent_ctx: str
+    recent_frame: str  # W の直近の枠（整合チェックが「さっき何を言ったか」として見る）
     system: object
     effort: "str | None"
     capped: bool
@@ -312,10 +312,6 @@ class InformationProcessing:
 
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
         self._recall_exclude_id: str | None = None
-        # 直近のやりとりを、どこから見せるかのカーソル。**繋ぐためではない。**
-        # 辺を書くのは `follows` だけである。起動直後は空なので、最初に要るときに
-        # 一度だけ DB から引く。
-        self._recent_cursor: str | None = None
         # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
@@ -374,11 +370,6 @@ class InformationProcessing:
         """
         members = self._req.turn_records[self._req.exchange_start :]
         self._req.exchange_start = len(self._req.turn_records)
-        # 次のターンは、いま閉じたやりとりから見せる。
-        for obs_id, role in members:
-            if role == "起点":
-                self._recent_cursor = obs_id
-                break
         return members or None
 
     def _note_record(self, obs_id: str | None, role: str) -> None:
@@ -465,7 +456,7 @@ class InformationProcessing:
         return obs_id
 
     def _build_system(
-        self, *, present_ctx: str, recent_ctx: str, workspace_ctx: str, iter_ctx: str
+        self, *, present_ctx: str, workspace_ctx: str, iter_ctx: str
     ) -> "tuple[str, str]":
         """主LLM の system 文（安定部・可変部）を組む。材料の出所はここに集める。"""
         from ..capability_state import load_summary
@@ -476,7 +467,6 @@ class InformationProcessing:
             family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(),
-            recent_ctx=recent_ctx,
             iter_ctx=iter_ctx,
             workspace_ctx=workspace_ctx,
             # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
@@ -731,7 +721,7 @@ class InformationProcessing:
         memories: "list[Recalled]",
         w_id_map: dict[str, str],
         mem: object,
-        recent_ctx: str,
+        recent_frame: str,
         max_tokens: int,
         retried: bool = False,
         original_text: str = "",
@@ -764,7 +754,7 @@ class InformationProcessing:
                 memories=memories,
                 w_id_map=w_id_map,
                 mem=mem,
-                recent_ctx=recent_ctx,
+                recent_frame=recent_frame,
                 max_tokens=max_tokens,
                 retried=retried,
                 original_text=original_text,
@@ -784,7 +774,7 @@ class InformationProcessing:
         memories: "list[Recalled]",
         w_id_map: dict[str, str],
         mem: object,
-        recent_ctx: str,
+        recent_frame: str,
         max_tokens: int,
         retried: bool,
         original_text: str = "",
@@ -847,7 +837,7 @@ class InformationProcessing:
                     memories=memories,
                     w_id_map=w_id_map,
                     mem=mem,
-                    recent_ctx=recent_ctx,
+                    recent_frame=recent_frame,
                     system=system,
                     effort=effort,
                     capped=capped,
@@ -1297,74 +1287,6 @@ class InformationProcessing:
         self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
 
-    def _recent_rows(self) -> list:
-        """直近のやりとりの行（口に出した項・古い順）。口を引くのはここ 1 箇所。
-
-        **カーソル自身が「まだ引いていない」を表す。** 以前は真偽値を別に持っており、
-        一度立つと二度と戻らなかった。DB にやりとりが1件も無いまま立つと、次に
-        `_close_exchange` が値を入れるまで直近のやりとりが載らなかった（環-g・段へ）。
-        1件でもあれば一度で埋まり、以後は `_close_exchange` が更新するので引き直さない。
-        """
-        agent = self._agent
-        if not self._recent_cursor:
-            with contextlib.suppress(Exception):
-                self._recent_cursor = agent._oif.latest_origin()
-        if not self._recent_cursor:
-            return []
-        rows: list = []
-        with contextlib.suppress(Exception):
-            rows = agent._oif.exchanges(self._recent_cursor)
-        return rows
-
-    def _recent_for_arbiter(self, exchanges: int = 2) -> str:
-        """調停へ渡す直近のやりとり（**最新 2 往復・無条件**）。
-
-        主LLM への直近（`_recent_ctx`）は続き先の判定を待って載せる。調停はその判定と並走
-        しているので待てない。待たずに、直近だけを短く渡す——「明日の天気は？」の次の
-        「調べて」を、調停が新しい検索（今日のニュース）にした（2026-09-13 実機）。
-        """
-        rows = self._recent_rows()
-        if not rows:
-            return ""
-        # `depth` は 0 が渡した起点で、さかのぼるほど大きい。新しい側から N 往復ぶん。
-        depths = sorted({r.depth for r in rows})[:exchanges]
-        recent = [r for r in rows if r.depth in depths]
-        lines = [
-            f"- {clock.ts_to_time(r.when)} {'わたし' if r.role in ('答え', 'つなぎ') else '相手'}：{r.content}"
-            for r in recent
-        ]
-        return "[直近のやりとり（古い順・最新 2 往復）]\n" + "\n".join(lines)
-
-    def _recent_ctx(self, follows: "str | None", w_id_map: "dict[str, str]") -> str:
-        """直近のやりとりを逐語で組む（段 4）。
-
-        **対応表は引数で受け取る**（に-5-に-2）。W は反復ごとに作り直すので、属性に置くと
-        主LLM が飛行中に別の完了が届いたとき表が入れ替わり、12桁が当たれば辺が別の記録へ
-        張られる。
-
-        **続きでなければ載せない。** 判定（`根拠台帳` §29）が続き先を返さなかったターンは、
-        新しい話の始まりである。前のやりとりを載せると、関係のない会話が文脈に混ざる。
-
-        **切らない。** W は 120 字で切るが、細部が要るからこの設計にしたので、ここで
-        縮めると意味がない。O の書き込み上限が 500 字なので、1件あたり最大 500 字である。
-
-        起点は「直前に閉じたやりとり」である。**このターンの起点からは辿れない。** まだ
-        どのやりとりにも属していない（やりとりを書くのは反復が閉じたあと）。
-        """
-        if not follows:
-            return ""
-        # 判定が続き先を返した。その辺は `workspace.link_follows` が書く。
-        workspace.link_follows(self._agent, self._req, w_id_map, follows)
-        rows = self._recent_rows()
-        if not rows:
-            return ""
-        lines = []
-        for r in rows:
-            when = clock.ts_to_time(r.when)
-            who = "わたし" if r.role in ("答え", "つなぎ") else "相手"
-            lines.append(f"- {when} {who}：{r.content}")
-        return "[直近のやりとり（古い順）]\n" + "\n".join(lines)
-
     def _emit(self, text: str) -> None:
         """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
         if not text:
@@ -1748,15 +1670,15 @@ class InformationProcessing:
         trigger = "完了" if drained else self._req.trigger_kind
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
-        memories, workspace_ctx, w_id_map = await workspace.recall(
+        ws = await workspace.recall(
             agent._oif, cue, viewpoint=viewpoint, weights=weights, req=self._req
         )
-        _log_recall_weights(trigger, w_base, weights, memories)
+        _log_recall_weights(trigger, w_base, weights, ws.memories)
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
         # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
         # 直前で、そこは待つ（続きでなければ直近のやりとりを載せてはいけない）。
         follows_task = asyncio.ensure_future(
-            agent._evaluator.judge_follows(workspace_ctx, utterance or "")
+            agent._evaluator.judge_follows(ws.for_main, utterance or "")
         )
 
         # 誰と話していると思って喋ったかを残す。これが無いと、口調がおかしいときに
@@ -1789,11 +1711,11 @@ class InformationProcessing:
             self._req.iterations_capped = True
         decision = await self._decide(
             utterance=utterance or self._req.cue,
-            workspace_ctx=workspace_ctx,
+            workspace_ctx=ws.for_arbiter,  # 同じ W・狭い窓（記-h）
             present_ctx=present_ctx,
             capped=capped,
             round_=round_,
-            memories=memories,
+            memories=ws.memories,
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
@@ -1804,7 +1726,7 @@ class InformationProcessing:
         # で、指定があったときだけ走る。
         if decision.time_ref:
             with contextlib.suppress(Exception):
-                memories, workspace_ctx, w_id_map = await workspace.recall(
+                ws = await workspace.recall(
                     agent._oif,
                     cue,
                     viewpoint=viewpoint,
@@ -1818,6 +1740,7 @@ class InformationProcessing:
                     decision.time_ref,
                     decision.time_span_days or "既定",
                 )
+        memories, workspace_ctx, w_id_map = ws.memories, ws.for_main, ws.id_map
 
         if gen != self._request_generation:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（調停後）")
@@ -1876,8 +1799,8 @@ class InformationProcessing:
         if decision.branch == "full" and decision.text and decision.effort != "low" and not drained:
             await self._say_filler(decision.text)
 
-        # 整合チェックにも同じものを渡すので、いったん変数へ出す。
-        recent_ctx = self._recent_ctx(await _result_or_none(follows_task), w_id_map)
+        follows = await _result_or_none(follows_task)  # 辺を書くだけ・W は変えない（記-h）
+        workspace.link_follows(self._agent, self._req, w_id_map, follows)
         # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。
         budget = reply_budget.decide(
             effort=decision.effort,
@@ -1887,7 +1810,6 @@ class InformationProcessing:
         )
         system = self._build_system(
             present_ctx=present_ctx,
-            recent_ctx=recent_ctx,
             workspace_ctx=workspace_ctx,
             iter_ctx=_iter_ctx(
                 chain=chain,
@@ -1912,7 +1834,7 @@ class InformationProcessing:
             memories=memories,
             w_id_map=dict(w_id_map),
             mem=mem,
-            recent_ctx=recent_ctx,
+            recent_frame=ws.recent_text(ws.n_main),
             max_tokens=budget.max_tokens,
         )
         await self._write_version()
@@ -1968,7 +1890,6 @@ class InformationProcessing:
             agent._utility_backend,
             utterance=utterance,
             workspace_ctx=workspace_ctx,
-            recent_ctx=self._recent_for_arbiter(),
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
@@ -2047,7 +1968,7 @@ class InformationProcessing:
                 if decision.retried
                 else await self._coherence_violation(
                     text,
-                    decision.recent_ctx,
+                    decision.recent_frame,
                     decision.memories,
                     verdicts=say_tc.input.get("memory_verdicts"),
                     w_id_map=decision.w_id_map,
@@ -2078,7 +1999,7 @@ class InformationProcessing:
                     memories=decision.memories,
                     w_id_map=dict(decision.w_id_map),
                     mem=decision.mem,
-                    recent_ctx=decision.recent_ctx,
+                    recent_frame=decision.recent_frame,
                     max_tokens=decision.max_tokens,
                     retried=True,
                     original_text=text,
@@ -2429,7 +2350,7 @@ class InformationProcessing:
         #
         # **声になったかで書き分ける。** 主LLM が `say` を呼ばず地の文だけを返した反復は、
         # 画面には出るが**声にはなっていない**（規則 `voice-only-from-say`）。それを
-        # 「自分が答えた」と書くと、相手が聞いていない文が答えとして残り、`_recent_ctx` が
+        # 「自分が答えた」と書くと、相手が聞いていない文が答えとして残り、直近のやりとりの枠が
         # 「わたし」として読み返す。**残す価値はある**ので、区別して残す——役割 `独白` は
         # やりとりの項にならないが（`recent_exchanges` が引く役割に無い）、拡散想起の
         # 母集合には入る（`HIDDEN_ROLES` に入れない）。

@@ -1,4 +1,5 @@
 """Tests for decay settings in MemoryConfig (config.py)."""
+
 from __future__ import annotations
 
 import importlib
@@ -11,6 +12,7 @@ def _fresh_config(monkeypatch, **env_vars):
     for k, v in env_vars.items():
         monkeypatch.setenv(k, v)
     import familiar_agent.config as cfg_mod
+
     importlib.reload(cfg_mod)
     return cfg_mod.MemoryConfig()
 
@@ -19,6 +21,7 @@ def test_memory_config_has_decay_settings(monkeypatch):
     monkeypatch.setenv("RECALL_HALF_LIFE_DAYS", "5.0")
     monkeypatch.setenv("RECALL_TIME_FLOOR", "0.3")
     from familiar_agent.config import MemoryConfig
+
     cfg = MemoryConfig()
     assert cfg.recall_half_life_days == 5.0
     assert cfg.recall_time_floor == 0.3
@@ -27,6 +30,7 @@ def test_memory_config_has_decay_settings(monkeypatch):
 def test_memory_config_recall_min_score(monkeypatch):
     monkeypatch.setenv("RECALL_MIN_SCORE", "0.6")
     from familiar_agent.config import MemoryConfig
+
     cfg = MemoryConfig()
     assert cfg.recall_min_score == pytest.approx(0.6)
 
@@ -34,6 +38,7 @@ def test_memory_config_recall_min_score(monkeypatch):
 def test_memory_config_defaults():
     """デフォルト値の確認（envなし）。値の出所は課題5 v0.24（HL=3日・t_floor）。"""
     from familiar_agent.config import MemoryConfig
+
     cfg = MemoryConfig()
     assert cfg.recall_half_life_days == 3.0
     assert cfg.recall_time_floor == 0.001
@@ -44,5 +49,17 @@ def test_memory_config_defaults():
 def test_memory_config_invalid_env_falls_back(monkeypatch):
     monkeypatch.setenv("RECALL_HALF_LIFE_DAYS", "not-a-float")
     from familiar_agent.config import MemoryConfig
+
     cfg = MemoryConfig()
     assert cfg.recall_half_life_days == 3.0
+
+
+def test_recent_exchange_windows_are_two_and_come_from_env(monkeypatch):
+    """直近のやりとりの窓 n は軽量LLM と主LLM で別々に持つ（記-h・`課題5` D 章）。
+
+    作り方は同じで、窓の大きさだけが違う。既定は 3 と 6（2026-09-13 決定）。
+    """
+    cfg = _fresh_config(monkeypatch)
+    assert (cfg.recent_exchanges_arbiter, cfg.recent_exchanges_main) == (3, 6)
+    cfg = _fresh_config(monkeypatch, RECENT_EXCHANGES_ARBITER="2", RECENT_EXCHANGES_MAIN="8")
+    assert (cfg.recent_exchanges_arbiter, cfg.recent_exchanges_main) == (2, 8)

@@ -281,6 +281,14 @@ class MemoryConfig:
     # 床（min_score）を課すかどうかは採点後の話で、いくつ集めるかとは別の決定なので、
     # 床の有無で N を増減させない。
     recall_primary_n: int = field(default_factory=lambda: _int_env("RECALL_PRIMARY_N", 50))
+    # 直近のやりとりの窓 n（記-h・`課題5` D 章）。W の枠の一つで、時系列の最新 n 往復
+    # （無条件）＋継起の鎖。**軽量LLM と主LLM で別々に持つ**——作り方は同じで窓の大きさ
+    # だけが違う（記憶に関する両者の差はこれだけ）。既定 3／6 は 2026-09-13 決定。
+    # REST 内省で統計的に見直す予定（記-a-に・未実装）。
+    recent_exchanges_arbiter: int = field(
+        default_factory=lambda: _int_env("RECENT_EXCHANGES_ARBITER", 3)
+    )
+    recent_exchanges_main: int = field(default_factory=lambda: _int_env("RECENT_EXCHANGES_MAIN", 6))
     # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
     dedup_window_secs: int = field(default_factory=lambda: _int_env("MEMORY_DEDUP_WINDOW_SECS", 30))
     # r 軸の min-max 伸長係数。現行値では恒等（根拠台帳 v0.7 §3 の計測で決定）。

@@ -69,13 +69,13 @@ def test_the_recall_asks_the_mouth_with_the_speakers_face():
     """**話者の面から引く。** 口が持つのは基底の記憶なので、視点を渡さなければ
     `__self__` の面に移ってしまう（記-f の直しを逆向きに壊す）。"""
     oif = MagicMock(recall=AsyncMock(return_value=[_r()]))
-    got, text, id_map = asyncio.run(
+    ws = asyncio.run(
         workspace.recall(oif, "手がかり", viewpoint="ゆうすけ", weights=None, req=Request())
     )
     cue, view = oif.recall.await_args.args
     assert cue.text == "手がかり"
     assert view.viewpoint == "ゆうすけ"
-    assert [r.mi.obs_id for r in got] == ["m1"]
+    assert [r.mi.obs_id for r in ws.memories] == ["m1"]
 
 
 def test_the_loop_no_longer_recalls_from_the_memory_directly():
