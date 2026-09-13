@@ -16,6 +16,8 @@ from familiar_agent.agent import EmbodiedAgent
 def _agent(*, watcher: bool, present: list[str], last_human: float | None) -> MagicMock:
     a = MagicMock()
     a._presence_watcher = MagicMock() if watcher else None
+    # 在/不在の層（YOLO）は別のテストが見る（知-h）。ここは顔と発話の判定だけを見る。
+    a._presence_sensor = None
     a._pmm = MagicMock()
     a._pmm.get_present_ids = MagicMock(return_value=present)
     if last_human is None:

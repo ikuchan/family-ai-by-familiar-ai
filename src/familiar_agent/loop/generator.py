@@ -56,7 +56,14 @@ def _present_ctx(agent) -> str:
                 f'(present :speaker "{declared}" '
                 ':note "顔は確認できていない。名前は自己申告による")'
             )
-        # 誰も認識できていない。直近に話しかけられているなら、相手は居るが誰かは不明。
+        # 顔でも自己申告でも分からない。**居るか**は在/不在の層（YOLO）が別に知っている
+        # （知-h）。人は居るが誰かは不明、として渡す——「誰も確認できていない」と言うと、
+        # 目の前の人に向けて話す判断ができない。
+        with contextlib.suppress(Exception):
+            sensor = getattr(agent, "_presence_sensor", None)
+            if sensor is not None and sensor.room_occupied() is True:
+                return '(present :speaker "unconfirmed" :note "誰か居るが顔は確認できていない")'
+        # 直近に話しかけられているなら、相手は居るが誰かは不明。
         recently_spoken = False
         with contextlib.suppress(Exception):
             recently_spoken = agent._social_presence_permission() > 0.0
