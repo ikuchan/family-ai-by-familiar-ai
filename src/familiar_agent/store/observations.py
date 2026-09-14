@@ -992,8 +992,88 @@ class ObservationStore:
                         "WHERE person_id = %s AND obs_id = ANY(%s)",
                         (pid, down),
                     )
+                # 参照された時（062・記-a-ろ-ろ）。important と referred が「使った」。
+                # 層 1 が「前回の内省以降に参照されなかった核」を選ぶ鍵。
+                referred = up + [i for i, v in touched.items() if v == "referred"]
+                if referred:
+                    cur.execute(
+                        "UPDATE situated_memories SET last_referred_at = now() "
+                        "WHERE person_id = %s AND obs_id = ANY(%s)",
+                        (pid, referred),
+                    )
             conn.commit()
         return len(touched)
+
+    # ── 層 1 の計測と減り（記-a-ろ-ろ・`出来事を畳む` §4） ──────────────────────
+
+    _FACE_COLS = (
+        "s.obs_id, s.person_id, length(o.content) AS chars, o.timestamp, "
+        "COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0, s.groundedness_n, "
+        "s.last_referred_at"
+    )
+    _LAST_REST = (
+        "COALESCE((SELECT MAX(timestamp) FROM observations WHERE direction = '内省'), "
+        "to_timestamp(0))"
+    )
+
+    def core_faces(self) -> list[dict]:
+        """核＝根づき n ≥ 1 の面（**全ての視点**・現行の記録だけ）。$I$ を測る材料。
+
+        同じ出来事でも面が違えば別に数える——想起されうる分はそれぞれの面にあるから。
+        """
+        live = not_hidden("o")
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"SELECT {self._FACE_COLS} FROM situated_memories s "
+                    f"JOIN observations o ON o.id = s.obs_id "
+                    f"WHERE s.groundedness_n >= 1 AND {live}"
+                )
+                return [dict(r) for r in cur.fetchall()]
+
+    def fresh_since_last_rest(self) -> list[dict]:
+        """前回の内省以降に書かれた現行の記録（この視点の面を添える・無ければ n=0）。今日の分の $I$。"""
+        live = not_hidden("o")
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id AS obs_id, %s AS person_id, length(o.content) AS chars,
+                           o.timestamp, COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                           COALESCE(s.groundedness_n, 0) AS groundedness_n, s.last_referred_at
+                    FROM observations o
+                    LEFT JOIN situated_memories s ON s.obs_id = o.id AND s.person_id = %s
+                    WHERE {live} AND o.direction <> '内省'
+                      AND o.timestamp > {self._LAST_REST}
+                    """,
+                    (self._ctx.viewpoint, self._ctx.viewpoint),
+                )
+                return [dict(r) for r in cur.fetchall()]
+
+    def decay_groundedness(self, delta: int) -> int:
+        """前回の内省以降に参照されなかった核（n ≥ 1・全ての視点）の $n$ を Δ 減らす。
+
+        **1 未満にしない**（核から出すのは減りでなく固め）。Δ ≤ 0 なら何もしない。
+        動かした面の数を返す。
+        """
+        if delta <= 0:
+            return 0
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    UPDATE situated_memories SET groundedness_n = GREATEST(1, groundedness_n - %s)
+                    WHERE groundedness_n > 1
+                      AND (last_referred_at IS NULL OR last_referred_at <= {self._LAST_REST})
+                    """,
+                    (int(delta),),
+                )
+                n = cur.rowcount
+            conn.commit()
+        return int(n or 0)
 
     def append_and_reembed(self, obs_id: str, note: str) -> bool:
         """content の末尾へ note を足し、埋め込みを作り直す。既にあれば何もしない。

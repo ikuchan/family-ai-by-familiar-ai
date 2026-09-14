@@ -398,6 +398,24 @@ class OIF:
         logger.debug("OIF roles ← %d件 → %d件", len(obs_ids), len(got))
         return got
 
+    def core_faces(self) -> list[dict]:
+        """核（根づき $n \\ge 1$ の面・全ての視点）。層 1 が $I$ を測る材料（記-a-ろ-ろ）。"""
+        rows = self._memory.core_faces()
+        logger.debug("OIF core_faces → %d件", len(rows))
+        return rows
+
+    def fresh_since_last_rest(self) -> list[dict]:
+        """前回の内省以降の記録（今日の分の $I$・記-a-ろ-ろ）。"""
+        rows = self._memory.fresh_since_last_rest()
+        logger.debug("OIF fresh_since_last_rest → %d件", len(rows))
+        return rows
+
+    def decay_groundedness(self, delta: int) -> int:
+        """参照されなかった核の根づきを $\\Delta$ 減らす（1 未満にしない・記-a-ろ-ろ）。動かした面の数。"""
+        n = self._memory.decay_groundedness(int(delta))
+        logger.info("OIF decay_groundedness Δ=%d → %d面", delta, n)
+        return n
+
     def since_last_rest(self, directions: "tuple[str, ...]") -> list[MI]:
         """日次の畳み込みの材料（記-a-ろ-は）：前回の内省より後・指定の向き・畳まれていない・核でない。古い順。"""
         rows = self._memory.observations_since_last_rest(tuple(directions))
