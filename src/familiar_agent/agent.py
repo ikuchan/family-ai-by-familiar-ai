@@ -56,15 +56,7 @@ from ._i18n import _t
 from .loop.evaluator import Evaluator
 from .loop.history import _flatten_history
 from .mcp_client import CallResult, MCPClientManager, _resolve_config_path
-from .capability_state import (
-    build_generation_prompt,
-    build_self_understanding_prompt,
-    collect_manifest_context,
-    load_manifest,
-    save_manifest,
-    filter_enabled,
-    save_summary,
-)
+from .capability_state import load_summary
 
 logger = logging.getLogger(__name__)
 
@@ -718,7 +710,6 @@ class EmbodiedAgent:
         いない初回起動で**ターンごと落とさない**。そのときは立ち位置を渡さずに続く
         （いままでと同じ挙動）。
         """
-        from .capability_state import load_summary
         from .core.context_parts import build_context
         from .loop.prompt import rules_for_checker
 
@@ -1278,44 +1269,6 @@ class EmbodiedAgent:
         if age_hours > 25:
             return f"[system: last database backup was {int(age_hours)}h ago — may need attention]"
         return ""
-
-    async def _refresh_capability_summary(self) -> None:
-        """Ask the LLM to read capabilities.yaml and write a first-person summary.
-
-        Stored in agent_state["capability_summary"] and injected each turn.
-        """
-        manifest = load_manifest()
-        if not manifest:
-            return
-        try:
-            # 自己認識は1枚（案B）。ME.md（人が書いた人格）を素材に、実装から導いた
-            # 「できること」を足す。有効条件は実際に評価する（条件つき≠有効）。
-            prompt = build_self_understanding_prompt(
-                me_md=getattr(self, "_me_md", ""),
-                manifest=filter_enabled(manifest),
-            )
-            summary = await self._utility_backend.complete(prompt, max_tokens=512)
-            if summary:
-                save_summary(summary.strip())
-                logger.info("Capability summary refreshed (%d chars)", len(summary))
-        except Exception as e:
-            logger.warning("Could not refresh capability summary: %s", e)
-
-    async def _regenerate_capability_manifest(self) -> None:
-        """Rewrite capabilities.yaml from source introspection via the utility LLM.
-
-        Called at most once per day during ``rest`` desire turns.
-        """
-        try:
-            context = collect_manifest_context()
-            existing = load_manifest()
-            prompt = build_generation_prompt(context, existing)
-            yaml_content = await self._utility_backend.complete(prompt, max_tokens=2500)
-            if yaml_content:
-                save_manifest(yaml_content)
-                await self._refresh_capability_summary()
-        except Exception as e:
-            logger.warning("capabilities.yaml regeneration failed: %s", e)
 
     async def _maybe_update_self_narrative(
         self,

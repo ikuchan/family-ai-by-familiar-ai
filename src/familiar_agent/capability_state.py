@@ -1,13 +1,11 @@
-"""Capability manifest loader and AI self-understanding storage.
+"""能力（REST 内省の層 4）の器——一覧と要約（記-a-と・2026-09-14）。
 
-The agent periodically reads capabilities.yaml, asks the LLM to write
-a first-person capability summary, and stores it in agent_state.
-That summary is injected into the variable system prompt each turn.
+- **一覧**：`capabilities.yaml`（repo）は**既定**で、実行時に書き換えない。REST 内省が再定義した
+  一覧は DB（`agent_state.capabilities`）に置く。読むのは `load_capabilities()`（DB > 既定）。
+- **要約**：`agent_state.capability_summary`。`ME.md`（人が書いた人格）に、実装から導いた
+  「できること」を足した一枚で、システム文の `[あなたは誰か]` に載る。
 
-Auto-regeneration:
-  During ``rest`` desire turns the agent calls ``should_regenerate_manifest()``
-  and, if the YAML is older than ``_MANIFEST_MAX_AGE_SECONDS``, spawns
-  ``_regenerate_capability_manifest()`` in agent.py to rewrite the file.
+再定義と要約の作り直しは `loop/rest_capabilities.py`（REST の 1 パスの最後）が行う。
 """
 
 from __future__ import annotations
@@ -21,15 +19,12 @@ from pathlib import Path
 
 import psycopg2.extras
 
-from .core.helpers import strip_code_fence
 from .db import get_db
 
 logger = logging.getLogger(__name__)
 
 _MANIFEST_PATH = Path(__file__).parent.parent.parent / "capabilities.yaml"
 _STATE_KEY = "capability_summary"
-_REFRESH_EVERY_N_TURNS = 50
-_MANIFEST_MAX_AGE_SECONDS = 86400  # regenerate at most once per day
 
 _SRC = Path(__file__).parent
 _ROOT = _SRC.parent.parent
@@ -132,6 +127,57 @@ def build_self_understanding_prompt(*, me_md: str, manifest: str) -> str:
     )
 
 
+_CAPS_KEY = "capabilities"
+
+
+def load_capabilities() -> str:
+    """能力の一覧（YAML 文字列）。DB（REST が再定義したもの）> 既定（`capabilities.yaml`）。"""
+    try:
+        db = get_db()
+        with db.lock:
+            conn = db.conn()
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", (_CAPS_KEY,))
+                row = cur.fetchone()
+        if row:
+            return str(json.loads(row["value_json"]))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not load capabilities from DB: %s", e)
+    return load_manifest()
+
+
+def store_capabilities(yaml_text: str) -> None:
+    """再定義した一覧を DB に置く（`capabilities.yaml` は触らない）。"""
+    now = datetime.now(timezone.utc).isoformat()
+    db = get_db()
+    with db.lock:
+        conn = db.conn()
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s) "
+                "ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, "
+                "updated_at = EXCLUDED.updated_at",
+                (_CAPS_KEY, json.dumps(yaml_text), now),
+            )
+        conn.commit()
+
+
+def capabilities_updated_at() -> "datetime | None":
+    """DB の一覧を最後に再定義した時刻。DB に無ければ None。"""
+    try:
+        db = get_db()
+        with db.lock:
+            conn = db.conn()
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute("SELECT updated_at FROM agent_state WHERE state_key = %s", (_CAPS_KEY,))
+                row = cur.fetchone()
+        if row and row["updated_at"]:
+            return datetime.fromisoformat(str(row["updated_at"]))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("Could not read capabilities updated_at: %s", e)
+    return None
+
+
 def load_summary() -> str:
     """Return the AI-written capability summary from agent_state, or ''."""
     try:
@@ -174,37 +220,6 @@ def save_summary(text: str) -> None:
             conn.commit()
     except Exception as e:
         logger.warning("Could not save capability summary: %s", e)
-
-
-def should_refresh(turn_index: int) -> bool:
-    """True on turn 0 (no summary yet) or every N turns thereafter."""
-    if turn_index == 0:
-        return not bool(load_summary())
-    return turn_index % _REFRESH_EVERY_N_TURNS == 0
-
-
-# ---------------------------------------------------------------------------
-# Auto-regeneration helpers (used during rest desire turns)
-# ---------------------------------------------------------------------------
-
-
-def should_regenerate_on_startup() -> bool:
-    """Return True when capability_summary is absent.
-
-    Called on turn 0 to decide whether to regenerate the full YAML (and then
-    refresh the summary) rather than just refreshing the summary from an
-    existing YAML.  Returns False when a summary is already stored so normal
-    startup does not re-run the expensive LLM generation step.
-    """
-    return not bool(load_summary())
-
-
-def should_regenerate_manifest(max_age_seconds: int = _MANIFEST_MAX_AGE_SECONDS) -> bool:
-    """Return True if capabilities.yaml is missing or older than max_age_seconds."""
-    if not _MANIFEST_PATH.exists():
-        return True
-    age = datetime.now().timestamp() - _MANIFEST_PATH.stat().st_mtime
-    return age > max_age_seconds
 
 
 def _module_docstring(path: Path) -> str:
@@ -299,10 +314,3 @@ def build_generation_prompt(context: str, existing_yaml: str) -> str:
         f"{context}"
         f"{existing_section}"
     )
-
-
-def save_manifest(yaml_content: str) -> None:
-    """Write yaml_content to capabilities.yaml, stripping accidental markdown fences."""
-    text = strip_code_fence(yaml_content)
-    _MANIFEST_PATH.write_text(text + "\n", encoding="utf-8")
-    logger.info("capabilities.yaml regenerated (%d chars)", len(text))

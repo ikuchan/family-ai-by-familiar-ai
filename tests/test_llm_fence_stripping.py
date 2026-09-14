@@ -9,7 +9,7 @@
 JSON（`chair`・`person`）、2回目はフェンス付き（`child`・`adult`・`chair`）だった。手元の
 合成画像では6回とも付いた。通る回と通らない回が混ざるので、症状が間欠的に見えていた。
 
-同じ処理は `capability_state.save_manifest` に既にある（YAML のフェンス剥がし）。3箇所目を
+同じ処理は層 4 の再定義（`loop/rest_capabilities`）でも使う（YAML のフェンス剥がし）。3箇所目を
 作らないよう、剥がす処理を1つに集めて両方から呼ぶ。
 """
 
@@ -58,10 +58,12 @@ async def test_extract_entities_reads_a_fenced_reply() -> None:
 
     class _Backend:
         async def complete(self, _prompt, *_a, **_kw):
-            return ('```json\n{"entities": ['
-                    '{"label": "chair", "category": "object", "confidence": 0.9},'
-                    '{"label": "person", "category": "person", "confidence": 0.8}'
-                    ']}\n```')
+            return (
+                '```json\n{"entities": ['
+                '{"label": "chair", "category": "object", "confidence": 0.9},'
+                '{"label": "person", "category": "person", "confidence": 0.8}'
+                "]}\n```"
+            )
 
     got = await extract_entities("居間を見た", _Backend())
     assert [e["label"] for e in got] == ["chair", "person"], f"読めていない: {got}"
@@ -109,12 +111,12 @@ async def test_an_unreadable_reply_is_still_logged() -> None:
     assert records, "読めない返答が記録されていない"
 
 
-def test_save_manifest_uses_the_shared_stripper() -> None:
-    """YAML 側の剥がしも同じ処理へ寄せる（同じ実装を2つ持たない）。"""
+def test_the_yaml_side_uses_the_shared_stripper() -> None:
+    """YAML 側の剥がしも同じ処理へ寄せる（同じ実装を2つ持たない）。層 4 の再定義（`rest_capabilities`）が使う。"""
     import inspect
 
-    from familiar_agent import capability_state
+    from familiar_agent.loop import rest_capabilities
 
-    src = inspect.getsource(capability_state.save_manifest)
+    src = inspect.getsource(rest_capabilities)
     assert "strip_code_fence" in src, "共通の剥がしを使っていない"
     assert '"```yaml"' not in src, "独自のフェンス剥がしが残っている"

@@ -21,7 +21,7 @@ familiar-ai は、家庭で家族が使う、身体を持つ伴侶エージェ�
 - PostgreSQL 記憶（pgvector）と人ごとの `situated_embeddings`
 - 予測とワークスペースの層
 - 関係、評価、社会方針、欲求調整の明示的な状態層
-- capability manifest と定期的な自己理解の更新
+- 能力の一覧と要約（REST 内省の層 4 が更新する）
 - カメラ、移動、TTS、STT、GUI、MCP の任意統合
 
 バックエンドは特定実装に依存しない。Anthropic を含むが、唯一の実行経路ではない。
@@ -63,9 +63,12 @@ familiar-ai は、家庭で家族が使う、身体を持つ伴侶エージェ�
 
 内部状態（mood・drive）は定性ラベルで渡す。**生の小数は主LLM に届かない。**
 
-REST 内省は誰も居ないときに回る（`loop/rest.py`）。いま動いているのは骨格と、REST の
-自発ターンで 1 日 1 回までの `capabilities.yaml` の再生成だけである。設計は 4 層
-（出来事→自己像→設定値→能力・`課題8` 記-a・`用語一覧`）で、実装はこれから。
+REST 内省は誰も居ないときに回る（`loop/rest.py`）。1 パスで 4 層を順に更新する
+（`用語一覧`・`課題8` 記-a）——層 1 出来事を畳む（①日次の畳み込みのみ・`rest_fold.py`）→
+層 2 自己像（`rest_self_image.py`・`agent_state.self_image`・システム文の `[いまの自分]`）→
+層 3 設定値（`rest_settings.py`・計測ログ `rest_logs/measure.log` を集計し DB の値を 1 刻み）→
+層 4 能力（`rest_capabilities.py`・一覧 `agent_state.capabilities` を 7 日に 1 度、要約
+`capability_summary` を一覧か自己像が変わった晩に）。層 1 の②（核の固め）は未実装。
 
 **遅延配信ターンという別経路は無い。** 完了した `search_deferred` / `fetch_deferred` の
 結果は、完了キュー → O → 次の反復として配信される。在席・静穏時間・「黙っていて」の依頼は
