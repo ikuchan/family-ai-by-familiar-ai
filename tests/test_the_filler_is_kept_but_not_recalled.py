@@ -19,7 +19,6 @@ from datetime import datetime, timezone
 import pytest
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.legacy.semantic_layer import LegacySemanticLayer
 from familiar_agent.db import get_db
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.store.context import StoreContext, viewpoint_of
@@ -77,7 +76,7 @@ def test_the_filler_joins_the_exchange_in_order():
 
 def test_a_filler_does_not_come_back_from_recall(ctx):
     """つなぎは想起に出ない。出ると、中身の無い一言が候補を食う（054 の理由）。"""
-    store = ObservationStore(ctx, situated=SituatedVectors(ctx), legacy=LegacySemanticLayer(ctx))
+    store = ObservationStore(ctx, situated=SituatedVectors(ctx))
     mark = f"つなぎの検査 {uuid.uuid4()}"
     oid = str(uuid.uuid4())
     with ctx.lock:

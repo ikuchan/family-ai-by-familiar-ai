@@ -48,26 +48,20 @@ def _make_agent():
     agent._memory.recent_feelings_async = AsyncMock(return_value=[])
     agent._memory.recall_self_model_async = AsyncMock(return_value=[])
     agent._memory.recall_curiosities_async = AsyncMock(return_value=[])
-    agent._memory.recall_semantic_facts_async = AsyncMock(return_value=[])
-    agent._memory.recall_behavior_policies_async = AsyncMock(return_value=[])
     agent._memory.format_for_context = MagicMock(return_value="")
     agent._memory.format_feelings_for_context = MagicMock(return_value="")
-    agent._memory.format_semantic_facts_for_context = MagicMock(return_value="")
-    agent._memory.format_behavior_policies_for_context = MagicMock(return_value="")
     agent._me_md = ""
     agent._family_md = ""
     agent._presence_watcher = None
     agent._persons = PersonRegistry(default_name="A")
 
     from familiar_agent.exploration import ExplorationTracker
-    from familiar_agent.self_narrative import SelfNarrative
     from familiar_agent.relationship import RelationshipTracker
     from familiar_agent.prediction import PredictionEngine
     import time as _time
 
     agent._exploration = ExplorationTracker()
     agent._scene = None
-    agent._self_narrative = SelfNarrative()
     agent._relationship = RelationshipTracker()
     agent._prediction = PredictionEngine()
     agent._memory.as_coalition_async = AsyncMock(return_value=None)

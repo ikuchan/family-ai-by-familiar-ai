@@ -38,12 +38,10 @@ _SECRET_KEYWORDS = frozenset({"API_KEY", "PASSWORD", "SECRET", "TOKEN", "WEBHOOK
 _KEY_MODULES = [
     "desires.py",
     "relationship.py",
-    "self_narrative.py",
     "mcp_client.py",
     "prediction.py",
     "coalition.py",
     "memory_worker.py",
-    "concern_engine.py",
     "emotion_pad.py",
     "mood_register.py",
     "loop/evaluator.py",

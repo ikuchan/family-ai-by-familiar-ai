@@ -3,7 +3,7 @@
 合成へ組み替えたことで、各層を `StoreContext` だけで組み立てられるようになった。
 これまで `ObservationMemory` 越しにしか触れなかった振る舞いに、直接テストを当てる。
 
-撤去予定の `LegacySemanticLayer` には足さない。隔離が目的であって延命ではない。
+撤去予定の層には足さない。隔離が目的であって延命ではない（`legacy/` は 2026-09-14 に撤去）。
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import numpy as np
 import pytest
 
 from familiar_agent.db import get_db
-from familiar_agent.legacy.semantic_layer import LegacySemanticLayer
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.store.context import StoreContext
 from familiar_agent.store.jobs import JobQueue
@@ -32,16 +31,13 @@ class _StubEmbedder:
 @pytest.fixture
 def ctx() -> StoreContext:
     db = get_db()
-    return StoreContext(
-        db=db, lock=db.lock, person_id=DEFAULT_PERSON_ID, embedder=_StubEmbedder()
-    )
+    return StoreContext(db=db, lock=db.lock, person_id=DEFAULT_PERSON_ID, embedder=_StubEmbedder())
 
 
 @pytest.fixture
 def layers(ctx):
     situated = SituatedVectors(ctx)
-    legacy = LegacySemanticLayer(ctx)
-    observations = ObservationStore(ctx, situated=situated, legacy=legacy)
+    observations = ObservationStore(ctx, situated=situated)
     jobs = JobQueue(ctx, observations=observations)
     return situated, observations, jobs
 
@@ -66,18 +62,22 @@ def test_situated_rows_are_created_for_each_person(ctx) -> None:
     conn.commit()
 
     situated.refresh_situated_memories(
-        conn, obs_id, np.ones(1024, dtype=np.float32),
-        body=f"unit situated {obs_id}", writer_id=DEFAULT_PERSON_ID, participants=[])
+        conn,
+        obs_id,
+        np.ones(1024, dtype=np.float32),
+        body=f"unit situated {obs_id}",
+        writer_id=DEFAULT_PERSON_ID,
+        participants=[],
+    )
     conn.commit()
 
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT count(*) AS n FROM situated_memories WHERE obs_id = %s", (obs_id,)
-        )
+        cur.execute("SELECT count(*) AS n FROM situated_memories WHERE obs_id = %s", (obs_id,))
         assert int(cur.fetchone()["n"]) >= 1
 
 
 # ── ObservationStore ────────────────────────────────────────────────────────
+
 
 def test_dead_get_recent_observations_is_removed() -> None:
     """撤去済み（呼び出し元ゼロのデッドコード・confidence=importance のコピペ源）。
@@ -95,9 +95,7 @@ def test_saved_observation_is_readable_by_kind(layers) -> None:
         str(uuid.uuid4()),
         {"content": content, "direction": "会話", "kind": "curiosity", "emotion": "neutral"},
     )
-    rows = observations._read_observations_by_kind(
-        "curiosity", 50, ("content",)
-    )
+    rows = observations._read_observations_by_kind("curiosity", 50, ("content",))
     assert any(r["content"] == content for r in rows)
 
 
@@ -131,13 +129,12 @@ def test_the_person_scope_lives_in_situated_not_in_the_owner_column(layers) -> N
     rows = observations._read_observations_by_kind("curiosity", 50, ("content",))
     assert any(r["content"] == content for r in rows), "所有者絞りが残っている"
 
-    other = observations._read_observations_by_situated(
-        str(uuid.uuid4()), 50, ("content",)
-    )
+    other = observations._read_observations_by_situated(str(uuid.uuid4()), 50, ("content",))
     assert all(r["content"] != content for r in other), "面の無い person から引けている"
 
 
 # ── JobQueue ────────────────────────────────────────────────────────────────
+
 
 def test_job_round_trip_from_enqueue_to_materialize(layers) -> None:
     """積む → 拾う → 実体化 → 完了、の一巡が通る。"""
@@ -152,9 +149,7 @@ def test_job_round_trip_from_enqueue_to_materialize(layers) -> None:
     assert any(j["event_id"] == event_id for j in claimed), "積んだジョブを拾えない"
 
     assert jobs.materialize_event(event_id) is True
-    rows = observations._read_observations_by_kind(
-        "conversation", 100, ("content",)
-    )
+    rows = observations._read_observations_by_kind("conversation", 100, ("content",))
     assert any(r["content"] == content for r in rows)
 
 
@@ -168,11 +163,13 @@ def test_failed_job_retries_then_becomes_dead_letter(layers) -> None:
     assert claimed
     job_id = claimed[0]["job_id"]
 
-    assert jobs.mark_job_failed(job_id, "unit test", retry_delay=0.0, max_attempts=1) == "dead_letter"
-
+    assert (
+        jobs.mark_job_failed(job_id, "unit test", retry_delay=0.0, max_attempts=1) == "dead_letter"
+    )
 
 
 # ── ObservationStore.by_vector（S6c） ───────────────────────────────────────
+
 
 def test_by_vector_returns_rows_without_scoring(layers, ctx) -> None:
     """類似検索は行を返すだけで、5軸の採点はしない。
@@ -215,7 +212,6 @@ def test_by_vector_filters_by_kind(layers) -> None:
     assert all(r["kind"] == "day_summary" for r in rows)
 
 
-
 def test_store_layers_do_not_read_configuration(layers) -> None:
     """層は Config を持たない（環境変数を直接読まない）。
 
@@ -228,7 +224,6 @@ def test_store_layers_do_not_read_configuration(layers) -> None:
         "src/familiar_agent/store/observations.py",
         "src/familiar_agent/store/jobs.py",
         "src/familiar_agent/store/situated.py",
-        "src/familiar_agent/legacy/semantic_layer.py",
     ):
         src = pathlib.Path(path).read_text()
         assert "os.environ" not in src, f"{path} が環境変数を直接読んでいる"

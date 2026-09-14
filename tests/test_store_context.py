@@ -34,12 +34,11 @@ def test_context_can_be_rebound_to_another_person() -> None:
 
 
 def test_layers_are_no_longer_mixins() -> None:
-    """store と legacy に Mixin が残っていない（積み上げをやめた印）。"""
+    """store に Mixin が残っていない（積み上げをやめた印）。"""
     for path in (
         "src/familiar_agent/store/jobs.py",
         "src/familiar_agent/store/situated.py",
         "src/familiar_agent/store/observations.py",
-        "src/familiar_agent/legacy/semantic_layer.py",
     ):
         src = pathlib.Path(path).read_text()
         assert not re.search(r"class \w*Mixin\b", src), f"{path} に Mixin が残っている"
@@ -47,7 +46,6 @@ def test_layers_are_no_longer_mixins() -> None:
 
 def test_layers_declare_their_dependencies_in_the_constructor() -> None:
     """層をまたぐ依存が引数に出ている（宿主の名前空間を覗かない）。"""
-    from familiar_agent.legacy.semantic_layer import LegacySemanticLayer
     from familiar_agent.store.jobs import JobQueue
     from familiar_agent.store.observations import ObservationStore
     from familiar_agent.store.situated import SituatedVectors
@@ -56,8 +54,8 @@ def test_layers_declare_their_dependencies_in_the_constructor() -> None:
 
     assert "observations" in inspect.signature(JobQueue.__init__).parameters
     obs_params = inspect.signature(ObservationStore.__init__).parameters
-    assert "situated" in obs_params and "legacy" in obs_params
-    for cls in (SituatedVectors, LegacySemanticLayer):
+    assert "situated" in obs_params
+    for cls in (SituatedVectors,):
         assert "ctx" in inspect.signature(cls.__init__).parameters
 
 
@@ -67,7 +65,6 @@ def test_no_layer_borrows_from_a_host() -> None:
         "src/familiar_agent/store/jobs.py",
         "src/familiar_agent/store/situated.py",
         "src/familiar_agent/store/observations.py",
-        "src/familiar_agent/legacy/semantic_layer.py",
     ):
         src = pathlib.Path(path).read_text()
         assert "宿主が実装する" not in src, f"{path} に借り物の宣言が残っている"

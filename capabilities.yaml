@@ -129,13 +129,6 @@ capabilities:
       in `loop/evaluator.py`; the PAD dataclass, the label quantisation and the
       mood register live in `emotion_pad.py` and `mood_register.py`.
     enabled: true
-  - id: self_narrative
-    summary: Maintain a first-person autobiographical diary of sessions
-    detail: >
-      The agent maintains a persistent, first-person diary of its sessions,
-      recording key events and experiences. This narrative helps in self-reflection
-      and continuity. Implemented in `self_narrative.py`.
-    enabled: true
   - id: mcp_client
     summary: Manage connections to external MCP servers
     detail: >
@@ -227,16 +220,3 @@ capabilities:
       ensuring efficient and asynchronous memory management. Implemented in
       `memory_worker.py`.
     enabled: true
-  - id: tape_planning
-    summary: Implement TAPE-inspired planning for embodied agents
-    detail: >
-      Adapts TAPE planning for embodied agents, including lightweight plan generation
-      and adaptive replanning. Kept in `legacy/tape.py`; **no production caller
-      remains** — scheduled for removal with the retired stores.
-    enabled: true
-  - id: concern_engine
-    summary: Manage lightweight active concerns for self-continuity
-    detail: >
-      This engine manages lightweight active concerns, contributing to the agent's
-      sense of autobiographical self-continuity across its experiences.
-      Implemented in `concern_

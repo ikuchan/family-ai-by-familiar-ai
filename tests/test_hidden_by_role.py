@@ -15,7 +15,6 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
-from familiar_agent.legacy.semantic_layer import LegacySemanticLayer
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.store.context import StoreContext, viewpoint_of
 from familiar_agent.store.observations import ObservationStore
@@ -34,7 +33,7 @@ def ctx() -> StoreContext:
 
 @pytest.fixture
 def store(ctx) -> ObservationStore:
-    return ObservationStore(ctx, situated=SituatedVectors(ctx), legacy=LegacySemanticLayer(ctx))
+    return ObservationStore(ctx, situated=SituatedVectors(ctx))
 
 
 def _write_pair(ctx) -> tuple[str, str, str]:

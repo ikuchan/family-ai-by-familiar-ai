@@ -1,6 +1,6 @@
 """Tests for as_coalition() methods across all processors.
 
-Each processor (desires, scene, exploration, self_narrative, memory)
+Each processor (desires, scene, exploration, memory)
 produces a Coalition for the Global Workspace.  These tests verify:
   - Returns None when the processor has no data (empty state).
   - Returns a Coalition with correct source and valid field ranges.
@@ -20,7 +20,6 @@ import pytest
 from familiar_agent.desires import TRIGGER_THRESHOLD, DesireSystem
 from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.scene import SceneTracker
-from familiar_agent.self_narrative import SelfNarrative
 from familiar_agent.coalition import Coalition
 
 
@@ -223,57 +222,6 @@ def test_scene_coalition_context_block_has_scene_label(scene_tracker: SceneTrack
     c = scene_tracker.as_coalition()
     assert c is not None
     assert "[Current scene]" in c.context_block
-
-
-# ── SelfNarrative.as_coalition ─────────────────────────────────────────────────
-
-
-@pytest.fixture
-def narrative(tmp_path: Path) -> SelfNarrative:
-    return SelfNarrative(path=tmp_path / "narrative.jsonl")
-
-
-def test_narrative_coalition_none_when_no_entries(narrative: SelfNarrative) -> None:
-    result = narrative.as_coalition()
-    assert result is None
-
-
-def test_narrative_coalition_returns_valid_after_write(narrative: SelfNarrative) -> None:
-    narrative.write("Today I learned something new about the world.")
-    c = narrative.as_coalition()
-    assert c is not None
-    _assert_valid_coalition(c, "narrative")
-
-
-def test_narrative_coalition_source_is_narrative(narrative: SelfNarrative) -> None:
-    narrative.write("I felt calm today.")
-    c = narrative.as_coalition()
-    assert c is not None
-    assert c.source == "narrative"
-
-
-def test_narrative_coalition_summary_from_latest_entry(narrative: SelfNarrative) -> None:
-    narrative.write("First entry.")
-    narrative.write("Second entry is the latest.")
-    c = narrative.as_coalition()
-    assert c is not None
-    assert "Second entry" in c.summary
-
-
-def test_narrative_coalition_fixed_activation(narrative: SelfNarrative) -> None:
-    """Narrative coalitions have a fixed dynamism of 0.4."""
-    narrative.write("Some reflection.")
-    c = narrative.as_coalition()
-    assert c is not None
-    assert c.dynamism == pytest.approx(0.4)
-
-
-def test_narrative_coalition_low_urgency(narrative: SelfNarrative) -> None:
-    """Narrative is not time-sensitive."""
-    narrative.write("A quiet day.")
-    c = narrative.as_coalition()
-    assert c is not None
-    assert c.urgency <= 0.2
 
 
 # ── ExplorationTracker.as_coalition ────────────────────────────────────────────
