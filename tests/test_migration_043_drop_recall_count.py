@@ -68,19 +68,23 @@ def test_score_breakdown_no_longer_takes_recall_count() -> None:
 
     old_ts = datetime.now(timezone.utc) - timedelta(days=30)
     parts = _score_breakdown(
-        0.5, old_ts, None, 1.0, 0,
-        half_life_days=3.0, floor=0.001,
+        0.5,
+        old_ts,
+        None,
+        1.0,
+        0,
+        half_life_days=3.0,
+        floor=0.001,
     )
     assert 0.0 <= parts.t <= 1.0
 
 
-def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
-    """若返りは `apply_verdicts` が担い続ける（`recall_count` 無しで動く）。
+def test_apply_verdicts_still_works_without_recall_count() -> None:
+    """`apply_verdicts` は `recall_count` 無しで動く（列を落とすと同じ UPDATE 文が落ちる）。
 
-    列を落とすと同じ UPDATE 文の中の `recall_count = recall_count + 1` が
-    `UndefinedColumn` で落ちるので、ここが落ちれば外し忘れである。
-
-    044 で起点は**面**へ移ったので、確かめるのも面の側である。
+    044 で根づきは**面**へ移ったので、確かめるのも面の側である。2026-09-14（記-a-ろ-い）から
+    申告が動かすのは根づきの $n$ だけで、思い出した時（`last_recalled_at`）は想起の側
+    （`touch_recalled`）が記す。
     """
     from unittest.mock import patch
 
@@ -123,4 +127,7 @@ def test_apply_verdicts_still_refreshes_the_time_origin() -> None:
             row = cur.fetchone()
     finally:
         conn.close()
-    assert row is not None and row["last_recalled_at"] is not None, "面の時間の起点が更新されない"
+    assert row is not None
+    assert row["last_recalled_at"] is None, (
+        "申告が思い出した時を動かしている（記-a-ろ-い で分けた）"
+    )

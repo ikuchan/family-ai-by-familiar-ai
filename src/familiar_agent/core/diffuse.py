@@ -33,7 +33,8 @@ def diffuse_ids(
         if len(added) >= max_add:
             break
         fresh = [
-            c for c in dict.fromkeys(str(x) for x in get_candidates(known) if x)
+            c
+            for c in dict.fromkeys(str(x) for x in get_candidates(known) if x)
             if c not in known_set
         ]
         if not fresh:
@@ -73,3 +74,52 @@ def select_entity_seeds(
             if str(row.get("relation_key") or "") == role:
                 add(row.get("person_id"))
     return out
+
+
+def interleave_orders(
+    far: "list[str]", stale: "list[str]", *, max_add: int, far_share: float
+) -> "list[str]":
+    """2 つの並び（遠い順・思い出していない順）から交互に取り、`max_add` 件にする（記-a-ろ-い）。
+
+    `far_share` は遠い順から取る割合（0.5 なら 2／2）。同じ記録は 1 件と数え（重複は飛ばして
+    次を取る）、片方が尽きたか枠を使い切ったら、もう片方で埋める。分類上遠いもの（新規性）と、
+    長く思い出していないもの（掘り起こし）の両方を W に上げるため。
+    """
+    n = max(0, int(max_add))
+    n_far = max(0, min(n, round(n * max(0.0, min(1.0, far_share)))))
+    n_stale = n - n_far
+    out: list[str] = []
+    seen: set[str] = set()
+    pos = {"far": 0, "stale": 0}
+    lists = {"far": [str(x) for x in far], "stale": [str(x) for x in stale]}
+    quota = {"far": n_far, "stale": n_stale}
+    taken = {"far": 0, "stale": 0}
+
+    def take(name: str) -> bool:
+        """その並びから、まだ載っていない次の 1 件を取る。取れたら True。"""
+        src = lists[name]
+        while pos[name] < len(src):
+            cand = src[pos[name]]
+            pos[name] += 1
+            if cand and cand not in seen:
+                seen.add(cand)
+                out.append(cand)
+                taken[name] += 1
+                return True
+        return False
+
+    turn = "far"
+    while len(out) < n:
+        order = (turn, "stale" if turn == "far" else "far")
+        # 枠が残っている側を、いまの番から順に試す。
+        picked = False
+        for name in order:
+            if taken[name] < quota[name] and take(name):
+                picked = True
+                break
+        if not picked:
+            # 枠は使い切った（か尽きた）。残りは取れる側で埋める。
+            if not (take("far") or take("stale")):
+                break
+        turn = "stale" if turn == "far" else "far"
+    return out[:n]

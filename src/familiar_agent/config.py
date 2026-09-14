@@ -271,10 +271,18 @@ class MemoryConfig:
     diffuse_recall: bool = field(default_factory=lambda: _bool_env("DIFFUSE_RECALL", default=True))
     diffuse_max_add: int = field(default_factory=lambda: _int_env("DIFFUSE_MAX_ADD", 4))
     diffuse_max_depth: int = field(default_factory=lambda: _int_env("DIFFUSE_MAX_DEPTH", 2))
+    # 関連想起の 2 つの並び（遠い順・思い出していない順）のうち、遠い順から取る割合
+    # （記-a-ろ-い・2026-09-14）。0.5 なら 4 枠を 2／2。層 3 の設定値（DB > 既定）。
+    diffuse_far_share: float = field(
+        default_factory=lambda: _resolve_setting("MemoryConfig.diffuse_far_share", 0.5)
+    )
 
     # 想起スコアのつまみ。既定値は課題5 v0.24（D 節＝合成／F 節＝新しさ）に一致させる。
-    recall_half_life_days: float = field(  # HL=259200 秒（3日）
-        default_factory=lambda: _float_env("RECALL_HALF_LIFE_DAYS", 3.0)
+    # 観測の半減期 HL（日）。**層 3 の設定値**（DB > 既定・`.env` を読まない・記-a-ろ-い）。
+    # 10 日は「昨日のことは必ず思い出す・10 日前はあまり思い出さない」（`出来事を畳む` v0.1）。
+    # 2026-09-14 まで 3 日。
+    recall_half_life_days: float = field(
+        default_factory=lambda: _resolve_setting("MemoryConfig.recall_half_life_days", 10.0)
     )
     recall_time_floor: float = field(  # t_floor
         default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.001)

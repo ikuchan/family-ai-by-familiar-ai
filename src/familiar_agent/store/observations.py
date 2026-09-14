@@ -211,7 +211,6 @@ class ObservationStore:
         reference_epoch: float,
         n: int,
         *,
-        span: bool = False,
         kind: str | None = None,
         exclude_ids: list[str] | None = None,
     ) -> list[dict]:
@@ -222,26 +221,16 @@ class ObservationStore:
         言葉から基準を動かせる（「去年の夏の話」）ので、**基準の前後どちらからも取る**。
         片側だけでは、基準より後の記録を取りこぼす。
 
-        並べ替えの鍵は `COALESCE(s.last_recalled_at, o.timestamp)`。`timestamp` だけで
-        並べると、「古いが最近よく使っている記憶」が候補に入らない。起点は**面**が持つ
-        （044・`設計図` [D-在席相関/V2]）ので、どの面を通って引いたかで並びが変わる。
-
-        **採点の起点とは一致しない。** 採点は書かれた時刻（`o.timestamp`）だけを起点に
-        しており、`last_recalled_at` は受け取るが使っていない（強化B は仕組みごと
-        後回し）。起点を実際に見ているのは、この並べ替えだけである。
-
-        `span`（幅の指定あり）のときは、**書かれた時刻と使った時刻の両方**で探す。その頃の
-        出来事（`timestamp`）と、その頃に思い出していたこと（`last_recalled_at`）は別の
-        手がかりで、時期を指定されたときはどちらも要る。
+        並べ替えの鍵は**作られた日（`o.timestamp`）だけ**（2026-09-14・記-a-ろ-い）。時刻の
+        役割を分けた——作られた日は「いつ起きたか」で、採点の t・この一次想起・時期の指定に使う。思い出した時（`s.last_recalled_at`）は「いつ思い出したか」で、
+        関連想起（拡散）の並びにだけ使い、ここでは見ない。以前は「古いが最近使った記憶」を
+        候補に入れるために思い出した時も鍵にしていた（強化B）が、直近は W の「直近のやりとりの
+        枠」（記-h）が無条件に載せるので要らない。時期の指定（基準時刻を過去へ動かす）も同じ鍵で「その頃の出来事」を集める。
 
         どの向きも索引を端から辿るだけなので、全走査にならない。返り行は `by_vector` と
         同じ列に揃える（関連は呼び出し側が `situated_cosines` で補う）。
         """
-        keys = (
-            ["o.timestamp", "s.last_recalled_at"]
-            if span
-            else ["COALESCE(s.last_recalled_at, o.timestamp)"]
-        )
+        keys = ["o.timestamp"]  # 作られた日だけ
         kind_clause = "AND o.kind = %s" if kind else ""
         live = not_hidden("o")
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
@@ -290,7 +279,7 @@ class ObservationStore:
 
         # 基準に近い順へ整え、n 件に絞る（採点はしない）。
         def _distance(row: dict) -> float:
-            stamp = row.get("last_recalled_at") or row.get("timestamp")
+            stamp = row.get("timestamp")
             if stamp is None:
                 return float("inf")
             try:
@@ -932,20 +921,42 @@ class ObservationStore:
         # 関係が作る（047 の関係項）ので、視点を学習する先が無い。
         return event_id
 
+    def touch_recalled(self, obs_ids: "list[str]") -> int:
+        """想起で W に載った記録の**思い出した時**（`last_recalled_at`）を今にする（記-a-ろ-い）。
+
+        更新するのは出来事でなく**面**（044）。いま引いている person の面だけを動かす。
+        作られた日（`o.timestamp`）は触らない——それは「いつ起きたか」で、採点の t と一次想起の鍵。
+        """
+        ids = [i for i in obs_ids if i]
+        if not ids:
+            return 0
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE situated_memories SET last_recalled_at = now() "
+                    "WHERE person_id = %s AND obs_id = ANY(%s)",
+                    (self._ctx.viewpoint, ids),
+                )
+                n = cur.rowcount
+            conn.commit()
+        return int(n or 0)
+
     def apply_verdicts(self, verdicts: dict[str, str]) -> int:
         """想起した記憶の扱いをフルLLM が申告したとおりに反映する（課題5 E節 段2）。
 
         `verdicts`＝{完全な id: 判定}。判定は次の4つ。
 
-        - `important`（大事）　　　 `groundedness_n += 1` ＋ 時間の起点を更新
-        - `useless`（不要）　　　　 `groundedness_n -= 1` ＋ 時間の起点を更新
-        - `referred`（参照）　　　　時間の起点だけ更新
+        - `important`（大事）　　　 `groundedness_n += 1`
+        - `useless`（不要）　　　　 `groundedness_n -= 1`
+        - `referred`（参照）　　　　何も動かさない（思い出した時は想起の側が記す）
         - `unused`（使わなかった）　何もしない
 
-        **参照した MI だけ再評価する**（設計）。想起しただけで更新すると、一度上がった
-        記録が自分を押し上げ続ける（実機で 47日前の挨拶が t=1.000 で居座った）。
+        申告が動かすのは根づきの $n$ だけ（記-a-ろ-い・2026-09-14）。思い出した時
+        （`last_recalled_at`）は `touch_recalled` が W に載った時点で記す。以前はここで
+        時間の起点も若返らせていた（強化B）。
 
-        返り値＝実際に触れた件数。
+        返り値＝申告として受け取った件数（important／useless／referred）。
         """
         touched = {i: v for i, v in verdicts.items() if v in ("important", "useless", "referred")}
         if not touched:
@@ -955,15 +966,10 @@ class ObservationStore:
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
-                # 触ったものは時間の起点を若返らせる（強化B）。**更新するのは面**で
-                # あって出来事ではない（044）。どの面を通って思い出したかで変わる量なので、
-                # いま引いている person の面だけを動かす。
+                # 申告が動かすのは根づきの n だけ（記-a-ろ-い・2026-09-14）。思い出した時
+                # （`last_recalled_at`）は想起の側（`touch_recalled`）が W に載った時点で記す。
+                # 更新するのは面（044）。いま引いている person の面だけを動かす。
                 pid = self._ctx.viewpoint
-                cur.execute(
-                    "UPDATE situated_memories SET last_recalled_at = now() "
-                    "WHERE person_id = %s AND obs_id = ANY(%s)",
-                    (pid, list(touched)),
-                )
                 if up:
                     cur.execute(
                         "UPDATE situated_memories SET groundedness_n = groundedness_n + 1 "

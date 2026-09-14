@@ -18,13 +18,27 @@ def _fresh_config(monkeypatch, **env_vars):
 
 
 def test_memory_config_has_decay_settings(monkeypatch):
-    monkeypatch.setenv("RECALL_HALF_LIFE_DAYS", "5.0")
     monkeypatch.setenv("RECALL_TIME_FLOOR", "0.3")
     from familiar_agent.config import MemoryConfig
 
     cfg = MemoryConfig()
-    assert cfg.recall_half_life_days == 5.0
     assert cfg.recall_time_floor == 0.3
+
+
+def test_the_half_life_is_a_layer_three_setting_not_an_env(monkeypatch):
+    """$HL$ は層 3 の設定値（DB > 既定・`.env` を読まない・記-a-ろ-い・2026-09-14）。既定 10 日。
+
+    「昨日のことは必ず思い出す・10 日前はあまり思い出さない」（`出来事を畳む` v0.1）。
+    """
+    from familiar_agent import config_overrides as co
+    from familiar_agent.config import MemoryConfig
+
+    co.clear_cache()
+    assert MemoryConfig().recall_half_life_days == 10.0
+    assert co.RANGES["MemoryConfig.recall_half_life_days"] == (1.0, 30.0)
+    monkeypatch.setenv("RECALL_HALF_LIFE_DAYS", "3.0")
+    co.clear_cache()
+    assert MemoryConfig().recall_half_life_days == 10.0  # env は読まない
 
 
 def test_memory_config_recall_min_score(monkeypatch):
@@ -36,22 +50,22 @@ def test_memory_config_recall_min_score(monkeypatch):
 
 
 def test_memory_config_defaults():
-    """デフォルト値の確認（envなし）。値の出所は課題5 v0.24（HL=3日・t_floor）。"""
+    """デフォルト値の確認（envなし）。HL は 10 日（記-a-ろ-い・2026-09-14）、t_floor は課題5 v0.24。"""
     from familiar_agent.config import MemoryConfig
 
     cfg = MemoryConfig()
-    assert cfg.recall_half_life_days == 3.0
+    assert cfg.recall_half_life_days == 10.0
     assert cfg.recall_time_floor == 0.001
     assert cfg.recall_min_score == pytest.approx(0.05)
     assert cfg.recall_primary_n == 50
 
 
 def test_memory_config_invalid_env_falls_back(monkeypatch):
-    monkeypatch.setenv("RECALL_HALF_LIFE_DAYS", "not-a-float")
+    monkeypatch.setenv("RECALL_MIN_SCORE", "not-a-float")
     from familiar_agent.config import MemoryConfig
 
     cfg = MemoryConfig()
-    assert cfg.recall_half_life_days == 3.0
+    assert cfg.recall_min_score == pytest.approx(0.05)
 
 
 def test_recent_exchange_windows_are_two_and_come_from_env(monkeypatch):

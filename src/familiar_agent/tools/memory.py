@@ -849,11 +849,12 @@ class ObservationMemory:
         在席者が2人以上いるとき、(B) 辺へ**共通の記憶**（全員が関係を持つ観測）を足す（段4）。
         """
         try:
-            from ..core.diffuse import diffuse_ids, select_entity_seeds
+            from ..core.diffuse import diffuse_ids, interleave_orders, select_entity_seeds
             from ..diffuse_store import (
                 fetch_diffuse_rows,
                 fetch_relation_persons,
                 order_ids_by_farthest,
+                order_ids_by_stalest,
                 recall_by_person,
                 shared_memory_ids,
             )
@@ -869,6 +870,7 @@ class ObservationMemory:
                 if p and p not in {AGENT_SELF_ID, DEFAULT_PERSON_ID}
             ]
             cap = max(1, cfg.diffuse_max_add)
+            _far_share = float(getattr(cfg, "diffuse_far_share", 0.5))
             with self._db_lock:
                 conn = self._db.conn()
 
@@ -886,10 +888,17 @@ class ObservationMemory:
                         cands += recall_by_person(conn, pid, limit=cap)
                     # 段4：居合わせた人たちで共有している出来事。2人以上のときだけ効く。
                     cands += shared_memory_ids(conn, present_ids, limit=cap)
-                    # 4b：seed から遠い順（新規性高い順）に並べ替えて novel を優先する。
-                    if seed_vec is not None:
-                        cands = order_ids_by_farthest(conn, cands, seed_vec)
-                    return cands
+                    # **2 つの並びから交互に取る**（記-a-ろ-い・2026-09-14）：seed から遠い順
+                    # （分類上の新規性・4b）と、思い出していない順（`last_recalled_at` が古い・
+                    # 掘り起こし）。配分は `diffuse_far_share`（層 3 の設定値）。
+                    cands = list(dict.fromkeys(str(c) for c in cands if c))
+                    far = (
+                        order_ids_by_farthest(conn, cands, seed_vec)
+                        if seed_vec is not None
+                        else cands
+                    )
+                    stale = order_ids_by_stalest(conn, cands, self._person_id)
+                    return interleave_orders(far, stale, max_add=cap, far_share=_far_share)
 
                 added = diffuse_ids(
                     seed_ids,
@@ -984,7 +993,6 @@ class ObservationMemory:
                 for r in self._observations.by_time(
                     ref_epoch,
                     fetch_n,
-                    span=time_span_days is not None,
                     kind=kind,
                     exclude_ids=exclude_ids,
                 ):
@@ -1158,21 +1166,22 @@ class ObservationMemory:
                             str(item["summary"])[:50],
                         )
 
-                # **想起では強化しない。** 更新すべきは「フルLLM が実際に参照した MI」
-                # だけ（課題5 F節・強化B「想起では触らない」）だが、その判定は未実装なので
-                # 仕組みごと後回しにした。想起しただけで若返らせると、一度上がった記録が
-                # 自分を押し上げ続ける（実機で 47日前の挨拶が t=1.000 で居座った）。
-                # 若返りの口は `apply_verdicts` の一本だけである（044 で二重だった
-                # `_mark_recalled` を落とした）。更新するのは出来事でなく**面**。
-
                 # 拡散想起（[D-WR拡散想起]・4a）：(A)共起＋(B)主体で W を再帰的に広げ、
-                # g0=0（適合度も根づきも 0）で末尾へ足す（top-n の後・reinforce しない＝DB 非破壊）。
+                # g0=0（適合度も根づきも 0）で末尾へ足す（top-n の後）。
                 if _cfg.diffuse_recall and results:
                     results.extend(
                         self._diffuse_extend(
                             results, _cfg, seed_vec=q_vec, present_others=present_others
                         )
                     )
+
+                # **思い出した時を記録する**（記-a-ろ-い・2026-09-14）。一次想起・関連想起の
+                # どちらで載ったものも、この面の `last_recalled_at` を今にする。採点の t の
+                # 起点は作られた日（`timestamp`）だけなので、ここを更新しても一度上がった記録が
+                # 自分を押し上げる循環は起きない（かつて起点を兼ねていた頃は 47 日前の挨拶が
+                # t=1.000 で居座った）。`last_recalled_at` は関連想起の並び（思い出していない順）
+                # にだけ効く。
+                self._observations.touch_recalled([str(r.get("memory_id", "")) for r in results])
 
                 return results
 

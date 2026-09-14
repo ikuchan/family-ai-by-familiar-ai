@@ -10,6 +10,8 @@ person 中心の再想起＝その人が**話題の主体**（`about`）か**そ
 
 from __future__ import annotations
 
+from datetime import datetime
+
 import numpy as np
 
 from .store.embedding import _decode_vector
@@ -44,6 +46,37 @@ def order_ids_by_farthest(conn, ids: "list[str]", seed_vec) -> "list[str]":
         cos[str(oid)] = float(np.dot(s, v))
     # 遠い順＝コサイン昇順。埋め込み無しは末尾（新規性不明）。
     return sorted(ids, key=lambda i: (i not in cos, cos.get(i, 1.0)))
+
+
+def order_ids_by_stalest_rows(
+    ids: "list[str]", last_recalled: "dict[str, datetime | None]"
+) -> "list[str]":
+    """候補 id を**思い出していない順**に並べる（記-a-ろ-い）。一度も思い出していないもの（None）が先頭。
+
+    `last_recalled` は id → `last_recalled_at`（datetime か None）。表に無い id は None 扱い。
+    """
+    ids = [str(i) for i in ids if i]
+
+    def key(i: str):
+        t = last_recalled.get(i)
+        return (t is not None, t.timestamp() if t is not None else 0.0)
+
+    return sorted(ids, key=key)
+
+
+def order_ids_by_stalest(conn, ids: "list[str]", person_id: str) -> "list[str]":
+    """`situated_memories` からその人の面の `last_recalled_at` を引いて、思い出していない順に並べる。"""
+    ids = [str(i) for i in ids if i]
+    if not ids:
+        return []
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT obs_id, last_recalled_at FROM situated_memories "
+            "WHERE person_id = %s AND obs_id = ANY(%s)",
+            (person_id, ids),
+        )
+        rows = {str(r[0]): r[1] for r in cur.fetchall()}
+    return order_ids_by_stalest_rows(ids, rows)
 
 
 def fetch_relation_persons(conn, ids: "list[str]") -> "list[dict]":
