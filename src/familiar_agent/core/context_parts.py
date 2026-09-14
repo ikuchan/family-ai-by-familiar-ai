@@ -59,6 +59,7 @@ def build_context(
     self_understanding: str = "",
     family: str = "",
     rules: str = "",
+    self_image: str = "",
     now: str = "",
     presence: str = "",
     inner_state: str = "",
@@ -109,6 +110,10 @@ def build_context(
     ):
         if text and text.strip():
             stable_parts.append(label + "\n" + text.strip())
+    # 自己像（層 2・記-a-へ）は決まりと同じ層——決まりは固定の構え、自己像は育つ構え。
+    # 規則の直後に、`[いまの自分]` の見出しを本文が持った形で載せる（`self_image.render`）。
+    if self_image and self_image.strip():
+        stable_parts.append(self_image.strip())
 
     variable_parts = [
         t.strip()

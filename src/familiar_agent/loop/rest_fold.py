@@ -144,6 +144,15 @@ def check(s: Summaries, *, family_names: tuple[str, ...]) -> "str | None":
 
 
 @dataclass(frozen=True)
+class Written:
+    """層 1 が書いた 1 件（層 2 の材料になる）。"""
+
+    obs_id: str
+    kind: str  # day_summary / person_summary
+    text: str
+
+
+@dataclass(frozen=True)
 class FoldResult:
     """1 パスで畳んだ結果（`内省` の記録と計測ログに書く）。"""
 
@@ -152,6 +161,7 @@ class FoldResult:
     written: int
     folded: int
     skipped: int  # 検査に通らず書かなかった回（材料は残る）
+    records: tuple[Written, ...] = ()  # 書いたもの（層 2 の材料）
 
 
 def family_names_of(agent) -> tuple[str, ...]:
@@ -176,6 +186,7 @@ async def fold_since_last_rest(agent, *, max_items: int = DEFAULT_MAX_ITEMS) -> 
     batches = split_batches(rows, max_items=max_items)
     names = family_names_of(agent)
     written = folded = skipped = 0
+    records: list[Written] = []
     for batch in batches:
         summaries = await ask_summaries(agent.backend, batch, family_names=names)
         reason = "返りを読めなかった" if summaries is None else check(summaries, family_names=names)
@@ -188,15 +199,23 @@ async def fold_since_last_rest(agent, *, max_items: int = DEFAULT_MAX_ITEMS) -> 
         assert summaries is not None
         episode_id = await _write_episode(agent, batch, summaries.episode)
         written += 1
+        records.append(Written(episode_id, "day_summary", summaries.episode))
         for name, text in summaries.persons.items():
-            if await _write_person_summary(agent, batch, name, text):
+            pid = await _write_person_summary(agent, batch, name, text)
+            if pid:
                 written += 1
+                records.append(Written(pid, "person_summary", f"{name}：{text}"))
         # 材料を自己エピソードで畳む（`畳み込み`＝畳まれた側は誤りではない）。
         for r in batch.rows:
             if agent._oif.supersede(r.obs_id, episode_id, kind=KIND_FOLD):
                 folded += 1
     result = FoldResult(
-        materials=len(rows), batches=len(batches), written=written, folded=folded, skipped=skipped
+        materials=len(rows),
+        batches=len(batches),
+        written=written,
+        folded=folded,
+        skipped=skipped,
+        records=tuple(records),
     )
     measure.record(
         "層1",
@@ -248,11 +267,12 @@ async def _write_episode(agent, batch: Batch, episode: str) -> str:
     return await agent._oif.write(mi, now=True, arousal=arousal, **kw)
 
 
-async def _write_person_summary(agent, batch: Batch, name: str, text: str) -> bool:
+async def _write_person_summary(agent, batch: Batch, name: str, text: str) -> str:
+    """書けたら記録の id、書かなければ空文字。"""
     pid = agent._pmm.find_person_id_by_name(name)
     if not pid:
         logger.warning("rest 関係のまとめ：「%s」の人物 id が無いので書かない", name)
-        return False
+        return ""
     pad, arousal = await _pad_for(agent, text)
     mi = MI(id="", content=text[:PERSON_MAX_CHARS], timestamp=_day_end(batch.day), direction="人物")
     if pad is not None:
@@ -260,8 +280,7 @@ async def _write_person_summary(agent, batch: Batch, name: str, text: str) -> bo
     kw = dict(agent._observation_perspective())
     # その人の面に立てる：居合わせた人としてその人だけを渡す（`present` の面）。
     kw["participants"] = [pid]
-    await agent._oif.write(mi, now=True, arousal=arousal, **kw)
-    return True
+    return str(await agent._oif.write(mi, now=True, arousal=arousal, **kw) or "")
 
 
 def _participants(agent, batch: Batch) -> list[str]:

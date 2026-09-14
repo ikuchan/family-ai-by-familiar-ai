@@ -164,8 +164,9 @@ def build_event_system_prompt(
     iter_ctx: str = "",
     allow_tts_tags: bool = False,
     origin: str = "発話",
+    self_image: str = "",
 ) -> tuple[str, str]:
-    """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
+    """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 規則 ＋ 自己像 ＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
 
     返りは **(安定部, 可変部)** の対。安定部（静的核＋自己認識＋FAMILY）は反復ごとに
     変わらないので、backend がここへ `cache_control` を付けて再処理を省ける。1本の文字列で
@@ -188,6 +189,7 @@ def build_event_system_prompt(
         core=core,
         self_understanding=self_understanding,
         family=family_md,
+        self_image=self_image,
         now=f'(now :datetime "{clock.now_local_str()}")',
         presence=present_ctx,
         inner_state=pi_ctx,

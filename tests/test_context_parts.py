@@ -210,3 +210,26 @@ def test_the_static_core_carries_the_identity_so_parts_may_be_missing():
     assert ctx.stable.startswith("[身体と決まり]")
     ctx2 = build_context(stance=Stance.PAJU, core="（静的核）", self_understanding=_ME)
     assert _ME in ctx2.stable
+
+
+# ── 自己像（層 2）は決まりと同じ層に載る（記-a-へ・2026-09-14） ─────────────────
+
+
+def test_the_self_image_sits_right_after_the_rules():
+    ctx = build_context(
+        stance=Stance.PAJU,
+        self_understanding="ぼくはパジュ",
+        family=_FAMILY,
+        rules="（規則）",
+        self_image="[いまの自分]\n望み：\n- 家族の好きなものを知りたい。",
+    )
+    s = ctx.stable
+    assert s.index("[守っている決まり]") < s.index("[いまの自分]")
+    assert "家族の好きなものを知りたい。" in s
+    # 可変部には入らない（1 日 1 回しか変わらない・キャッシュに乗る）。
+    assert "いまの自分" not in ctx.variable
+
+
+def test_an_empty_self_image_adds_nothing():
+    ctx = build_context(stance=Stance.INSTRUMENT, rules="（規則）", self_image="")
+    assert "いまの自分" not in ctx.stable

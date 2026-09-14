@@ -165,3 +165,41 @@ def test_a_failing_fold_does_not_break_the_pass():
     ):
         content = asyncio.run(run_rest_pass(agent))
     assert "畳めなかった" in content
+
+
+def test_rest_pass_runs_layer_two_with_what_layer_one_wrote():
+    """層 1 が書いた自己エピソードと関係のまとめを、そのまま層 2 の材料にする（記-a-へ）。"""
+    from unittest.mock import patch
+
+    from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_fold import FoldResult, Written
+    from familiar_agent.loop.rest_self_image import Proposal
+
+    agent = MagicMock()
+    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._observation_perspective = MagicMock(return_value={})
+    written = (
+        Written("ep-1", "day_summary", "今日は…"),
+        Written("ps-1", "person_summary", "こうきは…"),
+    )
+    with (
+        patch(
+            "familiar_agent.loop.rest.fold_since_last_rest",
+            new=AsyncMock(
+                return_value=FoldResult(
+                    materials=5, batches=1, written=2, folded=5, skipped=0, records=written
+                )
+            ),
+        ),
+        patch(
+            "familiar_agent.loop.rest.update_self_image",
+            new=AsyncMock(return_value=Proposal(image=MagicMock(), applied=True, changed=2)),
+        ) as upd,
+    ):
+        content = asyncio.run(run_rest_pass(agent))
+    materials = upd.await_args.args[1]
+    assert [(m.obs_id, m.kind) for m in materials] == [
+        ("ep-1", "day_summary"),
+        ("ps-1", "person_summary"),
+    ]
+    assert "自己像" in content and "2 行" in content
