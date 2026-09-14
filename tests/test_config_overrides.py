@@ -72,11 +72,45 @@ def test_connection_settings_are_protected():
     assert is_protected(_KEY) is False
 
 
-def test_an_explicit_env_setting_wins_over_the_agents_adjustment():
-    """人が env で明示していれば、内省の調整は効かない（人の設定は変えない）。"""
+def test_the_env_is_not_read_for_registered_settings():
+    """登録した設定値は **DB > 既定**。`.env` は読まない（4 層の外形・2026-09-14・記-a-に）。
+
+    以前は「env > DB > 既定」だった。`.env` は機密と機体固有のものだけを持ち、4 層の値は
+    置かない。同名の環境変数があっても使わない（WARNING を出す）。
+    """
+    from familiar_agent import config_overrides as co
+
     assert save_override(_KEY, 0.55) is True
+    co.clear_cache()
     with patch.dict(os.environ, {"DISTILL_MIN_A0": "0.31"}, clear=True):
-        assert MemoryConfig().distill_min_a0 == pytest.approx(0.31)
+        assert MemoryConfig().distill_min_a0 == pytest.approx(0.55)
+
+
+def test_the_arbiter_timeout_is_a_registered_setting():
+    from familiar_agent import config_overrides as co
+    from familiar_agent.config import AgentConfig
+
+    assert RANGES["AgentConfig.arbiter_timeout_sec"] == (1.0, 10.0)
+    co._delete_all()
+    co.clear_cache()
+    with patch.dict(os.environ, {"ARBITER_TIMEOUT_SEC": "9.0"}, clear=True):
+        assert AgentConfig().arbiter_timeout_sec == pytest.approx(5.0)  # env は読まない
+    assert save_override("AgentConfig.arbiter_timeout_sec", 6.0)
+    co.clear_cache()
+    assert AgentConfig().arbiter_timeout_sec == pytest.approx(6.0)
+    co._delete_all()
+    co.clear_cache()
+
+
+def test_there_is_one_resolver_and_it_has_no_env_branch():
+    import inspect
+
+    from familiar_agent import config as cfg_mod
+    from familiar_agent import config_overrides as co
+
+    assert not hasattr(co, "resolve_float") and not hasattr(cfg_mod, "_resolve_float")
+    src = inspect.getsource(cfg_mod._resolve_setting)
+    assert "float(os.environ[" not in src
 
 
 def test_the_default_is_used_when_nothing_is_adjusted():

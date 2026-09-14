@@ -21,6 +21,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from ..core import measure
 from ..io.oif import Cue, Recalled, View
 from ..store import clock
 from ..store.relations import KIND_SUCCESSION
@@ -241,8 +242,15 @@ class Workspace:
     def build(
         cls, oif, memories: "list[Recalled]", req: Request, *, n_arbiter: int, n_main: int
     ) -> "Workspace":
-        chains = recent_chains(oif, max(n_arbiter, n_main))
-        ws = cls(oif, memories, req, chains, n_arbiter, n_main)
+        chains = recent_chains(
+            oif, max(n_arbiter, n_main) + 1
+        )  # 窓の外の次の起点も 1 つ引く（計測用）
+        ws = cls(oif, memories, req, chains[: max(n_arbiter, n_main)], n_arbiter, n_main)
+        # 層 3 の材料（記-a-に）：窓のいちばん古い起点と、窓の外の次の起点。続き先の `相手` と
+        # 突き合わせ、端や窓の外が参照されるなら +1、端が一度も参照されなければ −1。
+        edge = chains[n_main - 1][0] if len(chains) >= n_main else "-"
+        beyond = chains[n_main][0] if len(chains) > n_main else "-"
+        measure.record("直近", 窓=n_main, 端=edge, 外=beyond)
         # 対応表は最も広い窓で作る（申告・判定はどちらの窓の id でも来る）。
         _rows, _text, recent_ids = render_recent(oif, chains, max(n_arbiter, n_main))
         _past, past_ids = compose(oif, memories, req, exclude=set(recent_ids.values()))
@@ -476,6 +484,12 @@ def apply_memory_verdicts(mem, raw, w_id_map: "dict[str, str]") -> None:
         if full and verdict in ("important", "useless", "referred", "unused"):
             verdicts[full] = verdict
     logger.info("event-loop 記憶の判定 %d/%d 件", len(verdicts), len(w_id_map))
+    # 層 3 の材料（記-a-に）：判定ごとの id 列。
+    by_kind = {
+        k: ",".join(i for i, v in verdicts.items() if v == k) or "-"
+        for k in ("important", "useless", "referred", "unused")
+    }
+    measure.record("申告", **by_kind)
     if verdicts:
         with contextlib.suppress(Exception):
             mem.apply_verdicts(verdicts)

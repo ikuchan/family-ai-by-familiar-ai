@@ -19,19 +19,6 @@ def _default_companion_name() -> str:
     return _t("default_companion_name")
 
 
-def _resolve_float(field: str, env_name: str, default: float) -> float:
-    """env > agent_state（内省の調整）> 既定 の順で決める（`config_overrides`）。
-
-    `config_overrides` は `db` を使い、`db` は `config` を読むので、import は関数の中で行う。
-    """
-    try:
-        from .config_overrides import resolve_float
-
-        return resolve_float(field, env_name, default)
-    except Exception:  # noqa: BLE001
-        return _float_env(env_name, default)
-
-
 def _resolve_setting(field: str, default: float) -> float:
     """層 3 の設定値：**DB（内省の調整）> 既定**。`.env` は読まない（4 層の外形・2026-09-14）。
 
@@ -300,9 +287,7 @@ class MemoryConfig:
     # もの」で、実測でも同じ内容の繰り返しだった（`計測・設定値 根拠台帳`）。既定 0.47 は
     # 実測分布の p10。**内省が範囲内（0.20〜0.70）で調整できる**（`config_overrides`）。
     distill_min_a0: float = field(
-        default_factory=lambda: _resolve_float(
-            "MemoryConfig.distill_min_a0", "DISTILL_MIN_A0", 0.47
-        )
+        default_factory=lambda: _resolve_setting("MemoryConfig.distill_min_a0", 0.47)
     )
     # 一次絞り件数 N（軸あたり）。索引を持つ各軸が `ORDER BY … LIMIT N` で集める件数で、
     # **フルLLM には渡らず再スコア用**なのでトークン量に関係しない。W に載る量は上の
@@ -315,9 +300,11 @@ class MemoryConfig:
     # だけが違う（記憶に関する両者の差はこれだけ）。既定 3／6 は 2026-09-13 決定。
     # REST 内省で統計的に見直す予定（記-a-に・未実装）。
     recent_exchanges_arbiter: int = field(
-        default_factory=lambda: _int_env("RECENT_EXCHANGES_ARBITER", 3)
+        default_factory=lambda: int(_resolve_setting("MemoryConfig.recent_exchanges_arbiter", 3))
     )
-    recent_exchanges_main: int = field(default_factory=lambda: _int_env("RECENT_EXCHANGES_MAIN", 6))
+    recent_exchanges_main: int = field(
+        default_factory=lambda: int(_resolve_setting("MemoryConfig.recent_exchanges_main", 6))
+    )
     # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
     dedup_window_secs: int = field(default_factory=lambda: _int_env("MEMORY_DEDUP_WINDOW_SECS", 30))
     # r 軸の min-max 伸長係数。現行値では恒等（根拠台帳 v0.7 §3 の計測で決定）。
@@ -567,8 +554,9 @@ class AgentConfig:
     # 「黙って」と頼まれたときは **4.18 秒**かかると実測した（判断が重い）。2.0 秒では
     # 届かず、沈黙依頼が読まれないまま素通りしていた。0.8 秒の余裕を見て 5.0 とする。
     # 倒れたときは応答がこの秒数だけ遅れるので、伸ばしすぎない。
+    # 層 3 の設定値（DB > 既定・env を読まない・記-a-に）。範囲 1.0〜10.0 を登録。
     arbiter_timeout_sec: float = field(
-        default_factory=lambda: _float_env("ARBITER_TIMEOUT_SEC", 5.0)
+        default_factory=lambda: _resolve_setting("AgentConfig.arbiter_timeout_sec", 5.0)
     )
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
     # 「黙って」と頼まれたが長さを言われなかったときの既定。

@@ -20,7 +20,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from datetime import datetime, timezone
 from typing import Any
 
@@ -30,28 +29,11 @@ _STATE_KEY = "config_overrides"
 
 # 調整してよい値と、その範囲（下限, 上限）。**ここに無い値は変えられない。**
 # 範囲の根拠は `計測・設定値 根拠台帳` に書く。
-RANGES: dict[str, tuple[float, float]] = {
-    # 蒸留の材料から外す新規性の下限。実測の分布は 最小 0.143・p10 0.469・p25 0.604 で、
-    # 0.20 は「ほぼ何も外さない」、0.70 は「4割近く外す」に当たる。この外側を選ぶ理由が無い。
-    "MemoryConfig.distill_min_a0": (0.20, 0.70),
-    # 観測の半減期 HL（日・記-a-ろ-い・2026-09-14）。既定 10。1 日未満だと昨日のことを思い出せず、
-    # 30 日を超えると層 1 の「時間で薄れる部分」が 45 日分に膨らむ（`出来事を畳む` v0.1）。
-    "MemoryConfig.recall_half_life_days": (1.0, 30.0),
-    # 関連想起で「遠い順」から取る割合（記-a-ろ-い）。0 なら思い出していない順だけ、1 なら遠い順だけ。
-    "MemoryConfig.diffuse_far_share": (0.0, 1.0),
-    # 内部状態の言葉の境目（情-f・2026-09-14）。気分は軸ごとの分位 (p10, p30, p70, p90)、欲求は
-    # 軸ごとの p70。いずれも 0〜1 の PAD／欲求の値域そのもの。REST 内省が等頻度を保つように
-    # 合わせ直す。範囲は値域の全体（分布が動けば境目もどこへでも動く）。
-    **{
-        f"InnerStateConfig.mood_{axis}_{q}": (0.0, 1.0)
-        for axis in ("p", "pn", "a", "dom")
-        for q in ("p10", "p30", "p70", "p90")
-    },
-    **{
-        f"InnerStateConfig.drive_p70_{axis}": (0.0, 1.0)
-        for axis in ("seeking", "rest", "bond", "safety", "esteem")
-    },
-}
+# 調整してよい値と、その範囲（下限, 上限）。**ここに無い値は変えられない。** 正本は
+# `core/settings.REGISTRY`（範囲・刻み・見る計測・規則・根拠）で、ここはそこから導く。
+from .core.settings import ranges as _ranges  # noqa: E402
+
+RANGES: dict[str, tuple[float, float]] = _ranges()
 
 # 接続情報を表す語。フィールド名がこれで終わる／これを含むものは調整できない。
 _PROTECTED_PARTS = ("key", "secret", "password", "username", "host", "token", "url", "id")
@@ -150,25 +132,6 @@ def save_override(field: str, value: Any) -> bool:
     clear_cache()
     logger.info("Config を調整した：%s=%s", field, number)
     return True
-
-
-def resolve_float(field: str, env_name: str, default: float) -> float:
-    """3段の優先順位で値を決める。`env > agent_state > 既定`。
-
-    `field` は `MemoryConfig.distill_min_a0` のような完全名。
-    """
-    if os.environ.get(env_name) is not None:
-        try:
-            return float(os.environ[env_name])
-        except ValueError:
-            return default
-    value = load_overrides().get(field)
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
 
 
 def _delete_all() -> None:

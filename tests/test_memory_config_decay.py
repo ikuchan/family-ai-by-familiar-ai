@@ -68,12 +68,22 @@ def test_memory_config_invalid_env_falls_back(monkeypatch):
     assert cfg.recall_min_score == pytest.approx(0.05)
 
 
-def test_recent_exchange_windows_are_two_and_come_from_env(monkeypatch):
+def test_recent_exchange_windows_are_two_layer_three_settings(monkeypatch):
     """直近のやりとりの窓 n は軽量LLM と主LLM で別々に持つ（記-h・`課題5` D 章）。
 
-    作り方は同じで、窓の大きさだけが違う。既定は 3 と 6（2026-09-13 決定）。
+    作り方は同じで、窓の大きさだけが違う。既定は 3 と 6（2026-09-13 決定）。層 3 の設定値
+    （DB > 既定・env は読まない・記-a-に）。
     """
+    from familiar_agent import config_overrides as co
+
+    co._delete_all()
+    co.clear_cache()
     cfg = _fresh_config(monkeypatch)
     assert (cfg.recent_exchanges_arbiter, cfg.recent_exchanges_main) == (3, 6)
     cfg = _fresh_config(monkeypatch, RECENT_EXCHANGES_ARBITER="2", RECENT_EXCHANGES_MAIN="8")
-    assert (cfg.recent_exchanges_arbiter, cfg.recent_exchanges_main) == (2, 8)
+    assert (cfg.recent_exchanges_arbiter, cfg.recent_exchanges_main) == (3, 6)  # env は読まない
+    assert co.save_override("MemoryConfig.recent_exchanges_main", 8)
+    co.clear_cache()
+    assert _fresh_config(monkeypatch).recent_exchanges_main == 8
+    co._delete_all()
+    co.clear_cache()

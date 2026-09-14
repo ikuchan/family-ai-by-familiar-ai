@@ -29,6 +29,8 @@ import re
 import time
 from dataclasses import dataclass
 
+from ..core import measure
+
 logger = logging.getLogger(__name__)
 
 _EFFORTS = ("low", "medium", "high")
@@ -412,6 +414,8 @@ async def arbitrate(
     except asyncio.TimeoutError:
         logger.warning("調停が %.1f 秒で返らなかったのでフルへ倒す", timeout)
         _watch_late(call, started, len(prompt))
+        # 層 3 の材料（`arbiter_timeout_sec`・記-a-に）。
+        measure.record("調停", 秒=f"{time.monotonic() - started:.2f}", 分岐="full", 時間切れ="yes")
         return _FALLBACK
     except asyncio.CancelledError:
         raise
@@ -421,5 +425,10 @@ async def arbitrate(
     decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
     if decision is None:
         logger.warning("調停の返事を読めなかったのでフルへ倒す: %.80r", reply)
-        return _FALLBACK
-    return decision
+    measure.record(
+        "調停",
+        秒=f"{time.monotonic() - started:.2f}",
+        分岐=(decision or _FALLBACK).branch,
+        時間切れ="no",
+    )
+    return decision if decision is not None else _FALLBACK
