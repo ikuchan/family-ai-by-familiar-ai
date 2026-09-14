@@ -182,9 +182,11 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
         "家の決まりを見る",
         '"house_rules"（家の決まり・ゲームをしていい曜日・帰宅時の約束を引く。query は要らない）',
     ),
+    # 見出しが空のものは query が要る。`family_schedule` の query は**日数**（期間つきの求め）。
     "family_schedule": (
-        "家族の予定を見る",
-        '"family_schedule"（家族の予定・今日／明日の予定・何時から、を引く。query は要らない）',
+        "",
+        '"family_schedule"（家族の予定・今日／明日の予定・何時から、を引く。'
+        "query に今日から何日ぶんかを数字だけで書く：1〜14・今日＝1・明日＝2・今週＝7）",
     ),
     # 見出しが空のものは query が要る（探す語を query に書く）。
     "notion_search": (
@@ -258,6 +260,8 @@ def _parse(
         query = SEE_QUERY  # 見出しは固定。`(c)` 分岐は query が空だと full へ落ちる
     elif action in _EXTRA_ACTIONS and _EXTRA_ACTIONS[action][0]:
         query = _EXTRA_ACTIONS[action][0]  # 見出しが固定の道具。query が要るものはそのまま
+    elif action == "family_schedule" and not query:
+        query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
         text = ""

@@ -28,9 +28,8 @@ def test_mcp_tool_names_count_as_lookups() -> None:
     assert "get_family_schedule" in _LOOKUP_ACTIONS and "get_house_rules" in _LOOKUP_ACTIONS
 
 
-def test_the_query_labels_are_fixed_for_mcp_lookups() -> None:
-    assert _query_label("family_schedule", {}) == "家族の予定を見る"
-    assert _query_label("get_family_schedule", {"days": 2}) == "家族の予定を見る"
+def test_the_query_labels_are_fixed_for_mcp_lookups_without_a_range() -> None:
+    # 期間を持つ `family_schedule` の見出しは `test_the_schedule_lookup_carries_its_range.py`。
     assert _query_label("house_rules", {}) == "家の決まりを見る"
     assert _query_label("get_house_rules", {}) == "家の決まりを見る"
 
@@ -46,7 +45,9 @@ def test_running_the_lookup_calls_the_mcp_tool_and_queues_the_result() -> None:
         )
         ip = InformationProcessing(a)
         ip._dif = DIF(mcp=mcp)
-        await ip._run_lookup("family_schedule", {"days": 1}, "家族の予定を見る", None, 1)
+        await ip._run_lookup(
+            "family_schedule", {"days": 1}, "家族の予定を見る（1 日ぶん）", None, 1
+        )
         item = ip._triggers.get_nowait()
         await ip.close()
         return mcp.call_result.call_args, item
@@ -62,7 +63,7 @@ def test_the_arbiter_can_choose_the_family_schedule() -> None:
         can_see=False,
         extra_actions=("family_schedule",),
     )
-    assert d is not None and d.action == "family_schedule" and d.query == "家族の予定を見る"
+    assert d is not None and d.action == "family_schedule" and d.query
 
 
 def test_the_arbiter_prompt_offers_the_schedule_when_available() -> None:
@@ -113,7 +114,7 @@ def test_the_arbiter_branch_calls_the_calendar_tool_without_a_query() -> None:
         ip._dif = DIF(mcp=mcp)
         ip._start_lookup(
             "今日の予定は？",
-            _tool_input_for("family_schedule", "家族の予定を見る"),
+            _tool_input_for("family_schedule", "1"),
             action="family_schedule",
         )
         await asyncio.sleep(0.05)
@@ -122,5 +123,5 @@ def test_the_arbiter_branch_calls_the_calendar_tool_without_a_query() -> None:
         return mcp.call_result.call_args, item
 
     call, item = asyncio.run(scenario())
-    assert call.args[0] == "get_family_schedule" and call.args[1] == {}
-    assert item.query == "家族の予定を見る" and "予定は入っていない" in item.result
+    assert call.args[0] == "get_family_schedule" and call.args[1] == {"days": 1}
+    assert item.query == "家族の予定を見る（1 日ぶん）" and "予定は入っていない" in item.result
