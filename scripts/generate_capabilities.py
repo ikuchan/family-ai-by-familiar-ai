@@ -1,7 +1,9 @@
 """Generate capabilities.yaml by introspecting the project with an LLM.
 
-Reuses collect_manifest_context() / build_generation_prompt() / save_manifest()
-from capability_state so the CLI and the agent's rest-time auto-regen stay in sync.
+Reuses collect_manifest_context() / build_generation_prompt() from capability_state so the
+CLI and the REST pass (loop/rest_capabilities.py, layer 4) stay in sync. **This script is the
+only writer of capabilities.yaml**: the file is the default kept in git; the running agent keeps
+its current list in the DB (agent_state.capabilities) and never writes the file.
 
 Usage:
     uv run python scripts/generate_capabilities.py
@@ -26,8 +28,8 @@ from familiar_agent.capability_state import (  # noqa: E402
     build_generation_prompt,
     collect_manifest_context,
     load_manifest,
-    save_manifest,
 )
+from familiar_agent.core.helpers import strip_code_fence  # noqa: E402
 
 
 def _load_api_key() -> tuple[str, str]:
@@ -53,6 +55,7 @@ async def _call_llm(prompt: str) -> str:
 
     if platform == "anthropic":
         import anthropic
+
         client = anthropic.AsyncAnthropic(api_key=api_key)
         resp = await client.messages.create(
             model="claude-sonnet-4-6",
@@ -60,6 +63,7 @@ async def _call_llm(prompt: str) -> str:
             messages=[{"role": "user", "content": prompt}],
         )
         from anthropic.types import TextBlock
+
         for block in resp.content:
             if isinstance(block, TextBlock):
                 return block.text.strip()
@@ -95,7 +99,7 @@ async def main() -> None:
     if args.dry_run:
         print(yaml_content)
     else:
-        save_manifest(yaml_content)
+        OUT.write_text(strip_code_fence(yaml_content).strip() + "\n", encoding="utf-8")
         print(f"Written → {OUT}", file=sys.stderr)
 
 

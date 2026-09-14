@@ -5,8 +5,9 @@
 起動は T の純粋欠乏発火で、誰も居ないときだけ回る（`loop/tonic.py`）。
 
 **いま動いているのは層 1 の①（日次の畳み込み・`rest_fold.py`）、層 2（自己像の見直し・
-`rest_self_image.py`）、層 3（設定値の調整と計測ログの改名・`rest_settings.py`）**。層 1 の②
-（核の固め）と $n$ の減り、層 4 はこれから（`課題8` 記-a）。回ったことは `direction='内省'` の記録に残す——
+`rest_self_image.py`）、層 3（設定値の調整と計測ログの改名・`rest_settings.py`）、層 4（能力の
+再定義と要約の作り直し・`rest_capabilities.py`）**。層 1 の②（核の固め）と $n$ の減りは
+これから（`課題8` 記-a）。回ったことは `direction='内省'` の記録に残す——
 ログだけだと、起動しなかったのか、起動したが何もしなかったのかを区別できない。
 """
 
@@ -14,6 +15,7 @@ from __future__ import annotations
 
 import logging
 
+from .rest_capabilities import redefine_capabilities
 from .rest_fold import fold_since_last_rest
 from .rest_self_image import Material, update_self_image
 from .rest_settings import adjust_settings
@@ -42,8 +44,10 @@ async def run_rest_pass(agent) -> str:
         logger.exception("rest 層 1 の畳み込みに失敗（次の晩に持ち越す）: %s", e)
         parts.append("出来事を畳めなかった・次の晩に持ち越す")
     # 層 2：層 1 が書いたものを材料に、自己像を見直す（記-a-へ）。
+    self_image_changed = False
     try:
         p = await update_self_image(agent, [Material(w.obs_id, w.kind, w.text) for w in records])
+        self_image_changed = p.applied
         parts.append(
             f"自己像を {p.changed} 行変えた"
             if p.applied
@@ -59,6 +63,12 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 3 の調整に失敗: %s", e)
         parts.append("設定値を見直せなかった")
+    # 層 4：能力の一覧を 7 日に 1 度書き直し、一覧か自己像が変わった晩は要約を作り直す（記-a-と）。
+    try:
+        parts.append(await redefine_capabilities(agent, self_image_changed=self_image_changed))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 4 の再定義に失敗: %s", e)
+        parts.append("能力を見直せなかった")
     content = "内省を回した（" + "。".join(parts) + "）"
     logger.info("rest 内省パス：%s", content)
     await agent._memory.save_async_with_id(
