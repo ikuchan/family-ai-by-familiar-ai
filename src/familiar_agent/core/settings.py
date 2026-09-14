@@ -45,6 +45,15 @@ REGISTRY: tuple[Setting, ...] = (
         "観測の半減期 HL。10 日＝「昨日は必ず・10 日前はあまり」（出来事を畳む v0.2・根拠台帳 §34）",
     ),
     Setting(
+        "MemoryConfig.info_target_bits",
+        16384.0,
+        1048576.0,
+        16384.0,
+        "層1",
+        "LLM",
+        "層 1 の定常値 I*。2^17 ≈ 150 kbit〔仮〕（出来事を畳む §4・§6）。規則は ろ-に（核の固め）の後に接続",
+    ),
+    Setting(
         "MemoryConfig.diffuse_far_share",
         0.0,
         1.0,

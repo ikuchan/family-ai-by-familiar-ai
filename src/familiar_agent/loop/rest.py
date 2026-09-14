@@ -4,10 +4,9 @@
 出来事（畳む）→ 自己像（抽象化する）→ 設定値（調整する）→ 能力（再定義する）。
 起動は T の純粋欠乏発火で、誰も居ないときだけ回る（`loop/tonic.py`）。
 
-**いま動いているのは層 1 の①（日次の畳み込み・`rest_fold.py`）、層 2（自己像の見直し・
+**いま動いているのは層 1 の計測と減り（`rest_info.py`）と①（日次の畳み込み・`rest_fold.py`）、層 2（自己像の見直し・
 `rest_self_image.py`）、層 3（設定値の調整と計測ログの改名・`rest_settings.py`）、層 4（能力の
-再定義と要約の作り直し・`rest_capabilities.py`）**。層 1 の②（核の固め）と $n$ の減りは
-これから（`課題8` 記-a）。回ったことは `direction='内省'` の記録に残す——
+再定義と要約の作り直し・`rest_capabilities.py`）**。層 1 の②（核の固め）はこれから（`課題8` 記-a-ろ-に）。回ったことは `direction='内省'` の記録に残す——
 ログだけだと、起動しなかったのか、起動したが何もしなかったのかを区別できない。
 """
 
@@ -17,6 +16,7 @@ import logging
 
 from .rest_capabilities import redefine_capabilities
 from .rest_fold import fold_since_last_rest
+from .rest_info import measure_and_decay
 from .rest_self_image import Material, update_self_image
 from .rest_settings import adjust_settings
 
@@ -30,6 +30,12 @@ async def run_rest_pass(agent) -> str:
     """
     parts: list[str] = []
     records: tuple = ()
+    # 層 1 の前段：使われる情報量 I を測り、超えていれば参照されなかった核の根づきを減らす（記-a-ろ-ろ）。
+    try:
+        parts.append(await measure_and_decay(agent))
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 1 の計測に失敗: %s", e)
+        parts.append("使われる情報量を測れなかった")
     try:
         r = await fold_since_last_rest(agent)
         records = r.records

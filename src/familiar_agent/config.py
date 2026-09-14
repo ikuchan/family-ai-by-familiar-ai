@@ -271,6 +271,12 @@ class MemoryConfig:
     recall_half_life_days: float = field(
         default_factory=lambda: _resolve_setting("MemoryConfig.recall_half_life_days", 10.0)
     )
+    # 層 1 の定常値 I*（bit）。使われる情報量 I がこれを超えた晩、参照されなかった核の根づきを
+    # Δ=⌈log2(I/I*)⌉ 減らす（`出来事を畳む` §4・記-a-ろ-ろ）。**層 3 の設定値**（DB > 既定）。
+    # 2^17 ≈ 150 kbit〔仮〕。
+    info_target_bits: float = field(
+        default_factory=lambda: _resolve_setting("MemoryConfig.info_target_bits", 131072.0)
+    )
     recall_time_floor: float = field(  # t_floor
         default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.001)
     )

@@ -295,3 +295,44 @@ def test_rest_pass_runs_layer_four_last_and_tells_it_whether_the_self_image_chan
     assert order == ["1", "2", "3", "4"]
     assert seen["self_image_changed"] is True
     assert "要約を作り直した" in content
+
+
+def test_rest_pass_measures_and_decays_before_folding():
+    """層 1 の順は 計測→減り→①（`出来事を畳む` §4・記-a-ろ-ろ）。一文は `内省` の記録に載る。"""
+    from unittest.mock import patch
+
+    from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_fold import FoldResult
+    from familiar_agent.loop.rest_self_image import Proposal
+
+    agent = MagicMock()
+    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._observation_perspective = MagicMock(return_value={})
+    order: list[str] = []
+    with (
+        patch(
+            "familiar_agent.loop.rest.measure_and_decay",
+            new=AsyncMock(
+                side_effect=lambda a: (
+                    order.append("計測"),
+                    "使われる情報量 9 bit・Δ=1 で根づきを 2 件下げた",
+                )[1]
+            ),
+        ),
+        patch(
+            "familiar_agent.loop.rest.fold_since_last_rest",
+            new=AsyncMock(side_effect=lambda a: (order.append("1"), FoldResult(0, 0, 0, 0, 0))[1]),
+        ),
+        patch(
+            "familiar_agent.loop.rest.update_self_image",
+            new=AsyncMock(
+                return_value=Proposal(
+                    image=MagicMock(), applied=False, changed=0, reason="材料なし"
+                )
+            ),
+        ),
+        patch("familiar_agent.loop.rest.adjust_settings", new=AsyncMock(return_value=0)),
+    ):
+        content = asyncio.run(run_rest_pass(agent))
+    assert order == ["計測", "1"]
+    assert "Δ=1 で根づきを 2 件下げた" in content

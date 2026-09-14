@@ -509,6 +509,18 @@ class ObservationMemory:
         """日次の畳み込みの材料（記-a-ろ-は・店へ委譲）。"""
         return self._observations.since_last_rest(tuple(directions))
 
+    def core_faces(self) -> list[dict]:
+        """核の面（記-a-ろ-ろ・店へ委譲）。"""
+        return self._observations.core_faces()
+
+    def fresh_since_last_rest(self) -> list[dict]:
+        """前回の内省以降の記録（記-a-ろ-ろ・店へ委譲）。"""
+        return self._observations.fresh_since_last_rest()
+
+    def decay_groundedness(self, delta: int) -> int:
+        """参照されなかった核の根づきを減らす（記-a-ろ-ろ・店へ委譲）。"""
+        return self._observations.decay_groundedness(int(delta))
+
     def latest_exchange_origins(self, n: int) -> list[str]:
         """時系列で新しい順に、やりとりの起点を n 件（記-h・辺は見ない）。"""
         return RelationStore(self._ctx).latest_origins(int(n), KIND_EXCHANGE)
