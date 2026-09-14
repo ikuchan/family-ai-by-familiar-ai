@@ -64,6 +64,7 @@ def _columns(table: str) -> set[str]:
 
 # ── RED-1：表の名前 ─────────────────────────────────────────────────
 
+
 def test_the_table_is_renamed() -> None:
     t = _tables()
     assert "situated_memories" in t
@@ -72,11 +73,19 @@ def test_the_table_is_renamed() -> None:
 
 # ── RED-2：列の移動 ─────────────────────────────────────────────────
 
+
 def test_the_facet_holds_the_memory() -> None:
     """面が本文と時間の起点と根づきを自分で持つ。"""
     cols = _columns("situated_memories")
-    for name in ("obs_id", "person_id", "vector", "relation_key",
-                 "content", "last_recalled_at", "groundedness_n"):
+    for name in (
+        "obs_id",
+        "person_id",
+        "vector",
+        "relation_key",
+        "content",
+        "last_recalled_at",
+        "groundedness_n",
+    ):
         assert name in cols, name
 
 
@@ -92,9 +101,7 @@ def test_the_recency_index_exists() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT indexdef FROM pg_indexes WHERE tablename='situated_memories'"
-            )
+            cur.execute("SELECT indexdef FROM pg_indexes WHERE tablename='situated_memories'")
             defs = " ".join(r["indexdef"] for r in cur.fetchall())
     finally:
         conn.close()
@@ -103,6 +110,7 @@ def test_the_recency_index_exists() -> None:
 
 
 # ── RED-3：採点と若返りが面を読む（本体） ───────────────────────────
+
 
 def _plant(cur, obs_id: str, content: str, ts: datetime) -> None:
     cur.execute(
@@ -136,7 +144,7 @@ def test_groundedness_is_read_from_the_facet_not_the_event() -> None:
     try:
         with conn.cursor() as cur:
             _plant(cur, obs_id, f"面ごとの根づき_{obs_id}", now)
-            _facet(cur, obs_id, AGENT_SELF_ID, n=3)      # こちらだけ育っている
+            _facet(cur, obs_id, AGENT_SELF_ID, n=3)  # こちらだけ育っている
             _facet(cur, obs_id, DEFAULT_PERSON_ID, n=0)
     finally:
         conn.close()
@@ -146,7 +154,8 @@ def test_groundedness_is_read_from_the_facet_not_the_event() -> None:
 
     def n_of(person_id: str) -> int:
         rows = base.for_person(person_id)._observations._read_observations_by_situated(
-            person_id=person_id, n=10,
+            person_id=person_id,
+            n=10,
             columns=("id", "content"),
         )
         assert any(r["id"] == obs_id for r in rows), f"{person_id} の面が引けない"
@@ -154,8 +163,7 @@ def test_groundedness_is_read_from_the_facet_not_the_event() -> None:
         try:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT groundedness_n FROM situated_memories "
-                    "WHERE obs_id=%s AND person_id=%s",
+                    "SELECT groundedness_n FROM situated_memories WHERE obs_id=%s AND person_id=%s",
                     (obs_id, person_id),
                 )
                 return cur.fetchone()["groundedness_n"]
@@ -167,7 +175,7 @@ def test_groundedness_is_read_from_the_facet_not_the_event() -> None:
 
 
 def test_apply_verdicts_updates_the_facet() -> None:
-    """若返りと根づきの更新は、面に対して起きる。"""
+    """根づきの更新は、面に対して起きる（思い出した時は想起の側が記す・記-a-ろ-い）。"""
     from unittest.mock import patch
 
     from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
@@ -196,14 +204,17 @@ def test_apply_verdicts_updates_the_facet() -> None:
             row = cur.fetchone()
     finally:
         conn.close()
-    assert row["last_recalled_at"] is not None, "面の時間の起点が更新されない"
+    assert row["last_recalled_at"] is None, (
+        "申告が思い出した時を動かしている（記-a-ろ-い で分けた）"
+    )
     assert row["groundedness_n"] == 1, "面の根づきが更新されない"
 
 
-def test_by_time_orders_by_the_facet_origin() -> None:
-    """時間軸の並べ替えは、面の起点で決まる。
+def test_by_time_orders_by_creation_time_not_the_facet_origin() -> None:
+    """時間軸の並べ替えは**作られた日**で決まる（記-a-ろ-い・2026-09-14）。
 
-    出来事の時刻は古いが面を最近引いた記録が、出来事の時刻が新しい記録より前に来る。
+    出来事の時刻は古いが面を最近引いた記録は、出来事の時刻が新しい記録より**後**に来る。
+    思い出した時（`last_recalled_at`）は関連想起の並びにだけ使う。
     """
     from unittest.mock import patch
 
@@ -230,4 +241,4 @@ def test_by_time_orders_by_the_facet_origin() -> None:
         store = ObservationMemory().for_person(AGENT_SELF_ID)._observations
     rows = store.by_time(now.timestamp(), 50)
     order = [r["id"] for r in rows if r["id"] in (old_id, new_id)]
-    assert order[:2] == [old_id, new_id], f"面の起点で並んでいない: {order[:2]}"
+    assert order[:2] == [new_id, old_id], f"作られた日で並んでいない: {order[:2]}"

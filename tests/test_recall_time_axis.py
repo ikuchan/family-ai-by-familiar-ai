@@ -10,8 +10,8 @@
 **幅はそのまま半減期**にする（案A）。幅の内側は $t \\ge 0.5$、幅の2倍で $t \\approx 0.25$。
 換算の係数を新たに置かずに済む。
 
-一次絞りは、幅の指定が無ければ `COALESCE(last_recalled_at, timestamp)` の1本、
-**幅の指定があれば `timestamp` と `last_recalled_at` の両方**で基準の前後から取る。
+一次絞りは幅の指定の有無にかかわらず**作られた日（`timestamp`）**で基準の前後から取る
+（2026-09-14・記-a-ろ-い。以前は `last_recalled_at` も鍵にしていた）。
 書かれた時刻（その頃の出来事）と使った時刻（その頃に思い出していたこと）は別の手がかりで、
 時期を指定されたときはどちらも要る。
 """
@@ -50,12 +50,16 @@ def test_span_is_the_half_life():
     assert abs(_state(ref - span, half_life_seconds=span).score(ref) - 0.5) < 1e-6
 
 
-def test_time_axis_orders_by_the_facet_origin():
-    # 起点は**面**が持つ（044）。timestamp だけで並べると「古いが最近よく使う記憶」が
-    # 候補に入らない。なお採点の起点は書かれた時刻だけで、ここと一致しない（強化B は
-    # 仕組みごと後回し）。並べ替えだけが起点を見ている。
+def test_time_axis_orders_by_creation_time_only():
+    """時間軸の一次想起は**作られた日**（`o.timestamp`）だけで並べる（記-a-ろ-い・2026-09-14）。
+
+    以前は `COALESCE(s.last_recalled_at, o.timestamp)` で「古いが最近使った記憶」を候補に
+    入れていた（強化B）。時刻の役割を分けた——作られた日は「いつ起きたか」で採点の $t$・
+    一次想起・時期指定に、思い出した時（`last_recalled_at`）は関連想起の並びにだけ使う。
+    """
     src = inspect.getsource(ObservationStore.by_time)
-    assert "COALESCE(s.last_recalled_at, o.timestamp)" in src
+    assert "COALESCE(s.last_recalled_at, o.timestamp)" not in src
+    assert "s.last_recalled_at" not in src.split('"""')[2]  # 本文（docstring の外）で参照しない
 
 
 def test_time_axis_scans_both_sides_of_the_reference():
@@ -65,11 +69,11 @@ def test_time_axis_scans_both_sides_of_the_reference():
     assert "DESC" in src and "ASC" in src
 
 
-def test_time_axis_uses_both_columns_when_a_span_is_given():
-    # 幅の指定があるときは、書かれた時刻と使った時刻の両方で探す。
+def test_time_axis_with_a_span_also_uses_creation_time_only():
+    # 時期の指定（「去年の夏の話」）も作られた日で「その頃」を集める。
     src = inspect.getsource(ObservationStore.by_time)
-    assert "o.timestamp" in src and "s.last_recalled_at" in src
-    assert "span" in inspect.signature(ObservationStore.by_time).parameters
+    assert "o.timestamp" in src
+    assert "span" not in inspect.signature(ObservationStore.by_time).parameters  # 鍵は 1 つ
 
 
 def test_time_axis_skips_dead_records_and_keeps_the_perspective_scope():

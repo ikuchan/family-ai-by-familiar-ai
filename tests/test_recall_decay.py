@@ -77,18 +77,18 @@ def test_the_time_origin_lives_on_the_facet():
 
 
 # ---------------------------------------------------------------------------
-# 想起では強化しない（強化B は仕組みごと後回し）
+# 想起は「思い出した時」を記録する（採点の t には効かない）
 # ---------------------------------------------------------------------------
 
 
-def test_recall_never_reinforces(memory):
-    """想起は時間の起点（`last_recalled_at`）を触らない。
+def test_recall_records_when_a_memory_was_recalled(memory):
+    """想起で W に載った記録は `last_recalled_at`（思い出した時）を更新する（記-a-ろ-い・2026-09-14）。
 
-    更新すべきは「フルLLM が実際に参照した MI」だけ（課題5 F節・強化B「想起では触らない」）
-    だが、その判定は未実装なので仕組みごと後回しにした。想起しただけで若返らせると、
-    t の起点が毎回 now に戻り、**一度上がった記録が自分を押し上げ続ける**。実機では
-    47日前の挨拶が t=1.000 で居座り、5秒前の自分の発話を W から押し出した
-    （「おかえりなさい」を2回言った）。
+    以前は「想起では触らない」だった——当時は `last_recalled_at` が採点の t の起点でもあり、
+    想起のたびに若返ると一度上がった記録が自分を押し上げ続けた（47 日前の挨拶が t=1.000）。
+    いまは t の起点は作られた日（`timestamp`）だけで、`last_recalled_at` は関連想起の並びに
+    しか使わないので、更新しても循環は起きない。**思い出した時の記録**として、一次想起・
+    関連想起のどちらで載ったときも更新する。
     """
     memory.save("強化しない確認", kind="observation", emotion="neutral")
 
@@ -112,10 +112,10 @@ def test_recall_never_reinforces(memory):
                 (before["id"], viewpoint_of(memory._person_id)),
             )
             after = cur.fetchone()
-        assert after["last_recalled_at"] == before["last_recalled_at"]
+        assert before["last_recalled_at"] is None
+        assert after["last_recalled_at"] is not None, "想起しても思い出した時が記録されない"
     finally:
         conn.close()
-
 
 
 # ---------------------------------------------------------------------------
@@ -131,8 +131,7 @@ def test_time_decay_prioritizes_recent_over_old(memory):
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE observations SET timestamp = now() - interval '60 days' "
-                "WHERE content = %s",
+                "UPDATE observations SET timestamp = now() - interval '60 days' WHERE content = %s",
                 ("記憶古い",),
             )
         conn.commit()
@@ -151,15 +150,24 @@ def test_time_decay_prioritizes_recent_over_old(memory):
     )
 
 
-def test_recall_half_life_env_var(monkeypatch, memory):
-    """RECALL_HALF_LIFE_DAYS env var is read via MemoryConfig."""
+def test_recall_half_life_comes_from_the_db_not_the_env(monkeypatch, memory):
+    """$HL$ は層 3 の設定値。`RECALL_HALF_LIFE_DAYS` は読まない（記-a-ろ-い）。"""
+    from familiar_agent import config_overrides as co
     from familiar_agent.config import MemoryConfig
+
     monkeypatch.setenv("RECALL_HALF_LIFE_DAYS", "14.0")
+    co.clear_cache()
+    assert MemoryConfig().recall_half_life_days == pytest.approx(10.0)
+    assert co.save_override("MemoryConfig.recall_half_life_days", 14.0)
+    co.clear_cache()
     assert MemoryConfig().recall_half_life_days == pytest.approx(14.0)
+    co._delete_all()
+    co.clear_cache()
 
 
 def test_recall_time_floor_env_var(monkeypatch):
     """RECALL_TIME_FLOOR env var is read via MemoryConfig."""
     from familiar_agent.config import MemoryConfig
+
     monkeypatch.setenv("RECALL_TIME_FLOOR", "0.1")
     assert MemoryConfig().recall_time_floor == pytest.approx(0.1)
