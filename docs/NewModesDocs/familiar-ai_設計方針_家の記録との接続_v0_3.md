@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.2）
+# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.3）
 
 ## この文書が決めること
 
@@ -66,9 +66,18 @@
 `ask_vault_yusuke` は Vault を**全部**読む——転職活動の悩み、人物評、家計、子どもについて
 父が書いたこと。**子どもと話しているターンで、この道具が存在してはいけない。**
 
+**実装した（v0.3・知-f・2026-09-14）。** 人と英字の対応は FAMILY.md の各人の節に
+`- **英字**：Yusuke Ikunaga`（`parse_family_md` の `latin`＝先頭の語を小文字にした `yusuke`）。
+ゲートは `core/tool_gate.gate_personal_tools(defs, speaker, members)`——道具名が `_<誰かの英字>`
+で終わればその人の個人ティアで、`_current_speaker_name()` がその人のときだけ残す。話者が
+分からなければ個人ティアは全部落とす。**掛ける場所は 1 つ**：`InformationProcessing._gated()` を
+主LLM の道具（`_tools()` の出口）と調停の候補（`_extra_actions()`）の両方が通る。`_ACTIONS` に
+どう足されても、この出口で落ちる。書いていない人は個人ティアの道具を持たない（`FAMILY-template.md`
+に行を足した）。落としたときは DEBUG に「話者ゲート：… を落とした（話者=…）」。
+
 ## 4. こちら側の現状（2026-09-04 に実測）
 
-**★ 話者ゲートを掛ける場所が、まだ無い。**
+**★ 話者ゲートを掛ける場所が、まだ無い**（2026-09-04 時点。v0.3 で `_gated()` を置いた）。
 
 申し送りは「`_build_tool_definitions()` が落とす」と書いているが、**その関数はこの
 リポジトリに存在しない**（grep で0件）。道具が主LLM へ渡る経路は
@@ -126,6 +135,8 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 - 「帰ってきた子に、パジュから言うのか／聞かれたら答えるのか」は本人の回答待ち
 
 ## 更新履歴
+
+> v0.3：**話者ゲートを実装した**（知-f・2026-09-14）。§3 の直後に実装の形（FAMILY.md の `英字`・`core/tool_gate.py`・`_gated()` の 1 出口）。`ask_vault_yusuke` はまだ `_ACTIONS` に載せない（知-g-い）。
 
 > v0.2：**§4 に、着手後の状態を追記した**（2026-09-04）。`house_rules` を足したので
 > `_FULL_ACTIONS` は7つになり、§4 の「MCP の道具は載っていない」は着手前の記録になった。
