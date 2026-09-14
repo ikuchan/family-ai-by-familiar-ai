@@ -690,25 +690,6 @@ class ObservationStore:
             logger.warning("get_observations_for_date failed: %s", e)
             return []
 
-    def delete_day_summaries_for_date(self, date: str) -> int:
-        """Delete all day_summary observations for a given date. Returns deleted row count."""
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "DELETE FROM observations WHERE kind='day_summary' AND timestamp::date=%s::date",
-                        (date,),
-                    )
-                    count = cur.rowcount if hasattr(cur, "rowcount") else 0
-                conn.commit()
-            return count
-        except Exception as e:
-            logger.warning("delete_day_summaries_for_date failed: %s", e)
-            return 0
-
-    # -- Importance decay, supersession, links, episodes --
-
     def recall_on_this_day(self, month: int, day: int, n: int = 5) -> list[dict]:
         """Return observations from past years on the same month/day (anniversary recall)."""
         try:
@@ -920,6 +901,37 @@ class ObservationStore:
         # 人ごとの視点を育てる背景更新は 045 で落とした。ベクトルの差は人でなく
         # 関係が作る（047 の関係項）ので、視点を学習する先が無い。
         return event_id
+
+    def since_last_rest(self, directions: "tuple[str, ...]") -> list[dict]:
+        """日次の畳み込みの材料（記-a-ろ-は）。
+
+        前回の内省（`direction='内省'` の最新）より後の出来事のうち、指定の `direction` で、
+        まだ畳まれておらず（役割 `旧` が無い）、核でない（この面の根づき n < 1）ものを古い順に。
+        `内省` が無ければ全期間。**対象は機械が決める**（まとめ方は LLM）。
+        """
+        if not directions:
+            return []
+        live = not_hidden("o")
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id, o.content, o.timestamp, o.direction, o.kind, o.emotion,
+                           COALESCE(s.groundedness_n, 0) AS groundedness_n
+                    FROM observations o
+                    LEFT JOIN situated_memories s ON s.obs_id = o.id AND s.person_id = %s
+                    WHERE o.direction = ANY(%s)
+                      AND {live}
+                      AND COALESCE(s.groundedness_n, 0) < 1
+                      AND o.timestamp > COALESCE(
+                            (SELECT MAX(timestamp) FROM observations WHERE direction = '内省'),
+                            to_timestamp(0))
+                    ORDER BY o.timestamp ASC
+                    """,
+                    (self._ctx.viewpoint, list(directions)),
+                )
+                return [dict(r) for r in cur.fetchall()]
 
     def touch_recalled(self, obs_ids: "list[str]") -> int:
         """想起で W に載った記録の**思い出した時**（`last_recalled_at`）を今にする（記-a-ろ-い）。

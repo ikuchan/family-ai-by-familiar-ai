@@ -37,7 +37,6 @@ _NOT_YET = {
     "recent_feelings_async": "同上",
     "append_memory_event_async": "記-b（蒸留）のジョブ投入",
     "mark_job_done": "同上（ジョブの完了）",
-    "delete_day_summaries_for_date": "日次要約の作り直し（`agent` が同期版を使う）",
     "get_dates_with_summaries": "同上",
     "get_linked_memories": "`memory_links` の撤去は D-2（**新経路が通って実証されてから**）",
     "get_linked_memories_async": "同上",
@@ -92,5 +91,7 @@ def test_the_surface_got_narrower():
     引く口。相手の言葉が「わたしが言った」と印字されていたのを直すため）。
     2026-09-13 に **67 種**へ1つ足した（`extend`——既にある関係の末尾へ項を足す口。
     やりとりの関係を閉じるときに書き、会話要約を背景で足すため）。
+    2026-09-14 に `delete_day_summaries_for_date` を落とし（終了時の日次要約の撤去・記-a-ろ-は）、
+    `observations_since_last_rest` を足した（畳み込みの材料）。数は据え置き。
     """
     assert len(_public_faces()) <= 67
