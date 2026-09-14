@@ -70,12 +70,8 @@ _DEFAULT_PERSON_ID = "00000000-0000-0000-0000-000000000001"
 _TRUNCATE_TABLES = [
     "situated_memories",
     "obs_embeddings",
-    "memory_links",
     "episode_memories",
     "memory_salience",
-    "memory_revisions",
-    "behavior_policies",
-    "semantic_facts",
     "memory_jobs",
     "memory_events",
     "episodes",
@@ -84,7 +80,6 @@ _TRUNCATE_TABLES = [
     "relationship_state",
     "persons",
     "mental_state_log",
-    "self_narrative_log",
     "agent_state",
 ]
 

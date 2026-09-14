@@ -86,7 +86,16 @@ def test_every_module_it_points_at_exists():
 def test_the_removed_capabilities_are_gone():
     """実装が無い能力は項ごと落とす。残せば語られる。"""
     ids = _ids(load_manifest())
-    for gone in ("theory_of_mind", "social_policy", "interoception_bridge", "meta_monitor"):
+    for gone in (
+        "theory_of_mind",
+        "social_policy",
+        "interoception_bridge",
+        "meta_monitor",
+        # 環-d（2026-09-14）：書き手ごと撤去したストア
+        "self_narrative",
+        "tape_planning",
+        "concern_engine",
+    ):
         assert gone not in ids
 
 

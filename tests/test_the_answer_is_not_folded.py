@@ -22,8 +22,6 @@ def _agent():
     agent._emotion_for_turn = AsyncMock(return_value=(None, 0.0, "neutral"))
     agent._update_mood = MagicMock()
     agent._summarize_exchange = AsyncMock(return_value="summary")
-    agent._maybe_update_self_narrative = AsyncMock()
-    agent._maybe_adapt_values = AsyncMock()
     agent._maybe_discharge_satisfied_drives = AsyncMock()
     agent._active_memory = MagicMock(return_value=agent._memory)
     agent._memory.save_async_with_id = AsyncMock(return_value=("conv-1", True))

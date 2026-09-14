@@ -75,20 +75,14 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mem.recall_self_model_async = AsyncMock(return_value=[])
     mem.recall_curiosities_async = AsyncMock(return_value=[])
     mem.recall_day_summaries_async = AsyncMock(return_value=[])
-    mem.recall_semantic_facts_async = AsyncMock(return_value=[])
-    mem.recall_behavior_policies_async = AsyncMock(return_value=[])
     mem.format_for_context = MagicMock(return_value="")
     mem.format_feelings_for_context = MagicMock(return_value="")
     mem.format_day_summaries_for_context = MagicMock(return_value="")
-    mem.format_semantic_facts_for_context = MagicMock(return_value="")
-    mem.format_behavior_policies_for_context = MagicMock(return_value="")
     mem.format_self_model_for_context = MagicMock(return_value="")
     mem.format_curiosities_for_context = MagicMock(return_value="")
     mem.save_async = AsyncMock()
     mem.save_async_with_id = AsyncMock(return_value=(None, True))
     mem.content_novelty_async = AsyncMock(return_value=0.5)
-    mem.adjust_semantic_fact_confidence_async = AsyncMock(return_value=None)
-    mem.adjust_behavior_policy_confidence_async = AsyncMock(return_value=None)
     mem.get_dates_with_observations = MagicMock(return_value=[])
     mem.get_dates_with_summaries = MagicMock(return_value=[])
     mem.as_coalition_async = AsyncMock(return_value=None)
@@ -162,12 +156,10 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     agent._exploration = ExplorationTracker()
     agent._scene = None
 
-    from familiar_agent.self_narrative import SelfNarrative
     from familiar_agent.relationship import RelationshipTracker
     from familiar_agent.prediction import PredictionEngine
     import time as _time
 
-    agent._self_narrative = SelfNarrative()
     agent._relationship = RelationshipTracker()
     agent._self_state = MagicMock()
     agent._self_state.snapshot = MagicMock(return_value={"unresolved_tension": 0.2})
@@ -192,8 +184,6 @@ _HEAVY_PATCHES = {
     ),
     "familiar_agent.agent.EmbodiedAgent._summarize_exchange": AsyncMock(return_value="summary"),
     "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline": AsyncMock(),
-    "familiar_agent.agent.EmbodiedAgent._maybe_update_self_narrative": AsyncMock(),
-    "familiar_agent.agent.EmbodiedAgent._maybe_adapt_values": AsyncMock(),
     "familiar_agent.agent.EmbodiedAgent.extract_curiosity": AsyncMock(return_value=None),
     "familiar_agent.agent.generate_plan": AsyncMock(return_value=""),
     "familiar_agent.agent.check_plan_blocked": AsyncMock(return_value=False),
@@ -253,64 +243,16 @@ def _nudge_messages(agent) -> list:
 # ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_maybe_update_self_narrative_uses_agency_error_trigger():
-    agent = _make_agent()
-    agent._utility_backend.complete = AsyncMock(return_value="ウチは少し揺れながら確かめ直した。")
-    agent._self_narrative.write = MagicMock()
-    agent._prediction.last_signal = MagicMock(
-        return_value=SimpleNamespace(action_name="look", agency_error=0.72)
-    )
-
-    await agent._maybe_update_self_narrative(
-        user_input="何が見えた？",
-        final_text="まだ少しずれてる気がする",
-        emotion="neutral",
-        is_desire_turn=False,
-    )
-
-    agent._self_narrative.write.assert_called_once()
-    assert agent._self_narrative.write.call_args.kwargs["trigger"] == "agency_error"
-
-
-@pytest.mark.asyncio
-async def test_maybe_adapt_values_updates_curiosity_and_support_policies():
-    agent = _make_agent()
-    agent._prediction.last_signal = MagicMock(
-        return_value=SimpleNamespace(action_name="look", agency_error=0.68)
-    )
-    desires = MagicMock()
-    desires.boost = MagicMock()
-
-    await agent._maybe_adapt_values(
-        user_input="大丈夫？",
-        final_text="窓の向こうの空が気になったよ。",
-        emotion="tender",
-        camera_used=True,
-        curiosity="窓の向こうの空",
-        is_desire_turn=False,
-        desires=desires,
-    )
-
-    calls = agent._memory.adjust_behavior_policy_confidence_async.await_args_list
-    assert len(calls) >= 2
-    assert any(call.args[:2] == ("curiosity:active", 0.08) for call in calls)
-    assert any(call.args[:2] == ("curiosity:active", -0.05) for call in calls)
-    assert any(call.args[:2] == ("conversation:supportive_style", 0.04) for call in calls)
-    desires.boost.assert_called_once_with("share_memory", 0.08)
-
-
 # ---------------------------------------------------------------------------
 # Tests: empty / edge cases
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_post_response_pipeline_updates_concerns():
+async def test_post_response_pipeline_persists_curiosity_without_the_removed_engines():
     from familiar_agent.agent import EmbodiedAgent
 
     agent = _make_agent()
-    agent._concerns = MagicMock()
     agent._prediction.last_signal = MagicMock(
         return_value=SimpleNamespace(
             action_name="look",
@@ -320,8 +262,6 @@ async def test_post_response_pipeline_updates_concerns():
     )
     agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
-    agent._maybe_update_self_narrative = AsyncMock()
-    agent._maybe_adapt_values = AsyncMock()
     agent.extract_curiosity = AsyncMock(return_value="The window light still feels important.")
 
     desires = MagicMock()
@@ -341,7 +281,8 @@ async def test_post_response_pipeline_updates_concerns():
         desires=desires,
     )
 
-    agent._concerns.update_from_turn.assert_called_once()
+    # 気がかり（ConcernEngine）と価値の適応（legacy 表）は環-d で撤去。好奇心の永続だけ残る。
+    agent.extract_curiosity.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
@@ -424,8 +365,6 @@ async def test_pipeline_records_the_exchange_without_camera():
     agent = _make_agent()
     agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
-    agent._maybe_update_self_narrative = AsyncMock()
-    agent._maybe_adapt_values = AsyncMock()
     agent._active_memory = MagicMock(return_value=agent._memory)
     agent._memory.save_async_with_id = AsyncMock(return_value=("conv-1", True))
     agent._memory.mark_superseded = MagicMock()

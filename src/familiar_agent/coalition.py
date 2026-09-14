@@ -9,8 +9,8 @@
 だったが、に-5-に-2 で W を組む側が `loop/workspace.py` になり、**同じ名前の file が2つ**に
 なった。名前が実態と合っていないこちらを `coalition.py` へ改めた（2026-09-10）。
 
-6モジュール（`prediction`・`exploration`・`self_narrative`・`scene`・`desires`・
-`tools/memory`）が器を渡すために import している。
+5モジュール（`prediction`・`exploration`・`scene`・`desires`・`tools/memory`）が器を渡すために
+import している（`self_narrative` は 2026-09-14 に撤去・環-d）。
 """
 
 from __future__ import annotations

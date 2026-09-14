@@ -64,7 +64,6 @@ def test_old_name_is_gone_from_source() -> None:
         "src/familiar_agent/scene.py",
         "src/familiar_agent/prediction.py",
         "src/familiar_agent/exploration.py",
-        "src/familiar_agent/self_narrative.py",
     ]
     stale = [t for t in targets if "activation" in (root / t).read_text(encoding="utf-8")]
     assert not stale, "旧名 activation が残っている:\n" + "\n".join(stale)

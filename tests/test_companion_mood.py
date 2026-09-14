@@ -12,6 +12,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+
 class TestInferCompanionMood:
     """_infer_companion_mood() returns a valid mood label from LLM backend."""
 
@@ -60,21 +61,15 @@ class TestInferCompanionMood:
 
         agent._memory = MagicMock(spec=ObservationMemory)
         agent._memory.recall_day_summaries_async = AsyncMock(return_value=[])
-        agent._memory.recall_semantic_facts_async = AsyncMock(return_value=[])
-        agent._memory.recall_behavior_policies_async = AsyncMock(return_value=[])
-        agent._memory.format_semantic_facts_for_context = MagicMock(return_value="")
-        agent._memory.format_behavior_policies_for_context = MagicMock(return_value="")
         agent._memory_tool = MagicMock(spec=MemoryTool)
         agent._coding = MagicMock(spec=CodingTool)
 
         from familiar_agent.exploration import ExplorationTracker
-        from familiar_agent.self_narrative import SelfNarrative
         from familiar_agent.relationship import RelationshipTracker
         from familiar_agent.prediction import PredictionEngine
 
         agent._exploration = ExplorationTracker()
         agent._scene = None
-        agent._self_narrative = SelfNarrative()
         agent._relationship = RelationshipTracker()
         agent._prediction = PredictionEngine()
         agent._memory.as_coalition_async = AsyncMock(return_value=None)
@@ -156,4 +151,3 @@ class TestInferCompanionMood:
         agent = self._make_agent_with_mock_backend("  Tired  ")
         result = await agent._infer_companion_mood("I'm exhausted")
         assert result == "tired"
-

@@ -93,16 +93,11 @@ JSON ファイルも使わない。ファイルに置くのは**既定値と人�
 | `situated_embeddings` | 人ごとの pgvector 埋め込み |
 | `episodes` / `episode_memories` | まとめた記憶エピソード |
 | `memory_salience` | 想起の顕著性追跡（撤去予定） |
-| `semantic_facts` | 抽出した事実 |
-| `behavior_policies` | 抽出した行動規則 |
-| `memory_revisions` | 編集履歴 |
 | `memory_events` / `memory_jobs` | 非同期ジョブキュー |
-| `memory_links` | 連想リンク |
 | `relationship_state` | 人ごとの関係データ |
 | `persons` | 既知の人物レジストリ |
 | `mental_state_log` | 追記専用のメンタル状態スナップショット |
-| `self_narrative_log` | 一人称のセッション日記（REST 内省の層 1 で代替し撤去予定・環-d） |
-| `agent_state` | キーバリュー：desires, concerns, capability_summary, mood_pad, drive5, addressee_doubts, relation_judged_until |
+| `agent_state` | キーバリュー：desires, capability_summary, capabilities, self_image, mood_pad, drive5, addressee_doubts, relation_judged_until, silence_request と層 3 の設定値 |
 
 スキーマ変更は `migration/` 以下のタイムスタンプ付きファイルを通す。
 

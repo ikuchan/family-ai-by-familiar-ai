@@ -31,7 +31,6 @@ from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memo
     _row_to_mental_item,
 )
 from ..db_migrations import apply_migrations, default_migration_dir
-from ..legacy.semantic_layer import LegacySemanticLayer
 from ..store.relations import (
     KIND_EXCHANGE,
     KIND_UNCLASSIFIED,
@@ -437,10 +436,7 @@ class ObservationMemory:
             embedder=self._embedder,
         )
         self._situated = SituatedVectors(self._ctx)
-        self._legacy = LegacySemanticLayer(self._ctx)
-        self._observations = ObservationStore(
-            self._ctx, situated=self._situated, legacy=self._legacy
-        )
+        self._observations = ObservationStore(self._ctx, situated=self._situated)
         self._jobs = JobQueue(self._ctx, observations=self._observations)
         self._persons_store = PersonRegistry(self._ctx)
 
@@ -602,62 +598,6 @@ class ObservationMemory:
 
     def materialize_event(self, event_id: "str") -> "bool":
         return self._jobs.materialize_event(event_id)
-
-    # 撤去予定の層（legacy/semantic_layer.py・Phase 6 で消える）
-    def recall_semantic_facts(self, query: "str", n: "int" = 5) -> "list[dict]":
-        return self._legacy.recall_semantic_facts(query, n)
-
-    async def recall_semantic_facts_async(self, *a, **kw):
-        return await self._legacy.recall_semantic_facts_async(*a, **kw)
-
-    def recall_behavior_policies(self, query: "str", n: "int" = 5) -> "list[dict]":
-        return self._legacy.recall_behavior_policies(query, n)
-
-    async def recall_behavior_policies_async(self, *a, **kw):
-        return await self._legacy.recall_behavior_policies_async(*a, **kw)
-
-    def recall_revisions(
-        self, entity_type: "str" = "semantic_fact", entity_key: "str | None" = None, n: "int" = 50
-    ) -> "list[dict]":
-        return self._legacy.recall_revisions(entity_type, entity_key, n)
-
-    def adjust_semantic_fact_confidence(self, key: "str", delta: "float", reason: "str" = ""):
-        return self._legacy.adjust_semantic_fact_confidence(key, delta, reason)
-
-    async def adjust_semantic_fact_confidence_async(
-        self, key: "str", delta: "float", reason: "str" = ""
-    ):
-        return await self._legacy.adjust_semantic_fact_confidence_async(key, delta, reason)
-
-    def adjust_behavior_policy_confidence(self, key: "str", delta: "float", reason: "str" = ""):
-        return self._legacy.adjust_behavior_policy_confidence(key, delta, reason)
-
-    async def adjust_behavior_policy_confidence_async(
-        self,
-        key: "str",
-        delta: "float",
-        reason: "str" = "",
-        policy_text: "str" = "",
-        trigger_context: "str" = "",
-        action_hint: "str" = "",
-    ):
-        return await self._legacy.adjust_behavior_policy_confidence_async(
-            key, delta, reason, policy_text, trigger_context, action_hint
-        )
-
-    def link_memories(
-        self, src: "str", tgt: "str", link_type: "str" = "related", note: "str | None" = None
-    ) -> "bool":
-        return self._legacy.link_memories(src, tgt, link_type, note)
-
-    async def link_memories_async(self, *a, **kw):
-        return await self._legacy.link_memories_async(*a, **kw)
-
-    def get_linked_memories(self, memory_id: "str", direction: "str" = "both") -> "list[dict]":
-        return self._legacy.get_linked_memories(memory_id, direction)
-
-    async def get_linked_memories_async(self, *a, **kw):
-        return await self._legacy.get_linked_memories_async(*a, **kw)
 
     # ── Person management ──────────────────────────────────────────────────
 
@@ -1567,11 +1507,6 @@ class MemoryTool:
                             "default": "speaker",
                         },
                         "image_path": {"type": "string"},
-                        "link_to": {"type": "string"},
-                        "link_type": {
-                            "type": "string",
-                            "enum": ["related", "similar", "caused_by", "leads_to"],
-                        },
                     },
                     "required": ["content"],
                 },
@@ -1636,8 +1571,6 @@ class MemoryTool:
         content = inp["content"]
         emotion = inp.get("emotion", "neutral")
         image_path = inp.get("image_path")
-        link_to = inp.get("link_to")
-        link_type = inp.get("link_type", "related")
 
         present_ids = self._manager.get_present_ids()
         # 話者未解決なら既定話者 DEFAULT_PERSON_ID を writer/subject に使う（floor）。
@@ -1657,8 +1590,6 @@ class MemoryTool:
             )
             if ok:
                 results.append(f"[{self._manager.get_person_name(speaker_id)}] 話者")
-                if link_to and mem_id:
-                    await store.link_memories_async(mem_id, link_to, link_type=link_type)
 
         # witnessed (listeners)
         if scope in ("witnessed", "all"):
@@ -1710,8 +1641,6 @@ class MemoryTool:
             )
             if ok:
                 results.append(f"[{self._manager.get_person_name(speaker_id)}] 話者（在席者なし）")
-                if link_to and mem_id:
-                    await store.link_memories_async(mem_id, link_to, link_type=link_type)
 
         summary = " / ".join(results) if results else "書き込みなし"
         return f"記憶しました: {summary}", None

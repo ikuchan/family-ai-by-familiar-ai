@@ -26,21 +26,30 @@ _RETIRED = {
     "format_day_summaries_for_context": "同上",
     "format_semantic_facts_for_context": "同上",
     "format_behavior_policies_for_context": "同上",
+    # 環-d（2026-09-14）：`legacy/semantic_layer.py` ごと落とした（読む呼び手が 0 件・表も 061 で落とす）
+    "recall_semantic_facts": "legacy 表（semantic_facts）と一緒に撤去",
+    "recall_semantic_facts_async": "同上",
+    "recall_behavior_policies": "legacy 表（behavior_policies）と一緒に撤去",
+    "recall_behavior_policies_async": "同上",
+    "recall_revisions": "legacy 表（memory_revisions）と一緒に撤去",
+    "adjust_semantic_fact_confidence": "同上",
+    "adjust_semantic_fact_confidence_async": "同上",
+    "adjust_behavior_policy_confidence": "同上",
+    "adjust_behavior_policy_confidence_async": "同上",
+    "link_memories": "legacy 表（memory_links）と一緒に撤去",
+    "link_memories_async": "同上",
+    "get_linked_memories": "同上",
+    "get_linked_memories_async": "同上",
 }
 
 #: **まだ繋いでいないので残す面。** 落とすと、使うときに作り直しになる。
 _NOT_YET = {
     "recall_self_model_async": "記-a（REST 内省）が使う",
     "recall_curiosities_async": "同上",
-    "recall_semantic_facts_async": "同上",
-    "recall_behavior_policies_async": "同上",
     "recent_feelings_async": "同上",
     "append_memory_event_async": "記-b（蒸留）のジョブ投入",
     "mark_job_done": "同上（ジョブの完了）",
     "get_dates_with_summaries": "同上",
-    "get_linked_memories": "`memory_links` の撤去は D-2（**新経路が通って実証されてから**）",
-    "get_linked_memories_async": "同上",
-    "link_memories_async": "同上",
 }
 
 
@@ -93,5 +102,6 @@ def test_the_surface_got_narrower():
     やりとりの関係を閉じるときに書き、会話要約を背景で足すため）。
     2026-09-14 に `delete_day_summaries_for_date` を落とし（終了時の日次要約の撤去・記-a-ろ-は）、
     `observations_since_last_rest` を足した（畳み込みの材料）。数は据え置き。
+    2026-09-14 に環-d で legacy の包み 13 面を落とし **54 種**。
     """
-    assert len(_public_faces()) <= 67
+    assert len(_public_faces()) <= 54

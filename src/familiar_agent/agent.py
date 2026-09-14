@@ -23,12 +23,10 @@ from typing import Any
 
 from .backends import create_backend, create_scene_backend, create_utility_backend
 from .core.context_parts import Stance as _Stance
-from .concern_engine import ConcernEngine
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
 from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
-from .self_narrative import SelfNarrative
 from .io.aif import AIF, Nudge
 from .store import clock
 from .io.oif import MI, OIF, Cue, Recalled, View
@@ -199,8 +197,6 @@ class EmbodiedAgent:
         self._persons = PersonRegistry(default_name=config.companion_name)
         # Property alias so all existing self._relationship.* calls continue to work.
         # They always address the currently active speaker's tracker.
-        self._concerns = ConcernEngine()
-        self._self_narrative = SelfNarrative()
         self._prediction = PredictionEngine()
         # T との行き来はこの口へ集める（`設計図` ③-2 の4つの口）。I はループが
         # 立ち上がる前のターンでも Nudge を返すので、ここで持たせる。
@@ -476,13 +472,6 @@ class EmbodiedAgent:
                 memories, list(_new_ids or []) + list(extra_cooccurring_ids or [])
             )
 
-            await self._maybe_update_self_narrative(
-                user_input=user_input,
-                final_text=final_text,
-                emotion=emotion,
-                is_desire_turn=is_desire_turn,
-            )
-
             if not is_desire_turn and user_input:
                 self._relationship.record_conversation()
                 self._last_human_at = time.time()
@@ -514,29 +503,6 @@ class EmbodiedAgent:
                         now=False,
                     )
                     logger.info("Curiosity persisted: %s", curiosity)
-
-            pred_signal = self._prediction.last_signal()
-            concerns = getattr(self, "_concerns", None)
-            if concerns is not None:
-                concerns.update_from_turn(
-                    turn_index=self._turn_count,
-                    emotion=emotion,
-                    companion_mood=companion_mood,
-                    curiosity=curiosity,
-                    prediction_signal=pred_signal,
-                    companion_name=self._persons.active_name,
-                    speaker_id=self._pmm.current_speaker_id or "",
-                )
-
-            await self._maybe_adapt_values(
-                user_input=user_input,
-                final_text=final_text,
-                emotion=emotion,
-                camera_used=camera_used,
-                curiosity=curiosity,
-                is_desire_turn=is_desire_turn,
-                desires=desires,
-            )
 
         except Exception as exc:  # noqa: BLE001
             logger.warning("Post-response pipeline failed: %s", exc)
@@ -1040,14 +1006,6 @@ class EmbodiedAgent:
         "playful": 0.5,
         "proud": 0.6,
     }
-    _SALIENT_NARRATIVE_EMOTIONS = {
-        "excited",
-        "moved",
-        "tender",
-        "nostalgic",
-        "proud",
-        "surprised",
-    }
 
     def _update_mood(self, emotion: str) -> None:
         """Update persistent mood state from the latest inferred emotion.
@@ -1269,127 +1227,6 @@ class EmbodiedAgent:
         if age_hours > 25:
             return f"[system: last database backup was {int(age_hours)}h ago — may need attention]"
         return ""
-
-    async def _maybe_update_self_narrative(
-        self,
-        *,
-        user_input: str,
-        final_text: str,
-        emotion: str,
-        is_desire_turn: bool,
-    ) -> None:
-        """Capture salient within-session self-narrative moments."""
-        if not final_text or final_text == "(no response)":
-            return
-
-        pred_signal = self._prediction.last_signal()
-        agency_error = float(pred_signal.agency_error) if pred_signal is not None else 0.0
-        salient_emotion = emotion in self._SALIENT_NARRATIVE_EMOTIONS
-
-        if not salient_emotion and agency_error < 0.55:
-            return
-
-        reason = "salient_turn" if salient_emotion else "agency_error"
-        if salient_emotion and agency_error >= 0.55:
-            reason = "salient_turn_agency"
-        if is_desire_turn and not salient_emotion and agency_error < 0.7:
-            return
-
-        prompt = (
-            "次の出来事を、ウチ自身の自己叙述として一文で書いて。\n"
-            f"user: {user_input[:160]}\n"
-            f"agent: {final_text[:220]}\n"
-            f"emotion: {emotion}\n"
-            f"agency_error: {agency_error:.2f}\n"
-            "条件: 一人称は『ウチ』。60文字以内。説明や前置きは禁止。"
-            "ウチはAIエージェントであり食事・移動などの身体的行動はしない。"
-            "userの行動・予定・感情ではなく、ウチ自身が感じたこと・したことを書くこと。"
-        )
-        try:
-            text = await asyncio.wait_for(
-                self._utility_backend.complete(prompt, max_tokens=120),
-                timeout=12.0,
-            )
-            if text and text.strip():
-                mood = emotion if emotion != "neutral" else self._decayed_mood()[0]
-                self._self_narrative.write(text.strip(), mood=mood, trigger=reason)
-                logger.info("Self-narrative moment captured (%s): %s", reason, text.strip()[:60])
-        except Exception as e:
-            logger.warning("Could not update self narrative mid-session: %s", e)
-
-    async def _maybe_adapt_values(
-        self,
-        *,
-        user_input: str,
-        final_text: str,
-        emotion: str,
-        camera_used: bool,
-        curiosity: str | None,
-        is_desire_turn: bool,
-        desires: DesireSystem | None,
-    ) -> None:
-        """Lightweight experience-driven updates for policy/value confidence."""
-        updates = []
-
-        pred_signal = self._prediction.last_signal()
-        if camera_used and curiosity:
-            updates.append(
-                self._memory.adjust_behavior_policy_confidence_async(
-                    "curiosity:active",
-                    0.08,
-                    reason="curiosity_satisfied",
-                    policy_text=f"When idle, follow up this curiosity thread: {curiosity[:180]}",
-                    trigger_context="idle",
-                    action_hint="look_around",
-                )
-            )
-            if desires is not None:
-                desires.boost("share_memory", 0.08)
-
-        if (
-            pred_signal is not None
-            and pred_signal.action_name in {"look", "walk", "see"}
-            and pred_signal.agency_error >= 0.55
-        ):
-            updates.append(
-                self._memory.adjust_behavior_policy_confidence_async(
-                    "curiosity:active",
-                    -0.05,
-                    reason="agency_error_high",
-                )
-            )
-
-        if not is_desire_turn and user_input and emotion in {"moved", "tender", "relieved"}:
-            updates.append(
-                self._memory.adjust_behavior_policy_confidence_async(
-                    "conversation:supportive_style",
-                    0.04,
-                    reason="supportive_exchange",
-                    policy_text=(
-                        "Prefer this response style when supporting the companion: "
-                        f"{final_text[:180]}"
-                    ),
-                    trigger_context="conversation",
-                    action_hint="respond_supportively",
-                )
-            )
-
-        if emotion in {"moved", "proud", "tender"}:
-            updates.append(
-                self._memory.adjust_semantic_fact_confidence_async(
-                    "self_model:core",
-                    0.03,
-                    reason="salient_self_consistency",
-                )
-            )
-
-        if not updates:
-            return
-
-        results = await asyncio.gather(*updates, return_exceptions=True)
-        for result in results:
-            if isinstance(result, Exception):
-                logger.debug("Adaptive value update failed: %s", result)
 
     async def extract_curiosity(self, exploration_result: str) -> str | None:
         """Ask the LLM what was most curious/interesting in the exploration."""

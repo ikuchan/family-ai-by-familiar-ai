@@ -57,10 +57,9 @@ class ObservationStore:
     その2つを渡してもらう。
     """
 
-    def __init__(self, ctx: StoreContext, *, situated: Any, legacy: Any) -> None:
+    def __init__(self, ctx: StoreContext, *, situated: Any) -> None:
         self._ctx = ctx
         self._situated = situated
-        self._legacy = legacy
 
     def _read_observations_by_kind(
         self, kind: str | tuple[str, ...], n: int, columns: tuple[str, ...]
@@ -895,7 +894,6 @@ class ObservationStore:
                 writer_id=writer,
                 participants=list(participants or []),
             )
-            self._legacy.project_observation(conn, event_id, content, kind, emotion)
             conn.commit()
 
         # 人ごとの視点を育てる背景更新は 045 で落とした。ベクトルの差は人でなく
