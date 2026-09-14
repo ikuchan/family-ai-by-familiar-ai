@@ -322,6 +322,7 @@ async def arbitrate(
     workspace_ctx: str,
     self_understanding: str = "",
     family_md: str = "",
+    self_image: str = "",
     present_ctx: str = "",
     now_ctx: str = "",
     capped: bool = False,
@@ -368,6 +369,7 @@ async def arbitrate(
         stance=Stance.PAJU,
         self_understanding=self_understanding or "（指定なし）",
         family=family_md or "（指定なし）",
+        self_image=self_image,  # 層 2・主LLM と同じもの（記-a-へ）
     ).stable
     self_doing = origin == "情動"
     prompt = ARBITER_PROMPT.format(

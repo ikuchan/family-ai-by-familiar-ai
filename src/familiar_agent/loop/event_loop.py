@@ -113,6 +113,17 @@ def _query_label(action: str, tool_input: dict) -> str:
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
 
 
+def _self_image_text() -> str:
+    """自己像（層 2）の枠。DB の現在値（無ければ種）を文にする。読めなければ空（degrade）。"""
+    try:
+        from ..core import self_image
+
+        return self_image.render(self_image.load())
+    except Exception as e:  # noqa: BLE001
+        logger.debug("自己像を読めなかった（無しで続ける）: %s", e)
+        return ""
+
+
 def _action_family(action: str) -> str:
     """道具名（主LLM が呼ぶ）を動作名（候補の表の鍵）に正規化する（`get_family_schedule` → `family_schedule`）。"""
     if action in _MCP_LOOKUPS:
@@ -478,6 +489,7 @@ class InformationProcessing:
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
+            self_image=_self_image_text(),
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(self._req),
             iter_ctx=iter_ctx,
@@ -1946,6 +1958,7 @@ class InformationProcessing:
             workspace_ctx=workspace_ctx,
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
+            self_image=_self_image_text(),
             present_ctx=present_ctx,
             now_ctx=f'(now :datetime "{clock.now_local_str()}")',
             capped=capped,

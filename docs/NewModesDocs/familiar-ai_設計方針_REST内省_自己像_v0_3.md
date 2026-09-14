@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：REST 内省・層 2「自己像」（v0.2）
+# familiar-ai 設計方針：REST 内省・層 2「自己像」（v0.3）
 
 自己像は、REST 内省の 4 層（出来事 → 自己像 → 設定値 → 能力・`用語一覧` v0.70）の第 2 層で、
 **いま自分が何を望み、何を気にかけ、何を大事にしているか**を持つ。出来事（層 1）と能力（層 4）の
@@ -77,6 +77,18 @@ DB の形（`agent_state.self_image`）：
    `agent_state` は現在値だけを持つ。
 6. 初期値：DB に無ければ `defaults/self_image.yaml` の種を入れる。種は分量どおりの抽象化した構え（v0.2 で決定・空ではない）。
 
+## 5b. 実装（v0.3・2026-09-14）
+
+- 器：`core/self_image.py`——`SelfImage`（3 欄・各行 `Line(text, since, sources)`）、`load()`（DB に無ければ種を読んで
+  DB に置く）、`store()`、`check()`（行数・字数・合計）、`render()`（`[いまの自分]`・数値も id も出さず古さだけ
+  「（9/10 から）」）。
+- 読み手：`core/context_parts.build_context(self_image=)` が規則の直後に載せる。主LLM（`build_event_system_prompt`）
+  と調停（`arbitrate`）の両方が `event_loop._self_image_text()` から同じ文を受け取る。
+- 更新：`loop/rest_self_image.py`——`propose()`（いまの自己像＋層 1 が書いた自己エピソード・関係のまとめを
+  フル LLM に渡し、JSON で受け取り、出典が材料にあること・3 行以内・字数を検査。通らなければ前のまま）、
+  `update_self_image()`（通れば保存し、差分を `内省` の記録と計測ログ `層2 変えた=… 見送り=…` に）。
+  `rest.run_rest_pass` が層 1 の直後に呼ぶ。
+
 ## 6. 旧機構の撤去（環-d へ）
 
 `agent_state.desires`（`DesireSystem` の数値の重み・2026-07-26 から更新なし）、`agent_state.concerns`
@@ -87,11 +99,12 @@ DB の形（`agent_state.self_image`）：
 
 | 項目 | 仮値 | 決め方 |
 |---|---|---|
-| 1 パスの変更行数 | 3 行〔仮〕 | 実装前に 1 問で確定（1,500 字・26 行に対して） |
+| 1 パスの変更行数 | **3 行**（`rest_self_image.MAX_CHANGES`） | 2026-09-14 決定。実測してから見直す（層 3 の候補） |
 | 種の中身 | **決定**（v0.2）：`defaults/self_image.yaml`。分量どおり 8／8／10 行を、`ME.md`・`FAMILY.md` の事実から**抽象化して**書いた（具体の名前や物事は書かない） | 2026-09-14 |
 
 ## 更新履歴
 
+> v0.3：**実装**（2026-09-14・記-a-へ）。器・読み手・更新の在りかを §5b に。
 > v0.2：種の中身を決めた（`defaults/self_image.yaml`・抽象化した 8／8／10 行）（2026-09-14）。
 > v0.1 訂正 2（同日）：上限を 390 字 → **1,500 字**（8×60／8×60／10×50）に改めた。根拠は主LLM に届く量（W ≈ 層 4 の要約 ≈ $2^{13}$ bit）。
 > v0.1 訂正（同日）：読み手を「`[守っている決まり]` と同じ層・規則と一緒に渡す」に改めた。
