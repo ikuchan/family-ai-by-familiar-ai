@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import random
 from dataclasses import dataclass, field
@@ -29,6 +30,26 @@ def _resolve_float(field: str, env_name: str, default: float) -> float:
         return resolve_float(field, env_name, default)
     except Exception:  # noqa: BLE001
         return _float_env(env_name, default)
+
+
+def _resolve_setting(field: str, default: float) -> float:
+    """層 3 の設定値：**DB（内省の調整）> 既定**。`.env` は読まない（4 層の外形・2026-09-14）。
+
+    同名の環境変数があれば WARNING を 1 行出して使わない（黙って無視しない）。
+    `config_overrides` は `db` を使い、`db` は `config` を読むので、import は関数の中で行う。
+    """
+    env_name = field.replace("Config.", "_").replace(".", "_").upper()
+    if os.environ.get(env_name) is not None:
+        logging.getLogger(__name__).warning(
+            "設定値 %s は .env を読まない（DB > 既定）。環境変数 %s は使われない", field, env_name
+        )
+    try:
+        from .config_overrides import load_overrides
+
+        value = load_overrides().get(field)
+        return default if value is None else float(value)
+    except Exception:  # noqa: BLE001
+        return default
 
 
 def _float_env(name: str, default: float) -> float:
@@ -625,6 +646,52 @@ class AgentConfig:
 
 
 @dataclass
+class InnerStateConfig:
+    """内部状態の言葉の境目（情-f・2026-09-14・層 3 の設定値）。
+
+    気分 4 軸の (p10, p30, p70, p90) と欲求 5 軸の p70。初期値は実測（`core/inner_state.py`）。
+    REST 内省が等頻度を保つように合わせ直す（`設計方針_REST内省_設定値を調整する`）。
+    **`.env` は読まない**（DB > 既定）。
+    """
+
+    mood_p: tuple[float, float, float, float] = field(
+        default_factory=lambda: _bands("InnerStateConfig.mood_p", (0.10, 0.10, 0.25, 0.35))
+    )
+    mood_pn: tuple[float, float, float, float] = field(
+        default_factory=lambda: _bands("InnerStateConfig.mood_pn", (0.10, 0.10, 0.10, 0.15))
+    )
+    mood_a: tuple[float, float, float, float] = field(
+        default_factory=lambda: _bands("InnerStateConfig.mood_a", (0.36, 0.50, 0.50, 0.50))
+    )
+    mood_dom: tuple[float, float, float, float] = field(
+        default_factory=lambda: _bands("InnerStateConfig.mood_dom", (0.50, 0.50, 0.55, 0.60))
+    )
+    drive_p70_seeking: float = field(
+        default_factory=lambda: _resolve_setting("InnerStateConfig.drive_p70_seeking", 0.66)
+    )
+    drive_p70_rest: float = field(
+        default_factory=lambda: _resolve_setting("InnerStateConfig.drive_p70_rest", 0.95)
+    )
+    drive_p70_bond: float = field(
+        default_factory=lambda: _resolve_setting("InnerStateConfig.drive_p70_bond", 0.03)
+    )
+    drive_p70_safety: float = field(
+        default_factory=lambda: _resolve_setting("InnerStateConfig.drive_p70_safety", 0.75)
+    )
+    drive_p70_esteem: float = field(
+        default_factory=lambda: _resolve_setting("InnerStateConfig.drive_p70_esteem", 0.07)
+    )
+
+
+def _bands(
+    prefix: str, default: tuple[float, float, float, float]
+) -> tuple[float, float, float, float]:
+    """(p10, p30, p70, p90) を 4 つの設定値（`…_p10` など）から組む。"""
+    names = ("p10", "p30", "p70", "p90")
+    return tuple(_resolve_setting(f"{prefix}_{n}", d) for n, d in zip(names, default))  # type: ignore[return-value]
+
+
+@dataclass
 class DriveConfig:
     """Drive 起動源の dynamics 定数（発火mood §2・課題5 B 由来）。
 
@@ -667,10 +734,6 @@ class DriveConfig:
 
     # Slice 2b：新Drive発火で自発ターンを起こすか（既定 on＝新機能を前提・legacy DesireSystem と完全排他）
     autonomous: bool = field(default_factory=lambda: _bool_env("DRIVE5_AUTONOMOUS", default=True))
-
-    # 自発ターンに同梱する drive5 スナップショットの定性ラベル帯（低<mid / 中 / 高≥high）。
-    drive_level_mid: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_MID", 0.5))
-    drive_level_high: float = field(default_factory=lambda: _float_env("DRIVE_LEVEL_HIGH", 0.75))
 
     # 案Y：ターン完了時に軽量LLMで満たされた drive を発火時と同じ全放電で沈静化するか（既定 on＝新機能を前提）。
     satisfy_llm: bool = field(default_factory=lambda: _bool_env("DRIVE5_SATISFY_LLM", default=True))

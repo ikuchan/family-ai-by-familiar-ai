@@ -479,7 +479,7 @@ class InformationProcessing:
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             present_ctx=present_ctx,
-            pi_ctx=_pi_ctx(),
+            pi_ctx=_pi_ctx(self._req),
             iter_ctx=iter_ctx,
             workspace_ctx=workspace_ctx,
             # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
@@ -1335,6 +1335,7 @@ class InformationProcessing:
         self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
+        self._req.fired_axis = ""
 
     def _emit(self, text: str) -> None:
         """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
@@ -1594,6 +1595,7 @@ class InformationProcessing:
         情動は中身を持たないので、取り込み時に想起で状況づける（正本③ 手順1・2）。
         """
         await self._begin_request(kind="情動", text=f"[内的な促し:{drive_name}] {prompt}")
+        self._req.fired_axis = str(drive_name or "").lower()  # 内部状態の言葉で明示する（情-f）
         await self._iterate()
 
     async def _begin_device(self, kind: str, content: str, release_pending: bool) -> None:
@@ -2485,6 +2487,7 @@ class InformationProcessing:
         self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
+        self._req.fired_axis = ""
         self._req.iterations = 0
         self._req.iterations_capped = False
         self._notify_request_state(False)

@@ -75,7 +75,8 @@ def test_a_continuation_is_recorded_with_the_target(tmp_path):
     a, path = _loop(tmp_path, judge=AsyncMock(return_value="m1"))
     _run(a, utterance="さっきの話だけど")
     assert _outcomes(path) == ["続き"]
-    assert "相手=m1" in _lines(path)[-1] or "相手=" in _lines(path)[-1]
+    follows = [line for line in _lines(path) if " 続き先 " in line]
+    assert "相手=m1" in follows[-1]
 
 
 def test_none_is_a_break(tmp_path):
