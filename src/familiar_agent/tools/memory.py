@@ -851,7 +851,12 @@ class ObservationMemory:
         在席者が2人以上いるとき、(B) 辺へ**共通の記憶**（全員が関係を持つ観測）を足す（段4）。
         """
         try:
-            from ..core.diffuse import diffuse_ids, interleave_orders, select_entity_seeds
+            from ..core.diffuse import (
+                diffuse_ids,
+                interleave_orders_tagged,
+                note_orders,
+                select_entity_seeds,
+            )
             from ..diffuse_store import (
                 fetch_diffuse_rows,
                 fetch_relation_persons,
@@ -900,7 +905,9 @@ class ObservationMemory:
                         else cands
                     )
                     stale = order_ids_by_stalest(conn, cands, self._person_id)
-                    return interleave_orders(far, stale, max_add=cap, far_share=_far_share)
+                    tagged = interleave_orders_tagged(far, stale, max_add=cap, far_share=_far_share)
+                    note_orders(tagged)
+                    return [i for i, _t in tagged]
 
                 added = diffuse_ids(
                     seed_ids,

@@ -22,9 +22,19 @@ def test_the_timeout_is_five_seconds_by_default():
         assert AgentConfig().arbiter_timeout_sec == pytest.approx(5.0)
 
 
-def test_the_timeout_can_be_set_by_env():
+def test_the_timeout_is_a_layer_three_setting_and_ignores_env():
+    """層 3 の設定値（DB > 既定・記-a-に・2026-09-14）。`ARBITER_TIMEOUT_SEC` は読まない。"""
+    from familiar_agent import config_overrides as co
+
+    co._delete_all()
+    co.clear_cache()
     with patch.dict(os.environ, {"ARBITER_TIMEOUT_SEC": "3.5"}, clear=True):
-        assert AgentConfig().arbiter_timeout_sec == pytest.approx(3.5)
+        assert AgentConfig().arbiter_timeout_sec == pytest.approx(5.0)
+    assert co.save_override("AgentConfig.arbiter_timeout_sec", 3.5)
+    co.clear_cache()
+    assert AgentConfig().arbiter_timeout_sec == pytest.approx(3.5)
+    co._delete_all()
+    co.clear_cache()
 
 
 def test_a_reply_that_arrives_within_the_timeout_is_used():
@@ -36,8 +46,7 @@ def test_a_reply_that_arrives_within_the_timeout_is_used():
         return '{"branch":"light","text":"わかった"}'
 
     backend.complete = AsyncMock(side_effect=_slow)
-    decision = asyncio.run(arbitrate(backend, utterance="黙って", workspace_ctx="",
-                                     timeout=0.5))
+    decision = asyncio.run(arbitrate(backend, utterance="黙って", workspace_ctx="", timeout=0.5))
     assert decision.branch == "light"
 
 
@@ -50,6 +59,5 @@ def test_a_reply_that_exceeds_the_timeout_falls_back_to_full():
         return '{"branch":"light","text":"間に合わない"}'
 
     backend.complete = AsyncMock(side_effect=_too_slow)
-    decision = asyncio.run(arbitrate(backend, utterance="黙って", workspace_ctx="",
-                                     timeout=0.05))
+    decision = asyncio.run(arbitrate(backend, utterance="黙って", workspace_ctx="", timeout=0.05))
     assert decision.branch == "full"

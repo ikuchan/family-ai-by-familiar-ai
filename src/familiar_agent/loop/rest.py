@@ -4,8 +4,9 @@
 出来事（畳む）→ 自己像（抽象化する）→ 設定値（調整する）→ 能力（再定義する）。
 起動は T の純粋欠乏発火で、誰も居ないときだけ回る（`loop/tonic.py`）。
 
-**いま動いているのは層 1 の①（日次の畳み込み・`rest_fold.py`）と層 2（自己像の見直し・
-`rest_self_image.py`）**。層 1 の②（核の固め）と $n$ の減り、層 3〜4 はこれから（`課題8` 記-a）。回ったことは `direction='内省'` の記録に残す——
+**いま動いているのは層 1 の①（日次の畳み込み・`rest_fold.py`）、層 2（自己像の見直し・
+`rest_self_image.py`）、層 3（設定値の調整と計測ログの改名・`rest_settings.py`）**。層 1 の②
+（核の固め）と $n$ の減り、層 4 はこれから（`課題8` 記-a）。回ったことは `direction='内省'` の記録に残す——
 ログだけだと、起動しなかったのか、起動したが何もしなかったのかを区別できない。
 """
 
@@ -15,6 +16,7 @@ import logging
 
 from .rest_fold import fold_since_last_rest
 from .rest_self_image import Material, update_self_image
+from .rest_settings import adjust_settings
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +52,13 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 2 の見直しに失敗: %s", e)
         parts.append("自己像を見直せなかった")
+    # 層 3：計測ログを集計して設定値を動かし、読み終えた計測ログを改名する（記-a-に）。
+    try:
+        n = await adjust_settings(agent)
+        parts.append(f"設定値を {n} 件動かした" if n else "設定値は動かさなかった")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 3 の調整に失敗: %s", e)
+        parts.append("設定値を見直せなかった")
     content = "内省を回した（" + "。".join(parts) + "）"
     logger.info("rest 内省パス：%s", content)
     await agent._memory.save_async_with_id(

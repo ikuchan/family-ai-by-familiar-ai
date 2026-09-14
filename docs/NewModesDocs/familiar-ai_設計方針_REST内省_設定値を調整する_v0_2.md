@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：REST 内省・層 3「設定値を調整する」（v0.1）
+# familiar-ai 設計方針：REST 内省・層 3「設定値を調整する」（v0.2）
 
 設定値は REST 内省の 4 層（出来事 → 自己像 → 設定値 → 能力・`用語一覧` v0.70）の第 3 層で、機構の振る舞いを
 決める値を持つ。**登録制・範囲つき**で、REST 内省が計測ログを読み、登録済みの範囲で値を動かす（動詞は
@@ -57,6 +57,24 @@
 3. 動かしたら、計測ログ（`設定値 名前=… 前=… 後=… 根拠=…`）と `direction='内省'` の記録に残す。
 4. 人が既定に戻したいときは DB の値を消す（`config_overrides` の削除）。
 
+## 4b. 実装（v0.2・2026-09-14・記-a-に）
+
+- 登録の表：`core/settings.py` の `REGISTRY`（`Setting(field, lo, hi, step, measure_kind, rule, note)`・26 件）。
+  `config_overrides.RANGES` はここから導く。
+- 優先順位：`config._resolve_setting`（**DB > 既定**・env は読まず WARNING）に一本化（旧 `resolve_float`／`_resolve_float`
+  は撤去）。`distill_min_a0`・`recall_half_life_days`・`diffuse_far_share`・`arbiter_timeout_sec`・`recent_exchanges_*`・
+  内部状態の境目 21 個がこれを通る。
+- 計測ログの行：`調停 秒 分岐 時間切れ`（`arbiter.arbitrate`）、`直近 窓 端 外`（`Workspace.build`）、
+  `申告 important useless referred unused`（`apply_memory_verdicts`）、`関連 遠い 掘り`（拡散想起）、
+  `設定値 名前 前 後`（動かしたとき）。既存の `続き先`・`気分`・`欲求`・`層1`・`層2`。
+- 読み手と集計：`core/measure.read_rows`・`summarize_arbiter`（件数・中央・p90・最大・時間切れ）・
+  `summarize_window`（続きの相手が端か外だった回数）・`summarize_inner_state`（軸ごとの分位）・
+  `summarize_relation`（参照された数を並びごと）・`rotate`（`measure.log.<時刻>` へ改名）。
+- 規則：`loop/rest_settings.py`——`adjust_window`（端か外の参照 ≥20% で +1・続きがあるのに 0 で −1）、
+  `adjust_inner_state`（計測した分位へ 1 刻み）、`adjust_far_share`（参照された側へ 0.1）、`adjust_timeout`
+  （LLM に数字を渡し、提案を 1 刻み・範囲内に丸める）、`apply`（`save_override`・`内省` の記録・計測ログ）、
+  `adjust_settings`（読む → 集計 → 動かす → 改名）。`rest.run_rest_pass` が層 2 の後に呼ぶ。
+
 ## 5. 未決〔仮〕
 
 | 項目 | 仮値 | 決め方 |
@@ -67,6 +85,7 @@
 
 ## 更新履歴
 
+> v0.2：**実装**（2026-09-14・記-a-に）。§4b に在りか。
 > v0.1 追記 2（同日）：$HL$ と `diffuse_far_share` を登録済みに（記-a-ろ-い）。
 > v0.1 追記（同日）：情-f の境目 21 個を登録候補と計測ログの行に足した。
 > v0.1：新規作成（2026-09-14）。外形（DB > 既定・`.env` を読まない）、登録の必須項目、登録候補、材料は計測ログだけ、

@@ -76,6 +76,47 @@ def select_entity_seeds(
     return out
 
 
+def interleave_orders_tagged(
+    far: "list[str]", stale: "list[str]", *, max_add: int, far_share: float
+) -> "list[tuple[str, str]]":
+    """`interleave_orders` と同じ選び方で、各 id に**どちらの並びから来たか**（`遠い`／`掘り`）を添える。"""
+    n = max(0, int(max_add))
+    n_far = max(0, min(n, round(n * max(0.0, min(1.0, far_share)))))
+    n_stale = n - n_far
+    out: list[tuple[str, str]] = []
+    seen: set[str] = set()
+    pos = {"far": 0, "stale": 0}
+    lists = {"far": [str(x) for x in far], "stale": [str(x) for x in stale]}
+    quota = {"far": n_far, "stale": n_stale}
+    taken = {"far": 0, "stale": 0}
+    tag = {"far": "遠い", "stale": "掘り"}
+
+    def take(name: str) -> bool:
+        src = lists[name]
+        while pos[name] < len(src):
+            cand = src[pos[name]]
+            pos[name] += 1
+            if cand and cand not in seen:
+                seen.add(cand)
+                out.append((cand, tag[name]))
+                taken[name] += 1
+                return True
+        return False
+
+    turn = "far"
+    while len(out) < n:
+        order = (turn, "stale" if turn == "far" else "far")
+        picked = False
+        for name in order:
+            if taken[name] < quota[name] and take(name):
+                picked = True
+                break
+        if not picked and not (take("far") or take("stale")):
+            break
+        turn = "stale" if turn == "far" else "far"
+    return out[:n]
+
+
 def interleave_orders(
     far: "list[str]", stale: "list[str]", *, max_add: int, far_share: float
 ) -> "list[str]":
@@ -85,41 +126,18 @@ def interleave_orders(
     次を取る）、片方が尽きたか枠を使い切ったら、もう片方で埋める。分類上遠いもの（新規性）と、
     長く思い出していないもの（掘り起こし）の両方を W に上げるため。
     """
-    n = max(0, int(max_add))
-    n_far = max(0, min(n, round(n * max(0.0, min(1.0, far_share)))))
-    n_stale = n - n_far
-    out: list[str] = []
-    seen: set[str] = set()
-    pos = {"far": 0, "stale": 0}
-    lists = {"far": [str(x) for x in far], "stale": [str(x) for x in stale]}
-    quota = {"far": n_far, "stale": n_stale}
-    taken = {"far": 0, "stale": 0}
+    return [
+        i for i, _tag in interleave_orders_tagged(far, stale, max_add=max_add, far_share=far_share)
+    ]
 
-    def take(name: str) -> bool:
-        """その並びから、まだ載っていない次の 1 件を取る。取れたら True。"""
-        src = lists[name]
-        while pos[name] < len(src):
-            cand = src[pos[name]]
-            pos[name] += 1
-            if cand and cand not in seen:
-                seen.add(cand)
-                out.append(cand)
-                taken[name] += 1
-                return True
-        return False
 
-    turn = "far"
-    while len(out) < n:
-        order = (turn, "stale" if turn == "far" else "far")
-        # 枠が残っている側を、いまの番から順に試す。
-        picked = False
-        for name in order:
-            if taken[name] < quota[name] and take(name):
-                picked = True
-                break
-        if not picked:
-            # 枠は使い切った（か尽きた）。残りは取れる側で埋める。
-            if not (take("far") or take("stale")):
-                break
-        turn = "stale" if turn == "far" else "far"
-    return out[:n]
+def note_orders(tagged: "list[tuple[str, str]]") -> None:
+    """関連想起で載せた記録が、どちらの並びから来たかを計測ログに残す（記-a-に・`diffuse_far_share` の材料）。
+
+    申告の `referred`／`important` と突き合わせ、参照された側へ配分を寄せる。
+    """
+    from . import measure
+
+    far_ids = [i for i, t in tagged if t == "遠い"]
+    stale_ids = [i for i, t in tagged if t == "掘り"]
+    measure.record("関連", 遠い=",".join(far_ids) or "-", 掘り=",".join(stale_ids) or "-")

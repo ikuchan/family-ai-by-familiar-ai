@@ -203,3 +203,38 @@ def test_rest_pass_runs_layer_two_with_what_layer_one_wrote():
         ("ps-1", "person_summary"),
     ]
     assert "自己像" in content and "2 行" in content
+
+
+def test_rest_pass_runs_layer_three_after_layer_two_and_reports_it():
+    from unittest.mock import patch
+
+    from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_fold import FoldResult
+    from familiar_agent.loop.rest_self_image import Proposal
+
+    agent = MagicMock()
+    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._observation_perspective = MagicMock(return_value={})
+    order: list[str] = []
+    with (
+        patch(
+            "familiar_agent.loop.rest.fold_since_last_rest",
+            new=AsyncMock(side_effect=lambda a: (order.append("1"), FoldResult(0, 0, 0, 0, 0))[1]),
+        ),
+        patch(
+            "familiar_agent.loop.rest.update_self_image",
+            new=AsyncMock(
+                side_effect=lambda a, m: (
+                    order.append("2"),
+                    Proposal(image=MagicMock(), applied=False, changed=0, reason="材料なし"),
+                )[1]
+            ),
+        ),
+        patch(
+            "familiar_agent.loop.rest.adjust_settings",
+            new=AsyncMock(side_effect=lambda a: (order.append("3"), 2)[1]),
+        ),
+    ):
+        content = asyncio.run(run_rest_pass(agent))
+    assert order == ["1", "2", "3"]
+    assert "設定値を 2 件" in content

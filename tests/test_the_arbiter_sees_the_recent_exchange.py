@@ -44,8 +44,13 @@ def _agent_with_four_exchanges():
 
 
 def test_the_arbiter_and_the_main_llm_get_the_same_frame_with_different_widths(monkeypatch):
-    monkeypatch.setenv("RECENT_EXCHANGES_ARBITER", "2")
-    monkeypatch.setenv("RECENT_EXCHANGES_MAIN", "3")
+    from familiar_agent import config_overrides as co
+
+    # 窓は層 3 の設定値（DB > 既定・env は読まない・記-a-に）。
+    co._delete_all()
+    assert co.save_override("MemoryConfig.recent_exchanges_arbiter", 2)
+    assert co.save_override("MemoryConfig.recent_exchanges_main", 3)
+    co.clear_cache()
     a = _agent_with_four_exchanges()
     ip = InformationProcessing(a)
     seen: dict[str, str] = {}
@@ -72,3 +77,5 @@ def test_the_arbiter_and_the_main_llm_get_the_same_frame_with_different_widths(m
     assert "調べて" in main and "今日は暑いね" in main and "おはよう" not in main
     arb_line = next(line for line in arb.splitlines() if "明日の天気は？" in line)
     assert arb_line in main, "同じ記録が、調停と主LLM で違う形で印字されている"
+    co._delete_all()
+    co.clear_cache()
