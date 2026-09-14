@@ -93,6 +93,7 @@ def _reset_db_singleton() -> None:
     """Close and clear the Database singleton so the next test gets a fresh connection."""
     try:
         import familiar_agent.db as db_module
+
         with db_module._INSTANCE_LOCK:
             if db_module._INSTANCE is not None:
                 try:
@@ -142,3 +143,18 @@ def clean_db():
     yield
     _reset_db_singleton()  # close open transactions before TRUNCATE
     _truncate_all()
+
+
+@pytest.fixture(autouse=True)
+def _measure_log_in_tmp(tmp_path, monkeypatch):
+    """計測ログ（`rest_logs/measure.log`）を試験ごとの一時 dir に向ける。
+
+    層 3（`rest_settings.adjust_settings`）は `measure.read_rows()`／`rotate()` を既定の場所
+    （`~/.cache/familiar-ai`）で呼ぶ。向け先を変えないと、全体テストが**実機の計測ログを読んで
+    改名する**（2026-09-14・19:53 と 20:33 に 2 回起きた）。`setup(base_dir=…)` を自分で呼ぶ
+    試験はそちらが優先される。
+    """
+    from familiar_agent.core import measure
+
+    monkeypatch.setattr(measure, "default_base_dir", lambda: tmp_path)
+    yield

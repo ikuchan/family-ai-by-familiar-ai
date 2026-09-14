@@ -18,6 +18,7 @@ from pathlib import Path
 import contextlib
 from dataclasses import dataclass, replace
 import logging
+import re
 import time
 from datetime import datetime
 from typing import TYPE_CHECKING
@@ -61,8 +62,10 @@ _FULL_ACTIONS = (
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
     "house_rules": ("get_house_rules", "家の決まりを見る"),
     "get_house_rules": ("get_house_rules", "家の決まりを見る"),
-    "family_schedule": ("get_family_schedule", "家族の予定を見る"),
-    "get_family_schedule": ("get_family_schedule", "家族の予定を見る"),
+    # 期間を持つ道具は見出しに期間を入れる（`{days}`）。固定だと `days=2` の呼び直しが
+    # 同じ求めに見えて止まる（2026-09-14 実機・出-p）。
+    "family_schedule": ("get_family_schedule", "家族の予定を見る（{days} 日ぶん）"),
+    "get_family_schedule": ("get_family_schedule", "家族の予定を見る（{days} 日ぶん）"),
     # Notion（知-k）。検索は語を持つので見出しに語を入れる（`_query_label` が組む）。
     "notion_search": ("search_notion", "Notion で「{query}」を探す"),
     "search_notion": ("search_notion", "Notion で「{query}」を探す"),
@@ -109,8 +112,22 @@ def _query_label(action: str, tool_input: dict) -> str:
     if action == "look":
         return f"{tool_input.get('pose', '')}を見に行く"
     if action in _MCP_LOOKUPS:
-        return _MCP_LOOKUPS[action][1].format(query=str(tool_input.get("query", "")).strip())
+        return _MCP_LOOKUPS[action][1].format(
+            query=str(tool_input.get("query", "")).strip(),
+            days=_days_of(tool_input),
+        )
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
+
+
+SCHEDULE_DAYS_MAX = 14  # カレンダー MCP の `days` の上限（`mcp/calendar_mcp/server.py` と同じ）
+
+
+def _days_of(tool_input: dict) -> int:
+    """入力の `days`（無ければ道具の既定 1）。見出しの期間に使う。"""
+    try:
+        return max(1, min(SCHEDULE_DAYS_MAX, int(tool_input.get("days", 1))))
+    except (TypeError, ValueError):
+        return 1
 
 
 def _self_image_text() -> str:
@@ -138,11 +155,20 @@ def _tool_input_for(action: str, query: str) -> dict:
     """調停の決定（動作名と語）を、その道具が受け取る入力へ変える。
 
     語を受け取るのは見出しに `{query}` を持つ道具だけ。見出しが固定の MCP の道具
-    （`family_schedule`・`house_rules`・`journal`）へ `query` を渡すと、サーバーが
+    （`house_rules`・`journal`）へ `query` を渡すと、サーバーが
     `unexpected keyword argument 'query'` で落ちる（2026-09-13 実機・J と K）。その結果が
     「届いた」ことになり、主LLM が正しい引数で呼び直しても同語二度投げ禁止に止められ、
     上限まで空回りして「見つかりませんでした」と答えた。
+
+    期間を持つ `family_schedule` は、調停が `query` に書いた**日数**を `days` にする
+    （候補の文に範囲 1〜14 を書いてある・`arbiter._EXTRA_ACTIONS`）。数字が読めなければ
+    `days` を渡さず道具の既定（今日だけ）に任せる——足りなければ主LLM が別の `days` で
+    呼び直せる（見出しが期間を含むので止まらない）。「明日の予定」を今日 1 日ぶんで引いて
+    答えられなかった 2026-09-14 の実機（出-p）。
     """
+    if action in _MCP_LOOKUPS and "{days}" in _MCP_LOOKUPS[action][1]:
+        m = re.search(r"\d+", query)
+        return {"days": max(1, min(SCHEDULE_DAYS_MAX, int(m.group())))} if m else {}
     if action in _MCP_LOOKUPS and "{query}" not in _MCP_LOOKUPS[action][1]:
         return {}
     return {"query": query}
@@ -884,8 +910,13 @@ class InformationProcessing:
         try:
             await self._run_lookup_body(action, tool_input, query, intent_id, index)
         finally:
+            # 入力も残す（`days=2`・`query=…`）。無いと「何で呼んだか」が後から分からない。
             logger.info(
-                "event-loop 調べもの %s %.2f 秒：%.40s", action, time.monotonic() - started, query
+                "event-loop 調べもの %s %.2f 秒：%.40s（%s）",
+                action,
+                time.monotonic() - started,
+                query,
+                " ".join(f"{k}={str(v)[:40]}" for k, v in tool_input.items()) or "入力なし",
             )
 
     async def _run_lookup_body(
