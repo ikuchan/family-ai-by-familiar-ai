@@ -136,25 +136,6 @@ _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:\s+(.+))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 
 # Day summary prompt — condense a day's observations into a diary-like entry
-_DAY_SUMMARY_PROMPT = """\
-You are writing a diary entry about this day from your own first-person memory.
-Recall the flow of the day: what happened in the morning, then afternoon, then evening.
-Capture how your feelings changed as events unfolded — what made you happy, 
-what frustrated you, what surprised you, what lingered in your mind.
-
-Rules:
-- Write in first person, as someone remembering their own lived day
-- Follow the chronological arc: morning → afternoon → evening
-- Include specific details: what you saw, who you talked to, what was said
-- Show emotional shifts: how one event changed how you felt about the next
-- Do NOT list events — weave them into a flowing narrative
-- Do NOT include titles, headers, or markdown formatting
-- Start directly with the first sentence of the entry
-- 5-8 sentences. Write in {lang}.
-
-{observations}
-
-Write just the diary entry."""
 
 # Compaction summary prompt — condense old messages into a short recap
 _COMPACT_PROMPT = """\
@@ -1298,55 +1279,6 @@ class EmbodiedAgent:
             return f"[system: last database backup was {int(age_hours)}h ago — may need attention]"
         return ""
 
-    async def _generate_day_summary(self, date: str) -> None:
-        """Generate and save a day summary for the given date."""
-        try:
-            observations = await asyncio.to_thread(self._memory.get_observations_for_date, date, 50)
-            if not observations:
-                logger.info("No observations for %s, skipping day summary", date)
-                return
-
-            # Build a concise transcript for the LLM — keep it short
-            lines = []
-            for obs in observations:
-                emotion = f" [{obs['emotion']}]" if obs["emotion"] != "neutral" else ""
-                lines.append(f"  {obs['time']} ({obs['kind']}){emotion}: {obs['content'][:150]}")
-            transcript = "\n".join(lines)
-            logger.info("Generating day summary for %s (%d observations)", date, len(observations))
-
-            summary = await asyncio.wait_for(
-                self._utility_backend.complete(
-                    _DAY_SUMMARY_PROMPT.format(
-                        lang=_t("summary_lang"),
-                        observations=transcript,
-                    ),
-                    max_tokens=400,
-                ),
-                timeout=30.0,
-            )
-            if summary:
-                # **その日のこととして残す。** 日づけは MI の時刻が言う（口が `override_date` へ
-                # 移す）。書いた時刻ではない。
-                await self._oif.write(
-                    MI(
-                        id="",
-                        content=summary,
-                        timestamp=datetime.fromisoformat(date),
-                        direction="記憶",
-                    ),
-                    writer_id=AGENT_SELF_ID,
-                    now=False,
-                )
-                logger.info("Day summary generated for %s: %s", date, summary[:80])
-                # 時間減衰は想起の t 軸（time_score）へ一元化したため、importance の
-                # 日次減衰は行わない（Phase 2 P-1・[D-想起合成]。a 軸＝(a0,n) はイベント駆動）。
-            else:
-                logger.warning("Day summary for %s: LLM returned empty response", date)
-        except asyncio.TimeoutError:
-            logger.warning("Day summary for %s timed out (30s)", date)
-        except Exception as e:
-            logger.warning("Failed to generate day summary for %s: %s", date, e)
-
     async def _refresh_capability_summary(self) -> None:
         """Ask the LLM to read capabilities.yaml and write a first-person summary.
 
@@ -1590,40 +1522,6 @@ class EmbodiedAgent:
         """
         return self._oif.health().failed
 
-    async def _write_today_narrative(self) -> None:
-        """Write a one-sentence self-description for today's session.
-
-        This is Kokone's diary entry — "who I was today." Read back next session
-        as the felt thread of temporal continuity: ウチはここにいた、今もいる.
-        """
-        if self._turn_count == 0:
-            return  # No conversation happened — nothing to narrate
-        try:
-            today_memories = await self._oif.recall(Cue(direction="記憶"), View(k=1))
-            if today_memories:
-                summary_hint = today_memories[0].mi.content[:200]
-            else:
-                # Fall back to recent observations
-                recent = await self._oif.recall(Cue(), View(k=5))
-                summary_hint = " / ".join(r.mi.content[:60] for r in recent[:3])
-
-            mood, _ = self._decayed_mood()
-            prompt = (
-                f"今日起きたこと（要約）:\n{summary_hint}\n\n"
-                "ウチ（ここね）として、今日という日を一文で書いて。"
-                "一人称は「ウチ」、50文字以内、過去形。"
-                "感情や気づきを含めて。"
-            )
-            text = await asyncio.wait_for(
-                self._utility_backend.complete(prompt, max_tokens=120),
-                timeout=15.0,
-            )
-            if text and text.strip():
-                self._self_narrative.write(text.strip(), mood=mood)
-                logger.info("Self-narrative written: %s", text.strip()[:60])
-        except Exception as e:
-            logger.warning("Could not write today's self narrative: %s", e)
-
     async def _connected_onvif(self):
         """ONVIF を繋いでから返す。動体イベントの購読先。
 
@@ -1794,18 +1692,8 @@ class EmbodiedAgent:
 
         await self._drain_background_tasks()
 
-        # Write today's self-narrative before shutting down.
-        await self._write_today_narrative()
-
-        # Generate (or refresh) today's day summary before shutting down.
-        # Skipped when no separate utility backend is configured.
-        if self._utility_backend is not self.backend:
-            try:
-                today = datetime.now().strftime("%Y-%m-%d")
-                await asyncio.to_thread(self._memory.delete_day_summaries_for_date, today)
-                await self._generate_day_summary(today)
-            except Exception as e:
-                logger.warning("Failed to generate today's day summary on shutdown: %s", e)
+        # 終了時の日次要約と日記は撤去した（2026-09-14・記-a-ろ-は）。日次の畳み込みは
+        # REST 内省の層 1（`loop/rest_fold.py`）が誰も居ない晩に行う。
         memory_worker = getattr(self, "_memory_worker", None)
         if memory_worker:
             try:

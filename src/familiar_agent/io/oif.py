@@ -36,6 +36,7 @@ _KIND_OF_DIRECTION: dict[str, str] = {
     "内省": "self_model",
     "好奇心": "curiosity",
     "記憶": "day_summary",
+    "人物": "person_summary",  # 関係のまとめ（その日にその人について分かったこと・記-a-ろ-は）
 }
 _DEFAULT_KIND = "observation"
 
@@ -396,6 +397,23 @@ class OIF:
         got = self._memory.exchange_roles_of(list(obs_ids))
         logger.debug("OIF roles ← %d件 → %d件", len(obs_ids), len(got))
         return got
+
+    def since_last_rest(self, directions: "tuple[str, ...]") -> list[MI]:
+        """日次の畳み込みの材料（記-a-ろ-は）：前回の内省より後・指定の向き・畳まれていない・核でない。古い順。"""
+        rows = self._memory.observations_since_last_rest(tuple(directions))
+        out = [
+            MI(
+                id=str(r.get("id", "")),
+                obs_id=str(r.get("id", "")),
+                content=str(r.get("content", "")),
+                timestamp=r.get("timestamp"),
+                direction=str(r.get("direction", "")),
+                emotion=str(r.get("emotion", "neutral")),
+            )
+            for r in rows
+        ]
+        logger.debug("OIF since_last_rest ← %s → %d件", "/".join(directions), len(out))
+        return out
 
     def latest_origins(self, n: int) -> list[str]:
         """時系列で新しい順に、やりとりの起点を n 件（記-h）。

@@ -33,7 +33,6 @@ def test_public_entry_points_are_still_reachable() -> None:
         "get_dates_with_observations",
         "get_dates_with_summaries",
         "get_observations_for_date",
-        "delete_day_summaries_for_date",
         "recall_on_this_day_async",
         "get_earliest_date_async",
     ):
@@ -67,14 +66,20 @@ def test_reading_is_owned_by_the_store_layer() -> None:
     from familiar_agent.store.observations import ObservationStore
 
     src = pathlib.Path("src/familiar_agent/tools/memory.py").read_text()
-    for name in ("_read_observations_by_kind", "_read_observations_by_situated",
-                 "_read_supersede_chain"):
+    for name in (
+        "_read_observations_by_kind",
+        "_read_observations_by_situated",
+        "_read_supersede_chain",
+    ):
         assert hasattr(ObservationStore, name), f"{name} が層に無い"
-        assert not re.search(rf"^    (?:async )?def {name}\b", src, re.M), \
+        assert not re.search(rf"^    (?:async )?def {name}\b", src, re.M), (
             f"{name} が memory.py にも定義されている（二重実装）"
+        )
 
     # 日付系は外から呼ばれるので委譲が残る。ただし SQL は持たない。
     for name in ("get_dates_with_observations", "recall_on_this_day"):
-        m = re.search(rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S)
+        m = re.search(
+            rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S
+        )
         assert m, f"{name} の委譲が要る（外から呼ばれる）"
         assert "cur.execute" not in m.group(0), f"{name} の SQL が memory.py に残っている"

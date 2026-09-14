@@ -360,6 +360,7 @@ SUBJECT_PHRASE: dict = {
     "情動": "{名}の内から起きたこと",
     "機器": "{名}のまわりで起きたこと",
     "記憶": "その日のまとめ",
+    "人物": "{名}についてのまとめ",
     "好奇心": "{名}が気になったこと",
     "内省": "{名}のふり返り",
 }
@@ -508,6 +509,10 @@ class ObservationMemory:
         """その記録たちが `やりとり` で取っている役割（起点・つなぎ・答え・要約・…）。"""
         return RelationStore(self._ctx).roles_of(list(obs_ids), KIND_EXCHANGE)
 
+    def observations_since_last_rest(self, directions: "tuple[str, ...]") -> list[dict]:
+        """日次の畳み込みの材料（記-a-ろ-は・店へ委譲）。"""
+        return self._observations.since_last_rest(tuple(directions))
+
     def latest_exchange_origins(self, n: int) -> list[str]:
         """時系列で新しい順に、やりとりの起点を n 件（記-h・辺は見ない）。"""
         return RelationStore(self._ctx).latest_origins(int(n), KIND_EXCHANGE)
@@ -546,9 +551,6 @@ class ObservationMemory:
 
     def get_observations_for_date(self, date: "str", limit: "int" = 50) -> "list[dict]":
         return self._observations.get_observations_for_date(date, limit)
-
-    def delete_day_summaries_for_date(self, date: "str") -> "int":
-        return self._observations.delete_day_summaries_for_date(date)
 
     def recall_on_this_day(self, month: "int", day: "int", n: "int" = 5) -> "list[dict]":
         return self._observations.recall_on_this_day(month, day, n)

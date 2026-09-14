@@ -39,9 +39,13 @@ def _run_until(firing, *, presence, predicate, timeout_ticks: int = 400):
     rest_pass = AsyncMock(return_value="内省した")
 
     async def scenario():
-        with patch("familiar_agent.loop.tonic.step_drives",
-                   new=AsyncMock(return_value=(firing, AiDrivers()))), \
-             patch("familiar_agent.loop.tonic.run_rest_pass", new=rest_pass):
+        with (
+            patch(
+                "familiar_agent.loop.tonic.step_drives",
+                new=AsyncMock(return_value=(firing, AiDrivers())),
+            ),
+            patch("familiar_agent.loop.tonic.run_rest_pass", new=rest_pass),
+        ):
             t = Tonic(ip, agent=MagicMock(), period=0.01, presence=presence)
             t.start()
             for _ in range(timeout_ticks):
@@ -57,17 +61,19 @@ def _run_until(firing, *, presence, predicate, timeout_ticks: int = 400):
 def test_rest_starts_the_introspection_pass_when_nobody_is_present():
     """誰も居ないときの REST 発火は、自発ターンではなく内省パスへ入る。"""
     ip, rest_pass = _run_until(
-        _REST, presence=_sensor(occupied=False),
+        _REST,
+        presence=_sensor(occupied=False),
         predicate=lambda ip, rp: rp.await_count > 0,
     )
     assert rest_pass.await_count == 1
-    assert not ip.push_affect.called        # 人へ話しかける自発ターンにはしない
+    assert not ip.push_affect.called  # 人へ話しかける自発ターンにはしない
 
 
 def test_rest_still_speaks_when_someone_is_present():
     """誰か居るときの REST 発火は従来どおり。「休みたい」と伝えるのは自然な振る舞い。"""
     ip, rest_pass = _run_until(
-        _REST, presence=_sensor(occupied=True),
+        _REST,
+        presence=_sensor(occupied=True),
         predicate=lambda ip, rp: ip.push_affect.call_count > 0,
     )
     assert ip.push_affect.call_args.args[0] == "REST"
@@ -81,7 +87,8 @@ def test_rest_speaks_when_there_is_no_presence_sensor():
     落ちて、人が居ても話しかけなくなる。
     """
     ip, rest_pass = _run_until(
-        _REST, presence=None,
+        _REST,
+        presence=None,
         predicate=lambda ip, rp: ip.push_affect.call_count > 0,
     )
     assert ip.push_affect.call_args.args[0] == "REST"
@@ -91,23 +98,70 @@ def test_rest_speaks_when_there_is_no_presence_sensor():
 def test_other_drives_are_unaffected_by_absence():
     """REST 以外は、誰も居なくても従来どおり QA へ積む（内省は REST の役目）。"""
     ip, rest_pass = _run_until(
-        _SEEKING, presence=_sensor(occupied=False),
+        _SEEKING,
+        presence=_sensor(occupied=False),
         predicate=lambda ip, rp: ip.push_affect.call_count > 0,
     )
     assert ip.push_affect.call_args.args[0] == "SEEKING"
     assert rest_pass.await_count == 0
 
 
-def test_rest_pass_records_what_it_did():
-    """内省パスは、何をしたかを O に残す（記録が無いと回ったことを確かめられない）。"""
+def test_rest_pass_folds_the_day_and_records_what_it_did():
+    """内省パスは層 1 の畳み込み（記-a-ろ-は）を呼び、何をしたかを O に残す。"""
+    from unittest.mock import patch
+
     from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_fold import FoldResult
 
     agent = MagicMock()
     agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
     agent._observation_perspective = MagicMock(return_value={})
 
-    asyncio.run(run_rest_pass(agent))
+    with patch(
+        "familiar_agent.loop.rest.fold_since_last_rest",
+        new=AsyncMock(
+            return_value=FoldResult(materials=12, batches=1, written=3, folded=12, skipped=0)
+        ),
+    ) as fold:
+        content = asyncio.run(run_rest_pass(agent))
 
+    fold.assert_awaited_once()
     assert agent._memory.save_async_with_id.await_count == 1
-    content = agent._memory.save_async_with_id.call_args.args[0]
-    assert "内省" in content
+    assert "12 件を畳" in content and "3" in content
+    assert agent._memory.save_async_with_id.call_args.kwargs["direction"] == "内省"
+
+
+def test_rest_pass_says_when_there_was_nothing_to_fold():
+    from unittest.mock import patch
+
+    from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_fold import FoldResult
+
+    agent = MagicMock()
+    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._observation_perspective = MagicMock(return_value={})
+    with patch(
+        "familiar_agent.loop.rest.fold_since_last_rest",
+        new=AsyncMock(
+            return_value=FoldResult(materials=0, batches=0, written=0, folded=0, skipped=0)
+        ),
+    ):
+        content = asyncio.run(run_rest_pass(agent))
+    assert "畳むものが無" in content
+
+
+def test_a_failing_fold_does_not_break_the_pass():
+    """畳み込みが落ちても内省パスは記録を残して終わる（次の晩に持ち越す）。"""
+    from unittest.mock import patch
+
+    from familiar_agent.loop.rest import run_rest_pass
+
+    agent = MagicMock()
+    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._observation_perspective = MagicMock(return_value={})
+    with patch(
+        "familiar_agent.loop.rest.fold_since_last_rest",
+        new=AsyncMock(side_effect=RuntimeError("LLM が落ちた")),
+    ):
+        content = asyncio.run(run_rest_pass(agent))
+    assert "畳めなかった" in content
