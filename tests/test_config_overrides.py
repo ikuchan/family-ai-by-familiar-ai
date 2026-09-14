@@ -60,9 +60,13 @@ def test_an_unregistered_field_is_rejected():
 
 def test_connection_settings_are_protected():
     """接続情報は内省に触らせない。壊れると機器へ繋がらず、復旧に人手が要る。"""
-    for field in ("CameraConfig.password", "TTSConfig.elevenlabs_api_key",
-                  "MobilityConfig.api_secret", "CameraConfig.host",
-                  "CameraConfig.username"):
+    for field in (
+        "CameraConfig.password",
+        "TTSConfig.elevenlabs_api_key",
+        "MobilityConfig.api_secret",
+        "CameraConfig.host",
+        "CameraConfig.username",
+    ):
         assert is_protected(field) is True, field
         assert save_override(field, "x") is False, field
     assert is_protected(_KEY) is False
@@ -78,3 +82,38 @@ def test_an_explicit_env_setting_wins_over_the_agents_adjustment():
 def test_the_default_is_used_when_nothing_is_adjusted():
     with patch.dict(os.environ, {}, clear=True):
         assert MemoryConfig().distill_min_a0 == pytest.approx(0.47)
+
+
+# ── 内部状態の言葉の境目は層 3 の設定値（情-f・2026-09-14） ────────────────────
+
+
+def test_the_inner_state_boundaries_are_registered_with_ranges():
+    """気分 4 軸 × 4 分位＝16 個と、欲求 5 軸の p70＝5 個が、範囲つきで登録されている。"""
+    from familiar_agent.config_overrides import is_protected
+
+    keys = [k for k in RANGES if k.startswith("InnerStateConfig.")]
+    assert len(keys) == 21, keys
+    for k in keys:
+        lo, hi = RANGES[k]
+        assert 0.0 <= lo < hi <= 1.0, k
+        assert not is_protected(k), k
+
+
+def test_the_inner_state_config_reads_db_over_default_and_ignores_env(monkeypatch):
+    """4 層の外形：登録した設定値は DB > 既定。`.env` は読まない（あれば WARNING を出して使わない）。"""
+
+    from familiar_agent import config_overrides as co
+    from familiar_agent.config import InnerStateConfig
+
+    co.clear_cache()
+    co._delete_all()
+    assert InnerStateConfig().mood_p == (0.10, 0.10, 0.25, 0.35)
+    assert co.save_override("InnerStateConfig.mood_p_p70", 0.30)
+    co.clear_cache()
+    assert InnerStateConfig().mood_p == (0.10, 0.10, 0.30, 0.35)
+    # env に同名があっても使わない。
+    monkeypatch.setenv("INNER_STATE_MOOD_P_P70", "0.99")
+    co.clear_cache()
+    assert InnerStateConfig().mood_p[2] == 0.30
+    co._delete_all()
+    co.clear_cache()

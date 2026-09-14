@@ -34,6 +34,18 @@ RANGES: dict[str, tuple[float, float]] = {
     # 蒸留の材料から外す新規性の下限。実測の分布は 最小 0.143・p10 0.469・p25 0.604 で、
     # 0.20 は「ほぼ何も外さない」、0.70 は「4割近く外す」に当たる。この外側を選ぶ理由が無い。
     "MemoryConfig.distill_min_a0": (0.20, 0.70),
+    # 内部状態の言葉の境目（情-f・2026-09-14）。気分は軸ごとの分位 (p10, p30, p70, p90)、欲求は
+    # 軸ごとの p70。いずれも 0〜1 の PAD／欲求の値域そのもの。REST 内省が等頻度を保つように
+    # 合わせ直す。範囲は値域の全体（分布が動けば境目もどこへでも動く）。
+    **{
+        f"InnerStateConfig.mood_{axis}_{q}": (0.0, 1.0)
+        for axis in ("p", "pn", "a", "dom")
+        for q in ("p10", "p30", "p70", "p90")
+    },
+    **{
+        f"InnerStateConfig.drive_p70_{axis}": (0.0, 1.0)
+        for axis in ("seeking", "rest", "bond", "safety", "esteem")
+    },
 }
 
 # 接続情報を表す語。フィールド名がこれで終わる／これを含むものは調整できない。

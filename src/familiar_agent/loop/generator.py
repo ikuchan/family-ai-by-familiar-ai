@@ -110,18 +110,51 @@ def _iter_ctx(*, chain: int, max_chain: int, thinking_round: int, capped: bool, 
     return text
 
 
-def _pi_ctx() -> str:
-    """mood/drive を PI として定性注入する（生値は出さない）。DB 失敗は空で degrade。"""
+def _pi_ctx(req) -> str:
+    """mood/drive を言葉にして PI として渡す（情-f）。生の数値はプロンプトに出さず、計測ログへ。
+
+    気分は 4 軸 × 5 段（軸ごとの実測分位）、欲求は発火した軸を明示し、ほかは p70 超だけ弱く
+    （`core/inner_state`）。境目は `InnerStateConfig`（層 3 の設定値・DB > 既定）。以前の
+    12 点表への最近傍 1 語と固定閾値の低・中・高は、実測で情報量 0 だった（15/15 が neutral）。
+    DB 失敗は空で degrade。
+    """
     try:
-        from ..config import DriveConfig
-        from ..core.drive_autonomy import drive_snapshot
+        from ..config import InnerStateConfig
+        from ..core import inner_state, measure
         from ..drive_register import load_current_drives
-        from ..emotion_pad import label_from_pad
         from ..mood_register import load_current_mood
 
         mood = load_current_mood()
         drives = load_current_drives()
-        return f"[内部状態(PI)] 気分: {label_from_pad(mood)} / 欲求: {drive_snapshot(drives, DriveConfig())}"
+        cfg = InnerStateConfig()
+        bands = inner_state.MoodBands(p=cfg.mood_p, pn=cfg.mood_pn, a=cfg.mood_a, dom=cfg.mood_dom)
+        p70 = inner_state.DriveP70(
+            seeking=cfg.drive_p70_seeking,
+            rest=cfg.drive_p70_rest,
+            bond=cfg.drive_p70_bond,
+            safety=cfg.drive_p70_safety,
+            esteem=cfg.drive_p70_esteem,
+        )
+        fired = getattr(req, "fired_axis", "") or ""
+        # 数値は計測ログにだけ（REST 内省が境目を等頻度に合わせ直す材料・記-i）。
+        if mood is not None:
+            measure.record(
+                "気分",
+                P=f"{mood.p:.2f}",
+                Pn=f"{mood.pn:.2f}",
+                A=f"{mood.a:.2f}",
+                Dom=f"{mood.dom:.2f}",
+            )
+        measure.record(
+            "欲求",
+            SEEKING=f"{drives.seeking:.2f}",
+            REST=f"{drives.rest:.2f}",
+            BOND=f"{drives.bond:.2f}",
+            SAFETY=f"{drives.safety:.2f}",
+            ESTEEM=f"{drives.esteem:.2f}",
+            発火=fired or "-",
+        )
+        return inner_state.pi_line(mood, drives, fired=fired, bands=bands, p70=p70)
     except Exception as e:  # noqa: BLE001
         logger.debug("PI ctx unavailable: %s", e)
         return ""
