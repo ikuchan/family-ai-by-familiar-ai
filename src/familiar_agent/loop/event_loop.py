@@ -32,7 +32,8 @@ from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
-from ..core import measure
+from ..core import measure, parsing
+from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
@@ -1191,12 +1192,22 @@ class InformationProcessing:
         "journal": lambda ip: ip._dif.tool_defs("get_journal"),
     }
 
+    def _gated(self, defs: list[dict]) -> list[dict]:
+        """話者ゲート（知-f）。主LLM の道具と調停の候補は**同じ出口**を通る。"""
+        return gate_personal_tools(
+            defs,
+            speaker=self._current_speaker_name(),
+            members=parsing.parse_family_md(
+                md if isinstance(md := getattr(self._agent, "_family_md", ""), str) else ""
+            ),
+        )
+
     def _extra_actions(self) -> tuple[str, ...]:
         """調停に載せる MCP の同期の道具。繋がっているものだけ、かつこの求めで失敗していないもの。"""
         return tuple(
             a
             for a in ("house_rules", "family_schedule", "notion_search", "journal")
-            if a not in self._req.failed_actions and self._ACTIONS[a](self)
+            if a not in self._req.failed_actions and self._gated(self._ACTIONS[a](self))
         )
 
     def _action_of_query(self, query: str) -> str:
@@ -1237,6 +1248,9 @@ class InformationProcessing:
                 continue
             with contextlib.suppress(Exception):
                 defs.extend(build(self))
+        # 話者ゲート（知-f）。個人ティアの道具はその人のターン以外では存在しない。
+        # `_ACTIONS` にどう足されても、ここを通る。
+        defs = self._gated(defs)
         if cache_tools and defs:
             # **共有されている定義を書き換えない。** `get_tool_definitions()` は同じ辞書を
             # 返すことがあり、そこへ印を付けると次に取ったときも残る（`cache_tools=False`

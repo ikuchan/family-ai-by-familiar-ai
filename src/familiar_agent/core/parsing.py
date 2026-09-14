@@ -36,18 +36,22 @@ def parse_me_names(text: str) -> list[str]:
 
 
 def parse_family_md(text: str) -> list[dict]:
-    """Parse FAMILY.md into a list of {name, display_name} dicts.
+    """Parse FAMILY.md into a list of {name, display_name, latin} dicts.
 
     Supports the FAMILY-template.md format:
       ## Section heading
       - **名前**：田中太郎
       - **呼び方**：お父さん
+      - **英字**：Taro Tanaka   → latin="taro"（無ければ ""）
     """
     if not text:
         return []
 
     _NAME_RE = re.compile(r"[-*]\s*\*{0,2}名前\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
     _CALL_RE = re.compile(r"[-*]\s*\*{0,2}呼び方\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+    # 英字（`Yusuke Ikunaga`）。先頭の語を小文字にした `yusuke` が個人ティアの道具名の鍵
+    # （`ask_vault_yusuke`・知-f）。書いていない人は個人ティアの道具を持たない。
+    _LATIN_RE = re.compile(r"[-*]\s*\*{0,2}英字\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
     _TEMPLATE_SKIP = re.compile(r"^[（(].*[）)]$")
 
     members: list[dict] = []
@@ -64,7 +68,12 @@ def parse_family_md(text: str) -> list[dict]:
         display_name = call_m.group(1).strip() if call_m else ""
         if display_name and _TEMPLATE_SKIP.match(display_name):
             display_name = ""
-        members.append({"name": name, "display_name": display_name or name})
+        latin_m = _LATIN_RE.search(section)
+        latin = latin_m.group(1).strip() if latin_m else ""
+        if _TEMPLATE_SKIP.match(latin):
+            latin = ""
+        latin = latin.split()[0].lower() if latin else ""
+        members.append({"name": name, "display_name": display_name or name, "latin": latin})
     return members
 
 
