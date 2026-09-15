@@ -517,6 +517,14 @@ class ObservationMemory:
         """前回の内省以降の記録（記-a-ろ-ろ・店へ委譲）。"""
         return self._observations.fresh_since_last_rest()
 
+    def core_records(self) -> list[dict]:
+        """核の出来事（記-a-ろ-に・店へ委譲）。"""
+        return self._observations.core_records()
+
+    def raise_groundedness(self, obs_id: str, n: int) -> int:
+        """全ての面の根づきを少なくとも n に（記-a-ろ-に・店へ委譲）。"""
+        return self._observations.raise_groundedness(obs_id, int(n))
+
     def decay_groundedness(self, delta: int) -> int:
         """参照されなかった核の根づきを減らす（記-a-ろ-ろ・店へ委譲）。"""
         return self._observations.decay_groundedness(int(delta))

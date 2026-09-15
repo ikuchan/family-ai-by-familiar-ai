@@ -104,6 +104,6 @@ def test_the_surface_got_narrower():
     `observations_since_last_rest` を足した（畳み込みの材料）。数は据え置き。
     2026-09-14 に環-d で legacy の包み 13 面を落とし **54 種**。
     2026-09-15 に記-a-ろ-ろ で層 1 の計測と減りの口 3 面（`core_faces`・`fresh_since_last_rest`・
-    `decay_groundedness`）を足し **57 種**。
+    `decay_groundedness`）を足し **57 種**。同日 記-a-ろ-に で `core_records`・`raise_groundedness` を足し **59 種**。
     """
-    assert len(_public_faces()) <= 57
+    assert len(_public_faces()) <= 59

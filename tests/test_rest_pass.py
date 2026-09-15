@@ -336,3 +336,65 @@ def test_rest_pass_measures_and_decays_before_folding():
         content = asyncio.run(run_rest_pass(agent))
     assert order == ["計測", "1"]
     assert "Δ=1 で根づきを 2 件下げた" in content
+
+
+def test_rest_pass_folds_the_core_after_the_decay_and_feeds_layer_two():
+    """順は 計測→減り→核→①→層 2。核の産物（まとめ）も層 2 の材料に入る（記-a-ろ-に）。"""
+    from unittest.mock import patch
+
+    from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_core import CoreResult
+    from familiar_agent.loop.rest_fold import FoldResult, Written
+    from familiar_agent.loop.rest_self_image import Proposal
+
+    agent = MagicMock()
+    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._observation_perspective = MagicMock(return_value={})
+    order: list[str] = []
+    core = CoreResult(
+        identical_groups=1,
+        identical_folded=3,
+        total_bits=9.0,
+        excess_bits=1.0,
+        bundles=1,
+        written=1,
+        folded=3,
+        records=(Written("cs-1", "core_summary", "パパとよく話した。"),),
+    )
+    with (
+        patch(
+            "familiar_agent.loop.rest.measure_and_decay",
+            new=AsyncMock(side_effect=lambda a: (order.append("計測"), "…")[1]),
+        ),
+        patch(
+            "familiar_agent.loop.rest.fold_core",
+            new=AsyncMock(side_effect=lambda a: (order.append("核"), core)[1]),
+        ),
+        patch(
+            "familiar_agent.loop.rest.fold_since_last_rest",
+            new=AsyncMock(
+                side_effect=lambda a: (
+                    order.append("1"),
+                    FoldResult(1, 1, 1, 1, 0, (Written("ep-1", "day_summary", "x"),)),
+                )[1]
+            ),
+        ),
+        patch(
+            "familiar_agent.loop.rest.update_self_image",
+            new=AsyncMock(
+                side_effect=lambda a, m: (
+                    order.append("2"),
+                    Proposal(image=MagicMock(), applied=False, changed=0, reason="材料なし"),
+                )[1]
+            ),
+        ) as upd,
+        patch("familiar_agent.loop.rest.adjust_settings", new=AsyncMock(return_value=0)),
+    ):
+        content = asyncio.run(run_rest_pass(agent))
+    assert order == ["計測", "核", "1", "2"]
+    materials = upd.await_args.args[1]
+    assert [(m.obs_id, m.kind) for m in materials] == [
+        ("cs-1", "core_summary"),
+        ("ep-1", "day_summary"),
+    ]
+    assert "同じ記録 3 件" in content and "固めて 3 件" in content

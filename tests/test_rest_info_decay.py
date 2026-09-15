@@ -185,3 +185,68 @@ def test_decay_of_zero_touches_nothing() -> None:
         conn.close()
     assert _memory()._observations.decay_groundedness(0) == 0
     assert _facet_row(i)["groundedness_n"] == 4
+
+
+# ---- ②核の固めの材料（記-a-ろ-に） ----------------------------------------------
+
+
+def test_core_records_are_one_row_per_event_with_the_strongest_face_vector() -> None:
+    from familiar_agent.io.oif import OIF
+
+    a, b, skip1, skip2 = (str(uuid.uuid4()) for _ in range(4))
+    other = str(uuid.uuid4())
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
+                "VALUES (%s, %s, %s, now()::text, now()::text)",
+                (other, f"人_{other[:8]}", "人"),
+            )
+            now = datetime.now(timezone.utc)
+            _plant(cur, a, "核の出来事 あ", now - timedelta(days=2))
+            _plant(cur, b, "核の出来事 い", now - timedelta(days=1), direction="求め")
+            _plant(cur, skip1, "内省の記録", now, direction="内省")
+            _plant(cur, skip2, "保留の記録", now, direction="保留")
+            _facet(cur, a, AGENT_SELF_ID, n=1)
+            _facet(cur, a, other, n=3)
+            _facet(cur, b, AGENT_SELF_ID, n=1)
+            _facet(cur, skip1, AGENT_SELF_ID, n=2)
+            _facet(cur, skip2, AGENT_SELF_ID, n=2)
+    finally:
+        conn.close()
+    rows = _memory()._observations.core_records()
+    by = {r["obs_id"]: r for r in rows}
+    assert set(by) >= {a, b} and skip1 not in by and skip2 not in by
+    assert by[a]["groundedness_n"] == 3 and set(by[a]["person_ids"]) == {AGENT_SELF_ID, other}
+    assert by[a]["content"] == "核の出来事 あ" and by[a]["direction"] == "発話"
+    assert len(by[a]["vector"]) == 1024 and by[b]["direction"] == "求め"
+    # OIF の口も同じ形（列名を変えない）
+    assert OIF.core_records.__doc__
+
+
+def test_raise_groundedness_lifts_every_face_of_the_event_but_never_lowers() -> None:
+    i = str(uuid.uuid4())
+    other = str(uuid.uuid4())
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
+                "VALUES (%s, %s, %s, now()::text, now()::text)",
+                (other, f"人_{other[:8]}", "人"),
+            )
+            _plant(cur, i, "根づきを引き継ぐ", datetime.now(timezone.utc))
+            _facet(cur, i, AGENT_SELF_ID, n=0)
+            _facet(cur, i, other, n=5)
+    finally:
+        conn.close()
+    assert _memory()._observations.raise_groundedness(i, 3) == 1  # 上がった面の数
+    assert _facet_row(i)["groundedness_n"] == 3
+    assert _facet_row(i, other)["groundedness_n"] == 5
+
+
+def test_the_summary_direction_maps_to_core_summary_kind() -> None:
+    from familiar_agent.io.oif import _KIND_OF_DIRECTION
+
+    assert _KIND_OF_DIRECTION["まとめ"] == "core_summary"
