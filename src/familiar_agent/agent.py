@@ -356,6 +356,7 @@ class EmbodiedAgent:
         memories: "list[Recalled] | None" = None,
         exchange_id: "int | None" = None,
         extra_cooccurring_ids: "list[str] | None" = None,
+        human: bool = False,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
@@ -460,9 +461,11 @@ class EmbodiedAgent:
                 memories, list(_new_ids or []) + list(extra_cooccurring_ids or [])
             )
 
-            if user_input:
+            # 会話として数えるのは**人の発話が起点**のときだけ（情-g・2026-09-15）。自発ターンの
+            # cue も `user_input` に入るので、これで見分けないとひとりの回数が毎ターン 0 へ戻る。
+            # 人の印（`_last_human_at`）は入口（`push_utterance`）が付ける。ここでは書かない。
+            if human and user_input:
                 self._relationship.record_conversation()
-                self._last_human_at = time.time()
 
         except Exception as exc:  # noqa: BLE001
             logger.warning("Post-response pipeline failed: %s", exc)

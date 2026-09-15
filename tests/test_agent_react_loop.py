@@ -285,6 +285,7 @@ async def test_post_response_pipeline_records_the_conversation_without_the_remov
         observation_action_name=None,
         observation_action_input=None,
         companion_mood="engaged",
+        human=True,  # 人の発話が起点（情-g）
     )
     agent._relationship.record_conversation.assert_called_once()
 
