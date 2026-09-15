@@ -83,9 +83,13 @@ def _added_lines(before: str, after: str) -> list[str]:
     return [ln for ln in after.splitlines() if ln.strip() and ln not in old]
 
 
-async def check_notes(agent) -> bool:
-    """1 回読む。変わっていて求めを積んだら True。道具が無い・失敗・変化なしは False。"""
-    dif = agent._dif
+async def check_notes(ip) -> bool:
+    """1 回読む。変わっていて求めを積んだら True。道具が無い・失敗・変化なしは False。
+
+    `ip` はループ（`InformationProcessing`）。DIF はループが持つ（`agent` には無い——実機で
+    `'EmbodiedAgent' object has no attribute '_dif'` と落ちた・2026-09-15）。
+    """
+    dif = ip._dif
     if not dif.tool_defs(TOOL):
         return False  # 繋がっていない（相手側がまだ足していない）
     text, ok = await dif.call_tool(TOOL, {})

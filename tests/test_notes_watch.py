@@ -17,11 +17,18 @@ NOTE2 = "【いま】2026-09-15 火曜日 16:00（JST）\n【出典】10_Wiki/�
 
 
 def _agent(reply: str, ok: bool = True, connected: bool = True):
-    a = MagicMock()
-    a._dif.call_tool = AsyncMock(return_value=(reply, ok))
-    a._dif.tool_defs = MagicMock(return_value=[{"name": "get_notes_for_paju"}] if connected else [])
-    a._dif.device = MagicMock()
-    return a
+    """ループ（`InformationProcessing`）の偽物。DIF はループが持つ（agent には無い）。"""
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from tests.test_event_loop import _agent as _real_agent
+
+    ip = InformationProcessing(_real_agent(stream_returns=[]))
+    ip._dif = MagicMock()
+    ip._dif.call_tool = AsyncMock(return_value=(reply, ok))
+    ip._dif.tool_defs = MagicMock(
+        return_value=[{"name": "get_notes_for_paju"}] if connected else []
+    )
+    ip._dif.device = MagicMock()
+    return ip
 
 
 def test_the_body_is_what_is_compared_not_the_clock_header():
@@ -69,6 +76,11 @@ def test_the_tonic_reads_once_an_hour():
     from familiar_agent.loop.tonic import Tonic
 
     assert notes_watch.INTERVAL_SEC == 3600.0
+    # T はループ（`_ip`）を渡す。agent には DIF が無い（実機で落ちた・2026-09-15）。
+    import inspect
+
+    src = inspect.getsource(Tonic._maybe_check_notes)
+    assert "check_notes(self._ip)" in src
     t = Tonic.__new__(Tonic)
     t._notes_checked_at = None  # 起動直後は 1 回読む（前回値を持つため）
     assert t._notes_due(now=100.0) is True
