@@ -87,3 +87,26 @@ def test_the_tonic_reads_once_an_hour():
     t._notes_checked_at = 100.0
     assert t._notes_due(now=100.0 + notes_watch.INTERVAL_SEC - 1) is False
     assert t._notes_due(now=100.0 + notes_watch.INTERVAL_SEC) is True
+
+
+def test_the_request_is_pushed_before_the_state_is_saved():
+    """積むところで落ちたら前回値は進まない（差分を失わない・実機 19:40）。"""
+    a = _agent(NOTE2)
+    notes_watch._save_state("- 木曜は早く帰る")
+    a._dif.device = MagicMock(side_effect=RuntimeError("push_device が無い"))
+    try:
+        asyncio.run(notes_watch.check_notes(a))
+    except RuntimeError:
+        pass
+    assert notes_watch._load_state() == "- 木曜は早く帰る"
+
+
+def test_the_loops_dif_can_push_a_device_event():
+    """ループの DIF は `ip` を持つ（`device()` が落ちない）。"""
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from tests.test_event_loop import _agent as _real_agent
+
+    ip = InformationProcessing(_real_agent(stream_returns=[]))
+    ip.push_device = MagicMock()
+    ip._dif.device("メモ", "x")
+    ip.push_device.assert_called_once()
