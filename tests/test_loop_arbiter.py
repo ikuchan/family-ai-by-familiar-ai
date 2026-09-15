@@ -207,3 +207,25 @@ def test_the_arbiter_has_a_way_out_when_nothing_more_can_be_found():
     """
     assert "分からないと伝える" in ARBITER_PROMPT
     assert "すでに調べた語と同じ語では投げない" in ARBITER_PROMPT
+
+
+def test_an_affect_origin_can_choose_a_synchronous_mcp_tool():
+    """情動が起点の求めでも、繋がっている MCP の同期の道具（家の決まり・予定）が候補に載る（知-g-は）。
+
+    09-13 に「後回し」としたが、知-j（動作の表）と出-p（候補文）で通っていた。証拠として置く。
+    """
+    b = _backend('{"branch":"action","action":"house_rules"}')
+    d = asyncio.run(
+        arbitrate(
+            b,
+            utterance="[内的な促し:SEEKING] 探索したい",
+            workspace_ctx="",
+            origin="情動",
+            extra_actions=("house_rules", "family_schedule"),
+        )
+    )
+    prompt = _prompt_of(b)
+    assert '"house_rules"' in prompt and '"family_schedule"' in prompt
+    assert "recall|search_deferred|house_rules|family_schedule" in prompt
+    assert d.branch == "action" and d.action == "house_rules" and d.query == "家の決まりを見る"
+    assert d.text == ""  # 自発の行動に断りは要らない（情-e）
