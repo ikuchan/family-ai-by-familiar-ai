@@ -244,6 +244,14 @@ def _timer_frame(agent) -> str:
         return ""
 
 
+def _looks_like_text_tool_call(text: str) -> bool:
+    """文で書かれた道具呼び出しらしいか（`<invoke>` か、先頭が `名前(` で末尾が `)`）。"""
+    t = text.strip()
+    return "<invoke name=" in t or bool(
+        re.match(r"^[A-Za-z_][A-Za-z0-9_]*\(", t) and t.endswith(")")
+    )
+
+
 def _elapsed_label(created_at, now_epoch: float) -> str:
     """いつのことかを「経過時間（時刻）」で書く。片方だけでは足りない。"""
     with contextlib.suppress(Exception):
@@ -911,9 +919,10 @@ class InformationProcessing:
             from ..backends.types import TurnResult as _TR
 
             result = _TR(stop_reason="end_turn", text="")
-        if not result.tool_calls and "<invoke name=" in (result.text or ""):
-            # 道具呼び出しを**文で**書いてきた（Sonnet 5・約 50 回に 1 回）。読めるなら呼び出しに
-            # 直す。素テキストのままだと画面と O に `<invoke …>` がそのまま出る。
+        if not result.tool_calls and _looks_like_text_tool_call(result.text or ""):
+            # 道具呼び出しを**文で**書いてきた（Sonnet 5・`<invoke>` 約 50 回に 1 回、関数呼び出し風
+            # `say(text="…")` も・2026-09-15）。読めるなら呼び出しに直す。素テキストのままだと
+            # 画面と O にそのまま出るか、沈黙になる。
             recovered = tool_calls_from_text(result.text)
             if recovered:
                 logger.info(
