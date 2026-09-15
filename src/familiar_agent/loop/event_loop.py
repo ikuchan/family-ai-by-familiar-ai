@@ -1498,6 +1498,10 @@ class InformationProcessing:
         """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
         if not text:
             return
+        if self._on_text is None and self._on_action is None:
+            # 出口が無いまま話した。起動直後の自発の求め（メモ・タイマー）で起きた（2026-09-15
+            # 21:50）——アプリが `set_output` を起動時に渡していなかった。黙って消えると追えない。
+            logger.warning("event-loop 表示先が無いまま話した（%d 字）：%.40s", len(text), text)
         if self._on_text is not None:
             self._on_text(text)
         if self._on_action is not None:

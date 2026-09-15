@@ -2291,6 +2291,15 @@ class FamiliarWindow(QMainWindow):
             # ダイアログを出せない環境（ヘッドレス等）でも致命は伝える。
             print(f"[致命的エラー] {message}", file=sys.stderr)
 
+    def _on_autonomous_action(self, name: str, tool_input: dict) -> None:
+        """人の発話を待たずに出た発話（自発・メモ・タイマー）を吹き出しに載せる。"""
+        if name != "say":
+            self._log.append_action(name, tool_input)
+            return
+        clean = clean_spoken_text(str(tool_input.get("text", "")))
+        if clean:
+            self._log.append_line(f"[{self._agent_display_name}] {clean}")
+
     async def _initialize_agent(self) -> None:
         """Build EmbodiedAgent after the window is already visible."""
         self._set_startup_status(f"{_t('initializing')} agent...")
@@ -2312,6 +2321,9 @@ class FamiliarWindow(QMainWindow):
             # 自律の側（I・T・在席センサ・動体イベント）を、人の発話を待たずに回し始める。
             # ここで立てないと、話しかけるまで在席も drive も一切動かない。
             await agent.start_autonomy()
+            # 自発の発話の出口を、人の発話を待たずに結ぶ（2026-09-15・メモの初回が画面に出なかった）。
+            with contextlib.suppress(Exception):
+                agent.set_output(None, on_action=self._on_autonomous_action)
             # 求めが開いているあいだ停止ボタンを効かせる（環-j）。
             with contextlib.suppress(Exception):
                 agent.set_request_state_listener(self._on_request_state)
