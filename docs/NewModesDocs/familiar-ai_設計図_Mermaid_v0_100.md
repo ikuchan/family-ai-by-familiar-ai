@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.99）
+# familiar-ai 設計図（Mermaid一式・v0.100）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -541,6 +541,7 @@ sequenceDiagram
 
 ## 更新履歴
 
+> v0.100：**環-d（旧 15 欲求）**——`desires.py`（`DesireSystem`）と、それを受け渡すだけになっていた GUI／TUI／REPL の引数、pipeline の死んだ分岐（`detect_worry_signal`・`extract_curiosity`・`好奇心` の書き込み）、`_ui_helpers` の欲求の助け手、`agent_state.desires`（063）を撤去した（2026-09-15）。欲求は 5 軸（`drive_register`・`drive_dynamics`・`tonic`）だけ。残る廃止ストア＝`relationship_state`・`pending_store`。
 > v0.99：**環-d（今回分）**——読み手の無いストアを落とした（2026-09-14・061）：`self_narrative_log`（層 1 の畳み込みが代替）・`semantic_facts`／`behavior_policies`／`memory_links`／`memory_revisions`（`legacy/semantic_layer.py` だけが書き、読む呼び手 0 件）。コードは `self_narrative.py`・`concern_engine.py`（`agent_state.concerns` の書き手・読み手なし）・`intervention_policy.py`・`reflect.py`・`legacy/` と、`agent.py` の `_maybe_update_self_narrative`／`_maybe_adapt_values`、`memory.py` の包み 13 面、`remember` の `link_to`。残る廃止ストア＝`desires`（旧 15 欲求）・`relationship_state`・`pending_store`。
 > v0.98：MNT の説明を REST 内省の 4 層（`用語一覧` v0.70）に合わせた（2026-09-14）。
 > v0.97：**③-2 の「1本の待ち行列」に4つのきっかけが揃った**（2026-09-11・環-f-い-2）。

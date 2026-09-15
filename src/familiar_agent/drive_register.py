@@ -3,12 +3,10 @@
 Holds the new 5-drive vector `AiDrivers`, each axis in [0,1] with a still
 (default) value of 0.0, persisted under agent_state key "drive5".
 
-This is a thin vertical slice (Phase 1 B-2): the register and its
-persistence exist here but are not wired to anything — not to the live
-15-drive `DesireSystem` (desires.py, state_key "desires"), not to
-`as_coalition`, not to agent.py's desire usage. Accumulation, discharge,
-and mood modulation (dynamics) are later work, once the mood register
-(B-1) is connected.
+This started as a thin vertical slice (Phase 1 B-2). Accumulation, discharge and
+mood modulation live in `core/drive_dynamics.py` and are driven by `loop/tonic.py`.
+The old 15-drive system (state_key "desires") was removed on 2026-09-15 (環-d);
+this register is the only drive state.
 
 `AiDrivers` is distinct from mental_state.py's `DriveVector` — that module
 is unchanged.

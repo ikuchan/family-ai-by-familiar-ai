@@ -90,7 +90,6 @@ from ._i18n import _t
 from .core import parsing
 from .errors import FatalStartupError, check_embedding_fatal
 from ._ui_helpers import (
-    AdaptiveDesireCooldown,
     IDLE_CHECK_INTERVAL,
     SILENCE_DURATION_SEC,
     clean_spoken_text,
@@ -117,14 +116,12 @@ from .settings_schema import (
     setup_config_from_agent_config,
     validate_setup_config,
 )
-from .desires import is_internal_desire_turn
 from .setup import save_setup_config
 
 if TYPE_CHECKING:
     from familiar_agent.agent import EmbodiedAgent
     from familiar_agent.config import AgentConfig
     from familiar_agent.core.drive_dynamics import DriveFiring
-    from familiar_agent.desires import DesireSystem
     from familiar_agent.drive_register import AiDrivers
     from familiar_agent.realtime_stt_session import RealtimeSttController
 
@@ -1152,12 +1149,11 @@ def _set_combo(combo: QComboBox, value: str) -> None:
 class FamiliarWindow(QMainWindow):
     """Main application window."""
 
-    def __init__(self, config: "AgentConfig", desires: "DesireSystem") -> None:
+    def __init__(self, config: "AgentConfig") -> None:
         super().__init__()
         self._config = config
         self._agent: EmbodiedAgent | None = None
         self._request_open = False  # ループの求めが開いているか（停止ボタンが従う・環-j）
-        self._desires = desires
         self._agent_display_name = (config.agent_name or "Agent").strip() or "Agent"
         self._companion_display_name = _t("gui_estimated_speaker")
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
@@ -1178,7 +1174,6 @@ class FamiliarWindow(QMainWindow):
         self._look_preview_task: asyncio.Task[None] | None = None
         self._look_preview_until: float = 0.0
         self._look_preview_disabled = False
-        self._adaptive_cooldown = AdaptiveDesireCooldown()
         self._last_social_fire: float = 0.0
         self._silence_until: float = 0.0
         self._realtime_stt: RealtimeSttController | None = create_realtime_stt_controller()
@@ -2099,8 +2094,7 @@ class FamiliarWindow(QMainWindow):
                 await asyncio.sleep(0.05)
             if not getattr(self, "_agent_ready", True) and getattr(self, "_agent", None) is None:
                 break
-            # User spoke: reset adaptive cooldown and lift any silence mode
-            self._adaptive_cooldown.on_user_message()
+            # User spoke: lift any silence mode
             self._silence_until = 0.0
             if is_silence_request(text):
                 self._silence_until = time.time() + SILENCE_DURATION_SEC
@@ -2113,19 +2107,15 @@ class FamiliarWindow(QMainWindow):
             await self._run_agent(text)
 
     @staticmethod
-    def _should_show_agent_fallback(display: str, desire_name: str) -> bool:
+    def _should_show_agent_fallback(display: str) -> bool:
         """Return True if raw fallback text should be painted into the chat log.
 
-        Fallback text (the model's plain text when say() was never called) is
-        only shown on user turns. On autonomous desire turns (desire_name set)
-        the raw text often contains internal markers, URL fragments, or MCP
-        error strings, so it must never be displayed.
+        Fallback text（say() が一度も呼ばれなかったときの素のテキスト）は空でなければ出す。
+        以前は自発ターン（旧 15 欲求の `desire_name`）で抑えていたが、その経路は環-d で撤去した。
         """
-        return bool(display) and not desire_name
+        return bool(display)
 
-    async def _run_agent(
-        self, user_input: str, inner_voice: str = "", desire_name: str = ""
-    ) -> None:
+    async def _run_agent(self, user_input: str, inner_voice: str = "") -> None:
         if self._agent is None:
             self._stream.set_status(self._startup_status)
             return
@@ -2197,12 +2187,7 @@ class FamiliarWindow(QMainWindow):
                 raw = str(tool_input.get("text", ""))
                 clean = clean_spoken_text(raw)
                 if clean:
-                    if is_internal_desire_turn(desire_name):
-                        # 内的(非社交)desireターンは「発話」でなく「ひとりごと」。
-                        # [パジュ]を付けず、既存の薄青つぶやきバブルで表示する。
-                        self._log.append_line(clean)
-                    else:
-                        self._log.append_line(f"[{self._agent_display_name}] {clean}")
+                    self._log.append_line(f"[{self._agent_display_name}] {clean}")
             else:
                 self._log.append_action(name, tool_input)
             if name == "look":
@@ -2225,9 +2210,7 @@ class FamiliarWindow(QMainWindow):
                     on_image=on_image,
                     on_phase=on_phase,
                     on_tool_result=on_tool_result,
-                    desires=self._desires,
                     inner_voice=inner_voice,
-                    desire_name=desire_name,
                     interrupt_queue=self._input_queue,
                 )
             )
@@ -2238,7 +2221,7 @@ class FamiliarWindow(QMainWindow):
             # post-say text echo (same content with raw audio tags) appearing again.
             if not say_fired:
                 display = clean_spoken_text(committed.strip() or final_text.strip())
-                if self._should_show_agent_fallback(display, desire_name):
+                if self._should_show_agent_fallback(display):
                     self._log.append_line(f"[{self._agent_display_name}] {display}")
         except asyncio.CancelledError:
             self._stream.commit_and_clear()
@@ -2436,7 +2419,7 @@ class FamiliarWindow(QMainWindow):
 # ---------------------------------------------------------------------------
 
 
-def run_gui(config: "AgentConfig", desires: "DesireSystem") -> None:
+def run_gui(config: "AgentConfig") -> None:
     """Launch the PySide6 GUI with qasync event loop."""
     import signal
 
@@ -2465,7 +2448,7 @@ def run_gui(config: "AgentConfig", desires: "DesireSystem") -> None:
     loop = qasync.QEventLoop(qt_app)
     asyncio.set_event_loop(loop)
 
-    window = FamiliarWindow(config, desires)
+    window = FamiliarWindow(config)
     if icon_path:
         icon = QIcon(str(icon_path))
         if not icon.isNull():

@@ -748,7 +748,7 @@ class DriveConfig:
     bias_esteem: float = 0.0014
     bias_rest: float = 0.0009
 
-    # Slice 2b：新Drive発火で自発ターンを起こすか（既定 on＝新機能を前提・legacy DesireSystem と完全排他）
+    # Slice 2b：新Drive発火で自発ターンを起こすか（既定 on。旧 15 欲求の系は環-d で撤去）
     autonomous: bool = field(default_factory=lambda: _bool_env("DRIVE5_AUTONOMOUS", default=True))
 
     # 案Y：ターン完了時に軽量LLMで満たされた drive を発火時と同じ全放電で沈静化するか（既定 on＝新機能を前提）。

@@ -105,13 +105,6 @@ capabilities:
       VoiceGuard prevents TTS output from feeding back into STT. Implemented in
       `tools/tts.py`.
     enabled: true
-  - id: desire_system
-    summary: Drive autonomous motivations and goal-directed behavior
-    detail: >
-      The desire system provides the agent with autonomous motivations, enabling
-      goal-directed behavior. It influences the agent's actions and decision-making
-      process. Implemented in `desires.py`.
-    enabled: true
   - id: relationship_tracker
     summary: Track longitudinal relationship state independently for each family member
     detail: >

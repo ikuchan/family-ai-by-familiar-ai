@@ -24,7 +24,6 @@ from typing import Any
 from .backends import create_backend, create_scene_backend, create_utility_backend
 from .core.context_parts import Stance as _Stance
 from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
-from .desires import DesireSystem, detect_worry_signal, is_social_desire
 from .relationship import PersonRegistry, RelationshipTracker
 from .routines import quiet_hours_rule
 from .io.aif import AIF, Nudge
@@ -50,7 +49,6 @@ from .store.pose_norms import PoseNormStore
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .tools.tts import TTSTool
-from ._i18n import _t
 from .loop.evaluator import Evaluator
 from .loop.history import _flatten_history
 from .mcp_client import CallResult, MCPClientManager, _resolve_config_path
@@ -150,8 +148,6 @@ class EmbodiedAgent:
         self.messages: list = []
         self._started_at = time.time()
         self._turn_count = 0
-        self._current_is_desire_turn: bool = False
-        self._current_desire_name: str = ""
         self._session_input_tokens: int = 0
         self._session_output_tokens: int = 0
         self._last_context_tokens: int = 0
@@ -179,8 +175,6 @@ class EmbodiedAgent:
         # 決める**ので、載せる記憶は基底でよい。読むときの面は `View.viewpoint` が言い、
         # **人ごとの実体は `pmm` が持つ**（1人につき1つ。口が作り直すと実体が増える）。
         self._oif = OIF(self._memory, for_person=self._pmm.get_memory_for)
-        self._desires_ref: "DesireSystem | None" = None
-        self._pmm.on_switch(self._on_pmm_speaker_switch)
         self._memory_tool = MemoryTool(self._pmm)
         self._pending_store = self._memory_tool._pending_store
         self._presence_sensor: PresenceSensor | None = None
@@ -283,7 +277,6 @@ class EmbodiedAgent:
         emotion_pad: "MoodPAD | None",  # 未測定でありうる（050）
         memories: "list[Recalled] | None",
         camera_used: bool,
-        is_desire_turn: bool,
     ) -> None:
         """ターン完了時、満たされた drive を軽量LLMで判定し発火時と同じ全放電で沈静化する。
 
@@ -309,7 +302,7 @@ class EmbodiedAgent:
         if not satisfaction_gate(
             memories_nonempty=bool(memories),
             pad_move=pad_move,
-            action_used=camera_used or is_desire_turn,
+            action_used=camera_used,
             cfg=cfg,
         ):
             return
@@ -359,8 +352,6 @@ class EmbodiedAgent:
         observation_action_name: str | None,
         observation_action_input: dict | None,
         companion_mood: str,
-        is_desire_turn: bool,
-        desires: DesireSystem | None,
         arousal: float = 0.0,
         memories: "list[Recalled] | None" = None,
         exchange_id: "int | None" = None,
@@ -412,7 +403,6 @@ class EmbodiedAgent:
             emotion_pad=emotion_pad,
             memories=memories,
             camera_used=camera_used,
-            is_desire_turn=is_desire_turn,
         )
 
         try:
@@ -428,8 +418,6 @@ class EmbodiedAgent:
                     novelty = 0.8
                 novelty = max(0.0, min(1.0, novelty))
                 self._exploration.record_novelty(novelty)
-                if desires is not None:
-                    desires.boost("look_around", novelty * 0.3)
                 # 場面の更新と `観察` の書き込みはここから外した。この経路は
                 # `loop/event_loop.py` の1箇所からしか来ず、そこは `camera_used=False`・
                 # `camera_image=None`・`action_name=None` を渡すので、**どちらも一度も
@@ -472,37 +460,9 @@ class EmbodiedAgent:
                 memories, list(_new_ids or []) + list(extra_cooccurring_ids or [])
             )
 
-            if not is_desire_turn and user_input:
+            if user_input:
                 self._relationship.record_conversation()
                 self._last_human_at = time.time()
-
-            if desires is not None and not is_desire_turn and user_input:
-                worry_boost = detect_worry_signal(user_input)
-                if worry_boost > 0.0:
-                    desires.boost("worry_companion", worry_boost)
-                    logger.debug(
-                        "Worry signal detected (%.2f): boosting worry_companion",
-                        worry_boost,
-                    )
-
-            curiosity: str | None = None
-            if desires is not None and camera_used:
-                curiosity = await self.extract_curiosity(final_text)
-                if curiosity:
-                    desires.curiosity_target = curiosity
-                    desires.boost("look_around", 0.3)
-                    await self._oif.write(
-                        MI(
-                            id="",
-                            content=curiosity,
-                            timestamp=None,
-                            direction="好奇心",
-                            emotion="curious",
-                        ),
-                        writer_id=AGENT_SELF_ID,
-                        now=False,
-                    )
-                    logger.info("Curiosity persisted: %s", curiosity)
 
         except Exception as exc:  # noqa: BLE001
             logger.warning("Post-response pipeline failed: %s", exc)
@@ -635,14 +595,6 @@ class EmbodiedAgent:
         elif name in mobility_tools and self._mobility:
             return await self._mobility.call(name, tool_input)
         elif name in tts_tools and self._tts:
-            # 応急処置(Issue D 先行): 内的desireターンでは say() を実行しない。
-            # LLMが内的ターンで say() を呼ぶと presence/quiet ゲートをバイパスし、
-            # 無人・深夜でも繰り返し発言してしまうため。
-            # 「話したいことを溜めて後で話す」機能は Issue D 本体(pending_speech)で実装予定。
-            if getattr(self, "_current_is_desire_turn", False) and not is_social_desire(
-                getattr(self, "_current_desire_name", "")
-            ):
-                return "(internal turn: speaking is suppressed)", None
             return await self._tts.call(name, tool_input)
         elif name in memory_tools:
             return await self._memory_tool.call(name, tool_input)
@@ -1228,26 +1180,6 @@ class EmbodiedAgent:
             return f"[system: last database backup was {int(age_hours)}h ago — may need attention]"
         return ""
 
-    async def extract_curiosity(self, exploration_result: str) -> str | None:
-        """Ask the LLM what was most curious/interesting in the exploration."""
-        try:
-            none_word = _t("curiosity_none")
-            text = await self._utility_backend.complete(
-                f"Read this exploration report and answer in one sentence what you found most "
-                f"curious or interesting. Write in {_t('summary_lang')}. "
-                f'If nothing caught your attention, reply with just "{none_word}". '
-                f"No explanation.\n\n{exploration_result}",
-                max_tokens=80,
-            )
-            text = text.strip()
-            # Reject if the model returned the "none" word or a long non-curious explanation
-            if not text or none_word in text or len(text) > 100:
-                return None
-            return text
-        except Exception as e:
-            logger.warning("Curiosity extraction failed: %s", e)
-        return None
-
     def _should_compact(self, threshold_tokens: int = 20_000) -> bool:
         """Return True when context is large enough to warrant compaction.
 
@@ -1535,16 +1467,6 @@ class EmbodiedAgent:
         if pid:
             await pmm.set_speaker(pid, source="text")
 
-    async def _on_pmm_speaker_switch(self, old_id: str | None, new_id: str) -> None:
-        """PMM on_switch callback: update companion name in the active DesireSystem."""
-        desires = getattr(self, "_desires_ref", None)
-        if desires is None:
-            return
-        info = self._pmm.get_speaker_info()
-        name = (info or {}).get("display_name") or (info or {}).get("name", "")
-        if name:
-            desires.update_active_companion(name)
-
     def _handle_speaker_command(self, user_input: str) -> str | None:
         """/speaker [name] — set or show the active speaker for this session."""
         m = _SPEAKER_COMMAND_RE.match(user_input.strip())
@@ -1647,9 +1569,7 @@ class EmbodiedAgent:
         on_image: Callable[[str], None] | None = None,
         on_phase: Callable[[str], None] | None = None,
         on_tool_result: Callable[[str, dict, str], None] | None = None,
-        desires=None,
         inner_voice: str = "",
-        desire_name: str = "",
         interrupt_queue=None,
     ) -> str:
         """人の発話で1ターン回す。
@@ -1657,9 +1577,9 @@ class EmbodiedAgent:
         中身はイベント駆動ループ（I と T）が持つ。スラッシュコマンドだけは LLM を
         呼ばずにここで返す。
 
-        `on_image`・`on_phase`・`on_tool_result`・`desires`・`inner_voice`・`desire_name`・
-        `interrupt_queue` は旧経路の引数で、いまはどれも使っていない。GUI と TUI が
-        渡しているので受けるだけにしてある（呼び出し側の整理は #12a の後段）。
+        `on_image`・`on_phase`・`on_tool_result`・`inner_voice`・`interrupt_queue` は旧経路の
+        引数で、いまはどれも使っていない。GUI と TUI が渡しているので受けるだけにしてある
+        （呼び出し側の整理は #12a の後段）。`desires`・`desire_name` は環-d で落とした。
         """
         # ── Speaker identification ────────────────────────────────────────────
         # /speaker command sets the session-default speaker.

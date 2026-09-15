@@ -1,4 +1,4 @@
-"""Unit tests for _ui_helpers: format_action and desire_tick_prompt.
+"""Unit tests for _ui_helpers: format_action など（旧欲求の助け手は環-d で撤去）.
 
 TDD: tests written to verify the extracted shared helpers work correctly
 before updating tui.py / gui.py / main.py to use them.
@@ -10,9 +10,7 @@ from __future__ import annotations
 from familiar_agent._ui_helpers import (
     ACTION_ICONS,
     clean_spoken_text,
-    desire_tick_prompt,
     format_action,
-    should_fire_idle_desire,
     strip_stage_directions,
 )
 
@@ -34,7 +32,9 @@ class TestStripStageDirections:
         assert strip_stage_directions("[whispers]ないしょだよ") == "[whispers]ないしょだよ"
 
     def test_preserves_audio_tag_but_drops_parenthetical(self):
-        assert strip_stage_directions("[excited]やったね！（ガッツポーズ）") == "[excited]やったね！"
+        assert (
+            strip_stage_directions("[excited]やったね！（ガッツポーズ）") == "[excited]やったね！"
+        )
 
     def test_plain_text_unchanged(self):
         assert strip_stage_directions("こんにちは") == "こんにちは"
@@ -154,123 +154,3 @@ class TestActionIcons:
         for name, icon in ACTION_ICONS.items():
             assert isinstance(icon, str), f"Icon for '{name}' must be a string"
             assert len(icon) > 0, f"Icon for '{name}' must not be empty"
-
-
-# ---------------------------------------------------------------------------
-# desire_tick_prompt tests
-# ---------------------------------------------------------------------------
-
-
-class _FakeDesireSystem:
-    """Minimal DesireSystem stub for testing."""
-
-    def __init__(self, dominant: tuple[str, float] | None = None, prompt: str = "") -> None:
-        self._dominant = dominant
-        self._prompt = prompt
-
-    def dominant_as_prompt(self) -> str:
-        return self._prompt
-
-    def get_dominant(self) -> tuple[str, float] | None:
-        return self._dominant
-
-
-class TestDesireTickPrompt:
-    def test_returns_none_when_no_prompt(self):
-        desires = _FakeDesireSystem(dominant=("look_around", 0.8), prompt="")
-        result = desire_tick_prompt(desires, [])
-        assert result is None
-
-    def test_returns_none_when_no_dominant(self):
-        desires = _FakeDesireSystem(dominant=None, prompt="周りを見たい")
-        result = desire_tick_prompt(desires, [])
-        assert result is None
-
-    def test_returns_desire_name_prompt_and_none_pending(self):
-        desires = _FakeDesireSystem(dominant=("look_around", 0.9), prompt="周りを見たい")
-        result = desire_tick_prompt(desires, [])
-        assert result is not None
-        desire_name, prompt, pending = result
-        assert desire_name == "look_around"
-        assert prompt == "周りを見たい"
-        assert pending is None
-
-    def test_folds_pending_note_into_prompt(self):
-        desires = _FakeDesireSystem(dominant=("look_around", 0.9), prompt="周りを見たい")
-        result = desire_tick_prompt(desires, ["コウタだよ"])
-        assert result is not None
-        desire_name, prompt, pending = result
-        assert "コウタだよ" in prompt
-        assert "周りを見たい" in prompt
-        assert pending == "コウタだよ"
-
-    def test_uses_only_first_pending_note(self):
-        desires = _FakeDesireSystem(dominant=("explore", 0.7), prompt="探索したい")
-        result = desire_tick_prompt(desires, ["first", "second"])
-        assert result is not None
-        _, prompt, pending = result
-        assert pending == "first"
-        assert "first" in prompt
-        # second should not appear in prompt
-        assert "second" not in prompt
-
-    def test_known_desire_names_produce_non_empty_murmur(self):
-        known = ["look_around", "explore", "greet_companion", "rest"]
-        for name in known:
-            desires = _FakeDesireSystem(dominant=(name, 0.8), prompt="やりたいこと")
-            result = desire_tick_prompt(desires, [])
-            # We just verify it doesn't crash and returns something
-            assert result is not None
-            desire_name, prompt, _ = result
-            assert desire_name == name
-            assert prompt == "やりたいこと"
-
-    def test_unknown_desire_name_does_not_crash(self):
-        desires = _FakeDesireSystem(dominant=("unknown_desire_xyz", 0.5), prompt="something")
-        result = desire_tick_prompt(desires, [])
-        assert result is not None
-        desire_name, _, _ = result
-        assert desire_name == "unknown_desire_xyz"
-
-
-# ---------------------------------------------------------------------------
-# should_fire_idle_desire tests
-# ---------------------------------------------------------------------------
-
-
-class TestShouldFireIdleDesire:
-    def test_false_while_agent_running(self):
-        assert not should_fire_idle_desire(
-            agent_running=True,
-            has_pending_input=False,
-            last_interaction=0.0,
-            now=999.0,
-            cooldown=90.0,
-        )
-
-    def test_false_with_pending_input(self):
-        assert not should_fire_idle_desire(
-            agent_running=False,
-            has_pending_input=True,
-            last_interaction=0.0,
-            now=999.0,
-            cooldown=90.0,
-        )
-
-    def test_false_before_cooldown(self):
-        assert not should_fire_idle_desire(
-            agent_running=False,
-            has_pending_input=False,
-            last_interaction=100.0,
-            now=150.0,
-            cooldown=90.0,
-        )
-
-    def test_true_after_cooldown(self):
-        assert should_fire_idle_desire(
-            agent_running=False,
-            has_pending_input=False,
-            last_interaction=100.0,
-            now=190.0,
-            cooldown=90.0,
-        )

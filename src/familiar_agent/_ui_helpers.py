@@ -3,8 +3,6 @@
 This module is the single source of truth for:
   - ACTION_ICONS: icon mapping for tool calls
   - format_action(): human-readable tool-call label
-  - should_fire_idle_desire(): shared gate for autonomous desire turns
-  - desire_tick_prompt(): extract the current dominant desire prompt (UI-agnostic)
 
 Keeping these here prevents duplication across tui.py, gui.py, and main.py.
 """
@@ -14,12 +12,8 @@ from __future__ import annotations
 import os
 import re
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 from ._i18n import _t
-
-if TYPE_CHECKING:
-    from .desires import DesireSystem
 
 
 # ---------------------------------------------------------------------------
@@ -238,24 +232,28 @@ def _format_recall_result(result: str) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Desire tick (UI-agnostic core)
+# Idle wait (UI-agnostic core)
 # ---------------------------------------------------------------------------
 
-IDLE_CHECK_INTERVAL: float = 10.0  # seconds between desire checks when idle
-DESIRE_COOLDOWN: float = float(os.environ.get("DESIRE_COOLDOWN", "90"))  # configurable
-INTERNAL_DESIRE_COOLDOWN: float = float(os.environ.get("INTERNAL_DESIRE_COOLDOWN", str(DESIRE_COOLDOWN)))
-
-# Adaptive cooldown settings for social desires
-SOCIAL_DESIRE_COOLDOWN_BASE: float = float(os.environ.get("SOCIAL_DESIRE_COOLDOWN", "30"))
-SOCIAL_DESIRE_COOLDOWN_MAX: float = float(os.environ.get("SOCIAL_DESIRE_COOLDOWN_MAX", "120"))
+IDLE_CHECK_INTERVAL: float = 10.0  # 入力待ちのタイムアウト（秒）。GUI・TUI・REPL の入力ループが使う
 
 # How long to stay silent after a silence request (seconds)
 SILENCE_DURATION_SEC: float = float(os.environ.get("SILENCE_DURATION", "1800"))
 
 _SILENCE_KEYWORDS: tuple[str, ...] = (
-    "静かにして", "しずかにして", "黙って", "うるさい",
-    "話しかけないで", "今は話しかけないで", "放っておいて", "ほっておいて",
-    "be quiet", "stop talking", "leave me alone", "don't talk to me", "shut up",
+    "静かにして",
+    "しずかにして",
+    "黙って",
+    "うるさい",
+    "話しかけないで",
+    "今は話しかけないで",
+    "放っておいて",
+    "ほっておいて",
+    "be quiet",
+    "stop talking",
+    "leave me alone",
+    "don't talk to me",
+    "shut up",
 )
 
 
@@ -263,91 +261,3 @@ def is_silence_request(text: str) -> bool:
     """Return True if the user is asking the agent to stop talking."""
     lower = text.lower()
     return any(kw in lower for kw in _SILENCE_KEYWORDS)
-
-
-class AdaptiveDesireCooldown:
-    """Adaptive cooldown for social desires.
-
-    Sequence: base → base×2 → base×4 (capped at max).
-    Resets to base when the user sends any message.
-    Step advances only when a social desire fires without a prior user response.
-    """
-
-    _MULTIPLIERS: tuple[int, ...] = (1, 2, 4)
-
-    def __init__(
-        self,
-        base: float = SOCIAL_DESIRE_COOLDOWN_BASE,
-        max_cd: float = SOCIAL_DESIRE_COOLDOWN_MAX,
-    ) -> None:
-        self._base = base
-        self._max = max_cd
-        self._step = 0
-        self._user_responded = True  # treat startup as "user just spoke"
-
-    @property
-    def current(self) -> float:
-        mult = self._MULTIPLIERS[min(self._step, len(self._MULTIPLIERS) - 1)]
-        return min(self._max, self._base * mult)
-
-    def on_desire_fired(self) -> None:
-        """Call after a social desire fires."""
-        if not self._user_responded:
-            self._step = min(self._step + 1, len(self._MULTIPLIERS) - 1)
-        self._user_responded = False
-
-    def on_user_message(self) -> None:
-        """Call when the user sends any message — resets to base cooldown."""
-        self._step = 0
-        self._user_responded = True
-
-
-def should_fire_idle_desire(
-    *,
-    agent_running: bool,
-    has_pending_input: bool,
-    last_interaction: float,
-    now: float,
-    cooldown: float = DESIRE_COOLDOWN,
-) -> bool:
-    """Return True when an autonomous desire turn is allowed to fire."""
-    if agent_running:
-        return False
-    if has_pending_input:
-        return False
-    return now - last_interaction >= cooldown
-
-
-def desire_tick_prompt(
-    desires: DesireSystem,
-    input_queue_peek: list[str],
-) -> tuple[str, str, str | None] | None:
-    """Return (desire_name, prompt, pending_note) or None if no desire fires.
-
-    Args:
-        desires: the DesireSystem to query.
-        input_queue_peek: list of items currently in the input queue
-            (caller drains it and passes the contents here so this
-            function can fold any pending user note into the prompt
-            without touching the queue itself).
-
-    Returns:
-        (desire_name, prompt, pending_note) if a desire is ready to fire.
-        None if no dominant desire exists or prompt is empty.
-    """
-    prompt = desires.dominant_as_prompt()
-    if not prompt:
-        return None
-
-    dominant = desires.get_dominant()
-    if dominant is None:
-        return None
-
-    desire_name, _ = dominant
-
-    pending_note: str | None = None
-    if input_queue_peek:
-        pending_note = input_queue_peek[0]
-        prompt = _t("desire_pending_note", note=pending_note, prompt=prompt)
-
-    return desire_name, prompt, pending_note

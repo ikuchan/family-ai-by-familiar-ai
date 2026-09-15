@@ -24,25 +24,20 @@ from . import __version__
 from ._i18n import _make_banner, _t
 from ._ui_helpers import (
     ACTION_ICONS,
-    AdaptiveDesireCooldown,
-    DESIRE_COOLDOWN as _DESIRE_COOLDOWN,
     IDLE_CHECK_INTERVAL as _IDLE_CHECK_INTERVAL,
     SILENCE_DURATION_SEC as _SILENCE_DURATION_SEC,
     format_action as _format_action,
     format_tool_result as _format_tool_result,
     is_silence_request,
 )
-from .desires import is_internal_desire_turn
 from .realtime_stt_session import create_realtime_stt_controller, RealtimeSttController
 
 if TYPE_CHECKING:
     from .agent import EmbodiedAgent
-    from .desires import DesireSystem
 
 logger = logging.getLogger(__name__)
 
 IDLE_CHECK_INTERVAL = _IDLE_CHECK_INTERVAL
-DESIRE_COOLDOWN = _DESIRE_COOLDOWN
 
 _RICH_TAG_RE = re.compile(r"\[/?[^\[\]]*\]")
 
@@ -174,16 +169,14 @@ class FamiliarApp(App):
         Binding("space", "start_ptt", "🎙 PTT", show=False),
     ]
 
-    def __init__(self, agent: "EmbodiedAgent", desires: "DesireSystem") -> None:
+    def __init__(self, agent: "EmbodiedAgent") -> None:
         super().__init__()
         self.agent = agent
-        self.desires = desires
         self._agent_name = agent.config.agent_name
         self._companion_name = agent.config.companion_name
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._last_interaction = time.time()
         self._agent_running = False
-        self._adaptive_cooldown = AdaptiveDesireCooldown()
         self._last_social_fire: float = 0.0
         self._silence_until: float = 0.0
         self._current_text_buf = ""  # buffer for streaming text
@@ -281,7 +274,9 @@ class FamiliarApp(App):
         # #10：埋め込み読込失敗は致命。記憶が死ぬので TUI を終了する。
         if getattr(self.agent, "embedding_failed", None) and self.agent.embedding_failed():
             with contextlib.suppress(Exception):
-                self.exit(message="[致命的エラー] 埋め込みモデルを読み込めません。記憶が機能しないため終了します。")
+                self.exit(
+                    message="[致命的エラー] 埋め込みモデルを読み込めません。記憶が機能しないため終了します。"
+                )
             return
         elapsed = int(time.time() - start)
         with contextlib.suppress(Exception):
@@ -352,7 +347,6 @@ class FamiliarApp(App):
             return
 
         self._log_user(text)
-        self._adaptive_cooldown.on_user_message()
         self._silence_until = 0.0
         if is_silence_request(text):
             self._silence_until = time.time() + _SILENCE_DURATION_SEC
@@ -399,7 +393,7 @@ class FamiliarApp(App):
             await asyncio.sleep(0.08)
         stream.remove_class("thinking")
 
-    async def _run_agent(self, user_input: str, inner_voice: str = "", desire_name: str = "") -> None:
+    async def _run_agent(self, user_input: str, inner_voice: str = "") -> None:
         self._agent_running = True
         self._cancel_event.clear()
         self._current_text_buf = ""
@@ -465,13 +459,8 @@ class FamiliarApp(App):
                 raw = str(tool_input.get("text", ""))
                 clean = re.sub(r"\[.*?\]", "", raw).strip()
                 if clean:
-                    if is_internal_desire_turn(desire_name):
-                        # 内的desireターンはひとりごと。発話マーカー(🔊)を付けず dim で表示。
-                        log.write(f"[dim]{clean}[/dim]")
-                        self._append_log(clean)
-                    else:
-                        log.write(f"[bold magenta]{self._agent_name} 🔊[/bold magenta] {clean}")
-                        self._append_log(f"{self._agent_name} 🔊 {clean}")
+                    log.write(f"[bold magenta]{self._agent_name} 🔊[/bold magenta] {clean}")
+                    self._append_log(f"{self._agent_name} 🔊 {clean}")
             else:
                 label = _format_action(name, tool_input)
                 log.write(f"[dim]{label}[/dim]")
@@ -508,9 +497,7 @@ class FamiliarApp(App):
                     on_action=on_action,
                     on_text=on_text,
                     on_tool_result=on_tool_result,
-                    desires=self.desires,
                     inner_voice=inner_voice,
-                    desire_name=desire_name,
                     interrupt_queue=self._input_queue,
                 )
             )
@@ -556,9 +543,7 @@ class FamiliarApp(App):
             def _on_committed(text: str) -> None:
                 try:
                     _spk = self.agent._persons.active_name
-                    self._write_log(
-                        f"[bold cyan]\U0001f3a4 {_spk}[/bold cyan] {text}"
-                    )
+                    self._write_log(f"[bold cyan]\U0001f3a4 {_spk}[/bold cyan] {text}")
                     self._last_interaction = time.time()
                     stream = self.query_one("#stream", Static)
                     stream.update("")
@@ -572,9 +557,7 @@ class FamiliarApp(App):
             )
             await self._realtime_stt.start(loop, self._input_queue)
             # 担い手はセッションに聞く（`STT_ENGINE` を変えれば表示も変わる）。
-            self._log_system(
-                f"\U0001f3a4 Realtime STT ON ({self._realtime_stt.engine_label})"
-            )
+            self._log_system(f"\U0001f3a4 Realtime STT ON ({self._realtime_stt.engine_label})")
         except Exception as e:
             logger.warning("Realtime STT init failed: %s", e)
             self._log_system(f"\u26a0 Realtime STT init failed: {e}")

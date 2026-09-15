@@ -1,7 +1,7 @@
 """Tests for the new-5 drive register (Phase 1 B-2, vessel only).
 
 drive_register is a new, unconnected module: a SEEKING/REST/BOND/SAFETY/ESTEEM
-vessel persisted via agent_state. Not wired to DesireSystem/as_coalition/agent.py
+vessel persisted via agent_state（旧 15 欲求の系は環-d で撤去）
 in this step; accumulation, discharge, and mood modulation (dynamics) are later work.
 """
 
@@ -25,12 +25,14 @@ def _db_conn():
 
 # ── still (default) state ────────────────────────────────────────────────────
 
+
 def test_default_is_still() -> None:
     d = AiDrivers()
     assert (d.seeking, d.rest, d.bond, d.safety, d.esteem) == (0.0, 0.0, 0.0, 0.0, 0.0)
 
 
 # ── clip range ────────────────────────────────────────────────────────────────
+
 
 def test_clip_range() -> None:
     d = AiDrivers(seeking=1.5, rest=-0.2, bond=0.5).clipped()
@@ -39,12 +41,14 @@ def test_clip_range() -> None:
 
 # ── JSON round trip ───────────────────────────────────────────────────────────
 
+
 def test_json_round_trip() -> None:
     d = AiDrivers(seeking=0.3, rest=0.1, bond=0.7, safety=0.2, esteem=0.4)
     assert AiDrivers.from_json_dict(d.to_json_dict()) == d
 
 
 # ── agent_state persistence round trip ───────────────────────────────────────
+
 
 def test_save_load_round_trip() -> None:
     conn = _db_conn()
@@ -56,6 +60,7 @@ def test_save_load_round_trip() -> None:
 
 
 # ── default when the drive5 key is absent ────────────────────────────────────
+
 
 def test_load_default_when_absent() -> None:
     conn = _db_conn()
