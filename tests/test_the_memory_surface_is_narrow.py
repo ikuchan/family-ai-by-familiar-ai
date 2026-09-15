@@ -101,7 +101,7 @@ def test_the_surface_got_narrower():
     2026-09-13 に **67 種**へ1つ足した（`extend`——既にある関係の末尾へ項を足す口。
     やりとりの関係を閉じるときに書き、会話要約を背景で足すため）。
     2026-09-14 に `delete_day_summaries_for_date` を落とし（終了時の日次要約の撤去・記-a-ろ-は）、
-    `observations_since_last_rest` を足した（畳み込みの材料）。数は据え置き。
+    `observations_since_last_rest`（09-15 に `observations_fold_materials` へ改名・記-l）を足した（畳み込みの材料）。数は据え置き。
     2026-09-14 に環-d で legacy の包み 13 面を落とし **54 種**。
     2026-09-15 に記-a-ろ-ろ で層 1 の計測と減りの口 3 面（`core_faces`・`fresh_since_last_rest`・
     `decay_groundedness`）を足し **57 種**。同日 記-a-ろ-に で `core_records`・`raise_groundedness` を足し **59 種**。

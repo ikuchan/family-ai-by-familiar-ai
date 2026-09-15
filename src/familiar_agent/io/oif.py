@@ -427,9 +427,9 @@ class OIF:
         logger.info("OIF decay_groundedness Δ=%d → %d面", delta, n)
         return n
 
-    def since_last_rest(self, directions: "tuple[str, ...]") -> list[MI]:
-        """日次の畳み込みの材料（記-a-ろ-は）：前回の内省より後・指定の向き・畳まれていない・核でない。古い順。"""
-        rows = self._memory.observations_since_last_rest(tuple(directions))
+    def fold_materials(self, directions: "tuple[str, ...]", *, before) -> list[MI]:
+        """日次の畳み込みの材料（記-a-ろ-は・記-l）：指定の向き・まだ畳まれていない・核でない・`before` より前。古い順。"""
+        rows = self._memory.observations_fold_materials(tuple(directions), before=before)
         out = [
             MI(
                 id=str(r.get("id", "")),
@@ -441,7 +441,7 @@ class OIF:
             )
             for r in rows
         ]
-        logger.debug("OIF since_last_rest ← %s → %d件", "/".join(directions), len(out))
+        logger.debug("OIF fold_materials ← %s → %d件", "/".join(directions), len(out))
         return out
 
     def latest_origins(self, n: int) -> list[str]:

@@ -155,12 +155,13 @@ def summarize_window(rows: list[Row]) -> dict:
 
 def summarize_inner_state(rows: list[Row]) -> dict:
     """`気分`（P・Pn・A・Dom）と `欲求`（5 軸）の行から、軸ごとの分位（境目の材料）。"""
-    out: dict = {}
+    out: dict = {"件数": {"気分": 0, "欲求": 0}}
     for kind in ("気分", "欲求"):
         cols: dict[str, list[float]] = {}
         for r in rows:
             if r.kind != kind:
                 continue
+            out["件数"][kind] += 1
             for k, v in r.fields.items():
                 try:
                     cols.setdefault(k, []).append(float(v))
@@ -176,12 +177,13 @@ def summarize_inner_state(rows: list[Row]) -> dict:
 
 def summarize_relation(rows: list[Row]) -> dict:
     """`関連`（どちらの並びから載せたか）と `申告`（参照された id）を突き合わせ、参照された数を並びごとに。"""
-    counts = {"遠い": 0, "掘り": 0}
+    counts = {"遠い": 0, "掘り": 0, "件数": 0}
     last: "dict | None" = None
     for r in rows:
         if r.kind == "関連":
             last = r.fields
         elif r.kind == "申告" and last is not None:
+            counts["件数"] += 1
             used = set()
             for k in ("important", "referred"):
                 used |= {i for i in r.fields.get(k, "-").split(",") if i and i != "-"}
