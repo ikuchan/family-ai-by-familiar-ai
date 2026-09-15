@@ -103,6 +103,9 @@ def test_a_daytime_timer_is_registered_at_once_and_written_to_o():
     assert r["passes_quiet"] is False and r["obs_id"] == "obs-パパに頼"
     mi = oif.write.call_args.args[0]
     assert mi.direction == "予定" and "パスタ" in mi.content and "19:33" in mi.content
+    assert oif.write.call_args.kwargs.get(
+        "writer_id"
+    )  # 書き手を添える（無いと OIF.write が落ちる）
 
 
 def test_a_quiet_hours_timer_asks_first_then_registers_when_confirmed():

@@ -112,3 +112,21 @@ def test_cancel_all_and_recently_fired():
     assert s.recently_fired(now=NOW + timedelta(minutes=10), within_sec=180) == []
     assert s.cancel(a, now=NOW) is False  # もう取り消してある
     assert s.cancel(999999, now=NOW) is False
+
+
+def test_the_store_works_on_a_plain_tuple_connection():
+    """共有接続（`get_db().conn()`）の cursor は tuple を返す。実機で `dict(r)` が落ちた（2026-09-15 23:15）。"""
+    conn = psycopg2.connect(_DB_URL)  # RealDictCursor 無し
+    conn.autocommit = True
+    s = TimerStore(conn)
+    tid = s.add(
+        label="x",
+        due=NOW - timedelta(seconds=1),
+        asked_by="",
+        obs_id=None,
+        passes_quiet=False,
+        now=NOW,
+    )
+    assert s.active(now=NOW)[0]["id"] == tid
+    assert s.due_now(now=NOW)[0]["label"] == "x"
+    assert s.mark_fired(tid, now=NOW) and s.recently_fired(now=NOW, within_sec=60)[0]["id"] == tid

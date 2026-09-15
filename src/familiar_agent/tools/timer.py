@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from ..core import timer_rules
 from ..io.oif import MI
+from ..person_memory_manager import AGENT_SELF_ID
 
 logger = logging.getLogger(__name__)
 
@@ -206,7 +207,8 @@ class TimerTool:
     async def _write(self, content: str) -> "str | None":
         try:
             return await self._oif.write(
-                MI(id="", content=content[:500], timestamp=None, direction="予定")
+                MI(id="", content=content[:500], timestamp=None, direction="予定"),
+                writer_id=AGENT_SELF_ID,  # 書き手は自分（`OIF.write` の必須の材料・実機で落ちた）
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("予定の記録を書けなかった: %s", e)

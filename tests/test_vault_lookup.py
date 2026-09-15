@@ -178,3 +178,43 @@ def test_the_decisions_tool_input_reaches_the_dispatch():
     assert _tool_input_of(d) == {"after_minutes": 3, "label": "パスタ"}
     d = Decision(branch="action", action="family_schedule", query="2")
     assert _tool_input_of(d) == {"days": 2}
+
+
+def test_a_timer_query_without_tool_input_is_read_into_one():
+    """調停が `tool_input` でなく `query` に「1分」「7時」と書いてきても掛かる（実機 23:13）。"""
+    from familiar_agent.loop.arbiter import timer_input_from_query
+
+    assert timer_input_from_query("1分") == {"after_minutes": 1.0, "label": "タイマー"}
+    assert timer_input_from_query("3分後 パスタ") == {"after_minutes": 3.0, "label": "パスタ"}
+    assert timer_input_from_query("7時 起こす") == {"at": "7:00", "label": "起こす"}
+    assert timer_input_from_query("21時半") == {"at": "21:30", "label": "タイマー"}
+    assert timer_input_from_query("パスタ") is None
+    d = _parse(
+        '{"branch":"action","action":"set_timer","query":"1分","text":"はい、1分ですね。"}',
+        can_see=False,
+        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+    )
+    assert (
+        d is not None
+        and d.action == "set_timer"
+        and d.tool_input == {"after_minutes": 1.0, "label": "タイマー"}
+    )
+    d = _parse(
+        '{"branch":"action","action":"cancel_timer","query":"all"}',
+        can_see=False,
+        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+    )
+    assert d is not None and d.tool_input == {"id": "all"}
+    d = _parse(
+        '{"branch":"action","action":"start_stopwatch","query":"ランニング"}',
+        can_see=False,
+        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+    )
+    assert d is not None and d.tool_input == {"label": "ランニング"}
+
+
+def test_an_action_branch_with_only_text_is_a_light_reply():
+    """動作が無く text だけの action（「鳴らしていい？」と聞きたかった）は light として扱う（実機 23:14）。"""
+    d = _parse('{"branch":"action","text":"鳴らしていい？"}', can_see=False, extra_actions=())
+    assert d is not None and d.branch == "light" and d.text == "鳴らしていい？"
+    assert _parse('{"branch":"action"}', can_see=False, extra_actions=()) is None
