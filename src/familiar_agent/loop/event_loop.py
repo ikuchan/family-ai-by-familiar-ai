@@ -2582,8 +2582,6 @@ class InformationProcessing:
                     # ループが作った記録も拡散想起の母集合へ。載せないと、閉じた逐語へ
                     # 辿り着く辺が WR に無い（実機で、逐語の WR 掲載数が0だった）。
                     extra_cooccurring_ids=turn_records,
-                    # 起点が人の発話か。自発（情動・機器）の求めを「人と話した」に数えない（情-g）。
-                    human=self._req.trigger_kind == "発話",
                 ),
                 name="event-post-response",
             )

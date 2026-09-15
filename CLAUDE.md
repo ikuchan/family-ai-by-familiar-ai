@@ -20,7 +20,7 @@ familiar-ai は、家庭で家族が使う、身体を持つ伴侶エージェ�
 - ReAct ツールループ
 - PostgreSQL 記憶（pgvector）と人ごとの `situated_embeddings`
 - 予測とワークスペースの層
-- 関係、評価、5 軸の欲求（`drive_register`）の明示的な状態層
+- 評価と 5 軸の欲求（`drive_register`）の明示的な状態層（関係は O の関係の面と `人物` のまとめ）
 - 能力の一覧と要約（REST 内省の層 4 が更新する）
 - カメラ、移動、TTS、STT、GUI、MCP の任意統合
 
@@ -95,7 +95,6 @@ JSON ファイルも使わない。ファイルに置くのは**既定値と人�
 | `episodes` / `episode_memories` | まとめた記憶エピソード |
 | `memory_salience` | 想起の顕著性追跡（撤去予定） |
 | `memory_events` / `memory_jobs` | 非同期ジョブキュー |
-| `relationship_state` | 人ごとの関係データ |
 | `persons` | 既知の人物レジストリ |
 | `mental_state_log` | 追記専用のメンタル状態スナップショット |
 | `agent_state` | キーバリュー：capability_summary, capabilities, self_image, mood_pad, drive5, addressee_doubts, relation_judged_until, silence_request と層 3 の設定値 |

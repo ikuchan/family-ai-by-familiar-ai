@@ -444,11 +444,6 @@ class PendingSpeechConfig:
         default_factory=lambda: _float_env("PENDING_SPEECH_EXPIRE_THRESHOLD", 0.1)
     )
     max_per_turn: int = field(default_factory=lambda: _int_env("PENDING_SPEECH_MAX", 2))
-    weight_content: float = field(default_factory=lambda: _float_env("ADDRESS_WEIGHT_CONTENT", 1.0))
-    weight_relation: float = field(
-        default_factory=lambda: _float_env("ADDRESS_WEIGHT_RELATION", 1.0)
-    )
-    temperature: float = field(default_factory=lambda: _float_env("ADDRESS_TEMPERATURE", 1.0))
 
 
 @dataclass

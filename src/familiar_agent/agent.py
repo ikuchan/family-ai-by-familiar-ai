@@ -23,8 +23,8 @@ from typing import Any
 
 from .backends import create_backend, create_scene_backend, create_utility_backend
 from .core.context_parts import Stance as _Stance
-from .config import AgentConfig, DriveConfig, MemoryConfig, PendingSpeechConfig
-from .relationship import PersonRegistry, RelationshipTracker
+from .config import AgentConfig, DriveConfig
+from .relationship import PersonRegistry
 from .routines import quiet_hours_rule
 from .io.aif import AIF, Nudge
 from .store import clock
@@ -189,8 +189,6 @@ class EmbodiedAgent:
 
         self._mcp: MCPClientManager | None = None
         self._persons = PersonRegistry(default_name=config.companion_name)
-        # Property alias so all existing self._relationship.* calls continue to work.
-        # They always address the currently active speaker's tracker.
         self._prediction = PredictionEngine()
         # T との行き来はこの口へ集める（`設計図` ③-2 の4つの口）。I はループが
         # 立ち上がる前のターンでも Nudge を返すので、ここで持たせる。
@@ -356,7 +354,6 @@ class EmbodiedAgent:
         memories: "list[Recalled] | None" = None,
         exchange_id: "int | None" = None,
         extra_cooccurring_ids: "list[str] | None" = None,
-        human: bool = False,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
@@ -461,11 +458,9 @@ class EmbodiedAgent:
                 memories, list(_new_ids or []) + list(extra_cooccurring_ids or [])
             )
 
-            # 会話として数えるのは**人の発話が起点**のときだけ（情-g・2026-09-15）。自発ターンの
-            # cue も `user_input` に入るので、これで見分けないとひとりの回数が毎ターン 0 へ戻る。
-            # 人の印（`_last_human_at`）は入口（`push_utterance`）が付ける。ここでは書かない。
-            if human and user_input:
-                self._relationship.record_conversation()
+            # 人の印（`_last_human_at`）は入口（`push_utterance`）が付ける。ここでは書かない
+            # （情-g・2026-09-15：自発ターンの cue も `user_input` に入るので、ここで書くと
+            # ひとりの回数が毎ターン 0 へ戻る）。関係の追跡（旧表）は環-d で撤去。
 
         except Exception as exc:  # noqa: BLE001
             logger.warning("Post-response pipeline failed: %s", exc)
@@ -789,98 +784,6 @@ class EmbodiedAgent:
             return 0.25
         return 0.15
 
-    def _select_addressee(
-        self,
-        present_ids: list[str],
-        pending_rows: list[dict],
-        cfg: "PendingSpeechConfig",
-    ) -> str | None:
-        """複数人がいる場面で誰に話しかけるかを、話したい内容の強さと関係性から確率的に決める。
-
-        内容の強さ[p] = target=p の鮮度合計 + target=NULL の鮮度合計(全員共通)
-        関係性[p]    = (trust + intimacy) / 2
-        正規化(各要素を present 合計で割る) → 重み付き合成 → 確率^(1/T) で選択。
-        """
-        import random as _random
-        from datetime import datetime, timezone as _tz
-        from .time_decay import DecayState as _DecayState
-
-        if not present_ids:
-            return None
-
-        now_epoch = datetime.now(_tz.utc).timestamp()
-
-        def _row_score(row: dict) -> float:
-            created_at = row.get("created_at")
-            if isinstance(created_at, datetime):
-                if created_at.tzinfo is None:
-                    created_at = created_at.replace(tzinfo=_tz.utc)
-                origin = created_at.timestamp()
-            else:
-                origin = now_epoch
-            state = _DecayState(
-                origin_epoch=origin,
-                half_life_seconds=cfg.half_life_days * 86400.0,
-                floor=cfg.floor,
-                reinforce_count=int(row.get("reinforce_count", 0)),
-            )
-            return state.score(now_epoch)
-
-        # 1) content strength per person
-        null_score_sum = 0.0
-        per_pid_score: dict[str, float] = {pid: 0.0 for pid in present_ids}
-        for row in pending_rows:
-            tgt = row.get("target_person_id")
-            score = _row_score(row)
-            if tgt is None:
-                null_score_sum += score
-            elif tgt in per_pid_score:
-                per_pid_score[tgt] += score
-
-        content_strength = {pid: per_pid_score[pid] + null_score_sum for pid in present_ids}
-        content_total = sum(content_strength.values())
-
-        # 2) relationship score per person
-        def _rel(pid: str) -> float:
-            name = self._pmm.get_person_name(pid) if hasattr(self, "_pmm") else pid
-            persons = getattr(self, "_persons", None)
-            if persons is not None:
-                tracker = persons._trackers.get(name)
-                if tracker is not None:
-                    return (tracker.trust + tracker.intimacy) / 2.0
-            return (0.5 + 0.4) / 2.0  # neutral defaults
-
-        relation: dict[str, float] = {pid: _rel(pid) for pid in present_ids}
-        relation_total = sum(relation.values())
-
-        # 3) normalized weighted score
-        wc = cfg.weight_content
-        wr = cfg.weight_relation
-        scores: dict[str, float] = {}
-        for pid in present_ids:
-            nc = (
-                content_strength[pid] / content_total
-                if content_total > 0
-                else 1.0 / len(present_ids)
-            )
-            nr = relation[pid] / relation_total if relation_total > 0 else 1.0 / len(present_ids)
-            scores[pid] = wc * nc + wr * nr
-
-        # 4) temperature scaling then proportional selection
-        t = max(cfg.temperature, 1e-6)
-        scaled = {pid: s ** (1.0 / t) for pid, s in scores.items()}
-        total = sum(scaled.values())
-        if total <= 0:
-            return _random.choice(present_ids)
-
-        r = _random.random() * total
-        cumulative = 0.0
-        for pid in present_ids:
-            cumulative += scaled[pid]
-            if r <= cumulative:
-                return pid
-        return present_ids[-1]
-
     def _load_me_md(self) -> str:
         """Load ME.md personality file if it exists."""
         from pathlib import Path
@@ -925,7 +828,7 @@ class EmbodiedAgent:
             try:
                 self._pmm.register_person(m["name"], display_name=m["display_name"])
                 # Pre-seed PersonRegistry so [呼び方] and /speaker commands work immediately
-                self._persons._get_or_create(m["display_name"])
+                self._persons.register(m["display_name"])
                 logger.info(
                     "Family member registered: %s (display=%s)", m["name"], m["display_name"]
                 )
@@ -990,129 +893,6 @@ class EmbodiedAgent:
         if intensity < 0.1:
             return ("neutral", 0.0)
         return (self._mood, intensity)
-
-    async def _proactive_memory_context(self) -> str | None:
-        """pending_speech 優先、なければ 2-stage 連想想起 (Issue C/D).
-
-        Issue D: present チェック後、まず pending_speech を確認する。
-        alive な pending があれば相手を選んで max_per_turn 件を発話として返す。
-        pending がない/全失効 → Issue C の2段階想起にフォールスルー。
-        """
-        import random as _random
-        from datetime import timezone as _tz
-
-        pmm = self._pmm
-        present = pmm.get_all_present_memories()
-        if not present:
-            return None
-
-        present_ids = pmm.get_present_ids()
-
-        # ── Issue D: pending_speech 優先フロー ──────────────────────────────
-        pending_store = getattr(self, "_pending_store", None)
-        if pending_store is not None:
-            cfg = PendingSpeechConfig()
-            now_epoch = datetime.now(_tz.utc).timestamp()
-            try:
-                all_pending = pending_store.list_active()
-            except Exception:
-                all_pending = []
-
-            alive: list[dict] = []
-            for row in all_pending:
-                score = pending_store.freshness_score(row, now_epoch, cfg)
-                if pending_store.is_expired(row, score, cfg):
-                    try:
-                        pending_store.delete(row["id"])
-                    except Exception:
-                        pass
-                else:
-                    alive.append(row)
-
-            if alive:
-                addressee = self._select_addressee(present_ids, alive, cfg)
-                if addressee:
-                    # 相手向け(target=addressee) + target=NULL を鮮度順に max_per_turn まで
-                    eligible = [r for r in alive if r.get("target_person_id") in (addressee, None)]
-                    eligible.sort(
-                        key=lambda r: pending_store.freshness_score(r, now_epoch, cfg),
-                        reverse=True,
-                    )
-                    chosen = eligible[: cfg.max_per_turn]
-                    if chosen:
-                        for c in chosen:
-                            try:
-                                pending_store.delete(c["id"])
-                            except Exception:
-                                pass
-                        contents = [c.get("content", "") for c in chosen if c.get("content")]
-                        return " / ".join(contents) if contents else None
-
-        # ── Issue C フォールスルー: 2-stage 連想想起 ──────────────────────
-        now = datetime.now()
-        hour, month = now.hour, now.month
-        hour_w = int(os.environ.get("SHARE_MEMORY_HOUR_WINDOW", "3"))
-        month_w = int(os.environ.get("SHARE_MEMORY_MONTH_WINDOW", "1"))
-        pool_k = int(os.environ.get("SHARE_MEMORY_SEED_POOL_K", "3"))
-        assoc_max = int(os.environ.get("SHARE_MEMORY_ASSOC_MAX", "3"))
-        total_max = int(os.environ.get("SHARE_MEMORY_TOTAL_MAX", "4"))
-
-        candidates: list[dict] = []
-        for _pid, mem in present:
-            candidates += await asyncio.to_thread(
-                mem.pick_seed_candidates,
-                hour,
-                month,
-                hour_window=hour_w,
-                month_window=month_w,
-                k=pool_k,
-            )
-        if not candidates:
-            return None
-
-        seed_n = _random.choice([1, 2])
-        seeds = _random.sample(candidates, min(seed_n, len(candidates)))
-
-        collected: "list[tuple[str, str, float]]" = [
-            (
-                str(m.get("memory_id") or m.get("id") or ""),
-                str(m.get("content") or m.get("summary") or ""),
-                float(m.get("fit", 0.0)),
-            )
-            for m in seeds
-        ]
-        for seed in seeds:
-            try:
-                assoc = await self._oif.recall(
-                    Cue(text=seed.get("content", "")),
-                    View(
-                        viewpoint=self._pmm.current_speaker_id or AGENT_SELF_ID,
-                        k=assoc_max,
-                        floor=MemoryConfig().recall_min_score,
-                    ),
-                )
-                # 連想は口から `Recalled` で来る（環-e-い）。種は store の行のままなので、
-                # **(id, 中身, 適合度) の3つ組へ揃えてから混ぜる**。
-                collected += [(r.mi.obs_id, r.mi.content, r.fit) for r in assoc]
-            except Exception:
-                pass
-
-        seen: set[str] = set()
-        merged: list[tuple[str, str, float]] = []
-        for key, content, fit in sorted(collected, key=lambda x: x[2], reverse=True):
-            if (key or content) in seen:
-                continue
-            seen.add(key or content)
-            merged.append((key, content, fit))
-            if len(merged) >= total_max:
-                break
-
-        if not merged:
-            return None
-
-        contents = [c for _k, c, _f in merged]
-        contents = [c for c in contents if c]
-        return " / ".join(contents) if contents else None
 
     async def _anniversary_context(self) -> str | None:
         """Return a calendar-aware context string for today, or None if nothing notable.
@@ -1444,22 +1224,6 @@ class EmbodiedAgent:
         except (asyncio.TimeoutError, Exception):
             pass
         self._persons.close()
-
-    # ── Multi-person relationship delegation ─────────────────────────────────
-
-    @property
-    def _relationship(self) -> RelationshipTracker:
-        """Active speaker's RelationshipTracker (transparent alias for legacy call sites)."""
-        return self._persons.active
-
-    @_relationship.setter
-    def _relationship(self, value: RelationshipTracker) -> None:
-        """Allow direct assignment (used by tests and legacy code)."""
-        if not hasattr(self, "_persons"):
-            # Called before __init__ completes (e.g. test fixtures using __new__).
-            # Bootstrap a minimal PersonRegistry so the property getter works.
-            self._persons = PersonRegistry(default_name="companion")
-        self._persons._trackers[self._persons.active_name] = value
 
     async def _sync_pmm_speaker(self, name: str) -> None:
         """Set PersonMemoryManager speaker to match the name from PersonRegistry."""

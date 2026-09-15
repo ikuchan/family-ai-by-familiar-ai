@@ -156,11 +156,9 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     agent._exploration = ExplorationTracker()
     agent._scene = None
 
-    from familiar_agent.relationship import RelationshipTracker
     from familiar_agent.prediction import PredictionEngine
     import time as _time
 
-    agent._relationship = RelationshipTracker()
     agent._self_state = MagicMock()
     agent._self_state.snapshot = MagicMock(return_value={"unresolved_tension": 0.2})
     agent._prediction = PredictionEngine()
@@ -248,7 +246,7 @@ def _nudge_messages(agent) -> list:
 
 
 @pytest.mark.asyncio
-async def test_post_response_pipeline_records_the_conversation_without_the_removed_engines():
+async def test_post_response_pipeline_runs_without_the_removed_engines():
     from familiar_agent.agent import EmbodiedAgent
 
     agent = _make_agent()
@@ -275,19 +273,8 @@ async def test_post_response_pipeline_records_the_conversation_without_the_remov
 
     # 気がかり（ConcernEngine）・価値の適応（legacy 表）・好奇心の抽出（旧欲求）は環-d で撤去。
     # 残るのは関係の記録（会話があった）だけ。
-    agent._relationship.record_conversation = MagicMock()
-    await EmbodiedAgent._run_post_response_pipeline(
-        agent,
-        user_input="もう一度",
-        final_text="うん。",
-        camera_used=False,
-        camera_image=None,
-        observation_action_name=None,
-        observation_action_input=None,
-        companion_mood="engaged",
-        human=True,  # 人の発話が起点（情-g）
-    )
-    agent._relationship.record_conversation.assert_called_once()
+    # 関係の追跡（`relationship_state`）も環-d で撤去。pipeline は要約と共起の記録だけ。
+    agent._summarize_exchange.assert_awaited_once()
 
 
 # ---------------------------------------------------------------------------
