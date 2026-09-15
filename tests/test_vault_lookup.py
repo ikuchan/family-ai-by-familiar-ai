@@ -107,3 +107,14 @@ def test_call_tool_strips_the_mark_and_the_slow_tool_gets_a_longer_timeout():
     assert ok and text == "答え"
     assert call_timeout_for("ask_vault_yusuke") >= 120.0
     assert call_timeout_for("get_house_rules") == 30.0
+
+
+def test_notion_and_vault_are_told_apart_in_the_candidates():
+    """書き分け：Notion＝家の目次・日次記録・Todo、Vault＝本人の考え・経緯・検討の中身（2026-09-15）。
+
+    両方に「記録・経緯」と書いてあると Notion（速い）に寄る（実機で 2 回とも Notion へ行った）。
+    """
+    notion = _EXTRA_ACTIONS["notion_search"][1]
+    vault = _EXTRA_ACTIONS["vault"][1]
+    assert "目次" in notion and "Todo" in notion and "経緯" not in notion
+    assert "経緯" in vault and "検討" in vault and "目次や Todo ではない" in vault

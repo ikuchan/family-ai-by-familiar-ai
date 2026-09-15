@@ -147,6 +147,10 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
   `MCP_SLOW_CALL_TIMEOUT`。相手側の既定は 300 秒）。
 - 返りの末尾 `──（YYYY-MM-DD のセッション／継続）` は `DIF.call_tool` が落とす（`strip_session_mark`）。
 - 失敗は出-o のとおり（「道具が使えず失敗した」・その求めのあいだ候補から外す）。
+- **Notion との書き分け**（2026-09-15・実機で「コーチングどうなった？」が 2 回とも `notion_search` へ行った）：候補文で
+  Notion＝**家の目次・日次記録・Todo**（速い）、Vault＝**本人の考え・経緯・検討の中身**（「なぜそう決めた？」・数十秒）と
+  分け、「記録・経緯」を両方に書かない。実機では「髭剃りどうなったっけ？」が `vault` へ行き、29.6 秒で Vault の
+  答え（`10_Wiki/参照/ひげ剃り.md`）が返った（18:41）。
 
 ## 10. パジュ宛てのメモを読みに行く（知-g-ろ・実装済み 2026-09-15）
 
@@ -163,6 +167,7 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 
 ## 更新履歴
 
+> v0.4 追記（2026-09-15 夕）：知-g-い を実機で確認（`/speaker　パパ`→「髭剃りどうなったっけ？」→ `vault` 29.6 秒→答え）。Notion と Vault の候補文を書き分けた。
 > v0.4：知-g-い（`vault`・話者の英字で道具を解く・120 秒・素性の印を落とす）と 知-g-ろ（`get_notes_for_paju`・1 時間に 1 回・`agent_state.paju_notes`・`機器` の求め）を実装した（2026-09-15）。§6 の「直接触らない」は本人の許可で知-g-ろ の追加に限り外した。
 
 > v0.3：**話者ゲートを実装した**（知-f・2026-09-14）。§3 の直後に実装の形（FAMILY.md の `英字`・`core/tool_gate.py`・`_gated()` の 1 出口）。`ask_vault_yusuke` はまだ `_ACTIONS` に載せない（知-g-い）。
