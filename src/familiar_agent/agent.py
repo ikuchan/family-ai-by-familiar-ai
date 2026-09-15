@@ -1083,6 +1083,14 @@ class EmbodiedAgent:
             return
         await ip.abort_current(reason=reason)
 
+    def set_output(self, on_text=None, on_action=None) -> None:
+        """発話の表示先を登録する（アプリが起動時に渡す・人の発話を待たない）。
+
+        自発の求め（メモ・タイマー・情動）は人が話しかける前にも起きる。出口を人の発話で
+        初めて結ぶと、それまでの発話は画面にも音にも出ない（2026-09-15 実機 21:50）。
+        """
+        self._ensure_event_loop(on_text, on_action=on_action)
+
     def set_request_state_listener(self, listener) -> None:
         """求めが開いた／閉じたの通知先を登録する（GUI の停止ボタンが従う・環-j）。"""
         self._ensure_event_loop()
