@@ -14,10 +14,9 @@ def _make_app():
     agent = MagicMock()
     agent.config.agent_name = "A"
     agent.config.companion_name = "U"
-    desires = MagicMock()
 
     with patch("familiar_agent.tui._make_banner", return_value=""):
-        return FamiliarApp(agent, desires)
+        return FamiliarApp(agent)
 
 
 @pytest.mark.asyncio

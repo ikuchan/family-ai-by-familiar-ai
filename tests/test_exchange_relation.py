@@ -79,8 +79,6 @@ def test_the_summary_is_appended_as_the_last_member():
             observation_action_name=None,
             observation_action_input=None,
             companion_mood="engaged",
-            is_desire_turn=False,
-            desires=None,
             exchange_id=7,
         )
     )
@@ -105,8 +103,6 @@ def test_no_relation_is_written_when_the_turn_left_nothing():
             observation_action_name=None,
             observation_action_input=None,
             companion_mood="engaged",
-            is_desire_turn=False,
-            desires=None,
             exchange_id=None,
         )
     )

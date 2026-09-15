@@ -60,7 +60,6 @@ def test_old_name_is_gone_from_source() -> None:
     # それぞれの改名で別に扱う。
     targets = [
         "src/familiar_agent/coalition.py",
-        "src/familiar_agent/desires.py",
         "src/familiar_agent/scene.py",
         "src/familiar_agent/prediction.py",
         "src/familiar_agent/exploration.py",

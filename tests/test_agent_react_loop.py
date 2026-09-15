@@ -184,7 +184,6 @@ _HEAVY_PATCHES = {
     ),
     "familiar_agent.agent.EmbodiedAgent._summarize_exchange": AsyncMock(return_value="summary"),
     "familiar_agent.agent.EmbodiedAgent._run_post_response_pipeline": AsyncMock(),
-    "familiar_agent.agent.EmbodiedAgent.extract_curiosity": AsyncMock(return_value=None),
     "familiar_agent.agent.generate_plan": AsyncMock(return_value=""),
     "familiar_agent.agent.check_plan_blocked": AsyncMock(return_value=False),
 }
@@ -249,7 +248,7 @@ def _nudge_messages(agent) -> list:
 
 
 @pytest.mark.asyncio
-async def test_post_response_pipeline_persists_curiosity_without_the_removed_engines():
+async def test_post_response_pipeline_records_the_conversation_without_the_removed_engines():
     from familiar_agent.agent import EmbodiedAgent
 
     agent = _make_agent()
@@ -262,11 +261,6 @@ async def test_post_response_pipeline_persists_curiosity_without_the_removed_eng
     )
     agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
-    agent.extract_curiosity = AsyncMock(return_value="The window light still feels important.")
-
-    desires = MagicMock()
-    desires.boost = MagicMock()
-    desires.curiosity_target = None
 
     await EmbodiedAgent._run_post_response_pipeline(
         agent,
@@ -277,12 +271,22 @@ async def test_post_response_pipeline_persists_curiosity_without_the_removed_eng
         observation_action_name="look",
         observation_action_input={"direction": "left", "degrees": 30},
         companion_mood="frustrated",
-        is_desire_turn=False,
-        desires=desires,
     )
 
-    # 気がかり（ConcernEngine）と価値の適応（legacy 表）は環-d で撤去。好奇心の永続だけ残る。
-    agent.extract_curiosity.assert_awaited_once()
+    # 気がかり（ConcernEngine）・価値の適応（legacy 表）・好奇心の抽出（旧欲求）は環-d で撤去。
+    # 残るのは関係の記録（会話があった）だけ。
+    agent._relationship.record_conversation = MagicMock()
+    await EmbodiedAgent._run_post_response_pipeline(
+        agent,
+        user_input="もう一度",
+        final_text="うん。",
+        camera_used=False,
+        camera_image=None,
+        observation_action_name=None,
+        observation_action_input=None,
+        companion_mood="engaged",
+    )
+    agent._relationship.record_conversation.assert_called_once()
 
 
 # ---------------------------------------------------------------------------
@@ -379,8 +383,6 @@ async def test_pipeline_records_the_exchange_without_camera():
         observation_action_name=None,
         observation_action_input=None,
         companion_mood="engaged",
-        is_desire_turn=False,
-        desires=None,
         exchange_id=9,
     )
 

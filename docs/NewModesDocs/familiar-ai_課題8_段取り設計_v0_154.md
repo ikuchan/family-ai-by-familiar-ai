@@ -1,4 +1,4 @@
-# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.153）
+# familiar-ai 課題8 段取り設計（段階的 TDD 改造の順序と依存）（v0.154）
 
 ## 1. 依存の事実（コード根拠）
 
@@ -216,7 +216,7 @@ Phase 0（BUG-1・bge-m3 移行）は実機で完了。残る段取りの判断�
 | B-2b |  | 記-a-に | 層 3 **設定値を調整する**（計測ログ・登録制・DB > 既定・n×2 と調停の時間切れ・層 1 の $I^\*$ 等を登録） | **完了**（2026-09-14・`設定値を調整する` v0.2・実機未確認） | 記-a-へ |
 | B-2c |  | 記-a-と | 層 4 **能力を再定義する**（`capabilities.yaml` と要約） | **完了**（2026-09-14・実機未確認）。一覧は DB（`agent_state.capabilities`・`capabilities.yaml` は既定）、7 日〔仮〕に 1 度書き直し、要約は一覧か自己像が変わった晩だけ | 記-a-に |
 | B-3 |  | 記-b | D-mi（MI 畳み込み・蒸留） | 未着手 | 記-a |
-| B-4 |  | 環-d | 廃止ストアの移管と撤去（`self_narrative` は移管しない） | **一部完了**（2026-09-14・061・`設計図` v0.99）：読み手の無い 5 表（`self_narrative_log`・`semantic_facts`・`behavior_policies`・`memory_links`・`memory_revisions`）を DROP し、書き手（`self_narrative.py`・`concern_engine.py`・`intervention_policy.py`・`reflect.py`・`legacy/`）を撤去。**残り**：`desires.py`（旧 15 欲求・`main.py` が組み pipeline に流れる・13 file）、`relationship_state`（知-e 待ち）、`pending_store`（環-b 待ち） | 記-a・知-e・環-b |
+| B-4 |  | 環-d | 廃止ストアの移管と撤去（`self_narrative` は移管しない） | **一部完了**（2026-09-14・061・`設計図` v0.99）：読み手の無い 5 表（`self_narrative_log`・`semantic_facts`・`behavior_policies`・`memory_links`・`memory_revisions`）を DROP し、書き手（`self_narrative.py`・`concern_engine.py`・`intervention_policy.py`・`reflect.py`・`legacy/`）を撤去。`desires.py`（旧 15 欲求）も撤去（2026-09-15・063・`設計図` v0.100）。**残り**：`relationship_state`（知-e 待ち）、`pending_store`（環-b 待ち） | 記-a・知-e・環-b |
 | C-1 | **C. 机上で作り、実機で確かめる：外を見に行く** | **知-f** | 話者ゲート（名前に人が入っている道具を、その人のターン以外で出さない） | **完了**（2026-09-14・`家の記録との接続` v0.3・`イベント駆動ループ` v0.63）。FAMILY.md の `英字`・`core/tool_gate.py`・`_gated()` の 1 出口（主LLM の道具と調停の候補）。実機で見るのは知-g-い で `ask_vault_yusuke` を載せたとき | `ask_vault_yusuke` を繋ぐ前に要る |
 | C-2 |  | **知-g-い** | 聞かれたとき Vault の中身を引きに行く（`ask_vault_yusuke` を主LLM と調停の候補へ・数十秒なので投げっぱなし＋つなぎ） | **後回し**（2026-09-13） | 知-f |
 | C-3 |  | **知-g-ろ** | Obsidian を定期的に読み、新しいメモ（指示・予定）を拾って自分から動く | **後回し**（2026-09-13） | 設計案は出した（Vault にパジュ向けの決まったページ＋memo_mcp に家族ティアの `get_notes_for_paju`・T が 1 時間に 1 回読み変化で求めを起こす）。memo_mcp は別リポジトリ |
@@ -1950,6 +1950,7 @@ S1 は独立している。S2 が S3・S4・S5 の土台で、S5 は S2 から S
 > v0.126 追記 3（2026-09-13）：**情-e**（情動で起きた求めを「自分がしたくなったこと」として渡す・実験→修正）を束 3 に立てた。出-l（see の画像を GUI に）は**取り下げ**（要らないと決めた）。
 > v0.126 追記 2（2026-09-13）：**知-i**（カメラの向きを名前で管理し、前回の見えと比べて会話）・**知-j**（予定の確認・中身は要確認）を束 4 に立てた。
 > v0.126 追記（2026-09-13）：**知-h**（「誰かがいる」と「知っている人がいる」を分ける——配信ゲートを在/不在の層で）を束 3 の先頭に立てた。知-g（Obsidian）は後回し。
+> v0.154：環-d の旧 15 欲求（`desires.py`・GUI／TUI の受け渡し・pipeline の死んだ分岐・`agent_state.desires`）を撤去（2026-09-15）。残りは relationship_state／pending_store。
 > v0.153：記-a-ろ-に（②核の固め）を完了にした（2026-09-15）。層 1 は 計測→減り→同一→束ね→固め→①。
 > v0.152：記-a-ろ-ろ（$I$ の計測と $\Delta$ の減り）を完了にした（2026-09-15）。次は ろ-に（核の固め）。
 > v0.151：環-d の今回分（読み手の無い 5 表と書き手の撤去・061）を完了にした（2026-09-14）。残りは desires／relationship_state／pending_store。

@@ -1,6 +1,6 @@
 """Tests for as_coalition() methods across all processors.
 
-Each processor (desires, scene, exploration, memory)
+Each processor (scene, exploration, memory)
 produces a Coalition for the Global Workspace.  These tests verify:
   - Returns None when the processor has no data (empty state).
   - Returns a Coalition with correct source and valid field ranges.
@@ -12,12 +12,10 @@ from __future__ import annotations
 import re
 import sqlite3
 import threading
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
 
-from familiar_agent.desires import TRIGGER_THRESHOLD, DesireSystem
 from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.scene import SceneTracker
 from familiar_agent.coalition import Coalition
@@ -35,70 +33,6 @@ def _assert_valid_coalition(c: Coalition, expected_source: str) -> None:
     assert 0.0 <= c.urgency <= 1.0
     assert 0.0 <= c.novelty <= 1.0
     assert isinstance(c.context_block, str) and len(c.context_block) > 0
-
-
-# ── DesireSystem.as_coalition ──────────────────────────────────────────────────
-
-
-@pytest.fixture
-def desires(tmp_path: Path) -> DesireSystem:
-    return DesireSystem(state_path=tmp_path / "desires.json", companion_name="Kota")
-
-
-def test_desire_coalition_none_when_no_dominant(desires: DesireSystem) -> None:
-    """All desires below threshold -> as_coalition returns None."""
-    result = desires.as_coalition()
-    assert result is None
-
-
-def test_desire_coalition_returns_valid_coalition(desires: DesireSystem) -> None:
-    """Boosted desire above threshold -> valid Coalition."""
-    desires.boost("worry_companion", TRIGGER_THRESHOLD + 0.1)
-    c = desires.as_coalition()
-    assert c is not None
-    _assert_valid_coalition(c, "desire")
-
-
-def test_desire_coalition_source_is_desire(desires: DesireSystem) -> None:
-    desires.boost("explore", TRIGGER_THRESHOLD + 0.1)
-    c = desires.as_coalition()
-    assert c is not None
-    assert c.source == "desire"
-
-
-def test_desire_coalition_summary_contains_desire_name(desires: DesireSystem) -> None:
-    desires.boost("look_around", TRIGGER_THRESHOLD + 0.2)
-    c = desires.as_coalition()
-    assert c is not None
-    assert "look_around" in c.summary
-
-
-def test_desire_coalition_urgency_varies_by_desire_type(desires: DesireSystem) -> None:
-    """worry_companion should have higher urgency than rest."""
-    desires.boost("worry_companion", TRIGGER_THRESHOLD + 0.1)
-    worry_c = desires.as_coalition()
-    assert worry_c is not None
-
-    desires2 = DesireSystem(companion_name="Kota")
-    desires2.boost("rest", TRIGGER_THRESHOLD + 0.1)
-    rest_c = desires2.as_coalition()
-    assert rest_c is not None
-
-    assert worry_c.urgency > rest_c.urgency
-
-
-def test_desire_coalition_activation_equals_desire_level(desires: DesireSystem) -> None:
-    desires.boost("greet_companion", 0.85)
-    c = desires.as_coalition()
-    assert c is not None
-    assert c.dynamism == pytest.approx(0.85, abs=0.05)
-
-
-def test_desire_coalition_context_block_has_inner_voice(desires: DesireSystem) -> None:
-    desires.boost("explore", TRIGGER_THRESHOLD + 0.1)
-    c = desires.as_coalition()
-    assert c is not None
-    assert "[inner-voice]" in c.context_block
 
 
 # ── SceneTracker.as_coalition ──────────────────────────────────────────────────

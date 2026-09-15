@@ -36,7 +36,6 @@ _SECRET_KEYWORDS = frozenset({"API_KEY", "PASSWORD", "SECRET", "TOKEN", "WEBHOOK
 # （appraisal.py・social_policy.py・interoception.py・default_mode.py・meta_monitor.py
 # は撤去済み、tape.py は `legacy/` へ移っており、6件が飛ばされていた）。
 _KEY_MODULES = [
-    "desires.py",
     "relationship.py",
     "mcp_client.py",
     "prediction.py",

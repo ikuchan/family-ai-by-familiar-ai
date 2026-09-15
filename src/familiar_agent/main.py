@@ -15,7 +15,6 @@ from pathlib import Path
 from .agent import EmbodiedAgent
 from .bootstrap import load_app_bootstrap
 from .config import AgentConfig
-from .desires import DesireSystem
 from .realtime_stt_session import create_realtime_stt_session
 from .setup import run_cli_setup_wizard
 from ._i18n import BANNER, _t
@@ -98,7 +97,7 @@ def setup_logging(debug: bool = False) -> None:
     logging.info("Logging initialized. Level: %s, File: %s", logging.getLevelName(level), log_file)
 
 
-async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False) -> None:
+async def repl(agent: EmbodiedAgent, debug: bool = False) -> None:
     print(BANNER)
 
     if not agent.is_embedding_ready:
@@ -166,9 +165,7 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
             if pending:
                 # Process all buffered user messages before doing anything autonomous
                 for user_input in pending:
-                    await _handle_user(
-                        user_input, agent, desires, on_action, on_text, debug, input_queue
-                    )
+                    await _handle_user(user_input, agent, on_action, on_text, debug, input_queue)
                 continue
 
             # No pending input — show prompt and wait briefly
@@ -187,9 +184,7 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
                 continue
 
             if queued_input:
-                await _handle_user(
-                    queued_input, agent, desires, on_action, on_text, debug, input_queue
-                )
+                await _handle_user(queued_input, agent, on_action, on_text, debug, input_queue)
 
     except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
         pass
@@ -213,7 +208,6 @@ async def repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool = False)
 async def _handle_user(
     user_input: str,
     agent: EmbodiedAgent,
-    desires: DesireSystem,
     on_action,
     on_text,
     debug: bool,
@@ -225,25 +219,14 @@ async def _handle_user(
     elif user_input == "/clear":
         agent.clear_history()
         print(_t("repl_history_cleared"))
-    elif user_input == "/desires":
-        if debug:
-            desires.tick()
-            print("\n[debug] desires:")
-            for name, level in desires._desires.items():
-                bar = "█" * int(level * 20)
-                print(f"  {name:20s} {level:.2f} {bar}")
     else:
         print()
         await agent.run(
             user_input,
             on_action=on_action,
             on_text=on_text,
-            desires=desires,
             interrupt_queue=interrupt_queue,
         )
-        if desires.curiosity_target:
-            print(f"\n  [気になること: {desires.curiosity_target}]")
-        desires.satisfy("greet_companion")
 
 
 def _mcp_command(args: list[str]) -> None:
@@ -314,7 +297,7 @@ def _mcp_command(args: list[str]) -> None:
             print(f"  {name:<22} {cmd} {a}{env_hint}")
 
 
-def _run_repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool) -> None:
+def _run_repl(agent: EmbodiedAgent, debug: bool) -> None:
     """Run the REPL with cross-platform Ctrl+C support.
 
     asyncio.run() on Windows (ProactorEventLoop) may not deliver SIGINT to
@@ -324,7 +307,7 @@ def _run_repl(agent: EmbodiedAgent, desires: DesireSystem, debug: bool) -> None:
     """
     loop = asyncio.new_event_loop()
     asyncio.set_event_loop(loop)
-    main_task = loop.create_task(repl(agent, desires, debug=debug))
+    main_task = loop.create_task(repl(agent, debug=debug))
 
     def _cancel() -> None:
         if not main_task.done():
@@ -428,19 +411,16 @@ def main() -> None:
         if use_gui:
             from .gui import run_gui
 
-            desires = DesireSystem(companion_name=config.companion_name)
-            run_gui(config, desires)
+            run_gui(config)
         elif use_tui:
             agent = EmbodiedAgent(config)
-            desires = DesireSystem(companion_name=config.companion_name)
             from .tui import FamiliarApp
 
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
             app.run(mouse=False)
         else:
             agent = EmbodiedAgent(config)
-            desires = DesireSystem(companion_name=config.companion_name)
-            _run_repl(agent, desires, debug=debug)
+            _run_repl(agent, debug=debug)
     except FatalStartupError as e:
         print(f"\n[致命的エラー] {e}", file=sys.stderr)
         sys.exit(1)

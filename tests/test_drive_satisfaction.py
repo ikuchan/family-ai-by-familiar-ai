@@ -24,6 +24,7 @@ from familiar_agent.mood_register import MoodPAD
 
 # ── Config：フラグと PAD 距離しきい値 ────────────────────────────────────────
 
+
 def test_satisfy_flag_default_on():
     with patch.dict(os.environ, {}, clear=False):
         os.environ.pop("DRIVE5_SATISFY_LLM", None)
@@ -43,6 +44,7 @@ def test_satisfy_gate_pad_dist_default():
 
 # ── PAD 距離（L2・上下両方向を拾う） ─────────────────────────────────────────
 
+
 def test_pad_distance_zero_for_same():
     assert pad_distance(MoodPAD(), MoodPAD()) == pytest.approx(0.0)
 
@@ -55,31 +57,39 @@ def test_pad_distance_captures_downward_move():
 
 # ── ゲート（drive 非依存 OR） ────────────────────────────────────────────────
 
+
 def test_gate_true_when_memories_nonempty():
     cfg = DriveConfig()
-    assert satisfaction_gate(memories_nonempty=True, pad_move=0.0,
-                             action_used=False, cfg=cfg) is True
+    assert (
+        satisfaction_gate(memories_nonempty=True, pad_move=0.0, action_used=False, cfg=cfg) is True
+    )
 
 
 def test_gate_true_when_pad_move_over_threshold():
     cfg = DriveConfig()
-    assert satisfaction_gate(memories_nonempty=False, pad_move=0.25,
-                             action_used=False, cfg=cfg) is True
+    assert (
+        satisfaction_gate(memories_nonempty=False, pad_move=0.25, action_used=False, cfg=cfg)
+        is True
+    )
 
 
 def test_gate_true_when_action_used():
     cfg = DriveConfig()
-    assert satisfaction_gate(memories_nonempty=False, pad_move=0.0,
-                             action_used=True, cfg=cfg) is True
+    assert (
+        satisfaction_gate(memories_nonempty=False, pad_move=0.0, action_used=True, cfg=cfg) is True
+    )
 
 
 def test_gate_false_when_flat_turn():
     cfg = DriveConfig()
-    assert satisfaction_gate(memories_nonempty=False, pad_move=0.1,
-                             action_used=False, cfg=cfg) is False
+    assert (
+        satisfaction_gate(memories_nonempty=False, pad_move=0.1, action_used=False, cfg=cfg)
+        is False
+    )
 
 
 # ── 出力パース（満たされた軸の部分集合） ─────────────────────────────────────
+
 
 def test_parse_satisfied_axes_from_json():
     assert parse_satisfied_axes('["bond", "rest"]') == frozenset({"bond", "rest"})
@@ -99,10 +109,11 @@ def test_parse_satisfied_axes_empty():
 
 # ── 放電適用（発火時と同じ全放電・他軸不変） ─────────────────────────────────
 
+
 def test_apply_satisfaction_discharges_named_axes():
     out = apply_satisfaction(AiDrivers(bond=0.9, seeking=0.7), frozenset({"bond"}))
-    assert out.bond == pytest.approx(0.0, abs=1e-2)   # 全放電
-    assert out.seeking == pytest.approx(0.7)          # 他軸は不変
+    assert out.bond == pytest.approx(0.0, abs=1e-2)  # 全放電
+    assert out.seeking == pytest.approx(0.7)  # 他軸は不変
 
 
 def test_apply_satisfaction_empty_noop():
@@ -135,22 +146,35 @@ def _run(s, **kw):
 
 def test_wiring_flag_off_skips_llm():
     s = _mock_agent(satisfy_llm=False)
-    _run(s, user_input="hi", final_text="ok", emotion_pad=MoodPAD(p=0.9, a=0.9),
-         memories=[{"x": 1}], camera_used=True, is_desire_turn=False)
+    _run(
+        s,
+        user_input="hi",
+        final_text="ok",
+        emotion_pad=MoodPAD(p=0.9, a=0.9),
+        memories=[{"x": 1}],
+        camera_used=True,
+    )
     s._utility_backend.complete.assert_not_called()
 
 
 def test_wiring_gate_fail_skips_llm():
     # フラグ on でも、W空・E中立・行動なし＝ゲート不成立で LLM を呼ばない
     s = _mock_agent(satisfy_llm=True)
-    _run(s, user_input="hi", final_text="ok", emotion_pad=MoodPAD(),
-         memories=None, camera_used=False, is_desire_turn=False)
+    _run(
+        s, user_input="hi", final_text="ok", emotion_pad=MoodPAD(), memories=None, camera_used=False
+    )
     s._utility_backend.complete.assert_not_called()
 
 
 def test_wiring_gate_pass_calls_llm():
     # W 非空でゲート成立 → LLM 起動（none 応答なので DB へは行かない）
     s = _mock_agent(satisfy_llm=True, complete_ret="none")
-    _run(s, user_input="hi", final_text="ok", emotion_pad=MoodPAD(),
-         memories=[{"x": 1}], camera_used=False, is_desire_turn=False)
+    _run(
+        s,
+        user_input="hi",
+        final_text="ok",
+        emotion_pad=MoodPAD(),
+        memories=[{"x": 1}],
+        camera_used=False,
+    )
     s._utility_backend.complete.assert_awaited_once()

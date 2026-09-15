@@ -16,10 +16,9 @@ class TestFamiliarAppHasCancelEvent:
         agent = MagicMock()
         agent.config.agent_name = "TestAgent"
         agent.config.companion_name = "TestUser"
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value="banner"):
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
 
         assert hasattr(app, "_cancel_event"), "FamiliarApp must have _cancel_event"
         assert isinstance(app._cancel_event, asyncio.Event)
@@ -31,10 +30,9 @@ class TestFamiliarAppHasCancelEvent:
         agent = MagicMock()
         agent.config.agent_name = "TestAgent"
         agent.config.companion_name = "TestUser"
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value="banner"):
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
 
         assert hasattr(app, "_agent_task"), "FamiliarApp must have _agent_task"
         assert app._agent_task is None
@@ -66,10 +64,9 @@ class TestCancelTurnSetsEvent:
         agent = MagicMock()
         agent.config.agent_name = "A"
         agent.config.companion_name = "U"
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value=""):
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
 
         # Patch _log_system so we don't need a real Textual DOM
         app._log_system = MagicMock()
@@ -85,10 +82,9 @@ class TestCancelTurnSetsEvent:
         agent = MagicMock()
         agent.config.agent_name = "A"
         agent.config.companion_name = "U"
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value=""):
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
 
         app._log_system = MagicMock()
         app._agent_running = False

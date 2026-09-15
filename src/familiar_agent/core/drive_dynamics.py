@@ -3,8 +3,8 @@
 感情ループ全体像の `T→D`（蓄積）・`M→g_D(M)→D`（気分変調）・`D→FIRE`（発火/放電）を
 `AiDrivers`＋`MoodPAD` 上の純関数で実装する。式・値は発火mood §2／課題5 B 由来。
 **loop へは接続済み**（2026-09-10 確認）——`loop/tonic.py` が `accumulate` → `fired` →
-`discharge` を時間で回して永続化する。legacy `DesireSystem` の置換だけが残っている
-（GUI・TUI・REPL の入口がまだ組み立てるが、自律の駆動源は T である）。
+`discharge` を時間で回して永続化する。旧 15 欲求の系は環-d で撤去した
+（2026-09-15）。自律の駆動源は T である。
 
 - 蓄積：`drive_i += rate·mult·learn·g_{D,i}(M)·dt`（clip[0,1]）。
 - 変調：`g_{D,i}(M) = logistic(logit(b_i) + Σ_j C_ij·(logit(x_j) − logit(r_j)))`

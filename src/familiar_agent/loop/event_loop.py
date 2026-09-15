@@ -2575,8 +2575,6 @@ class InformationProcessing:
                     observation_action_name=None,
                     observation_action_input=None,
                     companion_mood="engaged",
-                    is_desire_turn=False,
-                    desires=None,
                     arousal=arousal,
                     memories=memories,
                     # 会話要約は背景で作られるので、向こうでこの関係の末尾に足す。

@@ -30,9 +30,6 @@ def test_main_gui_path_defers_agent_construction(monkeypatch) -> None:
         ),
     )
     monkeypatch.setattr(main_mod, "AgentConfig", lambda: _FakeConfig())
-    monkeypatch.setattr(
-        main_mod, "DesireSystem", lambda companion_name=None: ("desires", companion_name)
-    )
 
     def _unexpected_agent(_config):
         raise AssertionError("EmbodiedAgent should not be constructed on the GUI path")
@@ -41,15 +38,14 @@ def test_main_gui_path_defers_agent_construction(monkeypatch) -> None:
 
     import familiar_agent.gui as gui_mod
 
-    monkeypatch.setattr(gui_mod, "run_gui", lambda config, desires: calls.append((config, desires)))
+    monkeypatch.setattr(gui_mod, "run_gui", lambda config: calls.append((config,)))
     monkeypatch.setattr(main_mod.sys, "argv", ["familiar", "--gui"])
 
     main_mod.main()
 
     assert len(calls) == 1
-    config, desires = calls[0]
+    (config,) = calls[0]
     assert isinstance(config, _FakeConfig)
-    assert desires == ("desires", "Kota")
 
 
 @pytest.mark.asyncio
@@ -67,7 +63,6 @@ async def test_initialize_agent_builds_agent_in_background(monkeypatch) -> None:
     win = FamiliarWindow.__new__(FamiliarWindow)
     win._config = SimpleNamespace(agent_name="Yukine", companion_name="Kota")
     win._agent = None
-    win._desires = object()
     win._agent_ready = False
     win._agent_init_failed = False
     win._agent_running = False

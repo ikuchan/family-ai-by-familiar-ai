@@ -43,8 +43,6 @@ def _run(agent, **kw):
             observation_action_name=None,
             observation_action_input=None,
             companion_mood="engaged",
-            is_desire_turn=False,
-            desires=None,
             **kw,
         )
     )

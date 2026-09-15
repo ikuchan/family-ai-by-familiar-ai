@@ -15,10 +15,9 @@ class TestPushToTalkAttributes:
         agent = MagicMock()
         agent.config.agent_name = "A"
         agent.config.companion_name = "U"
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value=""):
-            return FamiliarApp(agent, desires)
+            return FamiliarApp(agent)
 
     def test_ptt_active_attribute_exists(self):
         """FamiliarApp must have _ptt_active boolean attribute."""
@@ -59,10 +58,9 @@ class TestSpaceKeyBinding:
         agent.config.agent_name = "A"
         agent.config.companion_name = "U"
         agent.stt = MagicMock()
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value=""):
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
 
         app._log_system = MagicMock()
         app._recording = False
@@ -87,10 +85,9 @@ class TestSpaceKeyBinding:
         agent.config.agent_name = "A"
         agent.config.companion_name = "U"
         agent.stt = MagicMock()
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value=""):
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
 
         app._log_system = MagicMock()
         app._ptt_active = True
@@ -107,10 +104,9 @@ class TestSpaceKeyBinding:
         agent.config.agent_name = "A"
         agent.config.companion_name = "U"
         agent.stt = None
-        desires = MagicMock()
 
         with patch("familiar_agent.tui._make_banner", return_value=""):
-            app = FamiliarApp(agent, desires)
+            app = FamiliarApp(agent)
 
         app._log_system = MagicMock()
         app._ptt_active = False

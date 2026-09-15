@@ -132,8 +132,7 @@ class Tonic:
         # 前回の在席者。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
         # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
         self._present_names: set[str] | None = None
-        # 自発の可否は `DRIVE5_AUTONOMOUS`（5欲求）で決める。旧 `DesireSystem`（15欲求）用の
-        # `AUTO_DESIRE` とは系統が違うので独立させる。
+        # 自発の可否は `DRIVE5_AUTONOMOUS`（5欲求）で決める（旧 15 欲求の系は環-d で撤去）。
         self._cfg = drive_cfg or DriveConfig()
         self._task: asyncio.Task | None = None
 

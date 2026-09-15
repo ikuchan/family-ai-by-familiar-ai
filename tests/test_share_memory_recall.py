@@ -2,7 +2,7 @@
 
 pick_seed_candidates() returns a mixed pool of hour-near + month-near + random rows.
 _proactive_memory_context() seeds from present persons, expands via recall(), caps total.
-desires: share_memory has no time-of-day multiplier (removed in Issue C).
+（旧欲求の時間帯の重みは環-d で系ごと撤去）
 """
 
 from __future__ import annotations
@@ -59,8 +59,7 @@ def _make_mem_with_timestamps(rows: list[tuple[str, str]]) -> ObservationMemory:
                     "INSERT INTO observations "
                     "(id,content,timestamp,direction,kind,emotion) "
                     "VALUES (%s,%s,%s,%s,%s,%s)",
-                    (str(uuid.uuid4()), content, ts_str, "unknown",
-                     "conversation", "neutral"),
+                    (str(uuid.uuid4()), content, ts_str, "unknown", "conversation", "neutral"),
                 )
         conn.commit()
     finally:
@@ -76,12 +75,14 @@ def _make_mem_with_timestamps(rows: list[tuple[str, str]]) -> ObservationMemory:
 
 def test_pick_seed_candidates_returns_list_of_dicts():
     """pick_seed_candidates() returns a list of dicts with content and timestamp."""
-    mem = _make_mem_with_timestamps([
-        ("午後2時の記憶A", "2025-06-14 14:00:00"),
-        ("午後2時の記憶B", "2025-06-14 14:30:00"),
-        ("午後3時の記憶",  "2025-06-14 15:00:00"),
-        ("深夜の記憶",     "2025-06-14 02:00:00"),
-    ])
+    mem = _make_mem_with_timestamps(
+        [
+            ("午後2時の記憶A", "2025-06-14 14:00:00"),
+            ("午後2時の記憶B", "2025-06-14 14:30:00"),
+            ("午後3時の記憶", "2025-06-14 15:00:00"),
+            ("深夜の記憶", "2025-06-14 02:00:00"),
+        ]
+    )
     result = mem.pick_seed_candidates(hour=14, month=6, hour_window=3, month_window=1, k=3)
     assert isinstance(result, list)
     for item in result:
@@ -117,7 +118,7 @@ def test_pick_seed_candidates_month_window_includes_nearby():
     """Rows within month_window of target month appear in candidates."""
     rows = [
         ("6月の記憶", "2025-06-15 12:00:00"),
-        ("1月の記憶", "2025-01-15 12:00:00"),   # far from month=6
+        ("1月の記憶", "2025-01-15 12:00:00"),  # far from month=6
     ]
     mem = _make_mem_with_timestamps(rows)
 
@@ -148,6 +149,7 @@ def test_pick_seed_candidates_deduplicates():
 @pytest.fixture()
 def agent_no_present():
     from familiar_agent.agent import EmbodiedAgent
+
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
     pmm = MagicMock()
     pmm.get_all_present_memories.return_value = []
@@ -158,13 +160,16 @@ def agent_no_present():
 @pytest.fixture()
 def agent_with_present():
     from familiar_agent.agent import EmbodiedAgent
+
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
 
     seed_mem = MagicMock()
-    seed_mem.pick_seed_candidates = MagicMock(return_value=[
-        {"id": "s1", "content": "古い思い出A", "timestamp": datetime(2025, 6, 14, 14)},
-        {"id": "s2", "content": "古い思い出B", "timestamp": datetime(2025, 12, 1, 12)},
-    ])
+    seed_mem.pick_seed_candidates = MagicMock(
+        return_value=[
+            {"id": "s1", "content": "古い思い出A", "timestamp": datetime(2025, 6, 14, 14)},
+            {"id": "s2", "content": "古い思い出B", "timestamp": datetime(2025, 12, 1, 12)},
+        ]
+    )
 
     pmm = MagicMock()
     pmm.get_all_present_memories.return_value = [("pid-1", seed_mem)]
@@ -173,9 +178,11 @@ def agent_with_present():
     agent._pmm = pmm
 
     assoc_mem = MagicMock()
-    assoc_mem.recall_async = AsyncMock(return_value=[
-        {"memory_id": "a1", "content": "連想された記憶", "score": 0.85},
-    ])
+    assoc_mem.recall_async = AsyncMock(
+        return_value=[
+            {"memory_id": "a1", "content": "連想された記憶", "score": 0.85},
+        ]
+    )
     # _active_memory() = pmm.get_speaker_memory() or pmm.get_agent_memory()
     # get_speaker_memory returns None → falls back to get_agent_memory → assoc_mem
     pmm.get_agent_memory.return_value = assoc_mem
@@ -211,6 +218,7 @@ async def test_proactive_context_total_max_respected(monkeypatch, agent_with_pre
 async def test_proactive_context_no_candidates_returns_none():
     """シード候補が0件のとき None を返すこと。"""
     from familiar_agent.agent import EmbodiedAgent
+
     agent = EmbodiedAgent.__new__(EmbodiedAgent)
 
     seed_mem = MagicMock()
@@ -224,22 +232,4 @@ async def test_proactive_context_no_candidates_returns_none():
     assert result is None
 
 
-# ---------------------------------------------------------------------------
-# Tests: desires time-of-day bias removed for share_memory
-# ---------------------------------------------------------------------------
-
-
-def test_share_memory_no_evening_multiplier():
-    """Evening (18-22) must NOT boost share_memory (Issue C 撤廃)."""
-    from familiar_agent.desires import DesireSystem
-    modulation = DesireSystem._time_modulation(20)  # 8pm
-    rate = modulation.get("share_memory", 1.0)
-    assert rate == 1.0, f"share_memory evening rate should be 1.0, got {rate}"
-
-
-def test_share_memory_no_night_suppression():
-    """Night (22-6) must NOT suppress share_memory (Issue C 撤廃)."""
-    from familiar_agent.desires import DesireSystem
-    modulation = DesireSystem._time_modulation(2)   # 2am
-    rate = modulation.get("share_memory", 1.0)
-    assert rate == 1.0, f"share_memory night rate should be 1.0, got {rate}"
+#
