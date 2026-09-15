@@ -18,6 +18,18 @@ from .types import ToolCall, TurnResult
 logger = logging.getLogger(__name__)
 
 
+def _text_of(resp) -> str:
+    """返りの本文（`TextBlock` を全部つなぐ）。思考ブロックは飛ばす。
+
+    Sonnet 5 は先頭に `ThinkingBlock` を置くことがある。`content[0]` だけを見ると空文字になり、
+    REST の層 1 ①が 69 回すべて「返りを読めなかった」（2026-09-15 実機・環-l）。
+    """
+    from anthropic.types import TextBlock
+
+    parts = [b.text for b in (getattr(resp, "content", None) or []) if isinstance(b, TextBlock)]
+    return "".join(parts).strip()
+
+
 class AnthropicBackend:
     """Backend using the official Anthropic SDK."""
 
@@ -332,10 +344,7 @@ class AnthropicBackend:
                     max_tokens=max_tokens,
                     messages=msgs,
                 )
-            from anthropic.types import TextBlock
-
-            first = resp.content[0] if resp.content else None
-            result = first.text.strip() if isinstance(first, TextBlock) else ""
+            result = _text_of(resp)
             if not result:
                 logger.warning(
                     "complete() empty response from %s: content=%s, stop=%s",
@@ -353,8 +362,6 @@ class AnthropicBackend:
     ) -> str:
         """Vision completion — sends base64 JPEG alongside text prompt."""
         try:
-            from anthropic.types import TextBlock
-
             extra: dict = {"system": system} if system else {}
             resp = await self.client.messages.create(
                 model=self.model,
@@ -377,8 +384,7 @@ class AnthropicBackend:
                     }
                 ],
             )
-            first = resp.content[0] if resp.content else None
-            return first.text.strip() if isinstance(first, TextBlock) else ""
+            return _text_of(resp)
         except Exception as e:
             logger.warning("complete_with_image() failed: %s", e)
             return ""
