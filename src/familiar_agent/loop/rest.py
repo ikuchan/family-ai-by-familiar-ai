@@ -4,9 +4,9 @@
 出来事（畳む）→ 自己像（抽象化する）→ 設定値（調整する）→ 能力（再定義する）。
 起動は T の純粋欠乏発火で、誰も居ないときだけ回る（`loop/tonic.py`）。
 
-**いま動いているのは層 1 の計測と減り（`rest_info.py`）と①（日次の畳み込み・`rest_fold.py`）、層 2（自己像の見直し・
+**いま動いているのは層 1 の計測と減り（`rest_info.py`）・②核の固め（`rest_core.py`）・①日次の畳み込み（`rest_fold.py`）、層 2（自己像の見直し・
 `rest_self_image.py`）、層 3（設定値の調整と計測ログの改名・`rest_settings.py`）、層 4（能力の
-再定義と要約の作り直し・`rest_capabilities.py`）**。層 1 の②（核の固め）はこれから（`課題8` 記-a-ろ-に）。回ったことは `direction='内省'` の記録に残す——
+再定義と要約の作り直し・`rest_capabilities.py`）**。層 1 は 4 つの段が揃った（2026-09-15）。回ったことは `direction='内省'` の記録に残す——
 ログだけだと、起動しなかったのか、起動したが何もしなかったのかを区別できない。
 """
 
@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 
 from .rest_capabilities import redefine_capabilities
+from .rest_core import fold_core
 from .rest_fold import fold_since_last_rest
 from .rest_info import measure_and_decay
 from .rest_self_image import Material, update_self_image
@@ -29,16 +30,33 @@ async def run_rest_pass(agent) -> str:
     層 1 の畳み込みが落ちても例外を外へ出さない——材料は残り、次の晩に持ち越す。
     """
     parts: list[str] = []
-    records: tuple = ()
     # 層 1 の前段：使われる情報量 I を測り、超えていれば参照されなかった核の根づきを減らす（記-a-ろ-ろ）。
     try:
         parts.append(await measure_and_decay(agent))
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の計測に失敗: %s", e)
         parts.append("使われる情報量を測れなかった")
+    # 層 1 の②：同一を 1 件に、核が I* を超えていれば意味の近い束をまとめ知識に固める（記-a-ろ-に）。
+    records: tuple = ()
+    try:
+        c = await fold_core(agent)
+        records = c.records
+        bits = []
+        if c.identical_folded:
+            bits.append(f"同じ記録 {c.identical_folded} 件を 1 件に")
+        if c.written:
+            bits.append(f"核を {c.written} 束に固めて {c.folded} 件を畳んだ（見送り {c.skipped}）")
+        elif c.excess_bits > 0:
+            bits.append(
+                f"核は目標を {int(c.excess_bits)} bit 超えていたが固めなかった（見送り {c.skipped}）"
+            )
+        parts.append("。".join(bits) if bits else "核は固めるものが無かった")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 1 の核の固めに失敗: %s", e)
+        parts.append("核を固められなかった")
     try:
         r = await fold_since_last_rest(agent)
-        records = r.records
+        records = tuple(records) + tuple(r.records)
         if r.materials == 0:
             parts.append("畳むものが無かった")
         else:

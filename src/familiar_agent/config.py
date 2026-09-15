@@ -277,6 +277,20 @@ class MemoryConfig:
     info_target_bits: float = field(
         default_factory=lambda: _resolve_setting("MemoryConfig.info_target_bits", 131072.0)
     )
+    # ②核の固め（`出来事を畳む` §3c・記-a-ろ-に）。**層 3 の設定値**（DB > 既定）。本番の核の
+    # 総当たりコサインは二山（p50 0.09・p90 0.69）で、0.5 が谷・0.98 以上は同文（2026-09-15 実測）。
+    core_same_cos: float = field(
+        default_factory=lambda: _resolve_setting("MemoryConfig.core_same_cos", 0.98)
+    )
+    core_bundle_cos: float = field(
+        default_factory=lambda: _resolve_setting("MemoryConfig.core_bundle_cos", 0.5)
+    )
+    core_bundle_min: float = field(
+        default_factory=lambda: _resolve_setting("MemoryConfig.core_bundle_min", 3.0)
+    )
+    core_bundles_per_night: float = field(
+        default_factory=lambda: _resolve_setting("MemoryConfig.core_bundles_per_night", 6.0)
+    )
     recall_time_floor: float = field(  # t_floor
         default_factory=lambda: _float_env("RECALL_TIME_FLOOR", 0.001)
     )

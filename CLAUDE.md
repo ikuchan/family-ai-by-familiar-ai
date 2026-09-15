@@ -64,7 +64,8 @@ familiar-ai は、家庭で家族が使う、身体を持つ伴侶エージェ�
 内部状態（mood・drive）は定性ラベルで渡す。**生の小数は主LLM に届かない。**
 
 REST 内省は誰も居ないときに回る（`loop/rest.py`）。1 パスで 4 層を順に更新する
-（`用語一覧`・`課題8` 記-a）——層 1 出来事を畳む（使われる情報量 $I$ の計測と根づきの減り・`rest_info.py`、①日次の畳み込み・`rest_fold.py`）→
+（`用語一覧`・`課題8` 記-a）——層 1 出来事を畳む（使われる情報量 $I$ の計測と根づきの減り・`rest_info.py`、②核の固め・`rest_core.py`、
+①日次の畳み込み・`rest_fold.py`）→
 層 2 自己像（`rest_self_image.py`・`agent_state.self_image`・システム文の `[いまの自分]`）→
 層 3 設定値（`rest_settings.py`・計測ログ `rest_logs/measure.log` を集計し DB の値を 1 刻み）→
 層 4 能力（`rest_capabilities.py`・一覧 `agent_state.capabilities` を 7 日に 1 度、要約

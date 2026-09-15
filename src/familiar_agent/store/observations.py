@@ -1032,6 +1032,58 @@ class ObservationStore:
                 )
                 return [dict(r) for r in cur.fetchall()]
 
+    def core_records(self) -> list[dict]:
+        """②核の固めの材料：核の**出来事**ごとに 1 行（記-a-ろ-に）。
+
+        `内省`・`保留` は除く。`groundedness_n` は面の最大、`person_ids` は面を持つ人、`vector` は
+        n が最大の面のもの（束ねに使う・list[float]）。現行の記録だけ。
+        """
+        live = not_hidden("o")
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id AS obs_id, o.content, o.direction, o.timestamp,
+                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                           length(o.content) AS chars,
+                           MAX(s.groundedness_n) AS groundedness_n,
+                           array_agg(s.person_id ORDER BY s.groundedness_n DESC) AS person_ids,
+                           (array_agg(s.vector::text ORDER BY s.groundedness_n DESC))[1] AS vector
+                    FROM observations o
+                    JOIN situated_memories s ON s.obs_id = o.id
+                    WHERE s.groundedness_n >= 1 AND {live}
+                      AND o.direction NOT IN ('内省', '保留')
+                    GROUP BY o.id, o.content, o.direction, o.timestamp, o.groundedness_g0
+                    ORDER BY o.timestamp ASC
+                    """
+                )
+                out = []
+                for r in cur.fetchall():
+                    d = dict(r)
+                    raw = str(d.get("vector") or "[]").strip("[]")
+                    d["vector"] = [float(x) for x in raw.split(",") if x.strip()]
+                    d["person_ids"] = list(d.get("person_ids") or [])
+                    out.append(d)
+                return out
+
+    def raise_groundedness(self, obs_id: str, n: int) -> int:
+        """その出来事の全ての面の n を、少なくとも n まで上げる（下げない）。上がった面の数。
+
+        固めた産物が出典の根づきを引き継ぐ（最大値）ため・同一の代表が群の最大を引き継ぐため。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE situated_memories SET groundedness_n = %s "
+                    "WHERE obs_id = %s AND groundedness_n < %s",
+                    (int(n), obs_id, int(n)),
+                )
+                got = cur.rowcount
+            conn.commit()
+        return int(got or 0)
+
     def fresh_since_last_rest(self) -> list[dict]:
         """前回の内省以降に書かれた現行の記録（この視点の面を添える・無ければ n=0）。今日の分の $I$。"""
         live = not_hidden("o")

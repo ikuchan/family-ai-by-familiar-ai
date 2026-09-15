@@ -37,6 +37,7 @@ _KIND_OF_DIRECTION: dict[str, str] = {
     "好奇心": "curiosity",
     "記憶": "day_summary",
     "人物": "person_summary",  # 関係のまとめ（その日にその人について分かったこと・記-a-ろ-は）
+    "まとめ": "core_summary",  # 核を固めたまとめ知識（週・月・人ごとの「いつもの」・記-a-ろ-に）
 }
 _DEFAULT_KIND = "observation"
 
@@ -409,6 +410,16 @@ class OIF:
         rows = self._memory.fresh_since_last_rest()
         logger.debug("OIF fresh_since_last_rest → %d件", len(rows))
         return rows
+
+    def core_records(self) -> list[dict]:
+        """核の出来事（1 出来事 1 行・面の最大 n・面を持つ人・束ね用ベクトル）。②の材料（記-a-ろ-に）。"""
+        rows = self._memory.core_records()
+        logger.debug("OIF core_records → %d件", len(rows))
+        return rows
+
+    def raise_groundedness(self, obs_id: str, n: int) -> int:
+        """出来事の全ての面の根づきを少なくとも n に（記-a-ろ-に・産物と代表が引き継ぐ）。"""
+        return self._memory.raise_groundedness(obs_id, int(n))
 
     def decay_groundedness(self, delta: int) -> int:
         """参照されなかった核の根づきを $\\Delta$ 減らす（1 未満にしない・記-a-ろ-ろ）。動かした面の数。"""
