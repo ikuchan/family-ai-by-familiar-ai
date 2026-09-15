@@ -900,12 +900,13 @@ class ObservationStore:
         # 関係が作る（047 の関係項）ので、視点を学習する先が無い。
         return event_id
 
-    def since_last_rest(self, directions: "tuple[str, ...]") -> list[dict]:
-        """日次の畳み込みの材料（記-a-ろ-は）。
+    def fold_materials(self, directions: "tuple[str, ...]", *, before) -> list[dict]:
+        """日次の畳み込みの材料（記-a-ろ-は・記-l）。
 
-        前回の内省（`direction='内省'` の最新）より後の出来事のうち、指定の `direction` で、
-        まだ畳まれておらず（役割 `旧` が無い）、核でない（この面の根づき n < 1）ものを古い順に。
-        `内省` が無ければ全期間。**対象は機械が決める**（まとめ方は LLM）。
+        指定の `direction` で、**まだ畳まれておらず**（役割 `旧` が無い）、核でない（この面の根づき
+        n < 1）、`before`（この内省が始まった時刻）より前の出来事を古い順に。前回の内省の時刻には
+        依らない——1 晩の上限で持ち越した分が、次の晩に消えないため（初回の 2,677 件・記-l）。
+        **対象は機械が決める**（まとめ方は LLM）。
         """
         if not directions:
             return []
@@ -922,12 +923,10 @@ class ObservationStore:
                     WHERE o.direction = ANY(%s)
                       AND {live}
                       AND COALESCE(s.groundedness_n, 0) < 1
-                      AND o.timestamp > COALESCE(
-                            (SELECT MAX(timestamp) FROM observations WHERE direction = '内省'),
-                            to_timestamp(0))
+                      AND o.timestamp < %s
                     ORDER BY o.timestamp ASC
                     """,
-                    (self._ctx.viewpoint, list(directions)),
+                    (self._ctx.viewpoint, list(directions), before),
                 )
                 return [dict(r) for r in cur.fetchall()]
 

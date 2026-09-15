@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 Change = tuple[str, float, float]  # (完全名, 前, 後)
 
 EDGE_SHARE = 0.20  # 窓の端か外の参照がこの割合以上なら広げる〔仮・課題5 D 章〕
+# 規則ごとの最小の標本数〔仮・記-k・2026-09-15〕。足りなければその晩は動かさない。
+# 実機で計測ログ 121 行のうち `気分`／`欲求` が 4 行だったのに、境目 9 件が動いた。
+MIN_SAMPLES = {"内部状態": 50, "窓": 20, "時間切れ": 20, "関連": 20}
 
 
 def _current(field: str, default: float) -> float:
@@ -72,7 +75,7 @@ def _defaults() -> dict[str, float]:
 
 def adjust_window(summary: dict) -> list[Change]:
     """窓 $n$（主LLM と軽量LLM の両方を同じ向きに 1 刻み）。"""
-    if not summary.get("続き"):
+    if int(summary.get("続き", 0) or 0) < MIN_SAMPLES["窓"]:
         return []
     share = float(summary.get("端か外の割合", 0.0))
     direction = 1 if share >= EDGE_SHARE else (-1 if share == 0.0 else 0)
@@ -94,7 +97,13 @@ def adjust_inner_state(summary: dict) -> list[Change]:
     defaults = _defaults()
     out: list[Change] = []
     axis_of = {"P": "p", "Pn": "pn", "A": "a", "Dom": "dom"}
+    counts = summary.get("件数") or {}
     for col, qs in summary.items():
+        if col == "件数":
+            continue
+        kind = "気分" if col in axis_of else "欲求"
+        if int(counts.get(kind, 0) or 0) < MIN_SAMPLES["内部状態"]:
+            continue
         if col in axis_of:
             for q in ("p10", "p30", "p70", "p90"):
                 field = f"InnerStateConfig.mood_{axis_of[col]}_{q}"
@@ -114,7 +123,7 @@ def adjust_inner_state(summary: dict) -> list[Change]:
 
 def adjust_far_share(summary: dict) -> list[Change]:
     far, stale = int(summary.get("遠い", 0)), int(summary.get("掘り", 0))
-    if far == stale:
+    if far == stale or int(summary.get("件数", 0) or 0) < MIN_SAMPLES["関連"]:
         return []
     field = "MemoryConfig.diffuse_far_share"
     cur = _current(field, _defaults()[field])
@@ -135,7 +144,7 @@ async def adjust_timeout(agent, summary: dict) -> list[Change]:
     field = "AgentConfig.arbiter_timeout_sec"
     s = settings.get(field)
     assert s is not None
-    if not summary.get("件数"):
+    if int(summary.get("件数", 0) or 0) < MIN_SAMPLES["時間切れ"]:
         return []
     cur = _current(field, _defaults()[field])
     prompt = _TIMEOUT_PROMPT.format(

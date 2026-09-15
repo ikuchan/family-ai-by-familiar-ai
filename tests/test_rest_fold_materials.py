@@ -58,25 +58,32 @@ def _oif():
         return OIF(ObservationMemory().for_person(AGENT_SELF_ID))
 
 
-def test_materials_are_the_uncore_unfolded_records_since_the_last_rest():
+def test_materials_are_the_uncore_unfolded_records_regardless_of_the_last_rest():
+    """前回の内省の時刻には依らない（記-l・2026-09-15）。
+
+    初回の REST は 2,677 件を 69 回に分けて頼み 14 分かかった。上限で翌晩へ回すには、
+    「前回の内省より後」でなく「**まだ畳まれていない**」を材料にしないと、持ち越した分が
+    次の晩に消える（`内省` の記録が新しくなるため）。
+    """
     now = datetime.now(timezone.utc)
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            old = _plant(cur, "前回の内省より前", now - timedelta(hours=30))
+            old = _plant(cur, "前回の内省より前だが畳まれていない", now - timedelta(hours=30))
             _plant(cur, "内省を回した", now - timedelta(hours=24), direction="内省")
             a = _plant(cur, "朝の会話", now - timedelta(hours=20))
             b = _plant(cur, "昼に見たもの", now - timedelta(hours=12), direction="観察")
             core = _plant(cur, "大事な話", now - timedelta(hours=10), n=1)
             folded = _plant(cur, "もう畳んだ", now - timedelta(hours=8), hidden=True)
             req = _plant(cur, "「天気は？」と聞かれ…", now - timedelta(hours=6), direction="求め")
+            future = _plant(cur, "この内省が始まった後", now + timedelta(minutes=5))
     finally:
         conn.close()
 
-    rows = _oif().since_last_rest(FOLD_DIRECTIONS)
+    rows = _oif().fold_materials(FOLD_DIRECTIONS, before=now)
     ids = [r.obs_id for r in rows]
-    assert ids == [a, b], ids  # 古い順
-    for excluded in (old, core, folded, req):
+    assert ids == [old, a, b], ids  # 古い順・内省より前の持ち越しも入る
+    for excluded in (core, folded, req, future):
         assert excluded not in ids
 
 
@@ -89,7 +96,7 @@ def test_without_a_previous_rest_everything_is_material():
             b = _plant(cur, "二日目", now - timedelta(days=2), direction="独白")
     finally:
         conn.close()
-    assert [r.obs_id for r in _oif().since_last_rest(FOLD_DIRECTIONS)] == [a, b]
+    assert [r.obs_id for r in _oif().fold_materials(FOLD_DIRECTIONS, before=now)] == [a, b]
 
 
 def test_the_rows_carry_what_the_fold_needs():
@@ -100,7 +107,7 @@ def test_the_rows_carry_what_the_fold_needs():
             _plant(cur, "こうきとサッカーの話", now - timedelta(hours=1))
     finally:
         conn.close()
-    r = _oif().since_last_rest(FOLD_DIRECTIONS)[0]
+    r = _oif().fold_materials(FOLD_DIRECTIONS, before=datetime.now(timezone.utc))[0]
     assert r.content == "こうきとサッカーの話" and r.direction == "発話"
     assert r.timestamp is not None
 
@@ -223,3 +230,34 @@ def test_nothing_to_fold_is_reported():
     agent = _agent_for_fold("{}")
     result = asyncio.run(rest_fold.fold_since_last_rest(agent))
     assert (result.materials, result.written, result.folded) == (0, 0, 0)
+
+
+def test_only_the_first_batches_are_asked_in_one_night_and_the_rest_are_deferred():
+    """1 晩の回数の上限（記-l）。超えた分は畳まれずに残り、次の晩に古い順で続く。"""
+    import asyncio
+    from unittest.mock import MagicMock, patch
+
+    from familiar_agent.io.oif import MI
+    from familiar_agent.loop import rest_fold
+
+    rows = [
+        MI(
+            id=f"o{i}",
+            obs_id=f"o{i}",
+            content=f"記録 {i}",
+            timestamp=datetime(2026, 6, 1 + i, 10, tzinfo=timezone.utc),
+            direction="発話",
+        )
+        for i in range(5)
+    ]  # 5 日 → 5 回
+    agent = MagicMock()
+    agent._oif.fold_materials = MagicMock(return_value=rows)
+    agent.backend.complete = MagicMock()
+
+    async def _ask(backend, batch, *, family_names):
+        return None  # 見送り（数だけ見る）
+
+    with patch("familiar_agent.loop.rest_fold.ask_summaries", new=_ask):
+        result = asyncio.run(rest_fold.fold_since_last_rest(agent, max_batches=2))
+    assert result.batches == 2 and result.deferred == 3 and result.skipped == 2
+    assert rest_fold.DEFAULT_MAX_BATCHES == 10

@@ -81,7 +81,7 @@ def test_relation_summary_counts_references_by_order(tmp_path):
         ],
     )
     s = measure.summarize_relation(measure.read_rows(base_dir=tmp_path))
-    assert s == {"遠い": 1, "掘り": 2}
+    assert s == {"遠い": 1, "掘り": 2, "件数": 2}  # 件数＝突き合わせた申告の行（記-k）
 
 
 def test_rotate_renames_the_file_with_a_timestamp(tmp_path):

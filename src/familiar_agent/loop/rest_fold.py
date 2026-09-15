@@ -1,7 +1,7 @@
 """日次の畳み込み——REST 内省・層 1「出来事を畳む」の①（記-a-ろ-は・2026-09-14）。
 
 設計の正本は `設計方針_REST内省_出来事を畳む` v0.2。**対象は機械が決め、まとめ方は LLM が決める。**
-材料は `OIF.since_last_rest`（前回の内省より後・指定の向き・畳まれていない・核でない）。
+材料は `OIF.fold_materials`（まだ畳まれていない・指定の向き・畳まれていない・核でない）。
 1 日を 1 単位に、フル LLM へ 1 回（材料が多ければ時間帯で 2〜3 回）頼み、**自己エピソード**
 （日・一人称・500 字以内）と**関係のまとめ**（人ごと・300 字以内）を受け取る。機械が検査して
 通ったものだけ書き、材料を自己エピソードで畳む（`畳み込み`＝畳まれた側は誤りではない）。
@@ -32,6 +32,7 @@ FOLD_DIRECTIONS: tuple[str, ...] = ("発話", "会話", "観察", "独白", "情
 EPISODE_MAX_CHARS = 500  # O の content の上限と同じ
 PERSON_MAX_CHARS = 300
 DEFAULT_MAX_ITEMS = 60  # これを超える日は時間帯で分けて頼む〔仮〕
+DEFAULT_MAX_BATCHES = 10  # 1 晩に頼む回数の上限〔仮・記-l〕
 
 
 @dataclass
@@ -162,6 +163,7 @@ class FoldResult:
     folded: int
     skipped: int  # 検査に通らず書かなかった回（材料は残る）
     records: tuple[Written, ...] = ()  # 書いたもの（層 2 の材料）
+    deferred: int = 0  # 1 晩の上限で次の晩へ回した回（記-l）
 
 
 def family_names_of(agent) -> tuple[str, ...]:
@@ -179,11 +181,19 @@ def family_names_of(agent) -> tuple[str, ...]:
     return tuple(out)
 
 
-async def fold_since_last_rest(agent, *, max_items: int = DEFAULT_MAX_ITEMS) -> FoldResult:
-    """前回の内省より後の出来事を畳む（層 1 の①）。書けたぶんだけ畳み、通らなければ持ち越す。"""
+async def fold_since_last_rest(
+    agent, *, max_items: int = DEFAULT_MAX_ITEMS, max_batches: int = DEFAULT_MAX_BATCHES
+) -> FoldResult:
+    """まだ畳まれていない出来事を畳む（層 1 の①）。書けたぶんだけ畳み、通らなければ持ち越す。
+
+    1 晩に頼む回数は `max_batches` まで（記-l）。初回は 2,677 件・69 回・14 分かかった。超えた
+    分は古い順で次の晩へ（材料は「前回の内省より後」でなく「まだ畳まれていない」で選ぶ）。
+    """
     started = time.monotonic()
-    rows = agent._oif.since_last_rest(FOLD_DIRECTIONS)
-    batches = split_batches(rows, max_items=max_items)
+    rows = agent._oif.fold_materials(FOLD_DIRECTIONS, before=datetime.now(timezone.utc))
+    all_batches = split_batches(rows, max_items=max_items)
+    batches = all_batches[: max(0, int(max_batches))]
+    deferred = len(all_batches) - len(batches)
     names = family_names_of(agent)
     written = folded = skipped = 0
     records: list[Written] = []
@@ -216,6 +226,7 @@ async def fold_since_last_rest(agent, *, max_items: int = DEFAULT_MAX_ITEMS) -> 
         folded=folded,
         skipped=skipped,
         records=tuple(records),
+        deferred=deferred,
     )
     measure.record(
         "層1",
@@ -224,6 +235,7 @@ async def fold_since_last_rest(agent, *, max_items: int = DEFAULT_MAX_ITEMS) -> 
         書いた=result.written,
         畳んだ=result.folded,
         見送り=result.skipped,
+        持ち越し=result.deferred,
         秒=f"{time.monotonic() - started:.1f}",
     )
     logger.info(

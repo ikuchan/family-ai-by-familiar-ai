@@ -505,9 +505,9 @@ class ObservationMemory:
         """その記録たちが `やりとり` で取っている役割（起点・つなぎ・答え・要約・…）。"""
         return RelationStore(self._ctx).roles_of(list(obs_ids), KIND_EXCHANGE)
 
-    def observations_since_last_rest(self, directions: "tuple[str, ...]") -> list[dict]:
-        """日次の畳み込みの材料（記-a-ろ-は・店へ委譲）。"""
-        return self._observations.since_last_rest(tuple(directions))
+    def observations_fold_materials(self, directions: "tuple[str, ...]", *, before) -> list[dict]:
+        """日次の畳み込みの材料（記-a-ろ-は・記-l・店へ委譲）。"""
+        return self._observations.fold_materials(tuple(directions), before=before)
 
     def core_faces(self) -> list[dict]:
         """核の面（記-a-ろ-ろ・店へ委譲）。"""

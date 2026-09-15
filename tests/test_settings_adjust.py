@@ -22,7 +22,7 @@ def _reset():
 
 def test_the_window_grows_when_the_edge_or_beyond_is_referenced_often():
     _reset()
-    changes = rs.adjust_window({"続き": 5, "端を参照": 1, "外を参照": 1, "端か外の割合": 0.4})
+    changes = rs.adjust_window({"続き": 20, "端を参照": 4, "外を参照": 4, "端か外の割合": 0.4})
     assert changes == [
         ("MemoryConfig.recent_exchanges_main", 6, 7),
         ("MemoryConfig.recent_exchanges_arbiter", 3, 4),
@@ -31,7 +31,7 @@ def test_the_window_grows_when_the_edge_or_beyond_is_referenced_often():
 
 def test_the_window_shrinks_when_continuations_never_reach_the_edge():
     _reset()
-    changes = rs.adjust_window({"続き": 5, "端を参照": 0, "外を参照": 0, "端か外の割合": 0.0})
+    changes = rs.adjust_window({"続き": 20, "端を参照": 0, "外を参照": 0, "端か外の割合": 0.0})
     assert changes == [
         ("MemoryConfig.recent_exchanges_main", 6, 5),
         ("MemoryConfig.recent_exchanges_arbiter", 3, 2),
@@ -44,13 +44,16 @@ def test_the_window_stays_without_continuations_and_stops_at_the_range():
     co.save_override("MemoryConfig.recent_exchanges_main", 10)
     co.save_override("MemoryConfig.recent_exchanges_arbiter", 10)
     co.clear_cache()
-    assert rs.adjust_window({"続き": 5, "端を参照": 2, "外を参照": 1, "端か外の割合": 0.6}) == []
+    assert rs.adjust_window({"続き": 20, "端を参照": 8, "外を参照": 4, "端か外の割合": 0.6}) == []
     _reset()
 
 
 def test_inner_state_boundaries_follow_the_measured_quantiles_one_step_at_a_time():
     _reset()
-    summary = {"P": {"p10": 0.10, "p30": 0.12, "p70": 0.40, "p90": 0.50}}
+    summary = {
+        "件数": {"気分": 50, "欲求": 0},
+        "P": {"p10": 0.10, "p30": 0.12, "p70": 0.40, "p90": 0.50},
+    }
     changes = rs.adjust_inner_state(summary)
     # p70 は 0.25 → 0.30（刻み 0.05 で 1 段だけ・目標 0.40 に近づく）、p90 は 0.35 → 0.40、p30 は 0.10 → 0.12 に届かず（刻み未満は動かさない）
     assert ("InnerStateConfig.mood_p_p70", 0.25, 0.30) in changes
@@ -60,13 +63,13 @@ def test_inner_state_boundaries_follow_the_measured_quantiles_one_step_at_a_time
 
 def test_far_share_moves_toward_the_referenced_order():
     _reset()
-    assert rs.adjust_far_share({"遠い": 5, "掘り": 1}) == [
+    assert rs.adjust_far_share({"遠い": 5, "掘り": 1, "件数": 20}) == [
         ("MemoryConfig.diffuse_far_share", 0.5, 0.6)
     ]
-    assert rs.adjust_far_share({"遠い": 1, "掘り": 5}) == [
+    assert rs.adjust_far_share({"遠い": 1, "掘り": 5, "件数": 20}) == [
         ("MemoryConfig.diffuse_far_share", 0.5, 0.4)
     ]
-    assert rs.adjust_far_share({"遠い": 0, "掘り": 0}) == []
+    assert rs.adjust_far_share({"遠い": 0, "掘り": 0, "件数": 20}) == []
 
 
 def test_the_timeout_is_proposed_by_the_llm_from_numbers_only():
@@ -103,14 +106,14 @@ def test_the_llm_proposal_is_clamped_to_one_step_and_the_range():
     a.backend.complete = AsyncMock(return_value='{"arbiter_timeout_sec": 9.0}')
     assert asyncio.run(
         rs.adjust_timeout(
-            a, {"件数": 5, "中央": 1, "p90": 1, "最大": 1, "時間切れ": 0, "時間切れの割合": 0}
+            a, {"件数": 20, "中央": 1, "p90": 1, "最大": 1, "時間切れ": 0, "時間切れの割合": 0}
         )
     ) == [("AgentConfig.arbiter_timeout_sec", 5.0, 5.5)]
     a.backend.complete = AsyncMock(return_value="???")
     assert (
         asyncio.run(
             rs.adjust_timeout(
-                a, {"件数": 5, "中央": 1, "p90": 1, "最大": 1, "時間切れ": 0, "時間切れの割合": 0}
+                a, {"件数": 20, "中央": 1, "p90": 1, "最大": 1, "時間切れ": 0, "時間切れの割合": 0}
             )
         )
         == []
