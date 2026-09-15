@@ -406,6 +406,9 @@ class InformationProcessing:
             search=agent._deferred_search,
             fetch=agent._deferred_fetch,
             mcp=agent._mcp,
+            # 機器の出来事をこのループへ積む口も持つ（メモの見回り・タイマーが `device()` を呼ぶ・
+            # 実機で `'NoneType' object has no attribute 'push_device'`・2026-09-15）。
+            ip=self,
         )
 
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
