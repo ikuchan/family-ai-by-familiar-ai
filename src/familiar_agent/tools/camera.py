@@ -28,7 +28,7 @@ from urllib.parse import urlparse
 import cv2
 from onvif import ONVIFCamera
 
-from ..poses import Pose
+from ..poses import DIRECTIONS, Pose, pose_toward
 from ..setup import _onvif_wsdl_dir
 
 logger = logging.getLogger(__name__)
@@ -419,13 +419,17 @@ class CameraTool:
             defs.append(
                 {
                     "name": "look",
-                    "description": "Turn your neck to face one of the places you know.",
+                    "description": (
+                        "Turn your neck. Either to one of the places you know (pose), or relative to "
+                        "where you are looking now (direction: 右/左/上/下 — moves to the nearest known "
+                        "place that way). Give exactly one of pose or direction."
+                    ),
                     "input_schema": {
                         "type": "object",
                         "properties": {
                             "pose": {"type": "string", "enum": [p.name for p in self._poses]},
+                            "direction": {"type": "string", "enum": list(DIRECTIONS)},
                         },
-                        "required": ["pose"],
                     },
                 }
             )
@@ -438,6 +442,22 @@ class CameraTool:
                 return f"You see the current view (saved to {save_path}).", b64
             return "Camera capture failed.", None
         elif tool_name == "look":
+            direction = str(tool_input.get("direction", "") or "").strip()
+            if direction:
+                # 相対の向き（知-m ③）。いまの向きから、その方向で最も近い定点へ**絶対移動**する
+                # （名前の無い向きへは行かない——在席マップ・norm・見回りは定点名を鍵にする）。
+                here = await self.position()
+                if here is None:
+                    return "いまどこを向いているか分からないので、右や左では動けない。", None
+                pose = pose_toward(self._poses, here, direction)
+                if pose is None:
+                    known = "・".join(p.name for p in self._poses)
+                    return (
+                        f"{direction}にはこれ以上知っている場所がない（知っているのは：{known}）。",
+                        None,
+                    )
+                await self.move_to(pose.pan, pose.tilt)
+                return f"{direction}の{pose.name}のほうを向いた。", None
             name = str(tool_input.get("pose", ""))
             pose = next((p for p in self._poses if p.name == name), None)
             if pose is None:

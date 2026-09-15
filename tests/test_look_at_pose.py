@@ -40,14 +40,18 @@ def test_the_places_it_can_look_at_are_listed():
     assert schema["properties"]["pose"]["enum"] == ["窓側", "出入り口", "襖側"]
 
 
-def test_the_place_is_required():
-    assert _look_def(_tool())["input_schema"]["required"] == ["pose"]
+def test_the_place_or_a_direction_is_given():
+    # 2026-09-16（知-m ③）：`pose` か `direction`（右／左／上／下）のどちらか。必須は無い。
+    schema = _look_def(_tool())["input_schema"]
+    assert schema.get("required") in (None, [])
+    assert schema["properties"]["direction"]["enum"] == ["右", "左", "上", "下"]
 
 
-def test_the_old_relative_arguments_are_gone():
-    # 相対の首振りは撤去した（定点から外れて振動中ゲートに落ちるため）。
+def test_the_old_degree_argument_is_gone():
+    # 相対の角度（degrees）は撤去したまま。方向は「その方向で最も近い定点へ絶対移動」で、
+    # 定点から外れた向きへは行かない（振動中ゲートに落ちない）。
     props = _look_def(_tool())["input_schema"]["properties"]
-    assert "direction" not in props and "degrees" not in props
+    assert "degrees" not in props
 
 
 def test_without_poses_there_is_nothing_to_look_at():
