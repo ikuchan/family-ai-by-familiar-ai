@@ -23,6 +23,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from dataclasses import dataclass, field
 
 
@@ -80,6 +82,8 @@ class Request:
     # 反復の起点。種別＝発話｜情動｜機器｜完了。情動や機器で起きた反復には人の発話が
     # 無いので、起点の内容を手がかり・調停の入力・user メッセージに使う。
     trigger_kind: str = "発話"
+    # 求めが始まった時刻（人が言った瞬間）。タイマー・ストップウォッチの起点に使う（知-n）。
+    began_at: "datetime | None" = None
     # 確かめて掛けたタイマーが鳴った求め（知-n）。配信ゲートを通り抜ける。
     passes_gate: bool = False
     # **決める反復**（軽量LLM が司る反復）を数える。上限に達した反復は recall を渡さない。

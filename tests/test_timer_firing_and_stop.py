@@ -119,3 +119,25 @@ def test_the_slash_command_stops_without_the_llm():
     reply = asyncio.run(a._handle_timer_command("/timer stop"))
     a._timer_tool.call.assert_awaited_with("cancel_timer", {"id": "all"})
     assert asyncio.run(a._handle_timer_command("こんにちは")) is None
+
+
+def test_the_request_remembers_when_it_began_and_the_lookup_passes_it_to_the_timer():
+    from datetime import datetime, timezone
+    from unittest.mock import AsyncMock, MagicMock
+
+    from tests.test_event_loop import _agent
+
+    a = _agent(stream_returns=[])
+    a._timer_tool = MagicMock()
+    a._timer_tool.call = AsyncMock(return_value=("掛けた", True))
+    ip = InformationProcessing(a)
+    asyncio.run(ip._begin_request(kind="発話", text="1分測って", utterance="1分測って"))
+    began = ip._req.began_at
+    assert isinstance(began, datetime) and began.tzinfo is not None
+    assert (datetime.now(timezone.utc) - began).total_seconds() < 5
+    asyncio.run(
+        ip._run_lookup_body(
+            "set_timer", {"after_minutes": 1, "label": "x"}, "タイマーを掛ける「x」", None, 1
+        )
+    )
+    assert a._timer_tool.call.call_args.kwargs["now"] == began

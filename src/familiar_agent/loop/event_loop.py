@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 import logging
 import re
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -1008,7 +1008,8 @@ class InformationProcessing:
             if tool is None:
                 out, failed = "タイマーの道具が無い", True
             else:
-                out, ok = await tool.call(action, tool_input)
+                # 起点は**人が言った瞬間**（調停や主LLM を通る 3 秒は数えない）。
+                out, ok = await tool.call(action, tool_input, now=self._req.began_at)
                 failed = not ok
             self._triggers.put_nowait(
                 Trigger(
@@ -1386,6 +1387,7 @@ class InformationProcessing:
         agent = self._agent
         self._req.utterance = utterance
         self._req.trigger_kind = kind
+        self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
         self._req.live_version_id = None
         self._req.lookups.clear()

@@ -168,3 +168,13 @@ def test_the_frame_comes_from_the_store():
     asyncio.run(t.call("set_timer", {"after_minutes": 2, "label": "パスタ"}))
     frame = t.frame()
     assert frame.startswith("[タイマー]") and "パスタ" in frame and "残り 2:00" in frame
+
+
+def test_the_clock_starts_when_the_person_spoke_not_when_the_tool_ran():
+    """「はい」「始めて」と言った時刻を起点にする（道具まで 3 秒かかっても起点は発話の瞬間・2026-09-15）。"""
+    t, store, _ = _tool()
+    said_at = NOW - timedelta(seconds=3)
+    text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 1, "label": "x"}, now=said_at))
+    assert ok and store.active()[0]["due"] == said_at + timedelta(minutes=1)
+    text, ok = asyncio.run(t.call("start_stopwatch", {"label": "y"}, now=said_at))
+    assert ok and store.active()[1]["started_at"] == said_at

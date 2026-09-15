@@ -107,13 +107,15 @@ class TimerTool:
             store.active(now=now), store.recently_fired(now=now, within_sec=RECENT_SEC), now=now
         )
 
-    async def call(self, name: str, tool_input: dict) -> tuple[str, bool]:
-        """(文面, 使えたか)。"""
+    async def call(
+        self, name: str, tool_input: dict, *, now: "datetime | None" = None
+    ) -> tuple[str, bool]:
+        """(文面, 使えたか)。`now` は起点（人が言った瞬間・無ければいま）。"""
         try:
             if name == "set_timer":
-                return await self._set(tool_input)
+                return await self._set(tool_input, now=now)
             if name == "start_stopwatch":
-                return await self._start_stopwatch(tool_input)
+                return await self._start_stopwatch(tool_input, now=now)
             if name == "cancel_timer":
                 return await self._cancel(tool_input)
         except Exception as e:  # noqa: BLE001
@@ -121,9 +123,9 @@ class TimerTool:
             return f"タイマーの道具が使えなかった：{e}", False
         return f"そんな道具は無い：{name}", False
 
-    async def _set(self, inp: dict) -> tuple[str, bool]:
+    async def _set(self, inp: dict, *, now: "datetime | None" = None) -> tuple[str, bool]:
         label = str(inp.get("label") or "タイマー").strip()
-        now = self._now()
+        now = (now or self._now()).astimezone()
         try:
             due = timer_rules.resolve_due(
                 after_minutes=(
@@ -165,9 +167,11 @@ class TimerTool:
             "（静かな時間でも鳴らす）" if reason else ""
         ), True
 
-    async def _start_stopwatch(self, inp: dict) -> tuple[str, bool]:
+    async def _start_stopwatch(
+        self, inp: dict, *, now: "datetime | None" = None
+    ) -> tuple[str, bool]:
         label = str(inp.get("label") or "ストップウォッチ").strip()
-        now = self._now()
+        now = (now or self._now()).astimezone()
         store = self._store()
         if len(store.active(now=now)) >= MAX_ACTIVE:
             return f"同時に動かせるのは {MAX_ACTIVE} 本まで。先にどれかを止めて", False
