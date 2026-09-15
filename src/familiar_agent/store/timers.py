@@ -9,6 +9,8 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 
+import psycopg2.extras
+
 _COLS = "id, label, due, started_at, fired_at, cancelled_at, asked_by, obs_id, passes_quiet"
 
 
@@ -27,7 +29,7 @@ class TimerStore:
         now: "datetime | None" = None,
     ) -> int:
         now = now or datetime.now(timezone.utc)
-        with self._conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "INSERT INTO timers (label, due, started_at, asked_by, obs_id, passes_quiet) "
                 "VALUES (%s, %s, %s, %s, %s, %s) RETURNING id",
@@ -39,7 +41,7 @@ class TimerStore:
 
     def active(self, *, now: "datetime | None" = None) -> list[dict]:
         """動いているもの（未発火・未取消）。due の近い順、ストップウォッチは後ろ。"""
-        with self._conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"SELECT {_COLS} FROM timers WHERE fired_at IS NULL AND cancelled_at IS NULL "
                 "ORDER BY due ASC NULLS LAST, id ASC"
@@ -49,7 +51,7 @@ class TimerStore:
     def due_now(self, *, now: "datetime | None" = None) -> list[dict]:
         """鳴らす頃合い（due を過ぎた未発火・未取消）。ストップウォッチは含まない。"""
         now = now or datetime.now(timezone.utc)
-        with self._conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"SELECT {_COLS} FROM timers WHERE due IS NOT NULL AND due <= %s "
                 "AND fired_at IS NULL AND cancelled_at IS NULL ORDER BY due ASC",
@@ -60,7 +62,7 @@ class TimerStore:
     def recently_fired(self, *, now: "datetime | None" = None, within_sec: float) -> list[dict]:
         """直前に鳴ったもの（「止めて」に「もう止まっている」と答えるため）。"""
         now = now or datetime.now(timezone.utc)
-        with self._conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 f"SELECT {_COLS} FROM timers WHERE fired_at IS NOT NULL AND fired_at >= %s "
                 "ORDER BY fired_at DESC",
@@ -70,7 +72,7 @@ class TimerStore:
 
     def mark_fired(self, timer_id: int, *, now: "datetime | None" = None) -> bool:
         now = now or datetime.now(timezone.utc)
-        with self._conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "UPDATE timers SET fired_at = %s WHERE id = %s AND fired_at IS NULL AND cancelled_at IS NULL",
                 (now, int(timer_id)),
@@ -81,7 +83,7 @@ class TimerStore:
 
     def cancel(self, timer_id: int, *, now: "datetime | None" = None) -> bool:
         now = now or datetime.now(timezone.utc)
-        with self._conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "UPDATE timers SET cancelled_at = %s WHERE id = %s AND fired_at IS NULL AND cancelled_at IS NULL",
                 (now, int(timer_id)),
@@ -92,7 +94,7 @@ class TimerStore:
 
     def cancel_all(self, *, now: "datetime | None" = None) -> int:
         now = now or datetime.now(timezone.utc)
-        with self._conn.cursor() as cur:
+        with self._cursor() as cur:
             cur.execute(
                 "UPDATE timers SET cancelled_at = %s WHERE fired_at IS NULL AND cancelled_at IS NULL",
                 (now,),
@@ -100,6 +102,10 @@ class TimerStore:
             n = cur.rowcount
         self._commit()
         return int(n or 0)
+
+    def _cursor(self):
+        """行を dict で返す cursor（共有接続の既定は tuple・実機で `dict(r)` が落ちた・2026-09-15）。"""
+        return self._conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
 
     def _commit(self) -> None:
         if not getattr(self._conn, "autocommit", False):

@@ -175,6 +175,31 @@ def needs_tools(utterance: str) -> bool:
     return bool(_NEEDS_TOOLS.search(utterance or ""))
 
 
+_ZEN = str.maketrans("０１２３４５６７８９", "0123456789")
+_Q_AFTER = re.compile(r"(\d+(?:\.\d+)?)\s*分(?:後|間)?")
+_Q_AT = re.compile(r"(\d{1,2})\s*(?:[:：時]\s*(\d{1,2})?|時)\s*(半)?")
+
+
+def timer_input_from_query(query: str) -> "dict | None":
+    """調停が `tool_input` でなく `query` に「1分」「7時 起こす」と書いてきたときに入力を作る（実機 23:13）。
+
+    「N 分」→ `after_minutes`、「H 時（半／M 分）」→ `at`。残りの語が label。読めなければ None。
+    """
+    q = (query or "").translate(_ZEN).strip()
+    m = _Q_AFTER.search(q)
+    if m:
+        rest = (q[: m.start()] + q[m.end() :]).strip(" 　、。に")
+        return {"after_minutes": float(m.group(1)), "label": rest or "タイマー"}
+    m = _Q_AT.search(q)
+    if m:
+        hour = int(m.group(1))
+        minute = int(m.group(2) or 0) + (30 if m.group(3) else 0)
+        if 0 <= hour <= 23 and 0 <= minute <= 59:
+            rest = (q[: m.start()] + q[m.end() :]).strip(" 　、。に")
+            return {"at": f"{hour}:{minute:02d}", "label": rest or "タイマー"}
+    return None
+
+
 #: 情動が起点のとき（自分の行動を決める型・情-e）。自発なので、許可も理由も要らない。
 #: つなぎは書かせない（つなぎは相手への返事の前置き）。
 _LEAD_SELF = (
@@ -297,6 +322,9 @@ def _parse(
         + (("see",) if can_see else ())
         + tuple(a for a in extra_actions if a in _EXTRA_ACTIONS)
     )
+    if branch == "action" and not query and not tool_input and text and not data.get("action"):
+        # 動作が無く言葉だけ（「鳴らしていい？」と聞きたかった）は light として扱う（実機 23:14）。
+        branch = "light"
     if action not in allowed:
         action = "recall"
     if action == "see":
@@ -306,9 +334,16 @@ def _parse(
     elif action == "family_schedule" and not query:
         query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
     if action in ("set_timer", "start_stopwatch", "cancel_timer"):
-        # 見出し（同語二度投げの鍵）は label か id。tool_input が無ければ掛けられない→ full へ。
+        # 見出し（同語二度投げの鍵）は label か id。tool_input が無ければ query から作る。
+        if not tool_input and query:
+            if action == "set_timer":
+                tool_input = timer_input_from_query(query)
+            elif action == "start_stopwatch":
+                tool_input = {"label": query}
+            else:
+                tool_input = {"id": query}
         if not tool_input:
-            return None
+            return None  # 掛けられない → full へ（主LLM が道具で掛ける）
         query = str(tool_input.get("label") or tool_input.get("id") or query or action).strip()
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
@@ -477,7 +512,7 @@ async def arbitrate(
         return _FALLBACK
     decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
     if decision is None:
-        logger.warning("調停の返事を読めなかったのでフルへ倒す: %.80r", reply)
+        logger.warning("調停の返事を読めなかったのでフルへ倒す: %.300r", reply)
     elif decision.branch == "light" and origin == "発話" and needs_tools(utterance):
         # light は道具を使えない。「セットしました」と言うだけになるので full へ倒す（機械の守り）。
         logger.info("調停 light を full へ倒す（道具が要る頼み）：%.30s", utterance)
