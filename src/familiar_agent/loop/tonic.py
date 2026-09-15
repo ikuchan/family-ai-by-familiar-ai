@@ -26,7 +26,7 @@ from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..core.solitude import AXES, next_interval_minutes
 from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives, save_solitude
 from ..mood_register import load_current_mood
-from . import notes_watch
+from . import notes_watch, timer_watch
 from .rest import run_rest_pass
 
 logger = logging.getLogger(__name__)
@@ -254,6 +254,16 @@ class Tonic:
         except Exception as e:  # noqa: BLE001
             logger.warning("パジュへのメモの確認に失敗: %s", e)
 
+    def _fire_timers(self) -> None:
+        """due を過ぎたタイマーを鳴らす（知-n）。器が無ければ何もしない。"""
+        tool = getattr(self._agent, "_timer_tool", None)
+        if tool is None:
+            return
+        try:
+            timer_watch.fire_due(tool.store(), self._ip._dif)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("タイマーの確認に失敗: %s", e)
+
     async def _run(self) -> None:
         last = time.monotonic()
         while True:
@@ -263,6 +273,7 @@ class Tonic:
                 dt, last = now - last, now
                 self.scan_presence()
                 await self._maybe_check_notes(now)
+                self._fire_timers()
                 firing, accumulated = await step_drives(
                     dt, last_human_at=getattr(self._agent, "_last_human_at", None)
                 )

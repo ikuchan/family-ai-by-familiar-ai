@@ -167,13 +167,17 @@ def test_a_device_event_reaches_the_loop():
     """人の出入りはカメラが出す機器の出来事で、QD＝DIF の担当である。"""
     ip = MagicMock()
     _dif(ip=ip).device("入室", "パパ が来た", release_pending=True)
-    ip.push_device.assert_called_once_with("入室", "パパ が来た", release_pending=True)
+    ip.push_device.assert_called_once_with(
+        "入室", "パパ が来た", release_pending=True, passes_gate=False
+    )
 
 
 def test_leaving_does_not_release_pending_speech_by_default():
     ip = MagicMock()
     _dif(ip=ip).device("退室", "パパ が居なくなった")
-    ip.push_device.assert_called_once_with("退室", "パパ が居なくなった", release_pending=False)
+    ip.push_device.assert_called_once_with(
+        "退室", "パパ が居なくなった", release_pending=False, passes_gate=False
+    )
 
 
 def test_the_tonic_no_longer_pushes_into_the_loop_itself():

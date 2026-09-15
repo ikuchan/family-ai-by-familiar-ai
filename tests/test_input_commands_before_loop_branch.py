@@ -28,6 +28,7 @@ def _agent():
     a._handle_speaker_command = lambda ui: Agent._handle_speaker_command(a, ui)
     a._handle_reload_command = MagicMock(return_value=None)
     a._handle_thinking_command = MagicMock(return_value=None)
+    a._handle_timer_command = AsyncMock(return_value=None)  # `/timer stop` は別の試験で見る（知-n）
     return a
 
 

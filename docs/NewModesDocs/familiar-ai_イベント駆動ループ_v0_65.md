@@ -1,4 +1,4 @@
-# familiar-ai イベント駆動ループ（#11・段階5）（v0.64）
+# familiar-ai イベント駆動ループ（#11・段階5）（v0.65）
 
 ## 位置づけ
 
@@ -511,6 +511,8 @@ MI の content へ差し込まない。保留の記録（`direction="保留"`）
 
 **意味づけは即席で書き、VLM は背景で差し替える**（v0.43）。VLM（`scene.py` の `extract_entities`・Gemini へ画像を送る）は実測 2.3 秒で、`see` の帰りのほぼ全部だった。まずローカルの人検出モデル（YOLO・COCO 80 種・`PersonDetector.labels`・数十ミリ秒）で見た印を書き、完了を積む。VLM は背景で投げ、返ったら**新しい観察 MI**（VLM のラベル・同じ `image_path`・同じ親）を書いて旧を supersede（`改訂`）し、`turn_records` の `見た` の id を新へ差し替える（`_refine_seen_mark`）。求めが別の世代なら O の差し替えだけ行う。VLM が空・失敗なら即席の印が残る。記憶の文（想起・埋め込みの材料）は VLM の細かさで残り、返事は待たない。
 
+**タイマーは道具で掛け、T が鳴らし、確かめたものだけゲートを通り抜ける**（v0.65・知-n・2026-09-15・`設計方針_タイマー` v0.1）。主LLM の道具 `set_timer`／`start_stopwatch`／`cancel_timer` は `recall` と同じ「その場で返る調べもの」で、結果を見て次の反復が言葉にする。状態は表 `timers`、記憶は O の `予定`。T が毎 tick due を拾って `fired_at` を打ち、`機器` の求め「タイマー」を積む。静穏時間・沈黙の依頼に掛かるものは `set_timer` が登録せず「確かめて」を返し、`confirmed=true` で掛けたものだけ `Request.passes_gate` で `_delivery_block_reason()` を通り抜ける。止める口は道具と `/timer stop [id]`（LLM を通さない）。W には `[タイマー]` の枠（残り／経過・直前に鳴ったもの）。
+
 **自発ターンは「人と話した」に数えない**（v0.64・情-g・2026-09-15）。実機（11:27〜13:08）で `seeking` が 5 分おきに 18 回・毎回「ひとり 1 回目」だった。ひとりの回数（情-d・倍々に伸ばす）を戻す条件は `last_human_at > reset_at` で、`_run_post_response_pipeline` が `if user_input:` で毎ターン `_last_human_at` と `record_conversation()` を書き、ループは情動が起点の求めにも cue（「[内的な促し:SEEKING] …」）を `user_input` として渡していたため、自発ターンのたびに 0 へ戻っていた。以前の `not is_desire_turn` はループが常に False を渡していたので効いていなかった（09-12 の「1 時間に 16 回」が直っていなかった理由）。直し：ループが `human=self._req.trigger_kind == "発話"` を渡し、pipeline は `human` のときだけ `record_conversation()`。人の印 `_last_human_at` は入口（`push_utterance`）だけが付ける。
 
 **`AnthropicBackend.complete()` は思考ブロックを飛ばして本文をつなぐ**（v0.64・環-l・2026-09-15）。Sonnet 5 は返りの先頭に `ThinkingBlock` を置くことがあり、`content[0]` だけを見ていたので空文字を返していた。REST の層 1 ①が 69 回すべて「返りを読めなかった」（806 秒・書いた 0）、層 4 も「capabilities が空」。本番の 2026-06-13 の 60 件で再現。`_text_of(resp)` が `TextBlock` を全部つなぐ（`complete_with_image` も同じ）。
@@ -615,6 +617,7 @@ GUI アイドル分岐は環-c で撤去し、機器の起点は `push_device`�
 
 ## 更新履歴
 
+> v0.65：タイマー（道具で掛け・T が鳴らし・確かめたものだけ通り抜け・`/timer stop`）（知-n・2026-09-15）。
 > v0.64：自発ターンを「人と話した」に数えない（情-g）・`complete()` が思考ブロックを飛ばす（環-l）（2026-09-15）。
 > v0.63：話者ゲート（個人ティアの道具はその人のターン以外では存在しない・知-f・2026-09-14）。
 > v0.62：期間を持つ道具（`family_schedule`）の見出しに期間を入れ、調停に日数の範囲を渡す（出-p・2026-09-14）。

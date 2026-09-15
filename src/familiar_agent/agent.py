@@ -48,6 +48,7 @@ from .recognition.visual_encoder import VisualEncoder
 from .store.pose_norms import PoseNormStore
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
+from .tools.timer import TimerTool
 from .tools.tts import TTSTool
 from .loop.evaluator import Evaluator
 from .loop.history import _flatten_history
@@ -124,6 +125,7 @@ _COMPLEX_QUERY_RE = re.compile(
 # なり、`/speaker・` が普通の発話として記憶に残った（2026-09-15 実機）。
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:[\s　・]+(.*))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
+_TIMER_COMMAND_RE = re.compile(r"^/timer[\s　・]+stop(?:[\s　・]+(.+))?$", re.IGNORECASE)
 
 # Day summary prompt — condense a day's observations into a diary-like entry
 
@@ -196,6 +198,15 @@ class EmbodiedAgent:
         # 立ち上がる前のターンでも Nudge を返すので、ここで持たせる。
         self._aif = AIF(None)
         self._schedule_rule = quiet_hours_rule()
+        # タイマー（知-n）。器は表 `timers`、記録は O の `予定`。静穏時間・沈黙の依頼に掛かるものは
+        # 確かめてから掛ける。止める口は道具 `cancel_timer` と命令 `/timer stop`。
+        self._timer_tool = TimerTool(
+            store=self._timer_store,
+            oif=self._oif,
+            speaker=lambda: self._persons.active_name if self._persons.active_is_explicit else "",
+            quiet=lambda: self._schedule_rule,
+            silence_active=self._silence_active_now,
+        )
         self._last_tool_error: str | None = None
         self._tool_failure_streak: int = 0
 
@@ -1250,6 +1261,32 @@ class EmbodiedAgent:
         asyncio.ensure_future(self._sync_pmm_speaker(name_arg))
         return f"[話者を「{name_arg}」に切り替えました]"
 
+    def _timer_store(self):
+        """`TimerStore`（共有接続・`db.lock` の外で短く使う）。"""
+        from .db import get_db
+        from .store.timers import TimerStore
+
+        return TimerStore(get_db().conn())
+
+    def _silence_active_now(self) -> bool:
+        """いま黙っているよう頼まれているか（タイマーを掛ける前の確認に使う・知-n）。"""
+        try:
+            from .silence_state import is_silenced, load_silence
+
+            present = {str(r.get("name") or "") for r in self._pmm.presence_status()}
+            return is_silenced(load_silence(), present=present, now=time.time())
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def _handle_timer_command(self, user_input: str) -> str | None:
+        """`/timer stop [id]`——LLM を通さずに止める（知-n・「途中で停められる」の非常口）。"""
+        m = _TIMER_COMMAND_RE.match(user_input.strip())
+        if m is None:
+            return None
+        target = (m.group(1) or "").strip(" \t　・") or "all"
+        text, _ok = await self._timer_tool.call("cancel_timer", {"id": target})
+        return text
+
     def _handle_reload_command(self, user_input: str) -> str | None:
         """Reload ME.md and FAMILY.md without restarting. Returns status string or None."""
         if not _RELOAD_COMMAND_RE.match(user_input.strip()):
@@ -1363,6 +1400,13 @@ class EmbodiedAgent:
         if _speaker_from_prefix:
             self._persons.set_active(_speaker_from_prefix)
             await self._sync_pmm_speaker(_speaker_from_prefix)
+
+        # ── Timer command（/timer stop [id]・知-n・LLM を通さない非常口） ────────
+        _timer_reply = await self._handle_timer_command(user_input)
+        if _timer_reply is not None:
+            if on_text:
+                on_text(_timer_reply)
+            return _timer_reply
 
         # ── File reload command ───────────────────────────────────────────────
         _reload_reply = self._handle_reload_command(user_input)

@@ -58,7 +58,12 @@ _FULL_ACTIONS = (
     "notion_search",
     "journal",
     "vault",
+    # タイマー（知-n）。結果はその場で返り、それを見て何を言うかは次の反復が決める（`recall` と同じ）。
+    "set_timer",
+    "start_stopwatch",
+    "cancel_timer",
 )
+_TIMER_ACTIONS = ("set_timer", "start_stopwatch", "cancel_timer")
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
@@ -91,6 +96,7 @@ _LOOKUP_ACTIONS = (
     # 同じ）。**主LLM は道具名で呼ぶ**ので、動作名だけでなく道具名も並べる（2026-09-13 まで
     # 動作名 `house_rules` しか無く、主LLM が `get_house_rules` を呼んでも捨てられていた）。
     *_MCP_LOOKUPS.keys(),
+    *_TIMER_ACTIONS,
 )
 
 
@@ -115,6 +121,14 @@ def _query_label(action: str, tool_input: dict) -> str:
     """
     if action == "see":
         return "目の前を見る"
+    if action in _TIMER_ACTIONS:
+        # 同じ求めで同じ道具を二度呼ぶこともある（掛けてすぐ止める）ので、入力ごとに別の見出しにする。
+        what = str(tool_input.get("label") or tool_input.get("id") or "").strip()
+        return {
+            "set_timer": "タイマーを掛ける",
+            "start_stopwatch": "測り始める",
+            "cancel_timer": "タイマーを止める",
+        }[action] + (f"「{what}」" if what else "")
     if action == "look":
         return f"{tool_input.get('pose', '')}を見に行く"
     if action.startswith("ask_vault_"):
@@ -208,6 +222,26 @@ def _camera_tool_def(agent, name: str) -> list[dict]:
     if cam is None:
         return []
     return [d for d in cam.get_tool_definitions() if d.get("name") == name]
+
+
+def _timer_def(agent, name: str) -> list[dict]:
+    """タイマーの道具定義から 1 つだけ。器が無ければ空（知-n）。"""
+    tool = getattr(agent, "_timer_tool", None)
+    if tool is None:
+        return []
+    return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
+def _timer_frame(agent) -> str:
+    """`[タイマー]` の枠（動いているもの・直前に鳴ったもの）。器が無い・読めなければ空（degrade）。"""
+    tool = getattr(agent, "_timer_tool", None)
+    if tool is None:
+        return ""
+    try:
+        return str(tool.frame() or "")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("タイマーの枠を組めなかった: %s", e)
+        return ""
 
 
 def _elapsed_label(created_at, now_epoch: float) -> str:
@@ -333,6 +367,8 @@ class Trigger:
     decision: "Decision | None" = None
     # `機器` だけが使う。在席がゼロから立ち上がった瞬間に真で、保留した発話を先に配る。
     release_pending: bool = False
+    # 確かめて掛けたタイマーが鳴った（知-n）。配信ゲートを通り抜ける。
+    passes_gate: bool = False
     # `会話入力` だけが使う。呼び手がここで返事を待っている。
     future: "asyncio.Future[str] | None" = None
 
@@ -524,6 +560,10 @@ class InformationProcessing:
         from ..capability_state import load_summary
 
         agent = self._agent
+        # `[タイマー]` の枠は反復の枠の後ろに添える（動いているものが無ければ何も足さない・知-n）。
+        timers = _timer_frame(agent)
+        if timers:
+            iter_ctx = (iter_ctx + "\n\n" + timers) if iter_ctx else timers
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -942,6 +982,25 @@ class InformationProcessing:
                 Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
+        if action in _TIMER_ACTIONS:
+            # タイマーの道具（知-n）。その場で返る。落ちても求めは閉じる（失敗の印つき）。
+            tool = getattr(self._agent, "_timer_tool", None)
+            if tool is None:
+                out, failed = "タイマーの道具が無い", True
+            else:
+                out, ok = await tool.call(action, tool_input)
+                failed = not ok
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=str(out),
+                    intent_id=intent_id,
+                    index=index,
+                    failed=failed,
+                )
+            )
+            return
         if action in _MCP_LOOKUPS or action.startswith("ask_vault_"):
             # MCP の同期の道具。結果はその場で返るので、完了として積む（`recall` と同じ）。
             # `vault` は話者の英字で道具名が決まる（知-g-い）。主LLM が道具名で呼んだときはそのまま。
@@ -1210,6 +1269,10 @@ class InformationProcessing:
         "journal": lambda ip: ip._dif.tool_defs("get_journal"),
         # 個人ティアの記録（知-g-い）。`ask_vault_*` を全部出し、話者ゲート（`_gated`）が本人以外を落とす。
         "vault": lambda ip: ip._dif.tool_defs_with_prefix("ask_vault_"),
+        # タイマー（知-n）。器（`agent._timer_tool`）が無ければ渡さない。
+        "set_timer": lambda ip: _timer_def(ip._agent, "set_timer"),
+        "start_stopwatch": lambda ip: _timer_def(ip._agent, "start_stopwatch"),
+        "cancel_timer": lambda ip: _timer_def(ip._agent, "cancel_timer"),
     }
 
     def _vault_tool_name(self) -> str:
@@ -1512,10 +1575,18 @@ class InformationProcessing:
         """T が drive 発火を待ち行列へ積む（AIF 経由・I は時計を見ない）。"""
         self._triggers.put_nowait(Trigger(kind="情動", query=drive_name, result=prompt))
 
-    def push_device(self, kind: str, content: str, *, release_pending: bool = False) -> None:
-        """T が人の出入りを待ち行列へ積む（DIF 経由・I は時計を見ない）。"""
+    def push_device(
+        self, kind: str, content: str, *, release_pending: bool = False, passes_gate: bool = False
+    ) -> None:
+        """T が人の出入りを待ち行列へ積む（DIF 経由・I は時計を見ない）。`passes_gate` はタイマー（知-n）。"""
         self._triggers.put_nowait(
-            Trigger(kind="機器", query=kind, result=content, release_pending=release_pending)
+            Trigger(
+                kind="機器",
+                query=kind,
+                result=content,
+                release_pending=release_pending,
+                passes_gate=passes_gate,
+            )
         )
 
     def _ensure_driver(self) -> None:
@@ -1612,7 +1683,12 @@ class InformationProcessing:
                     await self._begin_utterance(trigger)
                 elif trigger.kind == "機器":
                     logger.debug("event-loop 駆動体が機器を受領（%s）", trigger.query)
-                    await self._begin_device(trigger.query, trigger.result, trigger.release_pending)
+                    await self._begin_device(
+                        trigger.query,
+                        trigger.result,
+                        trigger.release_pending,
+                        passes_gate=getattr(trigger, "passes_gate", False),
+                    )
                 else:
                     logger.debug("event-loop 駆動体が情動を受領（%s）", trigger.query)
                     await self._begin_affect(trigger.query, trigger.result)
@@ -1680,14 +1756,17 @@ class InformationProcessing:
         self._req.fired_axis = str(drive_name or "").lower()  # 内部状態の言葉で明示する（情-f）
         await self._iterate()
 
-    async def _begin_device(self, kind: str, content: str, release_pending: bool) -> None:
+    async def _begin_device(
+        self, kind: str, content: str, release_pending: bool, *, passes_gate: bool = False
+    ) -> None:
         """機器（人の出入り）で新しい連鎖を始める。取込＝来た事実を O に書き、鎖の起点にする。
 
         `release_pending` が真なら、聞く相手が居らず保留していた発話を先に配る。在席が
         ゼロから立ち上がった瞬間だけ真になる（寿命は `pending_speech` 側が持つので、
-        新しいキューは作らない）。
+        新しいキューは作らない）。`passes_gate` は確かめて掛けたタイマー（知-n）。
         """
         await self._begin_request(kind="機器", text=f"[{kind}] {content}")
+        self._req.passes_gate = bool(passes_gate)
         if release_pending:
             await self._release_pending_speech()
         await self._iterate()
@@ -2376,8 +2455,13 @@ class InformationProcessing:
 
         正本③ の「配信ゲート（結果有り＋在席）」に静穏時間を併せる。以前は静穏時間を
         deferred の配信側だけが見ており、自発発話は素通りしていた。判定をここへ集める。
+
+        **確かめたうえで掛けたタイマーが鳴った求めは通り抜ける**（知-n・`passes_gate`）。頼んだ本人が
+        「静かな時間でも鳴らしていい」と言ったものなので、在席・静穏・沈黙の依頼のどれにも掛けない。
         """
         agent = self._agent
+        if getattr(self._req, "passes_gate", False):
+            return ""
         # 「黙っていて」と頼まれているあいだは、話しかけられても話さない。頼んだ人が
         # 居なくなれば（退室）その時点で解け、期限（Config・既定60分）を過ぎても解ける。
         # 判定だけで済むので解除の処理を別に持たない。言葉は捨てず pending_speech へ溜める。
