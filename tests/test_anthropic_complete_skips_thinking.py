@@ -57,3 +57,18 @@ def test_only_thinking_is_empty_and_warned(caplog):
 async def test_the_image_completion_skips_thinking_too():
     b = _backend([_think(), _text("見えたもの：椅子")])
     assert await b.complete_with_image("p", "aGVsbG8=", max_tokens=10) == "見えたもの：椅子"
+
+
+def test_complete_disables_thinking_so_the_budget_goes_to_the_text():
+    """利用の呼び出し（REST の各層・整合チェック）は思考を切る（2026-09-16 04:31 実機）。
+
+    思考の指定を渡さないと Sonnet 5 は適応的思考を働かせ、層 2（2,000）・層 4（2,500）の
+    予算を思考で使い切って `stop=max_tokens`・本文ゼロで返った。
+    """
+    b = _backend([_text("ok")])
+    asyncio.run(b.complete("p", max_tokens=10))
+    kwargs = b.client.messages.create.call_args.kwargs
+    assert kwargs.get("thinking") == {"type": "disabled"}
+    b = _backend([_text("ok")])
+    asyncio.run(b.complete_with_image("p", "aGVsbG8=", max_tokens=10))
+    assert b.client.messages.create.call_args.kwargs.get("thinking") == {"type": "disabled"}

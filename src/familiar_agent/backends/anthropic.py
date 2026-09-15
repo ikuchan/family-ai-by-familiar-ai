@@ -18,6 +18,10 @@ from .types import ToolCall, TurnResult
 logger = logging.getLogger(__name__)
 
 
+#: 利用の呼び出し（`complete`・`complete_with_image`）は思考を切る。
+_NO_THINKING = {"type": "disabled"}
+
+
 def _text_of(resp) -> str:
     """返りの本文（`TextBlock` を全部つなぐ）。思考ブロックは飛ばす。
 
@@ -331,19 +335,18 @@ class AnthropicBackend:
         try:
             logger.debug("complete() calling %s with %d chars", self.model, len(prompt))
             msgs: list = [{"role": "user", "content": prompt}]
+            # 利用の呼び出しは**思考を切る**。指定しないと Sonnet 5 は適応的思考を働かせ、REST の
+            # 層 2・4 が予算（2,000〜2,500）を思考で使い切り `stop=max_tokens`・本文ゼロで返った
+            # （2026-09-16 04:31 実機・環-l）。
+            extra: dict = {"thinking": _NO_THINKING}
             if system:
-                resp = await self.client.messages.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    messages=msgs,
-                    system=system,
-                )
-            else:
-                resp = await self.client.messages.create(
-                    model=self.model,
-                    max_tokens=max_tokens,
-                    messages=msgs,
-                )
+                extra["system"] = system
+            resp = await self.client.messages.create(
+                model=self.model,
+                max_tokens=max_tokens,
+                messages=msgs,
+                **extra,
+            )
             result = _text_of(resp)
             if not result:
                 logger.warning(
@@ -362,7 +365,9 @@ class AnthropicBackend:
     ) -> str:
         """Vision completion — sends base64 JPEG alongside text prompt."""
         try:
-            extra: dict = {"system": system} if system else {}
+            extra: dict = {"thinking": _NO_THINKING}  # 利用の呼び出しは思考を切る（上と同じ理由）
+            if system:
+                extra["system"] = system
             resp = await self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
