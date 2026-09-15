@@ -146,6 +146,8 @@ class Decision:
 _LEAD_REPLY = "いま人から届いた言葉と、いまの作業状態を見て、次のどれかを選ぶ。"
 _BRANCHES_REPLY = """\
 - "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
+             **道具が要る頼み（タイマー・アラーム・測る・止める・覚えて・予定を見る）は light で答えない**
+             ——light は道具を使えず、「セットしました」と言っても何も起きない。full に回す。
 - "full"   : 記憶を踏まえた言葉選びや、込み入った説明が要る。生成は別の大きなモデルが行う。
              どれくらい深く考えるべきかを effort に書く。**既定は "low"**。
              "medium" は次の3つのときだけ：(1) ひと言で表せない複雑な気持ちを受け止める
@@ -158,6 +160,19 @@ _BRANCHES_REPLY = """\
              探す語を query に、待ってもらうための短い一言を text に書く
              （これから調べると伝えるだけ。**内容に触れない**）。{see_note}"""
 _HEADING_REPLY = "[人の言葉]"
+
+#: 道具が要る頼みの手がかり〔仮・2026-09-15〕。light で「できました」と言わせないための機械の守り
+#: （実機 22:47「３分のタイマーをかけて」に light が「タイマーをセットしました」と答え、掛かっていなかった）。
+_NEEDS_TOOLS = re.compile(
+    r"タイマー|アラーム|ストップウォッチ|測って|計って|分後|秒後|時に(起こ|教え|知らせ|呼ん)|止めて|ストップ|覚えて(おい|て)|"
+    r"予定(は|を|ある|入って)|スケジュール"
+)
+
+
+def needs_tools(utterance: str) -> bool:
+    """道具が要る頼みか（light で答えてはいけない）。"""
+    return bool(_NEEDS_TOOLS.search(utterance or ""))
+
 
 #: 情動が起点のとき（自分の行動を決める型・情-e）。自発なので、許可も理由も要らない。
 #: つなぎは書かせない（つなぎは相手への返事の前置き）。
@@ -440,6 +455,15 @@ async def arbitrate(
     decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
     if decision is None:
         logger.warning("調停の返事を読めなかったのでフルへ倒す: %.80r", reply)
+    elif decision.branch == "light" and origin == "発話" and needs_tools(utterance):
+        # light は道具を使えない。「セットしました」と言うだけになるので full へ倒す（機械の守り）。
+        logger.info("調停 light を full へ倒す（道具が要る頼み）：%.30s", utterance)
+        decision = Decision(
+            branch="full",
+            effort="low",
+            text=decision.text,
+            silence_minutes=decision.silence_minutes,  # 「話すの止めて」の依頼は落とさない
+        )
     measure.record(
         "調停",
         秒=f"{time.monotonic() - started:.2f}",
