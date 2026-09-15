@@ -105,15 +105,6 @@ capabilities:
       VoiceGuard prevents TTS output from feeding back into STT. Implemented in
       `tools/tts.py`.
     enabled: true
-  - id: relationship_tracker
-    summary: Track longitudinal relationship state independently for each family member
-    detail: >
-      Each registered person has their own relationship record, including trust,
-      intimacy, session counts, and support patterns. The agent maintains distinct
-      rapport with each family member and adapts its behavior accordingly.
-      State is persisted in the PostgreSQL `relationship_state` table.
-      Implemented in `relationship.py`.
-    enabled: true
   - id: appraisal_engine
     summary: Deterministically update affective state based on inputs
     detail: >

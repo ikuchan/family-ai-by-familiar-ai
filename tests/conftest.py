@@ -77,7 +77,6 @@ _TRUNCATE_TABLES = [
     "episodes",
     "pending_speech",
     "observations",
-    "relationship_state",
     "persons",
     "mental_state_log",
     "agent_state",

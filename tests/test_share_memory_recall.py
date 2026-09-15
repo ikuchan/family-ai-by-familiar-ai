@@ -1,7 +1,7 @@
 """Tests for Issue C: 2-stage associative memory recall for share_memory.
 
 pick_seed_candidates() returns a mixed pool of hour-near + month-near + random rows.
-_proactive_memory_context() seeds from present persons, expands via recall(), caps total.
+（先読み `_proactive_memory_context` は環-d で撤去。ここは種の候補の取り出しだけ）
 （旧欲求の時間帯の重みは環-d で系ごと撤去）
 """
 
@@ -10,11 +10,10 @@ from __future__ import annotations
 import os
 import uuid
 from datetime import datetime
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import psycopg2
 import psycopg2.extras
-import pytest
 
 from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
@@ -139,97 +138,3 @@ def test_pick_seed_candidates_deduplicates():
     cands = mem.pick_seed_candidates(hour=14, month=6, hour_window=3, month_window=1, k=10)
     ids = [c.get("id") for c in cands]
     assert len(ids) == len(set(ids)), "Duplicate IDs found in candidates"
-
-
-# ---------------------------------------------------------------------------
-# Tests: _proactive_memory_context (agent)
-# ---------------------------------------------------------------------------
-
-
-@pytest.fixture()
-def agent_no_present():
-    from familiar_agent.agent import EmbodiedAgent
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    pmm = MagicMock()
-    pmm.get_all_present_memories.return_value = []
-    agent._pmm = pmm
-    return agent
-
-
-@pytest.fixture()
-def agent_with_present():
-    from familiar_agent.agent import EmbodiedAgent
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-
-    seed_mem = MagicMock()
-    seed_mem.pick_seed_candidates = MagicMock(
-        return_value=[
-            {"id": "s1", "content": "古い思い出A", "timestamp": datetime(2025, 6, 14, 14)},
-            {"id": "s2", "content": "古い思い出B", "timestamp": datetime(2025, 12, 1, 12)},
-        ]
-    )
-
-    pmm = MagicMock()
-    pmm.get_all_present_memories.return_value = [("pid-1", seed_mem)]
-    pmm.get_speaker_memory.return_value = None
-    pmm.get_agent_memory.return_value = seed_mem
-    agent._pmm = pmm
-
-    assoc_mem = MagicMock()
-    assoc_mem.recall_async = AsyncMock(
-        return_value=[
-            {"memory_id": "a1", "content": "連想された記憶", "score": 0.85},
-        ]
-    )
-    # _active_memory() = pmm.get_speaker_memory() or pmm.get_agent_memory()
-    # get_speaker_memory returns None → falls back to get_agent_memory → assoc_mem
-    pmm.get_agent_memory.return_value = assoc_mem
-
-    return agent
-
-
-@pytest.mark.asyncio
-async def test_proactive_context_returns_none_when_no_present(agent_no_present):
-    """誰もいないとき None を返すこと。"""
-    result = await agent_no_present._proactive_memory_context()
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_proactive_context_returns_string_when_present(agent_with_present):
-    """在席者がいるとき文字列を返すこと。"""
-    result = await agent_with_present._proactive_memory_context()
-    assert result is None or isinstance(result, str)
-
-
-@pytest.mark.asyncio
-async def test_proactive_context_total_max_respected(monkeypatch, agent_with_present):
-    """結果の記憶数が SHARE_MEMORY_TOTAL_MAX を超えないこと。"""
-    monkeypatch.setenv("SHARE_MEMORY_TOTAL_MAX", "2")
-    result = await agent_with_present._proactive_memory_context()
-    if result:
-        parts = result.split(" / ")
-        assert len(parts) <= 2, f"Expected ≤2 parts, got {len(parts)}: {result}"
-
-
-@pytest.mark.asyncio
-async def test_proactive_context_no_candidates_returns_none():
-    """シード候補が0件のとき None を返すこと。"""
-    from familiar_agent.agent import EmbodiedAgent
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-
-    seed_mem = MagicMock()
-    seed_mem.pick_seed_candidates = MagicMock(return_value=[])
-
-    pmm = MagicMock()
-    pmm.get_all_present_memories.return_value = [("pid-1", seed_mem)]
-    agent._pmm = pmm
-
-    result = await agent._proactive_memory_context()
-    assert result is None
-
-
-#

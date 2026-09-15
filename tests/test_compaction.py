@@ -56,13 +56,11 @@ def _make_agent():
     agent._persons = PersonRegistry(default_name="A")
 
     from familiar_agent.exploration import ExplorationTracker
-    from familiar_agent.relationship import RelationshipTracker
     from familiar_agent.prediction import PredictionEngine
     import time as _time
 
     agent._exploration = ExplorationTracker()
     agent._scene = None
-    agent._relationship = RelationshipTracker()
     agent._prediction = PredictionEngine()
     agent._memory.as_coalition_async = AsyncMock(return_value=None)
     agent._memory_worker = MagicMock()
