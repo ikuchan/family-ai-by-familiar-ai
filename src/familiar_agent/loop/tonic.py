@@ -26,6 +26,7 @@ from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..core.solitude import AXES, next_interval_minutes
 from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives, save_solitude
 from ..mood_register import load_current_mood
+from . import notes_watch
 from .rest import run_rest_pass
 
 logger = logging.getLogger(__name__)
@@ -237,6 +238,22 @@ class Tonic:
             logger.debug("在席センサを読めなかったので、内省へは回さない")
             return False
 
+    def _notes_due(self, *, now: float) -> bool:
+        """パジュ宛てのメモを読む頃合いか（`notes_watch.INTERVAL_SEC` に 1 回・知-g-ろ）。"""
+        last = getattr(self, "_notes_checked_at", None)
+        return (
+            last is None or now - last >= notes_watch.INTERVAL_SEC
+        )  # 起動直後に 1 回（前回値を持つため）
+
+    async def _maybe_check_notes(self, now: float) -> None:
+        if not self._notes_due(now=now):
+            return
+        self._notes_checked_at = now
+        try:
+            await notes_watch.check_notes(self._agent)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("パジュへのメモの確認に失敗: %s", e)
+
     async def _run(self) -> None:
         last = time.monotonic()
         while True:
@@ -245,6 +262,7 @@ class Tonic:
                 now = time.monotonic()
                 dt, last = now - last, now
                 self.scan_presence()
+                await self._maybe_check_notes(now)
                 firing, accumulated = await step_drives(
                     dt, last_human_at=getattr(self._agent, "_last_human_at", None)
                 )

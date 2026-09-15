@@ -57,6 +57,7 @@ _FULL_ACTIONS = (
     "family_schedule",
     "notion_search",
     "journal",
+    "vault",
 )
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
@@ -72,6 +73,10 @@ _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
     "search_notion": ("search_notion", "Notion で「{query}」を探す"),
     "journal": ("get_journal", "日次記録を見る"),
     "get_journal": ("get_journal", "日次記録を見る"),
+    # 個人ティアの記録（`obsidian-memo`・知-g-い）。道具名は話者の英字で決まる（`ask_vault_<latin>`）
+    # ので、表には動作名だけを置き、道具名は `_vault_tool_name()` が解く。数十秒かかるが、
+    # 調べものは投げっぱなしなので別経路は要らない（MCP の時間切れだけ長い・`call_timeout_for`）。
+    "vault": ("ask_vault_", "記録に「{query}」を聞く"),
 }
 # 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
 # `see`・`look` も含める。結果はその場で返るが、それを見て何を言うかは次の反復が決める
@@ -112,9 +117,11 @@ def _query_label(action: str, tool_input: dict) -> str:
         return "目の前を見る"
     if action == "look":
         return f"{tool_input.get('pose', '')}を見に行く"
+    if action.startswith("ask_vault_"):
+        action = "vault"
     if action in _MCP_LOOKUPS:
         return _MCP_LOOKUPS[action][1].format(
-            query=str(tool_input.get("query", "")).strip(),
+            query=str(tool_input.get("query") or tool_input.get("question") or "").strip(),
             days=_days_of(tool_input),
         )
     return str(tool_input.get("query") or tool_input.get("url", "")).strip()
@@ -144,6 +151,8 @@ def _self_image_text() -> str:
 
 def _action_family(action: str) -> str:
     """道具名（主LLM が呼ぶ）を動作名（候補の表の鍵）に正規化する（`get_family_schedule` → `family_schedule`）。"""
+    if action.startswith("ask_vault_"):
+        return "vault"
     if action in _MCP_LOOKUPS:
         tool = _MCP_LOOKUPS[action][0]
         for name, (t, _label) in _MCP_LOOKUPS.items():
@@ -167,6 +176,8 @@ def _tool_input_for(action: str, query: str) -> dict:
     呼び直せる（見出しが期間を含むので止まらない）。「明日の予定」を今日 1 日ぶんで引いて
     答えられなかった 2026-09-14 の実機（出-p）。
     """
+    if action == "vault":
+        return {"question": query}  # 記録の道具は `question` を受ける（`ask_vault_<latin>`）
     if action in _MCP_LOOKUPS and "{days}" in _MCP_LOOKUPS[action][1]:
         m = re.search(r"\d+", query)
         return {"days": max(1, min(SCHEDULE_DAYS_MAX, int(m.group())))} if m else {}
@@ -931,11 +942,18 @@ class InformationProcessing:
                 Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
-        if action in _MCP_LOOKUPS:
+        if action in _MCP_LOOKUPS or action.startswith("ask_vault_"):
             # MCP の同期の道具。結果はその場で返るので、完了として積む（`recall` と同じ）。
-            tool_name = _MCP_LOOKUPS[action][0]
+            # `vault` は話者の英字で道具名が決まる（知-g-い）。主LLM が道具名で呼んだときはそのまま。
+            tool_name = (
+                action
+                if action.startswith("ask_vault_")
+                else (self._vault_tool_name() if action == "vault" else _MCP_LOOKUPS[action][0])
+            )
             failed = False
             try:
+                if not tool_name:
+                    raise RuntimeError("いま話している人の記録の道具が無い")
                 out, ok = await self._dif.call_tool(tool_name, tool_input)
                 if not ok:
                     # 生の文（`TypeError …`）は対処できる情報ではない。ログにだけ残し、
@@ -1190,7 +1208,14 @@ class InformationProcessing:
         # Notion の目次と日次記録（`notion-memo`・知-k）。中身は基本すべて家族ティア。
         "notion_search": lambda ip: ip._dif.tool_defs("search_notion"),
         "journal": lambda ip: ip._dif.tool_defs("get_journal"),
+        # 個人ティアの記録（知-g-い）。`ask_vault_*` を全部出し、話者ゲート（`_gated`）が本人以外を落とす。
+        "vault": lambda ip: ip._dif.tool_defs_with_prefix("ask_vault_"),
     }
+
+    def _vault_tool_name(self) -> str:
+        """話者の英字から `ask_vault_<latin>` を解く。本人の道具が無ければ空（呼べない）。"""
+        names = {str(d.get("name", "")) for d in self._gated(self._ACTIONS["vault"](self))}
+        return next(iter(sorted(names)), "")
 
     def _gated(self, defs: list[dict]) -> list[dict]:
         """話者ゲート（知-f）。主LLM の道具と調停の候補は**同じ出口**を通る。"""
@@ -1206,7 +1231,7 @@ class InformationProcessing:
         """調停に載せる MCP の同期の道具。繋がっているものだけ、かつこの求めで失敗していないもの。"""
         return tuple(
             a
-            for a in ("house_rules", "family_schedule", "notion_search", "journal")
+            for a in ("house_rules", "family_schedule", "notion_search", "journal", "vault")
             if a not in self._req.failed_actions and self._gated(self._ACTIONS[a](self))
         )
 

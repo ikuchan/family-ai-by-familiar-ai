@@ -47,6 +47,19 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+#: 数十秒かかる道具（Vault を読んで考える `ask_vault_*`・`家の記録との接続` §2）。相手側の既定は 300 秒。
+SLOW_TOOL_PREFIXES = ("ask_vault_",)
+SLOW_TOOL_TIMEOUT_SEC = 120.0  # 〔仮・知-g-い〕
+
+
+def call_timeout_for(tool_name: str) -> float:
+    """道具ごとの時間切れ（秒）。既定は `MCP_CALL_TIMEOUT`（30）、遅い道具は長い。"""
+    base = float(os.environ.get("MCP_CALL_TIMEOUT", "30"))
+    if any(tool_name.startswith(p) for p in SLOW_TOOL_PREFIXES):
+        return max(base, float(os.environ.get("MCP_SLOW_CALL_TIMEOUT", str(SLOW_TOOL_TIMEOUT_SEC))))
+    return base
+
+
 @dataclass(frozen=True)
 class CallResult:
     """MCP の道具を 1 回呼んだ結果。`ok` が偽なら**道具が使えなかった**（本文は失敗の説明）。"""
@@ -370,7 +383,7 @@ class MCPClientManager:
                 tool_input = dict(tool_input)
                 tool_input["time_range"] = _time_range_map[tool_input["time_range"]]
 
-        _call_timeout = float(os.environ.get("MCP_CALL_TIMEOUT", "30"))
+        _call_timeout = call_timeout_for(tool_name)
         try:
             result = await asyncio.wait_for(
                 session.call_tool(tool_name, arguments=tool_input),
