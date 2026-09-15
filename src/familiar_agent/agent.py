@@ -120,7 +120,9 @@ _COMPLEX_QUERY_RE = re.compile(
 #   [太郎] こんにちは    →  speaker=太郎, text="こんにちは"
 #   @Yuki: どうした？   →  speaker=Yuki,  text="どうした？"
 # /speaker [name]  — set session-default speaker
-_SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:\s+(.+))?$", re.IGNORECASE)
+# 区切りは半角空白のほか、全角空白と中黒（・）も通す。日本語入力のままスペースを押すと「・」に
+# なり、`/speaker・` が普通の発話として記憶に残った（2026-09-15 実機）。
+_SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:[\s　・]+(.*))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 
 # Day summary prompt — condense a day's observations into a diary-like entry
@@ -1239,7 +1241,7 @@ class EmbodiedAgent:
         m = _SPEAKER_COMMAND_RE.match(user_input.strip())
         if m is None:
             return None
-        name_arg = (m.group(1) or "").strip()
+        name_arg = (m.group(1) or "").strip(" \t　・")
         if not name_arg:
             current = self._persons.active_name
             known = ", ".join(self._persons.known_names())

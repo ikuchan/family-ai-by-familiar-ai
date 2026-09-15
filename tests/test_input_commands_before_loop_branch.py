@@ -40,6 +40,21 @@ def test_speaker_command_is_handled_on_the_event_loop_path():
     a._info_processing.push_utterance.assert_not_awaited()
 
 
+def test_speaker_command_accepts_a_full_width_separator():
+    """日本語入力のままだと区切りが全角空白や中黒（・）になる（実機 2026-09-15 18:12・`/speaker・`）。"""
+    for text in ("/speaker　パパ", "/speaker・パパ", "/speaker ・ パパ"):
+        a = _agent()
+        reply = asyncio.run(Agent.run(a, text))
+        a._persons.set_active.assert_called_once_with("パパ")
+        assert "パパ" in reply
+        a._info_processing.push_utterance.assert_not_awaited()
+    # 名前が無ければ、いまの話者を示す（普通の発話にはしない）。
+    a = _agent()
+    asyncio.run(Agent.run(a, "/speaker・"))
+    a._persons.set_active.assert_not_called()
+    a._info_processing.push_utterance.assert_not_awaited()
+
+
 def test_speaker_prefix_is_stripped_on_the_event_loop_path():
     a = _agent()
     asyncio.run(Agent.run(a, "[たいき] こんにちは"))
