@@ -917,6 +917,7 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.content, o.timestamp, o.direction, o.kind, o.emotion,
+                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
                            COALESCE(s.groundedness_n, 0) AS groundedness_n
                     FROM observations o
                     LEFT JOIN situated_memories s ON s.obs_id = o.id AND s.person_id = %s

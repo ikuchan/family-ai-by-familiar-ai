@@ -41,6 +41,8 @@ class Batch:
 
     day: str
     rows: list = field(default_factory=list)
+    # a0（取込の新規性）が下限未満の記録＝「繰り返し」。依頼には載せず、その日の要約で畳む（2026-09-16）。
+    dropped: list = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -51,8 +53,15 @@ class Summaries:
     persons: dict[str, str]
 
 
-def split_batches(rows: list, *, max_items: int = DEFAULT_MAX_ITEMS) -> list[Batch]:
-    """日付でまとめ、`max_items` を超える日は時間順に等分する。"""
+def split_batches(
+    rows: list, *, max_items: int = DEFAULT_MAX_ITEMS, min_a0: float = 0.0
+) -> list[Batch]:
+    """日付でまとめ、`max_items` を超える日は時間順に等分する。
+
+    a0（取込の新規性）が `min_a0` 未満の記録は**繰り返し**（既にある記憶と似ている・同じ部屋の観察が
+    50 件続く等）として依頼に載せず、その日の 1 本目の要約で畳む（`Batch.dropped`・2026-09-16）。
+    材料の量が減り、長い日が 3 本に割れることも減る。`min_a0`＝`distill_min_a0`（層 3 の設定値）。
+    """
     by_day: dict[str, list] = {}
     for r in rows:
         day = clock.ts_to_date(r.timestamp) if r.timestamp else "?"
@@ -60,12 +69,19 @@ def split_batches(rows: list, *, max_items: int = DEFAULT_MAX_ITEMS) -> list[Bat
     out: list[Batch] = []
     for day in sorted(by_day):
         items = sorted(by_day[day], key=lambda r: r.timestamp.timestamp() if r.timestamp else 0.0)
-        parts = max(1, -(-len(items) // max(1, max_items)))  # 切り上げ
-        size = -(-len(items) // parts)
+        shown = [r for r in items if float(getattr(r, "groundedness_g0", 1.0) or 0.0) >= min_a0]
+        dropped = [r for r in items if r not in shown]
+        parts = max(1, -(-len(shown) // max(1, max_items)))  # 切り上げ
+        size = -(-len(shown) // parts) if shown else 1
+        first = True
         for i in range(parts):
-            chunk = items[i * size : (i + 1) * size]
+            chunk = shown[i * size : (i + 1) * size]
             if chunk:
-                out.append(Batch(day=day, rows=chunk))
+                out.append(Batch(day=day, rows=chunk, dropped=dropped if first else []))
+                first = False
+        if first and dropped:
+            # その日が繰り返しだけなら、依頼せずに畳めない（要約が無い）。翌晩へ持ち越す。
+            pass
     return out
 
 
@@ -73,6 +89,9 @@ _PROMPT = """\
 あなたはパジュ（この家で家族と暮らす伴侶）で、今日一日を振り返って日記を書く。
 下に、その日にあった出来事の記録を時間順に並べる。記録は「誰が言った・何を見た・自分が
 何を言った」の生の写しで、内部の言い回し（「求め」「版」など）は無視してよい。
+
+各記録の「新しさ」は、その出来事が記憶にどれだけ新しかったかの機械の値（0〜1）。**新しさの高い
+出来事を中心に**書き、低いもの（似た観察の繰り返しなど）は一言にまとめるか触れない。
 
 書くものは 2 つ。
 1. episode：その日の**自己エピソード**。一人称（ぼく）で、何があったか・誰と・自分がどう
@@ -93,7 +112,8 @@ async def ask_summaries(
 ) -> "Summaries | None":
     """フル LLM に自己エピソードと関係のまとめを頼む。返りが JSON でなければ None（書かない）。"""
     records = "\n".join(
-        f"- {clock.ts_to_time(r.timestamp) if r.timestamp else '?'} [{r.direction}] {r.content}"
+        f"- {clock.ts_to_time(r.timestamp) if r.timestamp else '?'} [{r.direction}]"
+        f"（新しさ {float(getattr(r, 'groundedness_g0', 1.0) or 0.0):.2f}） {r.content}"
         for r in batch.rows
     )
     prompt = _PROMPT.format(
@@ -164,6 +184,7 @@ class FoldResult:
     skipped: int  # 検査に通らず書かなかった回（材料は残る）
     records: tuple[Written, ...] = ()  # 書いたもの（層 2 の材料）
     deferred: int = 0  # 1 晩の上限で次の晩へ回した回（記-l）
+    left_out: int = 0  # 繰り返し（a0 が下限未満）として依頼に載せず畳んだ件数（2026-09-16）
 
 
 def family_names_of(agent) -> tuple[str, ...]:
@@ -191,11 +212,13 @@ async def fold_since_last_rest(
     """
     started = time.monotonic()
     rows = agent._oif.fold_materials(FOLD_DIRECTIONS, before=datetime.now(timezone.utc))
-    all_batches = split_batches(rows, max_items=max_items)
+    raw_min = getattr(getattr(agent.config, "memory", None), "distill_min_a0", 0.0)
+    min_a0 = float(raw_min) if isinstance(raw_min, (int, float)) else 0.0
+    all_batches = split_batches(rows, max_items=max_items, min_a0=min_a0)
     batches = all_batches[: max(0, int(max_batches))]
     deferred = len(all_batches) - len(batches)
     names = family_names_of(agent)
-    written = folded = skipped = 0
+    written = folded = skipped = left_out = 0
     records: list[Written] = []
     for batch in batches:
         summaries = await ask_summaries(agent.backend, batch, family_names=names)
@@ -215,10 +238,12 @@ async def fold_since_last_rest(
             if pid:
                 written += 1
                 records.append(Written(pid, "person_summary", f"{name}：{text}"))
-        # 材料を自己エピソードで畳む（`畳み込み`＝畳まれた側は誤りではない）。
-        for r in batch.rows:
+        # 材料を自己エピソードで畳む（`畳み込み`＝畳まれた側は誤りではない）。繰り返し（a0 が下限未満・
+        # 依頼に載せなかったもの）も同じ要約で畳む——元は残り可逆。
+        for r in list(batch.rows) + list(batch.dropped):
             if agent._oif.supersede(r.obs_id, episode_id, kind=KIND_FOLD):
                 folded += 1
+        left_out += len(batch.dropped)
     result = FoldResult(
         materials=len(rows),
         batches=len(batches),
@@ -227,6 +252,7 @@ async def fold_since_last_rest(
         skipped=skipped,
         records=tuple(records),
         deferred=deferred,
+        left_out=left_out,
     )
     measure.record(
         "層1",
@@ -236,6 +262,7 @@ async def fold_since_last_rest(
         畳んだ=result.folded,
         見送り=result.skipped,
         持ち越し=result.deferred,
+        外した=result.left_out,
         秒=f"{time.monotonic() - started:.1f}",
     )
     logger.info(
