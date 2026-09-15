@@ -107,14 +107,17 @@ async def build_pose_registry(config_text: str, camera, tolerance: float) -> lis
         except Exception as e:  # noqa: BLE001
             logger.warning("カメラのプリセットを読めなかったので設定の定点だけ使う: %s", e)
     merged = merge_poses(poses, presets, tolerance)
-    logger.info("定点 %d 件（設定 %d ＋ プリセット %d）：%s",
-                len(merged), len(poses), len(presets),
-                "、".join(p.name for p in merged) or "なし")
+    logger.info(
+        "定点 %d 件（設定 %d ＋ プリセット %d）：%s",
+        len(merged),
+        len(poses),
+        len(presets),
+        "、".join(p.name for p in merged) or "なし",
+    )
     return merged
 
 
-def nearest_pose(poses: list[Pose], pan: float, tilt: float,
-                 tolerance: float) -> Pose | None:
+def nearest_pose(poses: list[Pose], pan: float, tilt: float, tolerance: float) -> Pose | None:
     """いまの向きに対応する定点。どこからも離れていれば `None`（移動中）。
 
     絶対移動には誤差があるので、少しのずれは同じ定点として吸収する。厳密に一致を求めると、
@@ -125,3 +128,34 @@ def nearest_pose(poses: list[Pose], pan: float, tilt: float,
     if best is None or _distance(best, here) > tolerance:
         return None
     return best
+
+
+#: 右＝pan が大きい側〔仮・知-m ③・2026-09-16〕。実機で逆なら、ここを反転する。
+RIGHT_IS_POSITIVE_PAN = True
+DIRECTIONS = ("右", "左", "上", "下")
+
+
+def pose_toward(
+    poses: list[Pose], here: tuple[float, float], direction: str, *, tolerance: float = 0.02
+) -> "Pose | None":
+    """いまの向き `here` から、その方向にある定点のうち最も近いもの。無ければ None（知-m ③）。
+
+    関係を人が書かなくても、定点の pan/tilt から「右で最も近い」は決まる。`tolerance` 以内の差は
+    同じ向きとみなし、その方向には数えない（絶対移動の誤差で自分自身を選ばないため）。
+    """
+    pan, tilt = float(here[0]), float(here[1])
+    sign = 1.0 if RIGHT_IS_POSITIVE_PAN else -1.0
+    if direction == "右":
+        key = lambda p: (p.pan - pan) * sign  # noqa: E731
+    elif direction == "左":
+        key = lambda p: (pan - p.pan) * sign  # noqa: E731
+    elif direction == "上":
+        key = lambda p: (p.tilt - tilt) * _TILT_TO_PAN  # noqa: E731
+    elif direction == "下":
+        key = lambda p: (tilt - p.tilt) * _TILT_TO_PAN  # noqa: E731
+    else:
+        return None
+    ahead = [p for p in poses if key(p) > tolerance]
+    if not ahead:
+        return None
+    return min(ahead, key=lambda p: _distance(p, Pose("", pan, tilt)))
