@@ -24,7 +24,7 @@
 - `set_timer(after_minutes か at, label, confirmed=false)`：どちらか一方。`at` はローカル時刻（`7:00`・`21時半`・全角可）、過ぎていれば翌日（`core/timer_rules.resolve_due`）。返りに id と鳴る時刻。
 - `start_stopwatch(label)`：due 無し。鳴らない。
 - `cancel_timer(id か "all")`。
-- 同時に **5 本〔仮〕**まで。調停の候補には載せない（full で処理・つなぎ不要）。**調停が light を選んでも、道具が要る頼み（タイマー・アラーム・測る・止める…・`arbiter.needs_tools`）は full へ倒す**——実機（2026-09-15 22:47）で light が「タイマーをセットしました」と言うだけで掛かっていなかった。道具は `_ACTIONS`／`_FULL_ACTIONS`／`_LOOKUP_ACTIONS` に載り、`recall` と同じく結果はその場で返って次の反復が言葉にする。見出しは入力ごとに別（「タイマーを掛ける「パスタ」」）で、同じ求めで掛けて止めるができる。
+- 同時に **5 本〔仮〕**まで。**調停（軽量LLM）が自分で掛ける**：候補に `set_timer`／`start_stopwatch`／`cancel_timer` を載せ、調停は `{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"パスタ"},"text":"3分ね、測るよ"}` のように**道具の入力を `tool_input` に書く**（`Decision.tool_input`・`_tool_input_of`）。道具は即実行され、完了が戻ると調停が light で「掛けたよ」と言える——主LLM は起きない。「確かめて」が返れば light で聞き、「いい」なら `confirmed:true` で掛け直す。それでも調停が light を選んだときは、道具が要る頼み（`arbiter.needs_tools`）を full へ倒す（最後の砦）——実機（2026-09-15 22:47）で light が「タイマーをセットしました」と言うだけで掛かっていなかった。道具は `_ACTIONS`／`_FULL_ACTIONS`／`_LOOKUP_ACTIONS` に載り、`recall` と同じく結果はその場で返って次の反復が言葉にする。見出しは入力ごとに別（「タイマーを掛ける「パスタ」」）で、同じ求めで掛けて止めるができる。
 
 ## 4. 通り抜けと、その前の確認（2026-09-15 決定）
 
@@ -49,5 +49,5 @@ T が毎 tick（0.5 秒）`due_now` を拾い、**先に `fired_at` を打って
 
 ## 更新履歴
 
-> v0.1 追記（2026-09-15 夜）：道具が要る頼みは調停の light を full へ倒す（機械の守り・`needs_tools`）。
+> v0.1 追記（2026-09-15 夜）：調停が自分でタイマーを掛ける（候補 3 つ・`tool_input`）。道具が要る頼みで light が残ったら full へ倒す（`needs_tools`）。
 > v0.1：新規（2026-09-15・知-n）。設計方針と実装計画の承認のうえ実装した内容だけを書いた。

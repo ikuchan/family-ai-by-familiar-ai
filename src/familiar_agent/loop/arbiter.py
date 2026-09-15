@@ -133,6 +133,7 @@ class Decision:
     effort: str = "low"  # full：思考の深さ（既定 low・課題5 G 章）
     action: str = "recall"  # action：どの動作で調べるか
     query: str = ""  # action：探す語
+    tool_input: "dict | None" = None  # action：道具へそのまま渡す入力（タイマー・知-n）
     # 黙る長さ（分）。0＝黙らない、-1＝頼まれたが長さの指定なし（受け側が既定を当てる）。
     silence_minutes: int = 0
     # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
@@ -216,6 +217,21 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
         "日次記録を見る",
         '"journal"（日ごとの記録・最近よく眠れているか・調子。query は要らない）',
     ),
+    # タイマー（知-n）。**調停が自分で掛ける**——道具の入力を `tool_input` に書く。掛かったら完了が
+    # 戻り、調停が light で「掛けたよ」と言える（主LLM は起きない）。「確かめて」が返ったら light で聞く。
+    "set_timer": (
+        "",
+        '"set_timer"（タイマー・アラームを掛ける。tool_input に {"after_minutes": 3} か {"at": "7:00"} と '
+        '{"label": "何のため"}。返りが「確かめて」なら理由を伝えて一度聞き、「いい」なら {"confirmed": true} を足して掛け直す）',
+    ),
+    "start_stopwatch": (
+        "",
+        '"start_stopwatch"（「今から測って」。tool_input に {"label": "何を"}）',
+    ),
+    "cancel_timer": (
+        "",
+        '"cancel_timer"（「タイマー止めて」「やっぱりいい」。tool_input に {"id": 番号か "all"}。番号は [タイマー] の枠）',
+    ),
     # 個人ティアの記録（知-g-い）。候補に載るのは本人のターンだけ（話者ゲート・`_extra_actions`）。
     "vault": (
         "",
@@ -275,6 +291,7 @@ def _parse(
         time_span_days = 0.0
     query = str(data.get("query", "")).strip()
     action = str(data.get("action", "")).strip() or "recall"
+    tool_input = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else None
     allowed = (
         ("recall", "search_deferred", "fetch_deferred")
         + (("see",) if can_see else ())
@@ -288,6 +305,11 @@ def _parse(
         query = _EXTRA_ACTIONS[action][0]  # 見出しが固定の道具。query が要るものはそのまま
     elif action == "family_schedule" and not query:
         query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
+    if action in ("set_timer", "start_stopwatch", "cancel_timer"):
+        # 見出し（同語二度投げの鍵）は label か id。tool_input が無ければ掛けられない→ full へ。
+        if not tool_input:
+            return None
+        query = str(tool_input.get("label") or tool_input.get("id") or query or action).strip()
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
         text = ""
@@ -302,6 +324,7 @@ def _parse(
         effort=effort,
         action=action,
         query=query,
+        tool_input=tool_input,
         silence_minutes=silence_minutes,
         time_ref=time_ref,
         time_span_days=max(0.0, time_span_days),

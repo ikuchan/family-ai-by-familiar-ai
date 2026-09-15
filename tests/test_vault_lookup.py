@@ -118,3 +118,63 @@ def test_notion_and_vault_are_told_apart_in_the_candidates():
     vault = _EXTRA_ACTIONS["vault"][1]
     assert "目次" in notion and "Todo" in notion and "経緯" not in notion
     assert "経緯" in vault and "検討" in vault and "目次や Todo ではない" in vault
+
+
+# ---- タイマーは調停（軽量LLM）が自分で掛ける（知-n・2026-09-15 夜） -------------------
+
+
+def test_the_arbiter_can_set_a_timer_with_a_tool_input():
+    d = _parse(
+        '{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"パスタ"},"text":"3分ね、測るよ"}',
+        can_see=False,
+        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+    )
+    assert d is not None and d.branch == "action" and d.action == "set_timer"
+    assert d.tool_input == {"after_minutes": 3, "label": "パスタ"} and d.query == "パスタ"
+    assert d.text == "3分ね、測るよ"
+    d = _parse(
+        '{"branch":"action","action":"cancel_timer","tool_input":{"id":"all"}}',
+        can_see=False,
+        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+    )
+    assert (
+        d is not None
+        and d.action == "cancel_timer"
+        and d.tool_input == {"id": "all"}
+        and d.query == "all"
+    )
+    # 候補に無ければ判定できない扱い（None → full へ倒れる・従来どおり）
+    d = _parse(
+        '{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"x"}}',
+        can_see=False,
+        extra_actions=(),
+    )
+    assert d is None
+
+
+def test_timer_actions_are_offered_to_the_arbiter_when_the_tool_exists():
+    from unittest.mock import MagicMock
+
+    ip = _ip("ゆうすけ", [])
+    ip._agent._timer_tool = MagicMock()
+    ip._agent._timer_tool.get_tool_definitions = MagicMock(
+        return_value=[{"name": n} for n in ("set_timer", "start_stopwatch", "cancel_timer")]
+    )
+    assert {"set_timer", "start_stopwatch", "cancel_timer"} <= set(ip._extra_actions())
+    ip._agent._timer_tool = None
+    assert "set_timer" not in ip._extra_actions()
+
+
+def test_the_decisions_tool_input_reaches_the_dispatch():
+    from familiar_agent.loop.arbiter import Decision
+    from familiar_agent.loop.event_loop import _tool_input_of
+
+    d = Decision(
+        branch="action",
+        action="set_timer",
+        query="パスタ",
+        tool_input={"after_minutes": 3, "label": "パスタ"},
+    )
+    assert _tool_input_of(d) == {"after_minutes": 3, "label": "パスタ"}
+    d = Decision(branch="action", action="family_schedule", query="2")
+    assert _tool_input_of(d) == {"days": 2}

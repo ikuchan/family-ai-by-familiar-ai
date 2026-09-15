@@ -175,6 +175,14 @@ def _action_family(action: str) -> str:
     return action
 
 
+def _tool_input_of(decision) -> dict:
+    """調停の決定から道具の入力を作る。`tool_input` を書いてきた道具（タイマー）はそれをそのまま。"""
+    given = getattr(decision, "tool_input", None)
+    if isinstance(given, dict) and given:
+        return dict(given)
+    return _tool_input_for(decision.action, decision.query)
+
+
 def _tool_input_for(action: str, query: str) -> dict:
     """調停の決定（動作名と語）を、その道具が受け取る入力へ変える。
 
@@ -1303,10 +1311,17 @@ class InformationProcessing:
         )
 
     def _extra_actions(self) -> tuple[str, ...]:
-        """調停に載せる MCP の同期の道具。繋がっているものだけ、かつこの求めで失敗していないもの。"""
+        """調停に載せる同期の道具（MCP とタイマー）。繋がっているものだけ、かつこの求めで失敗していないもの。"""
         return tuple(
             a
-            for a in ("house_rules", "family_schedule", "notion_search", "journal", "vault")
+            for a in (
+                "house_rules",
+                "family_schedule",
+                "notion_search",
+                "journal",
+                "vault",
+                *_TIMER_ACTIONS,
+            )
             if a not in self._req.failed_actions and self._gated(self._ACTIONS[a](self))
         )
 
@@ -2009,7 +2024,7 @@ class InformationProcessing:
                 self._req.see_by = "調停"  # 帰りの判断も調停がする（`_decide`）
             self._start_lookup(
                 utterance or self._req.cue,
-                _tool_input_for(decision.action, decision.query),
+                _tool_input_of(decision),
                 action=decision.action,
             )
             logger.info(
