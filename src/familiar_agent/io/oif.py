@@ -438,6 +438,7 @@ class OIF:
                 timestamp=r.get("timestamp"),
                 direction=str(r.get("direction", "")),
                 emotion=str(r.get("emotion", "neutral")),
+                groundedness_g0=float(r.get("groundedness_g0", 1.0) or 0.0),
             )
             for r in rows
         ]
