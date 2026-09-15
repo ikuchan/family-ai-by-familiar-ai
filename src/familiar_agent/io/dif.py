@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import contextlib
+import re
 import time
 import logging
 
@@ -24,6 +25,14 @@ logger = logging.getLogger(__name__)
 
 # ログに載せる発話の長さ。記憶の内容と同じ扱いで、debug でも先頭だけにする。
 _TRAIL_CHARS = 24
+
+
+_SESSION_MARK = re.compile(r"\s*──（\d{4}-\d{2}-\d{2} のセッション／[^）]*）\s*$")
+
+
+def strip_session_mark(text: str) -> str:
+    """`ask_vault_*` の返りの末尾の素性の印を落とす（読み上げない・`家の記録との接続` §2）。"""
+    return _SESSION_MARK.sub("", text or "").rstrip()
 
 
 class DIF:
@@ -110,7 +119,21 @@ class DIF:
             return f"（{name} は繋がっていない）", False
         logger.debug("DIF call_tool → %s", name)
         r = await self._mcp.call_result(name, dict(params or {}))
-        return str(r.text), bool(r.ok)
+        # 記録の道具（`ask_vault_*`）は末尾に素性の印 `──（YYYY-MM-DD のセッション／継続）` を付ける。
+        # 本人向けの情報ではないので、W へ載せる前に落とす（知-g-い）。
+        return strip_session_mark(str(r.text)), bool(r.ok)
+
+    def tool_defs_with_prefix(self, prefix: str) -> list[dict]:
+        """名前が `prefix` で始まる MCP の道具を全部取り出す（`ask_vault_`・話者ゲートは呼び手が掛ける）。"""
+        if self._mcp is None:
+            return []
+        with contextlib.suppress(Exception):
+            return [
+                d
+                for d in self._mcp.get_tool_definitions()
+                if str(d.get("name", "")).startswith(prefix)
+            ]
+        return []
 
     def tool_defs(self, name: str) -> list[dict]:
         """MCP の道具を**名前で1本だけ**取り出す。
