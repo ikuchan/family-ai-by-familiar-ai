@@ -250,7 +250,7 @@ class Tonic:
             return
         self._notes_checked_at = now
         try:
-            await notes_watch.check_notes(self._agent)
+            await notes_watch.check_notes(self._ip)
         except Exception as e:  # noqa: BLE001
             logger.warning("パジュへのメモの確認に失敗: %s", e)
 
