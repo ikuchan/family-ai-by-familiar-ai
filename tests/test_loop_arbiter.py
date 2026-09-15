@@ -229,3 +229,51 @@ def test_an_affect_origin_can_choose_a_synchronous_mcp_tool():
     assert "recall|search_deferred|house_rules|family_schedule" in prompt
     assert d.branch == "action" and d.action == "house_rules" and d.query == "家の決まりを見る"
     assert d.text == ""  # 自発の行動に断りは要らない（情-e）
+
+
+def test_a_request_that_needs_a_tool_is_never_answered_lightly():
+    """道具が要る頼み（タイマー・アラーム・測る・止める）は light で「できました」と言わない。
+
+    実機（2026-09-15 22:47）で「３分のタイマーをかけて」に調停が light を選び、道具を呼ばず
+    「タイマーをセットしました」と言った。掛かっていない。機械で full へ倒す。
+    """
+    from familiar_agent.loop.arbiter import needs_tools
+
+    for text in (
+        "３分のタイマーをかけて",
+        "7時に起こして",
+        "今から測って",
+        "タイマー止めて",
+        "アラーム掛けといて",
+        "5分後に教えて",
+    ):
+        assert needs_tools(text), text
+        d = asyncio.run(
+            arbitrate(
+                _backend('{"branch":"light","text":"セットしました"}'),
+                utterance=text,
+                workspace_ctx="",
+            )
+        )
+        assert d.branch == "full" and d.effort == "low", text
+    assert not needs_tools("こんばんは")
+    assert not needs_tools("時間ある？")
+    d = asyncio.run(
+        arbitrate(
+            _backend('{"branch":"light","text":"やあ"}'), utterance="こんばんは", workspace_ctx=""
+        )
+    )
+    assert d.branch == "light"
+    # 調停のプロンプトにも書いてある（機械の守りは最後の砦）。
+    assert "道具が要る" in ARBITER_PROMPT or "道具が要る" in _rendered_reply_prompt()
+
+
+def test_the_silence_request_survives_the_fall_to_full():
+    d = asyncio.run(
+        arbitrate(
+            _backend('{"branch":"light","text":"わかった","silence_minutes":30}'),
+            utterance="話すの止めて",
+            workspace_ctx="",
+        )
+    )
+    assert d.branch == "full" and d.silence_minutes == 30
