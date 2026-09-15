@@ -16,14 +16,20 @@ logger = logging.getLogger(__name__)
 
 def gate_personal_tools(defs: list[dict], *, speaker: str, members: list[dict]) -> list[dict]:
     """個人ティアの道具を、その人が話しているときだけ残す。家族ティアはそのまま。"""
-    owners = {m["latin"]: m["name"] for m in members if m.get("latin")}
+    # 本人の名は `名前` と `呼び方` のどちらでも通す。在席表が返すのは呼び方（パパ）で、
+    # 名前（ゆうすけ）と比べると本人のターンでも落ちる（2026-09-15 実機）。
+    owners = {
+        m["latin"]: {str(m.get("name") or ""), str(m.get("display_name") or "")} - {""}
+        for m in members
+        if m.get("latin")
+    }
     if not owners:
         return list(defs)
     out: list[dict] = []
     for d in defs:
         name = str(d.get("name", ""))
         owner = next((who for latin, who in owners.items() if name.endswith(f"_{latin}")), None)
-        if owner is None or owner == speaker:
+        if owner is None or speaker in owner:
             out.append(d)
         else:
             logger.debug("話者ゲート：%s を落とした（話者=%s）", name, speaker or "不明")

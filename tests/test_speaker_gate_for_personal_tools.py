@@ -65,6 +65,19 @@ def test_the_owner_keeps_the_personal_tool_and_others_lose_it() -> None:
     assert kept == ["get_house_rules", "search_notion"]
 
 
+def test_the_owner_is_recognised_by_the_display_name_too() -> None:
+    """在席表が返すのは呼び方（パパ）で、FAMILY.md の名前（ゆうすけ）ではない。
+
+    実機（2026-09-15 16:56）で「話者ゲート：ask_vault_yusuke を落とした（話者=パパ）」となり、
+    本人のターンなのに `vault` が候補に載らなかった。呼び方でも名前でも本人と認める。
+    """
+    defs = _defs("get_house_rules", "ask_vault_yusuke")
+    kept = [d["name"] for d in gate_personal_tools(defs, speaker="パパ", members=MEMBERS)]
+    assert kept == ["get_house_rules", "ask_vault_yusuke"]
+    kept = [d["name"] for d in gate_personal_tools(defs, speaker="ゆうすけ", members=MEMBERS)]
+    assert kept == ["get_house_rules", "ask_vault_yusuke"]
+
+
 def test_an_unknown_speaker_gets_no_personal_tool() -> None:
     defs = _defs("get_house_rules", "ask_vault_yusuke")
     kept = [d["name"] for d in gate_personal_tools(defs, speaker="", members=MEMBERS)]
