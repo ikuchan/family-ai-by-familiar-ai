@@ -9,7 +9,6 @@ Keeping these here prevents duplication across tui.py, gui.py, and main.py.
 
 from __future__ import annotations
 
-import os
 import re
 from datetime import datetime
 
@@ -236,28 +235,3 @@ def _format_recall_result(result: str) -> str:
 # ---------------------------------------------------------------------------
 
 IDLE_CHECK_INTERVAL: float = 10.0  # 入力待ちのタイムアウト（秒）。GUI・TUI・REPL の入力ループが使う
-
-# How long to stay silent after a silence request (seconds)
-SILENCE_DURATION_SEC: float = float(os.environ.get("SILENCE_DURATION", "1800"))
-
-_SILENCE_KEYWORDS: tuple[str, ...] = (
-    "静かにして",
-    "しずかにして",
-    "黙って",
-    "うるさい",
-    "話しかけないで",
-    "今は話しかけないで",
-    "放っておいて",
-    "ほっておいて",
-    "be quiet",
-    "stop talking",
-    "leave me alone",
-    "don't talk to me",
-    "shut up",
-)
-
-
-def is_silence_request(text: str) -> bool:
-    """Return True if the user is asking the agent to stop talking."""
-    lower = text.lower()
-    return any(kw in lower for kw in _SILENCE_KEYWORDS)

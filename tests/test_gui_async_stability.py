@@ -83,13 +83,13 @@ def _make_window_stub() -> FamiliarWindow:
     # このスタブは legacy デザイアループ機構の検証用。新 Drive 自発経路（既定 on）の判定は
     # 純関数テストで担保するため、ここでは legacy 経路へ明示オプトイン（autonomous=False）。
     from familiar_agent.config import DriveConfig as _DriveConfig
+
     _dc = _DriveConfig()
     _dc.autonomous = False
     win._drive_cfg = _dc
     win._adaptive_cooldown = MagicMock()
     win._adaptive_cooldown.current = 30.0
     win._last_social_fire = 0.0
-    win._silence_until = 0.0
     win._log = MagicMock()
     win._stream = MagicMock()
     win._stream.has_content.return_value = False
@@ -322,7 +322,9 @@ def test_camera_config_stream_url_builds_rtsp_and_supports_raw_url() -> None:
     """CameraConfig.stream_url() is now the single RTSP URL builder."""
     from familiar_agent.config import CameraConfig
 
-    built = CameraConfig(host="192.168.0.10", username="user", password="pass").stream_url("stream1")
+    built = CameraConfig(host="192.168.0.10", username="user", password="pass").stream_url(
+        "stream1"
+    )
     assert built == "rtsp://user:pass@192.168.0.10:554/stream1"
 
     raw = CameraConfig(host="rtsp://camera.local/stream1", username="u", password="p").stream_url()

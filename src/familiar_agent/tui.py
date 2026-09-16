@@ -25,10 +25,8 @@ from ._i18n import _make_banner, _t
 from ._ui_helpers import (
     ACTION_ICONS,
     IDLE_CHECK_INTERVAL as _IDLE_CHECK_INTERVAL,
-    SILENCE_DURATION_SEC as _SILENCE_DURATION_SEC,
     format_action as _format_action,
     format_tool_result as _format_tool_result,
-    is_silence_request,
 )
 from .realtime_stt_session import create_realtime_stt_controller, RealtimeSttController
 
@@ -178,7 +176,6 @@ class FamiliarApp(App):
         self._last_interaction = time.time()
         self._agent_running = False
         self._last_social_fire: float = 0.0
-        self._silence_until: float = 0.0
         self._current_text_buf = ""  # buffer for streaming text
         self._log_path = self._open_log_file()
         self._recording = False
@@ -347,9 +344,6 @@ class FamiliarApp(App):
             return
 
         self._log_user(text)
-        self._silence_until = 0.0
-        if is_silence_request(text):
-            self._silence_until = time.time() + _SILENCE_DURATION_SEC
         self._last_interaction = time.time()
         await self._input_queue.put(text)
 

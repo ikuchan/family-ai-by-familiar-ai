@@ -91,12 +91,10 @@ from .core import parsing
 from .errors import FatalStartupError, check_embedding_fatal
 from ._ui_helpers import (
     IDLE_CHECK_INTERVAL,
-    SILENCE_DURATION_SEC,
     clean_spoken_text,
     format_action,
     format_chat_log_line,
     format_tool_result,
-    is_silence_request,
 )
 from .bootstrap import resolve_env_path
 from .diagnostics import (
@@ -1176,7 +1174,6 @@ class FamiliarWindow(QMainWindow):
         self._look_preview_until: float = 0.0
         self._look_preview_disabled = False
         self._last_social_fire: float = 0.0
-        self._silence_until: float = 0.0
         self._realtime_stt: RealtimeSttController | None = create_realtime_stt_controller()
         self._realtime_stt_task: asyncio.Task[None] | None = None
         self._last_lag_tick = time.perf_counter()
@@ -2111,11 +2108,6 @@ class FamiliarWindow(QMainWindow):
                 await asyncio.sleep(0.05)
             if not getattr(self, "_agent_ready", True) and getattr(self, "_agent", None) is None:
                 break
-            # User spoke: lift any silence mode
-            self._silence_until = 0.0
-            if is_silence_request(text):
-                self._silence_until = time.time() + SILENCE_DURATION_SEC
-                logger.info("Silence mode activated for %.0f seconds", SILENCE_DURATION_SEC)
             logger.debug(
                 "GUI dequeued input (remaining queue=%d, running=%s)",
                 self._input_queue.qsize(),
