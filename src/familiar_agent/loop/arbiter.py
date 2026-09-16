@@ -221,7 +221,7 @@ _LEAD_SELF = (
     "誰かに断ったり、待ってもらったりしない。"
 )
 _BRANCHES_SELF = """\
-- "light"  : 短くひとこと言う（言わなくてもよい。text を空にすれば黙る）。あなたが text に書く。
+- "light"  : 短くひとこと言う。**黙るのが基本**（text を空にすれば黙る）。言うなら あなたが text に書く。
 - "full"   : 考えてから言う・する。生成は別の大きなモデルが行う。effort は "low"。text は空。
 - "action" : 見る・調べる・首を向ける。どうやってかを action に書く。
              "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
@@ -291,6 +291,15 @@ _SEE_NOTE_WITH_PHOTO = (
     "\n             **写真を添えた**（いま見えているもの）。見えているものを聞かれただけなら、"
     '写真を見て "light" に答えてよい。込み入った説明や記憶を踏まえる必要があるなら "full"'
     "（主LLM にも同じ写真が渡る）。"
+)
+#: 自分から見に行った帰り（情動・写真つき）の但し書き。返事の場面の注記（「聞かれただけなら
+#: 答えてよい」）をここへ渡すと、誰にも聞かれていないのに返事の体裁の一言を作った（2026-09-16
+#: 実機・「はい、静かにしていますね」「お仕事中ですね、静かにしていますから」）。
+_SEE_NOTE_OWN_LOOK = (
+    "\n             **写真を添えた**（いま見えているもの）。これは自分が見に行った帰りで、"
+    "誰にも聞かれていない。**いつも通りなら text を空にして黙る**。言うのは、様子が変わった・"
+    "気づいたことがあるときだけ。返事や約束の形（「静かにしています」「頑張ってください」）にしない。"
+    '込み入ったことなら "full"（主LLM にも同じ写真が渡る）。'
 )
 _SEE_NOTE = (
     "\n             作業状態の『わたしが見た』の行は即席のラベル（写っている物の名前・80 種の粗さ）。"
@@ -487,7 +496,15 @@ async def arbitrate(
         branches=(_BRANCHES_SELF if self_doing else _BRANCHES_REPLY).format(
             see_option=(_SEE_OPTION if can_see else "")
             + "".join(f"か {_EXTRA_ACTIONS[a][1]}" for a in extra_actions if a in _EXTRA_ACTIONS),
-            see_note=(_SEE_NOTE_WITH_PHOTO if image_b64 else _SEE_NOTE) if can_see else "",
+            see_note=(
+                (
+                    (_SEE_NOTE_OWN_LOOK if self_doing else _SEE_NOTE_WITH_PHOTO)
+                    if image_b64
+                    else _SEE_NOTE
+                )
+                if can_see
+                else ""
+            ),
         ),
         heading=_HEADING_SELF if self_doing else _HEADING_REPLY,
         utterance=utterance,

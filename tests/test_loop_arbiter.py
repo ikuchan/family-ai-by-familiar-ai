@@ -277,3 +277,45 @@ def test_the_silence_request_survives_the_fall_to_full():
         )
     )
     assert d.branch == "full" and d.silence_minutes == 30
+
+
+def test_coming_back_from_a_look_of_its_own_is_not_framed_as_answering_someone():
+    """自分から見に行った帰り（情動・写真つき）は、返事の場面の注記を渡さない。
+
+    実機（2026-09-16 09:16 と 09:51）で、SAFETY／SEEKING の促しで見に行った帰りの調停が
+    「はい、静かにしていますね」「お仕事中ですね、静かにしていますから」と、誰にも聞かれて
+    いないのに返事の体裁の一言を作った。写真つきの注記が「見えているものを**聞かれただけ
+    なら** light に答えてよい」で、聞かれた前提が嘘になっていた。自分の帰りには「いつも通り
+    なら黙る」を渡す。返事の場面は従来どおり（対で確認）。
+    """
+    b = _backend('{"branch":"light","text":""}')
+    b.complete_with_image = b.complete  # 写真つきは別の口を通る
+    asyncio.run(
+        arbitrate(
+            b,
+            utterance="[内的な促し:SAFETY] 確かめたい気持ちが湧いている。見回る。",
+            workspace_ctx="",
+            origin="情動",
+            can_see=True,
+            image_b64="aGVsbG8=",
+        )
+    )
+    own = _prompt_of(b)
+    assert "聞かれただけなら" not in own
+    assert "いつも通りなら" in own and "黙る" in own
+    assert "返事や約束の形" in own
+
+    b = _backend('{"branch":"light","text":"椅子と机が見えるよ"}')
+    b.complete_with_image = b.complete
+    asyncio.run(
+        arbitrate(
+            b,
+            utterance="何が見える？",
+            workspace_ctx="",
+            can_see=True,
+            image_b64="aGVsbG8=",
+        )
+    )
+    reply = _prompt_of(b)
+    assert "聞かれただけなら" in reply
+    assert "いつも通りなら" not in reply
