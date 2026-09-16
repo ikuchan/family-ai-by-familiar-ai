@@ -1440,8 +1440,6 @@ class InformationProcessing:
         agent._last_human_at = time.time()
         self._on_text = on_text or self._on_text
         self._ensure_driver()
-        # 黙っていてと頼んだ本人が話しかけてきたなら、その時点で依頼は終わっている。
-        self._lift_silence_if_asker_speaks()
 
         # 調べかけの途中に話しかけられたら、**その調査を打ち切る**。人が言い直したとき、
         # 前の調査を続ける意味はない（実機で「これはどこの地方の天気？」に答えられず、
@@ -1971,6 +1969,8 @@ class InformationProcessing:
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
         if decision.silence_minutes:
             self._accept_silence(decision.silence_minutes)
+        elif decision.lift_silence:
+            self._release_silence()
         # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
         # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
         # で、指定があったときだけ走る。
@@ -2523,12 +2523,13 @@ class InformationProcessing:
                     return "静穏時間である"
         return ""
 
-    def _lift_silence_if_asker_speaks(self) -> None:
-        """黙っていてと頼んだ本人が話しかけてきたら、依頼を解く（2026-09-16 実機）。
+    def _release_silence(self) -> None:
+        """「もう話していいよ」と解かれたら、依頼を消す（2026-09-16 実機）。
 
-        「待てぃ」を調停が「黙っていて」と読み 60 分の依頼になったあと、本人が話しかけ直しても
-        解けなかった（解ける条件が退室と期限だけで、`clear_silence()` に呼び手が無かった）。
-        黙っていてほしい人は話しかけない。同じ発話で改めて頼まれれば、その反復が掛け直す。
+        「待てぃ」を調停が「黙っていて」と読み 60 分の依頼になったあと、解く口が無かった
+        （解ける条件が退室と期限だけで、`clear_silence()` に呼び手が無かった）。話しかけられた
+        だけでは解かない（黙っていてほしい人が用事だけ言うことはある）。解くのは、頼んだ本人が
+        話していいと言ったとき。
         """
         with contextlib.suppress(Exception):
             from ..silence_state import clear_silence, load_silence
@@ -2539,7 +2540,13 @@ class InformationProcessing:
             who = self._current_speaker_name()
             if who and who == req.person:
                 clear_silence()
-                logger.info("黙っていてと頼んだ本人（%s）が話しかけてきたので解く", who)
+                logger.info("黙っていてと頼んだ本人（%s）が話していいと言ったので解く", who)
+            else:
+                logger.info(
+                    "話していいと言われたが、頼んだのは %s なので解かない（言ったのは %s）",
+                    req.person,
+                    who or "不明",
+                )
 
     def _accept_silence(self, asked_minutes: int) -> None:
         """黙っている依頼を受ける。宛先は、いま話している相手。
