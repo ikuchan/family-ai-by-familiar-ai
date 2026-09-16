@@ -457,7 +457,7 @@ class CameraTool:
                         None,
                     )
                 await self.move_to(pose.pan, pose.tilt)
-                return f"{direction}の{pose.name}のほうを向いた。", None
+                return await self._turned(f"{direction}の{pose.name}のほうを向いた。")
             name = str(tool_input.get("pose", ""))
             pose = next((p for p in self._poses if p.name == name), None)
             if pose is None:
@@ -465,5 +465,18 @@ class CameraTool:
                 # 在席も「普通」も更新されなくなる）。動かさずに、知らないことを伝える。
                 return f"「{name}」がどこか分からない。", None
             await self.move_to(pose.pan, pose.tilt)
-            return f"{pose.name}のほうを向いた。", None
+            return await self._turned(f"{pose.name}のほうを向いた。")
         return f"Unknown tool: {tool_name}", None
+
+    async def _turned(self, text: str) -> tuple[str, str | None]:
+        """首を向けたあと、その場で 1 枚撮る（首振りと目は一続きの動作・2026-09-16）。
+
+        向いた先を誰も見ないと、帰りの調停は「右を見る」がまだ済んでいないと読んで `look` を
+        選び直した（実機 15:11・18 秒）。撮れなければ向いたことだけ返す。
+        """
+        try:
+            b64, _path = await self.capture()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("向いた先を撮れなかった: %s", e)
+            return text, None
+        return text, (b64 or None)

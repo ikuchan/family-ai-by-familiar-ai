@@ -74,7 +74,7 @@ def test_the_reply_names_the_place_it_turned_to():
     cam = _tool()
     text, image = asyncio.run(cam.call("look", {"pose": "窓側"}))
     assert "窓側" in text
-    assert image is None  # 首を振っただけで画像は無い
+    assert image == "B64"  # 向いた先をその場で撮る（帰りは `see` と同じ扱い・2026-09-16）
 
 
 def test_an_unknown_place_is_refused_rather_than_moving_somewhere_odd():

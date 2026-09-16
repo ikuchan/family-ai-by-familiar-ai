@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from familiar_agent.loop.arbiter import Decision as ArbiterDecision
@@ -83,10 +84,24 @@ def test_the_arbiter_is_told_whether_it_can_see() -> None:
 
 
 def test_the_action_branch_records_who_looked() -> None:
-    """`(c)` で調停が see を投げると、`see_by` が調停になり lookup が始まる。"""
-    import inspect
-
-    src = inspect.getsource(InformationProcessing._iterate)
-    assert 'see_by = "調停"' in src or "see_by = '調停'" in src
+    """`(c)` で調停が see を投げると、`see_by` が調停になり lookup が始まる（`look` も同じ）。"""
+    a, ip = _ip()
+    ip._start_lookup = MagicMock()
+    ip._say_filler = AsyncMock()
+    for action in ("see", "look"):
+        ip._req.see_by = ""
+        asyncio.run(
+            ip._dispatch_arbiter_action(
+                ArbiterDecision(branch="action", action=action, query="q"), utterance="x"
+            )
+        )
+        assert ip._req.see_by == "調停", action
+    ip._req.see_by = ""
+    asyncio.run(
+        ip._dispatch_arbiter_action(
+            ArbiterDecision(branch="action", action="recall", query="q"), utterance="x"
+        )
+    )
+    assert ip._req.see_by == ""  # 目でない調べものには付かない
     src2 = inspect.getsource(InformationProcessing._act_on_decision)
     assert 'see_by = "主LLM"' in src2

@@ -337,6 +337,9 @@ _TRIGGER_PRIORITY = {"会話入力": 3, "機器": 2, "情動": 1}
 #: **調査中でも待たせないきっかけ。** 人が言い直したら前の調査は打ち切る側なので、
 #: 保留箱へは入れない（`push_utterance` が積む前に打ち切っている）。
 _NEVER_HELD_KINDS = ("会話入力",)
+#: 目と首。`look` は首を向けたあとその場で 1 枚撮るので、帰りは `see` と同じ扱い
+#: （誰が出したかを控え、出した側が判断し、写真と見た印を残す・2026-09-16）。
+_CAMERA_ACTIONS = ("see", "look")
 
 
 @dataclass
@@ -1114,7 +1117,7 @@ class InformationProcessing:
 
         `see` が返すテキストは「撮って保存した」と言うだけで、何が写っているかは画像の
         ほうにある。完了キューはテキストしか運ばないので、`知覚在席` §3-2 が定める
-        意味づけ（I 側・必要時・VLM）を通す。首を振っただけの `look` に画像は無い。
+        意味づけ（I 側・必要時・VLM）を通す。`look` も向いた先を撮って帰るので同じ経路（2026-09-16）。
 
         カメラも VLM も落ちる前提の機器なので、例外はここで畳む。見た事実まで失うと
         求めが閉じないまま残る。
@@ -1127,7 +1130,7 @@ class InformationProcessing:
         except Exception as e:  # noqa: BLE001
             logger.exception("event-loop %s の実行に失敗: %s", action, e)
             return f"（{action} を実行できなかった：{e}）"
-        if action != "see" or not image_b64:
+        if action not in _CAMERA_ACTIONS or not image_b64:
             return str(text)
         # どの定点を見たかを記録に残す。`ユースケース③` の「見た定点の印」で、これが
         # 根づきで薄れ、W 構築で薄れた順に上がることで巡回が創発する。
@@ -1257,8 +1260,8 @@ class InformationProcessing:
                     "event-loop 取込：対応する意図が無い完了を捨てる（query=%.40s）", query
                 )
             action = lk.action if lk is not None else "recall"
-            if action == "see":
-                self._see_returned = True
+            if action in _CAMERA_ACTIONS:
+                self._see_returned = True  # `look` も向いた先を撮って帰る（`see` と同じ扱い）
                 # 版には結果を載せない。見たことは `_run_camera` が鎖の外へ独立した
                 # 記録として書いており（会話の「自分が答えた」と同じ位置）、版にも
                 # 載せると同じ出来事が2件になって、想起でどちらも上がり W の枠を食う。
@@ -2042,15 +2045,7 @@ class InformationProcessing:
 
         # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
         if decision.branch == "action" and decision.query and not capped:
-            # つなぎの一言はここで即出す（フルLLM を経由しないぶん速い・正本③ 段5 の内部二段）。
-            await self._say_filler(decision.text)
-            if decision.action == "see":
-                self._req.see_by = "調停"  # 帰りの判断も調停がする（`_decide`）
-            self._start_lookup(
-                utterance or self._req.cue,
-                _tool_input_of(decision),
-                action=decision.action,
-            )
+            await self._dispatch_arbiter_action(decision, utterance=utterance or self._req.cue)
             logger.info(
                 "event-loop 反復 %d/%d 出力=%s（調停・続きは完了で起きる）",
                 chain,
@@ -2216,7 +2211,7 @@ class InformationProcessing:
         if lookup_tc is not None:
             if say_tc is not None:
                 await self._say_filler(str(say_tc.input.get("text", "")).strip())
-            if lookup_tc.name == "see":
+            if lookup_tc.name in _CAMERA_ACTIONS:
                 self._req.see_by = "主LLM"
             self._start_lookup(
                 utterance or self._req.cue, dict(lookup_tc.input), action=lookup_tc.name
@@ -2542,6 +2537,17 @@ class InformationProcessing:
                 if agent._in_quiet_hours():
                     return "静穏時間である"
         return ""
+
+    async def _dispatch_arbiter_action(self, decision, *, utterance: str) -> None:
+        """調停が選んだ調べもの（see・look・recall・検索・道具）を投げる。
+
+        つなぎの一言はここで即出す（フルLLM を経由しないぶん速い・正本③ 段5 の内部二段）。
+        `see`・`look` は帰りの判断も調停がするので、誰が出したかを控える（`_decide`）。
+        """
+        await self._say_filler(decision.text)
+        if decision.action in _CAMERA_ACTIONS:
+            self._req.see_by = "調停"
+        self._start_lookup(utterance, _tool_input_of(decision), action=decision.action)
 
     def _silence_note(self) -> str:
         """調停へ渡す「いま黙っている」の一行（無ければ空）。黙っている前提が無いと「解かれた」と読めない。"""
