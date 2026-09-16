@@ -124,7 +124,8 @@ def test_intake_of_a_failed_completion_records_the_failed_action():
     ip._req.lookups.append(
         Lookup(index=1, action="get_family_schedule", query="家族の予定を見る", generation=0)
     )
-    ip._triggers.put_nowait(
+    # 完了は駆動体（`_take_trigger`）が完了箱へ移す。取込は列に触らない（環-m・2026-09-16）。
+    ip._drained_completions.append(
         Trigger(
             kind="完了",
             query="家族の予定を見る",

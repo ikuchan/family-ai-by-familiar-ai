@@ -27,7 +27,8 @@ def _recalled(obs_id, image_path):
 
 async def _returned_see(ip):
     ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
-    ip._triggers.put_nowait(
+    # 完了は駆動体（`_take_trigger`）が完了箱へ移す。取込は列に触らない（環-m・2026-09-16）。
+    ip._drained_completions.append(
         Trigger(kind="完了", query="目の前を見る", result="（見えた）", index=1)
     )
     await ip._intake()
