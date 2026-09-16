@@ -1,4 +1,4 @@
-# familiar-ai 音声入力から GUI への経路 v0.4
+# familiar-ai 音声入力から GUI への経路 v0.5
 
 > 常時集音した音声が書き起こされ、GUI の入力キューへ届くまでの実装済みの経路の記録。
 > 2026-07-30 時点のソースコード（ブランチ `develop-ikuchan`）を正とする。設計の正本は
@@ -161,6 +161,15 @@ GUI は起動時に `RealtimeSttController`（セッションの包み）を作�
 | `AUDIO_INPUT_GAIN` | 1.0 | 取り込んだ PCM に掛ける倍率（0 以下・読めない値は 1.0）。この機械は 2.0 |
 | `ELEVENLABS_API_KEY` | （空） | `STT_ENGINE=elevenlabs` のときだけ要る |
 
+## 読み直し（GUI の `/reload`・`env_reload.py`）
+
+設定値表の値は起動時に `.env` から一度だけ読まれ、マイクの倍率は集音開始時、`STT_*` は
+セッション生成時に固定される。GUI の `/reload` は `.env` を読み直して環境変数を上書きし
+（`reload_env`）、いまの常時集音を止めて `create_realtime_stt_controller()` で作り直し、
+起動する。吹き出しに `🔄 .env を読み直した（AUDIO_INPUT_GAIN=2.5・STT_MIN_SEGMENT_SEC=1.0・…）`
+と、効いた値を並べて出す。効くのは集音の立て直しで読まれるものだけ（`LISTENER_KEYS`）で、
+LLM・鍵・カメラ・声の担い手は再起動が要る旨を同じ行に添える。
+
 ## 既知のずれ
 
 いまのところ無い。
@@ -169,6 +178,7 @@ GUI は起動時に `RealtimeSttController`（セッションの包み）を作�
 
 ## 更新履歴
 
+> v0.5：**読み直し（`/reload`）**の節を足した。`.env` を読み直して常時集音を作り直す。元の `/reload` は存在しないメソッドを呼ぶ死んだ命令だった。
 > v0.4：**入力ゲイン**（`AUDIO_INPUT_GAIN`）を §1 と設定値表へ足した。ハード音量が上限でも普通の声が VAD／whisper にほぼ無音に見えたので、再標本化のあとにソフトで増やす。
 > v0.3：**幻聴を捨てる仕組み**を §3 と設定値表へ反映した。話していないのに「ご視聴ありがとうございました」が入力になっていた。faster-whisper の `no_speech_prob` が `STT_NO_SPEECH_MAX`（0.72）を超えたら捨てる。値は実機15件のラベル付き計測から決めた（根拠台帳 §20）。
 > v0.2：**1つの発言に2回答えた件の真因と是正**を反映した。表示の口（`_on_realtime_stt_committed`）

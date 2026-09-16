@@ -106,6 +106,7 @@ from .diagnostics import (
     test_camera_connection_from_config,
     test_realtime_stt_connection_from_config,
 )
+from .env_reload import reload_env
 from .realtime_stt_session import create_realtime_stt_controller
 from .settings_schema import (
     SECTION_LABELS,
@@ -1850,11 +1851,27 @@ class FamiliarWindow(QMainWindow):
         self._log_input_queued("keyboard")
 
     async def _do_reload(self) -> None:
-        agent = getattr(self, "_agent", None)
-        if agent is None:
+        """`/reload`——`.env` を読み直し、常時集音を新しい値で作り直す。
+
+        効くのは集音の開始時に読まれるものだけ（マイク機器・`AUDIO_INPUT_GAIN`・`STT_*`・
+        担い手）。以前は `agent.reload_md_files` を呼んでいたが、そのメソッドは無かった。
+        """
+        report = reload_env()
+        self._log.append_line(report.summary())
+        if not report.found:
             return
-        result = await asyncio.to_thread(agent.reload_md_files)
-        self._log.append_line(result or "✅ reloaded")
+        old = self._realtime_stt
+        if old is not None:
+            try:
+                await asyncio.wait_for(old.stop(), timeout=2.0)
+            except Exception as exc:
+                logger.warning("古い常時集音を止められなかった: %s", exc)
+        self._realtime_stt = create_realtime_stt_controller()
+        self._realtime_stt_task = None
+        if self._realtime_stt is None:
+            self._log.append_line("🎤 Realtime STT OFF（REALTIME_STT が偽）")
+            return
+        await self._start_realtime_stt()
 
     async def _run_btw(self, question: str) -> None:
         agent = getattr(self, "_agent", None)
