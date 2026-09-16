@@ -586,6 +586,8 @@ class AgentConfig:
     silence_max_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60))
     # タイマーが鳴った知らせを話すときだけ声に掛ける倍率（1.0＝いまと同じ・機器の音量は触らない）。
     timer_voice_gain: float = field(default_factory=lambda: _float_env("TIMER_VOICE_GAIN", 1.0))
+    # タイマーを掛けているあいだは黙り、鳴ったら戻す（既定 有効・false でこれまでどおり）。
+    timer_silence: bool = field(default_factory=lambda: _bool_env("TIMER_SILENCE", default=True))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
     # 残って中身が消える。上限は埋め込みモデル bge-m3 の入力上限 8192 トークンに合わせる。
     # 1文字＝1トークンになる字もあるので、8192 *文字* なら常に 8192 トークン以下に収まり、

@@ -36,4 +36,6 @@ def silence_note(req: "SilenceRequest | None", *, now: float) -> str:
     if req is None or now >= req.until:
         return ""
     left = max(1, int((req.until - now) // 60))
+    if getattr(req, "reason", "").startswith("timer:"):
+        return f"タイマーが鳴るまで黙っている（{req.person}が掛けた・あと約 {left} 分）"
     return f"黙っているよう頼まれている（{req.person}から・あと約 {left} 分）"

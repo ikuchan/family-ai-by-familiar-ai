@@ -206,6 +206,9 @@ class EmbodiedAgent:
             speaker=lambda: self._persons.active_name if self._persons.active_is_explicit else "",
             quiet=lambda: self._schedule_rule,
             silence_active=self._silence_active_now,
+            hush=self._hush_for_timer,
+            unhush=self._unhush_timer,
+            hush_enabled=bool(getattr(self.config, "timer_silence", True)),
         )
         self._last_tool_error: str | None = None
         self._tool_failure_streak: int = 0
@@ -1278,14 +1281,48 @@ class EmbodiedAgent:
         return TimerStore(get_db().conn())
 
     def _silence_active_now(self) -> bool:
-        """いま黙っているよう頼まれているか（タイマーを掛ける前の確認に使う・知-n）。"""
+        """いま人に黙っているよう頼まれているか（タイマーを掛ける前の確認に使う・知-n）。
+
+        タイマー由来の沈黙（`reason` が `timer:`）は数えない——動いているタイマーがあるだけで
+        次のタイマーに「確かめて」が付くのは筋が違う。
+        """
         try:
             from .silence_state import is_silenced, load_silence
 
+            req = load_silence()
+            if req is not None and req.reason.startswith("timer:"):
+                return False
             present = {str(r.get("name") or "") for r in self._pmm.presence_status()}
-            return is_silenced(load_silence(), present=present, now=time.time())
+            return is_silenced(req, present=present, now=time.time())
         except Exception:  # noqa: BLE001
             return False
+
+    def _hush_for_timer(self, person: str, due, tid: int) -> None:
+        """タイマーを掛けたら鳴るまで黙る（`TIMER_SILENCE`・2026-09-16）。"""
+        try:
+            from .silence_state import hush_for_timer, load_silence, save_silence
+
+            current = load_silence()
+            nxt = hush_for_timer(current, person=person, until=due.timestamp(), tid=tid)
+            if nxt is not current:
+                save_silence(nxt)
+                logger.info(
+                    "タイマーが鳴るまで黙る id=%d %s まで", tid, due.astimezone().strftime("%H:%M")
+                )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("タイマーの沈黙を掛けられなかった: %s", e)
+
+    def _unhush_timer(self, tid) -> None:
+        """止めたタイマー由来の沈黙を解く。"""
+        try:
+            from .silence_state import clear_silence, load_silence, unhush_timer
+
+            current = load_silence()
+            if unhush_timer(current, tid=tid) is None and current is not None:
+                clear_silence()
+                logger.info("タイマーを止めたので沈黙を解く（%s）", tid)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("タイマーの沈黙を解けなかった: %s", e)
 
     async def _handle_timer_command(self, user_input: str) -> str | None:
         """`/timer stop [id]`——LLM を通さずに止める（知-n・「途中で停められる」の非常口）。"""

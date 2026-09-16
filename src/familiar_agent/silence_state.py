@@ -27,7 +27,9 @@ class SilenceRequest:
     """誰が・いつまで黙っていてほしいと言ったか。"""
 
     person: str
-    until: float          # epoch 秒
+    until: float  # epoch 秒
+    # 依頼の由来。空＝人が「黙って」と頼んだ。"timer:<id>"＝タイマーが鳴るまで黙る（2026-09-16）。
+    reason: str = ""
 
 
 def is_silenced(req: SilenceRequest | None, *, present: set[str], now: float) -> bool:
@@ -57,7 +59,11 @@ def load_silence() -> SilenceRequest | None:
         if not row:
             return None
         data = json.loads(row["value_json"] if isinstance(row, dict) else row[0])
-        return SilenceRequest(person=str(data["person"]), until=float(data["until"]))
+        return SilenceRequest(
+            person=str(data["person"]),
+            until=float(data["until"]),
+            reason=str(data.get("reason") or ""),
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("黙っている依頼を読めなかった: %s", e)
         return None
@@ -77,11 +83,20 @@ def save_silence(req: SilenceRequest) -> None:
                     " ON CONFLICT (state_key) DO UPDATE"
                     "   SET value_json = EXCLUDED.value_json,"
                     "       updated_at = EXCLUDED.updated_at",
-                    (_STATE_KEY, json.dumps({"person": req.person, "until": req.until}), now),
+                    (
+                        _STATE_KEY,
+                        json.dumps(
+                            {"person": req.person, "until": req.until, "reason": req.reason}
+                        ),
+                        now,
+                    ),
                 )
             conn.commit()
-        logger.info("黙っているよう頼まれた：%s（%.0f 分）",
-                    req.person, max(0.0, (req.until - datetime.now(timezone.utc).timestamp())) / 60)
+        logger.info(
+            "黙っているよう頼まれた：%s（%.0f 分）",
+            req.person,
+            max(0.0, (req.until - datetime.now(timezone.utc).timestamp())) / 60,
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("黙っている依頼を保存できなかった: %s", e)
 
@@ -98,6 +113,32 @@ def clear_silence() -> None:
     except Exception as e:  # noqa: BLE001
         logger.warning("黙っている依頼を消せなかった: %s", e)
     return None
+
+
+def hush_for_timer(
+    current: SilenceRequest | None, *, person: str, until: float, tid: int, now: float | None = None
+) -> SilenceRequest:
+    """タイマーを掛けたときの次の依頼（純関数・`TIMER_SILENCE`・2026-09-16）。
+
+    鳴る時刻＝期限。人が明示的に頼んだ依頼（`reason` が空）が生きていれば上書きしない。
+    タイマー由来の依頼が生きていれば、遅いほうの鳴る時刻まで（先のタイマーの id のまま）。
+    """
+    now = datetime.now(timezone.utc).timestamp() if now is None else now
+    if current is not None and now < current.until:
+        if not current.reason.startswith("timer:"):
+            return current
+        if current.until >= until:
+            return current
+    return SilenceRequest(person=person, until=until, reason=f"timer:{tid}")
+
+
+def unhush_timer(current: SilenceRequest | None, *, tid: "int | str") -> SilenceRequest | None:
+    """タイマーを止めたときの次の依頼（純関数）。そのタイマー由来なら解く（`all` はタイマー由来すべて）。"""
+    if current is None or not current.reason.startswith("timer:"):
+        return current
+    if tid == "all" or current.reason == f"timer:{tid}":
+        return None
+    return current
 
 
 def resolve_minutes(asked: int, *, default: int, maximum: int) -> int:
