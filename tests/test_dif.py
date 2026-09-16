@@ -222,3 +222,29 @@ def test_call_tool_reports_whether_the_tool_worked():
     # 口が無ければ失敗。
     text, ok = asyncio.run(DIF(mcp=None).call_tool("get_family_schedule", {}))
     assert ok is False
+
+
+# ── 声が出なかったことは warning に残す（実機 2026-09-16 09:16）──────────────
+#
+# ElevenLabs が 402（無料プランではライブラリ音声を API から使えない）を返していたのに、
+# `say` の返り文字列に載るだけでログには何も出ず、`DIF 声 0.53 秒` で済んでいた。
+# 「声が出ない」の切り分けが返り値を捨てた場所で止まる。合成器は成功なら `Said:` で
+# 始める約束なので、それ以外は失敗として残す。
+
+
+@pytest.mark.asyncio
+async def test_a_speaker_that_reports_failure_is_logged(caplog):
+    tts = MagicMock()
+    tts.call = AsyncMock(return_value=("TTS API failed (402): paid_plan_required", None))
+    with caplog.at_level("WARNING", logger="familiar_agent.io.dif"):
+        await _dif(tts=tts).speak("はい")
+    assert any("声が出なかった" in r.message and "402" in r.message for r in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_a_speaker_that_succeeds_is_not_logged_as_failure(caplog):
+    tts = MagicMock()
+    tts.call = AsyncMock(return_value=("Said: はい... (via local)", None))
+    with caplog.at_level("WARNING", logger="familiar_agent.io.dif"):
+        await _dif(tts=tts).speak("はい")
+    assert not any("声が出なかった" in r.message for r in caplog.records)

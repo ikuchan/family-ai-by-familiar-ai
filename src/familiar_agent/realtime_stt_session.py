@@ -321,8 +321,7 @@ class RealtimeSttSession:
             await client.connect()
             self._stt_client = client
             self._last_connected_at = time.time()
-            logger.info("Realtime STT transport connected（%s）",
-                        type(client).__name__)
+            logger.info("Realtime STT transport connected（%s）", type(client).__name__)
 
     def _announce_listening(self) -> None:
         """発話の始まりを GUI へ知らせる（「聞いています」の印）。
@@ -484,10 +483,12 @@ def create_realtime_stt_session(
     **API キーが要るのは ElevenLabs を使うときだけ**である。ローカル（既定）では要らない。
     設定されていなければ `None`。
     """
-    from .config import STTConfig
+    from .config import STTConfig, _bool_env
     from .tools.local_stt import should_use_local
 
-    enabled = os.environ.get("REALTIME_STT", "").lower() in ("1", "true", "yes")
+    # 真偽の読み方は config と同じ 1 箇所（`on` も真）。ここだけ別に持つと `.env` の
+    # `on` で Test STT は OK なのに集音が無い、という食い違いになる（2026-09-16 実機）。
+    enabled = _bool_env("REALTIME_STT")
     api_key = os.environ.get("ELEVENLABS_API_KEY", "")
     language_code = os.environ.get("STT_LANGUAGE", "ja").strip()
     stt_config = STTConfig()
@@ -498,8 +499,9 @@ def create_realtime_stt_session(
         logger.warning("REALTIME_STT=true・STT_ENGINE=elevenlabs だが ELEVENLABS_API_KEY が無い")
         return None
 
-    return RealtimeSttSession(api_key, language_code=language_code, voice_guard=voice_guard,
-                              stt_config=stt_config)
+    return RealtimeSttSession(
+        api_key, language_code=language_code, voice_guard=voice_guard, stt_config=stt_config
+    )
 
 
 def create_realtime_stt_controller() -> RealtimeSttController | None:
