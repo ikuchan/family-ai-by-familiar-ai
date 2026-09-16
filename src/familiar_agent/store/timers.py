@@ -70,6 +70,17 @@ class TimerStore:
             )
             return [dict(r) for r in cur.fetchall()]
 
+    def recently_stopped(self, *, now: "datetime | None" = None, within_sec: float) -> list[dict]:
+        """直前に止めたもの（「何秒だった？」に答えるため・ストップウォッチの経過は止めた瞬間で決まる）。"""
+        now = now or datetime.now(timezone.utc)
+        with self._cursor() as cur:
+            cur.execute(
+                f"SELECT {_COLS} FROM timers WHERE cancelled_at IS NOT NULL AND cancelled_at >= %s "
+                "ORDER BY cancelled_at DESC",
+                (now - timedelta(seconds=float(within_sec)),),
+            )
+            return [dict(r) for r in cur.fetchall()]
+
     def mark_fired(self, timer_id: int, *, now: "datetime | None" = None) -> bool:
         now = now or datetime.now(timezone.utc)
         with self._cursor() as cur:
