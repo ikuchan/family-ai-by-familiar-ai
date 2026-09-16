@@ -59,7 +59,9 @@ def _ip(blocked: str = ""):
 def test_speaking_returns_what_happened():
     ip = _ip()
     assert asyncio.run(ip._speak("はい")) == ("はい", "発話")
-    ip._dif.speak.assert_awaited_once_with("はい")
+    ip._dif.speak.assert_awaited_once_with(
+        "はい", gain=1.0
+    )  # 倍率は既定 1.0（タイマーの声だけ変わる）
     ip._emit.assert_called_once_with("はい")
 
 
