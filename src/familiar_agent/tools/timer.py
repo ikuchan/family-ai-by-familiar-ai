@@ -104,7 +104,10 @@ class TimerTool:
         now = self._now()
         store = self._store()
         return timer_rules.render_frame(
-            store.active(now=now), store.recently_fired(now=now, within_sec=RECENT_SEC), now=now
+            store.active(now=now),
+            store.recently_fired(now=now, within_sec=RECENT_SEC),
+            now=now,
+            recently_stopped=store.recently_stopped(now=now, within_sec=RECENT_SEC),
         )
 
     async def call(
@@ -204,9 +207,11 @@ class TimerTool:
         row = next((r for r in store.active(now=now) if int(r["id"]) == tid), None)
         if row is None or not store.cancel(tid, now=now):
             return f"id={tid} のタイマーは動いていない", False
-        await self._write(f"やめた：「{row['label']}」のタイマー")
-        logger.info("タイマーを止めた id=%d %s", tid, row["label"])
-        return f"止めた：id={tid} 「{row['label']}」", True
+        # ストップウォッチは止めた瞬間の経過を、タイマーは残りを添える（「何秒だった？」に答えるため）。
+        measured = timer_rules.measure_at(row, now)
+        await self._write(f"やめた：「{row['label']}」{measured}")
+        logger.info("タイマーを止めた id=%d %s %s", tid, row["label"], measured)
+        return f"止めた：id={tid} 「{row['label']}」{measured}", True
 
     async def _write(self, content: str) -> "str | None":
         try:

@@ -170,6 +170,19 @@ _NEEDS_TOOLS = re.compile(
 )
 
 
+def _as_dict(value) -> "dict | None":
+    """dict か、JSON の文字列としての dict を dict に。それ以外は None。"""
+    if isinstance(value, dict):
+        return value
+    if isinstance(value, str) and value.strip().startswith("{"):
+        try:
+            got = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        return got if isinstance(got, dict) else None
+    return None
+
+
 def needs_tools(utterance: str) -> bool:
     """道具が要る頼みか（light で答えてはいけない）。"""
     return bool(_NEEDS_TOOLS.search(utterance or ""))
@@ -316,7 +329,10 @@ def _parse(
         time_span_days = 0.0
     query = str(data.get("query", "")).strip()
     action = str(data.get("action", "")).strip() or "recall"
-    tool_input = data.get("tool_input") if isinstance(data.get("tool_input"), dict) else None
+    tool_input = _as_dict(data.get("tool_input"))
+    if tool_input is None and _as_dict(query) is not None:
+        # 軽量LLM（Gemini）は tool_input を JSON の**文字列**として query に書く（実機 08:59〜09:00）。
+        tool_input, query = _as_dict(query), ""
     allowed = (
         ("recall", "search_deferred", "fetch_deferred")
         + (("see",) if can_see else ())
@@ -333,6 +349,8 @@ def _parse(
         query = _EXTRA_ACTIONS[action][0]  # 見出しが固定の道具。query が要るものはそのまま
     elif action == "family_schedule" and not query:
         query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
+    if action in ("set_timer", "start_stopwatch") and tool_input and set(tool_input) == {"id"}:
+        action = "cancel_timer"  # 入力が id だけなら止める意図（「ストップ」に set_timer と書いた・実機 08:59）
     if action in ("set_timer", "start_stopwatch", "cancel_timer"):
         # 見出し（同語二度投げの鍵）は label か id。tool_input が無ければ query から作る。
         if not tool_input and query:
@@ -345,6 +363,8 @@ def _parse(
         if not tool_input:
             return None  # 掛けられない → full へ（主LLM が道具で掛ける）
         query = str(tool_input.get("label") or tool_input.get("id") or query or action).strip()
+        # 道具は 0.1 秒で返る。つなぎを言うと、返りを見て言う一言と同じ文が 2 回出る（実機 08:59）。
+        text = ""
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
         text = ""

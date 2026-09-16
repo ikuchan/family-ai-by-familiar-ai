@@ -55,8 +55,21 @@ def _mmss(delta: timedelta) -> str:
     return f"{total // 60}:{total % 60:02d}"
 
 
-def render_frame(active: list[dict], recently_fired: list[dict], *, now: datetime) -> str:
-    if not active and not recently_fired:
+def measure_at(row: dict, at: datetime) -> str:
+    """止めた瞬間の値：ストップウォッチは「経過 m:ss」、タイマーは「残り m:ss」。"""
+    if row.get("due") is None:
+        return f" 経過 {_mmss(at - row['started_at'])}"
+    return f" 残り {_mmss(row['due'] - at)}"
+
+
+def render_frame(
+    active: list[dict],
+    recently_fired: list[dict],
+    *,
+    now: datetime,
+    recently_stopped: "list[dict] | None" = None,
+) -> str:
+    if not active and not recently_fired and not recently_stopped:
         return ""
     lines = ["[タイマー]"]
     for r in active:
@@ -70,4 +83,9 @@ def render_frame(active: list[dict], recently_fired: list[dict], *, now: datetim
     for r in recently_fired:
         ago = max(0, int((now - r["fired_at"]).total_seconds() // 60))
         lines.append(f"- id={r['id']} {r['label']} は {ago} 分前に鳴った（もう止まっている）")
+    for r in recently_stopped or []:
+        ago = max(0, int((now - r["cancelled_at"]).total_seconds() // 60))
+        lines.append(
+            f"- id={r['id']} {r['label']} は {ago} 分前に止めた（{measure_at(r, r['cancelled_at']).strip()}）"
+        )
     return "\n".join(lines)

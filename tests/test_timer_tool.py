@@ -48,6 +48,9 @@ class _FakeStore:
     def recently_fired(self, *, now=None, within_sec):
         return [r for r in self.rows if r["fired_at"] is not None]
 
+    def recently_stopped(self, *, now=None, within_sec):
+        return [r for r in self.rows if r["cancelled_at"] is not None]
+
     def cancel(self, tid, *, now=None):
         for r in self.rows:
             if r["id"] == tid and r["fired_at"] is None and r["cancelled_at"] is None:
@@ -178,3 +181,22 @@ def test_the_clock_starts_when_the_person_spoke_not_when_the_tool_ran():
     assert ok and store.active()[0]["due"] == said_at + timedelta(minutes=1)
     text, ok = asyncio.run(t.call("start_stopwatch", {"label": "y"}, now=said_at))
     assert ok and store.active()[1]["started_at"] == said_at
+
+
+def test_stopping_a_stopwatch_reports_the_elapsed_time_and_keeps_it_in_the_frame():
+    """「ストップ」→「何秒だった？」に答えられる（実機 08:59：止めても経過が残らなかった）。"""
+    t, store, _ = _tool()
+    asyncio.run(t.call("start_stopwatch", {"label": "測る"}, now=NOW - timedelta(seconds=29)))
+    text, ok = asyncio.run(t.call("cancel_timer", {"id": 1}))
+    assert ok and "0:29" in text and "測る" in text
+    frame = t.frame()
+    assert "[タイマー]" in frame and "0:29" in frame and "止めた" in frame
+
+
+def test_stopping_a_timer_reports_the_remaining_time():
+    t, store, _ = _tool()
+    asyncio.run(
+        t.call("set_timer", {"after_minutes": 3, "label": "パスタ"}, now=NOW - timedelta(minutes=1))
+    )
+    text, ok = asyncio.run(t.call("cancel_timer", {"id": 1}))
+    assert ok and "残り 2:00" in text
