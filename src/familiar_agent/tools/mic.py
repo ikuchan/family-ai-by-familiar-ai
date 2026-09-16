@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 TARGET_RATE = 16000  # ElevenLabs Realtime STT expects 16 kHz PCM
 CHANNELS = 1
 _BLOCK_MS = 96  # 取り込むブロックの長さ（ミリ秒）。16kHz で 1,536 サンプル＝512×3 になり、
-               # silero-vad が要求する 512 サンプルで割り切れる（余りを持ち越さない）。
+# silero-vad が要求する 512 サンプルで割り切れる（余りを持ち越さない）。
 
 
 def _is_wsl2() -> bool:
@@ -94,7 +94,11 @@ class _Resampler:
             import soxr
 
             self._stream = soxr.ResampleStream(
-                from_rate, TARGET_RATE, 1, dtype="int16", quality="VHQ",
+                from_rate,
+                TARGET_RATE,
+                1,
+                dtype="int16",
+                quality="VHQ",
             )
 
     def process(self, pcm_bytes: bytes) -> bytes:
@@ -102,6 +106,34 @@ class _Resampler:
             return pcm_bytes
         arr = np.frombuffer(pcm_bytes, dtype=np.int16)
         return self._stream.resample_chunk(arr).tobytes()
+
+
+def input_gain_from_env() -> float:
+    """`.env` の `AUDIO_INPUT_GAIN`（倍率）。無い・読めない・0 以下なら 1.0（いまのまま）。
+
+    マイク（Yamaha YVC-300）のハード音量は上限で、普通の声だと VAD にも whisper にも
+    ほぼ無音に見えた（2026-09-16 実機）。取り込んだ PCM をソフトで増やす。
+    """
+    raw = os.environ.get("AUDIO_INPUT_GAIN", "").strip()
+    if not raw:
+        return 1.0
+    try:
+        gain = float(raw)
+    except ValueError:
+        logger.warning("AUDIO_INPUT_GAIN=%r を数として読めないので 1.0 にする", raw)
+        return 1.0
+    if gain <= 0:
+        logger.warning("AUDIO_INPUT_GAIN=%r は 0 以下なので 1.0 にする", raw)
+        return 1.0
+    return gain
+
+
+def apply_gain(pcm_bytes: bytes, gain: float) -> bytes:
+    """int16 モノラルの PCM に倍率を掛ける。範囲を超えた分は飽和させる（折り返さない）。"""
+    if gain == 1.0 or not pcm_bytes:
+        return pcm_bytes
+    arr = np.frombuffer(pcm_bytes, dtype=np.int16).astype(np.float32) * gain
+    return np.clip(arr, -32768, 32767).astype(np.int16).tobytes()
 
 
 class MicCapture:
@@ -153,18 +185,20 @@ class MicCapture:
             block_size = int(self._native_rate * _BLOCK_MS / 1000)
             # 取り込みごとに1つ持つ（フィルタの状態を前の取り込みと混ぜない）。
             resampler = _Resampler(self._native_rate)
+            gain = input_gain_from_env()
 
             logger.info(
-                "Microphone capture: device=%s native_rate=%d target_rate=%d",
+                "Microphone capture: device=%s native_rate=%d target_rate=%d gain=%.2f",
                 device_info.get("name", "default"),
                 self._native_rate,
                 TARGET_RATE,
+                gain,
             )
 
             def _callback(indata, frames, time_info, status):  # noqa: ANN001, ARG001
                 if status:
                     logger.debug("Mic status: %s", status)
-                pcm = resampler.process(bytes(indata))
+                pcm = apply_gain(resampler.process(bytes(indata)), gain)
                 if self._loop and not self._loop.is_closed():
                     self._loop.call_soon_threadsafe(
                         lambda b=pcm: self._loop.create_task(self._on_audio(b))
