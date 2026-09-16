@@ -52,33 +52,15 @@ def test_arbiter_can_flag_a_silence_request():
     assert d.silence_minutes == -1  # 頼まれたが長さの指定なし
 
 
-def test_silence_blocks_speech_even_when_spoken_to():
-    # 止めるのは発話すべて。自発だけでなく、話しかけられても話さない。
-    import time as _time
-    from unittest.mock import MagicMock
-
-    from familiar_agent.loop.event_loop import InformationProcessing
-
-    a = MagicMock()
-    a._pmm.presence_status = MagicMock(
-        return_value=[{"name": "パパ", "is_speaker": True, "confidence": 1.0}]
-    )
-    a._social_presence_permission = MagicMock(return_value=1.0)  # 相手は居る
-    a._in_quiet_hours = MagicMock(return_value=False)  # 静穏時間でもない
-    ip = InformationProcessing(a)
-    req = SilenceRequest(person="パパ", until=_time.time() + 600)
-    import familiar_agent.silence_state as ss
-
-    original, ss.load_silence = ss.load_silence, lambda: req
-    try:
-        assert ip._delivery_block_reason() == "黙っているよう頼まれている"
-    finally:
-        ss.load_silence = original
+# ── 沈黙は出口でなく入口で見る（情-h・2026-09-16）───────────────────────────
+#
+# 以前は配信ゲート（出口）が「黙っているよう頼まれている」を返し、発話ごとに求めが立って
+# 調停・主LLM が回ってから止まっていた。他人への返事を通す例外（案イ・2026-09-13）もここに
+# あった。いまは入口（`_swallow_if_silent`・`test_silence_hold`）で、誰の声でも・機器でも・
+# 情動でも求めを立てない。案イは撤回した。出口は沈黙を知らない。
 
 
-def _ip_silenced_by(asker: str, *, speaker: str, others: tuple[str, ...] = ()):
-    """`asker` に黙れと頼まれ、いま `speaker` が話している装置。他の在席者は `others`。"""
-    import time as _time
+def _ip_with(*, speaker: str, others: tuple[str, ...] = ()):
     from unittest.mock import MagicMock
 
     from familiar_agent.loop.event_loop import InformationProcessing
@@ -89,45 +71,20 @@ def _ip_silenced_by(asker: str, *, speaker: str, others: tuple[str, ...] = ()):
     a._pmm.presence_status = MagicMock(return_value=rows)
     a._social_presence_permission = MagicMock(return_value=1.0)
     a._in_quiet_hours = MagicMock(return_value=False)
-    ip = InformationProcessing(a)
-    req = SilenceRequest(person=asker, until=_time.time() + 600)
-    return ip, req
+    return InformationProcessing(a)
 
 
-def _gate_with(ip, req) -> str:
+def test_the_exit_gate_no_longer_looks_at_the_silence_request(monkeypatch):
+    """黙っている依頼が生きていても出口は止めない（止めるのは入口）。"""
     import familiar_agent.silence_state as ss
 
-    original, ss.load_silence = ss.load_silence, lambda: req
-    try:
-        return ip._delivery_block_reason()
-    finally:
-        ss.load_silence = original
-
-
-def test_a_reply_to_someone_else_passes_while_the_asker_is_still_there():
-    """頼んだ本人以外が話しかけたら、その返事は通す（案イ・2026-09-13）。
-
-    実機で、たいきの「だまってて」のあとパパが「今度の火曜日の天気は？」と聞いても、
-    たいきが居る限り答えが `pending_speech` に溜まった。たいきの依頼は「ぼくの邪魔を
-    しないで」であって、パパの質問まで止めるものではない。依頼は消さない——たいきへの
-    返事と自発の発話は止めたまま、退室か時間で解ける。
-    """
-    ip, req = _ip_silenced_by("たいきくん", speaker="パパ", others=("たいきくん",))
-    ip._req.trigger_kind = "発話"
-    assert _gate_with(ip, req) == ""
-
-
-def test_the_asker_is_still_answered_with_silence():
-    ip, req = _ip_silenced_by("たいきくん", speaker="たいきくん", others=("パパ",))
-    ip._req.trigger_kind = "発話"
-    assert _gate_with(ip, req) == "黙っているよう頼まれている"
-
-
-def test_spontaneous_speech_stays_blocked_even_if_someone_else_spoke_last():
-    # 自発（情動が起点）は、最後に話した人が誰であっても止めたまま。
-    ip, req = _ip_silenced_by("たいきくん", speaker="パパ", others=("たいきくん",))
-    ip._req.trigger_kind = "情動"
-    assert _gate_with(ip, req) == "黙っているよう頼まれている"
+    ip = _ip_with(speaker="パパ", others=("たいきくん",))
+    monkeypatch.setattr(
+        ss, "load_silence", lambda: SilenceRequest(person="パパ", until=time.time() + 600)
+    )
+    for kind in ("発話", "情動", "機器"):
+        ip._req.trigger_kind = kind
+        assert ip._delivery_block_reason() == "", kind
 
 
 def test_default_duration_is_an_hour():

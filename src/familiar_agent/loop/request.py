@@ -105,6 +105,9 @@ class Request:
     # 配る保留（「いつ・何を言いたかったか」）。W へ流し、**求めが閉じたら**捨てる
     # （`_finish` と打ち切り）。
     speech_to_deliver: list[str] = field(default_factory=list)
+    # 黙っていたあいだに届いたもの（情-h）。明けた瞬間の求めにだけ載り、W の作業状態の枠で
+    # 列挙する（想起の列からは除く）。
+    heard_while_silent: list = field(default_factory=list)
     # このターンが作った記録と、その役割（観測 id, 役割）。**一つの並びが二つの用を
     # 賄う**：拡散想起の母集合（共起の関係）へ載せる id と、やりとりの関係の項。
     # 役割は 起点・版・見た・つなぎ・答え・独白（`_note_record`）。つなぎは共起に載せない

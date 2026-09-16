@@ -13,6 +13,7 @@ drive の蓄積と発火判定は `core.drive_dynamics` の純関数が持ち、
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 from dataclasses import replace
@@ -263,6 +264,9 @@ class Tonic:
             timer_watch.fire_due(tool.store(), self._ip._dif)
         except Exception as e:  # noqa: BLE001
             logger.warning("タイマーの確認に失敗: %s", e)
+        # 沈黙が期限切れで明けたのに何も届かないとき、まとめの求めを起こす（情-h）。時計は T。
+        with contextlib.suppress(Exception):
+            self._ip.check_silence_lifted()
 
     async def _run(self) -> None:
         last = time.monotonic()
