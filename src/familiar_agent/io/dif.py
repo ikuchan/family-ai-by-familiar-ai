@@ -82,6 +82,8 @@ class DIF:
         if self._tts is None:
             return
         logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
+        if gain != 1.0:
+            logger.debug("DIF 声の倍率 %.2f（タイマーの知らせ・この 1 回だけ）", gain)
         started = time.monotonic()
         with contextlib.suppress(Exception):
             payload: dict = {"text": text}

@@ -102,3 +102,17 @@ def test_only_a_timer_request_speaks_louder():
     ip._req.trigger_kind = "機器"
     ip._req.request_text = "[入室] パパ が来た"
     assert ip._voice_gain() == 1.0
+
+
+def test_the_gain_is_visible_in_debug_log(caplog):
+    """quiet 構成（声なし）でも、倍率で頼んだことが DEBUG で追える。"""
+    import logging
+
+    tts = MagicMock()
+    tts.call = AsyncMock(return_value=("Said: x", None))
+    dif = DIF(tts=tts, search=None, fetch=None, mcp=None, ip=None)
+    with caplog.at_level(logging.DEBUG, logger="familiar_agent.io.dif"):
+        asyncio.run(dif.speak("時間だよ", gain=1.5))
+        asyncio.run(dif.speak("こんにちは"))
+    lines = [r.message for r in caplog.records if "倍率" in r.message]
+    assert lines == ["DIF 声の倍率 1.50（タイマーの知らせ・この 1 回だけ）"]
