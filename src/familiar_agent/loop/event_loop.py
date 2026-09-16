@@ -2469,7 +2469,7 @@ class InformationProcessing:
             await self._hold_speech(text, blocked)
             logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
             return "", "保留"
-        await self._dif.speak(text)
+        await self._dif.speak(text, gain=self._voice_gain())
         self._emit(text)
         return text, "発話"
 
@@ -2558,6 +2558,18 @@ class InformationProcessing:
         if decision.action in _CAMERA_ACTIONS:
             self._req.see_by = "調停"
         self._start_lookup(utterance, _tool_input_of(decision), action=decision.action)
+
+    def _voice_gain(self) -> float:
+        """この求めの声の倍率。タイマーが鳴った知らせ（`[タイマー]`）だけ `TIMER_VOICE_GAIN`（既定 1.0）。
+
+        機器の音量には触らず、その 1 回の再生データにだけ掛ける。鳴り終わった次の発話は元の音量。
+        """
+        if self._req.trigger_kind == "機器" and str(self._req.request_text).startswith(
+            "[タイマー]"
+        ):
+            with contextlib.suppress(Exception):
+                return float(getattr(self._agent.config, "timer_voice_gain", 1.0) or 1.0)
+        return 1.0
 
     def _silence_note(self) -> str:
         """調停へ渡す「いま黙っている」の一行（無ければ空）。黙っている前提が無いと「解かれた」と読めない。"""

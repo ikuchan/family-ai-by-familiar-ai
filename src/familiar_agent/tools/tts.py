@@ -255,8 +255,8 @@ class TTSTool:
             return strip_stage_directions(text)
         return clean_spoken_text(text)
 
-    async def say(self, text: str, output: str | None = None) -> str:
-        """声に出す。合成の担い手は `engine` で決まる。
+    async def say(self, text: str, output: str | None = None, *, gain: float = 1.0) -> str:
+        """声に出す。合成の担い手は `engine` で決まる。`gain` はこの 1 回の再生にだけ掛ける倍率。
 
         `output`："local"＝PC のスピーカー／"remote"＝カメラのスピーカー（go2rtc）／
         "both"＝両方／"silent"＝出さない（実機テスト用・**合成も走らせない**）。
@@ -267,6 +267,7 @@ class TTSTool:
             output = self.output
         if output == "silent":
             return f"Said (silent): {text[:60]}"
+        self._gain = gain  # この 1 回の再生にだけ効く（`_play_paths`／`_play_local` が読む）
         if self.engine == "sbv2":
             return await self._say_sbv2(text, output)
         return await self._say_elevenlabs(text, output)
@@ -331,7 +332,7 @@ class TTSTool:
             else:
                 logger.warning("go2rtc playback failed: %s", msg)
         if output in ("local", "both") or (output == "remote" and not played_via):
-            if await _play_local(tmp_path):
+            if await _play_local(tmp_path, gain=getattr(self, "_gain", 1.0)):
                 played_via.append("local")
         return played_via
 
@@ -399,7 +400,7 @@ class TTSTool:
                             return f"TTS remote playback failed: {msg}"
 
                 if output in ("local", "both") or (output == "remote" and not played_via):
-                    local_ok = await _play_local(tmp_path)
+                    local_ok = await _play_local(tmp_path, gain=getattr(self, "_gain", 1.0))
                     if local_ok:
                         played_via.append("local")
 
@@ -486,7 +487,9 @@ class TTSTool:
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name == "say":
-            result = await self.say(tool_input["text"])
+            result = await self.say(
+                tool_input["text"], gain=float(tool_input.get("gain", 1.0) or 1.0)
+            )
             return result, None
         return f"Unknown tool: {tool_name}", None
 
@@ -528,7 +531,7 @@ def _resolve_output_device() -> int | None:
     return None
 
 
-async def _play_via_sounddevice(audio_path: str) -> bool:
+async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
     """Play WAV or MP3 file using sounddevice (pure Python, no system dependency).
 
     WAV: decoded by soundfile directly, resampled to the output device's native rate
@@ -569,6 +572,9 @@ async def _play_via_sounddevice(audio_path: str) -> bool:
                     play_rate = native_rate
                 else:
                     play_rate = samplerate
+                if gain != 1.0:
+                    # タイマーの声だけ大きく（`TIMER_VOICE_GAIN`）。範囲を超えた分は飽和させる。
+                    data = np.clip(data * gain, -1.0, 1.0)
                 sd.play(data, play_rate, device=device_idx)
                 sd.wait()
                 return True
@@ -651,7 +657,7 @@ def _play_mp3_via_pyav(mp3_path: str) -> bool:
         return False
 
 
-async def _play_local(tmp_path: str) -> bool:
+async def _play_local(tmp_path: str, gain: float = 1.0) -> bool:
     """Play audio file on the local PC speaker. Returns True on success.
 
     Try order:
@@ -689,7 +695,7 @@ async def _play_local(tmp_path: str) -> bool:
     # --- sounddevice with named output device (Linux: avoids ALSA hw exclusive-access
     #     conflict when mic is simultaneously open via PortAudio on the same device) ---
     if sys.platform != "darwin" and os.environ.get("AUDIO_INPUT_DEVICE", "").strip():
-        sd_ok = await _play_via_sounddevice(tmp_path)
+        sd_ok = await _play_via_sounddevice(tmp_path, gain=gain)
         if sd_ok:
             return True
 
@@ -734,7 +740,7 @@ async def _play_local(tmp_path: str) -> bool:
             logger.warning("Could not launch mpv: %s", e)
 
     # --- sounddevice (pure Python, no system dependency) ---
-    return await _play_via_sounddevice(tmp_path)
+    return await _play_via_sounddevice(tmp_path, gain=gain)
 
 
 def _play_via_go2rtc(file_path: str, go2rtc_url: str, stream_name: str) -> tuple[bool, str]:
