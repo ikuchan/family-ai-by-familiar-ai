@@ -1990,7 +1990,7 @@ class InformationProcessing:
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。解くのも同じ口。
-        self._apply_silence(decision)
+        self._apply_silence(decision, utterance=utterance or self._req.cue)
         # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
         # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
         # で、指定があったときだけ走る。
@@ -2164,7 +2164,7 @@ class InformationProcessing:
             family_md=getattr(agent, "_family_md", ""),
             self_image=_self_image_text(),
             present_ctx=present_ctx,
-            now_ctx=f'(now :datetime "{clock.now_local_str()}")',
+            now_ctx=f'(now :datetime "{clock.now_local_str()}")' + self._silence_note(),
             capped=capped,
             thinking_round=round_,
             can_see=getattr(agent, "_camera", None) is not None,
@@ -2543,11 +2543,34 @@ class InformationProcessing:
                     return "静穏時間である"
         return ""
 
-    def _apply_silence(self, decision) -> None:
-        """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。"""
+    def _silence_note(self) -> str:
+        """調停へ渡す「いま黙っている」の一行（無ければ空）。黙っている前提が無いと「解かれた」と読めない。"""
+        with contextlib.suppress(Exception):
+            from ..core.silence_rules import silence_note
+            from ..silence_state import load_silence
+
+            note = silence_note(load_silence(), now=time.time())
+            return f"\n{note}" if note else ""
+        return ""
+
+    def _apply_silence(self, decision, *, utterance: str = "") -> None:
+        """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
+
+        読むのは調停だが、機械の守りを重ねる（`core.silence_rules`・2026-09-16 実機）：
+        名前で呼ばれていなければ掛けない（「待てぃ」「しなよ」で 60 分黙った）、本人が
+        「話していい」と言えば調停が読めなくても解く（「話していいよ」が効かなかった）。
+        """
+        from ..core.silence_rules import is_release, names_me
+
         if decision.silence_minutes:
+            names = list(getattr(self._agent.config, "agent_names", None) or [])
+            if names and not names_me(utterance, names):
+                logger.info(
+                    "黙っているよう読めたが、名前で呼ばれていないので受けない：%.40s", utterance
+                )
+                return
             self._accept_silence(decision.silence_minutes)
-        elif decision.lift_silence:
+        elif decision.lift_silence or is_release(utterance):
             self._release_silence()
 
     def _release_silence(self) -> None:
