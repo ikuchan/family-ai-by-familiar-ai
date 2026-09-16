@@ -56,6 +56,10 @@ def test_an_affect_or_a_device_stays_the_agents():
 
 
 def test_only_the_utterance_uses_the_speakers_face():
-    """**話者の面を使う書き込みは1箇所だけ。** 増えたら、なぜ増えたかを言う。"""
+    """**話者の面を使う書き込みは2箇所。** 増えたら、なぜ増えたかを言う。
+
+    1 つは求めの起点（`_begin_request`）。もう 1 つは黙っていたあいだに聞いた言葉（`_note_muted`・
+    情-h・2026-09-16）——求めを立てずに O へ書くが、人の言葉はその人の面に立てる（同じ理由）。
+    """
     src = inspect.getsource(InformationProcessing)
-    assert src.count("_conversation_perspective()") == 1
+    assert src.count("_conversation_perspective()") == 2

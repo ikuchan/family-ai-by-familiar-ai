@@ -3,7 +3,7 @@
 `due` を過ぎた未発火・未取消のタイマーを拾い、**先に `fired_at` を打ってから**（二度鳴らさない）
 `機器` の求め「タイマー：{label}」を積む。確かめて掛けたもの（`passes_quiet`）は `passes_gate` で
 配信ゲート（在席・静穏・沈黙の依頼）を通り抜ける。落ちていた間に due を過ぎたものは「遅れて」を添えて鳴る。
-鳴った知らせは保留していた発話も配る（掛けているあいだ黙っていた分・`TIMER_SILENCE`）。
+掛けているあいだ黙っていた分（`TIMER_SILENCE`）は、知らせの求めに聞いたことの列挙として載る（情-h）。
 I は時計を見ない——時計を見るのは T だけ。
 """
 
@@ -30,8 +30,9 @@ def fire_due(store, dif, *, now: "datetime | None" = None) -> int:
         if late >= LATE_AFTER_SEC:
             content += f"。{int(late // 60)} 分遅れて鳴っている（{r['due'].astimezone():%H:%M} の予定だった）"
         passes = bool(r.get("passes_quiet"))
-        # 鳴るまで黙っていたあいだに溜めた返事も、知らせと一緒に配る（`TIMER_SILENCE`）。
-        dif.device("タイマー", content, release_pending=True, passes_gate=passes)
+        # 黙っていたあいだに聞いたことは、知らせの求めに `heard_while_silent` として載る
+        # （情-h）。不在の保留（`pending_speech`）はここでは配らない。
+        dif.device("タイマー", content, release_pending=False, passes_gate=passes)
         logger.info(
             "タイマーが鳴った id=%s %s 遅れ=%.0f秒 通り抜け=%s", r["id"], r["label"], late, passes
         )

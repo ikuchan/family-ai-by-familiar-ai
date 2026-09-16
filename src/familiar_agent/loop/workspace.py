@@ -104,8 +104,13 @@ def compose(
     # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
     memories = kept
     # 直近のやりとりの枠に載った記録は、過去の列には出さない（同じ話が二重に載る）。
-    # 対応表には残す——申告は直近の行の id でも来る。
-    shown = [r for r in memories if not (exclude and r.mi.obs_id in exclude)]
+    # 対応表には残す——申告は直近の行の id でも来る。黙っていたあいだの列挙に載せたものも同じ（情-h）。
+    heard_ids = {h.obs_id for h in req.heard_while_silent if getattr(h, "obs_id", "")}
+    shown = [
+        r
+        for r in memories
+        if not (exclude and r.mi.obs_id in exclude) and r.mi.obs_id not in heard_ids
+    ]
 
     id_map = {r.mi.obs_id.replace("-", "")[:12]: r.mi.obs_id for r in memories if r.mi.obs_id}
     # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
@@ -116,6 +121,18 @@ def compose(
         said = (
             "すでに相手へ伝えた一言（言った順。次に何か言うなら、"
             "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines
+        )
+    heard = ""
+    if req.heard_while_silent:
+        # 黙っていたあいだに届いたもの（情-h）。想起を経ず、この枠で確実に全部（字数上限つき）。
+        from ..core.silence_hold import render
+
+        ats = [h.at for h in req.heard_while_silent]
+        heard = render(
+            list(req.heard_while_silent),
+            since=min(ats),
+            until=max(ats),
+            max_chars=MemoryConfig().silent_heard_max_chars,
         )
     held = ""
     if req.speech_to_deliver:
@@ -142,7 +159,9 @@ def compose(
         if roles.get(r.mi.obs_id) == "起点" and names.get(r.mi.obs_id, "わたし") == "わたし":
             names[r.mi.obs_id] = "相手"
     text = "\n\n".join(
-        p for p in [said, held, _lines(shown, names, full=set(open_ids(req)))] if p and p.strip()
+        p
+        for p in [said, heard, held, _lines(shown, names, full=set(open_ids(req)))]
+        if p and p.strip()
     )
     return text, id_map
 

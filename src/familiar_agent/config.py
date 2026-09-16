@@ -378,6 +378,10 @@ class MemoryConfig:
     # で 32768 字。これに余裕を見た値である。**この帯は未実測**（調停プロンプトの実測は
     # 合計 8619 字まで）なので、実機で長さと秒数を測って確かめる。
     workspace_max_chars: int = field(default_factory=lambda: _int_env("WORKSPACE_MAX_CHARS", 40000))
+    # 黙っていたあいだに届いたものの列挙（作業状態の枠・情-h）の字数上限〔仮・2026-09-16〕。
+    silent_heard_max_chars: int = field(
+        default_factory=lambda: _int_env("SILENT_HEARD_MAX_CHARS", 4000)
+    )
     # 在席者相関 p の候補集合拡張（slice-2）。在席他者視点でも候補を取り union する退避弁。
     recall_presence_expand: bool = field(
         default_factory=lambda: _bool_env("RECALL_PRESENCE_EXPAND", default=True)

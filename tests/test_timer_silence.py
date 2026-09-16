@@ -128,10 +128,10 @@ def test_cancelling_unhushes():
     assert unhushed == [1, "all"]
 
 
-# ── 鳴った知らせは溜めていた返事も配る ────────────────────────────────────
+# ── 鳴った知らせは不在の保留を配らない（黙っていた分は聞いたことの列挙で載る・情-h）──
 
 
-def test_a_ringing_timer_releases_held_speech():
+def test_a_ringing_timer_does_not_release_absence_speech():
     store = MagicMock()
     store.due_now = MagicMock(
         return_value=[
@@ -147,4 +147,4 @@ def test_a_ringing_timer_releases_held_speech():
     store.mark_fired = MagicMock(return_value=True)
     dif = MagicMock()
     timer_watch.fire_due(store, dif, now=NOW)
-    assert dif.device.call_args.kwargs["release_pending"] is True
+    assert dif.device.call_args.kwargs["release_pending"] is False
