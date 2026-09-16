@@ -235,3 +235,17 @@ def test_waiting_is_not_a_request_for_silence():
     from familiar_agent.loop.arbiter import ARBITER_PROMPT
 
     assert "待って" in ARBITER_PROMPT and "沈黙の依頼ではない" in ARBITER_PROMPT
+
+
+def test_the_decision_is_applied_through_one_door(monkeypatch):
+    """掛けるのも解くのも `_apply_silence` の 1 口（反復本体を厚くしない）。"""
+    from familiar_agent.loop.arbiter import Decision
+
+    ip = _ip_with_speaker("パパ")
+    calls: list[str] = []
+    ip._accept_silence = lambda m: calls.append(f"掛ける{m}")
+    ip._release_silence = lambda: calls.append("解く")
+    ip._apply_silence(Decision(branch="light", silence_minutes=-1))
+    ip._apply_silence(Decision(branch="light", lift_silence=True))
+    ip._apply_silence(Decision(branch="light"))
+    assert calls == ["掛ける-1", "解く"]

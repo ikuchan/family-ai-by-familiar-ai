@@ -1966,11 +1966,8 @@ class InformationProcessing:
             memories=ws.memories,
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
-        # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。
-        if decision.silence_minutes:
-            self._accept_silence(decision.silence_minutes)
-        elif decision.lift_silence:
-            self._release_silence()
+        # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。解くのも同じ口。
+        self._apply_silence(decision)
         # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
         # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
         # で、指定があったときだけ走る。
@@ -2522,6 +2519,13 @@ class InformationProcessing:
                 if agent._in_quiet_hours():
                     return "静穏時間である"
         return ""
+
+    def _apply_silence(self, decision) -> None:
+        """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。"""
+        if decision.silence_minutes:
+            self._accept_silence(decision.silence_minutes)
+        elif decision.lift_silence:
+            self._release_silence()
 
     def _release_silence(self) -> None:
         """「もう話していいよ」と解かれたら、依頼を消す（2026-09-16 実機）。

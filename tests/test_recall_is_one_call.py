@@ -120,6 +120,5 @@ def test_the_iteration_does_not_recall_by_hand_anymore():
 
 def test_the_iteration_got_shorter():
     src = inspect.getsource(InformationProcessing._iterate)
-    # 沈黙の解除（2026-09-16）で **233 行へ 2 行増えた**。調停が「もう話していいよ」と読んだ
-    # （`lift_silence`）ときに依頼を消す殻の呼び口1つ（判断は `_release_silence`）。
-    assert len(src.split("\n")) <= 233, "薄くなっていない"
+    # 沈黙の解除（2026-09-16）は掛ける口と同じ 1 行（`_apply_silence`）に畳み、231 のまま。
+    assert len(src.split("\n")) <= 231, "薄くなっていない"
