@@ -181,6 +181,11 @@ class TTSConfig:
     elevenlabs_api_key: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", "")
     )
+    # 合成モデル。既定は flash（73 字で 0.7 秒・2026-09-16 実測）。`eleven_v3` は表情豊かで
+    # 角括弧タグを解するが 5.4 秒待たせる。必要なら `.env` で v3 へ戻す。
+    elevenlabs_model: str = field(
+        default_factory=lambda: os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5")
+    )
     voice_id: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_VOICE_ID", "cgSgspJ2msm6clMCkdW9")
     )

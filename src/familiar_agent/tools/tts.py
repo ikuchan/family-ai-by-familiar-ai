@@ -117,9 +117,12 @@ def _ensure_go2rtc(api_url: str) -> None:
 
 
 # 自分で起こした合成サーバー。終了時に止めるために持つ（人が別に立てたものは触らない）。
-# 角括弧タグ（[cheerful] など）を指示として解する担い手。ここに載っていない担い手には
-# 渡さない——解さないモデルへ渡せば、そのまま音になるか、音素として崩れる。
+# 角括弧タグ（[cheerful] など）を指示として解する担い手とモデル。ここに載っていないものには
+# 渡さない——解さないモデルへ渡せば、そのまま音になるか、音素として崩れる。ElevenLabs でも
+# 解するのは `eleven_v3` だけで、既定の flash は解さない。
 TAG_AWARE_ENGINES = ("elevenlabs",)
+TAG_AWARE_MODELS = ("eleven_v3",)
+DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
 
 
 _sbv2_proc: "subprocess.Popen | None" = None
@@ -213,8 +216,10 @@ class TTSTool:
         sbv2_url: str = "http://127.0.0.1:5001",
         sbv2_style: str = "Neutral",
         sbv2_weight: float = 1.0,
+        elevenlabs_model: str = DEFAULT_ELEVENLABS_MODEL,
     ) -> None:
         self.engine = engine
+        self.elevenlabs_model = elevenlabs_model
         self.sbv2_url = sbv2_url
         self.sbv2_style = sbv2_style
         self.sbv2_weight = sbv2_weight
@@ -237,7 +242,7 @@ class TTSTool:
         整え方・`say` の説明・規則の3箇所がこの1つの値を見る。担い手を切り替えたときに
         どれかだけが取り残されないようにするためである。
         """
-        return self.engine in TAG_AWARE_ENGINES
+        return self.engine in TAG_AWARE_ENGINES and self.elevenlabs_model in TAG_AWARE_MODELS
 
     def _clean_for_speech(self, text: str) -> str:
         """声にする前に整える。丸括弧のト書きは常に落とす（読み上げても意味が無い）。
@@ -349,7 +354,7 @@ class TTSTool:
         headers = {"xi-api-key": self.api_key, "Content-Type": "application/json"}
         payload = {
             "text": text,
-            "model_id": "eleven_v3",
+            "model_id": self.elevenlabs_model,
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }
 

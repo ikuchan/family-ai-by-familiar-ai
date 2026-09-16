@@ -508,6 +508,7 @@ class EmbodiedAgent:
             tts.go2rtc_stream,
             output=tts.output,
             engine=tts.engine,
+            elevenlabs_model=tts.elevenlabs_model,
             sbv2_url=tts.sbv2_url,
             sbv2_style=tts.sbv2_style,
             sbv2_weight=tts.sbv2_weight,
