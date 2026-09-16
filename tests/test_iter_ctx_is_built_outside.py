@@ -73,4 +73,6 @@ def test_the_iteration_got_shorter():
     反復の上限と区別してログに残すぶんである（後から「どちらの上限か」を判別するため）。
     """
     src = inspect.getsource(InformationProcessing._iterate)
-    assert len(src.split("\n")) <= 231, "薄くなっていない"
+    # 沈黙の解除（2026-09-16）で **233 行へ 2 行増えた**。調停が「もう話していいよ」と読んだ
+    # （`lift_silence`）ときに依頼を消す殻の呼び口1つ（判断は `_release_silence`）。
+    assert len(src.split("\n")) <= 233, "薄くなっていない"

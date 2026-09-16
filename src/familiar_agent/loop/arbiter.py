@@ -108,7 +108,8 @@ text を書くときは、この人格として、この相手に向けて、い
 - 頼まれていない、または名前で呼ばれていない → **0**
 
 言い方は一つではない（うるさい、あとにして、いま集中したい、静かにして…）。ただし
-待つよう言われただけ（待って・待てぃ）は**動作を止めてほしいだけで沈黙の依頼ではない**（0）。頼まれたと
+待つよう言われただけ（待って・待てぃ）は**動作を止めてほしいだけで沈黙の依頼ではない**（0）。
+黙っていたところへ、もう話していい・しゃべっていいと**解かれた**ら `lift_silence` を true にする。頼まれたと
 読めるかで判断する。0 以外にすると、その人が居るあいだ発話を止める。頼まれてもいないのに
 止めない。
 
@@ -119,7 +120,7 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
- "action": "{actions}", "query": "…", "silence_minutes": 0,
+ "action": "{actions}", "query": "…", "silence_minutes": 0, "lift_silence": false,
  "time_ref": "", "time_span_days": 0}}
 使わない項目は省いてよい。
 """
@@ -137,6 +138,7 @@ class Decision:
     tool_input: "dict | None" = None  # action：道具へそのまま渡す入力（タイマー・知-n）
     # 黙る長さ（分）。0＝黙らない、-1＝頼まれたが長さの指定なし（受け側が既定を当てる）。
     silence_minutes: int = 0
+    lift_silence: bool = False  # 黙っていたのを「もう話していいよ」と解かれた
     # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
     # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
     time_ref: str = ""  # ISO 8601（例 "2025-08-15T00:00:00"）
@@ -411,6 +413,7 @@ def _parse(
         query=query,
         tool_input=tool_input,
         silence_minutes=silence_minutes,
+        lift_silence=bool(data.get("lift_silence", False)),
         time_ref=time_ref,
         time_span_days=max(0.0, time_span_days),
     )
@@ -579,6 +582,7 @@ async def arbitrate(
             effort="low",
             text=decision.text,
             silence_minutes=decision.silence_minutes,  # 「話すの止めて」の依頼は落とさない
+            lift_silence=decision.lift_silence,
         )
     measure.record(
         "調停",
