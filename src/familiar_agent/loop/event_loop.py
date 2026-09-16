@@ -1215,10 +1215,11 @@ class InformationProcessing:
         # `_drained_completions` は作り直さず中身だけ移す。駆動体は `self._drained_completions.append(await get())` の
         # append を await の前に束縛するので、ここで差し替えると駆動体が捨てられた古い
         # リストへ積み、完了が黙って失われる（実機で観測）。
+        # **列には触らない。** 列から取り出す口は `_take_trigger` だけ（2026-09-16）。以前は
+        # 3 本のキューだったころの「QC を drain」がそのまま残り、列にいた会話入力を完了として
+        # 取ってしまった（Future は誰にも解決されず、GUI が 88 秒待った）。
         items = list(self._drained_completions)
         self._drained_completions.clear()
-        while not self._triggers.empty():
-            items.append(self._triggers.get_nowait())
         logger.debug(
             "event-loop 取込（id=%s items=%d inflight=%d qsize=%d）",
             id(self),
@@ -1235,6 +1236,13 @@ class InformationProcessing:
             self._slow_notice_received = True
         decided: "Decision | None" = None
         for c in items:
+            if c.kind in _NEW_REQUEST_KINDS:
+                # 起きないはずのこと（列の口は 1 つ）。静かに戻さず、大きく失敗させる——
+                # 待ち手が居れば例外を返して解放し、無ければ捨てる（次の出入り・発火で再び来る）。
+                logger.error("event-loop 取込に %s が紛れた（query=%.40s）", c.kind, c.query)
+                if c.future is not None and not c.future.done():
+                    c.future.set_exception(RuntimeError(f"取込に{c.kind}が紛れた"))
+                continue
             # 届いた結果を器へ入れる。**これで飛行中でなくなる**（数は導出）。
             query, result_text = c.query, c.result
             if c.kind == "決定":
@@ -1243,6 +1251,11 @@ class InformationProcessing:
                 # 「何番が返ったか」だけあればよい。
                 result_text = "（返りを実行した）"
             lk = self._lookup_of(query)
+            if lk is None:
+                # 対応する開いた意図が無い完了（打ち切り後に遅れて届いた等）。無言で落とさない。
+                logger.warning(
+                    "event-loop 取込：対応する意図が無い完了を捨てる（query=%.40s）", query
+                )
             action = lk.action if lk is not None else "recall"
             if action == "see":
                 self._see_returned = True
@@ -1665,31 +1678,41 @@ class InformationProcessing:
         **優先順位は「同時に届いた中から1つ選ぶとき」の規則である。** 保留箱で待っている
         ものは**待った順に**片づく（待たせたのだから、待った順で出す）。
         """
+        carry: list[Trigger] = []
         while True:
-            # 調査が終わっていれば、待たせていたぶんを先に片づける。
-            if not self._in_flight_count and self._held:
-                return self._held.pop(0)
-            batch = [await self._triggers.get()]
+            # **列から取り出す口はここだけ。** 列を空にして仕分ける（完了は完了箱へ、新しい
+            # 求めを始めるものは手元へ）。取込（`_intake`）は列に触らない（2026-09-16）。
+            batch = carry + []
+            carry = []
             while not self._triggers.empty():
                 batch.append(self._triggers.get_nowait())
-            chosen: "Trigger | None" = None
-            for item in batch:
-                if item.kind not in _NEW_REQUEST_KINDS:
-                    self._drained_completions.append(item)
-                elif self._in_flight_count and item.kind not in _NEVER_HELD_KINDS:
-                    self._held.append(item)
-                elif chosen is None:
-                    chosen = item
-                elif _TRIGGER_PRIORITY[item.kind] > _TRIGGER_PRIORITY[chosen.kind]:
-                    self._held.append(chosen)
-                    chosen = item
-                else:
-                    self._held.append(item)
-            if chosen is not None:
+            fresh = [t for t in batch if t.kind in _NEW_REQUEST_KINDS]
+            self._drained_completions.extend(t for t in batch if t.kind not in _NEW_REQUEST_KINDS)
+            # ① 会話入力は保留箱より常に先（調査中でも）。保留箱を列より先に返していた近道が、
+            #    列で待つ人の言葉より保留箱の入室を先に走らせ、会話入力が別の求めの取込に
+            #    横取りされる隙を作った（実機 12:40・88 秒返らず）。
+            utterance = next((t for t in self._held + fresh if t.kind in _NEVER_HELD_KINDS), None)
+            if utterance is not None:
+                if utterance in self._held:
+                    self._held.remove(utterance)
+                self._held.extend(t for t in fresh if t is not utterance)
+                return utterance
+            if self._in_flight_count:
+                # 調査中は新しい求めを待たせる。取りこぼしではなく待たせるだけ。
+                self._held.extend(fresh)
+            elif self._held:
+                # ② 待たせていたぶんを、待った順に。いま届いたものはその後ろへ。
+                self._held.extend(fresh)
+                return self._held.pop(0)
+            elif fresh:
+                # ③ 同時に届いた中から 1 つ選ぶ（機器 ＞ 情動）。選ばれなかったものは保留箱へ。
+                chosen = max(fresh, key=lambda t: _TRIGGER_PRIORITY[t.kind])
+                self._held.extend(t for t in fresh if t is not chosen)
                 return chosen
             if self._drained_completions:
                 return None
-            # 全部が保留箱へ回った（調査中に情動・機器だけが届いた）。もう一度待つ。
+            # 何も無い（または調査中に情動・機器だけが届いた）。列を待ち、届いたら同じ仕分けへ。
+            carry = [await self._triggers.get()]
 
     async def _drive(self) -> None:
         """待ち行列の到来で次の反復を起こす（イベント駆動・時計は見ない・正本③）。

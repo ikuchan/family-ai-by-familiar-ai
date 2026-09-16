@@ -88,7 +88,8 @@ def test_a_progress_iteration_only_says_a_filler():
         ip._req.lookups = [
             Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)
         ]
-        ip._triggers.put_nowait(Trigger(kind="進捗", query="明日の天気"))
+        # 完了は駆動体（`_take_trigger`）が完了箱へ移す。取込は列に触らない（環-m・2026-09-16）。
+        ip._drained_completions.append(Trigger(kind="進捗", query="明日の天気"))
         await ip._iterate()
         await ip.close()
         return ip

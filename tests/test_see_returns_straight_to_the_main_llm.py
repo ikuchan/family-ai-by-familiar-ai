@@ -24,7 +24,8 @@ def test_after_a_see_completion_the_arbiter_is_skipped() -> None:
         a, ip = _ip()
         ip._req.see_by = "主LLM"
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
-        ip._triggers.put_nowait(
+        # 完了は駆動体（`_take_trigger`）が完了箱へ移す。取込は列に触らない（環-m・2026-09-16）。
+        ip._drained_completions.append(
             Trigger(kind="完了", query="目の前を見る", result="（見えた）", index=1)
         )
         await ip._intake()
@@ -45,7 +46,7 @@ def test_the_shortcut_is_used_once() -> None:
         a, ip = _ip()
         ip._req.see_by = "主LLM"
         ip._req.lookups.append(Lookup(index=1, action="see", query="目の前を見る", generation=0))
-        ip._triggers.put_nowait(
+        ip._drained_completions.append(
             Trigger(kind="完了", query="目の前を見る", result="（見えた）", index=1)
         )
         await ip._intake()
@@ -67,7 +68,7 @@ def test_a_recall_completion_still_goes_through_the_arbiter() -> None:
     async def scenario():
         a, ip = _ip()
         ip._req.lookups.append(Lookup(index=1, action="recall", query="昨日", generation=0))
-        ip._triggers.put_nowait(Trigger(kind="完了", query="昨日", result="…", index=1))
+        ip._drained_completions.append(Trigger(kind="完了", query="昨日", result="…", index=1))
         await ip._intake()
         with patch("familiar_agent.loop.event_loop.arbitrate", new=AsyncMock()) as arb:
             await ip._decide(

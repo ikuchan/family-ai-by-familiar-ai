@@ -165,7 +165,8 @@ def test_the_count_returns_to_zero_when_the_result_arrives() -> None:
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)
         ip._dispatch_lookup("recall", {"query": "語"}, "語", None)  # 止められる
         before = ip._in_flight_count
-        ip._triggers.put_nowait(Trigger(kind="完了", query="語", result="結果", index=1))
+        # 完了は駆動体（`_take_trigger`）が完了箱へ移す。取込は列に触らない（環-m・2026-09-16）。
+        ip._drained_completions.append(Trigger(kind="完了", query="語", result="結果", index=1))
         await ip._intake()
         after = ip._in_flight_count
         for t in list(ip._background_tasks):
