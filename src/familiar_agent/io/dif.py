@@ -84,7 +84,11 @@ class DIF:
         logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
         started = time.monotonic()
         with contextlib.suppress(Exception):
-            await self._tts.call("say", {"text": text})
+            result, _ = await self._tts.call("say", {"text": text})
+            # 合成器は成功なら `Said:` で始める。それ以外（API の 402・再生器が無い）は
+            # 返り文字列にしか載らないので、ここで残さないと「声が出ない」が追えない。
+            if not str(result).startswith("Said:"):
+                logger.warning("DIF 声が出なかった：%s", str(result)[:160])
         # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
         logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
 

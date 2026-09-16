@@ -292,6 +292,7 @@ def test_create_realtime_stt_controller_wraps_configured_session(monkeypatch) ->
 # 名前は**担い手を選ぶのと同じ判定**から作る。別々に持つと、片方だけ直したときにまた
 # ずれる。
 
+
 def test_the_engine_label_names_the_local_transcriber_by_default() -> None:
     session = RealtimeSttSession("", "ja", stt_config=SimpleNamespace(engine="whisper"))
     assert session.engine_label == "faster-whisper"
@@ -306,3 +307,17 @@ def test_the_controller_passes_the_engine_label_through() -> None:
     """GUI が触るのは包み（`RealtimeSttController`）なので、そちらからも読める。"""
     session = RealtimeSttSession("", "ja", stt_config=SimpleNamespace(engine="whisper"))
     assert RealtimeSttController(session).engine_label == "faster-whisper"
+
+
+# ── `REALTIME_STT=on` でも集音を起こす（実機 2026-09-16 09:16・STT=False）────────
+#
+# `.env` は `on` だったが、ここだけ `1/true/yes` しか受けず集音が作られなかった。
+# `config.py` の `_bool_env` は `on` を真と読み、Test STT ボタンはそちらを見るので
+# 「OK」と出る一方で常時集音は無い、という食い違いになる。真偽の読み方は 1 箇所に寄せる。
+
+
+def test_create_realtime_stt_session_accepts_on_like_the_config_does(monkeypatch) -> None:
+    monkeypatch.setenv("REALTIME_STT", "on")
+    monkeypatch.setenv("ELEVENLABS_API_KEY", "key")
+
+    assert create_realtime_stt_session() is not None
