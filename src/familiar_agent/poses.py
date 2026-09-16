@@ -130,8 +130,9 @@ def nearest_pose(poses: list[Pose], pan: float, tilt: float, tolerance: float) -
     return best
 
 
-#: 右＝pan が大きい側〔仮・知-m ③・2026-09-16〕。実機で逆なら、ここを反転する。
-RIGHT_IS_POSITIVE_PAN = True
+#: 右＝pan が**小さい**側（実機 2026-09-16 12:41：pan 正の側へ回すと左を向いた。Tapo C210 の
+#: pan は正が左）。仮置きの True は逆だった。
+RIGHT_IS_POSITIVE_PAN = False
 DIRECTIONS = ("右", "左", "上", "下")
 
 
