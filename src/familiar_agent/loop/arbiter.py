@@ -149,6 +149,14 @@ class Decision:
 # 倒れたときも low（2026-09-12 決定・課題5 G 章）。以前は high で、Sonnet では 2 倍遅かった。
 #: 人の発話・機器が起点のとき（返事の型）。
 _LEAD_REPLY = "いま人から届いた言葉と、いまの作業状態を見て、次のどれかを選ぶ。"
+# 起点が機器（人の出入り・タイマー・メモ）のとき。返事型のまま渡すと、W の直近にある人の言葉を
+# いまの頼みとして読み、鳴ったタイマーの知らせでタイマーを 3 本掛け直した（2026-09-16 実機 17:00）。
+_LEAD_DEVICE = (
+    "いま届いた知らせ（人の出入り・タイマー・メモ）と、いまの作業状態を見て、次のどれかを選ぶ。"
+    "これは人の言葉ではなく機器からの知らせで、**直近のやりとりは済んだこと**——人の言葉に改めて応じない。"
+    "知らせの中身を伝える、必要なら見る、それだけでよい。"
+)
+_HEADING_DEVICE = "[届いた知らせ]"
 _BRANCHES_REPLY = """\
 - "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
              **道具が要る頼み（タイマー・アラーム・測る・止める・覚えて・予定を見る）は light で答えない**
@@ -517,8 +525,9 @@ async def arbitrate(
         self_image=self_image,  # 層 2・主LLM と同じもの（記-a-へ）
     ).stable
     self_doing = origin == "情動"
+    device = origin == "機器"
     prompt = ARBITER_PROMPT.format(
-        lead=_LEAD_SELF if self_doing else _LEAD_REPLY,
+        lead=_LEAD_SELF if self_doing else (_LEAD_DEVICE if device else _LEAD_REPLY),
         branches=(_BRANCHES_SELF if self_doing else _BRANCHES_REPLY).format(
             see_option=(_SEE_OPTION if can_see else "")
             + "".join(f"か {_EXTRA_ACTIONS[a][1]}" for a in extra_actions if a in _EXTRA_ACTIONS),
@@ -532,7 +541,7 @@ async def arbitrate(
                 else ""
             ),
         ),
-        heading=_HEADING_SELF if self_doing else _HEADING_REPLY,
+        heading=_HEADING_SELF if self_doing else (_HEADING_DEVICE if device else _HEADING_REPLY),
         utterance=utterance,
         workspace=workspace_ctx or "（なし）",
         present=present_ctx or "（分からない）",

@@ -1328,7 +1328,15 @@ class InformationProcessing:
         )
 
     def _extra_actions(self) -> tuple[str, ...]:
-        """調停に載せる同期の道具（MCP とタイマー）。繋がっているものだけ、かつこの求めで失敗していないもの。"""
+        """調停に載せる同期の道具（MCP とタイマー）。繋がっているものだけ、かつこの求めで失敗していないもの。
+
+        **タイマーが鳴った知らせの求めでは、掛ける・測り始めるを載せない**（2026-09-16 実機 17:00）。
+        鳴った知らせに応えてタイマーを掛けることはなく、掛け直しは見出しが毎回違うので同語
+        二度投げの守りも効かない（3 本掛け直して 3 回「かしこまりました」）。止めるのは残す。
+        """
+        timer_ringing = self._req.trigger_kind == "機器" and str(self._req.request_text).startswith(
+            "[タイマー]"
+        )
         return tuple(
             a
             for a in (
@@ -1339,7 +1347,9 @@ class InformationProcessing:
                 "vault",
                 *_TIMER_ACTIONS,
             )
-            if a not in self._req.failed_actions and self._gated(self._ACTIONS[a](self))
+            if a not in self._req.failed_actions
+            and not (timer_ringing and a in ("set_timer", "start_stopwatch"))
+            and self._gated(self._ACTIONS[a](self))
         )
 
     def _action_of_query(self, query: str) -> str:
