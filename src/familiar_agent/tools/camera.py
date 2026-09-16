@@ -323,11 +323,46 @@ class CameraTool:
                     "Position": {"PanTilt": {"x": pan, "y": tilt}},
                 }
             )
-            await asyncio.sleep(0.4)
-            return f"Turned to pan={pan:+.4f} tilt={tilt:+.4f}."
         except Exception as e:  # noqa: BLE001
             logger.warning("Camera absolute move failed: %s", e)
             return f"Camera move failed: {e}"
+        await self._settle(pan, tilt)
+        return f"Turned to pan={pan:+.4f} tilt={tilt:+.4f}."
+
+    #: 着いたとみなす差（定点の一致判定 `camera.pose_tolerance` の既定と同じ 0.02）。
+    SETTLE_TOLERANCE = 0.02
+    #: 動き終わるのを待つ上限（秒）と刻み。実機は正面→押入（pan 0.18）に約 1 秒。
+    SETTLE_MAX_SEC = 3.0
+    SETTLE_STEP_SEC = 0.2
+
+    async def _settle(self, pan: float, tilt: float) -> None:
+        """動き終わるまで待つ（2026-09-16 実機）。
+
+        以前は 0.4 秒待つだけで返り、`look` はその直後に撮っていた。位置は目標の途中で、
+        写真は動いている最中のもの。この機体の `MoveStatus` は UNKNOWN なので、読んだ位置が
+        目標に収まるまで待つ。読めない・着かないときは上限で諦めて先へ進む（警告は残す）。
+        """
+        waited = 0.0
+        while True:
+            await asyncio.sleep(self.SETTLE_STEP_SEC)
+            waited += self.SETTLE_STEP_SEC
+            here = await self.position()
+            if here is None:
+                return
+            if (
+                abs(here[0] - pan) <= self.SETTLE_TOLERANCE
+                and abs(here[1] - tilt) <= self.SETTLE_TOLERANCE
+            ):
+                return
+            if waited >= self.SETTLE_MAX_SEC:
+                logger.warning(
+                    "Camera did not settle（着かない）: target=(%.3f, %.3f) now=(%.3f, %.3f)",
+                    pan,
+                    tilt,
+                    here[0],
+                    here[1],
+                )
+                return
 
     async def position(self) -> tuple[float, float] | None:
         """いまどこを向いているか。読めなければ `None`。
