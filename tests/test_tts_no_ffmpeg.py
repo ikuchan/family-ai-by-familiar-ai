@@ -93,6 +93,7 @@ async def test_tts_payload_requests_pcm_format() -> None:
     # このテストが見るのは ElevenLabs の経路なので、合成の担い手を明示する
     # （既定は SBV2＝ローカル合成で、外部 API を叩かない）。
     tool.engine = "elevenlabs"
+    tool.elevenlabs_model = "eleven_flash_v2_5"
 
     captured_payload: dict = {}
     captured_url = ""
@@ -143,7 +144,8 @@ async def test_tts_payload_requests_pcm_format() -> None:
     assert "output_format=pcm_16000" in captured_url, (
         f"Expected output_format=pcm_16000 in URL, got: {captured_url}"
     )
-    assert captured_payload.get("model_id") == "eleven_v3"
+    # モデルは直書きでなく設定から（既定 flash・`ELEVENLABS_MODEL` で v3 へ戻せる）
+    assert captured_payload.get("model_id") == tool.elevenlabs_model == "eleven_flash_v2_5"
 
 
 # ---------------------------------------------------------------------------

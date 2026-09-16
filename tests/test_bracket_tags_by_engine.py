@@ -21,8 +21,15 @@ from familiar_agent.tools.tts import TTSTool
 _WAV = b"RIFF$\x00\x00\x00WAVEfmt " + b"\x00" * 32
 
 
-def _tool(engine: str) -> TTSTool:
-    return TTSTool(api_key="dummy-key", voice_id="v1", output="local", engine=engine)
+def _tool(engine: str, model: str = "eleven_flash_v2_5") -> TTSTool:
+    return TTSTool(
+        api_key="dummy-key", voice_id="v1", output="local", engine=engine, elevenlabs_model=model
+    )
+
+
+def _v3() -> TTSTool:
+    """タグを解する担い手（ElevenLabs の `eleven_v3`）。"""
+    return _tool("elevenlabs", "eleven_v3")
 
 
 # ── 担い手の属性 ───────────────────────────────────────────────────────────
@@ -32,8 +39,10 @@ def test_sbv2_does_not_understand_bracket_tags():
     assert _tool("sbv2").understands_tags is False
 
 
-def test_elevenlabs_understands_bracket_tags():
-    assert _tool("elevenlabs").understands_tags is True
+def test_elevenlabs_v3_understands_bracket_tags():
+    """タグを解するのは ElevenLabs でも `eleven_v3` だけ（既定の flash は解さない）。"""
+    assert _v3().understands_tags is True
+    assert _tool("elevenlabs").understands_tags is False
 
 
 # ── 整え方 ─────────────────────────────────────────────────────────────────
@@ -53,7 +62,7 @@ def test_the_tag_is_dropped_before_the_local_synthesiser():
 @pytest.mark.asyncio
 async def test_the_tag_still_reaches_elevenlabs():
     """反証側。解する担い手には今までどおり届く。落としすぎていないことの確認。"""
-    tool = _tool("elevenlabs")
+    tool = _v3()
 
     resp = MagicMock()
     resp.status = 200
@@ -105,7 +114,7 @@ def test_the_say_tool_stops_advertising_tags_to_a_synthesiser_that_ignores_them(
 
 
 def test_the_say_tool_still_advertises_tags_to_elevenlabs():
-    desc = _tool("elevenlabs").get_tool_definitions()[0]["input_schema"]["properties"]["text"]
+    desc = _v3().get_tool_definitions()[0]["input_schema"]["properties"]["text"]
     assert "[cheerful]" in desc["description"]
 
 
