@@ -130,7 +130,7 @@ def _query_label(action: str, tool_input: dict) -> str:
             "cancel_timer": "タイマーを止める",
         }[action] + (f"「{what}」" if what else "")
     if action == "look":
-        return f"{tool_input.get('pose', '')}を見に行く"
+        return f"{tool_input.get('pose') or tool_input.get('direction') or ''}を見に行く"
     if action.startswith("ask_vault_"):
         action = "vault"
     if action in _MCP_LOOKUPS:
@@ -1440,6 +1440,8 @@ class InformationProcessing:
         agent._last_human_at = time.time()
         self._on_text = on_text or self._on_text
         self._ensure_driver()
+        # 黙っていてと頼んだ本人が話しかけてきたなら、その時点で依頼は終わっている。
+        self._lift_silence_if_asker_speaks()
 
         # 調べかけの途中に話しかけられたら、**その調査を打ち切る**。人が言い直したとき、
         # 前の調査を続ける意味はない（実機で「これはどこの地方の天気？」に答えられず、
@@ -2520,6 +2522,24 @@ class InformationProcessing:
                 if agent._in_quiet_hours():
                     return "静穏時間である"
         return ""
+
+    def _lift_silence_if_asker_speaks(self) -> None:
+        """黙っていてと頼んだ本人が話しかけてきたら、依頼を解く（2026-09-16 実機）。
+
+        「待てぃ」を調停が「黙っていて」と読み 60 分の依頼になったあと、本人が話しかけ直しても
+        解けなかった（解ける条件が退室と期限だけで、`clear_silence()` に呼び手が無かった）。
+        黙っていてほしい人は話しかけない。同じ発話で改めて頼まれれば、その反復が掛け直す。
+        """
+        with contextlib.suppress(Exception):
+            from ..silence_state import clear_silence, load_silence
+
+            req = load_silence()
+            if req is None:
+                return
+            who = self._current_speaker_name()
+            if who and who == req.person:
+                clear_silence()
+                logger.info("黙っていてと頼んだ本人（%s）が話しかけてきたので解く", who)
 
     def _accept_silence(self, asked_minutes: int) -> None:
         """黙っている依頼を受ける。宛先は、いま話している相手。

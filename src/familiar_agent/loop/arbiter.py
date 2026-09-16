@@ -107,7 +107,8 @@ text を書くときは、この人格として、この相手に向けて、い
 - 長さを言わずに頼まれた → **-1**（既定の長さを当てる）
 - 頼まれていない、または名前で呼ばれていない → **0**
 
-言い方は一つではない（うるさい、あとにして、いま集中したい、静かにして…）。頼まれたと
+言い方は一つではない（うるさい、あとにして、いま集中したい、静かにして…）。ただし
+待つよう言われただけ（待って・待てぃ）は**動作を止めてほしいだけで沈黙の依頼ではない**（0）。頼まれたと
 読めるかで判断する。0 以外にすると、その人が居るあいだ発話を止める。頼まれてもいないのに
 止めない。
 
@@ -286,7 +287,15 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
 #: `see` の見出しは入力に依らず固定（`event_loop._query_label`）。調停が投げても主LLM が
 #: 投げても同じ鍵になり、「すでに調べた語は投げない」の抑止がそのまま効く。
 SEE_QUERY = "目の前を見る"
-_SEE_OPTION = 'か "see"（目の前を見る＝カメラ。見えているものを聞かれた・部屋の様子を確かめる必要があるとき。query は要らない）'
+_SEE_OPTION = (
+    'か "see"（目の前を見る＝カメラ。見えているものを聞かれた・部屋の様子を確かめる必要があるとき。query は要らない）'
+    # 首振り（2026-09-16 実機）：「右見れる?」「もっと右を見て」に `see` しか選べず、正面のまま
+    # 「右側はタンスと椅子が見えていますよ」と答えた。`look` は主LLM の道具にしか無かった。
+    'か "look"（首を向ける＝カメラを回す。「右向いて」「窓の方見て」「もっと右」のとき。'
+    'tool_input に {"direction":"右|左|上|下"} か {"pose":"定点の名前"}。query は要らない・**text は空**）'
+)
+#: `look` の見出し（query）。(c) 分岐は query が空だと full へ落ちるので、固定の語を入れる。
+LOOK_QUERY = "首を向ける"
 #: 見た印のラベルはローカルの人検出（YOLO・80 種・1 枚 8 ms）が出す。棚や引き出しは無く、
 #: 机が dining table になる粗さだが、「何が見える？」に「椅子とテーブル」と返すには足りる。
 #: 写真そのものは主LLM にだけ渡るので、細かく語るなら full（v0.45）。
@@ -348,7 +357,7 @@ def _parse(
         tool_input, query = _as_dict(query), ""
     allowed = (
         ("recall", "search_deferred", "fetch_deferred")
-        + (("see",) if can_see else ())
+        + (("see", "look") if can_see else ())
         + tuple(a for a in extra_actions if a in _EXTRA_ACTIONS)
     )
     if branch == "action" and not query and not tool_input and text and not data.get("action"):
@@ -358,6 +367,14 @@ def _parse(
         action = "recall"
     if action == "see":
         query = SEE_QUERY  # 見出しは固定。`(c)` 分岐は query が空だと full へ落ちる
+    elif action == "look":
+        if not tool_input and query:
+            # 向き（右・左・上・下）か定点の名前を query に書いてきたときは、それを入力にする。
+            from ..poses import DIRECTIONS
+
+            tool_input = {"direction": query} if query in DIRECTIONS else {"pose": query}
+        query = LOOK_QUERY
+        text = ""  # 首を回すだけなので断らない（つなぎを言うと 2 回出る）
     elif action in _EXTRA_ACTIONS and _EXTRA_ACTIONS[action][0]:
         query = _EXTRA_ACTIONS[action][0]  # 見出しが固定の道具。query が要るものはそのまま
     elif action == "family_schedule" and not query:
@@ -519,7 +536,7 @@ async def arbitrate(
         thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
         actions="|".join(
             ["recall", "search_deferred"]
-            + (["see"] if can_see else [])
+            + (["see", "look"] if can_see else [])
             + [a for a in extra_actions if a in _EXTRA_ACTIONS]
         ),
     )

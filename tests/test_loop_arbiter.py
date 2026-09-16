@@ -346,3 +346,47 @@ def test_a_self_driven_turn_treats_the_recent_exchange_as_already_over():
     b = _backend('{"branch":"light","text":"おはよう"}')
     asyncio.run(arbitrate(b, utterance="おはよう", workspace_ctx=""))
     assert "済んだこと" not in _prompt_of(b)
+
+
+# ── 首を向ける（`look`）を調停の候補に（2026-09-16 実機 11:34）────────────────
+#
+# 「右見れる?」「もっと右を見て」に調停は `see`（いまの向きで撮る）しか選べず、正面のまま
+# 「右側はタンスと椅子が見えていますよ」と答えた。`look` は主LLM の道具にしか無く、
+# `needs_tools` にも首振りの語が無いので、そこへも行かない。タイマーと同じ軽量の経路で
+# 首を回す。
+
+
+def _seeing(reply: str):
+    b = _backend(reply)
+    return b, asyncio.run(arbitrate(b, utterance="右見れる？", workspace_ctx="", can_see=True))
+
+
+def test_the_arbiter_can_turn_the_head():
+    b, d = _seeing('{"branch":"action","action":"look","tool_input":{"direction":"右"}}')
+    prompt = _prompt_of(b)
+    assert '"look"' in prompt and "recall|search_deferred|see|look" in prompt
+    assert d.branch == "action" and d.action == "look"
+    assert d.tool_input == {"direction": "右"}
+    assert d.query  # (c) 分岐は query が空だと full へ落ちる
+    assert d.text == ""  # 首を回すだけなので断らない
+
+
+def test_a_direction_or_pose_written_in_query_becomes_the_input():
+    _, d = _seeing('{"branch":"action","action":"look","query":"右"}')
+    assert d.tool_input == {"direction": "右"}
+    _, d = _seeing('{"branch":"action","action":"look","query":"窓"}')
+    assert d.tool_input == {"pose": "窓"}
+
+
+def test_look_is_not_offered_without_a_camera():
+    b = _backend('{"branch":"action","action":"look","tool_input":{"direction":"右"}}')
+    d = asyncio.run(arbitrate(b, utterance="右見れる？", workspace_ctx="", can_see=False))
+    assert '"look"' not in _prompt_of(b)
+    assert d.action == "recall"
+
+
+def test_the_label_of_a_look_names_the_direction():
+    from familiar_agent.loop.event_loop import _query_label
+
+    assert _query_label("look", {"direction": "右"}) == "右を見に行く"
+    assert _query_label("look", {"pose": "窓"}) == "窓を見に行く"

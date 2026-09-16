@@ -145,3 +145,79 @@ def test_default_duration_is_an_hour():
     with patch.dict(os.environ, {}, clear=True):
         assert AgentConfig().silence_minutes == 60
         assert AgentConfig().silence_max_minutes == 60
+
+
+# ── 頼んだ本人が話しかけてきたら解く（2026-09-16 実機）────────────────────────
+#
+# 11:47 の「待てぃ」を調停が「黙っていて」と読み、60 分の依頼になった。解ける条件は退室か
+# 期限だけで `clear_silence()` はどこからも呼ばれておらず、本人が話しかけ直しても 12:47 まで
+# 返事が全部保留になった。黙っていてほしい人は話しかけない——話しかけてきたなら、その時点で
+# 依頼は終わっている。
+
+
+def _ip_with_speaker(speaker: str):
+    from unittest.mock import MagicMock
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = MagicMock()
+    a._pmm.presence_status = MagicMock(
+        return_value=[{"name": speaker, "is_speaker": True, "confidence": 1.0}]
+    )
+    return InformationProcessing(a)
+
+
+def _patched(monkeypatch, req):
+    import familiar_agent.silence_state as ss
+
+    cleared: list[bool] = []
+    monkeypatch.setattr(ss, "load_silence", lambda: req)
+    monkeypatch.setattr(ss, "clear_silence", lambda: cleared.append(True))
+    return cleared
+
+
+def test_the_asker_speaking_again_lifts_the_request(monkeypatch):
+    ip = _ip_with_speaker("パパ")
+    cleared = _patched(monkeypatch, SilenceRequest(person="パパ", until=time.time() + 3600))
+    ip._lift_silence_if_asker_speaks()
+    assert cleared == [True]
+
+
+def test_someone_else_speaking_leaves_the_request(monkeypatch):
+    ip = _ip_with_speaker("たいきくん")
+    cleared = _patched(monkeypatch, SilenceRequest(person="パパ", until=time.time() + 3600))
+    ip._lift_silence_if_asker_speaks()
+    assert cleared == []
+
+
+def test_nothing_to_lift_when_no_request(monkeypatch):
+    ip = _ip_with_speaker("パパ")
+    cleared = _patched(monkeypatch, None)
+    ip._lift_silence_if_asker_speaks()
+    assert cleared == []
+
+
+def test_speaking_to_her_lifts_it_before_the_turn_runs(monkeypatch):
+    """`push_utterance` の入口で解く。同じ発話で改めて頼まれれば、その反復が掛け直す。"""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    ip = _ip_with_speaker("パパ")
+    cleared = _patched(monkeypatch, SilenceRequest(person="パパ", until=time.time() + 3600))
+    ip._ensure_driver = lambda: None
+    ip._abort_lookups = AsyncMock()
+
+    async def run():
+        task = asyncio.create_task(ip.push_utterance("ねえ、明日の予定は？"))
+        trig = await ip._triggers.get()
+        trig.future.set_result("")
+        await task
+
+    asyncio.run(run())
+    assert cleared == [True]
+
+
+def test_waiting_is_not_a_request_for_silence():
+    from familiar_agent.loop.arbiter import ARBITER_PROMPT
+
+    assert "待って" in ARBITER_PROMPT and "沈黙の依頼ではない" in ARBITER_PROMPT
