@@ -99,3 +99,53 @@ def test_presets_degrade_to_empty_when_the_camera_refuses():
     cam, ptz = _tool()
     ptz.GetPresets = AsyncMock(side_effect=RuntimeError("no presets"))
     assert asyncio.run(cam.presets()) == []
+
+
+# ── 動き終わるまで待つ（2026-09-16 実機 16:50）────────────────────────────────
+#
+# `move_to` は 0.4 秒待つだけで返り、`look` はその直後に撮っていた。ONVIF の位置は
+# 正面（−0.078）→ 押入（−0.254）の途中（−0.163）で、写真は動いている最中のもの。
+# どの定点にも一致せず「見えたもの 0 件」になった。この機体の `MoveStatus` は UNKNOWN
+# なので、**読んだ位置が目標に収まる**まで（`POSE_TOLERANCE` 以内・上限 3 秒）待つ。
+
+
+def _tool_moving(track):
+    """`GetStatus` が呼ばれるたびに `track` の次の位置を返すカメラ。"""
+    cam, ptz = _tool()
+    positions = iter(track)
+
+    async def status(_):
+        st = MagicMock()
+        st.Position.PanTilt.x, st.Position.PanTilt.y = next(positions)
+        return st
+
+    ptz.GetStatus = status
+    return cam, ptz
+
+
+def test_move_waits_until_the_camera_arrives(monkeypatch):
+    slept: list[float] = []
+
+    async def fake_sleep(sec):
+        slept.append(sec)
+
+    monkeypatch.setattr("familiar_agent.tools.camera.asyncio.sleep", fake_sleep)
+    cam, _ = _tool_moving([(-0.078, -0.143), (-0.163, -0.143), (-0.254, -0.143), (-0.254, -0.143)])
+    text = asyncio.run(cam.move_to(-0.254, -0.143))
+    assert "Turned to" in text
+    assert len(slept) >= 2  # 途中の位置を 2 回見て、着いてから返った
+
+
+def test_move_gives_up_waiting_after_the_limit(monkeypatch, caplog):
+    slept: list[float] = []
+
+    async def fake_sleep(sec):
+        slept.append(sec)
+
+    monkeypatch.setattr("familiar_agent.tools.camera.asyncio.sleep", fake_sleep)
+    cam, _ = _tool_moving([(-0.163, -0.143)] * 100)  # いつまでも途中
+    with caplog.at_level("WARNING", logger="familiar_agent.tools.camera"):
+        text = asyncio.run(cam.move_to(-0.254, -0.143))
+    assert "Turned to" in text
+    assert sum(slept) <= 3.5  # 上限で諦める
+    assert any("着かない" in r.message for r in caplog.records)
