@@ -319,3 +319,30 @@ def test_coming_back_from_a_look_of_its_own_is_not_framed_as_answering_someone()
     reply = _prompt_of(b)
     assert "聞かれただけなら" in reply
     assert "いつも通りなら" not in reply
+
+
+def test_a_self_driven_turn_treats_the_recent_exchange_as_already_over():
+    """自発の求めでは、直近のやりとりは済んだこととして渡す（出-q）。
+
+    実機（2026-09-15 15:56・16:03）で `seeking`／`safety` の自発ターンが、済んだ入室に
+    もう一度「パパ、おかえりなさい」と言った。09-16 09:16 の W を見ると、自発の求めに
+    「[入室] 誰か が来た」と自分の挨拶が『直近のやりとり』として載っており、`_LEAD_SELF` には
+    済んだ出来事に反応しないという材料が無かった。返事の場面（発話が起点）は従来どおり。
+    """
+    b = _backend('{"branch":"light","text":""}')
+    asyncio.run(
+        arbitrate(
+            b,
+            utterance="[内的な促し:SEEKING] 探索したい気持ちが湧いている。",
+            workspace_ctx="[直近のやりとり]\n- 09:16 きっかけ：[入室] 誰か が来た\n- 09:16 わたし：あ、パパだ。おはようございます",
+            origin="情動",
+        )
+    )
+    own = _prompt_of(b)
+    assert "済んだこと" in own
+    assert "改めて反応しない" in own
+    assert "切り上げていたら" in own
+
+    b = _backend('{"branch":"light","text":"おはよう"}')
+    asyncio.run(arbitrate(b, utterance="おはよう", workspace_ctx=""))
+    assert "済んだこと" not in _prompt_of(b)
