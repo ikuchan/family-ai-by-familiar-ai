@@ -84,6 +84,9 @@ class TimerTool:
         quiet: Callable[[], Any],
         silence_active: Callable[[], bool],
         now: "Callable[[], datetime] | None" = None,
+        hush: "Callable[[str, datetime, int], None] | None" = None,
+        unhush: "Callable[[int | str], None] | None" = None,
+        hush_enabled: bool = True,
     ) -> None:
         self._store = store
         self._oif = oif
@@ -91,6 +94,10 @@ class TimerTool:
         self._quiet = quiet
         self._silence_active = silence_active
         self._now = now or (lambda: datetime.now(timezone.utc).astimezone())
+        # 掛けているあいだ黙る（`TIMER_SILENCE`・2026-09-16）。`hush(誰, 鳴る時刻, id)`／`unhush(id|"all")`。
+        self._hush = hush
+        self._unhush = unhush
+        self._hush_enabled = hush_enabled
 
     def store(self):
         """器（`TimerStore`）。T が鳴らすときに使う。"""
@@ -166,9 +173,14 @@ class TimerTool:
             due.isoformat(),
             bool(reason),
         )
+        hushed = ""
+        if self._hush_enabled and self._hush is not None and who:
+            # 掛けた瞬間から鳴るまで黙る。鳴る時刻＝期限なので、鳴る知らせは何もしなくても通る。
+            self._hush(who, due, tid)
+            hushed = "。鳴るまで黙っている"
         return f"掛けた：id={tid} 「{label}」 {due:%H:%M} に鳴る" + (
             "（静かな時間でも鳴らす）" if reason else ""
-        ), True
+        ) + hushed, True
 
     async def _start_stopwatch(
         self, inp: dict, *, now: "datetime | None" = None
@@ -197,6 +209,8 @@ class TimerTool:
             if not rows:
                 return "動いているタイマーは無い", True
             n = store.cancel_all(now=now)
+            if self._unhush is not None:
+                self._unhush("all")
             await self._write("やめた：" + "・".join(f"「{r['label']}」" for r in rows))
             logger.info("タイマーを全部止めた（%d 本）", n)
             return f"{n} 本止めた：" + "・".join(f"「{r['label']}」" for r in rows), True
@@ -207,6 +221,8 @@ class TimerTool:
         row = next((r for r in store.active(now=now) if int(r["id"]) == tid), None)
         if row is None or not store.cancel(tid, now=now):
             return f"id={tid} のタイマーは動いていない", False
+        if self._unhush is not None:
+            self._unhush(tid)
         # ストップウォッチは止めた瞬間の経過を、タイマーは残りを添える（「何秒だった？」に答えるため）。
         measured = timer_rules.measure_at(row, now)
         await self._write(f"やめた：「{row['label']}」{measured}")
