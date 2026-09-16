@@ -29,6 +29,7 @@
 from __future__ import annotations
 
 import asyncio
+from unittest.mock import AsyncMock
 
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigger
 
@@ -133,17 +134,21 @@ def test_a_blocked_lookup_leaves_no_mark() -> None:
     assert not _observations(a), f"見ていないのに印が立っている: {_observations(a)}"
 
 
-def test_look_alone_leaves_no_mark(monkeypatch) -> None:
-    """首を振っただけでは印を残さない（観察していない）。"""
+def test_look_that_could_not_turn_leaves_no_mark(monkeypatch) -> None:
+    """向けなかった（写真の無い）`look` は印を残さない（観察していない）。
+
+    向けたときはその場で 1 枚撮り、`see` と同じ印が立つ（`test_look_returns_like_see`・2026-09-16）。
+    """
 
     async def scenario():
         a, ip = _ip()
+        a._camera.call = AsyncMock(return_value=("「窓側」がどこか分からない。", None))
         await ip._run_camera("look", {"pose": "窓側"})
         await ip.close()
         return a
 
     a = asyncio.run(scenario())
-    assert not _observations(a), "look だけで印が立っている"
+    assert not _observations(a), "向けていないのに印が立っている"
 
 
 def test_a_failed_capture_leaves_no_mark(monkeypatch) -> None:

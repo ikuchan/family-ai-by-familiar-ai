@@ -84,4 +84,5 @@ def test_the_main_llm_marks_itself_when_it_asks_to_see() -> None:
     import inspect
 
     src = inspect.getsource(InformationProcessing._act_on_decision)
-    assert 'lookup_tc.name == "see"' in src and 'see_by = "主LLM"' in src
+    # `see` と `look` は同じ扱い（`_CAMERA_ACTIONS`・2026-09-16）
+    assert "lookup_tc.name in _CAMERA_ACTIONS" in src and 'see_by = "主LLM"' in src

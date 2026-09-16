@@ -390,3 +390,14 @@ def test_the_label_of_a_look_names_the_direction():
 
     assert _query_label("look", {"direction": "右"}) == "右を見に行く"
     assert _query_label("look", {"pose": "窓"}) == "窓を見に行く"
+
+
+def test_the_photo_note_tells_the_arbiter_the_head_is_already_turned():
+    """`look` の帰り（写真つき）で `look` を選び直さない（実機 15:11・3 回選び直して 18 秒）。"""
+    b = _backend('{"branch":"light","text":"右を向いたよ"}')
+    b.complete_with_image = b.complete
+    asyncio.run(
+        arbitrate(b, utterance="右向いて", workspace_ctx="", can_see=True, image_b64="aGVsbG8=")
+    )
+    prompt = _prompt_of(b)
+    assert "首はもう向いている" in prompt and 'もう一度 "look" は選ばず' in prompt
