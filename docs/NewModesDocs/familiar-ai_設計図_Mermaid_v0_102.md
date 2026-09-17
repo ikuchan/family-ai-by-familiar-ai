@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.101）
+# familiar-ai 設計図（Mermaid一式・v0.102）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -26,6 +26,7 @@
 　**【実装済み・050＝PAD は未測定でありうる】**評価器が値踏みゲート（`A_GATE`＝0.25）未満のとき、P/Pn/Dom を**気分の値で埋めるのをやめた**。`_evaluate_emotion_pad` は `(PAD, A)` を返し、**測れなかったときの PAD は `None`**（評価器の失敗も同じ）。書き込みは3列と `emotion_vec` を NULL にするので、感情軸の一次絞り（`emotion_vec IS NOT NULL`）から自然に外れる。**A（高ぶり）は機械値なので常に入る**（呼び出し側が渡さなければ、書き込み側で測った novelty を使う）。想起側も未測定を扱う——`_obs_pad_of` が `None` を返すと e 軸が外れ、残りの軸で採点される。mood nudge の材料にもしない。**埋めていたことが、感情軸の母集合を半分（6433 行中 2941 行）同じ一点に潰していた。** 埋め直すのは REST 内省の仕事である（記-a）。**049（索引を cosine へ）は復元しない**——ゼロベクトルを NaN に落とす応急処置と読め、050 が入れば要らない。033 の設計どおり索引は `vector_l2_ops` のままにする。
 
 　**【実装済み・051〜054＝何を記憶として書くかを絞る】****毎ターンの `self_model` をやめた**（051）。`_update_self_model` は毎ターン軽量LLM を呼んで自己記述を書いていたが、**読み手は本番コードに 0 件**で、1068 行が畳まれずに溜まっていた（`superseded_by` が付いていたのは 1 件だけ）。自己理解は capability manifest と REST 内省（記-a）が担う。**つなぎの発話も記憶から外した**（052〜054）。記録の理由は「『もう一言伝えた』を次の反復へ伝える」だったが、`_said_fillers` が**そのままプロンプトへ載る**ので（「すでに相手へ伝えた一言」）記憶は要らない。二重に持っており、O の側だけが 337 行たまって想起の候補を食っていた。**どちらも削除でなく退避**（`observations_removed_self_model`／`observations_removed_fillers`）。**`superseded_by` には外部キーが無い**ので、行が消えると指したまま残る（`parent_id` は `ON DELETE SET NULL`）。053 がそれを外す。
+　**【実装済み・065＝タイマーの器 `timers`】**アラーム・タイマー・ストップウォッチの状態を表 `timers` に持つ（2026-09-15・知-n・`store/timers.py` の `TimerStore`）。列は due（期限の絶対時刻）・鳴った・止めた・確かめて掛けた印で、**T が毎 tick `now>=due` を見て鳴らし**（`loop/timer_watch.fire_due`・機器のきっかけ「タイマー」を積む）、道具 3 本（`set_timer`／`start_stopwatch`／`cancel_timer`・`tools/timer.py`）が書く。掛けた・止めたは O に `direction='予定'` で残す。掛けているあいだは沈黙依頼（`reason=timer:<id>`・`TIMER_SILENCE`）を期限まで掛け、止めたら解く。設計は `設計方針_タイマー` v0.1。
 - **色**：黄＝出入り口（TIF・AIF・DIF）／青＝処理（G・M・D・メイン・生成器・評価器・動作器・統合保守器）／緑＝揮発記憶（B・W）／桃＝エピソード記憶（O）／紫＝LLM・資源ハンドラ（主・補助LLM・LLM担当・実行担当）／自己状態 SS／灰＝外界。
 - **口（③-2 以降）**：出入り口は **IIF（内部）／DIF（外部の機械）／AIF（自律機構）／OIF（記憶）** の4つだけ。この4つ以外に、コンポーネントどうしが直接つながる線は置かない。
 - **線種（③-2）**：太い実線（`==>`）＝**同期**（呼んだところへその場で返る）／点線（`-.->`）＝**非同期**（投げて先へ進み、結果は IIF の待ち行列へ入る）。
@@ -541,6 +542,7 @@ sequenceDiagram
 
 ## 更新履歴
 
+> v0.102：「store と I/F」台帳へ **表 `timers`（065・知-n）** を追記した（2026-09-17・09-15 の実装を台帳に載せ忘れていた）。
 > v0.101：**環-d（`relationship_state`）**——移管（案A）をやめて撤去（2026-09-15・064）。書き手 `RelationshipTracker` は毎ターン書いていたが、読むのは呼び手の無い `_select_addressee`（先読み `_proactive_memory_context`）だけだった。`PersonRegistry` は名前の器として残す。関係は O の関係の面と `人物` のまとめが担う。残る廃止ストア＝`pending_store` のみ（環-b 待ち）。
 > v0.100：**環-d（旧 15 欲求）**——`desires.py`（`DesireSystem`）と、それを受け渡すだけになっていた GUI／TUI／REPL の引数、pipeline の死んだ分岐（`detect_worry_signal`・`extract_curiosity`・`好奇心` の書き込み）、`_ui_helpers` の欲求の助け手、`agent_state.desires`（063）を撤去した（2026-09-15）。欲求は 5 軸（`drive_register`・`drive_dynamics`・`tonic`）だけ。残る廃止ストア＝`relationship_state`・`pending_store`。
 > v0.99：**環-d（今回分）**——読み手の無いストアを落とした（2026-09-14・061）：`self_narrative_log`（層 1 の畳み込みが代替）・`semantic_facts`／`behavior_policies`／`memory_links`／`memory_revisions`（`legacy/semantic_layer.py` だけが書き、読む呼び手 0 件）。コードは `self_narrative.py`・`concern_engine.py`（`agent_state.concerns` の書き手・読み手なし）・`intervention_policy.py`・`reflect.py`・`legacy/` と、`agent.py` の `_maybe_update_self_narrative`／`_maybe_adapt_values`、`memory.py` の包み 13 面、`remember` の `link_to`。残る廃止ストア＝`desires`（旧 15 欲求）・`relationship_state`・`pending_store`。

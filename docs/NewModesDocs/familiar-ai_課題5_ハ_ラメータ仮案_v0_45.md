@@ -102,6 +102,11 @@ $$\tau_M = \frac{HL_M}{\ln 2}, \qquad M \leftarrow M_{rest} + (M - M_{rest})\,\e
 |---|---|---|---|
 | `MemoryConfig.distill_min_a0` | 0.20〜0.70・0.05 | 蒸留 | LLM（未接続・材料の a0 分布） |
 | `MemoryConfig.recall_half_life_days` | 1〜30 日・1 | 層1 | LLM（未接続・$I$ の目標との差） |
+| `MemoryConfig.info_target_bits`（$I^\*$） | $2^{14}$〜$2^{20}$・$2^{14}$ | 層1 | LLM（未接続・規則は核の固めの後に接続） |
+| `MemoryConfig.core_same_cos` | 0.90〜1.00・0.01 | 層1 | LLM（未接続・同一とみなすコサイン・実測 0.98） |
+| `MemoryConfig.core_bundle_cos` | 0.30〜0.80・0.05 | 層1 | LLM（未接続・束ねの半径 $\tau$・二山の谷 0.5） |
+| `MemoryConfig.core_bundle_min` | 2〜6・1 | 層1 | LLM（未接続・固めてよい束の最小の大きさ） |
+| `MemoryConfig.core_bundles_per_night` | 1〜20・1 | 層1 | LLM（未接続・1 晩に固める束の上限） |
 | `MemoryConfig.diffuse_far_share` | 0〜1・0.1 | 関連＋申告 | 機械：参照された側へ寄せる |
 | `AgentConfig.arbiter_timeout_sec` | 1.0〜10.0・0.5 | 調停 | LLM：件数・中央・p90・最大・時間切れの割合を見て提案 |
 | `MemoryConfig.recent_exchanges_arbiter`／`_main` | 1〜10・1 | 直近＋続き先 | 機械：続きの相手が窓の端か外に 20% 以上〔仮〕なら +1、続きがあるのに 0 なら −1 |
@@ -372,6 +377,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.45：C3 に 2026-09-15 に登録した 5 つ（`info_target_bits`・`core_same_cos`・`core_bundle_cos`・`core_bundle_min`・`core_bundles_per_night`）を足した（`core/settings.py` の `REGISTRY` と照合・2026-09-17）。
 > v0.44：C3 節「層 3 の登録一覧と規則」を追加（2026-09-14・記-a-に）。
 > v0.43：F 節を改訂——$HL$ 10 日（層 3 の設定値）・強化B 廃止（作られた日と思い出した時の役割分け）・関連想起の 2 つの並び（`diffuse_far_share`）（2026-09-14・記-a-ろ-い）。
 > v0.42：C2 節「内部状態の言葉」を追加（2026-09-14・情-f）。

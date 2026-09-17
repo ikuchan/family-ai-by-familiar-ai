@@ -34,6 +34,8 @@ familiar-ai は、あなたの家に住むAIコンパニオンです。
 - 🫀 **心の理論** — 相手の視点に立ってから返答
 - 💭 **欲求** — 内的な動機を持ち、自律的に行動
 - 💡 **適応的思考** — 複雑な質問では自動的に深く考える
+- ⏰ **タイマー** — 「3分のタイマーかけて」「ストップウォッチ」「止めて」。掛けているあいだは黙り、鳴ったら少し大きな声で知らせる（`TIMER_SILENCE`／`TIMER_VOICE_GAIN`）
+- 🤫 **黙っていて** — 名前を呼んで頼まれたら黙り、「話していいよ」で戻る。黙っていたあいだに聞いたことは、戻ったときにまとめて答える
 
 ---
 
@@ -332,7 +334,10 @@ uv run familiar-discover-cameras
 ```env
 ELEVENLABS_API_KEY=sk_...
 ELEVENLABS_VOICE_ID=...   # 省略可。省略時はデフォルトの声を使用
+ELEVENLABS_MODEL=eleven_flash_v2_5  # 省略可。既定 flash（0.7 秒）。eleven_v3 は表情豊かだが 5 秒かかる
 TTS_OUTPUT=local           # local（PCスピーカー）| remote（カメラスピーカー）| both
+TIMER_VOICE_GAIN=1.5       # 省略可。タイマーが鳴った知らせだけ声を大きくする（既定 1.0）
+TIMER_SILENCE=true         # 省略可。タイマー中は黙る（既定 true。false でこれまでどおり）
 ```
 
 音声入力（ハンズフリー）を有効にする場合：
