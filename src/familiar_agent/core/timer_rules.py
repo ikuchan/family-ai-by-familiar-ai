@@ -63,6 +63,23 @@ def confirm_text(minutes: float, *, silence: bool, mic_close: bool) -> str:
     return f"{m} 分のタイマーね{tail}"
 
 
+_CONTROL = re.compile(r"止め|ストップ|中止|やめ|一時停止|再開(?!発)")  # 「再開発」は会話
+CONTROL_MAX_CHARS = 12  # 操作の言葉として通す発話の長さ〔仮〕。長い文は会話（テレビ）とみなす
+
+
+def is_control_word(text: str) -> bool:
+    """聞かないあいだ（`TIMER_MIC_CLOSE`）でも通す、タイマーの操作の言葉か。
+
+    短い発話（12 字〔仮〕以内）で、止める・一時停止・再開の語を含むもの。長い文の中の
+    「止めて」は会話（テレビの台詞も含む）とみなして通さない。**通すかを決めるだけ**で、
+    何をするかは調停か主LLM が道具で決める（言葉はあいまいでありうる）。
+    """
+    s = (text or "").strip()
+    if not s or len(s) > CONTROL_MAX_CHARS:
+        return False
+    return bool(_CONTROL.search(s))
+
+
 def _mmss(delta: timedelta) -> str:
     total = max(0, int(delta.total_seconds()))
     return f"{total // 60}:{total % 60:02d}"
@@ -92,10 +109,15 @@ def render_frame(
     *,
     now: datetime,
     recently_stopped: "list[dict] | None" = None,
+    not_listening: str = "",
 ) -> str:
     if not active and not recently_fired and not recently_stopped:
         return ""
     lines = ["[タイマー]"]
+    if not_listening:
+        lines.append(
+            f"- 聞いていない（{not_listening} が鳴るまで。止めて・一時停止・再開の言葉だけ届く）"
+        )
     for r in active:
         due = r.get("due")
         if due is not None and r.get("paused_at") is not None:

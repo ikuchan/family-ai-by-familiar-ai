@@ -29,6 +29,9 @@ def _agent():
     a._handle_reload_command = MagicMock(return_value=None)
     a._handle_thinking_command = MagicMock(return_value=None)
     a._handle_timer_command = AsyncMock(return_value=None)  # `/timer stop` は別の試験で見る（知-n）
+    a._handle_mic_command = AsyncMock(
+        return_value=None
+    )  # `/mic on` は `test_timer_mic_close`（知-o）
     return a
 
 
