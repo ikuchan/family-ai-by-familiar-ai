@@ -594,8 +594,16 @@ class AgentConfig:
     silence_max_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60))
     # タイマーが鳴った知らせを話すときだけ声に掛ける倍率（1.0＝いまと同じ・機器の音量は触らない）。
     timer_voice_gain: float = field(default_factory=lambda: _float_env("TIMER_VOICE_GAIN", 1.0))
-    # タイマーを掛けているあいだは黙り、鳴ったら戻す（既定 有効・false でこれまでどおり）。
+    # タイマーの振る舞い 3 つ（知-o・2026-09-18・`設計方針_タイマー` v0.3）。正本は `.env`、
+    # 設定画面の「タイマー」欄で変え、保存した瞬間に効く（`TimerTool.flags()` が呼ぶたびに読む）。
+    # 掛けているあいだは黙り、鳴ったら戻す（既定 有効・false でこれまでどおり）。
     timer_silence: bool = field(default_factory=lambda: _bool_env("TIMER_SILENCE", default=True))
+    # 掛けているあいだは聞かない（書き起こしはタイマーの操作の言葉だけ通す）。
+    timer_mic_close: bool = field(
+        default_factory=lambda: _bool_env("TIMER_MIC_CLOSE", default=True)
+    )
+    # 掛ける前に一度確かめる（「3 分のタイマーね。その間は黙って聞かないよ、いい？」）。
+    timer_confirm: bool = field(default_factory=lambda: _bool_env("TIMER_CONFIRM", default=True))
     # 自分が話してから・`/speaker` を打ってから「居る」とみなす長さ（秒）。マイクで拾った声は
     # 数えない（テレビ・物音・聞き違い・2026-09-17）。〔仮〕
     presence_said_sec: float = field(default_factory=lambda: _float_env("PRESENCE_SAID_SEC", 60.0))

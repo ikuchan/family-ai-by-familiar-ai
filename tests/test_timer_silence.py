@@ -79,7 +79,7 @@ def test_the_arbiter_note_says_it_is_a_timer():
 # ── 道具からの呼び出し ─────────────────────────────────────────────────────
 
 
-def _tool(*, hush_enabled=True):
+def _tool():
     store = _FakeStore()
     oif = MagicMock()
     oif.write = AsyncMock(return_value="obs-1")
@@ -94,7 +94,6 @@ def _tool(*, hush_enabled=True):
         now=lambda: NOW,
         hush=lambda person, until, tid: hushed.append((person, until, tid)),
         unhush=lambda tid: unhushed.append(tid),
-        hush_enabled=hush_enabled,
     )
     return t, hushed, unhushed
 
@@ -112,8 +111,9 @@ def test_a_stopwatch_does_not_hush():
     assert hushed == []
 
 
-def test_the_switch_off_keeps_the_old_behaviour():
-    t, hushed, _ = _tool(hush_enabled=False)
+def test_the_switch_off_keeps_the_old_behaviour(monkeypatch):
+    monkeypatch.setenv("TIMER_SILENCE", "false")  # 設定は `.env` が正本・呼ぶたびに読む（知-o）
+    t, hushed, _ = _tool()
     text, _ = asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "パスタ"}))
     assert hushed == [] and "黙って" not in text
 

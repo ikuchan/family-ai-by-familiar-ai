@@ -47,6 +47,9 @@ class SetupConfig:
     elevenlabs_voice_id: str = ""
     tts_output: str = "local"
     realtime_stt: bool = False
+    timer_silence: bool = True
+    timer_mic_close: bool = True
+    timer_confirm: bool = True
     stt_language: str = "ja"
 
     auto_desire: bool = False
@@ -195,6 +198,37 @@ SETTINGS_FIELDS: tuple[SettingField, ...] = (
         widget="bool",
         default=False,
         runtime_getter=lambda config: bool(getattr(config, "realtime_stt", False)),
+    ),
+    # タイマーの振る舞い（知-o・2026-09-18）。保存した瞬間に効く（`TimerTool.flags()` が毎回読む）。
+    SettingField(
+        env_key="TIMER_SILENCE",
+        attr="timer_silence",
+        section="voice",
+        label="settings_field_timer_silence",
+        widget="bool",
+        default=True,
+        setup_visible=False,
+        runtime_getter=lambda config: bool(getattr(config, "timer_silence", True)),
+    ),
+    SettingField(
+        env_key="TIMER_MIC_CLOSE",
+        attr="timer_mic_close",
+        section="voice",
+        label="settings_field_timer_mic_close",
+        widget="bool",
+        default=True,
+        setup_visible=False,
+        runtime_getter=lambda config: bool(getattr(config, "timer_mic_close", True)),
+    ),
+    SettingField(
+        env_key="TIMER_CONFIRM",
+        attr="timer_confirm",
+        section="voice",
+        label="settings_field_timer_confirm",
+        widget="bool",
+        default=True,
+        setup_visible=False,
+        runtime_getter=lambda config: bool(getattr(config, "timer_confirm", True)),
     ),
     SettingField(
         env_key="STT_LANGUAGE",

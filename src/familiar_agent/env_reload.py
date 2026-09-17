@@ -28,6 +28,10 @@ LISTENER_KEYS = (
     "STT_MIN_SEGMENT_SEC",
     "STT_HOLD_GIVE_UP_SEC",
     "STT_NO_SPEECH_MAX",
+    # タイマーの振る舞い（知-o・2026-09-18）。集音ではないが、保存した瞬間に効くものとして要約に出す。
+    "TIMER_SILENCE",
+    "TIMER_MIC_CLOSE",
+    "TIMER_CONFIRM",
 )
 
 

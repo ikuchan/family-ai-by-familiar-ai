@@ -208,7 +208,6 @@ class EmbodiedAgent:
             silence_active=self._silence_active_now,
             hush=self._hush_for_timer,
             unhush=self._unhush_timer,
-            hush_enabled=bool(getattr(self.config, "timer_silence", True)),
             on_cancel=self._stop_timer_ring,
         )
         self._last_tool_error: str | None = None
