@@ -56,7 +56,7 @@ def test_arbiter_can_flag_a_silence_request():
 #
 # 以前は配信ゲート（出口）が「黙っているよう頼まれている」を返し、発話ごとに求めが立って
 # 調停・主LLM が回ってから止まっていた。他人への返事を通す例外（案イ・2026-09-13）もここに
-# あった。いまは入口（`_swallow_if_silent`・`test_silence_hold`）で、誰の声でも・機器でも・
+# あった。いまは入口（`_swallow_if_unheard`・`test_silence_hold`）で、誰の声でも・機器でも・
 # 情動でも求めを立てない。案イは撤回した。出口は沈黙を知らない。
 
 
