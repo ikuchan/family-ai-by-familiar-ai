@@ -141,4 +141,4 @@ Plan generation before loop + heuristic replanning on blocked observations.
 
 ## Future: Chronos-Neighbor Model
 
-The long-term vision is to replace the transcript-centric LLM core with event/state-centric temporal relational models. See `docs/future-model.md` for the staged transition plan.
+The long-term vision is to replace the transcript-centric LLM core with event/state-centric temporal relational models. See `docs/OldDocs/future-model.md` for the staged transition plan.

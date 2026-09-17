@@ -157,8 +157,12 @@ EOF
 ### 5. 自動テスト実行
 
 ```bash
-uv run pytest tests/ -v --tb=short
+./scripts/run_tests.sh -m "<開発内容を短く>"
 ```
+
+テスト DB コンテナ（ポート 5433）を起動して pytest 一式を回し、緑なら `-m` のメッセージで
+コミットし、終了時にコンテナを止める。**`uv run pytest` を直接使わない**（多くのテストが
+実 PostgreSQL 接続を要する）。詳しくは `CLAUDE.md` の「完了条件」。
 
 テストファイルの置き場: `tests/`（2026-09-10 時点で 100 本超。`test_memory.py` と
 `test_person.py` は分割・改名されて存在しない。いま何があるかは `ls tests/` を見る）
