@@ -1062,6 +1062,16 @@ class SettingsDialog(QDialog):
         except Exception as exc:
             QMessageBox.warning(self, _t("settings_save_failed_title"), str(exc))
             return
+        if not self._setup_mode:
+            # 保存した瞬間に効かせる（`.env` → `os.environ`）。呼ぶたびに `.env` を読むもの
+            # （タイマーの振る舞い 3 つ・`TimerTool.flags()`）はこれで再起動なしに変わる。
+            # 集音の作り直しは `/reload` が担う（ここでは触らない）。
+            try:
+                from .env_reload import reload_env
+
+                reload_env(self._env_path)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("設定を保存したが .env を読み直せなかった: %s", exc)
 
         QMessageBox.information(
             self,

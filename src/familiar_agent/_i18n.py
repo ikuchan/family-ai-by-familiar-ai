@@ -3199,6 +3199,18 @@ _T: dict[str, dict[str, str]] = (
             "en": "Names it answers to (ME.md):",
             "ja": "名前として使える言葉（ME.md）:",
         },
+        "settings_field_timer_silence": {
+            "en": "Timer: stay quiet while it runs:",
+            "ja": "タイマー：掛けているあいだ黙る:",
+        },
+        "settings_field_timer_mic_close": {
+            "en": "Timer: stop listening while it runs (timer words still pass):",
+            "ja": "タイマー：掛けているあいだ聞かない（操作の言葉だけ通す）:",
+        },
+        "settings_field_timer_confirm": {
+            "en": "Timer: ask before setting:",
+            "ja": "タイマー：掛ける前に確かめる:",
+        },
         "settings_field_companion_name": {
             "en": "Companion name:",
             "ja": "相棒名:",

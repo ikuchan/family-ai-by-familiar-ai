@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable
@@ -74,6 +76,15 @@ _DEFS: list[dict] = [
 ]
 
 
+@dataclass(frozen=True)
+class TimerFlags:
+    """タイマーの振る舞い 3 つ（`設計方針_タイマー` v0.3）。"""
+
+    silence: bool  # 掛けているあいだ黙る
+    mic_close: bool  # 掛けているあいだ聞かない（操作の言葉だけ通す）
+    confirm: bool  # 掛ける前に一度確かめる
+
+
 class TimerTool:
     def __init__(
         self,
@@ -86,7 +97,6 @@ class TimerTool:
         now: "Callable[[], datetime] | None" = None,
         hush: "Callable[[str, datetime, int], None] | None" = None,
         unhush: "Callable[[int | str], None] | None" = None,
-        hush_enabled: bool = True,
         on_cancel: "Callable[[], None] | None" = None,
     ) -> None:
         self._store = store
@@ -101,7 +111,20 @@ class TimerTool:
         # 掛けているあいだ黙る（`TIMER_SILENCE`・2026-09-16）。`hush(誰, 鳴る時刻, id)`／`unhush(id|"all")`。
         self._hush = hush
         self._unhush = unhush
-        self._hush_enabled = hush_enabled
+
+    def flags(self) -> "TimerFlags":
+        """振る舞いの設定 3 つを**呼ぶたびに** `.env`（`os.environ`）から読む。
+
+        設定画面で変えて保存した瞬間に効かせるため（作り直さない）。`AgentConfig()` を作らないのは、
+        層 3 の登録値を DB から引きに行くから（道具の 1 呼び出しごとに DB を叩かない）。
+        """
+        from ..config import _bool_env
+
+        return TimerFlags(
+            silence=_bool_env("TIMER_SILENCE", default=True),
+            mic_close=_bool_env("TIMER_MIC_CLOSE", default=True),
+            confirm=_bool_env("TIMER_CONFIRM", default=True),
+        )
 
     def store(self):
         """器（`TimerStore`）。T が鳴らすときに使う。"""
@@ -178,7 +201,7 @@ class TimerTool:
             bool(reason),
         )
         hushed = ""
-        if self._hush_enabled and self._hush is not None and who:
+        if self.flags().silence and self._hush is not None and who:
             # 掛けた瞬間から鳴るまで黙る。鳴る時刻＝期限なので、鳴る知らせは何もしなくても通る。
             self._hush(who, due, tid)
             hushed = "。鳴るまで黙っている"
