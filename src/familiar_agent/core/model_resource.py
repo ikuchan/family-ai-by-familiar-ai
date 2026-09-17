@@ -90,8 +90,11 @@ class ModelResource(ABC):
                 return self._mr_model
             try:
                 self._mr_model = self._load()
-                logger.info("%sのモデルを読み込んだ（%s）",
-                            self._mr_name, self.device or "載せる先はライブラリ任せ")
+                logger.info(
+                    "%sのモデルを読み込んだ（%s）",
+                    self._mr_name,
+                    self.device or "載せる先はライブラリ任せ",
+                )
             except _PERMANENT as e:
                 # 無いものは何度試しても無い。回数に関わらず記憶する。
                 self._mr_failed = True
@@ -102,15 +105,18 @@ class ModelResource(ABC):
             except Exception as e:  # noqa: BLE001
                 if self._mr_retries_left > 0:
                     self._mr_retries_left -= 1
-                    logger.warning("%sのモデルを読み込めない（あと %d 回試す）: %s",
-                                   self._mr_name, self._mr_retries_left + 1, e)
+                    logger.warning(
+                        "%sのモデルを読み込めない（あと %d 回試す）: %s",
+                        self._mr_name,
+                        self._mr_retries_left + 1,
+                        e,
+                    )
                     return None
                 self._mr_failed = True
                 if self._mr_fatal:
                     logger.exception("%sのモデルを読み込めない（続けられない）", self._mr_name)
                     raise
-                logger.exception("%sのモデルを読み込めない（縮退して続ける）: %s",
-                                 self._mr_name, e)
+                logger.exception("%sのモデルを読み込めない（縮退して続ける）: %s", self._mr_name, e)
             return self._mr_model
 
     def pre_warm(self) -> None:
@@ -119,9 +125,7 @@ class ModelResource(ABC):
         読み終わる前に最初の呼び出しが来たら、`ensure()` が錠の前で待って同じものを返す
         （二重に読まない）。
         """
-        threading.Thread(
-            target=self.ensure, daemon=True, name=f"prewarm-{self._mr_name}"
-        ).start()
+        threading.Thread(target=self.ensure, daemon=True, name=f"prewarm-{self._mr_name}").start()
 
     @property
     def ready(self) -> bool:

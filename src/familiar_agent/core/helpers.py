@@ -35,7 +35,7 @@ def strip_code_fence(text: str) -> str:
     body = text.strip()
     for fence in ("```json", "```yaml", "```yml", "```"):
         if body.startswith(fence):
-            body = body[len(fence):]
+            body = body[len(fence) :]
             break
     if body.endswith("```"):
         body = body[:-3]

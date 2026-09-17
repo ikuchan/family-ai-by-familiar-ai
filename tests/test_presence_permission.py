@@ -20,10 +20,13 @@ def _agent(*, watcher: bool, present: list[str], last_human: float | None) -> Ma
     a._presence_sensor = None
     a._pmm = MagicMock()
     a._pmm.get_present_ids = MagicMock(return_value=present)
+    # 2026-09-17：人の声（`_last_human_at`）は在席の証拠にしない。数えるのは自分の発話。
+    del a._last_human_at
+    del a._speaker_set_at
     if last_human is None:
-        del a._last_human_at
+        del a._last_said_at
     else:
-        a._last_human_at = last_human
+        a._last_said_at = last_human
     return a
 
 
@@ -31,8 +34,8 @@ def _permission(a) -> float:
     return EmbodiedAgent._social_presence_permission(a)
 
 
-def test_recent_utterance_counts_as_presence_even_with_a_camera():
-    # カメラが動いていて顔が見えていなくても、話しかけられていれば人は居る。
+def test_my_recent_speech_counts_as_presence_even_with_a_camera():
+    # 顔が見えていなくても、自分が話した直後なら相手は居る（センサ無しの構成）。
     a = _agent(watcher=True, present=[], last_human=time.time())
     assert _permission(a) == 1.0
 
@@ -47,6 +50,6 @@ def test_empty_room_is_not_present():
     assert _permission(a) == 0.0
 
 
-def test_no_camera_still_uses_the_utterance():
+def test_no_camera_still_uses_my_speech():
     a = _agent(watcher=False, present=[], last_human=time.time())
     assert _permission(a) == 1.0

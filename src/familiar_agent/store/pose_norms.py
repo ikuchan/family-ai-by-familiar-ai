@@ -32,8 +32,9 @@ class PoseNormStore:
             row = cur.fetchone()
         if row is None:
             return (None, 0)
-        raw, observations = (row[0], row[1]) if isinstance(row, tuple) else (
-            row["embedding"], row["observations"])
+        raw, observations = (
+            (row[0], row[1]) if isinstance(row, tuple) else (row["embedding"], row["observations"])
+        )
         if raw is None:
             return (None, int(observations))
         # pgvector は文字列 "[a,b,…]" で返ることがある。

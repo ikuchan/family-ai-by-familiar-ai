@@ -78,9 +78,7 @@ class LLMBackend(Protocol):
         """全部捨てて後始末する（出-i）。終了時に呼ぶ。"""
         ...
 
-    async def complete(
-        self, prompt: str, max_tokens: int, *, system: str | None = None
-    ) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         """1問1答。**返るのは文字列だけ**である。
 
         `system` は立ち位置と文脈（出-e）。**native な口で渡す**——プロンプトの先頭へ

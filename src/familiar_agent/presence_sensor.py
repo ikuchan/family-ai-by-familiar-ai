@@ -41,9 +41,17 @@ def _delay_before(last_check: float, now: float, min_gap: float) -> float:
 class PresenceSensor:
     """定点ごとに人が居るかを見て、`PresenceMap` を更新し続ける。"""
 
-    def __init__(self, camera: Any, poses_getter: Callable[[], Any], detector: Any,
-                 *, tolerance: float, window_sec: float, interval_sec: float,
-                 min_gap_sec: float = 3.0) -> None:
+    def __init__(
+        self,
+        camera: Any,
+        poses_getter: Callable[[], Any],
+        detector: Any,
+        *,
+        tolerance: float,
+        window_sec: float,
+        interval_sec: float,
+        min_gap_sec: float = 3.0,
+    ) -> None:
         self._camera = camera
         self._poses_getter = poses_getter
         self._detector = detector
@@ -73,6 +81,10 @@ class PresenceSensor:
     def stalest_pose(self) -> str | None:
         """次に見に行くべき定点。見回り（S5）が使う。"""
         return self._map.stalest_pose(time.time()) if self._map else None
+
+    def stale_order(self) -> "list[tuple[str, float | None]]":
+        """定点を見ていない順に（`[いま]` の 1 行の材料・知-c）。地図が無ければ空。"""
+        return self._map.stale_order(time.time()) if self._map else []
 
     def attach_visual_norm(self, encoder: Any, store: Any) -> None:
         """見えの「普通」を扱う部品を挿す（`知覚在席` §3-4 の見え層）。"""
@@ -155,13 +167,11 @@ class PresenceSensor:
                 return
             norm, observations = self._norm_store.load(pose_name)
             self._scene_surprise = (
-                cosine_distance(norm, seen) if norm is not None and is_ready(observations)
-                else None
+                cosine_distance(norm, seen) if norm is not None and is_ready(observations) else None
             )
             if self._scene_surprise is not None:
                 logger.debug("見えの隔たり：%s は %.3f", pose_name, self._scene_surprise)
-            self._norm_store.save(pose_name, update_ema(norm, seen),
-                                  observations=observations + 1)
+            self._norm_store.save(pose_name, update_ema(norm, seen), observations=observations + 1)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -189,7 +199,7 @@ class PresenceSensor:
                 # 動体で起こされたら間隔を待たずに次を見る。
                 await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
             except (TimeoutError, asyncio.TimeoutError):
-                continue                      # 動きが無いまま間隔が来た
+                continue  # 動きが無いまま間隔が来た
             delay = _delay_before(self._last_check, time.monotonic(), self._min_gap)
             if delay > 0:
                 await asyncio.sleep(delay)

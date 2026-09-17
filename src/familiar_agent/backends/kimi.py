@@ -80,7 +80,7 @@ class KimiBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None = None,
-        effort: str | None = None,   # 署名を揃えるだけ（未対応）
+        effort: str | None = None,  # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         if isinstance(system, tuple):
             system = "\n\n---\n\n".join(s for s in system if s)
@@ -179,9 +179,7 @@ class KimiBackend:
             ]
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
-    async def complete(
-        self, prompt: str, max_tokens: int, *, system: str | None = None
-    ) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         try:
             resp = await self.client.chat.completions.create(
                 model=self.model,

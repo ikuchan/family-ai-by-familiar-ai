@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：発火・mood 機構（v0.3）
+# familiar-ai 設計詳細：発火・mood 機構（v0.4）
 
 本書は、Drive 発火（蓄積式・変調項・閾値・放電）と mood（PAD 全軸0.5中立化）の機構と、変調行列 $C_{ij}$・バイアス $b_i$ の具体仮値、各欲求の性格、発火レンジをまとめる別紙。式・形の確定は **[D-発火]／[D-活性]／[D-値踏み]／[D-B分離]／[D-想起合成]**、パラメータの承認状態と所在は **課題5 B/C**。本書はそれらの機構を一望し、変調行列・バイアス・発火レンジの値表を持つ。検討中の内容は含まず、確定（または確定見込みの仮値）のみ記す。
  
@@ -59,6 +59,15 @@ $$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate\cdot mult_i(t)\cdot learn\
   （`loop/tonic.step_drives(last_human_at=)`）が更新・`agent_state` の鍵 `drive5_solitude` に永続化。
   発火のログに「ひとり n 回目・次は約 X 分後」を添える。
 - 由来：実機（2026-09-12）で中立の SEEKING が 5 分ごとに 1 時間 16 回起き、費用の大半になった。
+
+### 2-c. 出来事による押し上げ（案ア・2026-09-17）
+
+蓄積は時間だけで進むのが基本だが、**出来事が 1 軸を押し上げる口**を 1 つだけ持つ：`drive_dynamics.nudge(drives, axis, amount)`。
+加算は蓄積の一部で上限は $\Theta_{fire}$、**発火は通常の tick（`fired`）が決める**（出来事から直接発火させると、
+間隔の伸び（§2-b）や静穏時間の抑えを飛び越える）。使い手はいま 1 つ：声がしたのに応じられなかった
+（返事が「聞く相手が居ない」で保留）とき SEEKING に `DriveConfig.voice_nudge`＝$\Theta_{fire}/2$〔仮〕を足す
+（`agent._nudge_seeking`）。2 回目の声で発火し、情動の求めで調停が見回り（`look`）を選ぶ。マイクは在席の証拠には
+しない（`知覚在席` §3-2b）が、「見に行く理由」にはなる。
 
 ## 3. バイアス $b_i$ 仮値（中立発火頻度）
  
@@ -147,6 +156,7 @@ $$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate\cdot mult_i(t)\cdot learn\
 
 ## 更新履歴
 
+> v0.4：**§2-c 出来事による押し上げ**（`nudge`・声で SEEKING・案ア・2026-09-17）。
 > v0.3：**§2-b ひとりの回数**を追加（2026-09-13・情-d）。会話しないかぎり SEEKING・SAFETY・BOND の間隔が倍々に伸びる。
 > v0.2：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
 

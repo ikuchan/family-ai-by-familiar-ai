@@ -109,8 +109,10 @@ class _WhisperModel(ModelResource):
         model = _build_whisper_model(self._cfg)
         logger.info(
             "STT: モデルを読んだ（%s・%s・%s・%.1f 秒）",
-            self._cfg.whisper_model, self._cfg.whisper_device,
-            self._cfg.whisper_compute_type, time.monotonic() - started,
+            self._cfg.whisper_model,
+            self._cfg.whisper_device,
+            self._cfg.whisper_compute_type,
+            time.monotonic() - started,
         )
         return model
 
@@ -142,8 +144,14 @@ def ensure_whisper_model(cfg) -> None:
 class STTTool:
     """Record audio and transcribe via ElevenLabs Scribe."""
 
-    def __init__(self, api_key: str, language: str = "ja", rtsp_url: str = "",
-                 engine: str = "elevenlabs", stt_config=None) -> None:
+    def __init__(
+        self,
+        api_key: str,
+        language: str = "ja",
+        rtsp_url: str = "",
+        engine: str = "elevenlabs",
+        stt_config=None,
+    ) -> None:
         self.engine = engine
         # モデルの設定（`STTConfig`）。渡されなければ書き起こしの時点で作る。
         self._stt_config = stt_config
@@ -194,12 +202,14 @@ class STTTool:
             segments, info = model.transcribe(
                 io.BytesIO(audio_bytes),
                 language=self._language or None,
-                vad_filter=True,          # 無音を落とす（幻聴のような書き起こしを抑える）
+                vad_filter=True,  # 無音を落とす（幻聴のような書き起こしを抑える）
             )
             text = "".join(seg.text for seg in segments).strip()
             logger.info(
                 "STT: 書き起こした（%d 字・%.2f 秒・音声 %.1f 秒）",
-                len(text), time.monotonic() - started, getattr(info, "duration", 0.0),
+                len(text),
+                time.monotonic() - started,
+                getattr(info, "duration", 0.0),
             )
             return text
 

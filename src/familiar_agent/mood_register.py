@@ -72,7 +72,10 @@ REST_PAD = MoodPAD()
 
 
 def decay_to_rest(
-    mood: MoodPAD, elapsed_seconds: float, *, rest: MoodPAD = REST_PAD,
+    mood: MoodPAD,
+    elapsed_seconds: float,
+    *,
+    rest: MoodPAD = REST_PAD,
     half_life: float = HALF_LIFE_SECONDS,
 ) -> MoodPAD:
     """各軸を自分の戻り先へ、`half_life` 秒ごとに距離を半分にして近づける。
@@ -182,9 +185,7 @@ def _load_mood_with_updated_at(conn) -> "tuple[MoodPAD, datetime | None]":
 def load_self_mi_emotion(conn) -> MoodPAD:
     """自己認識 MI の emotion（PAD）を読む。未設定なら中立（REST が育てる対象）。"""
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT value_json FROM agent_state WHERE state_key = %s", (SELF_MI_STATE_KEY,)
-        )
+        cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", (SELF_MI_STATE_KEY,))
         row = cur.fetchone()
     if not row:
         return MoodPAD()
@@ -203,7 +204,9 @@ def save_self_mi_emotion(conn, pad: MoodPAD) -> None:
 
 
 def decay_and_nudge(
-    mood: MoodPAD, elapsed_seconds: float, items: "list[tuple[MoodPAD, float]]",
+    mood: MoodPAD,
+    elapsed_seconds: float,
+    items: "list[tuple[MoodPAD, float]]",
     *,
     self_pad: "MoodPAD | None" = None,
     self_weight: float = SELF_KNOWLEDGE_MI_WEIGHT,
@@ -239,19 +242,27 @@ def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
         else:
             elapsed = 0.0
         n_pad = compute_n_pad(items, self_pad=self_pad, self_weight=self_weight)
-        new_mood = decay_and_nudge(
-            mood, elapsed, items, self_pad=self_pad, self_weight=self_weight
-        )
+        new_mood = decay_and_nudge(mood, elapsed, items, self_pad=self_pad, self_weight=self_weight)
         save_mood(conn, new_mood)
         conn.commit()
     # 観測（#1 感情ループ閉じ・tuning 用）：ターンごとの mood 推移を1行で。debug（本番は切る）。
     logger.debug(
         "MOOD nudge: (%.2f,%.2f,%.2f,%.2f)→(%.2f,%.2f,%.2f,%.2f) "
         "N_PAD=(%.2f,%.2f,%.2f,%.2f) items=%d elapsed=%.0fs",
-        mood.p, mood.pn, mood.a, mood.dom,
-        new_mood.p, new_mood.pn, new_mood.a, new_mood.dom,
-        n_pad.p, n_pad.pn, n_pad.a, n_pad.dom,
-        len(items), elapsed,
+        mood.p,
+        mood.pn,
+        mood.a,
+        mood.dom,
+        new_mood.p,
+        new_mood.pn,
+        new_mood.a,
+        new_mood.dom,
+        n_pad.p,
+        n_pad.pn,
+        n_pad.a,
+        n_pad.dom,
+        len(items),
+        elapsed,
     )
     return new_mood
 

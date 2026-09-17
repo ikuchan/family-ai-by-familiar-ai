@@ -21,8 +21,9 @@ ALPHA_NORM = 0.10
 MIN_OBSERVATIONS = 5
 
 
-def update_ema(norm: list[float] | None, seen: list[float],
-               alpha: float = ALPHA_NORM) -> list[float]:
+def update_ema(
+    norm: list[float] | None, seen: list[float], alpha: float = ALPHA_NORM
+) -> list[float]:
     """「普通」を1枚ぶん更新する。
 
     まだ何も無ければ、見えたものをそのまま置く。$\\alpha$ で薄めると原点へ寄ってしまい、

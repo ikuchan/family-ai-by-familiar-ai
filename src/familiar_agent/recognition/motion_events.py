@@ -66,8 +66,7 @@ def _count_motion(notifications: Any) -> int:
 class MotionEventWatcher:
     """動体イベントを購読し、動きがあるたびに `on_motion` を呼ぶ常駐タスク。"""
 
-    def __init__(self, onvif_getter: Callable[[], Any],
-                 on_motion: Callable[[], None]) -> None:
+    def __init__(self, onvif_getter: Callable[[], Any], on_motion: Callable[[], None]) -> None:
         self._onvif_getter = onvif_getter
         self._on_motion = on_motion
         self._task: asyncio.Task | None = None
@@ -114,7 +113,7 @@ class MotionEventWatcher:
             try:
                 pull = await self._subscribe()
                 if pull is None:
-                    return                      # カメラが無い構成では黙って終わる
+                    return  # カメラが無い構成では黙って終わる
                 failures = 0
                 while True:
                     msg = await pull.PullMessages(

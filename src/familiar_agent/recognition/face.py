@@ -7,6 +7,7 @@ Register a person's face:
 人ごとの ArcFace 埋め込みを ~/.familiar_ai/face_embeddings.pkl に持つ（人名キー）。
 実モデル（insightface + onnxruntime）は重いので遅延シングルトンで1回だけロードする。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -28,7 +29,7 @@ logger = logging.getLogger(__name__)
 FACE_EMB_DB = Path.home() / ".familiar_ai" / "face_embeddings.pkl"
 
 _STORE: EmbeddingStore | None = None
-_FACE: "_FaceModel | None" = None    # プロセスで1つだけ持つ（読込が重い）
+_FACE: "_FaceModel | None" = None  # プロセスで1つだけ持つ（読込が重い）
 
 
 def _face_store() -> EmbeddingStore:

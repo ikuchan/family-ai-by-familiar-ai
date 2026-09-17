@@ -602,6 +602,8 @@ class InformationProcessing:
             # 角括弧タグを許すかは合成の担い手が決める（`根拠台帳` §9）。
             allow_tts_tags=self._dif.understands_tags,
             origin=self._req.trigger_kind,
+            # 見回りの行き先の材料（知-c）。自発の求めだけ。
+            now_note=self._patrol_note() if self._req.trigger_kind == "情動" else "",
         )
 
     def _researched(self) -> bool:
@@ -1468,9 +1470,8 @@ class InformationProcessing:
         `on_text` は出力先（駆動体が起こす反復も使う）。
         """
         agent = self._agent
-        # 人が話しかけた瞬間に在席の印を付ける。応答より前に付けないと、目の前の相手への
-        # 返事まで在席ゲートに止められる（実機で観測＝起動直後の1回目から詰まった）。
-        # 印は時刻なので、連鎖が長引いて相手が去れば自然に切れ、独り言にはならない。
+        # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
+        # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
         self._on_text = on_text or self._on_text
         self._ensure_driver()
@@ -2179,7 +2180,9 @@ class InformationProcessing:
             family_md=getattr(agent, "_family_md", ""),
             self_image=_self_image_text(),
             present_ctx=present_ctx,
-            now_ctx=f'(now :datetime "{clock.now_local_str()}")' + self._silence_note(),
+            now_ctx=f'(now :datetime "{clock.now_local_str()}")'
+            + self._silence_note()
+            + (self._patrol_note() if self._req.trigger_kind == "情動" else ""),
             capped=capped,
             thinking_round=round_,
             can_see=getattr(agent, "_camera", None) is not None,
@@ -2478,8 +2481,14 @@ class InformationProcessing:
                 return text, "独白"
             await self._hold_speech(text, blocked)
             logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
+            if self._req.trigger_kind == "発話" and blocked == "聞く相手が居ない":
+                # 声がしたのに誰も見えない——見に行く理由になる（案ア・2026-09-17）。SEEKING を
+                # 押し上げるだけで、発火は通常の tick が決める（2 回目の声で見回りへ）。
+                with contextlib.suppress(Exception):
+                    await self._agent._nudge_seeking()
             return "", "保留"
         await self._dif.speak(text, gain=self._voice_gain())
+        self._stamp_said()
         self._emit(text)
         return text, "発話"
 
@@ -2499,6 +2508,7 @@ class InformationProcessing:
             return
         agent = self._agent
         await self._dif.speak(text)
+        self._stamp_said()  # つなぎも自分の発話
         self._emit(text)
         # 言ったことを覚えておく。覚えないと、調停は「もう一言伝えた」ことを知らないまま
         # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
@@ -2555,9 +2565,12 @@ class InformationProcessing:
         `see`・`look` は帰りの判断も調停がするので、誰が出したかを控える（`_decide`）。
         """
         await self._say_filler(decision.text)
+        tool_input = _tool_input_of(decision)
+        if decision.action == "look":
+            tool_input = self._fill_look_target(tool_input)
         if decision.action in _CAMERA_ACTIONS:
             self._req.see_by = "調停"
-        self._start_lookup(utterance, _tool_input_of(decision), action=decision.action)
+        self._start_lookup(utterance, tool_input, action=decision.action)
 
     # ── 黙っているあいだ（情-h）────────────────────────────────────────────
 
@@ -2661,6 +2674,51 @@ class InformationProcessing:
             with contextlib.suppress(Exception):
                 return float(getattr(self._agent.config, "timer_voice_gain", 1.0) or 1.0)
         return 1.0
+
+    def _stamp_said(self) -> None:
+        """自分が声を出した時刻を打つ（在席の証拠・`presence_said_sec`・2026-09-17）。"""
+        agent = getattr(self, "_agent", None)
+        if agent is not None:
+            agent._last_said_at = time.time()
+
+    def _patrol_note(self) -> str:
+        """`[いま]` に添える「見ていない順」の 1 行（知-c・2026-09-17）。センサが無ければ空。
+
+        見た印は W に浮かないことがある（印が無い定点は想起に掛からない・08-01）ので、在/不在の層が
+        持つ「最後に見た時刻」から出す。渡すのは情動が起点の求めだけ（呼び手が決める）。
+        """
+        sensor = getattr(self._agent, "_presence_sensor", None)
+        if sensor is None:
+            return ""
+        try:
+            order = sensor.stale_order()
+        except Exception:  # noqa: BLE001
+            return ""
+        if not order:
+            return ""
+        parts = [f"{p} 未" if s is None else f"{p} {int(s // 60)} 分" for p, s in order]
+        return "\n見ていない順：" + "・".join(parts)
+
+    def _fill_look_target(self, tool_input: dict) -> dict:
+        """情動が起点で調停が `look` の行き先を書かなかったら、最も長く見ていない定点を機械で入れる。
+
+        人に頼まれた `look`（起点が発話）は LLM が読んだ行き先をそのまま使う。
+        """
+        if tool_input.get("pose") or tool_input.get("direction"):
+            return tool_input
+        if getattr(self._req, "trigger_kind", "") != "情動":
+            return tool_input
+        sensor = getattr(self._agent, "_presence_sensor", None)
+        if sensor is None:
+            return tool_input
+        try:
+            pose = sensor.stalest_pose()
+        except Exception:  # noqa: BLE001
+            return tool_input
+        if not pose:
+            return tool_input
+        logger.info("event-loop look の行き先を機械で決めた：%s（最も長く見ていない定点）", pose)
+        return {**tool_input, "pose": pose}
 
     def _silence_note(self) -> str:
         """調停へ渡す「いま黙っている」の一行（無ければ空）。黙っている前提が無いと「解かれた」と読めない。"""
