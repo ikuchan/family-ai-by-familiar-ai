@@ -125,7 +125,9 @@ _COMPLEX_QUERY_RE = re.compile(
 # なり、`/speaker・` が普通の発話として記憶に残った（2026-09-15 実機）。
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:[\s　・]+(.*))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
-_TIMER_COMMAND_RE = re.compile(r"^/timer[\s　・]+stop(?:[\s　・]+(.+))?$", re.IGNORECASE)
+_TIMER_COMMAND_RE = re.compile(
+    r"^/timer[\s　・]+(stop|pause|resume)(?:[\s　・]+(.+))?$", re.IGNORECASE
+)  # pause／resume は 2026-09-18（知-o 段 4）
 
 # Day summary prompt — condense a day's observations into a diary-like entry
 
@@ -1358,12 +1360,14 @@ class EmbodiedAgent:
             logger.warning("タイマーの沈黙を解けなかった: %s", e)
 
     async def _handle_timer_command(self, user_input: str) -> str | None:
-        """`/timer stop [id]`——LLM を通さずに止める（知-n・「途中で停められる」の非常口）。"""
+        """`/timer stop|pause|resume [id]`——LLM を通さずに止める・一時停止・再開（知-n／知-o・非常口）。"""
         m = _TIMER_COMMAND_RE.match(user_input.strip())
         if m is None:
             return None
-        target = (m.group(1) or "").strip(" \t　・") or "all"
-        text, _ok = await self._timer_tool.call("cancel_timer", {"id": target})
+        verb = m.group(1).lower()
+        target = (m.group(2) or "").strip(" \t　・") or "all"
+        tool = {"stop": "cancel_timer", "pause": "pause_timer", "resume": "resume_timer"}[verb]
+        text, _ok = await self._timer_tool.call(tool, {"id": target})
         return text
 
     def _handle_reload_command(self, user_input: str) -> str | None:

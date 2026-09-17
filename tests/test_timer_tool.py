@@ -39,9 +39,29 @@ class _FakeStore:
                 "asked_by": asked_by,
                 "obs_id": obs_id,
                 "passes_quiet": passes_quiet,
+                "paused_at": None,
+                "paused_total_sec": 0.0,
+                "listen": False,
             }
         )
         return tid
+
+    def pause(self, tid, *, now=None):
+        for r in self.active():
+            if r["id"] == tid and r["due"] is not None and r["paused_at"] is None:
+                r["paused_at"] = now or NOW
+                return True
+        return False
+
+    def resume(self, tid, *, now=None):
+        for r in self.active():
+            if r["id"] == tid and r["paused_at"] is not None:
+                gap = (now or NOW) - r["paused_at"]
+                r["paused_total_sec"] += gap.total_seconds()
+                r["due"] = r["due"] + gap
+                r["paused_at"] = None
+                return True
+        return False
 
     def active(self, *, now=None):
         return [r for r in self.rows if r["fired_at"] is None and r["cancelled_at"] is None]
@@ -88,10 +108,10 @@ def _tool(*, quiet=QuietHoursRule(23, 7), silence=False):
     return t, store, oif
 
 
-def test_the_definitions_are_three_tools():
+def test_the_definitions_are_five_tools():
     t, _, _ = _tool()
     names = [d["name"] for d in t.get_tool_definitions()]
-    assert names == ["set_timer", "start_stopwatch", "cancel_timer"]
+    assert names == ["set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer"]
     assert t.get_tool_definitions()[0]["input_schema"]["properties"].keys() >= {
         "after_minutes",
         "at",

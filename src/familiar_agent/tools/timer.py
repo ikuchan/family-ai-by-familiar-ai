@@ -75,6 +75,25 @@ _DEFS: list[dict] = [
             "required": ["id"],
         },
     },
+    # 一時停止・再開（知-o 段 4・2026-09-18）。何度でも。止めている間は残りが動かず鳴らない。
+    {
+        "name": "pause_timer",
+        "description": "動いているタイマーを一時停止する（「一時停止」「ちょっと止めといて」）。ストップウォッチは対象外。",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"description": '番号か "all"'}},
+            "required": ["id"],
+        },
+    },
+    {
+        "name": "resume_timer",
+        "description": "一時停止中のタイマーを再開する（「再開」「続けて」）。止めていた分だけ鳴る時刻が遅れる。",
+        "input_schema": {
+            "type": "object",
+            "properties": {"id": {"description": '番号か "all"'}},
+            "required": ["id"],
+        },
+    },
 ]
 
 
@@ -157,6 +176,8 @@ class TimerTool:
                 return await self._start_stopwatch(tool_input, now=now)
             if name == "cancel_timer":
                 return await self._cancel(tool_input)
+            if name in ("pause_timer", "resume_timer"):
+                return await self._pause_or_resume(name, tool_input)
         except Exception as e:  # noqa: BLE001
             logger.exception("タイマーの道具に失敗: %s", e)
             return f"タイマーの道具が使えなかった：{e}", False
@@ -280,6 +301,46 @@ class TimerTool:
         await self._write(f"やめた：「{row['label']}」{measured}")
         logger.info("タイマーを止めた id=%d %s %s", tid, row["label"], measured)
         return f"止めた：id={tid} 「{row['label']}」{measured}", True
+
+    async def _pause_or_resume(self, name: str, inp: dict) -> tuple[str, bool]:
+        """一時停止／再開（due つきのタイマーだけ・`all` は動いている 1 本）。"""
+        now = self._now()
+        store = self._store()
+        pausing = name == "pause_timer"
+        rows = [r for r in store.active(now=now) if r.get("due") is not None]
+        target = inp.get("id")
+        if str(target).strip().lower() == "all":
+            pick = rows
+        else:
+            try:
+                tid = int(str(target))
+            except (TypeError, ValueError):
+                return f"id を読めない：{target}", False
+            pick = [r for r in rows if int(r["id"]) == tid]
+            if not pick:
+                sw = [r for r in store.active(now=now) if int(r["id"]) == tid]
+                if sw:
+                    return "ストップウォッチは一時停止できない（止めるなら cancel_timer）", False
+                return f"id={tid} のタイマーは動いていない", False
+        if not pick:
+            return "動いているタイマーは無い", True
+        done: list[str] = []
+        for r in pick:
+            ok = (
+                store.pause(int(r["id"]), now=now)
+                if pausing
+                else store.resume(int(r["id"]), now=now)
+            )
+            if not ok:
+                state = "もう止めている" if pausing else "止めていない"
+                return f"id={r['id']} 「{r['label']}」は{state}", False
+            fresh = next((x for x in store.active(now=now) if int(x["id"]) == int(r["id"])), r)
+            done.append(f"id={r['id']} 「{r['label']}」{timer_rules.measure_at(fresh, now)}")
+            logger.info(
+                "タイマーを%s id=%s %s", "一時停止" if pausing else "再開", r["id"], r["label"]
+            )
+        await self._write(("止めておく：" if pausing else "再開した：") + "・".join(done))
+        return ("止めておく：" if pausing else "再開した：") + "・".join(done), True
 
     async def _write(self, content: str) -> "str | None":
         try:

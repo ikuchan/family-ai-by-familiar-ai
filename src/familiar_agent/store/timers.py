@@ -11,7 +11,10 @@ from datetime import datetime, timedelta, timezone
 
 import psycopg2.extras
 
-_COLS = "id, label, due, started_at, fired_at, cancelled_at, asked_by, obs_id, passes_quiet"
+_COLS = (
+    "id, label, due, started_at, fired_at, cancelled_at, asked_by, obs_id, passes_quiet, "
+    "paused_at, paused_total_sec, listen"
+)
 
 
 class TimerStore:
@@ -54,7 +57,7 @@ class TimerStore:
         with self._cursor() as cur:
             cur.execute(
                 f"SELECT {_COLS} FROM timers WHERE due IS NOT NULL AND due <= %s "
-                "AND fired_at IS NULL AND cancelled_at IS NULL ORDER BY due ASC",
+                "AND fired_at IS NULL AND cancelled_at IS NULL AND paused_at IS NULL ORDER BY due ASC",
                 (now,),
             )
             return [dict(r) for r in cur.fetchall()]
@@ -98,6 +101,46 @@ class TimerStore:
             cur.execute(
                 "UPDATE timers SET cancelled_at = %s WHERE id = %s AND fired_at IS NULL AND cancelled_at IS NULL",
                 (now, int(timer_id)),
+            )
+            n = cur.rowcount
+        self._commit()
+        return bool(n)
+
+    def pause(self, timer_id: int, *, now: "datetime | None" = None) -> bool:
+        """一時停止（動いている due つきだけ・二重には止めない）。"""
+        now = now or datetime.now(timezone.utc)
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE timers SET paused_at = %s WHERE id = %s AND due IS NOT NULL "
+                "AND fired_at IS NULL AND cancelled_at IS NULL AND paused_at IS NULL",
+                (now, int(timer_id)),
+            )
+            n = cur.rowcount
+        self._commit()
+        return bool(n)
+
+    def resume(self, timer_id: int, *, now: "datetime | None" = None) -> bool:
+        """再開：止めていた長さを累計に足し、`due` を同じだけ伸ばす（何度でも）。"""
+        now = now or datetime.now(timezone.utc)
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE timers SET "
+                "  paused_total_sec = paused_total_sec + EXTRACT(EPOCH FROM (%s - paused_at)), "
+                "  due = due + (%s - paused_at), "
+                "  paused_at = NULL "
+                "WHERE id = %s AND fired_at IS NULL AND cancelled_at IS NULL AND paused_at IS NOT NULL",
+                (now, now, int(timer_id)),
+            )
+            n = cur.rowcount
+        self._commit()
+        return bool(n)
+
+    def set_listen(self, timer_id: int, value: bool) -> bool:
+        """聞かない設定の中で、このタイマーに限り聞く（`/mic on`・段 5）。"""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE timers SET listen = %s WHERE id = %s AND fired_at IS NULL AND cancelled_at IS NULL",
+                (bool(value), int(timer_id)),
             )
             n = cur.rowcount
         self._commit()

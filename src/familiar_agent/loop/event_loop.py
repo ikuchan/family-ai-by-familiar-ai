@@ -63,8 +63,10 @@ _FULL_ACTIONS = (
     "set_timer",
     "start_stopwatch",
     "cancel_timer",
+    "pause_timer",
+    "resume_timer",
 )
-_TIMER_ACTIONS = ("set_timer", "start_stopwatch", "cancel_timer")
+_TIMER_ACTIONS = ("set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer")
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
@@ -129,6 +131,8 @@ def _query_label(action: str, tool_input: dict) -> str:
             "set_timer": "タイマーを掛ける",
             "start_stopwatch": "測り始める",
             "cancel_timer": "タイマーを止める",
+            "pause_timer": "タイマーを一時停止する",
+            "resume_timer": "タイマーを再開する",
         }[action] + (f"「{what}」" if what else "")
     if action == "look":
         return f"{tool_input.get('pose') or tool_input.get('direction') or ''}を見に行く"
@@ -1317,6 +1321,8 @@ class InformationProcessing:
         "set_timer": lambda ip: _timer_def(ip._agent, "set_timer"),
         "start_stopwatch": lambda ip: _timer_def(ip._agent, "start_stopwatch"),
         "cancel_timer": lambda ip: _timer_def(ip._agent, "cancel_timer"),
+        "pause_timer": lambda ip: _timer_def(ip._agent, "pause_timer"),
+        "resume_timer": lambda ip: _timer_def(ip._agent, "resume_timer"),
     }
 
     def _vault_tool_name(self) -> str:

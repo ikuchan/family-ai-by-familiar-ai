@@ -287,6 +287,15 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
         "",
         '"cancel_timer"（「タイマー止めて」「やっぱりいい」。tool_input に {"id": 番号か "all"}。番号は [タイマー] の枠）',
     ),
+    # 一時停止・再開（知-o 段 4・2026-09-18）。聞かないあいだも通る操作の言葉。
+    "pause_timer": (
+        "",
+        '"pause_timer"（「一時停止」「ちょっと止めといて」。tool_input に {"id": 番号か "all"}）',
+    ),
+    "resume_timer": (
+        "",
+        '"resume_timer"（「再開」「続けて」。tool_input に {"id": 番号か "all"}）',
+    ),
     # 個人ティアの記録（知-g-い）。候補に載るのは本人のターンだけ（話者ゲート・`_extra_actions`）。
     "vault": (
         "",
@@ -395,7 +404,7 @@ def _parse(
         query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
     if action in ("set_timer", "start_stopwatch") and tool_input and set(tool_input) == {"id"}:
         action = "cancel_timer"  # 入力が id だけなら止める意図（「ストップ」に set_timer と書いた・実機 08:59）
-    if action in ("set_timer", "start_stopwatch", "cancel_timer"):
+    if action in ("set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer"):
         # 見出し（同語二度投げの鍵）は label か id。tool_input が無ければ query から作る。
         if not tool_input and query:
             if action == "set_timer":

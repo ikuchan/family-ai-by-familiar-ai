@@ -62,6 +62,8 @@ def _ip_with_timer():
         "set_timer": lambda ip: [{"name": "set_timer"}],
         "start_stopwatch": lambda ip: [{"name": "start_stopwatch"}],
         "cancel_timer": lambda ip: [{"name": "cancel_timer"}],
+        "pause_timer": lambda ip: [{"name": "pause_timer"}],
+        "resume_timer": lambda ip: [{"name": "resume_timer"}],
     }
     return ip
 
@@ -70,7 +72,8 @@ def test_a_ringing_timer_cannot_set_another_one():
     ip = _ip_with_timer()
     ip._req.trigger_kind = "機器"
     ip._req.request_text = "[タイマー] タイマー：「パパとの約束」の時間（パパに頼まれたもの）"
-    assert set(ip._extra_actions()) == {"cancel_timer"}
+    # 鳴っているときに掛け直しは外す。止める・一時停止・再開は残る（2026-09-18・段 4）。
+    assert set(ip._extra_actions()) == {"cancel_timer", "pause_timer", "resume_timer"}
 
 
 def test_a_person_can_still_set_a_timer():
