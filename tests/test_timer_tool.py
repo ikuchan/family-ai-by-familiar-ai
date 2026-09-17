@@ -119,12 +119,10 @@ def test_the_definitions_are_five_tools():
     t, _, _ = _tool()
     names = [d["name"] for d in t.get_tool_definitions()]
     assert names == ["set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer"]
-    assert t.get_tool_definitions()[0]["input_schema"]["properties"].keys() >= {
-        "after_minutes",
-        "at",
-        "label",
-        "confirmed",
-    }
+    props = t.get_tool_definitions()[0]["input_schema"]["properties"]
+    assert (
+        props.keys() >= {"after_minutes", "label", "confirmed"} and "at" not in props
+    )  # 何時に、はアラーム
 
 
 def test_a_daytime_timer_is_registered_at_once_and_written_to_o():
@@ -146,16 +144,21 @@ def test_a_daytime_timer_is_registered_at_once_and_written_to_o():
 
 
 def test_a_quiet_hours_timer_asks_first_then_registers_when_confirmed():
+    from datetime import datetime as _dt
+
     t, store, oif = _tool()
-    # 静穏時間は 23〜7（7:00 は端の外）。6:30 は中。
-    text, ok = asyncio.run(t.call("set_timer", {"at": "6:30", "label": "起こす"}))
-    assert ok and "確かめ" in text and "静穏" in text and "06:30" in text
+    # 静穏時間は 23〜7。いま 22:58 なら 5 分後の 23:03 は中（何時に、はアラームなので分数で入れる）。
+    late = NOW.replace(hour=22, minute=58)
+    t._now = lambda: late
+    text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 5, "label": "お茶"}))
+    assert ok and "確かめ" in text and "静穏" in text and "23:03" in text
     assert store.active() == [] and not oif.write.called
     text, ok = asyncio.run(
-        t.call("set_timer", {"at": "6:30", "label": "起こす", "confirmed": True})
+        t.call("set_timer", {"after_minutes": 5, "label": "お茶", "confirmed": True})
     )
     assert ok and "id=1" in text
     assert store.active()[0]["passes_quiet"] is True
+    assert isinstance(late, _dt)
 
 
 def test_a_silence_request_also_asks_first():
@@ -166,8 +169,10 @@ def test_a_silence_request_also_asks_first():
 
 def test_bad_time_is_refused():
     t, store, _ = _tool()
-    text, ok = asyncio.run(t.call("set_timer", {"at": "あした", "label": "x"}))
-    assert not ok and "読めない" in text and store.active() == []
+    text, ok = asyncio.run(t.call("set_timer", {"after_minutes": -1, "label": "x"}))
+    assert not ok and "分数" in text and store.active() == []
+    text, ok = asyncio.run(t.call("set_timer", {"at": "7:00", "label": "x"}))  # 何時に、はアラーム
+    assert not ok and "アラーム" in text and store.active() == []
 
 
 def test_the_limit_is_one():

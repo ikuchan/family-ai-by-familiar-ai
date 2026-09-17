@@ -1,6 +1,6 @@
 """タイマーの規則（知-n・2026-09-15・`設計方針_タイマー` v0.1）。純関数。
 
-- `resolve_due`：「n 分後」か「7:00」（ローカル時刻・過ぎていれば翌日）を絶対時刻に。
+- `resolve_due`：「n 分後」を絶対時刻に（「何時に」はアラーム・`alarm_rules`・2026-09-18）。
 - `needs_confirmation`：鳴る時刻が静穏時間に入る／沈黙の依頼が生きているなら、**登録せず一度確かめる**
   （通り抜けて鳴らすのは頼んだ本人が確かめたときだけ）。機械が判定し、LLM は聞くだけ。
 - `render_frame`：`[タイマー]` の枠。動いているもの（残り／経過）と直前に鳴ったもの（「止めて」に
@@ -12,31 +12,19 @@ from __future__ import annotations
 import re
 from datetime import datetime, timedelta
 
-_AT_RE = re.compile(r"^\s*(\d{1,2})(?:[:：時](\d{1,2})?)?\s*(半)?\s*(?:分)?\s*$")
 _ZEN = str.maketrans("０１２３４５６７８９", "0123456789")
 
 
-def resolve_due(*, after_minutes: "float | None", at: "str | None", now: datetime) -> datetime:
-    """どちらか一方を受け、絶対時刻を返す。読めなければ ValueError（理由つき）。"""
-    if after_minutes is not None and at:
-        raise ValueError("「何分後」と「何時」は片方だけ")
-    if after_minutes is not None:
-        if float(after_minutes) <= 0:
-            raise ValueError("分数は 0 より大きく")
-        return now + timedelta(minutes=float(after_minutes))
-    if at:
-        m = _AT_RE.match(str(at).translate(_ZEN))
-        if not m:
-            raise ValueError(f"時刻を読めない：{at}")
-        hour = int(m.group(1))
-        minute = int(m.group(2) or 0) + (30 if m.group(3) else 0)
-        if not (0 <= hour <= 23 and 0 <= minute <= 59):
-            raise ValueError(f"時刻の範囲外：{at}")
-        due = now.replace(hour=hour, minute=minute, second=0, microsecond=0)
-        if due <= now:
-            due += timedelta(days=1)
-        return due
-    raise ValueError("「何分後」か「何時」のどちらかが要る")
+def resolve_due(*, after_minutes: "float | None", now: datetime) -> datetime:
+    """「n 分後」を絶対時刻に。読めなければ ValueError（理由つき）。
+
+    「何時に」はアラーム（`alarm_rules.resolve_at`）。タイマーとアラームは別物（2026-09-18・知-q）。
+    """
+    if after_minutes is None:
+        raise ValueError("「何分後」が要る（何時に、ならアラーム）")
+    if float(after_minutes) <= 0:
+        raise ValueError("分数は 0 より大きく")
+    return now + timedelta(minutes=float(after_minutes))
 
 
 def needs_confirmation(due: "datetime | None", *, quiet, silence_active: bool) -> "str | None":

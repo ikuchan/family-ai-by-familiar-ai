@@ -186,8 +186,9 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
 
     assert timer_input_from_query("1分") == {"after_minutes": 1.0, "label": "タイマー"}
     assert timer_input_from_query("3分後 パスタ") == {"after_minutes": 3.0, "label": "パスタ"}
+    # 「何時に」はアラーム（知-q・2026-09-18）。同じ読みで `at` になり、調停の action は set_alarm へ直る。
     assert timer_input_from_query("7時 起こす") == {"at": "7:00", "label": "起こす"}
-    assert timer_input_from_query("21時半") == {"at": "21:30", "label": "タイマー"}
+    assert timer_input_from_query("21時半") == {"at": "21:30", "label": "アラーム"}
     assert timer_input_from_query("パスタ") is None
     d = _parse(
         '{"branch":"action","action":"set_timer","query":"1分","text":"はい、1分ですね。"}',
@@ -211,6 +212,16 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
         extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
     )
     assert d is not None and d.tool_input == {"label": "ランニング"}
+    d = _parse(
+        '{"branch":"action","action":"set_timer","query":"7時 起こす"}',
+        can_see=False,
+        extra_actions=("set_timer", "set_alarm", "cancel_alarm"),
+    )
+    assert (
+        d is not None
+        and d.action == "set_alarm"
+        and d.tool_input == {"at": "7:00", "label": "起こす"}
+    )
 
 
 def test_an_action_branch_with_only_text_is_a_light_reply():

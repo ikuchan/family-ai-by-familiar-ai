@@ -48,6 +48,7 @@ from .recognition.visual_encoder import VisualEncoder
 from .store.pose_norms import PoseNormStore
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
+from .tools.alarm import AlarmTool
 from .tools.timer import TimerTool
 from .tools.tts import TTSTool
 from .loop.evaluator import Evaluator
@@ -127,6 +128,8 @@ _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:[\s　・]+(.*))?$", re.IGNORECAS
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 # /mic on——タイマー中でも聞く（知-o 段 5・LLM を通さない）。声では開けない（聞いていない）。
 _MIC_COMMAND_RE = re.compile(r"^/mic[\s　・]+on$", re.IGNORECASE)
+# /alarm stop [id]——LLM を通さずアラームを止める（知-q）。
+_ALARM_COMMAND_RE = re.compile(r"^/alarm[\s　・]+stop(?:[\s　・]+(.+))?$", re.IGNORECASE)
 _TIMER_COMMAND_RE = re.compile(
     r"^/timer[\s　・]+(stop|pause|resume)(?:[\s　・]+(.+))?$", re.IGNORECASE
 )  # pause／resume は 2026-09-18（知-o 段 4）
@@ -212,6 +215,15 @@ class EmbodiedAgent:
             silence_active=self._silence_active_now,
             hush=self._hush_for_timer,
             unhush=self._unhush_timer,
+            on_cancel=self._stop_timer_ring,
+        )
+        # アラーム（知-q・2026-09-18）。タイマーとは別物：表 `alarms`・黙らない・聞かない状態にしない・
+        # 確認は静穏時間だけ。止める口は道具 `cancel_alarm` と命令 `/alarm stop`。
+        self._alarm_tool = AlarmTool(
+            store=self._alarm_store,
+            oif=self._oif,
+            speaker=lambda: self._persons.active_name if self._persons.active_is_explicit else "",
+            quiet=lambda: self._schedule_rule,
             on_cancel=self._stop_timer_ring,
         )
         self._last_tool_error: str | None = None
@@ -1327,6 +1339,13 @@ class EmbodiedAgent:
 
         return TimerStore(get_db().conn())
 
+    def _alarm_store(self):
+        """`AlarmStore`（共有接続・`db.lock` の外で短く使う）。"""
+        from .db import get_db
+        from .store.alarms import AlarmStore
+
+        return AlarmStore(get_db().conn())
+
     def _silence_active_now(self) -> bool:
         """いま人に黙っているよう頼まれているか（タイマーを掛ける前の確認に使う・知-n）。
 
@@ -1380,6 +1399,15 @@ class EmbodiedAgent:
         target = (m.group(2) or "").strip(" \t　・") or "all"
         tool = {"stop": "cancel_timer", "pause": "pause_timer", "resume": "resume_timer"}[verb]
         text, _ok = await self._timer_tool.call(tool, {"id": target})
+        return text
+
+    async def _handle_alarm_command(self, user_input: str) -> str | None:
+        """`/alarm stop [id]`——LLM を通さずに止める（知-q・タイマーとは別物）。"""
+        m = _ALARM_COMMAND_RE.match(user_input.strip())
+        if m is None:
+            return None
+        target = (m.group(1) or "").strip(" \t　・") or "all"
+        text, _ok = await self._alarm_tool.call("cancel_alarm", {"id": target})
         return text
 
     async def _handle_mic_command(self, user_input: str) -> str | None:
@@ -1509,6 +1537,13 @@ class EmbodiedAgent:
             if on_text:
                 on_text(_timer_reply)
             return _timer_reply
+
+        # ── Alarm command（/alarm stop [id]・知-q・LLM を通さない） ──────────────
+        _alarm_reply = await self._handle_alarm_command(user_input)
+        if _alarm_reply is not None:
+            if on_text:
+                on_text(_alarm_reply)
+            return _alarm_reply
 
         # ── Mic command（/mic on・知-o・タイマー中でも聞く） ──────────────────
         _mic_reply = await self._handle_mic_command(user_input)

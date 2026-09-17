@@ -27,7 +27,7 @@ from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..core.solitude import AXES, next_interval_minutes
 from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives, save_solitude
 from ..mood_register import load_current_mood
-from . import notes_watch, timer_watch
+from . import alarm_watch, notes_watch, timer_watch
 from .rest import run_rest_pass
 
 logger = logging.getLogger(__name__)
@@ -321,6 +321,25 @@ class Tonic:
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("タイマーの確認に失敗: %s", e)
+        # アラーム（知-q・別物・別の器）。同じ tick から。
+        alarm_tool = getattr(self._agent, "_alarm_tool", None)
+        if alarm_tool is not None:
+            try:
+                cfg = getattr(self._agent, "config", None)
+                ring = getattr(cfg, "alarm_ring_sec", 0.0)
+                gain = getattr(cfg, "timer_voice_gain", 1.0)
+                quiet = False
+                with contextlib.suppress(Exception):
+                    quiet = bool(self._agent._in_quiet_hours())
+                alarm_watch.fire_due(
+                    alarm_tool.store(),
+                    self._ip._dif,
+                    ring_sec=float(ring) if isinstance(ring, (int, float)) else 0.0,
+                    quiet=quiet,
+                    gain=float(gain) if isinstance(gain, (int, float)) else 1.0,
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("アラームの確認に失敗: %s", e)
         # 沈黙が期限切れで明けたのに何も届かないとき、まとめの求めを起こす（情-h）。時計は T。
         with contextlib.suppress(Exception):
             self._ip.check_silence_lifted()

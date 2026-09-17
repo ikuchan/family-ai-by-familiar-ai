@@ -327,7 +327,7 @@ flowchart TD
   subgraph T["自律機構：Tonic（T）：常時の背景"]
     TICK["刻み：tick：毎秒"]:::tonic
     TIMER{"タイマー：timers：now ≥ due のものがあるか"}:::tonic
-    RING["音：ring_timer：timer_alarm.wav を TIMER_RING_SEC 繰り返す（声の口は通らない）"]:::tonic
+    RING["音：ring：timer_alarm.wav を TIMER_RING_SEC 繰り返す（声の口は通らない）"]:::tonic
     SENS["在/不在の層：PresenceSensor：YOLO・定点別・滞留窓 120 秒"]:::tonic
     EXP{"在席表の失効：presence expiry：誰も居ないを PRESENCE_EXPIRE_SEC 見続けたか"}:::tonic
     LEFT["失効：mark_absent：在席表から消す（話者の指定は残す）"]:::tonic

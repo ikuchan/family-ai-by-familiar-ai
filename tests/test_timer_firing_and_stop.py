@@ -156,7 +156,7 @@ def test_a_due_timer_rings_the_sound_when_ring_sec_is_positive():
     store.mark_fired = MagicMock(return_value=True)
     dif = MagicMock()
     timer_watch.fire_due(store, dif, now=NOW, ring_sec=30.0, quiet=False, gain=1.5)
-    dif.ring_timer.assert_called_once_with(seconds=30.0, gain=1.5)
+    dif.ring.assert_called_once_with(seconds=30.0, gain=1.5)
 
 
 def test_ring_sec_zero_keeps_the_old_voice_only_behaviour():
@@ -165,7 +165,7 @@ def test_ring_sec_zero_keeps_the_old_voice_only_behaviour():
     store.mark_fired = MagicMock(return_value=True)
     dif = MagicMock()
     timer_watch.fire_due(store, dif, now=NOW, ring_sec=0.0, quiet=False)
-    dif.ring_timer.assert_not_called()
+    dif.ring.assert_not_called()
     dif.device.assert_called_once()
 
 
@@ -180,7 +180,7 @@ def test_in_quiet_hours_only_a_confirmed_timer_makes_a_sound():
     store.mark_fired = MagicMock(return_value=True)
     dif = MagicMock()
     timer_watch.fire_due(store, dif, now=NOW, ring_sec=30.0, quiet=True)
-    assert dif.ring_timer.call_count == 1
+    assert dif.ring.call_count == 1
 
 
 def test_the_sound_repeats_until_the_time_is_up_and_does_not_use_the_voice(monkeypatch):
@@ -199,7 +199,7 @@ def test_the_sound_repeats_until_the_time_is_up_and_does_not_use_the_voice(monke
     dif = DIF(tts=tts)
 
     async def run():
-        dif.ring_timer(seconds=0.05, gain=1.5)
+        dif.ring(seconds=0.05, gain=1.5)
         await asyncio.sleep(0.12)
         return dif.ringing
 
@@ -219,7 +219,7 @@ def test_stop_ring_cuts_the_sound_short(monkeypatch):
     dif = DIF(tts=MagicMock())
 
     async def run():
-        dif.ring_timer(seconds=10.0)
+        dif.ring(seconds=10.0)
         await asyncio.sleep(0.03)
         assert dif.ringing is True
         dif.stop_ring()
