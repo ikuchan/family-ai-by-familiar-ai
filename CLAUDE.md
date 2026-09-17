@@ -199,9 +199,11 @@ uv run --group dev mypy src/familiar_agent
 ./scripts/run_tests.sh -m "<開発内容を短く（日本語可）>"
 ```
 
-**`docs/` の md しか変えていないなら、検査は要らない。** `git add` と `git commit` で直接
-コミットする。コードに触れていない変更にテストを回しても、確かめられることが無いまま
-2分待つことになる。コードと md を一緒に変えたときは、下の全項目を満たす。
+**`docs/` の md しか変えていないなら、全体テストは要らない。** ただし
+`uv run pytest -q tests/test_docs_are_consistent.py`（題名の版＝file 名の版・更新履歴にその版の項・
+索引のリンク・見出し番号）だけは回してから `git add` と `git commit` で直接コミットする（DB 不要・
+0.2 秒。2026-09-17 に docs だけのコミットで 6 件赤にした）。コードと md を一緒に変えたときは、
+下の全項目を満たす。
 
 - [ ] `ruff` が緑
 - [ ] `mypy` が緑
