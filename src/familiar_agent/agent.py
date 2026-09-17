@@ -125,6 +125,8 @@ _COMPLEX_QUERY_RE = re.compile(
 # なり、`/speaker・` が普通の発話として記憶に残った（2026-09-15 実機）。
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:[\s　・]+(.*))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
+# /mic on——タイマー中でも聞く（知-o 段 5・LLM を通さない）。声では開けない（聞いていない）。
+_MIC_COMMAND_RE = re.compile(r"^/mic[\s　・]+on$", re.IGNORECASE)
 _TIMER_COMMAND_RE = re.compile(
     r"^/timer[\s　・]+(stop|pause|resume)(?:[\s　・]+(.+))?$", re.IGNORECASE
 )  # pause／resume は 2026-09-18（知-o 段 4）
@@ -798,6 +800,16 @@ class EmbodiedAgent:
             "drive 声がしたが誰も見えないので seeking を +%.2f（いま %.2f）", amount, now_value
         )
 
+    def mic_gate_reason(self) -> str:
+        """常時集音へ挿す口：聞かない状態ならその理由（空＝聞く）。`TimerTool.listening_closed`。"""
+        tool = getattr(self, "_timer_tool", None)
+        if tool is None:
+            return ""
+        try:
+            return str(tool.listening_closed() or "")
+        except Exception:  # noqa: BLE001
+            return ""
+
     def _stop_timer_ring(self) -> None:
         """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。"""
         ip = getattr(self, "_info_processing", None)
@@ -1370,6 +1382,13 @@ class EmbodiedAgent:
         text, _ok = await self._timer_tool.call(tool, {"id": target})
         return text
 
+    async def _handle_mic_command(self, user_input: str) -> str | None:
+        """`/mic on`——タイマー中の「聞かない」を、そのタイマー限り解く（知-o 段 5）。"""
+        if not _MIC_COMMAND_RE.match(user_input.strip()):
+            return None
+        text, _ok = await self._timer_tool.call("listen", {})
+        return text
+
     def _handle_reload_command(self, user_input: str) -> str | None:
         """Reload ME.md and FAMILY.md without restarting. Returns status string or None."""
         if not _RELOAD_COMMAND_RE.match(user_input.strip()):
@@ -1490,6 +1509,13 @@ class EmbodiedAgent:
             if on_text:
                 on_text(_timer_reply)
             return _timer_reply
+
+        # ── Mic command（/mic on・知-o・タイマー中でも聞く） ──────────────────
+        _mic_reply = await self._handle_mic_command(user_input)
+        if _mic_reply is not None:
+            if on_text:
+                on_text(_mic_reply)
+            return _mic_reply
 
         # ── File reload command ───────────────────────────────────────────────
         _reload_reply = self._handle_reload_command(user_input)

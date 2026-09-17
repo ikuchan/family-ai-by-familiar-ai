@@ -163,7 +163,38 @@ class TimerTool:
             store.recently_fired(now=now, within_sec=RECENT_SEC),
             now=now,
             recently_stopped=store.recently_stopped(now=now, within_sec=RECENT_SEC),
+            not_listening=self.listening_closed(now=now),
         )
+
+    def listening_closed(self, *, now: "datetime | None" = None) -> str:
+        """聞かない状態か（`TIMER_MIC_CLOSE`・段 5）。閉じていればその理由（タイマーの名）、聞くなら空。
+
+        **動いているタイマーから導く**（新しい状態は持たない・再起動をまたぐ）：due があり・
+        一時停止でなく・`listen`（`/mic on`）が立っていないものが 1 本でもあれば閉じる。
+        ストップウォッチは閉じない（「止めて」を聞く必要がある・due も無い）。
+        """
+        if not self.flags().mic_close:
+            return ""
+        now = now or self._now()
+        for r in self._store().active(now=now):
+            if r.get("due") is None or r.get("paused_at") is not None or r.get("listen"):
+                continue
+            return f"タイマー「{r['label']}」"
+        return ""
+
+    async def _listen(self) -> tuple[str, bool]:
+        """`/mic on`：動いているタイマーはそのままに、聞く状態へ戻す（そのタイマー限り）。"""
+        now = self._now()
+        store = self._store()
+        rows = [r for r in store.active(now=now) if r.get("due") is not None]
+        if not rows:
+            return "動いているタイマーは無い（聞いている）", True
+        for r in rows:
+            store.set_listen(int(r["id"]), True)
+        logger.info("タイマー中でも聞く：%s", "・".join(str(r["id"]) for r in rows))
+        return "聞く：" + "・".join(
+            f"id={r['id']} 「{r['label']}」（鳴るまで）" for r in rows
+        ), True
 
     async def call(
         self, name: str, tool_input: dict, *, now: "datetime | None" = None
@@ -178,6 +209,8 @@ class TimerTool:
                 return await self._cancel(tool_input)
             if name in ("pause_timer", "resume_timer"):
                 return await self._pause_or_resume(name, tool_input)
+            if name == "listen":  # 道具でなく命令（`/mic on`）からだけ
+                return await self._listen()
         except Exception as e:  # noqa: BLE001
             logger.exception("タイマーの道具に失敗: %s", e)
             return f"タイマーの道具が使えなかった：{e}", False

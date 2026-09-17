@@ -236,6 +236,8 @@ uv run familiar --no-tui
 
 | 入力 | 効果 |
 |------|------|
+| `/timer stop`／`pause`／`resume` `[id]` | タイマーを止める・一時停止・再開（LLM を通さない） |
+| `/mic on` | タイマー中の「聞かない」を、そのタイマー限り解く |
 | `/reload` | `.env` を読み直し、常時集音（マイク）を新しい値で作り直す（再起動不要） |
 
 効くのは集音の開始時に読まれる値だけです（`AUDIO_INPUT_DEVICE`・`AUDIO_INPUT_GAIN`・`STT_*`・`STT_ENGINE`）。LLM・API 鍵・カメラ・TTS の担い手は起動時に組んだままなので、それらを変えたときは再起動してください。ME.md・FAMILY.md はいまは読み直しません。

@@ -25,6 +25,7 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+from .core.timer_rules import is_control_word
 from .voice_guard import VoiceLoopGuard, get_shared_voice_guard
 
 if TYPE_CHECKING:
@@ -146,6 +147,8 @@ class RealtimeSttSession:
         self._api_key = api_key
         self._language_code = language_code.strip()
         self._voice_guard = voice_guard or get_shared_voice_guard()
+        # 聞かない状態を返す口（空＝聞く・文字列＝理由）。GUI が agent の `timer_tool.listening_closed` を挿す。
+        self.mic_gate: "Callable[[], str] | None" = None
         # 書き起こしの担い手。ローカル（`LocalSttEngine`）と WebSocket
         # （`RealtimeSttClient`）の2種類あり、口の形は同じ（`connected`／`connect`／
         # `close`／`send_audio`／`on_committed`）。共通の基底は置かず、型は緩めて扱う。
@@ -394,6 +397,12 @@ class RealtimeSttSession:
             ):
                 logger.debug("Dropped duplicate realtime STT transcript: %s", text)
                 continue
+            # 聞かないあいだ（タイマー中・`TIMER_MIC_CLOSE`・知-o）：操作の言葉だけ通す。
+            # マイクは止めない（止めると「止めて」が届かない）。機械が決めるのは通すかまで。
+            closed = self._mic_gate_reason()
+            if closed and not is_control_word(text):
+                logger.info("聞いていない（%s）：%r", closed, text)
+                continue
             decision = self._voice_guard.check_transcript(text)
             if decision.blocked:
                 logger.info("Realtime STT gated transcript (%s): %r", decision.reason, text)
@@ -405,6 +414,12 @@ class RealtimeSttSession:
             if self.on_committed:
                 self.on_committed(text)
             await self._committed_queue.put(text)
+
+    def _mic_gate_reason(self) -> str:
+        try:
+            return str(self.mic_gate() or "") if self.mic_gate is not None else ""
+        except Exception:  # noqa: BLE001
+            return ""
 
     async def _partial_relay(self) -> None:
         while True:
@@ -429,6 +444,10 @@ class RealtimeSttController:
         self.on_partial: Callable[[str], None] | None = None
         self.on_committed: Callable[[str], None] | None = None
         self.on_restart: Callable[[str], None] | None = None
+
+    def set_mic_gate(self, gate: "Callable[[], str] | None") -> None:
+        """聞かない状態を返す口を挿す（タイマー中・`TIMER_MIC_CLOSE`）。"""
+        self._session.mic_gate = gate
 
     @property
     def engine_label(self) -> str:

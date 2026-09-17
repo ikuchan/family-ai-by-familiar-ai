@@ -72,6 +72,13 @@ class _FakeStore:
     def recently_stopped(self, *, now=None, within_sec):
         return [r for r in self.rows if r["cancelled_at"] is not None]
 
+    def set_listen(self, tid, value):
+        for r in self.active():
+            if r["id"] == tid:
+                r["listen"] = bool(value)
+                return True
+        return False
+
     def cancel(self, tid, *, now=None):
         for r in self.rows:
             if r["id"] == tid and r["fired_at"] is None and r["cancelled_at"] is None:

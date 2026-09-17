@@ -64,6 +64,14 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     mcp_ready = _mcp_state == "ready"
     stt_connected = bool(getattr(realtime_stt, "connected_for_display", False))
     stt_gated = bool(getattr(realtime_stt, "gated", False))
+    # タイマー中の「聞かない」（`TIMER_MIC_CLOSE`・知-o）。理由（タイマーの名）か空。
+    not_listening = ""
+    gate = getattr(agent, "mic_gate_reason", None)
+    if callable(gate):
+        try:
+            not_listening = str(gate() or "")
+        except Exception:  # noqa: BLE001
+            not_listening = ""
 
     if agent_init_failed:
         phase = "error"
@@ -77,6 +85,10 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
         phase = "thinking"
         headline = "Thinking"
         detail = "The agent is processing the current turn."
+    elif not_listening:
+        phase = "not_listening"
+        headline = f"🔇 聞いていない（{not_listening} が鳴るまで）"
+        detail = "止めて・一時停止・再開の言葉だけ届く。/mic on で聞く。"
     elif stt_gated:
         phase = "stt_gated"
         headline = "STT gated by TTS"
@@ -94,6 +106,8 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     ]
     if stt_gated:
         readiness_bits.append("stt=gated")
+    if not_listening:
+        readiness_bits.append("mic=closed")
     readiness = ", ".join(readiness_bits)
 
     if config is None:
