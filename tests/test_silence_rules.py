@@ -29,6 +29,27 @@ def test_a_request_counts_only_when_she_is_named():
     assert not names_me("ちょっと静かにして", NAMES)
 
 
+def test_a_name_the_stt_mangled_still_counts():
+    """STT は「パジュ」を はじゅ／パチュー と書く（2026-09-17 15:32 実機）。ゆるい読みで拾う。"""
+    assert names_me("はじゅ、静かにして", NAMES)
+    assert names_me("大好きなのはパチュー静かにして", NAMES)
+    assert names_me("パジュー、黙って", NAMES)
+
+
+def test_loose_reading_does_not_open_the_door_to_anything():
+    """守りの目的（「待てぃ」「しなよ」で黙らない）は変わらない。別の語も名前にしない。"""
+    assert not names_me("待てぃ", NAMES)
+    assert not names_me("しなよ", NAMES)
+    assert not names_me("体重を静かにして", NAMES)
+    assert not names_me("はい、静かにして", NAMES)
+
+
+def test_short_names_stay_exact():
+    """2 文字以下の名前は 1 文字違いを許すと何にでも当たるので、完全一致のまま。"""
+    assert names_me("ゆき、静かにして", ["ゆき"])
+    assert not names_me("ゆめ、静かにして", ["ゆき"])
+
+
 def test_saying_she_may_talk_is_a_release():
     for text in ("話していいよ", "もうしゃべっていいよ", "喋ってもいいよ", "話してもいいです"):
         assert is_release(text), text

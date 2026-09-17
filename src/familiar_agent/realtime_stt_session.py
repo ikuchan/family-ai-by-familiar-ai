@@ -484,6 +484,7 @@ def create_realtime_stt_session(
     設定されていなければ `None`。
     """
     from .config import STTConfig, _bool_env
+    from .core.parsing import parse_me_names, read_me_md
     from .tools.local_stt import should_use_local
 
     # 真偽の読み方は config と同じ 1 箇所（`on` も真）。ここだけ別に持つと `.env` の
@@ -492,6 +493,11 @@ def create_realtime_stt_session(
     api_key = os.environ.get("ELEVENLABS_API_KEY", "")
     language_code = os.environ.get("STT_LANGUAGE", "ja").strip()
     stt_config = STTConfig()
+    # 名前を書き起こしの手がかりに（先頭の 1 語だけ。`ME.md` に並べた聞き違いの綴りまで渡すと
+    # STT をそちらへ寄せてしまう。守り `names_me` のほうは全部の名前を見る）。
+    names = parse_me_names(read_me_md())
+    if names:
+        stt_config.hotwords = names[0]
 
     if not enabled:
         return None

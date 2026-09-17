@@ -80,3 +80,7 @@ sequenceDiagram
 - **〔確定〕開いた意図の supersede 表現**：open 意図＝**O の MI（status=open）**、解決＝supersede（根づき 落とす）。[D-MIモデル]／[D-単一想起]／[D-気がかり統合]。
 - **〔確定・課題5 H〕deferred の値**：検索/取得 TTL＝10秒（外部応答待ちのみ）・$L_{search}$＝3・$MaxConc$=3（暫定・課題7）・$MaxPend$=7・同期化（即答は blocking）。タスク状態は結果あり/なしの2値・機械リトライなし（[D-外部安定]）。
 - **〔未対応・課題6/8〕移植**：`DeferredSearchTool`／`pending_context`／`user_initiated` タグの新フレーム流用（gap 分析＝課題6 → TDD 改造＝課題8）。
+
+## 更新履歴
+
+> v0.1：初版（2026-08-29 以前）。2026-09-17 に file 名へ版を付けた（タイトルの版と揃える）。

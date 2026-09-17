@@ -802,20 +802,8 @@ class EmbodiedAgent:
         return 0.15
 
     def _load_me_md(self) -> str:
-        """Load ME.md personality file if it exists."""
-        from pathlib import Path
-
-        candidates = [
-            Path("ME.md"),
-            Path.home() / ".familiar_ai" / "ME.md",
-        ]
-        for path in candidates:
-            if path.exists():
-                try:
-                    return path.read_text(encoding="utf-8").strip()
-                except Exception:
-                    pass
-        return ""
+        """Load ME.md personality file if it exists（読む場所は `parsing.read_me_md`）。"""
+        return parsing.read_me_md()
 
     def _load_family_md(self) -> str:
         """Load FAMILY.md family-member descriptions if it exists."""

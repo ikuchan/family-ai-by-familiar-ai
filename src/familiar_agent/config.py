@@ -491,6 +491,10 @@ class STTConfig:
     # 'ジュージュージュー' に崩れた（一括で起こすと正しかった）。**短い断片では文脈が
     # 足りない。** 1.4 秒の区間は正しく起こせていたので、境目はその間にある。
     min_segment_sec: float = field(default_factory=lambda: _float_env("STT_MIN_SEGMENT_SEC", 1.5))
+    # 書き起こしの手がかり（faster-whisper の `hotwords`）。自分の名前は日本語の語彙に無く
+    # 「パジュ」が 体重／はじゅ に化けた（2026-09-17 実機）。`ME.md` の名前の先頭 1 語を
+    # 集音セッションが入れる（env からは与えない・正本は `ME.md`）。空なら渡さない。
+    hotwords: str = ""
     # 持ち越したまま次が来ないとき、諦めて単独で書き起こすまでの無音（秒）。
     # 「はい」だけの返事が永久に届かないのを避ける。
     hold_give_up_sec: float = field(default_factory=lambda: _float_env("STT_HOLD_GIVE_UP_SEC", 3.0))
