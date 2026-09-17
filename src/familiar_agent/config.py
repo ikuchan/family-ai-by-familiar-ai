@@ -596,8 +596,9 @@ class AgentConfig:
     timer_voice_gain: float = field(default_factory=lambda: _float_env("TIMER_VOICE_GAIN", 1.0))
     # タイマーを掛けているあいだは黙り、鳴ったら戻す（既定 有効・false でこれまでどおり）。
     timer_silence: bool = field(default_factory=lambda: _bool_env("TIMER_SILENCE", default=True))
-    # 人の声を「居る」証拠として数える長さ（秒）。**センサが無い構成だけ**で使う（センサが
-    # あれば居るかはセンサだけ・2026-09-17）。以前は 5 分。〔仮〕
+    # 人の声を「居る」証拠として数える長さ（秒）。センサの視野の外から話しかけられたときの
+    # 補い。以前は 5 分で、`/speaker` の在席表と合わせてゲートが永久に「居る」になった
+    # （2026-09-17 実機）。〔仮〕
     presence_voice_sec: float = field(
         default_factory=lambda: _float_env("PRESENCE_VOICE_SEC", 60.0)
     )

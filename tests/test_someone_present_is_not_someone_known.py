@@ -51,18 +51,16 @@ def test_without_a_sensor_the_presence_table_still_counts() -> None:
     assert a._social_presence_permission() == 1.0
 
 
-def test_with_a_sensor_a_voice_alone_is_not_presence() -> None:
-    """カメラが誰も見ていないのに「こんにちは」が書き起こされて返事した（2026-09-17 17:03 実機）。
-    センサがある構成では、居るかはセンサだけで決める（声は視野の外・テレビ・物音でもある）。"""
-    a = _agent(occupied=False, present=[], last_human=time.time() - 5)
-    assert a._social_presence_permission() == 0.0
-
-
-def test_without_a_sensor_a_voice_counts_for_one_minute_not_five() -> None:
-    a = _agent(occupied=None, present=[], last_human=time.time() - 30)
+def test_a_voice_counts_for_one_minute_not_five() -> None:
+    a = _agent(occupied=False, present=[], last_human=time.time() - 30)
     assert a._social_presence_permission() == 1.0
-    b = _agent(occupied=None, present=[], last_human=time.time() - 70)
+    b = _agent(occupied=False, present=[], last_human=time.time() - 70)
     assert b._social_presence_permission() == 0.0
+
+
+def test_a_recent_voice_still_counts_without_a_body() -> None:
+    a = _agent(occupied=False, present=[], last_human=time.time())
+    assert a._social_presence_permission() == 1.0
 
 
 def test_nobody_at_all_is_absent() -> None:

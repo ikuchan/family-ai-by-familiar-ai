@@ -339,7 +339,7 @@ TTS_OUTPUT=local           # local（PCスピーカー）| remote（カメラス
 TIMER_VOICE_GAIN=1.5       # 省略可。タイマーが鳴った知らせだけ声を大きくする（既定 1.0）
 TIMER_SILENCE=true         # 省略可。タイマー中は黙る（既定 true。false でこれまでどおり）
 TIMER_RING_SEC=30          # 省略可。鳴ったら音（自作の timer_alarm.wav）を繰り返す秒数（0 で声だけ）
-PRESENCE_VOICE_SEC=60      # 省略可。カメラが無い構成で、話しかけられてから「居る」とみなす秒数（カメラがあれば映っている人だけ）
+PRESENCE_VOICE_SEC=60      # 省略可。話しかけられてから「居る」とみなす秒数
 PRESENCE_EXPIRE_SEC=60     # 省略可。カメラが誰も見ない状態が続いたら在席表を空にする秒数
 ```
 
