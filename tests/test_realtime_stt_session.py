@@ -321,3 +321,16 @@ def test_create_realtime_stt_session_accepts_on_like_the_config_does(monkeypatch
     monkeypatch.setenv("ELEVENLABS_API_KEY", "key")
 
     assert create_realtime_stt_session() is not None
+
+
+def test_the_session_takes_the_first_name_from_me_md_as_a_hotword(monkeypatch, tmp_path) -> None:
+    """守りは全部の名前を見るが、STT への手がかりは正しい綴り（先頭）だけ。"""
+    (tmp_path / "ME.md").write_text(
+        "# 私について\n\n名前：パジュ、はじゅ、パチュ\n", encoding="utf-8"
+    )
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("REALTIME_STT", "true")
+    monkeypatch.setenv("STT_ENGINE", "whisper")
+    session = create_realtime_stt_session()
+    assert session is not None
+    assert session._stt_config.hotwords == "パジュ"

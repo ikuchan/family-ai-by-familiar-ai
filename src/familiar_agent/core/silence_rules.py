@@ -12,6 +12,7 @@
 from __future__ import annotations
 
 import re
+import unicodedata
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -20,10 +21,74 @@ if TYPE_CHECKING:
 _RELEASE = re.compile(r"(話|はな|しゃべ|喋)(し|っ)?て(も)?(いい|良い|よい)")
 
 
+_SMALL_KANA = str.maketrans("ぁぃぅぇぉゃゅょっゎ", "あいうえおやゆよつわ")
+
+
+def _loose(s: str) -> str:
+    """名前を比べるための**ゆるい読み**。
+
+    STT は「パジュ」を はじゅ／パチュー と書く（2026-09-17 実機）。カタカナはひらがなに、
+    長音は落とし、小書きは大きく、濁点・半濁点は落とす（NFD で分解して結合記号を捨てる）。
+    """
+    out = []
+    for ch in unicodedata.normalize("NFD", (s or "").lower()):
+        if ch in ("\u3099", "\u309a", "ー", "〜", "～"):
+            continue
+        o = ord(ch)
+        if 0x30A1 <= o <= 0x30F6:  # カタカナ → ひらがな
+            ch = chr(o - 0x60)
+        out.append(ch)
+    return "".join(out).translate(_SMALL_KANA)
+
+
+def _within_one_edit(a: str, b: str) -> bool:
+    """同じ長さの 2 語が 1 文字の置き換え以内か（挿入・削除は窓の長さで別に見る）。"""
+    return sum(x != y for x, y in zip(a, b)) <= 1
+
+
 def names_me(utterance: str, names: "list[str] | tuple[str, ...]") -> bool:
-    """発話に自分の名前のどれかが入っているか（部分一致・大文字小文字は無視）。"""
-    text = (utterance or "").lower()
-    return any(n and n.lower() in text for n in names)
+    """発話に自分の名前のどれかが入っているか。
+
+    ゆるい読み（`_loose`）で比べ、名前が 3 文字以上なら **1 文字違いまで**許す（置き換え 1 つ、
+    または 1 文字の抜け・足し）。2 文字以下は何にでも当たるので完全一致のまま。
+    """
+    text = _loose(utterance)
+    for raw in names:
+        n = _loose(raw)
+        if not n:
+            continue
+        if n in text:
+            return True
+        if len(n) < 3:
+            continue
+        for width in (len(n), len(n) - 1, len(n) + 1):
+            for i in range(0, max(0, len(text) - width) + 1):
+                w = text[i : i + width]
+                if len(w) != width:
+                    continue
+                if width == len(n) and _within_one_edit(w, n):
+                    return True
+                if width != len(n) and _one_insertion_apart(w, n):
+                    return True
+    return False
+
+
+def _one_insertion_apart(a: str, b: str) -> bool:
+    """長さが 1 違う 2 語が、1 文字の挿入だけで一致するか。"""
+    if len(a) > len(b):
+        a, b = b, a
+    i = j = 0
+    skipped = False
+    while i < len(a) and j < len(b):
+        if a[i] == b[j]:
+            i += 1
+            j += 1
+        elif not skipped:
+            skipped = True
+            j += 1
+        else:
+            return False
+    return True
 
 
 def is_release(utterance: str) -> bool:

@@ -14,6 +14,26 @@ _SPEAKER_PREFIX_RE = re.compile(
 )
 
 
+ME_MD_CANDIDATES = ("ME.md", "~/.familiar_ai/ME.md")
+
+
+def read_me_md() -> str:
+    """`ME.md` を読む（作業 dir → `~/.familiar_ai/`）。無ければ空。
+
+    名前の正本は `ME.md` なので、集音（`hotwords`）も agent もここから読む。
+    """
+    from pathlib import Path
+
+    for c in ME_MD_CANDIDATES:
+        path = Path(c).expanduser()
+        if path.exists():
+            try:
+                return path.read_text(encoding="utf-8").strip()
+            except Exception:  # noqa: BLE001
+                continue
+    return ""
+
+
 def parse_me_name(text: str) -> str:
     """Extract the AI's name from ME.md. Returns empty string if not found."""
     m = re.search(r"名前\s*[：:]\s*(.+)", text)

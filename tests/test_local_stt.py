@@ -51,10 +51,12 @@ def _feed(engine, frames: list[bytes]) -> None:
     async def run():
         for f in frames:
             await engine.feed(f)
+
     asyncio.run(run())
 
 
 # ── フレームの単位 ─────────────────────────────────────────────────────────
+
 
 def test_the_frame_size_is_what_silero_requires():
     """silero-vad は 16kHz で 512 サンプル固定。ここを間違えると判定が壊れる。"""
@@ -70,6 +72,7 @@ def test_the_mic_block_is_a_multiple_of_the_frame():
 
 
 # ── 区間の切り方 ───────────────────────────────────────────────────────────
+
 
 def test_silence_alone_never_reaches_the_model():
     """黙っているあいだは書き起こさない（GPU を無駄に回さない）。"""
@@ -109,6 +112,7 @@ def test_a_very_long_segment_is_cut_at_the_limit():
 
 # ── 発話の始まりを知らせる ──────────────────────────────────────────────────
 
+
 def test_the_start_of_speech_is_announced_once():
     """GUI が「聞いています」を出すための合図。始まりで1回だけ。"""
     seen: list[str] = []
@@ -120,15 +124,17 @@ def test_the_start_of_speech_is_announced_once():
 
 # ── 失敗しても落とさない ────────────────────────────────────────────────────
 
+
 def test_a_failed_transcription_does_not_raise():
     long_frames = int(1.6 * _RATE / FRAME_SAMPLES)
     engine = _engine(vad_says=["start"] + [None] * (long_frames - 1) + ["end"])
     engine._transcribe = MagicMock(side_effect=OSError("gpu が無い"))
     _feed(engine, [_LOUD_FRAME] * (long_frames + 1))
-    assert engine.on_committed.empty()      # 何も配らないが、例外も出さない
+    assert engine.on_committed.empty()  # 何も配らないが、例外も出さない
 
 
 # ── どちらの担い手を使うか ──────────────────────────────────────────────────
+
 
 def test_the_local_engine_is_not_used_for_elevenlabs():
     from familiar_agent.tools.local_stt import should_use_local
@@ -155,6 +161,7 @@ def test_the_silence_window_and_limit_have_defaults():
 # そこで、短い区間は確定させず次の発話まで持ち越して合わせる。ただし次が来ないまま
 # 無音が続いたら諦めて単独で起こす（「はい」だけの返事が永久に届かないのを避ける）。
 
+
 def test_a_short_segment_waits_for_the_next_utterance():
     """1.5 秒未満の区間は、その場では書き起こさない。"""
     # 発話 3 フレーム（約 0.1 秒）→ `end` で区間の終わり
@@ -166,10 +173,14 @@ def test_a_short_segment_waits_for_the_next_utterance():
 
 def test_a_short_segment_is_merged_into_the_next_one():
     """次の発話が来たら合わせて1つにする（文脈が繋がる）。"""
-    long_frames = int(1.6 * _RATE / FRAME_SAMPLES)      # 1.6 秒＝しきい値より長い
+    long_frames = int(1.6 * _RATE / FRAME_SAMPLES)  # 1.6 秒＝しきい値より長い
     engine = _engine(
-        vad_says=(["start", None, "end"]                        # 短い発話
-                  + ["start"] + [None] * (long_frames - 1) + ["end"]),   # 長い発話
+        vad_says=(
+            ["start", None, "end"]  # 短い発話
+            + ["start"]
+            + [None] * (long_frames - 1)
+            + ["end"]
+        ),  # 長い発話
     )
     _feed(engine, [_LOUD_FRAME] * 3 + [_LOUD_FRAME] * (long_frames + 1))
     engine._transcribe.assert_called_once()
@@ -196,8 +207,8 @@ def test_a_held_segment_is_eventually_given_up_and_committed():
     async def run():
         for f in [_LOUD_FRAME] * 3:
             await engine.feed(f)
-        engine._transcribe.assert_not_called()      # まだ持ち越している
-        engine._held_since = 0.0                    # 十分に時間が経った状態にする
+        engine._transcribe.assert_not_called()  # まだ持ち越している
+        engine._held_since = 0.0  # 十分に時間が経った状態にする
         for f in [_SILENT_FRAME] * 2:
             await engine.feed(f)
 
@@ -226,6 +237,7 @@ def test_the_merge_thresholds_have_defaults():
 # **そもそも復号も再標本化も要らない。** 音はすでに 16kHz の PCM である。float32 の
 # numpy 配列をそのまま渡せば `decode_audio` を通らず、PyAV が経路から消える。
 
+
 def test_the_audio_reaches_the_model_as_float32_samples():
     """WAV でもファイル様オブジェクトでもなく、16kHz の float32 配列を渡す。"""
     import numpy as np
@@ -235,15 +247,15 @@ def test_the_audio_reaches_the_model_as_float32_samples():
     model = MagicMock()
     model.transcribe.return_value = ([], MagicMock(duration=1.0))
 
-    pcm = (np.arange(_RATE, dtype=np.int16) % 1000).tobytes()   # 1 秒ぶん
+    pcm = (np.arange(_RATE, dtype=np.int16) % 1000).tobytes()  # 1 秒ぶん
     with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
         engine._transcribe(pcm)
 
     passed = model.transcribe.call_args.args[0]
     assert isinstance(passed, np.ndarray), f"配列でなく {type(passed)} を渡している"
     assert passed.dtype == np.float32
-    assert len(passed) == _RATE                 # 16kHz のまま（再標本化していない）
-    assert abs(passed).max() <= 1.0             # -1.0〜1.0 に正規化してある
+    assert len(passed) == _RATE  # 16kHz のまま（再標本化していない）
+    assert abs(passed).max() <= 1.0  # -1.0〜1.0 に正規化してある
 
 
 def test_the_model_is_never_asked_to_decode_a_container():
@@ -272,14 +284,20 @@ def test_the_model_is_never_asked_to_decode_a_container():
 #
 # 本文は info 以上へ出さない（会話内容のため）。数値と字数だけを info に出す。
 
+
 def test_each_segment_reports_its_no_speech_probability(caplog):
     """セグメントごとに `no_speech_prob` と `avg_logprob` を残す。"""
     import logging
 
     import numpy as np
 
-    seg = MagicMock(text="ご視聴ありがとうございました", no_speech_prob=0.87,
-                    avg_logprob=-0.42, start=0.0, end=1.4)
+    seg = MagicMock(
+        text="ご視聴ありがとうございました",
+        no_speech_prob=0.87,
+        avg_logprob=-0.42,
+        start=0.0,
+        end=1.4,
+    )
     model = MagicMock()
     model.transcribe.return_value = ([seg], MagicMock(duration=1.4))
 
@@ -299,8 +317,7 @@ def test_the_measurement_line_does_not_leak_the_transcript(caplog):
 
     import numpy as np
 
-    seg = MagicMock(text="秘密の話", no_speech_prob=0.1, avg_logprob=-0.2,
-                    start=0.0, end=1.0)
+    seg = MagicMock(text="秘密の話", no_speech_prob=0.1, avg_logprob=-0.2, start=0.0, end=1.0)
     model = MagicMock()
     model.transcribe.return_value = ([seg], MagicMock(duration=1.0))
 
@@ -327,12 +344,18 @@ def test_the_measurement_line_does_not_leak_the_transcript(caplog):
 # **`no_speech_prob` は 30 秒の窓ごとの値**で、同じ書き起こしのセグメントは同じ値を持つ。
 # よってセグメント単位ではなく、その書き起こしをまるごと捨てる。
 
+
 def test_a_hallucination_above_the_threshold_is_dropped():
     """0.72 を超えたら、書き起こしをまるごと捨てる（実測 0.785 の幻聴）。"""
     import numpy as np
 
-    seg = MagicMock(text="ご視聴ありがとうございました", no_speech_prob=0.785,
-                    avg_logprob=-0.580, start=0.0, end=30.0)
+    seg = MagicMock(
+        text="ご視聴ありがとうございました",
+        no_speech_prob=0.785,
+        avg_logprob=-0.580,
+        start=0.0,
+        end=30.0,
+    )
     model = MagicMock()
     model.transcribe.return_value = ([seg], MagicMock(duration=3.1))
 
@@ -345,8 +368,7 @@ def test_a_quiet_real_utterance_just_below_the_threshold_survives():
     """0.709 は本物だった（「はい」のような短い返事）。落としてはいけない。"""
     import numpy as np
 
-    seg = MagicMock(text="うん", no_speech_prob=0.709, avg_logprob=-0.712,
-                    start=0.0, end=2.0)
+    seg = MagicMock(text="うん", no_speech_prob=0.709, avg_logprob=-0.712, start=0.0, end=2.0)
     model = MagicMock()
     model.transcribe.return_value = ([seg], MagicMock(duration=1.86))
 
@@ -364,3 +386,28 @@ def test_the_no_speech_ceiling_has_a_default_and_can_be_moved():
         assert STTConfig().no_speech_max == pytest.approx(0.72)
     with _patch.dict(os.environ, {"STT_NO_SPEECH_MAX": "0.9"}, clear=True):
         assert STTConfig().no_speech_max == pytest.approx(0.9)
+
+
+# ── 名前の手がかり ─────────────────────────────────────────────────────────
+
+
+def test_the_names_are_given_to_whisper_as_hotwords():
+    """「パジュ」を 体重／はじゅ と書き起こした（2026-09-17）。名前を手がかりとして渡す。"""
+    cfg = STTConfig()
+    cfg.hotwords = "パジュ"
+    engine = LocalSttEngine(cfg)
+    model = MagicMock()
+    model.transcribe.return_value = (iter([]), None)
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        engine._transcribe(b"\x00\x00" * 16000)
+    assert model.transcribe.call_args.kwargs["hotwords"] == "パジュ"
+
+
+def test_no_hotwords_when_no_name_is_known():
+    cfg = STTConfig()
+    engine = LocalSttEngine(cfg)
+    model = MagicMock()
+    model.transcribe.return_value = (iter([]), None)
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        engine._transcribe(b"\x00\x00" * 16000)
+    assert model.transcribe.call_args.kwargs.get("hotwords") is None

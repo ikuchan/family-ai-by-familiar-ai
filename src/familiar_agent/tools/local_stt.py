@@ -51,14 +51,14 @@ class LocalSttEngine:
         # 発話の始まりを知らせる差し込み口（GUI が「聞いています」を出す）。
         self.on_speech_start: Callable[[], None] | None = None
         self._vad = None
-        self._buffer = bytearray()        # 512 サンプルに切り出す前の余り
-        self._segment = bytearray()       # いま溜めている発話
+        self._buffer = bytearray()  # 512 サンプルに切り出す前の余り
+        self._segment = bytearray()  # いま溜めている発話
         self._speaking = False
         self._segment_limit = int(cfg.max_segment_sec * _RATE) * _BYTES_PER_SAMPLE
         # 短い区間を持ち越すためのしきい値。**諦める時機は時刻で測る**（VAD は境目しか
         # 返さないので、無音のフレーム数は数えられない）。
         self._min_bytes = int(cfg.min_segment_sec * _RATE) * _BYTES_PER_SAMPLE
-        self._held = bytearray()              # 次の発話まで持ち越している短い区間
+        self._held = bytearray()  # 次の発話まで持ち越している短い区間
         self._held_since: float | None = None  # 持ち越し始めた時刻
 
     @property
@@ -144,8 +144,9 @@ class LocalSttEngine:
         if not force and len(audio) < self._min_bytes:
             self._held = bytearray(audio)
             self._held_since = time.monotonic()
-            logger.debug("STT: 区間が短いので持ち越す（%.1f 秒）",
-                         len(audio) / (_RATE * _BYTES_PER_SAMPLE))
+            logger.debug(
+                "STT: 区間が短いので持ち越す（%.1f 秒）", len(audio) / (_RATE * _BYTES_PER_SAMPLE)
+            )
             return
         await self._write(audio)
 
@@ -189,7 +190,8 @@ class LocalSttEngine:
         )
         logger.info(
             "STT: VAD を用意した（%.1f 秒・無音 %.1f 秒で区間の終わり）",
-            time.monotonic() - started, self._cfg.vad_silence_sec,
+            time.monotonic() - started,
+            self._cfg.vad_silence_sec,
         )
         return self._vad
 
@@ -228,7 +230,9 @@ class LocalSttEngine:
         segments, info = model.transcribe(
             samples,
             language=(self._cfg.language or None),
-            vad_filter=False,      # 区間は既に VAD で切ってある
+            vad_filter=False,  # 区間は既に VAD で切ってある
+            # 名前の手がかり（`STTConfig.hotwords`）。無ければ渡さない（既定の挙動のまま）。
+            hotwords=(getattr(self._cfg, "hotwords", "") or None),
         )
         # 話していないのに「ご視聴ありがとうございました」のような定型句が書き起こされる。
         # Whisper は無音や物音に字幕の常套句を当てる。実機15件にラベルを付けて測ると、
@@ -255,14 +259,17 @@ class LocalSttEngine:
         if parts and no_speech > self._cfg.no_speech_max:
             logger.info(
                 "STT: 音声でないとみなして捨てた（no_speech_prob=%.3f > %.3f・%d 字）",
-                no_speech, self._cfg.no_speech_max, len("".join(parts).strip()),
+                no_speech,
+                self._cfg.no_speech_max,
+                len("".join(parts).strip()),
             )
             logger.debug("STT: 捨てた本文: %s", "".join(parts).strip()[:120])
             return ""
         text = "".join(parts).strip()
         logger.info(
             "STT: 書き起こした（%d 字・%.2f 秒・音声 %.1f 秒）",
-            len(text), time.monotonic() - started,
+            len(text),
+            time.monotonic() - started,
             len(audio) / (_RATE * _BYTES_PER_SAMPLE),
         )
         return text
