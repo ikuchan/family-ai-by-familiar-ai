@@ -411,7 +411,7 @@ ELEVENLABS_API_KEY=sk_...   # same key as TTS
 STT_LANGUAGE=ja            # recommended for Japanese; used by both batch and realtime STT
 ```
 
-familiar-ai streams microphone audio to ElevenLabs Scribe v2 and auto-commits transcripts when you pause speaking. No button press required. Coexists with the push-to-talk mode (Ctrl+T).
+By default the transcription runs locally with faster-whisper and silero-vad (`STT_ENGINE=whisper`); set `STT_ENGINE=elevenlabs` to stream to ElevenLabs Scribe v2 instead. Either way transcripts are committed when you pause speaking — no button press required. `AUDIO_INPUT_DEVICE` picks the microphone and `AUDIO_INPUT_GAIN` boosts a quiet one; `/reload` in the GUI re-reads these without a restart. Coexists with the push-to-talk mode (Ctrl+T).
 
 On WSL2/WSLg, realtime STT also depends on `sounddevice` / PortAudio being able to
 see your microphone input, not just PulseAudio playback. Install
@@ -501,7 +501,7 @@ familiar-ai is an open experiment. If any of this resonates with you — technic
 | New tools | Web search, home automation, calendar, anything via MCP |
 | New backends | Any LLM or local model that fits the `stream_turn` interface |
 | Persona templates | ME.md templates for different languages and personalities |
-| Research | Better desire models, memory retrieval, theory-of-mind prompting |
+| Research | Drive and mood dynamics, memory retrieval, nightly reflection |
 | Documentation | Tutorials, walkthroughs, translations |
 
 See [CONTRIBUTING.md](./CONTRIBUTING.md) for dev setup, code style, and PR guidelines.
