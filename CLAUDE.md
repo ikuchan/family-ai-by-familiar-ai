@@ -271,7 +271,7 @@ uv run --group dev mypy src/familiar_agent
 | 段階・順序・現在地 | `課題8_段取り設計`（計画の正本）、`直近の進め方と進捗` |
 | 用語・略語 | `用語_略語一覧` |
 | 記憶データモデル | `MIデータモデル`、`gap分析_移行設計`、`bge-m3移行チケット`、`課題7` |
-| 仕様の意図 | ユースケース① 〜 ⑥ |
+| 仕様の意図 | ユースケース② 〜 ⑥（①は無い） |
 | `src/`・`migration/` の py | `.claude/rules/コード規約.md` |
 | `docs/NewModesDocs/` の md | `.claude/rules/文章規範.md` |
 | 出力の形式全般 | `.claude/rules/作業手順.md`（常時適用） |
