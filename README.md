@@ -24,56 +24,49 @@ It perceives the real world through cameras, moves around on a robot body, speak
 ## What it can do
 
 - 👁 **See** — captures images from a Wi-Fi PTZ camera or USB webcam
-- 🔄 **Look around** — pans and tilts the camera to explore its surroundings
+- 🔄 **Look around** — turns the camera to named spots ("the door", "the window") or relative directions ("look right"), and looks at what it finds
 - 🦿 **Move** — drives a robot vacuum to roam the room
 - 🗣 **Speak** — talks via ElevenLabs TTS
-- 🎙 **Listen** — hands-free voice input via ElevenLabs Realtime STT (opt-in)
-- 🧠 **Remember** — actively stores and recalls memories with semantic search (SQLite + embeddings)
-- 🫀 **Theory of Mind** — takes the other person's perspective before responding
-- 💭 **Desire** — has its own internal drives that trigger autonomous behavior
-- 🌐 **Global Workspace** — perception, memory, desires, and predictions compete for attention; only the most salient wins
-- 🔮 **Prediction** — tracks what it expects to see; surprise lowers the attention threshold
-- 🔍 **Attention Schema** — maintains a self-model of what it's focused on and why
-- 💤 **Default Mode** — mind-wanders when idle, spontaneously surfacing memories and associations
-- 🔬 **Meta-cognition** — observes its own reasoning steps each turn
+- 🎙 **Listen** — hands-free voice input (ElevenLabs Realtime STT or local Whisper, opt-in)
+- 🧠 **Remember** — stores what happens in PostgreSQL (pgvector) and recalls it by relevance, recency, emotion, presence and groundedness
+- 👥 **Know the family** — identifies who is speaking, keeps a separate memory perspective per person, notices who is in the room
+- 💭 **Act on its own** — five drives (seeking, rest, bond, safety, esteem) build up over time and fire autonomous behaviour; a mood (PAD) colours what it recalls
+- 🌙 **Reflect at night** — when nobody is around, folds the day's events, updates its self-image, tunes its own settings and re-describes its abilities
+- ⏰ **Timers** — "set a 3-minute timer", stopwatch, "stop it"; stays quiet while a timer runs and speaks up a little louder when it rings
+- 🤫 **Stay quiet when asked** — falls silent when told to by name, resumes on "you can talk now", and then answers what it heard meanwhile in one go
+- 📅 **House knowledge** — reads the family calendar (ICS), Notion and an Obsidian vault through MCP
+- 🔍 **Web search** — Brave Search MCP (2,000 free queries/month)
+- 💡 **Adaptive thinking** — thinks harder on hard questions, answers light ones quickly
 
 ## How it works
 
-familiar-ai runs a [ReAct](https://arxiv.org/abs/2210.03629) loop powered by your choice of LLM. It perceives the world through tools, thinks about what to do next, and acts — just like a person would.
+familiar-ai is an **event-driven loop** powered by your choice of LLM. Everything that happens —
+someone speaking, a camera event, a timer ringing, an internal drive firing, a search result coming
+back — enters one queue as a *trigger*. Each iteration does one thing: it either speaks, or fires a
+tool and waits for the result.
 
 ```
-user input
-  → think → act (camera / move / speak / remember) → observe → think → ...
+trigger (speech / device / drive / completed tool)
+  → intake      write what arrived to memory (O)
+  → recall      score memories on 5 axes, build the working set (W)
+  → arbitrate   a light LLM picks the branch and effort (answer lightly / think deeply / look / search)
+  → generate    the main LLM speaks or calls a tool
+  → close       record what was said; summaries and reflection follow in the background
 ```
 
-When idle, it acts on its own desires: curiosity, wanting to look outside, missing the person it lives with.
+Two things run underneath the loop:
 
-### Global Workspace Architecture
+- **Tonic (T)** — a background heartbeat that accumulates drives, decays mood, watches presence and
+  fires timers. When a drive crosses its threshold it pushes a trigger of its own.
+- **Memory (O)** — one PostgreSQL store. Every observation gets a per-person *perspective* row, so
+  each family member has their own memory space while the agent stays one agent.
 
-Under the hood, familiar-ai implements a [Global Workspace Theory](https://arxiv.org/abs/2410.11407)-inspired architecture. Rather than dumping everything into the LLM prompt, specialized processors compete for a central workspace each turn — and only the winner gets full representation:
+When nobody is home, a **REST pass** folds the day's events into episodes, rewrites the agent's
+self-image, nudges its own settings from the night's measurements, and refreshes what it believes
+it can do.
 
-```
-Specialized processors (run in parallel each turn)
-  ├─ Desires       — what it wants right now
-  ├─ Scene         — what it perceives (prediction error: surprise → heightened awareness)
-  ├─ Memory        — what it recalls
-  ├─ Theory of Mind — what the other person might be thinking
-  ├─ Self-narrative — continuity of identity
-  ├─ Exploration   — curiosity about unvisited directions
-  ├─ Attention Schema — self-model of its own focus
-  ├─ Prediction    — expected vs actual world state
-  └─ Default Mode  — mind-wandering when nothing else ignites
-          │
-          ▼  compete (ignition threshold)
-   ┌─────────────┐
-   │  Workspace  │  winner → LLM prompt (bottleneck)
-   │  broadcast  │  others → peripheral summary (1 line each)
-   └─────────────┘
-          │
-          └──▶ Meta-Monitor records each step ("what was I attending to?")
-```
-
-This creates **selective attention** — not everything reaches the LLM on every turn, only what matters most.
+The earlier ReAct pipeline (Global Workspace, attention schema, meta-monitor, desire system) was
+removed; see [Technical background](#technical-background) for where the design lives now.
 
 ## Getting started
 
@@ -115,7 +108,17 @@ cd familiar-ai
 uv sync
 ```
 
-### 4. Configure
+### 4. Start the database
+
+Memories live in PostgreSQL (pgvector). One command with Docker:
+
+```bash
+docker compose up db -d
+```
+
+> Stopping the container keeps your memories; `docker compose up db -d` brings it back.
+
+### 5. Configure
 
 ```bash
 cp .env.example .env
@@ -131,6 +134,7 @@ the setup dialog for you on first launch when `API_KEY` is still missing.
 |----------|-------------|
 | `PLATFORM` | `anthropic` (default) \| `gemini` \| `openai` \| `kimi` \| `glm` |
 | `API_KEY` | Your API key for the chosen platform |
+| `DATABASE_URL` | PostgreSQL connection string (`.env.example` matches `docker compose up db`) |
 
 **Optional:**
 
@@ -144,17 +148,20 @@ the setup dialog for you on first launch when `API_KEY` is still missing.
 | `ELEVENLABS_API_KEY` | For voice output — [elevenlabs.io](https://elevenlabs.io/) |
 | `REALTIME_STT` | `true` to enable always-on hands-free voice input (requires `ELEVENLABS_API_KEY`) |
 | `TTS_OUTPUT` | Where to play audio: `local` (PC speaker, default) \| `remote` (camera speaker) \| `both` |
+| `ELEVENLABS_MODEL` | TTS model: `eleven_flash_v2_5` (default, ~0.7 s) \| `eleven_v3` (expressive, ~5 s) |
+| `AUDIO_INPUT_DEVICE` / `AUDIO_INPUT_GAIN` | Microphone name (substring) and software input gain (1.0 = off) |
+| `TIMER_SILENCE` / `TIMER_VOICE_GAIN` | Stay quiet while a timer runs (default `true`) / louder voice for the ring only (default 1.0) |
 | `THINKING_MODE` | Anthropic only — `auto` (default) \| `adaptive` \| `extended` \| `disabled` |
 | `THINKING_EFFORT` | Adaptive thinking effort: `high` (default) \| `medium` \| `low` \| `max` (Opus 4.6 only) |
 
-### 5. Create your familiar
+### 6. Create your familiar
 
 ```bash
 cp persona-template/en.md ME.md
 # Edit ME.md — give it a name and personality
 ```
 
-### 6. Run
+### 7. Run
 
 **macOS / Linux / WSL2:**
 ```bash
