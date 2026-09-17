@@ -13,6 +13,10 @@
 |---|---|
 | `technical.md` | ターンの11段のパイプラインと、各層（内受容・値踏み・社会方針・メタ監視）の説明 |
 | `architecture.md` | Neighbor Intelligence Stack への層の対応づけ |
+| `CHANGES.md` | fork の v0.5 → v0.6 の変更点（SQLite → PostgreSQL 等・2026-06-16 まで）。その後の変更は git の履歴と `NewModesDocs` の各更新履歴にある |
+| `HowToDecideWhomToTalk.md` | 旧 desire（`share_memory`）を前提にした「誰に話すか」の設計メモ（2026-06-14）。desire は 環-d で撤去した |
+| `future-model.md` | Chronos-Neighbor 構想（2026-04・英語） |
+| `handson-guide.md` | 2026-04-04 のハンズオンの資料 |
 
 ## いまの設計はどこにあるか
 
@@ -24,4 +28,4 @@
 | ループの設計判断 | 同 `設計方針_ループの語を束ねる`・`設計方針_主LLMを投げっぱなしにする` |
 | module 構成 | `docs/ソースツリー.md`（実物から生成） |
 
-（2026-09-10 に `docs/` 直下から移した。）
+（2026-09-10 に `technical.md`・`architecture.md` を、2026-09-17 に残り 4 file を `docs/` 直下から移した。）
