@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：タイマー（アラーム・タイマー・ストップウォッチ）（v0.4）
+# familiar-ai 設計方針：タイマー（アラーム・タイマー・ストップウォッチ）（v0.5）
 
 「7 時に起こして」「3 分測って」「今から測って」に応える。**途中で停められること**を軸に設計する
 （知-n・2026-09-15）。用語一覧の定義（期限つきの意図・`set_timer`・T が due で発火・I は時計を持たない）を実装に落とした。
@@ -15,7 +15,7 @@
 
 ## 2. 置き場
 
-表 **`timers`**（065）：`id`・`label`・`due`（timestamptz・ストップウォッチは NULL）・`started_at`・`fired_at`・`cancelled_at`・`asked_by`・`obs_id`・`passes_quiet`。
+表 **`timers`**（065・066）：`id`・`label`・`due`（timestamptz・ストップウォッチは NULL）・`started_at`・`fired_at`・`cancelled_at`・`asked_by`・`obs_id`・`passes_quiet`・`paused_at`・`paused_total_sec`・`listen`（§12・§9）。
 状態は列で持ち、content の時刻を読まない。再起動をまたいで残る。器は `store/timers.py`（`add`・`active`・`due_now`・`recently_fired`・`mark_fired`・`cancel`・`cancel_all`）。
 あわせて O に `direction='予定'` の記録「パパに頼まれて、19:33 に「パスタ」のタイマーを掛けた」を書く（想起に載る・「約束した」が記憶になる）。
 
@@ -94,11 +94,26 @@ due のある未発火・未中止のタイマーが 1 本でもあれば `set_t
 止めるか、鳴るのを待ってから」。**確認より先に見る**（確認だけして掛からない、を避ける）。ストップウォッチは別枠で 1 本
 （タイマー 1 本との同時は許す）。以前の「合わせて 5 本〔仮〕」は撤回。
 
+## 12. 一時停止・再開（v0.5・段 4）
+
+| 口 | 中身 |
+|---|---|
+| 道具 `pause_timer(id か all)`／`resume_timer(id か all)` | **調停の候補と主LLM の道具の両方**（どちらに行っても同じ道具）。ストップウォッチは対象外（止めるなら `cancel_timer`） |
+| 命令 `/timer pause [id]`／`/timer resume [id]` | LLM を通さない（`/timer stop` の型） |
+| 表（066） | `paused_at`（いま止めている時刻・動いていれば NULL）・`paused_total_sec`（止めていた累計）・`listen`（段 5） |
+| 残り | `remaining(row, now)`＝`due − now`（`due` は再開のたびに止めていた長さぶん伸びる）。止めている間は `due − paused_at`（止めた瞬間のまま）。**何度止めても再開しても累計に足すだけ** |
+| 鳴らす | `due_now` は `paused_at IS NOT NULL` を拾わない |
+| 枠 | `[タイマー]` に「id=1 パスタ 一時停止中（残り 2:00）」 |
+| 黙っているあいだ | 「一時停止」「再開」も解くきっかけとして通す（`silence_hold._STOP`） |
+| 記録 | `予定`「止めておく：id=1 「パスタ」 残り 2:00」「再開した：…」 |
+
 ## 7. 仮値
 
 鳴った後の表示 180 秒・「遅れて」を添える閾 60 秒。
 
 ## 更新履歴
+
+> v0.5：**一時停止・再開**（§12・066・知-o 段 4・2026-09-18）。
 
 > v0.4：**掛ける前に確かめる**（§10・`TIMER_CONFIRM`）と**同時に 1 本**（§11）（知-o 段 2・3・2026-09-18）。
 

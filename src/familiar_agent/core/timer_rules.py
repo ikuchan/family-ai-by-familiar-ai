@@ -68,11 +68,22 @@ def _mmss(delta: timedelta) -> str:
     return f"{total // 60}:{total % 60:02d}"
 
 
+def remaining(row: dict, now: datetime) -> timedelta:
+    """タイマーの残り。止めている間は動かない（`paused_at` 基準）。
+
+    `due` は再開のたびに止めていた長さぶん伸びている（`TimerStore.resume`）ので、動いている間は
+    `due − now` でよい。止めている間は `due − paused_at`（止めた瞬間の残りのまま）。
+    """
+    paused_at = row.get("paused_at")
+    at = paused_at if paused_at is not None else now
+    return max(timedelta(0), row["due"] - at)
+
+
 def measure_at(row: dict, at: datetime) -> str:
     """止めた瞬間の値：ストップウォッチは「経過 m:ss」、タイマーは「残り m:ss」。"""
     if row.get("due") is None:
         return f" 経過 {_mmss(at - row['started_at'])}"
-    return f" 残り {_mmss(row['due'] - at)}"
+    return f" 残り {_mmss(remaining(row, at))}"
 
 
 def render_frame(
@@ -87,9 +98,13 @@ def render_frame(
     lines = ["[タイマー]"]
     for r in active:
         due = r.get("due")
-        if due is not None:
+        if due is not None and r.get("paused_at") is not None:
             lines.append(
-                f"- id={r['id']} {r['label']} 残り {_mmss(due - now)}（{due.astimezone(now.tzinfo):%H:%M} に鳴る）"
+                f"- id={r['id']} {r['label']} 一時停止中（残り {_mmss(remaining(r, now))}）"
+            )
+        elif due is not None:
+            lines.append(
+                f"- id={r['id']} {r['label']} 残り {_mmss(remaining(r, now))}（{due.astimezone(now.tzinfo):%H:%M} に鳴る）"
             )
         else:
             lines.append(f"- id={r['id']} {r['label']} 経過 {_mmss(now - r['started_at'])}")

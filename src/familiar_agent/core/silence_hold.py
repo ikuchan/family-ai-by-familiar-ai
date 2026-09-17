@@ -18,7 +18,9 @@ from datetime import datetime
 from .silence_rules import is_release
 
 #: 本人が止めたいとき（`cancel_timer`・`/timer stop` に向かう言葉）は黙っていても通す。
-_STOP = re.compile(r"止めて|ストップ|やめて")
+_STOP = re.compile(
+    r"止めて|ストップ|やめて|一時停止|再開"
+)  # 一時停止・再開は 2026-09-18（知-o 段 4）
 
 
 @dataclass(frozen=True)
