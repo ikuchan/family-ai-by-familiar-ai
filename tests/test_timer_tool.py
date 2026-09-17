@@ -2,13 +2,14 @@
 
 - 静穏時間に掛かる／黙っているよう頼まれているときは**登録せず**「確かめて」を返す。`confirmed` で登録。
 - 登録したら O に `予定` の記録、止めたら「やめた」の記録。
-- 同時に 5 本〔仮〕まで。
+- 同時に 1 本（2026-09-18・以前は 5 本〔仮〕）。
 """
 
 from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
+import pytest
 from unittest.mock import AsyncMock, MagicMock
 from zoneinfo import ZoneInfo
 
@@ -64,6 +65,12 @@ class _FakeStore:
             r["cancelled_at"] = now or NOW
             n += 1
         return n
+
+
+@pytest.fixture(autouse=True)
+def _confirm_off(monkeypatch):
+    """ここは掛かったあとの振る舞いを見る。確かめる（`TIMER_CONFIRM`）は `test_timer_confirm_and_single` が見る。"""
+    monkeypatch.setenv("TIMER_CONFIRM", "false")
 
 
 def _tool(*, quiet=QuietHoursRule(23, 7), silence=False):
@@ -136,12 +143,13 @@ def test_bad_time_is_refused():
     assert not ok and "読めない" in text and store.active() == []
 
 
-def test_the_limit_is_five():
+def test_the_limit_is_one():
+    """同時に 1 本（2026-09-18・以前は 5 本〔仮〕）。中身は `test_timer_confirm_and_single`。"""
+    assert MAX_ACTIVE == 1
     t, store, _ = _tool()
-    for i in range(MAX_ACTIVE):
-        asyncio.run(t.call("set_timer", {"after_minutes": 1 + i, "label": f"t{i}"}))
+    asyncio.run(t.call("set_timer", {"after_minutes": 1, "label": "t0"}))
     text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 9, "label": "多すぎ"}))
-    assert not ok and f"{MAX_ACTIVE}" in text and len(store.active()) == MAX_ACTIVE
+    assert not ok and "t0" in text and len(store.active()) == 1
 
 
 def test_stopwatch_starts_without_due():
@@ -154,7 +162,9 @@ def test_stopwatch_starts_without_due():
 def test_cancel_one_or_all_and_says_when_nothing_is_running():
     t, store, oif = _tool()
     asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "a"}))
-    asyncio.run(t.call("set_timer", {"after_minutes": 4, "label": "b"}))
+    asyncio.run(
+        t.call("start_stopwatch", {"label": "b"})
+    )  # 2 本目はストップウォッチ（タイマーは 1 本）
     text, ok = asyncio.run(t.call("cancel_timer", {"id": 1}))
     assert ok and "a" in text and "止めた" in text and len(store.active()) == 1
     assert oif.write.call_args.args[0].content.startswith("やめた：")

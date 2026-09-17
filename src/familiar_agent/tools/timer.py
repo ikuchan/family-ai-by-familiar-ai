@@ -23,7 +23,9 @@ from ..person_memory_manager import AGENT_SELF_ID
 
 logger = logging.getLogger(__name__)
 
-MAX_ACTIVE = 5  # 同時に動かせる本数〔仮〕
+# 同時に動かせるのは**タイマー 1 本・ストップウォッチ 1 本**（2026-09-18・フラグに関係ない規則）。
+# 以前は合わせて 5 本〔仮〕だった。掛け直すなら止めてから。
+MAX_ACTIVE = 1
 RECENT_SEC = 180.0  # 鳴った後も枠に残す秒数〔仮〕（「止めて」に「もう止まっている」と答える）
 
 _DEFS: list[dict] = [
@@ -174,12 +176,30 @@ class TimerTool:
         except (ValueError, TypeError) as e:
             return f"時刻を読めない：{e}", False
         store = self._store()
-        if len(store.active(now=now)) >= MAX_ACTIVE:
-            return f"同時に動かせるのは {MAX_ACTIVE} 本まで。先にどれかを止めて", False
+        running = [r for r in store.active(now=now) if r.get("due") is not None]
+        if running:
+            # 同時に 1 本。確認より先に見る（確認だけして掛からない、を避ける）。
+            r = running[0]
+            return (
+                f"いま「{r['label']}」（id={r['id']}{timer_rules.measure_at(r, now)}）が動いている。"
+                "止めるか、鳴るのを待ってから",
+                False,
+            )
+        confirmed = bool(inp.get("confirmed"))
+        flags = self.flags()
         reason = timer_rules.needs_confirmation(
             due, quiet=self._quiet(), silence_active=self._silence_active()
         )
-        confirmed = bool(inp.get("confirmed"))
+        if not reason and flags.confirm and not confirmed:
+            # 掛ける前に一度確かめる（`TIMER_CONFIRM`・既定 true）。静穏時間・沈黙中の確認は下で（常に）。
+            minutes = (due - now).total_seconds() / 60.0
+            ask = timer_rules.confirm_text(
+                minutes, silence=flags.silence, mic_close=flags.mic_close
+            )
+            return (
+                f"まだ掛けていない。本人に一度聞く：「{ask}」——「いい」なら confirmed=true で呼び直す",
+                True,
+            )
         if reason and not confirmed:
             return (
                 f"まだ掛けていない。確かめてから：{reason}——{due:%H:%M} に「{label}」で鳴らしてよいか本人に一度聞き、"
@@ -215,8 +235,11 @@ class TimerTool:
         label = str(inp.get("label") or "ストップウォッチ").strip()
         now = (now or self._now()).astimezone()
         store = self._store()
-        if len(store.active(now=now)) >= MAX_ACTIVE:
-            return f"同時に動かせるのは {MAX_ACTIVE} 本まで。先にどれかを止めて", False
+        watches = [r for r in store.active(now=now) if r.get("due") is None]
+        if watches:
+            # ストップウォッチも 1 本（タイマーとは別枠）。
+            r = watches[0]
+            return f"いま「{r['label']}」（id={r['id']}）を測っている。止めてから", False
         who = self._speaker() or ""
         obs_id = await self._write(
             f"{who or '誰か'}に頼まれて、{now:%H:%M} から「{label}」を測り始めた"

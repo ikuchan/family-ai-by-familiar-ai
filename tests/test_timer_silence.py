@@ -13,6 +13,7 @@ import asyncio
 import os
 import time
 from datetime import datetime, timedelta
+import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 from zoneinfo import ZoneInfo
 
@@ -77,6 +78,12 @@ def test_the_arbiter_note_says_it_is_a_timer():
 
 
 # ── 道具からの呼び出し ─────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _confirm_off(monkeypatch):
+    """ここは掛かったあとの振る舞いを見る。確かめる（`TIMER_CONFIRM`）は `test_timer_confirm_and_single` が見る。"""
+    monkeypatch.setenv("TIMER_CONFIRM", "false")
 
 
 def _tool():
