@@ -82,15 +82,14 @@ default-groups = ["dev", "camera", "voice"]
 override-dependencies = ["onnxruntime; sys_platform == 'nonexistent'"]
 
 [tool.uv.sources]
-torch = { index = "pytorch-cpu" }
+# torch は直接の依存でなく（torchaudio・speechbrain 経由）、`tool.uv.sources` は直接の依存にしか
+# 効かないので、以前あった `torch = { index = "pytorch-cpu" }` は死んだ宣言だった（uv.lock の torch は
+# PyPI）。PyPI の Linux x86_64 の torch 2.10 は CUDA 12.8 版（`torch.__version__`＝2.10.0+cu128・
+# nvidia-*-cu12 を連れてくる）で、実物と一致する。CPU 版にしたければ torch を直接の依存に足して
+# 索引 https://download.pytorch.org/whl/cpu を向ける（2026-09-17・出-u）。
 # 既定 PyPI の onnxruntime-gpu は CUDA 13 版（libcudart.so.13 を要求）。環境は torch と
 # 揃えた CUDA 12.8（cudnn 9.10 cu12）なので、CUDA-12 版を公式の CUDA-12 索引から入れる。
 onnxruntime-gpu = { index = "onnxruntime-cuda12" }
-
-[[tool.uv.index]]
-name = "pytorch-cpu"
-url  = "https://download.pytorch.org/whl/cpu"
-explicit = true
 
 [[tool.uv.index]]
 name = "onnxruntime-cuda12"
