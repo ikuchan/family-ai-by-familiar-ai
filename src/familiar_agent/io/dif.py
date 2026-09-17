@@ -16,15 +16,25 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import re
 import time
 import logging
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 # ログに載せる発話の長さ。記憶の内容と同じ扱いで、debug でも先頭だけにする。
 _TRAIL_CHARS = 24
+_ALARM_WAV = Path(__file__).resolve().parent.parent / "sounds" / "timer_alarm.wav"
+
+
+async def _play_wav(path: Path, gain: float) -> bool:
+    """wav を 1 回鳴らす（差し替え点）。再生は `tools/tts` の sounddevice の口を借りる。"""
+    from ..tools.tts import _play_via_sounddevice
+
+    return await _play_via_sounddevice(str(path), gain)
 
 
 _SESSION_MARK = re.compile(r"\s*──（\d{4}-\d{2}-\d{2} のセッション／[^）]*）\s*$")
@@ -57,6 +67,7 @@ class DIF:
         self._fetch = fetch
         self._mcp = mcp
         self._ip = ip
+        self._ring_task: asyncio.Task | None = None  # 鳴っているタイマーの音（知-n-ろ）
 
     # ── 声 ────────────────────────────────────────────────────────────────
 
@@ -96,6 +107,45 @@ class DIF:
                 logger.warning("DIF 声が出なかった：%s", str(result)[:160])
         # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
         logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
+
+    # ── タイマーの音 ──────────────────────────────────────────────────────
+
+    @property
+    def ringing(self) -> bool:
+        return self._ring_task is not None and not self._ring_task.done()
+
+    def ring_timer(self, *, seconds: float, gain: float = 1.0) -> None:
+        """タイマーの音（`sounds/timer_alarm.wav`・1 秒）を `seconds` のあいだ繰り返す（知-n-ろ）。
+
+        「タイマーです」の一言の代わり。**声の口（`speak`）は通らない**——通すとマイクの門
+        （`tts_active`）が立ち、鳴っている最中の「止めて」が届かない。音をマイクが拾う分は
+        STT の幻聴の門（`no_speech_prob`）で落ちる想定（実機で確かめる）。止めるのは
+        `stop_ring`（`cancel_timer`・`/timer stop`）か時間切れ。
+        """
+        self.stop_ring()
+        if seconds <= 0:
+            return
+        logger.info("DIF タイマーの音を鳴らす（%.0f 秒・倍率 %.2f）", seconds, gain)
+        self._ring_task = asyncio.create_task(self._ring(seconds, gain))
+
+    def stop_ring(self) -> None:
+        if self.ringing:
+            logger.info("DIF タイマーの音を止めた")
+            self._ring_task.cancel()  # type: ignore[union-attr]
+        self._ring_task = None
+
+    async def _ring(self, seconds: float, gain: float) -> None:
+        deadline = time.monotonic() + seconds
+        try:
+            while time.monotonic() < deadline:
+                ok = await _play_wav(_ALARM_WAV, gain)
+                if not ok:
+                    logger.warning("DIF タイマーの音が出なかった：%s", _ALARM_WAV)
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.warning("DIF タイマーの音で例外：%s", e)
 
     # ── 調べもの ──────────────────────────────────────────────────────────
 

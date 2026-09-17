@@ -18,14 +18,13 @@ from familiar_agent.loop.tonic import Tonic
 
 def _tonic(*, names=(), occupied=False):
     agent = MagicMock()
-    agent._pmm.presence_status = MagicMock(
-        return_value=[{"name": n} for n in names])
+    agent._pmm.presence_status = MagicMock(return_value=[{"name": n} for n in names])
     sensor = MagicMock()
     sensor.room_occupied = MagicMock(return_value=occupied)
     ip = MagicMock()
     t = Tonic(ip, presence=sensor)
     t._agent = agent
-    t._present_names = set()          # 初回走査の扱いを飛ばす
+    t._present_names = set()  # 初回走査の扱いを飛ばす
     return t, ip
 
 
@@ -78,3 +77,65 @@ def test_without_a_sensor_the_old_source_still_works():
     t._present_names = set()
     t.scan_presence()
     assert "たいき" in ip.push_device.call_args_list[0].args[1]
+
+
+# ── 在席表の失効（2026-09-17）────────────────────────────────────────────────
+#
+# `/speaker パパ` は在席表（PMM）に入るが、出る口が無かった（`PresenceWatcher` は未起動・
+# `note_person_left` は呼ばれない）。センサが「誰も居ない」を 1 分見続けたら在席表を空にする。
+# 話者の指定（誰が話しているか）は残す——顔と声の登録までは `/speaker` が唯一の手がかり。
+
+
+def _tonic_with_table(*, names, occupied):
+    t, ip = _tonic(names=names, occupied=occupied)
+    t._agent._pmm.get_present_ids = MagicMock(return_value=[f"id:{n}" for n in names])
+    t._agent.config.presence_expire_sec = 60.0
+    return t, ip
+
+
+def test_the_presence_table_expires_after_a_minute_of_nobody(monkeypatch):
+    t, ip = _tonic_with_table(names=("パパ",), occupied=False)
+    t._present_names = {"パパ"}
+    clock = iter([1000.0, 1061.0])
+    monkeypatch.setattr("familiar_agent.loop.tonic.time.time", lambda: next(clock))
+    t.scan_presence()  # 誰も居ない、を見始めた
+    t._agent._pmm.mark_absent.assert_not_called()
+    t.scan_presence()  # 61 秒後
+    t._agent._pmm.mark_absent.assert_called_once_with("id:パパ")
+
+
+def test_fifty_nine_seconds_is_not_enough(monkeypatch):
+    t, ip = _tonic_with_table(names=("パパ",), occupied=False)
+    t._present_names = {"パパ"}
+    clock = iter([1000.0, 1059.0])
+    monkeypatch.setattr("familiar_agent.loop.tonic.time.time", lambda: next(clock))
+    t.scan_presence()
+    t.scan_presence()
+    t._agent._pmm.mark_absent.assert_not_called()
+
+
+def test_seeing_someone_resets_the_count(monkeypatch):
+    t, ip = _tonic_with_table(names=("パパ",), occupied=False)
+    t._present_names = {"パパ"}
+    clock = iter([1000.0, 1030.0, 1070.0])
+    monkeypatch.setattr("familiar_agent.loop.tonic.time.time", lambda: next(clock))
+    t.scan_presence()
+    t._presence.room_occupied = MagicMock(return_value=True)
+    t.scan_presence()  # 30 秒後に人を見た → 数え直し
+    t._presence.room_occupied = MagicMock(return_value=False)
+    t.scan_presence()  # そこから 40 秒 → まだ
+    t._agent._pmm.mark_absent.assert_not_called()
+
+
+def test_marking_absent_keeps_the_speaker():
+    from familiar_agent.person_memory_manager import PersonMemoryManager
+
+    pmm = PersonMemoryManager.__new__(PersonMemoryManager)
+    import threading
+
+    pmm._lock = threading.Lock()
+    pmm._present = {"id:パパ": MagicMock()}
+    pmm._speaker_id = "id:パパ"
+    pmm.mark_absent("id:パパ")
+    assert pmm.get_present_ids() == []
+    assert pmm._speaker_id == "id:パパ"

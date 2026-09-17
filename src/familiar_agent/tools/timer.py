@@ -87,8 +87,12 @@ class TimerTool:
         hush: "Callable[[str, datetime, int], None] | None" = None,
         unhush: "Callable[[int | str], None] | None" = None,
         hush_enabled: bool = True,
+        on_cancel: "Callable[[], None] | None" = None,
     ) -> None:
         self._store = store
+        self._on_cancel = (
+            on_cancel  # 止める頼みで音を止める（鳴った後は active に無いので先に呼ぶ）
+        )
         self._oif = oif
         self._speaker = speaker
         self._quiet = quiet
@@ -201,6 +205,8 @@ class TimerTool:
         return f"測り始めた：id={tid} 「{label}」 {now:%H:%M} から", True
 
     async def _cancel(self, inp: dict) -> tuple[str, bool]:
+        if self._on_cancel is not None:
+            self._on_cancel()
         now = self._now()
         store = self._store()
         target = inp.get("id")

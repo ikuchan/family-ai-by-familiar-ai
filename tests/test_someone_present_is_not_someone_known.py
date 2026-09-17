@@ -39,9 +39,23 @@ def test_a_body_seen_by_yolo_counts_even_if_the_face_is_unknown() -> None:
     assert a._social_presence_permission() == 1.0
 
 
-def test_a_known_face_still_counts() -> None:
-    a = _agent(occupied=False, present=["p1"], last_human=None)
+def test_with_a_sensor_the_presence_table_does_not_decide_whether_anyone_is_there() -> None:
+    """`/speaker パパ` が在席表に残り続け、カメラが 2 分「誰も居ない」でも自発が出た
+    （2026-09-17 15:44 実機）。センサがある構成では在席表は「誰か」だけを言う。"""
+    a = _agent(occupied=False, present=["p1"], last_human=time.time() - 90)
+    assert a._social_presence_permission() == 0.0
+
+
+def test_without_a_sensor_the_presence_table_still_counts() -> None:
+    a = _agent(occupied=None, present=["p1"], last_human=None)
     assert a._social_presence_permission() == 1.0
+
+
+def test_a_voice_counts_for_one_minute_not_five() -> None:
+    a = _agent(occupied=False, present=[], last_human=time.time() - 30)
+    assert a._social_presence_permission() == 1.0
+    b = _agent(occupied=False, present=[], last_human=time.time() - 70)
+    assert b._social_presence_permission() == 0.0
 
 
 def test_a_recent_voice_still_counts_without_a_body() -> None:
