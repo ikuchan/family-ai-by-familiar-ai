@@ -222,7 +222,10 @@ def timer_input_from_query(query: str) -> "dict | None":
         minute = int(m.group(2) or 0) + (30 if m.group(3) else 0)
         if 0 <= hour <= 23 and 0 <= minute <= 59:
             rest = (q[: m.start()] + q[m.end() :]).strip(" 　、。に")
-            return {"at": f"{hour}:{minute:02d}", "label": rest or "タイマー"}
+            return {
+                "at": f"{hour}:{minute:02d}",
+                "label": rest or "アラーム",
+            }  # 何時に＝アラーム（知-q）
     return None
 
 
@@ -276,8 +279,8 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
     # 戻り、調停が light で「掛けたよ」と言える（主LLM は起きない）。「確かめて」が返ったら light で聞く。
     "set_timer": (
         "",
-        '"set_timer"（タイマー・アラームを掛ける。tool_input に {"after_minutes": 3} か {"at": "7:00"} と '
-        '{"label": "何のため"}。返りが「確かめて」なら理由を伝えて一度聞き、「いい」なら {"confirmed": true} を足して掛け直す）',
+        '"set_timer"（タイマー＝何分後に鳴る。tool_input に {"after_minutes": 3, "label": "何のため"}。'
+        '返りが「確かめて」や「聞く」なら文をそのまま伝えて一度聞き、「いい」なら {"confirmed": true} を足して掛け直す。同時に 1 本）',
     ),
     "start_stopwatch": (
         "",
@@ -295,6 +298,16 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
     "resume_timer": (
         "",
         '"resume_timer"（「再開」「続けて」。tool_input に {"id": 番号か "all"}）',
+    ),
+    # アラーム（知-q・2026-09-18）。タイマーとは別物——何時に。黙らない・聞かない状態にしない。
+    "set_alarm": (
+        "",
+        '"set_alarm"（アラーム＝何時に鳴る。「7 時に起こして」。tool_input に {"at": "7:00", "label": "何のため"}。'
+        '返りが「確かめて」なら理由を伝えて一度聞き、「いい」なら {"confirmed": true} を足して掛け直す）',
+    ),
+    "cancel_alarm": (
+        "",
+        '"cancel_alarm"（「アラーム止めて」「明日の起こすのやめて」。tool_input に {"id": 番号か "all"}。番号は [アラーム] の枠）',
     ),
     # 個人ティアの記録（知-g-い）。候補に載るのは本人のターンだけ（話者ゲート・`_extra_actions`）。
     "vault": (
@@ -404,11 +417,32 @@ def _parse(
         query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
     if action in ("set_timer", "start_stopwatch") and tool_input and set(tool_input) == {"id"}:
         action = "cancel_timer"  # 入力が id だけなら止める意図（「ストップ」に set_timer と書いた・実機 08:59）
-    if action in ("set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer"):
+    if (
+        action == "set_timer"
+        and tool_input
+        and tool_input.get("at")
+        and not tool_input.get("after_minutes")
+    ):
+        action = (
+            "set_alarm"  # 何時に、はアラーム（別物・2026-09-18）。調停が set_timer に書いても直す
+        )
+    if action in (
+        "set_timer",
+        "start_stopwatch",
+        "cancel_timer",
+        "pause_timer",
+        "resume_timer",
+        "set_alarm",
+        "cancel_alarm",
+    ):
         # 見出し（同語二度投げの鍵）は label か id。tool_input が無ければ query から作る。
         if not tool_input and query:
-            if action == "set_timer":
+            if action in ("set_timer", "set_alarm"):
                 tool_input = timer_input_from_query(query)
+                if tool_input and "at" in tool_input:
+                    action = "set_alarm"
+                elif tool_input and action == "set_alarm":
+                    action = "set_timer"
             elif action == "start_stopwatch":
                 tool_input = {"label": query}
             else:

@@ -1,7 +1,10 @@
-# familiar-ai 設計方針：タイマー（アラーム・タイマー・ストップウォッチ）（v0.6）
+# familiar-ai 設計方針：タイマー（タイマー・ストップウォッチ）（v0.7）
 
 「7 時に起こして」「3 分測って」「今から測って」に応える。**途中で停められること**を軸に設計する
 （知-n・2026-09-15）。用語一覧の定義（期限つきの意図・`set_timer`・T が due で発火・I は時計を持たない）を実装に落とした。
+
+> **アラームは別物**（v0.7・2026-09-18・知-q）：この資料はタイマー（何分後・待つ）とストップウォッチ（測る）だけを扱う。
+> 何時に起こす・知らせるは `設計方針_アラーム`。共有するのは音の再生・T の tick・`予定` の記録・静穏時間の判定だけ。
 
 ## 1. 止め方（主）
 
@@ -19,9 +22,9 @@
 状態は列で持ち、content の時刻を読まない。再起動をまたいで残る。器は `store/timers.py`（`add`・`active`・`due_now`・`recently_fired`・`mark_fired`・`cancel`・`cancel_all`）。
 あわせて O に `direction='予定'` の記録「パパに頼まれて、19:33 に「パスタ」のタイマーを掛けた」を書く（想起に載る・「約束した」が記憶になる）。
 
-## 3. 掛け方（`tools/timer.py`・主LLM の道具 3 本）
+## 3. 掛け方（`tools/timer.py`・主LLM の道具 5 本）
 
-- `set_timer(after_minutes か at, label, confirmed=false)`：どちらか一方。`at` はローカル時刻（`7:00`・`21時半`・全角可）、過ぎていれば翌日（`core/timer_rules.resolve_due`）。返りに id と鳴る時刻。
+- `set_timer(after_minutes, label, confirmed=false)`：何分後だけ（`core/timer_rules.resolve_due`）。**「何時に」はアラーム**（`設計方針_アラーム`・`set_alarm`・2026-09-18）。`at` を渡すと断る。返りに id と鳴る時刻。
 - `start_stopwatch(label)`：due 無し。鳴らない。
 - `cancel_timer(id か "all")`。
 - 同時に **タイマー 1 本・ストップウォッチ 1 本**（v0.4・§11）。**調停（軽量LLM）が自分で掛ける**：候補に `set_timer`／`start_stopwatch`／`cancel_timer` を載せ、調停は `{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"パスタ"},"text":"3分ね、測るよ"}` のように**道具の入力を `tool_input` に書く**（`Decision.tool_input`・`_tool_input_of`）。道具は即実行され、完了が戻ると調停が light で「掛けたよ」と言える——主LLM は起きない。「確かめて」が返れば light で聞き、「いい」なら `confirmed:true` で掛け直す。それでも調停が light を選んだときは、道具が要る頼み（`arbiter.needs_tools`）を full へ倒す（最後の砦）——実機（2026-09-15 22:47）で light が「タイマーをセットしました」と言うだけで掛かっていなかった。道具は `_ACTIONS`／`_FULL_ACTIONS`／`_LOOKUP_ACTIONS` に載り、`recall` と同じく結果はその場で返って次の反復が言葉にする。見出しは入力ごとに別（「タイマーを掛ける「パスタ」」）で、同じ求めで掛けて止めるができる。
@@ -45,7 +48,7 @@ T が毎 tick（0.5 秒）`due_now` を拾い、**先に `fired_at` を打って
 記録が要る）——`scripts/gen_timer_alarm.py` が numpy で「ピピピッ」（1 kHz と 1.3 kHz の短音 3 連＋休み・
 1 周期 1.0 秒・48 kHz・16 bit）を合成し `src/familiar_agent/sounds/timer_alarm.wav` に置く。
 
-- **鳴らす**：`fire_due` が機器の求めを積むのと同時に `DIF.ring_timer(seconds=TIMER_RING_SEC, gain=TIMER_VOICE_GAIN)`。
+- **鳴らす**：`fire_due` が機器の求めを積むのと同時に `DIF.ring(seconds=TIMER_RING_SEC, gain=TIMER_VOICE_GAIN)`。
   wav を `seconds` のあいだ繰り返す（`asyncio.Task`・再生は `tools/tts._play_via_sounddevice`）。
 - **止める**：`cancel_timer`（声の「止めて」・`TimerTool` の `on_cancel` → `agent._stop_timer_ring`）、`/timer stop`（同じ道具）、時間切れ。
   鳴った時点でタイマーは `active` に無いので、`_cancel` は**先に**音を止めてから表を見る。
@@ -128,6 +131,7 @@ due のある未発火・未中止のタイマーが 1 本でもあれば `set_t
 
 ## 更新履歴
 
+> v0.7：**アラームを分離**（知-q・2026-09-18）——`set_timer` から `at` を撤去、時刻の読みは `alarm_rules` へ。この資料はタイマーとストップウォッチだけ。
 > v0.6：**掛けているあいだは聞かない**（§9・`TIMER_MIC_CLOSE`・操作の言葉だけ通す・`/mic on`・知-o 段 5・2026-09-18）。
 
 > v0.5：**一時停止・再開**（§12・066・知-o 段 4・2026-09-18）。

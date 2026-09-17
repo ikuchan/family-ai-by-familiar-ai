@@ -97,7 +97,8 @@ JSON ファイルも使わない。ファイルに置くのは**既定値と人�
 | `memory_salience` | 想起の顕著性追跡（撤去予定） |
 | `memory_events` / `memory_jobs` | 非同期ジョブキュー |
 | `persons` | 既知の人物レジストリ |
-| `timers` | アラーム・タイマー・ストップウォッチ（due・鳴った・止めた・確かめて掛けた印）|
+| `timers` | タイマー・ストップウォッチ（due・鳴った・止めた・一時停止・確かめて掛けた印・聞く）|
+| `alarms` | アラーム（鳴る時刻・鳴った・止めた・確かめて掛けた印）——タイマーとは別物 |
 | `mental_state_log` | 追記専用のメンタル状態スナップショット |
 | `agent_state` | キーバリュー：capability_summary, capabilities, self_image, mood_pad, drive5, addressee_doubts, relation_judged_until, silence_request と層 3 の設定値 |
 

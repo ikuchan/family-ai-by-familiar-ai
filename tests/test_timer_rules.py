@@ -1,6 +1,6 @@
 """タイマーの規則（`core/timer_rules.py`・純関数・知-n）。
 
-- `resolve_due`：「3 分後」か「7:00」（JST・過ぎていれば翌日）を絶対時刻に。
+- `resolve_due`：「3 分後」を絶対時刻に。
 - `needs_confirmation`：鳴る時刻が静穏時間に入る／沈黙の依頼が生きているなら、登録せず一度確かめる。
 - `render_frame`：`[タイマー]` の枠（残り／経過・直前に鳴ったもの）。
 """
@@ -18,29 +18,20 @@ NOW = datetime(2026, 9, 15, 19, 30, tzinfo=JST)  # 19:30 JST
 
 
 def test_after_minutes_is_added_to_now():
-    assert tr.resolve_due(after_minutes=3, at=None, now=NOW) == NOW + timedelta(minutes=3)
-    assert tr.resolve_due(after_minutes=0.5, at=None, now=NOW) == NOW + timedelta(seconds=30)
+    assert tr.resolve_due(after_minutes=3, now=NOW) == NOW + timedelta(minutes=3)
+    assert tr.resolve_due(after_minutes=0.5, now=NOW) == NOW + timedelta(seconds=30)
 
 
-def test_at_is_today_if_ahead_else_tomorrow():
-    assert tr.resolve_due(after_minutes=None, at="21:00", now=NOW) == NOW.replace(
-        hour=21, minute=0, second=0, microsecond=0
-    )
-    assert tr.resolve_due(after_minutes=None, at="7:00", now=NOW) == (
-        NOW + timedelta(days=1)
-    ).replace(hour=7, minute=0, second=0, microsecond=0)
-    assert tr.resolve_due(after_minutes=None, at="７時半", now=NOW) == (
-        NOW + timedelta(days=1)
-    ).replace(hour=7, minute=30, second=0, microsecond=0)
+def test_a_clock_time_is_not_a_timer():
+    """「何時に」はアラーム（`alarm_rules.resolve_at`・2026-09-18・知-q）。タイマーは分数だけ。"""
+    import pytest
+
+    with pytest.raises(TypeError):
+        tr.resolve_due(after_minutes=None, at="7:00", now=NOW)  # type: ignore[call-arg]
 
 
 def test_bad_inputs_are_refused_with_a_reason():
-    for kw in (
-        dict(after_minutes=None, at=None),
-        dict(after_minutes=-1, at=None),
-        dict(after_minutes=None, at="あした"),
-        dict(after_minutes=3, at="7:00"),
-    ):
+    for kw in (dict(after_minutes=None), dict(after_minutes=-1), dict(after_minutes=0)):
         try:
             tr.resolve_due(now=NOW, **kw)
         except ValueError as e:

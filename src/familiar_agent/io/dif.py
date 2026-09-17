@@ -114,7 +114,7 @@ class DIF:
     def ringing(self) -> bool:
         return self._ring_task is not None and not self._ring_task.done()
 
-    def ring_timer(self, *, seconds: float, gain: float = 1.0) -> None:
+    def ring(self, *, seconds: float, gain: float = 1.0) -> None:
         """タイマーの音（`sounds/timer_alarm.wav`・1 秒）を `seconds` のあいだ繰り返す（知-n-ろ）。
 
         「タイマーです」の一言の代わり。**声の口（`speak`）は通らない**——通すとマイクの門

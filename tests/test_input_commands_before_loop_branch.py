@@ -32,6 +32,7 @@ def _agent():
     a._handle_mic_command = AsyncMock(
         return_value=None
     )  # `/mic on` は `test_timer_mic_close`（知-o）
+    a._handle_alarm_command = AsyncMock(return_value=None)  # `/alarm stop` は `test_alarm`（知-q）
     return a
 
 

@@ -65,8 +65,12 @@ _FULL_ACTIONS = (
     "cancel_timer",
     "pause_timer",
     "resume_timer",
+    "set_alarm",
+    "cancel_alarm",
 )
 _TIMER_ACTIONS = ("set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer")
+# アラーム（知-q・2026-09-18）。タイマーとは別物・別の道具（`agent._alarm_tool`）。
+_ALARM_ACTIONS = ("set_alarm", "cancel_alarm")
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
@@ -100,6 +104,7 @@ _LOOKUP_ACTIONS = (
     # 動作名 `house_rules` しか無く、主LLM が `get_house_rules` を呼んでも捨てられていた）。
     *_MCP_LOOKUPS.keys(),
     *_TIMER_ACTIONS,
+    *_ALARM_ACTIONS,
 )
 
 
@@ -134,6 +139,11 @@ def _query_label(action: str, tool_input: dict) -> str:
             "pause_timer": "タイマーを一時停止する",
             "resume_timer": "タイマーを再開する",
         }[action] + (f"「{what}」" if what else "")
+    if action in _ALARM_ACTIONS:
+        what = str(tool_input.get("label") or tool_input.get("id") or "").strip()
+        return {"set_alarm": "アラームを掛ける", "cancel_alarm": "アラームを止める"}[action] + (
+            f"「{what}」" if what else ""
+        )
     if action == "look":
         return f"{tool_input.get('pose') or tool_input.get('direction') or ''}を見に行く"
     if action.startswith("ask_vault_"):
@@ -243,6 +253,26 @@ def _timer_def(agent, name: str) -> list[dict]:
     if tool is None:
         return []
     return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
+def _alarm_def(agent, name: str) -> list[dict]:
+    """アラームの道具定義から 1 つだけ。器が無ければ空（知-q）。"""
+    tool = getattr(agent, "_alarm_tool", None)
+    if tool is None:
+        return []
+    return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
+def _alarm_frame(agent) -> str:
+    """`[アラーム]` の枠。器が無い・読めなければ空。"""
+    tool = getattr(agent, "_alarm_tool", None)
+    if tool is None:
+        return ""
+    try:
+        return str(tool.frame() or "")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("アラームの枠を組めなかった: %s", e)
+        return ""
 
 
 def _timer_frame(agent) -> str:
@@ -595,6 +625,9 @@ class InformationProcessing:
         timers = _timer_frame(agent)
         if timers:
             iter_ctx = (iter_ctx + "\n\n" + timers) if iter_ctx else timers
+        alarms = _alarm_frame(agent)  # `[アラーム]` も同じ場所（別物だが置き方は同じ）
+        if alarms:
+            iter_ctx = (iter_ctx + "\n\n" + alarms) if iter_ctx else alarms
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -1016,15 +1049,23 @@ class InformationProcessing:
                 Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
-        if action in _TIMER_ACTIONS:
-            # タイマーの道具（知-n）。その場で返る。落ちても求めは閉じる（失敗の印つき）。
-            tool = getattr(self._agent, "_timer_tool", None)
-            if tool is None:
-                out, failed = "タイマーの道具が無い", True
+        if action in _TIMER_ACTIONS or action in _ALARM_ACTIONS:
+            # タイマー（知-n）／アラーム（知-q）の道具。その場で返る。落ちても求めは閉じる（失敗の印つき）。
+            if action in _ALARM_ACTIONS:
+                tool = getattr(self._agent, "_alarm_tool", None)
+                if tool is None:
+                    out, failed = "アラームの道具が無い", True
+                else:
+                    out, ok = await tool.call(action, tool_input)
+                    failed = not ok
             else:
-                # 起点は**人が言った瞬間**（調停や主LLM を通る 3 秒は数えない）。
-                out, ok = await tool.call(action, tool_input, now=self._req.began_at)
-                failed = not ok
+                tool = getattr(self._agent, "_timer_tool", None)
+                if tool is None:
+                    out, failed = "タイマーの道具が無い", True
+                else:
+                    # 起点は**人が言った瞬間**（調停や主LLM を通る 3 秒は数えない）。
+                    out, ok = await tool.call(action, tool_input, now=self._req.began_at)
+                    failed = not ok
             self._triggers.put_nowait(
                 Trigger(
                     kind="完了",
@@ -1323,6 +1364,9 @@ class InformationProcessing:
         "cancel_timer": lambda ip: _timer_def(ip._agent, "cancel_timer"),
         "pause_timer": lambda ip: _timer_def(ip._agent, "pause_timer"),
         "resume_timer": lambda ip: _timer_def(ip._agent, "resume_timer"),
+        # アラーム（知-q）。器（`agent._alarm_tool`）が無ければ渡さない。
+        "set_alarm": lambda ip: _alarm_def(ip._agent, "set_alarm"),
+        "cancel_alarm": lambda ip: _alarm_def(ip._agent, "cancel_alarm"),
     }
 
     def _vault_tool_name(self) -> str:
@@ -1359,6 +1403,7 @@ class InformationProcessing:
                 "journal",
                 "vault",
                 *_TIMER_ACTIONS,
+                *_ALARM_ACTIONS,
             )
             if a not in self._req.failed_actions
             and not (timer_ringing and a in ("set_timer", "start_stopwatch"))

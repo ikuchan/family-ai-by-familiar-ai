@@ -1,6 +1,6 @@
 """タイマーの道具（知-n・2026-09-15・`設計方針_タイマー` v0.1）。
 
-主LLM が呼ぶ 3 本——`set_timer`（アラーム・タイマー）・`start_stopwatch`（ストップウォッチ）・
+主LLM が呼ぶ 5 本——`set_timer`（何分後・アラームは別物 `tools/alarm.py`）・`start_stopwatch`（ストップウォッチ）・
 `cancel_timer`（止める・**「途中で停められる」の主な口**）。状態は表 `timers`（`store/timers.py`）、
 記憶には `予定` の記録（登録）と「やめた」の記録（取消）を書く。
 
@@ -32,8 +32,8 @@ _DEFS: list[dict] = [
     {
         "name": "set_timer",
         "description": (
-            'アラームやタイマーを掛ける。「3分測って」は after_minutes=3、「7時に起こして」は at="7:00"。'
-            "label には何のためかを短く。返りに id と鳴る時刻。"
+            "タイマーを掛ける（何分後に鳴る・「3分測って」は after_minutes=3）。何時に、ならアラーム（set_alarm）。"
+            "label には何のためかを短く。返りに id と鳴る時刻。同時に 1 本。"
             "返りが「確かめて」なら、まだ掛かっていない——その理由を相手に伝えて一度だけ聞き、"
             "「いい」と言われたら同じ引数に confirmed=true を付けてもう一度呼ぶ。"
         ),
@@ -41,17 +41,13 @@ _DEFS: list[dict] = [
             "type": "object",
             "properties": {
                 "after_minutes": {"type": "number", "description": "今から何分後（0 より大きい）"},
-                "at": {
-                    "type": "string",
-                    "description": '何時に（例 "7:00"・"21時半"）。過ぎていれば翌日',
-                },
-                "label": {"type": "string", "description": "何のため（例「パスタ」「起こす」）"},
+                "label": {"type": "string", "description": "何のため（例「パスタ」「お茶」）"},
                 "confirmed": {
                     "type": "boolean",
                     "description": "相手に確かめて「いい」と言われたら true",
                 },
             },
-            "required": ["label"],
+            "required": ["after_minutes", "label"],
         },
     },
     {
@@ -220,11 +216,12 @@ class TimerTool:
         label = str(inp.get("label") or "タイマー").strip()
         now = (now or self._now()).astimezone()
         try:
+            if inp.get("at"):
+                return "何時に、はアラーム（set_alarm）。タイマーは何分後だけ", False
             due = timer_rules.resolve_due(
                 after_minutes=(
                     float(inp["after_minutes"]) if inp.get("after_minutes") is not None else None
                 ),
-                at=(str(inp["at"]) if inp.get("at") else None),
                 now=now,
             )
         except (ValueError, TypeError) as e:
