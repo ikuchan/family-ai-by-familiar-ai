@@ -737,28 +737,28 @@ class EmbodiedAgent:
     def _social_presence_permission(self) -> float:
         """**誰かがいれば** 1.0、部屋が空なら 0.0。社会的発話と deferred 配信の共通ゲート。
 
-        「居るか」と「誰か」は別（知-h・2026-09-13）。**センサがある構成では、居るかは
-        在/不在の層だけで決める**（`PresenceSensor.room_occupied()`・YOLO・登録が要らない・
-        滞留窓 120 秒）。人の声（`_last_human_at`）は数えない——声は視野の外・テレビ・物音でも
-        あり、カメラが誰も見ていないのに「こんにちは」の書き起こしへ返事した（2026-09-17 17:03
-        実機）。カメラの外の人への返事は保留に回り、在席の立ち上がりで配られる。在席表
-        （PMM・`/speaker`・顔照合）は「誰か」を言うもので、居るかを決めない（`/speaker パパ` が
-        永久に残り、カメラが 2 分「誰も居ない」でも自発が出た・同日 15:44）。
-        センサが無い構成では在席表と声（`presence_voice_sec` 以内）で決める。
+        「居るか」と「誰か」は別（知-h・2026-09-13）。**居るかの正本は在/不在の層**
+        （`PresenceSensor.room_occupied()`・YOLO・登録が要らない）で、人の声（`_last_human_at`・
+        `presence_voice_sec` 以内）はセンサの視野の外から話しかけられたときの補い。在席表
+        （PMM・`/speaker`・顔照合）は「誰か」を言うものなので、**センサがある構成では居るかを
+        決めない**。以前は 3 つの OR で、`/speaker パパ` が在席表に残り続け（出る口が無かった）、
+        カメラが 2 分「誰も居ない」でも自発が出た（2026-09-17 15:44 実機）。
+        センサが無い構成では在席表と声で決める（従来どおり）。
         """
-        sensor = getattr(self, "_presence_sensor", None)
-        if sensor is not None:
-            with contextlib.suppress(Exception):
-                if sensor.room_occupied() is True:
-                    return 1.0
-            return 0.0
-        pmm = getattr(self, "_pmm", None)
-        if pmm is not None and pmm.get_present_ids():
-            return 1.0
         raw = getattr(getattr(self, "config", None), "presence_voice_sec", None)
         voice_sec = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
         last = getattr(self, "_last_human_at", None)
-        return 1.0 if last is not None and (time.time() - last) < voice_sec else 0.0
+        voice = last is not None and (time.time() - last) < voice_sec
+        sensor = getattr(self, "_presence_sensor", None)
+        if sensor is not None:
+            occupied = False
+            with contextlib.suppress(Exception):
+                occupied = sensor.room_occupied() is True
+            return 1.0 if (occupied or voice) else 0.0
+        pmm = getattr(self, "_pmm", None)
+        if pmm is not None and pmm.get_present_ids():
+            return 1.0
+        return 1.0 if voice else 0.0
 
     def _stop_timer_ring(self) -> None:
         """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。"""
