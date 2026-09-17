@@ -21,6 +21,7 @@ pre-computed as:  normalise(mem_vec - mu)  (045: no per-person term).
 At recall time the query is issued directly against situated_memories,
 returning sorted results from SQL — no full table scan needed.
 """
+
 from __future__ import annotations
 
 import logging
@@ -39,7 +40,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ── Reserved person IDs ────────────────────────────────────────────────────
-AGENT_SELF_ID     = "00000000-0000-0000-0000-000000000000"
+AGENT_SELF_ID = "00000000-0000-0000-0000-000000000000"
 DEFAULT_PERSON_ID = "00000000-0000-0000-0000-000000000001"
 
 # Perspective vector blend weight (0 = no perspective, 1 = full person bias)
@@ -50,6 +51,7 @@ PRESENCE_TIMEOUT_SEC: float = 120.0
 
 
 # ── Data structures ────────────────────────────────────────────────────────
+
 
 @dataclass
 class PersonPresence:
@@ -62,9 +64,10 @@ class PersonPresence:
 @dataclass
 class RecognitionHint:
     """A single recognition signal from any source."""
+
     person_id: str
-    confidence: float          # 0.0–1.0
-    source: str                # "face" | "voice" | "text" | "manual" | "llm"
+    confidence: float  # 0.0–1.0
+    source: str  # "face" | "voice" | "text" | "manual" | "llm"
     reason: str = ""
 
     # Special source values that bypass the confidence threshold
@@ -72,6 +75,7 @@ class RecognitionHint:
 
 
 # ── Manager ────────────────────────────────────────────────────────────────
+
 
 class PersonMemoryManager:
     """Central coordinator for person identity and memory routing."""
@@ -87,7 +91,7 @@ class PersonMemoryManager:
         # 現在の話者を決めた認識の由来と確信度（GUI で「話者認識がどうなっているか」を出す）。
         self._speaker_source: str = ""
         self._speaker_confidence: float | None = None
-        self._instances: dict[str, Any] = {}   # person_id → ObservationMemory
+        self._instances: dict[str, Any] = {}  # person_id → ObservationMemory
         self._switch_callbacks: list[Callable[[str | None, str], Awaitable[None]]] = []
         self._lock = threading.Lock()
         # source 別の自動切替しきい値。認識モデルで cosine 尺度が違うため source 別に持つ。
@@ -95,6 +99,7 @@ class PersonMemoryManager:
         # AUTO_SWITCH_THRESHOLD へフォールバックする（text/auto 等）。
         if switch_thresholds is None:
             from .config import RecognitionConfig
+
             _rc = RecognitionConfig()
             switch_thresholds = {
                 "face": _rc.face_switch_threshold,
@@ -108,12 +113,20 @@ class PersonMemoryManager:
         """Register that someone has entered the space."""
         with self._lock:
             was_empty = len(self._present) == 0
-            self._present[person_id] = PersonPresence(
-                person_id=person_id, confidence=confidence
-            )
+            self._present[person_id] = PersonPresence(person_id=person_id, confidence=confidence)
         logger.info("Arrived: %s  (total present: %d)", person_id, len(self._present))
         if was_empty:
             await self.set_speaker(person_id, source="auto", confidence=confidence)
+
+    def mark_absent(self, person_id: str) -> None:
+        """在席表からだけ消す。**話者の指定は残す**（`person_left` との違い）。
+
+        在/不在の層が「誰も居ない」を見続けたときの失効に使う（2026-09-17）。誰が話して
+        いるかは、顔と声の登録が済むまで `/speaker` が唯一の手がかりなので、居なくなっても
+        消さない（次に声が来たとき誰かは分かる）。
+        """
+        with self._lock:
+            self._present.pop(person_id, None)
 
     async def person_left(self, person_id: str) -> None:
         """Register that someone has left the space."""
@@ -138,7 +151,8 @@ class PersonMemoryManager:
         now = time.time()
         with self._lock:
             return [
-                pid for pid, p in self._present.items()
+                pid
+                for pid, p in self._present.items()
                 if (now - p.last_signal_at) > PRESENCE_TIMEOUT_SEC
             ]
 
@@ -190,7 +204,10 @@ class PersonMemoryManager:
             )
         logger.debug(
             "Hint below threshold: src=%s pid=%s conf=%.2f (th=%.2f)",
-            hint.source, hint.person_id[:8], hint.confidence, threshold,
+            hint.source,
+            hint.person_id[:8],
+            hint.confidence,
+            threshold,
         )
         return False
 

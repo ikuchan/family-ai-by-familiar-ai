@@ -17,8 +17,20 @@ logger = logging.getLogger(__name__)
 LATE_AFTER_SEC = 60.0  # これ以上遅れて鳴るなら「遅れて」を添える
 
 
-def fire_due(store, dif, *, now: "datetime | None" = None) -> int:
-    """鳴らした本数を返す。"""
+def fire_due(
+    store,
+    dif,
+    *,
+    now: "datetime | None" = None,
+    ring_sec: float = 0.0,
+    quiet: bool = False,
+    gain: float = 1.0,
+) -> int:
+    """鳴らした本数を返す。
+
+    `ring_sec > 0` なら音（`DIF.ring_timer`）も鳴らす（知-n-ろ）。静穏時間（`quiet`）に
+    掛かる音は、確かめて掛けたもの（`passes_quiet`）だけ——声と同じ扱い。
+    """
     now = now or datetime.now(timezone.utc)
     fired = 0
     for r in store.due_now(now=now):
@@ -32,6 +44,8 @@ def fire_due(store, dif, *, now: "datetime | None" = None) -> int:
         passes = bool(r.get("passes_quiet"))
         # 黙っていたあいだに聞いたことは、知らせの求めに `heard_while_silent` として載る
         # （情-h）。不在の保留（`pending_speech`）はここでは配らない。
+        if ring_sec > 0 and (passes or not quiet):
+            dif.ring_timer(seconds=ring_sec, gain=gain)
         dif.device("タイマー", content, release_pending=False, passes_gate=passes)
         logger.info(
             "タイマーが鳴った id=%s %s 遅れ=%.0f秒 通り抜け=%s", r["id"], r["label"], late, passes

@@ -141,3 +141,117 @@ def test_the_request_remembers_when_it_began_and_the_lookup_passes_it_to_the_tim
         )
     )
     assert a._timer_tool.call.call_args.kwargs["now"] == began
+
+
+# ── 音で鳴る（知-n-ろ・2026-09-17）─────────────────────────────────────────────
+#
+# 「タイマーです」の一言でなく、タイマーらしい音（`sounds/timer_alarm.wav`・自作）を
+# `TIMER_RING_SEC` のあいだ繰り返す。止めるのは `cancel_timer`・`/timer stop`・時間切れ。
+# 鳴っている間もマイクは閉じない（閉じると「止めて」が届かない）。
+
+
+def test_a_due_timer_rings_the_sound_when_ring_sec_is_positive():
+    store = MagicMock()
+    store.due_now = MagicMock(return_value=[_row(1, "パスタ", due=NOW - timedelta(seconds=1))])
+    store.mark_fired = MagicMock(return_value=True)
+    dif = MagicMock()
+    timer_watch.fire_due(store, dif, now=NOW, ring_sec=30.0, quiet=False, gain=1.5)
+    dif.ring_timer.assert_called_once_with(seconds=30.0, gain=1.5)
+
+
+def test_ring_sec_zero_keeps_the_old_voice_only_behaviour():
+    store = MagicMock()
+    store.due_now = MagicMock(return_value=[_row(1, "パスタ", due=NOW - timedelta(seconds=1))])
+    store.mark_fired = MagicMock(return_value=True)
+    dif = MagicMock()
+    timer_watch.fire_due(store, dif, now=NOW, ring_sec=0.0, quiet=False)
+    dif.ring_timer.assert_not_called()
+    dif.device.assert_called_once()
+
+
+def test_in_quiet_hours_only_a_confirmed_timer_makes_a_sound():
+    store = MagicMock()
+    store.due_now = MagicMock(
+        return_value=[
+            _row(1, "パスタ", due=NOW - timedelta(seconds=1)),
+            _row(2, "起こす", due=NOW - timedelta(seconds=1), passes_quiet=True),
+        ]
+    )
+    store.mark_fired = MagicMock(return_value=True)
+    dif = MagicMock()
+    timer_watch.fire_due(store, dif, now=NOW, ring_sec=30.0, quiet=True)
+    assert dif.ring_timer.call_count == 1
+
+
+def test_the_sound_repeats_until_the_time_is_up_and_does_not_use_the_voice(monkeypatch):
+    from familiar_agent.io.dif import DIF
+
+    plays = []
+
+    async def fake_play(path, gain):
+        plays.append((path.name, gain))
+        await asyncio.sleep(0.01)
+        return True
+
+    monkeypatch.setattr("familiar_agent.io.dif._play_wav", fake_play)
+    tts = MagicMock()
+    tts.call = AsyncMock()
+    dif = DIF(tts=tts)
+
+    async def run():
+        dif.ring_timer(seconds=0.05, gain=1.5)
+        await asyncio.sleep(0.12)
+        return dif.ringing
+
+    assert asyncio.run(run()) is False
+    assert len(plays) >= 2 and plays[0] == ("timer_alarm.wav", 1.5)
+    tts.call.assert_not_awaited()  # 声の口を通らない＝マイクの門（tts_active）が立たない
+
+
+def test_stop_ring_cuts_the_sound_short(monkeypatch):
+    from familiar_agent.io.dif import DIF
+
+    async def fake_play(path, gain):
+        await asyncio.sleep(0.01)
+        return True
+
+    monkeypatch.setattr("familiar_agent.io.dif._play_wav", fake_play)
+    dif = DIF(tts=MagicMock())
+
+    async def run():
+        dif.ring_timer(seconds=10.0)
+        await asyncio.sleep(0.03)
+        assert dif.ringing is True
+        dif.stop_ring()
+        await asyncio.sleep(0.02)
+        return dif.ringing
+
+    assert asyncio.run(run()) is False
+
+
+def test_cancel_timer_stops_the_sound_even_when_nothing_is_active():
+    """鳴った時点で `active` からは外れているので、「止めて」は音を止めるためだけに来る。"""
+    from familiar_agent.tools.timer import TimerTool
+
+    store = MagicMock()
+    store.active = MagicMock(return_value=[])
+    on_cancel = MagicMock()
+    tool = TimerTool(
+        store=lambda: store,
+        oif=MagicMock(),
+        speaker=lambda: "",
+        quiet=lambda: None,
+        silence_active=lambda: False,
+        on_cancel=on_cancel,
+    )
+    reply, ok = asyncio.run(tool._cancel({"id": "all"}))
+    on_cancel.assert_called_once()
+
+
+def test_the_agent_stop_hook_reaches_the_dif():
+    from familiar_agent.agent import EmbodiedAgent as Agent
+
+    a = MagicMock(spec=Agent)
+    a._info_processing = MagicMock()
+    Agent._stop_timer_ring(a)
+    a._info_processing._dif.stop_ring.assert_called_once()

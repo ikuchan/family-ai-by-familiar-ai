@@ -209,6 +209,7 @@ class EmbodiedAgent:
             hush=self._hush_for_timer,
             unhush=self._unhush_timer,
             hush_enabled=bool(getattr(self.config, "timer_silence", True)),
+            on_cancel=self._stop_timer_ring,
         )
         self._last_tool_error: str | None = None
         self._tool_failure_streak: int = 0
@@ -736,29 +737,36 @@ class EmbodiedAgent:
     def _social_presence_permission(self) -> float:
         """**誰かがいれば** 1.0、部屋が空なら 0.0。社会的発話と deferred 配信の共通ゲート。
 
-        「誰かがいる」と「知っている人がいる」は別である（知-h・2026-09-13）。判断の順は
-        **居るか → 誰か**で、証拠は3つあり、**どれかが立てば在席**とする。
-
-        1. 在/不在の層が人を見ている（`PresenceSensor.room_occupied()`・YOLO・登録が要らない）
-        2. 顔が照合されている（PMM に在席者が居る＝知っている人）
-        3. 直近5分以内に人が話しかけてきた（対話は在席の直接的な証拠）
-
-        以前は 2 と 3 しか見ておらず、顔が未登録なら目の前に人が居ても「誰も居ない」になり、
-        独り言が独白へ落ちた（実機）。センサが無い構成では 2 と 3 だけで決める（従来どおり）。
-        「誰か」は主LLM へ渡す在席（`_present_ctx`）が別に言う。
+        「居るか」と「誰か」は別（知-h・2026-09-13）。**居るかの正本は在/不在の層**
+        （`PresenceSensor.room_occupied()`・YOLO・登録が要らない）で、人の声（`_last_human_at`・
+        `presence_voice_sec` 以内）はセンサの視野の外から話しかけられたときの補い。在席表
+        （PMM・`/speaker`・顔照合）は「誰か」を言うものなので、**センサがある構成では居るかを
+        決めない**。以前は 3 つの OR で、`/speaker パパ` が在席表に残り続け（出る口が無かった）、
+        カメラが 2 分「誰も居ない」でも自発が出た（2026-09-17 15:44 実機）。
+        センサが無い構成では在席表と声で決める（従来どおり）。
         """
+        raw = getattr(getattr(self, "config", None), "presence_voice_sec", None)
+        voice_sec = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
+        last = getattr(self, "_last_human_at", None)
+        voice = last is not None and (time.time() - last) < voice_sec
         sensor = getattr(self, "_presence_sensor", None)
         if sensor is not None:
+            occupied = False
             with contextlib.suppress(Exception):
-                if sensor.room_occupied() is True:
-                    return 1.0
+                occupied = sensor.room_occupied() is True
+            return 1.0 if (occupied or voice) else 0.0
         pmm = getattr(self, "_pmm", None)
         if pmm is not None and pmm.get_present_ids():
             return 1.0
-        last = getattr(self, "_last_human_at", None)
-        if last is None:
-            return 0.0
-        return 1.0 if (time.time() - last) < 300.0 else 0.0
+        return 1.0 if voice else 0.0
+
+    def _stop_timer_ring(self) -> None:
+        """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。"""
+        ip = getattr(self, "_info_processing", None)
+        dif = getattr(ip, "_dif", None)
+        if dif is not None:
+            with contextlib.suppress(Exception):
+                dif.stop_ring()
 
     def _in_quiet_hours(self) -> bool:
         """Return True when the current time falls inside the scheduled quiet window.

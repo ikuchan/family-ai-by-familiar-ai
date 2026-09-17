@@ -134,6 +134,9 @@ class Tonic:
         # 前回の在席者。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
         # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
         self._present_names: set[str] | None = None
+        self._unoccupied_since: float | None = (
+            None  # センサが「誰も居ない」を見始めた時刻（在席表の失効）
+        )
         # 自発の可否は `DRIVE5_AUTONOMOUS`（5欲求）で決める（旧 15 欲求の系は環-d で撤去）。
         self._cfg = drive_cfg or DriveConfig()
         self._task: asyncio.Task | None = None
@@ -163,6 +166,7 @@ class Tonic:
         agent = self._agent
         if agent is None:
             return
+        self._expire_presence_table()
         try:
             rows = agent._pmm.presence_status()
         except Exception:  # noqa: BLE001
@@ -202,6 +206,47 @@ class Tonic:
             rose_from_zero = False  # 同時に2人来ても保留を配るのは1回
         for name in sorted(previous - current):
             self._dif.device("退室", f"{name} が居なくなった", release_pending=False)
+
+    def _expire_presence_table(self) -> None:
+        """在席表（PMM・`/speaker`・顔照合）の失効。
+
+        在席表には入る口だけあって出る口が無く、`/speaker パパ` が永久に残った（2026-09-17
+        実機・カメラが 2 分「誰も居ない」でも自発が出た）。センサが「誰も居ない」を
+        `presence_expire_sec` 見続けたら在席表を空にする（`mark_absent`・話者の指定は残す）。
+        センサが無い構成では失効しない（在席表が唯一の情報源）。
+        """
+        sensor = self._presence
+        agent = self._agent
+        if sensor is None or agent is None:
+            return
+        try:
+            occupied = bool(sensor.room_occupied())
+        except Exception:  # noqa: BLE001
+            return
+        now = time.time()
+        if occupied:
+            self._unoccupied_since = None
+            return
+        if self._unoccupied_since is None:
+            self._unoccupied_since = now
+            return
+        raw = getattr(getattr(agent, "config", None), "presence_expire_sec", None)
+        expire = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
+        if now - self._unoccupied_since < expire:
+            return
+        try:
+            ids = list(agent._pmm.get_present_ids())
+        except Exception:  # noqa: BLE001
+            return
+        if not ids:
+            return
+        for pid in ids:
+            agent._pmm.mark_absent(pid)
+        logger.info(
+            "tonic 在席表を失効：%d 人（誰も居ないが %.0f 秒）",
+            len(ids),
+            now - self._unoccupied_since,
+        )
 
     def _solitude_note(self, axis: str) -> str:
         """ログ用：ひとり何回目で、次はおよそ何分後か（情-d）。読めなければ空。"""
@@ -261,7 +306,19 @@ class Tonic:
         if tool is None:
             return
         try:
-            timer_watch.fire_due(tool.store(), self._ip._dif)
+            cfg = getattr(self._agent, "config", None)
+            ring = getattr(cfg, "timer_ring_sec", 0.0)
+            gain = getattr(cfg, "timer_voice_gain", 1.0)
+            quiet = False
+            with contextlib.suppress(Exception):
+                quiet = bool(self._agent._in_quiet_hours())
+            timer_watch.fire_due(
+                tool.store(),
+                self._ip._dif,
+                ring_sec=float(ring) if isinstance(ring, (int, float)) else 0.0,
+                quiet=quiet,
+                gain=float(gain) if isinstance(gain, (int, float)) else 1.0,
+            )
         except Exception as e:  # noqa: BLE001
             logger.warning("タイマーの確認に失敗: %s", e)
         # 沈黙が期限切れで明けたのに何も届かないとき、まとめの求めを起こす（情-h）。時計は T。

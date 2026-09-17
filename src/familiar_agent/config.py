@@ -596,6 +596,20 @@ class AgentConfig:
     timer_voice_gain: float = field(default_factory=lambda: _float_env("TIMER_VOICE_GAIN", 1.0))
     # タイマーを掛けているあいだは黙り、鳴ったら戻す（既定 有効・false でこれまでどおり）。
     timer_silence: bool = field(default_factory=lambda: _bool_env("TIMER_SILENCE", default=True))
+    # 人の声を「居る」証拠として数える長さ（秒）。センサの視野の外から話しかけられたときの
+    # 補い。以前は 5 分で、`/speaker` の在席表と合わせてゲートが永久に「居る」になった
+    # （2026-09-17 実機）。〔仮〕
+    presence_voice_sec: float = field(
+        default_factory=lambda: _float_env("PRESENCE_VOICE_SEC", 60.0)
+    )
+    # 在席表（PMM・`/speaker` と顔照合）の失効。センサが「誰も居ない」をこの秒数見続けたら
+    # 在席表を空にする（話者の指定は残す）。〔仮〕
+    presence_expire_sec: float = field(
+        default_factory=lambda: _float_env("PRESENCE_EXPIRE_SEC", 60.0)
+    )
+    # タイマーが鳴ったときに音（`assets/timer_alarm.wav`）を繰り返し鳴らす長さ（秒）。
+    # 0 で音を鳴らさず声の知らせだけ（これまでどおり）。〔仮〕
+    timer_ring_sec: float = field(default_factory=lambda: _float_env("TIMER_RING_SEC", 30.0))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
     # 残って中身が消える。上限は埋め込みモデル bge-m3 の入力上限 8192 トークンに合わせる。
     # 1文字＝1トークンになる字もあるので、8192 *文字* なら常に 8192 トークン以下に収まり、

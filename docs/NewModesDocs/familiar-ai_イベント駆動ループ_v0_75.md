@@ -1,4 +1,4 @@
-# familiar-ai イベント駆動ループ（#11・段階5）（v0.74）
+# familiar-ai イベント駆動ループ（#11・段階5）（v0.75）
 
 ## 位置づけ
 
@@ -309,6 +309,106 @@ drive の蓄積と発火判定は `core.drive_dynamics` の純関数が持つ。
 ### 発話の配信ゲートと `pending_speech`
 
 drive 発火でも身体の動作を取るが、**発話は聞く相手が居て初めて意味を持つ**（正本③ の配信ゲート＝結果有り＋在席）。在席が無ければ話さず、「話したかったが、聞く相手が居なかった」を O に残して **`pending_speech` へ積む**（`add`・`list_active`・`freshness_score`・`is_expired` は実装済みだったが、読み出し側の呼び出しが 0 件だった）。寿命（鮮度切れ・参照先 supersede で失効）は `pending_speech` 側が持つので、新しいキューは作らない。
+
+### 話す／話さない（To-Be・v0.75・2026-09-17）
+
+入口（黙る）→ 反復 → 出口（居るか・静穏）→ 結末 を 1 枚に。黙っている／居ないあいだに溜めたものがいつ出るかまで含む。
+「居るか」の詳細は `知覚在席` §3-2b、タイマーの音は `設計方針_タイマー` v0.2。
+
+```mermaid
+flowchart TD
+  classDef io fill:#fde68a,stroke:#b45309,color:#1f2937
+  classDef proc fill:#bfdbfe,stroke:#1d4ed8,color:#1f2937
+  classDef mem fill:#bbf7d0,stroke:#15803d,color:#1f2937
+  classDef store fill:#fbcfe8,stroke:#be185d,color:#1f2937
+  classDef tonic fill:#ddd6fe,stroke:#6d28d9,color:#1f2937
+  classDef out fill:#e5e7eb,stroke:#374151,color:#1f2937
+
+  subgraph T["自律機構：Tonic（T）：常時の背景"]
+    TICK["刻み：tick：毎秒"]:::tonic
+    TIMER{"タイマー：timers：now ≥ due のものがあるか"}:::tonic
+    RING["音：ring_timer：timer_alarm.wav を TIMER_RING_SEC 繰り返す（声の口は通らない）"]:::tonic
+    SENS["在/不在の層：PresenceSensor：YOLO・定点別・滞留窓 120 秒"]:::tonic
+    EXP{"在席表の失効：presence expiry：誰も居ないを PRESENCE_EXPIRE_SEC 見続けたか"}:::tonic
+    LEFT["失効：mark_absent：在席表から消す（話者の指定は残す）"]:::tonic
+    RISE{"立ち上がり：presence rise：0 人 → 1 人以上になったか"}:::tonic
+    LIFTQ{"沈黙の期限：silence until：時間切れ・頼んだ人の退室か"}:::tonic
+  end
+
+  subgraph IN_["入口：intake：きっかけを求めにするか"]
+    TRG["きっかけ：Trigger：会話入力／機器／情動／完了"]:::io
+    SREQ{"沈黙依頼：silence_request：いま黙っているか（明示 or reason=timer:id）"}:::proc
+    LIFT{"解くきっかけ：lifts：機器「タイマー」／本人の「話していいよ」／止める頼み"}:::proc
+    HOLD["溜め：silence_hold：会話は原文・機器と情動は件数・O には残す"]:::mem
+    ONE["まとめ：one request：明けた最初の求めの W に「黙っていたあいだに届いたもの」"]:::mem
+  end
+
+  subgraph LP["反復：iterate：決めて出す"]
+    ARB["調停：arbiter：light／full／action・silence_minutes・lift_silence"]:::proc
+    SSET["掛ける／解く：_apply_silence：名前らしいもので呼ばれていれば依頼を書く"]:::proc
+    GEN["主LLM：generator：say か道具"]:::proc
+    TXT{"本文：text：有るか"}:::proc
+  end
+
+  subgraph GATE["出口：delivery gate：出してよいか"]
+    PASS{"通り抜け：passes_gate：確かめて掛けたタイマーの鳴りか"}:::proc
+    PRES{"居るか：presence：センサあり → 滞留窓内に人 or 声から PRESENCE_VOICE_SEC 以内／センサ無し → 在席表 or 声"}:::proc
+    QH{"静穏時間：quiet hours：起点が発話でなく 23〜7 時か"}:::proc
+    FILL{"つなぎ：said_fillers：もう一言出した相手が居るか"}:::proc
+    ORIG{"起点：origin：情動か・機器か・発話か"}:::proc
+  end
+
+  subgraph OUT_["結末：outcome"]
+    SPEAK["話す：DIF.speak：声と吹き出し"]:::out
+    MONO["独白：monologue：O に「考えたが言わなかった」・二度と出さない"]:::store
+    PEND["保留：pending_speech：不在の保留・立ち上がりで配る"]:::store
+    DELIV["配る：release pending：溜めた発話を 1 つの求めで出す"]:::proc
+  end
+
+  TICK --> TIMER
+  TIMER -- "鳴る（静穏時間なら確かめたものだけ）" --> RING
+  TIMER -- "鳴る" --> TRG
+  TIMER -- "鳴った・止めた" --> LIFTQ
+  TICK --> SENS --> EXP
+  EXP -- "はい" --> LEFT
+  SENS --> RISE
+  RISE -- "はい" --> DELIV --> TRG
+  TICK --> LIFTQ
+  LIFTQ -- "切れた" --> ONE
+
+  TRG --> SREQ
+  SREQ -- "黙っている" --> LIFT
+  LIFT -- "違う" --> HOLD
+  LIFT -- "解くきっかけ" --> ONE
+  HOLD -. "明けたとき" .-> ONE
+  ONE --> ARB
+  SREQ -- "黙っていない" --> ARB
+  ARB --> SSET --> GEN --> TXT
+  SSET -- "set_timer（TIMER_SILENCE）→ 鳴るまでの沈黙を書く" --> SREQ
+  TXT -- "空" --> MONO
+  TXT -- "有る" --> PASS
+  PASS -- "はい" --> SPEAK
+  PASS -- "いいえ" --> PRES
+  PRES -- "居る" --> QH
+  PRES -- "居ない" --> FILL
+  QH -- "違う・または返事" --> SPEAK
+  QH -- "静穏時間" --> FILL
+  FILL -- "出した" --> SPEAK
+  FILL -- "出していない" --> ORIG
+  ORIG -- "情動" --> MONO
+  ORIG -- "機器・発話" --> PEND
+  PEND -. "立ち上がり" .-> DELIV
+```
+
+| 場面 | 決まり |
+|---|---|
+| 黙っている | 入口で止める（情-h）。解くのは機器「タイマー」・本人の「話していいよ」・止める頼み・時間切れ・頼んだ人の退室 |
+| 居るか | センサあり：滞留窓内に人 or 声から 60 秒〔仮〕。センサ無し：在席表 or 声。在席表は「誰か」だけで、センサが誰も居ないを 60 秒〔仮〕見続けたら失効（話者の指定は残す） |
+| 静穏時間 | 起点が発話でなければ止める（返事は通す） |
+| つなぎ | 一言出した相手には本応答も出す（黙っていての依頼だけは守る） |
+| 止まったとき | 情動 → 独白／機器・発話 → 保留。保留は在席の立ち上がりで 1 つの求めにまとめて配る |
+| 通り抜け | 確かめて掛けたタイマーの鳴りは、在席・静穏・沈黙のどれにも掛けない |
+| タイマーの音 | 声の代わりに音を 30 秒〔仮〕。声の口を通らないのでマイクの門は立たず「止めて」が届く。静穏時間は確かめたものだけ |
 
 ### 在席の判定（実機で見つかった不具合）
 
@@ -633,6 +733,7 @@ GUI アイドル分岐は環-c で撤去し、機器の起点は `push_device`�
 
 ## 更新履歴
 
+> v0.75：**話す／話さない（To-Be）の図と表**（知-p・知-n-ろ・2026-09-17）——居るかはセンサ＋声 60 秒、在席表は誰かだけで 60 秒で失効、タイマーは音。
 > v0.74：名前の守りをゆるい読みに（2026-09-17・STT が名前を 体重／はじゅ と書き、沈黙依頼が 3 回落ちた）。`ME.md` の名前の並びと `hotwords` も。
 > v0.73：沈黙は入口で止め、明けたら 1 つの求めにまとめる（情-h・案イ撤回・`core/silence_hold.py`）（2026-09-16）。
 > v0.72：機器の知らせは返事ではない——`_LEAD_DEVICE`／`[届いた知らせ]`・鳴ったタイマーの求めでは掛ける道具を外す（2026-09-16）。
