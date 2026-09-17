@@ -50,6 +50,19 @@ def needs_confirmation(due: "datetime | None", *, quiet, silence_active: bool) -
     return None
 
 
+def confirm_text(minutes: float, *, silence: bool, mic_close: bool) -> str:
+    """掛ける前の確認の言葉（`TIMER_CONFIRM`・設定に合わせて変わる）。LLM は相手に合わせて言い直してよい。"""
+    m = int(minutes) if float(minutes).is_integer() else minutes
+    behaviour = {
+        (True, True): "その間は黙って聞かないよ",
+        (True, False): "その間は黙っているよ",
+        (False, True): "その間は聞かないよ",
+        (False, False): "",
+    }[(bool(silence), bool(mic_close))]
+    tail = f"。{behaviour}、いい？" if behaviour else "、いい？"
+    return f"{m} 分のタイマーね{tail}"
+
+
 def _mmss(delta: timedelta) -> str:
     total = max(0, int(delta.total_seconds()))
     return f"{total // 60}:{total % 60:02d}"
