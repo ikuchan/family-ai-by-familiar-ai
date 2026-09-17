@@ -69,7 +69,8 @@ REST 内省は誰も居ないときに回る（`loop/rest.py`）。1 パスで 4
 層 2 自己像（`rest_self_image.py`・`agent_state.self_image`・システム文の `[いまの自分]`）→
 層 3 設定値（`rest_settings.py`・計測ログ `rest_logs/measure.log` を集計し DB の値を 1 刻み）→
 層 4 能力（`rest_capabilities.py`・一覧 `agent_state.capabilities` を 7 日に 1 度、要約
-`capability_summary` を一覧か自己像が変わった晩に）。層 1 の②（核の固め）は未実装。
+`capability_summary` を一覧か自己像が変わった晩に）。層 1 は計測と減り → ②核の固め → ①日次の畳み込みの順に
+動く（`rest.py`）。4 層とも机上は実装済みで、実機で通したのは層 1 だけ（`課題8` C-12）。
 
 **遅延配信ターンという別経路は無い。** 完了した `search_deferred` / `fetch_deferred` の
 結果は、完了キュー → O → 次の反復として配信される。在席・静穏時間・「黙っていて」の依頼は
