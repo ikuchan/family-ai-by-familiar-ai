@@ -1749,7 +1749,7 @@ class InformationProcessing:
         while True:
             try:
                 trigger = await self._take_trigger()
-                if trigger is not None and await self._swallow_if_silent(trigger):
+                if trigger is not None and await self._swallow_if_unheard(trigger):
                     continue
                 if trigger is None:
                     logger.debug(
@@ -2481,11 +2481,8 @@ class InformationProcessing:
                 return text, "独白"
             await self._hold_speech(text, blocked)
             logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
-            if self._req.trigger_kind == "発話" and blocked == "聞く相手が居ない":
-                # 声がしたのに誰も見えない——見に行く理由になる（案ア・2026-09-17）。SEEKING を
-                # 押し上げるだけで、発火は通常の tick が決める（2 回目の声で見回りへ）。
-                with contextlib.suppress(Exception):
-                    await self._agent._nudge_seeking()
+            # 不在の会話入力は入口で止まる（`_swallow_if_unheard`）ので、ここに来る保留は
+            # 機器の知らせ（本文が機器側で決まっている）だけ。SEEKING の押し上げも入口で行う。
             return "", "保留"
         await self._dif.speak(text, gain=self._voice_gain())
         self._stamp_said()
@@ -2542,7 +2539,7 @@ class InformationProcessing:
         agent = self._agent
         if getattr(self._req, "passes_gate", False):
             return ""
-        # 「黙っていて」の依頼は**入口**で見る（`_swallow_if_silent`・情-h・2026-09-16）。以前は
+        # 「黙っていて」の依頼は**入口**で見る（`_swallow_if_unheard`・情-h・2026-09-16）。以前は
         # ここ（出口）で止めていたので、発話ごとに求めが立って調停・主LLM が回ってから止まり、
         # 他人への返事を通す例外（案イ）も入り込んだ。黙っているあいだに求めが立つのは解く
         # きっかけ（タイマーが鳴る・本人の「話していい」・止める頼み）だけで、それは通す。
@@ -2579,13 +2576,16 @@ class InformationProcessing:
 
         return load_silence()
 
-    async def _swallow_if_silent(self, trigger: "Trigger") -> bool:
-        """黙っているあいだは、届いたものを O に残すだけで求めを立てない（情-h・2026-09-16）。
+    async def _swallow_if_unheard(self, trigger: "Trigger") -> bool:
+        """聞けないあいだは、届いたものを O に残すだけで求めを立てない（入口の門）。
 
-        以前は出口（配信ゲート）で止めていたので、発話ごとに求めが立って調停・調べもの・主LLM が
-        回ってから止まり、他人への返事を通す例外（案イ）も入り込んだ。入口で止める：誰の声でも、
-        機器でも情動でも同じ。通すのは解くきっかけだけ（`silence_hold.lifts`）。明けていれば、
-        溜めたものを次の求めへ渡す（`_pending_heard` → `Request.heard_while_silent`）。
+        聞けない理由は 2 つ。**黙っているよう頼まれている**（情-h・2026-09-16：会話入力・機器・
+        情動のどれも止め、通すのは解くきっかけだけ）と、**誰も見えない**（2026-09-17：会話入力
+        だけ止める。機器の知らせは出口の `pending_speech` で本文ごと溜め、情動は出口で独白に
+        なる）。どちらも同じ器（`_muted`・`silence_hold`）に溜め、聞けるようになった最初の求めへ
+        渡す（`_pending_heard` → `Request.heard_while_silent`）。以前の不在は出口で止めており、
+        返事の本文を作ってから溜めていた（テレビの声への返事が、人が映った瞬間に出る）。
+        誰も見えないのに声がしたのは見に行く理由なので、ここで SEEKING を押し上げる（案ア）。
         """
         from ..core.silence_hold import lifts
         from ..silence_state import is_silenced
@@ -2594,27 +2594,48 @@ class InformationProcessing:
         req = None
         with contextlib.suppress(Exception):
             req = self._load_silence()
-        if not is_silenced(req, present=self._present_names(), now=now):
-            if self._muted:
-                self._pending_heard = self._take_muted()
+        if is_silenced(req, present=self._present_names(), now=now):
+            assert req is not None
+            speaker = self._current_speaker_name() if trigger.kind == "会話入力" else ""
+            if lifts(trigger.kind, trigger.query, speaker=speaker, asker=req.person):
+                if trigger.kind == "会話入力":
+                    self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
+                return False
+            await self._note_muted(trigger, now)
+            return self._swallowed(trigger)
+        if trigger.kind == "会話入力" and self._nobody_visible():
+            await self._note_muted(trigger, now, why="誰も見えなかった")
+            with contextlib.suppress(Exception):
+                await self._agent._nudge_seeking()
+            return self._swallowed(trigger)
+        if self._muted:
+            self._pending_heard = self._take_muted()
+        return False
+
+    def _nobody_visible(self) -> bool:
+        """配信ゲートと同じ「居るか」（`agent._social_presence_permission`）。読めなければ居る扱い。"""
+        try:
+            return self._agent._social_presence_permission() == 0.0
+        except Exception:  # noqa: BLE001
             return False
-        assert req is not None
-        speaker = self._current_speaker_name() if trigger.kind == "会話入力" else ""
-        if lifts(trigger.kind, trigger.query, speaker=speaker, asker=req.person):
-            if trigger.kind == "会話入力":
-                self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
-            return False
-        await self._note_muted(trigger, now)
+
+    @staticmethod
+    def _swallowed(trigger: "Trigger") -> bool:
         if trigger.future is not None and not trigger.future.done():
             trigger.future.set_result("")  # 呼び手（GUI）は吹き出しだけ出して待たない
         return True
 
-    async def _note_muted(self, trigger: "Trigger", now: float) -> None:
-        """黙っていたあいだに届いたものを O に残し、器に控える。"""
+    async def _note_muted(self, trigger: "Trigger", now: float, *, why: str = "黙っていた") -> None:
+        """聞けなかったあいだに届いたものを O に残し、器に控える（理由は `why`）。"""
         agent = self._agent
         if trigger.kind == "会話入力":
             who = self._current_speaker_name()
-            text, content = trigger.query, f"（黙っていたあいだに聞いた）{trigger.query}"
+            text = trigger.query
+            content = (
+                f"（誰も見えないあいだに聞いた）{trigger.query}"
+                if why == "誰も見えなかった"
+                else f"（黙っていたあいだに聞いた）{trigger.query}"
+            )
             perspective = agent._conversation_perspective()
         elif trigger.kind == "機器":
             who = ""
@@ -2641,8 +2662,15 @@ class InformationProcessing:
             )
         if self._muted_since is None:
             self._muted_since = now
-        self._muted.append(Heard(kind=trigger.kind, text=text, who=who, obs_id=obs_id, at=now))
-        logger.info("黙っているので聞くだけ：%s %.40s", trigger.kind, text)
+        self._muted.append(
+            Heard(kind=trigger.kind, text=text, who=who, obs_id=obs_id, at=now, why=why)
+        )
+        logger.info(
+            "%sので聞くだけ：%s %.40s",
+            "黙っている" if why == "黙っていた" else "誰も見えない",
+            trigger.kind,
+            text,
+        )
 
     def _take_muted(self) -> "list[Heard]":
         items, self._muted = self._muted, []

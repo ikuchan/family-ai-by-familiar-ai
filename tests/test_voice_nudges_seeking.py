@@ -1,8 +1,8 @@
 """声がしたが応じられないとき、SEEKING を押し上げる（案ア・2026-09-17）。
 
 マイクは在席の証拠にしない（テレビ・物音・聞き違い）。しかし声がしたのに誰も見えないのは
-「見に行く」理由にはなる。返事が「聞く相手が居ない」で保留になった瞬間、SEEKING の蓄積へ
-発火閾値の半分〔仮〕を足す。発火は通常の tick が決める（2 回目の声で見回りへ）。
+「見に行く」理由にはなる。会話入力が入口で「誰も見えない」で止まった瞬間、SEEKING の蓄積へ
+発火閾値の半分〔仮〕を足す（入口の側の test は `test_absent_hears_but_does_not_answer`）。発火は通常の tick が決める（2 回目の声で見回りへ）。
 """
 
 from __future__ import annotations
@@ -46,10 +46,11 @@ def _ip(origin: str, blocked: str):
     return a, ip
 
 
-def test_a_held_reply_to_a_voice_nudges_seeking():
+def test_a_held_reply_at_the_exit_no_longer_nudges():
+    """押し上げは入口（`_swallow_if_unheard`）へ移した。出口に来る保留は機器の知らせだけ。"""
     a, ip = _ip("発話", "聞く相手が居ない")
     asyncio.run(ip._speak("こんにちは"))
-    a._nudge_seeking.assert_awaited_once()
+    a._nudge_seeking.assert_not_awaited()
 
 
 def test_a_held_device_notice_does_not_nudge():

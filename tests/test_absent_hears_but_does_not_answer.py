@@ -1,0 +1,84 @@
+"""誰も見えていないときの会話入力は、入口で止めて同じ器に溜める（2026-09-17）。
+
+「聞けない理由」は 2 つ——黙っているよう頼まれている（情-h）と、誰も見えない。どちらも
+入口で止め（調停も主LLM も回らない）、`silence_hold` の器に溜め、人が映った最初の求めの W に
+列挙して主LLM がそのとき判断する。返事を作ってから溜める（環-b の `pending_speech`）のは
+機器の知らせだけ。見に行く理由として SEEKING の押し上げも入口で行う。
+"""
+
+from __future__ import annotations
+
+import asyncio
+import time
+from unittest.mock import AsyncMock, MagicMock
+
+from familiar_agent.core.silence_hold import Heard, render
+from familiar_agent.loop.event_loop import InformationProcessing, Trigger
+
+
+def _ip(*, present: float):
+    a = MagicMock()
+    a._pmm.presence_status = MagicMock(return_value=[])
+    a._oif.write = AsyncMock(return_value="obs-1")
+    a._observation_perspective = MagicMock(return_value={})
+    a._conversation_perspective = MagicMock(return_value={})
+    a._social_presence_permission = MagicMock(return_value=present)
+    a._nudge_seeking = AsyncMock()
+    ip = InformationProcessing(a)
+    ip._load_silence = lambda: None  # 黙ってはいない
+    return ip, a
+
+
+def _run(coro):
+    async def bounded():
+        return await asyncio.wait_for(coro, timeout=2.0)
+
+    return asyncio.run(bounded())
+
+
+def test_a_voice_with_nobody_visible_is_heard_but_not_answered():
+    ip, a = _ip(present=0.0)
+
+    async def scenario():
+        fut = asyncio.get_running_loop().create_future()
+        swallowed = await ip._swallow_if_unheard(
+            Trigger(kind="会話入力", query="こんにちは", future=fut)
+        )
+        return swallowed, fut
+
+    swallowed, fut = _run(scenario())
+    assert swallowed is True
+    assert fut.done() and fut.result() == ""
+    assert "誰も見えないあいだに聞いた" in a._oif.write.call_args.args[0].content
+    assert [(h.kind, h.why) for h in ip._muted] == [("会話入力", "誰も見えなかった")]
+    a._nudge_seeking.assert_awaited_once()  # 見に行く理由にはなる
+
+
+def test_device_and_affect_still_go_to_the_exit_gate_when_absent():
+    ip, a = _ip(present=0.0)
+    d = _run(ip._swallow_if_unheard(Trigger(kind="機器", query="タイマー", result="時間")))
+    u = _run(ip._swallow_if_unheard(Trigger(kind="情動", query="seeking")))
+    assert (d, u) == (False, False)
+    a._nudge_seeking.assert_not_awaited()
+
+
+def test_when_someone_appears_the_heard_things_ride_the_next_request():
+    ip, a = _ip(present=0.0)
+    _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは")))
+    a._social_presence_permission = MagicMock(return_value=1.0)
+    swallowed = _run(
+        ip._swallow_if_unheard(Trigger(kind="機器", query="入室", result="誰か が来た"))
+    )
+    assert swallowed is False
+    assert [h.text for h in ip._pending_heard] == ["こんにちは"] and ip._muted == []
+
+
+def test_the_heading_says_why_it_could_not_answer():
+    now = time.time()
+    items = [Heard(kind="会話入力", text="こんにちは", at=now, why="誰も見えなかった")]
+    text = render(items, since=now, until=now, max_chars=500)
+    assert text.startswith("誰も見えなかったあいだ（")
+    both = items + [Heard(kind="会話入力", text="静かにして", at=now)]
+    assert render(both, since=now, until=now, max_chars=500).startswith(
+        "黙っていた／誰も見えなかったあいだ（"
+    )

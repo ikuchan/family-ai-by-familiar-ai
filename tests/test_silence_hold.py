@@ -93,7 +93,7 @@ def test_an_utterance_during_silence_is_heard_but_not_answered():
 
     async def scenario():
         fut = asyncio.get_running_loop().create_future()
-        swallowed = await ip._swallow_if_silent(
+        swallowed = await ip._swallow_if_unheard(
             Trigger(kind="会話入力", query="明日の予定は？", future=fut)
         )
         return swallowed, fut
@@ -110,7 +110,7 @@ def test_someone_else_is_not_answered_either():
     ip, _ = _ip(speaker="たいきくん", silenced_for="パパ", others=("パパ",))  # パパは居る
 
     async def scenario():
-        return await ip._swallow_if_silent(Trigger(kind="会話入力", query="ねえパジュ"))
+        return await ip._swallow_if_unheard(Trigger(kind="会話入力", query="ねえパジュ"))
 
     assert _run(scenario()) is True
 
@@ -119,10 +119,10 @@ def test_devices_and_urges_are_noted_not_acted_on():
     ip, _ = _ip()
 
     async def scenario():
-        d = await ip._swallow_if_silent(
+        d = await ip._swallow_if_unheard(
             Trigger(kind="機器", query="入室", result="たいきくん が来た")
         )
-        u = await ip._swallow_if_silent(Trigger(kind="情動", query="SEEKING", result="探索したい"))
+        u = await ip._swallow_if_unheard(Trigger(kind="情動", query="SEEKING", result="探索したい"))
         return d, u
 
     assert _run(scenario()) == (True, True)
@@ -133,8 +133,8 @@ def test_a_ringing_timer_and_the_release_phrase_pass():
     ip, _ = _ip()
 
     async def scenario():
-        t = await ip._swallow_if_silent(Trigger(kind="機器", query="タイマー", result="時間"))
-        r = await ip._swallow_if_silent(Trigger(kind="会話入力", query="もう話していいよ"))
+        t = await ip._swallow_if_unheard(Trigger(kind="機器", query="タイマー", result="時間"))
+        r = await ip._swallow_if_unheard(Trigger(kind="会話入力", query="もう話していいよ"))
         return t, r
 
     assert _run(scenario()) == (False, False)
@@ -144,7 +144,7 @@ def test_nothing_is_swallowed_when_not_silenced():
     ip, _ = _ip(silenced_for=None)
 
     async def scenario():
-        return await ip._swallow_if_silent(Trigger(kind="会話入力", query="おはよう"))
+        return await ip._swallow_if_unheard(Trigger(kind="会話入力", query="おはよう"))
 
     assert _run(scenario()) is False
 
@@ -155,7 +155,7 @@ def test_when_silence_ends_the_heard_things_ride_the_next_request():
     ip._muted_since = time.time() - 60
 
     async def scenario():
-        assert await ip._swallow_if_silent(Trigger(kind="会話入力", query="話していいよ")) is False
+        assert await ip._swallow_if_unheard(Trigger(kind="会話入力", query="話していいよ")) is False
         await ip._begin_request(kind="発話", text="話していいよ", utterance="話していいよ")
         return ip._req.heard_while_silent, ip._muted
 

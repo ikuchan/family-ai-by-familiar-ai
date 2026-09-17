@@ -1,7 +1,7 @@
 """「黙っていて」と頼まれた状態。
 
 止めるのは**入口**（情-h）：黙っているあいだ、会話入力・機器・情動のきっかけは O に残す
-だけで求めを立てない（`InformationProcessing._swallow_if_silent`）。聞いたものは
+だけで求めを立てない（`InformationProcessing._swallow_if_unheard`）。聞いたものは
 `core/silence_hold` が溜め、明けたときに 1 つの求めにまとめて主LLM が答える。
 解けるのは、**時間**（`until`・既定 60 分）と**退室**（頼んだ人が居なくなる。どちらも
 `is_silenced` の判定だけ）、頼んだ本人の「話していいよ」・止める頼み（`core/silence_rules`）、
