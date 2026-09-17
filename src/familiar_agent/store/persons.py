@@ -24,7 +24,9 @@ class PersonRegistry:
     def __init__(self, ctx: StoreContext) -> None:
         self._ctx = ctx
 
-    def register_person(self, name: str, display_name: str = "", person_id: str | None = None) -> str:
+    def register_person(
+        self, name: str, display_name: str = "", person_id: str | None = None
+    ) -> str:
         pid = person_id or str(uuid.uuid4())
         now = clock.now_utc_iso()
         with self._ctx.lock:
@@ -46,5 +48,7 @@ class PersonRegistry:
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
-                cur.execute("SELECT id, name, display_name, created_at FROM persons ORDER BY created_at")
+                cur.execute(
+                    "SELECT id, name, display_name, created_at FROM persons ORDER BY created_at"
+                )
                 return [dict(r) for r in cur.fetchall()]

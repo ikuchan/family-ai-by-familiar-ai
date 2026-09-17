@@ -127,7 +127,7 @@ class CameraConfig:
     # 滞留窓（`課題5` §I の在席 timeout）。静止している人は毎回検出されないので、
     # この時間の内側は居るものとして扱う。
     presence_window_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_PRESENCE_WINDOW", 120.0)
+        default_factory=lambda: _float_env("CAMERA_PRESENCE_WINDOW", 180.0)
     )
 
     def stream_url(self, stream: str = "stream1") -> str | int:
@@ -596,12 +596,9 @@ class AgentConfig:
     timer_voice_gain: float = field(default_factory=lambda: _float_env("TIMER_VOICE_GAIN", 1.0))
     # タイマーを掛けているあいだは黙り、鳴ったら戻す（既定 有効・false でこれまでどおり）。
     timer_silence: bool = field(default_factory=lambda: _bool_env("TIMER_SILENCE", default=True))
-    # 人の声を「居る」証拠として数える長さ（秒）。センサの視野の外から話しかけられたときの
-    # 補い。以前は 5 分で、`/speaker` の在席表と合わせてゲートが永久に「居る」になった
-    # （2026-09-17 実機）。〔仮〕
-    presence_voice_sec: float = field(
-        default_factory=lambda: _float_env("PRESENCE_VOICE_SEC", 60.0)
-    )
+    # 自分が話してから・`/speaker` を打ってから「居る」とみなす長さ（秒）。マイクで拾った声は
+    # 数えない（テレビ・物音・聞き違い・2026-09-17）。〔仮〕
+    presence_said_sec: float = field(default_factory=lambda: _float_env("PRESENCE_SAID_SEC", 60.0))
     # 在席表（PMM・`/speaker` と顔照合）の失効。センサが「誰も居ない」をこの秒数見続けたら
     # 在席表を空にする（話者の指定は残す）。〔仮〕
     presence_expire_sec: float = field(
@@ -766,6 +763,11 @@ class DriveConfig:
     epsilon: float = 0.001
     theta_fire: float = 1.0 - 0.001  # 発火閾値 Θ_fire = 1−ε
     discharge_q: float = 1.0 - 0.001  # 放電量 q = 1−ε（全放電）
+    # 声がしたのに応じられなかった（聞く相手が居ない）ときに SEEKING へ足す量（案ア・2026-09-17）。
+    # 発火閾値の半分〔仮〕＝2 回目の声で発火して見回りへ。`DRIVE_VOICE_NUDGE` で上書き。
+    voice_nudge: float = field(
+        default_factory=lambda: _float_env("DRIVE_VOICE_NUDGE", (1.0 - 0.001) * 0.5)
+    )
 
     # バイアス b_i（中立時 g_{D,i}=b_i・0〜1・仮値）
     bias_seeking: float = 0.20

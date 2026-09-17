@@ -165,6 +165,7 @@ def build_event_system_prompt(
     allow_tts_tags: bool = False,
     origin: str = "発話",
     self_image: str = "",
+    now_note: str = "",
 ) -> tuple[str, str]:
     """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 規則 ＋ 自己像 ＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
 
@@ -190,7 +191,7 @@ def build_event_system_prompt(
         self_understanding=self_understanding,
         family=family_md,
         self_image=self_image,
-        now=f'(now :datetime "{clock.now_local_str()}")',
+        now=f'(now :datetime "{clock.now_local_str()}")' + now_note,
         presence=present_ctx,
         inner_state=pi_ctx,
         iteration=iter_ctx,

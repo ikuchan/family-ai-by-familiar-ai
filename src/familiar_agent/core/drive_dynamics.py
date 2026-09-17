@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..config import DriveConfig
 from ..drive_register import AiDrivers
@@ -141,6 +141,20 @@ def tick(
     if firing.any:
         d = discharge(d, firing, cfg)
     return d, firing
+
+
+def nudge(drives: AiDrivers, axis: str, amount: float, cfg: DriveConfig | None = None) -> AiDrivers:
+    """出来事で 1 軸を押し上げる（蓄積への加算・他軸は触らない）。上限は発火閾値。
+
+    押し上げは蓄積の一部で、**発火は通常の tick（`fired`）が決める**。出来事から直接
+    発火させると、間隔の伸び（情-d）や静穏時間の抑えを飛び越えてしまう。
+    使い手：声がしたが応じられないとき SEEKING へ（案ア・2026-09-17）。
+    """
+    cfg = cfg or DriveConfig()
+    if axis not in ("seeking", "rest", "bond", "safety", "esteem"):
+        return drives
+    value = min(cfg.theta_fire, max(0.0, getattr(drives, axis) + max(0.0, amount)))
+    return replace(drives, **{axis: value})
 
 
 def discharge(drives: AiDrivers, firing: DriveFiring, cfg: DriveConfig | None = None) -> AiDrivers:

@@ -60,6 +60,7 @@ def _coerce_to_embedding_dim(vec: np.ndarray) -> np.ndarray:
 
 # ── Lazy embedding model ───────────────────────────────────────────────────
 
+
 class _EmbeddingModel(ModelResource):
     """言語の符号化器（bge-m3）。記憶に密着するので OIF の内側に置く。
 
@@ -96,8 +97,7 @@ class _EmbeddingModel(ModelResource):
         import sentence_transformers
 
         if self.device:
-            return sentence_transformers.SentenceTransformer(
-                self._model_name, device=self.device)
+            return sentence_transformers.SentenceTransformer(self._model_name, device=self.device)
         return sentence_transformers.SentenceTransformer(self._model_name)
 
     def _zeros(self, n: int) -> list[list[float]]:
@@ -114,12 +114,16 @@ class _EmbeddingModel(ModelResource):
                 cache.move_to_end(k)
                 results.append(cache[k])
             else:
-                miss_idx.append(i); miss_texts.append(t); results.append(None)
+                miss_idx.append(i)
+                miss_texts.append(t)
+                results.append(None)
         return miss_idx, miss_texts, results
 
     def _store(self, cache: OrderedDict, texts: list[str], vecs: list[list[float]]) -> None:
         for t, v in zip(texts, vecs):
-            k = self._key(t); cache[k] = v; cache.move_to_end(k)
+            k = self._key(t)
+            cache[k] = v
+            cache.move_to_end(k)
         while len(cache) > self._CACHE_SIZE:
             cache.popitem(last=False)
 
@@ -130,12 +134,15 @@ class _EmbeddingModel(ModelResource):
         miss_idx, miss_texts, results = self._lookup(self._d_cache, texts)
         if miss_texts:
             try:
-                new = model.encode(miss_texts, normalize_embeddings=True,
-                                   show_progress_bar=False).tolist()
+                new = model.encode(
+                    miss_texts, normalize_embeddings=True, show_progress_bar=False
+                ).tolist()
             except Exception as e:
-                logger.warning("encode_document failed: %s", e); return self._zeros(len(texts))
+                logger.warning("encode_document failed: %s", e)
+                return self._zeros(len(texts))
             self._store(self._d_cache, miss_texts, new)
-            for j, i in enumerate(miss_idx): results[i] = new[j]
+            for j, i in enumerate(miss_idx):
+                results[i] = new[j]
         return results  # type: ignore
 
     def encode_query(self, texts: list[str]) -> list[list[float]]:
@@ -145,12 +152,15 @@ class _EmbeddingModel(ModelResource):
         miss_idx, miss_texts, results = self._lookup(self._q_cache, texts)
         if miss_texts:
             try:
-                new = model.encode(miss_texts, normalize_embeddings=True,
-                                   show_progress_bar=False).tolist()
+                new = model.encode(
+                    miss_texts, normalize_embeddings=True, show_progress_bar=False
+                ).tolist()
             except Exception as e:
-                logger.warning("encode_query failed: %s", e); return self._zeros(len(texts))
+                logger.warning("encode_query failed: %s", e)
+                return self._zeros(len(texts))
             self._store(self._q_cache, miss_texts, new)
-            for j, i in enumerate(miss_idx): results[i] = new[j]
+            for j, i in enumerate(miss_idx):
+                results[i] = new[j]
         return results  # type: ignore
 
 

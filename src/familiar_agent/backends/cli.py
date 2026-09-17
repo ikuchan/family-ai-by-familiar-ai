@@ -150,7 +150,7 @@ class CLIBackend:
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
-        effort: str | None = None,   # 署名を揃えるだけ（未対応）
+        effort: str | None = None,  # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
         prompt = self._serialize(system, messages, tools)
         text = await self._run(prompt)
@@ -162,9 +162,7 @@ class CLIBackend:
         raw: dict[str, Any] = {"role": "assistant", "content": text}
         return TurnResult(stop_reason=stop, text=clean_text, tool_calls=tool_calls), raw
 
-    async def complete(
-        self, prompt: str, max_tokens: int, *, system: str | None = None
-    ) -> str:
+    async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         # CLI にはシステム文の口が無いので前置きで代替する。**ここだけ他と揃わない**——
         # モデルはシステム文と利用者の文を違う重みで扱うので、同じ効きは期待できない。
         if system:

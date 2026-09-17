@@ -4,6 +4,7 @@ Runs as an asyncio task. Polls the camera every `interval_sec` seconds,
 runs face recognition, and updates PersonMemoryManager accordingly.
 Persons not seen for `absent_threshold_sec` are marked as left.
 """
+
 from __future__ import annotations
 import asyncio, base64, logging
 from pathlib import Path
@@ -32,11 +33,12 @@ class CameraPresenceWatcher:
         interval_sec: float = 5.0,
         absent_threshold_sec: float = 30.0,
     ) -> None:
-        self._manager  = manager
+        self._manager = manager
         from ..config import CameraConfig as _CameraConfig
-        self._camera   = camera or _CameraConfig()
+
+        self._camera = camera or _CameraConfig()
         self._interval = interval_sec
-        self._absent   = absent_threshold_sec
+        self._absent = absent_threshold_sec
         self._task: asyncio.Task | None = None
         # 直近に認識用へ撮ったフレーム（base64）。GUI が在席確認カメラとして表示する。
         self._last_frame_b64: str | None = None
@@ -62,6 +64,7 @@ class CameraPresenceWatcher:
 
     async def _loop(self) -> None:
         from .face import recognize_face_async
+
         while True:
             try:
                 frame_path = await self._capture_frame()
@@ -90,9 +93,19 @@ class CameraPresenceWatcher:
                 url = cam.stream_url("stream1")
                 tmp = tempfile.mktemp(suffix=".jpg")
                 proc = await asyncio.create_subprocess_exec(
-                    "ffmpeg", "-y", "-rtsp_transport", "tcp",
-                    "-i", str(url), "-frames:v", "1", "-q:v", "3", tmp,
-                    stdout=asyncio.subprocess.DEVNULL, stderr=asyncio.subprocess.DEVNULL,
+                    "ffmpeg",
+                    "-y",
+                    "-rtsp_transport",
+                    "tcp",
+                    "-i",
+                    str(url),
+                    "-frames:v",
+                    "1",
+                    "-q:v",
+                    "3",
+                    tmp,
+                    stdout=asyncio.subprocess.DEVNULL,
+                    stderr=asyncio.subprocess.DEVNULL,
                 )
                 await asyncio.wait_for(proc.wait(), timeout=8.0)
                 if os.path.exists(tmp) and os.path.getsize(tmp) > 0:
@@ -102,6 +115,7 @@ class CameraPresenceWatcher:
                 return None
             # USB webcam (only when CAMERA_HOST is not set)
             import cv2
+
             cap = cv2.VideoCapture(0)
             if not cap.isOpened():
                 return None

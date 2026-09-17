@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.46・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.48・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -290,7 +290,8 @@ $$\text{思い出した時：}\; last\_recalled\_at \leftarrow now\quad(\text{�
 |---|---|---|---|---|
 | 静穏時間 `QUIET_HOURS_START` / `QUIET_HOURS_END`（Config） | 23 / 7 | 〔確定〕 | **自分から話しかけない時間帯**。人の発話が起点の反復には掛けない。出所は環境変数 → Config の既定の2段（旧 `schedule.conf`・`ROUTINES.md` は撤去） | 【実装済み】 |
 | 沈黙依頼の長さ `SILENCE_MINUTES`（Config） | 60 分 | 〔確定〕 | 「黙っていて」と頼まれてから時間で解けるまで。もう一つの解除は**退室**（頼んだ人が在席者の集合から消える） | 【実装済み・人が指定】 |
-| 声を居る証拠に数える窓 `PRESENCE_VOICE_SEC`（Config） | 60 秒 | 〔仮〕 | センサの視野の外から話しかけられたときの補い。以前は 5 分（`/speaker` と合わせてゲートが永久に「居る」になった・2026-09-17） | 【設計】知覚在席 §3-2b |
+| 自分の発話・`/speaker` を居る証拠に数える窓 `PRESENCE_SAID_SEC`（Config） | 60 秒 | 〔仮〕 | 話してよかった状態は 1 分続く。マイクで拾った声は数えない（2026-09-17） | 【設計】知覚在席 §3-2b |
+| 声で SEEKING を押し上げる量 `DRIVE_VOICE_NUDGE`（DriveConfig.voice_nudge） | $\Theta_{fire}/2$ | 〔仮〕 | 返事が「聞く相手が居ない」で保留になるたび加算。2 回目で発火 | 【設計】発火_mood §2-c |
 | 在席表の失効 `PRESENCE_EXPIRE_SEC`（Config） | 60 秒 | 〔仮〕 | センサが「誰も居ない」をこの秒数見続けたら在席表（PMM）を空にする。話者の指定は残す | 【設計】知覚在席 §3-2b |
 | タイマーの音の長さ `TIMER_RING_SEC`（Config） | 30 秒 | 〔仮〕 | 鳴ったら `timer_alarm.wav` を繰り返す。0 で声だけ | 【設計】設計方針_タイマー v0.2 §5a |
 | 反復上限 `EVENT_MAX_ITERATIONS`（Config） | 5 | 〔確定〕 | 1つの求めに使える手数。ネットの調べものは search → fetch → 答える で最低3手 | 【実装済み】 |
@@ -348,7 +349,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 |---|---|---|---|---|
 | カメラ判定による驚き量 $\widehat{S}$ | $\max(\widehat{S}_{在席},\widehat{S}_{景色})$ | 〔確定（枠）／係数のみ課題7〕 | 2系統を固定係数 min-max で 0〜1 化し max 合成。在席系統＝確率差[0,1]・景色系統＝コサイン距離$1-\cos$。**係数 $d_{lo}/d_{hi}$ 初期値は課題7**。$g_A$・$a_0$ がこれを使う（D- 承認） | 【新規仮置き→枠承認】 |
 | norm EMA 係数 $\alpha_{norm}$ | 0.10 | 〔確定（Config・初期値課題7）〕 | 上式（定点別「普通」更新）。驚き $S$ を取る | 【新規仮置き→承認・課題7】（[D-知覚]） |
-| 在席 timeout | 120.0 秒 | 〔確定（Config）〕 | $\Delta t_{seen} > timeout \Rightarrow 不在$ | 【コード事実→承認】person_memory_manager.py:47 |
+| 在席 timeout（滞留窓 `CAMERA_PRESENCE_WINDOW`） | 180.0 秒 | 〔確定（Config）・2026-09-17 に 120 → 180〕 | $\Delta t_{seen} > timeout \Rightarrow 不在$ | 【コード事実→承認】person_memory_manager.py:47 |
 | situated 合成 $\alpha_p$ | 0.30 | 〔確定（Config）〕 | $v_{sit} = v_{mem} + \alpha_p\,v_{person}$ | 【コード事実→承認】:43 |
 | 人物 auto-switch 閾値 | 0.75 | 〔確定（Config・初期値課題7）〕 | $cos(顔, ギャラリー) \ge 0.75 \Rightarrow 同一人物$ | 【コード事実→承認】:45 |
 | 予測 EMA 係数 | 0.30 | 〔確定（Config）〕 | $pred \leftarrow 0.7\,pred + 0.3\,obs$ | 【コード事実→承認】prediction.py:37 |
@@ -380,6 +381,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.48：`PRESENCE_SAID_SEC` 60・`DRIVE_VOICE_NUDGE` Θ/2〔仮〕・滞留窓 180（2026-09-17）。
 > v0.46：`PRESENCE_VOICE_SEC` 60・`PRESENCE_EXPIRE_SEC` 60・`TIMER_RING_SEC` 30（いずれも〔仮〕・2026-09-17）を G 章に追加。
 > v0.45：C3 に 2026-09-15 に登録した 5 つ（`info_target_bits`・`core_same_cos`・`core_bundle_cos`・`core_bundle_min`・`core_bundles_per_night`）を足した（`core/settings.py` の `REGISTRY` と照合・2026-09-17）。
 > v0.44：C3 節「層 3 の登録一覧と規則」を追加（2026-09-14・記-a-に）。

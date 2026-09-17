@@ -8,6 +8,7 @@ Built-in tools:
 - ask_who_is_speaking(): query the current speaker identity.
 Each person has a separate memory space routed via PersonMemoryManager (person_id).
 """
+
 from __future__ import annotations
 
 import logging
@@ -37,9 +38,9 @@ class PersonTool:
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "name":       {"type": "string", "description": "persons.name に登録された名前"},
+                        "name": {"type": "string", "description": "persons.name に登録された名前"},
                         "confidence": {"type": "number", "description": "0.0〜1.0"},
-                        "reason":     {"type": "string"},
+                        "reason": {"type": "string"},
                     },
                     "required": ["name", "confidence"],
                 },
@@ -47,13 +48,12 @@ class PersonTool:
             {
                 "name": "note_person_arrived",
                 "description": (
-                    "カメラや声で誰かがその場に来たことを検知したとき。"
-                    "まだ発言していなくてもよい。"
+                    "カメラや声で誰かがその場に来たことを検知したとき。まだ発言していなくてもよい。"
                 ),
                 "input_schema": {
                     "type": "object",
                     "properties": {
-                        "name":       {"type": "string"},
+                        "name": {"type": "string"},
                         "confidence": {"type": "number"},
                     },
                     "required": ["name", "confidence"],
@@ -98,6 +98,7 @@ class PersonTool:
 
     async def _declare_speaker(self, inp: dict) -> tuple[str, None]:
         from ..person_memory_manager import RecognitionHint
+
         name = str(inp["name"])
         confidence = float(inp.get("confidence", 0.9))
         reason = str(inp.get("reason", ""))
@@ -136,10 +137,7 @@ class PersonTool:
     async def _ask_who(self) -> tuple[str, None]:
         info = self._manager.get_active_person_info()
         current = info.get("display_name", "不明")
-        return (
-            f"（現在の話者: {current}）\n"
-            "「あなたのお名前を教えていただけますか？」"
-        ), None
+        return (f"（現在の話者: {current}）\n「あなたのお名前を教えていただけますか？」"), None
 
     async def _resolve(self, name: str) -> str:
         """Return person_id, auto-registering if unknown."""

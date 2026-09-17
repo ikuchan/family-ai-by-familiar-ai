@@ -6,6 +6,7 @@ Migration files receive a psycopg2 connection and implement:
 Each file uses `with conn.cursor() as cur: cur.execute(...)`.
 The runner handles transactions, applied-tracking, and ordering.
 """
+
 from __future__ import annotations
 
 import importlib.util
@@ -120,9 +121,7 @@ def apply_migrations(
         try:
             upgrade(conn)
             with conn.cursor() as cur:
-                cur.execute(
-                    f"INSERT INTO {_MIGRATIONS_TABLE} (id) VALUES (%s)", (mid,)
-                )
+                cur.execute(f"INSERT INTO {_MIGRATIONS_TABLE} (id) VALUES (%s)", (mid,))
             conn.commit()
             applied.add(mid)
             count += 1

@@ -24,12 +24,12 @@ logger = logging.getLogger(__name__)
 class PresenceMap:
     """定点ごとの「最後に人を見た時刻」と「最後に見に行った時刻」。
 
-    `window_sec` は滞留窓（`課題5` §I の在席 timeout＝120 秒）。人が静止していると動体も
+    `window_sec` は滞留窓（`課題5` §I の在席 timeout＝180 秒・2026-09-17 に 120 から。カメラは 1 箇所しか見ないので長めに）。人が静止していると動体も
     出ず毎フレームは検出されないので、窓の内側は居るものとして扱う。
     """
 
     poses: list[str]
-    window_sec: float = 120.0
+    window_sec: float = 180.0
     _seen: dict[str, float] = field(default_factory=dict)
     _checked: dict[str, float] = field(default_factory=dict)
 
@@ -50,12 +50,15 @@ class PresenceMap:
 
     def poses_seen(self, now: float) -> list[str]:
         """窓の内側で人を見た定点。"""
-        return [p for p in self.poses
-                if now - self._seen.get(p, float("-inf")) <= self.window_sec]
+        return [p for p in self.poses if now - self._seen.get(p, float("-inf")) <= self.window_sec]
 
     def room_occupied(self, now: float) -> bool:
         """部屋に誰か居るか。いずれかの定点が窓の内側なら居る。"""
         return bool(self.poses_seen(now))
+
+    def stale_order(self, now: float) -> "list[tuple[str, float | None]]":
+        """見ていない順に (定点, 最後に見てからの秒・一度も無ければ None)。見回りの材料。"""
+        return stale_order(self, now)
 
     def stalest_pose(self, now: float) -> str | None:
         """次に見に行くべき定点＝最も長く見ていないもの。
@@ -65,3 +68,22 @@ class PresenceMap:
         if not self.poses:
             return None
         return min(self.poses, key=lambda p: self._checked.get(p, float("-inf")))
+
+
+def stale_order(pmap: PresenceMap, now: float) -> "list[tuple[str, float | None]]":
+    """定点を**見ていない順**に並べる（一度も見ていないものが先頭・次に古い順）。
+
+    `[いま]` の「見ていない順」の 1 行と、`look` の行き先の既定（`stalest_pose`）の材料。
+    見た印は W に浮かないことがある（印が無い定点は想起に掛からない・2026-08-01）ので、
+    機械が持つ時刻から出す。
+    """
+
+    def key(p: str) -> tuple[int, float]:
+        at = pmap._checked.get(p)
+        return (0, 0.0) if at is None else (1, -(now - at))
+
+    out: list[tuple[str, float | None]] = []
+    for p in sorted(pmap.poses, key=key):
+        at = pmap._checked.get(p)
+        out.append((p, None if at is None else max(0.0, now - at)))
+    return out

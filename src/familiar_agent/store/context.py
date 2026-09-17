@@ -42,7 +42,7 @@ def viewpoint_of(person_id: str) -> str:
 class StoreContext:
     """層が共有する道具。"""
 
-    db: Any                  # Database シングルトン、またはテストの sqlite3 接続
+    db: Any  # Database シングルトン、またはテストの sqlite3 接続
     lock: threading.Lock
     person_id: str
     embedder: Any

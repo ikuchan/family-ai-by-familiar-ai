@@ -58,7 +58,12 @@ def _unusable(want: str, raw: str) -> None:
 
 
 async def ask_numbers(
-    backend, prompt: str, *, count: int, lo: float = 0.0, hi: float = 1.0,
+    backend,
+    prompt: str,
+    *,
+    count: int,
+    lo: float = 0.0,
+    hi: float = 1.0,
     max_tokens: int = 20,
     system: str | None = None,
 ) -> "tuple[float, ...] | None":
@@ -78,7 +83,11 @@ async def ask_numbers(
 
 
 async def ask_choice(
-    backend, prompt: str, *, choices: "set[str] | frozenset[str]", max_tokens: int = 10,
+    backend,
+    prompt: str,
+    *,
+    choices: "set[str] | frozenset[str]",
+    max_tokens: int = 10,
     system: str | None = None,
 ) -> str | None:
     """選択肢から1つ選ばせる。**2つ以上あてはまるなら選べていない**ので `None`。
@@ -96,7 +105,9 @@ async def ask_choice(
     return hit[0]
 
 
-async def ask_yes_no(backend, prompt: str, *, max_tokens: int = 5, system: str | None = None) -> bool | None:
+async def ask_yes_no(
+    backend, prompt: str, *, max_tokens: int = 5, system: str | None = None
+) -> bool | None:
     """はい／いいえ。**どちらとも読めなければ `None`**（黙って偽にしない）。"""
     raw = await _ask(backend, prompt, max_tokens, "はい／いいえ", system)
     if raw is None:
@@ -104,14 +115,18 @@ async def ask_yes_no(backend, prompt: str, *, max_tokens: int = 5, system: str |
     low = raw.lower()
     yes = any(w in low for w in _YES)
     no = any(w in low for w in _NO)
-    if yes == no:          # 両方あるか、どちらも無い
+    if yes == no:  # 両方あるか、どちらも無い
         _unusable("はい／いいえ", raw)
         return None
     return yes
 
 
 async def ask_subset(
-    backend, prompt: str, *, choices: "set[str] | frozenset[str]", max_tokens: int = 32,
+    backend,
+    prompt: str,
+    *,
+    choices: "set[str] | frozenset[str]",
+    max_tokens: int = 32,
     system: str | None = None,
 ) -> "frozenset[str] | None":
     """選択肢のうち当てはまるものを列挙させる。
@@ -148,7 +163,9 @@ def read_json(raw: str) -> "dict[str, Any] | None":
     return loaded if isinstance(loaded, dict) else None
 
 
-async def ask_json(backend, prompt: str, *, max_tokens: int = 512, system: str | None = None) -> "dict[str, Any] | None":
+async def ask_json(
+    backend, prompt: str, *, max_tokens: int = 512, system: str | None = None
+) -> "dict[str, Any] | None":
     """JSON の物体を求める。読めなければ `None`（読めなかったことは記録する）。
 
     生の返事を見て独自に記録したい呼び出し側は、`complete` を自分で呼んで `read_json` を

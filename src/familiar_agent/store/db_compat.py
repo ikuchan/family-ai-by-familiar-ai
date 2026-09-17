@@ -23,9 +23,14 @@ class _RealDictConnWrapper:
         kwargs.setdefault("cursor_factory", psycopg2.extras.RealDictCursor)
         return self._conn.cursor(**kwargs)
 
-    def commit(self):   return self._conn.commit()
-    def rollback(self): return self._conn.rollback()
-    def close(self):    return self._conn.close()
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
 
     def __getattr__(self, name):
         return getattr(self._conn, name)
@@ -69,9 +74,14 @@ class _SQLiteConnWrapper:
     def cursor(self, **kwargs) -> "_SQLiteCursorWrapper":
         return _SQLiteCursorWrapper(self._conn.cursor())
 
-    def commit(self):   return self._conn.commit()
-    def rollback(self): return self._conn.rollback()
-    def close(self):    return self._conn.close()
+    def commit(self):
+        return self._conn.commit()
+
+    def rollback(self):
+        return self._conn.rollback()
+
+    def close(self):
+        return self._conn.close()
 
     def __getattr__(self, name):
         return getattr(self._conn, name)

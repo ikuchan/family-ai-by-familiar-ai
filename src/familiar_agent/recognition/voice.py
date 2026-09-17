@@ -8,6 +8,7 @@ Register a person's voice:
 人ごとの ECAPA 埋め込みを ~/.familiar_ai/voice_embeddings.pkl に持つ（person_id キー）。
 実モデル（speechbrain）は重いので遅延シングルトンで1回だけロードする。
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 
 VOICE_EMB_DB = Path.home() / ".familiar_ai" / "voice_embeddings.pkl"
 
-_MODEL: Any = None          # speechbrain EncoderClassifier の遅延シングルトン
+_MODEL: Any = None  # speechbrain EncoderClassifier の遅延シングルトン
 
 
 def _get_model() -> Any:

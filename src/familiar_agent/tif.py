@@ -24,12 +24,20 @@ def build_primitive(emotion: MoodPAD, drive: AiDrivers) -> PrimitiveMentalItem:
 
 
 def expand_to_mental(
-    pi: PrimitiveMentalItem, *, id: str, content: str,
-    vector: object | None = None, supersedes: str | None = None,
+    pi: PrimitiveMentalItem,
+    *,
+    id: str,
+    content: str,
+    vector: object | None = None,
+    supersedes: str | None = None,
     activation: float | None = None,
 ) -> MentalItem:
     return MentalItem(
-        emotion=pi.emotion, drive=pi.drive,
-        id=id, content=content, vector=vector,
-        supersedes=supersedes, activation=activation,
+        emotion=pi.emotion,
+        drive=pi.drive,
+        id=id,
+        content=content,
+        vector=vector,
+        supersedes=supersedes,
+        activation=activation,
     )

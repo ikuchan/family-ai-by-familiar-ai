@@ -192,6 +192,7 @@ def _onvif_wsdl_dir() -> str:
     """
     try:
         import onvif as _onvif_pkg
+
         onvif_dir = os.path.dirname(_onvif_pkg.__file__)
         wsdl_dir = os.path.join(onvif_dir, "wsdl")
         if not os.path.isdir(wsdl_dir):

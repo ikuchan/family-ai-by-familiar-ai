@@ -737,28 +737,65 @@ class EmbodiedAgent:
     def _social_presence_permission(self) -> float:
         """**誰かがいれば** 1.0、部屋が空なら 0.0。社会的発話と deferred 配信の共通ゲート。
 
-        「居るか」と「誰か」は別（知-h・2026-09-13）。**居るかの正本は在/不在の層**
-        （`PresenceSensor.room_occupied()`・YOLO・登録が要らない）で、人の声（`_last_human_at`・
-        `presence_voice_sec` 以内）はセンサの視野の外から話しかけられたときの補い。在席表
-        （PMM・`/speaker`・顔照合）は「誰か」を言うものなので、**センサがある構成では居るかを
-        決めない**。以前は 3 つの OR で、`/speaker パパ` が在席表に残り続け（出る口が無かった）、
-        カメラが 2 分「誰も居ない」でも自発が出た（2026-09-17 15:44 実機）。
-        センサが無い構成では在席表と声で決める（従来どおり）。
+        「居るか」と「誰か」は別（知-h・2026-09-13）。**マイクは在席の証拠にしない**
+        （2026-09-17：テレビ・物音・聞き違いを声として拾い、カメラが誰も見ていないのに
+        「こんにちは」の書き起こしへ返事した）。数えるのは次の 3 つ。
+
+        1. 在/不在の層が人を見ている（`PresenceSensor.room_occupied()`・YOLO・滞留窓）
+        2. **自分が話してから** `presence_said_sec` 以内（話してよかった状態＝相手が居た、は
+           しばらく続く。YOLO の見失いを跨ぐ）
+        3. `/speaker` を打ってから同じ秒数以内（打った人はそこに居る）
+
+        在席表（PMM・`/speaker`・顔照合）は「誰か」を言うもので、センサがある構成では
+        居るかを決めない（`/speaker パパ` が永久に残り、カメラが 2 分「誰も居ない」でも自発が
+        出た・同日 15:44）。センサが無い構成では在席表も数える（従来どおり）。
         """
-        raw = getattr(getattr(self, "config", None), "presence_voice_sec", None)
-        voice_sec = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
-        last = getattr(self, "_last_human_at", None)
-        voice = last is not None and (time.time() - last) < voice_sec
+        raw = getattr(getattr(self, "config", None), "presence_said_sec", None)
+        window = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
+        now = time.time()
+
+        def _within(attr: str) -> bool:
+            at = getattr(self, attr, None)
+            return isinstance(at, (int, float)) and (now - at) < window
+
+        if _within("_last_said_at") or _within("_speaker_set_at"):
+            return 1.0
         sensor = getattr(self, "_presence_sensor", None)
         if sensor is not None:
-            occupied = False
             with contextlib.suppress(Exception):
-                occupied = sensor.room_occupied() is True
-            return 1.0 if (occupied or voice) else 0.0
+                if sensor.room_occupied() is True:
+                    return 1.0
+            return 0.0
         pmm = getattr(self, "_pmm", None)
-        if pmm is not None and pmm.get_present_ids():
-            return 1.0
-        return 1.0 if voice else 0.0
+        return 1.0 if pmm is not None and pmm.get_present_ids() else 0.0
+
+    async def _nudge_seeking(self) -> None:
+        """声がしたが応じられなかったので SEEKING を押し上げる（案ア・2026-09-17）。
+
+        `step_drives` と同じ順（`db.lock` の中で読み・書き・commit）でスレッドへ逃がす。
+        量は `DriveConfig.voice_nudge`（発火閾値の半分〔仮〕）。発火は T の tick に任せる。
+        """
+        from .config import DriveConfig
+        from .core import drive_dynamics as dd
+        from .drive_register import load_drives, save_drives
+
+        def _work() -> tuple[float, float]:
+            from .db import get_db
+
+            cfg = DriveConfig()
+            database = get_db()
+            with database.lock:
+                conn = database.conn()
+                drives = load_drives(conn)
+                nudged = dd.nudge(drives, "seeking", cfg.voice_nudge, cfg)
+                save_drives(conn, nudged)
+                conn.commit()
+            return cfg.voice_nudge, nudged.seeking
+
+        amount, now_value = await asyncio.to_thread(_work)
+        logger.info(
+            "drive 声がしたが誰も見えないので seeking を +%.2f（いま %.2f）", amount, now_value
+        )
 
     def _stop_timer_ring(self) -> None:
         """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。"""
@@ -1266,6 +1303,7 @@ class EmbodiedAgent:
             known = ", ".join(self._persons.known_names())
             return f"[現在の話者: {current}  既知: {known}]"
         self._persons.set_active(name_arg)
+        self._speaker_set_at = time.time()  # 打った人はそこに居る（在席の証拠・60 秒）
         asyncio.ensure_future(self._sync_pmm_speaker(name_arg))
         return f"[話者を「{name_arg}」に切り替えました]"
 

@@ -10,6 +10,7 @@ Reinforcement B (freshness):  origin_epoch reset → elapsed restarts from zero.
 
 Memory uses both A and B. pending_speech (Issue D) will use B only.
 """
+
 from __future__ import annotations
 
 import math
