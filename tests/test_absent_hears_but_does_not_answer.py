@@ -103,3 +103,38 @@ def test_things_heard_while_silent_still_trigger_it_when_it_lifts():
     ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time(), why="黙っていた")]
     ip.check_silence_lifted()  # 依頼は消えている（`_load_silence` は None）
     ip.push_device.assert_called_once()
+
+
+# ── タイマーがあるときの操作の言葉は、誰も見えなくても通す（出-ab・2026-09-18）────────
+#
+# 鳴っている最中に映らない位置で「止めて」→ `誰も見えないので聞くだけ`（実機 22:13:04）。沈黙の門は
+# 情-m で操作の言葉を通すようにしたが、鳴った瞬間に沈黙は解け、代わりに不在の門が効いていた。
+# `[タイマー]` が動いている／一時停止中／鳴っているときは、操作の言葉（`is_control_word`）を通す。
+
+
+def _ip_with_timer(*, frame: str, ringing: bool = False):
+    ip, a = _ip(present=0.0)
+    a._timer_tool.frame = MagicMock(return_value=frame)
+    a._dif.ringing = ringing
+    return ip, a
+
+
+def test_a_control_word_passes_the_absent_gate_while_a_timer_runs():
+    ip, _ = _ip_with_timer(frame="[タイマー]\n- id=1 パスタ 鳴っている")
+    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて"))) is False
+    assert ip._muted == []
+
+
+def test_ordinary_talk_is_still_swallowed_while_a_timer_runs():
+    ip, _ = _ip_with_timer(frame="[タイマー]\n- id=1 パスタ 残り 2:00")
+    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは"))) is True
+
+
+def test_a_control_word_is_swallowed_when_no_timer_exists():
+    ip, _ = _ip_with_timer(frame="")
+    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて"))) is True
+
+
+def test_the_ring_alone_counts_as_a_timer():
+    ip, _ = _ip_with_timer(frame="", ringing=True)
+    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて"))) is False

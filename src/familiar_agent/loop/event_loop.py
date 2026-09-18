@@ -2285,7 +2285,7 @@ class InformationProcessing:
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
-            timer_active=bool(_timer_frame(agent)),  # 操作の言葉の守り（出-aa）
+            timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
@@ -2691,6 +2691,7 @@ class InformationProcessing:
         誰も見えないのに声がしたのは見に行く理由なので、ここで SEEKING を押し上げる（案ア）。
         """
         from ..core.silence_hold import lifts
+        from ..core.timer_rules import is_control_word
         from ..silence_state import is_silenced
 
         now = time.time()
@@ -2713,6 +2714,11 @@ class InformationProcessing:
             await self._note_muted(trigger, now)
             return self._swallowed(trigger)
         if trigger.kind == "会話入力" and self._nobody_visible():
+            if self._timer_active() and is_control_word(trigger.query):
+                # タイマーが動いている／鳴っているときの操作の言葉（止めて・一時停止・再開）は、誰も
+                # 見えなくても通す（出-ab・実機 2026-09-18 22:13：鳴っている最中の「止めて」が飲まれた）。
+                # 沈黙の門（情-m）と同じ規則。テレビの短い「止めて」で止まる副作用は許容済み。
+                return False
             await self._note_muted(trigger, now, why="誰も見えなかった")
             with contextlib.suppress(Exception):
                 await self._agent._nudge_seeking()
@@ -2736,6 +2742,12 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             return None
         return float(since) if isinstance(since, (int, float)) else None
+
+    def _timer_active(self) -> bool:
+        """タイマーが動いている／一時停止中（`[タイマー]` の枠がある）か、音が鳴っているか。"""
+        if _timer_frame(self._agent):
+            return True
+        return bool(getattr(getattr(self._agent, "_dif", None), "ringing", False))
 
     def _nobody_visible(self) -> bool:
         """配信ゲートと同じ「居るか」（`agent._social_presence_permission`）。読めなければ居る扱い。"""
