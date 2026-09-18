@@ -134,6 +134,19 @@ _ALARM_COMMAND_RE = re.compile(r"^/alarm[\s　・]+stop(?:[\s　・]+(.+))?$", r
 _TIMER_COMMAND_RE = re.compile(
     r"^/timer[\s　・]+(stop|pause|resume)(?:[\s　・]+(.+))?$", re.IGNORECASE
 )  # pause／resume は 2026-09-18（知-o 段 4）
+_COMMAND_TAIL = " \t　・。、．"
+
+
+def _command_text(user_input: str) -> str:
+    """命令の文字列を整える：前後の空白と、**末尾の区切り文字**（・。、．）を落とす（環-o・2026-09-18）。
+
+    Mac の Chrome（リモートデスクトップ）→ ibus-mozc → Qt の経路で、Enter の確定時に末尾へ「・」が
+    付く（`/timer resume・`・09-15 の `/speaker・` と同じ）。原因は未特定で、命令として読めず会話入力へ
+    落ちるとタイマーの沈黙に飲まれる。`/` で始まるものだけ整え、会話の文には触らない。
+    """
+    s = user_input.strip()
+    return s.rstrip(_COMMAND_TAIL) if s.startswith("/") else s
+
 
 # Day summary prompt — condense a day's observations into a diary-like entry
 
@@ -1410,7 +1423,7 @@ class EmbodiedAgent:
 
     def _handle_speaker_command(self, user_input: str) -> str | None:
         """/speaker [name] — set or show the active speaker for this session."""
-        m = _SPEAKER_COMMAND_RE.match(user_input.strip())
+        m = _SPEAKER_COMMAND_RE.match(_command_text(user_input))
         if m is None:
             return None
         name_arg = (m.group(1) or "").strip(" \t　・")
@@ -1482,7 +1495,7 @@ class EmbodiedAgent:
 
     async def _handle_timer_command(self, user_input: str) -> str | None:
         """`/timer stop|pause|resume [id]`——LLM を通さずに止める・一時停止・再開（知-n／知-o・非常口）。"""
-        m = _TIMER_COMMAND_RE.match(user_input.strip())
+        m = _TIMER_COMMAND_RE.match(_command_text(user_input))
         if m is None:
             return None
         verb = m.group(1).lower()
@@ -1493,7 +1506,7 @@ class EmbodiedAgent:
 
     async def _handle_alarm_command(self, user_input: str) -> str | None:
         """`/alarm stop [id]`——LLM を通さずに止める（知-q・タイマーとは別物）。"""
-        m = _ALARM_COMMAND_RE.match(user_input.strip())
+        m = _ALARM_COMMAND_RE.match(_command_text(user_input))
         if m is None:
             return None
         target = (m.group(1) or "").strip(" \t　・") or "all"
@@ -1502,14 +1515,14 @@ class EmbodiedAgent:
 
     async def _handle_mic_command(self, user_input: str) -> str | None:
         """`/mic on`——タイマー中の「聞かない」を、そのタイマー限り解く（知-o 段 5）。"""
-        if not _MIC_COMMAND_RE.match(user_input.strip()):
+        if not _MIC_COMMAND_RE.match(_command_text(user_input)):
             return None
         text, _ok = await self._timer_tool.call("listen", {})
         return text
 
     def _handle_reload_command(self, user_input: str) -> str | None:
         """Reload ME.md and FAMILY.md without restarting. Returns status string or None."""
-        if not _RELOAD_COMMAND_RE.match(user_input.strip()):
+        if not _RELOAD_COMMAND_RE.match(_command_text(user_input)):
             return None
 
         old_me = self._me_md
