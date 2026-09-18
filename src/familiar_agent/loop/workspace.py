@@ -166,6 +166,24 @@ def compose(
     return text, id_map
 
 
+def just_returned(req: Request) -> str:
+    """W の最上部：**この反復で道具から返ったもの**（出-x・2026-09-18）。
+
+    道具の返りは版（過去の列の全文）に載るだけで、調停は「記憶」として読み、いま届いた返りとして
+    扱わなかった——`set_timer` が「確かめて」を返したのに聞き返さず掛け直した（実機 14:50）。
+    実験（`scripts/experiment_arbiter_confirm.py`・8 回ずつ）：最上部に 1 行載せると 8/8 で
+    light の確認文、先導文の差し替えだけでは 6/8。載せるのは取込がこの反復で受けた分だけ。
+    """
+    idx = set(getattr(req, "just_returned", ()) or ())
+    if not idx:
+        return ""
+    lines = ["[いま道具から返った]"]
+    for lk in sorted(req.lookups, key=lambda x: x.index):
+        if lk.index in idx and lk.result is not None:
+            lines.append(f"- {lk.action}「{lk.query}」→ {lk.result}")
+    return "\n".join(lines) if len(lines) > 1 else ""
+
+
 def recent_chains(oif, n: int) -> "list[tuple[str, list]]":
     """直近 n 往復の起点と、各起点から継起をさかのぼった鎖（新しい順）。引くのは 1 度。"""
     if n <= 0:
@@ -283,7 +301,7 @@ class Workspace:
     def render(self, n: int) -> str:
         _rows, recent, recent_ids = render_recent(self.oif, self.chains, n)
         past, _ = compose(self.oif, self.memories, self.req, exclude=set(recent_ids.values()))
-        return "\n\n".join(p for p in (recent, past) if p and p.strip())
+        return "\n\n".join(p for p in (just_returned(self.req), recent, past) if p and p.strip())
 
     @property
     def for_arbiter(self) -> str:
