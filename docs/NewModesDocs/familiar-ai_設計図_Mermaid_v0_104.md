@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.103）
+# familiar-ai 設計図（Mermaid一式・v0.104）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -27,7 +27,7 @@
 
 　**【実装済み・051〜054＝何を記憶として書くかを絞る】****毎ターンの `self_model` をやめた**（051）。`_update_self_model` は毎ターン軽量LLM を呼んで自己記述を書いていたが、**読み手は本番コードに 0 件**で、1068 行が畳まれずに溜まっていた（`superseded_by` が付いていたのは 1 件だけ）。自己理解は capability manifest と REST 内省（記-a）が担う。**つなぎの発話も記憶から外した**（052〜054）。記録の理由は「『もう一言伝えた』を次の反復へ伝える」だったが、`_said_fillers` が**そのままプロンプトへ載る**ので（「すでに相手へ伝えた一言」）記憶は要らない。二重に持っており、O の側だけが 337 行たまって想起の候補を食っていた。**どちらも削除でなく退避**（`observations_removed_self_model`／`observations_removed_fillers`）。**`superseded_by` には外部キーが無い**ので、行が消えると指したまま残る（`parent_id` は `ON DELETE SET NULL`）。053 がそれを外す。
 　**【実装済み・065＝タイマーの器 `timers`】**アラーム・タイマー・ストップウォッチの状態を表 `timers` に持つ（2026-09-15・知-n・`store/timers.py` の `TimerStore`）。列は due（期限の絶対時刻）・鳴った・止めた・確かめて掛けた印で、**T が毎 tick `now>=due` を見て鳴らし**（`loop/timer_watch.fire_due`・機器のきっかけ「タイマー」を積む）、道具 3 本（`set_timer`／`start_stopwatch`／`cancel_timer`・`tools/timer.py`）が書く。掛けた・止めたは O に `direction='予定'` で残す。掛けているあいだは沈黙依頼（`reason=timer:<id>`・`TIMER_SILENCE`）を期限まで掛け、止めたら解く。設計は `設計方針_タイマー` v0.1。
-　**【実装済み・066＋067＝タイマーの一時停止とアラームの分離】**`timers` に `paused_at`・`paused_total_sec`（何度止めても再開しても合う・`due` は再開のたびに伸びる）・`listen`（聞かない設定の中でそのタイマーだけ聞く）を足した（066・知-o・2026-09-18）。**アラームは別の表 `alarms`**（067・知-q）：`id`・`label`・`at`・`set_at`・`fired_at`・`cancelled_at`・`asked_by`・`obs_id`・`passes_quiet`。器 `store/alarms.py`・鳴らし手 `loop/alarm_watch.py`・道具 `tools/alarm.py`。タイマーの規則（黙る・聞かない・1 本・一時停止）はアラームに当てない。共有は音の再生（`DIF.ring`）・T の tick・`予定` の記録・静穏時間の判定だけ（`設計方針_アラーム` v0.1）。
+　**【実装済み・066＋067＝タイマーの一時停止とアラームの分離】**`timers` に `paused_at`・`paused_total_sec`（何度止めても再開しても合う・`due` は再開のたびに伸びる）・`listen`（聞かない設定の中でそのタイマーだけ聞く）を足した（066・知-o・2026-09-18）。**アラームは別の表 `alarms`**（067・知-q）：`id`・`label`・`at`・`set_at`・`fired_at`・`cancelled_at`・`asked_by`・`obs_id`・`passes_quiet`。器 `store/alarms.py`・鳴らし手 `loop/alarm_watch.py`・道具 `tools/alarm.py`。タイマーの規則（黙る・聞かない・1 本・一時停止）はアラームに当てない。共有は音の再生（`DIF.ring`）・T の tick・`予定` の記録・静穏時間の判定だけ（`設計方針_アラーム` v0.1）。**ストップウォッチも別の表 `stopwatches`**（068・知-u・2026-09-18）：`id`・`label`・`started_at`・`stopped_at`・`asked_by`・`obs_id`・`expired`。器 `store/stopwatches.py`・寿命の見張り `loop/stopwatch_watch.py`（6 時間）・道具 `tools/stopwatch.py`・規則 `core/stopwatch_rules.py`。`timers` の `due` は常にあり、`active` は `due` のある行だけ（`設計方針_ストップウォッチ` v0.1）。
 - **色**：黄＝出入り口（TIF・AIF・DIF）／青＝処理（G・M・D・メイン・生成器・評価器・動作器・統合保守器）／緑＝揮発記憶（B・W）／桃＝エピソード記憶（O）／紫＝LLM・資源ハンドラ（主・補助LLM・LLM担当・実行担当）／自己状態 SS／灰＝外界。
 - **口（③-2 以降）**：出入り口は **IIF（内部）／DIF（外部の機械）／AIF（自律機構）／OIF（記憶）** の4つだけ。この4つ以外に、コンポーネントどうしが直接つながる線は置かない。
 - **線種（③-2）**：太い実線（`==>`）＝**同期**（呼んだところへその場で返る）／点線（`-.->`）＝**非同期**（投げて先へ進み、結果は IIF の待ち行列へ入る）。
@@ -543,6 +543,7 @@ sequenceDiagram
 
 ## 更新履歴
 
+> v0.104：「store と I/F」台帳へ **表 `stopwatches`（068）** を追記（知-u・2026-09-18）。
 > v0.103：「store と I/F」台帳へ 066（一時停止・listen）と **表 `alarms`（067）** を追記（2026-09-18）。
 > v0.102：「store と I/F」台帳へ **表 `timers`（065・知-n）** を追記した（2026-09-17・09-15 の実装を台帳に載せ忘れていた）。
 > v0.101：**環-d（`relationship_state`）**——移管（案A）をやめて撤去（2026-09-15・064）。書き手 `RelationshipTracker` は毎ターン書いていたが、読むのは呼び手の無い `_select_addressee`（先読み `_proactive_memory_context`）だけだった。`PersonRegistry` は名前の器として残す。関係は O の関係の面と `人物` のまとめが担う。残る廃止ストア＝`pending_store` のみ（環-b 待ち）。
