@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：アラーム（v0.1）
+# familiar-ai 設計方針：アラーム（v0.2）
 
 > 遠い時刻に**起こす・知らせる**もの。タイマー（短い時間を**待つ**・測る）とは別物として作る（知-q・2026-09-18）。
 > 共有するのは基盤だけ——音の再生（`DIF.ring`）、T の tick、`予定` の記録、静穏時間の判定（`quiet_hours_rule`）。
@@ -12,7 +12,7 @@
 |---|---|---|
 | 意味 | 短い時間を待つ（その間は集中）。測る | 遠い時刻に起こす・知らせる。それまでは普通に暮らす |
 | 表 | `timers`（065・066） | **`alarms`**（067） |
-| 道具 | `set_timer(after_minutes)`・`start_stopwatch`・`pause_timer`・`resume_timer`・`cancel_timer` | **`set_alarm(at, label, confirmed)`・`cancel_alarm(id か all)`** |
+| 道具 | `set_timer(after_minutes)`・`start_stopwatch`・`pause_timer`・`resume_timer`・`cancel_timer` | **`set_alarm(at, label)`・`cancel_alarm(id か all)`** |
 | 命令 | `/timer stop`・`/timer pause`・`/timer resume`・`/mic on` | **`/alarm stop [id]`** |
 | 掛ける前の確認 | `TIMER_CONFIRM`（既定 true）＋静穏時間・沈黙中は常に | **静穏時間に鳴るときだけ**（`alarm_rules.needs_confirmation`） |
 | 黙る・聞かない | `TIMER_SILENCE`・`TIMER_MIC_CLOSE` | **しない**（設定も無い） |
@@ -32,7 +32,7 @@
 ## 3. 掛け方（`tools/alarm.py`）
 
 - `set_alarm(at, label, confirmed=false)`：`at` はローカル時刻（`7:00`・`21時半`・全角可）、過ぎていれば翌日。
-  静穏時間に鳴るなら「確かめて」を返し、主LLM か調停が本人に一度聞き、「いい」なら `confirmed=true` で呼び直す（`passes_quiet` が立つ）。
+  静穏時間に鳴るなら預かり（`confirm_state.PendingConfirm`・`設計方針_タイマー` §10 と同じ器）を置いて「確かめて」を返し、主LLM か調停が本人に一度聞くだけ。「いい」は機械の `confirm` が `call(..., confirmed=True)` で掛ける（`passes_quiet` が立つ）。`confirmed` は LLM の引数に無い（v0.2）。
 - `cancel_alarm(id か "all")`：止める前に鳴っている音を止める（`on_cancel` → `agent._stop_timer_ring`・音の口は共有）。
 - **調停（軽量LLM）の候補と主LLM の道具の両方**に載る。どちらに行っても同じ道具（`event_loop._ALARM_ACTIONS`・`arbiter._EXTRA_ACTIONS`）。
   調停が `set_timer` に `{"at": …}` と書いても `set_alarm` に直す（`arbiter._parse`）。`query` に「7 時 起こす」と書いたときも同じ。
@@ -50,4 +50,5 @@ T が毎 tick `due_now` を拾い、**先に `fired_at` を打ってから**音�
 
 ## 更新履歴
 
+> v0.2：確認を機械の状態に（出-y・2026-09-18）——`confirmed` を道具から撤去、預かりと `confirm`／`decline` はタイマーと共通。
 > v0.1：新設（知-q・2026-09-18）。タイマーから分離——表 `alarms`（067）・道具 2 本・`alarm_watch`・`alarm_rules`・`/alarm stop`・確認は静穏時間だけ・黙らない・同時 5 本。
