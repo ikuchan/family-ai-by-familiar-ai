@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Callable
 
 from ..core import timer_rules
+from ..core.label_rules import clean_label
 from ..io.oif import MI
 from ..person_memory_manager import AGENT_SELF_ID
 
@@ -232,7 +233,7 @@ class TimerTool:
     async def _set(
         self, inp: dict, *, now: "datetime | None" = None, confirmed: bool = False
     ) -> tuple[str, bool]:
-        label = str(inp.get("label") or "タイマー").strip()
+        label = clean_label(inp.get("label"), "タイマー")  # 名前の検め（知-u）
         now = (now or self._now()).astimezone()
         try:
             if inp.get("at"):
