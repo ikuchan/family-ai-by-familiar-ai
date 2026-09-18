@@ -49,7 +49,9 @@ def _present_ctx(agent) -> str:
         # ので、そのことを添えて渡す（#8 で身元と在席を分けるときにこの区別が要る）。
         declared = ""
         with contextlib.suppress(Exception):
-            if agent._persons.active_is_explicit:
+            # 分かっているときだけ（`/speaker` から 60 秒・返事から 60 秒・顔照合／知-t）。
+            # 切れていれば名前を出さず「誰かは不明」へ——誰か分からない相手を名前で呼ばない。
+            if agent._persons.active_is_explicit and agent.speaker_known():
                 declared = agent._persons.active_name
         if declared:
             return (

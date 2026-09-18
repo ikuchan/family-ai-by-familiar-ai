@@ -210,7 +210,7 @@ class EmbodiedAgent:
         self._timer_tool = TimerTool(
             store=self._timer_store,
             oif=self._oif,
-            speaker=lambda: self._persons.active_name if self._persons.active_is_explicit else "",
+            speaker=self._speaker_name_if_known,
             quiet=lambda: self._schedule_rule,
             silence_active=self._silence_active_now,
             hush=self._hush_for_timer,
@@ -222,7 +222,7 @@ class EmbodiedAgent:
         self._alarm_tool = AlarmTool(
             store=self._alarm_store,
             oif=self._oif,
-            speaker=lambda: self._persons.active_name if self._persons.active_is_explicit else "",
+            speaker=self._speaker_name_if_known,
             quiet=lambda: self._schedule_rule,
             on_cancel=self._stop_timer_ring,
         )
@@ -699,8 +699,44 @@ class EmbodiedAgent:
             self.__dict__["_evaluator_obj"] = ev
         return ev
 
+    def speaker_known(self) -> bool:
+        """いま話している相手が**分かっている**か（知-t・2026-09-18・1 箇所で決める）。
+
+        真になるのは 3 つ：`/speaker` から `presence_said_sec`（60 秒）以内、その人に自分が
+        返事してから 60 秒以内（会話中は切れない・`_speaker_confirmed_at`）、在席表（顔照合）に
+        その人が居る。どれも無ければ「誰か分からない」——想起は共通の面、system 文に名前を
+        出さない、面の材料に立てない、話者ゲートも通さない。
+        実機 2026-09-18 12:34：`/speaker` から 2 分 22 秒・在席表は空なのに、想起をパパの面で
+        引き「パパ」と呼びかけ、版に「パパに聞かれ」と書いた。09-17 の「話者の指定は残す」は撤回。
+        """
+        pmm = getattr(self, "_pmm", None)
+        if pmm is None:
+            return False
+        sid = getattr(pmm, "current_speaker_id", None)
+        if not sid:
+            return False
+        raw = getattr(getattr(self, "config", None), "presence_said_sec", None)
+        window = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
+        now = time.time()
+        for attr in ("_speaker_set_at", "_speaker_confirmed_at"):
+            at = getattr(self, attr, None)
+            if isinstance(at, (int, float)) and (now - at) < window:
+                return True
+        with contextlib.suppress(Exception):
+            if sid in (pmm.get_present_ids() or []):
+                return True
+        return False
+
+    def _speaker_name_if_known(self) -> str:
+        """分かっているときだけ話者の名前（`/speaker` の明示）。話者ゲート・タイマーの `speaker`。"""
+        if not self.speaker_known():
+            return ""
+        return self._persons.active_name if self._persons.active_is_explicit else ""
+
     def _active_memory(self) -> "ObservationMemory":
-        """Return the current speaker's memory, or agent's own if no speaker is set."""
+        """想起・書き込みの面。相手が分かっていればその人の面、分からなければ共通（自分）の面。"""
+        if not self.speaker_known():
+            return self._pmm.get_agent_memory()
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
 
     def _record_cooccurrence(
@@ -743,7 +779,10 @@ class EmbodiedAgent:
         落とし、引数の受け渡しも撤去した（実在の人を指す 397 件は全件がその人の面を既に
         持っていた）。
         """
-        speaker = self._pmm.current_speaker_id or DEFAULT_PERSON_ID
+        # 分からない相手の面は立てない（知-t）。
+        speaker = (
+            self._pmm.current_speaker_id if self.speaker_known() else None
+        ) or DEFAULT_PERSON_ID
         return dict(
             writer_id=speaker,
             participants=self._pmm.get_present_ids(),

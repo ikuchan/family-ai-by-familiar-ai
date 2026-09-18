@@ -2755,10 +2755,21 @@ class InformationProcessing:
         return 1.0
 
     def _stamp_said(self) -> None:
-        """自分が声を出した時刻を打つ（在席の証拠・`presence_said_sec`・2026-09-17）。"""
+        """自分が声を出した時刻を打つ（在席の証拠・`presence_said_sec`・2026-09-17）。
+
+        起点が人の発話で、相手が分かっているなら、話者の指定も延びる（`_speaker_confirmed_at`・
+        知-t）——会話中は切れない。
+        """
         agent = getattr(self, "_agent", None)
-        if agent is not None:
-            agent._last_said_at = time.time()
+        if agent is None:
+            return
+        now = time.time()
+        agent._last_said_at = now
+        req = getattr(self, "_req", None)
+        if getattr(req, "trigger_kind", "") == "発話":
+            with contextlib.suppress(Exception):
+                if agent.speaker_known():
+                    agent._speaker_confirmed_at = now
 
     def _patrol_note(self) -> str:
         """`[いま]` に添える「見ていない順」の 1 行（知-c・2026-09-17）。センサが無ければ空。
@@ -2892,7 +2903,11 @@ class InformationProcessing:
                 if row.get("is_speaker"):
                     return str(row.get("name") or "")
         if getattr(agent._persons, "active_is_explicit", False):
-            return str(agent._persons.active_name or "")
+            known = True
+            with contextlib.suppress(Exception):
+                known = bool(agent.speaker_known())  # 切れていれば「分からない」（知-t）
+            if known:
+                return str(agent._persons.active_name or "")
         return ""
 
     def _present_names(self) -> set[str]:
