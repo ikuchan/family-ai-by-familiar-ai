@@ -22,13 +22,16 @@ from familiar_agent.presence_sensor import PresenceSensor
 _POSES = [Pose("窓側", 0.0, -0.5), Pose("出入り口", -0.129, -0.5)]
 
 
-def _sensor(*, position=(-0.129, -0.5), people=0, capture=("BASE64", "/tmp/f.jpg"),
-            poses=None):
+def _sensor(*, position=(-0.129, -0.5), people=0, capture=("BASE64", "/tmp/f.jpg"), poses=None):
     camera = MagicMock()
     camera.position = AsyncMock(return_value=position)
     camera.capture = AsyncMock(return_value=capture)
     detector = MagicMock()
     detector.count = AsyncMock(return_value=people)
+    # センサは数でなく枠で受ける（知-v）。人数ぶんの互いに離れた枠を作る。
+    detector.boxes = AsyncMock(
+        return_value=[(i * 200.0, 0.0, i * 200.0 + 100.0, 300.0) for i in range(people)]
+    )
     s = PresenceSensor(
         camera=camera,
         poses_getter=AsyncMock(return_value=_POSES if poses is None else poses),
@@ -60,7 +63,8 @@ def test_the_frame_is_only_analysed_once_per_check():
     s, camera, detector = _sensor(people=1)
     asyncio.run(s.check_once())
     assert camera.capture.await_count == 1
-    assert detector.count.await_count == 1
+    assert detector.boxes.await_count == 1  # 枠で受ける（知-v）。数は呼ばない
+    detector.count.assert_not_awaited()
 
 
 # --- 振動中ゲート ---------------------------------------------------------
@@ -124,7 +128,7 @@ def test_motion_triggers_a_check_without_waiting_for_the_interval():
 
     async def go():
         await s.start()
-        s.on_motion()                 # カメラが「動いた」と言ってきた
+        s.on_motion()  # カメラが「動いた」と言ってきた
         await asyncio.sleep(0.05)
         await s.stop()
 
@@ -201,8 +205,9 @@ def test_no_surprise_is_reported_before_the_norm_has_grown():
 
 
 def test_a_grown_norm_yields_a_distance():
-    s, _, _ = _sensor_with_norm(norm=[1.0] + [0.0] * 383, observations=5,
-                                embedding=[0.0, 1.0] + [0.0] * 382)
+    s, _, _ = _sensor_with_norm(
+        norm=[1.0] + [0.0] * 383, observations=5, embedding=[0.0, 1.0] + [0.0] * 382
+    )
     asyncio.run(s.check_once())
     assert s.scene_surprise() is not None and s.scene_surprise() > 0.9
 
