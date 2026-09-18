@@ -1,7 +1,8 @@
 """タイマーの器（知-n・2026-09-15・`設計方針_タイマー` v0.1・065）。
 
-タイマー・ストップウォッチの状態を表 `timers` の**列で**持つ（アラームは別の表 `alarms`・2026-09-18）（content の時刻を読まない）。
-`due` が NULL ならストップウォッチ。読む側は T（毎 tick `due_now`）と W の枠（`active`・`recently_fired`）、
+タイマーの状態を表 `timers` の**列で**持つ（アラームは別の表 `alarms`・ストップウォッチは別の表 `stopwatches`・
+2026-09-18）（content の時刻を読まない）。`due` は常にある（NULL の行は分離前の 2 本・止め済み・移さない）。
+読む側は T（毎 tick `due_now`）と W の枠（`active`・`recently_fired`）、
 書く側は道具（`add`・`cancel`）と T（`mark_fired`）。接続は呼び手が渡す（`db.lock` の中で使う）。
 """
 
@@ -25,7 +26,7 @@ class TimerStore:
         self,
         *,
         label: str,
-        due: "datetime | None",
+        due: datetime,
         asked_by: str,
         obs_id: "str | None",
         passes_quiet: bool,
@@ -43,16 +44,16 @@ class TimerStore:
         return int(row["id"] if isinstance(row, dict) else row[0])
 
     def active(self, *, now: "datetime | None" = None) -> list[dict]:
-        """動いているもの（未発火・未取消）。due の近い順、ストップウォッチは後ろ。"""
+        """動いているもの（未発火・未取消）。due の近い順。分離前の `due` 無しの行は含めない。"""
         with self._cursor() as cur:
             cur.execute(
-                f"SELECT {_COLS} FROM timers WHERE fired_at IS NULL AND cancelled_at IS NULL "
-                "ORDER BY due ASC NULLS LAST, id ASC"
+                f"SELECT {_COLS} FROM timers WHERE due IS NOT NULL "
+                "AND fired_at IS NULL AND cancelled_at IS NULL ORDER BY due ASC, id ASC"
             )
             return [dict(r) for r in cur.fetchall()]
 
     def due_now(self, *, now: "datetime | None" = None) -> list[dict]:
-        """鳴らす頃合い（due を過ぎた未発火・未取消）。ストップウォッチは含まない。"""
+        """鳴らす頃合い（due を過ぎた未発火・未取消・一時停止でない）。"""
         now = now or datetime.now(timezone.utc)
         with self._cursor() as cur:
             cur.execute(
@@ -74,7 +75,7 @@ class TimerStore:
             return [dict(r) for r in cur.fetchall()]
 
     def recently_stopped(self, *, now: "datetime | None" = None, within_sec: float) -> list[dict]:
-        """直前に止めたもの（「何秒だった？」に答えるため・ストップウォッチの経過は止めた瞬間で決まる）。"""
+        """直前に止めたもの（「もう止まっている」と答えるため）。"""
         now = now or datetime.now(timezone.utc)
         with self._cursor() as cur:
             cur.execute(

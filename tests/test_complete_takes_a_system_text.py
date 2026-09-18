@@ -29,8 +29,14 @@ from familiar_agent.backends import (
 )
 from familiar_agent.core.llm_protocol import LLMBackend
 
-_ALL = (AnthropicBackend, CLIBackend, GeminiBackend, GLMBackend,
-        KimiBackend, OpenAICompatibleBackend)
+_ALL = (
+    AnthropicBackend,
+    CLIBackend,
+    GeminiBackend,
+    GLMBackend,
+    KimiBackend,
+    OpenAICompatibleBackend,
+)
 
 
 def test_the_promise_carries_a_system_text():
@@ -51,6 +57,7 @@ def test_every_backend_takes_it_the_same_way(cls):
 
 
 # ── 実際に届くか（偽のクライアントで確かめる）────────────────────────────────
+
 
 def test_gemini_sends_it_as_a_system_instruction():
     seen = {}
@@ -75,7 +82,8 @@ def test_the_openai_shaped_backends_send_it_as_a_system_message():
             async def create(self, **kw):
                 seen["messages"] = kw["messages"]
                 return SimpleNamespace(
-                    choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))])
+                    choices=[SimpleNamespace(message=SimpleNamespace(content="ok"))]
+                )
 
         be = object.__new__(cls)
         be.client = SimpleNamespace(chat=SimpleNamespace(completions=_Completions()))

@@ -39,6 +39,7 @@ def _run(coro):
 
 # ── 数値の並び ──────────────────────────────────────────────────────────────
 
+
 def test_numbers_are_read_in_order() -> None:
     got = _run(ask_numbers(_backend("0.7 0.2 0.6"), "p", count=3))
     assert got == (0.7, 0.2, 0.6)
@@ -84,6 +85,7 @@ def test_an_ambiguous_answer_is_not_taken() -> None:
 
 # ── はい／いいえ ────────────────────────────────────────────────────────────
 
+
 def test_yes_in_english() -> None:
     assert _run(ask_yes_no(_backend("Yes, they are the same."), "p")) is True
 
@@ -123,6 +125,7 @@ def test_an_unreadable_subset_is_not_taken() -> None:
 
 # ── JSON ───────────────────────────────────────────────────────────────────
 
+
 def test_json_is_read() -> None:
     assert _run(ask_json(_backend('{"entities": []}'), "p")) == {"entities": []}
 
@@ -142,6 +145,7 @@ def test_a_json_array_is_not_taken_when_an_object_is_expected() -> None:
 
 
 # ── 共通：呼び出しが失敗しても落とさない ───────────────────────────────────
+
 
 def test_a_failing_backend_yields_nothing() -> None:
     """軽量LLM が落ちても、口は例外を投げない（呼び出し側が既定を決める）。"""

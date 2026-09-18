@@ -95,9 +95,7 @@ def test_get_observations_for_date_uses_local_calendar_day(memory):
     raw = psycopg2.connect(os.environ["DATABASE_URL"])
     raw.autocommit = True
     with raw.cursor() as cur:
-        cur.execute(
-            "UPDATE observations SET timestamp=%s WHERE content=%s", (boundary, content)
-        )
+        cur.execute("UPDATE observations SET timestamp=%s WHERE content=%s", (boundary, content))
     raw.close()
 
     obs = memory.get_observations_for_date(local_today, limit=50)

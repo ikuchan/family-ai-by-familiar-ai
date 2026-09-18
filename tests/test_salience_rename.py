@@ -101,9 +101,11 @@ def test_old_names_are_gone_from_source() -> None:
             # 旧名を**検証の対象として**文字列で持つテストは除く。理由を1件ずつ挙げる。
             #   - このテスト自身：改名できたことを旧名で確かめる
             #   - 029 のテスト：凍結マイグレーションが旧名を持つ前提そのものを確かめる
-            if path.name in (pathlib.Path(__file__).name,
-                             "test_migration_029_utc_text_timestamps.py",
-                             "test_six_concepts_vocabulary.py"):
+            if path.name in (
+                pathlib.Path(__file__).name,
+                "test_migration_029_utc_text_timestamps.py",
+                "test_six_concepts_vocabulary.py",
+            ):
                 continue
             if "memory_activation" in path.read_text(encoding="utf-8"):
                 stale.append(str(path.relative_to(root)))

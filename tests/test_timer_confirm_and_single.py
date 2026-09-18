@@ -71,12 +71,3 @@ def test_the_running_timer_is_reported_before_any_confirmation():
     asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "パスタ"}, confirmed=True))
     text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 5, "label": "お茶"}))
     assert not ok and "パスタ" in text and "確かめ" not in text
-
-
-def test_a_stopwatch_can_run_beside_a_timer_but_only_one_stopwatch(monkeypatch):
-    monkeypatch.setenv("TIMER_CONFIRM", "false")
-    t, store, _ = _tool()
-    asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "パスタ"}))
-    _, ok1 = asyncio.run(t.call("start_stopwatch", {"label": "ランニング"}))
-    text, ok2 = asyncio.run(t.call("start_stopwatch", {"label": "散歩"}))
-    assert ok1 and not ok2 and "ランニング" in text and len(store.active()) == 2

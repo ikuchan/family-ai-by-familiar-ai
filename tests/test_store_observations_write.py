@@ -26,15 +26,19 @@ def test_writing_is_owned_by_the_store_layer() -> None:
     src = pathlib.Path("src/familiar_agent/tools/memory.py").read_text()
     for name in ("materialize_save_event", "apply_verdicts"):
         assert hasattr(ObservationStore, name), f"{name} が層に無い"
-    assert not hasattr(ObservationStore, "_mark_recalled"), \
+    assert not hasattr(ObservationStore, "_mark_recalled"), (
         "_mark_recalled は 044 で撤去した（若返りは apply_verdicts の一本）"
+    )
     for name in ("_materialize_save_event",):
-        assert not re.search(rf"^    (?:async )?def {name}\b", src, re.M), \
+        assert not re.search(rf"^    (?:async )?def {name}\b", src, re.M), (
             f"{name} が memory.py にも定義されている（二重実装）"
+        )
 
     # 外から呼ばれるものは委譲が残る。ただし SQL は持たない。
     for name in ("mark_superseded",):
-        m = re.search(rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S)
+        m = re.search(
+            rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S
+        )
         assert m, f"{name} の委譲が要る（外から呼ばれる）"
         assert "cur.execute" not in m.group(0), f"{name} の SQL が memory.py に残っている"
 

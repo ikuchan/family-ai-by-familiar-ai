@@ -28,4 +28,6 @@ def test_ringing_comes_first_and_alarms_follow():
 
 
 def test_nothing_gives_one_quiet_row():
-    assert format_timer_rows("", ringing=False, alarm_frame="") == ["（タイマー・アラームなし）"]
+    assert format_timer_rows("", ringing=False, alarm_frame="") == [
+        "（タイマー・アラーム・ストップウォッチなし）"
+    ]

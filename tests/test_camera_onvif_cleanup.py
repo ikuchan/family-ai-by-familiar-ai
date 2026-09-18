@@ -37,8 +37,8 @@ def test_move_closes_onvif_session_on_failure():
 
     res = asyncio.run(tool.move("left"))
 
-    assert fake.closed is True          # 失敗時にセッションを閉じた
-    assert tool._cam_onvif is None       # そのうえで破棄
+    assert fake.closed is True  # 失敗時にセッションを閉じた
+    assert tool._cam_onvif is None  # そのうえで破棄
     assert "failed" in res.lower()
 
 
@@ -50,6 +50,6 @@ def test_move_success_keeps_session():
 
     res = asyncio.run(tool.move("right"))
 
-    assert fake.closed is False          # 成功時は閉じない（再利用）
+    assert fake.closed is False  # 成功時は閉じない（再利用）
     assert tool._cam_onvif is fake
     assert "looked" in res.lower()

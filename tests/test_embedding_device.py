@@ -89,6 +89,4 @@ def test_the_test_parallelism_is_bounded() -> None:
     script = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "run_tests.sh"
     text = script.read_text(encoding="utf-8")
     assert "-n auto" not in text, "並列度が論理CPU数のままになっている"
-    assert re.search(r'RUN_TESTS_PARALLEL:--n \d+', text), (
-        "並列度が固定値で指定されていない"
-    )
+    assert re.search(r"RUN_TESTS_PARALLEL:--n \d+", text), "並列度が固定値で指定されていない"

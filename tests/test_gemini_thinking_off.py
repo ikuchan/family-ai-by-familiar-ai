@@ -71,6 +71,7 @@ def _backend(reject: set[str]) -> tuple[GeminiBackend, _FakeModels]:
 
 # ── 成り立つ側（実装の前後どちらでも通るべきもの）────────────────────────────
 
+
 def test_budget_zero_is_tried_first():
     """いま動いている gemini-2.5-flash の送り方を変えない。"""
     be, fake = _backend(reject=set())
@@ -86,6 +87,7 @@ def test_complete_returns_empty_when_every_form_is_rejected():
 
 
 # ── 間違っていれば見えるはずの側 ────────────────────────────────────────────
+
 
 def test_level_is_used_when_budget_is_rejected():
     """3.5-flash-lite は budget=0 を 400 で拒み、level="low" なら通る。"""

@@ -35,9 +35,11 @@ def test_memory_no_longer_exposes_unfinished_business() -> None:
     """表を落とすだけでは足りない。読み書きの口も消えていること。"""
     from familiar_agent.tools.memory import ObservationMemory
 
-    for name in ("open_unfinished_business",
-                 "list_unfinished_business",
-                 "list_unfinished_business_async"):
+    for name in (
+        "open_unfinished_business",
+        "list_unfinished_business",
+        "list_unfinished_business_async",
+    ):
         assert not hasattr(ObservationMemory, name), name
 
 

@@ -36,7 +36,18 @@ def _seed_one(obs_id: str) -> None:
             "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
             " groundedness_g0, emotion_p, emotion_pn, emotion_a, emotion_dom) "
             "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, "pad recall content", "unknown", "conversation", "happy", 0.75, 0.8, 0.15, 0.55, 0.6),
+            (
+                obs_id,
+                "pad recall content",
+                "unknown",
+                "conversation",
+                "happy",
+                0.75,
+                0.8,
+                0.15,
+                0.55,
+                0.6,
+            ),
         )
         cur.execute(
             "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s,%s,%s,%s)",

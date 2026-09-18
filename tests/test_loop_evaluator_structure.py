@@ -11,7 +11,6 @@ import inspect
 import pytest
 
 
-
 def test_evaluator_class_exists_with_injected_backends() -> None:
     """Evaluator は utility_backend と backend を受け取って構築される。"""
     from familiar_agent.loop.evaluator import Evaluator

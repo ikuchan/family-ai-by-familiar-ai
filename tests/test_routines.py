@@ -3,6 +3,7 @@
 継続制御の検査は 041 で撤去した。`HeartbeatRuntime` は環-c で呼び出し側を失って
 おり、本番からの呼び出しが全メソッド0件だった。
 """
+
 from __future__ import annotations
 
 from datetime import datetime

@@ -37,6 +37,7 @@ class _Fake(ModelResource):
 
 # ── ① 読めないときは縮退する（既定） ───────────────────────────────────────
 
+
 def test_a_missing_model_degrades_instead_of_raising() -> None:
     """重みが取れない環境でも、他の機能は動き続ける。"""
     r = _Fake(name="試し", fails=True)
@@ -46,6 +47,7 @@ def test_a_missing_model_degrades_instead_of_raising() -> None:
 
 # ── ② 致命だと宣言したものは例外を投げる（反証側） ─────────────────────────
 
+
 def test_a_fatal_resource_raises() -> None:
     """`fatal=True` は「これが無ければ続けられない」の宣言（出-b・埋め込みが該当）。"""
     r = _Fake(name="試し", fatal=True, fails=True)
@@ -54,6 +56,7 @@ def test_a_fatal_resource_raises() -> None:
 
 
 # ── ③ 二度目以降は試さない ─────────────────────────────────────────────────
+
 
 def test_a_failed_load_is_not_retried() -> None:
     """失敗を記憶する。毎回試すと、重みの無い環境で呼ぶたび重くなる。"""
@@ -73,6 +76,7 @@ def test_a_successful_load_happens_once() -> None:
 
 # ── ④ 並行して呼んでも読み込みは1回だけ ───────────────────────────────────
 
+
 def test_concurrent_callers_load_only_once() -> None:
     """いま `VisualEncoder` と `PersonDetector` には並行制御が無い。
 
@@ -82,7 +86,7 @@ def test_concurrent_callers_load_only_once() -> None:
 
     class _Slow(_Fake):
         def _load(self):
-            time.sleep(0.05)          # 読み込みに時間がかかるものを模す
+            time.sleep(0.05)  # 読み込みに時間がかかるものを模す
             return super()._load()
 
     r = _Slow(name="試し")
@@ -98,6 +102,7 @@ def test_concurrent_callers_load_only_once() -> None:
 
 
 # ── ⑤ 載せる先の決め方 ─────────────────────────────────────────────────────
+
 
 def test_the_device_comes_from_the_environment_first(monkeypatch) -> None:
     """環境変数が最優先。テストは並列で走るので、GPU の奪い合いを断つために要る。"""
@@ -126,6 +131,7 @@ def test_a_resource_without_a_device_setting_is_also_none() -> None:
 
 # ── ⑥ YOLO を型枠へ移しても、挙動は変わらない ─────────────────────────────
 
+
 def test_the_person_detector_conforms_to_the_type() -> None:
     from familiar_agent.recognition.person_detector import PersonDetector
 
@@ -143,6 +149,7 @@ def test_the_person_detector_still_reports_nobody_when_the_model_is_missing() ->
 
 
 # ── ⑦ 機器やライブラリが無いのは「永続的な失敗」──────────────────────────
+
 
 class _NoLibrary(_Fake):
     def _load(self):
@@ -179,14 +186,15 @@ def test_a_missing_weight_file_is_never_retried() -> None:
             raise FileNotFoundError("重みが無い")
 
     r = _NoWeights(name="試し", retries=5)
-    r.ensure(); r.ensure()
+    r.ensure()
+    r.ensure()
     assert r.loads == 1
 
 
 def test_a_temporary_failure_is_retried_up_to_the_limit() -> None:
     """一時的な失敗は待って試す。いまは一度失敗すると再起動まで二度と読まない。"""
     r = _Flaky(name="試し", retries=2)
-    assert r.ensure() is None      # 1回目は失敗
+    assert r.ensure() is None  # 1回目は失敗
     assert r.ensure() is not None  # 2回目で読めた
     assert r.loads == 2
 
@@ -200,6 +208,7 @@ def test_retries_are_exhausted_and_then_remembered() -> None:
 
 
 # ── ⑧ 先読み（起動時・別スレッド・起動を止めない）─────────────────────────
+
 
 def test_pre_warm_loads_in_the_background() -> None:
     """起動時に読み始めて、最初の呼び出しを待たせない。**起動は止めない。**"""
@@ -215,5 +224,5 @@ def test_pre_warm_loads_in_the_background() -> None:
     r.pre_warm()
     assert time.monotonic() - started < 0.04, "先読みが起動を止めている"
 
-    assert r.ensure() is not None    # 読み終わるまで待って受け取る
+    assert r.ensure() is not None  # 読み終わるまで待って受け取る
     assert r.loads == 1, "先読みと本読みで二重に読んでいる"

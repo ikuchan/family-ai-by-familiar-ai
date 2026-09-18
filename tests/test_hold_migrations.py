@@ -53,8 +53,7 @@ def test_pending_lists_unapplied_in_order(conn, tmp_path) -> None:
     """未適用の id を辞書順で返す。`_` 始まりは対象外。"""
     beta = _write_migration(tmp_path, "2099-01-01-900_beta")
     gamma = _write_migration(tmp_path, "2099-01-01-901_gamma")
-    (tmp_path / "_helper.py").write_text("def upgrade(conn) -> None:\n    pass\n",
-                                         encoding="utf-8")
+    (tmp_path / "_helper.py").write_text("def upgrade(conn) -> None:\n    pass\n", encoding="utf-8")
 
     assert pending_migration_ids(conn, tmp_path) == sorted([beta, gamma])
 

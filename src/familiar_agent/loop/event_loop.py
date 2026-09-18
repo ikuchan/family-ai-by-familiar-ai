@@ -61,14 +61,17 @@ _FULL_ACTIONS = (
     "vault",
     # タイマー（知-n）。結果はその場で返り、それを見て何を言うかは次の反復が決める（`recall` と同じ）。
     "set_timer",
-    "start_stopwatch",
     "cancel_timer",
     "pause_timer",
     "resume_timer",
     "set_alarm",
     "cancel_alarm",
+    "start_stopwatch",  # ストップウォッチ（知-u・別物）
+    "stop_stopwatch",
 )
-_TIMER_ACTIONS = ("set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer")
+_TIMER_ACTIONS = ("set_timer", "cancel_timer", "pause_timer", "resume_timer")
+# ストップウォッチ（知-u・2026-09-18）。タイマーとは別物・別の道具（`agent._stopwatch_tool`）。
+_STOPWATCH_ACTIONS = ("start_stopwatch", "stop_stopwatch")
 # アラーム（知-q・2026-09-18）。タイマーとは別物・別の道具（`agent._alarm_tool`）。
 _ALARM_ACTIONS = ("set_alarm", "cancel_alarm")
 # 確認待ちへの答え（出-y・2026-09-18）。預かりが生きているあいだだけ候補と道具に載る（`agent.confirm_alive`）。
@@ -108,6 +111,8 @@ _LOOKUP_ACTIONS = (
     *_MCP_LOOKUPS.keys(),
     *_TIMER_ACTIONS,
     *_ALARM_ACTIONS,
+    *_STOPWATCH_ACTIONS,
+    *_CONFIRM_ACTIONS,
 )
 
 
@@ -137,7 +142,6 @@ def _query_label(action: str, tool_input: dict) -> str:
         what = str(tool_input.get("label") or tool_input.get("id") or "").strip()
         return {
             "set_timer": "タイマーを掛ける",
-            "start_stopwatch": "測り始める",
             "cancel_timer": "タイマーを止める",
             "pause_timer": "タイマーを一時停止する",
             "resume_timer": "タイマーを再開する",
@@ -145,6 +149,11 @@ def _query_label(action: str, tool_input: dict) -> str:
     if action in _ALARM_ACTIONS:
         what = str(tool_input.get("label") or tool_input.get("id") or "").strip()
         return {"set_alarm": "アラームを掛ける", "cancel_alarm": "アラームを止める"}[action] + (
+            f"「{what}」" if what else ""
+        )
+    if action in _STOPWATCH_ACTIONS:
+        what = str(tool_input.get("label") or tool_input.get("id") or "").strip()
+        return {"start_stopwatch": "測り始める", "stop_stopwatch": "測るのを止める"}[action] + (
             f"「{what}」" if what else ""
         )
     if action in _CONFIRM_ACTIONS:
@@ -258,6 +267,26 @@ def _timer_def(agent, name: str) -> list[dict]:
     if tool is None:
         return []
     return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
+def _stopwatch_def(agent, name: str) -> list[dict]:
+    """ストップウォッチの道具定義から 1 つだけ。器が無ければ空（知-u）。"""
+    tool = getattr(agent, "_stopwatch_tool", None)
+    if tool is None:
+        return []
+    return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
+def _stopwatch_frame(agent) -> str:
+    """`[ストップウォッチ]` の枠。器が無い・読めなければ空。"""
+    tool = getattr(agent, "_stopwatch_tool", None)
+    if tool is None:
+        return ""
+    try:
+        return str(tool.frame() or "")
+    except Exception as e:  # noqa: BLE001
+        logger.warning("ストップウォッチの枠を組めなかった: %s", e)
+        return ""
 
 
 def _alarm_def(agent, name: str) -> list[dict]:
@@ -643,6 +672,9 @@ class InformationProcessing:
         alarms = _alarm_frame(agent)  # `[アラーム]` も同じ場所（別物だが置き方は同じ）
         if alarms:
             iter_ctx = (iter_ctx + "\n\n" + alarms) if iter_ctx else alarms
+        watches = _stopwatch_frame(agent)  # `[ストップウォッチ]` も（知-u）
+        if watches:
+            iter_ctx = (iter_ctx + "\n\n" + watches) if iter_ctx else watches
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -1064,9 +1096,21 @@ class InformationProcessing:
                 Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
-        if action in _TIMER_ACTIONS or action in _ALARM_ACTIONS or action in _CONFIRM_ACTIONS:
-            # タイマー（知-n）／アラーム（知-q）の道具。その場で返る。落ちても求めは閉じる（失敗の印つき）。
-            if action in _CONFIRM_ACTIONS:
+        if (
+            action in _TIMER_ACTIONS
+            or action in _ALARM_ACTIONS
+            or action in _STOPWATCH_ACTIONS
+            or action in _CONFIRM_ACTIONS
+        ):
+            # タイマー（知-n）／アラーム（知-q）／ストップウォッチ（知-u）の道具。その場で返る。落ちても求めは閉じる。
+            if action in _STOPWATCH_ACTIONS:
+                tool = getattr(self._agent, "_stopwatch_tool", None)
+                if tool is None:
+                    out, failed = "ストップウォッチの道具が無い", True
+                else:
+                    out, ok = await tool.call(action, tool_input, now=self._req.began_at)
+                    failed = not ok
+            elif action in _CONFIRM_ACTIONS:
                 # 確認待ちへの答え（出-y）。預かった入力で機械が掛ける／捨てる。起点は「いい」と言った瞬間。
                 out, ok = await self._agent.resolve_confirm(
                     action == "confirm", now=self._req.began_at
@@ -1383,13 +1427,15 @@ class InformationProcessing:
         "vault": lambda ip: ip._dif.tool_defs_with_prefix("ask_vault_"),
         # タイマー（知-n）。器（`agent._timer_tool`）が無ければ渡さない。
         "set_timer": lambda ip: _timer_def(ip._agent, "set_timer"),
-        "start_stopwatch": lambda ip: _timer_def(ip._agent, "start_stopwatch"),
         "cancel_timer": lambda ip: _timer_def(ip._agent, "cancel_timer"),
         "pause_timer": lambda ip: _timer_def(ip._agent, "pause_timer"),
         "resume_timer": lambda ip: _timer_def(ip._agent, "resume_timer"),
         # アラーム（知-q）。器（`agent._alarm_tool`）が無ければ渡さない。
         "set_alarm": lambda ip: _alarm_def(ip._agent, "set_alarm"),
         "cancel_alarm": lambda ip: _alarm_def(ip._agent, "cancel_alarm"),
+        # ストップウォッチ（知-u）。器（`agent._stopwatch_tool`）が無ければ渡さない。
+        "start_stopwatch": lambda ip: _stopwatch_def(ip._agent, "start_stopwatch"),
+        "stop_stopwatch": lambda ip: _stopwatch_def(ip._agent, "stop_stopwatch"),
         # 確認待ちへの答え（出-y）。預かりが生きているあいだだけ。
         "confirm": lambda ip: _confirm_defs(ip._agent, "confirm"),
         "decline": lambda ip: _confirm_defs(ip._agent, "decline"),
@@ -1433,6 +1479,7 @@ class InformationProcessing:
                 "vault",
                 *_TIMER_ACTIONS,
                 *_ALARM_ACTIONS,
+                *_STOPWATCH_ACTIONS,
                 *_CONFIRM_ACTIONS,
             )
             if a not in self._req.failed_actions

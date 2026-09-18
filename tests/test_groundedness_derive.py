@@ -18,12 +18,14 @@ from familiar_agent.tools.memory import _derive_groundedness
 
 # ── 1. n=0 returns a0 (logit/logistic are inverses) ─────────────────────────
 
+
 def test_derive_groundedness_n_zero_returns_a0() -> None:
     for a0 in (0.5, 0.75, 1.5):
         assert _derive_groundedness(a0, 0) == pytest.approx(a0)
 
 
 # ── 2. monotonic in n ────────────────────────────────────────────────────────
+
 
 def test_derive_groundedness_monotonic_in_n() -> None:
     a0 = 1.0
@@ -35,6 +37,7 @@ def test_derive_groundedness_monotonic_in_n() -> None:
 
 
 # ── 3. asymptotes toward floor/C at extremes ────────────────────────────────
+
 
 def test_derive_groundedness_approaches_bounds() -> None:
     a0 = 1.0
@@ -48,6 +51,7 @@ def test_derive_groundedness_approaches_bounds() -> None:
 
 
 # ── 4. +1 then -1 returns to the original value (round-trip) ────────────────
+
 
 def test_derive_groundedness_plus_minus_one_round_trip() -> None:
     a0 = 0.6
@@ -64,8 +68,9 @@ def test_derive_groundedness_plus_minus_one_round_trip() -> None:
 
 # ── 5. a0=0.75, step=0.33 → 評価5回で実用上限1.5に到達 ────────────────────────
 
+
 def test_derive_groundedness_reaches_practical_limit_at_five() -> None:
     a4 = _derive_groundedness(0.75, 4)
     a5 = _derive_groundedness(0.75, 5)
-    assert a4 < 1.5 <= a5   # 4回では1.5未満、5回で1.5到達
-    assert a5 < 1.6         # ハード上限C=2にはまだ遠い（緩んで育つ）
+    assert a4 < 1.5 <= a5  # 4回では1.5未満、5回で1.5到達
+    assert a5 < 1.6  # ハード上限C=2にはまだ遠い（緩んで育つ）

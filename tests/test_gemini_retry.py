@@ -15,6 +15,7 @@ from familiar_agent.backends import _is_transient_error, _retry_transient
 
 # ── 一時的か恒久かの判定 ─────────────────────────────────────────────────────
 
+
 def test_transient_true_for_503_and_429():
     assert _is_transient_error(RuntimeError("503 UNAVAILABLE. high demand")) is True
     assert _is_transient_error(RuntimeError("429 RESOURCE_EXHAUSTED")) is True
@@ -26,6 +27,7 @@ def test_transient_false_for_permanent():
 
 
 # ── リトライ挙動（base_sec=0 で待たない） ────────────────────────────────────
+
 
 def test_retry_succeeds_after_transient_failures():
     calls = {"n": 0}

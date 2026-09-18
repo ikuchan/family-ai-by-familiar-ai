@@ -147,6 +147,7 @@ def test_agent_config_scene_platform_from_env():
 def test_sanitize_schema_removes_exclusive_bounds():
     """exclusiveMaximum and exclusiveMinimum are stripped from Gemini schemas."""
     from familiar_agent.backends import GeminiBackend
+
     schema = {
         "type": "object",
         "properties": {
@@ -169,6 +170,7 @@ def test_sanitize_schema_removes_exclusive_bounds():
 def test_sanitize_schema_preserves_supported_keys():
     """Standard JSON Schema keys like type, description, enum are preserved."""
     from familiar_agent.backends import GeminiBackend
+
     schema = {
         "type": "object",
         "properties": {
@@ -187,6 +189,7 @@ def test_sanitize_schema_preserves_supported_keys():
 def test_sanitize_schema_strips_nested_unsupported():
     """Nested schemas inside properties are also sanitized."""
     from familiar_agent.backends import GeminiBackend
+
     schema = {
         "type": "object",
         "properties": {

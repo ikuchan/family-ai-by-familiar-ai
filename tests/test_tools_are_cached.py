@@ -35,8 +35,7 @@ def _fake_defs(*names: str) -> list[dict]:
 def test_the_last_tool_carries_the_cache_mark():
     """境目は最後の1つに付く。**道具全体とその前の安定部**が範囲に入る。"""
     ip = _loop()
-    ip._ACTIONS = {"say": lambda a: _fake_defs("say"),
-                   "recall": lambda a: _fake_defs("recall")}
+    ip._ACTIONS = {"say": lambda a: _fake_defs("say"), "recall": lambda a: _fake_defs("recall")}
     defs = ip._tools(actions=("say", "recall"))
     assert len(defs) == 2
     assert "cache_control" not in defs[0]

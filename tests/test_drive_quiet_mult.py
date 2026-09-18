@@ -46,7 +46,8 @@ def test_accumulation_slows_by_the_quiet_multiplier():
     night = accumulate(AiDrivers(), MoodPAD(), cfg=effective_drive_cfg(cfg, now=_DEEP_NIGHT))
     for axis in ("seeking", "bond", "safety", "esteem"):
         assert getattr(night, axis) == pytest.approx(
-            getattr(day, axis) * cfg.mult_quiet, rel=1e-9), axis
+            getattr(day, axis) * cfg.mult_quiet, rel=1e-9
+        ), axis
 
 
 def test_seeking_fires_about_once_an_hour_at_night():
@@ -73,7 +74,7 @@ def test_step_drives_applies_the_time_of_day_multiplier():
 
     conn = psycopg2.connect(os.environ["DATABASE_URL"])
     conn.autocommit = True
-    save_drives(conn, AiDrivers())          # 全軸 0 から始める
+    save_drives(conn, AiDrivers())  # 全軸 0 から始める
     conn.close()
 
     original = tonic_module.effective_drive_cfg
@@ -87,6 +88,7 @@ def test_step_drives_applies_the_time_of_day_multiplier():
 
 # ── 軸別の深夜倍率（REST は夜に募る）─────────────────────────────────────
 
+
 def test_rest_is_not_slowed_at_night_but_hastened():
     """深夜の倍率は軸ごとに違う。REST だけは抑えず、逆に募らせる。
 
@@ -94,7 +96,7 @@ def test_rest_is_not_slowed_at_night_but_hastened():
     （夜高い）」と定める。全軸へ一律に 0.083 を掛けると、これと正反対になる。
     """
     cfg = effective_drive_cfg(DriveConfig(), now=_DEEP_NIGHT)
-    assert cfg.mult_for("rest") > 1.0            # 夜は募る
+    assert cfg.mult_for("rest") > 1.0  # 夜は募る
     assert cfg.mult_for("seeking") == pytest.approx(DriveConfig().mult_quiet)
 
 
@@ -113,8 +115,8 @@ def test_rest_fires_exactly_once_during_the_quiet_window():
     cfg = effective_drive_cfg(DriveConfig(), now=_DEEP_NIGHT)
     night_sec = 8 * 3600
     accumulated = cfg.rate * cfg.mult_for("rest") * cfg.learn * cfg.bias_rest * night_sec
-    assert accumulated >= cfg.theta_fire          # 必ず1回は起きる
-    assert accumulated < 2 * cfg.theta_fire       # 2回は起きない
+    assert accumulated >= cfg.theta_fire  # 必ず1回は起きる
+    assert accumulated < 2 * cfg.theta_fire  # 2回は起きない
 
 
 def test_accumulation_uses_the_per_axis_multiplier():
@@ -122,5 +124,5 @@ def test_accumulation_uses_the_per_axis_multiplier():
     cfg = DriveConfig()
     day = accumulate(AiDrivers(), MoodPAD(), cfg=effective_drive_cfg(cfg, now=_DAYTIME))
     night = accumulate(AiDrivers(), MoodPAD(), cfg=effective_drive_cfg(cfg, now=_DEEP_NIGHT))
-    assert night.rest > day.rest                  # REST は夜のほうが速い
-    assert night.seeking < day.seeking            # 探索は夜のほうが遅い
+    assert night.rest > day.rest  # REST は夜のほうが速い
+    assert night.seeking < day.seeking  # 探索は夜のほうが遅い

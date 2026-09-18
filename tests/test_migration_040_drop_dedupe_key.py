@@ -58,4 +58,6 @@ def test_append_memory_event_no_longer_takes_dedupe_key() -> None:
     sig = inspect.signature(ObservationMemory.append_memory_event)
     assert "dedupe_key" not in sig.parameters
     for name in ("save_async_with_id", "save_with_id"):
-        assert "dedupe_key" not in inspect.signature(getattr(ObservationMemory, name)).parameters, name
+        assert "dedupe_key" not in inspect.signature(getattr(ObservationMemory, name)).parameters, (
+            name
+        )

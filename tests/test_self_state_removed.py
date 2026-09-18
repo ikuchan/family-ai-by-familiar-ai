@@ -75,8 +75,11 @@ def test_migration_drops_the_agent_state_row() -> None:
         cur.execute("SELECT 1 FROM agent_state WHERE state_key = 'self_state'")
         assert cur.fetchone() is not None, "前提が崩れている（行を置けていない）"
 
-    path = (pathlib.Path(__file__).resolve().parents[1]
-            / "migration" / "2026-07-31-038_drop_self_state.py")
+    path = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "migration"
+        / "2026-07-31-038_drop_self_state.py"
+    )
     spec = importlib.util.spec_from_file_location("drop_self_state_probe", path)
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]

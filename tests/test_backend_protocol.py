@@ -26,8 +26,12 @@ from familiar_agent.backends import (
 from familiar_agent.core.llm_protocol import LLMBackend
 
 _ALL = [
-    AnthropicBackend, OpenAICompatibleBackend, KimiBackend,
-    GLMBackend, GeminiBackend, CLIBackend,
+    AnthropicBackend,
+    OpenAICompatibleBackend,
+    KimiBackend,
+    GLMBackend,
+    GeminiBackend,
+    CLIBackend,
 ]
 
 
@@ -43,8 +47,13 @@ def test_the_signatures_match_the_protocol(cls) -> None:
 
     `Protocol` の `issubclass` は引数を見ないので（実行時は名前だけ）、ここで見る。
     """
-    for name in ("stream_turn", "complete", "make_user_message",
-                 "make_assistant_message", "make_tool_results"):
+    for name in (
+        "stream_turn",
+        "complete",
+        "make_user_message",
+        "make_assistant_message",
+        "make_tool_results",
+    ):
         want = list(inspect.signature(getattr(LLMBackend, name)).parameters)
         got = list(inspect.signature(getattr(cls, name)).parameters)
         assert got == want, f"{cls.__name__}.{name} の引数が違う: {got} ≠ {want}"

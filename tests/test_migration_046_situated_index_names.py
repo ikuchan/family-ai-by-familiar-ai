@@ -44,9 +44,7 @@ def _indexes() -> set[str]:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            cur.execute(
-                "SELECT indexname FROM pg_indexes WHERE tablename='situated_memories'"
-            )
+            cur.execute("SELECT indexname FROM pg_indexes WHERE tablename='situated_memories'")
             return {r["indexname"] for r in cur.fetchall()}
     finally:
         conn.close()
@@ -57,8 +55,7 @@ def _constraints() -> set[str]:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT conname FROM pg_constraint "
-                "WHERE conrelid = 'situated_memories'::regclass"
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'situated_memories'::regclass"
             )
             return {r["conname"] for r in cur.fetchall()}
     finally:
@@ -81,6 +78,9 @@ def test_the_constraint_names_follow_the_table() -> None:
 
 def test_no_old_name_survives() -> None:
     """旧名（表の改名前）が索引にも制約にも残っていない。"""
-    stale = {n for n in (_indexes() | _constraints())
-             if n.startswith("situated_embeddings") or n.startswith("idx_se_")}
+    stale = {
+        n
+        for n in (_indexes() | _constraints())
+        if n.startswith("situated_embeddings") or n.startswith("idx_se_")
+    }
     assert not stale, f"旧名が残っている: {sorted(stale)}"

@@ -15,8 +15,18 @@ from familiar_agent.mood_register import MoodPAD
 
 
 _EXPECTED_LABELS = {
-    "happy", "excited", "curious", "moved", "surprised", "nostalgic",
-    "relieved", "tender", "playful", "proud", "sad", "neutral",
+    "happy",
+    "excited",
+    "curious",
+    "moved",
+    "surprised",
+    "nostalgic",
+    "relieved",
+    "tender",
+    "playful",
+    "proud",
+    "sad",
+    "neutral",
 }
 
 
@@ -40,6 +50,7 @@ def test_label_pad_covers_expected_labels() -> None:
 # 025 は過去の一度きりの実行を再現する凍結写しなので、あとから値を直さない。
 # 案A（2026-09-04）で `neutral` だけを動かしたため、いま食い違うのはその1点である。
 # 残り11点が一致していることを固定し、動いた1点は明示して差を追える形にする。
+
 
 def test_label_pad_matches_frozen_migration_copy_except_neutral() -> None:
     mod = _load_backfill_migration()

@@ -27,7 +27,7 @@ from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..core.solitude import AXES, next_interval_minutes
 from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives, save_solitude
 from ..mood_register import load_current_mood
-from . import alarm_watch, notes_watch, timer_watch
+from . import alarm_watch, notes_watch, stopwatch_watch, timer_watch
 from .rest import run_rest_pass
 
 logger = logging.getLogger(__name__)
@@ -131,6 +131,9 @@ class Tonic:
         # agent から取りに行くと、テストの MagicMock が「常に誰か居る」を返してしまう。
         self._presence = presence
         self._period = period
+        # ストップウォッチの寿命を見た時刻と、その背景タスク（知-u）。
+        self._stopwatch_checked = float("-inf")
+        self._background: set = set()
         # 前回の在席者。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
         # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
         self._present_names: set[str] | None = None
@@ -367,6 +370,21 @@ class Tonic:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning("アラームの確認に失敗: %s", e)
+        # ストップウォッチの寿命（知-u・別物・別の器）。同じ tick からだが、表を見るのは 60 秒に 1 度で足りる。
+        sw_tool = getattr(self._agent, "_stopwatch_tool", None)
+        if sw_tool is not None and time.monotonic() - self._stopwatch_checked >= 60.0:
+            self._stopwatch_checked = time.monotonic()
+            cfg = getattr(self._agent, "config", None)
+            max_sec = getattr(cfg, "stopwatch_max_sec", 6 * 3600.0)
+            task = asyncio.ensure_future(
+                stopwatch_watch.expire(
+                    sw_tool.store(),
+                    self._agent._oif,
+                    max_sec=float(max_sec) if isinstance(max_sec, (int, float)) else 6 * 3600.0,
+                )
+            )
+            self._background.add(task)
+            task.add_done_callback(self._background.discard)
         # 沈黙が期限切れで明けたのに何も届かないとき、まとめの求めを起こす（情-h）。時計は T。
         with contextlib.suppress(Exception):
             self._ip.check_silence_lifted()

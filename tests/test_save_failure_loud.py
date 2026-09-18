@@ -31,9 +31,12 @@ def test_save_failure_is_loud_error_with_trace(caplog):
         p.start()
     try:
         mem = ObservationMemory()
-        with patch.object(
-            mem._observations, "materialize_save_event", side_effect=RuntimeError("boom")
-        ), caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"):
+        with (
+            patch.object(
+                mem._observations, "materialize_save_event", side_effect=RuntimeError("boom")
+            ),
+            caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"),
+        ):
             ok = mem.save("save loud x", kind="observation")
         assert ok is False  # 返りは従来どおり（ターンを落とさない）
         assert any(
@@ -51,9 +54,12 @@ def test_save_with_id_failure_is_loud_error_with_trace(caplog):
         p.start()
     try:
         mem = ObservationMemory()
-        with patch.object(
-            mem._observations, "materialize_save_event", side_effect=RuntimeError("boom")
-        ), caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"):
+        with (
+            patch.object(
+                mem._observations, "materialize_save_event", side_effect=RuntimeError("boom")
+            ),
+            caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"),
+        ):
             mem_id, ok = mem.save_with_id("save loud y", kind="observation")
         assert (mem_id, ok) == (None, False)
         assert any(
@@ -77,9 +83,12 @@ def test_recall_lets_programming_errors_surface() -> None:
         x.start()
     try:
         mem = ObservationMemory()
-        with patch.object(
-            mem._observations, "by_vector", side_effect=TypeError("unexpected keyword argument")
-        ), pytest.raises(TypeError):
+        with (
+            patch.object(
+                mem._observations, "by_vector", side_effect=TypeError("unexpected keyword argument")
+            ),
+            pytest.raises(TypeError),
+        ):
             mem.recall("なにか")
     finally:
         for x in ps:

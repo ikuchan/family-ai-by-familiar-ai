@@ -60,6 +60,8 @@ def test_mood_intensity_all_values_in_range() -> None:
 
     for emotion, intensity in agent._MOOD_INTENSITY.items():
         assert 0.0 < intensity <= 1.0, f"Invalid intensity {intensity} for '{emotion}'"
+
+
 # ---------------------------------------------------------------------------
 # Tests: _update_mood handles all new emotions
 # ---------------------------------------------------------------------------

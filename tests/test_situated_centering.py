@@ -52,8 +52,14 @@ def _set_mu(mu: np.ndarray) -> None:
             "ON CONFLICT (scope, scope_key) DO UPDATE SET "
             "  dim=EXCLUDED.dim, vector=EXCLUDED.vector, "
             "  sample_count=EXCLUDED.sample_count, updated_at=EXCLUDED.updated_at",
-            ("global", "", int(mu.size), np.asarray(mu, dtype=np.float32).tobytes(),
-             1, datetime.now(timezone.utc)),
+            (
+                "global",
+                "",
+                int(mu.size),
+                np.asarray(mu, dtype=np.float32).tobytes(),
+                1,
+                datetime.now(timezone.utc),
+            ),
         )
     conn.close()
 
@@ -125,8 +131,9 @@ def test_save_stores_centered_situated() -> None:
     mem = _mem(person_id, doc_vec)
 
     with patch.object(_EmbeddingModel, "encode_document", return_value=[doc_vec]):
-        obs_id, _ = mem.save_with_id("centering write test " + uuid.uuid4().hex,
-                                     materialize_now=True)
+        obs_id, _ = mem.save_with_id(
+            "centering write test " + uuid.uuid4().hex, materialize_now=True
+        )
     assert obs_id is not None
 
     stored = _read_situated(obs_id, person_id)
@@ -142,8 +149,7 @@ def test_save_without_mu_uses_legacy_formula() -> None:
     mem = _mem(person_id, doc_vec)
 
     with patch.object(_EmbeddingModel, "encode_document", return_value=[doc_vec]):
-        obs_id, _ = mem.save_with_id("legacy write test " + uuid.uuid4().hex,
-                                     materialize_now=True)
+        obs_id, _ = mem.save_with_id("legacy write test " + uuid.uuid4().hex, materialize_now=True)
     stored = _read_situated(obs_id, person_id)
     assert np.allclose(stored, _normalise(doc_vec), atol=1e-5)
 

@@ -127,7 +127,7 @@ def test_the_arbiter_can_set_a_timer_with_a_tool_input():
     d = _parse(
         '{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"パスタ"},"text":"3分ね、測るよ"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.branch == "action" and d.action == "set_timer"
     assert d.tool_input == {"after_minutes": 3, "label": "パスタ"} and d.query == "パスタ"
@@ -135,7 +135,7 @@ def test_the_arbiter_can_set_a_timer_with_a_tool_input():
     d = _parse(
         '{"branch":"action","action":"cancel_timer","tool_input":{"id":"all"}}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert (
         d is not None
@@ -158,7 +158,11 @@ def test_timer_actions_are_offered_to_the_arbiter_when_the_tool_exists():
     ip = _ip("ゆうすけ", [])
     ip._agent._timer_tool = MagicMock()
     ip._agent._timer_tool.get_tool_definitions = MagicMock(
-        return_value=[{"name": n} for n in ("set_timer", "start_stopwatch", "cancel_timer")]
+        return_value=[{"name": n} for n in ("set_timer", "cancel_timer")]
+    )
+    ip._agent._stopwatch_tool = MagicMock()  # 別物の器（知-u）
+    ip._agent._stopwatch_tool.get_tool_definitions = MagicMock(
+        return_value=[{"name": "start_stopwatch"}]
     )
     assert {"set_timer", "start_stopwatch", "cancel_timer"} <= set(ip._extra_actions())
     ip._agent._timer_tool = None
@@ -193,7 +197,7 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
     d = _parse(
         '{"branch":"action","action":"set_timer","query":"1分","text":"はい、1分ですね。"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert (
         d is not None
@@ -203,13 +207,13 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
     d = _parse(
         '{"branch":"action","action":"cancel_timer","query":"all"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.tool_input == {"id": "all"}
     d = _parse(
         '{"branch":"action","action":"start_stopwatch","query":"ランニング"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.tool_input == {"label": "ランニング"}
     d = _parse(
@@ -236,7 +240,7 @@ def test_timer_actions_carry_no_filler_because_they_return_at_once():
     d = _parse(
         '{"branch":"action","action":"start_stopwatch","tool_input":{"label":"x"},"text":"はい、時間を測りますね。"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.action == "start_stopwatch" and d.text == ""
     d = _parse(
@@ -252,7 +256,7 @@ def test_a_json_string_in_query_or_tool_input_is_read_as_the_tool_input():
     d = _parse(
         '{"branch":"action","action":"set_timer","query":"{\\"after_minutes\\": 0.5, \\"label\\": \\"パパのお願い\\"}"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert (
         d is not None
@@ -262,13 +266,13 @@ def test_a_json_string_in_query_or_tool_input_is_read_as_the_tool_input():
     d = _parse(
         '{"branch":"action","action":"cancel_timer","tool_input":"{\\"id\\": \\"all\\"}"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.tool_input == {"id": "all"}
     # 動作を取り違えても、入力が {"id": …} だけなら止める意図（「ストップ」に set_timer と書いた）
     d = _parse(
         '{"branch":"action","action":"set_timer","query":"{\\"id\\": \\"all\\"}"}',
         can_see=False,
-        extra_actions=("set_timer", "start_stopwatch", "cancel_timer"),
+        extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.action == "cancel_timer" and d.tool_input == {"id": "all"}

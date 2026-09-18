@@ -62,7 +62,7 @@ def test_recall_fallback_includes_metadata_and_low_confidence() -> None:
                     "unknown",
                     "conversation",
                     "neutral",
-                    ),
+                ),
             )
         conn.commit()
         conn.close()

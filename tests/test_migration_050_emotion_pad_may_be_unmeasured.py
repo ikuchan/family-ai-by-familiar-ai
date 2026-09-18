@@ -64,6 +64,7 @@ def _row(obs_id: str) -> dict:
 
 # ── ① 列の制約 ──────────────────────────────────────────────────────────────
 
+
 def test_the_three_axes_may_be_null_but_arousal_may_not() -> None:
     """P/Pn/Dom は未測定でありうる。A は機械値なので常に入る。"""
     conn = _conn()
@@ -83,15 +84,14 @@ def test_the_three_axes_may_be_null_but_arousal_may_not() -> None:
 
 # ── ②③ 評価器は測れないとき「未測定」を返す ────────────────────────────────
 
+
 def test_the_evaluator_reports_unmeasured_below_the_gate() -> None:
     """ゲート未満では評価器を呼ばず、**気分で埋めずに**未測定を返す。"""
     from familiar_agent.loop.evaluator import A_GATE, _evaluate_emotion_pad
 
     backend = AsyncMock()
     mood = MoodPAD(p=0.8, pn=0.1, a=0.9, dom=0.7)
-    pad, arousal = asyncio.run(
-        _evaluate_emotion_pad(backend, "静かな一日", mood, A_GATE - 0.01)
-    )
+    pad, arousal = asyncio.run(_evaluate_emotion_pad(backend, "静かな一日", mood, A_GATE - 0.01))
     assert pad is None, "気分で埋めている"
     assert arousal == A_GATE - 0.01, "A は機械値なので返る"
     backend.complete.assert_not_awaited()
@@ -111,6 +111,7 @@ def test_the_evaluator_reports_unmeasured_when_it_fails() -> None:
 
 
 # ── ④⑤⑥ 書き込みと想起 ────────────────────────────────────────────────────
+
 
 def test_an_unmeasured_observation_is_written_as_null() -> None:
     """未測定なら3列と `emotion_vec` は NULL。A には機械値が入る。"""

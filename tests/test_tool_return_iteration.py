@@ -97,6 +97,7 @@ def test_the_lead_is_the_experiments_sentence_and_the_returned_tool_is_not_offer
                 "cancel_alarm",
                 "confirm",
                 "decline",
+                "stop_stopwatch",
             )
         },
         **{

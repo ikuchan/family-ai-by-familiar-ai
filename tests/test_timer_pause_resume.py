@@ -102,17 +102,12 @@ def test_the_store_pauses_resumes_and_extends_due_each_time():
 # ── 道具と命令 ─────────────────────────────────────────────────────────────
 
 
-def test_the_tools_are_five_and_pause_resume_are_offered():
+def test_the_tools_are_four_and_pause_resume_are_offered():
     t, _, _ = _tool()
     names = {d["name"] for d in t.get_tool_definitions()}
-    assert {"pause_timer", "resume_timer"} <= names and len(names) == 5
-
-
-def test_pausing_a_stopwatch_is_refused():
-    t, store, _ = _tool()
-    asyncio.run(t.call("start_stopwatch", {"label": "ランニング"}))
-    text, ok = asyncio.run(t.call("pause_timer", {"id": 1}))
-    assert not ok and "ストップウォッチ" in text
+    assert {"pause_timer", "resume_timer"} <= names and len(
+        names
+    ) == 4  # ストップウォッチは別物（知-u）
 
 
 def test_the_slash_commands_pause_and_resume_without_the_llm():

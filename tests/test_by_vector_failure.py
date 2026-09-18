@@ -18,6 +18,7 @@ from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
 # ── by_vector：失敗を握り潰さず送出する（従来は []） ──────────────────────────
 
+
 def test_by_vector_raises_on_query_error():
     from familiar_agent.store.observations import ObservationStore
 
@@ -33,6 +34,7 @@ def test_by_vector_raises_on_query_error():
 
 # ── recall：by_vector 失敗時に [] を返し keyword_fallback を呼ばない ─────────
 
+
 def _fixed_embed():
     return (
         patch.object(_EmbeddingModel, "pre_warm"),
@@ -47,16 +49,17 @@ def test_recall_returns_empty_and_skips_keyword_on_by_vector_failure(caplog):
         p.start()
     try:
         mem = ObservationMemory()
-        with patch.object(mem._observations, "by_vector", side_effect=RuntimeError("boom")), \
-             patch.object(mem._observations, "keyword_fallback") as kf, \
-             caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"):
+        with (
+            patch.object(mem._observations, "by_vector", side_effect=RuntimeError("boom")),
+            patch.object(mem._observations, "keyword_fallback") as kf,
+            caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"),
+        ):
             res = mem.recall("anything", n=3)  # min_score 既定 0.0（従来はここで keyword へ流れた）
         assert res == []
         kf.assert_not_called()  # 失敗を keyword 検索で masking しない
         # 失敗はトレース付きで loud に残る（warning でなく error/exception）。
         assert any(
-            r.levelno >= logging.ERROR and "recall failed" in r.getMessage()
-            for r in caplog.records
+            r.levelno >= logging.ERROR and "recall failed" in r.getMessage() for r in caplog.records
         )
     finally:
         for p in ps:

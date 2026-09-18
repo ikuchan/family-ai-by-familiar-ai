@@ -43,7 +43,7 @@ async def test_how_long_it_actually_took_is_recorded(caplog):
     """打ち切ったあとも裏で待ち、実際の秒数を残す。"""
     with caplog.at_level(logging.INFO, logger="familiar_agent.loop.arbiter"):
         await arbitrate(_backend(0.2), utterance="黙って", workspace_ctx="", timeout=0.05)
-        await asyncio.sleep(0.4)          # 裏の完了を待つ
+        await asyncio.sleep(0.4)  # 裏の完了を待つ
     assert any("遅れて返った" in r.message for r in caplog.records)
 
 

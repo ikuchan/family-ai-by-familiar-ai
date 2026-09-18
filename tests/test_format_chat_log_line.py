@@ -3,6 +3,7 @@
 Red: 修正前は format_chat_log_line が未定義 → ImportError で FAIL。
 Green: 関数追加後 → PASS。
 """
+
 from __future__ import annotations
 
 import re

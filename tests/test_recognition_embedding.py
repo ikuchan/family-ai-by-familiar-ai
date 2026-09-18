@@ -15,6 +15,7 @@ import pytest
 
 # ── best_match（純関数） ─────────────────────────────────────────────────────
 
+
 def test_best_match_returns_closest_above_threshold():
     from familiar_agent.recognition.embedding_store import best_match
 
@@ -47,6 +48,7 @@ def test_best_match_empty_or_zero_returns_none():
 
 # ── EmbeddingStore（保存の往復） ─────────────────────────────────────────────
 
+
 def test_embedding_store_roundtrip(tmp_path):
     from familiar_agent.recognition.embedding_store import EmbeddingStore
 
@@ -63,10 +65,13 @@ def test_embedding_store_roundtrip(tmp_path):
 
 # ── RecognitionConfig（既定値） ──────────────────────────────────────────────
 
+
 def test_recognition_config_defaults(monkeypatch):
     for k in (
-        "FACE_THRESHOLD", "VOICE_THRESHOLD",
-        "FACE_SWITCH_THRESHOLD", "VOICE_SWITCH_THRESHOLD",
+        "FACE_THRESHOLD",
+        "VOICE_THRESHOLD",
+        "FACE_SWITCH_THRESHOLD",
+        "VOICE_SWITCH_THRESHOLD",
     ):
         monkeypatch.delenv(k, raising=False)
     from familiar_agent.config import RecognitionConfig
@@ -79,6 +84,7 @@ def test_recognition_config_defaults(monkeypatch):
 
 
 # ── recognize_face_async（モデルをモック） ──────────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_recognize_face_returns_hint_for_known_person(tmp_path):
@@ -93,7 +99,8 @@ async def test_recognize_face_returns_hint_for_known_person(tmp_path):
     manager.list_persons.return_value = [{"id": "pid-alice", "name": "alice"}]
 
     with patch.object(
-        face_mod, "_extract_face_embedding",
+        face_mod,
+        "_extract_face_embedding",
         return_value=np.array([0.95, 0.05, 0.0], dtype=np.float32),
     ):
         hint = await face_mod.recognize_face_async(
@@ -120,6 +127,7 @@ async def test_recognize_face_none_when_no_embedding(tmp_path):
 
 # ── VoiceIdentifier（モデルをモック） ───────────────────────────────────────
 
+
 @pytest.mark.asyncio
 async def test_voice_identify_returns_hint_for_known_person(tmp_path):
     from familiar_agent.recognition import voice as voice_mod
@@ -130,7 +138,8 @@ async def test_voice_identify_returns_hint_for_known_person(tmp_path):
 
     vi = voice_mod.VoiceIdentifier(MagicMock(), store=store)
     with patch.object(
-        voice_mod, "_extract_voice_embedding",
+        voice_mod,
+        "_extract_voice_embedding",
         return_value=np.array([0.0, 0.98, 0.02], dtype=np.float32),
     ):
         hint = await vi.identify_async("/tmp/x.wav")
@@ -140,6 +149,7 @@ async def test_voice_identify_returns_hint_for_known_person(tmp_path):
 
 
 # ── apply_hint（per-source 自動切替しきい値） ───────────────────────────────
+
 
 @pytest.mark.asyncio
 async def test_apply_hint_uses_per_source_switch_threshold():

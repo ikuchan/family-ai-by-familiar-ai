@@ -25,6 +25,7 @@ def _backend(reply: str):
 
 # ── ① 相手の気分：読めなければ語ベースの判定へ落ちる ──────────────────────
 
+
 def test_an_unreadable_mood_falls_back_to_the_heuristic() -> None:
     """**黙って `"engaged"` と断定しない。** 同じファイルにある語ベースの判定を使う。"""
     from familiar_agent.loop.evaluator import Evaluator, _companion_mood_heuristic
@@ -43,6 +44,7 @@ def test_a_readable_mood_is_used() -> None:
 
 
 # ── ② 同じ意図か：読めなければ文字列の一致へ落ちる ────────────────────────
+
 
 def _searcher(reply: str):
     from familiar_agent.tools.deferred_search import DeferredSearchTool
@@ -70,16 +72,21 @@ def test_an_unreadable_intent_falls_back_to_string_equality() -> None:
 
 # ── ③ PAD の数値：口を通しても 050 の約束は変わらない ─────────────────────
 
+
 def test_the_pad_still_goes_unmeasured_when_the_numbers_are_short() -> None:
     from familiar_agent.loop.evaluator import _evaluate_emotion_pad
 
-    pad, a = asyncio.run(_evaluate_emotion_pad(
-        _backend("0.7 0.2"), "text", MoodPAD(0.6, 0.3, 0.5, 0.55), arousal=0.8))
+    pad, a = asyncio.run(
+        _evaluate_emotion_pad(
+            _backend("0.7 0.2"), "text", MoodPAD(0.6, 0.3, 0.5, 0.55), arousal=0.8
+        )
+    )
     assert pad is None
     assert a == 0.8
 
 
 # ── ④ 満たされた軸：口を通す ───────────────────────────────────────────────
+
 
 def test_the_satisfied_axes_are_read_through_the_gate() -> None:
     from familiar_agent.core.structured_ask import ask_subset
@@ -91,13 +98,13 @@ def test_the_satisfied_axes_are_read_through_the_gate() -> None:
 
 # ── ⑤ 場面の JSON：コードフェンス付きでも読める ───────────────────────────
 
+
 def test_the_scene_reads_json_wrapped_in_a_fence() -> None:
     import familiar_agent.scene as scene
 
     backend = MagicMock()
-    backend.complete = AsyncMock(
-        return_value='```json\n{"entities": [{"label": "cat"}]}\n```')
-    del backend.complete_with_image      # 画像なしの経路を通す
+    backend.complete = AsyncMock(return_value='```json\n{"entities": [{"label": "cat"}]}\n```')
+    del backend.complete_with_image  # 画像なしの経路を通す
     # 引数は (description, backend) の順。
     got = asyncio.run(scene.extract_entities("猫がいる", backend))
     assert got == [{"label": "cat"}]

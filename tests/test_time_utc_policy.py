@@ -25,8 +25,6 @@ def test_now_local_str_has_timezone_suffix():
     assert s[:4].isdigit()  # 先頭は年
 
 
-
-
 def test_now_local_iso_only_in_local_calendar_boundary():
     """完了条件：`now_local_iso()` の呼び出しは observations の暦日境界だけ（保存列は UTC）。"""
     import pathlib
@@ -58,9 +56,5 @@ def test_no_naive_utcnow_remains_in_src():
     import pathlib
 
     root = pathlib.Path(__file__).resolve().parent.parent / "src" / "familiar_agent"
-    hits = [
-        f"{p}"
-        for p in root.rglob("*.py")
-        if "utcnow()" in p.read_text(encoding="utf-8")
-    ]
+    hits = [f"{p}" for p in root.rglob("*.py") if "utcnow()" in p.read_text(encoding="utf-8")]
     assert hits == [], f"naive utcnow() remains: {hits}"

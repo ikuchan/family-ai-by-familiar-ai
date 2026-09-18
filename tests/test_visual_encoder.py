@@ -40,8 +40,9 @@ def test_encoding_runs_off_the_event_loop():
 
 def test_a_model_that_cannot_load_yields_nothing_rather_than_raising():
     e = VisualEncoder()
-    with patch("transformers.AutoModel.from_pretrained",
-               MagicMock(side_effect=RuntimeError("no weights"))):
+    with patch(
+        "transformers.AutoModel.from_pretrained", MagicMock(side_effect=RuntimeError("no weights"))
+    ):
         assert asyncio.run(e.embed("/tmp/a.jpg")) is None
 
 
@@ -56,8 +57,10 @@ def test_a_failed_encoding_yields_nothing():
 def test_the_model_is_loaded_once_and_reused():
     e = VisualEncoder()
     made = MagicMock(return_value=MagicMock())
-    with patch("transformers.AutoModel.from_pretrained", made), \
-         patch("transformers.AutoImageProcessor.from_pretrained", MagicMock()):
+    with (
+        patch("transformers.AutoModel.from_pretrained", made),
+        patch("transformers.AutoImageProcessor.from_pretrained", MagicMock()),
+    ):
         e._embed_sync = MagicMock(return_value=[0.0] * 384)
         asyncio.run(e.embed("/tmp/a.jpg"))
         asyncio.run(e.embed("/tmp/b.jpg"))

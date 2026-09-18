@@ -28,12 +28,21 @@ from tests.test_event_loop import _agent, _run, _run_chain, _turn
 def _row(obs_id: str) -> dict:
     """採点まで届く最小の行。活性は既定の低い側に置く（下限の効きを見るため）。"""
     return {
-        "id": obs_id, "content": "むかしの話", "timestamp": None,
+        "id": obs_id,
+        "content": "むかしの話",
+        "timestamp": None,
         "last_recalled_at": None,
-        "groundedness_g0": 0.1, "groundedness_n": 0,
-        "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
-        "direction": "発話", "kind": "observation", "emotion": "neutral",
-        "image_path": None, "score": 0.3,
+        "groundedness_g0": 0.1,
+        "groundedness_n": 0,
+        "emotion_p": 0.5,
+        "emotion_pn": 0.5,
+        "emotion_a": 0.5,
+        "emotion_dom": 0.5,
+        "direction": "発話",
+        "kind": "observation",
+        "emotion": "neutral",
+        "image_path": None,
+        "score": 0.3,
     }
 
 
@@ -101,10 +110,12 @@ def test_live_intent_is_open_and_drops_out_when_the_result_arrives() -> None:
 
     「結果はまだ無い」という意図の記録が、結果が届いたあとも浮き続ける理由はない。
     """
-    a = _agent(stream_returns=[
-        _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
-        _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
-    ])
+    a = _agent(
+        stream_returns=[
+            _turn([ToolCall(id="r", name="recall", input={"query": "昨日の天気"})]),
+            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
+        ]
+    )
     _run_chain(a, utterance="昨日の天気覚えてる？")
 
     calls = a._active_memory().recall_async.call_args_list

@@ -27,10 +27,8 @@ def resolve_due(*, after_minutes: "float | None", now: datetime) -> datetime:
     return now + timedelta(minutes=float(after_minutes))
 
 
-def needs_confirmation(due: "datetime | None", *, quiet, silence_active: bool) -> "str | None":
+def needs_confirmation(due: datetime, *, quiet, silence_active: bool) -> "str | None":
     """確かめてから登録すべき理由。要らなければ None。"""
-    if due is None:
-        return None  # ストップウォッチは鳴らない
     if silence_active:
         return "いま黙っているよう頼まれているので、鳴らしてよいか"
     if quiet is not None and quiet.is_quiet(due):
@@ -85,9 +83,7 @@ def remaining(row: dict, now: datetime) -> timedelta:
 
 
 def measure_at(row: dict, at: datetime) -> str:
-    """止めた瞬間の値：ストップウォッチは「経過 m:ss」、タイマーは「残り m:ss」。"""
-    if row.get("due") is None:
-        return f" 経過 {_mmss(at - row['started_at'])}"
+    """止めた瞬間の値：「残り m:ss」（ストップウォッチは別物・`stopwatch_rules`）。"""
     return f" 残り {_mmss(remaining(row, at))}"
 
 
@@ -107,17 +103,15 @@ def render_frame(
             f"- 聞いていない（{not_listening} が鳴るまで。止めて・一時停止・再開の言葉だけ届く）"
         )
     for r in active:
-        due = r.get("due")
-        if due is not None and r.get("paused_at") is not None:
+        due = r["due"]
+        if r.get("paused_at") is not None:
             lines.append(
                 f"- id={r['id']} {r['label']} 一時停止中（残り {_mmss(remaining(r, now))}）"
             )
-        elif due is not None:
+        else:
             lines.append(
                 f"- id={r['id']} {r['label']} 残り {_mmss(remaining(r, now))}（{due.astimezone(now.tzinfo):%H:%M} に鳴る）"
             )
-        else:
-            lines.append(f"- id={r['id']} {r['label']} 経過 {_mmss(now - r['started_at'])}")
     for r in recently_fired:
         ago = max(0, int((now - r["fired_at"]).total_seconds() // 60))
         lines.append(f"- id={r['id']} {r['label']} は {ago} 分前に鳴った（もう止まっている）")

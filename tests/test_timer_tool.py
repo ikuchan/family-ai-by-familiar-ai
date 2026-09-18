@@ -116,10 +116,15 @@ def _tool(*, quiet=QuietHoursRule(23, 7), silence=False):
     return t, store, oif
 
 
-def test_the_definitions_are_five_tools():
+def test_the_definitions_are_four_tools():
     t, _, _ = _tool()
     names = [d["name"] for d in t.get_tool_definitions()]
-    assert names == ["set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer"]
+    assert names == [
+        "set_timer",
+        "cancel_timer",
+        "pause_timer",
+        "resume_timer",
+    ]  # ストップウォッチは別物（知-u）
     props = t.get_tool_definitions()[0]["input_schema"]["properties"]
     assert (
         props.keys() == {"after_minutes", "label"} and "at" not in props
@@ -185,22 +190,13 @@ def test_the_limit_is_one():
     assert not ok and "t0" in text and len(store.active()) == 1
 
 
-def test_stopwatch_starts_without_due():
-    t, store, oif = _tool()
-    text, ok = asyncio.run(t.call("start_stopwatch", {"label": "ランニング"}))
-    assert ok and "id=1" in text and store.active()[0]["due"] is None
-    assert oif.write.call_args.args[0].direction == "予定"
-
-
 def test_cancel_one_or_all_and_says_when_nothing_is_running():
     t, store, oif = _tool()
     asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "a"}))
-    asyncio.run(
-        t.call("start_stopwatch", {"label": "b"})
-    )  # 2 本目はストップウォッチ（タイマーは 1 本）
     text, ok = asyncio.run(t.call("cancel_timer", {"id": 1}))
-    assert ok and "a" in text and "止めた" in text and len(store.active()) == 1
+    assert ok and "a" in text and "止めた" in text and store.active() == []
     assert oif.write.call_args.args[0].content.startswith("やめた：")
+    asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "b"}))
     text, ok = asyncio.run(t.call("cancel_timer", {"id": "all"}))
     assert ok and "1 本" in text and store.active() == []
     text, ok = asyncio.run(t.call("cancel_timer", {"id": "all"}))
@@ -222,18 +218,7 @@ def test_the_clock_starts_when_the_person_spoke_not_when_the_tool_ran():
     said_at = NOW - timedelta(seconds=3)
     text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 1, "label": "x"}, now=said_at))
     assert ok and store.active()[0]["due"] == said_at + timedelta(minutes=1)
-    text, ok = asyncio.run(t.call("start_stopwatch", {"label": "y"}, now=said_at))
-    assert ok and store.active()[1]["started_at"] == said_at
-
-
-def test_stopping_a_stopwatch_reports_the_elapsed_time_and_keeps_it_in_the_frame():
-    """「ストップ」→「何秒だった？」に答えられる（実機 08:59：止めても経過が残らなかった）。"""
-    t, store, _ = _tool()
-    asyncio.run(t.call("start_stopwatch", {"label": "測る"}, now=NOW - timedelta(seconds=29)))
-    text, ok = asyncio.run(t.call("cancel_timer", {"id": 1}))
-    assert ok and "0:29" in text and "測る" in text
-    frame = t.frame()
-    assert "[タイマー]" in frame and "0:29" in frame and "止めた" in frame
+    assert store.active()[0]["started_at"] == said_at
 
 
 def test_stopping_a_timer_reports_the_remaining_time():

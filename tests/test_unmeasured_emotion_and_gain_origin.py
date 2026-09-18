@@ -36,24 +36,28 @@ def _row(**over):
 
 # ── ② 器 ────────────────────────────────────────────────────────────────────
 
+
 def test_a_fully_measured_row_carries_both_the_pad_and_the_arousal():
-    item = _row_to_mental_item(_row(
-        emotion_p=0.8, emotion_pn=0.15, emotion_a=0.72, emotion_dom=0.6))
+    item = _row_to_mental_item(
+        _row(emotion_p=0.8, emotion_pn=0.15, emotion_a=0.72, emotion_dom=0.6)
+    )
     assert item.emotion == MoodPAD(0.8, 0.15, 0.72, 0.6)
     assert item.arousal == 0.72
 
 
 def test_an_unmeasured_row_keeps_the_arousal_and_drops_the_feeling():
     """P/Pn/Dom が NULL でも A は機械値として残る（050）。感情は埋めない。"""
-    item = _row_to_mental_item(_row(
-        emotion_p=None, emotion_pn=None, emotion_a=0.5, emotion_dom=None))
+    item = _row_to_mental_item(
+        _row(emotion_p=None, emotion_pn=None, emotion_a=0.5, emotion_dom=None)
+    )
     assert item.emotion is None
     assert item.arousal == 0.5
 
 
 def test_one_missing_axis_is_enough_to_call_the_feeling_unmeasured():
-    item = _row_to_mental_item(_row(
-        emotion_p=0.8, emotion_pn=0.15, emotion_a=0.72, emotion_dom=None))
+    item = _row_to_mental_item(
+        _row(emotion_p=0.8, emotion_pn=0.15, emotion_a=0.72, emotion_dom=None)
+    )
     assert item.emotion is None
     assert item.arousal == 0.72
 
@@ -78,6 +82,7 @@ def test_the_primitive_item_is_unchanged():
 
 
 # ── ① 気分変調の原点 ────────────────────────────────────────────────────────
+
 
 def test_at_rest_the_modulation_vanishes():
     """平静では g = b_i（`感情ループ全体像`）。平静が動いてもこの性質は保つ。"""

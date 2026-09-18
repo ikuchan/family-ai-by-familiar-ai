@@ -17,9 +17,7 @@ async def test_awaits_both_coroutines():
     fake_cam.create_devicemgmt_service = AsyncMock(return_value=object())
 
     with patch.object(setup_mod, "ONVIFCamera", return_value=fake_cam):
-        ok, err = await setup_mod.validate_camera_connection(
-            "192.168.1.26", "user", "pass", 2020
-        )
+        ok, err = await setup_mod.validate_camera_connection("192.168.1.26", "user", "pass", 2020)
 
     assert ok is True
     assert err == ""
@@ -34,9 +32,7 @@ async def test_returns_false_on_connection_error():
     fake_cam.update_xaddrs = AsyncMock(side_effect=OSError("unreachable"))
 
     with patch.object(setup_mod, "ONVIFCamera", return_value=fake_cam):
-        ok, err = await setup_mod.validate_camera_connection(
-            "10.0.0.99", "user", "pass", 2020
-        )
+        ok, err = await setup_mod.validate_camera_connection("10.0.0.99", "user", "pass", 2020)
 
     assert ok is False
     assert "unreachable" in err
@@ -63,6 +59,7 @@ async def test_no_runtime_warning(recwarn):
 def test_onvif_wsdl_dir_is_resolved_correctly():
     """_onvif_wsdl_dir() returns an existing directory containing devicemgmt.wsdl."""
     from familiar_agent.setup import _onvif_wsdl_dir
+
     wsdl_dir = _onvif_wsdl_dir()
     assert os.path.isdir(wsdl_dir), f"wsdl_dir が存在しない: {wsdl_dir}"
     assert os.path.exists(os.path.join(wsdl_dir, "devicemgmt.wsdl")), (

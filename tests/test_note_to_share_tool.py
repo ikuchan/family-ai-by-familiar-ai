@@ -2,6 +2,7 @@
 
 観察記憶に紐づいた「話したいこと」を pending_speech へ登録するツール。
 """
+
 from __future__ import annotations
 
 import uuid
