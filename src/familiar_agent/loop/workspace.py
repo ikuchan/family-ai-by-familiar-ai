@@ -271,6 +271,9 @@ class Workspace:
     n_arbiter: int
     n_main: int
     id_map: "dict[str, str]" = field(default_factory=dict)
+    # 「いま道具から返った」の枠は**組んだ時点の値を固定**する（`render` は遅延評価で、求めの
+    # `just_returned` を組んだ後に空にすると枠が消えた——実機 2026-09-18 15:28）。
+    just_returned_text: str = ""
     #: 申告（`memory_verdicts`）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
@@ -283,6 +286,7 @@ class Workspace:
             oif, max(n_arbiter, n_main) + 1
         )  # 窓の外の次の起点も 1 つ引く（計測用）
         ws = cls(oif, memories, req, chains[: max(n_arbiter, n_main)], n_arbiter, n_main)
+        ws.just_returned_text = just_returned(req)
         # 層 3 の材料（記-a-に）：窓のいちばん古い起点と、窓の外の次の起点。続き先の `相手` と
         # 突き合わせ、端や窓の外が参照されるなら +1、端が一度も参照されなければ −1。
         edge = chains[n_main - 1][0] if len(chains) >= n_main else "-"
@@ -301,7 +305,7 @@ class Workspace:
     def render(self, n: int) -> str:
         _rows, recent, recent_ids = render_recent(self.oif, self.chains, n)
         past, _ = compose(self.oif, self.memories, self.req, exclude=set(recent_ids.values()))
-        return "\n\n".join(p for p in (just_returned(self.req), recent, past) if p and p.strip())
+        return "\n\n".join(p for p in (self.just_returned_text, recent, past) if p and p.strip())
 
     @property
     def for_arbiter(self) -> str:

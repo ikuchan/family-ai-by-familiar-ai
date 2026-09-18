@@ -216,6 +216,7 @@ def test_a_tool_return_that_just_arrived_is_shown_at_the_top():
     )
     req.just_returned.append(1)  # 取込がこの反復で受けた返り（次の反復の頭で空になる）
     ws = workspace.Workspace.build(oif, [], req, n_arbiter=1, n_main=2)
+    req.just_returned.clear()  # 組んだあとに空にしても（`_iterate` はそうする）枠は残る（遅延評価で消えた・実機 15:28）
     text = ws.render(1)
     assert text.startswith("[いま道具から返った]")
     assert "set_timer" in text and "本人に一度聞く" in text
