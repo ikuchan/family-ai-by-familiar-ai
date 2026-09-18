@@ -41,6 +41,16 @@ def _base_env_path() -> Path:
     return root_env if root_env.exists() else Path.cwd() / ".env"
 
 
+def settings_env_path() -> Path:
+    """設定画面が**書く**先＝素の `.env`（環-n・2026-09-18）。
+
+    読む側は素の `.env` に `FAMILIAR_ENV_FILE` を重ねるが、書く側が上書き file を指していたので、
+    quiet 構成で設定を保存すると雛形（git 管理下・数行だけの約束）に鍵を含む設定一式が書き出された
+    （実機 18:27）。上書き file には書かない。上書き file の値は保存後も勝つ（読む順が同じ）。
+    """
+    return _base_env_path()
+
+
 def load_app_bootstrap(env_path: Path | None = None) -> AppBootstrap:
     """Load `.env`, migrate legacy Anthropic keys, and report startup status.
 

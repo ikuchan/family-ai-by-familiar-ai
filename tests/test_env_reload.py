@@ -101,6 +101,10 @@ def test_reload_rereads_env_and_rebuilds_the_listener(tmp_path, monkeypatch):
     env.write_text("AUDIO_INPUT_GAIN=3.0\n", encoding="utf-8")
     monkeypatch.setenv("FAMILIAR_ENV_FILE", str(env))
     monkeypatch.setenv("AUDIO_INPUT_GAIN", "2.0")
+    # `/reload` は素の .env（`settings_env_path()`）も読む。本物の .env に届かせない（環-r・本番へ書いた）。
+    from familiar_agent import bootstrap
+
+    monkeypatch.setattr(bootstrap, "_base_env_path", lambda: tmp_path / "base.env")
     old = _Controller("faster-whisper")
     new = _Controller("faster-whisper")
     monkeypatch.setattr(gui_mod, "create_realtime_stt_controller", lambda: new)

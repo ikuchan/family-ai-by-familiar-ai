@@ -96,7 +96,7 @@ from ._ui_helpers import (
     format_chat_log_line,
     format_tool_result,
 )
-from .bootstrap import resolve_env_path
+from .bootstrap import settings_env_path
 from .diagnostics import (
     build_gui_diagnostics,
     format_gui_diagnostics,
@@ -250,7 +250,7 @@ def _px(size: int) -> int:
 
 
 # Resolve .env path once for settings / setup flows.
-_ENV_PATH: Path = resolve_env_path()
+_ENV_PATH: Path = settings_env_path()  # 設定画面が書く先は素の .env（環-n）
 
 
 # ---------------------------------------------------------------------------
@@ -1933,7 +1933,8 @@ class FamiliarWindow(QMainWindow):
         効くのは集音の開始時に読まれるものだけ（マイク機器・`AUDIO_INPUT_GAIN`・`STT_*`・
         担い手）。以前は `agent.reload_md_files` を呼んでいたが、そのメソッドは無かった。
         """
-        report = reload_env()
+        # 素の .env → 上書き file の順（環-n）。path は明示で渡す（暗黙に本物の .env を読ませない・環-r）。
+        report = reload_env(settings_env_path())
         self._log.append_line(report.summary())
         if not report.found:
             return
