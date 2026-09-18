@@ -190,3 +190,69 @@ def test_the_verdict_map_holds_only_the_past_column():
     ws = _ws(oif, [_recalled("a2", "もちろん"), _recalled("m9", "去年の夏の話")], n_main=2)
     assert set(ws.verdict_map.values()) == {"m9"}  # a2 は直近の枠に載ったので過去の列に無い
     assert set(ws.id_map.values()) == {"q2", "a2", "m9"}
+
+
+# ── いま道具から返ったもの（出-x・2026-09-18）────────────────────────────────
+
+
+def test_a_tool_return_that_just_arrived_is_shown_at_the_top():
+    """道具の返りは版（過去の列の全文）に載るだけで、調停は「記憶」として読み、いま届いた返りとして
+    扱わなかった——「確かめて」の返りに聞き返さず `set_timer` を掛け直した（実機 14:50）。
+    実験（`scripts/experiment_arbiter_confirm.py`）：最上部に 1 行載せると 8/8 で light の確認文。"""
+    from familiar_agent.loop.request import Lookup, Request
+
+    chains = {"q1": [_said("q1", "三分測って", "起点", 0)]}
+    oif = _oif(["q1"], chains)
+    oif.roles = MagicMock(return_value={})
+    req = Request()
+    req.lookups.append(
+        Lookup(
+            index=1,
+            action="set_timer",
+            query="タイマーを掛ける「パパの頼み」",
+            generation=0,
+            result="まだ掛けていない。本人に一度聞く：「3 分のタイマーね、いい？」",
+        )
+    )
+    req.just_returned.append(1)  # 取込がこの反復で受けた返り（次の反復の頭で空になる）
+    ws = workspace.Workspace.build(oif, [], req, n_arbiter=1, n_main=2)
+    text = ws.render(1)
+    assert text.startswith("[いま道具から返った]")
+    assert "set_timer" in text and "本人に一度聞く" in text
+    assert text.index("[いま道具から返った]") < text.index("[直近のやりとり")
+
+
+def test_no_block_when_nothing_just_returned():
+    from familiar_agent.loop.request import Lookup, Request
+
+    chains = {"q1": [_said("q1", "三分測って", "起点", 0)]}
+    oif = _oif(["q1"], chains)
+    oif.roles = MagicMock(return_value={})
+    req = Request()
+    req.lookups.append(
+        Lookup(index=1, action="set_timer", query="x", generation=0, result="掛けた")
+    )
+    # 前の反復で受けた返り（`just_returned` は空）→ 載せない（版の全文にはある）
+    assert "[いま道具から返った]" not in workspace.Workspace.build(
+        oif, [], req, n_arbiter=1, n_main=2
+    ).render(1)
+
+
+def test_intake_marks_the_returns_and_the_next_iteration_clears_them():
+    import asyncio
+
+    from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigger
+
+    from tests.test_event_loop import _agent
+
+    a = _agent(stream_returns=[])
+    ip = InformationProcessing(a)
+    ip._req.lookups.append(
+        Lookup(index=1, action="set_timer", query="タイマーを掛ける「x」", generation=0)
+    )
+    ip._drained_completions.append(
+        Trigger(kind="完了", query="タイマーを掛ける「x」", result="まだ掛けていない", index=1)
+    )
+    asyncio.run(ip._intake())
+    assert ip._req.just_returned == [1]
+    ip._req.just_returned.clear()  # `_iterate` が W を組んだあとに空にする（本体は次の test）

@@ -1325,6 +1325,8 @@ class InformationProcessing:
             if lk is not None:
                 lk.result = result_text
                 lk.failed = bool(getattr(c, "failed", False))
+                if lk.index not in self._req.just_returned:
+                    self._req.just_returned.append(lk.index)  # W の最上部に載せる（出-x）
                 if lk.failed:
                     # その求めのあいだ、この道具を候補から外す（構造で呼び直しを起こさない）。
                     self._req.failed_actions.add(_action_family(lk.action))
@@ -2020,6 +2022,7 @@ class InformationProcessing:
             agent._oif, cue, viewpoint=viewpoint, weights=weights, req=self._req
         )
         _log_recall_weights(trigger, w_base, weights, ws.memories)
+        self._req.just_returned.clear()  # 「いま道具から返った」はこの反復の W にだけ載せる
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
         # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
         # 直前で、そこは待つ（続きでなければ直近のやりとりを載せてはいけない）。
