@@ -861,6 +861,17 @@ class EmbodiedAgent:
         except Exception:  # noqa: BLE001
             return ""
 
+    def nobody_since(self) -> "float | None":
+        """センサが「誰も居ない」を見始めた時刻（見ている・センサが無い → None）。T の在席の刻みが持つ。
+
+        沈黙依頼が「退室で解ける」を**居るかの層**で見るための材料（情-l・2026-09-18）。
+        """
+        tonic = getattr(self, "_tonic", None)
+        if tonic is None or getattr(self, "_presence_sensor", None) is None:
+            return None
+        since = getattr(tonic, "_unoccupied_since", None)
+        return float(since) if isinstance(since, (int, float)) else None
+
     def _stop_timer_ring(self) -> None:
         """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。"""
         ip = getattr(self, "_info_processing", None)
@@ -1397,8 +1408,7 @@ class EmbodiedAgent:
             req = load_silence()
             if req is not None and req.reason.startswith("timer:"):
                 return False
-            present = {str(r.get("name") or "") for r in self._pmm.presence_status()}
-            return is_silenced(req, present=present, now=time.time())
+            return is_silenced(req, now=time.time(), nobody_since=self.nobody_since())
         except Exception:  # noqa: BLE001
             return False
 
