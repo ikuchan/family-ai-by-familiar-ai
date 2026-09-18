@@ -2514,6 +2514,12 @@ class InformationProcessing:
         """
         if not text:
             return "", "沈黙"
+        if self._req.trigger_kind == "機器" and str(self._req.request_text).startswith("[退室]"):
+            # **退室の知らせに返事する相手は居ない**（知-r・2026-09-18 12:36 実機：最後の検出から
+            # 滞留窓 180 秒の内なので出口が通り、「出ていかれたんですね」を声に出した）。
+            # 思ったことは独白として O に残る。入室・タイマー・メモは従来どおり。
+            logger.info("event-loop 退室の知らせなので独り言として残す（相手は居ない）")
+            return text, "独白"
         blocked = self._delivery_block_reason()
         if blocked and self._req.said_fillers and blocked != "黙っているよう頼まれている":
             # **つなぎを出したなら本応答も出す**（環-i）。つなぎと本応答は別々にゲートを引く
@@ -2729,8 +2735,13 @@ class InformationProcessing:
         return items
 
     def check_silence_lifted(self) -> None:
-        """T が tick ごとに呼ぶ：期限切れで明けたのに何も届かないとき、まとめの求めを起こす。"""
-        if not self._muted:
+        """T が tick ごとに呼ぶ：期限切れで明けたのに何も届かないとき、まとめの求めを起こす。
+
+        見るのは器の中で**理由が「黙っていた」のもの**だけ（情-k・2026-09-18 12:38 実機）。器は
+        不在で聞いたもの（理由「誰も見えなかった」）とも共有しており、そちらを「沈黙が明けた」と
+        読むと、誰も見えないのに求めが立って LLM が回った。不在の分は人が映った求めに載る。
+        """
+        if not any(getattr(h, "why", "黙っていた") == "黙っていた" for h in self._muted):
             return
         with contextlib.suppress(Exception):
             from ..silence_state import is_silenced
