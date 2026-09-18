@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.49・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.50・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -295,6 +295,7 @@ $$\text{思い出した時：}\; last\_recalled\_at \leftarrow now\quad(\text{�
 | 在席表の失効 `PRESENCE_EXPIRE_SEC`（Config） | 60 秒 | 〔仮〕 | センサが「誰も居ない」をこの秒数見続けたら在席表（PMM）を空にする。話者の指定は残す | 【設計】知覚在席 §3-2b |
 | タイマーの音の長さ `TIMER_RING_SEC`（Config） | 30 秒 | 〔仮〕 | 鳴ったら `timer_alarm.wav` を繰り返す。0 で声だけ | 【設計】設計方針_タイマー v0.2 §5a |
 | アラームの音の長さ `ALARM_RING_SEC`（Config） | 30 秒 | 〔仮〕 | タイマーとは別（知-q） | 【設計】設計方針_アラーム v0.1 §4 |
+| 確認の預かりの寿命 `CONFIRM_TTL_SEC`（Config） | 300 秒 | 〔仮〕 | 「いい？」と聞いてから `confirm`／`decline` が効く長さ。過ぎたら捨てる（出-y） | 【設計】設計方針_タイマー v0.9 §10 |
 | タイマーの振る舞い `TIMER_SILENCE`／`TIMER_MIC_CLOSE`／`TIMER_CONFIRM`（Config・`.env`） | true／true／true | 〔仮〕 | 設定画面で変え保存した瞬間に効く（`TimerTool.flags()`） | 【設計】設計方針_タイマー v0.7 §8 |
 | タイマーの同時数／アラームの同時数 | 1（＋ストップウォッチ 1）／5 | 〔確定／仮〕 | フラグに関係ない規則 | 【設計】設計方針_タイマー §11・設計方針_アラーム §1 |
 | 操作の言葉の長さ `timer_rules.CONTROL_MAX_CHARS` | 12 字 | 〔仮〕 | 聞かないあいだに通す発話の上限 | 【設計】設計方針_タイマー §9 |
@@ -385,6 +386,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.50：`CONFIRM_TTL_SEC`（出-y・2026-09-18）。
 > v0.49：タイマーの設定 3 つ・同時数・操作の言葉の長さ・`ALARM_RING_SEC`（知-o・知-q・2026-09-18）。
 > v0.48：`PRESENCE_SAID_SEC` 60・`DRIVE_VOICE_NUDGE` Θ/2〔仮〕・滞留窓 180（2026-09-17）。
 > v0.46：`PRESENCE_VOICE_SEC` 60・`PRESENCE_EXPIRE_SEC` 60・`TIMER_RING_SEC` 30（いずれも〔仮〕・2026-09-17）を G 章に追加。
