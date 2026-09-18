@@ -75,3 +75,11 @@ def test_the_iteration_got_shorter():
     src = inspect.getsource(InformationProcessing._iterate)
     # 沈黙の解除（2026-09-16）は掛ける口と同じ 1 行（`_apply_silence`）に畳み、231 のまま。
     assert len(src.split("\n")) <= 231, "薄くなっていない"
+
+
+def test_the_cap_says_what_counts_as_done():
+    """出-z（実機 2026-09-18 18:31:37）：上限到達で「1 分のタイマーかけたよ」と無いことを言った。
+    「嘘をつかない」でなく**基準**を渡す——「した」と言えるのは道具の返りにそう書いてあるときだけ。"""
+    text = _ctx(capped=True)
+    assert "道具の返りにそう書いてあるときだけ" in text and "できていないと言う" in text
+    assert "道具の返り" not in _ctx(capped=False)
