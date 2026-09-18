@@ -158,6 +158,22 @@ _LEAD_DEVICE = (
     "タイマーは音でも知らせている（鳴っている）ので、聞かれない限り黙っていてよい。"
 )
 _HEADING_DEVICE = "[届いた知らせ]"
+# 起点が道具の帰り（タイマー・アラーム）のとき（出-x・2026-09-18）。返事型のまま渡すと、「確かめて」の
+# 返りを読んでも聞き返さずに `set_timer` を選び直した（実機 14:50・15:28・15:42）。実験（`根拠台帳` §35・
+# 3 種の実機 W × 8 回）：この先導文＋想起なし＋返った道具を候補から外す、で 24/24 が light。
+# 直近に「うまくできなかった」があるとき（W c）は末尾の一文が無いと 2/8 だった（取り返そうと道具を選ぶ）。
+# 文は実験（`scripts/experiment_arbiter_confirm.py` の `LEAD_TOOL_RETURN_2`）のまま。
+_LEAD_TOOL_RETURN = (
+    "いま**道具から返りが届いた**（作業状態の最上部）。人に届いた言葉ではない。返りを見て、次のどれかを選ぶ。"
+    '返りが人に伝える文（「掛けた」「確かめて：「…」」「動いている」）なら、その文を **"light"** でそのまま、'
+    "または相手に合わせて言い換えて伝える。返りが「確かめて」なら聞き返すだけでよい——**掛け直しはあなたの仕事ではない**"
+    '（「いい」と言われたら別の仕組みが掛ける）。指示があいまいで確かめたいことがあれば、それも "light" で聞く。'
+    '別の道具が要るときだけ "action"。'
+    "直近のやりとりに「うまくできなかった」「まだ掛かっていない」があっても、**取り返そうとして道具を選ばない**。"
+    "道具は既に返っている（最上部）。取り返すのは、返りをきちんと伝えることで足りる。"
+    "同じ失敗が続いていれば、そのことを一言添えてよい。"
+)
+_HEADING_TOOL_RETURN = "[道具から返ったもの]"
 _BRANCHES_REPLY = """\
 - "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
              **道具が要る頼み（タイマー・アラーム・測る・止める・覚えて・予定を見る）は light で答えない**
@@ -280,7 +296,7 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
     "set_timer": (
         "",
         '"set_timer"（タイマー＝何分後に鳴る。tool_input に {"after_minutes": 3, "label": "何のため"}。'
-        '返りが「確かめて」や「聞く」なら文をそのまま伝えて一度聞き、「いい」なら {"confirmed": true} を足して掛け直す。同時に 1 本）',
+        "返りが「確かめて」や「聞く」なら文をそのまま伝えて一度聞くだけ（掛け直しは要らない）。同時に 1 本）",
     ),
     "start_stopwatch": (
         "",
@@ -303,11 +319,20 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
     "set_alarm": (
         "",
         '"set_alarm"（アラーム＝何時に鳴る。「7 時に起こして」。tool_input に {"at": "7:00", "label": "何のため"}。'
-        '返りが「確かめて」なら理由を伝えて一度聞き、「いい」なら {"confirmed": true} を足して掛け直す）',
+        "返りが「確かめて」なら理由を伝えて一度聞くだけ（掛け直しは要らない）",
     ),
     "cancel_alarm": (
         "",
         '"cancel_alarm"（「アラーム止めて」「明日の起こすのやめて」。tool_input に {"id": 番号か "all"}。番号は [アラーム] の枠）',
+    ),
+    # 確認待ちへの答え（出-y・2026-09-18）。[確認待ち] が作業状態の最上部にあるときだけ候補に載る。
+    "confirm": (
+        "「いい」と言われて掛ける",
+        '"confirm"（[確認待ち] の問いに「いい」「うん」「お願い」と答えた。tool_input は要らない）',
+    ),
+    "decline": (
+        "確かめたものをやめる",
+        '"decline"（[確認待ち] の問いに「やめて」「いらない」「今はいい」と答えた。tool_input は要らない）',
     ),
     # 個人ティアの記録（知-g-い）。候補に載るのは本人のターンだけ（話者ゲート・`_extra_actions`）。
     "vault": (
@@ -426,6 +451,11 @@ def _parse(
         action = (
             "set_alarm"  # 何時に、はアラーム（別物・2026-09-18）。調停が set_timer に書いても直す
         )
+    if action in ("confirm", "decline"):
+        tool_input, text = (
+            {},
+            "",
+        )  # 引数は無い。機械が預かった入力で掛ける／捨てる。道具は 0.1 秒で返る
     if action in (
         "set_timer",
         "start_stopwatch",
@@ -533,6 +563,7 @@ async def arbitrate(
     image_b64: str | None = None,
     origin: str = "発話",
     extra_actions: tuple[str, ...] = (),
+    tool_return: bool = False,
 ) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
@@ -574,8 +605,12 @@ async def arbitrate(
     ).stable
     self_doing = origin == "情動"
     device = origin == "機器"
+    lead = _LEAD_DEVICE if device else _LEAD_REPLY
+    heading = _HEADING_DEVICE if device else _HEADING_REPLY
+    if tool_return:  # 道具（タイマー・アラーム）の帰り。起点が何であれ、いま見るのは返り
+        lead, heading = _LEAD_TOOL_RETURN, _HEADING_TOOL_RETURN
     prompt = ARBITER_PROMPT.format(
-        lead=_LEAD_SELF if self_doing else (_LEAD_DEVICE if device else _LEAD_REPLY),
+        lead=_LEAD_SELF if self_doing else lead,
         branches=(_BRANCHES_SELF if self_doing else _BRANCHES_REPLY).format(
             see_option=(_SEE_OPTION if can_see else "")
             + "".join(f"か {_EXTRA_ACTIONS[a][1]}" for a in extra_actions if a in _EXTRA_ACTIONS),
@@ -589,7 +624,7 @@ async def arbitrate(
                 else ""
             ),
         ),
-        heading=_HEADING_SELF if self_doing else (_HEADING_DEVICE if device else _HEADING_REPLY),
+        heading=_HEADING_SELF if self_doing else heading,
         utterance=utterance,
         workspace=workspace_ctx or "（なし）",
         present=present_ctx or "（分からない）",

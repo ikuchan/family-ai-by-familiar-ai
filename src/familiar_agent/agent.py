@@ -48,6 +48,7 @@ from .recognition.visual_encoder import VisualEncoder
 from .store.pose_norms import PoseNormStore
 from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
+from .core.confirm_state import PendingConfirm
 from .tools.alarm import AlarmTool
 from .tools.timer import TimerTool
 from .tools.tts import TTSTool
@@ -216,7 +217,10 @@ class EmbodiedAgent:
             hush=self._hush_for_timer,
             unhush=self._unhush_timer,
             on_cancel=self._stop_timer_ring,
+            ask=self.ask_confirm,
         )
+        # 掛ける前の確認の預かり（出-y・`core/confirm_state.py`）。タイマーとアラームで 1 つ。
+        self._pending_confirm: PendingConfirm | None = None
         # アラーム（知-q・2026-09-18）。タイマーとは別物：表 `alarms`・黙らない・聞かない状態にしない・
         # 確認は静穏時間だけ。止める口は道具 `cancel_alarm` と命令 `/alarm stop`。
         self._alarm_tool = AlarmTool(
@@ -225,6 +229,7 @@ class EmbodiedAgent:
             speaker=self._speaker_name_if_known,
             quiet=lambda: self._schedule_rule,
             on_cancel=self._stop_timer_ring,
+            ask=self.ask_confirm,
         )
         self._last_tool_error: str | None = None
         self._tool_failure_streak: int = 0
@@ -860,6 +865,42 @@ class EmbodiedAgent:
             return str(tool.listening_closed() or "")
         except Exception:  # noqa: BLE001
             return ""
+
+    # ── 掛ける前の確認の預かり（出-y）──────────────────────────────────────────
+
+    def ask_confirm(self, pc: "PendingConfirm") -> None:
+        """道具が「確かめて」と判定した預かりを置く。新しいものが前のものを上書きする（「5 分にして」）。"""
+        self._pending_confirm = pc
+        logger.info("確認待ち %s asked_at=%.0f", pc.what, pc.asked_at)
+
+    def confirm_alive(self) -> bool:
+        from .core.confirm_state import alive
+
+        return alive(
+            getattr(self, "_pending_confirm", None),
+            now=time.time(),
+            ttl=float(getattr(getattr(self, "config", None), "confirm_ttl_sec", 300.0)),
+        )
+
+    def confirm_frame(self) -> str:
+        """W の最上部に載せる `[確認待ち]`。預かりが無い・寿命切れなら空。"""
+        from .core.confirm_state import frame
+
+        pc = getattr(self, "_pending_confirm", None)
+        return frame(pc) if pc is not None and self.confirm_alive() else ""
+
+    async def resolve_confirm(self, yes: bool, *, now: Any = None) -> tuple[str, bool]:
+        """預かりを解く。「いい」なら預かった入力で道具を呼ぶ（`confirmed=True` は機械だけが立てる）。"""
+        pc = self._pending_confirm if self.confirm_alive() else None
+        self._pending_confirm = None
+        if pc is None:
+            return "確認待ちのものは無い（聞いてから時間が経ちすぎたか、もう答えた）", False
+        if not yes:
+            logger.info("確認待ちを捨てた %s", pc.what)
+            return f"やめた：{pc.what}は掛けない", True
+        if pc.action == "set_alarm":
+            return await self._alarm_tool.call(pc.action, pc.tool_input, confirmed=True)
+        return await self._timer_tool.call(pc.action, pc.tool_input, now=now, confirmed=True)
 
     def nobody_since(self) -> "float | None":
         """センサが「誰も居ない」を見始めた時刻（見ている・センサが無い → None）。T の在席の刻みが持つ。

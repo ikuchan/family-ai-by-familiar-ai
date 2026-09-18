@@ -146,6 +146,7 @@ def test_intake_of_a_failed_completion_records_the_failed_action():
 
 def test_the_arbiter_is_not_offered_a_failed_tool():
     a = _agent(stream_returns=[])
+    a.confirm_alive = MagicMock(return_value=False)  # 確認待ちは無い（出-y）
     ip = InformationProcessing(a)
     ip._ACTIONS = {
         **ip._ACTIONS,

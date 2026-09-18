@@ -612,6 +612,9 @@ class AgentConfig:
     presence_expire_sec: float = field(
         default_factory=lambda: _float_env("PRESENCE_EXPIRE_SEC", 60.0)
     )
+    # 掛ける前の確認（「3 分のタイマーね、いい？」）の預かりの寿命（秒・出-y）。過ぎたら捨て、
+    # 「いいよ」が来ても掛けない（何に「いい」と言ったか分からない）。〔仮〕
+    confirm_ttl_sec: float = field(default_factory=lambda: _float_env("CONFIRM_TTL_SEC", 300.0))
     # タイマーが鳴ったときに音（`assets/timer_alarm.wav`）を繰り返し鳴らす長さ（秒）。
     # 0 で音を鳴らさず声の知らせだけ（これまでどおり）。〔仮〕
     timer_ring_sec: float = field(default_factory=lambda: _float_env("TIMER_RING_SEC", 30.0))

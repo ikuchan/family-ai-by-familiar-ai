@@ -180,9 +180,7 @@ def test_a_quiet_hours_alarm_asks_first_then_sets_when_confirmed():
     t, store, _, _ = _tool()
     text, ok = asyncio.run(t.call("set_alarm", {"at": "6:30", "label": "起こす"}))
     assert ok and "確かめて" in text and store.active() == []
-    text, ok = asyncio.run(
-        t.call("set_alarm", {"at": "6:30", "label": "起こす", "confirmed": True})
-    )
+    text, ok = asyncio.run(t.call("set_alarm", {"at": "6:30", "label": "起こす"}, confirmed=True))
     assert ok and store.active()[0]["passes_quiet"] is True
 
 

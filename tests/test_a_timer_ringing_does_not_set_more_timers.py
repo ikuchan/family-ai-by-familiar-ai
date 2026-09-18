@@ -57,7 +57,15 @@ def _ip_with_timer():
     ip._ACTIONS = {
         **{
             k: (lambda ip, k=k: [])
-            for k in ("house_rules", "family_schedule", "notion_search", "journal", "vault")
+            for k in (
+                "house_rules",
+                "family_schedule",
+                "notion_search",
+                "journal",
+                "vault",
+                "confirm",  # 確認待ちが無い（出-y）
+                "decline",
+            )
         },
         "set_timer": lambda ip: [{"name": "set_timer"}],
         "start_stopwatch": lambda ip: [{"name": "start_stopwatch"}],
