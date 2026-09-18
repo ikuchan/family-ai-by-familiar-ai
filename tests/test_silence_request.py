@@ -19,24 +19,35 @@ from familiar_agent.silence_state import (
 )
 
 
-def test_silenced_while_the_asker_is_present():
+def test_silenced_within_the_deadline():
     req = SilenceRequest(person="パパ", until=time.time() + 600)
-    assert is_silenced(req, present={"パパ"}, now=time.time()) is True
+    assert is_silenced(req, now=time.time()) is True
 
 
-def test_not_silenced_when_the_asker_has_left():
-    # 退室で解ける。
+def test_an_explicit_request_lifts_when_the_room_has_been_empty_for_a_minute():
+    """退室で解ける——ただし在席表（誰か・失効で消える）でなく、**居るかの層**で見る（情-l・2026-09-18）。"""
     req = SilenceRequest(person="パパ", until=time.time() + 600)
-    assert is_silenced(req, present={"たいきくん"}, now=time.time()) is False
+    now = time.time()
+    assert is_silenced(req, now=now, nobody_since=now - 30) is True  # 30 秒ではまだ
+    assert is_silenced(req, now=now, nobody_since=now - 70) is False  # 60 秒誰も見ていない → 解ける
+    assert is_silenced(req, now=now, nobody_since=None) is True  # センサが人を見ている・または無い
+
+
+def test_a_timer_silence_does_not_lift_on_absence():
+    """タイマー由来（`reason=timer:`）は鳴る・止めるまで（在席表の失効で解けた実機 2026-09-18 14:51）。"""
+    req = SilenceRequest(person="パパ", until=time.time() + 180, reason="timer:12")
+    now = time.time()
+    assert is_silenced(req, now=now, nobody_since=now - 600) is True
+    assert is_silenced(req, now=now + 200, nobody_since=now - 600) is False  # 期限では解ける
 
 
 def test_not_silenced_after_the_time_runs_out():
     req = SilenceRequest(person="パパ", until=time.time() - 1)
-    assert is_silenced(req, present={"パパ"}, now=time.time()) is False
+    assert is_silenced(req, now=time.time()) is False
 
 
 def test_no_request_means_no_silence():
-    assert is_silenced(None, present={"パパ"}, now=time.time()) is False
+    assert is_silenced(None, now=time.time()) is False
 
 
 def test_arbiter_can_flag_a_silence_request():
@@ -206,3 +217,16 @@ def test_the_decision_is_applied_through_one_door(monkeypatch):
     ip._apply_silence(Decision(branch="light", lift_silence=True))
     ip._apply_silence(Decision(branch="light"))
     assert calls == ["掛ける-1", "解く"]
+
+
+def test_the_loop_reads_nobody_since_from_the_agent_and_a_mock_is_not_a_clock():
+    from unittest.mock import MagicMock
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    ip = InformationProcessing.__new__(InformationProcessing)
+    ip._agent = MagicMock()
+    ip._agent.nobody_since = MagicMock(return_value=1234.5)
+    assert ip._nobody_since() == 1234.5
+    ip._agent.nobody_since = MagicMock(return_value=MagicMock())  # 読めない → 解けない側
+    assert ip._nobody_since() is None

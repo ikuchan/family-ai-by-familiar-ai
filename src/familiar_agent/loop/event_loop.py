@@ -2656,7 +2656,7 @@ class InformationProcessing:
         req = None
         with contextlib.suppress(Exception):
             req = self._load_silence()
-        if is_silenced(req, present=self._present_names(), now=now):
+        if is_silenced(req, now=now, nobody_since=self._nobody_since()):
             assert req is not None
             speaker = self._current_speaker_name() if trigger.kind == "会話入力" else ""
             if lifts(trigger.kind, trigger.query, speaker=speaker, asker=req.person):
@@ -2673,6 +2673,14 @@ class InformationProcessing:
         if self._muted:
             self._pending_heard = self._take_muted()
         return False
+
+    def _nobody_since(self) -> "float | None":
+        """センサが「誰も居ない」を見始めた時刻（`agent.nobody_since`）。読めなければ None（解けない側）。"""
+        try:
+            since = self._agent.nobody_since()
+        except Exception:  # noqa: BLE001
+            return None
+        return float(since) if isinstance(since, (int, float)) else None
 
     def _nobody_visible(self) -> bool:
         """配信ゲートと同じ「居るか」（`agent._social_presence_permission`）。読めなければ居る扱い。"""
@@ -2752,7 +2760,7 @@ class InformationProcessing:
             from ..silence_state import is_silenced
 
             if not is_silenced(
-                self._load_silence(), present=self._present_names(), now=time.time()
+                self._load_silence(), now=time.time(), nobody_since=self._nobody_since()
             ):
                 self.push_device(
                     "沈黙が明けた", f"黙っていたあいだに {len(self._muted)} 件届いていた"
@@ -2925,16 +2933,6 @@ class InformationProcessing:
             if known:
                 return str(agent._persons.active_name or "")
         return ""
-
-    def _present_names(self) -> set[str]:
-        """いま在席している人の名前（黙っている依頼の宛先と突き合わせる）。"""
-        names: set[str] = set()
-        with contextlib.suppress(Exception):
-            for row in self._agent._pmm.presence_status():
-                name = str(row.get("name") or "")
-                if name:
-                    names.add(name)
-        return names
 
     # 配信ゲートが返す理由を、記録に書く形（過去形）へ言い換える。**表に無い理由は
     # そのまま書く**——増えたときに黙って誤った文へ倒さないためである。
