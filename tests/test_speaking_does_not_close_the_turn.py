@@ -130,3 +130,23 @@ def test_only_the_iteration_closes_the_turn():
     # 環-h・段ろ で、主LLM の返りを実行する部分を `_act_on_decision` へ出した。
     # **閉じるのは、その決定を実行している側**である（話す動作ではない）。
     assert callers == {"_iterate", "_act_on_decision"}, callers
+
+
+def test_a_departure_notice_is_a_monologue_not_a_held_reply():
+    """退室の知らせに返事する相手は居ない（知-r・2026-09-18 12:36 実機：滞留窓の内で声に出た）。"""
+    ip = _ip(blocked="")
+    ip._req.trigger_kind = "機器"
+    ip._req.request_text = "[退室] パパ が居なくなった"
+    assert asyncio.run(ip._speak("お部屋から出ていかれたんですね")) == (
+        "お部屋から出ていかれたんですね",
+        "独白",
+    )
+    ip._dif.speak.assert_not_awaited()
+    ip._hold_speech.assert_not_awaited()
+
+
+def test_an_arrival_notice_still_speaks():
+    ip = _ip(blocked="")
+    ip._req.trigger_kind = "機器"
+    ip._req.request_text = "[入室] パパ が来た"
+    assert asyncio.run(ip._speak("おかえりなさい")) == ("おかえりなさい", "発話")

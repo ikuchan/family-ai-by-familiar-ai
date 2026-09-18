@@ -82,3 +82,24 @@ def test_the_heading_says_why_it_could_not_answer():
     assert render(both, since=now, until=now, max_chars=500).startswith(
         "黙っていた／誰も見えなかったあいだ（"
     )
+
+
+# ── 情-k：不在で溜めたものは「沈黙が明けた」ではない（2026-09-18 12:38 実機）─────
+
+
+def test_things_heard_while_absent_do_not_trigger_silence_lifted():
+    ip, a = _ip(present=0.0)
+    ip.push_device = MagicMock()
+    _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは")))
+    ip.check_silence_lifted()  # 黙ってはいない・器には不在の 1 件だけ
+    ip.push_device.assert_not_called()
+
+
+def test_things_heard_while_silent_still_trigger_it_when_it_lifts():
+    from familiar_agent.core.silence_hold import Heard
+
+    ip, a = _ip(present=1.0)
+    ip.push_device = MagicMock()
+    ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time(), why="黙っていた")]
+    ip.check_silence_lifted()  # 依頼は消えている（`_load_silence` は None）
+    ip.push_device.assert_called_once()
