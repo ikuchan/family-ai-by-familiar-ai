@@ -2100,6 +2100,11 @@ class InformationProcessing:
             logger.info("event-loop 反復 %d/%d 出力=つなぎ（調べもの待ち）", chain, max_chain)
             return ""
 
+        # (a') 情動の求めで調停が「黙る」（light・text 空）と決めた：主LLM を起こさず沈黙で閉じる（出-w）。
+        if decision.branch == "light" and not decision.text and self._req.trigger_kind == "情動":
+            logger.info("event-loop 調停が黙ると決めたので沈黙で閉じる（情動）")
+            await self._finish("", memories, "沈黙")
+            return ""
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
             spoken, outcome = await self._speak(decision.text)

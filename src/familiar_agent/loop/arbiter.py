@@ -455,8 +455,11 @@ def _parse(
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
         text = ""
-    # 分岐に必要なものが無ければ判定できていない＝倒す。
-    if branch == "light" and not text:
+    # 分岐に必要なものが無ければ判定できていない＝倒す。**情動が起点の light で text が空は
+    # 「黙る」の正当な返事**（候補文が「text を空にすれば黙る」と言っている）——倒さない
+    # （出-w・2026-09-18 12:28 実機：フルへ倒れて主LLM が無駄に回った）。発話が起点なら
+    # 返事しないのは判定できていないので従来どおり倒す。
+    if branch == "light" and not text and origin != "情動":
         return None
     if branch == "action" and not query:
         return None

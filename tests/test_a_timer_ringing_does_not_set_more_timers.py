@@ -97,3 +97,16 @@ def test_an_arrival_notice_can_still_set_a_timer():
     ip._req.trigger_kind = "機器"
     ip._req.request_text = "[入室] パパ が来た"
     assert "set_timer" in ip._extra_actions()
+
+
+def test_an_affect_light_with_empty_text_means_stay_quiet_not_fall_to_full():
+    """情動の候補文は「text を空にすれば黙る」なのに、_parse が None を返してフルへ倒した
+    （2026-09-18 12:28 実機・出-w）。黙る、は正当な返事。発話が起点なら従来どおり None。"""
+    from familiar_agent.loop.arbiter import _parse
+
+    d = _parse('{"branch": "light", "text": ""}', can_see=True, extra_actions=(), origin="情動")
+    assert d is not None and d.branch == "light" and d.text == ""
+    assert (
+        _parse('{"branch": "light", "text": ""}', can_see=True, extra_actions=(), origin="発話")
+        is None
+    )

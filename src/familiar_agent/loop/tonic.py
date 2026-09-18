@@ -213,7 +213,7 @@ class Tonic:
 
         在席表には入る口だけあって出る口が無く、`/speaker パパ` が永久に残った（2026-09-17
         実機・カメラが 2 分「誰も居ない」でも自発が出た）。センサが「誰も居ない」を
-        `presence_expire_sec` 見続けたら在席表を空にする（`mark_absent`・話者の指定は残す）。
+        `presence_expire_sec` 見続けたら在席表を空にする（`mark_absent`）。話者の指定は別の寿命（知-t）。
         センサが無い構成では失効しない（在席表が唯一の情報源）。
         """
         sensor = self._presence
@@ -233,7 +233,13 @@ class Tonic:
             return
         raw = getattr(getattr(agent, "config", None), "presence_expire_sec", None)
         expire = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
-        if now - self._unoccupied_since < expire:
+        # `/speaker` を打ったら、そこから数え直す（知-s・2026-09-18 12:32 実機：打った 0.5 秒後に
+        # 「誰も居ないが 340 秒」で失効した）。打った人はそこに居る。
+        since = self._unoccupied_since
+        set_at = getattr(agent, "_speaker_set_at", None)
+        if isinstance(set_at, (int, float)) and set_at > since:
+            since = float(set_at)
+        if now - since < expire:
             return
         try:
             ids = list(agent._pmm.get_present_ids())
@@ -246,7 +252,7 @@ class Tonic:
         logger.info(
             "tonic 在席表を失効：%d 人（誰も居ないが %.0f 秒）",
             len(ids),
-            now - self._unoccupied_since,
+            now - since,
         )
 
     def _expire_speaker(self) -> None:
