@@ -4,9 +4,11 @@
 `cancel_timer`（止める・**「途中で停められる」の主な口**）。状態は表 `timers`（`store/timers.py`）、
 記憶には `予定` の記録（登録）と「やめた」の記録（取消）を書く。
 
-**静穏時間に掛かる／黙っているよう頼まれているときは、いきなり登録しない。** `confirmed` 無しの
-呼び出しには「確かめて」を返し、主LLM が本人に一度聞く。「いい」と言われたら `confirmed=true` で
-登録し、その印（`passes_quiet`）で鳴るときに配信ゲートを通り抜ける。機械が判定し、LLM は聞くだけ。
+**掛ける前に確かめる（`TIMER_CONFIRM`）・静穏時間に掛かる／黙っているよう頼まれているときは、
+いきなり登録しない。** 「確かめて」の判定では預かり（`core/confirm_state.py`・`ask`）を置いて確認文
+だけを返し、LLM は本人に一度聞くだけ。「いい」は機械（`confirm`）が預かった入力で `call(...,
+confirmed=True)` と呼び直す。`confirmed` は LLM の入力に無く、書いても効かない（出-y・2026-09-18）。
+静穏時間のものは印（`passes_quiet`）で鳴るときに配信ゲートを通り抜ける。
 """
 
 from __future__ import annotations
@@ -14,12 +16,16 @@ from __future__ import annotations
 from dataclasses import dataclass
 
 import logging
+import time
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import TYPE_CHECKING, Any, Callable
 
 from ..core import timer_rules
 from ..io.oif import MI
 from ..person_memory_manager import AGENT_SELF_ID
+
+if TYPE_CHECKING:
+    from ..core.confirm_state import PendingConfirm
 
 logger = logging.getLogger(__name__)
 
@@ -34,18 +40,14 @@ _DEFS: list[dict] = [
         "description": (
             "タイマーを掛ける（何分後に鳴る・「3分測って」は after_minutes=3）。何時に、ならアラーム（set_alarm）。"
             "label には何のためかを短く。返りに id と鳴る時刻。同時に 1 本。"
-            "返りが「確かめて」なら、まだ掛かっていない——その理由を相手に伝えて一度だけ聞き、"
-            "「いい」と言われたら同じ引数に confirmed=true を付けてもう一度呼ぶ。"
+            "返りが「確かめて」なら、まだ掛かっていない——その文を相手に伝えて一度だけ聞く。"
+            "掛け直しは要らない（「いい」と言われたら confirm が掛ける）。"
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "after_minutes": {"type": "number", "description": "今から何分後（0 より大きい）"},
                 "label": {"type": "string", "description": "何のため（例「パスタ」「お茶」）"},
-                "confirmed": {
-                    "type": "boolean",
-                    "description": "相手に確かめて「いい」と言われたら true",
-                },
             },
             "required": ["after_minutes", "label"],
         },
@@ -115,8 +117,12 @@ class TimerTool:
         hush: "Callable[[str, datetime, int], None] | None" = None,
         unhush: "Callable[[int | str], None] | None" = None,
         on_cancel: "Callable[[], None] | None" = None,
+        ask: "Callable[[PendingConfirm], None] | None" = None,
     ) -> None:
         self._store = store
+        self._ask = (
+            ask  # 「確かめて」の預かりを置く口（`agent.ask_confirm`）。無ければ確認文だけ返す
+        )
         self._on_cancel = (
             on_cancel  # 止める頼みで音を止める（鳴った後は active に無いので先に呼ぶ）
         )
@@ -193,12 +199,21 @@ class TimerTool:
         ), True
 
     async def call(
-        self, name: str, tool_input: dict, *, now: "datetime | None" = None
+        self,
+        name: str,
+        tool_input: dict,
+        *,
+        now: "datetime | None" = None,
+        confirmed: bool = False,
     ) -> tuple[str, bool]:
-        """(文面, 使えたか)。`now` は起点（人が言った瞬間・無ければいま）。"""
+        """(文面, 使えたか)。`now` は起点（人が言った瞬間・無ければいま）。
+
+        `confirmed` は**機械だけが立てる**（`agent.resolve_confirm`・「いい」と言われた預かりの呼び直し）。
+        LLM の `tool_input` に同じ名前があっても読まない。
+        """
         try:
             if name == "set_timer":
-                return await self._set(tool_input, now=now)
+                return await self._set(tool_input, now=now, confirmed=confirmed)
             if name == "start_stopwatch":
                 return await self._start_stopwatch(tool_input, now=now)
             if name == "cancel_timer":
@@ -212,7 +227,22 @@ class TimerTool:
             return f"タイマーの道具が使えなかった：{e}", False
         return f"そんな道具は無い：{name}", False
 
-    async def _set(self, inp: dict, *, now: "datetime | None" = None) -> tuple[str, bool]:
+    def _keep(self, inp: dict, ask: str, what: str) -> None:
+        """「確かめて」の預かりを置く（`confirm_state.PendingConfirm`）。口が無ければ何もしない。"""
+        if self._ask is None:
+            return
+        from ..core.confirm_state import PendingConfirm
+
+        kept = {k: v for k, v in inp.items() if k != "confirmed"}  # LLM が書いた印は預からない
+        self._ask(
+            PendingConfirm(
+                action="set_timer", tool_input=kept, asked_at=time.time(), text=ask, what=what
+            )
+        )
+
+    async def _set(
+        self, inp: dict, *, now: "datetime | None" = None, confirmed: bool = False
+    ) -> tuple[str, bool]:
         label = str(inp.get("label") or "タイマー").strip()
         now = (now or self._now()).astimezone()
         try:
@@ -236,27 +266,23 @@ class TimerTool:
                 "止めるか、鳴るのを待ってから",
                 False,
             )
-        confirmed = bool(inp.get("confirmed"))
         flags = self.flags()
         reason = timer_rules.needs_confirmation(
             due, quiet=self._quiet(), silence_active=self._silence_active()
         )
+        minutes = (due - now).total_seconds() / 60.0
+        what = f"タイマーを掛ける「{label}」（{minutes:g} 分）"
         if not reason and flags.confirm and not confirmed:
             # 掛ける前に一度確かめる（`TIMER_CONFIRM`・既定 true）。静穏時間・沈黙中の確認は下で（常に）。
-            minutes = (due - now).total_seconds() / 60.0
             ask = timer_rules.confirm_text(
                 minutes, silence=flags.silence, mic_close=flags.mic_close
             )
-            return (
-                f"まだ掛けていない。本人に一度聞く：「{ask}」——「いい」なら confirmed=true で呼び直す",
-                True,
-            )
+            self._keep(inp, ask, what)
+            return f"まだ掛けていない。本人に一度聞く：「{ask}」", True
         if reason and not confirmed:
-            return (
-                f"まだ掛けていない。確かめてから：{reason}——{due:%H:%M} に「{label}」で鳴らしてよいか本人に一度聞き、"
-                "「いい」なら confirmed=true で呼び直す",
-                True,
-            )
+            ask = f"{reason}。{due:%H:%M} に「{label}」で鳴らしていい？"
+            self._keep(inp, ask, what)
+            return f"まだ掛けていない。確かめてから：{reason}——本人に一度聞く：「{ask}」", True
         who = self._speaker() or ""
         obs_id = await self._write(
             f"{who or '誰か'}に頼まれて、{due:%H:%M} に「{label}」のタイマーを掛けた"

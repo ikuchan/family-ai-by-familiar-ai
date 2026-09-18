@@ -1,6 +1,7 @@
 """タイマーの道具（`tools/timer.py`・知-n）。主LLM が呼ぶ 3 本：`set_timer`・`start_stopwatch`・`cancel_timer`。
 
-- 静穏時間に掛かる／黙っているよう頼まれているときは**登録せず**「確かめて」を返す。`confirmed` で登録。
+- 静穏時間に掛かる／黙っているよう頼まれているときは**登録せず**「確かめて」を返す。登録は機械の
+  `confirm`（`call(..., confirmed=True)`・出-y）。
 - 登録したら O に `予定` の記録、止めたら「やめた」の記録。
 - 同時に 1 本（2026-09-18・以前は 5 本〔仮〕）。
 """
@@ -121,8 +122,8 @@ def test_the_definitions_are_five_tools():
     assert names == ["set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer"]
     props = t.get_tool_definitions()[0]["input_schema"]["properties"]
     assert (
-        props.keys() >= {"after_minutes", "label", "confirmed"} and "at" not in props
-    )  # 何時に、はアラーム
+        props.keys() == {"after_minutes", "label"} and "at" not in props
+    )  # 何時に、はアラーム。`confirmed` は LLM の引数に無い（出-y）
 
 
 def test_a_daytime_timer_is_registered_at_once_and_written_to_o():
@@ -154,7 +155,7 @@ def test_a_quiet_hours_timer_asks_first_then_registers_when_confirmed():
     assert ok and "確かめ" in text and "静穏" in text and "23:03" in text
     assert store.active() == [] and not oif.write.called
     text, ok = asyncio.run(
-        t.call("set_timer", {"after_minutes": 5, "label": "お茶", "confirmed": True})
+        t.call("set_timer", {"after_minutes": 5, "label": "お茶"}, confirmed=True)
     )
     assert ok and "id=1" in text
     assert store.active()[0]["passes_quiet"] is True

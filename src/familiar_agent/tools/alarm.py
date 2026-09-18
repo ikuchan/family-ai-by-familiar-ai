@@ -9,13 +9,17 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Callable
 from datetime import datetime, timezone
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ..core import alarm_rules
 from ..io.oif import MI
 from ..person_memory_manager import AGENT_SELF_ID
+
+if TYPE_CHECKING:
+    from ..core.confirm_state import PendingConfirm
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +31,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
         "name": "set_alarm",
         "description": (
             "アラームを掛ける（「7 時に起こして」「21 時に薬って言って」）。at は何時に（ローカル時刻・過ぎていれば翌日）。"
-            "「確かめて」が返ったら本人に一度聞き、「いい」と言われたら同じ引数に confirmed=true を付けてもう一度呼ぶ。"
+            "「確かめて」が返ったらその文を本人に伝えて一度聞くだけ（掛け直しは要らない・「いい」なら confirm が掛ける）。"
             "何分後に鳴らすならタイマー（set_timer）。"
         ),
         "input_schema": {
@@ -38,10 +42,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                     "description": '何時に（例 "7:00"・"21時半"）。過ぎていれば翌日',
                 },
                 "label": {"type": "string", "description": "何のため（例「起こす」「薬」）"},
-                "confirmed": {
-                    "type": "boolean",
-                    "description": "相手に確かめて「いい」と言われたら true",
-                },
             },
             "required": ["at", "label"],
         },
@@ -68,8 +68,10 @@ class AlarmTool:
         quiet: Callable[[], Any],
         now: "Callable[[], datetime] | None" = None,
         on_cancel: "Callable[[], None] | None" = None,
+        ask: "Callable[[PendingConfirm], None] | None" = None,
     ) -> None:
         self._store = store
+        self._ask = ask  # 「確かめて」の預かりを置く口（`agent.ask_confirm`・出-y）
         self._oif = oif
         self._speaker = speaker
         self._quiet = quiet
@@ -92,10 +94,13 @@ class AlarmTool:
             store.active(now=now), store.recently_fired(now=now, within_sec=RECENT_SEC), now=now
         )
 
-    async def call(self, name: str, tool_input: dict) -> tuple[str, bool]:
+    async def call(
+        self, name: str, tool_input: dict, *, confirmed: bool = False
+    ) -> tuple[str, bool]:
+        """`confirmed` は機械だけが立てる（`agent.resolve_confirm`）。LLM の入力にあっても読まない。"""
         try:
             if name == "set_alarm":
-                return await self._set(tool_input)
+                return await self._set(tool_input, confirmed=confirmed)
             if name == "cancel_alarm":
                 return await self._cancel(tool_input)
         except Exception as e:  # noqa: BLE001
@@ -103,7 +108,7 @@ class AlarmTool:
             return f"アラームの道具が使えなかった：{e}", False
         return f"そんな道具は無い：{name}", False
 
-    async def _set(self, inp: dict) -> tuple[str, bool]:
+    async def _set(self, inp: dict, *, confirmed: bool = False) -> tuple[str, bool]:
         label = str(inp.get("label") or "アラーム").strip()
         now = self._now().astimezone()
         try:
@@ -114,13 +119,21 @@ class AlarmTool:
         if len(store.active(now=now)) >= MAX_ACTIVE:
             return f"同時に掛けられるのは {MAX_ACTIVE} 本まで。先にどれかを止めて", False
         reason = alarm_rules.needs_confirmation(at, quiet=self._quiet())
-        confirmed = bool(inp.get("confirmed"))
         if reason and not confirmed:
-            return (
-                f"まだ掛けていない。確かめてから：{reason}——{at:%H:%M} に「{label}」で鳴らしてよいか本人に一度聞き、"
-                "「いい」なら confirmed=true で呼び直す",
-                True,
-            )
+            ask = f"{reason}。{at:%H:%M} に「{label}」で鳴らしていい？"
+            if self._ask is not None:
+                from ..core.confirm_state import PendingConfirm
+
+                self._ask(
+                    PendingConfirm(
+                        action="set_alarm",
+                        tool_input={k: v for k, v in inp.items() if k != "confirmed"},
+                        asked_at=time.time(),
+                        text=ask,
+                        what=f"アラームを掛ける「{label}」（{at:%H:%M}）",
+                    )
+                )
+            return f"まだ掛けていない。確かめてから：{reason}——本人に一度聞く：「{ask}」", True
         who = self._speaker() or ""
         obs_id = await self._write(
             f"{who or '誰か'}に頼まれて、{at:%m/%d %H:%M} に「{label}」のアラームを掛けた"

@@ -71,6 +71,9 @@ _FULL_ACTIONS = (
 _TIMER_ACTIONS = ("set_timer", "start_stopwatch", "cancel_timer", "pause_timer", "resume_timer")
 # アラーム（知-q・2026-09-18）。タイマーとは別物・別の道具（`agent._alarm_tool`）。
 _ALARM_ACTIONS = ("set_alarm", "cancel_alarm")
+# 確認待ちへの答え（出-y・2026-09-18）。預かりが生きているあいだだけ候補と道具に載る（`agent.confirm_alive`）。
+# 機械が預かった入力で掛ける／捨てる。返りは道具の帰りと同じ道（想起なし・`workspace.RETURN_WITHOUT_RECALL`）。
+_CONFIRM_ACTIONS = ("confirm", "decline")
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
@@ -144,6 +147,8 @@ def _query_label(action: str, tool_input: dict) -> str:
         return {"set_alarm": "アラームを掛ける", "cancel_alarm": "アラームを止める"}[action] + (
             f"「{what}」" if what else ""
         )
+    if action in _CONFIRM_ACTIONS:
+        return {"confirm": "「いい」と言われて掛ける", "decline": "確かめたものをやめる"}[action]
     if action == "look":
         return f"{tool_input.get('pose') or tool_input.get('direction') or ''}を見に行く"
     if action.startswith("ask_vault_"):
@@ -261,6 +266,16 @@ def _alarm_def(agent, name: str) -> list[dict]:
     if tool is None:
         return []
     return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
+def _confirm_defs(agent, name: str) -> list[dict]:
+    """確認待ちへの答えの道具定義（出-y）。預かりが生きていなければ空。"""
+    from ..core.confirm_state import TOOL_DEFS
+
+    alive = getattr(agent, "confirm_alive", None)
+    if alive is None or not alive():
+        return []
+    return [dict(d) for d in TOOL_DEFS if d["name"] == name]
 
 
 def _alarm_frame(agent) -> str:
@@ -1049,9 +1064,15 @@ class InformationProcessing:
                 Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
-        if action in _TIMER_ACTIONS or action in _ALARM_ACTIONS:
+        if action in _TIMER_ACTIONS or action in _ALARM_ACTIONS or action in _CONFIRM_ACTIONS:
             # タイマー（知-n）／アラーム（知-q）の道具。その場で返る。落ちても求めは閉じる（失敗の印つき）。
-            if action in _ALARM_ACTIONS:
+            if action in _CONFIRM_ACTIONS:
+                # 確認待ちへの答え（出-y）。預かった入力で機械が掛ける／捨てる。起点は「いい」と言った瞬間。
+                out, ok = await self._agent.resolve_confirm(
+                    action == "confirm", now=self._req.began_at
+                )
+                failed = not ok
+            elif action in _ALARM_ACTIONS:
                 tool = getattr(self._agent, "_alarm_tool", None)
                 if tool is None:
                     out, failed = "アラームの道具が無い", True
@@ -1369,6 +1390,9 @@ class InformationProcessing:
         # アラーム（知-q）。器（`agent._alarm_tool`）が無ければ渡さない。
         "set_alarm": lambda ip: _alarm_def(ip._agent, "set_alarm"),
         "cancel_alarm": lambda ip: _alarm_def(ip._agent, "cancel_alarm"),
+        # 確認待ちへの答え（出-y）。預かりが生きているあいだだけ。
+        "confirm": lambda ip: _confirm_defs(ip._agent, "confirm"),
+        "decline": lambda ip: _confirm_defs(ip._agent, "decline"),
     }
 
     def _vault_tool_name(self) -> str:
@@ -1386,8 +1410,11 @@ class InformationProcessing:
             ),
         )
 
-    def _extra_actions(self) -> tuple[str, ...]:
+    def _extra_actions(self, exclude: frozenset[str] = frozenset()) -> tuple[str, ...]:
         """調停に載せる同期の道具（MCP とタイマー）。繋がっているものだけ、かつこの求めで失敗していないもの。
+
+        `exclude`＝この反復で返ってきた道具（`Workspace.returned_actions`・出-x）。返りが「確かめて」でも
+        調停が同じ道具を選び直さないよう候補から外す（掛け直しは「いい」の側で機械が行う）。
 
         **タイマーが鳴った知らせの求めでは、掛ける・測り始めるを載せない**（2026-09-16 実機 17:00）。
         鳴った知らせに応えてタイマーを掛けることはなく、掛け直しは見出しが毎回違うので同語
@@ -1406,8 +1433,10 @@ class InformationProcessing:
                 "vault",
                 *_TIMER_ACTIONS,
                 *_ALARM_ACTIONS,
+                *_CONFIRM_ACTIONS,
             )
             if a not in self._req.failed_actions
+            and a not in exclude
             and not (timer_ringing and a in ("set_timer", "start_stopwatch"))
             and self._gated(self._ACTIONS[a](self))
         )
@@ -1482,6 +1511,8 @@ class InformationProcessing:
         # 明けた瞬間の求めにだけ載る（情-h）。`__new__` で組んだ装置（テスト）でも落ちないよう既定を持つ。
         self._req.heard_while_silent = getattr(self, "_pending_heard", [])
         self._pending_heard = []
+        # 確認待ち（出-y）。この求めの W の最上部に載せる。預かりが無い・寿命切れなら空。
+        self._req.confirm_frame = self._confirm_frame()
         # **人の言葉は、その人がやったことである。** `actor` の面（`situated_memories`）は
         # 話者に立てる。想起は `_active_memory()`＝話者の面を引くので、`__self__` の面に
         # しか立てないと、**その人の面にはその人が言ったことが1件も無くなる**。
@@ -2065,6 +2096,7 @@ class InformationProcessing:
             capped=capped,
             round_=round_,
             memories=ws.memories,
+            returned=ws.returned_actions,
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。解くのも同じ口。
@@ -2200,8 +2232,12 @@ class InformationProcessing:
         capped: bool,
         round_: int,
         memories: "list[Recalled] | None" = None,
+        returned: frozenset[str] = frozenset(),
     ) -> "ArbiterDecision":
         """この反復の分岐を決める。**see の帰りは、出した側が判断する。**
+
+        `returned`＝この反復で道具から返ったもの（`Workspace.returned_actions`・出-x）。タイマー・
+        アラームの帰りなら、調停の先導文を「返りを受ける」型にし、返った道具を候補から外す。
 
         主LLM が見ると決めたなら、その続きは主LLM（調停を飛ばす）。画像を受け取るのも主LLM
         だけである（`_user_content`）。ここで軽量LLM に判定し直させると、`light` を選んで
@@ -2247,7 +2283,8 @@ class InformationProcessing:
             can_see=getattr(agent, "_camera", None) is not None,
             image_b64=image_b64,
             origin=self._req.trigger_kind,
-            extra_actions=self._extra_actions(),
+            extra_actions=self._extra_actions(exclude=returned),
+            tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
@@ -2676,6 +2713,14 @@ class InformationProcessing:
         if self._muted:
             self._pending_heard = self._take_muted()
         return False
+
+    def _confirm_frame(self) -> str:
+        """`[確認待ち]` の枠（`agent.confirm_frame`）。器が無ければ空（`__new__` で組んだ装置でも落ちない）。"""
+        fn = getattr(self._agent, "confirm_frame", None)
+        try:
+            return str(fn() or "") if callable(fn) else ""
+        except Exception:  # noqa: BLE001
+            return ""
 
     def _nobody_since(self) -> "float | None":
         """センサが「誰も居ない」を見始めた時刻（`agent.nobody_since`）。読めなければ None（解けない側）。"""

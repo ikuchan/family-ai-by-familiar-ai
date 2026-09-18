@@ -26,9 +26,9 @@ def test_a_call_style_say_is_recovered_with_its_arguments():
 
 
 def test_numbers_bools_and_single_quotes_are_read():
-    calls = tool_calls_from_text("set_timer(after_minutes=3, label='パスタ', confirmed=true)")
+    calls = tool_calls_from_text("set_timer(after_minutes=3, label='パスタ', silent=true)")
     assert calls and calls[0].name == "set_timer"
-    assert calls[0].input == {"after_minutes": 3, "label": "パスタ", "confirmed": True}
+    assert calls[0].input == {"after_minutes": 3, "label": "パスタ", "silent": True}
 
 
 def test_plain_prose_is_not_mistaken_for_a_call():

@@ -166,6 +166,31 @@ def compose(
     return text, id_map
 
 
+#: 帰りの反復で**想起を回さない**道具（出-x・2026-09-18）。掛けた・確かめて・止めた、の返りは
+#: 過去の記録を要さず、想起の列（同じ道具の過去の帰り 5〜6 件）が並ぶと調停はそれを「いまの頼み」
+#: として読み、確かめてを返した帰りに掛け直した（実機 14:50・15:28・15:42。実験は `根拠台帳` §35）。
+#: 検索・見る・思い出すの帰りは従来どおり想起を回す。
+RETURN_WITHOUT_RECALL = frozenset(
+    {
+        "set_timer",
+        "start_stopwatch",
+        "cancel_timer",
+        "pause_timer",
+        "resume_timer",
+        "set_alarm",
+        "cancel_alarm",
+        "confirm",
+        "decline",
+    }
+)
+
+
+def returned_actions(req: Request) -> frozenset[str]:
+    """この反復で道具から返った action の集合（`Request.just_returned` の索引を引く）。"""
+    idx = set(getattr(req, "just_returned", ()) or ())
+    return frozenset(lk.action for lk in req.lookups if lk.index in idx and lk.result is not None)
+
+
 def just_returned(req: Request) -> str:
     """W の最上部：**この反復で道具から返ったもの**（出-x・2026-09-18）。
 
@@ -274,6 +299,10 @@ class Workspace:
     # 「いま道具から返った」の枠は**組んだ時点の値を固定**する（`render` は遅延評価で、求めの
     # `just_returned` を組んだ後に空にすると枠が消えた——実機 2026-09-18 15:28）。
     just_returned_text: str = ""
+    #: この反復で返った道具（`returned_actions`）。調停は返ってきた道具を候補から外し、先導文を
+    #: 道具の返りを受けるものに替える。`_iterate` は W を組んだら `just_returned` を空にするので、
+    #: ここに固定する。
+    returned_actions: frozenset[str] = frozenset()
     #: 申告（`memory_verdicts`）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
@@ -286,7 +315,10 @@ class Workspace:
             oif, max(n_arbiter, n_main) + 1
         )  # 窓の外の次の起点も 1 つ引く（計測用）
         ws = cls(oif, memories, req, chains[: max(n_arbiter, n_main)], n_arbiter, n_main)
-        ws.just_returned_text = just_returned(req)
+        # 最上部＝確認待ち（出-y）と、この反復で道具から返ったもの（出-x）。
+        ws.just_returned_text = "\n\n".join(
+            p for p in (getattr(req, "confirm_frame", ""), just_returned(req)) if p
+        )
         # 層 3 の材料（記-a-に）：窓のいちばん古い起点と、窓の外の次の起点。続き先の `相手` と
         # 突き合わせ、端や窓の外が参照されるなら +1、端が一度も参照されなければ −1。
         edge = chains[n_main - 1][0] if len(chains) >= n_main else "-"
@@ -394,29 +426,35 @@ async def recall(
     cfg = MemoryConfig()
     # **口を通す**（環-e-い）。`viewpoint` が無いと、口が持つ基底の記憶＝`__self__` の面
     # から引いてしまう（記-f の直しを逆向きに壊す）。
-    memories = await oif.recall(
-        Cue(text=cue, open_ids=tuple(open_ids(req))),
-        View(
-            viewpoint=viewpoint,
-            k=cfg.recall_k,
-            floor=cfg.recall_min_score,
-            weights=weights,
-            time_ref=time_ref,
-            time_span_days=time_span_days,
-        ),
-    )
+    # 道具（タイマー・アラーム）の帰りは想起なし（`RETURN_WITHOUT_RECALL`）。W＝返り＋直近だけ。
+    returned = returned_actions(req)
+    memories: "list[Recalled]" = []
+    if not returned & RETURN_WITHOUT_RECALL:
+        memories = await oif.recall(
+            Cue(text=cue, open_ids=tuple(open_ids(req))),
+            View(
+                viewpoint=viewpoint,
+                k=cfg.recall_k,
+                floor=cfg.recall_min_score,
+                weights=weights,
+                time_ref=time_ref,
+                time_span_days=time_span_days,
+            ),
+        )
     # W は「思い出している記憶」ではなく、いまの作業状態。ループ自身の行動も MI として
     # O にあるので、合成ラベル（[取込]・[調査中]）は作らず MI をそのまま並べる。
     # W から落ちたものは薄れた＝忘れたのであって、抜けを検出する仕組みは置かない
     # （W は「速く薄れる」・改めて調べるのが自然な振る舞い）。
     # 直近のやりとりは W の枠として一緒に組む（記-h）。窓は軽量LLM／主LLM で別。
-    return Workspace.build(
+    ws = Workspace.build(
         oif,
         memories,
         req,
         n_arbiter=cfg.recent_exchanges_arbiter,
         n_main=cfg.recent_exchanges_main,
     )
+    ws.returned_actions = returned
+    return ws
 
 
 def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | None") -> bool:
