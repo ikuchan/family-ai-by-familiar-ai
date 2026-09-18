@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ..core import stopwatch_rules
+from ..core.label_rules import clean_label
 from ..io.oif import MI
 from ..person_memory_manager import AGENT_SELF_ID
 
@@ -103,7 +104,7 @@ class StopwatchTool:
         return f"そんな道具は無い：{name}", False
 
     async def _start(self, inp: dict, *, now: "datetime | None") -> tuple[str, bool]:
-        label = str(inp.get("label") or "測る").strip()
+        label = clean_label(inp.get("label"), "測る")  # 名前の検め（知-u）
         now = (now or self._now()).astimezone()
         store = self._store()
         running = store.active(now=now)
