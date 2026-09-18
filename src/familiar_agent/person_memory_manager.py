@@ -119,11 +119,10 @@ class PersonMemoryManager:
             await self.set_speaker(person_id, source="auto", confidence=confidence)
 
     def mark_absent(self, person_id: str) -> None:
-        """在席表からだけ消す。**話者の指定は残す**（`person_left` との違い）。
+        """在席表からだけ消す（`person_left` との違い）。
 
-        在/不在の層が「誰も居ない」を見続けたときの失効に使う（2026-09-17）。誰が話して
-        いるかは、顔と声の登録が済むまで `/speaker` が唯一の手がかりなので、居なくなっても
-        消さない（次に声が来たとき誰かは分かる）。
+        在/不在の層が「誰も居ない」を見続けたときの失効に使う（2026-09-17）。話者の指定は
+        別の寿命で切れる（`clear_speaker`・`agent.speaker_known`・知-t・2026-09-18）。
         """
         with self._lock:
             self._present.pop(person_id, None)
@@ -180,6 +179,15 @@ class PersonMemoryManager:
                 except Exception as e:
                     logger.warning("Switch callback error: %s", e)
         return old != person_id
+
+    def clear_speaker(self) -> None:
+        """話者の指定を「分からない」に戻す（寿命切れ・知-t・2026-09-18）。在席表は触らない。"""
+        with self._lock:
+            old, self._speaker_id = self._speaker_id, None
+            self._speaker_source = "auto"
+            self._speaker_confidence = None
+        if old is not None:
+            logger.info("Speaker: %s → None（指定が切れた）", old)
 
     @property
     def current_speaker_id(self) -> str | None:

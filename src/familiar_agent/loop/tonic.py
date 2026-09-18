@@ -167,6 +167,7 @@ class Tonic:
         if agent is None:
             return
         self._expire_presence_table()
+        self._expire_speaker()
         try:
             rows = agent._pmm.presence_status()
         except Exception:  # noqa: BLE001
@@ -247,6 +248,26 @@ class Tonic:
             len(ids),
             now - self._unoccupied_since,
         )
+
+    def _expire_speaker(self) -> None:
+        """話者の指定の寿命（知-t・2026-09-18）。分からなくなっていたら「不明」に戻す。
+
+        判定は `agent.speaker_known()` の 1 箇所（`/speaker` から 60 秒・返事から 60 秒・顔照合）。
+        戻すのは名前（`PersonRegistry`）と id（`PersonMemoryManager._speaker_id`）の両方。
+        """
+        agent = self._agent
+        if agent is None:
+            return
+        try:
+            sid = agent._pmm.current_speaker_id
+            if not sid or agent.speaker_known():
+                return
+            name = getattr(agent._persons, "active_name", "")
+            agent._persons.reset_to_default()
+            agent._pmm.clear_speaker()
+            logger.info("tonic 話者の指定が切れた：%s（60 秒返事が無く、顔も見ていない）", name)
+        except Exception:  # noqa: BLE001
+            logger.debug("話者の指定の寿命を見られなかった")
 
     def _solitude_note(self, axis: str) -> str:
         """ログ用：ひとり何回目で、次はおよそ何分後か（情-d）。読めなければ空。"""
