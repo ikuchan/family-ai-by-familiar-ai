@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.52・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.53・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -296,6 +296,7 @@ $$\text{思い出した時：}\; last\_recalled\_at \leftarrow now\quad(\text{�
 | タイマーの音の長さ `TIMER_RING_SEC`（Config） | 30 秒 | 〔仮〕 | 鳴ったら `timer_alarm.wav` を繰り返す。0 で声だけ | 【設計】設計方針_タイマー v0.2 §5a |
 | アラームの音の長さ `ALARM_RING_SEC`（Config） | 30 秒 | 〔仮〕 | タイマーとは別（知-q） | 【設計】設計方針_アラーム v0.1 §4 |
 | ストップウォッチの寿命 `STOPWATCH_MAX_SEC`（Config） | 21600 秒（6 時間） | 〔確定・2026-09-18〕 | 超えて動いていれば T が止め O に残す（知-u・2 日間動き続けた） | 【設計】設計方針_ストップウォッチ v0.1 §4 |
+| 名前の上限 `label_rules.MAX_CHARS` | 20 字 | 〔確定・2026-09-19〕 | タイマー・ストップウォッチの `label`。超えるか「不明」等を含めば既定名（知-u） | 【設計】設計方針_ストップウォッチ v0.2 §5 |
 | 確認の預かりの寿命 `CONFIRM_TTL_SEC`（Config） | 300 秒 | 〔仮〕 | 「いい？」と聞いてから `confirm`／`decline` が効く長さ。過ぎたら捨てる（出-y） | 【設計】設計方針_タイマー v0.9 §10 |
 | タイマーの振る舞い `TIMER_SILENCE`／`TIMER_MIC_CLOSE`／`TIMER_CONFIRM`（Config・`.env`） | true／true／true | 〔仮〕 | 設定画面で変え保存した瞬間に効く（`TimerTool.flags()`） | 【設計】設計方針_タイマー v0.7 §8 |
 | タイマーの同時数／アラームの同時数 | 1（＋ストップウォッチ 1）／5 | 〔確定／仮〕 | フラグに関係ない規則 | 【設計】設計方針_タイマー §11・設計方針_アラーム §1 |
@@ -389,6 +390,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.53：名前の上限 20 字（知-u・2026-09-19）。
 > v0.52：`STOPWATCH_MAX_SEC` 6 時間（知-u・2026-09-18・確定）。
 > v0.51：`PRESENCE_STATIC_SEC` 300・`PRESENCE_STATIC_IOU` 0.9（知-v・2026-09-18）。
 > v0.50：`CONFIRM_TTL_SEC`（出-y・2026-09-18）。
