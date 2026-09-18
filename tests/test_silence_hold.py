@@ -187,3 +187,41 @@ def test_the_heard_things_ride_the_workspace_and_leave_the_recall_column():
     assert "黙っていたあいだ" in text and "「明日の予定は？」" in text and "SEEKING ×1" in text
     assert text.count("明日の予定は？") == 1  # 想起の列には重ねて出ない
     assert "昔の話" in text
+
+
+# ── タイマー由来の沈黙では、操作の言葉は誰の言葉でも通す（情-m・2026-09-18）────────
+#
+# 沈黙の「本人か」は会話の寿命（話者の指定 60 秒・知-t）で決めるが、タイマーは何分も返事をしない
+# 状態を設計として作る。掛けて 60 秒後には話者が「分からない」になり、本人の「一時停止」が
+# `黙っているので聞くだけ` に落ちた（コードで確認・実機 会話 4b の予想）。声の門（`TIMER_MIC_CLOSE`）
+# は既に「操作の言葉だけ・誰でも」なので、入口も同じにする。人の依頼の沈黙は今までどおり本人だけ。
+
+
+def test_a_timer_silence_lets_control_words_through_from_anyone():
+    assert lifts("会話入力", "一時停止", speaker="", asker="パパ", reason="timer:1")
+    assert lifts("会話入力", "止めて", speaker="たいきくん", asker="パパ", reason="timer:1")
+    assert not lifts("会話入力", "こんにちは", speaker="", asker="パパ", reason="timer:1")
+    assert not lifts(
+        "会話入力",
+        "テレビの中で「もう止めてくれ」と叫んでいた",
+        speaker="",
+        asker="パパ",
+        reason="timer:1",
+    )
+
+
+def test_a_human_silence_still_needs_the_asker():
+    assert not lifts("会話入力", "止めて", speaker="たいきくん", asker="パパ", reason="")
+    assert not lifts("会話入力", "一時停止", speaker="", asker="パパ")
+
+
+def test_the_entrance_passes_a_pause_during_a_timer_when_the_speaker_has_expired():
+    ip, a = _ip(speaker="", silenced_for=None)
+    a._pmm.presence_status = MagicMock(return_value=[])  # 話者は切れている
+    ip._load_silence = lambda: SilenceRequest(
+        person="パパ", until=time.time() + 120, reason="timer:1"
+    )
+    ip._swallowed = MagicMock(return_value=True)
+    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="一時停止"))) is False
+    ip._swallowed.assert_not_called()
+    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは"))) is True
