@@ -756,6 +756,22 @@ def format_speaker_line(status: "dict | None", fallback: str) -> str:
     return f"話者: {name}（{src} {conf:.2f}）"
 
 
+def format_timer_rows(frame: str, *, ringing: bool, alarm_frame: str) -> "list[str]":
+    """`[タイマー]`／`[アラーム]` の枠（主LLM に渡す文）を、パネルの行にする（環-p・2026-09-18）。
+
+    見出し行（`[タイマー]`）と行頭の「- 」を落とすだけ。鳴っていれば先頭に 🔔。何も無ければ 1 行。
+    実機で「鳴っているのか・止まっているのか」が GUI から読めなかった。
+    """
+    out: list[str] = ["🔔 鳴っている"] if ringing else []
+    for text in (frame, alarm_frame):
+        for line in (text or "").splitlines():
+            line = line.strip()
+            if not line or line.startswith("["):
+                continue
+            out.append(line[2:] if line.startswith("- ") else line)
+    return out or ["（タイマー・アラームなし）"]
+
+
 def format_presence_rows(rows: "list[dict]") -> "list[str]":
     """presence_status → 表示行。話者は ★、在席ゼロは注記。"""
     if not rows:
@@ -926,9 +942,12 @@ class DrivePanel(QWidget):
 class PresencePanel(QWidget):
     """在席・話者（統合判断）。get_pmm() で PMM を取り、2秒ごとに更新する。"""
 
-    def __init__(self, get_pmm, fallback_speaker: str, parent: QWidget | None = None) -> None:
+    def __init__(
+        self, get_pmm, fallback_speaker: str, parent: QWidget | None = None, get_agent=None
+    ) -> None:
         super().__init__(parent)
         self._get_pmm = get_pmm
+        self._get_agent = get_agent or (lambda: None)  # タイマーの状況（環-p）を読む口
         self._fallback = fallback_speaker
 
         layout = QVBoxLayout(self)
@@ -954,6 +973,20 @@ class PresencePanel(QWidget):
         )
         self._present_lbl.setWordWrap(True)
         layout.addWidget(self._present_lbl)
+
+        # タイマーの状況（環-p・2026-09-18）。`[タイマー]`／`[アラーム]` の枠と鳴っているかを 2 秒ごとに。
+        timer_title = QLabel("タイマー")
+        timer_title.setStyleSheet(
+            f"color: {_TEXT_SECONDARY}; font-size: {_px(10)}px; font-weight: 600;"
+            f" background: transparent; letter-spacing: 0.1em;"
+        )
+        layout.addWidget(timer_title)
+        self._timer_lbl = QLabel("（タイマー・アラームなし）")
+        self._timer_lbl.setStyleSheet(
+            f"color: {_TEXT_SECONDARY}; font-size: {_px(11)}px; background: transparent;"
+        )
+        self._timer_lbl.setWordWrap(True)
+        layout.addWidget(self._timer_lbl)
         layout.addStretch()
 
         timer = QTimer(self)
@@ -975,6 +1008,28 @@ class PresencePanel(QWidget):
             self._present_lbl.setText("\n".join(format_presence_rows(pmm.presence_status())))
         except Exception:
             pass
+        try:
+            self._timer_lbl.setText("\n".join(self._timer_rows()))
+        except Exception:
+            pass
+
+    def _timer_rows(self) -> "list[str]":
+        """器（`_timer_tool`・`_alarm_tool`・`_dif`）から読むだけ。無ければ「なし」。"""
+        agent = self._get_agent()
+        if agent is None:
+            return ["（タイマー・アラームなし）"]
+
+        def frame_of(name: str) -> str:
+            tool = getattr(agent, name, None)
+            try:
+                return str(tool.frame() or "") if tool is not None else ""
+            except Exception:  # noqa: BLE001
+                return ""
+
+        ringing = bool(getattr(getattr(agent, "_dif", None), "ringing", False))
+        return format_timer_rows(
+            frame_of("_timer_tool"), ringing=ringing, alarm_frame=frame_of("_alarm_tool")
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -1614,6 +1669,7 @@ class FamiliarWindow(QMainWindow):
         self._presence_panel = PresencePanel(
             lambda: getattr(getattr(self, "_agent", None), "_pmm", None),
             self._companion_display_name,
+            get_agent=lambda: getattr(self, "_agent", None),
         )
         right_layout.addWidget(_card(self._presence_panel))
 
