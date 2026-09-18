@@ -139,3 +139,19 @@ def test_marking_absent_keeps_the_speaker():
     pmm.mark_absent("id:パパ")
     assert pmm.get_present_ids() == []
     assert pmm._speaker_id == "id:パパ"
+
+
+def test_a_fresh_speaker_command_restarts_the_expiry_clock(monkeypatch):
+    """`/speaker` を打った 0.5 秒後に「誰も居ないが 340 秒」で失効した（2026-09-18 12:32 実機・知-s）。"""
+    t, ip = _tonic_with_table(names=("パパ",), occupied=False)
+    t._present_names = {"パパ"}
+    t._agent._speaker_set_at = 1300.0  # 打ったのは 1300
+    clock = iter([1000.0, 1301.0, 1350.0, 1361.0])
+    monkeypatch.setattr("familiar_agent.loop.tonic.time.time", lambda: next(clock))
+    t.scan_presence()  # 1000：誰も居ない、を見始めた
+    t.scan_presence()  # 1301：打った直後——失効しない
+    t._agent._pmm.mark_absent.assert_not_called()
+    t.scan_presence()  # 1350：打ってから 50 秒——まだ
+    t._agent._pmm.mark_absent.assert_not_called()
+    t.scan_presence()  # 1361：打ってから 61 秒
+    t._agent._pmm.mark_absent.assert_called_once()
