@@ -16,7 +16,11 @@ def test_a_single_name_is_a_list_of_one():
 
 
 def test_several_names_separated_by_a_japanese_comma():
-    assert parse_me_names("名前： パジュ、ぱじゅ、パジュちゃん") == ["パジュ", "ぱじゅ", "パジュちゃん"]
+    assert parse_me_names("名前： パジュ、ぱじゅ、パジュちゃん") == [
+        "パジュ",
+        "ぱじゅ",
+        "パジュちゃん",
+    ]
 
 
 def test_a_western_comma_works_too():

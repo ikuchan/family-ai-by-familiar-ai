@@ -16,6 +16,7 @@ from familiar_agent.backends import GeminiBackend
 # Helpers
 # ---------------------------------------------------------------------------
 
+
 def _anthropic_user(text: str) -> dict:
     """Anthropic-format user message with string content."""
     return {"role": "user", "content": text}
@@ -65,10 +66,14 @@ def test_converts_list_content_with_text_blocks():
 
 
 def test_converts_list_content_skips_non_text_blocks():
-    msgs = [_anthropic_user_blocks([
-        {"type": "tool_result", "content": "ignored"},
-        {"type": "text", "text": "kept"},
-    ])]
+    msgs = [
+        _anthropic_user_blocks(
+            [
+                {"type": "tool_result", "content": "ignored"},
+                {"type": "text", "text": "kept"},
+            ]
+        )
+    ]
     result = GeminiBackend.convert_messages_to_gemini_format(msgs)
     assert result[0]["parts"] == [{"text": "kept"}]
 

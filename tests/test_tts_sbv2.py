@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from familiar_agent.config import TTSConfig
 from familiar_agent.tools.tts import TTSTool
 
-_WAV = b"RIFF$\x00\x00\x00WAVEfmt " + b"\x00" * 32   # 中身は問わない（再生は差し替える）
+_WAV = b"RIFF$\x00\x00\x00WAVEfmt " + b"\x00" * 32  # 中身は問わない（再生は差し替える）
 
 
 def _tool(engine: str = "sbv2", output: str = "local") -> TTSTool:
@@ -35,6 +35,7 @@ def _tool(engine: str = "sbv2", output: str = "local") -> TTSTool:
 
 # ── Config ────────────────────────────────────────────────────────────────
 
+
 def test_the_engine_defaults_to_sbv2():
     with patch.dict(os.environ, {}, clear=True):
         assert TTSConfig().engine == "sbv2"
@@ -48,24 +49,29 @@ def test_the_engine_can_be_switched_back_to_elevenlabs():
 
 # ── 合成の経路 ─────────────────────────────────────────────────────────────
 
+
 def test_sbv2_synthesises_locally_and_never_calls_elevenlabs():
     """ローカル化の要点。外部 API を叩かない（無料枠を使わない）。"""
     tool = _tool(engine="sbv2")
-    with patch.object(tool, "_synth_sbv2", new=AsyncMock(return_value=_WAV)) as synth, \
-         patch.object(tool, "_play_paths", new=AsyncMock(return_value=["local"])), \
-         patch("aiohttp.ClientSession") as session:
+    with (
+        patch.object(tool, "_synth_sbv2", new=AsyncMock(return_value=_WAV)) as synth,
+        patch.object(tool, "_play_paths", new=AsyncMock(return_value=["local"])),
+        patch("aiohttp.ClientSession") as session,
+    ):
         result = asyncio.run(tool.say("こんばんは"))
     synth.assert_awaited_once()
     assert synth.await_args.args[0] == "こんばんは"
-    session.assert_not_called()                     # ElevenLabs は叩かない
+    session.assert_not_called()  # ElevenLabs は叩かない
     assert "こんばんは" in result
 
 
 def test_elevenlabs_is_still_reachable_when_selected():
     """従来の経路も残す（engine=elevenlabs）。"""
     tool = _tool(engine="elevenlabs")
-    with patch.object(tool, "_synth_sbv2", new=AsyncMock(return_value=_WAV)) as synth, \
-         patch.object(tool, "_say_elevenlabs", new=AsyncMock(return_value="Said: x")) as eleven:
+    with (
+        patch.object(tool, "_synth_sbv2", new=AsyncMock(return_value=_WAV)) as synth,
+        patch.object(tool, "_say_elevenlabs", new=AsyncMock(return_value="Said: x")) as eleven,
+    ):
         asyncio.run(tool.say("こんばんは"))
     synth.assert_not_awaited()
     eleven.assert_awaited_once()
@@ -74,8 +80,10 @@ def test_elevenlabs_is_still_reachable_when_selected():
 def test_silent_output_calls_neither_engine():
     """実機テスト用の silent は、どちらの合成も走らせない。"""
     tool = _tool(engine="sbv2", output="silent")
-    with patch.object(tool, "_synth_sbv2", new=AsyncMock(return_value=_WAV)) as synth, \
-         patch.object(tool, "_say_elevenlabs", new=AsyncMock()) as eleven:
+    with (
+        patch.object(tool, "_synth_sbv2", new=AsyncMock(return_value=_WAV)) as synth,
+        patch.object(tool, "_say_elevenlabs", new=AsyncMock()) as eleven,
+    ):
         result = asyncio.run(tool.say("こんばんは"))
     synth.assert_not_awaited()
     eleven.assert_not_awaited()
@@ -85,8 +93,10 @@ def test_silent_output_calls_neither_engine():
 def test_a_dead_server_degrades_instead_of_raising():
     """サーバーが落ちていても例外を投げない。話せなかったことだけを返す。"""
     tool = _tool(engine="sbv2")
-    with patch.object(tool, "_synth_sbv2", new=AsyncMock(side_effect=OSError("接続できない"))), \
-         patch.object(tool, "_play_paths", new=AsyncMock(return_value=["local"])) as play:
+    with (
+        patch.object(tool, "_synth_sbv2", new=AsyncMock(side_effect=OSError("接続できない"))),
+        patch.object(tool, "_play_paths", new=AsyncMock(return_value=["local"])) as play,
+    ):
         result = asyncio.run(tool.say("こんばんは"))
     play.assert_not_called()
     assert "話せなかった" in result
@@ -94,41 +104,49 @@ def test_a_dead_server_degrades_instead_of_raising():
 
 # ── サーバーの起動 ──────────────────────────────────────────────────────────
 
+
 def test_the_server_is_started_at_boot_only_when_it_will_be_used():
     """使わない構成では起こさない（GPU と十数秒を使わせない）。"""
     from familiar_agent.tools.tts import ensure_sbv2_server
 
-    with patch("familiar_agent.tools.tts._spawn_sbv2") as spawn, \
-         patch("familiar_agent.tools.tts._sbv2_is_alive", return_value=False):
+    with (
+        patch("familiar_agent.tools.tts._spawn_sbv2") as spawn,
+        patch("familiar_agent.tools.tts._sbv2_is_alive", return_value=False),
+    ):
         ensure_sbv2_server(TTSConfig(), engine="sbv2", output="local")
         assert spawn.called
         spawn.reset_mock()
 
         ensure_sbv2_server(TTSConfig(), engine="elevenlabs", output="local")
-        assert not spawn.called          # 別のエンジンを使う構成
+        assert not spawn.called  # 別のエンジンを使う構成
         ensure_sbv2_server(TTSConfig(), engine="sbv2", output="silent")
-        assert not spawn.called          # 音を出さない構成
+        assert not spawn.called  # 音を出さない構成
 
 
 def test_an_already_running_server_is_not_started_twice():
     from familiar_agent.tools.tts import ensure_sbv2_server
 
-    with patch("familiar_agent.tools.tts._spawn_sbv2") as spawn, \
-         patch("familiar_agent.tools.tts._sbv2_is_alive", return_value=True):
+    with (
+        patch("familiar_agent.tools.tts._spawn_sbv2") as spawn,
+        patch("familiar_agent.tools.tts._sbv2_is_alive", return_value=True),
+    ):
         ensure_sbv2_server(TTSConfig(), engine="sbv2", output="local")
     assert not spawn.called
 
 
 # ── 終了時に止める ──────────────────────────────────────────────────────────
 
+
 def test_the_server_we_started_is_stopped_on_close():
     """自分で起こしたサーバーは終了時に止める。GPU を握り続けさせない。"""
     from familiar_agent.tools import tts
 
     proc = MagicMock()
-    proc.poll = MagicMock(return_value=None)          # 生きている
-    with patch("subprocess.Popen", return_value=proc), \
-         patch.object(tts.Path, "exists", return_value=True):
+    proc.poll = MagicMock(return_value=None)  # 生きている
+    with (
+        patch("subprocess.Popen", return_value=proc),
+        patch.object(tts.Path, "exists", return_value=True),
+    ):
         tts._spawn_sbv2(TTSConfig())
     tts.stop_sbv2_server()
     proc.terminate.assert_called_once()
@@ -139,14 +157,14 @@ def test_a_server_we_did_not_start_is_left_alone():
     from familiar_agent.tools import tts
 
     tts._sbv2_proc = None
-    tts.stop_sbv2_server()      # 例外を出さずに何もしない
+    tts.stop_sbv2_server()  # 例外を出さずに何もしない
 
 
 def test_an_already_dead_server_is_not_terminated_again():
     from familiar_agent.tools import tts
 
     proc = MagicMock()
-    proc.poll = MagicMock(return_value=0)             # 既に終わっている
+    proc.poll = MagicMock(return_value=0)  # 既に終わっている
     tts._sbv2_proc = proc
     tts.stop_sbv2_server()
     proc.terminate.assert_not_called()

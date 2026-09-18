@@ -65,7 +65,7 @@ def test_the_prompt_requires_the_name_for_a_silence_request():
 
 def test_the_prompt_asks_for_minutes_rather_than_a_flag():
     assert "silence_minutes" in ARBITER_PROMPT
-    assert '"silence"' not in ARBITER_PROMPT        # 旧い真偽値の項目が残っていないこと
+    assert '"silence"' not in ARBITER_PROMPT  # 旧い真偽値の項目が残っていないこと
 
 
 # --- 長さの適用 -----------------------------------------------------------

@@ -22,7 +22,6 @@ import psycopg2
 import psycopg2.extras
 
 
-
 _DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-07-20-028_fix_observation_timestamp_tz.py"
 
@@ -110,5 +109,3 @@ def test_runner_applies_it_only_once() -> None:
 
     assert abs(after_second - after_first) < 0.1, "ランナー経由で二度当たった"
     conn.close()
-
-

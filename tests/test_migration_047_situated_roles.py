@@ -85,6 +85,7 @@ def _facets(obs_id: str) -> list[dict]:
 
 # ── 047：機械的な2役割 ─────────────────────────────────────────────
 
+
 def test_actor_is_one_row_per_observation() -> None:
     """`actor` は観測1件につき1行、`writer_id` の人に立つ。"""
     obs_id = str(uuid.uuid4())
@@ -99,7 +100,8 @@ def test_actor_is_one_row_per_observation() -> None:
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material
+        )
     finally:
         conn.close()
 
@@ -126,7 +128,8 @@ def test_present_is_one_row_per_participant_with_a_label() -> None:
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material
+        )
     finally:
         conn.close()
 
@@ -154,7 +157,8 @@ def test_unrelated_people_get_no_facet() -> None:
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material
+        )
     finally:
         conn.close()
 
@@ -175,6 +179,7 @@ def test_the_relation_key_default_is_present() -> None:
 
 # ── 048：内なる記録はエージェントのもの ─────────────────────────────
 
+
 def test_inner_records_belong_to_the_agent() -> None:
     """`writer_id` が `default`（話者未解決）なら `actor` は `__self__`。
 
@@ -185,15 +190,17 @@ def test_inner_records_belong_to_the_agent() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _material = _plant(cur, obs_id, f"内なる記録_{obs_id}",
-                               writer=DEFAULT_PERSON_ID, participants=[])
+            _material = _plant(
+                cur, obs_id, f"内なる記録_{obs_id}", writer=DEFAULT_PERSON_ID, participants=[]
+            )
     finally:
         conn.close()
 
     conn = _conn()
     try:
         _mem()._situated.refresh_situated_memories(
-            conn, obs_id, np.arange(1024, dtype=np.float32), **_material)
+            conn, obs_id, np.arange(1024, dtype=np.float32), **_material
+        )
     finally:
         conn.close()
 
@@ -205,6 +212,7 @@ def test_inner_records_belong_to_the_agent() -> None:
 
 
 # ── 想起：1観測1候補へ畳む ─────────────────────────────────────────
+
 
 def test_recall_returns_one_candidate_per_facet() -> None:
     """同じ観測に立った面は、それぞれ独立した候補として出る（案3・2026-09-02）。
@@ -220,8 +228,13 @@ def test_recall_returns_one_candidate_per_facet() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _plant(cur, obs_id, f"畳み込みテスト_{obs_id}",
-                   writer=AGENT_SELF_ID, participants=[AGENT_SELF_ID])
+            _plant(
+                cur,
+                obs_id,
+                f"畳み込みテスト_{obs_id}",
+                writer=AGENT_SELF_ID,
+                participants=[AGENT_SELF_ID],
+            )
             for key in ("actor", "present"):
                 cur.execute(
                     "INSERT INTO situated_memories "
@@ -250,8 +263,7 @@ def test_situated_cosines_takes_the_strongest_facet() -> None:
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _plant(cur, obs_id, f"max テスト_{obs_id}",
-                   writer=AGENT_SELF_ID, participants=[])
+            _plant(cur, obs_id, f"max テスト_{obs_id}", writer=AGENT_SELF_ID, participants=[])
             for key, v in (("actor", far), ("present", near)):
                 cur.execute(
                     "INSERT INTO situated_memories "

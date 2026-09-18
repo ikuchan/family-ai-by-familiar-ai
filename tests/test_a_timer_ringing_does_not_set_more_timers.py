@@ -48,7 +48,7 @@ def _ip_with_timer():
     a = MagicMock()
     tool = MagicMock()
     tool.get_tool_definitions = MagicMock(
-        return_value=[{"name": n} for n in ("set_timer", "start_stopwatch", "cancel_timer")]
+        return_value=[{"name": n} for n in ("set_timer", "cancel_timer")]
     )
     a._timer_tool = tool
     a._mcp = None
@@ -65,6 +65,7 @@ def _ip_with_timer():
                 "vault",
                 "confirm",  # 確認待ちが無い（出-y）
                 "decline",
+                "stop_stopwatch",
             )
         },
         "set_timer": lambda ip: [{"name": "set_timer"}],

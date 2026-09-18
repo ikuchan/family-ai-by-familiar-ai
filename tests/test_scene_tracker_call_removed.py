@@ -38,7 +38,7 @@ def test_no_source_calls_scene_update() -> None:
     stale = []
     for path in (root / "src").rglob("*.py"):
         if path.name == "scene.py":
-            continue                      # 定義の側は残す
+            continue  # 定義の側は残す
         text = path.read_text(encoding="utf-8")
         for i, line in enumerate(text.splitlines(), 1):
             if "_scene.update(" in line:

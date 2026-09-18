@@ -87,12 +87,21 @@ def test_recall_result_key_is_groundedness() -> None:
     from familiar_agent.tools.memory import ObservationMemory, _EmbeddingModel
 
     row = {
-        "id": "obs-1", "content": "むかしの話", "timestamp": None,
+        "id": "obs-1",
+        "content": "むかしの話",
+        "timestamp": None,
         "last_recalled_at": None,
-        "groundedness_g0": 1.0, "groundedness_n": 0,
-        "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
-        "direction": "発話", "kind": "observation", "emotion": "neutral",
-        "image_path": None, "score": 0.5,
+        "groundedness_g0": 1.0,
+        "groundedness_n": 0,
+        "emotion_p": 0.5,
+        "emotion_pn": 0.5,
+        "emotion_a": 0.5,
+        "emotion_dom": 0.5,
+        "direction": "発話",
+        "kind": "observation",
+        "emotion": "neutral",
+        "image_path": None,
+        "score": 0.5,
     }
     with (
         patch.object(_EmbeddingModel, "pre_warm"),
@@ -121,14 +130,18 @@ def test_old_names_are_gone_from_source() -> None:
             # 旧名を**検証の対象として**文字列で持つテストは除く。理由を1件ずつ挙げる。
             #   - このテスト自身：改名できたことを旧名で確かめる
             #   - 6概念のガード：撤去した呼び名の一覧を持つ
-            if path.name in (pathlib.Path(__file__).name,
-                             "test_six_concepts_vocabulary.py"):
+            if path.name in (pathlib.Path(__file__).name, "test_six_concepts_vocabulary.py"):
                 continue
             if sub == "migration":
-                continue          # マイグレーションは過去の実行を再現する凍結物
+                continue  # マイグレーションは過去の実行を再現する凍結物
             text = path.read_text(encoding="utf-8")
-            for old in ("activation_a0", "activation_n", "_derive_activation",
-                        "recall_w_a", "recall_a_open"):
+            for old in (
+                "activation_a0",
+                "activation_n",
+                "_derive_activation",
+                "recall_w_a",
+                "recall_a_open",
+            ):
                 if old in text:
                     stale.append(f"{path.relative_to(root)}: {old}")
     assert not stale, "旧名が残っている:\n" + "\n".join(sorted(set(stale)))

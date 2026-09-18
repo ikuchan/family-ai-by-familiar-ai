@@ -30,7 +30,6 @@ def _pg_conn():
     return conn
 
 
-
 def test_the_relation_key_column_exists() -> None:
     conn = _pg_conn()
 
@@ -62,9 +61,7 @@ def test_relation_key_defaults_to_present() -> None:
             "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s, %s, %s, %s)",
             (se_id, obs_id, AGENT_SELF_ID, _VEC),
         )
-        cur.execute(
-            "SELECT relation_key FROM situated_memories WHERE id = %s", (se_id,)
-        )
+        cur.execute("SELECT relation_key FROM situated_memories WHERE id = %s", (se_id,))
         row = cur.fetchone()
     conn.commit()
     conn.close()

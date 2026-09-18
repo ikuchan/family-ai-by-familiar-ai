@@ -17,14 +17,23 @@ import psycopg2
 import psycopg2.extras
 
 
-
 _DB_URL = os.environ["DATABASE_URL"]
 
 _MIGRATION_DIR = Path(__file__).parent.parent / "migration"
 
 _EXPECTED_LABELS = {
-    "happy", "excited", "curious", "moved", "surprised", "nostalgic",
-    "relieved", "tender", "playful", "proud", "sad", "neutral",
+    "happy",
+    "excited",
+    "curious",
+    "moved",
+    "surprised",
+    "nostalgic",
+    "relieved",
+    "tender",
+    "playful",
+    "proud",
+    "sad",
+    "neutral",
 }
 
 

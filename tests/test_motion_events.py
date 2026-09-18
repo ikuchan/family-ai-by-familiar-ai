@@ -121,14 +121,16 @@ def test_motion_reaches_the_callback():
 
 def test_a_disconnect_leads_to_a_new_subscription_rather_than_a_dead_task():
     # 実機は3回に2回切れた。切断で常駐タスクが死ぬと、以後ずっと気づけない。
-    onvif, _ = _onvif([
-        RuntimeError("Server disconnected"),
-        _messages([_note(_MOTION)]),
-        asyncio.CancelledError(),
-    ])
+    onvif, _ = _onvif(
+        [
+            RuntimeError("Server disconnected"),
+            _messages([_note(_MOTION)]),
+            asyncio.CancelledError(),
+        ]
+    )
     fired = []
     w = MotionEventWatcher(lambda: onvif, on_motion=lambda: fired.append(1))
-    w._wait_for = AsyncMock()          # 再試行の待ちを飛ばす
+    w._wait_for = AsyncMock()  # 再試行の待ちを飛ばす
 
     async def go():
         await w.start()
@@ -160,7 +162,7 @@ def test_without_a_camera_the_watcher_simply_does_not_run():
         await asyncio.sleep(0.02)
         await w.stop()
 
-    asyncio.run(go())   # 例外を出さないこと
+    asyncio.run(go())  # 例外を出さないこと
 
 
 def test_the_onvif_source_may_need_connecting_first():

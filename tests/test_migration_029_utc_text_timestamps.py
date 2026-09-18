@@ -104,5 +104,5 @@ def test_missing_table_is_skipped():
     with conn.cursor() as cur:
         cur.execute("SELECT to_regclass('memory_activation') AS t")
         assert cur.fetchone()["t"] is None, "旧表がまだ存在する（前提が崩れている）"
-    mod.upgrade(conn)      # 例外が出なければよい
+    mod.upgrade(conn)  # 例外が出なければよい
     conn.close()

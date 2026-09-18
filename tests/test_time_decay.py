@@ -1,4 +1,5 @@
 """Tests for DecayState pure value object (time_decay.py)."""
+
 from __future__ import annotations
 
 import dataclasses
@@ -37,7 +38,7 @@ def test_score_is_symmetric_around_the_reference():
     """
     ref = 1000.0
     before = DecayState(origin_epoch=ref - 500.0, half_life_seconds=86400.0, floor=0.0)
-    after  = DecayState(origin_epoch=ref + 500.0, half_life_seconds=86400.0, floor=0.0)
+    after = DecayState(origin_epoch=ref + 500.0, half_life_seconds=86400.0, floor=0.0)
     assert before.score(ref) == pytest.approx(after.score(ref))
     assert after.score(ref) < 1.0
     # 基準そのものは 1.0。

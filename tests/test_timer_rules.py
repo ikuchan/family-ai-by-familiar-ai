@@ -49,12 +49,9 @@ def test_confirmation_is_needed_when_the_due_falls_in_quiet_hours_or_a_silence_r
     assert "静穏" in (tr.needs_confirmation(due_night, quiet=quiet, silence_active=False) or "")
     assert "静穏" in (tr.needs_confirmation(due_dawn, quiet=quiet, silence_active=False) or "")
     assert "黙って" in (tr.needs_confirmation(due_day, quiet=quiet, silence_active=True) or "")
-    assert (
-        tr.needs_confirmation(None, quiet=quiet, silence_active=True) is None
-    )  # ストップウォッチは鳴らない
 
 
-def test_the_frame_shows_remaining_and_elapsed_and_recently_fired():
+def test_the_frame_shows_remaining_and_recently_fired():
     rows = [
         {
             "id": 3,
@@ -63,14 +60,7 @@ def test_the_frame_shows_remaining_and_elapsed_and_recently_fired():
             "started_at": NOW - timedelta(minutes=1),
             "fired_at": None,
         },
-        {
-            "id": 4,
-            "label": "ランニング",
-            "due": None,
-            "started_at": NOW - timedelta(minutes=12, seconds=30),
-            "fired_at": None,
-        },
-    ]
+    ]  # ストップウォッチは別物（知-u・`stopwatch_rules`）
     fired = [
         {
             "id": 2,
@@ -83,6 +73,5 @@ def test_the_frame_shows_remaining_and_elapsed_and_recently_fired():
     text = tr.render_frame(rows, fired, now=NOW)
     assert text.startswith("[タイマー]")
     assert "id=3 パスタ 残り 2:05（19:32 に鳴る）" in text
-    assert "id=4 ランニング 経過 12:30" in text
     assert "id=2 お茶 は 1 分前に鳴った（もう止まっている）" in text
     assert tr.render_frame([], [], now=NOW) == ""

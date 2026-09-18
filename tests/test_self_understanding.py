@@ -33,7 +33,7 @@ _YAML = """capabilities:
 def test_capability_needing_an_unset_env_var_is_excluded():
     out = filter_enabled(_YAML, env={})
     assert "memory" in out
-    assert "camera_vision" not in out      # CAMERA_HOST が無いので使えない
+    assert "camera_vision" not in out  # CAMERA_HOST が無いので使えない
     assert "unfinished" not in out
 
 
@@ -45,8 +45,8 @@ def test_capability_is_included_when_its_env_var_is_set():
 def test_me_md_is_carried_verbatim_into_the_generation_prompt():
     me = "名前： パジュ\n話し方：標準語。丁寧さは相手で決める。"
     prompt = build_self_understanding_prompt(me_md=me, manifest=_YAML)
-    assert me in prompt                    # 逐語で渡す
-    assert "そのまま" in prompt             # 変えずに残せと指示している
+    assert me in prompt  # 逐語で渡す
+    assert "そのまま" in prompt  # 変えずに残せと指示している
 
 
 def test_generation_asks_for_words_a_person_would_say():

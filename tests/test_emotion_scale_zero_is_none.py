@@ -25,6 +25,7 @@ _NEUTRAL_PN = 0.10
 
 # ── 段1：口の目盛り ─────────────────────────────────────────────────────────
 
+
 def _axis_line(head: str) -> str:
     return next(ln for ln in _EMOTION_PAD_PROMPT.splitlines() if ln.lstrip().startswith(head))
 
@@ -64,6 +65,7 @@ def test_the_prompt_says_nobody_else_reads_it():
 
 # ── 段2：中立の位置 ─────────────────────────────────────────────────────────
 
+
 def test_the_neutral_label_sits_where_neither_feeling_is_present():
     assert LABEL_PAD["neutral"] == (_NEUTRAL_P, _NEUTRAL_PN, 0.50, 0.50)
 
@@ -79,7 +81,10 @@ def test_the_rest_point_is_per_axis():
     from familiar_agent.mood_register import REST_PAD
 
     assert (REST_PAD.p, REST_PAD.pn, REST_PAD.a, REST_PAD.dom) == (
-        _NEUTRAL_P, _NEUTRAL_PN, 0.50, 0.50
+        _NEUTRAL_P,
+        _NEUTRAL_PN,
+        0.50,
+        0.50,
     )
 
 
@@ -87,10 +92,10 @@ def test_mood_decays_to_the_per_axis_rest_point():
     """半減期ちょうどで、各軸が自分の戻り先との距離を半分にする。"""
     m = MoodPAD(p=0.90, pn=0.90, a=0.90, dom=0.90)
     out = decay_to_rest(m, 600.0)
-    assert out.p == 0.5 * (0.90 + _NEUTRAL_P)      # 0.50
-    assert out.pn == 0.5 * (0.90 + _NEUTRAL_PN)    # 0.50
-    assert out.a == 0.5 * (0.90 + 0.50)            # 0.70
-    assert out.dom == 0.5 * (0.90 + 0.50)          # 0.70
+    assert out.p == 0.5 * (0.90 + _NEUTRAL_P)  # 0.50
+    assert out.pn == 0.5 * (0.90 + _NEUTRAL_PN)  # 0.50
+    assert out.a == 0.5 * (0.90 + 0.50)  # 0.70
+    assert out.dom == 0.5 * (0.90 + 0.50)  # 0.70
 
 
 def test_an_unmeasured_mood_json_falls_back_per_axis():
@@ -104,6 +109,7 @@ def test_the_neutral_point_still_reads_as_neutral():
 
 
 # ── 守り：壊していないことの確認（実装の前後どちらでも通るべき）──────────────
+
 
 def test_the_other_eleven_labels_are_untouched():
     """`neutral` 以外は動かさない。11点はもともと「0＝無い」で書かれている。"""

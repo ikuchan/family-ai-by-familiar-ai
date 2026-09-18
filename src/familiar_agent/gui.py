@@ -756,20 +756,22 @@ def format_speaker_line(status: "dict | None", fallback: str) -> str:
     return f"話者: {name}（{src} {conf:.2f}）"
 
 
-def format_timer_rows(frame: str, *, ringing: bool, alarm_frame: str) -> "list[str]":
+def format_timer_rows(
+    frame: str, *, ringing: bool, alarm_frame: str, stopwatch_frame: str = ""
+) -> "list[str]":
     """`[タイマー]`／`[アラーム]` の枠（主LLM に渡す文）を、パネルの行にする（環-p・2026-09-18）。
 
     見出し行（`[タイマー]`）と行頭の「- 」を落とすだけ。鳴っていれば先頭に 🔔。何も無ければ 1 行。
     実機で「鳴っているのか・止まっているのか」が GUI から読めなかった。
     """
     out: list[str] = ["🔔 鳴っている"] if ringing else []
-    for text in (frame, alarm_frame):
+    for text in (frame, alarm_frame, stopwatch_frame):
         for line in (text or "").splitlines():
             line = line.strip()
             if not line or line.startswith("["):
                 continue
             out.append(line[2:] if line.startswith("- ") else line)
-    return out or ["（タイマー・アラームなし）"]
+    return out or ["（タイマー・アラーム・ストップウォッチなし）"]
 
 
 def format_presence_rows(rows: "list[dict]") -> "list[str]":
@@ -981,7 +983,7 @@ class PresencePanel(QWidget):
             f" background: transparent; letter-spacing: 0.1em;"
         )
         layout.addWidget(timer_title)
-        self._timer_lbl = QLabel("（タイマー・アラームなし）")
+        self._timer_lbl = QLabel("（タイマー・アラーム・ストップウォッチなし）")
         self._timer_lbl.setStyleSheet(
             f"color: {_TEXT_SECONDARY}; font-size: {_px(11)}px; background: transparent;"
         )
@@ -1014,10 +1016,10 @@ class PresencePanel(QWidget):
             pass
 
     def _timer_rows(self) -> "list[str]":
-        """器（`_timer_tool`・`_alarm_tool`・`_dif`）から読むだけ。無ければ「なし」。"""
+        """器（`_timer_tool`・`_alarm_tool`・`_stopwatch_tool`・`_dif`）から読むだけ。無ければ「なし」。"""
         agent = self._get_agent()
         if agent is None:
-            return ["（タイマー・アラームなし）"]
+            return ["（タイマー・アラーム・ストップウォッチなし）"]
 
         def frame_of(name: str) -> str:
             tool = getattr(agent, name, None)
@@ -1028,7 +1030,10 @@ class PresencePanel(QWidget):
 
         ringing = bool(getattr(getattr(agent, "_dif", None), "ringing", False))
         return format_timer_rows(
-            frame_of("_timer_tool"), ringing=ringing, alarm_frame=frame_of("_alarm_tool")
+            frame_of("_timer_tool"),
+            ringing=ringing,
+            alarm_frame=frame_of("_alarm_tool"),
+            stopwatch_frame=frame_of("_stopwatch_tool"),
         )
 
 

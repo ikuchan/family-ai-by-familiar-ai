@@ -34,9 +34,7 @@ async def test_set_speaker_retains_source_and_confidence():
     from familiar_agent.person_memory_manager import PersonMemoryManager, RecognitionHint
 
     base = MagicMock()
-    base.list_persons.return_value = [
-        {"id": "p1", "name": "alice", "display_name": "アリス"}
-    ]
+    base.list_persons.return_value = [{"id": "p1", "name": "alice", "display_name": "アリス"}]
     pmm = PersonMemoryManager(base, switch_thresholds={"face": 0.4})
     await pmm.apply_hint(RecognitionHint(person_id="p1", confidence=0.66, source="face"))
 
@@ -77,6 +75,7 @@ async def test_presence_status_lists_present_with_speaker_flag():
 
 
 # ── 表示整形（純関数・GUI 描画はこの結果を貼るだけ） ────────────────────────
+
 
 def test_format_speaker_line():
     from familiar_agent.gui import format_speaker_line

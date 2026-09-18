@@ -34,6 +34,7 @@ def _bd(**kw):
 
 # ── _score_breakdown への p/w_p 追加 ─────────────────────────────────────────
 
+
 def test_score_breakdown_default_has_no_p():
     """p を渡さなければ従来どおり（p 項なし・後方互換）。"""
     parts = _bd()
@@ -57,6 +58,7 @@ def test_score_breakdown_wp_zero_is_unchanged():
 
 # ── 束ね（noisy-OR）と伸長：facade _presence_correlation ─────────────────────
 
+
 def _facade_for_corr(cosines_by_person: dict[str, dict[str, float]]):
     """_presence_correlation を DB なしで回すための最小 facade スタブ。
 
@@ -72,8 +74,8 @@ def _facade_for_corr(cosines_by_person: dict[str, dict[str, float]]):
         return None
 
     obs = MagicMock()
-    obs.situated_cosines.side_effect = (
-        lambda q_sql, obs_ids, person_id: cosines_by_person.get(person_id, {})
+    obs.situated_cosines.side_effect = lambda q_sql, obs_ids, person_id: cosines_by_person.get(
+        person_id, {}
     )
     mem._situated = situated
     mem._observations = obs
@@ -89,12 +91,18 @@ def test_presence_correlation_noisy_or_over_present_others(monkeypatch):
     monkeypatch.setattr(m, "_situated_vector", lambda *a, **k: np.zeros(3, dtype=np.float32))
     monkeypatch.setattr(m, "vec_to_sql", lambda v: "q")
 
-    mem = _facade_for_corr({
-        "alice": {"o1": 0.5, "o2": 0.0},
-        "bob":   {"o1": 0.5, "o2": 0.0},
-    })
+    mem = _facade_for_corr(
+        {
+            "alice": {"o1": 0.5, "o2": 0.0},
+            "bob": {"o1": 0.5, "o2": 0.0},
+        }
+    )
     p = mem._presence_correlation(
-        None, ["o1", "o2"], ["alice", "bob"], c_lo=0.0, c_hi=1.0,
+        None,
+        ["o1", "o2"],
+        ["alice", "bob"],
+        c_lo=0.0,
+        c_hi=1.0,
     )
     # o1: noisy-OR(0.5, 0.5) = 1 − 0.5·0.5 = 0.75
     assert p["o1"] == pytest.approx(0.75)
@@ -124,12 +132,23 @@ def test_config_recall_presence_expand_default(monkeypatch):
 
 # ── slice-2：候補集合拡張（在席他者視点で候補を union） ──────────────────────
 
+
 def _row(oid: str, score: float) -> dict:
     return {
-        "id": oid, "content": f"content-{oid}", "timestamp": "2026-07-01T10:00:00+09:00",
-        "direction": "in", "kind": "observation", "emotion": "neutral", "image_path": None,
-        "groundedness_g0": 1.0, "groundedness_n": 0, "last_recalled_at": None,
-        "emotion_p": 0.5, "emotion_pn": 0.5, "emotion_a": 0.5, "emotion_dom": 0.5,
+        "id": oid,
+        "content": f"content-{oid}",
+        "timestamp": "2026-07-01T10:00:00+09:00",
+        "direction": "in",
+        "kind": "observation",
+        "emotion": "neutral",
+        "image_path": None,
+        "groundedness_g0": 1.0,
+        "groundedness_n": 0,
+        "last_recalled_at": None,
+        "emotion_p": 0.5,
+        "emotion_pn": 0.5,
+        "emotion_a": 0.5,
+        "emotion_dom": 0.5,
         "score": score,
     }
 
@@ -201,6 +220,7 @@ def test_recall_slice2_toggle_off_is_slice1(monkeypatch):
 
 # ── 実 DB：p が想起スコアへ効く（在席他者ありでスコアが上がる） ────────────────
 
+
 def test_recall_present_others_raises_score():
     import os
     from unittest.mock import patch
@@ -231,8 +251,7 @@ def test_recall_present_others_raises_score():
         c.close()
 
         mem = ObservationMemory()
-        mem.save("presence corr target", kind="observation",
-                 participants=["q-person"])
+        mem.save("presence corr target", kind="observation", participants=["q-person"])
 
         base = mem.recall("presence corr target", n=1)
         boosted = mem.recall("presence corr target", n=1, present_others=["q-person"])

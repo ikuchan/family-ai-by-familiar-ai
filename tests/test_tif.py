@@ -15,6 +15,7 @@ from familiar_agent.tif import build_primitive, expand_to_mental
 
 # ── build_primitive carries M and D as-is (identity, not a copy) ────────────
 
+
 def test_build_primitive_carries_m_and_d() -> None:
     m = MoodPAD(p=0.7, pn=0.2, a=0.6, dom=0.4)
     d = AiDrivers(seeking=0.3, bond=0.5)
@@ -24,6 +25,7 @@ def test_build_primitive_carries_m_and_d() -> None:
 
 
 # ── expand_to_mental inherits PI's emotion/drive and adds I-side attributes ──
+
 
 def test_expand_to_mental_inherits_and_adds() -> None:
     m = MoodPAD(p=0.7)
@@ -37,6 +39,7 @@ def test_expand_to_mental_inherits_and_adds() -> None:
 
 
 # ── MentalItem is a PrimitiveMentalItem subclass (emotion/drive present) ────
+
 
 def test_mental_is_primitive_subclass() -> None:
     mi = expand_to_mental(build_primitive(MoodPAD(), AiDrivers()), id="x", content="y")

@@ -26,7 +26,6 @@ def _pg_conn():
     return conn
 
 
-
 def test_embedding_model_is_bge_m3() -> None:
     assert EMBEDDING_MODEL == "BAAI/bge-m3"
 
@@ -51,16 +50,13 @@ def test_encode_document_sends_raw_text() -> None:
     em.encode_document(["hello world"])
 
     called_texts = fake_model.encode.call_args[0][0]
-    assert called_texts == ["hello world"], (
-        f"Expected raw text; got {called_texts!r}"
-    )
+    assert called_texts == ["hello world"], f"Expected raw text; got {called_texts!r}"
 
 
 def test_encode_query_sends_raw_text() -> None:
     """encode_query must pass text as-is (no 'query:' prefix) to the model."""
     fake_model = MagicMock()
     fake_model.encode.return_value = np.zeros((1, 1024), dtype=np.float32)
-
 
     # 読み込みの状態はモデル資源（MR）の型枠が持つ（出-c）。素の器を作って
     # 読み込み済みに見せる代わりに、普通に組み立ててモデルだけ差し込む。
@@ -70,9 +66,7 @@ def test_encode_query_sends_raw_text() -> None:
     em.encode_query(["how are you"])
 
     called_texts = fake_model.encode.call_args[0][0]
-    assert called_texts == ["how are you"], (
-        f"Expected raw text; got {called_texts!r}"
-    )
+    assert called_texts == ["how are you"], f"Expected raw text; got {called_texts!r}"
 
 
 # ── Unit: _coerce_to_embedding_dim with 1024 ────────────────────────────────
@@ -119,9 +113,7 @@ def test_the_vector_column_is_1024() -> None:
 
     assert row is not None, "vector column not found"
     # pgvector encodes dimension as atttypmod; 1024 → atttypmod = 1024
-    assert row["atttypmod"] == 1024, (
-        f"Expected atttypmod=1024, got {row['atttypmod']}"
-    )
+    assert row["atttypmod"] == 1024, f"Expected atttypmod=1024, got {row['atttypmod']}"
 
 
 def test_the_hnsw_index_exists() -> None:
@@ -140,6 +132,7 @@ def test_the_hnsw_index_exists() -> None:
 
     assert row is not None, "idx_situated_hnsw not found after migration"
     assert "hnsw" in row["indexdef"].lower()
+
 
 # ── 流し直しをやめた理由（044・2026-09-01）─────────────────────────────
 # マイグレーションは一度しか流れない。後の版がスキーマを変えれば、前の版はもう流せない。

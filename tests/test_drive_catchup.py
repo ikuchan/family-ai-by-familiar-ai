@@ -21,6 +21,7 @@ from familiar_agent.drive_register import (
 
 # ── catchup_dt（純関数・停止秒数） ───────────────────────────────────────────
 
+
 def test_catchup_dt_none_is_zero():
     assert catchup_dt(None, 100.0) == 0.0
 
@@ -38,6 +39,7 @@ def test_catchup_dt_future_clamped_to_zero():
 
 
 # ── load_drives_with_updated_at（実 DB・更新時刻を返す） ──────────────────────
+
 
 def test_load_drives_with_updated_at_roundtrip():
     conn = psycopg2.connect(os.environ["DATABASE_URL"])

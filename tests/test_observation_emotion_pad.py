@@ -20,7 +20,6 @@ import psycopg2.extras
 import pytest
 
 
-
 _DB_URL = os.environ["DATABASE_URL"]
 
 _PAD_COLUMNS = {"emotion_p", "emotion_pn", "emotion_a", "emotion_dom"}
@@ -34,11 +33,11 @@ def _pg_conn():
 
 def _run_migration(conn) -> None:
     migration_path = (
-        Path(__file__).parent.parent
-        / "migration"
-        / "2026-07-16-024_observation_emotion_pad.py"
+        Path(__file__).parent.parent / "migration" / "2026-07-16-024_observation_emotion_pad.py"
     )
-    spec = importlib.util.spec_from_file_location("observation_emotion_pad_migration", migration_path)
+    spec = importlib.util.spec_from_file_location(
+        "observation_emotion_pad_migration", migration_path
+    )
     mod = importlib.util.module_from_spec(spec)  # type: ignore[arg-type]
     spec.loader.exec_module(mod)  # type: ignore[union-attr]
     mod.upgrade(conn)
@@ -77,14 +76,16 @@ def test_pad_defaults_to_neutral_half() -> None:
     with conn.cursor() as cur:
         _insert_observation(cur, obs_id)
         cur.execute(
-            "SELECT emotion_p, emotion_pn, emotion_a, emotion_dom "
-            "FROM observations WHERE id = %s",
+            "SELECT emotion_p, emotion_pn, emotion_a, emotion_dom FROM observations WHERE id = %s",
             (obs_id,),
         )
         row = cur.fetchone()
     conn.close()
     assert (row["emotion_p"], row["emotion_pn"], row["emotion_a"], row["emotion_dom"]) == (
-        0.5, 0.5, 0.5, 0.5,
+        0.5,
+        0.5,
+        0.5,
+        0.5,
     )
 
 

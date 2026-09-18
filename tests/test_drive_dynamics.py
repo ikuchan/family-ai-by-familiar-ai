@@ -21,6 +21,7 @@ _CFG = DriveConfig()
 
 # ── g_D(M)：中立 mood で g_{D,i}=b_i（式の確定点） ─────────────────────────────
 
+
 def test_g_d_at_rest_equals_bias():
     # 平静 → Σ C·(logit(x)−logit(rest))=0 → g=b_i。平静は軸ごと（案A）。
     g = g_d(MoodPAD())
@@ -32,6 +33,7 @@ def test_g_d_at_rest_equals_bias():
 
 
 # ── g_D(M)：気分の向きに応じて募る（設計の性格） ─────────────────────────────
+
 
 def test_g_d_direction_matches_design():
     """気分の向きと欲求の募り方の対応。**平静との比較でなく、両端の比較で見る。**
@@ -60,6 +62,7 @@ def test_g_d_direction_matches_design():
 
 # ── 蓄積：1 tick 増分＝rate·mult·learn·g·dt ──────────────────────────────────
 
+
 def test_accumulate_one_tick_increment():
     d = accumulate(AiDrivers(), MoodPAD())  # 平静 → g=b_i
     step = _CFG.rate * _CFG.mult * _CFG.learn * _CFG.p_t
@@ -80,6 +83,7 @@ def test_accumulate_clips_to_one():
 
 # ── 発火・放電 ───────────────────────────────────────────────────────────────
 
+
 def test_fired_at_threshold():
     f = fired(AiDrivers(seeking=_CFG.theta_fire, bond=0.5))
     assert f.seeking is True
@@ -98,6 +102,7 @@ def test_discharge_fired_drive_to_near_zero():
 
 # ── 1 tick（蓄積→発火→放電）＝ループ接続 Slice 2a が呼ぶ純関数 ──────────────
 
+
 def test_tick_below_threshold_accumulates_without_firing():
     d, f = tick(AiDrivers(), MoodPAD(), dt=_CFG.p_t)
     assert f.any is False
@@ -112,6 +117,7 @@ def test_tick_at_threshold_fires_and_discharges():
 
 
 # ── 実 DB：ループ接続 Slice 2a の永続化経路（load→tick→save→load） ───────────
+
 
 def test_tick_persists_to_drive5():
     import os

@@ -38,13 +38,6 @@ def test_add_then_active_lists_it_with_its_columns():
     assert r["fired_at"] is None and r["cancelled_at"] is None and r["passes_quiet"] is False
 
 
-def test_a_stopwatch_has_no_due_and_never_comes_due():
-    s = _store()
-    tid = s.add(label="計る", due=None, asked_by="パパ", obs_id=None, passes_quiet=False, now=NOW)
-    assert s.due_now(now=NOW + timedelta(days=1)) == []
-    assert [r["id"] for r in s.active(now=NOW + timedelta(days=1))] == [tid]
-
-
 def test_due_now_returns_only_unfired_uncancelled_past_due_and_mark_fired_removes_it():
     s = _store()
     a = s.add(

@@ -1,8 +1,9 @@
 """タイマーの道具（知-n・2026-09-15・`設計方針_タイマー` v0.1）。
 
-主LLM が呼ぶ 5 本——`set_timer`（何分後・アラームは別物 `tools/alarm.py`）・`start_stopwatch`（ストップウォッチ）・
-`cancel_timer`（止める・**「途中で停められる」の主な口**）。状態は表 `timers`（`store/timers.py`）、
-記憶には `予定` の記録（登録）と「やめた」の記録（取消）を書く。
+主LLM が呼ぶ 4 本——`set_timer`（何分後・アラームは別物 `tools/alarm.py`・ストップウォッチも別物
+`tools/stopwatch.py`・2026-09-18 知-u）・`cancel_timer`（止める・**「途中で停められる」の主な口**）・
+`pause_timer`・`resume_timer`。状態は表 `timers`（`store/timers.py`）、記憶には `予定` の記録（登録）と
+「やめた」の記録（取消）を書く。
 
 **掛ける前に確かめる（`TIMER_CONFIRM`）・静穏時間に掛かる／黙っているよう頼まれているときは、
 いきなり登録しない。** 「確かめて」の判定では預かり（`core/confirm_state.py`・`ask`）を置いて確認文
@@ -29,8 +30,8 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# 同時に動かせるのは**タイマー 1 本・ストップウォッチ 1 本**（2026-09-18・フラグに関係ない規則）。
-# 以前は合わせて 5 本〔仮〕だった。掛け直すなら止めてから。
+# 同時に動かせるのは**タイマー 1 本**（2026-09-18・フラグに関係ない規則）。以前は合わせて 5 本〔仮〕だった。
+# 掛け直すなら止めてから。
 MAX_ACTIVE = 1
 RECENT_SEC = 180.0  # 鳴った後も枠に残す秒数〔仮〕（「止めて」に「もう止まっている」と答える）
 
@@ -53,18 +54,9 @@ _DEFS: list[dict] = [
         },
     },
     {
-        "name": "start_stopwatch",
-        "description": "ストップウォッチを始める（「今から測って」）。鳴らない。経過は [タイマー] の枠で分かる。",
-        "input_schema": {
-            "type": "object",
-            "properties": {"label": {"type": "string", "description": "何を測るか"}},
-            "required": ["label"],
-        },
-    },
-    {
         "name": "cancel_timer",
         "description": (
-            "動いているタイマーやストップウォッチを止める（「タイマー止めて」「やっぱりいい」）。"
+            "動いているタイマーを止める（「タイマー止めて」「やっぱりいい」）。ストップウォッチは stop_stopwatch。"
             'id は [タイマー] の枠にある番号。全部止めるなら "all"。'
         ),
         "input_schema": {
@@ -173,13 +165,12 @@ class TimerTool:
 
         **動いているタイマーから導く**（新しい状態は持たない・再起動をまたぐ）：due があり・
         一時停止でなく・`listen`（`/mic on`）が立っていないものが 1 本でもあれば閉じる。
-        ストップウォッチは閉じない（「止めて」を聞く必要がある・due も無い）。
         """
         if not self.flags().mic_close:
             return ""
         now = now or self._now()
         for r in self._store().active(now=now):
-            if r.get("due") is None or r.get("paused_at") is not None or r.get("listen"):
+            if r.get("paused_at") is not None or r.get("listen"):
                 continue
             return f"タイマー「{r['label']}」"
         return ""
@@ -214,8 +205,6 @@ class TimerTool:
         try:
             if name == "set_timer":
                 return await self._set(tool_input, now=now, confirmed=confirmed)
-            if name == "start_stopwatch":
-                return await self._start_stopwatch(tool_input, now=now)
             if name == "cancel_timer":
                 return await self._cancel(tool_input)
             if name in ("pause_timer", "resume_timer"):
@@ -306,27 +295,6 @@ class TimerTool:
             "（静かな時間でも鳴らす）" if reason else ""
         ) + hushed, True
 
-    async def _start_stopwatch(
-        self, inp: dict, *, now: "datetime | None" = None
-    ) -> tuple[str, bool]:
-        label = str(inp.get("label") or "ストップウォッチ").strip()
-        now = (now or self._now()).astimezone()
-        store = self._store()
-        watches = [r for r in store.active(now=now) if r.get("due") is None]
-        if watches:
-            # ストップウォッチも 1 本（タイマーとは別枠）。
-            r = watches[0]
-            return f"いま「{r['label']}」（id={r['id']}）を測っている。止めてから", False
-        who = self._speaker() or ""
-        obs_id = await self._write(
-            f"{who or '誰か'}に頼まれて、{now:%H:%M} から「{label}」を測り始めた"
-        )
-        tid = store.add(
-            label=label, due=None, asked_by=who, obs_id=obs_id, passes_quiet=False, now=now
-        )
-        logger.info("ストップウォッチを始めた id=%d %s", tid, label)
-        return f"測り始めた：id={tid} 「{label}」 {now:%H:%M} から", True
-
     async def _cancel(self, inp: dict) -> tuple[str, bool]:
         if self._on_cancel is not None:
             self._on_cancel()
@@ -352,8 +320,7 @@ class TimerTool:
             return f"id={tid} のタイマーは動いていない", False
         if self._unhush is not None:
             self._unhush(tid)
-        # ストップウォッチは止めた瞬間の経過を、タイマーは残りを添える（「何秒だった？」に答えるため）。
-        measured = timer_rules.measure_at(row, now)
+        measured = timer_rules.measure_at(row, now)  # 止めた瞬間の残り
         await self._write(f"やめた：「{row['label']}」{measured}")
         logger.info("タイマーを止めた id=%d %s %s", tid, row["label"], measured)
         return f"止めた：id={tid} 「{row['label']}」{measured}", True
@@ -363,7 +330,7 @@ class TimerTool:
         now = self._now()
         store = self._store()
         pausing = name == "pause_timer"
-        rows = [r for r in store.active(now=now) if r.get("due") is not None]
+        rows = store.active(now=now)
         target = inp.get("id")
         if str(target).strip().lower() == "all":
             pick = rows
@@ -374,9 +341,6 @@ class TimerTool:
                 return f"id を読めない：{target}", False
             pick = [r for r in rows if int(r["id"]) == tid]
             if not pick:
-                sw = [r for r in store.active(now=now) if int(r["id"]) == tid]
-                if sw:
-                    return "ストップウォッチは一時停止できない（止めるなら cancel_timer）", False
                 return f"id={tid} のタイマーは動いていない", False
         if not pick:
             return "動いているタイマーは無い", True

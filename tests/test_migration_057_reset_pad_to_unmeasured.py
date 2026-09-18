@@ -39,8 +39,19 @@ def _insert(cur, *, p, pn, dom, a, emotion, vec):
         "(id, content, timestamp, direction, kind, emotion,"
         " emotion_p, emotion_pn, emotion_a, emotion_dom, emotion_vec) "
         "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
-        (oid, "057 の検査用", datetime.now(timezone.utc), "自分", "observation",
-         emotion, p, pn, a, dom, vec),
+        (
+            oid,
+            "057 の検査用",
+            datetime.now(timezone.utc),
+            "自分",
+            "observation",
+            emotion,
+            p,
+            pn,
+            a,
+            dom,
+            vec,
+        ),
     )
     return oid
 
@@ -55,19 +66,18 @@ def test_the_old_scale_pad_is_cleared_and_arousal_survives():
 
     conn = _conn()
     with conn.cursor() as cur:
-        filled = _insert(cur, p=0.5, pn=0.5, dom=0.5, a=0.5,
-                         emotion="neutral", vec="[0,0,0,0]")
-        measured = _insert(cur, p=0.8, pn=0.15, dom=0.6, a=0.72,
-                           emotion="happy", vec="[1,2,3,4]")
-        below = _insert(cur, p=0.6, pn=0.4, dom=0.5, a=0.1,
-                        emotion="curious", vec="[1,1,1,1]")
+        filled = _insert(cur, p=0.5, pn=0.5, dom=0.5, a=0.5, emotion="neutral", vec="[0,0,0,0]")
+        measured = _insert(cur, p=0.8, pn=0.15, dom=0.6, a=0.72, emotion="happy", vec="[1,2,3,4]")
+        below = _insert(cur, p=0.6, pn=0.4, dom=0.5, a=0.1, emotion="curious", vec="[1,1,1,1]")
 
     mod.upgrade(conn)
 
     with conn.cursor() as cur:
         cur.execute(
             "SELECT id, emotion, emotion_p, emotion_pn, emotion_dom, emotion_a, emotion_vec "
-            "FROM observations WHERE id = ANY(%s)", ([filled, measured, below],))
+            "FROM observations WHERE id = ANY(%s)",
+            ([filled, measured, below],),
+        )
         rows = {r["id"]: r for r in cur.fetchall()}
 
     for oid, was_a in ((filled, 0.5), (measured, 0.72), (below, 0.1)):
@@ -81,6 +91,5 @@ def test_the_old_scale_pad_is_cleared_and_arousal_survives():
         assert abs(r["emotion_a"] - was_a) < 1e-9, oid
 
     with conn.cursor() as cur:
-        cur.execute("DELETE FROM observations WHERE id = ANY(%s)",
-                    ([filled, measured, below],))
+        cur.execute("DELETE FROM observations WHERE id = ANY(%s)", ([filled, measured, below],))
     conn.close()

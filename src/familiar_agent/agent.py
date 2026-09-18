@@ -50,6 +50,7 @@ from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .core.confirm_state import PendingConfirm
 from .tools.alarm import AlarmTool
+from .tools.stopwatch import StopwatchTool
 from .tools.timer import TimerTool
 from .tools.tts import TTSTool
 from .loop.evaluator import Evaluator
@@ -131,6 +132,8 @@ _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 _MIC_COMMAND_RE = re.compile(r"^/mic[\s　・]+on$", re.IGNORECASE)
 # /alarm stop [id]——LLM を通さずアラームを止める（知-q）。
 _ALARM_COMMAND_RE = re.compile(r"^/alarm[\s　・]+stop(?:[\s　・]+(.+))?$", re.IGNORECASE)
+# /stopwatch stop [id]——LLM を通さずストップウォッチを止める（知-u・タイマーとは別物）。
+_STOPWATCH_COMMAND_RE = re.compile(r"^/stopwatch[\s　・]+stop(?:[\s　・]+(.+))?$", re.IGNORECASE)
 _TIMER_COMMAND_RE = re.compile(
     r"^/timer[\s　・]+(stop|pause|resume)(?:[\s　・]+(.+))?$", re.IGNORECASE
 )  # pause／resume は 2026-09-18（知-o 段 4）
@@ -243,6 +246,14 @@ class EmbodiedAgent:
             quiet=lambda: self._schedule_rule,
             on_cancel=self._stop_timer_ring,
             ask=self.ask_confirm,
+        )
+        # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物：表 `stopwatches`・鳴らない・確認しない・
+        # 黙らない・同時 1 本・寿命 6 時間で T が止める。止める口は道具 `stop_stopwatch` と命令 `/stopwatch stop`。
+        self._stopwatch_tool = StopwatchTool(
+            store=self._stopwatch_store,
+            oif=self._oif,
+            speaker=self._speaker_name_if_known,
+            max_sec=float(getattr(config, "stopwatch_max_sec", 6 * 3600.0)),
         )
         self._last_tool_error: str | None = None
         self._tool_failure_streak: int = 0
@@ -1515,6 +1526,22 @@ class EmbodiedAgent:
         text, _ok = await self._alarm_tool.call("cancel_alarm", {"id": target})
         return text
 
+    async def _handle_stopwatch_command(self, user_input: str) -> str | None:
+        """`/stopwatch stop [id]`——LLM を通さずに止める（知-u・タイマーとは別物）。"""
+        m = _STOPWATCH_COMMAND_RE.match(_command_text(user_input))
+        if m is None:
+            return None
+        target = (m.group(1) or "").strip(" \t　・") or "all"
+        text, _ok = await self._stopwatch_tool.call("stop_stopwatch", {"id": target})
+        return text
+
+    def _stopwatch_store(self):
+        """`StopwatchStore`（共有接続・`db.lock` の外で短く使う）。"""
+        from .db import get_db
+        from .store.stopwatches import StopwatchStore
+
+        return StopwatchStore(get_db().conn())
+
     async def _handle_mic_command(self, user_input: str) -> str | None:
         """`/mic on`——タイマー中の「聞かない」を、そのタイマー限り解く（知-o 段 5）。"""
         if not _MIC_COMMAND_RE.match(_command_text(user_input)):
@@ -1649,6 +1676,13 @@ class EmbodiedAgent:
             if on_text:
                 on_text(_alarm_reply)
             return _alarm_reply
+
+        # ── Stopwatch command（/stopwatch stop [id]・知-u・LLM を通さない） ───────
+        _sw_reply = await self._handle_stopwatch_command(user_input)
+        if _sw_reply is not None:
+            if on_text:
+                on_text(_sw_reply)
+            return _sw_reply
 
         # ── Mic command（/mic on・知-o・タイマー中でも聞く） ──────────────────
         _mic_reply = await self._handle_mic_command(user_input)

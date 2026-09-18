@@ -8,11 +8,11 @@
 from __future__ import annotations
 
 
-
 from familiar_agent.core.diffuse import select_entity_seeds
 
 
 # ── select_entity_seeds（純関数・about 優先・除外・重複除去） ─────────────────
+
 
 def test_seeds_about_first_then_present_then_actor():
     """種の優先順は「話題の主体 → そばに居た → やった人」（047 の役割名）。"""
@@ -58,6 +58,7 @@ def _grapher(graph):
         for k in known:
             out += graph.get(k, [])
         return out
+
     return get
 
 

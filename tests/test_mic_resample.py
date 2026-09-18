@@ -54,6 +54,7 @@ def _level(pcm: bytes) -> float:
 
 # ── 通す帯域 ───────────────────────────────────────────────────────────────
 
+
 def test_a_voice_band_tone_survives_the_resampling():
     """1 kHz（声の帯域）はそのまま通る。周波数も大きさも保つ。"""
     original = _tone(1000.0, 0.5, _NATIVE)
@@ -73,6 +74,7 @@ def test_the_output_length_matches_the_rate_ratio():
 
 
 # ── 折り返しを止める（これが実機で壊れていた点）─────────────────────────────
+
 
 def test_a_tone_above_nyquist_does_not_fold_back_into_the_band():
     """12 kHz は 16kHz では表せない。**4 kHz に化けてはいけない。**
@@ -97,6 +99,7 @@ def test_a_tone_just_above_the_cutoff_is_attenuated():
 
 # ── ブロックをまたぐ ────────────────────────────────────────────────────────
 
+
 def test_processing_in_blocks_matches_processing_all_at_once():
     """96 ミリ秒ずつ渡しても、まとめて渡したのと同じ音になる（継ぎ目を作らない）。
 
@@ -108,9 +111,9 @@ def test_processing_in_blocks_matches_processing_all_at_once():
 
     streamed = bytearray()
     engine = _Resampler(_NATIVE)
-    step = int(_NATIVE * 0.096) * 2          # 96 ミリ秒ぶんのバイト数
+    step = int(_NATIVE * 0.096) * 2  # 96 ミリ秒ぶんのバイト数
     for i in range(0, len(pcm), step):
-        streamed.extend(engine.process(pcm[i:i + step]))
+        streamed.extend(engine.process(pcm[i : i + step]))
 
     a = np.frombuffer(whole, dtype=np.int16).astype(np.float64)
     b = np.frombuffer(bytes(streamed), dtype=np.int16).astype(np.float64)
@@ -130,7 +133,7 @@ def test_the_block_boundary_does_not_add_clicks():
     streamed = bytearray()
     step = int(_NATIVE * 0.096) * 2
     for i in range(0, len(pcm), step):
-        streamed.extend(engine.process(pcm[i:i + step]))
+        streamed.extend(engine.process(pcm[i : i + step]))
 
     arr = np.frombuffer(bytes(streamed), dtype=np.int16).astype(np.float64)
     jumps = np.abs(np.diff(arr))
@@ -139,6 +142,7 @@ def test_the_block_boundary_does_not_add_clicks():
 
 
 # ── 落とさない経路 ─────────────────────────────────────────────────────────
+
 
 def test_no_work_is_done_when_the_rate_already_matches():
     """16kHz のマイクなら何もしない（余計なフィルタを通さない）。"""

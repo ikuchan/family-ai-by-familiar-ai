@@ -21,11 +21,13 @@ def _camera(presets):
 
 
 def test_the_registry_is_the_union_of_config_and_presets():
-    got = asyncio.run(build_pose_registry(
-        "窓側:0.0,-0.5;出入り口:-0.129,-0.5",
-        _camera([Pose("台所", 0.8, -0.4)]),
-        0.05,
-    ))
+    got = asyncio.run(
+        build_pose_registry(
+            "窓側:0.0,-0.5;出入り口:-0.129,-0.5",
+            _camera([Pose("台所", 0.8, -0.4)]),
+            0.05,
+        )
+    )
     assert {p.name for p in got} == {"窓側", "出入り口", "台所"}
 
 
@@ -36,9 +38,13 @@ def test_a_preset_at_a_configured_pose_does_not_double_it():
     角度で測ると 7.5° で、しきい値の 8.5°（pan 換算）に収まるので**畳まれる**。同じ場所を
     高さ違いで2度見ることにはならない。
     """
-    got = asyncio.run(build_pose_registry(
-        "出入り口:-0.129,-0.5", _camera([Pose("出入り口", -0.1294, -0.2857)]), 0.05,
-    ))
+    got = asyncio.run(
+        build_pose_registry(
+            "出入り口:-0.129,-0.5",
+            _camera([Pose("出入り口", -0.1294, -0.2857)]),
+            0.05,
+        )
+    )
     assert len(got) == 1
 
 

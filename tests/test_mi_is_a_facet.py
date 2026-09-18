@@ -89,6 +89,7 @@ def _plant_two_facets(body: str, vec: np.ndarray) -> str:
 
 # ── ① 面ごとに返る ──────────────────────────────────────────────────────────
 
+
 def test_by_vector_returns_one_row_per_facet() -> None:
     """同じ出来事の2つの面が、それぞれ独立して返る。
 
@@ -129,20 +130,21 @@ def test_by_time_returns_one_row_per_facet() -> None:
 
 # ── ② 面の言葉が出る ────────────────────────────────────────────────────────
 
+
 def test_the_facet_speaks_with_its_own_words() -> None:
     """`about` の面は `[自分のこと] …`、`actor` の面は素の本文。"""
     v = _vec(14)
     body = f"面の言葉 {uuid.uuid4()}"
     obs_id = _plant_two_facets(body, v)
 
-    rows = {r["relation_key"]: r for r in _store().by_vector(_vec_sql(v), 50)
-            if r["id"] == obs_id}
+    rows = {r["relation_key"]: r for r in _store().by_vector(_vec_sql(v), 50) if r["id"] == obs_id}
 
     assert rows["about"]["content"] == f"[自分のこと] {body}"
     assert rows["actor"]["content"] == body, "面が言葉を持たないときは出来事の本文"
 
 
 # ── ③④ 出来事の量と面の量を混ぜない ────────────────────────────────────────
+
 
 def test_the_event_level_quantities_are_shared_by_every_facet() -> None:
     """`groundedness_g0`（取込の驚き）は出来事のもの。どの面でも同じ値になる。"""
@@ -168,23 +170,30 @@ def test_the_facet_level_quantities_differ_per_facet() -> None:
     finally:
         conn.close()
 
-    mine = {r["relation_key"]: r for r in _store().by_vector(_vec_sql(v), 50)
-            if r["id"] == obs_id}
+    mine = {r["relation_key"]: r for r in _store().by_vector(_vec_sql(v), 50) if r["id"] == obs_id}
     assert mine["about"]["groundedness_n"] == 3
     assert mine["actor"]["groundedness_n"] == 0
 
 
 # ── ⑤ MI が面の同定を持ち、視点3属性を持たない ──────────────────────────────
 
+
 def test_mi_identifies_a_facet() -> None:
     from familiar_agent.io.oif import _to_recalled
 
     row = {
-        "memory_id": "obs-1", "facet_id": "facet-1",
-        "person_id": AGENT_SELF_ID, "relation_key": "about",
-        "summary": "[自分のこと] ねこの話", "timestamp": None, "direction": "会話",
-        "emotion": "neutral", "groundedness_g0": 0.8, "groundedness_n": 2,
-        "fit": 0.5, "groundedness": 0.3,
+        "memory_id": "obs-1",
+        "facet_id": "facet-1",
+        "person_id": AGENT_SELF_ID,
+        "relation_key": "about",
+        "summary": "[自分のこと] ねこの話",
+        "timestamp": None,
+        "direction": "会話",
+        "emotion": "neutral",
+        "groundedness_g0": 0.8,
+        "groundedness_n": 2,
+        "fit": 0.5,
+        "groundedness": 0.3,
     }
     mi = _to_recalled(row).mi
 

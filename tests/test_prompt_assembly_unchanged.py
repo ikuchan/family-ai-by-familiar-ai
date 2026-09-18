@@ -34,12 +34,17 @@ def test_the_event_system_prompt_is_labelled_and_ordered():
     assert stable.startswith("[身体と決まり]")
     assert "あなたはパジュである" not in stable
     assert "(agent :type embodied" in stable
-    assert stable.index("[身体と決まり]") < stable.index("[あなたは誰か]") < stable.index(
-        "[一緒に暮らす人たち]")
+    assert (
+        stable.index("[身体と決まり]")
+        < stable.index("[あなたは誰か]")
+        < stable.index("[一緒に暮らす人たち]")
+    )
     assert stable.index(_ME) < stable.index(_FAMILY)
     # 可変部は日時 → 在席 → 内部状態 → 反復 → 作業状態
-    for a, b in zip(("(now :datetime", "（在席）", "（内部状態）", "[反復] 1/3"),
-                    ("（在席）", "（内部状態）", "[反復] 1/3", "（作業状態）")):
+    for a, b in zip(
+        ("(now :datetime", "（在席）", "（内部状態）", "[反復] 1/3"),
+        ("（在席）", "（内部状態）", "[反復] 1/3", "（作業状態）"),
+    ):
         assert variable.index(a) < variable.index(b), (a, b)
     # 変わるものが安定部へ混じらない（キャッシュが効かなくなる）
     for changing in ("（在席）", "（作業状態）", "[反復] 1/3"):

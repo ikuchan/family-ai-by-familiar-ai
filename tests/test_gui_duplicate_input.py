@@ -79,7 +79,7 @@ def test_a_committed_transcript_is_shown_in_the_conversation_log():
     FamiliarWindow._on_realtime_stt_committed(win, "おはよう。")
 
     assert any("おはよう。" in line for line in win._log.lines)
-    assert win._stream.cleared == 1      # 「聞いています」を消す
+    assert win._stream.cleared == 1  # 「聞いています」を消す
 
 
 def test_the_display_hook_does_not_drop_repeats():
@@ -127,6 +127,7 @@ def test_both_entrances_report_the_same_queue_size_for_one_input(caplog):
 # `🎤 Realtime STT ON (ElevenLabs)` の固定文字列だったので、既定のローカル
 # （faster-whisper）で動いていても ElevenLabs と表示していた。どちらで書き起こして
 # いるかは実機の切り分けで最初に見る情報である。
+
 
 def test_the_startup_line_names_the_engine_actually_in_use():
     """既定（ローカル）なら faster-whisper と出す。ElevenLabs とは出さない。"""

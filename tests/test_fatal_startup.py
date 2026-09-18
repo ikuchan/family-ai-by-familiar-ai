@@ -38,10 +38,9 @@ def test_connect_with_retry_recovers_after_failures():
 def test_connect_with_retry_raises_fatal_after_exhaustion():
     from familiar_agent import db
 
-    with patch.object(db.psycopg2, "connect",
-                      side_effect=db.psycopg2.OperationalError("refused")):
+    with patch.object(db.psycopg2, "connect", side_effect=db.psycopg2.OperationalError("refused")):
         with pytest.raises(FatalStartupError) as ei:
             db._connect_with_retry("postgresql://u:pw@h/db", attempts=3, delay=0.0)
     msg = str(ei.value)
-    assert "PostgreSQL" in msg          # 何が起きたか
-    assert "pw" not in msg              # パスワードは伏せる
+    assert "PostgreSQL" in msg  # 何が起きたか
+    assert "pw" not in msg  # パスワードは伏せる

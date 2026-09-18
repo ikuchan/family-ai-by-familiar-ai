@@ -298,9 +298,14 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
         '"set_timer"（タイマー＝何分後に鳴る。tool_input に {"after_minutes": 3, "label": "何のため"}。'
         "返りが「確かめて」や「聞く」なら文をそのまま伝えて一度聞くだけ（掛け直しは要らない）。同時に 1 本）",
     ),
+    # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物——鳴らない・確認しない・黙らない。
     "start_stopwatch": (
         "",
-        '"start_stopwatch"（「今から測って」。tool_input に {"label": "何を"}）',
+        '"start_stopwatch"（ストップウォッチ＝「今から測って」「何分かかるか測って」。tool_input に {"label": "何を"}。同時に 1 本）',
+    ),
+    "stop_stopwatch": (
+        "",
+        '"stop_stopwatch"（ストップウォッチを止めて測った長さを言う。「ストップ」「何分だった？」。tool_input に {"id": 番号か "all"}。番号は [ストップウォッチ] の枠）',
     ),
     "cancel_timer": (
         "",
@@ -440,8 +445,10 @@ def _parse(
         query = _EXTRA_ACTIONS[action][0]  # 見出しが固定の道具。query が要るものはそのまま
     elif action == "family_schedule" and not query:
         query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
-    if action in ("set_timer", "start_stopwatch") and tool_input and set(tool_input) == {"id"}:
+    if action == "set_timer" and tool_input and set(tool_input) == {"id"}:
         action = "cancel_timer"  # 入力が id だけなら止める意図（「ストップ」に set_timer と書いた・実機 08:59）
+    if action == "start_stopwatch" and tool_input and set(tool_input) == {"id"}:
+        action = "stop_stopwatch"
     if (
         action == "set_timer"
         and tool_input
@@ -464,6 +471,7 @@ def _parse(
         "resume_timer",
         "set_alarm",
         "cancel_alarm",
+        "stop_stopwatch",
     ):
         # 見出し（同語二度投げの鍵）は label か id。tool_input が無ければ query から作る。
         if not tool_input and query:

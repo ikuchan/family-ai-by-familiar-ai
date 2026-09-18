@@ -19,21 +19,23 @@ def _run(coro):
 
 def test_witnessed_with_no_others_floors_to_write_store():
     pmm = MagicMock()
-    pmm.current_speaker_id = None            # 話者未解決 → DEFAULT
+    pmm.current_speaker_id = None  # 話者未解決 → DEFAULT
     pmm.get_present_ids.return_value = []
-    pmm.get_all_present_memories.return_value = []   # 在席他者なし
+    pmm.get_all_present_memories.return_value = []  # 在席他者なし
     pmm.get_person_name.return_value = "推定話者"
     store = MagicMock()
     store.save_async_with_id = AsyncMock(return_value=("mem-1", True))
-    pmm.get_speaker_memory.return_value = None       # _write_store → get_memory_for(DEFAULT)
+    pmm.get_speaker_memory.return_value = None  # _write_store → get_memory_for(DEFAULT)
     pmm.get_memory_for.return_value = store
     tool = MemoryTool(pmm)
 
-    res, _ = _run(tool._remember(
-        {"content": "たいきがプールに行った", "scope": "witnessed", "emotion": "happy"}
-    ))
+    res, _ = _run(
+        tool._remember(
+            {"content": "たいきがプールに行った", "scope": "witnessed", "emotion": "happy"}
+        )
+    )
 
-    store.save_async_with_id.assert_awaited()   # floor で本命へ書いた
+    store.save_async_with_id.assert_awaited()  # floor で本命へ書いた
     assert "書き込みなし" not in res
 
 
@@ -51,10 +53,8 @@ def test_witnessed_with_present_other_writes_to_other_no_floor():
     pmm.get_speaker_memory.return_value = floor_store
     tool = MemoryTool(pmm)
 
-    res, _ = _run(tool._remember(
-        {"content": "何か", "scope": "witnessed", "emotion": "neutral"}
-    ))
+    res, _ = _run(tool._remember({"content": "何か", "scope": "witnessed", "emotion": "neutral"}))
 
-    other_store.save_async.assert_awaited()          # witness へ書いた
+    other_store.save_async.assert_awaited()  # witness へ書いた
     floor_store.save_async_with_id.assert_not_awaited()  # floor は発動しない（結果あり）
     assert "書き込みなし" not in res

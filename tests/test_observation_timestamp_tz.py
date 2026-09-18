@@ -82,15 +82,11 @@ def test_override_date_is_stored_as_local_end_of_day() -> None:
     """日付指定の保存も DB の時計に載る（その日の 23:59:59 JST 相当）。"""
     content = f"tz override {uuid.uuid4()}"
     with patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1] * 1024]):
-        _mem().save(
-            content, direction="会話", kind="day_summary", override_date="2026-07-01"
-        )
+        _mem().save(content, direction="会話", kind="day_summary", override_date="2026-07-01")
 
     conn = _pg()
     with conn.cursor() as cur:
-        cur.execute(
-            "SELECT timestamp FROM observations WHERE content = %s", (content,)
-        )
+        cur.execute("SELECT timestamp FROM observations WHERE content = %s", (content,))
         row = cur.fetchone()
     conn.close()
 

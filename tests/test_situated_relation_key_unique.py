@@ -29,7 +29,6 @@ def _pg_conn():
     return conn
 
 
-
 def _insert_obs(cur, obs_id: str) -> None:
     cur.execute(
         "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
@@ -94,9 +93,15 @@ def test_upsert_separate_row_per_relation_key() -> None:
         mem = ObservationMemory()
 
     vec = np.ones(1024, dtype=np.float32)
-    mem._situated._upsert_situated_embedding(conn, obs_id, AGENT_SELF_ID, vec, relation_key="presence")
-    mem._situated._upsert_situated_embedding(conn, obs_id, AGENT_SELF_ID, vec, relation_key="speaker")
-    mem._situated._upsert_situated_embedding(conn, obs_id, AGENT_SELF_ID, vec, relation_key="presence")
+    mem._situated._upsert_situated_embedding(
+        conn, obs_id, AGENT_SELF_ID, vec, relation_key="presence"
+    )
+    mem._situated._upsert_situated_embedding(
+        conn, obs_id, AGENT_SELF_ID, vec, relation_key="speaker"
+    )
+    mem._situated._upsert_situated_embedding(
+        conn, obs_id, AGENT_SELF_ID, vec, relation_key="presence"
+    )
     conn.commit()
 
     with conn.cursor() as cur:

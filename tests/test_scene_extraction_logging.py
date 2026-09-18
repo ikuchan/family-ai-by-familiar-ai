@@ -92,7 +92,7 @@ async def test_the_text_fallback_passes_a_token_budget(caplog) -> None:
     seen = {}
 
     class _Strict:
-        async def complete(self, prompt, max_tokens):     # 必須引数のまま受ける
+        async def complete(self, prompt, max_tokens):  # 必須引数のまま受ける
             seen["max_tokens"] = max_tokens
             return '{"entities": [{"label": "chair"}]}'
 

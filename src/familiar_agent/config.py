@@ -626,6 +626,10 @@ class AgentConfig:
     # タイマーが鳴ったときに音（`assets/timer_alarm.wav`）を繰り返し鳴らす長さ（秒）。
     # 0 で音を鳴らさず声の知らせだけ（これまでどおり）。〔仮〕
     timer_ring_sec: float = field(default_factory=lambda: _float_env("TIMER_RING_SEC", 30.0))
+    # ストップウォッチの寿命（秒・知-u・2026-09-18）。これを超えて動いていれば T が止める（2 日間動き続けた）。
+    stopwatch_max_sec: float = field(
+        default_factory=lambda: _float_env("STOPWATCH_MAX_SEC", 6 * 3600.0)
+    )
     # アラームが鳴ったときの音の長さ（秒・知-q・タイマーとは別）。0 で声だけ。〔仮〕
     alarm_ring_sec: float = field(default_factory=lambda: _float_env("ALARM_RING_SEC", 30.0))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが

@@ -24,7 +24,7 @@ def test_env_overlay_layers_base_then_override(tmp_path, monkeypatch):
 
     try:
         bootstrap.load_app_bootstrap()
-        assert os.environ["FAM_OVL_A"] == "base"     # base の値が継がれる
+        assert os.environ["FAM_OVL_A"] == "base"  # base の値が継がれる
         assert os.environ["FAM_OVL_B"] == "overlay"  # overlay が勝つ
     finally:
         os.environ.pop("FAM_OVL_A", None)
