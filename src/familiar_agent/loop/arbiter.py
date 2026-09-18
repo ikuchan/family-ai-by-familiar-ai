@@ -27,7 +27,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 from ..core import measure
 
@@ -564,6 +564,7 @@ async def arbitrate(
     origin: str = "発話",
     extra_actions: tuple[str, ...] = (),
     tool_return: bool = False,
+    timer_active: bool = False,
 ) -> Decision:
     """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
 
@@ -595,6 +596,7 @@ async def arbitrate(
       ようにする。担い手が写真を受けられなければ（`complete_with_image` 無し）文字だけで進む。
     """
     from ..core.context_parts import Stance, build_context
+    from ..core.timer_rules import is_control_word
 
     # 安定はシステム文へ、課題の指示と可変の data はプロンプトへ（出-e-に）。
     system = build_context(
@@ -666,6 +668,16 @@ async def arbitrate(
         logger.warning("調停に失敗したのでフルへ倒す: %s", e)
         return _FALLBACK
     decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
+    if decision is not None and tool_return and (decision.silence_minutes or decision.lift_silence):
+        # 道具の帰りの反復では沈黙の依頼を読まない（情-n・実機 2026-09-18 20:46）。発話は古く、返りの文に
+        # 「黙って」が入る（確認文「その間は黙って待機します」を人の依頼として 60 分黙った）。
+        # 黙るかどうかはタイマーの道具（`TIMER_SILENCE`）が決める。
+        logger.info(
+            "調停 道具の帰りなので沈黙の依頼は読まない（%d・%s）",
+            decision.silence_minutes,
+            decision.lift_silence,
+        )
+        decision = replace(decision, silence_minutes=0, lift_silence=False)
     if decision is None:
         logger.warning("調停の返事を読めなかったのでフルへ倒す: %.300r", reply)
     elif (
@@ -685,6 +697,18 @@ async def arbitrate(
             silence_minutes=decision.silence_minutes,  # 「話すの止めて」の依頼は落とさない
             lift_silence=decision.lift_silence,
         )
+    elif (
+        decision.branch == "light"
+        and origin == "発話"
+        and not tool_return
+        and timer_active
+        and is_control_word(utterance)
+    ):
+        # タイマーが動いている／一時停止中に、操作の言葉（再開・一時停止・止めて）を light で受け流すと
+        # 「再開しますね」と言うだけで何も起きない（出-aa・実機 2026-09-18 20:47）。主LLM が `[タイマー]` の
+        # 枠と道具（pause／resume／cancel）で決める。言葉はあいまいでありうるので機械で道具を選ばない。
+        logger.info("調停 light を full へ倒す（タイマーの操作の言葉）：%.30s", utterance)
+        decision = replace(decision, branch="full", effort="low")
     measure.record(
         "調停",
         秒=f"{time.monotonic() - started:.2f}",
