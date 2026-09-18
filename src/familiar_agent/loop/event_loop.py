@@ -2699,7 +2699,13 @@ class InformationProcessing:
         if is_silenced(req, now=now, nobody_since=self._nobody_since()):
             assert req is not None
             speaker = self._current_speaker_name() if trigger.kind == "会話入力" else ""
-            if lifts(trigger.kind, trigger.query, speaker=speaker, asker=req.person):
+            if lifts(
+                trigger.kind,
+                trigger.query,
+                speaker=speaker,
+                asker=req.person,
+                reason=getattr(req, "reason", "") or "",
+            ):
                 if trigger.kind == "会話入力":
                     self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
                 return False

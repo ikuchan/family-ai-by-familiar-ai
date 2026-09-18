@@ -35,14 +35,22 @@ class Heard:
     why: str = "黙っていた"  # 聞けなかった理由：黙っていた／誰も見えなかった（2026-09-17）
 
 
-def lifts(kind: str, text: str, *, speaker: str, asker: str) -> bool:
+def lifts(kind: str, text: str, *, speaker: str, asker: str, reason: str = "") -> bool:
     """黙っていても求めを立ててよいきっかけか。
 
     - タイマーが鳴る（機器「タイマー」）：鳴ってほしいと決めた（知-n）。
     - 頼んだ本人の「話していい」：解く言葉そのもの。
     - 頼んだ本人の止める頼み（止めて・ストップ）：途中で停められることを軸にした（知-n）。
+    - **タイマー由来の沈黙**（`reason` が `timer:`）では、タイマーの操作の言葉（止め・一時停止・再開・
+      12 字以内）は**誰の言葉でも**通す（情-m・2026-09-18）。本人かは話者の指定（60 秒・知-t）で見るが、
+      タイマー中は返事をしないので掛けて 60 秒後には本人が「分からない」になり、本人の「一時停止」が
+      落ちた。声の門（`TIMER_MIC_CLOSE`）は既に「操作の言葉だけ・誰でも」なので入口も揃える。
     """
+    from .timer_rules import is_control_word
+
     if kind == "機器" and text == "タイマー":
+        return True
+    if kind == "会話入力" and reason.startswith("timer:") and is_control_word(text):
         return True
     if kind == "会話入力" and speaker and speaker == asker:
         return is_release(text) or bool(_STOP.search(text or ""))
