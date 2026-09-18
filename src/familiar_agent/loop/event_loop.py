@@ -2285,6 +2285,7 @@ class InformationProcessing:
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
+            timer_active=bool(_timer_frame(agent)),  # 操作の言葉の守り（出-aa）
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
@@ -2808,14 +2809,20 @@ class InformationProcessing:
         不在で聞いたもの（理由「誰も見えなかった」）とも共有しており、そちらを「沈黙が明けた」と
         読むと、誰も見えないのに求めが立って LLM が回った。不在の分は人が映った求めに載る。
         """
-        if not any(getattr(h, "why", "黙っていた") == "黙っていた" for h in self._muted):
-            return
         with contextlib.suppress(Exception):
-            from ..silence_state import is_silenced
+            from ..silence_state import clear_silence, is_silenced
 
-            if not is_silenced(
-                self._load_silence(), now=time.time(), nobody_since=self._nobody_since()
-            ):
+            req = self._load_silence()
+            lifted = not is_silenced(req, now=time.time(), nobody_since=self._nobody_since())
+            if lifted and req is not None and not req.reason.startswith("timer:"):
+                # 明示の依頼が退室（誰も居ないを 60 秒）で解けたら**記録も消す**（情-l-ろ・実機 2026-09-18
+                # 20:46）。残すと、タイマーの沈黙（`hush_for_timer`）が「人の依頼が生きている」と負け、
+                # 人が映ればまた黙る。タイマー由来は鳴る・止めるまで（`unhush_timer`）。
+                clear_silence()
+                logger.info("頼んだ人が居なくなったので沈黙を消した：%s", req.person)
+            if not any(getattr(h, "why", "黙っていた") == "黙っていた" for h in self._muted):
+                return
+            if lifted:
                 self.push_device(
                     "沈黙が明けた", f"黙っていたあいだに {len(self._muted)} 件届いていた"
                 )
