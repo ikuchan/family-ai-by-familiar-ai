@@ -596,6 +596,8 @@ class EmbodiedAgent:
                 window_sec=cam_cfg.presence_window_sec,
                 interval_sec=cam_cfg.presence_interval_sec,
                 min_gap_sec=cam_cfg.presence_min_gap_sec,
+                static_sec=cam_cfg.presence_static_sec,
+                static_iou=cam_cfg.presence_static_iou,
             )
             # 見えの「普通」（`知覚在席` §3-4）。読めない環境でも在席（YOLO）は動き続ける。
             try:

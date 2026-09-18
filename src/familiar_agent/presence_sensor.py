@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .poses import nearest_pose
+from .core.presence_rules import StaticBoxes, count_moving, reset
 from .presence_map import PresenceMap
 from .visual_norm import cosine_distance, is_ready, update_ema
 
@@ -51,8 +52,14 @@ class PresenceSensor:
         window_sec: float,
         interval_sec: float,
         min_gap_sec: float = 3.0,
+        static_sec: float = 300.0,
+        static_iou: float = 0.9,
     ) -> None:
         self._camera = camera
+        # 静止物を人と数えない（知-v）。定点ごとに前回の枠と起点を持つ。
+        self._static_sec = static_sec
+        self._static_iou = static_iou
+        self._static: dict[str, StaticBoxes] = {}
         self._poses_getter = poses_getter
         self._detector = detector
         self._tolerance = tolerance
@@ -104,7 +111,8 @@ class PresenceSensor:
         return self._frame_b64
 
     def on_motion(self) -> None:
-        """カメラが「動いた」と言ってきた。次の間隔を待たずに確かめる。"""
+        """カメラが「動いた」と言ってきた。次の間隔を待たずに確かめる。動いた証拠なので静止の積算は捨てる。"""
+        self._static = {k: reset(v) for k, v in self._static.items()}
         self._wake.set()
 
     # --- 中身 -------------------------------------------------------------
@@ -137,7 +145,7 @@ class PresenceSensor:
                 logger.warning("フレームを撮れなかったので在席を記録しない")
                 return None
             self._frame_b64 = frame_b64
-            people = await self._detector.count(path)
+            boxes = await self._detector.boxes(path)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
@@ -145,6 +153,22 @@ class PresenceSensor:
             return None
         await self._update_scene_norm(pose.name, path)
         now = time.time()
+        # 動かない枠は物（知-v）。数える前に落とす。
+        people, self._static[pose.name] = count_moving(
+            self._static.get(pose.name, StaticBoxes()),
+            list(boxes),
+            now=now,
+            static_sec=self._static_sec,
+            min_iou=self._static_iou,
+        )
+        if len(boxes) > people:
+            logger.debug(
+                "在席：%s の枠 %d 個のうち %d 個は %.0f 秒以上動かないので数えない",
+                pose.name,
+                len(boxes),
+                len(boxes) - people,
+                self._static_sec,
+            )
         if people > 0:
             pmap.mark_seen(pose.name, now)
             logger.info("在席：%s に %d 人", pose.name, people)

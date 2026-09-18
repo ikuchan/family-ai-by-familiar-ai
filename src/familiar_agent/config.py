@@ -129,6 +129,14 @@ class CameraConfig:
     presence_window_sec: float = field(
         default_factory=lambda: _float_env("CAMERA_PRESENCE_WINDOW", 180.0)
     )
+    # 静止物を人と数えない（知-v・2026-09-18）：人の枠が前回と重なり `static_iou` 以上のまま
+    # `static_sec` 動かなければ物とみなす（出入口の暗い塊を 7 分間「1 人」と読んだ）。〔仮〕
+    presence_static_sec: float = field(
+        default_factory=lambda: _float_env("PRESENCE_STATIC_SEC", 300.0)
+    )
+    presence_static_iou: float = field(
+        default_factory=lambda: _float_env("PRESENCE_STATIC_IOU", 0.9)
+    )
 
     def stream_url(self, stream: str = "stream1") -> str | int:
         """Build the RTSP or USB source URL — the single authoritative place.

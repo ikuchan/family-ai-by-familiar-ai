@@ -61,6 +61,22 @@ class PersonDetector(ModelResource):
             return 0
         return sum(len(r.boxes) for r in results)
 
+    def _boxes_sync(self, frame: Any) -> list[tuple[float, float, float, float]]:
+        model = self.ensure()
+        if model is None:
+            return []
+        try:
+            with self._infer_lock:
+                results = model.predict(frame, classes=[_PERSON_CLASS], verbose=False)
+        except Exception as e:  # noqa: BLE001
+            logger.exception("人検出に失敗したので見えなかったものとして扱う: %s", e)
+            return []
+        out: list[tuple[float, float, float, float]] = []
+        for r in results:
+            for row in r.boxes.xyxy.tolist():
+                out.append((float(row[0]), float(row[1]), float(row[2]), float(row[3])))
+        return out
+
     def _labels_sync(self, frame: Any) -> list[str]:
         model = self.ensure()
         if model is None:
@@ -92,6 +108,13 @@ class PersonDetector(ModelResource):
         （`イベント駆動ループ` v0.43）。`count` と同じモデルを使い、読込は 1 回で済む。
         """
         return await asyncio.to_thread(self._labels_sync, frame)
+
+    async def boxes(self, frame: Any) -> list[tuple[float, float, float, float]]:
+        """写っている人の枠（x1, y1, x2, y2）。`count` と同じモデル・同じ絞り（人だけ）。
+
+        在席センサは数でなく枠で受け、動かない枠を物として除く（知-v・`core/presence_rules`）。
+        """
+        return await asyncio.to_thread(self._boxes_sync, frame)
 
     async def count(self, frame: Any) -> int:
         """フレーム（ファイルパスか配列）に写っている人の数。
