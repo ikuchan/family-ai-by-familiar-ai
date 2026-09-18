@@ -130,12 +130,30 @@ def _truncate_all() -> None:
         pass
 
 
+def assert_database_url_untouched() -> None:
+    """`DATABASE_URL` がテスト DB のままか。違えば**その場で落とす**（環-r・2026-09-19）。
+
+    `reload_env()` が本物の `.env` を読み、`DATABASE_URL` が本番（5432）に変わったまま後のテストが走り、
+    本番 `familiar_ai` に 168 行の観測が書かれた（00:22〜01:21 JST・片付け済み）。テストは
+    `os.environ["DATABASE_URL"]` から直に接続するものが多く、変わった瞬間から本番へ書く。番人は
+    各テストの後ろで見て、変えたテストの名前で落とす（次のテストが本番へ書く前に止める）。
+    """
+    now = os.environ.get("DATABASE_URL")
+    if now != _TEST_DB_URL:
+        os.environ["DATABASE_URL"] = _TEST_DB_URL  # 後ろのテストを守ってから落とす
+        raise RuntimeError(
+            f"DATABASE_URL がテスト中に変わった（本番へ書く前に止めた）：{now!r} → テスト DB に戻した。"
+            "本物の .env を読み込んだテストを直す（reload_env／load_dotenv に path を渡す・_base_env_path を差し替える）"
+        )
+
+
 @pytest.fixture(autouse=True)
 def clean_db():
     """Isolate each test: reset singleton + truncate tables before and after."""
     _reset_db_singleton()
     _truncate_all()
     yield
+    assert_database_url_untouched()  # 本番へ書く前に止める（環-r）
     _reset_db_singleton()  # close open transactions before TRUNCATE
     _truncate_all()
 
