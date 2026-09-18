@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.50・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.51・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -355,6 +355,8 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 | カメラ判定による驚き量 $\widehat{S}$ | $\max(\widehat{S}_{在席},\widehat{S}_{景色})$ | 〔確定（枠）／係数のみ課題7〕 | 2系統を固定係数 min-max で 0〜1 化し max 合成。在席系統＝確率差[0,1]・景色系統＝コサイン距離$1-\cos$。**係数 $d_{lo}/d_{hi}$ 初期値は課題7**。$g_A$・$a_0$ がこれを使う（D- 承認） | 【新規仮置き→枠承認】 |
 | norm EMA 係数 $\alpha_{norm}$ | 0.10 | 〔確定（Config・初期値課題7）〕 | 上式（定点別「普通」更新）。驚き $S$ を取る | 【新規仮置き→承認・課題7】（[D-知覚]） |
 | 在席 timeout（滞留窓 `CAMERA_PRESENCE_WINDOW`） | 180.0 秒 | 〔確定（Config）・2026-09-17 に 120 → 180〕 | $\Delta t_{seen} > timeout \Rightarrow 不在$ | 【コード事実→承認】person_memory_manager.py:47 |
+| 静止物とみなす時間 `PRESENCE_STATIC_SEC`（Config） | 300 秒 | 〔仮〕 | 人の枠が動かなければ物として数えない（知-v）。出入口の誤検出は 7 分以上静止 | 【設計】知覚在席 v0.25 §3-3 |
+| 同じ枠とみなす重なり `PRESENCE_STATIC_IOU`（Config） | 0.9 | 〔仮〕 | 前回の枠との IoU がこれ以上なら「動いていない」。静止物は 0.95 前後、人は呼吸と姿勢で切りやすい見込み（実機の DEBUG で確かめる） | 【設計】知覚在席 v0.25 §3-3 |
 | situated 合成 $\alpha_p$ | 0.30 | 〔確定（Config）〕 | $v_{sit} = v_{mem} + \alpha_p\,v_{person}$ | 【コード事実→承認】:43 |
 | 人物 auto-switch 閾値 | 0.75 | 〔確定（Config・初期値課題7）〕 | $cos(顔, ギャラリー) \ge 0.75 \Rightarrow 同一人物$ | 【コード事実→承認】:45 |
 | 予測 EMA 係数 | 0.30 | 〔確定（Config）〕 | $pred \leftarrow 0.7\,pred + 0.3\,obs$ | 【コード事実→承認】prediction.py:37 |
@@ -386,6 +388,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.51：`PRESENCE_STATIC_SEC` 300・`PRESENCE_STATIC_IOU` 0.9（知-v・2026-09-18）。
 > v0.50：`CONFIRM_TTL_SEC`（出-y・2026-09-18）。
 > v0.49：タイマーの設定 3 つ・同時数・操作の言葉の長さ・`ALARM_RING_SEC`（知-o・知-q・2026-09-18）。
 > v0.48：`PRESENCE_SAID_SEC` 60・`DRIVE_VOICE_NUDGE` Θ/2〔仮〕・滞留窓 180（2026-09-17）。
