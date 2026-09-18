@@ -668,8 +668,15 @@ async def arbitrate(
     decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
     if decision is None:
         logger.warning("調停の返事を読めなかったのでフルへ倒す: %.300r", reply)
-    elif decision.branch == "light" and origin == "発話" and needs_tools(utterance):
+    elif (
+        decision.branch == "light"
+        and origin == "発話"
+        and not tool_return
+        and needs_tools(utterance)
+    ):
         # light は道具を使えない。「セットしました」と言うだけになるので full へ倒す（機械の守り）。
+        # 道具が返った反復（`tool_return`）では掛けない——道具はもう使った。返りを light で伝えるのが正しく、
+        # ここで倒すと主LLM が掛け直して上限まで空回りした（出-x-ろ・実機 2026-09-18 18:31）。
         logger.info("調停 light を full へ倒す（道具が要る頼み）：%.30s", utterance)
         decision = Decision(
             branch="full",

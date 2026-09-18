@@ -10,12 +10,16 @@
 - `new2`：new ＋ 直近に失敗の記録があっても道具で取り返さない、の一文（直近は外さない）
 - `new` ：帰りは想起なし——W＝[いま道具から返った]＋直近だけ・道具の返りを受ける専用の先導文・
           返ってきた道具（`set_timer`）を候補から外す（掛け直しは「いい」の側で機械が行う）
+- `prod`：本番の呼び方（`arbitrate(tool_return=True)`・`arbiter._LEAD_TOOL_RETURN`・W は new と同じ）
 
 W（`--ws`）：`a`＝14:50（ありがとう〜／おかえり）、`b`＝15:28（退室・SAFETY・入室・鳴っている）、
 `c`＝15:42（退室・SAFETY・入室・「さっきはうまくできなくてごめん」）。
 
 使い方：`uv run python scripts/experiment_arbiter_confirm.py --runs 8`（Gemini flash-lite・約 48 回）
-生の返事で集計する（`_parse` が None に倒す前の判断を見る）。
+**2 つ数える**：生の返事（`_parse` が None に倒す前の判断）と、`arbitrate` の返り（`_parse`・`needs_tools` の
+守りを通した後＝本番の分岐）。第 3 回（new2・24/24）は生の返事だけ数え、守り（「測って」を含む発話は light で
+答えない）が帰りの反復にも効いて full へ倒れるのを見落とした（出-x-ろ・実機 18:31）。`prod` の形は本番と同じ
+呼び方（`tool_return=True`・先導文の差し替えなし）で、その守りの後を見る。
 """
 
 from __future__ import annotations
@@ -121,9 +125,12 @@ async def run(shape: str, which: str, runs: int, backend, me: str, family: str) 
         A._LEAD_REPLY = LEAD_TOOL_RETURN
     elif shape == "new2":
         A._LEAD_REPLY = LEAD_TOOL_RETURN_2
-    extra = tuple(a for a in EXTRA_ALL if not (shape in ("new", "new2") and a == "set_timer"))
-    ws = build_ws(shape, which)
+    extra = tuple(
+        a for a in EXTRA_ALL if not (shape in ("new", "new2", "prod") and a == "set_timer")
+    )
+    ws = build_ws("new" if shape == "prod" else shape, which)
     raws: list[str] = []
+    decisions: list = []
     orig = backend.complete
 
     async def spy(prompt, max_tokens, **kw):
@@ -134,7 +141,7 @@ async def run(shape: str, which: str, runs: int, backend, me: str, family: str) 
     backend.complete = spy  # type: ignore[method-assign]
     try:
         for _ in range(runs):
-            await A.arbitrate(
+            d = await A.arbitrate(
                 backend,
                 utterance=CUE,
                 workspace_ctx=ws,
@@ -146,7 +153,9 @@ async def run(shape: str, which: str, runs: int, backend, me: str, family: str) 
                 origin="発話",
                 extra_actions=extra,
                 thinking_round=1,
+                tool_return=(shape == "prod"),
             )
+            decisions.append(d)
     finally:
         backend.complete = orig  # type: ignore[method-assign]
         A._LEAD_REPLY = saved_lead
@@ -170,6 +179,13 @@ async def run(shape: str, which: str, runs: int, backend, me: str, family: str) 
     print(f"== shape={shape} W={which} runs={runs}")
     for k, n in tally.most_common():
         print(f"  {n:2d}  {k}   例: {samples[k]!r}")
+    after: collections.Counter = collections.Counter(
+        f"branch={d.branch} action={d.action or '-'}"
+        if d.branch == "action"
+        else f"branch={d.branch}"
+        for d in decisions
+    )
+    print("  守りの後（arbitrate の返り）:", "・".join(f"{k} {n}" for k, n in after.most_common()))
 
 
 def main() -> None:

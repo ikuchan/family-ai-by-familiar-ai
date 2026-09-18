@@ -124,3 +124,20 @@ def test_arbitrate_uses_the_tool_return_lead_when_asked():
     assert d.branch == "light" and "取り返そうとして道具を選ばない" in seen["prompt"]
     asyncio.run(arbiter.arbitrate(b, utterance="x", workspace_ctx=""))
     assert "取り返そうとして道具を選ばない" not in seen["prompt"]
+
+
+def test_the_needs_tools_guard_does_not_fire_on_a_tool_return():
+    """出-x-ろ（実機 18:31）：守り（「測って」は light で答えない）は道具が返った反復では掛けない。"""
+
+    async def light(prompt, max_tokens, **kw):
+        return '{"branch":"light","text":"11 分のタイマーね、いい？"}'
+
+    b = MagicMock()
+    b.complete = light
+    ws = "[いま道具から返った]\n- set_timer「タイマーを掛ける「x」」→ まだ掛けていない。本人に一度聞く：「…」"
+    d = asyncio.run(
+        arbiter.arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=ws, tool_return=True)
+    )
+    assert d.branch == "light"
+    d = asyncio.run(arbiter.arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=""))
+    assert d.branch == "full"  # 初回の反復の守りは残る
