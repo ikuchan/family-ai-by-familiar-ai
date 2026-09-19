@@ -939,13 +939,16 @@ class EmbodiedAgent:
         since = getattr(tonic, "_unoccupied_since", None)
         return float(since) if isinstance(since, (int, float)) else None
 
-    def _stop_timer_ring(self) -> None:
-        """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。"""
+    def _stop_timer_ring(self) -> bool:
+        """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。止めたら True（出-af）。"""
         ip = getattr(self, "_info_processing", None)
         dif = getattr(ip, "_dif", None)
-        if dif is not None:
-            with contextlib.suppress(Exception):
-                dif.stop_ring()
+        if dif is None:
+            return False
+        was = bool(getattr(dif, "ringing", False))
+        with contextlib.suppress(Exception):
+            dif.stop_ring()
+        return was
 
     def _in_quiet_hours(self) -> bool:
         """Return True when the current time falls inside the scheduled quiet window.

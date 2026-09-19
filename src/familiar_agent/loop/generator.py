@@ -64,13 +64,19 @@ def _present_ctx(agent) -> str:
         with contextlib.suppress(Exception):
             sensor = getattr(agent, "_presence_sensor", None)
             if sensor is not None and sensor.room_occupied() is True:
-                return '(present :speaker "unconfirmed" :note "誰か居るが顔は確認できていない")'
+                return (
+                    '(present :speaker "unconfirmed" :note "誰か居るが、誰かは分からない。'
+                    '名前で呼ばない（直近のやりとりの名前も当てにしない）。知りたければ聞いてよい")'
+                )
         # 直近に話しかけられているなら、相手は居るが誰かは不明。
         recently_spoken = False
         with contextlib.suppress(Exception):
             recently_spoken = agent._social_presence_permission() > 0.0
         if recently_spoken:
-            return '(present :speaker "unconfirmed" :note "顔は確認できていないが直近に話しかけられた")'
+            return (
+                '(present :speaker "unconfirmed" :note "直近に話しかけられたが、誰かは分からない。'
+                '名前で呼ばない。知りたければ聞いてよい")'
+            )
         return '(present :none true :note "誰も確認できていない")'
 
     def _one(row: dict) -> str:

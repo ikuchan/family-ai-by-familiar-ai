@@ -26,6 +26,17 @@ from typing import Callable
 
 logger = logging.getLogger(__name__)
 
+
+def drop_if_hallucination(text: str) -> str:
+    """Whisper の幻聴の定型文（「ご視聴ありがとうございました」）なら空に（知-y・2026-09-19）。INFO に残す。"""
+    from ..core.stt_rules import is_hallucination
+
+    if text and is_hallucination(text):
+        logger.info("STT: 幻聴の定型文なので捨てた：%r", text[:40])
+        return ""
+    return text
+
+
 # silero-vad が要求するフレーム長（16kHz のとき）。**この値は動かせない。**
 FRAME_SAMPLES = 512
 _RATE = 16000
@@ -265,7 +276,9 @@ class LocalSttEngine:
             )
             logger.debug("STT: 捨てた本文: %s", "".join(parts).strip()[:120])
             return ""
-        text = "".join(parts).strip()
+        text = drop_if_hallucination("".join(parts).strip())
+        if not text:
+            return ""
         logger.info(
             "STT: 書き起こした（%d 字・%.2f 秒・音声 %.1f 秒）",
             len(text),

@@ -68,7 +68,7 @@ class AlarmTool:
         speaker: Callable[[], str],
         quiet: Callable[[], Any],
         now: "Callable[[], datetime] | None" = None,
-        on_cancel: "Callable[[], None] | None" = None,
+        on_cancel: "Callable[[], object] | None" = None,  # 音を止めたら真を返してよい（出-af）
         ask: "Callable[[PendingConfirm], None] | None" = None,
     ) -> None:
         self._store = store

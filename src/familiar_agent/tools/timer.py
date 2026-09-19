@@ -109,7 +109,7 @@ class TimerTool:
         now: "Callable[[], datetime] | None" = None,
         hush: "Callable[[str, datetime, int], None] | None" = None,
         unhush: "Callable[[int | str], None] | None" = None,
-        on_cancel: "Callable[[], None] | None" = None,
+        on_cancel: "Callable[[], object] | None" = None,  # 音を止めたら真を返してよい（出-af）
         ask: "Callable[[PendingConfirm], None] | None" = None,
     ) -> None:
         self._store = store
@@ -297,15 +297,20 @@ class TimerTool:
         ) + hushed, True
 
     async def _cancel(self, inp: dict) -> tuple[str, bool]:
-        if self._on_cancel is not None:
-            self._on_cancel()
+        # 鳴っている音を先に止める。止めたなら返りに言う（出-af・実機 13:34：音は止めたのに
+        # 「止めるものが無い」と返し、本人は「無視された」と受け取った）。
+        stopped_ring = bool(self._on_cancel()) if self._on_cancel is not None else False
         now = self._now()
         store = self._store()
         target = inp.get("id")
         if str(target).strip().lower() == "all":
             rows = store.active(now=now)
             if not rows:
-                return "動いているタイマーは無い", True
+                return (
+                    "音を止めた（鳴り終わったタイマーは無い）"
+                    if stopped_ring
+                    else "動いているタイマーは無い"
+                ), True
             n = store.cancel_all(now=now)
             if self._unhush is not None:
                 self._unhush("all")
