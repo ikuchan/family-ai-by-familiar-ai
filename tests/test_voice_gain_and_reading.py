@@ -3,7 +3,7 @@
 - ミキサーは 1 つ（YVC-300 `PCM` 80%）で音と声が同じ出口。音（倍率 1.5）を基準にすると声は大きすぎた。
   普段の声は `TTS_GAIN`（既定 0.25・聴き比べで決めた）を掛け、タイマー／アラームの知らせだけ `TIMER_VOICE_GAIN`（1.5）。
 - ElevenLabs が「出入口」を「しゅつにゅうくち」と読む。声にする直前に読みの表で置き換える（画面の文字はそのまま）。
-- 鳴る音の長さは 30 → 8 秒（タイマー・アラームとも）。
+- 鳴る音の長さは 30 秒のまま。8 秒で小さく・20 秒で戻す山谷は `test_ring_envelope`。
 """
 
 from __future__ import annotations
@@ -21,7 +21,9 @@ def test_defaults_are_the_values_we_chose(monkeypatch):
     for k in ("TTS_GAIN", "TIMER_RING_SEC", "ALARM_RING_SEC"):
         monkeypatch.delenv(k, raising=False)
     cfg = AgentConfig()
-    assert cfg.tts_gain == 0.25 and cfg.timer_ring_sec == 8.0 and cfg.alarm_ring_sec == 8.0
+    assert (
+        cfg.tts_gain == 0.25 and cfg.timer_ring_sec == 30.0 and cfg.alarm_ring_sec == 30.0
+    )  # 長さは 30（山谷は `test_ring_envelope`）
 
 
 def test_ordinary_speech_uses_tts_gain_and_notices_keep_the_timer_gain():

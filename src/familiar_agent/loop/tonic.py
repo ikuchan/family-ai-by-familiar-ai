@@ -342,6 +342,12 @@ class Tonic:
             quiet = False
             with contextlib.suppress(Exception):
                 quiet = bool(self._agent._in_quiet_hours())
+            with contextlib.suppress(Exception):  # 山谷の形（8 秒で小さく・25 秒で戻す）
+                self._ip._dif.configure_ring(
+                    soft_after=getattr(cfg, "ring_soft_after_sec", 8.0),
+                    soft_until=getattr(cfg, "ring_soft_until_sec", 25.0),
+                    soft_gain=getattr(cfg, "ring_soft_gain", 0.1),
+                )
             timer_watch.fire_due(
                 tool.store(),
                 self._ip._dif,
