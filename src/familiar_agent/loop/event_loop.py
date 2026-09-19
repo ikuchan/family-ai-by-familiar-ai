@@ -77,6 +77,8 @@ _ALARM_ACTIONS = ("set_alarm", "cancel_alarm")
 # 確認待ちへの答え（出-y・2026-09-18）。預かりが生きているあいだだけ候補と道具に載る（`agent.confirm_alive`）。
 # 機械が預かった入力で掛ける／捨てる。返りは道具の帰りと同じ道（想起なし・`workspace.RETURN_WITHOUT_RECALL`）。
 _CONFIRM_ACTIONS = ("confirm", "decline")
+#: 在席が無い名乗りを預かる秒数（知-w-ろ・2026-09-19・本人が 30 と決めた）。テレビの名乗りの直後に人が入る誤りは短さで受ける。
+PENDING_CLAIM_SEC = 30.0
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
@@ -552,6 +554,8 @@ class InformationProcessing:
         self._on_request_state = None
         # 投げる前に控える1件（`_start_lookup` が置き、背景タスクが読む）。
         self._pending_lookup: tuple[str, dict, str] = ("", {}, "recall")
+        # 在席が無くて使えなかった名乗り（名前・時刻）。30 秒預かる（知-w-ろ）。
+        self._pending_claim: "tuple[str, float] | None" = None
 
     def _note_origin(self, obs_id: str | None) -> None:
         """このターンの起点を控える。
@@ -1560,6 +1564,7 @@ class InformationProcessing:
         self._pending_heard = []
         # 確認待ち（出-y）。この求めの W の最上部に載せる。預かりが無い・寿命切れなら空。
         self._req.confirm_frame = self._confirm_frame()
+        await self._apply_pending_claim()  # 預かった名乗り（知-w-ろ）
         # **人の言葉は、その人がやったことである。** `actor` の面（`situated_memories`）は
         # 話者に立てる。想起は `_active_memory()`＝話者の面を引くので、`__self__` の面に
         # しか立てないと、**その人の面にはその人が言ったことが1件も無くなる**。
@@ -2988,17 +2993,27 @@ class InformationProcessing:
         if not claim:
             return
         agent = self._agent
-        try:
-            present = float(agent._social_presence_permission() or 0.0) > 0.0
-        except Exception:  # noqa: BLE001
-            present = False
-        if not present:
-            logger.info("名乗り「%s」があるが在席が無いので話者にしない", claim)
-            return
         name = resolve_claim(claim, str(getattr(agent, "_family_md", "") or ""))
         if name is None:
             logger.info("名乗り「%s」は家族に無いので話者にしない", claim)
             return
+        if not self._someone_present():
+            # 在席が無い名乗りは 30 秒預かる（知-w-ろ・実機 13:27：見回りの帰りに名乗りを読んだ 6 秒後に
+            # センサが人を見た）。人を見た最初の求め（`_begin_request`）で生きていれば付ける。
+            self._pending_claim = (name, time.time())
+            logger.info("名乗り「%s」があるが在席が無いので %.0f 秒預かる", name, PENDING_CLAIM_SEC)
+            return
+        await self._set_speaker(name, "在席あり")
+
+    def _someone_present(self) -> bool:
+        try:
+            return float(self._agent._social_presence_permission() or 0.0) > 0.0
+        except Exception:  # noqa: BLE001
+            return False
+
+    async def _set_speaker(self, name: str, why: str) -> None:
+        """名乗りで話者を付ける（`/speaker` と同じ効き：`set_active`・`_speaker_set_at`・PMM 同期）。"""
+        agent = self._agent
         if str(getattr(agent._persons, "active_name", "") or "") == name and getattr(
             agent._persons, "active_is_explicit", False
         ):
@@ -3007,7 +3022,21 @@ class InformationProcessing:
         agent._speaker_set_at = time.time()
         with contextlib.suppress(Exception):
             await agent._sync_pmm_speaker(name)
-        logger.info("名乗りで話者を付けた：%s（在席あり）", name)
+        logger.info("名乗りで話者を付けた：%s（%s）", name, why)
+
+    async def _apply_pending_claim(self) -> None:
+        """預かった名乗りを、人を見た最初の求めで付ける（30 秒以内・知-w-ろ）。過ぎていれば捨てる。"""
+        kept = getattr(self, "_pending_claim", None)
+        if kept is None:
+            return
+        name, at = kept
+        if time.time() - at > PENDING_CLAIM_SEC:
+            self._pending_claim = None
+            logger.info("預かった名乗り「%s」は %.0f 秒過ぎたので捨てた", name, PENDING_CLAIM_SEC)
+            return
+        if self._someone_present():
+            self._pending_claim = None
+            await self._set_speaker(name, "預かり・在席が付いた")
 
     def _apply_silence(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
