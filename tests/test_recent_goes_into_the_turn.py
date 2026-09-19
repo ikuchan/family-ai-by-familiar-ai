@@ -15,7 +15,11 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.backends import ToolCall
 from tests.test_event_loop import _agent, _run, _turn
 
-_NOW = datetime(2026, 9, 7, 21, 14, tzinfo=timezone.utc)
+
+def _now() -> datetime:
+    """いまの時刻（直近の窓には 5 分の上限がある・出-ae(2)。固定の過去日だと窓から外れる。
+    収集時に固めると全体テストの後半で実行されたとき 5 分を越えるので、呼ぶたびに取る）。"""
+    return datetime.now(timezone.utc)
 
 
 def _rows():
@@ -25,7 +29,7 @@ def _rows():
             "content": "明日の運動会って何時から？",
             "role": "起点",
             "direction": "発話",
-            "timestamp": _NOW,
+            "timestamp": _now(),
             "depth": 0,
         },
         {
@@ -33,7 +37,7 @@ def _rows():
             "content": "8時半に開会式だよ。",
             "role": "答え",
             "direction": "発話",
-            "timestamp": _NOW,
+            "timestamp": _now(),
             "depth": 0,
         },
     ]
@@ -67,7 +71,7 @@ def test_the_verbatim_is_not_shortened():
                 "content": long,
                 "role": "答え",
                 "direction": "発話",
-                "timestamp": _NOW,
+                "timestamp": _now(),
                 "depth": 0,
             }
         ],

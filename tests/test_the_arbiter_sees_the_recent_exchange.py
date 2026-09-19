@@ -17,11 +17,11 @@ from familiar_agent.loop.arbiter import Decision as ArbiterDecision
 from familiar_agent.loop.event_loop import InformationProcessing
 from tests.test_event_loop import _agent, _turn
 
-_T0 = datetime(2026, 9, 13, 9, 40, tzinfo=timezone.utc)
-
 
 def _exchange(i: int, ask: str, ans: str) -> list[dict]:
-    when = _T0 + timedelta(minutes=i)
+    # 直近の窓には 5 分の上限がある（出-ae(2)）ので、いまから数十秒前に置く。収集時に固めると
+    # 全体テストの後半で実行されたとき 5 分を越えるので、呼ぶたびに取る。
+    when = datetime.now(timezone.utc) - timedelta(seconds=60 - 10 * i)
     return [
         {"obs_id": f"q{i}", "content": ask, "role": "起点", "timestamp": when, "depth": 0},
         {"obs_id": f"a{i}", "content": ans, "role": "答え", "timestamp": when, "depth": 0},
