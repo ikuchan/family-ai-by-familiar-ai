@@ -38,6 +38,7 @@ dependencies = [
     # ままにし、GPU 版は 3.11+ でだけ要求する（3.10 では顔認識が無効化されるだけ）。
     "onnxruntime-gpu>=1.24.3 ; python_version >= '3.11'",
     "soxr>=1.1.0",
+    "pyopenjtalk>=0.4.1",
 ]
 
 [project.optional-dependencies]

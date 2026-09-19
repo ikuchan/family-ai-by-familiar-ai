@@ -251,14 +251,19 @@ class TTSTool:
         角括弧タグは、解する担い手にだけ残す。
         """
         from .._ui_helpers import clean_spoken_text, strip_stage_directions
-        from ..core.reading import for_speech
 
-        text = for_speech(
-            text
-        )  # 読みの表（「出入口」→「でいりぐち」・出-ac）。画面の文字は変えない
         if self.understands_tags:
             return strip_stage_directions(text)
         return clean_spoken_text(text)
+
+    def _text_for_synth(self, text: str) -> str:
+        """合成器へ渡す文。ElevenLabs は漢字を読めないので読み（ひらがな）に（環-t・出-ac）。
+
+        声の門（`voice_guard`）へは元の文を渡す——書き起こし（漢字まじり）との照合に使うため。SBV2 は自前で読む。
+        """
+        from ..core.reading import for_speech
+
+        return for_speech(text) if self.engine == "elevenlabs" else text
 
     async def say(self, text: str, output: str | None = None, *, gain: float = 1.0) -> str:
         """声に出す。合成の担い手は `engine` で決まる。`gain` はこの 1 回の再生にだけ掛ける倍率。
@@ -359,7 +364,7 @@ class TTSTool:
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}?output_format=pcm_16000"
         headers = {"xi-api-key": self.api_key, "Content-Type": "application/json"}
         payload = {
-            "text": text,
+            "text": self._text_for_synth(text),
             "model_id": self.elevenlabs_model,
             "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
         }
@@ -561,7 +566,7 @@ async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
             # On Windows prefer MCI (reliable, built-in) over PyAV+sounddevice
             if sys.platform == "win32" and _play_mp3_mci(audio_path):
                 return True
-            return _play_mp3_via_pyav(audio_path)
+            return _play_mp3_via_pyav(audio_path, gain)
         else:
             try:
                 import numpy as np
@@ -626,7 +631,7 @@ def _play_mp3_mci(mp3_path: str) -> bool:
         return False
 
 
-def _play_mp3_via_pyav(mp3_path: str) -> bool:
+def _play_mp3_via_pyav(mp3_path: str, gain: float = 1.0) -> bool:
     """Decode MP3 with PyAV to s16 PCM, play via sounddevice.
 
     Uses s16 interleaved stereo (simpler than fltp planar) for cross-platform reliability.
@@ -666,7 +671,10 @@ def _play_mp3_via_pyav(mp3_path: str) -> bool:
 
         # Concatenate along samples axis → (1, total_samples) → flatten to (total_samples,)
         audio = np.concatenate(chunks_nd, axis=1).flatten().astype(np.float32) / 32768.0
-        sd.play(audio, TARGET_RATE)
+        if gain != 1.0:
+            audio = np.clip(audio * gain, -1.0, 1.0)
+        # 出力機器は wav と同じ口で選ぶ（機器指定が無く、既定の出力＝PC のスピーカーへ出ていた・2026-09-19）
+        sd.play(audio, TARGET_RATE, device=_resolve_output_device())
         sd.wait()
         return True
     except Exception as e:
