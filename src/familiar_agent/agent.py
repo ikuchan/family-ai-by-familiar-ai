@@ -1137,6 +1137,49 @@ class EmbodiedAgent:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.summarize_exchange(user_input, agent_response)
 
+    def audio_volume_note(self) -> str:
+        """出力機器のミキサーが低ければ知らせる 1 行（環-q・2026-09-19）。値は変えない。
+
+        YVC-300 の `PCM` が 40% で音も声もほぼ無音だった。50% 未満なら起動時の吹き出しと WARNING。
+        機器の名前は `AUDIO_OUTPUT_DEVICE`（無ければ `AUDIO_INPUT_DEVICE`）。読めなければ黙る。
+        """
+        from .core import audio_volume
+
+        name = (
+            os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
+            or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+        )
+        percent = audio_volume.read_percent(name) if name else None
+        if percent is None or percent >= 50:
+            return ""
+        note = (
+            f"🔈 スピーカー（{name}）の音量が {percent}%。本体のボタンか "
+            f"`amixer -c <card> sset PCM 80%` で上げて（音も声も同じ出口）"
+        )
+        logger.warning("出力機器のミキサーが低い：%s %d%%", name, percent)
+        return note
+
+    def speaker_basis(self) -> str:
+        """「分かっている相手」の根拠を 1 句で（環-p-ろ・パネル用・`speaker_known` と同じ順）。"""
+        pmm = getattr(self, "_pmm", None)
+        sid = getattr(pmm, "current_speaker_id", None) if pmm is not None else None
+        if not sid:
+            return "—"
+        raw = getattr(getattr(self, "config", None), "presence_said_sec", None)
+        window = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
+        now = time.time()
+        for attr, label in (
+            ("_speaker_set_at", "/speaker から"),
+            ("_speaker_confirmed_at", "返事から"),
+        ):
+            at = getattr(self, attr, None)
+            if isinstance(at, (int, float)) and (now - at) < window:
+                return f"{label} {int(now - at)} 秒（あと {int(window - (now - at))} 秒）"
+        with contextlib.suppress(Exception):
+            if pmm is not None and sid in (pmm.get_present_ids() or []):
+                return "在席表（顔照合か /speaker）"
+        return "切れている"
+
     def _backup_status_note(self) -> str:
         """Return a system note if the last DB backup is stale (>25h), else empty string."""
         log_path = Path.home() / ".familiar_ai" / "backups" / "backup.log"

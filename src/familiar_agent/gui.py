@@ -774,6 +774,21 @@ def format_timer_rows(
     return out or ["（タイマー・アラーム・ストップウォッチなし）"]
 
 
+def format_sensor_rows(reading: "tuple[str, int, float] | None", basis: str) -> "list[str]":
+    """センサの最新の読みと、話者の根拠（環-p-ろ・2026-09-19）。
+
+    パネルは PMM の在席表しか映さず、センサが人を見ていても「（在席者なし）」に見えた（実機 11:34）。
+    居るか（センサ）と誰か（在席表）は別の層なので、両方を出す。
+    """
+    if reading is None:
+        first = "センサ：（まだ見ていない）"
+    else:
+        pose, people, age = reading
+        who = f" {people} 人" if people > 0 else "誰も居ない"
+        first = f"センサ：{pose} に{who}（{int(age)} 秒前）"
+    return [first, f"話者の根拠：{basis or '—'}"]
+
+
 def format_presence_rows(rows: "list[dict]") -> "list[str]":
     """presence_status → 表示行。話者は ★、在席ゼロは注記。"""
     if not rows:
@@ -976,6 +991,14 @@ class PresencePanel(QWidget):
         self._present_lbl.setWordWrap(True)
         layout.addWidget(self._present_lbl)
 
+        # センサの読みと話者の根拠（環-p-ろ・2026-09-19）。
+        self._sensor_lbl = QLabel("センサ：（まだ見ていない）\n話者の根拠：—")
+        self._sensor_lbl.setStyleSheet(
+            f"color: {_TEXT_SECONDARY}; font-size: {_px(10)}px; background: transparent;"
+        )
+        self._sensor_lbl.setWordWrap(True)
+        layout.addWidget(self._sensor_lbl)
+
         # タイマーの状況（環-p・2026-09-18）。`[タイマー]`／`[アラーム]` の枠と鳴っているかを 2 秒ごとに。
         timer_title = QLabel("タイマー")
         timer_title.setStyleSheet(
@@ -1014,6 +1037,23 @@ class PresencePanel(QWidget):
             self._timer_lbl.setText("\n".join(self._timer_rows()))
         except Exception:
             pass
+        try:
+            self._sensor_lbl.setText("\n".join(self._sensor_rows()))
+        except Exception:
+            pass
+
+    def _sensor_rows(self) -> "list[str]":
+        agent = self._get_agent()
+        if agent is None:
+            return format_sensor_rows(None, "")
+        reading = None
+        sensor = getattr(agent, "_presence_sensor", None)
+        with contextlib.suppress(Exception):
+            reading = sensor.last_reading() if sensor is not None else None
+        basis = ""
+        with contextlib.suppress(Exception):
+            basis = str(agent.speaker_basis())
+        return format_sensor_rows(reading, basis)
 
     def _timer_rows(self) -> "list[str]":
         """器（`_timer_tool`・`_alarm_tool`・`_stopwatch_tool`・`_dif`）から読むだけ。無ければ「なし」。"""
@@ -2361,6 +2401,10 @@ class FamiliarWindow(QMainWindow):
             return
         elapsed = int(time.time() - start)
         self._log.append_line(f"✅ {_t('initializing_done')} ({elapsed}s)")
+        with contextlib.suppress(Exception):  # 出力機器のミキサーが低ければ知らせる（環-q）
+            note = self._agent.audio_volume_note() if self._agent is not None else ""
+            if note:
+                self._log.append_line(note)
         self._stream.clear_status()
         self.setWindowTitle(f"familiar-ai  {__version__}")
 
