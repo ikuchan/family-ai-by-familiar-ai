@@ -250,7 +250,11 @@ class TTSTool:
         角括弧タグは、解する担い手にだけ残す。
         """
         from .._ui_helpers import clean_spoken_text, strip_stage_directions
+        from ..core.reading import for_speech
 
+        text = for_speech(
+            text
+        )  # 読みの表（「出入口」→「でいりぐち」・出-ac）。画面の文字は変えない
         if self.understands_tags:
             return strip_stage_directions(text)
         return clean_spoken_text(text)

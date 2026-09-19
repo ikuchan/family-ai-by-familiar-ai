@@ -602,6 +602,9 @@ class AgentConfig:
     silence_max_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60))
     # タイマーが鳴った知らせを話すときだけ声に掛ける倍率（1.0＝いまと同じ・機器の音量は触らない）。
     timer_voice_gain: float = field(default_factory=lambda: _float_env("TIMER_VOICE_GAIN", 1.0))
+    # 普段の声の倍率（環-q-ろ・2026-09-19）。ミキサー（YVC-300 `PCM` 80%）は音（倍率 1.5）を基準に決めたので、
+    # 声は下げる。0.25 は聴き比べ（1.0・0.5・0.35・0.25・0.15）で本人が選んだ。知らせの声は `TIMER_VOICE_GAIN`。
+    tts_gain: float = field(default_factory=lambda: _float_env("TTS_GAIN", 0.25))
     # タイマーの振る舞い 3 つ（知-o・2026-09-18・`設計方針_タイマー` v0.3）。正本は `.env`、
     # 設定画面の「タイマー」欄で変え、保存した瞬間に効く（`TimerTool.flags()` が呼ぶたびに読む）。
     # 掛けているあいだは黙り、鳴ったら戻す（既定 有効・false でこれまでどおり）。
@@ -625,13 +628,13 @@ class AgentConfig:
     confirm_ttl_sec: float = field(default_factory=lambda: _float_env("CONFIRM_TTL_SEC", 300.0))
     # タイマーが鳴ったときに音（`assets/timer_alarm.wav`）を繰り返し鳴らす長さ（秒）。
     # 0 で音を鳴らさず声の知らせだけ（これまでどおり）。〔仮〕
-    timer_ring_sec: float = field(default_factory=lambda: _float_env("TIMER_RING_SEC", 30.0))
+    timer_ring_sec: float = field(default_factory=lambda: _float_env("TIMER_RING_SEC", 8.0))
     # ストップウォッチの寿命（秒・知-u・2026-09-18）。これを超えて動いていれば T が止める（2 日間動き続けた）。
     stopwatch_max_sec: float = field(
         default_factory=lambda: _float_env("STOPWATCH_MAX_SEC", 6 * 3600.0)
     )
     # アラームが鳴ったときの音の長さ（秒・知-q・タイマーとは別）。0 で声だけ。〔仮〕
-    alarm_ring_sec: float = field(default_factory=lambda: _float_env("ALARM_RING_SEC", 30.0))
+    alarm_ring_sec: float = field(default_factory=lambda: _float_env("ALARM_RING_SEC", 8.0))
     # 完了 MI（調べた結果）の content 上限。取ってきた本文を切ると、表なら見出しだけが
     # 残って中身が消える。上限は埋め込みモデル bge-m3 の入力上限 8192 トークンに合わせる。
     # 1文字＝1トークンになる字もあるので、8192 *文字* なら常に 8192 トークン以下に収まり、

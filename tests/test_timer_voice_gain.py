@@ -92,6 +92,7 @@ def test_dif_forwards_the_gain_only_when_it_matters():
 def test_only_a_timer_request_speaks_louder():
     a = MagicMock()
     a.config.timer_voice_gain = 1.5
+    a.config.tts_gain = 1.0  # 普段の声の倍率（環-q-ろ）は別のテストで
     ip = InformationProcessing(a)
     ip._req.trigger_kind = "機器"
     ip._req.request_text = "[タイマー] タイマー：「パパのタイマー」の時間"
