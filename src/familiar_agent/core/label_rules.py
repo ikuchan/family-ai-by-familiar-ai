@@ -17,13 +17,15 @@ MAX_CHARS = (
     20  # 〔仮〕「パパがコーヒーを淹れる時間」（13 字）は通り、「…を測る」の文（20 字超）は落ちる
 )
 _UNKNOWN = re.compile(r"不明|わからない|分からない|わかりません|分かりません|未定|特になし|なし$")
+# 行為や道具の名を名前にしたもの（「ストップウォッチの開始」「時間を測る」・知-u-ろ・実機 13:38）。名前は測る対象の名詞だけ。
+_ACT = re.compile(r"測る|計る|開始|スタート|ストップウォッチ|タイマー|アラーム|セット")
 _TRIM = " \t　「」『』\"'。．,.、"
 
 
 def clean_label(text: object, fallback: str) -> str:
     """名前として使える形に整える。使えなければ `fallback`（「測る」「タイマー」）。"""
     s = str(text or "").strip(_TRIM)
-    if not s or len(s) > MAX_CHARS or _UNKNOWN.search(s):
+    if not s or len(s) > MAX_CHARS or _UNKNOWN.search(s) or _ACT.search(s):
         if s:
             logger.info("名前を検めて「%s」にした：%r", fallback, s[:40])
         return fallback
