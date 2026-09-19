@@ -68,6 +68,8 @@ class DIF:
         self._mcp = mcp
         self._ip = ip
         self._ring_task: asyncio.Task | None = None  # 鳴っているタイマーの音（知-n-ろ）
+        # 山谷の既定（小さくする秒・戻す秒・その倍率）。T が Config から入れる
+        self._ring_shape = (8.0, 25.0, 0.1)
 
     # ── 声 ────────────────────────────────────────────────────────────────
 
@@ -114,8 +116,23 @@ class DIF:
     def ringing(self) -> bool:
         return self._ring_task is not None and not self._ring_task.done()
 
-    def ring(self, *, seconds: float, gain: float = 1.0) -> None:
+    def configure_ring(self, *, soft_after: float, soft_until: float, soft_gain: float) -> None:
+        """山谷の形を Config から入れる（`RING_SOFT_AFTER_SEC`・`RING_SOFT_UNTIL_SEC`・`RING_SOFT_GAIN`）。"""
+        self._ring_shape = (float(soft_after), float(soft_until), float(soft_gain))
+
+    def ring(
+        self,
+        *,
+        seconds: float,
+        gain: float = 1.0,
+        soft_after: "float | None" = None,
+        soft_until: "float | None" = None,
+        soft_gain: "float | None" = None,
+    ) -> None:
         """タイマーの音（`sounds/timer_alarm.wav`・1 秒）を `seconds` のあいだ繰り返す（知-n-ろ）。
+
+        山谷（2026-09-19）：`soft_after` 秒で `soft_gain` 倍に小さくし、`soft_until` 秒を過ぎたら元の
+        大きさに戻す（`core/ring_rules.gain_at`）。繰り返しごとにその時点の倍率で再生する。
 
         「タイマーです」の一言の代わり。**声の口（`speak`）は通らない**——通すとマイクの門
         （`tts_active`）が立ち、鳴っている最中の「止めて」が届かない。音をマイクが拾う分は
@@ -125,8 +142,21 @@ class DIF:
         self.stop_ring()
         if seconds <= 0:
             return
-        logger.info("DIF タイマーの音を鳴らす（%.0f 秒・倍率 %.2f）", seconds, gain)
-        self._ring_task = asyncio.create_task(self._ring(seconds, gain))
+        shape = self._ring_shape
+        soft_after = shape[0] if soft_after is None else soft_after
+        soft_until = shape[1] if soft_until is None else soft_until
+        soft_gain = shape[2] if soft_gain is None else soft_gain
+        logger.info(
+            "DIF タイマーの音を鳴らす（%.0f 秒・倍率 %.2f・%.0f〜%.0f 秒は %.2f）",
+            seconds,
+            gain,
+            soft_after,
+            soft_until,
+            soft_gain,
+        )
+        self._ring_task = asyncio.create_task(
+            self._ring(seconds, gain, soft_after, soft_until, soft_gain)
+        )
 
     def stop_ring(self) -> None:
         if self.ringing:
@@ -134,11 +164,23 @@ class DIF:
             self._ring_task.cancel()  # type: ignore[union-attr]
         self._ring_task = None
 
-    async def _ring(self, seconds: float, gain: float) -> None:
-        deadline = time.monotonic() + seconds
+    async def _ring(
+        self, seconds: float, gain: float, soft_after: float, soft_until: float, soft_gain: float
+    ) -> None:
+        from ..core.ring_rules import gain_at
+
+        started = time.monotonic()
+        deadline = started + seconds
         try:
             while time.monotonic() < deadline:
-                ok = await _play_wav(_ALARM_WAV, gain)
+                now_gain = gain_at(
+                    time.monotonic() - started,
+                    gain,
+                    soft_after=soft_after,
+                    soft_until=soft_until,
+                    soft_gain=soft_gain,
+                )
+                ok = await _play_wav(_ALARM_WAV, now_gain)
                 if not ok:
                     logger.warning("DIF タイマーの音が出なかった：%s", _ALARM_WAV)
                     return
