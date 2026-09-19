@@ -232,18 +232,22 @@ class LocalSttEngine:
 
         from .stt import load_whisper_model
 
+        from ..core.stt_rules import initial_prompt_for, normalize_name
+
         model = load_whisper_model(self._cfg)
         if model is None:
             return ""
 
+        names = tuple(getattr(self._cfg, "names", ()) or ())
         samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
         started = time.monotonic()
         segments, info = model.transcribe(
             samples,
             language=(self._cfg.language or None),
             vad_filter=False,  # 区間は既に VAD で切ってある
-            # 名前の手がかり（`STTConfig.hotwords`）。無ければ渡さない（既定の挙動のまま）。
+            # 名前の手がかり（`STTConfig.hotwords`・`names`）。無ければ渡さない（既定の挙動のまま）。
             hotwords=(getattr(self._cfg, "hotwords", "") or None),
+            initial_prompt=(initial_prompt_for(names[0]) if names else None),
         )
         # 話していないのに「ご視聴ありがとうございました」のような定型句が書き起こされる。
         # Whisper は無音や物音に字幕の常套句を当てる。実機15件にラベルを付けて測ると、
@@ -279,6 +283,15 @@ class LocalSttEngine:
         text = drop_if_hallucination("".join(parts).strip())
         if not text:
             return ""
+        fixed = normalize_name(text, names)
+        if fixed != text:
+            # 直した綴りだけ残す（本文は会話内容なので出さない）
+            logger.info(
+                "STT: 名前を「%s」に直した：%s",
+                names[0],
+                "／".join(a for a in names[1:] if a in text),
+            )
+            text = fixed
         logger.info(
             "STT: 書き起こした（%d 字・%.2f 秒・音声 %.1f 秒）",
             len(text),

@@ -512,11 +512,13 @@ def create_realtime_stt_session(
     api_key = os.environ.get("ELEVENLABS_API_KEY", "")
     language_code = os.environ.get("STT_LANGUAGE", "ja").strip()
     stt_config = STTConfig()
-    # 名前を書き起こしの手がかりに（先頭の 1 語だけ。`ME.md` に並べた聞き違いの綴りまで渡すと
-    # STT をそちらへ寄せてしまう。守り `names_me` のほうは全部の名前を見る）。
+    # 名前を書き起こしの手がかりに。綴りを全部渡す（知-z・2026-09-19。先頭 1 語だけでは
+    # large-v3 が名前を落とした）。聞き違いの綴りで上がった書き起こしは `_transcribe` が
+    # 先頭の綴りへ直す（`stt_rules.normalize_name`）ので、STT がそちらへ寄っても困らない。
     names = parse_me_names(read_me_md())
     if names:
-        stt_config.hotwords = names[0]
+        stt_config.hotwords = " ".join(names)
+        stt_config.names = tuple(names)
 
     if not enabled:
         return None
