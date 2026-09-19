@@ -2891,11 +2891,17 @@ class InformationProcessing:
 
         機器の音量には触らず、その 1 回の再生データにだけ掛ける。鳴り終わった次の発話は元の音量。
         """
-        if self._req.trigger_kind == "機器" and str(self._req.request_text).startswith(
-            "[タイマー]"
+        text = str(self._req.request_text)
+        if self._req.trigger_kind == "機器" and (
+            text.startswith("[タイマー]") or text.startswith("[アラーム]")
         ):
             with contextlib.suppress(Exception):
                 return float(getattr(self._agent.config, "timer_voice_gain", 1.0) or 1.0)
+        # 普段の声は `TTS_GAIN`（環-q-ろ）。ミキサーは音を基準に決めたので声は下げる。
+        with contextlib.suppress(Exception):
+            raw = getattr(self._agent.config, "tts_gain", 1.0)
+            if isinstance(raw, (int, float)) and raw > 0:
+                return float(raw)
         return 1.0
 
     def _stamp_said(self) -> None:
