@@ -42,12 +42,12 @@ def test_ordinary_speech_uses_tts_gain_and_notices_keep_the_timer_gain():
 
 
 def test_readings_replace_only_in_speech():
-    assert for_speech("出入口を見てくるね") == "でいりぐちを見てくるね"
-    assert for_speech("窓のほうを見る") == "窓のほうを見る"
+    assert for_speech("出入口を見てくるね") == "でいりぐちをみてくるね"  # 表 → pyopenjtalk（環-t）
+    assert for_speech("窓のほうを見る") == "まどのほーをみる"  # 長音は「ー」
 
 
 def test_the_tts_applies_readings_before_speaking():
     from familiar_agent.tools.tts import TTSTool
 
     t = TTSTool("k", "v", engine="elevenlabs")
-    assert "でいりぐち" in t._clean_for_speech("出入口へ（首を回す）")
+    assert "でいりぐち" in t._text_for_synth(t._clean_for_speech("出入口へ（首を回す）"))
