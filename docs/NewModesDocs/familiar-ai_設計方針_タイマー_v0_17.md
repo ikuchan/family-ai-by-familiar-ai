@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：タイマー（v0.16）
+# familiar-ai 設計方針：タイマー（v0.17）
 
 「7 時に起こして」「3 分測って」「今から測って」に応える。**途中で停められること**を軸に設計する
 （知-n・2026-09-15）。用語一覧の定義（期限つきの意図・`set_timer`・T が due で発火・I は時計を持たない）を実装に落とした。
@@ -55,6 +55,8 @@ T が毎 tick（0.5 秒）`due_now` を拾い、**先に `fired_at` を打って
 1 周期 1.0 秒・48 kHz・16 bit）を合成し `src/familiar_agent/sounds/timer_alarm.wav` に置く。
 
 - **鳴らす**：`fire_due` が機器の求めを積むのと同時に `DIF.ring(seconds=TIMER_RING_SEC, gain=TIMER_VOICE_GAIN)`。
+- **山谷**（v0.17・2026-09-19・本人が聴いて決めた）：30 秒のうち **8 秒で倍率 0.1 に落とし、25 秒を過ぎたら元の 1.5 に戻す**（`core/ring_rules.gain_at`・`RING_SOFT_AFTER_SEC` 8・`RING_SOFT_UNTIL_SEC` 25・`RING_SOFT_GAIN` 0.1）。音は 1 秒の wav の繰り返しで、繰り返しごとにその時点の倍率で再生する。T が Config の形を `DIF.configure_ring` で入れる。アラームも同じ。
+- **出口の大きさ**（環-q・2026-09-19）：YVC-300 の ALSA ミキサー `PCM` は **80%（-10 dB）**（`sudo alsactl store` で保存済み）。音（倍率 1.5）を基準に決めたので、**普段の声は `TTS_GAIN`（0.25）**で下げる（`イベント駆動ループ` の `_voice_gain`・タイマー／アラームの知らせの声だけ `TIMER_VOICE_GAIN` 1.5）。声に出す直前に読みの表（`core/reading`・「出入口」→「でいりぐち」・出-ac）を当てる。
   wav を `seconds` のあいだ繰り返す（`asyncio.Task`・再生は `tools/tts._play_via_sounddevice`）。
 - **止める**：`cancel_timer`（声の「止めて」・`TimerTool` の `on_cancel` → `agent._stop_timer_ring`）、`/timer stop`（同じ道具）、時間切れ。
   鳴った時点でタイマーは `active` に無いので、`_cancel` は**先に**音を止めてから表を見る。
@@ -151,6 +153,7 @@ due のある未発火・未中止のタイマーが 1 本でもあれば `set_t
 
 ## 更新履歴
 
+> v0.17：§5a 山谷（8 秒で 0.1・25 秒で戻す）・出口の大きさ（PCM 80%・`TTS_GAIN` 0.25・読みの表）（2026-09-19）。
 > v0.16：§3a 名前の検め（知-u・2026-09-19）。
 > v0.15：§8 設定画面の保存先は素の `.env`（環-n・2026-09-19）。
 > v0.14：**ストップウォッチを分離**（知-u・2026-09-18）——`start_stopwatch` を撤去、`cancel_timer`／`/timer stop` はタイマーだけ、`[タイマー]` にストップウォッチは載らない。この資料はタイマーだけ。
