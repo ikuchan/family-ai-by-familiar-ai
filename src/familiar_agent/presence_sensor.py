@@ -60,6 +60,9 @@ class PresenceSensor:
         self._static_sec = static_sec
         self._static_iou = static_iou
         self._static: dict[str, StaticBoxes] = {}
+        self._last_reading: "tuple[str, int, float] | None" = (
+            None  # 定点・人数・時刻（パネル用・環-p-ろ）
+        )
         self._poses_getter = poses_getter
         self._detector = detector
         self._tolerance = tolerance
@@ -109,6 +112,13 @@ class PresenceSensor:
     def latest_frame_b64(self) -> str | None:
         """直近に見たフレーム。GUI が在席確認のカメラ映像として表示する。"""
         return self._frame_b64
+
+    def last_reading(self) -> "tuple[str, int, float] | None":
+        """最新の読み（定点・人数・何秒前）。まだ見ていなければ None（パネル用・環-p-ろ）。"""
+        if self._last_reading is None:
+            return None
+        pose, people, at = self._last_reading
+        return (pose, people, max(0.0, time.time() - at))
 
     def on_motion(self) -> None:
         """カメラが「動いた」と言ってきた。次の間隔を待たずに確かめる。動いた証拠なので静止の積算は捨てる。"""
@@ -169,6 +179,7 @@ class PresenceSensor:
                 len(boxes) - people,
                 self._static_sec,
             )
+        self._last_reading = (pose.name, int(people), now)
         if people > 0:
             pmap.mark_seen(pose.name, now)
             logger.info("在席：%s に %d 人", pose.name, people)

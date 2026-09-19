@@ -15,6 +15,7 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 from ..core import alarm_rules
+from ..core.label_rules import clean_label
 from ..io.oif import MI
 from ..person_memory_manager import AGENT_SELF_ID
 
@@ -109,7 +110,7 @@ class AlarmTool:
         return f"そんな道具は無い：{name}", False
 
     async def _set(self, inp: dict, *, confirmed: bool = False) -> tuple[str, bool]:
-        label = str(inp.get("label") or "アラーム").strip()
+        label = clean_label(inp.get("label"), "アラーム")  # 名前の検め（知-u・タイマーと同じ）
         now = self._now().astimezone()
         try:
             at = alarm_rules.resolve_at(str(inp.get("at") or ""), now=now)
