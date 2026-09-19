@@ -114,6 +114,9 @@ text を書くときは、この人格として、この相手に向けて、い
 読めるかで判断する。0 以外にすると、その人が居るあいだ発話を止める。頼まれてもいないのに
 止めない。
 
+人が**自分の名前を名乗った**（名前に「〜だよ」「〜です」を添えて言う）ら、`speaker_claim` にその名を書く。
+名乗っていなければ省く。誰かを呼んだだけ、や第三者の話は名乗りではない。
+
 人の言葉が**時期を指している**なら、想起の基準をそこへ動かす。`time_ref` にその時刻を
 ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方が指す**幅**を日数で
 書く。幅はその言い方がどれくらいの粗さで時期を指しているかで、広い言い方ほど大きい。
@@ -122,7 +125,7 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
  "action": "{actions}", "query": "…", "silence_minutes": 0, "lift_silence": false,
- "time_ref": "", "time_span_days": 0}}
+ "time_ref": "", "time_span_days": 0, "speaker_claim": ""}}
 使わない項目は省いてよい。
 """
 
@@ -140,6 +143,7 @@ class Decision:
     # 黙る長さ（分）。0＝黙らない、-1＝頼まれたが長さの指定なし（受け側が既定を当てる）。
     silence_minutes: int = 0
     lift_silence: bool = False  # 黙っていたのを「もう話していいよ」と解かれた
+    speaker_claim: str = ""  # 人が名乗った名前（知-w・在席があるときだけ機械が話者に付ける）
     # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
     # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
     time_ref: str = ""  # ISO 8601（例 "2025-08-15T00:00:00"）
@@ -510,6 +514,7 @@ def _parse(
         tool_input=tool_input,
         silence_minutes=silence_minutes,
         lift_silence=bool(data.get("lift_silence", False)),
+        speaker_claim=str(data.get("speaker_claim", "") or "").strip(),
         time_ref=time_ref,
         time_span_days=max(0.0, time_span_days),
     )
@@ -676,6 +681,8 @@ async def arbitrate(
         logger.warning("調停に失敗したのでフルへ倒す: %s", e)
         return _FALLBACK
     decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
+    if decision is not None and tool_return and decision.speaker_claim:
+        decision = replace(decision, speaker_claim="")  # 帰りの反復の発話は古い（情-n と同じ）
     if decision is not None and tool_return and (decision.silence_minutes or decision.lift_silence):
         # 道具の帰りの反復では沈黙の依頼を読まない（情-n・実機 2026-09-18 20:46）。発話は古く、返りの文に
         # 「黙って」が入る（確認文「その間は黙って待機します」を人の依頼として 60 分黙った）。

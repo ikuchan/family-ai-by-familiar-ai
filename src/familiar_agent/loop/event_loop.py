@@ -2147,7 +2147,7 @@ class InformationProcessing:
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
         # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。解くのも同じ口。
-        self._apply_silence(decision, utterance=utterance or self._req.cue)
+        await self._apply_requests(decision, utterance=utterance or self._req.cue)
         # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
         # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
         # で、指定があったときだけ走る。
@@ -2969,6 +2969,45 @@ class InformationProcessing:
             note = silence_note(load_silence(), now=time.time())
             return f"\n{note}" if note else ""
         return ""
+
+    async def _apply_requests(self, decision, *, utterance: str = "") -> None:
+        """調停が読んだ人の求め（沈黙の依頼・名乗り）を掛ける（反復本体の呼び口は 1 つ・番人 231 行）。"""
+        self._apply_silence(decision, utterance=utterance)
+        await self._apply_speaker_claim(decision)
+
+    async def _apply_speaker_claim(self, decision) -> None:
+        """調停が読んだ名乗り（`speaker_claim`）を、在席があるときだけ話者に付ける（知-w・2026-09-19）。
+
+        在席（居るか）はカメラだけで決める（マイクは証拠にしない）。カメラが人を見ていれば、声の名乗りは
+        `/speaker` と同じ効き（`set_active`・`_speaker_set_at`・PMM 同期）。家族に無い名前は付けない。
+        入口で飲まれた発話はここまで来ないので、在席なしの名乗りは自然に使われない。
+        """
+        from ..core.speaker_claim import resolve_claim
+
+        claim = str(getattr(decision, "speaker_claim", "") or "")
+        if not claim:
+            return
+        agent = self._agent
+        try:
+            present = float(agent._social_presence_permission() or 0.0) > 0.0
+        except Exception:  # noqa: BLE001
+            present = False
+        if not present:
+            logger.info("名乗り「%s」があるが在席が無いので話者にしない", claim)
+            return
+        name = resolve_claim(claim, str(getattr(agent, "_family_md", "") or ""))
+        if name is None:
+            logger.info("名乗り「%s」は家族に無いので話者にしない", claim)
+            return
+        if str(getattr(agent._persons, "active_name", "") or "") == name and getattr(
+            agent._persons, "active_is_explicit", False
+        ):
+            return
+        agent._persons.set_active(name)
+        agent._speaker_set_at = time.time()
+        with contextlib.suppress(Exception):
+            await agent._sync_pmm_speaker(name)
+        logger.info("名乗りで話者を付けた：%s（在席あり）", name)
 
     def _apply_silence(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
