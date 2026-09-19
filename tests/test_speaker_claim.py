@@ -84,3 +84,46 @@ def test_no_presence_or_unknown_name_sets_nothing():
         ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
     )
     a._persons.set_active.assert_not_called()  # 既に同じ話者なら何もしない
+
+
+# ── 名乗りの預かり（知-w-ろ・2026-09-19）────────────────────────────────────
+#
+# 映らない位置の「パパだよ出入口を見て」→ 見回りが首を向けた帰り（13:27:22）に名乗りを読んだが、センサが人を
+# 見たのは 6 秒後（13:27:28）→「在席が無いので話者にしない」→ 入室で「おかえりなさい、パパ」（話者は付かず）。
+# 在席が無くて使えなかった名乗りを **30 秒**預かり、センサが人を見た最初の求めで生きていれば話者に付ける。
+
+
+def test_a_claim_without_presence_is_kept_for_thirty_seconds(monkeypatch):
+    ip, a = _ip(present=0.0)
+    clock = {"t": 1000.0}
+    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: clock["t"])
+    asyncio.run(
+        ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
+    )
+    a._persons.set_active.assert_not_called()
+    assert ip._pending_claim == ("パパ", 1000.0)
+    # 人が映った最初の求めで付く
+    a._social_presence_permission = MagicMock(return_value=1.0)
+    clock["t"] = 1006.0
+    asyncio.run(ip._begin_request(kind="機器", text="[入室] 誰か が来た"))
+    a._persons.set_active.assert_called_once_with("パパ")
+    assert ip._pending_claim is None
+
+
+def test_a_kept_claim_expires_and_an_unknown_name_is_not_kept(monkeypatch):
+    ip, a = _ip(present=0.0)
+    clock = {"t": 1000.0}
+    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: clock["t"])
+    asyncio.run(
+        ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
+    )
+    a._social_presence_permission = MagicMock(return_value=1.0)
+    clock["t"] = 1031.0  # 30 秒を過ぎた
+    asyncio.run(ip._begin_request(kind="機器", text="[入室] 誰か が来た"))
+    a._persons.set_active.assert_not_called()
+    assert ip._pending_claim is None
+    ip, a = _ip(present=0.0)
+    asyncio.run(
+        ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="太郎"))
+    )
+    assert ip._pending_claim is None  # 家族に無い名前は預からない
