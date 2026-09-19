@@ -19,6 +19,7 @@ import struct
 import subprocess
 import sys
 import tempfile
+import threading
 import urllib.request
 from pathlib import Path
 from urllib.parse import quote
@@ -535,15 +536,27 @@ def _resolve_output_device() -> int | None:
     return None
 
 
+#: 再生はプロセス内で 1 本ずつ（出-ad・2026-09-19）。タイマーの音（1 秒の wav）と知らせの声（mp3）が同じ
+#: 機器 `hw:1,0`（排他）を別スレッドから同時に開き、PortAudio（ALSA）が `Device unavailable` のあと
+#: `double free or corruption` でプロセスごと落ちた（実機 11:39）。鍵を取ってから開く。音の 1 秒 → 声 →
+#: 音の次の 1 秒、と交互になる。
+_PLAYBACK_LOCK = threading.Lock()
+
+
 async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
     """Play WAV or MP3 file using sounddevice (pure Python, no system dependency).
 
     WAV: decoded by soundfile directly, resampled to the output device's native rate
     so we avoid PortAudio paInvalidSampleRate (e.g. Yamaha requires 48 kHz).
     MP3: decoded frame-by-frame with PyAV (av package), then played via sounddevice.
+    再生は `_PLAYBACK_LOCK` で 1 本ずつ（同じ機器を同時に開かない）。
     """
 
     def _play() -> bool:
+        with _PLAYBACK_LOCK:
+            return _play_unlocked()
+
+    def _play_unlocked() -> bool:
         if audio_path.lower().endswith(".mp3"):
             # On Windows prefer MCI (reliable, built-in) over PyAV+sounddevice
             if sys.platform == "win32" and _play_mp3_mci(audio_path):
