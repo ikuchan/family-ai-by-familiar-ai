@@ -125,9 +125,11 @@ class CameraConfig:
         default_factory=lambda: _float_env("CAMERA_PRESENCE_MIN_GAP", 3.0)
     )
     # 滞留窓（`課題5` §I の在席 timeout）。静止している人は毎回検出されないので、
-    # この時間の内側は居るものとして扱う。
+    # この時間の内側は居るものとして扱う。180 → 60（知-x・2026-09-19）：1 フレームの誤検出が
+    # 窓をまるごと延ばし、無人でも「居る」が 3 分続いて声が出た。見落とし側の余裕を削り、
+    # 誤検出の延びを最大 60 秒に。
     presence_window_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_PRESENCE_WINDOW", 180.0)
+        default_factory=lambda: _float_env("CAMERA_PRESENCE_WINDOW", 60.0)
     )
     # 静止物を人と数えない（知-v・2026-09-18）：人の枠が前回と重なり `static_iou` 以上のまま
     # `static_sec` 動かなければ物とみなす（出入口の暗い塊を 7 分間「1 人」と読んだ）。〔仮〕
