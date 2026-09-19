@@ -257,3 +257,69 @@ def test_intake_marks_the_returns_and_the_next_iteration_clears_them():
     asyncio.run(ip._intake())
     assert ip._req.just_returned == [1]
     ip._req.just_returned.clear()  # `_iterate` が W を組んだあとに空にする（本体は次の test）
+
+
+# ── 直近の窓には時間の上限もある（出-ae(2)・2026-09-19）───────────────────────
+
+
+def test_rows_older_than_the_time_cap_are_not_shown():
+    """再起動をまたいで 1 時間半前の「パパ、…」が最上部に居続け、調停が名前を埋めた（実機 13:14）。"""
+    chains = {
+        "q1": [_said("q1", "今日の天気は？", "起点", 0), _said("a1", "パパ、晴れだよ", "答え", 1)],
+        "q2": [_said("q2", "予定は？", "起点", 7), _said("a2", "フットサルだよ", "答え", 8)],
+        "q3": [_said("q3", "お話できる？", "起点", 9), _said("a3", "もちろん", "答え", 10)],
+    }
+    now = _T0 + timedelta(minutes=11)
+    rows, text, id_map = workspace.recent_window(
+        _oif(["q3", "q2", "q1"], chains), 3, max_age_sec=300, now=now
+    )
+    assert [r.obs_id for r in rows] == ["q2", "a2", "q3", "a3"]
+    assert "パパ" not in text
+    assert "q1" not in id_map.values()
+
+
+def test_the_time_cap_also_cuts_the_chain_reached_through_edges():
+    # 続きの鎖でさかのぼった古い行も、上限より古ければ載せない（想起の列が担う）。
+    chains = {
+        "q3": [
+            _said("q1", "サッカーの話", "起点", 0, depth=1),
+            _said("q3", "その続きだけど", "起点", 9, depth=0),
+        ]
+    }
+    now = _T0 + timedelta(minutes=10)
+    rows, text, _ = workspace.recent_window(_oif(["q3"], chains), 1, max_age_sec=300, now=now)
+    assert [r.obs_id for r in rows] == ["q3"]
+    assert "サッカー" not in text
+
+
+def test_a_zero_cap_means_no_time_limit():
+    chains = {"q1": [_said("q1", "今日の天気は？", "起点", 0)]}
+    now = _T0 + timedelta(days=3)
+    rows, _, _ = workspace.recent_window(_oif(["q1"], chains), 1, max_age_sec=0, now=now)
+    assert [r.obs_id for r in rows] == ["q1"]
+
+
+def test_the_workspace_uses_the_configured_cap(monkeypatch):
+    """`recall` が組む W は `MemoryConfig.recent_exchanges_max_sec`（既定 300）で直近を切る。"""
+    import asyncio
+
+    from familiar_agent.config import MemoryConfig
+    from familiar_agent.loop.request import Request
+
+    assert MemoryConfig().recent_exchanges_max_sec == 300
+    chains = {"q1": [_said("q1", "パパ、今日の天気は？", "起点", 0)]}
+    oif = _oif(["q1"], chains)
+    oif.roles = MagicMock(return_value={})
+
+    async def _recall(_cue, _view):
+        return []
+
+    oif.recall = _recall
+    monkeypatch.setattr(workspace.clock, "now_utc", lambda: _T0 + timedelta(hours=1))
+    ws = asyncio.run(workspace.recall(oif, "天気", viewpoint="v", weights=None, req=Request()))
+    assert ws.max_age_sec == 300
+    assert "パパ" not in ws.render(2)
+    assert "q1" not in ws.id_map.values()
+    # 上限なしなら載る（時計だけの違い）。
+    ws0 = _ws(oif, [], n_main=2)
+    assert "パパ" in ws0.render(2)

@@ -20,6 +20,7 @@ import json
 import logging
 import re
 from dataclasses import dataclass, field
+from datetime import datetime
 
 from ..core import measure
 from ..io.oif import Cue, Recalled, View
@@ -227,9 +228,19 @@ def recent_chains(oif, n: int) -> "list[tuple[str, list]]":
 
 
 def render_recent(
-    oif, chains: "list[tuple[str, list]]", n: int
+    oif,
+    chains: "list[tuple[str, list]]",
+    n: int,
+    *,
+    max_age_sec: int = 0,
+    now: "datetime | None" = None,
 ) -> "tuple[list, str, dict[str, str]]":
-    """直近の枠を文にする。窓 n は新しい側から n 往復（鎖ごと）。"""
+    """直近の枠を文にする。窓 n は新しい側から n 往復（鎖ごと）。
+
+    `max_age_sec`（0 で無し）より古い行は、起点でも鎖でさかのぼった行でも載せない（出-ae(2)）。
+    往復数だけで切ると再起動をまたいで前の相手の名前が最上部に居続ける。外した行は直近の
+    `exclude` から外れるので、点が付けば過去の記憶の列に出る。
+    """
     if n <= 0:
         return [], "", {}
     seen: set[str] = set()
@@ -239,6 +250,12 @@ def render_recent(
             if r.obs_id and r.obs_id not in seen:
                 seen.add(r.obs_id)
                 rows.append(r)
+    if max_age_sec > 0 and rows:
+        floor = (now or clock.now_utc()).timestamp() - max_age_sec
+        kept = [r for r in rows if r.when and r.when.timestamp() >= floor]
+        if len(kept) < len(rows):
+            logger.info("直近: %d 秒より古い %d 行を外した", max_age_sec, len(rows) - len(kept))
+        rows = kept
     if not rows:
         return [], "", {}
     rows.sort(key=lambda r: r.when.timestamp() if r.when else 0.0)
@@ -262,7 +279,9 @@ def render_recent(
     return rows, "\n".join(lines), id_map
 
 
-def recent_window(oif, n: int) -> "tuple[list, str, dict[str, str]]":
+def recent_window(
+    oif, n: int, *, max_age_sec: int = 0, now: "datetime | None" = None
+) -> "tuple[list, str, dict[str, str]]":
     """直近のやりとりの枠（記-h・`設計方針_MI間の関係` v0.15 段 4 改訂）。
 
     **時系列で最新 n 往復（無条件）＋ 各々から継起の辺があるぶんさかのぼった鎖。**
@@ -278,7 +297,7 @@ def recent_window(oif, n: int) -> "tuple[list, str, dict[str, str]]":
 
     各行に 12 桁の id を印字して対応表に入れる。判定と申告が直近の記録も名指せる。
     """
-    return render_recent(oif, recent_chains(oif, n), n)
+    return render_recent(oif, recent_chains(oif, n), n, max_age_sec=max_age_sec, now=now)
 
 
 @dataclass
@@ -296,6 +315,8 @@ class Workspace:
     chains: "list[tuple[str, list]]"
     n_arbiter: int
     n_main: int
+    #: 直近の窓の時間の上限（秒・0 で無し・`MemoryConfig.recent_exchanges_max_sec`）。
+    max_age_sec: int = 0
     id_map: "dict[str, str]" = field(default_factory=dict)
     # 「いま道具から返った」の枠は**組んだ時点の値を固定**する（`render` は遅延評価で、求めの
     # `just_returned` を組んだ後に空にすると枠が消えた——実機 2026-09-18 15:28）。
@@ -310,12 +331,21 @@ class Workspace:
 
     @classmethod
     def build(
-        cls, oif, memories: "list[Recalled]", req: Request, *, n_arbiter: int, n_main: int
+        cls,
+        oif,
+        memories: "list[Recalled]",
+        req: Request,
+        *,
+        n_arbiter: int,
+        n_main: int,
+        max_age_sec: int = 0,
     ) -> "Workspace":
         chains = recent_chains(
             oif, max(n_arbiter, n_main) + 1
         )  # 窓の外の次の起点も 1 つ引く（計測用）
-        ws = cls(oif, memories, req, chains[: max(n_arbiter, n_main)], n_arbiter, n_main)
+        ws = cls(
+            oif, memories, req, chains[: max(n_arbiter, n_main)], n_arbiter, n_main, max_age_sec
+        )
         # 最上部＝確認待ち（出-y）と、この反復で道具から返ったもの（出-x）。
         ws.just_returned_text = "\n\n".join(
             p for p in (getattr(req, "confirm_frame", ""), just_returned(req)) if p
@@ -326,17 +356,20 @@ class Workspace:
         beyond = chains[n_main][0] if len(chains) > n_main else "-"
         measure.record("直近", 窓=n_main, 端=edge, 外=beyond)
         # 対応表は最も広い窓で作る（申告・判定はどちらの窓の id でも来る）。
-        _rows, _text, recent_ids = render_recent(oif, chains, max(n_arbiter, n_main))
+        _rows, _text, recent_ids = ws._recent(max(n_arbiter, n_main))
         _past, past_ids = compose(oif, memories, req, exclude=set(recent_ids.values()))
         ws.id_map = {**past_ids, **recent_ids}
         ws.verdict_map = {k: v for k, v in past_ids.items() if v not in set(recent_ids.values())}
         return ws
 
+    def _recent(self, n: int) -> "tuple[list, str, dict[str, str]]":
+        return render_recent(self.oif, self.chains, n, max_age_sec=self.max_age_sec)
+
     def recent_text(self, n: int) -> str:
-        return render_recent(self.oif, self.chains, n)[1]
+        return self._recent(n)[1]
 
     def render(self, n: int) -> str:
-        _rows, recent, recent_ids = render_recent(self.oif, self.chains, n)
+        _rows, recent, recent_ids = self._recent(n)
         past, _ = compose(self.oif, self.memories, self.req, exclude=set(recent_ids.values()))
         return "\n\n".join(p for p in (self.just_returned_text, recent, past) if p and p.strip())
 
@@ -453,6 +486,7 @@ async def recall(
         req,
         n_arbiter=cfg.recent_exchanges_arbiter,
         n_main=cfg.recent_exchanges_main,
+        max_age_sec=cfg.recent_exchanges_max_sec,
     )
     ws.returned_actions = returned
     return ws

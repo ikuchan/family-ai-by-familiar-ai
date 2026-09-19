@@ -340,6 +340,13 @@ class MemoryConfig:
     recent_exchanges_main: int = field(
         default_factory=lambda: int(_resolve_setting("MemoryConfig.recent_exchanges_main", 6))
     )
+    # 直近のやりとりの窓の**時間**の上限（秒・0 で無し）。往復数だけで切ると、再起動をまたいで
+    # 1 時間半前の「パパ、…」が最上部に居続け、調停がそこから相手の名前を埋めた（出-ae(2)・
+    # 2026-09-19 実機 13:14）。これより古い行は直近には載せない（想起の列には残る）。
+    # 既定 300（5 分）は本人の決定。層 3 は動かさない。
+    recent_exchanges_max_sec: int = field(
+        default_factory=lambda: int(_resolve_setting("MemoryConfig.recent_exchanges_max_sec", 300))
+    )
     # 同じ内容の観測を続けて書かないための窓（秒）。0 で無効。
     dedup_window_secs: int = field(default_factory=lambda: _int_env("MEMORY_DEDUP_WINDOW_SECS", 30))
     # r 軸の min-max 伸長係数。現行値では恒等（根拠台帳 v0.7 §3 の計測で決定）。
