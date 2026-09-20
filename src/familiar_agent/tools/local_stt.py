@@ -232,7 +232,7 @@ class LocalSttEngine:
 
         from .stt import load_whisper_model
 
-        from ..core.stt_rules import initial_prompt_for, normalize_name
+        from ..core.stt_rules import normalize_name
 
         model = load_whisper_model(self._cfg)
         if model is None:
@@ -246,8 +246,11 @@ class LocalSttEngine:
             language=(self._cfg.language or None),
             vad_filter=False,  # 区間は既に VAD で切ってある
             # 名前の手がかり（`STTConfig.hotwords`・`names`）。無ければ渡さない（既定の挙動のまま）。
+            # **例文（`initial_prompt`）は渡さない**。2026-09-20 に知-z で渡したところ、はっきり
+            # しない音（テレビの音・物音）に対して Whisper がその文をそのまま書き出し、話して
+            # いないのに「パジュ、3 分測って。」が繰り返し会話として上がった（実機 17:22〜17:26・
+            # 10.7 秒の音と 30 秒の窓が例文の後半 11 字に・`no_speech_prob` は 0.02〜0.22 で門を通る）。
             hotwords=(getattr(self._cfg, "hotwords", "") or None),
-            initial_prompt=(initial_prompt_for(names[0]) if names else None),
         )
         # 話していないのに「ご視聴ありがとうございました」のような定型句が書き起こされる。
         # Whisper は無音や物音に字幕の常套句を当てる。実機15件にラベルを付けて測ると、

@@ -1,7 +1,8 @@
 """知-z（2026-09-19）：「パジュ」が書き起こしから落ちる・化ける。
 
-ア：名前入りの例文を faster-whisper の `initial_prompt` に渡す。イ：`hotwords` に `ME.md` の綴りを
-全部渡し、書き起こしに上がった聞き違いの綴りは先頭の綴り（正しい名前）へ直す。
+`hotwords` に `ME.md` の綴りを全部渡し、書き起こしに上がった聞き違いの綴りは先頭の綴り（正しい名前）へ直す。
+**例文（`initial_prompt`）は渡さない**——2026-09-20 に入れたが、はっきりしない音でその文がそのまま
+書き起こされ、話していないのに「パジュ、3 分測って。」が繰り返し会話として上がった（実機 17:22〜17:26）。
 """
 
 from __future__ import annotations
@@ -9,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from familiar_agent.config import STTConfig
-from familiar_agent.core.stt_rules import initial_prompt_for, normalize_name
+from familiar_agent.core.stt_rules import normalize_name
 from familiar_agent.realtime_stt_session import create_realtime_stt_session
 from familiar_agent.tools.local_stt import LocalSttEngine
 
@@ -17,13 +18,6 @@ NAMES = ("パジュ", "はじゅ", "パチュ", "パジュー")
 
 
 # ── 純関数 ─────────────────────────────────────────────────────────────────
-
-
-def test_the_initial_prompt_is_built_from_the_name():
-    p = initial_prompt_for("パジュ")
-    assert "パジュ" in p
-    assert p.count("パジュ") >= 2
-    assert initial_prompt_for("") == ""
 
 
 def test_listed_misspellings_are_normalized_to_the_first_name():
@@ -76,21 +70,22 @@ def _engine_with(text: str, names: tuple[str, ...]) -> tuple[LocalSttEngine, Mag
     return engine, model
 
 
-def test_the_initial_prompt_reaches_whisper_and_the_transcript_is_normalized(caplog):
+def test_no_prompt_is_given_and_the_transcript_is_normalized(caplog):
     engine, model = _engine_with("パジュー、3分測って", NAMES)
     with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
         with caplog.at_level("INFO"):
             out = engine._transcribe(b"\x00\x00" * 16000)
-    assert model.transcribe.call_args.kwargs["initial_prompt"] == initial_prompt_for("パジュ")
+    # 例文（`initial_prompt`）は渡さない。渡すと、はっきりしない音に対して Whisper がその文を
+    # そのまま書き出す（実機 2026-09-20 17:22〜17:26・10.7 秒の音と 30 秒の窓が例文の後半 11 字に）。
+    assert model.transcribe.call_args.kwargs.get("initial_prompt") is None
     assert model.transcribe.call_args.kwargs["hotwords"] == "パジュ はじゅ パチュ パジュー"
     assert out == "パジュ、3分測って"
     assert any("名前を「パジュ」に直した" in r.getMessage() for r in caplog.records)
 
 
-def test_without_names_no_prompt_is_given_and_nothing_is_rewritten():
+def test_without_names_nothing_is_rewritten():
     engine, model = _engine_with("パジュー、3分測って", ())
     engine._cfg.hotwords = ""
     with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
         out = engine._transcribe(b"\x00\x00" * 16000)
-    assert model.transcribe.call_args.kwargs.get("initial_prompt") is None
     assert out == "パジュー、3分測って"
