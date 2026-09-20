@@ -232,7 +232,7 @@ class LocalSttEngine:
 
         from .stt import load_whisper_model
 
-        from ..core.stt_rules import normalize_name
+        from ..core.stt_rules import is_echo_of_hint, normalize_name
 
         model = load_whisper_model(self._cfg)
         if model is None:
@@ -285,6 +285,10 @@ class LocalSttEngine:
             return ""
         text = drop_if_hallucination("".join(parts).strip())
         if not text:
+            return ""
+        # 道具へ渡した手がかりが、そのまま返ってきたら人の言葉にしない（2026-09-20）。
+        if is_echo_of_hint(text, (getattr(self._cfg, "hotwords", "") or "",)):
+            logger.info("STT: 渡した手がかりがそのまま返ったので捨てた（%d 字）", len(text))
             return ""
         fixed = normalize_name(text, names)
         if fixed != text:

@@ -40,3 +40,20 @@ def normalize_name(text: str, names: "tuple[str, ...] | list[str]") -> str:
         if alt and alt != canon:
             text = text.replace(alt, canon)
     return text
+
+
+def is_echo_of_hint(text: str, hints: "tuple[str, ...] | list[str]") -> bool:
+    """道具へ渡した手がかりが、そのまま書き起こされて返ってきたか（2026-09-20）。
+
+    Whisper は手がかり（`hotwords`・`initial_prompt`）を「これから出てくる言葉」として使うので、
+    はっきりしない音に当たると**渡した文をそのまま書き出す**。実機で、渡した例文の後半 11 字が
+    10.7 秒の音や 30 秒の窓から繰り返し上がり、人の言葉として GUI に並んだ（17:22〜17:26）。
+    例文は撤去したが、手がかりが人の言葉として返ること自体を門で止める。
+
+    **丸ごと同じときだけ**捨てる（前後の空白と句読点は無視）。手がかりの一部（綴り 1 語の
+    「パジュ」）は、人が名前を呼んだ場合があるので捨てない。
+    """
+    s = (text or "").strip(_TRIM)
+    if not s:
+        return False
+    return any(s == (h or "").strip(_TRIM) for h in hints if h)
