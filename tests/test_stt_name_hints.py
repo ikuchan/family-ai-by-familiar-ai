@@ -10,7 +10,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock, patch
 
 from familiar_agent.config import STTConfig
-from familiar_agent.core.stt_rules import normalize_name
+from familiar_agent.core.stt_rules import is_echo_of_hint, normalize_name
 from familiar_agent.realtime_stt_session import create_realtime_stt_session
 from familiar_agent.tools.local_stt import LocalSttEngine
 
@@ -37,6 +37,34 @@ def test_normalization_leaves_other_words_and_the_right_name_alone():
 def test_the_longest_spelling_wins_so_no_stray_tail_is_left():
     # 「パジュー」を先に「パジュ」にしないと「パジュー」→「パジュー」のまま残る
     assert normalize_name("パジューさん", ("パジュ", "パジュー")) == "パジュさん"
+
+
+# ── 道具へ渡した手がかりが、人の言葉として返ってこないこと ──────────────────
+
+
+def test_a_transcript_that_is_just_the_hint_is_dropped():
+    """道具へ渡した手がかりが、そのまま書き起こされて人の言葉になってはいけない（2026-09-20）。"""
+    hint = "パジュ はじゅ パチュ パジュー"
+    assert is_echo_of_hint("パジュ はじゅ パチュ パジュー", (hint,))
+    assert is_echo_of_hint(" パジュ はじゅ パチュ パジュー。 ", (hint,))
+
+
+def test_a_persons_words_are_not_dropped_even_if_they_contain_a_spelling():
+    hint = "パジュ はじゅ パチュ パジュー"
+    # 名前を呼んだだけの短い発話は本物（綴り 1 語では捨てない）
+    assert not is_echo_of_hint("パジュ", (hint,))
+    assert not is_echo_of_hint("パジュ、3 分測って", (hint,))
+    assert not is_echo_of_hint("", (hint,))
+    assert not is_echo_of_hint("パジュ はじゅ パチュ パジュー", ())
+
+
+def test_the_engine_drops_the_echo_of_its_own_hint(caplog):
+    engine, model = _engine_with("パジュ はじゅ パチュ パジュー", NAMES)
+    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
+        with caplog.at_level("INFO"):
+            out = engine._transcribe(b"\x00\x00" * 16000)
+    assert out == ""
+    assert any("手がかり" in r.getMessage() for r in caplog.records)
 
 
 # ── 集音セッションと書き起こし ──────────────────────────────────────────────
