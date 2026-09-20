@@ -23,7 +23,7 @@ capabilities:
     detail: >
       `see()` captures a camera frame and describes the scene via vision LLM.
       `look(direction, degrees)` rotates the camera head via ONVIF PTZ.
-      Camera view is independent of mobility. Uses the `tools/camera.py` module.
+      Uses the `tools/camera.py` module.
     enabled_env: CAMERA_HOST
   - id: coding_tools
     summary: Read, edit, glob, grep, and execute shell commands
@@ -58,14 +58,6 @@ capabilities:
       Streams PCM 16 kHz 16-bit mono audio to an async callback. Primarily used
       for speech input. Implemented in `tools/mic.py`.
     enabled: true
-  - id: mobility
-    summary: Control physical movement (vacuum robot body)
-    detail: >
-      Provides control over the agent's physical movement, typically a robot vacuum.
-      The `walk(direction, duration)` function moves the body. The camera view is
-      independent of movement. Uses the `tools/mobility.py` module and is configured via
-      `TUYA_REGION`, `TUYA_API_KEY`, `TUYA_API_SECRET`.
-    enabled_env: MOBILITY_BACKEND
   - id: person_identification
     summary: Identify and track multiple family members as distinct individuals
     detail: >
