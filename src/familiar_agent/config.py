@@ -69,6 +69,13 @@ def _optional_int_env(*names: str) -> int | None:
     return int(value)
 
 
+def _word_groups_env(name: str) -> "tuple[tuple[str, tuple[str, ...]], ...]":
+    """env の 1 行を語の組へ（`core.stt_rules.parse_word_groups`）。無ければ空。"""
+    from .core.stt_rules import parse_word_groups
+
+    return parse_word_groups(os.environ.get(name, ""))
+
+
 def _bool_env(*names: str, default: bool = False) -> bool:
     value = _env_value(*names, default="")
     if not value:
@@ -508,13 +515,14 @@ class STTConfig:
     # 'ジュージュージュー' に崩れた（一括で起こすと正しかった）。**短い断片では文脈が
     # 足りない。** 1.4 秒の区間は正しく起こせていたので、境目はその間にある。
     min_segment_sec: float = field(default_factory=lambda: _float_env("STT_MIN_SEGMENT_SEC", 1.5))
-    # 書き起こしの手がかり（faster-whisper の `hotwords`）。自分の名前は日本語の語彙に無く
-    # 「パジュ」が 体重／はじゅ に化けた（2026-09-17 実機）。`ME.md` の名前の綴りを全部、空白
-    # 区切りで集音セッションが入れる（env からは与えない・正本は `ME.md`）。空なら渡さない。
-    hotwords: str = ""
-    # `ME.md` の名前の綴りの並び（先頭が正しい名前・以降は聞き違いの綴り）。書き起こしの直し
-    # （`stt_rules.normalize_name`）に使う（知-z・2026-09-19）。
-    names: tuple[str, ...] = ()
+    # 語の組（2026-09-20）。**(直すべき語, (あり得る語…))** の並びで、STT へ渡す語の列
+    # （faster-whisper の `hotwords`）も、書き起こしの直しも、この 1 つの表から導く
+    # （`core/stt_rules`）。直すべき語が `-` の組は「消す」。名前は `ME.md` の「名前：」から
+    # 集音セッションが先頭の組にする（正本は `ME.md`）。env `STT_WORD_GROUPS` で足せる
+    # （`パジュ：はじゅ、パチュ; -：消す語`・組は `;`・直すべき語と配列は `：`・語は読点）。
+    word_groups: tuple[tuple[str, tuple[str, ...]], ...] = field(
+        default_factory=lambda: _word_groups_env("STT_WORD_GROUPS")
+    )
     # 持ち越したまま次が来ないとき、諦めて単独で書き起こすまでの無音（秒）。
     # 「はい」だけの返事が永久に届かないのを避ける。
     hold_give_up_sec: float = field(default_factory=lambda: _float_env("STT_HOLD_GIVE_UP_SEC", 3.0))

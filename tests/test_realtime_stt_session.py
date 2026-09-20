@@ -323,8 +323,8 @@ def test_create_realtime_stt_session_accepts_on_like_the_config_does(monkeypatch
     assert create_realtime_stt_session() is not None
 
 
-def test_the_session_takes_every_name_from_me_md_as_a_hotword(monkeypatch, tmp_path) -> None:
-    """守りも STT への手がかりも全部の綴り（知-z・先頭 1 語だけでは名前が落ちた）。"""
+def test_the_session_makes_the_name_a_word_group(monkeypatch, tmp_path) -> None:
+    """`ME.md` の「名前：」が語の組の先頭（先頭の綴りが直すべき語・2026-09-20）。"""
     (tmp_path / "ME.md").write_text(
         "# 私について\n\n名前：パジュ、はじゅ、パチュ\n", encoding="utf-8"
     )
@@ -333,4 +333,4 @@ def test_the_session_takes_every_name_from_me_md_as_a_hotword(monkeypatch, tmp_p
     monkeypatch.setenv("STT_ENGINE", "whisper")
     session = create_realtime_stt_session()
     assert session is not None
-    assert session._stt_config.hotwords == "パジュ はじゅ パチュ"
+    assert session._stt_config.word_groups == (("パジュ", ("はじゅ", "パチュ")),)

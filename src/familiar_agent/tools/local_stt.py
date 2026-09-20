@@ -232,25 +232,26 @@ class LocalSttEngine:
 
         from .stt import load_whisper_model
 
-        from ..core.stt_rules import is_echo_of_hint, normalize_name
+        from ..core.stt_rules import fix_words, hotwords_for, with_hint
 
         model = load_whisper_model(self._cfg)
         if model is None:
             return ""
 
-        names = tuple(getattr(self._cfg, "names", ()) or ())
+        groups = tuple(getattr(self._cfg, "word_groups", ()) or ())
+        hint = hotwords_for(groups)
         samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
         started = time.monotonic()
         segments, info = model.transcribe(
             samples,
             language=(self._cfg.language or None),
             vad_filter=False,  # 区間は既に VAD で切ってある
-            # 名前の手がかり（`STTConfig.hotwords`・`names`）。無ければ渡さない（既定の挙動のまま）。
+            # 語の列（`STTConfig.word_groups` から作る）。無ければ渡さない（既定の挙動のまま）。
             # **例文（`initial_prompt`）は渡さない**。2026-09-20 に知-z で渡したところ、はっきり
             # しない音（テレビの音・物音）に対して Whisper がその文をそのまま書き出し、話して
             # いないのに「パジュ、3 分測って。」が繰り返し会話として上がった（実機 17:22〜17:26・
             # 10.7 秒の音と 30 秒の窓が例文の後半 11 字に・`no_speech_prob` は 0.02〜0.22 で門を通る）。
-            hotwords=(getattr(self._cfg, "hotwords", "") or None),
+            hotwords=(hint or None),
         )
         # 話していないのに「ご視聴ありがとうございました」のような定型句が書き起こされる。
         # Whisper は無音や物音に字幕の常套句を当てる。実機15件にラベルを付けて測ると、
@@ -286,19 +287,16 @@ class LocalSttEngine:
         text = drop_if_hallucination("".join(parts).strip())
         if not text:
             return ""
-        # 道具へ渡した手がかりが、そのまま返ってきたら人の言葉にしない（2026-09-20）。
-        if is_echo_of_hint(text, (getattr(self._cfg, "hotwords", "") or "",)):
-            logger.info("STT: 渡した手がかりがそのまま返ったので捨てた（%d 字）", len(text))
-            return ""
-        fixed = normalize_name(text, names)
+        # 語の組を当てる（あり得る語 → 直すべき語・`-` の組は消す）。渡した語の列そのものも
+        # 消す組として足す（音に情報が無いと、渡した言葉がそのまま書き起こされる）。
+        fixed = fix_words(text, with_hint(groups, hint))
         if fixed != text:
-            # 直した綴りだけ残す（本文は会話内容なので出さない）
-            logger.info(
-                "STT: 名前を「%s」に直した：%s",
-                names[0],
-                "／".join(a for a in names[1:] if a in text),
-            )
+            # 何を当てたかだけ残す（本文は会話内容なので出さない）
+            hit = [w for _t, samples in with_hint(groups, hint) for w in samples if w in text]
+            logger.info("STT: 語を直した（%d 件・%d 字 → %d 字）", len(hit), len(text), len(fixed))
             text = fixed
+        if not text:
+            return ""
         logger.info(
             "STT: 書き起こした（%d 字・%.2f 秒・音声 %.1f 秒）",
             len(text),
