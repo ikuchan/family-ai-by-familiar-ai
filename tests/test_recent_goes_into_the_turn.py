@@ -60,7 +60,7 @@ def test_the_recent_talk_reaches_the_system_text_without_a_judgement():
 
 
 def test_the_verbatim_is_not_shortened():
-    """W の過去の列は 120 字で切るが、直近の枠は切らない。切ると細部が消える。"""
+    """直近の枠は切らない。切ると細部が消える（過去の列も 2026-09-20 から全文）。"""
     long = "あ" * 400
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
     _with_recent(

@@ -96,8 +96,8 @@ def test_items_are_never_truncated() -> None:
     long_body = "あ" * 3000
     memories = [_rec("m1", long_body, fit=0.9)]
     out, _ = workspace.compose(_oif_stub(), memories, Request())
-    # W の1行は 120 字で丸める（`_lines`）。**枠で落とさなかった**ことを見る。
-    assert "あ" * 120 in out, "1件が枠で落とされている"
+    # 1 行は全文（2026-09-20）。**枠で落とさなかった**ことを見る。
+    assert long_body in out, "1件が枠で落とされている"
 
 
 def test_overflow_drops_whole_items_lowest_fit_first(caplog) -> None:
@@ -105,7 +105,7 @@ def test_overflow_drops_whole_items_lowest_fit_first(caplog) -> None:
 
     budget = MemoryConfig().workspace_max_chars
     big = "大" * (budget // 2 + 100)  # 2件で枠を超える大きさ
-    # 印は**先頭**に置く。W の1行は 120 字で丸めるので、末尾の印は出ない。
+    # 印は**先頭**に置く（末尾だと、落ちた側と見分けにくい）。
     memories = [_rec("hi", "上位" + big, fit=0.9), _rec("lo", "下位" + big, fit=0.1)]
     with caplog.at_level(logging.INFO, logger="familiar_agent.loop.workspace"):
         out, _ = workspace.compose(_oif_stub(), memories, Request())

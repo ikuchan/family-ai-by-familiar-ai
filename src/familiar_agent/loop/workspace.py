@@ -159,11 +159,7 @@ def compose(
     for r in memories:
         if roles.get(r.mi.obs_id) == "起点" and names.get(r.mi.obs_id, "わたし") == "わたし":
             names[r.mi.obs_id] = "相手"
-    text = "\n\n".join(
-        p
-        for p in [said, heard, held, _lines(shown, names, full=set(open_ids(req)))]
-        if p and p.strip()
-    )
+    text = "\n\n".join(p for p in [said, heard, held, _lines(shown, names)] if p and p.strip())
     return text, id_map
 
 
@@ -386,19 +382,16 @@ class Workspace:
 _CONF_LOW = 0.55
 
 
-#: 過去の記憶の 1 行に載せる字数。細部が要るときは直近のやりとりの枠（逐語）が担う。
-_PAST_CHARS = 120
-
-
-def _lines(
-    memories: "list[Recalled]", names: "dict[str, str]", *, full: "set[str] | None" = None
-) -> str:
+def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
     """W の1行を組む。**核の仕事**である（環-e-い）。
 
-    `full` に入る記録（この求めの起点・生きている版・見た印＝`open_ids`）は**全文**で載せる。
-    求めの版は「調べた結果が届いた：…」を持つので、120 字で切ると検索結果の中身が落ちる
-    （実機で『9月14日(月) 30℃/22℃』が外に出て、調停は検索し直し、主LLM は「読み取れなかった」
-    と答えた・2026-09-13）。過去の記憶は 120 字のまま（枠の計算は全文で行う）。
+    **1 行は全文で載せる**（2026-09-20）。以前は過去の記憶だけ 120 字で切り、細部は直近の
+    やりとりの枠（逐語）が担うとしていた。その直近を 3／6 往復・**5 分**に狭めたので
+    （出-ae(2)）、5 分より前の話は 120 字の断片しかどこにも残らなくなった。量は枠
+    （`workspace_max_chars`＝40,000 字）が受ける——枠の計算はもともと全文で行っており、
+    載る件数は `recall_k`（7 件）で決まるので、切り詰めは枠のためには要らない。
+    切ると中身が落ちることは実機でも起きている（『9月14日(月) 30℃/22℃』が 120 字の外に出て、
+    調停は検索し直し、主LLM は「読み取れなかった」と答えた・2026-09-13）。
 
     以前は `ObservationMemory.format_for_context` が組んでいたが、`Recalled` を受ける形に
     すると**記憶が OIF の器を知る**ことになる（依存が逆向き）。W を組むのは核なので、
@@ -421,7 +414,7 @@ def _lines(
         day = clock.ts_to_date(mi.timestamp) if mi.timestamp else "?"
         at = clock.ts_to_time(mi.timestamp) if mi.timestamp else "?"
         subject = subject_line(mi.direction, names.get(mi.obs_id))
-        body = mi.content if (full and mi.obs_id in full) else mi.content[:_PAST_CHARS]
+        body = mi.content
         out.append(
             f"- {day} {at} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
             f" {subject}{emo}: {body}"
