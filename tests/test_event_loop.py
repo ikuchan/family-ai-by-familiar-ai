@@ -18,7 +18,11 @@ from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 # 非同期の処理が届くのを待つ上限（0.005 秒 × この回数＝5秒）。条件が満たされた時点で
 # 抜けるので、通常の実行時間は変わらない。以前は 1〜2 秒相当で、負荷の高い実行（所要が
 # 通常の 2.4 倍だった回）に 1 件が待ちきれずに落ちた。
-_WAIT_TICKS = 1000
+# 駆動体が動くのを待つ上限（5 ミリ秒 × この回数）。**機械の速さに依存する待ちで、挙動の
+# 閾値ではない。** 全体テスト（3,150 件・直列・7 分半）の中で `test_iteration_ends_when_tool_is_dispatched`
+# が 5 秒では待ち切れず 3 回落ちた（2026-09-20〜21・単体・半分ずつ・同じ引数の直接実行では通る）。
+# 10 秒へ広げる（本人の承認）。条件が満たされれば途中で抜けるので、通常の実行時間は変わらない。
+_WAIT_TICKS = 2000
 
 _SAY_DEF = {"name": "say", "input_schema": {}}
 _RECALL_DEF = {"name": "recall", "input_schema": {}}

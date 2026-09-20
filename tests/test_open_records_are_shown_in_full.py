@@ -1,6 +1,6 @@
 """この求めの記録（起点・生きている版・見た印）は W に**全文**で載せる（2026-09-13 実機で露見）。
 
-W の 1 行は 120 字で切っていた。求めの版は「調べた結果が届いた：…」を持つので、検索結果の
+W の 1 行は 120 字で切っていた（2026-09-20 に全文へ変えた）。求めの版は「調べた結果が届いた：…」を持つので、検索結果の
 中身（『9月14日(月) 30℃/22℃ 40%』）が 120 字の外に落ち、調停は「詳細」を検索し直し、
 主LLM は「数字は読み取れなかった」と答えた。`compose` の docstring は「1 件の途中では切らない」
 と言っていたが、`_lines` が切っていた。過去の記憶は今までどおり 120 字。
@@ -45,8 +45,10 @@ def test_the_live_version_keeps_its_full_content() -> None:
     text, _ = workspace.compose(
         _oif(), [_recalled("版1", _RESULT, "求め"), _recalled("m9", _OLD, "会話")], req
     )
-    assert "30℃/22℃" in text, "検索結果の中身が 120 字の外に落ちている"
-    assert len(_OLD) > 120 and _OLD[:120] in text and _OLD[:140] not in text, "過去の記憶は 120 字"
+    assert "30℃/22℃" in text, "検索結果の中身が落ちている"
+    # 過去の記憶も全文（2026-09-20）。切ると 5 分より前の話の細部がどこにも残らない
+    # （直近の枠は 3／6 往復・5 分に狭めた）。量は枠（`workspace_max_chars`）が受ける。
+    assert _OLD in text, "過去の記憶が切られている"
 
 
 def test_a_seen_mark_of_this_request_is_also_full() -> None:
