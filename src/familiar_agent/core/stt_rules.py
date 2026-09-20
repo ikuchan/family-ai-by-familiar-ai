@@ -20,19 +20,11 @@ def is_hallucination(text: str) -> bool:
     return s in _BOILERPLATE
 
 
-# ── 名前の手がかりと直し（知-z・2026-09-19）────────────────────────────────
-
-
-def initial_prompt_for(name: str) -> str:
-    """faster-whisper の `initial_prompt` に渡す、名前入りの短い例文。
-
-    `hotwords` だけでは large-v3 が語彙に無い「パジュ」を落とす・化かす（今日 2 回「パパだよ」に）。
-    直前の文脈として名前を 2 度見せる。長くすると無音でその文を反響しやすいので 2 文にとどめる。
-    """
-    n = (name or "").strip()
-    if not n:
-        return ""
-    return f"{n}、こんにちは。{n}、3 分測って。"
+# ── 名前の直し（知-z・2026-09-19）──────────────────────────────────────────
+#
+# 名前入りの例文を `initial_prompt` に渡す手もあったが、2026-09-20 の実機でやめた。はっきり
+# しない音に対して Whisper がその例文をそのまま書き出し、話していないのに「パジュ、3 分測って。」
+# が繰り返し上がった。名前の手がかりは `hotwords`（語の並び・文ではないので反響しない）だけにする。
 
 
 def normalize_name(text: str, names: "tuple[str, ...] | list[str]") -> str:
