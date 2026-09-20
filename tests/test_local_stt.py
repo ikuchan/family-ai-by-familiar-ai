@@ -388,22 +388,10 @@ def test_the_no_speech_ceiling_has_a_default_and_can_be_moved():
         assert STTConfig().no_speech_max == pytest.approx(0.9)
 
 
-# ── 名前の手がかり ─────────────────────────────────────────────────────────
+# ── 語の手がかり（表そのものは `test_stt_word_groups.py`）─────────────────────
 
 
-def test_the_names_are_given_to_whisper_as_hotwords():
-    """「パジュ」を 体重／はじゅ と書き起こした（2026-09-17）。名前を手がかりとして渡す。"""
-    cfg = STTConfig()
-    cfg.hotwords = "パジュ"
-    engine = LocalSttEngine(cfg)
-    model = MagicMock()
-    model.transcribe.return_value = (iter([]), None)
-    with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
-        engine._transcribe(b"\x00\x00" * 16000)
-    assert model.transcribe.call_args.kwargs["hotwords"] == "パジュ"
-
-
-def test_no_hotwords_when_no_name_is_known():
+def test_no_hotwords_when_the_table_is_empty():
     cfg = STTConfig()
     engine = LocalSttEngine(cfg)
     model = MagicMock()
