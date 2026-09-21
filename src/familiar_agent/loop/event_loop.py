@@ -50,6 +50,12 @@ logger = logging.getLogger(__name__)
 _FULL_ACTIONS = (
     "say",
     "recall",
+    # 思い出し方を変えて引き直す道具（出-ah・2026-09-21）。W に載る情報が足りないとき、
+    # 面・件数と思い出し方・時期と幅・直近の窓を、主LLM 自身が動かせる。効き目はその 1 回だけ。
+    "recall_as",
+    "recall_deeper",
+    "recall_when",
+    "recall_recent",
     "search_deferred",
     "fetch_deferred",
     "see",
@@ -69,6 +75,9 @@ _FULL_ACTIONS = (
     "start_stopwatch",  # ストップウォッチ（知-u・別物）
     "stop_stopwatch",
 )
+#: 思い出し方を変える道具（出-ah）。`recall` と同じく、その場で引いて完了として返る。
+_WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent")
+
 _TIMER_ACTIONS = ("set_timer", "cancel_timer", "pause_timer", "resume_timer")
 # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物・別の道具（`agent._stopwatch_tool`）。
 _STOPWATCH_ACTIONS = ("start_stopwatch", "stop_stopwatch")
@@ -261,6 +270,96 @@ def _camera_tool_def(agent, name: str) -> list[dict]:
     if cam is None:
         return []
     return [d for d in cam.get_tool_definitions() if d.get("name") == name]
+
+
+#: 思い出し方を変える道具の定義（出-ah・2026-09-21）。**説明文に使いどころを書く**——
+#: 道具があっても、いつ使うかが伝わらなければ使われない。軸の名前（重み・床）は見せず、
+#: 人の言葉で指させる。上限を超えた指定は丸めるだけで、断らない。
+_WIDEN_DEFS: dict[str, dict] = {
+    "recall_as": {
+        "name": "recall_as",
+        "description": (
+            "別の人の面で思い出す。**思い出せないときや、その人との話を探したいとき**に使う。"
+            "家族はそれぞれ別の記憶の空間を持っていて、ふだんはいま話している相手の面から思い出している。"
+            "返ってくるのは、その人との記憶だと分かる形で返る（目の前の相手に話してよいかは自分で考える）。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "person": {"type": "string", "description": "誰の面か（家族の呼び方）"},
+                "query": {"type": "string", "description": "探す言葉"},
+            },
+            "required": ["person", "query"],
+        },
+    },
+    "recall_deeper": {
+        "name": "recall_deeper",
+        "description": (
+            "もっとたくさん、別の重みで思い出す。**思い出せないときや、断片しか出てこないとき**に使う。"
+            "ふだんは 7 件だが、最大 20 件まで増やせる。"
+            "思い出し方は「新しい順に」「印象に残っていることを」「よく思い出すことを」"
+            "「この人との関わりで」「話に近いものを」から選ぶ。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "探す言葉"},
+                "n": {"type": "integer", "description": "件数（1〜20・省略で 20）"},
+                "way": {"type": "string", "description": "思い出し方（省略でふだんのまま）"},
+            },
+            "required": ["query"],
+        },
+    },
+    "recall_when": {
+        "name": "recall_when",
+        "description": (
+            "その頃のことを思い出す。**思い出せないときや、いつの話か見当がついているとき**に使う。"
+            "ふだんは「いま」を基準に思い出している。日付は 2026-08-15 の形で渡す"
+            "（「去年の夏」のような言葉は自分で日付に直す）。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "探す言葉"},
+                "date": {"type": "string", "description": "基準の日（2026-08-15 の形）"},
+                "span_days": {"type": "integer", "description": "前後何日まで見るか（省略で 30）"},
+            },
+            "required": ["query", "date"],
+        },
+    },
+    "recall_recent": {
+        "name": "recall_recent",
+        "description": (
+            "さっきの話をもっと広く読み直す。**思い出せないときや、少し前のやりとりが必要なとき**に使う。"
+            "ふだん見えているのは直近 5 分ぶんだけで、最大 30 分・20 往復まで広げられる。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "minutes": {"type": "integer", "description": "何分前まで（1〜30・省略で 30）"},
+                "turns": {"type": "integer", "description": "何往復まで（1〜20・省略で 20）"},
+            },
+        },
+    },
+}
+
+
+def _widen_lines(ws, k: int) -> str:
+    """引き直した記憶を、`recall` と同じ読み方の行にする（出-ah）。載せるのは `k` 件まで。"""
+    from .workspace import _lines
+
+    picked = sorted(ws.memories, key=lambda r: r.fit, reverse=True)[:k]
+    if not picked:
+        return "その引き方では、思い出せるものが無かった"
+    names: dict = {}
+    with contextlib.suppress(Exception):
+        names = dict(ws.oif.actors([r.mi.obs_id for r in picked]))
+    return _lines(picked, names)
+
+
+def _widen_def(name: str) -> dict:
+    """思い出し方を変える道具の定義（出-ah）。表から 1 つ返す。"""
+    return _WIDEN_DEFS[name]
 
 
 def _timer_def(agent, name: str) -> list[dict]:
@@ -1180,6 +1279,12 @@ class InformationProcessing:
                 )
             )
             return
+        if action in _WIDEN_ACTIONS:
+            out = await self._run_widen(action, tool_input)
+            self._triggers.put_nowait(
+                Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
+            )
+            return
         if action != "recall":
             try:
                 text, dispatched = await self._dif.lookup(action, tool_input)
@@ -1232,6 +1337,72 @@ class InformationProcessing:
             self._triggers.qsize(),
             intent_id or "-",
         )
+
+    async def _run_widen(self, action: str, tool_input: dict) -> str:
+        """思い出し方を変えて引き直す（出-ah・2026-09-21）。
+
+        **引くのは既存の口**（`workspace.recall`／`Workspace.recent_text`）で、新しい引き方は
+        作らない。動かすのは軸だけ——面・件数と重み・時期と幅・直近の窓。**効き目はこの 1 回だけ**
+        で、求めには何も残さない（次の反復の W は元の条件で組む）。上限を超えた指定は丸める。
+        """
+        from ..config import MemoryConfig
+        from ..core import recall_options as ro
+
+        agent = self._agent
+        cfg = MemoryConfig()
+        query = str(tool_input.get("query") or self._req.cue or "")
+        viewpoint = agent._pmm.current_speaker_id or AGENT_SELF_ID
+        head = ""  # 何を広げたか。**返りだけを見て分かるようにする**（出-ah）
+        weights = cfg.recall_weights(self._req.trigger_kind)
+        k = cfg.recall_k
+        time_ref: "float | None" = None
+        span: "float | None" = None
+
+        if action == "recall_as":
+            name = str(tool_input.get("person") or "").strip()
+            pid = agent._pmm.find_person_id_by_name(name) if name else None
+            if pid is None:
+                return f"「{name}」は家族に見つからないので、その人の面では思い出せない"
+            viewpoint = pid
+            head = f"（{agent._pmm.get_person_name(pid) or name}の面で思い出した）\n"
+        elif action == "recall_deeper":
+            k = ro.clamp_k(tool_input.get("n"))
+            way = str(tool_input.get("way") or "").strip()
+            weights = ro.weights_for(way, weights)
+            head = f"（{k} 件まで" + (f"・{way}" if way in ro.WAYS else "") + "思い出した）\n"
+        elif action == "recall_when":
+            got = ro.parse_when(str(tool_input.get("date") or ""), tool_input.get("span_days"))
+            if got is None:
+                return "日付が読めない（2026-08-15 の形で渡す）"
+            time_ref, span = got
+            head = f"（{str(tool_input.get('date')).strip()} のころ・前後 {int(span)} 日で思い出した）\n"
+        else:  # recall_recent——直近のやりとりを広げて読み直す
+            minutes, turns = ro.clamp_recent(tool_input.get("minutes"), tool_input.get("turns"))
+            ws = await workspace.recall(
+                agent._oif,
+                query,
+                viewpoint=viewpoint,
+                weights=weights,
+                req=self._req,
+            )
+            ws.max_age_sec = minutes * 60
+            body = ws.recent_text(turns)
+            head = f"（直近 {minutes} 分・{turns} 往復まで広げた）\n"
+            return head + (body or "そのあいだには、まだ何も無い")
+
+        ws = await workspace.recall(
+            agent._oif,
+            query,
+            viewpoint=viewpoint,
+            weights=weights,
+            req=self._req,
+            time_ref=time_ref,
+            time_span_days=span,
+        )
+        # 母数を添える（出-ah）。取りこぼしがあるかどうかを、返りだけで判断できるようにする。
+        tail = f"\n（候補 {cfg.recall_primary_n} 件から {min(k, len(ws.memories))} 件・載せられるのは {k} 件まで）"
+        body = _widen_lines(ws, k)
+        return f"{head}{body}{tail}"
 
     async def _run_camera(self, action: str, tool_input: dict) -> str:
         """目と首を動かし、**見えたものを言葉にして**返す。
@@ -1413,6 +1584,12 @@ class InformationProcessing:
         "recall": lambda ip: [
             d for d in ip._agent._memory_tool.get_tool_definitions() if d.get("name") == "recall"
         ],
+        # 思い出し方を変えて引き直す（出-ah）。説明文に**使いどころ**を書く——道具があっても、
+        # いつ使うかが伝わらなければ使われない。
+        "recall_as": lambda ip: [_widen_def("recall_as")],
+        "recall_deeper": lambda ip: [_widen_def("recall_deeper")],
+        "recall_when": lambda ip: [_widen_def("recall_when")],
+        "recall_recent": lambda ip: [_widen_def("recall_recent")],
         # net（投げっぱなしの外部呼び出し）。結果は完了キュー経由で後の反復に届く。
         "search_deferred": lambda ip: ip._dif.lookup_defs("search_deferred"),
         "fetch_deferred": lambda ip: ip._dif.lookup_defs("fetch_deferred"),
