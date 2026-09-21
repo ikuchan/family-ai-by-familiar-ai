@@ -1225,6 +1225,23 @@ class InformationProcessing:
         self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
     ) -> None:
         """`recall` は同期で結果が返る。deferred は投げるだけで、完了は自身が QC へ積む。"""
+        # **確認待ちのあいだ、掛け直しは機械が落とす**（出-ag-ろ・2026-09-21）。
+        # 言葉で頼んでも守られなかった——1 回の「3 分測って」で `set_timer` が 3 回投げられ、
+        # 確認待ちを作り直したうえで「セットしました」と言った（実機 17:34・掛かっていない）。
+        if self._confirm_blocks(action):
+            pc = getattr(self._agent, "_pending_confirm", None)
+            what = getattr(pc, "what", "") or "掛けること"
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=f"いま「{what}」でいいか確かめている。先に答えてもらう",
+                    intent_id=intent_id,
+                    index=index,
+                    failed=True,
+                )
+            )
+            return
         if action in ("see", "look"):
             # 飛行中の数は減らさない。`recall` と同じく取込が1件につき1つ減らす。
             out = await self._run_camera(action, tool_input)
@@ -1238,6 +1255,8 @@ class InformationProcessing:
             or action in _STOPWATCH_ACTIONS
             or action in _CONFIRM_ACTIONS
         ):
+            # 呼ぶ前の預かり。**新しい預かりが置かれたか**を、呼んだ後に見比べる。
+            before_confirm = getattr(self._agent, "_pending_confirm", None)
             # タイマー（知-n）／アラーム（知-q）／ストップウォッチ（知-u）の道具。その場で返る。落ちても求めは閉じる。
             if action in _STOPWATCH_ACTIONS:
                 tool = getattr(self._agent, "_stopwatch_tool", None)
@@ -1267,6 +1286,9 @@ class InformationProcessing:
                     # 起点は**人が言った瞬間**（調停や主LLM を通る 3 秒は数えない）。
                     out, ok = await tool.call(action, tool_input, now=self._req.began_at)
                     failed = not ok
+            # 道具が確認待ちを置いたら、**その場で問いを出す**（出-ag-ろ・2026-09-21）。
+            # LLM に任せると、掛けていないのに「掛けた」と言う（実機 17:34）。
+            await self._ask_confirm_if_fresh(before_confirm)
             self._triggers.put_nowait(
                 Trigger(
                     kind="完了",
@@ -3124,6 +3146,35 @@ class InformationProcessing:
                 self.push_device(
                     "沈黙が明けた", f"黙っていたあいだに {len(self._muted)} 件届いていた"
                 )
+
+    def _confirm_blocks(self, action: str) -> bool:
+        """確認待ちのあいだ落とす動作か（出-ag-ろ・`core/confirm_state.blocks`）。"""
+        from ..core.confirm_state import blocks
+
+        pc = getattr(self._agent, "_pending_confirm", None)
+        ttl = float(getattr(getattr(self._agent, "config", None), "confirm_ttl_sec", 300.0))
+        return blocks(action, pc, now=time.time(), ttl=ttl)
+
+    async def _ask_confirm_if_fresh(self, before) -> None:
+        """道具の呼び出しで**新しく置かれた**預かりだけ、その場で問いを出す（出-ag-ろ）。"""
+        pc = getattr(self._agent, "_pending_confirm", None)
+        if pc is None or pc is before:
+            return
+        await self._ask_confirm_aloud(pc)
+
+    async def _ask_confirm_aloud(self, pc) -> None:
+        """確認の問いを**機械が出す**（出-ag-ろ・本人の決定）。
+
+        枠に用意した文をそのまま読む。LLM に作らせると、掛けていないのに「掛けた」と言う
+        （実機 17:34）。配信の門（在席・静穏・黙っていて）はふだんの発話と同じく効く。
+        """
+        text = getattr(pc, "text", "") or ""
+        if not text or self._delivery_block_reason():
+            return
+        await self._dif.speak(text, gain=self._voice_gain())
+        self._stamp_said()
+        self._emit(text)
+        logger.info("確認の問いを出した：%.40s", text)
 
     def _careful_voice(self, branch: str) -> bool:
         """じっくり読む声で読むか（環-u・2026-09-21・`core/voice_rules`）。
