@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -38,6 +39,23 @@ async def _player(bus: Any) -> Any:
     return await bus.player(name) if name else None
 
 
+#: `TransferPlayback` のあと、MPRIS の口が出るのを待つ上限（秒）と刻み。
+_WAIT_SEC = 3.0
+_TICK = 0.2
+
+
+async def _wait_for_player(bus: Any) -> Any:
+    """口が出るまで待つ（出なければ None）。"""
+    waited = 0.0
+    while waited < _WAIT_SEC:
+        player = await _player(bus)
+        if player is not None:
+            return player
+        await asyncio.sleep(_TICK)
+        waited += _TICK
+    return None
+
+
 async def play(bus: Any, uri: str) -> bool:
     """プレイリストか曲を鳴らし始める。鳴らせたら True。
 
@@ -51,7 +69,8 @@ async def play(bus: Any, uri: str) -> bool:
             logger.info("音楽：spotifyd が居ないので鳴らせない")
             return False
         await controls.call_transfer_playback()
-        player = await _player(bus)
+        # **口は少し遅れて出る。** 移した直後に見ると、まだ名前が立っていない（実機 2026-09-21）。
+        player = await _wait_for_player(bus)
         if player is None:
             logger.info("音楽：再生をこちらへ移したが、MPRIS の口が出ない")
             return False
@@ -61,12 +80,26 @@ async def play(bus: Any, uri: str) -> bool:
 
 
 async def stop(bus: Any) -> bool:
-    """止める。鳴っていなければ False。"""
+    """止める。鳴っていなければ False。
+
+    **`Stop` ではなく `Pause` を使う。** `Stop` は MPRIS の口ごと消えるのに、音の流れは
+    残った（実機 2026-09-21：止めたつもりで鳴り続け、Spotify 側も「どの機器も再生していない」
+    と返して掴めなくなった）。`Pause` なら音の流れが消え、口も残るので様子を読める。
+    """
     player = await _player(bus)
     if player is None:
         return False
-    await player.call_stop()
+    await player.call_pause()
     logger.info("音楽：止めた")
+    return True
+
+
+async def set_shuffle(bus: Any, on: bool) -> bool:
+    """順番かランダムかを決める。鳴っていなければ False。"""
+    player = await _player(bus)
+    if player is None:
+        return False
+    await player.set_shuffle(bool(on))
     return True
 
 
