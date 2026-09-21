@@ -91,7 +91,7 @@ class DIF:
         """声の道具の定義。無い機体では空。"""
         return self._tts.get_tool_definitions() if self._tts else []
 
-    async def speak(self, text: str, *, gain: float = 1.0) -> None:
+    async def speak(self, text: str, *, gain: float = 1.0, careful: bool = False) -> None:
         """声に出す。
 
         **例外は飲む。** 機器は落ちる前提のもので、声が出せなかったことでターンごと
@@ -108,6 +108,9 @@ class DIF:
             payload: dict = {"text": text}
             if gain != 1.0:
                 payload["gain"] = gain  # タイマーの声だけ大きく（この 1 回の再生にだけ効く）
+            if careful:
+                # じっくり読む声（環-u）。主LLM が外への問い合わせの返りで話すときだけ。
+                payload["careful"] = True
             result, _ = await self._tts.call("say", payload)
             # 合成器は成功なら `Said:` で始める。それ以外（API の 402・再生器が無い）は
             # 返り文字列にしか載らないので、ここで残さないと「声が出ない」が追えない。

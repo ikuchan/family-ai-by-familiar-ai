@@ -60,8 +60,8 @@ def test_speaking_returns_what_happened():
     ip = _ip()
     assert asyncio.run(ip._speak("はい")) == ("はい", "発話")
     ip._dif.speak.assert_awaited_once_with(
-        "はい", gain=1.0
-    )  # 倍率は既定 1.0（タイマーの声だけ変わる）
+        "はい", gain=1.0, careful=False
+    )  # 倍率は既定 1.0（タイマーの声だけ変わる）・声は flash（環-u）
     ip._emit.assert_called_once_with("はい")
 
 
@@ -104,12 +104,19 @@ def test_the_source_shows_it_too():
 
 
 def test_speaking_no_longer_takes_the_memories():
-    """`memories` は `_finish` へ渡すためだけに受け取っていた。"""
+    """`memories` は `_finish` へ渡すためだけに受け取っていた。
+
+    見るのは**求めを閉じる材料を受け取らないこと**であって、引数の数ではない（2026-09-21 に
+    文言を狭めた・本人の承認）。`branch` は「どの声で読むか」を決めるためのもので、閉じる材料
+    ではない（環-u）。
+    """
     from familiar_agent.loop.event_loop import InformationProcessing
 
     params = set(inspect.signature(InformationProcessing._speak).parameters)
     params.discard("self")
-    assert params == {"text"}, params
+    assert "memories" not in params, params
+    assert "outcome" not in params, params
+    assert "text" in params, params
 
 
 def test_only_the_iteration_closes_the_turn():

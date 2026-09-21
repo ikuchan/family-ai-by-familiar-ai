@@ -203,6 +203,14 @@ class TTSConfig:
     elevenlabs_model: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_MODEL", "eleven_flash_v2_5")
     )
+    # じっくり読む声（環-u・2026-09-21）。主LLM が話し、外へ問い合わせた返りから起きた反復の
+    # ときだけ使う。漢字を読めるのでひらがな化を通さないが、合成に 3.4 秒かかる。
+    careful_model: str = field(
+        default_factory=lambda: os.environ.get("ELEVENLABS_CAREFUL_MODEL", "eleven_v3")
+    )
+    # 読み上げの速さ（環-u・2026-09-21）。既定の 1.0 は速すぎた（本人が 0.9／0.8／0.7 を聴いて
+    # 0.9 を選んだ）。ElevenLabs の `voice_settings.speed` は 0.7〜1.2。
+    speed: float = field(default_factory=lambda: _float_env("TTS_SPEED", 0.9))
     voice_id: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_VOICE_ID", "cgSgspJ2msm6clMCkdW9")
     )

@@ -562,6 +562,9 @@ class EmbodiedAgent:
             output=tts.output,
             engine=tts.engine,
             elevenlabs_model=tts.elevenlabs_model,
+            # じっくり読む声と読み上げの速さ（環-u・2026-09-21）。
+            careful_model=getattr(tts, "careful_model", "eleven_v3"),
+            speed=float(getattr(tts, "speed", 0.9)),
             sbv2_url=tts.sbv2_url,
             sbv2_style=tts.sbv2_style,
             sbv2_weight=tts.sbv2_weight,
