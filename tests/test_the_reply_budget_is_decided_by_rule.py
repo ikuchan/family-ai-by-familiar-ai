@@ -46,4 +46,12 @@ def test_an_unknown_effort_is_treated_as_low() -> None:
 
 
 def test_the_budget_reads_as_one_line() -> None:
-    assert ReplyBudget(target=40, limit=80, max_tokens=500).line() == "[返事] 目標 40 字・80 字以内"
+    """1 行で読め、数字が先頭に来る。
+
+    行末には「引き直せることをやり切ってから」が付く（出-ah-ろ・2026-09-22）。字数の
+    指示だけを置くと「いま返事を書く」の合図になり、引き直せるのに諦めるため。**1 行である
+    ことと、数字が先に来ることがここで見たいもの**なので、後ろに続く文は問わない。
+    """
+    line = ReplyBudget(target=40, limit=80, max_tokens=500).line()
+    assert line.startswith("[返事] 目標 40 字・80 字以内")
+    assert "\n" not in line

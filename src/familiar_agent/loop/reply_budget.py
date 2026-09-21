@@ -45,7 +45,14 @@ class ReplyBudget:
                 f"[独り言] 目標 {self.target} 字・{self.limit} 字以内"
                 "（言わなくてもよい。誰にも向けない）"
             )
-        return f"[返事] 目標 {self.target} 字・{self.limit} 字以内"
+        # 字数だけを置くと「いま返事を書く」の合図になり、引き直せるのに諦める（出-ah-ろ）。
+        # **身体の `:id memory` と対で効く**——片方だけでは 16 回中 3 回、両方で 40 回中 26 回。
+        # 独り言（情動が起点）には足さない。相手への返事ではないので、引き直す話が要らない。
+        return (
+            f"[返事] 目標 {self.target} 字・{self.limit} 字以内"
+            "（返事を書くのは、引き直せることをやり切ってから。"
+            "思い出せていないなら、この行はまだ自分に向いていない）"
+        )
 
 
 def decide(*, effort: str, researched: bool, w_count: int, origin: str = "発話") -> ReplyBudget:
