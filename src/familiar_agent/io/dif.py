@@ -16,6 +16,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Awaitable, Callable  # noqa: TC003  型注記に使う
+from typing import Any
+
 import asyncio
 import contextlib
 import re
@@ -68,6 +71,8 @@ class DIF:
         self._mcp = mcp
         self._ip = ip
         self._ring_task: asyncio.Task | None = None  # 鳴っているタイマーの音（知-n-ろ）
+        #: 声を出すあいだ音楽を絞る口（知-aa・2026-09-21）。無ければ何もしない。
+        self._music_ducker: "Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]] | None" = None
         # 山谷の既定（小さくする秒・戻す秒・その倍率）。T が Config から入れる
         self._ring_shape = (8.0, 25.0, 0.1)
 
@@ -98,7 +103,8 @@ class DIF:
         if gain != 1.0:
             logger.debug("DIF 声の倍率 %.2f（タイマーの知らせ・この 1 回だけ）", gain)
         started = time.monotonic()
-        with contextlib.suppress(Exception):
+
+        async def _say() -> None:
             payload: dict = {"text": text}
             if gain != 1.0:
                 payload["gain"] = gain  # タイマーの声だけ大きく（この 1 回の再生にだけ効く）
@@ -107,8 +113,19 @@ class DIF:
             # 返り文字列にしか載らないので、ここで残さないと「声が出ない」が追えない。
             if not str(result).startswith("Said:"):
                 logger.warning("DIF 声が出なかった：%s", str(result)[:160])
+
+        with contextlib.suppress(Exception):
+            # 音楽が鳴っていれば、声のあいだだけ絞る（知-aa・機械の反射）。
+            if self._music_ducker is not None:
+                await self._music_ducker(_say)
+            else:
+                await _say()
         # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
         logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
+
+    def set_music_ducker(self, ducker) -> None:
+        """声のあいだ音楽を絞る口を挿す（知-aa）。挿さなければ、声はそのまま出る。"""
+        self._music_ducker = ducker
 
     # ── タイマーの音 ──────────────────────────────────────────────────────
 

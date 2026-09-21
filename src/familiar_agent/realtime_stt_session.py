@@ -149,6 +149,8 @@ class RealtimeSttSession:
         self._voice_guard = voice_guard or get_shared_voice_guard()
         # 聞かない状態を返す口（空＝聞く・文字列＝理由）。GUI が agent の `timer_tool.listening_closed` を挿す。
         self.mic_gate: "Callable[[], str] | None" = None
+        #: 音楽の表（`MUSIC.md`）を読む口。音楽が鳴っているあいだ、通す言葉の判定に使う。
+        self.music_table: "Callable[[], tuple] | None" = None
         # 書き起こしの担い手。ローカル（`LocalSttEngine`）と WebSocket
         # （`RealtimeSttClient`）の2種類あり、口の形は同じ（`connected`／`connect`／
         # `close`／`send_audio`／`on_committed`）。共通の基底は置かず、型は緩めて扱う。
@@ -400,7 +402,7 @@ class RealtimeSttSession:
             # 聞かないあいだ（タイマー中・`TIMER_MIC_CLOSE`・知-o）：操作の言葉だけ通す。
             # マイクは止めない（止めると「止めて」が届かない）。機械が決めるのは通すかまで。
             closed = self._mic_gate_reason()
-            if closed and not is_control_word(text):
+            if closed and not self._passes_gate(closed, text):
                 logger.info("聞いていない（%s）：%r", closed, text)
                 continue
             decision = self._voice_guard.check_transcript(text)
@@ -414,6 +416,21 @@ class RealtimeSttSession:
             if self.on_committed:
                 self.on_committed(text)
             await self._committed_queue.put(text)
+
+    def _passes_gate(self, reason: str, text: str) -> bool:
+        """聞かないあいだに通す言葉か。**理由で通す言葉が違う**（知-aa・2026-09-21）。
+
+        タイマー中は操作の言葉（止め・一時停止・再開）。音楽が鳴っているあいだは**音楽の話だけ**
+        （操作とプレイリストの名前）で、時間の道具は通さない（本人の決定）。
+        """
+        if "音楽" in reason:
+            from .core.music_rules import is_music_word
+
+            table = ()
+            with contextlib.suppress(Exception):
+                table = self.music_table() if self.music_table is not None else ()
+            return is_music_word(text, table)
+        return is_control_word(text)
 
     def _mic_gate_reason(self) -> str:
         try:
@@ -448,6 +465,10 @@ class RealtimeSttController:
     def set_mic_gate(self, gate: "Callable[[], str] | None") -> None:
         """聞かない状態を返す口を挿す（タイマー中・`TIMER_MIC_CLOSE`）。"""
         self._session.mic_gate = gate
+
+    def set_music_table(self, table: "Callable[[], tuple] | None") -> None:
+        """音楽の表を読む口を挿す（知-aa）。鳴っているあいだ、通す言葉の判定に使う。"""
+        self._session.music_table = table
 
     @property
     def engine_label(self) -> str:

@@ -72,11 +72,19 @@ _FULL_ACTIONS = (
     "resume_timer",
     "set_alarm",
     "cancel_alarm",
+    # 音楽（知-aa 段 1・2026-09-21）。器（`agent._music_tool`）が無ければ渡らない。
+    "play_music",
+    "stop_music",
+    "next_track",
+    "music_volume",
     "start_stopwatch",  # ストップウォッチ（知-u・別物）
     "stop_stopwatch",
 )
 #: 思い出し方を変える道具（出-ah）。`recall` と同じく、その場で引いて完了として返る。
 _WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent")
+
+#: 音楽の道具（知-aa）。`recall` と同じく、その場で返る。
+_MUSIC_ACTIONS = ("play_music", "stop_music", "next_track", "music_volume")
 
 _TIMER_ACTIONS = ("set_timer", "cancel_timer", "pause_timer", "resume_timer")
 # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物・別の道具（`agent._stopwatch_tool`）。
@@ -370,6 +378,14 @@ def _timer_def(agent, name: str) -> list[dict]:
     return [d for d in tool.get_tool_definitions() if d.get("name") == name]
 
 
+def _music_def(agent, name: str) -> list[dict]:
+    """音楽の道具定義から 1 つだけ。器が無ければ空（知-aa）。"""
+    tool = getattr(agent, "_music_tool", None)
+    if tool is None:
+        return []
+    return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
 def _stopwatch_def(agent, name: str) -> list[dict]:
     """ストップウォッチの道具定義から 1 つだけ。器が無ければ空（知-u）。"""
     tool = getattr(agent, "_stopwatch_tool", None)
@@ -609,6 +625,20 @@ class InformationProcessing:
             # 実機で `'NoneType' object has no attribute 'push_device'`・2026-09-15）。
             ip=self,
         )
+        # 声のあいだ音楽を絞る口（知-aa・機械の反射・主LLM は通らない）。器が無ければ挿さない。
+        music_tool = getattr(agent, "_music_tool", None)
+        if music_tool is not None:
+            from .music_watch import duck_while_speaking
+
+            async def _duck(speak, _tool=music_tool, _agent=agent):
+                return await duck_while_speaking(
+                    io=_tool._io,
+                    bus=_tool._bus(),
+                    state=getattr(_agent, "_music_state", None),
+                    speak=speak,
+                )
+
+            self._dif.set_music_ducker(_duck)
 
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
         self._recall_exclude_id: str | None = None
@@ -1279,6 +1309,24 @@ class InformationProcessing:
                 )
             )
             return
+        if action in _MUSIC_ACTIONS:
+            tool = getattr(self._agent, "_music_tool", None)
+            if tool is None:
+                out, failed = "音楽の道具が無い", True
+            else:
+                out, ok = await tool.call(action, tool_input)
+                failed = not ok
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=str(out),
+                    intent_id=intent_id,
+                    index=index,
+                    failed=failed,
+                )
+            )
+            return
         if action in _WIDEN_ACTIONS:
             out = await self._run_widen(action, tool_input)
             self._triggers.put_nowait(
@@ -1615,6 +1663,11 @@ class InformationProcessing:
         "set_alarm": lambda ip: _alarm_def(ip._agent, "set_alarm"),
         "cancel_alarm": lambda ip: _alarm_def(ip._agent, "cancel_alarm"),
         # ストップウォッチ（知-u）。器（`agent._stopwatch_tool`）が無ければ渡さない。
+        # 音楽（知-aa）。器が無ければ空（`spotifyd` が居ない機体では渡さない）。
+        "play_music": lambda ip: _music_def(ip._agent, "play_music"),
+        "stop_music": lambda ip: _music_def(ip._agent, "stop_music"),
+        "next_track": lambda ip: _music_def(ip._agent, "next_track"),
+        "music_volume": lambda ip: _music_def(ip._agent, "music_volume"),
         "start_stopwatch": lambda ip: _stopwatch_def(ip._agent, "start_stopwatch"),
         "stop_stopwatch": lambda ip: _stopwatch_def(ip._agent, "stop_stopwatch"),
         # 確認待ちへの答え（出-y）。預かりが生きているあいだだけ。
