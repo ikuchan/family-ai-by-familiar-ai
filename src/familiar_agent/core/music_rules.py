@@ -25,32 +25,57 @@ RESTORE_AFTER_SEC = 10
 # 名前に**改行を含めない**（否定の文字クラスは改行にも当たるので、前の行から繋がって
 # 「```\n朝の曲」のような名前になる・雛形の例で踏んだ 2026-09-21）。
 _ROW = re.compile(
-    r"^[ \t　]*([^：:（(#`\n][^：:\n]*)[：:][ \t　]*(spotify:[A-Za-z0-9:]+)[ \t　]*$",
+    r"^[ \t　]*([^：:（(#`\n][^：:\n]*)[：:][ \t　]*(spotify:[A-Za-z0-9:]+)"
+    r"(?:[：:][ \t　]*([^\n]*))?[ \t　]*$",
     re.MULTILINE,
 )
+#: 順番の指し方。3 つ目の欄（`名前：URI：ランダム`）と、言葉の中の言い方に同じ表を使う。
+_SHUFFLE = re.compile(r"(ランダム|しゃっふる|シャッフル|順不同)")
+_IN_ORDER = re.compile(r"(順番|順に|そのまま)")
 #: 音楽の操作の言葉。長い文の中の「止めて」は通さない（テレビの台詞でありうる）。
-_CONTROL = re.compile(r"(止め|ストップ|中止|やめ|次の曲|次へ|スキップ|大きく|小さく|音量)")
+_CONTROL = re.compile(
+    r"(止め|ストップ|中止|やめ|次の曲|次へ|スキップ|大きく|小さく|音量|ランダム|シャッフル|順番)"
+)
 #: 操作の言葉として受ける長さ（字）。プレイリスト名はこれと別に表で当てる。
 CONTROL_MAX_CHARS = 14
 
 
-def parse_music_md(text: str) -> "tuple[tuple[str, str], ...]":
-    """`MUSIC.md` の `名前：URI` を並びで取る。URI が無い行と雛形の括弧書きは飛ばす。"""
-    return tuple((m.group(1).strip(), m.group(2).strip()) for m in _ROW.finditer(text or ""))
+def parse_music_md(text: str) -> "tuple[tuple[str, str, bool], ...]":
+    """`MUSIC.md` の `名前：URI[：ランダム]` を並びで取る（名前・URI・ランダムか）。
+
+    3 つ目の欄は**その表の既定**で、言葉で上書きできる（`wants_shuffle`・本人の決定）。
+    URI が無い行と雛形の括弧書きは飛ばす。
+    """
+    return tuple(
+        (m.group(1).strip(), m.group(2).strip(), bool(_SHUFFLE.search(m.group(3) or "")))
+        for m in _ROW.finditer(text or "")
+    )
 
 
-def find_playlist(text: str, table: "tuple[tuple[str, str], ...]") -> "str | None":
-    """言われた言葉から、表のプレイリストを当てる。長い名前から見る。"""
+def find_playlist(
+    text: str, table: "tuple[tuple[str, str, bool], ...]"
+) -> "tuple[str, str, bool] | None":
+    """言われた言葉から、表の行を当てる。長い名前から見る。"""
     s = (text or "").strip()
     if not s:
         return None
-    for name, uri in sorted(table, key=lambda kv: -len(kv[0])):
-        if name and name in s:
-            return uri
+    for row in sorted(table, key=lambda r: -len(r[0])):
+        if row[0] and row[0] in s:
+            return row
     return None
 
 
-def is_music_word(text: str, table: "tuple[tuple[str, str], ...]") -> bool:
+def wants_shuffle(text: str, default: bool) -> bool:
+    """順番か、ランダムか。言葉で言われていればそれに従い、無ければ表の既定のまま。"""
+    s = text or ""
+    if _SHUFFLE.search(s):
+        return True
+    if _IN_ORDER.search(s):
+        return False
+    return default
+
+
+def is_music_word(text: str, table: "tuple[tuple[str, str, bool], ...]") -> bool:
     """鳴っているあいだに通す言葉か（音楽の操作か、表にあるプレイリストの名前）。"""
     s = (text or "").strip()
     if not s:

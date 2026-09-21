@@ -65,6 +65,27 @@ async def test_without_a_player_the_playback_is_transferred_first():
 
 
 @pytest.mark.asyncio
+async def test_stopping_uses_pause_so_the_sound_really_stops():
+    """`Stop` は口ごと消えるのに音の流れが残った（実機 2026-09-21）。`Pause` を使う。"""
+    player = MagicMock()
+    player.call_pause = AsyncMock()
+    player.call_stop = AsyncMock()
+    bus = _bus(["org.mpris.MediaPlayer2.spotifyd.instance42"], player)
+    assert await music.stop(bus) is True
+    player.call_pause.assert_awaited_once()
+    player.call_stop.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_the_order_can_be_set():
+    player = MagicMock()
+    player.set_shuffle = AsyncMock()
+    bus = _bus(["org.mpris.MediaPlayer2.spotifyd.instance42"], player)
+    assert await music.set_shuffle(bus, True) is True
+    player.set_shuffle.assert_awaited_once_with(True)
+
+
+@pytest.mark.asyncio
 async def test_nothing_to_stop_is_said_plainly():
     bus = _bus([])
     assert await music.stop(bus) is False
