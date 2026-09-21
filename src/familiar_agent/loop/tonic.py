@@ -27,7 +27,7 @@ from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..core.solitude import AXES, next_interval_minutes
 from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives, save_solitude
 from ..mood_register import load_current_mood
-from . import alarm_watch, notes_watch, stopwatch_watch, timer_watch
+from . import alarm_watch, music_watch, notes_watch, stopwatch_watch, timer_watch
 from .rest import run_rest_pass
 
 logger = logging.getLogger(__name__)
@@ -133,6 +133,8 @@ class Tonic:
         self._period = period
         # ストップウォッチの寿命を見た時刻と、その背景タスク（知-u）。
         self._stopwatch_checked = float("-inf")
+        #: 音楽の寿命をいつ見たか（知-aa・30 秒ごと）。
+        self._music_checked = float("-inf")
         self._background: set = set()
         # 前回の在席者。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
         # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
@@ -391,9 +393,31 @@ class Tonic:
             )
             self._background.add(task)
             task.add_done_callback(self._background.discard)
+        # 音楽の寿命（知-aa・30 分）。同じ tick から。止めたら一言言う（本人の決定）。
+        music_tool = getattr(self._agent, "_music_tool", None)
+        if music_tool is not None and time.monotonic() - self._music_checked >= 30.0:
+            self._music_checked = time.monotonic()
+            music_task = asyncio.ensure_future(self._check_music())
+            self._background.add(music_task)
+            music_task.add_done_callback(self._background.discard)
         # 沈黙が期限切れで明けたのに何も届かないとき、まとめの求めを起こす（情-h）。時計は T。
         with contextlib.suppress(Exception):
             self._ip.check_silence_lifted()
+
+    async def _check_music(self) -> None:
+        """30 分たっていたら止めて一言言う（知-aa）。鳴っていなければ何もしない。"""
+        tool = getattr(self._agent, "_music_tool", None)
+        state = getattr(self._agent, "_music_state", None)
+        if tool is None or state is None:
+            return
+        with contextlib.suppress(Exception):
+            await music_watch.check_music_expired(
+                io=tool._io,
+                bus=tool._bus(),
+                state=state,
+                now=time.time(),
+                say=lambda text: self._dif.device("音楽", text, passes_gate=True),
+            )
 
     async def _run(self) -> None:
         last = time.monotonic()

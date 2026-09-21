@@ -13,6 +13,7 @@ from datetime import datetime
 from pathlib import Path
 
 from .core import parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
+from .core.music_state import MusicState  # noqa: E402  音楽の状態（知-aa）
 from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内部利用＋既存の import 経路を保つ再輸出
     _call_optional_async,
     _noop_list,
@@ -255,6 +256,10 @@ class EmbodiedAgent:
             speaker=self._speaker_name_if_known,
             max_sec=float(getattr(config, "stopwatch_max_sec", 6 * 3600.0)),
         )
+        # 音楽（知-aa 段 1・2026-09-21）。`spotifyd` を MPRIS で操る。`MUSIC.md` が無ければ器を作らない
+        # （道具も渡らない）。鳴っているあいだの状態（いつ始めたか）はここが持ち、寿命と門が見る。
+        self._music_state = MusicState()
+        self._music_tool = self._build_music_tool()
         self._last_tool_error: str | None = None
         self._tool_failure_streak: int = 0
 
@@ -882,8 +887,41 @@ class EmbodiedAgent:
             "drive 声がしたが誰も見えないので seeking を +%.2f（いま %.2f）", amount, now_value
         )
 
+    def _music_table(self) -> tuple:
+        """`MUSIC.md` の表。読めなければ空（`ME.md` と同じ探し方）。"""
+        from .core.music_rules import parse_music_md
+
+        for c in ("MUSIC.md", "~/.familiar_ai/MUSIC.md"):
+            path = Path(c).expanduser()
+            if path.exists():
+                with contextlib.suppress(Exception):
+                    return parse_music_md(path.read_text(encoding="utf-8"))
+        return ()
+
+    def _build_music_tool(self):
+        """音楽の器。表が空なら作らない（鳴らす先が無い機体では道具を渡さない）。"""
+        if not self._music_table():
+            return None
+        from .io.music import SessionBus
+        from .tools.music import MusicTool
+
+        from . import io as _io
+
+        bus = SessionBus()
+        return MusicTool(
+            io=_io.music, bus=bus.get, table=self._music_table, state=self._music_state
+        )
+
     def mic_gate_reason(self) -> str:
-        """常時集音へ挿す口：聞かない状態ならその理由（空＝聞く）。`TimerTool.listening_closed`。"""
+        """常時集音へ挿す口：聞かない状態ならその理由（空＝聞く）。
+
+        2 つある。**タイマー**（`TimerTool.listening_closed`・知-o）と、**音楽**（知-aa・
+        2026-09-21）。音楽が鳴っているあいだは音楽の話だけを通す（時間の道具は通さない・
+        本人の決定）。通す言葉の判定は入口側（`core.music_rules.is_music_word`）が持つ。
+        """
+        state = getattr(self, "_music_state", None)
+        if state is not None and getattr(state, "playing", False):
+            return "音楽が鳴っている"
         tool = getattr(self, "_timer_tool", None)
         if tool is None:
             return ""

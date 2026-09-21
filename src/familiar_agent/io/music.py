@@ -145,3 +145,46 @@ def _one(variant: Any) -> str:
     if isinstance(value, (list, tuple)):
         return str(value[0]) if value else ""
     return str(value)
+
+
+class SessionBus:
+    """セッションバスの薄い包み（`dbus-next`）。**つなぐのは最初の 1 回だけ**。
+
+    口（`list_names`・`player`・`controls`）だけを外へ出して、差し替えられるようにしてある。
+    D-Bus が無い機体（GUI の無い環境など）ではつながらないので、そのときは名前が空で返る。
+    """
+
+    def __init__(self) -> None:
+        self._bus: Any = None
+
+    def get(self) -> "SessionBus":
+        return self
+
+    async def _connect(self) -> Any:
+        if self._bus is None:
+            from dbus_next.aio import MessageBus
+
+            self._bus = await MessageBus().connect()
+        return self._bus
+
+    async def list_names(self) -> list:
+        bus = await self._connect()
+        intro = await bus.introspect("org.freedesktop.DBus", "/org/freedesktop/DBus")
+        proxy = bus.get_proxy_object("org.freedesktop.DBus", "/org/freedesktop/DBus", intro)
+        return list(await proxy.get_interface("org.freedesktop.DBus").call_list_names())
+
+    async def player(self, name: str) -> Any:
+        bus = await self._connect()
+        intro = await bus.introspect(name, _MPRIS_PATH)
+        proxy = bus.get_proxy_object(name, _MPRIS_PATH, intro)
+        return proxy.get_interface("org.mpris.MediaPlayer2.Player")
+
+    async def controls(self) -> Any:
+        """`spotifyd` 自身の口（`TransferPlayback`）。居なければ None。"""
+        names = [n for n in await self.list_names() if n.startswith(SPOTIFYD_PREFIX)]
+        if not names:
+            return None
+        bus = await self._connect()
+        intro = await bus.introspect(names[0], _SPOTIFYD_PATH)
+        proxy = bus.get_proxy_object(names[0], _SPOTIFYD_PATH, intro)
+        return proxy.get_interface("rs.spotifyd.Controls")

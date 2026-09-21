@@ -1860,13 +1860,19 @@ class FamiliarWindow(QMainWindow):
         dlg.exec()
 
     def _attach_mic_gate(self) -> None:
-        """タイマー中の「聞かない」（`TIMER_MIC_CLOSE`）を常時集音へ挿す（agent と集音の両方が要る）。"""
+        """聞かない状態を常時集音へ挿す（agent と集音の両方が要る）。
+
+        理由は 2 つ——タイマー中（`TIMER_MIC_CLOSE`・知-o）と、音楽が鳴っているあいだ（知-aa）。
+        音楽のときは通す言葉が違う（音楽の操作とプレイリストの名前）ので、表を読む口も挿す。
+        """
         agent = getattr(self, "_agent", None)
         ctrl = getattr(self, "_realtime_stt", None)
         if agent is None or ctrl is None:
             return
         with contextlib.suppress(Exception):
             ctrl.set_mic_gate(agent.mic_gate_reason)
+        with contextlib.suppress(Exception):
+            ctrl.set_music_table(agent._music_table)
 
     def _on_restart_stt_clicked(self) -> None:
         self._create_task(self._restart_realtime_stt(reason="manual"))
