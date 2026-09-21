@@ -48,7 +48,10 @@ async def test_call_say_invokes_say_method():
 
     assert result == "Said: hello"
     assert img is None
-    tool.say.assert_awaited_once_with("hello", gain=1.0)  # 倍率は既定 1.0（タイマーの声だけ変わる）
+    # `careful` は「じっくり読む声」（環-u・2026-09-21）。ふだんは偽で渡る。
+    tool.say.assert_awaited_once_with(
+        "hello", gain=1.0, careful=False
+    )  # 倍率は既定 1.0（タイマーの声だけ変わる）
 
 
 @pytest.mark.asyncio

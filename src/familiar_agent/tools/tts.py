@@ -218,9 +218,14 @@ class TTSTool:
         sbv2_style: str = "Neutral",
         sbv2_weight: float = 1.0,
         elevenlabs_model: str = DEFAULT_ELEVENLABS_MODEL,
+        careful_model: str = "eleven_v3",
+        speed: float = 0.9,
     ) -> None:
         self.engine = engine
         self.elevenlabs_model = elevenlabs_model
+        # じっくり読む声と、読み上げの速さ（環-u・2026-09-21）。
+        self.careful_model = careful_model
+        self.speed = float(speed)
         self.sbv2_url = sbv2_url
         self.sbv2_style = sbv2_style
         self.sbv2_weight = sbv2_weight
@@ -256,6 +261,29 @@ class TTSTool:
             return strip_stage_directions(text)
         return clean_spoken_text(text)
 
+    def _elevenlabs_payload(self, text: str, *, careful: bool = False) -> dict:
+        """ElevenLabs へ送る中身（環-u・2026-09-21）。
+
+        `careful` は**じっくり読む声**（既定 `eleven_v3`）。漢字を読めるので**ひらがな化を
+        通さない**。合成に 3.4 秒かかるので、主LLM が外への問い合わせの返りで話すときだけ使う
+        （`core/voice_rules.careful_voice`）。`speed` は両方に掛ける（既定 0.9・1.0 は速すぎた）。
+        """
+        model = (
+            getattr(self, "careful_model", "eleven_v3")
+            if careful
+            else getattr(self, "elevenlabs_model", DEFAULT_ELEVENLABS_MODEL)
+        )
+        body = text if careful else self._text_for_synth(text)
+        return {
+            "text": body,
+            "model_id": model,
+            "voice_settings": {
+                "stability": 0.5,
+                "similarity_boost": 0.75,
+                "speed": float(getattr(self, "speed", 0.9)),
+            },
+        }
+
     def _text_for_synth(self, text: str) -> str:
         """合成器へ渡す文。ElevenLabs は漢字を読めないので読み（ひらがな）に（環-t・出-ac）。
 
@@ -265,7 +293,9 @@ class TTSTool:
 
         return for_speech(text) if self.engine == "elevenlabs" else text
 
-    async def say(self, text: str, output: str | None = None, *, gain: float = 1.0) -> str:
+    async def say(
+        self, text: str, output: str | None = None, *, gain: float = 1.0, careful: bool = False
+    ) -> str:
         """声に出す。合成の担い手は `engine` で決まる。`gain` はこの 1 回の再生にだけ掛ける倍率。
 
         `output`："local"＝PC のスピーカー／"remote"＝カメラのスピーカー（go2rtc）／
@@ -280,7 +310,7 @@ class TTSTool:
         self._gain = gain  # この 1 回の再生にだけ効く（`_play_paths`／`_play_local` が読む）
         if self.engine == "sbv2":
             return await self._say_sbv2(text, output)
-        return await self._say_elevenlabs(text, output)
+        return await self._say_elevenlabs(text, output, careful=careful)
 
     async def _say_sbv2(self, text: str, output: str) -> str:
         """ローカルの Style-Bert-VITS2 で合成して鳴らす（出-a）。
@@ -346,7 +376,7 @@ class TTSTool:
                 played_via.append("local")
         return played_via
 
-    async def _say_elevenlabs(self, text: str, output: str) -> str:
+    async def _say_elevenlabs(self, text: str, output: str, *, careful: bool = False) -> str:
         """外部 API（ElevenLabs）で合成して鳴らす。SBV2 が動かないときの逃げ道。"""
         if not self.api_key:
             return f"(silent) {text}"
@@ -363,11 +393,7 @@ class TTSTool:
 
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}?output_format=pcm_16000"
         headers = {"xi-api-key": self.api_key, "Content-Type": "application/json"}
-        payload = {
-            "text": self._text_for_synth(text),
-            "model_id": self.elevenlabs_model,
-            "voice_settings": {"stability": 0.5, "similarity_boost": 0.75},
-        }
+        payload = self._elevenlabs_payload(text, careful=careful)
 
         async with self._lock:
             voice_guard = getattr(self, "_voice_guard", None)
@@ -498,7 +524,9 @@ class TTSTool:
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
         if tool_name == "say":
             result = await self.say(
-                tool_input["text"], gain=float(tool_input.get("gain", 1.0) or 1.0)
+                tool_input["text"],
+                gain=float(tool_input.get("gain", 1.0) or 1.0),
+                careful=bool(tool_input.get("careful", False)),
             )
             return result, None
         return f"Unknown tool: {tool_name}", None

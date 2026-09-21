@@ -641,6 +641,9 @@ class InformationProcessing:
             self._dif.set_music_ducker(_duck)
 
         # 直前に書いた版の id。`recall` ツールが自分自身を拾わないための除外に使う。
+        #: この反復で道具から返ったもの（環-u）。W を組むときに写す（`just_returned` は
+        #: W を組んだ時点で空になるため）。声の選び方がこれを読む。
+        self._returned_now: frozenset[str] = frozenset()
         self._recall_exclude_id: str | None = None
         # 求めの世代。打ち切るたびに1つ進める。**走っている反復と、飛んでいる調査の完了**を
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
@@ -2335,6 +2338,7 @@ class InformationProcessing:
             agent._oif, cue, viewpoint=viewpoint, weights=weights, req=self._req
         )
         _log_recall_weights(trigger, w_base, weights, ws.memories)
+        self._returned_now = ws.returned_actions  # 声の選び方が読む（環-u）
         self._req.just_returned.clear()  # 「いま道具から返った」はこの反復の W にだけ載せる
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
         # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
@@ -2424,7 +2428,7 @@ class InformationProcessing:
             return ""
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
-            spoken, outcome = await self._speak(decision.text)
+            spoken, outcome = await self._speak(decision.text, branch="light")
             # **記憶が育つ経路は申告1本しかない。** 主LLM を起こさない反復もそこを通す
             # （出-h-ろ）。聞くのは背景で、閉じるのは待たない。
             self._declare_light_memory_use(
@@ -2828,7 +2832,7 @@ class InformationProcessing:
         self._verdict_tasks.add(task := asyncio.create_task(_run()))
         task.add_done_callback(self._verdict_tasks.discard)
 
-    async def _speak(self, text: str) -> tuple[str, str]:
+    async def _speak(self, text: str, *, branch: str = "full") -> tuple[str, str]:
         """声に出す。返りは **(実際に出した文, 結末)**。**反復は閉じない。**
 
         身体を持つ以上、発話は相手が居て初めて意味を持つ（正本③ の配信ゲート＝結果有り＋在席）。
@@ -2869,7 +2873,7 @@ class InformationProcessing:
             # 不在の会話入力は入口で止まる（`_swallow_if_unheard`）ので、ここに来る保留は
             # 機器の知らせ（本文が機器側で決まっている）だけ。SEEKING の押し上げも入口で行う。
             return "", "保留"
-        await self._dif.speak(text, gain=self._voice_gain())
+        await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
         self._stamp_said()
         self._emit(text)
         return text, "発話"
@@ -3120,6 +3124,16 @@ class InformationProcessing:
                 self.push_device(
                     "沈黙が明けた", f"黙っていたあいだに {len(self._muted)} 件届いていた"
                 )
+
+    def _careful_voice(self, branch: str) -> bool:
+        """じっくり読む声で読むか（環-u・2026-09-21・`core/voice_rules`）。
+
+        主LLM の発話で、かつ**外へ問い合わせた返り**から起きた反復のときだけ真。合成に 3.4 秒
+        かかるが、その場面は相手がすでに数秒待っている。
+        """
+        from ..core.voice_rules import careful_voice
+
+        return careful_voice(branch, getattr(self, "_returned_now", frozenset()))
 
     def _voice_gain(self) -> float:
         """この求めの声の倍率。タイマーが鳴った知らせ（`[タイマー]`）だけ `TIMER_VOICE_GAIN`（既定 1.0）。
