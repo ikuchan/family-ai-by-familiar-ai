@@ -33,3 +33,4 @@ src/familiar_agent/_version.py
 
 # macOS（別マシンから持ち込まれる）
 .DS_Store
+MUSIC.md
