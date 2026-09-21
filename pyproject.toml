@@ -16,6 +16,8 @@ dependencies = [
     "numpy>=1.24.0",
     # Hardware / IoT
     "tinytuya>=1.15.0",
+    # 音楽（知-aa・2026-09-21）。spotifyd を MPRIS（D-Bus）で操る。
+    "dbus-next>=0.2.3",
     # HTTP / async
     "aiohttp>=3.9.0",
     # TUI
