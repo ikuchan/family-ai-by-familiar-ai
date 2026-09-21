@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import time
 from collections.abc import Callable
@@ -72,6 +73,8 @@ class MusicTool:
         table: Callable[[], "tuple[tuple[str, str, bool], ...]"],
         state: Any = None,
         now: "Callable[[], float] | None" = None,
+        web: Any = None,
+        device_name: str = "",
     ) -> None:
         self._io = io
         self._bus = bus
@@ -79,6 +82,9 @@ class MusicTool:
         # 鳴らし始めた時刻と印（寿命と門が見る）。渡されなければ持たない（試験の土台だけの呼び方）。
         self._state = state
         self._now = now or time.time
+        # 鳴らす直前に機器をこちらへ切り替える口（知-aa・`io/spotify_web`）。無ければ通さない。
+        self._web = web
+        self._device_name = device_name
 
     def get_tool_definitions(self) -> list[dict]:
         return [dict(d) for d in TOOL_DEFINITIONS]
@@ -116,6 +122,11 @@ class MusicTool:
         title, uri, default_shuffle = row
         order = str(tool_input.get("order") or "")
         shuffle = music_rules.wants_shuffle(order or said, default_shuffle)
+        # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新も
+        # ここで起きる。切り替えられなくても鳴らしにいく（口が既に居れば鳴る）。
+        if self._web is not None and self._device_name:
+            with contextlib.suppress(Exception):
+                self._web.activate(self._device_name)
         bus = self._bus()
         if not await self._io.play(bus, uri):
             return f"「{title}」をかけられなかった（音の出口が見つからない）", False
