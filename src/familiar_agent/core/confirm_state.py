@@ -26,9 +26,36 @@ class PendingConfirm:
     what: str = ""  # 何を（枠の見出し・例「タイマーを掛ける「パスタ」（3 分）」）
 
 
+#: 預かりの寿命（秒・`AgentConfig.confirm_ttl_sec` の既定と同じ）。純関数からも見えるように置く。
+CONFIRM_TTL_SEC = 300.0
+
+#: 確認待ちのあいだ**機械が落とす**動作（出-ag-ろ・2026-09-21）。掛ける系だけを止める——
+#: 答える（`confirm`・`decline`）・止める（`cancel_*`・`stop_*`）・話す・調べるは通す。
+#: 実機 17:34：1 回の「3 分測って」で `set_timer` が 3 回投げられ、確認待ちを作り直したうえで
+#: 「セットしました」と言った（掛かっていない）。**禁じたい動作は言葉で頼まず機械が落とす**。
+BLOCKED_WHILE_CONFIRMING = frozenset({"set_timer", "set_alarm", "start_stopwatch"})
+
+
+def blocks(
+    action: str, pc: "PendingConfirm | None", *, now: float, ttl: float = CONFIRM_TTL_SEC
+) -> bool:
+    """確認待ちのあいだ、その動作を落とすか。預かりが無い・寿命切れなら落とさない。"""
+    if not alive(pc, now=now, ttl=ttl):
+        return False
+    return action in BLOCKED_WHILE_CONFIRMING
+
+
 def alive(pc: "PendingConfirm | None", *, now: float, ttl: float) -> bool:
-    """預かりが生きているか（聞いてから `ttl` 秒以内）。"""
-    return pc is not None and (now - pc.asked_at) <= ttl
+    """預かりが生きているか（聞いてから `ttl` 秒以内）。
+
+    **時刻が数でなければ「無い」とみなす。** 預かりの置き場は `agent` の属性なので、土台だけの
+    呼び方（試験の差し替え）では数でないものが入る。そこで比較して落ちると、確認とは関係のない
+    道具まで道連れになる（2026-09-21 に 42 件が赤になった）。
+    """
+    asked_at = getattr(pc, "asked_at", None)
+    if pc is None or not isinstance(asked_at, (int, float)):
+        return False
+    return (now - float(asked_at)) <= ttl
 
 
 def frame(pc: PendingConfirm) -> str:

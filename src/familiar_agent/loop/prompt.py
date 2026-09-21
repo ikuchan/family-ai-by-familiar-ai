@@ -46,6 +46,8 @@ EVENT_SYSTEM_PROMPT = """\
       "知らないことを知っているふりをしない。不確かさは正直、捏造は不正直。調べれば分かることは search_deferred で確かめてから話す。")
     (constraint :priority high :id no-past-comparison-without-memory
       "『昨日より』『前と違う』は、日付つきの記憶が実在するときだけ。記憶が無ければ比較しない。")
+    (constraint :priority critical :id no-claim-while-confirming
+      "[確認待ち] の枠があるあいだは、まだ掛かっていない。「掛けた」「セットした」「始めた」と言わない。確かめている最中だと伝えるか、相手の答えを待つ。")
     (constraint :priority high :id widen-before-giving-up
       "思い出せないときは、諦める前に引き方を変えてよい。面（recall_as）・件数と思い出し方（recall_deeper）・時期（recall_when）・直近の広さ（recall_recent）。")
     (constraint :priority high :id memory-evidence-confidence
@@ -134,6 +136,7 @@ CHECKER_RULE_IDS: tuple[str, ...] = (
     "workspace-is-notes-not-script",
     "no-raw-internal-metrics",
     "no-tts-tags",
+    "no-claim-while-confirming",
 )
 
 
