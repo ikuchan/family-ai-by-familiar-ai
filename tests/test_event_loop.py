@@ -198,6 +198,11 @@ def test_speaks_via_say_tool():
     assert _names(kwargs.get("tools")) == [
         _SAY_DEF["name"],
         _RECALL_DEF["name"],
+        # 思い出し方を変える 4 つ（出-ah・2026-09-21）。`_FULL_ACTIONS` の並びで渡る。
+        "recall_as",
+        "recall_deeper",
+        "recall_when",
+        "recall_recent",
         _SEARCH_DEF["name"],
         _FETCH_DEF["name"],
     ]

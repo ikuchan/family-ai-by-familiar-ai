@@ -56,7 +56,12 @@ def open_ids(req: Request) -> list[str]:
 
 
 def compose(
-    oif, memories: "list[Recalled]", req: Request, *, exclude: "set[str] | None" = None
+    oif,
+    memories: "list[Recalled]",
+    req: Request,
+    *,
+    exclude: "set[str] | None" = None,
+    basis: str = "",
 ) -> "tuple[str, dict[str, str]]":
     """W を組み、**(W の文字列, 12桁 → 完全な id の対応表) を返す**。
 
@@ -73,6 +78,10 @@ def compose(
     **対応表は W から導かれる**ので一緒に返す。別々に取れば片方だけ古くなる。フルLLM の
     申告を突き合わせるのに使い、前方一致で当てずっぽうに引くと、写し間違いが黙って別の
     記憶へ適用されてしまう。
+
+    `basis`＝**この想起の引き方**（出-ah・2026-09-21）。面・件数・時期・直近の広さを 1 行で添える。
+    引き方が見えないと、主LLM は「足りない」ことに気づけず、引き直す道具（`recall_as` ほか）を
+    使うきっかけを持てない。空なら何も足さない。
 
     `said`（言ったつなぎ）と `held`（配る保留）は手組みのまま残す。どちらも O にあるが、
     `held` は `pending_store` が鮮度と配達を管理しており、想起とは別の規則を持つ。
@@ -159,7 +168,10 @@ def compose(
     for r in memories:
         if roles.get(r.mi.obs_id) == "起点" and names.get(r.mi.obs_id, "わたし") == "わたし":
             names[r.mi.obs_id] = "相手"
-    text = "\n\n".join(p for p in [said, heard, held, _lines(shown, names)] if p and p.strip())
+    basis_line = f"[この想起：{basis}]" if basis else ""
+    text = "\n\n".join(
+        p for p in [said, heard, held, basis_line, _lines(shown, names)] if p and p.strip()
+    )
     return text, id_map
 
 
@@ -313,6 +325,8 @@ class Workspace:
     n_main: int
     #: 直近の窓の時間の上限（秒・0 で無し・`MemoryConfig.recent_exchanges_max_sec`）。
     max_age_sec: int = 0
+    #: この想起の引き方（出-ah）。面・件数・時期・直近の広さを 1 行で W に添える。
+    basis: str = ""
     id_map: "dict[str, str]" = field(default_factory=dict)
     # 「いま道具から返った」の枠は**組んだ時点の値を固定**する（`render` は遅延評価で、求めの
     # `just_returned` を組んだ後に空にすると枠が消えた——実機 2026-09-18 15:28）。
@@ -335,12 +349,20 @@ class Workspace:
         n_arbiter: int,
         n_main: int,
         max_age_sec: int = 0,
+        basis: str = "",
     ) -> "Workspace":
         chains = recent_chains(
             oif, max(n_arbiter, n_main) + 1
         )  # 窓の外の次の起点も 1 つ引く（計測用）
         ws = cls(
-            oif, memories, req, chains[: max(n_arbiter, n_main)], n_arbiter, n_main, max_age_sec
+            oif,
+            memories,
+            req,
+            chains[: max(n_arbiter, n_main)],
+            n_arbiter,
+            n_main,
+            max_age_sec,
+            basis,
         )
         # 最上部＝確認待ち（出-y）と、この反復で道具から返ったもの（出-x）。
         ws.just_returned_text = "\n\n".join(
@@ -353,7 +375,9 @@ class Workspace:
         measure.record("直近", 窓=n_main, 端=edge, 外=beyond)
         # 対応表は最も広い窓で作る（申告・判定はどちらの窓の id でも来る）。
         _rows, _text, recent_ids = ws._recent(max(n_arbiter, n_main))
-        _past, past_ids = compose(oif, memories, req, exclude=set(recent_ids.values()))
+        _past, past_ids = compose(
+            oif, memories, req, exclude=set(recent_ids.values()), basis=ws.basis
+        )
         ws.id_map = {**past_ids, **recent_ids}
         ws.verdict_map = {k: v for k, v in past_ids.items() if v not in set(recent_ids.values())}
         return ws
@@ -366,7 +390,9 @@ class Workspace:
 
     def render(self, n: int) -> str:
         _rows, recent, recent_ids = self._recent(n)
-        past, _ = compose(self.oif, self.memories, self.req, exclude=set(recent_ids.values()))
+        past, _ = compose(
+            self.oif, self.memories, self.req, exclude=set(recent_ids.values()), basis=self.basis
+        )
         return "\n\n".join(p for p in (self.just_returned_text, recent, past) if p and p.strip())
 
     @property
@@ -420,6 +446,22 @@ def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
             f" {subject}{emo}: {body}"
         )
     return "\n".join(out)
+
+
+def describe_basis(cfg, *, viewpoint: str, time_ref: "float | None", found: int) -> str:
+    """この想起の引き方を 1 行で（出-ah・2026-09-21）。
+
+    W に「7 件・いま基準・直近 5 分・いまの相手の面」と書いておかないと、主LLM は足りないことに
+    気づけず、引き直す道具を使うきっかけを持てない。**数と条件だけ**を書き、人の名前は出さない
+    （面の名前を出すと、誰か分からないときに名前で呼ぶ材料になる）。
+    """
+    face = "いまの相手の面" if viewpoint and viewpoint != "__self__" else "共通の面"
+    when = "いま基準" if time_ref is None else "時期を移して"
+    minutes = int(cfg.recent_exchanges_max_sec // 60)
+    return (
+        f"{face}・{cfg.recall_k} 件まで（{found} 件）・{when}・"
+        f"直近 {minutes} 分／{cfg.recent_exchanges_main} 往復"
+    )
 
 
 async def recall(
@@ -480,6 +522,7 @@ async def recall(
         n_arbiter=cfg.recent_exchanges_arbiter,
         n_main=cfg.recent_exchanges_main,
         max_age_sec=cfg.recent_exchanges_max_sec,
+        basis=describe_basis(cfg, viewpoint=viewpoint, time_ref=time_ref, found=len(memories)),
     )
     ws.returned_actions = returned
     return ws
