@@ -85,8 +85,14 @@ def test_the_test_parallelism_is_bounded() -> None:
     足りず、ワーカーがプロセスごと落ちる。CPU へ逃がしても RAM 側で同じことが起きる
     （1プロセス 1140MiB × 12 に対し RAM 15GiB・swap は常時ほぼ満杯）ので、
     載せる先を変えるのではなく**同時に載る数**を抑える。
+
+    既定を書くのは `${RUN_TESTS_PARALLEL--n 4}`（`:` を付けない）。`${VAR:-既定}` は**空文字の
+    ときも既定を使う**ので、`RUN_TESTS_PARALLEL=""` と書いても 4 ワーカーのまま走ってしまい、
+    直列に落として確かめる手が効かなくなる（2026-09-22 に気づいた）。
     """
     script = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "run_tests.sh"
     text = script.read_text(encoding="utf-8")
     assert "-n auto" not in text, "並列度が論理CPU数のままになっている"
-    assert re.search(r"RUN_TESTS_PARALLEL:--n \d+", text), "並列度が固定値で指定されていない"
+    assert re.search(r"RUN_TESTS_PARALLEL--n \d+", text), (
+        "並列度が固定値で指定されていない（空文字で直列にできるよう `:-` ではなく `-` で書く）"
+    )

@@ -223,6 +223,7 @@ def test_recall_slice2_toggle_off_is_slice1(monkeypatch):
 
 def test_recall_present_others_raises_score():
     import os
+    from datetime import datetime, timedelta, timezone
     from unittest.mock import patch
 
     import psycopg2
@@ -253,8 +254,17 @@ def test_recall_present_others_raises_score():
         mem = ObservationMemory()
         mem.save("presence corr target", kind="observation", participants=["q-person"])
 
-        base = mem.recall("presence corr target", n=1)
-        boosted = mem.recall("presence corr target", n=1, present_others=["q-person"])
+        # 基準時刻を 60 日前にして、適合度を 1.0 の頭打ちから離す。問いと記録に同じ
+        # ベクトルを渡す作り物なので、そのまま「いま」で採点すると素の適合度が 0.85 まで
+        # 上がり、軸ごとの順位による底上げ（記-k）を足した値が頭打ちに当たって、在席の
+        # ありなしが両方 1.0 になる。平均ベクトル（`_embedding_mu`）は DB の中身で動くので、
+        # 向きをずらす手では安定しない（並列のワーカーでだけ落ちた・2026-09-22）。
+        # 時間の項が 0.016 まで落ちれば、中身が何であれ頭打ちには届かない。
+        long_ago = (datetime.now(timezone.utc) - timedelta(days=60)).timestamp()
+        base = mem.recall("presence corr target", n=1, time_ref=long_ago)
+        boosted = mem.recall(
+            "presence corr target", n=1, present_others=["q-person"], time_ref=long_ago
+        )
         assert base and boosted
         # 在席他者 q が memory に強く結びつく（同じ埋め込み）→ p>0 で M が上がる。
         assert boosted[0]["fit"] > base[0]["fit"]
