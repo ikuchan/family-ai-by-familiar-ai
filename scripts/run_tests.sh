@@ -81,8 +81,12 @@ EXIT_CODE=0
 # `worker 'gwN' crashed` になる。落ちるテストは割り当て次第で変わるため再現しにくい。
 #
 # 4 は VRAM から決めた（2.3GiB × 4 = 9.2GiB < 11.63GiB）。
-# 直列に戻したいときは RUN_TESTS_PARALLEL="" で無効化できる。
-PARALLEL="${RUN_TESTS_PARALLEL:--n 4}"
+#
+# 直列に戻したいときは RUN_TESTS_PARALLEL="" で無効化できる。**`:-` ではなく `-` を使う。**
+# `${VAR:-既定}` は空文字のときも既定を使うので、RUN_TESTS_PARALLEL="" と書いても 4 ワーカー
+# のまま走っていた（2026-09-22 に気づいた。失敗した行の `[gw0]` が印）。`${VAR-既定}` なら
+# 「未設定のときだけ既定」になり、空文字は空文字（＝直列）として通る。
+PARALLEL="${RUN_TESTS_PARALLEL--n 4}"
 echo "── 通常の一式（${PARALLEL:-直列}）─────────────"
 uv run pytest -q $PARALLEL -m "not invariant" "${PYTEST_ARGS[@]}" || EXIT_CODE=$?
 if [ "$EXIT_CODE" -eq 0 ]; then

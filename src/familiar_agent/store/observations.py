@@ -205,6 +205,102 @@ class ObservationStore:
                 )
                 return list(cur.fetchall())
 
+    def by_words(
+        self,
+        words: list[str],
+        n: int,
+        *,
+        kind: str | None = None,
+        exclude_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """**その語を含む**記録を新しい順に n 件読む（記-k・2026-09-21）。採点も足切りもしない。
+
+        ベクトルの列とは**別の列**である。埋め込みは文全体の似かたを見るので、問いの形
+        （「覚えてる？」）に引かれ、中身の語（本・キャンプ）では引けない。実機 15:58 に、
+        5 分前の自分の発話が 822 位（類似 0.235）で候補にも入らなかった。ここはその取りこぼしを
+        拾う口で、並べ方（軸ごとの順位による底上げ）は `core/keyword_rules.rank_boost` が持つ。
+
+        語は**部分一致**で見る（日本語を語に切る仕組みは DB に無い）。「本」が「日本」にも
+        当たるが、後段の採点（時間・根づき）で沈む（実測では上位 7 件に雑音 0 件）。
+        """
+        if not words:
+            return []
+        live = not_hidden("o")
+        like = " OR ".join(["COALESCE(s.content, o.content) LIKE %s"] * len(words))
+        kind_clause = "AND o.kind = %s" if kind else ""
+        exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
+        params: list = [self._ctx.viewpoint, *[f"%{w}%" for w in words]]
+        if kind:
+            params.append(kind)
+        if exclude_ids:
+            params.append(list(exclude_ids))
+        params.append(n)
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id, o.timestamp,
+                           o.direction, o.kind, o.emotion, o.image_path,
+                           s.id AS facet_id, s.person_id, s.relation_key,
+                           COALESCE(s.content, o.content) AS content,
+                           COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                           COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                           s.last_recalled_at,
+                           o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                           0.0 AS score
+                    FROM situated_memories s
+                    JOIN observations o ON o.id = s.obs_id
+                    WHERE s.person_id = %s
+                      AND {live}
+                      AND ({like})
+                      {kind_clause}
+                      {exclude_clause}
+                    ORDER BY o.timestamp DESC
+                    LIMIT %s
+                    """,
+                    params,
+                )
+                return list(cur.fetchall())
+
+    def word_counts(self, words: list[str]) -> "tuple[dict[str, int], int]":
+        """語ごとの当たり数と、自分の面の総数を一度に返す（記-k・2026-09-21）。
+
+        ありふれすぎる語を落とすために使う（`core/keyword_rules.drop_common`）。割合で見るので
+        母数が要る。**当たり数と母数を別々に数えると、そのあいだに記録が増えて食い違う**ので、
+        1 回のクエリで両方を取る。
+
+        数え方は `by_words` と同じ部分一致で、隠れている記録は母数からも外す。
+        """
+        live = not_hidden("o")
+        if not words:
+            filters = ""
+            params: list = [self._ctx.viewpoint]
+        else:
+            filters = ", " + ", ".join(
+                [
+                    f"COUNT(*) FILTER (WHERE COALESCE(s.content, o.content) LIKE %s) AS w{i}"
+                    for i in range(len(words))
+                ]
+            )
+            params = [*[f"%{w}%" for w in words], self._ctx.viewpoint]
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT COUNT(*) AS total{filters}
+                    FROM situated_memories s
+                    JOIN observations o ON o.id = s.obs_id
+                    WHERE s.person_id = %s
+                      AND {live}
+                    """,
+                    params,
+                )
+                row = cur.fetchone() or {}
+        counts = {w: int(row.get(f"w{i}", 0) or 0) for i, w in enumerate(words)}
+        return counts, int(row.get("total", 0) or 0)
+
     def by_time(
         self,
         reference_epoch: float,

@@ -25,6 +25,7 @@ import numpy as np
 from ..config import MemoryConfig, RecallWeights
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
+from ..core.keyword_rules import drop_common, pick_words, rank_boost
 from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memory 経由で引くための再輸出
     MentalItem,
     PrimitiveMentalItem,
@@ -948,6 +949,16 @@ class ObservationMemory:
 
             # 候補の obs_id → 行（列は obs レベルなのでどの視点由来でも同じ）。
             row_by_id: dict[str, dict] = {r["id"]: r for r in speaker_rows}
+            # 軸ごとの順位（記-k）。**重複を畳まずに持つ**——union は obs で畳むので、
+            # どの軸で何位だったかは `setdefault` の時点で消える。採点の後で底上げに使う。
+            rank_by_id: dict[str, list[int]] = {}
+
+            def _mark(axis_rows: "list[dict]") -> None:
+                """その軸での順位（1 から）を積む。すでに union にある行にも積む。"""
+                for _i, _r in enumerate(axis_rows, start=1):
+                    rank_by_id.setdefault(_r["id"], []).append(_i)
+
+            _mark(speaker_rows)
             # r（関連）の素点＝話者視点 situated コサイン。話者候補はそのまま持っている。
             cos_by_id: dict[str, float] = {r["id"]: float(r["score"]) for r in speaker_rows}
 
@@ -959,12 +970,14 @@ class ObservationMemory:
             # 幅の指定があるときは、書かれた時刻と使った時刻の両方で探す。
             ref_epoch = time_ref if time_ref is not None else datetime.now(timezone.utc).timestamp()
             if _cfg.recall_w_t > 0.0:
-                for r in self._observations.by_time(
+                time_rows = self._observations.by_time(
                     ref_epoch,
                     fetch_n,
                     kind=kind,
                     exclude_ids=exclude_ids,
-                ):
+                )
+                _mark(time_rows)
+                for r in time_rows:
                     row_by_id.setdefault(r["id"], r)
 
             # 在席者相関 p（第5軸・役割2）の候補集合拡張（slice-2）。在席他者 q 視点でも
@@ -975,12 +988,14 @@ class ObservationMemory:
                 # クエリのベクトルは人に依らない（045）ので一度だけ作る。
                 sit_q_sql = vec_to_sql(_situated_vector(q_vec, mu).tolist())
                 for q in present_others:
-                    for r in self._observations.by_vector(
+                    other_rows = self._observations.by_vector(
                         sit_q_sql,
                         fetch_n,
                         kind=kind,
                         exclude_ids=exclude_ids,
-                    ):
+                    )
+                    _mark(other_rows)  # 在席者ごとに 1 本の軸として数える
+                    for r in other_rows:
                         row_by_id.setdefault(r["id"], r)  # 新規候補だけ足す
                 # 在席他者由来で話者候補に無い記憶へ、話者視点の r を補って公平に採点する。
                 extra = [oid for oid in row_by_id if oid not in cos_by_id]
@@ -997,10 +1012,28 @@ class ObservationMemory:
                 from ..emotion_pad import pad_to_search_vector
 
                 mood_vec = "[" + ",".join(f"{v:.6f}" for v in pad_to_search_vector(mood_pad)) + "]"
-                for r in self._observations.by_emotion(
+                emotion_rows = self._observations.by_emotion(
                     mood_vec, fetch_n, kind=kind, exclude_ids=exclude_ids
-                ):
+                )
+                _mark(emotion_rows)
+                for r in emotion_rows:
                     row_by_id.setdefault(r["id"], r)
+
+            # 語の軸（記-k）。**埋め込みは文全体の似かたを見る**ので、問いの形（「覚えてる？」）に
+            # 引かれ、中身の語（本・キャンプ）では引けない。ありふれすぎる語は証拠にならないので
+            # 落とす（母数の割合で見る）。語が残らなければこの軸は引かない。
+            raw_words = pick_words(query)
+            if raw_words:
+                _counts, _total = self._observations.word_counts(raw_words)
+                words = drop_common(raw_words, _counts, _total)
+                if words:
+                    word_rows = self._observations.by_words(
+                        words, fetch_n, kind=kind, exclude_ids=exclude_ids
+                    )
+                    _mark(word_rows)
+                    for r in word_rows:
+                        row_by_id.setdefault(r["id"], r)
+                    logger.debug("語の軸：%s → 候補 %d 件", words, len(word_rows))
 
             # 関連軸以外から入った候補には score 列が無いので、話者視点の r を補って
             # 公平に採点する（在席者相関の拡張と同じやり方）。
@@ -1027,6 +1060,7 @@ class ObservationMemory:
             if rows:
                 results = []
                 breakdowns: dict[Any, _ScoreParts] = {}
+                lift_by_id: dict[str, float] = {}
                 for row in rows:
                     cosine = cos_by_id.get(row["id"], 0.0)
                     parts = _score_breakdown(
@@ -1058,7 +1092,15 @@ class ObservationMemory:
                         sigma=_cfg.recall_emotion_sigma,
                         g_floor=(_cfg.recall_g_open if row["id"] in _open else 0.0),
                     )
-                    final = parts.fit
+                    # 軸ごとの順位による底上げ（記-k）。いくつもの軸で上位に来た記録ほど
+                    # きつく持ち上がる。適合度の目盛りは残るので、5 軸の効きは変わらない。
+                    # **1.0 で頭打ちにする**——軸の本数は在席者の人数で増えるので底上げに
+                    # 固定の上限が無く、そのまま足すと適合度が 0〜1 に収まらなくなる
+                    # （本人の決定・2026-09-21）。頭打ちが効くのは類似がほぼ 1.0 の記録
+                    # だけで（実機の最大は 0.389）、並びは変わらない。
+                    lift = rank_boost(rank_by_id.get(row["id"], ()))
+                    final = min(1.0, parts.fit + lift)
+                    lift_by_id[row["id"]] = lift
                     # 合成スコアの soft 床。生コサインではなく最終スコアで絞る。
                     # **open な記録は床の対象外。** この求めのために書いたものは、手がかりと似て
                     # いなくても載せる（実機で見た印が fit=0.010 で床 0.05 に落ち、席に着く前に消えた）。
