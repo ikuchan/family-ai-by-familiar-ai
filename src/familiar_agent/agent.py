@@ -906,13 +906,20 @@ class EmbodiedAgent:
         if not self._music_table():
             return None
         from .io.music import SessionBus
+        from .io.spotify_web import Spotify
         from .tools.music import MusicTool
 
         from . import io as _io
 
         bus = SessionBus()
         return MusicTool(
-            io=_io.music, bus=bus.get, table=self._music_table, state=self._music_state
+            io=_io.music,
+            bus=bus.get,
+            table=self._music_table,
+            state=self._music_state,
+            # 鳴らす直前に機器をこちらへ切り替える（知-aa）。MPRIS の口は現役になってから出る。
+            web=Spotify(),
+            device_name=os.environ.get("SPOTIFY_DEVICE_NAME", "パジュ"),
         )
 
     def mic_gate_reason(self) -> str:
