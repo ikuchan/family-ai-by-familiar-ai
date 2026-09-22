@@ -247,7 +247,10 @@ class Tonic:
         if now - since < expire:
             return
         try:
-            ids = list(agent._pmm.get_present_ids())
+            # **名前の分からない在席者も外す**（出-am・2026-09-22）。`get_present_ids()` は
+            # 観測の `participants` になる口なので札を含まない（出-ae-は）。失効はここで
+            # 在席表を空にするのが仕事なので、札まで含めた鍵を使う。
+            ids = list(agent._pmm.present_keys())
         except Exception:  # noqa: BLE001
             return
         if not ids:

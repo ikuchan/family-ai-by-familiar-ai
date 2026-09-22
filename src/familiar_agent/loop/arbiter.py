@@ -117,6 +117,10 @@ text を書くときは、この人格として、この相手に向けて、い
 人が**自分の名前を名乗った**（名前に「〜だよ」「〜です」を添えて言う）ら、`speaker_claim` にその名を書く。
 名乗っていなければ省く。誰かを呼んだだけ、や第三者の話は名乗りではない。
 
+**人が、自分はいま呼ばれている名前の人ではない、と打ち消したら**、否定された呼び方を `not_person` に
+書く。名前を挙げての打ち消し（「〜じゃないよ」）でも、名前を言わない打ち消し（「ちがう」）でも読む。
+名前を言わなかったなら、いま話者としている人の呼び方を書く。打ち消していなければ省く。
+
 **写真に人が写っているなら、誰だと思うかを `seen_people` に書く。** 見た目と【一緒に暮らす人たち】の
 記述から推し量ってよい。一人ずつ {{"name": "呼び方", "confidence": 0.0〜1.0}} の形で並べる。
 **誰か分からない人は name を空にして、数に入れる。** 写真に人が写っていなければ省く。
@@ -129,7 +133,7 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
  "action": "{actions}", "query": "…", "silence_minutes": 0, "lift_silence": false,
- "time_ref": "", "time_span_days": 0, "speaker_claim": "", "seen_people": []}}
+ "time_ref": "", "time_span_days": 0, "speaker_claim": "", "seen_people": [], "not_person": ""}}
 使わない項目は省いてよい。
 """
 
@@ -151,6 +155,9 @@ class Decision:
     #: 写真に写っていた人の見立て（出-ae-は・2026-09-22）。`[{"name": "パパ", "confidence": 0.8}]`。
     #: 名乗り（実際に言われた言葉）とは別の欄にする——証拠の強さが違う。
     seen_people: "list" = field(default_factory=list)
+    #: 身元の否定（出-am・2026-09-22）。「パパじゃないよ」「ちがうよ」で、否定された呼び方。
+    #: 在席へ**入る**口（名乗り・見立て）に対する、**出る**口である。
+    not_person: str = ""
     # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
     # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
     time_ref: str = ""  # ISO 8601（例 "2025-08-15T00:00:00"）
@@ -525,6 +532,7 @@ def _parse(
         lift_silence=bool(data.get("lift_silence", False)),
         speaker_claim=str(data.get("speaker_claim", "") or "").strip(),
         seen_people=list(data.get("seen_people") or []),
+        not_person=str(data.get("not_person", "") or "").strip(),
         time_ref=time_ref,
         time_span_days=max(0.0, time_span_days),
     )

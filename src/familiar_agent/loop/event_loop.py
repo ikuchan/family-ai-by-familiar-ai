@@ -3299,6 +3299,9 @@ class InformationProcessing:
     async def _apply_requests(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ人の求め（沈黙の依頼・名乗り）を掛ける（反復本体の呼び口は 1 つ・番人 231 行）。"""
         self._apply_silence(decision, utterance=utterance)
+        # **否定が先**（出-am）。「ちがう、ママだよ」で パパ を外してから ママ を付ける。
+        # 逆だと、付けたばかりの人を否定で消すことになる。
+        await self._apply_not_person(getattr(decision, "not_person", ""))
         await self._apply_speaker_claim(decision)
         await self._apply_seen_people(getattr(decision, "seen_people", None))
 
@@ -3335,6 +3338,35 @@ class InformationProcessing:
             await pmm.person_arrived(pid, conf)
             logger.info("写真の見立てで在席に入れた：%s（確信度 %.2f）", name, conf)
         pmm.note_unknown_present(unknown, confidence=SEEN_CONFIDENCE_MAX)
+
+    async def _apply_not_person(self, claim: str) -> None:
+        """身元を否定されたら、その人を在席から外し、話者を戻す（出-am・2026-09-22）。
+
+        在席へ**入る**口は 3 つある（顔・声の名乗り・写真からの見立て）のに、**出る**口は
+        時間切れと顔の消失しか無かった。誤った見立ては寿命が来るまで残る。
+
+        **由来は問わない**（本人の決定・2026-09-22）。顔で入った人でも、目の前の人が
+        「パパじゃない」と言えば外す。名前を言わずに否定されたら、いま話者としている人を
+        外す——他に指すものが無く、否定は目の前のやりとりについて言われる。
+        """
+        from ..core.speaker_claim import resolve_claim
+
+        agent = self._agent
+        family = str(getattr(agent, "_family_md", "") or "")
+        raw = (claim or "").strip() or str(getattr(agent._persons, "active_name", "") or "")
+        if not raw:
+            return
+        name = resolve_claim(raw, family)
+        if name is None:
+            logger.info("否定された「%s」は家族に無いので何もしない", raw)
+            return
+        pid = agent._pmm.find_person_id_by_name(name)
+        if pid is None:
+            logger.info("否定された「%s」は人物表に無いので何もしない", name)
+            return
+        await agent._pmm.person_left(pid)  # 在席から外す（話者だったら話者も外れる）
+        agent._persons.reset_to_default()
+        logger.info("「%s ではない」と言われたので在席から外した", name)
 
     async def _apply_speaker_claim(self, decision) -> None:
         """調停が読んだ名乗り（`speaker_claim`）を、在席があるときだけ話者に付ける（知-w・2026-09-19）。
