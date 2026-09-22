@@ -448,20 +448,26 @@ def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
     return "\n".join(out)
 
 
-def describe_basis(cfg, *, viewpoint: str, time_ref: "float | None", found: int) -> str:
+def describe_basis(cfg, *, viewpoint: str, time_ref: "float | None", memories: "list") -> str:
     """この想起の引き方を 1 行で（出-ah・2026-09-21）。
 
     W に「7 件・いま基準・直近 5 分・いまの相手の面」と書いておかないと、主LLM は足りないことに
     気づけず、引き直す道具を使うきっかけを持てない。**数と条件だけ**を書き、人の名前は出さない
     （面の名前を出すと、誰か分からないときに名前で呼ぶ材料になる）。
+
+    **採点ぶんと関連ぶんを分けて書く**（出-ai・2026-09-22）。以前は `7 件まで（11 件）` と
+    並べており、「上限 7 なのに 11 載っている」と読めた。11 はすべて W に載っている——採点で
+    採った 7 件に、関連想起（拡散・`diffuse_max_add`）が足した 4 件が加わった数である。
+    分けるのは、引き直す道具が効くのが**採点ぶんのほう**だからである。関連がゼロならその節は
+    出さない（無い数を 0 と書いても手がかりにならない）。
     """
     face = "いまの相手の面" if viewpoint and viewpoint != "__self__" else "共通の面"
     when = "いま基準" if time_ref is None else "時期を移して"
     minutes = int(cfg.recent_exchanges_max_sec // 60)
-    return (
-        f"{face}・{cfg.recall_k} 件まで（{found} 件）・{when}・"
-        f"直近 {minutes} 分／{cfg.recent_exchanges_main} 往復"
-    )
+    associated = sum(1 for m in memories if getattr(m, "by_association", False))
+    scored = len(memories) - associated
+    counts = f"似ている順に {scored} 件" + (f"・関連で {associated} 件" if associated else "")
+    return f"{face}・{counts}・{when}・直近 {minutes} 分／{cfg.recent_exchanges_main} 往復"
 
 
 async def recall(
@@ -522,7 +528,7 @@ async def recall(
         n_arbiter=cfg.recent_exchanges_arbiter,
         n_main=cfg.recent_exchanges_main,
         max_age_sec=cfg.recent_exchanges_max_sec,
-        basis=describe_basis(cfg, viewpoint=viewpoint, time_ref=time_ref, found=len(memories)),
+        basis=describe_basis(cfg, viewpoint=viewpoint, time_ref=time_ref, memories=memories),
     )
     ws.returned_actions = returned
     return ws

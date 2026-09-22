@@ -171,6 +171,10 @@ class Recalled:
     # どれだけ確かか（0〜1）。生コサインを 0〜1 へ移したもので、**保存する値ではない**
     # ので `MI` には入れない。W の1行と整合チェックの材料がこれを読む。
     confidence: float = 0.0
+    #: 関連想起（拡散）が足した記録か（出-ai・2026-09-22）。採点で採ったものとは**別の
+    #: 引き方**で入っており、引き直す道具（`recall_deeper` ほか）が効くのは採点ぶんのほう。
+    #: 引き方の 1 行が数を分けて言うために持つ。
+    by_association: bool = False
 
 
 class Verdict(Enum):
@@ -524,6 +528,7 @@ def _to_recalled(row: dict) -> Recalled:
         fit=float(row.get("fit", 0.0)),
         groundedness=float(row.get("groundedness", 0.0)),
         confidence=float(row.get("confidence", 0.0)),
+        by_association=str(row.get("retrieval_method", "")) == "diffuse",
     )
 
 
