@@ -165,6 +165,15 @@ class PersonMemoryManager:
         with self._lock:
             return [pid for pid, p in self._present.items() if not p.anonymous]
 
+    def present_keys(self) -> list[str]:
+        """在席表の鍵を全部（**名前の分からない在席者の札も含む**）。
+
+        `get_present_ids()` との違い：あちらは観測の `participants` になるので人を指す id
+        だけを返す。こちらは在席表そのものを畳む用（失効・出-am）。
+        """
+        with self._lock:
+            return list(self._present.keys())
+
     def refresh_signal(self, person_id: str) -> None:
         """Update the last-signal timestamp for a present person."""
         with self._lock:

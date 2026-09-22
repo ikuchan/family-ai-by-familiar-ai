@@ -88,7 +88,10 @@ def test_without_a_sensor_the_old_source_still_works():
 
 def _tonic_with_table(*, names, occupied):
     t, ip = _tonic(names=names, occupied=occupied)
-    t._agent._pmm.get_present_ids = MagicMock(return_value=[f"id:{n}" for n in names])
+    # 失効が回すのは `present_keys()`——**名前の分からない在席者の札も含む**（出-am・2026-09-22）。
+    # `get_present_ids()` は観測の `participants` になる口で札を含まないので、そちらを回すと
+    # 名前の無い在席者だけが残ったときに 60 秒で畳めない。
+    t._agent._pmm.present_keys = MagicMock(return_value=[f"id:{n}" for n in names])
     t._agent.config.presence_expire_sec = 60.0
     return t, ip
 
