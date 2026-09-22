@@ -31,6 +31,41 @@ def test_a_claim_resolves_to_a_family_name_or_nothing():
     assert resolve_claim("", FAMILY) is None
 
 
+#: 呼び方が**複数**の家族。実物の `FAMILY.md` はこの形（「パパ、ゆうすけ、おとうさん、Papa、father」）。
+FAMILY_ALIASES = (
+    "## ゆうすけ\n- **名前**：ゆうすけ\n- **呼び方**：パパ、ゆうすけ、おとうさん、Papa、father\n"
+    "\n## たえこ\n- **名前**：たえこ\n- **呼び方**：ママ、たえこ、おかあさん\n"
+)
+
+
+def test_any_one_of_the_ways_we_call_them_resolves():
+    """**個々の呼び方**で当たる（出-ae-は・2026-09-22）。
+
+    直す前は呼び方の一覧まるごととしか比べておらず、いちばん自然な「パパだよ」「ママだよ」で
+    話者が付かなかった。当たるのは `名前` の欄と一致する言い方だけだった。
+    """
+    assert resolve_claim("パパ", FAMILY_ALIASES) == "パパ"
+    assert resolve_claim("おとうさん", FAMILY_ALIASES) == "パパ"
+    assert resolve_claim("Papa", FAMILY_ALIASES) == "パパ"
+    assert resolve_claim("ママ", FAMILY_ALIASES) == "ママ"
+    assert resolve_claim("おかあさん", FAMILY_ALIASES) == "ママ"
+
+
+def test_the_name_field_still_resolves():
+    assert resolve_claim("ゆうすけ", FAMILY_ALIASES) == "パパ"
+    assert resolve_claim("たえこ", FAMILY_ALIASES) == "ママ"
+
+
+def test_what_comes_back_is_one_name_not_the_whole_list():
+    """返すのは**呼びかけに使う名前**（先頭）。一覧のまま `set_active` へ入れない。"""
+    got = resolve_claim("ゆうすけ", FAMILY_ALIASES)
+    assert "、" not in str(got)
+
+
+def test_someone_outside_the_family_still_resolves_to_nothing():
+    assert resolve_claim("太郎", FAMILY_ALIASES) is None
+
+
 def _backend(reply: str):
     async def complete(prompt, max_tokens, **kw):
         return reply

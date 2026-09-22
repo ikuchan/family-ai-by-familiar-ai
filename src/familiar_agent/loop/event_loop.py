@@ -3298,6 +3298,37 @@ class InformationProcessing:
         """調停が読んだ人の求め（沈黙の依頼・名乗り）を掛ける（反復本体の呼び口は 1 つ・番人 231 行）。"""
         self._apply_silence(decision, utterance=utterance)
         await self._apply_speaker_claim(decision)
+        await self._apply_seen_people(decision)
+
+    async def _apply_seen_people(self, decision) -> None:
+        """調停が写真から見立てた人を、在席へ入れる（出-ae-は・2026-09-22）。
+
+        **推し量ること自体は禁じない。推し量ったなら在席にも使う**（本人の決定）。15:57 は、
+        写真を見て「パパ、おかえりなさい！」と言いながら機械は `unconfirmed` のままだった。
+
+        - 足すだけで、誰も消さない。消すのは顔の消失と時間切れ（声からの打ち消しは 出-am）。
+        - 家族に当たらない名前と名前の無い人は、**名前の分からない在席者**として数だけ残す。
+          `participants` には入らないので、誰にも対応しない記憶空間は作らない。
+        - 見立てが空の反復では在席を触らない。写真を見ていない反復で在席を消さないため。
+        """
+        from ..core.seen_people import SEEN_CONFIDENCE_MAX, parse_seen_people
+
+        people = list(getattr(decision, "seen_people", None) or [])
+        if not people:
+            return
+        agent = self._agent
+        known, unknown = parse_seen_people(people, str(getattr(agent, "_family_md", "") or ""))
+        pmm = getattr(agent, "_pmm", None)
+        if pmm is None:
+            return
+        for name, conf in known:
+            pid = pmm.find_person_id_by_name(name)
+            if pid is None:
+                unknown += 1  # 家族の記述にはあるが人物表に無い。居たことは残す
+                continue
+            await pmm.person_arrived(pid, conf)
+            logger.info("写真の見立てで在席に入れた：%s（確信度 %.2f）", name, conf)
+        pmm.note_unknown_present(unknown, confidence=SEEN_CONFIDENCE_MAX)
 
     async def _apply_speaker_claim(self, decision) -> None:
         """調停が読んだ名乗り（`speaker_claim`）を、在席があるときだけ話者に付ける（知-w・2026-09-19）。
