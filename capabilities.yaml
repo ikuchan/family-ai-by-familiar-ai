@@ -124,7 +124,7 @@ capabilities:
       when it was fetched. Anyone in the family may ask.
       Treated as a tool: read it when the question needs what is on the
       calendar, not on every turn.
-    enabled_env: MCP_CONFIG
+    enabled_tool: get_family_schedule
   - id: notion_memo
     summary: Search the family's written notes and read the daily log
     detail: >
@@ -138,7 +138,7 @@ capabilities:
       into recall, and both say when they were fetched. Anyone in the family
       may ask. Treated as tools: read them when the question needs what is
       written down, not on every turn.
-    enabled_env: MCP_CONFIG
+    enabled_tool: search_notion
   - id: house_rules
     summary: Look up the rules the family currently lives by
     detail: >
@@ -153,7 +153,7 @@ capabilities:
       are never mixed into recall. Anyone in the family may ask.
       Treated as a tool: read it when the question needs what is written down,
       not on every turn.
-    enabled_env: MCP_CONFIG
+    enabled_tool: get_house_rules
   - id: family_notes_deep_question
     summary: Ask a long question of the family's own written records (Yusuke only)
     detail: >

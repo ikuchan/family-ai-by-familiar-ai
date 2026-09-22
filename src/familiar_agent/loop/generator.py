@@ -93,7 +93,15 @@ def _present_ctx(agent) -> str:
     return "".join(parts) + ")"
 
 
-def _iter_ctx(*, chain: int, max_chain: int, thinking_round: int, capped: bool, budget=None) -> str:
+def _iter_ctx(
+    *,
+    chain: int,
+    max_chain: int,
+    thinking_round: int,
+    capped: bool,
+    budget=None,
+    missing: "list[str] | None" = None,
+) -> str:
     """この反復がどこに居るかを、主LLM へ渡す1行に組む。
 
     材料は数と真偽だけで、**ループの可変状態を1つも読まない**（に-5-は）。
@@ -113,6 +121,12 @@ def _iter_ctx(*, chain: int, max_chain: int, thinking_round: int, capped: bool, 
     text = f"[反復] {chain}/{max_chain}（この件を考えるのは {thinking_round} 回目）"
     if budget is not None:
         text = budget.line() + "\n" + text
+    if missing:
+        # いま使えない道具（出-al）。**繋がっていない道具は候補から黙って消える**ので、
+        # 無いという事実がどこにも残らず、「調べたけど出てこない」を繰り返していた。
+        # 1 行置くだけで伝わる（実機の場面で 8 回中 0 回 → 8 回・2026-09-22）。言い聞かせる
+        # 文は足さない——足しても 8 回のままだった。
+        text = "[いま使えない] " + "・".join(missing) + "\n" + text
     if capped:
         text += (
             "（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"

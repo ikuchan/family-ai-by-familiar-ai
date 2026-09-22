@@ -28,6 +28,7 @@ from ..capability_state import (
     collect_manifest_context,
     filter_enabled,
     load_capabilities,
+    live_tool_names,
     load_summary,
     save_summary,
     store_capabilities,
@@ -93,7 +94,7 @@ def check_manifest(text: str, current: str) -> "str | None":
 
 async def regenerate_manifest(agent) -> ManifestResult:
     current = load_capabilities()
-    prompt = build_generation_prompt(collect_manifest_context(), current)
+    prompt = build_generation_prompt(collect_manifest_context(live_tool_names(agent)), current)
     try:
         raw = str(await agent.backend.complete(prompt, max_tokens=2500) or "")
     except Exception as e:  # noqa: BLE001
@@ -113,7 +114,9 @@ async def regenerate_manifest(agent) -> ManifestResult:
 async def refresh_summary(agent, manifest: str) -> "str | None":
     """要約を作り直して保存する。保存しなかったら理由を返す。"""
     me_md = str(getattr(agent, "_me_md", "") or "")
-    prompt = build_self_understanding_prompt(me_md=me_md, manifest=filter_enabled(manifest))
+    prompt = build_self_understanding_prompt(
+        me_md=me_md, manifest=filter_enabled(manifest, tools=set(live_tool_names(agent)))
+    )
     try:
         raw = str(await agent.backend.complete(prompt, max_tokens=1000) or "")
     except Exception as e:  # noqa: BLE001

@@ -1752,6 +1752,29 @@ class InformationProcessing:
         lk = self._lookup_of(query)
         return lk.action if lk is not None else "recall"
 
+    def _missing_tools(self) -> "list[str]":
+        """いま使えない道具の呼び名（出-al・2026-09-22）。
+
+        能力の一覧が「道具の名前で有効になる」と書いているもののうち、いま取れないもの。
+        **繋がっていない道具は候補から黙って消える**ので、ここで名前を残さないと、
+        無いという事実がどこにも書かれない。数えられなければ空（黙る）。
+        """
+        from ..capability_state import live_tool_names, load_capabilities, missing_tools
+
+        try:
+            manifest = load_capabilities()
+            if not manifest:
+                import pathlib
+
+                manifest = (
+                    pathlib.Path(__file__).resolve().parents[3] / "capabilities.yaml"
+                ).read_text(encoding="utf-8")
+            live = set(live_tool_names(self._agent))
+            return [name for _, name in missing_tools(manifest, live)]
+        except Exception:  # noqa: BLE001
+            logger.debug("使えない道具を数えられなかった（黙る）", exc_info=True)
+            return []
+
     def _tools(
         self, *, actions: tuple[str, ...] = ("say", "recall"), cache_tools: bool = True
     ) -> list[dict]:
@@ -2502,6 +2525,7 @@ class InformationProcessing:
                 thinking_round=round_,
                 capped=capped,
                 budget=budget,
+                missing=self._missing_tools(),
             ),
         )
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
