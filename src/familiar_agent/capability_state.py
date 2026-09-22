@@ -59,12 +59,64 @@ def load_manifest() -> str:
         return ""
 
 
-def filter_enabled(manifest: str, env: dict | None = None) -> str:
+#: 道具の日本語の呼び名（出-al・2026-09-22）。**人に言える言い方**で持つ——`get_family_schedule`
+#: と言われても相手には伝わらない。一覧の `summary` は英語なので、ここを正本にする。
+TOOL_NAMES_JA: "dict[str, str]" = {
+    "get_family_schedule": "家族の予定を見る道具（カレンダー）",
+    "get_house_rules": "家の決まりを見る道具",
+    "search_notion": "家の目次・日次記録を探す道具（Notion）",
+    "get_journal": "日ごとの記録を読む道具",
+}
+
+
+def missing_tools(manifest: str, tools: "set[str]") -> "list[tuple[str, str]]":
+    """一覧が持っている道具のうち、いま取れないものを（道具名, 日本語の呼び名）で返す。
+
+    繋がっていない道具は候補から黙って消えるだけで、**無いという事実がどこにも残らない**。
+    実機 17:50 はそのせいで「調べたけど出てこない」を 3 回繰り返した（出-al）。
+    """
+    out: list[tuple[str, str]] = []
+    for line in manifest.splitlines():
+        stripped = line.strip()
+        if not stripped.startswith("enabled_tool:"):
+            continue
+        tool = stripped.split(":", 1)[1].strip()
+        if tool and tool not in tools:
+            out.append((tool, TOOL_NAMES_JA.get(tool, tool)))
+    return out
+
+
+def live_tool_names(agent) -> "list[str]":
+    """いま実際に取れる道具の名前（出-al・2026-09-22）。
+
+    繋がっていなければ空。設定ファイルに書いてあることとは別で、**能力はこちらで数える**。
+    """
+    mcp = getattr(agent, "_mcp", None)
+    if mcp is None:
+        return []
+    try:
+        return [str(d.get("name", "")) for d in mcp.get_tool_definitions() if d.get("name")]
+    except Exception:  # noqa: BLE001
+        logger.warning("いま取れる道具を数えられなかった", exc_info=True)
+        return []
+
+
+def filter_enabled(manifest: str, env: dict | None = None, tools: "set[str] | None" = None) -> str:
     """有効な能力だけを残した manifest を返す。
 
-    `enabled_env: CAMERA_HOST` は「**条件つき**」であって「有効」ではない。環境変数が
-    実際に設定されているかを見ないと、繋がっていない身体を能力として語ることになる
-    （`ME.md`「カメラ：無い」に対し要約が「I can see ... using a camera」になっていた）。
+    門は 3 つある。
+
+    - `enabled: true` ——いつでも有効。
+    - `enabled_env: CAMERA_HOST` ——環境変数があるときだけ。「**条件つき**」であって
+      「有効」ではない。見ないと、繋がっていない身体を能力として語ることになる
+      （`ME.md`「カメラ：無い」に対し要約が「I can see ... using a camera」になっていた）。
+    - `enabled_tool: get_family_schedule` ——**その道具がいま取れるときだけ**（出-al・
+      2026-09-22）。MCP 由来の能力にこれを使う。環境変数では実態を表せない——`MCP_CONFIG`
+      を設定せず既定パス `~/.familiar-ai.json` を使う機体では、道具が動いていても環境変数が
+      無いので一覧から落ちていた。逆に、設定に書いてあってもサーバーが落ちていれば道具は無い。
+
+    `tools` を渡さない呼び方では、道具の門を持つ能力は**残さない**。知らないときに
+    「使える」と言うより、落ちて気づくほうがよい。
 
     yaml を解析せず行単位で扱うのは、`detail: >` の折り返しを保ったまま項目だけを落とす
     ためで、整形し直すと生成側へ渡る文面が変わる。
@@ -91,6 +143,8 @@ def filter_enabled(manifest: str, env: dict | None = None) -> str:
             keep = stripped.split(":", 1)[1].strip().lower() == "true"
         elif stripped.startswith("enabled_env:"):
             keep = bool(environ.get(stripped.split(":", 1)[1].strip()))
+        elif stripped.startswith("enabled_tool:"):
+            keep = stripped.split(":", 1)[1].strip() in (tools or set())
         if block or is_item:
             block.append(line)
         else:
@@ -227,8 +281,14 @@ def _module_docstring(path: Path) -> str:
         return ""
 
 
-def collect_manifest_context() -> str:
-    """Collect tool definitions, module docstrings, .env config, and MCP servers."""
+def collect_manifest_context(live_tools: "list[str] | None" = None) -> str:
+    """Collect tool definitions, module docstrings, .env config, and MCP servers.
+
+    `live_tools` は**いま実際に取れる道具の名前**（出-al・2026-09-22）。設定ファイルに
+    書いてあることと、繋がっていることは別である——実機 17:50 は設定から外れていて
+    接続を試みてすらいなかった。書かれたサーバー名だけを材料にすると、層 4 は
+    「あるはずのもの」を能力として書いてしまう。
+    """
     parts: list[str] = []
 
     # Tool files
@@ -281,6 +341,13 @@ def collect_manifest_context() -> str:
         except Exception:
             pass
     parts.append("## MCP servers\n" + ("\n".join(mcp_lines) if mcp_lines else "(none)"))
+
+    # いま取れる道具（設定に書いてあることではなく、繋がっている実物）。
+    names = sorted(set(live_tools or ()))
+    parts.append(
+        "## Live tools (what is actually reachable right now)\n"
+        + ("\n".join(f"- {n}" for n in names) if names else "(none)")
+    )
 
     return "\n\n".join(parts)
 
