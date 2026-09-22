@@ -90,6 +90,14 @@ def _present_ctx(agent) -> str:
     parts.append(f" :speaker {_one(speaker)}" if speaker else ' :speaker "unconfirmed"')
     if others:
         parts.append(" :others " + " ".join(_one(r) for r in others))
+    # 名前の分からない在席者しか居ないなら、注記は在席表が空のときと同じものが要る
+    # （出-ae(1)）。注記はもともと**在席表が空**の経路にしか無かったので、名前の無い
+    # 在席者を持てるようにしたとたん、表が空でなくなって注記が落ちる（出-ae-は）。
+    if all(r.get("person_id") is None for r in rows):
+        parts.append(
+            ' :note "誰か居るが、誰かは分からない。名前で呼ばない'
+            '（直近のやりとりの名前も当てにしない）。知りたければ聞いてよい"'
+        )
     return "".join(parts) + ")"
 
 

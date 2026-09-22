@@ -27,7 +27,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 from ..core import measure
 
@@ -117,6 +117,10 @@ text を書くときは、この人格として、この相手に向けて、い
 人が**自分の名前を名乗った**（名前に「〜だよ」「〜です」を添えて言う）ら、`speaker_claim` にその名を書く。
 名乗っていなければ省く。誰かを呼んだだけ、や第三者の話は名乗りではない。
 
+**写真に人が写っているなら、誰だと思うかを `seen_people` に書く。** 見た目と【一緒に暮らす人たち】の
+記述から推し量ってよい。一人ずつ {{"name": "呼び方", "confidence": 0.0〜1.0}} の形で並べる。
+**誰か分からない人は name を空にして、数に入れる。** 写真に人が写っていなければ省く。
+
 人の言葉が**時期を指している**なら、想起の基準をそこへ動かす。`time_ref` にその時刻を
 ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方が指す**幅**を日数で
 書く。幅はその言い方がどれくらいの粗さで時期を指しているかで、広い言い方ほど大きい。
@@ -125,7 +129,7 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 次の形の JSON だけを返す（他には何も書かない）:
 {{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
  "action": "{actions}", "query": "…", "silence_minutes": 0, "lift_silence": false,
- "time_ref": "", "time_span_days": 0, "speaker_claim": ""}}
+ "time_ref": "", "time_span_days": 0, "speaker_claim": "", "seen_people": []}}
 使わない項目は省いてよい。
 """
 
@@ -144,6 +148,9 @@ class Decision:
     silence_minutes: int = 0
     lift_silence: bool = False  # 黙っていたのを「もう話していいよ」と解かれた
     speaker_claim: str = ""  # 人が名乗った名前（知-w・在席があるときだけ機械が話者に付ける）
+    #: 写真に写っていた人の見立て（出-ae-は・2026-09-22）。`[{"name": "パパ", "confidence": 0.8}]`。
+    #: 名乗り（実際に言われた言葉）とは別の欄にする——証拠の強さが違う。
+    seen_people: "list" = field(default_factory=list)
     # 想起の時間軸の基準。人の言葉が時期を指しているとき（「去年の夏の話」）に動かす。
     # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
     time_ref: str = ""  # ISO 8601（例 "2025-08-15T00:00:00"）
@@ -517,6 +524,7 @@ def _parse(
         silence_minutes=silence_minutes,
         lift_silence=bool(data.get("lift_silence", False)),
         speaker_claim=str(data.get("speaker_claim", "") or "").strip(),
+        seen_people=list(data.get("seen_people") or []),
         time_ref=time_ref,
         time_span_days=max(0.0, time_span_days),
     )

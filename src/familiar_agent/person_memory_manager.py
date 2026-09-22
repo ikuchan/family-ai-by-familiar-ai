@@ -57,6 +57,10 @@ PRESENCE_TIMEOUT_SEC: float = 120.0
 class PersonPresence:
     person_id: str
     confidence: float = 1.0
+    #: 名前の分からない在席者（出-ae-は・2026-09-22）。`person_id` は在席表の中だけの札で、
+    #: **人を指していない**。`get_present_ids()` からは外す——あそこは観測の `participants`
+    #: になり、人ごとの面を立てる材料なので、誰にも対応しない面ができてしまう。
+    anonymous: bool = False
     arrived_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_signal_at: float = field(default_factory=time.time)
 
@@ -135,9 +139,31 @@ class PersonMemoryManager:
                 self._speaker_id = None
         logger.info("Left: %s  (total present: %d)", person_id, len(self._present))
 
-    def get_present_ids(self) -> list[str]:
+    UNKNOWN_KEY_PREFIX = "unknown:"
+
+    def note_unknown_present(self, count: int, confidence: float = 0.5) -> None:
+        """名前の分からない在席者を `count` 人にする（出-ae-は・2026-09-22）。
+
+        **足し続けるのではなく、いまの人数に合わせる。** 見立ては求めごとに言い直される
+        ので、呼ばれるたびに足すと写真を見た回数だけ人が増える。0 を渡せば全部消える。
+
+        話者にはしない（話者には人を指す id が要る）。寿命は既知の在席者と同じ窓で切れる。
+        """
+        n = max(0, int(count))
         with self._lock:
-            return list(self._present.keys())
+            for key in [k for k, p in self._present.items() if p.anonymous]:
+                self._present.pop(key, None)
+            for i in range(n):
+                key = f"{self.UNKNOWN_KEY_PREFIX}{i + 1}"
+                self._present[key] = PersonPresence(
+                    person_id=key, confidence=confidence, anonymous=True
+                )
+        logger.info("名前の分からない在席者を %d 人にした（確信度 %.2f）", n, confidence)
+
+    def get_present_ids(self) -> list[str]:
+        """**人を指す id だけ**を返す。名前の分からない在席者は含めない。"""
+        with self._lock:
+            return [pid for pid, p in self._present.items() if not p.anonymous]
 
     def refresh_signal(self, person_id: str) -> None:
         """Update the last-signal timestamp for a present person."""
@@ -280,10 +306,10 @@ class PersonMemoryManager:
             speaker = self._speaker_id
         return [
             {
-                "person_id": p.person_id,
-                "name": self.get_person_name(p.person_id),
+                "person_id": None if p.anonymous else p.person_id,
+                "name": "不明" if p.anonymous else self.get_person_name(p.person_id),
                 "confidence": p.confidence,
-                "is_speaker": p.person_id == speaker,
+                "is_speaker": (not p.anonymous) and p.person_id == speaker,
             }
             for p in present
         ]
