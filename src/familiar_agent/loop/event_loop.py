@@ -2675,6 +2675,8 @@ class InformationProcessing:
             workspace.apply_memory_verdicts(
                 decision.mem, say_tc.input.get("memory_verdicts"), decision.w_id_map
             )
+            # 写真からの見立て（出-an）。**口に出すなら機械にも渡す**——調停と同じ道を通す。
+            await self._apply_seen_people(say_tc.input.get("seen_people"))
             text = str(say_tc.input.get("text", "")).strip()
             # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
             violation = (
@@ -3298,9 +3300,9 @@ class InformationProcessing:
         """調停が読んだ人の求め（沈黙の依頼・名乗り）を掛ける（反復本体の呼び口は 1 つ・番人 231 行）。"""
         self._apply_silence(decision, utterance=utterance)
         await self._apply_speaker_claim(decision)
-        await self._apply_seen_people(decision)
+        await self._apply_seen_people(getattr(decision, "seen_people", None))
 
-    async def _apply_seen_people(self, decision) -> None:
+    async def _apply_seen_people(self, people: "list | None") -> None:
         """調停が写真から見立てた人を、在席へ入れる（出-ae-は・2026-09-22）。
 
         **推し量ること自体は禁じない。推し量ったなら在席にも使う**（本人の決定）。15:57 は、
@@ -3310,10 +3312,14 @@ class InformationProcessing:
         - 家族に当たらない名前と名前の無い人は、**名前の分からない在席者**として数だけ残す。
           `participants` には入らないので、誰にも対応しない記憶空間は作らない。
         - 見立てが空の反復では在席を触らない。写真を見ていない反復で在席を消さないため。
+
+        呼び口は**並び**で受ける。調停の返り（`Decision.seen_people`）と、主LLM の申告
+        （`say()` の `seen_people`・出-an）が同じ道を通る——どちらも写真からの推し量りで、
+        証拠の種類は同じなので、確信度の上限も揃える。
         """
         from ..core.seen_people import SEEN_CONFIDENCE_MAX, parse_seen_people
 
-        people = list(getattr(decision, "seen_people", None) or [])
+        people = list(people or [])
         if not people:
             return
         agent = self._agent

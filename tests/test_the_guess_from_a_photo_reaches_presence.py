@@ -160,7 +160,7 @@ def test_a_guessed_family_member_enters_presence():
 
     pmm = _FakePMM({"パパ": "p-yusuke"})
     ip = _loop_with(_FAMILY, pmm)
-    asyncio.run(ip._apply_seen_people(_D([{"name": "ゆうすけ", "confidence": 1.0}])))
+    asyncio.run(ip._apply_seen_people([{"name": "ゆうすけ", "confidence": 1.0}]))
     assert pmm.arrived == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
     assert pmm.unknown == (0, SEEN_CONFIDENCE_MAX)
 
@@ -177,7 +177,7 @@ def test_a_nameless_person_becomes_an_unknown_present():
     ip = _loop_with(_FAMILY, pmm)
     asyncio.run(
         ip._apply_seen_people(
-            _D([{"name": "パパ", "confidence": 0.8}, {"name": "", "confidence": 0.4}])
+            [{"name": "パパ", "confidence": 0.8}, {"name": "", "confidence": 0.4}]
         )
     )
     assert pmm.arrived == [("p-yusuke", 0.6)]
@@ -195,6 +195,36 @@ def test_nothing_happens_without_a_guess():
 
     pmm = _FakePMM({})
     ip = _loop_with(_FAMILY, pmm)
-    asyncio.run(ip._apply_seen_people(_D([])))
+    asyncio.run(ip._apply_seen_people([]))
     assert pmm.arrived == []
     assert pmm.unknown is None
+
+
+# ── 主LLM も同じ口で申告する（出-an） ────────────────────────────────────
+
+
+def test_the_say_tool_takes_the_guess():
+    """`say()` の入力に見立ての欄がある（`memory_verdicts` と同じ形）。
+
+    写真は主LLM にも届く。実機 15:57 の写真で測ると、欄が無ければ 6 回とも「パパ」と呼んで
+    機械へは何も渡らず、欄を足せば 6 回とも書く（確信度 0.7〜0.9）。
+    """
+    from familiar_agent.tools.tts import TTSTool
+
+    tts = TTSTool.__new__(TTSTool)
+    tts.engine = "elevenlabs"
+    tts.elevenlabs_model = "eleven_flash_v2_5"
+    props = tts.get_tool_definitions()[0]["input_schema"]["properties"]
+    assert "seen_people" in props
+    item = props["seen_people"]["items"]["properties"]
+    assert set(item) == {"name", "confidence"}
+
+
+def test_the_main_llm_guess_goes_through_the_same_door():
+    """主LLM の申告も `_apply_seen_people` を通る（調停と同じ扱い・同じ上限）。"""
+    import asyncio
+
+    pmm = _FakePMM({"パパ": "p-yusuke"})
+    ip = _loop_with(_FAMILY, pmm)
+    asyncio.run(ip._apply_seen_people([{"name": "パパ", "confidence": 0.9}]))
+    assert pmm.arrived == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
