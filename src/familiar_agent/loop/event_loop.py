@@ -2336,6 +2336,14 @@ class InformationProcessing:
         store = getattr(self._agent, "_pending_store", None)
         if store is None:
             return
+        # **宛先の条件**（出-ap）。いまの在席で言えるものだけ配り、足りないものは箱に残す。
+        # 実機 15:49、話者が分からないまま家の予定（フーコック・キャンプ）を全部話した。
+        from ..core.audience import ANYONE, meets
+
+        try:
+            rows_now = list(self._agent._pmm.presence_status())
+        except Exception:  # noqa: BLE001
+            rows_now = []
         try:
             from ..config import PendingSpeechConfig
 
@@ -2346,6 +2354,15 @@ class InformationProcessing:
                 score = store.freshness_score(row, now_epoch, cfg)
                 if store.is_expired(row, score, cfg):
                     store.delete(row["id"])
+                    continue
+                level = int(row.get("audience") or ANYONE)
+                # **段 1 はここに来た時点で満たされている**——この口は「在席がゼロから
+                # 立ち上がった瞬間」にしか呼ばれない。`presence_status()` は顔が照合できた
+                # 人しか載らないので、ここで段 1 まで見ると、顔が分からない相手のときに
+                # タイマーの知らせまで止まる。見るのは段 2 以上だけ。
+                if level > ANYONE and not meets(level, rows_now):
+                    # 言うのに足りる相手が居ない。**消さずに残す**——次に条件が揃えば配る。
+                    logger.info("event-loop 保留を残す（宛先の条件 %d を満たさない）", level)
                     continue
                 content = str(row.get("content", "")).strip()
                 if content:
@@ -3584,8 +3601,14 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         if obs_id:
+            # 宛先の条件は**きっかけの札**で決める（出-ap・`core/audience`）。`[メモ]` は
+            # 家の記録なので家族がいるときだけ、ほかは誰かいれば配る。
+            from ..core.audience import level_of
+
+            # 求めが無い呼び方（土台だけの試験）でも落ちないよう、無ければ既定の段。
+            level = level_of(str(getattr(getattr(self, "_req", None), "request_text", "") or ""))
             with contextlib.suppress(Exception):
-                agent._pending_store.add(obs_id, None)
+                agent._pending_store.add(obs_id, None, audience=level)
 
     def _start_lookup(self, utterance: str, tool_input: dict, *, action: str = "recall") -> None:
         """open 意図を O に残し、RH へ投げる（待たない）。意図は常に高々1件に保つ。"""
