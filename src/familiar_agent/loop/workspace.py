@@ -267,15 +267,21 @@ def render_recent(
     if not rows:
         return [], "", {}
     rows.sort(key=lambda r: r.when.timestamp() if r.when else 0.0)
+    # 主体と、自分の発話の**相手**（出-ak・2026-09-23）。相手が落ちていると、子どもへの
+    # 常体が大人との会話の W に並び、口調を引っぱる（実機 17:25・実測 0/12 が 11/12 に）。
     names: "dict[str, str]" = {}
+    to: "dict[str, list[str]]" = {}
     with contextlib.suppress(Exception):
-        names = dict(oif.actors([r.obs_id for r in rows]))
+        voices = oif.voices([r.obs_id for r in rows])
+        names = {k: v[0] for k, v in voices.items()}
+        to = {k: v[1] for k, v in voices.items()}
     id_map = {r.obs_id.replace("-", "")[:12]: r.obs_id for r in rows}
     lines = [f"[直近のやりとり（古い順・最新 {n} 往復と、それに続く話）]"]
     for r in rows:
         sid = r.obs_id.replace("-", "")[:12]
         if r.role in ("答え", "つなぎ"):
-            who = "わたし"
+            heard = to.get(r.obs_id) or []
+            who = f"わたし（{'・'.join(heard)}へ）" if heard else "わたし"
         elif getattr(r, "direction", "発話") in ("情動", "機器"):
             # 人の言葉でない起点（内的な促し・入室）。「相手」と書くと、自分の内側や
             # 機器の出来事が誰かの発言に読める（実機 2026-09-13 21:21）。

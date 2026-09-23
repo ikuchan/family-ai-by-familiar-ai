@@ -100,6 +100,29 @@ class SituatedVectors:
     def __init__(self, ctx: StoreContext) -> None:
         self._ctx = ctx
 
+    def present_of(self, obs_ids: "list[str]") -> "dict[str, list[str]]":
+        """その記録たちの **`present` 面**（そばに居た人）を `obs_id → [person_id…]` で返す。
+
+        自分の発話が**誰へ向けたものか**は、これが唯一の手がかりである（出-ak）。`actor` は
+        「誰がやったか」なので、自分の発話では常に自分になる。面が立っていない記録は入らない
+        ——呼び手は相手を言わない（相手を捏造しない）。
+        """
+        ids = [str(i) for i in obs_ids if i]
+        if not ids:
+            return {}
+        out: dict[str, list[str]] = {}
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT obs_id, person_id FROM situated_memories "
+                    "WHERE relation_key = 'present' AND obs_id = ANY(%s)",
+                    (ids,),
+                )
+                for r in cur.fetchall():
+                    out.setdefault(str(r["obs_id"]), []).append(str(r["person_id"]))
+        return out
+
     def actors_of(self, obs_ids: "list[str]") -> "dict[str, str]":
         """その記録たちの **`actor` 面**（誰がやったか）を `obs_id → person_id` で返す。
 

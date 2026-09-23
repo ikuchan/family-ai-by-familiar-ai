@@ -381,6 +381,14 @@ def subject_line(direction: str, name: "str | None") -> str:
     return direction or "記録"
 
 
+def _first_alias(display: str) -> str:
+    """呼び方の一覧から、呼びかけに使う名前だけを採る（`get_person_name` と同じ割り方）。"""
+    out = display
+    for sep in ("、", ","):
+        out = out.split(sep)[0]
+    return out.strip()
+
+
 def _seat_open_records(results: list[dict], *, open_ids: set, n: int) -> list[dict]:
     """open な記録に W の席を予約し、残りを採点順で埋める（2026-09-12 実機で露見）。
 
@@ -1483,23 +1491,40 @@ class ObservationMemory:
 
     # ── Format helpers (unchanged from original) ───────────────────────────
 
-    def actor_names_of(self, obs_ids: "list[str]") -> "dict[str, str]":
-        """その記録たちの主体を `obs_id → 名前` で返す。`__self__` は `わたし`。
+    def voices_of(self, obs_ids: "list[str]") -> "dict[str, tuple[str, list[str]]]":
+        """その記録たちの**主体と相手**を `obs_id → (誰がやったか, [誰へ…])` で返す。
 
-        面が立っていない記録は**入らない**（呼び手は主体を言わない）。
+        主体は `actor` の面（`__self__` は `わたし`）、相手は `present` の面（そばに居た人）
+        から自分を除いたもの。**一度に返すのは、W の 1 行が両方を要るからである**——別々の
+        面にすると口が 2 つになり、問い合わせも 2 回になる（出-ak・2026-09-23）。
+
+        面が立っていない記録は**入らない**（呼び手は主体も相手も言わない）。相手が分からない
+        記録は、相手の並びが空で返る。
+
+        名前は**呼び方の先頭**（`get_person_name` と同じ割り方）。一覧のまま渡すと W の行が
+        `わたし（パパ、ゆうすけ、おとうさんへ）：` になる。
         """
         from ..person_memory_manager import AGENT_SELF_ID
 
         actors = self._situated.actors_of(obs_ids)
         if not actors:
             return {}
+        present = self._situated.present_of(obs_ids)
         names = {str(p["id"]): str(p.get("display_name") or p["name"]) for p in self.list_persons()}
-        out: dict[str, str] = {}
+        out: dict[str, tuple[str, list[str]]] = {}
         for obs_id, pid in actors.items():
             if pid == AGENT_SELF_ID:
-                out[obs_id] = "わたし"
+                who = "わたし"
             elif pid in names:
-                out[obs_id] = names[pid]
+                who = names[pid]
+            else:
+                continue
+            heard = [
+                _first_alias(names[q])
+                for q in present.get(obs_id, [])
+                if q != AGENT_SELF_ID and q in names
+            ]
+            out[obs_id] = (who, heard)
         return out
 
     def format_for_context(self, memories: list[dict]) -> str:
