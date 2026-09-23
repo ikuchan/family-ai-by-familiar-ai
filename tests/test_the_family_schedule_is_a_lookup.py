@@ -59,7 +59,7 @@ def test_running_the_lookup_calls_the_mcp_tool_and_queues_the_result() -> None:
 
 def test_the_arbiter_can_choose_the_family_schedule() -> None:
     d = _parse(
-        '{"branch": "action", "action": "family_schedule", "text": "見てみますね"}',
+        '{"branch": "action", "action": "family_schedule", "filler": "見てみますね"}',
         can_see=False,
         extra_actions=("family_schedule",),
     )

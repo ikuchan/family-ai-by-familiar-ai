@@ -893,7 +893,7 @@ def test_action_branch_speaks_the_filler_then_dispatches():
     a._utility_backend.complete = AsyncMock(
         return_value=(
             '{"branch":"action","action":"search_deferred",'
-            '"query":"今日の天気","text":"調べてみるね"}'
+            '"query":"今日の天気","filler":"調べてみるね"}'
         )
     )
     shown: list[str] = []
@@ -980,7 +980,7 @@ def _arbiter_says(*replies: str):
     return _complete
 
 
-_ACT = '{"branch":"action","action":"recall","query":"%s","text":"","effort":"high"}'
+_ACT = '{"branch":"action","action":"recall","query":"%s","filler":"","effort":"high"}'
 _FULL = '{"branch":"full","effort":"high"}'
 
 
@@ -1242,7 +1242,7 @@ def test_full_branch_says_a_filler_first_when_thinking_deeply():
     # フル生成は effort=high で10秒近くかかり、そのあいだ無音になる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"high","text":"えーっと"}'
+        return_value='{"branch":"full","effort":"high","filler":"えーっと"}'
     )
     shown: list[str] = []
     out = _run(a, on_text=shown.append)
@@ -1255,7 +1255,7 @@ def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
     # effort=low のフル生成は実測 0.8〜3.6 秒。速いときに「えーっと」を挟むとテンポが悪い。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"low","text":"えーっと"}'
+        return_value='{"branch":"full","effort":"low","filler":"えーっと"}'
     )
     shown: list[str] = []
     _run(a, on_text=shown.append)
@@ -1277,7 +1277,7 @@ def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
     )
     a._utility_backend.complete = AsyncMock(
         return_value='{"branch":"action","action":"recall","query":"マイクラ",'
-        '"text":"ちょっと調べてみますね"}'
+        '"filler":"ちょっと調べてみますね"}'
     )
 
     async def scenario():
@@ -1312,7 +1312,7 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
     )
     a._utility_backend.complete = AsyncMock(
         return_value='{"branch":"action","action":"recall","query":"サッカー",'
-        '"text":"ちょっと調べてみますね"}'
+        '"filler":"ちょっと調べてみますね"}'
     )
 
     # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
@@ -1367,8 +1367,8 @@ def test_no_filler_once_the_material_has_arrived():
     )
     replies = iter(
         [
-            '{"branch":"action","action":"recall","query":"q","text":"調べますね"}',
-            '{"branch":"full","effort":"high","text":"うん、任せてね！"}',
+            '{"branch":"action","action":"recall","query":"q","filler":"調べますね"}',
+            '{"branch":"full","effort":"high","filler":"うん、任せてね！"}',
         ]
     )
     a._utility_backend.complete = AsyncMock(side_effect=lambda *_a, **_k: next(replies))
@@ -1392,7 +1392,7 @@ def test_the_arbiter_sees_what_was_already_looked_up():
         ]
     )
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"直近の天気","text":"調べますね"}'
+        return_value='{"branch":"action","action":"recall","query":"直近の天気","filler":"調べますね"}'
     )
     # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
     a._active_memory().recall_async = AsyncMock(

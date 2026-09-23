@@ -56,7 +56,9 @@ def test_a_drive_decision_never_carries_a_filler() -> None:
     from familiar_agent.loop.arbiter import _parse
 
     d = _parse(
-        '{"branch": "action", "action": "see", "text": "見てみますね"}', can_see=True, origin="情動"
+        '{"branch": "action", "action": "see", "filler": "見てみますね"}',
+        can_see=True,
+        origin="情動",
     )
     assert d is not None and d.text == ""
 

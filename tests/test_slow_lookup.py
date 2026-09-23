@@ -77,7 +77,7 @@ def test_a_progress_iteration_only_says_a_filler():
     # つなぎだけ出して閉じない。飛行中の数も触らない。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"high","text":"もう少しかかりそうです"}'
+        return_value='{"branch":"full","effort":"high","filler":"もう少しかかりそうです"}'
     )
     shown: list[str] = []
 

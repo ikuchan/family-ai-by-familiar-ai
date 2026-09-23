@@ -14,7 +14,7 @@ from familiar_agent.loop.arbiter import _parse, arbitrate
 
 
 def test_see_is_accepted_when_the_agent_can_see() -> None:
-    d = _parse('{"branch": "action", "action": "see", "text": "見てみますね"}', can_see=True)
+    d = _parse('{"branch": "action", "action": "see", "filler": "見てみますね"}', can_see=True)
     assert d is not None and d.branch == "action" and d.action == "see"
     assert d.query == "目の前を見る", "見出しは固定なので query は埋める"
 

@@ -60,7 +60,7 @@ def test_the_filler_is_written_and_pooled():
         ]
     )
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"q","text":"調べますね"}'
+        return_value='{"branch":"action","action":"recall","query":"q","filler":"調べますね"}'
     )
     _run_chain(a, utterance="調べて")
     # つなぎは O へ書く（段 4）。**ただし母集合には載せる。** 想起から外すのは役割が
