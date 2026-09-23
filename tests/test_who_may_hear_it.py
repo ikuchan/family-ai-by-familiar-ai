@@ -286,3 +286,61 @@ def test_a_timer_is_held_for_anyone():
     ip._req.request_text = "[タイマー] タイマー：「パスタ」の時間"
     asyncio.run(ip._hold_speech("タイマーが鳴っていますよ", "聞く相手が居ない"))
     assert agent._pending_store.add.call_args.kwargs.get("audience") == ANYONE
+
+
+# ── 直近のやりとりにも宛先の条件を当てる ─────────────────────────────────
+
+
+def _said(obs_id: str, content: str, *, role: str = "起点", direction: str = "機器"):
+    from datetime import datetime, timezone
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        obs_id=obs_id,
+        role=role,
+        content=content,
+        when=datetime(2026, 9, 21, 15, 48, tzinfo=timezone.utc),
+        direction=direction,
+    )
+
+
+class _OIF2:
+    def voices(self, ids):
+        return {}
+
+
+_MEMO = "[メモ] パジュへのメモが変わった。新しく書かれたこと：フーコックは送迎だけ"
+_TIMER = "[タイマー] タイマー：「パスタ」の時間"
+
+
+def _recent(rows, presence):
+    from familiar_agent.loop import workspace
+
+    _, text, _ = workspace.render_recent(_OIF2(), [("o", rows)], 3, presence_rows=presence)
+    return text
+
+
+def test_a_memo_line_is_hidden_from_someone_we_cannot_name():
+    """同じメモの中身が、保留を塞いでも直近のやりとりから渡っていた（出-ap の残り）。"""
+    got = _recent([_said("o1", _MEMO), _said("o2", _TIMER)], _UNKNOWN)
+    assert "フーコック" not in got
+    assert "タイマー" in got
+
+
+def test_a_memo_line_shows_once_someone_is_named():
+    got = _recent([_said("o1", _MEMO)], _KNOWN)
+    assert "フーコック" in got
+
+
+def test_a_persons_words_are_never_hidden():
+    """人の言葉は宛先の条件の対象外。相手が言ったことは、その相手に見せてよい。"""
+    rows = [_said("o1", "メモを見て", role="起点", direction="発話")]
+    assert "メモを見て" in _recent(rows, _UNKNOWN)
+
+
+def test_nothing_is_hidden_when_presence_is_not_given():
+    """在席を渡さない呼び方（土台だけの試験）では、いままでどおり全部載せる。"""
+    from familiar_agent.loop import workspace
+
+    _, text, _ = workspace.render_recent(_OIF2(), [("o", [_said("o1", _MEMO)])], 3)
+    assert "フーコック" in text

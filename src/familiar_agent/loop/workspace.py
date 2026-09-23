@@ -235,6 +235,23 @@ def recent_chains(oif, n: int) -> "list[tuple[str, list]]":
     return out
 
 
+def _may_show(row, presence_rows: "list[dict] | None") -> bool:
+    """その行を、いま居る相手に見せてよいか（出-ap・2026-09-24）。
+
+    見るのは**機器の知らせ**だけ。人の言葉や自分の発話は、宛先の条件を持たない。
+    在席を渡さない呼び方（土台だけの試験）では絞らない——知らないときに隠すと、
+    どこで落ちたか分からなくなる。
+    """
+    if presence_rows is None:
+        return True
+    if getattr(row, "direction", "") != "機器":
+        return True
+    from ..core.audience import ANYONE, level_of, meets
+
+    level = level_of(str(getattr(row, "content", "") or ""))
+    return level <= ANYONE or meets(level, presence_rows)
+
+
 def render_recent(
     oif,
     chains: "list[tuple[str, list]]",
@@ -242,6 +259,7 @@ def render_recent(
     *,
     max_age_sec: int = 0,
     now: "datetime | None" = None,
+    presence_rows: "list[dict] | None" = None,
 ) -> "tuple[list, str, dict[str, str]]":
     """直近の枠を文にする。窓 n は新しい側から n 往復（鎖ごと）。
 
@@ -275,6 +293,10 @@ def render_recent(
         voices = oif.voices([r.obs_id for r in rows])
         names = {k: v[0] for k, v in voices.items()}
         to = {k: v[1] for k, v in voices.items()}
+    # 宛先の条件（出-ap）。**機器の知らせ**（`[メモ]` ほか）は、言うのに足りる相手が居ない
+    # あいだ載せない。保留の側だけを塞いでも、同じメモの中身がここから渡っていた。
+    # **人の言葉は対象外**——相手が言ったことは、その相手に見せてよい。
+    rows = [r for r in rows if _may_show(r, presence_rows)]
     id_map = {r.obs_id.replace("-", "")[:12]: r.obs_id for r in rows}
     lines = [f"[直近のやりとり（古い順・最新 {n} 往復と、それに続く話）]"]
     for r in rows:
@@ -333,6 +355,9 @@ class Workspace:
     max_age_sec: int = 0
     #: この想起の引き方（出-ah）。面・件数・時期・直近の広さを 1 行で W に添える。
     basis: str = ""
+    #: いまの在席（`presence_status()` の行）。直近のやりとりの**機器の知らせ**に宛先の
+    #: 条件を当てるために持つ（出-ap）。渡さなければ絞らない。
+    presence_rows: "list[dict] | None" = None
     id_map: "dict[str, str]" = field(default_factory=dict)
     # 「いま道具から返った」の枠は**組んだ時点の値を固定**する（`render` は遅延評価で、求めの
     # `just_returned` を組んだ後に空にすると枠が消えた——実機 2026-09-18 15:28）。
@@ -356,6 +381,7 @@ class Workspace:
         n_main: int,
         max_age_sec: int = 0,
         basis: str = "",
+        presence_rows: "list[dict] | None" = None,
     ) -> "Workspace":
         chains = recent_chains(
             oif, max(n_arbiter, n_main) + 1
@@ -369,6 +395,7 @@ class Workspace:
             n_main,
             max_age_sec,
             basis,
+            presence_rows,
         )
         # 最上部＝確認待ち（出-y）と、この反復で道具から返ったもの（出-x）。
         ws.just_returned_text = "\n\n".join(
@@ -389,7 +416,13 @@ class Workspace:
         return ws
 
     def _recent(self, n: int) -> "tuple[list, str, dict[str, str]]":
-        return render_recent(self.oif, self.chains, n, max_age_sec=self.max_age_sec)
+        return render_recent(
+            self.oif,
+            self.chains,
+            n,
+            max_age_sec=self.max_age_sec,
+            presence_rows=self.presence_rows,
+        )
 
     def recent_text(self, n: int) -> str:
         return self._recent(n)[1]
@@ -485,6 +518,7 @@ async def recall(
     req: Request,
     time_ref: "float | None" = None,
     time_span_days: "float | None" = None,
+    presence_rows: "list[dict] | None" = None,
 ) -> "Workspace":
     """想起して W を組み、**`Workspace`（W に載った記録・窓ごとの文・対応表）を返す**（に-5-ろ）。
 
@@ -535,6 +569,7 @@ async def recall(
         n_main=cfg.recent_exchanges_main,
         max_age_sec=cfg.recent_exchanges_max_sec,
         basis=describe_basis(cfg, viewpoint=viewpoint, time_ref=time_ref, memories=memories),
+        presence_rows=presence_rows,
     )
     ws.returned_actions = returned
     return ws

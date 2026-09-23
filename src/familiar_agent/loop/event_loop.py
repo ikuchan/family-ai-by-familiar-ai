@@ -1457,6 +1457,7 @@ class InformationProcessing:
                 viewpoint=viewpoint,
                 weights=weights,
                 req=self._req,
+                presence_rows=self._presence_rows(),
             )
             ws.max_age_sec = minutes * 60
             body = ws.recent_text(turns)
@@ -1471,6 +1472,7 @@ class InformationProcessing:
             req=self._req,
             time_ref=time_ref,
             time_span_days=span,
+            presence_rows=self._presence_rows(),
         )
         # 母数を添える（出-ah）。取りこぼしがあるかどうかを、返りだけで判断できるようにする。
         tail = f"\n（候補 {cfg.recall_primary_n} 件から {min(k, len(ws.memories))} 件・載せられるのは {k} 件まで）"
@@ -1752,6 +1754,16 @@ class InformationProcessing:
         lk = self._lookup_of(query)
         return lk.action if lk is not None else "recall"
 
+    def _presence_rows(self) -> "list[dict] | None":
+        """いまの在席（`presence_status()` の行）。読めなければ None（絞らない）。
+
+        直近のやりとりの**機器の知らせ**に宛先の条件を当てるために渡す（出-ap）。
+        """
+        try:
+            return list(self._agent._pmm.presence_status())
+        except Exception:  # noqa: BLE001
+            return None
+
     async def _recall_at(self, decision, ws, *, cue, viewpoint, weights):
         """調停が時期を指していたら、その時期を基準に引き直す。指していなければそのまま。
 
@@ -1769,6 +1781,7 @@ class InformationProcessing:
                 req=self._req,
                 time_ref=datetime.fromisoformat(decision.time_ref).timestamp(),
                 time_span_days=decision.time_span_days or None,
+                presence_rows=self._presence_rows(),
             )
             logger.info(
                 "event-loop 想起の基準を移す：%s（幅 %s 日）",
@@ -2451,7 +2464,12 @@ class InformationProcessing:
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
         ws = await workspace.recall(
-            agent._oif, cue, viewpoint=viewpoint, weights=weights, req=self._req
+            agent._oif,
+            cue,
+            viewpoint=viewpoint,
+            weights=weights,
+            req=self._req,
+            presence_rows=self._presence_rows(),
         )
         _log_recall_weights(trigger, w_base, weights, ws.memories)
         self._returned_now = ws.returned_actions  # 声の選び方が読む（環-u）
