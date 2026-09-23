@@ -298,21 +298,34 @@ def render_recent(
     # **人の言葉は対象外**——相手が言ったことは、その相手に見せてよい。
     rows = [r for r in rows if _may_show(r, presence_rows)]
     id_map = {r.obs_id.replace("-", "")[:12]: r.obs_id for r in rows}
-    lines = [f"[直近のやりとり（古い順・最新 {n} 往復と、それに続く話）]"]
+    # **やりとりは人との言葉だけ**（出-ar・2026-09-24）。機器（タイマー・メモ・入室）は
+    # 起きたこと、情動は湧いたことで、どちらもやりとりではない。起点を数えると
+    # 発話 309・情動 175・機器 130 で、人以外が半分を占めていた——実機 15:49 の枠は
+    # `[タイマー]` の 1 行だけで、人とのやりとりが 1 行も無いのに「直近のやりとり」だった。
+    talk: list[str] = []
+    happened: list[str] = []
     for r in rows:
         sid = r.obs_id.replace("-", "")[:12]
+        at = clock.ts_to_time(r.when)
         if r.role in ("答え", "つなぎ"):
             heard = to.get(r.obs_id) or []
             who = f"わたし（{'・'.join(heard)}へ）" if heard else "わたし"
         elif getattr(r, "direction", "発話") in ("情動", "機器"):
-            # 人の言葉でない起点（内的な促し・入室）。「相手」と書くと、自分の内側や
-            # 機器の出来事が誰かの発言に読める（実機 2026-09-13 21:21）。
-            who = "きっかけ"
+            # 札（`[タイマー]`・`[内的な促し:…]`）は本文の先頭にあるので、誰かは書かない。
+            happened.append(f"- {at} id:{sid} {r.content}")
+            continue
         else:
             who = names.get(r.obs_id) or "相手"
             who = "相手" if who == "わたし" else who
-        lines.append(f"- {clock.ts_to_time(r.when)} id:{sid} {who}：{r.content}")
-    return rows, "\n".join(lines), id_map
+        talk.append(f"- {at} id:{sid} {who}：{r.content}")
+    blocks: list[str] = []
+    if talk:
+        blocks.append(
+            "\n".join([f"[直近のやりとり（人との言葉だけ・古い順・最新 {n} 往復）]", *talk])
+        )
+    if happened:
+        blocks.append("\n".join(["[そのあいだに起きたこと]", *happened]))
+    return rows, "\n\n".join(blocks), id_map
 
 
 def recent_window(
