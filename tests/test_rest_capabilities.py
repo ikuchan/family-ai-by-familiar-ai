@@ -145,9 +145,12 @@ def test_a_summary_that_rewrote_me_md_or_grew_too_long_is_refused():
 
 def test_the_layer_skips_everything_when_nothing_is_due():
     a = _agent(GOOD_YAML)
+    # 「何も変わっていない」は、要約が**いまの `ME.md` を先頭に含む**こと（出-ao）。
+    # 含まなければ `ME.md` が書き換わったとみなして作り直す。
+    fresh = a._me_md + "\n\n## 私にできること\n\n- 記憶を探せるよ。"
     with (
         patch.object(rc, "capabilities_updated_at", return_value=NOW - timedelta(days=1)),
-        patch.object(rc, "load_summary", return_value="ある"),
+        patch.object(rc, "load_summary", return_value=fresh),
         patch.object(rc, "store_capabilities") as store,
         patch.object(rc, "save_summary") as save,
     ):
@@ -170,3 +173,75 @@ def test_the_layer_refreshes_the_summary_when_the_self_image_changed():
         text = asyncio.run(rc.redefine_capabilities(a, self_image_changed=True, now=NOW))
     assert "要約を作り直した" in text
     save.assert_called_once()
+
+
+# ---- ME.md が書き換わったら作り直す（出-ao・2026-09-23） ----------------------
+
+
+def test_the_summary_is_due_when_me_md_changed():
+    """`ME.md` を書き換えても作り直す引き金が無かった（実機：要約は 09-13 のまま）。
+
+    要約は `ME.md` を**先頭に逐語で**含むので、先頭が合わなければ古い。更新時刻を持ち回る
+    必要はなく、保存済みの要約そのものが材料になる。
+    """
+    me = "名前： パジュ\n一人称：ぼく"
+    assert (
+        rc.due_for_summary(
+            manifest_changed=False,
+            self_image_changed=False,
+            summary=me + "\n\n## 私にできること\n- x",
+            me_md=me,
+        )
+        is False
+    )
+    assert (
+        rc.due_for_summary(
+            manifest_changed=False,
+            self_image_changed=False,
+            summary="名前： パジュ（古い）\n\n## 私にできること\n- x",
+            me_md=me,
+        )
+        is True
+    )
+
+
+def test_no_summary_is_still_due():
+    assert (
+        rc.due_for_summary(
+            manifest_changed=False, self_image_changed=False, summary="", me_md="名前： パジュ"
+        )
+        is True
+    )
+
+
+def test_no_me_md_does_not_force_a_rebuild():
+    """`ME.md` が無い機体で、毎晩作り直させない。"""
+    assert (
+        rc.due_for_summary(
+            manifest_changed=False, self_image_changed=False, summary="なにか", me_md=""
+        )
+        is False
+    )
+
+
+# ---- 途中で切れた要約を置かない ----------------------------------------------
+
+
+def test_a_summary_cut_off_midway_is_refused():
+    """`max_tokens` で尽きた出力は、上限の検査を通り抜けていた（保存済みは末尾が `- `）。"""
+    me = "名前： パジュ\n一人称：ぼく"
+    a = _agent(me + "\n\n## 私にできること\n\n- 記憶を探せるよ。\n-")
+    with patch.object(rc, "save_summary") as save:
+        reason = asyncio.run(rc.refresh_summary(a, GOOD_YAML))
+    assert reason and "切れて" in reason
+    save.assert_not_called()
+
+
+def test_the_cap_fits_me_md_plus_twenty_lines():
+    """上限は `ME.md`（実測 1,223 字）＋ 20 行（35 字／行）を容れる（本人の決定・2,000 字）。"""
+    assert rc.SUMMARY_MAX_CHARS >= 1223 + 20 * 35
+
+
+def test_the_ask_is_big_enough_for_the_cap():
+    """`max_tokens` は上限から決める。足りないと途中で切れる（日本語 1 字 ≈ 2 トークン）。"""
+    assert rc.summary_max_tokens() >= rc.SUMMARY_MAX_CHARS
