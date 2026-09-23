@@ -63,6 +63,7 @@ def parse_family_md(text: str) -> list[dict]:
       - **名前**：田中太郎
       - **呼び方**：お父さん
       - **英字**：Taro Tanaka   → latin="taro"（無ければ ""）
+      - **関係**：家族の父。大人  → relation（無ければ ""）
     """
     if not text:
         return []
@@ -72,6 +73,8 @@ def parse_family_md(text: str) -> list[dict]:
     # 英字（`Yusuke Ikunaga`）。先頭の語を小文字にした `yusuke` が個人ティアの道具名の鍵
     # （`ask_vault_yusuke`・知-f）。書いていない人は個人ティアの道具を持たない。
     _LATIN_RE = re.compile(r"[-*]\s*\*{0,2}英字\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+    # 関係（「家族の父。大人。…」）。大人か子どもかを判じる唯一の材料（出-ak・`core/tone.py`）。
+    _RELATION_RE = re.compile(r"[-*]\s*\*{0,2}関係\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
     _TEMPLATE_SKIP = re.compile(r"^[（(].*[）)]$")
 
     members: list[dict] = []
@@ -93,7 +96,18 @@ def parse_family_md(text: str) -> list[dict]:
         if _TEMPLATE_SKIP.match(latin):
             latin = ""
         latin = latin.split()[0].lower() if latin else ""
-        members.append({"name": name, "display_name": display_name or name, "latin": latin})
+        rel_m = _RELATION_RE.search(section)
+        relation = rel_m.group(1).strip() if rel_m else ""
+        if _TEMPLATE_SKIP.match(relation):
+            relation = ""
+        members.append(
+            {
+                "name": name,
+                "display_name": display_name or name,
+                "latin": latin,
+                "relation": relation,
+            }
+        )
     return members
 
 

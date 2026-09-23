@@ -1752,6 +1752,60 @@ class InformationProcessing:
         lk = self._lookup_of(query)
         return lk.action if lk is not None else "recall"
 
+    async def _recall_at(self, decision, ws, *, cue, viewpoint, weights):
+        """調停が時期を指していたら、その時期を基準に引き直す。指していなければそのまま。
+
+        失敗は飲む（引き直せなくても、いまの基準で引いた W が手元にある）。移したことは
+        ログに残す——後から「どの基準で引いた W か」を辿れないと、想起の順を再構成できない。
+        """
+        if not decision.time_ref:
+            return ws
+        with contextlib.suppress(Exception):
+            ws = await workspace.recall(
+                self._agent._oif,
+                cue,
+                viewpoint=viewpoint,
+                weights=weights,
+                req=self._req,
+                time_ref=datetime.fromisoformat(decision.time_ref).timestamp(),
+                time_span_days=decision.time_span_days or None,
+            )
+            logger.info(
+                "event-loop 想起の基準を移す：%s（幅 %s 日）",
+                decision.time_ref,
+                decision.time_span_days or "既定",
+            )
+        return ws
+
+    def _tone_note(self) -> str:
+        """いまの相手向けの口調を 1 行で（出-ak・2026-09-23）。分からなければ空。
+
+        **口調の正本は `ME.md`。** ここは「どちらの行を当てるか」だけを決め、行はそのまま
+        渡す。写しを持つと、`ME.md` を書き換えても機械の行が古いまま残る。
+
+        規則の側（`personality-from-me`）や在席の行だけでは効かなかった（実測 0/12）。
+        `[返事]` の行に置き、W の過去の発話に相手を添え、在席に大人と書いて、揃って 11/12。
+        """
+        from ..core.tone import is_adult, tone_line
+
+        agent = self._agent
+        try:
+            rows = agent._pmm.presence_status()
+        except Exception:  # noqa: BLE001
+            return ""
+        speaker = next((r for r in rows if r.get("is_speaker")), None)
+        if not speaker:
+            return ""
+        name = str(speaker.get("name") or "")
+        adult = is_adult(name, str(getattr(agent, "_family_md", "") or ""))
+        if adult is None:
+            return ""  # 関係が書かれていない人。決めつけない
+        line = tone_line(str(getattr(agent, "_me_md", "") or ""), adult=adult)
+        if not line:
+            return ""
+        who = "大人" if adult else "子ども"
+        return f"いま向き合っている相手は{who}。{line}"
+
     def _missing_tools(self) -> "list[str]":
         """いま使えない道具の呼び名（出-al・2026-09-22）。
 
@@ -2435,22 +2489,7 @@ class InformationProcessing:
         # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
         # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
         # で、指定があったときだけ走る。
-        if decision.time_ref:
-            with contextlib.suppress(Exception):
-                ws = await workspace.recall(
-                    agent._oif,
-                    cue,
-                    viewpoint=viewpoint,
-                    weights=weights,
-                    req=self._req,
-                    time_ref=datetime.fromisoformat(decision.time_ref).timestamp(),
-                    time_span_days=decision.time_span_days or None,
-                )
-                logger.info(
-                    "event-loop 想起の基準を移す：%s（幅 %s 日）",
-                    decision.time_ref,
-                    decision.time_span_days or "既定",
-                )
+        ws = await self._recall_at(decision, ws, cue=cue, viewpoint=viewpoint, weights=weights)
         memories, workspace_ctx, w_id_map = ws.memories, ws.for_main, ws.id_map
 
         if gen != self._request_generation:
@@ -2526,6 +2565,7 @@ class InformationProcessing:
                 capped=capped,
                 budget=budget,
                 missing=self._missing_tools(),
+                tone=self._tone_note(),
             ),
         )
         # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。

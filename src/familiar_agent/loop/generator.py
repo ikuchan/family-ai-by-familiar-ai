@@ -88,6 +88,16 @@ def _present_ctx(agent) -> str:
     others = [r for r in rows if not r.get("is_speaker")]
     parts = ["(present"]
     parts.append(f" :speaker {_one(speaker)}" if speaker else ' :speaker "unconfirmed"')
+    # 相手が大人かを添える（出-ak）。口調は `ME.md` が決めるが、**どちらの行を当てるか**は
+    # ここが分かっていないと決まらない。書いていない人には添えない（決めつけない）。
+    if speaker:
+        from ..core.tone import is_adult
+
+        with contextlib.suppress(Exception):
+            if is_adult(
+                str(speaker.get("name") or ""), str(getattr(agent, "_family_md", "") or "")
+            ):
+                parts.append(' :note "この相手は大人"')
     if others:
         parts.append(" :others " + " ".join(_one(r) for r in others))
     # 名前の分からない在席者しか居ないなら、注記は在席表が空のときと同じものが要る
@@ -109,6 +119,7 @@ def _iter_ctx(
     capped: bool,
     budget=None,
     missing: "list[str] | None" = None,
+    tone: str = "",
 ) -> str:
     """この反復がどこに居るかを、主LLM へ渡す1行に組む。
 
@@ -128,7 +139,10 @@ def _iter_ctx(
     """
     text = f"[反復] {chain}/{max_chain}（この件を考えるのは {thinking_round} 回目）"
     if budget is not None:
-        text = budget.line() + "\n" + text
+        # 口調（出-ak）。**`ME.md` の行をそのまま**足す——機械は写しを持たない。
+        # 字数だけの行に付けるのは、`[返事]` が「いまのこの返事」についての指示だからで、
+        # 規則の側（`personality-from-me`）に書いても効かなかった（実測 0/12）。
+        text = budget.line() + (f"（{tone}）" if tone else "") + "\n" + text
     if missing:
         # いま使えない道具（出-al）。**繋がっていない道具は候補から黙って消える**ので、
         # 無いという事実がどこにも残らず、「調べたけど出てこない」を繰り返していた。

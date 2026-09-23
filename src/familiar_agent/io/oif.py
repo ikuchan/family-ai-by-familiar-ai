@@ -388,8 +388,17 @@ class OIF:
         「誰がやったか」は `actor` の面が持つ（記-f）。面が立っていない記録は入らない
         ——呼び手は主体を言わない（名前を捏造しない）。
         """
-        got = self._memory.actor_names_of(list(obs_ids))
+        got = {k: v[0] for k, v in self._memory.voices_of(list(obs_ids)).items()}
         logger.debug("OIF actors ← %d件 → %d件", len(obs_ids), len(got))
+        return got
+
+    def voices(self, obs_ids: "Sequence[str]") -> "dict[str, tuple[str, list[str]]]":
+        """その記録たちの**主体と相手**を `記録の id → (誰が, [誰へ…])` で返す（出-ak）。
+
+        W の 1 行は両方を要る（`わたし（パパへ）：…`）ので、一度に取る。
+        """
+        got = self._memory.voices_of(list(obs_ids))
+        logger.debug("OIF voices ← %d件 → %d件", len(obs_ids), len(got))
         return got
 
     def roles(self, obs_ids: "Sequence[str]") -> "dict[str, str]":

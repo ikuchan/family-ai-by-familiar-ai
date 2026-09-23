@@ -38,7 +38,10 @@ def _oif(origins: list[str], chains: dict[str, list[Said]], names: dict[str, str
     oif = MagicMock()
     oif.latest_origins = MagicMock(side_effect=lambda n: origins[:n])
     oif.exchanges = MagicMock(side_effect=lambda o: chains.get(o, []))
-    oif.actors = MagicMock(return_value=names or {})
+    # 主体と相手は 1 つの口で返る（出-ak・2026-09-23）。相手はこの試験では空。
+    oif.voices = MagicMock(
+        side_effect=lambda ids: {i: (n, []) for i, n in (names or {}).items() if i in ids}
+    )
     return oif
 
 
