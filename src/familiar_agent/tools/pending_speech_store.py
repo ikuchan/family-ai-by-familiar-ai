@@ -42,8 +42,18 @@ class PendingSpeechStore:
             self._conn = psycopg2.connect(self._url, cursor_factory=psycopg2.extras.RealDictCursor)
         return self._conn
 
-    def add(self, observation_id: str, target_person_id: str | None) -> str | None:
-        """observation_id 実在チェック → INSERT。実在しなければ None（拒否）。"""
+    def add(
+        self,
+        observation_id: str,
+        target_person_id: str | None,
+        audience: int = 1,
+    ) -> str | None:
+        """observation_id 実在チェック → INSERT。実在しなければ None（拒否）。
+
+        `audience` は**宛先の条件**（出-ap・`core/audience`）——それを言うのに誰が要るか。
+        既定 1（誰かいたら）はいままでの振る舞い。2（家族がいたら）は、家族と確かめられた
+        人が在席するまで配らない。
+        """
         with self._lock:
             conn = self._ensure_connected()
             with conn.cursor() as cur:
@@ -53,9 +63,10 @@ class PendingSpeechStore:
                     return None
                 pid = str(uuid.uuid4())
                 cur.execute(
-                    "INSERT INTO pending_speech (id, observation_id, target_person_id) "
-                    "VALUES (%s, %s, %s)",
-                    (pid, observation_id, target_person_id),
+                    "INSERT INTO pending_speech "
+                    "(id, observation_id, target_person_id, audience) "
+                    "VALUES (%s, %s, %s, %s)",
+                    (pid, observation_id, target_person_id, int(audience)),
                 )
             conn.commit()
             return pid
@@ -67,7 +78,7 @@ class PendingSpeechStore:
             with conn.cursor() as cur:
                 cur.execute(f"""
                     SELECT ps.id, ps.observation_id, ps.target_person_id,
-                           ps.created_at, ps.reinforce_count,
+                           ps.created_at, ps.reinforce_count, ps.audience,
                            o.content, o.timestamp,
                            {hidden("o")} AS superseded
                     FROM pending_speech ps
