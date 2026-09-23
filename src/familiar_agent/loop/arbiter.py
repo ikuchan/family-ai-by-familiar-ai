@@ -131,9 +131,9 @@ ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方
 時期を指していないなら両方とも省く（基準は現在時刻になる）。
 
 次の形の JSON だけを返す（他には何も書かない）:
-{{"branch": "light|full|action", "text": "…", "effort": "low|medium|high",
+{{"branch": "light|full|action", "text": "…", "filler": "…", "effort": "low|medium|high",
  "action": "{actions}", "query": "…", "silence_minutes": 0, "lift_silence": false,
- "time_ref": "", "time_span_days": 0, "speaker_claim": "", "seen_people": [], "not_person": ""}}
+ "time_ref": "", "time_span_days": 0, "speaker_claim": "", "seen_people": [], "not_person": "", "trash": ""}}
 使わない項目は省いてよい。
 """
 
@@ -203,12 +203,15 @@ _BRANCHES_REPLY = """\
              "medium" は次の3つのときだけ：(1) ひと言で表せない複雑な気持ちを受け止める
              (2) 4 つ以上の記憶を踏まえて応える (3) 調べた結果をまとめる。
              "high" は、人がよく考えるよう**明示的に**求めたときだけ。
-             effort が "low" でないなら、待ってもらうための短い一言を text に書く
+             effort が "low" でないなら、待ってもらうための短い一言を **filler** に書く
              （相槌・受けだけ。**内容に触れない**。答えを先取りすると本応答と食い違う）。
+             用件はこのあと本応答が言う。いま言いたいことがあるなら **trash** に書く。
+             trash は捨てられ、誰にも届かない。text は使わない。
 - "action" : いまある材料では答えきれず、先に調べる。どうやって調べるかを action に書く。
              "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
-             探す語を query に、待ってもらうための短い一言を text に書く
-             （これから調べると伝えるだけ。**内容に触れない**）。{see_note}"""
+             探す語を query に、待ってもらうための短い一言を **filler** に書く
+             （これから調べると伝えるだけ。**内容に触れない**）。
+             いま言いたいことがあるなら **trash** に書く（捨てられ、誰にも届かない）。text は使わない。{see_note}"""
 _HEADING_REPLY = "[人の言葉]"
 
 #: 道具が要る頼みの手がかり〔仮・2026-09-15〕。light で「できました」と言わせないための機械の守り
@@ -424,7 +427,13 @@ def _parse(
     effort = str(data.get("effort", "low")).strip().lower()
     if effort not in _EFFORTS:
         effort = "low"
-    text = str(data.get("text", "")).strip()
+    # つなぎは**別の欄**で受ける（出-aj・2026-09-23）。`text` は `light` の返事の欄で、
+    # 同じ欄を 3 つの用途で共有していたため、`light` の書き方（＝返事）が既定になり、
+    # つなぎが用件を言い切っていた（実機 15:49・144 字）。`trash` は言いたいことの行き先で、
+    # **読み捨てる**——行き先が無いと軽量LLM は何も書かず、`filler` が空になる（実測）。
+    text = str(
+        data.get("filler", "") if branch in ("full", "action") else data.get("text", "")
+    ).strip()
     try:
         silence_minutes = int(data.get("silence_minutes", 0))
     except (TypeError, ValueError):

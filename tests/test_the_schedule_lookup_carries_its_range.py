@@ -43,14 +43,14 @@ def test_the_arbiter_query_becomes_the_number_of_days() -> None:
 
 def test_the_arbiter_keeps_the_days_it_wrote_in_the_query() -> None:
     d = _parse(
-        '{"branch": "action", "action": "family_schedule", "query": "2", "text": "見てみますね"}',
+        '{"branch": "action", "action": "family_schedule", "query": "2", "filler": "見てみますね"}',
         can_see=False,
         extra_actions=("family_schedule",),
     )
     assert d is not None and d.action == "family_schedule" and d.query == "2"
     # 書かなかったときも action は落とさない（`(c)` 分岐は query が空だと full へ落ちる）。
     d = _parse(
-        '{"branch": "action", "action": "family_schedule", "text": "見てみますね"}',
+        '{"branch": "action", "action": "family_schedule", "filler": "見てみますね"}',
         can_see=False,
         extra_actions=("family_schedule",),
     )

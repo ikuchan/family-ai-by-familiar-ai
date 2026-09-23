@@ -69,7 +69,7 @@ def test_filler_is_reported_as_a_say_action_too():
         ]
     )
     a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"q","text":"調べてみますね"}'
+        return_value='{"branch":"action","action":"recall","query":"q","filler":"調べてみますね"}'
     )
     actions = _run_with_action(a, "調べて")
     assert ("say", {"text": "調べてみますね"}) in actions

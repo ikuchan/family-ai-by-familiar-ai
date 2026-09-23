@@ -48,7 +48,7 @@ def test_action_branch_can_carry_a_filler_and_a_tool_name():
     # つなぎの発話は軽量LLM に出させる（フルLLM を経由すると 2.9 秒かかるところが 0.7 秒）。
     # どの動作で調べるかも軽量LLM が選ぶ（記憶を探すのと外を調べるのは別）。
     d = _call(
-        '{"branch":"action","action":"search_deferred","query":"今日の天気","text":"調べてみるね"}'
+        '{"branch":"action","action":"search_deferred","query":"今日の天気","filler":"調べてみるね"}'
     )
     assert d.branch == "action"
     assert d.action == "search_deferred"
