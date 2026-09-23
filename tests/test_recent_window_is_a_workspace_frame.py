@@ -104,7 +104,12 @@ def test_each_line_carries_a_twelve_digit_id_and_who_said_it():
 
 
 def test_an_origin_that_is_not_a_persons_words_is_not_labelled_as_the_other_side():
-    """情動・入室が起点のやりとりは「相手：」ではなく「きっかけ：」（実機 2026-09-13 21:21）。"""
+    """情動・入室は**やりとりではない**ので、別の枠へ出す（出-ar・2026-09-24）。
+
+    もとは「相手：」ではなく「きっかけ：」と書き分けていた（実機 2026-09-13 21:21：自分の
+    内側や機器の出来事が誰かの発言に読めた）。いまは `[そのあいだに起きたこと]` へ分けるので、
+    やりとりの枠には人との言葉しか残らない。守りたいことは同じで、より強い形になっている。
+    """
     chains = {
         "q1": [
             _said("q1", "[内的な促し:SEEKING] 探索したい", "起点", 0, direction="情動"),
@@ -117,9 +122,10 @@ def test_an_origin_that_is_not_a_persons_words_is_not_labelled_as_the_other_side
         "q3": [_said("q3", "おはなしできる？", "起点", 9), _said("a3", "もちろん", "答え", 10)],
     }
     _, text, _ = workspace.recent_window(_oif(["q3", "q2", "q1"], chains), 3)
-    assert "きっかけ：[内的な促し:SEEKING] 探索したい" in text
-    assert "きっかけ：[入室] こうき が来た" in text
-    assert "相手：おはなしできる？" in text
+    talk, happened = text.split("[そのあいだに起きたこと]")
+    assert "[内的な促し:SEEKING] 探索したい" in happened
+    assert "[入室] こうき が来た" in happened
+    assert "相手：おはなしできる？" in talk
     assert text.count("相手：") == 1
 
 
