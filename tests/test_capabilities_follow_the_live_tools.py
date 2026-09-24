@@ -12,7 +12,7 @@ from __future__ import annotations
 
 import pathlib
 
-from familiar_agent.capability_state import collect_manifest_context, filter_enabled
+from familiar_agent.capability_state import filter_enabled
 
 _MANIFEST = """capabilities:
   - id: family_schedule
@@ -71,17 +71,3 @@ def test_the_shipped_manifest_gates_mcp_capabilities_by_tool():
     assert "enabled_tool: get_family_schedule" in text
     assert "enabled_tool: get_house_rules" in text
     assert "enabled_tool: search_notion" in text
-
-
-# ── 層 4 の材料に、いま繋がっている道具が入る ────────────────────────────
-
-
-def test_the_material_names_the_live_tools():
-    ctx = collect_manifest_context(live_tools=["get_family_schedule", "search_notion"])
-    assert "get_family_schedule" in ctx
-    assert "search_notion" in ctx
-
-
-def test_the_material_says_so_when_nothing_is_connected():
-    ctx = collect_manifest_context(live_tools=[])
-    assert "## Live tools" in ctx, "いま取れる道具の節が要る"

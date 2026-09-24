@@ -105,12 +105,43 @@ def test_the_capabilities_that_moved_point_at_their_new_home():
     assert "appraisal_engine" in _ids(m) and "default_mode_network" in _ids(m)
 
 
-def test_the_key_modules_list_only_names_files_that_exist():
-    """自己理解の材料。無い file は黙って飛ばされるので、痩せていても気づけない。"""
+# ── 担い手を足したら台帳も直す（環-y・2026-09-24） ────────────────────────
+
+
+def _engines(module: str) -> set[str]:
+    """`engine == "…"` で分岐している担い手の名前。**コードが正**である。"""
     from pathlib import Path
 
-    from familiar_agent.capability_state import _KEY_MODULES
+    src = (Path(__file__).parent.parent / "src/familiar_agent" / module).read_text(encoding="utf-8")
+    return (
+        set(re.findall(r'engine\s*==\s*"([a-z0-9_]+)"', src))
+        | set(re.findall(r'engine\s*!=\s*"([a-z0-9_]+)"', src))
+        | set(re.findall(r'\bengine\s*:\s*str\s*=\s*"([a-z0-9_]+)"', src))
+    )
 
-    src = Path(__file__).parent.parent / "src/familiar_agent"
-    missing = sorted(n for n in _KEY_MODULES if not (src / n).exists())
-    assert missing == [], f"実在しない module を材料に挙げている: {missing}"
+
+def test_every_voice_engine_is_named_in_the_manifest():
+    """**声の担い手を足したら台帳も直す。**
+
+    2026-09-24 に Gemini TTS と控えの仕組みを入れたが、台帳の `tts` 項は SBV2 と
+    ElevenLabs のままだった。**誰も気づかなかった**——`capabilities.yaml` を書くのは
+    機能を作る人で、人の記憶に頼っていたからである。ここで落ちれば忘れられない。
+
+    見るのは**担い手の名前だけ**にする。設定名まで全部求めると、いまの台帳で 43 件中
+    38 件が赤くなり、鳴り止まない番人は無視されるようになる。
+    """
+    m = load_manifest()
+    missing = sorted(e for e in _engines("tools/tts.py") if e not in m)
+    assert missing == [], f"台帳に書いていない声の担い手: {missing}"
+
+
+def test_every_ear_engine_is_named_in_the_manifest():
+    m = load_manifest()
+    missing = sorted(e for e in _engines("tools/stt.py") if e not in m)
+    assert missing == [], f"台帳に書いていない耳の担い手: {missing}"
+
+
+def test_the_spare_engine_is_named_in_the_manifest():
+    """控え（`TTS_FALLBACK`）は**仕組みそのもの**なので、名前で確かめる（環-y）。"""
+    m = load_manifest()
+    assert "TTS_FALLBACK" in m, "控えの担い手の仕組みが台帳に無い"

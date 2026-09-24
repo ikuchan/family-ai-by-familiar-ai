@@ -6,8 +6,6 @@ import ast
 from pathlib import Path
 
 from familiar_agent.capability_state import (
-    build_generation_prompt,
-    collect_manifest_context,
     load_manifest,
     load_summary,
     save_summary,
@@ -61,58 +59,6 @@ def test_load_summary_returns_empty_when_missing():
     assert result == ""
 
 
-def test_collect_manifest_context_returns_string():
-    result = collect_manifest_context()
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
-def test_collect_manifest_context_contains_sections():
-    result = collect_manifest_context()
-    assert "Built-in tools" in result
-    assert "Key modules" in result
-    assert ".env" in result
-    assert "MCP servers" in result
-
-
-def test_collect_manifest_context_contains_known_tool():
-    result = collect_manifest_context()
-    # memory.py and tts.py are always present
-    assert "memory.py" in result or "tools/memory" in result
-
-
-def test_collect_manifest_context_redacts_secrets():
-    result = collect_manifest_context()
-    assert "API_KEY=<redacted>" in result or "API_KEY" not in result or "<redacted>" in result
-
-
-# ---------------------------------------------------------------------------
-# build_generation_prompt
-# ---------------------------------------------------------------------------
-
-
-def test_build_generation_prompt_contains_context():
-    prompt = build_generation_prompt("## test context\nsome info", "")
-    assert "test context" in prompt
-    assert "some info" in prompt
-
-
-def test_build_generation_prompt_includes_existing_yaml():
-    prompt = build_generation_prompt("ctx", "capabilities:\n  - id: memory")
-    assert "memory" in prompt
-
-
-def test_build_generation_prompt_omits_existing_when_empty():
-    prompt = build_generation_prompt("ctx", "")
-    assert "Existing capabilities.yaml" not in prompt
-
-
-def test_build_generation_prompt_instructs_yaml_output():
-    prompt = build_generation_prompt("ctx", "")
-    assert "capabilities:" in prompt
-    assert "YAML" in prompt
-
-
 def test_camera_has_ptz():
     """camera.py docstring mentions look() or PTZ."""
     d = _doc("camera.py")
@@ -152,16 +98,29 @@ def test_memory_worker_has_embedding():
     assert any(k in d for k in ["embed", "pgvector"]), f"got: {d!r}"
 
 
-# ── 層 4 の器：一覧は DB（既定は capabilities.yaml・実行時に書き換えない）（記-a-と・2026-09-14） ──
+# ── 一覧は `capabilities.yaml` だけ（環-y・2026-09-24） ──────────────────
+#
+# 一覧を DB（`agent_state.capabilities`）にも置ける作りだったが、**10 日たっても行は
+# 一度も書かれず**、書く口（`regenerate_manifest`）も一度も走らなかった。実際に効いて
+# いたのは `capabilities.yaml` だけで、空の器を経由して同じファイルを読んでいた。
+#
+# 一覧を書くのは**機能を作った人**である（`CLAUDE.md`：ファイルに置くのは既定値と人の
+# 入力だけ）。機械に書き直させる案は本人が退けた——動いているアプリがリポジトリを
+# 書き換えることになり、出来を誰も見ないため（2026-09-24）。
 
 
-def test_the_capabilities_come_from_the_file_until_the_db_has_a_version():
-    from familiar_agent.capability_state import load_capabilities, load_manifest, store_capabilities
+def test_the_capabilities_come_from_the_file():
+    from familiar_agent.capability_state import load_capabilities, load_manifest
 
-    assert load_capabilities() == load_manifest()  # DB に無ければ既定
-    store_capabilities("capabilities:\n  - name: x\n")
-    assert load_capabilities() == "capabilities:\n  - name: x\n"
-    assert load_manifest() != load_capabilities()  # file は書き換わらない
+    assert load_capabilities() == load_manifest()
+
+
+def test_the_db_layer_is_gone():
+    """**旧名が残っていないこと**が撤去の証明である（数え上げでは代えられない）。"""
+    import familiar_agent.capability_state as cs
+
+    for name in ("store_capabilities", "capabilities_updated_at", "_CAPS_KEY"):
+        assert not hasattr(cs, name), name
 
 
 def test_the_file_is_never_written_at_runtime():

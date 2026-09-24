@@ -1,19 +1,18 @@
 """能力（REST 内省の層 4）の器——一覧と要約（記-a-と・2026-09-14）。
 
-- **一覧**：`capabilities.yaml`（repo）は**既定**で、実行時に書き換えない。REST 内省が再定義した
-  一覧は DB（`agent_state.capabilities`）に置く。読むのは `load_capabilities()`（DB > 既定）。
+- **一覧**：`capabilities.yaml`（repo）だけ。**実行時に書き換えない**し、写しも持たない。
+  書くのは**機能を作るとき**である（`CLAUDE.md`：ファイルに置くのは既定値と人の入力だけ）。
+  機械が書き直す道は 環-y（2026-09-24）で撤去した——動いているアプリがリポジトリを
+  書き換えることになり、出来を誰も見ないため（本人の決定）。
 - **要約**：`agent_state.capability_summary`。`ME.md`（人が書いた人格）に、実装から導いた
   「できること」を足した一枚で、システム文の `[あなたは誰か]` に載る。
 
-再定義と要約の作り直しは `loop/rest_capabilities.py`（REST の 1 パスの最後）が行う。
+要約の作り直しは `loop/rest_capabilities.py`（REST の 1 パスの最後）が行う。
 """
 
 from __future__ import annotations
 
-import ast
-import json
 import logging
-import os
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -25,29 +24,6 @@ logger = logging.getLogger(__name__)
 
 _MANIFEST_PATH = Path(__file__).parent.parent.parent / "capabilities.yaml"
 _STATE_KEY = "capability_summary"
-
-_SRC = Path(__file__).parent
-_ROOT = _SRC.parent.parent
-
-_SECRET_KEYWORDS = frozenset({"API_KEY", "PASSWORD", "SECRET", "TOKEN", "WEBHOOK"})
-
-# 自己理解を組むとき docstring を材料にする module。**実在するものだけを挙げる。**
-# 無い名前は `collect_manifest_context` が黙って飛ばすので、材料が痩せても気づけない
-# （appraisal.py・social_policy.py・interoception.py・default_mode.py・meta_monitor.py
-# は撤去済み、tape.py は `legacy/` へ移っており、6件が飛ばされていた）。
-_KEY_MODULES = [
-    "relationship.py",
-    "mcp_client.py",
-    "prediction.py",
-    "coalition.py",
-    "memory_worker.py",
-    "emotion_pad.py",
-    "mood_register.py",
-    "loop/evaluator.py",
-    "loop/event_loop.py",
-    "loop/coherence.py",
-    "store/relations.py",
-]
 
 
 def load_manifest() -> str:
@@ -178,55 +154,15 @@ def build_self_understanding_prompt(*, me_md: str, manifest: str) -> str:
     )
 
 
-_CAPS_KEY = "capabilities"
-
-
 def load_capabilities() -> str:
-    """能力の一覧（YAML 文字列）。DB（REST が再定義したもの）> 既定（`capabilities.yaml`）。"""
-    try:
-        db = get_db()
-        with db.lock:
-            conn = db.conn()
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", (_CAPS_KEY,))
-                row = cur.fetchone()
-        if row:
-            return str(json.loads(row["value_json"]))
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Could not load capabilities from DB: %s", e)
+    """能力の一覧（YAML 文字列）＝ `capabilities.yaml`（環-y・2026-09-24）。
+
+    **置き場は 1 つだけにする。** 以前は DB（`agent_state.capabilities`）を先に引き、
+    無ければファイルへ落ちる作りだったが、DB の行は**一度も書かれなかった**——書く口は
+    `regenerate_manifest` 1 箇所で、それが一度も走らなかったためである。10 日のあいだ、
+    空の器を経由して同じファイルを読んでいた。
+    """
     return load_manifest()
-
-
-def store_capabilities(yaml_text: str) -> None:
-    """再定義した一覧を DB に置く（`capabilities.yaml` は触らない）。"""
-    now = datetime.now(timezone.utc).isoformat()
-    db = get_db()
-    with db.lock:
-        conn = db.conn()
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s) "
-                "ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, "
-                "updated_at = EXCLUDED.updated_at",
-                (_CAPS_KEY, json.dumps(yaml_text), now),
-            )
-        conn.commit()
-
-
-def capabilities_updated_at() -> "datetime | None":
-    """DB の一覧を最後に再定義した時刻。DB に無ければ None。"""
-    try:
-        db = get_db()
-        with db.lock:
-            conn = db.conn()
-            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-                cur.execute("SELECT updated_at FROM agent_state WHERE state_key = %s", (_CAPS_KEY,))
-                row = cur.fetchone()
-        if row and row["updated_at"]:
-            return datetime.fromisoformat(str(row["updated_at"]))
-    except Exception as e:  # noqa: BLE001
-        logger.warning("Could not read capabilities updated_at: %s", e)
-    return None
 
 
 def load_summary() -> str:
@@ -271,110 +207,3 @@ def save_summary(text: str) -> None:
             conn.commit()
     except Exception as e:
         logger.warning("Could not save capability summary: %s", e)
-
-
-def _module_docstring(path: Path) -> str:
-    try:
-        tree = ast.parse(path.read_text(encoding="utf-8"))
-        return ast.get_docstring(tree) or ""
-    except Exception:
-        return ""
-
-
-def collect_manifest_context(live_tools: "list[str] | None" = None) -> str:
-    """Collect tool definitions, module docstrings, .env config, and MCP servers.
-
-    `live_tools` は**いま実際に取れる道具の名前**（出-al・2026-09-22）。設定ファイルに
-    書いてあることと、繋がっていることは別である——実機 17:50 は設定から外れていて
-    接続を試みてすらいなかった。書かれたサーバー名だけを材料にすると、層 4 は
-    「あるはずのもの」を能力として書いてしまう。
-    """
-    parts: list[str] = []
-
-    # Tool files
-    tools_dir = _SRC / "tools"
-    tool_lines: list[str] = []
-    for f in sorted(tools_dir.glob("*.py")):
-        if f.name.startswith("_"):
-            continue
-        doc = _module_docstring(f)
-        tool_lines.append(f"### tools/{f.name}\n{doc[:350]}" if doc else f"### tools/{f.name}")
-    parts.append("## Built-in tools\n" + "\n\n".join(tool_lines))
-
-    # Key modules
-    mod_lines: list[str] = []
-    for name in _KEY_MODULES:
-        f = _SRC / name
-        if not f.exists():
-            continue
-        doc = _module_docstring(f)
-        mod_lines.append(f"### {name}\n{doc[:350]}" if doc else f"### {name}")
-    parts.append("## Key modules\n" + "\n\n".join(mod_lines))
-
-    # .env (secrets redacted)
-    env_file = _ROOT / ".env"
-    env_lines: list[str] = []
-    if env_file.exists():
-        for raw in env_file.read_text(encoding="utf-8").splitlines():
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                env_lines.append(line)
-            elif "=" in line:
-                key, _, val = line.partition("=")
-                if any(kw in key.upper() for kw in _SECRET_KEYWORDS):
-                    env_lines.append(f"{key}=<redacted>")
-                else:
-                    env_lines.append(f"{key}={val}")
-    parts.append("## .env (secrets redacted)\n" + "\n".join(env_lines))
-
-    # MCP config
-    mcp_path_str = os.environ.get("MCP_CONFIG", "")
-    mcp_path = Path(mcp_path_str) if mcp_path_str else Path.home() / ".familiar-ai.json"
-    mcp_lines: list[str] = []
-    if mcp_path.exists():
-        try:
-            data = json.loads(mcp_path.read_text(encoding="utf-8"))
-            for name, cfg in data.get("mcpServers", {}).items():
-                cmd = cfg.get("command", "")
-                args = " ".join(str(a) for a in cfg.get("args", []))
-                mcp_lines.append(f"- {name}: {cmd} {args}".strip())
-        except Exception:
-            pass
-    parts.append("## MCP servers\n" + ("\n".join(mcp_lines) if mcp_lines else "(none)"))
-
-    # いま取れる道具（設定に書いてあることではなく、繋がっている実物）。
-    names = sorted(set(live_tools or ()))
-    parts.append(
-        "## Live tools (what is actually reachable right now)\n"
-        + ("\n".join(f"- {n}" for n in names) if names else "(none)")
-    )
-
-    return "\n\n".join(parts)
-
-
-def build_generation_prompt(context: str, existing_yaml: str) -> str:
-    """Return the LLM prompt that generates a fresh capabilities.yaml."""
-    existing_section = (
-        f"\n\nExisting capabilities.yaml (preserve IDs where applicable):\n{existing_yaml}"
-        if existing_yaml
-        else ""
-    )
-    return (
-        "Generate a `capabilities.yaml` for the familiar-ai embodied companion agent.\n\n"
-        "Format each capability as:\n"
-        "  - id: snake_case_id\n"
-        "    summary: one-sentence description\n"
-        "    detail: >\n"
-        "      2-4 sentences. Name key classes, tools, env vars.\n"
-        "    enabled: true          # always-on\n"
-        "    # OR enabled_env: ENV_VAR\n"
-        "    # OR enabled: false\n\n"
-        "Rules:\n"
-        "- Cover ALL visible capabilities: built-in tools, core modules, MCP servers, hardware.\n"
-        "- One entry per MCP server (id = mcp_<name>).\n"
-        "- enabled_env for anything requiring a specific env var.\n"
-        "- enabled: false only for explicitly unfinished features.\n"
-        "- Output ONLY valid YAML starting with 'capabilities:'. No fences. No commentary.\n\n"
-        f"{context}"
-        f"{existing_section}"
-    )
