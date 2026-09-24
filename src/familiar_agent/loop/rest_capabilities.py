@@ -106,6 +106,35 @@ async def refresh_summary(agent, manifest: str) -> "str | None":
     return None
 
 
+async def catch_up_summary(agent) -> "str | None":
+    """要約が `ME.md` より古ければ作り直す（環-x・2026-09-24）。起動から呼ばれる。
+
+    **`ME.md` を書き換えるのは、アプリを止めているとき**である。ところが作り直す機会は
+    REST 内省（誰も居ない晩）にしか無かったため、書き換えてから届くまでに無人の時間帯を
+    1 回はさむ必要があった。実機 16:01、パジュは「どの県にいるかまでは分からない」と
+    答えた——`ME.md` には `茨城県守谷市本町の家` とあるのに、要約は 9/13 の 749 字のまま
+    だったからである。**起動が、その機会になる。**
+
+    **何も変わっていなければ LLM を呼ばない。** 古いかどうかは、保存済みの要約の先頭が
+    `ME.md` と一致するかで分かる（出-ao）。空振りなら DB を 1 回読んで終わる。
+
+    一覧（`capabilities.yaml`）には触らない。道具の増減で変わるもので、起動とは関係がない。
+    保存しなかったら理由を返す（起動は続ける）。
+    """
+    me_md = str(getattr(agent, "_me_md", "") or "")
+    if not me_md.strip():
+        return None  # 判じる材料が無い
+    if not due_for_summary(
+        manifest_changed=False,
+        self_image_changed=False,
+        summary=load_summary(),
+        me_md=me_md,
+    ):
+        return None
+    logger.info("起動：自己認識の要約が `ME.md` より古いので作り直す")
+    return await refresh_summary(agent, load_capabilities())
+
+
 async def redefine_capabilities(
     agent, *, self_image_changed: bool, now: "datetime | None" = None
 ) -> str:

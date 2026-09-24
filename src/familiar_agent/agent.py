@@ -1445,6 +1445,15 @@ class EmbodiedAgent:
             stt_cfg = self.config.stt
             if stt_cfg.engine == "whisper":
                 asyncio.ensure_future(asyncio.to_thread(ensure_whisper_model, stt_cfg))
+        # 自己認識の要約が `ME.md` より古ければ作り直す（環-x・2026-09-24）。**`ME.md` を
+        # 書き換えるのはアプリを止めているとき**なのに、作り直す機会は誰も居ない晩（REST
+        # 内省の層 4）にしか無かった。実機 16:01「どの県にいるかまでは分からない」——
+        # `ME.md` には茨城県と書いてあるのに、要約は 9/13 の 749 字のままだった。
+        # 何も変わっていなければ DB を 1 回読んで終わる（LLM を呼ばない）。
+        with contextlib.suppress(Exception):
+            from .loop.rest_capabilities import catch_up_summary
+
+            asyncio.ensure_future(catch_up_summary(self))
 
     async def _close_backends(self) -> None:
         """バックエンドのキャッシュを後始末する（出-i の呼び手）。
