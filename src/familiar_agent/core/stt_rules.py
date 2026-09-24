@@ -67,21 +67,37 @@ def parse_word_groups(text: str) -> "tuple[tuple[str, tuple[str, ...]], ...]":
     return tuple(out)
 
 
+#: 語の列の区切り（知-ah・2026-09-24）。**空白で区切らない。**
+#: `hotwords` は `<|startofprev|>`（直前に出てきた言葉）の枠へ入るので、渡した列の
+#: 書き方が書き起こしの書き方になる。空白の列を渡すと書き起こしも空白で切れた
+#: （実機 15:57「しょうめん を み て」）。同じ音で測ると、空白は名前 3/4・歪み 1/3、
+#: 読点は 4/4・0/3（`根拠台帳` §46）。読点にしたのは `ME.md` の「名前：」と同じ形で、
+#: **人が書いた区切りをそのまま渡す**ことになるからである。
+_HINT_SEP = "、"
+
+
 def hotwords_for(groups: "tuple[tuple[str, tuple[str, ...]], ...]") -> str:
-    """STT へ渡す語の列。表の語を空白でつなぐ（消す組の `-` は入れない）。"""
+    """STT へ渡す語の列。表の語を読点でつなぐ（消す組の `-` は入れない）。"""
     words: list[str] = []
     for target, samples in groups:
         for w in ((target,) if target != _DELETE else ()) + tuple(samples):
             if w and w not in words:
                 words.append(w)
-    return " ".join(words)
+    return _HINT_SEP.join(words)
 
 
 def with_hint(
     groups: "tuple[tuple[str, tuple[str, ...]], ...]", hint: str
 ) -> "tuple[tuple[str, tuple[str, ...]], ...]":
-    """渡した語の列そのものを「消す組」として足す。列が無ければそのまま。"""
-    return groups + ((_DELETE, (hint,)),) if hint else groups
+    """渡した語の列そのものを「消す組」として足す。列が無ければそのまま。
+
+    **語 1 つは消さない**（知-ah・2026-09-24）。消す組は「渡した列がまるごと書き起こされた」
+    ときのためのもので、語 1 つでは人が名前を呼んだ言葉と見分けが付かない。守りが無かった
+    ため、正しく取れた名前が消えていた（`ねえ、パジュ、聞こえる?` → `ねえ、、聞こえる?`）。
+    """
+    if not hint or _HINT_SEP not in hint:
+        return groups
+    return groups + ((_DELETE, (hint,)),)
 
 
 def fix_words(text: str, groups: "tuple[tuple[str, tuple[str, ...]], ...]") -> str:

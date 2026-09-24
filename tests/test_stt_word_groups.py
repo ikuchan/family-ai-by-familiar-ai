@@ -56,8 +56,19 @@ def test_the_config_reads_the_table_from_env(monkeypatch):
 # ── 語の列と、直し ─────────────────────────────────────────────────────────
 
 
-def test_the_word_list_for_the_tool_is_built_from_the_table():
-    assert hotwords_for(GROUPS) == "パジュ はじゅ パチュ パジュー 出入口 でいりぐち"
+def test_the_word_list_is_joined_with_a_comma_not_a_space():
+    """**空白でつながない**（知-ah・2026-09-24）。
+
+    faster-whisper は `hotwords` を `<|startofprev|>`（直前に出てきた言葉）の枠へ入れる
+    ので、渡した列の**書き方**が書き起こしの書き方になる。空白で区切った列を渡すと、
+    書き起こしも空白で切れた——実機 15:57「しょうめん を み て」。
+
+    同じ音で区切りを変えて測った（`根拠台帳` §46）。空白は名前 3/4・空白の歪み 1/3、
+    読点・中点・改行はいずれも **4/4・0/3**。読点を採ったのは、`ME.md` の「名前：」が
+    読点区切りで、**人が書いた形をそのまま渡す**ことになるからである。
+    """
+    assert hotwords_for(GROUPS) == "パジュ、はじゅ、パチュ、パジュー、出入口、でいりぐち"
+    assert " " not in hotwords_for(GROUPS)
     # 消す組は、直すべき語（`-`）を列に入れない
     assert (
         hotwords_for((("-", ("ご視聴ありがとうございました",)),)) == "ご視聴ありがとうございました"
@@ -82,8 +93,13 @@ def test_a_group_marked_delete_removes_the_words():
 
 
 def test_the_word_list_itself_is_added_as_a_group_to_delete():
+    """**まるごとの写しは、渡した形そのもの**である（知-ah で区切りが読点になった）。
+
+    音に情報が無いと、渡した列がそのまま書き起こされる（実機 2026-09-20・知-z）。
+    落とす対象は「渡した列」なので、区切りを変えたら写しの形も変わる。
+    """
     groups = with_hint(GROUPS, hotwords_for(GROUPS))
-    text = "パジュ はじゅ パチュ パジュー 出入口 でいりぐち"
+    text = "パジュ、はじゅ、パチュ、パジュー、出入口、でいりぐち"
     assert fix_words(text, groups) == ""
     assert fix_words(text + "、3 分測って", groups) == "3 分測って"
     # 語 1 つは消さない（人が名前を呼んだ言葉）
@@ -92,6 +108,23 @@ def test_the_word_list_itself_is_added_as_a_group_to_delete():
 
 def test_with_hint_without_a_hint_changes_nothing():
     assert with_hint(GROUPS, "") == GROUPS
+
+
+def test_a_single_word_hint_is_never_deleted():
+    """**語 1 つは消さない**（知-ah・2026-09-24）。
+
+    説明文にはそう書いてあったのに、守りが実装されていなかった。名前だけを渡すと、
+    正しく取れた名前を `fix_words` が消した——`ねえ、パジュ、聞こえる?` → `ねえ、、聞こえる?`。
+    消す組は「**渡した列がまるごと書き起こされた**」ときのためのもので、語 1 つでは
+    人が名前を呼んだ言葉と見分けが付かない。
+    """
+    assert with_hint(GROUPS, "パジュ") == GROUPS
+    assert (
+        fix_words("ねえ、パジュ、聞こえる?", with_hint(GROUPS, "パジュ"))
+        == "ねえ、パジュ、聞こえる?"
+    )
+    # 2 語以上なら、いままでどおり消す組を足す
+    assert with_hint(GROUPS, "パジュ、はじゅ") != GROUPS
 
 
 # ── 書き起こしの経路 ───────────────────────────────────────────────────────
