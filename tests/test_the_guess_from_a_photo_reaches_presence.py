@@ -135,16 +135,19 @@ def _loop_with(family: str, pmm):
 
 
 class _FakePMM:
+    """在席の口を写す。**見立ては `set_guessed_present` を通る**（知-ag・2026-09-24）——
+    以前は `person_arrived` で足していたが、置き換えないので写真を見るたびに人が増えた。"""
+
     def __init__(self, known: dict):
         self._known = known
-        self.arrived: list = []
+        self.guessed: list | None = None
         self.unknown = None
 
     def find_person_id_by_name(self, name):
         return self._known.get(name)
 
-    async def person_arrived(self, pid, confidence=1.0):
-        self.arrived.append((pid, confidence))
+    async def set_guessed_present(self, people):
+        self.guessed = list(people)
 
     def note_unknown_present(self, count, confidence=0.5):
         self.unknown = (count, confidence)
@@ -161,7 +164,7 @@ def test_a_guessed_family_member_enters_presence():
     pmm = _FakePMM({"パパ": "p-yusuke"})
     ip = _loop_with(_FAMILY, pmm)
     asyncio.run(ip._apply_seen_people([{"name": "ゆうすけ", "confidence": 1.0}]))
-    assert pmm.arrived == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
+    assert pmm.guessed == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
     assert pmm.unknown == (0, SEEN_CONFIDENCE_MAX)
 
 
@@ -180,7 +183,7 @@ def test_a_nameless_person_becomes_an_unknown_present():
             [{"name": "パパ", "confidence": 0.8}, {"name": "", "confidence": 0.4}]
         )
     )
-    assert pmm.arrived == [("p-yusuke", 0.6)]
+    assert pmm.guessed == [("p-yusuke", 0.6)]
     assert pmm.unknown == (1, SEEN_CONFIDENCE_MAX)
 
 
@@ -196,7 +199,7 @@ def test_nothing_happens_without_a_guess():
     pmm = _FakePMM({})
     ip = _loop_with(_FAMILY, pmm)
     asyncio.run(ip._apply_seen_people([]))
-    assert pmm.arrived == []
+    assert pmm.guessed is None
     assert pmm.unknown is None
 
 
@@ -227,4 +230,4 @@ def test_the_main_llm_guess_goes_through_the_same_door():
     pmm = _FakePMM({"パパ": "p-yusuke"})
     ip = _loop_with(_FAMILY, pmm)
     asyncio.run(ip._apply_seen_people([{"name": "パパ", "confidence": 0.9}]))
-    assert pmm.arrived == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
+    assert pmm.guessed == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
