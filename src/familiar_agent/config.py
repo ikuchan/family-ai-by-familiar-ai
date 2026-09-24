@@ -221,10 +221,27 @@ class TTSConfig:
     # Audio output routing: "local" = PC speaker only, "remote" = camera speaker only,
     # "both" = camera speaker + PC speaker simultaneously, "silent" = 出力しない（実機テスト用）。
     output: str = field(default_factory=lambda: os.environ.get("TTS_OUTPUT", "local"))
-    # 合成をどこでやるか。`sbv2`＝Style-Bert-VITS2（ローカル・既定）／`elevenlabs`＝外部 API。
-    # 設計（`計測・設定値 根拠台帳` §9）は SBV2 と声 jvnv-M2-jp を確定としている。**戻せる
-    # ようにしてある**（SBV2 が動かないとき `TTS_ENGINE=elevenlabs` で従来へ）。
-    engine: str = field(default_factory=lambda: os.environ.get("TTS_ENGINE", "sbv2"))
+    # 合成をどこでやるか。`gemini`＝Gemini TTS（外部 API・既定）／`sbv2`＝Style-Bert-VITS2
+    # （ローカル）／`elevenlabs`＝外部 API。実機で詰まった 5 文を 12 とおりに読ませて選んだ
+    # （環-v・`根拠台帳` §45）。**戻せるようにしてある**（`.env` の `TTS_ENGINE`）。
+    engine: str = field(default_factory=lambda: os.environ.get("TTS_ENGINE", "gemini"))
+    # 主が話せなかったときの控え（環-v）。ネットが切れても話せるように、ローカルの SBV2 へ
+    # 落ちる。**空にすれば落ちない。** 控えは起動時から温めておく（切れてから読み込むと
+    # 26.3 秒黙るので、控えの役を果たさない・本人の決定 2026-09-24）。
+    fallback_engine: str = field(default_factory=lambda: os.environ.get("TTS_FALLBACK", "sbv2"))
+    # Gemini TTS（環-v・2026-09-24）。`gemini-3.8-flash-lite-tts` × `Charon` は、実機で
+    # 詰まった 5 文を漢字のまま 5/5 で読み、感情も 3 つとも聞き分けられた。同じモデルでも
+    # 声で変わる（`Puck` は感情が △△△ だった）ので、声もここで持つ。
+    gemini_model: str = field(
+        default_factory=lambda: os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts")
+    )
+    gemini_voice: str = field(default_factory=lambda: os.environ.get("GEMINI_TTS_VOICE", "Charon"))
+    # 鍵は軽量LLM と同じものでよい（`UTILITY_API_KEY`）。分けたいときだけ専用の鍵を置く。
+    gemini_api_key: str = field(
+        default_factory=lambda: (
+            os.environ.get("GEMINI_TTS_API_KEY", "") or os.environ.get("UTILITY_API_KEY", "")
+        )
+    )
     # SBV2 は別プロセスの HTTP サーバーとして動かす。本体は Python 3.11・torch 2.10 だが
     # SBV2 は Python 3.12・torch 2.5・numpy 1.26.4 固定で、同じプロセスには載らない。
     sbv2_url: str = field(
