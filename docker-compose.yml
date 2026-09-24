@@ -8,6 +8,8 @@ services:
       POSTGRES_DB: familiar_ai
     volumes:
       - pgdata:/var/lib/postgresql/data
+      - ./init/10-vault-schema.sh:/docker-entrypoint-initdb.d/10-vault-schema.sh:ro
+      - ../ObsidianMemo/.backup/db:/docker-entrypoint-initdb.d/vault-schema:ro
     ports:
       - "5432:5432"
     healthcheck:
