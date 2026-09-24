@@ -568,6 +568,11 @@ class EmbodiedAgent:
             sbv2_url=tts.sbv2_url,
             sbv2_style=tts.sbv2_style,
             sbv2_weight=tts.sbv2_weight,
+            # 主は Gemini、控えはローカルの SBV2（環-v・2026-09-24）。
+            gemini_model=tts.gemini_model,
+            gemini_voice=tts.gemini_voice,
+            gemini_api_key=tts.gemini_api_key,
+            fallback_engine=tts.fallback_engine,
         )
 
         cfg_path = _resolve_config_path()

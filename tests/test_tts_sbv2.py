@@ -36,15 +36,32 @@ def _tool(engine: str = "sbv2", output: str = "local") -> TTSTool:
 # ── Config ────────────────────────────────────────────────────────────────
 
 
-def test_the_engine_defaults_to_sbv2():
+def test_sbv2_is_now_the_spare_not_the_main_one():
+    """**主は Gemini になった**（環-v・2026-09-24・`根拠台帳` §45）。
+
+    実機で詰まった 5 文を漢字のまま 12 とおりに読ませたところ、SBV2 は読み 9/10（促音が
+    惜しい）で感情が △△△ だった。Gemini の `flash-lite × Charon` は読み 10/10・感情 ○○○。
+    **SBV2 はネットが切れたときの控えに回す**——ローカルで動き、費用が 0 で、そこだけは
+    どの担い手にも代えられない。
+    """
     with patch.dict(os.environ, {}, clear=True):
+        cfg = TTSConfig()
+        assert cfg.engine == "gemini"
+        assert cfg.fallback_engine == "sbv2"
+
+
+def test_the_engine_can_be_switched_back():
+    """担い手はいつでも `.env` で戻せるようにしておく。"""
+    with patch.dict(os.environ, {"TTS_ENGINE": "elevenlabs"}, clear=True):
+        assert TTSConfig().engine == "elevenlabs"
+    with patch.dict(os.environ, {"TTS_ENGINE": "sbv2"}, clear=True):
         assert TTSConfig().engine == "sbv2"
 
 
-def test_the_engine_can_be_switched_back_to_elevenlabs():
-    """SBV2 が動かないときに戻せるようにしておく。"""
-    with patch.dict(os.environ, {"TTS_ENGINE": "elevenlabs"}, clear=True):
-        assert TTSConfig().engine == "elevenlabs"
+def test_the_spare_can_be_turned_off():
+    """控えを置かない構成もある（GPU を空けたいとき）。"""
+    with patch.dict(os.environ, {"TTS_FALLBACK": ""}, clear=True):
+        assert TTSConfig().fallback_engine == ""
 
 
 # ── 合成の経路 ─────────────────────────────────────────────────────────────
@@ -117,7 +134,10 @@ def test_the_server_is_started_at_boot_only_when_it_will_be_used():
         assert spawn.called
         spawn.reset_mock()
 
-        ensure_sbv2_server(TTSConfig(), engine="elevenlabs", output="local")
+        # 控えも SBV2 でない構成（環-v の後は、控えに回っていても起こすので明示して外す）。
+        with patch.dict(os.environ, {"TTS_FALLBACK": ""}, clear=True):
+            no_spare = TTSConfig()
+        ensure_sbv2_server(no_spare, engine="elevenlabs", output="local")
         assert not spawn.called  # 別のエンジンを使う構成
         ensure_sbv2_server(TTSConfig(), engine="sbv2", output="silent")
         assert not spawn.called  # 音を出さない構成

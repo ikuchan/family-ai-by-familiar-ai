@@ -1,10 +1,18 @@
 """TTS tool - voice of the embodied agent.
 
 Built-in tools:
-- say(text): speak aloud. 合成の担い手は TTS_ENGINE で決まる（sbv2＝ローカル・既定／
-  elevenlabs＝外部 API）。角括弧タグ [cheerful] を渡せるのは解する担い手だけ。
+- say(text): speak aloud. 合成の担い手は TTS_ENGINE で決まる（gemini＝Gemini TTS・既定／
+  sbv2＝ローカルの Style-Bert-VITS2／elevenlabs＝外部 API）。角括弧タグ [cheerful] を
+  渡せるのは解する担い手だけ。
   When ELEVENLABS_API_KEY is unset, runs in display-only (silent) mode — text is shown but not spoken.
 Config: ELEVENLABS_API_KEY, TTS_VOICE_ID, GO2RTC_URL, TTS_OUTPUT.
+
+**主と控えの 2 段**（環-v・2026-09-24）。主が話せなかったら控え（既定は SBV2）で 1 回だけ
+話し直す。主は外の API なのでネットが切れれば黙るが、家に居る相手からは壊れたのと区別が
+つかない。控えはローカルで動くので、そこだけは代えられない。控えは起動時から温めておく。
+
+担い手ごとに渡す文が違う（`_text_for_synth`）。ElevenLabs は漢字を読めないので全文を
+ひらがなに、SBV2 は `pyopenjtalk` の読み違いだけを表で直し、Gemini はそのまま渡す。
 """
 
 from __future__ import annotations
@@ -20,6 +28,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import urllib.request
 from pathlib import Path
 from urllib.parse import quote
@@ -125,6 +134,14 @@ TAG_AWARE_ENGINES = ("elevenlabs",)
 TAG_AWARE_MODELS = ("eleven_v3",)
 DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
 
+#: Gemini TTS の既定（環-v・`根拠台帳` §45）。実機で詰まった 5 文を漢字のまま 5/5 で読み、
+#: 感情も 3 つとも聞き分けられた組み合わせ。同じモデルでも声で変わる。
+DEFAULT_GEMINI_MODEL = "gemini-3.8-flash-lite-tts"
+DEFAULT_GEMINI_VOICE = "Charon"
+
+#: Gemini の逐次の返りは生 PCM（24kHz・16bit・mono）。一括のときだけ WAV で返る。
+GEMINI_RATE = 24000
+
 
 _sbv2_proc: "subprocess.Popen | None" = None
 
@@ -187,15 +204,38 @@ def _spawn_sbv2(cfg) -> None:
     )
 
 
+def _gemini_client(api_key: str):
+    """Gemini の口（差し替え点）。**鍵ごとに 1 つだけ持つ。**
+
+    `genai.Client` は接続の設定を抱えるので、発話のたびに作ると支度を払い直すことになる。
+    """
+    global _gemini_clients
+    client = _gemini_clients.get(api_key)
+    if client is None:
+        from google import genai
+
+        client = genai.Client(api_key=api_key)
+        _gemini_clients[api_key] = client
+    return client
+
+
+_gemini_clients: dict = {}
+
+
 def ensure_sbv2_server(cfg, *, engine: str, output: str) -> None:
     """起動時に合成サーバーを起こす（使う構成のときだけ）。
 
     **待たない。** モデルの読み込みに十数秒かかるので、起動を塞がずに投げておく。最初の
     発話までに間に合わなければ、その1回だけ話せない（degrade して次から鳴る）。
 
+    **控えに回っているときも起こす**（環-v）。主（Gemini）が話せなくなるのはネットが切れた
+    ときで、そこからモデルを読むと 26.3 秒黙る。それでは控えの役を果たさない。
+
     使わない構成（別のエンジン・音を出さない）では起こさない。GPU と十数秒を無駄にしない。
     """
-    if engine != "sbv2" or output == "silent":
+    if output == "silent":
+        return
+    if "sbv2" not in (engine, getattr(cfg, "fallback_engine", "")):
         return
     if _sbv2_is_alive(cfg.sbv2_url):
         return
@@ -220,8 +260,17 @@ class TTSTool:
         elevenlabs_model: str = DEFAULT_ELEVENLABS_MODEL,
         careful_model: str = "eleven_v3",
         speed: float = 0.9,
+        gemini_model: str = DEFAULT_GEMINI_MODEL,
+        gemini_voice: str = DEFAULT_GEMINI_VOICE,
+        gemini_api_key: str = "",
+        fallback_engine: str = "",
     ) -> None:
         self.engine = engine
+        # Gemini TTS と、主が話せなかったときの控え（環-v・2026-09-24）。
+        self.gemini_model = gemini_model
+        self.gemini_voice = gemini_voice
+        self.gemini_api_key = gemini_api_key
+        self.fallback_engine = fallback_engine
         self.elevenlabs_model = elevenlabs_model
         # じっくり読む声と、読み上げの速さ（環-u・2026-09-21）。
         self.careful_model = careful_model
@@ -285,13 +334,21 @@ class TTSTool:
         }
 
     def _text_for_synth(self, text: str) -> str:
-        """合成器へ渡す文。ElevenLabs は漢字を読めないので読み（ひらがな）に（環-t・出-ac）。
+        """合成器へ渡す文。担い手ごとに、必要なぶんだけ直す。
 
-        声の門（`voice_guard`）へは元の文を渡す——書き起こし（漢字まじり）との照合に使うため。SBV2 は自前で読む。
+        - `elevenlabs`：漢字を読めないので全文をひらがなに（環-t・出-ac）
+        - `sbv2`：自前で読むが `pyopenjtalk` の読み違いが残るので**表の分だけ**当てる（環-v）
+        - `gemini`：**何もしない**。漢字をそのまま読めることが選んだ理由である（環-v）
+
+        声の門（`voice_guard`）へは元の文を渡す——書き起こし（漢字まじり）との照合に使うため。
         """
-        from ..core.reading import for_speech
+        from ..core.reading import fix_readings, for_speech
 
-        return for_speech(text) if self.engine == "elevenlabs" else text
+        if self.engine == "elevenlabs":
+            return for_speech(text)
+        if self.engine == "sbv2":
+            return fix_readings(text)
+        return text
 
     async def say(
         self, text: str, output: str | None = None, *, gain: float = 1.0, careful: bool = False
@@ -308,9 +365,114 @@ class TTSTool:
         if output == "silent":
             return f"Said (silent): {text[:60]}"
         self._gain = gain  # この 1 回の再生にだけ効く（`_play_paths`／`_play_local` が読む）
-        if self.engine == "sbv2":
+        result = await self._say_with(self.engine, text, output, careful=careful)
+        # 控えへ落ちる（環-v）。ネットが切れても話せるように、ローカルの SBV2 を残してある。
+        # **1 回だけ**。控えでも駄目なら、主の言い分をそのまま返す（何が起きたかが残る）。
+        # 控えは既存のテストが `__new__` で組む道具にも無い。他の後付けの属性（`speed`・
+        # `careful_model`）と同じく `getattr` で受ける。
+        fallback = getattr(self, "fallback_engine", "")
+        if not result.startswith("Said:") and fallback and fallback != self.engine:
+            logger.warning(
+                "%s で話せなかったので控え（%s）へ落ちる：%s", self.engine, fallback, result
+            )
+            spare = await self._say_with(fallback, text, output, careful=careful)
+            if spare.startswith("Said:"):
+                return spare
+        return result
+
+    async def _say_with(self, engine: str, text: str, output: str, *, careful: bool) -> str:
+        """担い手を 1 つ名指しで合成する。主にも控えにも同じ口を使う。"""
+        if engine == "sbv2":
             return await self._say_sbv2(text, output)
+        if engine == "gemini":
+            return await self._say_gemini(text, output)
         return await self._say_elevenlabs(text, output, careful=careful)
+
+    async def _say_gemini(self, text: str, output: str) -> str:
+        """Gemini TTS で合成して鳴らす（環-v・2026-09-24）。
+
+        **逐次で受け取る。** 最初の音までが 0.98 秒、音が全部そろうまでは長文で 3.9 秒で、
+        待ちを決めるのは前者である（`根拠台帳` §45）。いまは全部溜めてから鳴らしているので
+        差は出ないが、受け取り方は逐次のままにしておく（鳴らす側を後で直せる）。
+
+        サーバーが返さなくても例外は投げない。話せなかったことだけを返す。
+        """
+        text = self._clean_for_speech(text)
+        if not text:
+            return "Said: (nothing to speak after cleaning)"
+        if len(text) > 200:
+            text = text[:197] + "..."
+
+        async with self._lock:
+            voice_guard = self._voice_guard or get_shared_voice_guard()
+            self._voice_guard = voice_guard
+            played_via: list[str] = []
+            tmp_path: str | None = None
+            voice_guard.on_tts_start(text)
+            try:
+                try:
+                    audio, is_wav = await asyncio.to_thread(self._synth_gemini, text)
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("Gemini で合成できなかったので話せなかった: %s", e)
+                    return f"話せなかった（合成に失敗）: {text[:40]}"
+                if not audio:
+                    return f"話せなかった（音が返らなかった）: {text[:40]}"
+                tmp_path = (
+                    _write_tmp_audio(audio, suffix=".wav")
+                    if is_wav
+                    else _write_pcm_as_wav(audio, sample_rate=GEMINI_RATE)
+                )
+                played_via = await self._play_paths(tmp_path, output)
+                if not played_via:
+                    return "話せなかった（鳴らせる出力が無い）"
+                return f"Said: {text[:50]}... (via {', '.join(played_via)})"
+            finally:
+                voice_guard.on_tts_end(text, played=bool(played_via))
+                if tmp_path is not None:
+                    with contextlib.suppress(OSError):
+                        os.unlink(tmp_path)
+
+    def _synth_gemini(self, text: str) -> "tuple[bytes, bool]":
+        """逐次に受け取って繋ぐ。返りは（音のバイト列, それが WAV か）。
+
+        **`mime_type` で見分ける。** 逐次は生 PCM、一括は WAV で返る（2026-09-24 実測）。
+        包み方を間違えると、雑音になるか無音になる。
+        """
+        from google.genai import types
+
+        client = _gemini_client(self.gemini_api_key)
+        config = types.GenerateContentConfig(
+            response_modalities=["AUDIO"],
+            speech_config=types.SpeechConfig(
+                voice_config=types.VoiceConfig(
+                    prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=self.gemini_voice)
+                )
+            ),
+        )
+        started = time.monotonic()
+        first: float | None = None
+        buf: list[bytes] = []
+        is_wav = False
+        for chunk in client.models.generate_content_stream(
+            model=self.gemini_model, contents=self._text_for_synth(text), config=config
+        ):
+            for part in (chunk.candidates[0].content.parts or []) if chunk.candidates else []:
+                blob = getattr(part, "inline_data", None)
+                if blob is None or not blob.data:
+                    continue
+                if first is None:
+                    first = time.monotonic() - started
+                is_wav = is_wav or "wav" in str(blob.mime_type or "")
+                buf.append(blob.data)
+        logger.info(
+            "TTS: Gemini で合成した（%s・%s・最初の音 %.2f 秒・全部 %.2f 秒・%d 字）",
+            self.gemini_model,
+            self.gemini_voice,
+            first if first is not None else float("nan"),
+            time.monotonic() - started,
+            len(text),
+        )
+        return b"".join(buf), is_wav
 
     async def _say_sbv2(self, text: str, output: str) -> str:
         """ローカルの Style-Bert-VITS2 で合成して鳴らす（出-a）。

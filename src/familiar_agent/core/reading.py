@@ -21,6 +21,9 @@ _KANJI = re.compile(r"[\u4e00-\u9fff\u3005]")
 #: 表記 → 読み（声だけ）。辞書より先に当てる。長いものから。
 READINGS: dict[str, str] = {
     "出入口": "でいりぐち",
+    # pyopenjtalk は「その間」を ソノカン と読む（環-v・2026-09-24 実測）。SBV2 も同じ辞書を
+    # 使うので、ひらがな化を通さない担い手にも当てる必要がある。
+    "その間": "そのあいだ",
 }
 
 _warned = False
@@ -74,8 +77,18 @@ def _convert(segment: str) -> str:
     return _hira(kana).replace("　", "")
 
 
-def for_speech(text: str) -> str:
+def fix_readings(text: str) -> str:
+    """表の分だけ当てる（**ひらがな化はしない**・環-v）。長いものから。
+
+    自前で読む担い手（SBV2）にも要る。`pyopenjtalk` の辞書は `その間` を ソノカン と読み、
+    SBV2 は同じ辞書を使うからである。全文をひらがなにすると、読めている担い手の読みまで
+    崩しかねないので、**直す語だけ**を置き換える。
+    """
     out = text or ""
     for word, kana in sorted(READINGS.items(), key=lambda kv: -len(kv[0])):
         out = out.replace(word, kana)
-    return to_hiragana(out)
+    return out
+
+
+def for_speech(text: str) -> str:
+    return to_hiragana(fix_readings(text))
