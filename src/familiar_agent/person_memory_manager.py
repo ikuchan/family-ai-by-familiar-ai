@@ -61,6 +61,10 @@ class PersonPresence:
     #: **人を指していない**。`get_present_ids()` からは外す——あそこは観測の `participants`
     #: になり、人ごとの面を立てる材料なので、誰にも対応しない面ができてしまう。
     anonymous: bool = False
+    #: どうやって在席に入ったか（知-ag・2026-09-24）。`見立て`＝写真からの推し量り、
+    #: 空＝顔・声・手入力。**置き換えてよいのは見立てで入ったものだけ**である——写真は
+    #: 部屋の一部しか写さない（カメラは首を振る）ので、写真に居ない人を写真で消せない。
+    source: str = ""
     arrived_at: str = field(default_factory=lambda: datetime.now().isoformat())
     last_signal_at: float = field(default_factory=time.time)
 
@@ -113,14 +117,58 @@ class PersonMemoryManager:
 
     # ── Presence management ────────────────────────────────────────────────
 
-    async def person_arrived(self, person_id: str, confidence: float = 1.0) -> None:
-        """Register that someone has entered the space."""
+    async def person_arrived(
+        self, person_id: str, confidence: float = 1.0, source: str = ""
+    ) -> None:
+        """Register that someone has entered the space.
+
+        `source` はどうやって入ったか（知-ag）。書かなければ空＝顔・声・手入力。
+        """
         with self._lock:
             was_empty = len(self._present) == 0
-            self._present[person_id] = PersonPresence(person_id=person_id, confidence=confidence)
+            self._present[person_id] = PersonPresence(
+                person_id=person_id, confidence=confidence, source=source
+            )
         logger.info("Arrived: %s  (total present: %d)", person_id, len(self._present))
         if was_empty:
             await self.set_speaker(person_id, source="auto", confidence=confidence)
+
+    #: 写真からの見立てで入った印（知-ag・2026-09-24）。
+    GUESS_SOURCE = "見立て"
+
+    async def set_guessed_present(self, people: "list[tuple[str, float]]") -> None:
+        """写真の見立てで在席している人を、この並びに**合わせる**（知-ag・2026-09-24）。
+
+        **足し続けない。** 見立ては求めごとに言い直されるので、呼ばれるたびに足すと
+        写真を見た回数だけ人が増える。実機 15:51、センサが「1 人」と言い続けるあいだに
+        「パパ・たいきくん」の 2 人になった——15:51:28 の見立て（パパ）が、15:51:37 の
+        見立て（たいき）に上書きされなかったからである。
+
+        **消すのは見立てで入った人だけ。** 顔で入った人・手で入れた人は残す。写真は部屋の
+        一部しか写さないので、写真に写っていないことは「居ない」の証拠にならない。
+
+        名前の分からない在席者（`note_unknown_present`）は以前から同じ作法で、この直しは
+        その言い分を名前の付いた人にも当てただけである。
+        """
+        want = {pid: conf for pid, conf in people}
+        with self._lock:
+            for key in [k for k, p in self._present.items() if p.source == self.GUESS_SOURCE]:
+                self._present.pop(key, None)
+            for pid, conf in want.items():
+                self._present[pid] = PersonPresence(
+                    person_id=pid, confidence=conf, source=self.GUESS_SOURCE
+                )
+        logger.info("写真の見立てで在席を %d 人にした（%s）", len(want), self._names_of(want))
+
+    def _names_of(self, ids) -> str:
+        """ログ用の名前。**名前が引けなくても落ちない**（人物表を持たない器もある）。"""
+        out = []
+        for pid in ids:
+            try:
+                out.append(self.get_person_name(pid) or pid)
+            except Exception:  # noqa: BLE001
+                out.append(pid)
+        return "・".join(out) or "誰も居ない"
 
     def mark_absent(self, person_id: str) -> None:
         """在席表からだけ消す（`person_left` との違い）。

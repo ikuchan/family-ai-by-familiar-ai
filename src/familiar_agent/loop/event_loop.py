@@ -3386,7 +3386,12 @@ class InformationProcessing:
         **推し量ること自体は禁じない。推し量ったなら在席にも使う**（本人の決定）。15:57 は、
         写真を見て「パパ、おかえりなさい！」と言いながら機械は `unconfirmed` のままだった。
 
-        - 足すだけで、誰も消さない。消すのは顔の消失と時間切れ（声からの打ち消しは 出-am）。
+        - **その写真を正とする**（知-ag・2026-09-24）。見立てで入っていた人は、この並びに
+          合わせて置き換える（`set_guessed_present`）。**顔で入った人・手で入れた人は消さない**
+          ——写真は部屋の一部しか写さないので、写っていないことは「居ない」の証拠にならない。
+          以前は名前の付いた人だけ「足すだけ」で、名前の分からない人は人数を置き換えており、
+          同じ写真の結果を 2 通りに扱っていた。実機 15:51、センサが「1 人」と言い続けるあいだに
+          「パパ・たいきくん」の 2 人になった。
         - 家族に当たらない名前と名前の無い人は、**名前の分からない在席者**として数だけ残す。
           `participants` には入らないので、誰にも対応しない記憶空間は作らない。
         - 見立てが空の反復では在席を触らない。写真を見ていない反復で在席を消さないため。
@@ -3405,13 +3410,14 @@ class InformationProcessing:
         pmm = getattr(agent, "_pmm", None)
         if pmm is None:
             return
+        seen: list[tuple[str, float]] = []
         for name, conf in known:
             pid = pmm.find_person_id_by_name(name)
             if pid is None:
                 unknown += 1  # 家族の記述にはあるが人物表に無い。居たことは残す
                 continue
-            await pmm.person_arrived(pid, conf)
-            logger.info("写真の見立てで在席に入れた：%s（確信度 %.2f）", name, conf)
+            seen.append((pid, conf))
+        await pmm.set_guessed_present(seen)
         pmm.note_unknown_present(unknown, confidence=SEEN_CONFIDENCE_MAX)
 
     async def _apply_not_person(self, claim: str) -> None:
