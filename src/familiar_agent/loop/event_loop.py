@@ -32,7 +32,7 @@ from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
-from ..core import measure, parsing
+from ..core import filler_echo, measure, parsing
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
@@ -2753,6 +2753,11 @@ class InformationProcessing:
             # 写真からの見立て（出-an）。**口に出すなら機械にも渡す**——調停と同じ道を通す。
             await self._apply_seen_people(say_tc.input.get("seen_people"))
             text = str(say_tc.input.get("text", "")).strip()
+            # つなぎで言ったばかりの言葉を、そのまま繰り返させない（出-aj #4）。**言葉では
+            # 止まらなかった**——9 通り試して最良 2/8、基準は 8/8 で繰り返す（`根拠台帳` §47）。
+            # どちらも自分が言った言葉なので、意味を判断せず、重なった冒頭だけを落とす。
+            # **検査より前に落とす**——検査には、実際に出す文を見せる。
+            text = filler_echo.drop_echo(text, self._req.said_fillers)
             # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
             violation = (
                 None
