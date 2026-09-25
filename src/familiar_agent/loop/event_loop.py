@@ -1032,11 +1032,18 @@ class InformationProcessing:
             # 決まらない。飛行中の数は器から導くので、以前のように数だけ増やして釣り合いを
             # 取る必要もない（環-g・段は で挙動が変わったところ）。完了だけを積む——投げずに
             # 黙って帰ると、完了も時間切れも来ないまま駆動体が待ち続ける。
+            #
+            # **前に返ったものをそのまま返す**（出-ag-ろ 穴 3）。以前は「結果は W にある」と
+            # 返していたが、タイマーの返りの反復は想起をしないので W に無かった。材料の無い W を
+            # 見て、調停は掛かっていないタイマーを「セットしました」と言った（実機 2026-09-21 17:34）。
+            earlier = (
+                f"前の結果：{seen.result}" if seen.result is not None else "（まだ返っていない）"
+            )
             self._triggers.put_nowait(
                 Trigger(
                     kind="完了",
                     query=query,
-                    result=f"「{query}」はこの求めですでに調べた。結果は W にある。",
+                    result=f"「{query}」はこの求めですでに調べた。{earlier}",
                     intent_id=intent_id,
                     index=seen.index,
                 )
