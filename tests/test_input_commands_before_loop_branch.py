@@ -36,6 +36,9 @@ def _agent():
     a._handle_stopwatch_command = AsyncMock(
         return_value=None
     )  # `/stopwatch stop` は `test_stopwatch`（知-u）
+    a._handle_season_command = MagicMock(
+        return_value=None
+    )  # `/season clear` は `test_season_command`（知-ac）
     return a
 
 

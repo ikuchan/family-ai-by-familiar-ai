@@ -131,6 +131,8 @@ _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:[\s　・]+(.*))?$", re.IGNORECAS
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
 # /mic on——タイマー中でも聞く（知-o 段 5・LLM を通さない）。声では開けない（聞いていない）。
 _MIC_COMMAND_RE = re.compile(r"^/mic[\s　・]+on$", re.IGNORECASE)
+#: `/season clear`——いまの季節とまわりを消す（知-ac・人が直す道は消すことだけ）。
+_SEASON_COMMAND_RE = re.compile(r"^/season[\s　・]+clear$", re.IGNORECASE)
 # /alarm stop [id]——LLM を通さずアラームを止める（知-q）。
 _ALARM_COMMAND_RE = re.compile(r"^/alarm[\s　・]+stop(?:[\s　・]+(.+))?$", re.IGNORECASE)
 # /stopwatch stop [id]——LLM を通さずストップウォッチを止める（知-u・タイマーとは別物）。
@@ -1656,6 +1658,17 @@ class EmbodiedAgent:
         text, _ok = await self._timer_tool.call("listen", {})
         return text
 
+    def _handle_season_command(self, user_input: str) -> str | None:
+        """`/season clear`——季節の層が書いた中身を消す（知-ac 段 5）。消したあとは暦だけが渡り、
+        次に季節の層が回った晩に書き直される。LLM を通さない。"""
+        if not _SEASON_COMMAND_RE.match(_command_text(user_input)):
+            return None
+        from .core import season_env
+
+        if season_env.clear():
+            return "季節とまわりを消した。次に内省が回った晩に書き直す（それまでは暦だけ）。"
+        return "季節とまわりを消せなかった（記録を読めない）。"
+
     def _handle_reload_command(self, user_input: str) -> str | None:
         """Reload ME.md and FAMILY.md without restarting. Returns status string or None."""
         if not _RELOAD_COMMAND_RE.match(_command_text(user_input)):
@@ -1790,6 +1803,13 @@ class EmbodiedAgent:
             if on_text:
                 on_text(_sw_reply)
             return _sw_reply
+
+        # ── Season command（/season clear・知-ac・LLM を通さない） ────────────────
+        _season_reply = self._handle_season_command(user_input)
+        if _season_reply is not None:
+            if on_text:
+                on_text(_season_reply)
+            return _season_reply
 
         # ── Mic command（/mic on・知-o・タイマー中でも聞く） ──────────────────
         _mic_reply = await self._handle_mic_command(user_input)
