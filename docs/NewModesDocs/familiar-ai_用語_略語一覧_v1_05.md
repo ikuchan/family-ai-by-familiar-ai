@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v1.04）
+# familiar-ai 用語・略語一覧（v1.05）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -102,7 +102,8 @@
 | T | 計測ログ | measure log | `rest_logs/measure.log` | **REST 内省が読む専用の記録**（記-i・2026-09-14・`core/measure.py`）。`app.log`（人が読む・起動ごとに `logs/` へ回転）とは別の file で、`logs/` の兄弟 `rest_logs/` に置く。起動時に回転せず、REST が読み終えたら `measure.log.<読んだ時刻>` へ改名する（回転するのは REST・記-a-に）。行は `時刻 種別 key=value …` の 1 行。累計は持たない（並びのまま渡せば傾向が出る）。いま書くのは続き先の判定の結末（`続き先 結末=続き／途切れ／未判定／落ちた／不一致`）だけ。 |
 | I | 内部状態の言葉 | inner-state words | `core/inner_state.py` | 主LLM へ渡す `[内部状態(PI)]` の言葉（情-f・2026-09-14）。気分は 4 軸（うれしさ・つらさ・高ぶり・余裕）× 5 段（とても低い〜とても高い・軸ごとの実測分位）、欲求は「発火：SEEKING（探索したい）」を明示し、ほかは軸ごとの p70 を超えたものだけ「（ほかに 安心したさ がやや）」。境目は `InnerStateConfig`（層 3 の設定値）。生の数値は計測ログにだけ書く。旧 12 点表の最近傍ラベルは GUI と評価器に残す。 |
 | I | 道具の失敗 | tool failure | `Lookup.failed`／`Trigger.failed` | 調べものが**道具が使えなかった**ことで終わった状態（出-o・2026-09-13）。結果ではない。印は `MCPClientManager.call_result` の `ok` から運ばれ、文は「N番：…は道具が使えず失敗した」だけ（生のエラー文はログのみ）。失敗した道具は `Request.failed_actions` に入り、その求めのあいだ候補から外れる。再試行はしない。検索だけは Brave／Tavily の片方が失敗したらもう片方で続ける。 |
-| I | チェッカーの規則 | checker rules | `CHECKER_RULE_IDS` | 整合チェック（軽量LLM）に渡す規則の部分集合。文と機械の事実だけで反しているか言える 7 つ（`no-fake-perception`・`no-invented-knowledge`・`no-past-comparison-without-memory`・`memory-evidence-confidence`・`workspace-is-notes-not-script`・`no-raw-internal-metrics`・`no-tts-tags`）。正本 `(rules …)` から `rules_for_checker()` が落として作る（出-n・2026-09-13）。 |
+| I | 発話前の検査 | speech check | `loop/speech_check.py`・`Evaluator.check_speech` | 主LLM の `say` の文を**声にする前に**、規則（チェッカーの規則）に反していないかを軽量LLM が外から見る。材料は直近のやりとりと、機械が知っている事実（見たか・届いた結果・申告した記憶）。反していれば主LLM へ 1 回だけ差し戻す。調停の `light` の文は通さない。切るときは `FAMILIAR_SPEECH_CHECK=0`。旧名は「整合チェック」（`coherence`）——何と何の整合かが名前から分からなかったので改めた（出-ag-ろ・2026-09-25）。 |
+| I | チェッカーの規則 | checker rules | `CHECKER_RULE_IDS` | 発話前の検査（軽量LLM）に渡す規則の部分集合。文と機械の事実だけで反しているか言える 8 つ（`no-fake-perception`・`no-invented-knowledge`・`no-past-comparison-without-memory`・`memory-evidence-confidence`・`workspace-is-notes-not-script`・`no-raw-internal-metrics`・`no-tts-tags`・`no-claim-while-confirming`）。正本 `(rules …)` から `rules_for_checker()` が落として作る（出-n・2026-09-13。8 つめは出-ag-ろ・2026-09-21）。 |
 | MI／記憶モデル | MI（メンタルアイテム：Mental Item） | — | — | 記憶 O のレコード。基底 **PI＝emotion/drive**、**MI＝PI＋id/content/vector/supersedes/根づき**。timestamp は store メタdata。kind なし・意味は content→LLM 解釈（[D-MIモデル]・別紙 v2）。**実装クラス名は `MentalItem`**（`PrimitiveMentalItem` を継承し `id`／`content`／`vector`／`supersedes`／`根づき` を足す拡張クラス）。 |
 | MI／記憶モデル | 状態種別（廃止） | state_type | — | 〔**廃止**〕B 解体（[D-B分離]）。drive→PI.drive／mood→PI.emotion／norm・presence→T(G) private レジスタ。 |
 | MI／記憶モデル | 出所（廃止） | source | — | 〔**廃止**〕由来は content（PI か否かは取込時に解決済み・[D-MIモデル]）。 |
@@ -311,6 +312,7 @@
 
 ## 更新履歴
 
+> v1.05：「発話前の検査」を足した（旧名「整合チェック」を改めた）。「チェッカーの規則」を 8 つに直した——`no-claim-while-confirming`（2026-09-21）が抜けていた（出-ag-ろ・2026-09-25）。
 > v1.04：「つなぎの道具（`filler`）」を足した。「つなぎの欄」と同じ綴りの別物（出-aq・2026-09-25）。
 > v1.03：「判断専用モデル（Jev）」を足した（環-w・2026-09-24）。
 > v1.02：「主の担い手／控えの担い手」と「逐次」を足した（環-v・2026-09-24）。
