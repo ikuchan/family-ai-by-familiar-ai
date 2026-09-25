@@ -599,6 +599,7 @@ async def arbitrate(
     self_understanding: str = "",
     family_md: str = "",
     self_image: str = "",
+    season_env: str = "",
     present_ctx: str = "",
     now_ctx: str = "",
     capped: bool = False,
@@ -649,6 +650,7 @@ async def arbitrate(
         self_understanding=self_understanding or "（指定なし）",
         family=family_md or "（指定なし）",
         self_image=self_image,  # 層 2・主LLM と同じもの（記-a-へ）
+        season_env=season_env,  # 季節の層・主LLM と同じもの（知-ac）
     ).stable
     self_doing = origin == "情動"
     device = origin == "機器"
