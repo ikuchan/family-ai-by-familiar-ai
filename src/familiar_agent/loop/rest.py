@@ -2,6 +2,7 @@
 
 目的は自己認識の変革で、仕事は 4 層を順に更新すること（`用語一覧` v0.70）——
 出来事（畳む）→ 自己像（抽象化する）→ 設定値（調整する）→ 能力（再定義する）。
+層 1 と層 2 のあいだで**季節の層**（`rest_season.py`・知-ac）が、いまの季節と家のまわりを書き直す。
 起動は T の純粋欠乏発火で、誰も居ないときだけ回る（`loop/tonic.py`）。
 
 **いま動いているのは層 1 の計測と減り（`rest_info.py`）・②核の固め（`rest_core.py`）・①日次の畳み込み（`rest_fold.py`）、層 2（自己像の見直し・
@@ -18,6 +19,7 @@ from .rest_capabilities import redefine_capabilities
 from .rest_core import fold_core
 from .rest_fold import fold_since_last_rest
 from .rest_info import measure_and_decay
+from .rest_season import update_season
 from .rest_self_image import Material, update_self_image
 from .rest_settings import adjust_settings
 
@@ -67,6 +69,16 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の畳み込みに失敗（次の晩に持ち越す）: %s", e)
         parts.append("出来事を畳めなかった・次の晩に持ち越す")
+    # 季節の層：層 1 の後・層 2 の前。いまの季節と家のまわりを晩に 1 回書き直す（知-ac）。
+    # 層の番号は振り直さず名前で呼ぶ（層 2〜4 の番号・ログ・計測の種別はそのまま）。
+    try:
+        s = await update_season(agent, list(records))
+        parts.append(
+            "季節とまわりを書いた" if s.applied else f"季節とまわりは書かなかった（{s.reason}）"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 季節の層に失敗: %s", e)
+        parts.append("季節とまわりを書けなかった")
     # 層 2：層 1 が書いたものを材料に、自己像を見直す（記-a-へ）。
     self_image_changed = False
     try:
