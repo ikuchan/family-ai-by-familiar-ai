@@ -52,7 +52,6 @@ def facts_ctx(
     seen: "str | None" = None,
     used: "list[str] | None" = None,
     arrived: "list[str] | None" = None,
-    confirming: str = "",
 ) -> str:
     """この反復でループが知っていることを、そのまま並べる。
 
@@ -71,10 +70,6 @@ def facts_ctx(
     しなくても事実として渡す——届いたことはループが知っている。**切らない**（1 件
     `ARRIVED_CHARS` まで）。申告した記憶を 200 字で切っていたため、検索結果の「雨のち曇 ·
     最高 · 25 ℃」が見えず「事実に無い」と差し戻された（2026-09-13 15:55）。
-
-    `confirming` はいまの確認待ちの枠（`agent.confirm_frame`・出-ag-ろ 穴 4）。規則
-    `no-claim-while-confirming`（確認待ちのあいだは「掛けた」と言わない）を照らすのに要る。
-    渡していなかったので、この規則だけはいつも判定できなかった。無いときも「なし」と書く。
     """
     seen_line = (
         "はい（この求めで see を呼んだ）" if saw else "いいえ（この求めで see を呼んでいない）"
@@ -103,13 +98,7 @@ def facts_ctx(
         arrived_line = f"\nこの求めで届いた結果（{len(arrived)}件・これも根拠）：\n{got}"
     else:
         arrived_line = ""
-    confirm_line = (
-        f"確認待ちの預かり：あり（まだ掛かっていない）——{confirming}"
-        if confirming
-        else "確認待ちの預かり：なし"
-    )
     return (
         f"[この反復で分かっていること]\n見たか：{seen_line}\n画像を受け取った：{pic}\n"
-        f"{confirm_line}\n"
         f"作業状態に並んだ記憶：{mem}\n{leaned_line}{arrived_line}"
     )
