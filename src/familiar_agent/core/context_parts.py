@@ -60,6 +60,7 @@ def build_context(
     family: str = "",
     rules: str = "",
     self_image: str = "",
+    season_env: str = "",
     now: str = "",
     presence: str = "",
     inner_state: str = "",
@@ -114,6 +115,9 @@ def build_context(
     # 規則の直後に、`[いまの自分]` の見出しを本文が持った形で載せる（`self_image.render`）。
     if self_image and self_image.strip():
         stable_parts.append(self_image.strip())
+    # いまの季節とまわり（季節の層・知-ac）は自己像の直後。書き換わるのは季節の層が回った晩だけ。
+    if season_env and season_env.strip():
+        stable_parts.append(season_env.strip())
 
     variable_parts = [
         t.strip()

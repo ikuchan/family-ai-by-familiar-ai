@@ -203,6 +203,17 @@ def _days_of(tool_input: dict) -> int:
         return 1
 
 
+def _season_env_text() -> str:
+    """いまの季節とまわり（季節の層・知-ac）の枠。読めなければ暦の行だけ（degrade）。"""
+    try:
+        from ..core import season_env
+
+        return season_env.render(season_env.stored())
+    except Exception as e:  # noqa: BLE001
+        logger.debug("季節とまわりを読めなかった（無しで続ける）: %s", e)
+        return ""
+
+
 def _self_image_text() -> str:
     """自己像（層 2）の枠。DB の現在値（無ければ種）を文にする。読めなければ空（degrade）。"""
     try:
@@ -821,6 +832,7 @@ class InformationProcessing:
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             self_image=_self_image_text(),
+            season_env=_season_env_text(),
             present_ctx=present_ctx,
             pi_ctx=_pi_ctx(self._req),
             iter_ctx=iter_ctx,
@@ -2707,6 +2719,7 @@ class InformationProcessing:
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             self_image=_self_image_text(),
+            season_env=_season_env_text(),
             present_ctx=present_ctx,
             now_ctx=f'(now :datetime "{clock.now_local_str()}")'
             + self._silence_note()
