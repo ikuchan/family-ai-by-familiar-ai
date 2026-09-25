@@ -169,7 +169,7 @@ def _run_act(calls):
 
     ip._speak = _speak
     ip._finish = AsyncMock()
-    ip._coherence_violation = AsyncMock(return_value=None)
+    ip._speech_check_violation = AsyncMock(return_value=None)
     ip._apply_seen_people = AsyncMock()
     gen = ip._request_generation
     asyncio.run(ip._act_on_decision(_decision(*calls), utterance="こんにちは", gen=gen))

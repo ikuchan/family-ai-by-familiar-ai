@@ -113,7 +113,7 @@ def drop_constraint(text: str, rule_id: str) -> str:
 def rules_section(*, allow_tts_tags: bool = False) -> str:
     """`EVENT_SYSTEM_PROMPT` の `(rules ...)` 節を括弧の対応で切り出す（出-e）。
 
-    整合チェックは「規則違反があるか」を判定する仕事で、その規則の正本はここにしかない。
+    発話前の検査は「規則違反があるか」を判定する仕事で、その規則の正本はここにしかない。
     渡さなければ照合する相手が無く、実測では違反18件中3件しか捕まえなかった。
 
     `allow_tts_tags` は、合成の担い手が角括弧タグを解するとき（`TTSTool.understands_tags`）
@@ -125,7 +125,7 @@ def rules_section(*, allow_tts_tags: bool = False) -> str:
     return drop_constraint(sec, "no-tts-tags") if allow_tts_tags else sec
 
 
-#: 整合チェックが照らす規則（出-n・2026-09-13）。**文と、機械が渡した事実だけで反しているか
+#: 発話前の検査が照らす規則（出-n・2026-09-13）。**文と、機械が渡した事実だけで反しているか
 #: 言えるもの**に限る。外したものと理由：
 #: - `declare-memory-use`……申告は `say` の引数で文に無い。守られたかは `apply_memory_verdicts`
 #:   が数えている。文だけ見て「申告が欠けている」と言い、2 日間の違反文 43 件がこれだった
@@ -146,7 +146,7 @@ CHECKER_RULE_IDS: tuple[str, ...] = (
 
 
 def rules_for_checker(*, allow_tts_tags: bool = False) -> str:
-    """整合チェックへ渡す規則。正本（`rules_section`）から `CHECKER_RULE_IDS` 以外を落とす。
+    """発話前の検査へ渡す規則。正本（`rules_section`）から `CHECKER_RULE_IDS` 以外を落とす。
 
     正本は 1 つのままで、写しは持たない。ここで落とすのは**チェッカーが判定できない規則**
     であって、主LLM に課さなくなるわけではない。

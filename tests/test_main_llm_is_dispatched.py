@@ -202,7 +202,7 @@ def test_the_verdicts_use_the_map_that_the_main_llm_saw():
     ip, a = _ip()
     ip._speak = AsyncMock(return_value=("はい", "発話"))
     ip._finish = AsyncMock()
-    ip._coherence_violation = AsyncMock(return_value=None)
+    ip._speech_check_violation = AsyncMock(return_value=None)
     seen_mem = MagicMock()  # 主LLM が見た W を作った面（出-h-ろ ③）
 
     said = ToolCall(

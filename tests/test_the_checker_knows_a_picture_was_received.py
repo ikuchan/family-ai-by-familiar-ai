@@ -1,4 +1,4 @@
-"""整合チェックの材料に、画像を受け取ったことと写っていたものを入れる（`イベント駆動ループ` v0.43）。
+"""発話前の検査の材料に、画像を受け取ったことと写っていたものを入れる（`イベント駆動ループ` v0.43）。
 
 軽量LLM は画像を持たない。渡さないと、主LLM が写真を見て正しく語った返事を
 「与えられていない」と差し戻す（2026-09-12 実機）。
@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from familiar_agent.loop.coherence import facts_ctx
+from familiar_agent.loop.speech_check import facts_ctx
 
 
 def test_the_picture_and_the_mark_are_in_the_facts() -> None:

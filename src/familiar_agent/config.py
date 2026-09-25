@@ -616,10 +616,10 @@ class AgentConfig:
     # 5回考えて答えが出ないなら、6回目で出る見込みは薄い。仮値。
     max_thinking_rounds: int = field(default_factory=lambda: _int_env("MAX_THINKING_ROUNDS", 5))
     # 発話の前に規則違反を見るか（出-f）。**既定は on。** 判定は軽量LLM で、機械は
-    # 見たか・記憶が載ったかという事実を添えるだけである（`loop/coherence.py`）。
-    # 違反が出たら主LLM へ1回だけ差し戻す。切るときは `FAMILIAR_COHERENCE_CHECK=0`。
-    coherence_check: bool = field(
-        default_factory=lambda: _bool_env("FAMILIAR_COHERENCE_CHECK", default=True)
+    # 見たか・記憶が載ったかという事実を添えるだけである（`loop/speech_check.py`）。
+    # 違反が出たら主LLM へ1回だけ差し戻す。切るときは `FAMILIAR_SPEECH_CHECK=0`。
+    speech_check: bool = field(
+        default_factory=lambda: _bool_env("FAMILIAR_SPEECH_CHECK", default=True)
     )
     # 静穏時間＝**自分から**話しかけない時間帯（人への返事は掛からない）。出所は
     # 環境変数 → ここの既定の2段だけ（旧 schedule.conf・ROUTINES.md は撤去）。

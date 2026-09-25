@@ -181,7 +181,6 @@ class EmbodiedAgent:
         self._session_output_tokens: int = 0
         self._last_context_tokens: int = 0
         self._post_compact: bool = False
-        self._coherence_retried: bool = False
 
         self._camera: CameraTool | None = None
         self._mobility: MobilityTool | None = None
@@ -712,7 +711,7 @@ class EmbodiedAgent:
                 stance=stance,
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
-                # `with_rules` の呼び手は整合チェックだけ。渡すのは判定できる規則に絞った版
+                # `with_rules` の呼び手は発話前の検査だけ。渡すのは判定できる規則に絞った版
                 # （出-n・`CHECKER_RULE_IDS`）。
                 rules=(
                     rules_for_checker(allow_tts_tags=bool(self._tts and self._tts.understands_tags))
@@ -1179,7 +1178,7 @@ class EmbodiedAgent:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.infer_companion_mood(text)
 
-    async def _check_response_coherence(
+    async def _check_speech(
         self, response: str, *, recent: str = "", facts: str = ""
     ) -> "str | None":
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。
@@ -1187,7 +1186,7 @@ class EmbodiedAgent:
         材料はループが集めて渡す。**会話履歴は渡さない**——`self.messages` は追記する
         箇所が1つも無く、いつも空である（出-f）。
         """
-        return await self._evaluator.check_response_coherence(response, recent=recent, facts=facts)
+        return await self._evaluator.check_speech(response, recent=recent, facts=facts)
 
     async def _summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""

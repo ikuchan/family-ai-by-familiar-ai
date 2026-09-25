@@ -60,7 +60,7 @@ async def test_the_image_completion_skips_thinking_too():
 
 
 def test_complete_disables_thinking_so_the_budget_goes_to_the_text():
-    """利用の呼び出し（REST の各層・整合チェック）は思考を切る（2026-09-16 04:31 実機）。
+    """利用の呼び出し（REST の各層・発話前の検査）は思考を切る（2026-09-16 04:31 実機）。
 
     思考の指定を渡さないと Sonnet 5 は適応的思考を働かせ、層 2（2,000）・層 4（2,500）の
     予算を思考で使い切って `stop=max_tokens`・本文ゼロで返った。

@@ -30,7 +30,7 @@ def _ip(gen: int = 0):
     ip._req.cue = "手がかり"
     ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
-    ip._coherence_violation = AsyncMock(return_value=None)
+    ip._speech_check_violation = AsyncMock(return_value=None)
     ip._speak = AsyncMock(return_value=("はい", "発話"))
     ip._finish = AsyncMock()
     ip._emit = MagicMock()
@@ -128,7 +128,7 @@ def test_at_the_cap_a_tool_call_is_ignored():
     ip._start_lookup.assert_not_called()
 
 
-# ── 整合チェックの差し戻し ──────────────────────────────────────────────────
+# ── 発話前の検査の差し戻し ──────────────────────────────────────────────────
 
 
 def test_a_violation_sends_it_back_once():
@@ -138,7 +138,7 @@ def test_a_violation_sends_it_back_once():
     `tests/test_send_back_is_dispatched.py` が見る。
     """
     ip, a = _ip()
-    ip._coherence_violation = AsyncMock(return_value="見ていないのに見たと言っている")
+    ip._speech_check_violation = AsyncMock(return_value="見ていないのに見たと言っている")
     ip._dispatch_main_llm = MagicMock()
     ip._write_version = AsyncMock(return_value="ver-1")
     assert _run(ip, _turn(ToolCall("t", "say", {"text": "そこに本があるね"}))) == ""
@@ -152,7 +152,7 @@ def test_the_reworded_answer_is_spoken_without_another_check():
     ip, _a = _ip()
     ip._speak = AsyncMock(return_value=("直した", "発話"))
     assert _run(ip, _turn(ToolCall("t", "say", {"text": "直した"})), retried=True) == "直した"
-    ip._coherence_violation.assert_not_awaited()
+    ip._speech_check_violation.assert_not_awaited()
 
 
 # ── 切り出せていること ──────────────────────────────────────────────────────

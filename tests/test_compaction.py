@@ -309,12 +309,12 @@ class TestCompactMessagesWithNestedToolResults:
         assert agent.messages[2] is recent_b
 
 
-# ── _check_response_coherence は会話履歴を読まない ──────────────────────────
+# ── _check_speech は会話履歴を読まない ──────────────────────────
 
 
 class TestCheckResponseCoherenceIgnoresHistory:
     def test_the_conversation_history_is_not_read(self):
-        """整合チェックは `agent.messages` を読まない（出-f）。
+        """発話前の検査は `agent.messages` を読まない（出-f）。
 
         以前はここへ生の会話履歴を渡しており、ネスト list を走査前に flatten していた。
         **その list は追記する箇所が1つも無く、いつも空だった**（環-c の撤去で会話履歴
@@ -334,7 +334,7 @@ class TestCheckResponseCoherenceIgnoresHistory:
             [{"role": "user", "content": [{"type": "tool_result", "content": "data"}]}],
             _make_msg("assistant", "reply"),
         ]
-        assert asyncio.run(agent._check_response_coherence("some response")) is None
+        assert asyncio.run(agent._check_speech("some response")) is None
 
         prompt = util.complete.await_args.args[0]
         assert "hello" not in prompt and "reply" not in prompt

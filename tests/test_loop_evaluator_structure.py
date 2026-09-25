@@ -28,7 +28,7 @@ def test_evaluator_exposes_public_methods() -> None:
         "emotion_for_turn",
         "summarize_exchange",
         "infer_companion_mood",
-        "check_response_coherence",
+        "check_speech",
     ):
         assert callable(getattr(Evaluator, name)), name
 

@@ -1,7 +1,7 @@
 """軽量LLM の仕事へ、立ち位置と文脈を配る（出-e-は）。
 
 **感情を作るのはパジュである。** PAD 評価・相手の気分の分類・一言要約は一人称で立ち、
-整合チェックと同一意図の判定は外から測る。実測では、パジュとしての立ち位置で整合チェックを
+発話前の検査と同一意図の判定は外から測る。実測では、パジュとしての立ち位置で発話前の検査を
 させると違反18件中0〜1件しか捕まえない（`根拠台帳` §25.8）。**自分で自分は検査できない。**
 
 部品は正本から取る。人格とできることは `capability_state.load_summary()`、家族は
@@ -59,7 +59,7 @@ def test_the_companion_mood_reading_speaks_as_paju():
     assert seen["mood"] == (Stance.PAJU, False)
 
 
-def test_the_coherence_check_measures_from_outside_and_needs_the_rules():
+def test_the_speech_check_measures_from_outside_and_needs_the_rules():
     """自分で自分は検査できない。規則はシステム文で受け取る。"""
     be = _backend("OK")
     seen = {}
@@ -69,7 +69,7 @@ def test_the_coherence_check_measures_from_outside_and_needs_the_rules():
         return "＜計器＋規則＞"
 
     ev = _evaluator(be, context=ctx)
-    asyncio.run(ev.check_response_coherence("はい", recent="やあ", facts="見たか：いいえ"))
+    asyncio.run(ev.check_speech("はい", recent="やあ", facts="見たか：いいえ"))
     assert seen["coh"] == (Stance.INSTRUMENT, True)
     assert be.complete.await_args.kwargs["system"] == "＜計器＋規則＞"
 
