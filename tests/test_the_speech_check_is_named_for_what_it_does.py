@@ -44,3 +44,23 @@ def test_the_switch_has_the_new_name(monkeypatch):
     cfg = AgentConfig()
     assert cfg.speech_check is False
     assert not hasattr(cfg, "coherence_check")
+
+
+def test_no_old_name_is_left_in_the_source():
+    """旧名が残っていない（大文字小文字を問わない）。
+
+    段 1 の検索は大文字小文字を区別していて、ログの文「Coherence check …」と、表記の違う
+    「整合性チェック」を取りこぼした。名前の網羅は、数え上げでなく検索 0 件で確かめる。
+    """
+    import re
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parent.parent / "src"
+    old = re.compile(r"coherence|整合性?チェック", re.I)
+    left = [
+        f"{p.relative_to(src)}:{i}: {line.strip()[:60]}"
+        for p in sorted(src.rglob("*.py"))
+        for i, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1)
+        if old.search(line)
+    ]
+    assert left == [], "\n".join(left)

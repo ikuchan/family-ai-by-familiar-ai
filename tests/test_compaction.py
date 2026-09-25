@@ -312,7 +312,7 @@ class TestCompactMessagesWithNestedToolResults:
 # ── _check_speech は会話履歴を読まない ──────────────────────────
 
 
-class TestCheckResponseCoherenceIgnoresHistory:
+class TestCheckSpeechIgnoresHistory:
     def test_the_conversation_history_is_not_read(self):
         """発話前の検査は `agent.messages` を読まない（出-f）。
 

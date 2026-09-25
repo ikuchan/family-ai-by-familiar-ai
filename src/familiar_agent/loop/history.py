@@ -1,7 +1,7 @@
 """会話履歴スライスの読み取り専用フラット化。
 
 tool 結果はネスト list として履歴に格納され、API 送信時にのみ実メッセージへ
-展開される。要約や整合性チェックなど生の履歴を走査する読み取り側は、先に
+展開される。要約や発話前の検査など生の履歴を走査する読み取り側は、先に
 flatten しないと list 要素で msg.get(...) が AttributeError になる。
 """
 
@@ -13,7 +13,7 @@ def _flatten_history(messages: list) -> list[dict]:
 
     tool結果はネストlistとして履歴に格納され（make_tool_results /
     _flatten_messages 参照）、API送信時にのみ実メッセージへ展開される。
-    要約トランスクリプトや整合性チェックなど、生の履歴を走査する読み取り側は
+    要約トランスクリプトや発話前の検査など、生の履歴を走査する読み取り側は
     先にflattenしないと list 要素で msg.get(...) が AttributeError になる。
 
     backend._flatten_messages を再利用しないのは、そのシグネチャがbackend間で
