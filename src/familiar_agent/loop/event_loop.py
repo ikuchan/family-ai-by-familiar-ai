@@ -2962,6 +2962,7 @@ class InformationProcessing:
             seen=seen_mark,
             used=used_lines(verdicts, w_id_map or {}, memories),
             arrived=arrived,
+            confirming=self._confirm_frame(),  # 出-ag-ろ 穴 4
         )
 
     def _declare_light_memory_use(
