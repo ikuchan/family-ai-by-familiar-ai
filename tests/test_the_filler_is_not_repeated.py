@@ -99,7 +99,7 @@ def test_an_empty_reply_is_fine():
 
 
 def test_the_loop_drops_the_echo_before_the_check():
-    """**検査には出す文を見せる。** 落とす前の文で整合を見ても意味がない。"""
+    """**検査には出す文を見せる。** 落とす前の文を検査しても意味がない。"""
     import inspect
 
     from familiar_agent.loop.event_loop import InformationProcessing

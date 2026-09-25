@@ -385,10 +385,10 @@ class Evaluator:
             result = result.strip()
             if result.upper().startswith("OK"):
                 return None
-            logger.info("Coherence check caught violation: %s", result)
+            logger.info("発話前の検査が違反を捕まえた：%s", result)
             return result
         except Exception as e:
-            logger.debug("Coherence check failed (non-critical): %s", e)
+            logger.debug("発話前の検査に失敗した（続ける）：%s", e)
             return None
 
     async def summarize_exchange(self, user_input: str, agent_response: str) -> str:
