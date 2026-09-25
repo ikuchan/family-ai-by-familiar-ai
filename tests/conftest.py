@@ -171,3 +171,17 @@ def _measure_log_in_tmp(tmp_path, monkeypatch):
 
     monkeypatch.setattr(measure, "default_base_dir", lambda: tmp_path)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _no_real_camera_thread(monkeypatch):
+    """`CameraTool` を作っても、本物の裏方スレッド（映像の取り込み）を立てない。
+
+    `CameraTool` は作った瞬間にスレッドを立てて映像の接続を開きに行く。届かないアドレスで作る
+    試験が 1 件ごとに 1 本（計 17 本）を残し、30 秒の時間切れがプロセスの終了と重なると、全件通過の
+    あとに終了コード 134 で落ちた（2026-09-25・全体テストで 3 回・`test_no_real_camera_thread_in_tests.py`）。
+    """
+    from familiar_agent.tools.camera import CameraTool
+
+    monkeypatch.setattr(CameraTool, "start", lambda self: None)
+    yield
