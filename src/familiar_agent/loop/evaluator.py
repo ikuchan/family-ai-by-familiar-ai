@@ -5,7 +5,7 @@ agent.py から分離した、次の4つを持つ。
 - emotion_for_turn: ターンの感情を PAD で評価し派生ラベルを返す（値踏みゲート込み）
 - summarize_exchange: やり取りを1文へ蒸留（記憶保存用）
 - infer_companion_mood: 相手の気分を分類（専用軽量backend が無ければキーワード発見的手法）
-- check_response_coherence: 応答の論理的自己矛盾・規則違反を配信前に検出
+- check_speech: 応答の論理的自己矛盾・規則違反を配信前に検出
 
 依存は構築時に注入する utility_backend と backend のみ。mood レジスタは
 `load_current_mood()` で読むだけ（書かない）。
@@ -33,7 +33,7 @@ _COMPANION_MOODS = frozenset({"engaged", "tired", "frustrated", "absent", "happy
 # 発話の前に規則違反を見る（出-f）。**規則の写しをここに置かない。** 正本は
 # `EVENT_SYSTEM_PROMPT` の `(rules ...)` で、システム文として渡る。写しを持てば、正本が
 # 変わったときにここだけ古くなる。
-_COHERENCE_CHECK_PROMPT = """\
+_SPEECH_CHECK_PROMPT = """\
 いま言おうとしている応答が、規則に反していないかを見る。
 
 規則はシステム文にある。それと、下に並んだ事実だけで照らす。**書かれていないことを
@@ -357,12 +357,12 @@ class Evaluator:
         m = re.search(r"(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])", text.lower())
         return m.group(0) if m else None
 
-    async def check_response_coherence(
+    async def check_speech(
         self, response: str, *, recent: str = "", facts: str = ""
     ) -> "str | None":
         """応答が規則に反していないかを見る。反していればその説明、無ければ None（出-f）。
 
-        `facts` は機械が集めた事実（`loop/coherence.facts_ctx`）で、`recent` は直近の
+        `facts` は機械が集めた事実（`loop/speech_check.facts_ctx`）で、`recent` は直近の
         やりとりである。**どちらもここで作らない。** 見たかどうかも記憶が載ったかどうかも、
         知っているのはループであって評価器ではない。
 
@@ -378,7 +378,7 @@ class Evaluator:
             # **自分で自分は検査できない。** ここだけ外から測る立ち位置で、規則を
             # システム文で受け取る（規則の正本は `EVENT_SYSTEM_PROMPT` の `(rules ...)`）。
             result = await self._utility_backend.complete(
-                _COHERENCE_CHECK_PROMPT.format(facts=facts, recent=recent, response=response[:300]),
+                _SPEECH_CHECK_PROMPT.format(facts=facts, recent=recent, response=response[:300]),
                 max_tokens=60,
                 system=self._stance(_Stance.INSTRUMENT, with_rules=True),
             )

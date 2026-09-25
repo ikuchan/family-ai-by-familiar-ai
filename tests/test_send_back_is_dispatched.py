@@ -1,6 +1,6 @@
-"""整合チェックの差し戻しも投げっぱなしにする（環-h・段は-2）。
+"""発話前の検査の差し戻しも投げっぱなしにする（環-h・段は-2）。
 
-`_act_on_decision` の中に、ループ最後の同期 `stream_turn` が残っていた——整合チェックが
+`_act_on_decision` の中に、ループ最後の同期 `stream_turn` が残っていた——発話前の検査が
 違反を捕まえたときだけ、主LLM を `await` で呼び直す箇所である。
 
 そこだけ同期だと、言い直しのあいだ（`effort` 次第で数秒〜10秒）**打ち切りが効かず**、
@@ -11,7 +11,7 @@
 
 | 出す反復 | `retried` | やること |
 |---|---|---|
-| 1回目 | False | say を拾う → 申告 → 整合チェック → **違反なら投げて閉じない** |
+| 1回目 | False | say を拾う → 申告 → 発話前の検査 → **違反なら投げて閉じない** |
 | 2回目 | True | **検査しない**（1回だけ）→ 話して閉じる |
 
 判定（軽量LLM）・規則・「1回だけ」の決まりは変えない。変えるのは送り方だけである。
@@ -43,7 +43,7 @@ def _ip():
     ip._triggers = asyncio.Queue()
     ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
-    ip._coherence_violation = AsyncMock(return_value=None)
+    ip._speech_check_violation = AsyncMock(return_value=None)
     ip._speak = AsyncMock(return_value=("直した", "発話"))
     ip._finish = AsyncMock()
     ip._emit = MagicMock()
@@ -91,7 +91,7 @@ def _run(ip, result, *, retried=False, original_text="", gen=0):
 def test_a_violation_is_dispatched_and_the_turn_stays_open():
     """違反なら投げて閉じる**前に**返る。話してしまえば、求めに答えが2件書かれる。"""
     ip, _a = _ip()
-    ip._coherence_violation = AsyncMock(return_value=_VIOLATION)
+    ip._speech_check_violation = AsyncMock(return_value=_VIOLATION)
     assert _run(ip, _say()) == ""
     ip._speak.assert_not_awaited()
     ip._finish.assert_not_awaited()
@@ -101,7 +101,7 @@ def test_a_violation_is_dispatched_and_the_turn_stays_open():
 def test_the_send_back_does_not_wait_for_the_main_llm():
     """同期の `stream_turn` は残っていない（ここが 段は-2 の目的）。"""
     ip, a = _ip()
-    ip._coherence_violation = AsyncMock(return_value=_VIOLATION)
+    ip._speech_check_violation = AsyncMock(return_value=_VIOLATION)
     _run(ip, _say())
     a.backend.stream_turn.assert_not_awaited()
 
@@ -111,7 +111,7 @@ def test_the_send_back_does_not_wait_for_the_main_llm():
 
 def test_the_send_back_carries_the_flag_and_the_original_answer():
     ip, _a = _ip()
-    ip._coherence_violation = AsyncMock(return_value=_VIOLATION)
+    ip._speech_check_violation = AsyncMock(return_value=_VIOLATION)
     _run(ip, _say("そこに本があるね"))
     kw = ip._dispatch_main_llm.call_args.kwargs
     assert kw["retried"] is True
@@ -120,7 +120,7 @@ def test_the_send_back_carries_the_flag_and_the_original_answer():
 
 def test_the_send_back_message_names_the_violation():
     ip, _a = _ip()
-    ip._coherence_violation = AsyncMock(return_value=_VIOLATION)
+    ip._speech_check_violation = AsyncMock(return_value=_VIOLATION)
     _run(ip, _say())
     sent = ip._dispatch_main_llm.call_args.kwargs["messages"][0]["content"]
     assert "[SELF-CHECK]" in sent
@@ -135,7 +135,7 @@ def test_the_send_back_carries_the_facts_to_rewrite_from():
     使ってよい事実（届いた結果・申告した記憶）と「事実に無いことは言わない」を明示する。
     """
     ip, _a = _ip()
-    ip._coherence_violation = AsyncMock(return_value=_VIOLATION)
+    ip._speech_check_violation = AsyncMock(return_value=_VIOLATION)
     ip._checker_facts = MagicMock(
         return_value="[この反復で分かっていること]\n…雨のち曇 · 最高 · 25 ℃"
     )
@@ -148,7 +148,7 @@ def test_the_send_back_carries_the_facts_to_rewrite_from():
 def test_the_send_back_writes_a_version():
     """投げた事実は版に載る（`N番：考えている`）。載らないと求めの状態が飛ぶ。"""
     ip, _a = _ip()
-    ip._coherence_violation = AsyncMock(return_value=_VIOLATION)
+    ip._speech_check_violation = AsyncMock(return_value=_VIOLATION)
     _run(ip, _say())
     ip._write_version.assert_awaited_once()
 
@@ -159,7 +159,7 @@ def test_the_send_back_writes_a_version():
 def test_the_reworded_answer_is_not_checked_again():
     ip, _a = _ip()
     _run(ip, _say("直した"), retried=True, original_text="そこに本があるね")
-    ip._coherence_violation.assert_not_awaited()
+    ip._speech_check_violation.assert_not_awaited()
     ip._speak.assert_awaited_once_with("直した")
 
 

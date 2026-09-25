@@ -1,6 +1,6 @@
-"""整合チェックを繋ぎ直す（出-f）。
+"""発話前の検査を繋ぎ直す（出-f）。
 
-`check_response_coherence` は実装だけが残り、**呼び手が0件**だった。旧 `run()` にあった
+`check_speech` は実装だけが残り、**呼び手が0件**だった。旧 `run()` にあった
 呼び出しが環-c（`a47f85e`）で消えている。
 
 繋ぎ直すとき、**応答の文字列を機械で削らない**。機械は意味を読めないので、語の表で文を
@@ -47,28 +47,28 @@ def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話"
 
 
 def test_it_says_plainly_that_nothing_was_seen():
-    from familiar_agent.loop.coherence import facts_ctx
+    from familiar_agent.loop.speech_check import facts_ctx
 
     out = facts_ctx(saw=False, memories=[])
     assert "見たか：いいえ" in out
 
 
 def test_it_says_plainly_that_something_was_seen():
-    from familiar_agent.loop.coherence import facts_ctx
+    from familiar_agent.loop.speech_check import facts_ctx
 
     assert "見たか：はい" in facts_ctx(saw=True, memories=[])
 
 
 def test_an_empty_workspace_is_stated_as_no_material_for_comparison():
     """記憶が0件なら『昨日より』の材料が無い。規則 no-past-comparison-without-memory 用。"""
-    from familiar_agent.loop.coherence import facts_ctx
+    from familiar_agent.loop.speech_check import facts_ctx
 
     out = facts_ctx(saw=False, memories=[])
     assert "0件" in out
 
 
 def test_the_dates_of_the_recalled_memories_are_listed():
-    from familiar_agent.loop.coherence import facts_ctx
+    from familiar_agent.loop.speech_check import facts_ctx
 
     out = facts_ctx(
         saw=False,
@@ -83,7 +83,7 @@ def test_the_dates_of_the_recalled_memories_are_listed():
 
 def test_the_uncertain_memories_are_counted():
     """規則 memory-evidence-confidence の境目は 0.55。"""
-    from familiar_agent.loop.coherence import CONF_UNCERTAIN, facts_ctx
+    from familiar_agent.loop.speech_check import CONF_UNCERTAIN, facts_ctx
 
     assert CONF_UNCERTAIN == 0.55
     out = facts_ctx(
@@ -97,9 +97,9 @@ def test_no_word_list_is_used_to_censor_the_response():
     """**応答の文字列を機械で削らない。** 事実を組む口は応答を受け取らない。"""
     import inspect
 
-    from familiar_agent.loop import coherence
+    from familiar_agent.loop import speech_check
 
-    assert "response" not in inspect.signature(coherence.facts_ctx).parameters
+    assert "response" not in inspect.signature(speech_check.facts_ctx).parameters
 
 
 # ── 判定（軽量LLM の仕事） ──────────────────────────────────────────────────
@@ -116,19 +116,19 @@ def _evaluator():
 
 def test_ok_means_no_violation():
     ev, _ = _evaluator()
-    assert asyncio.run(ev.check_response_coherence("こんばんは", recent="", facts="f")) is None
+    assert asyncio.run(ev.check_speech("こんばんは", recent="", facts="f")) is None
 
 
 def test_anything_else_is_reported_as_a_violation():
     ev, util = _evaluator()
     util.complete = AsyncMock(return_value="見ていないのに見たと言っている")
-    out = asyncio.run(ev.check_response_coherence("そこに本があるね", recent="", facts="f"))
+    out = asyncio.run(ev.check_speech("そこに本があるね", recent="", facts="f"))
     assert out == "見ていないのに見たと言っている"
 
 
 def test_the_facts_reach_the_judge():
     ev, util = _evaluator()
-    asyncio.run(ev.check_response_coherence("はい", recent="R", facts="見たか：いいえ"))
+    asyncio.run(ev.check_speech("はい", recent="R", facts="見たか：いいえ"))
     prompt = util.complete.await_args.args[0]
     assert "見たか：いいえ" in prompt
     assert "R" in prompt
@@ -136,15 +136,15 @@ def test_the_facts_reach_the_judge():
 
 def test_the_prompt_carries_no_copy_of_the_rules():
     """規則の正本は `EVENT_SYSTEM_PROMPT` の `(rules ...)`。写しを置かない。"""
-    from familiar_agent.loop.evaluator import _COHERENCE_CHECK_PROMPT
+    from familiar_agent.loop.evaluator import _SPEECH_CHECK_PROMPT
 
-    assert "constraint" not in _COHERENCE_CHECK_PROMPT
-    assert "shiritori" not in _COHERENCE_CHECK_PROMPT.lower()
+    assert "constraint" not in _SPEECH_CHECK_PROMPT
+    assert "shiritori" not in _SPEECH_CHECK_PROMPT.lower()
 
 
 def test_the_judge_receives_the_rules_through_the_system_message():
     ev, util = _evaluator()
-    asyncio.run(ev.check_response_coherence("はい", recent="", facts="f"))
+    asyncio.run(ev.check_speech("はい", recent="", facts="f"))
     assert util.complete.await_args.kwargs["system"] == "規則"
 
 
@@ -154,7 +154,7 @@ def test_the_conversation_history_is_no_longer_read():
 
     from familiar_agent.loop.evaluator import Evaluator
 
-    assert "messages" not in inspect.signature(Evaluator.check_response_coherence).parameters
+    assert "messages" not in inspect.signature(Evaluator.check_speech).parameters
 
 
 # ── 既定 ───────────────────────────────────────────────────────────────────
@@ -164,14 +164,14 @@ def test_the_gate_is_on_by_default():
     from familiar_agent.config import AgentConfig
 
     with patch.dict(os.environ, {}, clear=True):
-        assert AgentConfig().coherence_check is True
+        assert AgentConfig().speech_check is True
 
 
 def test_the_gate_can_be_turned_off():
     from familiar_agent.config import AgentConfig
 
-    with patch.dict(os.environ, {"FAMILIAR_COHERENCE_CHECK": "0"}, clear=True):
-        assert AgentConfig().coherence_check is False
+    with patch.dict(os.environ, {"FAMILIAR_SPEECH_CHECK": "0"}, clear=True):
+        assert AgentConfig().speech_check is False
 
 
 # ── 差し戻し ───────────────────────────────────────────────────────────────
@@ -256,7 +256,7 @@ def test_the_arrived_results_are_facts_whether_or_not_they_were_declared():
     15:55 実機：検索結果に「雨のち曇 · 最高 · 25 ℃」があるのに「事実に含まれていない」と
     差し戻された。申告した記憶の中身は 200 字で切られ、そこから先が見えなかった。
     """
-    from familiar_agent.loop.coherence import facts_ctx
+    from familiar_agent.loop.speech_check import facts_ctx
 
     long = (
         "「明日の天気は？」と聞かれ、1番：search_deferred の結果が届いた："
@@ -269,7 +269,7 @@ def test_the_arrived_results_are_facts_whether_or_not_they_were_declared():
 
 
 def test_the_declared_memories_are_not_cut_at_200_chars():
-    from familiar_agent.loop.coherence import facts_ctx
+    from familiar_agent.loop.speech_check import facts_ctx
 
     body = "a" * 480 + "末尾の事実"
     out = facts_ctx(saw=False, memories=[], used=[body])
@@ -277,7 +277,7 @@ def test_the_declared_memories_are_not_cut_at_200_chars():
 
 
 def test_a_very_long_arrived_result_is_capped_but_generously():
-    from familiar_agent.loop.coherence import ARRIVED_CHARS, facts_ctx
+    from familiar_agent.loop.speech_check import ARRIVED_CHARS, facts_ctx
 
     out = facts_ctx(saw=False, memories=[], arrived=["y" * (ARRIVED_CHARS + 500)])
     assert out.count("y") == ARRIVED_CHARS and ARRIVED_CHARS >= 2000
@@ -294,7 +294,7 @@ def test_the_loop_hands_the_arrived_results_to_the_checker_without_a_declaration
     ip._req.live_version_id = "ver-2"
     ip._req.turn_records = []
     ip._agent = MagicMock()
-    ip._agent.config.coherence_check = True
+    ip._agent.config.speech_check = True
     ip._seen_image = MagicMock(return_value=None)
     arrived = _rec("ver-2", content="1番：search_deferred の結果が届いた：雨のち曇 · 最高 · 25 ℃")
     old = _rec("m1", content="昔の話")

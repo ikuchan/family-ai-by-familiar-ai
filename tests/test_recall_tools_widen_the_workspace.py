@@ -131,5 +131,5 @@ def test_the_rules_allow_widening_before_giving_up():
     assert "引き直した**後**だけ" in rules
     for tool in ("recall_as", "recall_deeper", "recall_when", "recall_recent"):
         assert tool in rules, f"引き直す道具が規則に無い: {tool}"
-    # 文だけでは違反を判定できないので、整合チェックへは渡さない
+    # 文だけでは違反を判定できないので、発話前の検査へは渡さない
     assert "widen-before-giving-up" not in CHECKER_RULE_IDS

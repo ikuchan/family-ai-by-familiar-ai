@@ -1,6 +1,6 @@
 """生成にかかった秒数を、呼び出しごとに必ずログへ残す（出-k-い）。
 
-これまで所要時間を出していたのは調停だけで、主LLM・調べもの・整合チェック・声は
+これまで所要時間を出していたのは調停だけで、主LLM・調べもの・発話前の検査・声は
 ログの時刻差から手で引くしかなかった。
 """
 
@@ -75,19 +75,19 @@ def test_a_lookup_logs_its_seconds(caplog) -> None:
     assert any(m.startswith("event-loop 調べもの recall") and "秒" in m for m in _msgs(caplog))
 
 
-def test_the_coherence_check_logs_its_seconds(caplog) -> None:
+def test_the_speech_check_logs_its_seconds(caplog) -> None:
     async def scenario():
         a = _agent(stream_returns=[])
-        a.config.coherence_check = True
-        a._evaluator.check_response_coherence = AsyncMock(return_value="x に反する")
+        a.config.speech_check = True
+        a._evaluator.check_speech = AsyncMock(return_value="x に反する")
         ip = InformationProcessing(a)
         with caplog.at_level(logging.INFO, logger=_LOG):
-            await ip._coherence_violation("text", "", [])
+            await ip._speech_check_violation("text", "", [])
         await ip.close()
 
     asyncio.run(scenario())
     assert any(
-        m.startswith("event-loop 整合チェック") and "秒" in m and "違反=あり" in m
+        m.startswith("event-loop 発話前の検査") and "秒" in m and "違反=あり" in m
         for m in _msgs(caplog)
     )
 

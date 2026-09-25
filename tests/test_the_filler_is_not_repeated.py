@@ -106,7 +106,7 @@ def test_the_loop_drops_the_echo_before_the_check():
 
     src = inspect.getsource(InformationProcessing._act_on_decision)
     assert "drop_echo" in src
-    assert src.index("drop_echo") < src.index("_coherence_violation")
+    assert src.index("drop_echo") < src.index("_speech_check_violation")
 
 
 # ── 相槌の後ろの挨拶（出-aq 段 3・2026-09-25） ────────────────────────────

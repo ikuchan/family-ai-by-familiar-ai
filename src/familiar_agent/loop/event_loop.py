@@ -38,7 +38,7 @@ from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
-from .coherence import facts_ctx, used_lines
+from .speech_check import facts_ctx, used_lines
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
 from . import reply_budget, workspace
 from .request import Lookup, Request
@@ -506,7 +506,7 @@ class Decision:
     - `mem`：**申告を当てる面**。`situated_memories` は人ごとで、想起は話者の面を通る
       （`_active_memory()`）。基底の記憶へ書くと視点が `__self__` へ寄り、話者が同定
       されている場面で申告が0行に当たる（出-h-ろ ③）
-    - `system`・`effort`：整合チェックの差し戻しで**主LLM をもう一度呼ぶ**のに要る
+    - `system`・`effort`：発話前の検査の差し戻しで**主LLM をもう一度呼ぶ**のに要る
     - `capped`：上限の反復では調べる動作を渡していないので、返ってきても投げない
     - `retried`：これは言い直しの返りか。真なら**もう検査しない**（1回だけ）
     - `original_text`：言い直しが `say` を返さなかったときの戻り先。差し戻しが同期
@@ -518,7 +518,7 @@ class Decision:
     memories: "list[Recalled]"
     w_id_map: dict[str, str]
     mem: object
-    recent_frame: str  # W の直近の枠（整合チェックが「さっき何を言ったか」として見る）
+    recent_frame: str  # W の直近の枠（発話前の検査が「さっき何を言ったか」として見る）
     system: object
     effort: "str | None"
     capped: bool
@@ -859,7 +859,7 @@ class InformationProcessing:
     def _user_content(self, text: str, memories: "list | None") -> "str | list":
         """主LLM へ渡す本文。この求めで見た画像があれば**画像ブロックを添える**。
 
-        画像を受け取るのは主LLM だけである（調停・整合チェック・申告の軽量LLM は文字だけ）。
+        画像を受け取るのは主LLM だけである（調停・発話前の検査・申告の軽量LLM は文字だけ）。
         見ると決めたのは主LLM 自身で、見たものを語るのも主LLM だからである。
         """
         if self._req.trigger_kind == "情動":
@@ -1092,7 +1092,7 @@ class InformationProcessing:
         調べものと同じ扱いにする——求めの台帳（`self._req.lookups`）へ1件積んで飛行中に数え、版に載せ、世代で
         打ち切れるようにする。**重複の判定は通さない**（同じ求めで何度も呼ぶ）。
 
-        整合チェックの差し戻し（言い直し）も**この口から投げる**。同じ口を通るので、
+        発話前の検査の差し戻し（言い直し）も**この口から投げる**。同じ口を通るので、
         言い直しも `action="主LLM"` として積まれ、**考えた回数に数えられる**
         （2026-09-09 の決定）。
         """
@@ -1145,7 +1145,7 @@ class InformationProcessing:
         started = time.monotonic()
         # **言ったつなぎを、主LLM 自身の発言として会話に置く**（出-aq 段 2）。W はつなぎの前に
         # 組まれるので、ここで足さなければ主LLM はつなぎを知らない（実機 9/21 15:49）。
-        # 通常の呼び出しも整合チェックの差し戻しも、ここを通る。
+        # 通常の呼び出しも発話前の検査の差し戻しも、ここを通る。
         turns = self._filler_turns(agent.backend)
         # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
         # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
@@ -2796,7 +2796,7 @@ class InformationProcessing:
             violation = (
                 None
                 if decision.retried
-                else await self._coherence_violation(
+                else await self._speech_check_violation(
                     text,
                     decision.recent_frame,
                     decision.memories,
@@ -2811,7 +2811,7 @@ class InformationProcessing:
                 # **ここで閉じない。** 話してしまえば、この求めに答えが2件書かれる。言い直しは
                 # 完了キューを通って**次の出す反復**が出す（段は-2）。同期で待っていたころは、
                 # そのあいだ打ち切りが効かなかった。
-                logger.info("event-loop 整合チェックが違反を捕まえた：%s", violation)
+                logger.info("event-loop 発話前の検査が違反を捕まえた：%s", violation)
                 # 言い直しに根拠を添える（出-n）。違反の一文だけだと、検査しない 2 度目に
                 # 別の捏造が出た（2026-09-13 16:32「東京は晴れ 30℃」）。
                 facts = self._checker_facts(
@@ -2866,7 +2866,7 @@ class InformationProcessing:
         await self._finish(text, decision.memories, "沈黙")
         return text
 
-    async def _coherence_violation(
+    async def _speech_check_violation(
         self,
         text: str,
         recent: str,
@@ -2881,16 +2881,16 @@ class InformationProcessing:
         推測の要らない事実だけで、規則に反するかどうかの判断は軽量LLM がする。
         """
         agent = self._agent
-        if not agent.config.coherence_check or not text:
+        if not agent.config.speech_check or not text:
             return None
         started = time.monotonic()
-        violation = await agent._evaluator.check_response_coherence(
+        violation = await agent._evaluator.check_speech(
             text,
             recent=recent,
             facts=self._checker_facts(memories, verdicts=verdicts, w_id_map=w_id_map),
         )
         logger.info(
-            "event-loop 整合チェック %.2f 秒（違反=%s）",
+            "event-loop 発話前の検査 %.2f 秒（違反=%s）",
             time.monotonic() - started,
             "あり" if violation else "なし",
         )
@@ -2932,7 +2932,7 @@ class InformationProcessing:
         verdicts=None,
         w_id_map: "dict[str, str] | None" = None,
     ) -> str:
-        """整合チェックへ渡す事実（出-n）。言い直しにも同じものを添える。
+        """発話前の検査へ渡す事実（出-n）。言い直しにも同じものを添える。
 
         届いた結果（この求めの open な記録＝版・完了 O）は、主LLM が申告しなくても根拠に
         なる。届いたことはループが知っているので、申告の有無に頼らない。

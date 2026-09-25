@@ -3,7 +3,7 @@
 口が正しい面を引けるようにしたのが前段（`View.viewpoint`）。ここでは呼び手を移す。
 
 **器が変わる。** いまの想起は辞書の並びを返し、5つの読み手がその形に乗っていた——
-`compose`（W を組む）・W の1行・`facts_ctx`（整合チェックの材料）・共起・想起のログ。
+`compose`（W を組む）・W の1行・`facts_ctx`（発話前の検査の材料）・共起・想起のログ。
 `Recalled` は `MI` ＋そのときの採点で、**store の語（`memory_id`・`summary`）を外へ出さない**。
 
 **`confidence` は `Recalled` へ足す。** `fit`・`groundedness` と同じ「そのときの採点」で、

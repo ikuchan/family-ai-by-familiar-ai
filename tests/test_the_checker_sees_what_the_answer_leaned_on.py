@@ -1,4 +1,4 @@
-"""整合チェックに、主LLM が使ったと申告した記憶の中身を渡す（2026-09-13 実機で露見）。
+"""発話前の検査に、主LLM が使ったと申告した記憶の中身を渡す（2026-09-13 実機で露見）。
 
 記憶にある天気（11:24 に自分が答えた『明日は晴れ・最高 30℃…』）で答えたら、チェッカーは
 「検索も提示も無いのに天気を言った」と `no-invented-knowledge` にした。材料が件数と日付だけで、
@@ -13,7 +13,7 @@ from datetime import datetime
 from unittest.mock import AsyncMock
 
 from familiar_agent.io.oif import MI, Recalled
-from familiar_agent.loop.coherence import facts_ctx, used_lines
+from familiar_agent.loop.speech_check import facts_ctx, used_lines
 from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
@@ -53,12 +53,12 @@ def test_without_verdicts_the_facts_say_none_declared() -> None:
 
 def test_the_loop_hands_the_used_lines_to_the_checker() -> None:
     a = _agent(stream_returns=[])
-    a.config.coherence_check = True
-    a._evaluator.check_response_coherence = AsyncMock(return_value=None)
+    a.config.speech_check = True
+    a._evaluator.check_speech = AsyncMock(return_value=None)
     ip = InformationProcessing(a)
 
     async def scenario():
-        await ip._coherence_violation(
+        await ip._speech_check_violation(
             "明日は晴れだよ",
             "",
             _W,
@@ -66,7 +66,7 @@ def test_the_loop_hands_the_used_lines_to_the_checker() -> None:
             w_id_map=_MAP,
         )
         await ip.close()
-        return a._evaluator.check_response_coherence.call_args.kwargs["facts"]
+        return a._evaluator.check_speech.call_args.kwargs["facts"]
 
     facts = asyncio.run(scenario())
     assert "最高30℃" in facts

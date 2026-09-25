@@ -133,7 +133,7 @@ def test_the_rule_forbids_claiming_while_confirming():
     rules = rules_section()
     assert "no-claim-while-confirming" in rules
     assert "確かめている" in rules
-    # 文だけで判じられるので、整合チェックへ渡す
+    # 文だけで判じられるので、発話前の検査へ渡す
     assert "no-claim-while-confirming" in CHECKER_RULE_IDS
 
 
