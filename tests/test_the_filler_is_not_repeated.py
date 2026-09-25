@@ -107,3 +107,31 @@ def test_the_loop_drops_the_echo_before_the_check():
     src = inspect.getsource(InformationProcessing._act_on_decision)
     assert "drop_echo" in src
     assert src.index("drop_echo") < src.index("_coherence_violation")
+
+
+# ── 相槌の後ろの挨拶（出-aq 段 3・2026-09-25） ────────────────────────────
+
+
+def test_a_greeting_behind_an_interjection_is_dropped():
+    """**「あ、こんにちは！」が素通りしていた**（40 回中 1 回）。
+
+    最初の一節が「あ」（1 字）で、誤爆よけの守り（2 字未満は触らない）に引っかかり、
+    その後ろの挨拶まで見ていなかった。相槌は残し、その後ろの一節を照らす。
+    """
+    got = drop_echo(
+        "あ、こんにちは！すみません、どなたか分かりますか？",
+        ["こんにちは！ちょっと待ってくださいね。"],
+    )
+    assert got == "あ、すみません、どなたか分かりますか？"
+
+
+def test_an_interjection_alone_is_still_left_alone():
+    """相槌の後ろが重なっていなければ、何もしない（いままでの守りのまま）。"""
+    text = "あ、タイマー止めましたよ。"
+    assert drop_echo(text, ["こんにちは！ちょっと待ってくださいね。"]) == text
+
+
+def test_two_short_pieces_in_a_row_are_left_alone():
+    """相槌が続いても、2 つめまでしか見ない。**深追いしない。**"""
+    text = "あ、え、こんにちは。"
+    assert drop_echo(text, ["こんにちは！"]) == text

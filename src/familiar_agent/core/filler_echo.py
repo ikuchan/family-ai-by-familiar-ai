@@ -54,13 +54,22 @@ def drop_echo(text: str, fillers: "list[str] | None") -> str:
         return text
     head, cut = _head(text)
     key = head.strip(_TRIM)
+    lead = ""
     if len(key) < MIN_HEAD:
-        return text
+        # 相槌（「あ、」）の後ろの一節を見る（出-aq 段 3）。「あ、こんにちは！」が素通りして
+        # いた——最初の一節が 1 字で、誤爆よけの守りに引っかかり、後ろを見ていなかった。
+        # **相槌は残す。** 見るのは 2 つめまでで、深追いしない。
+        lead = text[:cut]
+        head, more = _head(text[cut:])
+        key = head.strip(_TRIM)
+        if len(key) < MIN_HEAD:
+            return text
+        cut += more
     rest = text[cut:].strip()
     if not rest:
         return text  # 落とすと何も残らない。**黙らせない**
     for filler in fillers:
         if key in (filler or "").strip(_TRIM) or key in (filler or ""):
             logger.info("event-loop つなぎと重なる冒頭を落とした：%r", head[:24])
-            return rest
+            return lead + rest
     return text
