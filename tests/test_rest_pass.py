@@ -30,6 +30,18 @@ def _no_layer_four():
         yield
 
 
+@pytest.fixture(autouse=True)
+def _no_season_layer():
+    """季節の層は検索と LLM を呼ぶ。季節の層自身の試験は `test_rest_season.py`。"""
+    from familiar_agent.loop.rest_season import Outcome
+
+    with patch(
+        "familiar_agent.loop.rest.update_season",
+        new=AsyncMock(return_value=Outcome(False, "今日はもう書いた")),
+    ):
+        yield
+
+
 _REST = DriveFiring(seeking=False, rest=True, bond=False, safety=False, esteem=False)
 _SEEKING = DriveFiring(seeking=True, rest=False, bond=False, safety=False, esteem=False)
 
@@ -398,3 +410,72 @@ def test_rest_pass_folds_the_core_after_the_decay_and_feeds_layer_two():
         ("ep-1", "day_summary"),
     ]
     assert "同じ記録 3 件" in content and "固めて 3 件" in content
+
+
+# ── 季節の層（知-ac 段 3・2026-09-26・`設計方針_季節の層` v0.1） ───────────────
+
+
+def _pass_with_season(season):
+    """層 1 → 季節の層 → 層 2 の順を記録しながら 1 パス回す。"""
+    from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_fold import FoldResult, Written
+    from familiar_agent.loop.rest_self_image import Proposal
+
+    agent = MagicMock()
+    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._observation_perspective = MagicMock(return_value={})
+    order: list[str] = []
+
+    async def _season(a, records, **kw):
+        order.append("季節")
+        return await season(a, records)
+
+    with (
+        patch("familiar_agent.loop.rest.measure_and_decay", new=AsyncMock(return_value="…")),
+        patch(
+            "familiar_agent.loop.rest.fold_since_last_rest",
+            new=AsyncMock(
+                side_effect=lambda a: (
+                    order.append("1"),
+                    FoldResult(1, 1, 1, 1, 0, (Written("ep-1", "day_summary", "運動会"),)),
+                )[1]
+            ),
+        ),
+        patch("familiar_agent.loop.rest.update_season", new=_season),
+        patch(
+            "familiar_agent.loop.rest.update_self_image",
+            new=AsyncMock(
+                side_effect=lambda a, m: (
+                    order.append("2"),
+                    Proposal(image=MagicMock(), applied=False, changed=0, reason="材料なし"),
+                )[1]
+            ),
+        ),
+        patch("familiar_agent.loop.rest.adjust_settings", new=AsyncMock(return_value=0)),
+    ):
+        content = asyncio.run(run_rest_pass(agent))
+    return order, content
+
+
+def test_the_season_layer_runs_between_layer_one_and_layer_two():
+    from familiar_agent.loop.rest_season import Outcome
+
+    seen: list = []
+
+    async def season(a, records):
+        seen.extend(r.obs_id for r in records)  # 層 1 がその晩に書いたものを材料に受ける
+        return Outcome(True)
+
+    order, content = _pass_with_season(season)
+    assert order == ["1", "季節", "2"]
+    assert "ep-1" in seen
+    assert "季節とまわりを書いた" in content
+
+
+def test_a_failing_season_layer_does_not_stop_layer_two():
+    async def season(a, records):
+        raise RuntimeError("検索が落ちた")
+
+    order, content = _pass_with_season(season)
+    assert order == ["1", "季節", "2"]
+    assert "季節とまわりを書けなかった" in content
