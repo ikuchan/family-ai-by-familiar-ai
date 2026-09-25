@@ -138,8 +138,11 @@ def test_confirm_and_decline_are_offered_only_while_a_confirm_is_pending():
 
 
 def test_the_request_carries_the_frame_and_w_puts_it_on_top():
+    """枠は反復ごとに写す（出-ag-ろ 穴 2）。求めを通した確かめは
+    `test_a_confirm_made_midway_reaches_the_next_w.py`、ここは写した枠が W の最上部に載ること。"""
     _, ip = _ip(_pc())
     asyncio.run(ip._begin_request(kind="発話", text="いいよ", utterance="いいよ"))
+    ip._req.confirm_frame = ip._confirm_frame()  # 反復が W を組む直前にすること
     assert ip._req.confirm_frame.startswith("[確認待ち]")
     oif = MagicMock()
     oif.latest_origins = MagicMock(return_value=[])
@@ -147,6 +150,7 @@ def test_the_request_carries_the_frame_and_w_puts_it_on_top():
     assert ws.render(2).startswith("[確認待ち]")
     _, ip2 = _ip(None)
     asyncio.run(ip2._begin_request(kind="発話", text="やあ", utterance="やあ"))
+    ip2._req.confirm_frame = ip2._confirm_frame()
     assert ip2._req.confirm_frame == ""
 
 

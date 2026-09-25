@@ -1927,8 +1927,6 @@ class InformationProcessing:
         # 明けた瞬間の求めにだけ載る（情-h）。`__new__` で組んだ装置（テスト）でも落ちないよう既定を持つ。
         self._req.heard_while_silent = getattr(self, "_pending_heard", [])
         self._pending_heard = []
-        # 確認待ち（出-y）。この求めの W の最上部に載せる。預かりが無い・寿命切れなら空。
-        self._req.confirm_frame = self._confirm_frame()
         await self._apply_pending_claim()  # 預かった名乗り（知-w-ろ）
         # **人の言葉は、その人がやったことである。** `actor` の面（`situated_memories`）は
         # 話者に立てる。想起は `_active_memory()`＝話者の面を引くので、`__self__` の面に
@@ -2489,6 +2487,11 @@ class InformationProcessing:
         trigger = "完了" if drained else self._req.trigger_kind
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
+        # 確認待ち（出-y）。W の最上部に載せる。預かりが無い・寿命切れなら空。
+        # **反復ごとに写す**（出-ag-ろ 穴 2）。求めの始めに 1 回だけ写していたころは、反復 1 の
+        # `set_timer` が置いた預かりが同じ求めの W に一度も載らず、上限の反復で調停が枠の無い W を
+        # 見て「タイマーをセットしました」と言った（実機 2026-09-21 17:34・掛かっていない）。
+        self._req.confirm_frame = self._confirm_frame()
         ws = await workspace.recall(
             agent._oif,
             cue,
