@@ -519,6 +519,11 @@ def _parse(
         query = str(tool_input.get("label") or tool_input.get("id") or query or action).strip()
         # 道具は 0.1 秒で返る。つなぎを言うと、返りを見て言う一言と同じ文が 2 回出る（実機 08:59）。
         text = ""
+    if action not in allowed:
+        # **書き換えた後にも候補に照らす**（出-ag-ろ 穴 1）。上の書き換えは候補に照らした後で
+        # 道具名を変えるので、返りの反復で外した `set_timer` が `set_alarm` から戻ってきた
+        # （実機 2026-09-21 17:34・反復 2）。直接書いたときと同じく、読めない選択として倒す。
+        return None
     # 情動が起点なら、light 以外の text（つなぎ）は捨てる。自発の行動に断りは要らない（情-e）。
     if origin == "情動" and branch != "light":
         text = ""
