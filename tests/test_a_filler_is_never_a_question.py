@@ -41,6 +41,8 @@ def test_a_plain_filler_still_goes_out() -> None:
 
     async def scenario():
         await ip._say_filler("調べてみますね。")
+        # 声は背景で鳴る（出-aq 段 1）。数える前に 1 拍おいて、背景の声を走らせる。
+        await asyncio.sleep(0)
         n = ip._dif.speak.await_count
         await ip.close()
         return n
