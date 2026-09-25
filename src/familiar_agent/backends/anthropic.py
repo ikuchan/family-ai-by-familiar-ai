@@ -102,6 +102,16 @@ class AnthropicBackend:
     def make_assistant_message(self, result: TurnResult, raw_content: Any) -> dict:  # noqa: ARG002
         return {"role": "assistant", "content": raw_content}
 
+    def make_tool_call_message(self, tool_calls: list[ToolCall]) -> dict:
+        """道具を使った発言を一から組む（出-aq 段 2）。つなぎを主LLM の会話に置くのに使う。"""
+        return {
+            "role": "assistant",
+            "content": [
+                {"type": "tool_use", "id": tc.id, "name": tc.name, "input": tc.input}
+                for tc in tool_calls
+            ],
+        }
+
     def make_tool_results(
         self,
         tool_calls: list[ToolCall],

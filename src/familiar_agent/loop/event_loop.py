@@ -49,6 +49,9 @@ logger = logging.getLogger(__name__)
 # 連鎖が続けられる反復で渡す動作。上限に達した反復では say だけにして必ず閉じる。
 _FULL_ACTIONS = (
     "say",
+    # つなぎ（出-aq 段 2）。**`say` とは別の道具**——`say` は返事なので、つなぎを `say` で
+    # 表すと「もう返事をした」と受け取られ、主LLM は黙った。
+    "filler",
     "recall",
     # 思い出し方を変えて引き直す道具（出-ah・2026-09-21）。W に載る情報が足りないとき、
     # 面・件数と思い出し方・時期と幅・直近の窓を、主LLM 自身が動かせる。効き目はその 1 回だけ。
@@ -1140,14 +1143,20 @@ class InformationProcessing:
         """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
         agent = self._agent
         started = time.monotonic()
+        # **言ったつなぎを、主LLM 自身の発言として会話に置く**（出-aq 段 2）。W はつなぎの前に
+        # 組まれるので、ここで足さなければ主LLM はつなぎを知らない（実機 9/21 15:49）。
+        # 通常の呼び出しも整合チェックの差し戻しも、ここを通る。
+        turns = self._filler_turns(agent.backend)
+        # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
+        # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
+        # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
+        # 会話につなぎを置いたなら、その道具の定義も渡す（使った道具が一覧に無いと読めない）。
+        narrow = ("say", "filler") if turns else ("say",)
         try:
             result, _raw = await agent.backend.stream_turn(
                 system=system,
-                messages=messages,
-                # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
-                # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
-                # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
-                tools=self._tools(actions=("say",) if capped or retried else _FULL_ACTIONS),
+                messages=messages + turns,
+                tools=self._tools(actions=narrow if capped or retried else _FULL_ACTIONS),
                 # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
                 max_tokens=max_tokens,
                 on_text=None,
@@ -1659,6 +1668,7 @@ class InformationProcessing:
     # `ip._agent` を見る（カメラは 段3・記憶は OIF の担当）。
     _ACTIONS: dict = {
         "say": lambda ip: ip._dif.speak_defs(),
+        "filler": lambda ip: ip._dif.filler_defs(),
         "recall": lambda ip: [
             d for d in ip._agent._memory_tool.get_tool_definitions() if d.get("name") == "recall"
         ],
@@ -2744,9 +2754,14 @@ class InformationProcessing:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（生成後）")
             return ""
 
+        # 主LLM 自身のつなぎ（出-aq 段 2）。**`say` とは別の道具**なので、返事としては扱わない。
+        filler_tc = next((tc for tc in decision.result.tool_calls if tc.name == "filler"), None)
+
         if lookup_tc is not None:
-            if say_tc is not None:
-                await self._say_filler(str(say_tc.input.get("text", "")).strip())
+            # つなぎ＋調べもの（口 3）。`say`＋調べものが来たときも、いままでどおりつなぎに回す。
+            lead = filler_tc or say_tc
+            if lead is not None:
+                await self._say_filler(str(lead.input.get("text", "")).strip())
             if lookup_tc.name in _CAMERA_ACTIONS:
                 self._req.see_by = "主LLM"
             self._start_lookup(
@@ -2754,6 +2769,16 @@ class InformationProcessing:
             )
             logger.info("event-loop 出力=%s（続きは完了で起きる）", lookup_tc.name)
             return ""
+
+        if filler_tc is not None:
+            if say_tc is None:
+                # **つなぎだけ返したら、それを返事として出す。** 黙らせない——本題が無いまま
+                # 閉じれば、相手は何も聞かずに終わる。
+                logger.info("event-loop 主LLM がつなぎだけを返したので、返事として出す")
+                say_tc = filler_tc
+            else:
+                # つなぎ＋返事。つなぎを先に鳴らし、返事はその続きとして出す（重複は `drop_echo`）。
+                await self._say_filler(str(filler_tc.input.get("text", "")).strip())
 
         if say_tc is not None:
             workspace.apply_memory_verdicts(
@@ -3056,6 +3081,29 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         self._note_record(obs_id, "つなぎ")
+
+    def _filler_turns(self, backend) -> list:
+        """言ったつなぎを「`filler` を使った発言＋その返り」として組む（出-aq 段 2）。
+
+        **返りは「言った」の報告だけ。** 指示を紛れ込ませない（本人の指摘：道具の返りに
+        「本題はまだ」と書くのは、報告の口の流用である）。つなぎが何であるかは、道具の
+        定義（`FILLER_TOOL`）が持つ。
+
+        口（`make_tool_call_message`）の無い担い手では何もしない。重複は `drop_echo` が受ける。
+        """
+        said = list(getattr(getattr(self, "_req", None), "said_fillers", ()) or ())
+        make = getattr(backend, "make_tool_call_message", None)
+        if not said or make is None:
+            return []
+        from ..backends.types import ToolCall
+
+        calls = [
+            ToolCall(id=f"filler_{i}", name="filler", input={"text": t}) for i, t in enumerate(said)
+        ]
+        return [
+            make(calls),
+            *backend.make_tool_results(calls, [(f"Said: {t}", None) for t in said]),
+        ]
 
     def _speak_filler_in_background(self, text: str) -> None:
         """つなぎの声を背景で鳴らす（出-aq 段 1）。**失敗しても反復は続ける。**

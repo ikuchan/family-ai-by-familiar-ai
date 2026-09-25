@@ -88,8 +88,18 @@ class DIF:
         return bool(self._tts and self._tts.understands_tags)
 
     def speak_defs(self) -> list[dict]:
-        """声の道具の定義。無い機体では空。"""
-        return self._tts.get_tool_definitions() if self._tts else []
+        """返事の道具（`say`）の定義。無い機体では空。"""
+        return self._voice_defs("say")
+
+    def filler_defs(self) -> list[dict]:
+        """つなぎの道具（`filler`）の定義（出-aq 段 2）。**`say` とは別に渡す**——上限の反復
+        （`say` だけで必ず閉じる）にはつなぎを渡さない。"""
+        return self._voice_defs("filler")
+
+    def _voice_defs(self, name: str) -> list[dict]:
+        if not self._tts:
+            return []
+        return [d for d in self._tts.get_tool_definitions() if d.get("name") == name]
 
     async def speak(self, text: str, *, gain: float = 1.0, careful: bool = False) -> None:
         """声に出す。

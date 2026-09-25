@@ -143,6 +143,29 @@ DEFAULT_GEMINI_VOICE = "Charon"
 GEMINI_RATE = 24000
 
 
+#: つなぎの道具（出-aq 段 2・2026-09-25）。**`say` とは別の道具にする。**
+#: `say` は「返事」なので、つなぎを `say` で表すと主LLM は「もう返事をした」と受け取り、
+#: 8 回中 7 回黙った（`(応答は既に送信済み)` と書いた）。別の道具なら 10/10 が本題を言う。
+#: 定義は**規則ではなく、つなぎが何であるか**を書く——「〜するな」は置き場を変えても
+#: 効かなかった（`根拠台帳` §48）。落とした後の漏れが 0 だった形（返事の前半・`say` は
+#: その続き・重複は機械が消す）を使う。
+FILLER_TOOL: dict = {
+    "name": "filler",
+    "description": (
+        "Say the opening of your reply aloud while you are still working out the rest, so the "
+        "person knows you heard them and are not ignoring them. The person has already heard "
+        "it. Your `say` continues from there. If `say` begins with words you already spoke in "
+        "`filler`, the system removes them before speaking, so the person never hears the same "
+        "words twice."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {"text": {"type": "string", "description": "What to say first."}},
+        "required": ["text"],
+    },
+}
+
+
 _sbv2_proc: "subprocess.Popen | None" = None
 
 
@@ -706,10 +729,13 @@ class TTSTool:
                     "required": ["text", "memory_verdicts"],
                 },
             },
+            FILLER_TOOL,
         ]
 
     async def call(self, tool_name: str, tool_input: dict) -> tuple[str, None]:
-        if tool_name == "say":
+        # つなぎも声に出すことは同じ（出-aq 段 2）。ループは `filler` を横取りして背景で
+        # 鳴らすが、道具として直接呼ばれても鳴らせるようにしておく。
+        if tool_name in ("say", "filler"):
             result = await self.say(
                 tool_input["text"],
                 gain=float(tool_input.get("gain", 1.0) or 1.0),

@@ -15,6 +15,7 @@ from .shared import (
     _TOOL_CALL_RE,
     _build_tools_system,
     _parse_tool_calls_from_text,
+    prompt_tool_call_message,
 )
 from .types import ToolCall, TurnResult
 
@@ -57,6 +58,10 @@ class CLIBackend:
 
     def make_assistant_message(self, result: TurnResult, raw_content: Any) -> dict:  # noqa: ARG002
         return raw_content
+
+    def make_tool_call_message(self, tool_calls: list[ToolCall]) -> dict:
+        """道具を使った発言を一から組む（出-aq 段 2）。つなぎを主LLM の会話に置くのに使う。"""
+        return prompt_tool_call_message(tool_calls)
 
     def make_tool_results(
         self,

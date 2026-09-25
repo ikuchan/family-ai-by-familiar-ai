@@ -15,6 +15,8 @@ from .shared import (
     _TOOL_CALL_RE,
     _build_tools_system,
     _parse_tool_calls_from_text,
+    openai_tool_call_message,
+    prompt_tool_call_message,
 )
 from .types import ToolCall, TurnResult
 
@@ -40,6 +42,12 @@ class OpenAICompatibleBackend:
 
     def make_assistant_message(self, result: TurnResult, raw_content: Any) -> dict:  # noqa: ARG002
         return raw_content  # already an OpenAI-format dict
+
+    def make_tool_call_message(self, tool_calls: list[ToolCall]) -> dict:
+        """道具を使った発言を一から組む（出-aq 段 2）。つなぎを主LLM の会話に置くのに使う。道具の渡し方（`tools_mode`）で形が変わる。"""
+        if self.tools_mode == "prompt":
+            return prompt_tool_call_message(tool_calls)
+        return openai_tool_call_message(tool_calls, content="")
 
     def make_tool_results(
         self,

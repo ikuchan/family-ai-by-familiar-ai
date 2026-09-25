@@ -150,6 +150,45 @@ def _build_tools_system(system: str, tools: list[dict]) -> str:
     return system + _TOOLS_PROMPT_HEADER.format(tools_desc=tools_desc, examples=examples)
 
 
+def openai_tool_call_message(tool_calls: list[ToolCall], *, content: Any) -> dict:
+    """道具を使った発言を、OpenAI の `tool_calls` の形で一から組む（出-aq 段 2）。
+
+    OpenAI 互換（道具を API で渡す）・Kimi・GLM が使う。`content` は担い手ごとに、
+    自分の返りと同じ値にする（Kimi は `None`、ほかは空文字）。
+    """
+    return {
+        "role": "assistant",
+        "content": content,
+        "tool_calls": [
+            {
+                "id": tc.id,
+                "type": "function",
+                "function": {
+                    "name": tc.name,
+                    "arguments": json.dumps(tc.input, ensure_ascii=False),
+                },
+            }
+            for tc in tool_calls
+        ],
+    }
+
+
+def prompt_tool_call_message(tool_calls: list[ToolCall]) -> dict:
+    """道具を使った発言を、`<tool_call>` の文で一から組む（出-aq 段 2）。
+
+    道具を文で書かせる担い手（OpenAI 互換の prompt モード・CLI）が使う。**モデル自身が
+    書くのと同じ形**にする——同じ担い手の読み取り（`_parse_tool_calls_from_text`）が、
+    書いたものを同じ道具として読み返せる。
+    """
+    blocks = [
+        "<tool_call>"
+        + json.dumps({"name": tc.name, "input": tc.input}, ensure_ascii=False)
+        + "</tool_call>"
+        for tc in tool_calls
+    ]
+    return {"role": "assistant", "content": "\n".join(blocks)}
+
+
 def _parse_tool_calls_from_text(text: str) -> list[ToolCall]:
     """Extract <tool_call> JSON blocks from model output."""
     tool_calls = []

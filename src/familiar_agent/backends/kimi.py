@@ -10,7 +10,7 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from .shared import _with_system
+from .shared import _with_system, openai_tool_call_message
 from .types import ToolCall, TurnResult
 
 logger = logging.getLogger(__name__)
@@ -45,6 +45,10 @@ class KimiBackend:
 
     def make_assistant_message(self, result: TurnResult, raw_content: Any) -> dict:  # noqa: ARG002
         return raw_content
+
+    def make_tool_call_message(self, tool_calls: list[ToolCall]) -> dict:
+        """道具を使った発言を一から組む（出-aq 段 2）。つなぎを主LLM の会話に置くのに使う。"""
+        return openai_tool_call_message(tool_calls, content=None)
 
     def make_tool_results(
         self,
