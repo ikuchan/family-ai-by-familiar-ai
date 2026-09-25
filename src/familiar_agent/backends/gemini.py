@@ -29,6 +29,11 @@ logger = logging.getLogger(__name__)
 _THINK_OFF_FORMS = ("budget", "level", "none")
 
 
+#: 自分で作った道具の呼び出しに入れる署名（出-aq 段 2）。Google の文書が定める、検証を
+#: 飛ばすための値。https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures
+_INJECTED_SIGNATURE = "skip_thought_signature_validator"
+
+
 class GeminiBackend:
     """Backend using the official Google Generative AI SDK (google-generativeai).
 
@@ -113,6 +118,24 @@ class GeminiBackend:
 
     def make_assistant_message(self, result: TurnResult, raw_content: Any) -> dict:  # noqa: ARG002
         return raw_content  # already Gemini-format Content dict
+
+    def make_tool_call_message(self, tool_calls: list[ToolCall]) -> dict:
+        """道具を使った発言を一から組む（出-aq 段 2）。つなぎを主LLM の会話に置くのに使う。"""
+        # **Gemini 3 系は、会話の中の道具の呼び出しに思考の署名を要求する。** 自分で作った
+        # 呼び出しには署名が無く、`400 Function call is missing a thought_signature` で
+        # 拒まれた（2026-09-25 実測）。Google の文書が、作った呼び出しのために検証を飛ばす
+        # 値を定めている（"skip_thought_signature_validator"）。文書は「作った呼び出しを
+        # 差し込むのは、避けられないとき以外は強く勧めない」とも書く。
+        return {
+            "role": "model",
+            "parts": [
+                {
+                    "function_call": {"name": tc.name, "args": tc.input},
+                    "thought_signature": _INJECTED_SIGNATURE,
+                }
+                for tc in tool_calls
+            ],
+        }
 
     def make_tool_results(
         self,
