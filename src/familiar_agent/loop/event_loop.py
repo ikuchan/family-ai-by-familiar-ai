@@ -654,6 +654,9 @@ class InformationProcessing:
         # see の帰りで起きた反復か。調停を飛ばして主LLM へ戻す（`_decide`）。
         self._see_returned = False
         self._background_tasks: set[asyncio.Task] = set()
+        # 鳴っている最中のつなぎの声（出-aq 段 1）。**待たずに鳴らす**ので、捨てられないよう
+        # 参照を持っておき、終わるときに止める。
+        self._filler_voices: set[asyncio.Task] = set()
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
         # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
         # 事実で、あとから古くならない（出-h-ろ）。
@@ -2407,6 +2410,12 @@ class InformationProcessing:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._driver
             self._driver = None
+        # 鳴っている最中のつなぎは止める（出-aq 段 1）。**終わるときに声を待たない。**
+        for task in list(self._filler_voices):
+            task.cancel()
+        for task in list(self._filler_voices):
+            with contextlib.suppress(asyncio.CancelledError, Exception):
+                await task
 
     async def _iterate(self) -> str:
         """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。"""
@@ -3021,7 +3030,11 @@ class InformationProcessing:
             logger.info("event-loop つなぎが疑問文なので出さない：%.40s", text)
             return
         agent = self._agent
-        await self._dif.speak(text)
+        # **声は待たずに鳴らす**（出-aq 段 1・2026-09-24）。つなぎは「時間がかかっている
+        # あいだ、無視していないと伝える」ためにあるのに、再生の終わりまで待ってから戻って
+        # いたため、**その後の調べものと主LLM が待たされていた**（実機 15:58：検索は 4.59 秒
+        # 遅れて投げられた）。声が本応答と重ならないのは `TTSTool` の鍵が保証している。
+        self._speak_filler_in_background(text)
         self._stamp_said()  # つなぎも自分の発話
         self._emit(text)
         # 言ったことを覚えておく。覚えないと、調停は「もう一言伝えた」ことを知らないまま
@@ -3043,6 +3056,25 @@ class InformationProcessing:
             **agent._observation_perspective(),
         )
         self._note_record(obs_id, "つなぎ")
+
+    def _speak_filler_in_background(self, text: str) -> None:
+        """つなぎの声を背景で鳴らす（出-aq 段 1）。**失敗しても反復は続ける。**
+
+        機器は落ちる前提のもの。声が出なかったことは記録に残すが、例外は外へ出さない
+        ——つなぎを言ったつもりで本応答が止まるほうが困る。
+        """
+
+        async def _voice() -> None:
+            try:
+                await self._dif.speak(text)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.warning("event-loop つなぎの声を出せなかった：%.40s", text, exc_info=True)
+
+        task = asyncio.ensure_future(_voice())
+        self._filler_voices.add(task)
+        task.add_done_callback(self._filler_voices.discard)
 
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。
