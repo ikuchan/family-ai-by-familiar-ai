@@ -115,6 +115,7 @@ def compose(
     # 直近のやりとりの枠に載った記録は、過去の列には出さない（同じ話が二重に載る）。
     # 対応表には残す——申告は直近の行の id でも来る。黙っていたあいだの列挙に載せたものも同じ（情-h）。
     heard_ids = {h.obs_id for h in req.heard_while_silent if getattr(h, "obs_id", "")}
+    heard_ids |= {obs_id for obs_id, _ in getattr(req, "added", []) if obs_id}
     shown = [
         r
         for r in memories
@@ -130,6 +131,12 @@ def compose(
         said = (
             "すでに相手へ伝えた一言（言った順。次に何か言うなら、"
             "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines
+        )
+    added = ""
+    if getattr(req, "added", None):
+        # 調べているあいだに名前無しで言い足されたこと（出-au 段 3）。この求めの答えに含める。
+        added = "調べているあいだに相手が言い足したこと（この答えに含める）：\n" + "\n".join(
+            f"- 「{text}」" for _, text in req.added
         )
     heard = ""
     if req.heard_while_silent:
@@ -153,17 +160,20 @@ def compose(
     with contextlib.suppress(Exception):
         names = oif.actors([r.mi.obs_id for r in memories])
     # **誰が言ったかは役割が持つ。** 話者が解決できないと `actor` の面は規則 048 で
-    # `__self__` に寄り、相手の言葉が「わたしが言った」になる。`起点` は相手である。
+    # `__self__` に寄り、相手の言葉が「わたしが言った」になる。`起点` と `添え`（出-au 段 3）は相手である。
     # いまの求めの分はまだ関係に無いので `turn_records` から、閉じた分は関係から。
     roles: "dict[str, str]" = {i: r for i, r in req.turn_records if i}
     with contextlib.suppress(Exception):
         roles = {**oif.roles([r.mi.obs_id for r in memories]), **roles}
     for r in memories:
-        if roles.get(r.mi.obs_id) == "起点" and names.get(r.mi.obs_id, "わたし") == "わたし":
+        if (
+            roles.get(r.mi.obs_id) in ("起点", "添え")
+            and names.get(r.mi.obs_id, "わたし") == "わたし"
+        ):
             names[r.mi.obs_id] = "相手"
     basis_line = f"[この想起：{basis}]" if basis else ""
     text = "\n\n".join(
-        p for p in [said, heard, basis_line, _lines(shown, names)] if p and p.strip()
+        p for p in [said, added, heard, basis_line, _lines(shown, names)] if p and p.strip()
     )
     return text, id_map
 

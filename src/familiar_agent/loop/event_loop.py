@@ -1099,6 +1099,10 @@ class InformationProcessing:
         task.add_done_callback(self._background_tasks.discard)
         self._ensure_wait_watch()
 
+    def _main_llm_in_flight(self) -> bool:
+        """主LLM が考えている最中か（返りがまだ来ていない）。"""
+        return any(lk.in_flight and lk.action == "主LLM" for lk in self._req.lookups)
+
     def _ensure_wait_watch(self) -> None:
         """待たせている時間の見張りを、**求めごとに 1 本**立てる（出-au 段 2）。立っていれば何もしない。"""
         watch = self.__dict__.get("_wait_watch")
@@ -1986,6 +1990,7 @@ class InformationProcessing:
         self._req.lookups.clear()
         self._req.iterations = 0
         self._req.iterations_capped = False
+        self._req.added = []  # 言い足したことは求めごと（出-au 段 3）
         # 明けた瞬間の求めにだけ載る（情-h）。`__new__` で組んだ装置（テスト）でも落ちないよう既定を持つ。
         self._req.heard_while_silent = getattr(self, "_pending_heard", [])
         self._pending_heard = []
@@ -2118,6 +2123,7 @@ class InformationProcessing:
         self._req.cue = ""
         self._req.said_fillers.clear()
         self._req.told_unsaid = []
+        self._req.added = []
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
         self._req.fired_axis = ""
@@ -2343,11 +2349,14 @@ class InformationProcessing:
             #    列で待つ人の言葉より保留箱の入室を先に走らせ、会話入力が別の求めの取込に
             #    横取りされる隙を作った（実機 12:40・88 秒返らず）。
             busy = bool(self._in_flight_count)
+            # 主LLM が考えている最中の名前の無い入力は待たせる（返りの時点で考え直すかを決める・段 3）。
+            # 調べものだけが飛んでいるなら、取り出して前の求めに添える（`_attach_to_request`）。
+            thinking = self._main_llm_in_flight()
             utterance = next(
                 (
                     t
                     for t in self._held + fresh
-                    if t.kind in _NEVER_HELD_KINDS and (t.named or not busy)
+                    if t.kind in _NEVER_HELD_KINDS and (t.named or not thinking)
                 ),
                 None,
             )
@@ -2400,6 +2409,9 @@ class InformationProcessing:
                         len(self._drained_completions),
                     )
                     await self._iterate()
+                elif trigger.kind == "会話入力" and not trigger.named and self._in_flight_count:
+                    # 調べもの中の名前の無い入力は、新しい求めを始めず前の求めに添える（出-au 段 3）。
+                    await self._attach_to_request(trigger)
                 elif trigger.kind == "会話入力":
                     logger.debug("event-loop 駆動体が会話入力を受領")
                     await self._begin_utterance(trigger)
@@ -2421,6 +2433,40 @@ class InformationProcessing:
                 # ここで譲らなければ await を挟まない密な繰り返しになり、event loop ごと
                 # 止まる（実機では固まって見える）。
                 await asyncio.sleep(0)
+
+    def _rethink_or_speak(self) -> str:
+        """主LLM の返りが来たとき、考えているあいだに名前無しで言い足された入力があれば、**考え直す**か
+        **そのまま出す**かを決める（出-au 段 3・`設計方針_判定の段` §2.4）。
+
+        判定は Jev（段 5）。Jev が無いあいだは既定の「そのまま出す」——返りを声にし、待っている入力は答えの後に
+        別の新しい求めになる（`_take_trigger` の保留箱）。
+        """
+        held = self.__dict__.get("_held", [])  # 殻だけの器（テスト）でも落ちない
+        waiting = [t.query for t in held if t.kind == "会話入力" and not t.named]
+        if waiting:
+            logger.info(
+                "event-loop 考えているあいだに言い足された %d 件：そのまま出す（判定は段 5）",
+                len(waiting),
+            )
+        return "そのまま出す"
+
+    async def _attach_to_request(self, trigger: "Trigger") -> None:
+        """名前の無い入力を、調べもの中の求めに添える（出-au 段 3・`設計方針_判定の段` §2.4）。
+
+        新しい求めを始めると、`_begin_request` が前の求めの状態を空にし、届く結果の行き場が無くなる。打ち切って
+        よいのは名前で呼ばれたときだけである。O へは人の言葉として書き（話者の面）、やりとりの役割は「添え」
+        （起点にすると 1 つのやりとりに起点が 2 つになり、境目が崩れる）。結果が届いた後の決める反復で、W の
+        作業状態の枠に「言い足したこと」として載る。待っている呼び手（画面）にはすぐ返す。
+        """
+        text = trigger.query
+        obs_id = ""
+        with contextlib.suppress(Exception):
+            obs_id = await self._write_origin("発話", text) or ""
+        self._note_record(obs_id, "添え")
+        self._req.added.append((obs_id, text))
+        logger.info("event-loop 調べているあいだの言葉を求めに添える：%.40s", text)
+        if trigger.future is not None and not trigger.future.done():
+            trigger.future.set_result("")
 
     async def _begin_utterance(self, trigger: "Trigger") -> None:
         """会話入力で新しい連鎖を始め、**その反復の出力を待ち手へ返す**（環-f-い-2）。
@@ -2836,6 +2882,11 @@ class InformationProcessing:
         if gen != self._request_generation:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（生成後）")
             return ""
+
+        # 主LLM が考えているあいだに名前無しで言い足されたことがあれば、考え直すかを決める（出-au 段 3）。
+        # 判定（Jev）と「考え直す」の道は段 5。いまは常に「そのまま出す」で、待っている入力は答えの後に
+        # 別の求めになる。
+        self._rethink_or_speak()
 
         # 主LLM 自身のつなぎ（出-aq 段 2）。**`say` とは別の道具**なので、返事としては扱わない。
         filler_tc = next((tc for tc in decision.result.tool_calls if tc.name == "filler"), None)
@@ -3901,6 +3952,7 @@ class InformationProcessing:
         self._req.lookups.clear()
         self._req.said_fillers.clear()
         self._req.told_unsaid = []
+        self._req.added = []
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
         self._req.fired_axis = ""
