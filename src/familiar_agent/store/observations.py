@@ -1163,17 +1163,20 @@ class ObservationStore:
                     out.append(d)
                 return out
 
-    def raise_groundedness(self, obs_id: str, n: int) -> int:
-        """その出来事の全ての面の n を、少なくとも n まで上げる（下げない）。上がった面の数。
+    def set_groundedness(self, obs_id: str, n: int, *, lower: bool = False) -> int:
+        """その出来事の全ての面の根づき n を決める。動いた面の数。
 
-        固めた産物が出典の根づきを引き継ぐ（最大値）ため・同一の代表が群の最大を引き継ぐため。
+        `lower=False`（既定）は**上げるだけ**（少なくとも n まで・下げない）——固めた産物が出典の根づきを引き継ぐ
+        （最大値）ため・同一の代表が群の最大を引き継ぐため（記-a-ろ-に）。`lower=True` は n にそろえる（下げてもよい）
+        ——言いたかったことを伝えたら普通の重さ（0）へ戻すため（出-as 段 7・2026-09-26）。以前は上げる口
+        `raise_groundedness` と戻す口に分かれていたが、記憶の層の口の数（番人 59 種）の中に収めるため 1 つにした。
         """
+        cond = "groundedness_n <> %s" if lower else "groundedness_n < %s"
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
-                    "UPDATE situated_memories SET groundedness_n = %s "
-                    "WHERE obs_id = %s AND groundedness_n < %s",
+                    f"UPDATE situated_memories SET groundedness_n = %s WHERE obs_id = %s AND {cond}",
                     (int(n), obs_id, int(n)),
                 )
                 got = cur.rowcount

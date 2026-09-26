@@ -59,7 +59,7 @@ def _agent(records, *, target: float, reply=None):
     a._evaluator.emotion_for_turn = AsyncMock(side_effect=Exception("未測定"))
     a._oif.core_records = MagicMock(return_value=list(records))
     a._oif.supersede = MagicMock(return_value=True)
-    a._oif.raise_groundedness = MagicMock(return_value=1)
+    a._oif.set_groundedness = MagicMock(return_value=1)
     a._oif.write = AsyncMock(side_effect=lambda mi, **kw: f"new-{mi.content[:6]}")
     a.backend.complete = AsyncMock(
         side_effect=reply or (lambda *a_, **k: '{"text": "", "sources": []}')
@@ -88,7 +88,7 @@ def test_identical_records_fold_into_the_newest_without_the_llm(tmp_path):
     folded = {c.args[0]: c.args[1] for c in a._oif.supersede.call_args_list}
     assert folded == {"o0": newest, "o1": newest, "o2": newest}
     assert all(c.kwargs.get("kind") == KIND_FOLD for c in a._oif.supersede.call_args_list)
-    a._oif.raise_groundedness.assert_called_once_with(newest, 4)  # 群の最大 n
+    a._oif.set_groundedness.assert_called_once_with(newest, 4)  # 群の最大 n
     a.backend.complete.assert_not_called()
     assert any(" 層1同一 " in ln and "群=1" in ln and "畳んだ=3" in ln for ln in _lines(tmp_path))
 
@@ -133,7 +133,7 @@ def test_the_oldest_bundle_is_written_and_its_sources_folded(tmp_path):
     assert mi.timestamp == max(
         _two_topics()[i]["timestamp"] for i in range(6) if f"o{i}" in folded_from
     )
-    a._oif.raise_groundedness.assert_called()  # 産物が出典の最大 n を引き継ぐ
+    a._oif.set_groundedness.assert_called()  # 産物が出典の最大 n を引き継ぐ
     assert r.records and r.records[0].kind == "core_summary" and isinstance(r.records[0], Written)
     line = next(ln for ln in _lines(tmp_path) if " 層1固め " in ln)
     assert "固めた=1" in line and "見送り=0" in line

@@ -102,6 +102,8 @@ class Request:
     # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく続きとして
     # 自然につなぐために見せる。
     said_fillers: list[str] = field(default_factory=list)
+    # 返事で「使った」と申告された言いたかったこと（記録の id と中身・出-as 段 7）。声に出したら畳む。
+    told_unsaid: list = field(default_factory=list)
     # 配る保留（「いつ・何を言いたかったか」）。W へ流し、**求めが閉じたら**捨てる
     # （`_finish` と打ち切り）。
     speech_to_deliver: list[str] = field(default_factory=list)
