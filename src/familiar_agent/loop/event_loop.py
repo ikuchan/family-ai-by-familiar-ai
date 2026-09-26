@@ -559,7 +559,7 @@ class Trigger:
     | 種別 | いつ | 埋まる欄 |
     |---|---|---|
     | `完了` | 調べものが終わった | `query`・`result`・`index` |
-    | `進捗` | 調べものが遅い（`_watch_slow_lookup`） | `query` |
+    | `進捗` | 待たせている時間が長い（`_watch_waiting`） | `query` |
     | `決定` | 主LLM が返った | `decision`（`Decision`） |
     | `情動` | drive が発火した（AIF 経由） | `query`（drive の名）・`result`（促しの文） |
     | `機器` | 人が出入りした（DIF 経由） | `query`（種別）・`result`（中身） |
@@ -1097,27 +1097,60 @@ class InformationProcessing:
         task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id, index))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
-        watch = asyncio.create_task(self._watch_slow_lookup(query, self._request_generation))
-        self._background_tasks.add(watch)
-        watch.add_done_callback(self._background_tasks.discard)
+        self._ensure_wait_watch()
 
-    async def _watch_slow_lookup(self, query: str, gen: int) -> None:
-        """調べものが遅いとき、**1回だけ**「まだかかっている」を積む（案G-3・案イ）。
+    def _ensure_wait_watch(self) -> None:
+        """待たせている時間の見張りを、**求めごとに 1 本**立てる（出-au 段 2）。立っていれば何もしない。"""
+        watch = self.__dict__.get("_wait_watch")
+        if watch is not None and not watch.done():
+            return
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ立てない
+            self._wait_watch: "asyncio.Task[None] | None" = asyncio.get_running_loop().create_task(
+                self._watch_waiting(self._request_generation)
+            )
 
-        時計で定期的に起こすのではなく、**遅いという事実**が起点になる。繰り返すと結局
-        「一定時間ごとに言う」になるので、1回で終える。結果が先に来たら何もしない
-        （その時点で飛行中の一覧から消えている）。
+    def _stop_wait_watch(self) -> None:
+        """求めが閉じた・打ち切られた。見張りを止める。"""
+        watch = self.__dict__.get("_wait_watch")
+        if watch is not None and not watch.done():
+            watch.cancel()
+        self._wait_watch = None
+
+    def _waiting_on(self, *, conversation: bool) -> "list[Lookup]":
+        """待たせているもの。会話の求めは主LLM も数え、情動と機器の求めは調べものだけを数える。"""
+        return [
+            lk
+            for lk in self._req.lookups
+            if lk.in_flight and (conversation or lk.action != "主LLM")
+        ]
+
+    async def _watch_waiting(self, gen: int) -> None:
+        """待たせている時間が長いとき、「まだかかっている」（`進捗`）を積む（案G-3・出-au 段 2）。
+
+        最初は `lookup_slow_seconds`（5 秒）。**会話の求めでは**その後も `wait_filler_repeat_seconds`（20 秒）ごとに
+        繰り返し、主LLM の待ちも数える——窓（30 秒）が切れて、出来上がった答えが独り言になるのを防ぐ
+        （`設計方針_判定の段` §2.3）。情動と機器の求めは調べものが遅いときに 1 回だけ（いままでどおり）。
+        時計で定期的に起こすのではなく、**待たせているという事実**が続くあいだだけ起こす。
         """
-        seconds = float(getattr(self._agent.config, "lookup_slow_seconds", 5.0))
+        cfg = self._agent.config
+        delay = float(getattr(cfg, "lookup_slow_seconds", 5.0))
+        every = float(getattr(cfg, "wait_filler_repeat_seconds", 20.0))
+        conversation = self._req.trigger_kind == "発話"
         with contextlib.suppress(asyncio.CancelledError):
-            await asyncio.sleep(seconds)
-            if gen != self._request_generation:
-                return  # 打ち切られた求めの見張り
-            lk = self._lookup_of(query)
-            if lk is None or not lk.in_flight:
-                return  # もう結果が来ている
-            logger.info("event-loop 調べものが %.0f 秒を超えた：%.40s", seconds, query)
-            self._triggers.put_nowait(Trigger(kind="進捗", query=query))
+            while True:
+                await asyncio.sleep(delay)
+                if gen != self._request_generation:
+                    return  # 打ち切られた求めの見張り
+                waiting = self._waiting_on(conversation=conversation)
+                if not waiting:
+                    return  # もう結果が来ている（次に飛ばすときに立て直す）
+                logger.info(
+                    "event-loop 待たせている時間が %.0f 秒を超えた：%.40s", delay, waiting[0].query
+                )
+                self._triggers.put_nowait(Trigger(kind="進捗", query=waiting[0].query))
+                if not conversation:
+                    return
+                delay = every
 
     def _dispatch_main_llm(
         self,
@@ -1170,6 +1203,7 @@ class InformationProcessing:
         )
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
+        self._ensure_wait_watch()  # 主LLM の待ちも見張る（会話の求めだけ・出-au 段 2）
 
     async def _run_main_llm(
         self,
@@ -1657,9 +1691,11 @@ class InformationProcessing:
 
         progress = [c for c in items if c.kind == "進捗"]
         items = [c for c in items if c.kind != "進捗"]
-        if progress:
+        if progress and not items:
             # 「まだかかっている」は結果ではない。飛行中の数も一覧も触らず、意図も
             # supersede しない。次の反復で、調停に短い一言を書かせるためだけに起こす。
+            # **本物の結果が一緒に届いたら、結果に答える**（出-au 段 2）。つなぎだけ言って返ると、
+            # 取り込んだ結果に答える反復が二度と起きない。
             self._slow_notice_received = True
         decided: "Decision | None" = None
         for c in items:
@@ -2055,6 +2091,7 @@ class InformationProcessing:
         self._drained_completions.clear()
 
         self._request_generation += 1
+        self._stop_wait_watch()
         if dropped or drained:
             logger.info(
                 "event-loop 調べかけを打ち切る（%s／取り込まなかった完了 %d件）",
@@ -2460,6 +2497,7 @@ class InformationProcessing:
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._driver
             self._driver = None
+        self._stop_wait_watch()
         # 鳴っている最中のつなぎは止める（出-aq 段 1）。**終わるときに声を待たない。**
         for task in list(self._filler_voices):
             task.cancel()
@@ -2492,7 +2530,10 @@ class InformationProcessing:
             # しまい、「そのまま出す」と矛盾する（`設計方針_主LLMを投げっぱなしにする`）。
             return await self._act_on_decision(decided, utterance=utterance, gen=gen)
         # ここから先は**決める反復**である（決定は上で捌いて返っている）。数えるのはここだけ。
-        self._req.iterations += 1
+        # 「まだかかっている」で起きた反復（つなぎだけ出す）は数えない（出-au 段 2）。20 秒ごとに繰り返すと、
+        # 数えれば上限（`event_max_iterations`）に届き、答えを考える前に打ち切りになる。
+        if not self._slow_notice_received:
+            self._req.iterations += 1
         chain = self._req.iterations
         if drained:
             logger.debug("event-loop iter=%d/%d QC取込=%d件", chain, max_chain, drained)
@@ -3854,6 +3895,7 @@ class InformationProcessing:
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
+        self._stop_wait_watch()  # 待たせている時間の見張りは求めと一緒に閉じる（出-au 段 2）
         self._req.request_id = None
         self._req.live_version_id = None
         self._req.lookups.clear()
