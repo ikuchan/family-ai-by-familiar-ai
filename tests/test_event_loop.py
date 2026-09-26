@@ -110,6 +110,10 @@ def _agent(*, stream_returns, max_iters=3):
     # 数値として使う設定は明示する。MagicMock のままだと `content[:cap]` の cap が
     # `__index__`=1 と解釈され、content が黙って1文字に切られる（実際に起きた）。
     a.config.completion_content_max = 8192
+    # 「調べものが遅い」の見張り（`_watch_slow_lookup`）。偽物の設定のままだと `float(MagicMock)` が 1.0 になり、
+    # 調べものを使う試験がそれぞれ 1 秒待っていた（試験の組み立ては裏のタスクが終わるまで待つ・環-aa）。
+    # 偽の調べものはその場で返るので、0.2 秒で「遅い」を知らせることは無い。
+    a.config.lookup_slow_seconds = 0.2
     return a
 
 
@@ -665,7 +669,7 @@ def test_typing_with_nobody_present_is_still_answered():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
     a._social_presence_permission = MagicMock(return_value=0.0)  # カメラには誰も映っていない
     a._nudge_seeking = AsyncMock()
-    _run(a)
+    _run_chain(a)  # 声を待たず、主LLM の呼び出しを待つ（声になるかは段 6 の発話の門）
     a.backend.stream_turn.assert_awaited()  # 主LLM が返事を考えた
     a._nudge_seeking.assert_not_awaited()  # 捨てていないので押し上げもしない
 
@@ -1220,8 +1224,10 @@ def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():
         ip = InformationProcessing(a)
         await ip.push_utterance("今日はどんな天気？")
         ip.push_completion("https://example.com/1hour.html", "時間別の表…")
+        # 主LLM は 1 回しか呼ばれない（2 回を待つと 10 秒の上限まで待ち切っていた・環-aa）。W の中身は、
+        # 偽の想起が返す完了 O（obs3）から載る。
         for _ in range(_WAIT_TICKS):
-            if a.backend.stream_turn.await_count >= 2:
+            if a.backend.stream_turn.await_count >= 1:
                 break
             await asyncio.sleep(0.005)
         await ip.close()
@@ -1403,6 +1409,8 @@ def test_the_arbiter_sees_what_was_already_looked_up():
     a._active_memory().format_for_context = MagicMock(
         side_effect=lambda ms: "\n".join(str(m["summary"]) for m in ms)
     )
+    # 調停がずっと recall を選ぶので、主LLM は 1 回で終わる（2 回を待つと 10 秒待ち切っていた・環-aa）。
+    a._expected_turns = 1
 
     _run_chain(a, utterance="どこの天気？")
 

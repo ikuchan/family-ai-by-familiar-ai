@@ -185,3 +185,42 @@ def _no_real_camera_thread(monkeypatch):
 
     monkeypatch.setattr(CameraTool, "start", lambda self: None)
     yield
+
+
+@pytest.fixture(autouse=True)
+def _async_stuck_guard(monkeypatch):
+    """`asyncio.run` が終わらなければ、待っていたタスクの場所を載せて失敗させる（環-aa・2026-09-26）。
+
+    全体テストが 14 回中 3 回、`test_event_loop.py` の別々の試験で 120 秒の上限に達して止まった。止まったときに
+    生きていたのはメインのスレッドだけで、**どのタスクが何を待っていたかは残らなかった**（再現を狙った 9 回では
+    出なかった）。次に止まったとき必ず原因が残るようにする。秒数は `TEST_ASYNC_STUCK_SEC`（既定 90・pytest の
+    上限 120 より短く）。pytest-asyncio の試験（`asyncio.run` を使わない）は包まない。
+    """
+    import asyncio
+    import io
+
+    real_run = asyncio.run
+
+    def guarded(main, *args, **kwargs):
+        async def guard():
+            task = asyncio.ensure_future(main)
+            limit = float(os.environ.get("TEST_ASYNC_STUCK_SEC", "90"))
+            done, _ = await asyncio.wait({task}, timeout=limit)
+            if done:
+                return task.result()
+            trace = io.StringIO()
+            for t in asyncio.all_tasks():
+                if t is asyncio.current_task():
+                    continue
+                trace.write(f"-- {t!r:.200}\n")
+                t.print_stack(limit=15, file=trace)
+            task.cancel()
+            await asyncio.wait({task}, timeout=1.0)
+            raise TimeoutError(
+                f"asyncio.run が {limit:g} 秒で終わらなかった。待っていたタスク：\n{trace.getvalue()}"
+            )
+
+        return real_run(guard(), *args, **kwargs)
+
+    monkeypatch.setattr(asyncio, "run", guarded)
+    yield
