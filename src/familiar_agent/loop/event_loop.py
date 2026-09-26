@@ -39,6 +39,7 @@ from ..core.tool_text import tool_calls_from_text
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .speech_check import facts_ctx, used_lines
+from ..core.wake_window import WakeWindow
 from .generator import _iter_ctx, _pi_ctx, _present_ctx
 from . import reply_budget, workspace
 from .request import Lookup, Request
@@ -690,6 +691,8 @@ class InformationProcessing:
         self._muted: list[Heard] = []
         self._muted_since: "float | None" = None
         self._pending_heard: list[Heard] = []
+        # ウェイクワードの窓（出-as）。声は窓の中でだけ会話として受ける。
+        self._wake = WakeWindow()
         # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
@@ -3232,16 +3235,21 @@ class InformationProcessing:
                 return False
             await self._note_muted(trigger, now)
             return self._swallowed(trigger)
-        if trigger.kind == "会話入力" and self._nobody_visible():
+        if trigger.kind == "会話入力":
             if self._timer_active() and is_control_word(trigger.query):
-                # タイマーが動いている／鳴っているときの操作の言葉（止めて・一時停止・再開）は、誰も
-                # 見えなくても通す（出-ab・実機 2026-09-18 22:13：鳴っている最中の「止めて」が飲まれた）。
-                # 沈黙の門（情-m）と同じ規則。テレビの短い「止めて」で止まる副作用は許容済み。
+                # タイマーが動いている／鳴っているときの操作の言葉（止めて・一時停止・再開）は、名前が
+                # 無くても通す（出-ab・実機 2026-09-18 22:13：鳴っている最中の「止めて」が飲まれた）。
+                # タイマーまわりは従来どおり（出-as §2.4）。
                 return False
-            await self._note_muted(trigger, now, why="誰も見えなかった")
-            with contextlib.suppress(Exception):
-                await self._agent._nudge_seeking()
-            return self._swallowed(trigger)
+            if not self._window_admits(trigger):
+                # **窓の外の声は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
+                # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
+                logger.info("event-loop 窓の外の声なので捨てる：%.40s", trigger.query)
+                if self._nobody_visible():
+                    # 声がしたのに見えないのは見に行く理由（案ア・seeking はいまのまま）。
+                    with contextlib.suppress(Exception):
+                        await self._agent._nudge_seeking()
+                return self._swallowed(trigger)
         if self._muted:
             self._pending_heard = self._take_muted()
         return False
@@ -3267,6 +3275,27 @@ class InformationProcessing:
         if _timer_frame(self._agent):
             return True
         return bool(getattr(getattr(self._agent, "_dif", None), "ringing", False))
+
+    def _window_admits(self, trigger: "Trigger") -> bool:
+        """会話入力を窓で受けるか（出-as 段 3・`設計方針_話していいかの決まり` §2.3）。受けたら窓を開ける／延ばす。
+
+        キーボードはいつでも受けて窓を開ける。声は名前があれば開けて受け、窓が開いていれば延ばして
+        受ける。**カメラに誰も映っていなくても**窓の中なら受ける（呼ばれた・打たれたことが居る証拠）。
+        """
+        from ..core.wake_window import heard_name
+
+        now = time.monotonic()
+        if trigger.source != "voice":
+            self._wake.open(now)
+            return True
+        names = list(getattr(self._agent.config, "agent_names", None) or [])
+        if heard_name(trigger.query, names):
+            self._wake.open(now)
+            return True
+        if self._wake.is_open(now):
+            self._wake.extend(now)
+            return True
+        return False
 
     def _nobody_visible(self) -> bool:
         """配信ゲートと同じ「居るか」（`agent._social_presence_permission`）。読めなければ居る扱い。"""

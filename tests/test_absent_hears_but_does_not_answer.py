@@ -1,9 +1,8 @@
-"""誰も見えていないときの会話入力は、入口で止めて同じ器に溜める（2026-09-17）。
+"""入口の門のうち、誰が見えるかに関わるもの（2026-09-17 → 出-as 段 3・2026-09-26）。
 
-「聞けない理由」は 2 つ——黙っているよう頼まれている（情-h）と、誰も見えない。どちらも
-入口で止め（調停も主LLM も回らない）、`silence_hold` の器に溜め、人が映った最初の求めの W に
-列挙して主LLM がそのとき判断する。返事を作ってから溜める（環-b の `pending_speech`）のは
-機器の知らせだけ。見に行く理由として SEEKING の押し上げも入口で行う。
+「誰も見えないと会話入力を止めて溜める」は、出-as でウェイクワードの窓に置き換えた（窓の外の声は
+記録せずに捨てる・`test_the_wake_window_gates_voice.py`）。ここに残るのは、機器と情動が入口を通ること、
+黙っていたあいだの見出し、明けたときに渡すこと、タイマーの操作の言葉が名前なしで通ること。
 """
 
 from __future__ import annotations
@@ -36,41 +35,12 @@ def _run(coro):
     return asyncio.run(bounded())
 
 
-def test_a_voice_with_nobody_visible_is_heard_but_not_answered():
-    ip, a = _ip(present=0.0)
-
-    async def scenario():
-        fut = asyncio.get_running_loop().create_future()
-        swallowed = await ip._swallow_if_unheard(
-            Trigger(kind="会話入力", query="こんにちは", future=fut)
-        )
-        return swallowed, fut
-
-    swallowed, fut = _run(scenario())
-    assert swallowed is True
-    assert fut.done() and fut.result() == ""
-    assert "誰も見えないあいだに聞いた" in a._oif.write.call_args.args[0].content
-    assert [(h.kind, h.why) for h in ip._muted] == [("会話入力", "誰も見えなかった")]
-    a._nudge_seeking.assert_awaited_once()  # 見に行く理由にはなる
-
-
 def test_device_and_affect_still_go_to_the_exit_gate_when_absent():
     ip, a = _ip(present=0.0)
     d = _run(ip._swallow_if_unheard(Trigger(kind="機器", query="タイマー", result="時間")))
     u = _run(ip._swallow_if_unheard(Trigger(kind="情動", query="seeking")))
     assert (d, u) == (False, False)
     a._nudge_seeking.assert_not_awaited()
-
-
-def test_when_someone_appears_the_heard_things_ride_the_next_request():
-    ip, a = _ip(present=0.0)
-    _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは")))
-    a._social_presence_permission = MagicMock(return_value=1.0)
-    swallowed = _run(
-        ip._swallow_if_unheard(Trigger(kind="機器", query="入室", result="誰か が来た"))
-    )
-    assert swallowed is False
-    assert [h.text for h in ip._pending_heard] == ["こんにちは"] and ip._muted == []
 
 
 def test_the_heading_says_why_it_could_not_answer():
@@ -87,14 +57,6 @@ def test_the_heading_says_why_it_could_not_answer():
 # ── 情-k：不在で溜めたものは「沈黙が明けた」ではない（2026-09-18 12:38 実機）─────
 
 
-def test_things_heard_while_absent_do_not_trigger_silence_lifted():
-    ip, a = _ip(present=0.0)
-    ip.push_device = MagicMock()
-    _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは")))
-    ip.check_silence_lifted()  # 黙ってはいない・器には不在の 1 件だけ
-    ip.push_device.assert_not_called()
-
-
 def test_things_heard_while_silent_still_trigger_it_when_it_lifts():
     from familiar_agent.core.silence_hold import Heard
 
@@ -107,7 +69,8 @@ def test_things_heard_while_silent_still_trigger_it_when_it_lifts():
 
 # ── タイマーがあるときの操作の言葉は、誰も見えなくても通す（出-ab・2026-09-18）────────
 #
-# 鳴っている最中に映らない位置で「止めて」→ `誰も見えないので聞くだけ`（実機 22:13:04）。沈黙の門は
+# 鳴っている最中に映らない位置で「止めて」→ `誰も見えないので聞くだけ`（実機 22:13:04）。出-as 以降は、
+# 名前の無い声（窓の外）でも操作の言葉なら通す、の意味になる。沈黙の門は
 # 情-m で操作の言葉を通すようにしたが、鳴った瞬間に沈黙は解け、代わりに不在の門が効いていた。
 # `[タイマー]` が動いている／一時停止中／鳴っているときは、操作の言葉（`is_control_word`）を通す。
 
@@ -121,20 +84,16 @@ def _ip_with_timer(*, frame: str, ringing: bool = False):
 
 def test_a_control_word_passes_the_absent_gate_while_a_timer_runs():
     ip, _ = _ip_with_timer(frame="[タイマー]\n- id=1 パスタ 鳴っている")
-    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて"))) is False
+    assert (
+        _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて", source="voice")))
+        is False
+    )
     assert ip._muted == []
-
-
-def test_ordinary_talk_is_still_swallowed_while_a_timer_runs():
-    ip, _ = _ip_with_timer(frame="[タイマー]\n- id=1 パスタ 残り 2:00")
-    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは"))) is True
-
-
-def test_a_control_word_is_swallowed_when_no_timer_exists():
-    ip, _ = _ip_with_timer(frame="")
-    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて"))) is True
 
 
 def test_the_ring_alone_counts_as_a_timer():
     ip, _ = _ip_with_timer(frame="", ringing=True)
-    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて"))) is False
+    assert (
+        _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて", source="voice")))
+        is False
+    )
