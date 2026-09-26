@@ -66,9 +66,10 @@ def test_the_frame_says_paused():
 
 
 def test_pause_and_resume_words_pass_the_silence_gate():
-    """タイマーの沈黙では、一時停止・再開は誰の言葉でも通す（明示の沈黙では通さない・出-as）。"""
-    assert lifts("会話入力", "一時停止", names=["パジュ"], reason="timer:1")
-    assert lifts("会話入力", "再開して", names=["パジュ"], reason="timer:1")
+    """タイマーの沈黙では、名前つきの一時停止・再開は誰の言葉でも通す（明示の沈黙では通さない・出-as・出-au）。"""
+    assert lifts("会話入力", "パジュ、一時停止", names=["パジュ"], reason="timer:1")
+    assert lifts("会話入力", "パジュ、再開して", names=["パジュ"], reason="timer:1")
+    assert not lifts("会話入力", "一時停止", names=["パジュ"], reason="timer:1")
     assert not lifts("会話入力", "再開して", names=["パジュ"], reason="")
 
 

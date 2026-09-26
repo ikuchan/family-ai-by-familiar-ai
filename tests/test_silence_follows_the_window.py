@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import time
 from types import SimpleNamespace
 
@@ -21,6 +23,8 @@ from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.silence_state import SilenceRequest, is_silenced
 
 from tests.test_event_loop import _agent
+
+pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftest の窓の開き口を使わない）
 
 NAMES = ["パジュ"]
 
@@ -80,7 +84,8 @@ def test_a_stop_word_no_longer_lifts_an_explicit_silence():
 
 def test_timer_rules_are_unchanged():
     assert lifts("機器", "タイマー", names=NAMES, reason="timer:3")
-    assert lifts("会話入力", "止めて", names=NAMES, reason="timer:3")
+    assert lifts("会話入力", "パジュ、止めて", names=NAMES, reason="timer:3")  # 名前が要る（出-au）
+    assert not lifts("会話入力", "止めて", names=NAMES, reason="timer:3")
 
 
 # ── 解く ───────────────────────────────────────────────────────────────────
