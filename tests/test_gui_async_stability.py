@@ -159,7 +159,8 @@ async def test_gui_realtime_stt_callbacks_log_and_enqueue_text():
 
     await fake_stt.emit_committed("voice hello")
     win._stream.clear_status.assert_called()
-    win._log.append_line.assert_any_call("[Kota] voice hello")
+    # 会話ログに出すのはループの門が受けたとき（`_on_heard`・出-au 段 1-4）。確定の時点では出さない。
+    assert "[Kota] voice hello" not in [c.args[0] for c in win._log.append_line.call_args_list]
     assert await asyncio.wait_for(win._input_queue.get(), timeout=0.5) == "voice hello"
 
 
@@ -299,7 +300,10 @@ def test_gui_on_send_uses_companion_display_name() -> None:
 
     FamiliarWindow._on_send(win)
 
+    # 打った時点ではログに出さない（`_on_heard` が受けたときに出す・出-au 段 1-4）。
     assert isinstance(win._log, MagicMock)
+    win._log.append_line.assert_not_called()
+    FamiliarWindow._on_heard(win, "hello", True)
     win._log.append_line.assert_called_once_with("[Kota] hello")
 
 

@@ -71,15 +71,16 @@ def test_a_committed_transcript_is_not_enqueued_by_the_display_hook():
     assert win._input_queue.qsize() == 0, "表示の口で積んでいる（2回答える原因）"
 
 
-def test_a_committed_transcript_is_shown_in_the_conversation_log():
-    """積まないが、表示はする（会話ログに残す役割はこの口が持つ）。"""
+def test_a_committed_transcript_is_shown_only_once_the_gate_hears_it():
+    """確定した時点では出さない。会話ログに出すのは、ループの門が受けたとき（`_on_heard`・出-au 段 1-4）。"""
     from familiar_agent.gui import FamiliarWindow
 
     win = _stub_window()
     FamiliarWindow._on_realtime_stt_committed(win, "おはよう。")
-
-    assert any("おはよう。" in line for line in win._log.lines)
+    assert win._log.lines == []
     assert win._stream.cleared == 1  # 「聞いています」を消す
+    FamiliarWindow._on_heard(win, "おはよう。", True)
+    assert any("おはよう。" in line for line in win._log.lines)
 
 
 def test_the_display_hook_does_not_drop_repeats():
@@ -90,8 +91,8 @@ def test_the_display_hook_does_not_drop_repeats():
     from familiar_agent.gui import FamiliarWindow
 
     win = _stub_window()
-    FamiliarWindow._on_realtime_stt_committed(win, "うん")
-    FamiliarWindow._on_realtime_stt_committed(win, "うん")
+    FamiliarWindow._on_heard(win, "うん", True)
+    FamiliarWindow._on_heard(win, "うん", True)
 
     assert len(win._log.lines) == 2, "2回言ったのに1回しか出ていない"
 

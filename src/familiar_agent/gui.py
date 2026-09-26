@@ -1970,7 +1970,7 @@ class FamiliarWindow(QMainWindow):
             if speaker:
                 agent._persons.set_active(speaker)
 
-        self._log.append_line(f"[{self._get_active_speaker()}] {text}")
+        # 会話ログに出すのは、ループの門が受けたときだけ（`_on_heard`・出-au 段 1-4）。
         self._input_queue.put_nowait(KeyText(text))  # 届いた時刻を付ける（出-au 段 1-1）
         self._log_input_queued("keyboard")
 
@@ -2018,7 +2018,10 @@ class FamiliarWindow(QMainWindow):
         self._stream.set_status(f"🎤 {partial}")
 
     def _on_realtime_stt_committed(self, text: str) -> None:
-        """確定した書き起こしを会話ログへ出す。**ここでキューへ積まない。**
+        """確定した書き起こしを受け取る。**ここでキューへ積まず、会話ログにも出さない。**
+
+        会話ログに出すのは、ループの門が受けた入力だけ（`_on_heard`・出-au 段 1-4）。ここで出すと、窓の外で
+        捨てる声（テレビ・家族の話）も「聞いた」ように見える。
 
         積むのはセッション側（`realtime_stt_session._committed_relay`）で、この口を呼んだ
         直後に `_committed_queue.put()` を行う。その `_committed_queue` は `_input_queue`
@@ -2034,8 +2037,23 @@ class FamiliarWindow(QMainWindow):
         if not spoken:
             return
         self._stream.clear_status()
-        self._log.append_line(f"[{self._get_active_speaker()}] {spoken}")
         self._log_input_queued("stt", pending=1)
+
+    def _on_heard(self, text: str, heard: bool) -> None:
+        """ループの門から「受けた／捨てた」を受ける（出-au 段 1-4）。
+
+        受けた入力だけを会話ログに出す。捨てた入力は、状態の行に「聞いていない」を**次の入力か状態が来るまで**
+        出す（本人の決定 2026-09-26）。打った文字が消えたように見えないためで、会話ログには載せない。
+        """
+        if self._closing:
+            return
+        body = str(text).strip()
+        if not body:
+            return
+        if heard:
+            self._log.append_line(f"[{self._get_active_speaker()}] {body}")
+        else:
+            self._stream.set_status(f"🎤 聞いていない：{body}")
 
     def _on_realtime_stt_restart(self, reason: str) -> None:
         if self._closing:
@@ -2470,6 +2488,9 @@ class FamiliarWindow(QMainWindow):
             # 求めが開いているあいだ停止ボタンを効かせる（環-j）。
             with contextlib.suppress(Exception):
                 agent.set_request_state_listener(self._on_request_state)
+            # 受けた入力だけを会話ログに出す（出-au 段 1-4）。
+            with contextlib.suppress(Exception):
+                agent.set_heard_listener(self._on_heard)
             self._set_last_error(None)
             self._set_input_enabled(True)
             if self._realtime_stt and self._realtime_stt_task is None:

@@ -2012,7 +2012,9 @@ class InformationProcessing:
             arrived=time.monotonic() if arrived is None else arrived,
         )
         if await self._swallow_if_unheard(trigger):
+            self._notify_heard(utterance, False)
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
+        self._notify_heard(utterance, True)
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
         # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
@@ -2109,6 +2111,23 @@ class InformationProcessing:
         居ない。求めが開いているあいだ停止を有効にしておき、押されたら `abort_current`。
         """
         self._on_request_state = listener
+
+    def set_heard_listener(self, listener) -> None:
+        """会話入力を受けた／捨てたを知らせる先を登録する（出-au 段 1-4）。
+
+        画面は、会話ログに出すのを受けた入力だけにし、捨てた入力は状態の行に「聞いていない」と出す。
+        以前は書き起こしが確定した時点・打った時点でログに出しており、窓の外の声も「聞いた」ように見えた。
+        """
+        self._on_heard = listener
+
+    def _notify_heard(self, text: str, heard: bool) -> None:
+        listener = getattr(self, "_on_heard", None)  # 殻だけの器（テスト）でも落ちない
+        if listener is None:
+            return
+        try:
+            listener(text, heard)
+        except Exception:  # noqa: BLE001
+            logger.exception("event-loop 受けた／捨てたを知らせられなかった")
 
     def _notify_request_state(self, open_: bool) -> None:
         listener = getattr(self, "_on_request_state", None)  # 殻だけの器（テスト）でも落ちない
@@ -2497,9 +2516,9 @@ class InformationProcessing:
         # 5軸の重みは trigger 種別で決める（`課題5_パラメータ仮案` §280）。選ぶ基準は
         # 「この求めを何が始めたか」ではなく **「この反復を何を手がかりに動くか」**である。
         # 反復1の手がかりは人の言葉だが、完了が届いて起きた反復の手がかりは結果の本文で、
-        # 性質が違う。`self._req.trigger_kind` を書き換えないのは、そちらが静穏時間のゲート
-        # （`_delivery_block_reason`）に使われており、人に話しかけられて始まった求めを夜間に
-        # 保留させてしまうためである。
+        # 性質が違う。`self._req.trigger_kind` を書き換えないのは、そちらが出口の門（窓と在席・
+        # `_speak`・`_delivery_block_reason`）に使われており、人に話しかけられて始まった求めを
+        # 情動や機器の求めとして止めてしまうためである。
         trigger = "完了" if drained else self._req.trigger_kind
         w_base = _mcfg.recall_weights(trigger)
         weights = _mcfg.jitter_weights(w_base)
