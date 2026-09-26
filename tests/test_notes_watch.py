@@ -28,6 +28,7 @@ def _agent(reply: str, ok: bool = True, connected: bool = True):
         return_value=[{"name": "get_notes_for_paju"}] if connected else []
     )
     ip._dif.device = MagicMock()
+    ip.record_device = AsyncMock()  # メモは記憶に記録だけする（出-as §2.7）
     return ip
 
 
@@ -41,16 +42,16 @@ def test_the_first_read_is_stored_without_waking_anyone():
     notes_watch._save_state(None)
     changed = asyncio.run(notes_watch.check_notes(a))
     assert changed is False
-    a._dif.device.assert_not_called()
+    a.record_device.assert_not_awaited()
     assert notes_watch._load_state() == "- 木曜は早く帰る"
 
 
-def test_a_changed_note_wakes_a_device_request_with_the_new_lines():
+def test_a_changed_note_is_recorded_with_the_new_lines():
     a = _agent(NOTE2)
     notes_watch._save_state("- 木曜は早く帰る")
     changed = asyncio.run(notes_watch.check_notes(a))
     assert changed is True
-    kind, content = a._dif.device.call_args.args[:2]
+    kind, content = a.record_device.await_args.args[:2]
     assert kind == "メモ"
     assert "パジュへのメモが変わった" in content and "金曜はたいきの試合" in content
     assert notes_watch._load_state() == "- 木曜は早く帰る\n- 金曜はたいきの試合"
@@ -60,7 +61,7 @@ def test_an_unchanged_note_does_nothing():
     a = _agent(NOTE1)
     notes_watch._save_state("- 木曜は早く帰る")
     assert asyncio.run(notes_watch.check_notes(a)) is False
-    a._dif.device.assert_not_called()
+    a.record_device.assert_not_awaited()
 
 
 def test_a_missing_or_failing_tool_is_silent():
@@ -69,7 +70,7 @@ def test_a_missing_or_failing_tool_is_silent():
     a._dif.call_tool.assert_not_called()
     a = _agent("エラー", ok=False)
     assert asyncio.run(notes_watch.check_notes(a)) is False
-    a._dif.device.assert_not_called()
+    a.record_device.assert_not_awaited()
 
 
 def test_the_tonic_reads_once_an_hour():
@@ -89,11 +90,11 @@ def test_the_tonic_reads_once_an_hour():
     assert t._notes_due(now=100.0 + notes_watch.INTERVAL_SEC) is True
 
 
-def test_the_request_is_pushed_before_the_state_is_saved():
-    """積むところで落ちたら前回値は進まない（差分を失わない・実機 19:40）。"""
+def test_the_record_is_written_before_the_state_is_saved():
+    """記録で落ちたら前回値は進まない（差分を失わない・実機 19:40）。"""
     a = _agent(NOTE2)
     notes_watch._save_state("- 木曜は早く帰る")
-    a._dif.device = MagicMock(side_effect=RuntimeError("push_device が無い"))
+    a.record_device = AsyncMock(side_effect=RuntimeError("記録できない"))
     try:
         asyncio.run(notes_watch.check_notes(a))
     except RuntimeError:

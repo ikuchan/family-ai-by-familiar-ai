@@ -57,14 +57,16 @@ def test_a_monologue_after_a_filler_is_spoken_too() -> None:
 
 
 def test_being_asked_to_stay_quiet_still_wins_after_a_filler() -> None:
+    """止められたら独り言（出-as §2.6）。保留には積まない。"""
     got, spoke, held = _speak(
         _ip(trigger_kind="発話", blocked="黙っているよう頼まれている", said_filler=True)
     )
-    assert got == ("", "保留") and spoke == 0 and held == 1
+    assert got == ("部屋には机と椅子があるよ。", "独白") and spoke == 0 and held == 0
 
 
 def test_without_a_filler_the_gate_works_as_before() -> None:
+    """止められたら独り言（出-as §2.6）。保留には積まない。"""
     got, spoke, held = _speak(
         _ip(trigger_kind="発話", blocked="聞く相手が居ない", said_filler=False)
     )
-    assert got == ("", "保留") and spoke == 0 and held == 1
+    assert got == ("部屋には机と椅子があるよ。", "独白") and spoke == 0 and held == 0

@@ -57,14 +57,16 @@ def test_the_heading_says_why_it_could_not_answer():
 # ── 情-k：不在で溜めたものは「沈黙が明けた」ではない（2026-09-18 12:38 実機）─────
 
 
-def test_things_heard_while_silent_still_trigger_it_when_it_lifts():
+def test_things_heard_while_silent_do_not_start_anything_when_it_lifts():
+    """明けても何もしない（出-as §2.7）。聞いたことは次の会話の求めに乗る。"""
     from familiar_agent.core.silence_hold import Heard
 
     ip, a = _ip(present=1.0)
     ip.push_device = MagicMock()
     ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time(), why="黙っていた")]
     ip.check_silence_lifted()  # 依頼は消えている（`_load_silence` は None）
-    ip.push_device.assert_called_once()
+    ip.push_device.assert_not_called()
+    assert [h.text for h in ip._muted] == ["明日の予定は？"]  # 捨てずに次の求めまで持つ
 
 
 # ── タイマーがあるときの操作の言葉は、誰も見えなくても通す（出-ab・2026-09-18）────────

@@ -44,8 +44,10 @@ def _capture():
 
 
 def _ip():
+    # 人の出入りは求めを立てず記録だけする（出-as §2.7）。DIF は `ip.note_device` を呼ぶ。
     ip = MagicMock()
     ip.push_device = MagicMock()
+    ip.note_device = MagicMock()
     return ip
 
 
@@ -66,46 +68,36 @@ def _scan(tonic, times):
         tonic.scan_presence()
 
 
-def test_arrival_is_pushed_as_a_device_event():
+def test_arrival_is_recorded():
     ip = _ip()
     t = Tonic(ip, agent=_agent_with(_rows(), _rows("たいき")))
     _scan(t, 2)
-    kinds = [c.args[0] for c in ip.push_device.call_args_list]
+    kinds = [c.args[0] for c in ip.note_device.call_args_list]
     assert kinds == ["入室"]
-    assert "たいき" in ip.push_device.call_args.args[1]
+    assert "たいき" in ip.note_device.call_args.args[1]
 
 
-def test_departure_is_pushed_as_a_device_event():
+def test_departure_is_recorded():
     ip = _ip()
     t = Tonic(ip, agent=_agent_with(_rows("たいき"), _rows()))
     _scan(t, 2)
-    assert [c.args[0] for c in ip.push_device.call_args_list] == ["退室"]
-    assert "たいき" in ip.push_device.call_args.args[1]
+    assert [c.args[0] for c in ip.note_device.call_args_list] == ["退室"]
+    assert "たいき" in ip.note_device.call_args.args[1]
 
 
-def test_every_new_person_fires_even_when_someone_is_already_there():
+def test_every_new_person_is_recorded_even_when_someone_is_already_there():
     # 案B：既に誰か居るところへもう1人来ても立つ。
     ip = _ip()
     t = Tonic(ip, agent=_agent_with(_rows("パパ"), _rows("パパ", "たいき")))
     _scan(t, 2)
-    assert [c.args[0] for c in ip.push_device.call_args_list] == ["入室"]
+    assert [c.args[0] for c in ip.note_device.call_args_list] == ["入室"]
 
 
 def test_no_event_while_the_same_people_stay():
     ip = _ip()
     t = Tonic(ip, agent=_agent_with(_rows("パパ"), _rows("パパ"), _rows("パパ")))
     _scan(t, 3)
-    ip.push_device.assert_not_called()
-
-
-def test_pending_speech_is_released_only_when_presence_rises_from_zero():
-    # 保留は「聞く相手が居なかった」から溜まったもの。相手が現れた瞬間だけ配る。
-    # 会話中に家族が増えるたび割り込ませない。
-    ip = _ip()
-    t = Tonic(ip, agent=_agent_with(_rows(), _rows("パパ"), _rows("パパ", "たいき")))
-    _scan(t, 3)
-    releases = [c.kwargs.get("release_pending") for c in ip.push_device.call_args_list]
-    assert releases == [True, False]
+    ip.note_device.assert_not_called()
 
 
 def test_a_device_trigger_wakes_the_driver():

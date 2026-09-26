@@ -1932,7 +1932,6 @@ class InformationProcessing:
         **鎖は進めない。** 求めの中は版チェーン（`_write_version` の `改訂`）が担い、
         求めをまたいで畳む理由はない（環-g・段に）。
         """
-        agent = self._agent
         self._req.utterance = utterance
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
@@ -1953,15 +1952,7 @@ class InformationProcessing:
         #
         # 情動と機器はパジュ自身のことなので `__self__` でよい。3つの入口で違うのはここと、
         # 起点の種別・文面・`utterance` である。
-        perspective = (
-            agent._conversation_perspective()
-            if kind == "発話"
-            else agent._observation_perspective()
-        )
-        obs_id = await agent._oif.write(
-            MI(id="", content=text[:500], timestamp=None, direction=kind),
-            **perspective,
-        )
+        obs_id = await self._write_origin(kind, text)
         self._req.request_id = obs_id
         self._notify_request_state(True)
         # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
@@ -2163,6 +2154,39 @@ class InformationProcessing:
     def push_affect(self, drive_name: str, prompt: str) -> None:
         """T が drive 発火を待ち行列へ積む（AIF 経由・I は時計を見ない）。"""
         self._triggers.put_nowait(Trigger(kind="情動", query=drive_name, result=prompt))
+
+    async def record_device(self, kind: str, content: str) -> None:
+        """機器の出来事を、求めを立てずに記憶へ記録だけする（出-as §2.7・人の出入り・メモ）。
+
+        書き方は知らせの求めが始まるときと同じ（`[種別] 中身`・`direction="機器"`・パジュ自身の面）。
+        """
+        with contextlib.suppress(Exception):
+            await self._write_origin("機器", f"[{kind}] {content}")
+
+    async def _write_origin(self, kind: str, text: str) -> str:
+        """起点の記録を O へ書く（求めの始まり・`record_device` の 2 つの口が共有する・同じ形で書く）。
+
+        会話は話者の面、情動と機器はパジュ自身の面（`__self__`）。
+        """
+        agent = self._agent
+        perspective = (
+            agent._conversation_perspective()
+            if kind == "発話"
+            else agent._observation_perspective()
+        )
+        return await agent._oif.write(
+            MI(id="", content=text[:500], timestamp=None, direction=kind),
+            **perspective,
+        )
+
+    def note_device(self, kind: str, content: str) -> None:
+        """T から（DIF 経由）：機器の出来事を記録だけする。書くのは非同期なので、タスクとして立てる。"""
+        with contextlib.suppress(
+            RuntimeError
+        ):  # 走っている loop が無ければ記録しない（落とさない）
+            task = asyncio.get_running_loop().create_task(self.record_device(kind, content))
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
 
     def push_device(
         self, kind: str, content: str, *, release_pending: bool = False, passes_gate: bool = False
@@ -3056,18 +3080,11 @@ class InformationProcessing:
             logger.info("event-loop %s が、つなぎを出した相手へ本応答を出す", blocked)
             blocked = ""
         if blocked:
-            if self._req.trigger_kind == "情動":
-                # **独り言は相手が居なければ言わない、し、あとでも言わない**（情-c）。
-                # その場に居なければ無かったことになる。ただし思ったこと自体は残す——本文を
-                # 返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
-                # 理由（居ない／静穏時間／黙っていて）に依らず同じ。
-                logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
-                return text, "独白"
-            await self._hold_speech(text, blocked)
-            logger.info("event-loop %s ので発話を保留し pending_speech へ積む", blocked)
-            # 不在の会話入力は入口で止まる（`_swallow_if_unheard`）ので、ここに来る保留は
-            # 機器の知らせ（本文が機器側で決まっている）だけ。SEEKING の押し上げも入口で行う。
-            return "", "保留"
+            # **止められた発話は、すべて独り言にする**（出-as §2.6・2026-09-26）。以前は情動だけ独り言にし、
+            # ほかは `pending_speech` に保留して人が来たら配っていた。思ったこと自体は残す——本文を
+            # 返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
+            logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
+            return text, "独白"
         await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
         self._stamp_said()
         self._extend_window_for_conversation()  # 返事から 1 分（出-as 段 4）
@@ -3179,16 +3196,13 @@ class InformationProcessing:
         # ここ（出口）で止めていたので、発話ごとに求めが立って調停・主LLM が回ってから止まり、
         # 他人への返事を通す例外（案イ）も入り込んだ。黙っているあいだに求めが立つのは解く
         # きっかけ（タイマーが鳴る・本人の「話していい」・止める頼み）だけで、それは通す。
+        # **会話の求めは在席で止めない**（出-as §2.3・2026-09-26）。名前で呼ばれた・打たれた窓の中なので、
+        # カメラに映っていなくても相手は居る。在席で止めるのは、情動が自分から話しかけるときだけ（§2.1）。
+        # 静穏時間の門は外した——夜に話さないことは情動の溜まり方（静穏時間の倍率）が持つ。
+        if self._req.trigger_kind == "発話":
+            return ""
         if agent._social_presence_permission() == 0.0:
             return "聞く相手が居ない"
-        # 静穏時間は「**自分から**話しかけない時間」で、話しかけられたのに黙るための
-        # ものではない。起点を区別せず掛けていたため、夜に話しかけても返事が出ず、
-        # 保留されて翌朝に届く動きになっていた（実機で観測）。在席と「黙っていて」の
-        # 依頼は起点によらず掛かるので、ここだけを分ける。
-        if self._req.trigger_kind != "発話":
-            with contextlib.suppress(Exception):
-                if agent._in_quiet_hours():
-                    return "静穏時間である"
         return ""
 
     async def _dispatch_arbiter_action(self, decision, *, utterance: str) -> None:
@@ -3240,6 +3254,9 @@ class InformationProcessing:
                 reason=getattr(req, "reason", "") or "",
             ):
                 if trigger.kind == "会話入力":
+                    # 通した言葉（名前つきの「話していいよ」・タイマーの操作の言葉）への返事を声にするため、
+                    # 窓を開ける（出-as 段 6）。開けないと、返事が「窓が切れた後」になって独り言になる。
+                    self._wake_window().open(time.monotonic())
                     self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
                 return False
             await self._note_muted(trigger, now)
@@ -3248,7 +3265,8 @@ class InformationProcessing:
             if self._timer_active() and is_control_word(trigger.query):
                 # タイマーが動いている／鳴っているときの操作の言葉（止めて・一時停止・再開）は、名前が
                 # 無くても通す（出-ab・実機 2026-09-18 22:13：鳴っている最中の「止めて」が飲まれた）。
-                # タイマーまわりは従来どおり（出-as §2.4）。
+                # タイマーまわりは従来どおり（出-as §2.4）。返事「止めたよ」を声にするため窓を開ける（段 6）。
+                self._wake_window().open(time.monotonic())
                 return False
             if not self._window_admits(trigger):
                 # **窓の外の声は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
@@ -3394,17 +3412,12 @@ class InformationProcessing:
             req = self._load_silence()
             lifted = not is_silenced(req, now=time.time())
             if lifted and req is not None and not req.reason.startswith("timer:"):
-                # 明示の依頼が退室（誰も居ないを 60 秒）で解けたら**記録も消す**（情-l-ろ・実機 2026-09-18
-                # 20:46）。残すと、タイマーの沈黙（`hush_for_timer`）が「人の依頼が生きている」と負け、
-                # 人が映ればまた黙る。タイマー由来は鳴る・止めるまで（`unhush_timer`）。
+                # 明示の依頼が期限で解けたら**記録も消す**（情-l-ろ・実機 2026-09-18 20:46）。残すと、
+                # タイマーの沈黙（`hush_for_timer`）が「人の依頼が生きている」と負ける。
                 clear_silence()
-                logger.info("頼んだ人が居なくなったので沈黙を消した：%s", req.person)
-            if not any(getattr(h, "why", "黙っていた") == "黙っていた" for h in self._muted):
-                return
-            if lifted:
-                self.push_device(
-                    "沈黙が明けた", f"黙っていたあいだに {len(self._muted)} 件届いていた"
-                )
+                logger.info("黙る期限が来たので沈黙を消した：%s", req.person or "不明")
+            # **明けても何もしない**（出-as §2.7・2026-09-26）。以前は「沈黙が明けた」の求めを立てて
+            # 話しかけていた。黙っていたあいだに聞いたことは、次の会話の求めに乗る（入口の `_take_muted`）。
 
     def _confirm_blocks(self, action: str) -> bool:
         """確認待ちのあいだ落とす動作か（出-ag-ろ・`core/confirm_state.blocks`）。"""

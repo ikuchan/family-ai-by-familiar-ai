@@ -78,17 +78,3 @@ def test_the_text_itself_is_still_kept():
     asyncio.run(ip._hold_speech("おはよう", "聞く相手が居ない"))
     assert "おはよう" in _written(a)
     assert a._memory.save_async_with_id.await_args.kwargs["direction"] == "保留"
-
-
-def test_speaking_passes_the_reason_it_already_has():
-    """`_speak` は理由を持っている（ログへ出している）。渡すだけである。"""
-    from familiar_agent.loop.request import Request
-
-    ip, _a = _ip()
-    ip._req = Request()  # 起点は既定（人の発話）。独り言は積まない（情-c）
-    ip._delivery_block_reason = MagicMock(return_value="黙っているよう頼まれている")
-    ip._hold_speech = AsyncMock()
-    ip._dif = MagicMock(speak=AsyncMock())
-    ip._emit = MagicMock()
-    assert asyncio.run(ip._speak("おはよう")) == ("", "保留")
-    ip._hold_speech.assert_awaited_once_with("おはよう", "黙っているよう頼まれている")

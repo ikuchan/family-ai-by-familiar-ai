@@ -202,16 +202,14 @@ class Tonic:
             # のかを区別できない（在席イベントを確かめる手立てが無かった）。
             logger.debug("tonic 在席の初回走査：%s", "・".join(sorted(current)) or "誰も居ない")
             return
-        # 保留していた発話を配るのは、在席がゼロから立ち上がった瞬間だけ。入室そのものは
-        # 毎回積むが、会話中に家族が増えるたび保留が割り込むのは避ける。
+        # **人の出入りでは話しかけない**（出-as §2.7・2026-09-26）。求めは立てず、記憶に記録だけする。
+        # 居なくなったことは情動の側（bond・esteem が減る）で受ける。
         if current != previous:
             logger.info("tonic 在席の変化：%s → %s", _names(previous), _names(current))
-        rose_from_zero = not previous and bool(current)
         for name in sorted(current - previous):
-            self._dif.device("入室", f"{name} が来た", release_pending=rose_from_zero)
-            rose_from_zero = False  # 同時に2人来ても保留を配るのは1回
+            self._dif.record("入室", f"{name} が来た")
         for name in sorted(previous - current):
-            self._dif.device("退室", f"{name} が居なくなった", release_pending=False)
+            self._dif.record("退室", f"{name} が居なくなった")
 
     def _expire_presence_table(self) -> None:
         """在席表（PMM・`/speaker`・顔照合）の失効。

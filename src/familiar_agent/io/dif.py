@@ -297,5 +297,10 @@ class DIF:
             kind, content, release_pending=release_pending, passes_gate=passes_gate
         )
 
+    def record(self, kind: str, content: str) -> None:
+        """機器の出来事を、求めを立てずに記憶へ記録だけする（出-as §2.7・人の出入り）。"""
+        logger.debug("DIF record → %s／%s", kind, content[:_TRAIL_CHARS])
+        self._ip.note_device(kind, content)
+
 
 __all__ = ["DIF"]

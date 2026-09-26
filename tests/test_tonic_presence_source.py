@@ -31,27 +31,27 @@ def _tonic(*, names=(), occupied=False):
 def test_someone_unidentified_still_counts_as_present():
     t, ip = _tonic(names=(), occupied=True)
     t.scan_presence()
-    kinds = [c.args[0] for c in ip.push_device.call_args_list]
+    kinds = [c.args[0] for c in ip.note_device.call_args_list]
     assert "入室" in kinds
 
 
 def test_a_known_name_is_used_when_the_face_matched():
     t, ip = _tonic(names=("パパ",), occupied=True)
     t.scan_presence()
-    assert "パパ" in ip.push_device.call_args_list[0].args[1]
+    assert "パパ" in ip.note_device.call_args_list[0].args[1]
 
 
 def test_an_empty_room_pushes_nothing():
     t, ip = _tonic(names=(), occupied=False)
     t.scan_presence()
-    ip.push_device.assert_not_called()
+    ip.note_device.assert_not_called()
 
 
 def test_leaving_is_detected_from_the_sensor_alone():
     t, ip = _tonic(names=(), occupied=False)
     t._present_names = {"誰か"}
     t.scan_presence()
-    assert [c.args[0] for c in ip.push_device.call_args_list] == ["退室"]
+    assert [c.args[0] for c in ip.note_device.call_args_list] == ["退室"]
 
 
 def test_a_name_appearing_later_does_not_double_count_the_same_person():
@@ -63,7 +63,7 @@ def test_a_name_appearing_later_does_not_double_count_the_same_person():
     t, ip = _tonic(names=("パパ",), occupied=True)
     t._present_names = {"誰か"}
     t.scan_presence()
-    kinds = [c.args[0] for c in ip.push_device.call_args_list]
+    kinds = [c.args[0] for c in ip.note_device.call_args_list]
     assert "退室" not in kinds
 
 
@@ -76,7 +76,7 @@ def test_without_a_sensor_the_old_source_still_works():
     t._agent = agent
     t._present_names = set()
     t.scan_presence()
-    assert "たいき" in ip.push_device.call_args_list[0].args[1]
+    assert "たいき" in ip.note_device.call_args_list[0].args[1]
 
 
 # ── 在席表の失効（2026-09-17）────────────────────────────────────────────────
