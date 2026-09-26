@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import time
 import asyncio
 from unittest.mock import AsyncMock
 
@@ -83,6 +84,9 @@ def test_a_progress_iteration_only_says_a_filler():
 
     async def scenario():
         ip = InformationProcessing(a)
+        ip._wake_window().open(
+            time.monotonic()
+        )  # 入口を通った会話として窓を開けておく（出-as 段 4）
         ip.set_output(shown.append)
         ip._req.utterance = "明日の天気は？"
         ip._req.lookups = [
