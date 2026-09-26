@@ -225,7 +225,7 @@ def test_core_records_are_one_row_per_event_with_the_strongest_face_vector() -> 
     assert OIF.core_records.__doc__
 
 
-def test_raise_groundedness_lifts_every_face_of_the_event_but_never_lowers() -> None:
+def test_set_groundedness_lifts_every_face_of_the_event_but_never_lowers() -> None:
     i = str(uuid.uuid4())
     other = str(uuid.uuid4())
     conn = _conn()
@@ -241,9 +241,31 @@ def test_raise_groundedness_lifts_every_face_of_the_event_but_never_lowers() -> 
             _facet(cur, i, other, n=5)
     finally:
         conn.close()
-    assert _memory()._observations.raise_groundedness(i, 3) == 1  # 上がった面の数
+    assert _memory()._observations.set_groundedness(i, 3) == 1  # 上がった面の数
     assert _facet_row(i)["groundedness_n"] == 3
     assert _facet_row(i, other)["groundedness_n"] == 5
+
+
+def test_set_groundedness_can_return_every_face_to_zero() -> None:
+    """言いたかったことを伝えたら、普通の重さ（0）へ戻す（出-as 段 7・2026-09-26）。"""
+    i = str(uuid.uuid4())
+    other = str(uuid.uuid4())
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
+                "VALUES (%s, %s, %s, now()::text, now()::text)",
+                (other, f"人_{other[:8]}", "人"),
+            )
+            _plant(cur, i, "パパに言いたかったこと：明日は雨だよ", datetime.now(timezone.utc))
+            _facet(cur, i, AGENT_SELF_ID, n=2)
+            _facet(cur, i, other, n=2)
+    finally:
+        conn.close()
+    assert _memory()._observations.set_groundedness(i, 0, lower=True) == 2  # 戻した面の数
+    assert _facet_row(i)["groundedness_n"] == 0
+    assert _facet_row(i, other)["groundedness_n"] == 0
 
 
 def test_the_summary_direction_maps_to_core_summary_kind() -> None:

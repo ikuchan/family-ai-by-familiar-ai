@@ -45,7 +45,10 @@ def test_a_blocked_monologue_is_not_held_and_ends_as_monologue() -> None:
 
 
 def test_a_blocked_monologue_is_recorded_as_a_thought_not_said() -> None:
-    """`_finish` は結末が発話でない本文を「考えたが言わなかった」（役割 独白）で書く。"""
+    """話そうとして止められた本文は「〇〇に言いたかったこと」（役割 独白）で書く（出-as 段 7・2026-09-26）。
+
+    以前は「考えたが言わなかった」だった。声にしなかっただけの独り言（結末「沈黙」）はいまもそう書く。
+    """
 
     async def scenario():
         ip, a = _ip(trigger_kind="情動", blocked="聞く相手が居ない")
@@ -58,7 +61,9 @@ def test_a_blocked_monologue_is_recorded_as_a_thought_not_said() -> None:
         ]
 
     written = asyncio.run(scenario())
-    assert ("考えたが言わなかった：部屋が静かだね。", "独白") in written
+    assert any(
+        str(w).endswith("に言いたかったこと：部屋が静かだね。") and d == "独白" for w, d in written
+    )
     assert not any(d == "保留" for _, d in written)
 
 

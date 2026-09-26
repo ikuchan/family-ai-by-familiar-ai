@@ -32,7 +32,7 @@ from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
 from ..io.dif import DIF
-from ..core import filler_echo, measure, parsing
+from ..core import filler_echo, measure, parsing, unsaid
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
@@ -945,12 +945,40 @@ class InformationProcessing:
         )
         if not new_id:
             return
-        agent._oif.supersede(old_id, new_id, kind=KIND_REVISION)
+        self._revise(old_id, new_id)
         if gen != self._request_generation:
             return
         self._req.turn_records = [
             (new_id if (i == old_id and r == "見た") else i, r) for i, r in self._req.turn_records
         ]
+
+    def _revise(self, old_id: str, new_id: str) -> None:
+        """記録を改めた記録で置き換える（`改訂`）。見えたものの意味づけと、言いたかったことを畳むのが使う。"""
+        self._agent._oif.supersede(old_id, new_id, kind=KIND_REVISION)
+
+    async def _fold_told(self, items: "list[tuple[str, str]]") -> None:
+        """伝えた言いたかったことを畳み、根づきを普通（0）に戻す（出-as 段 7・本人の決定）。
+
+        「伝えた：…」の記録を書いて元の記録を置き換える。同じことが何度も上がってこないように。
+        """
+        import re
+
+        for obs_id, content in items:
+            body = re.sub(r"^\[[^\]]*\]\s*", "", str(content))  # 想起の頭「[そばに居た] 」を外す
+            with contextlib.suppress(Exception):
+                new_id = await self._write_origin("独白", f"{unsaid.TOLD}{body}")
+                if new_id:
+                    self._revise(obs_id, new_id)
+                self._agent._oif.set_groundedness(obs_id, 0, lower=True)
+                logger.info("event-loop 言いたかったことを伝えたので畳んだ：%.40s", body)
+
+    def _addressee(self) -> "tuple[str | None, str]":
+        """言いたかった相手（面を立てる id と、呼び名）。分からなければ (None, "")。"""
+        agent = self._agent
+        with contextlib.suppress(Exception):
+            if agent.speaker_known() and agent._pmm.current_speaker_id:
+                return str(agent._pmm.current_speaker_id), self._current_speaker_name()
+        return None, ""
 
     def _version_content(self, *, aborted: bool = False) -> str:
         """いまの求めの状態を、1つの版の content として組み立てる。
@@ -2053,6 +2081,7 @@ class InformationProcessing:
         self._req.lookups.clear()
         self._req.cue = ""
         self._req.said_fillers.clear()
+        self._req.told_unsaid = []
         self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
@@ -2626,6 +2655,8 @@ class InformationProcessing:
                 workspace_ctx=workspace_ctx,
                 w_id_map=ws.verdict_map,
                 mem=mem,
+                memories=memories,
+                spoken=outcome == "発話",
             )
             await self._finish(spoken, memories, outcome)
             return spoken
@@ -2836,6 +2867,10 @@ class InformationProcessing:
             workspace.apply_memory_verdicts(
                 decision.mem, say_tc.input.get("memory_verdicts"), decision.w_id_map
             )
+            # 使った言いたかったことを控える。声に出せたら `_finish` が畳む（出-as 段 7）。
+            self._req.told_unsaid = unsaid.told(
+                say_tc.input.get("memory_verdicts"), decision.w_id_map, decision.memories
+            )
             # 写真からの見立て（出-an）。**口に出すなら機械にも渡す**——調停と同じ道を通す。
             await self._apply_seen_people(say_tc.input.get("seen_people"))
             text = str(say_tc.input.get("text", "")).strip()
@@ -3014,6 +3049,8 @@ class InformationProcessing:
         workspace_ctx: str,
         w_id_map: dict[str, str],
         mem: object,
+        memories: "list | None" = None,
+        spoken: bool = False,
     ) -> None:
         """**軽量LLM** が答えて閉じた反復の申告を、背景で聞いて当てる（出-h-ろ）。
 
@@ -3027,6 +3064,7 @@ class InformationProcessing:
         if not w_id_map:
             return
         w_id_map = dict(w_id_map)
+        kept = list(memories or [])  # 走っているあいだに作り直されないよう写す
         backend = self._agent._utility_backend
 
         async def _run() -> None:
@@ -3042,6 +3080,11 @@ class InformationProcessing:
                 logger.warning("event-loop 軽量LLM の申告を聞けなかった: %s", e)
                 return
             workspace.apply_memory_verdicts(mem, raw, w_id_map)
+            # 声に出した返事で使った言いたかったことを畳む（出-as 段 7）。
+            if spoken:
+                told = unsaid.told(raw, w_id_map, kept)
+                if told:
+                    await self._fold_told(told)
 
         self._verdict_tasks.add(task := asyncio.create_task(_run()))
         task.add_done_callback(self._verdict_tasks.discard)
@@ -3854,21 +3897,40 @@ class InformationProcessing:
         # やりとりの項にならないが（`recent_exchanges` が引く役割に無い）、拡散想起の
         # 母集合には入る（`HIDDEN_ROLES` に入れない）。
         spoken = outcome == "発話"
+        # **話そうとして止められた発話は「〇〇に言いたかったこと」**（出-as 段 7・§2.6）。相手の面に立て、
+        # 根づきを 2 にする——情動が発火して相手が映ったとき、想起で上がってくるように。相手が分からなければ
+        # パジュ自身の面に「誰かに」。声にしなかっただけの独り言（結末「沈黙」）はいままでどおり。
+        wanted = outcome == "独白"
+        who_id, who_name = self._addressee() if wanted else (None, "")
+        if spoken:
+            content = f"自分が答えた：{text}"
+        elif wanted:
+            content = unsaid.content(who_name, text)
+        else:
+            content = f"考えたが言わなかった：{text}"
+        perspective = (
+            dict(writer_id=AGENT_SELF_ID, participants=[who_id])
+            if who_id
+            else agent._observation_perspective()
+        )
         answer_id = None
         if text:
             with contextlib.suppress(Exception):
                 answer_id = await agent._oif.write(
                     MI(
                         id="",
-                        content=(
-                            f"自分が答えた：{text}" if spoken else f"考えたが言わなかった：{text}"
-                        )[:500],
+                        content=content[:500],
                         timestamp=None,
                         direction="発話" if spoken else "独白",
                         parent_id=self._req.request_id,
                     ),
-                    **agent._observation_perspective(),
+                    **perspective,
                 )
+            if wanted and answer_id:
+                with contextlib.suppress(Exception):
+                    agent._oif.set_groundedness(answer_id, unsaid.GROUNDEDNESS)
+        if spoken and self._req.told_unsaid:
+            await self._fold_told(list(self._req.told_unsaid))
         self._note_record(answer_id, "答え" if spoken else "独白")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
@@ -3877,6 +3939,7 @@ class InformationProcessing:
         self._req.live_version_id = None
         self._req.lookups.clear()
         self._req.said_fillers.clear()
+        self._req.told_unsaid = []
         self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
         self._req.failed_actions.clear()

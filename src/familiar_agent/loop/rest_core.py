@@ -140,7 +140,7 @@ def _fold_identical(agent, records: list[dict], tau_same: float) -> tuple[list[d
             if agent._oif.supersede(str(records[i]["obs_id"]), rep_id, kind=KIND_FOLD):
                 folded += 1
                 gone.add(i)
-        agent._oif.raise_groundedness(rep_id, n_max)
+        agent._oif.set_groundedness(rep_id, n_max)
     kept = [r for i, r in enumerate(records) if i not in gone]
     return kept, len(groups), folded
 
@@ -244,9 +244,7 @@ async def fold_core(agent, *, now: "datetime | None" = None) -> CoreResult:
             continue
         written += 1
         outs.append(Written(new_id, "core_summary", text))
-        agent._oif.raise_groundedness(
-            new_id, max(int(r.get("groundedness_n", 0) or 0) for r in used)
-        )
+        agent._oif.set_groundedness(new_id, max(int(r.get("groundedness_n", 0) or 0) for r in used))
         for r in used:
             if agent._oif.supersede(str(r["obs_id"]), new_id, kind=KIND_FOLD):
                 folded += 1

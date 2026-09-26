@@ -530,9 +530,9 @@ class ObservationMemory:
         """核の出来事（記-a-ろ-に・店へ委譲）。"""
         return self._observations.core_records()
 
-    def raise_groundedness(self, obs_id: str, n: int) -> int:
-        """全ての面の根づきを少なくとも n に（記-a-ろ-に・店へ委譲）。"""
-        return self._observations.raise_groundedness(obs_id, int(n))
+    def set_groundedness(self, obs_id: str, n: int, *, lower: bool = False) -> int:
+        """全ての面の根づきを決める（既定は上げるだけ・`lower=True` で n にそろえる・store へ委譲）。"""
+        return self._observations.set_groundedness(obs_id, int(n), lower=lower)
 
     def decay_groundedness(self, delta: int) -> int:
         """参照されなかった核の根づきを減らす（記-a-ろ-ろ・店へ委譲）。"""

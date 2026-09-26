@@ -430,9 +430,10 @@ class OIF:
         logger.debug("OIF core_records → %d件", len(rows))
         return rows
 
-    def raise_groundedness(self, obs_id: str, n: int) -> int:
-        """出来事の全ての面の根づきを少なくとも n に（記-a-ろ-に・産物と代表が引き継ぐ）。"""
-        return self._memory.raise_groundedness(obs_id, int(n))
+    def set_groundedness(self, obs_id: str, n: int, *, lower: bool = False) -> int:
+        """出来事の全ての面の根づきを決める。既定は少なくとも n へ上げるだけ（記-a-ろ-に・産物と代表が引き継ぐ）。
+        `lower=True` は n にそろえる（言いたかったことを伝えたら 0 へ・出-as 段 7）。"""
+        return self._memory.set_groundedness(obs_id, int(n), lower=lower)
 
     def decay_groundedness(self, delta: int) -> int:
         """参照されなかった核の根づきを $\\Delta$ 減らす（1 未満にしない・記-a-ろ-ろ）。動かした面の数。"""
