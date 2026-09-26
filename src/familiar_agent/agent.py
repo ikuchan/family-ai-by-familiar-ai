@@ -1840,7 +1840,12 @@ class EmbodiedAgent:
         # say の前の途中経過としてしか扱わず、say が出たら捨てる）。渡さないと GUI に
         # 何も表示されない（実機で観測）。
         self._ensure_event_loop(on_text, on_action)
-        return await self._info_processing.push_utterance(user_input, on_text=on_text)
+        # 声かキーボードか（出-as 段 2）。声は書き起こしの口が印を付けて積む。印が無ければキーボード。
+        from .core.wake_window import source_of
+
+        return await self._info_processing.push_utterance(
+            user_input, on_text=on_text, source=source_of(user_input)
+        )
 
     @property
     def stt(self) -> STTTool | None:

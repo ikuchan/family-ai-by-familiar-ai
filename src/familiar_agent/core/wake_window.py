@@ -29,6 +29,19 @@ def heard_name(text: str, names: "list[str]") -> bool:
     return names_me(text, names)
 
 
+class VoiceText(str):
+    """声の書き起こしの印（出-as 段 2）。中身はただの文字列で、出どころだけを運ぶ。
+
+    声を積むところ（`realtime_stt_session._committed_relay`）がこれで包み、`agent.run` の入口が
+    `source_of` で見る。画面（GUI・TUI・CUI）と待ち行列の型は変えない。
+    """
+
+
+def source_of(text: str) -> str:
+    """入力の出どころ。声の印があれば `voice`、無ければ `keyboard`（`.env.quiet` の入力もこれ）。"""
+    return "voice" if isinstance(text, VoiceText) else "keyboard"
+
+
 @dataclass
 class WakeWindow:
     """会話として受ける窓。`until` は窓が閉じる時刻（`time.monotonic()` の秒）。"""
