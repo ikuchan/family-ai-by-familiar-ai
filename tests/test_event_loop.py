@@ -766,7 +766,7 @@ def test_driver_wakes_on_an_affect_trigger():
         ip = InformationProcessing(a)
         ip.set_output(shown.append)  # 人の発話を待たずに出口を持てる
         ip.start()  # 駆動体だけ起こす
-        ip.push_affect("SEEKING", "何かを知りたい")
+        ip.push_affect("BOND", "誰かと居たい")  # 話しかける軸（出-as 段 8：seeking は話さない）
         for _ in range(_WAIT_TICKS):
             if shown:
                 break

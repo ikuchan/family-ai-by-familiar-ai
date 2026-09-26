@@ -25,6 +25,7 @@ def _ip(kind="発話", *, present=1.0, quiet=False):
     a._in_quiet_hours = MagicMock(return_value=quiet)
     ip = InformationProcessing(a)
     ip._req.trigger_kind = kind
+    ip._req.fired_axis = "bond"  # 情動なら話しかける軸（出-as 段 8：話すのは bond・esteem だけ）
     return a, ip
 
 

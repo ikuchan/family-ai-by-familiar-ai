@@ -91,6 +91,8 @@ _WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent")
 _MUSIC_ACTIONS = ("play_music", "stop_music", "next_track", "music_volume")
 
 _TIMER_ACTIONS = ("set_timer", "cancel_timer", "pause_timer", "resume_timer")
+# 情動のうち、会話をしようとする軸（出-as §2.1・2026-09-26）。ほかの発火は行動だけ。
+_TALKING_AXES = frozenset({"bond", "esteem"})
 # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物・別の道具（`agent._stopwatch_tool`）。
 _STOPWATCH_ACTIONS = ("start_stopwatch", "stop_stopwatch")
 # アラーム（知-q・2026-09-18）。タイマーとは別物・別の道具（`agent._alarm_tool`）。
@@ -3109,6 +3111,11 @@ class InformationProcessing:
             # 思ったことは独白として O に残る。入室・タイマー・メモは従来どおり。
             logger.info("event-loop 退室の知らせなので独り言として残す（相手は居ない）")
             return text, "独白"
+        if self._req.trigger_kind == "情動" and self._req.fired_axis not in _TALKING_AXES:
+            # **会話をしようとするのは BOND と ESTEEM だけ**（出-as §2.1・本人の決定）。見回る・探すなどの
+            # 発火は行動だけで、返事の文は声に出さない（声にしなかっただけの独り言として残る）。
+            logger.info("event-loop %s の発火なので話しかけない：%.40s", self._req.fired_axis, text)
+            return text, "沈黙"
         if self._window_closed_for_conversation():
             # **窓が切れた後の返事は話さない**（出-as 段 4・本人の決定）。受けた時点では会話だったが、
             # 1 分を過ぎてから答えても相手はもう聞いていない。思ったことは独白として O に残る。

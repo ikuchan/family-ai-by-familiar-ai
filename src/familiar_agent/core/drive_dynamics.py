@@ -22,6 +22,9 @@ from ..drive_register import AiDrivers
 from ..mood_register import REST_PAD, MoodPAD
 from .solitude import Solitude
 
+#: 誰も映っていないとき、BOND・ESTEEM が減る速さ＝溜まる速さの 1/SOCIAL_FADE（出-as・本人の決定 1/3）。
+SOCIAL_FADE = 3.0
+
 _EPS = 1e-9
 
 
@@ -72,6 +75,7 @@ def accumulate(
     dt: float | None = None,
     cfg: DriveConfig | None = None,
     solitude: Solitude | None = None,
+    someone_visible: bool = True,
 ) -> AiDrivers:
     """1 tick 蓄積：`drive_i += rate·mult_i(t)·learn·2^(−n_i)·g_{D,i}(M)·dt`、clip[0,1]。
 
@@ -80,6 +84,10 @@ def accumulate(
 
     `solitude`（ひとりの回数・情-d）は、人と会話しないかぎり SEEKING・SAFETY・BOND の
     間隔を倍々に伸ばす。None なら 1 倍（従来どおり）。
+
+    `someone_visible`（カメラに人が映っているか・出-as §2.1・2026-09-26）：人に話しかけたくなる BOND と
+    ESTEEM は、**映っているあいだだけ溜まり、映っていなければ溜まる速さの 1/3 で減る**（本人の決定）。
+    ほかの 3 軸は映っているかに関わらない。
     """
     cfg = cfg or DriveConfig()
     dt = cfg.p_t if dt is None else dt
@@ -90,12 +98,16 @@ def accumulate(
     def _step(axis: str) -> float:
         return base * cfg.mult_for(axis) * lonely.factor(axis)
 
+    def _social(axis: str, gain: float) -> float:
+        grow = _step(axis) * gain
+        return grow if someone_visible else -grow / SOCIAL_FADE
+
     return AiDrivers(
         seeking=drives.seeking + _step("seeking") * g.seeking,
         rest=drives.rest + _step("rest") * g.rest,
-        bond=drives.bond + _step("bond") * g.bond,
+        bond=drives.bond + _social("bond", g.bond),
         safety=drives.safety + _step("safety") * g.safety,
-        esteem=drives.esteem + _step("esteem") * g.esteem,
+        esteem=drives.esteem + _social("esteem", g.esteem),
     ).clipped()
 
 

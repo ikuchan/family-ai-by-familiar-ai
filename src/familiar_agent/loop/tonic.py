@@ -42,7 +42,7 @@ UNIDENTIFIED = "誰か"
 
 
 async def step_drives(
-    dt: float, *, last_human_at: float | None = None
+    dt: float, *, last_human_at: float | None = None, someone_visible: bool = True
 ) -> tuple[dd.DriveFiring, AiDrivers]:
     """1 tick 分の dynamics を回して永続化し、(発火, 蓄積後・放電前の drives) を返す。
 
@@ -67,7 +67,9 @@ async def step_drives(
                 lonely.reset_at is None or last_human_at > lonely.reset_at
             ):
                 lonely = lonely.reset(at=last_human_at)
-            accumulated = dd.accumulate(drives, mood, dt=dt, cfg=cfg, solitude=lonely)
+            accumulated = dd.accumulate(
+                drives, mood, dt=dt, cfg=cfg, solitude=lonely, someone_visible=someone_visible
+            )
             firing = dd.fired(accumulated, cfg)
             persisted = dd.discharge(accumulated, firing, cfg) if firing.any else accumulated
             save_drives(conn, persisted)
@@ -299,6 +301,16 @@ class Tonic:
             f" {next_interval_minutes(axis, lonely, cfg):.0f} 分後）"
         )
 
+    def _someone_visible(self) -> bool:
+        """カメラに人が映っているか（出-as §2.1）。カメラの無い機体・読めないときは映っていない扱い。"""
+        sensor = self._presence
+        if sensor is None:
+            return False
+        try:
+            return bool(sensor.room_occupied())
+        except Exception:  # noqa: BLE001
+            return False
+
     def _nobody_is_present(self) -> bool:
         """誰も居ないか。在/不在の層（`PresenceSensor`・YOLO・登録が要らない）で見る。
 
@@ -431,7 +443,9 @@ class Tonic:
                 await self._maybe_check_notes(now)
                 self._fire_timers()
                 firing, accumulated = await step_drives(
-                    dt, last_human_at=getattr(self._agent, "_last_human_at", None)
+                    dt,
+                    last_human_at=getattr(self._agent, "_last_human_at", None),
+                    someone_visible=self._someone_visible(),  # BOND・ESTEEM は映っているときだけ（出-as）
                 )
                 if not firing.any:
                     continue

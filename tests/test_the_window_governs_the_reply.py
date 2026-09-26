@@ -21,6 +21,7 @@ def _ip(kind="発話", *, window_open=True, now=1000.0, monkeypatch=None):
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
     ip._req.trigger_kind = kind
+    ip._req.fired_axis = "bond"  # 情動なら話しかける軸（出-as 段 8：話すのは bond・esteem だけ）
     ip._req.request_text = "おはよう"
     ip._delivery_block_reason = lambda: ""
     ip._dif = MagicMock()
