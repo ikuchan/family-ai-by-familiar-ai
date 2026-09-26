@@ -16,18 +16,22 @@ capabilities:
       `core/unsaid.py`.
     enabled: true
   - id: wake_word
-    summary: Listen to spoken words only after being called by name
+    summary: Listen only after being called by name, both to speech and to typed text
     detail: >
-      Speech is taken as conversation only after the agent hears one of its names from
-      ME.md somewhere in the (corrected) transcript, allowing one letter of difference.
-      Hearing the name opens a one-minute window; each accepted utterance, reply or filler
-      extends it by a minute. Outside the window spoken words are dropped (only logged),
-      and if no name is set in ME.md, speech is never taken as conversation. Typed input is
-      always accepted and opens the window. A reply finished after the window has closed is
-      not spoken. While a timer runs or rings, its control words ("止めて" and the like) are
-      accepted without the name. Asked to be quiet inside the window, the agent stays quiet
-      for 30 minutes by default (at most 60); it speaks again only when someone says its name
-      together with "話していいよ" in one utterance, or when the time is up. Implemented in
+      Input is taken as conversation only after the agent's name from ME.md appears
+      somewhere in it (one letter of difference allowed), whether spoken or typed.
+      Hearing the name opens a 30-second window; each accepted input, reply or filler
+      extends it by 30 seconds. The window is judged by when the input arrived. Input
+      outside the window is dropped without side effects: nothing in progress is
+      interrupted, and the screen shows it only as "聞いていない" in the status line, not
+      in the conversation log. If no name is set in ME.md, nothing is taken as
+      conversation. Only an input that carries the name interrupts what the agent is
+      doing (a search, a reply being thought out, a timer announcement); an input without
+      the name waits until the ongoing request has answered. Timer control words also
+      need the name ("パジュ、止めて"). A reply finished after the window has closed is not
+      spoken. Asked to be quiet inside the window, the agent stays quiet for 30 minutes by
+      default (at most 60); it speaks again only when someone says its name together
+      with "話していいよ" in one utterance, or when the time is up. Implemented in
       `core/wake_window.py` and `loop/event_loop.py`.
     enabled: true
   - id: camera_vision
