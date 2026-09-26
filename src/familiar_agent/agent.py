@@ -1348,6 +1348,22 @@ class EmbodiedAgent:
         """
         self._ensure_event_loop(on_text, on_action=on_action)
 
+    def set_heard_listener(self, listener) -> None:
+        """会話入力を受けた／捨てたの知らせ先を登録する（出-au 段 1-4）。コマンドは `run` が知らせる。"""
+        self._heard_listener = listener
+        self._ensure_event_loop()
+        self._info_processing.set_heard_listener(listener)
+
+    def _command_done(self, text: str, reply: str, on_text) -> str:
+        """コマンドが LLM を呼ばずに答えた。**受けた入力として知らせ**、答えを出して返す（出-au 段 1-4）。"""
+        listener = getattr(self, "_heard_listener", None)
+        if listener is not None:
+            with contextlib.suppress(Exception):
+                listener(text, True)
+        if on_text:
+            on_text(reply)
+        return reply
+
     def set_request_state_listener(self, listener) -> None:
         """求めが開いた／閉じたの通知先を登録する（GUI の停止ボタンが従う・環-j）。"""
         self._ensure_event_loop()
@@ -1751,13 +1767,12 @@ class EmbodiedAgent:
         from .core.wake_window import arrived_at, source_of
 
         _arrived, _source = arrived_at(user_input), source_of(user_input)
+        _original = user_input  # 画面に出す本文（コマンドで返したときの「受けた」の知らせ）
         # ── Speaker identification ────────────────────────────────────────────
         # /speaker command sets the session-default speaker.
         _speaker_reply = self._handle_speaker_command(user_input)
         if _speaker_reply is not None:
-            if on_text:
-                on_text(_speaker_reply)
-            return _speaker_reply
+            return self._command_done(_original, _speaker_reply, on_text)
 
         # Parse [name] / @name: prefix; strip it from user_input for the LLM.
         user_input, _speaker_from_prefix = parsing.extract_speaker_prefix(user_input)
@@ -1768,52 +1783,38 @@ class EmbodiedAgent:
         # ── Timer command（/timer stop [id]・知-n・LLM を通さない非常口） ────────
         _timer_reply = await self._handle_timer_command(user_input)
         if _timer_reply is not None:
-            if on_text:
-                on_text(_timer_reply)
-            return _timer_reply
+            return self._command_done(_original, _timer_reply, on_text)
 
         # ── Alarm command（/alarm stop [id]・知-q・LLM を通さない） ──────────────
         _alarm_reply = await self._handle_alarm_command(user_input)
         if _alarm_reply is not None:
-            if on_text:
-                on_text(_alarm_reply)
-            return _alarm_reply
+            return self._command_done(_original, _alarm_reply, on_text)
 
         # ── Stopwatch command（/stopwatch stop [id]・知-u・LLM を通さない） ───────
         _sw_reply = await self._handle_stopwatch_command(user_input)
         if _sw_reply is not None:
-            if on_text:
-                on_text(_sw_reply)
-            return _sw_reply
+            return self._command_done(_original, _sw_reply, on_text)
 
         # ── Season command（/season clear・知-ac・LLM を通さない） ────────────────
         _season_reply = self._handle_season_command(user_input)
         if _season_reply is not None:
-            if on_text:
-                on_text(_season_reply)
-            return _season_reply
+            return self._command_done(_original, _season_reply, on_text)
 
         # ── Mic command（/mic on・知-o・タイマー中でも聞く） ──────────────────
         _mic_reply = await self._handle_mic_command(user_input)
         if _mic_reply is not None:
-            if on_text:
-                on_text(_mic_reply)
-            return _mic_reply
+            return self._command_done(_original, _mic_reply, on_text)
 
         # ── File reload command ───────────────────────────────────────────────
         _reload_reply = self._handle_reload_command(user_input)
         if _reload_reply is not None:
-            if on_text:
-                on_text(_reload_reply)
-            return _reload_reply
+            return self._command_done(_original, _reload_reply, on_text)
 
         # ── Thinking-mode slash-commands & natural-language shortcuts ────────
         # These return immediately without calling the LLM.
         _think_reply = self._handle_thinking_command(user_input)
         if _think_reply is not None:
-            if on_text:
-                on_text(_think_reply)
-            return _think_reply
+            return self._command_done(_original, _think_reply, on_text)
 
         if not user_input:
             return ""

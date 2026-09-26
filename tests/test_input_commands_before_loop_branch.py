@@ -26,6 +26,9 @@ def _agent():
     a._ensure_event_loop = MagicMock()
     # 実物の解釈を通す（spec の MagicMock は None でない値を返して早期 return する）。
     a._handle_speaker_command = lambda ui: Agent._handle_speaker_command(a, ui)
+    # コマンドの答えを出して「受けた」を知らせる口（出-au 段 1-4）は本物を通す。
+    a._heard_listener = None
+    a._command_done = lambda text, reply, on_text: Agent._command_done(a, text, reply, on_text)
     a._handle_reload_command = MagicMock(return_value=None)
     a._handle_thinking_command = MagicMock(return_value=None)
     a._handle_timer_command = AsyncMock(return_value=None)  # `/timer stop` は別の試験で見る（知-n）

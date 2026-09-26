@@ -245,6 +245,9 @@ class FamiliarApp(App):
         for line in _make_banner(include_commands=False).splitlines():
             log.write(f"[bold]{line}[/bold]" if "familiar-ai" in line else f"[dim]{line}[/dim]")
         self._log_system(_t("startup", log_path=str(self._log_path)))
+        # 受けた入力だけを会話ログに出す（出-au 段 1-4）。
+        with contextlib.suppress(Exception):
+            self.agent.set_heard_listener(self._on_heard)
         self.run_worker(self._process_queue(), exclusive=False)
         # Start realtime STT if configured
         if self._realtime_stt:
@@ -303,6 +306,16 @@ class FamiliarApp(App):
             return speaker
         return self.agent._persons.active_name
 
+    def _on_heard(self, text: str, heard: bool) -> None:
+        """ループの門から「受けた／捨てた」を受ける（出-au 段 1-4）。捨てた入力は状態の行にだけ出す。"""
+        if heard:
+            self._log_user(str(text))
+            return
+        try:
+            self.query_one("#stream", Static).update(f"[dim]\U0001f3a4 聞いていない：{text}[/dim]")
+        except Exception:  # noqa: BLE001
+            pass
+
     def _log_user(self, text: str) -> None:
         name = self._current_speaker(text)
         self._write_log(f"[bold cyan]{name} ▶[/bold cyan] {text}")
@@ -344,7 +357,7 @@ class FamiliarApp(App):
             self._write_log(f"{name_tag} {answer}")
             return
 
-        self._log_user(text)
+        # 会話ログに出すのは、ループの門が受けたときだけ（`_on_heard`・出-au 段 1-4）。
         self._last_interaction = time.time()
         await self._input_queue.put(KeyText(text))  # 届いた時刻を付ける（出-au 段 1-1）
 
@@ -536,9 +549,8 @@ class FamiliarApp(App):
                     pass
 
             def _on_committed(text: str) -> None:
+                # 会話ログに出すのは、ループの門が受けたときだけ（`_on_heard`・出-au 段 1-4）。
                 try:
-                    _spk = self.agent._persons.active_name
-                    self._write_log(f"[bold cyan]\U0001f3a4 {_spk}[/bold cyan] {text}")
                     self._last_interaction = time.time()
                     stream = self.query_one("#stream", Static)
                     stream.update("")
@@ -611,7 +623,6 @@ class FamiliarApp(App):
             stream.update("🔄 Transcribing…")
             text = await record_task
             if text.strip():
-                self._log_user(text)
                 self._last_interaction = time.time()
                 await self._input_queue.put(VoiceText(text))  # 録音の書き起こし（出-au 段 1-1）
         except Exception as e:
