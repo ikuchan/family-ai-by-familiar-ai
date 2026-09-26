@@ -97,7 +97,11 @@ def test_a_timer_control_word_passes_without_the_name():
     ip, a = _ip()
     a._timer_tool.frame = MagicMock(return_value="[タイマー]\n- id=1 パスタ 鳴っている")
     assert _heard(ip, "止めて") is True
-    assert _heard(ip, "こんにちは") is False  # 操作の言葉だけ
+    # 操作の言葉を受けたら窓が開く（段 6・返事「止めたよ」を声にするため）。名前の無い別の言葉が
+    # 捨てられることは、窓の開いていないループで確かめる。
+    other, b = _ip()
+    b._timer_tool.frame = a._timer_tool.frame
+    assert _heard(other, "こんにちは") is False  # 操作の言葉だけ
 
 
 def test_a_control_word_without_a_timer_is_just_talk():

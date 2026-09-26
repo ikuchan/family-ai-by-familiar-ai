@@ -110,11 +110,12 @@ async def check_notes(ip) -> bool:
     )
     if body:
         content += "\n\nいまのメモ全文：\n" + body
-    # **先に積んでから覚える。** 逆だと、積むところで落ちたときに差分が失われる（実機 19:40・
+    # **メモは記憶に入れるだけ。話しかけない**（出-as §2.7・2026-09-26）。以前は求めを立てていた。
+    # **先に記録してから覚える。** 逆だと、記録で落ちたときに差分が失われる（実機 19:40・
     # `device()` が落ちて前回値だけ進み、次の読みで「変わっていない」になった）。
-    dif.device("メモ", content[:1500])
+    await ip.record_device("メモ", content[:1500])
     _save_state(body)
     logger.info(
-        "パジュへのメモが変わった（足された行 %d・全 %d 字）→ 求めを積んだ", len(added), len(body)
+        "パジュへのメモが変わった（足された行 %d・全 %d 字）→ 記憶に記録した", len(added), len(body)
     )
     return True

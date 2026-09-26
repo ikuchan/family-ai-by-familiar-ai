@@ -62,7 +62,9 @@ def test_a_blocked_monologue_is_recorded_as_a_thought_not_said() -> None:
     assert not any(d == "保留" for _, d in written)
 
 
-def test_a_blocked_reply_to_a_person_is_still_held() -> None:
+def test_a_blocked_utterance_is_a_monologue_not_held() -> None:
+    """止められた発話はすべて独り言（出-as §2.6・2026-09-26）。以前は人への返事だけ保留に積んでいた。"""
+
     async def scenario():
         ip, a = _ip(trigger_kind="発話", blocked="聞く相手が居ない")
         got = await ip._speak("おはよう")
@@ -70,7 +72,7 @@ def test_a_blocked_reply_to_a_person_is_still_held() -> None:
         return got, ip._hold_speech.await_count
 
     got, held = asyncio.run(scenario())
-    assert got == ("", "保留") and held == 1
+    assert got == ("おはよう", "独白") and held == 0
 
 
 def test_any_block_reason_silences_a_monologue() -> None:
