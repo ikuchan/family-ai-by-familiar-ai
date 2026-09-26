@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import base64
-from unittest.mock import AsyncMock
 
 from familiar_agent.loop.event_loop import InformationProcessing
 
@@ -48,7 +47,6 @@ def test_the_path_is_cleared_when_the_request_closes() -> None:
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
     ip._req.seen_image_path = "/tmp/x.jpg"
-    ip._hold_speech = AsyncMock()  # type: ignore[method-assign]
 
     async def scenario():
         await ip._finish("", [], "沈黙")

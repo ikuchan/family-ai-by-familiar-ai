@@ -58,8 +58,8 @@ def test_the_loop_uses_the_mouth():
     src = (_LOOP / "event_loop.py").read_text(encoding="utf-8")
     # 見た印の差し替え（VLM の返り）が 1 本ずつ足した（`イベント駆動ループ` v0.43）。
     # 黙っていたあいだに届いたものの記録（`_note_muted`・情-h・2026-09-16）で 1 本増えて 8。
-    assert src.count("_oif.write(") == 8
-    assert src.count("_oif.supersede(") == 3
+    assert src.count("_oif.write(") == 7
+    assert src.count("_oif.supersede(") == 2
     assert src.count("_oif.append(") == 1
 
 

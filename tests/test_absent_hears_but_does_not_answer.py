@@ -43,15 +43,11 @@ def test_device_and_affect_still_go_to_the_exit_gate_when_absent():
     a._nudge_seeking.assert_not_awaited()
 
 
-def test_the_heading_says_why_it_could_not_answer():
+def test_the_heading_says_it_was_silent():
+    """控えるのは黙っていたあいだだけ（出-as 段 9b：誰も見えないあいだの控えは外した）。"""
     now = time.time()
-    items = [Heard(kind="会話入力", text="こんにちは", at=now, why="誰も見えなかった")]
-    text = render(items, since=now, until=now, max_chars=500)
-    assert text.startswith("誰も見えなかったあいだ（")
-    both = items + [Heard(kind="会話入力", text="静かにして", at=now)]
-    assert render(both, since=now, until=now, max_chars=500).startswith(
-        "黙っていた／誰も見えなかったあいだ（"
-    )
+    items = [Heard(kind="会話入力", text="こんにちは", at=now)]
+    assert render(items, since=now, until=now, max_chars=500).startswith("黙っていたあいだ（")
 
 
 # ── 情-k：不在で溜めたものは「沈黙が明けた」ではない（2026-09-18 12:38 実機）─────
@@ -63,7 +59,7 @@ def test_things_heard_while_silent_do_not_start_anything_when_it_lifts():
 
     ip, a = _ip(present=1.0)
     ip.push_device = MagicMock()
-    ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time(), why="黙っていた")]
+    ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time())]
     ip.check_silence_lifted()  # 依頼は消えている（`_load_silence` は None）
     ip.push_device.assert_not_called()
     assert [h.text for h in ip._muted] == ["明日の予定は？"]  # 捨てずに次の求めまで持つ

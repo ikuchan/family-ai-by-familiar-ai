@@ -19,7 +19,6 @@ from zoneinfo import ZoneInfo
 
 from familiar_agent.config import AgentConfig
 from familiar_agent.core.silence_rules import silence_note
-from familiar_agent.loop import timer_watch
 from familiar_agent.routines import QuietHoursRule
 from familiar_agent.silence_state import SilenceRequest, hush_for_timer, unhush_timer
 from familiar_agent.tools.timer import TimerTool
@@ -133,25 +132,3 @@ def test_cancelling_unhushes():
     asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "お茶"}))
     asyncio.run(t.call("cancel_timer", {"id": "all"}))
     assert unhushed == [1, "all"]
-
-
-# ── 鳴った知らせは不在の保留を配らない（黙っていた分は聞いたことの列挙で載る・情-h）──
-
-
-def test_a_ringing_timer_does_not_release_absence_speech():
-    store = MagicMock()
-    store.due_now = MagicMock(
-        return_value=[
-            {
-                "id": 1,
-                "label": "パスタ",
-                "due": NOW - timedelta(seconds=1),
-                "asked_by": "パパ",
-                "passes_quiet": False,
-            }
-        ]
-    )
-    store.mark_fired = MagicMock(return_value=True)
-    dif = MagicMock()
-    timer_watch.fire_due(store, dif, now=NOW)
-    assert dif.device.call_args.kwargs["release_pending"] is False

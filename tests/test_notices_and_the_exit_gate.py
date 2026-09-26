@@ -63,7 +63,7 @@ def test_a_lifted_silence_does_not_start_a_request(monkeypatch):
     ip.push_device = MagicMock()
     ip._load_silence = lambda: SilenceRequest(person="パパ", until=time.time() - 1)
     monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: None)
-    ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time(), why="黙っていた")]
+    ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time())]
     ip.check_silence_lifted()
     ip.push_device.assert_not_called()
 
@@ -88,20 +88,16 @@ def test_quiet_hours_no_longer_stop_speech():
 
 def test_a_blocked_utterance_becomes_a_monologue_not_held():
     a, ip = _ip("情動", present=0.0)
-    ip._hold_speech = AsyncMock()
     spoken, outcome = asyncio.run(ip._speak("ねえねえ"))
     assert outcome == "独白"
-    ip._hold_speech.assert_not_awaited()
 
 
 def test_a_blocked_device_utterance_is_a_monologue_too():
     a, ip = _ip("機器", present=0.0)
     ip._req.request_text = "[音楽] 30 分たった"
-    ip._hold_speech = AsyncMock()
     ip._delivery_block_reason = lambda: "聞く相手が居ない"
     spoken, outcome = asyncio.run(ip._speak("音楽を止めたよ"))
     assert outcome == "独白"
-    ip._hold_speech.assert_not_awaited()
 
 
 # ── タイマーの操作の言葉は窓を開ける ─────────────────────────────────────

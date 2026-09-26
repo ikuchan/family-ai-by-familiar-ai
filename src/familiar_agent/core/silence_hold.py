@@ -19,14 +19,13 @@ from .silence_rules import is_release, names_me
 
 @dataclass(frozen=True)
 class Heard:
-    """聞けなかったあいだに届いた 1 件（黙っていた・誰も見えなかった）。"""
+    """黙っていたあいだに届いた 1 件。"""
 
     kind: str  # 会話入力／機器／情動
     text: str
     who: str = ""
     obs_id: str = ""
     at: float = 0.0  # epoch 秒
-    why: str = "黙っていた"  # 聞けなかった理由：黙っていた／誰も見えなかった（2026-09-17）
 
 
 def lifts(kind: str, text: str, *, names: "list[str]", reason: str = "") -> bool:
@@ -62,10 +61,8 @@ def render(items: "list[Heard]", *, since: float, until: float, max_chars: int) 
     talks = [h for h in items if h.kind == "会話入力"]
     events = [h for h in items if h.kind == "機器"]
     urges = [h for h in items if h.kind == "情動"]
-    seen = {h.why for h in items}
-    whys = "／".join(w for w in ("黙っていた", "誰も見えなかった") if w in seen) or "聞けなかった"
     head = (
-        f"{whys}あいだ（{_hm(since)}〜{_hm(until)}）に届いたもの——"
+        f"黙っていたあいだ（{_hm(since)}〜{_hm(until)}）に届いたもの——"
         f"聞いたこと {len(talks)} 件・起きたこと {len(events)} 件・湧いたこと {len(urges)} 件"
         "（全部を踏まえて、1 回でまとめて答える）："
     )

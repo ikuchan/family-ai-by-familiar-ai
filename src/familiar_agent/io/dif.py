@@ -284,18 +284,14 @@ class DIF:
 
     # ── 機器の出来事（外 → I） ─────────────────────────────────────────────
 
-    def device(
-        self, kind: str, content: str, *, release_pending: bool = False, passes_gate: bool = False
-    ) -> None:
-        """人の出入りなど、機器が出した出来事を I の待ち行列へ入れる。
+    def device(self, kind: str, content: str, *, passes_gate: bool = False) -> None:
+        """タイマー・アラームなど、機器が出した出来事を I の待ち行列へ入れる。
 
         カメラが出す事実なので DIF の担当である（T が渡すのは、時計を持つのが T
         だからにすぎない）。
         """
         logger.debug("DIF device → %s／%s", kind, content[:_TRAIL_CHARS])
-        self._ip.push_device(
-            kind, content, release_pending=release_pending, passes_gate=passes_gate
-        )
+        self._ip.push_device(kind, content, passes_gate=passes_gate)
 
     def record(self, kind: str, content: str) -> None:
         """機器の出来事を、求めを立てずに記憶へ記録だけする（出-as §2.7・人の出入り）。"""
