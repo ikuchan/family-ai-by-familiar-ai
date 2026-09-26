@@ -30,7 +30,7 @@ from ..poses import nearest_pose
 from ..scene import extract_entities
 from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
-from ..store.relations import KIND_EXCHANGE, KIND_RESOLVE, KIND_REVISION
+from ..store.relations import KIND_EXCHANGE, KIND_REVISION
 from ..io.dif import DIF
 from ..core import filler_echo, measure, parsing, unsaid
 from ..core.silence_hold import Heard
@@ -473,16 +473,6 @@ def _looks_like_text_tool_call(text: str) -> bool:
     )
 
 
-def _elapsed_label(created_at, now_epoch: float) -> str:
-    """いつのことかを「経過時間（時刻）」で書く。片方だけでは足りない。"""
-    with contextlib.suppress(Exception):
-        stamp = created_at.timestamp()
-        hours = (now_epoch - stamp) / 3600.0
-        ago = f"{int(hours * 60)}分前" if hours < 1 else f"約{int(hours)}時間前"
-        return f"{ago}（{created_at.astimezone().strftime('%m/%d %H:%M')}）"
-    return "いつか"
-
-
 def _log_recall_weights(trigger, base, used, memories) -> None:
     """採用した5軸重みと、その重みで出た上位のスコアを残す（INFO）。
 
@@ -572,7 +562,7 @@ class Trigger:
     | `進捗` | 調べものが遅い（`_watch_slow_lookup`） | `query` |
     | `決定` | 主LLM が返った | `decision`（`Decision`） |
     | `情動` | drive が発火した（AIF 経由） | `query`（drive の名）・`result`（促しの文） |
-    | `機器` | 人が出入りした（DIF 経由） | `query`（種別）・`result`（中身）・`release_pending` |
+    | `機器` | 人が出入りした（DIF 経由） | `query`（種別）・`result`（中身） |
     | `会話入力` | 人が話しかけた | `query`（人の言葉）・`future`（呼び手が待っている） |
 
     **`会話入力` だけが返事を持って帰る。** 呼び手（GUI・CUI）はその反復の出力を待っている
@@ -597,8 +587,6 @@ class Trigger:
     #: 調べものが**道具の失敗**で終わった（出-o）。結果ではなく「その道具はいま使えない」。
     failed: bool = False
     decision: "Decision | None" = None
-    # `機器` だけが使う。在席がゼロから立ち上がった瞬間に真で、保留した発話を先に配る。
-    release_pending: bool = False
     # 確かめて掛けたタイマーが鳴った（知-n）。配信ゲートを通り抜ける。
     passes_gate: bool = False
     # `会話入力` だけが使う。呼び手がここで返事を待っている。
@@ -1523,7 +1511,6 @@ class InformationProcessing:
                 viewpoint=viewpoint,
                 weights=weights,
                 req=self._req,
-                presence_rows=self._presence_rows(),
             )
             ws.max_age_sec = minutes * 60
             body = ws.recent_text(turns)
@@ -1538,7 +1525,6 @@ class InformationProcessing:
             req=self._req,
             time_ref=time_ref,
             time_span_days=span,
-            presence_rows=self._presence_rows(),
         )
         # 母数を添える（出-ah）。取りこぼしがあるかどうかを、返りだけで判断できるようにする。
         tail = f"\n（候補 {cfg.recall_primary_n} 件から {min(k, len(ws.memories))} 件・載せられるのは {k} 件まで）"
@@ -1821,16 +1807,6 @@ class InformationProcessing:
         lk = self._lookup_of(query)
         return lk.action if lk is not None else "recall"
 
-    def _presence_rows(self) -> "list[dict] | None":
-        """いまの在席（`presence_status()` の行）。読めなければ None（絞らない）。
-
-        直近のやりとりの**機器の知らせ**に宛先の条件を当てるために渡す（出-ap）。
-        """
-        try:
-            return list(self._agent._pmm.presence_status())
-        except Exception:  # noqa: BLE001
-            return None
-
     async def _recall_at(self, decision, ws, *, cue, viewpoint, weights):
         """調停が時期を指していたら、その時期を基準に引き直す。指していなければそのまま。
 
@@ -1848,7 +1824,6 @@ class InformationProcessing:
                 req=self._req,
                 time_ref=datetime.fromisoformat(decision.time_ref).timestamp(),
                 time_span_days=decision.time_span_days or None,
-                presence_rows=self._presence_rows(),
             )
             logger.info(
                 "event-loop 想起の基準を移す：%s（幅 %s 日）",
@@ -2084,7 +2059,6 @@ class InformationProcessing:
         self._req.cue = ""
         self._req.said_fillers.clear()
         self._req.told_unsaid = []
-        self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
         self._req.fired_axis = ""
@@ -2219,16 +2193,13 @@ class InformationProcessing:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
 
-    def push_device(
-        self, kind: str, content: str, *, release_pending: bool = False, passes_gate: bool = False
-    ) -> None:
+    def push_device(self, kind: str, content: str, *, passes_gate: bool = False) -> None:
         """T が人の出入りを待ち行列へ積む（DIF 経由・I は時計を見ない）。`passes_gate` はタイマー（知-n）。"""
         self._triggers.put_nowait(
             Trigger(
                 kind="機器",
                 query=kind,
                 result=content,
-                release_pending=release_pending,
                 passes_gate=passes_gate,
             )
         )
@@ -2342,7 +2313,6 @@ class InformationProcessing:
                     await self._begin_device(
                         trigger.query,
                         trigger.result,
-                        trigger.release_pending,
                         passes_gate=getattr(trigger, "passes_gate", False),
                     )
                 else:
@@ -2412,84 +2382,14 @@ class InformationProcessing:
         self._req.fired_axis = str(drive_name or "").lower()  # 内部状態の言葉で明示する（情-f）
         await self._iterate()
 
-    async def _begin_device(
-        self, kind: str, content: str, release_pending: bool, *, passes_gate: bool = False
-    ) -> None:
-        """機器（人の出入り）で新しい連鎖を始める。取込＝来た事実を O に書き、鎖の起点にする。
+    async def _begin_device(self, kind: str, content: str, *, passes_gate: bool = False) -> None:
+        """機器（タイマー・アラームなど）で新しい連鎖を始める。取込＝来た事実を O に書き、鎖の起点にする。
 
-        `release_pending` が真なら、聞く相手が居らず保留していた発話を先に配る。在席が
-        ゼロから立ち上がった瞬間だけ真になる（寿命は `pending_speech` 側が持つので、
-        新しいキューは作らない）。`passes_gate` は確かめて掛けたタイマー（知-n）。
+        `passes_gate` は確かめて掛けたタイマー（知-n）。
         """
         await self._begin_request(kind="機器", text=f"[{kind}] {content}")
         self._req.passes_gate = bool(passes_gate)
-        if release_pending:
-            await self._release_pending_speech()
         await self._iterate()
-
-    async def _release_pending_speech(self) -> None:
-        """保留していた発話を取り出し、**W へ流す分として持つ**（鮮度切れは捨てる）。
-
-        MI の content へ差し込まない。保留の記録（`direction="保留"`）は観測なので、想起でも
-        W に上がってくる（実機のログで、入室の反復の想起上位4件が保留 O だった）。content に
-        も差し込むと同じ話が二重に載る。
-
-        **いつ言いたかったか**を添える。経過時間だけだと「23時台に言いたかった」という文脈が
-        落ち、時刻だけだと日付をまたいだとき「昨夜」か「今朝」か決まらない。両方あれば、
-        言葉を組み立てる側が自然な言い方を選べる。
-
-        配った分は `pending_speech` から消し、元の O も supersede する（消さないと、想起で
-        W に上がり続けて何度も蒸し返す）。
-        """
-        store = getattr(self._agent, "_pending_store", None)
-        if store is None:
-            return
-        # **宛先の条件**（出-ap）。いまの在席で言えるものだけ配り、足りないものは箱に残す。
-        # 実機 15:49、話者が分からないまま家の予定（フーコック・キャンプ）を全部話した。
-        from ..core.audience import ANYONE, meets
-
-        try:
-            rows_now = list(self._agent._pmm.presence_status())
-        except Exception:  # noqa: BLE001
-            rows_now = []
-        try:
-            from ..config import PendingSpeechConfig
-
-            cfg = PendingSpeechConfig()
-            now_epoch = time.time()
-            released: list[str] = []
-            for row in store.list_active():
-                score = store.freshness_score(row, now_epoch, cfg)
-                if store.is_expired(row, score, cfg):
-                    store.delete(row["id"])
-                    continue
-                level = int(row.get("audience") or ANYONE)
-                # **段 1 はここに来た時点で満たされている**——この口は「在席がゼロから
-                # 立ち上がった瞬間」にしか呼ばれない。`presence_status()` は顔が照合できた
-                # 人しか載らないので、ここで段 1 まで見ると、顔が分からない相手のときに
-                # タイマーの知らせまで止まる。見るのは段 2 以上だけ。
-                if level > ANYONE and not meets(level, rows_now):
-                    # 言うのに足りる相手が居ない。**消さずに残す**——次に条件が揃えば配る。
-                    logger.info("event-loop 保留を残す（宛先の条件 %d を満たさない）", level)
-                    continue
-                content = str(row.get("content", "")).strip()
-                if content:
-                    released.append(
-                        f"- {_elapsed_label(row.get('created_at'), now_epoch)}：{content}"
-                    )
-                store.delete(row["id"])
-                with contextlib.suppress(Exception):
-                    self._agent._oif.supersede(
-                        row["observation_id"], self._req.request_id, kind=KIND_RESOLVE
-                    )
-            self._req.speech_to_deliver = released
-            if released:
-                # 何件を W へ流したかを残す。system プロンプトの全文は出していないので、
-                # これが無いと「載ったが触れられなかった」のか「そもそも載っていない」のか
-                # を区別できない（実機で、配られたのに発話が触れなかった）。
-                logger.info("event-loop 保留を配る：%d件", len(released))
-        except Exception as e:  # noqa: BLE001
-            logger.exception("保留していた発話を取り出せなかった: %s", e)
 
     async def close(self) -> None:
         # **待たせたままの呼び手を残さない。** 列と保留箱に会話入力が残っていると、
@@ -2570,7 +2470,6 @@ class InformationProcessing:
             viewpoint=viewpoint,
             weights=weights,
             req=self._req,
-            presence_rows=self._presence_rows(),
         )
         _log_recall_weights(trigger, w_base, weights, ws.memories)
         self._returned_now = ws.returned_actions  # 声の選び方が読む（環-u）
@@ -3094,10 +2993,9 @@ class InformationProcessing:
     async def _speak(self, text: str, *, branch: str = "full") -> tuple[str, str]:
         """声に出す。返りは **(実際に出した文, 結末)**。**反復は閉じない。**
 
-        身体を持つ以上、発話は相手が居て初めて意味を持つ（正本③ の配信ゲート＝結果有り＋在席）。
-        居ないときは「話したかったができなかった」を O に残して `pending_speech` へ積み、
-        次に人が現れたときに気づけるようにする。溜めたものの寿命（鮮度切れ・参照先 supersede で
-        失効）は `pending_speech` 側が持つ。
+        身体を持つ以上、発話は相手が居て初めて意味を持つ。出せないとき（情動の軸・窓・出口の門）は
+        本文を返して結末を `独白`／`沈黙` にし、`_finish` が「考えたが言わなかった」として O に書く
+        （出-as §2.6：保留して後で配ることはしない）。
 
         **閉じるのは呼び手（`_iterate`）である**（環-e-に・段4）。以前はここが `_finish` を
         3通りに呼び分けており、話す動作が求めの寿命の終わりまで持っていた。核が殻を呼び返す
@@ -3105,12 +3003,6 @@ class InformationProcessing:
         """
         if not text:
             return "", "沈黙"
-        if self._req.trigger_kind == "機器" and str(self._req.request_text).startswith("[退室]"):
-            # **退室の知らせに返事する相手は居ない**（知-r・2026-09-18 12:36 実機：最後の検出から
-            # 滞留窓 180 秒の内なので出口が通り、「出ていかれたんですね」を声に出した）。
-            # 思ったことは独白として O に残る。入室・タイマー・メモは従来どおり。
-            logger.info("event-loop 退室の知らせなので独り言として残す（相手は居ない）")
-            return text, "独白"
         if self._req.trigger_kind == "情動" and self._req.fired_axis not in _TALKING_AXES:
             # **会話をしようとするのは BOND と ESTEEM だけ**（出-as §2.1・本人の決定）。見回る・探すなどの
             # 発火は行動だけで、返事の文は声に出さない（声にしなかっただけの独り言として残る）。
@@ -3130,9 +3022,8 @@ class InformationProcessing:
             logger.info("event-loop %s が、つなぎを出した相手へ本応答を出す", blocked)
             blocked = ""
         if blocked:
-            # **止められた発話は、すべて独り言にする**（出-as §2.6・2026-09-26）。以前は情動だけ独り言にし、
-            # ほかは `pending_speech` に保留して人が来たら配っていた。思ったこと自体は残す——本文を
-            # 返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
+            # **止められた発話は、すべて独り言にする**（出-as §2.6・2026-09-26）。思ったこと自体は残す——
+            # 本文を返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
             logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
             return text, "独白"
         await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
@@ -3144,8 +3035,7 @@ class InformationProcessing:
     async def _say_filler(self, text: str) -> None:
         """つなぎの一言を出す（内容にコミットしない前置き）。配信ゲートは同じく効かせる。
 
-        本応答ではないので、これで反復を閉じない。溜める（`pending_speech`）のも本応答の
-        役目なので、出せない場面では黙って落とす。
+        本応答ではないので、これで反復を閉じない。出せない場面では黙って落とす（独り言としても残さない）。
         """
         if not text or self._delivery_block_reason():
             return
@@ -3277,15 +3167,13 @@ class InformationProcessing:
         return load_silence()
 
     async def _swallow_if_unheard(self, trigger: "Trigger") -> bool:
-        """聞けないあいだは、届いたものを O に残すだけで求めを立てない（入口の門）。
+        """入口の門：聞けないものは求めを立てない。
 
-        聞けない理由は 2 つ。**黙っているよう頼まれている**（情-h・2026-09-16：会話入力・機器・
-        情動のどれも止め、通すのは解くきっかけだけ）と、**誰も見えない**（2026-09-17：会話入力
-        だけ止める。機器の知らせは出口の `pending_speech` で本文ごと溜め、情動は出口で独白に
-        なる）。どちらも同じ器（`_muted`・`silence_hold`）に溜め、聞けるようになった最初の求めへ
-        渡す（`_pending_heard` → `Request.heard_while_silent`）。以前の不在は出口で止めており、
-        返事の本文を作ってから溜めていた（テレビの声への返事が、人が映った瞬間に出る）。
-        誰も見えないのに声がしたのは見に行く理由なので、ここで SEEKING を押し上げる（案ア）。
+        - **黙っているよう頼まれている**（情-h）：会話入力・機器・情動のどれも O に残して器
+          （`_muted`・`silence_hold`）に控えるだけにする。通すのは解くきっかけだけ（`lifts`）。控えたものは
+          聞けるようになった最初の求めへ渡す（`_pending_heard` → `Request.heard_while_silent`）。
+        - **窓の外の声**（出-as 段 3）：捨てる。誰も見えないのに声がしたのは見に行く理由なので、
+          SEEKING を押し上げる（案ア）。タイマーの操作の言葉は名前が無くても通し、窓を開ける。
         """
         from ..core.silence_hold import lifts
         from ..core.timer_rules import is_control_word
@@ -3397,17 +3285,13 @@ class InformationProcessing:
             trigger.future.set_result("")  # 呼び手（GUI）は吹き出しだけ出して待たない
         return True
 
-    async def _note_muted(self, trigger: "Trigger", now: float, *, why: str = "黙っていた") -> None:
-        """聞けなかったあいだに届いたものを O に残し、器に控える（理由は `why`）。"""
+    async def _note_muted(self, trigger: "Trigger", now: float) -> None:
+        """黙っていたあいだに届いたものを O に残し、器に控える。"""
         agent = self._agent
         if trigger.kind == "会話入力":
             who = self._current_speaker_name()
             text = trigger.query
-            content = (
-                f"（誰も見えないあいだに聞いた）{trigger.query}"
-                if why == "誰も見えなかった"
-                else f"（黙っていたあいだに聞いた）{trigger.query}"
-            )
+            content = f"（黙っていたあいだに聞いた）{trigger.query}"
             perspective = agent._conversation_perspective()
         elif trigger.kind == "機器":
             who = ""
@@ -3434,15 +3318,8 @@ class InformationProcessing:
             )
         if self._muted_since is None:
             self._muted_since = now
-        self._muted.append(
-            Heard(kind=trigger.kind, text=text, who=who, obs_id=obs_id, at=now, why=why)
-        )
-        logger.info(
-            "%sので聞くだけ：%s %.40s",
-            "黙っている" if why == "黙っていた" else "誰も見えない",
-            trigger.kind,
-            text,
-        )
+        self._muted.append(Heard(kind=trigger.kind, text=text, who=who, obs_id=obs_id, at=now))
+        logger.info("黙っているので聞くだけ：%s %.40s", trigger.kind, text)
 
     def _take_muted(self) -> "list[Heard]":
         items, self._muted = self._muted, []
@@ -3450,12 +3327,7 @@ class InformationProcessing:
         return items
 
     def check_silence_lifted(self) -> None:
-        """T が tick ごとに呼ぶ：期限切れで明けたのに何も届かないとき、まとめの求めを起こす。
-
-        見るのは器の中で**理由が「黙っていた」のもの**だけ（情-k・2026-09-18 12:38 実機）。器は
-        不在で聞いたもの（理由「誰も見えなかった」）とも共有しており、そちらを「沈黙が明けた」と
-        読むと、誰も見えないのに求めが立って LLM が回った。不在の分は人が映った求めに載る。
-        """
+        """T が tick ごとに呼ぶ：明示の依頼が期限で明けたら記録を消す。求めは立てない（出-as §2.7）。"""
         with contextlib.suppress(Exception):
             from ..silence_state import clear_silence, is_silenced
 
@@ -3816,43 +3688,6 @@ class InformationProcessing:
                 return str(agent._persons.active_name or "")
         return ""
 
-    # 配信ゲートが返す理由を、記録に書く形（過去形）へ言い換える。**表に無い理由は
-    # そのまま書く**——増えたときに黙って誤った文へ倒さないためである。
-    _HELD_REASON_PAST = {
-        "黙っているよう頼まれている": "黙っているよう頼まれていた",
-        "聞く相手が居ない": "聞く相手が居なかった",
-        "静穏時間である": "静穏時間だった",
-    }
-
-    async def _hold_speech(self, text: str, reason: str) -> None:
-        """話せなかった内容を O に残し、`pending_speech` へ積む（想起系は汚さない）。
-
-        **止められた理由も書く。** 以前は理由に関わらず「聞く相手が居なかった」と固定で
-        書いており、「黙っていてと言われたのでやめた」が「誰も居なかった」として残って
-        いた。保留は後で配られるので（`_release_pending_speech`）、パジュはその文面を
-        読んで話し始める。理由が違えば、話し出し方も違う。
-        """
-        agent = self._agent
-        why = self._HELD_REASON_PAST.get(reason, reason)
-        obs_id = await agent._oif.write(
-            MI(
-                id="",
-                content=f"話したかったが、{why}：{text}"[:500],
-                timestamp=None,
-                direction="保留",
-            ),
-            **agent._observation_perspective(),
-        )
-        if obs_id:
-            # 宛先の条件は**きっかけの札**で決める（出-ap・`core/audience`）。`[メモ]` は
-            # 家の記録なので家族がいるときだけ、ほかは誰かいれば配る。
-            from ..core.audience import level_of
-
-            # 求めが無い呼び方（土台だけの試験）でも落ちないよう、無ければ既定の段。
-            level = level_of(str(getattr(getattr(self, "_req", None), "request_text", "") or ""))
-            with contextlib.suppress(Exception):
-                agent._pending_store.add(obs_id, None, audience=level)
-
     def _start_lookup(self, utterance: str, tool_input: dict, *, action: str = "recall") -> None:
         """open 意図を O に残し、RH へ投げる（待たない）。意図は常に高々1件に保つ。"""
         self._pending_lookup = (utterance, tool_input, action)
@@ -3954,7 +3789,6 @@ class InformationProcessing:
         self._req.lookups.clear()
         self._req.said_fillers.clear()
         self._req.told_unsaid = []
-        self._req.speech_to_deliver.clear()
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
         self._req.fired_axis = ""

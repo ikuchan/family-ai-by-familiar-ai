@@ -1,9 +1,8 @@
 """独り言は相手が居なければ発話せず、積まずに捨て、言わなかった思いとして残す（情-c）。
 
-欲求で起きた求め（起点 `情動`）は、配信ゲートが閉じているとき `pending_speech` へ積まない
-（その場に居なければ無かったことになる）。ただし本応答は役割 `独白` で O に残る（`_finish` の
-既存経路）。不在の独り言には写真も添えない（費用の 4 割がここだった）。人の発話・機器が
-起点の求めは今までどおり保留する。
+配信ゲートが閉じているとき、発話は保留に積まない（積む口そのものを出-as 段 9b で外した）。本応答は
+役割 `独白` で O に残る（`_finish` の既存経路）。不在の独り言には写真も添えない（費用の 4 割がここだった）。
+ここでは「保留」の役割の記録が 1 件も書かれないことを数える。
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ def _ip(*, trigger_kind: str, blocked: str):
     ip._req.trigger_kind = trigger_kind
     ip._req.fired_axis = "bond"  # 情動なら話しかける軸（出-as 段 8：話すのは bond・esteem だけ）
     ip._delivery_block_reason = lambda: blocked  # type: ignore[method-assign]
-    ip._hold_speech = AsyncMock()  # type: ignore[method-assign]
     a._dif = MagicMock()
     a._dif.speak = AsyncMock()
     ip._dif = a._dif
@@ -37,7 +35,14 @@ def test_a_blocked_monologue_is_not_held_and_ends_as_monologue() -> None:
         ip, a = _ip(trigger_kind="情動", blocked="聞く相手が居ない")
         got = await ip._speak("部屋が静かだね。")
         await ip.close()
-        return got, ip._hold_speech.await_count, a._dif.speak.await_count
+        return (
+            got,
+            sum(
+                c.kwargs.get("direction") == "保留"
+                for c in ip._agent._memory.save_async_with_id.call_args_list
+            ),
+            a._dif.speak.await_count,
+        )
 
     got, held, spoke = asyncio.run(scenario())
     assert got == ("部屋が静かだね。", "独白"), "本文は残し、結末は独白"
@@ -75,7 +80,10 @@ def test_a_blocked_utterance_is_a_monologue_not_held() -> None:
         ip, a = _ip(trigger_kind="発話", blocked="聞く相手が居ない")
         got = await ip._speak("おはよう")
         await ip.close()
-        return got, ip._hold_speech.await_count
+        return got, sum(
+            c.kwargs.get("direction") == "保留"
+            for c in ip._agent._memory.save_async_with_id.call_args_list
+        )
 
     got, held = asyncio.run(scenario())
     assert got == ("おはよう", "独白") and held == 0
@@ -88,7 +96,10 @@ def test_any_block_reason_silences_a_monologue() -> None:
             ip, a = _ip(trigger_kind="情動", blocked=reason)
             got = await ip._speak("ひとりごと")
             await ip.close()
-            return got, ip._hold_speech.await_count
+            return got, sum(
+                c.kwargs.get("direction") == "保留"
+                for c in ip._agent._memory.save_async_with_id.call_args_list
+            )
 
         got, held = asyncio.run(scenario())
         assert got[1] == "独白" and held == 0, reason

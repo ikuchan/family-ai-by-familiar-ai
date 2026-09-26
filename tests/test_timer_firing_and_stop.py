@@ -77,7 +77,7 @@ def test_the_device_trigger_carries_the_flag_into_the_request():
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
     ip._iterate = AsyncMock()
-    asyncio.run(ip._begin_device("タイマー", "鳴った", False, passes_gate=True))
+    asyncio.run(ip._begin_device("タイマー", "鳴った", passes_gate=True))
     assert ip._req.trigger_kind == "機器" and ip._req.passes_gate is True
 
 

@@ -25,7 +25,6 @@ def _ip(*, trigger_kind: str, blocked: str, said_filler: bool):
     if said_filler:
         ip._req.said_fillers.append("見てみますね")
     ip._delivery_block_reason = lambda: blocked  # type: ignore[method-assign]
-    ip._hold_speech = AsyncMock()  # type: ignore[method-assign]
     ip._dif = MagicMock(speak=AsyncMock())
     ip._wake_window().open(time.monotonic())  # 入口を通った会話として窓を開けておく（出-as 段 4）
     return ip
@@ -35,7 +34,14 @@ def _speak(ip, text="部屋には机と椅子があるよ。"):
     async def scenario():
         got = await ip._speak(text)
         await ip.close()
-        return got, ip._dif.speak.await_count, ip._hold_speech.await_count
+        return (
+            got,
+            ip._dif.speak.await_count,
+            sum(
+                c.kwargs.get("direction") == "保留"
+                for c in ip._agent._memory.save_async_with_id.call_args_list
+            ),
+        )
 
     return asyncio.run(scenario())
 

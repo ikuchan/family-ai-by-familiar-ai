@@ -50,9 +50,8 @@ class PendingSpeechStore:
     ) -> str | None:
         """observation_id 実在チェック → INSERT。実在しなければ None（拒否）。
 
-        `audience` は**宛先の条件**（出-ap・`core/audience`）——それを言うのに誰が要るか。
-        既定 1（誰かいたら）はいままでの振る舞い。2（家族がいたら）は、家族と確かめられた
-        人が在席するまで配らない。
+        `audience` は列（宛先の条件・出-ap）に書くだけで、いまは読む口が無い。保留を積む口・配る口は
+        外した（出-as 段 9b・2026-09-26）。テーブルとこの店を落とすのは 環-ab。
         """
         with self._lock:
             conn = self._ensure_connected()

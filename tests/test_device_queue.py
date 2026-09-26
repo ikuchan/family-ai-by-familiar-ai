@@ -20,7 +20,6 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.tonic import Tonic
-from familiar_agent.store.relations import KIND_RESOLVE
 
 
 @contextlib.contextmanager
@@ -173,105 +172,6 @@ def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():
     assert sorted(held) == ["情動", "機器"]  # どちらも保留箱で待っている
     ip._begin_affect.assert_not_awaited()
     ip._begin_device.assert_not_awaited()
-
-
-def test_held_speech_flows_into_w_with_when_it_was_wanted():
-    # 保留していた発話は MI の content へ差し込まない（保留 O は想起でも W に上がるので
-    # 二重になる）。W に「いつ・何を言いたかったか」として流し、言葉の組み立ては任せる。
-    import datetime as _dt
-
-    from familiar_agent.backends import ToolCall
-    from familiar_agent.loop.event_loop import InformationProcessing
-    from tests.test_event_loop import _agent, _turn
-
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "おかえり"})])])
-    created = _dt.datetime.now(_dt.timezone.utc) - _dt.timedelta(hours=7)
-    a._pending_store.list_active = MagicMock(
-        return_value=[
-            {
-                "id": "p1",
-                "observation_id": "obs-held",
-                "created_at": created,
-                "content": "話したかったが、聞く相手が居なかった：こんばんは。",
-            }
-        ]
-    )
-    a._pending_store.freshness_score = MagicMock(return_value=1.0)
-    a._pending_store.is_expired = MagicMock(return_value=False)
-
-    async def scenario():
-        ip = InformationProcessing(a)
-        await ip._begin_device("入室", "パパ が来た", True)
-        await ip.close()
-
-    asyncio.run(scenario())
-    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "聞く相手が居ないあいだに話したかったこと" in system
-    assert "約7時間前" in system  # 経過時間
-    assert "こんばんは" in system
-    a._pending_store.delete.assert_called_once_with("p1")
-    # 配ったら元の O も閉じる（想起で上がり続けて蒸し返さないように）。
-    assert ("obs-held",) == a._memory.mark_superseded.call_args.args[:1]
-    # 保留していたことが果たされたので閉じる。改訂ではない（段 2）。
-    assert a._memory.mark_superseded.call_args.kwargs["kind"] == KIND_RESOLVE
-
-    # MI の content には差し込まない。
-    device_mi = next(
-        c.args[0]
-        for c in a._memory.save_async_with_id.call_args_list
-        if c.kwargs.get("direction") == "機器"
-    )
-    assert "こんばんは" not in device_mi
-
-
-def test_releasing_held_speech_is_logged_with_its_count():
-    # system プロンプトの全文は出していないので、件数を残さないと「載ったが触れられ
-    # なかった」のか「そもそも載っていない」のかを区別できない（実機で、配られたのに
-    # 発話がそれに触れなかった）。
-    import datetime as _dt
-    import logging
-
-    from familiar_agent.loop.event_loop import InformationProcessing
-
-    a = MagicMock()
-    a._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
-    from familiar_agent.io.oif import OIF
-
-    # 書き込みは OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**にすれば、
-    # `save_async_with_id` への検証がそのまま効く。書き手は口が必須で求める。
-    a._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
-    a._conversation_perspective = MagicMock(return_value={"writer_id": "話者"})
-    a._oif = OIF(a._memory)
-    a._pending_store.list_active = MagicMock(
-        return_value=[
-            {
-                "id": "p1",
-                "observation_id": "obs-held",
-                "created_at": _dt.datetime.now(_dt.timezone.utc),
-                "content": "こんばんは",
-            }
-        ]
-    )
-    a._pending_store.freshness_score = MagicMock(return_value=1.0)
-    a._pending_store.is_expired = MagicMock(return_value=False)
-
-    records: list[str] = []
-
-    class _H(logging.Handler):
-        def emit(self, record):
-            records.append(record.getMessage())
-
-    logger = logging.getLogger("familiar_agent.loop.event_loop")
-    handler, old_level = _H(), logger.level
-    logger.addHandler(handler)
-    logger.setLevel(logging.INFO)  # 既定は WARNING なので INFO が届かない
-    try:
-        ip = InformationProcessing(a)
-        asyncio.run(ip._release_pending_speech())
-    finally:
-        logger.removeHandler(handler)
-        logger.setLevel(old_level)
-    assert any("保留を配る：1件" in m for m in records)
 
 
 def test_two_new_request_triggers_do_not_lose_one():

@@ -53,7 +53,6 @@ def _ip():
     ip._req.live_version_id = None
     ip._req.lookups = []
     ip._req.said_fillers = []
-    ip._req.speech_to_deliver = []
     ip._req.turn_records = []
     ip._req.exchange_start = 0
     ip._req.utterance = "こんばんは"

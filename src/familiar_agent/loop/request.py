@@ -60,7 +60,7 @@ class Request:
 
     - `iterations`／`iterations_capped`：**決める反復**を数える（環-h ⑤）。主LLM の返りで
       0 へ戻るので、この数は求めの長さを表さない。長さを表すのは考えた回数のほうである
-    - 列（`lookups`・`said_fillers`・`speech_to_deliver`・`turn_records`）は
+    - 列（`lookups`・`said_fillers`・`turn_records`）は
       **`default_factory` で求めごとに別の入れ物にする**。既定値を1つにすると、次の求めへ
       前の一言や前のターンの記録が残る
     """
@@ -104,9 +104,6 @@ class Request:
     said_fillers: list[str] = field(default_factory=list)
     # 返事で「使った」と申告された言いたかったこと（記録の id と中身・出-as 段 7）。声に出したら畳む。
     told_unsaid: list = field(default_factory=list)
-    # 配る保留（「いつ・何を言いたかったか」）。W へ流し、**求めが閉じたら**捨てる
-    # （`_finish` と打ち切り）。
-    speech_to_deliver: list[str] = field(default_factory=list)
     # 黙っていたあいだに届いたもの（情-h）。明けた瞬間の求めにだけ載り、W の作業状態の枠で
     # 列挙する（想起の列からは除く）。
     heard_while_silent: list = field(default_factory=list)

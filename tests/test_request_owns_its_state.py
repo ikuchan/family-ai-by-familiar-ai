@@ -46,19 +46,16 @@ def test_a_fresh_request_starts_from_zero():
 
 
 def test_the_request_owns_what_was_already_said():
-    """つなぎと、配る保留。どちらも打ち切りと `_finish` で空になる＝求めの寿命である。"""
+    """つなぎ。打ち切りと `_finish` で空になる＝求めの寿命である。"""
     r = Request()
     assert r.said_fillers == []
-    assert r.speech_to_deliver == []
 
 
 def test_each_request_gets_its_own_lists():
     """**入れ物を共有しない。** 既定値を1つにすると、次の求めに前の一言が残る。"""
     a, b = Request(), Request()
     a.said_fillers.append("調べますね")
-    a.speech_to_deliver.append("さっき言いたかったこと")
     assert b.said_fillers == []
-    assert b.speech_to_deliver == []
 
 
 # ── 束 C：やりとり ─────────────────────────────────────────────────────────

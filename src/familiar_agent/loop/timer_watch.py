@@ -42,11 +42,10 @@ def fire_due(
         if late >= LATE_AFTER_SEC:
             content += f"。{int(late // 60)} 分遅れて鳴っている（{r['due'].astimezone():%H:%M} の予定だった）"
         passes = bool(r.get("passes_quiet"))
-        # 黙っていたあいだに聞いたことは、知らせの求めに `heard_while_silent` として載る
-        # （情-h）。不在の保留（`pending_speech`）はここでは配らない。
+        # 黙っていたあいだに聞いたことは、知らせの求めに `heard_while_silent` として載る（情-h）。
         if ring_sec > 0 and (passes or not quiet):
             dif.ring(seconds=ring_sec, gain=gain)
-        dif.device("タイマー", content, release_pending=False, passes_gate=passes)
+        dif.device("タイマー", content, passes_gate=passes)
         logger.info(
             "タイマーが鳴った id=%s %s 遅れ=%.0f秒 通り抜け=%s", r["id"], r["label"], late, passes
         )

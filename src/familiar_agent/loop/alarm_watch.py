@@ -38,7 +38,7 @@ def fire_due(
         passes = bool(r.get("passes_quiet"))
         if ring_sec > 0 and (passes or not quiet):
             dif.ring(seconds=ring_sec, gain=gain)
-        dif.device("アラーム", content, release_pending=False, passes_gate=passes)
+        dif.device("アラーム", content, passes_gate=passes)
         logger.info(
             "アラームが鳴った id=%s %s 遅れ=%.0f秒 通り抜け=%s", r["id"], r["label"], late, passes
         )

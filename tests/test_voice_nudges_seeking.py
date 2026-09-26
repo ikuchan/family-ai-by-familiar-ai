@@ -40,7 +40,6 @@ def _ip(origin: str, blocked: str):
     ip._req.trigger_kind = origin
     ip._req.said_fillers = []
     ip._delivery_block_reason = lambda: blocked
-    ip._hold_speech = AsyncMock()
     ip._dif = MagicMock()
     ip._dif.speak = AsyncMock()
     return a, ip
