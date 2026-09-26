@@ -21,6 +21,7 @@ def _ip(*, trigger_kind: str, blocked: str, said_filler: bool):
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
     ip._req.trigger_kind = trigger_kind
+    ip._req.fired_axis = "bond"  # 情動なら話しかける軸（出-as 段 8：話すのは bond・esteem だけ）
     if said_filler:
         ip._req.said_fillers.append("見てみますね")
     ip._delivery_block_reason = lambda: blocked  # type: ignore[method-assign]

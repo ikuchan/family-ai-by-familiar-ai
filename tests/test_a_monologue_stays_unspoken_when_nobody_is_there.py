@@ -22,6 +22,7 @@ def _ip(*, trigger_kind: str, blocked: str):
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
     ip._req.trigger_kind = trigger_kind
+    ip._req.fired_axis = "bond"  # 情動なら話しかける軸（出-as 段 8：話すのは bond・esteem だけ）
     ip._delivery_block_reason = lambda: blocked  # type: ignore[method-assign]
     ip._hold_speech = AsyncMock()  # type: ignore[method-assign]
     a._dif = MagicMock()
