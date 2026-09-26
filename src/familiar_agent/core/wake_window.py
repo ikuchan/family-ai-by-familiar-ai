@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import time
 from dataclasses import dataclass
 
 from .silence_rules import names_me
@@ -29,17 +30,45 @@ def heard_name(text: str, names: "list[str]") -> bool:
     return names_me(text, names)
 
 
-class VoiceText(str):
-    """声の書き起こしの印（出-as 段 2）。中身はただの文字列で、出どころだけを運ぶ。
+class InputText(str):
+    """届いた入力の印。中身はただの文字列で、**出どころと届いた時刻**を運ぶ（出-as 段 2・出-au 段 1-1）。
 
-    声を積むところ（`realtime_stt_session._committed_relay`）がこれで包み、`agent.run` の入口が
-    `source_of` で見る。画面（GUI・TUI・CUI）と待ち行列の型は変えない。
+    積むところ（声の書き起こし・キーボードの 3 か所）が包み、`agent.run` の先頭が読む。窓は**届いた時刻**で
+    判定する（`設計方針_判定の段` §2 原則 3）——画面は前の `run()` が返るまで次の入力を取らないので、取り出した
+    時刻で見ると、窓の中で言った声を窓が切れた後として捨てることがある。画面と待ち行列の型は `str` のまま。
     """
+
+    source = "keyboard"
+    at: float
+
+    def __new__(cls, text: str, at: "float | None" = None) -> "InputText":
+        obj = super().__new__(cls, text)
+        obj.at = time.monotonic() if at is None else float(at)
+        return obj
+
+
+class VoiceText(InputText):
+    """声の書き起こし（`realtime_stt_session._committed_relay`・TUI の録音）。"""
+
+    source = "voice"
+
+
+class KeyText(InputText):
+    """キーボードで打たれた入力（GUI・TUI・CUI）。"""
+
+    source = "keyboard"
 
 
 def source_of(text: str) -> str:
-    """入力の出どころ。声の印があれば `voice`、無ければ `keyboard`（`.env.quiet` の入力もこれ）。"""
-    return "voice" if isinstance(text, VoiceText) else "keyboard"
+    """入力の出どころ。印があればそれ、無ければ `keyboard`（`.env.quiet` の入力もこれ）。"""
+    return text.source if isinstance(text, InputText) else "keyboard"
+
+
+def arrived_at(text: str, *, now: "float | None" = None) -> float:
+    """入力が届いた時刻（`time.monotonic()` の秒）。印が無ければ呼んだ時刻。"""
+    if isinstance(text, InputText):
+        return text.at
+    return time.monotonic() if now is None else now
 
 
 @dataclass

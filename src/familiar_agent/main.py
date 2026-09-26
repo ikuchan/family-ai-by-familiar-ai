@@ -15,6 +15,7 @@ from pathlib import Path
 from .agent import EmbodiedAgent
 from .bootstrap import load_app_bootstrap
 from .config import AgentConfig
+from .core.wake_window import KeyText
 from .realtime_stt_session import create_realtime_stt_session
 from .setup import run_cli_setup_wizard
 from ._i18n import BANNER, _t
@@ -125,7 +126,7 @@ async def repl(agent: EmbodiedAgent, debug: bool = False) -> None:
             if not line:  # EOF
                 await input_queue.put(None)
                 return
-            await input_queue.put(line.strip())
+            await input_queue.put(KeyText(line.strip()))  # 届いた時刻を付ける（出-au 段 1-1）
 
     stdin_task = asyncio.create_task(_stdin_reader())
 
