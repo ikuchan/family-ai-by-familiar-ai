@@ -210,3 +210,16 @@ capabilities:
       ensuring efficient and asynchronous memory management. Implemented in
       `memory_worker.py`.
     enabled: true
+  - id: season_awareness
+    summary: Know the current season and what is going on around the house
+    detail: >
+      Every system prompt carries `[いまの季節とまわり]`. The solar-term line (e.g. past the
+      autumn equinox, next is 寒露) is computed from today's date each time. Once a day,
+      when nobody is around, the REST pass's season layer searches the web for the town
+      written in ME.md (weather and seasonal topics) and, together with that night's
+      events, writes up to two lines each for weather, surroundings and family topics.
+      Each line must quote the search result or cite an event, or nothing is stored.
+      Older than 7 days it is marked with its age; older than 30 days only the solar-term
+      line remains. `/season clear` wipes it. Stored in `agent_state.season_env`.
+      Implemented in `core/season_env.py` and `loop/rest_season.py`.
+    enabled: true
