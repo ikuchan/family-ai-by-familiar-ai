@@ -92,7 +92,7 @@ def test_a_say_speaks_and_closes():
     got = _run(ip, _turn(ToolCall("t", "say", {"text": "はい"})), memories=[{"memory_id": "m1"}])
     assert got == "はい"
     ip._speak.assert_awaited_once_with("はい")
-    ip._finish.assert_awaited_once_with("はい", [{"memory_id": "m1"}], "発話")
+    ip._finish.assert_awaited_once_with("はい", [{"memory_id": "m1"}], "発話", gen=0)
 
 
 def test_plain_text_is_shown_but_not_spoken():
@@ -102,7 +102,7 @@ def test_plain_text_is_shown_but_not_spoken():
     assert got == "なるほどと思った"
     ip._emit.assert_called_once_with("なるほどと思った")
     ip._speak.assert_not_awaited()
-    ip._finish.assert_awaited_once_with("なるほどと思った", [], "沈黙")
+    ip._finish.assert_awaited_once_with("なるほどと思った", [], "沈黙", gen=0)
 
 
 # ── 併記と上限 ─────────────────────────────────────────────────────────────
