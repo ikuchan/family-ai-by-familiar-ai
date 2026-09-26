@@ -104,6 +104,9 @@ class Request:
     said_fillers: list[str] = field(default_factory=list)
     # 返事で「使った」と申告された言いたかったこと（記録の id と中身・出-as 段 7）。声に出したら畳む。
     told_unsaid: list = field(default_factory=list)
+    # 調べているあいだに名前無しで言い足されたこと（出-au 段 3）。`(obs_id, 本文)` の並び。W の作業状態の枠で
+    # 列挙し、この求めの答えに含める。求めが閉じる・打ち切られると捨てる（O には「添え」で残っている）。
+    added: list = field(default_factory=list)
     # 黙っていたあいだに届いたもの（情-h）。明けた瞬間の求めにだけ載り、W の作業状態の枠で
     # 列挙する（想起の列からは除く）。
     heard_while_silent: list = field(default_factory=list)
