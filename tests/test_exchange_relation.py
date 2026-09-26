@@ -145,7 +145,8 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
                 break
             await asyncio.sleep(0.005)
         # 調べかけの途中で話しかける。
-        await ip.push_utterance("それより明日の予定は？")
+        # 打ち切るのは名前で呼ばれたときだけ（出-au 段 1-2）。
+        await ip.push_utterance("パジュ、それより明日の予定は？")
         for _ in range(_WAIT_TICKS):
             if a._run_post_response_pipeline.called:
                 break

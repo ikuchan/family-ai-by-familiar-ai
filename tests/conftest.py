@@ -188,6 +188,28 @@ def _no_real_camera_thread(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _tests_open_the_window(request, monkeypatch):
+    """ループの仕組みを確かめる試験では、会話入力の窓の判定を「受けて窓を開ける」にする（出-au 段 1-2）。
+
+    出-au で、キーボードも名前（ウェイクワード）が無ければ窓の外として捨てるようにした。ループの試験の多くは
+    名前の無い素の文を `push_utterance` に渡しており、以前のキーボードの扱い（いつでも受けて窓を開ける）を
+    前提にしている。門そのものを確かめる試験は `@pytest.mark.real_window`（ファイルなら `pytestmark`）を付けて、
+    本物の判定を使う。
+    """
+    if request.node.get_closest_marker("real_window") is not None:
+        yield
+        return
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    def _admits(self, trigger):
+        self._wake_window().open(self._arrival(trigger))
+        return True
+
+    monkeypatch.setattr(InformationProcessing, "_window_admits", _admits)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _async_stuck_guard(monkeypatch):
     """`asyncio.run` が終わらなければ、待っていたタスクの場所を載せて失敗させる（環-aa・2026-09-26）。
 

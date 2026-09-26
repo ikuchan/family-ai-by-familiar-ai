@@ -595,6 +595,9 @@ class Trigger:
     source: str = ""
     # `会話入力` だけが使う。届いた時刻（`time.monotonic()`・出-au 段 1-1）。窓はこの時刻で判定する。
     arrived: float = 0.0
+    # `会話入力` だけが使う。名前で呼ばれたか（出-au 段 1-2）。名前がある入力だけが打ち切り、名前の無い
+    # 入力は飛行中の調べものがある間は待つ。門が決める。直に作った会話入力（試験）は名前ありとして扱う。
+    named: bool = True
 
 
 class InformationProcessing:
@@ -1985,37 +1988,39 @@ class InformationProcessing:
         起こす次の反復が担う。呼び手（GUI・CUI）が待っているのもここまでで、これは
         `begin_request` だったころと同じ意味である。
 
-        **打ち切りはここでやる。** 積む前に前の調査を止める。駆動体側へ移すと、走っている
-        反復が終わるまで打ち切りが遅れる（調停の時間切れなら最大5秒）。打ち切りは「人が
-        言い直した」瞬間の判断であって、順序づけではない。
+        **門はここで、届いた時刻で判定する**（出-au 段 1-2・`設計方針_判定の段` §2.1）。声は門を通ってから、
+        初めて何かを起こす。以前は門より前に打ち切りと時刻の印を付けていたので、窓の外で捨てる声（テレビ・
+        家族の話）でも、調べもの・考えている途中の主LLM・情動やタイマーの求めが取り消され、「ひとりの回数」が
+        0 に戻った。駆動体の中で判定すると、反復を回している間（調停は最大 5 秒）は判定も打ち切りも遅れる。
+
+        **打ち切りは名前がある入力でだけ。** 名前の無い入力は、飛行中の調べものがある間は待たせる
+        （`_take_trigger`）。
 
         `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
-        （`keyboard`）か（出-as 段 2）。ウェイクワードの窓は声にだけ掛ける。`arrived` は届いた時刻
-        （`time.monotonic()`・出-au 段 1-1）で、無ければいま。
+        （`keyboard`）か（出-as 段 2）。`arrived` は届いた時刻（`time.monotonic()`・出-au 段 1-1）で、
+        無ければいま。
         """
         agent = self._agent
+        self._on_text = on_text or self._on_text
+        self._ensure_driver()
+        fut: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
+        trigger = Trigger(
+            kind="会話入力",
+            query=utterance,
+            future=fut,
+            source=source,
+            arrived=time.monotonic() if arrived is None else arrived,
+        )
+        if await self._swallow_if_unheard(trigger):
+            return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
         # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
-        self._on_text = on_text or self._on_text
-        self._ensure_driver()
-
-        # 調べかけの途中に話しかけられたら、**その調査を打ち切る**。人が言い直したとき、
-        # 前の調査を続ける意味はない（実機で「これはどこの地方の天気？」に答えられず、
-        # 言い直されたあとも同じ検索を繰り返した）。結果は捨てるが、**何を打ち切ったかは
-        # 記録に残す**。
-        await self._abort_lookups()
-
-        fut: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
-        self._triggers.put_nowait(
-            Trigger(
-                kind="会話入力",
-                query=utterance,
-                future=fut,
-                source=source,
-                arrived=time.monotonic() if arrived is None else arrived,
-            )
-        )
+        if trigger.named:
+            # 名前で呼ばれたら、**調べかけを打ち切る**（言い直し・別の用事・「パジュ、止めて」）。結果は
+            # 捨てるが、**何を打ち切ったかは記録に残す**。名前の無い入力（「うん」）では止めない。
+            await self._abort_lookups()
+        self._triggers.put_nowait(trigger)
         return await fut
 
     async def _abort_lookups(self) -> None:
@@ -2261,6 +2266,12 @@ class InformationProcessing:
 
         **優先順位は「同時に届いた中から1つ選ぶとき」の規則である。** 保留箱で待っている
         ものは**待った順に**片づく（待たせたのだから、待った順で出す）。
+
+        **名前の無い会話入力は、飛行中の調べもの（主LLM を含む）がある間は待たせる**（出-au 段 1-3）。
+        新しい求めを始めると `_begin_request` が前の求めの状態を空にし、届く結果の行き場が無くなる——打ち切りと
+        同じになる。打ち切ってよいのは名前がある入力だけである。前の求めの答えが出てから、別の求めとして扱う
+        （段 3 で「前の求めに添える」を入れるまでの既定）。飛行中の印は取り込んだ時点で外れるので、届いた
+        結果を取り込む反復は必ず先に回る。
         """
         carry: list[Trigger] = []
         while True:
@@ -2275,14 +2286,22 @@ class InformationProcessing:
             # ① 会話入力は保留箱より常に先（調査中でも）。保留箱を列より先に返していた近道が、
             #    列で待つ人の言葉より保留箱の入室を先に走らせ、会話入力が別の求めの取込に
             #    横取りされる隙を作った（実機 12:40・88 秒返らず）。
-            utterance = next((t for t in self._held + fresh if t.kind in _NEVER_HELD_KINDS), None)
+            busy = bool(self._in_flight_count)
+            utterance = next(
+                (
+                    t
+                    for t in self._held + fresh
+                    if t.kind in _NEVER_HELD_KINDS and (t.named or not busy)
+                ),
+                None,
+            )
             if utterance is not None:
                 if utterance in self._held:
                     self._held.remove(utterance)
                 self._held.extend(t for t in fresh if t is not utterance)
                 return utterance
-            if self._in_flight_count:
-                # 調査中は新しい求めを待たせる。取りこぼしではなく待たせるだけ。
+            if busy:
+                # 調査中は新しい求めを待たせる（名前の無い会話入力も）。取りこぼしではなく待たせるだけ。
                 self._held.extend(fresh)
             elif self._held:
                 # ② 待たせていたぶんを、待った順に。いま届いたものはその後ろへ。
@@ -2311,7 +2330,12 @@ class InformationProcessing:
         while True:
             try:
                 trigger = await self._take_trigger()
-                if trigger is not None and await self._swallow_if_unheard(trigger):
+                # 会話入力は `push_utterance` が届いた時刻で門に通してある（出-au 段 1-2）。
+                if (
+                    trigger is not None
+                    and trigger.kind != "会話入力"
+                    and await self._swallow_if_unheard(trigger)
+                ):
                     continue
                 if trigger is None:
                     logger.debug(
@@ -3186,14 +3210,20 @@ class InformationProcessing:
         - **黙っているよう頼まれている**（情-h）：会話入力・機器・情動のどれも O に残して器
           （`_muted`・`silence_hold`）に控えるだけにする。通すのは解くきっかけだけ（`lifts`）。控えたものは
           聞けるようになった最初の求めへ渡す（`_pending_heard` → `Request.heard_while_silent`）。
-        - **窓の外の声**（出-as 段 3）：捨てる。誰も見えないのに声がしたのは見に行く理由なので、
-          SEEKING を押し上げる（案ア）。タイマーの操作の言葉は名前が無くても通し、窓を開ける。
+        - **窓の外の入力**（出-as 段 3・出-au 段 1-2）：声もキーボードも捨てる。誰も見えないのに声がしたのは
+          見に行く理由なので、SEEKING を押し上げる（案ア）。タイマーの操作の言葉にも名前が要る。
+
+        会話入力はここを `push_utterance` から**届いた時刻で**通る（駆動体は会話入力をもう一度は見ない）。
+        名前で呼ばれたか（`Trigger.named`）もここで決める。
         """
         from ..core.silence_hold import lifts
-        from ..core.timer_rules import is_control_word
+        from ..core.wake_window import heard_name
         from ..silence_state import is_silenced
 
         now = time.time()
+        names = list(getattr(self._agent.config, "agent_names", None) or [])
+        if trigger.kind == "会話入力":
+            trigger.named = heard_name(trigger.query, names)
         req = None
         with contextlib.suppress(Exception):
             req = self._load_silence()
@@ -3202,28 +3232,24 @@ class InformationProcessing:
             if lifts(
                 trigger.kind,
                 trigger.query,
-                names=list(getattr(self._agent.config, "agent_names", None) or []),
+                names=names,
                 reason=getattr(req, "reason", "") or "",
             ):
                 if trigger.kind == "会話入力":
-                    # 通した言葉（名前つきの「話していいよ」・タイマーの操作の言葉）への返事を声にするため、
-                    # 窓を開ける（出-as 段 6）。開けないと、返事が「窓が切れた後」になって独り言になる。
-                    self._wake_window().open(time.monotonic())
+                    # 通した言葉（名前つきの「話していいよ」・名前つきのタイマーの操作の言葉）への返事を声に
+                    # するため、窓を開ける（出-as 段 6）。開けないと、返事が「窓が切れた後」になって独り言になる。
+                    self._wake_window().open(self._arrival(trigger))
                     self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
                 return False
             await self._note_muted(trigger, now)
             return self._swallowed(trigger)
         if trigger.kind == "会話入力":
-            if self._timer_active() and is_control_word(trigger.query):
-                # タイマーが動いている／鳴っているときの操作の言葉（止めて・一時停止・再開）は、名前が
-                # 無くても通す（出-ab・実機 2026-09-18 22:13：鳴っている最中の「止めて」が飲まれた）。
-                # タイマーまわりは従来どおり（出-as §2.4）。返事「止めたよ」を声にするため窓を開ける（段 6）。
-                self._wake_window().open(time.monotonic())
-                return False
+            # タイマーの操作の言葉（止めて・一時停止・再開）にも**名前が要る**（出-au 段 1-2・`設計方針_判定の段`
+            # §2.1）。以前は名前が無くても通していたが（出-ab）、打ち切りには名前が要る決まりにそろえた。
             if not self._window_admits(trigger):
-                # **窓の外の声は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
+                # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
-                logger.info("event-loop 窓の外の声なので捨てる：%.40s", trigger.query)
+                logger.info("event-loop 窓の外の入力なので捨てる：%.40s", trigger.query)
                 if self._nobody_visible():
                     # 声がしたのに見えないのは見に行く理由（案ア・seeking はいまのまま）。
                     with contextlib.suppress(Exception):
@@ -3265,20 +3291,19 @@ class InformationProcessing:
         if self._req.trigger_kind == "発話":
             self._wake_window().extend(time.monotonic())
 
+    @staticmethod
+    def _arrival(trigger: "Trigger") -> float:
+        """会話入力が届いた時刻（`time.monotonic()`）。付いていなければいま。"""
+        return trigger.arrived or time.monotonic()
+
     def _window_admits(self, trigger: "Trigger") -> bool:
-        """会話入力を窓で受けるか（出-as 段 3・`設計方針_話していいかの決まり` §2.3）。受けたら窓を開ける／延ばす。
+        """会話入力を窓で受けるか（出-as 段 3・出-au 段 1-2・`設計方針_判定の段` §2.1）。受けたら窓を開ける／延ばす。
 
-        キーボードはいつでも受けて窓を開ける。声は名前があれば開けて受け、窓が開いていれば延ばして
-        受ける。**カメラに誰も映っていなくても**窓の中なら受ける（呼ばれた・打たれたことが居る証拠）。
+        **声もキーボードも**、名前があれば開けて受け、窓が開いていれば延ばして受ける。判定は**届いた時刻**で
+        する。**カメラに誰も映っていなくても**窓の中なら受ける（呼ばれた・打たれたことが居る証拠）。
         """
-        from ..core.wake_window import heard_name
-
-        now = time.monotonic()
-        if trigger.source != "voice":
-            self._wake_window().open(now)
-            return True
-        names = list(getattr(self._agent.config, "agent_names", None) or [])
-        if heard_name(trigger.query, names):
+        now = self._arrival(trigger)
+        if trigger.named:
             self._wake_window().open(now)
             return True
         if self._wake_window().is_open(now):

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
@@ -17,6 +19,8 @@ from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 from familiar_agent.silence_state import SilenceRequest
 
 from tests.test_event_loop import _agent
+
+pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftest の窓の開き口を使わない）
 
 
 def _ip(kind="発話", *, present=1.0, quiet=False):
@@ -123,11 +127,11 @@ def _admit(ip, text):
 
 def test_a_timer_control_word_opens_the_window():
     ip = _timer_ip()
-    assert _admit(ip, "止めて") is True
+    assert _admit(ip, "パジュ、止めて") is True  # 名前が要る（出-au 段 1-2）
     assert ip._wake_window().is_open(time.monotonic())
 
 
 def test_a_timer_control_word_under_a_timer_silence_opens_the_window():
     ip = _timer_ip(silence=SilenceRequest(person="", until=time.time() + 300, reason="timer:1"))
-    assert _admit(ip, "止めて") is True
+    assert _admit(ip, "パジュ、止めて") is True
     assert ip._wake_window().is_open(time.monotonic())

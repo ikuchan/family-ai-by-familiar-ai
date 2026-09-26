@@ -15,8 +15,8 @@ from dataclasses import dataclass
 
 from .silence_rules import names_me
 
-#: 窓の長さ（本人の決まり「ウェイクワードを聞いてから 1 分以内」）。
-WINDOW_SEC = 60.0
+#: 窓の長さ（本人の決まり 2026-09-26・`設計方針_判定の段` §2.1。出-as の 1 分から 30 秒へ）。
+WINDOW_SEC = 30.0
 
 
 def heard_name(text: str, names: "list[str]") -> bool:

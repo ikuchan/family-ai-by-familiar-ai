@@ -7,12 +7,16 @@
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.core.silence_hold import Heard, render
 from familiar_agent.loop.event_loop import InformationProcessing, Trigger
+
+pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftest の窓の開き口を使わない）
 
 
 def _ip(*, present: float):
@@ -80,18 +84,27 @@ def _ip_with_timer(*, frame: str, ringing: bool = False):
     return ip, a
 
 
-def test_a_control_word_passes_the_absent_gate_while_a_timer_runs():
-    ip, _ = _ip_with_timer(frame="[タイマー]\n- id=1 パスタ 鳴っている")
+def test_a_control_word_needs_the_name_even_while_a_timer_runs():
+    """出-au 段 1-2：タイマーの操作にも名前が要る。名前の無い「止めて」は窓の外の声として捨てる。"""
+    ip, a = _ip_with_timer(frame="[タイマー]\n- id=1 パスタ 鳴っている")
+    a.config.agent_names = ["パジュ"]
     assert (
         _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて", source="voice")))
+        is True
+    )
+    assert (
+        _run(
+            ip._swallow_if_unheard(Trigger(kind="会話入力", query="パジュ、止めて", source="voice"))
+        )
         is False
     )
     assert ip._muted == []
 
 
-def test_the_ring_alone_counts_as_a_timer():
-    ip, _ = _ip_with_timer(frame="", ringing=True)
+def test_a_ringing_timer_does_not_let_an_unnamed_stop_through():
+    ip, a = _ip_with_timer(frame="", ringing=True)
+    a.config.agent_names = ["パジュ"]
     assert (
         _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="止めて", source="voice")))
-        is False
+        is True
     )

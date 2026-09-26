@@ -201,9 +201,11 @@ def test_the_heard_things_ride_the_workspace_and_leave_the_recall_column():
 # は既に「操作の言葉だけ・誰でも」なので、入口も同じにする。人の依頼の沈黙は今までどおり本人だけ。
 
 
-def test_a_timer_silence_lets_control_words_through_from_anyone():
-    assert lifts("会話入力", "一時停止", names=["パジュ"], reason="timer:1")
-    assert lifts("会話入力", "止めて", names=["パジュ"], reason="timer:1")
+def test_a_timer_silence_lets_named_control_words_through_from_anyone():
+    """名前が要る（出-au 段 1-2）。誰の言葉でもよいのは変わらない。"""
+    assert lifts("会話入力", "パジュ、一時停止", names=["パジュ"], reason="timer:1")
+    assert lifts("会話入力", "パジュ、止めて", names=["パジュ"], reason="timer:1")
+    assert not lifts("会話入力", "止めて", names=["パジュ"], reason="timer:1")
     assert not lifts("会話入力", "こんにちは", names=["パジュ"], reason="timer:1")
     assert not lifts(
         "会話入力",
@@ -226,6 +228,7 @@ def test_the_entrance_passes_a_pause_during_a_timer_when_the_speaker_has_expired
         person="パパ", until=time.time() + 120, reason="timer:1"
     )
     ip._swallowed = MagicMock(return_value=True)
-    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="一時停止"))) is False
+    ip._agent.config.agent_names = ["パジュ"]
+    assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="パジュ、一時停止"))) is False
     ip._swallowed.assert_not_called()
     assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="こんにちは"))) is True

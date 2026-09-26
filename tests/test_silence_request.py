@@ -168,13 +168,12 @@ def test_merely_speaking_to_her_does_not_lift_it(monkeypatch):
     ip._abort_lookups = AsyncMock()
 
     async def run():
-        task = asyncio.create_task(ip.push_utterance("ねえ、明日の予定は？"))
-        trig = await ip._triggers.get()
-        trig.future.set_result("")
-        await task
+        # 黙っているあいだの名前の無い声は、門で控えるだけで積まない（出-au 段 1-2）。
+        return await asyncio.wait_for(ip.push_utterance("ねえ、明日の予定は？"), timeout=2.0)
 
-    asyncio.run(run())
+    assert asyncio.run(run()) == ""
     assert cleared == []
+    assert ip._triggers.empty()
 
 
 def test_the_arbiter_can_flag_a_release():

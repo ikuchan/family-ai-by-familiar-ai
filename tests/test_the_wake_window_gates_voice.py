@@ -4,17 +4,21 @@
 
 - 声：名前があれば窓を開けて受ける。窓が開いていれば延ばして受ける。どちらでもなければ**捨てる**
   （記録しない・ログだけ）。**カメラに誰も映っていなくても**、窓の中なら受ける。
-- キーボード：いつでも受け、窓を開ける（紛れ込みようがない・`.env.quiet` もこれ）。
-- タイマーの操作の言葉（「止めて」など）は、名前が無くても通す（タイマーは従来どおり）。
+- キーボード：声と同じ。名前で窓を開ける（出-au 段 1-2 で改めた）。
+- タイマーの操作の言葉（「止めて」など）にも名前が要る（出-au 段 1-2 で改めた）。
 - 捨てた声で、しかも誰も映っていなければ、見回したくなる押し上げ（seeking・いまのまま）。
 """
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.event_loop import InformationProcessing, Trigger
+
+pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftest の窓の開き口を使わない）
 
 
 def _ip(*, present: float = 1.0, names=("パジュ",)):
@@ -57,21 +61,23 @@ def test_the_name_opens_the_window_and_the_next_words_are_heard():
     assert _heard(ip, "明日の天気は？") is True  # 窓の中は名前が要らない
 
 
-def test_the_window_closes_after_a_minute(monkeypatch):
+def test_the_window_closes_after_thirty_seconds(monkeypatch):
     ip, _ = _ip()
     clock = [1000.0]
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.monotonic", lambda: clock[0])
     assert _heard(ip, "パジュ") is True
-    clock[0] += 59.0
+    clock[0] += 29.0
     assert _heard(ip, "ねえ") is True  # 窓の中・延びる
-    clock[0] += 61.0
-    assert _heard(ip, "聞こえる？") is False  # 延びた 1 分も過ぎた
+    clock[0] += 31.0
+    assert _heard(ip, "聞こえる？") is False  # 延びた 30 秒も過ぎた（出-au）
 
 
-def test_typing_is_always_heard_and_opens_the_window():
+def test_typing_needs_the_name_like_the_voice():
+    """出-au 段 1-2：キーボードも声と同じ。名前で窓を開け、窓の中なら名前は要らない。"""
     ip, _ = _ip()
-    assert _heard(ip, "30分だまってて", source="keyboard") is True
-    assert _heard(ip, "やっぱりいいや") is True  # キーボードの後 1 分は声も受ける
+    assert _heard(ip, "30分だまってて", source="keyboard") is False
+    assert _heard(ip, "パジュ、30分だまってて", source="keyboard") is True
+    assert _heard(ip, "やっぱりいいや") is True  # 窓の中は声も受ける
 
 
 def test_nobody_on_camera_does_not_stop_the_window():
@@ -87,21 +93,19 @@ def test_a_dropped_voice_with_nobody_visible_still_nudges_seeking():
     a._nudge_seeking.assert_awaited_once()
 
 
-def test_without_names_no_voice_is_heard_but_typing_is():
+def test_without_names_nothing_is_heard():
+    """名前が設定されていなければ、声もキーボードも何も受けない（出-au でキーボードも声と同じにした）。"""
     ip, _ = _ip(names=())
     assert _heard(ip, "パジュ、聞こえる？") is False
-    assert _heard(ip, "聞こえる？", source="keyboard") is True
+    assert _heard(ip, "聞こえる？", source="keyboard") is False
 
 
-def test_a_timer_control_word_passes_without_the_name():
+def test_a_timer_control_word_needs_the_name():
+    """出-au 段 1-2：タイマーの操作にも名前が要る（「パジュ、止めて」で止まる）。"""
     ip, a = _ip()
     a._timer_tool.frame = MagicMock(return_value="[タイマー]\n- id=1 パスタ 鳴っている")
-    assert _heard(ip, "止めて") is True
-    # 操作の言葉を受けたら窓が開く（段 6・返事「止めたよ」を声にするため）。名前の無い別の言葉が
-    # 捨てられることは、窓の開いていないループで確かめる。
-    other, b = _ip()
-    b._timer_tool.frame = a._timer_tool.frame
-    assert _heard(other, "こんにちは") is False  # 操作の言葉だけ
+    assert _heard(ip, "止めて") is False
+    assert _heard(ip, "パジュ、止めて") is True
 
 
 def test_a_control_word_without_a_timer_is_just_talk():

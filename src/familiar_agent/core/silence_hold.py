@@ -35,8 +35,8 @@ def lifts(kind: str, text: str, *, names: "list[str]", reason: str = "") -> bool
     - **名前と「話していい」が同じ発話にある**：解く言葉。**誰の言葉でもよい**（出-as §2.5・2026-09-26）。
       以前は頼んだ本人の「話していい」と「止めて・ストップ」を通していたが、話者が分からない家では
       本人かを決められなかった。窓が開いているだけでは解かない（黙っているあいだ窓は開かない）。
-    - **タイマー由来の沈黙**（`reason` が `timer:`）では、タイマーの操作の言葉（止め・一時停止・再開・
-      12 字以内）は**誰の言葉でも**通す（情-m・2026-09-18）。本人かは話者の指定（60 秒・知-t）で見るが、
+    - **タイマー由来の沈黙**（`reason` が `timer:`）では、**名前つきの**タイマーの操作の言葉（「パジュ、止めて」・
+      止め・一時停止・再開・12 字以内）は**誰の言葉でも**通す（情-m・2026-09-18。名前は出-au 段 1-2 で足した）。本人かは話者の指定（60 秒・知-t）で見るが、
       タイマー中は返事をしないので掛けて 60 秒後には本人が「分からない」になり、本人の「一時停止」が
       落ちた。声の門（`TIMER_MIC_CLOSE`）は既に「操作の言葉だけ・誰でも」なので入口も揃える。
     """
@@ -44,7 +44,13 @@ def lifts(kind: str, text: str, *, names: "list[str]", reason: str = "") -> bool
 
     if kind == "機器" and text == "タイマー":
         return True
-    if kind == "会話入力" and reason.startswith("timer:") and is_control_word(text):
+    if (
+        kind == "会話入力"
+        and reason.startswith("timer:")
+        and is_control_word(text)
+        and names
+        and names_me(text, names)
+    ):
         return True
     if kind == "会話入力" and is_release(text) and names and names_me(text, names):
         return True
