@@ -36,19 +36,12 @@ class SilenceRequest:
     reason: str = ""
 
 
-def is_silenced(
-    req: SilenceRequest | None,
-    *,
-    now: float,
-    nobody_since: "float | None" = None,
-    expire_sec: float = 60.0,
-) -> bool:
+def is_silenced(req: SilenceRequest | None, *, now: float) -> bool:
     """いま黙っているべきか（判定だけ・解除の処理を別に持たない）。
 
     - 期限（`until`）を過ぎていれば解ける（どの依頼も）。
-    - **明示の依頼**は、頼んだ人が居なくなれば解ける——ただし在席表（「誰か」を言うだけの層・
-      失効で消える・知-p）でなく**居るかの層**で見る：センサが「誰も居ない」を `expire_sec`
-      （60 秒〔仮〕）見続けた（`nobody_since`）ときだけ。センサが人を見ている・無いなら解けない。
+    - **明示の依頼は、誰も居なくなっても解けない**（出-as §2.5・2026-09-26）。以前は「誰も居ない」を
+      60 秒見続けると解けていた。解くのは期限と、名前つきの「話していいよ」（`silence_hold.lifts`）だけ。
     - **タイマー由来**（`reason=timer:`）は在席では解けない。鳴る・止めるまで（`unhush_timer`）。
     実機 2026-09-18 14:51：在席表の失効（`/speaker` から 60 秒）で「頼んだ人が居ない」と読まれ、
     タイマー中の「こんにちは」に返事した（情-l）。
@@ -59,8 +52,6 @@ def is_silenced(
         return False
     if req.reason.startswith("timer:"):
         return True
-    if nobody_since is not None and (now - nobody_since) >= expire_sec:
-        return False
     return True
 
 

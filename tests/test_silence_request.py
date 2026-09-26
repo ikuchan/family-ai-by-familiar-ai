@@ -24,21 +24,12 @@ def test_silenced_within_the_deadline():
     assert is_silenced(req, now=time.time()) is True
 
 
-def test_an_explicit_request_lifts_when_the_room_has_been_empty_for_a_minute():
-    """退室で解ける——ただし在席表（誰か・失効で消える）でなく、**居るかの層**で見る（情-l・2026-09-18）。"""
-    req = SilenceRequest(person="パパ", until=time.time() + 600)
-    now = time.time()
-    assert is_silenced(req, now=now, nobody_since=now - 30) is True  # 30 秒ではまだ
-    assert is_silenced(req, now=now, nobody_since=now - 70) is False  # 60 秒誰も見ていない → 解ける
-    assert is_silenced(req, now=now, nobody_since=None) is True  # センサが人を見ている・または無い
-
-
 def test_a_timer_silence_does_not_lift_on_absence():
     """タイマー由来（`reason=timer:`）は鳴る・止めるまで（在席表の失効で解けた実機 2026-09-18 14:51）。"""
     req = SilenceRequest(person="パパ", until=time.time() + 180, reason="timer:12")
     now = time.time()
-    assert is_silenced(req, now=now, nobody_since=now - 600) is True
-    assert is_silenced(req, now=now + 200, nobody_since=now - 600) is False  # 期限では解ける
+    assert is_silenced(req, now=now) is True
+    assert is_silenced(req, now=now + 200) is False  # 期限では解ける
 
 
 def test_not_silenced_after_the_time_runs_out():
@@ -101,9 +92,8 @@ def test_the_exit_gate_no_longer_looks_at_the_silence_request(monkeypatch):
 def test_default_duration_is_an_hour():
     """長さを言われなかったときの既定。
 
-    一度 15 分へ縮めたが（「言わずに頼んだだけで 1 時間黙るのは長い」）、2026-09-13 に
-    **60 分**へ戻した（課題5 G 章〔確定〕・情-d）。「黙って」と頼まれたら 1 時間は黙る。
-    上限（`silence_max_minutes`）も 60 分。
+    一度 15 分へ縮め、2026-09-13 に 60 分へ戻し（課題5 G 章・情-d）、2026-09-26 に**原則 30 分**に
+    した（出-as・本人の決まり「黙れと言われたら原則 30 分」）。上限（`silence_max_minutes`）は 60 分。
     """
     from familiar_agent.config import AgentConfig
 
@@ -111,7 +101,7 @@ def test_default_duration_is_an_hour():
     from unittest.mock import patch
 
     with patch.dict(os.environ, {}, clear=True):
-        assert AgentConfig().silence_minutes == 60
+        assert AgentConfig().silence_minutes == 30
         assert AgentConfig().silence_max_minutes == 60
 
 
@@ -151,11 +141,13 @@ def test_the_asker_saying_she_may_talk_lifts_the_request(monkeypatch):
     assert cleared == [True]
 
 
-def test_someone_else_cannot_lift_it(monkeypatch):
+def test_someone_else_can_lift_it(monkeypatch):
+    """誰でも解ける（出-as §2.5・2026-09-26）。話者が分からない家では本人かを決められなかった。
+    解く言葉に名前が要ることは入口（`silence_hold.lifts`）が見る。"""
     ip = _ip_with_speaker("たいきくん")
     cleared = _patched(monkeypatch, SilenceRequest(person="パパ", until=time.time() + 3600))
     ip._release_silence()
-    assert cleared == []
+    assert cleared == [1]
 
 
 def test_nothing_to_lift_when_no_request(monkeypatch):
@@ -217,16 +209,3 @@ def test_the_decision_is_applied_through_one_door(monkeypatch):
     ip._apply_silence(Decision(branch="light", lift_silence=True))
     ip._apply_silence(Decision(branch="light"))
     assert calls == ["掛ける-1", "解く"]
-
-
-def test_the_loop_reads_nobody_since_from_the_agent_and_a_mock_is_not_a_clock():
-    from unittest.mock import MagicMock
-
-    from familiar_agent.loop.event_loop import InformationProcessing
-
-    ip = InformationProcessing.__new__(InformationProcessing)
-    ip._agent = MagicMock()
-    ip._agent.nobody_since = MagicMock(return_value=1234.5)
-    assert ip._nobody_since() == 1234.5
-    ip._agent.nobody_since = MagicMock(return_value=MagicMock())  # 読めない → 解けない側
-    assert ip._nobody_since() is None

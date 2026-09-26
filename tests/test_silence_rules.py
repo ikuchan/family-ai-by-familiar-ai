@@ -83,10 +83,11 @@ def _ip(speaker="パパ"):
     return ip, calls
 
 
-def test_an_unnamed_request_is_not_accepted():
+def test_an_unnamed_request_is_accepted_inside_the_window():
+    """名前の関門は入口の窓にまとめた（出-as §2.5・2026-09-26）。ここへ来るのは窓を通った入力だけ。"""
     ip, calls = _ip()
     ip._apply_silence(Decision(branch="light", silence_minutes=-1), utterance="しなよ")
-    assert calls == []
+    assert calls == ["掛ける-1"]
 
 
 def test_a_named_request_is_accepted():

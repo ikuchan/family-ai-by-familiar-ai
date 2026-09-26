@@ -20,13 +20,16 @@ from familiar_agent.silence_state import SilenceRequest
 
 
 def test_what_lifts_the_silence():
-    assert lifts("機器", "タイマー", speaker="", asker="パパ")
-    assert lifts("会話入力", "もう話していいよ", speaker="パパ", asker="パパ")
-    assert lifts("会話入力", "タイマー止めて", speaker="パパ", asker="パパ")
-    assert not lifts("会話入力", "話していいよ", speaker="たいきくん", asker="パパ")  # 本人でない
-    assert not lifts("会話入力", "明日の予定は？", speaker="パパ", asker="パパ")
-    assert not lifts("機器", "入室", speaker="", asker="パパ")
-    assert not lifts("情動", "SEEKING", speaker="", asker="パパ")
+    """解くのは名前と「話していいよ」が同じ発話にあるときだけ・誰でも（出-as §2.5・2026-09-26）。"""
+    assert lifts("機器", "タイマー", names=["パジュ"])
+    assert lifts("会話入力", "パジュ、もう話していいよ", names=["パジュ"])
+    assert not lifts("会話入力", "もう話していいよ", names=["パジュ"])  # 名前が無い
+    assert not lifts(
+        "会話入力", "タイマー止めて", names=["パジュ"]
+    )  # 明示の沈黙では止める言葉は通さない
+    assert not lifts("会話入力", "パジュ、明日の予定は？", names=["パジュ"])
+    assert not lifts("機器", "入室", names=["パジュ"])
+    assert not lifts("情動", "SEEKING", names=["パジュ"])
 
 
 def _t(h, m):
@@ -69,6 +72,7 @@ def test_render_is_empty_when_nothing_was_heard():
 
 def _ip(speaker="パパ", *, silenced_for="パパ", others=()):
     a = MagicMock()
+    a.config.agent_names = ["パジュ"]
     rows = [{"name": speaker, "is_speaker": True, "confidence": 1.0}]
     rows += [{"name": n, "is_speaker": False, "confidence": 1.0} for n in others]
     a._pmm.presence_status = MagicMock(return_value=rows)
@@ -134,7 +138,7 @@ def test_a_ringing_timer_and_the_release_phrase_pass():
 
     async def scenario():
         t = await ip._swallow_if_unheard(Trigger(kind="機器", query="タイマー", result="時間"))
-        r = await ip._swallow_if_unheard(Trigger(kind="会話入力", query="もう話していいよ"))
+        r = await ip._swallow_if_unheard(Trigger(kind="会話入力", query="パジュ、もう話していいよ"))
         return t, r
 
     assert _run(scenario()) == (False, False)
@@ -198,21 +202,21 @@ def test_the_heard_things_ride_the_workspace_and_leave_the_recall_column():
 
 
 def test_a_timer_silence_lets_control_words_through_from_anyone():
-    assert lifts("会話入力", "一時停止", speaker="", asker="パパ", reason="timer:1")
-    assert lifts("会話入力", "止めて", speaker="たいきくん", asker="パパ", reason="timer:1")
-    assert not lifts("会話入力", "こんにちは", speaker="", asker="パパ", reason="timer:1")
+    assert lifts("会話入力", "一時停止", names=["パジュ"], reason="timer:1")
+    assert lifts("会話入力", "止めて", names=["パジュ"], reason="timer:1")
+    assert not lifts("会話入力", "こんにちは", names=["パジュ"], reason="timer:1")
     assert not lifts(
         "会話入力",
         "テレビの中で「もう止めてくれ」と叫んでいた",
-        speaker="",
-        asker="パパ",
+        names=["パジュ"],
         reason="timer:1",
     )
 
 
-def test_a_human_silence_still_needs_the_asker():
-    assert not lifts("会話入力", "止めて", speaker="たいきくん", asker="パパ", reason="")
-    assert not lifts("会話入力", "一時停止", speaker="", asker="パパ")
+def test_stop_words_do_not_lift_a_human_silence():
+    """明示の沈黙では、止める言葉は誰が言っても通さない（解くのは名前つきの「話していいよ」だけ・出-as）。"""
+    assert not lifts("会話入力", "止めて", names=["パジュ"], reason="")
+    assert not lifts("会話入力", "パジュ、一時停止", names=["パジュ"])
 
 
 def test_the_entrance_passes_a_pause_during_a_timer_when_the_speaker_has_expired():

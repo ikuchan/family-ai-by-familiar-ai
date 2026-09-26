@@ -3231,14 +3231,12 @@ class InformationProcessing:
         req = None
         with contextlib.suppress(Exception):
             req = self._load_silence()
-        if is_silenced(req, now=now, nobody_since=self._nobody_since()):
+        if is_silenced(req, now=now):
             assert req is not None
-            speaker = self._current_speaker_name() if trigger.kind == "会話入力" else ""
             if lifts(
                 trigger.kind,
                 trigger.query,
-                speaker=speaker,
-                asker=req.person,
+                names=list(getattr(self._agent.config, "agent_names", None) or []),
                 reason=getattr(req, "reason", "") or "",
             ):
                 if trigger.kind == "会話入力":
@@ -3272,14 +3270,6 @@ class InformationProcessing:
             return str(fn() or "") if callable(fn) else ""
         except Exception:  # noqa: BLE001
             return ""
-
-    def _nobody_since(self) -> "float | None":
-        """センサが「誰も居ない」を見始めた時刻（`agent.nobody_since`）。読めなければ None（解けない側）。"""
-        try:
-            since = self._agent.nobody_since()
-        except Exception:  # noqa: BLE001
-            return None
-        return float(since) if isinstance(since, (int, float)) else None
 
     def _timer_active(self) -> bool:
         """タイマーが動いている／一時停止中（`[タイマー]` の枠がある）か、音が鳴っているか。"""
@@ -3402,7 +3392,7 @@ class InformationProcessing:
             from ..silence_state import clear_silence, is_silenced
 
             req = self._load_silence()
-            lifted = not is_silenced(req, now=time.time(), nobody_since=self._nobody_since())
+            lifted = not is_silenced(req, now=time.time())
             if lifted and req is not None and not req.reason.startswith("timer:"):
                 # 明示の依頼が退室（誰も居ないを 60 秒）で解けたら**記録も消す**（情-l-ろ・実機 2026-09-18
                 # 20:46）。残すと、タイマーの沈黙（`hush_for_timer`）が「人の依頼が生きている」と負け、
@@ -3678,19 +3668,13 @@ class InformationProcessing:
     def _apply_silence(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
 
-        読むのは調停だが、機械の守りを重ねる（`core.silence_rules`・2026-09-16 実機）：
-        名前で呼ばれていなければ掛けない（「待てぃ」「しなよ」で 60 分黙った）、本人が
-        「話していい」と言えば調停が読めなくても解く（「話していいよ」が効かなかった）。
+        **名前の関門は窓にまとめた**（出-as §2.5・2026-09-26）。ここへ来る会話入力は、入口で窓を通った
+        もの（名前で呼ばれてから 1 分・またはキーボード）だけなので、ここでは名前を見ない。解くのは、
+        調停が読めなくても「話していい」と言えば解く（2026-09-16 実機「話していいよ」が効かなかった）。
         """
-        from ..core.silence_rules import is_release, names_me
+        from ..core.silence_rules import is_release
 
         if decision.silence_minutes:
-            names = list(getattr(self._agent.config, "agent_names", None) or [])
-            if names and not names_me(utterance, names):
-                logger.info(
-                    "黙っているよう読めたが、名前で呼ばれていないので受けない：%.40s", utterance
-                )
-                return
             self._accept_silence(decision.silence_minutes)
         elif decision.lift_silence or is_release(utterance):
             self._release_silence()
@@ -3709,16 +3693,15 @@ class InformationProcessing:
             req = load_silence()
             if req is None:
                 return
-            who = self._current_speaker_name()
-            if who and who == req.person:
-                clear_silence()
-                logger.info("黙っていてと頼んだ本人（%s）が話していいと言ったので解く", who)
-            else:
-                logger.info(
-                    "話していいと言われたが、頼んだのは %s なので解かない（言ったのは %s）",
-                    req.person,
-                    who or "不明",
-                )
+            if req.reason.startswith("timer:"):
+                # タイマー由来の沈黙は鳴る・止めるまで（タイマーは従来どおり・出-as §2.4）。
+                logger.info("話していいと言われたが、タイマーの沈黙なので解かない")
+                return
+            # **誰が言っても解く**（出-as §2.5）。話者が分からない家では本人かを決められなかった。
+            clear_silence()
+            logger.info(
+                "話していいと言われたので黙るのを解く（頼んだのは %s）", req.person or "不明"
+            )
 
     def _accept_silence(self, asked_minutes: int) -> None:
         """黙っている依頼を受ける。宛先は、いま話している相手。
@@ -3730,10 +3713,8 @@ class InformationProcessing:
         with contextlib.suppress(Exception):
             from ..silence_state import SilenceRequest, save_silence
 
+            # **話者が分からなくても受ける**（出-as §2.5）。頼んだ人は分かれば記録し、分からなければ空。
             who = self._current_speaker_name()
-            if not who:
-                logger.info("黙っているよう頼まれたが、誰からか分からないので受けない")
-                return
             from ..silence_state import resolve_minutes
 
             minutes = resolve_minutes(
