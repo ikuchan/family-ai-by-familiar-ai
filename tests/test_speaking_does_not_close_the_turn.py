@@ -13,6 +13,7 @@
 
 from __future__ import annotations
 
+import time
 import ast
 import asyncio
 import inspect
@@ -50,6 +51,7 @@ def _ip(blocked: str = ""):
     ip._emit = MagicMock()
     ip._hold_speech = AsyncMock()
     ip._finish = AsyncMock()
+    ip._wake_window().open(time.monotonic())  # 入口を通った会話として窓を開けておく（出-as 段 4）
     return ip
 
 

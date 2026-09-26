@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import time
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -35,6 +36,7 @@ def _ip():
     a._oif = OIF(a._memory)
     a._pending_store.add = MagicMock()
     ip._agent = a
+    ip._wake_window().open(time.monotonic())  # 入口を通った会話として窓を開けておく（出-as 段 4）
     return ip, a
 
 

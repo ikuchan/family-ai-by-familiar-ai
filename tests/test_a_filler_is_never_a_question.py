@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+import time
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -18,6 +19,7 @@ from tests.test_event_loop import _agent
 def _ip():
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
+    ip._wake_window().open(time.monotonic())  # 入口を通った会話として窓を開けておく（出-as 段 4）
     ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
     ip._dif = MagicMock(speak=AsyncMock())
     return ip

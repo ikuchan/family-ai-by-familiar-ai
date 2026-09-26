@@ -3042,6 +3042,11 @@ class InformationProcessing:
             # 思ったことは独白として O に残る。入室・タイマー・メモは従来どおり。
             logger.info("event-loop 退室の知らせなので独り言として残す（相手は居ない）")
             return text, "独白"
+        if self._window_closed_for_conversation():
+            # **窓が切れた後の返事は話さない**（出-as 段 4・本人の決定）。受けた時点では会話だったが、
+            # 1 分を過ぎてから答えても相手はもう聞いていない。思ったことは独白として O に残る。
+            logger.info("event-loop 窓が切れた後の返事なので話さず独り言にする：%.40s", text)
+            return text, "独白"
         blocked = self._delivery_block_reason()
         if blocked and self._req.said_fillers and blocked != "黙っているよう頼まれている":
             # **つなぎを出したなら本応答も出す**（環-i）。つなぎと本応答は別々にゲートを引く
@@ -3065,6 +3070,7 @@ class InformationProcessing:
             return "", "保留"
         await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
         self._stamp_said()
+        self._extend_window_for_conversation()  # 返事から 1 分（出-as 段 4）
         self._emit(text)
         return text, "発話"
 
@@ -3075,6 +3081,10 @@ class InformationProcessing:
         役目なので、出せない場面では黙って落とす。
         """
         if not text or self._delivery_block_reason():
+            return
+        if self._window_closed_for_conversation():
+            # 窓が切れた会話にはつなぎも言わない（出-as 段 4）。
+            logger.info("event-loop 窓が切れているのでつなぎを言わない：%.40s", text)
             return
         if text.rstrip().endswith(("？", "?")):
             # **つなぎは疑問文にしない。** 調停が検索を投げながら「何を調べましょうか？」と
@@ -3089,6 +3099,7 @@ class InformationProcessing:
         # 遅れて投げられた）。声が本応答と重ならないのは `TTSTool` の鍵が保証している。
         self._speak_filler_in_background(text)
         self._stamp_said()  # つなぎも自分の発話
+        self._extend_window_for_conversation()  # つなぎから 1 分（出-as 段 4）
         self._emit(text)
         # 言ったことを覚えておく。覚えないと、調停は「もう一言伝えた」ことを知らないまま
         # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
@@ -3276,6 +3287,24 @@ class InformationProcessing:
             return True
         return bool(getattr(getattr(self._agent, "_dif", None), "ringing", False))
 
+    def _wake_window(self) -> WakeWindow:
+        """窓の器。`__new__` で組んだ装置（試験）でも落ちないよう、無ければ閉じた窓を置く。"""
+        wake = self.__dict__.get("_wake")
+        if wake is None:
+            wake = self.__dict__["_wake"] = WakeWindow()
+        return wake
+
+    def _window_closed_for_conversation(self) -> bool:
+        """会話の求めで、窓が切れているか（出-as 段 4）。情動・機器の求めは窓で決めない。"""
+        return self._req.trigger_kind == "発話" and not self._wake_window().is_open(
+            time.monotonic()
+        )
+
+    def _extend_window_for_conversation(self) -> None:
+        """会話の求めで返事・つなぎを出したら、そこから 1 分へ延ばす（開いているときだけ）。"""
+        if self._req.trigger_kind == "発話":
+            self._wake_window().extend(time.monotonic())
+
     def _window_admits(self, trigger: "Trigger") -> bool:
         """会話入力を窓で受けるか（出-as 段 3・`設計方針_話していいかの決まり` §2.3）。受けたら窓を開ける／延ばす。
 
@@ -3286,14 +3315,14 @@ class InformationProcessing:
 
         now = time.monotonic()
         if trigger.source != "voice":
-            self._wake.open(now)
+            self._wake_window().open(now)
             return True
         names = list(getattr(self._agent.config, "agent_names", None) or [])
         if heard_name(trigger.query, names):
-            self._wake.open(now)
+            self._wake_window().open(now)
             return True
-        if self._wake.is_open(now):
-            self._wake.extend(now)
+        if self._wake_window().is_open(now):
+            self._wake_window().extend(now)
             return True
         return False
 

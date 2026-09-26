@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import time
 import asyncio
 import uuid
 from datetime import datetime, timezone
@@ -44,6 +45,9 @@ def test_the_filler_is_written_as_an_observation():
         from familiar_agent.loop.event_loop import InformationProcessing
 
         ip = InformationProcessing(a)
+        ip._wake_window().open(
+            time.monotonic()
+        )  # 入口を通った会話として窓を開けておく（出-as 段 4）
         await ip._say_filler("調べてみるね")
 
     asyncio.run(scenario())
