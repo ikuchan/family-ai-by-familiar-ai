@@ -600,6 +600,8 @@ class Trigger:
     passes_gate: bool = False
     # `会話入力` だけが使う。呼び手がここで返事を待っている。
     future: "asyncio.Future[str] | None" = None
+    # `会話入力` だけが使う。声（`voice`）かキーボード（`keyboard`）か（出-as 段 2）。
+    source: str = ""
 
 
 class InformationProcessing:
@@ -1964,7 +1966,7 @@ class InformationProcessing:
         self._note_origin(obs_id)
         self._req.cue = text[:500]
 
-    async def push_utterance(self, utterance: str, on_text=None) -> str:
+    async def push_utterance(self, utterance: str, on_text=None, source: str = "keyboard") -> str:
         """人の言葉を待ち行列へ積み、**その反復の出力**を返す（環-f-い-2）。
 
         4つのきっかけ（会話入力・知覚イベント・情動発火・完了）が同じ列に並ぶ。積む口が
@@ -1980,7 +1982,8 @@ class InformationProcessing:
         反復が終わるまで打ち切りが遅れる（調停の時間切れなら最大5秒）。打ち切りは「人が
         言い直した」瞬間の判断であって、順序づけではない。
 
-        `on_text` は出力先（駆動体が起こす反復も使う）。
+        `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
+        （`keyboard`）か（出-as 段 2）。ウェイクワードの窓は声にだけ掛ける。
         """
         agent = self._agent
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
@@ -1996,7 +1999,9 @@ class InformationProcessing:
         await self._abort_lookups()
 
         fut: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
-        self._triggers.put_nowait(Trigger(kind="会話入力", query=utterance, future=fut))
+        self._triggers.put_nowait(
+            Trigger(kind="会話入力", query=utterance, future=fut, source=source)
+        )
         return await fut
 
     async def _abort_lookups(self) -> None:
