@@ -1,22 +1,34 @@
 capabilities:
   - id: autonomous_initiation
-    summary: Initiate conversation or internal processing from inner desire without waiting for user input
+    summary: Speak up or act on its own when an inner urge fires, without waiting to be addressed
     detail: >
-      When FAMILIAR_AUTO_DESIRE=1, desire levels grow over time. Desires are split
-      into two categories. Social desires (greet_companion, share_memory, worry_companion,
-      care, attachment, repair, play, share_search_result) cause the agent to speak to
-      the user and use the full conversation backend. Internal desires (look_around,
-      explore, consolidate, reflect, curiosity, browse_curiosity, rest, self_protect)
-      run background processing using a lightweight backend. DESIRE_COOLDOWN controls
-      the growth rate of social desires; INTERNAL_DESIRE_COOLDOWN controls internal
-      desires independently (default: faster). Note: repair and self_protect have a
-      growth rate of 0.0 and only activate via boost(). share_search_result fires
-      automatically when a deferred search result is ready to deliver.
-      Social desires are gated by presence: when a camera is active, the agent only
-      speaks if a person is detected; without a camera, only within 5 minutes of the
-      last user message. When an internal turn finds something notable (scene change,
-      memory discovery, curiosity trigger), share_memory is automatically boosted so
-      the agent will bring it up when the user is next present.
+      Five urges (seeking, rest, bond, safety, esteem) build up over time and fire at a
+      threshold; the firing starts a turn of its own. Only bond (wanting company) and
+      esteem (wanting to be useful) try to talk to someone; seeking, safety and rest act
+      without speaking (look around, turn the head, rest), and their words stay unspoken.
+      Bond and esteem build up only while the camera sees a person, and ebb at a third of
+      that speed while nobody is seen; at night (23-7) they build up at 0.083 times the
+      speed. An urge speaks aloud only when the camera sees someone; otherwise what it
+      wanted to say is kept as a note to that person ("〇〇に言いたかったこと"), which recall
+      brings back later and which is folded away once it has been said in a spoken reply.
+      Arrivals, departures and new notes are only recorded; they never make the agent
+      start talking. Implemented in `core/drive_dynamics.py`, `loop/tonic.py` and
+      `core/unsaid.py`.
+    enabled: true
+  - id: wake_word
+    summary: Listen to spoken words only after being called by name
+    detail: >
+      Speech is taken as conversation only after the agent hears one of its names from
+      ME.md somewhere in the (corrected) transcript, allowing one letter of difference.
+      Hearing the name opens a one-minute window; each accepted utterance, reply or filler
+      extends it by a minute. Outside the window spoken words are dropped (only logged),
+      and if no name is set in ME.md, speech is never taken as conversation. Typed input is
+      always accepted and opens the window. A reply finished after the window has closed is
+      not spoken. While a timer runs or rings, its control words ("止めて" and the like) are
+      accepted without the name. Asked to be quiet inside the window, the agent stays quiet
+      for 30 minutes by default (at most 60); it speaks again only when someone says its name
+      together with "話していいよ" in one utterance, or when the time is up. Implemented in
+      `core/wake_window.py` and `loop/event_loop.py`.
     enabled: true
   - id: camera_vision
     summary: Capture and interpret images from a camera (RTSP or USB webcam)
