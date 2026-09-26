@@ -59,9 +59,10 @@ def test_without_a_sensor_the_presence_table_still_counts() -> None:
     assert a._social_presence_permission() == 1.0
 
 
-def test_without_a_sensor_my_own_speech_still_counts() -> None:
+def test_without_a_sensor_my_own_speech_no_longer_counts() -> None:
+    """センサが無い構成でも、自分が話してから 1 分は居るとみなす決まり（知-h）は外した（出-as §3）。"""
     a = _agent(occupied=None, present=[], last_human=None, said=time.time() - 30)
-    assert a._social_presence_permission() == 1.0
+    assert a._social_presence_permission() == 0.0
     b = _agent(occupied=None, present=[], last_human=time.time(), said=None)
     assert b._social_presence_permission() == 0.0
 
@@ -72,19 +73,16 @@ def test_a_heard_voice_alone_is_not_presence() -> None:
     assert a._social_presence_permission() == 0.0
 
 
-def test_my_own_speech_keeps_presence_for_a_minute() -> None:
-    """話してよかった状態（相手が居た）は、話してから 1 分続く（YOLO の見失いを跨ぐ）。"""
+def test_my_own_speech_no_longer_keeps_presence() -> None:
+    """話してから 1 分は居るとみなす決まり（知-h）は外した（出-as §3・2026-09-26）。居るかはカメラで決める。"""
     a = _agent(occupied=False, present=[], last_human=None, said=time.time() - 30)
-    assert a._social_presence_permission() == 1.0
-    b = _agent(occupied=False, present=[], last_human=None, said=time.time() - 70)
-    assert b._social_presence_permission() == 0.0
+    assert a._social_presence_permission() == 0.0
 
 
-def test_typing_speaker_keeps_presence_for_a_minute() -> None:
+def test_typing_speaker_no_longer_keeps_presence() -> None:
+    """`/speaker` から 1 分は居るとみなす決まり（知-h）は外した（出-as §3）。カメラが見ていなければ居ない。"""
     a = _agent(occupied=False, present=["p1"], last_human=None, speaker_at=time.time() - 30)
-    assert a._social_presence_permission() == 1.0
-    b = _agent(occupied=False, present=["p1"], last_human=None, speaker_at=time.time() - 70)
-    assert b._social_presence_permission() == 0.0
+    assert a._social_presence_permission() == 0.0
 
 
 def test_nobody_at_all_is_absent() -> None:

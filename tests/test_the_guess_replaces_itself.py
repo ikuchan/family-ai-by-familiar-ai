@@ -24,6 +24,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 import asyncio
 import threading
 
@@ -145,6 +147,9 @@ def _loop(pmm):
     class _Agent:
         _family_md = _FAMILY
         _pmm = pmm
+        # 見立てが 1 人なら話者を付ける（出-as 段 9a）。付ける口の偽物。
+        _persons = MagicMock()
+        _sync_pmm_speaker = AsyncMock()
 
     ip._agent = _Agent()
     return ip
