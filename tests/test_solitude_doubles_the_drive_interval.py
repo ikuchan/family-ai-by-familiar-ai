@@ -97,4 +97,4 @@ def test_the_tick_counts_a_firing_and_a_human_voice_resets(monkeypatch) -> None:
 def test_the_silence_default_is_an_hour() -> None:
     from familiar_agent.config import AgentConfig
 
-    assert AgentConfig().silence_minutes == 60
+    assert AgentConfig().silence_minutes == 30  # 出-as（2026-09-26）で原則 30 分

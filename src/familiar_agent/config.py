@@ -639,10 +639,10 @@ class AgentConfig:
     arbiter_timeout_sec: float = field(
         default_factory=lambda: _resolve_setting("AgentConfig.arbiter_timeout_sec", 5.0)
     )
-    # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は退室。
+    # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は名前つきの「話していいよ」。
     # 「黙って」と頼まれたが長さを言われなかったときの既定。
-    # 既定 60 分（課題5 G 章〔確定〕・2026-09-13 にコードを揃えた。以前は 15）。
-    silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 60))
+    # 既定 30 分（出-as・本人の決まり「黙れと言われたら原則 30 分」・2026-09-26。以前は 60・その前は 15）。
+    silence_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MINUTES", 30))
     # 長さを言われたときの上限。超える指定は弾かずにここへ丸める（黙らないより意図に近い）。
     silence_max_minutes: int = field(default_factory=lambda: _int_env("SILENCE_MAX_MINUTES", 60))
     # タイマーが鳴った知らせを話すときだけ声に掛ける倍率（1.0＝いまと同じ・機器の音量は触らない）。

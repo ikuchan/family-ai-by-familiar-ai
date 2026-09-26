@@ -53,34 +53,22 @@ def test_a_first_iteration_still_carries_it():
 # ── 情-l-ろ ───────────────────────────────────────────────────────────────
 
 
-def _ip(req, *, nobody_since):
+def _ip(req):
     a = _agent(stream_returns=[])
-    a.nobody_since = MagicMock(return_value=nobody_since)
     ip = InformationProcessing(a)
     ip._load_silence = lambda: req
     ip.push_device = MagicMock()
     return ip
 
 
-def test_an_explicit_silence_lifted_by_absence_is_cleared(monkeypatch):
+def test_a_live_silence_is_not_cleared(monkeypatch):
+    """期限までは消さない。誰も居なくなっても解けない（出-as §2.5・2026-09-26。以前は 60 秒で解けた）。"""
     cleared = []
     monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: cleared.append(1))
-    ip = _ip(SilenceRequest(person="パパ", until=time.time() + 3000), nobody_since=time.time() - 61)
-    ip.check_silence_lifted()  # 器が空でも消す
-    assert cleared == [1]
-
-
-def test_a_timer_silence_is_not_cleared_by_absence(monkeypatch):
-    cleared = []
-    monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: cleared.append(1))
-    ip = _ip(
-        SilenceRequest(person="パパ", until=time.time() + 120, reason="timer:1"),
-        nobody_since=time.time() - 61,
-    )
-    ip.check_silence_lifted()
-    assert cleared == []
-    ip2 = _ip(SilenceRequest(person="パパ", until=time.time() + 3000), nobody_since=None)
-    ip2.check_silence_lifted()  # 人が見えているなら解けない → 消さない
+    _ip(
+        SilenceRequest(person="パパ", until=time.time() + 120, reason="timer:1")
+    ).check_silence_lifted()
+    _ip(SilenceRequest(person="パパ", until=time.time() + 3000)).check_silence_lifted()
     assert cleared == []
 
 

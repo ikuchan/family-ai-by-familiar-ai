@@ -66,9 +66,10 @@ def test_the_frame_says_paused():
 
 
 def test_pause_and_resume_words_pass_the_silence_gate():
-    assert lifts("会話入力", "一時停止", speaker="パパ", asker="パパ")
-    assert lifts("会話入力", "再開して", speaker="パパ", asker="パパ")
-    assert not lifts("会話入力", "再開して", speaker="たいき", asker="パパ")
+    """タイマーの沈黙では、一時停止・再開は誰の言葉でも通す（明示の沈黙では通さない・出-as）。"""
+    assert lifts("会話入力", "一時停止", names=["パジュ"], reason="timer:1")
+    assert lifts("会話入力", "再開して", names=["パジュ"], reason="timer:1")
+    assert not lifts("会話入力", "再開して", names=["パジュ"], reason="")
 
 
 # ── 器（実 DB）────────────────────────────────────────────────────────────
