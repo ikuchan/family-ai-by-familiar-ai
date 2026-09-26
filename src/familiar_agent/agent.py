@@ -838,27 +838,16 @@ class EmbodiedAgent:
 
         「居るか」と「誰か」は別（知-h・2026-09-13）。**マイクは在席の証拠にしない**
         （2026-09-17：テレビ・物音・聞き違いを声として拾い、カメラが誰も見ていないのに
-        「こんにちは」の書き起こしへ返事した）。数えるのは次の 3 つ。
+        「こんにちは」の書き起こしへ返事した）。**居るかは在/不在の層が人を見ているか**
+        （`PresenceSensor.room_occupied()`・YOLO・滞留窓）で決める。
 
-        1. 在/不在の層が人を見ている（`PresenceSensor.room_occupied()`・YOLO・滞留窓）
-        2. **自分が話してから** `presence_said_sec` 以内（話してよかった状態＝相手が居た、は
-           しばらく続く。YOLO の見失いを跨ぐ）
-        3. `/speaker` を打ってから同じ秒数以内（打った人はそこに居る）
+        以前は「自分が話してから」「`/speaker` を打ってから」60 秒も居るとみなしていた。会話は
+        ウェイクワードの窓で受けるようになったので外した（出-as §3・2026-09-26）。
 
         在席表（PMM・`/speaker`・顔照合）は「誰か」を言うもので、センサがある構成では
         居るかを決めない（`/speaker パパ` が永久に残り、カメラが 2 分「誰も居ない」でも自発が
         出た・同日 15:44）。センサが無い構成では在席表も数える（従来どおり）。
         """
-        raw = getattr(getattr(self, "config", None), "presence_said_sec", None)
-        window = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
-        now = time.time()
-
-        def _within(attr: str) -> bool:
-            at = getattr(self, attr, None)
-            return isinstance(at, (int, float)) and (now - at) < window
-
-        if _within("_last_said_at") or _within("_speaker_set_at"):
-            return 1.0
         sensor = getattr(self, "_presence_sensor", None)
         if sensor is not None:
             with contextlib.suppress(Exception):

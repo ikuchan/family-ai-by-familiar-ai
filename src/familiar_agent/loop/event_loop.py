@@ -3632,14 +3632,21 @@ class InformationProcessing:
         if pmm is None:
             return
         seen: list[tuple[str, float]] = []
+        names: list[str] = []
         for name, conf in known:
             pid = pmm.find_person_id_by_name(name)
             if pid is None:
                 unknown += 1  # 家族の記述にはあるが人物表に無い。居たことは残す
                 continue
             seen.append((pid, conf))
+            names.append(name)
         await pmm.set_guessed_present(seen)
         pmm.note_unknown_present(unknown, confidence=SEEN_CONFIDENCE_MAX)
+        if len(names) == 1 and unknown == 0:
+            # **見立てが 1 人なら、その人を話者にする**（出-as §2.2・本人の決定）。今朝の実機では話者がずっと
+            # 「分からない」で、黙る依頼もタイマーの沈黙も掛からなかった（知-ai）。2 人以上なら決めない。
+            # 話者の寿命（60 秒・知-t）は名乗りと同じく効く。
+            await self._set_speaker(names[0], "写真の見立て")
 
     async def _apply_not_person(self, claim: str) -> None:
         """身元を否定されたら、その人を在席から外し、話者を戻す（出-am・2026-09-22）。
@@ -3702,7 +3709,7 @@ class InformationProcessing:
             return False
 
     async def _set_speaker(self, name: str, why: str) -> None:
-        """名乗りで話者を付ける（`/speaker` と同じ効き：`set_active`・`_speaker_set_at`・PMM 同期）。"""
+        """話者を付ける（`/speaker` と同じ効き：`set_active`・`_speaker_set_at`・PMM 同期）。名乗りと写真の見立てが使う。"""
         agent = self._agent
         if str(getattr(agent._persons, "active_name", "") or "") == name and getattr(
             agent._persons, "active_is_explicit", False
@@ -3712,7 +3719,7 @@ class InformationProcessing:
         agent._speaker_set_at = time.time()
         with contextlib.suppress(Exception):
             await agent._sync_pmm_speaker(name)
-        logger.info("名乗りで話者を付けた：%s（%s）", name, why)
+        logger.info("話者を付けた：%s（%s）", name, why)
 
     async def _apply_pending_claim(self) -> None:
         """預かった名乗りを、人を見た最初の求めで付ける（30 秒以内・知-w-ろ）。過ぎていれば捨てる。"""

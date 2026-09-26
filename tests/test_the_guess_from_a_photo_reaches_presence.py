@@ -14,6 +14,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, MagicMock
+
 from familiar_agent.core.seen_people import SEEN_CONFIDENCE_MAX, parse_seen_people
 
 _FAMILY = """# 一緒に暮らす人たち
@@ -129,6 +131,9 @@ def _loop_with(family: str, pmm):
     class _Agent:
         _family_md = family
         _pmm = pmm
+        # 見立てが 1 人なら話者を付ける（出-as 段 9a）。付ける口の偽物。
+        _persons = MagicMock()
+        _sync_pmm_speaker = AsyncMock()
 
     ip._agent = _Agent()
     return ip
