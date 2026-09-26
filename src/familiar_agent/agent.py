@@ -1747,6 +1747,10 @@ class EmbodiedAgent:
         引数で、いまはどれも使っていない。GUI と TUI が渡しているので受けるだけにしてある
         （呼び出し側の整理は #12a の後段）。`desires`・`desire_name` は環-d で落とした。
         """
+        # 届いた時刻と出どころは**名前の札を外す前に**読む（出-au 段 1-1）。外すと印の無い文字列になる。
+        from .core.wake_window import arrived_at, source_of
+
+        _arrived, _source = arrived_at(user_input), source_of(user_input)
         # ── Speaker identification ────────────────────────────────────────────
         # /speaker command sets the session-default speaker.
         _speaker_reply = self._handle_speaker_command(user_input)
@@ -1818,11 +1822,9 @@ class EmbodiedAgent:
         # say の前の途中経過としてしか扱わず、say が出たら捨てる）。渡さないと GUI に
         # 何も表示されない（実機で観測）。
         self._ensure_event_loop(on_text, on_action)
-        # 声かキーボードか（出-as 段 2）。声は書き起こしの口が印を付けて積む。印が無ければキーボード。
-        from .core.wake_window import source_of
-
+        # 声かキーボードかと、届いた時刻（出-as 段 2・出-au 段 1-1）。積む口が印を付けている。
         return await self._info_processing.push_utterance(
-            user_input, on_text=on_text, source=source_of(user_input)
+            user_input, on_text=on_text, source=_source, arrived=_arrived
         )
 
     @property

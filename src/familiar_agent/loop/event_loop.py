@@ -593,6 +593,8 @@ class Trigger:
     future: "asyncio.Future[str] | None" = None
     # `会話入力` だけが使う。声（`voice`）かキーボード（`keyboard`）か（出-as 段 2）。
     source: str = ""
+    # `会話入力` だけが使う。届いた時刻（`time.monotonic()`・出-au 段 1-1）。窓はこの時刻で判定する。
+    arrived: float = 0.0
 
 
 class InformationProcessing:
@@ -1965,7 +1967,13 @@ class InformationProcessing:
         self._note_origin(obs_id)
         self._req.cue = text[:500]
 
-    async def push_utterance(self, utterance: str, on_text=None, source: str = "keyboard") -> str:
+    async def push_utterance(
+        self,
+        utterance: str,
+        on_text=None,
+        source: str = "keyboard",
+        arrived: "float | None" = None,
+    ) -> str:
         """人の言葉を待ち行列へ積み、**その反復の出力**を返す（環-f-い-2）。
 
         4つのきっかけ（会話入力・知覚イベント・情動発火・完了）が同じ列に並ぶ。積む口が
@@ -1982,7 +1990,8 @@ class InformationProcessing:
         言い直した」瞬間の判断であって、順序づけではない。
 
         `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
-        （`keyboard`）か（出-as 段 2）。ウェイクワードの窓は声にだけ掛ける。
+        （`keyboard`）か（出-as 段 2）。ウェイクワードの窓は声にだけ掛ける。`arrived` は届いた時刻
+        （`time.monotonic()`・出-au 段 1-1）で、無ければいま。
         """
         agent = self._agent
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
@@ -1999,7 +2008,13 @@ class InformationProcessing:
 
         fut: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
         self._triggers.put_nowait(
-            Trigger(kind="会話入力", query=utterance, future=fut, source=source)
+            Trigger(
+                kind="会話入力",
+                query=utterance,
+                future=fut,
+                source=source,
+                arrived=time.monotonic() if arrived is None else arrived,
+            )
         )
         return await fut
 

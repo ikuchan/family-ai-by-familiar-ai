@@ -88,6 +88,7 @@ except ImportError:
 from . import __version__
 from ._i18n import _t
 from .core import parsing
+from .core.wake_window import KeyText
 from .errors import FatalStartupError, check_embedding_fatal
 from ._ui_helpers import (
     IDLE_CHECK_INTERVAL,
@@ -1970,7 +1971,7 @@ class FamiliarWindow(QMainWindow):
                 agent._persons.set_active(speaker)
 
         self._log.append_line(f"[{self._get_active_speaker()}] {text}")
-        self._input_queue.put_nowait(text)
+        self._input_queue.put_nowait(KeyText(text))  # 届いた時刻を付ける（出-au 段 1-1）
         self._log_input_queued("keyboard")
 
     async def _do_reload(self) -> None:

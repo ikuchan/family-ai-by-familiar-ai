@@ -6,6 +6,7 @@ import asyncio
 import contextlib
 import logging
 from .core import parsing
+from .core.wake_window import KeyText, VoiceText
 import os
 import re
 import sys
@@ -345,7 +346,7 @@ class FamiliarApp(App):
 
         self._log_user(text)
         self._last_interaction = time.time()
-        await self._input_queue.put(text)
+        await self._input_queue.put(KeyText(text))  # 届いた時刻を付ける（出-au 段 1-1）
 
     # ── agent loop ─────────────────────────────────────────────────
 
@@ -612,7 +613,7 @@ class FamiliarApp(App):
             if text.strip():
                 self._log_user(text)
                 self._last_interaction = time.time()
-                await self._input_queue.put(text)
+                await self._input_queue.put(VoiceText(text))  # 録音の書き起こし（出-au 段 1-1）
         except Exception as e:
             self._log_system(f"STT error: {e}")
         finally:
