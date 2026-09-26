@@ -658,20 +658,16 @@ def test_human_utterance_marks_presence_before_the_gate():
     assert a._last_human_at > 0.0  # 受領時に更新される
 
 
-def test_a_voice_with_nobody_present_is_heard_at_the_door_not_answered():
-    # 誰も見えないときの会話入力は**入口で止まる**（2026-09-17・情-h と同じ器）。以前は主LLM が
-    # 返事を作ってから出口で止め pending_speech に積んでいた（テレビの声への返事が溜まった）。
+def test_typing_with_nobody_present_is_still_answered():
+    # 出-as 段 3（2026-09-26）：誰も見えないときに会話入力を入口で止める決まり（2026-09-17・情-h と同じ器）は
+    # ウェイクワードの窓に置き換えた。キーボードの入力はいつでも受ける——打たれたこと自体が居る証拠
+    # （`設計方針_話していいかの決まり` §2.3）。声の窓の決まりは `test_the_wake_window_gates_voice.py`。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
-    a._social_presence_permission = MagicMock(return_value=0.0)  # 誰も居ない
+    a._social_presence_permission = MagicMock(return_value=0.0)  # カメラには誰も映っていない
     a._nudge_seeking = AsyncMock()
-    shown: list[str] = []
-    assert _run(a, on_text=shown.append) == ""  # 発話しない
-    a._tts.call.assert_not_awaited()  # 音も出さない
-    assert shown == []  # 画面にも出さない
-    a.backend.stream_turn.assert_not_awaited()  # 主LLM も回らない
-    a._pending_store.add.assert_not_called()  # 返事の本文は溜めない（機器の知らせ専用）
-    written = [str(c.args[0]) for c in a._memory.save_async_with_id.call_args_list]
-    assert any("誰も見えないあいだに聞いた" in w for w in written)  # 聞いたことは O に残る
+    _run(a)
+    a.backend.stream_turn.assert_awaited()  # 主LLM が返事を考えた
+    a._nudge_seeking.assert_not_awaited()  # 捨てていないので押し上げもしない
 
 
 def test_speech_goes_out_when_someone_is_present():
