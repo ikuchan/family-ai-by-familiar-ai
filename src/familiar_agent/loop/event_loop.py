@@ -2582,7 +2582,7 @@ class InformationProcessing:
         # (a') 情動の求めで調停が「黙る」（light・text 空）と決めた：主LLM を起こさず沈黙で閉じる（出-w）。
         if decision.branch == "light" and not decision.text and self._req.trigger_kind == "情動":
             logger.info("event-loop 調停が黙ると決めたので沈黙で閉じる（情動）")
-            await self._finish("", memories, "沈黙")
+            await self._finish("", memories, "沈黙", gen=gen)
             return ""
         # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
         if decision.branch == "light" and decision.text:
@@ -2598,7 +2598,7 @@ class InformationProcessing:
                 memories=memories,
                 spoken=outcome == "発話",
             )
-            await self._finish(spoken, memories, outcome)
+            await self._finish(spoken, memories, outcome, gen=gen)
             return spoken
 
         # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
@@ -2874,14 +2874,14 @@ class InformationProcessing:
                 await self._write_version()
                 return ""
             spoken, outcome = await self._speak(text)
-            await self._finish(spoken, decision.memories, outcome)
+            await self._finish(spoken, decision.memories, outcome, gen=gen)
             return spoken
 
         if decision.retried and decision.original_text:
             # 言い直しが say を返さなかった。**元の応答で出す**（黙るよりはよい）。
             logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
             spoken, outcome = await self._speak(decision.original_text)
-            await self._finish(spoken, decision.memories, outcome)
+            await self._finish(spoken, decision.memories, outcome, gen=gen)
             return spoken
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
@@ -2890,7 +2890,7 @@ class InformationProcessing:
         text = (decision.result.text or "").strip()
         if text:
             self._emit(text)
-        await self._finish(text, decision.memories, "沈黙")
+        await self._finish(text, decision.memories, "沈黙", gen=gen)
         return text
 
     async def _speech_check_violation(
@@ -3753,7 +3753,9 @@ class InformationProcessing:
                     self._req.request_id, self._agent._memory.LOOKUP_STARTED_NOTE
                 )
 
-    async def _finish(self, text: str, memories: "list[Recalled]", outcome: str) -> None:
+    async def _finish(
+        self, text: str, memories: "list[Recalled]", outcome: str, *, gen: "int | None" = None
+    ) -> None:
         """求めが閉じた反復の後始末：総括ログと永続化。
 
         閉じ方は `outcome` が持つ——`発話`（声になった）・`沈黙`（地の文だけで声にならず
@@ -3784,6 +3786,14 @@ class InformationProcessing:
         # 「わたし」として読み返す。**残す価値はある**ので、区別して残す——役割 `独白` は
         # やりとりの項にならないが（`recent_exchanges` が引く役割に無い）、拡散想起の
         # 母集合には入る（`HIDDEN_ROLES` に入れない）。
+        # **打ち切られた求めの後始末は、次の求めに触らない**（出-au 段 1-5）。求めの状態は 1 つを共有しており、
+        # 返事を声にしている最中に名前で呼ばれて打ち切られると、状態はもう次の求めのものになっている。声になった
+        # 事実だけを書き（次の求めの id を親にしない）、状態・やりとり・背景の後始末には触らない。
+        aborted = gen is not None and gen != self._request_generation
+        if aborted and outcome != "発話":
+            return
+        if aborted:
+            logger.info("event-loop 打ち切られた求めの返事なので、言った事実だけ残す")
         spoken = outcome == "発話"
         # **話そうとして止められた発話は「〇〇に言いたかったこと」**（出-as 段 7・§2.6）。相手の面に立て、
         # 根づきを 2 にする——情動が発火して相手が映ったとき、想起で上がってくるように。相手が分からなければ
@@ -3798,7 +3808,7 @@ class InformationProcessing:
             content = f"考えたが言わなかった：{text}"
         perspective = (
             dict(writer_id=AGENT_SELF_ID, participants=[who_id])
-            if who_id
+            if who_id and not aborted
             else agent._observation_perspective()
         )
         answer_id = None
@@ -3810,13 +3820,15 @@ class InformationProcessing:
                         content=content[:500],
                         timestamp=None,
                         direction="発話" if spoken else "独白",
-                        parent_id=self._req.request_id,
+                        parent_id=None if aborted else self._req.request_id,
                     ),
                     **perspective,
                 )
             if wanted and answer_id:
                 with contextlib.suppress(Exception):
                     agent._oif.set_groundedness(answer_id, unsaid.GROUNDEDNESS)
+        if aborted:
+            return
         if spoken and self._req.told_unsaid:
             await self._fold_told(list(self._req.told_unsaid))
         self._note_record(answer_id, "答え" if spoken else "独白")
