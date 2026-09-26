@@ -111,10 +111,13 @@ def _agent(*, stream_returns, max_iters=3):
     # 数値として使う設定は明示する。MagicMock のままだと `content[:cap]` の cap が
     # `__index__`=1 と解釈され、content が黙って1文字に切られる（実際に起きた）。
     a.config.completion_content_max = 8192
-    # 「調べものが遅い」の見張り（`_watch_slow_lookup`）。偽物の設定のままだと `float(MagicMock)` が 1.0 になり、
+    # 待たせている時間の見張り（`_watch_waiting`）。偽物の設定のままだと `float(MagicMock)` が 1.0 になり、
     # 調べものを使う試験がそれぞれ 1 秒待っていた（試験の組み立ては裏のタスクが終わるまで待つ・環-aa）。
     # 偽の調べものはその場で返るので、0.2 秒で「遅い」を知らせることは無い。
     a.config.lookup_slow_seconds = 0.2
+    a.config.wait_filler_repeat_seconds = (
+        20.0  # 会話の求めで待たせ続けるときの繰り返し（出-au 段 2）
+    )
     return a
 
 

@@ -1,4 +1,4 @@
-"""調べものが遅いとき、**1回だけ**「まだかかっている」を知らせる（案G-3・案イ・案ハ）。
+"""調べものが遅いとき、「まだかかっている」を知らせる（案G-3・案イ・案ハ）。会話の求めでは繰り返す（出-au 段 2）。
 
 `search_deferred` は実測で平均2.5秒・最長22.1秒。つなぎを一言だけ言って22秒黙るのは
 落ち着かない。時計で定期的に起こすのではなく、**遅いという事実**を1回きりの起点にする。
@@ -28,50 +28,8 @@ def test_the_threshold_comes_from_config():
         assert AgentConfig().lookup_slow_seconds == 5.0
 
 
-def test_a_slow_lookup_raises_a_progress_event_once():
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    a.config.lookup_slow_seconds = 0.01
-
-    async def scenario():
-        ip = InformationProcessing(a)
-        ip._req.lookups = [
-            Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)
-        ]
-        await ip._watch_slow_lookup("明日の天気", ip._request_generation)
-        return ip
-
-    ip = asyncio.run(scenario())
-    assert ip._triggers.qsize() == 1
-    assert ip._triggers.get_nowait().kind == "進捗"
-
-
-def test_no_progress_event_once_the_result_has_arrived():
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    a.config.lookup_slow_seconds = 0.01
-
-    async def scenario():
-        ip = InformationProcessing(a)
-        ip._req.lookups = []  # もう結果が来ている
-        await ip._watch_slow_lookup("明日の天気", ip._request_generation)
-        return ip
-
-    assert asyncio.run(scenario())._triggers.empty()
-
-
-def test_no_progress_event_for_an_abandoned_request():
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    a.config.lookup_slow_seconds = 0.01
-
-    async def scenario():
-        ip = InformationProcessing(a)
-        ip._req.lookups = [
-            Lookup(index=1, action="search_deferred", query="明日の天気", generation=0)
-        ]
-        ip._request_generation = 1  # 見張りを立てたあとに打ち切られた
-        await ip._watch_slow_lookup("明日の天気", 0)
-        return ip
-
-    assert asyncio.run(scenario())._triggers.empty()
+# 見張りそのもの（1 回だけ・結果が来たら出ない・打ち切られたら出ない・会話では繰り返す）は
+# `test_fillers_keep_the_window_open.py`（出-au 段 2 で求めごとに 1 本へまとめた）。
 
 
 def test_a_progress_iteration_only_says_a_filler():

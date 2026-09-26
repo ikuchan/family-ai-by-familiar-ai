@@ -631,6 +631,11 @@ class AgentConfig:
     lookup_slow_seconds: float = field(
         default_factory=lambda: _float_env("LOOKUP_SLOW_SECONDS", 5.0)
     )
+    # 会話の求めで待たせ続けるとき、最初の「まだかかっている」の後、この秒数ごとに繰り返す（出-au 段 2）。
+    # 窓（30 秒）が切れる前に、つなぎで延ばすため。20 秒は本人の決定（2026-09-26・`設計方針_判定の段` §2.3）。
+    wait_filler_repeat_seconds: float = field(
+        default_factory=lambda: _float_env("WAIT_FILLER_REPEAT_SECONDS", 20.0)
+    )
     # 調停（軽量LLM）の時間切れ。届かなければフルへ倒す。普通の会話は 0.93〜1.10 秒だが、
     # 「黙って」と頼まれたときは **4.18 秒**かかると実測した（判断が重い）。2.0 秒では
     # 届かず、沈黙依頼が読まれないまま素通りしていた。0.8 秒の余裕を見て 5.0 とする。
