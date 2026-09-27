@@ -21,14 +21,13 @@ def test_evaluator_class_exists_with_injected_backends() -> None:
 
 
 def test_evaluator_exposes_public_methods() -> None:
-    """4つの評価メソッドを公開シグネチャで持つ。"""
+    """3つの評価メソッドを公開シグネチャで持つ（発話前の検査は出-au 段 5-3 で Jev へ移した）。"""
     from familiar_agent.loop.evaluator import Evaluator
 
     for name in (
         "emotion_for_turn",
         "summarize_exchange",
         "infer_companion_mood",
-        "check_speech",
     ):
         assert callable(getattr(Evaluator, name)), name
 

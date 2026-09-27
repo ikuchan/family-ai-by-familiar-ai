@@ -93,3 +93,35 @@ async def judge_addressee(client, *, text: str, recent: str, present: str, min_c
     verdict = TO_FAMILY if pick == "family" else TO_PAJU
     logger.info("Jev 判定 宛先：%s", verdict)
     return verdict
+
+
+async def judge_speech(
+    client, *, response: str, recent: str, facts: str, rules: "dict[str, str]", min_conf: float
+) -> "str | None":
+    """返事が決まりを破っていないか（発話前の検査・§2.2.3）。破っていれば差し戻しの文、無ければ None。
+
+    選択肢は決まり（id → 説明）と「破っていない」。差し戻しの文は「決まり <id>：<説明>」（本人の決定 ア）。
+    倒し先は「破っていない」——迷っただけで主LLM を呼び直さない。
+    """
+    if not response or not rules:
+        return None
+    state = (
+        f"[機械が確かめた事実]\n{facts or '（なし）'}\n\n"
+        f"[直近のやりとり]\n{recent or '（なし）'}\n\n"
+        f"[家のロボット（パジュ）がいま言おうとしている返事]\n{response[:600]}"
+    )
+    criteria = dict(rules)
+    criteria["ok"] = (
+        "どの決まりも破っていない。書かれた事実だけでは破っているとも言えない場合もこれ"
+    )
+    questions = {
+        "broken": choice(
+            "この返事が破っている決まりはどれか（事実に書かれていないことは推測しない）", criteria
+        )
+    }
+    pick = picked(await _ask(client, state, questions), "broken", min_conf)
+    if not pick or pick == "ok" or pick not in rules:
+        logger.info("Jev 判定 発話前の検査：破っていない")
+        return None
+    logger.info("Jev 判定 発話前の検査：%s", pick)
+    return f"決まり {pick}：{rules[pick]}"

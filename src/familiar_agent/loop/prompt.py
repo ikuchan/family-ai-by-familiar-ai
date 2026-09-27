@@ -158,6 +158,17 @@ def rules_for_checker(*, allow_tts_tags: bool = False) -> str:
     return sec
 
 
+def rule_list(sec: "str | None" = None) -> "dict[str, str]":
+    """規則の節から、id → 説明の対応を読む（出-au 段 5-3・Jev の選択肢に使う）。既定は正本の全部。
+
+    一覧を別に書かないため、`(constraint … :id <id>\n "<説明>")` の形から機械で読む。
+    """
+    import re
+
+    text = rules_section() if sec is None else sec
+    return {m.group(1): m.group(2) for m in re.finditer(r':id ([a-z-]+)\n\s*"([^"]*)"', text)}
+
+
 def _all_rule_ids(sec: str) -> list[str]:
     import re
 

@@ -59,21 +59,6 @@ def test_the_companion_mood_reading_speaks_as_paju():
     assert seen["mood"] == (Stance.PAJU, False)
 
 
-def test_the_speech_check_measures_from_outside_and_needs_the_rules():
-    """自分で自分は検査できない。規則はシステム文で受け取る。"""
-    be = _backend("OK")
-    seen = {}
-
-    def ctx(stance, *, with_rules=False):
-        seen["coh"] = (stance, with_rules)
-        return "＜計器＋規則＞"
-
-    ev = _evaluator(be, context=ctx)
-    asyncio.run(ev.check_speech("はい", recent="やあ", facts="見たか：いいえ"))
-    assert seen["coh"] == (Stance.INSTRUMENT, True)
-    assert be.complete.await_args.kwargs["system"] == "＜計器＋規則＞"
-
-
 def test_the_one_line_summary_speaks_as_paju():
     be = _backend("うれしかった")
     seen = {}

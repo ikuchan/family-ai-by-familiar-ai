@@ -23,10 +23,12 @@ def test_the_old_module_is_gone():
         importlib.import_module("familiar_agent.loop.coherence")
 
 
-def test_the_evaluator_checks_speech():
+def test_the_judge_checks_speech():
+    """判定は出-au 段 5-3 で Jev へ移した（`core/jev_judges.judge_speech`）。"""
+    from familiar_agent.core import jev_judges
     from familiar_agent.loop.evaluator import Evaluator
 
-    assert callable(getattr(Evaluator, "check_speech", None))
+    assert callable(getattr(jev_judges, "judge_speech", None))
     assert not hasattr(Evaluator, "check_response_coherence")
 
 

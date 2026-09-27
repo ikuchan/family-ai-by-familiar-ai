@@ -1,11 +1,10 @@
 """評価器 — 軽量LLM（utility backend）を使うターン評価の集合（W2b-2）。
 
-agent.py から分離した、次の4つを持つ。
+agent.py から分離した、次の3つを持つ（発話前の検査は出-au 段 5-3 で Jev へ移した・`core/jev_judges`）。
 
 - emotion_for_turn: ターンの感情を PAD で評価し派生ラベルを返す（値踏みゲート込み）
 - summarize_exchange: やり取りを1文へ蒸留（記憶保存用）
 - infer_companion_mood: 相手の気分を分類（専用軽量backend が無ければキーワード発見的手法）
-- check_speech: 応答の論理的自己矛盾・規則違反を配信前に検出
 
 依存は構築時に注入する utility_backend と backend のみ。mood レジスタは
 `load_current_mood()` で読むだけ（書かない）。
@@ -33,23 +32,6 @@ _COMPANION_MOODS = frozenset({"engaged", "tired", "frustrated", "absent", "happy
 # 発話の前に規則違反を見る（出-f）。**規則の写しをここに置かない。** 正本は
 # `EVENT_SYSTEM_PROMPT` の `(rules ...)` で、システム文として渡る。写しを持てば、正本が
 # 変わったときにここだけ古くなる。
-_SPEECH_CHECK_PROMPT = """\
-いま言おうとしている応答が、規則に反していないかを見る。
-
-規則はシステム文にある。それと、下に並んだ事実だけで照らす。**書かれていないことを
-推測しない。** 事実に無いことは、反しているとも反していないとも言えない。
-
-{facts}
-
-直近のやりとり：
-{recent}
-
-言おうとしている応答：
-{response}
-
-規則に反していなければ、OK とだけ書く。
-反していれば、どの規則にどう反しているかを一文で書く。ほかには何も書かない。"""
-
 # 値踏みゲート（課題5・Config 差し替え可）。A<A_GATE は評価器を呼ばず P/Pn/Dom＝M。
 A_GATE = 0.25
 
@@ -356,40 +338,6 @@ class Evaluator:
         # 頭に付いて、実在しない id ができる（「id は 0123456789ab です」→ `d0123456789a`）。
         m = re.search(r"(?<![0-9a-f])[0-9a-f]{12}(?![0-9a-f])", text.lower())
         return m.group(0) if m else None
-
-    async def check_speech(
-        self, response: str, *, recent: str = "", facts: str = ""
-    ) -> "str | None":
-        """応答が規則に反していないかを見る。反していればその説明、無ければ None（出-f）。
-
-        `facts` は機械が集めた事実（`loop/speech_check.facts_ctx`）で、`recent` は直近の
-        やりとりである。**どちらもここで作らない。** 見たかどうかも記憶が載ったかどうかも、
-        知っているのはループであって評価器ではない。
-
-        以前は `agent.messages`（会話履歴）を渡していたが、**この list は追記する箇所が
-        1つも無く、いつも空だった**（環-c の撤去で会話履歴そのものが失われている）。
-        """
-        if self._utility_backend is self.backend:
-            return None
-        if not response or response == "(no response)":
-            return None
-
-        try:
-            # **自分で自分は検査できない。** ここだけ外から測る立ち位置で、規則を
-            # システム文で受け取る（規則の正本は `EVENT_SYSTEM_PROMPT` の `(rules ...)`）。
-            result = await self._utility_backend.complete(
-                _SPEECH_CHECK_PROMPT.format(facts=facts, recent=recent, response=response[:300]),
-                max_tokens=60,
-                system=self._stance(_Stance.INSTRUMENT, with_rules=True),
-            )
-            result = result.strip()
-            if result.upper().startswith("OK"):
-                return None
-            logger.info("発話前の検査が違反を捕まえた：%s", result)
-            return result
-        except Exception as e:
-            logger.debug("発話前の検査に失敗した（続ける）：%s", e)
-            return None
 
     async def summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """Distill an exchange into one sentence for memory storage."""
