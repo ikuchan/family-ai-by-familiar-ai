@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.oif import MI, Recalled
 from familiar_agent.loop.speech_check import facts_ctx, used_lines
@@ -54,7 +54,10 @@ def test_without_verdicts_the_facts_say_none_declared() -> None:
 def test_the_loop_hands_the_used_lines_to_the_checker() -> None:
     a = _agent(stream_returns=[])
     a.config.speech_check = True
-    a._evaluator.check_speech = AsyncMock(return_value=None)
+    # 判定は Jev（出-au 段 5-3）。送る文（state）に事実が入っているかを見る。
+    a._jev = MagicMock(available=True)
+    a._jev.ask = AsyncMock(return_value=None)
+    a.config.jev_confidence_min = 0.6
     ip = InformationProcessing(a)
 
     async def scenario():
@@ -66,7 +69,7 @@ def test_the_loop_hands_the_used_lines_to_the_checker() -> None:
             w_id_map=_MAP,
         )
         await ip.close()
-        return a._evaluator.check_speech.call_args.kwargs["facts"]
+        return a._jev.ask.await_args.args[0]
 
     facts = asyncio.run(scenario())
     assert "最高30℃" in facts

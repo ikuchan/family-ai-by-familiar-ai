@@ -3038,16 +3038,26 @@ class InformationProcessing:
         """発話の前に規則違反を見る（出-f）。違反の説明を返す。無ければ None。
 
         **応答の文字列を機械で削らない。** 機械が出すのは、見たか・記憶が載ったかという
-        推測の要らない事実だけで、規則に反するかどうかの判断は軽量LLM がする。
+        推測の要らない事実だけで、規則に反するかどうかの判断は Jev がする（出-au 段 5-3）。照らす決まりは
+        文と事実だけで判断できるものに絞った版（`rules_for_checker`・出-n）。Jev が使えない・確信度が低いときは
+        倒し先の「破っていない」。
         """
+        from .prompt import rule_list, rules_for_checker
+
         agent = self._agent
         if not agent.config.speech_check or not text:
             return None
         started = time.monotonic()
-        violation = await agent._evaluator.check_speech(
-            text,
+        tts = getattr(agent, "_tts", None)
+        violation = await jev_judges.judge_speech(
+            getattr(agent, "_jev", None),
+            response=text,
             recent=recent,
             facts=self._checker_facts(memories, verdicts=verdicts, w_id_map=w_id_map),
+            rules=rule_list(
+                rules_for_checker(allow_tts_tags=bool(getattr(tts, "understands_tags", False)))
+            ),
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
         )
         logger.info(
             "event-loop 発話前の検査 %.2f 秒（違反=%s）",

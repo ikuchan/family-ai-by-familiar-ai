@@ -1162,16 +1162,6 @@ class EmbodiedAgent:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.infer_companion_mood(text)
 
-    async def _check_speech(
-        self, response: str, *, recent: str = "", facts: str = ""
-    ) -> "str | None":
-        """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。
-
-        材料はループが集めて渡す。**会話履歴は渡さない**——`self.messages` は追記する
-        箇所が1つも無く、いつも空である（出-f）。
-        """
-        return await self._evaluator.check_speech(response, recent=recent, facts=facts)
-
     async def _summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.summarize_exchange(user_input, agent_response)

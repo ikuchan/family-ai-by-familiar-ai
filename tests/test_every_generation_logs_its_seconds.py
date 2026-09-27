@@ -79,7 +79,16 @@ def test_the_speech_check_logs_its_seconds(caplog) -> None:
     async def scenario():
         a = _agent(stream_returns=[])
         a.config.speech_check = True
-        a._evaluator.check_speech = AsyncMock(return_value="x に反する")
+        # 判定は Jev（出-au 段 5-3）。照らす決まり（`CHECKER_RULE_IDS`）の 1 つを破ったと答える。
+        from familiar_agent.backends.jev import JevAnswer
+
+        a._jev = MagicMock(available=True)
+        a._jev.ask = AsyncMock(
+            return_value=JevAnswer(
+                ok=True, answers={"broken": {"choice": "no-fake-perception", "confidence": 0.9}}
+            )
+        )
+        a.config.jev_confidence_min = 0.6
         ip = InformationProcessing(a)
         with caplog.at_level(logging.INFO, logger=_LOG):
             await ip._speech_check_violation("text", "", [])

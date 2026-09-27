@@ -5,7 +5,7 @@
 
 繋ぎ直すとき、**応答の文字列を機械で削らない**。機械は意味を読めないので、語の表で文を
 落とせばパジュの普通の発話が黙って消える。機械がするのは**推測の要らない事実を集めて
-渡す**ことだけで、判定は軽量LLM がする。
+渡す**ことだけで、判定は軽量LLM がする（出-au 段 5-3 からは Jev）。
 
 軽量LLM はいま応答と規則しか持たず、「見たか」「記憶があったか」を知らない。だから
 `no-fake-perception` を渡しても照らす相手が無い。規則を渡していなかったときが 3/18 で、
@@ -16,9 +16,8 @@
 from __future__ import annotations
 
 
-import asyncio
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -102,59 +101,7 @@ def test_no_word_list_is_used_to_censor_the_response():
     assert "response" not in inspect.signature(speech_check.facts_ctx).parameters
 
 
-# ── 判定（軽量LLM の仕事） ──────────────────────────────────────────────────
-
-
-def _evaluator():
-    from familiar_agent.loop.evaluator import Evaluator
-
-    util = MagicMock()
-    util.complete = AsyncMock(return_value="OK")
-    ev = Evaluator(util, MagicMock(), context=lambda *a, **k: "規則")
-    return ev, util
-
-
-def test_ok_means_no_violation():
-    ev, _ = _evaluator()
-    assert asyncio.run(ev.check_speech("こんばんは", recent="", facts="f")) is None
-
-
-def test_anything_else_is_reported_as_a_violation():
-    ev, util = _evaluator()
-    util.complete = AsyncMock(return_value="見ていないのに見たと言っている")
-    out = asyncio.run(ev.check_speech("そこに本があるね", recent="", facts="f"))
-    assert out == "見ていないのに見たと言っている"
-
-
-def test_the_facts_reach_the_judge():
-    ev, util = _evaluator()
-    asyncio.run(ev.check_speech("はい", recent="R", facts="見たか：いいえ"))
-    prompt = util.complete.await_args.args[0]
-    assert "見たか：いいえ" in prompt
-    assert "R" in prompt
-
-
-def test_the_prompt_carries_no_copy_of_the_rules():
-    """規則の正本は `EVENT_SYSTEM_PROMPT` の `(rules ...)`。写しを置かない。"""
-    from familiar_agent.loop.evaluator import _SPEECH_CHECK_PROMPT
-
-    assert "constraint" not in _SPEECH_CHECK_PROMPT
-    assert "shiritori" not in _SPEECH_CHECK_PROMPT.lower()
-
-
-def test_the_judge_receives_the_rules_through_the_system_message():
-    ev, util = _evaluator()
-    asyncio.run(ev.check_speech("はい", recent="", facts="f"))
-    assert util.complete.await_args.kwargs["system"] == "規則"
-
-
-def test_the_conversation_history_is_no_longer_read():
-    """`agent.messages` は追記する箇所が0件で、いつも空である。もう読まない。"""
-    import inspect
-
-    from familiar_agent.loop.evaluator import Evaluator
-
-    assert "messages" not in inspect.signature(Evaluator.check_speech).parameters
+# 判定そのもの（Jev の仕事）は `test_speech_check_with_jev.py`（出-au 段 5-3 で軽量LLM から移した）。
 
 
 # ── 既定 ───────────────────────────────────────────────────────────────────

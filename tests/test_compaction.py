@@ -307,34 +307,3 @@ class TestCompactMessagesWithNestedToolResults:
         # recent はネスト構造を保ったまま残る（送信時 flatten の前提）
         assert agent.messages[1] is recent_a
         assert agent.messages[2] is recent_b
-
-
-# ── _check_speech は会話履歴を読まない ──────────────────────────
-
-
-class TestCheckSpeechIgnoresHistory:
-    def test_the_conversation_history_is_not_read(self):
-        """発話前の検査は `agent.messages` を読まない（出-f）。
-
-        以前はここへ生の会話履歴を渡しており、ネスト list を走査前に flatten していた。
-        **その list は追記する箇所が1つも無く、いつも空だった**（環-c の撤去で会話履歴
-        そのものが失われている）。いまは材料をループが集めて渡す。
-
-        ネストしたままの履歴を置いても触られないこと（＝走査していないこと）を見る。
-        """
-        agent = _make_agent()
-        # 評価器は `_utility_backend` と `backend` から property が都度導くので、
-        # 差し替えるのは agent 側である（評価器へ直接入れても次の参照で作り直される）。
-        util = MagicMock()
-        util.complete = AsyncMock(return_value="OK")
-        agent._utility_backend = util
-
-        agent.messages = [
-            _make_msg("user", "hello"),
-            [{"role": "user", "content": [{"type": "tool_result", "content": "data"}]}],
-            _make_msg("assistant", "reply"),
-        ]
-        assert asyncio.run(agent._check_speech("some response")) is None
-
-        prompt = util.complete.await_args.args[0]
-        assert "hello" not in prompt and "reply" not in prompt
