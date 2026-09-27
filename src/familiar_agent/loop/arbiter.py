@@ -767,3 +767,209 @@ async def arbitrate(
         時間切れ="no",
     )
     return decision if decision is not None else _FALLBACK
+
+
+# ── Arbiter：判定は Jev、文章は軽量LLM（出-au 段 5-7・`設計方針_判定の段` v0.4 §2.2.2） ──────────────
+
+
+@dataclass
+class ArbiterInput:
+    """調停の材料。ループ（`_decide`）が組んで渡す。"""
+
+    utterance: str
+    workspace_ctx: str
+    present_ctx: str = ""
+    now_ctx: str = ""
+    origin: str = "発話"  # 発話／機器／情動
+    capped: bool = False
+    thinking_round: int = 1
+    can_see: bool = False
+    extra_actions: tuple[str, ...] = ()
+    tool_return: bool = False
+    timer_active: bool = False
+    family_md: str = ""
+    current_speaker: str = ""
+    silenced: bool = False
+    self_understanding: str = ""
+    self_image: str = ""
+    season_env: str = ""
+
+
+#: 動作の短い説明（Jev の選択肢）。繋がっている MCP の道具は `_EXTRA_ACTIONS` の説明から作る。
+_BASE_ACTIONS = {
+    "recall": "自分の記憶（家族の出来事・過去の会話）を探す",
+    "search_deferred": "インターネットで世の中のこと（天気・ニュース・調べもの）を調べる",
+}
+_CAMERA_ACTION_TEXT = {
+    "see": "目の前を見る（カメラ）。見えているものを聞かれた・部屋の様子を確かめる",
+    "look": "首を向ける（カメラを回す）。「右向いて」「窓の方見て」「もっと右」",
+}
+_BRANCH_REPLY = {
+    "light": "何も動かさず、短い言葉で答えきれる（挨拶・相槌・簡単な受け答え）。道具が要る頼みは含まない",
+    "full": "何も動かさずに答えるが、記憶を踏まえた言葉選びや込み入った説明が要る。調べたが分からないと伝えるときもこれ",
+    "action": "答える前に何かを動かす（見る・首を向ける・タイマー・予定やメモを見る・記憶を探す・調べる）。"
+    "材料が無い、またはまだ試していない角度がある",
+}
+_BRANCH_SELF = {
+    "light": "短くひとこと言う。黙るのが基本（いつも通りなら黙る）",
+    "full": "考えてから言う・する",
+    "action": "見る・調べる・首を向ける",
+}
+_EFFORT_CRITERIA = {
+    "low": "ふつう。ほとんどの場合",
+    "medium": "ひと言で表せない複雑な気持ちを受け止める、4 つ以上の記憶を踏まえて応える、調べた結果をまとめる",
+    "high": "人がよく考えるよう明示的に求めた",
+}
+_QUIET_MINUTES = {"default": -1, "5": 5, "10": 10, "15": 15, "30": 30, "60": 60}
+
+
+def _extra_action_text(action: str) -> str:
+    """`_EXTRA_ACTIONS` の説明（`"x"（…）`）から、括弧の中の最初の一文を取る。"""
+    desc = _EXTRA_ACTIONS[action][1]
+    m = re.search(r"（(.*?)[。）]", desc)
+    return (m.group(1) if m else desc).strip()
+
+
+def _family_choices(family_md: str) -> "dict[str, str]":
+    """家族の呼びかけの名前 → 呼び方の一覧（名乗り・打ち消しの選択肢）。"""
+    from ..core import parsing
+    from ..core.speaker_claim import aliases_of, call_name_of
+
+    out: "dict[str, str]" = {}
+    for m in parsing.parse_family_md(family_md or ""):
+        key = call_name_of(m)
+        if key:
+            out[key] = "、".join(aliases_of(m))
+    return out
+
+
+class Arbiter:
+    """調停。材料を受け取り、**Jev が決め**、要るときだけ**軽量LLM が書き**、機械の守りを通して `Decision` を返す。
+
+    判定と文章を 1 回の軽量LLM に同居させていた形（`ARBITER_PROMPT`）を割った（出-au 段 5-7）。Jev は写真を見られない
+    ので、写真の読み取りは状態として W に載っている（段 5-7a）。
+    """
+
+    def __init__(
+        self, *, jev, writer, min_conf: float = 0.6, timeout: "float | None" = None
+    ) -> None:
+        self._jev = jev
+        self._writer = writer
+        self._min_conf = float(min_conf)
+        self._timeout = timeout
+
+    def _allowed_actions(self, inp: ArbiterInput) -> "dict[str, str]":
+        out = dict(_BASE_ACTIONS)
+        if inp.can_see:
+            out.update(_CAMERA_ACTION_TEXT)
+        for a in inp.extra_actions:
+            if a in _EXTRA_ACTIONS:
+                out[a] = _extra_action_text(a)
+        return out
+
+    def _state(self, inp: ArbiterInput) -> str:
+        """Jev に送る文。先導文（起点ごと）・いま・在席・その場の言葉・作業状態（W 全部・本人の決定 イ）。"""
+        self_doing = inp.origin == "情動"
+        if inp.tool_return:
+            lead, heading = _LEAD_TOOL_RETURN, _HEADING_TOOL_RETURN
+        elif self_doing:
+            lead, heading = _LEAD_SELF, _HEADING_SELF
+        elif inp.origin == "機器":
+            lead, heading = _LEAD_DEVICE, _HEADING_DEVICE
+        else:
+            lead, heading = _LEAD_REPLY, _HEADING_REPLY
+        notes = (_CAPPED_NOTE if inp.capped else "") + (
+            _THINKING_NOTE.format(round=inp.thinking_round) if inp.thinking_round > 1 else ""
+        )
+        return (
+            f"[決めること]\n{lead}\n{notes}\n"
+            f"[いま]\n{inp.now_ctx or '（分からない）'}\n\n"
+            f"[いま誰が居るか]\n{inp.present_ctx or '（分からない）'}\n\n"
+            f"{heading}\n{inp.utterance}\n\n"
+            f"[いまの作業状態]\n{inp.workspace_ctx or '（なし）'}"
+        )
+
+    def _questions(self, inp: ArbiterInput) -> dict:
+        from ..backends.jev import choice, noul
+
+        branches = dict(_BRANCH_SELF if inp.origin == "情動" else _BRANCH_REPLY)
+        if inp.capped:
+            branches.pop("action")  # これ以上は調べられない
+        qs: dict = {
+            "branch": choice("次にどうするか", branches),
+            "effort": choice("考えて答えるなら、どれくらい深く考えるべきか", _EFFORT_CRITERIA),
+            "action": choice("先に動くなら、どの動作か", self._allowed_actions(inp)),
+            "refers_time": noul("人の言葉が、特定の過去の時期（去年の夏・先週など）を指している"),
+        }
+        if inp.tool_return:
+            return qs  # 道具の帰りの発話は古い。黙る依頼・名乗りは読まない（情-n）
+        qs["asks_quiet"] = noul(
+            "家のロボットの名前で呼んだうえで、いまは話しかけないでほしいと頼んでいる"
+            "（待って・待てぃは動作を止めてほしいだけで、これには当たらない）"
+        )
+        qs["quiet_minutes"] = choice(
+            "黙っていてほしい長さ",
+            {
+                "default": "長さを言っていない",
+                "5": "5 分くらい",
+                "10": "10 分くらい",
+                "15": "15 分くらい",
+                "30": "30 分くらい",
+                "60": "1 時間くらい",
+            },
+        )
+        if inp.silenced:
+            qs["lifts_quiet"] = noul("黙っているところへ、もう話していい・しゃべっていいと解いた")
+        family = _family_choices(inp.family_md)
+        qs["claims"] = noul(
+            "人が自分の名前を名乗った（「〜だよ」「〜です」。誰かを呼んだだけ・第三者の話は違う）"
+        )
+        qs["claimed"] = choice(
+            "名乗った名前は家族の誰か", {**family, "other": "家族以外・分からない"}
+        )
+        denied = dict(family)
+        if inp.current_speaker and inp.current_speaker not in denied:
+            denied[inp.current_speaker] = "いま話者としている人"
+        qs["denies"] = noul(
+            "人が、自分はいま呼ばれている名前の人ではないと打ち消した（「〜じゃないよ」「ちがう」）"
+        )
+        qs["denied"] = choice(
+            "打ち消された呼び方はどれか（名前を言わなかったなら、いま話者としている人）",
+            {**denied, "other": "分からない"} if denied else {"other": "分からない"},
+        )
+        return qs
+
+    async def _judge(self, inp: ArbiterInput) -> "dict | None":
+        """Jev に 1 回で聞き、`_parse` の守りへ渡す辞書を返す。分岐か動作の確信度が低い・使えないときは None。"""
+        from ..core.jev_judges import _ask, picked
+
+        answer = await _ask(self._jev, self._state(inp), self._questions(inp))
+        if not getattr(answer, "ok", False):
+            return None
+        branch = picked(answer, "branch", self._min_conf)
+        if branch not in ("light", "full", "action"):
+            return None
+        data: dict = {"branch": branch}
+        data["effort"] = picked(answer, "effort", 0.0) or "low"
+        if branch == "action":
+            action = picked(answer, "action", self._min_conf)
+            if action not in self._allowed_actions(inp):
+                return None
+            data["action"] = action
+        got = answer.answers
+
+        def yes(key: str) -> bool:
+            return float((got.get(key) or {}).get("noul", 0.0) or 0.0) >= 0.5
+
+        data["refers_time"] = yes("refers_time")
+        data["silence_minutes"] = (
+            _QUIET_MINUTES.get(picked(answer, "quiet_minutes", 0.0) or "default", -1)
+            if yes("asks_quiet")
+            else 0
+        )
+        data["lift_silence"] = yes("lifts_quiet")
+        claimed = picked(answer, "claimed", 0.0) if yes("claims") else None
+        data["speaker_claim"] = claimed if claimed and claimed != "other" else ""
+        denied = picked(answer, "denied", 0.0) if yes("denies") else None
+        data["not_person"] = denied if denied and denied != "other" else ""
+        return data
