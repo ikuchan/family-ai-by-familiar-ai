@@ -16,8 +16,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.loop import workspace
-
 
 def _ip():
     from familiar_agent.loop.event_loop import InformationProcessing
@@ -30,50 +28,28 @@ def _ip():
     return ip
 
 
-def test_the_light_llm_is_asked_how_it_used_the_memories():
-    """申告の口は軽量LLM へ1回だけ聞き、W に並んだ id で返させる。"""
-    backend = MagicMock()
-    backend.complete = AsyncMock(
-        return_value='{"memory_verdicts": [{"id": "abcdef123456", "verdict": "referred"}]}'
-    )
-    raw = asyncio.run(
-        workspace.ask_verdicts(
-            backend,
-            utterance="海って楽しいよね",
-            reply="楽しいですよね。",
-            workspace_ctx="- 2025-08-03 12:00 id:abcdef123456 (発話): 海で泳げるようになった",
-        )
-    )
-    assert raw == [{"id": "abcdef123456", "verdict": "referred"}]
-    prompt = backend.complete.call_args.args[0]
-    # 4つの判定に**別々の引き金**を与える（主LLM で効いた形と同じ）。
-    for verdict in ("important", "referred", "useless", "unused"):
-        assert f"`{verdict}`" in prompt
-    assert "海って楽しいよね" in prompt and "楽しいですよね。" in prompt
-
-
-def test_a_broken_reply_declares_nothing():
-    """JSON にならない返事でも落ちない。申告が無いだけで、発話には関わらない。"""
-    backend = MagicMock()
-    backend.complete = AsyncMock(return_value="ごめん、わからない")
-    assert (
-        asyncio.run(workspace.ask_verdicts(backend, utterance="", reply="", workspace_ctx="")) == []
-    )
+# 判定そのもの（記憶ごとの質問・確信度・失敗）は `test_verdicts_with_jev.py`（出-au 段 5-5 で Jev へ移した）。
 
 
 def test_closing_with_the_light_llm_asks_for_the_verdicts_in_the_background():
     """`light` で閉じた反復は、申告を**背景で**投げる。発話を待たせない。"""
     ip = _ip()
     mem = MagicMock()
-    ip._agent._utility_backend.complete = AsyncMock(
-        return_value='{"memory_verdicts": [{"id": "abcdef123456", "verdict": "important"}]}'
+    from familiar_agent.backends.jev import JevAnswer
+
+    ip._agent._jev = MagicMock(available=True)
+    ip._agent._jev.ask = AsyncMock(
+        return_value=JevAnswer(
+            ok=True, answers={"abcdef123456": {"choice": "important", "confidence": 0.9}}
+        )
     )
+    ip._agent.config.jev_confidence_min = 0.6
 
     async def scenario():
         ip._declare_light_memory_use(
             utterance="運動会の話、覚えてる？",
             reply="覚えてますよ。",
-            workspace_ctx="- id:abcdef123456",
+            workspace_ctx="- 2026-09-01 id:abcdef123456 運動会の話",
             w_id_map={"abcdef123456": "m1"},
             mem=mem,
         )

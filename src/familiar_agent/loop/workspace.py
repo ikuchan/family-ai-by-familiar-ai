@@ -16,9 +16,7 @@
 from __future__ import annotations
 
 import contextlib
-import json
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import datetime
 
@@ -583,65 +581,6 @@ def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | N
     with contextlib.suppress(Exception):
         agent._oif.link(KIND_SUCCESSION, [(full, "前", 0), (req.request_id, "後", 1)])
     return True
-
-
-#: **軽量LLM へ申告だけを聞く。** 調停の JSON へ足すと、実測で `light` を選ぶ側へ判断が
-#: 寄った（light 6/24 → 11/24・2場面が full から移った）。切り離せば調停のプロンプトは
-#: 一字も変わらないので、分岐は動かない。
-#:
-#: 4つの判定に**別々の引き金**を与える（主LLM の `say` で効いた形と同じ）。引き金が無いと
-#: 無難な `referred` が全件に並び、W の記憶が一斉に若返る。
-_VERDICT_PROMPT = """\
-これは口に出す言葉ではなく、自分の中の決めごとである。挨拶や説明はせず、指定の
-JSON だけを返す。
-
-いま人から届いた言葉に、自分はこう答えた。並んでいる記憶をどう扱ったかを申告する。
-
-[人の言葉]
-{utterance}
-
-[自分の答え]
-{reply}
-
-[いまの作業状態]
-{workspace}
-
-`id:` が付いた行**すべて**について1件ずつ、`id` はその行のものをそのまま写す。
-
-- `important`：答えに使い、**かつこの反復を越えて効く**（相手が尋ねた／覚えておきたいこと）
-- `referred`：答えに使ったが、**この反復だけ**
-- `useless`：見たが、ここでは思い出す価値が無かった
-- `unused`：まったく使わなかった。**多くはこれになる**
-
-次の形の JSON だけを返す（他には何も書かない）:
-{{"memory_verdicts": [{{"id": "…", "verdict": "important|referred|useless|unused"}}]}}
-"""
-
-
-async def ask_verdicts(backend, *, utterance: str, reply: str, workspace_ctx: str) -> list:
-    """**軽量LLM** に、いま答えるのに W の記憶をどう使ったかを聞く（出-h-ろ）。
-
-    記憶を見て答える口は2つある——**主LLM**（`say`）と**軽量LLM**（調停の `light`）で、
-    申告の口を持っていたのは主LLM だけだった。軽量LLM が答えて閉じた反復では
-    `groundedness_n` が何も動かず、**記憶が育つ経路（申告1本）を通らない道**があった。
-
-    **調停とは別に聞く。** 調停の JSON へ足すと `light` を選ぶ側へ判断が寄る（実測）。
-    ここで聞けば調停のプロンプトは変わらないので、分岐は動かない。
-
-    **読めない返事は空を返す。** 申告が無いだけで、発話には関わらない。倒す理由がない。
-    """
-    out = await backend.complete(
-        _VERDICT_PROMPT.format(utterance=utterance, reply=reply, workspace=workspace_ctx),
-        300,
-    )
-    match = re.search(r"\{.*\}", out or "", re.S)
-    if not match:
-        return []
-    try:
-        raw = json.loads(match.group(0)).get("memory_verdicts")
-    except Exception:
-        return []
-    return raw if isinstance(raw, list) else []
 
 
 def apply_memory_verdicts(mem, raw, w_id_map: "dict[str, str]") -> None:

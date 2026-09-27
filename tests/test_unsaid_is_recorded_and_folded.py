@@ -97,7 +97,7 @@ def test_the_light_declaration_folds_what_it_used(monkeypatch):
         )
     ]
     monkeypatch.setattr(
-        "familiar_agent.loop.workspace.ask_verdicts",
+        "familiar_agent.core.jev_judges.judge_verdicts",  # 判定は Jev（出-au 段 5-5）
         AsyncMock(return_value=[{"id": "aaaaaaaaaaaa", "verdict": "referred"}]),
     )
     monkeypatch.setattr("familiar_agent.loop.workspace.apply_memory_verdicts", lambda *a, **k: None)
