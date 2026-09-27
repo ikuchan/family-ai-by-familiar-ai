@@ -8,10 +8,16 @@
 from __future__ import annotations
 
 import logging
+import re
 
 from ..backends.jev import choice
 
 logger = logging.getLogger(__name__)
+
+
+class JudgeFailed(Exception):
+    """Jev が使えない・失敗した。結末を「落ちた」と数えたい判定（続き先）だけが投げる。"""
+
 
 #: 宛先（§2.2.3）。窓の中の名前の無い声がパジュ宛てか。
 TO_PAJU = "パジュ宛て"
@@ -125,3 +131,55 @@ async def judge_speech(
         return None
     logger.info("Jev 判定 発話前の検査：%s", pick)
     return f"決まり {pick}：{rules[pick]}"
+
+
+#: W の中で id を持つ行（`id:<12桁>`）。
+_W_ROW = re.compile(r"id:([0-9A-Za-z]{1,12})\b")
+#: Choice の選択肢は 255 個まで。「どれの続きでもない」の分を残す。
+_MAX_ROWS = 254
+
+
+def workspace_rows(workspace: str) -> "dict[str, str]":
+    """W の行から id → その行の文を取り出す（同じ id は最初の行）。多ければ新しい行（後ろ）を残す。"""
+    rows: "dict[str, str]" = {}
+    for line in workspace.splitlines():
+        m = _W_ROW.search(line)
+        if m and m.group(1) not in rows:
+            rows[m.group(1)] = line.strip()[:300]
+    if len(rows) > _MAX_ROWS:
+        rows = dict(list(rows.items())[-_MAX_ROWS:])
+    return rows
+
+
+async def judge_follows(client, *, workspace: str, utterance: str, min_conf: float) -> "str | None":
+    """いまの言葉が W のどの行の続きか（`根拠台帳` §29・§2.2.3）。続きならその id、無ければ None。
+
+    言葉か W が無ければ聞かない。確信度が低ければ None（続きではない）。**Jev が使えない・失敗したときは
+    `JudgeFailed` を投げる**——呼び手は「落ちた」と数え、「途切れ」と混ぜない（辺は書かない＝倒し先と同じ）。
+    """
+    rows = workspace_rows(workspace or "")
+    if not (utterance or "").strip() or not rows:
+        return None
+    if client is None or not getattr(client, "available", False):
+        raise JudgeFailed("Jev が使えない")
+    criteria = dict(rows)
+    criteria["none"] = "どの行の続きでもない。話題が変わった、またはやりとりを終える言葉"
+    state = (
+        f"[いま話しかけられた言葉]\n{utterance}\n\n"
+        f"[いま頭にある記憶と直近のやりとり（各行の id が選択肢）]\n{workspace}"
+    )
+    questions = {
+        "follows": choice(
+            "いまの言葉は、どの行のやりとりの続きか。続きとは、同じ話題・同じ用件・同じ相手のやりとりが"
+            "そのまま先へ進んだもの。「さっきの話」「それ」のような指す言葉があれば、指す先の行を選ぶ",
+            criteria,
+        )
+    }
+    try:
+        answer = await client.ask(state, questions)
+    except Exception as e:  # noqa: BLE001
+        raise JudgeFailed(type(e).__name__) from e
+    if not getattr(answer, "ok", False):
+        raise JudgeFailed(getattr(answer, "error", "失敗"))
+    pick = picked(answer, "follows", min_conf)
+    return pick if pick in rows else None

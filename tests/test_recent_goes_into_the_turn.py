@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from familiar_agent.backends import ToolCall
 from tests.test_event_loop import _agent, _run, _turn
@@ -50,7 +50,7 @@ def _with_recent(a, rows):
 
 def test_the_recent_talk_reaches_the_system_text_without_a_judgement():
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
-    a._evaluator.judge_follows = AsyncMock(return_value=None)  # 続きと判定されなくても
+    # 続きと判定されなくても（判定は Jev・出-au 段 5-4。`_agent` は Jev を持たない＝落ちる）
     _with_recent(a, _rows())
     _run(a, utterance="開会式って何時だっけ")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])

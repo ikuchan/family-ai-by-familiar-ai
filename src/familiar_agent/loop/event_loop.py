@@ -2642,9 +2642,7 @@ class InformationProcessing:
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
         # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
         # 直前で、そこは待つ（続きでなければ直近のやりとりを載せてはいけない）。
-        follows_task = asyncio.ensure_future(
-            agent._evaluator.judge_follows(ws.for_main, utterance or "")
-        )
+        follows_task = asyncio.ensure_future(self._judge_follows(ws.for_main, utterance or ""))
 
         # 誰と話していると思って喋ったかを残す。これが無いと、口調がおかしいときに
         # 「話者が渡っていない」のか「渡ったが口調が従っていない」のかを切り分けられない。
@@ -2796,6 +2794,16 @@ class InformationProcessing:
             round_,
         )
         return ""
+
+    def _judge_follows(self, workspace_ctx: str, utterance: str):
+        """続き先の判定（Jev・出-au 段 5-4）。失敗は `JudgeFailed` で、`_note_follows` が「落ちた」と数える。"""
+        agent = self._agent
+        return jev_judges.judge_follows(
+            getattr(agent, "_jev", None),
+            workspace=workspace_ctx,
+            utterance=utterance,
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+        )
 
     async def _decide(
         self,
