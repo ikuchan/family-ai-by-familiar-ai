@@ -107,6 +107,8 @@ class Request:
     # 調べているあいだに名前無しで言い足されたこと（出-au 段 3）。`(obs_id, 本文)` の並び。W の作業状態の枠で
     # 列挙し、この求めの答えに含める。求めが閉じる・打ち切られると捨てる（O には「添え」で残っている）。
     added: list = field(default_factory=list)
+    # 考えかけていた返事（出-au 段 5-1）。言い足されたことで考え直すとき、W の作業状態の枠に載せる。
+    draft: str = ""
     # 黙っていたあいだに届いたもの（情-h）。明けた瞬間の求めにだけ載り、W の作業状態の枠で
     # 列挙する（想起の列からは除く）。
     heard_while_silent: list = field(default_factory=list)

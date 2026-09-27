@@ -174,6 +174,10 @@ class EmbodiedAgent:
         self.config = config
         self.backend = create_backend(config)
         self._utility_backend = create_utility_backend(config) or self.backend
+        # 判定は Jev（出-au 段 5）。鍵（`JEV_API_KEY`）が無ければ呼ばず、判定ごとの倒し先へ倒す。
+        from .backends.jev import JevClient
+
+        self._jev = JevClient.from_env(timeout=config.jev_timeout_sec)
         self._scene_backend = create_scene_backend(config) or self._utility_backend
         self._background_tasks: set[asyncio.Task[None]] = set()
         self.messages: list = []

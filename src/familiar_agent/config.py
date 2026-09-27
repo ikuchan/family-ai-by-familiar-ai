@@ -631,6 +631,11 @@ class AgentConfig:
     lookup_slow_seconds: float = field(
         default_factory=lambda: _float_env("LOOKUP_SLOW_SECONDS", 5.0)
     )
+    # Jev（判断専用モデル）に判定を聞くときの時間切れと、答えを使う確信度の下限（出-au 段 5・`設計方針_判定の段`
+    # §2.2.1）。確信度がこれより低い・時間切れなら、判定ごとの倒し先へ倒す。値は本人の決定（2026-09-27・どちらも仮）。
+    # 時間切れは実験の秒数（中央 0.21・最大 0.72 秒）から。
+    jev_timeout_sec: float = field(default_factory=lambda: _float_env("JEV_TIMEOUT_SEC", 2.0))
+    jev_confidence_min: float = field(default_factory=lambda: _float_env("JEV_CONFIDENCE_MIN", 0.6))
     # 会話の求めで待たせ続けるとき、最初の「まだかかっている」の後、この秒数ごとに繰り返す（出-au 段 2）。
     # 窓（30 秒）が切れる前に、つなぎで延ばすため。20 秒は本人の決定（2026-09-26・`設計方針_判定の段` §2.3）。
     wait_filler_repeat_seconds: float = field(
