@@ -3388,6 +3388,12 @@ class InformationProcessing:
                     with contextlib.suppress(Exception):
                         await self._agent._nudge_seeking()
                 return self._swallowed(trigger)
+            if not trigger.named:
+                if trigger.source == "voice" and await self._between_family(trigger):
+                    # **家族どうしの話は受けない**（出-au 段 5-2）。窓の外の入力と同じく、何も起こさない。
+                    logger.info("event-loop 家族どうしの話なので受けない：%.40s", trigger.query)
+                    return self._swallowed(trigger)
+                self._wake_window().extend(self._arrival(trigger))
         if self._muted:
             self._pending_heard = self._take_muted()
         return False
@@ -3439,10 +3445,31 @@ class InformationProcessing:
         if trigger.named:
             self._wake_window().open(now)
             return True
-        if self._wake_window().is_open(now):
-            self._wake_window().extend(now)
-            return True
-        return False
+        # 名前の無い入力は、窓の中なら受ける。**延ばすのは宛先を決めた後**（出-au 段 5-2・`_swallow_if_unheard`）——
+        # 家族どうしの話で窓を延ばさないため。
+        return self._wake_window().is_open(now)
+
+    async def _between_family(self, trigger: "Trigger") -> bool:
+        """窓の中の名前の無い声が家族どうしの話かを Jev に聞く（出-au 段 5-2・`設計方針_判定の段` §2.2.3）。
+
+        送るのはその言葉・直近のやりとり（3 往復）・在席。Jev が使えない・確信度が低いときは倒し先の「パジュ宛て」。
+        """
+        agent = self._agent
+        recent = present = ""
+        with contextlib.suppress(Exception):
+            _rows, recent, _ids = workspace.render_recent(
+                agent._oif, workspace.recent_chains(agent._oif, 3), 3
+            )
+        with contextlib.suppress(Exception):
+            present = _present_ctx(agent)
+        verdict = await jev_judges.judge_addressee(
+            getattr(agent, "_jev", None),
+            text=trigger.query,
+            recent=str(recent or ""),
+            present=str(present or ""),
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+        )
+        return verdict == jev_judges.TO_FAMILY
 
     def _nobody_visible(self) -> bool:
         """配信ゲートと同じ「居るか」（`agent._social_presence_permission`）。読めなければ居る扱い。"""

@@ -13,6 +13,10 @@ from ..backends.jev import choice
 
 logger = logging.getLogger(__name__)
 
+#: 宛先（§2.2.3）。窓の中の名前の無い声がパジュ宛てか。
+TO_PAJU = "パジュ宛て"
+TO_FAMILY = "家族どうし"
+
 #: 考え直すか（§2.2.3・§2.4）。
 RETHINK = "考え直す"
 AS_IS = "そのまま出す"
@@ -62,4 +66,30 @@ async def judge_rethink(
     pick = picked(await _ask(client, state, questions), "rethink", min_conf)
     verdict = RETHINK if pick == "rethink" else AS_IS
     logger.info("Jev 判定 考え直すか：%s（言い足し %d 件）", verdict, len(added))
+    return verdict
+
+
+async def judge_addressee(client, *, text: str, recent: str, present: str, min_conf: float) -> str:
+    """窓の中の名前の無い声が、パジュ宛てか家族どうしか（§2.2.3）。倒し先は「パジュ宛て」（受ける）。
+
+    無視されたと感じさせるより、返事をするほうが害が小さい。「分からない」も受ける側に数える。
+    """
+    state = (
+        f"[いま聞こえた言葉（家のロボット・パジュの名前は含まない）]\n{text}\n\n"
+        f"[直前のやりとり（古い順）]\n{recent or '（なし）'}\n\n"
+        f"[いま部屋に居る人]\n{present or '（分からない）'}"
+    )
+    questions = {
+        "to_whom": choice(
+            "この言葉は、家のロボット（パジュ）に向けたものか、家族どうしの会話か",
+            {
+                "paju": "パジュに向けた言葉。直前のパジュとのやりとりの続き、またはパジュへの頼み・問い",
+                "family": "家族どうしの会話。パジュには向けていない",
+                "unknown": "どちらとも決められない",
+            },
+        )
+    }
+    pick = picked(await _ask(client, state, questions), "to_whom", min_conf)
+    verdict = TO_FAMILY if pick == "family" else TO_PAJU
+    logger.info("Jev 判定 宛先：%s", verdict)
     return verdict
