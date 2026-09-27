@@ -57,9 +57,11 @@ def test_the_name_is_not_passed_separately():
     assert "{agent_name}" not in state
 
 
-def test_the_question_requires_the_name_for_a_silence_request():
-    # 呼ばれていなければ黙らない、と問いに書いてあること。
-    assert "名前で呼んだ" in _questions()["asks_quiet"]["instructions"]
+def test_the_name_is_checked_by_the_window_not_by_the_question():
+    """名前の関門は入口の窓（名前を聞いてから 30 秒）にまとめた（出-as §2.5）。Jev は名前を知らないので問わない。"""
+    asked = _questions()["asks_quiet"]["instructions"]
+    assert "名前" not in asked
+    assert "話しかけないでほしい" in asked
 
 
 def test_the_question_asks_for_a_length_rather_than_a_flag():
