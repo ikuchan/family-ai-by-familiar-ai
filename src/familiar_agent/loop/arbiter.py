@@ -939,6 +939,13 @@ class Arbiter:
         )
         return qs
 
+    async def _write(self, inp: ArbiterInput, data: dict) -> "dict | None":
+        """要るものだけを軽量LLM に 1 回で書かせる（出-au 段 5-7c）。何も要らなければ呼ばずに空。"""
+        needs = _writer_needs(inp, data)
+        if not needs:
+            return {}
+        return await _writer_call(self, inp, data, needs)
+
     async def _judge(self, inp: ArbiterInput) -> "dict | None":
         """Jev に 1 回で聞き、`_parse` の守りへ渡す辞書を返す。分岐か動作の確信度が低い・使えないときは None。"""
         from ..core.jev_judges import _ask, picked
@@ -973,3 +980,159 @@ class Arbiter:
         denied = picked(answer, "denied", 0.0) if yes("denies") else None
         data["not_person"] = denied if denied and denied != "other" else ""
         return data
+
+
+#: 道具（タイマーまわり）。入力は `tool_input` で渡し、0.1 秒で返るのでつなぎは言わない（実機 08:59）。
+_TOOL_ACTIONS = frozenset(
+    {
+        "set_timer",
+        "start_stopwatch",
+        "stop_stopwatch",
+        "cancel_timer",
+        "pause_timer",
+        "resume_timer",
+        "set_alarm",
+        "cancel_alarm",
+    }
+)
+_NO_WORDS_ACTIONS = frozenset({"see", "confirm", "decline"})
+_LOOK_INPUT = 'tool_input に {"direction":"右|左|上|下"} か {"pose":"定点の名前"}'
+
+#: 文章を書く口の指示（出-au 段 5-7c）。判定はもう決まっている。口調と言い直さない決まりは、いままでの調停の文から。
+WRITER_PROMPT = """\
+これは口に出す言葉ではなく、自分の中の決めごとである。挨拶や説明はせず、指定の JSON だけを返す。
+
+{lead}
+次にすることはもう決まっている：{decided}
+
+**text と filler の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か子どもかで
+丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。一つのやり取りの中で丁寧さを混ぜない。
+
+**すでに相手へ伝えた一言があるなら、言い直さず、その続きとして書く。** 二言目以降は、まだ考えている最中だと伝わるだけの
+短い言葉にする。用件を述べ直さない。何を調べているかにも触れない。
+
+[いま]
+{now}
+
+[いま誰が居るか]
+{present}
+
+{heading}
+{utterance}
+
+[いまの作業状態]
+{workspace}
+
+[書くもの]
+{fields}
+
+次の形の JSON だけを返す（他には何も書かない）:
+{shape}
+"""
+
+_FIELD_TEXT = {
+    "text": '"text"：この人格として、この相手に向けて、いまの時刻に合う言葉で短く答える。',
+    "text_self": '"text"：自分から言うなら短いひとこと。**いつも通りなら空にして黙る**。返事や約束の形にしない。',
+    "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
+    "query": '"query"：探す語。',
+    "tool_input": '"tool_input"：道具へそのまま渡す入力（JSON の辞書）。',
+    "time_ref": '"time_ref"：人の言葉が指している時期を ISO 8601（例 "2025-08-15T00:00:00"）で。',
+    "time_span_days": '"time_span_days"：その言い方が指す幅を日数で（広い言い方ほど大きい）。',
+}
+
+
+def _writer_needs(inp: ArbiterInput, data: dict) -> "list[str]":
+    """Jev の答えから、軽量LLM に書かせるものを決める。何も要らなければ空。"""
+    self_doing = inp.origin == "情動"
+    needs: "list[str]" = []
+    branch = data.get("branch")
+    if branch == "light":
+        needs.append("text")
+    elif branch == "full" and data.get("effort", "low") != "low" and not self_doing:
+        needs.append("filler")
+    elif branch == "action":
+        action = str(data.get("action", ""))
+        fixed = action in _EXTRA_ACTIONS and bool(_EXTRA_ACTIONS[action][0])
+        if action == "look" or action in _TOOL_ACTIONS:
+            needs.append("tool_input")
+        elif action not in _NO_WORDS_ACTIONS and not fixed:
+            needs.append("query")
+        quiet = action == "look" or action in _TOOL_ACTIONS or action in _NO_WORDS_ACTIONS
+        if not quiet and not self_doing:
+            needs.append("filler")
+    if data.get("refers_time"):
+        needs += ["time_ref", "time_span_days"]
+    return needs
+
+
+def _action_note(action: str) -> str:
+    if action == "look":
+        return f"首を向ける（{_LOOK_INPUT}）"
+    if action in _EXTRA_ACTIONS:
+        return _EXTRA_ACTIONS[action][1]
+    return _BASE_ACTIONS.get(action, "")
+
+
+async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs: "list[str]"):
+    """軽量LLM を 1 回呼ぶ。時間切れ・失敗は None（呼び手が full へ倒す）。"""
+    from ..core.context_parts import Stance, build_context
+    from ..core.structured_ask import read_json
+
+    self_doing = inp.origin == "情動"
+    if inp.tool_return:
+        lead, heading = _LEAD_TOOL_RETURN, _HEADING_TOOL_RETURN
+    elif self_doing:
+        lead, heading = _LEAD_SELF, _HEADING_SELF
+    elif inp.origin == "機器":
+        lead, heading = _LEAD_DEVICE, _HEADING_DEVICE
+    else:
+        lead, heading = _LEAD_REPLY, _HEADING_REPLY
+    decided = str(data.get("branch"))
+    if data.get("branch") == "action":
+        decided += f"（{data.get('action')}：{_action_note(str(data.get('action')))}）"
+    fields = "\n".join(
+        _FIELD_TEXT["text_self" if (n == "text" and self_doing) else n] for n in needs
+    )
+    shape = "{" + ", ".join(f'"{n}": …' for n in needs) + "}"
+    prompt = WRITER_PROMPT.format(
+        lead=lead,
+        decided=decided,
+        now=inp.now_ctx or "（分からない）",
+        present=inp.present_ctx or "（分からない）",
+        heading=heading,
+        utterance=inp.utterance,
+        workspace=inp.workspace_ctx or "（なし）",
+        fields=fields,
+        shape=shape,
+    )
+    system = build_context(
+        stance=Stance.PAJU,
+        self_understanding=inp.self_understanding or "（指定なし）",
+        family=inp.family_md or "（指定なし）",
+        self_image=inp.self_image,
+        season_env=inp.season_env,
+    ).stable
+    timeout = arbiter._timeout
+    if timeout is None:
+        from ..config import AgentConfig
+
+        timeout = AgentConfig().arbiter_timeout_sec
+    started = time.monotonic()
+    call = asyncio.ensure_future(arbiter._writer.complete(prompt, 300, system=system))
+    try:
+        reply = await wait_within(asyncio.shield(call), timeout)
+    except asyncio.TimeoutError:
+        logger.warning("調停の文章が %.1f 秒で返らなかった", timeout)
+        _watch_late(call, started, len(prompt))
+        return None
+    except asyncio.CancelledError:
+        raise
+    except Exception as e:  # noqa: BLE001
+        logger.warning("調停の文章を書けなかった: %s", e)
+        return None
+    got = read_json(str(reply or ""))
+    if not isinstance(got, dict):
+        logger.warning("調停の文章を読めなかった: %.200r", reply)
+        return None
+    logger.info("調停の文章 %.2f 秒（%s）", time.monotonic() - started, "・".join(needs))
+    return {k: got[k] for k in needs if k in got}
