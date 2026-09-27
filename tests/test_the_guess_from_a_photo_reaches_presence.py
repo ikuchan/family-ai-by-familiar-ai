@@ -96,21 +96,20 @@ def test_a_broken_entry_is_skipped():
 # ── 調停の返りに欄がある ──────────────────────────────────────────────────
 
 
-def test_the_arbiter_reads_the_field():
+def test_the_arbiters_decision_has_no_field_for_people():
+    """調停には写真が渡らないので、人の見立ての欄を持たない（出-au 段 5-7d）。
+
+    見立ては写真の読み取り（`scene.read_photo`）と主LLM の申告（`say()`）から在席へ届く。
+    """
+    from dataclasses import fields
+
+    from familiar_agent.loop.arbiter import Decision
     from tests._arbiter_compat import _parse
 
+    assert "seen_people" not in {f.name for f in fields(Decision)}
     reply = '{"branch": "light", "text": "おかえりなさい", "seen_people": [{"name": "パパ", "confidence": 1.0}]}'
     got = _parse(reply, can_see=True, origin="機器")
-    assert got is not None
-    assert got.seen_people == [{"name": "パパ", "confidence": 1.0}]
-
-
-def test_the_field_may_be_absent():
-    from tests._arbiter_compat import _parse
-
-    got = _parse('{"branch": "light", "text": "おかえりなさい"}', can_see=True, origin="機器")
-    assert got is not None
-    assert got.seen_people == []
+    assert got is not None and got.branch == "light"  # 欄が書かれていても読まずに組み立てる
 
 
 # 写真に写った人の見立ては、調停ではなく写真の読み取り（`scene.read_photo`）が返す（出-au 段 5-7a・
@@ -226,7 +225,7 @@ def test_the_say_tool_takes_the_guess():
 
 
 def test_the_main_llm_guess_goes_through_the_same_door():
-    """主LLM の申告も `_apply_seen_people` を通る（調停と同じ扱い・同じ上限）。"""
+    """主LLM の申告も `_apply_seen_people` を通る（写真の読み取りと同じ扱い・同じ上限）。"""
     import asyncio
 
     pmm = _FakePMM({"パパ": "p-yusuke"})

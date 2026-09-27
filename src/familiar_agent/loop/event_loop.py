@@ -3725,7 +3725,6 @@ class InformationProcessing:
         # 逆だと、付けたばかりの人を否定で消すことになる。
         await self._apply_not_person(getattr(decision, "not_person", ""))
         await self._apply_speaker_claim(decision)
-        await self._apply_seen_people(getattr(decision, "seen_people", None))
 
     async def _apply_seen_people(self, people: "list | None") -> None:
         """調停が写真から見立てた人を、在席へ入れる（出-ae-は・2026-09-22）。
@@ -3743,7 +3742,7 @@ class InformationProcessing:
           `participants` には入らないので、誰にも対応しない記憶空間は作らない。
         - 見立てが空の反復では在席を触らない。写真を見ていない反復で在席を消さないため。
 
-        呼び口は**並び**で受ける。調停の返り（`Decision.seen_people`）と、主LLM の申告
+        呼び口は**並び**で受ける。写真の読み取り（`scene.read_photo`・出-au 段 5-7a）と、主LLM の申告
         （`say()` の `seen_people`・出-an）が同じ道を通る——どちらも写真からの推し量りで、
         証拠の種類は同じなので、確信度の上限も揃える。
         """

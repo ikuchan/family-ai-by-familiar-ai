@@ -27,7 +27,7 @@ import json
 import logging
 import re
 import time
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 
 from ..core import measure
 from ..core.aio import wait_within
@@ -61,9 +61,6 @@ class Decision:
     silence_minutes: int = 0
     lift_silence: bool = False  # 黙っていたのを「もう話していいよ」と解かれた
     speaker_claim: str = ""  # 人が名乗った名前（知-w・在席があるときだけ機械が話者に付ける）
-    #: 写真に写っていた人の見立て（出-ae-は・2026-09-22）。`[{"name": "パパ", "confidence": 0.8}]`。
-    #: 名乗り（実際に言われた言葉）とは別の欄にする——証拠の強さが違う。
-    seen_people: "list" = field(default_factory=list)
     #: 身元の否定（出-am・2026-09-22）。「パパじゃないよ」「ちがうよ」で、否定された呼び方。
     #: 在席へ**入る**口（名乗り・見立て）に対する、**出る**口である。
     not_person: str = ""
@@ -395,7 +392,6 @@ def assemble(
         silence_minutes=silence_minutes,
         lift_silence=bool(data.get("lift_silence", False)),
         speaker_claim=str(data.get("speaker_claim", "") or "").strip(),
-        seen_people=list(data.get("seen_people") or []),
         not_person=str(data.get("not_person", "") or "").strip(),
         time_ref=time_ref,
         time_span_days=max(0.0, time_span_days),
@@ -603,7 +599,8 @@ class Arbiter:
         if inp.tool_return:
             return qs  # 道具の帰りの発話は古い。黙る依頼・名乗りは読まない（情-n）
         qs["asks_quiet"] = noul(
-            "家のロボットの名前で呼んだうえで、いまは話しかけないでほしいと頼んでいる"
+            # 名前の関門は入口の窓（出-as §2.5）。Jev は名前を知らないので、ここでは問わない（出-au 段 5-7d）
+            "いまは話しかけないでほしいと頼んでいる"
             "（待って・待てぃは動作を止めてほしいだけで、これには当たらない）"
         )
         qs["quiet_minutes"] = choice(
@@ -789,6 +786,17 @@ _FIELD_TEXT = {
 }
 
 
+#: 先導文の最初の一文は Jev に選ばせる言い方。書く側はもう選ばないので、そこだけ差し替える（出-au 段 5-7d）。
+_CHOOSING = ("次のどれかを選ぶ。", "何をするかを決める。")
+_WRITING = "決まったことに要る言葉を書く。"
+
+
+def _for_writer(lead: str) -> str:
+    for phrase in _CHOOSING:
+        lead = lead.replace(phrase, _WRITING)
+    return lead
+
+
 def _writer_needs(inp: ArbiterInput, data: dict) -> "list[str]":
     """Jev の答えから、軽量LLM に書かせるものを決める。何も要らなければ空。"""
     self_doing = inp.origin == "情動"
@@ -846,7 +854,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
     )
     shape = "{" + ", ".join(f'"{n}": …' for n in needs) + "}"
     prompt = WRITER_PROMPT.format(
-        lead=lead,
+        lead=_for_writer(lead),
         decided=decided,
         now=inp.now_ctx or "（分からない）",
         present=inp.present_ctx or "（分からない）",

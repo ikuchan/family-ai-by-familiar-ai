@@ -95,3 +95,19 @@ def test_an_unreadable_or_failed_write_is_none():
     w = MagicMock()
     w.complete = AsyncMock(side_effect=RuntimeError("down"))
     assert _write({"branch": "light"}, writer=w)[0] is None
+
+
+def test_the_writer_is_told_to_write_not_to_choose():
+    """書く側はもう選ばない。4 つの起点すべてで、選ばせる言い方を渡さない（出-au 段 5-7d）。"""
+    cases = [
+        _inp(),
+        _inp(origin="機器", utterance="[タイマー] 鳴った"),
+        _inp(tool_return=True),
+        _inp(origin="情動", utterance="[内的な促し:bond] 話したい"),
+    ]
+    for inp in cases:
+        _, w = _write({"branch": "light"}, inp)
+        asked = _asked(w)
+        assert "次のどれかを選ぶ" not in asked, inp.origin
+        assert "何をするかを決める" not in asked, inp.origin
+        assert "決まったことに要る言葉を書く" in asked, inp.origin
