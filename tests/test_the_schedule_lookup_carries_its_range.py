@@ -13,7 +13,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF
-from familiar_agent.loop.arbiter import _parse
+from tests._arbiter_compat import _parse
 from familiar_agent.loop.event_loop import (
     InformationProcessing,
     _query_label,

@@ -12,7 +12,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from familiar_agent.config import DriveConfig
 from familiar_agent.loop import reply_budget
-from familiar_agent.loop.arbiter import Decision as ArbiterDecision, arbitrate
+from familiar_agent.loop.arbiter import Decision as ArbiterDecision
+from tests._arbiter_compat import arbitrate
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.prompt import build_event_system_prompt
 
@@ -28,6 +29,12 @@ def test_the_inner_voices_ask_for_no_reason_and_no_listener() -> None:
         assert "湧いている" in voice or "休みたい" in voice, axis
 
 
+def _jev_state(**kw) -> str:
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+
+    return Arbiter(jev=None, writer=None)._state(ArbiterInput(workspace_ctx="", **kw))
+
+
 def _light():
     b = MagicMock(spec=["complete"])
     b.complete = AsyncMock(return_value='{"branch": "action", "action": "see"}')
@@ -35,25 +42,25 @@ def _light():
 
 
 def test_the_arbiter_gets_a_self_doing_frame_for_a_drive_request() -> None:
+    # 分岐を決める Jev に送る文が、自分のこととして読ませる（出-au 段 5-7d）。
+    prompt = _jev_state(utterance="探索したい気持ちが湧いている。", origin="情動")
+    assert "[いま湧いたこと]" in prompt and "[人の言葉]" not in prompt
+    assert "許可は要らない" in prompt and "理由も要らない" in prompt
+    # つなぎは書かせない：見るだけの動作では軽量LLM を呼びもしない。
     b = _light()
     asyncio.run(
         arbitrate(b, utterance="探索したい気持ちが湧いている。", workspace_ctx="", origin="情動")
     )
-    prompt = b.complete.call_args.args[0]
-    assert "[いま湧いたこと]" in prompt and "[人の言葉]" not in prompt
-    assert "許可は要らない" in prompt and "理由も要らない" in prompt
-    assert "待ってもらうための短い一言" not in prompt, "つなぎは書かせない"
+    b.complete.assert_not_awaited()
 
 
 def test_a_human_request_keeps_the_reply_frame() -> None:
-    b = _light()
-    asyncio.run(arbitrate(b, utterance="おはよう", workspace_ctx="", origin="発話"))
-    prompt = b.complete.call_args.args[0]
+    prompt = _jev_state(utterance="おはよう", origin="発話")
     assert "[人の言葉]" in prompt and "[いま湧いたこと]" not in prompt
 
 
 def test_a_drive_decision_never_carries_a_filler() -> None:
-    from familiar_agent.loop.arbiter import _parse
+    from tests._arbiter_compat import _parse
 
     d = _parse(
         '{"branch": "action", "action": "see", "filler": "見てみますね"}',
@@ -103,13 +110,13 @@ def test_the_loop_passes_the_origin_and_frames_the_user_message() -> None:
 
     async def scenario():
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="full")),
         ) as arb:
             await ip._decide(
                 utterance="", workspace_ctx="", present_ctx="", capped=False, round_=1, memories=[]
             )
         await ip.close()
-        return arb.call_args.kwargs.get("origin")
+        return arb.call_args.args[0].origin  # ArbiterInput
 
     assert asyncio.run(scenario()) == "情動"

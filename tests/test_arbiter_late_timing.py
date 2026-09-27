@@ -15,7 +15,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from familiar_agent.loop.arbiter import arbitrate
+from tests._arbiter_compat import arbitrate
 
 
 def _backend(delay: float, reply: str = '{"branch":"light","text":"はい"}'):

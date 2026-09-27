@@ -57,7 +57,7 @@ def test_the_arbiter_and_the_main_llm_get_the_same_frame_with_different_widths(m
 
     async def scenario():
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="full")),
         ) as arb:
             await ip.push_utterance("もう一回")
@@ -65,7 +65,7 @@ def test_the_arbiter_and_the_main_llm_get_the_same_frame_with_different_widths(m
                 if a.backend.stream_turn.await_count >= 1:
                     break
                 await asyncio.sleep(0.005)
-        seen["arbiter"] = arb.call_args.kwargs["workspace_ctx"]
+        seen["arbiter"] = arb.call_args.args[0].workspace_ctx  # ArbiterInput
         seen["main"] = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
         await ip.close()
 

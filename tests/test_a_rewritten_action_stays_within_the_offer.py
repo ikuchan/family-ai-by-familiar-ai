@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from familiar_agent.loop.arbiter import _parse
+from tests._arbiter_compat import _parse
 
 #: 返った `set_timer` を外した候補（ほかのタイマー・アラームの道具は残る）。
 WITHOUT_SET_TIMER = (

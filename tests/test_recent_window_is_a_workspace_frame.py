@@ -207,7 +207,7 @@ def test_the_verdict_map_holds_only_the_past_column():
 def test_a_tool_return_that_just_arrived_is_shown_at_the_top():
     """道具の返りは版（過去の列の全文）に載るだけで、調停は「記憶」として読み、いま届いた返りとして
     扱わなかった——「確かめて」の返りに聞き返さず `set_timer` を掛け直した（実機 14:50）。
-    実験（`scripts/experiment_arbiter_confirm.py`）：最上部に 1 行載せると 8/8 で light の確認文。"""
+    実験（`scripts/experiment_arbiter_confirm.py`・出-au 段 5-7d で撤去・履歴にある）：最上部に 1 行載せると 8/8 で light の確認文。"""
     from familiar_agent.loop.request import Lookup, Request
 
     chains = {"q1": [_said("q1", "三分測って", "起点", 0)]}

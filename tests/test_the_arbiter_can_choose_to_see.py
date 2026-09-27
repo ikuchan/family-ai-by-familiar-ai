@@ -7,10 +7,7 @@
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
-
-from familiar_agent.loop.arbiter import _parse, arbitrate
+from tests._arbiter_compat import _parse
 
 
 def test_see_is_accepted_when_the_agent_can_see() -> None:
@@ -24,24 +21,34 @@ def test_see_is_rounded_to_recall_without_a_camera() -> None:
     assert d is not None and d.action == "recall"
 
 
-def _prompt_of(can_see: bool) -> str:
-    backend = MagicMock()
-    backend.complete = AsyncMock(return_value='{"branch": "full"}')
-    asyncio.run(arbitrate(backend, utterance="何が見える？", workspace_ctx="", can_see=can_see))
-    return backend.complete.call_args.args[0]
+def _questions(can_see: bool) -> dict:
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+
+    return Arbiter(jev=None, writer=None)._questions(
+        ArbiterInput(utterance="何が見える？", workspace_ctx="", can_see=can_see)
+    )
 
 
-def test_the_prompt_offers_see_only_with_a_camera() -> None:
-    assert '"see"' in _prompt_of(True)
-    assert '"see"' not in _prompt_of(False)
+def _state(can_see: bool) -> str:
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+
+    return Arbiter(jev=None, writer=None)._state(
+        ArbiterInput(utterance="何が見える？", workspace_ctx="", can_see=can_see)
+    )
 
 
-def test_the_prompt_says_the_photo_goes_to_the_main_llm() -> None:
-    assert "写真そのものは主LLM" in _prompt_of(True)
+def test_see_is_offered_only_with_a_camera() -> None:
+    # 動作は Jev の選択肢（出-au 段 5-7d）。
+    assert "see" in _questions(True)["action"]["criteria"]
+    assert "see" not in _questions(False)["action"]["criteria"]
 
 
-def test_the_prompt_lets_light_answer_from_the_labels() -> None:
-    """ラベルで足りる問いは light（v0.45）。写真を見て語るなら full。"""
-    prompt = _prompt_of(True)
-    assert 'そのラベルで "light"' in prompt
-    assert "80 種" in prompt
+def test_the_guide_says_the_photo_goes_to_the_main_llm() -> None:
+    assert "写真そのものは主LLM に渡る" in _state(True)
+    assert "写真そのものは主LLM に渡る" not in _state(False)
+
+
+def test_the_guide_lets_light_answer_from_the_reading() -> None:
+    """写真の読み取り（『見えたもの』）で足りる問いは light。写真を見て語るなら full（出-au 段 5-7a）。"""
+    state = _state(True)
+    assert "『見えたもの』" in state and "light でよい" in state

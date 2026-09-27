@@ -97,7 +97,7 @@ def test_a_broken_entry_is_skipped():
 
 
 def test_the_arbiter_reads_the_field():
-    from familiar_agent.loop.arbiter import _parse
+    from tests._arbiter_compat import _parse
 
     reply = '{"branch": "light", "text": "おかえりなさい", "seen_people": [{"name": "パパ", "confidence": 1.0}]}'
     got = _parse(reply, can_see=True, origin="機器")
@@ -106,18 +106,15 @@ def test_the_arbiter_reads_the_field():
 
 
 def test_the_field_may_be_absent():
-    from familiar_agent.loop.arbiter import _parse
+    from tests._arbiter_compat import _parse
 
     got = _parse('{"branch": "light", "text": "おかえりなさい"}', can_see=True, origin="機器")
     assert got is not None
     assert got.seen_people == []
 
 
-def test_the_prompt_asks_for_the_field():
-    from familiar_agent.loop.arbiter import ARBITER_PROMPT
-
-    assert "seen_people" in ARBITER_PROMPT
-    assert "写真に人が写って" in ARBITER_PROMPT
+# 写真に写った人の見立ては、調停ではなく写真の読み取り（`scene.read_photo`）が返す（出-au 段 5-7a・
+# `test_the_photo_is_read_into_state.py`）。調停の文には写真も見立ての欄も無い。
 
 
 # ── 見立てを在席へ流す ────────────────────────────────────────────────────

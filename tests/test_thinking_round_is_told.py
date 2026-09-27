@@ -16,7 +16,7 @@
 
 from __future__ import annotations
 
-from familiar_agent.loop.arbiter import ARBITER_PROMPT, arbitrate
+from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from familiar_agent.loop.request import Request
 
@@ -63,10 +63,11 @@ def test_the_main_llm_is_told_which_round_it_is():
 
 
 def test_the_arbiter_takes_the_round():
-    import inspect
-
-    assert "thinking_round" in inspect.signature(arbitrate).parameters
+    assert ArbiterInput(utterance="x", workspace_ctx="", thinking_round=2).thinking_round == 2
 
 
-def test_the_arbiter_prompt_has_a_slot_for_it():
-    assert "{thinking_note}" in ARBITER_PROMPT
+def test_the_arbiter_is_told_the_round_after_the_first():
+    """回数は Jev に送る文に載る（出-au 段 5-7d）。1 回目には載せない。"""
+    a = Arbiter(jev=None, writer=None)
+    assert "3 回目" in a._state(ArbiterInput(utterance="x", workspace_ctx="", thinking_round=3))
+    assert "回目" not in a._state(ArbiterInput(utterance="x", workspace_ctx="", thinking_round=1))

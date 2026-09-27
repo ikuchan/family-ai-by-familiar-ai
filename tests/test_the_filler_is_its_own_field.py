@@ -14,7 +14,11 @@
 
 from __future__ import annotations
 
-from familiar_agent.loop.arbiter import ARBITER_PROMPT, _parse
+import asyncio
+from unittest.mock import AsyncMock, MagicMock
+
+from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+from tests._arbiter_compat import _parse
 
 
 def _d(reply: str):
@@ -70,20 +74,34 @@ def test_a_light_turn_ignores_the_filler():
     assert got.text == "おかえりなさい。"
 
 
-# ── プロンプトが 2 つの欄を言う ──────────────────────────────────────────
+# ── 文章の口が 2 つの欄を言う（出-au 段 5-7d・軽量LLM の文章の側）───────────
 
 
-def test_the_prompt_names_both_boxes():
-    assert '"filler"' in ARBITER_PROMPT
-    assert '"trash"' in ARBITER_PROMPT
+def _asked_for(data: dict) -> str:
+    w = MagicMock()
+    w.complete = AsyncMock(return_value='{"filler": "うん"}')
+    inp = ArbiterInput(utterance="こんにちは", workspace_ctx="（なし）")
+    asyncio.run(Arbiter(jev=None, writer=w, timeout=2.0)._write(inp, data))
+    return w.complete.await_args.args[0]
 
 
-def test_the_filler_instruction_no_longer_points_at_text():
-    from familiar_agent.loop.arbiter import _BRANCHES_REPLY
+def test_a_filler_is_asked_for_with_a_place_to_throw_away():
+    """つなぎを書かせるときは、言いたいことの行き先（`trash`）も並べる。無いと用件がつなぎへ流れる。"""
+    asked = _asked_for({"branch": "full", "effort": "medium"})
+    assert '"filler"' in asked
+    assert '"trash"' in asked
+    assert '"text"' not in asked
 
-    assert "待ってもらうための短い一言を text に書く" not in _BRANCHES_REPLY
-    assert "filler" in _BRANCHES_REPLY
-    assert "trash" in _BRANCHES_REPLY
+
+def test_an_action_filler_also_gets_the_place_to_throw_away():
+    asked = _asked_for({"branch": "action", "action": "search_deferred"})
+    assert '"filler"' in asked and '"trash"' in asked
+
+
+def test_a_light_reply_has_no_place_to_throw_away():
+    """light では text が返事そのもの。捨て場は要らない。"""
+    asked = _asked_for({"branch": "light"})
+    assert '"trash"' not in asked
 
 
 def test_an_action_without_an_action_falls_back_to_light_with_the_filler():

@@ -12,7 +12,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF
-from familiar_agent.loop.arbiter import _parse, arbitrate
+from tests._arbiter_compat import _parse
 from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, InformationProcessing, _query_label
 
 from tests.test_event_loop import _agent
@@ -67,18 +67,17 @@ def test_the_arbiter_can_choose_the_family_schedule() -> None:
 
 
 def test_the_arbiter_prompt_offers_the_schedule_when_available() -> None:
-    b = MagicMock(spec=["complete"])
-    b.complete = AsyncMock(return_value='{"branch": "full"}')
-    asyncio.run(
-        arbitrate(
-            b, utterance="今日の予定は？", workspace_ctx="", extra_actions=("family_schedule",)
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+
+    # 動作は Jev の選択肢（出-au 段 5-7d）。繋がっているときだけ載る。
+    def actions(extra):
+        qs = Arbiter(jev=None, writer=None)._questions(
+            ArbiterInput(utterance="今日の予定は？", workspace_ctx="", extra_actions=extra)
         )
-    )
-    assert '"family_schedule"' in b.complete.call_args.args[0]
-    b2 = MagicMock(spec=["complete"])
-    b2.complete = AsyncMock(return_value='{"branch": "full"}')
-    asyncio.run(arbitrate(b2, utterance="今日の予定は？", workspace_ctx=""))
-    assert '"family_schedule"' not in b2.complete.call_args.args[0]
+        return qs["action"]["criteria"]
+
+    assert "family_schedule" in actions(("family_schedule",))
+    assert "family_schedule" not in actions(())
 
 
 def test_the_arbiters_choice_reaches_the_tool_with_the_arguments_it_takes() -> None:

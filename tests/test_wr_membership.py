@@ -18,6 +18,7 @@ import asyncio
 from familiar_agent.backends import ToolCall
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from tests.test_event_loop import _agent, _run, _run_chain, _turn
+from tests.test_event_loop import _arbiter_reads_the_utility_backend  # noqa: F401  調停の答えを文章の口の返事で与える
 
 
 def _written_ids(a):
