@@ -1,12 +1,12 @@
-"""評価器 — 軽量LLM（utility backend）を使うターン評価の集合（W2b-2）。
+"""評価器 — ターン評価の集合（W2b-2）。判定は Jev、文章は軽量LLM（出-au 段 5・`core/jev_judges`）。
 
-agent.py から分離した、次の3つを持つ（発話前の検査は出-au 段 5-3 で Jev へ移した・`core/jev_judges`）。
+agent.py から分離した、次の3つを持つ（発話前の検査・続き先・記憶の申告は `core/jev_judges` へ移した）。
 
-- emotion_for_turn: ターンの感情を PAD で評価し派生ラベルを返す（値踏みゲート込み）
-- summarize_exchange: やり取りを1文へ蒸留（記憶保存用）
-- infer_companion_mood: 相手の気分を分類（専用軽量backend が無ければキーワード発見的手法）
+- emotion_for_turn: ターンの感情を PAD で評価し派生ラベルを返す（値踏みゲート込み・判定は Jev）
+- summarize_exchange: やり取りを1文へ蒸留（記憶保存用・軽量LLM が書く）
+- infer_companion_mood: 相手の気分を分類（判定は Jev・使えなければ既定の absent）
 
-依存は構築時に注入する utility_backend と backend のみ。mood レジスタは
+依存は構築時に注入する utility_backend・backend・jev。mood レジスタは
 `load_current_mood()` で読むだけ（書かない）。
 """
 
@@ -15,15 +15,12 @@ from __future__ import annotations
 import logging
 
 from .._i18n import _t
-from ..core.structured_ask import ask_choice, ask_numbers
+from ..core import jev_judges
 from ..core.context_parts import Stance as _Stance
 from ..emotion_pad import label_from_pad
 from ..mood_register import MoodPAD, load_current_mood
 
 logger = logging.getLogger(__name__)
-
-#: 相手の気分として選ばせる5つ。`_companion_mood_heuristic` が返す語と揃える。
-_COMPANION_MOODS = frozenset({"engaged", "tired", "frustrated", "absent", "happy"})
 
 
 # ── プロンプトとパラメータ ───────────────────────────────────────────────────
@@ -34,40 +31,6 @@ _COMPANION_MOODS = frozenset({"engaged", "tired", "frustrated", "absent", "happy
 # 値踏みゲート（課題5・Config 差し替え可）。A<A_GATE は評価器を呼ばず P/Pn/Dom＝M。
 A_GATE = 0.25
 
-# 評価器（軽量LLM）へ観測の感情を P/Pn/Dom で出させるプロンプト（W2b-2・論点5b）。
-# A 軸は機械 arousal なので尋ねない。最終的には自己認識 MI のシステムプロンプトへ統合する。
-# **感情を作るのはパジュである**（出-e・2026-09-05）。外から採点する計器ではないので、
-# 「このやり取りを採点せよ」ではなく「自分が何を感じたか」を聞く。
-#
-# **評価や推論の指示を置かない。** 軸の目盛り・P と Pn が独立であること・平静の位置・
-# いまの気分・出力の形式だけを渡す。旧版は「正直に見れば全部の軸が低くなる。中程度では
-# ない」と**答えの側を指示**しており、場面のあいだの幅が 0.77 から 0.46 へ潰れた。
-#
-# **平静の位置は伝える。** 事実であって指示ではない。これが無いと中立の場面が 0.41 まで
-# 上がる（伝えると 0.21 へ戻り、幅は保たれる・`根拠台帳` §25.8）。
-#
-# **誰も見ないことを伝える。** 人に読ませる言葉として整えると、角が丸まって真ん中へ寄る。
-_EMOTION_PAD_PROMPT = """\
-いまのやり取りで、あなた自身が何を感じたかを3つの数で書く。各 0.0〜1.0。
-
-- P  （快）  ： 心地よさの大きさ。0＝まったく無い、1＝とても大きい
-- Pn （不快）： 嫌さの大きさ。    0＝まったく無い、1＝とても大きい
-- Dom（掌握）： 0＝どうにもできない、0.5＝ふつう、1＝すっかり手の内
-
-P と Pn は別々の量で、1本の尺度の両端ではない。両方とも大きいことも、両方とも小さい
-こともある。
-
-この3軸は、何も起きていないとき P=0.10 / Pn=0.10 / Dom=0.50 へ落ち着く。それが平静である。
-いまのあなたの気分（P Pn Dom）：{mood}
-
-この3つの数は、あなた以外だれも見ない。人に読ませる言葉ではないので、整えず、
-感じたままの大きさをそのまま書く。
-
-やり取り：
-{text}
-
-P Pn Dom の順に小数を3つ、空白で区切って書く（例 "0.7 0.2 0.6"）。ほかには何も書かない。"""
-
 # Conversation save prompt — distill what happened into one sentence
 _SUMMARY_PROMPT = """\
 Summarize this exchange in one sentence that captures the emotional core. \
@@ -76,152 +39,6 @@ Speaker: {user}
 Agent: {agent}
 
 One sentence only."""
-
-# Companion mood prompt — classify companion's emotional state from their message
-_COMPANION_MOOD_PROMPT = """\
-Read this message and pick the single best label for the sender's mood:
-engaged / tired / frustrated / absent / happy
-
-Message: {text}
-
-Reply with the label only (one English word)."""
-
-
-async def _evaluate_emotion_pad(
-    backend,
-    text: str,
-    mood: "MoodPAD",
-    arousal: float,
-    *,
-    a_gate: float = A_GATE,
-    system: str | None = None,
-) -> "tuple[MoodPAD | None, float]":
-    """観測の感情を PAD で評価する（W2b-2）。**測れたかどうかを返り値で表す**（050）。
-
-    返すのは `(PAD, A)` で、**測れなかったときの PAD は `None`** である。A は機械 arousal
-    なので常に返る（内容の新規性 novelty から作る）。
-
-    `arousal < a_gate` は評価器を呼ばない。以上は評価器（軽量LLM）へ投げ、固定順3数値を
-    正規表現で拾い [0,1] クランプして `MoodPAD(p, pn, a=arousal, dom)` にする。
-
-    **測れないときに気分で埋めない**（050）。埋めた値は測ったものではないので、感情軸の
-    母集合に混ぜてはいけない。実データでは、この「埋める」が 6433 行のうち 2941 行を
-    PAD 全部 0.5＝ゼロベクトルに潰し、感情軸が候補を並べ替えられなくなっていた。
-    0.5 が入っていると「測ったのか埋めたのか」を後から見分けられず、REST 内省が埋め直す
-    余地も消える。3つ未満・例外も同じく未測定にする（測れなかったのは同じである）。
-    """
-    a = min(1.0, max(0.0, arousal))
-    if a < a_gate:
-        return None, a
-    mood_str = f"{mood.p:.2f} {mood.pn:.2f} {mood.dom:.2f}"
-    # 数値を拾って範囲へ丸めるのは口が持つ（出-d）。3つ揃わなければ `None` が返り、
-    # ここは未測定として扱う。呼び出しが落ちても口は例外を投げない。
-    nums = await ask_numbers(
-        backend,
-        _EMOTION_PAD_PROMPT.format(text=text[:400], mood=mood_str),
-        count=3,
-        max_tokens=20,
-        system=system,
-    )
-    if nums is None:
-        return None, a
-    p, pn, dom = nums
-    return MoodPAD(p=p, pn=pn, a=a, dom=dom), a
-
-
-def _companion_mood_heuristic(text: str) -> str:
-    """Fast keyword-based mood classifier used when no dedicated utility backend exists.
-
-    Covers the common explicit expressions; defaults to "engaged" for ambiguous text.
-    Labels: engaged / tired / frustrated / absent / happy
-    """
-    t = text.lower()
-
-    # tired
-    if any(
-        w in t
-        for w in [
-            "疲れ",
-            "つかれ",
-            "しんど",
-            "眠い",
-            "ねむ",
-            "だるい",
-            "きつい",
-            "tired",
-            "exhausted",
-            "sleepy",
-            "worn out",
-            "drained",
-        ]
-    ):
-        return "tired"
-
-    # frustrated
-    if any(
-        w in t
-        for w in [
-            "むかつ",
-            "いらいら",
-            "うざ",
-            "最悪",
-            "ムカつ",
-            "怒",
-            "frustrated",
-            "annoyed",
-            "angry",
-            "not working",
-            "isn't working",
-            "doesn't work",
-            "won't work",
-            "can't",
-            "ugh",
-            "argh",
-        ]
-    ):
-        return "frustrated"
-
-    # happy
-    if any(
-        w in t
-        for w in [
-            "嬉しい",
-            "うれし",
-            "楽しい",
-            "たのし",
-            "やったー",
-            "やった",
-            "最高",
-            "最強",
-            "好き",
-            "すき",
-            "幸せ",
-            "しあわせ",
-            ":)",
-            "😊",
-            "😄",
-            "🎉",
-            "笑",
-            "www",
-            "ｗ",
-            "happy",
-            "great",
-            "perfect",
-            "worked",
-            "excellent",
-            "wonderful",
-            "love",
-            "yay",
-            "awesome",
-        ]
-    ):
-        return "happy"
-
-    # absent (very short / punctuation only)
-    if len(text.strip()) < 4:
-        return "absent"
-
-    return "engaged"
 
 
 class Evaluator:
@@ -232,7 +49,7 @@ class Evaluator:
     避けて発見的手法やスキップに落とす。
     """
 
-    def __init__(self, utility_backend, backend, *, context=None) -> None:
+    def __init__(self, utility_backend, backend, *, context=None, jev=None) -> None:
         """`context(stance, *, with_rules)` は立ち位置と文脈を返す（出-e）。
 
         渡さなければ立ち位置を渡さない（いままでと同じ）。材料が欠けたときも `None` を
@@ -241,6 +58,8 @@ class Evaluator:
         self._utility_backend = utility_backend
         self.backend = backend
         self._context = context
+        # 判定は Jev（出-au 段 5-6：感情の評価と気分の見立て）。無ければ未測定・既定の気分。
+        self._jev = jev
 
     def _stance(self, stance, *, with_rules: bool = False) -> "str | None":
         """立ち位置と文脈を引く。提供者が無ければ `None`。"""
@@ -261,39 +80,24 @@ class Evaluator:
         すぎない（正は PAD である）。ラベルまで欠かせると既存の読み手が全部 None を扱う
         ことになり、得るものより失うものが大きい。
         """
-        # **感情を作るのはパジュである**（出-e）。外から採点する計器ではない。
-        pad, a = await _evaluate_emotion_pad(
-            self._utility_backend,
-            text,
-            load_current_mood() if mood is None else mood,
-            arousal,
-            system=self._stance(_Stance.PAJU),
+        # **感情を作るのはパジュである**（出-e）。判定は Jev（出-au 段 5-6）。
+        pad, a = await jev_judges.judge_emotion(
+            self._jev,
+            text=text,
+            mood=load_current_mood() if mood is None else mood,
+            arousal=arousal,
+            a_gate=A_GATE,
         )
         return pad, a, ("neutral" if pad is None else label_from_pad(pad))
 
     async def infer_companion_mood(self, text: str) -> str:
-        """Classify companion's emotional state from their message. Returns mood label.
+        """相手の言葉から相手の気分を見立てる（判定は Jev・出-au 段 5-6）。
 
-        When the utility backend is the same as the main backend (e.g. both are Kimi),
-        uses a fast keyword heuristic to avoid an extra LLM round-trip every turn.
-        Falls back to the LLM when a dedicated utility backend is configured.
+        言葉が短すぎれば `absent`。Jev が使えないときも見立てずに既定の `absent`（本人の決定 2026-09-27）。
         """
         if not text or len(text.strip()) < 3:
             return "absent"
-        # Skip LLM call when utility == main backend (no dedicated cheap model available).
-        if self._utility_backend is self.backend:
-            return _companion_mood_heuristic(text)
-        # 家族の気持ちを読むのはパジュがすることなので、一人称で立つ。
-        label = await ask_choice(
-            self._utility_backend,
-            _COMPANION_MOOD_PROMPT.format(text=text[:300]),
-            choices=_COMPANION_MOODS,
-            max_tokens=10,
-            system=self._stance(_Stance.PAJU),
-        )
-        # **読めなかったときに「乗り気」と断定しない**（出-d）。同じファイルにある語ベースの
-        # 判定へ落とす。「読めなかったから既定」より根拠がある。
-        return label if label is not None else _companion_mood_heuristic(text)
+        return await jev_judges.judge_companion_mood(self._jev, text=text)
 
     async def summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """Distill an exchange into one sentence for memory storage."""
