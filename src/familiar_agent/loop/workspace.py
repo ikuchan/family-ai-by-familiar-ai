@@ -138,6 +138,12 @@ def compose(
         added = "調べているあいだに相手が言い足したこと（この答えに含める）：\n" + "\n".join(
             f"- 「{text}」" for _, text in req.added
         )
+    if getattr(req, "draft", ""):
+        # 言い足されたことで考え直す（出-au 段 5-1）。下書きは声にしていない。
+        added = (added + "\n\n" if added else "") + (
+            "考えかけていた返事（まだ声にしていない。言い足されたことを踏まえて書き直す）：\n"
+            f"「{req.draft}」"
+        )
     heard = ""
     if req.heard_while_silent:
         # 黙っていたあいだに届いたもの（情-h）。想起を経ず、この枠で確実に全部（字数上限つき）。

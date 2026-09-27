@@ -32,7 +32,7 @@ from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION
 from ..io.dif import DIF
-from ..core import filler_echo, measure, parsing, unsaid
+from ..core import filler_echo, jev_judges, measure, parsing, unsaid
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
@@ -1991,6 +1991,7 @@ class InformationProcessing:
         self._req.iterations = 0
         self._req.iterations_capped = False
         self._req.added = []  # 言い足したことは求めごと（出-au 段 3）
+        self._req.draft = ""
         # 明けた瞬間の求めにだけ載る（情-h）。`__new__` で組んだ装置（テスト）でも落ちないよう既定を持つ。
         self._req.heard_while_silent = getattr(self, "_pending_heard", [])
         self._pending_heard = []
@@ -2124,6 +2125,7 @@ class InformationProcessing:
         self._req.said_fillers.clear()
         self._req.told_unsaid = []
         self._req.added = []
+        self._req.draft = ""
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
         self._req.fired_axis = ""
@@ -2434,21 +2436,39 @@ class InformationProcessing:
                 # 止まる（実機では固まって見える）。
                 await asyncio.sleep(0)
 
-    def _rethink_or_speak(self) -> str:
-        """主LLM の返りが来たとき、考えているあいだに名前無しで言い足された入力があれば、**考え直す**か
-        **そのまま出す**かを決める（出-au 段 3・`設計方針_判定の段` §2.4）。
-
-        判定は Jev（段 5）。Jev が無いあいだは既定の「そのまま出す」——返りを声にし、待っている入力は答えの後に
-        別の新しい求めになる（`_take_trigger` の保留箱）。
-        """
+    def _waiting_words(self) -> "list[Trigger]":
+        """主LLM が考えているあいだに名前無しで言い足され、保留箱で待っている言葉。"""
         held = self.__dict__.get("_held", [])  # 殻だけの器（テスト）でも落ちない
-        waiting = [t.query for t in held if t.kind == "会話入力" and not t.named]
-        if waiting:
-            logger.info(
-                "event-loop 考えているあいだに言い足された %d 件：そのまま出す（判定は段 5）",
-                len(waiting),
-            )
-        return "そのまま出す"
+        return [t for t in held if t.kind == "会話入力" and not t.named]
+
+    async def _rethink_or_speak(self, draft: str) -> str:
+        """主LLM の返りが来たとき、考えているあいだに名前無しで言い足された言葉があれば、**考え直す**か
+        **そのまま出す**かを Jev に決めさせる（出-au 段 5-1・`設計方針_判定の段` §2.2.3・§2.4）。
+
+        待っている言葉が無ければ聞かない。Jev が使えない・確信度が低いときは倒し先の「そのまま出す」——返りを声にし、
+        待っている言葉は答えの後に別の新しい求めになる（`_take_trigger` の保留箱）。
+        """
+        waiting = self._waiting_words()
+        if not waiting:
+            return jev_judges.AS_IS
+        agent = self._agent
+        return await jev_judges.judge_rethink(
+            getattr(agent, "_jev", None),
+            question=self._req.utterance or self._req.cue,
+            draft=draft,
+            added=[t.query for t in waiting],
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+        )
+
+    async def _rethink(self, draft: str) -> str:
+        """考え直す（出-au 段 5-1）。返事は声にせず、待っていた言葉を前の求めに添え、下書きを W に載せて決め直す。"""
+        waiting = self._waiting_words()
+        for t in waiting:
+            self._held.remove(t)
+            await self._attach_to_request(t)
+        self._req.draft = draft
+        logger.info("event-loop 言い足されたことで考え直す（%d 件）", len(waiting))
+        return await self._iterate()
 
     async def _attach_to_request(self, trigger: "Trigger") -> None:
         """名前の無い入力を、調べもの中の求めに添える（出-au 段 3・`設計方針_判定の段` §2.4）。
@@ -2883,10 +2903,12 @@ class InformationProcessing:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（生成後）")
             return ""
 
-        # 主LLM が考えているあいだに名前無しで言い足されたことがあれば、考え直すかを決める（出-au 段 3）。
-        # 判定（Jev）と「考え直す」の道は段 5。いまは常に「そのまま出す」で、待っている入力は答えの後に
-        # 別の求めになる。
-        self._rethink_or_speak()
+        # 主LLM が考えているあいだに名前無しで言い足されたことがあれば、考え直すかを Jev が決める（出-au 段 5-1）。
+        # 返事（`say`）を出す返りだけが対象——道具を投げる返りは声にしないので、考え直す理由が無い。
+        if say_tc is not None and lookup_tc is None:
+            draft = str(say_tc.input.get("text", "")).strip()
+            if draft and await self._rethink_or_speak(draft) == jev_judges.RETHINK:
+                return await self._rethink(draft)
 
         # 主LLM 自身のつなぎ（出-aq 段 2）。**`say` とは別の道具**なので、返事としては扱わない。
         filler_tc = next((tc for tc in decision.result.tool_calls if tc.name == "filler"), None)
@@ -3953,6 +3975,7 @@ class InformationProcessing:
         self._req.said_fillers.clear()
         self._req.told_unsaid = []
         self._req.added = []
+        self._req.draft = ""
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
         self._req.fired_axis = ""

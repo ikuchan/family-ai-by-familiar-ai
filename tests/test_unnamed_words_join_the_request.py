@@ -88,9 +88,11 @@ def test_the_added_words_are_shown_in_the_workspace():
 
 
 def test_the_main_llm_return_asks_whether_to_rethink():
-    ip, _ = _ip("主LLM")
+    """判定の口は段 5-1 で Jev に替えた（`test_rethink_with_jev.py`）。Jev が使えなければ「そのまま出す」。"""
+    ip, a = _ip("主LLM")
+    a._jev = None
     ip._held.append(Trigger(kind="会話入力", query="あ、東京のね", named=False))
-    assert ip._rethink_or_speak() == "そのまま出す"  # 段 5 で Jev に替える
+    assert asyncio.run(ip._rethink_or_speak("晴れだよ")) == "そのまま出す"
     assert "_rethink_or_speak" in inspect.getsource(InformationProcessing._act_on_decision)
 
 
