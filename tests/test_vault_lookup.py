@@ -12,7 +12,8 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF, strip_session_mark
-from familiar_agent.loop.arbiter import _EXTRA_ACTIONS, _parse
+from familiar_agent.loop.arbiter import _EXTRA_ACTIONS
+from tests._arbiter_compat import _parse
 from familiar_agent.loop.event_loop import (
     _MCP_LOOKUPS,
     InformationProcessing,

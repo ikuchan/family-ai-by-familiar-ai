@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 
 from familiar_agent.config import AgentConfig
-from familiar_agent.loop.arbiter import arbitrate
+from tests._arbiter_compat import arbitrate
 
 
 def test_the_timeout_is_five_seconds_by_default():

@@ -15,6 +15,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop import arbiter, workspace
+from tests._arbiter_compat import arbitrate as _compat_arbitrate
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from familiar_agent.loop.request import Request
 
@@ -121,9 +122,9 @@ def test_arbitrate_uses_the_tool_return_lead_when_asked():
 
     b = MagicMock()
     b.complete = fake_complete
-    d = asyncio.run(arbiter.arbitrate(b, utterance="x", workspace_ctx="", tool_return=True))
+    d = asyncio.run(_compat_arbitrate(b, utterance="x", workspace_ctx="", tool_return=True))
     assert d.branch == "light" and "取り返そうとして道具を選ばない" in seen["prompt"]
-    asyncio.run(arbiter.arbitrate(b, utterance="x", workspace_ctx=""))
+    asyncio.run(_compat_arbitrate(b, utterance="x", workspace_ctx=""))
     assert "取り返そうとして道具を選ばない" not in seen["prompt"]
 
 
@@ -137,8 +138,8 @@ def test_the_needs_tools_guard_does_not_fire_on_a_tool_return():
     b.complete = light
     ws = "[いま道具から返った]\n- set_timer「タイマーを掛ける「x」」→ まだ掛けていない。本人に一度聞く：「…」"
     d = asyncio.run(
-        arbiter.arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=ws, tool_return=True)
+        _compat_arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=ws, tool_return=True)
     )
     assert d.branch == "light"
-    d = asyncio.run(arbiter.arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=""))
+    d = asyncio.run(_compat_arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=""))
     assert d.branch == "full"  # 初回の反復の守りは残る

@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.core.speaker_claim import resolve_claim
 from familiar_agent.loop import arbiter
+from tests._arbiter_compat import arbitrate as _compat_arbitrate
 from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
@@ -67,21 +68,27 @@ def test_someone_outside_the_family_still_resolves_to_nothing():
 
 
 def _backend(reply: str):
-    async def complete(prompt, max_tokens, **kw):
-        return reply
-
+    # 試験用の口（`tests/_arbiter_compat.py`）が返事を覗いて偽の Jev の答えにするので、AsyncMock で持つ。
     b = MagicMock()
-    b.complete = complete
+    b.complete = AsyncMock(return_value=reply)
     return b
 
 
 def test_the_arbiter_carries_the_claim_and_drops_it_on_a_tool_return():
     b = _backend('{"branch":"light","text":"パパ、おかえり","speaker_claim":"パパ"}')
-    d = asyncio.run(arbiter.arbitrate(b, utterance="パパだよ", workspace_ctx=""))
+    d = asyncio.run(_compat_arbitrate(b, utterance="パパだよ", workspace_ctx=""))
     assert d.speaker_claim == "パパ"
-    d = asyncio.run(arbiter.arbitrate(b, utterance="パパだよ", workspace_ctx="", tool_return=True))
+    d = asyncio.run(_compat_arbitrate(b, utterance="パパだよ", workspace_ctx="", tool_return=True))
     assert d.speaker_claim == ""
-    assert "speaker_claim" in arbiter.ARBITER_PROMPT and "名乗" in arbiter.ARBITER_PROMPT
+
+    # 名乗りは Jev に問う（出-au 段 5-7d）。道具の帰りでは問わない。
+    def asked(**kw):
+        return arbiter.Arbiter(jev=None, writer=None)._questions(
+            arbiter.ArbiterInput(utterance="パパだよ", workspace_ctx="", **kw)
+        )
+
+    assert "名乗" in asked()["claims"]["instructions"] and "claimed" in asked()
+    assert "claims" not in asked(tool_return=True)
 
 
 def _ip(*, present: float):

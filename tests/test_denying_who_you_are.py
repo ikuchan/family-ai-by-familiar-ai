@@ -84,7 +84,7 @@ def test_nothing_expires_while_the_room_is_occupied():
 
 
 def test_the_arbiter_reads_the_denial():
-    from familiar_agent.loop.arbiter import _parse
+    from tests._arbiter_compat import _parse
 
     got = _parse(
         '{"branch": "light", "text": "ごめんなさい", "not_person": "パパ"}',
@@ -96,7 +96,7 @@ def test_the_arbiter_reads_the_denial():
 
 
 def test_the_denial_may_be_absent():
-    from familiar_agent.loop.arbiter import _parse
+    from tests._arbiter_compat import _parse
 
     got = _parse('{"branch": "light", "text": "はい"}', can_see=False, origin="発話")
     assert got is not None
@@ -104,13 +104,16 @@ def test_the_denial_may_be_absent():
 
 
 def test_the_prompt_asks_for_the_denial():
-    from familiar_agent.loop.arbiter import ARBITER_PROMPT
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
 
-    assert "not_person" in ARBITER_PROMPT
-    assert "名前の人ではない、と打ち消したら" in ARBITER_PROMPT
+    # 打ち消しは Jev に問う（出-au 段 5-7d）。
+    qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(utterance="x", workspace_ctx=""))
+    asked = qs["denies"]["instructions"]
+    assert "名前の人ではないと打ち消した" in asked
+    assert "denied" in qs
     # 見本は番人の範囲内で置く（「〜」で始まる形か 3 字以内）。見本を全部外すと、
     # 名前を言わない打ち消し（「ちがうよ」）が 3 回中 0 回になった（実測・2026-09-22）。
-    assert "〜じゃないよ" in ARBITER_PROMPT
+    assert "〜じゃないよ" in asked
 
 
 # ── 否定を在席へ効かせる ──────────────────────────────────────────────────

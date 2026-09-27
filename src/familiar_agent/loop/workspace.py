@@ -213,7 +213,7 @@ def just_returned(req: Request) -> str:
 
     道具の返りは版（過去の列の全文）に載るだけで、調停は「記憶」として読み、いま届いた返りとして
     扱わなかった——`set_timer` が「確かめて」を返したのに聞き返さず掛け直した（実機 14:50）。
-    実験（`scripts/experiment_arbiter_confirm.py`・8 回ずつ）：最上部に 1 行載せると 8/8 で
+    実験（`scripts/experiment_arbiter_confirm.py`・出-au 段 5-7d で撤去・履歴にある・8 回ずつ）：最上部に 1 行載せると 8/8 で
     light の確認文、先導文の差し替えだけでは 6/8。載せるのは取込がこの反復で受けた分だけ。
     """
     idx = set(getattr(req, "just_returned", ()) or ())

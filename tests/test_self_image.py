@@ -121,10 +121,11 @@ def test_the_arbiter_gets_the_same_self_image_in_its_system(monkeypatch):
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
-    from familiar_agent.loop.arbiter import arbitrate
+    from tests._arbiter_compat import arbitrate
 
     b = MagicMock(spec=["complete"])
-    b.complete = AsyncMock(return_value='{"branch": "full"}')
+    # 文章を書くのは軽量LLM の側（出-au 段 5-7c）。full で深さが low なら呼ばれないので、light で見る。
+    b.complete = AsyncMock(return_value='{"branch": "light", "text": "うん"}')
     asyncio.run(
         arbitrate(
             b,

@@ -11,7 +11,16 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.loop.arbiter import ARBITER_PROMPT, Decision, arbitrate
+from familiar_agent.loop.arbiter import (
+    _FIELD_TEXT,
+    JUDGE_GUIDE,
+    SEE_GUIDE,
+    WRITER_PROMPT,
+    Arbiter,
+    ArbiterInput,
+    Decision,
+)
+from tests._arbiter_compat import arbitrate
 
 
 def _backend(reply: str):
@@ -84,6 +93,21 @@ def _prompt_of(backend) -> str:
     return backend.complete.call_args.args[0]
 
 
+def _jev_state(**kw) -> str:
+    """Jev に送る文（分岐を決める側・出-au 段 5-7d）。"""
+    return Arbiter(jev=None, writer=None)._state(ArbiterInput(**{"workspace_ctx": "", **kw}))
+
+
+def _jev_actions(**kw) -> dict:
+    """Jev に選ばせる動作の選択肢。"""
+    qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(**{"workspace_ctx": "", **kw}))
+    return qs["action"]["criteria"]
+
+
+#: 調停に渡る指示の文（Jev の目安と、軽量LLM の文章の口）。
+_ALL_TEXT = JUDGE_GUIDE + SEE_GUIDE + WRITER_PROMPT + "".join(_FIELD_TEXT.values())
+
+
 def test_arbiter_speaks_as_the_persona():
     # 発話の出口は2つ（軽量LLM のつなぎ・light／フルLLM の答え）。軽量側にだけ人格が
     # 渡っていないと、同じ人格が2つの口で違う口調で喋る（実機で「調べてくるね！」と
@@ -104,19 +128,20 @@ def test_arbiter_speaks_as_the_persona():
 
 def test_arbiter_judges_sufficiency_not_mere_arrival():
     # 「結果が届いたか」ではなく「答えるに足るか」で分ける。足りなければ別の角度で調べ直す。
-    assert "[調査中]" not in ARBITER_PROMPT  # 廃止した合成ラベル＝死んだ指示
-    assert "足る" in ARBITER_PROMPT
+    assert "[調査中]" not in _ALL_TEXT  # 廃止した合成ラベル＝死んだ指示
+    assert "足る" in JUDGE_GUIDE
 
 
 def test_arbiter_is_told_when_no_more_looking_up_is_possible():
     # 上限では action を選ばせない。いまは選ばせてコード側が捨てており、その反復の判断が
     # まるごと無駄になる。
-    b = _backend('{"branch":"full"}')
-    asyncio.run(arbitrate(b, utterance="?", workspace_ctx="", capped=True))
-    assert "これ以上は調べられない" in _prompt_of(b)
-    b2 = _backend('{"branch":"full"}')
-    asyncio.run(arbitrate(b2, utterance="?", workspace_ctx="", capped=False))
-    assert "これ以上は調べられない" not in _prompt_of(b2)
+    # 分岐を決めるのは Jev なので、Jev に送る文に載り、action は選択肢から外れる（出-au 段 5-7d）。
+    assert "これ以上は調べられない" in _jev_state(utterance="?", capped=True)
+    assert "これ以上は調べられない" not in _jev_state(utterance="?", capped=False)
+    qs = Arbiter(jev=None, writer=None)._questions(
+        ArbiterInput(utterance="?", workspace_ctx="", capped=True)
+    )
+    assert "action" not in qs["branch"]["criteria"]
 
 
 def test_arbiter_gets_the_same_grounding_as_the_full_llm():
@@ -147,13 +172,14 @@ def test_arbiter_gets_the_same_grounding_as_the_full_llm():
 def test_filler_examples_do_not_fix_the_register():
     # つなぎの見本が「調べてみるね」だと、その口調が相手に合わせる規則より近くにあり、
     # パパ（大人＝ですます）にタメ口で「調べてくるね！」と返した（実機で観測）。
-    assert "調べてみるね" not in ARBITER_PROMPT
+    assert "調べてみるね" not in _ALL_TEXT
 
 
 def _rendered_reply_prompt() -> str:
     """人の発話が起点のとき、軽量LLM に実際に渡る文面（分岐の説明は起点で差し替わる・情-e）。"""
     b = MagicMock()
-    b.complete = AsyncMock(return_value='{"branch": "full"}')
+    # full でも深さが low なら軽量LLM は呼ばれない（出-au 段 5-7c）。つなぎを書かせる medium で見る。
+    b.complete = AsyncMock(return_value='{"branch": "full", "effort": "medium", "filler": "うん"}')
     asyncio.run(arbitrate(b, utterance="x", workspace_ctx="", origin="発話"))
     return b.complete.call_args.args[0]
 
@@ -167,9 +193,9 @@ def test_second_filler_is_asked_to_continue_not_restart():
     # 実機で「調べてみるね」に相当する前置きが5回続いた。つなぎを止めるのではなく、
     # 二言目以降を「まだ考えている最中だと伝わるだけの短い言葉」にさせる。軽量LLM と
     # フルLLM が交互に喋ると、聞いている側には別々の人格が居るように聞こえる。
-    assert "その続きとして書く" in ARBITER_PROMPT
-    assert "二言目以降" in ARBITER_PROMPT
-    assert "同じ人が続けて言っている" in ARBITER_PROMPT
+    assert "その続きとして書く" in WRITER_PROMPT
+    assert "二言目以降" in WRITER_PROMPT
+    assert "同じ人が続けて言っている" in WRITER_PROMPT
 
 
 def test_prompt_holds_no_quotable_sample_utterances():
@@ -178,21 +204,21 @@ def test_prompt_holds_no_quotable_sample_utterances():
     # 「それだけ？」への答えとしてそのまま出た。書き方の説明は残し、見本だけ置かない。
     import re
 
-    for sample in re.findall(r"「([^」]*)」", ARBITER_PROMPT):
+    questions = Arbiter(jev=None, writer=None)._questions(
+        ArbiterInput(utterance="x", workspace_ctx="", silenced=True)
+    )
+    text = _ALL_TEXT + _jev_state(utterance="x") + str(questions)
+    for sample in re.findall(r"「([^」]*)」", text):
         assert sample.startswith("〜") or len(sample) <= 3, f"見本が残っている: {sample}"
 
 
 def test_tone_rule_sits_next_to_where_the_filler_is_asked_for():
     # 口調の指示は分岐の説明から離れた位置にあり、短いつなぎのときだけ守られなかった
-    # （実機で、本応答はですますなのに待ってもらう一言だけタメ口）。つなぎを書けと
-    # 言っている場所の直後へ置く。キャッシュ境界（毎分変わる [いま]）より手前なので、
-    # 先頭からの一致長は変わらない。
+    # （実機で、本応答はですますなのに待ってもらう一言だけタメ口）。文章を書けと言う
+    # 場所（決まったこと）の直後へ置く。キャッシュ境界（毎分変わる [いま]）より手前。
     prompt = _rendered_reply_prompt()
-    tone = prompt.index("text の口調は")
-    # 分岐の説明（つなぎを書けと言っている場所）の直後で、他の材料より前。
-    assert prompt.index("これから調べると伝えるだけ") < tone
-    assert tone < prompt.index("判断の基準は自分で決めてよい")
-    # キャッシュ境界（毎分変わる [いま]）より手前なので、先頭からの一致長は変わらない。
+    tone = prompt.index("text と filler の口調は")
+    assert prompt.index("次にすることはもう決まっている") < tone
     assert tone < prompt.index("[いま]")
     assert "短い一言でも同じ" in prompt
 
@@ -205,8 +231,8 @@ def test_the_arbiter_has_a_way_out_when_nothing_more_can_be_found():
     （語は MD5 まで一致・結果も毎回同じ）。一覧は調停に届いていた（機構としては確認済み）
     ので、足りなかったのは「これ以上は分からない」と言う選択肢だった。
     """
-    assert "分からないと伝える" in ARBITER_PROMPT
-    assert "すでに調べた語と同じ語では投げない" in ARBITER_PROMPT
+    assert "分からないと伝える" in JUDGE_GUIDE
+    assert "すでに調べた語と同じ語では投げない" in JUDGE_GUIDE
 
 
 def test_an_affect_origin_can_choose_a_synchronous_mcp_tool():
@@ -224,9 +250,12 @@ def test_an_affect_origin_can_choose_a_synchronous_mcp_tool():
             extra_actions=("house_rules", "family_schedule"),
         )
     )
-    prompt = _prompt_of(b)
-    assert '"house_rules"' in prompt and '"family_schedule"' in prompt
-    assert "recall|search_deferred|house_rules|family_schedule" in prompt
+    # 動作は Jev の選択肢（出-au 段 5-7d）。
+    actions = _jev_actions(
+        utterance="x", origin="情動", extra_actions=("house_rules", "family_schedule")
+    )
+    assert {"recall", "search_deferred", "house_rules", "family_schedule"} <= set(actions)
+    b.complete.assert_not_awaited()  # 行き先の決まった道具は、書くものが無いので軽量LLM を呼ばない
     assert d.branch == "action" and d.action == "house_rules" and d.query == "家の決まりを見る"
     assert d.text == ""  # 自発の行動に断りは要らない（情-e）
 
@@ -264,8 +293,9 @@ def test_a_request_that_needs_a_tool_is_never_answered_lightly():
         )
     )
     assert d.branch == "light"
-    # 調停のプロンプトにも書いてある（機械の守りは最後の砦）。
-    assert "道具が要る" in ARBITER_PROMPT or "道具が要る" in _rendered_reply_prompt()
+    # Jev の選択肢の説明にも書いてある（機械の守りは最後の砦）。
+    qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(utterance="x", workspace_ctx=""))
+    assert "道具が要る" in qs["branch"]["criteria"]["light"]
 
 
 def test_the_silence_request_survives_the_fall_to_full():
@@ -280,16 +310,13 @@ def test_the_silence_request_survives_the_fall_to_full():
 
 
 def test_coming_back_from_a_look_of_its_own_is_not_framed_as_answering_someone():
-    """自分から見に行った帰り（情動・写真つき）は、返事の場面の注記を渡さない。
+    """自分から見に行った帰り（情動）は、返事の場面の書き方を渡さない。
 
     実機（2026-09-16 09:16 と 09:51）で、SAFETY／SEEKING の促しで見に行った帰りの調停が
-    「はい、静かにしていますね」「お仕事中ですね、静かにしていますから」と、誰にも聞かれて
-    いないのに返事の体裁の一言を作った。写真つきの注記が「見えているものを**聞かれただけ
-    なら** light に答えてよい」で、聞かれた前提が嘘になっていた。自分の帰りには「いつも通り
-    なら黙る」を渡す。返事の場面は従来どおり（対で確認）。
+    「はい、静かにしていますね」と、誰にも聞かれていないのに返事の体裁の一言を作った。自分の帰りには
+    「いつも通りなら黙る」を渡す。返事の場面は従来どおり（対で確認）。写真は調停に渡らない（出-au 段 5-7a）。
     """
     b = _backend('{"branch":"light","text":""}')
-    b.complete_with_image = b.complete  # 写真つきは別の口を通る
     asyncio.run(
         arbitrate(
             b,
@@ -297,28 +324,15 @@ def test_coming_back_from_a_look_of_its_own_is_not_framed_as_answering_someone()
             workspace_ctx="",
             origin="情動",
             can_see=True,
-            image_b64="aGVsbG8=",
         )
     )
     own = _prompt_of(b)
-    assert "聞かれただけなら" not in own
     assert "いつも通りなら" in own and "黙る" in own
     assert "返事や約束の形" in own
 
     b = _backend('{"branch":"light","text":"椅子と机が見えるよ"}')
-    b.complete_with_image = b.complete
-    asyncio.run(
-        arbitrate(
-            b,
-            utterance="何が見える？",
-            workspace_ctx="",
-            can_see=True,
-            image_b64="aGVsbG8=",
-        )
-    )
-    reply = _prompt_of(b)
-    assert "聞かれただけなら" in reply
-    assert "いつも通りなら" not in reply
+    asyncio.run(arbitrate(b, utterance="何が見える？", workspace_ctx="", can_see=True))
+    assert "いつも通りなら" not in _prompt_of(b)
 
 
 def test_a_self_driven_turn_treats_the_recent_exchange_as_already_over():
@@ -363,8 +377,9 @@ def _seeing(reply: str):
 
 def test_the_arbiter_can_turn_the_head():
     b, d = _seeing('{"branch":"action","action":"look","tool_input":{"direction":"右"}}')
-    prompt = _prompt_of(b)
-    assert '"look"' in prompt and "recall|search_deferred|see|look" in prompt
+    assert {"recall", "search_deferred", "see", "look"} <= set(
+        _jev_actions(utterance="右見れる？", can_see=True)
+    )
     assert d.branch == "action" and d.action == "look"
     assert d.tool_input == {"direction": "右"}
     assert d.query  # (c) 分岐は query が空だと full へ落ちる
@@ -372,17 +387,21 @@ def test_the_arbiter_can_turn_the_head():
 
 
 def test_a_direction_or_pose_written_in_query_becomes_the_input():
-    _, d = _seeing('{"branch":"action","action":"look","query":"右"}')
+    # 文章の口は look に tool_input だけを頼む。query に書いてきたときの読み替えは組み立て（assemble）の守り。
+    from tests._arbiter_compat import _parse
+
+    d = _parse('{"branch":"action","action":"look","query":"右"}', can_see=True)
     assert d.tool_input == {"direction": "右"}
-    _, d = _seeing('{"branch":"action","action":"look","query":"窓"}')
+    d = _parse('{"branch":"action","action":"look","query":"窓"}', can_see=True)
     assert d.tool_input == {"pose": "窓"}
 
 
 def test_look_is_not_offered_without_a_camera():
+    assert "look" not in _jev_actions(utterance="右見れる？", can_see=False)
+    # 選択肢に無い動作が返ってきても（偽の Jev）、首は回さない。
     b = _backend('{"branch":"action","action":"look","tool_input":{"direction":"右"}}')
     d = asyncio.run(arbitrate(b, utterance="右見れる？", workspace_ctx="", can_see=False))
-    assert '"look"' not in _prompt_of(b)
-    assert d.action == "recall"
+    assert d.action != "look"
 
 
 def test_the_label_of_a_look_names_the_direction():
@@ -392,12 +411,8 @@ def test_the_label_of_a_look_names_the_direction():
     assert _query_label("look", {"pose": "窓"}) == "窓を見に行く"
 
 
-def test_the_photo_note_tells_the_arbiter_the_head_is_already_turned():
-    """`look` の帰り（写真つき）で `look` を選び直さない（実機 15:11・3 回選び直して 18 秒）。"""
-    b = _backend('{"branch":"light","text":"右を向いたよ"}')
-    b.complete_with_image = b.complete
-    asyncio.run(
-        arbitrate(b, utterance="右向いて", workspace_ctx="", can_see=True, image_b64="aGVsbG8=")
-    )
-    prompt = _prompt_of(b)
-    assert "首はもう向いている" in prompt and 'もう一度 "look" は選ばず' in prompt
+def test_the_see_guide_tells_the_arbiter_the_head_is_already_turned():
+    """`look` の帰りで `look` を選び直さない（実機 15:11・3 回選び直して 18 秒）。目安は Jev に送る文にある。"""
+    assert "首はもう向いている" in SEE_GUIDE and "もう一度 look は選ばない" in SEE_GUIDE
+    assert "首はもう向いている" in _jev_state(utterance="右向いて", can_see=True)
+    assert "首はもう向いている" not in _jev_state(utterance="右向いて", can_see=False)

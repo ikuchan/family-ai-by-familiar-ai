@@ -36,6 +36,7 @@ logger = logging.getLogger(__name__)
 
 _EFFORTS = ("low", "medium", "high")
 
+
 # 並びは**キャッシュが前方一致で効く**ことに合わせる。起動中ほぼ変わらないもの（人格・家族・
 # 規則）を先に置き、変わるもの（上限の但し書き・時刻・在席・人の言葉・作業状態）を後ろへ。
 # 実機で調停が 2 秒で返らず時間切れになり、沈黙依頼が読まれないまま倒れた。
@@ -46,99 +47,6 @@ _EFFORTS = ("low", "medium", "high")
 #: 課題の指示は可変の data と同じプロンプト側に置く。**交互に並ぶ問題はここで消える**
 #: ——「口調の注意」が `[いま]` の直後にあるのも、JSON の指示が最後にあるのも、
 #: どちらもプロンプト側の話になる。
-ARBITER_PROMPT = """\
-これは口に出す言葉ではなく、自分の中の決めごとである。挨拶や説明はせず、指定の
-JSON だけを返す。
-
-{lead}
-{branches}
-
-**text の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か
-子どもかで丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。実機では
-大人（ですます）に対し、本応答はですますなのに待ってもらう一言だけタメ口になった。
-一つのやり取りの中で丁寧さを混ぜない。
-
-
-判断の基準は自分で決めてよい。迷ったら "full" を選ぶ。
-
-**分かれ目は、結果が届いたかどうかではなく、いまある材料が問いに答えるに足るかどうかである。**
-
-- 材料が無い　　　　　　　　　　　　　　　　　　　→ "action"（調べる）
-- 材料は届いたが答えきれず、**まだ試していない角度がある** → "action"（別の語で調べる）
-- 材料が問いに答えるに足る　　　　　　　　　　　　→ "full"（答える）
-- **調べたが答えが得られず、試せる角度も無い　　　→ "full"（分からないと伝える）**
-
-**すでに調べた語と同じ語では投げない。** 同じ語なら結果も同じで、繰り返しても何も増えない。
-角度を変えられないなら、それはもう分からないということである。**分からないまま探し続ける
-より、分からないと言うほうがよい。**
-
-作業状態には、あなた自身がいましたこと（何を・どうやって調べ、何が届いたか、
-相手に何と言ったか）が記録として並んでいる。それを読み、同じことを重ねて投げない
-（別のことを調べるのは構わない）。
-
-**すでに相手へ伝えた一言があるなら、言い直さず、その続きとして書く。** 一言目はこれから
-調べると伝えるものだが、**二言目以降は、まだ考えている最中だと伝わるだけの短い言葉**に
-する。用件を述べ直さない。何を調べているかにも触れない。長さは一言目より短く、多くても
-十数文字にとどめる。同じ人が続けて言っているように聞こえることを最優先する。
-言うことが無ければ text を空にしてよい。
-自分が覚えているはずのこと（家族の出来事・過去の会話）は "recall"。
-世の中のこと（天気・ニュース・調べもの）でも、**作業状態に同じことについての結果や自分の答えが、
-時刻から見て十分新しい形であるなら、それで答える**（"full" か "light"）。無いとき・古いときだけ
-"search_deferred"。古いかどうかは各行の時刻から自分で判断する（天気なら数時間、ニュースなら
-その日のうち、が目安）。
-[いま]
-{now}
-
-[いま誰が居るか]
-{present}
-
-text を書くときは、この人格として、この相手に向けて、いまの時刻に合う言葉で書く。
-
-{capped_note}{thinking_note}{heading}
-{utterance}
-
-[いまの作業状態]
-{workspace}
-
-**はじめに渡された [あなたは誰か] に書かれた自分の名前で呼ばれたうえで**、いまは話しかけないでほしいと
-伝えられたときだけ、`silence_minutes` に分数を書く。周囲の会話が紛れ込むので、名前を
-呼ばれていない依頼は、自分に向けられたものとして扱わない。
-
-- 分数を伴って頼まれた → その分数
-- 長さを言わずに頼まれた → **-1**（既定の長さを当てる）
-- 頼まれていない、または名前で呼ばれていない → **0**
-
-言い方は一つではない（うるさい、あとにして、いま集中したい、静かにして…）。ただし
-待つよう言われただけ（待って・待てぃ）は**動作を止めてほしいだけで沈黙の依頼ではない**（0）。
-黙っていたところへ（[いま] に *黙っているよう頼まれている* とあるとき）、もう話していい・しゃべっていいと
-**解かれた**ら `lift_silence` を true にする。頼まれたと
-読めるかで判断する。0 以外にすると、その人が居るあいだ発話を止める。頼まれてもいないのに
-止めない。
-
-人が**自分の名前を名乗った**（名前に「〜だよ」「〜です」を添えて言う）ら、`speaker_claim` にその名を書く。
-名乗っていなければ省く。誰かを呼んだだけ、や第三者の話は名乗りではない。
-
-**人が、自分はいま呼ばれている名前の人ではない、と打ち消したら**、否定された呼び方を `not_person` に
-書く。名前を挙げての打ち消し（「〜じゃないよ」）でも、名前を言わない打ち消し（「ちがう」）でも読む。
-名前を言わなかったなら、いま話者としている人の呼び方を書く。打ち消していなければ省く。
-
-**写真に人が写っているなら、誰だと思うかを `seen_people` に書く。** 見た目と【一緒に暮らす人たち】の
-記述から推し量ってよい。一人ずつ {{"name": "呼び方", "confidence": 0.0〜1.0}} の形で並べる。
-**誰か分からない人は name を空にして、数に入れる。** 写真に人が写っていなければ省く。
-
-人の言葉が**時期を指している**なら、想起の基準をそこへ動かす。`time_ref` にその時刻を
-ISO 8601（例 "2025-08-15T00:00:00"）で、`time_span_days` にその言い方が指す**幅**を日数で
-書く。幅はその言い方がどれくらいの粗さで時期を指しているかで、広い言い方ほど大きい。
-時期を指していないなら両方とも省く（基準は現在時刻になる）。
-
-次の形の JSON だけを返す（他には何も書かない）:
-{{"branch": "light|full|action", "text": "…", "filler": "…", "effort": "low|medium|high",
- "action": "{actions}", "query": "…", "silence_minutes": 0, "lift_silence": false,
- "time_ref": "", "time_span_days": 0, "speaker_claim": "", "seen_people": [], "not_person": "", "trash": ""}}
-使わない項目は省いてよい。
-"""
-
-
 @dataclass
 class Decision:
     """調停の結果。`branch` 以外はその分岐でだけ意味を持つ。"""
@@ -181,7 +89,7 @@ _HEADING_DEVICE = "[届いた知らせ]"
 # 返りを読んでも聞き返さずに `set_timer` を選び直した（実機 14:50・15:28・15:42）。実験（`根拠台帳` §35・
 # 3 種の実機 W × 8 回）：この先導文＋想起なし＋返った道具を候補から外す、で 24/24 が light。
 # 直近に「うまくできなかった」があるとき（W c）は末尾の一文が無いと 2/8 だった（取り返そうと道具を選ぶ）。
-# 文は実験（`scripts/experiment_arbiter_confirm.py` の `LEAD_TOOL_RETURN_2`）のまま。
+# 文は実験（`scripts/experiment_arbiter_confirm.py` の `LEAD_TOOL_RETURN_2`・出-au 段 5-7d で撤去・履歴にある）のまま。
 _LEAD_TOOL_RETURN = (
     "いま**道具から返りが届いた**（作業状態の最上部）。人に届いた言葉ではない。返りを見て、次のどれかを選ぶ。"
     '返りが人に伝える文（「掛けた」「確かめて：「…」」「動いている」）なら、その文を **"light"** でそのまま、'
@@ -195,24 +103,6 @@ _LEAD_TOOL_RETURN = (
     "その断りをそのまま伝える。返りに無いことを、したと言わない。"
 )
 _HEADING_TOOL_RETURN = "[道具から返ったもの]"
-_BRANCHES_REPLY = """\
-- "light"  : 短い言葉で答えきれる。挨拶、相槌、簡単な受け答え。あなたが text に応答を書く。
-             **道具が要る頼み（タイマー・アラーム・測る・止める・覚えて・予定を見る）は light で答えない**
-             ——light は道具を使えず、「セットしました」と言っても何も起きない。full に回す。
-- "full"   : 記憶を踏まえた言葉選びや、込み入った説明が要る。生成は別の大きなモデルが行う。
-             どれくらい深く考えるべきかを effort に書く。**既定は "low"**。
-             "medium" は次の3つのときだけ：(1) ひと言で表せない複雑な気持ちを受け止める
-             (2) 4 つ以上の記憶を踏まえて応える (3) 調べた結果をまとめる。
-             "high" は、人がよく考えるよう**明示的に**求めたときだけ。
-             effort が "low" でないなら、待ってもらうための短い一言を **filler** に書く
-             （相槌・受けだけ。**内容に触れない**。答えを先取りすると本応答と食い違う）。
-             用件はこのあと本応答が言う。いま言いたいことがあるなら **trash** に書く。
-             trash は捨てられ、誰にも届かない。text は使わない。
-- "action" : いまある材料では答えきれず、先に調べる。どうやって調べるかを action に書く。
-             "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
-             探す語を query に、待ってもらうための短い一言を **filler** に書く
-             （これから調べると伝えるだけ。**内容に触れない**）。
-             いま言いたいことがあるなら **trash** に書く（捨てられ、誰にも届かない）。text は使わない。{see_note}"""
 _HEADING_REPLY = "[人の言葉]"
 
 #: 道具が要る頼みの手がかり〔仮・2026-09-15〕。light で「できました」と言わせないための機械の守り
@@ -280,12 +170,6 @@ _LEAD_SELF = (
     "**直近のやりとりは済んだこと**。入室・挨拶・終わった話に改めて反応しない。"
     "相手が話を切り上げていたら（「もういいや」「後で」）黙る。言うのは新しいことがあるときだけ。"
 )
-_BRANCHES_SELF = """\
-- "light"  : 短くひとこと言う。**黙るのが基本**（text を空にすれば黙る）。言うなら あなたが text に書く。
-- "full"   : 考えてから言う・する。生成は別の大きなモデルが行う。effort は "low"。text は空。
-- "action" : 見る・調べる・首を向ける。どうやってかを action に書く。
-             "recall"（自分の記憶を探す）か "search_deferred"（インターネットを調べる）{see_option}。
-             探す語を query に。**text は空**（誰にも断らない）。{see_note}"""
 _HEADING_SELF = "[いま湧いたこと]"
 
 _FALLBACK = Decision(branch="full", effort="low")
@@ -375,53 +259,18 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
 #: `see` の見出しは入力に依らず固定（`event_loop._query_label`）。調停が投げても主LLM が
 #: 投げても同じ鍵になり、「すでに調べた語は投げない」の抑止がそのまま効く。
 SEE_QUERY = "目の前を見る"
-_SEE_OPTION = (
-    'か "see"（目の前を見る＝カメラ。見えているものを聞かれた・部屋の様子を確かめる必要があるとき。query は要らない）'
-    # 首振り（2026-09-16 実機）：「右見れる?」「もっと右を見て」に `see` しか選べず、正面のまま
-    # 「右側はタンスと椅子が見えていますよ」と答えた。`look` は主LLM の道具にしか無かった。
-    'か "look"（首を向ける＝カメラを回す。「右向いて」「窓の方見て」「もっと右」のとき。'
-    'tool_input に {"direction":"右|左|上|下"} か {"pose":"定点の名前"}。向いた先の写真が帰る。query は要らない・**text は空**。'
-    "自分から見回るなら、[いま] の見ていない順で最も長く見ていない定点へ）"
-)
 #: `look` の見出し（query）。(c) 分岐は query が空だと full へ落ちるので、固定の語を入れる。
 LOOK_QUERY = "首を向ける"
-#: 見た印のラベルはローカルの人検出（YOLO・80 種・1 枚 8 ms）が出す。棚や引き出しは無く、
-#: 机が dining table になる粗さだが、「何が見える？」に「椅子とテーブル」と返すには足りる。
-#: 写真そのものは主LLM にだけ渡るので、細かく語るなら full（v0.45）。
-#: 写真を添えたときの但し書き（v0.46）。調停が自分で見に行った帰りだけ。
-_SEE_NOTE_WITH_PHOTO = (
-    "\n             **写真を添えた**（いま見えているもの）。見えているものを聞かれただけなら、"
-    '写真を見て "light" に答えてよい。込み入った説明や記憶を踏まえる必要があるなら "full"'
-    "（主LLM にも同じ写真が渡る）。首を向けた帰り（作業状態に『…のほうを向いた』）なら、"
-    '首はもう向いている——もう一度 "look" は選ばず、向いたことを "light" で一言伝えてよい。'
-)
-#: 自分から見に行った帰り（情動・写真つき）の但し書き。返事の場面の注記（「聞かれただけなら
-#: 答えてよい」）をここへ渡すと、誰にも聞かれていないのに返事の体裁の一言を作った（2026-09-16
-#: 実機・「はい、静かにしていますね」「お仕事中ですね、静かにしていますから」）。
-_SEE_NOTE_OWN_LOOK = (
-    "\n             **写真を添えた**（いま見えているもの）。これは自分が見に行った帰りで、"
-    "誰にも聞かれていない。**いつも通りなら text を空にして黙る**。言うのは、様子が変わった・"
-    "気づいたことがあるときだけ。返事や約束の形（「静かにしています」「頑張ってください」）にしない。"
-    '込み入ったことなら "full"（主LLM にも同じ写真が渡る）。'
-)
-_SEE_NOTE = (
-    "\n             作業状態の『わたしが見た』の行は即席のラベル（写っている物の名前・80 種の粗さ）。"
-    '見えているものを聞かれただけなら、**そのラベルで "light" に答えてよい**。'
-    '細かく語る・写真を見て判断する必要があるなら "full"（写真そのものは主LLM にだけ渡る）。'
-)
 
 
-def _parse(
-    reply: str, *, can_see: bool = False, origin: str = "発話", extra_actions: tuple[str, ...] = ()
+def assemble(
+    data: dict, *, can_see: bool = False, origin: str = "発話", extra_actions: tuple[str, ...] = ()
 ) -> Decision | None:
-    """軽量LLM の返事から JSON を拾う。前後に地の文が混じっても拾えるようにする。"""
-    match = re.search(r"\{.*\}", reply or "", re.S)
-    if not match:
-        return None
-    try:
-        data = json.loads(match.group(0))
-    except Exception:
-        return None
+    """Jev の判定と軽量LLM の文章をまとめた辞書から `Decision` を組み、**機械の守り**を通す（出-au 段 5-7d）。
+
+    守りは、判定と文章を 1 回の軽量LLM に同居させていたころ（`_parse`）のまま移した。道具名の書き換え、候補に照らす、
+    情動のつなぎを捨てる、分岐に要るものが無ければ倒す。読めない・守りに掛かったら None（呼び手が full へ倒す）。
+    """
     branch = str(data.get("branch", "")).strip().lower()
     if branch not in ("light", "full", "action"):
         return None
@@ -592,183 +441,6 @@ _CAPPED_NOTE = """
 """
 
 
-async def arbitrate(
-    backend,
-    *,
-    utterance: str,
-    workspace_ctx: str,
-    self_understanding: str = "",
-    family_md: str = "",
-    self_image: str = "",
-    season_env: str = "",
-    present_ctx: str = "",
-    now_ctx: str = "",
-    capped: bool = False,
-    thinking_round: int = 1,
-    timeout: float | None = None,
-    can_see: bool = False,
-    image_b64: str | None = None,
-    origin: str = "発話",
-    extra_actions: tuple[str, ...] = (),
-    tool_return: bool = False,
-    timer_active: bool = False,
-) -> Decision:
-    """軽量LLM に次の一手を選ばせる。失敗・時間切れは full へ倒す。
-
-    **発話の出口は2つ**（ここの light とつなぎ、フルLLM の答え）なので、**フルと同じ
-    土台を渡す**。片方にだけ渡すと、症状が出るたび1つずつ足すことになる（人格を足した
-    翌日、14時39分に「こんばんは」と言った＝日時が無かった）。
-
-    - `self_understanding`：自己認識1枚（人格＋できること）。**何ができるかを知らずに
-      何をするかは選べない**ので、動作を選ぶこの器にこそ要る。
-    - `family_md`：誰が大人で誰が子どもかは家族の記述にしかなく、口調の規則に要る。
-    - `present_ctx`／`now_ctx`：誰に向けて・いつ話すか。
-    - `capped`：反復上限。渡さないと上限でも "action" を選び、その判断が丸ごと捨てられる。
-    - `thinking_round`：この求めで主LLM を呼ぶのが何回目か。主LLM を投げっぱなしにして
-      から反復の数は返りで 0 へ戻るようになったので、**反復の数からは求めの長さが読めない**。
-      だから回数そのものを渡す（同じ値をログと主LLM のプロンプトへも渡している）。
-      2 回目以降だけ載せる（1 回目に「1 回目である」と言っても何も足さない）。
-    - `timeout`：省略すると Config（`ARBITER_TIMEOUT_SEC`・既定 5.0 秒）から取る。
-    - `can_see`：カメラがあるか。あるときだけ `see` を候補に載せる（無い構成で選ばせて
-      空振りさせない）。帰りの判断は出した側に返る（`event_loop._decide`）。
-    - `extra_actions`：いま繋がっている MCP の同期の道具（`house_rules`／`family_schedule`）。
-      あるときだけ候補に載せる。query は要らない（見出しは固定）。
-    - `origin`：求めの起点（`発話`／`機器`／`情動`）。`情動` なら「返事」でなく「自分の行動を
-      決める」型のプロンプトにする（見出し `[いま湧いたこと]`・許可も理由も要らない・つなぎ無し）。
-    - 直近のやりとりは `workspace_ctx` の先頭の枠として入っている（記-h）。主LLM と同じ
-      作り方で、窓の幅（`recent_exchanges_arbiter`）だけが狭い。無いと「明日の天気は？」の
-      次の「調べて」を新しい検索にする（2026-09-13 実機）。
-    - `image_b64`：調停が自分で見に行った帰りの写真（v0.46）。即席のラベルは部屋によって
-      `bench` 1 語になり材料不足で full へ倒れたので、写真そのものを見せて light で答えられる
-      ようにする。担い手が写真を受けられなければ（`complete_with_image` 無し）文字だけで進む。
-    """
-    from ..core.context_parts import Stance, build_context
-    from ..core.timer_rules import is_control_word
-
-    # 安定はシステム文へ、課題の指示と可変の data はプロンプトへ（出-e-に）。
-    system = build_context(
-        stance=Stance.PAJU,
-        self_understanding=self_understanding or "（指定なし）",
-        family=family_md or "（指定なし）",
-        self_image=self_image,  # 層 2・主LLM と同じもの（記-a-へ）
-        season_env=season_env,  # 季節の層・主LLM と同じもの（知-ac）
-    ).stable
-    self_doing = origin == "情動"
-    device = origin == "機器"
-    lead = _LEAD_DEVICE if device else _LEAD_REPLY
-    heading = _HEADING_DEVICE if device else _HEADING_REPLY
-    if tool_return:  # 道具（タイマー・アラーム）の帰り。起点が何であれ、いま見るのは返り
-        lead, heading = _LEAD_TOOL_RETURN, _HEADING_TOOL_RETURN
-    prompt = ARBITER_PROMPT.format(
-        lead=_LEAD_SELF if self_doing else lead,
-        branches=(_BRANCHES_SELF if self_doing else _BRANCHES_REPLY).format(
-            see_option=(_SEE_OPTION if can_see else "")
-            + "".join(f"か {_EXTRA_ACTIONS[a][1]}" for a in extra_actions if a in _EXTRA_ACTIONS),
-            see_note=(
-                (
-                    (_SEE_NOTE_OWN_LOOK if self_doing else _SEE_NOTE_WITH_PHOTO)
-                    if image_b64
-                    else _SEE_NOTE
-                )
-                if can_see
-                else ""
-            ),
-        ),
-        heading=_HEADING_SELF if self_doing else heading,
-        utterance=utterance,
-        workspace=workspace_ctx or "（なし）",
-        present=present_ctx or "（分からない）",
-        now=now_ctx or "（分からない）",
-        capped_note=_CAPPED_NOTE if capped else "",
-        thinking_note=(_THINKING_NOTE.format(round=thinking_round) if thinking_round > 1 else ""),
-        actions="|".join(
-            ["recall", "search_deferred"]
-            + (["see", "look"] if can_see else [])
-            + [a for a in extra_actions if a in _EXTRA_ACTIONS]
-        ),
-    )
-    if timeout is None:
-        from ..config import AgentConfig
-
-        timeout = AgentConfig().arbiter_timeout_sec
-    started = time.monotonic()
-    # 打ち切っても呼び出し自体は残す（shield）。倒す時刻は変えずに、**実際に何秒かかるか**を
-    # 裏で測るため。時間切れの秒数しか残らないと、2.1 秒なのか 10 秒なのか分からず、
-    # 時間切れの値を決められない（実機で「黙って」だけが 2 秒に掛かった）。
-    if image_b64 and hasattr(backend, "complete_with_image"):
-        call = asyncio.ensure_future(
-            backend.complete_with_image(prompt, image_b64, 300, system=system)
-        )
-    else:
-        call = asyncio.ensure_future(backend.complete(prompt, 300, system=system))
-    try:
-        # `wait_for` はキャンセルを握りつぶしうる（3.11・環-aa）。駆動体が止まるので `wait_within` で待つ。
-        reply = await wait_within(asyncio.shield(call), timeout)
-        logger.info("調停 %.2f 秒（プロンプト %d 字）", time.monotonic() - started, len(prompt))
-    except asyncio.TimeoutError:
-        logger.warning("調停が %.1f 秒で返らなかったのでフルへ倒す", timeout)
-        _watch_late(call, started, len(prompt))
-        # 層 3 の材料（`arbiter_timeout_sec`・記-a-に）。
-        measure.record("調停", 秒=f"{time.monotonic() - started:.2f}", 分岐="full", 時間切れ="yes")
-        return _FALLBACK
-    except asyncio.CancelledError:
-        raise
-    except Exception as e:  # noqa: BLE001
-        logger.warning("調停に失敗したのでフルへ倒す: %s", e)
-        return _FALLBACK
-    decision = _parse(reply, can_see=can_see, origin=origin, extra_actions=extra_actions)
-    if decision is not None and tool_return and decision.speaker_claim:
-        decision = replace(decision, speaker_claim="")  # 帰りの反復の発話は古い（情-n と同じ）
-    if decision is not None and tool_return and (decision.silence_minutes or decision.lift_silence):
-        # 道具の帰りの反復では沈黙の依頼を読まない（情-n・実機 2026-09-18 20:46）。発話は古く、返りの文に
-        # 「黙って」が入る（確認文「その間は黙って待機します」を人の依頼として 60 分黙った）。
-        # 黙るかどうかはタイマーの道具（`TIMER_SILENCE`）が決める。
-        logger.info(
-            "調停 道具の帰りなので沈黙の依頼は読まない（%d・%s）",
-            decision.silence_minutes,
-            decision.lift_silence,
-        )
-        decision = replace(decision, silence_minutes=0, lift_silence=False)
-    if decision is None:
-        logger.warning("調停の返事を読めなかったのでフルへ倒す: %.300r", reply)
-    elif (
-        decision.branch == "light"
-        and origin == "発話"
-        and not tool_return
-        and needs_tools(utterance)
-    ):
-        # light は道具を使えない。「セットしました」と言うだけになるので full へ倒す（機械の守り）。
-        # 道具が返った反復（`tool_return`）では掛けない——道具はもう使った。返りを light で伝えるのが正しく、
-        # ここで倒すと主LLM が掛け直して上限まで空回りした（出-x-ろ・実機 2026-09-18 18:31）。
-        logger.info("調停 light を full へ倒す（道具が要る頼み）：%.30s", utterance)
-        decision = Decision(
-            branch="full",
-            effort="low",
-            text=decision.text,
-            silence_minutes=decision.silence_minutes,  # 「話すの止めて」の依頼は落とさない
-            lift_silence=decision.lift_silence,
-        )
-    elif (
-        decision.branch == "light"
-        and origin == "発話"
-        and not tool_return
-        and timer_active
-        and is_control_word(utterance)
-    ):
-        # タイマーが動いている／一時停止中に、操作の言葉（再開・一時停止・止めて）を light で受け流すと
-        # 「再開しますね」と言うだけで何も起きない（出-aa・実機 2026-09-18 20:47）。主LLM が `[タイマー]` の
-        # 枠と道具（pause／resume／cancel）で決める。言葉はあいまいでありうるので機械で道具を選ばない。
-        logger.info("調停 light を full へ倒す（タイマーの操作の言葉）：%.30s", utterance)
-        decision = replace(decision, branch="full", effort="low")
-    measure.record(
-        "調停",
-        秒=f"{time.monotonic() - started:.2f}",
-        分岐=(decision or _FALLBACK).branch,
-        時間切れ="no",
-    )
-    return decision if decision is not None else _FALLBACK
-
-
 # ── Arbiter：判定は Jev、文章は軽量LLM（出-au 段 5-7・`設計方針_判定の段` v0.4 §2.2.2） ──────────────
 
 
@@ -795,6 +467,28 @@ class ArbiterInput:
     season_env: str = ""
 
 
+#: 分岐の決め方の目安（出-au 段 5-7d・一つの軽量LLM の指示文にあったものを、Jev に送る文へ移した）。
+JUDGE_GUIDE = """\
+迷ったら full を選ぶ。
+分かれ目は、結果が届いたかどうかではなく、いまある材料が問いに答えるに足るかどうかである。
+- 材料が無い → action（調べる）
+- 材料は届いたが答えきれず、まだ試していない角度がある → action（別の語で調べる）
+- 材料が問いに答えるに足る → full（答える）
+- 調べたが答えが得られず、試せる角度も無い → full（分からないと伝える）
+すでに調べた語と同じ語では投げない。同じ語なら結果も同じで、繰り返しても何も増えない。分からないまま探し続けるより、
+分からないと言うほうがよい。作業状態に並ぶ自分のしたこと（何を・どうやって調べ、何が届いたか）を読み、同じことを
+重ねて投げない（別のことを調べるのは構わない）。
+自分が覚えているはずのこと（家族の出来事・過去の会話）は recall。
+世の中のこと（天気・ニュース・調べもの）でも、作業状態に同じことについての結果や自分の答えが、時刻から見て十分新しい
+形であるなら、それで答える（full か light）。無いとき・古いときだけ search_deferred。古いかどうかは各行の時刻から
+判断する（天気なら数時間、ニュースならその日のうち、が目安）。"""
+#: 見る動作があるときの目安。写真は Jev に渡らないので、読み取りの記録（「見えたもの」）で決める（出-au 段 5-7a）。
+SEE_GUIDE = (
+    "作業状態の『見えたもの』の行（写真の読み取り）で答えられるなら light でよい。"
+    "細かく語る・写真を見て判断する必要があるなら full（写真そのものは主LLM に渡る）。"
+    "首を向けた帰り（作業状態に『…のほうを向いた』）なら、首はもう向いている——もう一度 look は選ばない。"
+)
+
 #: 動作の短い説明（Jev の選択肢）。繋がっている MCP の道具は `_EXTRA_ACTIONS` の説明から作る。
 _BASE_ACTIONS = {
     "recall": "自分の記憶（家族の出来事・過去の会話）を探す",
@@ -802,7 +496,8 @@ _BASE_ACTIONS = {
 }
 _CAMERA_ACTION_TEXT = {
     "see": "目の前を見る（カメラ）。見えているものを聞かれた・部屋の様子を確かめる",
-    "look": "首を向ける（カメラを回す）。「右向いて」「窓の方見て」「もっと右」",
+    "look": "首を向ける（カメラを回す）。「右向いて」「窓の方見て」「もっと右」。"
+    "自分から見回るなら、[いま] の見ていない順で最も長く見ていない定点へ",
 }
 _BRANCH_REPLY = {
     "light": "何も動かさず、短い言葉で答えきれる（挨拶・相槌・簡単な受け答え）。道具が要る頼みは含まない",
@@ -846,7 +541,7 @@ def _family_choices(family_md: str) -> "dict[str, str]":
 class Arbiter:
     """調停。材料を受け取り、**Jev が決め**、要るときだけ**軽量LLM が書き**、機械の守りを通して `Decision` を返す。
 
-    判定と文章を 1 回の軽量LLM に同居させていた形（`ARBITER_PROMPT`）を割った（出-au 段 5-7）。Jev は写真を見られない
+    判定と文章を 1 回の軽量LLM の指示文に同居させていた形を割った（出-au 段 5-7）。Jev は写真を見られない
     ので、写真の読み取りは状態として W に載っている（段 5-7a）。
     """
 
@@ -857,6 +552,8 @@ class Arbiter:
         self._writer = writer
         self._min_conf = float(min_conf)
         self._timeout = timeout
+        #: 文章の口が時間切れになったか（計測ログの「時間切れ」・層 3 が調停の秒数を見直す材料）
+        self._timed_out = False
 
     def _allowed_actions(self, inp: ArbiterInput) -> "dict[str, str]":
         out = dict(_BASE_ACTIONS)
@@ -881,8 +578,10 @@ class Arbiter:
         notes = (_CAPPED_NOTE if inp.capped else "") + (
             _THINKING_NOTE.format(round=inp.thinking_round) if inp.thinking_round > 1 else ""
         )
+        guide = JUDGE_GUIDE + ("\n" + SEE_GUIDE if inp.can_see else "")
         return (
             f"[決めること]\n{lead}\n{notes}\n"
+            f"[判断の目安]\n{guide}\n\n"
             f"[いま]\n{inp.now_ctx or '（分からない）'}\n\n"
             f"[いま誰が居るか]\n{inp.present_ctx or '（分からない）'}\n\n"
             f"{heading}\n{inp.utterance}\n\n"
@@ -939,6 +638,46 @@ class Arbiter:
         )
         return qs
 
+    async def decide(self, inp: ArbiterInput) -> Decision:
+        """次の一手を決める。Jev が決め、要るときだけ軽量LLM が書き、守りを通す。倒れたら full。"""
+        from ..core.timer_rules import is_control_word
+
+        started = time.monotonic()
+        data = await self._judge(inp)
+        texts = None if data is None else await self._write(inp, data)
+        decision = None
+        if data is not None and texts is not None:
+            decision = assemble(
+                {**data, **texts},
+                can_see=inp.can_see,
+                origin=inp.origin,
+                extra_actions=inp.extra_actions,
+            )
+        if decision is None:
+            logger.warning(
+                "調停を決められなかったのでフルへ倒す（判定=%s）", "あり" if data else "なし"
+            )
+        elif decision.branch == "light" and inp.origin == "発話" and not inp.tool_return:
+            if needs_tools(inp.utterance):
+                # light は道具を使えない。「セットしました」と言うだけになるので full へ倒す（機械の守り）。
+                logger.info("調停 light を full へ倒す（道具が要る頼み）：%.30s", inp.utterance)
+                decision = replace(decision, branch="full", effort="low")
+            elif inp.timer_active and is_control_word(inp.utterance):
+                # 操作の言葉を light で受け流すと何も起きない（出-aa）。主LLM が道具で決める。
+                logger.info(
+                    "調停 light を full へ倒す（タイマーの操作の言葉）：%.30s", inp.utterance
+                )
+                decision = replace(decision, branch="full", effort="low")
+        seconds = time.monotonic() - started
+        logger.info("調停 %.2f 秒（分岐=%s）", seconds, (decision or _FALLBACK).branch)
+        measure.record(
+            "調停",
+            秒=f"{seconds:.2f}",
+            分岐=(decision or _FALLBACK).branch,
+            時間切れ="yes" if self._timed_out else "no",
+        )
+        return decision if decision is not None else _FALLBACK
+
     async def _write(self, inp: ArbiterInput, data: dict) -> "dict | None":
         """要るものだけを軽量LLM に 1 回で書かせる（出-au 段 5-7c）。何も要らなければ呼ばずに空。"""
         needs = _writer_needs(inp, data)
@@ -969,6 +708,9 @@ class Arbiter:
             return float((got.get(key) or {}).get("noul", 0.0) or 0.0) >= 0.5
 
         data["refers_time"] = yes("refers_time")
+        if inp.tool_return:
+            # 道具の帰りの発話は古い。問うていないが、答えに混じっても黙る依頼・名乗りは読まない（機械の守り・情-n）
+            return data
         data["silence_minutes"] = (
             _QUIET_MINUTES.get(picked(answer, "quiet_minutes", 0.0) or "default", -1)
             if yes("asks_quiet")
@@ -996,7 +738,10 @@ _TOOL_ACTIONS = frozenset(
     }
 )
 _NO_WORDS_ACTIONS = frozenset({"see", "confirm", "decline"})
-_LOOK_INPUT = 'tool_input に {"direction":"右|左|上|下"} か {"pose":"定点の名前"}'
+_LOOK_INPUT = (
+    'tool_input に {"direction":"右|左|上|下"} か {"pose":"定点の名前"}。'
+    "自分から見回るなら、[いま] の見ていない順で最も長く見ていない定点へ"
+)
 
 #: 文章を書く口の指示（出-au 段 5-7c）。判定はもう決まっている。口調と言い直さない決まりは、いままでの調停の文から。
 WRITER_PROMPT = """\
@@ -1008,8 +753,10 @@ WRITER_PROMPT = """\
 **text と filler の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か子どもかで
 丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。一つのやり取りの中で丁寧さを混ぜない。
 
-**すでに相手へ伝えた一言があるなら、言い直さず、その続きとして書く。** 二言目以降は、まだ考えている最中だと伝わるだけの
-短い言葉にする。用件を述べ直さない。何を調べているかにも触れない。
+**すでに相手へ伝えた一言があるなら、言い直さず、その続きとして書く。** 一言目はこれから調べると伝えるものだが、
+**二言目以降は、まだ考えている最中だと伝わるだけの短い言葉**にする。用件を述べ直さない。何を調べているかにも触れない。
+長さは一言目より短く、多くても十数文字にとどめる。同じ人が続けて言っているように聞こえることを最優先する。
+言うことが無ければ filler を空にしてよい。
 
 [いま]
 {now}
@@ -1034,6 +781,7 @@ _FIELD_TEXT = {
     "text": '"text"：この人格として、この相手に向けて、いまの時刻に合う言葉で短く答える。',
     "text_self": '"text"：自分から言うなら短いひとこと。**いつも通りなら空にして黙る**。返事や約束の形にしない。',
     "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
+    "trash": '"trash"：用件はこのあと本応答が言う。いま言いたいことがあるならここに書く（捨てられ、誰にも届かない）。',
     "query": '"query"：探す語。',
     "tool_input": '"tool_input"：道具へそのまま渡す入力（JSON の辞書）。',
     "time_ref": '"time_ref"：人の言葉が指している時期を ISO 8601（例 "2025-08-15T00:00:00"）で。',
@@ -1060,6 +808,9 @@ def _writer_needs(inp: ArbiterInput, data: dict) -> "list[str]":
         quiet = action == "look" or action in _TOOL_ACTIONS or action in _NO_WORDS_ACTIONS
         if not quiet and not self_doing:
             needs.append("filler")
+    if "filler" in needs:
+        # 言いたいことの行き先。無いと用件がつなぎへ流れる（実機 15:49・144 字。欄を分けて 6/6 → 0/6・出-aj）
+        needs.append("trash")
     if data.get("refers_time"):
         needs += ["time_ref", "time_span_days"]
     return needs
@@ -1123,6 +874,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         reply = await wait_within(asyncio.shield(call), timeout)
     except asyncio.TimeoutError:
         logger.warning("調停の文章が %.1f 秒で返らなかった", timeout)
+        arbiter._timed_out = True
         _watch_late(call, started, len(prompt))
         return None
     except asyncio.CancelledError:

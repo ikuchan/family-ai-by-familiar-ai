@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.loop.arbiter import _SEE_OPTION, Decision
+from familiar_agent.loop.arbiter import _CAMERA_ACTION_TEXT, Decision
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.presence_map import PresenceMap, stale_order
 
@@ -50,7 +50,7 @@ def test_no_sensor_means_no_note():
 
 
 def test_the_arbiter_option_points_to_the_stalest_pose():
-    assert "見ていない順" in _SEE_OPTION
+    assert "見ていない順" in _CAMERA_ACTION_TEXT["look"]  # Jev の選択肢の説明（出-au 段 5-7d）
 
 
 # ── 既定 ─────────────────────────────────────────────────────────────────

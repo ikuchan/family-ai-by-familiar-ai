@@ -29,7 +29,7 @@ def test_after_a_see_completion_the_arbiter_is_skipped() -> None:
             Trigger(kind="完了", query="目の前を見る", result="（見えた）", index=1)
         )
         await ip._intake()
-        with patch("familiar_agent.loop.event_loop.arbitrate", new=AsyncMock()) as arb:
+        with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=AsyncMock()) as arb:
             d = await ip._decide(
                 utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1
             )
@@ -50,7 +50,7 @@ def test_the_shortcut_is_used_once() -> None:
             Trigger(kind="完了", query="目の前を見る", result="（見えた）", index=1)
         )
         await ip._intake()
-        with patch("familiar_agent.loop.event_loop.arbitrate", new=AsyncMock()) as arb:
+        with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=AsyncMock()) as arb:
             await ip._decide(
                 utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1
             )
@@ -70,7 +70,7 @@ def test_a_recall_completion_still_goes_through_the_arbiter() -> None:
         ip._req.lookups.append(Lookup(index=1, action="recall", query="昨日", generation=0))
         ip._drained_completions.append(Trigger(kind="完了", query="昨日", result="…", index=1))
         await ip._intake()
-        with patch("familiar_agent.loop.event_loop.arbitrate", new=AsyncMock()) as arb:
+        with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=AsyncMock()) as arb:
             await ip._decide(
                 utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1
             )

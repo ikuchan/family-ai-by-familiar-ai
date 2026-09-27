@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from tests._arbiter_compat import arbitrate as _compat_arbitrate
+
 import asyncio
 import inspect
 from datetime import date
@@ -46,7 +48,6 @@ def test_the_main_llm_prompt_carries_it():
 
 
 def test_the_arbiter_is_told_it_too():
-    from familiar_agent.loop import arbiter
 
     seen: dict = {}
 
@@ -57,7 +58,7 @@ def test_the_arbiter_is_told_it_too():
     b = MagicMock()
     b.complete = complete
     asyncio.run(
-        arbiter.arbitrate(
+        _compat_arbitrate(
             b,
             utterance="寒いね",
             workspace_ctx="",

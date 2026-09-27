@@ -7,14 +7,14 @@
 
 **並びは変えていない。** 事故の原因になったのは書式ではなく並びである。
 
-`ARBITER_PROMPT` の並びは実機の事故から来ている。調停が2秒で返らず時間切れになり、
+調停の文の並びは実機の事故から来ている。調停が2秒で返らず時間切れになり、
 沈黙依頼が読まれないまま倒れた。前方一致キャッシュが効くよう、起動中ほぼ変わらないものを
 先に置く。**その並びが崩れていないことを、名前の出現順で確かめる。**
 """
 
 from __future__ import annotations
 
-from familiar_agent.loop.arbiter import ARBITER_PROMPT
+from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
 from familiar_agent.loop.prompt import build_event_system_prompt
 
 _ME = "私は パジュ である。"
@@ -51,22 +51,28 @@ def test_the_event_system_prompt_is_labelled_and_ordered():
         assert changing not in stable, changing
 
 
-def test_the_arbiter_no_longer_needs_to_order_the_stable_part_by_hand():
-    """安定部はシステム文へ移した（出-e-に）。**順序を人が守る必要が無くなった。**
+def _jev_state() -> str:
+    inp = ArbiterInput(
+        utterance="{utterance}",
+        workspace_ctx="{workspace}",
+        present_ctx="{present}",
+        now_ctx="{now}",
+    )
+    return Arbiter(jev=None, writer=None)._state(inp)
 
-    以前は1本の文字列だったので「人格・家族を先に置く」ことでキャッシュを効かせていた。
-    分けたので、システム文は常に先である。プロンプトに残るのは可変と課題の指示だけで、
-    その中の並び（時刻 → 在席 → 言葉 → 作業状態）は変えていない。
-    """
-    assert "{me}" not in ARBITER_PROMPT
-    assert "{family}" not in ARBITER_PROMPT
-    i_now = ARBITER_PROMPT.index("{now}")
-    i_present = ARBITER_PROMPT.index("{present}")
-    i_utterance = ARBITER_PROMPT.index("{utterance}")
-    i_workspace = ARBITER_PROMPT.index("{workspace}")
+
+def test_the_arbiter_state_keeps_the_moment_in_order():
+    """Jev に送る文の並び（出-au 段 5-7d）：時刻 → 在席 → 言葉 → 作業状態。人格・家族は載せない。"""
+    state = _jev_state()
+    assert "{me}" not in state and "{family}" not in state
+    i_now = state.index("{now}")
+    i_present = state.index("{present}")
+    i_utterance = state.index("{utterance}")
+    i_workspace = state.index("{workspace}")
     assert i_now < i_present < i_utterance < i_workspace
 
 
-def test_the_arbiter_prompt_places_the_rules_before_the_moment():
-    """判断の規則（分岐の説明）は、いつ・誰・何を言われたかより前にある。"""
-    assert ARBITER_PROMPT.index('"light"') < ARBITER_PROMPT.index("{now}")
+def test_the_arbiter_state_places_the_guide_before_the_moment():
+    """判断の目安（分岐の決め方）は、いつ・誰・何を言われたかより前にある。"""
+    state = _jev_state()
+    assert state.index("[判断の目安]") < state.index("{now}")

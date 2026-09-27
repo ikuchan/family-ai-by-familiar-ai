@@ -12,7 +12,8 @@
 
 from __future__ import annotations
 
-from familiar_agent.loop.arbiter import ARBITER_PROMPT, _parse
+from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+from tests._arbiter_compat import _parse
 
 
 # --- 調停の返り値 ---------------------------------------------------------
@@ -41,31 +42,30 @@ def test_a_broken_length_does_not_silence():
     assert d.silence_minutes == 0
 
 
-# --- プロンプト -----------------------------------------------------------
+# --- Jev への問い（出-au 段 5-7d）------------------------------------------
 
 
-def test_the_name_comes_from_who_you_are_rather_than_a_separate_slot():
-    """名前は `ME.md`（「名前： …」）にあり、`[あなたは誰か]` に丸ごと入っている。
-
-    別枠でもう一度渡すと同じ情報が2箇所になる。規則のほうから、そこを指す。
-    """
-    from familiar_agent.core.context_parts import Stance, build_context
-
-    assert "{agent_name}" not in ARBITER_PROMPT
-    # 人格はシステム文へ移った（出-e-に）。規則の側は、そこを指す言葉を持つ。
-    built = build_context(stance=Stance.PAJU, self_understanding="me", family="fam").stable
-    assert "[あなたは誰か]" in built
-    assert "はじめに渡された [あなたは誰か]" in ARBITER_PROMPT
+def _questions(**kw):
+    return Arbiter(jev=None, writer=None)._questions(
+        ArbiterInput(utterance="x", workspace_ctx="", **kw)
+    )
 
 
-def test_the_prompt_requires_the_name_for_a_silence_request():
-    # 呼ばれていなければ黙らない、と明記されていること。
-    assert "呼ばれ" in ARBITER_PROMPT
+def test_the_name_is_not_passed_separately():
+    """名前は `ME.md`（「名前： …」）にある。Jev に送る文へ別枠で渡さない。"""
+    state = Arbiter(jev=None, writer=None)._state(ArbiterInput(utterance="x", workspace_ctx=""))
+    assert "{agent_name}" not in state
 
 
-def test_the_prompt_asks_for_minutes_rather_than_a_flag():
-    assert "silence_minutes" in ARBITER_PROMPT
-    assert '"silence"' not in ARBITER_PROMPT  # 旧い真偽値の項目が残っていないこと
+def test_the_question_requires_the_name_for_a_silence_request():
+    # 呼ばれていなければ黙らない、と問いに書いてあること。
+    assert "名前で呼んだ" in _questions()["asks_quiet"]["instructions"]
+
+
+def test_the_question_asks_for_a_length_rather_than_a_flag():
+    minutes = _questions()["quiet_minutes"]
+    assert minutes["type"] == "choice"
+    assert "default" in minutes["criteria"]  # 長さを言っていない → 既定
 
 
 # --- 長さの適用 -----------------------------------------------------------

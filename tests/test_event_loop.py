@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+
+import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall, TurnResult
@@ -33,6 +35,18 @@ _FETCH_DEF = {"name": "fetch_deferred", "input_schema": {}}
 
 def _turn(tool_calls, text=""):
     return (TurnResult(stop_reason="end_turn", text=text, tool_calls=tool_calls), {})
+
+
+@pytest.fixture(autouse=True)
+def _arbiter_reads_the_utility_backend(monkeypatch):
+    """このループの試験は、調停の答えを `_utility_backend` の返事（古い JSON）で与える（出-au 段 5-7d）。
+
+    本物のループは判定を Jev に、文章を軽量LLM に頼む。ここでは同じ返事から両方を作る（`tests/_arbiter_compat.py`）。
+    """
+    from familiar_agent.loop.arbiter import Arbiter
+    from tests._arbiter_compat import decide_through_the_writer
+
+    monkeypatch.setattr(Arbiter, "decide", decide_through_the_writer)
 
 
 def _agent(*, stream_returns, max_iters=3):
@@ -105,6 +119,9 @@ def _agent(*, stream_returns, max_iters=3):
     a.config.agent_names = ["パジュ"]  # 名前で呼ばれたか（打ち切りの条件・出-au）を決める
     a._jev = None  # 判定の Jev は持たない（使えない＝倒し先・出-au 段 5）
     a.config.max_tokens = 400
+    a.config.jev_confidence_min = (
+        0.6  # Jev の確信の下限（本物の既定と同じ・MagicMock のままだと 1.0 になる）
+    )
     a.config.event_max_iterations = max_iters
     a.config.max_thinking_rounds = 5  # 考えた回数の上限（暴走の歯止め）
     # 数値として使う設定は明示する。MagicMock のままだと `content[:cap]` の cap が

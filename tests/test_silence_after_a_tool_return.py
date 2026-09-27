@@ -13,9 +13,10 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop import arbiter
+from tests._arbiter_compat import arbitrate as _compat_arbitrate
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.silence_state import SilenceRequest
 
@@ -23,11 +24,9 @@ from tests.test_event_loop import _agent
 
 
 def _backend(reply: str):
-    async def complete(prompt, max_tokens, **kw):
-        return reply
-
+    # 試験用の口（`tests/_arbiter_compat.py`）が返事を覗いて偽の Jev の答えにするので、AsyncMock で持つ。
     b = MagicMock()
-    b.complete = complete
+    b.complete = AsyncMock(return_value=reply)
     return b
 
 
@@ -39,14 +38,14 @@ def test_a_tool_return_never_carries_a_silence_request():
         '{"branch":"light","text":"3 分ね、いい？","silence_minutes":-1,"lift_silence":true}'
     )
     d = asyncio.run(
-        arbiter.arbitrate(b, utterance="パジュ、3分測って", workspace_ctx="", tool_return=True)
+        _compat_arbitrate(b, utterance="パジュ、3分測って", workspace_ctx="", tool_return=True)
     )
     assert d.branch == "light" and d.silence_minutes == 0 and d.lift_silence is False
 
 
 def test_a_first_iteration_still_carries_it():
     b = _backend('{"branch":"light","text":"うん、黙るね","silence_minutes":-1}')
-    d = asyncio.run(arbiter.arbitrate(b, utterance="パジュ、静かにして", workspace_ctx=""))
+    d = asyncio.run(_compat_arbitrate(b, utterance="パジュ、静かにして", workspace_ctx=""))
     assert d.silence_minutes == -1
 
 
@@ -77,12 +76,12 @@ def test_a_live_silence_is_not_cleared(monkeypatch):
 
 def test_a_control_word_answered_lightly_falls_to_full_while_a_timer_is_running():
     b = _backend('{"branch":"light","text":"はい、再開しますね。"}')
-    d = asyncio.run(arbiter.arbitrate(b, utterance="再開", workspace_ctx="", timer_active=True))
+    d = asyncio.run(_compat_arbitrate(b, utterance="再開", workspace_ctx="", timer_active=True))
     assert d.branch == "full"
-    d = asyncio.run(arbiter.arbitrate(b, utterance="再開", workspace_ctx=""))
+    d = asyncio.run(_compat_arbitrate(b, utterance="再開", workspace_ctx=""))
     assert d.branch == "light"  # タイマーが無ければ会話（「再開発の話？」）
     d = asyncio.run(
-        arbiter.arbitrate(b, utterance="こんにちは", workspace_ctx="", timer_active=True)
+        _compat_arbitrate(b, utterance="こんにちは", workspace_ctx="", timer_active=True)
     )
     assert d.branch == "light"
 
@@ -90,7 +89,7 @@ def test_a_control_word_answered_lightly_falls_to_full_while_a_timer_is_running(
 def test_the_control_guard_is_not_applied_on_a_tool_return():
     b = _backend('{"branch":"light","text":"止めておくね。"}')
     d = asyncio.run(
-        arbiter.arbitrate(
+        _compat_arbitrate(
             b, utterance="一時停止", workspace_ctx="", timer_active=True, tool_return=True
         )
     )
@@ -100,8 +99,8 @@ def test_the_control_guard_is_not_applied_on_a_tool_return():
 def test_decide_passes_whether_a_timer_is_running():
     seen = {}
 
-    async def fake_arbitrate(backend, **kw):
-        seen.update(kw)
+    async def fake_decide(self, inp):
+        seen["inp"] = inp
         return arbiter.Decision(branch="light", text="x")
 
     a = _agent(stream_returns=[])
@@ -109,14 +108,10 @@ def test_decide_passes_whether_a_timer_is_running():
     a._timer_tool.frame = MagicMock(return_value="[タイマー]\n- id=1 パスタ 一時停止中")
     ip = InformationProcessing(a)
     ip._req.trigger_kind = "発話"
-    import familiar_agent.loop.event_loop as el
+    from unittest.mock import patch
 
-    orig = el.arbitrate
-    el.arbitrate = fake_arbitrate
-    try:
+    with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=fake_decide):
         asyncio.run(
             ip._decide(utterance="再開", workspace_ctx="", present_ctx="", capped=False, round_=1)
         )
-    finally:
-        el.arbitrate = orig
-    assert seen.get("timer_active") is True
+    assert seen["inp"].timer_active is True

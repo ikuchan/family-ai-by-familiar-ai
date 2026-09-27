@@ -10,7 +10,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF
-from familiar_agent.loop.arbiter import _parse, arbitrate
+from tests._arbiter_compat import _parse
 from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, InformationProcessing, _query_label
 
 from tests.test_event_loop import _agent
@@ -64,14 +64,14 @@ def test_the_arbiter_can_choose_notion_search_with_a_query() -> None:
 
 
 def test_the_arbiter_prompt_offers_notion_when_available() -> None:
-    b = MagicMock(spec=["complete"])
-    b.complete = AsyncMock(return_value='{"branch": "full"}')
-    asyncio.run(
-        arbitrate(
-            b,
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+
+    # 動作は Jev の選択肢（出-au 段 5-7d）。
+    qs = Arbiter(jev=None, writer=None)._questions(
+        ArbiterInput(
             utterance="サッカー教室の話、どこかに書いてある？",
             workspace_ctx="",
             extra_actions=("notion_search",),
         )
     )
-    assert '"notion_search"' in b.complete.call_args.args[0]
+    assert "notion_search" in qs["action"]["criteria"]

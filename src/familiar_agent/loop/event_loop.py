@@ -29,7 +29,7 @@ if TYPE_CHECKING:
 from ..poses import nearest_pose
 from ..scene import extract_entities, read_photo
 from ..store import clock
-from .arbiter import Decision as ArbiterDecision, arbitrate
+from .arbiter import Arbiter, ArbiterInput, Decision as ArbiterDecision
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION
 from ..io.dif import DIF
 from ..core import filler_echo, jev_judges, measure, parsing, unsaid
@@ -2872,25 +2872,34 @@ class InformationProcessing:
             logger.info("event-loop 調停が出した see の帰りなので調停が判断する（読み取りは W に）")
         # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない。
         logger.debug("event-loop 調停へ渡す W:\n%s", workspace_ctx)
-        decision = await arbitrate(
-            agent._utility_backend,
-            utterance=utterance,
-            workspace_ctx=workspace_ctx,
-            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
-            family_md=getattr(agent, "_family_md", ""),
-            self_image=_self_image_text(),
-            season_env=_season_env_text(),
-            present_ctx=present_ctx,
-            now_ctx=f'(now :datetime "{clock.now_local_str()}")'
-            + self._silence_note()
-            + (self._patrol_note() if self._req.trigger_kind == "情動" else ""),
-            capped=capped,
-            thinking_round=round_,
-            can_see=getattr(agent, "_camera", None) is not None,
-            origin=self._req.trigger_kind,
-            extra_actions=self._extra_actions(exclude=returned),
-            tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
-            timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
+        # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
+        silence_note = self._silence_note()
+        decision = await Arbiter(
+            jev=getattr(agent, "_jev", None),
+            writer=agent._utility_backend,
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+        ).decide(
+            ArbiterInput(
+                utterance=utterance,
+                workspace_ctx=workspace_ctx,
+                self_understanding=load_summary() or getattr(agent, "_me_md", ""),
+                family_md=getattr(agent, "_family_md", ""),
+                self_image=_self_image_text(),
+                season_env=_season_env_text(),
+                present_ctx=present_ctx,
+                now_ctx=f'(now :datetime "{clock.now_local_str()}")'
+                + silence_note
+                + (self._patrol_note() if self._req.trigger_kind == "情動" else ""),
+                capped=capped,
+                thinking_round=round_,
+                can_see=getattr(agent, "_camera", None) is not None,
+                origin=self._req.trigger_kind,
+                extra_actions=self._extra_actions(exclude=returned),
+                tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
+                timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
+                current_speaker=self._current_speaker_name(),
+                silenced=bool(silence_note),
+            )
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(

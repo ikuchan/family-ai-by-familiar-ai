@@ -36,7 +36,7 @@ def test_a_see_thrown_by_the_arbiter_comes_back_to_the_arbiter() -> None:
         ip._req.see_by = "調停"
         await _returned_see(ip)
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="full", effort="low")),
         ) as arb:
             d = await ip._decide(
@@ -54,7 +54,7 @@ def test_a_see_thrown_by_the_main_llm_skips_the_arbiter() -> None:
         a, ip = _ip()
         ip._req.see_by = "主LLM"
         await _returned_see(ip)
-        with patch("familiar_agent.loop.event_loop.arbitrate", new=AsyncMock()) as arb:
+        with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=AsyncMock()) as arb:
             d = await ip._decide(
                 utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1
             )
@@ -70,7 +70,7 @@ def test_the_arbiter_is_told_whether_it_can_see() -> None:
         a, ip = _ip()
         a._camera = MagicMock()
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="full")),
         ) as arb:
             await ip._decide(
@@ -80,7 +80,7 @@ def test_the_arbiter_is_told_whether_it_can_see() -> None:
         return arb
 
     arb = asyncio.run(scenario())
-    assert arb.call_args.kwargs["can_see"] is True
+    assert arb.call_args.args[0].can_see is True
 
 
 def test_the_action_branch_records_who_looked() -> None:

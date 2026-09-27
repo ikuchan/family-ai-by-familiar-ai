@@ -87,7 +87,7 @@ def test_a_look_thrown_by_the_arbiter_comes_back_to_the_arbiter_without_the_phot
         ip._seen_image = lambda memories: ("B64", "/tmp/c.jpg")
         await _returned_look(ip)
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="light", text="右を向いたよ")),
         ) as arb:
             d = await ip._decide(
@@ -97,7 +97,7 @@ def test_a_look_thrown_by_the_arbiter_comes_back_to_the_arbiter_without_the_phot
         return d, arb
 
     d, arb = asyncio.run(scenario())
-    assert arb.called and "image_b64" not in arb.call_args.kwargs
+    assert arb.called and not hasattr(arb.call_args.args[0], "image_b64")  # 写真は調停に渡らない
     assert d.branch == "light"
 
 
@@ -106,7 +106,7 @@ def test_a_look_thrown_by_the_main_llm_skips_the_arbiter():
         a, ip = _ip_with_camera()
         ip._req.see_by = "主LLM"
         await _returned_look(ip)
-        with patch("familiar_agent.loop.event_loop.arbitrate", new=AsyncMock()) as arb:
+        with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=AsyncMock()) as arb:
             d = await ip._decide(
                 utterance="右向いて", workspace_ctx="", present_ctx="", capped=False, round_=1
             )

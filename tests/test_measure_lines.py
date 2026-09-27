@@ -22,7 +22,7 @@ def _lines(tmp_path: Path, kind: str) -> list[str]:
 
 
 def test_the_arbiter_records_seconds_branch_and_timeout(tmp_path):
-    from familiar_agent.loop.arbiter import arbitrate
+    from tests._arbiter_compat import arbitrate
 
     measure.setup(base_dir=tmp_path)
     b = MagicMock(spec=["complete"])

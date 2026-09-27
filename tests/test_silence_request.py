@@ -43,11 +43,14 @@ def test_no_request_means_no_silence():
 
 def test_arbiter_can_flag_a_silence_request():
     # 気づくのは軽量LLM。言い方は無数にあるので、文字列の一覧を持たない。
-    from familiar_agent.loop.arbiter import ARBITER_PROMPT, Decision, arbitrate
+    from familiar_agent.loop.arbiter import Decision
+    from tests._arbiter_compat import arbitrate
     import asyncio
     from unittest.mock import AsyncMock
 
-    assert "silence_minutes" in ARBITER_PROMPT
+    # 気づくのは Jev（出-au 段 5-7d）。黙る依頼と長さを問う。
+    qs = _arbiter_questions()
+    assert qs["asks_quiet"]["type"] == "noul" and qs["quiet_minutes"]["type"] == "choice"
     b = AsyncMock()
     b.complete = AsyncMock(return_value='{"branch":"light","text":"わかった","silence_minutes":-1}')
     d: Decision = asyncio.run(arbitrate(b, utterance="ちょっと静かにして", workspace_ctx=""))
@@ -177,11 +180,13 @@ def test_merely_speaking_to_her_does_not_lift_it(monkeypatch):
 
 
 def test_the_arbiter_can_flag_a_release():
-    from familiar_agent.loop.arbiter import ARBITER_PROMPT, arbitrate
+    from tests._arbiter_compat import arbitrate
     import asyncio
     from unittest.mock import AsyncMock
 
-    assert "lift_silence" in ARBITER_PROMPT
+    # 解く言葉は、黙っているあいだだけ Jev に問う。
+    assert "lifts_quiet" in _arbiter_questions(silenced=True)
+    assert "lifts_quiet" not in _arbiter_questions(silenced=False)
     b = AsyncMock()
     b.complete = AsyncMock(return_value='{"branch":"light","text":"はい","lift_silence":true}')
     d = asyncio.run(arbitrate(b, utterance="もう話していいよ", workspace_ctx=""))
@@ -191,9 +196,16 @@ def test_the_arbiter_can_flag_a_release():
 
 
 def test_waiting_is_not_a_request_for_silence():
-    from familiar_agent.loop.arbiter import ARBITER_PROMPT
+    asked = _arbiter_questions()["asks_quiet"]["instructions"]
+    assert "待って" in asked and "これには当たらない" in asked
 
-    assert "待って" in ARBITER_PROMPT and "沈黙の依頼ではない" in ARBITER_PROMPT
+
+def _arbiter_questions(**kw) -> dict:
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+
+    return Arbiter(jev=None, writer=None)._questions(
+        ArbiterInput(utterance="x", workspace_ctx="", **kw)
+    )
 
 
 def test_the_decision_is_applied_through_one_door(monkeypatch):

@@ -49,7 +49,7 @@ def test_the_photo_no_longer_goes_to_the_arbiter_when_it_looked(tmp_path) -> Non
         ip._req.seen_image_path = str(path)
         await _returned_see(ip)
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="light", text="机")),
         ) as arb:
             await ip._decide(
@@ -64,7 +64,7 @@ def test_the_photo_no_longer_goes_to_the_arbiter_when_it_looked(tmp_path) -> Non
         return arb
 
     arb = asyncio.run(scenario())
-    assert arb.called and "image_b64" not in arb.call_args.kwargs
+    assert arb.called and not hasattr(arb.call_args.args[0], "image_b64")  # 写真は調停に渡らない
 
 
 def test_no_photo_is_sent_when_nothing_was_seen() -> None:
@@ -72,7 +72,7 @@ def test_no_photo_is_sent_when_nothing_was_seen() -> None:
         a = _agent(stream_returns=[])
         ip = InformationProcessing(a)
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="full")),
         ) as arb:
             await ip._decide(
@@ -82,7 +82,7 @@ def test_no_photo_is_sent_when_nothing_was_seen() -> None:
         return arb
 
     arb = asyncio.run(scenario())
-    assert not arb.call_args.kwargs.get("image_b64")
+    assert not hasattr(arb.call_args.args[0], "image_b64")
 
 
 def test_the_decision_is_logged_at_info(caplog) -> None:
@@ -93,7 +93,7 @@ def test_the_decision_is_logged_at_info(caplog) -> None:
         a = _agent(stream_returns=[])
         ip = InformationProcessing(a)
         with patch(
-            "familiar_agent.loop.event_loop.arbitrate",
+            "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="light", text="机", effort="low")),
         ):
             with caplog.at_level(logging.INFO, logger="familiar_agent.loop.event_loop"):
