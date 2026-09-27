@@ -743,8 +743,14 @@ class EmbodiedAgent:
             ev is None
             or ev._utility_backend is not self._utility_backend
             or ev.backend is not self.backend
+            or ev._jev is not getattr(self, "_jev", None)
         ):
-            ev = Evaluator(self._utility_backend, self.backend, context=self._stance_context)
+            ev = Evaluator(
+                self._utility_backend,
+                self.backend,
+                context=self._stance_context,
+                jev=getattr(self, "_jev", None),
+            )
             self.__dict__["_evaluator_obj"] = ev
         return ev
 

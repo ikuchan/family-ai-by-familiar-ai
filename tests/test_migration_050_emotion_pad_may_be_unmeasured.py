@@ -87,24 +87,35 @@ def test_the_three_axes_may_be_null_but_arousal_may_not() -> None:
 
 def test_the_evaluator_reports_unmeasured_below_the_gate() -> None:
     """ゲート未満では評価器を呼ばず、**気分で埋めずに**未測定を返す。"""
-    from familiar_agent.loop.evaluator import A_GATE, _evaluate_emotion_pad
+    from familiar_agent.core.jev_judges import judge_emotion
+    from familiar_agent.loop.evaluator import A_GATE
 
-    backend = AsyncMock()
+    client = AsyncMock()  # 判定は Jev（出-au 段 5-6）
     mood = MoodPAD(p=0.8, pn=0.1, a=0.9, dom=0.7)
-    pad, arousal = asyncio.run(_evaluate_emotion_pad(backend, "静かな一日", mood, A_GATE - 0.01))
+    pad, arousal = asyncio.run(
+        judge_emotion(client, text="静かな一日", mood=mood, arousal=A_GATE - 0.01, a_gate=A_GATE)
+    )
     assert pad is None, "気分で埋めている"
     assert arousal == A_GATE - 0.01, "A は機械値なので返る"
-    backend.complete.assert_not_awaited()
+    client.ask.assert_not_awaited()
 
 
 def test_the_evaluator_reports_unmeasured_when_it_fails() -> None:
     """評価器が失敗しても、気分で埋めずに未測定にする。測れなかったのは同じである。"""
-    from familiar_agent.loop.evaluator import _evaluate_emotion_pad
+    from unittest.mock import MagicMock
 
-    backend = AsyncMock()
-    backend.complete.side_effect = RuntimeError("軽量LLM が落ちた")
+    from familiar_agent.core.jev_judges import judge_emotion
+
+    client = MagicMock(available=True)  # 判定は Jev（出-au 段 5-6）
+    client.ask = AsyncMock(side_effect=RuntimeError("Jev が落ちた"))
     pad, arousal = asyncio.run(
-        _evaluate_emotion_pad(backend, "何か", MoodPAD(p=0.8, pn=0.1, a=0.9, dom=0.7), 0.9)
+        judge_emotion(
+            client,
+            text="何か",
+            mood=MoodPAD(p=0.8, pn=0.1, a=0.9, dom=0.7),
+            arousal=0.9,
+            a_gate=0.25,
+        )
     )
     assert pad is None
     assert arousal == 0.9

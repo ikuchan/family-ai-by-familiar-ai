@@ -1,6 +1,6 @@
 """快と不快の目盛りを「0＝無い」に揃える（案A）。
 
-`_EMOTION_PAD_PROMPT` は P と Pn について「0 none」と「0.5 neutral」を同居させており、
+以前の感情の評価の指示文は P と Pn について「0 none」と「0.5 neutral」を同居させており、
 中立の出来事をどちらに置くかが決まっていなかった。実測でモデル間が 0.37 開いた
 （事務連絡の Pn が gemini-2.5-flash-lite 0.08 対 claude-haiku-4-5 0.45・根拠台帳 §25.4）。
 
@@ -16,7 +16,7 @@
 from __future__ import annotations
 
 from familiar_agent.emotion_pad import LABEL_PAD, label_from_pad
-from familiar_agent.loop.evaluator import _EMOTION_PAD_PROMPT
+from familiar_agent.core import jev_judges
 from familiar_agent.mood_register import MoodPAD, decay_to_rest
 
 _NEUTRAL_P = 0.10
@@ -26,44 +26,34 @@ _NEUTRAL_PN = 0.10
 # ── 段1：口の目盛り ─────────────────────────────────────────────────────────
 
 
-def _axis_line(head: str) -> str:
-    return next(ln for ln in _EMOTION_PAD_PROMPT.splitlines() if ln.lstrip().startswith(head))
+# 出-au 段 5-6 で感情の評価は Jev の Score（5 段）へ移した。目盛りの決まりは段の並びと送る文（state）で守る。
 
 
-def test_the_pleasure_axes_have_no_midpoint_anchor():
-    """快と不快は片側の量。0 が「無い」で、真ん中に印を置かない。
-
-    どちらも 0＝まったく無い ↔ 1＝とても大きい で、0.5 に名前が付いていないこと。
-    印を置くと、中立の出来事をどこへ置くかが決まらなくなる（それが案A の出発点だった）。
-    """
-    for head in ("- P ", "- Pn"):
-        line = _axis_line(head)
-        assert "まったく無い" in line, line
-        assert "0.5" not in line, line
+def test_the_pleasure_axes_start_at_none():
+    """快と不快の段は「0＝無い」から始まる。真ん中を「中立」と書かない。"""
+    assert jev_judges._AMOUNT_LEVELS[0] == "まったく無い"
+    assert "中立" not in "".join(jev_judges._AMOUNT_LEVELS)
 
 
 def test_the_dominance_axis_keeps_its_midpoint():
-    """Dom は 0＝無力 ↔ 1＝掌握 の両極なので 0.5 が中点で正しい。ここは変えない。"""
-    line = _axis_line("- Dom")
-    assert "0.5" in line, line
+    assert jev_judges._DOM_LEVELS[2] == "ふつう"
 
 
-def test_the_prompt_states_where_the_axes_rest():
-    """平静の位置は事実として伝える（指示ではない）。無いと中立が真ん中へ寄る。"""
-    assert "P=0.10 / Pn=0.10 / Dom=0.50" in _EMOTION_PAD_PROMPT
+def test_the_state_says_where_the_axes_rest_and_asks_what_paju_felt():
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    c = MagicMock(available=True)
+    c.ask = AsyncMock(return_value=None)
+    asyncio.run(
+        jev_judges.judge_emotion(c, text="やった！", mood=MoodPAD(), arousal=0.9, a_gate=0.25)
+    )
+    state, questions = c.ask.await_args.args
+    assert "快 0.10・不快 0.10・掌握 0.50" in state
+    assert all("パジュ自身が感じた" in q["instructions"] for q in questions.values())
 
 
-def test_the_prompt_asks_what_paju_felt_rather_than_a_rating():
-    """感情を作るのはパジュである。外から採点させない。"""
-    assert "あなた自身が何を感じたか" in _EMOTION_PAD_PROMPT
-    assert "Rate the emotion" not in _EMOTION_PAD_PROMPT
-
-
-def test_the_prompt_says_nobody_else_reads_it():
-    assert "あなた以外だれも見ない" in _EMOTION_PAD_PROMPT
-
-
-# ── 段2：中立の位置 ─────────────────────────────────────────────────────────
+# ── 段2：中立と気分の減衰先 ───────────────────────────────────────────────────
 
 
 def test_the_neutral_label_sits_where_neither_feeling_is_present():

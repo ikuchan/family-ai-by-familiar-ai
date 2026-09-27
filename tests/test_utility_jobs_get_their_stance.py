@@ -1,6 +1,6 @@
 """軽量LLM の仕事へ、立ち位置と文脈を配る（出-e-は）。
 
-**感情を作るのはパジュである。** PAD 評価・相手の気分の分類・一言要約は一人称で立ち、
+**感情を作るのはパジュである。** 一言要約は一人称で立ち（PAD 評価と相手の気分の分類は出-au 段 5-6 で Jev へ移した）、
 発話前の検査と同一意図の判定は外から測る。実測では、パジュとしての立ち位置で発話前の検査を
 させると違反18件中0〜1件しか捕まえない（`根拠台帳` §25.8）。**自分で自分は検査できない。**
 
@@ -18,7 +18,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.core.context_parts import Stance
 from familiar_agent.loop.evaluator import Evaluator
-from familiar_agent.mood_register import MoodPAD
 
 
 def _backend(reply="0.8 0.1 0.6"):
@@ -34,29 +33,7 @@ def _evaluator(be, *, context=None):
 # ── 立ち位置が届く ──────────────────────────────────────────────────────────
 
 
-def test_the_pad_reading_speaks_as_paju():
-    be = _backend()
-    seen = {}
-
-    def ctx(stance, *, with_rules=False):
-        seen["pad"] = (stance, with_rules)
-        return "＜パジュとしての文脈＞"
-
-    asyncio.run(_evaluator(be, context=ctx).emotion_for_turn("やった！", 0.9, mood=MoodPAD()))
-    assert seen["pad"] == (Stance.PAJU, False)
-    assert be.complete.await_args.kwargs["system"] == "＜パジュとしての文脈＞"
-
-
-def test_the_companion_mood_reading_speaks_as_paju():
-    be = _backend("happy")
-    seen = {}
-
-    def ctx(stance, *, with_rules=False):
-        seen["mood"] = (stance, with_rules)
-        return "＜パジュ＞"
-
-    asyncio.run(_evaluator(be, context=ctx).infer_companion_mood("やった！"))
-    assert seen["mood"] == (Stance.PAJU, False)
+# 感情の評価と気分の見立ては出-au 段 5-6 で Jev へ移した（Jev にはシステム文が無い・`test_emotion_and_mood_with_jev.py`）。
 
 
 def test_the_one_line_summary_speaks_as_paju():
@@ -76,19 +53,19 @@ def test_the_one_line_summary_speaks_as_paju():
 
 def test_a_missing_part_falls_back_to_no_stance():
     """`FAMILY.md` が無い機体でターンを落とさない。いままでと同じ挙動へ落ちる。"""
-    be = _backend()
+    be = _backend("うれしかった")
 
     def ctx(stance, *, with_rules=False):
         return None
 
-    asyncio.run(_evaluator(be, context=ctx).emotion_for_turn("やった！", 0.9, mood=MoodPAD()))
+    asyncio.run(_evaluator(be, context=ctx).summarize_exchange("やあ", "こんにちは"))
     assert be.complete.await_args.kwargs["system"] is None
 
 
 def test_without_a_context_provider_nothing_changes():
     """`context` を渡さなければ、いままでと同じ（システム文なし）。"""
-    be = _backend()
-    asyncio.run(_evaluator(be).emotion_for_turn("やった！", 0.9, mood=MoodPAD()))
+    be = _backend("うれしかった")
+    asyncio.run(_evaluator(be).summarize_exchange("やあ", "こんにちは"))
     assert be.complete.await_args.kwargs.get("system") is None
 
 

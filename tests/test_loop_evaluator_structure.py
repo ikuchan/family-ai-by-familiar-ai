@@ -33,12 +33,12 @@ def test_evaluator_exposes_public_methods() -> None:
 
 
 def test_module_helpers_moved_out_of_agent() -> None:
-    """_evaluate_emotion_pad / A_GATE / 各プロンプトは evaluator 側にある。"""
+    """A_GATE は evaluator 側にある。感情と気分の判定は `core/jev_judges`（出-au 段 5-6）。"""
+    from familiar_agent.core import jev_judges
     from familiar_agent.loop import evaluator as ev
 
-    assert hasattr(ev, "_evaluate_emotion_pad")
     assert hasattr(ev, "A_GATE")
-    assert hasattr(ev, "_companion_mood_heuristic")
+    assert hasattr(jev_judges, "judge_emotion") and hasattr(jev_judges, "judge_companion_mood")
 
 
 def test_agent_does_not_redefine_evaluator_bodies() -> None:

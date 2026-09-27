@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 import re
 
-from ..backends.jev import choice
+from ..backends.jev import choice, score
 
 logger = logging.getLogger(__name__)
 
@@ -218,3 +218,71 @@ async def judge_verdicts(
             out.append({"id": i, "verdict": pick})
     logger.info("Jev 判定 記憶の申告：%d／%d 件", len(out), len(wanted))
     return out
+
+
+#: 感情の評価（§2.2.3・本人の決定 5 段）。P と Pn は量、Dom は掌握。
+_AMOUNT_LEVELS = ["まったく無い", "少し", "ふつう", "かなり", "とても大きい"]
+_DOM_LEVELS = ["どうにもできない", "あまりできない", "ふつう", "かなりできる", "すっかり手の内"]
+
+
+def _unit(got: dict, levels: int) -> "float | None":
+    """Score の値（段の番号を確率で重みづけた 0〜段数-1）を 0〜1 に直す。無ければ None。"""
+    v = got.get("score") if isinstance(got, dict) else None
+    if v is None:
+        return None
+    return min(1.0, max(0.0, float(v) / (levels - 1)))
+
+
+async def judge_emotion(client, *, text: str, mood, arousal: float, a_gate: float):
+    """いまのやり取りでパジュ自身が何を感じたかを P・Pn・Dom で測る（W2b-2・§2.2.3）。返りは `(PAD|None, A)`。
+
+    A は機械の高ぶりで、`a_gate` 未満なら聞かない。平静の位置といまの気分は**事実として**送る（答えの側を指示しない・
+    出-e）。Jev が使えない・失敗・3 つそろわなければ未測定（`None`・気分で埋めない・050）。確信度では倒さない。
+    """
+    from ..mood_register import MoodPAD
+
+    a = min(1.0, max(0.0, arousal))
+    if a < a_gate:
+        return None, a
+    state = (
+        f"[やり取り]\n{text[:400]}\n\n"
+        "[家のロボット（パジュ）のいまの気分]\n"
+        f"快 {mood.p:.2f}・不快 {mood.pn:.2f}・掌握 {mood.dom:.2f}"
+        "（何も起きていないときは 快 0.10・不快 0.10・掌握 0.50 に落ち着く。快と不快は別々の量で、両方大きいことも"
+        "両方小さいこともある）"
+    )
+    questions = {
+        "p": score("このやり取りで、パジュ自身が感じた心地よさ（快）の大きさ", _AMOUNT_LEVELS),
+        "pn": score("このやり取りで、パジュ自身が感じた嫌さ（不快）の大きさ", _AMOUNT_LEVELS),
+        "dom": score("このやり取りで、パジュ自身が感じた、状況を掌握している度合い", _DOM_LEVELS),
+    }
+    answer = await _ask(client, state, questions)
+    if not getattr(answer, "ok", False):
+        return None, a
+    got = answer.answers
+    p = _unit(got.get("p", {}), len(_AMOUNT_LEVELS))
+    pn = _unit(got.get("pn", {}), len(_AMOUNT_LEVELS))
+    dom = _unit(got.get("dom", {}), len(_DOM_LEVELS))
+    if p is None or pn is None or dom is None:
+        return None, a
+    return MoodPAD(p=p, pn=pn, a=a, dom=dom), a
+
+
+#: 気分の見立ての選択肢（`observations` の読み手が使う 5 つ）。
+COMPANION_MOODS = {
+    "engaged": "乗り気・話に関わっている",
+    "tired": "疲れている",
+    "frustrated": "苛立っている・困っている",
+    "absent": "関わっていない・上の空・分からない",
+    "happy": "うれしい・楽しい",
+}
+#: Jev が使えないときの既定（見立てない・本人の決定 2026-09-27）。
+MOOD_DEFAULT = "absent"
+
+
+async def judge_companion_mood(client, *, text: str) -> str:
+    """相手の言葉から相手の気分を見立てる（§2.2.3）。確信度では倒さない。使えないときは既定の `absent`。"""
+    questions = {"mood": choice("この言葉を言った人の、いまの気分に最も近いもの", COMPANION_MOODS)}
+    answer = await _ask(client, f"[家族の言葉]\n{text[:300]}", questions)
+    pick = picked(answer, "mood", 0.0)
+    return pick if pick in COMPANION_MOODS else MOOD_DEFAULT

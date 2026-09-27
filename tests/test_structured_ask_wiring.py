@@ -14,8 +14,6 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.mood_register import MoodPAD
-
 
 def _backend(reply: str):
     b = AsyncMock()
@@ -24,26 +22,6 @@ def _backend(reply: str):
 
 
 # ── ① 相手の気分：読めなければ語ベースの判定へ落ちる ──────────────────────
-
-
-def test_an_unreadable_mood_falls_back_to_the_heuristic() -> None:
-    """**黙って `"engaged"` と断定しない。** 同じファイルにある語ベースの判定を使う。"""
-    from familiar_agent.loop.evaluator import Evaluator, _companion_mood_heuristic
-
-    text = "疲れた。もう寝る"
-    ev = Evaluator(utility_backend=_backend("よくわかりません"), backend=object())
-    got = asyncio.run(ev.infer_companion_mood(text))
-    assert got == _companion_mood_heuristic(text), "語ベースの判定へ落ちていない"
-
-
-def test_a_readable_mood_is_used() -> None:
-    from familiar_agent.loop.evaluator import Evaluator
-
-    ev = Evaluator(utility_backend=_backend("tired"), backend=object())
-    assert asyncio.run(ev.infer_companion_mood("何か話す")) == "tired"
-
-
-# ── ② 同じ意図か：読めなければ文字列の一致へ落ちる ────────────────────────
 
 
 def _searcher(reply: str):
@@ -71,21 +49,6 @@ def test_an_unreadable_intent_falls_back_to_string_equality() -> None:
 
 
 # ── ③ PAD の数値：口を通しても 050 の約束は変わらない ─────────────────────
-
-
-def test_the_pad_still_goes_unmeasured_when_the_numbers_are_short() -> None:
-    from familiar_agent.loop.evaluator import _evaluate_emotion_pad
-
-    pad, a = asyncio.run(
-        _evaluate_emotion_pad(
-            _backend("0.7 0.2"), "text", MoodPAD(0.6, 0.3, 0.5, 0.55), arousal=0.8
-        )
-    )
-    assert pad is None
-    assert a == 0.8
-
-
-# ── ④ 満たされた軸：口を通す ───────────────────────────────────────────────
 
 
 def test_the_satisfied_axes_are_read_through_the_gate() -> None:
