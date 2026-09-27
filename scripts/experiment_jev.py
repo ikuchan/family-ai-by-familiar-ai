@@ -250,6 +250,92 @@ def report(t: Tally) -> str:
     return "\n".join(lines)
 
 
+# ── 本人が正解を付ける（出-au 段 4-2・本人の決定 ア） ──────────────────────────────
+
+LABELS = {"1": "light", "2": "full", "3": "action"}
+LABEL_HELP = (
+    "1 = light（短い言葉で答えきれる。挨拶・相槌・簡単な受け答え）\n"
+    "2 = full（考えて答える。記憶を踏まえる・込み入った説明・道具が要る頼み）\n"
+    "3 = action（先に調べる。自分の記憶を探す・インターネットで調べる・予定を見る）\n"
+    "s = 分からないので飛ばす　q = やめて集計する"
+)
+
+
+def pick_disagreements(pairs: "list[tuple[Case, object]]", n: int, *, seed: int = 7) -> list:
+    """軽量LLM と Jev が割れた例から、割れ方（組み合わせ）ごとに偏らないよう `n` 件を選ぶ。"""
+    import random
+
+    rng = random.Random(seed)
+    cells: "dict[tuple[str, str], list]" = collections.defaultdict(list)
+    for case, got in pairs:
+        if not getattr(got, "ok", False):
+            continue
+        jb = got.answers.get("branch", {}).get("choice", "")
+        if jb and jb != case.branch:
+            cells[(case.branch, jb)].append((case, jb))
+    for items in cells.values():
+        rng.shuffle(items)
+    picked: list = []
+    keys = sorted(cells)
+    while len(picked) < n and any(cells[k] for k in keys):
+        for k in keys:
+            if cells[k] and len(picked) < n:
+                picked.append(cells[k].pop())
+    return picked
+
+
+def score_labels(items: list, labels: "list[str | None]") -> str:
+    """本人の正解と照らし、軽量LLM と Jev のどちらが合っていたかを数える。"""
+    c: "collections.Counter[str]" = collections.Counter()
+    by_cell: "dict[tuple[str, str], collections.Counter[str]]" = collections.defaultdict(
+        collections.Counter
+    )
+    for (case, jev), label in zip(items, labels):
+        if label is None:
+            continue
+        who = "軽量LLM" if label == case.branch else "Jev" if label == jev else "どちらでもない"
+        c[who] += 1
+        by_cell[(case.branch, jev)][who] += 1
+    n = sum(c.values())
+    lines = [f"正解を付けた {n} 件：" + "・".join(f"{k} {v}" for k, v in c.most_common())]
+    for (llm, jev), cc in sorted(by_cell.items()):
+        lines.append(
+            f"  {llm:>6} ／ Jev {jev:<6}：" + "・".join(f"{k} {v}" for k, v in cc.most_common())
+        )
+    return "\n".join(lines)
+
+
+def label_interactively(items: list, ask=input, show=print) -> "list[str | None]":
+    """1 件ずつ見せ、本人に選んでもらう。どちらが選んだかは伏せる（見て選ぶ人を引っぱらない）。"""
+    labels: "list[str | None]" = []
+    show(LABEL_HELP)
+    for i, (case, _jev) in enumerate(items, 1):
+        show(f"\n──── {i}/{len(items)}（{case.at:%m/%d %H:%M}）────")
+        show(jev_state(case, shape="recent"))
+        while True:
+            got = ask("どれ？ [1/2/3/s/q] ").strip().lower()
+            if got in LABELS or got in ("s", "q"):
+                break
+        if got == "q":
+            break
+        labels.append(LABELS.get(got))
+    return labels
+
+
+async def _ask_all(cases: "list[Case]", concurrency: int, shape: str) -> list:
+    from familiar_agent.backends.jev import JevClient
+
+    client = JevClient.from_env(timeout=15.0)
+    sem = asyncio.Semaphore(concurrency)
+    questions = jev_questions()
+
+    async def one(c: Case):
+        async with sem:
+            return c, await client.ask(jev_state(c, shape=shape), questions)
+
+    return list(await asyncio.gather(*(one(c) for c in cases)))
+
+
 async def _run(cases: "list[Case]", concurrency: int, shape: str = "full") -> Tally:
     from familiar_agent.backends.jev import JevClient
 
@@ -272,7 +358,16 @@ def main() -> None:
     ap.add_argument(
         "--shape", choices=("full", "recent"), default="full", help="送る W（全部／直近だけ）"
     )
+    ap.add_argument(
+        "--label",
+        type=int,
+        default=0,
+        help="割れた例から N 件を選び、本人が正解を付ける（残さない）",
+    )
     args = ap.parse_args()
+    from dotenv import load_dotenv
+
+    load_dotenv()
     cases = read_log_cases()
     print(f"ログから取れた例 {len(cases)} 件（道具の帰り・調停が決めていない回を除く）")
     attach_utterances(cases, os.environ["DATABASE_URL"])
@@ -283,6 +378,12 @@ def main() -> None:
     if args.limit:
         cases = cases[-args.limit :]
     print(f"送る W：{args.shape}")
+    if args.label:
+        pairs = asyncio.run(_ask_all(cases, args.concurrency, args.shape))
+        items = pick_disagreements(pairs, args.label)
+        print(f"割れた例から {len(items)} 件を選んだ。どちらが選んだかは伏せて見せる。")
+        print(score_labels(items, label_interactively(items)))
+        return
     print(report(asyncio.run(_run(cases, args.concurrency, args.shape))))
 
 
