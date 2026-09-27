@@ -30,6 +30,7 @@ import time
 from dataclasses import dataclass, field, replace
 
 from ..core import measure
+from ..core.aio import wait_within
 
 logger = logging.getLogger(__name__)
 
@@ -701,7 +702,8 @@ async def arbitrate(
     else:
         call = asyncio.ensure_future(backend.complete(prompt, 300, system=system))
     try:
-        reply = await asyncio.wait_for(asyncio.shield(call), timeout=timeout)
+        # `wait_for` はキャンセルを握りつぶしうる（3.11・環-aa）。駆動体が止まるので `wait_within` で待つ。
+        reply = await wait_within(asyncio.shield(call), timeout)
         logger.info("調停 %.2f 秒（プロンプト %d 字）", time.monotonic() - started, len(prompt))
     except asyncio.TimeoutError:
         logger.warning("調停が %.1f 秒で返らなかったのでフルへ倒す", timeout)

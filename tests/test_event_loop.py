@@ -105,6 +105,7 @@ def _agent(*, stream_returns, max_iters=3):
     a._run_post_response_pipeline = MagicMock(return_value=MagicMock())
     a.config = MagicMock()
     a.config.agent_names = ["パジュ"]  # 名前で呼ばれたか（打ち切りの条件・出-au）を決める
+    a._jev = None  # 判定の Jev は持たない（使えない＝倒し先・出-au 段 5）
     a.config.max_tokens = 400
     a.config.event_max_iterations = max_iters
     a.config.max_thinking_rounds = 5  # 考えた回数の上限（暴走の歯止め）

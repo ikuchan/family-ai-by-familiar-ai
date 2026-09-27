@@ -18,6 +18,8 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from ..core.aio import wait_within
+
 logger = logging.getLogger(__name__)
 
 URL = "https://api.typesafe.ai/v1/systemone"
@@ -104,8 +106,9 @@ class JevClient:
         headers = {"Authorization": f"Bearer {self._api_key}"}
         started = time.monotonic()
         try:
-            status, body = await asyncio.wait_for(
-                self._post(URL, headers, payload, self.timeout), timeout=self.timeout
+            # `wait_for` はキャンセルを握りつぶしうる（3.11・環-aa）。判定は駆動体の上で待つので `wait_within`。
+            status, body = await wait_within(
+                self._post(URL, headers, payload, self.timeout), self.timeout
             )
         except asyncio.TimeoutError:
             return self._failed(started, f"時間切れ（{self.timeout:.1f} 秒）")
