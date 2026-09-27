@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.39）
+# familiar-ai モジュール分割設計（v0.40）
 
 ## この文書が決めること
 
@@ -819,7 +819,7 @@ DIF はその次で、外部への呼び出しを1つの口へ寄せるだけな
 |---|---|---|---|
 | **は-1** | `speak`／`lookup`／`understands_tags` | 4 | **完了**（2026-09-08） |
 | **は-2** | `tool_defs`／`device`／`speak_defs`／`lookup_defs` | 5 | **完了**（2026-09-08） |
-| **は-3** | `perceive`（`see`・`look`） | 1 | **知-c の実機確認が済んでから** |
+| **は-3** | `perceive`（`see`・`look`） | 1 | **`課題8` 環-ac へ移した**（2026-09-27）。いま見えているものを DIF から I へ届けることと一緒に扱う。知-c の実機確認が済んでから |
 
 **は-1 で移したもの。** `_speak` と `_say_filler` の `agent._tts.call("say", …)`、`_run_lookup` の
 `agent._deferred_search`／`_deferred_fetch` の `.dispatch()`、そして
@@ -1281,6 +1281,7 @@ backends/cli.py          166 行
 
 ## 更新履歴
 
+> v0.40：環-e-は の は-3（`see`・`look`）を `課題8` の 環-ac へ移した（2026-09-27・本人）。いま見えているものを DIF から I へ届けることと一つの課題にした。
 > v0.39：**`workspace.py` に申告を聞く口が入った**（2026-09-11・出-h-ろ）。`ask_verdicts()`
 > が軽量LLM へ1回聞き、`apply_memory_verdicts()` が当てる。あわせて
 > `apply_memory_verdicts` の第1引数を `agent` から **`mem`（想起に使った記憶そのもの）**へ
