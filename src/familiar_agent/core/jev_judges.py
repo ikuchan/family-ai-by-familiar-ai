@@ -183,3 +183,38 @@ async def judge_follows(client, *, workspace: str, utterance: str, min_conf: flo
         raise JudgeFailed(getattr(answer, "error", "失敗"))
     pick = picked(answer, "follows", min_conf)
     return pick if pick in rows else None
+
+
+#: 記憶の申告の 4 通り（主LLM の `say` の `memory_verdicts` と同じ・根づきの更新がこれを使う）。
+VERDICT_CRITERIA = {
+    "important": "答えに使い、かつこのやりとりを越えて効く（相手が尋ねた・覚えておきたいこと）",
+    "referred": "答えに使ったが、このやりとりだけ",
+    "useless": "見たが、ここでは思い出す価値が無かった",
+    "unused": "まったく使わなかった。多くはこれになる",
+}
+
+
+async def judge_verdicts(
+    client, *, utterance: str, reply: str, workspace_ctx: str, ids: "list[str]", min_conf: float
+) -> list:
+    """軽量LLM が答えて閉じた反復で、W の記憶をどう使ったかを申告する（出-h-ろ・§2.2.3）。
+
+    記憶ごとに 1 問、1 回の呼び出しでまとめて聞く。返りは主LLM の申告と同じ `[{"id", "verdict"}]`。確信度が
+    低い記憶は申告しない（間違った「大事」は根づきを誤って動かす）。Jev が使えない・失敗なら空。
+    """
+    rows = workspace_rows(workspace_ctx or "")
+    wanted = [i for i in ids if i in rows]
+    if not wanted or not reply:
+        return []
+    state = f"[人の言葉]\n{utterance or '（なし）'}\n\n[家のロボット（パジュ）の答え]\n{reply}"
+    questions = {
+        i: choice(f"この記憶を、答えにどう使ったか：{rows[i]}", VERDICT_CRITERIA) for i in wanted
+    }
+    answer = await _ask(client, state, questions)
+    out = []
+    for i in wanted:
+        pick = picked(answer, i, min_conf)
+        if pick in VERDICT_CRITERIA:
+            out.append({"id": i, "verdict": pick})
+    logger.info("Jev 判定 記憶の申告：%d／%d 件", len(out), len(wanted))
+    return out

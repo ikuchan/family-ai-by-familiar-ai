@@ -3143,7 +3143,7 @@ class InformationProcessing:
         memories: "list | None" = None,
         spoken: bool = False,
     ) -> None:
-        """**軽量LLM** が答えて閉じた反復の申告を、背景で聞いて当てる（出-h-ろ）。
+        """**軽量LLM** が答えて閉じた反復の申告を、背景で聞いて当てる（出-h-ろ・判定は Jev・出-au 段 5-5）。
 
         **待たない。** 申告は答えを出したあとの後片付けで、発話を待たせる理由がない
         （実測 1.03 秒）。
@@ -3156,19 +3156,25 @@ class InformationProcessing:
             return
         w_id_map = dict(w_id_map)
         kept = list(memories or [])  # 走っているあいだに作り直されないよう写す
-        backend = self._agent._utility_backend
+        agent = self._agent
 
         async def _run() -> None:
             try:
-                raw = await workspace.ask_verdicts(
-                    backend, utterance=utterance, reply=reply, workspace_ctx=workspace_ctx
+                # 判定は Jev（出-au 段 5-5）。使えない・確信度が低い記憶は申告しない（倒し先）。
+                raw = await jev_judges.judge_verdicts(
+                    getattr(agent, "_jev", None),
+                    utterance=utterance,
+                    reply=reply,
+                    workspace_ctx=workspace_ctx,
+                    ids=list(w_id_map),
+                    min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
                 )
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
                 # 握りつぶさない。申告が出ていないことに気づけないと、記憶が育たない
                 # 理由が分からなくなる。
-                logger.warning("event-loop 軽量LLM の申告を聞けなかった: %s", e)
+                logger.warning("event-loop 申告を聞けなかった: %s", e)
                 return
             workspace.apply_memory_verdicts(mem, raw, w_id_map)
             # 声に出した返事で使った言いたかったことを畳む（出-as 段 7）。
