@@ -92,17 +92,22 @@ def test_recent_only_keeps_just_the_recent_frame():
     assert recent_only(w) == "[直近のやりとり（古い順）]\n- b\n- c"
 
 
+_n = iter(range(10_000))
+
+
 def _pair(llm, jev):
-    return _case(llm), _ans(jev)
+    from dataclasses import replace
+
+    return replace(_case(llm), utterance=f"発話{next(_n)}"), _ans(jev)  # 例ごとに別の発話
 
 
 def test_picking_spreads_over_the_ways_they_disagree():
     from scripts.experiment_jev import pick_disagreements
 
     pairs = (
-        [_pair("full", "action")] * 10
-        + [_pair("action", "light")] * 10
-        + [_pair("light", "light")] * 5
+        [_pair("full", "action") for _ in range(10)]
+        + [_pair("action", "light") for _ in range(10)]
+        + [_pair("light", "light") for _ in range(5)]
     )
     got = pick_disagreements(pairs, 4)
     assert len(got) == 4
