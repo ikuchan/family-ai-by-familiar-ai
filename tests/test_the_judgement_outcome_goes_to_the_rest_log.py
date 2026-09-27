@@ -60,10 +60,13 @@ def test_the_measure_logger_does_not_leak_into_the_app_log(tmp_path):
 # ── 5 通りの結末 ──────────────────────────────────────────────────────────────
 
 
-def _loop(tmp_path, *, judge):
+def _loop(tmp_path, *, verdict=None, exc=None):
+    """判定は Jev（出-au 段 5-4）。`verdict` は選ばせる id（None は「どれでもない」）、`exc` は落ちる。"""
+    from tests.test_follows_with_jev import fake_follows
+
     measure.setup(base_dir=tmp_path)
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
-    a._evaluator.judge_follows = judge
+    fake_follows(a, verdict, exc=exc)
     return a, tmp_path / "rest_logs" / "measure.log"
 
 
@@ -72,7 +75,7 @@ def _outcomes(path: Path) -> list[str]:
 
 
 def test_a_continuation_is_recorded_with_the_target(tmp_path):
-    a, path = _loop(tmp_path, judge=AsyncMock(return_value="m1"))
+    a, path = _loop(tmp_path, verdict="m1")
     _run(a, utterance="さっきの話だけど")
     assert _outcomes(path) == ["続き"]
     follows = [line for line in _lines(path) if " 続き先 " in line]
@@ -80,19 +83,24 @@ def test_a_continuation_is_recorded_with_the_target(tmp_path):
 
 
 def test_none_is_a_break(tmp_path):
-    a, path = _loop(tmp_path, judge=AsyncMock(return_value=None))
+    a, path = _loop(tmp_path, verdict=None)
     _run(a, utterance="はじめまして")
     assert _outcomes(path) == ["途切れ"]
 
 
-def test_an_id_outside_the_workspace_is_a_mismatch(tmp_path):
-    a, path = _loop(tmp_path, judge=AsyncMock(return_value="deadbeefdead"))
+def test_choosing_its_own_origin_is_a_mismatch(tmp_path):
+    """選択肢は W の行に限るので「W に無い id」は起きない（出-au 段 5-4）。自分の起点を選んだら不一致。"""
+    a, path = _loop(tmp_path, verdict="obs1")
+    # 実機では起点（取込 O）が適合度 1.00 で W に載る（取込 O は候補から外さない）。偽の想起でもそう返す。
+    a._active_memory().recall_async = AsyncMock(
+        return_value=[{"memory_id": "obs1", "summary": "こんにちは", "fit": 1.0, "confidence": 0.8}]
+    )
     _run(a, utterance="こんにちは")
     assert _outcomes(path) == ["不一致"]
 
 
 def test_a_failing_judge_is_recorded_as_such(tmp_path):
-    a, path = _loop(tmp_path, judge=AsyncMock(side_effect=RuntimeError("軽量LLM が落ちた")))
+    a, path = _loop(tmp_path, exc=RuntimeError("Jev が落ちた"))
     _run(a, utterance="ねえ")
     assert _outcomes(path) == ["落ちた"]
 
@@ -101,7 +109,7 @@ def test_a_turn_without_words_is_not_judged(tmp_path):
     """入室・情動が起点の反復には人の言葉が無く、判定は呼ばれない。"""
     from familiar_agent.loop.event_loop import InformationProcessing
 
-    a, path = _loop(tmp_path, judge=AsyncMock(return_value="m1"))
+    a, path = _loop(tmp_path, verdict="m1")
     ip = InformationProcessing(a)
 
     async def scenario():
@@ -114,7 +122,7 @@ def test_a_turn_without_words_is_not_judged(tmp_path):
         await ip.close()
 
     asyncio.run(scenario())
-    # 言葉が無いので、実物の `judge_follows` は軽量LLM を呼ばずに None を返す（ここでは
+    # 言葉が無いので、判定（`jev_judges.judge_follows`）は Jev を呼ばずに None を返す（ここでは
     # 偽物なので呼ばれた形跡だけ残る）。結末は「未判定」で、「途切れ」と混ざらない。
     assert _outcomes(path) == ["未判定"]
 

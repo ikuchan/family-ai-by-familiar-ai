@@ -4,7 +4,7 @@
 頭にあったものである。そこから一つ選ぶのが、生成のパターンを残すということである
 （`設計方針_MI間の関係`）。
 
-判定は軽量LLM の専用の仕事である（`根拠台帳` §29）。主LLM に `say` の欄で名指させる形は
+判定は専用の仕事である（`根拠台帳` §29・出-au 段 5-4 で軽量LLM から Jev へ移した）。主LLM に `say` の欄で名指させる形は
 続きの場面の 36.1% しか返さず、言い方を強めると偽陽性が増えた。ここでは、判定が返した
 id をどう扱うかを見る。
 """
@@ -12,15 +12,16 @@ id をどう扱うかを見る。
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
 
 from familiar_agent.backends import ToolCall
 from familiar_agent.loop.event_loop import InformationProcessing
 from tests.test_event_loop import _agent, _run, _turn
+from tests.test_follows_with_jev import fake_follows
 
 
 def _judge(a, verdict):
-    a._evaluator.judge_follows = AsyncMock(return_value=verdict)
+    # 判定は Jev（出-au 段 5-4）。選択肢は W の行に限られる。
+    fake_follows(a, verdict)
 
 
 def _succession_links(a) -> list:
@@ -41,7 +42,7 @@ def test_the_named_memory_becomes_what_this_turn_follows():
 
 
 def test_an_id_that_is_not_in_the_workspace_is_ignored():
-    """W に無い id は捨てる。判定は12桁の形を返すが、実在までは見ていない。"""
+    """W に無い id は捨てる。Jev の選択肢は W の行に限るが、偽物が外を返しても繋がない。"""
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
     _judge(a, "deadbeefdead")
     _run(a, utterance="こんにちは")
@@ -74,6 +75,6 @@ def test_a_turn_does_not_follow_itself():
 def test_a_failing_judge_does_not_stop_the_turn():
     """判定が落ちても、そのターンは成立する。繋がない側へ倒す。"""
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
-    a._evaluator.judge_follows = AsyncMock(side_effect=RuntimeError("軽量LLM が落ちた"))
+    fake_follows(a, exc=RuntimeError("Jev が落ちた"))
     assert _run(a, utterance="ねえ") == "うん"
     assert _succession_links(a) == []
