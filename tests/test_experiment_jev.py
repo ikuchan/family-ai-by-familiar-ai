@@ -125,3 +125,29 @@ def test_labels_are_scored_against_both_and_nothing_is_kept():
     out = score_labels(items, labels)
     assert "Jev 1" in out and "軽量LLM 1" in out and "正解を付けた 2 件" in out
     assert not any("軽量LLM" in s or "Jev" in s for s in shown[1:])  # どちらが選んだかは見せない
+
+
+def test_overlapping_log_files_do_not_double_count(tmp_path):
+    from scripts.experiment_jev import read_log_cases
+
+    (tmp_path / "app.a.log").write_text(_LOG, encoding="utf-8")
+    (tmp_path / "app.b.log").write_text(_LOG, encoding="utf-8")  # 同じ時間帯が重なったファイル
+    assert len(read_log_cases(tmp_path)) == 3
+
+
+def test_action_means_moving_something_first():
+    """調停の action の実物は首を向ける・見る・タイマーが大半。調べるだけと書くと割れる。"""
+    from scripts.experiment_jev import BRANCH_CRITERIA
+
+    for word in ("首を向ける", "見る", "タイマー", "調べる"):
+        assert word in BRANCH_CRITERIA["action"]
+
+
+def test_the_same_utterance_is_shown_once():
+    from dataclasses import replace
+
+    from scripts.experiment_jev import pick_disagreements
+
+    a = replace(_case("action"), utterance="パジュ、3分測って")
+    got = pick_disagreements([(a, _ans("full")), (a, _ans("full")), (a, _ans("light"))], 5)
+    assert len(got) == 1

@@ -102,12 +102,19 @@ def parse_arbiter_cases(text: str) -> "list[Case]":
 
 
 def read_log_cases(log_dir: Path = LOG_DIR) -> "list[Case]":
+    """退避ログ全部から例を読む。同じ時刻の同じ W は 1 件にする（時間帯が重なったファイルがある）。"""
     cases: "list[Case]" = []
+    seen: "set[tuple[datetime, str]]" = set()
     for path in sorted(log_dir.glob("app*")):
         try:
-            cases.extend(parse_arbiter_cases(path.read_text(encoding="utf-8", errors="replace")))
+            got = parse_arbiter_cases(path.read_text(encoding="utf-8", errors="replace"))
         except OSError:
             continue
+        for c in got:
+            key = (c.at, c.workspace)
+            if key not in seen:
+                seen.add(key)
+                cases.append(c)
     return cases
 
 
@@ -142,10 +149,14 @@ def attach_utterances(cases: "list[Case]", database_url: str, *, window_sec: flo
 
 # ── Jev への質問 ─────────────────────────────────────────────────────────────
 
+# 調停の action は「先に何かを動かす」で、実物は首を向ける（look）・見る（see）・タイマーが大半
+# （退避ログ：look 144・see 136・set_timer 58・search_deferred 54・notion_search 20・…・recall 10）。
+# 初回は「調べる」だけを書いて、首を向ける頼みが light に割れた（2026-09-27・測り直した）。
 BRANCH_CRITERIA = {
-    "light": "短い言葉で答えきれる。挨拶・相槌・簡単な受け答え。道具（タイマー・アラーム・測る・止める・覚える・予定を見る）が要る頼みは含まない",
-    "full": "記憶を踏まえた言葉選びや、込み入った説明が要る。道具が要る頼みもこちら",
-    "action": "いまある材料では答えきれず、先に自分の記憶を探すかインターネットで調べる必要がある",
+    "light": "何も動かさずに、短い言葉で答えきれる。挨拶・相槌・簡単な受け答え",
+    "full": "何も動かさずに答えるが、記憶を踏まえた言葉選びや込み入った説明が要る",
+    "action": "答える前に何かを動かす。カメラで見る・首を向ける・タイマーやストップウォッチを掛ける／止める・"
+    "予定やメモを見る・自分の記憶を探す・インターネットで調べる",
 }
 EFFORT_CRITERIA = {
     "low": "ふつう。ほとんどの場合",
@@ -267,11 +278,15 @@ def pick_disagreements(pairs: "list[tuple[Case, object]]", n: int, *, seed: int 
 
     rng = random.Random(seed)
     cells: "dict[tuple[str, str], list]" = collections.defaultdict(list)
+    shown: "set[str]" = set()
     for case, got in pairs:
         if not getattr(got, "ok", False):
             continue
         jb = got.answers.get("branch", {}).get("choice", "")
-        if jb and jb != case.branch:
+        if jb and jb != case.branch and case.utterance not in shown:
+            shown.add(
+                case.utterance
+            )  # 同じ発話は 1 回だけ見せる（同じ発話で調停が何度か呼ばれた回がある）
             cells[(case.branch, jb)].append((case, jb))
     for items in cells.values():
         rng.shuffle(items)
