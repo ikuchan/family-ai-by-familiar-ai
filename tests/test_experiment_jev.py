@@ -90,3 +90,38 @@ def test_recent_only_keeps_just_the_recent_frame():
 
     w = "[いま道具から返った]\n- a\n[直近のやりとり（古い順）]\n- b\n- c\n[過去の記憶]\n- d"
     assert recent_only(w) == "[直近のやりとり（古い順）]\n- b\n- c"
+
+
+def _pair(llm, jev):
+    return _case(llm), _ans(jev)
+
+
+def test_picking_spreads_over_the_ways_they_disagree():
+    from scripts.experiment_jev import pick_disagreements
+
+    pairs = (
+        [_pair("full", "action")] * 10
+        + [_pair("action", "light")] * 10
+        + [_pair("light", "light")] * 5
+    )
+    got = pick_disagreements(pairs, 4)
+    assert len(got) == 4
+    assert sorted((c.branch, j) for c, j in got) == [
+        ("action", "light"),
+        ("action", "light"),
+        ("full", "action"),
+        ("full", "action"),
+    ]  # 一致した例は選ばない・割れ方ごとに交互に
+
+
+def test_labels_are_scored_against_both_and_nothing_is_kept():
+    from scripts.experiment_jev import label_interactively, score_labels
+
+    items = [(_case("full"), "action"), (_case("action"), "light"), (_case("light"), "full")]
+    answers = iter(["x", "3", "3", "s"])  # 無効な入力は聞き直す
+    shown: list = []
+    labels = label_interactively(items, ask=lambda _p: next(answers), show=shown.append)
+    assert labels == ["action", "action", None]
+    out = score_labels(items, labels)
+    assert "Jev 1" in out and "軽量LLM 1" in out and "正解を付けた 2 件" in out
+    assert not any("軽量LLM" in s or "Jev" in s for s in shown[1:])  # どちらが選んだかは見せない
