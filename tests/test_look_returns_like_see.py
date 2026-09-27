@@ -78,7 +78,9 @@ async def _returned_look(ip):
     await ip._intake()
 
 
-def test_a_look_thrown_by_the_arbiter_comes_back_to_the_arbiter_with_the_photo():
+def test_a_look_thrown_by_the_arbiter_comes_back_to_the_arbiter_without_the_photo():
+    """写真は渡さない（出-au 段 5-7a）。読み取りは状態として W と在席に載っている。"""
+
     async def scenario():
         a, ip = _ip_with_camera()
         ip._req.see_by = "調停"
@@ -95,7 +97,7 @@ def test_a_look_thrown_by_the_arbiter_comes_back_to_the_arbiter_with_the_photo()
         return d, arb
 
     d, arb = asyncio.run(scenario())
-    assert arb.called and arb.call_args.kwargs.get("image_b64") == "B64"
+    assert arb.called and "image_b64" not in arb.call_args.kwargs
     assert d.branch == "light"
 
 
