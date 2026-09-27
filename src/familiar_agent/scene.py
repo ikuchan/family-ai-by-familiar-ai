@@ -49,6 +49,55 @@ Return ONLY the JSON object. Example:
 """
 
 
+_READ_PHOTO_PROMPT = """\
+この写真を見て、写っているものと、写っている人を書く。
+
+[一緒に暮らす人たち（見た目の手がかり）]
+{family}
+
+- entities：写っているもの。一つずつ {{"label": "日本語の名前"}}。
+- people：写っている人。一人ずつ {{"name": "呼び方", "confidence": 0.0〜1.0}}。見た目と上の記述から誰だと思うかを
+  推し量ってよい。**誰か分からない人は name を空にして、数に入れる。** 人が写っていなければ空の並び。
+
+次の形の JSON だけを返す（他には何も書かない）:
+{{"entities": [], "people": []}}
+"""
+
+
+async def read_photo(
+    image_b64: str, backend: Any, *, family_md: str
+) -> "tuple[list[str], list[dict]]":
+    """写真を読み、(見えたもののラベル, 写っている人の見立て) を返す（出-au 段 5-7a・`設計方針_判定の段` v0.4 §2.2.2）。
+
+    Jev は写真を見られないので、読み取りの結果をシステムの状態（O の記録と在席）として残し、判定はその文を読む。
+    読めない・失敗なら ([], [])。
+    """
+    if not image_b64 or not hasattr(backend, "complete_with_image"):
+        return [], []
+    try:
+        raw = await backend.complete_with_image(
+            _READ_PHOTO_PROMPT.format(family=family_md or "（記述なし）"), image_b64
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log_unusable("", str(exc))
+        return [], []
+    data = read_json(str(raw or ""))
+    if not isinstance(data, dict):
+        _log_unusable(str(raw or ""), "JSON として読めない")
+        return [], []
+    labels = [
+        str(e.get("label", "")).strip()
+        for e in data.get("entities") or []
+        if isinstance(e, dict) and str(e.get("label", "")).strip()
+    ]
+    people = [
+        {"name": str(p.get("name", "") or ""), "confidence": float(p.get("confidence", 0.0) or 0.0)}
+        for p in data.get("people") or []
+        if isinstance(p, dict)
+    ]
+    return labels, people
+
+
 async def extract_entities(
     description: str, backend: Any, image_b64: str | None = None
 ) -> list[dict]:

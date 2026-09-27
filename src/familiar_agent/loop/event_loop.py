@@ -27,7 +27,7 @@ if TYPE_CHECKING:
     from ..backends.types import TurnResult
 
 from ..poses import nearest_pose
-from ..scene import extract_entities
+from ..scene import extract_entities, read_photo
 from ..store import clock
 from .arbiter import Decision as ArbiterDecision, arbitrate
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION
@@ -1603,6 +1603,10 @@ class InformationProcessing:
         # ほぼ全部だった。まずローカルの人検出（YOLO・COCO 80 種・数十ミリ秒）で即席の印を
         # 書いて完了を積み、主LLM は画像そのものを見て話す（`_seen_image`）。VLM は背景で
         # 投げ、返ったら印を差し替える（`_refine_seen_mark`）——記憶の文はそちらの細かさで残る。
+        if self._req.see_by == "調停":
+            return await self._read_photo_into_state(
+                str(text), image_b64=image_b64, image_path=image_path, prefix=prefix
+            )
         labels = await self._quick_labels(image_path)
         logger.info(
             "event-loop %s見えたもの（即席）%d 件：%.60s",
@@ -1633,6 +1637,30 @@ class InformationProcessing:
             self._background_tasks.add(task)
             task.add_done_callback(self._background_tasks.discard)
         return f"{prefix}{text} 見えたもの：" + "、".join(labels)
+
+    async def _read_photo_into_state(
+        self, text: str, *, image_b64: str, image_path: str | None, prefix: str
+    ) -> str:
+        """調停が見ると決めた帰り：写真を読むのを**待ち**、結果をシステムの状態として残す（出-au 段 5-7a）。
+
+        Jev は写真を見られないので、調停に写真を渡す形（v0.46）はやめた。見えたものは O の記録と完了の文に（W に載る）、
+        写っている人の見立ては在席に（1 人なら話者にする・出-as 段 9a）。読めなければ即席のラベル（YOLO）で書く。
+        """
+        agent = self._agent
+        labels, people = await read_photo(
+            image_b64, agent._scene_backend, family_md=str(getattr(agent, "_family_md", "") or "")
+        )
+        if not labels:
+            labels = await self._quick_labels(image_path)
+        who = "、".join((p["name"] or "誰か") + f"（{p['confidence']:.1f}）" for p in people)
+        logger.info("event-loop 写真を読んだ：もの %d 件・人 %d 人", len(labels), len(people))
+        mark = f"{prefix}見えたもの：{'、'.join(labels)}" + (
+            f"。写っている人：{who}" if who else ""
+        )
+        await self._write_seen_mark(mark, image_path=image_path)
+        if people:
+            await self._apply_seen_people(people)
+        return f"{prefix}{text} {mark[len(prefix) :]}"
 
     async def _quick_labels(self, image_path: str | None) -> list[str]:
         """即席の意味づけ（ローカルの人検出モデルで、写っているものの名前）。無ければ空。"""
@@ -2834,19 +2862,14 @@ class InformationProcessing:
         from ..capability_state import load_summary
 
         agent = self._agent
-        image_b64: "str | None" = None
         if self._see_returned:
             self._see_returned = False
             if self._req.see_by == "主LLM":
                 logger.info("event-loop 主LLM が出した see の帰りなので調停を飛ばして主LLM へ戻す")
                 # 見えたものを語るだけなので low（課題5 G 章「ループ側で決まる effort」）。
                 return ArbiterDecision(branch="full", effort="low")
-            found = self._seen_image(memories)
-            image_b64 = found[0] if found else None
-            logger.info(
-                "event-loop 調停が出した see の帰りなので調停が判断する（写真%s）",
-                "つき" if image_b64 else "なし",
-            )
+            # 写真は渡さない（出-au 段 5-7a）。読み取りは状態として W に載っている（`_read_photo_into_state`）。
+            logger.info("event-loop 調停が出した see の帰りなので調停が判断する（読み取りは W に）")
         # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない。
         logger.debug("event-loop 調停へ渡す W:\n%s", workspace_ctx)
         decision = await arbitrate(
@@ -2864,7 +2887,6 @@ class InformationProcessing:
             capped=capped,
             thinking_round=round_,
             can_see=getattr(agent, "_camera", None) is not None,
-            image_b64=image_b64,
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),

@@ -1,4 +1,8 @@
-"""調停が投げた see の帰りでは、ループが写真を調停へ渡す（`イベント駆動ループ` v0.46）。"""
+"""調停が投げた see の帰り（`イベント駆動ループ` v0.46 → 出-au 段 5-7a）。
+
+v0.46 ではループが写真を調停へ渡していた。出-au 段 5-7a で、写真の読み取りをシステムの状態として残す形にし（見えたものと
+人の見立てが W と在席に載る）、調停には写真を渡さなくなった（判定を担う Jev が写真を見られないため）。
+"""
 
 from __future__ import annotations
 
@@ -34,7 +38,7 @@ async def _returned_see(ip):
     await ip._intake()
 
 
-def test_the_photo_goes_to_the_arbiter_when_it_looked(tmp_path) -> None:
+def test_the_photo_no_longer_goes_to_the_arbiter_when_it_looked(tmp_path) -> None:
     path = tmp_path / "a.jpg"
     path.write_bytes(b"JPEG")
 
@@ -60,7 +64,7 @@ def test_the_photo_goes_to_the_arbiter_when_it_looked(tmp_path) -> None:
         return arb
 
     arb = asyncio.run(scenario())
-    assert arb.call_args.kwargs["image_b64"] == "SlBFRw=="
+    assert arb.called and "image_b64" not in arb.call_args.kwargs
 
 
 def test_no_photo_is_sent_when_nothing_was_seen() -> None:
