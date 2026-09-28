@@ -168,10 +168,8 @@ class EmbodiedAgent:
         self._background_tasks: set[asyncio.Task[None]] = set()
         self.messages: list = []
         self._started_at = time.time()
-        self._turn_count = 0
         self._session_input_tokens: int = 0
         self._session_output_tokens: int = 0
-        self._last_context_tokens: int = 0
 
         self._camera: CameraTool | None = None
         self._mobility: MobilityTool | None = None
@@ -1547,20 +1545,14 @@ class EmbodiedAgent:
         user_input: str,
         on_action: Callable[[str, dict], None] | None = None,
         on_text: Callable[[str], None] | None = None,
-        on_image: Callable[[str], None] | None = None,
-        on_phase: Callable[[str], None] | None = None,
-        on_tool_result: Callable[[str, dict, str], None] | None = None,
-        inner_voice: str = "",
-        interrupt_queue=None,
     ) -> str:
         """人の発話で1ターン回す。
 
         中身はイベント駆動ループ（I と T）が持つ。スラッシュコマンドだけは LLM を
         呼ばずにここで返す。
 
-        `on_image`・`on_phase`・`on_tool_result`・`inner_voice`・`interrupt_queue` は旧経路の
-        引数で、いまはどれも使っていない。GUI と TUI が渡しているので受けるだけにしてある
-        （呼び出し側の整理は #12a の後段）。`desires`・`desire_name` は環-d で落とした。
+        旧経路の引数（`on_image`・`on_phase`・`on_tool_result`・`inner_voice`・`interrupt_queue`）は、
+        どれも使っていなかったので環-ab で外した。`desires`・`desire_name` は環-d で落とした。
         """
         # 届いた時刻と出どころは**名前の札を外す前に**読む（出-au 段 1-1）。外すと印の無い文字列になる。
         from .core.wake_window import arrived_at, source_of

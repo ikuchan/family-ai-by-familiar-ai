@@ -143,7 +143,6 @@ def format_action(name: str, tool_input: dict) -> str:
 # ---------------------------------------------------------------------------
 
 # Tools whose results we want to surface in the UI
-_RESULT_DISPLAY_TOOLS: frozenset[str] = frozenset({"remember", "recall"})
 
 _EMOTION_COLORS: dict[str, str] = {
     "happy": "🌸",
@@ -153,81 +152,6 @@ _EMOTION_COLORS: dict[str, str] = {
     "moved": "💫",
     "neutral": "·",
 }
-
-
-def format_tool_result(name: str, _tool_input: dict, result: str) -> str | None:
-    """Return a formatted string to display after a tool runs, or None to suppress.
-
-    Called by GUI/TUI after on_action (which fires before the tool runs).
-    Only memory/recall results are surfaced; other tools are silent.
-    """
-    if name not in _RESULT_DISPLAY_TOOLS:
-        return None
-
-    if name == "remember":
-        return _format_remember_result(result)
-    if name == "recall":
-        return _format_recall_result(result)
-    return None
-
-
-def _format_remember_result(result: str) -> str:
-    """Format remember() result into a terse confirmation line."""
-    # result looks like: "Remembered [id:XXXX]: content\nemotion=X | id=FULL_UUID"
-    lines = result.splitlines()
-    if not lines:
-        return result
-    first = lines[0]
-    meta = lines[1] if len(lines) > 1 else ""
-
-    emotion = "neutral"
-    if "emotion=" in meta:
-        emotion = meta.split("emotion=")[1].split("|")[0].strip()
-
-    emo_icon = _EMOTION_COLORS.get(emotion, "·")
-    # Extract content preview (strip the "Remembered [id:XXXX]: " prefix)
-    content = first
-    if ": " in first:
-        content = first.split(": ", 1)[1].strip()
-
-    # Extract short id
-    short_id = ""
-    if "id:" in first:
-        part = first.split("id:")[1].split("]")[0][:8]
-        short_id = f" #{part}"
-
-    return f"  {emo_icon} {content[:80]}{short_id}"
-
-
-def _format_recall_result(result: str) -> str:
-    """Format recall() result — keep it compact but readable."""
-    if result == "No relevant memories found.":
-        return "  · (記憶なし)"
-
-    lines = result.splitlines()
-    out: list[str] = []
-    item_count = sum(1 for ln in lines if ln.startswith("- "))
-    out.append(f"  {item_count}件 ↩")
-
-    for line in lines:
-        if line.startswith("- ["):
-            # Parse "- [emotion] date time id:XXXX src:kind ..."
-            # then the next line has the content
-            parts = line[3:].split("]", 1)
-            emo = parts[0] if parts else "neutral"
-            rest = parts[1].strip() if len(parts) > 1 else ""
-            # Extract date
-            date_part = rest.split(" ")[0] if rest else ""
-            emo_icon = _EMOTION_COLORS.get(emo, "·")
-            out.append(f"  {emo_icon} [{emo}] {date_part}")
-        elif line.startswith("  ") and not line.startswith("  →") and not line.startswith("  ←"):
-            # Content line
-            out.append(f"    {line.strip()[:100]}")
-        elif line.startswith("  →") or line.startswith("  ←"):
-            # Linked memory
-            out.append(f"    {line.strip()[:90]}")
-
-    return "\n".join(out)
 
 
 # ---------------------------------------------------------------------------

@@ -13,7 +13,6 @@ import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 from textual.app import App, ComposeResult
@@ -27,7 +26,6 @@ from ._ui_helpers import (
     ACTION_ICONS,
     IDLE_CHECK_INTERVAL as _IDLE_CHECK_INTERVAL,
     format_action as _format_action,
-    format_tool_result as _format_tool_result,
 )
 from .realtime_stt_session import create_realtime_stt_controller, RealtimeSttController
 
@@ -85,15 +83,6 @@ def _format_elapsed(seconds: float) -> str:
         return f"{total}s"
     m, s = divmod(total, 60)
     return f"{m}m {s:02d}s"
-
-
-def _format_tokens(n: int) -> str:
-    """Compact token count: '' for zero, '500' under 1k, '6.5k' above."""
-    if n == 0:
-        return ""
-    if n < 1000:
-        return str(n)
-    return f"{n / 1000:.1f}k"
 
 
 # Slash commands shown in the autocomplete dropdown
@@ -381,13 +370,11 @@ class FamiliarApp(App):
         name_tag: str,
         stop: asyncio.Event,
         start_time: float,
-        get_tokens: Callable[[], int] | None = None,
     ) -> None:
         """Animate the stream widget with a live status line.
 
-        Shows:  ⠋ 23s · ↓ 6.5k
-        The token count reflects _last_context_tokens, updated after each
-        stream_turn() call in the agent loop.
+        Shows:  ⠋ 23s
+        （文脈のトークン数は旧 `run()` が数えていて、撤去後はいつも 0 だったので外した・環-ab。）
         """
         stream.add_class("thinking")
         for i in range(10_000):
@@ -395,9 +382,7 @@ class FamiliarApp(App):
                 break
             frame = _SPINNER_FRAMES[i % len(_SPINNER_FRAMES)]
             elapsed_str = _format_elapsed(time.time() - start_time)
-            tokens = get_tokens() if get_tokens else 0
-            tok_str = f" · ↓ {_format_tokens(tokens)}" if tokens else ""
-            stream.update(f"{name_tag} {frame} [dim]{elapsed_str}{tok_str}[/dim]")
+            stream.update(f"{name_tag} {frame} [dim]{elapsed_str}[/dim]")
             await asyncio.sleep(0.08)
         stream.remove_class("thinking")
 
@@ -416,10 +401,9 @@ class FamiliarApp(App):
         name_tag = f"[bold magenta]{self._agent_name} ▶[/bold magenta]"
 
         # Spinner state — restarted after each tool call
-        get_tokens = lambda: self.agent._last_context_tokens  # noqa: E731
         stop_spinner = asyncio.Event()
         spinner_task: asyncio.Task = asyncio.create_task(
-            self._spinner_loop(stream, name_tag, stop_spinner, start_time, get_tokens)
+            self._spinner_loop(stream, name_tag, stop_spinner, start_time)
         )
 
         def _stop_spinner() -> None:
@@ -430,7 +414,7 @@ class FamiliarApp(App):
             stop_spinner.set()
             stop_spinner = asyncio.Event()
             spinner_task = asyncio.create_task(
-                self._spinner_loop(stream, name_tag, stop_spinner, start_time, get_tokens)
+                self._spinner_loop(stream, name_tag, stop_spinner, start_time)
             )
 
         def _flush_stream() -> None:
@@ -475,13 +459,6 @@ class FamiliarApp(App):
             # Restart spinner while waiting for the next LLM response
             _restart_spinner()
 
-        def on_tool_result(name: str, tool_input: dict, result: str) -> None:
-            formatted = _format_tool_result(name, tool_input, result)
-            if formatted:
-                _stop_spinner()
-                log.write(f"[dim]{formatted}[/dim]")
-                _restart_spinner()
-
         def on_text(chunk: str) -> None:
             if say_fired:
                 # Discard post-say text: LLMs often re-emit say() content as plain
@@ -504,9 +481,6 @@ class FamiliarApp(App):
                     user_input,
                     on_action=on_action,
                     on_text=on_text,
-                    on_tool_result=on_tool_result,
-                    inner_voice=inner_voice,
-                    interrupt_queue=self._input_queue,
                 )
             )
             await self._agent_task

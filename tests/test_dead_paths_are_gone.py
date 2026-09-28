@@ -83,3 +83,27 @@ def test_the_old_run_leftovers_are_gone_from_the_agent():
 
     text = (SRC / "agent.py").read_text(encoding="utf-8")
     assert [n for n in OLD_RUN_LEFTOVERS if re.search(rf"\b{n}\b", text)] == []
+
+
+# ── 旧経路の引数と、増やす所の無い数（環-ab R-4）──────────────────────────────
+
+
+def test_run_takes_only_what_the_loop_uses():
+    """`agent.run` の旧経路の引数は、どれも使っていなかった（docstring に明記されていた）。"""
+    from familiar_agent.agent import EmbodiedAgent
+
+    params = inspect.signature(EmbodiedAgent.run).parameters
+    gone = ("on_image", "on_phase", "on_tool_result", "inner_voice", "interrupt_queue")
+    assert [p for p in gone if p in params] == []
+
+
+def test_counts_nobody_advances_are_gone():
+    """旧 `run()` が増やしていた数。撤去後はいつも 0 で、読む画面を誤らせた。"""
+    names = ("_turn_count", "_last_context_tokens")
+    hits = [
+        f"{p.relative_to(SRC)}: {n}"
+        for p in SRC.rglob("*.py")
+        for n in names
+        if n in p.read_text(encoding="utf-8")
+    ]
+    assert hits == []
