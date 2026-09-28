@@ -53,6 +53,8 @@ def test_the_context_has_no_slot_for_rules():
 DEAD_MODULES = (
     "event_bus.py",  # どこからも import されない。JSONL に記録する作り（保存は PostgreSQL だけの決まりにも反する）
     "tools/person.py",  # `PersonTool`。どこからも import されない
+    "tools/coding.py",  # `CodingTool`（ファイルの読み書き・bash）。道具を渡す口が旧 `run()` にしか無かった（R-3）
+    "loop/history.py",  # 旧 `run()` の会話の畳み込みの道具（R-2）
 )
 
 
