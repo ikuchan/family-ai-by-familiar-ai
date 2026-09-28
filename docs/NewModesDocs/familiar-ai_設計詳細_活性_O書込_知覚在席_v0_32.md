@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.31）
+# familiar-ai 設計詳細：活性・O書込・知覚在席（定数台帳・現状コード所在・移行）（v0.32）
 
 ## 位置づけ
 本書は設計図の確定 **[D-活性]／[D-O書込]／[D-B定点]／[D-B分離]／[D-知覚]／[D-設定]** の**別紙詳細**。決定そのものは設計図にあり、本書は **定数台帳／現状コード所在（file:line・移行入力）／知覚パイプライン細部／移行申し送り** を保持する（決定の地の文は設計図に一元化し、本書では繰り返さない）。対象＝課題2 の項目1（活性）・項目2（O書込）・項目3（知覚在席）。**暫定値は課題5、移行は課題6/7**。
@@ -79,7 +79,7 @@
 | mood baseline・各しきい | ②ハードコード | mental_state.py（AffectiveState 成分・0.0 等） |
 | concern 減衰 | ②ハードコード | concern_engine.py:22 `_DECAY=0.94`（concern_engine は [D-気がかり統合] で廃止・課題11） |
 | salience 初期値 | ②ハードコード | attention_schema.py:172 `根づき=0.4` 等 |
-| norm EMA alpha・floor | ②ハードコード | prediction.py（`_DEFAULT_EMA_ALPHA`／`_PROB_FLOOR=0.01`） |
+| norm EMA alpha・floor | ②ハードコード | prediction.py（`_DEFAULT_EMA_ALPHA`／`_PROB_FLOOR=0.01`）（読まれていなかったので環-ab R-5a で外した・履歴 `c2a0316^`） |
 | tick 周期 | ②ハードコード | _ui_helpers.py:285 `IDLE_CHECK_INTERVAL=10.0`（単一アイドル周期） |
 | 学習倍率／adjust_drive | ③無し（新規） | 現状の自己調整は memory.py の behavior_policy/semantic_fact confidence のみ |
 | mood 修飾ゲイン | ③無し（新規） | 現状の修飾は時間帯・schedule・rest/energy で mood 由来ではない |
@@ -114,7 +114,7 @@
 |---|---|---|
 | drive（float[5]） | `agent_state["drive5"]` | **【Slice 2a/2b 実装済み・接続】** 器＝`drive_register.py`（5欲求 SEEKING／REST／BOND／SAFETY／ESTEEM の `AiDrivers`・各軸 [0,1]・静止0.0／`agent_state` の state_key `drive5`・`load_drives`・`save_drives`）。dynamics＝`core/drive_dynamics.py`（蓄積 $g_{D,i}(M)$・発火 $\Theta_{fire}$・放電 $q$）。`gui._process_queue` のアイドルで毎周回 tick し `drive5` へ永続化する（Slice 2a）。`DRIVE5_AUTONOMOUS`（既定 off）が on で発火→自発ターン結線＝`core/drive_autonomy.py`（`select_fired_axis`・`drive_gate`・`inner_voice_for`・`drive_snapshot`）。ターンには発火軸の内声（Config 文字列・[D-行動選択]）と drive5 定性スナップショットを同梱する。off では既存15欲求 `DesireSystem` が駆動し完全排他（旧15→新5 移行は後続）。PI.drive の全ターンサーフェスは後続で、現状は自発ターンへのスナップショット同梱のみ |
 | mood（PAD） | 毎ターン再計算 | **T の mood レジスタとして永続化**（`agent_state` へ）。発火で PI.emotion へ。**【B-1 実装済み・接続済み】**（2026-09-10 確認。`loop/generator.py` が主LLM の文脈へ載せ、`loop/tonic.py` が読んで欲求の変調に使う） `mood_register.py`＝4軸 PAD の器 `MoodPAD`／各軸を M_rest=(0.5,0.5,0.5,0.5) へ半減期600秒で収束させる `decay_to_rest`／`agent_state`（state_key `mood_pad`）の `load_mood`・`save_mood`。emotion→PAD 写像 φ（課題11k）と既存 mood へは未接続で外部挙動不変 |
-| norm（定点別 EMA＋確率） | prediction.py の `P(entity)` EMA | **定点キーに拡張**＋DINOv2 定点別「普通」。T(G) private |
+| norm（定点別 EMA＋確率） | （旧 prediction.py の `P(entity)` EMA・環-ab で外した） | 定点別の `P(entity \| 定点)` を**新しく書く**＋DINOv2 定点別「普通」（こちらは実装済み）。T(G) private |
 | presence（定点別 在席） | `self._present` を都度導出 | **YOLO 由来の定点別 presence マップ**（新規）。T(G) private |
 
 各レジスタは固定キーの upsert（現状 `agent_state` の state_key パターン）。**I はレジスタに直接触れず、drive/mood は PI の `drive`/`emotion` として受ける**。
@@ -179,7 +179,7 @@
 - **静止物を人と数えない**（知-v・v0.25・2026-09-18）：人検出（YOLO）は 1 枚の写真を独立に読むので、人らしい形の物（出入口の右下の暗い塊）を 7 分間「1 人」と読み続け、在席表も `/speaker` の指定も切れなかった（実機 21:50〜57）。閾値を上げると本当の人も落ちる。**人は動く**ことを使う：センサは数でなく枠（`PersonDetector.boxes`）で受け、定点ごとに前回の枠を覚え、重なり（IoU）`PRESENCE_STATIC_IOU`（0.9〔仮〕）以上で対応づく枠は「動かない時間」を引き継ぎ、`PRESENCE_STATIC_SEC`（300 秒〔仮〕）以上動かない枠は数えない（`core/presence_rules.count_moving`・純関数）。動けば 0 から。動体イベント（`on_motion`）でも 0 から。副作用：本当の人が 5 分まったく動かないと「居ない」になり 60 秒後に在席表と話者が切れる。動けば戻る。滞留窓（180 秒）は変えない。
 
 ### 3-4. norm（定点別 EMA ＋ 視覚埋め込み）
-- **エンティティ層**：prediction.py の `P(entity)` EMA を定点キーに拡張（`P(entity | 定点)`）。観測↑/不在↓・floor。驚き＝その定点の norm と現在観測の差。**自己運動（別定点へ向く）では驚かない**（移った先の定点の norm と比べる・[D-向き] 整合）。
+- **エンティティ層**（未実装・`課題8` 知-i）：定点ごとに「ふだん何があるか」の移動平均（`P(entity | 定点)`）を**新しく書く**。以前は `prediction.py` の `P(entity)` を広げる予定だったが、そのモジュールは作るだけで読まれていなかったので環-ab R-5a で外した（元の式は git の履歴 `c2a0316^` にある）。観測↑/不在↓・floor。驚き＝その定点の norm と現在観測の差。**自己運動（別定点へ向く）では驚かない**（移った先の定点の norm と比べる・[D-向き] 整合）。
 - **見え層**：DINOv2 埋め込みの定点別「普通(EMA)」との距離。エンティティに現れない見えの変化（配置ズレ・明るさ等）を拾う。
 - 意味づけが要る時だけ VLM（I 側）。
 
@@ -191,7 +191,7 @@
 ## 4. 移行への申し送り（課題6/7）
 - 配信ゲート：`should_deliver_deferred_result`（agent.py:2858）を **4→2 ゲート化**（quiet-hours・社会的文脈を撤去。ゲート＝結果有り／在席。決定は用語一覧・[配信ゲート]）。
 - mood を **T の mood レジスタ**として永続化（現状は再計算）。発火時 PI.emotion へ surface。**【B-1 実装済み・接続済み】**（2026-09-10 確認。`loop/generator.py` が主LLM の文脈へ載せ、`loop/tonic.py` が読んで欲求の変調に使う） レジスタ `MoodPAD` と M_rest への半減期600秒収束 `decay_to_rest` と agent_state 永続（state_key `mood_pad`）を `mood_register.py` に新設。φ 接続（課題11k）と発火時 surface は後続。
-- norm：prediction.py の EMA を**定点キーに拡張**＋DINOv2 定点別「普通」。**視覚エンコーダは新規採用**（課題7「DINO 有無」の答え＝現状無し → **DINOv2 を入れる**）。
+- norm：定点別の移動平均（エンティティ層・未実装、新しく書く）＋DINOv2 定点別「普通」（実装済み）。**視覚エンコーダは新規採用**（課題7「DINO 有無」の答え＝現状無し → **DINOv2 を入れる**）。
 - drive：既存 `agent_state["desires"]` を流用（旧欲求名→新5欲求は課題6）。**【B-2 実装済み・接続済み】**（2026-09-10 確認。`loop/tonic.py` が `core/drive_dynamics.py` の `accumulate`／`fired`／`discharge` を時間で回す） 新5欲求の器 `AiDrivers` と agent_state 永続（state_key `drive5`・"desires" とは別キー）を `drive_register.py` に新設。生きた15欲求は温存し未接続。蓄積 dynamics と PI.drive surface と旧15→新5 移行は後続。
 - 在席：**YOLO（新規）**＋pose 条件付き presence マップ。**DeepFace 廃止・InsightFace 採用**。
 - 形の差異：放電（×0.5→引く）、tick（単一 IDLE_CHECK→T-tick 周期＋I イベント駆動）。
@@ -281,6 +281,7 @@ I も T も在席センサも動体イベントも、実装では `run()` の中
 
 ## 更新履歴
 
+> v0.32：エンティティ層の土台（`prediction.py` を広げる）を、「作るときに新しく書く」に直した。`prediction.py` は読まれていなかったので環-ab R-5a で外した（2026-09-28・本人）。
 > v0.31：§1-3 の保留の発話の設定（`PENDING_SPEECH_*`）に、環-ab で外したことを注記した（2026-09-28）。
 > v0.30：名乗りの預かり 30 秒（知-w-ろ・2026-09-19）。
 > v0.29：滞留窓 180 → 60（知-x・2026-09-19）。
