@@ -166,7 +166,7 @@ async def repl(agent: EmbodiedAgent, debug: bool = False) -> None:
             if pending:
                 # Process all buffered user messages before doing anything autonomous
                 for user_input in pending:
-                    await _handle_user(user_input, agent, on_action, on_text, debug, input_queue)
+                    await _handle_user(user_input, agent, on_action, on_text, debug)
                 continue
 
             # No pending input — show prompt and wait briefly
@@ -185,7 +185,7 @@ async def repl(agent: EmbodiedAgent, debug: bool = False) -> None:
                 continue
 
             if queued_input:
-                await _handle_user(queued_input, agent, on_action, on_text, debug, input_queue)
+                await _handle_user(queued_input, agent, on_action, on_text, debug)
 
     except (KeyboardInterrupt, EOFError, asyncio.CancelledError):
         pass
@@ -212,7 +212,6 @@ async def _handle_user(
     on_action,
     on_text,
     debug: bool,
-    interrupt_queue=None,
 ) -> None:
     """Process a single user message."""
     if user_input == "/quit":
@@ -226,7 +225,6 @@ async def _handle_user(
             user_input,
             on_action=on_action,
             on_text=on_text,
-            interrupt_queue=interrupt_queue,
         )
 
 

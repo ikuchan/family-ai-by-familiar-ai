@@ -39,10 +39,8 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     agent.config.agent_name = "Kokone"
     agent.config.companion_name = "Kouta"
 
-    agent._turn_count = 0
     agent._session_input_tokens = 0
     agent._session_output_tokens = 0
-    agent._last_context_tokens = 0
     agent._background_tasks = set()
     agent._cached_plan_ctx = ""
     agent._cached_workspace_ctx = ""

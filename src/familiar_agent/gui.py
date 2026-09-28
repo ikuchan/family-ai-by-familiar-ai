@@ -95,7 +95,6 @@ from ._ui_helpers import (
     clean_spoken_text,
     format_action,
     format_chat_log_line,
-    format_tool_result,
 )
 from .bootstrap import settings_env_path
 from .diagnostics import (
@@ -2307,18 +2306,6 @@ class FamiliarWindow(QMainWindow):
         _update_thinking_status()
         thinking_timer.start()
 
-        def on_phase(new_phase: str) -> None:
-            nonlocal phase, phase_started
-            if new_phase not in {"startup", "thinking"}:
-                return
-            if phase == new_phase:
-                return
-            phase = new_phase
-            phase_started = time.perf_counter()
-            if not self._stream.has_content():
-                _update_thinking_status()
-            self._refresh_status_card()
-
         say_fired = False
 
         def on_text(chunk: str) -> None:
@@ -2346,25 +2333,12 @@ class FamiliarWindow(QMainWindow):
             if name == "look":
                 self._request_look_preview(tool_input.get("degrees"))
 
-        def on_tool_result(name: str, tool_input: dict, result: str) -> None:
-            formatted = format_tool_result(name, tool_input, result)
-            if formatted:
-                self._log.append_line(formatted)
-
-        def on_image(b64: str) -> None:
-            self._camera.update_image(b64)
-
         try:
             self._agent_task = self._create_task(
                 self._agent.run(
                     user_input,
                     on_action=on_action,
                     on_text=on_text,
-                    on_image=on_image,
-                    on_phase=on_phase,
-                    on_tool_result=on_tool_result,
-                    inner_voice=inner_voice,
-                    interrupt_queue=self._input_queue,
                 )
             )
             final_text = await self._agent_task
