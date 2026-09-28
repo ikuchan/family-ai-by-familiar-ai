@@ -36,6 +36,12 @@ GONE = (
     "as_coalition",
     "observation_action_name",
     "companion_mood=",
+    # R-7：関係の箱の使われていない口と、TUI の止められない「押して話す」
+    "def members_of",
+    "def relations_for",
+    "def latest_member",
+    "start_ptt",
+    "stop_ptt",
 )
 
 

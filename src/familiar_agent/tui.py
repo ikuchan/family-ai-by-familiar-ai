@@ -154,7 +154,6 @@ class FamiliarApp(App):
         Binding("ctrl+t", "toggle_listen", "🎙 Voice", show=True),
         Binding("ctrl+r", "restart_realtime_stt", "↻ STT", show=True),
         Binding("escape", "cancel_turn", "🛑 Cancel", show=False),
-        Binding("space", "start_ptt", "🎙 PTT", show=False),
     ]
 
     def __init__(self, agent: "EmbodiedAgent") -> None:
@@ -176,7 +175,6 @@ class FamiliarApp(App):
         self._cancel_event: asyncio.Event = asyncio.Event()
         self._agent_task: asyncio.Task | None = None
         # Push-to-Talk state
-        self._ptt_active: bool = False
         # Realtime STT (hands-free, always-on)
         self._realtime_stt: RealtimeSttController | None = create_realtime_stt_controller()
 
@@ -620,27 +618,6 @@ class FamiliarApp(App):
         if self._agent_task and not self._agent_task.done():
             self._agent_task.cancel()
         self._log_system(f"[dim]{INTERRUPT_MSG}[/dim]")
-
-    def action_start_ptt(self) -> None:
-        """Space — start Push-to-Talk recording (if STT configured)."""
-        if not self.agent.stt:
-            return
-        if self._recording or self._ptt_active:
-            return
-        self._ptt_active = True
-        self._recording = True
-        self._stop_recording.clear()
-        stream = self.query_one("#stream", Static)
-        stream.add_class("recording")
-        stream.update("🎙 PTT… (release Space to send)")
-        self.run_worker(self._do_record(), exclusive=False)
-
-    def action_stop_ptt(self) -> None:
-        """Space released — stop Push-to-Talk recording."""
-        if not self._ptt_active:
-            return
-        self._ptt_active = False
-        self._stop_recording.set()
 
     async def action_quit(self) -> None:
         self._closing = True
