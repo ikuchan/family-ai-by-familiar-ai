@@ -179,24 +179,6 @@ class RelationStore:
             return False
         return rid is not None
 
-    def latest_member(self, kind: str, role: str) -> "str | None":
-        """その種類・その役割の項のうち、いちばん新しい関係のもの。
-
-        **繋ぐためではなく、どこから見せるかのカーソルである。** 起動直後は持ち回りが
-        空なので、ここから直近のやりとりの表示を始める。無ければ None。
-        """
-        with self._ctx.lock:
-            conn = self._ctx.conn()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT m.obs_id FROM relation_members m "
-                    "JOIN relations r ON r.id = m.relation_id AND r.kind = %s "
-                    "WHERE m.role = %s ORDER BY r.id DESC LIMIT 1",
-                    (kind, role),
-                )
-                row = cur.fetchone()
-        return None if row is None else str(row["obs_id"])
-
     def latest_origins(self, n: int, kind: str = KIND_EXCHANGE) -> list[str]:
         """時系列で新しい順に、やりとりの起点を n 件返す（記-h）。
 
@@ -332,38 +314,3 @@ class RelationStore:
                     (kind, ids),
                 )
                 return {str(row["obs_id"]): str(row["role"]) for row in cur.fetchall()}
-
-    def members_of(self, relation_id: int) -> list[dict]:
-        """関係の項を位置の昇順で返す。位置を持たない項は末尾に置く。"""
-        with self._ctx.lock:
-            conn = self._ctx.conn()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT obs_id, role, position FROM relation_members "
-                    "WHERE relation_id = %s ORDER BY position ASC NULLS LAST, obs_id",
-                    (relation_id,),
-                )
-                return [dict(r) for r in cur.fetchall()]
-
-    def relations_for(
-        self, obs_id: str, kind: "str | None" = None, role: "str | None" = None
-    ) -> list[int]:
-        """その観測が項として入る関係の id を、古い順に返す。"""
-        sql = [
-            "SELECT r.id FROM relation_members m",
-            "JOIN relations r ON r.id = m.relation_id",
-            "WHERE m.obs_id = %s",
-        ]
-        args: list[object] = [str(obs_id)]
-        if role is not None:
-            sql.append("AND m.role = %s")
-            args.append(role)
-        if kind is not None:
-            sql.append("AND r.kind = %s")
-            args.append(kind)
-        sql.append("ORDER BY r.id")
-        with self._ctx.lock:
-            conn = self._ctx.conn()
-            with conn.cursor() as cur:
-                cur.execute(" ".join(sql), tuple(args))
-                return [int(r["id"]) for r in cur.fetchall()]
