@@ -76,7 +76,6 @@ _TRUNCATE_TABLES = [
     "memory_jobs",
     "memory_events",
     "episodes",
-    "pending_speech",
     "observations",
     "persons",
     "mental_state_log",
