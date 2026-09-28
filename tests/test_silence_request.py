@@ -42,18 +42,20 @@ def test_no_request_means_no_silence():
 
 
 def test_arbiter_can_flag_a_silence_request():
-    # 気づくのは軽量LLM。言い方は無数にあるので、文字列の一覧を持たない。
-    from familiar_agent.loop.arbiter import Decision
-    from tests._arbiter_compat import arbitrate
+    # 気づくのは Jev（出-au 段 5-7d）。言い方は無数にあるので、文字列の一覧を持たない。黙る依頼と長さを問う。
     import asyncio
-    from unittest.mock import AsyncMock
 
-    # 気づくのは Jev（出-au 段 5-7d）。黙る依頼と長さを問う。
+    from tests._arbiter_fakes import decide, jev_says, writer_says
+
     qs = _arbiter_questions()
     assert qs["asks_quiet"]["type"] == "noul" and qs["quiet_minutes"]["type"] == "choice"
-    b = AsyncMock()
-    b.complete = AsyncMock(return_value='{"branch":"light","text":"わかった","silence_minutes":-1}')
-    d: Decision = asyncio.run(arbitrate(b, utterance="ちょっと静かにして", workspace_ctx=""))
+    d = asyncio.run(
+        decide(
+            jev=jev_says("light", quiet="default"),
+            writer=writer_says({"text": "わかった"}),
+            utterance="ちょっと静かにして",
+        )
+    )
     assert d.silence_minutes == -1  # 頼まれたが長さの指定なし
 
 
@@ -180,19 +182,27 @@ def test_merely_speaking_to_her_does_not_lift_it(monkeypatch):
 
 
 def test_the_arbiter_can_flag_a_release():
-    from tests._arbiter_compat import arbitrate
     import asyncio
-    from unittest.mock import AsyncMock
+
+    from tests._arbiter_fakes import decide, jev_says, writer_says
 
     # 解く言葉は、黙っているあいだだけ Jev に問う。
     assert "lifts_quiet" in _arbiter_questions(silenced=True)
     assert "lifts_quiet" not in _arbiter_questions(silenced=False)
-    b = AsyncMock()
-    b.complete = AsyncMock(return_value='{"branch":"light","text":"はい","lift_silence":true}')
-    d = asyncio.run(arbitrate(b, utterance="もう話していいよ", workspace_ctx=""))
+
+    def lifted(utterance: str, *, lifts: bool):
+        return asyncio.run(
+            decide(
+                jev=jev_says("light", lifts_quiet=lifts),
+                writer=writer_says({"text": "はい"}),
+                utterance=utterance,
+                silenced=True,
+            )
+        )
+
+    d = lifted("もう話していいよ", lifts=True)
     assert d.lift_silence is True and d.silence_minutes == 0
-    b.complete = AsyncMock(return_value='{"branch":"light","text":"はい"}')
-    assert asyncio.run(arbitrate(b, utterance="おはよう", workspace_ctx="")).lift_silence is False
+    assert lifted("おはよう", lifts=False).lift_silence is False
 
 
 def test_waiting_is_not_a_request_for_silence():

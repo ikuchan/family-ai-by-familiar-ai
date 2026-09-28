@@ -8,12 +8,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
 from familiar_agent.config import AgentConfig
-from tests._arbiter_compat import arbitrate
+from tests._arbiter_fakes import decide, jev_says, writer_says
 
 
 def test_the_timeout_is_five_seconds_by_default():
@@ -38,26 +38,18 @@ def test_the_timeout_is_a_layer_three_setting_and_ignores_env():
 
 
 def test_a_reply_that_arrives_within_the_timeout_is_used():
-    """4.2 秒で返る調停（「黙って」の実測に近い）を、時間切れにしない。"""
-    backend = MagicMock()
-
-    async def _slow(prompt, max_tokens, *, system=None):
-        await asyncio.sleep(0.05)
-        return '{"branch":"light","text":"わかった"}'
-
-    backend.complete = AsyncMock(side_effect=_slow)
-    decision = asyncio.run(arbitrate(backend, utterance="黙って", workspace_ctx="", timeout=0.5))
+    """4.2 秒で返る調停（「黙って」の実測に近い）を、時間切れにしない。時間切れを見るのは軽量LLM の文章。"""
+    writer = writer_says({"text": "わかった"}, delay=0.05)
+    decision = asyncio.run(
+        decide(jev=jev_says("light"), writer=writer, utterance="黙って", timeout=0.5)
+    )
     assert decision.branch == "light"
 
 
 def test_a_reply_that_exceeds_the_timeout_falls_back_to_full():
     """届かなければフルへ倒す（従来どおり）。"""
-    backend = MagicMock()
-
-    async def _too_slow(prompt, max_tokens):
-        await asyncio.sleep(0.3)
-        return '{"branch":"light","text":"間に合わない"}'
-
-    backend.complete = AsyncMock(side_effect=_too_slow)
-    decision = asyncio.run(arbitrate(backend, utterance="黙って", workspace_ctx="", timeout=0.05))
+    writer = writer_says({"text": "間に合わない"}, delay=0.3)
+    decision = asyncio.run(
+        decide(jev=jev_says("light"), writer=writer, utterance="黙って", timeout=0.05)
+    )
     assert decision.branch == "full"

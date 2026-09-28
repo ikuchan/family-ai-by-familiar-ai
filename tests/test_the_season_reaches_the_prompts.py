@@ -6,12 +6,11 @@
 
 from __future__ import annotations
 
-from tests._arbiter_compat import arbitrate as _compat_arbitrate
+from tests._arbiter_fakes import decide, jev_says, system_of, writer_says
 
 import asyncio
 import inspect
 from datetime import date
-from unittest.mock import MagicMock
 
 from familiar_agent.core import season_env as se
 from familiar_agent.core.context_parts import Stance, build_context
@@ -48,26 +47,19 @@ def test_the_main_llm_prompt_carries_it():
 
 
 def test_the_arbiter_is_told_it_too():
-
-    seen: dict = {}
-
-    async def complete(prompt, max_tokens, **kw):
-        seen["system"] = kw.get("system") or ""
-        return '{"branch":"light","text":"寒くなってきたね"}'
-
-    b = MagicMock()
-    b.complete = complete
+    # 季節を受けるのは、人格と家族を持つ軽量LLM の文章の口（Jev に送る文には人格が無い）。
+    writer = writer_says({"text": "寒くなってきたね"})
     asyncio.run(
-        _compat_arbitrate(
-            b,
+        decide(
+            jev=jev_says("light"),
+            writer=writer,
             utterance="寒いね",
-            workspace_ctx="",
             self_understanding="パジュ",
             family_md="パパ",
             season_env=SEASON,
         )
     )
-    assert SEASON in seen["system"]
+    assert SEASON in system_of(writer)
 
 
 def test_the_loop_renders_what_is_stored(monkeypatch):
@@ -82,7 +74,7 @@ def test_the_loop_renders_what_is_stored(monkeypatch):
 
 
 def test_both_calls_from_the_loop_pass_it():
-    """主LLM（`build_event_system_prompt`）と調停（`arbitrate`）の両方に渡す。"""
+    """主LLM（`build_event_system_prompt`）と調停（`Arbiter`）の両方に渡す。"""
     from familiar_agent.loop import event_loop
 
     src = inspect.getsource(event_loop)

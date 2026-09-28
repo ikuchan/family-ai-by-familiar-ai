@@ -14,7 +14,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.core.speaker_claim import resolve_claim
 from familiar_agent.loop import arbiter
-from tests._arbiter_compat import arbitrate as _compat_arbitrate
+from tests._arbiter_fakes import decide, jev_says, writer_says
 from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
@@ -67,19 +67,21 @@ def test_someone_outside_the_family_still_resolves_to_nothing():
     assert resolve_claim("太郎", FAMILY_ALIASES) is None
 
 
-def _backend(reply: str):
-    # 試験用の口（`tests/_arbiter_compat.py`）が返事を覗いて偽の Jev の答えにするので、AsyncMock で持つ。
-    b = MagicMock()
-    b.complete = AsyncMock(return_value=reply)
-    return b
-
-
 def test_the_arbiter_carries_the_claim_and_drops_it_on_a_tool_return():
-    b = _backend('{"branch":"light","text":"パパ、おかえり","speaker_claim":"パパ"}')
-    d = asyncio.run(_compat_arbitrate(b, utterance="パパだよ", workspace_ctx=""))
-    assert d.speaker_claim == "パパ"
-    d = asyncio.run(_compat_arbitrate(b, utterance="パパだよ", workspace_ctx="", tool_return=True))
-    assert d.speaker_claim == ""
+    def claim(**kw):
+        return asyncio.run(
+            decide(
+                jev=jev_says("light", claimed="パパ"),
+                writer=writer_says({"text": "パパ、おかえり"}),
+                utterance="パパだよ",
+                family_md=FAMILY,
+                **kw,
+            )
+        )
+
+    assert claim().speaker_claim == "パパ"
+    # 道具の帰りでは、Jev の答えに混じっていても読まない（機械の守り・情-n）。
+    assert claim(tool_return=True).speaker_claim == ""
 
     # 名乗りは Jev に問う（出-au 段 5-7d）。道具の帰りでは問わない。
     def asked(**kw):

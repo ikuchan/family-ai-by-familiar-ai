@@ -119,21 +119,19 @@ def test_the_loop_hands_the_current_self_image_to_the_prompt(monkeypatch):
 
 def test_the_arbiter_gets_the_same_self_image_in_its_system(monkeypatch):
     import asyncio
-    from unittest.mock import AsyncMock, MagicMock
 
-    from tests._arbiter_compat import arbitrate
+    from tests._arbiter_fakes import decide, jev_says, system_of, writer_says
 
-    b = MagicMock(spec=["complete"])
     # 文章を書くのは軽量LLM の側（出-au 段 5-7c）。full で深さが low なら呼ばれないので、light で見る。
-    b.complete = AsyncMock(return_value='{"branch": "light", "text": "うん"}')
+    writer = writer_says({"text": "うん"})
     asyncio.run(
-        arbitrate(
-            b,
+        decide(
+            jev=jev_says("light"),
+            writer=writer,
             utterance="x",
-            workspace_ctx="",
             self_understanding="ぼくはパジュ",
             family_md="家族",
             self_image="[いまの自分]\n価値：\n- 悔しがる気持ちを笑わない。",
         )
     )
-    assert "悔しがる気持ちを笑わない。" in b.complete.await_args.kwargs["system"]
+    assert "悔しがる気持ちを笑わない。" in system_of(writer)

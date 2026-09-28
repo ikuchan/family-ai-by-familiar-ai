@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from familiar_agent.core import measure
 
@@ -22,22 +22,18 @@ def _lines(tmp_path: Path, kind: str) -> list[str]:
 
 
 def test_the_arbiter_records_seconds_branch_and_timeout(tmp_path):
-    from tests._arbiter_compat import arbitrate
+    from tests._arbiter_fakes import decide, jev_says, writer_says
 
     measure.setup(base_dir=tmp_path)
-    b = MagicMock(spec=["complete"])
-    b.complete = AsyncMock(return_value='{"branch": "light", "text": "やあ"}')
-    asyncio.run(arbitrate(b, utterance="こんにちは", workspace_ctx="", timeout=2.0))
+    asyncio.run(
+        decide(jev=jev_says("light"), writer=writer_says({"text": "やあ"}), utterance="こんにちは")
+    )
     line = _lines(tmp_path, "調停")[-1]
     assert "分岐=light" in line and "時間切れ=no" in line and "秒=" in line
 
-    async def slow(*_a, **_k):
-        await asyncio.sleep(0.2)
-        return "{}"
-
-    b2 = MagicMock(spec=["complete"])
-    b2.complete = AsyncMock(side_effect=slow)
-    asyncio.run(arbitrate(b2, utterance="x", workspace_ctx="", timeout=0.01))
+    # 時間切れを見るのは軽量LLM の文章（Jev は別に `jev_timeout_sec` で切る）。
+    slow = writer_says({"text": "やあ"}, delay=0.2)
+    asyncio.run(decide(jev=jev_says("light"), writer=slow, utterance="x", timeout=0.01))
     assert "時間切れ=yes" in _lines(tmp_path, "調停")[-1]
 
 
