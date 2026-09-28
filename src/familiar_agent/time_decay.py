@@ -1,6 +1,6 @@
 """Pure time-decay value object. No DB, no env, no settings — calculation only.
 
-Used by memory recall (Issue B) and, later, pending_speech intent freshness (Issue D).
+Used by memory recall (Issue B).
 
 Decay formula: score = max(floor, exp(-elapsed / tau))
                tau   = effective_half_life / ln(2)
@@ -8,7 +8,7 @@ Decay formula: score = max(floor, exp(-elapsed / tau))
 Reinforcement A (durability): reinforce_count += 1 → effective half-life doubles.
 Reinforcement B (freshness):  origin_epoch reset → elapsed restarts from zero.
 
-Memory uses both A and B. pending_speech (Issue D) will use B only.
+Memory uses both A and B.
 """
 
 from __future__ import annotations

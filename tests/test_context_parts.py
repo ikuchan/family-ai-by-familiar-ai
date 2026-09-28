@@ -63,8 +63,8 @@ def test_measuring_from_outside_needs_neither():
 
 
 def test_only_the_chosen_parts_are_present():
-    ctx = build_context(stance=Stance.INSTRUMENT, rules="（規則）")
-    assert "（規則）" in ctx.stable
+    ctx = build_context(stance=Stance.INSTRUMENT, core="（静的核）")
+    assert "（静的核）" in ctx.stable
     assert _FAMILY not in ctx.stable
     assert ctx.variable == ""
 
@@ -139,14 +139,10 @@ def test_the_stable_half_is_labelled():
         core="（静的核）",
         self_understanding=_ME,
         family=_FAMILY,
-        rules="（規則）",
     )
-    for label in ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]", "[守っている決まり]"):
+    for label in ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]"):
         assert label in ctx.stable, label
-    i = [
-        ctx.stable.index(x)
-        for x in ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]", "[守っている決まり]")
-    ]
+    i = [ctx.stable.index(x) for x in ("[身体と決まり]", "[あなたは誰か]", "[一緒に暮らす人たち]")]
     assert i == sorted(i)
 
 
@@ -212,24 +208,23 @@ def test_the_static_core_carries_the_identity_so_parts_may_be_missing():
     assert _ME in ctx2.stable
 
 
-# ── 自己像（層 2）は決まりと同じ層に載る（記-a-へ・2026-09-14） ─────────────────
+# ── 自己像（層 2）は安定部の、家族の後に載る（記-a-へ・2026-09-14） ─────────────
 
 
-def test_the_self_image_sits_right_after_the_rules():
+def test_the_self_image_sits_after_the_family():
     ctx = build_context(
         stance=Stance.PAJU,
         self_understanding="ぼくはパジュ",
         family=_FAMILY,
-        rules="（規則）",
         self_image="[いまの自分]\n望み：\n- 家族の好きなものを知りたい。",
     )
     s = ctx.stable
-    assert s.index("[守っている決まり]") < s.index("[いまの自分]")
+    assert s.index("[一緒に暮らす人たち]") < s.index("[いまの自分]")
     assert "家族の好きなものを知りたい。" in s
     # 可変部には入らない（1 日 1 回しか変わらない・キャッシュに乗る）。
     assert "いまの自分" not in ctx.variable
 
 
 def test_an_empty_self_image_adds_nothing():
-    ctx = build_context(stance=Stance.INSTRUMENT, rules="（規則）", self_image="")
+    ctx = build_context(stance=Stance.INSTRUMENT, self_image="")
     assert "いまの自分" not in ctx.stable

@@ -179,21 +179,6 @@ def test_the_checker_still_drops_tts_tags_when_the_voice_understands_them():
     assert ":id no-tts-tags\n" not in rules_for_checker(allow_tts_tags=True)
 
 
-def test_the_agent_hands_the_checker_rules_to_the_instrument_stance():
-    """`with_rules=True` の呼び手はチェッカーだけ。そこへ渡るのは絞った規則である。"""
-    from unittest.mock import MagicMock
-
-    from familiar_agent.agent import EmbodiedAgent
-    from familiar_agent.core.context_parts import Stance
-
-    a = MagicMock()
-    a._me_md, a._family_md, a._tts = "", "", None
-    system = EmbodiedAgent._stance_context(a, Stance.INSTRUMENT, with_rules=True)
-    assert system is not None
-    assert ":id no-invented-knowledge\n" in system
-    assert ":id declare-memory-use\n" not in system
-
-
 # ── 材料を切らない・申告に頼らない（出-n・2026-09-13） ─────────────────────────
 
 
