@@ -12,7 +12,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF
-from tests._arbiter_compat import _parse
+from familiar_agent.loop.arbiter import assemble
 from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, InformationProcessing, _query_label
 
 from tests.test_event_loop import _agent
@@ -58,8 +58,8 @@ def test_running_the_lookup_calls_the_mcp_tool_and_queues_the_result() -> None:
 
 
 def test_the_arbiter_can_choose_the_family_schedule() -> None:
-    d = _parse(
-        '{"branch": "action", "action": "family_schedule", "filler": "見てみますね"}',
+    d = assemble(
+        {"branch": "action", "action": "family_schedule", "filler": "見てみますね"},
         can_see=False,
         extra_actions=("family_schedule",),
     )

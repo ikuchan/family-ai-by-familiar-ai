@@ -84,10 +84,10 @@ def test_nothing_expires_while_the_room_is_occupied():
 
 
 def test_the_arbiter_reads_the_denial():
-    from tests._arbiter_compat import _parse
+    from familiar_agent.loop.arbiter import assemble
 
-    got = _parse(
-        '{"branch": "light", "text": "ごめんなさい", "not_person": "パパ"}',
+    got = assemble(
+        {"branch": "light", "text": "ごめんなさい", "not_person": "パパ"},
         can_see=False,
         origin="発話",
     )
@@ -96,9 +96,9 @@ def test_the_arbiter_reads_the_denial():
 
 
 def test_the_denial_may_be_absent():
-    from tests._arbiter_compat import _parse
+    from familiar_agent.loop.arbiter import assemble
 
-    got = _parse('{"branch": "light", "text": "はい"}', can_see=False, origin="発話")
+    got = assemble({"branch": "light", "text": "はい"}, can_see=False, origin="発話")
     assert got is not None
     assert got.not_person == ""
 

@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF, strip_session_mark
 from familiar_agent.loop.arbiter import _EXTRA_ACTIONS
-from tests._arbiter_compat import _parse
+from familiar_agent.loop.arbiter import assemble
 from familiar_agent.loop.event_loop import (
     _MCP_LOOKUPS,
     InformationProcessing,
@@ -82,8 +82,13 @@ def test_the_lookup_resolves_the_tool_from_the_speaker():
 
 
 def test_the_arbiter_offers_the_vault_with_a_question():
-    d = _parse(
-        '{"branch": "action", "action": "vault", "query": "コーチングの返事どうなった？", "filler": "見てくるね"}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "vault",
+            "query": "コーチングの返事どうなった？",
+            "filler": "見てくるね",
+        },
         can_see=False,
         extra_actions=("vault",),
     )
@@ -125,16 +130,21 @@ def test_notion_and_vault_are_told_apart_in_the_candidates():
 
 
 def test_the_arbiter_can_set_a_timer_with_a_tool_input():
-    d = _parse(
-        '{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"パスタ"},"filler":"3分ね、測るよ"}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "set_timer",
+            "tool_input": {"after_minutes": 3, "label": "パスタ"},
+            "filler": "3分ね、測るよ",
+        },
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.branch == "action" and d.action == "set_timer"
     assert d.tool_input == {"after_minutes": 3, "label": "パスタ"} and d.query == "パスタ"
     assert d.text == ""  # 道具は即返るのでつなぎは言わない（返りを見て 1 回だけ言う）
-    d = _parse(
-        '{"branch":"action","action":"cancel_timer","tool_input":{"id":"all"}}',
+    d = assemble(
+        {"branch": "action", "action": "cancel_timer", "tool_input": {"id": "all"}},
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
@@ -145,8 +155,12 @@ def test_the_arbiter_can_set_a_timer_with_a_tool_input():
         and d.query == "all"
     )
     # 候補に無ければ判定できない扱い（None → full へ倒れる・従来どおり）
-    d = _parse(
-        '{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"x"}}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "set_timer",
+            "tool_input": {"after_minutes": 3, "label": "x"},
+        },
         can_see=False,
         extra_actions=(),
     )
@@ -195,8 +209,8 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
     assert timer_input_from_query("7時 起こす") == {"at": "7:00", "label": "起こす"}
     assert timer_input_from_query("21時半") == {"at": "21:30", "label": "アラーム"}
     assert timer_input_from_query("パスタ") is None
-    d = _parse(
-        '{"branch":"action","action":"set_timer","query":"1分","filler":"はい、1分ですね。"}',
+    d = assemble(
+        {"branch": "action", "action": "set_timer", "query": "1分", "filler": "はい、1分ですね。"},
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
@@ -205,20 +219,20 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
         and d.action == "set_timer"
         and d.tool_input == {"after_minutes": 1.0, "label": "タイマー"}
     )
-    d = _parse(
-        '{"branch":"action","action":"cancel_timer","query":"all"}',
+    d = assemble(
+        {"branch": "action", "action": "cancel_timer", "query": "all"},
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.tool_input == {"id": "all"}
-    d = _parse(
-        '{"branch":"action","action":"start_stopwatch","query":"ランニング"}',
+    d = assemble(
+        {"branch": "action", "action": "start_stopwatch", "query": "ランニング"},
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.tool_input == {"label": "ランニング"}
-    d = _parse(
-        '{"branch":"action","action":"set_timer","query":"7時 起こす"}',
+    d = assemble(
+        {"branch": "action", "action": "set_timer", "query": "7時 起こす"},
         can_see=False,
         extra_actions=("set_timer", "set_alarm", "cancel_alarm"),
     )
@@ -231,21 +245,31 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
 
 def test_an_action_branch_with_only_text_is_a_light_reply():
     """動作が無く text だけの action（「鳴らしていい？」と聞きたかった）は light として扱う（実機 23:14）。"""
-    d = _parse('{"branch":"action","filler":"鳴らしていい？"}', can_see=False, extra_actions=())
+    d = assemble({"branch": "action", "filler": "鳴らしていい？"}, can_see=False, extra_actions=())
     assert d is not None and d.branch == "light" and d.text == "鳴らしていい？"
-    assert _parse('{"branch":"action"}', can_see=False, extra_actions=()) is None
+    assert assemble({"branch": "action"}, can_see=False, extra_actions=()) is None
 
 
 def test_timer_actions_carry_no_filler_because_they_return_at_once():
     """道具が 0.1 秒で返るので、つなぎを言うと返りの一言と重なって 2 回出る（実機 08:59）。"""
-    d = _parse(
-        '{"branch":"action","action":"start_stopwatch","tool_input":{"label":"x"},"filler":"はい、時間を測りますね。"}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "start_stopwatch",
+            "tool_input": {"label": "x"},
+            "filler": "はい、時間を測りますね。",
+        },
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.action == "start_stopwatch" and d.text == ""
-    d = _parse(
-        '{"branch":"action","action":"search_deferred","query":"天気","filler":"調べてみるね"}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "search_deferred",
+            "query": "天気",
+            "filler": "調べてみるね",
+        },
         can_see=False,
         extra_actions=(),
     )
@@ -254,8 +278,12 @@ def test_timer_actions_carry_no_filler_because_they_return_at_once():
 
 def test_a_json_string_in_query_or_tool_input_is_read_as_the_tool_input():
     """調停（Gemini）は tool_input を JSON の**文字列**として query に書く（実機 08:59〜09:00・4 回すべて）。"""
-    d = _parse(
-        '{"branch":"action","action":"set_timer","query":"{\\"after_minutes\\": 0.5, \\"label\\": \\"パパのお願い\\"}"}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "set_timer",
+            "query": '{"after_minutes": 0.5, "label": "パパのお願い"}',
+        },
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
@@ -264,15 +292,15 @@ def test_a_json_string_in_query_or_tool_input_is_read_as_the_tool_input():
         and d.action == "set_timer"
         and d.tool_input == {"after_minutes": 0.5, "label": "パパのお願い"}
     )
-    d = _parse(
-        '{"branch":"action","action":"cancel_timer","tool_input":"{\\"id\\": \\"all\\"}"}',
+    d = assemble(
+        {"branch": "action", "action": "cancel_timer", "tool_input": '{"id": "all"}'},
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
     assert d is not None and d.tool_input == {"id": "all"}
     # 動作を取り違えても、入力が {"id": …} だけなら止める意図（「ストップ」に set_timer と書いた）
-    d = _parse(
-        '{"branch":"action","action":"set_timer","query":"{\\"id\\": \\"all\\"}"}',
+    d = assemble(
+        {"branch": "action", "action": "set_timer", "query": '{"id": "all"}'},
         can_see=False,
         extra_actions=("set_timer", "cancel_timer", "start_stopwatch"),
     )
