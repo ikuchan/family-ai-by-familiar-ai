@@ -2287,11 +2287,8 @@ class FamiliarWindow(QMainWindow):
             self._input_queue.qsize(),
         )
 
-        phase = (
-            "startup"
-            if (getattr(self._agent, "_turn_count", 0) == 0 or not self._agent.is_embedding_ready)
-            else "thinking"
-        )
+        # 起動直後かどうかは埋め込みの準備だけで決める（話した回数は旧 `run()` が数えていて、撤去後はいつも 0 だった）。
+        phase = "startup" if not self._agent.is_embedding_ready else "thinking"
         phase_started = time.perf_counter()
         thinking_timer = QTimer(self)
         thinking_timer.setInterval(200)
