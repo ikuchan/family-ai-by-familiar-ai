@@ -1454,41 +1454,6 @@ class ObservationMemory:
             logger.warning("get_working_memory failed: %s", e)
             return []
 
-    async def as_coalition_async(self):
-        """Surface recently-stored memories as a workspace coalition.
-
-        Queries the N most recent observations by timestamp and packages them
-        as a Coalition so the workspace can inject relevant context into the
-        LLM prompt.  Returns None when there are no stored memories yet.
-        """
-        from ..coalition import Coalition
-
-        memories = await self.recall_async("", n=5)
-        if not memories:
-            return None
-
-        context = self.format_for_context(memories)
-        if not context:
-            return None
-
-        confidences = [float(m.get("confidence", 0.5)) for m in memories]
-        dynamism = min(0.6, max(confidences))
-
-        has_today = any(m.get("is_today") for m in memories)
-        novelty = 0.4 if has_today else 0.2
-
-        top = max(memories, key=lambda m: float(m.get("confidence", 0.0)))
-        summary = top["summary"]
-
-        return Coalition(
-            source="memory",
-            summary=summary,
-            dynamism=dynamism,
-            urgency=0.1,
-            novelty=novelty,
-            context_block="[Memory recall]\n" + context,
-        )
-
     # ── Format helpers (unchanged from original) ───────────────────────────
 
     def voices_of(self, obs_ids: "list[str]") -> "dict[str, tuple[str, list[str]]]":

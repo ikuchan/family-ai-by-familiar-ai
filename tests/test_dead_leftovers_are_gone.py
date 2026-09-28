@@ -19,21 +19,7 @@ from __future__ import annotations
 import inspect
 
 
-def test_the_ignition_thresholds_are_gone():
-    """`GlobalWorkspace` の発火閾値。撤去した機構の設定値だけが残っていた。"""
-    from familiar_agent import coalition
-
-    src = inspect.getsource(coalition)
-    assert "_MIN_THRESHOLD" not in src
-    assert "_ERROR_SENSITIVITY" not in src
-
-
-def test_the_container_still_scores():
-    """**反証側**：器そのものは生きている（6モジュールが使う）。"""
-    from familiar_agent.coalition import Coalition
-
-    c = Coalition(source="s", summary="x", dynamism=1.0, urgency=0.0, novelty=0.0, context_block="")
-    assert c.score() > 0
+# `coalition.py`（`GlobalWorkspace` の器）は、呼び手が無くなったので環-ab で外した（`test_dead_paths_are_gone.py`）。
 
 
 def test_the_pipeline_no_longer_takes_a_parent_to_close():

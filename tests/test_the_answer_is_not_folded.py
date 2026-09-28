@@ -39,10 +39,6 @@ def _run(agent, **kw):
             user_input="昨日の天気覚えてる？",
             final_text="晴れてたよ",
             camera_used=False,
-            camera_image=None,
-            observation_action_name=None,
-            observation_action_input=None,
-            companion_mood="engaged",
             **kw,
         )
     )

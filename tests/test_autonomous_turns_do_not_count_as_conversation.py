@@ -56,10 +56,6 @@ def _run(agent):
             user_input="[内的な促し:SEEKING] 探索したい",
             final_text="ひとりごと",
             camera_used=False,
-            camera_image=None,
-            observation_action_name=None,
-            observation_action_input=None,
-            companion_mood="engaged",
         )
     )
 

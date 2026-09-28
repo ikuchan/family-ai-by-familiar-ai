@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 from familiar_agent.io.oif import OIF
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from familiar_agent.backends import TurnResult
-from familiar_agent.exploration import ExplorationTracker
 from familiar_agent.io.aif import AIF
 from familiar_agent.mood_register import MoodPAD
 
@@ -82,7 +80,6 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mem.content_novelty_async = AsyncMock(return_value=0.5)
     mem.get_dates_with_observations = MagicMock(return_value=[])
     mem.get_dates_with_summaries = MagicMock(return_value=[])
-    mem.as_coalition_async = AsyncMock(return_value=None)
     agent._memory = mem
     agent._oif = OIF(mem)  # 関係も書き込みも口を通る（環-e-い）
 
@@ -150,15 +147,10 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mock_pmm.set_speaker = AsyncMock()
     agent._pmm = mock_pmm
 
-    agent._exploration = ExplorationTracker()
-    agent._scene = None
-
-    from familiar_agent.prediction import PredictionEngine
     import time as _time
 
     agent._self_state = MagicMock()
     agent._self_state.snapshot = MagicMock(return_value={"unresolved_tension": 0.2})
-    agent._prediction = PredictionEngine()
     # T との行き来の口（`設計図` ③-2）。実物は `__init__` が持たせるが、この
     # ヘルパーは `__new__` で組み立てるので、ここでも持たせる。
     agent._aif = AIF(None)
@@ -246,13 +238,6 @@ async def test_post_response_pipeline_runs_without_the_removed_engines():
     from familiar_agent.agent import EmbodiedAgent
 
     agent = _make_agent()
-    agent._prediction.last_signal = MagicMock(
-        return_value=SimpleNamespace(
-            action_name="look",
-            agency_error=0.62,
-            external_surprise=0.18,
-        )
-    )
     agent._emotion_for_turn = AsyncMock(return_value=(MoodPAD(), 0.5, "tender"))
     agent._summarize_exchange = AsyncMock(return_value="summary")
 
@@ -261,10 +246,6 @@ async def test_post_response_pipeline_runs_without_the_removed_engines():
         user_input="どう見えた？",
         final_text="窓の光が少し気になってる。",
         camera_used=True,
-        camera_image=None,
-        observation_action_name="look",
-        observation_action_input={"direction": "left", "degrees": 30},
-        companion_mood="frustrated",
     )
 
     # 気がかり（ConcernEngine）・価値の適応（legacy 表）・好奇心の抽出（旧欲求）は環-d で撤去。
@@ -363,10 +344,6 @@ async def test_pipeline_records_the_exchange_without_camera():
         user_input="昨日の天気覚えてる？",
         final_text="晴れてたよ",
         camera_used=False,
-        camera_image=None,
-        observation_action_name=None,
-        observation_action_input=None,
-        companion_mood="engaged",
         exchange_id=9,
     )
 

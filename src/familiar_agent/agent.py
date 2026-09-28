@@ -27,13 +27,10 @@ from .config import AgentConfig, DriveConfig
 from .relationship import PersonRegistry
 from .routines import quiet_hours_rule
 from .io.aif import AIF, Nudge
-from .io.oif import MI, OIF, Cue, Recalled, View
+from .io.oif import MI, OIF, Recalled
 from .mood_register import MoodPAD
-from .exploration import ExplorationTracker
-from .scene import SceneTracker
 from .poses import Pose, build_pose_registry
 from .presence_sensor import PresenceSensor
-from .prediction import PredictionEngine
 from .memory_worker import MemoryJobWorker
 from .tools.camera import CameraTool
 from .tools.deferred_fetch import DeferredFetchTool
@@ -199,12 +196,9 @@ class EmbodiedAgent:
         # 見えのエンコーダ（DINOv2）。起動時に温めるため参照を持つ。
         self._visual_encoder: VisualEncoder | None = None
         self._motion_events: MotionEventWatcher | None = None
-        self._exploration = ExplorationTracker()
-        self._scene: SceneTracker | None = None  # initialized after DB ready in _init_tools
 
         self._mcp: MCPClientManager | None = None
         self._persons = PersonRegistry(default_name=config.companion_name)
-        self._prediction = PredictionEngine()
         # T との行き来はこの口へ集める（`設計図` ③-2 の4つの口）。I はループが
         # 立ち上がる前のターンでも Nudge を返すので、ここで持たせる。
         self._aif = AIF(None)
@@ -396,10 +390,6 @@ class EmbodiedAgent:
         user_input: str,
         final_text: str,
         camera_used: bool,
-        camera_image: str | None,
-        observation_action_name: str | None,
-        observation_action_input: dict | None,
-        companion_mood: str,
         arousal: float = 0.0,
         memories: "list[Recalled] | None" = None,
         exchange_id: "int | None" = None,
@@ -454,25 +444,9 @@ class EmbodiedAgent:
         )
 
         try:
-            if camera_used:
-                recent_obs = await self._oif.recall(
-                    Cue(text=final_text[:200], direction="観察"), View(k=6)
-                )
-                past_scores = [r.fit for r in recent_obs[:3]]
-                if past_scores:
-                    avg_similarity = sum(past_scores) / len(past_scores)
-                    novelty = 1.0 - avg_similarity
-                else:
-                    novelty = 0.8
-                novelty = max(0.0, min(1.0, novelty))
-                self._exploration.record_novelty(novelty)
-                # 場面の更新と `観察` の書き込みはここから外した。この経路は
-                # `loop/event_loop.py` の1箇所からしか来ず、そこは `camera_used=False`・
-                # `camera_image=None`・`action_name=None` を渡すので、**どちらも一度も
-                # 到達しない**。書いていた中身も `final_text`（自分の応答）で、同じ
-                # テキストは `direction="発話"` の「自分が答えた：…」として既に残る。
-                # 見た印は `InformationProcessing._write_seen_mark` が書く（定点名つき）。
-
+            # 見た印は `InformationProcessing._write_seen_mark` が書く（定点名つき）。ここで場面を追ったり
+            # 新しさを測ったりしていた分岐は、呼び手がいつも `camera_used=False` を渡すので一度も到達せず、
+            # 環-ab で外した。
             summary = await self._summarize_exchange(user_input, final_text)
             _conv_id = await self._oif.write(
                 MI(
@@ -582,15 +556,6 @@ class EmbodiedAgent:
                 stt_config=stt_cfg,
             )
 
-        # World model: persistent scene entity tracker (Phase 1)
-        # Shares the same PostgreSQL Database instance as ObservationMemory.
-        from .db import get_db as _get_db
-
-        try:
-            self._scene = SceneTracker(_get_db())
-        except Exception as exc:
-            logger.warning("SceneTracker init failed: %s", exc)
-
         if self._camera:
             # 在/不在は YOLO で測る（登録が要らない）。誰かは PMM が必要時に解く。
             cam_cfg = self.config.camera
@@ -608,6 +573,8 @@ class EmbodiedAgent:
                 static_iou=cam_cfg.presence_static_iou,
             )
             # 見えの「普通」（`知覚在席` §3-4）。読めない環境でも在席（YOLO）は動き続ける。
+            from .db import get_db as _get_db
+
             try:
                 self._visual_encoder = VisualEncoder()
                 self._presence_sensor.attach_visual_norm(

@@ -4085,10 +4085,6 @@ class InformationProcessing:
                     user_input=origin,
                     final_text=text,
                     camera_used=False,
-                    camera_image=None,
-                    observation_action_name=None,
-                    observation_action_input=None,
-                    companion_mood="engaged",
                     arousal=arousal,
                     memories=memories,
                     # 会話要約は背景で作られるので、向こうでこの関係の末尾に足す。
