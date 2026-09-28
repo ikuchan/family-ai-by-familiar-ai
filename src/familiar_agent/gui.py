@@ -237,13 +237,6 @@ def resolve_app_icon_path() -> Path | None:
     return None
 
 
-def _subprocess_exec_kwargs() -> dict[str, Any]:
-    """Return platform-specific kwargs to hide console windows on Windows."""
-    if _SUBPROCESS_NO_WINDOW:
-        return {"creationflags": _SUBPROCESS_NO_WINDOW}
-    return {}
-
-
 def _px(size: int) -> int:
     """Scale font-size in px for large readable UI."""
     return max(1, int(round(size * _FONT_SCALE)))
@@ -1338,26 +1331,6 @@ class FamiliarWindow(QMainWindow):
         sec = clamped / 45.0
         return max(_GUI_LOOK_PREVIEW_MIN_SEC, min(_GUI_LOOK_PREVIEW_MAX_SEC, sec))
 
-    @staticmethod
-    def _extract_jpeg_frames(buffer: bytearray, max_frames: int = 2) -> list[bytes]:
-        """Extract complete JPEG frames from a byte buffer and consume them."""
-        frames: list[bytes] = []
-        while len(frames) < max_frames:
-            start = buffer.find(b"\xff\xd8")
-            if start < 0:
-                if len(buffer) > 1_000_000:
-                    buffer.clear()
-                break
-            if start > 0:
-                del buffer[:start]
-            end = buffer.find(b"\xff\xd9", 2)
-            if end < 0:
-                break
-            frame = bytes(buffer[: end + 2])
-            del buffer[: end + 2]
-            frames.append(frame)
-        return frames
-
     def _refresh_presence_camera(self) -> None:
         """在席確認カメラ：presence_watcher の直近フレームを表示する。
 
@@ -2156,24 +2129,6 @@ class FamiliarWindow(QMainWindow):
     # ------------------------------------------------------------------
     # Agent loop
     # ------------------------------------------------------------------
-
-    def _initial_drive_tick_time(self, now_epoch: float) -> float:
-        """初回 tick の起点。drive5.updated_at からの停止経過を初回 dt に含める（案B）。
-
-        updated_at が読めれば `now − 経過` を返し（＝dt に停止時間が乗る）、無ければ now
-        （dt=0）。失敗は degrade して now を返す（アイドルを落とさない）。
-        """
-        try:
-            from .db import get_db
-            from .drive_register import catchup_dt, load_drives_with_updated_at
-
-            db = get_db()
-            with db.lock:
-                _drives, updated = load_drives_with_updated_at(db.conn())
-            return now_epoch - catchup_dt(updated, now_epoch)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("drive catch-up init failed: %s", e)
-            return now_epoch
 
     def _tick_drives(self, dt: float) -> "tuple[DriveFiring, AiDrivers] | None":
         """新5欲求の1 tick（現 mood で蓄積・発火・放電）を drive5 へ永続化。

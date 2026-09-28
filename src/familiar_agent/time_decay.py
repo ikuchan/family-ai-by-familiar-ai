@@ -14,7 +14,7 @@ Memory uses both A and B.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
 
 @dataclass(frozen=True)
@@ -38,11 +38,3 @@ class DecayState:
         tau = effective / math.log(2)
         distance = abs(reference_epoch - self.origin_epoch)
         return max(self.floor, math.exp(-distance / tau))
-
-    def reinforced_durability(self) -> DecayState:
-        """強化A: reinforce_count+1 → 実効半減期が2倍になる。"""
-        return replace(self, reinforce_count=self.reinforce_count + 1)
-
-    def reinforced_freshness(self, now_epoch: float) -> DecayState:
-        """強化B: origin_epoch をリセット → 経過時間がゼロに戻る。"""
-        return replace(self, origin_epoch=now_epoch)

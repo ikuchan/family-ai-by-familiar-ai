@@ -37,12 +37,6 @@ def satisfaction_gate(
     return memories_nonempty or pad_move >= cfg.satisfy_gate_pad_dist or action_used
 
 
-def parse_satisfied_axes(text: str) -> frozenset[str]:
-    """軽量LLMの出力から満たされた軸の部分集合を取り出す（未知語は無視）。"""
-    lower = text.lower()
-    return frozenset(ax for ax in _AXES if ax in lower)
-
-
 def apply_satisfaction(
     drives: AiDrivers, axes: "frozenset[str] | set[str]", cfg: DriveConfig | None = None
 ) -> AiDrivers:

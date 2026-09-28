@@ -15,36 +15,15 @@ import pytest
 from familiar_agent.setup import (
     SetupConfig,
     generate_env_file,
-    is_first_run,
     migrate_legacy_env_file,
     save_setup_config,
-    validate_anthropic_key,
     validate_camera_connection,
-    discover_onvif_cameras,
 )
 
 
 # ---------------------------------------------------------------------------
 # Tests: first-run detection
 # ---------------------------------------------------------------------------
-
-
-def test_is_first_run_when_no_env_file(tmp_path: Path):
-    """Returns True when no .env file exists in the given directory."""
-    assert is_first_run(env_dir=tmp_path) is True
-
-
-def test_is_not_first_run_when_env_exists(tmp_path: Path):
-    """Returns False when a .env file already exists."""
-    (tmp_path / ".env").write_text("ANTHROPIC_API_KEY=sk-ant-test\n")
-    assert is_first_run(env_dir=tmp_path) is False
-
-
-def test_is_first_run_default_is_cwd():
-    """is_first_run() without args checks the current working directory."""
-    # Just verify it returns a bool without error
-    result = is_first_run()
-    assert isinstance(result, bool)
 
 
 # ---------------------------------------------------------------------------
@@ -191,33 +170,6 @@ def test_migrate_legacy_env_file_adds_unified_keys(tmp_path: Path):
 # ---------------------------------------------------------------------------
 
 
-def test_validate_anthropic_key_accepts_valid_format():
-    """Valid sk-ant-... key passes format check."""
-    ok, _ = validate_anthropic_key("sk-ant-api03-abc123")
-    assert ok is True
-
-
-def test_validate_anthropic_key_rejects_empty():
-    """Empty key fails validation."""
-    ok, msg = validate_anthropic_key("")
-    assert ok is False
-    assert msg  # error message provided
-
-
-def test_validate_anthropic_key_rejects_wrong_prefix():
-    """Key without sk-ant- prefix fails validation."""
-    ok, msg = validate_anthropic_key("openai-key-xyz")
-    assert ok is False
-    assert msg
-
-
-def test_validate_anthropic_key_returns_error_message():
-    """validate_anthropic_key returns (False, non-empty message) on failure."""
-    ok, msg = validate_anthropic_key("")
-    assert isinstance(ok, bool)
-    assert isinstance(msg, str)
-
-
 # ---------------------------------------------------------------------------
 # Tests: camera connection validation
 # ---------------------------------------------------------------------------
@@ -255,34 +207,3 @@ async def test_validate_camera_connection_failure():
 # ---------------------------------------------------------------------------
 # Tests: camera discovery
 # ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_discover_onvif_cameras_returns_list():
-    """discover_onvif_cameras() returns a list (possibly empty if no cameras)."""
-    with patch("familiar_agent.setup.discover_network_cameras") as mock_discover:
-        mock_discover.return_value = []
-        result = await discover_onvif_cameras()
-    assert isinstance(result, list)
-
-
-@pytest.mark.asyncio
-async def test_discover_onvif_cameras_parses_host():
-    """Discovered camera entries include a 'host' field."""
-    with patch("familiar_agent.setup.discover_network_cameras") as mock_discover:
-        mock_discover.return_value = [
-            {"host": "192.168.1.42", "address": "http://192.168.1.42:80/onvif/device_service"}
-        ]
-        result = await discover_onvif_cameras()
-
-    assert len(result) == 1
-    assert result[0]["host"] == "192.168.1.42"
-
-
-@pytest.mark.asyncio
-async def test_discover_onvif_cameras_handles_discovery_error():
-    """discover_onvif_cameras() returns empty list when discovery raises."""
-    with patch("familiar_agent.setup.discover_network_cameras") as mock_discover:
-        mock_discover.side_effect = Exception("Network error")
-        result = await discover_onvif_cameras()
-    assert result == []

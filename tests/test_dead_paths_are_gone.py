@@ -128,3 +128,46 @@ def test_counts_nobody_advances_are_gone():
         if n in p.read_text(encoding="utf-8")
     ]
     assert hits == []
+
+
+# ── 定義しか無い関数・メソッド（環-ab R-8・vulture と grep で 1 つずつ確かめた）──────────────
+
+
+R8_DEFS = (
+    "convert_messages_to_gemini_format",
+    "_default_companion_name",
+    "drive_gate",
+    "parse_satisfied_axes",
+    "_subprocess_exec_kwargs",
+    "_extract_jpeg_frames",
+    "_initial_drive_tick_time",
+    "_action_of_query",
+    "recent_window",
+    "save_self_mi_emotion",
+    "on_switch",
+    "get_active_person_info",
+    "load_optional_notes",
+    "evaluate_routine_state",
+    "get_setting_field",
+    "is_first_run",
+    "_bool_to_env",
+    "validate_anthropic_key",
+    "discover_onvif_cameras",
+    "reinforced_durability",
+    "reinforced_freshness",
+    "_log_action",
+    "suppressed_until",
+    "recent_tts_fingerprints",
+)
+
+
+def test_definitions_nobody_calls_are_gone():
+    import re
+
+    hits = [
+        f"{p.relative_to(SRC)}: {n}"
+        for p in SRC.rglob("*.py")
+        for n in R8_DEFS
+        if re.search(rf"def {n}\b", p.read_text(encoding="utf-8"))
+    ]
+    assert hits == []

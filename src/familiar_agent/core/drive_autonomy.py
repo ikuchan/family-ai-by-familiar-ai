@@ -27,22 +27,3 @@ def select_fired_axis(firing: DriveFiring, accumulated: AiDrivers) -> str | None
 def inner_voice_for(axis: str, cfg: DriveConfig) -> str:
     """発火軸に対応する内声（Config 文字列・行動非指定）。"""
     return getattr(cfg, f"voice_{axis}")
-
-
-def drive_gate(
-    axis: str,
-    *,
-    agent_running: bool,
-    pending_input: bool,
-    quiet: bool,
-    presence: float,
-) -> bool:
-    """この発火軸で自発ターンを起こしてよいか。
-
-    agent 実行中・入力待ち・静穏時間は起こさない。社会欲求は在席ゼロなら起こさない。
-    """
-    if agent_running or pending_input or quiet:
-        return False
-    if axis in SOCIAL_DRIVES and presence <= 0.0:
-        return False
-    return True

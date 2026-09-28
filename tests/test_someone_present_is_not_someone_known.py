@@ -111,31 +111,6 @@ def test_the_main_llm_is_told_nobody_when_nothing_sees() -> None:
 # ── 自分の発話と /speaker が印を打つ（2026-09-17）──────────────────────────────
 
 
-def test_speaking_stamps_my_own_speech_time() -> None:
-    import asyncio
-    from unittest.mock import AsyncMock
-
-    from familiar_agent.loop.event_loop import InformationProcessing
-
-    from tests.test_event_loop import _agent as _loop_agent
-
-    a = _loop_agent(stream_returns=[])
-    a._last_said_at = 0.0
-    ip = InformationProcessing(a)
-    ip._req = MagicMock()
-    ip._req.said_fillers = []
-    ip._delivery_block_reason = lambda: ""
-    ip._dif = MagicMock()
-    ip._dif.speak = AsyncMock()
-    ip._emit = MagicMock()
-    before = time.time()
-    asyncio.run(ip._say_filler("見てみますね"))
-    assert a._last_said_at >= before
-    a._last_said_at = 0.0
-    asyncio.run(ip._speak("こんにちは"))
-    assert a._last_said_at >= before
-
-
 def test_the_speaker_command_stamps_its_time() -> None:
     from familiar_agent.agent import EmbodiedAgent as Agent
 

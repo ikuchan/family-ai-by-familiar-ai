@@ -160,7 +160,6 @@ class FamiliarApp(App):
         super().__init__()
         self.agent = agent
         self._agent_name = agent.config.agent_name
-        self._companion_name = agent.config.companion_name
         self._input_queue: asyncio.Queue[str | None] = asyncio.Queue()
         self._last_interaction = time.time()
         self._agent_running = False
@@ -306,10 +305,6 @@ class FamiliarApp(App):
     def _log_user(self, text: str) -> None:
         name = self._current_speaker(text)
         self._write_log(f"[bold cyan]{name} ▶[/bold cyan] {text}")
-
-    def _log_action(self, name: str, tool_input: dict) -> None:
-        label = _format_action(name, tool_input)
-        self._write_log(f"[dim]{label}[/dim]")
 
     # ── input handling ─────────────────────────────────────────────
 

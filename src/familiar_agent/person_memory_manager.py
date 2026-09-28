@@ -276,9 +276,6 @@ class PersonMemoryManager:
     def current_speaker_id(self) -> str | None:
         return self._speaker_id
 
-    def on_switch(self, callback: Callable[[str | None, str], Awaitable[None]]) -> None:
-        self._switch_callbacks.append(callback)
-
     # ── Recognition hint processing ────────────────────────────────────────
 
     async def apply_hint(self, hint: RecognitionHint) -> bool:
@@ -401,11 +398,3 @@ class PersonMemoryManager:
             if name in aliases:
                 return str(p["id"])
         return None
-
-    def get_active_person_info(self) -> dict:
-        """Kept for backward-compat — returns current speaker info."""
-        return self.get_speaker_info() or {
-            "id": AGENT_SELF_ID,
-            "name": "__self__",
-            "display_name": "Agent self",
-        }

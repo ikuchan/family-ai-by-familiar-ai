@@ -9,15 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from unittest.mock import patch
 
-from familiar_agent.routines import QuietHoursRule, evaluate_routine_state, quiet_hours_rule
-
-
-def test_quiet_hours_suppress_intrusive_actions() -> None:
-    rule = QuietHoursRule(start_hour=22, end_hour=7)
-    decision = evaluate_routine_state(rule, datetime(2026, 4, 15, 23, 30))
-
-    assert decision.quiet_hours is True
-    assert decision.schedule_multiplier < 1.0
+from familiar_agent.routines import quiet_hours_rule
 
 
 def test_quiet_hours_come_from_the_environment_then_config() -> None:

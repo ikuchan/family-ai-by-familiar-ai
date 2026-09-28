@@ -192,17 +192,6 @@ def load_self_mi_emotion(conn) -> MoodPAD:
     return MoodPAD.from_json_dict(json.loads(row[0]))
 
 
-def save_self_mi_emotion(conn, pad: MoodPAD) -> None:
-    """自己認識 MI の emotion を書き換える（REST 内省が呼ぶ書換口・課題10）。"""
-    now = datetime.now(timezone.utc).isoformat()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s)"
-            " ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, updated_at = EXCLUDED.updated_at",
-            (SELF_MI_STATE_KEY, json.dumps(pad.to_json_dict()), now),
-        )
-
-
 def decay_and_nudge(
     mood: MoodPAD,
     elapsed_seconds: float,

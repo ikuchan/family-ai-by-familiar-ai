@@ -15,7 +15,6 @@ from familiar_agent.config import DriveConfig
 from familiar_agent.core.drive_satisfaction import (
     apply_satisfaction,
     pad_distance,
-    parse_satisfied_axes,
     satisfaction_gate,
 )
 from familiar_agent.drive_register import AiDrivers
@@ -89,22 +88,6 @@ def test_gate_false_when_flat_turn():
 
 
 # ── 出力パース（満たされた軸の部分集合） ─────────────────────────────────────
-
-
-def test_parse_satisfied_axes_from_json():
-    assert parse_satisfied_axes('["bond", "rest"]') == frozenset({"bond", "rest"})
-
-
-def test_parse_satisfied_axes_from_prose():
-    assert parse_satisfied_axes("BOND was satisfied") == frozenset({"bond"})
-
-
-def test_parse_satisfied_axes_ignores_unknown():
-    assert parse_satisfied_axes('["bond", "hunger"]') == frozenset({"bond"})
-
-
-def test_parse_satisfied_axes_empty():
-    assert parse_satisfied_axes("none") == frozenset()
 
 
 # ── 放電適用（発火時と同じ全放電・他軸不変） ─────────────────────────────────

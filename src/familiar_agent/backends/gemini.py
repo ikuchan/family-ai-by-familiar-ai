@@ -270,15 +270,6 @@ class GeminiBackend:
         gemini_role = "model" if role == "assistant" else role
         return {"role": gemini_role, "parts": parts}
 
-    @staticmethod
-    def convert_messages_to_gemini_format(messages: list[dict]) -> list[dict]:
-        """Return a new list with all messages converted to Gemini format.
-
-        Intended for intentional conversion when switching to the Gemini
-        utility backend. Does not log warnings.
-        """
-        return [GeminiBackend._to_gemini_message_silent(m) for m in messages]
-
     def _flatten_messages(self, messages: list) -> list[dict]:
         flat: list[dict] = []
         for msg in messages:

@@ -341,17 +341,6 @@ def test_gui_look_preview_seconds_are_clamped() -> None:
     assert FamiliarWindow._look_preview_seconds_for_degrees(None) >= 0.8
 
 
-def test_gui_extract_jpeg_frames_parses_multiple_frames() -> None:
-    frame1 = b"\xff\xd8abc\xff\xd9"
-    frame2 = b"\xff\xd8xyz\xff\xd9"
-    buf = bytearray(b"noise" + frame1 + b"junk" + frame2 + b"tail")
-
-    frames = FamiliarWindow._extract_jpeg_frames(buf, max_frames=2)
-
-    assert frames == [frame1, frame2]
-    assert buf.startswith(b"tail")
-
-
 def test_gui_request_look_preview_starts_task_and_extends_deadline(monkeypatch):
     win = _make_window_stub()
     win._camera_rtsp_url = lambda: "rtsp://camera/stream1"  # type: ignore[method-assign]

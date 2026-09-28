@@ -452,14 +452,6 @@ def iter_setting_fields(
         yield field
 
 
-def get_setting_field(attr: str) -> SettingField:
-    """Return schema metadata by SetupConfig attribute name."""
-    for field in SETTINGS_FIELDS:
-        if field.attr == attr:
-            return field
-    raise KeyError(attr)
-
-
 def sections_for_mode(*, setup_mode: bool = False) -> tuple[str, ...]:
     """Return section ids that have visible fields for the requested mode."""
     visible: list[str] = []
