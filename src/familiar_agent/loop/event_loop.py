@@ -2640,11 +2640,9 @@ class InformationProcessing:
         # **誰の面から引くか。** 話者が居なければパジュ自身。想起は口を通すので、面は `View.viewpoint`
         # で言う（環-e-い）。
         viewpoint = agent._pmm.current_speaker_id or AGENT_SELF_ID
-        # 申告を当てる面。いまは `_active_memory()` と同じ選び方（話者が「分かっている」ときだけその人の面）で、
-        # 想起の面とずれる瞬間がある（環-ab で口を通したときに見つけた・次のコミットで揃える）。
-        verdict_view = (
-            agent._pmm.current_speaker_id if agent.speaker_known() else None
-        ) or AGENT_SELF_ID
+        # 申告は想起と同じ面へ当てる。`situated_memories` は人ごとなので、ずれると 0 行に当たる（出-h-ろ ③）。
+        # 以前は `_active_memory()` の選び方で、話者の指定が切れた直後に想起の面とずれていた（環-ab）。
+        verdict_view = viewpoint
         # **取込 O を候補から外さない。** 手がかりは取込の content そのものなので、候補に
         # 入れば必ず上位に来る。以前はこれを「枠を食う」と嫌って外していたが、いま届いた
         # 結果を全文で見せる必要がある以上、1位に来るのが正しい順位である。手組みで W へ
