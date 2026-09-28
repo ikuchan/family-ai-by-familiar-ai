@@ -103,12 +103,15 @@ def test_the_arbiters_decision_has_no_field_for_people():
     """
     from dataclasses import fields
 
-    from familiar_agent.loop.arbiter import Decision
-    from tests._arbiter_compat import _parse
+    from familiar_agent.loop.arbiter import Decision, assemble
 
     assert "seen_people" not in {f.name for f in fields(Decision)}
-    reply = '{"branch": "light", "text": "おかえりなさい", "seen_people": [{"name": "パパ", "confidence": 1.0}]}'
-    got = _parse(reply, can_see=True, origin="機器")
+    data = {
+        "branch": "light",
+        "text": "おかえりなさい",
+        "seen_people": [{"name": "パパ", "confidence": 1.0}],
+    }
+    got = assemble(data, can_see=True, origin="機器")
     assert got is not None and got.branch == "light"  # 欄が書かれていても読まずに組み立てる
 
 

@@ -17,12 +17,12 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
-from tests._arbiter_compat import _parse
+from familiar_agent.loop.arbiter import Arbiter, ArbiterInput, assemble
 
 
-def _d(reply: str):
-    return _parse(reply, can_see=False, origin="発話")
+def _d(data: dict):
+    """Jev の答えと軽量LLM の文章を合わせた辞書を、決定に組み立てる。"""
+    return assemble(data, can_see=False, origin="発話")
 
 
 # ── full／action は filler が発話になる ──────────────────────────────────
@@ -30,7 +30,13 @@ def _d(reply: str):
 
 def test_a_full_turn_speaks_the_filler():
     got = _d(
-        '{"branch": "full", "effort": "medium", "filler": "こんにちは。", "text": "用件ぜんぶ", "trash": "も"}'
+        {
+            "branch": "full",
+            "effort": "medium",
+            "filler": "こんにちは。",
+            "text": "用件ぜんぶ",
+            "trash": "も",
+        }
     )
     assert got is not None
     assert got.text == "こんにちは。", "つなぎは filler から取る"
@@ -38,7 +44,13 @@ def test_a_full_turn_speaks_the_filler():
 
 def test_an_action_turn_speaks_the_filler():
     got = _d(
-        '{"branch": "action", "action": "recall", "query": "本", "filler": "調べてみますね。", "text": "捨てる"}'
+        {
+            "branch": "action",
+            "action": "recall",
+            "query": "本",
+            "filler": "調べてみますね。",
+            "text": "捨てる",
+        }
     )
     assert got is not None
     assert got.text == "調べてみますね。"
@@ -46,7 +58,12 @@ def test_an_action_turn_speaks_the_filler():
 
 def test_the_trash_never_becomes_speech():
     got = _d(
-        '{"branch": "full", "effort": "high", "filler": "少し待ってください。", "trash": "メモを更新した内容、覚えました"}'
+        {
+            "branch": "full",
+            "effort": "high",
+            "filler": "少し待ってください。",
+            "trash": "メモを更新した内容、覚えました",
+        }
     )
     assert got is not None
     assert "メモ" not in got.text
@@ -54,7 +71,7 @@ def test_the_trash_never_becomes_speech():
 
 def test_a_full_turn_without_a_filler_says_nothing():
     """空なら黙る（いまと同じ扱い）。text を拾い直さない。"""
-    got = _d('{"branch": "full", "effort": "medium", "text": "これは使わない"}')
+    got = _d({"branch": "full", "effort": "medium", "text": "これは使わない"})
     assert got is not None
     assert got.text == ""
 
@@ -63,13 +80,13 @@ def test_a_full_turn_without_a_filler_says_nothing():
 
 
 def test_a_light_turn_still_speaks_the_text():
-    got = _d('{"branch": "light", "text": "おかえりなさい。"}')
+    got = _d({"branch": "light", "text": "おかえりなさい。"})
     assert got is not None
     assert got.text == "おかえりなさい。"
 
 
 def test_a_light_turn_ignores_the_filler():
-    got = _d('{"branch": "light", "text": "おかえりなさい。", "filler": "まちがい"}')
+    got = _d({"branch": "light", "text": "おかえりなさい。", "filler": "まちがい"})
     assert got is not None
     assert got.text == "おかえりなさい。"
 
@@ -110,7 +127,7 @@ def test_an_action_without_an_action_falls_back_to_light_with_the_filler():
     その言葉は `filler` に書かれている。**`text` を拾い直さない**——拾うと、捨てるつもりで
     書いたものが声になる。
     """
-    got = _d('{"branch": "action", "filler": "鳴らしていい？", "text": "捨てるつもりの長い話"}')
+    got = _d({"branch": "action", "filler": "鳴らしていい？", "text": "捨てるつもりの長い話"})
     assert got is not None
     assert got.branch == "light"
     assert got.text == "鳴らしていい？"

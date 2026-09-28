@@ -7,17 +7,17 @@
 
 from __future__ import annotations
 
-from tests._arbiter_compat import _parse
+from familiar_agent.loop.arbiter import assemble
 
 
 def test_see_is_accepted_when_the_agent_can_see() -> None:
-    d = _parse('{"branch": "action", "action": "see", "filler": "見てみますね"}', can_see=True)
+    d = assemble({"branch": "action", "action": "see", "filler": "見てみますね"}, can_see=True)
     assert d is not None and d.branch == "action" and d.action == "see"
     assert d.query == "目の前を見る", "見出しは固定なので query は埋める"
 
 
 def test_see_is_rounded_to_recall_without_a_camera() -> None:
-    d = _parse('{"branch": "action", "action": "see", "query": "部屋"}', can_see=False)
+    d = assemble({"branch": "action", "action": "see", "query": "部屋"}, can_see=False)
     assert d is not None and d.action == "recall"
 
 

@@ -13,7 +13,7 @@
 
 from __future__ import annotations
 
-from tests._arbiter_compat import _parse
+from familiar_agent.loop.arbiter import assemble
 
 #: 返った `set_timer` を外した候補（ほかのタイマー・アラームの道具は残る）。
 WITHOUT_SET_TIMER = (
@@ -29,8 +29,8 @@ WITH_SET_TIMER = ("set_timer", *WITHOUT_SET_TIMER)
 
 
 def test_an_alarm_rewritten_into_an_excluded_timer_is_refused():
-    d = _parse(
-        '{"branch":"action","action":"set_alarm","query":"3分"}',
+    d = assemble(
+        {"branch": "action", "action": "set_alarm", "query": "3分"},
         extra_actions=WITHOUT_SET_TIMER,
     )
     assert d is None, f"外した set_timer が書き換えで戻った：{d}"
@@ -38,8 +38,8 @@ def test_an_alarm_rewritten_into_an_excluded_timer_is_refused():
 
 def test_the_same_rewrite_still_works_when_the_timer_is_offered():
     """反証：候補に `set_timer` があれば、これまでどおり書き換わる。"""
-    d = _parse(
-        '{"branch":"action","action":"set_alarm","query":"3分"}',
+    d = assemble(
+        {"branch": "action", "action": "set_alarm", "query": "3分"},
         extra_actions=WITH_SET_TIMER,
     )
     assert d is not None and d.action == "set_timer"
@@ -47,8 +47,12 @@ def test_the_same_rewrite_still_works_when_the_timer_is_offered():
 
 def test_writing_the_excluded_timer_directly_was_already_refused():
     """そろえる先の振る舞い：直接書いた場合は、いまも倒れる。"""
-    d = _parse(
-        '{"branch":"action","action":"set_timer","tool_input":{"after_minutes":3,"label":"t"}}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "set_timer",
+            "tool_input": {"after_minutes": 3, "label": "t"},
+        },
         extra_actions=WITHOUT_SET_TIMER,
     )
     assert d is None
@@ -57,8 +61,8 @@ def test_writing_the_excluded_timer_directly_was_already_refused():
 def test_a_timer_rewritten_into_an_excluded_stop_is_refused():
     """ほかの書き換え（`set_timer` に id だけ → `cancel_timer`）も、行き先が候補に無ければ倒す。"""
     offer = tuple(a for a in WITH_SET_TIMER if a != "cancel_timer")
-    d = _parse(
-        '{"branch":"action","action":"set_timer","tool_input":{"id":"all"}}',
+    d = assemble(
+        {"branch": "action", "action": "set_timer", "tool_input": {"id": "all"}},
         extra_actions=offer,
     )
     assert d is None, f"外した cancel_timer が書き換えで戻った：{d}"

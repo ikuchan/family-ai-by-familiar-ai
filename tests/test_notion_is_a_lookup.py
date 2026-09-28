@@ -10,7 +10,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF
-from tests._arbiter_compat import _parse
+from familiar_agent.loop.arbiter import assemble
 from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, InformationProcessing, _query_label
 
 from tests.test_event_loop import _agent
@@ -56,8 +56,13 @@ def test_running_the_search_calls_the_mcp_tool_with_the_query() -> None:
 
 
 def test_the_arbiter_can_choose_notion_search_with_a_query() -> None:
-    d = _parse(
-        '{"branch": "action", "action": "notion_search", "query": "サッカー教室", "filler": "見てみますね"}',
+    d = assemble(
+        {
+            "branch": "action",
+            "action": "notion_search",
+            "query": "サッカー教室",
+            "filler": "見てみますね",
+        },
         extra_actions=("notion_search",),
     )
     assert d is not None and d.action == "notion_search" and d.query == "サッカー教室"

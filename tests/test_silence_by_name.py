@@ -13,32 +13,32 @@
 from __future__ import annotations
 
 from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
-from tests._arbiter_compat import _parse
+from familiar_agent.loop.arbiter import assemble
 
 
 # --- 調停の返り値 ---------------------------------------------------------
 
 
 def test_a_silence_request_carries_its_length():
-    d = _parse('{"branch":"light","text":"はい","silence_minutes":5}')
+    d = assemble({"branch": "light", "text": "はい", "silence_minutes": 5})
     assert d.silence_minutes == 5
 
 
 def test_no_request_means_zero_minutes():
-    d = _parse('{"branch":"light","text":"はい"}')
+    d = assemble({"branch": "light", "text": "はい"})
     assert d.silence_minutes == 0
 
 
 def test_a_request_without_a_length_falls_back_to_the_default():
     # 「黙って」とだけ言われた場合。軽量LLM は既定値を知らないので、-1 で「長さの指定なし」
     # を表し、受け側が Config の既定（15分）を当てる。
-    d = _parse('{"branch":"light","text":"はい","silence_minutes":-1}')
+    d = assemble({"branch": "light", "text": "はい", "silence_minutes": -1})
     assert d.silence_minutes == -1
 
 
 def test_a_broken_length_does_not_silence():
     # 読めない値で黙り込むと、解けるまで何も言えなくなる。
-    d = _parse('{"branch":"light","text":"はい","silence_minutes":"ずっと"}')
+    d = assemble({"branch": "light", "text": "はい", "silence_minutes": "ずっと"})
     assert d.silence_minutes == 0
 
 
