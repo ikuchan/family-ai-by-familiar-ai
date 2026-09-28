@@ -542,14 +542,6 @@ class STTConfig:
 
 
 @dataclass
-class CodingConfig:
-    workdir: str = field(default_factory=lambda: os.environ.get("CODING_WORKDIR", ""))
-    bash_enabled: bool = field(
-        default_factory=lambda: os.environ.get("CODING_BASH", "false").lower() == "true"
-    )
-
-
-@dataclass
 class RecognitionConfig:
     # 認識しきい値（cosine）＝「既知の人か」。face=ArcFace / voice=ECAPA。仮置き・実機で調整。
     face_threshold: float = field(default_factory=lambda: _float_env("FACE_THRESHOLD", 0.35))
@@ -759,7 +751,6 @@ class AgentConfig:
     tts: TTSConfig = field(default_factory=TTSConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
-    coding: CodingConfig = field(default_factory=CodingConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)
 
 

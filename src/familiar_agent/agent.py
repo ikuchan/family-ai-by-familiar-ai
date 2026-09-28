@@ -36,7 +36,6 @@ from .presence_sensor import PresenceSensor
 from .prediction import PredictionEngine
 from .memory_worker import MemoryJobWorker
 from .tools.camera import CameraTool
-from .tools.coding import CodingTool
 from .tools.deferred_fetch import DeferredFetchTool
 from .tools.deferred_search import DeferredSearchTool
 from .tools.memory import MemoryTool, ObservationMemory
@@ -202,7 +201,6 @@ class EmbodiedAgent:
         # 見えのエンコーダ（DINOv2）。起動時に温めるため参照を持つ。
         self._visual_encoder: VisualEncoder | None = None
         self._motion_events: MotionEventWatcher | None = None
-        self._coding = CodingTool(config.coding)
         self._exploration = ExplorationTracker()
         self._scene: SceneTracker | None = None  # initialized after DB ready in _init_tools
 

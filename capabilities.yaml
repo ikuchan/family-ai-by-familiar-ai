@@ -41,13 +41,6 @@ capabilities:
       `look(direction, degrees)` rotates the camera head via ONVIF PTZ.
       Uses the `tools/camera.py` module.
     enabled_env: CAMERA_HOST
-  - id: coding_tools
-    summary: Read, edit, glob, grep, and execute shell commands
-    detail: >
-      Provides CC-style file manipulation capabilities. Supports reading and modifying
-      code, searching the codebase, and running shell commands. Paths are resolved
-      relative to `CODING_WORKDIR`. Uses the `tools/coding.py` module.
-    enabled: true
   - id: deferred_fetch
     summary: Asynchronously fetch content from a URL and inject it on the next turn
     detail: >

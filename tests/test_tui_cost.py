@@ -118,17 +118,15 @@ class TestEmbodiedAgentAccumulatesTokens:
         cfg.mobility = MagicMock(api_key=None, device_id=None)
         cfg.tts = MagicMock(elevenlabs_api_key=None)
         cfg.stt = MagicMock(elevenlabs_api_key=None)
-        cfg.coding = MagicMock()
         cfg.max_tokens = 1000
 
         with patch("familiar_agent.agent.create_backend", return_value=MagicMock()):
             with patch("familiar_agent.agent.ObservationMemory"):
                 with patch("familiar_agent.agent.MemoryTool"):
-                    with patch("familiar_agent.agent.CodingTool"):
-                        agent = EmbodiedAgent.__new__(EmbodiedAgent)
-                        agent.config = cfg
-                        agent._session_input_tokens = 0
-                        agent._session_output_tokens = 0
+                    agent = EmbodiedAgent.__new__(EmbodiedAgent)
+                    agent.config = cfg
+                    agent._session_input_tokens = 0
+                    agent._session_output_tokens = 0
 
         assert hasattr(agent, "_session_input_tokens")
         assert hasattr(agent, "_session_output_tokens")
