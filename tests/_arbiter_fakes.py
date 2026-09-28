@@ -59,6 +59,19 @@ def jev_says(
     return jev
 
 
+def jev_in_order(*jevs: MagicMock) -> MagicMock:
+    """反復ごとに違う答えを返す偽の Jev（`jev_says(...)` を順に並べる）。使い切ったら最後の答えを繰り返す。"""
+    answers = [j.ask.return_value for j in jevs]
+
+    async def ask(*_a, **_k):
+        return answers.pop(0) if len(answers) > 1 else answers[0]
+
+    jev = MagicMock()
+    jev.available = True
+    jev.ask = AsyncMock(side_effect=ask)
+    return jev
+
+
 def jev_down() -> MagicMock:
     """使えない Jev（鍵が無い・時間切れ・形の誤り）。"""
     jev = MagicMock()
@@ -82,6 +95,18 @@ def writer_says(
         if raises is not None:
             raise raises
         return reply
+
+    w = MagicMock()
+    w.complete = AsyncMock(side_effect=complete)
+    return w
+
+
+def writer_in_order(*texts: dict) -> MagicMock:
+    """呼ばれるたびに違うものを書く偽の軽量LLM。使い切ったら最後を繰り返す。"""
+    replies = [json.dumps(t, ensure_ascii=False) for t in texts]
+
+    async def complete(prompt, max_tokens=300, *, system=None):
+        return replies.pop(0) if len(replies) > 1 else replies[0]
 
     w = MagicMock()
     w.complete = AsyncMock(side_effect=complete)

@@ -10,12 +10,12 @@ from __future__ import annotations
 import asyncio
 import logging
 
-import pytest
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall, TurnResult
 from familiar_agent.io.oif import OIF
 from familiar_agent.loop.event_loop import InformationProcessing, Trigger
+from tests._arbiter_fakes import jev_in_order, jev_says, writer_in_order, writer_says
 
 # 非同期の処理が届くのを待つ上限（0.005 秒 × この回数＝5秒）。条件が満たされた時点で
 # 抜けるので、通常の実行時間は変わらない。以前は 1〜2 秒相当で、負荷の高い実行（所要が
@@ -35,18 +35,6 @@ _FETCH_DEF = {"name": "fetch_deferred", "input_schema": {}}
 
 def _turn(tool_calls, text=""):
     return (TurnResult(stop_reason="end_turn", text=text, tool_calls=tool_calls), {})
-
-
-@pytest.fixture(autouse=True)
-def _arbiter_reads_the_utility_backend(monkeypatch):
-    """このループの試験は、調停の答えを `_utility_backend` の返事（古い JSON）で与える（出-au 段 5-7d）。
-
-    本物のループは判定を Jev に、文章を軽量LLM に頼む。ここでは同じ返事から両方を作る（`tests/_arbiter_compat.py`）。
-    """
-    from familiar_agent.loop.arbiter import Arbiter
-    from tests._arbiter_compat import decide_through_the_writer
-
-    monkeypatch.setattr(Arbiter, "decide", decide_through_the_writer)
 
 
 def _agent(*, stream_returns, max_iters=3):
@@ -93,8 +81,8 @@ def _agent(*, stream_returns, max_iters=3):
     a.backend = MagicMock()
     a.backend.make_user_message = MagicMock(return_value={"role": "user", "content": "x"})
     a.backend.stream_turn = AsyncMock(side_effect=list(stream_returns))
-    a._utility_backend = MagicMock()
-    a._utility_backend.complete = AsyncMock(return_value='{"branch":"full","effort":"high"}')
+    # 軽量LLM（調停の文章の口ほか）。調停の答えは試験ごとに `a._jev`（偽の Jev）で与える。
+    a._utility_backend = writer_says({})
     a._expected_turns = len(list(stream_returns))
     a._social_presence_permission = MagicMock(return_value=1.0)  # 既定＝誰か居る
     a._in_quiet_hours = MagicMock(return_value=False)  # 既定＝静穏時間ではない
@@ -208,6 +196,7 @@ def test_speaks_via_say_tool():
     a = _agent(
         stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "やあ、元気？"})])]
     )
+    a._jev = jev_says("full", effort="high")  # 調停は深く考えると決める
     out = _run(a)
     assert out == "やあ、元気？"
     a._active_memory().recall_async.assert_awaited_once()
@@ -620,7 +609,8 @@ def test_system_prompt_is_split_for_caching():
 def test_light_branch_speaks_without_the_full_llm():
     # 軽量LLM が「短文で足りる」と判断した反復は、フルLLM を呼ばずに閉じる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
-    a._utility_backend.complete = AsyncMock(return_value='{"branch":"light","text":"やあ！元気？"}')
+    a._jev = jev_says("light")
+    a._utility_backend = writer_says({"text": "やあ！元気？"})
     assert _run(a) == "やあ！元気？"
     a.backend.stream_turn.assert_not_awaited()  # フルLLM を起こさない
     a._tts.call.assert_awaited_once_with("say", {"text": "やあ！元気？"})
@@ -629,7 +619,8 @@ def test_light_branch_speaks_without_the_full_llm():
 def test_action_branch_dispatches_recall_without_the_full_llm():
     # 探すと決まっている反復も、フルLLM を起こさずに recall を投げて閉じる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
-    a._utility_backend.complete = AsyncMock(return_value='{"branch":"action","query":"昨日の天気"}')
+    a._jev = jev_says("action", action="recall")
+    a._utility_backend = writer_says({"query": "昨日の天気"})
     shown: list[str] = []
     # **調べものを返さない。** 返ると駆動体が続きの反復を回し、同じ語なので投げられず、
     # 上限まで進んで主LLM が起きる。数で「この反復は起こしていない」と言えなくなるので、
@@ -662,7 +653,8 @@ def test_action_branch_dispatches_recall_without_the_full_llm():
 
 def test_full_branch_passes_the_effort_chosen_by_the_arbiter():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    a._utility_backend.complete = AsyncMock(return_value='{"branch":"full","effort":"low"}')
+    a._jev = jev_says("full")
+    a._utility_backend = writer_says({})
     _run(a)
     assert a.backend.stream_turn.call_args.kwargs["effort"] == "low"
 
@@ -870,12 +862,8 @@ def test_full_branch_receives_the_net_actions():
 def test_action_branch_speaks_the_filler_then_dispatches():
     # つなぎの発話は調停が出す（フルLLM を経由しないので速い）。発話したうえで投げる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
-    a._utility_backend.complete = AsyncMock(
-        return_value=(
-            '{"branch":"action","action":"search_deferred",'
-            '"query":"今日の天気","filler":"調べてみるね"}'
-        )
-    )
+    a._jev = jev_says("action", action="search_deferred")
+    a._utility_backend = writer_says({"filler": "調べてみるね", "query": "今日の天気"})
     shown: list[str] = []
 
     async def scenario():
@@ -950,20 +938,6 @@ def test_unknown_action_is_ignored_not_crashing():
     assert _names(ip._tools(actions=("say", "walk"))) == [_SAY_DEF["name"]]
 
 
-def _arbiter_says(*replies: str):
-    """調停（軽量LLM）の返しを順に差し替える。使い切ったら最後の返しを繰り返す。"""
-    seq = list(replies)
-
-    async def _complete(*_a, **_k):
-        return seq.pop(0) if len(seq) > 1 else seq[0]
-
-    return _complete
-
-
-_ACT = '{"branch":"action","action":"recall","query":"%s","filler":"","effort":"high"}'
-_FULL = '{"branch":"full","effort":"high"}'
-
-
 def test_chain_cap_withholds_recall_tool():
     # 連鎖が上限に達した反復では recall を渡さない＝発話を必ず出す（暴走防止）。
     #
@@ -974,7 +948,8 @@ def test_chain_cap_withholds_recall_tool():
         stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])],
         max_iters=2,
     )
-    a._utility_backend.complete = AsyncMock(side_effect=_arbiter_says(_ACT % "q1", _FULL))
+    a._jev = jev_in_order(jev_says("action", action="recall"), jev_says("full", effort="high"))
+    a._utility_backend = writer_in_order({"query": "q1", "filler": ""}, {})
     _run_chain(a)
     assert _names(a.backend.stream_turn.call_args_list[0].kwargs["tools"]) == [_SAY_DEF["name"]]
 
@@ -1113,8 +1088,9 @@ def test_max_iterations_bounds_the_chain():
         stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])],
         max_iters=2,
     )
-    a._utility_backend.complete = AsyncMock(
-        side_effect=_arbiter_says(_ACT % "q1", _ACT % "q2", _ACT % "q3")
+    a._jev = jev_says("action", action="recall")
+    a._utility_backend = writer_in_order(
+        {"query": "q1", "filler": ""}, {"query": "q2", "filler": ""}, {"query": "q3", "filler": ""}
     )
     assert _run_chain(a) == "はい"
     assert a._memory_tool.call.await_count == 1  # 上限までの1回だけ調べた
@@ -1223,9 +1199,8 @@ def test_full_branch_says_a_filler_first_when_thinking_deeply():
     # つなぎを即答してから、続けてフルLLM を起こす（1つの work の内部二段＝1反復1出力）。
     # フル生成は effort=high で10秒近くかかり、そのあいだ無音になる。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"high","filler":"えーっと"}'
-    )
+    a._jev = jev_says("full", effort="high")
+    a._utility_backend = writer_says({"filler": "えーっと"})
     shown: list[str] = []
     out = _run(a, on_text=shown.append)
     assert out == "本応答"
@@ -1236,9 +1211,8 @@ def test_full_branch_says_a_filler_first_when_thinking_deeply():
 def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
     # effort=low のフル生成は実測 0.8〜3.6 秒。速いときに「えーっと」を挟むとテンポが悪い。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"low","filler":"えーっと"}'
-    )
+    a._jev = jev_says("full")
+    a._utility_backend = writer_says({"filler": "えーっと"})
     shown: list[str] = []
     _run(a, on_text=shown.append)
     assert "えーっと" not in "".join(shown)
@@ -1257,10 +1231,8 @@ def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
             _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
         ]
     )
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"マイクラ",'
-        '"filler":"ちょっと調べてみますね"}'
-    )
+    a._jev = jev_says("action", action="recall")
+    a._utility_backend = writer_says({"filler": "ちょっと調べてみますね", "query": "マイクラ"})
 
     async def scenario():
         ip = InformationProcessing(a)
@@ -1292,10 +1264,8 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
             _turn([ToolCall(id="t", name="say", input={"text": "はい"})]),
         ]
     )
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"サッカー",'
-        '"filler":"ちょっと調べてみますね"}'
-    )
+    a._jev = jev_says("action", action="recall")
+    a._utility_backend = writer_says({"filler": "ちょっと調べてみますね", "query": "サッカー"})
 
     # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
     a._active_memory().recall_async = AsyncMock(
@@ -1347,13 +1317,10 @@ def test_no_filler_once_the_material_has_arrived():
             _turn([ToolCall(id="s", name="say", input={"text": "答え"})]),
         ]
     )
-    replies = iter(
-        [
-            '{"branch":"action","action":"recall","query":"q","filler":"調べますね"}',
-            '{"branch":"full","effort":"high","filler":"うん、任せてね！"}',
-        ]
+    a._jev = jev_in_order(jev_says("action", action="recall"), jev_says("full", effort="high"))
+    a._utility_backend = writer_in_order(
+        {"query": "q", "filler": "調べますね"}, {"filler": "うん、任せてね！"}
     )
-    a._utility_backend.complete = AsyncMock(side_effect=lambda *_a, **_k: next(replies))
     shown = _run_chain(a, utterance="調べて")
     assert "調べますね" in shown  # 調べる前のつなぎは出す
     assert "うん、任せてね" not in shown  # 届いたあとは出さない
@@ -1373,9 +1340,8 @@ def test_the_arbiter_sees_what_was_already_looked_up():
             _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
         ]
     )
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"直近の天気","filler":"調べますね"}'
-    )
+    a._jev = jev_says("action", action="recall")
+    a._utility_backend = writer_says({"filler": "調べますね", "query": "直近の天気"})
     # 完了 O は候補集合の一員として W に載る（実機では自分で書いた O が候補に入る）。
     a._active_memory().recall_async = AsyncMock(
         return_value=[

@@ -24,11 +24,11 @@ def on_action(name, tool_input):
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from familiar_agent.backends import ToolCall
 from tests.test_event_loop import _WAIT_TICKS, _agent, _turn
-from tests.test_event_loop import _arbiter_reads_the_utility_backend  # noqa: F401  調停の答えを文章の口の返事で与える
+from tests._arbiter_fakes import jev_says, writer_says
 
 from familiar_agent.loop.event_loop import InformationProcessing
 
@@ -69,9 +69,8 @@ def test_filler_is_reported_as_a_say_action_too():
             _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
         ]
     )
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"action","action":"recall","query":"q","filler":"調べてみますね"}'
-    )
+    a._jev = jev_says("action", action="recall")
+    a._utility_backend = writer_says({"filler": "調べてみますね", "query": "q"})
     actions = _run_with_action(a, "調べて")
     assert ("say", {"text": "調べてみますね"}) in actions
 
