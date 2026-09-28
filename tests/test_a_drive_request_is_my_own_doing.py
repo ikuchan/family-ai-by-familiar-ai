@@ -8,12 +8,12 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 from familiar_agent.config import DriveConfig
 from familiar_agent.loop import reply_budget
 from familiar_agent.loop.arbiter import Decision as ArbiterDecision
-from tests._arbiter_compat import arbitrate
+from tests._arbiter_fakes import decide, jev_says, writer_says
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.prompt import build_event_system_prompt
 
@@ -35,23 +35,23 @@ def _jev_state(**kw) -> str:
     return Arbiter(jev=None, writer=None)._state(ArbiterInput(workspace_ctx="", **kw))
 
 
-def _light():
-    b = MagicMock(spec=["complete"])
-    b.complete = AsyncMock(return_value='{"branch": "action", "action": "see"}')
-    return b
-
-
 def test_the_arbiter_gets_a_self_doing_frame_for_a_drive_request() -> None:
     # 分岐を決める Jev に送る文が、自分のこととして読ませる（出-au 段 5-7d）。
     prompt = _jev_state(utterance="探索したい気持ちが湧いている。", origin="情動")
     assert "[いま湧いたこと]" in prompt and "[人の言葉]" not in prompt
     assert "許可は要らない" in prompt and "理由も要らない" in prompt
     # つなぎは書かせない：見るだけの動作では軽量LLM を呼びもしない。
-    b = _light()
+    writer = writer_says()
     asyncio.run(
-        arbitrate(b, utterance="探索したい気持ちが湧いている。", workspace_ctx="", origin="情動")
+        decide(
+            jev=jev_says("action", action="see"),
+            writer=writer,
+            utterance="探索したい気持ちが湧いている。",
+            origin="情動",
+            can_see=True,
+        )
     )
-    b.complete.assert_not_awaited()
+    writer.complete.assert_not_awaited()
 
 
 def test_a_human_request_keeps_the_reply_frame() -> None:
@@ -60,10 +60,10 @@ def test_a_human_request_keeps_the_reply_frame() -> None:
 
 
 def test_a_drive_decision_never_carries_a_filler() -> None:
-    from tests._arbiter_compat import _parse
+    from familiar_agent.loop.arbiter import assemble
 
-    d = _parse(
-        '{"branch": "action", "action": "see", "filler": "見てみますね"}',
+    d = assemble(
+        {"branch": "action", "action": "see", "filler": "見てみますね"},
         can_see=True,
         origin="情動",
     )

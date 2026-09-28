@@ -13,35 +13,30 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
-from tests._arbiter_compat import arbitrate
+from tests._arbiter_fakes import decide, jev_says, prompt_of, writer_says
 from familiar_agent.loop.event_loop import InformationProcessing
 
 
-def _backend(reply: str):
-    b = AsyncMock()
-    b.complete = AsyncMock(return_value=reply)
-    return b
-
-
 def test_a_device_origin_is_framed_as_a_notice_not_a_request():
-    b = _backend('{"branch":"light","text":"タイマーの時間だよ"}')
+    writer = writer_says({"text": "タイマーの時間だよ"})
     asyncio.run(
-        arbitrate(
-            b,
+        decide(
+            jev=jev_says("light"),
+            writer=writer,
             utterance="[タイマー] タイマー：「パパとの約束」の時間（パパに頼まれたもの）",
             workspace_ctx="[直近のやりとり]\n- 17:00 パパ：10秒のタイマーをかけてその間黙ってて",
             origin="機器",
         )
     )
-    prompt = b.complete.call_args.args[0]
+    prompt = prompt_of(writer)
     assert "[届いた知らせ]" in prompt
     assert "済んだこと" in prompt and "改めて応じない" in prompt
 
-    b = _backend('{"branch":"light","text":"はい"}')
-    asyncio.run(arbitrate(b, utterance="10秒のタイマーをかけて", workspace_ctx=""))
-    assert "[届いた知らせ]" not in b.complete.call_args.args[0]
+    writer = writer_says({"text": "はい"})
+    asyncio.run(decide(jev=jev_says("light"), writer=writer, utterance="おはよう"))
+    assert "[届いた知らせ]" not in prompt_of(writer)
 
 
 def _ip_with_timer():
@@ -109,13 +104,13 @@ def test_an_arrival_notice_can_still_set_a_timer():
 
 
 def test_an_affect_light_with_empty_text_means_stay_quiet_not_fall_to_full():
-    """情動の候補文は「text を空にすれば黙る」なのに、_parse が None を返してフルへ倒した
+    """情動の候補文は「text を空にすれば黙る」なのに、組み立てが None を返してフルへ倒した
     （2026-09-18 12:28 実機・出-w）。黙る、は正当な返事。発話が起点なら従来どおり None。"""
-    from tests._arbiter_compat import _parse
+    from familiar_agent.loop.arbiter import assemble
 
-    d = _parse('{"branch": "light", "text": ""}', can_see=True, extra_actions=(), origin="情動")
+    d = assemble({"branch": "light", "text": ""}, can_see=True, extra_actions=(), origin="情動")
     assert d is not None and d.branch == "light" and d.text == ""
     assert (
-        _parse('{"branch": "light", "text": ""}', can_see=True, extra_actions=(), origin="発話")
+        assemble({"branch": "light", "text": ""}, can_see=True, extra_actions=(), origin="発話")
         is None
     )

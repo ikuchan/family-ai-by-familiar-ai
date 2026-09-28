@@ -3,21 +3,21 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.loop.arbiter import _FALLBACK
-from tests._arbiter_compat import _parse, arbitrate
+from familiar_agent.loop.arbiter import _FALLBACK, assemble
+from tests._arbiter_fakes import decide, jev_says, writer_says
 
 
 def test_a_missing_effort_is_low() -> None:
-    assert _parse('{"branch": "full"}').effort == "low"
+    assert assemble({"branch": "full"}).effort == "low"
 
 
 def test_a_failed_arbitration_falls_to_low() -> None:
     assert _FALLBACK.effort == "low"
-    b = MagicMock(spec=["complete"])
-    b.complete = AsyncMock(return_value="???")
-    assert asyncio.run(arbitrate(b, utterance="x", workspace_ctx="")).effort == "low"
+    # 軽量LLM の文章が読めなければ、調停は倒れる。
+    unreadable = writer_says("???")
+    d = asyncio.run(decide(jev=jev_says("light"), writer=unreadable, utterance="x"))
+    assert d.branch == "full" and d.effort == "low"
 
 
 def test_the_prompt_enumerates_medium_and_reserves_high() -> None:
