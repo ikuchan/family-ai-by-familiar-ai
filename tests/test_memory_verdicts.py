@@ -18,6 +18,7 @@
 from __future__ import annotations
 
 
+from familiar_agent.io.oif import Verdict
 from familiar_agent.loop import workspace
 from familiar_agent.loop.request import Request
 
@@ -103,18 +104,19 @@ def test_the_prompt_asks_for_every_recalled_memory():
 
 
 def test_verdicts_are_matched_through_the_index_not_by_prefix_guessing():
-    # 写し間違いは一致せず、黙って別の記憶へ適用されない。
-    mem = MagicMock()
+    # 写し間違いは一致せず、黙って別の記憶へ適用されない。申告は記憶の口（OIF）を通す（環-ab）。
+    oif = MagicMock()
     workspace.apply_memory_verdicts(
-        mem,
+        oif,
+        "p1",
         [
             {"id": "aaaaaaaaaaaa", "verdict": "important"},
             {"id": "zzzzzzzzzzzz", "verdict": "useless"},  # W に無い id
         ],
         {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
     )
-    applied = mem.apply_verdicts.call_args.args[0]
-    assert applied == {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": "important"}
+    applied = oif.feedback.call_args.args[0]
+    assert applied == {"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa": Verdict.IMPORTANT}
 
 
 def test_verdicts_land_on_the_memory_that_the_recall_came_from():
@@ -125,22 +127,36 @@ def test_verdicts_land_on_the_memory_that_the_recall_came_from():
     `UPDATE ... WHERE person_id = '__self__'` が0行を返し、**申告が効かない**。
     `situated_memories` は人ごとなので、引いた面と書く面は同じでなければならない。
     """
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
-    speaker_mem = MagicMock()  # 話者の面（`_active_memory()` が返すもの）
+    oif = MagicMock()
     workspace.apply_memory_verdicts(
-        speaker_mem,
+        oif,
+        "p-speaker",  # 想起に使った面
         [{"id": "aaaaaaaaaaaa", "verdict": "important"}],
         {"aaaaaaaaaaaa": "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"},
     )
-    speaker_mem.apply_verdicts.assert_called_once()
-    a._memory.apply_verdicts.assert_not_called()  # 基底の面へは行かない
+    oif.feedback.assert_called_once()
+    assert oif.feedback.call_args.kwargs["viewpoint"] == "p-speaker"  # 面を名前で渡す
 
 
 def test_nothing_is_applied_when_the_workspace_had_no_memories():
-    mem = MagicMock()
+    oif = MagicMock()
     # **対応表に既定値は無い**（に-5-に-2）。空を渡せば何も当たらない。
-    workspace.apply_memory_verdicts(mem, [{"id": "aaaaaaaaaaaa", "verdict": "important"}], {})
-    mem.apply_verdicts.assert_not_called()
+    workspace.apply_memory_verdicts(oif, "p1", [{"id": "aaaaaaaaaaaa", "verdict": "important"}], {})
+    oif.feedback.assert_not_called()
+
+
+def test_only_the_memory_mouth_applies_verdicts():
+    """申告を記憶へ当てるのは記憶の口（OIF）と記憶の層だけ。ループが器を直に掴まない（環-ab・`設計図` ③-2）。"""
+    import pathlib
+
+    src = pathlib.Path(workspace.__file__).resolve().parents[1]
+    hits = [
+        str(p.relative_to(src))
+        for p in src.rglob("*.py")
+        if ".apply_verdicts(" in p.read_text(encoding="utf-8")
+        and p.relative_to(src).parts[0] not in ("io", "store", "tools")
+    ]
+    assert hits == []
 
 
 def test_the_workspace_prints_twelve_digit_ids():

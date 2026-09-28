@@ -109,7 +109,7 @@ def test_the_light_declaration_folds_what_it_used(monkeypatch):
             reply="明日は雨だって",
             workspace_ctx="",
             w_id_map={"aaaaaaaaaaaa": "aaaaaaaaaaaa-1"},
-            mem=MagicMock(),
+            verdict_view="__self__",
             memories=memories,
             spoken=True,
         )

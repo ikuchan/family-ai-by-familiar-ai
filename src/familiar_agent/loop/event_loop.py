@@ -507,9 +507,9 @@ class Decision:
       意味がない
     - `w_id_map`：申告（`memory_verdicts`）は W に印字された12桁で返るので、その W を作った
       ときの対応表でないと引けない
-    - `mem`：**申告を当てる面**。`situated_memories` は人ごとで、想起は話者の面を通る
-      （`_active_memory()`）。基底の記憶へ書くと視点が `__self__` へ寄り、話者が同定
-      されている場面で申告が0行に当たる（出-h-ろ ③）
+    - `verdict_view`：**申告を当てる面**（`OIF.feedback` の viewpoint）。`situated_memories` は人ごとで、
+      想起は話者の面を通る。基底の記憶へ書くと視点が `__self__` へ寄り、話者が同定されている場面で
+      申告が0行に当たる（出-h-ろ ③）。申告は記憶の口（OIF）を通す（環-ab）
     - `system`・`effort`：発話前の検査の差し戻しで**主LLM をもう一度呼ぶ**のに要る
     - `capped`：上限の反復では調べる動作を渡していないので、返ってきても投げない
     - `retried`：これは言い直しの返りか。真なら**もう検査しない**（1回だけ）
@@ -521,7 +521,7 @@ class Decision:
     result: "TurnResult"
     memories: "list[Recalled]"
     w_id_map: dict[str, str]
-    mem: object
+    verdict_view: str  # 申告を当てる面（`OIF.feedback` の viewpoint）
     recent_frame: str  # W の直近の枠（発話前の検査が「さっき何を言ったか」として見る）
     system: object
     effort: "str | None"
@@ -1165,7 +1165,7 @@ class InformationProcessing:
         capped: bool,
         memories: "list[Recalled]",
         w_id_map: dict[str, str],
-        mem: object,
+        verdict_view: str,
         recent_frame: str,
         max_tokens: int,
         retried: bool = False,
@@ -1198,7 +1198,7 @@ class InformationProcessing:
                 capped=capped,
                 memories=memories,
                 w_id_map=w_id_map,
-                mem=mem,
+                verdict_view=verdict_view,
                 recent_frame=recent_frame,
                 max_tokens=max_tokens,
                 retried=retried,
@@ -1219,7 +1219,7 @@ class InformationProcessing:
         capped: bool,
         memories: "list[Recalled]",
         w_id_map: dict[str, str],
-        mem: object,
+        verdict_view: str,
         recent_frame: str,
         max_tokens: int,
         retried: bool,
@@ -1289,7 +1289,7 @@ class InformationProcessing:
                     result=result,
                     memories=memories,
                     w_id_map=w_id_map,
-                    mem=mem,
+                    verdict_view=verdict_view,
                     recent_frame=recent_frame,
                     system=system,
                     effort=effort,
@@ -2637,11 +2637,14 @@ class InformationProcessing:
         # 素通しだと問いと同一文の記録が必ず上位に来て、限られた枠から本物の記憶を押し出す。
         # 手がかりは「取り込んだもの」＝鎖の先頭（反復1なら人の発話、反復2以降なら完了 O）。
         # 最初の発話で探し続けると、いま届いた完了とは無関係な検索になる（④ の想起クエリ）。
-        mem = agent._active_memory()
-        # **誰の面から引くか。** `_active_memory()` と同じ選び方である（話者が居なければ
-        # パジュ自身）。想起は口を通すので、面は `View.viewpoint` で言う（環-e-い）。
-        # 申告（`apply_memory_verdicts`）はまだ記憶そのものを受け取るので `mem` も持つ。
+        # **誰の面から引くか。** 話者が居なければパジュ自身。想起は口を通すので、面は `View.viewpoint`
+        # で言う（環-e-い）。
         viewpoint = agent._pmm.current_speaker_id or AGENT_SELF_ID
+        # 申告を当てる面。いまは `_active_memory()` と同じ選び方（話者が「分かっている」ときだけその人の面）で、
+        # 想起の面とずれる瞬間がある（環-ab で口を通したときに見つけた・次のコミットで揃える）。
+        verdict_view = (
+            agent._pmm.current_speaker_id if agent.speaker_known() else None
+        ) or AGENT_SELF_ID
         # **取込 O を候補から外さない。** 手がかりは取込の content そのものなので、候補に
         # 入れば必ず上位に来る。以前はこれを「枠を食う」と嫌って外していたが、いま届いた
         # 結果を全文で見せる必要がある以上、1位に来るのが正しい順位である。手組みで W へ
@@ -2746,7 +2749,7 @@ class InformationProcessing:
                 reply=spoken or decision.text,
                 workspace_ctx=workspace_ctx,
                 w_id_map=ws.verdict_map,
-                mem=mem,
+                verdict_view=verdict_view,
                 memories=memories,
                 spoken=outcome == "発話",
             )
@@ -2810,7 +2813,7 @@ class InformationProcessing:
             capped=capped,
             memories=memories,
             w_id_map=dict(ws.verdict_map),  # 申告の母数は過去の列だけ（出-n 4）
-            mem=mem,
+            verdict_view=verdict_view,
             recent_frame=ws.recent_text(ws.n_main),
             max_tokens=budget.max_tokens,
         )
@@ -2977,7 +2980,10 @@ class InformationProcessing:
 
         if say_tc is not None:
             workspace.apply_memory_verdicts(
-                decision.mem, say_tc.input.get("memory_verdicts"), decision.w_id_map
+                self._agent._oif,
+                decision.verdict_view,
+                say_tc.input.get("memory_verdicts"),
+                decision.w_id_map,
             )
             # 使った言いたかったことを控える。声に出せたら `_finish` が畳む（出-as 段 7）。
             self._req.told_unsaid = unsaid.told(
@@ -3037,7 +3043,7 @@ class InformationProcessing:
                     capped=decision.capped,
                     memories=decision.memories,
                     w_id_map=dict(decision.w_id_map),
-                    mem=decision.mem,
+                    verdict_view=decision.verdict_view,
                     recent_frame=decision.recent_frame,
                     max_tokens=decision.max_tokens,
                     retried=True,
@@ -3170,7 +3176,7 @@ class InformationProcessing:
         reply: str,
         workspace_ctx: str,
         w_id_map: dict[str, str],
-        mem: object,
+        verdict_view: str,
         memories: "list | None" = None,
         spoken: bool = False,
     ) -> None:
@@ -3180,7 +3186,7 @@ class InformationProcessing:
         （実測 1.03 秒）。
 
         **投げるときに写して閉じ込める。** 走っているあいだに次の反復が来れば、ループの
-        `w_id_map` も `mem` も作り直されている。12桁が偶然当たれば黙って別の記憶へ当たり、
+        `w_id_map` も申告の面（`verdict_view`）も作り直されている。12桁が偶然当たれば黙って別の記憶へ当たり、
         面が変われば別の人の記憶が育つ。だから引数で受け、ここで写す（環-h ②・出-h-ろ ③）。
         """
         if not w_id_map:
@@ -3207,7 +3213,7 @@ class InformationProcessing:
                 # 理由が分からなくなる。
                 logger.warning("event-loop 申告を聞けなかった: %s", e)
                 return
-            workspace.apply_memory_verdicts(mem, raw, w_id_map)
+            workspace.apply_memory_verdicts(agent._oif, verdict_view, raw, w_id_map)
             # 声に出した返事で使った言いたかったことを畳む（出-as 段 7）。
             if spoken:
                 told = unsaid.told(raw, w_id_map, kept)

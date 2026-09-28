@@ -50,7 +50,7 @@ def test_the_main_llm_logs_seconds_and_what_came_back(caplog) -> None:
                 capped=False,
                 memories=[],
                 w_id_map={},
-                mem=None,
+                verdict_view="__self__",
                 recent_frame="",
                 max_tokens=1024,
                 retried=False,

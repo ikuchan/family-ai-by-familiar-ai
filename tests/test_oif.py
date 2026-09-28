@@ -198,6 +198,16 @@ class TestFeedback:
         assert n == 2
         assert mem.verdicts == {"m1": "important", "m2": "unused"}
 
+    def test_verdicts_land_on_the_face_the_viewpoint_names(self) -> None:
+        """申告は想起と同じ面へ当てる。面を渡さなければ既定の記憶（環-ab・2026-09-28）。
+
+        `situated_memories` は人ごとなので、引いた面と申告を当てる面が違うと 0 行になる。
+        """
+        base, face = _Memory(), _Memory()
+        oif = OIF(base, for_person=lambda pid: {"p1": face}[pid])
+        assert oif.feedback({"m1": Verdict.IMPORTANT}, viewpoint="p1") == 1
+        assert face.verdicts == {"m1": "important"} and base.verdicts == {}
+
 
 class TestSpanAndHealth:
     @pytest.mark.asyncio

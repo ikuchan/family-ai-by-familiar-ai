@@ -484,11 +484,15 @@ class OIF:
         logger.debug("OIF supersede ← %s→%s → %s", old_id, new_id, got)
         return got
 
-    def feedback(self, verdicts: dict[str, Verdict]) -> int:
-        """使った記憶の申告を反映する。触れた件数を返す。"""
+    def feedback(self, verdicts: dict[str, Verdict], *, viewpoint: str = "") -> int:
+        """使った記憶の申告を反映する。触れた件数を返す。
+
+        `viewpoint` は想起に使った面（`View.viewpoint` と同じ）。`situated_memories` は人ごとなので、
+        引いた面と当てる面が違うと 0 行になる。渡さなければ既定の記憶。
+        """
         plain = {i: v.value for i, v in verdicts.items()}
-        got = int(self._memory.apply_verdicts(plain))
-        logger.debug("OIF feedback ← %d件 → %d件へ反映", len(plain), got)
+        got = int(self._through(viewpoint).apply_verdicts(plain))
+        logger.debug("OIF feedback ← %d件（%s）→ %d件へ反映", len(plain), viewpoint or "既定", got)
         return got
 
     async def span(self) -> Span:

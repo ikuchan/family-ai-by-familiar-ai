@@ -68,9 +68,9 @@ def test_verdicts_are_recorded_by_kind(tmp_path):
     from familiar_agent.loop import workspace
 
     measure.setup(base_dir=tmp_path)
-    mem = MagicMock()
     workspace.apply_memory_verdicts(
-        mem,
+        MagicMock(),
+        "p1",
         [
             {"id": "aaaaaaaaaaaa", "verdict": "important"},
             {"id": "bbbbbbbbbbbb", "verdict": "unused"},

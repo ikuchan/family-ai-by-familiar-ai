@@ -583,7 +583,7 @@ def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | N
     return True
 
 
-def apply_memory_verdicts(mem, raw, w_id_map: "dict[str, str]") -> None:
+def apply_memory_verdicts(oif, viewpoint: str, raw, w_id_map: "dict[str, str]") -> None:
     """申告された「想起した記憶の扱い」を反映する（課題5 E節 段2）。
 
     **照合できたものだけ適用する**。指示しても、落としたり無い id を足したりする。
@@ -598,8 +598,9 @@ def apply_memory_verdicts(mem, raw, w_id_map: "dict[str, str]") -> None:
     **引いた面と書く面を揃える**（出-h-ろ ③）。`situated_memories` は人ごとで、想起は
     `agent._active_memory()`＝話者の面を通る。基底の記憶（`agent._memory`）へ書くと視点が
     `__self__` へ寄り、話者が同定されている場面では `UPDATE ... WHERE person_id = '__self__'`
-    が0行を返して**申告が効かない**。だから `agent` ではなく、**想起に使った記憶そのもの**を
-    受け取る。申告を背景で当てるとき（軽量LLM の口）も、投げた時点のものを写して渡す。
+    が0行を返して**申告が効かない**。だから**想起に使った面**（`viewpoint`）を受け取り、記憶の口（OIF）の
+    `feedback` へその面を渡す（環-ab・記憶は OIF を通る）。申告を背景で当てるとき（軽量LLM の口）も、投げた時点の
+    面を写して渡す。
     """
     if not raw or not w_id_map:
         return
@@ -619,5 +620,7 @@ def apply_memory_verdicts(mem, raw, w_id_map: "dict[str, str]") -> None:
     }
     measure.record("申告", **by_kind)
     if verdicts:
+        from ..io.oif import Verdict
+
         with contextlib.suppress(Exception):
-            mem.apply_verdicts(verdicts)
+            oif.feedback({i: Verdict(v) for i, v in verdicts.items()}, viewpoint=viewpoint)

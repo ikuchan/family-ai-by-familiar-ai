@@ -51,7 +51,7 @@ def test_the_loop_recovers_and_logs(caplog) -> None:
                 capped=False,
                 memories=[],
                 w_id_map={},
-                mem=None,
+                verdict_view="__self__",
                 recent_frame="",
                 retried=False,
                 max_tokens=500,
