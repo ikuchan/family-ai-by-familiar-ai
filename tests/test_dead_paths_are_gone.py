@@ -21,6 +21,8 @@ GONE = (
     "pending_speech_store",
     "_notes_registered_this_turn",
     "_pending_store",
+    "PendingSpeechConfig",
+    "PENDING_SPEECH_",
     "with_rules",
 )
 

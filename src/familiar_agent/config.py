@@ -493,18 +493,6 @@ class MemoryConfig:
 
 
 @dataclass
-class PendingSpeechConfig:
-    half_life_days: float = field(
-        default_factory=lambda: _float_env("PENDING_SPEECH_HALF_LIFE_DAYS", 1.0)
-    )
-    floor: float = field(default_factory=lambda: _float_env("PENDING_SPEECH_FLOOR", 0.01))
-    expire_threshold: float = field(
-        default_factory=lambda: _float_env("PENDING_SPEECH_EXPIRE_THRESHOLD", 0.1)
-    )
-    max_per_turn: int = field(default_factory=lambda: _int_env("PENDING_SPEECH_MAX", 2))
-
-
-@dataclass
 class STTConfig:
     # Reuses ELEVENLABS_API_KEY — no separate key needed
     elevenlabs_api_key: str = field(
