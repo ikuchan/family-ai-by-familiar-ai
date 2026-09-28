@@ -150,7 +150,7 @@ def _decision(*calls):
         result=SimpleNamespace(tool_calls=list(calls), text=""),
         capped=False,
         retried=False,
-        mem=None,
+        verdict_view="__self__",
         memories=[],
         w_id_map={},
         recent_frame="",

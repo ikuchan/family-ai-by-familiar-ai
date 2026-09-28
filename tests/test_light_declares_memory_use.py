@@ -34,7 +34,7 @@ def _ip():
 def test_closing_with_the_light_llm_asks_for_the_verdicts_in_the_background():
     """`light` で閉じた反復は、申告を**背景で**投げる。発話を待たせない。"""
     ip = _ip()
-    mem = MagicMock()
+    ip._agent._oif = MagicMock()  # 申告は記憶の口（OIF）を通る（環-ab）
     from familiar_agent.backends.jev import JevAnswer
 
     ip._agent._jev = MagicMock(available=True)
@@ -51,13 +51,15 @@ def test_closing_with_the_light_llm_asks_for_the_verdicts_in_the_background():
             reply="覚えてますよ。",
             workspace_ctx="- 2026-09-01 id:abcdef123456 運動会の話",
             w_id_map={"abcdef123456": "m1"},
-            mem=mem,
+            verdict_view="p1",
         )
         assert len(ip._verdict_tasks) == 1  # 立った時点では待っていない
         await asyncio.gather(*list(ip._verdict_tasks))
 
     asyncio.run(scenario())
-    mem.apply_verdicts.assert_called_once_with({"m1": "important"})
+    from familiar_agent.io.oif import Verdict
+
+    ip._agent._oif.feedback.assert_called_once_with({"m1": Verdict.IMPORTANT}, viewpoint="p1")
 
 
 def test_an_aborted_request_does_not_cancel_the_verdicts():

@@ -28,7 +28,7 @@ def _run(max_tokens: int, stop_reason: str, caplog):
                 capped=False,
                 memories=[],
                 w_id_map={},
-                mem=None,
+                verdict_view="__self__",
                 recent_frame="",
                 retried=False,
                 max_tokens=max_tokens,

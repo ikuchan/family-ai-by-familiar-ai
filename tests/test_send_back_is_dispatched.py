@@ -71,7 +71,7 @@ def _run(ip, result, *, retried=False, original_text="", gen=0):
                 result=result,
                 memories=[],
                 w_id_map={},
-                mem=MagicMock(),
+                verdict_view="__self__",
                 recent_frame="",
                 system=("安定", "可変"),
                 effort="high",
