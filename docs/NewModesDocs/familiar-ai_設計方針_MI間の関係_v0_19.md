@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：MI 間の関係（v0.18・全 5 段 実装済み）
+# familiar-ai 設計方針：MI 間の関係（v0.19・全 5 段 実装済み）
 
 ## この文書の位置づけ
 
@@ -210,6 +210,11 @@ CREATE UNIQUE INDEX idx_relation_members_old
 想起の絞りと連なりの辿りは、この段では置いていない。使う段で問い合わせの形が決まって
 から足す。先回りして置くと、実際には要らない形の口が残る。
 
+> v0.19 注（2026-09-28・環-ab）：`members_of` と `relations_for` は、使う段がそれぞれ別の口を持ったので
+> 呼び手が無く、外した。いまの公開の口は `add`・`extend`（項を足す）・`hide`（版で隠す）・`latest_origins`
+> （直近のやりとりの起点）・`recent_exchanges`・`roles_of`・`cooccurring`（拡散想起）である。共起を書く
+> `record_cooccurrence` は、ループが OIF の `link` で書くので本体からは呼ばれず、試験の下ごしらえにだけ使う。
+
 ### 段 2：`superseded_by` を関係へ移す（実装済み・2026-09-06）
 
 **六つの書き手を全部この段で移す。** 列を落とすので、移さずに残せるものは一つも無い。
@@ -294,7 +299,8 @@ CREATE UNIQUE INDEX idx_relation_members_old
 引き直す。毎ターン引くと、ターンごとに無駄な問い合わせが増える。
 
 口は `ObservationMemory` に三つ足した（`record_exchange`・`record_succession`・
-`latest_exchange_origin`）。関係の側は `RelationStore.latest_member(kind, role)` である。
+`latest_exchange_origin`）。関係の側は `RelationStore.latest_member(kind, role)` である（v0.19 注：いまは
+`latest_origins` が引き、`latest_member` は呼び手が無く環-ab で外した）。
 
 **同じ問いに逐語と会話要約の両方が当たる。** W の枠（`workspace_max_chars`）を食うかは、
 実機で W の中身を見るまで分からない。実機の宿題として残っている。
@@ -536,6 +542,7 @@ day_summary の記録を書くだけである。計測が見た置換先は、�
 
 ## 更新履歴
 
+> v0.19：関係の箱の口のうち呼び手の無かった `members_of`・`relations_for`・`latest_member` を外したことと、いまの公開の口を注記した（2026-09-28・環-ab R-7）。
 > v0.18：過去の記憶の列が 120 字で切られなくなったので、その但し書きを直す（2026-09-20）。
 > v0.17：**続き先の判定の結末を計測ログへ書く**（2026-09-14・記-i・`rest_logs/measure.log`）。
 > v0.16：段 4 改訂を**実装済み**にした（2026-09-13・記-h）。

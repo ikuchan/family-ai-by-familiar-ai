@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：記憶接続 OIF（v0.6）
+# familiar-ai 設計方針：記憶接続 OIF（v0.7）
 
 ## この文書が決めること
 
@@ -90,8 +90,11 @@ class OIF:
     def supersede(self, old_id: str, new_id: str) -> bool:
         """old を new の版で置き換える。先着勝ち。"""
 
-    def feedback(self, verdicts: dict[str, Verdict]) -> int:
-        """使った記憶の申告を反映する（根づき と 新しさ の起点）。触れた件数を返す。"""
+    def feedback(self, verdicts: dict[str, Verdict], *, viewpoint: str = "") -> int:
+        """使った記憶の申告を反映する（根づき と 新しさ の起点）。触れた件数を返す。
+
+        `viewpoint` は想起に使った面（`View.viewpoint` と同じ）。記憶は人ごとなので、引いた面と
+        当てる面が違うと 0 行になる（v0.7・環-ab）。"""
 
     def span(self) -> Span:
         """記憶の広がり（最古の日付）。"""
@@ -178,6 +181,7 @@ class Verdict(Enum):
 
 ## 更新履歴
 
+> v0.7：`feedback` に面（`viewpoint`）を足した。ループの申告は、記憶の器を直に掴むのをやめてこの口を通り、想起と同じ面へ当てる（2026-09-28・環-ab R-6 と直し `0a08806`）。
 > v0.6：**MI の同定を面へ移した**（案3・2026-09-02 実装）。`id` は面
 > （`situated_memories.id`）、`obs_id`／`person_id`／`relation_key` が面を同定する。
 > 視点3属性（`writer_id`／`subject_id`／`participants`）は落とし、誰がしたこと・誰が
