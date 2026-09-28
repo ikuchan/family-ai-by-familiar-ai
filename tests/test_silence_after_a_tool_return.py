@@ -13,39 +13,34 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from familiar_agent.loop import arbiter
-from tests._arbiter_compat import arbitrate as _compat_arbitrate
+from tests._arbiter_fakes import decide, jev_says, writer_says
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.silence_state import SilenceRequest
 
 from tests.test_event_loop import _agent
 
 
-def _backend(reply: str):
-    # 試験用の口（`tests/_arbiter_compat.py`）が返事を覗いて偽の Jev の答えにするので、AsyncMock で持つ。
-    b = MagicMock()
-    b.complete = AsyncMock(return_value=reply)
-    return b
+def _light(text: str, **jev):
+    """Jev は light と決め（ほかの答えは `jev`）、軽量LLM が `text` を書く。"""
+    return dict(jev=jev_says("light", **jev), writer=writer_says({"text": text}))
 
 
 # ── 情-n ─────────────────────────────────────────────────────────────────
 
 
 def test_a_tool_return_never_carries_a_silence_request():
-    b = _backend(
-        '{"branch":"light","text":"3 分ね、いい？","silence_minutes":-1,"lift_silence":true}'
-    )
-    d = asyncio.run(
-        _compat_arbitrate(b, utterance="パジュ、3分測って", workspace_ctx="", tool_return=True)
-    )
+    # Jev の答えに黙る依頼と解く依頼が混じっていても、道具の帰りでは読まない。
+    said = _light("3 分ね、いい？", quiet="default", lifts_quiet=True)
+    d = asyncio.run(decide(**said, utterance="パジュ、3分測って", tool_return=True))
     assert d.branch == "light" and d.silence_minutes == 0 and d.lift_silence is False
 
 
 def test_a_first_iteration_still_carries_it():
-    b = _backend('{"branch":"light","text":"うん、黙るね","silence_minutes":-1}')
-    d = asyncio.run(_compat_arbitrate(b, utterance="パジュ、静かにして", workspace_ctx=""))
+    said = _light("うん、黙るね", quiet="default")
+    d = asyncio.run(decide(**said, utterance="パジュ、静かにして"))
     assert d.silence_minutes == -1
 
 
@@ -75,22 +70,20 @@ def test_a_live_silence_is_not_cleared(monkeypatch):
 
 
 def test_a_control_word_answered_lightly_falls_to_full_while_a_timer_is_running():
-    b = _backend('{"branch":"light","text":"はい、再開しますね。"}')
-    d = asyncio.run(_compat_arbitrate(b, utterance="再開", workspace_ctx="", timer_active=True))
-    assert d.branch == "full"
-    d = asyncio.run(_compat_arbitrate(b, utterance="再開", workspace_ctx=""))
-    assert d.branch == "light"  # タイマーが無ければ会話（「再開発の話？」）
-    d = asyncio.run(
-        _compat_arbitrate(b, utterance="こんにちは", workspace_ctx="", timer_active=True)
-    )
-    assert d.branch == "light"
+    def branch(utterance: str, **kw) -> str:
+        return asyncio.run(
+            decide(**_light("はい、再開しますね。"), utterance=utterance, **kw)
+        ).branch
+
+    assert branch("再開", timer_active=True) == "full"
+    assert branch("再開") == "light"  # タイマーが無ければ会話（「再開発の話？」）
+    assert branch("こんにちは", timer_active=True) == "light"
 
 
 def test_the_control_guard_is_not_applied_on_a_tool_return():
-    b = _backend('{"branch":"light","text":"止めておくね。"}')
     d = asyncio.run(
-        _compat_arbitrate(
-            b, utterance="一時停止", workspace_ctx="", timer_active=True, tool_return=True
+        decide(
+            **_light("止めておくね。"), utterance="一時停止", timer_active=True, tool_return=True
         )
     )
     assert d.branch == "light"

@@ -15,7 +15,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop import arbiter, workspace
-from tests._arbiter_compat import arbitrate as _compat_arbitrate
+from tests._arbiter_fakes import decide, jev_says, prompt_of, writer_says
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from familiar_agent.loop.request import Request
 
@@ -113,33 +113,33 @@ def test_the_lead_is_the_experiments_sentence_and_the_returned_tool_is_not_offer
     assert "set_timer" in ip._extra_actions()  # 外すのは返った反復だけ
 
 
-def test_arbitrate_uses_the_tool_return_lead_when_asked():
-    seen = {}
+def test_the_arbiter_uses_the_tool_return_lead_when_asked():
+    """道具の帰りの先導文は、Jev に送る文と軽量LLM の文章の口の両方に載る。"""
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
 
-    async def fake_complete(prompt, max_tokens, **kw):
-        seen["prompt"] = prompt
-        return '{"branch":"light","text":"3 分ね、いい？"}'
+    def written(**kw) -> str:
+        writer = writer_says({"text": "3 分ね、いい？"})
+        d = asyncio.run(decide(jev=jev_says("light"), writer=writer, utterance="x", **kw))
+        assert d.branch == "light"
+        return prompt_of(writer)
 
-    b = MagicMock()
-    b.complete = fake_complete
-    d = asyncio.run(_compat_arbitrate(b, utterance="x", workspace_ctx="", tool_return=True))
-    assert d.branch == "light" and "取り返そうとして道具を選ばない" in seen["prompt"]
-    asyncio.run(_compat_arbitrate(b, utterance="x", workspace_ctx=""))
-    assert "取り返そうとして道具を選ばない" not in seen["prompt"]
+    assert "取り返そうとして道具を選ばない" in written(tool_return=True)
+    assert "取り返そうとして道具を選ばない" not in written()
+    state = Arbiter(jev=None, writer=None)._state(
+        ArbiterInput(utterance="x", workspace_ctx="", tool_return=True)
+    )
+    assert "取り返そうとして道具を選ばない" in state
 
 
 def test_the_needs_tools_guard_does_not_fire_on_a_tool_return():
     """出-x-ろ（実機 18:31）：守り（「測って」は light で答えない）は道具が返った反復では掛けない。"""
 
-    async def light(prompt, max_tokens, **kw):
-        return '{"branch":"light","text":"11 分のタイマーね、いい？"}'
+    def light(**kw):
+        writer = writer_says({"text": "11 分のタイマーね、いい？"})
+        return asyncio.run(
+            decide(jev=jev_says("light"), writer=writer, utterance="パジュ、1１分測って", **kw)
+        )
 
-    b = MagicMock()
-    b.complete = light
     ws = "[いま道具から返った]\n- set_timer「タイマーを掛ける「x」」→ まだ掛けていない。本人に一度聞く：「…」"
-    d = asyncio.run(
-        _compat_arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=ws, tool_return=True)
-    )
-    assert d.branch == "light"
-    d = asyncio.run(_compat_arbitrate(b, utterance="パジュ、1１分測って", workspace_ctx=""))
-    assert d.branch == "full"  # 初回の反復の守りは残る
+    assert light(workspace_ctx=ws, tool_return=True).branch == "light"
+    assert light().branch == "full"  # 初回の反復の守りは残る
