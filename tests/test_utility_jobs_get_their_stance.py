@@ -40,12 +40,12 @@ def test_the_one_line_summary_speaks_as_paju():
     be = _backend("うれしかった")
     seen = {}
 
-    def ctx(stance, *, with_rules=False):
-        seen["sum"] = (stance, with_rules)
+    def ctx(stance):
+        seen["sum"] = stance
         return "＜パジュ＞"
 
     asyncio.run(_evaluator(be, context=ctx).summarize_exchange("やあ", "こんにちは"))
-    assert seen["sum"] == (Stance.PAJU, False)
+    assert seen["sum"] == Stance.PAJU
 
 
 # ── 材料が欠けても落ちない ──────────────────────────────────────────────────
@@ -55,7 +55,7 @@ def test_a_missing_part_falls_back_to_no_stance():
     """`FAMILY.md` が無い機体でターンを落とさない。いままでと同じ挙動へ落ちる。"""
     be = _backend("うれしかった")
 
-    def ctx(stance, *, with_rules=False):
+    def ctx(stance):
         return None
 
     asyncio.run(_evaluator(be, context=ctx).summarize_exchange("やあ", "こんにちは"))
@@ -79,13 +79,13 @@ def test_the_same_intent_check_measures_from_outside():
     be = _backend("yes")
     seen = {}
 
-    def ctx(stance, *, with_rules=False):
-        seen["intent"] = (stance, with_rules)
+    def ctx(stance):
+        seen["intent"] = stance
         return "＜計器＞"
 
     tool = DeferredSearchTool(AsyncMock(), utility_backend=be, context=ctx)
     assert asyncio.run(tool._is_same_intent("東京の天気", "明日の東京の天気")) is True
-    assert seen["intent"] == (Stance.INSTRUMENT, False)
+    assert seen["intent"] == Stance.INSTRUMENT
     assert be.complete.await_args.kwargs["system"] == "＜計器＞"
 
 

@@ -8,8 +8,8 @@
 前方一致キャッシュが効く条件で、崩れると実機で調停が時間切れになり沈黙依頼が読まれなかった。
 
 **部品の中身はここで持たない。** 人格は `ME.md`、できることは `capability_state.load_summary()`、
-家族は `FAMILY.md`、規則は `loop.prompt.rules_section()` が正本である。呼ぶ側がそこから取って
-渡す。ここに写しを置くと、正本が変わったときにここだけ古くなる。
+家族は `FAMILY.md` が正本である。呼ぶ側がそこから取って渡す。規則は静的核（`core`）の中にあり、
+別の欄では渡さない（規則だけを添える欄は、呼び手が無くなったので環-ab で外した）。ここに写しを置くと、正本が変わったときにここだけ古くなる。
 
 ここが持つのは**立ち位置の言葉**（既存のどこにも無い）と**並びの規則**だけである。
 """
@@ -58,7 +58,6 @@ def build_context(
     core: str = "",
     self_understanding: str = "",
     family: str = "",
-    rules: str = "",
     self_image: str = "",
     season_env: str = "",
     now: str = "",
@@ -107,7 +106,6 @@ def build_context(
     for label, text in (
         ("[あなたは誰か]", self_understanding),
         ("[一緒に暮らす人たち]", family),
-        ("[守っている決まり]", rules),
     ):
         if text and text.strip():
             stable_parts.append(label + "\n" + text.strip())

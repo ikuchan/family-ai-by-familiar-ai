@@ -4,7 +4,7 @@
 退室は記録だけになった）・「誰も見えなかった」の控え（入口で不在を止めなくなった）は、もう通る道が無い。
 名前が残ると、次に読む者が動いている仕組みだと信じるので、src から消えたことを確かめる。
 
-`pending_speech` テーブルとその店（`tools/pending_speech_store.py`）は残す（落とすのは 環-ab）。
+`pending_speech` の記憶の箱（`tools/pending_speech_store.py`）は環-ab の A で外した（`test_dead_paths_are_gone.py`）。テーブルは別のマイグレーションで落とす。
 """
 
 from __future__ import annotations

@@ -50,7 +50,7 @@ class Evaluator:
     """
 
     def __init__(self, utility_backend, backend, *, context=None, jev=None) -> None:
-        """`context(stance, *, with_rules)` は立ち位置と文脈を返す（出-e）。
+        """`context(stance)` は立ち位置と文脈を返す（出-e）。
 
         渡さなければ立ち位置を渡さない（いままでと同じ）。材料が欠けたときも `None` を
         返してよい——`FAMILY.md` が無い機体でターンを落とさない。
@@ -61,11 +61,11 @@ class Evaluator:
         # 判定は Jev（出-au 段 5-6：感情の評価と気分の見立て）。無ければ未測定・既定の気分。
         self._jev = jev
 
-    def _stance(self, stance, *, with_rules: bool = False) -> "str | None":
+    def _stance(self, stance) -> "str | None":
         """立ち位置と文脈を引く。提供者が無ければ `None`。"""
         if self._context is None:
             return None
-        return self._context(stance, with_rules=with_rules)
+        return self._context(stance)
 
     async def emotion_for_turn(
         self, text: str, arousal: float, *, mood: "MoodPAD | None" = None

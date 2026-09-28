@@ -210,7 +210,6 @@ class EmbodiedAgent:
         # **人ごとの実体は `pmm` が持つ**（1人につき1つ。口が作り直すと実体が増える）。
         self._oif = OIF(self._memory, for_person=self._pmm.get_memory_for)
         self._memory_tool = MemoryTool(self._pmm)
-        self._pending_store = self._memory_tool._pending_store
         self._presence_sensor: PresenceSensor | None = None
         # 人検出（YOLO）。在席と `see` の即席の意味づけで共有（カメラが無ければ None）。
         self._person_detector: PersonDetector | None = None
@@ -697,19 +696,18 @@ class EmbodiedAgent:
         else:
             return f"Tool '{name}' not available (check configuration).", None
 
-    def _stance_context(self, stance: "_Stance", *, with_rules: bool = False) -> "str | None":
+    def _stance_context(self, stance: "_Stance") -> "str | None":
         """立ち位置と文脈を組む（出-e）。**部品は正本から取り、控えを持たない。**
 
         人格とできることは `capability_state.load_summary()`、家族は `FAMILY.md`、
-        規則は `loop.prompt.rules_section()` が正本である（チェッカーへは `rules_for_checker()`）。ここへ写しを置くと、正本が
-        変わったときにここだけ古くなる。
+        ここへ写しを置くと、正本が変わったときにここだけ古くなる。規則は渡さない（主LLM は静的核で受け、
+        発話前の検査は Jev が機械で読む・出-au 段 5-3）。
 
         材料が欠けたら `None` を返す。`FAMILY.md` が無い機体や、自己認識をまだ生成して
         いない初回起動で**ターンごと落とさない**。そのときは立ち位置を渡さずに続く
         （いままでと同じ挙動）。
         """
         from .core.context_parts import build_context
-        from .loop.prompt import rules_for_checker
 
         first_person = stance is _Stance.PAJU
         try:
@@ -717,13 +715,6 @@ class EmbodiedAgent:
                 stance=stance,
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
-                # `with_rules` の呼び手は発話前の検査だけ。渡すのは判定できる規則に絞った版
-                # （出-n・`CHECKER_RULE_IDS`）。
-                rules=(
-                    rules_for_checker(allow_tts_tags=bool(self._tts and self._tts.understands_tags))
-                    if with_rules
-                    else ""
-                ),
             ).stable
         except ValueError as e:
             logger.warning("立ち位置を組めなかったので渡さずに続ける: %s", e)

@@ -79,9 +79,7 @@ def _agent(*, stream_returns, max_iters=3):
     # 視点の受け渡しはそのまま効く。
     a._oif = OIF(a._memory, for_person=lambda _pid: mem)
     a._memory_tool = MagicMock()
-    a._memory_tool.get_tool_definitions = MagicMock(
-        return_value=[_REMEMBER_DEF, _RECALL_DEF, {"name": "note_to_share"}]
-    )
+    a._memory_tool.get_tool_definitions = MagicMock(return_value=[_REMEMBER_DEF, _RECALL_DEF])
     a._memory_tool.call = AsyncMock(return_value=("recall結果テキスト", None))
     # カメラ無しを明示する。MagicMock のままだと `get_tool_definitions()` が list でない
     # 値を返し、動作の表がそれを黙って落とすので、何を確かめているのか分からなくなる。
@@ -110,8 +108,6 @@ def _agent(*, stream_returns, max_iters=3):
     a._deferred_fetch.get_tool_definitions = MagicMock(return_value=[_FETCH_DEF])
     a._deferred_fetch.call = AsyncMock(return_value=("投げた", None))
     a._deferred_fetch.dispatch = AsyncMock(return_value=("投げた", True))
-    a._pending_store = MagicMock()
-    a._pending_store.add = MagicMock(return_value="pending-1")
     a._turn_arousal = AsyncMock(return_value=0.3)
     a._spawn_background_task = MagicMock()
     a._run_post_response_pipeline = MagicMock(return_value=MagicMock())
@@ -698,7 +694,6 @@ def test_speech_goes_out_when_someone_is_present():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
     assert _run(a) == "ねえ聞いて"
     a._tts.call.assert_awaited_once_with("say", {"text": "ねえ聞いて"})
-    a._pending_store.add.assert_not_called()  # 話せたので溜めない
 
 
 def test_deferred_is_wired_to_the_triggers():

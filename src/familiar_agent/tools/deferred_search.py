@@ -47,7 +47,7 @@ class DeferredSearchTool:
     ) -> None:
         self._search_fn = search_fn
         self._utility_backend = utility_backend
-        # `context(stance, *, with_rules)` は立ち位置と文脈を返す（出-e）。渡さなければ
+        # `context(stance)` は立ち位置と文脈を返す（出-e）。渡さなければ
         # 立ち位置を渡さない（いままでと同じ）。
         self._context = context
         self._pending: list[dict] = []
@@ -128,7 +128,7 @@ class DeferredSearchTool:
         # `getattr` で引くのは、`__init__` を通さずに組み立てる呼び出しがあるためである
         # （`getattr` 形は grep に出ないので、撤去のときは名前で探しても見つからない）。
         ctx = getattr(self, "_context", None)
-        system = ctx(Stance.INSTRUMENT, with_rules=False) if ctx else None
+        system = ctx(Stance.INSTRUMENT) if ctx else None
         answer = await ask_yes_no(
             self._utility_backend,
             _SAME_INTENT_PROMPT.format(a=existing_query, b=new_query),

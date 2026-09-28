@@ -167,11 +167,5 @@ def test_the_turn_asks_the_synthesiser_whether_tags_are_allowed():
     assert "allow_tts_tags=" in src and "understands_tags" in src
 
 
-def test_the_utility_stance_asks_the_same_synthesiser():
-    """軽量LLM の立ち位置も同じ値を見る（規則の正本が2つに割れないため）。"""
-    import inspect
-
-    from familiar_agent import agent as agent_mod
-
-    src = inspect.getsource(agent_mod.EmbodiedAgent._stance_context)
-    assert "allow_tts_tags=" in src and "understands_tags" in src
+# 軽量LLM の立ち位置は規則を持たなくなった（環-ab の A・`with_rules` を外した）。規則を渡すのは主LLM の
+# プロンプトと Jev の発話前の検査だけで、どちらもループにあり、上の試験が見ている。
