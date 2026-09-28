@@ -75,10 +75,6 @@ def test_the_summary_is_appended_as_the_last_member():
             user_input="今日の天気は？",
             final_text="晴れだよ",
             camera_used=False,
-            camera_image=None,
-            observation_action_name=None,
-            observation_action_input=None,
-            companion_mood="engaged",
             exchange_id=7,
         )
     )
@@ -99,10 +95,6 @@ def test_no_relation_is_written_when_the_turn_left_nothing():
             user_input="",
             final_text="ひとりごと",
             camera_used=False,
-            camera_image=None,
-            observation_action_name=None,
-            observation_action_input=None,
-            companion_mood="engaged",
             exchange_id=None,
         )
     )

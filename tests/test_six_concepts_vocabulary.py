@@ -74,14 +74,13 @@ def test_the_six_names_all_resolve() -> None:
     """6概念の名前が実際に引ける（表と実装がずれていない）。"""
     from familiar_agent.config import MemoryConfig, RecallWeights
     from familiar_agent.tools.memory import _derive_groundedness, _score_breakdown
-    from familiar_agent.coalition import Coalition
 
     # 概念名の列を揃えてある。
     # fmt: off
     assert _derive_groundedness(0.5, 0) == pytest.approx(0.5)          # 根づき
     assert MemoryConfig().recall_w_g > 0                               # 根づきの重み
     assert "w_g" in RecallWeights.__dataclass_fields__
-    assert "dynamism" in Coalition.__dataclass_fields__                # 勢い
+    # 勢い（`Coalition.dynamism`）は、器ごと呼び手が無くなって環-ab で外した。
     parts = _score_breakdown(0.5, None, None, 1.0, 0,
                              half_life_days=3.0, floor=0.001)
     assert hasattr(parts, "m") and hasattr(parts, "fit")               # 地力・適合度

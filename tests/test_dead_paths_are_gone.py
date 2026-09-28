@@ -24,6 +24,18 @@ GONE = (
     "PendingSpeechConfig",
     "PENDING_SPEECH_",
     "with_rules",
+    # R-3：道具を渡す口の無い coding_tools
+    "CodingTool",
+    "CodingConfig",
+    "CODING_WORKDIR",
+    "CODING_BASH",
+    # R-5：作るだけ・書くだけで読まれない追跡と、呼び手の無い `as_coalition` 系
+    "SceneTracker",
+    "PredictionEngine",
+    "ExplorationTracker",
+    "as_coalition",
+    "observation_action_name",
+    "companion_mood=",
 )
 
 
@@ -55,6 +67,9 @@ DEAD_MODULES = (
     "tools/person.py",  # `PersonTool`。どこからも import されない
     "tools/coding.py",  # `CodingTool`（ファイルの読み書き・bash）。道具を渡す口が旧 `run()` にしか無かった（R-3）
     "loop/history.py",  # 旧 `run()` の会話の畳み込みの道具（R-2）
+    "prediction.py",  # `PredictionEngine`。作るだけで読まれない（R-5）
+    "coalition.py",  # `as_coalition` 系。呼び手が無い（R-5）
+    "exploration.py",  # `ExplorationTracker`。書くだけで読まれない（R-5）
 )
 
 

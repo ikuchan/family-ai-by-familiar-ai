@@ -201,21 +201,13 @@ capabilities:
       winner) the agent refreshes its self-understanding from capabilities.yaml.
       Driven from `agent.py` and `capability_state.py`.
     enabled: true
-  - id: prediction_error_engine
-    summary: Minimize prediction error based on the Free Energy Principle
-    detail: >
-      This engine operates on Friston's Free Energy Principle, aiming to minimize
-      prediction error by updating probability estimates using Exponential Moving
-      Averages. Implemented in `prediction.py`.
-    enabled: true
   - id: global_workspace
     summary: Integrate information from various processing modules
     detail: >
       The Global Workspace, inspired by GWT/GNWT, acts as an integration layer
       where specialized processors compete for a shared workspace, broadcasting
-      their content. The competition and broadcast were removed in #12a; what
-      remains is the `Coalition` container in `coalition.py`. The workspace
-      itself is rebuilt each iteration by `loop/workspace.py`.
+      their content. The competition and broadcast were removed in #12a; the
+      workspace is rebuilt each iteration by `loop/workspace.py`.
     enabled: true
   - id: memory_worker
     summary: Handle background jobs for durable memory operations
