@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import date, datetime, timedelta
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import patch
 
 import pytest
 
@@ -179,78 +179,4 @@ async def test_get_earliest_date_async_works() -> None:
     assert result == _weeks_ago(5)
 
 
-# ---------------------------------------------------------------------------
-# Tests: _anniversary_context in EmbodiedAgent
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.asyncio
-async def test_anniversary_context_returns_string_when_anniversary_exists() -> None:
-    from familiar_agent.agent import EmbodiedAgent
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    agent._memory = MagicMock()
-    anniversary_date = _last_year_same_day()
-    agent._memory.recall_on_this_day_async = AsyncMock(
-        return_value=[{"content": "去年の今日はカメラを設置した", "date": anniversary_date}]
-    )
-    agent._oif = _oif(agent._memory)
-    agent._memory.get_earliest_date_async = AsyncMock(return_value=_weeks_ago(30))
-
-    result = await agent._anniversary_context()
-    assert result is not None
-    assert isinstance(result, str)
-    assert len(result) > 0
-
-
-@pytest.mark.asyncio
-async def test_anniversary_context_includes_milestone_at_7_days() -> None:
-    from familiar_agent.agent import EmbodiedAgent
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    agent._memory = MagicMock()
-    agent._memory.recall_on_this_day_async = AsyncMock(return_value=[])
-    agent._oif = _oif(agent._memory)
-    agent._memory.get_earliest_date_async = AsyncMock(return_value=_weeks_ago(1))  # 7 days
-
-    result = await agent._anniversary_context()
-    # 7 days milestone should produce output
-    assert result is not None
-
-
-@pytest.mark.asyncio
-async def test_anniversary_context_returns_none_when_nothing_notable() -> None:
-    from familiar_agent.agent import EmbodiedAgent
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    agent._memory = MagicMock()
-    agent._memory.recall_on_this_day_async = AsyncMock(return_value=[])
-    agent._oif = _oif(agent._memory)
-    agent._memory.get_earliest_date_async = AsyncMock(
-        return_value=_weeks_ago(3)
-    )  # 21 days, no milestone
-
-    result = await agent._anniversary_context()
-    # No anniversary, 21 days is divisible by 7 → milestone!
-    # Actually 21 = 3*7, so it IS a milestone. Let's use a non-milestone day.
-    # Use 3 days (not divisible by 7, not a round number milestone)
-    agent._oif = _oif(agent._memory)
-    agent._memory.get_earliest_date_async = AsyncMock(
-        return_value=(date.today() - timedelta(days=3)).strftime("%Y-%m-%d")
-    )
-    result = await agent._anniversary_context()
-    assert result is None
-
-
-@pytest.mark.asyncio
-async def test_anniversary_context_no_crash_on_none_earliest_date() -> None:
-    from familiar_agent.agent import EmbodiedAgent
-
-    agent = EmbodiedAgent.__new__(EmbodiedAgent)
-    agent._memory = MagicMock()
-    agent._memory.recall_on_this_day_async = AsyncMock(return_value=[])
-    agent._oif = _oif(agent._memory)
-    agent._memory.get_earliest_date_async = AsyncMock(return_value=None)
-
-    result = await agent._anniversary_context()
-    assert result is None
+# 起動からの節目を system 文へ添える `_anniversary_context` は、旧 `run()` の残りとして環-ab で外した。

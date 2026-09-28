@@ -9,7 +9,6 @@ import os
 import re
 import time
 from collections.abc import Callable, Coroutine
-from datetime import datetime
 from pathlib import Path
 
 from .core import parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
@@ -28,7 +27,6 @@ from .config import AgentConfig, DriveConfig
 from .relationship import PersonRegistry
 from .routines import quiet_hours_rule
 from .io.aif import AIF, Nudge
-from .store import clock
 from .io.oif import MI, OIF, Cue, Recalled, View
 from .mood_register import MoodPAD
 from .exploration import ExplorationTracker
@@ -55,7 +53,6 @@ from .tools.stopwatch import StopwatchTool
 from .tools.timer import TimerTool
 from .tools.tts import TTSTool
 from .loop.evaluator import Evaluator
-from .loop.history import _flatten_history
 from .mcp_client import CallResult, MCPClientManager, _resolve_config_path
 from .capability_state import load_summary
 
@@ -156,16 +153,6 @@ def _command_text(user_input: str) -> str:
 
 # Day summary prompt — condense a day's observations into a diary-like entry
 
-# Compaction summary prompt — condense old messages into a short recap
-_COMPACT_PROMPT = """\
-Summarize the following conversation into a short paragraph (3-6 sentences).
-Capture: what was discussed, any decisions or discoveries, and the emotional tone.
-Write in third person. Be concise.
-
-{history}
-
-Write just the summary paragraph."""
-
 
 class EmbodiedAgent:
     """Real-world exploration agent using a pluggable LLM backend."""
@@ -186,7 +173,6 @@ class EmbodiedAgent:
         self._session_input_tokens: int = 0
         self._session_output_tokens: int = 0
         self._last_context_tokens: int = 0
-        self._post_compact: bool = False
 
         self._camera: CameraTool | None = None
         self._mobility: MobilityTool | None = None
@@ -264,8 +250,6 @@ class EmbodiedAgent:
         # （道具も渡らない）。鳴っているあいだの状態（いつ始めたか）はここが持ち、寿命と門が見る。
         self._music_state = MusicState()
         self._music_tool = self._build_music_tool()
-        self._last_tool_error: str | None = None
-        self._tool_failure_streak: int = 0
 
         # Mood persistence (Phase 2 companion-likeness)
         self._mood: str = "neutral"
@@ -658,44 +642,6 @@ class EmbodiedAgent:
             return await self._mcp.call_result(tool_name, tool_input)
         return CallResult("MCP が利用できません。", None, False)
 
-    async def _execute_tool(self, name: str, tool_input: dict) -> tuple[str, str | None]:
-        """Route tool call to the right handler. Returns (text, image_b64_or_None)."""
-        camera_tools = {"see", "look"}
-        mobility_tools = {"walk"}
-        tts_tools = {"say"}
-        memory_tools = {"remember", "recall"}
-        coding_tools = {"read_file", "edit_file", "glob", "grep", "bash"}
-
-        if name in camera_tools and self._camera:
-            # `look` は定点へ絶対移動する。相対移動の積算を追う `ExplorationTracker` は
-            # 前提が違うので繋がない（どこを見たかは「見た印」が O に残る）。器そのものの
-            # 撤去は #12（旧系統の撤去）で、旧 `run()` のプロンプトごと落とす。
-            return await self._camera.call(name, tool_input)
-        elif name in mobility_tools and self._mobility:
-            return await self._mobility.call(name, tool_input)
-        elif name in tts_tools and self._tts:
-            return await self._tts.call(name, tool_input)
-        elif name in memory_tools:
-            return await self._memory_tool.call(name, tool_input)
-        elif name == "search_deferred":
-            result = await self._deferred_search.call(name, tool_input)
-            self._deferred_requested_at_turn = self._turn_count
-            return result
-        elif name == "fetch_deferred":
-            result = await self._deferred_fetch.call(name, tool_input)
-            self._deferred_requested_at_turn = self._turn_count
-            return result
-        elif name in coding_tools:
-            return await self._coding.call(name, tool_input)
-        elif self._mcp:
-            # Wait for background MCP init if still running
-            mcp_task = getattr(self, "_mcp_start_task", None)
-            if mcp_task and not mcp_task.done():
-                await mcp_task
-            return await self._mcp.call(name, tool_input)
-        else:
-            return f"Tool '{name}' not available (check configuration).", None
-
     def _stance_context(self, stance: "_Stance") -> "str | None":
         """立ち位置と文脈を組む（出-e）。**部品は正本から取り、控えを持たない。**
 
@@ -991,39 +937,6 @@ class EmbodiedAgent:
         rule = getattr(self, "_schedule_rule", None)
         return bool(rule is not None and rule.is_quiet())
 
-    # Keywords that suggest the internal turn found something worth sharing.
-    _INTERNAL_SHARE_PATTERNS: tuple[str, ...] = (
-        "気になる",
-        "面白い",
-        "面白そう",
-        "発見",
-        "気づい",
-        "思い出",
-        "不思議",
-        "見つけ",
-        "変化",
-        "新しい",
-        "found",
-        "discovered",
-        "interesting",
-        "noticed",
-        "curious",
-        "changed",
-    )
-
-    @classmethod
-    def _boost_from_internal_result(cls, text: str) -> float:
-        """Return a share_memory boost amount (0–0.35) based on notable content."""
-        lower = text.lower()
-        count = sum(1 for p in cls._INTERNAL_SHARE_PATTERNS if p.lower() in lower)
-        if count == 0:
-            return 0.0
-        if count >= 3:
-            return 0.35
-        if count >= 2:
-            return 0.25
-        return 0.15
-
     def _load_me_md(self) -> str:
         """Load ME.md personality file if it exists（読む場所は `parsing.read_me_md`）。"""
         return parsing.read_me_md()
@@ -1122,43 +1035,6 @@ class EmbodiedAgent:
             return ("neutral", 0.0)
         return (self._mood, intensity)
 
-    async def _anniversary_context(self) -> str | None:
-        """Return a calendar-aware context string for today, or None if nothing notable.
-
-        Surfaces "on this day" memories from past years and weekly/round milestones.
-        Designed to be injected into morning reconstruction with high priority.
-        """
-        today = datetime.now().date()
-        lines: list[str] = []
-
-        # On-this-day memories (same month-day, past years)
-        try:
-            anniversaries = await self._oif.recall(Cue(on_month_day=(today.month, today.day)))
-            for r in anniversaries[:2]:
-                mem_date = clock.ts_to_date(r.mi.timestamp) if r.mi.timestamp else ""
-                if r.mi.content and mem_date:
-                    lines.append(f"[On this day]: {r.mi.content} ({mem_date})")
-        except Exception:
-            pass
-
-        # Milestone: days since first memory
-        try:
-            first_date = (await self._oif.span()).earliest
-            if first_date:
-                days = (today - first_date).days
-                if days >= 7:
-                    # Fire on weekly boundaries and round numbers
-                    if days % 7 == 0 or days in (30, 60, 90, 100, 180, 365):
-                        lines.append(f"[Milestone]: {days} days since first memory.")
-        except Exception:
-            pass
-
-        return "\n".join(lines) if lines else None
-
-    async def _infer_companion_mood(self, text: str) -> str:
-        """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
-        return await self._evaluator.infer_companion_mood(text)
-
     async def _summarize_exchange(self, user_input: str, agent_response: str) -> str:
         """評価器へ委譲（loop/evaluator.py）。テスト差し替え点として残す。"""
         return await self._evaluator.summarize_exchange(user_input, agent_response)
@@ -1205,72 +1081,6 @@ class EmbodiedAgent:
             if pmm is not None and sid in (pmm.get_present_ids() or []):
                 return "在席表（顔照合か /speaker）"
         return "切れている"
-
-    def _backup_status_note(self) -> str:
-        """Return a system note if the last DB backup is stale (>25h), else empty string."""
-        log_path = Path.home() / ".familiar_ai" / "backups" / "backup.log"
-        if not log_path.exists():
-            return ""
-        try:
-            text = log_path.read_text(errors="replace")
-        except OSError:
-            return ""
-        matches = re.findall(r"\[(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})\] Done:", text)
-        if not matches:
-            return "[system: no successful database backup on record]"
-        last_backup = datetime.fromisoformat(matches[-1])
-        age_hours = (datetime.now() - last_backup).total_seconds() / 3600
-        if age_hours > 25:
-            return f"[system: last database backup was {int(age_hours)}h ago — may need attention]"
-        return ""
-
-    def _should_compact(self, threshold_tokens: int = 20_000) -> bool:
-        """Return True when context is large enough to warrant compaction.
-
-        A threshold of 0 acts as a disabled sentinel — never compact.
-        In normal use _last_context_tokens is 0 until after the first turn,
-        so an empty conversation naturally returns False.
-        Threshold set to 20k to stay safely under the 30k input-TPM rate limit.
-        """
-        return threshold_tokens > 0 and self._last_context_tokens > threshold_tokens
-
-    async def _compact_messages(self, keep_last: int = 6) -> None:
-        """Summarise old messages and trim the history.
-
-        Keeps the last `keep_last` messages verbatim, replaces the rest with a
-        single summary marker, and sets `_post_compact = True` so the next
-        `run()` call does a boosted memory recall to compensate.
-        """
-        if len(self.messages) <= keep_last:
-            return
-
-        to_summarise = self.messages[:-keep_last]
-        recent = self.messages[-keep_last:]
-
-        # Build a plain-text transcript for the summary LLM call
-        lines = []
-        for msg in _flatten_history(to_summarise):  # tool結果はネストlist。走査前に展開
-            role = msg.get("role", "?")
-            content = msg.get("content", "")
-            if isinstance(content, list):
-                content = " ".join(
-                    p.get("text", "")
-                    for p in content
-                    if isinstance(p, dict) and p.get("type") == "text"
-                )
-            lines.append(f"{role}: {content[:300]}")
-        history_text = "\n".join(lines)
-
-        summary = await self._utility_backend.complete(
-            _COMPACT_PROMPT.format(history=history_text),
-            max_tokens=200,
-        )
-        summary_marker = self.backend.make_user_message(
-            f"[Conversation summary — earlier turns compacted]\n{summary}"
-        )
-
-        self.messages = [summary_marker] + list(recent)
-        self._post_compact = True
 
     @property
     def is_embedding_ready(self) -> bool:
