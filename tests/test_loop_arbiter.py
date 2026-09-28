@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.arbiter import (
     _FIELD_TEXT,
@@ -19,45 +18,44 @@ from familiar_agent.loop.arbiter import (
     Arbiter,
     ArbiterInput,
     Decision,
+    assemble,
 )
-from tests._arbiter_compat import arbitrate
+from tests._arbiter_fakes import decide, jev_says, prompt_of, system_of, writer_says
 
 
-def _backend(reply: str):
-    b = AsyncMock()
-    b.complete = AsyncMock(return_value=reply)
-    return b
+def _run(jev, texts=None, *, delay: float = 0.0, **inp) -> "tuple[Decision, object]":
+    """Jev の答え（決めること）と軽量LLM の文章（書くこと）を与え、本物の `Arbiter.decide` を通す。"""
+    writer = writer_says(texts, delay=delay)
+    return asyncio.run(decide(jev=jev, writer=writer, **inp)), writer
 
 
-def _call(reply: str, timeout: float = 2.0) -> Decision:
-    return asyncio.run(
-        arbitrate(_backend(reply), utterance="こんにちは", workspace_ctx="[想起]…", timeout=timeout)
-    )
+def _call(jev, texts=None) -> Decision:
+    return _run(jev, texts, utterance="こんにちは", workspace_ctx="[想起]…")[0]
 
 
 def test_light_branch_carries_the_reply():
-    d = _call('{"branch":"light","text":"やあ！元気？"}')
+    d = _call(jev_says("light"), {"text": "やあ！元気？"})
     assert d.branch == "light"
     assert d.text == "やあ！元気？"
 
 
 def test_full_branch_carries_the_effort():
-    d = _call('{"branch":"full","effort":"medium"}')
+    d = _call(jev_says("full", effort="medium"))
     assert d.branch == "full"
     assert d.effort == "medium"
 
 
 def test_action_branch_carries_the_query():
-    d = _call('{"branch":"action","query":"昨日の天気"}')
+    d = _call(jev_says("action", action="recall"), {"query": "昨日の天気"})
     assert d.branch == "action"
     assert d.query == "昨日の天気"
 
 
 def test_action_branch_can_carry_a_filler_and_a_tool_name():
-    # つなぎの発話は軽量LLM に出させる（フルLLM を経由すると 2.9 秒かかるところが 0.7 秒）。
-    # どの動作で調べるかも軽量LLM が選ぶ（記憶を探すのと外を調べるのは別）。
+    # どの動作で調べるかは Jev が選び（記憶を探すのと外を調べるのは別）、探す語とつなぎは軽量LLM が書く。
     d = _call(
-        '{"branch":"action","action":"search_deferred","query":"今日の天気","filler":"調べてみるね"}'
+        jev_says("action", action="search_deferred"),
+        {"query": "今日の天気", "filler": "調べてみるね"},
     )
     assert d.branch == "action"
     assert d.action == "search_deferred"
@@ -65,32 +63,27 @@ def test_action_branch_can_carry_a_filler_and_a_tool_name():
 
 
 def test_action_defaults_to_recall_when_no_tool_is_named():
-    d = _call('{"branch":"action","query":"昨日の天気"}')
-    assert d.action == "recall"
+    # 動作が無いまま組み立てに来たら、記憶を探す（組み立ての守り）。
+    d = assemble({"branch": "action", "query": "昨日の天気"})
+    assert d is not None and d.action == "recall"
 
 
 def test_unparsable_reply_falls_back_to_full():
-    # 判定できないときはフルへ倒す。effort は既定の low（2026-09-12・課題5 G 章）。
-    d = _call("よくわからない返事")
+    # 軽量LLM の文章が読めなければフルへ倒す。effort は既定の low（2026-09-12・課題5 G 章）。
+    d = _call(jev_says("light"), "よくわからない返事")
     assert d.branch == "full"
     assert d.effort == "low"
 
 
 def test_timeout_falls_back_to_full():
-    async def slow(*_a, **_k):
-        await asyncio.sleep(1.0)
-        return '{"branch":"light","text":"間に合わない"}'
-
-    b = AsyncMock()
-    b.complete = AsyncMock(side_effect=slow)
-    d = asyncio.run(arbitrate(b, utterance="x", workspace_ctx="", timeout=0.05))
+    d, _ = _run(jev_says("light"), {"text": "間に合わない"}, delay=1.0, utterance="x", timeout=0.05)
     assert d.branch == "full"
     assert d.effort == "low"  # 倒れたときも low（課題5 G 章）
 
 
-def _prompt_of(backend) -> str:
+def _prompt_of(writer) -> str:
     """軽量LLM に実際に渡った文面。"""
-    return backend.complete.call_args.args[0]
+    return prompt_of(writer)
 
 
 def _jev_state(**kw) -> str:
@@ -112,17 +105,14 @@ def test_arbiter_speaks_as_the_persona():
     # 発話の出口は2つ（軽量LLM のつなぎ・light／フルLLM の答え）。軽量側にだけ人格が
     # 渡っていないと、同じ人格が2つの口で違う口調で喋る（実機で「調べてくるね！」と
     # 「調べてみますね。」が混ざった）。
-    b = _backend('{"branch":"light","text":"やあ"}')
-    asyncio.run(
-        arbitrate(
-            b,
-            utterance="こんにちは",
-            workspace_ctx="",
-            self_understanding="名前： パジュ\n一人称：ぼく",
-        )
+    _, b = _run(
+        jev_says("light"),
+        {"text": "やあ"},
+        utterance="こんにちは",
+        self_understanding="名前： パジュ\n一人称：ぼく",
     )
     # 人格はシステム文で渡す（出-e-に）。**片方の口にだけ渡さない**という性質は同じ。
-    system = b.complete.await_args.kwargs["system"]
+    system = system_of(b)
     assert "パジュ" in system and "ぼく" in system
 
 
@@ -147,21 +137,18 @@ def test_arbiter_is_told_when_no_more_looking_up_is_possible():
 def test_arbiter_gets_the_same_grounding_as_the_full_llm():
     # 発話の出口は2つ。片方にだけ文脈を渡すと、症状が出るたび1つずつ足すことになる
     # （人格を足した翌日、14時39分に「こんばんは」と言った＝日時が無かった）。
-    b = _backend('{"branch":"light","text":"やあ"}')
-    asyncio.run(
-        arbitrate(
-            b,
-            utterance="こんにちは",
-            workspace_ctx="",
-            self_understanding="名前： パジュ\n## 私にできること\n- 記憶を探せる",
-            family_md="たいき：家族の長男",
-            present_ctx='(present :speaker "たいき")',
-            now_ctx='(now :datetime "2026-07-26 14:39")',
-        )
+    _, b = _run(
+        jev_says("light"),
+        {"text": "やあ"},
+        utterance="こんにちは",
+        self_understanding="名前： パジュ\n## 私にできること\n- 記憶を探せる",
+        family_md="たいき：家族の長男",
+        present_ctx='(present :speaker "たいき")',
+        now_ctx='(now :datetime "2026-07-26 14:39")',
     )
     # 文脈は2箇所へ分かれた（出-e-に）。**合わせて見る**——身元はシステム文、
     # いま誰が居るかと時刻はプロンプトである。片方にだけ渡す形へ戻っていないこと。
-    system = b.complete.await_args.kwargs["system"]
+    system = system_of(b)
     prompt = _prompt_of(b)
     for needle in ("パジュ", "記憶を探せる", "たいき：家族の長男"):
         assert needle in system, needle
@@ -177,11 +164,9 @@ def test_filler_examples_do_not_fix_the_register():
 
 def _rendered_reply_prompt() -> str:
     """人の発話が起点のとき、軽量LLM に実際に渡る文面（分岐の説明は起点で差し替わる・情-e）。"""
-    b = MagicMock()
     # full でも深さが low なら軽量LLM は呼ばれない（出-au 段 5-7c）。つなぎを書かせる medium で見る。
-    b.complete = AsyncMock(return_value='{"branch": "full", "effort": "medium", "filler": "うん"}')
-    asyncio.run(arbitrate(b, utterance="x", workspace_ctx="", origin="発話"))
-    return b.complete.call_args.args[0]
+    _, b = _run(jev_says("full", effort="medium"), {"filler": "うん"}, utterance="x", origin="発話")
+    return _prompt_of(b)
 
 
 def test_full_branch_also_writes_a_filler_that_avoids_committing_to_content():
@@ -240,15 +225,11 @@ def test_an_affect_origin_can_choose_a_synchronous_mcp_tool():
 
     09-13 に「後回し」としたが、知-j（動作の表）と出-p（候補文）で通っていた。証拠として置く。
     """
-    b = _backend('{"branch":"action","action":"house_rules"}')
-    d = asyncio.run(
-        arbitrate(
-            b,
-            utterance="[内的な促し:SEEKING] 探索したい",
-            workspace_ctx="",
-            origin="情動",
-            extra_actions=("house_rules", "family_schedule"),
-        )
+    d, b = _run(
+        jev_says("action", action="house_rules"),
+        utterance="[内的な促し:SEEKING] 探索したい",
+        origin="情動",
+        extra_actions=("house_rules", "family_schedule"),
     )
     # 動作は Jev の選択肢（出-au 段 5-7d）。
     actions = _jev_actions(
@@ -277,21 +258,11 @@ def test_a_request_that_needs_a_tool_is_never_answered_lightly():
         "5分後に教えて",
     ):
         assert needs_tools(text), text
-        d = asyncio.run(
-            arbitrate(
-                _backend('{"branch":"light","text":"セットしました"}'),
-                utterance=text,
-                workspace_ctx="",
-            )
-        )
+        d, _ = _run(jev_says("light"), {"text": "セットしました"}, utterance=text)
         assert d.branch == "full" and d.effort == "low", text
     assert not needs_tools("こんばんは")
     assert not needs_tools("時間ある？")
-    d = asyncio.run(
-        arbitrate(
-            _backend('{"branch":"light","text":"やあ"}'), utterance="こんばんは", workspace_ctx=""
-        )
-    )
+    d, _ = _run(jev_says("light"), {"text": "やあ"}, utterance="こんばんは")
     assert d.branch == "light"
     # Jev の選択肢の説明にも書いてある（機械の守りは最後の砦）。
     qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(utterance="x", workspace_ctx=""))
@@ -299,13 +270,7 @@ def test_a_request_that_needs_a_tool_is_never_answered_lightly():
 
 
 def test_the_silence_request_survives_the_fall_to_full():
-    d = asyncio.run(
-        arbitrate(
-            _backend('{"branch":"light","text":"わかった","silence_minutes":30}'),
-            utterance="話すの止めて",
-            workspace_ctx="",
-        )
-    )
+    d, _ = _run(jev_says("light", quiet=30), {"text": "わかった"}, utterance="話すの止めて")
     assert d.branch == "full" and d.silence_minutes == 30
 
 
@@ -316,22 +281,20 @@ def test_coming_back_from_a_look_of_its_own_is_not_framed_as_answering_someone()
     「はい、静かにしていますね」と、誰にも聞かれていないのに返事の体裁の一言を作った。自分の帰りには
     「いつも通りなら黙る」を渡す。返事の場面は従来どおり（対で確認）。写真は調停に渡らない（出-au 段 5-7a）。
     """
-    b = _backend('{"branch":"light","text":""}')
-    asyncio.run(
-        arbitrate(
-            b,
-            utterance="[内的な促し:SAFETY] 確かめたい気持ちが湧いている。見回る。",
-            workspace_ctx="",
-            origin="情動",
-            can_see=True,
-        )
+    _, b = _run(
+        jev_says("light"),
+        {"text": ""},
+        utterance="[内的な促し:SAFETY] 確かめたい気持ちが湧いている。見回る。",
+        origin="情動",
+        can_see=True,
     )
     own = _prompt_of(b)
     assert "いつも通りなら" in own and "黙る" in own
     assert "返事や約束の形" in own
 
-    b = _backend('{"branch":"light","text":"椅子と机が見えるよ"}')
-    asyncio.run(arbitrate(b, utterance="何が見える？", workspace_ctx="", can_see=True))
+    _, b = _run(
+        jev_says("light"), {"text": "椅子と机が見えるよ"}, utterance="何が見える？", can_see=True
+    )
     assert "いつも通りなら" not in _prompt_of(b)
 
 
@@ -343,22 +306,19 @@ def test_a_self_driven_turn_treats_the_recent_exchange_as_already_over():
     「[入室] 誰か が来た」と自分の挨拶が『直近のやりとり』として載っており、`_LEAD_SELF` には
     済んだ出来事に反応しないという材料が無かった。返事の場面（発話が起点）は従来どおり。
     """
-    b = _backend('{"branch":"light","text":""}')
-    asyncio.run(
-        arbitrate(
-            b,
-            utterance="[内的な促し:SEEKING] 探索したい気持ちが湧いている。",
-            workspace_ctx="[直近のやりとり]\n- 09:16 きっかけ：[入室] 誰か が来た\n- 09:16 わたし：あ、パパだ。おはようございます",
-            origin="情動",
-        )
+    _, b = _run(
+        jev_says("light"),
+        {"text": ""},
+        utterance="[内的な促し:SEEKING] 探索したい気持ちが湧いている。",
+        workspace_ctx="[直近のやりとり]\n- 09:16 きっかけ：[入室] 誰か が来た\n- 09:16 わたし：あ、パパだ。おはようございます",
+        origin="情動",
     )
     own = _prompt_of(b)
     assert "済んだこと" in own
     assert "改めて反応しない" in own
     assert "切り上げていたら" in own
 
-    b = _backend('{"branch":"light","text":"おはよう"}')
-    asyncio.run(arbitrate(b, utterance="おはよう", workspace_ctx=""))
+    _, b = _run(jev_says("light"), {"text": "おはよう"}, utterance="おはよう")
     assert "済んだこと" not in _prompt_of(b)
 
 
@@ -370,13 +330,13 @@ def test_a_self_driven_turn_treats_the_recent_exchange_as_already_over():
 # 首を回す。
 
 
-def _seeing(reply: str):
-    b = _backend(reply)
-    return b, asyncio.run(arbitrate(b, utterance="右見れる？", workspace_ctx="", can_see=True))
-
-
 def test_the_arbiter_can_turn_the_head():
-    b, d = _seeing('{"branch":"action","action":"look","tool_input":{"direction":"右"}}')
+    d, _ = _run(
+        jev_says("action", action="look"),
+        {"tool_input": {"direction": "右"}},
+        utterance="右見れる？",
+        can_see=True,
+    )
     assert {"recall", "search_deferred", "see", "look"} <= set(
         _jev_actions(utterance="右見れる？", can_see=True)
     )
@@ -388,19 +348,21 @@ def test_the_arbiter_can_turn_the_head():
 
 def test_a_direction_or_pose_written_in_query_becomes_the_input():
     # 文章の口は look に tool_input だけを頼む。query に書いてきたときの読み替えは組み立て（assemble）の守り。
-    from tests._arbiter_compat import _parse
-
-    d = _parse('{"branch":"action","action":"look","query":"右"}', can_see=True)
-    assert d.tool_input == {"direction": "右"}
-    d = _parse('{"branch":"action","action":"look","query":"窓"}', can_see=True)
-    assert d.tool_input == {"pose": "窓"}
+    d = assemble({"branch": "action", "action": "look", "query": "右"}, can_see=True)
+    assert d is not None and d.tool_input == {"direction": "右"}
+    d = assemble({"branch": "action", "action": "look", "query": "窓"}, can_see=True)
+    assert d is not None and d.tool_input == {"pose": "窓"}
 
 
 def test_look_is_not_offered_without_a_camera():
     assert "look" not in _jev_actions(utterance="右見れる？", can_see=False)
     # 選択肢に無い動作が返ってきても（偽の Jev）、首は回さない。
-    b = _backend('{"branch":"action","action":"look","tool_input":{"direction":"右"}}')
-    d = asyncio.run(arbitrate(b, utterance="右見れる？", workspace_ctx="", can_see=False))
+    d, _ = _run(
+        jev_says("action", action="look"),
+        {"tool_input": {"direction": "右"}},
+        utterance="右見れる？",
+        can_see=False,
+    )
     assert d.action != "look"
 
 
