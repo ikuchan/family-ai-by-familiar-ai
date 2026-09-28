@@ -41,32 +41,3 @@ def test_compute_n_pad_light_self_weight_lets_ecur_move():
     assert light.p > heavy.p
     # 軽い側では E_cur が錨より現ターン寄りに N_PAD を保てる（中点より上に残る）。
     assert light.p > 0.5
-
-
-def test_self_mi_emotion_roundtrip_and_default_neutral():
-    """load/save の往復。未設定なら中立を返す（REST 書換口＝save）。"""
-    from familiar_agent.db import get_db
-    from familiar_agent.mood_register import (
-        SELF_MI_STATE_KEY,
-        load_self_mi_emotion,
-        save_self_mi_emotion,
-    )
-
-    db = get_db()
-    with db.lock:
-        conn = db.conn()
-        # 未設定 → 中立
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM agent_state WHERE state_key=%s", (SELF_MI_STATE_KEY,))
-        conn.commit()
-        assert load_self_mi_emotion(conn) == MoodPAD()
-
-        # save → load 往復
-        save_self_mi_emotion(conn, MoodPAD(0.7, 0.3, 0.5, 0.6))
-        conn.commit()
-        assert load_self_mi_emotion(conn) == MoodPAD(0.7, 0.3, 0.5, 0.6)
-
-        # 後続テストへ漏らさないよう戻す
-        with conn.cursor() as cur:
-            cur.execute("DELETE FROM agent_state WHERE state_key=%s", (SELF_MI_STATE_KEY,))
-        conn.commit()

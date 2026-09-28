@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from pathlib import Path
 
 
 @dataclass(slots=True, frozen=True)
@@ -40,22 +39,3 @@ def quiet_hours_rule() -> QuietHoursRule:
 
     cfg = AgentConfig()
     return QuietHoursRule(start_hour=cfg.quiet_hours_start, end_hour=cfg.quiet_hours_end)
-
-
-def load_optional_notes(base_dir: Path | None = None) -> dict[str, str]:
-    root = base_dir or Path.cwd()
-    result: dict[str, str] = {}
-    for name in ("SOUL.md", "TODO.md", "ROUTINES.md"):
-        path = root / name
-        if path.exists():
-            result[name] = path.read_text(encoding="utf-8").strip()
-    return result
-
-
-def evaluate_routine_state(rule: QuietHoursRule, now: datetime | None = None) -> RoutineDecision:
-    quiet = rule.is_quiet(now)
-    return RoutineDecision(
-        quiet_hours=quiet,
-        schedule_multiplier=0.45 if quiet else 1.0,
-        notes=("quiet-hours",) if quiet else (),
-    )

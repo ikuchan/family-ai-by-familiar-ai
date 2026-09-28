@@ -67,11 +67,6 @@ class VoiceLoopGuard:
         return self._speaking_count > 0
 
     @property
-    def suppressed_until(self) -> float:
-        """Monotonic timestamp until which self-echo suppression remains active."""
-        return self._suppressed_until
-
-    @property
     def gated(self) -> bool:
         """True while STT should be treated as gated by active or recent TTS."""
         return self.speaking or _guard_now() < self._suppressed_until
@@ -80,12 +75,6 @@ class VoiceLoopGuard:
     def loop_counter(self) -> int:
         """Current watchdog counter for repeated self-echo candidates."""
         return self._loop_counter
-
-    @property
-    def recent_tts_fingerprints(self) -> tuple[str, ...]:
-        """Recent normalized TTS fingerprints, newest last."""
-        self._expire(_guard_now())
-        return tuple(text for text, _ts in self._recent_tts_fingerprints)
 
     def on_tts_start(self, text: str) -> None:
         """Enter speaking mode before playback begins."""

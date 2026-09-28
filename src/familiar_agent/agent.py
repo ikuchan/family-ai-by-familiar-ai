@@ -164,7 +164,6 @@ class EmbodiedAgent:
         self._scene_backend = create_scene_backend(config) or self._utility_backend
         self._background_tasks: set[asyncio.Task[None]] = set()
         self.messages: list = []
-        self._started_at = time.time()
         self._session_input_tokens: int = 0
         self._session_output_tokens: int = 0
 

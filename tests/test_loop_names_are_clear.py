@@ -91,7 +91,6 @@ def test_the_new_names_are_there():
         "push_utterance",
         "_note_origin",
         "_abort_lookups",
-        "_action_of_query",
         "_start_lookup",
         "_dispatch_and_write_version",
     ):

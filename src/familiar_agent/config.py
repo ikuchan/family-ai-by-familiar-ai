@@ -15,10 +15,6 @@ from ._i18n import _t
 load_dotenv()
 
 
-def _default_companion_name() -> str:
-    return _t("default_companion_name")
-
-
 def _resolve_setting(field: str, default: float) -> float:
     """層 3 の設定値：**DB（内省の調整）> 既定**。`.env` は読まない（4 層の外形・2026-09-14）。
 

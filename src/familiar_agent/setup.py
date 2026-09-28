@@ -19,7 +19,6 @@ from typing import Any
 
 from dotenv import dotenv_values, set_key, unset_key
 
-from .camera_discovery import discover_network_cameras
 from .settings_schema import SetupConfig, setup_config_to_env_values
 
 logger = logging.getLogger(__name__)
@@ -36,16 +35,6 @@ _SENSITIVE_KEYS = frozenset(
         "CAMERA_PTZ_PASSWORD",
     }
 )
-
-
-def is_first_run(env_dir: Path | None = None) -> bool:
-    """Return True if no .env file exists in *env_dir* (defaults to cwd)."""
-    base = env_dir or Path.cwd()
-    return not (base / ".env").exists()
-
-
-def _bool_to_env(value: bool) -> str:
-    return "true" if value else "false"
 
 
 def generate_env_file(config: SetupConfig, path: Path | None = None) -> Path:
@@ -133,15 +122,6 @@ def migrate_legacy_env_file(path: Path | None = None) -> tuple[bool, list[str]]:
     return True, notes
 
 
-def validate_anthropic_key(key: str) -> tuple[bool, str]:
-    """Check Anthropic API key format. Returns (ok, error_message)."""
-    if not key:
-        return False, "API key cannot be empty"
-    if not _ANTHROPIC_KEY_RE.match(key):
-        return False, "Anthropic API keys must start with 'sk-ant-'"
-    return True, ""
-
-
 def run_cli_setup_wizard(env_path: Path) -> bool:
     """Minimal terminal setup fallback when no GUI is requested."""
     print("familiar-ai first-run setup")
@@ -214,16 +194,3 @@ async def validate_camera_connection(
         return True, ""
     except Exception as exc:
         return False, str(exc)
-
-
-async def discover_onvif_cameras(timeout: float = 3.0) -> list[dict[str, str]]:
-    """Discover cameras on the local network.
-
-    The historical public API is kept for setup/tests, but discovery now uses a
-    unified backend that combines WS-Discovery, mDNS/zeroconf, and SSDP.
-    """
-    try:
-        return await discover_network_cameras(timeout=timeout, include_port_scan=False)
-    except Exception as exc:
-        logger.debug("Camera discovery error: %s", exc)
-        return []

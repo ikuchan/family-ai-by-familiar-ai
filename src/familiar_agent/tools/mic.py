@@ -88,7 +88,6 @@ class _Resampler:
     """
 
     def __init__(self, from_rate: int) -> None:
-        self._from_rate = from_rate
         self._stream = None
         if from_rate != TARGET_RATE:
             import soxr

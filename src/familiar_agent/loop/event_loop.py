@@ -1875,11 +1875,6 @@ class InformationProcessing:
             and self._gated(self._ACTIONS[a](self))
         )
 
-    def _action_of_query(self, query: str) -> str:
-        """その語をどの動作で投げたか。分からなければ recall とみなす。"""
-        lk = self._lookup_of(query)
-        return lk.action if lk is not None else "recall"
-
     async def _recall_at(self, decision, ws, *, cue, viewpoint, weights):
         """調停が時期を指していたら、その時期を基準に引き直す。指していなければそのまま。
 
@@ -3666,7 +3661,6 @@ class InformationProcessing:
         if agent is None:
             return
         now = time.time()
-        agent._last_said_at = now
         req = getattr(self, "_req", None)
         if getattr(req, "trigger_kind", "") == "発話":
             with contextlib.suppress(Exception):

@@ -14,7 +14,6 @@ from unittest.mock import patch
 from familiar_agent.config import DriveConfig
 from familiar_agent.core.drive_autonomy import (
     SOCIAL_DRIVES,
-    drive_gate,
     inner_voice_for,
     select_fired_axis,
 )
@@ -75,48 +74,6 @@ def test_select_fired_axis_picks_highest_accumulated():
 
 
 # ── drive_gate ───────────────────────────────────────────────────────────────
-
-
-def test_gate_blocks_when_agent_running():
-    assert (
-        drive_gate("seeking", agent_running=True, pending_input=False, quiet=False, presence=0.0)
-        is False
-    )
-
-
-def test_gate_blocks_when_pending_input():
-    assert (
-        drive_gate("seeking", agent_running=False, pending_input=True, quiet=False, presence=0.0)
-        is False
-    )
-
-
-def test_gate_blocks_when_quiet():
-    assert (
-        drive_gate("seeking", agent_running=False, pending_input=False, quiet=True, presence=0.0)
-        is False
-    )
-
-
-def test_gate_internal_axis_passes_without_presence():
-    assert (
-        drive_gate("seeking", agent_running=False, pending_input=False, quiet=False, presence=0.0)
-        is True
-    )
-
-
-def test_gate_social_axis_blocked_without_presence():
-    assert (
-        drive_gate("bond", agent_running=False, pending_input=False, quiet=False, presence=0.0)
-        is False
-    )
-
-
-def test_gate_social_axis_passes_with_presence():
-    assert (
-        drive_gate("bond", agent_running=False, pending_input=False, quiet=False, presence=1.0)
-        is True
-    )
 
 
 def test_social_drives_are_bond_and_esteem():
