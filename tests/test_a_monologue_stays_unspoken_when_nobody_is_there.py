@@ -46,7 +46,7 @@ def test_a_blocked_monologue_is_not_held_and_ends_as_monologue() -> None:
 
     got, held, spoke = asyncio.run(scenario())
     assert got == ("部屋が静かだね。", "独白"), "本文は残し、結末は独白"
-    assert held == 0, "pending_speech へ積まない"
+    assert held == 0, "保留へ積まない"
     assert spoke == 0
 
 
