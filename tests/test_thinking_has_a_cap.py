@@ -22,6 +22,7 @@ import inspect
 from unittest.mock import MagicMock
 
 from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.loop.request import Lookup, Request
 
 
@@ -60,12 +61,12 @@ def test_at_the_cap_thinking_is_capped():
 
 def test_the_iteration_caps_on_thinking_rounds_too():
     """`capped` は反復の上限**か**考えた回数の上限で立つ。反復のリセットは残す。"""
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert "_thinking_capped" in src, "反復が考えた回数の上限を見ていない"
-    assert "capped = chain >= max_chain or " in src or "or self._thinking_capped" in src
+    assert "or ip._thinking_capped" in src
 
 
 def test_the_cap_is_logged_as_a_brake():
     """上限で打ち切ったことは、後からログだけで判別できる必要がある。"""
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert "考えた回数" in src and "打ち切る" in src

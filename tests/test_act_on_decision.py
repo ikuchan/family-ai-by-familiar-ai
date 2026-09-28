@@ -17,6 +17,7 @@ import inspect
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.backends.types import TurnResult
 from familiar_agent.loop.event_loop import Decision, InformationProcessing
 from familiar_agent.loop.request import Request
@@ -159,6 +160,6 @@ def test_the_reworded_answer_is_spoken_without_another_check():
 
 
 def test_the_iteration_delegates_instead_of_doing_it_itself():
-    src = inspect.getsource(InformationProcessing._iterate)
-    assert "self._act_on_decision(" in src
+    src = inspect.getsource(Iteration)
+    assert "._act_on_decision(" in src
     assert "[SELF-CHECK]" not in src  # 差し戻しは切り出した側にある

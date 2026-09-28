@@ -121,7 +121,7 @@ def test_speaking_no_longer_takes_the_memories():
 
 
 def test_only_the_iteration_closes_the_turn():
-    """`_finish` を呼ぶのは `_iterate` だけ。"""
+    """`_finish` を呼ぶのは、1 反復（`Iteration`・環-ab E で `_iterate` から移した）と `_act_on_decision` だけ。"""
     text = _LOOP.read_text(encoding="utf-8")
     lines = text.splitlines()
     cls = next(
@@ -137,7 +137,11 @@ def test_only_the_iteration_closes_the_turn():
             callers.add(m.name)
     # 環-h・段ろ で、主LLM の返りを実行する部分を `_act_on_decision` へ出した。
     # **閉じるのは、その決定を実行している側**である（話す動作ではない）。
-    assert callers == {"_iterate", "_act_on_decision"}, callers
+    assert callers == {"_act_on_decision"}, callers
+    from familiar_agent.loop.iteration import Iteration
+    import inspect
+
+    assert "ip._finish(" in inspect.getsource(Iteration)
 
 
 def test_an_arrival_notice_still_speaks():

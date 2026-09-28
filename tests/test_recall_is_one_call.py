@@ -24,7 +24,7 @@ import inspect
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop import workspace
-from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.loop.request import Request
 
 
@@ -113,12 +113,13 @@ def test_without_a_time_reference_the_present_is_the_basis():
 
 
 def test_the_iteration_does_not_recall_by_hand_anymore():
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert "recall_async(" not in src, "反復が自分で想起している"
     assert "compose(" not in src, "反復が自分で W を組んでいる"
 
 
 def test_the_iteration_got_shorter():
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     # 沈黙の解除（2026-09-16）は掛ける口と同じ 1 行（`_apply_silence`）に畳み、231 のまま。
+    # 環-ab E（2026-09-29）で本体を `_iterate` から `Iteration` クラスへ移した。上限は変えていない。
     assert len(src.split("\n")) <= 231, "薄くなっていない"

@@ -7,6 +7,7 @@ import logging
 from unittest.mock import AsyncMock
 
 from familiar_agent.backends.types import TurnResult
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
@@ -53,6 +54,6 @@ def test_a_cut_reply_is_logged(caplog) -> None:
 def test_the_iteration_dispatches_with_the_budget() -> None:
     import inspect
 
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert "reply_budget.decide(" in src or "decide(" in src
     assert "max_tokens=budget.max_tokens" in src
