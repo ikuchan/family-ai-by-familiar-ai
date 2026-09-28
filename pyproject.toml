@@ -126,6 +126,11 @@ ignore = [
     "E702",  # multiple statements on one line (semicolon) — intentional compact style
 ]
 
+[tool.vulture]
+# 使われていないコードを探す（環-ab・2026-09-28）。残すと決めたものは `vulture_whitelist.py` に理由つきで置く。
+paths = ["src/familiar_agent", "vulture_whitelist.py"]
+min_confidence = 60
+
 [tool.mypy]
 ignore_missing_imports = true
 python_version = "3.10"
