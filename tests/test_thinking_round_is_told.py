@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from familiar_agent.loop.request import Request
 
@@ -55,7 +56,7 @@ def test_lookups_other_than_the_main_llm_are_not_counted():
 def test_the_main_llm_is_told_which_round_it_is():
     import inspect
 
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert "_thinking_round" in src, "反復の文脈に回数が入っていない"
 
 

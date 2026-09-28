@@ -40,8 +40,8 @@ from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .speech_check import facts_ctx, used_lines
 from ..core.wake_window import WakeWindow
-from .generator import _iter_ctx, _pi_ctx, _present_ctx
-from . import reply_budget, workspace
+from .generator import _pi_ctx, _present_ctx
+from . import workspace
 from .request import Lookup, Request
 from .prompt import build_event_system_prompt
 
@@ -470,28 +470,6 @@ def _looks_like_text_tool_call(text: str) -> bool:
     t = text.strip()
     return "<invoke name=" in t or bool(
         re.match(r"^[A-Za-z_][A-Za-z0-9_]*\(", t) and t.endswith(")")
-    )
-
-
-def _log_recall_weights(trigger, base, used, memories) -> None:
-    """採用した5軸重みと、その重みで出た上位のスコアを残す（INFO）。
-
-    重みは反復ごとに揺らぐので、後から「どの重みでどう並んだか」を紐づけられないと、
-    値を実挙動から選べない。**記憶の内容は出さない**（INFO 以上に会話・記憶内容を出さない
-    方針。中身は DEBUG の `recall score` の内訳にある）。
-    """
-
-    def _fmt(w):
-        return "(%.2f,%.2f,%.2f,%.2f,%.2f)" % (w.w_r, w.w_t, w.w_e, w.w_g, w.w_p)
-
-    top = "/".join("%.3f" % r.fit for r in memories[:3])
-    logger.info(
-        "event-loop 想起 trigger=%s w=%s 基底=%s 上位=%s %d件",
-        trigger,
-        _fmt(used),
-        _fmt(base),
-        top or "なし",
-        len(memories),
     )
 
 
@@ -2595,229 +2573,13 @@ class InformationProcessing:
                 await task
 
     async def _iterate(self) -> str:
-        """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。"""
-        from ..config import MemoryConfig
+        """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。
 
-        agent = self._agent
-        utterance = self._req.utterance
-        # この反復が属する世代。打ち切られたら（世代が進んだら）、フルLLM の返りを待って
-        # いる最中でも、出力せずに畳む。実機で、打ち切った直後に走っていた反復が
-        # fetch_deferred を投げ、返事も1つ余計に出た。
-        gen = self._request_generation
-        max_chain = max(1, agent.config.event_max_iterations)
-        # 1. 取込：駆動体が受けた完了を O に書き、open 意図を解決する。
-        drained, decided = await self._intake()
-        if decided is not None:
-            # **出す反復は数えない。** 数えるのは軽量LLM が司る反復だけである。さらに
-            # **主LLM の返りで 0 へ戻す**——主LLM が調査結果を見て「足りない」と判断した
-            # なら、それは新しい一巡である。上限は暴走防止の安全弁であって、材料を見た
-            # うえで再度調べることを止めるためのものではない
-            # （`設計方針_主LLMを投げっぱなしにする` ⑤）。
-            self._req.iterations = 0
-            self._req.iterations_capped = False
-            # **出す反復。** 想起も調停も回さない——回すと軽量LLM が主LLM の決定を覆せて
-            # しまい、「そのまま出す」と矛盾する（`設計方針_主LLMを投げっぱなしにする`）。
-            return await self._act_on_decision(decided, utterance=utterance, gen=gen)
-        # ここから先は**決める反復**である（決定は上で捌いて返っている）。数えるのはここだけ。
-        # 「まだかかっている」で起きた反復（つなぎだけ出す）は数えない（出-au 段 2）。20 秒ごとに繰り返すと、
-        # 数えれば上限（`event_max_iterations`）に届き、答えを考える前に打ち切りになる。
-        if not self._slow_notice_received:
-            self._req.iterations += 1
-        chain = self._req.iterations
-        if drained:
-            logger.debug("event-loop iter=%d/%d QC取込=%d件", chain, max_chain, drained)
+        本体は `loop/iteration.Iteration`（メソッドオブジェクト・環-ab E）。1 反復の状態と段はそちらが持つ。
+        """
+        from .iteration import Iteration
 
-        # 2. REC（想起）：O（＋現入力）→ W。W は派生なので反復末に捨てる。
-        # 一律の規則：取込で書いた記録（＝鎖の先頭）は検索から外し、W へは決定的に加える。
-        # 素通しだと問いと同一文の記録が必ず上位に来て、限られた枠から本物の記憶を押し出す。
-        # 手がかりは「取り込んだもの」＝鎖の先頭（反復1なら人の発話、反復2以降なら完了 O）。
-        # 最初の発話で探し続けると、いま届いた完了とは無関係な検索になる（④ の想起クエリ）。
-        # **誰の面から引くか。** 話者が居なければパジュ自身。想起は口を通すので、面は `View.viewpoint`
-        # で言う（環-e-い）。
-        viewpoint = agent._pmm.current_speaker_id or AGENT_SELF_ID
-        # 申告は想起と同じ面へ当てる。`situated_memories` は人ごとなので、ずれると 0 行に当たる（出-h-ろ ③）。
-        # 以前は `_active_memory()` の選び方で、話者の指定が切れた直後に想起の面とずれていた（環-ab）。
-        verdict_view = viewpoint
-        # **取込 O を候補から外さない。** 手がかりは取込の content そのものなので、候補に
-        # 入れば必ず上位に来る。以前はこれを「枠を食う」と嫌って外していたが、いま届いた
-        # 結果を全文で見せる必要がある以上、1位に来るのが正しい順位である。手組みで W へ
-        # 足すのをやめ、候補集合の一員として同じ採点を通す（正本 [D-想起起動] の1本の流れ）。
-        cue = self._req.cue or utterance
-        _mcfg = MemoryConfig()
-        # 5軸の重みは trigger 種別で決める（`課題5_パラメータ仮案` §280）。選ぶ基準は
-        # 「この求めを何が始めたか」ではなく **「この反復を何を手がかりに動くか」**である。
-        # 反復1の手がかりは人の言葉だが、完了が届いて起きた反復の手がかりは結果の本文で、
-        # 性質が違う。`self._req.trigger_kind` を書き換えないのは、そちらが出口の門（窓と在席・
-        # `_speak`・`_delivery_block_reason`）に使われており、人に話しかけられて始まった求めを
-        # 情動や機器の求めとして止めてしまうためである。
-        trigger = "完了" if drained else self._req.trigger_kind
-        w_base = _mcfg.recall_weights(trigger)
-        weights = _mcfg.jitter_weights(w_base)
-        ws = await workspace.recall(
-            agent._oif,
-            cue,
-            viewpoint=viewpoint,
-            weights=weights,
-            req=self._req,
-        )
-        _log_recall_weights(trigger, w_base, weights, ws.memories)
-        self._returned_now = ws.returned_actions  # 声の選び方が読む（環-u）
-        self._req.just_returned.clear()  # 「いま道具から返った」はこの反復の W にだけ載せる
-        # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、
-        # 実測 0.72 秒（`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む
-        # 直前で、そこは待つ（続きでなければ直近のやりとりを載せてはいけない）。
-        follows_task = asyncio.ensure_future(self._judge_follows(ws.for_main, utterance or ""))
-
-        # 誰と話していると思って喋ったかを残す。これが無いと、口調がおかしいときに
-        # 「話者が渡っていない」のか「渡ったが口調が従っていない」のかを切り分けられない。
-        present_ctx = _present_ctx(agent)
-        # **この求めで何回目に考えるか。** 主LLM の返りで反復は 0 へ戻るので、`iter=N/M`
-        # だけではどの一巡か分からない（ログでも、渡す文脈でも同じ）。ここで1度だけ数え、
-        # ログ・調停・主LLM の三箇所へ同じ値を渡す（別々に数えると食い違う）。
-        round_ = self._thinking_round
-        logger.debug(
-            "event-loop iter=%d/%d 考え=%d回目 在席=%s", chain, max_chain, round_, present_ctx
-        )
-
-        # **上限は2つ。** 反復（1回の一巡の長さ）と、考えた回数（求め全体で主LLM を呼んだ数）。
-        # 反復は主LLM の返りで 0 へ戻るので、輪が閉じたときは考えた回数だけが効く。
-        capped = chain >= max_chain or self._thinking_capped
-        if capped:
-            # 上限で打ち切ったことは、後からログだけで判別できる必要がある（DEBUG の
-            # iter=N/M からは「たまたま N 回で終わった」のか「打ち切った」のか分からない）。
-            if self._thinking_capped:
-                logger.info(
-                    "event-loop 考えた回数 %d/%d 上限に達したため探索を打ち切る",
-                    round_,
-                    self._agent.config.max_thinking_rounds,
-                )
-            else:
-                logger.info(
-                    "event-loop 反復 %d/%d 上限に達したため探索を打ち切る", chain, max_chain
-                )
-            self._req.iterations_capped = True
-        decision = await self._decide(
-            utterance=utterance or self._req.cue,
-            workspace_ctx=ws.for_arbiter,  # 同じ W・狭い窓（記-h）
-            present_ctx=present_ctx,
-            capped=capped,
-            round_=round_,
-            memories=ws.memories,
-            returned=ws.returned_actions,
-        )
-        # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る。この反復の受け答えは
-        # 出したうえで（頼みに無言で応じるのは不自然）、次の反復から止める。解くのも同じ口。
-        await self._apply_requests(decision, utterance=utterance or self._req.cue)
-        # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
-        # 想起は調停より前に走るので、この反復に効かせるには引き直すしかない。実測 17〜50ms
-        # で、指定があったときだけ走る。
-        ws = await self._recall_at(decision, ws, cue=cue, viewpoint=viewpoint, weights=weights)
-        memories, workspace_ctx, w_id_map = ws.memories, ws.for_main, ws.id_map
-
-        if gen != self._request_generation:
-            logger.info("event-loop 打ち切られた求めの反復なので畳む（調停後）")
-            return ""
-
-        # 「まだかかっている」で起きた反復は、**つなぎだけ出して閉じない**。求めは調査待ちの
-        # まま続く。ここで light を選ばせると別の答えを出して終わってしまい、あとから届く
-        # 結果に行き場が無くなる（案ハ）。
-        if self._slow_notice_received:
-            self._slow_notice_received = False
-            await self._say_filler(decision.text)
-            logger.info("event-loop 反復 %d/%d 出力=つなぎ（調べもの待ち）", chain, max_chain)
-            return ""
-
-        # (a') 情動の求めで調停が「黙る」（light・text 空）と決めた：主LLM を起こさず沈黙で閉じる（出-w）。
-        if decision.branch == "light" and not decision.text and self._req.trigger_kind == "情動":
-            logger.info("event-loop 調停が黙ると決めたので沈黙で閉じる（情動）")
-            await self._finish("", memories, "沈黙", gen=gen)
-            return ""
-        # (a) 軽量で閉じる：フルLLM を起こさず、軽量LLM の応答で反復を終える。
-        if decision.branch == "light" and decision.text:
-            spoken, outcome = await self._speak(decision.text, branch="light")
-            # **記憶が育つ経路は申告1本しかない。** 主LLM を起こさない反復もそこを通す
-            # （出-h-ろ）。聞くのは背景で、閉じるのは待たない。
-            self._declare_light_memory_use(
-                utterance=utterance or self._req.cue,
-                reply=spoken or decision.text,
-                workspace_ctx=workspace_ctx,
-                w_id_map=ws.verdict_map,
-                verdict_view=verdict_view,
-                memories=memories,
-                spoken=outcome == "発話",
-            )
-            await self._finish(spoken, memories, outcome, gen=gen)
-            return spoken
-
-        # (c) 定型：探すと決まっている反復も、フルLLM を起こさず投げて閉じる。
-        if decision.branch == "action" and decision.query and not capped:
-            await self._dispatch_arbiter_action(decision, utterance=utterance or self._req.cue)
-            logger.info(
-                "event-loop 反復 %d/%d 出力=%s（調停・続きは完了で起きる）",
-                chain,
-                max_chain,
-                decision.action,
-            )
-            return ""
-
-        # (b) 軽量つなぎ→フル（正本③ 段5 の内部二段）。フル生成は effort=high で10秒近く
-        # かかり、そのあいだ無音になる。つなぎで体感の待ち時間を埋める。**1つの work の
-        # 内部二段**であって別の出力ではない（1反復1出力は保たれる）。
-        # effort=low は実測 0.8〜3.6 秒で返るので挟まない（かえってテンポが悪くなる）。
-        # **材料が届いた反復でも挟まない**（`drained`）。待つものがもう無いのに「待って」と
-        # 言う理由がない。実機では、検索結果が届いた1秒後に「うん、任せてね！」が出て、
-        # 一言目（ですます）と本応答（ですます）のあいだでそこだけ口調が割れた。
-        if decision.branch == "full" and decision.text and decision.effort != "low" and not drained:
-            await self._say_filler(decision.text)
-
-        # 判定は辺を書くだけで W は変えない（記-h）。結末は計測ログへ（記-i）。
-        await self._note_follows(ws.for_main, utterance or "", w_id_map, follows_task)
-        # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。
-        budget = reply_budget.decide(
-            effort=decision.effort,
-            researched=self._researched(),
-            w_count=len(memories),
-            origin=self._req.trigger_kind,
-        )
-        system = self._build_system(
-            present_ctx=present_ctx,
-            workspace_ctx=workspace_ctx,
-            iter_ctx=_iter_ctx(
-                chain=chain,
-                max_chain=max_chain,
-                thinking_round=round_,
-                capped=capped,
-                budget=budget,
-                missing=self._missing_tools(),
-                tone=self._tone_note(),
-            ),
-        )
-        # 生成中はストリームしない：ツールを選ぶ反復で出る前置きの地の文が表示され重複するため。
-        # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す。空文字を送ると
-        # 何がこの反復を起こしたのか分からなくなる（API も空メッセージを受け付けない）。
-        user_msg = agent.backend.make_user_message(
-            self._user_content(utterance or self._req.cue, memories)
-        )
-        # **投げて終わる。** 返りは QC を通り、次の反復（出す反復）が実行する。
-        self._dispatch_main_llm(
-            messages=[user_msg],
-            system=system,
-            effort=decision.effort,
-            capped=capped,
-            memories=memories,
-            w_id_map=dict(ws.verdict_map),  # 申告の母数は過去の列だけ（出-n 4）
-            verdict_view=verdict_view,
-            recent_frame=ws.recent_text(ws.n_main),
-            max_tokens=budget.max_tokens,
-        )
-        await self._write_version()
-        logger.info(
-            "event-loop 反復 %d/%d 考え=%d回目 出力=主LLM（続きは返りで起きる）",
-            chain,
-            max_chain,
-            round_,
-        )
-        return ""
+        return await Iteration(self).run()
 
     def _judge_follows(self, workspace_ctx: str, utterance: str):
         """続き先の判定（Jev・出-au 段 5-4）。失敗は `JudgeFailed` で、`_note_follows` が「落ちた」と数える。"""

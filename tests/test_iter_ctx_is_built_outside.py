@@ -17,6 +17,7 @@ from __future__ import annotations
 import inspect
 
 from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.loop.generator import _iter_ctx
 
 
@@ -51,7 +52,7 @@ def test_below_the_cap_it_does_not():
 
 
 def test_the_iteration_does_not_compose_the_text_anymore():
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert "[反復]" not in src, "反復が文面を組んでいる"
     assert "これ以上は調べられない" not in src
 
@@ -72,8 +73,9 @@ def test_the_iteration_got_shorter():
         暴走の歯止め（2026-09-12）で **231 行へ 6 行増えた**。考えた回数の上限で打ち切ったことを
     反復の上限と区別してログに残すぶんである（後から「どちらの上限か」を判別するため）。
     """
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     # 沈黙の解除（2026-09-16）は掛ける口と同じ 1 行（`_apply_silence`）に畳み、231 のまま。
+    # 環-ab E（2026-09-29）で本体を `_iterate` から `Iteration` クラスへ移した。上限は変えていない。
     assert len(src.split("\n")) <= 231, "薄くなっていない"
 
 
@@ -83,3 +85,11 @@ def test_the_cap_says_what_counts_as_done():
     text = _ctx(capped=True)
     assert "道具の返りにそう書いてあるときだけ" in text and "できていないと言う" in text
     assert "道具の返り" not in _ctx(capped=False)
+
+
+def test_iterate_only_hands_over_to_the_iteration():
+    """`_iterate` は `Iteration` を作って回すだけ（環-ab E・メソッドオブジェクト）。1 反復の状態と段はあちらが持つ。"""
+
+    src = inspect.getsource(InformationProcessing._iterate)
+    assert "Iteration(self).run()" in src
+    assert len(src.split("\n")) <= 10

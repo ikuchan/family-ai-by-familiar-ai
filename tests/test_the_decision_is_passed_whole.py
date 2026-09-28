@@ -12,6 +12,7 @@ from __future__ import annotations
 import inspect
 
 from familiar_agent.loop.event_loop import Decision, InformationProcessing
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 
 
 def test_the_action_takes_the_decision_itself():
@@ -38,7 +39,7 @@ def test_the_decision_carries_everything_the_action_needs():
 
 def test_the_iteration_hands_the_decision_over_without_unpacking():
     """呼び口で器をばらさない。ばらせば、欄が増えるたびに呼び口も伸びる。"""
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     call = src[src.index("_act_on_decision(") :]
     call = call[: call.index(")") + 1]
     assert "decided." not in call, f"呼び口で器をばらしている：{call}"
@@ -46,5 +47,5 @@ def test_the_iteration_hands_the_decision_over_without_unpacking():
 
 def test_the_iteration_got_shorter():
     """に-5-い の目的は行数である。**数字で押さえる**（環-h では逆に増えた）。"""
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert len(src.split("\n")) <= 236, "薄くなっていない"

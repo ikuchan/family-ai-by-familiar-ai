@@ -17,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from familiar_agent.backends.jev import JevAnswer
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.core import jev_judges
 
 _W = """[直近のやりとり（古い順）]
@@ -78,7 +79,7 @@ def test_the_loop_asks_jev_and_the_light_llm_judge_is_gone():
     from familiar_agent.loop import evaluator
     from familiar_agent.loop.event_loop import InformationProcessing
 
-    assert "self._judge_follows(" in inspect.getsource(InformationProcessing._iterate)
+    assert "ip._judge_follows(" in inspect.getsource(Iteration)
     assert "jev_judges.judge_follows" in inspect.getsource(InformationProcessing._judge_follows)
     assert not hasattr(evaluator.Evaluator, "judge_follows")
     assert not hasattr(evaluator, "_FOLLOWS_PROMPT")

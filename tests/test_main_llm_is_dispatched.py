@@ -21,6 +21,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends import ToolCall
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.backends.types import TurnResult
 from familiar_agent.loop.event_loop import Trigger, Decision, InformationProcessing
 from familiar_agent.loop.request import Request
@@ -182,7 +183,7 @@ def test_the_iteration_acts_on_a_decision_without_arbitrating():
     """出す反復では調停を回さない。回すと主LLM の決定を覆せてしまう。"""
     import inspect
 
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     i_act = src.index("_act_on_decision(")
     i_arb = src.index("_decide(")  # 調停はここから呼ぶ（see の帰りは飛ばす）
     assert i_act < i_arb, "調停より前に決定を実行していない"

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 
 from familiar_agent.io.oif import Verdict
+from familiar_agent.loop.iteration import Iteration  # 1 反復の本体（環-ab E）
 from familiar_agent.loop import workspace
 from familiar_agent.loop.request import Request
 
@@ -185,10 +186,10 @@ def test_the_loop_counts_verdicts_against_the_past_column():
 
     from familiar_agent.loop.event_loop import InformationProcessing
 
-    src = inspect.getsource(InformationProcessing._iterate)
+    src = inspect.getsource(Iteration)
     assert "w_id_map=dict(ws.verdict_map)" in src
     # 続き先の辺は両方の枠を名指せる（`_note_follows` が `id_map` で照合する）。
-    assert "w_id_map, follows_task" in src
+    assert "w_id_map, self.follows_task" in src
     assert "link_follows(self._agent, self._req, w_id_map, follows)" in inspect.getsource(
         InformationProcessing._note_follows
     )
