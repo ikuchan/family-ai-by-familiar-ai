@@ -311,6 +311,7 @@ os.environ['DATABASE_URL'] = 'postgresql://familiar:familiar@localhost:5432/fami
 
 from familiar_agent.tools.memory import ObservationMemory
 from familiar_agent.person_memory_manager import PersonMemoryManager
+# 注：`CameraPresenceWatcher` はアプリに結線されていない（2026-09-28 確認・`課題8` 知-d）。ここでは単体で動かす。
 from familiar_agent.recognition.presence_watcher import CameraPresenceWatcher
 
 mem = ObservationMemory()
