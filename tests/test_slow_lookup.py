@@ -11,12 +11,11 @@ from __future__ import annotations
 
 import time
 import asyncio
-from unittest.mock import AsyncMock
 
 from familiar_agent.backends import ToolCall
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigger
 from tests.test_event_loop import _agent, _turn
-from tests.test_event_loop import _arbiter_reads_the_utility_backend  # noqa: F401  調停の答えを文章の口の返事で与える
+from tests._arbiter_fakes import jev_says, writer_says
 
 
 def test_the_threshold_comes_from_config():
@@ -36,9 +35,8 @@ def test_the_threshold_comes_from_config():
 def test_a_progress_iteration_only_says_a_filler():
     # つなぎだけ出して閉じない。飛行中の数も触らない。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
-    a._utility_backend.complete = AsyncMock(
-        return_value='{"branch":"full","effort":"high","filler":"もう少しかかりそうです"}'
-    )
+    a._jev = jev_says("full", effort="high")
+    a._utility_backend = writer_says({"filler": "もう少しかかりそうです"})
     shown: list[str] = []
 
     async def scenario():
