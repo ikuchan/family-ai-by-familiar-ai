@@ -515,19 +515,19 @@ class ObservationMemory:
         return RelationStore(self._ctx).roles_of(list(obs_ids), KIND_EXCHANGE)
 
     def observations_fold_materials(self, directions: "tuple[str, ...]", *, before) -> list[dict]:
-        """日次の畳み込みの材料（記-a-ろ-は・記-l・店へ委譲）。"""
+        """日次の畳み込みの材料（記-a-ろ-は・記-l・記憶の箱へ委譲）。"""
         return self._observations.fold_materials(tuple(directions), before=before)
 
     def core_faces(self) -> list[dict]:
-        """核の面（記-a-ろ-ろ・店へ委譲）。"""
+        """核の面（記-a-ろ-ろ・記憶の箱へ委譲）。"""
         return self._observations.core_faces()
 
     def fresh_since_last_rest(self) -> list[dict]:
-        """前回の内省以降の記録（記-a-ろ-ろ・店へ委譲）。"""
+        """前回の内省以降の記録（記-a-ろ-ろ・記憶の箱へ委譲）。"""
         return self._observations.fresh_since_last_rest()
 
     def core_records(self) -> list[dict]:
-        """核の出来事（記-a-ろ-に・店へ委譲）。"""
+        """核の出来事（記-a-ろ-に・記憶の箱へ委譲）。"""
         return self._observations.core_records()
 
     def set_groundedness(self, obs_id: str, n: int, *, lower: bool = False) -> int:
@@ -535,7 +535,7 @@ class ObservationMemory:
         return self._observations.set_groundedness(obs_id, int(n), lower=lower)
 
     def decay_groundedness(self, delta: int) -> int:
-        """参照されなかった核の根づきを減らす（記-a-ろ-ろ・店へ委譲）。"""
+        """参照されなかった核の根づきを減らす（記-a-ろ-ろ・記憶の箱へ委譲）。"""
         return self._observations.decay_groundedness(int(delta))
 
     def latest_exchange_origins(self, n: int) -> list[str]:
