@@ -45,3 +45,16 @@ def test_the_context_has_no_slot_for_rules():
     from familiar_agent.core.context_parts import build_context
 
     assert "rules" not in inspect.signature(build_context).parameters
+
+
+# ── 使われていないモジュール（環-ab の残り・vulture と grep で確かめた・2026-09-28）───────────
+
+
+DEAD_MODULES = (
+    "event_bus.py",  # どこからも import されない。JSONL に記録する作り（保存は PostgreSQL だけの決まりにも反する）
+    "tools/person.py",  # `PersonTool`。どこからも import されない
+)
+
+
+def test_the_dead_modules_are_gone():
+    assert [m for m in DEAD_MODULES if (SRC / m).exists()] == []

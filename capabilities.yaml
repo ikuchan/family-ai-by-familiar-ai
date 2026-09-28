@@ -81,9 +81,14 @@ capabilities:
       interact with the same instance, each with a separate memory space,
       relationship state, and perspective vector. PersonMemoryManager routes
       memory writes to the current speaker and reads across all present persons.
-      Identification uses face recognition (CameraPresenceWatcher) or voice print
-      (VoiceIdentifier). Uses the `tools/person.py` and `person_memory_manager.py`
-      modules.
+      Who is speaking is known from four sources: the `/speaker` command; a name the
+      person says aloud (judged by Jev and matched against FAMILY.md in
+      `core/speaker_claim.py`); a guess from a photo the agent took (confidence is
+      capped, `core/seen_people.py`); and whether anyone is in view at all (YOLO person
+      detection in `presence_sensor.py`, which cannot tell who it is). Face recognition
+      and voice-print identification exist in the recognition package but are not
+      wired in yet, so the agent cannot recognise a face or a voice by itself.
+      Uses the `person_memory_manager.py` module.
     enabled: true
   - id: realtime_stt
     summary: Transcribe spoken audio in real-time

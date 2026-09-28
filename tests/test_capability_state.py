@@ -81,9 +81,7 @@ def test_mobility_has_walk():
     assert "walk(" in _doc("mobility.py"), f"got: {_doc('mobility.py')!r}"
 
 
-def test_person_has_declare_speaker():
-    """person.py docstring lists declare_speaker."""
-    assert "declare_speaker" in _doc("person.py"), f"got: {_doc('person.py')!r}"
+# `tools/person.py`（`declare_speaker` など）は主LLM に渡っておらず、環-ab で外した。
 
 
 def test_memory_has_remember_recall():
