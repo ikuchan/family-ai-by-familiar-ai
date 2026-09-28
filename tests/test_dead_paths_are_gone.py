@@ -58,3 +58,26 @@ DEAD_MODULES = (
 
 def test_the_dead_modules_are_gone():
     assert [m for m in DEAD_MODULES if (SRC / m).exists()] == []
+
+
+# ── 旧 `run()` の残り（ループが呼ばない `agent.py` のメソッドと、書くだけの属性・環-ab R-2）────────
+
+
+OLD_RUN_LEFTOVERS = (
+    "_execute_tool",
+    "_boost_from_internal_result",
+    "_anniversary_context",
+    "_infer_companion_mood",
+    "_backup_status_note",
+    "_should_compact",
+    "_compact_messages",
+    "_last_tool_error",
+    "_tool_failure_streak",
+)
+
+
+def test_the_old_run_leftovers_are_gone_from_the_agent():
+    import re
+
+    text = (SRC / "agent.py").read_text(encoding="utf-8")
+    assert [n for n in OLD_RUN_LEFTOVERS if re.search(rf"\b{n}\b", text)] == []

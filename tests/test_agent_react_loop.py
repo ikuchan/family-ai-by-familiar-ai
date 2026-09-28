@@ -43,7 +43,6 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     agent._session_input_tokens = 0
     agent._session_output_tokens = 0
     agent._last_context_tokens = 0
-    agent._post_compact = False
     agent._background_tasks = set()
     agent._cached_plan_ctx = ""
     agent._cached_workspace_ctx = ""
@@ -176,7 +175,6 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
 
 # Patches that suppress heavy async sub-calls in run()
 _HEAVY_PATCHES = {
-    "familiar_agent.agent.EmbodiedAgent._infer_companion_mood": AsyncMock(return_value="engaged"),
     "familiar_agent.agent.EmbodiedAgent._emotion_for_turn": AsyncMock(
         return_value=(MoodPAD(), 0.5, "neutral")
     ),
