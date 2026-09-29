@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.105）
+# familiar-ai 設計図（Mermaid一式・v0.106）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -507,6 +507,7 @@ sequenceDiagram
 | 旧の動体検知（`CameraMotionWatcher`） | 起動元が0件で動いていなかった。動体は `MotionEventWatcher` → `PresenceSensor` が在席の走査を早める用途で使う |
 | `GlobalWorkspace` クラス | 競合と放送は `loop/workspace.py` の `compose()` が持つ（2026-09-10・環-e-に の に-5-に-2 で `loop/event_loop.py` の `_compose_workspace` から移した）。`Coalition`（dataclass）は6モジュールが使うので器の file は残す（**`familiar_agent/coalition.py`**・2026-09-10 に `workspace.py` から改名） |
 | `mental_state` / `interoception` / `appraisal` / `social_policy` / `meta_monitor` / `attention_schema` / `default_mode` | 互いを参照するだけの島になっていた |
+| 表 `memory_salience`・`episodes`・`episode_memories`（と読み書きの口・マイグレーション 072） | W を溜める旧方式とエピソード。W は O から毎反復組み直し、つながりは関係と拡散想起が持つ（環-ab D・2026-09-29） |
 | `prediction.py` / `coalition.py` / `exploration.py` / `SceneTracker`（と `scene_entities`・`scene_events` 表） | 作るだけ・書くだけで読まれていなかった（環-ab R-5・2026-09-28）。定点ごとの「ふだん何があるか」（エンティティ層）は知-i で新しく書く |
 
 **生きているもの**：`prediction`・`concern_engine`・`exploration` は `_run_post_response_pipeline` 経由で新経路が使う。`self_state`（自己状態6軸）は**撤去した**。毎ターン書き込んでいたが、読み出す経路が2つとも死んでいた（旧 ReAct のプロンプト組み立てと、テストからしか呼ばれない文脈生成）。保存行もマイグレーション038 で落とす。
@@ -544,6 +545,7 @@ sequenceDiagram
 
 ## 更新履歴
 
+> v0.106：撤去の表に、環-ab D で落とした 3 表（`memory_salience`・`episodes`・`episode_memories`）を足した（2026-09-29）。
 > v0.105：撤去の表に、環-ab R-5 で外したもの（予測・候補の器・探索・場面の追跡と 2 表）を足した（2026-09-28）。
 > v0.104：「store と I/F」台帳へ **表 `stopwatches`（068）** を追記（知-u・2026-09-18）。
 > v0.103：「store と I/F」台帳へ 066（一時停止・listen）と **表 `alarms`（067）** を追記（2026-09-18）。

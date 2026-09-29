@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v1.13）
+# familiar-ai 用語・略語一覧（v1.14）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -120,7 +120,7 @@
 | I／ワークスペース | 勢い（実装なし） | dynamism | d | 〔**実装なし**・環-ab R-5a・2026-09-28：器の `Coalition`（`coalition.py`）は呼び手が無く外した〕ワークスペース競合の候補（`Coalition`）が持つ基礎強度。提案元（欲求・情景・記憶・予測・探索・語り）が付ける。競合スコア＝勢い×(0.4×urgency+0.3×novelty+0.3)。DB に載らない実行時だけの量。 |
 | 想起 | 地力 | merit | m | 想起の採点の加算部＝$(w_t t + w_e e + w_g g + w_p p)/\sum w$。**時間経過を含んだ重要度**で、関連は含まない。同じ記録なら問いが変わっても変わらない。 |
 | 想起 | 適合度 | fit | f | 想起の最終値＝$r^{w_r} \times$ 地力。**W を選ぶのはこれ**。関連を含むので、同じ記録でも問いが変われば変わる。`recall()` の返り値キーは `fit`（store の `by_vector` が返す行の `score` は生コサインで別物）。 |
-| MI／記憶モデル | 顕著性 | salience | s | W を DB へ溜めていた旧方式（表 `memory_salience`・旧称 `memory_salience`）。W は O からの派生ビューで毎ターン作り直す設計に変わったため、溜める形自体が撤去予定である。 |
+| MI／記憶モデル | 顕著性（廃止） | salience | s | 〔**廃止**・環-ab D・2026-09-29：表 `memory_salience` はマイグレーション 072 で落とした〕W を DB へ溜めていた旧方式（表 `memory_salience`・旧称 `memory_salience`）。W は O からの派生ビューで毎ターン作り直す設計に変わったため、溜める形自体が撤去予定である。 |
 | MI／記憶モデル | 根づきの正味更新回数 | net delta count | n | 根づきを値 g で保存せず $(g_0,n)$ で保存し導出するための、正味デルタ回数（大事+1／不要−1）。$n$ を保存することで +1/−1 が可逆・対称になる（[D-想起合成]）。**実装列は `groundedness_n`（INTEGER・既定0）**。n を実際に増減させる評価の仕組みは後続（Phase 2）で、A-3-1 時点では移行・取込とも 0。 |
 | 全体 | 有界量の逆写像操作（共通イディオム） | bounded-value inverse-map op | — | 0〜1（有界区間）の量をロジット等で無限空間へ戻し、そこで線形操作（加算）して畳み込み関数で戻す共通手法。**感情距離（PAD）・根づき 導出・新しさ漸近・drive の M→D 変調**に共通（4例）。可逆・対称・両端漸近を与える（[D-想起合成]）。 |
 | MI／記憶モデル | 適合度 | fit | f | **適合度＝r^(w_r)×地力（ハイブリッド）**＝関連 r^(w_r) は乗算ゲート（拒否権）、地力＝(w_t·t+w_e·e+w_a·a)/(w_t+w_e+w_a)＝t/e/a の加重平均（[D-想起合成]・基底プロファイル (1,1,1,1.5)→base は r·(t+e+1.5a)/3.5）。優先・競合に使う。**実装（スライス3）**：`_compute_final_score` がこの式そのもの。r は `_stretch_relevance(cos, c_lo, c_hi)`（固定係数 min-max 伸長・確定値 0.0/1.0 では恒等）、e は `_emotion_match(obs_pad, mood_pad, sigma)`＝**今の気分と観測 PAD の距離**（mood は想起1回につき1つ読み全候補共通・読めなければ e 項を分子分母から外す）、a は `_derive_groundedness(a0,n)`。係数は `MemoryConfig` の `recall_c_lo`／`recall_c_hi`／`recall_w_r`／`recall_w_t`／`recall_w_e`／`recall_w_g`／`recall_emotion_sigma`／`recall_w_p`。**p は5軸目として実装済み**（`_score_breakdown` が p/w_p を加重平均へ・`_presence_correlation`＝在席他者視点・noisy-OR・候補集合拡張は `recall_presence_expand`）。薄い包み `_compute_final_score` 単体は今も p を渡さない4軸で、recall 経路が5軸。 |
@@ -320,6 +320,7 @@
 
 ## 更新履歴
 
+> v1.14：「顕著性」を廃止にした（表 `memory_salience` をマイグレーション 072 で落とした・2026-09-29）。
 > v1.13：「勢い」に実装が無くなったことを記した（器の `Coalition` を環-ab R-5a で外した・2026-09-28）。
 > v1.12：出-au 段 5 を反映した（2026-09-27）。調停器、軽量LLM、続き先、発話前の検査、チェッカーの規則、つなぎの欄、Jev の行を、判定は Jev、文章は軽量LLM の形に直した。
 > v1.11：「倒し先」を足した（出-au 段 5 の設計・2026-09-27）。
