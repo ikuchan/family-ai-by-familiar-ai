@@ -647,6 +647,7 @@ class InformationProcessing:
         # 鳴っている最中のつなぎの声（出-aq 段 1）。**待たずに鳴らす**ので、捨てられないよう
         # 参照を持っておき、終わるときに止める。
         self._filler_voices: set[asyncio.Task] = set()
+        self._filler_voice_ended = 0.0  # つなぎの声が鳴り終わった時刻（monotonic・出-aq 段 5）
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
         # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
         # 事実で、あとから古くならない（出-h-ろ）。
@@ -3014,6 +3015,7 @@ class InformationProcessing:
             # 本文を返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
             logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
             return text, "独白"
+        await self._pause_after_filler()
         await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
         self._stamp_said()
         self._extend_window_for_conversation()  # 返事から 1 分（出-as 段 4）
@@ -3093,6 +3095,23 @@ class InformationProcessing:
             *backend.make_tool_results(calls, [(f"Said: {t}", None) for t in said]),
         ]
 
+    async def _pause_after_filler(self) -> None:
+        """つなぎの声が鳴り終わって `filler_answer_gap_seconds`（1 秒）たつまで、答えを待たせる（出-aq 段 5）。
+
+        つなぎの直後に答えが始まると、つなぎの意味が無くなる（本人）。数え始めは**鳴り終わったとき**——
+        声は背景で鳴り、長さは文で違う。この求めでつなぎを言っていなければ待たない。
+        """
+        if not self._req.said_fillers:
+            return
+        voices = list(self._filler_voices)
+        if voices:
+            await asyncio.wait(voices)
+        gap = float(getattr(self._agent.config, "filler_answer_gap_seconds", 1.0))
+        left = self._filler_voice_ended + gap - time.monotonic()
+        if left > 0:
+            logger.info("event-loop つなぎの後なので %.1f 秒おいて答える", left)
+            await asyncio.sleep(left)
+
     def _speak_filler_in_background(self, text: str) -> None:
         """つなぎの声を背景で鳴らす（出-aq 段 1）。**失敗しても反復は続ける。**
 
@@ -3107,6 +3126,8 @@ class InformationProcessing:
                 raise
             except Exception:  # noqa: BLE001
                 logger.warning("event-loop つなぎの声を出せなかった：%.40s", text, exc_info=True)
+            finally:
+                self._filler_voice_ended = time.monotonic()  # 答えはここから数えて待つ（段 5）
 
         task = asyncio.ensure_future(_voice())
         self._filler_voices.add(task)
