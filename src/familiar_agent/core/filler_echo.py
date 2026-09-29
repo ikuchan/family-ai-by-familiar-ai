@@ -73,3 +73,21 @@ def drop_echo(text: str, fillers: "list[str] | None") -> str:
             logger.info("event-loop つなぎと重なる冒頭を落とした：%r", head[:24])
             return lead + rest
     return text
+
+
+def repeats(text: str, fillers: "list[str] | None") -> bool:
+    """この求めで言ったつなぎと同じか（出-aq 段 4・2026-09-29）。
+
+    待たせているあいだ 20 秒ごとに出すので、同じ言葉が続きやすい。「すでに伝えた一言」を渡しても、
+    同じことを 2 回言わせない指示は通らなかった（`根拠台帳` §47）。記号と空白を外し、**どちらかが
+    もう片方をまるごと含む**なら同じとみなす（本人の決定ア）。言い換えは落とさない——落としすぎると、
+    無視していないと伝える一言まで消える。
+    """
+    key = "".join(ch for ch in text if ch not in _TRIM)
+    if not key:
+        return False
+    for filler in fillers or ():
+        said = "".join(ch for ch in (filler or "") if ch not in _TRIM)
+        if said and (key in said or said in key):
+            return True
+    return False
