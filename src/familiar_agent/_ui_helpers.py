@@ -84,7 +84,6 @@ ACTION_ICONS: dict[str, str] = {
     "look_around": "🔄",
     "walk": "🚶",
     "say": "🗣️",
-    "remember": "💾",
     "recall": "💭",
     "listen": "🎙️",
     "search": "🔍",
@@ -93,7 +92,7 @@ ACTION_ICONS: dict[str, str] = {
 }
 
 # Tool names that have dedicated i18n labels (key: "action_{name}")
-_I18N_ACTION_NAMES: frozenset[str] = frozenset({"see", "look", "walk", "say", "remember", "recall"})
+_I18N_ACTION_NAMES: frozenset[str] = frozenset({"see", "look", "walk", "say", "recall"})
 
 
 def format_action(name: str, tool_input: dict) -> str:

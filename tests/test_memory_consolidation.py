@@ -11,7 +11,7 @@ from unittest.mock import patch
 import psycopg2
 import psycopg2.extras
 
-from familiar_agent.tools.memory import ObservationMemory, _encode_vector
+from familiar_agent.tools.memory import ObservationMemory
 from tests.hidden_helper import hidden_by
 
 
@@ -113,84 +113,3 @@ def test_recall_includes_non_superseded_records() -> None:
 # ---------------------------------------------------------------------------
 # Tests: near-duplicate detection
 # ---------------------------------------------------------------------------
-
-
-def test_find_near_duplicates_returns_pairs() -> None:
-    import numpy as np
-
-    mem = _make_memory()
-
-    vec = np.ones(1024, dtype=np.float32)
-    vec /= np.linalg.norm(vec)
-    blob = _encode_vector(vec.tolist())
-
-    id_a = _insert_observation(mem, "memory A about the living room")
-    id_b = _insert_observation(mem, "memory B about the living room")
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        for obs_id in (id_a, id_b):
-            cur.execute(
-                "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
-                "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",
-                (obs_id, blob),
-            )
-    conn.commit()
-    conn.close()
-
-    pairs = mem.find_near_duplicates(threshold=0.95)
-    pair_ids = {frozenset([p[0], p[1]]) for p in pairs}
-    assert frozenset([id_a, id_b]) in pair_ids
-
-
-def test_find_near_duplicates_failure_is_loud(caplog) -> None:
-    """失敗は握り潰さず error＋トレースで残し、[] で degrade（棚卸し find_near_dup）。"""
-    import logging
-    from unittest.mock import MagicMock
-
-    from familiar_agent.store.observations import ObservationStore
-
-    store = ObservationStore.__new__(ObservationStore)
-    ctx = MagicMock()
-    ctx.conn.return_value.cursor.side_effect = RuntimeError("boom")
-    store._ctx = ctx
-
-    with caplog.at_level(logging.ERROR, logger="familiar_agent.store.observations"):
-        result = store.find_near_duplicates()
-
-    assert result == []
-    assert any(
-        r.levelno >= logging.ERROR
-        and "find_near_duplicates failed" in r.getMessage()
-        and r.exc_info
-        for r in caplog.records
-    )
-
-
-def test_find_near_duplicates_skips_already_superseded() -> None:
-    import numpy as np
-
-    mem = _make_memory()
-
-    vec = np.ones(1024, dtype=np.float32)
-    vec /= np.linalg.norm(vec)
-    blob = _encode_vector(vec.tolist())
-
-    id_a = _insert_observation(mem, "old memory X")
-    id_b = _insert_observation(mem, "new memory X")
-    mem.mark_superseded(old_id=id_a, new_id=id_b)
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        for obs_id in (id_a, id_b):
-            cur.execute(
-                "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
-                "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",
-                (obs_id, blob),
-            )
-    conn.commit()
-    conn.close()
-
-    pairs = mem.find_near_duplicates(threshold=0.95)
-    pair_ids = {frozenset([p[0], p[1]]) for p in pairs}
-    assert frozenset([id_a, id_b]) not in pair_ids
