@@ -6,6 +6,9 @@ capabilities:
       threshold; the firing starts a turn of its own. Only bond (wanting company) and
       esteem (wanting to be useful) try to talk to someone; seeking, safety and rest act
       without speaking (look around, turn the head, rest), and their words stay unspoken.
+      When bond or esteem speaks, it talks to the person rather than musing aloud:
+      politely and briefly, careful not to startle, and first asking whether now is a
+      good time to talk.
       Bond and esteem build up only while the camera sees a person, and ebb at a third of
       that speed while nobody is seen; at night (23-7) they build up at 0.083 times the
       speed. An urge speaks aloud only when the camera sees someone; otherwise what it
