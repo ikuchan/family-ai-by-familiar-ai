@@ -862,8 +862,8 @@ def test_full_branch_receives_the_net_actions():
     assert _FETCH_DEF["name"] in _names(tools)
 
 
-def test_action_branch_speaks_the_filler_then_dispatches():
-    # つなぎの発話は調停が出す（フルLLM を経由しないので速い）。発話したうえで投げる。
+def test_action_branch_dispatches_without_a_filler():
+    # 投げる前のつなぎは言わない（出-aq 段 7）。つなぎは答えまで 5 秒かかったときだけ、待ちの知らせが出す。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "使わない"})])])
     a._jev = jev_says("action", action="search_deferred")
     a._utility_backend = writer_says({"filler": "調べてみるね", "query": "今日の天気"})
@@ -880,14 +880,14 @@ def test_action_branch_speaks_the_filler_then_dispatches():
         return first
 
     assert asyncio.run(scenario()) == ""  # 本来の出力はツール投げ
-    assert "".join(shown) == "調べてみるね"  # つなぎは即発話
+    assert "".join(shown) == ""  # 軽量LLM が書いても、投げる前には言わない
     a.backend.stream_turn.assert_not_awaited()  # フルLLM を起こさない
     assert a._deferred_search.dispatch.await_args.args[0] == {"query": "今日の天気"}
 
 
 def test_full_branch_keeps_the_tool_when_say_comes_along():
-    # フルLLM が「調べてみるね」と検索を同時に返したら、発話をつなぎとして扱い動作も投げる。
-    # 以前は say を見つけた時点で閉じ、検索を捨てていた。
+    # フルLLM が「調べてみるね」と検索を同時に返したら、動作を投げる。以前は say を見つけた時点で
+    # 閉じ、検索を捨てていた。発話は声にしない（出-aq 段 7・待ちは待ちの知らせが受ける）。
     a = _agent(
         stream_returns=[
             _turn(
@@ -911,7 +911,7 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
         return first
 
     assert asyncio.run(scenario()) == ""
-    assert "".join(shown) == "調べてみるね"  # 発話はつなぎとして出す
+    assert "".join(shown) == ""  # 調べものと一緒の発話は声にしない
     assert a._deferred_search.dispatch.await_count == 1  # 動作は捨てない
 
 
@@ -1197,28 +1197,16 @@ def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():
     assert "fetch_deferred" in system, "どう調べたかが W に無い"
 
 
-def test_full_branch_says_a_filler_first_when_thinking_deeply():
-    # 正本③ 段5：フルで答えると決めたときは、同じ同期フロー内で二段生成する。軽量LLM が
-    # つなぎを即答してから、続けてフルLLM を起こす（1つの work の内部二段＝1反復1出力）。
-    # フル生成は effort=high で10秒近くかかり、そのあいだ無音になる。
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
-    a._jev = jev_says("full", effort="high")
-    a._utility_backend = writer_says({"filler": "えーっと"})
-    shown: list[str] = []
-    out = _run(a, on_text=shown.append)
-    assert out == "本応答"
-    assert "えーっと" in "".join(shown)  # つなぎが先に出る
-    assert "".join(shown).index("えーっと") < "".join(shown).index("本応答")
-
-
-def test_full_branch_skips_the_filler_when_the_answer_comes_fast():
-    # effort=low のフル生成は実測 0.8〜3.6 秒。速いときに「えーっと」を挟むとテンポが悪い。
-    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
-    a._jev = jev_says("full")
-    a._utility_backend = writer_says({"filler": "えーっと"})
-    shown: list[str] = []
-    _run(a, on_text=shown.append)
-    assert "えーっと" not in "".join(shown)
+def test_full_branch_says_no_filler_before_the_main_llm():
+    # 以前は深さ（effort）が low 以外なら、主LLM の前につなぎを 1 回出した。実機では low でも中央
+    # 5.33 秒かかり、深さでは遅さを当てられなかった。つなぎは答えまで 5 秒かかったときだけ（出-aq 段 7）。
+    for effort in ("low", "high"):
+        a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "本応答"})])])
+        a._jev = jev_says("full", effort=effort)
+        a._utility_backend = writer_says({"filler": "えーっと"})
+        shown: list[str] = []
+        assert _run(a, on_text=shown.append) == "本応答"
+        assert "えーっと" not in "".join(shown), effort
 
 
 def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
@@ -1240,6 +1228,7 @@ def test_the_filler_is_remembered_for_the_prompt_and_written_to_memory():
     async def scenario():
         ip = InformationProcessing(a)
         await ip.push_utterance("マインクラフトってどんなゲーム？")
+        await ip._say_filler("ちょっと調べてみますね")  # 待ちの知らせが出す一言（出-aq 段 6）
         head = ip._req.cue
         fillers = list(ip._req.said_fillers)
         await ip.close()
@@ -1287,6 +1276,7 @@ def test_w_lists_what_was_already_said_so_the_next_filler_continues():
     async def scenario():
         ip = InformationProcessing(a)
         await ip.push_utterance("たいきのサッカーの練習は？")
+        await ip._say_filler("ちょっと調べてみますね")  # 待ちの知らせが出す一言（出-aq 段 6）
         ip.push_completion("サッカー", "recall結果テキスト")
         for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= 2:
@@ -1311,9 +1301,10 @@ def test_quiet_hours_do_not_silence_a_reply_to_a_person():
     assert _run(a, utterance="こんばんは") == "やあ"
 
 
-def test_no_filler_once_the_material_has_arrived():
+def test_no_filler_before_a_lookup_or_after_its_result():
     # つなぎは待ち時間を埋めるためのもの。結果が届いた反復では待つものが無い。
     # 実機では検索結果の1秒後に「うん、任せてね！」が出て、そこだけ口調が割れた。
+    # 調べる前にも言わない（出-aq 段 7）。速く返れば、つなぎ無しで答える。
     a = _agent(
         stream_returns=[
             _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
@@ -1325,7 +1316,7 @@ def test_no_filler_once_the_material_has_arrived():
         {"query": "q", "filler": "調べますね"}, {"filler": "うん、任せてね！"}
     )
     shown = _run_chain(a, utterance="調べて")
-    assert "調べますね" in shown  # 調べる前のつなぎは出す
+    assert "調べますね" not in shown  # 調べる前にも出さない
     assert "うん、任せてね" not in shown  # 届いたあとは出さない
     assert "答え" in shown
 

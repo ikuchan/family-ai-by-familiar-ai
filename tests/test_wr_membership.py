@@ -18,7 +18,6 @@ import asyncio
 from familiar_agent.backends import ToolCall
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup
 from tests.test_event_loop import _agent, _run, _run_chain, _turn
-from tests._arbiter_fakes import jev_says, writer_says
 
 
 def _written_ids(a):
@@ -52,15 +51,17 @@ def test_intent_and_completion_are_put_into_the_diffuse_pool():
 
 
 def test_the_filler_is_written_and_pooled():
-
+    # つなぎを出す口は、待ちの知らせと主LLM の `filler`（出-aq 段 7）。ここでは主LLM の口で出す。
     a = _agent(
         stream_returns=[
-            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
+            _turn(
+                [
+                    ToolCall(id="f", name="filler", input={"text": "えっとね"}),
+                    ToolCall(id="s", name="say", input={"text": "はい"}),
+                ]
+            ),
         ]
     )
-    a._jev = jev_says("action", action="recall")
-    a._utility_backend = writer_says({"filler": "調べますね", "query": "q"})
     _run_chain(a, utterance="調べて")
     # つなぎは O へ書く（段 4）。**ただし母集合には載せる。** 想起から外すのは役割が
     # 担っており、拡散想起は役割を見ない。載せないと、聞こえた一言へ辿り着く辺が無い。

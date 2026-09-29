@@ -760,7 +760,7 @@ WRITER_PROMPT = """\
 **text と filler の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か子どもかで
 丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。一つのやり取りの中で丁寧さを混ぜない。
 
-**すでに相手へ伝えた一言があるなら、言い直さず、その続きとして書く。** 一言目はこれから調べると伝えるものだが、
+**すでに相手へ伝えた一言があるなら、言い直さず、その続きとして書く。** 一言目はいま考えている・調べている最中だと伝えるものだが、
 **二言目以降は、まだ考えている最中だと伝わるだけの短い言葉**にする。用件を述べ直さない。何を調べているかにも触れない。
 長さは一言目より短く、多くても十数文字にとどめる。同じ人が続けて言っているように聞こえることを最優先する。
 言うことが無ければ filler を空にしてよい。
@@ -808,14 +808,15 @@ def _for_writer(lead: str) -> str:
 
 
 def _writer_needs(inp: ArbiterInput, data: dict) -> "list[str]":
-    """Jev の答えから、軽量LLM に書かせるものを決める。何も要らなければ空。"""
-    self_doing = inp.origin == "情動"
+    """Jev の答えから、軽量LLM に書かせるものを決める。何も要らなければ空。
+
+    **つなぎは書かせない**（出-aq 段 7）。つなぎは答えまで 5 秒かかったときだけ、待ちの知らせの口
+    （`write_filler`）が書く。以前は full で深さが low でなければ、action では投げる前に書かせていた。
+    """
     needs: "list[str]" = []
     branch = data.get("branch")
     if branch == "light":
         needs.append("text")
-    elif branch == "full" and data.get("effort", "low") != "low" and not self_doing:
-        needs.append("filler")
     elif branch == "action":
         action = str(data.get("action", ""))
         fixed = action in _EXTRA_ACTIONS and bool(_EXTRA_ACTIONS[action][0])
@@ -823,12 +824,6 @@ def _writer_needs(inp: ArbiterInput, data: dict) -> "list[str]":
             needs.append("tool_input")
         elif action not in _NO_WORDS_ACTIONS and not fixed:
             needs.append("query")
-        quiet = action == "look" or action in _TOOL_ACTIONS or action in _NO_WORDS_ACTIONS
-        if not quiet and not self_doing:
-            needs.append("filler")
-    if "filler" in needs:
-        # 言いたいことの行き先。無いと用件がつなぎへ流れる（実機 15:49・144 字。欄を分けて 6/6 → 0/6・出-aj）
-        needs.append("trash")
     if data.get("refers_time"):
         needs += ["time_ref", "time_span_days"]
     return needs

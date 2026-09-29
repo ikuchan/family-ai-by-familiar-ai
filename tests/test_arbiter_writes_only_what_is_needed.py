@@ -3,8 +3,8 @@
 | Jev の答え | 書くもの |
 |---|---|
 | light | 返事（`text`） |
-| full で深さが low でない | つなぎ（`filler`）。情動が起点なら書かない（自発に断りは要らない・情-e） |
-| action | 動作の中身（`query`・`tool_input`）とつなぎ。首を向ける・道具（タイマーなど）・確認への「いい」はつなぎ無し |
+| full | 何も書かない（つなぎは待ちの知らせだけが書く・出-aq 段 7） |
+| action | 動作の中身（`query`・`tool_input`）だけ。つなぎは書かない |
 | 時期を指している | 日付（`time_ref`・`time_span_days`） |
 
 何も要らなければ呼ばない。口調の決まり（ME と FAMILY に従う・丁寧さを混ぜない・言い直さない）は、いままでの調停の文を持つ。
@@ -56,12 +56,12 @@ def test_full_at_low_effort_needs_nothing_and_calls_nothing():
     w.complete.assert_not_awaited()
 
 
-def test_full_at_higher_effort_asks_for_a_filler_but_not_for_self_driven_turns():
-    _, w = _write({"branch": "full", "effort": "medium"})
-    assert '"filler"' in _asked(w)
-    got, w2 = _write({"branch": "full", "effort": "medium"}, _inp(origin="情動"))
-    assert got == {}
-    w2.complete.assert_not_awaited()
+def test_full_at_higher_effort_needs_nothing_either():
+    # 以前は深さが low でなければつなぎを書かせた。つなぎは待ちの知らせだけが書く（出-aq 段 7）。
+    for origin in ("発話", "情動"):
+        got, w = _write({"branch": "full", "effort": "medium"}, _inp(origin=origin))
+        assert got == {}
+        w.complete.assert_not_awaited()
 
 
 def test_a_timer_asks_for_the_tool_input_with_its_description_and_no_filler():
@@ -70,10 +70,10 @@ def test_a_timer_asks_for_the_tool_input_with_its_description_and_no_filler():
     assert '"tool_input"' in p and "after_minutes" in p and '"filler"' not in p
 
 
-def test_a_search_asks_for_the_words_and_a_filler():
+def test_a_search_asks_for_the_words_only():
     _, w = _write({"branch": "action", "action": "search_deferred"})
     p = _asked(w)
-    assert '"query"' in p and '"filler"' in p
+    assert '"query"' in p and '"filler"' not in p and '"trash"' not in p
 
 
 def test_a_time_reference_asks_for_the_date():

@@ -176,15 +176,15 @@ def _run_act(calls):
     return ip, spoken
 
 
-def test_filler_with_a_lookup_is_spoken_as_a_filler():
-    """口 3。**格上げの細工が要らなくなる**——主LLM は最初から「つなぎ＋調べもの」を返せる。"""
+def test_filler_with_a_lookup_is_not_spoken():
+    """口 3。調べものと一緒のつなぎは鳴らさない（出-aq 段 7）。待ちは待ちの知らせが受け、5 秒を超えたときだけ言う。"""
     ip, spoken = _run_act(
         [
             ToolCall(id="a", name="filler", input={"text": "ちょっと調べますね。"}),
             ToolCall(id="b", name="search_deferred", input={"query": "明日の天気"}),
         ]
     )
-    ip._say_filler.assert_awaited_once_with("ちょっと調べますね。")
+    ip._say_filler.assert_not_awaited()
     assert ip._start_lookup.called, "調べものは投げた"
     assert spoken == [], "つなぎを返事として出していない"
 
