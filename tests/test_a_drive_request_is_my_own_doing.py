@@ -21,6 +21,9 @@ from tests.test_event_loop import _agent
 
 
 def test_the_inner_voices_ask_for_no_reason_and_no_listener() -> None:
+    # bond・esteem の内声は話しかけ方（驚かせない・丁寧に・短く・まず話してよいかを尋ねる）を含めてよいと
+    # 改めた（出-at・ア-2）。それでも理由は求めず、「話す」「働きかける」の語は使わない（話しかけ方は
+    # `test_a_drive_that_talks_asks_first` が見る）。
     cfg = DriveConfig()
     for axis in ("seeking", "rest", "bond", "safety", "esteem"):
         voice = getattr(cfg, f"voice_{axis}")

@@ -83,3 +83,22 @@ def test_the_arbiter_keeps_the_self_line_otherwise():
     prompt = _light_prompt(talking=False)
     assert ASK_FIRST not in prompt
     assert "自分から言うなら短いひとこと" in prompt
+
+
+# ── 内声（出-at 段 2・本人の決定ア-2）───────────────────────────────────────
+
+MANNER = "居れば、驚かせないよう丁寧に、短く話しかける。まず話してよいかを尋ねる一言から"
+
+
+def test_the_talking_voices_carry_the_manner(monkeypatch):
+    # 情-e は内声を「湧いた気持ちだけ」に絞ったが、話しかける軸には話しかけ方を含めてよいと改めた。
+    # 「話してよいか」は相手への礼儀として尋ねるもので、自分が動くための許可ではない。理由は求めない。
+    from familiar_agent.config import DriveConfig
+
+    for key in ("VOICE_BOND", "VOICE_ESTEEM", "VOICE_SEEKING", "VOICE_SAFETY", "VOICE_REST"):
+        monkeypatch.delenv(key, raising=False)
+    cfg = DriveConfig()
+    for axis in ("bond", "esteem"):
+        assert MANNER in getattr(cfg, f"voice_{axis}"), axis
+    for axis in ("seeking", "safety", "rest"):
+        assert MANNER not in getattr(cfg, f"voice_{axis}"), axis

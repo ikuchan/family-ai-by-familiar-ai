@@ -862,6 +862,8 @@ class DriveConfig:
     # 内声は「湧いた気持ち」だけを言う（情-e・2026-09-13）。理由の要求（「理由まで結論づけて」）
     # と相手を前提にする語（「結果を踏まえて話す」「相手へ働きかける」）は外した。自発なので
     # 許可も理由も要らない。以前は主LLM が存在しない理由（「誰か来た気配がする」）を作った。
+    # 話しかける軸（bond・esteem）だけは話しかけ方を含める（出-at・本人の決定ア-2・2026-09-30）。
+    # 「話してよいか」は相手への礼儀として尋ねるもので、自分が動くための許可ではない。理由は求めない。
     voice_seeking: str = field(
         default_factory=lambda: os.environ.get(
             "VOICE_SEEKING",
@@ -877,7 +879,9 @@ class DriveConfig:
     voice_bond: str = field(
         default_factory=lambda: os.environ.get(
             "VOICE_BOND",
-            "誰かと居たい気持ちが湧いている。居れば声をかける。居なければ何もしなくてよい。",
+            "誰かと居たい気持ちが湧いている。"
+            "居れば、驚かせないよう丁寧に、短く話しかける。まず話してよいかを尋ねる一言から。"
+            "居なければ何もしなくてよい。",
         )
     )
     voice_safety: str = field(
@@ -889,7 +893,8 @@ class DriveConfig:
     voice_esteem: str = field(
         default_factory=lambda: os.environ.get(
             "VOICE_ESTEEM",
-            "役に立ちたい気持ちが湧いている。できることがあればする。",
+            "役に立ちたい気持ちが湧いている。できることがあればする。"
+            "居れば、驚かせないよう丁寧に、短く話しかける。まず話してよいかを尋ねる一言から。",
         )
     )
 
