@@ -461,6 +461,9 @@ class ArbiterInput:
     self_understanding: str = ""
     self_image: str = ""
     season_env: str = ""
+    talking: bool = (
+        False  # 情動のうち話しかける軸（bond・esteem）。light の文を話しかけにする（出-at）
+    )
 
 
 #: 分岐の決め方の目安（出-au 段 5-7d・一つの軽量LLM の指示文にあったものを、Jev に送る文へ移した）。
@@ -786,6 +789,8 @@ WRITER_PROMPT = """\
 
 _FIELD_TEXT = {
     "text": '"text"：この人格として、この相手に向けて、いまの時刻に合う言葉で短く答える。',
+    "text_talk": '"text"：相手に話しかける短い一言。相手が驚かないよう丁寧に、短く。**まず話してよいかを尋ねる一言にする**。'
+    "いつも通りなら空にして黙る。",
     "text_self": '"text"：自分から言うなら短いひとこと。**いつも通りなら空にして黙る**。返事や約束の形にしない。',
     "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
     "trash": '"trash"：用件はこのあと本応答が言う。いま言いたいことがあるならここに書く（捨てられ、誰にも届かない）。',
@@ -837,6 +842,11 @@ def _action_note(action: str) -> str:
     return _BASE_ACTIONS.get(action, "")
 
 
+def _text_field(inp: ArbiterInput) -> str:
+    """情動の求めの返事の書き方。話しかける軸なら話しかけ、ほかは自分のひとこと（出-at）。"""
+    return "text_talk" if inp.talking else "text_self"
+
+
 async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs: "list[str]"):
     """軽量LLM を 1 回呼ぶ。時間切れ・失敗は None（呼び手が full へ倒す）。"""
     from ..core.context_parts import Stance, build_context
@@ -857,7 +867,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
     if data.get("branch") == "action":
         decided += f"（{data.get('action')}：{_action_note(str(data.get('action')))}）"
     fields = "\n".join(
-        _FIELD_TEXT["text_self" if (n == "text" and self_doing) else n] for n in needs
+        _FIELD_TEXT[_text_field(inp) if (n == "text" and self_doing) else n] for n in needs
     )
     shape = "{" + ", ".join(f'"{n}": …' for n in needs) + "}"
     prompt = WRITER_PROMPT.format(
