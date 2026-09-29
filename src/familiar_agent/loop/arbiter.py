@@ -461,9 +461,8 @@ class ArbiterInput:
     self_understanding: str = ""
     self_image: str = ""
     season_env: str = ""
-    talking: bool = (
-        False  # 情動のうち話しかける軸（bond・esteem）。light の文を話しかけにする（出-at）
-    )
+    # 情動のうち話しかける軸（bond・esteem）。light の文を話しかけにする（出-at）
+    talking: bool = False
 
 
 #: 分岐の決め方の目安（出-au 段 5-7d・一つの軽量LLM の指示文にあったものを、Jev に送る文へ移した）。
