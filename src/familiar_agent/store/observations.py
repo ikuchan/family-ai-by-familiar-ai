@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import date as _date, datetime
+from datetime import date as _date
 from typing import Any
 
 import numpy as np
@@ -27,7 +27,7 @@ from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
 from .context import StoreContext
 from .relations import KIND_UNCLASSIFIED, RelationStore, not_hidden
-from .embedding import _decode_vector, _encode_vector
+from .embedding import _encode_vector
 
 logger = logging.getLogger(__name__)
 
@@ -592,99 +592,6 @@ class ObservationStore:
             logger.warning("recency_fallback failed: %s", e)
             return []
 
-    def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
-        """Return pairs of non-superseded observations whose vectors are >= threshold similar."""
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT e.obs_id, e.vector FROM obs_embeddings e "
-                        "JOIN observations o ON o.id = e.obs_id "
-                        f"WHERE {not_hidden('o')}"
-                    )
-                    rows = cur.fetchall()
-            if len(rows) < 2:
-                return []
-            ids = [r["obs_id"] for r in rows]
-            raw = np.array([_decode_vector(bytes(r["vector"])) for r in rows], dtype=np.float32)
-            norms = np.linalg.norm(raw, axis=1, keepdims=True)
-            # 除算の結果は float64 になる。名前を分けるのは、float32 の配列へ入れ直すと
-            # 型が食い違うため（計算そのものは変えない）。
-            vecs = raw / np.where(norms > 1e-8, norms, 1.0)
-            # 全ペア類似度は BLAS の行列積で一括計算し、上三角（i<j）だけ取る。
-            # Python の O(n^2) 二重ループを避ける（出力は同一）。
-            sims = vecs @ vecs.T
-            iu, ju = np.triu_indices(len(ids), k=1)
-            mask = sims[iu, ju] >= threshold
-            return [
-                (ids[int(i)], ids[int(j)], float(sims[int(i), int(j)]))
-                for i, j in zip(iu[mask], ju[mask])
-            ]
-        except Exception:
-            # 失敗（復号・OOM 等）はトレース付きで loud に残す。idle 統合を落とさず [] で degrade。
-            logger.exception("find_near_duplicates failed")
-            return []
-
-    def pick_seed_candidates(
-        self,
-        hour: int,
-        month: int,
-        *,
-        hour_window: int,
-        month_window: int,
-        k: int,
-    ) -> list[dict]:
-        """Return mixed seed candidates for associative memory sharing (Issue C).
-
-        Three sub-pools are merged (deduped by id):
-          - hour-near:   rows whose hour is within hour_window of `hour` (circular)
-          - month-near:  rows whose month is within month_window of `month` (circular)
-          - random:      any k rows
-        Each sub-pool uses ORDER BY RANDOM() LIMIT k for lightweight diversity.
-        time-of-day / seasonal proximity replaces the old time-label cosine query.
-        """
-        _COMMON = f"WHERE {not_hidden('observations')} AND kind != 'day_summary' "
-        sql_hour = (
-            "SELECT id, content, timestamp FROM observations "
-            + _COMMON
-            + "AND LEAST(ABS(EXTRACT(HOUR FROM timestamp)-%s), "
-            "          24-ABS(EXTRACT(HOUR FROM timestamp)-%s)) <= %s "
-            "ORDER BY RANDOM() LIMIT %s"
-        )
-        sql_month = (
-            "SELECT id, content, timestamp FROM observations "
-            + _COMMON
-            + "AND LEAST(ABS(EXTRACT(MONTH FROM timestamp)-%s), "
-            "          12-ABS(EXTRACT(MONTH FROM timestamp)-%s)) <= %s "
-            "ORDER BY RANDOM() LIMIT %s"
-        )
-        sql_rand = (
-            "SELECT id, content, timestamp FROM observations "
-            + _COMMON
-            + "ORDER BY RANDOM() LIMIT %s"
-        )
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                seen: dict[str, dict] = {}
-                with conn.cursor() as cur:
-                    if hour_window > 0:
-                        cur.execute(sql_hour, (hour, hour, hour_window, k))
-                        for r in cur.fetchall():
-                            seen.setdefault(r["id"], dict(r))
-                    if month_window > 0:
-                        cur.execute(sql_month, (month, month, month_window, k))
-                        for r in cur.fetchall():
-                            seen.setdefault(r["id"], dict(r))
-                    cur.execute(sql_rand, (k,))
-                    for r in cur.fetchall():
-                        seen.setdefault(r["id"], dict(r))
-            return list(seen.values())
-        except Exception as e:
-            logger.warning("pick_seed_candidates failed: %s", e)
-            return []
-
     def _read_supersede_chain(self, head_id: str, columns: tuple[str, ...]) -> list[dict]:
         """現行版 MI（head_id）を起点に版チェーンを再構成する dumb な読み出し。
 
@@ -718,28 +625,6 @@ class ObservationStore:
             logger.warning("_read_supersede_chain failed: %s", e)
             return []
 
-    def get_dates_with_observations(self, days: int = 7) -> list[str]:
-        """Return distinct dates (YYYY-MM-DD) that have observations within the last N days."""
-        try:
-            from datetime import timedelta
-
-            cutoff = (
-                datetime.fromisoformat(clock.now_local_iso()) - timedelta(days=days)
-            ).strftime("%Y-%m-%d")
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT DISTINCT timestamp::date AS d FROM observations "
-                        "WHERE timestamp::date >= %s::date AND kind != 'day_summary' "
-                        "ORDER BY d DESC",
-                        (cutoff,),
-                    )
-                    return [row["d"].isoformat() for row in cur.fetchall()]
-        except Exception as e:
-            logger.warning("get_dates_with_observations failed: %s", e)
-            return []
-
     def get_dates_with_summaries(self) -> list[str]:
         """Return distinct dates (YYYY-MM-DD) that already have a day_summary observation."""
         try:
@@ -753,36 +638,6 @@ class ObservationStore:
                     return [row["d"].isoformat() for row in cur.fetchall()]
         except Exception as e:
             logger.warning("get_dates_with_summaries failed: %s", e)
-            return []
-
-    def get_observations_for_date(self, date: str, limit: int = 50) -> list[dict]:
-        """Return observations for a specific date (YYYY-MM-DD), oldest first."""
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT id, content, emotion, kind, timestamp "
-                        "FROM observations "
-                        "WHERE timestamp::date=%s::date AND kind != 'day_summary' "
-                        "ORDER BY timestamp ASC LIMIT %s",
-                        (date, limit),
-                    )
-                    rows = cur.fetchall()
-            result = []
-            for row in rows:
-                result.append(
-                    {
-                        "id": row["id"],
-                        "content": row["content"],
-                        "emotion": row["emotion"] or "neutral",
-                        "kind": row["kind"] or "conversation",
-                        "time": clock.ts_to_time(row["timestamp"]),
-                    }
-                )
-            return result
-        except Exception as e:
-            logger.warning("get_observations_for_date failed: %s", e)
             return []
 
     def recall_on_this_day(self, month: int, day: int, n: int = 5) -> list[dict]:

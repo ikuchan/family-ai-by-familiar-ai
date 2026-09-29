@@ -63,7 +63,6 @@ _TOOL_TIMEOUTS: dict[str, float] = {
     "look": 8.0,
     "walk": 12.0,
     "say": 60.0,
-    "remember": 20.0,
     "recall": 20.0,
     "read_file": 30.0,
     "edit_file": 30.0,

@@ -24,15 +24,13 @@ from familiar_agent.tools.memory import ObservationMemory
 
 def test_observation_memory_holds_the_read_layer() -> None:
     assert hasattr(ObservationStore, "_read_observations_by_kind")
-    assert hasattr(ObservationMemory, "get_dates_with_observations")
+    assert hasattr(ObservationMemory, "get_dates_with_summaries")
 
 
 def test_public_entry_points_are_still_reachable() -> None:
     """agent.py が呼ぶ入口が残っている。"""
     for name in (
-        "get_dates_with_observations",
         "get_dates_with_summaries",
-        "get_observations_for_date",
         "recall_on_this_day_async",
         "get_earliest_date_async",
     ):
@@ -77,7 +75,8 @@ def test_reading_is_owned_by_the_store_layer() -> None:
         )
 
     # 日付系は外から呼ばれるので委譲が残る。ただし SQL は持たない。
-    for name in ("get_dates_with_observations", "recall_on_this_day"):
+    # 日付で引く口のうち `get_dates_with_observations` は呼び手が無く環-ab D で外した。
+    for name in ("recall_on_this_day",):
         m = re.search(
             rf"^    (?:async )?def {name}\b.*?(?=^    (?:async )?def |\Z)", src, re.M | re.S
         )

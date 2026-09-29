@@ -1,9 +1,8 @@
 """Observation and emotional memory for the embodied agent.
 
 Built-in tools:
-- remember(content, emotion, scope): store an observation in PostgreSQL.
-  scope: "speaker" | "witnessed" | "scene" | "all".
 - recall(hint, n): retrieve semantically similar memories via pgvector cosine similarity.
+（記憶を書くのはループ（`OIF.write`）。主LLM に渡していなかった `remember` の道具は環-ab で外した。）
 Storage: PostgreSQL + pgvector (situated_memories, bge-m3).
 Memory is scoped per person via PersonMemoryManager (person_id).
 Config: DATABASE_URL.
@@ -568,14 +567,8 @@ class ObservationMemory:
             logger.exception("note_lookup_started failed: %.8s", obs_id)
             return False
 
-    def get_dates_with_observations(self, days: "int" = 7) -> "list[str]":
-        return self._observations.get_dates_with_observations(days)
-
     def get_dates_with_summaries(self) -> "list[str]":
         return self._observations.get_dates_with_summaries()
-
-    def get_observations_for_date(self, date: "str", limit: "int" = 50) -> "list[dict]":
-        return self._observations.get_observations_for_date(date, limit)
 
     def recall_on_this_day(self, month: "int", day: "int", n: "int" = 5) -> "list[dict]":
         return self._observations.recall_on_this_day(month, day, n)
@@ -590,16 +583,6 @@ class ObservationMemory:
 
     async def get_earliest_date_async(self) -> "str | None":
         return await self._observations.get_earliest_date_async()
-
-    def find_near_duplicates(self, threshold: float = 0.95) -> list[tuple[str, str, float]]:
-        return self._observations.find_near_duplicates(threshold)
-
-    def pick_seed_candidates(
-        self, hour: int, month: int, *, hour_window: int, month_window: int, k: int
-    ) -> list[dict]:
-        return self._observations.pick_seed_candidates(
-            hour, month, hour_window=hour_window, month_window=month_window, k=k
-        )
 
     # キュー（store/jobs.py）
     def append_memory_event(
@@ -742,9 +725,6 @@ class ObservationMemory:
         except Exception:
             logger.exception("save_with_id failed")
             return None, False
-
-    async def save_async(self, *a, **kw) -> bool:
-        return await asyncio.to_thread(self.save, *a, **kw)
 
     async def save_async_with_id(self, *a, **kw) -> tuple[str | None, bool]:
         return await asyncio.to_thread(self.save_with_id, *a, **kw)
@@ -1325,135 +1305,6 @@ class ObservationMemory:
     async def recall_day_summaries_async(self, n=5):
         return await asyncio.to_thread(self.recall_day_summaries, n)
 
-    # ── これから作り替えるもの（store/ へ移していない） ──────────────────
-    # episodes／memory_salience を触る以下の一群は、
-    # Phase 5 で作り替えが決まっているため、いま層へ移していない。
-    #   - W（作業記憶）は O からの派生ビューで毎ターン作り直す（[D-記憶単一化]）
-    #     ので、memory_salience に溜める形自体が変わる
-    #   - 明示リンクとエピソードは WR 拡散想起へ置き換わる（[D-WR拡散想起]）
-    # いま移しても Phase 5 で捨てることになる。撤去が確定していないので
-    # legacy/ にも入れない。作り替えの形が決まった段で行き先を決める。
-
-    def create_episode(self, title: str, summary: str = "") -> str | None:
-        try:
-            episode_id = str(uuid.uuid4())
-            now = self._now()
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO episodes (id,title,summary,created_at,updated_at) "
-                        "VALUES (%s,%s,%s,%s,%s)",
-                        (episode_id, title, summary, now, now),
-                    )
-                conn.commit()
-            return episode_id
-        except Exception as e:
-            logger.warning("create_episode failed: %s", e)
-            return None
-
-    def append_to_episode(self, episode_id: str, memory_id: str) -> bool:
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT COALESCE(MAX(position),0)+1 AS next_pos FROM episode_memories WHERE episode_id=%s",
-                        (episode_id,),
-                    )
-                    row = cur.fetchone()
-                    pos = row["next_pos"] if row else 1
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "INSERT INTO episode_memories (id,episode_id,memory_id,position,added_at) "
-                        "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (episode_id,memory_id) DO NOTHING",
-                        (str(uuid.uuid4()), episode_id, memory_id, pos, self._now()),
-                    )
-                conn.commit()
-            return True
-        except Exception as e:
-            logger.warning("append_to_episode failed: %s", e)
-            return False
-
-    def recall_divergent(self, query: str, n: int = 10) -> list[dict]:
-        try:
-            base = self.recall(query, n=n)
-            if not base:
-                return []
-            ids = [m["memory_id"] for m in base]
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    placeholders = ",".join(["%s"] * len(ids))
-                    cur.execute(
-                        f"SELECT em.memory_id, em.episode_id, em.position "
-                        f"FROM episode_memories em WHERE em.memory_id IN ({placeholders})",
-                        ids,
-                    )
-                    ep_rows = {r["memory_id"]: r for r in cur.fetchall()}
-            results = []
-            for m in base:
-                ep = ep_rows.get(m["memory_id"])
-                results.append(
-                    {
-                        "memory_id": m["memory_id"],
-                        "content": m.get("summary", ""),
-                        "episode_id": ep["episode_id"] if ep else None,
-                        "position": ep["position"] if ep else None,
-                        "confidence": m.get("confidence", 0.5),
-                    }
-                )
-            return results
-        except Exception as e:
-            logger.warning("recall_divergent failed: %s", e)
-            return []
-
-    def refresh_working_memory(self, query: str, n: int = 10) -> list[dict]:
-        try:
-            recalled = self.recall_divergent(query, n=n)
-            if not recalled:
-                return []
-            now = self._now()
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute("DELETE FROM memory_salience WHERE source='working_memory'")
-                for item in recalled:
-                    with conn.cursor() as cur:
-                        cur.execute(
-                            "INSERT INTO memory_salience (id,memory_id,salience,source,context,episode_id,activated_at) "
-                            "VALUES (%s,%s,%s,'working_memory',%s,%s,%s)",
-                            (
-                                str(uuid.uuid4()),
-                                item["memory_id"],
-                                float(item.get("confidence", 0.5)),
-                                query,
-                                item.get("episode_id"),
-                                now,
-                            ),
-                        )
-                conn.commit()
-            return recalled
-        except Exception as e:
-            logger.warning("refresh_working_memory failed: %s", e)
-            return []
-
-    def get_working_memory(self) -> list[dict]:
-        try:
-            with self._db_lock:
-                conn = self._ensure_connected()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT ms.memory_id,ms.salience,ms.context,ms.episode_id,ms.activated_at,"
-                        "o.content FROM memory_salience ms "
-                        "JOIN observations o ON o.id=ms.memory_id "
-                        "WHERE ms.source='working_memory' ORDER BY ms.salience DESC",
-                    )
-                    return [dict(r) for r in cur.fetchall()]
-        except Exception as e:
-            logger.warning("get_working_memory failed: %s", e)
-            return []
-
     # ── Format helpers (unchanged from original) ───────────────────────────
 
     def voices_of(self, obs_ids: "list[str]") -> "dict[str, tuple[str, list[str]]]":
@@ -1469,7 +1320,6 @@ class ObservationMemory:
         名前は**呼び方の先頭**（`get_person_name` と同じ割り方）。一覧のまま渡すと W の行が
         `わたし（パパ、ゆうすけ、おとうさんへ）：` になる。
         """
-        from ..person_memory_manager import AGENT_SELF_ID
 
         actors = self._situated.actors_of(obs_ids)
         if not actors:
@@ -1536,30 +1386,6 @@ class MemoryTool:
     def get_tool_definitions(self) -> list[dict]:
         return [
             {
-                "name": "remember",
-                "description": (
-                    "長期記憶に保存する。"
-                    "scope: speaker=話者のみ / witnessed=その場の全員 / scene=エージェント観察 / all=全部"
-                ),
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "content": {"type": "string"},
-                        "emotion": {
-                            "type": "string",
-                            "enum": ["neutral", "happy", "sad", "curious", "excited", "moved"],
-                        },
-                        "scope": {
-                            "type": "string",
-                            "enum": ["speaker", "witnessed", "scene", "all"],
-                            "default": "speaker",
-                        },
-                        "image_path": {"type": "string"},
-                    },
-                    "required": ["content"],
-                },
-            },
-            {
                 "name": "recall",
                 "description": "長期記憶を検索する。その場にいる全員の記憶を横断して探す。",
                 "input_schema": {
@@ -1577,90 +1403,9 @@ class MemoryTool:
         self, tool_name: str, tool_input: dict, *, exclude_ids: list[str] | None = None
     ) -> tuple[str, str | None]:
         """`exclude_ids` は内部呼び出し用。自分が出した検索が自分自身を拾うのを防ぐ。"""
-        if tool_name == "remember":
-            return await self._remember(tool_input)
         if tool_name == "recall":
             return await self._recall(tool_input, exclude_ids=exclude_ids)
         return f"Unknown memory tool: {tool_name}", None
-
-    async def _remember(self, inp: dict) -> tuple[str, None]:
-        scope = inp.get("scope", "speaker")
-        content = inp["content"]
-        emotion = inp.get("emotion", "neutral")
-        image_path = inp.get("image_path")
-
-        present_ids = self._manager.get_present_ids()
-        # 話者未解決なら既定話者 DEFAULT_PERSON_ID を writer/subject に使う（floor）。
-        speaker_id = self._manager.current_speaker_id or DEFAULT_PERSON_ID
-        results: list[str] = []
-
-        # speaker
-        if scope in ("speaker", "all"):
-            store = self._write_store  # フォールバックで None にならない
-            mem_id, ok = await store.save_async_with_id(
-                content,
-                kind="utterance",
-                emotion=emotion,
-                image_path=image_path,
-                writer_id=speaker_id,
-                participants=present_ids,
-            )
-            if ok:
-                results.append(f"[{self._manager.get_person_name(speaker_id)}] 話者")
-
-        # witnessed (listeners)
-        if scope in ("witnessed", "all"):
-            sp_name = self._manager.get_person_name(speaker_id) if speaker_id else "?"
-            for pid, mem in self._manager.get_all_present_memories():
-                if pid == speaker_id:
-                    continue
-                witnessed = f"[{sp_name}が言った] {content}"
-                await mem.save_async(
-                    witnessed,
-                    kind="witnessed",
-                    emotion=emotion,
-                    writer_id=pid,
-                    participants=present_ids,
-                )
-            listeners = [
-                self._manager.get_person_name(p)
-                for p, _ in self._manager.get_all_present_memories()
-                if p != speaker_id
-            ]
-            if listeners:
-                results.append(f"[{', '.join(listeners)}] 目撃")
-
-        # scene
-        if scope in ("scene", "all"):
-            sp_name = self._manager.get_person_name(speaker_id) if speaker_id else "不明"
-            pnames = [self._manager.get_person_name(p) for p in present_ids]
-            scene_txt = f"[場面] 参加者: {', '.join(pnames)} / 発言者: {sp_name} / {content}"
-            await self._agent_store.save_async(
-                scene_txt,
-                kind="scene",
-                emotion=emotion,
-                participants=present_ids,
-                writer_id=AGENT_SELF_ID,
-            )
-            results.append("[agent_self] 場面記録")
-
-        # floor：どの scope でも1件も書けなかったら話者／DEFAULT の本命へ落とす
-        # （witnessed で在席他者ゼロ等・記憶を落とさない・Slice A の一般化）。
-        if not results:
-            store = self._write_store
-            mem_id, ok = await store.save_async_with_id(
-                content,
-                kind="utterance",
-                emotion=emotion,
-                image_path=image_path,
-                writer_id=speaker_id,
-                participants=present_ids,
-            )
-            if ok:
-                results.append(f"[{self._manager.get_person_name(speaker_id)}] 話者（在席者なし）")
-
-        summary = " / ".join(results) if results else "書き込みなし"
-        return f"記憶しました: {summary}", None
 
     async def _recall(self, inp: dict, *, exclude_ids: list[str] | None = None) -> tuple[str, None]:
         query = inp["query"]

@@ -84,10 +84,10 @@ def test_mobility_has_walk():
 # `tools/person.py`（`declare_speaker` など）は主LLM に渡っておらず、環-ab で外した。
 
 
-def test_memory_has_remember_recall():
-    """memory.py docstring mentions remember() and recall()."""
+def test_memory_has_recall():
+    """memory.py docstring mentions recall()（remember は主LLM に渡していなかったので環-ab D で外した）。"""
     d = _doc("memory.py")
-    assert "remember(" in d and "recall(" in d, f"got: {d!r}"
+    assert "recall(" in d, f"got: {d!r}"
 
 
 def test_memory_worker_has_embedding():

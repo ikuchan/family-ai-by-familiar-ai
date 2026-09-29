@@ -40,6 +40,18 @@ _RETIRED = {
     "link_memories_async": "同上",
     "get_linked_memories": "同上",
     "get_linked_memories_async": "同上",
+    # 環-ab（2026-09-28〜29）：呼び手が無かった面（vulture と grep で 1 つずつ確かめた）
+    "as_coalition_async": "候補の器（`coalition.py`）ごと撤去（R-5a）",
+    "append_to_episode": "呼び手が無い（D）",
+    "create_episode": "同上",
+    "get_working_memory": "同上",
+    "refresh_working_memory": "同上",
+    "recall_divergent": "呼び手は `refresh_working_memory` だけだった（D）",
+    "find_near_duplicates": "記憶の箱へ渡すだけの窓口で、窓口を呼ぶ者がいない（D）",
+    "get_dates_with_observations": "同上",
+    "get_observations_for_date": "同上",
+    "pick_seed_candidates": "同上",
+    "save_async": "呼び手は主LLM に渡していない道具 `remember` だけだった（D・本人の決定で道具ごと撤去）",
 }
 
 #: **まだ繋いでいないので残す面。** 落とすと、使うときに作り直しになる。
@@ -107,5 +119,7 @@ def test_the_surface_got_narrower():
     `decay_groundedness`）を足し **57 種**。同日 記-a-ろ-に で `core_records`・`raise_groundedness` を足し **59 種**。
     2026-09-26 に出-as 段 7 で `raise_groundedness` を `set_groundedness`（`lower=True` で下げてもよい）へ改めた
     （根づきを 0 へ戻す口を別に足すと 60 種になるため、1 つにまとめた）。数は据え置き。
+    2026-09-28 に環-ab R-5a で `as_coalition_async` を落とし **58 種**。2026-09-29 に環-ab D で呼び手の無い 10 面を落とし
+    **48 種**。上限の 59 は変えていない。
     """
     assert len(_public_faces()) <= 59

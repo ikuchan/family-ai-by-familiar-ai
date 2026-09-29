@@ -61,37 +61,6 @@ def test_column_is_renamed() -> None:
     assert "activation" not in cols, "旧列 activation が残っている"
 
 
-def test_working_memory_read_uses_the_new_names() -> None:
-    """W の読み出しが新しい表と列で通る。
-
-    書き込みは `refresh_working_memory` が想起を伴うため、ここでは行を直接置いて
-    読み出し側（`get_working_memory`）が新しい名前で引けることを見る。
-    """
-    import uuid
-
-    from familiar_agent.tools.memory import ObservationMemory
-
-    obs_id = str(uuid.uuid4())
-    conn = _pg()
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion)"
-            " VALUES (%s, %s, NOW(), %s, %s, %s)",
-            (obs_id, "顕著性の読み出しテスト", "unknown", "observation", "neutral"),
-        )
-        cur.execute(
-            "INSERT INTO memory_salience (id, memory_id, salience, source, context, activated_at)"
-            " VALUES (%s, %s, %s, 'working_memory', %s, %s)",
-            (str(uuid.uuid4()), obs_id, 0.7, "テスト", "2026-07-31T00:00:00+00:00"),
-        )
-    conn.close()
-
-    got = ObservationMemory().get_working_memory()
-    hit = [r for r in got if str(r.get("memory_id")) == obs_id]
-    assert hit, "書いた W が読み出せない"
-    assert "salience" in hit[0], "読み出しの列名が salience になっていない"
-
-
 def test_old_names_are_gone_from_source() -> None:
     """旧名がソースとテストに残っていない（マイグレーションは凍結物なので対象外）。"""
     root = pathlib.Path(__file__).resolve().parents[1]

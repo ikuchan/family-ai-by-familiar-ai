@@ -135,10 +135,6 @@ class TestFormatAction:
         assert "⚙" in result
         assert "unknown_tool_xyz" in result
 
-    def test_remember_tool(self):
-        result = format_action("remember", {})
-        assert "💾" in result
-
     def test_recall_tool(self):
         result = format_action("recall", {})
         assert "💭" in result
@@ -146,7 +142,7 @@ class TestFormatAction:
 
 class TestActionIcons:
     def test_all_required_tools_have_icons(self):
-        required = {"see", "look", "walk", "say", "remember", "recall"}
+        required = {"see", "look", "walk", "say", "recall"}  # remember は環-ab D で撤去
         for tool in required:
             assert tool in ACTION_ICONS, f"ACTION_ICONS missing entry for '{tool}'"
 
