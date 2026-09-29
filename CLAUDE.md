@@ -107,8 +107,6 @@ JSON ファイルも使わない。ファイルに置くのは**既定値と人�
 | `observations` | 生の記憶と埋め込み |
 | `obs_embeddings` | バイナリの埋め込みベクトル |
 | `situated_embeddings` | 人ごとの pgvector 埋め込み |
-| `episodes` / `episode_memories` | まとめた記憶エピソード |
-| `memory_salience` | 想起の顕著性追跡（撤去予定） |
 | `memory_events` / `memory_jobs` | 非同期ジョブキュー |
 | `persons` | 既知の人物レジストリ |
 | `timers` | タイマー（due・鳴った・止めた・一時停止・確かめて掛けた印・聞く）|
