@@ -116,13 +116,16 @@ capabilities:
       SBV2 reads kanji itself but needs a small table of corrections, and Gemini is
       given the line unchanged. Audio plays on the PC speaker and/or a camera
       speaker via go2rtc. VoiceGuard prevents TTS output from feeding back into STT.
-      Besides `say` (the reply), a second voice tool `filler` speaks a short opening
-      while the reply is still being worked out, so the person knows they were heard
-      and are not being ignored. The filler plays in the background: lookups and the
-      reply start at once instead of waiting for it to finish. It is kept apart from
-      `say` because a filler given as `say` reads as the reply already given. Fillers
-      already spoken are placed in the reply's conversation as the agent's own `filler`
-      calls, and words the reply repeats at its start are dropped before speaking.
+      While someone is kept waiting in a conversation, a short filler line tells them
+      they were heard and are not being ignored: only when the answer takes more than
+      5 seconds, then every 20 seconds, and never the same words twice. The filler
+      plays in the background, so lookups and the reply keep going, and the reply
+      waits until 1 second after the filler has finished. Besides `say` (the reply),
+      the reply may use a second voice tool `filler` for its opening; it is kept apart
+      from `say` because a filler given as `say` reads as the reply already given.
+      Fillers already spoken are placed in the reply's conversation as the agent's own
+      `filler` calls, and words the reply repeats at its start are dropped before
+      speaking.
       Implemented in `tools/tts.py`.
     enabled: true
   - id: appraisal_engine
