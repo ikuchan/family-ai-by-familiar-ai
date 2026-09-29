@@ -67,10 +67,9 @@ def test_auto_applies_migrations_on_first_connect() -> None:
         "obs_embeddings",
         "memory_events",
         "memory_jobs",
-        "episodes",
-        "episode_memories",
-        "memory_salience",
     }.issubset(tables)
+    # `episodes`・`episode_memories`・`memory_salience` は 072 で落とした（環-ab D）。
+    assert not {"episodes", "episode_memories", "memory_salience"} & tables
 
 
 def test_migrates_observations_has_all_columns() -> None:
