@@ -3037,6 +3037,10 @@ class InformationProcessing:
             # 文で頼んでいたが守られなかったので、機械で落とす。
             logger.info("event-loop つなぎが疑問文なので出さない：%.40s", text)
             return
+        if filler_echo.repeats(text, self._req.said_fillers):
+            # **同じつなぎは 2 度言わない**（出-aq 段 4）。もう一言伝えてあるので、黙っても無視には聞こえない。
+            logger.info("event-loop 言ったつなぎと同じなので出さない：%.40s", text)
+            return
         agent = self._agent
         # **声は待たずに鳴らす**（出-aq 段 1・2026-09-24）。つなぎは「時間がかかっている
         # あいだ、無視していないと伝える」ためにあるのに、再生の終わりまで待ってから戻って
