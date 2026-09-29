@@ -13,6 +13,11 @@ from .drive_dynamics import DriveFiring
 # 社会欲求＝在席が要る（不在なら起こさない）。内的欲求は在席に依らない。
 SOCIAL_DRIVES: frozenset[str] = frozenset({"bond", "esteem"})
 
+# 会話をしようとする軸（出-as §2.1・2026-09-26）。ほかの発火は行動だけで、返事の文は声に出さない。
+# 話しかけるときは独り言でなく「話しかけ」として渡す（出-at）。中身はいま `SOCIAL_DRIVES` と同じだが、
+# 決めごとが別（在席が要るか／声にするか）なので分けて持つ。
+TALKING_AXES: frozenset[str] = frozenset({"bond", "esteem"})
+
 _AXES: tuple[str, ...] = ("seeking", "rest", "bond", "safety", "esteem")
 
 

@@ -217,6 +217,7 @@ class Iteration:
             researched=ip._researched(),
             w_count=len(memories),
             origin=ip._req.trigger_kind,
+            talking=ip._talking(),
         )
         system = ip._build_system(
             present_ctx=self.present_ctx,

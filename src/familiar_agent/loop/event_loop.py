@@ -33,6 +33,7 @@ from .arbiter import Arbiter, ArbiterInput, Decision as ArbiterDecision
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION
 from ..io.dif import DIF
 from ..core import filler_echo, jev_judges, measure, parsing, unsaid
+from ..core.drive_autonomy import TALKING_AXES
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
@@ -91,8 +92,6 @@ _WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent")
 _MUSIC_ACTIONS = ("play_music", "stop_music", "next_track", "music_volume")
 
 _TIMER_ACTIONS = ("set_timer", "cancel_timer", "pause_timer", "resume_timer")
-# 情動のうち、会話をしようとする軸（出-as §2.1・2026-09-26）。ほかの発火は行動だけ。
-_TALKING_AXES = frozenset({"bond", "esteem"})
 # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物・別の道具（`agent._stopwatch_tool`）。
 _STOPWATCH_ACTIONS = ("start_stopwatch", "stop_stopwatch")
 # アラーム（知-q・2026-09-18）。タイマーとは別物・別の道具（`agent._alarm_tool`）。
@@ -2686,7 +2685,12 @@ class InformationProcessing:
             timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
             current_speaker=self._current_speaker_name(),
             silenced=bool(silence_note),
+            talking=self._talking(),
         )
+
+    def _talking(self) -> bool:
+        """情動が話しかける軸（bond・esteem）で起きた求めか（出-at）。"""
+        return self._req.trigger_kind == "情動" and self._req.fired_axis in TALKING_AXES
 
     async def _say_waiting_filler(self, utterance: str, workspace_ctx: str, chain: int) -> str:
         """「まだかかっている」で起きた反復：**分岐は決めず、つなぎだけ言って閉じない**（出-aq 段 6）。
@@ -3034,7 +3038,7 @@ class InformationProcessing:
         """
         if not text:
             return "", "沈黙"
-        if self._req.trigger_kind == "情動" and self._req.fired_axis not in _TALKING_AXES:
+        if self._req.trigger_kind == "情動" and self._req.fired_axis not in TALKING_AXES:
             # **会話をしようとするのは BOND と ESTEEM だけ**（出-as §2.1・本人の決定）。見回る・探すなどの
             # 発火は行動だけで、返事の文は声に出さない（声にしなかっただけの独り言として残る）。
             logger.info("event-loop %s の発火なので話しかけない：%.40s", self._req.fired_axis, text)

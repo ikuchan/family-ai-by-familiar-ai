@@ -37,9 +37,17 @@ class ReplyBudget:
     max_tokens: int  # API の出力上限
 
     soliloquy: bool = False  # 情動が起点（独り言）。誰にも向けない・言わなくてもよい
+    talking: bool = False  # 情動のうち話しかける軸（bond・esteem・出-at）。独り言より先に見る
 
     def line(self) -> str:
         """主LLM へ渡す 1 行。"""
+        if self.talking:
+            # 声にする情動は bond・esteem だけ（出-as）。「誰にも向けない」と内声の「声をかける」が
+            # 食い違っていたうえ、話しかけ方がどこにも無かった（出-at・本人の決定イ）。
+            return (
+                f"[話しかけ] 目標 {self.target} 字・{self.limit} 字以内"
+                "（相手が驚かないよう丁寧に、短く。まず話してよいかを尋ねる一言にする）"
+            )
         if self.soliloquy:
             return (
                 f"[独り言] 目標 {self.target} 字・{self.limit} 字以内"
@@ -55,12 +63,15 @@ class ReplyBudget:
         )
 
 
-def decide(*, effort: str, researched: bool, w_count: int, origin: str = "発話") -> ReplyBudget:
+def decide(
+    *, effort: str, researched: bool, w_count: int, origin: str = "発話", talking: bool = False
+) -> ReplyBudget:
     """長さと `max_tokens` を決める。
 
     - `effort`：調停が決めた思考の深さ（low／medium／high。知らない値は low）
     - `researched`：この求めで `search_deferred`／`fetch_deferred` を投げたか
     - `w_count`：W に載った記憶の件数（申告 1 件ずつぶんのトークン）
+    - `talking`：情動が話しかける軸で起きたか（`TALKING_AXES`・出-at）。字数は独り言と同じ
     """
     effort = effort if effort in _THINKING else "low"
     if origin == "情動":
@@ -75,5 +86,9 @@ def decide(*, effort: str, researched: bool, w_count: int, origin: str = "発話
         limit * _TOKENS_PER_CHAR + (w_count * _PER_VERDICT + _SAY_OVERHEAD) + _THINKING[effort]
     )
     return ReplyBudget(
-        target=target, limit=limit, max_tokens=max_tokens, soliloquy=origin == "情動"
+        target=target,
+        limit=limit,
+        max_tokens=max_tokens,
+        soliloquy=origin == "情動",
+        talking=origin == "情動" and talking,
     )
