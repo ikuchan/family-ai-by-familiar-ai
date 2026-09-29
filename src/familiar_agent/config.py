@@ -617,6 +617,11 @@ class AgentConfig:
     wait_filler_repeat_seconds: float = field(
         default_factory=lambda: _float_env("WAIT_FILLER_REPEAT_SECONDS", 20.0)
     )
+    # つなぎの声が鳴り終わってから、答えを声にするまでの間（秒）。つなぎの直後に答えが始まると、つなぎの
+    # 意味が無くなる（出-aq 段 5）。数え始めは鳴り終わったとき、1 秒は本人の決定（2026-09-29）。
+    filler_answer_gap_seconds: float = field(
+        default_factory=lambda: _float_env("FILLER_ANSWER_GAP_SECONDS", 1.0)
+    )
     # 調停（軽量LLM）の時間切れ。届かなければフルへ倒す。普通の会話は 0.93〜1.10 秒だが、
     # 「黙って」と頼まれたときは **4.18 秒**かかると実測した（判断が重い）。2.0 秒では
     # 届かず、沈黙依頼が読まれないまま素通りしていた。0.8 秒の余裕を見て 5.0 とする。
