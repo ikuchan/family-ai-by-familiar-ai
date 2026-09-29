@@ -54,6 +54,12 @@ class Iteration:
             return await self.ip._act_on_decision(decided, utterance=self.utterance, gen=self.gen)
         self._count()
         await self._recall()
+        if (
+            self.ip._slow_notice_received
+        ):  # 待ちの一言だけ言って閉じない（分岐は決めない・出-aq 段 6）
+            return await self.ip._say_waiting_filler(
+                self.utterance, self.ws.for_arbiter, self.chain
+            )
         self._cap()
         await self._decide()
         closed = await self._close_early()
@@ -113,6 +119,8 @@ class Iteration:
         _log_recall_weights(trigger, w_base, self.weights, self.ws.memories)
         ip._returned_now = self.ws.returned_actions  # 声の選び方が読む（環-u）
         ip._req.just_returned.clear()  # 「いま道具から返った」はこの反復の W にだけ載せる
+        if ip._slow_notice_received:
+            return  # 待ちの一言だけの反復は、続き先を判定しない（出-aq 段 6）
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、実測 0.72 秒
         # （`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む直前で、そこは待つ。
         self.follows_task = asyncio.ensure_future(
@@ -166,15 +174,6 @@ class Iteration:
         ip, decision, memories = self.ip, self.decision, self.ws.memories
         if self.gen != ip._request_generation:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（調停後）")
-            return ""
-        # 「まだかかっている」で起きた反復は、**つなぎだけ出して閉じない**。求めは調査待ちのまま
-        # 続く。ここで light を選ばせると、あとから届く結果に行き場が無くなる（案ハ）。
-        if ip._slow_notice_received:
-            ip._slow_notice_received = False
-            await ip._say_filler(decision.text)
-            logger.info(
-                "event-loop 反復 %d/%d 出力=つなぎ（調べもの待ち）", self.chain, self.max_chain
-            )
             return ""
         # (a') 情動の求めで調停が「黙る」（light・text 空）と決めた：沈黙で閉じる（出-w）。
         if decision.branch == "light" and not decision.text and ip._req.trigger_kind == "情動":

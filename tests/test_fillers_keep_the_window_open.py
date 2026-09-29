@@ -3,7 +3,7 @@
 窓は 30 秒。調べものか主LLM を待つあいだに窓が切れると、出来上がった答えは独り言になって消える。
 **会話の求めでは**、待たせている時間が 5 秒（`lookup_slow_seconds`）を超えたら 1 回、その後は 20 秒
 （`wait_filler_repeat_seconds`）ごとに「進捗」を積み、つなぎを出す（つなぎは窓を延ばす）。主LLM の待ちにも付ける。
-情動と機器の求めは、いまのまま調べものが遅いときに 1 回だけ（「ちょっと待ってね」と言い出さないため）。
+情動と機器の求めには見張りを立てない（出-aq 段 6・つなぎは会話の求めだけ。待たせている相手が居ない）。
 
 - 見張りは**求めごとに 1 本**。求めが閉じる・打ち切られると止まる。
 - 「進捗」で起きた反復は反復の上限に数えない（数えると繰り返しで上限に届き、答える前に打ち切りになる）。
@@ -63,9 +63,11 @@ def test_the_main_llm_wait_is_watched_in_a_conversation():
     assert _progress_count(ip, run_for=0.06) >= 2
 
 
-def test_affect_hears_progress_only_once_and_only_for_lookups():
-    assert _progress_count(_ip("情動", "search_deferred"), run_for=0.1) == 1
-    assert _progress_count(_ip("情動", "主LLM"), run_for=0.1) == 0
+def test_affect_and_devices_hear_no_progress():
+    # 以前は情動の調べものが遅いと 1 回積んだ。つなぎを会話の求めだけにしたので、積まない（出-aq 段 6）。
+    for kind in ("情動", "機器"):
+        assert _progress_count(_ip(kind, "search_deferred"), run_for=0.1) == 0
+        assert _progress_count(_ip(kind, "主LLM"), run_for=0.1) == 0
 
 
 def test_nothing_in_flight_means_no_progress():

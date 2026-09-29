@@ -675,6 +675,16 @@ class Arbiter:
         )
         return decision if decision is not None else _FALLBACK
 
+    async def write_filler(self, inp: ArbiterInput, waiting: str) -> str:
+        """待たせているあいだの一言だけを書かせる（出-aq 段 6）。**分岐は決めない**——つなぎを出すのは
+        待たせている事実であって、Jev の分岐ではない。以前は分岐しだいで、light なら返事（内容に触れる）を
+        言い、full で深さが low なら何も書かれず黙った。書けなければ空（黙る）。`trash` は読み捨てる。
+        """
+        texts = await _writer_call(
+            self, inp, {"decided": f"待ってもらう一言を言う（{waiting}）"}, ["filler", "trash"]
+        )
+        return str((texts or {}).get("filler", "")).strip()
+
     async def _write(self, inp: ArbiterInput, data: dict) -> "dict | None":
         """要るものだけを軽量LLM に 1 回で書かせる（出-au 段 5-7c）。何も要らなければ呼ばずに空。"""
         needs = _writer_needs(inp, data)
@@ -846,7 +856,9 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         lead, heading = _LEAD_DEVICE, _HEADING_DEVICE
     else:
         lead, heading = _LEAD_REPLY, _HEADING_REPLY
-    decided = str(data.get("branch"))
+    decided = str(
+        data.get("decided") or data.get("branch")
+    )  # 待ちの一言は分岐を持たない（出-aq 段 6）
     if data.get("branch") == "action":
         decided += f"（{data.get('action')}：{_action_note(str(data.get('action')))}）"
     fields = "\n".join(
