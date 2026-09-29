@@ -1,5 +1,8 @@
 """概念5「顕著性」（salience・記号 s）への改名。
 
+（表 `memory_salience` は、読み書きする口が無くなったので 072 で落とした・環-ab D。表と列の名前の試験は外し、
+旧名がソースに残っていないことだけを見る。）
+
 W を DB へ溜めていた旧方式のテーブルである。`source='working_memory'` で毎回消して
 入れ直す形で、`memory.py` のコメントが「W は O からの派生ビューで毎ターン作り直すので、
 このテーブルに溜める形自体が変わる」と撤去予定を明記している。
@@ -45,20 +48,6 @@ def _columns(table: str) -> set[str]:
         cols = {r[0] for r in cur.fetchall()}
     conn.close()
     return cols
-
-
-def test_table_is_renamed() -> None:
-    """表は `memory_salience`。旧名は残っていない。"""
-    tables = _tables()
-    assert "memory_salience" in tables, "memory_salience が無い（マイグレーション未適用）"
-    assert "memory_activation" not in tables, "旧表 memory_activation が残っている"
-
-
-def test_column_is_renamed() -> None:
-    """列は `salience`。旧名は残っていない。"""
-    cols = _columns("memory_salience")
-    assert "salience" in cols, "salience 列が無い"
-    assert "activation" not in cols, "旧列 activation が残っている"
 
 
 def test_old_names_are_gone_from_source() -> None:
