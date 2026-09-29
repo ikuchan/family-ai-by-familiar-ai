@@ -58,16 +58,15 @@ def test_the_filler_is_written_as_an_observation():
 
 def test_the_filler_joins_the_exchange_in_order():
     """つなぎはやりとりの項に入る。一つのターンで何度出ても、その順に並ぶ。"""
-    # 発話と動作が一緒に来たら、発話はつなぎとして出る（`event_loop.py:1393`）。
+    # 主LLM がつなぎと返事を一緒に返したら、つなぎを先に鳴らす（出-aq 段 2）。
     a = _agent(
         stream_returns=[
             _turn(
                 [
-                    ToolCall(id="s0", name="say", input={"text": "調べてみるね"}),
-                    ToolCall(id="r", name="recall", input={"query": "昨日の天気"}),
+                    ToolCall(id="f", name="filler", input={"text": "えっとね"}),
+                    ToolCall(id="s", name="say", input={"text": "晴れてたよ"}),
                 ]
             ),
-            _turn([ToolCall(id="s", name="say", input={"text": "晴れてたよ"})]),
         ]
     )
     from tests.test_event_loop import _exchange_members, _run_chain

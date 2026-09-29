@@ -2756,10 +2756,8 @@ class InformationProcessing:
         filler_tc = next((tc for tc in decision.result.tool_calls if tc.name == "filler"), None)
 
         if lookup_tc is not None:
-            # つなぎ＋調べもの（口 3）。`say`＋調べものが来たときも、いままでどおりつなぎに回す。
-            lead = filler_tc or say_tc
-            if lead is not None:
-                await self._say_filler(str(lead.input.get("text", "")).strip())
+            # 調べものと一緒の `filler`・`say` は声にしない（出-aq 段 7）。待たせる間は待ちの知らせが受け、
+            # 5 秒を超えたときだけ一言言う。速く返れば、つなぎ無しで答える。
             if lookup_tc.name in _CAMERA_ACTIONS:
                 self._req.see_by = "主LLM"
             self._start_lookup(
@@ -3204,10 +3202,9 @@ class InformationProcessing:
     async def _dispatch_arbiter_action(self, decision, *, utterance: str) -> None:
         """調停が選んだ調べもの（see・look・recall・検索・道具）を投げる。
 
-        つなぎの一言はここで即出す（フルLLM を経由しないぶん速い・正本③ 段5 の内部二段）。
+        投げる前につなぎは言わない（出-aq 段 7）。答えまで 5 秒かかったときだけ、待ちの知らせが言う。
         `see`・`look` は帰りの判断も調停がするので、誰が出したかを控える（`_decide`）。
         """
-        await self._say_filler(decision.text)
         tool_input = _tool_input_of(decision)
         if decision.action == "look":
             tool_input = self._fill_look_target(tool_input)

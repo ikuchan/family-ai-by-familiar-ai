@@ -206,18 +206,9 @@ class Iteration:
         return None
 
     async def _throw_main_llm(self) -> str:
-        """(b) 軽量つなぎ→フル（正本③ 段5 の内部二段）。1 つの work の内部二段で、1反復1出力は保たれる。"""
+        """(b) 主LLM を投げる。前につなぎは挟まない——待たせたら待ちの知らせが言う（出-aq 段 7）。"""
         ip, agent, decision, ws = self.ip, self.agent, self.decision, self.ws
         memories, workspace_ctx, w_id_map = ws.memories, ws.for_main, ws.id_map
-        # effort=low は実測 0.8〜3.6 秒で返るので挟まない。**材料が届いた反復でも挟まない**（`drained`）。
-        # 実機では、検索結果が届いた1秒後に「うん、任せてね！」が出て、口調がそこだけ割れた。
-        if (
-            decision.branch == "full"
-            and decision.text
-            and decision.effort != "low"
-            and not self.drained
-        ):
-            await ip._say_filler(decision.text)
         # 判定は辺を書くだけで W は変えない（記-h）。結末は計測ログへ（記-i）。
         await ip._note_follows(workspace_ctx, self.utterance or "", w_id_map, self.follows_task)
         # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。

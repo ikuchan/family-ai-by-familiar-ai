@@ -28,7 +28,6 @@ from unittest.mock import MagicMock
 
 from familiar_agent.backends import ToolCall
 from tests.test_event_loop import _WAIT_TICKS, _agent, _turn
-from tests._arbiter_fakes import jev_says, writer_says
 
 from familiar_agent.loop.event_loop import InformationProcessing
 
@@ -62,16 +61,21 @@ def test_answer_is_reported_as_a_say_action():
 
 def test_filler_is_reported_as_a_say_action_too():
     # つなぎも発話なので、同じ経路で画面に出す。出さないと、調べているあいだ GUI が
-    # 無反応に見える。
-    a = _agent(
-        stream_returns=[
-            _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),
-            _turn([ToolCall(id="s", name="say", input={"text": "はい"})]),
-        ]
-    )
-    a._jev = jev_says("action", action="recall")
-    a._utility_backend = writer_says({"filler": "調べてみますね", "query": "q"})
-    actions = _run_with_action(a, "調べて")
+    # 無反応に見える。つなぎは待ちの知らせが言う（出-aq 段 6・7）ので、その口を直接呼ぶ。
+    import time
+
+    a = _agent(stream_returns=[])
+    actions: list[tuple[str, dict]] = []
+
+    async def scenario():
+        ip = InformationProcessing(a)
+        ip._wake_window().open(time.monotonic())  # 入口を通った会話（出-as 段 4）
+        ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
+        ip.set_output(lambda _t: None, on_action=lambda n, i: actions.append((n, i)))
+        await ip._say_filler("調べてみますね")
+        await ip.close()
+
+    asyncio.run(scenario())
     assert ("say", {"text": "調べてみますね"}) in actions
 
 

@@ -109,8 +109,8 @@ def test_plain_text_is_shown_but_not_spoken():
 # ── 併記と上限 ─────────────────────────────────────────────────────────────
 
 
-def test_a_say_alongside_a_tool_becomes_a_filler():
-    """発話と動作が一緒に来たら、発話はつなぎとして出し、出力は動作とする。"""
+def test_a_say_alongside_a_tool_is_not_spoken():
+    """発話と動作が一緒に来たら、出力は動作とし、発話は声にしない（出-aq 段 7・待ちは待ちの知らせが受ける）。"""
     ip, _a = _ip()
     _run(
         ip,
@@ -118,7 +118,7 @@ def test_a_say_alongside_a_tool_becomes_a_filler():
             ToolCall("s", "say", {"text": "調べるね"}), ToolCall("t", "recall", {"query": "昨日"})
         ),
     )
-    ip._say_filler.assert_awaited_once_with("調べるね")
+    ip._say_filler.assert_not_awaited()
     ip._start_lookup.assert_called_once()
 
 

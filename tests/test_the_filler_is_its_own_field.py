@@ -103,16 +103,25 @@ def _asked_for(data: dict) -> str:
 
 
 def test_a_filler_is_asked_for_with_a_place_to_throw_away():
-    """つなぎを書かせるときは、言いたいことの行き先（`trash`）も並べる。無いと用件がつなぎへ流れる。"""
-    asked = _asked_for({"branch": "full", "effort": "medium"})
+    """つなぎを書かせるときは、言いたいことの行き先（`trash`）も並べる。無いと用件がつなぎへ流れる。
+
+    つなぎを書かせるのは待ちの知らせの口（`write_filler`）だけ（出-aq 段 6・7）。
+    """
+    w = MagicMock()
+    w.complete = AsyncMock(return_value='{"filler": "うん"}')
+    inp = ArbiterInput(utterance="こんにちは", workspace_ctx="（なし）")
+    asyncio.run(
+        Arbiter(jev=None, writer=w, timeout=2.0).write_filler(inp, "いまは返事を考えている最中")
+    )
+    asked = w.complete.await_args.args[0]
     assert '"filler"' in asked
     assert '"trash"' in asked
     assert '"text"' not in asked
 
 
-def test_an_action_filler_also_gets_the_place_to_throw_away():
+def test_an_action_asks_for_no_filler():
     asked = _asked_for({"branch": "action", "action": "search_deferred"})
-    assert '"filler"' in asked and '"trash"' in asked
+    assert '"filler"' not in asked and '"trash"' not in asked
 
 
 def test_a_light_reply_has_no_place_to_throw_away():

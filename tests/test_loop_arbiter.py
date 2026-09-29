@@ -51,15 +51,16 @@ def test_action_branch_carries_the_query():
     assert d.query == "昨日の天気"
 
 
-def test_action_branch_can_carry_a_filler_and_a_tool_name():
-    # どの動作で調べるかは Jev が選び（記憶を探すのと外を調べるのは別）、探す語とつなぎは軽量LLM が書く。
+def test_action_branch_carries_a_tool_name_and_no_filler():
+    # どの動作で調べるかは Jev が選び（記憶を探すのと外を調べるのは別）、探す語は軽量LLM が書く。
+    # つなぎは書かせない——書いてきても受け取らない（出-aq 段 7・待ちの知らせだけが言う）。
     d = _call(
         jev_says("action", action="search_deferred"),
         {"query": "今日の天気", "filler": "調べてみるね"},
     )
     assert d.branch == "action"
     assert d.action == "search_deferred"
-    assert d.text == "調べてみるね"
+    assert d.text == ""
 
 
 def test_action_defaults_to_recall_when_no_tool_is_named():
@@ -163,14 +164,20 @@ def test_filler_examples_do_not_fix_the_register():
 
 
 def _rendered_reply_prompt() -> str:
-    """人の発話が起点のとき、軽量LLM に実際に渡る文面（分岐の説明は起点で差し替わる・情-e）。"""
-    # full でも深さが low なら軽量LLM は呼ばれない（出-au 段 5-7c）。つなぎを書かせる medium で見る。
-    _, b = _run(jev_says("full", effort="medium"), {"filler": "うん"}, utterance="x", origin="発話")
-    return _prompt_of(b)
+    """人の発話が起点のとき、軽量LLM につなぎを書かせる文面（分岐の説明は起点で差し替わる・情-e）。
+
+    つなぎを書かせるのは待ちの知らせの口（`write_filler`）だけ（出-aq 段 6・7）。
+    """
+    w = writer_says({"filler": "うん"})
+    inp = ArbiterInput(utterance="x", workspace_ctx="", origin="発話")
+    asyncio.run(
+        Arbiter(jev=None, writer=w, timeout=2.0).write_filler(inp, "いまは返事を考えている最中")
+    )
+    return _prompt_of(w)
 
 
-def test_full_branch_also_writes_a_filler_that_avoids_committing_to_content():
-    # full のつなぎは答えの前に置かれるので、中身を先取りすると本応答と食い違う。
+def test_the_filler_is_written_to_avoid_committing_to_content():
+    # つなぎは答えの前に置かれるので、中身を先取りすると本応答と食い違う。
     assert "内容に触れない" in _rendered_reply_prompt()
 
 
