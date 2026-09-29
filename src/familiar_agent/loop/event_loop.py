@@ -1084,6 +1084,8 @@ class InformationProcessing:
 
     def _ensure_wait_watch(self) -> None:
         """待たせている時間の見張りを、**求めごとに 1 本**立てる（出-au 段 2）。立っていれば何もしない。"""
+        if self._req.trigger_kind != "発話":
+            return  # つなぎは会話の求めだけ（出-aq 段 6）。情動と機器は待たせる相手が居ない
         watch = self.__dict__.get("_wait_watch")
         if watch is not None and not watch.done():
             return
@@ -1099,40 +1101,33 @@ class InformationProcessing:
             watch.cancel()
         self._wait_watch = None
 
-    def _waiting_on(self, *, conversation: bool) -> "list[Lookup]":
-        """待たせているもの。会話の求めは主LLM も数え、情動と機器の求めは調べものだけを数える。"""
-        return [
-            lk
-            for lk in self._req.lookups
-            if lk.in_flight and (conversation or lk.action != "主LLM")
-        ]
+    def _waiting_on(self) -> "list[Lookup]":
+        """待たせているもの（調べものと主LLM）。見張りは会話の求めにだけ立つ（出-aq 段 6）。"""
+        return [lk for lk in self._req.lookups if lk.in_flight]
 
     async def _watch_waiting(self, gen: int) -> None:
         """待たせている時間が長いとき、「まだかかっている」（`進捗`）を積む（案G-3・出-au 段 2）。
 
-        最初は `lookup_slow_seconds`（5 秒）。**会話の求めでは**その後も `wait_filler_repeat_seconds`（20 秒）ごとに
-        繰り返し、主LLM の待ちも数える——窓（30 秒）が切れて、出来上がった答えが独り言になるのを防ぐ
-        （`設計方針_判定の段` §2.3）。情動と機器の求めは調べものが遅いときに 1 回だけ（いままでどおり）。
-        時計で定期的に起こすのではなく、**待たせているという事実**が続くあいだだけ起こす。
+        最初は `lookup_slow_seconds`（5 秒）、その後は `wait_filler_repeat_seconds`（20 秒）ごとに繰り返し、
+        主LLM の待ちも数える——窓（30 秒）が切れて、出来上がった答えが独り言になるのを防ぐ（`設計方針_判定の段`
+        §2.3）。**会話の求めだけ**（出-aq 段 6）。時計で定期的に起こすのではなく、**待たせているという事実**が
+        続くあいだだけ起こす。
         """
         cfg = self._agent.config
         delay = float(getattr(cfg, "lookup_slow_seconds", 5.0))
         every = float(getattr(cfg, "wait_filler_repeat_seconds", 20.0))
-        conversation = self._req.trigger_kind == "発話"
         with contextlib.suppress(asyncio.CancelledError):
             while True:
                 await asyncio.sleep(delay)
                 if gen != self._request_generation:
                     return  # 打ち切られた求めの見張り
-                waiting = self._waiting_on(conversation=conversation)
+                waiting = self._waiting_on()
                 if not waiting:
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
                 logger.info(
                     "event-loop 待たせている時間が %.0f 秒を超えた：%.40s", delay, waiting[0].query
                 )
                 self._triggers.put_nowait(Trigger(kind="進捗", query=waiting[0].query))
-                if not conversation:
-                    return
                 delay = every
 
     def _dispatch_main_llm(
@@ -2618,9 +2613,6 @@ class InformationProcessing:
         渡す**（v0.46）。即席のラベル（YOLO）はこの部屋で `bench` 1 語になり、材料不足で毎回
         full へ倒れた（実機）。写真があれば `light` で「机と椅子が見えます」と答えられる。
         """
-        from ..capability_state import load_summary
-
-        agent = self._agent
         if self._see_returned:
             self._see_returned = False
             if self._req.see_by == "主LLM":
@@ -2632,32 +2624,14 @@ class InformationProcessing:
         # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない。
         logger.debug("event-loop 調停へ渡す W:\n%s", workspace_ctx)
         # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
-        silence_note = self._silence_note()
-        decision = await Arbiter(
-            jev=getattr(agent, "_jev", None),
-            writer=agent._utility_backend,
-            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
-        ).decide(
-            ArbiterInput(
+        decision = await self._arbiter().decide(
+            self._arbiter_input(
                 utterance=utterance,
                 workspace_ctx=workspace_ctx,
-                self_understanding=load_summary() or getattr(agent, "_me_md", ""),
-                family_md=getattr(agent, "_family_md", ""),
-                self_image=_self_image_text(),
-                season_env=_season_env_text(),
                 present_ctx=present_ctx,
-                now_ctx=f'(now :datetime "{clock.now_local_str()}")'
-                + silence_note
-                + (self._patrol_note() if self._req.trigger_kind == "情動" else ""),
                 capped=capped,
-                thinking_round=round_,
-                can_see=getattr(agent, "_camera", None) is not None,
-                origin=self._req.trigger_kind,
-                extra_actions=self._extra_actions(exclude=returned),
-                tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
-                timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
-                current_speaker=self._current_speaker_name(),
-                silenced=bool(silence_note),
+                round_=round_,
+                returned=returned,
             )
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
@@ -2668,6 +2642,76 @@ class InformationProcessing:
             decision.action if decision.branch == "action" else "-",
         )
         return decision
+
+    def _arbiter(self) -> Arbiter:
+        agent = self._agent
+        return Arbiter(
+            jev=getattr(agent, "_jev", None),
+            writer=agent._utility_backend,
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+        )
+
+    def _arbiter_input(
+        self,
+        *,
+        utterance: str,
+        workspace_ctx: str,
+        present_ctx: str,
+        capped: bool = False,
+        round_: int = 1,
+        returned: frozenset[str] = frozenset(),
+    ) -> ArbiterInput:
+        """調停へ渡す材料。判定（`_decide`）と待ちの一言（`_say_waiting_filler`）が同じものを見る。"""
+        from ..capability_state import load_summary
+
+        agent = self._agent
+        silence_note = self._silence_note()
+        return ArbiterInput(
+            utterance=utterance,
+            workspace_ctx=workspace_ctx,
+            self_understanding=load_summary() or getattr(agent, "_me_md", ""),
+            family_md=getattr(agent, "_family_md", ""),
+            self_image=_self_image_text(),
+            season_env=_season_env_text(),
+            present_ctx=present_ctx,
+            now_ctx=f'(now :datetime "{clock.now_local_str()}")'
+            + silence_note
+            + (self._patrol_note() if self._req.trigger_kind == "情動" else ""),
+            capped=capped,
+            thinking_round=round_,
+            can_see=getattr(agent, "_camera", None) is not None,
+            origin=self._req.trigger_kind,
+            extra_actions=self._extra_actions(exclude=returned),
+            tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
+            timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
+            current_speaker=self._current_speaker_name(),
+            silenced=bool(silence_note),
+        )
+
+    async def _say_waiting_filler(self, utterance: str, workspace_ctx: str, chain: int) -> str:
+        """「まだかかっている」で起きた反復：**分岐は決めず、つなぎだけ言って閉じない**（出-aq 段 6）。
+
+        求めは待ったまま続く。ここで light を選ばせると、あとから届く結果に行き場が無くなる（案ハ）。
+        以前はつなぎ 1 つのために調停をまるごと回し、Jev の分岐しだいで返事を言ったり黙ったりした。
+        つなぎを出すのは待たせている事実なので、待っているものだけを伝えて軽量LLM に書かせる。
+        """
+        self._slow_notice_received = False
+        waiting = self._waiting_on()
+        if not waiting:
+            return ""  # 答えがもう届いている
+        what = (
+            "いまは返事を考えている最中"
+            if all(lk.action == "主LLM" for lk in waiting)
+            else "いまは調べものの答えを待っている最中"
+        )
+        inp = self._arbiter_input(
+            utterance=utterance or self._req.cue,
+            workspace_ctx=workspace_ctx,
+            present_ctx=_present_ctx(self._agent),
+        )
+        await self._say_filler(await self._arbiter().write_filler(inp, what))
+        logger.info("event-loop 反復 %d 出力=つなぎ（待たせている）", chain)
+        return ""
 
     async def _act_on_decision(self, decision: Decision, *, utterance: str, gen: int) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
