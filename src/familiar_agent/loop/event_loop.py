@@ -2268,6 +2268,23 @@ class InformationProcessing:
             **perspective,
         )
 
+    async def _judge_companion(self, utterance: str) -> str:
+        """相手の言葉から相手の気分を見立てる（出-av）。会話の求めだけで、情動と機器は見立てない。
+
+        判定は Jev（`Evaluator.infer_companion_mood`・出-au 段 5-6）。落ちても主LLM は止めない——
+        分からない（`absent`）として、何も置かない。
+        """
+        if self._req.trigger_kind != "発話" or not utterance:
+            return "absent"
+        try:
+            mood = await self._agent._evaluator.infer_companion_mood(utterance)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 相手の気分を見立てられなかった", exc_info=True)
+            return "absent"
+        return mood if isinstance(mood, str) else "absent"
+
     async def _music_now(self) -> str:
         """鳴っているあいだの様子を読んで曲送りを記録し（知-aa 段 2）、`[音楽]` の枠を返す。鳴っていなければ空。
 

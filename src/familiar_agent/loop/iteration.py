@@ -13,7 +13,7 @@ import logging
 from ..config import MemoryConfig
 from ..person_memory_manager import AGENT_SELF_ID
 from . import reply_budget, workspace
-from .generator import _iter_ctx, _present_ctx
+from .generator import _companion_ctx, _iter_ctx, _present_ctx
 
 logger = logging.getLogger(
     "familiar_agent.loop.event_loop"
@@ -209,8 +209,12 @@ class Iteration:
         """(b) 主LLM を投げる。前につなぎは挟まない——待たせたら待ちの知らせが言う（出-aq 段 7）。"""
         ip, agent, decision, ws = self.ip, self.agent, self.decision, self.ws
         memories, workspace_ctx, w_id_map = ws.memories, ws.for_main, ws.id_map
+        mood = asyncio.ensure_future(
+            ip._judge_companion(self.utterance or "")
+        )  # 相手の気分（出-av）
         # 判定は辺を書くだけで W は変えない（記-h）。結末は計測ログへ（記-i）。
         await ip._note_follows(workspace_ctx, self.utterance or "", w_id_map, self.follows_task)
+        companion = _companion_ctx(await mood, ip._current_speaker_name())
         # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。
         budget = reply_budget.decide(
             effort=decision.effort,
@@ -220,7 +224,7 @@ class Iteration:
             talking=ip._talking(),
         )
         system = ip._build_system(
-            present_ctx=self.present_ctx,
+            present_ctx="\n".join(p for p in (self.present_ctx, companion) if p),
             workspace_ctx=workspace_ctx,
             iter_ctx=_iter_ctx(
                 chain=self.chain,
