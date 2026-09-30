@@ -231,6 +231,7 @@ class Iteration:
                 missing=ip._missing_tools(),
                 tone=ip._tone_note(),
             ),
+            music=await ip._music_now(),
         )
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す（空文字は API が受けない）。
         user_msg = agent.backend.make_user_message(

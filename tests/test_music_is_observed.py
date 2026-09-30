@@ -137,3 +137,50 @@ async def test_a_finished_playlist_is_not_announced_at_thirty_minutes(monkeypatc
     t._dif.record.assert_called_once_with("音楽", "音楽が止まった")
     t._dif.device.assert_not_called()
     assert t._agent._music_state.playing is False
+
+
+# ── 主LLM へ `[音楽]` の枠を渡す（段 2）──────────────────────────────────────
+
+
+def _agent_playing(status):
+    from familiar_agent.backends import ToolCall
+    from familiar_agent.tools.music import MusicTool
+    from tests.test_event_loop import _agent, _turn
+
+    a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "海へです"})])])
+    a._music_state = MusicState(playing=True, started_at=1.0)
+    a._music_tool = MusicTool(
+        io=_io(status), bus=MagicMock(), table=lambda: (), state=a._music_state
+    )
+    return a
+
+
+def test_the_main_llm_is_told_what_is_playing():
+    from tests.test_event_loop import _run
+
+    a = _agent_playing(PLAYING)
+    _run(a, utterance="パジュ、いま何の曲？")
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "[音楽] 海へ／ケイマン（音量 50%）" in system
+
+
+def test_no_music_frame_when_nothing_plays():
+    from tests.test_event_loop import _run
+
+    a = _agent_playing({"playing": False, "title": "", "artist": "", "volume": 0.5})
+    _run(a, utterance="パジュ、いま何の曲？")
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "[音楽]" not in system
+
+
+@pytest.mark.asyncio
+async def test_the_iteration_records_a_song_change_too():
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = _agent_playing(PLAYING)
+    ip = InformationProcessing(a)
+    ip.note_device = MagicMock()  # type: ignore[method-assign]
+    frame = await ip._music_now()
+    await ip.close()
+    assert frame.startswith("[音楽] 海へ")
+    ip.note_device.assert_called_once_with("音楽", "音楽：海へ／ケイマン")

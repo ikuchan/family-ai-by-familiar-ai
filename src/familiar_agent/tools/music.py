@@ -89,9 +89,9 @@ class MusicTool:
     def get_tool_definitions(self) -> list[dict]:
         return [dict(d) for d in TOOL_DEFINITIONS]
 
-    async def frame(self) -> str:
-        """`[音楽]` の枠。鳴っていなければ空。"""
-        s = await self._io.status(self._bus())
+    async def frame(self, status: "dict | None" = None) -> str:
+        """`[音楽]` の枠。鳴っていなければ空。読んだ様子（`status`）があればそれを使う（読み直さない）。"""
+        s = status if status is not None else await self._io.status(self._bus())
         if not s or not s.get("playing"):
             return ""
         title = s.get("title") or "曲"
