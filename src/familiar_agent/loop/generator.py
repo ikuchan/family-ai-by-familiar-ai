@@ -206,3 +206,24 @@ def _pi_ctx(req) -> str:
     except Exception as e:  # noqa: BLE001
         logger.debug("PI ctx unavailable: %s", e)
         return ""
+
+
+#: 相手の気分の見立て（`jev_judges.COMPANION_MOODS`）を、主LLM へ渡す言葉にする（出-av）。数字は渡さない。
+#: `absent`（分からない・Jev が使えない）は無い——何も置かない。
+_COMPANION_WORDS = {
+    "engaged": "乗り気で話している",
+    "happy": "うれしそう・楽しそう",
+    "tired": "疲れていそう",
+    "frustrated": "苛立っているか、困っていそう",
+}
+
+
+def _companion_ctx(mood: str, who: str) -> str:
+    """`[相手の様子]` の一行（出-av・本人の決定ア）。返事の調子を相手に合わせるために、在席の隣へ置く。
+
+    話者が分かればその名前で、分からなければ「相手」と書く。見立てが分からなければ空。
+    """
+    words = _COMPANION_WORDS.get(mood)
+    if not words:
+        return ""
+    return f"[相手の様子] {who or '相手'}は{words}"
