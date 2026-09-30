@@ -790,7 +790,7 @@ class InformationProcessing:
         return obs_id
 
     def _build_system(
-        self, *, present_ctx: str, workspace_ctx: str, iter_ctx: str
+        self, *, present_ctx: str, workspace_ctx: str, iter_ctx: str, music: str = ""
     ) -> "tuple[str, str]":
         """主LLM の system 文（安定部・可変部）を組む。材料の出所はここに集める。"""
         from ..capability_state import load_summary
@@ -806,6 +806,10 @@ class InformationProcessing:
         watches = _stopwatch_frame(agent)  # `[ストップウォッチ]` も（知-u）
         if watches:
             iter_ctx = (iter_ctx + "\n\n" + watches) if iter_ctx else watches
+        if (
+            music
+        ):  # `[音楽]` も（知-aa 段 2）。読むのは非同期なので、呼び手が `_music_now` で読んで渡す
+            iter_ctx = (iter_ctx + "\n\n" + music) if iter_ctx else music
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -2263,6 +2267,32 @@ class InformationProcessing:
             MI(id="", content=text[:500], timestamp=None, direction=kind),
             **perspective,
         )
+
+    async def _music_now(self) -> str:
+        """鳴っているあいだの様子を読んで曲送りを記録し（知-aa 段 2）、`[音楽]` の枠を返す。鳴っていなければ空。
+
+        読むのは T の見張りと同じ口（`music_watch.observe`）。主LLM が「いま何の曲？」に答えられるように。
+        """
+        agent = self._agent
+        tool = getattr(agent, "_music_tool", None)
+        state = getattr(agent, "_music_state", None)
+        if tool is None or state is None:
+            return ""
+        from .music_watch import observe
+
+        try:
+            status = await observe(
+                io=tool._io,
+                bus=tool._bus(),
+                state=state,
+                record=lambda text: self.note_device("音楽", text),
+            )
+            return await tool.frame(status) if status else ""
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 音楽の枠を組めなかった", exc_info=True)
+            return ""
 
     def note_device(self, kind: str, content: str) -> None:
         """T から（DIF 経由）：機器の出来事を記録だけする。書くのは非同期なので、タスクとして立てる。"""
