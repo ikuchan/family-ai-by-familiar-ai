@@ -66,3 +66,33 @@ async def duck_while_speaking(
             with contextlib.suppress(Exception):
                 await (sleep or asyncio.sleep)(RESTORE_AFTER_SEC)
                 await io.set_volume(bus, base)
+
+
+async def observe(*, io: Any, bus: Any, state: Any, record: Callable[[str], Any]) -> dict:
+    """鳴っているあいだの様子を読み、曲送りと鳴り終わりを記録する（知-aa 段 2）。いまの様子を返す。
+
+    MPRIS を読むのはここだけで、T の見張り（30 秒ごと）と反復が呼ぶ。黙って聴いているあいだの曲も
+    残す（本人の決定イ）。曲は最後に書いた曲名と違うときだけ書く。止まっていたら印を下ろし（声の入口の
+    門が開く）、声には出さずに記録する。**読めないときは何もしない**——機器は落ちる前提で、読めない
+    ことを「止まった」とは見ない。鳴らしていなければ読まない。
+    """
+    if not getattr(state, "playing", False):
+        return {}
+    try:
+        s = await io.status(bus)
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.warning("音楽：いまの様子を読めなかった", exc_info=True)
+        return {}
+    if not s or not s.get("playing"):
+        state.playing = False
+        logger.info("音楽：止まっていたので鳴っている印を下ろした")
+        record("音楽が止まった")
+        return s or {}
+    title = str(s.get("title") or "")
+    if title and title != getattr(state, "last_title", ""):
+        state.last_title = title
+        artist = str(s.get("artist") or "")
+        record(f"音楽：{title}／{artist}" if artist else f"音楽：{title}")
+    return s

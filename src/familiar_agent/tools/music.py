@@ -143,6 +143,7 @@ class MusicTool:
         self._state.playing = playing
         if playing:
             self._state.started_at = self._now()
+            self._state.last_title = ""  # かけ直しでも最初の曲を書く（知-aa 段 2）
 
     async def _volume(self, tool_input: dict) -> "tuple[str, bool]":
         how = str(tool_input.get("how") or "")
