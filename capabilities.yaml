@@ -136,10 +136,14 @@ capabilities:
   - id: appraisal_engine
     summary: Deterministically update affective state based on inputs
     detail: >
-      Affective state is updated each turn from the PAD values the utility LLM
-      returns for the incoming observation. The judging prompt and the parsing live
-      in `loop/evaluator.py`; the PAD dataclass, the label quantisation and the
-      mood register live in `emotion_pad.py` and `mood_register.py`.
+      Affective state is updated each turn from the pleasure, displeasure and
+      dominance that Jev (the judging model) scores for the incoming observation.
+      In a conversation, Jev also reads how the person seems from their words (keen,
+      happy, tired, or frustrated) and the reply is told "[相手の様子] パパは疲れていそう",
+      so it can match their mood; nothing is said when it cannot tell. The judging
+      lives in `loop/evaluator.py` and `core/jev_judges.py`; the PAD dataclass, the
+      label quantisation and the mood register live in `emotion_pad.py` and
+      `mood_register.py`.
     enabled: true
   - id: music
     summary: Play the family's Spotify playlists, say what is playing, and remember it
