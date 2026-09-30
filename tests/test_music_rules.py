@@ -86,3 +86,12 @@ def test_the_volume_ducks_to_a_quarter_and_comes_back():
     assert duck(0.8) == 0.2
     assert duck(0.0) == 0.0
     assert duck(1.0) == 0.25
+
+
+def test_a_named_voice_is_a_music_word_whatever_it_says():
+    """鳴っているあいだも、文頭に名前があれば何でも通す（2026-09-30・本人の決定ア）。"""
+    names = ["パジュ"]
+    assert is_music_word("パジュ、いま何の曲？", TABLE, names=names)
+    assert is_music_word("パジュ、3 分測って", TABLE, names=names)
+    assert not is_music_word("いま何の曲？", TABLE, names=names)
+    assert not is_music_word("3 分測って", TABLE, names=names)

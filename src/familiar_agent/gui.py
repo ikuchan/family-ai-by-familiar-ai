@@ -1846,6 +1846,8 @@ class FamiliarWindow(QMainWindow):
             ctrl.set_mic_gate(agent.mic_gate_reason)
         with contextlib.suppress(Exception):
             ctrl.set_music_table(agent._music_table)
+        with contextlib.suppress(Exception):  # 名前つきなら鳴っているあいだも通す（2026-09-30）
+            ctrl.set_agent_names(lambda: list(agent.config.agent_names or []))
 
     def _on_restart_stt_clicked(self) -> None:
         self._create_task(self._restart_realtime_stt(reason="manual"))
