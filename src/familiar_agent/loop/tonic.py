@@ -418,11 +418,22 @@ class Tonic:
             self._ip.check_silence_lifted()
 
     async def _check_music(self) -> None:
-        """30 分たっていたら止めて一言言う（知-aa）。鳴っていなければ何もしない。"""
+        """鳴っているあいだの様子を読んで記録し（知-aa 段 2）、30 分たっていたら止めて一言言う。
+
+        先に様子を読む。鳴り終わっていれば印が下りるので、30 分の一言は言わない（もう鳴っていない）。
+        記録は求めを立てない口（`DIF.record`）——曲が変わるたびに考え始めないように。
+        """
         tool = getattr(self._agent, "_music_tool", None)
         state = getattr(self._agent, "_music_state", None)
         if tool is None or state is None:
             return
+        with contextlib.suppress(Exception):
+            await music_watch.observe(
+                io=tool._io,
+                bus=tool._bus(),
+                state=state,
+                record=lambda text: self._dif.record("音楽", text),
+            )
         with contextlib.suppress(Exception):
             await music_watch.check_music_expired(
                 io=tool._io,
