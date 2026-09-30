@@ -394,6 +394,16 @@ def _timer_def(agent, name: str) -> list[dict]:
     return [d for d in tool.get_tool_definitions() if d.get("name") == name]
 
 
+def _family_and_people(agent) -> str:
+    """写真の読み取りへ渡す人の記述。家族に、家族以外で知っている人（`PEOPLE.md`・知-ab）を添える。
+
+    名前を言えるようにするだけで、見立てた人が家族以外なら人物表に無いので話者にはならない（`_apply_seen_people`）。
+    """
+    family = str(getattr(agent, "_family_md", "") or "")
+    people = str(getattr(agent, "_people_md", "") or "")
+    return family + ("\n\n[家族以外で知っている人]\n" + people if people.strip() else "")
+
+
 def _music_def(agent, name: str) -> list[dict]:
     """音楽の道具定義から 1 つだけ。器が無ければ空（知-aa）。"""
     tool = getattr(agent, "_music_tool", None)
@@ -813,6 +823,7 @@ class InformationProcessing:
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
+            people_md=str(getattr(agent, "_people_md", "") or ""),
             self_image=_self_image_text(),
             season_env=_season_env_text(),
             present_ctx=present_ctx,
@@ -1625,7 +1636,7 @@ class InformationProcessing:
         """
         agent = self._agent
         labels, people = await read_photo(
-            image_b64, agent._scene_backend, family_md=str(getattr(agent, "_family_md", "") or "")
+            image_b64, agent._scene_backend, family_md=_family_and_people(agent)
         )
         if not labels:
             labels = await self._quick_labels(image_path)
@@ -2717,6 +2728,7 @@ class InformationProcessing:
             workspace_ctx=workspace_ctx,
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
+            people_md=str(getattr(agent, "_people_md", "") or ""),
             self_image=_self_image_text(),
             season_env=_season_env_text(),
             present_ctx=present_ctx,

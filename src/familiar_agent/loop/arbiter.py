@@ -456,6 +456,7 @@ class ArbiterInput:
     tool_return: bool = False
     timer_active: bool = False
     family_md: str = ""
+    people_md: str = ""  # 家族以外で知っている人（`PEOPLE.md`・知-ab）
     current_speaker: str = ""
     silenced: bool = False
     self_understanding: str = ""
@@ -884,6 +885,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         stance=Stance.PAJU,
         self_understanding=inp.self_understanding or "（指定なし）",
         family=inp.family_md or "（指定なし）",
+        people=inp.people_md,
         self_image=inp.self_image,
         season_env=inp.season_env,
     ).stable
