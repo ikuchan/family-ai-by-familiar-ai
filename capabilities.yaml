@@ -21,8 +21,10 @@ capabilities:
   - id: wake_word
     summary: Listen only after being called by name, both to speech and to typed text
     detail: >
-      Input is taken as conversation only after the agent's name from ME.md appears
-      somewhere in it (one letter of difference allowed), whether spoken or typed.
+      Input is taken as conversation only after the agent's name from ME.md opens it:
+      the name must come first (spaces and punctuation before it are skipped, but words
+      such as "ねえ" or "あのさ" before it are not), with one letter of difference allowed,
+      whether spoken or typed. A name in the middle of a sentence does not count.
       Hearing the name opens a 30-second window; each accepted input, reply or filler
       extends it by 30 seconds. The window is judged by when the input arrived. Input
       outside the window is dropped without side effects: nothing in progress is
@@ -139,6 +141,21 @@ capabilities:
       in `loop/evaluator.py`; the PAD dataclass, the label quantisation and the
       mood register live in `emotion_pad.py` and `mood_register.py`.
     enabled: true
+  - id: music
+    summary: Play the family's Spotify playlists, say what is playing, and remember it
+    detail: >
+      `play_music` plays a playlist named in MUSIC.md ("パジュ、ケイマンかけて"), in order
+      or shuffled; `stop_music`, `next_track` and `music_volume` stop it, skip a song and
+      turn it up or down. It plays through spotifyd on this machine. While music plays,
+      only music words (stop, next, louder, softer, a playlist name) are heard, unless
+      the utterance starts with the agent's name, in which case anything is heard
+      ("パジュ、いま何の曲？"). The song now playing, its artist and the volume are shown
+      as [音楽] on every turn, so the agent can say what is playing. Each new song and
+      the moment the music stops (the playlist ended or it was stopped elsewhere) are
+      kept in memory, so it can later recall what was listened to. The music is turned
+      down to a quarter while the agent speaks, and stops by itself after 30 minutes.
+      Implemented in `tools/music.py`, `io/music.py` and `loop/music_watch.py`.
+    enabled_tool: play_music
   - id: mcp_client
     summary: Manage connections to external MCP servers
     detail: >
