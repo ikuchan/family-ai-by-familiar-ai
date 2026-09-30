@@ -58,6 +58,7 @@ def build_context(
     core: str = "",
     self_understanding: str = "",
     family: str = "",
+    people: str = "",
     self_image: str = "",
     season_env: str = "",
     now: str = "",
@@ -106,6 +107,8 @@ def build_context(
     for label, text in (
         ("[あなたは誰か]", self_understanding),
         ("[一緒に暮らす人たち]", family),
+        # 家族以外で知っている人（`PEOPLE.md`・知-ab）。知っているだけで、話者にも記憶の空間にもならない。
+        ("[家族以外で知っている人]", people),
     ):
         if text and text.strip():
             stable_parts.append(label + "\n" + text.strip())

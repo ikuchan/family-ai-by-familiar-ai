@@ -172,6 +172,8 @@ class EmbodiedAgent:
         self._stt: STTTool | None = None
         self._me_md: str = self._load_me_md()  # loaded once; restart to pick up changes
         self._family_md: str = self._load_family_md()  # loaded once; restart to pick up changes
+        # 家族以外で知っている人（知-ab・`PEOPLE.md`）。人物表には入れない（その人専用の記憶は溜めない・本人の決定ア）。
+        self._people_md: str = self._load_person_md("PEOPLE.md")
 
         # Auto-populate names from MD files when env vars are not explicitly set
         # 名前の正本は `ME.md`（「名前： …」）。env や設定画面からは与えない。
@@ -622,6 +624,7 @@ class EmbodiedAgent:
                 stance=stance,
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
+                people=getattr(self, "_people_md", "") if first_person else "",
             ).stable
         except ValueError as e:
             logger.warning("立ち位置を組めなかったので渡さずに続ける: %s", e)
@@ -904,11 +907,15 @@ class EmbodiedAgent:
 
     def _load_family_md(self) -> str:
         """Load FAMILY.md family-member descriptions if it exists."""
+        return self._load_person_md("FAMILY.md")
+
+    def _load_person_md(self, name: str) -> str:
+        """人が書く人物のファイル（`FAMILY.md`・`PEOPLE.md`）を読む。リポジトリ直下 → `~/.familiar_ai/` の順。無ければ空。"""
         from pathlib import Path
 
         candidates = [
-            Path("FAMILY.md"),
-            Path.home() / ".familiar_ai" / "FAMILY.md",
+            Path(name),
+            Path.home() / ".familiar_ai" / name,
         ]
         for path in candidates:
             if path.exists():
@@ -1432,9 +1439,11 @@ class EmbodiedAgent:
 
         old_me = self._me_md
         old_family = self._family_md
+        old_people = getattr(self, "_people_md", "")
 
         self._me_md = self._load_me_md()
         self._family_md = self._load_family_md()
+        self._people_md = self._load_person_md("PEOPLE.md")
 
         lines: list[str] = []
         lines.append("[リロード完了]")
@@ -1451,6 +1460,12 @@ class EmbodiedAgent:
             self._register_family_from_md()
         else:
             lines.append("• FAMILY.md 変更なし")
+        # 家族以外（知-ab）は人物表に入れないので、読み直すだけ。
+        lines.append(
+            "• PEOPLE.md を更新しました"
+            if self._people_md != old_people
+            else "• PEOPLE.md 変更なし"
+        )
         lines.append("次のターンから新しい内容が反映されます。")
         return "\n".join(lines)
 

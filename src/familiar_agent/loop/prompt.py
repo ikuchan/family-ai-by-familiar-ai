@@ -188,6 +188,7 @@ def build_event_system_prompt(
     self_image: str = "",
     now_note: str = "",
     season_env: str = "",
+    people_md: str = "",
 ) -> tuple[str, str]:
     """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 規則 ＋ 自己像 ＋ 日時 ＋ 在席 ＋ PI ＋ 反復 ＋ W を組む。
 
@@ -212,6 +213,7 @@ def build_event_system_prompt(
         core=core,
         self_understanding=self_understanding,
         family=family_md,
+        people=people_md,
         self_image=self_image,
         season_env=season_env,
         now=f'(now :datetime "{clock.now_local_str()}")' + now_note,
