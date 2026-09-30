@@ -1,8 +1,8 @@
 """ウェイクワードと 1 分の窓（出-as 段 1・2026-09-26・`設計方針_話していいかの決まり` v0.1 §2.3）。
 
 名前を聞いたら 1 分の窓を開く。窓の中の入力・返事・つなぎで、そこから 1 分へ延ばす。窓の外の声は会話に
-しない。判定は、書き起こしを直した後の文の**どこかに** `ME.md` の名前があるか（1 字違いまで・黙る依頼の
-`names_me` と同じゆるさ）。窓は出来事で開け閉めし、声が鳴ったか・マイクで聞いたかは見ない。
+しない。判定は、書き起こしを直した後の文の**文頭に** `ME.md` の名前があるか（1 字違いまで・黙る依頼の
+`names_me` と同じゆるさ）。2026-09-30 に「文のどこか」から改めた（本人の決定・`test_the_name_comes_first`）。窓は出来事で開け閉めし、声が鳴ったか・マイクで聞いたかは見ない。
 """
 
 from __future__ import annotations
@@ -15,10 +15,10 @@ NAMES = ["パジュ"]
 # ── ウェイクワード ─────────────────────────────────────────────────────────
 
 
-def test_the_name_anywhere_is_heard():
+def test_the_name_at_the_head_is_heard():
     assert heard_name("パジュ、30分黙ってて", NAMES)
     assert heard_name("パジュは今日元気？", NAMES)
-    assert heard_name("明日の天気、パジュに聞いてみよう", NAMES)
+    assert not heard_name("明日の天気、パジュに聞いてみよう", NAMES)  # 文の途中の名前は聞かない
 
 
 def test_one_character_off_is_heard():
