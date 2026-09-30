@@ -97,7 +97,7 @@ REST 内省は誰も居ないときに回る（`loop/rest.py`）。1 パスで 4
 
 すべての状態は **PostgreSQL**（`DATABASE_URL` 環境変数）に保存する。SQLite も
 JSON ファイルも使わない。ファイルに置くのは**既定値と人の入力**だけ（`config.py` の既定、
-`capabilities.yaml`＝能力の既定の一覧、`ME.md`／`FAMILY.md`＝人が書く定義）。`.env` は機密と
+`capabilities.yaml`＝能力の既定の一覧、`ME.md`／`FAMILY.md`／`PEOPLE.md`＝人が書く定義）。`.env` は機密と
 機体固有のもの（鍵・URL・機器 id・モデル・TTS の担い手）だけを持つ。
 
 主なテーブル:
