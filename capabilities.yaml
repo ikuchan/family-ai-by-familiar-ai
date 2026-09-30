@@ -87,6 +87,11 @@ capabilities:
       and voice-print identification exist in the recognition package but are not
       wired in yet, so the agent cannot recognise a face or a voice by itself.
       Uses the `person_memory_manager.py` module.
+      People who do not live in the house (grandparents, relatives, friends, guests)
+      are written in PEOPLE.md in the same format as FAMILY.md. The agent knows who
+      they are and can name them in a photo, but they never become the speaker and
+      get no memory space of their own; what is said with them stays in the shared
+      memory.
     enabled: true
   - id: realtime_stt
     summary: Transcribe spoken audio in real-time
