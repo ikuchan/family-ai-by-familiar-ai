@@ -152,6 +152,8 @@ class RealtimeSttSession:
         self.mic_gate: "Callable[[], str] | None" = None
         #: 音楽の表（`MUSIC.md`）を読む口。音楽が鳴っているあいだ、通す言葉の判定に使う。
         self.music_table: "Callable[[], tuple] | None" = None
+        #: 自分の名前（`ME.md`）を読む口。鳴っているあいだも、文頭に名前があれば通す（2026-09-30）。
+        self.agent_names: "Callable[[], list[str]] | None" = None
         # 書き起こしの担い手。ローカル（`LocalSttEngine`）と WebSocket
         # （`RealtimeSttClient`）の2種類あり、口の形は同じ（`connected`／`connect`／
         # `close`／`send_audio`／`on_committed`）。共通の基底は置かず、型は緩めて扱う。
@@ -423,15 +425,20 @@ class RealtimeSttSession:
         """聞かないあいだに通す言葉か。**理由で通す言葉が違う**（知-aa・2026-09-21）。
 
         タイマー中は操作の言葉（止め・一時停止・再開）。音楽が鳴っているあいだは**音楽の話だけ**
-        （操作とプレイリストの名前）で、時間の道具は通さない（本人の決定）。
+        （操作とプレイリストの名前）で、時間の道具は通さない（本人の決定）。ただし文頭に名前があれば
+        何でも通す（2026-09-30・本人の決定ア。名前の判定は窓の門と同じ）。
         """
         if "音楽" in reason:
             from .core.music_rules import is_music_word
 
-            table = ()
+            table: tuple = ()
+            names: list[str] = []
             with contextlib.suppress(Exception):
                 table = self.music_table() if self.music_table is not None else ()
-            return is_music_word(text, table)
+            with contextlib.suppress(Exception):
+                read_names = getattr(self, "agent_names", None)
+                names = list(read_names() or []) if read_names is not None else []
+            return is_music_word(text, table, names=names)
         return is_control_word(text)
 
     def _mic_gate_reason(self) -> str:
@@ -471,6 +478,10 @@ class RealtimeSttController:
     def set_music_table(self, table: "Callable[[], tuple] | None") -> None:
         """音楽の表を読む口を挿す（知-aa）。鳴っているあいだ、通す言葉の判定に使う。"""
         self._session.music_table = table
+
+    def set_agent_names(self, names: "Callable[[], list[str]] | None") -> None:
+        """自分の名前を読む口を挿す。鳴っているあいだも、文頭に名前があれば通す（2026-09-30）。"""
+        self._session.agent_names = names
 
     @property
     def engine_label(self) -> str:

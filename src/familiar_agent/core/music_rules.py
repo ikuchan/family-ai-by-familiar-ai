@@ -6,7 +6,8 @@
   （`ME.md`・`FAMILY.md` と同じ扱い）。
 - **通す言葉**：鳴っているあいだは、音楽の操作とプレイリストの変更だけを通す（本人の決定・
   2026-09-21）。タイマーの「聞かないの門」と同じ形で、**通すかを決めるだけ**——何をするかは
-  道具が決める。時間の道具（タイマー・アラーム）は通さない。
+  道具が決める。時間の道具（タイマー・アラーム）は通さない。**ただし文頭に名前があれば何でも
+  通す**（2026-09-30・本人の決定ア。「パジュ、いま何の曲？」「パジュ、3 分測って」）。
 - **寿命**：鳴らし始めてから 30 分で止め、止めたことを一言言う（本人の決定）。
 - **減音**：パジュが声を出しているあいだ（と、その後 10 秒）は 4 分の 1 に絞る。基準は人が
   変えた値を覚える。機械の反射で、主LLM は通らない。
@@ -75,11 +76,23 @@ def wants_shuffle(text: str, default: bool) -> bool:
     return default
 
 
-def is_music_word(text: str, table: "tuple[tuple[str, str, bool], ...]") -> bool:
-    """鳴っているあいだに通す言葉か（音楽の操作か、表にあるプレイリストの名前）。"""
+def is_music_word(
+    text: str,
+    table: "tuple[tuple[str, str, bool], ...]",
+    *,
+    names: "list[str] | tuple[str, ...]" = (),
+) -> bool:
+    """鳴っているあいだに通す言葉か（文頭に名前があるか、音楽の操作か、表にあるプレイリストの名前）。
+
+    名前の判定は窓の門と同じ（文頭・`heard_name`）。名前つきなら時間の道具も通す（本人の決定ア）。
+    """
+    from .wake_window import heard_name
+
     s = (text or "").strip()
     if not s:
         return False
+    if heard_name(s, list(names)):
+        return True
     if find_playlist(s, table) is not None:
         return True
     return len(s) <= CONTROL_MAX_CHARS and bool(_CONTROL.search(s))
