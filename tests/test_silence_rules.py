@@ -23,7 +23,8 @@ NAMES = ["パジュ", "ぱじゅ"]
 
 def test_a_request_counts_only_when_she_is_named():
     assert names_me("パジュ、ちょっと静かにして", NAMES)
-    assert names_me("静かにしてぱじゅ", NAMES)
+    # 名前は文頭だけ（2026-09-30・本人の決定）。後ろに置いた名前では呼ばれたことにならない。
+    assert not names_me("静かにしてぱじゅ", NAMES)
     assert not names_me("しなよ", NAMES)
     assert not names_me("待てぃ", NAMES)
     assert not names_me("ちょっと静かにして", NAMES)
@@ -32,7 +33,9 @@ def test_a_request_counts_only_when_she_is_named():
 def test_a_name_the_stt_mangled_still_counts():
     """STT は「パジュ」を はじゅ／パチュー と書く（2026-09-17 15:32 実機）。ゆるい読みで拾う。"""
     assert names_me("はじゅ、静かにして", NAMES)
-    assert names_me("大好きなのはパチュー静かにして", NAMES)
+    # 09-17 15:32 の実機の書き起こし。STT が名前の前に言葉を足した形で、名前は文頭だけに決めたので
+    # 通らなくなった（2026-09-30・本人が承知のうえで「許さない」に決めた）。
+    assert not names_me("大好きなのはパチュー静かにして", NAMES)
     assert names_me("パジュー、黙って", NAMES)
 
 

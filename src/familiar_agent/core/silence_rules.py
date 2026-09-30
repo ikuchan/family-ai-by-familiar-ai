@@ -4,7 +4,7 @@
 断片）を沈黙の依頼と読んで 60 分黙り、「話していいよ」を解除と読まなかった。設計（名前で呼ばれた
 ときだけ受ける）を、プロンプトの指示でなく機械で守る。
 
-- `names_me`：発話に自分の名前（`ME.md` の名前・呼び方）が含まれるか。掛ける側の条件。
+- `names_me`：発話が自分の名前（`ME.md` の名前・呼び方）で始まるか。掛ける側・解く側・窓の門の条件。
 - `is_release`：黙っているあいだに「話していい」と言われたか。解く側の条件（調停の返りに依らない）。
 - `silence_note`：調停へ渡す「いま黙っている」の一行。黙っている前提が無いと「解かれた」と読めない。
 """
@@ -46,30 +46,41 @@ def _within_one_edit(a: str, b: str) -> bool:
     return sum(x != y for x, y in zip(a, b)) <= 1
 
 
-def names_me(utterance: str, names: "list[str] | tuple[str, ...]") -> bool:
-    """発話に自分の名前のどれかが入っているか。
+def _head(text: str) -> str:
+    """文頭の空白と記号（、。！？ など）を飛ばす。呼びかけの言葉（ねえ・あのさ）は飛ばさない。"""
+    i = 0
+    while i < len(text) and (text[i].isspace() or unicodedata.category(text[i])[0] in "PSZ"):
+        i += 1
+    return text[i:]
 
-    ゆるい読み（`_loose`）で比べ、名前が 3 文字以上なら **1 文字違いまで**許す（置き換え 1 つ、
-    または 1 文字の抜け・足し）。2 文字以下は何にでも当たるので完全一致のまま。
+
+def names_me(utterance: str, names: "list[str] | tuple[str, ...]") -> bool:
+    """発話が自分の名前のどれかで**始まる**か（2026-09-30・本人の決定）。
+
+    以前は文の**どこかに**名前があれば当たり、テレビの台詞や名前を話題にしただけの言葉で窓が開いた
+    （残っている書き起こしで、文頭に無かった 10 件がすべて誤検出）。文頭の空白と記号は飛ばし、
+    呼びかけの言葉（ねえ・あのさ）は飛ばさない（本人の決定「許さない」）。
+
+    ゆるい読み（`_loose`）で比べ、名前が 3 文字以上なら**文頭の位置で** 1 文字違いまで許す（置き換え
+    1 つ、または 1 文字の抜け・足し）。2 文字以下は何にでも当たるので完全一致のまま。
     """
-    text = _loose(utterance)
+    text = _head(_loose(utterance))
     for raw in names:
         n = _loose(raw)
         if not n:
             continue
-        if n in text:
+        if text.startswith(n):
             return True
         if len(n) < 3:
             continue
         for width in (len(n), len(n) - 1, len(n) + 1):
-            for i in range(0, max(0, len(text) - width) + 1):
-                w = text[i : i + width]
-                if len(w) != width:
-                    continue
-                if width == len(n) and _within_one_edit(w, n):
-                    return True
-                if width != len(n) and _one_insertion_apart(w, n):
-                    return True
+            w = text[:width]
+            if len(w) != width:
+                continue
+            if width == len(n) and _within_one_edit(w, n):
+                return True
+            if width != len(n) and _one_insertion_apart(w, n):
+                return True
     return False
 
 
