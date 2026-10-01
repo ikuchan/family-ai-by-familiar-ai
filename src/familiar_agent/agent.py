@@ -184,6 +184,7 @@ class EmbodiedAgent:
         self._memory = ObservationMemory()
         self._memory_worker = MemoryJobWorker(self._memory)
         self._pmm = PersonMemoryManager(self._memory)
+        self._pmm.set_family_md(self._family_md)  # 人を指す言葉を名前に直す材料（知-af）
         # **記憶ストア O との唯一の出入り口**（`設計図` ③-2・環-e-い）。書き込み・関係・
         # 埋め込みはここを通る（想起はまだ——器が違う）。**どの面へ書くかは `writer_id` が
         # 決める**ので、載せる記憶は基底でよい。読むときの面は `View.viewpoint` が言い、
@@ -1447,6 +1448,7 @@ class EmbodiedAgent:
         self._me_md = self._load_me_md()
         self._family_md = self._load_family_md()
         self._people_md = self._load_person_md("PEOPLE.md")
+        self._pmm.set_family_md(self._family_md)
 
         lines: list[str] = []
         lines.append("[リロード完了]")

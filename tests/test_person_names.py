@@ -51,3 +51,67 @@ def test_the_speaker_book_gets_the_call_name():
     a._persons = MagicMock()
     EmbodiedAgent._register_family_from_md(a)
     a._persons.register.assert_called_with("パパ")
+
+
+# ── 段 2：`FAMILY.md` で名前に直してから、人物表を名前の完全一致で引く ─────────────
+
+FAMILY = """## パパ
+
+- **名前**：雄輔
+- **呼び方**：パパ、ゆうすけ
+
+## たいき
+
+- **名前**：泰輝
+- **呼び方**：たいき、たいきくん
+"""
+
+#: 統合の前の本番と同じ形：古い行（記憶つき）と新しい行が並び、古い行の呼び方は最初に登録したときのまま。
+ROWS = [
+    {"id": "old-papa", "name": "いくながゆうすけ", "display_name": "パパ、いくながさん、ゆうすけ"},
+    {"id": "papa", "name": "雄輔", "display_name": "パパ、ゆうすけ"},
+    {"id": "taiki", "name": "泰輝", "display_name": "たいき"},
+]
+
+
+def _pmm(family: str = FAMILY, rows=ROWS):
+    from familiar_agent.person_memory_manager import PersonMemoryManager
+
+    base = MagicMock()
+    base.list_persons = MagicMock(return_value=list(rows))
+    m = PersonMemoryManager(base)
+    m.set_family_md(family)
+    return m
+
+
+def test_any_word_for_a_person_finds_their_row_by_name():
+    m = _pmm()
+    for word in ("雄輔", "パパ", "ゆうすけ"):
+        assert m.find_person_id_by_name(word) == "papa", word
+    assert m.find_person_id_by_name("たいきくん") == "taiki"
+
+
+def test_the_order_of_rows_no_longer_decides():
+    """以前は古い行（作られた順の先頭）が別名で先に当たり、記憶の行き先が並び順で決まった。"""
+    assert _pmm().find_person_id_by_name("パパ") != "old-papa"
+
+
+def test_an_alias_only_in_the_old_display_name_does_not_count():
+    assert _pmm().find_person_id_by_name("いくながさん") is None
+
+
+def test_a_word_for_two_people_finds_no_one_and_says_so(caplog):
+    family = FAMILY + "\n## こうき\n\n- **名前**：光希\n- **呼び方**：こうき、たいき\n"
+    with caplog.at_level("ERROR"):
+        assert _pmm(family).find_person_id_by_name("たいき") is None
+    assert any("2 人以上" in r.message for r in caplog.records)
+
+
+def test_a_word_not_in_family_finds_no_one():
+    assert _pmm().find_person_id_by_name("おばあちゃん") is None
+
+
+def test_without_family_only_the_exact_name_counts():
+    m = _pmm(family="")
+    assert m.find_person_id_by_name("雄輔") == "papa"
+    assert m.find_person_id_by_name("パパ") is None
