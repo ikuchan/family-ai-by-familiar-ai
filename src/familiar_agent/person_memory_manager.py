@@ -382,19 +382,44 @@ class PersonMemoryManager:
             display = display.split(sep)[0]
         return display.strip()
 
-    def find_person_id_by_name(self, name: str) -> str | None:
-        """Look up person UUID by name field or any alias in display_name.
+    def set_family_md(self, text: str) -> None:
+        """いまの `FAMILY.md`。人を指す言葉を名前に直すのに使う（起動時と `/reload` に渡す・知-af）。"""
+        self._family_md = text or ""
 
-        display_name may contain comma/読点-separated aliases such as
-        "パパ、いくながさん、ゆうすけ".  Checks each alias individually.
+    def find_person_id_by_name(self, name: str) -> str | None:
+        """人を指す言葉（名前・呼びかけ名・呼び方の別名）から、人物の id を引く（知-af・2026-10-02）。
+
+        **`FAMILY.md`（いまの記述）で名前に直してから、人物表を名前の完全一致で引く。** 人物表の
+        `display_name` は最初に登録したときの呼び方のまま止まっているので、照らすのには使わない。以前は
+        `display_name` の別名でも当て、当たる行が複数あれば作られた順の最初の行を黙って選んでいた——名前を
+        書き換えて行が二重になると、記憶の行き先が並び順で決まった。
+
+        言葉が 2 人以上に当たれば誰も選ばず None（ログに残す）。`FAMILY.md` に無い言葉も None。
+        `FAMILY.md` が無ければ、名前の完全一致だけで引く。
         """
+        from .core.parsing import parse_family_md
+        from .core.speaker_claim import aliases_of
+
+        word = (name or "").strip()
+        if not word:
+            return None
+        target = word
+        members = parse_family_md(getattr(self, "_family_md", "") or "")
+        if members:
+            hits = [m for m in members if word in aliases_of(m)]
+            if len(hits) > 1:
+                logger.error(
+                    "人物：「%s」は 2 人以上（%s）に当たるので、誰とも決めない（FAMILY.md の呼び方が重なっている）",
+                    word,
+                    "・".join(str(m["name"]) for m in hits),
+                )
+                return None
+            if not hits:
+                return None
+            target = str(hits[0]["name"])
         for p in self.list_persons():
             if str(p.get("id", "")) in (AGENT_SELF_ID, DEFAULT_PERSON_ID):
                 continue
-            if p.get("name") == name:
-                return str(p["id"])
-            raw = p.get("display_name", "") or ""
-            aliases = [a.strip() for a in raw.replace(",", "、").split("、")]
-            if name in aliases:
+            if p.get("name") == target:
                 return str(p["id"])
         return None

@@ -86,7 +86,11 @@ def test_reload_reads_people_too():
     a._load_me_md = MagicMock(return_value="me")
     a._load_family_md = MagicMock(return_value="fam")
     a._load_person_md = MagicMock(side_effect=lambda name: PEOPLE if name == "PEOPLE.md" else "")
+    a._pmm = MagicMock()
     out = EmbodiedAgent._handle_reload_command(a, "/reload")
+    a._pmm.set_family_md.assert_called_with(
+        "fam"
+    )  # 人を指す言葉を名前に直す材料も読み直す（知-af）
     assert a._people_md == PEOPLE
     assert "PEOPLE.md を更新しました" in out
     a._register_family_from_md.assert_not_called()  # 家族は変わっていない。人物表は触らない
