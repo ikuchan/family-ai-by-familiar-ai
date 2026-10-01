@@ -20,7 +20,7 @@ from .rest_core import fold_core
 from .rest_calendar import write_calendar
 from .rest_fold import fold_since_last_rest
 from .rest_family_now import update_family_now
-from .rest_music import refresh_catalog
+from .rest_music import prepare_suggestion, refresh_catalog
 from .rest_info import measure_and_decay
 from .rest_season import update_season
 from .rest_self_image import Material, update_self_image
@@ -104,6 +104,12 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 音楽の目録の読み直しに失敗: %s", e)
         parts.append("音楽の目録を読み直せなかった")
+    # 音楽のおすすめ：候補を 1 件用意する（知-aa 段 4・かけるのは聞いてから）。
+    try:
+        if await prepare_suggestion(agent):
+            parts.append("音楽のおすすめを 1 件用意した")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 音楽のおすすめの用意に失敗: %s", e)
     # 季節の層：層 1 の後・層 2 の前。いまの季節と家のまわりを晩に 1 回書き直す（知-ac）。
     # 層の番号は振り直さず名前で呼ぶ（層 2〜4 の番号・ログ・計測の種別はそのまま）。
     try:
