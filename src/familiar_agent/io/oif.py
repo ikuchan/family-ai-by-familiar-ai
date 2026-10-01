@@ -457,6 +457,14 @@ class OIF:
         kinds = kinds_for(CHILD[level], person=person_id is not None)
         return self._memory.tree_summaries(kinds, start, end, person_id=person_id)
 
+    def person_notes_after(self, person_id: str, since) -> list[dict]:
+        """その人の関係のまとめ（日々の蒸留の産物）のうち、`since` より後のもの。古い順（知-ad・いまの様子の材料）。"""
+        from datetime import datetime, timedelta, timezone
+
+        start = since + timedelta(microseconds=1)
+        end = datetime.now(timezone.utc) + timedelta(days=1)
+        return self._memory.tree_summaries(("person_summary",), start, end, person_id=person_id)
+
     def tree_months(self, kind: str, *, person_id: "str | None" = None) -> list[str]:
         """その種類の要約がある月（YYYY-MM）の一覧（記-m・暦のまとめが何を書くかを決める）。"""
         return self._memory.tree_months(kind, person_id=person_id)
