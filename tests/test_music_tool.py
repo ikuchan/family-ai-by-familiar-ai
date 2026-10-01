@@ -29,13 +29,15 @@ def _tool(**kw):
     return tool, io
 
 
-def test_the_four_tools_are_offered():
+def test_the_tools_are_offered():
+    # 知-aa 段 4 で、すすめた曲への返事（`music_suggestion_reply`）を 5 本目に足した。
     tool, _ = _tool()
     assert [d["name"] for d in tool.get_tool_definitions()] == [
         "play_music",
         "stop_music",
         "next_track",
         "music_volume",
+        "music_suggestion_reply",
     ]
     for d in tool.get_tool_definitions():
         assert d["description"], d["name"]

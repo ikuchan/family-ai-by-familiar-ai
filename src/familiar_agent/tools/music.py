@@ -67,6 +67,20 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "required": ["how"],
         },
     },
+    {
+        "name": "music_suggestion_reply",
+        "description": (
+            "すすめた曲への返事を受ける（知-aa）。「いいね」「かけて」なら reply に「気に入った」——その曲をかけて、"
+            "気に入った曲として覚える。「いらない」「いまはいい」なら「いらない」——その曲は二度とすすめない。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reply": {"type": "string", "description": "「気に入った」か「いらない」"}
+            },
+            "required": ["reply"],
+        },
+    },
 ]
 
 
@@ -120,6 +134,8 @@ class MusicTool:
             return ("次の曲にした", True) if ok else ("いま音楽は鳴っていない", False)
         if name == "music_volume":
             return await self._volume(tool_input)
+        if name == "music_suggestion_reply":
+            return await self._reply(str(tool_input.get("reply") or ""))
         return f"知らない道具：{name}", False
 
     async def _play(self, tool_input: dict) -> "tuple[str, bool]":
@@ -184,6 +200,30 @@ class MusicTool:
         pick = next((h for h in hits if music_rules._norm(h.get("artist", "")) in mine), hits[0])
         label = f"「{pick['title']}」" + (f"（{pick['artist']}）" if pick.get("artist") else "")
         return f"ライブラリに無かったので、Spotify から探した{label}を", str(pick["uri"])
+
+    async def _reply(self, reply: str) -> "tuple[str, bool]":
+        """すすめた曲への返事（知-aa 段 4）。気に入ったらかけて控え、いらなければ二度とすすめない。"""
+        from ..core import music_suggestion as ms
+
+        s = ms.stored()
+        c = s.candidate
+        if c is None:
+            return "いま勧めている曲は無い", False
+        song = {"title": c.title, "artist": c.artist, "uri": c.uri}
+        s.candidate = None
+        if "いらな" in reply or "いい" == reply.strip() or "結構" in reply:
+            s.declined.append(song)
+            ms.store(s)
+            return f"「{c.title}」はもう勧めない", True
+        s.liked.append(song)
+        ms.store(s)
+        if self._web is not None and self._device_name:
+            with contextlib.suppress(Exception):
+                self._web.activate(self._device_name)
+        if not await self._io.play(self._bus(), c.uri):
+            return f"「{c.title}」（{c.artist}）をかけられなかった（音の出口が見つからない）", False
+        self._mark(True)
+        return f"すすめた「{c.title}」（{c.artist}）をかけ始めた", True
 
     def _mark(self, playing: bool) -> None:
         """鳴り始め・止まりを印す。**ここだけが溜める**（寿命と門が読む）。"""
