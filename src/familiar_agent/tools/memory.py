@@ -529,6 +529,10 @@ class ObservationMemory:
         """記憶の木の節の要約（記-m・記憶の箱へ委譲）。畳まれた記録も返す。"""
         return self._observations.tree_summaries(kinds, start, end, person_id=person_id)
 
+    def tree_months(self, kind: str, *, person_id=None) -> list[str]:
+        """その種類の要約がある月（記-m・記憶の箱へ委譲）。"""
+        return self._observations.tree_months(kind, person_id=person_id)
+
     def core_records(self) -> list[dict]:
         """核の出来事（記-a-ろ-に・記憶の箱へ委譲）。"""
         return self._observations.core_records()

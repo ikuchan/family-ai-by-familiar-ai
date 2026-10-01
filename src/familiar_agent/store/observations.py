@@ -1022,6 +1022,32 @@ class ObservationStore:
             logger.warning("tree_summaries failed: %s", e)
             return []
 
+    def tree_months(self, kind: str, *, person_id: "str | None" = None) -> list[str]:
+        """その種類の要約がある月（YYYY-MM・UTC の暦）の一覧（記-m・暦のまとめが何を書くかを決める）。
+
+        畳まれた記録も数える（木は暦で決まる索引）。人を指せばその人の面のものだけ。失敗時は空リスト。
+        """
+        month = "to_char(o.timestamp AT TIME ZONE 'UTC', 'YYYY-MM')"
+        if person_id is None:
+            sql = f"SELECT DISTINCT {month} AS m FROM observations o WHERE o.kind = %s ORDER BY m"
+            params: tuple = (kind,)
+        else:
+            sql = (
+                f"SELECT DISTINCT {month} AS m FROM observations o "
+                "JOIN situated_memories s ON s.obs_id = o.id "
+                "WHERE o.kind = %s AND s.person_id = %s ORDER BY m"
+            )
+            params = (kind, viewpoint_of(person_id))
+        try:
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    return [str(r["m"]) for r in cur.fetchall()]
+        except Exception as e:
+            logger.warning("tree_months failed: %s", e)
+            return []
+
     def core_records(self) -> list[dict]:
         """②核の固めの材料：核の**出来事**ごとに 1 行（記-a-ろ-に）。
 

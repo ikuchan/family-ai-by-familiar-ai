@@ -149,3 +149,18 @@ def test_a_persons_node_comes_from_that_persons_face(store):
         for r in store.tree_summaries(("person_month_summary",), start, end, person_id=papa)
     ]
     assert got == [f"{mark} パパの 8 月"]
+
+
+def test_the_months_with_a_kind_are_listed(store):
+    """暦のまとめが何を書くかを決める読み口（段 3）：その種類の要約がある月の一覧（UTC の暦）。"""
+    kind = (
+        f"tree_test_{uuid.uuid4().hex[:8]}"  # 試験だけの種類にして、ほかの行と混ざらないようにする
+    )
+    me = viewpoint_of(DEFAULT_PERSON_ID)
+    papa = str(uuid.uuid4())
+    _person(store, papa)
+    _put(store, "8 月末", datetime(1999, 8, 31, 23, 59, tzinfo=UTC), kind, me)
+    _put(store, "9 月頭", datetime(1999, 9, 1, 0, 0, tzinfo=UTC), kind, me)
+    _put(store, "パパの 7 月", datetime(1999, 7, 10, 12, 0, tzinfo=UTC), kind, papa)
+    assert store.tree_months(kind) == ["1999-07", "1999-08", "1999-09"]
+    assert store.tree_months(kind, person_id=papa) == ["1999-07"]

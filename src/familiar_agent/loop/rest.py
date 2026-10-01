@@ -17,6 +17,7 @@ import logging
 
 from .rest_capabilities import redefine_capabilities
 from .rest_core import fold_core
+from .rest_calendar import write_calendar
 from .rest_fold import fold_since_last_rest
 from .rest_info import measure_and_decay
 from .rest_season import update_season
@@ -69,6 +70,16 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の畳み込みに失敗（次の晩に持ち越す）: %s", e)
         parts.append("出来事を畳めなかった・次の晩に持ち越す")
+    # 層 1 の③：暦のまとめ。日ごとの要約の上に月と年の要約を重ね、記憶の木をつくる（記-m）。
+    try:
+        cal = await write_calendar(agent)
+        records = tuple(records) + tuple(cal.records)
+        parts.append(
+            f"暦のまとめを {cal.written} 本書いた（残り {cal.left} 本・見送り {cal.skipped} 本）"
+        )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 1 の暦のまとめに失敗（次の晩に持ち越す）: %s", e)
+        parts.append("暦のまとめを書けなかった・次の晩に持ち越す")
     # 季節の層：層 1 の後・層 2 の前。いまの季節と家のまわりを晩に 1 回書き直す（知-ac）。
     # 層の番号は振り直さず名前で呼ぶ（層 2〜4 の番号・ログ・計測の種別はそのまま）。
     try:
