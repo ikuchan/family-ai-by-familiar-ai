@@ -4,8 +4,8 @@
 書き換えず（開発ルール「ファイルは既定値と人の入力だけ」・知-ac の季節の層と同じ判断）、REST が記憶をもとに
 人ごとに書いた「いまの様子」を DB（`agent_state` の鍵 `family_now`）に置いて、システム文の別枠に載せる。
 
-人ごとに持つのは 3 つ：本文、前の版（1 つだけ・比べられるように）、数え始めの時刻（ここより後の関係のまとめが
-10 本たまったら書き直す・`loop/rest_family_now.py`）。履歴は `内省` の記録が持つ。
+人ごとに持つのは 3 つ：本文、前の版（1 つだけ・比べられるように）、数え始めの時刻（最後に読んだ関係のまとめの
+時刻。この先の関係のまとめを古い順に 10 本ずつ読んで書き直す・`loop/rest_family_now.py`）。履歴は `内省` の記録が持つ。
 """
 
 from __future__ import annotations
@@ -93,11 +93,11 @@ def _store(data: "dict[str, Now]") -> bool:
         return False
 
 
-def update(name: str, text: str, *, now: datetime) -> bool:
-    """その人のいまの様子を書き直す。前の版を 1 つ控え、数え始めを `now` にする。"""
+def update(name: str, text: str, *, counted_from: datetime) -> bool:
+    """その人のいまの様子を書き直す。前の版を 1 つ控え、数え始めを `counted_from`（最後に読んだ時刻）にする。"""
     data = stored()
     old = data.get(name)
-    data[name] = Now(text=text, before=old.text if old else "", counted_from=now)
+    data[name] = Now(text=text, before=old.text if old else "", counted_from=counted_from)
     return _store(data)
 
 

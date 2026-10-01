@@ -31,9 +31,9 @@ def test_nothing_is_stored_at_first(clean_state):
 
 
 def test_a_persons_now_is_kept_with_the_one_before(clean_state):
-    assert fn.update("パパ", "サッカーの話が多い。", now=T1)
-    assert fn.update("パパ", "最近は釣りに夢中。", now=T2)
-    assert fn.update("たいき", "テストが近くて忙しい。", now=T2)
+    assert fn.update("パパ", "サッカーの話が多い。", counted_from=T1)
+    assert fn.update("パパ", "最近は釣りに夢中。", counted_from=T2)
+    assert fn.update("たいき", "テストが近くて忙しい。", counted_from=T2)
     got = fn.stored()
     assert got["パパ"].text == "最近は釣りに夢中。"
     assert got["パパ"].before == "サッカーの話が多い。"
@@ -42,8 +42,8 @@ def test_a_persons_now_is_kept_with_the_one_before(clean_state):
 
 
 def test_the_frame_lists_each_person(clean_state):
-    fn.update("パパ", "最近は釣りに夢中。", now=T2)
-    fn.update("たいき", "テストが近くて忙しい。", now=T2)
+    fn.update("パパ", "最近は釣りに夢中。", counted_from=T2)
+    fn.update("たいき", "テストが近くて忙しい。", counted_from=T2)
     text = fn.render(fn.stored())
     assert text.startswith("[家族のいまの様子]")
     assert "パパ：最近は釣りに夢中。" in text and "たいき：テストが近くて忙しい。" in text
@@ -71,7 +71,7 @@ def test_the_main_llm_and_the_arbiter_and_the_evaluator_get_it(clean_state):
     from tests._arbiter_fakes import decide, jev_says, system_of, writer_says
     from tests.test_event_loop import _agent, _run, _turn
 
-    fn.update("パパ", "最近は釣りに夢中。", now=T2)
+    fn.update("パパ", "最近は釣りに夢中。", counted_from=T2)
 
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a, utterance="パジュ、こんにちは")

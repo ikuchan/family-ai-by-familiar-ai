@@ -19,6 +19,7 @@ from .rest_capabilities import redefine_capabilities
 from .rest_core import fold_core
 from .rest_calendar import write_calendar
 from .rest_fold import fold_since_last_rest
+from .rest_family_now import update_family_now
 from .rest_info import measure_and_decay
 from .rest_season import update_season
 from .rest_self_image import Material, update_self_image
@@ -80,6 +81,20 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の暦のまとめに失敗（次の晩に持ち越す）: %s", e)
         parts.append("暦のまとめを書けなかった・次の晩に持ち越す")
+    # 家族のいまの様子：日々の蒸留の関係のまとめを 10 本ずつ重ねて書き直す（知-ad）。`FAMILY.md` は書き換えない。
+    try:
+        fam = await update_family_now(agent)
+        if fam.rewrites:
+            parts.append(
+                "いまの様子を書き直した（"
+                + "・".join(f"{who} {n} 回" for who, n in fam.rewrites.items())
+                + "）"
+            )
+        else:
+            parts.append("いまの様子は書き直さなかった")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest いまの様子の書き直しに失敗（次の晩に持ち越す）: %s", e)
+        parts.append("いまの様子を書き直せなかった")
     # 季節の層：層 1 の後・層 2 の前。いまの季節と家のまわりを晩に 1 回書き直す（知-ac）。
     # 層の番号は振り直さず名前で呼ぶ（層 2〜4 の番号・ログ・計測の種別はそのまま）。
     try:
