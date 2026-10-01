@@ -938,7 +938,9 @@ class EmbodiedAgent:
             try:
                 self._pmm.register_person(m["name"], display_name=m["display_name"])
                 # Pre-seed PersonRegistry so [呼び方] and /speaker commands work immediately
-                self._persons.register(m["display_name"])
+                # 帳面には呼びかけ名（呼び方の先頭）で登録する。`set_active` も呼びかけ名なので、帳面の中の
+                # 書き方を 1 つにそろえる（以前は呼び方の一覧そのものだった・知-af）。
+                self._persons.register(str(m["display_name"]).split("、")[0].split(",")[0].strip())
                 logger.info(
                     "Family member registered: %s (display=%s)", m["name"], m["display_name"]
                 )

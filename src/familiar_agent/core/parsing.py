@@ -67,16 +67,18 @@ def parse_family_md(text: str) -> list[dict]:
     """
     if not text:
         return []
+    # 欄の値は**同じ行だけ**で読む（`[ \t]*`）。`\s*` は改行もまたぐので、テンプレートの空の「名前：」から
+    # 次の行（`- **呼び方**：…`）を名前として拾い、ゴミの人物ができていた（知-af・2026-10-02）。
 
-    _NAME_RE = re.compile(r"[-*]\s*\*{0,2}名前\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
-    _CALL_RE = re.compile(r"[-*]\s*\*{0,2}呼び方\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+    _NAME_RE = re.compile(r"[-*]\s*\*{0,2}名前\*{0,2}[ \t]*[：:][ \t]*(.+)", re.MULTILINE)
+    _CALL_RE = re.compile(r"[-*]\s*\*{0,2}呼び方\*{0,2}[ \t]*[：:][ \t]*(.+)", re.MULTILINE)
     # 英字（`Yusuke Ikunaga`）。先頭の語を小文字にした `yusuke` が個人ティアの道具名の鍵
     # （`ask_vault_yusuke`・知-f）。書いていない人は個人ティアの道具を持たない。
-    _LATIN_RE = re.compile(r"[-*]\s*\*{0,2}英字\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+    _LATIN_RE = re.compile(r"[-*]\s*\*{0,2}英字\*{0,2}[ \t]*[：:][ \t]*(.+)", re.MULTILINE)
     # 関係（「家族の父。大人。…」）。大人か子どもかを判じる唯一の材料（出-ak・`core/tone.py`）。
-    _RELATION_RE = re.compile(r"[-*]\s*\*{0,2}関係\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+    _RELATION_RE = re.compile(r"[-*]\s*\*{0,2}関係\*{0,2}[ \t]*[：:][ \t]*(.+)", re.MULTILINE)
     # 誕生日（書かれたまま）。年齢と学年を毎回数える材料（知-ad・`core/family_age.py`）。
-    _BIRTHDAY_RE = re.compile(r"[-*]\s*\*{0,2}誕生日\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+    _BIRTHDAY_RE = re.compile(r"[-*]\s*\*{0,2}誕生日\*{0,2}[ \t]*[：:][ \t]*(.+)", re.MULTILINE)
     _TEMPLATE_SKIP = re.compile(r"^[（(].*[）)]$")
 
     members: list[dict] = []
