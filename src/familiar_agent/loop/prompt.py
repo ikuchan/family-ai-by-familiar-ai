@@ -22,8 +22,8 @@ EVENT_SYSTEM_PROMPT = """\
     ; 思い出すことも器官である（出-ah-ろ）。**道具の一覧に置くだけでは使われない**——実機で
     ; 「思い出して」と 3 回頼まれても、引き方を変える 4 つは 1 度も出なかった（40 回測って 2 回）。
     ; 身体として名乗り、かつ [返事] の行が「引き直したあと」と言うと 26 回になる。片方だけでは動かない。
-    (part :id memory :tool (recall recall_as recall_deeper recall_when recall_recent)
-      :desc "思い出す感覚。記憶は家族それぞれの面に分かれていて、あなたは自分の視点で引く。ふだんは目の前の相手の面から、いまを基準に、7 件ぶん引いている。この引き方は固定ではなく、自分で変えられる——面（recall_as）・件数と思い出し方（recall_deeper）・時期（recall_when）・直近の広さ（recall_recent）。一度で出てこないのは記憶が無いからとは限らず、引き方が合っていないだけのことが多い。")
+    (part :id memory :tool (recall recall_as recall_deeper recall_when recall_recent recall_tree)
+      :desc "思い出す感覚。記憶は家族それぞれの面に分かれていて、あなたは自分の視点で引く。ふだんは目の前の相手の面から、いまを基準に、7 件ぶん引いている。この引き方は固定ではなく、自分で変えられる——面（recall_as）・件数と思い出し方（recall_deeper）・時期（recall_when）・直近の広さ（recall_recent）・遠い過去は年→月→日の要約の木（recall_tree）。一度で出てこないのは記憶が無いからとは限らず、引き方が合っていないだけのことが多い。")
     (part :id net   :tool (search_deferred fetch_deferred)
       :desc "外の世界へ接続して調べる感覚。search_deferred＝ウェブ検索、fetch_deferred＝ページ取得。結果は今すぐでなく後の反復で届く——投げたら待たずに続ける。"))
 

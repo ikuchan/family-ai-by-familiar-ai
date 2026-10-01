@@ -61,6 +61,7 @@ _FULL_ACTIONS = (
     "recall_deeper",
     "recall_when",
     "recall_recent",
+    "recall_tree",  # 記憶の木の節を指して要約を読む（記-m）
     "search_deferred",
     "fetch_deferred",
     "see",
@@ -86,7 +87,7 @@ _FULL_ACTIONS = (
     "stop_stopwatch",
 )
 #: 思い出し方を変える道具（出-ah）。`recall` と同じく、その場で引いて完了として返る。
-_WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent")
+_WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent", "recall_tree")
 
 #: 音楽の道具（知-aa）。`recall` と同じく、その場で返る。
 _MUSIC_ACTIONS = ("play_music", "stop_music", "next_track", "music_volume")
@@ -349,6 +350,27 @@ _WIDEN_DEFS: dict[str, dict] = {
                 "span_days": {"type": "integer", "description": "前後何日まで見るか（省略で 30）"},
             },
             "required": ["query", "date"],
+        },
+    },
+    "recall_tree": {
+        "name": "recall_tree",
+        "description": (
+            "遠い過去を、記憶の木をたどって思い出す。**思い出せないときや、何か月・何年も前の話のとき**に使う。"
+            "記憶は年 → 月 → 日の要約になっている。節は年 2025・月 2025-08・日 2025-08-15 の形で、"
+            "混ぜていくつでも指せる。まず年か月の要約を読み、気になるところを月や日で指し直す"
+            "（「去年の夏」なら 2025-07・2025-08・2025-09）。人を指すとその人との要約、省けば家族全体。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "nodes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "節（2025・2025-08・2025-08-15 の形）",
+                },
+                "person": {"type": "string", "description": "誰との要約か（家族の呼び方・省略可）"},
+            },
+            "required": ["nodes"],
         },
     },
     "recall_recent": {
@@ -1496,6 +1518,36 @@ class InformationProcessing:
             intent_id or "-",
         )
 
+    def _recall_tree(self, tool_input: dict) -> str:
+        """記憶の木の節を指して、その節の要約を読む（記-m 段 2）。機械が O から引くだけで、LLM は使わない。
+
+        節ごとに見出し（【2025-08】）を付けて返す。書かれていない節は「まだ要約が無い」と返し、主LLM は
+        日を指し直せる。人を指せばその人の面から（家族に無い名前は断る）、省けば家族全体。
+        """
+        agent = self._agent
+        nodes = tool_input.get("nodes") or []
+        if isinstance(nodes, str):
+            nodes = [nodes]
+        name = str(tool_input.get("person") or "").strip()
+        pid = None
+        if name:
+            pid = agent._pmm.find_person_id_by_name(name)
+            if pid is None:
+                return f"「{name}」は家族に見つからないので、その人の木はたどれない"
+        whose = f"（{name}との要約）" if name else "（家族全体の要約）"
+        parts: list[str] = []
+        for node in [str(n).strip() for n in nodes if str(n).strip()]:
+            rows = agent._oif.tree_summaries(node, person_id=pid)
+            if rows is None:
+                parts.append(f"【{node}】読めない（年 2025・月 2025-08・日 2025-08-15 の形で指す）")
+            elif not rows:
+                parts.append(f"【{node}】まだ要約が無い")
+            else:
+                parts.append(f"【{node}】\n" + "\n".join(f"- {r.get('content', '')}" for r in rows))
+        if not parts:
+            return "節が指されていない（年 2025・月 2025-08・日 2025-08-15 の形で指す）"
+        return whose + "\n" + "\n".join(parts)
+
     async def _run_widen(self, action: str, tool_input: dict) -> str:
         """思い出し方を変えて引き直す（出-ah・2026-09-21）。
 
@@ -1506,6 +1558,8 @@ class InformationProcessing:
         from ..config import MemoryConfig
         from ..core import recall_options as ro
 
+        if action == "recall_tree":
+            return self._recall_tree(tool_input)
         agent = self._agent
         cfg = MemoryConfig()
         query = str(tool_input.get("query") or self._req.cue or "")
@@ -1779,6 +1833,7 @@ class InformationProcessing:
         "recall_deeper": lambda ip: [_widen_def("recall_deeper")],
         "recall_when": lambda ip: [_widen_def("recall_when")],
         "recall_recent": lambda ip: [_widen_def("recall_recent")],
+        "recall_tree": lambda ip: [_widen_def("recall_tree")],
         # net（投げっぱなしの外部呼び出し）。結果は完了キュー経由で後の反復に届く。
         "search_deferred": lambda ip: ip._dif.lookup_defs("search_deferred"),
         "fetch_deferred": lambda ip: ip._dif.lookup_defs("fetch_deferred"),
