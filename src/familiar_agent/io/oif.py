@@ -446,6 +446,21 @@ class OIF:
         logger.debug("OIF tree_summaries %s（%s）→ %d件", node, person_id or "家族", len(rows))
         return rows
 
+    def tree_children(self, node: str, *, person_id: "str | None" = None) -> list[dict]:
+        """節の 1 つ下の段の要約（月なら日ごとの要約、年なら月の要約・記-m）。暦のまとめの材料。古い順。"""
+        from ..core.memory_tree import CHILD, kinds_for, parse_node
+
+        got = parse_node(node)
+        if got is None or got[0] not in CHILD:
+            return []
+        level, start, end = got
+        kinds = kinds_for(CHILD[level], person=person_id is not None)
+        return self._memory.tree_summaries(kinds, start, end, person_id=person_id)
+
+    def tree_months(self, kind: str, *, person_id: "str | None" = None) -> list[str]:
+        """その種類の要約がある月（YYYY-MM）の一覧（記-m・暦のまとめが何を書くかを決める）。"""
+        return self._memory.tree_months(kind, person_id=person_id)
+
     def core_records(self) -> list[dict]:
         """核の出来事（1 出来事 1 行・面の最大 n・面を持つ人・束ね用ベクトル）。②の材料（記-a-ろ-に）。"""
         rows = self._memory.core_records()

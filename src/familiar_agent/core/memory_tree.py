@@ -52,3 +52,7 @@ def parse_node(text: str) -> "tuple[str, datetime, datetime] | None":
 def kinds_for(level: str, *, person: bool) -> "tuple[str, ...]":
     """その段の要約の種類。人を指していれば人ごとのもの。"""
     return _KINDS[(level, bool(person))]
+
+
+#: 1 つ下の段。暦のまとめ（REST 層 1 の ③）の材料は、1 つ下の段の要約である。
+CHILD = {"年": "月", "月": "日"}
