@@ -38,6 +38,11 @@ _KIND_OF_DIRECTION: dict[str, str] = {
     "記憶": "day_summary",
     "人物": "person_summary",  # 関係のまとめ（その日にその人について分かったこと・記-a-ろ-は）
     "まとめ": "core_summary",  # 核を固めたまとめ知識（週・月・人ごとの「いつもの」・記-a-ろ-に）
+    # 暦のまとめ（REST 層 1 の ③・記-m）。記憶の木の月と年の節。家族全体と人ごとを種類で分ける。
+    "月のまとめ": "month_summary",
+    "年のまとめ": "year_summary",
+    "人の月のまとめ": "person_month_summary",
+    "人の年のまとめ": "person_year_summary",
 }
 _DEFAULT_KIND = "observation"
 
@@ -422,6 +427,23 @@ class OIF:
         """前回の内省以降の記録（今日の分の $I$・記-a-ろ-ろ）。"""
         rows = self._memory.fresh_since_last_rest()
         logger.debug("OIF fresh_since_last_rest → %d件", len(rows))
+        return rows
+
+    def tree_summaries(self, node: str, *, person_id: "str | None" = None) -> "list[dict] | None":
+        """記憶の木の節（日 YYYY-MM-DD・月 YYYY-MM・年 YYYY）の要約（記-m）。節が読めなければ None。
+
+        人を指せばその人の面から人ごとの要約を、指さなければ家族全体の要約を引く。畳まれた記録も返す。
+        """
+        from ..core.memory_tree import kinds_for, parse_node
+
+        got = parse_node(node)
+        if got is None:
+            return None
+        level, start, end = got
+        rows = self._memory.tree_summaries(
+            kinds_for(level, person=person_id is not None), start, end, person_id=person_id
+        )
+        logger.debug("OIF tree_summaries %s（%s）→ %d件", node, person_id or "家族", len(rows))
         return rows
 
     def core_records(self) -> list[dict]:

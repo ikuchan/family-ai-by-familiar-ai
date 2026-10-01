@@ -25,7 +25,7 @@ from ..emotion_pad import pad_to_search_vector
 from ..mood_register import MoodPAD
 from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
-from .context import StoreContext
+from .context import StoreContext, viewpoint_of
 from .relations import KIND_UNCLASSIFIED, RelationStore, not_hidden
 from .embedding import _encode_vector
 
@@ -982,6 +982,45 @@ class ObservationStore:
                     f"WHERE s.groundedness_n >= 1 AND {live}"
                 )
                 return [dict(r) for r in cur.fetchall()]
+
+    def tree_summaries(
+        self,
+        kinds: "tuple[str, ...]",
+        start,
+        end,
+        *,
+        person_id: "str | None" = None,
+    ) -> list[dict]:
+        """記憶の木の節の要約（記-m）：種類が `kinds` で、時刻が [start, end) のもの。古い順。
+
+        **畳まれた記録も返す**（`not_hidden` を掛けない）。日ごとの要約は核の固めで隠れることがあるが、
+        木は暦で決まる索引で、意味で束ねる核の固めとは別の仕組みである。人を指せばその人の面から引く。
+        失敗時は空リスト。
+        """
+        params: list = [list(kinds), start, end]
+        if person_id is None:
+            sql = (
+                "SELECT o.id, o.content, o.timestamp, o.kind FROM observations o "
+                "WHERE o.kind = ANY(%s) AND o.timestamp >= %s AND o.timestamp < %s "
+                "ORDER BY o.timestamp, o.id"
+            )
+        else:
+            params.append(viewpoint_of(person_id))
+            sql = (
+                "SELECT DISTINCT o.id, o.content, o.timestamp, o.kind FROM observations o "
+                "JOIN situated_memories s ON s.obs_id = o.id "
+                "WHERE o.kind = ANY(%s) AND o.timestamp >= %s AND o.timestamp < %s "
+                "AND s.person_id = %s ORDER BY o.timestamp, o.id"
+            )
+        try:
+            with self._ctx.lock:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(sql, tuple(params))
+                    return list(cur.fetchall())
+        except Exception as e:
+            logger.warning("tree_summaries failed: %s", e)
+            return []
 
     def core_records(self) -> list[dict]:
         """②核の固めの材料：核の**出来事**ごとに 1 行（記-a-ろ-に）。
