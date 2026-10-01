@@ -106,3 +106,70 @@ def expired(started_at: float, *, now: float) -> bool:
 def duck(base: float) -> float:
     """会話中の音量。基準の 4 分の 1（0.0〜1.0 に収める）。"""
     return max(0.0, min(1.0, base)) * DUCK_RATIO
+
+
+# ── 近いところから順に探す（知-aa 段 3・2026-10-02・本人の決定）──────────────────
+
+#: 主LLM が言葉で指す種類 → Spotify の検索の種類。指さなければ曲。
+KINDS = {"曲": "track", "アーティスト": "artist", "アルバム": "album", "プレイリスト": "playlist"}
+
+
+def _norm(text: str) -> str:
+    """表記ゆれを均す（カタカナとひらがな・長音・濁点・大小・空白）。名前の判定と同じゆるい読みを使う。"""
+    from .silence_rules import _loose
+
+    return re.sub(r"[\s　・]", "", _loose(text or ""))
+
+
+def _hits(name: str, key: str) -> bool:
+    n = _norm(name)
+    return len(n) >= 2 and n in key
+
+
+def find_local(said: str, table, catalog) -> "tuple[str, str, str, bool] | None":
+    """手元から探す（1〜4 のうち検索の要らない分）。(どこから, 名前, URI, ランダムの既定) か None。
+
+    1 `MUSIC.md` → 2 自分のプレイリスト → 3 ライブラリ（保存したアルバムと曲）→ 4 プレイリストに入っている曲。
+    長い名前から当てる（「夜のドライブ」を「ドライブ」より先に）。
+    """
+    key = _norm(said)
+    if not key:
+        return None
+    for name, uri, shuffle in sorted(table or (), key=lambda r: -len(r[0])):
+        if _hits(name, key):
+            return "MUSIC.md", name, uri, shuffle
+    for p in sorted(catalog.playlists, key=lambda p: -len(p.name)):
+        if _hits(p.name, key):
+            return "プレイリスト", p.name, p.uri, False
+    for t in list(catalog.albums) + list(catalog.tracks):
+        if _hits(str(t.get("title") or ""), key):
+            return "ライブラリ", _label(t), str(t["uri"]), False
+    for t in catalog.playlist_tracks():
+        if _hits(str(t.get("title") or ""), key):
+            return "プレイリストの曲", _label(t), str(t["uri"]), False
+    return None
+
+
+def playlist_artist_in(said: str, catalog) -> "str | None":
+    """言われた言葉に、プレイリストに入っているアーティストの名前があるか（多く入っている人から）。"""
+    key = _norm(said)
+    for artist, _n in catalog.playlist_artists():
+        if _hits(artist, key):
+            return artist
+    return None
+
+
+def same_name(a: str, b: str) -> bool:
+    return bool(_norm(a)) and _norm(a) == _norm(b)
+
+
+def my_artists(catalog) -> "set[str]":
+    """プレイリストとライブラリに居るアーティスト（均した名前）。全体の検索で先に選ぶ。"""
+    names = {a for a, _ in catalog.playlist_artists()}
+    names |= {str(t.get("artist") or "") for t in list(catalog.albums) + list(catalog.tracks)}
+    return {_norm(n) for n in names if n}
+
+
+def _label(t: dict) -> str:
+    artist = str(t.get("artist") or "")
+    return f"「{t.get('title', '')}」" + (f"（{artist}）" if artist else "")
