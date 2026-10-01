@@ -61,10 +61,16 @@ capabilities:
   - id: memory
     summary: Store and recall observations, episodes, semantic facts, and unfinished business
     detail: >
-      Observations are embedded and stored in PostgreSQL with pgvector for vector
-      search. Recall uses cosine similarity over situated embeddings. Episodes group
-      related memories. Semantic facts and behavior policies are extracted from
-      observations. Uses the `tools/memory.py` module and `DATABASE_URL` environment variable.
+      Observations are embedded and stored in PostgreSQL with pgvector. Each turn
+      recalls from the current person's view by relevance, recency, emotion,
+      groundedness and viewpoint; `recall_as`, `recall_deeper`, `recall_when` and
+      `recall_recent` let the agent draw again in another way when it cannot remember.
+      Every night REST folds the day into a day summary and a note per person, and on
+      top of those writes month and year summaries for the family and for each person.
+      `recall_tree` walks that tree for the far past: name a year ("2025"), a month
+      ("2025-08") or a day ("2025-08-15") — several at once, for the family or one
+      person — and it returns just those summaries. All memory goes through
+      `io/oif.py`; the store is `tools/memory.py` and `store/`, on `DATABASE_URL`.
     enabled: true
   - id: mic_capture
     summary: Capture audio from a microphone
