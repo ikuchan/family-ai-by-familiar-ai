@@ -62,6 +62,7 @@ def build_context(
     self_understanding: str = "",
     family: str = "",
     people: str = "",
+    family_now: str = "",
     self_image: str = "",
     season_env: str = "",
     now: str = "",
@@ -121,6 +122,9 @@ def build_context(
             ages = family_age.render(text, today or date.today())
             if ages:
                 stable_parts.append(ages)
+            # 家族のいまの様子（REST が書いて DB に置く・知-ad）。`FAMILY.md` の記述の隣に添える。
+            if family_now and family_now.strip():
+                stable_parts.append(family_now.strip())
     # 自己像（層 2・記-a-へ）は決まりと同じ層——決まりは固定の構え、自己像は育つ構え。
     # 規則の直後に、`[いまの自分]` の見出しを本文が持った形で載せる（`self_image.render`）。
     if self_image and self_image.strip():

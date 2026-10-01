@@ -457,6 +457,7 @@ class ArbiterInput:
     timer_active: bool = False
     family_md: str = ""
     people_md: str = ""  # 家族以外で知っている人（`PEOPLE.md`・知-ab）
+    family_now: str = ""  # 家族のいまの様子（`[家族のいまの様子]`・知-ad）
     current_speaker: str = ""
     silenced: bool = False
     self_understanding: str = ""
@@ -886,6 +887,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         self_understanding=inp.self_understanding or "（指定なし）",
         family=inp.family_md or "（指定なし）",
         people=inp.people_md,
+        family_now=inp.family_now,
         self_image=inp.self_image,
         season_env=inp.season_env,
     ).stable
