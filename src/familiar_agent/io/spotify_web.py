@@ -1,7 +1,12 @@
 """Spotify Web API の薄い口（知-aa・2026-09-21）。
 
-使うのは 2 つだけである。**鍵の更新**（アクセス鍵は 1 時間で切れる）と、**機器の切り替え**
-（`PUT /v1/me/player`・`play: false` なので音は鳴らない）。
+持つのは**鍵の更新**（アクセス鍵は 1 時間で切れる）と、**機器の切り替え**（`PUT /v1/me/player`・
+`play: false` なので音は鳴らない）と、**読むだけの口**（知-aa 段 3・2026-10-01：自分のプレイリストの一覧と
+中身、保存したアルバムと曲、検索）。Spotify を呼ぶのはこのクラスだけにする。
+
+プレイリストの中身は**新しい口 `/playlists/{id}/items`** で読む。古い口 `/playlists/{id}/tracks` は、このアプリ
+では自分で作ったプレイリストでも 403 だった（実機 2026-10-01）。ジャンル・関連アーティスト・おすすめは使えない
+（ジャンルの欄が無い・403・404）。
 
 なぜ要るか。**MPRIS の口は、この機が再生中の機器になってから現れる**（実機 2026-09-21）。
 起動しただけでは口が無く、鳴らそうとしても掴めない。そこで**鳴らす直前**にここを通して機器を
@@ -132,3 +137,71 @@ class Spotify:
         self._call("PUT", "/me/player", {"device_ids": [device], "play": False})
         logger.info("音楽：機器「%s」へ切り替えた（音は鳴らさない）", name)
         return True
+
+    # ── 読むだけの口（知-aa 段 3）────────────────────────────────────────────
+
+    def _pages(self, path: str) -> "list[dict] | None":
+        """`next` をたどって `items` を集める。最初のページが読めなければ None。"""
+        out: list[dict] = []
+        first = True
+        while path:
+            got = self._call("GET", path)
+            if "items" not in got:
+                return None if first else out
+            out += [i for i in got.get("items") or [] if i]
+            nxt = str(got.get("next") or "")
+            path = nxt[len(API) :] if nxt.startswith(API) else ""
+            first = False
+        return out
+
+    def my_playlists(self) -> "list[dict]":
+        """自分のプレイリスト（持ち主が自分か `mine` を添える）。読めなければ空。"""
+        me = str(self._call("GET", "/me").get("id") or "")
+        return [
+            {
+                "id": str(p.get("id") or ""),
+                "name": str(p.get("name") or ""),
+                "uri": str(p.get("uri") or ""),
+                "mine": bool(me) and str((p.get("owner") or {}).get("id") or "") == me,
+            }
+            for p in self._pages("/me/playlists?limit=50") or []
+        ]
+
+    def playlist_items(self, playlist_id: str) -> "list[dict] | None":
+        """プレイリストの曲（新しい口）。読めなければ None（呼び手は前の中身を残す）。"""
+        items = self._pages(f"/playlists/{playlist_id}/items?limit=100")
+        if items is None:
+            return None
+        return [t for t in (_track_of(i.get("item") or i.get("track")) for i in items) if t]
+
+    def saved_albums(self) -> "list[dict]":
+        return [
+            t
+            for t in (_track_of(i.get("album")) for i in self._pages("/me/albums?limit=50") or [])
+            if t
+        ]
+
+    def saved_tracks(self) -> "list[dict]":
+        return [
+            t
+            for t in (_track_of(i.get("track")) for i in self._pages("/me/tracks?limit=50") or [])
+            if t
+        ]
+
+    def search(self, query: str, kind: str, *, limit: int = 5) -> "list[dict]":
+        """Spotify 全体の検索。`kind` は track・artist・album・playlist。"""
+        q = urllib.parse.urlencode({"q": query, "type": kind, "limit": limit, "market": "JP"})
+        got = self._call("GET", f"/search?{q}").get(f"{kind}s") or {}
+        return [t for t in (_track_of(i) for i in got.get("items") or []) if t]
+
+
+def _track_of(obj: "dict | None") -> "dict | None":
+    """曲・アルバム・アーティスト・プレイリストを {title, artist, uri} にそろえる。無ければ None。"""
+    if not isinstance(obj, dict) or not obj.get("uri"):
+        return None
+    artists = obj.get("artists") or []
+    artist = str(artists[0].get("name") or "") if artists and isinstance(artists[0], dict) else ""
+    owner = obj.get("owner") or {}
+    if not artist and isinstance(owner, dict):
+        artist = str(owner.get("display_name") or "")
+    return {"title": str(obj.get("name") or ""), "artist": artist, "uri": str(obj["uri"])}
