@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import contextlib
 import logging
 import time
@@ -27,14 +28,21 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "play_music",
         "description": (
-            "音楽をかける（「音楽かけて」「ケイマンかけて」）。name は覚えているプレイリストの名前。"
-            "order に「ランダム」か「順番」を渡すと、そのときだけ順番を変えられる。"
-            "鳴っているあいだは、音楽の話だけを聞くようになる。"
+            "音楽をかける（「音楽かけて」「ケイマンかけて」「米津玄師かけて」「Lemon かけて」）。"
+            "name は言われた名前（プレイリスト・アーティスト・アルバム・曲）。覚えているプレイリスト、"
+            "あなたのプレイリストとライブラリ、プレイリストに入っているアーティストの順に探し、無ければ "
+            "Spotify 全体から探す。kind に「曲」「アーティスト」「アルバム」「プレイリスト」を渡すと、全体から"
+            "探すときの種類になる。order に「ランダム」か「順番」を渡すと、そのときだけ順番を変えられる。"
+            "返りで何をどこから見つけたかを言うので、違えば言い直してもらう。"
         ),
         "input_schema": {
             "type": "object",
             "properties": {
-                "name": {"type": "string", "description": "プレイリストの名前"},
+                "name": {"type": "string", "description": "言われた名前"},
+                "kind": {
+                    "type": "string",
+                    "description": "「曲」「アーティスト」「アルバム」「プレイリスト」（省略可・省けば曲）",
+                },
                 "order": {"type": "string", "description": "「ランダム」か「順番」（省略可）"},
             },
             "required": ["name"],
@@ -115,13 +123,34 @@ class MusicTool:
         return f"知らない道具：{name}", False
 
     async def _play(self, tool_input: dict) -> "tuple[str, bool]":
+        """近いところから順に探してかける（知-aa 段 3・本人の決定）。
+
+        1 `MUSIC.md`（表記ゆれを均す）→ 2 自分のプレイリスト → 3 ライブラリ → 4 プレイリストに入っている曲と
+        アーティスト → 5 Spotify 全体の検索（プレイリストとライブラリに居るアーティストを先に選ぶ）。
+        正解はあなたが作ったプレイリストや、そこに入っている人であることが多い（本人）。返りで、何をどこから
+        見つけたかを言う。
+        """
+        from ..core import music_catalog
+
         said = str(tool_input.get("name") or "")
-        row = music_rules.find_playlist(said, self._table())
-        if row is None:
-            return f"「{said}」は覚えていないので、かけられない", False
-        title, uri, default_shuffle = row
         order = str(tool_input.get("order") or "")
-        shuffle = music_rules.wants_shuffle(order or said, default_shuffle)
+        catalog = music_catalog.stored()
+        local = music_rules.find_local(said, self._table(), catalog)
+        if local is not None:
+            source, label, uri, default_shuffle = local
+            shuffle = music_rules.wants_shuffle(order or said, default_shuffle)
+            heading = {
+                "MUSIC.md": f"「{label}」を",
+                "プレイリスト": f"あなたのプレイリスト「{label}」を",
+                "ライブラリ": f"ライブラリの{label}を",
+                "プレイリストの曲": f"プレイリストに入っている{label}を",
+            }[source]
+        else:
+            found = await self._search(said, str(tool_input.get("kind") or ""), catalog)
+            if found is None:
+                return f"「{said}」は見つからなかったので、かけられない", False
+            heading, uri = found
+            shuffle = music_rules.wants_shuffle(order, False)
         # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新も
         # ここで起きる。切り替えられなくても鳴らしにいく（口が既に居れば鳴る）。
         if self._web is not None and self._device_name:
@@ -129,12 +158,32 @@ class MusicTool:
                 self._web.activate(self._device_name)
         bus = self._bus()
         if not await self._io.play(bus, uri):
-            return f"「{title}」をかけられなかった（音の出口が見つからない）", False
-        await self._io.set_shuffle(bus, shuffle)
+            return f"{heading}かけられなかった（音の出口が見つからない）", False
+        if ":playlist:" in uri or ":album:" in uri or ":artist:" in uri:
+            await self._io.set_shuffle(bus, shuffle)
         self._mark(True)
         how = "ランダムで" if shuffle else ""
-        logger.info("音楽：%s を%sかけ始めた", title, how or "順番に")
-        return f"「{title}」を{how}かけ始めた", True
+        logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
+        return f"{heading}{how}かけ始めた", True
+
+    async def _search(self, said: str, kind_word: str, catalog) -> "tuple[str, str] | None":
+        """手元に無いとき：プレイリストに入っているアーティストなら、その人を。無ければ全体から探す。"""
+        if self._web is None:
+            return None
+        artist = music_rules.playlist_artist_in(said, catalog)
+        if artist is not None:
+            hits = await asyncio.to_thread(self._web.search, artist, "artist")
+            pick = next((h for h in hits if music_rules.same_name(h["title"], artist)), None)
+            if pick is not None:
+                return f"プレイリストに入っている{artist}を", str(pick["uri"])
+        kind = music_rules.KINDS.get(kind_word.strip(), "track")
+        hits = await asyncio.to_thread(self._web.search, said, kind)
+        if not hits:
+            return None
+        mine = music_rules.my_artists(catalog)
+        pick = next((h for h in hits if music_rules._norm(h.get("artist", "")) in mine), hits[0])
+        label = f"「{pick['title']}」" + (f"（{pick['artist']}）" if pick.get("artist") else "")
+        return f"ライブラリに無かったので、Spotify から探した{label}を", str(pick["uri"])
 
     def _mark(self, playing: bool) -> None:
         """鳴り始め・止まりを印す。**ここだけが溜める**（寿命と門が読む）。"""
