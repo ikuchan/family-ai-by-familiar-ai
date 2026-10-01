@@ -32,7 +32,7 @@ from ..store import clock
 from .arbiter import Arbiter, ArbiterInput, Decision as ArbiterDecision
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION
 from ..io.dif import DIF
-from ..core import filler_echo, jev_judges, measure, parsing, unsaid
+from ..core import family_now, filler_echo, jev_judges, measure, parsing, unsaid
 from ..core.drive_autonomy import TALKING_AXES
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
@@ -846,6 +846,7 @@ class InformationProcessing:
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             people_md=str(getattr(agent, "_people_md", "") or ""),
+            family_now=family_now.current_text(),
             self_image=_self_image_text(),
             season_env=_season_env_text(),
             present_ctx=present_ctx,
@@ -2784,6 +2785,7 @@ class InformationProcessing:
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             people_md=str(getattr(agent, "_people_md", "") or ""),
+            family_now=family_now.current_text(),
             self_image=_self_image_text(),
             season_env=_season_env_text(),
             present_ctx=present_ctx,

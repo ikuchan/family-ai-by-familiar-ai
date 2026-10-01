@@ -11,7 +11,7 @@ import time
 from collections.abc import Callable, Coroutine
 from pathlib import Path
 
-from .core import parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
+from .core import family_now, parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
 from .core.music_state import MusicState  # noqa: E402  音楽の状態（知-aa）
 from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内部利用＋既存の import 経路を保つ再輸出
     _call_optional_async,
@@ -625,6 +625,7 @@ class EmbodiedAgent:
                 self_understanding=(load_summary() or self._me_md) if first_person else "",
                 family=self._family_md if first_person else "",
                 people=getattr(self, "_people_md", "") if first_person else "",
+                family_now=family_now.current_text() if first_person else "",
             ).stable
         except ValueError as e:
             logger.warning("立ち位置を組めなかったので渡さずに続ける: %s", e)
