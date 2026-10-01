@@ -10,10 +10,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import datetime
+
+from . import state_json
 
 logger = logging.getLogger(__name__)
 
@@ -53,44 +54,11 @@ def _from_json(raw: object) -> "dict[str, Now]":
 
 def stored() -> "dict[str, Now]":
     """DB にある人ごとのいまの様子。無ければ空。"""
-    try:
-        from ..db import get_db
-
-        db = get_db()
-        with db.lock:
-            conn = db.conn()
-            with conn.cursor() as cur:
-                cur.execute("SELECT value_json FROM agent_state WHERE state_key = %s", (STATE_KEY,))
-                row = cur.fetchone()
-        if not row:
-            return {}
-        raw = row["value_json"] if isinstance(row, dict) else row[0]
-        return _from_json(json.loads(raw) if isinstance(raw, str) else raw)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("家族のいまの様子を読めなかった: %s", e)
-        return {}
+    return _from_json(state_json.read(STATE_KEY))
 
 
 def _store(data: "dict[str, Now]") -> bool:
-    try:
-        from ..db import get_db
-
-        now = datetime.now(timezone.utc).isoformat()
-        db = get_db()
-        with db.lock:
-            conn = db.conn()
-            with conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO agent_state (state_key, value_json, updated_at) VALUES (%s, %s, %s) "
-                    "ON CONFLICT (state_key) DO UPDATE SET value_json = EXCLUDED.value_json, "
-                    "updated_at = EXCLUDED.updated_at",
-                    (STATE_KEY, json.dumps(_to_json(data), ensure_ascii=False), now),
-                )
-            conn.commit()
-        return True
-    except Exception as e:  # noqa: BLE001
-        logger.warning("家族のいまの様子を保存できなかった: %s", e)
-        return False
+    return state_json.write(STATE_KEY, _to_json(data))
 
 
 def update(name: str, text: str, *, counted_from: datetime) -> bool:
@@ -103,19 +71,7 @@ def update(name: str, text: str, *, counted_from: datetime) -> bool:
 
 def clear() -> bool:
     """消す（試験と、やり直したいとき）。"""
-    try:
-        from ..db import get_db
-
-        db = get_db()
-        with db.lock:
-            conn = db.conn()
-            with conn.cursor() as cur:
-                cur.execute("DELETE FROM agent_state WHERE state_key = %s", (STATE_KEY,))
-            conn.commit()
-        return True
-    except Exception as e:  # noqa: BLE001
-        logger.warning("家族のいまの様子を消せなかった: %s", e)
-        return False
+    return state_json.clear(STATE_KEY)
 
 
 def render(data: "dict[str, Now]") -> str:
