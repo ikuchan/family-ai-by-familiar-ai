@@ -215,6 +215,7 @@ def test_speaks_via_say_tool():
         "recall_deeper",
         "recall_when",
         "recall_recent",
+        "recall_tree",  # 記憶の木の節を指して要約を読む（記-m）
         _SEARCH_DEF["name"],
         _FETCH_DEF["name"],
     ]
