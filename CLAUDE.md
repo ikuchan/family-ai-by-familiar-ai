@@ -113,7 +113,7 @@ JSON ファイルも使わない。ファイルに置くのは**既定値と人�
 | `alarms` | アラーム（鳴る時刻・鳴った・止めた・確かめて掛けた印）——タイマーとは別物 |
 | `stopwatches` | ストップウォッチ（始めた・止めた・寿命で止めた印）——タイマーとは別物 |
 | `mental_state_log` | 追記専用のメンタル状態スナップショット |
-| `agent_state` | キーバリュー：capability_summary, capabilities, self_image, season_env, family_now, mood_pad, drive5, addressee_doubts, relation_judged_until, silence_request と層 3 の設定値 |
+| `agent_state` | キーバリュー：capability_summary, capabilities, self_image, season_env, family_now, music_catalog, music_suggestion, mood_pad, drive5, addressee_doubts, relation_judged_until, silence_request と層 3 の設定値 |
 
 スキーマ変更は `migration/` 以下のタイムスタンプ付きファイルを通す。
 

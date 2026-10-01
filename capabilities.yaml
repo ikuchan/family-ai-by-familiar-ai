@@ -163,9 +163,16 @@ capabilities:
   - id: music
     summary: Play the family's Spotify playlists, say what is playing, and remember it
     detail: >
-      `play_music` plays a playlist named in MUSIC.md ("パジュ、ケイマンかけて"), in order
-      or shuffled; `stop_music`, `next_track` and `music_volume` stop it, skip a song and
-      turn it up or down. It plays through spotifyd on this machine. While music plays,
+      `play_music` plays what is asked for ("パジュ、ケイマンかけて", "米津玄師かけて"),
+      looking closest first: the names in MUSIC.md (spelling variations allowed), your own
+      Spotify playlists, your saved albums and songs, the artists and songs inside your
+      playlists (read every night), and only then the whole of Spotify, preferring artists
+      you already have; it says what it found and where. `stop_music`, `next_track` and
+      `music_volume` stop it, skip a song and turn it up or down. The agent never starts
+      music by itself: every night it picks one song you do not have yet, close to the
+      artists in your playlists, and at a moment when it may talk (at most once a day) it
+      asks "こんな曲あるけどどう？" with the title, artist and why; `music_suggestion_reply`
+      plays it if you like it, and never suggests it again if you do not. It plays through spotifyd on this machine. While music plays,
       only music words (stop, next, louder, softer, a playlist name) are heard, unless
       the utterance starts with the agent's name, in which case anything is heard
       ("パジュ、いま何の曲？"). The song now playing, its artist and the volume are shown
