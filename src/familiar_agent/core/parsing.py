@@ -75,6 +75,8 @@ def parse_family_md(text: str) -> list[dict]:
     _LATIN_RE = re.compile(r"[-*]\s*\*{0,2}英字\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
     # 関係（「家族の父。大人。…」）。大人か子どもかを判じる唯一の材料（出-ak・`core/tone.py`）。
     _RELATION_RE = re.compile(r"[-*]\s*\*{0,2}関係\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
+    # 誕生日（書かれたまま）。年齢と学年を毎回数える材料（知-ad・`core/family_age.py`）。
+    _BIRTHDAY_RE = re.compile(r"[-*]\s*\*{0,2}誕生日\*{0,2}\s*[：:]\s*(.+)", re.MULTILINE)
     _TEMPLATE_SKIP = re.compile(r"^[（(].*[）)]$")
 
     members: list[dict] = []
@@ -100,12 +102,14 @@ def parse_family_md(text: str) -> list[dict]:
         relation = rel_m.group(1).strip() if rel_m else ""
         if _TEMPLATE_SKIP.match(relation):
             relation = ""
+        birth_m = _BIRTHDAY_RE.search(section)
         members.append(
             {
                 "name": name,
                 "display_name": display_name or name,
                 "latin": latin,
                 "relation": relation,
+                "birthday": birth_m.group(1).strip() if birth_m else "",
             }
         )
     return members
