@@ -17,7 +17,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from enum import Enum
+
+from . import family_age
 
 #: パジュとして立つときの言葉。**感情を作るのはパジュである**（2026-09-05 決定）。
 #: 一人称は単独では成り立たないので、自己認識と家族を必ず伴う（`build_context` が確かめる）。
@@ -67,6 +70,7 @@ def build_context(
     iteration: str = "",
     recent: str = "",
     workspace: str = "",
+    today: "date | None" = None,
 ) -> Context:
     """部品を選び、安定 → 可変の順に組む。
 
@@ -112,6 +116,11 @@ def build_context(
     ):
         if text and text.strip():
             stable_parts.append(label + "\n" + text.strip())
+        if label == "[一緒に暮らす人たち]" and text and text.strip():
+            # 年齢と学年は誕生日から毎回数えて添える（知-ad）。`FAMILY.md` は人の入力のまま書き換えない。
+            ages = family_age.render(text, today or date.today())
+            if ages:
+                stable_parts.append(ages)
     # 自己像（層 2・記-a-へ）は決まりと同じ層——決まりは固定の構え、自己像は育つ構え。
     # 規則の直後に、`[いまの自分]` の見出しを本文が持った形で載せる（`self_image.render`）。
     if self_image and self_image.strip():
