@@ -98,6 +98,10 @@ capabilities:
       they are and can name them in a photo, but they never become the speaker and
       get no memory space of their own; what is said with them stays in the shared
       memory.
+      FAMILY.md is never rewritten by the agent. Each person's age and school grade are
+      counted from their birthday every time; how each person is doing lately (moods,
+      likes, what they are into) is rewritten at night from the daily notes about them,
+      ten days at a time, and kept apart as "[家族のいまの様子]".
     enabled: true
   - id: realtime_stt
     summary: Transcribe spoken audio in real-time
