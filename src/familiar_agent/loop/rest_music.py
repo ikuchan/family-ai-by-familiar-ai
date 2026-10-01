@@ -108,6 +108,9 @@ def _songs(rows: "list[dict]") -> str:
 async def prepare_suggestion(agent) -> bool:
     """おすすめの候補を 1 件用意する。用意できたら True。"""
     state = ms.stored()
+    if state.candidate is not None and state.candidate.offered >= ms.MAX_OFFERS:
+        ms.drop_if_unanswered(state)  # 返事が無いまま 2 回すすめた（もう一度だけ・本人の決定）
+        ms.store(state)
     if state.candidate is not None:
         return False  # 1 件を使い切ってから次
     tool = getattr(agent, "_music_tool", None)

@@ -11,6 +11,7 @@ DB（`agent_state` の鍵 `music_suggestion`）に持つのは、いまの候補
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 
 from . import state_json
 
@@ -74,3 +75,60 @@ def store(s: Suggestions) -> bool:
 
 def clear() -> bool:
     return state_json.clear(STATE_KEY)
+
+
+HEADING = "[音楽のおすすめ]"
+
+
+def today() -> str:
+    """いまの日付（その日に勧めたかを見る）。試験で差し替えられるよう口にしておく。"""
+    return datetime.now().astimezone().strftime("%Y-%m-%d")
+
+
+def frame(s: Suggestions, *, today: str, talking: bool, conversation: bool) -> str:
+    """主LLM のシステム文に載せる枠。載せなければ空。
+
+    - 話しかけてよいとき（bond・esteem の発火）で、その日にまだ勧めていなければ、勧める材料を載せる。
+    - 勧めた日の会話では、何を勧めたかと、返事の受け方を載せる。
+    """
+    c = s.candidate
+    if c is None:
+        return ""
+    song = f"「{c.title}」（{c.artist}）"
+    if talking and s.last_offered_on != today and c.offered < MAX_OFFERS:
+        return (
+            f"{HEADING}\n家族にすすめたい曲がある：{song}。選んだ理由：{c.reason}\n"
+            "話しかけるなら、「こんな曲あるけどどう？」と、曲名とアーティストと理由を添えて聞いてよい"
+            "（聞かなくてもよい。かけるのは返事を聞いてから）。"
+        )
+    if conversation and s.last_offered_on == today and c.offered > 0:
+        return (
+            f"{HEADING}\nさっき {song} をすすめた。返事があれば music_suggestion_reply で受ける"
+            "（「気に入った」ならかける・「いらない」なら二度とすすめない）。"
+        )
+    return ""
+
+
+def mark_offered(s: Suggestions, said: str, *, today: str) -> bool:
+    """声にした返事に曲名が入っていたら「勧めた」と印をつける。つけたら True。"""
+    from .music_rules import _norm
+
+    c = s.candidate
+    if (
+        c is None
+        or s.last_offered_on == today
+        or not _norm(c.title)
+        or _norm(c.title) not in _norm(said)
+    ):
+        return False
+    c.offered += 1
+    s.last_offered_on = today
+    if c.uri not in s.offered_uris:
+        s.offered_uris.append(c.uri)
+    return True
+
+
+def drop_if_unanswered(s: Suggestions) -> None:
+    """返事が無いまま `MAX_OFFERS` 回勧めた候補は捨てる（晩に次を用意する）。"""
+    if s.candidate is not None and s.candidate.offered >= MAX_OFFERS:
+        s.candidate = None

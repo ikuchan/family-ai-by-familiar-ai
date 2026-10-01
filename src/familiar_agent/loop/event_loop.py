@@ -83,6 +83,7 @@ _FULL_ACTIONS = (
     "stop_music",
     "next_track",
     "music_volume",
+    "music_suggestion_reply",  # すすめた曲への返事（知-aa 段 4）
     "start_stopwatch",  # ストップウォッチ（知-u・別物）
     "stop_stopwatch",
 )
@@ -90,7 +91,13 @@ _FULL_ACTIONS = (
 _WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent", "recall_tree")
 
 #: 音楽の道具（知-aa）。`recall` と同じく、その場で返る。
-_MUSIC_ACTIONS = ("play_music", "stop_music", "next_track", "music_volume")
+_MUSIC_ACTIONS = (
+    "play_music",
+    "stop_music",
+    "next_track",
+    "music_volume",
+    "music_suggestion_reply",
+)
 
 _TIMER_ACTIONS = ("set_timer", "cancel_timer", "pause_timer", "resume_timer")
 # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物・別の道具（`agent._stopwatch_tool`）。
@@ -838,10 +845,12 @@ class InformationProcessing:
         watches = _stopwatch_frame(agent)  # `[ストップウォッチ]` も（知-u）
         if watches:
             iter_ctx = (iter_ctx + "\n\n" + watches) if iter_ctx else watches
-        if (
-            music
-        ):  # `[音楽]` も（知-aa 段 2）。読むのは非同期なので、呼び手が `_music_now` で読んで渡す
+        # `[音楽]` も（知-aa 段 2）。読むのは非同期なので、呼び手が `_music_now` で読んで渡す。
+        if music:
             iter_ctx = (iter_ctx + "\n\n" + music) if iter_ctx else music
+        suggestion = self._suggestion_frame()  # `[音楽のおすすめ]`（知-aa 段 4）
+        if suggestion:
+            iter_ctx = (iter_ctx + "\n\n" + suggestion) if iter_ctx else suggestion
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -1865,6 +1874,7 @@ class InformationProcessing:
         "stop_music": lambda ip: _music_def(ip._agent, "stop_music"),
         "next_track": lambda ip: _music_def(ip._agent, "next_track"),
         "music_volume": lambda ip: _music_def(ip._agent, "music_volume"),
+        "music_suggestion_reply": lambda ip: _music_def(ip._agent, "music_suggestion_reply"),
         "start_stopwatch": lambda ip: _stopwatch_def(ip._agent, "start_stopwatch"),
         "stop_stopwatch": lambda ip: _stopwatch_def(ip._agent, "stop_stopwatch"),
         # 確認待ちへの答え（出-y）。預かりが生きているあいだだけ。
@@ -2334,6 +2344,36 @@ class InformationProcessing:
             MI(id="", content=text[:500], timestamp=None, direction=kind),
             **perspective,
         )
+
+    def _suggestion_frame(self) -> str:
+        """`[音楽のおすすめ]`：話しかけてよいとき（bond・esteem）に勧める材料、勧めた日の会話では返事の受け方。"""
+        if getattr(self._agent, "_music_tool", None) is None:
+            return ""
+        from ..core import music_suggestion as ms
+
+        try:
+            return ms.frame(
+                ms.stored(),
+                today=ms.today(),
+                talking=self._talking(),
+                conversation=self._req.trigger_kind == "発話",
+            )
+        except Exception:  # noqa: BLE001
+            return ""
+
+    def _note_suggestion_offered(self, said: str) -> None:
+        """声にした返事に、すすめたい曲の名前が入っていたら「勧めた」と印をつける（知-aa 段 4）。"""
+        if not self._talking() or getattr(self._agent, "_music_tool", None) is None:
+            return
+        from ..core import music_suggestion as ms
+
+        with contextlib.suppress(Exception):
+            s = ms.stored()
+            if ms.mark_offered(s, said, today=ms.today()):
+                ms.store(s)
+                logger.info(
+                    "event-loop 音楽をすすめた：%s", s.candidate.title if s.candidate else ""
+                )
 
     async def _judge_companion(self, utterance: str) -> str:
         """相手の言葉から相手の気分を見立てる（出-av）。会話の求めだけで、情動と機器は見立てない。
@@ -3179,6 +3219,7 @@ class InformationProcessing:
             return text, "独白"
         await self._pause_after_filler()
         await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
+        self._note_suggestion_offered(text)
         self._stamp_said()
         self._extend_window_for_conversation()  # 返事から 1 分（出-as 段 4）
         self._emit(text)
