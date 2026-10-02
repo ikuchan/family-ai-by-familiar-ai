@@ -489,6 +489,10 @@ class ObservationMemory:
     def list_persons(self) -> list[dict]:
         return self._persons_store.list_persons()
 
+    def update_display_name(self, person_id: str, display_name: str) -> bool:
+        """呼び方を `FAMILY.md` に合わせる（知-af・人物表へ委譲）。"""
+        return self._persons_store.update_display_name(person_id, display_name)
+
     # 観測（store/observations.py）
     def mark_superseded(
         self, old_id: "str", new_id: "str", kind: "str" = KIND_UNCLASSIFIED

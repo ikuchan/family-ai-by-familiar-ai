@@ -44,6 +44,19 @@ class PersonRegistry:
             conn.commit()
         return pid
 
+    def update_display_name(self, person_id: str, display_name: str) -> bool:
+        """呼び方を書き直す（知-af）。登録は同じ名前の行があれば呼び方を書き直さないので、`FAMILY.md` に合わせる口。"""
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE persons SET display_name = %s, updated_at = %s WHERE id = %s",
+                    (display_name, clock.now_utc_iso(), person_id),
+                )
+                changed = cur.rowcount > 0
+            conn.commit()
+        return changed
+
     def list_persons(self) -> list[dict]:
         with self._ctx.lock:
             conn = self._ctx.conn()
