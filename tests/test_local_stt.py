@@ -43,6 +43,7 @@ def _engine(*, vad_says, transcribe="おはよう", cfg=None):
     calls = iter(vad_says)
     engine._vad_step = MagicMock(side_effect=lambda frame: next(calls, None))
     engine._transcribe = MagicMock(return_value=transcribe)
+    engine._embed = MagicMock(return_value=None)  # 声の特徴は取らない（実モデルを読まない・知-ae）
     engine.on_committed = asyncio.Queue()
     return engine
 

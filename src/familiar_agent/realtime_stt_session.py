@@ -26,7 +26,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from .core.timer_rules import is_control_word
-from .core.wake_window import VoiceText
+from .core.wake_window import VoiceText, voice_of
 from .voice_guard import VoiceLoopGuard, get_shared_voice_guard
 
 if TYPE_CHECKING:
@@ -419,7 +419,8 @@ class RealtimeSttSession:
             if self.on_committed:
                 self.on_committed(text)
             # 声だと分かる印を付けて積む（出-as 段 2）。窓（ウェイクワード）は声にだけ掛ける。
-            await self._committed_queue.put(VoiceText(text))
+            # ローカルの書き起こしが載せた声の特徴は付け直しても落とさない（知-ae）。
+            await self._committed_queue.put(VoiceText(text, voice=voice_of(text)))
 
     def _passes_gate(self, reason: str, text: str) -> bool:
         """聞かないあいだに通す言葉か。**理由で通す言葉が違う**（知-aa・2026-09-21）。
