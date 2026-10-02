@@ -69,6 +69,7 @@ _DEFAULT_PERSON_ID = "00000000-0000-0000-0000-000000000001"
 
 _TRUNCATE_TABLES = [
     "timers",
+    "recognition_embeddings",
     "situated_memories",
     "obs_embeddings",
     "memory_jobs",

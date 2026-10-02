@@ -70,7 +70,7 @@ class CameraPresenceWatcher:
                 frame_path = await self._capture_frame()
                 if frame_path:
                     self._last_frame_b64 = _encode_frame(frame_path)
-                    hint = await recognize_face_async(frame_path, self._manager)
+                    hint = await recognize_face_async(frame_path)
                     if hint:
                         await self._manager.apply_hint(hint)
 
