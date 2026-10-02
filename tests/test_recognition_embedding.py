@@ -46,23 +46,6 @@ def test_best_match_empty_or_zero_returns_none():
     assert best_match(np.array([0.0, 0.0], dtype=np.float32), enrolled, 0.35) is None
 
 
-# ── EmbeddingStore（保存の往復） ─────────────────────────────────────────────
-
-
-def test_embedding_store_roundtrip(tmp_path):
-    from familiar_agent.recognition.embedding_store import EmbeddingStore
-
-    path = tmp_path / "emb.pkl"
-    store = EmbeddingStore(path)
-    vec = np.array([0.1, 0.2, 0.3], dtype=np.float32)
-    store.save_embedding("alice", vec)
-
-    reloaded = EmbeddingStore(path)
-    got = reloaded.get()
-    assert "alice" in got
-    assert np.allclose(got["alice"], vec)
-
-
 # ── RecognitionConfig（既定値） ──────────────────────────────────────────────
 
 
@@ -72,6 +55,8 @@ def test_recognition_config_defaults(monkeypatch):
         "VOICE_THRESHOLD",
         "FACE_SWITCH_THRESHOLD",
         "VOICE_SWITCH_THRESHOLD",
+        "RECOGNITION_REGISTERED_MAX",
+        "RECOGNITION_TODAY_MAX",
     ):
         monkeypatch.delenv(k, raising=False)
     from familiar_agent.config import RecognitionConfig
@@ -81,6 +66,7 @@ def test_recognition_config_defaults(monkeypatch):
     assert cfg.voice_threshold == pytest.approx(0.25)
     assert cfg.face_switch_threshold == pytest.approx(0.65)
     assert cfg.voice_switch_threshold == pytest.approx(0.35)
+    assert cfg.registered_max == 30 and cfg.today_max == 10  # 知-ae・本人の決定ア・仮の値
 
 
 # ── recognize_face_async（モデルをモック） ──────────────────────────────────
@@ -90,13 +76,9 @@ def test_recognition_config_defaults(monkeypatch):
 async def test_recognize_face_returns_hint_for_known_person(tmp_path):
     from familiar_agent.config import RecognitionConfig
     from familiar_agent.recognition import face as face_mod
-    from familiar_agent.recognition.embedding_store import EmbeddingStore
 
-    store = EmbeddingStore(tmp_path / "faces.pkl")
-    store.save_embedding("alice", np.array([1.0, 0.0, 0.0], dtype=np.float32))
-
-    manager = MagicMock()
-    manager.list_persons.return_value = [{"id": "pid-alice", "name": "alice"}]
+    store = MagicMock()  # 器（`recognition_embeddings`）は test_recognition_embeddings_store が見る
+    store.centroids.return_value = {"pid-alice": np.array([1.0, 0.0, 0.0], dtype=np.float32)}
 
     with patch.object(
         face_mod,
@@ -104,24 +86,23 @@ async def test_recognize_face_returns_hint_for_known_person(tmp_path):
         return_value=np.array([0.95, 0.05, 0.0], dtype=np.float32),
     ):
         hint = await face_mod.recognize_face_async(
-            "/tmp/x.jpg", manager, cfg=RecognitionConfig(), store=store
+            "/tmp/x.jpg", cfg=RecognitionConfig(), store=store
         )
     assert hint is not None
     assert hint.person_id == "pid-alice"
     assert hint.source == "face"
+    store.centroids.assert_called_with("face", "registered")
     assert 0.0 <= hint.confidence <= 1.0
 
 
 @pytest.mark.asyncio
 async def test_recognize_face_none_when_no_embedding(tmp_path):
     from familiar_agent.recognition import face as face_mod
-    from familiar_agent.recognition.embedding_store import EmbeddingStore
 
-    store = EmbeddingStore(tmp_path / "faces.pkl")
-    manager = MagicMock()
-    manager.list_persons.return_value = []
+    store = MagicMock()
+    store.centroids.return_value = {}
     with patch.object(face_mod, "_extract_face_embedding", return_value=None):
-        hint = await face_mod.recognize_face_async("/tmp/x.jpg", manager, store=store)
+        hint = await face_mod.recognize_face_async("/tmp/x.jpg", store=store)
     assert hint is None
 
 
@@ -131,10 +112,9 @@ async def test_recognize_face_none_when_no_embedding(tmp_path):
 @pytest.mark.asyncio
 async def test_voice_identify_returns_hint_for_known_person(tmp_path):
     from familiar_agent.recognition import voice as voice_mod
-    from familiar_agent.recognition.embedding_store import EmbeddingStore
 
-    store = EmbeddingStore(tmp_path / "voices.pkl")
-    store.save_embedding("pid-bob", np.array([0.0, 1.0, 0.0], dtype=np.float32))
+    store = MagicMock()
+    store.centroids.return_value = {"pid-bob": np.array([0.0, 1.0, 0.0], dtype=np.float32)}
 
     vi = voice_mod.VoiceIdentifier(MagicMock(), store=store)
     with patch.object(

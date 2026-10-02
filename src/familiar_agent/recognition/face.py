@@ -2,9 +2,10 @@
 
 Register a person's face:
     from familiar_agent.recognition.face import register_face
-    register_face("alice", "/path/to/photo.jpg")
+    register_face(person_id, "/path/to/photo.jpg")
 
-人ごとの ArcFace 埋め込みを ~/.familiar_ai/face_embeddings.pkl に持つ（人名キー）。
+人ごとの ArcFace 埋め込みを PostgreSQL の `recognition_embeddings`（`kind='face'`・人の id キー）に持つ
+（知-ae・2026-10-02。以前は pickle の人名キーだった）。照らすのは人ごとの重心。
 実モデル（insightface + onnxruntime）は重いので遅延シングルトンで1回だけロードする。
 """
 
@@ -12,31 +13,28 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ..config import RecognitionConfig
 from ..core.model_resource import ModelResource
-from .embedding_store import EmbeddingStore, best_match
+from ..store.recognition_embeddings import RecognitionEmbeddingStore
+from .embedding_store import best_match
 
 if TYPE_CHECKING:
-    from ..person_memory_manager import PersonMemoryManager, RecognitionHint
+    from ..person_memory_manager import RecognitionHint
 
 logger = logging.getLogger(__name__)
 
-FACE_EMB_DB = Path.home() / ".familiar_ai" / "face_embeddings.pkl"
-
-_STORE: EmbeddingStore | None = None
 _FACE: "_FaceModel | None" = None  # プロセスで1つだけ持つ（読込が重い）
 
 
-def _face_store() -> EmbeddingStore:
-    global _STORE
-    if _STORE is None:
-        _STORE = EmbeddingStore(FACE_EMB_DB)
-    return _STORE
+def _face_store() -> RecognitionEmbeddingStore:
+    """共有接続の器（短く使う）。"""
+    from ..db import get_db
+
+    return RecognitionEmbeddingStore(get_db().conn())
 
 
 class _FaceModel(ModelResource):
@@ -102,37 +100,35 @@ def _extract_face_embedding(image_path: str, cfg: RecognitionConfig) -> np.ndarr
 
 async def recognize_face_async(
     image_path: str,
-    manager: "PersonMemoryManager",
     *,
     cfg: RecognitionConfig | None = None,
-    store: EmbeddingStore | None = None,
+    store: RecognitionEmbeddingStore | None = None,
 ) -> "RecognitionHint | None":
-    """画像から人を同定する。未登録・顔なし・モデル無しは None。"""
+    """画像から人を同定する。未登録・顔なし・モデル無しは None。
+
+    特徴は人の id で持つので、人物表を引き直さない（以前は人名キーで `manager` から id を引いた・知-ae で改めた）。
+    """
     cfg = cfg or RecognitionConfig()
     store = store or _face_store()
-    return await asyncio.to_thread(_recognize_sync, image_path, manager, cfg, store)
+    return await asyncio.to_thread(_recognize_sync, image_path, cfg, store)
 
 
 def _recognize_sync(
     image_path: str,
-    manager: "PersonMemoryManager",
     cfg: RecognitionConfig,
-    store: EmbeddingStore,
+    store: RecognitionEmbeddingStore,
 ) -> "RecognitionHint | None":
     from ..person_memory_manager import RecognitionHint
 
     emb = _extract_face_embedding(image_path, cfg)
     if emb is None:
         return None
-    m = best_match(emb, store.get(), cfg.face_threshold)
+    m = best_match(emb, store.centroids("face", "registered"), cfg.face_threshold)
     if m is None:
         return None
-    name, score = m
-    persons = {p["name"]: p for p in manager.list_persons()}
-    if name not in persons:
-        return None
+    person_id, score = m
     return RecognitionHint(
-        person_id=persons[name]["id"],
+        person_id=person_id,
         confidence=max(0.0, min(1.0, score)),
         source="face",
         reason=f"arcface cos={score:.3f}",
@@ -140,19 +136,19 @@ def _recognize_sync(
 
 
 def register_face(
-    name: str,
+    person_id: str,
     image_path: str,
     *,
     cfg: RecognitionConfig | None = None,
-    store: EmbeddingStore | None = None,
+    store: RecognitionEmbeddingStore | None = None,
 ) -> bool:
-    """人 `name` の顔埋め込みを登録する。顔が取れなければ False。"""
+    """人 `person_id` の顔埋め込みを登録する（上限 `registered_max` を超えたら古いものから捨てる）。顔が取れなければ False。"""
     cfg = cfg or RecognitionConfig()
     store = store or _face_store()
     emb = _extract_face_embedding(image_path, cfg)
     if emb is None:
-        logger.warning("顔が取れず登録できない: name=%s image=%s", name, image_path)
+        logger.warning("顔が取れず登録できない: pid=%s image=%s", person_id, image_path)
         return False
-    store.save_embedding(name, emb)
-    logger.info("顔を登録: %s", name)
+    store.add(person_id, "face", "registered", emb, cap=cfg.registered_max)
+    logger.info("顔を登録: %s", person_id)
     return True

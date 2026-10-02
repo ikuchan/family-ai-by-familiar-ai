@@ -5,7 +5,8 @@ Register a person's voice:
     vi = VoiceIdentifier(manager)
     vi.register_voice(alice_id, "/path/to/sample.wav")
 
-人ごとの ECAPA 埋め込みを ~/.familiar_ai/voice_embeddings.pkl に持つ（person_id キー）。
+人ごとの ECAPA 埋め込みを PostgreSQL の `recognition_embeddings`（`kind='voice'`・人の id キー）に持つ
+（知-ae・2026-10-02。以前は pickle だった）。照らすのは人ごとの重心。
 実モデル（speechbrain）は重いので遅延シングルトンで1回だけロードする。
 """
 
@@ -13,20 +14,18 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
 
 from ..config import RecognitionConfig
-from .embedding_store import EmbeddingStore, best_match
+from ..store.recognition_embeddings import RecognitionEmbeddingStore
+from .embedding_store import best_match
 
 if TYPE_CHECKING:
     from ..person_memory_manager import PersonMemoryManager, RecognitionHint
 
 logger = logging.getLogger(__name__)
-
-VOICE_EMB_DB = Path.home() / ".familiar_ai" / "voice_embeddings.pkl"
 
 _MODEL: Any = None  # speechbrain EncoderClassifier の遅延シングルトン
 
@@ -72,11 +71,15 @@ class VoiceIdentifier:
         manager: "PersonMemoryManager",
         *,
         cfg: RecognitionConfig | None = None,
-        store: EmbeddingStore | None = None,
+        store: RecognitionEmbeddingStore | None = None,
     ) -> None:
         self._manager = manager
         self._cfg = cfg or RecognitionConfig()
-        self._store = store or EmbeddingStore(VOICE_EMB_DB)
+        if store is None:
+            from ..db import get_db
+
+            store = RecognitionEmbeddingStore(get_db().conn())
+        self._store = store
 
     def register_voice(self, person_id: str, audio_path: str) -> bool:
         """人 `person_id` の声埋め込みを登録する。取れなければ False。"""
@@ -84,7 +87,7 @@ class VoiceIdentifier:
         if emb is None:
             logger.warning("声が取れず登録できない: pid=%s", person_id)
             return False
-        self._store.save_embedding(person_id, emb)
+        self._store.add(person_id, "voice", "registered", emb, cap=self._cfg.registered_max)
         logger.info("声を登録: %s", person_id)
         return True
 
@@ -97,7 +100,7 @@ class VoiceIdentifier:
         emb = _extract_voice_embedding(audio_path)
         if emb is None:
             return None
-        m = best_match(emb, self._store.get(), self._cfg.voice_threshold)
+        m = best_match(emb, self._store.centroids("voice", "registered"), self._cfg.voice_threshold)
         if m is None:
             return None
         person_id, score = m

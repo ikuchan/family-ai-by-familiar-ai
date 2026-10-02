@@ -550,6 +550,10 @@ class RecognitionConfig:
     voice_switch_threshold: float = field(
         default_factory=lambda: _float_env("VOICE_SWITCH_THRESHOLD", 0.35)
     )
+    # 貯める特徴の上限（1 人・種類ごと。超えたら古いものから捨てる・知-ae・本人の決定ア・仮の値）。
+    # 登録は日をまたいで残る（声は名乗りで育つ）。今日の声はその日だけ。
+    registered_max: int = field(default_factory=lambda: _int_env("RECOGNITION_REGISTERED_MAX", 30))
+    today_max: int = field(default_factory=lambda: _int_env("RECOGNITION_TODAY_MAX", 10))
     # 在席巡回（CameraPresenceWatcher）の周期（秒）。低頻度で誤確定・負荷を抑える。
     presence_interval_sec: float = field(
         default_factory=lambda: _float_env("PRESENCE_INTERVAL_SEC", 30.0)
