@@ -332,6 +332,9 @@ class PersonMemoryManager:
     def list_persons(self) -> list[dict]:
         return self._base.list_persons()
 
+    def update_display_name(self, person_id: str, display_name: str) -> bool:
+        return self._base.update_display_name(person_id, display_name)
+
     def get_speaker_info(self) -> dict | None:
         if self._speaker_id is None:
             return None

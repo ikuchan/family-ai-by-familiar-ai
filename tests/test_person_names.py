@@ -115,3 +115,89 @@ def test_without_family_only_the_exact_name_counts():
     m = _pmm(family="")
     assert m.find_person_id_by_name("雄輔") == "papa"
     assert m.find_person_id_by_name("パパ") is None
+
+
+# ── 段 3：起動時と `/reload` の検め ─────────────────────────────────────────────
+
+
+def _agent_with(rows, family):
+    from familiar_agent.agent import EmbodiedAgent
+
+    a = MagicMock(spec=EmbodiedAgent)
+    a._family_md = family
+    a._pmm = MagicMock()
+    a._pmm.list_persons = MagicMock(return_value=list(rows))
+    a._pmm.register_person = MagicMock(return_value="new-id")
+    a._persons = MagicMock()
+    EmbodiedAgent._register_family_from_md(a)
+    return a
+
+
+def test_a_renamed_person_makes_no_new_row_and_says_so(caplog):
+    """名前を書き換えて、呼び方が既存の行と重なる——新しい行は作らず、統合の手順へ促す。"""
+    old = [
+        {
+            "id": "old-papa",
+            "name": "いくながゆうすけ",
+            "display_name": "パパ、いくながさん、ゆうすけ",
+        }
+    ]
+    family = "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ、ゆうすけ\n"
+    with caplog.at_level("ERROR"):
+        a = _agent_with(old, family)
+    a._pmm.register_person.assert_not_called()
+    assert any("統合" in r.message for r in caplog.records)
+
+
+def test_a_new_family_member_is_still_registered():
+    family = "## こうき\n- **名前**：光希\n- **呼び方**：こうき\n"
+    a = _agent_with([{"id": "papa", "name": "雄輔", "display_name": "パパ"}], family)
+    a._pmm.register_person.assert_called_once_with("光希", display_name="こうき")
+
+
+def test_the_call_names_follow_family_md():
+    family = "## パパ\n- **名前**：雄輔\n- **呼び方**：おとうさん、パパ\n"
+    a = _agent_with([{"id": "papa", "name": "雄輔", "display_name": "パパ、ゆうすけ"}], family)
+    a._pmm.update_display_name.assert_called_once_with("papa", "おとうさん、パパ")
+    a._pmm.register_person.assert_not_called()
+
+
+def test_the_same_call_names_do_not_touch_the_row():
+    family = "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ\n"
+    a = _agent_with([{"id": "papa", "name": "雄輔", "display_name": "パパ"}], family)
+    a._pmm.update_display_name.assert_not_called()
+
+
+def test_a_word_shared_by_two_family_members_is_reported(caplog):
+    family = (
+        "## たいき\n- **名前**：泰輝\n- **呼び方**：たいき、にいに\n\n"
+        "## こうき\n- **名前**：光希\n- **呼び方**：こうき、にいに\n"
+    )
+    rows = [
+        {"id": "t", "name": "泰輝", "display_name": "たいき、にいに"},
+        {"id": "k", "name": "光希", "display_name": "こうき、にいに"},
+    ]
+    with caplog.at_level("ERROR"):
+        _agent_with(rows, family)
+    assert any("にいに" in r.message and "2 人" in r.message for r in caplog.records)
+
+
+def test_the_store_rewrites_the_call_names():
+    import uuid
+    from datetime import datetime, timezone
+
+    from familiar_agent.db import get_db
+    from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
+    from familiar_agent.store.context import StoreContext
+    from familiar_agent.store.persons import PersonRegistry as PersonStore
+
+    db = get_db()
+    store = PersonStore(
+        StoreContext(db=db, lock=db.lock, person_id=DEFAULT_PERSON_ID, embedder=None)
+    )
+    name = f"呼び方の試験 {uuid.uuid4().hex[:8]}"
+    pid = store.register_person(name, "パパ")
+    assert store.update_display_name(pid, "おとうさん、パパ")
+    row = next(p for p in store.list_persons() if p["id"] == pid)
+    assert row["display_name"] == "おとうさん、パパ"
+    assert datetime.now(timezone.utc)  # 時刻は updated_at が持つ（値は見ない）

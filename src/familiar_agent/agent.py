@@ -928,25 +928,76 @@ class EmbodiedAgent:
         return ""
 
     def _register_family_from_md(self) -> None:
-        """Register FAMILY.md members in the persons DB and pre-seed PersonRegistry.
+        """`FAMILY.md` の家族を人物表に合わせる（起動時と `/reload`・知-af・2026-10-02）。
 
-        Idempotent: existing persons are returned as-is (same UUID each run).
+        人物表の鍵は `FAMILY.md` の「名前」。名前の行があれば、呼び方（`display_name`）を `FAMILY.md` に書き直す
+        （登録は同じ名前の行があれば呼び方を書き直さないので、最初に登録したときのまま止まっていた）。名前の行が無く、
+        呼び方が既存の行の名前か呼び方と重なるなら、**名前を書き換えた**とみて新しい行は作らない——作ると古い行と
+        並び、記憶の行き先が分かれる（今回の二重）。統合の手順（`scripts/merge_persons.py`）を促すログを残す。
+        2 人の家族に同じ呼び方があれば、それも知らせる（その言葉では誰とも決まらない）。
         """
+        from .core.speaker_claim import aliases_of
+
         members = parsing.parse_family_md(self._family_md)
         if not members:
             return
+        owners: dict[str, list[str]] = {}
         for m in members:
+            for word in aliases_of(m):
+                owners.setdefault(word, []).append(str(m["name"]))
+        for word, names in owners.items():
+            if len(names) > 1:
+                logger.error(
+                    "人物：呼び方「%s」が 2 人以上（%s）にある。この言葉では誰とも決まらない",
+                    word,
+                    "・".join(names),
+                )
+        rows = [
+            r
+            for r in self._pmm.list_persons()
+            if str(r.get("id", "")) not in (AGENT_SELF_ID, DEFAULT_PERSON_ID)
+        ]
+        for m in members:
+            name = str(m["name"])
+            display = str(m["display_name"])
+            call = display.split("、")[0].split(",")[0].strip()
             try:
-                self._pmm.register_person(m["name"], display_name=m["display_name"])
-                # Pre-seed PersonRegistry so [呼び方] and /speaker commands work immediately
+                row = next((r for r in rows if r.get("name") == name), None)
+                if row is not None:
+                    if str(row.get("display_name") or "") != display:
+                        self._pmm.update_display_name(str(row["id"]), display)
+                else:
+                    words = set(aliases_of(m))
+                    clash = next(
+                        (
+                            r
+                            for r in rows
+                            if r.get("name") in words
+                            or words
+                            & {
+                                a.strip()
+                                for a in str(r.get("display_name") or "")
+                                .replace(",", "、")
+                                .split("、")
+                            }
+                        ),
+                        None,
+                    )
+                    if clash is not None:
+                        logger.error(
+                            "人物：FAMILY.md の「%s」は人物表に無く、呼び方が既存の「%s」と重なる。名前を書き換えたなら、"
+                            "新しい行は作らないので scripts/merge_persons.py で統合する",
+                            name,
+                            clash.get("name"),
+                        )
+                        continue
+                    self._pmm.register_person(name, display_name=display)
+                    logger.info("Family member registered: %s (display=%s)", name, display)
                 # 帳面には呼びかけ名（呼び方の先頭）で登録する。`set_active` も呼びかけ名なので、帳面の中の
                 # 書き方を 1 つにそろえる（以前は呼び方の一覧そのものだった・知-af）。
-                self._persons.register(str(m["display_name"]).split("、")[0].split(",")[0].strip())
-                logger.info(
-                    "Family member registered: %s (display=%s)", m["name"], m["display_name"]
-                )
+                self._persons.register(call)
             except Exception as exc:
-                logger.warning("Could not register family member %s: %s", m["name"], exc)
+                logger.warning("Could not register family member %s: %s", name, exc)
 
     async def _emotion_for_turn(
         self, text: str, arousal: float
