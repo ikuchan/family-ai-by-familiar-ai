@@ -24,6 +24,8 @@ import logging
 import time
 from typing import Callable
 
+from ..core.wake_window import VoiceText
+
 logger = logging.getLogger(__name__)
 
 
@@ -159,7 +161,7 @@ class LocalSttEngine:
                 "STT: 区間が短いので持ち越す（%.1f 秒）", len(audio) / (_RATE * _BYTES_PER_SAMPLE)
             )
             return
-        await self._write(audio)
+        await self._write(audio, identify=True)
 
     async def _flush_held(self) -> None:
         """持ち越していた区間を、諦めて単独で書き起こす。"""
@@ -170,18 +172,38 @@ class LocalSttEngine:
             logger.debug("STT: 次の発話が来ないので持ち越しを配る")
             await self._write(audio)
 
-    async def _write(self, audio: bytes) -> None:
-        """書き起こして配る。失敗しても落とさない。"""
+    async def _write(self, audio: bytes, *, identify: bool = False) -> None:
+        """書き起こして配る。失敗しても落とさない。
+
+        `identify` のとき（1.5 秒以上の区切り・知-ae）は、書き起こしと並べて声の特徴を取り出し、`VoiceText.voice`
+        に載せる。持ち越して単独で配る短い断片には載せない（短いと特徴が揺れる）。特徴が取れなくても文字は配る。
+        """
+        embedding = asyncio.create_task(self._voice_of(audio)) if identify else None
         try:
             text = await asyncio.to_thread(self._transcribe, audio)
         except Exception as e:  # noqa: BLE001
             logger.exception("STT: 書き起こしに失敗した: %s", e)
-            return
+            text = ""
+        voice = await embedding if embedding is not None else None
         if not text:
             return
         queue = self.on_committed
         if queue is not None:
-            queue.put_nowait(text)
+            queue.put_nowait(VoiceText(text, voice=voice))
+
+    async def _voice_of(self, audio: bytes):
+        """区切りの声の特徴（取れなければ None・落とさない）。"""
+        try:
+            return await asyncio.to_thread(self._embed, audio)
+        except Exception:  # noqa: BLE001
+            logger.warning("STT: 声の特徴を取り出せなかった（文字は配る）", exc_info=True)
+            return None
+
+    def _embed(self, audio: bytes):
+        """声の特徴を取り出す（差し替え点・CPU）。"""
+        from ..recognition.voice import embed_pcm
+
+        return embed_pcm(audio)
 
     def _ensure_vad(self):
         """VAD を1度だけ用意する（差し替え点）。

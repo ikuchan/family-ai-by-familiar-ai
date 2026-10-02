@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass
+from typing import Any, cast
 
 from .silence_rules import names_me
 
@@ -48,9 +49,19 @@ class InputText(str):
 
 
 class VoiceText(InputText):
-    """声の書き起こし（`realtime_stt_session._committed_relay`・TUI の録音）。"""
+    """声の書き起こし（`realtime_stt_session._committed_relay`・TUI の録音）。
+
+    `voice` はその区切りの声の特徴（ECAPA・知-ae）。ローカルの書き起こしが 1.5 秒以上の区切りにだけ載せる。
+    短い断片・ElevenLabs・TUI の録音には無い（None）。
+    """
 
     source = "voice"
+    voice: "Any" = None
+
+    def __new__(cls, text: str, at: "float | None" = None, voice: "Any" = None) -> "VoiceText":
+        obj = cast("VoiceText", super().__new__(cls, text, at))
+        obj.voice = voice
+        return obj
 
 
 class KeyText(InputText):
@@ -62,6 +73,11 @@ class KeyText(InputText):
 def source_of(text: str) -> str:
     """入力の出どころ。印があればそれ、無ければ `keyboard`（`.env.quiet` の入力もこれ）。"""
     return text.source if isinstance(text, InputText) else "keyboard"
+
+
+def voice_of(text: str) -> "Any":
+    """入力に載っている声の特徴（知-ae）。声でない入力や、特徴の無い声は None。"""
+    return getattr(text, "voice", None) if isinstance(text, VoiceText) else None
 
 
 def arrived_at(text: str, *, now: "float | None" = None) -> float:
