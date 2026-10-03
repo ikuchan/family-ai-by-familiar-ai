@@ -21,7 +21,7 @@ import logging
 import re
 import time
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..backends.types import TurnResult
@@ -614,6 +614,8 @@ class Trigger:
     # `会話入力` だけが使う。名前で呼ばれたか（出-au 段 1-2）。名前がある入力だけが打ち切り、名前の無い
     # 入力は飛行中の調べものがある間は待つ。門が決める。直に作った会話入力（試験）は名前ありとして扱う。
     named: bool = True
+    # `会話入力` だけが使う。その発話の声の特徴（知-ae）。門を通ったら話者を照らし、求めに持たせる。
+    voice: Any = None
 
 
 class InformationProcessing:
@@ -2060,6 +2062,10 @@ class InformationProcessing:
         求めをまたいで畳む理由はない（環-g・段に）。
         """
         self._req.utterance = utterance
+        # この求めを起こした発話の声（知-ae）。名乗りが話者に付いたら、この声を貯める（段 5）。`_pending_heard` と
+        # 同じく脇から受けて空にする（求めの始め方に渡すものは種別・文面・発話の 3 つだけ・環-e-に）。
+        self._req.voice = getattr(self, "_pending_voice", None)
+        self._pending_voice = None
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -2095,6 +2101,7 @@ class InformationProcessing:
         on_text=None,
         source: str = "keyboard",
         arrived: "float | None" = None,
+        voice: Any = None,
     ) -> str:
         """人の言葉を待ち行列へ積み、**その反復の出力**を返す（環-f-い-2）。
 
@@ -2129,6 +2136,7 @@ class InformationProcessing:
             future=fut,
             source=source,
             arrived=time.monotonic() if arrived is None else arrived,
+            voice=voice,
         )
         if await self._swallow_if_unheard(trigger):
             self._notify_heard(utterance, False)
@@ -2137,6 +2145,8 @@ class InformationProcessing:
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
         # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
+        # 門を通った声だけ、誰が話しているかを照らす（知-ae）。捨てた声は聞いていないのと同じなので照らさない。
+        await self._judge_voice(voice)
         if trigger.named:
             # 名前で呼ばれたら、**調べかけを打ち切る**（言い直し・別の用事・「パジュ、止めて」）。結果は
             # 捨てるが、**何を打ち切ったかは記録に残す**。名前の無い入力（「うん」）では止めない。
@@ -2651,7 +2661,7 @@ class InformationProcessing:
             # 待ち手がもう居ない（中断された・呼び手が消えた）。反復を始める理由がない。
             return
         stopped = False
-        task = asyncio.create_task(self._utterance_iteration(trigger.query))
+        task = asyncio.create_task(self._utterance_iteration(trigger.query, trigger.voice))
 
         def _stop(f: "asyncio.Future[str]") -> None:
             nonlocal stopped
@@ -2679,8 +2689,9 @@ class InformationProcessing:
             # 反復が呼び手のタスクの上で回っていて、戻った時点が求めの続きより前だった。
             await asyncio.sleep(0)
 
-    async def _utterance_iteration(self, utterance: str) -> str:
+    async def _utterance_iteration(self, utterance: str, voice: Any = None) -> str:
         """人の言葉を O へ書き、1反復回す。**打ち切りは `push_utterance` が済ませている。**"""
+        self._pending_voice = voice
         await self._begin_request(kind="発話", text=utterance, utterance=utterance)
         return await self._iterate()
 
@@ -3813,6 +3824,85 @@ class InformationProcessing:
             logger.info("名乗り「%s」があるが在席が無いので %.0f 秒預かる", name, PENDING_CLAIM_SEC)
             return
         await self._set_speaker(name, "在席あり")
+
+    def _voice_store(self):
+        """声の特徴の器（共有接続・短く使う・知-ae）。"""
+        from ..db import get_db
+        from ..store.recognition_embeddings import RecognitionEmbeddingStore
+
+        return RecognitionEmbeddingStore(get_db().conn())
+
+    def _current_speaker_pid(self) -> "str | None":
+        """いまの話者の人物 id。既定の人（話者が明示されていない）なら None。"""
+        persons = self._agent._persons
+        if not getattr(persons, "active_is_explicit", False):
+            return None
+        return self._agent._pmm.find_person_id_by_name(str(persons.active_name or ""))
+
+    def _call_name_for(self, person_id: str) -> "str | None":
+        """人物 id から呼びかけ名（話者の帳面の書き方）。`FAMILY.md` に無ければ人物表の名前。"""
+        from ..core import parsing
+        from ..core.speaker_claim import call_name_of
+
+        row = next(
+            (p for p in self._agent._pmm.list_persons() if str(p.get("id")) == person_id), None
+        )
+        if row is None:
+            return None
+        name = str(row.get("name") or "")
+        family = str(getattr(self._agent, "_family_md", "") or "")
+        member = next((m for m in parsing.parse_family_md(family) if m.get("name") == name), None)
+        return call_name_of(member) if member else (name or None)
+
+    async def _judge_voice(self, voice: Any) -> None:
+        """門を通った声で、誰が話しているかを決める（知-ae 段 4・`設計方針_声で話者を見分ける` v0.1）。
+
+        声が決めるのは話者だけで、在席はカメラが決める——在席が無ければ照らさない。規則は
+        `core/voice_speaker.decide`（いまの話者は緩い閾値で続け、別の人へは厳しい閾値で付け替え、どちらでも
+        なければ既定の人に戻す）。厳しい閾値で当たった声は今日の声に足す（登録の声に足すのは名乗りだけ）。
+        失敗しても会話は止めない。
+        """
+        if voice is None or not self._someone_present():
+            return
+        from datetime import datetime
+
+        from ..core import voice_speaker
+        from ..store.clock import local_tz
+
+        cfg = self._agent.config.recognition
+        try:
+            store = self._voice_store()
+            today = datetime.now(local_tz()).date()
+            store.drop_old_today(today)
+            scores = voice_speaker.scores(
+                voice,
+                store.centroids("voice", "registered"),
+                store.centroids("voice", "today", day=today),
+            )
+            verdict = voice_speaker.decide(
+                self._current_speaker_pid(),
+                scores,
+                loose=cfg.voice_threshold,
+                strict=cfg.voice_switch_threshold,
+            )
+            if verdict.sure and verdict.person_id:
+                store.add(verdict.person_id, "voice", "today", voice, cap=cfg.today_max, day=today)
+        except Exception:  # noqa: BLE001
+            logger.warning("声で話者を照らせなかった（会話は続ける）", exc_info=True)
+            return
+        if verdict.action == "switch" and verdict.person_id:
+            name = self._call_name_for(verdict.person_id)
+            if name:
+                await self._set_speaker(name, f"声 {verdict.score:.2f}")
+        elif verdict.action == "unknown" and self._current_speaker_pid() is not None:
+            self._agent._persons.reset_to_default()
+            with contextlib.suppress(Exception):
+                self._agent._pmm.clear_speaker()
+            logger.info(
+                "声が誰にも当たらないので、話者を既定の人に戻した（最も近い %.2f）", verdict.score
+            )
+        else:
+            logger.debug("声：%s（%s %.2f）", verdict.action, verdict.person_id, verdict.score)
 
     def _someone_present(self) -> bool:
         try:

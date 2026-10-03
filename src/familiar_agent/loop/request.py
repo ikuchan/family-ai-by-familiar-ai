@@ -25,6 +25,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
+from typing import Any
 from dataclasses import dataclass, field
 
 
@@ -112,6 +113,9 @@ class Request:
     # 黙っていたあいだに届いたもの（情-h）。明けた瞬間の求めにだけ載り、W の作業状態の枠で
     # 列挙する（想起の列からは除く）。
     heard_while_silent: list = field(default_factory=list)
+    # この求めを起こした発話の声の特徴（知-ae・ローカルの書き起こしの 1.5 秒以上の区切りだけ）。名乗りが話者に
+    # 付いたとき、その人の登録の声と今日の声に足す（段 5）。キーボード・情動・機器では None。
+    voice: Any = None
     # この反復で取込が受けた返り（`lookups` の index）。W の最上部に「いま道具から返った」として
     # 載せ、調停が**記憶でなくいま届いた返り**として読めるようにする（出-x・2026-09-18）。
     # W を組んだら空にする（次の反復には持ち越さない）。
