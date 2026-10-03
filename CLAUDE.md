@@ -109,6 +109,7 @@ JSON ファイルも使わない。ファイルに置くのは**既定値と人�
 | `situated_embeddings` | 人ごとの pgvector 埋め込み |
 | `memory_events` / `memory_jobs` | 非同期ジョブキュー |
 | `persons` | 既知の人物レジストリ |
+| `recognition_embeddings` | 顔と声の特徴（種類・登録か今日か・人ごとの重心で照らす）|
 | `timers` | タイマー（due・鳴った・止めた・一時停止・確かめて掛けた印・聞く）|
 | `alarms` | アラーム（鳴る時刻・鳴った・止めた・確かめて掛けた印）——タイマーとは別物 |
 | `stopwatches` | ストップウォッチ（始めた・止めた・寿命で止めた印）——タイマーとは別物 |

@@ -85,13 +85,21 @@ capabilities:
       interact with the same instance, each with a separate memory space,
       relationship state, and perspective vector. PersonMemoryManager routes
       memory writes to the current speaker and reads across all present persons.
-      Who is speaking is known from four sources: the `/speaker` command; a name the
+      Who is speaking is known from five sources: the `/speaker` command; a name the
       person says aloud (judged by Jev and matched against FAMILY.md in
-      `core/speaker_claim.py`); a guess from a photo the agent took (confidence is
-      capped, `core/seen_people.py`); and whether anyone is in view at all (YOLO person
-      detection in `presence_sensor.py`, which cannot tell who it is). Face recognition
-      and voice-print identification exist in the recognition package but are not
-      wired in yet, so the agent cannot recognise a face or a voice by itself.
+      `core/speaker_claim.py`); the voice itself (ECAPA-TDNN on the CPU, compared with
+      each person's registered and today's voice, `core/voice_speaker.py`); a guess from
+      a photo the agent took (confidence is capped, `core/seen_people.py`); and whether
+      anyone is in view at all (YOLO person detection in `presence_sensor.py`, which
+      cannot tell who it is). The voice only says who is speaking, never whether anyone
+      is here, and is used only while someone is in view: the current speaker continues
+      above a loose threshold (0.25), another person takes over only above a strict one
+      (0.35), and an unknown voice returns to the default person. A person's voice is
+      learned only from their saying their own name ("パジュ、パパだよ"); there is no
+      recording step, so someone who has never said their name is not recognised by voice.
+      Face and voice features are kept in PostgreSQL (`recognition_embeddings`). Face
+      recognition exists but is not wired in yet, so the agent cannot recognise a face by
+      itself.
       Uses the `person_memory_manager.py` module.
       People who do not live in the house (grandparents, relatives, friends, guests)
       are written in PEOPLE.md in the same format as FAMILY.md. The agent knows who
