@@ -145,7 +145,11 @@ def test_a_claim_without_presence_is_kept_for_thirty_seconds(monkeypatch):
         ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
     )
     a._persons.set_active.assert_not_called()
-    assert ip._pending_claim == ("パパ", 1000.0)
+    assert ip._pending_claim == (
+        "パパ",
+        1000.0,
+        None,
+    )  # 声の特徴も預ける（知-ae 段 5・この発話には無い）
     # 人が映った最初の求めで付く
     a._social_presence_permission = MagicMock(return_value=1.0)
     clock["t"] = 1006.0

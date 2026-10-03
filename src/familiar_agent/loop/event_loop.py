@@ -723,7 +723,8 @@ class InformationProcessing:
         # 投げる前に控える1件（`_start_lookup` が置き、背景タスクが読む）。
         self._pending_lookup: tuple[str, dict, str] = ("", {}, "recall")
         # 在席が無くて使えなかった名乗り（名前・時刻）。30 秒預かる（知-w-ろ）。
-        self._pending_claim: "tuple[str, float] | None" = None
+        # 預かった名乗り：(呼びかけ名, 預けた時刻, その発話の声の特徴)。声は付いたときに基準へ足す（知-ae 段 5）。
+        self._pending_claim: "tuple[str, float, Any] | None" = None
 
     def _note_origin(self, obs_id: str | None) -> None:
         """このターンの起点を控える。
@@ -3820,10 +3821,37 @@ class InformationProcessing:
         if not self._someone_present():
             # 在席が無い名乗りは 30 秒預かる（知-w-ろ・実機 13:27：見回りの帰りに名乗りを読んだ 6 秒後に
             # センサが人を見た）。人を見た最初の求め（`_begin_request`）で生きていれば付ける。
-            self._pending_claim = (name, time.time())
+            self._pending_claim = (name, time.time(), getattr(self._req, "voice", None))
             logger.info("名乗り「%s」があるが在席が無いので %.0f 秒預かる", name, PENDING_CLAIM_SEC)
             return
         await self._set_speaker(name, "在席あり")
+        self._learn_voice(name, getattr(self._req, "voice", None))
+
+    def _learn_voice(self, name: str, voice: Any) -> None:
+        """名乗りが話者に付いた発話の声を、その人の登録の声と今日の声に足す（知-ae 段 5・本人の決定ウ）。
+
+        録音の手順は作らない。声のある発話で話者がはっきり分かるのは名乗りだけなので、登録の声（日をまたいで
+        残る）を育てるのはここだけにする——厳しい閾値の当たり（`_judge_voice`）は今日の声にだけ足す。
+        すでに同じ話者でも足す（名乗りは確かな印）。失敗しても話者の付け方は変えない。
+        """
+        if voice is None:
+            return
+        pid = self._agent._pmm.find_person_id_by_name(name)
+        if not pid:
+            return
+        from datetime import datetime
+
+        from ..store.clock import local_tz
+
+        cfg = self._agent.config.recognition
+        try:
+            store = self._voice_store()
+            today = datetime.now(local_tz()).date()
+            store.add(pid, "voice", "registered", voice, cap=cfg.registered_max)
+            store.add(pid, "voice", "today", voice, cap=cfg.today_max, day=today)
+            logger.info("名乗りの声を %s の基準に足した", name)
+        except Exception:  # noqa: BLE001
+            logger.warning("名乗りの声を基準に足せなかった（話者は付けた）", exc_info=True)
 
     def _voice_store(self):
         """声の特徴の器（共有接続・短く使う・知-ae）。"""
@@ -3928,7 +3956,7 @@ class InformationProcessing:
         kept = getattr(self, "_pending_claim", None)
         if kept is None:
             return
-        name, at = kept
+        name, at, voice = kept
         if time.time() - at > PENDING_CLAIM_SEC:
             self._pending_claim = None
             logger.info("預かった名乗り「%s」は %.0f 秒過ぎたので捨てた", name, PENDING_CLAIM_SEC)
@@ -3936,6 +3964,7 @@ class InformationProcessing:
         if self._someone_present():
             self._pending_claim = None
             await self._set_speaker(name, "預かり・在席が付いた")
+            self._learn_voice(name, voice)  # 預けたときの発話の声（いまの求めの声ではない）
 
     def _apply_silence(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
