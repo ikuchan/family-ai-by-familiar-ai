@@ -59,17 +59,17 @@ def test_the_tonic_passes_what_the_camera_sees():
     from familiar_agent.loop import tonic
 
     assert "occupied" in inspect.signature(tonic.step_drives).parameters
-    assert "occupied=self._occupied()" in inspect.getsource(tonic.Tonic._run)
+    assert "occupied=self._someone_here()" in inspect.getsource(tonic.Tonic._run)
 
 
 def test_without_a_camera_nobody_is_visible():
     from familiar_agent.loop.tonic import Tonic
 
     t = Tonic(MagicMock(), occupancy=None)
-    assert t._occupied() is False
+    assert t._someone_here() is False
     sensor = MagicMock()
     sensor.room_occupied = MagicMock(return_value=True)
-    assert Tonic(MagicMock(), occupancy=sensor)._occupied() is True
+    assert Tonic(MagicMock(), occupancy=sensor)._someone_here() is True
 
 
 # ── 話しかけるのは bond・esteem だけ ─────────────────────────────────────

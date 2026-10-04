@@ -770,6 +770,18 @@ class EmbodiedAgent:
         pmm = getattr(self, "_pmm", None)
         return 1.0 if pmm is not None and pmm.get_present_ids() else 0.0
 
+    def _someone_here(self) -> bool:
+        """**居る**か（知-ai・2026-10-05・`設計方針_在席と顔ぶれ` v0.1）。顔ぶれが先、在席が 2 番目。
+
+        誰かの顔ぶれの持ち時間が残っていれば居る（特定の誰か・名前の分からない札も含む）。全員切れていれば
+        在席（`_occupancy`・カメラが人を見ているか）で決める。首を回して写らなくなっても、顔ぶれの持ち時間の
+        あいだは居る。出口の門・窓の外の声で見に行く理由がこれを見る（T の側は `Tonic._someone_here`）。
+        """
+        with contextlib.suppress(Exception):
+            if list(self._pmm.present_keys()):
+                return True
+        return self._occupancy() > 0.0
+
     async def _nudge_seeking(self) -> None:
         """声がしたが応じられなかったので SEEKING を押し上げる（案ア・2026-09-17）。
 

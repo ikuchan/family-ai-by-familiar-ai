@@ -3368,7 +3368,7 @@ class InformationProcessing:
         # 静穏時間の門は外した——夜に話さないことは情動の溜まり方（静穏時間の倍率）が持つ。
         if self._req.trigger_kind == "発話":
             return ""
-        if agent._occupancy() == 0.0:
+        if not agent._someone_here():  # 顔ぶれか在席（知-ai）
             return "聞く相手が居ない"
         return ""
 
@@ -3438,8 +3438,8 @@ class InformationProcessing:
                 # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
                 logger.info("event-loop 窓の外の入力なので捨てる：%.40s", trigger.query)
-                if self._unoccupied():
-                    # 声がしたのに見えないのは見に行く理由（案ア・seeking はいまのまま）。
+                if self._nobody_here():
+                    # 声がしたのに誰も居ない（顔ぶれも在席も無い）のは見に行く理由（案ア・知-ai で顔ぶれも見る）。
                     with contextlib.suppress(Exception):
                         await self._agent._nudge_seeking()
                 return self._swallowed(trigger)
@@ -3526,10 +3526,10 @@ class InformationProcessing:
         )
         return verdict == jev_judges.TO_FAMILY
 
-    def _unoccupied(self) -> bool:
-        """配信ゲートと同じ「居るか」（`agent._occupancy`）。読めなければ居る扱い。"""
+    def _nobody_here(self) -> bool:
+        """出口の門と同じ「居る」（`agent._someone_here`・顔ぶれか在席・知-ai）が無いか。読めなければ居る扱い。"""
         try:
-            return self._agent._occupancy() == 0.0
+            return not self._agent._someone_here()
         except Exception:  # noqa: BLE001
             return False
 

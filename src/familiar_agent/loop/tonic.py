@@ -266,8 +266,24 @@ class Tonic:
             f" {next_interval_minutes(axis, lonely, cfg):.0f} 分後）"
         )
 
-    def _occupied(self) -> bool:
-        """カメラに人が映っているか（出-as §2.1）。カメラの無い機体・読めないときは映っていない扱い。"""
+    def _has_presence(self) -> bool:
+        """顔ぶれの持ち時間が残っている人がいるか（知-ai）。agent が無い・読めなければ偽。"""
+        agent = self._agent
+        if agent is None:
+            return False
+        try:
+            keys = agent._pmm.present_keys()
+        except Exception:  # noqa: BLE001
+            return False
+        return isinstance(keys, list) and bool(keys)
+
+    def _someone_here(self) -> bool:
+        """**居る**か（知-ai・2026-10-05）：顔ぶれが先、在席（カメラ）が 2 番目。BOND・ESTEEM の溜まり方が見る。
+
+        カメラの無い機体・読めないときは、顔ぶれが無ければ居ない扱い（出-as §2.1 のまま）。
+        """
+        if self._has_presence():
+            return True
         sensor = self._occupancy_sensor
         if sensor is None:
             return False
@@ -277,14 +293,15 @@ class Tonic:
             return False
 
     def _nobody_is_present(self) -> bool:
-        """誰も居ないか。在/不在の層（`OccupancySensor`・YOLO・登録が要らない）で見る。
+        """誰も居ないか（REST 内省に入るか）。顔ぶれの持ち時間が残っていれば居る（知-ai）。無ければ在席で見る。
 
-        身元の層（PMM の顔の照合）は使わない。顔が未登録なら、目の前に人が居ても
-        「誰も居ない」になる（#15 で実機に出た欠陥）。
+        顔ぶれが空でも、カメラが人を見ていれば居る（顔が未登録でも目の前に人が居る・#15 で実機に出た欠陥）。
 
         **センサが無ければ偽を返す。** 「センサが無い」を「誰も居ない」と扱うと、カメラの
         無い構成で REST が常に内省へ落ち、人が居ても話しかけなくなる。
         """
+        if self._has_presence():
+            return False
         sensor = self._occupancy_sensor
         if sensor is None:
             return False
@@ -421,7 +438,7 @@ class Tonic:
                 firing, accumulated = await step_drives(
                     dt,
                     last_human_at=getattr(self._agent, "_last_human_at", None),
-                    occupied=self._occupied(),  # BOND・ESTEEM は映っているときだけ（出-as）
+                    occupied=self._someone_here(),  # BOND・ESTEEM は映っているときだけ（出-as）
                 )
                 if not firing.any:
                     continue

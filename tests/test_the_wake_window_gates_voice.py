@@ -29,6 +29,7 @@ def _ip(*, present: float = 1.0, names=("パジュ",)):
     a._observation_perspective = MagicMock(return_value={})
     a._conversation_perspective = MagicMock(return_value={})
     a._occupancy = MagicMock(return_value=present)
+    a._someone_here = MagicMock(return_value=bool(present))  # 顔ぶれは空・在席だけ（知-ai）
     a._nudge_seeking = AsyncMock()
     a._timer_tool.frame = MagicMock(return_value="")
     a._dif.ringing = False

@@ -85,6 +85,8 @@ def _agent(*, stream_returns, max_iters=3):
     a._utility_backend = writer_says({})
     a._expected_turns = len(list(stream_returns))
     a._occupancy = MagicMock(return_value=1.0)  # 既定＝誰か居る
+    # 「居る」（顔ぶれか在席・知-ai）。試験は在席（`_occupancy`）だけを差し替えるので、そこから読む。
+    a._someone_here = lambda: float(a._occupancy() or 0.0) > 0.0
     a._in_quiet_hours = MagicMock(return_value=False)  # 既定＝静穏時間ではない
     a._deferred_search = MagicMock()
     a._deferred_search.get_tool_definitions = MagicMock(return_value=[_SEARCH_DEF])
