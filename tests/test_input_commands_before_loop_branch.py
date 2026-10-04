@@ -42,6 +42,10 @@ def _agent():
     a._handle_season_command = MagicMock(
         return_value=None
     )  # `/season clear` は `test_season_command`（知-ac）
+    a._handle_voice_command = MagicMock(
+        return_value=None
+    )  # `/voice` は `test_voice_enrollment`（知-ai）
+    a._enroll_voice = AsyncMock(return_value=None)
     return a
 
 

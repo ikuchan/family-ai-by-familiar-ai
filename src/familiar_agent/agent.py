@@ -121,6 +121,8 @@ _COMPLEX_QUERY_RE = re.compile(
 # なり、`/speaker・` が普通の発話として記憶に残った（2026-09-15 実機）。
 _SPEAKER_COMMAND_RE = re.compile(r"^/speaker(?:[\s　・]+(.*))?$", re.IGNORECASE)
 _RELOAD_COMMAND_RE = re.compile(r"^/reload$", re.IGNORECASE)
+# /voice 名前——その人の声を登録する受付を開く（知-ai・最初の登録）。
+_VOICE_COMMAND_RE = re.compile(r"^/voice(?:[\s　・]+(.*))?$", re.IGNORECASE)
 # /mic on——タイマー中でも聞く（知-o 段 5・LLM を通さない）。声では開けない（聞いていない）。
 _MIC_COMMAND_RE = re.compile(r"^/mic[\s　・]+on$", re.IGNORECASE)
 #: `/season clear`——いまの季節とまわりを消す（知-ac・人が直す道は消すことだけ）。
@@ -192,6 +194,8 @@ class EmbodiedAgent:
         self._oif = OIF(self._memory, for_person=self._pmm.get_memory_for)
         self._memory_tool = MemoryTool(self._pmm)
         self._occupancy_sensor: OccupancySensor | None = None
+        # `/voice 名前` の受付（呼びかけ名, 人物 id, 締め切り）。知-ai・最初の声の登録。
+        self._voice_enroll: "tuple[str, str, float] | None" = None
         # 人検出（YOLO）。在席と `see` の即席の意味づけで共有（カメラが無ければ None）。
         self._person_detector: PersonDetector | None = None
         # 見えのエンコーダ（DINOv2）。起動時に温めるため参照を持つ。
@@ -1375,6 +1379,75 @@ class EmbodiedAgent:
         if pid:
             await pmm.set_speaker(pid, source="text")
 
+    def _now(self) -> float:
+        """いまの時刻（差し替え点）。"""
+        return time.time()
+
+    def _voice_store(self):
+        """声の特徴の器（共有接続・短く使う・知-ae）。"""
+        from .db import get_db
+        from .store.recognition_embeddings import RecognitionEmbeddingStore
+
+        return RecognitionEmbeddingStore(get_db().conn())
+
+    def _handle_voice_command(self, user_input: str) -> str | None:
+        """`/voice 名前`——その人の声を登録する受付を `voice_enroll_sec`（10 秒）開く（知-ai・2026-10-05）。
+
+        名乗りは本人の声の基準があるときにしか効かないので、基準がまだ無い人の**最初の登録**をここで行う
+        （本人の決定）。名前は `FAMILY.md` で呼びかけ名に直し、人物表に無ければ断る。
+        """
+        from .core.speaker_claim import resolve_claim
+
+        m = _VOICE_COMMAND_RE.match(_command_text(user_input))
+        if m is None:
+            return None
+        arg = (m.group(1) or "").strip(" \t　・")
+        if not arg:
+            return "[/voice 名前 と打ってから 10 秒以内に話すと、その人の声を覚えます（例：/voice パパ）]"
+        call = resolve_claim(arg, str(getattr(self, "_family_md", "") or ""))
+        pid = self._pmm.find_person_id_by_name(call) if call else None
+        if not call or not pid:
+            self._voice_enroll = None
+            return f"[家族に「{arg}」がいないので、声を登録できません]"
+        sec = float(self.config.recognition.voice_enroll_sec)
+        self._voice_enroll = (call, pid, self._now() + sec)
+        logger.info("声の登録を受け付ける：%s（%.0f 秒）", call, sec)
+        return f"[声を登録します：{call}。{sec:.0f} 秒以内に話してください]"
+
+    async def _enroll_voice(self, voice) -> str | None:
+        """受付中に届いた声を、その人の登録の声と今日の声に足し、話者にする（知-ai）。登録したら知らせの文を返す。
+
+        声の特徴が無い入力（キーボード・短い断片）は使わず受付を開いたままにする。受付が過ぎていれば閉じて None
+        （その声は普段どおり会話へ流れる）。
+        """
+        kept = getattr(self, "_voice_enroll", None)
+        if kept is None or voice is None:
+            return None
+        call, pid, until = kept
+        if self._now() > until:
+            self._voice_enroll = None
+            logger.info("声の登録の受付が過ぎた：%s", call)
+            return None
+        self._voice_enroll = None
+        from datetime import datetime
+
+        from .store.clock import local_tz
+
+        cfg = self.config.recognition
+        try:
+            store = self._voice_store()
+            today = datetime.now(local_tz()).date()
+            store.add(pid, "voice", "registered", voice, cap=cfg.registered_max)
+            store.add(pid, "voice", "today", voice, cap=cfg.today_max, day=today)
+        except Exception:  # noqa: BLE001
+            logger.warning("声を登録できなかった：%s", call, exc_info=True)
+            return f"[{call}の声を登録できませんでした]"
+        self._persons.set_active(call)
+        self._speaker_set_at = time.time()
+        await self._sync_pmm_speaker(call)  # 話者にし、顔ぶれにも入れる
+        logger.info("声を登録した：%s", call)
+        return f"[声を登録しました：{call}]"
+
     def _handle_speaker_command(self, user_input: str) -> str | None:
         """/speaker [name] — set or show the active speaker for this session."""
         m = _SPEAKER_COMMAND_RE.match(_command_text(user_input))
@@ -1610,6 +1683,13 @@ class EmbodiedAgent:
         _arrived, _source = arrived_at(user_input), source_of(user_input)
         _voice = voice_of(user_input)  # 声の特徴（知-ae）。`[名前]` を外すと印が落ちるので先に読む
         _original = user_input  # 画面に出す本文（コマンドで返したときの「受けた」の知らせ）
+        # ── 声の登録（`/voice 名前`・知-ai）。受付中の声は会話の窓より前で登録だけに使う ─────────
+        _voice_reply = self._handle_voice_command(user_input)
+        if _voice_reply is not None:
+            return self._command_done(_original, _voice_reply, on_text)
+        _enrolled = await self._enroll_voice(_voice)
+        if _enrolled is not None:
+            return self._command_done(_original, _enrolled, on_text)
         # ── Speaker identification ────────────────────────────────────────────
         # /speaker command sets the session-default speaker.
         _speaker_reply = self._handle_speaker_command(user_input)

@@ -561,6 +561,8 @@ class RecognitionConfig:
     voice_alone_threshold: float = field(
         default_factory=lambda: _float_env("VOICE_ALONE_THRESHOLD", 0.45)
     )
+    # `/voice 名前` のあと、声の登録を受け付ける秒数（知-ai・2026-10-05・本人の決定・仮）。
+    voice_enroll_sec: float = field(default_factory=lambda: _float_env("VOICE_ENROLL_SEC", 10.0))
     # 貯める特徴の上限（1 人・種類ごと。超えたら古いものから捨てる・知-ae・本人の決定ア・仮の値）。
     # 登録は日をまたいで残る（声は名乗りで育つ）。今日の声はその日だけ。
     registered_max: int = field(default_factory=lambda: _int_env("RECOGNITION_REGISTERED_MAX", 30))
