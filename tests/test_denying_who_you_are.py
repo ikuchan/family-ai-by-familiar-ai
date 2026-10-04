@@ -7,15 +7,12 @@
 「パパじゃないよ」と言われたら、**由来に関係なく**その人を顔ぶれから外し、話者を戻す
 （本人の決定・2026-09-22）。名前を言わずに否定されたら、いま話者としている人を外す。
 
-あわせて、名前の分からない顔ぶれ（出-ae-は）が「誰も居ない 60 秒」の失効を通らなかった
-穴を塞ぐ。`_expire_presence_table` が `get_present_ids()` を回しており、そこから札を外した
-ためである。
+（在席が「誰も居ない 60 秒」で顔ぶれ表を消す失効の試験は、知-ai でその失効ごと撤去した。顔ぶれは人ごとの
+持ち時間で切れる・`test_presence_holds_a_minute`。）
 """
 
 from __future__ import annotations
 
-import time
-from unittest.mock import MagicMock
 
 from familiar_agent.person_memory_manager import PersonMemoryManager
 
@@ -32,52 +29,6 @@ def _pmm() -> PersonMemoryManager:
     m._switch_callbacks = []
     m._lock = threading.RLock()
     return m
-
-
-# ── 「誰も居ない」60 秒の失効が、名前の分からない顔ぶれにも効く ─────────────
-
-
-def _tonic_with(pmm, *, occupied: bool):
-    from familiar_agent.loop.tonic import Tonic
-
-    agent = MagicMock()
-    agent._pmm = pmm
-    agent.config.presence_expire_sec = 60.0
-    agent._speaker_set_at = None
-    sensor = MagicMock()
-    sensor.room_occupied = MagicMock(return_value=occupied)
-    t = Tonic(MagicMock(), occupancy=sensor)
-    t._agent = agent
-    return t
-
-
-def test_an_unknown_present_person_expires_when_the_room_is_empty():
-    pmm = _pmm()
-    pmm.note_unknown_present(2, confidence=0.5)
-    t = _tonic_with(pmm, occupied=False)
-    t._unoccupied_since = time.time() - 61
-    t._expire_presence_table()
-    assert pmm.presence_status() == []
-
-
-def test_a_known_person_still_expires():
-    import asyncio
-
-    pmm = _pmm()
-    asyncio.run(pmm.person_arrived("p1", 0.9))
-    t = _tonic_with(pmm, occupied=False)
-    t._unoccupied_since = time.time() - 61
-    t._expire_presence_table()
-    assert pmm.get_present_ids() == []
-
-
-def test_nothing_expires_while_the_room_is_occupied():
-    pmm = _pmm()
-    pmm.note_unknown_present(1, confidence=0.5)
-    t = _tonic_with(pmm, occupied=True)
-    t._unoccupied_since = time.time() - 61
-    t._expire_presence_table()
-    assert len(pmm.presence_status()) == 1
 
 
 # ── 調停が否定を読む ──────────────────────────────────────────────────────

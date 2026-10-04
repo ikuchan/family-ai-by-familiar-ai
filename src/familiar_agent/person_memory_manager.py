@@ -66,7 +66,7 @@ class PersonPresence:
     #: 部屋の一部しか写さない（カメラは首を振る）ので、写真に居ない人を写真で消せない。
     source: str = ""
     arrived_at: str = field(default_factory=lambda: datetime.now().isoformat())
-    last_signal_at: float = field(default_factory=time.time)
+    last_signal_at: float = field(default_factory=lambda: time.time())
 
 
 @dataclass
@@ -137,28 +137,27 @@ class PersonMemoryManager:
     GUESS_SOURCE = "見立て"
 
     async def set_guessed_present(self, people: "list[tuple[str, float]]") -> None:
-        """写真の見立てで顔ぶれを、この並びに**合わせる**（知-ag・2026-09-24）。
+        """写真に写った人を顔ぶれに入れるか、持ち時間を数え直す（知-ai・2026-10-05）。
 
-        **足し続けない。** 見立ては求めごとに言い直されるので、呼ばれるたびに足すと
-        写真を見た回数だけ人が増える。実機 15:51、センサが「1 人」と言い続けるあいだに
-        「パパ・たいきくん」の 2 人になった——15:51:28 の見立て（パパ）が、15:51:37 の
-        見立て（たいき）に上書きされなかったからである。
-
-        **消すのは見立てで入った人だけ。** 顔で入った人・手で入れた人は残す。写真は部屋の
-        一部しか写さないので、写真に写っていないことは「居ない」の証拠にならない。
-
-        名前の分からない顔ぶれ（`note_unknown_present`）は以前から同じ作法で、この直しは
-        その言い分を名前の付いた人にも当てただけである。
+        **置き換えない。** 写真は部屋の一部しか写さない（カメラは首を振る）ので、写っていないことは
+        「居ない」の証拠にならない。以前（知-ag）は見立てで入った人をこの並びに置き換えていたので、SEEKING の
+        見回りのたびに顔ぶれが入れ替わった。写っていない人は、人ごとの持ち時間で切れる（`expire_presence`）。
+        すでに居る人は由来（声・手入力）を変えずに数え直す。
         """
-        want = {pid: conf for pid, conf in people}
+        now = time.time()
         with self._lock:
-            for key in [k for k, p in self._present.items() if p.source == self.GUESS_SOURCE]:
-                self._present.pop(key, None)
-            for pid, conf in want.items():
-                self._present[pid] = PersonPresence(
-                    person_id=pid, confidence=conf, source=self.GUESS_SOURCE
-                )
-        logger.info("写真の見立てで顔ぶれを %d 人にした（%s）", len(want), self._names_of(want))
+            for pid, conf in people:
+                row = self._present.get(pid)
+                if row is None:
+                    self._present[pid] = PersonPresence(
+                        person_id=pid, confidence=conf, source=self.GUESS_SOURCE
+                    )
+                else:
+                    row.last_signal_at = now
+                    if row.source == self.GUESS_SOURCE:
+                        row.confidence = conf  # 見立てで入った人は、新しい見立ての確かさにする
+        ids = [pid for pid, _ in people]
+        logger.info("写真の見立てで顔ぶれに入れた・数え直した：%s", self._names_of(ids))
 
     def _names_of(self, ids) -> str:
         """ログ用の名前。**名前が引けなくても落ちない**（人物表を持たない器もある）。"""
@@ -190,23 +189,42 @@ class PersonMemoryManager:
     UNKNOWN_KEY_PREFIX = "unknown:"
 
     def note_unknown_present(self, count: int, confidence: float = 0.5) -> None:
-        """名前の分からない顔ぶれを `count` 人にする（出-ae-は・2026-09-22）。
+        """写真に名前の分からない人が `count` 人写った（出-ae-は・知-ai・2026-10-05）。
 
-        **足し続けるのではなく、いまの人数に合わせる。** 見立ては求めごとに言い直される
-        ので、呼ばれるたびに足すと写真を見た回数だけ人が増える。0 を渡せば全部消える。
-
-        話者にはしない（話者には人を指す id が要る）。寿命は既知の顔ぶれと同じ窓で切れる。
+        札は 1 人目から `count` 人目まで持ち時間を数え直し、足りなければ足す。**写っていない札は消さない**
+        （名前の付いた人と同じく、持ち時間で切れる）。見立てごとに足し続けないよう、札は番号で使い回す。
+        話者にはしない（話者には人を指す id が要る）。
         """
         n = max(0, int(count))
+        now = time.time()
         with self._lock:
-            for key in [k for k, p in self._present.items() if p.anonymous]:
-                self._present.pop(key, None)
             for i in range(n):
                 key = f"{self.UNKNOWN_KEY_PREFIX}{i + 1}"
-                self._present[key] = PersonPresence(
-                    person_id=key, confidence=confidence, anonymous=True
-                )
-        logger.info("名前の分からない顔ぶれを %d 人にした（確信度 %.2f）", n, confidence)
+                row = self._present.get(key)
+                if row is None:
+                    self._present[key] = PersonPresence(
+                        person_id=key, confidence=confidence, anonymous=True
+                    )
+                else:
+                    row.last_signal_at = now
+        if n:
+            logger.info(
+                "名前の分からない顔ぶれ %d 人を入れた・数え直した（確信度 %.2f）", n, confidence
+            )
+
+    def expire_presence(self, hold_sec: float) -> "list[str]":
+        """持ち時間（`hold_sec`）が切れた人を顔ぶれから外し、外した鍵を返す（知-ai・2026-10-05）。
+
+        T の tick が呼ぶ。在席（カメラ）は見ない。話者の指定は別の寿命（`speaker_known`・知-t）で切れる。
+        """
+        now = time.time()
+        with self._lock:
+            gone = [k for k, p in self._present.items() if now - p.last_signal_at > hold_sec]
+            for k in gone:
+                self._present.pop(k, None)
+        if gone:
+            logger.info("顔ぶれの持ち時間が切れた：%s", self._names_of(gone))
+        return gone
 
     def get_present_ids(self) -> list[str]:
         """**人を指す id だけ**を返す。名前の分からない顔ぶれは含めない。"""
@@ -249,6 +267,10 @@ class PersonMemoryManager:
         """
         if person_id not in self._present:
             await self.person_arrived(person_id)
+        else:
+            self.refresh_signal(
+                person_id
+            )  # その人だと分かる印なので、顔ぶれの持ち時間を数え直す（知-ai）
         old = self._speaker_id
         with self._lock:
             self._speaker_id = person_id

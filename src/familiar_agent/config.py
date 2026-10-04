@@ -657,14 +657,11 @@ class AgentConfig:
     )
     # 掛ける前に一度確かめる（「3 分のタイマーね。その間は黙って聞かないよ、いい？」）。
     timer_confirm: bool = field(default_factory=lambda: _bool_env("TIMER_CONFIRM", default=True))
-    # 自分が話してから・`/speaker` を打ってから「居る」とみなす長さ（秒）。マイクで拾った声は
-    # 数えない（テレビ・物音・聞き違い・2026-09-17）。〔仮〕
+    # 話者の寿命（秒）：話者を付けてから・その人に返事してから「分かっている」とみなす長さ（知-t）。〔仮〕
     speaker_hold_sec: float = field(default_factory=lambda: _float_env("SPEAKER_HOLD_SEC", 60.0))
-    # 顔ぶれ表（PMM・`/speaker` と顔照合）の失効。センサが「誰も居ない」をこの秒数見続けたら
-    # 顔ぶれ表を空にする（話者の指定は残す）。〔仮〕
-    presence_expire_sec: float = field(
-        default_factory=lambda: _float_env("PRESENCE_EXPIRE_SEC", 60.0)
-    )
+    # 顔ぶれの持ち時間（秒・知-ai・2026-10-05・本人の決定・仮）。その人だと分かる印（写真・声・名乗り・`/voice`）が
+    # 来るたびに数え直し、切れたら顔ぶれから外す。在席（カメラ）が「誰も居ない」でも消さない（以前は在席で消していた）。
+    presence_hold_sec: float = field(default_factory=lambda: _float_env("PRESENCE_HOLD_SEC", 60.0))
     # 掛ける前の確認（「3 分のタイマーね、いい？」）の預かりの寿命（秒・出-y）。過ぎたら捨て、
     # 「いいよ」が来ても掛けない（何に「いい」と言ったか分からない）。〔仮〕
     confirm_ttl_sec: float = field(default_factory=lambda: _float_env("CONFIRM_TTL_SEC", 300.0))

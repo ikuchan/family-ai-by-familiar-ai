@@ -60,17 +60,18 @@ def test_several_unknown_people_are_counted(pmm):
     assert len([r for r in pmm.presence_status() if r["person_id"] is None]) == 3
 
 
-def test_asking_for_fewer_unknown_people_shrinks_the_list(pmm):
-    """見立ては求めごとに言い直される。**足し続けない**——いまの人数に合わせる。"""
+def test_fewer_unknown_people_in_a_photo_keep_the_others(pmm):
+    """**足し続けない**（札は番号で使い回す）。写らなかった札も消さない——持ち時間で切れる（知-ai）。"""
     pmm.note_unknown_present(3, confidence=0.4)
     pmm.note_unknown_present(1, confidence=0.4)
-    assert len([r for r in pmm.presence_status() if r["person_id"] is None]) == 1
+    pmm.note_unknown_present(3, confidence=0.4)
+    assert len([r for r in pmm.presence_status() if r["person_id"] is None]) == 3
 
 
-def test_zero_unknown_people_clears_them(pmm):
+def test_zero_unknown_people_in_a_photo_removes_no_one(pmm):
     pmm.note_unknown_present(2, confidence=0.4)
     pmm.note_unknown_present(0)
-    assert pmm.presence_status() == []
+    assert len(pmm.presence_status()) == 2
 
 
 def test_an_unknown_person_never_becomes_the_speaker(pmm):

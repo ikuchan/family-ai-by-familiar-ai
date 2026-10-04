@@ -32,11 +32,11 @@ def _ip():
     return a, ip
 
 
-def test_one_guessed_person_becomes_the_speaker():
+def test_one_guessed_person_does_not_become_the_speaker():
+    """知-ai（2026-10-05・本人の決定ア）で改めた：見立ては顔ぶれに入れるだけ。話者は声・名乗り・`/speaker` が決める。"""
     a, ip = _ip()
     asyncio.run(ip._apply_seen_people([{"name": "パパ", "confidence": 0.6}]))
-    ip._set_speaker.assert_awaited_once()
-    assert ip._set_speaker.await_args.args[0] == "パパ"
+    ip._set_speaker.assert_not_awaited()
 
 
 def test_two_guessed_people_leave_the_speaker_unknown():

@@ -1,4 +1,7 @@
-"""写真の見立ては、その写真を正として置き換える（知-ag・2026-09-24）。
+"""写真の見立てと顔ぶれ（知-ag・2026-09-24 → 知-ai・2026-10-05 で改めた）。
+
+**知-ai で置き換えをやめた。** 首を回すと写真に写る人が変わるので、置き換えると見回りのたびに顔ぶれが入れ替わった。
+写った人は入れるか数え直すだけにし、写っていない人は人ごとの持ち時間（1 分）で切れる。以下は知-ag のときの経緯。
 
 実機 15:51、センサは `在席：テレビ に 1 人` と言い続けているのに、GUI には
 **パパ 0.60 と たいきくん 0.60 の 2 人**が並んだ。0.60 は `SEEN_CONFIDENCE_MAX`——
@@ -66,16 +69,16 @@ def test_arriving_without_a_source_is_unmarked():
     assert pmm._present["p1"].source == ""
 
 
-# ── 見立ては見立てを置き換える ───────────────────────────────────────────
+# ── 見立ては足すか数え直す（知-ai・2026-10-05 に置き換えから改めた）──────────────
 
 
-def test_a_new_guess_replaces_the_previous_one():
-    """**これが今回の欠陥そのもの。** パパを見立てた後にたいきを見立てたら、たいきだけ。"""
+def test_a_new_guess_adds_to_the_previous_one():
+    """首を回して別の人だけ写っても、前に写った人は消さない（持ち時間で切れる・知-ai）。"""
     pmm = _pmm()
     asyncio.run(pmm.set_guessed_present([("p-papa", 0.6)]))
     assert _names(pmm) == {"p-papa"}
     asyncio.run(pmm.set_guessed_present([("p-taiki", 0.6)]))
-    assert _names(pmm) == {"p-taiki"}
+    assert _names(pmm) == {"p-papa", "p-taiki"}
 
 
 def test_two_people_in_one_photo_both_stay():
@@ -92,15 +95,15 @@ def test_someone_who_came_in_by_face_is_not_removed():
     asyncio.run(pmm.set_guessed_present([("p-papa", 0.6)]))
     assert _names(pmm) == {"p-face", "p-papa"}
     asyncio.run(pmm.set_guessed_present([("p-taiki", 0.6)]))
-    assert _names(pmm) == {"p-face", "p-taiki"}
+    assert _names(pmm) == {"p-face", "p-papa", "p-taiki"}
 
 
-def test_an_empty_guess_clears_the_guessed_ones_only():
+def test_an_empty_guess_removes_no_one():
     pmm = _pmm()
     asyncio.run(pmm.person_arrived("p-face", 0.95))
     asyncio.run(pmm.set_guessed_present([("p-papa", 0.6)]))
     asyncio.run(pmm.set_guessed_present([]))
-    assert _names(pmm) == {"p-face"}
+    assert _names(pmm) == {"p-face", "p-papa"}
 
 
 def test_the_same_person_seen_again_keeps_the_new_confidence():
@@ -155,7 +158,7 @@ def _loop(pmm):
     return ip
 
 
-def test_the_loop_replaces_instead_of_adding():
+def test_the_loop_passes_each_photo_as_it_is():
     from familiar_agent.core.seen_people import SEEN_CONFIDENCE_MAX
 
     pmm = _FakePMM({"パパ": "p-papa", "たいき": "p-taiki"})

@@ -141,9 +141,6 @@ class Tonic:
         # 前回の顔ぶれ。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
         # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
         self._present_names: set[str] | None = None
-        self._unoccupied_since: float | None = (
-            None  # センサが「誰も居ない」を見始めた時刻（顔ぶれ表の失効）
-        )
         # 自発の可否は `DRIVE5_AUTONOMOUS`（5欲求）で決める（旧 15 欲求の系は環-d で撤去）。
         self._cfg = drive_cfg or DriveConfig()
         self._task: asyncio.Task | None = None
@@ -173,7 +170,7 @@ class Tonic:
         agent = self._agent
         if agent is None:
             return
-        self._expire_presence_table()
+        self._expire_presence()
         self._expire_speaker()
         try:
             rows = agent._pmm.presence_status()
@@ -213,55 +210,23 @@ class Tonic:
         for name in sorted(previous - current):
             self._dif.record("退室", f"{name} が居なくなった")
 
-    def _expire_presence_table(self) -> None:
-        """顔ぶれ表（PMM・`/speaker`・顔照合）の失効。
+    def _expire_presence(self) -> None:
+        """顔ぶれの持ち時間の失効（知-ai・2026-10-05・`設計方針_在席と顔ぶれ` v0.1）。
 
-        顔ぶれ表には入る口だけあって出る口が無く、`/speaker パパ` が永久に残った（2026-09-17
-        実機・カメラが 2 分「誰も居ない」でも自発が出た）。センサが「誰も居ない」を
-        `presence_expire_sec` 見続けたら顔ぶれ表を空にする（`mark_absent`）。話者の指定は別の寿命（知-t）。
-        センサが無い構成では失効しない（顔ぶれ表が唯一の情報源）。
+        顔ぶれ（特定の誰がいるか）は人ごとの持ち時間（`presence_hold_sec`・1 分）で切れる。**在席（カメラ）は
+        見ない**——首を回して写らなくなっただけかもしれない。以前（2026-09-17）は、センサが「誰も居ない」を
+        60 秒見続けたら顔ぶれ表を全員消していた（在席を顔ぶれの寿命に使う、上下が逆の形だった）。
+        話者の指定は別の寿命（知-t）。
         """
-        sensor = self._occupancy_sensor
         agent = self._agent
-        if sensor is None or agent is None:
+        if agent is None:
             return
+        raw = getattr(getattr(agent, "config", None), "presence_hold_sec", None)
+        hold = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
         try:
-            occupied = bool(sensor.room_occupied())
+            agent._pmm.expire_presence(hold)
         except Exception:  # noqa: BLE001
-            return
-        now = time.time()
-        if occupied:
-            self._unoccupied_since = None
-            return
-        if self._unoccupied_since is None:
-            self._unoccupied_since = now
-            return
-        raw = getattr(getattr(agent, "config", None), "presence_expire_sec", None)
-        expire = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
-        # `/speaker` を打ったら、そこから数え直す（知-s・2026-09-18 12:32 実機：打った 0.5 秒後に
-        # 「誰も居ないが 340 秒」で失効した）。打った人はそこに居る。
-        since = self._unoccupied_since
-        set_at = getattr(agent, "_speaker_set_at", None)
-        if isinstance(set_at, (int, float)) and set_at > since:
-            since = float(set_at)
-        if now - since < expire:
-            return
-        try:
-            # **名前の分からない顔ぶれも外す**（出-am・2026-09-22）。`get_present_ids()` は
-            # 観測の `participants` になる口なので札を含まない（出-ae-は）。失効はここで
-            # 顔ぶれ表を空にするのが仕事なので、札まで含めた鍵を使う。
-            ids = list(agent._pmm.present_keys())
-        except Exception:  # noqa: BLE001
-            return
-        if not ids:
-            return
-        for pid in ids:
-            agent._pmm.mark_absent(pid)
-        logger.info(
-            "tonic 顔ぶれ表を失効：%d 人（誰も居ないが %.0f 秒）",
-            len(ids),
-            now - since,
-        )
+            logger.debug("顔ぶれの持ち時間を見られなかった")
 
     def _expire_speaker(self) -> None:
         """話者の指定の寿命（知-t・2026-09-18）。分からなくなっていたら「不明」に戻す。
