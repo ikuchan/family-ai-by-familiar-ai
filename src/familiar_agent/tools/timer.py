@@ -288,8 +288,10 @@ class TimerTool:
             bool(reason),
         )
         hushed = ""
-        if self.flags().silence and self._hush is not None and who:
+        if self.flags().silence and self._hush is not None:
             # 掛けた瞬間から鳴るまで黙る。鳴る時刻＝期限なので、鳴る知らせは何もしなくても通る。
+            # **頼んだ人が分からなくても黙る**（知-ai・2026-10-05）。依頼の「人」は記録に使うだけで、黙るかは
+            # 人を見ない（`silence_state.is_silenced`）。以前は分かるときだけ黙り、耳だけ閉じて口は開いていた。
             self._hush(who, due, tid)
             hushed = "。鳴るまで黙っている"
         return f"掛けた：id={tid} 「{label}」 {due:%H:%M} に鳴る" + (

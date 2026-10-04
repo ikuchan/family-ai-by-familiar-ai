@@ -85,7 +85,7 @@ def _confirm_off(monkeypatch):
     monkeypatch.setenv("TIMER_CONFIRM", "false")
 
 
-def _tool():
+def _tool(*, speaker: str = "パパ"):
     store = _FakeStore()
     oif = MagicMock()
     oif.write = AsyncMock(return_value="obs-1")
@@ -94,7 +94,7 @@ def _tool():
     t = TimerTool(
         store=lambda: store,
         oif=oif,
-        speaker=lambda: "パパ",
+        speaker=lambda: speaker,
         quiet=lambda: QuietHoursRule(23, 7),
         silence_active=lambda: False,
         now=lambda: NOW,
@@ -109,6 +109,15 @@ def test_setting_a_timer_hushes_until_due():
     text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "パスタ"}))
     assert ok and "黙って" in text
     assert hushed == [("パパ", NOW + timedelta(minutes=3), 1)]
+
+
+def test_a_timer_hushes_even_when_no_one_is_known_to_have_asked():
+    """知-ai（2026-10-05）：頼んだ人が分からなくても黙る。以前は話者が分かるときだけ黙り、耳を閉じる仕組み
+    （`TIMER_MIC_CLOSE`）は人に関係なく掛かるので、耳は閉じて口は開いたままになった（実機 09-26 08:52）。"""
+    t, hushed, _ = _tool(speaker="")
+    text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "パスタ"}))
+    assert ok and "黙って" in text
+    assert hushed == [("", NOW + timedelta(minutes=3), 1)]
 
 
 def test_a_stopwatch_does_not_hush():
