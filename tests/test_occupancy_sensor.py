@@ -1,7 +1,7 @@
 """在/不在を実際に測る器（撮る → 定点を特定 → YOLO → マップ更新）。
 
 `知覚在席` §3-2 の在/不在は **G（T 側・連続）** が担う。ここが部品を束ねる場所で、
-S3a（`presence_map`・`person_detector`）と S2（定点）と S3b（動体イベント）を繋ぐ。
+S3a（`occupancy_map`・`person_detector`）と S2（定点）と S3b（動体イベント）を繋ぐ。
 
 起こされ方は2つある。**カメラが「動いた」と言ってきたとき**と、**一定間隔（30秒）**。
 動体だけでは足りない。静止している人は動体を出さないので、動きが無いあいだも確かめる。
@@ -17,7 +17,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.poses import Pose
-from familiar_agent.presence_sensor import PresenceSensor
+from familiar_agent.occupancy_sensor import OccupancySensor
 
 _POSES = [Pose("窓側", 0.0, -0.5), Pose("出入り口", -0.129, -0.5)]
 
@@ -32,7 +32,7 @@ def _sensor(*, position=(-0.129, -0.5), people=0, capture=("BASE64", "/tmp/f.jpg
     detector.boxes = AsyncMock(
         return_value=[(i * 200.0, 0.0, i * 200.0 + 100.0, 300.0) for i in range(people)]
     )
-    s = PresenceSensor(
+    s = OccupancySensor(
         camera=camera,
         poses_getter=AsyncMock(return_value=_POSES if poses is None else poses),
         detector=detector,
@@ -152,7 +152,7 @@ def test_stopping_leaves_no_task_behind():
 
 def test_the_first_event_fires_at_once():
     """動き始めには即座に気づきたい。前回の確認から間が空いていれば待たない。"""
-    from familiar_agent.presence_sensor import _delay_before
+    from familiar_agent.occupancy_sensor import _delay_before
 
     assert _delay_before(last_check=0.0, now=10.0, min_gap=3.0) == 0.0
 
@@ -163,13 +163,13 @@ def test_events_that_keep_coming_are_thinned_out():
     そのたびに撮って YOLO を回すと、実機では 0.15 秒ごとに確認していた（電力と発熱の面で
     放置できない）。前回の確認からの残り時間だけ待つ。
     """
-    from familiar_agent.presence_sensor import _delay_before
+    from familiar_agent.occupancy_sensor import _delay_before
 
     assert abs(_delay_before(last_check=10.0, now=10.2, min_gap=3.0) - 2.8) < 1e-9
 
 
 def test_the_wait_never_goes_negative():
-    from familiar_agent.presence_sensor import _delay_before
+    from familiar_agent.occupancy_sensor import _delay_before
 
     assert _delay_before(last_check=0.0, now=100.0, min_gap=3.0) == 0.0
 

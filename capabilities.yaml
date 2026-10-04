@@ -90,7 +90,7 @@ capabilities:
       `core/speaker_claim.py`); the voice itself (ECAPA-TDNN on the CPU, compared with
       each person's registered and today's voice, `core/voice_speaker.py`); a guess from
       a photo the agent took (confidence is capped, `core/seen_people.py`); and whether
-      anyone is in view at all (YOLO person detection in `presence_sensor.py`, which
+      anyone is in view at all (YOLO person detection in `occupancy_sensor.py`, which
       cannot tell who it is). The voice only says who is speaking, never whether anyone
       is here, and is used only while someone is in view: the current speaker continues
       above a loose threshold (0.25), another person takes over only above a strict one

@@ -2147,7 +2147,7 @@ class InformationProcessing:
         # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
         # 門を通った声だけ、誰が話しているかを照らす（知-ae）。捨てた声は聞いていないのと同じなので照らさない。
-        await self._judge_voice(voice)
+        await self._match_voice(voice)
         if trigger.named:
             # 名前で呼ばれたら、**調べかけを打ち切る**（言い直し・別の用事・「パジュ、止めて」）。結果は
             # 捨てるが、**何を打ち切ったかは記録に残す**。名前の無い入力（「うん」）では止めない。
@@ -3368,7 +3368,7 @@ class InformationProcessing:
         # 静穏時間の門は外した——夜に話さないことは情動の溜まり方（静穏時間の倍率）が持つ。
         if self._req.trigger_kind == "発話":
             return ""
-        if agent._social_presence_permission() == 0.0:
+        if agent._occupancy() == 0.0:
             return "聞く相手が居ない"
         return ""
 
@@ -3434,11 +3434,11 @@ class InformationProcessing:
         if trigger.kind == "会話入力":
             # タイマーの操作の言葉（止めて・一時停止・再開）にも**名前が要る**（出-au 段 1-2・`設計方針_判定の段`
             # §2.1）。以前は名前が無くても通していたが（出-ab）、打ち切りには名前が要る決まりにそろえた。
-            if not self._window_admits(trigger):
+            if not self._wake_window_admits(trigger):
                 # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
                 logger.info("event-loop 窓の外の入力なので捨てる：%.40s", trigger.query)
-                if self._nobody_visible():
+                if self._unoccupied():
                     # 声がしたのに見えないのは見に行く理由（案ア・seeking はいまのまま）。
                     with contextlib.suppress(Exception):
                         await self._agent._nudge_seeking()
@@ -3490,7 +3490,7 @@ class InformationProcessing:
         """会話入力が届いた時刻（`time.monotonic()`）。付いていなければいま。"""
         return trigger.arrived or time.monotonic()
 
-    def _window_admits(self, trigger: "Trigger") -> bool:
+    def _wake_window_admits(self, trigger: "Trigger") -> bool:
         """会話入力を窓で受けるか（出-as 段 3・出-au 段 1-2・`設計方針_判定の段` §2.1）。受けたら窓を開ける／延ばす。
 
         **声もキーボードも**、名前があれば開けて受け、窓が開いていれば延ばして受ける。判定は**届いた時刻**で
@@ -3526,10 +3526,10 @@ class InformationProcessing:
         )
         return verdict == jev_judges.TO_FAMILY
 
-    def _nobody_visible(self) -> bool:
-        """配信ゲートと同じ「居るか」（`agent._social_presence_permission`）。読めなければ居る扱い。"""
+    def _unoccupied(self) -> bool:
+        """配信ゲートと同じ「居るか」（`agent._occupancy`）。読めなければ居る扱い。"""
         try:
-            return self._agent._social_presence_permission() == 0.0
+            return self._agent._occupancy() == 0.0
         except Exception:  # noqa: BLE001
             return False
 
@@ -3653,7 +3653,7 @@ class InformationProcessing:
         return 1.0
 
     def _stamp_said(self) -> None:
-        """自分が声を出した時刻を打つ（在席の証拠・`presence_said_sec`・2026-09-17）。
+        """自分が声を出した時刻を打つ（在席の証拠・`speaker_hold_sec`・2026-09-17）。
 
         起点が人の発話で、相手が分かっているなら、話者の指定も延びる（`_speaker_confirmed_at`・
         知-t）——会話中は切れない。
@@ -3674,7 +3674,7 @@ class InformationProcessing:
         見た印は W に浮かないことがある（印が無い定点は想起に掛からない・08-01）ので、在/不在の層が
         持つ「最後に見た時刻」から出す。渡すのは情動が起点の求めだけ（呼び手が決める）。
         """
-        sensor = getattr(self._agent, "_presence_sensor", None)
+        sensor = getattr(self._agent, "_occupancy_sensor", None)
         if sensor is None:
             return ""
         try:
@@ -3695,7 +3695,7 @@ class InformationProcessing:
             return tool_input
         if getattr(self._req, "trigger_kind", "") != "情動":
             return tool_input
-        sensor = getattr(self._agent, "_presence_sensor", None)
+        sensor = getattr(self._agent, "_occupancy_sensor", None)
         if sensor is None:
             return tool_input
         try:
@@ -3818,7 +3818,7 @@ class InformationProcessing:
         if name is None:
             logger.info("名乗り「%s」は家族に無いので話者にしない", claim)
             return
-        if not self._someone_present():
+        if not self._occupied():
             # 在席が無い名乗りは 30 秒預かる（知-w-ろ・実機 13:27：見回りの帰りに名乗りを読んだ 6 秒後に
             # センサが人を見た）。人を見た最初の求め（`_begin_request`）で生きていれば付ける。
             self._pending_claim = (name, time.time(), getattr(self._req, "voice", None))
@@ -3831,7 +3831,7 @@ class InformationProcessing:
         """名乗りが話者に付いた発話の声を、その人の登録の声と今日の声に足す（知-ae 段 5・本人の決定ウ）。
 
         録音の手順は作らない。声のある発話で話者がはっきり分かるのは名乗りだけなので、登録の声（日をまたいで
-        残る）を育てるのはここだけにする——厳しい閾値の当たり（`_judge_voice`）は今日の声にだけ足す。
+        残る）を育てるのはここだけにする——厳しい閾値の当たり（`_match_voice`）は今日の声にだけ足す。
         すでに同じ話者でも足す（名乗りは確かな印）。失敗しても話者の付け方は変えない。
         """
         if voice is None:
@@ -3882,7 +3882,7 @@ class InformationProcessing:
         member = next((m for m in parsing.parse_family_md(family) if m.get("name") == name), None)
         return call_name_of(member) if member else (name or None)
 
-    async def _judge_voice(self, voice: Any) -> None:
+    async def _match_voice(self, voice: Any) -> None:
         """門を通った声で、誰が話しているかを決める（知-ae 段 4・`設計方針_声で話者を見分ける` v0.1）。
 
         声が決めるのは話者だけで、在席はカメラが決める——在席が無ければ照らさない。規則は
@@ -3890,7 +3890,7 @@ class InformationProcessing:
         なければ既定の人に戻す）。厳しい閾値で当たった声は今日の声に足す（登録の声に足すのは名乗りだけ）。
         失敗しても会話は止めない。
         """
-        if voice is None or not self._someone_present():
+        if voice is None or not self._occupied():
             return
         from datetime import datetime
 
@@ -3932,9 +3932,9 @@ class InformationProcessing:
         else:
             logger.debug("声：%s（%s %.2f）", verdict.action, verdict.person_id, verdict.score)
 
-    def _someone_present(self) -> bool:
+    def _occupied(self) -> bool:
         try:
-            return float(self._agent._social_presence_permission() or 0.0) > 0.0
+            return float(self._agent._occupancy() or 0.0) > 0.0
         except Exception:  # noqa: BLE001
             return False
 
@@ -3961,7 +3961,7 @@ class InformationProcessing:
             self._pending_claim = None
             logger.info("預かった名乗り「%s」は %.0f 秒過ぎたので捨てた", name, PENDING_CLAIM_SEC)
             return
-        if self._someone_present():
+        if self._occupied():
             self._pending_claim = None
             await self._set_speaker(name, "預かり・在席が付いた")
             self._learn_voice(name, voice)  # 預けたときの発話の声（いまの求めの声ではない）

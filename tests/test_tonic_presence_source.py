@@ -4,7 +4,7 @@
 照合は登録が要るので、登録が済むまで**在席が一切動かない**（実機で退室イベントが一度も
 通っていなかった）。
 
-在/不在は `PresenceSensor`（YOLO・登録不要）が持つ。名前は分かるときだけ PMM から取る。
+在/不在は `OccupancySensor`（YOLO・登録不要）が持つ。名前は分かるときだけ PMM から取る。
 分からなければ「誰か」として扱い、**居ることは伝える**。名前が無いことと、誰も居ないことは
 別である。
 """
@@ -22,7 +22,7 @@ def _tonic(*, names=(), occupied=False):
     sensor = MagicMock()
     sensor.room_occupied = MagicMock(return_value=occupied)
     ip = MagicMock()
-    t = Tonic(ip, presence=sensor)
+    t = Tonic(ip, occupancy=sensor)
     t._agent = agent
     t._present_names = set()  # 初回走査の扱いを飛ばす
     return t, ip
@@ -123,9 +123,9 @@ def test_seeing_someone_resets_the_count(monkeypatch):
     clock = iter([1000.0, 1030.0, 1070.0])
     monkeypatch.setattr("familiar_agent.loop.tonic.time.time", lambda: next(clock))
     t.scan_presence()
-    t._presence.room_occupied = MagicMock(return_value=True)
+    t._occupancy_sensor.room_occupied = MagicMock(return_value=True)
     t.scan_presence()  # 30 秒後に人を見た → 数え直し
-    t._presence.room_occupied = MagicMock(return_value=False)
+    t._occupancy_sensor.room_occupied = MagicMock(return_value=False)
     t.scan_presence()  # そこから 40 秒 → まだ
     t._agent._pmm.mark_absent.assert_not_called()
 

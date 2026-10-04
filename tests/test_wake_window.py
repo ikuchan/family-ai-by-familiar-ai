@@ -7,7 +7,7 @@
 
 from __future__ import annotations
 
-from familiar_agent.core.wake_window import WINDOW_SEC, WakeWindow, heard_name
+from familiar_agent.core.wake_window import WAKE_WINDOW_SEC, WakeWindow, heard_name
 
 NAMES = ["パジュ"]
 
@@ -43,7 +43,7 @@ def test_without_names_nothing_is_heard():
 
 def test_the_window_is_thirty_seconds():
     """出-as の 1 分から 30 秒へ（出-au・`設計方針_判定の段` §2.1）。"""
-    assert WINDOW_SEC == 30.0
+    assert WAKE_WINDOW_SEC == 30.0
     w = WakeWindow()
     assert not w.is_open(100.0)
     w.open(100.0)

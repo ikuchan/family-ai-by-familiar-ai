@@ -28,7 +28,7 @@ pytestmark = pytest.mark.real_window  # 門そのものの知らせを見る
 def _ip():
     a = _agent(stream_returns=[])
     a._nudge_seeking = AsyncMock()
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     ip = InformationProcessing(a)
     ip._load_silence = lambda: None
     ip._ensure_driver = lambda: None

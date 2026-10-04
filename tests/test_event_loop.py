@@ -84,7 +84,7 @@ def _agent(*, stream_returns, max_iters=3):
     # 軽量LLM（調停の文章の口ほか）。調停の答えは試験ごとに `a._jev`（偽の Jev）で与える。
     a._utility_backend = writer_says({})
     a._expected_turns = len(list(stream_returns))
-    a._social_presence_permission = MagicMock(return_value=1.0)  # 既定＝誰か居る
+    a._occupancy = MagicMock(return_value=1.0)  # 既定＝誰か居る
     a._in_quiet_hours = MagicMock(return_value=False)  # 既定＝静穏時間ではない
     a._deferred_search = MagicMock()
     a._deferred_search.get_tool_definitions = MagicMock(return_value=[_SEARCH_DEF])
@@ -679,7 +679,7 @@ def test_typing_with_nobody_present_is_still_answered():
     # ウェイクワードの窓に置き換えた。キーボードの入力はいつでも受ける——打たれたこと自体が居る証拠
     # （`設計方針_話していいかの決まり` §2.3）。声の窓の決まりは `test_the_wake_window_gates_voice.py`。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
-    a._social_presence_permission = MagicMock(return_value=0.0)  # カメラには誰も映っていない
+    a._occupancy = MagicMock(return_value=0.0)  # カメラには誰も映っていない
     a._nudge_seeking = AsyncMock()
     _run_chain(a)  # 声を待たず、主LLM の呼び出しを待つ（声になるかは段 6 の発話の門）
     a.backend.stream_turn.assert_awaited()  # 主LLM が返事を考えた
@@ -1028,7 +1028,7 @@ def test_present_ctx_says_nobody_is_confirmed_when_no_one_is_recognised():
     # 分からないまま出る。認識できていないことを明示する。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     a._pmm.presence_status = MagicMock(return_value=[])
-    a._social_presence_permission = MagicMock(return_value=1.0)  # 直近の発話で在席
+    a._occupancy = MagicMock(return_value=1.0)  # 直近の発話で在席
     _run(a)
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
     assert "(present" in system  # 空文字にしない

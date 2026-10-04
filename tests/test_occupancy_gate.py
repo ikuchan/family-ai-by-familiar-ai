@@ -17,7 +17,7 @@ def _agent(*, watcher: bool, present: list[str], last_human: float | None) -> Ma
     a = MagicMock()
     a._presence_watcher = MagicMock() if watcher else None
     # 在/不在の層（YOLO）は別のテストが見る（知-h）。ここは顔と発話の判定だけを見る。
-    a._presence_sensor = None
+    a._occupancy_sensor = None
     a._pmm = MagicMock()
     a._pmm.get_present_ids = MagicMock(return_value=present)
     # 2026-09-17：人の声（`_last_human_at`）は在席の証拠にしない。数えるのは自分の発話。
@@ -31,7 +31,7 @@ def _agent(*, watcher: bool, present: list[str], last_human: float | None) -> Ma
 
 
 def _permission(a) -> float:
-    return EmbodiedAgent._social_presence_permission(a)
+    return EmbodiedAgent._occupancy(a)
 
 
 def test_my_recent_speech_no_longer_counts_as_presence():

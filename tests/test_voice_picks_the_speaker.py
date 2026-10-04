@@ -51,7 +51,7 @@ def _ip(*, present: float = 1.0, speaker: "str | None" = "パパ", store=None):
     a = _agent(stream_returns=[])
     a._family_md = FAMILY
     a.config.recognition = RecognitionConfig()  # 閾値 0.25・0.35・今日の声 10
-    a._social_presence_permission = MagicMock(return_value=present)
+    a._occupancy = MagicMock(return_value=present)
     a._persons.active_name = speaker or "誰か"
     a._persons.active_is_explicit = speaker is not None
     a._sync_pmm_speaker = AsyncMock()
@@ -68,7 +68,7 @@ def _ip(*, present: float = 1.0, speaker: "str | None" = "パパ", store=None):
 
 def test_a_clear_other_voice_takes_over_and_feeds_today():
     ip, a, s = _ip()
-    asyncio.run(ip._judge_voice(TAIKI))
+    asyncio.run(ip._match_voice(TAIKI))
     a._persons.set_active.assert_called_once_with("たいき")  # 呼びかけ名で付ける
     a._sync_pmm_speaker.assert_awaited_once_with("たいき")
     assert s.added == [("taiki", "voice", "today", 10)]
@@ -76,7 +76,7 @@ def test_a_clear_other_voice_takes_over_and_feeds_today():
 
 def test_the_same_voice_keeps_and_a_clear_match_feeds_today():
     ip, a, s = _ip()
-    asyncio.run(ip._judge_voice(PAPA))
+    asyncio.run(ip._match_voice(PAPA))
     a._persons.set_active.assert_not_called()
     a._persons.reset_to_default.assert_not_called()
     assert s.added == [("papa", "voice", "today", 10)]
@@ -86,7 +86,7 @@ def test_a_loose_match_keeps_without_feeding_today():
     ip, a, s = _ip()
     loose = np.asarray([0.3, 0.954], dtype=np.float32)  # パパに 0.30（緩い）・たいきに 0.954 だが…
     s.registered = {"papa": PAPA}  # たいきの基準は無い
-    asyncio.run(ip._judge_voice(loose))
+    asyncio.run(ip._match_voice(loose))
     a._persons.set_active.assert_not_called()
     a._persons.reset_to_default.assert_not_called()
     assert s.added == []
@@ -94,7 +94,7 @@ def test_a_loose_match_keeps_without_feeding_today():
 
 def test_an_unknown_voice_returns_to_the_default_person():
     ip, a, s = _ip(store=_Store(registered={"papa": PAPA}))
-    asyncio.run(ip._judge_voice(np.asarray([-1.0, 0.0], dtype=np.float32)))
+    asyncio.run(ip._match_voice(np.asarray([-1.0, 0.0], dtype=np.float32)))
     a._persons.reset_to_default.assert_called_once()
     a._pmm.clear_speaker.assert_called_once()
     assert s.added == []
@@ -102,9 +102,9 @@ def test_an_unknown_voice_returns_to_the_default_person():
 
 def test_nothing_happens_without_presence_or_a_voice():
     ip, a, s = _ip(present=0.0)
-    asyncio.run(ip._judge_voice(TAIKI))
+    asyncio.run(ip._match_voice(TAIKI))
     ip2, a2, s2 = _ip()
-    asyncio.run(ip2._judge_voice(None))
+    asyncio.run(ip2._match_voice(None))
     for agent, store in ((a, s), (a2, s2)):
         agent._persons.set_active.assert_not_called()
         agent._persons.reset_to_default.assert_not_called()
@@ -113,14 +113,14 @@ def test_nothing_happens_without_presence_or_a_voice():
 
 def test_no_voices_at_all_change_nothing():
     ip, a, s = _ip(store=_Store())
-    asyncio.run(ip._judge_voice(TAIKI))
+    asyncio.run(ip._match_voice(TAIKI))
     a._persons.set_active.assert_not_called()
     a._persons.reset_to_default.assert_not_called()
 
 
 def test_from_the_default_person_a_clear_voice_names_someone():
     ip, a, s = _ip(speaker=None)
-    asyncio.run(ip._judge_voice(PAPA))
+    asyncio.run(ip._match_voice(PAPA))
     a._persons.set_active.assert_called_once_with("パパ")
 
 
@@ -129,7 +129,7 @@ def test_from_the_default_person_a_clear_voice_names_someone():
 
 def _pushed(ip, *, swallowed: bool, voice):
     ip._swallow_if_unheard = AsyncMock(return_value=swallowed)  # type: ignore[method-assign]
-    ip._judge_voice = AsyncMock()  # type: ignore[method-assign]
+    ip._match_voice = AsyncMock()  # type: ignore[method-assign]
     ip._ensure_driver = lambda: None  # type: ignore[method-assign]
     seen: list = []
 
@@ -146,14 +146,14 @@ def _pushed(ip, *, swallowed: bool, voice):
 def test_a_swallowed_voice_is_not_judged():
     ip, _, _ = _ip()
     assert _pushed(ip, swallowed=True, voice=PAPA) == []
-    ip._judge_voice.assert_not_awaited()
+    ip._match_voice.assert_not_awaited()
 
 
 def test_an_admitted_voice_is_judged_and_rides_the_trigger():
     ip, _, _ = _ip()
     seen = _pushed(ip, swallowed=False, voice=PAPA)
-    ip._judge_voice.assert_awaited_once()
-    assert np.allclose(ip._judge_voice.await_args.args[0], PAPA)
+    ip._match_voice.assert_awaited_once()
+    assert np.allclose(ip._match_voice.await_args.args[0], PAPA)
     assert np.allclose(seen[0].voice, PAPA)
 
 

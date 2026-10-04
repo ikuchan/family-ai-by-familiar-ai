@@ -17,7 +17,7 @@ from typing import Any, cast
 from .silence_rules import names_me
 
 #: 窓の長さ（本人の決まり 2026-09-26・`設計方針_判定の段` §2.1。出-as の 1 分から 30 秒へ）。
-WINDOW_SEC = 30.0
+WAKE_WINDOW_SEC = 30.0
 
 
 def heard_name(text: str, names: "list[str]") -> bool:
@@ -98,7 +98,7 @@ class WakeWindow:
 
     def open(self, now: float) -> None:
         """名前を聞いた・キーボードで打たれた。そこから 1 分（縮めない）。"""
-        self.until = max(self.until, now + WINDOW_SEC)
+        self.until = max(self.until, now + WAKE_WINDOW_SEC)
 
     def extend(self, now: float) -> None:
         """窓の中の入力・返事・つなぎ。**窓が開いているときだけ**そこから 1 分へ延ばす。

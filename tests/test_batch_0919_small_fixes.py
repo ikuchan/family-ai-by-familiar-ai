@@ -51,7 +51,7 @@ def test_an_unconfirmed_presence_says_not_to_use_a_name():
     a._pmm.presence_status = MagicMock(return_value=[])
     a._pmm.speaker_status = MagicMock(return_value=None)
     a.speaker_known = MagicMock(return_value=False)
-    a._presence_sensor.room_occupied = MagicMock(return_value=True)
+    a._occupancy_sensor.room_occupied = MagicMock(return_value=True)
     ctx = generator._present_ctx(a)
     assert "unconfirmed" in ctx and "名前で呼ばない" in ctx
 

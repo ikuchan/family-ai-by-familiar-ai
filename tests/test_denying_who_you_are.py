@@ -46,7 +46,7 @@ def _tonic_with(pmm, *, occupied: bool):
     agent._speaker_set_at = None
     sensor = MagicMock()
     sensor.room_occupied = MagicMock(return_value=occupied)
-    t = Tonic(MagicMock(), presence=sensor)
+    t = Tonic(MagicMock(), occupancy=sensor)
     t._agent = agent
     return t
 

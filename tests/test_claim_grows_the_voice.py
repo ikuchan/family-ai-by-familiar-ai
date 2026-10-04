@@ -60,7 +60,7 @@ def test_a_kept_claim_carries_its_voice_and_grows_when_it_lands(monkeypatch):
     _claim(ip, "たいき")
     assert s.added == []
     ip._req.voice = PAPA  # 次の求めは別の発話（声は預けたほうを使う）
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: 1010.0)
     asyncio.run(ip._apply_pending_claim())
     a._persons.set_active.assert_called_once_with("たいき")
@@ -72,7 +72,7 @@ def test_an_expired_kept_claim_grows_nothing(monkeypatch):
     ip._req.voice = TAIKI
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: 1000.0)
     _claim(ip, "たいき")
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: 1100.0)
     asyncio.run(ip._apply_pending_claim())
     assert s.added == []
@@ -80,7 +80,7 @@ def test_an_expired_kept_claim_grows_nothing(monkeypatch):
 
 def test_a_strict_match_alone_never_grows_registered():
     ip, a, s = _ip()
-    asyncio.run(ip._judge_voice(TAIKI))
+    asyncio.run(ip._match_voice(TAIKI))
     assert all(origin != "registered" for _, _, origin, _ in s.added)
 
 

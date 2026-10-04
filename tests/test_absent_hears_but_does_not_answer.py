@@ -25,7 +25,7 @@ def _ip(*, present: float):
     a._oif.write = AsyncMock(return_value="obs-1")
     a._observation_perspective = MagicMock(return_value={})
     a._conversation_perspective = MagicMock(return_value={})
-    a._social_presence_permission = MagicMock(return_value=present)
+    a._occupancy = MagicMock(return_value=present)
     a._nudge_seeking = AsyncMock()
     ip = InformationProcessing(a)
     ip._load_silence = lambda: None  # 黙ってはいない

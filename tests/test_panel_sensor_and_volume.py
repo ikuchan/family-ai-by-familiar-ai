@@ -63,14 +63,14 @@ def test_sensor_rows_name_the_pose_count_age_and_speaker_basis():
 
 def test_the_sensor_remembers_its_last_reading(monkeypatch):
     from familiar_agent.poses import Pose
-    from familiar_agent.presence_sensor import PresenceSensor
+    from familiar_agent.occupancy_sensor import OccupancySensor
 
     camera = MagicMock()
     camera.position = AsyncMock(return_value=(0.0, -0.5))
     camera.capture = AsyncMock(return_value=("B64", "/tmp/f.jpg"))
     detector = MagicMock()
     detector.boxes = AsyncMock(return_value=[(0.0, 0.0, 10.0, 10.0), (50.0, 0.0, 60.0, 10.0)])
-    s = PresenceSensor(
+    s = OccupancySensor(
         camera=camera,
         poses_getter=AsyncMock(return_value=[Pose("正面", 0.0, -0.5)]),
         detector=detector,
@@ -80,7 +80,7 @@ def test_the_sensor_remembers_its_last_reading(monkeypatch):
     )
     assert s.last_reading() is None
     clock = {"t": 1000.0}
-    monkeypatch.setattr("familiar_agent.presence_sensor.time.time", lambda: clock["t"])
+    monkeypatch.setattr("familiar_agent.occupancy_sensor.time.time", lambda: clock["t"])
     asyncio.run(s.check_once())
     clock["t"] = 1012.0
     assert s.last_reading() == ("正面", 2, 12.0)
@@ -94,7 +94,7 @@ def test_speaker_basis_follows_speaker_known():
     a._pmm.current_speaker_id = "p1"
     a._pmm.get_present_ids = MagicMock(return_value=[])
     a.config = MagicMock()
-    a.config.presence_said_sec = 60.0
+    a.config.speaker_hold_sec = 60.0
     now = time.time()
     a._speaker_set_at = now - 45.0
     a._speaker_confirmed_at = None

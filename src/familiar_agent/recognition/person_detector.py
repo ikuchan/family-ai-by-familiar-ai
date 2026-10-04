@@ -112,7 +112,7 @@ class PersonDetector(ModelResource):
     async def boxes(self, frame: Any) -> list[tuple[float, float, float, float]]:
         """写っている人の枠（x1, y1, x2, y2）。`count` と同じモデル・同じ絞り（人だけ）。
 
-        在席センサは数でなく枠で受け、動かない枠を物として除く（知-v・`core/presence_rules`）。
+        在席センサは数でなく枠で受け、動かない枠を物として除く（知-v・`core/occupancy_rules`）。
         """
         return await asyncio.to_thread(self._boxes_sync, frame)
 

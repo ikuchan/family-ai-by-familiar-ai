@@ -25,7 +25,7 @@ pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftes
 
 def _ip(kind="発話", *, present=1.0, quiet=False):
     a = _agent(stream_returns=[])
-    a._social_presence_permission = MagicMock(return_value=present)
+    a._occupancy = MagicMock(return_value=present)
     a._in_quiet_hours = MagicMock(return_value=quiet)
     ip = InformationProcessing(a)
     ip._req.trigger_kind = kind
@@ -112,7 +112,7 @@ def _timer_ip(*, silence=None):
     a.config.agent_names = ["パジュ"]
     a._timer_tool.frame = MagicMock(return_value="[タイマー]\n- id=1 パスタ 鳴っている")
     a._dif.ringing = True
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     ip = InformationProcessing(a)
     ip._load_silence = lambda: silence
     return ip

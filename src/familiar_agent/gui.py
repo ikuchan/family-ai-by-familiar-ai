@@ -1040,7 +1040,7 @@ class PresencePanel(QWidget):
         if agent is None:
             return format_sensor_rows(None, "")
         reading = None
-        sensor = getattr(agent, "_presence_sensor", None)
+        sensor = getattr(agent, "_occupancy_sensor", None)
         with contextlib.suppress(Exception):
             reading = sensor.last_reading() if sensor is not None else None
         basis = ""
@@ -1331,7 +1331,7 @@ class FamiliarWindow(QMainWindow):
         sec = clamped / 45.0
         return max(_GUI_LOOK_PREVIEW_MIN_SEC, min(_GUI_LOOK_PREVIEW_MAX_SEC, sec))
 
-    def _refresh_presence_camera(self) -> None:
+    def _refresh_occupancy_camera(self) -> None:
         """在席確認カメラ：presence_watcher の直近フレームを表示する。
 
         look-preview（カメラ移動時のライブ表示）中はそちらを優先し上書きしない。
@@ -1340,9 +1340,9 @@ class FamiliarWindow(QMainWindow):
         if time.perf_counter() < getattr(self, "_look_preview_until", 0.0):
             return
         agent = getattr(self, "_agent", None)
-        # 在席の確認は `PresenceSensor` が行う（顔ベースの常駐から置き換え）。直近に見た
+        # 在席の確認は `OccupancySensor` が行う（顔ベースの常駐から置き換え）。直近に見た
         # フレームをそのまま在席確認のカメラ映像として出す。
-        watcher = getattr(agent, "_presence_sensor", None) if agent is not None else None
+        watcher = getattr(agent, "_occupancy_sensor", None) if agent is not None else None
         if watcher is None:
             return
         try:
@@ -1667,10 +1667,10 @@ class FamiliarWindow(QMainWindow):
         right_layout.addWidget(self._camera, stretch=3)
 
         # 在席確認カメラ：presence_watcher が認識用に撮る直近フレームを定期表示する。
-        self._presence_cam_timer = QTimer(self)
-        self._presence_cam_timer.setInterval(2000)
-        self._presence_cam_timer.timeout.connect(self._refresh_presence_camera)
-        self._presence_cam_timer.start()
+        self._occupancy_cam_timer = QTimer(self)
+        self._occupancy_cam_timer.setInterval(2000)
+        self._occupancy_cam_timer.timeout.connect(self._refresh_occupancy_camera)
+        self._occupancy_cam_timer.start()
 
         def _card(widget: QWidget) -> QWidget:
             card = QWidget()

@@ -10,14 +10,14 @@
 
 from __future__ import annotations
 
-from familiar_agent.presence_map import PresenceMap
+from familiar_agent.occupancy_map import OccupancyMap
 
 _WINDOW = 120.0
 _POSES = ["窓側", "出入り口", "襖側"]
 
 
 def _map():
-    return PresenceMap(_POSES, window_sec=_WINDOW)
+    return OccupancyMap(_POSES, window_sec=_WINDOW)
 
 
 # --- 見た・見なかった -----------------------------------------------------
@@ -110,4 +110,4 @@ def test_seeing_someone_also_counts_as_having_looked():
 
 
 def test_no_poses_means_nothing_to_visit():
-    assert PresenceMap([], window_sec=_WINDOW).stalest_pose(now=1.0) is None
+    assert OccupancyMap([], window_sec=_WINDOW).stalest_pose(now=1.0) is None

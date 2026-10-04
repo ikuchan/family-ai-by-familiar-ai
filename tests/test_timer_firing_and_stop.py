@@ -62,7 +62,7 @@ def test_a_request_that_passes_the_gate_is_not_blocked():
     from tests.test_event_loop import _agent
 
     a = _agent(stream_returns=[])
-    a._social_presence_permission = MagicMock(return_value=0.0)  # 誰も居ない
+    a._occupancy = MagicMock(return_value=0.0)  # 誰も居ない
     a._in_quiet_hours = MagicMock(return_value=True)
     ip = InformationProcessing(a)
     ip._req = Request(trigger_kind="機器", passes_gate=True)

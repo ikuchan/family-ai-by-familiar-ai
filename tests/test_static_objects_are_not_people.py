@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.core import presence_rules
-from familiar_agent.core.presence_rules import StaticBoxes, count_moving, iou
+from familiar_agent.core import occupancy_rules
+from familiar_agent.core.occupancy_rules import StaticBoxes, count_moving, iou
 
 BOX = (100.0, 200.0, 180.0, 400.0)  # 静止物
 MAN = (500.0, 100.0, 620.0, 420.0)
@@ -61,7 +61,7 @@ def test_a_motion_event_resets_the_static_clock():
     st = StaticBoxes()
     _, st = count_moving(st, [BOX], now=0.0, static_sec=300.0, min_iou=0.9)
     _, st = count_moving(st, [BOX], now=400.0, static_sec=300.0, min_iou=0.9)
-    st = presence_rules.reset(st)
+    st = occupancy_rules.reset(st)
     n, st = count_moving(st, [BOX], now=430.0, static_sec=300.0, min_iou=0.9)
     assert n == 1
 
@@ -71,14 +71,14 @@ def test_a_motion_event_resets_the_static_clock():
 
 def test_the_sensor_uses_boxes_and_stops_counting_a_static_object(monkeypatch):
     from familiar_agent.poses import Pose
-    from familiar_agent.presence_sensor import PresenceSensor
+    from familiar_agent.occupancy_sensor import OccupancySensor
 
     camera = MagicMock()
     camera.position = AsyncMock(return_value=(0.0, -0.5))
     camera.capture = AsyncMock(return_value=("B64", "/tmp/f.jpg"))
     detector = MagicMock()
     detector.boxes = AsyncMock(return_value=[BOX])
-    s = PresenceSensor(
+    s = OccupancySensor(
         camera=camera,
         poses_getter=AsyncMock(return_value=[Pose("正面", 0.0, -0.5)]),
         detector=detector,
@@ -89,7 +89,7 @@ def test_the_sensor_uses_boxes_and_stops_counting_a_static_object(monkeypatch):
         static_iou=0.9,
     )
     clock = {"t": 1000.0}
-    monkeypatch.setattr("familiar_agent.presence_sensor.time.time", lambda: clock["t"])
+    monkeypatch.setattr("familiar_agent.occupancy_sensor.time.time", lambda: clock["t"])
     asyncio.run(s.check_once())
     assert s._map._seen["正面"] == 1000.0
     clock["t"] = 1200.0
@@ -110,5 +110,5 @@ def test_the_presence_window_is_sixty_seconds(monkeypatch):
     窓を 60 秒に。静止している人が 60 秒検出されない見落としは受ける（本人の決定・反応の鈍さを嫌う）。"""
     from familiar_agent.config import CameraConfig
 
-    monkeypatch.delenv("CAMERA_PRESENCE_WINDOW", raising=False)
-    assert CameraConfig().presence_window_sec == 60.0
+    monkeypatch.delenv("CAMERA_OCCUPANCY_DWELL", raising=False)
+    assert CameraConfig().occupancy_dwell_sec == 60.0

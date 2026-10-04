@@ -32,7 +32,7 @@ pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftes
 def _ip(*, timer: bool = False):
     a = _agent(stream_returns=[])
     a.config.agent_names = ["パジュ"]
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     a._nudge_seeking = AsyncMock()
     a._last_human_at = None
     ip = InformationProcessing(a)

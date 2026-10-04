@@ -4,7 +4,7 @@
 `greet_companion`／`worry_companion` を押していた。その `update` の呼び出しを外したので
 （理由は `test_scene_tracker_call_removed` にある）、イベントは二度と来ない。
 
-在/不在は `PresenceSensor`（YOLO）が担う。`知覚在席` §3-2 は在/不在を G（T 側・連続）の
+在/不在は `OccupancySensor`（YOLO）が担う。`知覚在席` §3-2 は在/不在を G（T 側・連続）の
 担当と定めており、VLM が拾ったラベルで在席欲求を動かす経路は設計に無い。
 """
 

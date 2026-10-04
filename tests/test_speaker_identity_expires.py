@@ -20,7 +20,7 @@ from familiar_agent.loop.tonic import Tonic
 def _agent(*, set_at=None, confirmed_at=None, present_ids=(), speaker_id="id:パパ"):
     a = MagicMock(spec=Agent)
     a.config = MagicMock()
-    a.config.presence_said_sec = 60.0
+    a.config.speaker_hold_sec = 60.0
     a._pmm = MagicMock()
     a._pmm.current_speaker_id = speaker_id
     a._pmm.get_present_ids = MagicMock(return_value=list(present_ids))
@@ -103,10 +103,10 @@ def test_the_system_prompt_stops_naming_an_unknown_speaker():
 
     a = _agent(set_at=time.time() - 120)
     a._pmm.presence_status = MagicMock(return_value=[])
-    a._presence_sensor = None
+    a._occupancy_sensor = None
     ctx = _present_ctx(a)
     assert "パパ" not in ctx
     b = _agent(set_at=time.time() - 10)
     b._pmm.presence_status = MagicMock(return_value=[])
-    b._presence_sensor = None
+    b._occupancy_sensor = None
     assert "パパ" in _present_ctx(b)

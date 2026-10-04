@@ -116,7 +116,7 @@ def test_an_absent_monologue_gets_no_photo(tmp_path, caplog) -> None:
     assert any("写真を添えない" in r.getMessage() for r in caplog.records)
 
 
-def test_a_monologue_with_someone_present_keeps_the_photo(tmp_path) -> None:
+def test_a_monologue_while_occupied_keeps_the_photo(tmp_path) -> None:
     path = tmp_path / "a.jpg"
     path.write_bytes(b"JPEG")
     ip, _ = _ip(trigger_kind="情動", blocked="")

@@ -30,7 +30,7 @@ from .io.aif import AIF, Nudge
 from .io.oif import MI, OIF, Recalled
 from .mood_register import MoodPAD
 from .poses import Pose, build_pose_registry
-from .presence_sensor import PresenceSensor
+from .occupancy_sensor import OccupancySensor
 from .memory_worker import MemoryJobWorker
 from .tools.camera import CameraTool
 from .tools.deferred_fetch import DeferredFetchTool
@@ -191,7 +191,7 @@ class EmbodiedAgent:
         # **人ごとの実体は `pmm` が持つ**（1人につき1つ。口が作り直すと実体が増える）。
         self._oif = OIF(self._memory, for_person=self._pmm.get_memory_for)
         self._memory_tool = MemoryTool(self._pmm)
-        self._presence_sensor: PresenceSensor | None = None
+        self._occupancy_sensor: OccupancySensor | None = None
         # 人検出（YOLO）。在席と `see` の即席の意味づけで共有（カメラが無ければ None）。
         self._person_detector: PersonDetector | None = None
         # 見えのエンコーダ（DINOv2）。起動時に温めるため参照を持つ。
@@ -562,23 +562,23 @@ class EmbodiedAgent:
             cam_cfg = self.config.camera
             # 1つを在席とループ（`see` の即席の意味づけ）で共有する。重みの読込は 1 回。
             self._person_detector = PersonDetector()
-            self._presence_sensor = PresenceSensor(
+            self._occupancy_sensor = OccupancySensor(
                 camera=self._camera,
                 poses_getter=self.poses,
                 detector=self._person_detector,
                 tolerance=cam_cfg.pose_tolerance,
-                window_sec=cam_cfg.presence_window_sec,
-                interval_sec=cam_cfg.presence_interval_sec,
-                min_gap_sec=cam_cfg.presence_min_gap_sec,
-                static_sec=cam_cfg.presence_static_sec,
-                static_iou=cam_cfg.presence_static_iou,
+                window_sec=cam_cfg.occupancy_dwell_sec,
+                interval_sec=cam_cfg.occupancy_interval_sec,
+                min_gap_sec=cam_cfg.occupancy_min_gap_sec,
+                static_sec=cam_cfg.occupancy_static_sec,
+                static_iou=cam_cfg.occupancy_static_iou,
             )
             # 見えの「普通」（`知覚在席` §3-4）。読めない環境でも在席（YOLO）は動き続ける。
             from .db import get_db as _get_db
 
             try:
                 self._visual_encoder = VisualEncoder()
-                self._presence_sensor.attach_visual_norm(
+                self._occupancy_sensor.attach_visual_norm(
                     self._visual_encoder, PoseNormStore(_get_db().conn())
                 )
             except Exception as exc:  # noqa: BLE001
@@ -587,7 +587,7 @@ class EmbodiedAgent:
             # 動体を出さないので、イベントだけでは足りず、間隔の確認と併せて使う。
             self._motion_events = MotionEventWatcher(
                 self._connected_onvif,
-                on_motion=self._presence_sensor.on_motion,
+                on_motion=self._occupancy_sensor.on_motion,
             )
 
         # Register family members from FAMILY.md into persons DB
@@ -660,7 +660,7 @@ class EmbodiedAgent:
     def speaker_known(self) -> bool:
         """いま話している相手が**分かっている**か（知-t・2026-09-18・1 箇所で決める）。
 
-        真になるのは 3 つ：`/speaker` から `presence_said_sec`（60 秒）以内、その人に自分が
+        真になるのは 3 つ：`/speaker` から `speaker_hold_sec`（60 秒）以内、その人に自分が
         返事してから 60 秒以内（会話中は切れない・`_speaker_confirmed_at`）、在席表（顔照合）に
         その人が居る。どれも無ければ「誰か分からない」——想起は共通の面、system 文に名前を
         出さない、面の材料に立てない、話者ゲートも通さない。
@@ -673,7 +673,7 @@ class EmbodiedAgent:
         sid = getattr(pmm, "current_speaker_id", None)
         if not sid:
             return False
-        raw = getattr(getattr(self, "config", None), "presence_said_sec", None)
+        raw = getattr(getattr(self, "config", None), "speaker_hold_sec", None)
         window = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
         now = time.time()
         for attr in ("_speaker_set_at", "_speaker_confirmed_at"):
@@ -746,13 +746,13 @@ class EmbodiedAgent:
             participants=self._pmm.get_present_ids(),
         )
 
-    def _social_presence_permission(self) -> float:
+    def _occupancy(self) -> float:
         """**誰かがいれば** 1.0、部屋が空なら 0.0。社会的発話と deferred 配信の共通ゲート。
 
         「居るか」と「誰か」は別（知-h・2026-09-13）。**マイクは在席の証拠にしない**
         （2026-09-17：テレビ・物音・聞き違いを声として拾い、カメラが誰も見ていないのに
         「こんにちは」の書き起こしへ返事した）。**居るかは在/不在の層が人を見ているか**
-        （`PresenceSensor.room_occupied()`・YOLO・滞留窓）で決める。
+        （`OccupancySensor.room_occupied()`・YOLO・滞留窓）で決める。
 
         以前は「自分が話してから」「`/speaker` を打ってから」60 秒も居るとみなしていた。会話は
         ウェイクワードの窓で受けるようになったので外した（出-as §3・2026-09-26）。
@@ -761,7 +761,7 @@ class EmbodiedAgent:
         居るかを決めない（`/speaker パパ` が永久に残り、カメラが 2 分「誰も居ない」でも自発が
         出た・同日 15:44）。センサが無い構成では在席表も数える（従来どおり）。
         """
-        sensor = getattr(self, "_presence_sensor", None)
+        sensor = getattr(self, "_occupancy_sensor", None)
         if sensor is not None:
             with contextlib.suppress(Exception):
                 if sensor.room_occupied() is True:
@@ -1090,7 +1090,7 @@ class EmbodiedAgent:
         sid = getattr(pmm, "current_speaker_id", None) if pmm is not None else None
         if not sid:
             return "—"
-        raw = getattr(getattr(self, "config", None), "presence_said_sec", None)
+        raw = getattr(getattr(self, "config", None), "speaker_hold_sec", None)
         window = float(raw) if isinstance(raw, (int, float)) and raw > 0 else 60.0
         now = time.time()
         for attr, label in (
@@ -1151,7 +1151,7 @@ class EmbodiedAgent:
             await self.poses()
         self._ensure_event_loop()
         for watcher in (
-            getattr(self, "_presence_sensor", None),
+            getattr(self, "_occupancy_sensor", None),
             getattr(self, "_motion_events", None),
         ):
             if watcher is not None:
@@ -1208,7 +1208,9 @@ class EmbodiedAgent:
         self._info_processing.start()
         if getattr(self, "_tonic", None) is None:
             self._tonic = Tonic(
-                self._info_processing, agent=self, presence=getattr(self, "_presence_sensor", None)
+                self._info_processing,
+                agent=self,
+                occupancy=getattr(self, "_occupancy_sensor", None),
             )
         self._tonic.start()
         # RH（資源ハンドラ）の完了を QC へ渡す。
@@ -1338,7 +1340,7 @@ class EmbodiedAgent:
             except (asyncio.TimeoutError, Exception):
                 pass
         for _watcher in (
-            getattr(self, "_presence_sensor", None),
+            getattr(self, "_occupancy_sensor", None),
             getattr(self, "_motion_events", None),
         ):
             if _watcher is not None:

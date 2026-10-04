@@ -202,7 +202,7 @@ def _tests_open_the_window(request, monkeypatch):
         self._wake_window().open(self._arrival(trigger))
         return True
 
-    monkeypatch.setattr(InformationProcessing, "_window_admits", _admits)
+    monkeypatch.setattr(InformationProcessing, "_wake_window_admits", _admits)
     yield
 
 

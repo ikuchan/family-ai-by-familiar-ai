@@ -42,7 +42,7 @@ UNIDENTIFIED = "誰か"
 
 
 async def step_drives(
-    dt: float, *, last_human_at: float | None = None, someone_visible: bool = True
+    dt: float, *, last_human_at: float | None = None, occupied: bool = True
 ) -> tuple[dd.DriveFiring, AiDrivers]:
     """1 tick 分の dynamics を回して永続化し、(発火, 蓄積後・放電前の drives) を返す。
 
@@ -68,7 +68,7 @@ async def step_drives(
             ):
                 lonely = lonely.reset(at=last_human_at)
             accumulated = dd.accumulate(
-                drives, mood, dt=dt, cfg=cfg, solitude=lonely, someone_visible=someone_visible
+                drives, mood, dt=dt, cfg=cfg, solitude=lonely, occupied=occupied
             )
             firing = dd.fired(accumulated, cfg)
             persisted = dd.discharge(accumulated, firing, cfg) if firing.any else accumulated
@@ -120,7 +120,7 @@ class Tonic:
         agent=None,
         period: float = TONIC_PERIOD_SEC,
         drive_cfg: DriveConfig | None = None,
-        presence=None,
+        occupancy=None,
     ) -> None:
         self._ip = information_processing
         # T は I の中身を直接呼ばない。行き来は AIF（自律機構接続）へ集める
@@ -129,9 +129,9 @@ class Tonic:
         # 人の出入りはカメラが出す機器の出来事なので、QD＝DIF を通す（環-e-は）。
         self._dif = DIF(ip=information_processing)
         self._agent = agent
-        # 在/不在の情報源（`PresenceSensor`）。渡さなければ身元の情報源だけで判断する。
+        # 在/不在の情報源（`OccupancySensor`）。渡さなければ身元の情報源だけで判断する。
         # agent から取りに行くと、テストの MagicMock が「常に誰か居る」を返してしまう。
-        self._presence = presence
+        self._occupancy_sensor = occupancy
         self._period = period
         # ストップウォッチの寿命を見た時刻と、その背景タスク（知-u）。
         self._stopwatch_checked = float("-inf")
@@ -164,7 +164,7 @@ class Tonic:
     def scan_presence(self) -> None:
         """在席者の集合を見て、前回との差分を人の出入りとして QD へ積む。
 
-        情報源は二層に分かれている（用語一覧）。**在/不在は `PresenceSensor`**（YOLO・登録が
+        情報源は二層に分かれている（用語一覧）。**在/不在は `OccupancySensor`**（YOLO・登録が
         要らない）、**誰かは PMM**（顔の照合・`/speaker` の自己申告）。照合が済んでいなければ
         `UNIDENTIFIED` として扱い、居ることだけ伝える。
 
@@ -183,7 +183,7 @@ class Tonic:
         current.discard("")
         # 在/不在は YOLO（登録が要らない）、名前は照合が済んだときだけ。名前が分からない
         # ことと、誰も居ないことは別である。前者は「誰か」として、居ることだけ伝える。
-        sensor = self._presence
+        sensor = self._occupancy_sensor
         if sensor is not None:
             try:
                 if sensor.room_occupied() and not current:
@@ -221,7 +221,7 @@ class Tonic:
         `presence_expire_sec` 見続けたら在席表を空にする（`mark_absent`）。話者の指定は別の寿命（知-t）。
         センサが無い構成では失効しない（在席表が唯一の情報源）。
         """
-        sensor = self._presence
+        sensor = self._occupancy_sensor
         agent = self._agent
         if sensor is None or agent is None:
             return
@@ -301,9 +301,9 @@ class Tonic:
             f" {next_interval_minutes(axis, lonely, cfg):.0f} 分後）"
         )
 
-    def _someone_visible(self) -> bool:
+    def _occupied(self) -> bool:
         """カメラに人が映っているか（出-as §2.1）。カメラの無い機体・読めないときは映っていない扱い。"""
-        sensor = self._presence
+        sensor = self._occupancy_sensor
         if sensor is None:
             return False
         try:
@@ -312,7 +312,7 @@ class Tonic:
             return False
 
     def _nobody_is_present(self) -> bool:
-        """誰も居ないか。在/不在の層（`PresenceSensor`・YOLO・登録が要らない）で見る。
+        """誰も居ないか。在/不在の層（`OccupancySensor`・YOLO・登録が要らない）で見る。
 
         身元の層（PMM の顔の照合）は使わない。顔が未登録なら、目の前に人が居ても
         「誰も居ない」になる（#15 で実機に出た欠陥）。
@@ -320,7 +320,7 @@ class Tonic:
         **センサが無ければ偽を返す。** 「センサが無い」を「誰も居ない」と扱うと、カメラの
         無い構成で REST が常に内省へ落ち、人が居ても話しかけなくなる。
         """
-        sensor = self._presence
+        sensor = self._occupancy_sensor
         if sensor is None:
             return False
         try:
@@ -456,7 +456,7 @@ class Tonic:
                 firing, accumulated = await step_drives(
                     dt,
                     last_human_at=getattr(self._agent, "_last_human_at", None),
-                    someone_visible=self._someone_visible(),  # BOND・ESTEEM は映っているときだけ（出-as）
+                    occupied=self._occupied(),  # BOND・ESTEEM は映っているときだけ（出-as）
                 )
                 if not firing.any:
                     continue

@@ -96,7 +96,7 @@ def test_the_arbiter_carries_the_claim_and_drops_it_on_a_tool_return():
 def _ip(*, present: float):
     a = _agent(stream_returns=[])
     a._family_md = FAMILY
-    a._social_presence_permission = MagicMock(return_value=present)
+    a._occupancy = MagicMock(return_value=present)
     a._persons.active_name = "推定話者"
     a._sync_pmm_speaker = AsyncMock()
     ip = InformationProcessing(a)
@@ -151,7 +151,7 @@ def test_a_claim_without_presence_is_kept_for_thirty_seconds(monkeypatch):
         None,
     )  # 声の特徴も預ける（知-ae 段 5・この発話には無い）
     # 人が映った最初の求めで付く
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     clock["t"] = 1006.0
     asyncio.run(ip._begin_request(kind="機器", text="[入室] 誰か が来た"))
     a._persons.set_active.assert_called_once_with("パパ")
@@ -165,7 +165,7 @@ def test_a_kept_claim_expires_and_an_unknown_name_is_not_kept(monkeypatch):
     asyncio.run(
         ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
     )
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     clock["t"] = 1031.0  # 30 秒を過ぎた
     asyncio.run(ip._begin_request(kind="機器", text="[入室] 誰か が来た"))
     a._persons.set_active.assert_not_called()

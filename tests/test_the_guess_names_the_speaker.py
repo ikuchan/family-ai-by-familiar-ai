@@ -66,22 +66,22 @@ def _agent_with_sensor(occupied: bool):
     a = EmbodiedAgent.__new__(EmbodiedAgent)
     sensor = MagicMock()
     sensor.room_occupied = MagicMock(return_value=occupied)
-    a._presence_sensor = sensor
+    a._occupancy_sensor = sensor
     a._pmm = MagicMock()
     return a
 
 
-def test_having_just_spoken_no_longer_counts_as_someone_present():
+def test_having_just_spoken_no_longer_counts_as_occupied():
     a = _agent_with_sensor(False)
     a._last_said_at = time.time()
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
 
 
-def test_a_fresh_speaker_command_no_longer_counts_as_someone_present():
+def test_a_fresh_speaker_command_no_longer_counts_as_occupied():
     a = _agent_with_sensor(False)
     a._speaker_set_at = time.time()
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
 
 
 def test_the_camera_seeing_someone_counts():
-    assert _agent_with_sensor(True)._social_presence_permission() == 1.0
+    assert _agent_with_sensor(True)._occupancy() == 1.0

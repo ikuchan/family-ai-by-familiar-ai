@@ -76,7 +76,7 @@ def _ip_with(*, speaker: str, others: tuple[str, ...] = ()):
     rows = [{"name": speaker, "is_speaker": True, "confidence": 1.0}]
     rows += [{"name": n, "is_speaker": False, "confidence": 1.0} for n in others]
     a._pmm.presence_status = MagicMock(return_value=rows)
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     a._in_quiet_hours = MagicMock(return_value=False)
     return InformationProcessing(a)
 

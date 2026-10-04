@@ -25,7 +25,7 @@ _SRC = pathlib.Path(__file__).resolve().parent.parent / "src" / "familiar_agent"
 
 #: O へ書かない同名の呼び出し。**1件ずつ理由を書く**（無言で対象から落とさない）。
 _NOT_A_MEMORY_WRITE = {
-    ("presence_sensor.py", "save"): "見えの普通（pose_norms）の保存。O ではない",
+    ("occupancy_sensor.py", "save"): "見えの普通（pose_norms）の保存。O ではない",
     ("observations.py", "save"): "PIL の画像保存（サムネイル作成）",
 }
 

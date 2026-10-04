@@ -118,29 +118,29 @@ class CameraConfig:
     # 誤差は 1e-6 未満なので、この値でも到着は取りこぼさない。
     pose_tolerance: float = field(default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.02))
     # 在席を確かめる間隔。カメラの動体イベントで起こされるので、短くする必要は無い。
-    presence_interval_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_PRESENCE_INTERVAL", 30.0)
+    occupancy_interval_sec: float = field(
+        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_INTERVAL", 30.0)
     )
     # 動体イベントで起こされたときの下限間隔。動いているあいだイベントは毎秒何件も飛ぶので、
     # 素直に従うと 0.15 秒ごとに撮って YOLO を回すことになる（実機で観測）。動き始めの1件は
     # 待たせず、続けて飛んでくるぶんだけ間引く。
-    presence_min_gap_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_PRESENCE_MIN_GAP", 3.0)
+    occupancy_min_gap_sec: float = field(
+        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_MIN_GAP", 3.0)
     )
     # 滞留窓（`課題5` §I の在席 timeout）。静止している人は毎回検出されないので、
     # この時間の内側は居るものとして扱う。180 → 60（知-x・2026-09-19）：1 フレームの誤検出が
     # 窓をまるごと延ばし、無人でも「居る」が 3 分続いて声が出た。見落とし側の余裕を削り、
     # 誤検出の延びを最大 60 秒に。
-    presence_window_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_PRESENCE_WINDOW", 60.0)
+    occupancy_dwell_sec: float = field(
+        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_DWELL", 60.0)
     )
     # 静止物を人と数えない（知-v・2026-09-18）：人の枠が前回と重なり `static_iou` 以上のまま
     # `static_sec` 動かなければ物とみなす（出入口の暗い塊を 7 分間「1 人」と読んだ）。〔仮〕
-    presence_static_sec: float = field(
-        default_factory=lambda: _float_env("PRESENCE_STATIC_SEC", 300.0)
+    occupancy_static_sec: float = field(
+        default_factory=lambda: _float_env("OCCUPANCY_STATIC_SEC", 300.0)
     )
-    presence_static_iou: float = field(
-        default_factory=lambda: _float_env("PRESENCE_STATIC_IOU", 0.9)
+    occupancy_static_iou: float = field(
+        default_factory=lambda: _float_env("OCCUPANCY_STATIC_IOU", 0.9)
     )
 
     def stream_url(self, stream: str = "stream1") -> str | int:
@@ -657,7 +657,7 @@ class AgentConfig:
     timer_confirm: bool = field(default_factory=lambda: _bool_env("TIMER_CONFIRM", default=True))
     # 自分が話してから・`/speaker` を打ってから「居る」とみなす長さ（秒）。マイクで拾った声は
     # 数えない（テレビ・物音・聞き違い・2026-09-17）。〔仮〕
-    presence_said_sec: float = field(default_factory=lambda: _float_env("PRESENCE_SAID_SEC", 60.0))
+    speaker_hold_sec: float = field(default_factory=lambda: _float_env("SPEAKER_HOLD_SEC", 60.0))
     # 在席表（PMM・`/speaker` と顔照合）の失効。センサが「誰も居ない」をこの秒数見続けたら
     # 在席表を空にする（話者の指定は残す）。〔仮〕
     presence_expire_sec: float = field(

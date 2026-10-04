@@ -1,7 +1,7 @@
 """「誰かがいる」と「知っている人がいる」を分ける（知-h・2026-09-13）。
 
 配信ゲートの「聞く相手が居ない」は、顔の照合（知っている人）と直近 5 分の発話しか見ず、
-在/不在の層（`PresenceSensor`・YOLO・登録不要）を見ていなかった。顔が未登録なら、目の前に
+在/不在の層（`OccupancySensor`・YOLO・登録不要）を見ていなかった。顔が未登録なら、目の前に
 人が居ても「誰も居ない」になり、独り言が独白へ落ちた。順を「居るか → 誰か」にする。
 """
 
@@ -17,10 +17,10 @@ from familiar_agent.loop.generator import _present_ctx
 def _agent(*, occupied, present, last_human, said=None, speaker_at=None):
     a = MagicMock()
     if occupied is None:
-        a._presence_sensor = None
+        a._occupancy_sensor = None
     else:
-        a._presence_sensor = MagicMock()
-        a._presence_sensor.room_occupied = MagicMock(return_value=occupied)
+        a._occupancy_sensor = MagicMock()
+        a._occupancy_sensor.room_occupied = MagicMock(return_value=occupied)
     a._pmm = MagicMock()
     a._pmm.get_present_ids = MagicMock(return_value=present)
     a._pmm.presence_status = MagicMock(return_value=[])
@@ -38,63 +38,63 @@ def _agent(*, occupied, present, last_human, said=None, speaker_at=None):
         del a._speaker_set_at
     else:
         a._speaker_set_at = speaker_at
-    a._social_presence_permission = lambda: EmbodiedAgent._social_presence_permission(a)
+    a._occupancy = lambda: EmbodiedAgent._occupancy(a)
     return a
 
 
 def test_a_body_seen_by_yolo_counts_even_if_the_face_is_unknown() -> None:
     a = _agent(occupied=True, present=[], last_human=None)
-    assert a._social_presence_permission() == 1.0
+    assert a._occupancy() == 1.0
 
 
 def test_with_a_sensor_the_presence_table_does_not_decide_whether_anyone_is_there() -> None:
     """`/speaker パパ` が在席表に残り続け、カメラが 2 分「誰も居ない」でも自発が出た
     （2026-09-17 15:44 実機）。センサがある構成では在席表は「誰か」だけを言う。"""
     a = _agent(occupied=False, present=["p1"], last_human=time.time() - 5)
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
 
 
 def test_without_a_sensor_the_presence_table_still_counts() -> None:
     a = _agent(occupied=None, present=["p1"], last_human=None)
-    assert a._social_presence_permission() == 1.0
+    assert a._occupancy() == 1.0
 
 
 def test_without_a_sensor_my_own_speech_no_longer_counts() -> None:
     """センサが無い構成でも、自分が話してから 1 分は居るとみなす決まり（知-h）は外した（出-as §3）。"""
     a = _agent(occupied=None, present=[], last_human=None, said=time.time() - 30)
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
     b = _agent(occupied=None, present=[], last_human=time.time(), said=None)
-    assert b._social_presence_permission() == 0.0
+    assert b._occupancy() == 0.0
 
 
 def test_a_heard_voice_alone_is_not_presence() -> None:
     """マイクは在席の証拠にしない（テレビ・物音・聞き違い・2026-09-17 17:03「こんにちは」に返事した）。"""
     a = _agent(occupied=False, present=[], last_human=time.time())
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
 
 
 def test_my_own_speech_no_longer_keeps_presence() -> None:
     """話してから 1 分は居るとみなす決まり（知-h）は外した（出-as §3・2026-09-26）。居るかはカメラで決める。"""
     a = _agent(occupied=False, present=[], last_human=None, said=time.time() - 30)
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
 
 
 def test_typing_speaker_no_longer_keeps_presence() -> None:
     """`/speaker` から 1 分は居るとみなす決まり（知-h）は外した（出-as §3）。カメラが見ていなければ居ない。"""
     a = _agent(occupied=False, present=["p1"], last_human=None, speaker_at=time.time() - 30)
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
 
 
 def test_nobody_at_all_is_absent() -> None:
     a = _agent(occupied=False, present=[], last_human=time.time() - 600)
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
 
 
 def test_without_a_sensor_the_table_and_my_speech_decide() -> None:
     a = _agent(occupied=None, present=[], last_human=time.time())  # 声だけでは居ない
-    assert a._social_presence_permission() == 0.0
+    assert a._occupancy() == 0.0
     b = _agent(occupied=None, present=["p1"], last_human=None)
-    assert b._social_presence_permission() == 1.0
+    assert b._occupancy() == 1.0
 
 
 def test_the_main_llm_is_told_someone_is_there_when_only_yolo_sees() -> None:

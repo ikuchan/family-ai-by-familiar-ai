@@ -21,7 +21,7 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class PresenceMap:
+class OccupancyMap:
     """定点ごとの「最後に人を見た時刻」と「最後に見に行った時刻」。
 
     `window_sec` は滞留窓（`課題5` §I の在席 timeout＝180 秒・2026-09-17 に 120 から。カメラは 1 箇所しか見ないので長めに）。人が静止していると動体も
@@ -70,7 +70,7 @@ class PresenceMap:
         return min(self.poses, key=lambda p: self._checked.get(p, float("-inf")))
 
 
-def stale_order(pmap: PresenceMap, now: float) -> "list[tuple[str, float | None]]":
+def stale_order(pmap: OccupancyMap, now: float) -> "list[tuple[str, float | None]]":
     """定点を**見ていない順**に並べる（一度も見ていないものが先頭・次に古い順）。
 
     `[いま]` の「見ていない順」の 1 行と、`look` の行き先の既定（`stalest_pose`）の材料。

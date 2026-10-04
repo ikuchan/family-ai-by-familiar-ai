@@ -33,7 +33,7 @@ def _mood():
 
 
 def _grow(visible: bool) -> AiDrivers:
-    return dd.accumulate(HALF, _mood(), dt=10.0, cfg=DriveConfig(), someone_visible=visible)
+    return dd.accumulate(HALF, _mood(), dt=10.0, cfg=DriveConfig(), occupied=visible)
 
 
 def test_bond_and_esteem_grow_while_someone_is_visible():
@@ -58,18 +58,18 @@ def test_the_other_axes_do_not_care_who_is_visible():
 def test_the_tonic_passes_what_the_camera_sees():
     from familiar_agent.loop import tonic
 
-    assert "someone_visible" in inspect.signature(tonic.step_drives).parameters
-    assert "someone_visible=self._someone_visible()" in inspect.getsource(tonic.Tonic._run)
+    assert "occupied" in inspect.signature(tonic.step_drives).parameters
+    assert "occupied=self._occupied()" in inspect.getsource(tonic.Tonic._run)
 
 
 def test_without_a_camera_nobody_is_visible():
     from familiar_agent.loop.tonic import Tonic
 
-    t = Tonic(MagicMock(), presence=None)
-    assert t._someone_visible() is False
+    t = Tonic(MagicMock(), occupancy=None)
+    assert t._occupied() is False
     sensor = MagicMock()
     sensor.room_occupied = MagicMock(return_value=True)
-    assert Tonic(MagicMock(), presence=sensor)._someone_visible() is True
+    assert Tonic(MagicMock(), occupancy=sensor)._occupied() is True
 
 
 # ── 話しかけるのは bond・esteem だけ ─────────────────────────────────────

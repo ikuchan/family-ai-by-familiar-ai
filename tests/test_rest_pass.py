@@ -4,7 +4,7 @@
 1パスは 読み込み → 蒸留 → open 棚卸し → Config 自己調整 で、圧縮系は量ベース。
 **ここで作るのは起動条件と骨格だけ**で、パスの中身は後続で足す。
 
-在/不在は `PresenceSensor`（YOLO・登録が要らない）で見る。`_social_presence_permission()`
+在/不在は `OccupancySensor`（YOLO・登録が要らない）で見る。`_occupancy()`
 は PMM（顔の照合）と直近の発話しか見ないので使わない（#15 で判明した欠陥）。
 """
 
@@ -58,7 +58,7 @@ def _sensor(*, occupied: bool):
     return s
 
 
-def _run_until(firing, *, presence, predicate, timeout_ticks: int = 400):
+def _run_until(firing, *, occupancy, predicate, timeout_ticks: int = 400):
     """発火を1回起こし、`predicate` が真になるまで待つ（T は 0.01 秒周期）。"""
     ip = _ip()
     rest_pass = AsyncMock(return_value="内省した")
@@ -71,7 +71,7 @@ def _run_until(firing, *, presence, predicate, timeout_ticks: int = 400):
             ),
             patch("familiar_agent.loop.tonic.run_rest_pass", new=rest_pass),
         ):
-            t = Tonic(ip, agent=MagicMock(), period=0.01, presence=presence)
+            t = Tonic(ip, agent=MagicMock(), period=0.01, occupancy=occupancy)
             t.start()
             for _ in range(timeout_ticks):
                 if predicate(ip, rest_pass):
@@ -87,7 +87,7 @@ def test_rest_starts_the_introspection_pass_when_nobody_is_present():
     """誰も居ないときの REST 発火は、自発ターンではなく内省パスへ入る。"""
     ip, rest_pass = _run_until(
         _REST,
-        presence=_sensor(occupied=False),
+        occupancy=_sensor(occupied=False),
         predicate=lambda ip, rp: rp.await_count > 0,
     )
     assert rest_pass.await_count == 1
@@ -98,14 +98,14 @@ def test_rest_still_speaks_when_someone_is_present():
     """誰か居るときの REST 発火は従来どおり。「休みたい」と伝えるのは自然な振る舞い。"""
     ip, rest_pass = _run_until(
         _REST,
-        presence=_sensor(occupied=True),
+        occupancy=_sensor(occupied=True),
         predicate=lambda ip, rp: ip.push_affect.call_count > 0,
     )
     assert ip.push_affect.call_args.args[0] == "REST"
     assert rest_pass.await_count == 0
 
 
-def test_rest_speaks_when_there_is_no_presence_sensor():
+def test_rest_speaks_when_there_is_no_occupancy_sensor():
     """センサが無い構成（カメラ無し）では従来どおり。
 
     「センサが無い」を「誰も居ない」と扱うと、カメラの無い環境で REST が常に内省へ
@@ -113,7 +113,7 @@ def test_rest_speaks_when_there_is_no_presence_sensor():
     """
     ip, rest_pass = _run_until(
         _REST,
-        presence=None,
+        occupancy=None,
         predicate=lambda ip, rp: ip.push_affect.call_count > 0,
     )
     assert ip.push_affect.call_args.args[0] == "REST"
@@ -124,7 +124,7 @@ def test_other_drives_are_unaffected_by_absence():
     """REST 以外は、誰も居なくても従来どおり QA へ積む（内省は REST の役目）。"""
     ip, rest_pass = _run_until(
         _SEEKING,
-        presence=_sensor(occupied=False),
+        occupancy=_sensor(occupied=False),
         predicate=lambda ip, rp: ip.push_affect.call_count > 0,
     )
     assert ip.push_affect.call_args.args[0] == "SEEKING"

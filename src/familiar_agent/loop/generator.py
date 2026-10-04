@@ -62,7 +62,7 @@ def _present_ctx(agent) -> str:
         # （知-h）。人は居るが誰かは不明、として渡す——「誰も確認できていない」と言うと、
         # 目の前の人に向けて話す判断ができない。
         with contextlib.suppress(Exception):
-            sensor = getattr(agent, "_presence_sensor", None)
+            sensor = getattr(agent, "_occupancy_sensor", None)
             if sensor is not None and sensor.room_occupied() is True:
                 return (
                     '(present :speaker "unconfirmed" :note "誰か居るが、誰かは分からない。'
@@ -71,7 +71,7 @@ def _present_ctx(agent) -> str:
         # 直近に話しかけられているなら、相手は居るが誰かは不明。
         recently_spoken = False
         with contextlib.suppress(Exception):
-            recently_spoken = agent._social_presence_permission() > 0.0
+            recently_spoken = agent._occupancy() > 0.0
         if recently_spoken:
             return (
                 '(present :speaker "unconfirmed" :note "直近に話しかけられたが、誰かは分からない。'

@@ -1,6 +1,6 @@
 """見回りの行き先（知-c・2026-09-17）。
 
-`PresenceMap.stalest_pose()` は実装だけあって呼び手が無く、`look` の `pose` は LLM が文脈から
+`OccupancyMap.stalest_pose()` は実装だけあって呼び手が無く、`look` の `pose` は LLM が文脈から
 決めていた（見ていない定点は W に浮かず「見ないから印が無く、印が無いから見に行かない」・08-01）。
 ウ＝材料＋既定：情動が起点の求めでは `[いま]` に「見ていない順」の 1 行を渡し、調停が `look` を
 選んで `pose` を書かなければ機械で最も長く見ていない定点を入れる。
@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.arbiter import _CAMERA_ACTION_TEXT, Decision
 from familiar_agent.loop.event_loop import InformationProcessing
-from familiar_agent.presence_map import PresenceMap, stale_order
+from familiar_agent.occupancy_map import OccupancyMap, stale_order
 
 from tests.test_event_loop import _agent
 
@@ -21,7 +21,7 @@ NOW = 10_000.0
 
 
 def _map():
-    m = PresenceMap(poses=["出入口", "窓", "テレビ"], window_sec=180.0)
+    m = OccupancyMap(poses=["出入口", "窓", "テレビ"], window_sec=180.0)
     m.mark_checked("出入口", NOW - 10)
     m.mark_checked("窓", NOW - 720)
     return m
@@ -36,8 +36,8 @@ def test_stale_order_lists_never_seen_first_then_oldest():
 
 def test_the_patrol_note_names_the_order_in_minutes():
     a = _agent(stream_returns=[])
-    a._presence_sensor = MagicMock()
-    a._presence_sensor.stale_order = MagicMock(return_value=stale_order(_map(), NOW))
+    a._occupancy_sensor = MagicMock()
+    a._occupancy_sensor.stale_order = MagicMock(return_value=stale_order(_map(), NOW))
     ip = InformationProcessing(a)
     note = ip._patrol_note()
     assert note == "\n見ていない順：テレビ 未・窓 12 分・出入口 0 分"
@@ -45,7 +45,7 @@ def test_the_patrol_note_names_the_order_in_minutes():
 
 def test_no_sensor_means_no_note():
     a = _agent(stream_returns=[])
-    a._presence_sensor = None
+    a._occupancy_sensor = None
     assert InformationProcessing(a)._patrol_note() == ""
 
 
@@ -58,9 +58,9 @@ def test_the_arbiter_option_points_to_the_stalest_pose():
 
 def _ip_with_map(origin: str):
     a = _agent(stream_returns=[])
-    a._presence_sensor = MagicMock()
-    a._presence_sensor.stale_order = MagicMock(return_value=stale_order(_map(), NOW))
-    a._presence_sensor.stalest_pose = MagicMock(return_value="テレビ")
+    a._occupancy_sensor = MagicMock()
+    a._occupancy_sensor.stale_order = MagicMock(return_value=stale_order(_map(), NOW))
+    a._occupancy_sensor.stalest_pose = MagicMock(return_value="テレビ")
     ip = InformationProcessing(a)
     ip._req = MagicMock()
     ip._req.trigger_kind = origin

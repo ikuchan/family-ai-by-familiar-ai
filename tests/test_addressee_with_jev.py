@@ -34,7 +34,7 @@ def _answer(pick: str, conf: float = 0.8) -> JevAnswer:
 def _ip(answer=None, *, exc=None):
     a = _agent(stream_returns=[])
     a._nudge_seeking = AsyncMock()
-    a._social_presence_permission = MagicMock(return_value=1.0)
+    a._occupancy = MagicMock(return_value=1.0)
     a._last_human_at = None
     client = MagicMock()
     client.available = True

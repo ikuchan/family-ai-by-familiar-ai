@@ -27,7 +27,7 @@ def _agent(*, sensor=True):
     a.config = MagicMock()
     a._info_processing = None
     a._tonic = None
-    a._presence_sensor = MagicMock(start=AsyncMock()) if sensor else None
+    a._occupancy_sensor = MagicMock(start=AsyncMock()) if sensor else None
     a._motion_events = MagicMock(start=AsyncMock()) if sensor else None
     # ループは生成のときに機器を DIF へ渡す。`__init__` を通さない土台なので、
     # 実機体が必ず持つものはここで置く（無い機体の `_tts` は None）。
@@ -45,10 +45,10 @@ def test_the_autonomous_side_starts_without_anyone_speaking():
     assert a._info_processing is not None
 
 
-def test_the_presence_sensor_starts_too():
+def test_the_occupancy_sensor_starts_too():
     a = _agent()
     asyncio.run(a.start_autonomy())
-    a._presence_sensor.start.assert_awaited()
+    a._occupancy_sensor.start.assert_awaited()
     a._motion_events.start.assert_awaited()
 
 

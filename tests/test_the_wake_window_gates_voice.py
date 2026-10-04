@@ -28,7 +28,7 @@ def _ip(*, present: float = 1.0, names=("パジュ",)):
     a._oif.write = AsyncMock(return_value="obs-1")
     a._observation_perspective = MagicMock(return_value={})
     a._conversation_perspective = MagicMock(return_value={})
-    a._social_presence_permission = MagicMock(return_value=present)
+    a._occupancy = MagicMock(return_value=present)
     a._nudge_seeking = AsyncMock()
     a._timer_tool.frame = MagicMock(return_value="")
     a._dif.ringing = False
@@ -87,7 +87,7 @@ def test_nobody_on_camera_does_not_stop_the_window():
     a._nudge_seeking.assert_not_awaited()
 
 
-def test_a_dropped_voice_with_nobody_visible_still_nudges_seeking():
+def test_a_dropped_voice_while_unoccupied_still_nudges_seeking():
     ip, a = _ip(present=0.0)
     assert _heard(ip, "こんにちは") is False
     a._nudge_seeking.assert_awaited_once()

@@ -1,7 +1,7 @@
 """在/不在を測る器：撮って、どの定点かを決めて、人が居るかを数える。
 
 `知覚在席` §3-2 の在/不在は **G（T 側・連続）** が担う。ここが部品を束ねる場所で、定点
-（`poses`）、人検出（`recognition.person_detector`）、定点別の記録（`presence_map`）、
+（`poses`）、人検出（`recognition.person_detector`）、定点別の記録（`occupancy_map`）、
 動体イベント（`recognition.motion_events`）を繋ぐ。**誰かは問わない**（#17 の担当）。
 
 起こされ方は2つある。カメラが「動いた」と言ってきたときと、一定間隔（既定30秒）。動体
@@ -22,8 +22,8 @@ from collections.abc import Callable
 from typing import Any
 
 from .poses import nearest_pose
-from .core.presence_rules import StaticBoxes, count_moving, reset
-from .presence_map import PresenceMap
+from .core.occupancy_rules import StaticBoxes, count_moving, reset
+from .occupancy_map import OccupancyMap
 from .visual_norm import cosine_distance, is_ready, update_ema
 
 logger = logging.getLogger(__name__)
@@ -39,8 +39,8 @@ def _delay_before(last_check: float, now: float, min_gap: float) -> float:
     return max(0.0, min_gap - (now - last_check))
 
 
-class PresenceSensor:
-    """定点ごとに人が居るかを見て、`PresenceMap` を更新し続ける。"""
+class OccupancySensor:
+    """定点ごとに人が居るかを見て、`OccupancyMap` を更新し続ける。"""
 
     def __init__(
         self,
@@ -70,7 +70,7 @@ class PresenceSensor:
         self._interval = interval_sec
         self._min_gap = min_gap_sec
         self._last_check = float("-inf")
-        self._map: PresenceMap | None = None
+        self._map: OccupancyMap | None = None
         # 見えの「普通」。無ければ在席だけを見る（S4 を入れる前と同じ動き）。
         self._encoder: Any = None
         self._norm_store: Any = None
@@ -127,12 +127,12 @@ class PresenceSensor:
 
     # --- 中身 -------------------------------------------------------------
 
-    async def _ensure_map(self) -> PresenceMap | None:
+    async def _ensure_map(self) -> OccupancyMap | None:
         if self._map is None:
             poses = await self._poses_getter()
             if not poses:
                 return None
-            self._map = PresenceMap([p.name for p in poses], window_sec=self._window)
+            self._map = OccupancyMap([p.name for p in poses], window_sec=self._window)
             self._poses = poses
         return self._map
 
@@ -215,7 +215,7 @@ class PresenceSensor:
     async def start(self) -> None:
         if self._task and not self._task.done():
             return
-        self._task = asyncio.create_task(self._run(), name="presence-sensor")
+        self._task = asyncio.create_task(self._run(), name="occupancy-sensor")
 
     async def stop(self) -> None:
         if self._task is None:

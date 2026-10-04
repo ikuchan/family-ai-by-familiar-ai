@@ -21,7 +21,7 @@ def _agent(*, rows=None, explicit: str | None = None, spoken_to=True):
     a = MagicMock()
     a._pmm = MagicMock()
     a._pmm.presence_status = MagicMock(return_value=rows or [])
-    a._social_presence_permission = MagicMock(return_value=1.0 if spoken_to else 0.0)
+    a._occupancy = MagicMock(return_value=1.0 if spoken_to else 0.0)
     persons = PersonRegistry("あなた")
     if explicit is not None:
         persons.set_active(explicit)
