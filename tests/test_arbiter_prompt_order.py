@@ -39,7 +39,7 @@ def _written(utterance="やあ"):
         workspace_ctx="（なし）",
         self_understanding="＜自己認識＞",
         family_md="＜家族＞",
-        present_ctx="（在席）",
+        present_ctx="（顔ぶれ）",
         now_ctx="（いま）",
     )
     asyncio.run(Arbiter(jev=None, writer=w, timeout=5.0)._write(inp, {"branch": "light"}))
@@ -133,7 +133,7 @@ def test_the_stable_identity_goes_into_the_system_text():
     assert "＜自己認識＞" not in prompt and "＜家族＞" not in prompt
 
     # 可変と指示はプロンプトにだけある
-    for changing in ("（在席）", "（いま）", "やあ"):
+    for changing in ("（顔ぶれ）", "（いま）", "やあ"):
         assert changing in prompt, changing
         assert changing not in system, changing
     assert "JSON だけを返す" in prompt

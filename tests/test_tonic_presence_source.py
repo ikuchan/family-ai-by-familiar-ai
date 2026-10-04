@@ -1,4 +1,4 @@
-"""在席の情報源を二層に分ける（在/不在＝センサ、誰か＝PMM）。
+"""在席と顔ぶれの情報源を分ける（在席＝センサ、顔ぶれ＝PMM）。
 
 用語一覧の二層に対し、`scan_presence` はこれまで PMM（InsightFace の照合）だけを読んでいた。
 照合は登録が要るので、登録が済むまで**在席が一切動かない**（実機で退室イベントが一度も
@@ -79,18 +79,18 @@ def test_without_a_sensor_the_old_source_still_works():
     assert "たいき" in ip.note_device.call_args_list[0].args[1]
 
 
-# ── 在席表の失効（2026-09-17）────────────────────────────────────────────────
+# ── 顔ぶれ表の失効（2026-09-17）────────────────────────────────────────────────
 #
-# `/speaker パパ` は在席表（PMM）に入るが、出る口が無かった（`PresenceWatcher` は未起動・
-# `note_person_left` は呼ばれない）。センサが「誰も居ない」を 1 分見続けたら在席表を空にする。
+# `/speaker パパ` は顔ぶれ表（PMM）に入るが、出る口が無かった（`PresenceWatcher` は未起動・
+# `note_person_left` は呼ばれない）。センサが「誰も居ない」を 1 分見続けたら顔ぶれ表を空にする。
 # 話者の指定（誰が話しているか）は残す——顔と声の登録までは `/speaker` が唯一の手がかり。
 
 
 def _tonic_with_table(*, names, occupied):
     t, ip = _tonic(names=names, occupied=occupied)
-    # 失効が回すのは `present_keys()`——**名前の分からない在席者の札も含む**（出-am・2026-09-22）。
+    # 失効が回すのは `present_keys()`——**名前の分からない顔ぶれの札も含む**（出-am・2026-09-22）。
     # `get_present_ids()` は観測の `participants` になる口で札を含まないので、そちらを回すと
-    # 名前の無い在席者だけが残ったときに 60 秒で畳めない。
+    # 名前の無い顔ぶれだけが残ったときに 60 秒で畳めない。
     t._agent._pmm.present_keys = MagicMock(return_value=[f"id:{n}" for n in names])
     t._agent.config.presence_expire_sec = 60.0
     return t, ip

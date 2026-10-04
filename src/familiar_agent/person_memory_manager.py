@@ -57,11 +57,11 @@ PRESENCE_TIMEOUT_SEC: float = 120.0
 class PersonPresence:
     person_id: str
     confidence: float = 1.0
-    #: 名前の分からない在席者（出-ae-は・2026-09-22）。`person_id` は在席表の中だけの札で、
+    #: 名前の分からない顔ぶれ（出-ae-は・2026-09-22）。`person_id` は顔ぶれ表の中だけの札で、
     #: **人を指していない**。`get_present_ids()` からは外す——あそこは観測の `participants`
     #: になり、人ごとの面を立てる材料なので、誰にも対応しない面ができてしまう。
     anonymous: bool = False
-    #: どうやって在席に入ったか（知-ag・2026-09-24）。`見立て`＝写真からの推し量り、
+    #: どうやって顔ぶれに入ったか（知-ag・2026-09-24）。`見立て`＝写真からの推し量り、
     #: 空＝顔・声・手入力。**置き換えてよいのは見立てで入ったものだけ**である——写真は
     #: 部屋の一部しか写さない（カメラは首を振る）ので、写真に居ない人を写真で消せない。
     source: str = ""
@@ -137,7 +137,7 @@ class PersonMemoryManager:
     GUESS_SOURCE = "見立て"
 
     async def set_guessed_present(self, people: "list[tuple[str, float]]") -> None:
-        """写真の見立てで在席している人を、この並びに**合わせる**（知-ag・2026-09-24）。
+        """写真の見立てで顔ぶれを、この並びに**合わせる**（知-ag・2026-09-24）。
 
         **足し続けない。** 見立ては求めごとに言い直されるので、呼ばれるたびに足すと
         写真を見た回数だけ人が増える。実機 15:51、センサが「1 人」と言い続けるあいだに
@@ -147,7 +147,7 @@ class PersonMemoryManager:
         **消すのは見立てで入った人だけ。** 顔で入った人・手で入れた人は残す。写真は部屋の
         一部しか写さないので、写真に写っていないことは「居ない」の証拠にならない。
 
-        名前の分からない在席者（`note_unknown_present`）は以前から同じ作法で、この直しは
+        名前の分からない顔ぶれ（`note_unknown_present`）は以前から同じ作法で、この直しは
         その言い分を名前の付いた人にも当てただけである。
         """
         want = {pid: conf for pid, conf in people}
@@ -158,7 +158,7 @@ class PersonMemoryManager:
                 self._present[pid] = PersonPresence(
                     person_id=pid, confidence=conf, source=self.GUESS_SOURCE
                 )
-        logger.info("写真の見立てで在席を %d 人にした（%s）", len(want), self._names_of(want))
+        logger.info("写真の見立てで顔ぶれを %d 人にした（%s）", len(want), self._names_of(want))
 
     def _names_of(self, ids) -> str:
         """ログ用の名前。**名前が引けなくても落ちない**（人物表を持たない器もある）。"""
@@ -171,7 +171,7 @@ class PersonMemoryManager:
         return "・".join(out) or "誰も居ない"
 
     def mark_absent(self, person_id: str) -> None:
-        """在席表からだけ消す（`person_left` との違い）。
+        """顔ぶれ表からだけ消す（`person_left` との違い）。
 
         在/不在の層が「誰も居ない」を見続けたときの失効に使う（2026-09-17）。話者の指定は
         別の寿命で切れる（`clear_speaker`・`agent.speaker_known`・知-t・2026-09-18）。
@@ -190,12 +190,12 @@ class PersonMemoryManager:
     UNKNOWN_KEY_PREFIX = "unknown:"
 
     def note_unknown_present(self, count: int, confidence: float = 0.5) -> None:
-        """名前の分からない在席者を `count` 人にする（出-ae-は・2026-09-22）。
+        """名前の分からない顔ぶれを `count` 人にする（出-ae-は・2026-09-22）。
 
         **足し続けるのではなく、いまの人数に合わせる。** 見立ては求めごとに言い直される
         ので、呼ばれるたびに足すと写真を見た回数だけ人が増える。0 を渡せば全部消える。
 
-        話者にはしない（話者には人を指す id が要る）。寿命は既知の在席者と同じ窓で切れる。
+        話者にはしない（話者には人を指す id が要る）。寿命は既知の顔ぶれと同じ窓で切れる。
         """
         n = max(0, int(count))
         with self._lock:
@@ -206,18 +206,18 @@ class PersonMemoryManager:
                 self._present[key] = PersonPresence(
                     person_id=key, confidence=confidence, anonymous=True
                 )
-        logger.info("名前の分からない在席者を %d 人にした（確信度 %.2f）", n, confidence)
+        logger.info("名前の分からない顔ぶれを %d 人にした（確信度 %.2f）", n, confidence)
 
     def get_present_ids(self) -> list[str]:
-        """**人を指す id だけ**を返す。名前の分からない在席者は含めない。"""
+        """**人を指す id だけ**を返す。名前の分からない顔ぶれは含めない。"""
         with self._lock:
             return [pid for pid, p in self._present.items() if not p.anonymous]
 
     def present_keys(self) -> list[str]:
-        """在席表の鍵を全部（**名前の分からない在席者の札も含む**）。
+        """顔ぶれ表の鍵を全部（**名前の分からない顔ぶれの札も含む**）。
 
         `get_present_ids()` との違い：あちらは観測の `participants` になるので人を指す id
-        だけを返す。こちらは在席表そのものを畳む用（失効・出-am）。
+        だけを返す。こちらは顔ぶれ表そのものを畳む用（失効・出-am）。
         """
         with self._lock:
             return list(self._present.keys())
@@ -264,7 +264,7 @@ class PersonMemoryManager:
         return old != person_id
 
     def clear_speaker(self) -> None:
-        """話者の指定を「分からない」に戻す（寿命切れ・知-t・2026-09-18）。在席表は触らない。"""
+        """話者の指定を「分からない」に戻す（寿命切れ・知-t・2026-09-18）。顔ぶれ表は触らない。"""
         with self._lock:
             old, self._speaker_id = self._speaker_id, None
             self._speaker_source = "auto"
@@ -357,7 +357,7 @@ class PersonMemoryManager:
         }
 
     def presence_status(self) -> list[dict]:
-        """在席者一覧の統合ビュー（GUI 表示用）。name・confidence・is_speaker。"""
+        """顔ぶれの一覧の統合ビュー（GUI 表示用）。name・confidence・is_speaker。"""
         with self._lock:
             present = list(self._present.values())
             speaker = self._speaker_id
@@ -376,7 +376,7 @@ class PersonMemoryManager:
 
         `display_name` は FAMILY.md の「呼び方」で "パパ、いくながさん、ゆうすけ" のように
         読点区切りの一覧になる（`find_person_id_by_name` も割って照合している）。一覧のまま
-        渡すと在席の文脈が `(present :speaker "たいきくん、たいき")` になり、呼びかけも
+        渡すと顔ぶれの文脈が `(present :speaker "たいきくん、たいき")` になり、呼びかけも
         モデルがどれを選ぶか任せになる。
         """
         persons = {p["id"]: p for p in self.list_persons()}

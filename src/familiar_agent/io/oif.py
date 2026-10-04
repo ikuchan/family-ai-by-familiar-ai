@@ -158,7 +158,7 @@ class View:
     k: int = 7  # W へ載せる上限（課題5 の確定値）
     floor: float = 0.05  # 合成スコアの床
     weights: "RecallWeights | None" = None  # 5軸の重み（trigger 別）
-    present: tuple[str, ...] = ()  # 在席者（p 軸）
+    present: tuple[str, ...] = ()  # 顔ぶれ（p 軸）
     time_ref: float | None = None
     time_span_days: float | None = None
 

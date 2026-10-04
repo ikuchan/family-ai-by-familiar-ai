@@ -427,7 +427,7 @@ class MemoryConfig:
     silent_heard_max_chars: int = field(
         default_factory=lambda: _int_env("SILENT_HEARD_MAX_CHARS", 4000)
     )
-    # 在席者相関 p の候補集合拡張（slice-2）。在席他者視点でも候補を取り union する退避弁。
+    # 顔ぶれ相関 p の候補集合拡張（slice-2）。顔ぶれの他者視点でも候補を取り union する退避弁。
     recall_presence_expand: bool = field(
         default_factory=lambda: _bool_env("RECALL_PRESENCE_EXPAND", default=True)
     )
@@ -554,7 +554,7 @@ class RecognitionConfig:
     # 登録は日をまたいで残る（声は名乗りで育つ）。今日の声はその日だけ。
     registered_max: int = field(default_factory=lambda: _int_env("RECOGNITION_REGISTERED_MAX", 30))
     today_max: int = field(default_factory=lambda: _int_env("RECOGNITION_TODAY_MAX", 10))
-    # 在席巡回（CameraPresenceWatcher）の周期（秒）。低頻度で誤確定・負荷を抑える。
+    # 顔ぶれの巡回（CameraPresenceWatcher）の周期（秒）。低頻度で誤確定・負荷を抑える。
     presence_interval_sec: float = field(
         default_factory=lambda: _float_env("PRESENCE_INTERVAL_SEC", 30.0)
     )
@@ -658,8 +658,8 @@ class AgentConfig:
     # 自分が話してから・`/speaker` を打ってから「居る」とみなす長さ（秒）。マイクで拾った声は
     # 数えない（テレビ・物音・聞き違い・2026-09-17）。〔仮〕
     speaker_hold_sec: float = field(default_factory=lambda: _float_env("SPEAKER_HOLD_SEC", 60.0))
-    # 在席表（PMM・`/speaker` と顔照合）の失効。センサが「誰も居ない」をこの秒数見続けたら
-    # 在席表を空にする（話者の指定は残す）。〔仮〕
+    # 顔ぶれ表（PMM・`/speaker` と顔照合）の失効。センサが「誰も居ない」をこの秒数見続けたら
+    # 顔ぶれ表を空にする（話者の指定は残す）。〔仮〕
     presence_expire_sec: float = field(
         default_factory=lambda: _float_env("PRESENCE_EXPIRE_SEC", 60.0)
     )

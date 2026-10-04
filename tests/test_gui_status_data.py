@@ -1,4 +1,4 @@
-"""GUI 状態表示のデータ層：drives 読み取りと、話者/在席の統合ビュー。
+"""GUI 状態表示のデータ層：drives 読み取りと、話者/顔ぶれの統合ビュー。
 
 GUI 描画は PyQt 依存で単体テストしにくいので、状態→表示データの変換（PMM の
 アクセサ・drives の引数なし読み取り）だけをここで検証する。描画は実機確認。
@@ -54,7 +54,7 @@ def test_speaker_status_none_when_no_speaker():
 
 @pytest.mark.asyncio
 async def test_presence_status_lists_present_with_speaker_flag():
-    """presence_status が在席者の name・confidence・is_speaker を返す。"""
+    """presence_status が顔ぶれの name・confidence・is_speaker を返す。"""
     from familiar_agent.person_memory_manager import PersonMemoryManager
 
     base = MagicMock()
@@ -102,4 +102,4 @@ def test_format_presence_rows():
     out = format_presence_rows(rows)
     assert out[0] == "★ アリス 0.90"
     assert out[1] == "・ボブ 0.50"
-    assert format_presence_rows([]) == ["（在席者なし）"]
+    assert format_presence_rows([]) == ["（顔ぶれなし）"]

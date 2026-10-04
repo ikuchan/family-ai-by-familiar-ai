@@ -1,7 +1,7 @@
 """環-p-ろ（パネルにセンサの読みと話者の根拠）・環-q の監視（音量）・アラームの名前の検め（2026-09-19）。
 
-- パネルは PMM の在席表しか映さず、センサが人を見ていても「（在席者なし）」に見えた（実機 11:34）。
-  センサの最新の読み（定点・人数・何秒前）と話者の根拠（/speaker から N 秒・返事から N 秒・在席表・切れている）を出す。
+- パネルは PMM の顔ぶれ表しか映さず、センサが人を見ていても「（顔ぶれなし）」に見えた（実機 11:34）。
+  センサの最新の読み（定点・人数・何秒前）と話者の根拠（/speaker から N 秒・返事から N 秒・顔ぶれ表・切れている）を出す。
 - YVC-300 のミキサーが 40% で音がほぼ無音だった（環-q）。起動時に読んで 50% 未満なら知らせる。値は変えない。
 - アラームの `label` もタイマー・ストップウォッチと同じ検め。
 """
@@ -104,7 +104,7 @@ def test_speaker_basis_follows_speaker_known():
     assert a.speaker_basis().startswith("返事から 12 秒")
     a._speaker_confirmed_at = now - 200.0
     a._pmm.get_present_ids = MagicMock(return_value=["p1"])
-    assert a.speaker_basis() == "在席表（顔照合か /speaker）"
+    assert a.speaker_basis() == "顔ぶれ表（顔照合か /speaker）"
     a._pmm.get_present_ids = MagicMock(return_value=[])
     assert a.speaker_basis() == "切れている"
     a._pmm.current_speaker_id = None

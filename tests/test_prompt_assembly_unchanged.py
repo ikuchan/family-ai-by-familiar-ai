@@ -25,7 +25,7 @@ def test_the_event_system_prompt_is_labelled_and_ordered():
     stable, variable = build_event_system_prompt(
         self_understanding=_ME,
         family_md=_FAMILY,
-        present_ctx="（在席）",
+        present_ctx="（顔ぶれ）",
         pi_ctx="（内部状態）",
         workspace_ctx="（作業状態）",
         iter_ctx="[反復] 1/3",
@@ -40,14 +40,14 @@ def test_the_event_system_prompt_is_labelled_and_ordered():
         < stable.index("[一緒に暮らす人たち]")
     )
     assert stable.index(_ME) < stable.index(_FAMILY)
-    # 可変部は日時 → 在席 → 内部状態 → 反復 → 作業状態
+    # 可変部は日時 → 顔ぶれ → 内部状態 → 反復 → 作業状態
     for a, b in zip(
-        ("(now :datetime", "（在席）", "（内部状態）", "[反復] 1/3"),
-        ("（在席）", "（内部状態）", "[反復] 1/3", "（作業状態）"),
+        ("(now :datetime", "（顔ぶれ）", "（内部状態）", "[反復] 1/3"),
+        ("（顔ぶれ）", "（内部状態）", "[反復] 1/3", "（作業状態）"),
     ):
         assert variable.index(a) < variable.index(b), (a, b)
     # 変わるものが安定部へ混じらない（キャッシュが効かなくなる）
-    for changing in ("（在席）", "（作業状態）", "[反復] 1/3"):
+    for changing in ("（顔ぶれ）", "（作業状態）", "[反復] 1/3"):
         assert changing not in stable, changing
 
 
@@ -62,7 +62,7 @@ def _jev_state() -> str:
 
 
 def test_the_arbiter_state_keeps_the_moment_in_order():
-    """Jev に送る文の並び（出-au 段 5-7d）：時刻 → 在席 → 言葉 → 作業状態。人格・家族は載せない。"""
+    """Jev に送る文の並び（出-au 段 5-7d）：時刻 → 顔ぶれ → 言葉 → 作業状態。人格・家族は載せない。"""
     state = _jev_state()
     assert "{me}" not in state and "{family}" not in state
     i_now = state.index("{now}")

@@ -1,8 +1,8 @@
-"""在席者相関 p（想起の第5軸・役割2・課題5 v0.26／[D-在席相関]）。
+"""顔ぶれ相関 p（想起の第5軸・役割2・課題5 v0.26／[D-在席相関]）。
 
-在席他者 q ごとに q 視点の situated コサインを r と同じ伸長で r_{p,q} 化し、
+顔ぶれの他者 q ごとに q 視点の situated コサインを r と同じ伸長で r_{p,q} 化し、
 noisy-OR p = 1 − Π_q(1 − r_{p,q}) で束ねる（自分・話者は呼び出し側で除外）。
-在席他者ゼロなら p 項を分母ごと外す（挙動不変）。スライス1＝score 軸のみ。
+顔ぶれの他者ゼロなら p 項を分母ごと外す（挙動不変）。スライス1＝score 軸のみ。
 """
 
 from __future__ import annotations
@@ -42,7 +42,7 @@ def test_score_breakdown_default_has_no_p():
 
 
 def test_score_breakdown_p_raises_m_when_high():
-    """在席者相関 p が高いと M（加算部）が上がる。"""
+    """顔ぶれ相関 p が高いと M（加算部）が上がる。"""
     without = _bd()
     withp = _bd(p=1.0, w_p=1.0)
     assert withp.p == pytest.approx(1.0)
@@ -130,7 +130,7 @@ def test_config_recall_presence_expand_default(monkeypatch):
     assert MemoryConfig().recall_presence_expand is True
 
 
-# ── slice-2：候補集合拡張（在席他者視点で候補を union） ──────────────────────
+# ── slice-2：候補集合拡張（顔ぶれの他者視点で候補を union） ──────────────────────
 
 
 def _row(oid: str, score: float) -> dict:
@@ -191,7 +191,7 @@ def _patch_recall_env(monkeypatch):
 
 
 def _sc(q_sql, obs_ids, person_id):
-    # 話者視点＝r 補完（B のみ）。在席他者 q1 視点＝B が強く結びつく。
+    # 話者視点＝r 補完（B のみ）。顔ぶれの他者 q1 視点＝B が強く結びつく。
     # 実 situated_cosines は要求 obs_id ぶんしか返さない（WHERE obs_id = ANY）ので絞る。
     full = {"B": 0.15} if person_id == "spk" else {"A": 0.0, "B": 0.9}
     return {k: v for k, v in full.items() if k in obs_ids}
@@ -200,25 +200,25 @@ def _sc(q_sql, obs_ids, person_id):
 def test_recall_slice2_expands_candidate_from_present_other(monkeypatch):
     monkeypatch.delenv("RECALL_PRESENCE_EXPAND", raising=False)  # 既定 on
     _patch_recall_env(monkeypatch)
-    # 話者候補＝A のみ。在席他者 q1 視点の候補＝B（話者クエリと無関係でも W へ）。
+    # 話者候補＝A のみ。顔ぶれの他者 q1 視点の候補＝B（話者クエリと無関係でも W へ）。
     mem = _recall_facade([[_row("A", 0.8)], [_row("B", 0.7)]], _sc)
     res = mem.recall("q", n=5, present_others=["q1"])
     ids = {r["memory_id"] for r in res}
     assert "A" in ids
-    assert "B" in ids  # 在席他者視点で候補集合に入った
+    assert "B" in ids  # 顔ぶれの他者視点で候補集合に入った
 
 
 def test_recall_slice2_toggle_off_is_slice1(monkeypatch):
     monkeypatch.setenv("RECALL_PRESENCE_EXPAND", "false")  # 退避＝slice-1 のみ
     _patch_recall_env(monkeypatch)
-    # 拡張オフなら在席他者視点の by_vector は呼ばれず、B は候補に入らない。
+    # 拡張オフなら顔ぶれの他者視点の by_vector は呼ばれず、B は候補に入らない。
     mem = _recall_facade([[_row("A", 0.8)]], _sc)
     res = mem.recall("q", n=5, present_others=["q1"])
     ids = {r["memory_id"] for r in res}
     assert ids == {"A"}
 
 
-# ── 実 DB：p が想起スコアへ効く（在席他者ありでスコアが上がる） ────────────────
+# ── 実 DB：p が想起スコアへ効く（顔ぶれの他者ありでスコアが上がる） ────────────────
 
 
 def test_recall_present_others_raises_score():
@@ -238,7 +238,7 @@ def test_recall_present_others_raises_score():
     for p in ps:
         p.start()
     try:
-        # 在席他者 q を persons へ登録し、**実際に在席させて保存する**。
+        # 顔ぶれの他者 q を persons へ登録し、**実際に顔ぶれに入れて保存する**。
         # 047 の前は登録人物全員に面が立ったので登録だけで足りたが、いまは
         # 関係のある人にしか立たない。q を `participants` に入れて `present` の面を作る。
         c = psycopg2.connect(os.environ["DATABASE_URL"])
@@ -266,7 +266,7 @@ def test_recall_present_others_raises_score():
             "presence corr target", n=1, present_others=["q-person"], time_ref=long_ago
         )
         assert base and boosted
-        # 在席他者 q が memory に強く結びつく（同じ埋め込み）→ p>0 で M が上がる。
+        # 顔ぶれの他者 q が memory に強く結びつく（同じ埋め込み）→ p>0 で M が上がる。
         assert boosted[0]["fit"] > base[0]["fit"]
     finally:
         for p in ps:

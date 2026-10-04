@@ -8,7 +8,7 @@
 `actor`（誰がやったか）。種の優先順もこの順である。**047 が機械で立てるのは `actor` と
 `present` だけ**なので、`about` は REST 内省（記-a-ほ）が足すまで 0 行のまま動く。
 
-**共通の記憶**を (B) 辺へ足す。在席者が2人以上いるとき、その**全員**と関係を持つ観測は、
+**共通の記憶**を (B) 辺へ足す。顔ぶれが2人以上いるとき、その**全員**と関係を持つ観測は、
 その場に居合わせた人たちで共有している出来事である。片方としか関係の無い観測は入れない。
 2026-08-21 のダンプでは、実在の人2人以上と関係行を持つ観測が 190 件あった。
 """
@@ -169,7 +169,7 @@ def test_the_pool_is_about_and_present_not_actor() -> None:
     assert got[0] == present, "新しい順でない"
 
 
-# ── ③④ 共通の記憶：在席者2人**以上**が、ともに関係を持つ観測 ────────────────
+# ── ③④ 共通の記憶：顔ぶれ2人**以上**が、ともに関係を持つ観測 ────────────────
 
 
 def test_shared_memory_needs_every_present_person() -> None:
@@ -194,7 +194,7 @@ def test_shared_memory_needs_every_present_person() -> None:
 
 
 def test_shared_memory_is_empty_for_a_single_person() -> None:
-    """在席者が一人なら「共通の記憶」は無い（反証側）。"""
+    """顔ぶれが一人なら「共通の記憶」は無い（反証側）。"""
     tag = uuid.uuid4().hex[:8]
     X = f"solo-{tag}"
     conn = _conn()

@@ -661,10 +661,10 @@ class EmbodiedAgent:
         """いま話している相手が**分かっている**か（知-t・2026-09-18・1 箇所で決める）。
 
         真になるのは 3 つ：`/speaker` から `speaker_hold_sec`（60 秒）以内、その人に自分が
-        返事してから 60 秒以内（会話中は切れない・`_speaker_confirmed_at`）、在席表（顔照合）に
+        返事してから 60 秒以内（会話中は切れない・`_speaker_confirmed_at`）、顔ぶれ表（顔照合）に
         その人が居る。どれも無ければ「誰か分からない」——想起は共通の面、system 文に名前を
         出さない、面の材料に立てない、話者ゲートも通さない。
-        実機 2026-09-18 12:34：`/speaker` から 2 分 22 秒・在席表は空なのに、想起をパパの面で
+        実機 2026-09-18 12:34：`/speaker` から 2 分 22 秒・顔ぶれ表は空なのに、想起をパパの面で
         引き「パパ」と呼びかけ、版に「パパに聞かれ」と書いた。09-17 の「話者の指定は残す」は撤回。
         """
         pmm = getattr(self, "_pmm", None)
@@ -719,7 +719,7 @@ class EmbodiedAgent:
             logger.warning("共起の記録に失敗: %s", e)
 
     def _observation_perspective(self) -> dict:
-        """知覚観察の面の材料（P1）。書き手＝エージェント自身、在席者は知覚から。
+        """知覚観察の面の材料（P1）。書き手＝エージェント自身、顔ぶれは知覚から。
 
         列は 056 で落ちた。ここが渡すのは**面を立てる材料**で、書いた直後に `actor` と
         `present` の面になる。
@@ -730,7 +730,7 @@ class EmbodiedAgent:
         )
 
     def _conversation_perspective(self) -> dict:
-        """会話 summary の面の材料（P1）。書き手＝話者 floor DEFAULT・在席者。
+        """会話 summary の面の材料（P1）。書き手＝話者 floor DEFAULT・顔ぶれ。
 
         `scope` は 039 で列ごと落とした。誰との遣り取りかは `actor` と `present` の面が
         持っており、`scope` は同じことを別の語で重ねていた。`subject_id` は 056 で列ごと
@@ -757,9 +757,9 @@ class EmbodiedAgent:
         以前は「自分が話してから」「`/speaker` を打ってから」60 秒も居るとみなしていた。会話は
         ウェイクワードの窓で受けるようになったので外した（出-as §3・2026-09-26）。
 
-        在席表（PMM・`/speaker`・顔照合）は「誰か」を言うもので、センサがある構成では
+        顔ぶれ表（PMM・`/speaker`・顔照合）は「誰か」を言うもので、センサがある構成では
         居るかを決めない（`/speaker パパ` が永久に残り、カメラが 2 分「誰も居ない」でも自発が
-        出た・同日 15:44）。センサが無い構成では在席表も数える（従来どおり）。
+        出た・同日 15:44）。センサが無い構成では顔ぶれ表も数える（従来どおり）。
         """
         sensor = getattr(self, "_occupancy_sensor", None)
         if sensor is not None:
@@ -1102,7 +1102,7 @@ class EmbodiedAgent:
                 return f"{label} {int(now - at)} 秒（あと {int(window - (now - at))} 秒）"
         with contextlib.suppress(Exception):
             if pmm is not None and sid in (pmm.get_present_ids() or []):
-                return "在席表（顔照合か /speaker）"
+                return "顔ぶれ表（顔照合か /speaker）"
         return "切れている"
 
     @property
@@ -1374,7 +1374,7 @@ class EmbodiedAgent:
             known = ", ".join(self._persons.known_names())
             return f"[現在の話者: {current}  既知: {known}]"
         self._persons.set_active(name_arg)
-        self._speaker_set_at = time.time()  # 打った人はそこに居る（在席の証拠・60 秒）
+        self._speaker_set_at = time.time()  # 打った人はそこに居る（話者の寿命・60 秒）
         asyncio.ensure_future(self._sync_pmm_speaker(name_arg))
         return f"[話者を「{name_arg}」に切り替えました]"
 

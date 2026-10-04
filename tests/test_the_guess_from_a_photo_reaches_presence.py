@@ -1,8 +1,8 @@
-"""写真からの見立てを在席へ流す（出-ae-は・2026-09-22）。
+"""写真からの見立てを顔ぶれへ流す（出-ae-は・2026-09-22）。
 
 実機 15:57、写真を見た調停が「パパ、おかえりなさい！」と言った一方、機械は
 `(present :speaker "unconfirmed")` のままだった。**推し量ること自体は禁じない**（本人の
-決定）。推し量ったなら、それが在席にも使われてほしい。
+決定）。推し量ったなら、それが顔ぶれにも使われてほしい。
 
 身元が機械に入る道は、顔（`presence_status`）と声の名乗り（`speaker_claim`）の 2 本あり、
 **写真からの見立てだけがどこへも行かなかった**。
@@ -119,7 +119,7 @@ def test_the_arbiters_decision_has_no_field_for_people():
 # `test_the_photo_is_read_into_state.py`）。調停の文には写真も見立ての欄も無い。
 
 
-# ── 見立てを在席へ流す ────────────────────────────────────────────────────
+# ── 見立てを顔ぶれへ流す ────────────────────────────────────────────────────
 
 
 def _loop_with(family: str, pmm):
@@ -139,7 +139,7 @@ def _loop_with(family: str, pmm):
 
 
 class _FakePMM:
-    """在席の口を写す。**見立ては `set_guessed_present` を通る**（知-ag・2026-09-24）——
+    """顔ぶれの口を写す。**見立ては `set_guessed_present` を通る**（知-ag・2026-09-24）——
     以前は `person_arrived` で足していたが、置き換えないので写真を見るたびに人が増えた。"""
 
     def __init__(self, known: dict):
@@ -192,7 +192,7 @@ def test_a_nameless_person_becomes_an_unknown_present():
 
 
 def test_nothing_happens_without_a_guess():
-    """欄が空なら在席を触らない。**写真を見ていない反復で在席を消さない。**"""
+    """欄が空なら顔ぶれを触らない。**写真を見ていない反復で顔ぶれを消さない。**"""
     import asyncio
     from dataclasses import dataclass
 

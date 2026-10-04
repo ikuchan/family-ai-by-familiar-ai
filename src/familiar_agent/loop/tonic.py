@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 # 周期を変えると蓄積そのものが変わる。勝手に動かさない。
 TONIC_PERIOD_SEC = 0.5
 
-# 顔も声も照合できていない在席者の呼び名。居ることは分かるが誰かは分からない状態で、
+# 顔も声も照合できていない顔ぶれの呼び名。居ることは分かるが誰かは分からない状態で、
 # 「誰も居ない」とは区別する（用語一覧の二層：在/不在＝T、誰か＝I）。
 UNIDENTIFIED = "誰か"
 
@@ -106,7 +106,7 @@ def effective_drive_cfg(cfg: DriveConfig, now: datetime | None = None) -> DriveC
 
 
 def _names(names: set[str]) -> str:
-    """在席者の集合をログ用の1行にする。"""
+    """顔ぶれの集合をログ用の1行にする。"""
     return "・".join(sorted(names)) or "（なし）"
 
 
@@ -138,11 +138,11 @@ class Tonic:
         #: 音楽の寿命をいつ見たか（知-aa・30 秒ごと）。
         self._music_checked = float("-inf")
         self._background: set = set()
-        # 前回の在席者。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
+        # 前回の顔ぶれ。差分を取って人の出入りを QD へ積む。None＝まだ一度も見ていない
         # （起動直後に既に居る人を「たった今来た」と扱わないため、空集合と区別する）。
         self._present_names: set[str] | None = None
         self._unoccupied_since: float | None = (
-            None  # センサが「誰も居ない」を見始めた時刻（在席表の失効）
+            None  # センサが「誰も居ない」を見始めた時刻（顔ぶれ表の失効）
         )
         # 自発の可否は `DRIVE5_AUTONOMOUS`（5欲求）で決める（旧 15 欲求の系は環-d で撤去）。
         self._cfg = drive_cfg or DriveConfig()
@@ -162,7 +162,7 @@ class Tonic:
             self._task = None
 
     def scan_presence(self) -> None:
-        """在席者の集合を見て、前回との差分を人の出入りとして QD へ積む。
+        """顔ぶれの集合を見て、前回との差分を人の出入りとして QD へ積む。
 
         情報源は二層に分かれている（用語一覧）。**在/不在は `OccupancySensor`**（YOLO・登録が
         要らない）、**誰かは PMM**（顔の照合・`/speaker` の自己申告）。照合が済んでいなければ
@@ -194,7 +194,7 @@ class Tonic:
         if previous_had_only_unidentified and current and UNIDENTIFIED not in current:
             # 「誰か」で入室したあとに顔が照合できた。同じ人がそこに居続けているだけなので、
             # 退室は起きていない。素朴に差分を取ると、退室と入室が1件ずつ飛ぶ。
-            logger.info("tonic 在席の身元が付いた：誰か → %s", _names(current))
+            logger.info("tonic 顔ぶれが付いた：誰か → %s", _names(current))
             self._present_names = current
             return
         previous, self._present_names = self._present_names, current
@@ -202,24 +202,24 @@ class Tonic:
             # 起動直後の1回目は差分を取らない。ただし「いま誰が見えているか」は残す。
             # これが無いと、イベントが出ないときに「T が回っていない」のか「誰も居ない」
             # のかを区別できない（在席イベントを確かめる手立てが無かった）。
-            logger.debug("tonic 在席の初回走査：%s", "・".join(sorted(current)) or "誰も居ない")
+            logger.debug("tonic 顔ぶれの初回走査：%s", "・".join(sorted(current)) or "誰も居ない")
             return
         # **人の出入りでは話しかけない**（出-as §2.7・2026-09-26）。求めは立てず、記憶に記録だけする。
         # 居なくなったことは情動の側（bond・esteem が減る）で受ける。
         if current != previous:
-            logger.info("tonic 在席の変化：%s → %s", _names(previous), _names(current))
+            logger.info("tonic 顔ぶれの変化：%s → %s", _names(previous), _names(current))
         for name in sorted(current - previous):
             self._dif.record("入室", f"{name} が来た")
         for name in sorted(previous - current):
             self._dif.record("退室", f"{name} が居なくなった")
 
     def _expire_presence_table(self) -> None:
-        """在席表（PMM・`/speaker`・顔照合）の失効。
+        """顔ぶれ表（PMM・`/speaker`・顔照合）の失効。
 
-        在席表には入る口だけあって出る口が無く、`/speaker パパ` が永久に残った（2026-09-17
+        顔ぶれ表には入る口だけあって出る口が無く、`/speaker パパ` が永久に残った（2026-09-17
         実機・カメラが 2 分「誰も居ない」でも自発が出た）。センサが「誰も居ない」を
-        `presence_expire_sec` 見続けたら在席表を空にする（`mark_absent`）。話者の指定は別の寿命（知-t）。
-        センサが無い構成では失効しない（在席表が唯一の情報源）。
+        `presence_expire_sec` 見続けたら顔ぶれ表を空にする（`mark_absent`）。話者の指定は別の寿命（知-t）。
+        センサが無い構成では失効しない（顔ぶれ表が唯一の情報源）。
         """
         sensor = self._occupancy_sensor
         agent = self._agent
@@ -247,9 +247,9 @@ class Tonic:
         if now - since < expire:
             return
         try:
-            # **名前の分からない在席者も外す**（出-am・2026-09-22）。`get_present_ids()` は
+            # **名前の分からない顔ぶれも外す**（出-am・2026-09-22）。`get_present_ids()` は
             # 観測の `participants` になる口なので札を含まない（出-ae-は）。失効はここで
-            # 在席表を空にするのが仕事なので、札まで含めた鍵を使う。
+            # 顔ぶれ表を空にするのが仕事なので、札まで含めた鍵を使う。
             ids = list(agent._pmm.present_keys())
         except Exception:  # noqa: BLE001
             return
@@ -258,7 +258,7 @@ class Tonic:
         for pid in ids:
             agent._pmm.mark_absent(pid)
         logger.info(
-            "tonic 在席表を失効：%d 人（誰も居ないが %.0f 秒）",
+            "tonic 顔ぶれ表を失効：%d 人（誰も居ないが %.0f 秒）",
             len(ids),
             now - since,
         )

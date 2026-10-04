@@ -13,7 +13,7 @@
 
 **生成が「全登録人物」から「関係のある人だけ」へ変わる。** これまでは観測1件につき
 登録人物全員＋AGENT_SELF の行を `presence` 固定で作っていた（6433×6≈38,600 行）。
-これからは `actor` が観測1件につき1行、`present` が在席者ぶんだけ立つ（≈6,806 行）。
+これからは `actor` が観測1件につき1行、`present` が顔ぶれぶんだけ立つ（≈6,806 行）。
 
 **面の `content` は `[役割の札] ` ＋ 出来事の本文である**（実物で全役割 厳密一致）。
 `actor` だけ content を持たない（全観測に立つので書き直す意味がない）。
@@ -112,7 +112,7 @@ def test_actor_is_one_row_per_observation() -> None:
 
 
 def test_present_is_one_row_per_participant_with_a_label() -> None:
-    """`present` は在席者ぶん立ち、content は `[そばに居た] ` ＋ 本文。"""
+    """`present` は顔ぶれぶん立ち、content は `[そばに居た] ` ＋ 本文。"""
     obs_id = str(uuid.uuid4())
     body = f"present テスト_{obs_id}"
     conn = _conn()

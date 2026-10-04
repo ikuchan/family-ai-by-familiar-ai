@@ -76,7 +76,7 @@ def test_recall_lets_programming_errors_surface() -> None:
 
     運用上の失敗（DB 障害など）は degrade して会話を続けるが、TypeError のような
     プログラミングエラーまで `[]` に化けると「想起0件」に見えて原因が隠れる
-    （`by_vector` に引数を足したとき、在席者相関のテストが別の顔で落ちた）。
+    （`by_vector` に引数を足したとき、顔ぶれ相関のテストが別の顔で落ちた）。
     """
     ps = _fixed_embed()
     for x in ps:

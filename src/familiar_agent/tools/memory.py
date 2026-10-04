@@ -189,7 +189,7 @@ def _score_breakdown(
         numerator += w_e * e
         denominator += w_e
 
-    # 在席者相関 p（第5軸・役割2）。在席他者ゼロなら p は None で項ごと外す。
+    # 顔ぶれ相関 p（第5軸・役割2）。顔ぶれの他者ゼロなら p は None で項ごと外す。
     if p is not None and w_p > 0.0:
         numerator += w_p * p
         denominator += w_p
@@ -236,7 +236,7 @@ def _compute_final_score(
       外す。中立0.5で埋めると「気分に一致する記憶」を偽って作ってしまうため。
       obs_pad が None のときも同様に外す。
     - a：`_derive_groundedness(a0, n)`（イベント駆動・時間では減らさない）。
-    - p（在席者相関）は知覚待ちのため項ごと持たない。課題5 の「在席者ゼロなら
+    - p（顔ぶれ相関）は知覚待ちのため項ごと持たない。課題5 の「顔ぶれゼロなら
       w_p 項を外す」に一致する。
 
     係数は MemoryConfig から注入する。計算の実体は `_score_breakdown` にある
@@ -777,12 +777,12 @@ class ObservationMemory:
         c_lo: float,
         c_hi: float,
     ) -> dict[str, float]:
-        """在席者相関 p（obs_id → [0,1]・課題5 v0.26／[D-在席相関]）。
+        """顔ぶれ相関 p（obs_id → [0,1]・課題5 v0.26／[D-在席相関]）。
 
-        在席他者 q ごとに、クエリを q 視点で situate した situated コサインを r と同じ
+        顔ぶれの他者 q ごとに、クエリを q 視点で situate した situated コサインを r と同じ
         伸長で r_{p,q} 化し、obs_id ごとに noisy-OR `p = 1 − Π_q(1 − r_{p,q})` で束ねる。
         自分（AGENT_SELF）・話者の除外は呼び出し側で行う（present_others に含めない）。
-        present_others か obs_ids が空なら {}（在席他者ゼロ＝p 項を外す）。
+        present_others か obs_ids が空なら {}（顔ぶれの他者ゼロ＝p 項を外す）。
         """
         if not obs_ids or not present_others:
             return {}
@@ -809,7 +809,7 @@ class ObservationMemory:
 
         seed_vec があれば候補を seed から遠い順（新規性高い順）に並べ替えて novel を優先する（4b）。
 
-        在席者が2人以上いるとき、(B) 辺へ**共通の記憶**（全員が関係を持つ観測）を足す（段4）。
+        顔ぶれが2人以上いるとき、(B) 辺へ**共通の記憶**（全員が関係を持つ観測）を足す（段4）。
         """
         try:
             from ..core.diffuse import (
@@ -830,7 +830,7 @@ class ObservationMemory:
 
             seed_ids = [r["memory_id"] for r in results]
             exclude = {AGENT_SELF_ID, DEFAULT_PERSON_ID, self._person_id}
-            # 共通の記憶は「その場に居合わせた人たち」で引く。現話者も在席者である。
+            # 共通の記憶は「その場に居合わせた人たち」で引く。現話者も顔ぶれである。
             # パジュ自身と既定の置き場は人ではないので外す。
             present_ids = [
                 p
@@ -980,8 +980,8 @@ class ObservationMemory:
                 for r in time_rows:
                     row_by_id.setdefault(r["id"], r)
 
-            # 在席者相関 p（第5軸・役割2）の候補集合拡張（slice-2）。在席他者 q 視点でも
-            # 候補を取って union し、話者の問いと無関係でも在席他者に結びつく記憶を W に上げる。
+            # 顔ぶれ相関 p（第5軸・役割2）の候補集合拡張（slice-2）。顔ぶれの他者 q 視点でも
+            # 候補を取って union し、話者の問いと無関係でも顔ぶれの他者に結びつく記憶を W に上げる。
             # トグルで slice-1（話者候補の再採点のみ）へ退避できる。
             if present_others and _cfg.recall_presence_expand:
                 mu = self._situated._embedding_mu()
@@ -994,10 +994,10 @@ class ObservationMemory:
                         kind=kind,
                         exclude_ids=exclude_ids,
                     )
-                    _mark(other_rows)  # 在席者ごとに 1 本の軸として数える
+                    _mark(other_rows)  # 顔ぶれの人ごとに 1 本の軸として数える
                     for r in other_rows:
                         row_by_id.setdefault(r["id"], r)  # 新規候補だけ足す
-                # 在席他者由来で話者候補に無い記憶へ、話者視点の r を補って公平に採点する。
+                # 顔ぶれの他者由来で話者候補に無い記憶へ、話者視点の r を補って公平に採点する。
                 extra = [oid for oid in row_by_id if oid not in cos_by_id]
                 if extra:
                     cos_by_id.update(
@@ -1036,7 +1036,7 @@ class ObservationMemory:
                     logger.debug("語の軸：%s → 候補 %d 件", words, len(word_rows))
 
             # 関連軸以外から入った候補には score 列が無いので、話者視点の r を補って
-            # 公平に採点する（在席者相関の拡張と同じやり方）。
+            # 公平に採点する（顔ぶれ相関の拡張と同じやり方）。
             missing = [oid for oid in row_by_id if oid not in cos_by_id]
             if missing:
                 cos_by_id.update(
@@ -1045,7 +1045,7 @@ class ObservationMemory:
                     )
                 )
 
-            # p は union 全体に対して計算。在席他者ゼロなら空＝各行 p=None で項落ち（不変）。
+            # p は union 全体に対して計算。顔ぶれの他者ゼロなら空＝各行 p=None で項落ち（不変）。
             p_by_id: dict[str, float] = {}
             if present_others:
                 p_by_id = self._presence_correlation(
@@ -1094,7 +1094,7 @@ class ObservationMemory:
                     )
                     # 軸ごとの順位による底上げ（記-k）。いくつもの軸で上位に来た記録ほど
                     # きつく持ち上がる。適合度の目盛りは残るので、5 軸の効きは変わらない。
-                    # **1.0 で頭打ちにする**——軸の本数は在席者の人数で増えるので底上げに
+                    # **1.0 で頭打ちにする**——軸の本数は顔ぶれの人数で増えるので底上げに
                     # 固定の上限が無く、そのまま足すと適合度が 0〜1 に収まらなくなる
                     # （本人の決定・2026-09-21）。頭打ちが効くのは類似がほぼ 1.0 の記録
                     # だけで（実機の最大は 0.389）、並びは変わらない。
@@ -1204,7 +1204,7 @@ class ObservationMemory:
             return self._observations.keyword_fallback(query, n, kind)
         except (TypeError, AttributeError, NameError):
             # コードの誤り（署名不一致・属性ミスなど）は degrade しない。`[]` に化けると
-            # 「想起0件」に見えて原因が隠れる（by_vector に引数を足したとき、在席者相関の
+            # 「想起0件」に見えて原因が隠れる（by_vector に引数を足したとき、顔ぶれ相関の
             # テストが別の顔で落ちた）。呼び出し側まで伝播させて即座に表面化させる。
             logger.exception("recall failed (コードの誤り)")
             raise
@@ -1295,7 +1295,7 @@ class ObservationMemory:
         return await asyncio.to_thread(self.recall_curiosities, n)
 
     def recall_day_summaries(self, n: int = 5) -> list[dict]:
-        # C-1: 所有者絞り（observations.person_id）でなく situated 相関で在席者に紐づける。
+        # C-1: 所有者絞り（observations.person_id）でなく situated 相関で顔ぶれに紐づける。
         # 母集合は所有者に依らず、**視点**の面に紐づいた観測（`default` は視点でないので
         # `__self__` へ寄る＝047）。
         rows = self._observations._read_observations_by_situated(

@@ -135,7 +135,7 @@ class Iteration:
         self.present_ctx = _present_ctx(self.agent)
         self.round_ = ip._thinking_round
         logger.debug(
-            "event-loop iter=%d/%d 考え=%d回目 在席=%s",
+            "event-loop iter=%d/%d 考え=%d回目 顔ぶれ=%s",
             self.chain, self.max_chain, self.round_, self.present_ctx,
         )  # fmt: skip
         # **上限は2つ。** 反復（1回の一巡の長さ）と、考えた回数（求め全体で主LLM を呼んだ数）。

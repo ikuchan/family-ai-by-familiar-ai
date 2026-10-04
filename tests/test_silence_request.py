@@ -25,7 +25,7 @@ def test_silenced_within_the_deadline():
 
 
 def test_a_timer_silence_does_not_lift_on_absence():
-    """タイマー由来（`reason=timer:`）は鳴る・止めるまで（在席表の失効で解けた実機 2026-09-18 14:51）。"""
+    """タイマー由来（`reason=timer:`）は鳴る・止めるまで（顔ぶれ表の失効で解けた実機 2026-09-18 14:51）。"""
     req = SilenceRequest(person="パパ", until=time.time() + 180, reason="timer:12")
     now = time.time()
     assert is_silenced(req, now=now) is True

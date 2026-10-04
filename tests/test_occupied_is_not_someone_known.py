@@ -48,8 +48,8 @@ def test_a_body_seen_by_yolo_counts_even_if_the_face_is_unknown() -> None:
 
 
 def test_with_a_sensor_the_presence_table_does_not_decide_whether_anyone_is_there() -> None:
-    """`/speaker パパ` が在席表に残り続け、カメラが 2 分「誰も居ない」でも自発が出た
-    （2026-09-17 15:44 実機）。センサがある構成では在席表は「誰か」だけを言う。"""
+    """`/speaker パパ` が顔ぶれ表に残り続け、カメラが 2 分「誰も居ない」でも自発が出た
+    （2026-09-17 15:44 実機）。センサがある構成では顔ぶれ表は「誰か」だけを言う。"""
     a = _agent(occupied=False, present=["p1"], last_human=time.time() - 5)
     assert a._occupancy() == 0.0
 

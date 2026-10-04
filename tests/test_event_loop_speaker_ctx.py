@@ -1,6 +1,6 @@
 """イベント駆動ループが「誰と話しているか」を渡す。
 
-CUI にはカメラが無く、PMM の在席は常に空になる。話者は `/speaker` や `[名前]` で
+CUI にはカメラが無く、PMM の顔ぶれは常に空になる。話者は `/speaker` や `[名前]` で
 設定される `PersonRegistry.active_name` にしか現れないが、イベントループはこれを
 読んでいなかった。結果、相手が誰でも「分からない」に倒れ、ME.md の「分からないときは
 大人として扱い丁寧に話す」だけが効き続けた（実機で観測）。
@@ -67,4 +67,4 @@ def test_who_we_think_we_are_talking_to_is_logged(caplog):
     a._pmm.presence_status = MagicMock(return_value=[])
     with caplog.at_level(logging.DEBUG, logger="familiar_agent.loop.event_loop"):
         asyncio.run(InformationProcessing(a).push_utterance("おはよう"))
-    assert any("在席" in r.message and "パパ" in r.getMessage() for r in caplog.records)
+    assert any("顔ぶれ" in r.message and "パパ" in r.getMessage() for r in caplog.records)

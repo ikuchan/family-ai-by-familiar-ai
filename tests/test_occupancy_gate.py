@@ -36,7 +36,7 @@ def _permission(a) -> float:
 
 def test_my_recent_speech_no_longer_counts_as_presence():
     # 出-as §3（2026-09-26）：自分が話した直後を居るとみなす決まり（知-h）は外した。会話は窓で受ける。
-    # センサの無い構成では在席表で決める。
+    # センサの無い構成では顔ぶれ表で決める。
     a = _agent(watcher=True, present=[], last_human=time.time())
     assert _permission(a) == 0.0
 
@@ -52,6 +52,6 @@ def test_empty_room_is_not_present():
 
 
 def test_no_camera_uses_the_presence_table():
-    """センサの無い構成では在席表で決める。自分の発話は数えない（出-as §3）。"""
+    """センサの無い構成では顔ぶれ表で決める。自分の発話は数えない（出-as §3）。"""
     assert _permission(_agent(watcher=False, present=[], last_human=time.time())) == 0.0
     assert _permission(_agent(watcher=False, present=["p1"], last_human=None)) == 1.0

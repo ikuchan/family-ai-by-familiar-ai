@@ -2,7 +2,7 @@
 
 同じ組み立てが `build_event_system_prompt` と `ARBITER_PROMPT` の2箇所にあり、**同じ
 不変条件を別々に手で守っていた**。「起動中ほぼ変わらないもの（人格・家族・規則）を先に
-置き、変わるもの（時刻・在席・人の言葉・作業状態）を後ろへ」——前方一致キャッシュが効く
+置き、変わるもの（時刻・顔ぶれ・人の言葉・作業状態）を後ろへ」——前方一致キャッシュが効く
 条件である。守れなかったとき実機で調停が時間切れになり、沈黙依頼が読まれないまま倒れた。
 3箇所目を手で書けば同じ芽をもう一つ作るので、口を1つにする。
 
@@ -78,16 +78,16 @@ def test_the_changing_parts_stay_out_of_the_stable_half():
         self_understanding=_ME,
         family=_FAMILY,
         now='(now :datetime "2026-09-05 12:00")',
-        presence="（在席）",
+        presence="（顔ぶれ）",
         workspace="（作業状態）",
     )
-    for changing in ("2026-09-05", "（在席）", "（作業状態）"):
+    for changing in ("2026-09-05", "（顔ぶれ）", "（作業状態）"):
         assert changing not in ctx.stable, changing
         assert changing in ctx.variable, changing
 
 
 def test_the_variable_half_keeps_the_documented_order():
-    """いま → 在席 → 反復 → 作業状態。既存2箇所が守っていた並びである。"""
+    """いま → 顔ぶれ → 反復 → 作業状態。既存2箇所が守っていた並びである。"""
     ctx = build_context(
         stance=Stance.INSTRUMENT,
         now="ＮＯＷ",
@@ -179,7 +179,7 @@ def test_no_recent_talk_leaves_no_room_for_it():
 
 
 def test_the_inner_state_sits_between_presence_and_iteration():
-    """主LLM の可変部の並び：いま → 在席 → 内部状態 → 反復 → 作業状態。"""
+    """主LLM の可変部の並び：いま → 顔ぶれ → 内部状態 → 反復 → 作業状態。"""
     ctx = build_context(
         stance=Stance.INSTRUMENT,
         now="ＮＯＷ",

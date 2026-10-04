@@ -482,7 +482,7 @@ class ObservationStore:
     ) -> dict[str, float]:
         """指定 obs_id 群について、person_id 視点の situated コサインを返す（[D-在席相関]）。
 
-        在席者相関 p の素点用。ベクトルの作り方（視点合成・平均中心化）は呼び出し側の
+        顔ぶれ相関 p の素点用。ベクトルの作り方（視点合成・平均中心化）は呼び出し側の
         責任で、層は受け取った表現で `situated_memories` を person_id 絞りで引くだけ。
         該当 situated 行が無い obs_id は結果に含めない（呼び出し側で 0 相当に畳む）。
         """

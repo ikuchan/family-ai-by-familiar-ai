@@ -4,7 +4,7 @@ QD に積むのは**人の出入り**（入室・退室）。動体そのもの�
 イベントとしては粗すぎるので載せない（既定 off の `MOTION_WATCH` の既存経路は
 そのまま・移設は #12）。
 
-在席者の集合を見て前回との差分を取るのは T（時計を持つ唯一の側）。身元はいま PMM
+顔ぶれの集合を見て前回との差分を取るのは T（時計を持つ唯一の側）。身元はいま PMM
 （InsightFace）からしか取れず、これは #8 で二層（在/不在＝T、誰か＝I）へ整理する
 暫定の層である。**QD に流れるイベントの形は身元の取得方法から独立**させてあるので、
 #8 では情報源の付け替えだけで済む。
@@ -51,7 +51,7 @@ def _ip():
 
 
 def _agent_with(*presence_sequence):
-    """presence_status() が呼ばれるたび次の在席者一覧を返す agent。"""
+    """presence_status() が呼ばれるたび次の顔ぶれの一覧を返す agent。"""
     a = MagicMock()
     a._pmm = MagicMock()
     a._pmm.presence_status = MagicMock(side_effect=list(presence_sequence))
@@ -140,7 +140,7 @@ def test_presence_scan_leaves_a_trace_even_when_nothing_changes():
         t.scan_presence()  # パパが来た
     joined = "\n".join(logs)
     assert "初回走査" in joined and "誰も居ない" in joined
-    assert "在席の変化" in joined and "パパ" in joined
+    assert "顔ぶれの変化" in joined and "パパ" in joined
 
 
 def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():

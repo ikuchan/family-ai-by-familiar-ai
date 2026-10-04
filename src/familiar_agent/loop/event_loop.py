@@ -1699,7 +1699,7 @@ class InformationProcessing:
         """調停が見ると決めた帰り：写真を読むのを**待ち**、結果をシステムの状態として残す（出-au 段 5-7a）。
 
         Jev は写真を見られないので、調停に写真を渡す形（v0.46）はやめた。見えたものは O の記録と完了の文に（W に載る）、
-        写っている人の見立ては在席に（1 人なら話者にする・出-as 段 9a）。読めなければ即席のラベル（YOLO）で書く。
+        写っている人の見立ては顔ぶれに（1 人なら話者にする・出-as 段 9a）。読めなければ即席のラベル（YOLO）で書く。
         """
         agent = self._agent
         labels, people = await read_photo(
@@ -1963,8 +1963,8 @@ class InformationProcessing:
         **口調の正本は `ME.md`。** ここは「どちらの行を当てるか」だけを決め、行はそのまま
         渡す。写しを持つと、`ME.md` を書き換えても機械の行が古いまま残る。
 
-        規則の側（`personality-from-me`）や在席の行だけでは効かなかった（実測 0/12）。
-        `[返事]` の行に置き、W の過去の発話に相手を添え、在席に大人と書いて、揃って 11/12。
+        規則の側（`personality-from-me`）や顔ぶれの行だけでは効かなかった（実測 0/12）。
+        `[返事]` の行に置き、W の過去の発話に相手を添え、顔ぶれに大人と書いて、揃って 11/12。
         """
         from ..core.tone import is_adult, tone_line
 
@@ -3507,7 +3507,7 @@ class InformationProcessing:
     async def _between_family(self, trigger: "Trigger") -> bool:
         """窓の中の名前の無い声が家族どうしの話かを Jev に聞く（出-au 段 5-2・`設計方針_判定の段` §2.2.3）。
 
-        送るのはその言葉・直近のやりとり（3 往復）・在席。Jev が使えない・確信度が低いときは倒し先の「パジュ宛て」。
+        送るのはその言葉・直近のやりとり（3 往復）・顔ぶれ。Jev が使えない・確信度が低いときは倒し先の「パジュ宛て」。
         """
         agent = self._agent
         recent = present = ""
@@ -3653,7 +3653,7 @@ class InformationProcessing:
         return 1.0
 
     def _stamp_said(self) -> None:
-        """自分が声を出した時刻を打つ（在席の証拠・`speaker_hold_sec`・2026-09-17）。
+        """自分が声を出した時刻を打つ（話者の寿命・`speaker_hold_sec`・2026-09-17）。
 
         起点が人の発話で、相手が分かっているなら、話者の指定も延びる（`_speaker_confirmed_at`・
         知-t）——会話中は切れない。
@@ -3726,9 +3726,9 @@ class InformationProcessing:
         await self._apply_speaker_claim(decision)
 
     async def _apply_seen_people(self, people: "list | None") -> None:
-        """調停が写真から見立てた人を、在席へ入れる（出-ae-は・2026-09-22）。
+        """調停が写真から見立てた人を、顔ぶれへ入れる（出-ae-は・2026-09-22）。
 
-        **推し量ること自体は禁じない。推し量ったなら在席にも使う**（本人の決定）。15:57 は、
+        **推し量ること自体は禁じない。推し量ったなら顔ぶれにも使う**（本人の決定）。15:57 は、
         写真を見て「パパ、おかえりなさい！」と言いながら機械は `unconfirmed` のままだった。
 
         - **その写真を正とする**（知-ag・2026-09-24）。見立てで入っていた人は、この並びに
@@ -3737,9 +3737,9 @@ class InformationProcessing:
           以前は名前の付いた人だけ「足すだけ」で、名前の分からない人は人数を置き換えており、
           同じ写真の結果を 2 通りに扱っていた。実機 15:51、センサが「1 人」と言い続けるあいだに
           「パパ・たいきくん」の 2 人になった。
-        - 家族に当たらない名前と名前の無い人は、**名前の分からない在席者**として数だけ残す。
+        - 家族に当たらない名前と名前の無い人は、**名前の分からない顔ぶれ**として数だけ残す。
           `participants` には入らないので、誰にも対応しない記憶空間は作らない。
-        - 見立てが空の反復では在席を触らない。写真を見ていない反復で在席を消さないため。
+        - 見立てが空の反復では顔ぶれを触らない。写真を見ていない反復で顔ぶれを消さないため。
 
         呼び口は**並び**で受ける。写真の読み取り（`scene.read_photo`・出-au 段 5-7a）と、主LLM の申告
         （`say()` の `seen_people`・出-an）が同じ道を通る——どちらも写真からの推し量りで、
@@ -3773,9 +3773,9 @@ class InformationProcessing:
             await self._set_speaker(names[0], "写真の見立て")
 
     async def _apply_not_person(self, claim: str) -> None:
-        """身元を否定されたら、その人を在席から外し、話者を戻す（出-am・2026-09-22）。
+        """身元を否定されたら、その人を顔ぶれから外し、話者を戻す（出-am・2026-09-22）。
 
-        在席へ**入る**口は 3 つある（顔・声の名乗り・写真からの見立て）のに、**出る**口は
+        顔ぶれへ**入る**口は 3 つある（顔・声の名乗り・写真からの見立て）のに、**出る**口は
         時間切れと顔の消失しか無かった。誤った見立ては寿命が来るまで残る。
 
         **由来は問わない**（本人の決定・2026-09-22）。顔で入った人でも、目の前の人が
@@ -3797,9 +3797,9 @@ class InformationProcessing:
         if pid is None:
             logger.info("否定された「%s」は人物表に無いので何もしない", name)
             return
-        await agent._pmm.person_left(pid)  # 在席から外す（話者だったら話者も外れる）
+        await agent._pmm.person_left(pid)  # 顔ぶれから外す（話者だったら話者も外れる）
         agent._persons.reset_to_default()
-        logger.info("「%s ではない」と言われたので在席から外した", name)
+        logger.info("「%s ではない」と言われたので顔ぶれから外した", name)
 
     async def _apply_speaker_claim(self, decision) -> None:
         """調停が読んだ名乗り（`speaker_claim`）を、在席があるときだけ話者に付ける（知-w・2026-09-19）。
@@ -4030,7 +4030,7 @@ class InformationProcessing:
     def _current_speaker_name(self) -> str:
         """いま話している相手の名前。分からなければ空文字。
 
-        在席表の `is_speaker` を先に見て、無ければ `/speaker` で明示された名前を使う。
+        顔ぶれ表の `is_speaker` を先に見て、無ければ `/speaker` で明示された名前を使う。
         黙っている依頼の宛先を決めるのと、その依頼を誰の返事に掛けるかを決めるのは、
         同じ「誰が話しているか」なので 1 箇所で引く。
         """

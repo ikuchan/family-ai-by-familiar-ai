@@ -4,7 +4,7 @@ Provides a native desktop window with:
 - Scrollable conversation log with styled HTML-like bubbles (ChatLog)
 - Live streaming text display with blinking cursor (StreamLabel)
 - Camera image viewer (CameraView)
-- 状態パネル: 気分 PAD（MoodPanel）・drive5（DrivePanel）・在席/話者（PresencePanel）
+- 状態パネル: 気分 PAD（MoodPanel）・drive5（DrivePanel）・在席・顔ぶれ・話者（PresencePanel）
 - Pill-shaped text input with circular send button
 - Settings dialog (⚙) for .env configuration
 
@@ -724,7 +724,7 @@ class CameraView(QLabel):
 
 
 # ---------------------------------------------------------------------------
-# 状態表示（気分 PAD・drive5・在席/話者）の整形とパネル
+# 状態表示（気分 PAD・drive5・在席・顔ぶれ・話者）の整形とパネル
 # ---------------------------------------------------------------------------
 
 _SOURCE_LABELS = {
@@ -770,8 +770,8 @@ def format_timer_rows(
 def format_sensor_rows(reading: "tuple[str, int, float] | None", basis: str) -> "list[str]":
     """センサの最新の読みと、話者の根拠（環-p-ろ・2026-09-19）。
 
-    パネルは PMM の在席表しか映さず、センサが人を見ていても「（在席者なし）」に見えた（実機 11:34）。
-    居るか（センサ）と誰か（在席表）は別の層なので、両方を出す。
+    パネルは PMM の顔ぶれ表しか映さず、センサが人を見ていても「（顔ぶれなし）」に見えた（実機 11:34）。
+    居るか（センサ）と誰か（顔ぶれ表）は別の層なので、両方を出す。
     """
     if reading is None:
         first = "センサ：（まだ見ていない）"
@@ -783,9 +783,9 @@ def format_sensor_rows(reading: "tuple[str, int, float] | None", basis: str) -> 
 
 
 def format_presence_rows(rows: "list[dict]") -> "list[str]":
-    """presence_status → 表示行。話者は ★、在席ゼロは注記。"""
+    """presence_status → 表示行。話者は ★、顔ぶれゼロは注記。"""
     if not rows:
-        return ["（在席者なし）"]
+        return ["（顔ぶれなし）"]
     out: list[str] = []
     for r in rows:
         mark = "★ " if r.get("is_speaker") else "・"
@@ -950,7 +950,7 @@ class DrivePanel(QWidget):
 
 
 class PresencePanel(QWidget):
-    """在席・話者（統合判断）。get_pmm() で PMM を取り、2秒ごとに更新する。"""
+    """在席・顔ぶれ・話者（統合判断）。get_pmm() で PMM を取り、2秒ごとに更新する。"""
 
     def __init__(
         self, get_pmm, fallback_speaker: str, parent: QWidget | None = None, get_agent=None
@@ -964,7 +964,7 @@ class PresencePanel(QWidget):
         layout.setContentsMargins(10, 8, 10, 8)
         layout.setSpacing(4)
 
-        title = QLabel("在席・話者")
+        title = QLabel("在席・顔ぶれ・話者")
         title.setStyleSheet(
             f"color: {_TEXT_SECONDARY}; font-size: {_px(10)}px; font-weight: 600;"
             f" background: transparent; letter-spacing: 0.1em;"
@@ -1332,7 +1332,7 @@ class FamiliarWindow(QMainWindow):
         return max(_GUI_LOOK_PREVIEW_MIN_SEC, min(_GUI_LOOK_PREVIEW_MAX_SEC, sec))
 
     def _refresh_occupancy_camera(self) -> None:
-        """在席確認カメラ：presence_watcher の直近フレームを表示する。
+        """在席確認カメラ：OccupancySensor の直近フレームを表示する。
 
         look-preview（カメラ移動時のライブ表示）中はそちらを優先し上書きしない。
         カメラ未設定・フレーム未取得なら何もしない（従来のプレースホルダのまま）。
@@ -1666,7 +1666,7 @@ class FamiliarWindow(QMainWindow):
         self._camera = CameraView()
         right_layout.addWidget(self._camera, stretch=3)
 
-        # 在席確認カメラ：presence_watcher が認識用に撮る直近フレームを定期表示する。
+        # 在席確認カメラ：OccupancySensor が撮った直近フレームを定期表示する。
         self._occupancy_cam_timer = QTimer(self)
         self._occupancy_cam_timer.setInterval(2000)
         self._occupancy_cam_timer.timeout.connect(self._refresh_occupancy_camera)
@@ -1683,7 +1683,7 @@ class FamiliarWindow(QMainWindow):
             cv.addWidget(widget)
             return card
 
-        # 在席・話者（カメラ直下）＝統合判断の場所（PMM）に繋ぐ。
+        # 在席・顔ぶれ・話者（カメラ直下）＝統合判断の場所（PMM）に繋ぐ。
         self._presence_panel = PresencePanel(
             lambda: getattr(getattr(self, "_agent", None), "_pmm", None),
             self._companion_display_name,

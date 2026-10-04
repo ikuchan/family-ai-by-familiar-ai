@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 def gate_personal_tools(defs: list[dict], *, speaker: str, members: list[dict]) -> list[dict]:
     """個人ティアの道具を、その人が話しているときだけ残す。家族ティアはそのまま。"""
-    # 本人の名は `名前` と `呼び方` のどちらでも通す。在席表が返すのは呼び方（パパ）で、
+    # 本人の名は `名前` と `呼び方` のどちらでも通す。顔ぶれ表が返すのは呼び方（パパ）で、
     # 名前（ゆうすけ）と比べると本人のターンでも落ちる（2026-09-15 実機）。
     owners = {
         m["latin"]: {str(m.get("name") or ""), str(m.get("display_name") or "")} - {""}

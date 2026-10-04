@@ -243,7 +243,7 @@ class SituatedVectors:
         **面の生成は二段である。** ここが担うのは段①＝機械で確実に出るものだけ。
 
           `actor`（誰がやったか）  ← `writer_id`。観測1件につき必ず1行。content 無し
-          `present`（誰が居たか）  ← `participants_json` の各在席者。
+          `present`（誰が居たか）  ← `participants_json` の各顔ぶれ。
                                      content は `[そばに居た] ` ＋ 出来事の本文
 
         段②（`addressee`／`about`／`experiencer`／`beneficiary`／`companion`／

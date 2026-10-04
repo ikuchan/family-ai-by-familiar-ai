@@ -8,7 +8,7 @@
 
     15:51:28  写真の見立てで在席に入れた：パパ（確信度 0.60）／不明を 0 人に
     15:51:37  写真の見立てで在席に入れた：たいき（確信度 0.60）
-    15:51:37  在席の変化：パパ → たいきくん・パパ
+    15:51:37  顔ぶれの変化：パパ → たいきくん・パパ
 
 **見立ては 2 回とも「1 人」を言っている。** 後のほうが前を上書きせず、足された。
 
@@ -50,7 +50,7 @@ def _names(pmm) -> set[str]:
     return {p.person_id for p in pmm._present.values() if not p.anonymous}
 
 
-# ── 在席が「どうやって入ったか」を持つ ───────────────────────────────────
+# ── 顔ぶれが「どうやって入ったか」を持つ ───────────────────────────────────
 
 
 def test_the_way_someone_arrived_is_remembered():
@@ -168,7 +168,7 @@ def test_the_loop_replaces_instead_of_adding():
 
 
 def test_an_empty_guess_still_touches_nothing():
-    """写真を見ていない反復で在席を消さない（出-ae-は のまま）。"""
+    """写真を見ていない反復で顔ぶれを消さない（出-ae-は のまま）。"""
     pmm = _FakePMM({})
     ip = _loop(pmm)
     asyncio.run(ip._apply_seen_people([]))

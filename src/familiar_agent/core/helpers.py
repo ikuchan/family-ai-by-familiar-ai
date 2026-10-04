@@ -1,6 +1,6 @@
 """agent.py から切り出した module レベルの純関数（loop 非依存・境界R B2）。
 
-内受容の felt-sense 文字列生成、在席文脈の整形、検索の長さガイド、LLM 返答の
+内受容の felt-sense 文字列生成、顔ぶれの文脈の整形、検索の長さガイド、LLM 返答の
 コードフェンス剥がし、任意 async 呼び出しの安全ラッパ、asyncio.gather 用の no-op。
 これらは EmbodiedAgent の制御流れ（run/ReAct）に依存しない純関数である。
 """
@@ -63,10 +63,10 @@ async def _call_optional_async(
 
 
 def format_present_ctx(speaker_name: str, other_present: list[str]) -> str:
-    """在席の話者と、話者以外の在席者を lisp 風の `(present ...)` 文脈にする。
+    """顔ぶれの話者と、話者以外の顔ぶれを lisp 風の `(present ...)` 文脈にする。
 
     一人称 CoT が「いま誰を想像するか」を知るための注入。空話者は "unknown"。
-    対象を固定リストでなく在席（PMM）から作るので、想起で W が深まれば増える。
+    対象を固定リストでなく顔ぶれ（PMM）から作るので、想起で W が深まれば増える。
     """
     speaker = speaker_name or "unknown"
     s = f'(present :speaker "{speaker}"'

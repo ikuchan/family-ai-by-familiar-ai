@@ -79,7 +79,7 @@ async def _returned_look(ip):
 
 
 def test_a_look_thrown_by_the_arbiter_comes_back_to_the_arbiter_without_the_photo():
-    """写真は渡さない（出-au 段 5-7a）。読み取りは状態として W と在席に載っている。"""
+    """写真は渡さない（出-au 段 5-7a）。読み取りは状態として W と顔ぶれに載っている。"""
 
     async def scenario():
         a, ip = _ip_with_camera()

@@ -1,7 +1,7 @@
 """P1：知覚→save の面の材料の配線（`writer_id`／`participants` を PMM から）。
 
 観察＝エージェント自身の情景観察（書き手＝`__self__`）。会話＝話者との遣り取り
-（書き手＝話者 floor DEFAULT）。`participants` は在席者で、書いた直後に `present` の面になる。
+（書き手＝話者 floor DEFAULT）。`participants` は顔ぶれで、書いた直後に `present` の面になる。
 
 **`subject_id` は撤去した**（056・段5 の残り）。列を落としたあとも引数だけが残り、受け取って
 捨てていた。誰についての記録かは `about` の面が持つ。実在の人を指す 397 件は、その全件が

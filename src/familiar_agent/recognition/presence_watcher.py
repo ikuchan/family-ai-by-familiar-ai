@@ -40,7 +40,7 @@ class CameraPresenceWatcher:
         self._interval = interval_sec
         self._absent = absent_threshold_sec
         self._task: asyncio.Task | None = None
-        # 直近に認識用へ撮ったフレーム（base64）。GUI が在席確認カメラとして表示する。
+        # 直近に認識用へ撮ったフレーム（base64）。GUI が顔ぶれ確認のカメラとして表示する。
         self._last_frame_b64: str | None = None
 
     def latest_frame_b64(self) -> str | None:
