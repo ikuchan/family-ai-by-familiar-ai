@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.40）
+# familiar-ai モジュール分割設計（v0.41）
 
 ## この文書が決めること
 
@@ -106,7 +106,7 @@ core/     設計の中核。外部 I/O を知らない
   config.py         [D-設定]
 store/    O。SQL はここにだけ置く
   observations.py   追記、supersede、取り出し（by_kind／by_situated／by_date／by_vector）
-  situated.py       視点と在席相関のベクトル
+  situated.py       視点と顔ぶれ相関のベクトル
   embedding.py      埋め込みモデルとベクトル符号化
   jobs.py           memory_events と memory_jobs
   db_compat.py      接続ラッパ
@@ -544,7 +544,7 @@ Config は層が持たない。設定は呼び出し側（ファサード）が 
 | `event_loop.py` | 1,822 | **装置** | 口（`set_output`・`push_*`・`start`・`close`・`begin_request`）・駆動体・キュー3つ・背景タスク・**殻**（`_iterate`・`_act_on_decision`） |
 | `workspace.py` | 267 | **反復** | W を組み、W から引く。**申告を軽量LLM へ聞く**（`ask_verdicts`・出-h-ろ） |
 | `request.py` | 109 | **求め** | 求めの状態と `Lookup` |
-| `generator.py` | 116 | — | 状態を触らない材料組み（在席・内部状態・反復の文脈） |
+| `generator.py` | 116 | — | 状態を触らない材料組み（顔ぶれ・内部状態・反復の文脈） |
 | `arbiter.py` | 309 | — | 調停（軽量LLM） |
 | `evaluator.py` | 406 | — | 評価器（軽量LLM の6仕事） |
 | `prompt.py` | 156 | — | 静的なプロンプトの正本 |
@@ -769,7 +769,7 @@ table = self._w_id_map if w_id_map is None else w_id_map
 
 ```
 17回 agent._memory            8回 agent._observation_perspective
- 4回 agent._persons           2回 agent._social_presence_permission
+ 4回 agent._persons           2回 agent._occupancy
  2回 agent._pmm               2回 agent._evaluator
  1回ずつ _utility_backend／_turn_arousal／_spawn_background_task／_scene_backend／
          _run_post_response_pipeline／_pending_store／_memory_tool／_last_human_at／
@@ -873,8 +873,8 @@ I の待ち行列へ）、`speak_defs`・`lookup_defs`（口が持っている�
 
 | 場所 | していたこと |
 |---|---|
-| `loop/prompt.py` の `build_event_system_prompt` | 静的核＋自己認識＋FAMILY＋日時＋在席＋PI＋反復＋W を組み、**(安定部, 可変部)** で返す |
-| `loop/arbiter.py` の `ARBITER_PROMPT` | 人格＋家族＋規則＋上限＋時刻＋在席＋言葉＋作業状態を**この順に**並べる |
+| `loop/prompt.py` の `build_event_system_prompt` | 静的核＋自己認識＋FAMILY＋日時＋顔ぶれ＋PI＋反復＋W を組み、**(安定部, 可変部)** で返す |
+| `loop/arbiter.py` の `ARBITER_PROMPT` | 人格＋家族＋規則＋上限＋時刻＋顔ぶれ＋言葉＋作業状態を**この順に**並べる |
 
 どちらのコメントも同じことを言っていた。**起動中ほぼ変わらないものを先に、変わるものを
 後ろに置く。**前方一致キャッシュが効く条件で、崩れたとき実機で調停が2秒で返らず時間切れに
@@ -957,7 +957,7 @@ PAD 評価が「このやり取りを採点せよ」だったのと同じ種類�
 
 ### 構造は寄せられた（一度「寄せられない」と誤って判断した）
 
-**調停は安定と可変が交互に並んでいる**——身元と判断の基準（安定）→ 時刻と在席（可変）→
+**調停は安定と可変が交互に並んでいる**——身元と判断の基準（安定）→ 時刻と顔ぶれ（可変）→
 口調の注意（安定）→ 上限と人の言葉と作業状態（可変）→ 沈黙・時期・JSON の説明（安定）。
 `build_context` は2分割しか表せないので、一度は「寄せられない」と判断した。
 
@@ -1281,6 +1281,7 @@ backends/cli.py          166 行
 
 ## 更新履歴
 
+> v0.41：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.40：環-e-は の は-3（`see`・`look`）を `課題8` の 環-ac へ移した（2026-09-27・本人）。いま見えているものを DIF から I へ届けることと一つの課題にした。
 > v0.39：**`workspace.py` に申告を聞く口が入った**（2026-09-11・出-h-ろ）。`ask_verdicts()`
 > が軽量LLM へ1回聞き、`apply_memory_verdicts()` が当てる。あわせて

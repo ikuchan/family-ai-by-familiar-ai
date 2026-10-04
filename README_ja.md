@@ -347,10 +347,10 @@ TIMER_MIC_CLOSE=true       # 省略可。タイマー中は聞かない（止め
 TIMER_CONFIRM=true         # 省略可。掛ける前に一度確かめる。3 つとも設定画面の「タイマー」欄で変えられ、保存した瞬間に効く
 ALARM_RING_SEC=30          # 省略可。アラームの音の秒数（タイマーとは別）
 TIMER_RING_SEC=30          # 省略可。鳴ったら音（自作の timer_alarm.wav）を繰り返す秒数（0 で声だけ）
-PRESENCE_SAID_SEC=60       # 省略可。自分が話してから／/speaker を打ってから「居る」とみなす秒数（マイクの声は数えない）
-CAMERA_PRESENCE_WINDOW=180 # 省略可。カメラが人を見てから「居る」が続く秒数
+SPEAKER_HOLD_SEC=60        # 省略可。自分が話してから／/speaker を打ってから「居る」とみなす秒数（マイクの声は数えない）
+CAMERA_OCCUPANCY_DWELL=180 # 省略可。カメラが人を見てから「居る」が続く秒数
 DRIVE_VOICE_NUDGE=0.5      # 省略可。誰も映っていないのに声がしたとき、見回りたい気持ち（SEEKING）に足す量
-PRESENCE_EXPIRE_SEC=60     # 省略可。カメラが誰も見ない状態が続いたら在席表を空にする秒数
+PRESENCE_EXPIRE_SEC=60     # 省略可。カメラが誰も見ない状態が続いたら顔ぶれ表を空にする秒数
 ```
 
 音声入力（ハンズフリー）を有効にする場合：

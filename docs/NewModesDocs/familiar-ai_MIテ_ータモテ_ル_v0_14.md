@@ -1,4 +1,4 @@
-# familiar-ai MI データモデル（v0.13・最小・確定）
+# familiar-ai MI データモデル（v0.14・最小・確定）
 
 ## 0. 方針
 LLM を解釈基盤とするので、**I 内部の意味（意図／未応答／由来／動作 等）は属性にせず `content` に置き LLM が解釈**する。属性は「**T が作る信号**」＋「**機械的必須**」だけ。MI は**単一クラス**（抽象基底・サブタイプは作らない）。
@@ -111,7 +111,7 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 | 役割 | 札 | 誰に立つか |
 |---|---|---|
 | `actor` | （無し） | `writer_id` の人。観測1件につき必ず1行 |
-| `present` | `[そばに居た]` | `participants_json` の各在席者 |
+| `present` | `[そばに居た]` | `participants_json` の各顔ぶれの人 |
 | `addressee` | `[自分に向けられた]` | REST が本文から抽出 |
 | `about` | `[自分のこと]` | 同上 |
 | `experiencer` | `[自分がそういう様子だった]` | 同上 |
@@ -195,7 +195,7 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 | pending（結果待ち） | **概念廃止**。完了は関連＋未解決で O の open 意図を想起で再会（[D-単一想起]・相関ID 無し） |
 | suspended（退避） | **概念廃止**。W は毎ターン破棄・再構築。salience が下がれば載らないだけ（退避 store 無し） |
 | 動作要求／呼出要求 | **O の MI**（`content`＝動作・呼出の意図）。実行は調停→生成/動作（投げっぱなし） |
-| utterance／witnessed／scene | **単一 O の MI ＋ situated 関係エッジ**（[D-在席相関/V2]）。旧 `_remember` の人ごと複製（話者/目撃/場面）を廃し、1つの O に `speaker`（←`writer_id`）／`presence`（←`participants_json` の各在席者）／`subject`（←`subject_id`）の関係エッジを付ける。「[X が言った]」等の視点は content と関係エッジで表す |
+| utterance／witnessed／scene | **単一 O の MI ＋ situated 関係エッジ**（[D-在席相関/V2]）。旧 `_remember` の人ごと複製（話者/目撃/場面）を廃し、1つの O に `speaker`（←`writer_id`）／`presence`（←`participants_json` の各顔ぶれの人）／`subject`（←`subject_id`）の関係エッジを付ける。「[X が言った]」等の視点は content と関係エッジで表す |
 | self_model | **自己認識 MI の自己エピソード部**（REST が日付で O を読み返し一人称に蒸留し supersede 更新・pinned）。旧 `self_narrative_log` 廃止・morning-context 注入から pinned へ移す。能力部は `capabilities.yaml`→`capability_summary` の LLM 要約が担い REST が更新 |
 | curiosity | **cue／SEEKING の open 意図 O**（[D-想起起動]）。自己認識 MI ではない。専用種別なし・想起で W に載る |
 | semantic_facts／behavior_policies | **キーレス supersede チェーンの信念 MI**（§7）。信頼度は content 注記・REST が更新。自己認識 MI の方針(policy)とは別（自己認識 MI 方針＝核＋Config・pinned／behavior_policies＝W 想起の belief MI）。REST が繰り返し確証された belief 方針を自己認識 MI の方針へ一般化蒸留する間接経路のみ |
@@ -207,6 +207,7 @@ T 内部は数値レジスタ。**境界を渡るのは `PI`＝{`emotion`, `driv
 
 ## 更新履歴
 
+> v0.14：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.13：**畳む印を列から関係へ移したことを反映した**（2026-09-06・059・`設計方針_MI間の関係`）。
 > `superseded_by` は `observations` の列ではなくなり、種類 `改訂` の関係の役割 `旧` が担う。
 > 「畳んでも面は残る」の根拠を、列の所在から印の所在へ言い直した。identity・revisions・W への

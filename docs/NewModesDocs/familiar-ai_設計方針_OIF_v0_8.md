@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：記憶接続 OIF（v0.7）
+# familiar-ai 設計方針：記憶接続 OIF（v0.8）
 
 ## この文書が決めること
 
@@ -122,7 +122,7 @@ class View:
     k: int = 7                                     # W へ載せる上限
     floor: float = 0.05                            # 合成スコアの床
     weights: RecallWeights | None = None           # 5軸の重み（trigger 別）
-    present: tuple[str, ...] = ()                  # 在席者（p 軸）
+    present: tuple[str, ...] = ()                  # 顔ぶれ（p 軸）
     time_ref: float | None = None
     time_span_days: float | None = None
 
@@ -181,6 +181,7 @@ class Verdict(Enum):
 
 ## 更新履歴
 
+> v0.8：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.7：`feedback` に面（`viewpoint`）を足した。ループの申告は、記憶の器を直に掴むのをやめてこの口を通り、想起と同じ面へ当てる（2026-09-28・環-ab R-6 と直し `0a08806`）。
 > v0.6：**MI の同定を面へ移した**（案3・2026-09-02 実装）。`id` は面
 > （`situated_memories.id`）、`obs_id`／`person_id`／`relation_key` が面を同定する。
