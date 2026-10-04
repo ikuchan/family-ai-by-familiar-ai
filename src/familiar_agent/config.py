@@ -117,9 +117,10 @@ class CameraConfig:
     # 求めると絶対移動の誤差で毎回「移動中」になり定点ごとの「普通」が育たないが、実測の
     # 誤差は 1e-6 未満なので、この値でも到着は取りこぼさない。
     pose_tolerance: float = field(default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.02))
-    # 在席を確かめる間隔。カメラの動体イベントで起こされるので、短くする必要は無い。
+    # 在席を確かめる間隔。30 → 3 秒（知-ai・2026-10-05・本人の決定・仮）：居なくなったことに早く気づく。
+    # 動体イベントでも起きる（下の間引きつき）。
     occupancy_interval_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_INTERVAL", 30.0)
+        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_INTERVAL", 3.0)
     )
     # 動体イベントで起こされたときの下限間隔。動いているあいだイベントは毎秒何件も飛ぶので、
     # 素直に従うと 0.15 秒ごとに撮って YOLO を回すことになる（実機で観測）。動き始めの1件は
@@ -130,9 +131,10 @@ class CameraConfig:
     # 滞留窓（`課題5` §I の在席 timeout）。静止している人は毎回検出されないので、
     # この時間の内側は居るものとして扱う。180 → 60（知-x・2026-09-19）：1 フレームの誤検出が
     # 窓をまるごと延ばし、無人でも「居る」が 3 分続いて声が出た。見落とし側の余裕を削り、
-    # 誤検出の延びを最大 60 秒に。
+    # 誤検出の延びを最大 60 秒に。60 → 30（知-ai・2026-10-05・本人の決定・仮）：確かめる間隔を 3 秒にしたので、
+    # 見落としを埋める余裕は 10 回ぶんある。誰がいるかは顔ぶれの持ち時間が別に持つ。
     occupancy_dwell_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_DWELL", 60.0)
+        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_DWELL", 30.0)
     )
     # 静止物を人と数えない（知-v・2026-09-18）：人の枠が前回と重なり `static_iou` 以上のまま
     # `static_sec` 動かなければ物とみなす（出入口の暗い塊を 7 分間「1 人」と読んだ）。〔仮〕

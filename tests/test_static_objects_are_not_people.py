@@ -103,12 +103,3 @@ def test_the_sensor_uses_boxes_and_stops_counting_a_static_object(monkeypatch):
     clock["t"] = 1340.0
     asyncio.run(s.check_once())
     assert s._map._seen["正面"] == 1340.0
-
-
-def test_the_presence_window_is_sixty_seconds(monkeypatch):
-    """知-x（2026-09-19）：1 フレームの誤検出が滞留窓（180 秒）を延ばし、無人でも「居る」が 3 分続いた。
-    窓を 60 秒に。静止している人が 60 秒検出されない見落としは受ける（本人の決定・反応の鈍さを嫌う）。"""
-    from familiar_agent.config import CameraConfig
-
-    monkeypatch.delenv("CAMERA_OCCUPANCY_DWELL", raising=False)
-    assert CameraConfig().occupancy_dwell_sec == 60.0
