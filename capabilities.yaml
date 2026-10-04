@@ -85,18 +85,21 @@ capabilities:
       interact with the same instance, each with a separate memory space,
       relationship state, and perspective vector. PersonMemoryManager routes
       memory writes to the current speaker and reads across all present persons.
-      Who is speaking is known from five sources: the `/speaker` command; a name the
-      person says aloud (judged by Jev and matched against FAMILY.md in
-      `core/speaker_claim.py`); the voice itself (ECAPA-TDNN on the CPU, compared with
-      each person's registered and today's voice, `core/voice_speaker.py`); a guess from
-      a photo the agent took (confidence is capped, `core/seen_people.py`); and whether
-      anyone is in view at all (YOLO person detection in `occupancy_sensor.py`, which
-      cannot tell who it is). The voice only says who is speaking, never whether anyone
-      is here, and is used only while someone is in view: the current speaker continues
-      above a loose threshold (0.25), another person takes over only above a strict one
-      (0.35), and an unknown voice returns to the default person. A person's voice is
-      learned only from their saying their own name ("パジュ、パパだよ"); there is no
-      recording step, so someone who has never said their name is not recognised by voice.
+      Who is here and who is speaking are kept apart. Occupancy ("someone is here", identity
+      unknown) comes only from the camera (YOLO person detection in `occupancy_sensor.py`,
+      checked every 3 seconds, remembered for 30 seconds). Presence ("who is here") is kept
+      per person for one minute after the last sign of them (a photo, a matched voice or
+      name, `/voice`), even if the camera has turned away; "someone here" means presence
+      first, then occupancy. Who is speaking is known from: the `/speaker` command or a
+      `[name]` prefix; the voice itself (ECAPA-TDNN on the CPU, compared with each person's
+      registered and today's voice, `core/voice_speaker.py`); and a name said aloud, which
+      counts only when the same utterance's voice matches that person. The current speaker
+      continues above 0.25; another person takes over above 0.35 while the camera sees
+      someone, 0.45 when it does not, and 0.30 for the person just named; an unknown voice
+      returns to the default person. A guess from a photo adds people to presence but never
+      sets the speaker. A person's first voice is registered with `/voice name` (speak
+      within 10 seconds); after that, saying one's own name ("パジュ、パパだよ") keeps
+      teaching the voice. Someone never registered is not recognised by voice.
       Face and voice features are kept in PostgreSQL (`recognition_embeddings`). Face
       recognition exists but is not wired in yet, so the agent cannot recognise a face by
       itself.

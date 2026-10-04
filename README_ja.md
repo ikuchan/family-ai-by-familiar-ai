@@ -347,10 +347,14 @@ TIMER_MIC_CLOSE=true       # 省略可。タイマー中は聞かない（止め
 TIMER_CONFIRM=true         # 省略可。掛ける前に一度確かめる。3 つとも設定画面の「タイマー」欄で変えられ、保存した瞬間に効く
 ALARM_RING_SEC=30          # 省略可。アラームの音の秒数（タイマーとは別）
 TIMER_RING_SEC=30          # 省略可。鳴ったら音（自作の timer_alarm.wav）を繰り返す秒数（0 で声だけ）
-SPEAKER_HOLD_SEC=60        # 省略可。自分が話してから／/speaker を打ってから「居る」とみなす秒数（マイクの声は数えない）
-CAMERA_OCCUPANCY_DWELL=180 # 省略可。カメラが人を見てから「居る」が続く秒数
+SPEAKER_HOLD_SEC=60        # 省略可。話者を付けてから／その人に返事してから、話者が分かっているとみなす秒数
+CAMERA_OCCUPANCY_INTERVAL=3 # 省略可。カメラで在席（誰か居るか）を確かめる間隔（秒）
+CAMERA_OCCUPANCY_DWELL=30  # 省略可。カメラが人を見てから在席が続く秒数
 DRIVE_VOICE_NUDGE=0.5      # 省略可。誰も映っていないのに声がしたとき、見回りたい気持ち（SEEKING）に足す量
-PRESENCE_EXPIRE_SEC=60     # 省略可。カメラが誰も見ない状態が続いたら顔ぶれ表を空にする秒数
+PRESENCE_HOLD_SEC=60       # 省略可。顔ぶれ（誰が居るか）を、最後にその人だと分かってから保つ秒数
+VOICE_ALONE_THRESHOLD=0.45 # 省略可。カメラも名乗りも無いとき、声で話者を付け替える閾値
+VOICE_CLAIM_THRESHOLD=0.30 # 省略可。名乗った本人に対する声の閾値
+VOICE_ENROLL_SEC=10        # 省略可。/voice 名前 のあと声を登録する受付の秒数
 ```
 
 音声入力（ハンズフリー）を有効にする場合：
