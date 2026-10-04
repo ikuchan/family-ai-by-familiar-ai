@@ -100,15 +100,13 @@ def test_an_unknown_voice_returns_to_the_default_person():
     assert s.added == []
 
 
-def test_nothing_happens_without_presence_or_a_voice():
-    ip, a, s = _ip(present=0.0)
-    asyncio.run(ip._match_voice(TAIKI))
-    ip2, a2, s2 = _ip()
-    asyncio.run(ip2._match_voice(None))
-    for agent, store in ((a, s), (a2, s2)):
-        agent._persons.set_active.assert_not_called()
-        agent._persons.reset_to_default.assert_not_called()
-        assert store.added == []
+def test_nothing_happens_without_a_voice():
+    """在席が無くても照らす（知-ai・`test_voice_without_occupancy`）。声の特徴が無ければ何もしない。"""
+    ip, a, s = _ip()
+    asyncio.run(ip._match_voice(None))
+    a._persons.set_active.assert_not_called()
+    a._persons.reset_to_default.assert_not_called()
+    assert s.added == []
 
 
 def test_no_voices_at_all_change_nothing():

@@ -1,10 +1,9 @@
-"""名乗りで声の基準を育てる（知-ae 段 5・2026-10-02・本人の決定ウ・`設計方針_声で話者を見分ける` v0.1）。
+"""名乗りで声の基準を育てる（知-ae 段 5・2026-10-02 → 知-ai 段 4・2026-10-05 で改めた）。
 
-録音の手順は作らない。名乗り（「パジュ、パパだよ」）が話者に付いたとき、その発話の声を、その人の**登録の声**
-（日をまたいで残る・上限 30）と**今日の声**（その日だけ・上限 10）に足す。
+名乗り（「パジュ、パパだよ」）の声が名乗った本人に当たって話者に付いたとき（`voice_claim_threshold`・0.30）、その
+発話の声を、その人の**登録の声**（日をまたいで残る・上限 30）と**今日の声**（その日だけ・上限 10）に足す。
+本人の声の基準がまだ無いときは名乗りでは育てない（最初の登録は `/voice`・知-ai）。名乗りの預かりは撤去した。
 
-- 声のある発話で話者がはっきり分かるのは名乗りだけ（`/speaker`・`[名前]` はキーボード）。
-- 預かった名乗り（在席が無かった・知-w-ろ）は、声も一緒に預け、付いたときに足す。捨てたときは足さない。
 - 家族に無い名前・声の特徴が無い発話では足さない。
 - 厳しい閾値の当たり（段 4）は今日の声にだけ足し、登録の声には足さない——推定が日をまたいで残ると、取り違えが
   積み重なる。
@@ -27,8 +26,8 @@ def _claim(ip, name: str):
     )
 
 
-def test_a_claim_with_presence_grows_registered_and_today():
-    ip, a, s = _ip(speaker=None, store=_Store())
+def test_a_claim_whose_voice_matches_grows_registered_and_today():
+    ip, a, s = _ip(present=0.0, speaker=None, store=_Store(registered={"papa": PAPA}))
     ip._req.voice = PAPA
     _claim(ip, "パパ")
     a._persons.set_active.assert_called_once_with("パパ")
@@ -36,7 +35,7 @@ def test_a_claim_with_presence_grows_registered_and_today():
 
 
 def test_a_claim_by_the_current_speaker_still_grows():
-    ip, a, s = _ip(speaker="パパ", store=_Store())
+    ip, a, s = _ip(speaker="パパ", store=_Store(registered={"papa": PAPA}))
     a._persons.active_name = "パパ"
     ip._req.voice = PAPA
     _claim(ip, "パパ")
@@ -44,7 +43,7 @@ def test_a_claim_by_the_current_speaker_still_grows():
 
 
 def test_no_voice_or_an_unknown_name_grows_nothing():
-    ip, a, s = _ip(speaker=None, store=_Store())
+    ip, a, s = _ip(speaker=None, store=_Store(registered={"papa": PAPA}))
     ip._req.voice = None
     _claim(ip, "パパ")
     assert s.added == []
@@ -53,28 +52,12 @@ def test_no_voice_or_an_unknown_name_grows_nothing():
     assert s.added == []
 
 
-def test_a_kept_claim_carries_its_voice_and_grows_when_it_lands(monkeypatch):
-    ip, a, s = _ip(present=0.0, speaker=None, store=_Store())
-    ip._req.voice = TAIKI
-    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: 1000.0)
-    _claim(ip, "たいき")
-    assert s.added == []
-    ip._req.voice = PAPA  # 次の求めは別の発話（声は預けたほうを使う）
-    a._occupancy = MagicMock(return_value=1.0)
-    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: 1010.0)
-    asyncio.run(ip._apply_pending_claim())
-    a._persons.set_active.assert_called_once_with("たいき")
-    assert s.added == [("taiki", "voice", "registered", 30), ("taiki", "voice", "today", 10)]
-
-
-def test_an_expired_kept_claim_grows_nothing(monkeypatch):
-    ip, a, s = _ip(present=0.0, speaker=None, store=_Store())
-    ip._req.voice = TAIKI
-    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: 1000.0)
-    _claim(ip, "たいき")
-    a._occupancy = MagicMock(return_value=1.0)
-    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: 1100.0)
-    asyncio.run(ip._apply_pending_claim())
+def test_a_claim_by_someone_without_a_voice_grows_nothing():
+    """最初の登録は `/voice`（知-ai・本人の決定ウ）。名乗りだけでは育てない。"""
+    ip, a, s = _ip(speaker=None, store=_Store())
+    ip._req.voice = PAPA
+    _claim(ip, "パパ")
+    a._persons.set_active.assert_not_called()
     assert s.added == []
 
 
@@ -85,7 +68,7 @@ def test_a_strict_match_alone_never_grows_registered():
 
 
 def test_a_store_failure_does_not_stop_the_claim():
-    ip, a, s = _ip(speaker=None, store=_Store())
+    ip, a, s = _ip(speaker=None, store=_Store(registered={"papa": PAPA}))
     s.add = MagicMock(side_effect=RuntimeError("db"))  # type: ignore[method-assign]
     ip._req.voice = PAPA
     _claim(ip, "パパ")

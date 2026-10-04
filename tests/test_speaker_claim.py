@@ -13,6 +13,7 @@ import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.core.speaker_claim import resolve_claim
+from familiar_agent.config import RecognitionConfig
 from familiar_agent.loop import arbiter
 from tests._arbiter_fakes import decide, jev_says, writer_says
 from familiar_agent.loop.event_loop import InformationProcessing
@@ -93,18 +94,24 @@ def test_the_arbiter_carries_the_claim_and_drops_it_on_a_tool_return():
     assert "claims" not in asked(tool_return=True)
 
 
-def _ip(*, present: float):
+def _ip(*, present: float, score: "float | None" = 0.9):
+    """名乗った本人の声への似かた（`_claim_score`）を差し替える。知-ai から、名乗りは声が本人に当たるときだけ付く。"""
     a = _agent(stream_returns=[])
     a._family_md = FAMILY
     a._occupancy = MagicMock(return_value=present)
     a._persons.active_name = "推定話者"
     a._sync_pmm_speaker = AsyncMock()
+    a.config.recognition = RecognitionConfig()
     ip = InformationProcessing(a)
+    ip._req.voice = [1.0]  # 声の特徴がある発話
+    ip._claim_score = lambda pid, voice: score  # type: ignore[method-assign]
+    ip._learn_voice = MagicMock()  # type: ignore[method-assign]
     return ip, a
 
 
-def test_a_claim_with_presence_sets_the_speaker_like_the_command():
-    ip, a = _ip(present=1.0)
+def test_a_claim_whose_voice_matches_sets_the_speaker_like_the_command():
+    """在席（カメラ）は見ない（知-ai）。声が本人に当たれば `/speaker` と同じ効き。"""
+    ip, a = _ip(present=0.0)
     d = arbiter.Decision(branch="light", text="x", speaker_claim="ゆうすけ")
     asyncio.run(ip._apply_speaker_claim(d))
     a._persons.set_active.assert_called_once_with("パパ")
@@ -112,8 +119,8 @@ def test_a_claim_with_presence_sets_the_speaker_like_the_command():
     a._sync_pmm_speaker.assert_awaited_once_with("パパ")
 
 
-def test_no_presence_or_unknown_name_sets_nothing():
-    ip, a = _ip(present=0.0)
+def test_a_short_voice_or_unknown_name_sets_nothing():
+    ip, a = _ip(present=1.0, score=0.29)  # 声が本人に届かない
     asyncio.run(
         ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
     )
@@ -130,48 +137,5 @@ def test_no_presence_or_unknown_name_sets_nothing():
     a._persons.set_active.assert_not_called()  # 既に同じ話者なら何もしない
 
 
-# ── 名乗りの預かり（知-w-ろ・2026-09-19）────────────────────────────────────
-#
-# 映らない位置の「パパだよ出入口を見て」→ 見回りが首を向けた帰り（13:27:22）に名乗りを読んだが、センサが人を
-# 見たのは 6 秒後（13:27:28）→「在席が無いので話者にしない」→ 入室で「おかえりなさい、パパ」（話者は付かず）。
-# 在席が無くて使えなかった名乗りを **30 秒**預かり、センサが人を見た最初の求めで生きていれば話者に付ける。
-
-
-def test_a_claim_without_presence_is_kept_for_thirty_seconds(monkeypatch):
-    ip, a = _ip(present=0.0)
-    clock = {"t": 1000.0}
-    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: clock["t"])
-    asyncio.run(
-        ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
-    )
-    a._persons.set_active.assert_not_called()
-    assert ip._pending_claim == (
-        "パパ",
-        1000.0,
-        None,
-    )  # 声の特徴も預ける（知-ae 段 5・この発話には無い）
-    # 人が映った最初の求めで付く
-    a._occupancy = MagicMock(return_value=1.0)
-    clock["t"] = 1006.0
-    asyncio.run(ip._begin_request(kind="機器", text="[入室] 誰か が来た"))
-    a._persons.set_active.assert_called_once_with("パパ")
-    assert ip._pending_claim is None
-
-
-def test_a_kept_claim_expires_and_an_unknown_name_is_not_kept(monkeypatch):
-    ip, a = _ip(present=0.0)
-    clock = {"t": 1000.0}
-    monkeypatch.setattr("familiar_agent.loop.event_loop.time.time", lambda: clock["t"])
-    asyncio.run(
-        ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="パパ"))
-    )
-    a._occupancy = MagicMock(return_value=1.0)
-    clock["t"] = 1031.0  # 30 秒を過ぎた
-    asyncio.run(ip._begin_request(kind="機器", text="[入室] 誰か が来た"))
-    a._persons.set_active.assert_not_called()
-    assert ip._pending_claim is None
-    ip, a = _ip(present=0.0)
-    asyncio.run(
-        ip._apply_speaker_claim(arbiter.Decision(branch="light", text="x", speaker_claim="太郎"))
-    )
-    assert ip._pending_claim is None  # 家族に無い名前は預からない
+# 名乗りの預かり（知-w-ろ・在席が無い名乗りを 30 秒預かる）は知-ai で撤去した。名乗りは在席を見ず、声が本人に
+# 当たるときだけ付く（`test_voice_without_occupancy`）。

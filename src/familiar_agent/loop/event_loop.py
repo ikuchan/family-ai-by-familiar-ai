@@ -107,8 +107,6 @@ _ALARM_ACTIONS = ("set_alarm", "cancel_alarm")
 # 確認待ちへの答え（出-y・2026-09-18）。預かりが生きているあいだだけ候補と道具に載る（`agent.confirm_alive`）。
 # 機械が預かった入力で掛ける／捨てる。返りは道具の帰りと同じ道（想起なし・`workspace.RETURN_WITHOUT_RECALL`）。
 _CONFIRM_ACTIONS = ("confirm", "decline")
-#: 在席が無い名乗りを預かる秒数（知-w-ろ・2026-09-19・本人が 30 と決めた）。テレビの名乗りの直後に人が入る誤りは短さで受ける。
-PENDING_CLAIM_SEC = 30.0
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
@@ -722,9 +720,6 @@ class InformationProcessing:
         self._on_request_state = None
         # 投げる前に控える1件（`_start_lookup` が置き、背景タスクが読む）。
         self._pending_lookup: tuple[str, dict, str] = ("", {}, "recall")
-        # 在席が無くて使えなかった名乗り（名前・時刻）。30 秒預かる（知-w-ろ）。
-        # 預かった名乗り：(呼びかけ名, 預けた時刻, その発話の声の特徴)。声は付いたときに基準へ足す（知-ae 段 5）。
-        self._pending_claim: "tuple[str, float, Any] | None" = None
 
     def _note_origin(self, obs_id: str | None) -> None:
         """このターンの起点を控える。
@@ -2081,7 +2076,6 @@ class InformationProcessing:
         self._pending_heard = []
         # 確認待ち（出-y）。この求めの W の最上部に載せる。預かりが無い・寿命切れなら空。
         self._req.confirm_frame = self._confirm_frame()
-        await self._apply_pending_claim()  # 預かった名乗り（知-w-ろ）
         # **人の言葉は、その人がやったことである。** `actor` の面（`situated_memories`）は
         # 話者に立てる。想起は `_active_memory()`＝話者の面を引くので、`__self__` の面に
         # しか立てないと、**その人の面にはその人が言ったことが1件も無くなる**。
@@ -3796,11 +3790,15 @@ class InformationProcessing:
         logger.info("「%s ではない」と言われたので顔ぶれから外した", name)
 
     async def _apply_speaker_claim(self, decision) -> None:
-        """調停が読んだ名乗り（`speaker_claim`）を、在席があるときだけ話者に付ける（知-w・2026-09-19）。
+        """調停が読んだ名乗り（`speaker_claim`）を、**その発話の声が名乗った本人に当たるとき**だけ話者に付ける。
 
-        在席（居るか）はカメラだけで決める（マイクは証拠にしない）。カメラが人を見ていれば、声の名乗りは
-        `/speaker` と同じ効き（`set_active`・`_speaker_set_at`・PMM 同期）。家族に無い名前は付けない。
-        入口で飲まれた発話はここまで来ないので、在席なしの名乗りは自然に使われない。
+        知-ai（2026-10-05・本人の決定・`設計方針_在席と顔ぶれ` v0.1）で改めた。名乗りは言葉だけでは顔ぶれに入れず、
+        名乗った本人に対する声の閾値を下げる印にする（`voice_claim_threshold`・0.30）。在席（カメラ）は見ない。
+        当たれば `/speaker` と同じ効きで話者に付け（顔ぶれにも入る）、その声を登録の声と今日の声に足す。
+        本人の声の基準がまだ無い・声の特徴が無い・届かないときは何もしない（最初の登録は `/voice`）。
+
+        以前（知-w・知-w-ろ）は在席があれば名乗りだけで付け、無ければ 30 秒預かっていた。テレビの「パパだよ」でも
+        付きえたうえ、在席を顔ぶれの門に使う上下が逆の形だった。
         """
         from ..core.speaker_claim import resolve_claim
 
@@ -3812,21 +3810,50 @@ class InformationProcessing:
         if name is None:
             logger.info("名乗り「%s」は家族に無いので話者にしない", claim)
             return
-        if not self._occupied():
-            # 在席が無い名乗りは 30 秒預かる（知-w-ろ・実機 13:27：見回りの帰りに名乗りを読んだ 6 秒後に
-            # センサが人を見た）。人を見た最初の求め（`_begin_request`）で生きていれば付ける。
-            self._pending_claim = (name, time.time(), getattr(self._req, "voice", None))
-            logger.info("名乗り「%s」があるが在席が無いので %.0f 秒預かる", name, PENDING_CLAIM_SEC)
+        voice = getattr(self._req, "voice", None)
+        pid = agent._pmm.find_person_id_by_name(name)
+        if voice is None or not pid:
+            logger.info("名乗り「%s」に声の特徴が無いので話者にしない", name)
             return
-        await self._set_speaker(name, "在席あり")
-        self._learn_voice(name, getattr(self._req, "voice", None))
+        score = self._claim_score(pid, voice)
+        threshold = agent.config.recognition.voice_claim_threshold
+        if score is None or score < threshold:
+            logger.info(
+                "名乗り「%s」の声が本人に当たらない（%s・閾値 %.2f）",
+                name,
+                "基準なし" if score is None else f"{score:.2f}",
+                threshold,
+            )
+            return
+        await self._set_speaker(name, f"名乗り＋声 {score:.2f}")
+        self._learn_voice(name, voice)
+
+    def _claim_score(self, pid: str, voice: Any) -> "float | None":
+        """名乗った本人の登録の声・今日の声に対する似かた（近いほう）。本人の基準が無ければ None。"""
+        from datetime import datetime
+
+        from ..core import voice_speaker
+        from ..store.clock import local_tz
+
+        try:
+            store = self._voice_store()
+            today = datetime.now(local_tz()).date()
+            registered = {
+                k: v for k, v in store.centroids("voice", "registered").items() if k == pid
+            }
+            todays = {
+                k: v for k, v in store.centroids("voice", "today", day=today).items() if k == pid
+            }
+        except Exception:  # noqa: BLE001
+            logger.warning("名乗りの声を照らせなかった", exc_info=True)
+            return None
+        return voice_speaker.scores(voice, registered, todays).get(pid)
 
     def _learn_voice(self, name: str, voice: Any) -> None:
-        """名乗りが話者に付いた発話の声を、その人の登録の声と今日の声に足す（知-ae 段 5・本人の決定ウ）。
+        """名乗りが本人の声に当たった発話の声を、その人の登録の声と今日の声に足す（知-ae 段 5・知-ai）。
 
-        録音の手順は作らない。声のある発話で話者がはっきり分かるのは名乗りだけなので、登録の声（日をまたいで
-        残る）を育てるのはここだけにする——厳しい閾値の当たり（`_match_voice`）は今日の声にだけ足す。
-        すでに同じ話者でも足す（名乗りは確かな印）。失敗しても話者の付け方は変えない。
+        登録の声（日をまたいで残る）を育てるのは、名乗りが当たったときと `/voice` だけにする——付け替えの閾値の
+        当たり（`_match_voice`）は今日の声にだけ足す。すでに同じ話者でも足す。失敗しても話者の付け方は変えない。
         """
         if voice is None:
             return
@@ -3877,14 +3904,15 @@ class InformationProcessing:
         return call_name_of(member) if member else (name or None)
 
     async def _match_voice(self, voice: Any) -> None:
-        """門を通った声で、誰が話しているかを決める（知-ae 段 4・`設計方針_声で話者を見分ける` v0.1）。
+        """門を通った声で、誰が話しているかを決める（知-ae 段 4・知-ai 段 4・`設計方針_在席と顔ぶれ` v0.1）。
 
-        声が決めるのは話者だけで、在席はカメラが決める——在席が無ければ照らさない。規則は
-        `core/voice_speaker.decide`（いまの話者は緩い閾値で続け、別の人へは厳しい閾値で付け替え、どちらでも
-        なければ既定の人に戻す）。厳しい閾値で当たった声は今日の声に足す（登録の声に足すのは名乗りだけ）。
+        **在席（カメラ）を待たない**（知-ai）。声で誰か分かるなら、それは顔ぶれの証拠になる。規則は
+        `core/voice_speaker.decide`：いまの話者は緩い閾値（0.25）で続け、別の人への付け替えは状況で変える——在席あり
+        `voice_switch_threshold`（0.35）、無し `voice_alone_threshold`（0.45）。どちらでもなければ既定の人に戻す。
+        続けたときも、その人の顔ぶれの持ち時間を数え直す。付け替えの閾値で当たった声は今日の声に足す。
         失敗しても会話は止めない。
         """
-        if voice is None or not self._occupied():
+        if voice is None:
             return
         from datetime import datetime
 
@@ -3901,11 +3929,12 @@ class InformationProcessing:
                 store.centroids("voice", "registered"),
                 store.centroids("voice", "today", day=today),
             )
+            strict = cfg.voice_switch_threshold if self._occupied() else cfg.voice_alone_threshold
             verdict = voice_speaker.decide(
                 self._current_speaker_pid(),
                 scores,
                 loose=cfg.voice_threshold,
-                strict=cfg.voice_switch_threshold,
+                strict=strict,
             )
             if verdict.sure and verdict.person_id:
                 store.add(verdict.person_id, "voice", "today", voice, cap=cfg.today_max, day=today)
@@ -3924,6 +3953,9 @@ class InformationProcessing:
                 "声が誰にも当たらないので、話者を既定の人に戻した（最も近い %.2f）", verdict.score
             )
         else:
+            if verdict.action == "keep" and verdict.person_id:
+                with contextlib.suppress(Exception):
+                    self._agent._pmm.refresh_signal(verdict.person_id)  # 顔ぶれの持ち時間を数え直す
             logger.debug("声：%s（%s %.2f）", verdict.action, verdict.person_id, verdict.score)
 
     def _occupied(self) -> bool:
@@ -3938,27 +3970,17 @@ class InformationProcessing:
         if str(getattr(agent._persons, "active_name", "") or "") == name and getattr(
             agent._persons, "active_is_explicit", False
         ):
+            # 同じ話者のままでも、その人だと分かる印なので顔ぶれの持ち時間は数え直す（知-ai）。
+            with contextlib.suppress(Exception):
+                pid = agent._pmm.find_person_id_by_name(name)
+                if pid:
+                    agent._pmm.refresh_signal(pid)
             return
         agent._persons.set_active(name)
         agent._speaker_set_at = time.time()
         with contextlib.suppress(Exception):
             await agent._sync_pmm_speaker(name)
         logger.info("話者を付けた：%s（%s）", name, why)
-
-    async def _apply_pending_claim(self) -> None:
-        """預かった名乗りを、人を見た最初の求めで付ける（30 秒以内・知-w-ろ）。過ぎていれば捨てる。"""
-        kept = getattr(self, "_pending_claim", None)
-        if kept is None:
-            return
-        name, at, voice = kept
-        if time.time() - at > PENDING_CLAIM_SEC:
-            self._pending_claim = None
-            logger.info("預かった名乗り「%s」は %.0f 秒過ぎたので捨てた", name, PENDING_CLAIM_SEC)
-            return
-        if self._occupied():
-            self._pending_claim = None
-            await self._set_speaker(name, "預かり・在席が付いた")
-            self._learn_voice(name, voice)  # 預けたときの発話の声（いまの求めの声ではない）
 
     def _apply_silence(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。

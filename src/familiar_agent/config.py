@@ -552,6 +552,15 @@ class RecognitionConfig:
     voice_switch_threshold: float = field(
         default_factory=lambda: _float_env("VOICE_SWITCH_THRESHOLD", 0.35)
     )
+    # 声で顔ぶれに入れる・話者を付け替える閾値は状況で変える（知-ai・2026-10-05・本人の決定ア・仮）。
+    # 在席ありは上の `voice_switch_threshold`（0.35）。名乗りあり（名乗った本人にだけ）は低く、何もなし（在席も
+    # 名乗りも無い）は高くする。いまの話者を続ける `voice_threshold`（0.25）は状況によらない。
+    voice_claim_threshold: float = field(
+        default_factory=lambda: _float_env("VOICE_CLAIM_THRESHOLD", 0.30)
+    )
+    voice_alone_threshold: float = field(
+        default_factory=lambda: _float_env("VOICE_ALONE_THRESHOLD", 0.45)
+    )
     # 貯める特徴の上限（1 人・種類ごと。超えたら古いものから捨てる・知-ae・本人の決定ア・仮の値）。
     # 登録は日をまたいで残る（声は名乗りで育つ）。今日の声はその日だけ。
     registered_max: int = field(default_factory=lambda: _int_env("RECOGNITION_REGISTERED_MAX", 30))
