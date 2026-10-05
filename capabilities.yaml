@@ -289,3 +289,20 @@ capabilities:
       line remains. `/season clear` wipes it. Stored in `agent_state.season_env`.
       Implemented in `core/season_env.py` and `loop/rest_season.py`.
     enabled: true
+  - id: credit_alert
+    summary: Say out loud when an AI provider has run out of credit
+    detail: >
+      When the main LLM, the utility LLM or Jev answers that its credit has run out
+      (Gemini's 402 "prepayment credits are depleted" was seen for real; Anthropic's
+      "credit balance is too low", OpenAI-style `insufficient_quota` and Jev's 402 are
+      from the providers' documents), the agent stops retrying and keeps a dedicated
+      "want to tell" drive for that provider in `agent_state.credit_alerts`. It clears as
+      soon as one call to that provider goes through. Whenever someone arrives (nobody
+      here -> someone here, by presence or occupancy), the agent plays a pre-recorded
+      voice, e.g. "ジェミニのクレジットが足りなくなりました。" — no LLM and no live TTS,
+      since they may be the ones that ran out. It does not repeat while people stay,
+      waits while asked to be quiet, and also speaks at night. The recordings are in
+      `sounds/credit_<provider>.wav`, made once with the gen_credit_voices script.
+      Implemented in `core/credit.py`, `backends/shared.watch_credit` and
+      `loop/tonic.py`.
+    enabled: true
