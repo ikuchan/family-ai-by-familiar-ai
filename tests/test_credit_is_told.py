@@ -134,3 +134,33 @@ def test_the_recording_is_played_by_provider_name(monkeypatch, tmp_path):
     assert asyncio.run(d.say_credit("gemini", gain=0.25)) is True
     assert played.await_args.args == (tmp_path / "credit_gemini.wav", 0.25)
     assert asyncio.run(d.say_credit("kimi", gain=0.25)) is False  # 録音が無くても落ちない
+
+
+# ── 録音（環-z 段 4）─────────────────────────────────────────────────────────
+
+
+def test_every_provider_has_a_reading_and_a_recording():
+    """担い手ごとに読み上げる名前があり、録音（`scripts/gen_credit_voices.py` が作る）がそろっている。"""
+    import pathlib
+
+    from familiar_agent.backends.anthropic import AnthropicBackend
+    from familiar_agent.backends.gemini import GeminiBackend
+    from familiar_agent.backends.glm import GLMBackend
+    from familiar_agent.backends.kimi import KimiBackend
+    from familiar_agent.backends.openai_compat import OpenAICompatibleBackend
+
+    names = {
+        b.credit_name
+        for b in (AnthropicBackend, GeminiBackend, GLMBackend, KimiBackend, OpenAICompatibleBackend)
+    } | {"jev"}
+    assert set(credit.READINGS) == names
+    assert credit.READINGS["anthropic"] == "クロード" and credit.READINGS["jev"] == "ジェブ"
+    sounds = pathlib.Path(__file__).resolve().parents[1] / "src" / "familiar_agent" / "sounds"
+    for name in names:
+        wav = sounds / f"credit_{name}.wav"
+        assert wav.exists() and wav.stat().st_size > 10_000, wav.name
+        assert wav.read_bytes()[:4] == b"RIFF"
+
+
+def test_the_sentence():
+    assert credit.sentence("gemini") == "ジェミニのクレジットが足りなくなりました。"

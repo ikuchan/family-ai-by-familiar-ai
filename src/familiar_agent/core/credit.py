@@ -13,6 +13,22 @@
 
 from __future__ import annotations
 
+#: 担い手ごとの読み上げる名前（本人の決定・2026-10-05）。録音 `sounds/credit_<担い手>.wav` の文になる。
+READINGS: "dict[str, str]" = {
+    "anthropic": "クロード",
+    "gemini": "ジェミニ",
+    "openai": "チャットジーピーティー",
+    "glm": "ジーエルエム",
+    "kimi": "キミ",
+    "jev": "ジェブ",
+}
+
+
+def sentence(name: str) -> str:
+    """その担い手の残高切れを知らせる一言（録音する文）。"""
+    return f"{READINGS[name]}のクレジットが足りなくなりました。"
+
+
 _MARKERS = (
     "credits are depleted",
     "prepayment credits",
