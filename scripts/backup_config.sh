@@ -30,8 +30,14 @@ LOG_PREFIX="[$(date +%Y-%m-%dT%H:%M:%S)]"
 log()     { echo "$LOG_PREFIX $*"; }
 log_err() { echo "$LOG_PREFIX $*" >&2; }
 
-# リポジトリ直下で gitignore されていて、失うと戻らないもの。
-REPO_FILES=(.env ME.md FAMILY.md ROUTINES.md)
+# リポジトリ直下で gitignore されていて、失うと戻らないもの（人が書く設定・2026-10-05 に MUSIC.md を足し、
+# 読む仕組みごと撤去した ROUTINES.md を外した）。無ければ「missing」と言う。
+REPO_FILES=(.env ME.md FAMILY.md MUSIC.md)
+# 作っていなくてもよいもの（あれば送る・無くても黙る）。
+OPTIONAL_REPO_FILES=(PEOPLE.md)
+# `~/.familiar_ai/` の小さなもの（Spotify の鍵・作業メモ）。撮った写真（captures/）は大きいので送らない。
+HOME_DIR="${HOME_DIR:-$HOME/.familiar_ai}"
+HOME_FILES=(spotify_token.json FAMILY_答え_作業中.md)
 
 # ── 対象を数える ────────────────────────────────────────────────────────────
 present_files=()
@@ -43,10 +49,21 @@ for f in "${REPO_FILES[@]}"; do
         log "missing (not backed up): $f"
     fi
 done
+for f in "${OPTIONAL_REPO_FILES[@]}"; do
+    [ -f "$PROJECT_DIR/$f" ] && present_files+=("$f")
+done
+present_home=()
+for f in "${HOME_FILES[@]}"; do
+    if [ -f "$HOME_DIR/$f" ]; then
+        present_home+=("$f")
+    else
+        log "missing (not backed up): $HOME_DIR/$f"
+    fi
+done
 [ -d "$RESTORE_DIR" ] || log "missing (not backed up): $RESTORE_DIR"
 [ -d "$MEMORY_DIR" ]  || log "missing (not backed up): $MEMORY_DIR"
 
-if [ "${#present_files[@]}" -eq 0 ] && [ ! -d "$RESTORE_DIR" ] && [ ! -d "$MEMORY_DIR" ]; then
+if [ "${#present_files[@]}" -eq 0 ] && [ "${#present_home[@]}" -eq 0 ] && [ ! -d "$RESTORE_DIR" ] && [ ! -d "$MEMORY_DIR" ]; then
     log "nothing to back up — no target exists"
     exit 0
 fi
@@ -83,11 +100,16 @@ transfer() {
     log "verified ${label}"
 }
 
+FILE_LIST="$(mktemp)"
+HOME_LIST="$(mktemp)"
+trap 'rm -f "$FILE_LIST" "$HOME_LIST"' EXIT
 if [ "${#present_files[@]}" -gt 0 ]; then
-    FILE_LIST="$(mktemp)"
-    trap 'rm -f "$FILE_LIST"' EXIT
     printf '%s\n' "${present_files[@]}" > "$FILE_LIST"
     transfer "repo files (${present_files[*]})" "$PROJECT_DIR" "$CONFIG_REMOTE/repo" --files-from "$FILE_LIST"
+fi
+if [ "${#present_home[@]}" -gt 0 ]; then
+    printf '%s\n' "${present_home[@]}" > "$HOME_LIST"
+    transfer "home files (${present_home[*]})" "$HOME_DIR" "$CONFIG_REMOTE/home" --files-from "$HOME_LIST"
 fi
 [ -d "$RESTORE_DIR" ] && transfer "$RESTORE_DIR" "$RESTORE_DIR" "$CONFIG_REMOTE/restore"
 [ -d "$MEMORY_DIR" ]  && transfer "$MEMORY_DIR"  "$MEMORY_DIR"  "$CONFIG_REMOTE/memory"
