@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v1.25）
+# familiar-ai 用語・略語一覧（v1.26）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -109,6 +109,7 @@
 | I | 発話前の検査 | speech check | `loop/speech_check.py`・`jev_judges.judge_speech` | 主LLM の `say` の文を**声にする前に**、規則（チェッカーの規則）に反していないかを Jev が外から見る（出-au 段 5-3・2026-09-27。それまでは軽量LLM）。迷えば「破っていない」へ倒す。材料は直近のやりとりと、機械が知っている事実（見たか・届いた結果・申告した記憶）。反していれば主LLM へ 1 回だけ差し戻す。調停の `light` の文は通さない。切るときは `FAMILIAR_SPEECH_CHECK=0`。旧名は「整合チェック」（`coherence`）——何と何の整合かが名前から分からなかったので改めた（出-ag-ろ・2026-09-25）。 |
 | I | ウェイクワード | wake word | `core/wake_window.heard_name` | 声を会話として受けるきっかけ。書き起こしを直した後の文の**文頭に** `ME.md` の名前があれば聞いたとみなす（2026-09-30 に文のどこかから改めた・文頭の空白と記号は飛ばし、呼びかけの言葉は飛ばさない・1 字違いまで・`names_me` と同じ）。名前が設定されていなければ声は何も聞かない（出-as・2026-09-26）。出-au からはキーボードも同じで、名前がある入力だけが途中の求めを打ち切る。 |
 | I | 窓（会話の窓） | wake window | `core/wake_window.WakeWindow`・`InformationProcessing._wake` | ウェイクワードを聞いて開く **30 秒**（出-au で 1 分から改めた）。窓の中の入力は会話として受け、窓の外の入力は捨てる（打ち切りも時刻の印も付けない）。窓の中の入力・返事・つなぎで、そこから 30 秒へ延ばす（切れた後は延ばさない）。**声もキーボードも**文頭の名前で開く。**届いた時刻**で判定する。出来事で開け閉めし、声が鳴ったか・マイクで聞いたかは見ない（`.env.quiet` でも同じ・出-as）。 |
+| I | 名前で起きる基準 | wake strictness | `core/wake_strictness`・`InformationProcessing._wake_admits` | 窓が閉じているときに声で名前が聞こえたら、会話の窓を開けてよいかを書き起こしの無音らしさと確かさで判定する（出-aw・2026-10-06）。**ふだん**と**厳しい**の 2 段で、厳しいのは最後の会話から 10 分たって居ないとき、または誰の声か分からないとき。名前だけの短い声は確かさが届かなければ捨てる。正本は `設計方針_話していいかの決まり` §2.3a。 |
 | I | 入力の出どころ | input source | `core/wake_window.VoiceText`・`source_of`・`Trigger.source` | 会話入力が声（`voice`）かキーボード（`keyboard`）か。声の書き起こしは積むときに `VoiceText`、キーボードは `KeyText` の印が付き、どちらも**届いた時刻**を持つ（`arrived_at`・出-au）。印が無ければキーボードで、届いた時刻は読んだ時刻。 |
 | I | チェッカーの規則 | checker rules | `CHECKER_RULE_IDS` | 発話前の検査（Jev）に渡す規則の部分集合。文と機械の事実だけで反しているか言える 8 つ（`no-fake-perception`・`no-invented-knowledge`・`no-past-comparison-without-memory`・`memory-evidence-confidence`・`workspace-is-notes-not-script`・`no-raw-internal-metrics`・`no-tts-tags`・`no-claim-while-confirming`）。正本 `(rules …)` から `rules_for_checker()` が落として作る（出-n・2026-09-13。8 つめは出-ag-ろ・2026-09-21）。 |
 | MI／記憶モデル | MI（メンタルアイテム：Mental Item） | — | — | 記憶 O のレコード。基底 **PI＝emotion/drive**、**MI＝PI＋id/content/vector/supersedes/根づき**。timestamp は store メタdata。kind なし・意味は content→LLM 解釈（[D-MIモデル]・別紙 v2）。**実装クラス名は `MentalItem`**（`PrimitiveMentalItem` を継承し `id`／`content`／`vector`／`supersedes`／`根づき` を足す拡張クラス）。 |
@@ -340,6 +341,7 @@
 
 ## 更新履歴
 
+> v1.26：「名前で起きる基準」を足した（2026-10-06・出-aw）。
 > v1.25：「クレジット切れの知らせ」を足した（2026-10-05・環-z）。
 > v1.24：「顔ぶれの持ち時間」「居る」「声の登録」を足し、「顔ぶれ」「名乗り」「声の照合」を知-ai に合わせて直し、「顔ぶれ表の失効」を廃止とした（2026-10-05）。
 > v1.23：「在席」を不特定の誰かがいるか（occupancy）に戻し、特定の誰がいるかを「顔ぶれ」（presence）として分けた。「顔ぶれ表の失効」「顔ぶれ相関」へ改め、「話者の寿命」「声の照合」を足した。コードの改名（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC` ほか）に合わせた（2026-10-04）。
