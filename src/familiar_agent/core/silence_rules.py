@@ -54,7 +54,7 @@ def _head(text: str) -> str:
     return text[i:]
 
 
-def names_me(utterance: str, names: "list[str] | tuple[str, ...]") -> bool:
+def names_me(utterance: str, names: "list[str] | tuple[str, ...]", *, fuzzy: bool = True) -> bool:
     """発話が自分の名前のどれかで**始まる**か（2026-09-30・本人の決定）。
 
     以前は文の**どこかに**名前があれば当たり、テレビの台詞や名前を話題にしただけの言葉で窓が開いた
@@ -71,7 +71,7 @@ def names_me(utterance: str, names: "list[str] | tuple[str, ...]") -> bool:
             continue
         if text.startswith(n):
             return True
-        if len(n) < 3:
+        if not fuzzy or len(n) < 3:  # 厳しい基準は 1 字違いを許さない（2026-10-05）
             continue
         for width in (len(n), len(n) - 1, len(n) + 1):
             w = text[:width]

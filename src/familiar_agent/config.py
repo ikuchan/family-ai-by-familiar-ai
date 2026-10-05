@@ -518,6 +518,28 @@ class STTConfig:
     # 全件 0.709 以下で完全に分かれたので、その直下を既定にする（根拠は計測台帳）。
     # **境目の隙間は 0.013 しかない。** 実機で外れが出たらこの値を動かす。
     no_speech_max: float = field(default_factory=lambda: _float_env("STT_NO_SPEECH_MAX", 0.72))
+    # 名前で会話の窓を開ける基準（2026-10-05 実機の聞き違い「パジュー」・本人の決定・仮）。名前だけの書き起こしは
+    # 無音らしさ（no_speech_prob）と確かさ（avg_logprob）が届かなければ捨てる。厳しい段は、最後の会話から
+    # `wake_quiet_minutes` たっていて居ないとき、または誰の声か分からないとき（`core/wake_strictness`）。
+    wake_name_no_speech: float = field(
+        default_factory=lambda: _float_env("WAKE_NAME_NO_SPEECH", 0.10)
+    )
+    wake_name_logprob: float = field(default_factory=lambda: _float_env("WAKE_NAME_LOGPROB", -0.65))
+    wake_strict_name_no_speech: float = field(
+        default_factory=lambda: _float_env("WAKE_STRICT_NAME_NO_SPEECH", 0.05)
+    )
+    wake_strict_name_logprob: float = field(
+        default_factory=lambda: _float_env("WAKE_STRICT_NAME_LOGPROB", -0.60)
+    )
+    wake_strict_no_speech: float = field(
+        default_factory=lambda: _float_env("WAKE_STRICT_NO_SPEECH", 0.20)
+    )
+    wake_strict_logprob: float = field(
+        default_factory=lambda: _float_env("WAKE_STRICT_LOGPROB", -0.90)
+    )
+    wake_quiet_minutes: float = field(
+        default_factory=lambda: _float_env("WAKE_QUIET_MINUTES", 10.0)
+    )
     # 1つの発話区間の上限（秒）。雑音が続いたときにメモリと GPU を食い続けないための蓋。
     # whisper は 30 秒単位で処理するので、そこを境目にする。
     max_segment_sec: float = field(default_factory=lambda: _float_env("STT_MAX_SEGMENT_SEC", 30.0))
