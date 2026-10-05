@@ -7,6 +7,10 @@
 動かない枠は数えない。動けば（対応づかなければ）0 から。動体イベントでも 0 から（`reset`）。
 副作用：本当の人が `static_sec` まったく動かないと「居ない」になる。動けば戻る。
 
+枠が抜けても積算を持ち越す（知-v-ろ・2026-10-06）：テレビの定点のレンズ前の物を確かさ 0.25〜0.34 で
+読み、2 枚に 1 枚ほど抜けたので、抜けるたびに積算が空に戻って「1 人」が 4 時間続いた（抜けは最長 80 秒）。
+最後に見えてから `grace_sec` 以内なら、見えなかった枠も起点ごと持ち越す。持ち越した枠は数えない。
+
 ここは純関数。状態（`StaticBoxes`）は定点ごとにセンサが持つ。
 """
 
@@ -19,9 +23,9 @@ Box = tuple[float, float, float, float]  # x1, y1, x2, y2
 
 @dataclass(frozen=True)
 class StaticBoxes:
-    """前回見た枠と、それぞれが動かずに居る起点の時刻。"""
+    """前回までに見た枠と、それぞれが動かずに居る起点の時刻・最後に見えた時刻。"""
 
-    boxes: tuple[tuple[Box, float], ...] = field(default_factory=tuple)
+    boxes: tuple[tuple[Box, float, float], ...] = field(default_factory=tuple)
 
 
 def iou(a: Box, b: Box) -> float:
@@ -42,16 +46,23 @@ def reset(_state: StaticBoxes) -> StaticBoxes:
 
 
 def count_moving(
-    state: StaticBoxes, boxes: list[Box], *, now: float, static_sec: float, min_iou: float
+    state: StaticBoxes,
+    boxes: list[Box],
+    *,
+    now: float,
+    static_sec: float,
+    min_iou: float,
+    grace_sec: float = 0.0,
 ) -> tuple[int, StaticBoxes]:
     """いま見えた枠のうち**人として数える数**と、次回に渡す状態。
 
     前回の枠と貪欲に対応づける（IoU の高い組から）。対応づいた枠は起点を引き継ぎ、
     `now − 起点 >= static_sec` なら数えない。対応づかなかった枠は起点＝`now`（数える）。
+    対応づかなかった前回の枠は、最後に見えてから `grace_sec` 以内なら持ち越す（数えない）。
     """
     prev = list(state.boxes)
     pairs = sorted(
-        ((iou(b, pb), i, j) for i, b in enumerate(boxes) for j, (pb, _) in enumerate(prev)),
+        ((iou(b, pb), i, j) for i, b in enumerate(boxes) for j, (pb, _, _) in enumerate(prev)),
         key=lambda t: -t[0],
     )
     since: dict[int, float] = {}
@@ -63,11 +74,12 @@ def count_moving(
             continue
         since[i] = prev[j][1]
         used.add(j)
-    nxt: list[tuple[Box, float]] = []
+    nxt: list[tuple[Box, float, float]] = []
     counted = 0
     for i, b in enumerate(boxes):
         start = since.get(i, now)
         if now - start < static_sec:
             counted += 1
-        nxt.append((b, start))
+        nxt.append((b, start, now))
+    nxt.extend(e for j, e in enumerate(prev) if j not in used and now - e[2] <= grace_sec)
     return counted, StaticBoxes(boxes=tuple(nxt))

@@ -55,11 +55,13 @@ class OccupancySensor:
         min_gap_sec: float = 3.0,
         static_sec: float = 300.0,
         static_iou: float = 0.9,
+        static_grace_sec: float = 0.0,
     ) -> None:
         self._camera = camera
         # 静止物を人と数えない（知-v）。定点ごとに前回の枠と起点を持つ。
         self._static_sec = static_sec
         self._static_iou = static_iou
+        self._static_grace = static_grace_sec  # 枠が抜けても積算を持ち越す（知-v-ろ）
         self._static: dict[str, StaticBoxes] = {}
         self._last_reading: "tuple[str, int, float] | None" = (
             None  # 定点・人数・時刻（パネル用・環-p-ろ）
@@ -171,6 +173,7 @@ class OccupancySensor:
             now=now,
             static_sec=self._static_sec,
             min_iou=self._static_iou,
+            grace_sec=self._static_grace,
         )
         if len(boxes) > people:
             logger.debug(

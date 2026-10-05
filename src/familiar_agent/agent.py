@@ -576,6 +576,7 @@ class EmbodiedAgent:
                 min_gap_sec=cam_cfg.occupancy_min_gap_sec,
                 static_sec=cam_cfg.occupancy_static_sec,
                 static_iou=cam_cfg.occupancy_static_iou,
+                static_grace_sec=cam_cfg.occupancy_static_grace_sec,
             )
             # 見えの「普通」（`知覚在席` §3-4）。読めない環境でも在席（YOLO）は動き続ける。
             from .db import get_db as _get_db

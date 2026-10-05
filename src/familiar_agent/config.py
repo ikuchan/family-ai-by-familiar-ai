@@ -144,6 +144,11 @@ class CameraConfig:
     occupancy_static_iou: float = field(
         default_factory=lambda: _float_env("OCCUPANCY_STATIC_IOU", 0.9)
     )
+    # 枠が抜けても積算を持ち越す時間（知-v-ろ・2026-10-06）。実機 2026-10-06 の夜、レンズ前の物の
+    # 読みは 2 枚に 1 枚ほど抜け、抜けは 97.9% が 30 秒以内・最長 80 秒だった。それを越える 90 秒。〔仮〕
+    occupancy_static_grace_sec: float = field(
+        default_factory=lambda: _float_env("OCCUPANCY_STATIC_GRACE_SEC", 90.0)
+    )
 
     def stream_url(self, stream: str = "stream1") -> str | int:
         """Build the RTSP or USB source URL — the single authoritative place.
