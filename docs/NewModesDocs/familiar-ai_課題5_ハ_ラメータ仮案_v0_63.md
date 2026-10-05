@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.62・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.63・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -376,6 +376,7 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 | 声の登録の受付 `VOICE_ENROLL_SEC`（RecognitionConfig） | 10 秒 | 〔仮・2026-10-05・本人〕 | `/voice 名前` のあと、声を登録する受付の長さ | 【設計】設計方針_在席と顔ぶれ §6c |
 | 静止物とみなす時間 `OCCUPANCY_STATIC_SEC`（Config） | 300 秒 | 〔仮〕 | 人の枠が動かなければ物として数えない（知-v）。出入口の誤検出は 7 分以上静止 | 【設計】知覚在席 v0.25 §3-3 |
 | 同じ枠とみなす重なり `OCCUPANCY_STATIC_IOU`（Config） | 0.9 | 〔仮〕 | 前回の枠との IoU がこれ以上なら「動いていない」。静止物は 0.95 前後、人は呼吸と姿勢で切りやすい見込み（実機の DEBUG で確かめる） | 【設計】知覚在席 v0.25 §3-3 |
+| 枠が抜けても持ち越す時間 `OCCUPANCY_STATIC_GRACE_SEC`（CameraConfig） | 90 秒 | 〔仮・2026-10-06・本人〕 | 最後に見えてから、これ以内なら前の枠と「動かない起点」を持ち越す（知-v-ろ）。実機 2026-10-06 の夜、レンズ前の物の読みの抜けは 97.9% が 30 秒以内・最長 80 秒。30 秒では積算のやり直しが 34 回、90 秒では 1 回 | 【設計】知覚在席 v0.36 §3-3 |
 | situated 合成 $\alpha_p$ | 0.30 | 〔確定（Config）〕 | $v_{sit} = v_{mem} + \alpha_p\,v_{person}$ | 【コード事実→承認】:43 |
 | 人物 auto-switch 閾値 | 0.75 | 〔確定（Config・初期値課題7）〕 | $cos(顔, ギャラリー) \ge 0.75 \Rightarrow 同一人物$ | 【コード事実→承認】:45 |
 | 予測 EMA 係数 | 0.30 | 〔確定（Config）〕 | $pred \leftarrow 0.7\,pred + 0.3\,obs$ | 【コード事実→承認】prediction.py:37 |
@@ -407,6 +408,8 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.63：`OCCUPANCY_STATIC_GRACE_SEC` 90 秒〔仮〕を足した（知-v-ろ・2026-10-06）。
+>
 > v0.62：知-ai の値を足し、撤去した値を直した（2026-10-05）。顔ぶれの持ち時間 60 秒・状況ごとの声の閾値 0.30・0.35・0.45・声の登録の受付 10 秒・在席 3 秒ごと／滞留窓 30 秒。`PRESENCE_EXPIRE_SEC` と `PENDING_CLAIM_SEC` は撤去。
 > v0.61：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.60：声の値（速さ 0.9・じっくり読む声 eleven_v3）を足した（環-u・2026-09-21）。
