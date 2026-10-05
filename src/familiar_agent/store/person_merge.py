@@ -37,19 +37,50 @@ class Delete:
     why: str
 
 
+@dataclass(frozen=True)
+class Reassign:
+    """その行の記憶を、同じ人の残す行へ付け替えてから消す（2026-10-05）。"""
+
+    from_id: str
+    from_name: str
+    to_id: str
+    to_name: str
+    refs: int
+
+
 @dataclass
 class Plan:
     renames: "list[Rename]" = field(default_factory=list)
     deletes: "list[Delete]" = field(default_factory=list)
+    reassigns: "list[Reassign]" = field(default_factory=list)
     stops: "list[str]" = field(default_factory=list)  # 1 つでもあれば何も書かない
     notes: "list[str]" = field(default_factory=list)  # 残す行の知らせ
+
+
+_HONORIFICS = ("さん", "くん", "ちゃん")
+
+
+def _norm(word: str) -> str:
+    """比べる前に揃える：カタカナをひらがなに、英字を小文字に、末尾の敬称（さん・くん・ちゃん）を落とす。
+
+    本番 2026-10-05：「まま、たえこさん」の行が、FAMILY.md の妙子（ママ、たえこ）に当たらなかった。
+    """
+    w = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in word.strip()).lower()
+    for h in _HONORIFICS:
+        if w.endswith(h) and len(w) > len(h):
+            return w[: -len(h)]
+    return w
 
 
 def _aliases(row: dict) -> "set[str]":
     out = {str(row.get("name") or "").strip()}
     for a in str(row.get("display_name") or "").replace(",", "、").split("、"):
         out.add(a.strip())
-    return {a for a in out if a}
+    return {_norm(a) for a in out if a}
+
+
+def _member_aliases(member: dict) -> "set[str]":
+    return {_norm(a) for a in aliases_of(member)}
 
 
 def _junk(row: dict) -> bool:
@@ -73,7 +104,7 @@ def make_plan(rows: "list[dict]", refs: "dict[str, int]", members: "list[dict]")
                     Delete(str(r["id"]), str(r["name"]), "テンプレートから作られた行")
                 )
             continue
-        hit = [i for i, m in enumerate(members) if _aliases(r) & set(aliases_of(m))]
+        hit = [i for i, m in enumerate(members) if _aliases(r) & _member_aliases(m)]
         if len(hit) > 1:
             who = "・".join(str(members[i]["name"]) for i in hit)
             if n:
@@ -93,19 +124,33 @@ def make_plan(rows: "list[dict]", refs: "dict[str, int]", members: "list[dict]")
         group = groups[i]
         name, display = str(m["name"]), str(m["display_name"])
         held = [r for r in group if refs.get(str(r["id"]), 0)]
-        if len(held) > 1:
-            plan.stops.append(
-                f"「{name}」に参照のある行が 2 つ以上ある（"
-                + "・".join(f"{r['name']} {refs[str(r['id'])]} 件" for r in held)
-                + "）。統合ではなく付け替えが要る"
-            )
-            continue
         same = [r for r in group if r.get("name") == name]
-        keep: "dict | None" = held[0] if held else (same[0] if same else None)
+        named_held = [r for r in same if refs.get(str(r["id"]), 0)]
+        # 残すのは、記憶の付いた FAMILY.md の名前の行。無ければ記憶の多い行（記憶の付いた古い行を残す・本人の決定ア）。
+        # 記憶の付いた行が無ければ名前の行。2026-10-05 に「2 つあれば止まる」から付け替えに改めた。
+        keep: "dict | None" = (
+            named_held[0]
+            if named_held
+            else (
+                max(held, key=lambda r: refs.get(str(r["id"]), 0))
+                if held
+                else (same[0] if same else None)
+            )
+        )
         for r in group:
             if r is keep:
                 if r.get("name") != name or str(r.get("display_name") or "") != display:
                     plan.renames.append(Rename(str(r["id"]), str(r["name"]), name, display))
+            elif refs.get(str(r["id"]), 0) and keep is not None:
+                plan.reassigns.append(
+                    Reassign(
+                        str(r["id"]),
+                        str(r["name"]),
+                        str(keep["id"]),
+                        name,
+                        int(refs.get(str(r["id"]), 0)),
+                    )
+                )
             else:
                 plan.deletes.append(
                     Delete(str(r["id"]), str(r["name"]), f"参照 0 件・{name} に当たる")
@@ -146,14 +191,39 @@ def persons(conn) -> "list[dict]":
         return [dict(r) for r in cur.fetchall()]
 
 
-def apply_plan(conn, plan: Plan) -> None:
-    """計画を当てる（消す → 名前を書き換える）。コミットはしない。止まる計画は当てない。"""
+def apply_plan(conn, plan: Plan) -> "dict[str, dict[str, int]]":
+    """計画を当てる（付け替える → 消す → 名前を書き換える・名前は一意なので）。コミットはしない。
+
+    付け替えは、人物表を参照するすべての表で、移す行の `person_id` を残す行へ替え、移した行を消す。`situated_memories`
+    は（記録・人・関係）で一意なので、残す行に同じ（記録・関係）がある組は、移す行の分を先に捨てる。返りは
+    付け替えた行ごとの {"moved": 移した数, "dropped": ぶつかって捨てた数}。止まる計画は当てない。
+    """
     if plan.stops:
         raise ValueError("止まる計画は当てない：" + "／".join(plan.stops))
     from . import clock
 
     now = clock.now_utc_iso()
+    stats: dict[str, dict[str, int]] = {}
+    keys = _foreign_keys(conn)
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+        for ra in plan.reassigns:
+            dropped = 0
+            moved = 0
+            for tbl, col in keys:
+                if tbl == "situated_memories":
+                    cur.execute(
+                        "DELETE FROM situated_memories s WHERE s.person_id = %s AND EXISTS ("
+                        " SELECT 1 FROM situated_memories t WHERE t.person_id = %s"
+                        " AND t.obs_id = s.obs_id AND t.relation_key = s.relation_key)",
+                        (ra.from_id, ra.to_id),
+                    )
+                    dropped += int(cur.rowcount or 0)
+                cur.execute(
+                    f'UPDATE {tbl} SET "{col}" = %s WHERE "{col}" = %s', (ra.to_id, ra.from_id)
+                )
+                moved += int(cur.rowcount or 0)
+            cur.execute("DELETE FROM persons WHERE id = %s", (ra.from_id,))
+            stats[ra.from_id] = {"moved": moved, "dropped": dropped}
         for d in plan.deletes:
             cur.execute("DELETE FROM persons WHERE id = %s", (d.id,))
         for r in plan.renames:
@@ -161,3 +231,4 @@ def apply_plan(conn, plan: Plan) -> None:
                 "UPDATE persons SET name = %s, display_name = %s, updated_at = %s WHERE id = %s",
                 (r.new_name, r.new_display, now, r.id),
             )
+    return stats

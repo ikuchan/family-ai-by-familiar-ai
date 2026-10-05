@@ -75,13 +75,17 @@ def main() -> int:
 
         plan = pm.make_plan(rows, refs, members)
         print("\n計画:")
+        for ra in plan.reassigns:
+            print(
+                f"  付け替える {ra.from_id}  {ra.from_name}（参照 {ra.refs} 件）→ {ra.to_name}（{ra.to_id}）に移して消す"
+            )
         for d in plan.deletes:
             print(f"  消す      {d.id}  {d.name}  — {d.why}")
         for rn in plan.renames:
             print(f"  書き換える {rn.id}  {rn.old_name} → {rn.new_name}（{rn.new_display}）")
         for n in plan.notes:
             print(f"  残す      {n}")
-        if not (plan.deletes or plan.renames):
+        if not (plan.deletes or plan.renames or plan.reassigns):
             print("  変えるものはありません。")
         if plan.stops:
             print("\n**止まります（何も書きません）:**")
@@ -89,13 +93,20 @@ def main() -> int:
                 print(f"  {s}")
             return 1
 
-        pm.apply_plan(conn, plan)
+        stats = pm.apply_plan(conn, plan)
+        for from_id, st in stats.items():
+            print(
+                f"  付け替えの結果 {from_id}：移した {st['moved']} 件・ぶつかって捨てた {st['dropped']} 件"
+            )
         if not args.apply:
             conn.rollback()
             print("\n**書いていません。**当てるには --apply を付けてください。")
             return 0
         conn.commit()
-        print(f"\n当てました（消した {len(plan.deletes)} 行・書き換えた {len(plan.renames)} 行）。")
+        print(
+            f"\n当てました（付け替えた {len(plan.reassigns)} 行・消した {len(plan.deletes)} 行・"
+            f"書き換えた {len(plan.renames)} 行）。"
+        )
         return 0
     except Exception:
         conn.rollback()
