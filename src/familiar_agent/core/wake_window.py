@@ -57,10 +57,23 @@ class VoiceText(InputText):
 
     source = "voice"
     voice: "Any" = None
+    #: 書き起こしの無音らしさ（区切りのいちばん大きい値）と確かさ（いちばん低い値）。名前で起きる基準が見る
+    #: （2026-10-05）。ローカルの書き起こしだけが載せる。
+    no_speech: "float | None" = None
+    logprob: "float | None" = None
 
-    def __new__(cls, text: str, at: "float | None" = None, voice: "Any" = None) -> "VoiceText":
+    def __new__(
+        cls,
+        text: str,
+        at: "float | None" = None,
+        voice: "Any" = None,
+        no_speech: "float | None" = None,
+        logprob: "float | None" = None,
+    ) -> "VoiceText":
         obj = cast("VoiceText", super().__new__(cls, text, at))
         obj.voice = voice
+        obj.no_speech = no_speech
+        obj.logprob = logprob
         return obj
 
 
@@ -78,6 +91,13 @@ def source_of(text: str) -> str:
 def voice_of(text: str) -> "Any":
     """入力に載っている声の特徴（知-ae）。声でない入力や、特徴の無い声は None。"""
     return getattr(text, "voice", None) if isinstance(text, VoiceText) else None
+
+
+def measures_of(text: str) -> "tuple[float | None, float | None]":
+    """入力に載っている書き起こしの（無音らしさ, 確かさ）。無ければ (None, None)。"""
+    if isinstance(text, VoiceText):
+        return text.no_speech, text.logprob
+    return None, None
 
 
 def arrived_at(text: str, *, now: "float | None" = None) -> float:

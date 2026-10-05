@@ -1678,10 +1678,11 @@ class EmbodiedAgent:
         どれも使っていなかったので環-ab で外した。`desires`・`desire_name` は環-d で落とした。
         """
         # 届いた時刻と出どころは**名前の札を外す前に**読む（出-au 段 1-1）。外すと印の無い文字列になる。
-        from .core.wake_window import arrived_at, source_of, voice_of
+        from .core.wake_window import arrived_at, measures_of, source_of, voice_of
 
         _arrived, _source = arrived_at(user_input), source_of(user_input)
         _voice = voice_of(user_input)  # 声の特徴（知-ae）。`[名前]` を外すと印が落ちるので先に読む
+        _no_speech, _logprob = measures_of(user_input)  # 書き起こしの確かさ（名前で起きる基準）
         _original = user_input  # 画面に出す本文（コマンドで返したときの「受けた」の知らせ）
         # ── 声の登録（`/voice 名前`・知-ai）。受付中の声は会話の窓より前で登録だけに使う ─────────
         _voice_reply = self._handle_voice_command(user_input)
@@ -1747,7 +1748,13 @@ class EmbodiedAgent:
         self._ensure_event_loop(on_text, on_action)
         # 声かキーボードかと、届いた時刻（出-as 段 2・出-au 段 1-1）。積む口が印を付けている。
         return await self._info_processing.push_utterance(
-            user_input, on_text=on_text, source=_source, arrived=_arrived, voice=_voice
+            user_input,
+            on_text=on_text,
+            source=_source,
+            arrived=_arrived,
+            voice=_voice,
+            no_speech=_no_speech,
+            logprob=_logprob,
         )
 
     @property

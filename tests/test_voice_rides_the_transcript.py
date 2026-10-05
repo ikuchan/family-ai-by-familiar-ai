@@ -124,3 +124,59 @@ def test_the_model_is_loaded_on_the_cpu():
     ):
         voice_mod._get_model()
     assert seen["run_opts"] == {"device": "cpu"}
+
+
+# ── 書き起こしの確かさ（名前で起きる基準・2026-10-05）─────────────────────────
+
+
+def test_the_measurements_ride_the_transcript():
+    """区切りの無音らしさ（いちばん大きい値）と確かさ（いちばん低い値）を、入力の印に載せて運ぶ。"""
+    from familiar_agent.core.wake_window import measures_of
+
+    engine = _engine(vad_says=["start"] + [None] * (LONG - 1) + ["end"])
+
+    def transcribe(audio):
+        engine._last_measures = (0.150, -0.723)
+        return "パジュー"
+
+    engine._transcribe = MagicMock(side_effect=transcribe)
+    _feed(engine, [_LOUD_FRAME] * (LONG + 1))
+    got = engine.on_committed.get_nowait()
+    assert measures_of(got) == (0.150, -0.723)
+
+
+def test_plain_text_has_no_measurements():
+    from familiar_agent.core.wake_window import measures_of
+
+    assert measures_of("パジュ") == (None, None)
+    assert measures_of(VoiceText("パジュ")) == (None, None)
+
+
+@pytest.mark.asyncio
+async def test_the_relay_keeps_the_measurements():
+    from familiar_agent.core.wake_window import measures_of
+    from familiar_agent.realtime_stt_session import RealtimeSttSession
+
+    session = RealtimeSttSession("dummy")
+    committed_q: asyncio.Queue = asyncio.Queue()
+    input_q: asyncio.Queue = asyncio.Queue()
+    session._incoming_committed = committed_q
+    session._committed_queue = input_q
+    session.mic_gate = lambda: ""
+    task = asyncio.create_task(session._committed_relay())
+    await committed_q.put(VoiceText("パジュー", no_speech=0.15, logprob=-0.72))
+    await asyncio.sleep(0.05)
+    task.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await task
+    assert measures_of(input_q.get_nowait()) == (0.15, -0.72)
+
+
+def test_run_hands_the_measurements_to_the_loop():
+    from familiar_agent.agent import EmbodiedAgent as Agent
+    from tests.test_input_commands_before_loop_branch import _agent as _run_agent
+
+    a = _run_agent()
+    asyncio.run(Agent.run(a, VoiceText("パジュー", no_speech=0.15, logprob=-0.72)))
+    kw = a._info_processing.push_utterance.await_args.kwargs
+    assert (kw["no_speech"], kw["logprob"]) == (0.15, -0.72)

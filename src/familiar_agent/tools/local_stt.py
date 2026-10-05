@@ -179,6 +179,7 @@ class LocalSttEngine:
         に載せる。持ち越して単独で配る短い断片には載せない（短いと特徴が揺れる）。特徴が取れなくても文字は配る。
         """
         embedding = asyncio.create_task(self._voice_of(audio)) if identify else None
+        self._last_measures: "tuple[float | None, float | None]" = (None, None)
         try:
             text = await asyncio.to_thread(self._transcribe, audio)
         except Exception as e:  # noqa: BLE001
@@ -189,7 +190,8 @@ class LocalSttEngine:
             return
         queue = self.on_committed
         if queue is not None:
-            queue.put_nowait(VoiceText(text, voice=voice))
+            no_speech, logprob = getattr(self, "_last_measures", (None, None))
+            queue.put_nowait(VoiceText(text, voice=voice, no_speech=no_speech, logprob=logprob))
 
     async def _voice_of(self, audio: bytes):
         """区切りの声の特徴（取れなければ None・落とさない）。"""
@@ -285,9 +287,11 @@ class LocalSttEngine:
         # 本文は会話内容なので info へ出さず、字数だけにする。
         parts: list[str] = []
         no_speech = 0.0
+        logprob = 0.0
         for seg in segments:
             parts.append(seg.text)
             no_speech = max(no_speech, float(getattr(seg, "no_speech_prob", 0.0)))
+            logprob = min(logprob, float(getattr(seg, "avg_logprob", 0.0)))
             logger.info(
                 "STT: セグメント（no_speech_prob=%.3f・avg_logprob=%.3f・%.1f〜%.1f 秒・%d 字）",
                 getattr(seg, "no_speech_prob", float("nan")),
@@ -297,6 +301,8 @@ class LocalSttEngine:
                 len(seg.text.strip()),
             )
             logger.debug("STT: セグメントの本文: %s", seg.text.strip()[:120])
+        # 名前で起きる基準が見る（2026-10-05）。`_write` が入力の印に載せる。
+        self._last_measures = (no_speech, logprob) if parts else (None, None)
         if parts and no_speech > self._cfg.no_speech_max:
             logger.info(
                 "STT: 音声でないとみなして捨てた（no_speech_prob=%.3f > %.3f・%d 字）",

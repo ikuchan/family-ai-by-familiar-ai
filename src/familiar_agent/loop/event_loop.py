@@ -614,6 +614,9 @@ class Trigger:
     named: bool = True
     # `会話入力` だけが使う。その発話の声の特徴（知-ae）。門を通ったら話者を照らし、求めに持たせる。
     voice: Any = None
+    # `会話入力` だけが使う。書き起こしの無音らしさと確かさ（名前で起きる基準・2026-10-05）。無ければ None。
+    no_speech: "float | None" = None
+    logprob: "float | None" = None
 
 
 class InformationProcessing:
@@ -2097,6 +2100,8 @@ class InformationProcessing:
         source: str = "keyboard",
         arrived: "float | None" = None,
         voice: Any = None,
+        no_speech: "float | None" = None,
+        logprob: "float | None" = None,
     ) -> str:
         """人の言葉を待ち行列へ積み、**その反復の出力**を返す（環-f-い-2）。
 
@@ -2132,6 +2137,8 @@ class InformationProcessing:
             source=source,
             arrived=time.monotonic() if arrived is None else arrived,
             voice=voice,
+            no_speech=no_speech,
+            logprob=logprob,
         )
         if await self._swallow_if_unheard(trigger):
             self._notify_heard(utterance, False)
@@ -3406,6 +3413,12 @@ class InformationProcessing:
         names = list(getattr(self._agent.config, "agent_names", None) or [])
         if trigger.kind == "会話入力":
             trigger.named = heard_name(trigger.query, names)
+            if (
+                trigger.named
+                and trigger.source == "voice"
+                and not self._wake_window().is_open(self._arrival(trigger))
+            ):
+                trigger.named = self._wake_admits(trigger, names)
         req = None
         with contextlib.suppress(Exception):
             req = self._load_silence()
@@ -3483,6 +3496,69 @@ class InformationProcessing:
     def _arrival(trigger: "Trigger") -> float:
         """会話入力が届いた時刻（`time.monotonic()`）。付いていなければいま。"""
         return trigger.arrived or time.monotonic()
+
+    def _wake_admits(self, trigger: "Trigger", names: "list[str]") -> bool:
+        """窓が閉じているときの声で、名前で窓を開けてよいか（2026-10-05 実機の聞き違い「パジュー」・本人の決定）。
+
+        基準は 2 段（`core/wake_strictness`）。**厳しい**のは、最後に窓が閉じてから `wake_quiet_minutes`（10 分）たって
+        いて居ない（顔ぶれも在席も無い）とき、または誰の声か分からないとき。捨てたら段と値をログに残す（本文は出さない・
+        値は実機で貯めて見直す）。
+        """
+        from ..config import STTConfig
+        from ..core.wake_strictness import admits
+
+        cfg = getattr(self._agent.config, "stt", None)
+        if not isinstance(cfg, STTConfig):
+            cfg = STTConfig()
+        now = self._arrival(trigger)
+        quiet = now - self._wake_window().until >= float(cfg.wake_quiet_minutes) * 60.0
+        alone = True
+        with contextlib.suppress(Exception):
+            alone = not self._agent._someone_here()
+        unknown = self._voice_unknown(trigger.voice)
+        strict = (quiet and alone) or unknown
+        ok, why = admits(
+            trigger.query,
+            names,
+            strict=strict,
+            no_speech=trigger.no_speech,
+            logprob=trigger.logprob,
+            cfg=cfg,
+        )
+        if not ok:
+            logger.info(
+                "event-loop 名前で起こさなかった：%s（無音らしさ=%s・確かさ=%s・%d 字・会話から%s・%s・声%s）",
+                why,
+                "-" if trigger.no_speech is None else f"{trigger.no_speech:.3f}",
+                "-" if trigger.logprob is None else f"{trigger.logprob:.3f}",
+                len(trigger.query or ""),
+                "10 分以上" if quiet else "10 分以内",
+                "居ない" if alone else "居る",
+                "が分からない" if unknown else "が当たる",
+            )
+        return ok
+
+    def _voice_unknown(self, voice: Any) -> bool:
+        """誰の声か分からないか：声の特徴が無い、または、どの家族にも付け替えの閾値（0.35）以上で当たらない。"""
+        if voice is None:
+            return True
+        from datetime import datetime
+
+        from ..core import voice_speaker
+        from ..store.clock import local_tz
+
+        try:
+            cfg = self._agent.config.recognition
+            store = self._voice_store()
+            today = datetime.now(local_tz()).date()
+            scores = voice_speaker.scores(
+                voice,
+                store.centroids("voice", "registered"),
+                store.centroids("voice", "today", day=today),
+            )
+            return not any(v >= cfg.voice_switch_threshold for v in scores.values())
+        except Exception:  # noqa: BLE001
+            return True
 
     def _wake_window_admits(self, trigger: "Trigger") -> bool:
         """会話入力を窓で受けるか（出-as 段 3・出-au 段 1-2・`設計方針_判定の段` §2.1）。受けたら窓を開ける／延ばす。

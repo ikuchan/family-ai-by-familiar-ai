@@ -95,3 +95,112 @@ def test_without_the_name_nothing_passes():
 def test_the_reason_is_told():
     ok, why = ws.admits("パジュー", NAMES, strict=True, no_speech=0.150, logprob=-0.723)
     assert not ok and "名前だけ" in why
+
+
+# ── 入口の門（段 3）──────────────────────────────────────────────────────────
+#
+# 窓が閉じているときの声だけに効く。厳しいのは、最後に窓が閉じてから 10 分たっていて居ない（顔ぶれも在席も無い）とき、
+# または誰の声か分からない（声の特徴が無い・どの家族にも 0.35 以上で当たらない）とき。
+
+
+def _gate(*, here=False, known_voice=False):
+    from tests.test_the_wake_window_gates_voice import _ip
+
+    ip, a = _ip(present=1.0 if here else 0.0)
+    a.config.stt = __import__("familiar_agent.config", fromlist=["STTConfig"]).STTConfig()
+    ip._voice_unknown = lambda voice: not known_voice  # type: ignore[method-assign]
+    return ip, a
+
+
+def _heard(ip, text, *, source="voice", ns=None, lp=None, voice=None):
+    import asyncio
+
+    from familiar_agent.loop.event_loop import Trigger
+
+    async def go():
+        fut = asyncio.get_running_loop().create_future()
+        t = Trigger(
+            kind="会話入力",
+            query=text,
+            future=fut,
+            source=source,
+            no_speech=ns,
+            logprob=lp,
+            voice=voice,
+        )
+        return not await ip._swallow_if_unheard(t)
+
+    return asyncio.run(go())
+
+
+@pytest.mark.real_window
+def test_tonights_form_is_dropped_at_the_gate():
+    ip, _ = _gate()
+    assert _heard(ip, "パジュー", ns=0.150, lp=-0.723) is False
+
+
+@pytest.mark.real_window
+def test_a_real_call_opens_the_window():
+    ip, _ = _gate()
+    assert _heard(ip, "パジュ", ns=0.019, lp=-0.558) is True
+
+
+@pytest.mark.real_window
+def test_an_open_window_still_hears_everything():
+    import time
+
+    ip, _ = _gate()
+    ip._wake_window().open(time.monotonic())
+    assert _heard(ip, "パジュー", ns=0.150, lp=-0.723) is True
+
+
+@pytest.mark.real_window
+def test_the_keyboard_is_unchanged():
+    ip, _ = _gate()
+    assert _heard(ip, "パジュー", source="keyboard") is True
+
+
+@pytest.mark.real_window
+def test_with_someone_here_a_known_voice_and_a_recent_talk_it_is_lenient():
+    import time
+
+    ip, _ = _gate(here=True, known_voice=True)
+    ip._wake_window().until = time.monotonic() - 60  # 1 分前に閉じた
+    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is True  # 1 字違いを許す
+
+
+@pytest.mark.real_window
+def test_an_unknown_voice_makes_it_strict_even_with_someone_here():
+    import time
+
+    ip, _ = _gate(here=True, known_voice=False)
+    ip._wake_window().until = time.monotonic() - 60
+    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is False
+
+
+@pytest.mark.real_window
+def test_ten_quiet_minutes_alone_make_it_strict():
+    import time
+
+    ip, _ = _gate(here=False, known_voice=True)
+    ip._wake_window().until = time.monotonic() - 11 * 60
+    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is False
+    ip, _ = _gate(here=False, known_voice=True)
+    ip._wake_window().until = time.monotonic() - 5 * 60  # まだ 5 分
+    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is True
+
+
+def test_an_unknown_voice_is_one_without_a_feature_or_a_match(monkeypatch):
+    import numpy as np
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from tests.test_voice_picks_the_speaker import _ip as _vip, _Store
+
+    ip, a, s = _vip(store=_Store(registered={"papa": np.asarray([1.0, 0.0], dtype=np.float32)}))
+    assert InformationProcessing._voice_unknown(ip, None) is True
+    assert (
+        InformationProcessing._voice_unknown(ip, np.asarray([1.0, 0.0], dtype=np.float32)) is False
+    )
+    assert (
+        InformationProcessing._voice_unknown(ip, np.asarray([0.0, 1.0], dtype=np.float32)) is True
+    )
