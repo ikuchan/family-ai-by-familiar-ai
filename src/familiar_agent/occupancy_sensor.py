@@ -22,6 +22,7 @@ from collections.abc import Callable
 from typing import Any
 
 from .poses import nearest_pose
+from .core.aio import wait_within
 from .core.occupancy_rules import StaticBoxes, count_moving, reset
 from .occupancy_map import OccupancyMap
 from .visual_norm import cosine_distance, is_ready, update_ema
@@ -232,7 +233,8 @@ class OccupancySensor:
             self._wake.clear()
             try:
                 # 動体で起こされたら間隔を待たずに次を見る。
-                await asyncio.wait_for(self._wake.wait(), timeout=self._interval)
+                # 止めるときのキャンセルを消さない待ち方（環-aa・3.11 の `wait_for` は消すことがある）。
+                await wait_within(self._wake.wait(), self._interval)
             except (TimeoutError, asyncio.TimeoutError):
                 continue  # 動きが無いまま間隔が来た
             delay = _delay_before(self._last_check, time.monotonic(), self._min_gap)

@@ -88,6 +88,7 @@ except ImportError:
 from . import __version__
 from ._i18n import _t
 from .core import parsing
+from .core.aio import wait_within
 from .core.wake_window import KeyText
 from .errors import FatalStartupError, check_embedding_fatal
 from ._ui_helpers import (
@@ -2194,7 +2195,8 @@ class FamiliarWindow(QMainWindow):
         """Dequeue user messages and run the agent."""
         while True:
             try:
-                text = await asyncio.wait_for(self._input_queue.get(), timeout=IDLE_CHECK_INTERVAL)
+                # 止めるときのキャンセルを消さない待ち方（環-aa・3.11 の `wait_for` は消すことがある）。
+                text = await wait_within(self._input_queue.get(), IDLE_CHECK_INTERVAL)
             except asyncio.TimeoutError:
                 # 入力を待つあいだの自発的な動きは、T（Tonic）が drive を回して QA へ積み、
                 # 完了は QC へ届く。GUI は入力を待つだけにする。

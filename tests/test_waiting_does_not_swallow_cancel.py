@@ -75,3 +75,34 @@ def test_it_returns_the_result():
 )
 def test_the_driver_paths_do_not_use_wait_for(path):
     assert "asyncio.wait_for(" not in (SRC / path).read_text(encoding="utf-8")
+
+
+# ── 常駐のループ（環-aa・2026-10-05）────────────────────────────────────────────
+#
+# 駆動体の外でも、止めるときにキャンセルされ続ける常駐のループが `wait_for` で待っていた。キャンセルが消えると、
+# アプリの終了がそこで待ち続ける。在席センサは知-ai で 3 秒ごとになり、待ちが終わる回数が 10 倍になった。
+# ファイルには終了時の片付け（1 回きりの待ち）の `wait_for` も残るので、見張るのはループの関数の本文だけ。
+
+
+def _function_source(path: str, name: str) -> str:
+    import ast
+
+    text = (SRC / path).read_text(encoding="utf-8")
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name == name:
+            return ast.get_source_segment(text, node) or ""
+    raise AssertionError(f"{path} に {name} が無い")
+
+
+@pytest.mark.parametrize(
+    "path,name",
+    [
+        ("occupancy_sensor.py", "_run"),  # 在席センサの見回り
+        ("gui.py", "_process_queue"),  # 画面の入力の待ち
+        ("main.py", "_next_input"),  # CUI の入力の待ち
+    ],
+)
+def test_the_resident_loops_do_not_use_wait_for(path, name):
+    body = _function_source(path, name)
+    assert "asyncio.wait_for(" not in body
+    assert "wait_within(" in body

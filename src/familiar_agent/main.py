@@ -98,6 +98,16 @@ def setup_logging(debug: bool = False) -> None:
     logging.info("Logging initialized. Level: %s, File: %s", logging.getLevelName(level), log_file)
 
 
+async def _next_input(input_queue: "asyncio.Queue[str | None]") -> str | None:
+    """入力を `IDLE_CHECK_INTERVAL` だけ待つ。来なければ None。止めるときのキャンセルは消さない（環-aa）。"""
+    from .core.aio import wait_within
+
+    try:
+        return await wait_within(input_queue.get(), IDLE_CHECK_INTERVAL)
+    except asyncio.TimeoutError:
+        return None
+
+
 async def repl(agent: EmbodiedAgent, debug: bool = False) -> None:
     print(BANNER)
 
@@ -171,13 +181,7 @@ async def repl(agent: EmbodiedAgent, debug: bool = False) -> None:
 
             # No pending input — show prompt and wait briefly
             print("\n> ", end="", flush=True)
-            queued_input: str | None
-            try:
-                queued_input = await asyncio.wait_for(
-                    input_queue.get(), timeout=IDLE_CHECK_INTERVAL
-                )
-            except asyncio.TimeoutError:
-                queued_input = None
+            queued_input = await _next_input(input_queue)
 
             if queued_input is None and input_queue.empty():
                 # 入力を待つあいだの自発的な動きは、T（Tonic）が drive を回して QA へ積み、
