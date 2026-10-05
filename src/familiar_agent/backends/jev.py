@@ -18,6 +18,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Any, Awaitable, Callable
 
+from ..core import credit
 from ..core.aio import wait_within
 
 logger = logging.getLogger(__name__)
@@ -115,11 +116,13 @@ class JevClient:
         except Exception as e:  # noqa: BLE001
             return self._failed(started, f"{type(e).__name__}")
         if status != 200:
+            credit.note_failure("jev", status)  # 402 なら残高切れの「知らせたい」を立てる（環-z）
             return self._failed(started, f"HTTP {status}")
         answers = body.get("answers") if isinstance(body, dict) else None
         if not isinstance(answers, dict):
             return self._failed(started, "返りの形が違う")
         seconds = time.monotonic() - started
+        credit.note_success("jev")  # 通った＝残高は戻っている（環-z）
         logger.info("Jev %d 問 %.2f 秒", len(questions), seconds)
         return JevAnswer(
             ok=True, answers=answers, model=str(body.get("model", "")), seconds=seconds

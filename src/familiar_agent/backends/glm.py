@@ -10,7 +10,8 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
-from .shared import _with_system, openai_tool_call_message
+from ..core import credit
+from .shared import _with_system, openai_tool_call_message, watch_credit
 from .types import ToolCall, TurnResult
 
 logger = logging.getLogger(__name__)
@@ -29,6 +30,9 @@ class GLMBackend:
         API_KEY=<your-key>              # from bigmodel.cn / api.z.ai
         MODEL=glm-4.6v                  # default (vision-enabled)
     """
+
+    #: 残高切れの知らせで使う担い手の名前（環-z・`core/credit`）。
+    credit_name = "glm"
 
     _BASE_URL = "https://api.z.ai/api/paas/v4"
 
@@ -77,6 +81,7 @@ class GLMBackend:
 
     # ── streaming turn ─────────────────────────────────────────────
 
+    @watch_credit
     async def stream_turn(
         self,
         system: str | tuple[str, str],
@@ -178,6 +183,7 @@ class GLMBackend:
             ]
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
+    @watch_credit
     async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         try:
             resp = await self.client.chat.completions.create(
@@ -187,6 +193,7 @@ class GLMBackend:
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:
+            credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
             logger.warning("complete() failed: %s", e)
             return ""
 

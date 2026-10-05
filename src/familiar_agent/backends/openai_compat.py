@@ -10,7 +10,9 @@ import logging
 from collections.abc import Callable
 from typing import Any
 
+from ..core import credit
 from .shared import (
+    watch_credit,
     _with_system,
     _TOOL_CALL_RE,
     _build_tools_system,
@@ -25,6 +27,9 @@ logger = logging.getLogger(__name__)
 
 class OpenAICompatibleBackend:
     """Backend for any OpenAI-compatible endpoint: Ollama, vllm, lm-studio, etc."""
+
+    #: 残高切れの知らせで使う担い手の名前（環-z・`core/credit`）。
+    credit_name = "openai"
 
     def __init__(self, api_key: str, model: str, base_url: str, tools_mode: str = "prompt") -> None:
         from openai import AsyncOpenAI
@@ -135,6 +140,7 @@ class OpenAICompatibleBackend:
                 flat.append(msg)
         return flat
 
+    @watch_credit
     async def stream_turn(
         self,
         system: str | tuple[str, str],
@@ -300,6 +306,7 @@ class OpenAICompatibleBackend:
             ]
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
+    @watch_credit
     async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         tokens_key = "max_completion_tokens" if self._use_completion_tokens else "max_tokens"
         try:
@@ -310,9 +317,11 @@ class OpenAICompatibleBackend:
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:
+            credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
             logger.warning("complete() failed: %s", e)
             return ""
 
+    @watch_credit
     async def complete_with_image(
         self, prompt: str, image_b64: str, max_tokens: int = 512, *, system: str | None = None
     ) -> str:
@@ -339,6 +348,7 @@ class OpenAICompatibleBackend:
             )
             return (resp.choices[0].message.content or "").strip()
         except Exception as e:
+            credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
             logger.warning("complete_with_image() failed: %s", e)
             return ""
 

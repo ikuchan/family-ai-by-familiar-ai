@@ -11,7 +11,9 @@ import uuid
 from collections.abc import Callable
 from typing import Any
 
+from ..core import credit
 from .shared import (
+    watch_credit,
     _is_invalid_argument,
     _retry_transient,
     _ThinkingTagFilter,
@@ -42,6 +44,9 @@ class GeminiBackend:
     - thinkingBudget can be set properly (no thinking token leakage)
     - Access to Gemini-specific features
     """
+
+    #: 残高切れの知らせで使う担い手の名前（環-z・`core/credit`）。
+    credit_name = "gemini"
 
     def __init__(self, api_key: str, model: str) -> None:
         from google import genai
@@ -279,6 +284,7 @@ class GeminiBackend:
                 flat.append(self._to_gemini_message(msg))
         return flat
 
+    @watch_credit
     async def stream_turn(
         self,
         system: str | tuple[str, str],
@@ -350,6 +356,7 @@ class GeminiBackend:
         raw_assistant = {"role": "model", "parts": raw_parts}
         return TurnResult(stop_reason=stop, text=text, tool_calls=tool_calls), raw_assistant
 
+    @watch_credit
     async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         types = self._types
 
@@ -376,9 +383,11 @@ class GeminiBackend:
         try:
             return await self._with_think_off(_run, "gemini.complete")
         except Exception as e:
+            credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
             logger.warning("complete() failed: %s", e)
             return ""
 
+    @watch_credit
     async def complete_with_image(
         self, prompt: str, image_b64: str, max_tokens: int = 512, *, system: str | None = None
     ) -> str:
@@ -422,6 +431,7 @@ class GeminiBackend:
         try:
             return await self._with_think_off(_run, "gemini.complete_with_image")
         except Exception as e:
+            credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
             logger.warning("complete_with_image() failed: %s", e)
             return ""
 

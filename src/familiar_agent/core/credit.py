@@ -32,3 +32,77 @@ def is_credit_exhausted(err: object) -> bool:
         return True
     text = str(err).lower()
     return any(m in text for m in _MARKERS)
+
+
+# ── 専用の情動（知らせたい）の置き場（環-z 段 2）──────────────────────────────────────
+#
+# 担い手（anthropic・gemini・openai・glm・kimi・jev）→ 切れたと分かった時刻（ISO）。DB（`agent_state` の
+# `credit_alerts`）に置き、再起動をまたいで残す。LLM の呼び出しのたびに読むので、プロセスの中に写しを持ち、
+# 変わったときだけ書く。
+
+import contextvars  # noqa: E402
+import logging  # noqa: E402
+import threading  # noqa: E402
+from datetime import datetime, timezone  # noqa: E402
+
+from . import state_json  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+KEY = "credit_alerts"
+_lock = threading.Lock()
+_cache: "dict[str, str] | None" = None
+#: いまの呼び出しの中で失敗を受け止めたか（`backends/shared.watch_credit` が見る）。
+failed_in_call: "contextvars.ContextVar[bool]" = contextvars.ContextVar(
+    "credit_failed_in_call", default=False
+)
+
+
+def forget_cache() -> None:
+    """プロセスの写しを捨てる（次に DB から読み直す・試験と再起動の代わり）。"""
+    global _cache
+    with _lock:
+        _cache = None
+
+
+def _alerts() -> "dict[str, str]":
+    global _cache
+    if _cache is None:
+        raw = state_json.read(KEY)
+        _cache = dict(raw) if isinstance(raw, dict) else {}
+    return _cache
+
+
+def pending() -> "dict[str, str]":
+    """いま立っている「知らせたい」（担い手 → 切れた時刻）。"""
+    with _lock:
+        return dict(_alerts())
+
+
+def note_failure(name: str, err: object) -> bool:
+    """担い手 `name` の呼び出しが失敗した。残高切れなら「知らせたい」を立て、真を返す。"""
+    failed_in_call.set(True)
+    if not name or not is_credit_exhausted(err):
+        return False
+    with _lock:
+        alerts = _alerts()
+        if name in alerts:
+            return True
+        alerts[name] = datetime.now(timezone.utc).isoformat()
+        state_json.write(KEY, alerts)
+    logger.warning("クレジット切れ：%s（知らせたいを立てた）", name)
+    return True
+
+
+def note_success(name: str) -> None:
+    """担い手 `name` の呼び出しが通った。「知らせたい」が立っていれば消す（回復）。"""
+    with _lock:
+        alerts = _alerts()
+        if name not in alerts:
+            return
+        del alerts[name]
+        if alerts:
+            state_json.write(KEY, alerts)
+        else:
+            state_json.clear(KEY)
+    logger.info("クレジットが戻った：%s（知らせたいを消した）", name)

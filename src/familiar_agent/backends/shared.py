@@ -95,6 +95,38 @@ def _is_invalid_argument(exc: BaseException) -> bool:
     return any(m in s for m in _INVALID_ARGUMENT_MARKERS)
 
 
+def watch_credit(method):
+    """担い手の口を包み、残高切れの「知らせたい」を立てる・消す（環-z・2026-10-05）。
+
+    例外が外へ出れば `note_failure`（残高切れなら立つ）。出なければ、中で失敗を受け止めていない（`note_failure` が
+    呼ばれていない）ときだけ `note_success`（通った＝回復）。担い手の名前は `self.credit_name`。
+    """
+    import functools
+
+    from ..core import credit
+
+    @functools.wraps(method)
+    async def wrapper(self, *args, **kwargs):
+        name = str(getattr(self, "credit_name", "") or "")
+        token = credit.failed_in_call.set(False)
+        try:
+            try:
+                result = await method(self, *args, **kwargs)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                credit.note_failure(name, e)
+                raise
+            if name and not credit.failed_in_call.get():
+                credit.note_success(name)
+            return result
+        finally:
+            credit.failed_in_call.reset(token)
+
+    wrapper._watches_credit = True  # type: ignore[attr-defined]
+    return wrapper
+
+
 async def _retry_transient(fn, *, attempts: int, base_sec: float, label: str):
     """`fn`（async・無引数）を一時的エラーで指数バックオフ再試行する。恒久エラーは即送出。"""
     for i in range(attempts):

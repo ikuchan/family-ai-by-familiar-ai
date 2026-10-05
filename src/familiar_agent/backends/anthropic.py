@@ -10,7 +10,9 @@ import logging
 from collections.abc import Callable
 from typing import Any, cast
 
+from ..core import credit
 from .shared import (
+    watch_credit,
     _supports_adaptive_thinking,
 )
 from .types import ToolCall, TurnResult
@@ -36,6 +38,9 @@ def _text_of(resp) -> str:
 
 class AnthropicBackend:
     """Backend using the official Anthropic SDK."""
+
+    #: 残高切れの知らせで使う担い手の名前（環-z・`core/credit`）。
+    credit_name = "anthropic"
 
     def __init__(
         self,
@@ -209,6 +214,7 @@ class AnthropicBackend:
             return blocks[0]["text"]
         return blocks
 
+    @watch_credit
     async def stream_turn(
         self,
         system: str | tuple[str, str],
@@ -340,6 +346,7 @@ class AnthropicBackend:
         """全部の鍵を落とす（終了時）。同じ理由で API は呼ばない。"""
         getattr(self, "_warm", {}).clear()
 
+    @watch_credit
     async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         """Simple completion (no tools, no streaming) for utility calls."""
         try:
@@ -367,9 +374,11 @@ class AnthropicBackend:
                 )
             return result
         except Exception as e:
+            credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
             logger.warning("complete() failed: %s", e)
             return ""
 
+    @watch_credit
     async def complete_with_image(
         self, prompt: str, image_b64: str, max_tokens: int = 512, *, system: str | None = None
     ) -> str:
@@ -401,5 +410,6 @@ class AnthropicBackend:
             )
             return _text_of(resp)
         except Exception as e:
+            credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
             logger.warning("complete_with_image() failed: %s", e)
             return ""

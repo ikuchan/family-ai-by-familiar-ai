@@ -149,10 +149,19 @@ def clean_db():
     """Isolate each test: reset singleton + truncate tables before and after."""
     _reset_db_singleton()
     _truncate_all()
+    _forget_credit_cache()
     yield
     assert_database_url_untouched()  # 本番へ書く前に止める（環-r）
     _reset_db_singleton()  # close open transactions before TRUNCATE
     _truncate_all()
+    _forget_credit_cache()
+
+
+def _forget_credit_cache() -> None:
+    """残高切れの「知らせたい」のプロセスの写しを捨てる（`agent_state` を空にするのと揃える・環-z）。"""
+    from familiar_agent.core import credit
+
+    credit.forget_cache()
 
 
 @pytest.fixture(autouse=True)
