@@ -29,6 +29,7 @@ from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives,
 from ..mood_register import load_current_mood
 from . import alarm_watch, music_watch, notes_watch, stopwatch_watch, timer_watch
 from .rest import run_rest_pass
+from ..core import credit
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +312,34 @@ class Tonic:
             logger.debug("在席センサを読めなかったので、内省へは回さない")
             return False
 
+    async def _maybe_tell_credit(self) -> None:
+        """残高切れの「知らせたい」を、人が来たら録音済みの声で伝える（環-z・`設計方針_クレジット切れの知らせ`）。
+
+        **専用の情動**：立つのは担い手の呼び出しが残高切れで失敗したとき（`core/credit`）、消えるのは通ったとき。
+        居ない → 居る に変わるたびに伝え（立った時点で居ればすぐ）、居続けているあいだは繰り返さない。門は情動と
+        同じで、「黙っていて」のあいだは控えて明けたら伝え、夜も鳴らす。LLM も TTS も通さない。
+        """
+        told: set[str] = getattr(self, "_credit_told", set())
+        self._credit_told = told
+        if not self._someone_here():
+            told.clear()  # 出て行った。次に来た人にまた伝える
+            return
+        try:
+            alerts = credit.pending()
+        except Exception:  # noqa: BLE001
+            return
+        told.intersection_update(alerts)  # 戻ったものは忘れる（また切れたら伝え直す）
+        if not alerts or _silenced_now():
+            return
+        gain = getattr(getattr(self._agent, "config", None), "tts_gain", 1.0)
+        gain = float(gain) if isinstance(gain, (int, float)) else 1.0
+        for name in sorted(alerts):
+            if name in told:
+                continue
+            told.add(name)
+            with contextlib.suppress(Exception):
+                await self._dif.say_credit(name, gain=gain)
+
     def _notes_due(self, *, now: float) -> bool:
         """パジュ宛てのメモを読む頃合いか（`notes_watch.INTERVAL_SEC` に 1 回・知-g-ろ）。"""
         last = getattr(self, "_notes_checked_at", None)
@@ -433,6 +462,7 @@ class Tonic:
                 now = time.monotonic()
                 dt, last = now - last, now
                 self.scan_presence()
+                await self._maybe_tell_credit()
                 await self._maybe_check_notes(now)
                 self._fire_timers()
                 firing, accumulated = await step_drives(
@@ -465,3 +495,13 @@ class Tonic:
             except Exception as e:  # noqa: BLE001
                 # 自律は落とさない（アイドルが止まると何も起きなくなる）。
                 logger.exception("tonic tick に失敗: %s", e)
+
+
+def _silenced_now() -> bool:
+    """「黙っていて」の依頼が生きているか（情動と同じ門・環-z）。読めなければ黙っていない扱い。"""
+    try:
+        from ..silence_state import is_silenced, load_silence
+
+        return is_silenced(load_silence(), now=time.time())
+    except Exception:  # noqa: BLE001
+        return False

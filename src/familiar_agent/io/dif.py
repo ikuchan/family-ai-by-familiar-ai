@@ -30,7 +30,8 @@ logger = logging.getLogger(__name__)
 
 # ログに載せる発話の長さ。記憶の内容と同じ扱いで、debug でも先頭だけにする。
 _TRAIL_CHARS = 24
-_ALARM_WAV = Path(__file__).resolve().parent.parent / "sounds" / "timer_alarm.wav"
+_SOUNDS = Path(__file__).resolve().parent.parent / "sounds"
+_ALARM_WAV = _SOUNDS / "timer_alarm.wav"
 
 
 async def _play_wav(path: Path, gain: float) -> bool:
@@ -145,6 +146,22 @@ class DIF:
     @property
     def ringing(self) -> bool:
         return self._ring_task is not None and not self._ring_task.done()
+
+    async def say_credit(self, name: str, *, gain: float) -> bool:
+        """残高切れを録音済みの声で知らせる（環-z・`sounds/credit_<担い手>.wav`）。LLM も TTS も通さない。
+
+        録音が無ければ鳴らさず偽を返す（落とさない）。録音は `scripts/gen_credit_voices.py` が作る。
+        """
+        path = _SOUNDS / f"credit_{name}.wav"
+        if not path.exists():
+            logger.warning("DIF クレジット切れの録音が無い：%s", path.name)
+            return False
+        logger.info("DIF クレジット切れを知らせる：%s", name)
+        try:
+            return await _play_wav(path, gain)
+        except Exception:  # noqa: BLE001
+            logger.warning("DIF クレジット切れの録音を鳴らせなかった：%s", name, exc_info=True)
+            return False
 
     def configure_ring(self, *, soft_after: float, soft_until: float, soft_gain: float) -> None:
         """山谷の形を Config から入れる（`RING_SOFT_AFTER_SEC`・`RING_SOFT_UNTIL_SEC`・`RING_SOFT_GAIN`）。"""
