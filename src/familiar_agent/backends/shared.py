@@ -50,7 +50,15 @@ _TRANSIENT_MARKERS = ("503", "unavailable", "429", "resource_exhausted", "high d
 
 
 def _is_transient_error(exc: BaseException) -> bool:
-    """一時的（再試行で回復しうる）エラーか。恒久エラー（400/401 等）は False。"""
+    """一時的（再試行で回復しうる）エラーか。恒久エラー（400/401 等）は False。
+
+    **残高切れは一時的ではない**（環-z・2026-10-05）。Gemini の 402 は `resource_exhausted` を含むので、以前は
+    やり直していた（1 回の依頼で 3 回叩いた）。見分けは `core/credit.is_credit_exhausted`。
+    """
+    from ..core.credit import is_credit_exhausted
+
+    if is_credit_exhausted(exc):
+        return False
     code = getattr(exc, "code", None) or getattr(exc, "status_code", None)
     if code in (503, 429):
         return True
