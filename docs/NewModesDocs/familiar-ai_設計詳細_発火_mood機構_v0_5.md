@@ -1,4 +1,4 @@
-# familiar-ai 設計詳細：発火・mood 機構（v0.4）
+# familiar-ai 設計詳細：発火・mood 機構（v0.5）
 
 本書は、Drive 発火（蓄積式・変調項・閾値・放電）と mood（PAD 全軸0.5中立化）の機構と、変調行列 $C_{ij}$・バイアス $b_i$ の具体仮値、各欲求の性格、発火レンジをまとめる別紙。式・形の確定は **[D-発火]／[D-活性]／[D-値踏み]／[D-B分離]／[D-想起合成]**、パラメータの承認状態と所在は **課題5 B/C**。本書はそれらの機構を一望し、変調行列・バイアス・発火レンジの値表を持つ。検討中の内容は含まず、確定（または確定見込みの仮値）のみ記す。
  
@@ -41,7 +41,8 @@ $$g_{D,i}(M) = \mathrm{logistic}\Big(\mathrm{logit}(b_i) + \sum_j C_{ij}\cdot \m
 - (1) 発火時の放電（連射防止・T 内）。
 - (2) M→D 変調（mood が drive 蓄積を変える・間接）。
 - 原則として I は drive を直接増減しない。充足は本来 (2)（値踏み→M が良い方向→当該 drive の蓄積が緩む間接経路）で鎮まる想定である。
-- (3) 例外ルート＝ターン完了時の軽量LLM充足放電〔実装済み・既定 off〕。上記の間接経路 (2) が現状ほぼ効いていないため、例外として I 側に明示鎮静を置く。ターン完了時、軽量LLM（Utility＝Gemini flash-lite）がそのターンの結果を読み、満たされた drive を **(1) と同じ全放電 $q=1-\varepsilon$** で沈静化する。起動ゲートは **drive 値を使わず**（鎮静対象をその値でゲートする循環を避ける）、W/MI（想起の有無）・E（現ターン感情 PAD の中立からの距離・上下両方向）・行動の OR で作る。Config `DRIVE5_SATISFY_LLM`（既定 off）。実装＝`core/drive_satisfaction.py`＋`agent._maybe_discharge_satisfied_drives`。
+- (3) 例外ルート＝ターン完了時の軽量LLM充足放電〔実装済み・既定 off〕。上記の間接経路 (2) が現状ほぼ効いていないため、例外として I 側に明示鎮静を置く。ターン完了時、軽量LLM（Utility＝Gemini flash-lite）がそのターンの結果を読み、満たされた drive を **(1) と同じ全放電 $q=1-\varepsilon$** で沈静化する。起動ゲートは **drive 値を使わず**（鎮静対象をその値でゲートする循環を避ける）、W/MI（想起の有無）・E（現ターン感情 PAD の中立からの距離・上下両方向）・行動の OR で作る。Config `DRIVE5_SATISFY_LLM`（既定 on・`e238189`）。実装＝`core/drive_satisfaction.py`＋`agent._maybe_discharge_satisfied_drives`。
+  - **rest は対象にしない**（情-o・2026-10-07）。判定に見せる軸は seeking・bond・safety・esteem の 4 つ（`SATISFIABLE_AXES`）で、`apply_satisfaction` も rest は渡されても触らない。rest が 0 に戻るのは rest 自身の発火（誰も居なければ REST 内省・居れば自発の求め）のときだけである。実機 2026-10-07 00:53、夜のひとりのターンが「静かに待ってよっと。」で黙って終わり、軽量LLM が rest を満たされたと読んで全放電した。0 から溜め直すと深夜の速さで 6.17 時間かかり、静穏時間（〜7 時）のうちに届かず、REST 内省が回らなかった（06:55・07:10 にも同じ放電）。
 ---
  
 ### 2-b. ひとりの回数（情-d・2026-09-13）
@@ -156,6 +157,8 @@ $$drive_i \leftarrow \mathrm{clip}\big(drive_i + rate\cdot mult_i(t)\cdot learn\
 
 ## 更新履歴
 
+> v0.5：§2.5 (3) を直した（2026-10-07・`3278fa2`）。既定は on（`e238189` で on にしていた）、rest は満たされた判定の対象にしない（情-o）。
+>
 > v0.4：**§2-c 出来事による押し上げ**（`nudge`・声で SEEKING・案ア・2026-09-17）。
 > v0.3：**§2-b ひとりの回数**を追加（2026-09-13・情-d）。会話しないかぎり SEEKING・SAFETY・BOND の間隔が倍々に伸びる。
 > v0.2：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
