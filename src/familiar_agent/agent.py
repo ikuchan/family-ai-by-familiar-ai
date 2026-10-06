@@ -334,9 +334,7 @@ class EmbodiedAgent:
         if not cfg.satisfy_llm:
             return
         from .core.drive_satisfaction import (
-            _AXES as _SATISFACTION_AXES,
-        )
-        from .core.drive_satisfaction import (
+            SATISFIABLE_AXES,
             apply_satisfaction,
             pad_distance,
             satisfaction_gate,
@@ -356,7 +354,7 @@ class EmbodiedAgent:
 
         prompt = (
             "次の対話ターンで、エージェント自身のどの欲求が『満たされた』かを判定してください。\n"
-            "欲求は5つ：seeking（探索・好奇心）／rest（休息・鎮まり）／bond（つながり・絆）／"
+            "欲求は4つ：seeking（探索・好奇心）／bond（つながり・絆）／"
             "safety（安全・安心）／esteem（承認・役立ち）。\n"
             "満たされたものだけを小文字の名前で列挙し、無ければ none とだけ答えてください。\n"
             f"[ユーザー] {user_input[:400]}\n[エージェント] {final_text[:400]}"
@@ -367,7 +365,7 @@ class EmbodiedAgent:
         axes = await ask_subset(
             self._utility_backend,
             prompt,
-            choices=frozenset(_SATISFACTION_AXES),
+            choices=frozenset(SATISFIABLE_AXES),  # rest は会話で満たされない（2026-10-07）
             max_tokens=32,
             system=self._stance_context(_Stance.PAJU),
         )

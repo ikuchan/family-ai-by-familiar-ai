@@ -5,6 +5,10 @@
 発火時と同じ全放電で沈静化する。ゲートは drive 値を使わず（鎮静対象をその値でゲートする循環を
 避ける）、W/MI・E（PAD 距離・上下両方向）・行動から作る。本モジュールは判定・パース・放電適用の
 純関数だけを持つ（LLM 呼び出しと DB は呼び出し側）。
+
+**rest は対象にしない**（2026-10-07）。rest は会話で満たされず、0 に戻るのは rest 自身の発火（内省か自発の
+求め）のときだけにする。実機 2026-10-07 00:53、夜のひとりのターンが「静かに待ってよっと。」で終わり、
+rest を満たされたと読んで全放電したため、静穏時間のうちに発火へ届かず REST 内省が回らなかった。
 """
 
 from __future__ import annotations
@@ -17,6 +21,8 @@ from ..mood_register import MoodPAD
 from .drive_dynamics import DriveFiring, discharge
 
 _AXES: tuple[str, ...] = ("seeking", "rest", "bond", "safety", "esteem")
+#: 満たされたかを判定する軸（rest を除く）。
+SATISFIABLE_AXES: tuple[str, ...] = tuple(ax for ax in _AXES if ax != "rest")
 
 
 def pad_distance(a: MoodPAD, b: MoodPAD) -> float:
@@ -40,8 +46,8 @@ def satisfaction_gate(
 def apply_satisfaction(
     drives: AiDrivers, axes: "frozenset[str] | set[str]", cfg: DriveConfig | None = None
 ) -> AiDrivers:
-    """満たされた軸を発火時と同じ全放電で沈静化する（他軸は不変）。"""
+    """満たされた軸を発火時と同じ全放電で沈静化する（他軸は不変・rest は渡されても触らない）。"""
     if not axes:
         return drives
-    firing = DriveFiring(**{ax: (ax in axes) for ax in _AXES})
+    firing = DriveFiring(**{ax: (ax in axes and ax in SATISFIABLE_AXES) for ax in _AXES})
     return discharge(drives, firing, cfg)

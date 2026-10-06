@@ -161,3 +161,61 @@ def test_wiring_gate_pass_calls_llm():
         camera_used=False,
     )
     s._utility_backend.complete.assert_awaited_once()
+
+
+# ── rest は会話で満たされない（2026-10-07 実機）──────────────────────────────
+#
+# 実機 2026-10-07 00:53、誰も居ない夜のひとりのターンが「静かに待ってよっと。」で黙って終わり、軽量LLM が
+# rest を「満たされた」と答えて全放電した。0 から溜め直すと静穏時間のうちに発火へ届かず、蒸留（REST 内省）が
+# 回らなかった。rest が 0 に戻るのは、rest 自身の発火（内省か自発の求め）のときだけにする（本人の決定ア）。
+
+
+def test_rest_is_not_a_satisfiable_axis():
+    from familiar_agent.core.drive_satisfaction import SATISFIABLE_AXES
+
+    assert "rest" not in SATISFIABLE_AXES
+    assert set(SATISFIABLE_AXES) == {"seeking", "bond", "safety", "esteem"}
+
+
+def test_apply_satisfaction_leaves_rest_alone():
+    out = apply_satisfaction(AiDrivers(rest=0.3, seeking=0.7), frozenset({"rest", "seeking"}))
+    assert out.rest == pytest.approx(0.3)  # rest は触らない
+    assert out.seeking == pytest.approx(0.0, abs=1e-2)  # ほかはいまどおり
+
+
+def test_the_judge_is_not_offered_rest(monkeypatch):
+    seen: dict = {}
+
+    async def fake_ask_subset(backend, prompt, *, choices, **kw):
+        seen["prompt"], seen["choices"] = prompt, choices
+        return None
+
+    monkeypatch.setattr("familiar_agent.core.structured_ask.ask_subset", fake_ask_subset)
+    s = _mock_agent(satisfy_llm=True)
+    _run(
+        s,
+        user_input="",
+        final_text="んー、まだ誰も居ないみたいだね。静かに待ってよっと。",
+        emotion_pad=MoodPAD(),
+        memories=[{"x": 1}],
+        camera_used=False,
+    )
+    assert "rest" not in seen["choices"]
+    assert "rest" not in seen["prompt"]
+    assert "seeking" in seen["prompt"] and "esteem" in seen["prompt"]
+
+
+def test_a_rest_answer_touches_nothing(monkeypatch):
+    """00:53 の形：判定が rest と答えても、DB へ行かない。"""
+    get_db = MagicMock(side_effect=AssertionError("DB に触れた"))
+    monkeypatch.setattr("familiar_agent.db.get_db", get_db)
+    s = _mock_agent(satisfy_llm=True, complete_ret="rest")
+    _run(
+        s,
+        user_input="",
+        final_text="静かに待ってよっと。",
+        emotion_pad=MoodPAD(),
+        memories=[{"x": 1}],
+        camera_used=False,
+    )
+    get_db.assert_not_called()
