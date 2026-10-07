@@ -183,7 +183,7 @@ capabilities:
       music by itself: every night it picks one song you do not have yet, close to the
       artists in your playlists, and at a moment when it may talk (at most once a day) it
       asks "こんな曲あるけどどう？" with the title, artist and why; `music_suggestion_reply`
-      plays it if you like it, and never suggests it again if you do not. It plays through spotifyd on this machine. While music plays,
+      plays it if you like it, and never suggests it again if you do not. It plays through spotifyd on this machine; the agent starts spotifyd itself when it is not running (at startup, and again before playing). While music plays,
       only music words (stop, next, louder, softer, a playlist name) are heard, unless
       the utterance starts with the agent's name, in which case anything is heard
       ("パジュ、いま何の曲？"). The song now playing, its artist and the volume are shown

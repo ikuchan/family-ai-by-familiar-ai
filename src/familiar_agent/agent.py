@@ -843,6 +843,8 @@ class EmbodiedAgent:
             # 鳴らす直前に機器をこちらへ切り替える（知-aa）。MPRIS の口は現役になってから出る。
             web=Spotify(),
             device_name=os.environ.get("SPOTIFY_DEVICE_NAME", "パジュ"),
+            spotifyd_conf=self.config.spotifyd_config,
+            spotifyd_wait_sec=self.config.spotifyd_wait_sec,
         )
 
     def mic_gate_reason(self) -> str:
@@ -1262,6 +1264,12 @@ class EmbodiedAgent:
 
             tts_cfg = self.config.tts
             ensure_sbv2_server(tts_cfg, engine=tts_cfg.engine, output=tts_cfg.output)
+        # spotifyd（音楽を鳴らす裏方）も、音楽の器があれば起動時に立ち上げておく（待たない・2026-10-07）。
+        if getattr(self, "_music_tool", None) is not None:
+            with contextlib.suppress(Exception):
+                from .io import spotifyd
+
+                spotifyd.ensure_running(self.config.spotifyd_config)
         # 人検出（YOLO）と見えのエンコーダ（DINOv2）も起動時に温める。最初の see が
         # 読込込みで 5.3 秒かかり、「5 秒超え」のつなぎまで出た（2026-09-13 実機）。
         with contextlib.suppress(Exception):
@@ -1328,6 +1336,11 @@ class EmbodiedAgent:
             from .tools.tts import stop_sbv2_server
 
             stop_sbv2_server()
+        # 自分で立ち上げた spotifyd だけを止める（人が立てたものには触らない）。
+        with contextlib.suppress(Exception):
+            from .io import spotifyd
+
+            spotifyd.stop_started()
 
         await self._close_backends()
 

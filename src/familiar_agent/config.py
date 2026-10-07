@@ -788,6 +788,16 @@ class AgentConfig:
         )
     )
     max_tokens: int = 4096
+    # spotifyd（Spotify の音をこの機体で鳴らす裏方）。居なければパジュが立ち上げ、立ち上げた直後は機器が
+    # Spotify に見えるまで待つ（2026-10-07・本人の決定）。〔仮〕
+    spotifyd_config: str = field(
+        default_factory=lambda: os.environ.get(
+            "SPOTIFYD_CONFIG", "~/.config/spotifyd/spotifyd.conf"
+        )
+    )
+    spotifyd_wait_sec: float = field(
+        default_factory=lambda: _float_env("MUSIC_SPOTIFYD_WAIT_SEC", 10.0)
+    )
     camera: CameraConfig = field(default_factory=CameraConfig)
     mobility: MobilityConfig = field(default_factory=MobilityConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)

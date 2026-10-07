@@ -97,6 +97,8 @@ class MusicTool:
         now: "Callable[[], float] | None" = None,
         web: Any = None,
         device_name: str = "",
+        spotifyd_conf: str = "",
+        spotifyd_wait_sec: float = 10.0,
     ) -> None:
         self._io = io
         self._bus = bus
@@ -107,6 +109,9 @@ class MusicTool:
         # 鳴らす直前に機器をこちらへ切り替える口（知-aa・`io/spotify_web`）。無ければ通さない。
         self._web = web
         self._device_name = device_name
+        # 鳴らす前に spotifyd が居るかを見て、居なければ立ち上げる（2026-10-07）。空なら見ない（試験の土台）。
+        self._spotifyd_conf = spotifyd_conf
+        self._spotifyd_wait = spotifyd_wait_sec
 
     def get_tool_definitions(self) -> list[dict]:
         return [dict(d) for d in TOOL_DEFINITIONS]
@@ -167,6 +172,7 @@ class MusicTool:
                 return f"「{said}」は見つからなかったので、かけられない", False
             heading, uri = found
             shuffle = music_rules.wants_shuffle(order, False)
+        await self._ensure_spotifyd()
         # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新も
         # ここで起きる。切り替えられなくても鳴らしにいく（口が既に居れば鳴る）。
         if self._web is not None and self._device_name:
@@ -181,6 +187,18 @@ class MusicTool:
         how = "ランダムで" if shuffle else ""
         logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
         return f"{heading}{how}かけ始めた", True
+
+    async def _ensure_spotifyd(self) -> None:
+        """spotifyd が居なければ立ち上げ、機器が Spotify に見えるまで待つ（2026-10-07 実機・最大 10 秒〔仮〕）。"""
+        if not self._spotifyd_conf:
+            return
+        from ..io import spotifyd
+
+        state = await asyncio.to_thread(spotifyd.ensure_running, self._spotifyd_conf)
+        if state == "started" and self._web is not None and self._device_name:
+            await spotifyd.wait_for_device(
+                self._web, self._device_name, wait_sec=self._spotifyd_wait
+            )
 
     async def _search(self, said: str, kind_word: str, catalog) -> "tuple[str, str] | None":
         """手元に無いとき：プレイリストに入っているアーティストなら、その人を。無ければ全体から探す。"""
