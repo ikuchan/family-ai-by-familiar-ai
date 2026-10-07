@@ -344,3 +344,28 @@ def test_an_arbiter_play_music_reaches_the_music_tool():
     ip._start_lookup.assert_called_once()
     assert ip._start_lookup.call_args.kwargs["action"] == "play_music"
     assert ip._start_lookup.call_args.args[1] == {"name": "ケイマン", "order": "ランダム"}
+
+
+# ── 減音のログ（知-ak-ろ 段 3・2026-10-07）─────────────────────────────────────
+#
+# 減音は何も残さなかったので、実機で効いたかが分からなかった。下げたとき・戻したときに 1 行ずつ残す。
+
+
+@pytest.mark.asyncio
+async def test_ducking_is_logged_both_ways(caplog):
+    from familiar_agent.loop.music_watch import duck_while_speaking
+
+    io = MagicMock()
+    io.status = AsyncMock(return_value={"playing": True, "volume": 0.5})
+    io.set_volume = AsyncMock(return_value=True)
+    state = MagicMock(playing=True)
+
+    async def speak():
+        return "話した"
+
+    with caplog.at_level("INFO"):
+        await duck_while_speaking(
+            io=io, bus=MagicMock(), state=state, speak=speak, sleep=AsyncMock()
+        )
+    assert "音楽：話すあいだ音量を下げた（0.50 → 0.12）" in caplog.text
+    assert "音楽：音量を戻した（0.50）" in caplog.text

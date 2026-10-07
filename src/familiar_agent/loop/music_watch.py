@@ -59,6 +59,8 @@ async def duck_while_speaking(
             if s and s.get("playing"):
                 base = float(s.get("volume", 0.5))
                 await io.set_volume(bus, duck(base))
+                # 効いたかを後から確かめられるように残す（知-ak-ろ・2026-10-07）
+                logger.info("音楽：話すあいだ音量を下げた（%.2f → %.2f）", base, duck(base))
     try:
         return await speak()
     finally:
@@ -66,6 +68,7 @@ async def duck_while_speaking(
             with contextlib.suppress(Exception):
                 await (sleep or asyncio.sleep)(RESTORE_AFTER_SEC)
                 await io.set_volume(bus, base)
+                logger.info("音楽：音量を戻した（%.2f）", base)
 
 
 async def observe(*, io: Any, bus: Any, state: Any, record: Callable[[str], Any]) -> dict:
