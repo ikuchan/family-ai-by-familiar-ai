@@ -213,3 +213,54 @@ def test_the_agent_starts_it_at_startup_and_stops_it_at_exit():
     assert "spotifyd.ensure_running" in src
     assert "spotifyd.stop_started()" in src
     assert "spotifyd_conf=" in src and "spotifyd_wait_sec=" in src
+
+
+# ── 音の出口はこの機体（2026-10-07 実機）──────────────────────────────────────
+#
+# アプリを遠隔デスクトップ（Chrome Remote Desktop）のターミナルから起動すると、その接続用の音の口を指す環境変数を
+# 引き継ぐ。spotifyd も引き継いで、音が遠隔デスクトップの接続へ流れ、Yamaha から鳴らなかった。立ち上げるときだけ外し、
+# この機体の音の口（`<XDG_RUNTIME_DIR>/pulse/native`・既定の出口が Yamaha）を指す。
+
+_CRD = {
+    "PULSE_RUNTIME_PATH": "/run/user/1000/crd_audio#K7euY9wjcA",
+    "PULSE_SINK": "chrome_remote_desktop_session",
+    "PIPEWIRE_REMOTE": "crd_audio#K7euY9wjcA/pipewire",
+}
+
+
+def test_the_remote_desktop_audio_is_not_passed(monkeypatch, tmp_path):
+    (tmp_path / "pulse").mkdir()
+    (tmp_path / "pulse" / "native").write_text("")
+    for k, v in _CRD.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
+    monkeypatch.setenv("HOME", "/home/x")
+    env = spotifyd._audio_env()
+    assert not (set(_CRD) & set(env))
+    assert env["PULSE_SERVER"] == f"unix:{tmp_path}/pulse/native"
+    assert env["HOME"] == "/home/x"  # ほかはそのまま
+
+
+def test_without_the_local_socket_it_only_drops_and_warns(monkeypatch, tmp_path, caplog):
+    for k, v in _CRD.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))  # pulse/native が無い
+    env = spotifyd._audio_env()
+    assert not (set(_CRD) & set(env))
+    assert "PULSE_SERVER" not in env
+    assert "音の口" in caplog.text
+
+
+def test_the_spawned_spotifyd_gets_that_env(monkeypatch):
+    seen = {}
+    monkeypatch.setattr(spotifyd, "_pgrep", lambda: False)
+    monkeypatch.setattr(spotifyd, "find_binary", lambda: "/usr/bin/spotifyd")
+    monkeypatch.setattr(spotifyd, "_audio_env", lambda: {"PULSE_SERVER": "unix:/x"})
+
+    def popen(args, **kw):
+        seen.update(kw)
+        return _Proc()
+
+    monkeypatch.setattr(spotifyd.subprocess, "Popen", popen)
+    spotifyd.ensure_running("c")
+    assert seen["env"] == {"PULSE_SERVER": "unix:/x"}

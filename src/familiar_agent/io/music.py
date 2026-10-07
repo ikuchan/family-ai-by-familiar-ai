@@ -75,6 +75,8 @@ async def play(bus: Any, uri: str) -> bool:
             logger.info("音楽：再生をこちらへ移したが、MPRIS の口が出ない")
             return False
     await player.call_open_uri(uri)
+    # `OpenUri` だけでは読み込むだけで鳴らなかった（2026-10-07 実機・`Play` を送ったら鳴った）。
+    await player.call_play()
     logger.info("音楽：鳴らし始めた（%s）", uri)
     return True
 

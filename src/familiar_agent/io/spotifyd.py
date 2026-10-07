@@ -7,6 +7,9 @@ spotifyd は Spotify の音をこの機体で鳴らす裏方で、以前は手�
   自分で立てたものはその手綱で、ほかは `pgrep -x spotifyd` で見る。
 - **自分で立てたものだけを止める**（SBV2 の合成サーバーと同じ扱い）。人が立てたものには触らない。
 - 本体が見つからなければ警告を残すだけで落ちない（音楽は「かけられなかった」と返る）。
+- **音の出口はこの機体**（2026-10-07 実機）。アプリを遠隔デスクトップのターミナルから起動すると、その接続用の音の口を
+  指す環境変数を引き継ぎ、spotifyd の音が遠隔デスクトップへ流れて Yamaha から鳴らなかった。立ち上げるときだけ外し、
+  この機体の音の口（`<XDG_RUNTIME_DIR>/pulse/native`・既定の出口が Yamaha）を指す（`_audio_env`）。
 """
 
 from __future__ import annotations
@@ -32,6 +35,22 @@ def find_binary() -> "str | None":
         return found
     local = Path.home() / ".local" / "bin" / "spotifyd"
     return str(local) if local.exists() else None
+
+
+#: 遠隔デスクトップ（Chrome Remote Desktop）の接続用の音の口を指す環境変数。spotifyd には渡さない。
+_REMOTE_AUDIO_VARS = ("PULSE_RUNTIME_PATH", "PULSE_SINK", "PIPEWIRE_REMOTE")
+
+
+def _audio_env() -> "dict[str, str]":
+    """spotifyd に渡す環境。遠隔デスクトップの音の口を外し、この機体の音の口を指す（無ければ外すだけ）。"""
+    env = {k: v for k, v in os.environ.items() if k not in _REMOTE_AUDIO_VARS}
+    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
+    native = Path(runtime) / "pulse" / "native"
+    if native.exists():
+        env["PULSE_SERVER"] = f"unix:{native}"
+    else:
+        logger.warning("この機体の音の口（%s）が見つからない。既定の口で鳴らす", native)
+    return env
 
 
 def _pgrep() -> bool:
@@ -64,6 +83,7 @@ def ensure_running(config_path: str) -> str:
             [binary, "--no-daemon", "--config-path", conf],
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=_audio_env(),
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("spotifyd を立ち上げられなかった: %s", e)

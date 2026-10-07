@@ -38,12 +38,15 @@ async def test_no_player_yet_is_not_an_error():
 
 
 @pytest.mark.asyncio
-async def test_playing_a_uri_goes_through_open_uri():
+async def test_playing_a_uri_goes_through_open_uri_then_play():
+    """`OpenUri` だけでは読み込むだけで鳴らなかった（2026-10-07 実機・`Play` を送ったら鳴った）。"""
+    order: list[str] = []
     player = MagicMock()
-    player.call_open_uri = AsyncMock()
+    player.call_open_uri = AsyncMock(side_effect=lambda uri: order.append(f"open:{uri}"))
+    player.call_play = AsyncMock(side_effect=lambda: order.append("play"))
     bus = _bus(["org.mpris.MediaPlayer2.spotifyd.instance42"], player)
     assert await music.play(bus, "spotify:playlist:aaa") is True
-    player.call_open_uri.assert_awaited_once_with("spotify:playlist:aaa")
+    assert order == ["open:spotify:playlist:aaa", "play"]
 
 
 @pytest.mark.asyncio
@@ -53,6 +56,7 @@ async def test_without_a_player_the_playback_is_transferred_first():
     transferred.call_transfer_playback = AsyncMock()
     player = MagicMock()
     player.call_open_uri = AsyncMock()
+    player.call_play = AsyncMock()
     bus = MagicMock()
     bus.list_names = AsyncMock(
         side_effect=[["rs.spotifyd.instance42"], ["org.mpris.MediaPlayer2.spotifyd.instance42"]]
@@ -62,6 +66,7 @@ async def test_without_a_player_the_playback_is_transferred_first():
     assert await music.play(bus, "spotify:playlist:aaa") is True
     transferred.call_transfer_playback.assert_awaited_once()
     player.call_open_uri.assert_awaited_once_with("spotify:playlist:aaa")
+    player.call_play.assert_awaited_once()
 
 
 @pytest.mark.asyncio
