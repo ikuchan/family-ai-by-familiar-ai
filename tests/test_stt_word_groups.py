@@ -67,13 +67,22 @@ def test_the_word_list_is_joined_with_a_comma_not_a_space():
     読点・中点・改行はいずれも **4/4・0/3**。読点を採ったのは、`ME.md` の「名前：」が
     読点区切りで、**人が書いた形をそのまま渡す**ことになるからである。
     """
-    assert hotwords_for(GROUPS) == "パジュ、はじゅ、パチュ、パジュー、出入口、でいりぐち"
+    assert hotwords_for(GROUPS) == "パジュ、出入口"
     assert " " not in hotwords_for(GROUPS)
-    # 消す組は、直すべき語（`-`）を列に入れない
-    assert (
-        hotwords_for((("-", ("ご視聴ありがとうございました",)),)) == "ご視聴ありがとうございました"
-    )
+    # 消す組は何も渡さない
+    assert hotwords_for((("-", ("ご視聴ありがとうございました",)),)) == ""
     assert hotwords_for(()) == ""
+
+
+def test_only_the_target_words_are_passed():
+    """**渡すのは直すべき語だけ**（知-z-ろ・2026-10-07）。聞き違いの綴り（はじゅ・パチュ・パジュー）まで渡すと、
+    音の無いところで崩れた形の一覧（「パチュ、はじゅ、はじゅー」）が書き出され、直すと「パジュ、パジュ、パジュー」に
+    なって、誰も呼んでいないのにパジュが返事をした（実機 15:17〜15:41・11 回）。聞き違いは直す側にだけ使う。"""
+    names = (("パジュ", ("はじゅ", "パチュ", "パジュー")),)
+    assert hotwords_for(names) == "パジュ"
+    # 1 語なので丸ごとの写しを消す組は足さない（正しく取れた名前を消さない）
+    assert with_hint(names, hotwords_for(names)) == names
+    assert fix_words("パチュ、3 分測って", names) == "パジュ、3 分測って"
 
 
 def test_the_samples_are_replaced_by_the_target():
@@ -99,7 +108,9 @@ def test_the_word_list_itself_is_added_as_a_group_to_delete():
     落とす対象は「渡した列」なので、区切りを変えたら写しの形も変わる。
     """
     groups = with_hint(GROUPS, hotwords_for(GROUPS))
-    text = "パジュ、はじゅ、パチュ、パジュー、出入口、でいりぐち"
+    text = hotwords_for(
+        GROUPS
+    )  # 渡した列そのもの（知-z-ろ からは直すべき語だけ：「パジュ、出入口」）
     assert fix_words(text, groups) == ""
     assert fix_words(text + "、3 分測って", groups) == "3 分測って"
     # 語 1 つは消さない（人が名前を呼んだ言葉）

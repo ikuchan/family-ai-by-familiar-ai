@@ -77,12 +77,16 @@ _HINT_SEP = "、"
 
 
 def hotwords_for(groups: "tuple[tuple[str, tuple[str, ...]], ...]") -> str:
-    """STT へ渡す語の列。表の語を読点でつなぐ（消す組の `-` は入れない）。"""
+    """STT へ渡す語の列。**直すべき語だけ**を読点でつなぐ（消す組は何も渡さない）。
+
+    聞き違いの綴り（あり得る語）は渡さない（知-z-ろ・2026-10-07）。渡すと、音の無いところで崩れた形の一覧
+    （「パチュ、はじゅ、はじゅー」）が書き出され、直すと「パジュ、パジュ、パジュー」になって、誰も呼んでいないのに
+    パジュが返事をした（実機 15:17〜15:41）。聞き違いは `fix_words` が直す側にだけ使う。
+    """
     words: list[str] = []
-    for target, samples in groups:
-        for w in ((target,) if target != _DELETE else ()) + tuple(samples):
-            if w and w not in words:
-                words.append(w)
+    for target, _samples in groups:
+        if target and target != _DELETE and target not in words:
+            words.append(target)
     return _HINT_SEP.join(words)
 
 
