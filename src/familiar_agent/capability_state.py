@@ -66,15 +66,29 @@ def live_tool_names(agent) -> "list[str]":
     """いま実際に取れる道具の名前（出-al・2026-09-22）。
 
     繋がっていなければ空。設定ファイルに書いてあることとは別で、**能力はこちらで数える**。
+
+    MCP の道具に加えて、**アプリ自身の道具**（エージェントの `_…_tool` のうち定義を返すもの・音楽・タイマーなど）も
+    数える（2026-10-07）。以前は MCP だけを数えていたので、`enabled_tool: play_music` の音楽がいつも
+    `[いま使えない]` に載り、主LLM は「音楽の機能が使えない」と答えて道具を呼ばなかった（実機 12:59）。
     """
-    mcp = getattr(agent, "_mcp", None)
-    if mcp is None:
-        return []
-    try:
-        return [str(d.get("name", "")) for d in mcp.get_tool_definitions() if d.get("name")]
-    except Exception:  # noqa: BLE001
-        logger.warning("いま取れる道具を数えられなかった", exc_info=True)
-        return []
+    holders = [getattr(agent, "_mcp", None)]
+    holders += [
+        v
+        for k, v in sorted(getattr(agent, "__dict__", {}).items())
+        if k.startswith("_") and k.endswith("_tool")
+    ]
+    names: list[str] = []
+    for holder in holders:
+        if holder is None or not hasattr(holder, "get_tool_definitions"):
+            continue
+        try:
+            for d in holder.get_tool_definitions():
+                name = str(d.get("name", "") or "")
+                if name and name not in names:
+                    names.append(name)
+        except Exception:  # noqa: BLE001
+            logger.warning("いま取れる道具を数えられなかった", exc_info=True)
+    return names
 
 
 def filter_enabled(manifest: str, env: dict | None = None, tools: "set[str] | None" = None) -> str:

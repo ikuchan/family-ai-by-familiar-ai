@@ -92,3 +92,65 @@ def test_several_missing_tools_are_listed_on_one_line():
     )
     first = text.splitlines()[0]
     assert "カレンダー" in first and "決まり" in first
+
+
+# ── アプリ自身の道具も「いま取れる」に数える（2026-10-07 実機）──────────────────
+#
+# 実機 2026-10-07 12:59、「(パ)ジュ、ケイマンをランダムでかけて」に主LLM は `play_music` を呼ばず「今音楽の機能が
+# 使えないみたいで」と答えた。音楽の項目は `enabled_tool: play_music` だが、`live_tool_names` が MCP の道具しか
+# 数えていなかったので、システム文に `[いま使えない] play_music` が載っていた。
+
+
+class _Tool:
+    def __init__(self, *names):
+        self._names = names
+
+    def get_tool_definitions(self):
+        return [{"name": n} for n in self._names]
+
+
+def _agent(*, music=True, mcp=("get_house_rules",)):
+    from types import SimpleNamespace
+
+    a = SimpleNamespace()
+    a._mcp = None if mcp is None else _Tool(*mcp)
+    a._music_tool = _Tool("play_music", "stop_music") if music else None
+    a._timer_tool = _Tool("set_timer")
+    return a
+
+
+def test_the_apps_own_tools_are_live():
+    from familiar_agent.capability_state import live_tool_names
+
+    live = set(live_tool_names(_agent()))
+    assert {"play_music", "stop_music", "set_timer", "get_house_rules"} <= live
+
+
+def test_play_music_is_not_told_missing_when_the_music_tool_is_there():
+    import pathlib
+
+    from familiar_agent.capability_state import live_tool_names
+
+    manifest = (pathlib.Path(__file__).resolve().parents[1] / "capabilities.yaml").read_text(
+        encoding="utf-8"
+    )
+    live = set(live_tool_names(_agent()))
+    assert "play_music" not in [t for t, _ in missing_tools(manifest, live)]
+
+
+def test_play_music_is_missing_on_a_machine_without_music():
+    import pathlib
+
+    from familiar_agent.capability_state import live_tool_names
+
+    manifest = (pathlib.Path(__file__).resolve().parents[1] / "capabilities.yaml").read_text(
+        encoding="utf-8"
+    )
+    live = set(live_tool_names(_agent(music=False)))
+    assert "play_music" in [t for t, _ in missing_tools(manifest, live)]
+
+
+def test_own_tools_count_without_mcp():
+    from familiar_agent.capability_state import live_tool_names
+
+    assert "play_music" in live_tool_names(_agent(mcp=None))
