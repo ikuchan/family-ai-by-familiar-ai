@@ -3846,13 +3846,17 @@ class InformationProcessing:
 
         **由来は問わない**（本人の決定・2026-09-22）。顔で入った人でも、目の前の人が
         「パパじゃない」と言えば外す。名前を言わずに否定されたら、いま話者としている人を
-        外す——他に指すものが無く、否定は目の前のやりとりについて言われる。
+        外す——他に指すものが無く、否定は目の前のやりとりについて言われる。その名前は Jev が選択肢
+        「いま話者としている人」から選んで書いてくる（`loop/arbiter`）。
+
+        **空は「打ち消しなし」**（出-ax・2026-10-07）。以前は空ならいまの話者を外していたが、この関数は
+        調停のたびに無条件で呼ばれるので、声で付けた話者が毎回 0.4〜2.3 秒で外れた（実機 12:49〜13:28 の 6 回）。
         """
         from ..core.speaker_claim import resolve_claim
 
         agent = self._agent
         family = str(getattr(agent, "_family_md", "") or "")
-        raw = (claim or "").strip() or str(getattr(agent._persons, "active_name", "") or "")
+        raw = (claim or "").strip()
         if not raw:
             return
         name = resolve_claim(raw, family)

@@ -126,15 +126,18 @@ def test_a_denied_person_leaves_presence():
     assert persons.reset == 1
 
 
-def test_a_denial_without_a_name_uses_the_current_speaker():
-    """調停は空でなく「いまの話者」を書いてくる（実測）。空でも困らないようにする。"""
+def test_an_empty_denial_means_no_denial():
+    """空は「打ち消しなし」（出-ax・2026-10-07）。以前は空ならいまの話者を外していたので、調停を通るたびに
+    声で付けた話者が外れた（実機 12:49・12:59・13:28 の 6 回・0.4〜2.3 秒後）。名前を言わない打ち消しは、
+    Jev が選択肢「いま話者としている人」を選ぶので名前つきで届く（下の試験）。"""
     import asyncio
 
     pmm = _FakePMM2({"パパ": "p-yusuke"})
     persons = _FakePersons("パパ")
     ip = _loop(pmm, persons)
     asyncio.run(ip._apply_not_person(""))
-    assert pmm.left == ["p-yusuke"]
+    assert pmm.left == []
+    assert persons.reset == 0
 
 
 def test_someone_outside_the_family_is_ignored():
@@ -167,3 +170,62 @@ def test_the_denial_is_applied_before_the_claim():
 
     src = inspect.getsource(InformationProcessing._apply_requests)
     assert src.index("_apply_not_person") < src.index("_apply_speaker_claim")
+
+
+# ── 打ち消していないのに外さない（出-ax・2026-10-07 実機）─────────────────────
+
+
+def test_todays_form_keeps_the_voice_speaker():
+    """声でパパを付けた直後、打ち消しの無い入力（「パジュー、今日の天気は?」）で調停が倒れても外さない。"""
+    import asyncio
+
+    from familiar_agent.loop.arbiter import _FALLBACK
+
+    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    persons = _FakePersons("パパ")
+    ip = _loop(pmm, persons)
+    ip._apply_silence = lambda decision, utterance="": None
+
+    async def no_claim(decision):
+        return None
+
+    ip._apply_speaker_claim = no_claim
+    asyncio.run(ip._apply_requests(_FALLBACK, utterance="パジュー、今日の天気は?"))
+    assert pmm.left == []
+    assert persons.reset == 0
+
+
+def test_a_denial_without_a_name_arrives_with_the_current_speaker():
+    """「ちがうよ」（名前なし）：Jev は「いま話者としている人」を選ぶので、その名前で届いて外れる。"""
+    import asyncio
+
+    from familiar_agent.backends.jev import JevAnswer
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+
+    class _Jev:
+        available = True
+
+        async def ask(self, state, questions):
+            return JevAnswer(
+                ok=True,
+                answers={
+                    "branch": {"choice": "light", "confidence": 0.9},
+                    "effort": {"choice": "low", "confidence": 0.9},
+                    "denies": {"noul": 0.9},
+                    "denied": {"choice": "パパ", "confidence": 0.9},
+                },
+            )
+
+    arb = Arbiter(jev=_Jev(), writer=None, min_conf=0.5)
+    data = asyncio.run(
+        arb._judge(
+            ArbiterInput(
+                utterance="ちがうよ", workspace_ctx="", family_md=_FAMILY, current_speaker="パパ"
+            )
+        )
+    )
+    assert data["not_person"] == "パパ"
+    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    persons = _FakePersons("パパ")
+    asyncio.run(_loop(pmm, persons)._apply_not_person(data["not_person"]))
+    assert pmm.left == ["p-yusuke"]
