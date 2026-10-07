@@ -266,3 +266,81 @@ def test_a_play_music_call_alone_is_started_not_dropped():
     assert ip._start_lookup.call_args.kwargs["action"] == "play_music"
     assert ip._start_lookup.call_args.args[1] == {"name": "ケイマン", "order": "ランダム"}
     ip._finish.assert_not_awaited()  # 沈黙で閉じない
+
+
+# ── 調停が音楽をかけられる（知-ak 段 6・2026-10-07）─────────────────────────────
+#
+# タイマーやアラームは調停の候補に載っていて、調停が自分で掛ける。音楽は載っておらず、調停は音楽を選べなかった。
+# 4 つを載せる（勧めた曲への返事 `music_suggestion_reply` は勧めの流れの中で主LLM が使うので載せない）。
+
+_FOUR = ("play_music", "stop_music", "next_track", "music_volume")
+
+
+def _ip_with_music(music: bool):
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from familiar_agent.tools.music import MusicTool
+    from tests.test_event_loop import _agent
+
+    a = _agent(stream_returns=[])
+    a._music_tool = (
+        MusicTool(io=MagicMock(), bus=lambda: MagicMock(), table=lambda: ()) if music else None
+    )
+    return InformationProcessing(a)
+
+
+def test_the_arbiter_is_offered_the_four_music_actions():
+    import asyncio
+
+    ip = _ip_with_music(True)
+    got = ip._extra_actions()
+    asyncio.run(ip.close())
+    assert set(_FOUR) <= set(got)
+    assert "music_suggestion_reply" not in got
+
+
+def test_no_music_actions_without_the_device():
+    import asyncio
+
+    ip = _ip_with_music(False)
+    got = ip._extra_actions()
+    asyncio.run(ip.close())
+    assert not (set(_FOUR) & set(got))
+
+
+def test_the_arbiter_knows_how_to_write_play_music():
+    from familiar_agent.loop.arbiter import (
+        _EXTRA_ACTIONS,
+        Arbiter,
+        ArbiterInput,
+        _writer_needs,
+    )
+
+    for a in _FOUR:
+        assert a in _EXTRA_ACTIONS
+    assert '"name"' in _EXTRA_ACTIONS["play_music"][1]
+    allowed = Arbiter(jev=None, writer=None)._allowed_actions(
+        ArbiterInput(utterance="ケイマンかけて", workspace_ctx="", extra_actions=_FOUR)
+    )
+    assert "play_music" in allowed
+    inp = ArbiterInput(utterance="ケイマンかけて", workspace_ctx="")
+    assert _writer_needs(inp, {"branch": "action", "action": "play_music"}) == ["tool_input"]
+
+
+def test_an_arbiter_play_music_reaches_the_music_tool():
+    import asyncio
+
+    from familiar_agent.loop.arbiter import Decision as ArbiterDecision
+
+    ip = _ip_with_music(True)
+    ip._start_lookup = MagicMock()
+    d = ArbiterDecision(
+        branch="action",
+        effort="low",
+        action="play_music",
+        tool_input={"name": "ケイマン", "order": "ランダム"},
+    )
+    asyncio.run(ip._dispatch_arbiter_action(d, utterance="ケイマンをランダムでかけて"))
+    asyncio.run(ip.close())
+    ip._start_lookup.assert_called_once()
+    assert ip._start_lookup.call_args.kwargs["action"] == "play_music"
+    assert ip._start_lookup.call_args.args[1] == {"name": "ケイマン", "order": "ランダム"}

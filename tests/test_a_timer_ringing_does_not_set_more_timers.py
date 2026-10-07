@@ -61,6 +61,10 @@ def _ip_with_timer():
                 "confirm",  # 確認待ちが無い（出-y）
                 "decline",
                 "stop_stopwatch",
+                "play_music",  # 音楽は器が無い（知-ak 段 6 で調停の候補に載った）
+                "stop_music",
+                "next_track",
+                "music_volume",
             )
         },
         "set_timer": lambda ip: [{"name": "set_timer"}],

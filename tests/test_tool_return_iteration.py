@@ -99,6 +99,10 @@ def test_the_lead_is_the_experiments_sentence_and_the_returned_tool_is_not_offer
                 "confirm",
                 "decline",
                 "stop_stopwatch",
+                "play_music",  # 音楽は器が無い（知-ak 段 6 で調停の候補に載った）
+                "stop_music",
+                "next_track",
+                "music_volume",
             )
         },
         **{

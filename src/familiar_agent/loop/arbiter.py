@@ -235,6 +235,25 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
         "",
         '"cancel_alarm"（「アラーム止めて」「明日の起こすのやめて」。tool_input に {"id": 番号か "all"}。番号は [アラーム] の枠）',
     ),
+    # 音楽（知-ak 段 6・2026-10-07）。タイマーと同じく**調停が自分でかける**——道具の入力を `tool_input` に書く。
+    # 載せていなかったので、調停は音楽を選べず、主LLM へ倒れたときだけ鳴らしにいった。
+    "play_music": (
+        "",
+        '"play_music"（音楽をかける。「〇〇かけて」。tool_input に {"name": "言われた名前", "order": "ランダム か 順番"}。'
+        "order は言われたときだけ。[音楽] の枠が「いまは何も鳴っていない」なら、前にかけたことがあってもかける）",
+    ),
+    "stop_music": (
+        "",
+        '"stop_music"（音楽を止める。「止めて」「音楽消して」。tool_input は {}）',
+    ),
+    "next_track": (
+        "",
+        '"next_track"（次の曲へ。「次の曲」「飛ばして」。tool_input は {}）',
+    ),
+    "music_volume": (
+        "",
+        '"music_volume"（音楽の音量を変える。「大きくして」「小さくして」。tool_input に {"how": "大きく か 小さく"}）',
+    ),
     # 確認待ちへの答え（出-y・2026-09-18）。[確認待ち] が作業状態の最上部にあるときだけ候補に載る。
     "confirm": (
         "「いい」と言われて掛ける",
@@ -746,6 +765,10 @@ _TOOL_ACTIONS = frozenset(
         "resume_timer",
         "set_alarm",
         "cancel_alarm",
+        "play_music",
+        "stop_music",
+        "next_track",
+        "music_volume",
     }
 )
 _NO_WORDS_ACTIONS = frozenset({"see", "confirm", "decline"})

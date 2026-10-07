@@ -1938,6 +1938,8 @@ class InformationProcessing:
                 *_ALARM_ACTIONS,
                 *_STOPWATCH_ACTIONS,
                 *_CONFIRM_ACTIONS,
+                # 音楽（知-ak 段 6）。勧めた曲への返事は勧めの流れの中で主LLM が使うので載せない。
+                *(a for a in _MUSIC_ACTIONS if a != "music_suggestion_reply"),
             )
             if a not in self._req.failed_actions
             and a not in exclude
