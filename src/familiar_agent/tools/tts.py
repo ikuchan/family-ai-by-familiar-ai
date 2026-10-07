@@ -771,12 +771,23 @@ def _resolve_output_device() -> int | None:
     )
     if not name:
         return None
+    # **PipeWire（PulseAudio）側の出口を先に選ぶ**（知-ak-ろ・2026-10-07 実機）。ALSA の `hw:1,0` を直に・排他で
+    # 開くと、音楽（spotifyd）が PipeWire で Yamaha を握っているあいだ `Device unavailable` で声が 10 回消えた。
+    # PipeWire 側に同じ機器が無ければ、いまどおり最初に一致した機器（ALSA）を使う。
     try:
         import sounddevice as sd
 
-        for i, d in enumerate(sd.query_devices()):
-            if name.lower() in d["name"].lower() and d["max_output_channels"] > 0:
+        apis = sd.query_hostapis()
+        devices = sd.query_devices()
+        hits = [
+            i
+            for i, d in enumerate(devices)
+            if name.lower() in d["name"].lower() and d["max_output_channels"] > 0
+        ]
+        for i in hits:
+            if "pulse" in str(apis[devices[i]["hostapi"]]["name"]).lower():
                 return i
+        return hits[0] if hits else None
     except Exception:
         pass
     return None
