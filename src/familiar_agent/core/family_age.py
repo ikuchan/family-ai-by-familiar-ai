@@ -14,6 +14,7 @@ import re
 from datetime import date
 
 from .parsing import parse_family_md
+from .speaker_claim import call_name_of
 
 _JA = re.compile(r"(\d{4})\s*年\s*(\d{1,2})\s*月\s*(\d{1,2})\s*日")
 _ISO = re.compile(r"(\d{4})-(\d{1,2})-(\d{1,2})")
@@ -62,7 +63,7 @@ def ages_lines(family_md: str, today: date) -> "list[str]":
         born = parse_birthday(str(m.get("birthday") or ""))
         if born is None or born > today:
             continue
-        who = str(m.get("display_name") or m.get("name") or "").split("、")[0].strip()
+        who = call_name_of(m)
         grade = grade_on(born, today)
         lines.append(f"{who}：{age_on(born, today)} 歳" + (f"・{grade}" if grade else ""))
     return lines

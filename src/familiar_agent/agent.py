@@ -953,7 +953,7 @@ class EmbodiedAgent:
         並び、記憶の行き先が分かれる（今回の二重）。統合の手順（`scripts/merge_persons.py`）を促すログを残す。
         2 人の家族に同じ呼び方があれば、それも知らせる（その言葉では誰とも決まらない）。
         """
-        from .core.speaker_claim import aliases_of
+        from .core.speaker_claim import aliases_of, call_name_of
 
         members = parsing.parse_family_md(self._family_md)
         if not members:
@@ -977,7 +977,7 @@ class EmbodiedAgent:
         for m in members:
             name = str(m["name"])
             display = str(m["display_name"])
-            call = display.split("、")[0].split(",")[0].strip()
+            call = call_name_of(m)
             try:
                 row = next((r for r in rows if r.get("name") == name), None)
                 if row is not None:
@@ -990,13 +990,7 @@ class EmbodiedAgent:
                             r
                             for r in rows
                             if r.get("name") in words
-                            or words
-                            & {
-                                a.strip()
-                                for a in str(r.get("display_name") or "")
-                                .replace(",", "、")
-                                .split("、")
-                            }
+                            or words & set(aliases_of(r))  # 人物表の行も同じ形（名前・呼び方）
                         ),
                         None,
                     )

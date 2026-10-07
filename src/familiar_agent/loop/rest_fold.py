@@ -187,18 +187,38 @@ class FoldResult:
     left_out: int = 0  # 繰り返し（a0 が下限未満）として依頼に載せず畳んだ件数（2026-09-16）
 
 
-def family_names_of(agent) -> tuple[str, ...]:
-    """家族の呼び方（`FAMILY.md`）。関係のまとめの名前はこれ以外を受け付けない。"""
+def _family_members(agent) -> "list[dict]":
     try:
-        members = parsing.parse_family_md(getattr(agent, "_family_md", "") or "")
+        return parsing.parse_family_md(getattr(agent, "_family_md", "") or "")
     except Exception:  # noqa: BLE001
-        return ()
+        return []
+
+
+def family_names_of(agent) -> tuple[str, ...]:
+    """家族を指す言い方を全部（`FAMILY.md` の名前と、呼び方の一つずつ）。関係のまとめの名前はこれ以外を受け付けない。
+
+    呼び方（「パパ、ゆうすけ、…」）を分けずに 1 つの名前として使っていたので、正しい「パパ」を家族に無いと弾き、
+    一晩 10 回の枠のうち 6 回を見送った（2026-10-08 実機 04:25）。分け方は `core/speaker_claim.aliases_of` にそろえる。
+    """
+    from ..core.speaker_claim import aliases_of
+
     out: list[str] = []
-    for m in members:
-        for key in ("display_name", "name"):
-            v = str(m.get(key) or "").strip()
-            if v and v not in out:
+    for m in _family_members(agent):
+        for v in aliases_of(m):
+            if v not in out:
                 out.append(v)
+    return tuple(out)
+
+
+def family_call_names_of(agent) -> tuple[str, ...]:
+    """依頼文に並べる家族の名前。1 人 1 つ（呼び方の先頭・`call_name_of`）。"""
+    from ..core.speaker_claim import call_name_of
+
+    out: list[str] = []
+    for m in _family_members(agent):
+        v = call_name_of(m)
+        if v and v not in out:
+            out.append(v)
     return tuple(out)
 
 
@@ -221,7 +241,9 @@ async def fold_since_last_rest(
     written = folded = skipped = left_out = 0
     records: list[Written] = []
     for batch in batches:
-        summaries = await ask_summaries(agent.backend, batch, family_names=names)
+        summaries = await ask_summaries(
+            agent.backend, batch, family_names=family_call_names_of(agent)
+        )
         reason = "返りを読めなかった" if summaries is None else check(summaries, family_names=names)
         if reason:
             logger.warning(

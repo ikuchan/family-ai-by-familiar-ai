@@ -73,10 +73,8 @@ def _norm(word: str) -> str:
 
 
 def _aliases(row: dict) -> "set[str]":
-    out = {str(row.get("name") or "").strip()}
-    for a in str(row.get("display_name") or "").replace(",", "、").split("、"):
-        out.add(a.strip())
-    return {_norm(a) for a in out if a}
+    """人物表の行の言い方（名前と呼び方の一つずつ）。行は `FAMILY.md` の家族と同じ形なので、同じ分け方を使う。"""
+    return {_norm(a) for a in aliases_of(row)}
 
 
 def _member_aliases(member: dict) -> "set[str]":

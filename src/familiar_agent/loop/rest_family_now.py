@@ -19,6 +19,7 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
 from ..core import family_now, parsing
+from ..core.speaker_claim import call_name_of
 from .rest_fold import PERSON_MAX_CHARS
 
 logger = logging.getLogger(__name__)
@@ -67,7 +68,7 @@ def _members(agent) -> "list[tuple[str, str, str]]":
         pid = agent._pmm.find_person_id_by_name(name) if name else None
         if not (pid and isinstance(pid, str)):
             continue
-        who = str(m.get("display_name") or name).split("、")[0].strip()
+        who = call_name_of(m)
         section = next((s.strip() for s in sections if f"：{name}" in s or f":{name}" in s), "")
         out.append((who, pid, section))
     return out
