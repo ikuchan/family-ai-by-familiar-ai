@@ -400,3 +400,61 @@ def test_no_hotwords_when_the_table_is_empty():
     with patch("familiar_agent.tools.stt.load_whisper_model", return_value=model):
         engine._transcribe(b"\x00\x00" * 16000)
     assert model.transcribe.call_args.kwargs.get("hotwords") is None
+
+
+# ── 話し始める前の音を区切りの頭に付ける（知-z-は 段 2・2026-10-07 実機）──────────────
+#
+# 区切りを VAD が「話し始めた」と言ったフレームから溜めていたので、名前の頭（「パ」の破裂）が欠けた。残した声 5 つのうち
+# 4 つは最初の 100 ミリ秒から大きな声で、書き起こしは「アジュー」か名前なしだった。黙っているあいだも直近
+# `STT_PREROLL_SEC`（0.2 秒〔仮〕・本人の決定＝7 フレーム）を持っておき、話し始めたら頭に付ける。
+
+
+def _frame(n: int) -> bytes:
+    """見分けのつくフレーム（先頭のサンプルが n）。"""
+    return int(n).to_bytes(2, "little", signed=True) * FRAME_SAMPLES
+
+
+def _first_samples(audio: bytes) -> list[int]:
+    step = FRAME_SAMPLES * 2
+    return [
+        int.from_bytes(audio[i : i + 2], "little", signed=True) for i in range(0, len(audio), step)
+    ]
+
+
+def _segment_after(silent: int, *, preroll: float = 0.2, held: bytes = b"") -> list[int]:
+    cfg = STTConfig()
+    cfg.preroll_sec = preroll
+    speech = int(1.6 * _RATE / FRAME_SAMPLES)
+    engine = _engine(
+        vad_says=[None] * silent + ["start"] + [None] * (speech - 1) + ["end"], cfg=cfg
+    )
+    engine._held = bytearray(held)
+    frames = [_frame(100 + i) for i in range(silent)] + [
+        _frame(1000 + i) for i in range(speech + 1)
+    ]
+    _feed(engine, frames)
+    return _first_samples(engine._transcribe.call_args.args[0])
+
+
+def test_the_sound_just_before_speech_is_kept():
+    got = _segment_after(20)
+    # 0.2 秒＝7 フレーム（32 ミリ秒ずつ・切り上げ）。黙っていた 20 フレームのうち最後の 7 つ
+    assert got[:8] == [113, 114, 115, 116, 117, 118, 119, 1000]
+
+
+def test_a_short_silence_gives_what_there_is():
+    assert _segment_after(3)[:4] == [100, 101, 102, 1000]
+
+
+def test_zero_preroll_is_as_before():
+    assert _segment_after(20, preroll=0.0)[0] == 1000
+
+
+def test_a_held_fragment_comes_first():
+    held = _frame(7) * 2
+    assert _segment_after(10, held=held)[:10] == [7, 7, 103, 104, 105, 106, 107, 108, 109, 1000]
+
+
+def test_the_preroll_setting(monkeypatch):
+    monkeypatch.delenv("STT_PREROLL_SEC", raising=False)
+    assert STTConfig().preroll_sec == 0.2

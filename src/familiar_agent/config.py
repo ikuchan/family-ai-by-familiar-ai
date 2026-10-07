@@ -553,6 +553,9 @@ class STTConfig:
     # 'ジュージュージュー' に崩れた（一括で起こすと正しかった）。**短い断片では文脈が
     # 足りない。** 1.4 秒の区間は正しく起こせていたので、境目はその間にある。
     min_segment_sec: float = field(default_factory=lambda: _float_env("STT_MIN_SEGMENT_SEC", 1.5))
+    # 話し始める前の音を区切りの頭に付ける長さ（秒・知-z-は 段 2・2026-10-07）。VAD が「話し始めた」と言った
+    # フレームから溜めていたので名前の頭（「パ」）が欠けた。〔仮・本人の決定〕
+    preroll_sec: float = field(default_factory=lambda: _float_env("STT_PREROLL_SEC", 0.2))
     # 書き起こした区切りの音を残す（知-z-は・2026-10-07・調べるための道具・既定 off）。名前が書き起こしから落ちる理由を
     # 実際の声で調べるため。家族の声が残るので、調べるときだけ on にする。最新 `save_audio_max` 件まで。
     save_audio: bool = field(default_factory=lambda: _bool_env("STT_SAVE_AUDIO", default=False))

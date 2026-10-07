@@ -20,7 +20,9 @@ ElevenLabs の WebSocket（`realtime_stt.py`）はサーバー側で VAD を持�
 from __future__ import annotations
 
 import asyncio
+import collections
 import logging
+import math
 import os
 import time
 from typing import Callable
@@ -73,6 +75,12 @@ class LocalSttEngine:
         # 返さないので、無音のフレーム数は数えられない）。
         self._min_bytes = int(cfg.min_segment_sec * _RATE) * _BYTES_PER_SAMPLE
         self._held = bytearray()  # 次の発話まで持ち越している短い区間
+        # 話し始める前の音（知-z-は 段 2）。黙っているあいだも直近 `preroll_sec` ぶんを持ち、話し始めたら頭に付ける。
+        # VAD が「話し始めた」と言ったフレームから溜めていたので、名前の頭（「パ」の破裂）が欠けた（実機 2026-10-07：
+        # 残した声 5 つのうち 4 つが最初の 100 ミリ秒から大きな声で、書き起こしは「アジュー」か名前なし）。
+        pre_frames = math.ceil(float(getattr(cfg, "preroll_sec", 0.0)) * _RATE / FRAME_SAMPLES)
+        self._preroll: "collections.deque[bytes]" = collections.deque(maxlen=max(pre_frames, 1))
+        self._use_preroll = pre_frames > 0
         self._held_since: float | None = None  # 持ち越し始めた時刻
 
     @property
@@ -119,6 +127,8 @@ class LocalSttEngine:
         if event == "start" and not self._speaking:
             self._begin_speech()
         if not self._speaking:
+            if self._use_preroll:
+                self._preroll.append(frame)
             # 黙っているあいだ。持ち越しているものがあれば、諦める時機を計る。
             if self._held and self._held_since is not None:
                 if time.monotonic() - self._held_since >= self._cfg.hold_give_up_sec:
@@ -134,8 +144,11 @@ class LocalSttEngine:
 
     def _begin_speech(self) -> None:
         self._speaking = True
-        # 持ち越している短い区間があれば、その続きとして溜める（文脈を繋ぐ）。
+        # 持ち越している短い区間があれば、その続きとして溜める（文脈を繋ぐ）。その後ろに話し始める前の音（知-z-は）。
         self._segment = bytearray(self._held)
+        for pre in self._preroll:
+            self._segment.extend(pre)
+        self._preroll.clear()
         self._held.clear()
         self._held_since = None
         if self.on_speech_start is not None:
