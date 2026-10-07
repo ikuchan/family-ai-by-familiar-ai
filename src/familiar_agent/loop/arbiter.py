@@ -339,6 +339,10 @@ def assemble(
         text = ""  # 首を回すだけなので断らない（つなぎを言うと 2 回出る）
     elif action in _EXTRA_ACTIONS and _EXTRA_ACTIONS[action][0]:
         query = _EXTRA_ACTIONS[action][0]  # 見出しが固定の道具。query が要るものはそのまま
+    elif action == "search_deferred" and query and not tool_input:
+        source = str(data.get("source", "") or "").strip().lower()
+        if source in ("brave", "tavily"):
+            tool_input = {"query": query, "source": source}  # 担い手を書いたときだけ（知-am）
     elif action == "family_schedule" and not query:
         query = "1"  # 日数を書き忘れても action は落とさない（今日だけ・主LLM が呼び直せる）
     if action == "set_timer" and tool_input and set(tool_input) == {"id"}:
@@ -846,6 +850,9 @@ _FIELD_TEXT = {
     "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
     "trash": '"trash"：用件はこのあと本応答が言う。いま言いたいことがあるならここに書く（捨てられ、誰にも届かない）。',
     "query": '"query"：探す語。',
+    # 担い手（知-am・2026-10-07）。書けなかったので、調停が投げる検索はいつも既定の Brave（リンクの一覧）だった。
+    "source": '"source"：探す担い手。答えに数字や事実（天気・時刻表・値段・結果など）を使うなら "tavily"（本文の抜粋）、'
+    'どこに何があるかを探す・話題を広く見るなら "brave"（題名・短い抜粋・リンクの一覧）。',
     "tool_input": '"tool_input"：道具へそのまま渡す入力（JSON の辞書）。',
     "time_ref": '"time_ref"：人の言葉が指している時期を ISO 8601（例 "2025-08-15T00:00:00"）で。',
     "time_span_days": '"time_span_days"：その言い方が指す幅を日数で（広い言い方ほど大きい）。',
@@ -880,6 +887,8 @@ def _writer_needs(inp: ArbiterInput, data: dict) -> "list[str]":
             needs.append("tool_input")
         elif action not in _NO_WORDS_ACTIONS and not fixed:
             needs.append("query")
+        if action == "search_deferred":
+            needs.append("source")
     if data.get("refers_time"):
         needs += ["time_ref", "time_span_days"]
     return needs
