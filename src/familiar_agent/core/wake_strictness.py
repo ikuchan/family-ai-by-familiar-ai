@@ -4,8 +4,10 @@
 -0.723）、文頭の名前で窓が開いて返事をした。基準を「ふだん」と「厳しい」の 2 段にする（値は `STTConfig.wake_*`・仮）。
 
 - **名前だけ**（名前 1 つと、伸ばす音・句読点だけ）：無音らしさと確かさが届かなければ捨てる（ふだん 0.10・-0.65、
-  厳しい 0.05・-0.60）。名前のくり返し（「パジュ、パジュー」）は名前＋言葉の側に入る——09-26 の本物 5 件の確かさは
-  -0.57〜-0.85 で、名前だけの基準では捨ててしまう。
+  厳しい 0.05・-0.60）。
+- **名前だけの繰り返し**（「パジュ、パジュー」）は想定外として、声なら値に関わらず捨てる（`is_name_repeat`・
+  2026-10-07 本人の決定）。誰も呼んでいないのに「パジュ、パジュ、パジュー」と書き起こされ（無音らしさ 0.08〜0.19）、
+  パジュが返事をした。以前は名前＋言葉の側に入れていた。
 - **名前＋言葉**：ふだんはいまのまま（1 字違いを許す・確かさを見ない）。厳しいときは 1 字違いを許さず、
   無音らしさ 0.20 以下・確かさ -0.90 以上（09-26 の本物 8 件がすべて通る値）。
 - 確かさが無い入力（ElevenLabs の書き起こし・TUI の録音）は確かさを見ずに通す（測りようがない）。
@@ -35,6 +37,24 @@ def is_name_only(text: str, names: "list[str] | tuple[str, ...]") -> bool:
             ):
                 return True
     return False
+
+
+def is_name_repeat(text: str, names: "list[str] | tuple[str, ...]") -> bool:
+    """書き起こしが名前だけを 2 回以上繰り返したものか（間の伸ばす音・句読点・空白は飛ばす）。"""
+    s = _loose(text)
+    loosed = sorted({_loose(n) for n in names if n and _loose(n)}, key=len, reverse=True)
+    count, i = 0, 0
+    while i < len(s):
+        ch = s[i]
+        if ch in _TAIL or ch.isspace() or unicodedata.category(ch)[0] in "PSZ":
+            i += 1
+            continue
+        hit = next((n for n in loosed if s.startswith(n, i)), None)
+        if hit is None:
+            return False
+        count += 1
+        i += len(hit)
+    return count >= 2
 
 
 def admits(

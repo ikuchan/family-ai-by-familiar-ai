@@ -59,18 +59,43 @@ def test_a_name_only_between_the_two_levels():
 @pytest.mark.parametrize(
     "text,ns,lp",
     [
-        ("パジュ、パジュー", 0.120, -0.702),
-        ("パジュ、パジュ、パジュ", 0.096, -0.571),
         ("パジューにできないの", 0.031, -0.824),
-        ("パジュ、パジュー", 0.129, -0.846),
-        ("パジュ、パジュ、パジュ", 0.123, -0.601),
-        ("パジュ、パジュー", 0.105, -0.758),
-        ("パジュう、パジュう、パジュう", 0.114, -0.639),
         ("パジュ、いま何時？", 0.044, -0.421),
     ],
 )
 def test_real_calls_with_words_pass_even_when_strict(text, ns, lp):
     assert _ok(text, strict=True, ns=ns, lp=lp)
+
+
+# ── 名前だけの繰り返しは想定外（2026-10-07 本人の決定）────────────────────────
+#
+# 実機 2026-10-07 15:17〜15:41、誰も呼んでいないのに「パジュ、パジュ、パジュー」と書き起こされ（無音らしさ 0.08〜0.19・
+# 確かさ -0.49〜-0.85）、パジュが返事をした。名前だけを繰り返す声は想定外として、声なら値に関わらず捨てる（本人：
+# 「そもそも名前を繰り返すことは想定外にして、無視してください」）。以前は名前＋言葉の側に入れ、09-26 の本物の呼びかけ
+# （下の 5 件）を通していたが、それも捨てる。名前のあとに言葉が続く形は、いまどおり文頭の名前で判定する。
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "パジュ、パジュー",
+        "パジュ、パジュ、パジュ",
+        "パジュう、パジュう、パジュう",
+        "パジュ、パジュ、パジュ、パジュー",
+        "パジュう、パジュう",
+        "パジュパジュ",
+    ],
+)
+def test_a_repeat_of_the_name_alone(text):
+    assert ws.is_name_repeat(text, NAMES)
+
+
+@pytest.mark.parametrize(
+    "text",
+    ["パジュー", "パジュ！", "パジュ、パジュ、いま何時？", "パジュ、いま何時？", "おはよう", ""],
+)
+def test_not_a_repeat(text):
+    assert not ws.is_name_repeat(text, NAMES)
 
 
 def test_strict_does_not_allow_one_letter_off():
@@ -204,3 +229,28 @@ def test_an_unknown_voice_is_one_without_a_feature_or_a_match(monkeypatch):
     assert (
         InformationProcessing._voice_unknown(ip, np.asarray([0.0, 1.0], dtype=np.float32)) is True
     )
+
+
+@pytest.mark.real_window
+@pytest.mark.parametrize("window_open", [False, True])
+def test_a_repeated_name_is_dropped_at_the_gate(window_open, caplog):
+    import time
+
+    ip, _ = _gate(here=True, known_voice=True)
+    if window_open:
+        ip._wake_window().open(time.monotonic())
+    with caplog.at_level("INFO"):
+        assert _heard(ip, "パジュ、パジュ、パジュー", ns=0.083, lp=-0.513) is False
+    assert "名前の繰り返し" in caplog.text
+
+
+@pytest.mark.real_window
+def test_a_repeated_name_typed_on_the_keyboard_is_kept():
+    ip, _ = _gate()
+    assert _heard(ip, "パジュ、パジュ", source="keyboard") is True
+
+
+@pytest.mark.real_window
+def test_a_repeat_followed_by_words_still_opens():
+    ip, _ = _gate(here=True, known_voice=True)
+    assert _heard(ip, "パジュ、パジュ、いま何時？", ns=0.05, lp=-0.5) is True

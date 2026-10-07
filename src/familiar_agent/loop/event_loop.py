@@ -3408,12 +3408,19 @@ class InformationProcessing:
         名前で呼ばれたか（`Trigger.named`）もここで決める。
         """
         from ..core.silence_hold import lifts
+        from ..core.wake_strictness import is_name_repeat
         from ..core.wake_window import heard_name
         from ..silence_state import is_silenced
 
         now = time.time()
         names = list(getattr(self._agent.config, "agent_names", None) or [])
         if trigger.kind == "会話入力":
+            if trigger.source == "voice" and is_name_repeat(trigger.query, names):
+                # 名前だけの繰り返しは想定外（2026-10-07 本人の決定）。窓が開いていても、値に関わらず捨てる。
+                logger.info(
+                    "event-loop 名前の繰り返しなので捨てた（%d 字）", len(trigger.query or "")
+                )
+                return self._swallowed(trigger)
             trigger.named = heard_name(trigger.query, names)
             if (
                 trigger.named
