@@ -32,13 +32,16 @@ def pick_words(text: str) -> list[str]:
     if not text:
         return []
     try:
-        import pyopenjtalk
+        import pyopenjtalk  # noqa: F401  有無を確かめるだけ（呼ぶのは openjtalk_safe）
     except Exception:  # noqa: BLE001
         logger.debug("pyopenjtalk が無いので語の列は使わない")
         return []
     out: list[str] = []
+    from .openjtalk_safe import run_frontend
+
     try:
-        feats = pyopenjtalk.run_frontend(text)
+        # 長い文（検索の結果など）は塊に切って渡す。そのまま渡すと 8KB を越えて落ちた（環-ad・2026-10-07）。
+        feats = run_frontend(text)
     except Exception as e:  # noqa: BLE001
         logger.warning("語を切れなかったので語の列は使わない：%s", e)
         return []

@@ -33,14 +33,17 @@ def _g2p(text: str) -> "str | None":
     """pyopenjtalk の読み（カタカナ）。無ければ None。"""
     global _warned
     try:
-        import pyopenjtalk
+        import pyopenjtalk  # noqa: F401  有無を確かめるだけ（呼ぶのは openjtalk_safe）
     except Exception:  # noqa: BLE001
         if not _warned:
             logger.warning("pyopenjtalk が無いので声の読みは表の分だけ")
             _warned = True
         return None
+    from .openjtalk_safe import g2p_kana
+
     try:
-        return str(pyopenjtalk.g2p(text, kana=True))
+        # 塊に切って 1 本ずつ渡す（環-ad・長い文で落ちる・想起と同時に呼ぶ）。
+        return g2p_kana(text)
     except Exception as e:  # noqa: BLE001
         logger.warning("読みに失敗したので元の文のまま：%s", e)
         return None
