@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 from typing import Callable
 
@@ -186,12 +187,52 @@ class LocalSttEngine:
             logger.exception("STT: 書き起こしに失敗した: %s", e)
             text = ""
         voice = await embedding if embedding is not None else None
+        if getattr(self._cfg, "save_audio", False):
+            self._save_segment(audio, text)
         if not text:
             return
         queue = self.on_committed
         if queue is not None:
             no_speech, logprob = getattr(self, "_last_measures", (None, None))
             queue.put_nowait(VoiceText(text, voice=voice, no_speech=no_speech, logprob=logprob))
+
+    def _save_segment(self, audio: bytes, text: str) -> None:
+        """区切りの音と記録を残す（知-z-は・`STT_SAVE_AUDIO=1` のときだけ）。失敗しても書き起こしは止めない。
+
+        名前が書き起こしから落ちる理由を、実際の声で調べるため。文が空（捨てた・落ちた）でも残す。最新
+        `save_audio_max` 件まで。文は家族の言葉なので、この場所の中だけに置き、ログには出さない。
+        """
+        import datetime
+        import json
+        from pathlib import Path
+
+        try:
+            import numpy as np
+            import soundfile as sf
+
+            folder = Path(os.path.expanduser(str(self._cfg.save_audio_dir)))
+            folder.mkdir(parents=True, exist_ok=True)
+            stamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+            base = folder / f"seg_{stamp}"
+            samples = np.frombuffer(audio, dtype=np.int16)
+            sf.write(str(base.with_suffix(".wav")), samples, _RATE, subtype="PCM_16")
+            no_speech, logprob = getattr(self, "_last_measures", (None, None))
+            record = {
+                "at": stamp,
+                "text": text,
+                "no_speech": no_speech,
+                "logprob": logprob,
+                "seconds": round(len(samples) / _RATE, 3),
+            }
+            base.with_suffix(".json").write_text(
+                json.dumps(record, ensure_ascii=False), encoding="utf-8"
+            )
+            keep = int(getattr(self._cfg, "save_audio_max", 20))
+            for old in sorted(folder.glob("seg_*.wav"))[:-keep]:
+                old.unlink(missing_ok=True)
+                old.with_suffix(".json").unlink(missing_ok=True)
+        except Exception:  # noqa: BLE001
+            logger.warning("STT: 区切りの音を残せなかった（書き起こしは続ける）", exc_info=True)
 
     async def _voice_of(self, audio: bytes):
         """区切りの声の特徴（取れなければ None・落とさない）。"""

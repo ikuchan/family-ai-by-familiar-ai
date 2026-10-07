@@ -553,6 +553,15 @@ class STTConfig:
     # 'ジュージュージュー' に崩れた（一括で起こすと正しかった）。**短い断片では文脈が
     # 足りない。** 1.4 秒の区間は正しく起こせていたので、境目はその間にある。
     min_segment_sec: float = field(default_factory=lambda: _float_env("STT_MIN_SEGMENT_SEC", 1.5))
+    # 書き起こした区切りの音を残す（知-z-は・2026-10-07・調べるための道具・既定 off）。名前が書き起こしから落ちる理由を
+    # 実際の声で調べるため。家族の声が残るので、調べるときだけ on にする。最新 `save_audio_max` 件まで。
+    save_audio: bool = field(default_factory=lambda: _bool_env("STT_SAVE_AUDIO", default=False))
+    save_audio_dir: str = field(
+        default_factory=lambda: os.environ.get(
+            "STT_SAVE_AUDIO_DIR", "~/.cache/familiar-ai/stt_audio"
+        )
+    )
+    save_audio_max: int = 20
     # 語の組（2026-09-20）。**(直すべき語, (あり得る語…))** の並びで、STT へ渡す語の列
     # （faster-whisper の `hotwords`）も、書き起こしの直しも、この 1 つの表から導く
     # （`core/stt_rules`）。直すべき語が `-` の組は「消す」。名前は `ME.md` の「名前：」から
