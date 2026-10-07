@@ -236,8 +236,8 @@ def test_the_remote_desktop_audio_is_not_passed(monkeypatch, tmp_path):
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))
     monkeypatch.setenv("HOME", "/home/x")
     env = spotifyd._audio_env()
-    assert not (set(_CRD) & set(env))
-    assert env["PULSE_SERVER"] == f"unix:{tmp_path}/pulse/native"
+    assert [k for k in _CRD if k in env] == []
+    assert env.get("PULSE_SERVER") == f"unix:{tmp_path}/pulse/native"
     assert env["HOME"] == "/home/x"  # ほかはそのまま
 
 
@@ -245,9 +245,11 @@ def test_without_the_local_socket_it_only_drops_and_warns(monkeypatch, tmp_path,
     for k, v in _CRD.items():
         monkeypatch.setenv(k, v)
     monkeypatch.setenv("XDG_RUNTIME_DIR", str(tmp_path))  # pulse/native が無い
+    monkeypatch.setenv("PULSE_SERVER", "")
+    monkeypatch.delenv("PULSE_SERVER")
     env = spotifyd._audio_env()
-    assert not (set(_CRD) & set(env))
-    assert "PULSE_SERVER" not in env
+    assert [k for k in _CRD if k in env] == []
+    assert env.get("PULSE_SERVER") is None
     assert "音の口" in caplog.text
 
 

@@ -363,6 +363,12 @@ def main() -> None:
     debug = "--debug" in sys.argv
     setup_logging(debug=debug)
 
+    # 音の口をこの機体へ（知-ak-ろ）。遠隔デスクトップから起動すると、声が PipeWire 側の Yamaha を見られない。
+    # PortAudio は読み込んだときの環境で口を決めるので、音の部品を読む前に。
+    from .io.audio_env import apply_local_audio
+
+    apply_local_audio()
+
     if len(sys.argv) > 1 and sys.argv[1] == "mcp":
         _mcp_command(sys.argv[2:])
         return

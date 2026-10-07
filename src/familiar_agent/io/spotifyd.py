@@ -37,20 +37,11 @@ def find_binary() -> "str | None":
     return str(local) if local.exists() else None
 
 
-#: 遠隔デスクトップ（Chrome Remote Desktop）の接続用の音の口を指す環境変数。spotifyd には渡さない。
-_REMOTE_AUDIO_VARS = ("PULSE_RUNTIME_PATH", "PULSE_SINK", "PIPEWIRE_REMOTE")
-
-
 def _audio_env() -> "dict[str, str]":
-    """spotifyd に渡す環境。遠隔デスクトップの音の口を外し、この機体の音の口を指す（無ければ外すだけ）。"""
-    env = {k: v for k, v in os.environ.items() if k not in _REMOTE_AUDIO_VARS}
-    runtime = os.environ.get("XDG_RUNTIME_DIR") or f"/run/user/{os.getuid()}"
-    native = Path(runtime) / "pulse" / "native"
-    if native.exists():
-        env["PULSE_SERVER"] = f"unix:{native}"
-    else:
-        logger.warning("この機体の音の口（%s）が見つからない。既定の口で鳴らす", native)
-    return env
+    """spotifyd に渡す環境。遠隔デスクトップの音の口を外し、この機体の音の口を指す（`io/audio_env`）。"""
+    from .audio_env import local_audio_env
+
+    return local_audio_env(os.environ)
 
 
 def _pgrep() -> bool:
