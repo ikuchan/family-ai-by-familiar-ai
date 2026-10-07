@@ -201,6 +201,9 @@ class TTSConfig:
     elevenlabs_api_key: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", "")
     )
+    # 声の鳴り終わりを待つ上限の余裕（秒）。上限は声の長さ＋これ。越えたら再生を止めて先へ進む（知-ak-ろ・
+    # 2026-10-07 実機で鳴り終わりの待ちが戻らず固まった）。〔仮・本人〕
+    play_margin_sec: float = field(default_factory=lambda: _float_env("TTS_PLAY_MARGIN_SEC", 5.0))
     # 合成モデル。既定は flash（73 字で 0.7 秒・2026-09-16 実測）。`eleven_v3` は表情豊かで
     # 角括弧タグを解するが 5.4 秒待たせる。必要なら `.env` で v3 へ戻す。
     elevenlabs_model: str = field(

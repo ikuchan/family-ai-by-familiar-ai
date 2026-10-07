@@ -793,6 +793,122 @@ def _resolve_output_device() -> int | None:
     return None
 
 
+# ── pw-play で鳴らす（知-ak-ろ 段 4・2026-10-07）──────────────────────────────
+#
+# 段 2 で声を PortAudio の PulseAudio の口から出したところ、鳴り終わりの待ち（`sd.wait()`）が戻らず、減音が戻らない・
+# 続く返事が出ない・GUI を閉じてもプロセスが終わらない、になった（実機 20:34:33）。PipeWire 付属の `pw-play` を別の
+# プロセスで呼び（固まっても止めるのは子だけ）、声の長さ＋余裕（`TTS_PLAY_MARGIN_SEC`・5 秒〔仮〕）で打ち切る。
+
+
+def _pw_play_binary() -> "str | None":
+    """`pw-play` の場所。無ければ None（差し替え点）。"""
+    return shutil.which("pw-play")
+
+
+def _pw_target() -> "str | None":
+    """`pw-play --target` に渡す出口の名前（PipeWire 側で名前に `AUDIO_OUTPUT_DEVICE` を含むもの）。無ければ None。"""
+    name = (
+        os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
+        or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+    )
+    if not name:
+        return None
+    try:
+        import sounddevice as sd
+
+        apis = sd.query_hostapis()
+        for d in sd.query_devices():
+            if (
+                name.lower() in d["name"].lower()
+                and d["max_output_channels"] > 0
+                and "pulse" in str(apis[d["hostapi"]]["name"]).lower()
+            ):
+                return str(d["name"])
+    except Exception:  # noqa: BLE001
+        return None
+    return None
+
+
+def _play_margin() -> float:
+    from ..config import TTSConfig
+
+    return float(TTSConfig().play_margin_sec)
+
+
+def _mp3_to_wav(mp3_path: str) -> str:
+    """MP3 を PyAV で読み、一時の WAV（モノ・44.1kHz）に書く。呼び手が消す。"""
+    import av
+    import numpy as np
+    import soundfile as sf
+
+    container = av.open(mp3_path)
+    try:
+        stream = next(s for s in container.streams if s.type == "audio")
+        resampler = av.AudioResampler(format="s16p", layout="mono", rate=44100)
+        chunks = [
+            rf.to_ndarray()
+            for f in container.decode(stream)
+            if isinstance(f, av.AudioFrame)
+            for rf in resampler.resample(f)
+        ]
+        chunks += [rf.to_ndarray() for rf in resampler.resample(None)]
+    finally:
+        container.close()
+    audio = np.concatenate(chunks, axis=1).flatten().astype(np.float32) / 32768.0
+    fd, out = tempfile.mkstemp(suffix=".wav", prefix="familiar_play_")
+    os.close(fd)
+    sf.write(out, audio, 44100)
+    return out
+
+
+def _play_with_pw_play(binary: str, audio_path: str, gain: float) -> bool:
+    """`pw-play` で鳴らし、声の長さ＋余裕で打ち切る。鳴り終われば True。"""
+    import soundfile as sf
+
+    tmp = _mp3_to_wav(audio_path) if audio_path.lower().endswith(".mp3") else None
+    path = tmp or audio_path
+    try:
+        seconds = float(sf.info(path).duration)
+        target = _pw_target()
+        args = [binary]
+        if target:
+            args.append(f"--target={target}")
+        args += [f"--volume={gain:g}", "--media-role=Communication", path]
+        limit = seconds + _play_margin()
+        proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            proc.wait(timeout=limit)
+            return True
+        except subprocess.TimeoutExpired:
+            with contextlib.suppress(Exception):
+                proc.kill()
+            logger.warning("声の再生が %.1f 秒で終わらないので打ち切った（pw-play）", limit)
+            return False
+    finally:
+        if tmp:
+            with contextlib.suppress(OSError):
+                os.remove(tmp)
+
+
+def _wait_bounded(sd, seconds: float) -> bool:
+    """`sd.wait()` を上限つきで待つ。越えたら `sd.stop()` して False（固まった待ちでプロセスを止めない）。"""
+    done = threading.Event()
+
+    def _wait() -> None:
+        with contextlib.suppress(Exception):
+            sd.wait()
+        done.set()
+
+    threading.Thread(target=_wait, daemon=True, name="tts-wait").start()
+    limit = seconds + _play_margin()
+    if done.wait(limit):
+        return True
+    with contextlib.suppress(Exception):
+        sd.stop()
+    logger.warning("声の再生が %.1f 秒で終わらないので打ち切った（PortAudio）", limit)
+    return False
+
+
 #: 再生はプロセス内で 1 本ずつ（出-ad・2026-09-19）。タイマーの音（1 秒の wav）と知らせの声（mp3）が同じ
 #: 機器 `hw:1,0`（排他）を別スレッドから同時に開き、PortAudio（ALSA）が `Device unavailable` のあと
 #: `double free or corruption` でプロセスごと落ちた（実機 11:39）。鍵を取ってから開く。音の 1 秒 → 声 →
@@ -814,6 +930,12 @@ async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
             return _play_unlocked()
 
     def _play_unlocked() -> bool:
+        binary = _pw_play_binary() if sys.platform != "win32" else None
+        if binary:
+            try:
+                return _play_with_pw_play(binary, audio_path, gain)
+            except Exception as e:  # noqa: BLE001
+                logger.warning("pw-play で鳴らせなかったので PortAudio で鳴らす: %s", e)
         if audio_path.lower().endswith(".mp3"):
             # On Windows prefer MCI (reliable, built-in) over PyAV+sounddevice
             if sys.platform == "win32" and _play_mp3_mci(audio_path):
@@ -850,8 +972,7 @@ async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
                     # タイマーの声だけ大きく（`TIMER_VOICE_GAIN`）。範囲を超えた分は飽和させる。
                     data = np.clip(data * gain, -1.0, 1.0)
                 sd.play(data, play_rate, device=device_idx)
-                sd.wait()
-                return True
+                return _wait_bounded(sd, len(data) / float(play_rate))
             except Exception as e:
                 logger.warning("sounddevice/soundfile WAV playback failed: %s", e)
                 return False
@@ -927,8 +1048,7 @@ def _play_mp3_via_pyav(mp3_path: str, gain: float = 1.0) -> bool:
             audio = np.clip(audio * gain, -1.0, 1.0)
         # 出力機器は wav と同じ口で選ぶ（機器指定が無く、既定の出力＝PC のスピーカーへ出ていた・2026-09-19）
         sd.play(audio, TARGET_RATE, device=_resolve_output_device())
-        sd.wait()
-        return True
+        return _wait_bounded(sd, len(audio) / float(TARGET_RATE))
     except Exception as e:
         logger.warning("PyAV MP3 playback failed: %s", e)
         return False

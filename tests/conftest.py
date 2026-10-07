@@ -194,6 +194,19 @@ def _no_real_camera_thread(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_pw_play(monkeypatch):
+    """試験では `pw-play` を「無い」側に倒す（知-ak-ろ 段 4）。
+
+    機体に本物の `pw-play` があると、PortAudio を差し替えた試験も子のプロセスで本当に鳴らしにいく。
+    `pw-play` の道を見る試験（`test_play_with_pw_play.py`）は、自分で差し替え直す。
+    """
+    from familiar_agent.tools import tts
+
+    monkeypatch.setattr(tts, "_pw_play_binary", lambda: None)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _tests_open_the_window(request, monkeypatch):
     """ループの仕組みを確かめる試験では、会話入力の窓の判定を「受けて窓を開ける」にする（出-au 段 1-2）。
 
