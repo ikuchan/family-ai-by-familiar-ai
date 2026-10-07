@@ -3509,9 +3509,9 @@ class InformationProcessing:
     def _wake_admits(self, trigger: "Trigger", names: "list[str]") -> bool:
         """窓が閉じているときの声で、名前で窓を開けてよいか（2026-10-05 実機の聞き違い「パジュー」・本人の決定）。
 
-        基準は 2 段（`core/wake_strictness`）。**厳しい**のは、最後に窓が閉じてから `wake_quiet_minutes`（10 分）たって
-        いて居ない（顔ぶれも在席も無い）とき、または誰の声か分からないとき。捨てたら段と値をログに残す（本文は出さない・
-        値は実機で貯めて見直す）。
+        基準は 2 段（`core/wake_strictness`）。**厳しい**のは、居ない（顔ぶれも在席も無い）とき、または誰の声か分からない
+        とき。以前は居なくても最後の会話から 10 分たつまでは厳しくしなかった（2026-10-07 本人の決定で撤去）。捨てたら段と値を
+        ログに残す（本文は出さない・値は実機で貯めて見直す）。
         """
         from ..config import STTConfig
         from ..core.wake_strictness import admits
@@ -3519,13 +3519,11 @@ class InformationProcessing:
         cfg = getattr(self._agent.config, "stt", None)
         if not isinstance(cfg, STTConfig):
             cfg = STTConfig()
-        now = self._arrival(trigger)
-        quiet = now - self._wake_window().until >= float(cfg.wake_quiet_minutes) * 60.0
         alone = True
         with contextlib.suppress(Exception):
             alone = not self._agent._someone_here()
         unknown = self._voice_unknown(trigger.voice)
-        strict = (quiet and alone) or unknown
+        strict = alone or unknown
         ok, why = admits(
             trigger.query,
             names,
@@ -3536,12 +3534,11 @@ class InformationProcessing:
         )
         if not ok:
             logger.info(
-                "event-loop 名前で起こさなかった：%s（無音らしさ=%s・確かさ=%s・%d 字・会話から%s・%s・声%s）",
+                "event-loop 名前で起こさなかった：%s（無音らしさ=%s・確かさ=%s・%d 字・%s・声%s）",
                 why,
                 "-" if trigger.no_speech is None else f"{trigger.no_speech:.3f}",
                 "-" if trigger.logprob is None else f"{trigger.logprob:.3f}",
                 len(trigger.query or ""),
-                "10 分以上" if quiet else "10 分以内",
                 "居ない" if alone else "居る",
                 "が分からない" if unknown else "が当たる",
             )

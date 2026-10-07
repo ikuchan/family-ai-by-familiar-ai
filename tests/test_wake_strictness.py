@@ -124,8 +124,9 @@ def test_the_reason_is_told():
 
 # ── 入口の門（段 3）──────────────────────────────────────────────────────────
 #
-# 窓が閉じているときの声だけに効く。厳しいのは、最後に窓が閉じてから 10 分たっていて居ない（顔ぶれも在席も無い）とき、
-# または誰の声か分からない（声の特徴が無い・どの家族にも 0.35 以上で当たらない）とき。
+# 窓が閉じているときの声だけに効く。厳しいのは、居ない（顔ぶれも在席も無い）とき、または誰の声か分からない（声の特徴が
+# 無い・どの家族にも 0.35 以上で当たらない）とき。以前は居なくても、最後に窓が閉じてから 10 分たつまでは厳しくしなかった
+# （2026-10-07 本人の決定で撤去：「在席がないときにはパジュといったかどうかを厳しく判定できたりしませんか？」）。
 
 
 def _gate(*, here=False, known_voice=False):
@@ -204,15 +205,18 @@ def test_an_unknown_voice_makes_it_strict_even_with_someone_here():
 
 
 @pytest.mark.real_window
-def test_ten_quiet_minutes_alone_make_it_strict():
+def test_nobody_here_makes_it_strict_at_once():
     import time
 
     ip, _ = _gate(here=False, known_voice=True)
-    ip._wake_window().until = time.monotonic() - 11 * 60
+    ip._wake_window().until = time.monotonic() - 60  # 1 分前に閉じたばかりでも
     assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is False
-    ip, _ = _gate(here=False, known_voice=True)
-    ip._wake_window().until = time.monotonic() - 5 * 60  # まだ 5 分
-    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is True
+
+
+def test_the_quiet_minutes_setting_is_gone():
+    from familiar_agent.config import STTConfig
+
+    assert not hasattr(STTConfig(), "wake_quiet_minutes")
 
 
 def test_an_unknown_voice_is_one_without_a_feature_or_a_match(monkeypatch):
