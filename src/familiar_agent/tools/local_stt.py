@@ -310,26 +310,24 @@ class LocalSttEngine:
 
         from .stt import load_whisper_model
 
-        from ..core.stt_rules import fix_words, hotwords_for, with_hint
+        from ..core.stt_rules import fix_words
 
         model = load_whisper_model(self._cfg)
         if model is None:
             return ""
 
         groups = tuple(getattr(self._cfg, "word_groups", ()) or ())
-        hint = hotwords_for(groups)
         samples = np.frombuffer(audio, dtype=np.int16).astype(np.float32) / 32768.0
         started = time.monotonic()
         segments, info = model.transcribe(
             samples,
             language=(self._cfg.language or None),
             vad_filter=False,  # 区間は既に VAD で切ってある
-            # 語の列（`STTConfig.word_groups` から作る）。無ければ渡さない（既定の挙動のまま）。
-            # **例文（`initial_prompt`）は渡さない**。2026-09-20 に知-z で渡したところ、はっきり
-            # しない音（テレビの音・物音）に対して Whisper がその文をそのまま書き出し、話して
-            # いないのに「パジュ、3 分測って。」が繰り返し会話として上がった（実機 17:22〜17:26・
-            # 10.7 秒の音と 30 秒の窓が例文の後半 11 字に・`no_speech_prob` は 0.02〜0.22 で門を通る）。
-            hotwords=(hint or None),
+            # **名前（`hotwords`）も例文（`initial_prompt`）も渡さない**（知-z-は イ-1・2026-10-07）。例文は
+            # 2026-09-20 に、はっきりしない音へそのまま書き出された（「パジュ、3 分測って。」が会話として上がった）。
+            # 名前の綴りの一覧は 2026-10-07 15:17 に崩れた形で書き出され、「パジュ」1 語にすると聞こえた「アジュ」と
+            # 合わずに名前ごと消えた（頭を付けた声 4 つで 1 回）。渡さなければ 4 回とも「アジュー」などが取れ、
+            # 聞き違いは下の直す表で「パジュ」に直る。
         )
         # 話していないのに「ご視聴ありがとうございました」のような定型句が書き起こされる。
         # Whisper は無音や物音に字幕の常套句を当てる。実機15件にラベルを付けて測ると、
@@ -369,12 +367,11 @@ class LocalSttEngine:
         text = drop_if_hallucination("".join(parts).strip())
         if not text:
             return ""
-        # 語の組を当てる（あり得る語 → 直すべき語・`-` の組は消す）。渡した語の列そのものも
-        # 消す組として足す（音に情報が無いと、渡した言葉がそのまま書き起こされる）。
-        fixed = fix_words(text, with_hint(groups, hint))
+        # 語の組を当てる（あり得る語 → 直すべき語・`-` の組は消す）。
+        fixed = fix_words(text, groups)
         if fixed != text:
             # 何を当てたかだけ残す（本文は会話内容なので出さない）
-            hit = [w for _t, samples in with_hint(groups, hint) for w in samples if w in text]
+            hit = [w for _t, samples in groups for w in samples if w in text]
             logger.info("STT: 語を直した（%d 件・%d 字 → %d 字）", len(hit), len(text), len(fixed))
             text = fixed
         if not text:

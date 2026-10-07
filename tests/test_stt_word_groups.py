@@ -160,24 +160,17 @@ def _run(engine, model) -> str:
         return engine._transcribe(b"\x00\x00" * 16000)
 
 
-def test_the_engine_passes_the_word_list_and_fixes_the_transcript(caplog):
+def test_the_engine_passes_no_words_and_still_fixes_the_transcript(caplog):
+    """**名前は渡さない**（知-z-は イ-1・2026-10-07 本人の決定）。頭を付けた声 4 つ（21:44）を書き起こし直すと、
+    「パジュ」1 語を渡すと 1 回名前が消え（「今何時?」）、渡さなければ 4 回とも「アジュー」などが取れた。聞き違いは
+    いまどおり直す表で直す。"""
     engine, model = _engine_with("パチュ、3 分測って", GROUPS)
     with caplog.at_level("INFO"):
         out = _run(engine, model)
-    assert model.transcribe.call_args.kwargs["hotwords"] == hotwords_for(GROUPS)
+    assert model.transcribe.call_args.kwargs.get("hotwords") is None
     assert model.transcribe.call_args.kwargs.get("initial_prompt") is None
     assert out == "パジュ、3 分測って"
     assert any("語を直した" in r.getMessage() for r in caplog.records)
-
-
-def test_the_engine_drops_a_transcript_that_is_only_the_word_list():
-    engine, model = _engine_with(hotwords_for(GROUPS), GROUPS)
-    assert _run(engine, model) == ""
-
-
-def test_the_engine_keeps_the_words_that_follow_the_echo():
-    engine, model = _engine_with(hotwords_for(GROUPS) + "、3 分測って", GROUPS)
-    assert _run(engine, model) == "3 分測って"
 
 
 def test_without_a_table_nothing_is_passed_or_rewritten():
