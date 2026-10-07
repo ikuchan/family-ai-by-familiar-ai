@@ -486,20 +486,26 @@ async def test_other_tools_country_param_not_stripped(tmp_path: Path) -> None:
     assert "country" in sent
 
 
-def test_compress_tavily_result_truncates_content() -> None:
-    """Content snippets longer than 120 chars are truncated with ellipsis."""
+def test_compress_tavily_result_keeps_content_whole() -> None:
+    """Content は切らない（知-am・2026-10-07 本人の決定）。以前は 120 字で切っていたので、天気の数字（気温・降水確率）が
+    抜粋の後ろにあると主LLM に届かなかった。Score などの行はいまどおり落とす。"""
     from familiar_agent.mcp_client import _compress_tavily_result
 
-    long_content = "x" * 200
+    long_content = "x" * 200 + " 明日 10/8 晴れ 降水確率 0% 24.7℃"
     raw = f"Detailed Results:\n\nTitle: Test\nURL: https://example.com\nContent: {long_content}\nScore: 0.9\n"
     result = _compress_tavily_result(raw)
 
     assert "Title: Test" in result
     assert "URL: https://example.com" in result
     assert "Score:" not in result
-    content_line = next(ln for ln in result.splitlines() if ln.startswith("Content: "))
-    assert content_line.endswith("…")
-    assert len(content_line) <= len("Content: ") + 120 + 1  # +1 for ellipsis char
+    assert f"Content: {long_content}" in result
+    assert "…" not in result
+
+
+def test_the_120_char_cut_is_gone() -> None:
+    from familiar_agent import mcp_client
+
+    assert not hasattr(mcp_client, "_TAVILY_CONTENT_CHARS")
 
 
 def test_compress_tavily_result_keeps_answer() -> None:
@@ -522,7 +528,7 @@ def test_compress_tavily_result_drops_score_and_favicon() -> None:
 
 
 def test_compress_tavily_result_short_content_unchanged() -> None:
-    """Content shorter than 120 chars is passed through without truncation."""
+    """Short content is passed through unchanged."""
     from familiar_agent.mcp_client import _compress_tavily_result
 
     raw = "Detailed Results:\n\nTitle: T\nURL: U\nContent: short text\n"
@@ -559,7 +565,7 @@ async def test_tavily_search_result_is_compressed(tmp_path: Path) -> None:
 
     assert "Score:" not in text
     content_line = next((ln for ln in text.splitlines() if ln.startswith("Content: ")), "")
-    assert content_line.endswith("…")
+    assert content_line == f"Content: {long_content}"  # 切らない（知-am）
 
 
 @pytest.mark.asyncio

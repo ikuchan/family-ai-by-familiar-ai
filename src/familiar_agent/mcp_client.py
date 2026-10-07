@@ -94,28 +94,17 @@ def _load_servers(config_path: Path) -> dict[str, dict[str, Any]]:
 
 
 _TAVILY_SKIP_PREFIXES = ("Score: ", "Favicon: ", "Raw Content: ")
-_TAVILY_CONTENT_CHARS = 120
 
 
 def _compress_tavily_result(text: str) -> str:
-    """Strip low-value fields and truncate Content snippets in a Tavily result.
+    """Tavily の結果から、値の低い行（Score・Favicon・Raw Content・画像）だけを落とす。
 
-    Keeps: Answer (if present), Title, URL, Content (first 120 chars).
-    Drops: Score, Favicon, Raw Content, image lines.
-    Reduces typical output from ~1200 tokens to ~300 tokens.
+    **Content は切らない**（知-am・2026-10-07 本人の決定）。以前は先頭 120 字で切っていたので、天気の数字（気温・
+    降水確率）が抜粋の後ろにあると主LLM に届かず、「調べたけど読み取れなかった」と答えた。
     """
-    out: list[str] = []
-    for line in text.splitlines():
-        if any(line.startswith(p) for p in _TAVILY_SKIP_PREFIXES):
-            continue
-        if line.startswith("Content: "):
-            body = line[len("Content: ") :]
-            if len(body) > _TAVILY_CONTENT_CHARS:
-                body = body[:_TAVILY_CONTENT_CHARS] + "…"
-            out.append(f"Content: {body}")
-        else:
-            out.append(line)
-    return "\n".join(out)
+    return "\n".join(
+        line for line in text.splitlines() if not line.startswith(_TAVILY_SKIP_PREFIXES)
+    )
 
 
 _CONNECT_TIMEOUT = float(os.environ.get("MCP_CONNECT_TIMEOUT", "30"))
