@@ -224,3 +224,15 @@ async def test_has_user_initiated_pending_cleared_after_read():
     await asyncio.sleep(0)
     tool.pending_context()  # consume
     assert tool.has_user_initiated_pending is False
+
+
+# ── ページを取りに行く判断を書く（知-am 段 2・2026-10-07）──────────────────────────
+
+
+def test_the_description_says_to_fetch_when_the_snippet_lacks_facts() -> None:
+    from familiar_agent.tools.deferred_fetch import DeferredFetchTool
+
+    desc = DeferredFetchTool(fetch_fn=None).get_tool_definitions()[0]["description"]  # type: ignore[arg-type]
+    assert "抜粋" in desc and "数字" in desc
+    # 使えない道具（反復のループでは渡していない `fetch`）の案内は無い
+    assert "fetch を使う" not in desc

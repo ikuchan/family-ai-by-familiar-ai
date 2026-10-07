@@ -354,3 +354,26 @@ async def test_both_sources_failing_is_delivered_as_a_tool_failure_without_the_r
     q, r, kw = delivered[0]
     assert kw.get("failed") is True
     assert "道具が使えず失敗した" in r and "401" not in r and "500" not in r
+
+
+# ── 担い手の使い分けを書く（知-am 段 2・2026-10-07）─────────────────────────────
+#
+# 担い手（Brave・Tavily）の違いがどこにも書かれておらず、数字が要る問い（天気）でも既定の Brave（題名・抜粋・リンクの
+# 一覧）で探して「リンクの一覧しか出てこない」と答えた。使い分けを書き、使えない道具の案内（反復のループでは渡して
+# いない brave_web_search・tavily_search）を消す。既定（省略時は Brave）は変えない。
+
+
+def test_the_description_tells_when_to_use_each_source() -> None:
+    tool, _ = _make_tool()
+    d = tool.get_tool_definitions()[0]
+    desc = d["description"] + d["input_schema"]["properties"]["source"]["description"]
+    assert "Brave" in desc and "Tavily" in desc
+    assert "リンク" in desc  # Brave は題名・抜粋・リンクの一覧
+    assert "本文" in desc and "数字" in desc  # Tavily は本文の抜粋・数字や事実が要るとき
+    assert "省略時" in desc and "brave" in desc.lower()  # 既定はいまどおり
+
+
+def test_the_description_names_no_unavailable_tools() -> None:
+    tool, _ = _make_tool()
+    desc = tool.get_tool_definitions()[0]["description"]
+    assert "brave_web_search" not in desc and "tavily_search" not in desc
