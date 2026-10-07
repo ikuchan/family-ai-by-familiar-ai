@@ -112,9 +112,27 @@ class WakeWindow:
     """会話として受ける窓。`until` は窓が閉じる時刻（`time.monotonic()` の秒）。"""
 
     until: float = 0.0
+    #: いま鳴っている声の数。鳴っているあいだは `until` を過ぎても開いている（2026-10-07 実機 23:18）。
+    speaking: int = 0
 
     def is_open(self, now: float) -> bool:
-        return now < self.until
+        return self.speaking > 0 or now < self.until
+
+    def hold(self) -> None:
+        """話し始め（窓が開いているときだけ呼ぶ）。話し終わる（`release`）まで閉じない。
+
+        窓を残り時間で数えていると、長い返事を話しているうちに切れ、聞き返しへの返事を窓の外として捨てた
+        （2026-10-07 実機 23:18：「何の曲にしますか？」の後の「いいですよ」を 3 回）。
+        """
+        self.speaking += 1
+
+    def release(self, now: float) -> None:
+        """話し終わり。声がみな鳴り終わったら、そこから `WAKE_WINDOW_SEC`（本人「話し終わってから１０秒」）。"""
+        if self.speaking <= 0:
+            return
+        self.speaking -= 1
+        if self.speaking == 0:
+            self.until = max(self.until, now + WAKE_WINDOW_SEC)
 
     def open(self, now: float) -> None:
         """名前を聞いた・キーボードで打たれた。そこから `WAKE_WINDOW_SEC`（縮めない）。"""
@@ -130,3 +148,4 @@ class WakeWindow:
 
     def close(self) -> None:
         self.until = 0.0
+        self.speaking = 0

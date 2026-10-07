@@ -3251,7 +3251,7 @@ class InformationProcessing:
             logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
             return text, "独白"
         await self._pause_after_filler()
-        await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
+        await self._say_aloud(text, careful=self._careful_voice(branch))
         self._note_suggestion_offered(text)
         self._stamp_said()
         self._extend_window_for_conversation()  # 返事から窓の長さぶん（出-as 段 4）
@@ -3355,9 +3355,11 @@ class InformationProcessing:
         ——つなぎを言ったつもりで本応答が止まるほうが困る。
         """
 
+        gain = self._voice_gain()  # 背景で鳴らすので、倍率はこの求めのうちに決めておく
+
         async def _voice() -> None:
             try:
-                await self._dif.speak(text)
+                await self._say_aloud(text, gain=gain)
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
@@ -3713,7 +3715,7 @@ class InformationProcessing:
         text = getattr(pc, "text", "") or ""
         if not text or self._delivery_block_reason():
             return
-        await self._dif.speak(text, gain=self._voice_gain())
+        await self._say_aloud(text)
         self._stamp_said()
         self._emit(text)
         logger.info("確認の問いを出した：%.40s", text)
@@ -3727,6 +3729,28 @@ class InformationProcessing:
         from ..core.voice_rules import careful_voice
 
         return careful_voice(branch, getattr(self, "_returned_now", frozenset()))
+
+    async def _say_aloud(
+        self, text: str, *, careful: bool = False, gain: "float | None" = None
+    ) -> None:
+        """声を出す口（本応答・つなぎ・確認の問い）。**`dif.speak` を呼ぶのはここだけ**。
+
+        倍率はここで必ず付ける（`gain` を渡さなければ `_voice_gain()`）。口が分かれていたころ、つなぎの声だけ
+        倍率を渡し忘れ、普段の 4 倍の声で鳴った（2026-10-07 実機 23:18:39「承知いたしました。少々お待ちください。」）。
+        """
+        # 会話の求めで窓が開いていれば、話しているあいだは開けておき、話し終わりから 10 秒にする（本人
+        # 「話し終わってから１０秒」）。閉じていれば触らない——声で窓を開け直さない。
+        wake = self._wake_window()
+        hold = self._req.trigger_kind == "発話" and wake.is_open(time.monotonic())
+        if hold:
+            wake.hold()
+        try:
+            await self._dif.speak(
+                text, gain=self._voice_gain() if gain is None else gain, careful=careful
+            )
+        finally:
+            if hold:
+                wake.release(time.monotonic())
 
     def _voice_gain(self) -> float:
         """この求めの声の倍率。タイマーが鳴った知らせ（`[タイマー]`）だけ `TIMER_VOICE_GAIN`（既定 1.0）。

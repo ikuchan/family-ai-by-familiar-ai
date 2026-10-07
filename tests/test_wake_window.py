@@ -79,3 +79,42 @@ def test_close_shuts_it():
     w.open(100.0)
     w.close()
     assert not w.is_open(101.0)
+
+
+# ── 話しているあいだ（2026-10-07 実機 23:18：話しているうちに窓が切れ、聞き返しへの返事を 3 回捨てた）────
+
+
+def test_the_window_stays_open_while_speaking():
+    """話し始めに開いていれば、話しているあいだは `until` を過ぎても開いている。"""
+    w = WakeWindow()
+    w.open(100.0)  # 110 まで
+    w.hold()
+    assert w.is_open(115.0)
+
+
+def test_it_closes_ten_seconds_after_speaking_ends():
+    w = WakeWindow()
+    w.open(100.0)
+    w.hold()
+    w.release(116.0)  # 話し終わり
+    assert w.is_open(125.9) and not w.is_open(126.0)
+
+
+def test_two_voices_keep_it_open_until_both_end():
+    """つなぎと本応答が重なっても、両方が話し終わるまで開いている。"""
+    w = WakeWindow()
+    w.open(100.0)
+    w.hold()
+    w.hold()
+    w.release(112.0)
+    assert w.is_open(130.0)
+    w.release(114.0)
+    assert w.is_open(123.9) and not w.is_open(124.0)
+
+
+def test_close_ends_the_hold_too():
+    w = WakeWindow()
+    w.open(100.0)
+    w.hold()
+    w.close()
+    assert not w.is_open(101.0)
