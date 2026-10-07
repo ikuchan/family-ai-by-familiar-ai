@@ -2420,7 +2420,7 @@ class InformationProcessing:
         return mood if isinstance(mood, str) else "absent"
 
     async def _music_now(self) -> str:
-        """鳴っているあいだの様子を読んで曲送りを記録し（知-aa 段 2）、`[音楽]` の枠を返す。鳴っていなければ空。
+        """鳴っているあいだの様子を読んで曲送りを記録し（知-aa 段 2）、`[音楽]` の枠を返す。鳴っていなければ「いまは何も鳴っていない」、読めなければ空。
 
         読むのは T の見張りと同じ口（`music_watch.observe`）。主LLM が「いま何の曲？」に答えられるように。
         """
@@ -2429,8 +2429,11 @@ class InformationProcessing:
         state = getattr(agent, "_music_state", None)
         if tool is None or state is None:
             return ""
+        from ..tools.music import NOT_PLAYING
         from .music_watch import observe
 
+        if not getattr(state, "playing", False):
+            return NOT_PLAYING  # パジュはかけていない（読まない・知-ak 段 5）
         try:
             status = await observe(
                 io=tool._io,

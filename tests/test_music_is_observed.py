@@ -164,12 +164,48 @@ def test_the_main_llm_is_told_what_is_playing():
     assert "[音楽] 海へ／ケイマン（音量 50%）" in system
 
 
-def test_no_music_frame_when_nothing_plays():
+def test_the_frame_says_nothing_plays_when_it_stopped():
+    """鳴っていないことも書く（知-ak 段 5・2026-10-07 実機 18:43）。書かないと、記憶の「かけ始めた」がいまの
+    状態のように読まれ、`play_music` を呼ばずに「もうかけてますよ」と答えた。"""
     from tests.test_event_loop import _run
 
     a = _agent_playing({"playing": False, "title": "", "artist": "", "volume": 0.5})
     _run(a, utterance="パジュ、いま何の曲？")
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "[音楽] いまは何も鳴っていない" in system
+
+
+def test_the_frame_says_nothing_plays_when_paju_has_not_started_it():
+    from tests.test_event_loop import _run
+
+    a = _agent_playing(PLAYING)
+    a._music_state.playing = False  # パジュはかけていない（読まない）
+    _run(a, utterance="パジュ、ケイマンかけて")
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
+    assert "[音楽] いまは何も鳴っていない" in system
+
+
+@pytest.mark.asyncio
+async def test_no_frame_when_the_state_cannot_be_read():
+    """読めないときは書かない（分からないのに「鳴っていない」とは言わない）。"""
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = _agent_playing(PLAYING)
+    a._music_tool._io.status = AsyncMock(side_effect=RuntimeError("D-Bus"))
+    ip = InformationProcessing(a)
+    ip.note_device = MagicMock()  # type: ignore[method-assign]
+    frame = await ip._music_now()
+    await ip.close()
+    assert frame == ""
+
+
+def test_no_frame_without_the_music_tool():
+    from tests.test_event_loop import _agent, _run
+
+    a = _agent(stream_returns=[])
+    a._music_tool = None
+    _run(a, utterance="パジュ、いま何時？")
+    system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"] or [])
     assert "[音楽]" not in system
 
 

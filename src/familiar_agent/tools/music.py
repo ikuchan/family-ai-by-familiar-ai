@@ -84,6 +84,10 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 ]
 
 
+#: 鳴っていないときの `[音楽]` の枠（知-ak 段 5）。
+NOT_PLAYING = "[音楽] いまは何も鳴っていない"
+
+
 class MusicTool:
     """4 本の道具。返りは**そのまま伝えられる文**にする（できなかったことは断りで返す）。"""
 
@@ -117,10 +121,16 @@ class MusicTool:
         return [dict(d) for d in TOOL_DEFINITIONS]
 
     async def frame(self, status: "dict | None" = None) -> str:
-        """`[音楽]` の枠。鳴っていなければ空。読んだ様子（`status`）があればそれを使う（読み直さない）。"""
+        """`[音楽]` の枠。読んだ様子（`status`）があればそれを使う（読み直さない）。読めなければ空。
+
+        **鳴っていないことも書く**（知-ak 段 5・2026-10-07 実機 18:43）。書かないと、記憶の「かけ始めた」がいまの
+        状態のように読まれ、`play_music` を呼ばずに「もうかけてますよ」と答えた。
+        """
         s = status if status is not None else await self._io.status(self._bus())
-        if not s or not s.get("playing"):
+        if not s:
             return ""
+        if not s.get("playing"):
+            return NOT_PLAYING
         title = s.get("title") or "曲"
         artist = s.get("artist") or ""
         who = f"／{artist}" if artist else ""
