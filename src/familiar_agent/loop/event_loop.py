@@ -143,6 +143,8 @@ _LOOKUP_ACTIONS = (
     *_ALARM_ACTIONS,
     *_STOPWATCH_ACTIONS,
     *_CONFIRM_ACTIONS,
+    # 音楽も主LLM が道具名で呼ぶ。載っていなかったので `play_music` が捨てられ、求めが沈黙で閉じた（2026-10-07 実機）。
+    *_MUSIC_ACTIONS,
 )
 
 

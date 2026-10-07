@@ -234,3 +234,35 @@ async def test_the_voice_still_comes_out_when_the_music_port_is_broken():
         return "話した"
 
     assert await duck_while_speaking(io=io, bus=MagicMock(), state=state, speak=speak) == "話した"
+
+
+# ── 主LLM の音楽の呼び出しを拾う（知-ak 段 3・2026-10-07 実機）──────────────────
+#
+# 実機 2026-10-07 13:28、主LLM が `play_music` を呼んだのに、求めは「沈黙」で閉じ、何も鳴らなかった。主LLM の
+# 道具の呼び出しのうちループが拾うのは `_LOOKUP_ACTIONS` の名前だけで、音楽が載っていなかった。
+
+
+def test_the_music_actions_are_picked_up_from_the_main_llm():
+    from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, _MUSIC_ACTIONS
+
+    assert set(_MUSIC_ACTIONS) == {
+        "play_music",
+        "stop_music",
+        "next_track",
+        "music_volume",
+        "music_suggestion_reply",
+    }
+    assert set(_MUSIC_ACTIONS) <= set(_LOOKUP_ACTIONS)
+
+
+def test_a_play_music_call_alone_is_started_not_dropped():
+    from familiar_agent.backends import ToolCall
+    from tests.test_act_on_decision import _ip, _run, _turn
+
+    ip, _a = _ip()
+    out = _run(ip, _turn(ToolCall("t", "play_music", {"name": "ケイマン", "order": "ランダム"})))
+    assert out == ""
+    ip._start_lookup.assert_called_once()
+    assert ip._start_lookup.call_args.kwargs["action"] == "play_music"
+    assert ip._start_lookup.call_args.args[1] == {"name": "ケイマン", "order": "ランダム"}
+    ip._finish.assert_not_awaited()  # 沈黙で閉じない
