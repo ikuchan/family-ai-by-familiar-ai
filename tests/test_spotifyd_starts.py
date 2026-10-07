@@ -166,6 +166,9 @@ def _tool(monkeypatch, state: str):
     io.set_shuffle = AsyncMock()
     web = MagicMock()
     web.activate = MagicMock(side_effect=lambda name: order.append("activate") or True)
+    # 再生は Web API で始めて確かめる（知-al）
+    web.play = MagicMock(side_effect=lambda name, uri: order.append("web.play") or True)
+    web.now_playing = MagicMock(return_value={"item": None, "context": "spotify:playlist:x"})
     tool = MusicTool(
         io=io,
         bus=lambda: MagicMock(),
@@ -182,13 +185,13 @@ def test_play_starts_spotifyd_and_waits_for_the_device_first(monkeypatch):
     tool, order = _tool(monkeypatch, "started")
     text, ok = asyncio.run(tool._play({"name": "ケイマン"}))
     assert ok
-    assert order == ["ensure:conf", "wait:パジュ:10.0", "activate", "play"]
+    assert order == ["ensure:conf", "wait:パジュ:10.0", "web.play"]
 
 
 def test_play_does_not_wait_when_it_was_already_running(monkeypatch):
     tool, order = _tool(monkeypatch, "running")
     asyncio.run(tool._play({"name": "ケイマン"}))
-    assert order == ["ensure:conf", "activate", "play"]
+    assert order == ["ensure:conf", "web.play"]
 
 
 # ── 起動と終了の結線 ────────────────────────────────────────────────────────────

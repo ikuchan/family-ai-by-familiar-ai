@@ -105,6 +105,7 @@ async def test_the_device_is_switched_just_before_playing():
     """鳴らす直前に鍵を更新して機器を「パジュ」へ（MPRIS の口は現役になってから出る）。"""
     tool, io = _tool()
     web = MagicMock()
+    web.play = MagicMock(return_value=False)  # Web API で始められない → MPRIS の道（知-al）
     web.activate = MagicMock(return_value=True)
     tool._web, tool._device_name = web, "パジュ"
     await tool.call("play_music", {"name": "ケイマン"})
@@ -118,6 +119,7 @@ async def test_playing_still_works_without_the_web_key():
     """鍵が無くても鳴らしにいく（MPRIS が既に居れば鳴る）。"""
     tool, io = _tool()
     web = MagicMock()
+    web.play = MagicMock(return_value=False)  # Web API で始められない → MPRIS の道（知-al）
     web.activate = MagicMock(return_value=False)
     tool._web, tool._device_name = web, "パジュ"
     out, ok = await tool.call("play_music", {"name": "ケイマン"})

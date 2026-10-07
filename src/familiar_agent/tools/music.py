@@ -88,6 +88,11 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
 NOT_PLAYING = "[音楽] いまは何も鳴っていない"
 
 
+#: 鳴らし始めたあと、頼んだものが鳴っているかを見る長さと間隔（秒・知-al）。〔仮・本人の決定〕
+_CONFIRM_SEC = 3.0
+_CONFIRM_TICK = 0.5
+
+
 class MusicTool:
     """4 本の道具。返りは**そのまま伝えられる文**にする（できなかったことは断りで返す）。"""
 
@@ -183,20 +188,47 @@ class MusicTool:
             heading, uri = found
             shuffle = music_rules.wants_shuffle(order, False)
         await self._ensure_spotifyd()
-        # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新も
-        # ここで起きる。切り替えられなくても鳴らしにいく（口が既に居れば鳴る）。
-        if self._web is not None and self._device_name:
-            with contextlib.suppress(Exception):
-                self._web.activate(self._device_name)
         bus = self._bus()
-        if not await self._io.play(bus, uri):
-            return f"{heading}かけられなかった（音の出口が見つからない）", False
+        # **Web API で始め、鳴ったものを確かめる**（知-al・2026-10-07）。MPRIS の `OpenUri` では曲の URI に切り替わらず、
+        # 前のアルバムが鳴ったのに「かけましたよ」と答えた（実機 22:01）。Web API が無い・失敗したら MPRIS の道へ。
+        started = False
+        if self._web is not None and self._device_name:
+            try:
+                started = bool(await asyncio.to_thread(self._web.play, self._device_name, uri))
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "音楽：Web API で鳴らし始められなかった（MPRIS で鳴らす）", exc_info=True
+                )
+        if started:
+            if not await self._confirm(uri):
+                logger.info("音楽：%sかけようとしたが、別の曲が鳴っている（%s）", heading, uri)
+                return f"{heading}かけようとしたが、別の曲が鳴っている", False
+        else:
+            # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新もここで起きる。
+            if self._web is not None and self._device_name:
+                with contextlib.suppress(Exception):
+                    self._web.activate(self._device_name)
+            if not await self._io.play(bus, uri):
+                return f"{heading}かけられなかった（音の出口が見つからない）", False
         if ":playlist:" in uri or ":album:" in uri or ":artist:" in uri:
             await self._io.set_shuffle(bus, shuffle)
         self._mark(True)
         how = "ランダムで" if shuffle else ""
         logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
         return f"{heading}{how}かけ始めた", True
+
+    async def _confirm(self, uri: str) -> bool:
+        """Spotify 側でいま鳴っているもの（曲かその上）が `uri` か。`_CONFIRM_TICK` おきに最大 `_CONFIRM_SEC` 見る。"""
+        waited = 0.0
+        while True:
+            with contextlib.suppress(Exception):
+                now = await asyncio.to_thread(self._web.now_playing)
+                if uri in (now.get("item"), now.get("context")):
+                    return True
+            if waited >= _CONFIRM_SEC:
+                return False
+            await asyncio.sleep(_CONFIRM_TICK)
+            waited += _CONFIRM_TICK
 
     async def _ensure_spotifyd(self) -> None:
         """spotifyd が居なければ立ち上げ、機器が Spotify に見えるまで待つ（2026-10-07 実機・最大 10 秒〔仮〕）。"""

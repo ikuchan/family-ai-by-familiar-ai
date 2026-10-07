@@ -138,6 +138,30 @@ class Spotify:
         logger.info("音楽：機器「%s」へ切り替えた（音は鳴らさない）", name)
         return True
 
+    def play(self, name: str, uri: str) -> bool:
+        """機器 `name` で `uri` を鳴らし始める（知-al・2026-10-07）。機器が見つからなければ False。
+
+        曲は `uris`、プレイリスト・アルバム・アーティストは `context_uri`。MPRIS の `OpenUri` では曲の URI に
+        切り替わらず、Spotify 側に残っていた前のアルバムが鳴った（実機 22:01）。機器の切り替えも兼ねる。
+        """
+        device = self.device_id(name or "")
+        if not device:
+            return False
+        body: dict = {"uris": [uri]} if ":track:" in uri else {"context_uri": uri}
+        self._call("PUT", f"/me/player/play?device_id={device}", body)
+        logger.info("音楽：機器「%s」で鳴らし始めた（%s）", name, uri)
+        return True
+
+    def now_playing(self) -> dict:
+        """いま鳴っているもの（機器名・鳴っているか・曲の URI・その上の URI）。読めなければ空の値。"""
+        st = self._call("GET", "/me/player") or {}
+        return {
+            "device": (st.get("device") or {}).get("name"),
+            "playing": bool(st.get("is_playing")),
+            "item": (st.get("item") or {}).get("uri"),
+            "context": (st.get("context") or {}).get("uri"),
+        }
+
     # ── 読むだけの口（知-aa 段 3）────────────────────────────────────────────
 
     def _pages(self, path: str) -> "list[dict] | None":
