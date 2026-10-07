@@ -542,15 +542,42 @@ _EFFORT_CRITERIA = {
 _QUIET_MINUTES = {"default": -1, "5": 5, "10": 10, "15": 15, "30": 30, "60": 60}
 
 
-def _unsure(label: str, answer: Any, key: str, min_conf: float) -> str:
-    """確信度が足りなくて倒れた理由の 1 行（出-ay）：確信度と、1 番・2 番の選択肢と確率。"""
-    got = (getattr(answer, "answers", None) or {}).get(key) or {}
-    conf = float(got.get("confidence", 0.0) or 0.0)
+def _ranks(got: dict) -> str:
+    """1 番・2 番の選択肢と確率（「1 番 action 0.55・2 番 full 0.31」）。確率が無ければ空。"""
     probs = sorted(
         ((str(k), float(v)) for k, v in (got.get("probabilities") or {}).items()),
         key=lambda kv: -kv[1],
     )
-    ranks = "・".join(f"{i + 1} 番 {k} {v:.2f}" for i, (k, v) in enumerate(probs[:2]))
+    return "・".join(f"{i + 1} 番 {k} {v:.2f}" for i, (k, v) in enumerate(probs[:2]))
+
+
+def _judgement_line(answer: Any) -> str:
+    """Jev の判定の 1 行（出-ay 段 2）：分岐と動作を、それぞれ選んだもの・確信度・1 番と 2 番つきで。
+
+    分岐で倒れると、Jev が同じ 1 回の問いで選んでいた動作を読まずに捨てていた。倒れた 40 回のうち action が 1 番の
+    16 回で、どの動作を選んでいたかが分からなかった（2026-10-08 の集計）。倒れても倒れなくても、毎回残す。
+    """
+    answers = getattr(answer, "answers", None) or {}
+    parts = []
+    for label, key in (("分岐", "branch"), ("動作", "action")):
+        got = answers.get(key) or {}
+        if not got:
+            continue
+        conf = float(got.get("confidence", 0.0) or 0.0)
+        ranks = _ranks(got)
+        parts.append(
+            f"{label} {got.get('choice') or '—'}（確信度 {conf:.2f}"
+            + (f"・{ranks}" if ranks else "")
+            + "）"
+        )
+    return "・".join(parts)
+
+
+def _unsure(label: str, answer: Any, key: str, min_conf: float) -> str:
+    """確信度が足りなくて倒れた理由の 1 行（出-ay）：確信度と、1 番・2 番の選択肢と確率。"""
+    got = (getattr(answer, "answers", None) or {}).get(key) or {}
+    conf = float(got.get("confidence", 0.0) or 0.0)
+    ranks = _ranks(got)
     if not ranks and got.get("choice"):
         ranks = f"1 番 {got.get('choice')}"
     return f"{label}の確信度 {conf:.2f}＜{min_conf:g}" + (f"（{ranks}）" if ranks else "")
@@ -748,6 +775,7 @@ class Arbiter:
             err = str(getattr(answer, "error", "") or "") if answer is not None else "使えない"
             self._why = f"Jev が答えなかった（{err or '理由なし'}）"
             return None
+        logger.info("調停の判定：%s", _judgement_line(answer))
         branch = picked(answer, "branch", self._min_conf)
         if branch not in ("light", "full", "action"):
             self._why = _unsure("分岐", answer, "branch", self._min_conf)

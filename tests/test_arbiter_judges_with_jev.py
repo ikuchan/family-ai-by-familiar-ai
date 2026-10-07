@@ -200,6 +200,45 @@ def test_the_warning_carries_the_why(caplog):
     assert "判定=なし・分岐の確信度 0.55＜0.6" in caplog.text
 
 
+# ── 判定を毎回残す（出-ay 段 2・2026-10-08）────────────────────────────────────────
+#
+# 分岐で倒れると、Jev が同じ 1 回の問いで選んでいた動作を読まずに捨てていた。倒れた 40 回のうち action が 1 番の
+# 16 回で、どの動作を選んでいたかが分からなかった（出-ay の集計）。倒れても倒れなくても、分岐と動作を 1 行残す。
+
+
+def test_the_action_is_logged_even_when_the_branch_falls_back(caplog):
+    jev = _jev(
+        {
+            "branch": _p("action", 0.33, {"action": 0.55, "full": 0.31, "light": 0.14}),
+            "action": _p("play_music", 0.71, {"play_music": 0.80, "search_deferred": 0.12}),
+        }
+    )
+    with caplog.at_level("INFO"):
+        got, _ = _why(jev)
+    assert got is None
+    assert (
+        "調停の判定：分岐 action（確信度 0.33・1 番 action 0.55・2 番 full 0.31）・"
+        "動作 play_music（確信度 0.71・1 番 play_music 0.80・2 番 search_deferred 0.12）"
+    ) in caplog.text
+
+
+def test_the_judgement_is_logged_when_it_decides(caplog):
+    jev = _jev({"branch": _c("light", 0.9), "effort": _c("low"), "action": _c("look", 0.2)})
+    with caplog.at_level("INFO"):
+        got, _ = _why(jev)
+    assert got is not None
+    assert "調停の判定：分岐 light（確信度 0.90）・動作 look（確信度 0.20）" in caplog.text
+
+
+def test_nothing_is_logged_when_jev_does_not_answer(caplog):
+    c = MagicMock()
+    c.available = True
+    c.ask = AsyncMock(return_value=JevAnswer(ok=False, error="時間切れ"))
+    with caplog.at_level("INFO"):
+        _why(c)
+    assert "調停の判定：" not in caplog.text
+
+
 # ── 調停が担い手を書く（知-am 段 3・2026-10-07）──────────────────────────────────
 #
 # 軽量LLM が書くのは検索の言葉（query）だけで担い手を書けず、調停が投げる検索はいつも既定の Brave だった（22:04・22:06 の
