@@ -29,7 +29,7 @@ def _ip(kind="発話", *, window_open=True, now=1000.0, monkeypatch=None):
     ip._speak_filler_in_background = MagicMock()
     ip._oif_write_filler = AsyncMock()
     if window_open:
-        ip._wake.open(now - 15.0)  # 15 秒前に開いた（残り 15 秒）
+        ip._wake.open(now - 5.0)  # 5 秒前に開いた（残り 5 秒・窓 10 秒）
     else:
         ip._wake.open(now - 45.0)  # 45 秒前に開いて切れた
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.monotonic", lambda: now)
@@ -41,7 +41,7 @@ def test_a_reply_inside_the_window_is_spoken_and_extends_it(monkeypatch):
     spoken, outcome = asyncio.run(ip._speak("晴れだよ"))
     assert (spoken, outcome) == ("晴れだよ", "発話")
     ip._dif.speak.assert_awaited_once()
-    assert ip._wake.is_open(1029.0)  # 返事から 30 秒
+    assert ip._wake.is_open(1009.0)  # 返事から 10 秒
 
 
 def test_a_reply_after_the_window_closed_is_kept_as_a_monologue(monkeypatch):
@@ -57,7 +57,7 @@ def test_a_filler_inside_the_window_is_said_and_extends_it(monkeypatch):
     a._oif.write = AsyncMock(return_value="obs-f")
     asyncio.run(ip._say_filler("ちょっと待ってね"))
     ip._speak_filler_in_background.assert_called_once()
-    assert ip._wake.is_open(1029.0)
+    assert ip._wake.is_open(1009.0)
 
 
 def test_a_filler_after_the_window_closed_is_not_said(monkeypatch):

@@ -84,9 +84,9 @@ def test_family_talk_inside_the_window_is_dropped_without_side_effects():
 def test_otherwise_it_is_heard_and_extends_the_window(answer):
     ip, a, heard = _ip(answer)
     ip._wake_window().open(100.0)
-    assert _push(ip, "明日の天気は？", arrived=110.0) is True
+    assert _push(ip, "明日の天気は？", arrived=105.0) is True
     assert heard == [True]
-    assert ip._wake_window().is_open(135.0)  # 受けたので 140 まで延びた
+    assert ip._wake_window().is_open(112.0)  # 受けたので 115 まで延びた（窓 10 秒）
 
 
 def test_named_input_and_typing_are_not_asked():

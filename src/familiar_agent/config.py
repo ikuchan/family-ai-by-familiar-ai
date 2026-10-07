@@ -654,7 +654,7 @@ class AgentConfig:
     jev_timeout_sec: float = field(default_factory=lambda: _float_env("JEV_TIMEOUT_SEC", 2.0))
     jev_confidence_min: float = field(default_factory=lambda: _float_env("JEV_CONFIDENCE_MIN", 0.6))
     # 会話の求めで待たせ続けるとき、最初の「まだかかっている」の後、この秒数ごとに繰り返す（出-au 段 2）。
-    # 窓（30 秒）が切れる前に、つなぎで延ばすため。20 秒は本人の決定（2026-09-26・`設計方針_判定の段` §2.3）。
+    # 20 秒は本人の決定（2026-09-26・`設計方針_判定の段` §2.3）。窓（10 秒）は、待たせているあいだ見張りが延ばす（2026-10-07）。
     wait_filler_repeat_seconds: float = field(
         default_factory=lambda: _float_env("WAIT_FILLER_REPEAT_SECONDS", 20.0)
     )

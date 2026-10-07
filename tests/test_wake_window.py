@@ -41,37 +41,37 @@ def test_without_names_nothing_is_heard():
 # ── 窓 ────────────────────────────────────────────────────────────────────
 
 
-def test_the_window_is_thirty_seconds():
-    """出-as の 1 分から 30 秒へ（出-au・`設計方針_判定の段` §2.1）。"""
-    assert WAKE_WINDOW_SEC == 30.0
+def test_the_window_is_ten_seconds():
+    """出-as の 1 分 → 30 秒（出-au）→ 10 秒（2026-10-07 本人の決定「窓の時間は１０秒で」）。"""
+    assert WAKE_WINDOW_SEC == 10.0
     w = WakeWindow()
     assert not w.is_open(100.0)
     w.open(100.0)
-    assert w.is_open(129.9)
-    assert not w.is_open(130.0)
+    assert w.is_open(109.9)
+    assert not w.is_open(110.0)
 
 
 def test_extending_inside_the_window_restarts_it():
     w = WakeWindow()
     w.open(100.0)
-    w.extend(120.0)  # 窓の中で入力・返事・つなぎ
-    assert w.is_open(149.9) and not w.is_open(150.0)
+    w.extend(108.0)  # 窓の中で入力・返事・つなぎ
+    assert w.is_open(117.9) and not w.is_open(118.0)
 
 
 def test_extending_after_it_closed_does_nothing():
     """窓が切れた後の返事は話さない（独り言）。延ばして開け直さない。"""
     w = WakeWindow()
     w.open(100.0)
-    w.extend(140.0)
-    assert not w.is_open(140.0)
+    w.extend(111.0)
+    assert not w.is_open(111.0)
 
 
 def test_opening_again_never_shortens():
     w = WakeWindow()
     w.open(100.0)
-    w.extend(120.0)
-    w.open(110.0)  # 古い時刻で開けても縮まない
-    assert w.is_open(149.9)
+    w.extend(108.0)
+    w.open(102.0)  # 古い時刻で開けても縮まない
+    assert w.is_open(117.9)
 
 
 def test_close_shuts_it():

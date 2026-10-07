@@ -1158,26 +1158,39 @@ class InformationProcessing:
         """待たせている時間が長いとき、「まだかかっている」（`進捗`）を積む（案G-3・出-au 段 2）。
 
         最初は `lookup_slow_seconds`（5 秒）、その後は `wait_filler_repeat_seconds`（20 秒）ごとに繰り返し、
-        主LLM の待ちも数える——窓（30 秒）が切れて、出来上がった答えが独り言になるのを防ぐ（`設計方針_判定の段`
-        §2.3）。**会話の求めだけ**（出-aq 段 6）。時計で定期的に起こすのではなく、**待たせているという事実**が
-        続くあいだだけ起こす。
+        主LLM の待ちも数える（`設計方針_判定の段` §2.3）。**会話の求めだけ**（出-aq 段 6）。時計で定期的に起こすのでは
+        なく、**待たせているという事実**が続くあいだだけ起こす。
+
+        **待たせているあいだは窓を閉じない**（2026-10-07 本人の決定）。窓を 10 秒に縮めたので、つなぎの合間に窓が切れ、
+        出来上がった答えが独り言になる。見張りは 1 秒ごと（つなぎの間がそれより短ければその間）に起き、窓を延ばす
+        （開いているときだけ）。待ちが終わって見張りが閉じたら、最後に延ばしたところから 10 秒で閉じる。
         """
         cfg = self._agent.config
         delay = float(getattr(cfg, "lookup_slow_seconds", 5.0))
         every = float(getattr(cfg, "wait_filler_repeat_seconds", 20.0))
+        tick = min(1.0, delay, every)
+        waited = 0.0
+        next_filler = delay
         with contextlib.suppress(asyncio.CancelledError):
             while True:
-                await asyncio.sleep(delay)
+                step = min(tick, next_filler - waited) if next_filler > waited else tick
+                await asyncio.sleep(step)
+                waited += step
                 if gen != self._request_generation:
                     return  # 打ち切られた求めの見張り
                 waiting = self._waiting_on()
                 if not waiting:
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
+                self._wake_window().extend(time.monotonic())
+                if waited + 1e-9 < next_filler:
+                    continue
                 logger.info(
-                    "event-loop 待たせている時間が %.0f 秒を超えた：%.40s", delay, waiting[0].query
+                    "event-loop 待たせている時間が %.0f 秒を超えた：%.40s",
+                    next_filler,
+                    waiting[0].query,
                 )
                 self._triggers.put_nowait(Trigger(kind="進捗", query=waiting[0].query))
-                delay = every
+                next_filler += every
 
     def _dispatch_main_llm(
         self,
@@ -3236,7 +3249,7 @@ class InformationProcessing:
         await self._dif.speak(text, gain=self._voice_gain(), careful=self._careful_voice(branch))
         self._note_suggestion_offered(text)
         self._stamp_said()
-        self._extend_window_for_conversation()  # 返事から 1 分（出-as 段 4）
+        self._extend_window_for_conversation()  # 返事から窓の長さぶん（出-as 段 4）
         self._emit(text)
         return text, "発話"
 
@@ -3268,7 +3281,7 @@ class InformationProcessing:
         # 遅れて投げられた）。声が本応答と重ならないのは `TTSTool` の鍵が保証している。
         self._speak_filler_in_background(text)
         self._stamp_said()  # つなぎも自分の発話
-        self._extend_window_for_conversation()  # つなぎから 1 分（出-as 段 4）
+        self._extend_window_for_conversation()  # つなぎから窓の長さぶん（出-as 段 4）
         self._emit(text)
         # 言ったことを覚えておく。覚えないと、調停は「もう一言伝えた」ことを知らないまま
         # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
@@ -3497,7 +3510,7 @@ class InformationProcessing:
         )
 
     def _extend_window_for_conversation(self) -> None:
-        """会話の求めで返事・つなぎを出したら、そこから 1 分へ延ばす（開いているときだけ）。"""
+        """会話の求めで返事・つなぎを出したら、そこから窓の長さ（10 秒）へ延ばす（開いているときだけ）。"""
         if self._req.trigger_kind == "発話":
             self._wake_window().extend(time.monotonic())
 

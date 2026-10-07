@@ -96,20 +96,21 @@ def test_an_unnamed_input_inside_the_window_is_heard_without_interrupting():
 # ── 窓は 30 秒・届いた時刻で ─────────────────────────────────────────────
 
 
-def test_the_window_is_thirty_seconds():
+def test_the_window_is_ten_seconds():
+    """30 秒から 10 秒へ（2026-10-07 本人の決定）。"""
     ip, _ = _ip()
     ip._wake_window().open(100.0)
-    assert _push(ip, "うん", arrived=129.0) is True
+    assert _push(ip, "うん", arrived=109.0) is True
     ip2, _ = _ip()
     ip2._wake_window().open(100.0)
-    assert _push(ip2, "うん", arrived=131.0) is False
+    assert _push(ip2, "うん", arrived=111.0) is False
 
 
 def test_the_window_is_judged_by_when_it_arrived_not_when_it_is_taken():
     """画面が前の `run()` を待っていて遅れて渡しても、届いた時刻が窓の中なら受ける。"""
     ip, _ = _ip()
-    ip._wake_window().open(100.0)  # 窓は 130 まで。いまの時計はそれよりずっと後
-    assert _push(ip, "うん", arrived=120.0) is True
+    ip._wake_window().open(100.0)  # 窓は 110 まで。いまの時計はそれよりずっと後
+    assert _push(ip, "うん", arrived=105.0) is True
 
 
 # ── タイマーの操作も名前が要る ───────────────────────────────────────────

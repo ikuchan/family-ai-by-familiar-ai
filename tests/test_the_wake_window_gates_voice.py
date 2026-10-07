@@ -62,15 +62,17 @@ def test_the_name_opens_the_window_and_the_next_words_are_heard():
     assert _heard(ip, "明日の天気は？") is True  # 窓の中は名前が要らない
 
 
-def test_the_window_closes_after_thirty_seconds(monkeypatch):
+def test_the_window_closes_after_ten_seconds(monkeypatch):
     ip, _ = _ip()
     clock = [1000.0]
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.monotonic", lambda: clock[0])
     assert _heard(ip, "パジュ") is True
-    clock[0] += 29.0
+    clock[0] += 9.0
     assert _heard(ip, "ねえ") is True  # 窓の中・延びる
-    clock[0] += 31.0
-    assert _heard(ip, "聞こえる？") is False  # 延びた 30 秒も過ぎた（出-au）
+    clock[0] += 11.0
+    assert (
+        _heard(ip, "聞こえる？") is False
+    )  # 延びた 10 秒も過ぎた（出-au・2026-10-07 に 30 秒から 10 秒）
 
 
 def test_typing_needs_the_name_like_the_voice():

@@ -1,6 +1,6 @@
 """待たせている間はつなぎを繰り返し、窓を保つ（出-au 段 2・2026-09-27・`設計方針_判定の段` §2.3）。
 
-窓は 30 秒。調べものか主LLM を待つあいだに窓が切れると、出来上がった答えは独り言になって消える。
+窓は 10 秒（2026-10-07 から・以前は 30 秒）。調べものか主LLM を待つあいだに窓が切れると、出来上がった答えは独り言になって消える。
 **会話の求めでは**、待たせている時間が 5 秒（`lookup_slow_seconds`）を超えたら 1 回、その後は 20 秒
 （`wait_filler_repeat_seconds`）ごとに「進捗」を積み、つなぎを出す（つなぎは窓を延ばす）。主LLM の待ちにも付ける。
 情動と機器の求めには見張りを立てない（出-aq 段 6・つなぎは会話の求めだけ。待たせている相手が居ない）。
@@ -143,3 +143,41 @@ def test_a_real_result_wins_over_a_progress_notice():
 
 async def _noop(*_a, **_kw):
     return None
+
+
+# ── 待たせているあいだは窓を閉じない（2026-10-07 本人の決定・窓 10 秒）─────────────
+#
+# 窓を 30 秒から 10 秒に縮めた。つなぎは 5 秒・その後 20 秒ごとなので、10 秒の窓はその合間に切れ、時間のかかる問いの
+# 答えが独り言になる。待たせているあいだは見張りが 1 秒ごと（試験では設定の短い値）に起き、窓を延ばす（本人「イで」）。
+
+
+def _keeps(kind: str, *, run_for: float = 0.08):
+    import time
+
+    ip = _ip(kind, "search_deferred")
+    w = ip._wake_window()
+    w.open(time.monotonic() - 9.95)  # あと 0.05 秒で閉じる窓
+
+    async def go():
+        ip._ensure_wait_watch()
+        await asyncio.sleep(run_for)
+        ip._stop_wait_watch()
+
+    asyncio.run(go())
+    return w, time.monotonic()
+
+
+def test_the_window_stays_open_while_a_conversation_waits():
+    w, now = _keeps("発話")
+    assert w.is_open(now)
+    assert w.until - now > 9.0  # いまから 10 秒近く残っている（最後に延ばしたのは直前）
+
+
+def test_the_window_closes_ten_seconds_after_the_wait_ends():
+    w, now = _keeps("発話")
+    assert not w.is_open(now + 10.5)
+
+
+def test_affect_does_not_keep_the_window():
+    w, now = _keeps("情動")
+    assert not w.is_open(now)
