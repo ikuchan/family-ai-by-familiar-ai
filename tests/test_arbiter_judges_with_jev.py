@@ -130,3 +130,69 @@ def test_self_driven_turns_describe_the_branches_as_own_actions():
     j = _jev({"branch": _c("light")})
     _judge(j, _inp(origin="情動", utterance="[内的な促し:SEEKING] 探索したい"))
     assert "黙る" in j.ask.await_args.args[1]["branch"]["criteria"]["light"]
+
+
+# ── 倒れた理由を残す（出-ay 段 1・2026-10-07）────────────────────────────────
+#
+# 10/6〜10/7 の実機で、調停 119 回のうち 79 回が「調停を決められなかったのでフルへ倒す（判定=なし）」だった。どの条件で
+# 倒れたかがログに無いので、倒す前に理由を置き、警告に足す。倒す・倒さないの結果は変えない。
+
+
+def _why(jev, inp=None):
+    arb = Arbiter(jev=jev, writer=MagicMock(), min_conf=0.6)
+    got = asyncio.run(arb._judge(inp or _inp()))
+    return got, arb._why
+
+
+def _p(pick, conf, probs):
+    return {"choice": pick, "confidence": conf, "probabilities": probs}
+
+
+def test_why_when_jev_does_not_answer():
+    c = MagicMock()
+    c.available = True
+    c.ask = AsyncMock(return_value=JevAnswer(ok=False, error="時間切れ"))
+    got, why = _why(c)
+    assert got is None and "Jev が答えなかった" in why and "時間切れ" in why
+
+
+def test_why_when_the_branch_is_unsure():
+    got, why = _why(
+        _jev({"branch": _p("full", 0.55, {"full": 0.55, "light": 0.40, "action": 0.05})})
+    )
+    assert got is None
+    assert why == "分岐の確信度 0.55＜0.6（1 番 full 0.55・2 番 light 0.40）"
+
+
+def test_why_when_the_action_is_unsure():
+    got, why = _why(
+        _jev(
+            {
+                "branch": _c("action"),
+                "action": _p("search_deferred", 0.56, {"search_deferred": 0.56, "set_timer": 0.30}),
+            }
+        )
+    )
+    assert got is None
+    assert why == "動作の確信度 0.56＜0.6（1 番 search_deferred 0.56・2 番 set_timer 0.30）"
+
+
+def test_why_when_the_action_is_not_offered():
+    got, why = _why(_jev({"branch": _c("action"), "action": _c("play_music", 0.9)}))
+    assert got is None and why == "動作 play_music は候補に無い"
+
+
+def test_no_why_when_it_decides():
+    got, why = _why(_jev({"branch": _c("light"), "effort": _c("low")}))
+    assert got is not None and why == ""
+
+
+def test_the_warning_carries_the_why(caplog):
+    arb = Arbiter(
+        jev=_jev({"branch": _p("full", 0.55, {"full": 0.55, "light": 0.40})}),
+        writer=MagicMock(),
+        min_conf=0.6,
+    )
+    with caplog.at_level("WARNING"):
+        asyncio.run(arb.decide(_inp()))
+    assert "判定=なし・分岐の確信度 0.55＜0.6" in caplog.text

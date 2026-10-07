@@ -28,6 +28,7 @@ import logging
 import re
 import time
 from dataclasses import dataclass, replace
+from typing import Any
 
 from ..core import measure
 from ..core.aio import wait_within
@@ -537,6 +538,20 @@ _EFFORT_CRITERIA = {
 _QUIET_MINUTES = {"default": -1, "5": 5, "10": 10, "15": 15, "30": 30, "60": 60}
 
 
+def _unsure(label: str, answer: Any, key: str, min_conf: float) -> str:
+    """確信度が足りなくて倒れた理由の 1 行（出-ay）：確信度と、1 番・2 番の選択肢と確率。"""
+    got = (getattr(answer, "answers", None) or {}).get(key) or {}
+    conf = float(got.get("confidence", 0.0) or 0.0)
+    probs = sorted(
+        ((str(k), float(v)) for k, v in (got.get("probabilities") or {}).items()),
+        key=lambda kv: -kv[1],
+    )
+    ranks = "・".join(f"{i + 1} 番 {k} {v:.2f}" for i, (k, v) in enumerate(probs[:2]))
+    if not ranks and got.get("choice"):
+        ranks = f"1 番 {got.get('choice')}"
+    return f"{label}の確信度 {conf:.2f}＜{min_conf:g}" + (f"（{ranks}）" if ranks else "")
+
+
 def _extra_action_text(action: str) -> str:
     """`_EXTRA_ACTIONS` の説明（`"x"（…）`）から、括弧の中の最初の一文を取る。"""
     desc = _EXTRA_ACTIONS[action][1]
@@ -573,6 +588,8 @@ class Arbiter:
         self._timeout = timeout
         #: 文章の口が時間切れになったか（計測ログの「時間切れ」・層 3 が調停の秒数を見直す材料）
         self._timed_out = False
+        #: 判定なしで倒れた理由（出-ay・2026-10-07）。倒れなければ空。本文は入れない。
+        self._why = ""
 
     def _allowed_actions(self, inp: ArbiterInput) -> "dict[str, str]":
         out = dict(_BASE_ACTIONS)
@@ -675,7 +692,9 @@ class Arbiter:
             )
         if decision is None:
             logger.warning(
-                "調停を決められなかったのでフルへ倒す（判定=%s）", "あり" if data else "なし"
+                "調停を決められなかったのでフルへ倒す（判定=%s%s）",
+                "あり" if data else "なし",
+                f"・{self._why}" if not data and self._why else "",
             )
         elif decision.branch == "light" and inp.origin == "発話" and not inp.tool_return:
             if needs_tools(inp.utterance):
@@ -719,17 +738,25 @@ class Arbiter:
         """Jev に 1 回で聞き、`_parse` の守りへ渡す辞書を返す。分岐か動作の確信度が低い・使えないときは None。"""
         from ..core.jev_judges import _ask, picked
 
+        self._why = ""
         answer = await _ask(self._jev, self._state(inp), self._questions(inp))
         if not getattr(answer, "ok", False):
+            err = str(getattr(answer, "error", "") or "") if answer is not None else "使えない"
+            self._why = f"Jev が答えなかった（{err or '理由なし'}）"
             return None
         branch = picked(answer, "branch", self._min_conf)
         if branch not in ("light", "full", "action"):
+            self._why = _unsure("分岐", answer, "branch", self._min_conf)
             return None
         data: dict = {"branch": branch}
         data["effort"] = picked(answer, "effort", 0.0) or "low"
         if branch == "action":
             action = picked(answer, "action", self._min_conf)
+            if action is None:
+                self._why = _unsure("動作", answer, "action", self._min_conf)
+                return None
             if action not in self._allowed_actions(inp):
+                self._why = f"動作 {action} は候補に無い"
                 return None
             data["action"] = action
         got = answer.answers
