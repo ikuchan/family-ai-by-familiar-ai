@@ -5,6 +5,11 @@ OpenJTalk は文を約 8KB の決まった大きさの入れ物に写すので�
 プロセスでは 8,002 バイトまでは通り、約 8,150 バイトで `stack smashing detected` になった。ここで文を
 `OPENJTALK_MAX_BYTES`（4,000 バイト〔仮〕）以下の塊に切り、塊ごとに呼んで結果をつなぐ。
 
+**大きさは、中で全角に直した後で数える**（環-af・2026-10-08）。OpenJTalk は半角を全角（1 字 3 バイト）に直してから写す
+ので、決まるのは UTF-8 のバイト数ではなく、ほぼ字数 × 3 である（半角だけで 2,720 字が通り 2,740 字で落ちた）。UTF-8 で
+数えていたので、半角の多い文（実機 21:26・Tavily の英語まじりの結果・3,990 バイト／2,873 字）が 1 塊のまま渡って落ちた。
+1 字を `max(3, UTF-8 のバイト数)` として数える（`_size`）。
+
 pyopenjtalk は中で 1 つの共有の作業物を使う。想起（作業用スレッド）と声の読み（別のスレッド）が同時に呼ぶことがある
 ので、鍵を取って 1 本ずつ呼ぶ。pyopenjtalk が無ければ、呼び手が読み込みの失敗を受け止める（ここは読み込みを
 呼び手と同じ形で行う）。
@@ -31,18 +36,23 @@ def max_bytes() -> int:
         return DEFAULT_MAX_BYTES
 
 
+def _size(ch: str) -> int:
+    """1 字の大きさ。OpenJTalk の中で全角に直した後（半角も 3 バイト・4 バイトの字は 4）。"""
+    return max(3, len(ch.encode("utf-8")))
+
+
 def chunks(text: str, max_bytes: int) -> "list[str]":
-    """文を `max_bytes` 以下（UTF-8）の塊に切る。なるべく句読点・改行のあとで切り、文字は割らない。"""
+    """文を `max_bytes` 以下（全角に直した後の大きさ・`_size`）の塊に切る。なるべく句読点・改行のあとで切り、文字は割らない。"""
     out: list[str] = []
     rest = text or ""
     while rest:
-        if len(rest.encode("utf-8")) <= max_bytes:
+        if sum(_size(ch) for ch in rest) <= max_bytes:
             out.append(rest)
             break
         # 入るところまでの文字数を数える
         size, end = 0, 0
         for i, ch in enumerate(rest):
-            size += len(ch.encode("utf-8"))
+            size += _size(ch)
             if size > max_bytes:
                 break
             end = i + 1

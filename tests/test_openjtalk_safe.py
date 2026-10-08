@@ -116,3 +116,36 @@ def test_both_callers_use_the_gate():
     assert "pyopenjtalk.run_frontend" not in inspect.getsource(keyword_rules.pick_words)
     assert "openjtalk_safe" in inspect.getsource(reading._g2p)
     assert "pyopenjtalk.g2p" not in inspect.getsource(reading._g2p)
+
+
+# ── 中で全角に直した後の大きさで数える（環-af・2026-10-08 実機 21:26）─────────────────────
+#
+# OpenJTalk は半角を全角（1 字 3 バイト）に直してから約 8KB の入れ物に写す。UTF-8 で数えていたので、半角の多い文
+# （Tavily の英語まじりの結果・3,990 バイト／2,873 字のうち半角 2,307 字）が 4,000 以下の 1 塊のまま渡って落ちた。
+# 別のプロセスでは半角だけで 2,720 字が通り 2,740 字で落ちた（字数 × 3 ≒ 8,192）。
+
+MOSTLY_ASCII = (
+    "Liverpool FC fixtures 2026/27: Premier League, https://www.example.com/matches?id=1 " * 28
+)[:2312] + ("リバプールの次の試合は" * 52)[:561]
+
+
+def test_mostly_ascii_text_is_cut_by_its_full_width_size():
+    assert len(MOSTLY_ASCII) == 2873 and len(MOSTLY_ASCII.encode("utf-8")) < 4000  # 今日落ちた形
+    parts = oj.chunks(MOSTLY_ASCII, max_bytes=4000)
+    assert "".join(parts) == MOSTLY_ASCII
+    assert len(parts) >= 3
+    assert all(sum(max(3, len(c.encode("utf-8"))) for c in p) <= 4000 for p in parts)
+
+
+def test_full_width_text_is_cut_as_before():
+    text = "今日は晴れ。明日は雨！" * 200
+    parts = oj.chunks(text, max_bytes=500)
+    assert "".join(parts) == text
+    assert all(len(p.encode("utf-8")) <= 500 for p in parts)
+    assert parts[0].endswith(("。", "！"))
+
+
+def test_a_four_byte_character_counts_as_four():
+    text = "😀" * 10  # 1 字 4 バイト
+    parts = oj.chunks(text, max_bytes=12)
+    assert [len(p) for p in parts] == [3, 3, 3, 1]
