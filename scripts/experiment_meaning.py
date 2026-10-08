@@ -143,6 +143,23 @@ RESEARCH_TEXT: "dict[str, str]" = {
     "vault": "いま話している人が書き溜めた考え・経緯・検討の記録に聞く",
 }
 
+#: 既に受けた作業依頼の確認の 2 回目の説明（2026-10-08・本人：状態を伝える／聞き返すの使い分け）。
+ACCEPTED_TEXT: "dict[str, str]" = {
+    "state_light": (
+        "どの依頼のことかが、直前のやりとりや思い出したことから一つに分かり、"
+        "その依頼がどうなっているかを短く伝えられるとき"
+    ),
+    "ask_back": "どの依頼のことか、何をしてほしいのかが一つに決まらないとき、何のことかを聞き返す",
+    "silent": "相づちや独り言で、返事が要らないとき",
+}
+#: 意味ごとの説明の差し替え。無いものは `ACTIONS` の説明を使う。
+MEANING_TEXT: "dict[str, dict[str, str]]" = {
+    "research": RESEARCH_TEXT,
+    "accepted_check": ACCEPTED_TEXT,
+}
+#: 聞き返すときに軽量LLM へ渡す文字数の上限（2026-10-08・本人の決定）。本体に組み込むときに使う。
+ASK_BACK_MAX_CHARS = 20
+
 #: `JEV_正解.md` の「正解の動作」の書き方 → 鍵。
 _ACTION_WORDS = {
     "聞き返す": "ask_back",
@@ -215,10 +232,7 @@ def action_question(meaning: str) -> "dict | None":
     return {
         "action": choice(
             f"この人の言葉は「{name}」だと分かっている。直前のやりとりの続きとして、パジュは次にどうするか",
-            {
-                k: (RESEARCH_TEXT.get(k, ACTIONS[k]) if meaning == "research" else ACTIONS[k])
-                for k in keys
-            },
+            {k: MEANING_TEXT.get(meaning, {}).get(k, ACTIONS[k]) for k in keys},
         )
     }
 
