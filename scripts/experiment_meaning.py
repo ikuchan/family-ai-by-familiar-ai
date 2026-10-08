@@ -541,6 +541,75 @@ async def single(client, cases: "list[Case]") -> None:
     print(f"1 場面の秒：平均 {sum(seconds) / len(seconds):.2f}・最大 {max(seconds):.2f}")
 
 
+def fanout_questions() -> dict:
+    """先読みで並べる（資料の speculative fan-out）：意味と、意味ごとの 2 回目の問いを全部 1 回で聞く。
+
+    2 回目の問いには「もしこの言葉が○○なら」と前提を書き、選択肢はその意味の動作だけにする（混ぜない）。
+    """
+    from familiar_agent.backends.jev import choice
+
+    qs = meaning_question(confirming=False, music=True, camera=True)
+    for meaning, keys in ACTIONS_BY_MEANING.items():
+        if len(keys) < 2 or meaning == "confirm":
+            continue
+        name = MEANINGS[meaning][0]
+        qs[f"action_{meaning}"] = choice(
+            f"もしこの人の言葉が「{name}」なら、直前のやりとりの続きとして、パジュは次にどうするか",
+            {k: MEANING_TEXT.get(meaning, {}).get(k, ACTIONS[k]) for k in keys},
+        )
+    return qs
+
+
+async def fanout(client, cases: "list[Case]") -> None:
+    """意味と、意味ごとの 2 回目を 1 回で聞き、返ってきた意味の答えだけを使う。規則は同じ。"""
+    names = {k: name for k, (name, _) in MEANINGS.items()}
+    print(
+        "場面\t意味（確信度）\t使った 2 回目（確信度）\t最終\tどう決まったか\t正解の動作\t一致\t秒\t呼んだ回数"
+    )
+    hits = total = 0
+    seconds: list[float] = []
+    for c in cases:
+        playing, recent = context_at(c.at)
+        if recent and recent[-1] == ("人", c.words):
+            recent = recent[:-1]
+        state = state_for(c.words, now=c.at, music_playing=playing, recent=recent)
+        started, calls = time.monotonic(), 1
+        a = await client.ask(state, fanout_questions())
+        got = getattr(a, "answers", None) or {}
+        meaning = got.get("meaning") or {}
+        m = str(meaning.get("choice") or "")
+        action = got.get(f"action_{m}") if m != "unformed" else None
+        final, why = decide(meaning, action)
+        if final == "fallback":
+            calls += 1
+            a3 = await client.ask(state, unsure_question())
+            u = (getattr(a3, "answers", None) or {}).get("action") or {}
+            picked = str(u.get("choice") or "")
+            conf = float(u.get("confidence", 0) or 0)
+            final = picked if conf >= THRESHOLD else "ask_back"
+            why += f"→よく考えるか聞き返すか：{picked}（{conf:.2f}）→{final}"
+        took = time.monotonic() - started
+        seconds.append(took)
+        if c.action:
+            total += 1
+            ok = final == c.action
+            hits += ok
+            mark = "○" if ok else "×"
+        else:
+            mark = "（W 次第）"
+        second = (
+            f"{action.get('choice')}（{float(action.get('confidence', 0) or 0):.2f}）"
+            if action
+            else "—"
+        )
+        print(
+            f"{c.n}\t{names.get(m, m)}（{float(meaning.get('confidence', 0) or 0):.2f}）\t{second}\t"
+            f"{final}\t{why}\t{c.action or '—'}\t{mark}\t{took:.2f}\t{calls}"
+        )
+    print(f"\n動作が決まる場面の一致 {hits}/{total}")
+    print(f"1 場面の秒：平均 {sum(seconds) / len(seconds):.2f}・最大 {max(seconds):.2f}")
+
+
 async def main() -> None:
     from dotenv import load_dotenv
 
@@ -558,6 +627,9 @@ async def main() -> None:
         return
     if SINGLE_MODE:
         await single(client, cases)
+        return
+    if FANOUT_MODE:
+        await fanout(client, cases)
         return
     hits = 0
     print("場面\t正解\tJev の 1 番（確率）\t2 番（確率）\t確信度\t一致")
@@ -599,6 +671,7 @@ WITH_REQUESTS = False
 ACTION_MODE = False
 PIPELINE_MODE = False
 SINGLE_MODE = False
+FANOUT_MODE = False
 
 if __name__ == "__main__":
     import sys
@@ -607,4 +680,5 @@ if __name__ == "__main__":
     ACTION_MODE = "--actions" in sys.argv  # 2 回目（動作）を測る
     PIPELINE_MODE = "--pipeline" in sys.argv  # 本番と同じ流れで最終の動作まで出す
     SINGLE_MODE = "--single" in sys.argv  # 意味と動作を 1 回の問いでまとめて聞く
+    FANOUT_MODE = "--fanout" in sys.argv  # 意味と、意味ごとの 2 回目を先読みで 1 回に並べる
     asyncio.run(main())
