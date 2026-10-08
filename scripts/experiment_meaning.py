@@ -134,7 +134,7 @@ ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
     ),
     "answerable": ("reply_full", "reply_light", *_COMMON),
     "other": ("reply_light", "reply_full", *_COMMON),
-    "off_context": ("silent", "ask_back"),
+    "off_context": ("silent",),  # 2026-10-09：文脈に合わない言葉は黙る（本人）
     "unformed": ("silent",),
 }
 #: 調査の依頼の 2 回目だけ、説明を手順つきに替える（2026-10-08・本人）。調べものは、まず変わることかを考え、

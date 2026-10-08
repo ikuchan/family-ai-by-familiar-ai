@@ -74,7 +74,7 @@ def test_unusable_meanings_are_not_offered():
 
 def test_every_meaning_offers_ask_back_and_silence_and_unformed_only_silence():
     for meaning, keys in em.ACTIONS_BY_MEANING.items():
-        if meaning == "unformed":
+        if meaning in ("unformed", "off_context"):
             assert keys == ("silent",)
             assert em.action_question(meaning) is None  # 1 つしか無ければ聞かない
         else:
@@ -111,15 +111,5 @@ def test_research_offers_only_tools_and_answering_is_its_own_meaning():
     assert em.ACTIONS_BY_MEANING["answerable"][:2] == ("reply_full", "reply_light")
 
 
-def test_off_context_is_used_however_unsure():
-    got = em.decide(
-        {"choice": "off_context", "confidence": 0.2}, {"choice": "ask_back", "confidence": 0.3}
-    )
-    assert got[0] == "ask_back"
-
-
-def test_off_context_uses_the_second_answer_however_unsure():
-    got = em.decide(
-        {"choice": "off_context", "confidence": 0.5}, {"choice": "silent", "confidence": 0.2}
-    )
-    assert got[0] == "silent"
+def test_off_context_is_silent():
+    assert em.decide({"choice": "off_context", "confidence": 0.2}, None)[0] == "silent"
