@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import glob
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -410,13 +411,17 @@ def decide(meaning: dict, action: "dict | None") -> "tuple[str, str]":
 async def pipeline(client, cases: "list[Case]") -> None:
     """本番と同じ流れ：1 回目の Jev の答えで 2 回目を聞き、規則で最終の動作を出す。"""
     names = {k: name for k, (name, _) in MEANINGS.items()}
-    print("場面\t1 回目（確信度）\t2 回目（確信度）\t最終\tどう決まったか\t正解の動作\t一致")
+    print(
+        "場面\t1 回目（確信度）\t2 回目（確信度）\t最終\tどう決まったか\t正解の動作\t一致\t秒\t呼んだ回数"
+    )
     hits = total = 0
+    seconds: list[float] = []
     for c in cases:
         playing, recent = context_at(c.at)
         if recent and recent[-1] == ("人", c.words):
             recent = recent[:-1]
         state = state_for(c.words, now=c.at, music_playing=playing, recent=recent)
+        started, calls = time.monotonic(), 1
         a1 = await client.ask(state, meaning_question(confirming=False, music=True, camera=True))
         meaning = (getattr(a1, "answers", None) or {}).get("meaning") or {}
         m = str(meaning.get("choice") or "")
@@ -424,11 +429,13 @@ async def pipeline(client, cases: "list[Case]") -> None:
         sure = m in ALWAYS_USE or float(meaning.get("confidence", 0) or 0) >= THRESHOLD
         q2 = action_question(m) if (sure and m in ACTIONS_BY_MEANING) else None
         if q2 is not None:
+            calls += 1
             a2 = await client.ask(state, q2)
             action = (getattr(a2, "answers", None) or {}).get("action") or {}
         final, why = decide(meaning, action)
         if final == "fallback":
             # 越えなかったら、よく考えるか軽く聞き返すかを聞く（本人・2026-10-09）
+            calls += 1
             a3 = await client.ask(state, unsure_question())
             u = (getattr(a3, "answers", None) or {}).get("action") or {}
             picked = str(u.get("choice") or "")
@@ -450,8 +457,88 @@ async def pipeline(client, cases: "list[Case]") -> None:
             mark = "○" if ok else "×"
         else:
             mark = "（W 次第）"
-        print(f"{c.n}\t{first}\t{second}\t{shown}\t{why}\t{c.action or '—'}\t{mark}")
+        took = time.monotonic() - started
+        seconds.append(took)
+        print(
+            f"{c.n}\t{first}\t{second}\t{shown}\t{why}\t{c.action or '—'}\t{mark}\t{took:.2f}\t{calls}"
+        )
     print(f"\n動作が決まる場面の一致 {hits}/{total}")
+    print(f"1 場面の秒：平均 {sum(seconds) / len(seconds):.2f}・最大 {max(seconds):.2f}")
+
+
+#: 1 回でまとめて聞くときに Jev へ渡す決まり（2026-10-09・本人の実験）。
+RULES_TEXT = (
+    "[決まり]\n"
+    "- まず言葉の意味を選び、次にその意味に合った動作を選ぶ。動作はその意味の欄にあるものだけから選ぶ。\n"
+    "- どの意味でも、何をしてほしいか分からなければ「聞き返す」、返事が要らなければ「黙る」を選べる。\n"
+    "- 成立しないものは黙る。これまでの文脈に合わない言葉は、黙るか聞き返す。"
+)
+
+
+def single_questions() -> dict:
+    """意味と動作を 1 回で聞く問い。動作の説明に、どの意味のときのものかを書く。"""
+    from familiar_agent.backends.jev import choice
+
+    belongs: dict[str, list[str]] = {}
+    for meaning, keys in ACTIONS_BY_MEANING.items():
+        for k in keys:
+            belongs.setdefault(k, []).append(MEANINGS[meaning][0])
+    actions = {
+        k: f"{MEANING_TEXT.get('research', {}).get(k, ACTIONS[k])}（{'・'.join(belongs[k])}のとき）"
+        for k in belongs
+    }
+    q = meaning_question(confirming=False, music=True, camera=True)
+    q["action"] = choice("その意味のとき、パジュは次にどうするか", actions)
+    return q
+
+
+async def single(client, cases: "list[Case]") -> None:
+    """意味と動作を 1 回の問いでまとめてもらい、同じ規則で最終の動作を出す。"""
+    names = {k: name for k, (name, _) in MEANINGS.items()}
+    print(
+        "場面\t意味（確信度）\t動作（確信度）\t意味に合う動作か\t最終\tどう決まったか\t正解の動作\t一致\t秒\t呼んだ回数"
+    )
+    hits = total = 0
+    seconds: list[float] = []
+    for c in cases:
+        playing, recent = context_at(c.at)
+        if recent and recent[-1] == ("人", c.words):
+            recent = recent[:-1]
+        state = (
+            state_for(c.words, now=c.at, music_playing=playing, recent=recent) + "\n\n" + RULES_TEXT
+        )
+        started, calls = time.monotonic(), 1
+        a = await client.ask(state, single_questions())
+        got = getattr(a, "answers", None) or {}
+        meaning = got.get("meaning") or {}
+        action = got.get("action") or {}
+        m = str(meaning.get("choice") or "")
+        fits = str(action.get("choice") or "") in ACTIONS_BY_MEANING.get(m, ())
+        final, why = decide(meaning, action if m != "unformed" else None)
+        if final == "fallback":
+            calls += 1
+            a3 = await client.ask(state, unsure_question())
+            u = (getattr(a3, "answers", None) or {}).get("action") or {}
+            picked = str(u.get("choice") or "")
+            conf = float(u.get("confidence", 0) or 0)
+            final = picked if conf >= THRESHOLD else "ask_back"
+            why += f"→よく考えるか聞き返すか：{picked}（{conf:.2f}）→{final}"
+        took = time.monotonic() - started
+        seconds.append(took)
+        if c.action:
+            total += 1
+            ok = final == c.action
+            hits += ok
+            mark = "○" if ok else "×"
+        else:
+            mark = "（W 次第）"
+        print(
+            f"{c.n}\t{names.get(m, m)}（{float(meaning.get('confidence', 0) or 0):.2f}）\t"
+            f"{action.get('choice')}（{float(action.get('confidence', 0) or 0):.2f}）\t"
+            f"{'合う' if fits else '合わない'}\t{final}\t{why}\t{c.action or '—'}\t{mark}\t{took:.2f}\t{calls}"
+        )
+    print(f"\n動作が決まる場面の一致 {hits}/{total}")
+    print(f"1 場面の秒：平均 {sum(seconds) / len(seconds):.2f}・最大 {max(seconds):.2f}")
 
 
 async def main() -> None:
@@ -468,6 +555,9 @@ async def main() -> None:
         raise SystemExit("Jev の鍵が無い")
     if PIPELINE_MODE:
         await pipeline(client, cases)
+        return
+    if SINGLE_MODE:
+        await single(client, cases)
         return
     hits = 0
     print("場面\t正解\tJev の 1 番（確率）\t2 番（確率）\t確信度\t一致")
@@ -508,6 +598,7 @@ async def main() -> None:
 WITH_REQUESTS = False
 ACTION_MODE = False
 PIPELINE_MODE = False
+SINGLE_MODE = False
 
 if __name__ == "__main__":
     import sys
@@ -515,4 +606,5 @@ if __name__ == "__main__":
     WITH_REQUESTS = "--with-requests" in sys.argv
     ACTION_MODE = "--actions" in sys.argv  # 2 回目（動作）を測る
     PIPELINE_MODE = "--pipeline" in sys.argv  # 本番と同じ流れで最終の動作まで出す
+    SINGLE_MODE = "--single" in sys.argv  # 意味と動作を 1 回の問いでまとめて聞く
     asyncio.run(main())
