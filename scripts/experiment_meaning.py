@@ -85,23 +85,39 @@ def meaning_question(*, confirming: bool, music: bool, camera: bool) -> dict:
     if not camera:
         skip.add("look")
     criteria = {k: desc for k, (_, desc) in MEANINGS.items() if k not in skip}
-    return {"meaning": choice("この人の言葉は、次のどれに当たるか", criteria)}
+    # 直前のやりとりの続きとして読む（本人・2026-10-08：31・32・33 はやりとりの続きとして読めばいい）
+    return {
+        "meaning": choice(
+            "この人の言葉を、直前のやりとりの続きとして読むと、次のどれに当たるか", criteria
+        )
+    }
 
 
-def state_for(words: str, *, now: str, music_playing: bool, last_said: str) -> str:
+def state_for(words: str, *, now: str, music_playing: bool, recent: "list[tuple[str, str]]") -> str:
+    lines = "\n".join(f"{who}：{text}" for who, text in recent) or "（なし）"
     return (
-        "家のロボット（パジュ）が、家族の言葉を聞いた。その言葉が何を求めているかを分ける。\n\n"
+        "家のロボット（パジュ）が、家族の言葉を聞いた。その言葉が何を求めているかを、"
+        "直前のやりとりの続きとして読んで分ける。\n\n"
         f"[いま]\n{now}\n\n"
         f"[音楽]\n{'鳴っている' if music_playing else '鳴っていない'}\n\n"
-        f"[直前にパジュが言ったこと]\n{last_said or '（なし）'}\n\n"
+        f"[直前のやりとり（古い順）]\n{lines}\n\n"
         f"[人の言葉]\n{words}"
     )
 
 
-def context_at(at: str) -> "tuple[bool, str]":
-    """ログから、その時刻に音楽が鳴っていたかと、直前にパジュが言ったこと。"""
+#: 直前のやりとりとして渡す行数と、さかのぼる秒（窓 10 秒より長く、会話のひとまとまりを拾う）。
+RECENT_LINES = 6
+RECENT_SEC = 300
+
+
+def context_at(at: str) -> "tuple[bool, list[tuple[str, str]]]":
+    """ログから、その時刻に音楽が鳴っていたかと、直前のやりとり（人とパジュの言葉・古い順）。"""
+    from datetime import datetime, timedelta
+
     day, clock = at.split(" ")
-    playing, last_said, from_person = False, "", False
+    since = (datetime.fromisoformat(at) - timedelta(seconds=RECENT_SEC)).strftime("%H:%M:%S")
+    playing, from_person = False, False
+    recent: list[tuple[str, str]] = []
     files = sorted(glob.glob(str(LOG_DIR / "logs" / f"app.{day}_*.log"))) + [
         str(LOG_DIR / "app.log")
     ]
@@ -118,10 +134,11 @@ def context_at(at: str) -> "tuple[bool, str]":
                 continue
             m = re.search(r"吹き出し \d+件目を足した .*?「([^」]*)", line)
             if m:
-                if not from_person and not m.group(1).startswith(("🎤", "✅")):
-                    last_said = m.group(1)
+                text = m.group(1)
+                if line[11:19] >= since and not text.startswith(("🎤", "✅")):
+                    recent.append(("人" if from_person else "パジュ", text))
                 from_person = False
-    return playing, last_said
+    return playing, recent[-RECENT_LINES:]
 
 
 async def main() -> None:
@@ -137,9 +154,11 @@ async def main() -> None:
     hits = 0
     print("場面\t正解\tJev の 1 番（確率）\t2 番（確率）\t確信度\t一致")
     for c in cases:
-        playing, last_said = context_at(c.at)
+        playing, recent = context_at(c.at)
+        if recent and recent[-1] == ("人", c.words):
+            recent = recent[:-1]  # いまの言葉そのものは [人の言葉] に置く
         answer = await client.ask(
-            state_for(c.words, now=c.at, music_playing=playing, last_said=last_said),
+            state_for(c.words, now=c.at, music_playing=playing, recent=recent),
             meaning_question(confirming=False, music=True, camera=True),
         )
         got = (getattr(answer, "answers", None) or {}).get("meaning") or {}
