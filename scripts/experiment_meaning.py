@@ -356,30 +356,48 @@ def _row(
     return line, ok
 
 
-#: しきい値（1 回目・2 回目とも・2026-10-08 本人の決定 0.45）。
-THRESHOLD = 0.45
+#: しきい値（1 回目・2 回目とも・2026-10-09 本人の決定 0.6）。
+THRESHOLD = 0.6
+
+#: しきい値を越えなかったときに聞く問い（2026-10-09・本人：一律に倒れず、よく考えるか軽く聞き返すかを聞く）。
+UNSURE_ACTIONS: "dict[str, str]" = {
+    "reply_full": "よく考えてみる（記憶を踏まえて、考えて返す）",
+    "ask_back": "軽く聞き返す（何をしてほしいのかを短く確かめる）",
+}
+
+
+def unsure_question() -> dict:
+    from familiar_agent.backends.jev import choice
+
+    return {
+        "action": choice(
+            "この人の言葉に、パジュはよく考えて返すか、軽く聞き返すか", dict(UNSURE_ACTIONS)
+        )
+    }
 
 
 def decide(meaning: dict, action: "dict | None") -> "tuple[str, str]":
-    """本人が決めた規則で最終の動作を決める（2026-10-08）。返りは (最終の動作の鍵, どう決まったか)。
+    """本人が決めた規則で最終の動作を決める（2026-10-08〜09）。返りは (最終の動作の鍵, どう決まったか)。
+
+    `fallback` は「しきい値を越えなかった」の印で、呼び手が `unsure_question` を聞いて決め直す。
 
     - 1 回目が「成立しないもの」なら、確信度に関係なく黙る。
-    - 1 回目がそれ以外でしきい値未満なら、倒れる（主LLM に任せる）。
+    - 1 回目がそれ以外でしきい値未満なら、よく考えるか軽く聞き返すかを聞く。
     - 2 回目の 1 番が「聞き返す」なら、確信度に関係なく軽量LLM に聞き返させる。
-    - 2 回目がそれ以外でしきい値未満なら、倒れる。
+    - 2 回目がそれ以外でしきい値未満なら、よく考えるか軽く聞き返すかを聞く。
     """
     m = str(meaning.get("choice") or "")
     if m == "unformed":
         return "silent", "成立しないもの→黙る"
     if float(meaning.get("confidence", 0) or 0) < THRESHOLD:
-        return "fallback", "1 回目がしきい値未満→倒れる"
+        return "fallback", "1 回目がしきい値未満"
     if action is None:
         return ACTIONS_BY_MEANING[m][0], "選択肢が 1 つ"
     a = str(action.get("choice") or "")
     if a == "ask_back":
         return "ask_back", "聞き返す→軽量LLM"
     if float(action.get("confidence", 0) or 0) < THRESHOLD:
-        return "fallback", "2 回目がしきい値未満→倒れる"
+        return "fallback", "2 回目がしきい値未満"
     return a, "使う"
 
 
@@ -397,18 +415,25 @@ async def pipeline(client, cases: "list[Case]") -> None:
         meaning = (getattr(a1, "answers", None) or {}).get("meaning") or {}
         m = str(meaning.get("choice") or "")
         action: "dict | None" = None
-        q2 = action_question(m) if m in ACTIONS_BY_MEANING else None
+        sure = m == "unformed" or float(meaning.get("confidence", 0) or 0) >= THRESHOLD
+        q2 = action_question(m) if (sure and m in ACTIONS_BY_MEANING) else None
         if q2 is not None:
             a2 = await client.ask(state, q2)
             action = (getattr(a2, "answers", None) or {}).get("action") or {}
         final, why = decide(meaning, action)
+        if final == "fallback":
+            # 越えなかったら、よく考えるか軽く聞き返すかを聞く（本人・2026-10-09）
+            a3 = await client.ask(state, unsure_question())
+            u = (getattr(a3, "answers", None) or {}).get("action") or {}
+            final = str(u.get("choice") or "reply_full")
+            why += f"→よく考えるか聞き返すか：{final}（{float(u.get('confidence', 0) or 0):.2f}）"
         first = f"{names.get(m, m)}（{float(meaning.get('confidence', 0) or 0):.2f}）"
         second = (
             f"{action.get('choice')}（{float(action.get('confidence', 0) or 0):.2f}）"
             if action
             else "—"
         )
-        shown = "倒れる（主LLM）" if final == "fallback" else final
+        shown = final
         if c.action:
             total += 1
             ok = final == c.action
