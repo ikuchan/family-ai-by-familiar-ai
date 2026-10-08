@@ -92,7 +92,7 @@ def test_the_rules_decide_the_final_action():
     ask = {"choice": "ask_back", "confidence": 0.2}
     assert d({"choice": "music", "confidence": 0.9}, ask)[0] == "ask_back"
     assert (
-        d({"choice": "music", "confidence": 0.9}, {"choice": "play_music", "confidence": 0.5})[0]
+        d({"choice": "music", "confidence": 0.9}, {"choice": "play_music", "confidence": 0.4})[0]
         == "fallback"
     )
     assert (
