@@ -22,10 +22,16 @@ GOLD = ROOT / "JEV_正解.md"
 LOG_DIR = Path.home() / ".cache" / "familiar-ai"
 
 #: 意味の選択肢（明確なものから、あやふやなものの順・本人の決定）。鍵 → (名前, Jev への説明)。
+#: 2026-10-08：「既に受けた作業依頼の確認」を足し、成立しない言葉と文字を 1 つにまとめた（本人）。
 MEANINGS: "dict[str, tuple[str, str]]" = {
     "confirm": (
         "確認待ちへの答え",
         "パジュがいま待っている確認の問いへの答え（いい・お願い・やめて・いらない）",
+    ),
+    "accepted_check": (
+        "既に受けた作業依頼の確認",
+        "前にパジュに頼んだこと（調べもの・覚えておいて・かけて など）がどうなったか、"
+        "やってくれたか、続けてほしいかを確かめる・念を押す",
     ),
     "music": ("音楽に関する依頼", "音楽に関する依頼（かける・止める・次の曲・音量）"),
     "time": (
@@ -37,14 +43,13 @@ MEANINGS: "dict[str, tuple[str, str]]" = {
         "記憶も含めた調査の依頼",
         "記憶も含めた調査の依頼（天気・ニュース・予定・前にあったこと・知っていることを尋ねる）",
     ),
-    "other": ("1〜5 以外の依頼と会話", "ほかの依頼と会話（あいさつ・相づち・気持ち・おしゃべり）"),
-    "broken_talk": (
-        "会話として成立しない言葉",
-        "言葉ではあるが、会話として意味が通らない（聞き取りが崩れた・途中で切れた・何を言いたいか分からない）",
+    "other": (
+        "1〜6 以外の依頼と会話",
+        "ほかの依頼と会話（あいさつ・相づち・気持ち・おしゃべり）",
     ),
-    "not_words": (
-        "言葉として成立しない文字",
-        "言葉になっていない（くしゃみ・咳・物音・意味の無い音を書き起こしたもの）",
+    "unformed": (
+        "成立しないもの（文章・言葉・文字・その他）",
+        "文章・言葉・文字として成り立たない（聞き取りが崩れた・途中で切れた・意味の無い音を書き起こした）",
     ),
 }
 _NAME_TO_KEY = {name: key for key, (name, _) in MEANINGS.items()}
@@ -93,14 +98,31 @@ def meaning_question(*, confirming: bool, music: bool, camera: bool) -> dict:
     }
 
 
-def state_for(words: str, *, now: str, music_playing: bool, recent: "list[tuple[str, str]]") -> str:
+def state_for(
+    words: str,
+    *,
+    now: str,
+    music_playing: bool,
+    recent: "list[tuple[str, str]]",
+    requests: "list[str] | None" = None,
+) -> str:
     lines = "\n".join(f"{who}：{text}" for who, text in recent) or "（なし）"
+    # 調べていた依頼が想起に上がった場合（`--with-requests`）。本体では W の過去の記憶に「わたしが調べていたこと」
+    # として載ることがある（確実ではない・本人「確実でなくていい」）。
+    memory = (
+        "[思い出したこと]\n"
+        + "\n".join(f"- わたしが調べていたこと：{r}" for r in requests)
+        + "\n\n"
+        if requests
+        else ""
+    )
     return (
         "家のロボット（パジュ）が、家族の言葉を聞いた。その言葉が何を求めているかを、"
         "直前のやりとりの続きとして読んで分ける。\n\n"
         f"[いま]\n{now}\n\n"
         f"[音楽]\n{'鳴っている' if music_playing else '鳴っていない'}\n\n"
         f"[直前のやりとり（古い順）]\n{lines}\n\n"
+        f"{memory}"
         f"[人の言葉]\n{words}"
     )
 
@@ -141,6 +163,29 @@ def context_at(at: str) -> "tuple[bool, list[tuple[str, str]]]":
     return playing, recent[-RECENT_LINES:]
 
 
+def requests_at(at: str) -> "list[str]":
+    """ログから、その時刻の前 `RECENT_SEC` 秒に投げた調べものと、その状態（結果が届いた・調べ中）。"""
+    from datetime import datetime, timedelta
+
+    day, clock = at.split(" ")
+    since = (datetime.fromisoformat(at) - timedelta(seconds=RECENT_SEC)).strftime("%H:%M:%S")
+    out: list[list[str]] = []
+    files = sorted(glob.glob(str(LOG_DIR / "logs" / f"app.{day}_*.log"))) + [
+        str(LOG_DIR / "app.log")
+    ]
+    for f in files:
+        for line in open(f, encoding="utf-8", errors="replace"):
+            t = line[11:19]
+            if not line.startswith(day) or not (since <= t < clock):
+                continue
+            m = re.search(r"調べもの (\w+) [0-9.]+ 秒：(.*?)（", line)
+            if m:
+                out.append([m.group(1), m.group(2), "調べ中"])
+            elif "想起 trigger=完了" in line and out:
+                out[-1][2] = "結果が届いた"
+    return [f"{what}（{action}・{state}）" for action, what, state in out]
+
+
 async def main() -> None:
     from dotenv import load_dotenv
 
@@ -158,7 +203,13 @@ async def main() -> None:
         if recent and recent[-1] == ("人", c.words):
             recent = recent[:-1]  # いまの言葉そのものは [人の言葉] に置く
         answer = await client.ask(
-            state_for(c.words, now=c.at, music_playing=playing, recent=recent),
+            state_for(
+                c.words,
+                now=c.at,
+                music_playing=playing,
+                recent=recent,
+                requests=requests_at(c.at) if WITH_REQUESTS else None,
+            ),
             meaning_question(confirming=False, music=True, camera=True),
         )
         got = (getattr(answer, "answers", None) or {}).get("meaning") or {}
@@ -177,5 +228,10 @@ async def main() -> None:
     print(f"\n一致 {hits}/{len(cases)}")
 
 
+WITH_REQUESTS = False
+
 if __name__ == "__main__":
+    import sys
+
+    WITH_REQUESTS = "--with-requests" in sys.argv
     asyncio.run(main())

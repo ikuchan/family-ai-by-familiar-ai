@@ -45,24 +45,24 @@ def test_only_utterances_with_a_gold_meaning_are_read():
 def test_the_meanings_go_from_clear_to_vague():
     assert list(em.MEANINGS) == [
         "confirm",
+        "accepted_check",
         "music",
         "time",
         "look",
         "research",
         "other",
-        "broken_talk",
-        "not_words",
+        "unformed",
     ]
 
 
 def test_unusable_meanings_are_not_offered():
     q = em.meaning_question(confirming=False, music=False, camera=False)
     assert set(q["meaning"]["criteria"]) == {
+        "accepted_check",
         "time",
         "research",
         "other",
-        "broken_talk",
-        "not_words",
+        "unformed",
     }
     q = em.meaning_question(confirming=True, music=True, camera=True)
     assert set(q["meaning"]["criteria"]) == set(em.MEANINGS)
