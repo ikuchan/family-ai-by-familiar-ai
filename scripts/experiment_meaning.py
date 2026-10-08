@@ -431,8 +431,11 @@ async def pipeline(client, cases: "list[Case]") -> None:
             # 越えなかったら、よく考えるか軽く聞き返すかを聞く（本人・2026-10-09）
             a3 = await client.ask(state, unsure_question())
             u = (getattr(a3, "answers", None) or {}).get("action") or {}
-            final = str(u.get("choice") or "reply_full")
-            why += f"→よく考えるか聞き返すか：{final}（{float(u.get('confidence', 0) or 0):.2f}）"
+            picked = str(u.get("choice") or "")
+            conf = float(u.get("confidence", 0) or 0)
+            # この問いでもしきい値を越えなければ、軽量LLM に軽く聞き返させる（本人・2026-10-09・33 の形）
+            final = picked if conf >= THRESHOLD else "ask_back"
+            why += f"→よく考えるか聞き返すか：{picked}（{conf:.2f}）→{final}"
         first = f"{names.get(m, m)}（{float(meaning.get('confidence', 0) or 0):.2f}）"
         second = (
             f"{action.get('choice')}（{float(action.get('confidence', 0) or 0):.2f}）"
