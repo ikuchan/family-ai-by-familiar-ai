@@ -134,7 +134,8 @@ ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
     ),
     "answerable": ("reply_full", "reply_light", *_COMMON),
     "other": ("reply_light", "reply_full", *_COMMON),
-    "off_context": ("silent",),  # 2026-10-09：文脈に合わない言葉は黙る（本人）
+    # 2026-10-09：文脈に合わない言葉は、確信度高く聞き返すなら聞き返す、それ以外は黙る（本人）
+    "off_context": ("ask_back", "silent"),
     "unformed": ("silent",),
 }
 #: 調査の依頼の 2 回目だけ、説明を手順つきに替える（2026-10-08・本人）。調べものは、まず変わることかを考え、
@@ -400,7 +401,16 @@ def decide(meaning: dict, action: "dict | None") -> "tuple[str, str]":
         return ACTIONS_BY_MEANING[m][0], "選択肢が 1 つ"
     a = str(action.get("choice") or "")
     if m in ALWAYS_USE:
-        return a, "文脈に合わない→2 回目もそのまま使う"
+        # 文脈に合わない言葉：確信度高く聞き返すなら聞き返す。低い・黙るなら黙る（本人・2026-10-09）
+        sure_ask = a == "ask_back" and float(action.get("confidence", 0) or 0) >= THRESHOLD
+        return (
+            ("ask_back", "文脈に合わない→確信度高く聞き返す")
+            if sure_ask
+            else (
+                "silent",
+                "文脈に合わない→黙る",
+            )
+        )
     if a == "ask_back":
         return "ask_back", "聞き返す→軽量LLM"
     if float(action.get("confidence", 0) or 0) < THRESHOLD:
