@@ -120,6 +120,29 @@ ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
     "other": ("reply_light", "reply_full", *_COMMON),
     "unformed": ("silent",),
 }
+#: 調査の依頼の 2 回目だけ、説明を手順つきに替える（2026-10-08・本人）。調べものは、まず変わることかを考え、
+#: 変わることなら前の答え（直前のやりとり・思い出したこと）と比べて調べ直すかを決める（28 の答え）。家の記録の
+#: 道具は、何が載っていて何が載っていないかを書く（37 の試合の日程で家の目次を選んだ）。
+RESEARCH_TEXT: "dict[str, str]" = {
+    "reply_full": (
+        "知っていることで答える。答えが直前のやりとりか思い出したことにあり、"
+        "変わらないことか、変わることでもその答えがまだ新しいとき"
+    ),
+    "search_deferred": (
+        "インターネットで調べる。世の中のこと（天気・ニュース・試合の日程・店や場所）で、"
+        "まだ答えを持っていないか、変わることで前の答えが古いとき"
+    ),
+    "recall": (
+        "自分の記憶を探す。家族のことや前にあったこと・前の会話を尋ねられ、"
+        "直前のやりとりに答えが無いとき"
+    ),
+    "family_schedule": "家族の予定表を見る。家族の誰かの今日や明日の予定・何時からかを尋ねられたとき",
+    "house_rules": "家の決まり（ゲームをしていい曜日・帰ったときの約束など）を見る",
+    "notion_search": "家族が書き溜めた家の目次・日次の記録・やることの一覧を探す（世の中のことは載っていない）",
+    "journal": "家族の日ごとの記録（よく眠れたか・調子）を見る",
+    "vault": "いま話している人が書き溜めた考え・経緯・検討の記録に聞く",
+}
+
 #: `JEV_正解.md` の「正解の動作」の書き方 → 鍵。
 _ACTION_WORDS = {
     "聞き返す": "ask_back",
@@ -192,7 +215,10 @@ def action_question(meaning: str) -> "dict | None":
     return {
         "action": choice(
             f"この人の言葉は「{name}」だと分かっている。直前のやりとりの続きとして、パジュは次にどうするか",
-            {k: ACTIONS[k] for k in keys},
+            {
+                k: (RESEARCH_TEXT.get(k, ACTIONS[k]) if meaning == "research" else ACTIONS[k])
+                for k in keys
+            },
         )
     }
 
@@ -304,8 +330,8 @@ def _row(
     return line, ok
 
 
-#: しきい値〔仮・本人に確かめ中〕。1 回目・2 回目とも。
-THRESHOLD = 0.6
+#: しきい値（1 回目・2 回目とも・2026-10-08 本人の決定 0.45）。
+THRESHOLD = 0.45
 
 
 def decide(meaning: dict, action: "dict | None") -> "tuple[str, str]":

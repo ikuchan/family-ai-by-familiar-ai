@@ -87,7 +87,8 @@ def test_the_gold_action_is_read():
 def test_the_rules_decide_the_final_action():
     d = em.decide
     assert d({"choice": "unformed", "confidence": 0.1}, None)[0] == "silent"
-    assert d({"choice": "music", "confidence": 0.5}, None)[0] == "fallback"
+    assert em.THRESHOLD == 0.45  # 本人の決定（2026-10-08）
+    assert d({"choice": "music", "confidence": 0.4}, None)[0] == "fallback"
     ask = {"choice": "ask_back", "confidence": 0.2}
     assert d({"choice": "music", "confidence": 0.9}, ask)[0] == "ask_back"
     assert (
