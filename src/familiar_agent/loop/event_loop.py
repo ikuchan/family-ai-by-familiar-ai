@@ -1169,28 +1169,35 @@ class InformationProcessing:
         delay = float(getattr(cfg, "lookup_slow_seconds", 5.0))
         every = float(getattr(cfg, "wait_filler_repeat_seconds", 20.0))
         tick = min(1.0, delay, every)
-        waited = 0.0
-        next_filler = delay
+        # 人の言葉から通しで数える（出-bc・2026-10-08 実機 18:18）。待ちの段ごとに 0 から数えていたので、検索 5 秒弱と
+        # 主LLM 4.70 秒のどちらもしきい値に届かず、言ってから 18 秒声が無いのに、つなぎが出なかった。見張りが立ち直しても、
+        # 起点（`heard_at`）と最後のつなぎ（`last_progress_at`）は求めに残るので失わない。
+        req = self._req
+        origin = req.heard_at if req.heard_at is not None else time.monotonic()
+        last = req.last_progress_at
+        due = (last + every) if last is not None else (origin + delay)
         with contextlib.suppress(asyncio.CancelledError):
             while True:
-                step = min(tick, next_filler - waited) if next_filler > waited else tick
+                left = due - time.monotonic()
+                step = min(tick, left) if left > 0 else 0.0
                 await asyncio.sleep(step)
-                waited += step
                 if gen != self._request_generation:
                     return  # 打ち切られた求めの見張り
                 waiting = self._waiting_on()
                 if not waiting:
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
-                self._wake_window().extend(time.monotonic())
-                if waited + 1e-9 < next_filler:
+                now = time.monotonic()
+                self._wake_window().extend(now)
+                if now + 1e-9 < due:
                     continue
                 logger.info(
                     "event-loop 待たせている時間が %.0f 秒を超えた：%.40s",
-                    next_filler,
+                    now - origin,
                     waiting[0].query,
                 )
                 self._triggers.put_nowait(Trigger(kind="進捗", query=waiting[0].query))
-                next_filler += every
+                req.last_progress_at = now
+                due = now + every
 
     def _dispatch_main_llm(
         self,
@@ -2082,6 +2089,9 @@ class InformationProcessing:
         # 同じく脇から受けて空にする（求めの始め方に渡すものは種別・文面・発話の 3 つだけ・環-e-に）。
         self._req.voice = getattr(self, "_pending_voice", None)
         self._pending_voice = None
+        self._req.heard_at = getattr(self, "_pending_heard_at", None)
+        self._pending_heard_at: "float | None" = None
+        self._req.last_progress_at = None
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -2683,6 +2693,7 @@ class InformationProcessing:
             # 待ち手がもう居ない（中断された・呼び手が消えた）。反復を始める理由がない。
             return
         stopped = False
+        self._pending_heard_at = self._arrival(trigger)  # つなぎの見張りの起点（出-bc）
         task = asyncio.create_task(self._utterance_iteration(trigger.query, trigger.voice))
 
         def _stop(f: "asyncio.Future[str]") -> None:

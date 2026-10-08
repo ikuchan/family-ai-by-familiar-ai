@@ -181,3 +181,73 @@ def test_the_window_closes_ten_seconds_after_the_wait_ends():
 def test_affect_does_not_keep_the_window():
     w, now = _keeps("情動")
     assert not w.is_open(now)
+
+
+# ── 人の言葉から通しで数える（出-bc・2026-10-08 実機 18:18）──────────────────────────────
+#
+# 見張りは待ちの段ごとに 0 から数えていた。「パジュ、明日の天気は？」は検索 5 秒弱・主LLM 4.70 秒のどちらもしきい値
+# （5 秒）に届かず、言ってから 18 秒声が無いのに、つなぎが一度も出なかった。人の言葉が届いた時刻（`heard_at`・出-bb で
+# 話し始め）から数え、2 回目以降は最後のつなぎ（`last_progress_at`）から数える。どちらも求めに持ち、見張りが立ち直しても失わない。
+
+
+def _drain(ip) -> int:
+    n = 0
+    while not ip._triggers.empty():
+        n += ip._triggers.get_nowait().kind == "進捗"
+    return n
+
+
+def test_the_wait_is_counted_from_the_words_across_the_gap():
+    """調べもの（しきい値の 6 割）→ すき間 → 主LLM（6 割）。どちらの段も届かないが、通しで越えたら 1 回出す。"""
+    import time
+
+    ip = _ip("発話", "search_deferred", first=0.2, every=10.0)
+
+    async def go():
+        ip._req.heard_at = time.monotonic()
+        ip._ensure_wait_watch()
+        await asyncio.sleep(0.12)
+        ip._req.lookups[0].result = "晴れ"  # 調べものが返った（何も待っていない）
+        await asyncio.sleep(0.13)  # 見張りは 0.2 秒で見回り、待つものが無いので終わる
+        ip._req.lookups.append(Lookup(index=2, action="主LLM", query="q", generation=0))
+        ip._ensure_wait_watch()  # 主LLM を投げたので立ち直す
+        await asyncio.sleep(0.12)
+        ip._stop_wait_watch()
+        return _drain(ip)
+
+    assert asyncio.run(go()) == 1
+
+
+def test_a_long_wait_already_gives_a_filler_at_once():
+    """届いてからしきい値を越えた後に投げたなら、最初の見回りで出す。"""
+    import time
+
+    ip = _ip("発話", "search_deferred", first=0.2, every=10.0)
+
+    async def go():
+        ip._req.heard_at = time.monotonic() - 0.5
+        ip._ensure_wait_watch()
+        await asyncio.sleep(0.05)
+        ip._stop_wait_watch()
+        return _drain(ip)
+
+    assert asyncio.run(go()) == 1
+
+
+def test_the_next_filler_counts_from_the_last_one():
+    """見張りが立ち直しても、つなぎを言った直後に「最初の 1 回」をまた出さない。次は最後のつなぎから
+    `wait_filler_repeat_seconds`（立ち直すたびに 0 から数えると、言った直後にまた言う）。"""
+    import time
+
+    ip = _ip("発話", "search_deferred", first=0.05, every=0.3)
+
+    async def go():
+        now = time.monotonic()
+        ip._req.heard_at = now - 1.0
+        ip._req.last_progress_at = now  # いま言ったばかり
+        ip._ensure_wait_watch()
+        await asyncio.sleep(0.15)
+        ip._stop_wait_watch()
+        return _drain(ip)
+
+    assert asyncio.run(go()) == 0
