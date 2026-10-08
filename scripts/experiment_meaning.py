@@ -54,6 +54,79 @@ MEANINGS: "dict[str, tuple[str, str]]" = {
 }
 _NAME_TO_KEY = {name: key for key, (name, _) in MEANINGS.items()}
 
+#: 2 回目の動作。鍵 → Jev への説明（2026-10-08・本人の決定：どの意味にも「聞き返す」「黙る」を置く。
+#: 成立しないものは「黙る」だけ）。
+ACTIONS: "dict[str, str]" = {
+    "ask_back": "聞き返す（何をしてほしいのかを確かめる）",
+    "silent": "黙る（何も言わず、何もしない）",
+    "confirm": "確認の問いに「はい」と答えたとして進める",
+    "decline": "確認の問いに「いいえ」と答えたとして取りやめる",
+    "state_light": "頼まれていたことが今どうなっているかを短く伝える",
+    "reply_light": "直前のやりとりをもとに、短く返す",
+    "reply_full": "記憶を踏まえて、考えて返す",
+    "play_music": "音楽をかける（曲名が無ければ、直前にかかっていた曲やプレイリストを続ける）",
+    "stop_music": "音楽を止める",
+    "next_track": "次の曲にする",
+    "music_volume": "音楽の音量を変える",
+    "set_timer": "タイマーを掛ける（何分後に鳴る）",
+    "cancel_timer": "タイマーを止める・取り消す",
+    "pause_timer": "タイマーを一時停止する",
+    "resume_timer": "タイマーを再開する",
+    "set_alarm": "アラームを掛ける（何時に鳴る）",
+    "cancel_alarm": "アラームを取り消す",
+    "start_stopwatch": "ストップウォッチで測り始める",
+    "stop_stopwatch": "ストップウォッチを止めて測った長さを言う",
+    "quiet": "しばらく黙っていてという頼みを受ける",
+    "look": "首を向けて見る",
+    "see": "目の前を見る",
+    "search_deferred": "インターネットで調べる",
+    "recall": "自分の記憶を探す",
+    "family_schedule": "家族の予定を見る",
+    "house_rules": "家の決まりを見る",
+    "notion_search": "家の目次・日次記録を探す",
+    "journal": "日ごとの記録を見る",
+    "vault": "話している人の記録に聞く",
+}
+_COMMON = ("ask_back", "silent")
+#: 意味ごとに並べる動作（「聞き返す」「黙る」は `_COMMON` で足す・成立しないものは黙るだけ）。
+ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
+    "confirm": ("confirm", "decline", *_COMMON),
+    "accepted_check": ("state_light", *_COMMON),
+    "music": ("play_music", "stop_music", "next_track", "music_volume", *_COMMON),
+    "time": (
+        "set_timer",
+        "cancel_timer",
+        "pause_timer",
+        "resume_timer",
+        "set_alarm",
+        "cancel_alarm",
+        "start_stopwatch",
+        "stop_stopwatch",
+        "quiet",
+        *_COMMON,
+    ),
+    "look": ("look", "see", *_COMMON),
+    "research": (
+        "reply_full",
+        "search_deferred",
+        "recall",
+        "family_schedule",
+        "house_rules",
+        "notion_search",
+        "journal",
+        "vault",
+        *_COMMON,
+    ),
+    "other": ("reply_light", "reply_full", *_COMMON),
+    "unformed": ("silent",),
+}
+#: `JEV_正解.md` の「正解の動作」の書き方 → 鍵。
+_ACTION_WORDS = {
+    "聞き返す": "ask_back",
+    "黙る": "silent",
+    "やりとりをもとに軽く返す": "reply_light",
+}
+
 
 @dataclass
 class Case:
@@ -61,6 +134,7 @@ class Case:
     at: str  # "2026-10-08 18:16:32"
     words: str
     gold: str  # MEANINGS の鍵
+    action: str = ""  # ACTIONS の鍵（W に関係なく決まる場面だけ）
 
 
 def parse_gold(text: str) -> "list[Case]":
@@ -74,8 +148,17 @@ def parse_gold(text: str) -> "list[Case]":
         gold = re.search(r"- 正解の意味：(.+)", block)
         if not (words and gold) or gold.group(1).strip() not in _NAME_TO_KEY:
             continue
+        act = re.search(r"- 正解の動作：(.+)", block)
+        word = act.group(1).strip() if act else ""
+        action = _ACTION_WORDS.get(word, word if word in ACTIONS else "")
         out.append(
-            Case(head.group(2), head.group(1), words.group(1), _NAME_TO_KEY[gold.group(1).strip()])
+            Case(
+                head.group(2),
+                head.group(1),
+                words.group(1),
+                _NAME_TO_KEY[gold.group(1).strip()],
+                action,
+            )
         )
     return out
 
@@ -94,6 +177,22 @@ def meaning_question(*, confirming: bool, music: bool, camera: bool) -> dict:
     return {
         "meaning": choice(
             "この人の言葉を、直前のやりとりの続きとして読むと、次のどれに当たるか", criteria
+        )
+    }
+
+
+def action_question(meaning: str) -> "dict | None":
+    """2 回目の問い。正解の意味を前提に、その意味の動作だけを並べる。1 つしか無ければ聞かない（None）。"""
+    from familiar_agent.backends.jev import choice
+
+    keys = ACTIONS_BY_MEANING[meaning]
+    if len(keys) < 2:
+        return None
+    name = MEANINGS[meaning][0]
+    return {
+        "action": choice(
+            f"この人の言葉は「{name}」だと分かっている。直前のやりとりの続きとして、パジュは次にどうするか",
+            {k: ACTIONS[k] for k in keys},
         )
     }
 
@@ -186,6 +285,25 @@ def requests_at(at: str) -> "list[str]":
     return [f"{what}（{action}・{state}）" for action, what, state in out]
 
 
+def _row(
+    n: str, gold_name: str, got: dict, names: "dict[str, str]", gold: str
+) -> "tuple[str, bool]":
+    probs = sorted((got.get("probabilities") or {}).items(), key=lambda kv: -float(kv[1]))
+    top = str(got.get("choice") or "—")
+    second = (
+        f"{names.get(probs[1][0], probs[1][0])}（{float(probs[1][1]):.2f}）"
+        if len(probs) > 1
+        else "—"
+    )
+    first_p = f"{float(probs[0][1]):.2f}" if probs else "—"
+    ok = top == gold
+    line = (
+        f"{n}\t{gold_name}\t{names.get(top, top)}（{first_p}）\t{second}\t"
+        f"{float(got.get('confidence', 0) or 0):.2f}\t{'○' if ok else '×'}"
+    )
+    return line, ok
+
+
 async def main() -> None:
     from dotenv import load_dotenv
 
@@ -193,45 +311,53 @@ async def main() -> None:
     from familiar_agent.backends.jev import JevClient
 
     cases = parse_gold(GOLD.read_text(encoding="utf-8"))
+    if ACTION_MODE:
+        cases = [c for c in cases if c.action]  # 動作が W に関係なく決まる場面だけ
     client = JevClient.from_env(timeout=15.0)
     if not client.available:
         raise SystemExit("Jev の鍵が無い")
     hits = 0
     print("場面\t正解\tJev の 1 番（確率）\t2 番（確率）\t確信度\t一致")
+    meaning_names = {k: name for k, (name, _) in MEANINGS.items()}
     for c in cases:
         playing, recent = context_at(c.at)
         if recent and recent[-1] == ("人", c.words):
             recent = recent[:-1]  # いまの言葉そのものは [人の言葉] に置く
-        answer = await client.ask(
-            state_for(
-                c.words,
-                now=c.at,
-                music_playing=playing,
-                recent=recent,
-                requests=requests_at(c.at) if WITH_REQUESTS else None,
-            ),
-            meaning_question(confirming=False, music=True, camera=True),
+        state = state_for(
+            c.words,
+            now=c.at,
+            music_playing=playing,
+            recent=recent,
+            requests=requests_at(c.at) if WITH_REQUESTS else None,
         )
-        got = (getattr(answer, "answers", None) or {}).get("meaning") or {}
-        probs = sorted((got.get("probabilities") or {}).items(), key=lambda kv: -float(kv[1]))
-        top = str(got.get("choice") or "—")
-        second = (
-            f"{MEANINGS[probs[1][0]][0]}（{float(probs[1][1]):.2f}）" if len(probs) > 1 else "—"
-        )
-        first_p = f"{float(probs[0][1]):.2f}" if probs else "—"
-        ok = top == c.gold
+        if ACTION_MODE:
+            question = action_question(c.gold)  # 正解の意味を前提にする（2 回目だけを測る）
+            if question is None:
+                only = ACTIONS_BY_MEANING[c.gold][0]
+                ok = only == c.action
+                hits += ok
+                print(f"{c.n}\t{c.action}\t{only}（聞かずに決まる）\t—\t—\t{'○' if ok else '×'}")
+                continue
+            answer = await client.ask(state, question)
+            got = (getattr(answer, "answers", None) or {}).get("action") or {}
+            line, ok = _row(c.n, c.action, got, {}, c.action)
+        else:
+            answer = await client.ask(
+                state, meaning_question(confirming=False, music=True, camera=True)
+            )
+            got = (getattr(answer, "answers", None) or {}).get("meaning") or {}
+            line, ok = _row(c.n, MEANINGS[c.gold][0], got, meaning_names, c.gold)
         hits += ok
-        print(
-            f"{c.n}\t{MEANINGS[c.gold][0]}\t{MEANINGS.get(top, (top,))[0]}（{first_p}）\t{second}\t"
-            f"{float(got.get('confidence', 0) or 0):.2f}\t{'○' if ok else '×'}"
-        )
+        print(line)
     print(f"\n一致 {hits}/{len(cases)}")
 
 
 WITH_REQUESTS = False
+ACTION_MODE = False
 
 if __name__ == "__main__":
     import sys
 
     WITH_REQUESTS = "--with-requests" in sys.argv
+    ACTION_MODE = "--actions" in sys.argv  # 2 回目（動作）を測る
     asyncio.run(main())

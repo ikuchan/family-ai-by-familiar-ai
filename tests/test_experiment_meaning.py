@@ -66,3 +66,19 @@ def test_unusable_meanings_are_not_offered():
     }
     q = em.meaning_question(confirming=True, music=True, camera=True)
     assert set(q["meaning"]["criteria"]) == set(em.MEANINGS)
+
+
+def test_every_meaning_offers_ask_back_and_silence_and_unformed_only_silence():
+    for meaning, keys in em.ACTIONS_BY_MEANING.items():
+        if meaning == "unformed":
+            assert keys == ("silent",)
+            assert em.action_question(meaning) is None  # 1 つしか無ければ聞かない
+        else:
+            assert {"ask_back", "silent"} <= set(keys), meaning
+    assert em.ACTIONS_BY_MEANING["accepted_check"] == ("state_light", "ask_back", "silent")
+
+
+def test_the_gold_action_is_read():
+    md = _MD.replace("- 正解の動作：play_music", "- 正解の動作：play_music")
+    (case,) = em.parse_gold(md)
+    assert case.action == "play_music"
