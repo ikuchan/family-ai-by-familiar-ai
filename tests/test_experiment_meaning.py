@@ -82,3 +82,19 @@ def test_the_gold_action_is_read():
     md = _MD.replace("- 正解の動作：play_music", "- 正解の動作：play_music")
     (case,) = em.parse_gold(md)
     assert case.action == "play_music"
+
+
+def test_the_rules_decide_the_final_action():
+    d = em.decide
+    assert d({"choice": "unformed", "confidence": 0.1}, None)[0] == "silent"
+    assert d({"choice": "music", "confidence": 0.5}, None)[0] == "fallback"
+    ask = {"choice": "ask_back", "confidence": 0.2}
+    assert d({"choice": "music", "confidence": 0.9}, ask)[0] == "ask_back"
+    assert (
+        d({"choice": "music", "confidence": 0.9}, {"choice": "play_music", "confidence": 0.5})[0]
+        == "fallback"
+    )
+    assert (
+        d({"choice": "music", "confidence": 0.9}, {"choice": "play_music", "confidence": 0.9})[0]
+        == "play_music"
+    )

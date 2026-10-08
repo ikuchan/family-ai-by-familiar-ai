@@ -304,6 +304,70 @@ def _row(
     return line, ok
 
 
+#: しきい値〔仮・本人に確かめ中〕。1 回目・2 回目とも。
+THRESHOLD = 0.6
+
+
+def decide(meaning: dict, action: "dict | None") -> "tuple[str, str]":
+    """本人が決めた規則で最終の動作を決める（2026-10-08）。返りは (最終の動作の鍵, どう決まったか)。
+
+    - 1 回目が「成立しないもの」なら、確信度に関係なく黙る。
+    - 1 回目がそれ以外でしきい値未満なら、倒れる（主LLM に任せる）。
+    - 2 回目の 1 番が「聞き返す」なら、確信度に関係なく軽量LLM に聞き返させる。
+    - 2 回目がそれ以外でしきい値未満なら、倒れる。
+    """
+    m = str(meaning.get("choice") or "")
+    if m == "unformed":
+        return "silent", "成立しないもの→黙る"
+    if float(meaning.get("confidence", 0) or 0) < THRESHOLD:
+        return "fallback", "1 回目がしきい値未満→倒れる"
+    if action is None:
+        return ACTIONS_BY_MEANING[m][0], "選択肢が 1 つ"
+    a = str(action.get("choice") or "")
+    if a == "ask_back":
+        return "ask_back", "聞き返す→軽量LLM"
+    if float(action.get("confidence", 0) or 0) < THRESHOLD:
+        return "fallback", "2 回目がしきい値未満→倒れる"
+    return a, "使う"
+
+
+async def pipeline(client, cases: "list[Case]") -> None:
+    """本番と同じ流れ：1 回目の Jev の答えで 2 回目を聞き、規則で最終の動作を出す。"""
+    names = {k: name for k, (name, _) in MEANINGS.items()}
+    print("場面\t1 回目（確信度）\t2 回目（確信度）\t最終\tどう決まったか\t正解の動作\t一致")
+    hits = total = 0
+    for c in cases:
+        playing, recent = context_at(c.at)
+        if recent and recent[-1] == ("人", c.words):
+            recent = recent[:-1]
+        state = state_for(c.words, now=c.at, music_playing=playing, recent=recent)
+        a1 = await client.ask(state, meaning_question(confirming=False, music=True, camera=True))
+        meaning = (getattr(a1, "answers", None) or {}).get("meaning") or {}
+        m = str(meaning.get("choice") or "")
+        action: "dict | None" = None
+        q2 = action_question(m) if m in ACTIONS_BY_MEANING else None
+        if q2 is not None:
+            a2 = await client.ask(state, q2)
+            action = (getattr(a2, "answers", None) or {}).get("action") or {}
+        final, why = decide(meaning, action)
+        first = f"{names.get(m, m)}（{float(meaning.get('confidence', 0) or 0):.2f}）"
+        second = (
+            f"{action.get('choice')}（{float(action.get('confidence', 0) or 0):.2f}）"
+            if action
+            else "—"
+        )
+        shown = "倒れる（主LLM）" if final == "fallback" else final
+        if c.action:
+            total += 1
+            ok = final == c.action
+            hits += ok
+            mark = "○" if ok else "×"
+        else:
+            mark = "（W 次第）"
+        print(f"{c.n}\t{first}\t{second}\t{shown}\t{why}\t{c.action or '—'}\t{mark}")
+    print(f"\n動作が決まる場面の一致 {hits}/{total}")
+
+
 async def main() -> None:
     from dotenv import load_dotenv
 
@@ -316,6 +380,9 @@ async def main() -> None:
     client = JevClient.from_env(timeout=15.0)
     if not client.available:
         raise SystemExit("Jev の鍵が無い")
+    if PIPELINE_MODE:
+        await pipeline(client, cases)
+        return
     hits = 0
     print("場面\t正解\tJev の 1 番（確率）\t2 番（確率）\t確信度\t一致")
     meaning_names = {k: name for k, (name, _) in MEANINGS.items()}
@@ -354,10 +421,12 @@ async def main() -> None:
 
 WITH_REQUESTS = False
 ACTION_MODE = False
+PIPELINE_MODE = False
 
 if __name__ == "__main__":
     import sys
 
     WITH_REQUESTS = "--with-requests" in sys.argv
     ACTION_MODE = "--actions" in sys.argv  # 2 回目（動作）を測る
+    PIPELINE_MODE = "--pipeline" in sys.argv  # 本番と同じ流れで最終の動作まで出す
     asyncio.run(main())
