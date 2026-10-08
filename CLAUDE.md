@@ -131,6 +131,10 @@ JSON ファイルも使わない。ファイルに置くのは**既定値と人�
 ので、**巻き戻したら `docker volume rm family-ai-by-familiar-ai_pgdata-test` でテスト DB を
 作り直す**。`docker compose down -v` は本番の `pgdata` も消すので使わない。
 
+`DATABASE_URL` が無ければ DB につながない（`db.py` に本番の既定は無い。アプリは `.env` から受け取る）。
+テストでは `tests/_db_guard` が `psycopg2.connect` に立ち、テスト DB（5433）以外への接続を接続する前に止めて、
+そのテストを落とす（環-ae）。
+
 ## 開発ルール
 
 - Python 3.10 以上
