@@ -99,3 +99,41 @@ def test_the_light_llm_check_is_gone():
     assert not hasattr(evaluator.Evaluator, "check_speech")
     assert not hasattr(evaluator, "_SPEECH_CHECK_PROMPT")
     assert not hasattr(EmbodiedAgent, "_check_speech")
+
+
+# ── 確認待ちの決まりは、確認待ちのときだけ照らす（出-ba・2026-10-08 実機 18:17）──────────────
+#
+# 確認待ちが無いのに `no-claim-while-confirming`（「[確認待ち] のあいだは『始めた』と言わない」）を毎回渡していた。Jev は
+# 事実に確認待ちの有無を持たず、返事の「かけ始めました」だけを見て違反とし、鳴っている音楽を「今頼んでいます」と言い直させた。
+
+
+def test_the_confirm_rule_is_in_the_checker_only_while_confirming():
+    from familiar_agent.loop.prompt import rules_for_checker
+
+    assert ":id no-claim-while-confirming\n" not in rules_for_checker()
+    assert ":id no-claim-while-confirming\n" in rules_for_checker(confirming=True)
+
+
+def _loop_criteria(pending):
+    a = _agent(stream_returns=[])
+    a.config.speech_check = True
+    a.config.jev_confidence_min = 0.6
+    a._jev = _client(_answer("ok"))
+    a._pending_confirm = pending
+    ip = InformationProcessing(a)
+
+    async def go():
+        await ip._speech_check_violation("はい、「ケイマン」をランダムでかけ始めましたよ。", "", [])
+        await ip.close()
+
+    asyncio.run(go())
+    _state, questions = a._jev.ask.await_args.args
+    return questions["broken"]["criteria"]
+
+
+def test_without_a_pending_confirm_the_rule_is_not_asked():
+    assert "no-claim-while-confirming" not in _loop_criteria(None)
+
+
+def test_with_a_pending_confirm_the_rule_is_asked():
+    assert "no-claim-while-confirming" in _loop_criteria(object())

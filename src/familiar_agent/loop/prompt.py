@@ -145,15 +145,19 @@ CHECKER_RULE_IDS: tuple[str, ...] = (
 )
 
 
-def rules_for_checker(*, allow_tts_tags: bool = False) -> str:
+def rules_for_checker(*, allow_tts_tags: bool = False, confirming: bool = False) -> str:
     """発話前の検査へ渡す規則。正本（`rules_section`）から `CHECKER_RULE_IDS` 以外を落とす。
 
     正本は 1 つのままで、写しは持たない。ここで落とすのは**チェッカーが判定できない規則**
     であって、主LLM に課さなくなるわけではない。
+
+    `no-claim-while-confirming` は確認待ちがあるとき（`confirming`）だけ渡す（出-ba）。確認待ちの有無は事実に
+    無いので、Jev は返事の「始めた」だけを見て違反とし、鳴っている音楽を「今頼んでいます」と言い直させた
+    （2026-10-08 実機 18:17）。
     """
     sec = rules_section(allow_tts_tags=allow_tts_tags)
     for rid in _all_rule_ids(sec):
-        if rid not in CHECKER_RULE_IDS:
+        if rid not in CHECKER_RULE_IDS or (rid == "no-claim-while-confirming" and not confirming):
             sec = drop_constraint(sec, rid)
     return sec
 

@@ -3091,7 +3091,10 @@ class InformationProcessing:
             recent=recent,
             facts=self._checker_facts(memories, verdicts=verdicts, w_id_map=w_id_map),
             rules=rule_list(
-                rules_for_checker(allow_tts_tags=bool(getattr(tts, "understands_tags", False)))
+                rules_for_checker(
+                    allow_tts_tags=bool(getattr(tts, "understands_tags", False)),
+                    confirming=getattr(agent, "_pending_confirm", None) is not None,
+                )
             ),
             min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
         )
