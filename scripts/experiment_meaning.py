@@ -359,7 +359,8 @@ def _row(
 #: しきい値（1 回目・2 回目とも・2026-10-09 本人の決定 0.6）。
 THRESHOLD = 0.6
 
-#: 1 回目で確信度に関係なくそのまま使う意味（成立しないもの・2026-10-08、文脈に合わない言葉・2026-10-09・本人）。
+#: 確信度に関係なくそのまま使う意味（成立しないもの・2026-10-08、文脈に合わない言葉・2026-10-09・本人）。
+#: 文脈に合わない言葉は、2 回目（黙る／聞き返す）の答えも確信度に関係なく使う。
 ALWAYS_USE = frozenset({"unformed", "off_context"})
 
 #: しきい値を越えなかったときに聞く問い（2026-10-09・本人：一律に倒れず、よく考えるか軽く聞き返すかを聞く）。
@@ -397,6 +398,8 @@ def decide(meaning: dict, action: "dict | None") -> "tuple[str, str]":
     if action is None:
         return ACTIONS_BY_MEANING[m][0], "選択肢が 1 つ"
     a = str(action.get("choice") or "")
+    if m in ALWAYS_USE:
+        return a, "文脈に合わない→2 回目もそのまま使う"
     if a == "ask_back":
         return "ask_back", "聞き返す→軽量LLM"
     if float(action.get("confidence", 0) or 0) < THRESHOLD:

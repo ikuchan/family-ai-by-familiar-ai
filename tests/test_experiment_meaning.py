@@ -116,3 +116,10 @@ def test_off_context_is_used_however_unsure():
         {"choice": "off_context", "confidence": 0.2}, {"choice": "ask_back", "confidence": 0.3}
     )
     assert got[0] == "ask_back"
+
+
+def test_off_context_uses_the_second_answer_however_unsure():
+    got = em.decide(
+        {"choice": "off_context", "confidence": 0.5}, {"choice": "silent", "confidence": 0.2}
+    )
+    assert got[0] == "silent"
