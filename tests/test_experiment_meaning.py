@@ -50,6 +50,7 @@ def test_the_meanings_go_from_clear_to_vague():
         "time",
         "look",
         "research",
+        "answerable",
         "other",
         "unformed",
     ]
@@ -61,6 +62,7 @@ def test_unusable_meanings_are_not_offered():
         "accepted_check",
         "time",
         "research",
+        "answerable",
         "other",
         "unformed",
     }
@@ -99,3 +101,8 @@ def test_the_rules_decide_the_final_action():
         d({"choice": "music", "confidence": 0.9}, {"choice": "play_music", "confidence": 0.9})[0]
         == "play_music"
     )
+
+
+def test_research_offers_only_tools_and_answering_is_its_own_meaning():
+    assert "reply_full" not in em.ACTIONS_BY_MEANING["research"]
+    assert em.ACTIONS_BY_MEANING["answerable"][:2] == ("reply_full", "reply_light")
