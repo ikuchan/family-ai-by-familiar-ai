@@ -52,6 +52,7 @@ def test_the_meanings_go_from_clear_to_vague():
         "research",
         "answerable",
         "other",
+        "off_context",
         "unformed",
     ]
 
@@ -64,6 +65,7 @@ def test_unusable_meanings_are_not_offered():
         "research",
         "answerable",
         "other",
+        "off_context",
         "unformed",
     }
     q = em.meaning_question(confirming=True, music=True, camera=True)
