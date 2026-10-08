@@ -22,7 +22,8 @@ def _array(name: str) -> list[str]:
 
 def test_the_repo_files_cover_every_hand_written_setting():
     assert set(_array("REPO_FILES")) == {".env", "ME.md", "FAMILY.md", "MUSIC.md"}
-    assert set(_array("OPTIONAL_REPO_FILES")) == {"PEOPLE.md"}  # 無くても「missing」と言わない
+    # 無くても「missing」と言わない。`JEV_正解.md`（Jev の正解の集まり・版管理の外・出-ay・2026-10-08）も送る（本人の決定ア）
+    assert set(_array("OPTIONAL_REPO_FILES")) == {"PEOPLE.md", "JEV_正解.md"}
 
 
 def test_the_small_files_in_the_home_folder_are_sent():

@@ -34,7 +34,7 @@ log_err() { echo "$LOG_PREFIX $*" >&2; }
 # 読む仕組みごと撤去した ROUTINES.md を外した）。無ければ「missing」と言う。
 REPO_FILES=(.env ME.md FAMILY.md MUSIC.md)
 # 作っていなくてもよいもの（あれば送る・無くても黙る）。
-OPTIONAL_REPO_FILES=(PEOPLE.md)
+OPTIONAL_REPO_FILES=(PEOPLE.md JEV_正解.md)
 # `~/.familiar_ai/` の小さなもの（Spotify の鍵・作業メモ）。撮った写真（captures/）は大きいので送らない。
 HOME_DIR="${HOME_DIR:-$HOME/.familiar_ai}"
 HOME_FILES=(spotify_token.json FAMILY_答え_作業中.md)

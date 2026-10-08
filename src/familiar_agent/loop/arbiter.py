@@ -746,7 +746,34 @@ class Arbiter:
             分岐=(decision or _FALLBACK).branch,
             時間切れ="yes" if self._timed_out else "no",
         )
+        self._record(inp, decision)
         return decision if decision is not None else _FALLBACK
+
+    def _record(self, inp: ArbiterInput, decision: "Decision | None") -> None:
+        """Jev に渡したそのままと答え・結末を残す（出-ay 段 3・2026-10-08・本人の決定）。
+
+        正解（`JEV_正解.md`）と突き合わせてプロンプトを直すため。W は DEBUG のログにしか無く、後から組み直すと想起の
+        点数が変わって同じにならない。Jev に聞かなかった回（使えない）は残さない。書けなくても調停は止めない。
+        """
+        asked = self.__dict__.pop("_asked", None)
+        if asked is None:
+            return
+        state, questions, answer = asked
+        if decision is not None:
+            action = decision.action if decision.branch == "action" else "-"
+            outcome = f"{decision.branch} {action}"
+        else:
+            outcome = f"倒れ：{self._why or '判定=あり（文章を書けなかった）'}"
+        from ..store import arbiter_records
+
+        arbiter_records.record(
+            origin=inp.origin,
+            utterance=inp.utterance,
+            state=state,
+            questions=questions,
+            answer=dict(getattr(answer, "answers", None) or {}),
+            outcome=outcome,
+        )
 
     async def write_filler(self, inp: ArbiterInput, waiting: str) -> str:
         """待たせているあいだの一言だけを書かせる（出-aq 段 6）。**分岐は決めない**——つなぎを出すのは
@@ -770,7 +797,10 @@ class Arbiter:
         from ..core.jev_judges import _ask, picked
 
         self._why = ""
-        answer = await _ask(self._jev, self._state(inp), self._questions(inp))
+        state, questions = self._state(inp), self._questions(inp)
+        answer = await _ask(self._jev, state, questions)
+        # 調停の記録に残す（出-ay 段 3）。結末は `decide` が決めてから書く。
+        self._asked = (state, questions, answer)
         if not getattr(answer, "ok", False):
             err = str(getattr(answer, "error", "") or "") if answer is not None else "使えない"
             self._why = f"Jev が答えなかった（{err or '理由なし'}）"
