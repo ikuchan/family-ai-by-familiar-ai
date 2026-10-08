@@ -79,8 +79,7 @@ _LEAD_REPLY = "いま人から届いた言葉と、いまの作業状態を見�
 _LEAD_DEVICE = (
     "いま届いた知らせ（人の出入り・タイマー・メモ）と、いまの作業状態を見て、次のどれかを選ぶ。"
     "これは人の言葉ではなく機器からの知らせで、**直近のやりとりは済んだこと**——人の言葉に改めて応じない。"
-    "知らせの中身を伝える、必要なら見る、それだけでよい。"
-    "タイマーは音でも知らせている（鳴っている）ので、聞かれない限り黙っていてよい。"
+    "届いた知らせの中身を、短く伝える。"
 )
 _HEADING_DEVICE = "[届いた知らせ]"
 # 起点が道具の帰り（タイマー・アラーム）のとき（出-x・2026-09-18）。返事型のまま渡すと、「確かめて」の
@@ -711,6 +710,8 @@ class Arbiter:
         from ..core.timer_rules import is_control_word
 
         started = time.monotonic()
+        if inp.origin == "機器" and not inp.tool_return:
+            return await self._device_by_rule(inp, started)
         data = await self._judge(inp)
         texts = None if data is None else await self._write(inp, data)
         decision = None
@@ -747,6 +748,22 @@ class Arbiter:
             時間切れ="yes" if self._timed_out else "no",
         )
         self._record(inp, decision)
+        return decision if decision is not None else _FALLBACK
+
+    async def _device_by_rule(self, inp: ArbiterInput, started: float) -> Decision:
+        """機器の知らせは「軽く知らせる」と機械で決める（出-ay 段 4-1・2026-10-09・`設計方針_判定の段` §2.2.5）。
+
+        機器の知らせ（タイマー・アラームが鳴った・音楽を 30 分で止めた）は 3 つとも軽く知らせると決めた（本人）。
+        選択肢が 1 つなので Jev には聞かない。軽量LLM が一言を書けなければ、いまどおり full へ倒す。
+        """
+        texts = await _writer_call(self, inp, {"decided": "軽く知らせる"}, ["text"])
+        text = str((texts or {}).get("text", "")).strip()
+        decision = Decision(branch="light", text=text) if text else None
+        logger.info(
+            "調停 %.2f 秒（機器・機械で決めた：%s）",
+            time.monotonic() - started,
+            "軽く知らせる" if decision else "書けなかったので full",
+        )
         return decision if decision is not None else _FALLBACK
 
     def _record(self, inp: ArbiterInput, decision: "Decision | None") -> None:
