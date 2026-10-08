@@ -22,6 +22,11 @@ os.environ["DATABASE_URL"] = f"{_PG_HOST}/{_DB_NAME}"
 import psycopg2  # noqa: E402
 import pytest  # noqa: E402
 
+from tests import _db_guard  # noqa: E402
+
+# 接続の口に番人を置く（環-ae）。テスト DB 以外へは、どの道を通っても接続する前に拒む。
+_db_guard.install()
+
 _TEST_DB_URL = os.environ["DATABASE_URL"]
 
 
@@ -152,6 +157,7 @@ def clean_db():
     _forget_credit_cache()
     yield
     assert_database_url_untouched()  # 本番へ書く前に止める（環-r）
+    _db_guard.assert_no_blocked_connection()  # テスト DB 以外へつなごうとしたら落とす（環-ae）
     _reset_db_singleton()  # close open transactions before TRUNCATE
     _truncate_all()
     _forget_credit_cache()

@@ -122,10 +122,11 @@ class Database:
     def conn(self) -> "psycopg2.extensions.connection":
         """Return the live connection, (re)connecting if needed."""
         if self._conn is None or self._conn.closed:
-            url = os.environ.get(
-                "DATABASE_URL",
-                "postgresql://familiar:familiar@localhost:5432/familiar_ai",
-            )
+            # 既定の接続先は置かない（環-ae・2026-10-08）。以前は無ければ本番に落ち、環境変数を空にしたテストが
+            # 本番の設定値を読んだ。アプリは起動時に `.env`（`config.py` の `load_dotenv`）から受け取る。
+            url = os.environ.get("DATABASE_URL", "")
+            if not url:
+                raise RuntimeError("DATABASE_URL が無いので DB につながない。.env を確かめて")
             self._conn = _connect_with_retry(url, attempts=3, delay=1.0)
             self._conn.autocommit = False
             # timestamptz を生活時間（ローカル）で読むため、セッション TimeZone を
