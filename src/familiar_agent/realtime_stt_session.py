@@ -26,7 +26,7 @@ from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
 from .core.timer_rules import is_control_word
-from .core.wake_window import VoiceText, measures_of, voice_of
+from .core.wake_window import InputText, VoiceText, measures_of, voice_of
 from .voice_guard import VoiceLoopGuard, get_shared_voice_guard
 
 if TYPE_CHECKING:
@@ -421,8 +421,10 @@ class RealtimeSttSession:
             # 声だと分かる印を付けて積む（出-as 段 2）。窓（ウェイクワード）は声にだけ掛ける。
             # ローカルの書き起こしが載せた声の特徴は付け直しても落とさない（知-ae）。
             no_speech, logprob = measures_of(text)  # 名前で起きる基準が見る（2026-10-05）
+            # 届いた時刻も引き継ぐ（出-bb）。打ち直すと、書き起こしが覚えた話し始めが消える。
+            at = text.at if isinstance(text, InputText) else None
             await self._committed_queue.put(
-                VoiceText(text, voice=voice_of(text), no_speech=no_speech, logprob=logprob)
+                VoiceText(text, at=at, voice=voice_of(text), no_speech=no_speech, logprob=logprob)
             )
 
     def _passes_gate(self, reason: str, text: str) -> bool:

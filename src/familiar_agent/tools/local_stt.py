@@ -82,6 +82,8 @@ class LocalSttEngine:
         self._preroll: "collections.deque[bytes]" = collections.deque(maxlen=max(pre_frames, 1))
         self._use_preroll = pre_frames > 0
         self._held_since: float | None = None  # 持ち越し始めた時刻
+        # 区切りの話し始めた時刻（出-bb）。書き起こしが済んだ時刻ではなく、これを届いた時刻として渡す。
+        self._started_at: float | None = None
 
     @property
     def connected(self) -> bool:
@@ -99,6 +101,7 @@ class LocalSttEngine:
         self._held.clear()
         self._speaking = False
         self._held_since = None
+        self._started_at = None
 
     async def send_audio(self, pcm16le: bytes) -> None:
         """`RealtimeSttClient` と同じ名前の口（セッション側の分岐を減らす）。"""
@@ -144,6 +147,9 @@ class LocalSttEngine:
 
     def _begin_speech(self) -> None:
         self._speaking = True
+        if not self._held:
+            # 持ち越しに続けて話したなら、最初の断片の話し始めのまま（ひと続きの言葉・出-bb）
+            self._started_at = time.monotonic()
         # 持ち越している短い区間があれば、その続きとして溜める（文脈を繋ぐ）。その後ろに話し始める前の音（知-z-は）。
         self._segment = bytearray(self._held)
         for pre in self._preroll:
@@ -192,6 +198,9 @@ class LocalSttEngine:
         `identify` のとき（1.5 秒以上の区切り・知-ae）は、書き起こしと並べて声の特徴を取り出し、`VoiceText.voice`
         に載せる。持ち越して単独で配る短い断片には載せない（短いと特徴が揺れる）。特徴が取れなくても文字は配る。
         """
+        # 届いた時刻は話し始め（出-bb・2026-10-08 実機 18:19）。書き起こしの後で打つと、声が長いほど窓が実質短くなる
+        # （「週末の天気は」は話し始めが窓の 1.5 秒後、書き起こしの後で 5.8 秒後）。
+        started_at, self._started_at = self._started_at, None
         embedding = asyncio.create_task(self._voice_of(audio)) if identify else None
         self._last_measures: "tuple[float | None, float | None]" = (None, None)
         try:
@@ -207,7 +216,9 @@ class LocalSttEngine:
         queue = self.on_committed
         if queue is not None:
             no_speech, logprob = getattr(self, "_last_measures", (None, None))
-            queue.put_nowait(VoiceText(text, voice=voice, no_speech=no_speech, logprob=logprob))
+            queue.put_nowait(
+                VoiceText(text, at=started_at, voice=voice, no_speech=no_speech, logprob=logprob)
+            )
 
     def _save_segment(self, audio: bytes, text: str) -> None:
         """区切りの音と記録を残す（知-z-は・`STT_SAVE_AUDIO=1` のときだけ）。失敗しても書き起こしは止めない。
