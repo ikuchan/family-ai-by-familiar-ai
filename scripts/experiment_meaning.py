@@ -359,6 +359,9 @@ def _row(
 #: しきい値（1 回目・2 回目とも・2026-10-09 本人の決定 0.6）。
 THRESHOLD = 0.6
 
+#: 1 回目で確信度に関係なくそのまま使う意味（成立しないもの・2026-10-08、文脈に合わない言葉・2026-10-09・本人）。
+ALWAYS_USE = frozenset({"unformed", "off_context"})
+
 #: しきい値を越えなかったときに聞く問い（2026-10-09・本人：一律に倒れず、よく考えるか軽く聞き返すかを聞く）。
 UNSURE_ACTIONS: "dict[str, str]" = {
     "reply_full": "よく考えてみる（記憶を踏まえて、考えて返す）",
@@ -389,7 +392,7 @@ def decide(meaning: dict, action: "dict | None") -> "tuple[str, str]":
     m = str(meaning.get("choice") or "")
     if m == "unformed":
         return "silent", "成立しないもの→黙る"
-    if float(meaning.get("confidence", 0) or 0) < THRESHOLD:
+    if m not in ALWAYS_USE and float(meaning.get("confidence", 0) or 0) < THRESHOLD:
         return "fallback", "1 回目がしきい値未満"
     if action is None:
         return ACTIONS_BY_MEANING[m][0], "選択肢が 1 つ"
@@ -415,7 +418,7 @@ async def pipeline(client, cases: "list[Case]") -> None:
         meaning = (getattr(a1, "answers", None) or {}).get("meaning") or {}
         m = str(meaning.get("choice") or "")
         action: "dict | None" = None
-        sure = m == "unformed" or float(meaning.get("confidence", 0) or 0) >= THRESHOLD
+        sure = m in ALWAYS_USE or float(meaning.get("confidence", 0) or 0) >= THRESHOLD
         q2 = action_question(m) if (sure and m in ACTIONS_BY_MEANING) else None
         if q2 is not None:
             a2 = await client.ask(state, q2)

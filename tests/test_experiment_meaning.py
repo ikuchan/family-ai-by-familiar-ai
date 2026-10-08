@@ -109,3 +109,10 @@ def test_the_rules_decide_the_final_action():
 def test_research_offers_only_tools_and_answering_is_its_own_meaning():
     assert "reply_full" not in em.ACTIONS_BY_MEANING["research"]
     assert em.ACTIONS_BY_MEANING["answerable"][:2] == ("reply_full", "reply_light")
+
+
+def test_off_context_is_used_however_unsure():
+    got = em.decide(
+        {"choice": "off_context", "confidence": 0.2}, {"choice": "ask_back", "confidence": 0.3}
+    )
+    assert got[0] == "ask_back"
