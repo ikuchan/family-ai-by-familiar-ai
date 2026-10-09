@@ -167,3 +167,26 @@ def test_a_recall_also_writes_the_time_it_points_to():
     d, writer = _run(jev, writer=writer)
     assert (d.action, d.time_ref, d.time_span_days) == ("recall", "2025-08-15T00:00:00", 30.0)
     assert "指していなければ空" in prompt_of(writer)
+
+
+# ── 段 4-4d：聞き返すは 20 字までの指示を付けて軽量LLM に書かせる（2026-10-09）─────────────────────────────
+
+
+def test_an_ask_back_is_told_to_stay_within_twenty_characters():
+    """字数は `utterance_meaning.ASK_BACK_MAX_CHARS`。書けた文が超えても切らずに話す（本人）。"""
+    from familiar_agent.core import utterance_meaning as um
+
+    limit = f"{um.ASK_BACK_MAX_CHARS} 字まで"
+    jev = _jev({"meaning": _a("music", 0.9), "action_music": _a("ask_back", 0.2)})
+    _, writer = _run(jev)
+    assert limit in prompt_of(writer)
+    jev = _jev({"meaning": _a("research", 0.5)}, {"action": _a("reply_full", 0.4)})
+    _, writer = _run(jev)
+    assert limit in prompt_of(writer)  # 越えなかったときの軽く聞き返すも同じ
+
+
+def test_a_long_ask_back_is_spoken_whole():
+    jev = _jev({"meaning": _a("music", 0.9), "action_music": _a("ask_back", 0.9)})
+    long = "どの曲をかけたらいいか、もう一度だけ教えてもらえますか"
+    d, _ = _run(jev, writer=writer_says({"text": long}))
+    assert d.text == long

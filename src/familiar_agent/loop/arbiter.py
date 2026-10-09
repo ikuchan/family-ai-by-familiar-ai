@@ -32,6 +32,7 @@ from typing import Any
 
 from ..core import measure
 from ..core.aio import wait_within
+from ..core.utterance_meaning import ASK_BACK_MAX_CHARS
 
 logger = logging.getLogger(__name__)
 
@@ -613,7 +614,8 @@ _AFFECT_ACTIONS: "dict[str, tuple[str, ...]]" = {
 }
 #: 軽量LLM が書く一言の種類 → 決めたこととして渡す言葉。
 _LIGHT_WORDS: "dict[str, str]" = {
-    "ask_back": "聞き返す",
+    # 字数は `utterance_meaning.ASK_BACK_MAX_CHARS`（段 4-4d）。超えて書けても切らずに話す（切ると文が途中で切れる・本人）。
+    "ask_back": f"聞き返す（{ASK_BACK_MAX_CHARS} 字まで・何をしてほしいかを短く確かめる）",
     "state_light": "頼まれていたことの状態を短く伝える",
     "tell_light": "軽く伝える",
     "reply_light": "軽く返す",
