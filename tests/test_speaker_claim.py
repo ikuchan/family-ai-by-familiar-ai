@@ -82,17 +82,16 @@ def test_the_arbiter_carries_the_claim_and_drops_it_on_a_tool_return():
         )
 
     assert claim().speaker_claim == "パパ"
-    # 道具の帰りでは、Jev の答えに混じっていても読まない（機械の守り・情-n）。
-    assert claim(tool_return=True).speaker_claim == ""
+    # 道具の帰りでは、Jev の答えに混じっていても読まない（機械の守り・情-n）。道具の帰りには返った道具が載り、
+    # 完了の道を通る（段 5e）。完了の道は名乗りを読まない。
+    back = (("set_timer", False, "掛けた"),)
+    assert claim(tool_return=True, returned=back).speaker_claim == ""
 
-    # 名乗りは Jev に問う（出-au 段 5-7d）。道具の帰りでは問わない。
-    def asked(**kw):
-        return arbiter.Arbiter(jev=None, writer=None)._questions(
-            arbiter.ArbiterInput(utterance="パパだよ", workspace_ctx="", **kw)
-        )
+    # 名乗りは発話の 1 回目の意味に並ぶ（段 4-4c）。2 回目は家族の呼び方。
+    from familiar_agent.core import utterance_meaning as um
 
-    assert "名乗" in asked()["claims"]["instructions"] and "claimed" in asked()
-    assert "claims" not in asked(tool_return=True)
+    qs = um.fanout_questions(confirming=False, music=False, camera=False, family=["パパ"])
+    assert "名乗" in um.MEANINGS["claim"][1] and "パパ" in qs["action_claim"]["criteria"]
 
 
 def _ip(*, present: float, score: "float | None" = 0.9):

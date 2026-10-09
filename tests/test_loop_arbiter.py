@@ -13,8 +13,6 @@ import asyncio
 
 from familiar_agent.loop.arbiter import (
     _FIELD_TEXT,
-    JUDGE_GUIDE,
-    SEE_GUIDE,
     WRITER_PROMPT,
     Arbiter,
     ArbiterInput,
@@ -93,14 +91,16 @@ def _jev_state(**kw) -> str:
     return Arbiter(jev=None, writer=None)._state(ArbiterInput(**{"workspace_ctx": "", **kw}))
 
 
-def _jev_actions(**kw) -> dict:
-    """Jev に選ばせる動作の選択肢。"""
-    qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(**{"workspace_ctx": "", **kw}))
-    return qs["action"]["criteria"]
+def _jev_actions(*, can_see: bool = False, **_kw) -> set:
+    """Jev に選ばせる動作の選択肢（発話の意味ごとの 2 回目をすべて合わせたもの・出-ay 段 5e で古い問いから移した）。"""
+    from familiar_agent.core import utterance_meaning as um
+
+    qs = um.fanout_questions(confirming=False, music=False, camera=can_see, family=[])
+    return {a for k, q in qs.items() if k.startswith("action_") for a in q["criteria"]}
 
 
-#: 調停に渡る指示の文（Jev の目安と、軽量LLM の文章の口）。
-_ALL_TEXT = JUDGE_GUIDE + SEE_GUIDE + WRITER_PROMPT + "".join(_FIELD_TEXT.values())
+#: 調停に渡る指示の文（軽量LLM の文章の口）。Jev の古い分岐の目安は段 5e で外した。
+_ALL_TEXT = WRITER_PROMPT + "".join(_FIELD_TEXT.values())
 
 
 def test_arbiter_speaks_as_the_persona():
@@ -121,7 +121,7 @@ def test_arbiter_speaks_as_the_persona():
 def test_arbiter_judges_sufficiency_not_mere_arrival():
     # 「結果が届いたか」ではなく「答えるに足るか」で分ける。足りなければ別の角度で調べ直す。
     assert "[調査中]" not in _ALL_TEXT  # 廃止した合成ラベル＝死んだ指示
-    assert "足る" in JUDGE_GUIDE
+    # 「答えるに足るか」は、いまは完了の 2 回目（考えて返す・軽く返す・調べ直す）で Jev が決める（出-ay 段 4-2）。
 
 
 def test_arbiter_is_told_when_no_more_looking_up_is_possible():
@@ -130,10 +130,6 @@ def test_arbiter_is_told_when_no_more_looking_up_is_possible():
     # 分岐を決めるのは Jev なので、Jev に送る文に載り、action は選択肢から外れる（出-au 段 5-7d）。
     assert "これ以上は調べられない" in _jev_state(utterance="?", capped=True)
     assert "これ以上は調べられない" not in _jev_state(utterance="?", capped=False)
-    qs = Arbiter(jev=None, writer=None)._questions(
-        ArbiterInput(utterance="?", workspace_ctx="", capped=True)
-    )
-    assert "action" not in qs["branch"]["criteria"]
 
 
 def test_arbiter_gets_the_same_grounding_as_the_full_llm():
@@ -197,10 +193,12 @@ def test_prompt_holds_no_quotable_sample_utterances():
     # 「それだけ？」への答えとしてそのまま出た。書き方の説明は残し、見本だけ置かない。
     import re
 
-    questions = Arbiter(jev=None, writer=None)._questions(
-        ArbiterInput(utterance="x", workspace_ctx="", silenced=True)
-    )
-    text = _ALL_TEXT + _jev_state(utterance="x") + str(questions)
+    from familiar_agent.core import utterance_meaning as um
+
+    # 選択肢の説明だけを見る（問いの文に入る意味の名前「確認待ちへの答え」は言わせる見本ではない）。
+    questions = um.fanout_questions(confirming=True, music=True, camera=True, family=[])
+    criteria = [q["criteria"] for q in questions.values()]
+    text = _ALL_TEXT + _jev_state(utterance="x") + str(criteria)
     for sample in re.findall(r"「([^」]*)」", text):
         assert sample.startswith("〜") or len(sample) <= 3, f"見本が残っている: {sample}"
 
@@ -214,39 +212,6 @@ def test_tone_rule_sits_next_to_where_the_filler_is_asked_for():
     assert prompt.index("次にすることはもう決まっている") < tone
     assert tone < prompt.index("[いま]")
     assert "短い一言でも同じ" in prompt
-
-
-def test_the_arbiter_has_a_way_out_when_nothing_more_can_be_found():
-    """行き止まりの出口を持たせる。
-
-    分かれ目が「材料が無い→調べる／答えきれない→調べ直す／足る→答える」の3つだけだと、
-    材料が足りない限り**必ず再検索へ向かう**。実機で、同じ `recall` を4反復続けて投げた
-    （語は MD5 まで一致・結果も毎回同じ）。一覧は調停に届いていた（機構としては確認済み）
-    ので、足りなかったのは「これ以上は分からない」と言う選択肢だった。
-    """
-    assert "分からないと伝える" in JUDGE_GUIDE
-    assert "すでに調べた語と同じ語では投げない" in JUDGE_GUIDE
-
-
-def test_an_affect_origin_can_choose_a_synchronous_mcp_tool():
-    """情動が起点の求めでも、繋がっている MCP の同期の道具（家の決まり・予定）が候補に載る（知-g-は）。
-
-    09-13 に「後回し」としたが、知-j（動作の表）と出-p（候補文）で通っていた。証拠として置く。
-    """
-    d, b = _run(
-        jev_says("action", action="house_rules"),
-        utterance="[内的な促し:SEEKING] 探索したい",
-        origin="情動",
-        extra_actions=("house_rules", "family_schedule"),
-    )
-    # 動作は Jev の選択肢（出-au 段 5-7d）。
-    actions = _jev_actions(
-        utterance="x", origin="情動", extra_actions=("house_rules", "family_schedule")
-    )
-    assert {"recall", "search_deferred", "house_rules", "family_schedule"} <= set(actions)
-    b.complete.assert_not_awaited()  # 行き先の決まった道具は、書くものが無いので軽量LLM を呼ばない
-    assert d.branch == "action" and d.action == "house_rules" and d.query == "家の決まりを見る"
-    assert d.text == ""  # 自発の行動に断りは要らない（情-e）
 
 
 def test_a_request_that_needs_a_tool_is_never_answered_lightly():
@@ -272,9 +237,6 @@ def test_a_request_that_needs_a_tool_is_never_answered_lightly():
     assert not needs_tools("時間ある？")
     d, _ = _run(jev_says("light"), {"text": "やあ"}, utterance="こんばんは")
     assert d.branch == "light"
-    # Jev の選択肢の説明にも書いてある（機械の守りは最後の砦）。
-    qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(utterance="x", workspace_ctx=""))
-    assert "道具が要る" in qs["branch"]["criteria"]["light"]
 
 
 def test_the_silence_request_survives_the_fall_to_full():
@@ -289,11 +251,13 @@ def test_coming_back_from_a_look_of_its_own_is_not_framed_as_answering_someone()
     「はい、静かにしていますね」と、誰にも聞かれていないのに返事の体裁の一言を作った。自分の帰りには
     「いつも通りなら黙る」を渡す。返事の場面は従来どおり（対で確認）。写真は調停に渡らない（出-au 段 5-7a）。
     """
+    # 段 5e から情動は軸で決める（軸の無い情動は古い問いに落ちていた）。軽く話しかけると決まった自分の求めで見る。
     _, b = _run(
-        jev_says("light"),
+        jev_says("light", action="talk_light"),
         {"text": ""},
-        utterance="[内的な促し:SAFETY] 確かめたい気持ちが湧いている。見回る。",
+        utterance="[内的な促し:BOND] 誰かと居たい気持ちが湧いている。",
         origin="情動",
+        fired_axis="bond",
         can_see=True,
     )
     own = _prompt_of(b)
@@ -320,6 +284,7 @@ def test_a_self_driven_turn_treats_the_recent_exchange_as_already_over():
         utterance="[内的な促し:SEEKING] 探索したい気持ちが湧いている。",
         workspace_ctx="[直近のやりとり]\n- 09:16 きっかけ：[入室] 誰か が来た\n- 09:16 わたし：あ、パパだ。おはようございます",
         origin="情動",
+        fired_axis="seeking",  # 段 5e から情動は軸で決める（seeking は調べに行く。語は軽量LLM が書く）
     )
     own = _prompt_of(b)
     assert "済んだこと" in own
@@ -379,10 +344,3 @@ def test_the_label_of_a_look_names_the_direction():
 
     assert _query_label("look", {"direction": "右"}) == "右を見に行く"
     assert _query_label("look", {"pose": "窓"}) == "窓を見に行く"
-
-
-def test_the_see_guide_tells_the_arbiter_the_head_is_already_turned():
-    """`look` の帰りで `look` を選び直さない（実機 15:11・3 回選び直して 18 秒）。目安は Jev に送る文にある。"""
-    assert "首はもう向いている" in SEE_GUIDE and "もう一度 look は選ばない" in SEE_GUIDE
-    assert "首はもう向いている" in _jev_state(utterance="右向いて", can_see=True)
-    assert "首はもう向いている" not in _jev_state(utterance="右向いて", can_see=False)

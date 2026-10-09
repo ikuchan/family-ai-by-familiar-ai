@@ -456,16 +456,32 @@ def _watch_late(call, started: float, prompt_len: int) -> None:
 _LATE_TASKS: set = set()
 
 
+# Jev に渡す状態の文の注意（出-ay 段 5c で、古い分岐の言葉 light・full・action を使わない言い方に直した）。
 _THINKING_NOTE = """
 この件で答えを組み立てるのは {round} 回目である。回を重ねても材料が増えていないなら、
-それはもう分からないということなので、**これ以上は調べず**（"action" を選ばず）、
-いまある材料で答えるほうへ回す。
+それはもう分からないということなので、**これ以上は調べず**、いまある材料で答えるほうへ回す。
 """
 
 _CAPPED_NOTE = """
-これ以上は調べられない（反復の上限に達した）。"action" は選べない。いまある材料で答える
-ことになるので "light" か "full" を選ぶ。
+これ以上は調べられない（反復の上限に達した）。調べ直すことはできず、いまある材料で答えることになる。
 """
+
+#: Jev に渡す状態の文の先導文（出-ay 段 5c・2026-10-10 本人の決定ア）。起点ごとに「いま何が起きたか」だけを言う。
+#: 何を選ぶかは問いの側が言うので、ここには選び方を書かない（古い分岐の「次のどれかを選ぶ」と目安は外した）。
+#: 軽量LLM の先導文（`_LEAD_REPLY` など・書くときの指示）は別に持つ。
+_JEV_LEAD = {
+    "発話": "いま人から言葉が届いた。",
+    "完了": "いま自分の動作の結果が届いた（作業状態の最上部）。人に届いた言葉ではない。",
+    "情動": (
+        "いま自分の中から湧いたことがある。これは自分がしたくなったことで、誰かに頼まれたのではない。"
+        "**許可は要らない。理由も要らない。**"
+        "**直近のやりとりは済んだこと**。入室・挨拶・終わった話に改めて反応しない。"
+    ),
+    "機器": (
+        "いま機器から知らせが届いた（人の出入り・タイマー・メモ）。人の言葉ではない。"
+        "**直近のやりとりは済んだこと**。"
+    ),
+}
 
 
 # ── Arbiter：判定は Jev、文章は軽量LLM（出-au 段 5-7・`設計方針_判定の段` v0.4 §2.2.2） ──────────────
@@ -502,96 +518,12 @@ class ArbiterInput:
     fired_axis: str = ""
 
 
-#: 分岐の決め方の目安（出-au 段 5-7d・一つの軽量LLM の指示文にあったものを、Jev に送る文へ移した）。
-JUDGE_GUIDE = """\
-迷ったら full を選ぶ。
-分かれ目は、結果が届いたかどうかではなく、いまある材料が問いに答えるに足るかどうかである。
-- 材料が無い → action（調べる）
-- 材料は届いたが答えきれず、まだ試していない角度がある → action（別の語で調べる）
-- 材料が問いに答えるに足る → full（答える）
-- 調べたが答えが得られず、試せる角度も無い → full（分からないと伝える）
-すでに調べた語と同じ語では投げない。同じ語なら結果も同じで、繰り返しても何も増えない。分からないまま探し続けるより、
-分からないと言うほうがよい。作業状態に並ぶ自分のしたこと（何を・どうやって調べ、何が届いたか）を読み、同じことを
-重ねて投げない（別のことを調べるのは構わない）。
-自分が覚えているはずのこと（家族の出来事・過去の会話）は recall。
-世の中のこと（天気・ニュース・調べもの）でも、作業状態に同じことについての結果や自分の答えが、時刻から見て十分新しい
-形であるなら、それで答える（full か light）。無いとき・古いときだけ search_deferred。古いかどうかは各行の時刻から
-判断する（天気なら数時間、ニュースならその日のうち、が目安）。"""
-#: 見る動作があるときの目安。写真は Jev に渡らないので、読み取りの記録（「見えたもの」）で決める（出-au 段 5-7a）。
-SEE_GUIDE = (
-    "作業状態の『見えたもの』の行（写真の読み取り）で答えられるなら light でよい。"
-    "細かく語る・写真を見て判断する必要があるなら full（写真そのものは主LLM に渡る）。"
-    "首を向けた帰り（作業状態に『…のほうを向いた』）なら、首はもう向いている——もう一度 look は選ばない。"
-)
-
-#: 動作の短い説明（Jev の選択肢）。繋がっている MCP の道具は `_EXTRA_ACTIONS` の説明から作る。
+#: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
 _BASE_ACTIONS = {
     "recall": "自分の記憶（家族の出来事・過去の会話）を探す",
     "search_deferred": "インターネットで世の中のこと（天気・ニュース・調べもの）を調べる",
 }
-_CAMERA_ACTION_TEXT = {
-    "see": "目の前を見る（カメラ）。見えているものを聞かれた・部屋の様子を確かめる",
-    "look": "首を向ける（カメラを回す）。「右向いて」「窓の方見て」「もっと右」。"
-    "自分から見回るなら、[いま] の見ていない順で最も長く見ていない定点へ",
-}
-_BRANCH_REPLY = {
-    "light": "何も動かさず、短い言葉で答えきれる（挨拶・相槌・簡単な受け答え）。道具が要る頼みは含まない",
-    "full": "何も動かさずに答えるが、記憶を踏まえた言葉選びや込み入った説明が要る。調べたが分からないと伝えるときもこれ",
-    "action": "答える前に何かを動かす（見る・首を向ける・タイマー・予定やメモを見る・記憶を探す・調べる）。"
-    "材料が無い、またはまだ試していない角度がある",
-}
-_BRANCH_SELF = {
-    "light": "短くひとこと言う。黙るのが基本（いつも通りなら黙る）",
-    "full": "考えてから言う・する",
-    "action": "見る・調べる・首を向ける",
-}
-_EFFORT_CRITERIA = {
-    "low": "ふつう。ほとんどの場合",
-    "medium": "ひと言で表せない複雑な気持ちを受け止める、4 つ以上の記憶を踏まえて応える、調べた結果をまとめる",
-    "high": "人がよく考えるよう明示的に求めた",
-}
 _QUIET_MINUTES = {"default": -1, "5": 5, "10": 10, "15": 15, "30": 30, "60": 60}
-
-
-def _ranks(got: dict) -> str:
-    """1 番・2 番の選択肢と確率（「1 番 action 0.55・2 番 full 0.31」）。確率が無ければ空。"""
-    probs = sorted(
-        ((str(k), float(v)) for k, v in (got.get("probabilities") or {}).items()),
-        key=lambda kv: -kv[1],
-    )
-    return "・".join(f"{i + 1} 番 {k} {v:.2f}" for i, (k, v) in enumerate(probs[:2]))
-
-
-def _judgement_line(answer: Any) -> str:
-    """Jev の判定の 1 行（出-ay 段 2）：分岐と動作を、それぞれ選んだもの・確信度・1 番と 2 番つきで。
-
-    分岐で倒れると、Jev が同じ 1 回の問いで選んでいた動作を読まずに捨てていた。倒れた 40 回のうち action が 1 番の
-    16 回で、どの動作を選んでいたかが分からなかった（2026-10-08 の集計）。倒れても倒れなくても、毎回残す。
-    """
-    answers = getattr(answer, "answers", None) or {}
-    parts = []
-    for label, key in (("分岐", "branch"), ("動作", "action")):
-        got = answers.get(key) or {}
-        if not got:
-            continue
-        conf = float(got.get("confidence", 0.0) or 0.0)
-        ranks = _ranks(got)
-        parts.append(
-            f"{label} {got.get('choice') or '—'}（確信度 {conf:.2f}"
-            + (f"・{ranks}" if ranks else "")
-            + "）"
-        )
-    return "・".join(parts)
-
-
-def _unsure(label: str, answer: Any, key: str, min_conf: float) -> str:
-    """確信度が足りなくて倒れた理由の 1 行（出-ay）：確信度と、1 番・2 番の選択肢と確率。"""
-    got = (getattr(answer, "answers", None) or {}).get(key) or {}
-    conf = float(got.get("confidence", 0.0) or 0.0)
-    ranks = _ranks(got)
-    if not ranks and got.get("choice"):
-        ranks = f"1 番 {got.get('choice')}"
-    return f"{label}の確信度 {conf:.2f}＜{min_conf:g}" + (f"（{ranks}）" if ranks else "")
 
 
 #: 音楽の道具（語ではなく道具の入力を受ける・`assemble` が入力から語を作る）。
@@ -641,26 +573,6 @@ def _family_call_names(family_md: str) -> "list[str]":
     return [n for n in (call_name_of(m) for m in members) if n]
 
 
-def _extra_action_text(action: str) -> str:
-    """`_EXTRA_ACTIONS` の説明（`"x"（…）`）から、括弧の中の最初の一文を取る。"""
-    desc = _EXTRA_ACTIONS[action][1]
-    m = re.search(r"（(.*?)[。）]", desc)
-    return (m.group(1) if m else desc).strip()
-
-
-def _family_choices(family_md: str) -> "dict[str, str]":
-    """家族の呼びかけの名前 → 呼び方の一覧（名乗り・打ち消しの選択肢）。"""
-    from ..core import parsing
-    from ..core.speaker_claim import aliases_of, call_name_of
-
-    out: "dict[str, str]" = {}
-    for m in parsing.parse_family_md(family_md or ""):
-        key = call_name_of(m)
-        if key:
-            out[key] = "、".join(aliases_of(m))
-    return out
-
-
 class Arbiter:
     """調停。材料を受け取り、**Jev が決め**、要るときだけ**軽量LLM が書き**、機械の守りを通して `Decision` を返す。
 
@@ -668,157 +580,63 @@ class Arbiter:
     ので、写真の読み取りは状態として W に載っている（段 5-7a）。
     """
 
-    def __init__(
-        self, *, jev, writer, min_conf: float = 0.6, timeout: "float | None" = None
-    ) -> None:
+    def __init__(self, *, jev, writer, timeout: "float | None" = None) -> None:
         self._jev = jev
         self._writer = writer
-        self._min_conf = float(min_conf)
         self._timeout = timeout
         #: 文章の口が時間切れになったか（計測ログの「時間切れ」・層 3 が調停の秒数を見直す材料）
         self._timed_out = False
-        #: 判定なしで倒れた理由（出-ay・2026-10-07）。倒れなければ空。本文は入れない。
-        self._why = ""
-
-    def _allowed_actions(self, inp: ArbiterInput) -> "dict[str, str]":
-        out = dict(_BASE_ACTIONS)
-        if inp.can_see:
-            out.update(_CAMERA_ACTION_TEXT)
-        for a in inp.extra_actions:
-            if a in _EXTRA_ACTIONS:
-                out[a] = _extra_action_text(a)
-        return out
 
     def _state(self, inp: ArbiterInput) -> str:
-        """Jev に送る文。先導文（起点ごと）・いま・顔ぶれ・その場の言葉・作業状態（W 全部・本人の決定 イ）。"""
-        self_doing = inp.origin == "情動"
-        if inp.tool_return:
-            lead, heading = _LEAD_TOOL_RETURN, _HEADING_TOOL_RETURN
-        elif self_doing:
-            lead, heading = _LEAD_SELF, _HEADING_SELF
-        elif inp.origin == "機器":
-            lead, heading = _LEAD_DEVICE, _HEADING_DEVICE
+        """Jev に送る文。いま何が起きたか（起点ごと）・いま・顔ぶれ・その場の言葉・作業状態（W 全部・本人の決定 イ）。"""
+        if inp.returned or inp.tool_return:
+            path = "完了"
+        elif inp.origin in ("情動", "機器"):
+            path = inp.origin
         else:
-            lead, heading = _LEAD_REPLY, _HEADING_REPLY
+            path = "発話"
+        # 見出しはいままでどおり（その下に載るのは、起点の言葉か道具の返り）。
+        if inp.tool_return:
+            heading = _HEADING_TOOL_RETURN
+        elif inp.origin == "情動":
+            heading = _HEADING_SELF
+        elif inp.origin == "機器":
+            heading = _HEADING_DEVICE
+        else:
+            heading = _HEADING_REPLY
         notes = (_CAPPED_NOTE if inp.capped else "") + (
             _THINKING_NOTE.format(round=inp.thinking_round) if inp.thinking_round > 1 else ""
         )
-        guide = JUDGE_GUIDE + ("\n" + SEE_GUIDE if inp.can_see else "")
         return (
-            f"[決めること]\n{lead}\n{notes}\n"
-            f"[判断の目安]\n{guide}\n\n"
+            f"[いま起きたこと]\n{_JEV_LEAD[path]}\n{notes}\n"
             f"[いま]\n{inp.now_ctx or '（分からない）'}\n\n"
             f"[いま誰が居るか]\n{inp.present_ctx or '（分からない）'}\n\n"
             f"{heading}\n{inp.utterance}\n\n"
             f"[いまの作業状態]\n{inp.workspace_ctx or '（なし）'}"
         )
 
-    def _questions(self, inp: ArbiterInput) -> dict:
-        from ..backends.jev import choice, noul
-
-        branches = dict(_BRANCH_SELF if inp.origin == "情動" else _BRANCH_REPLY)
-        if inp.capped:
-            branches.pop("action")  # これ以上は調べられない
-        qs: dict = {
-            "branch": choice("次にどうするか", branches),
-            "effort": choice("考えて答えるなら、どれくらい深く考えるべきか", _EFFORT_CRITERIA),
-            "action": choice("先に動くなら、どの動作か", self._allowed_actions(inp)),
-            "refers_time": noul("人の言葉が、特定の過去の時期（去年の夏・先週など）を指している"),
-        }
-        if inp.tool_return:
-            return qs  # 道具の帰りの発話は古い。黙る依頼・名乗りは読まない（情-n）
-        qs["asks_quiet"] = noul(
-            # 名前の関門は入口の窓（出-as §2.5）。Jev は名前を知らないので、ここでは問わない（出-au 段 5-7d）
-            "いまは話しかけないでほしいと頼んでいる"
-            "（待って・待てぃは動作を止めてほしいだけで、これには当たらない）"
-        )
-        qs["quiet_minutes"] = choice(
-            "黙っていてほしい長さ",
-            {
-                "default": "長さを言っていない",
-                "5": "5 分くらい",
-                "10": "10 分くらい",
-                "15": "15 分くらい",
-                "30": "30 分くらい",
-                "60": "1 時間くらい",
-            },
-        )
-        if inp.silenced:
-            qs["lifts_quiet"] = noul("黙っているところへ、もう話していい・しゃべっていいと解いた")
-        family = _family_choices(inp.family_md)
-        qs["claims"] = noul(
-            "人が自分の名前を名乗った（「〜だよ」「〜です」。誰かを呼んだだけ・第三者の話は違う）"
-        )
-        qs["claimed"] = choice(
-            "名乗った名前は家族の誰か", {**family, "other": "家族以外・分からない"}
-        )
-        denied = dict(family)
-        if inp.current_speaker and inp.current_speaker not in denied:
-            denied[inp.current_speaker] = "いま話者としている人"
-        qs["denies"] = noul(
-            "人が、自分はいま呼ばれている名前の人ではないと打ち消した（「〜じゃないよ」「ちがう」）"
-        )
-        qs["denied"] = choice(
-            "打ち消された呼び方はどれか（名前を言わなかったなら、いま話者としている人）",
-            {**denied, "other": "分からない"} if denied else {"other": "分からない"},
-        )
-        return qs
-
     async def decide(self, inp: ArbiterInput) -> Decision:
-        """次の一手を決める。Jev が決め、要るときだけ軽量LLM が書き、守りを通す。倒れたら full。"""
-        from ..core.timer_rules import is_control_word
+        """次の一手を決める。起点ごとの道（発話・完了・情動・機器）が決め、要るときだけ軽量LLM が書く。倒れたら full。
 
+        どの道にも当たらない入力（表に無い道具の完了・表に無い軸）は、Jev に聞かずに主LLM に任せる（出-ay 段 5e・
+        本人の決定ア）。以前はここで古い分岐の問い（light・full・action を 1 回で聞く）に落ちていた。
+        """
         started = time.monotonic()
-        ruled = await self._by_rule(inp, started)
-        if ruled is not None:
-            # 新しい道でも計測ログは書く（層 3 が調停の待ち時間を調整するのに使う・出-ay 段 4-4b）。
-            measure.record(
-                "調停",
-                秒=f"{time.monotonic() - started:.2f}",
-                分岐=ruled.branch,
-                時間切れ="yes" if self._timed_out else "no",
-            )
-            return ruled
-        data = await self._judge(inp)
-        texts = None if data is None else await self._write(inp, data)
-        decision = None
-        if data is not None and texts is not None:
-            decision = assemble(
-                {**data, **texts},
-                can_see=inp.can_see,
-                origin=inp.origin,
-                extra_actions=inp.extra_actions,
-            )
+        decision = await self._by_rule(inp, started)
         if decision is None:
-            logger.warning(
-                "調停を決められなかったのでフルへ倒す（判定=%s%s）",
-                "あり" if data else "なし",
-                f"・{self._why}" if not data and self._why else "",
-            )
-        elif decision.branch == "light" and inp.origin == "発話" and not inp.tool_return:
-            if needs_tools(inp.utterance):
-                # light は道具を使えない。「セットしました」と言うだけになるので full へ倒す（機械の守り）。
-                logger.info("調停 light を full へ倒す（道具が要る頼み）：%.30s", inp.utterance)
-                decision = replace(decision, branch="full", effort="low")
-            elif inp.timer_active and is_control_word(inp.utterance):
-                # 操作の言葉を light で受け流すと何も起きない（出-aa）。主LLM が道具で決める。
-                logger.info(
-                    "調停 light を full へ倒す（タイマーの操作の言葉）：%.30s", inp.utterance
-                )
-                decision = replace(decision, branch="full", effort="low")
-        seconds = time.monotonic() - started
-        logger.info("調停 %.2f 秒（分岐=%s）", seconds, (decision or _FALLBACK).branch)
+            logger.info("調停：どの道にも当たらないので full（%s）", inp.origin)
+            decision = _FALLBACK
+        # 計測ログは層 3 が調停の待ち時間を調整するのに使う（出-ay 段 4-4b）。
         measure.record(
             "調停",
-            秒=f"{seconds:.2f}",
-            分岐=(decision or _FALLBACK).branch,
+            秒=f"{time.monotonic() - started:.2f}",
+            分岐=decision.branch,
             時間切れ="yes" if self._timed_out else "no",
         )
-        self._record(inp, decision)
-        return decision if decision is not None else _FALLBACK
+        return decision
 
     async def _by_rule(self, inp: ArbiterInput, started: float) -> "Decision | None":
-        """起点ごとの新しい道（出-ay 段 4）。当てはまらなければ None（いままでの判定）。"""
+        """起点ごとの道（出-ay 段 4）。当てはまらなければ None（`decide` が full にする）。"""
         self._timed_out = False
         if inp.origin == "機器" and not inp.tool_return and not inp.returned:
             return await self._device_by_rule(inp, started)
@@ -864,23 +682,25 @@ class Arbiter:
         kind, actions = got
         final = actions[0]
         if len(actions) > 1:
-            answer = await _ask(
-                self._jev,
-                self._state(inp),
-                {
-                    "action": choice(
-                        f"自分の動作の結果が届いた（{kind}）。パジュは次にどうするか",
-                        {a: _COMPLETION_TEXT.get(a, _action_note(a) or a) for a in actions},
-                    )
-                },
-            )
+            state = self._state(inp)
+            questions = {
+                "action": choice(
+                    f"自分の動作の結果が届いた（{kind}）。パジュは次にどうするか",
+                    {a: _COMPLETION_TEXT.get(a, _action_note(a) or a) for a in actions},
+                )
+            }
+            answer = await _ask(self._jev, state, questions)
             picked = str(
                 ((getattr(answer, "answers", None) or {}).get("action") or {}).get("choice") or ""
             )
             if not getattr(answer, "ok", False) or picked not in actions:
                 logger.info("調停（完了・%s）：Jev が答えなかったので full", kind)
+                self._keep(
+                    inp, "完了", state, questions, answer, "reply_full", "Jev が答えなかった"
+                )
                 return _FALLBACK
             final = picked
+            self._keep(inp, "完了", state, questions, answer, final, kind)
         decision = await self._completion_decision(inp, final, tool=action)
         logger.info(
             "調停 %.2f 秒（完了・機械で分けた：%s → %s）",
@@ -902,23 +722,25 @@ class Arbiter:
         actions = _AFFECT_ACTIONS[inp.fired_axis]
         final = actions[0]
         if len(actions) > 1:
-            answer = await _ask(
-                self._jev,
-                self._state(inp),
-                {
-                    "action": choice(
-                        f"自分の内から求めが起きた（{inp.fired_axis}）。パジュは次にどうするか",
-                        {a: _COMPLETION_TEXT.get(a, _action_note(a) or a) for a in actions},
-                    )
-                },
-            )
+            state = self._state(inp)
+            questions = {
+                "action": choice(
+                    f"自分の内から求めが起きた（{inp.fired_axis}）。パジュは次にどうするか",
+                    {a: _COMPLETION_TEXT.get(a, _action_note(a) or a) for a in actions},
+                )
+            }
+            answer = await _ask(self._jev, state, questions)
             picked = str(
                 ((getattr(answer, "answers", None) or {}).get("action") or {}).get("choice") or ""
             )
             if not getattr(answer, "ok", False) or picked not in actions:
                 logger.info("調停（情動・%s）：Jev が答えなかったので full", inp.fired_axis)
+                self._keep(
+                    inp, "情動", state, questions, answer, "reply_full", "Jev が答えなかった"
+                )
                 return _FALLBACK
             final = picked
+            self._keep(inp, "情動", state, questions, answer, final, inp.fired_axis)
         decision = await self._completion_decision(inp, final, tool="")
         logger.info(
             "調停 %.2f 秒（情動・軸で決めた：%s → %s）",
@@ -942,20 +764,21 @@ class Arbiter:
         state = self._state(inp)
         # すすめた曲への返事を待っているときだけ、調停の候補に返事の道具が載る（段 4-4f）。
         suggesting = "music_suggestion_reply" in inp.extra_actions
-        answer = await _ask(
-            self._jev,
-            state,
-            um.fanout_questions(
-                confirming="confirm" in inp.extra_actions,
-                music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
-                camera=inp.can_see,
-                family=family,
-                suggesting=suggesting,
-            ),
+        questions = um.fanout_questions(
+            confirming="confirm" in inp.extra_actions,
+            music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
+            camera=inp.can_see,
+            family=family,
+            suggesting=suggesting,
+            speaker=inp.current_speaker,
+            silenced=inp.silenced,
+            tools=set(inp.extra_actions),
         )
+        answer = await _ask(self._jev, state, questions)
         got = getattr(answer, "answers", None) or {}
         if not getattr(answer, "ok", False) or not got.get("meaning"):
             logger.info("調停（発話）：Jev が答えなかったので full")
+            self._keep(inp, "発話", state, questions, answer, "reply_full", "Jev が答えなかった")
             return _FALLBACK
         meaning = got["meaning"]
         m = str(meaning.get("choice") or "")
@@ -971,9 +794,14 @@ class Arbiter:
             # 並べていない意味（使えない道具）が返ってきたら使わない。首を回せないのに回す、などを防ぐ。
             outcome = um.Outcome("unsure", why=f"並べていない意味（{m}）")
         final = outcome.final
+        asked, said = dict(questions), dict(got)
         if final == "unsure":
             again = await _ask(self._jev, state, um.unsure_question())
             final = um.resolve_unsure((getattr(again, "answers", None) or {}).get("action"))
+            # 越えなかったときの問いと答えは「unsure」の下に残す（段 5d）。
+            asked["unsure"] = um.unsure_question()
+            said["unsure"] = dict(getattr(again, "answers", None) or {})
+        self._keep(inp, "発話", state, asked, said, final, outcome.why, meaning=m)
         if final in _SUGGESTION_REPLIES:
             # 返事は 2 つに決まっていて、書く言葉が無いので軽量LLM は呼ばない（段 4-4f）。
             reply = _SUGGESTION_REPLIES[final]
@@ -1026,6 +854,40 @@ class Arbiter:
         )
         return decision if decision is not None else _FALLBACK
 
+    def _keep(
+        self,
+        inp: ArbiterInput,
+        path: str,
+        state: str,
+        questions: dict,
+        answer: Any,
+        final: str,
+        why: str,
+        *,
+        meaning: str = "",
+    ) -> None:
+        """Jev に聞いた回を記録に残す（出-ay 段 3・段 5d・本人の決定）。Jev に聞かなかった回は呼ばない（本人の決定イ）。
+
+        正解（`JEV_正解.md`）と突き合わせてプロンプトを直すため、渡したそのまま（W を含む）・問い・答え・道・発話の意味・
+        最終の動作を残す。書けなくても調停は止めない（`arbiter_records.record` が別スレッドで書き、失敗は警告 1 行）。
+        """
+        from ..store import arbiter_records
+
+        answers = (
+            answer if isinstance(answer, dict) else dict(getattr(answer, "answers", None) or {})
+        )
+        arbiter_records.record(
+            origin=inp.origin,
+            utterance=inp.utterance,
+            state=state,
+            questions=questions,
+            answer=answers,
+            outcome=why,
+            path=path,
+            meaning=meaning,
+            final=final,
+        )
+
     async def _completion_decision(
         self,
         inp: ArbiterInput,
@@ -1060,32 +922,6 @@ class Arbiter:
             extra_actions=(*inp.extra_actions, final),
         )
 
-    def _record(self, inp: ArbiterInput, decision: "Decision | None") -> None:
-        """Jev に渡したそのままと答え・結末を残す（出-ay 段 3・2026-10-08・本人の決定）。
-
-        正解（`JEV_正解.md`）と突き合わせてプロンプトを直すため。W は DEBUG のログにしか無く、後から組み直すと想起の
-        点数が変わって同じにならない。Jev に聞かなかった回（使えない）は残さない。書けなくても調停は止めない。
-        """
-        asked = self.__dict__.pop("_asked", None)
-        if asked is None:
-            return
-        state, questions, answer = asked
-        if decision is not None:
-            action = decision.action if decision.branch == "action" else "-"
-            outcome = f"{decision.branch} {action}"
-        else:
-            outcome = f"倒れ：{self._why or '判定=あり（文章を書けなかった）'}"
-        from ..store import arbiter_records
-
-        arbiter_records.record(
-            origin=inp.origin,
-            utterance=inp.utterance,
-            state=state,
-            questions=questions,
-            answer=dict(getattr(answer, "answers", None) or {}),
-            outcome=outcome,
-        )
-
     async def write_filler(self, inp: ArbiterInput, waiting: str) -> str:
         """待たせているあいだの一言だけを書かせる（出-aq 段 6）。**分岐は決めない**——つなぎを出すのは
         待たせている事実であって、Jev の分岐ではない。以前は分岐しだいで、light なら返事（内容に触れる）を
@@ -1102,56 +938,6 @@ class Arbiter:
         if not needs:
             return {}
         return await _writer_call(self, inp, data, needs)
-
-    async def _judge(self, inp: ArbiterInput) -> "dict | None":
-        """Jev に 1 回で聞き、`_parse` の守りへ渡す辞書を返す。分岐か動作の確信度が低い・使えないときは None。"""
-        from ..core.jev_judges import _ask, picked
-
-        self._why = ""
-        state, questions = self._state(inp), self._questions(inp)
-        answer = await _ask(self._jev, state, questions)
-        # 調停の記録に残す（出-ay 段 3）。結末は `decide` が決めてから書く。
-        self._asked = (state, questions, answer)
-        if not getattr(answer, "ok", False):
-            err = str(getattr(answer, "error", "") or "") if answer is not None else "使えない"
-            self._why = f"Jev が答えなかった（{err or '理由なし'}）"
-            return None
-        logger.info("調停の判定：%s", _judgement_line(answer))
-        branch = picked(answer, "branch", self._min_conf)
-        if branch not in ("light", "full", "action"):
-            self._why = _unsure("分岐", answer, "branch", self._min_conf)
-            return None
-        data: dict = {"branch": branch}
-        data["effort"] = picked(answer, "effort", 0.0) or "low"
-        if branch == "action":
-            action = picked(answer, "action", self._min_conf)
-            if action is None:
-                self._why = _unsure("動作", answer, "action", self._min_conf)
-                return None
-            if action not in self._allowed_actions(inp):
-                self._why = f"動作 {action} は候補に無い"
-                return None
-            data["action"] = action
-        got = answer.answers
-
-        def yes(key: str) -> bool:
-            return float((got.get(key) or {}).get("noul", 0.0) or 0.0) >= 0.5
-
-        data["refers_time"] = yes("refers_time")
-        if inp.tool_return:
-            # 道具の帰りの発話は古い。問うていないが、答えに混じっても黙る依頼・名乗りは読まない（機械の守り・情-n）
-            return data
-        data["silence_minutes"] = (
-            _QUIET_MINUTES.get(picked(answer, "quiet_minutes", 0.0) or "default", -1)
-            if yes("asks_quiet")
-            else 0
-        )
-        data["lift_silence"] = yes("lifts_quiet")
-        claimed = picked(answer, "claimed", 0.0) if yes("claims") else None
-        data["speaker_claim"] = claimed if claimed and claimed != "other" else ""
-        denied = picked(answer, "denied", 0.0) if yes("denies") else None
-        data["not_person"] = denied if denied and denied != "other" else ""
-        return data
 
 
 #: 道具（タイマーまわり）。入力は `tool_input` で渡し、0.1 秒で返るのでつなぎは言わない（実機 08:59）。

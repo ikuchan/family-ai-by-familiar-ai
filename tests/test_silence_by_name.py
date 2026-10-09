@@ -46,9 +46,10 @@ def test_a_broken_length_does_not_silence():
 
 
 def _questions(**kw):
-    return Arbiter(jev=None, writer=None)._questions(
-        ArbiterInput(utterance="x", workspace_ctx="", **kw)
-    )
+    """発話の問い（段 4-4c から、黙る依頼は意味「時間に関する依頼」の動作「quiet」と、何分かの問い）。"""
+    from familiar_agent.core import utterance_meaning as um
+
+    return um.fanout_questions(confirming=False, music=False, camera=False, family=[])
 
 
 def test_the_name_is_not_passed_separately():
@@ -59,9 +60,9 @@ def test_the_name_is_not_passed_separately():
 
 def test_the_name_is_checked_by_the_window_not_by_the_question():
     """名前の関門は入口の窓（名前を聞いてから 30 秒）にまとめた（出-as §2.5）。Jev は名前を知らないので問わない。"""
-    asked = _questions()["asks_quiet"]["instructions"]
+    asked = _questions()["action_time"]["criteria"]["quiet"]
     assert "名前" not in asked
-    assert "話しかけないでほしい" in asked
+    assert "黙っていて" in asked
 
 
 def test_the_question_asks_for_a_length_rather_than_a_flag():

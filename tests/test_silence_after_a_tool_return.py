@@ -35,7 +35,9 @@ def _light(text: str, **jev):
 def test_a_tool_return_never_carries_a_silence_request():
     # Jev の答えに黙る依頼と解く依頼が混じっていても、道具の帰りでは読まない。
     said = _light("3 分ね、いい？", quiet="default", lifts_quiet=True)
-    d = asyncio.run(decide(**said, utterance="パジュ、3分測って", tool_return=True))
+    # 道具の帰りの反復には返った道具が載り、完了の道を通る（段 5e）。完了の道は黙る依頼・解く依頼を読まない。
+    back = (("set_timer", False, "まだ掛けていない。本人に一度聞く"),)
+    d = asyncio.run(decide(**said, utterance="パジュ、3分測って", tool_return=True, returned=back))
     assert d.branch == "light" and d.silence_minutes == 0 and d.lift_silence is False
 
 
@@ -84,7 +86,13 @@ def test_a_control_word_answered_lightly_falls_to_full_while_a_timer_is_running(
 def test_the_control_guard_is_not_applied_on_a_tool_return():
     d = asyncio.run(
         decide(
-            **_light("止めておくね。"), utterance="一時停止", timer_active=True, tool_return=True
+            **_light("止めておくね。"),
+            utterance="一時停止",
+            timer_active=True,
+            tool_return=True,
+            returned=(
+                ("pause_timer", False, "一時停止した"),
+            ),  # 道具の帰りには返った道具が載る（段 5e）
         )
     )
     assert d.branch == "light"

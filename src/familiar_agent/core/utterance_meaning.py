@@ -106,7 +106,11 @@ ACTIONS: "dict[str, str]" = {
     "cancel_alarm": "アラームを取り消す",
     "start_stopwatch": "ストップウォッチで測り始める",
     "stop_stopwatch": "ストップウォッチを止めて測った長さを言う",
-    "quiet": "しばらく黙っていてという頼みを受ける",
+    # 「待って」の断りは古い問いにあった（出-au 段 5-7d）。段 4-4c で移し漏れ、段 5 で戻した（2026-10-10 本人の決定ア）。
+    "quiet": (
+        "しばらく黙っていてという頼みを受ける"
+        "（待って・待てぃは動作を止めてほしいだけで、これには当たらない）"
+    ),
     "lift_quiet": "もう話していいよという言葉を受けて、黙るのを解く",
     "look": "首を向けて見る",
     "see": "目の前を見る",
@@ -203,15 +207,35 @@ def offered(
     return [k for k in MEANINGS if k not in skip]
 
 
-def _actions_for(meaning: str, family: "list[str]") -> "dict[str, str]":
+#: 調べる意味のうち、繋がっているときだけ並べる道具（家の記録・本人の記録）。検索と記憶はいつも並べる。
+_HOUSE_TOOLS = frozenset({"family_schedule", "house_rules", "notion_search", "journal", "vault"})
+#: 名前を言わずに否定したとき（「ちがうよ」）に選ぶ、いまの話者の印（古い問いから移した・段 5）。
+_NAMELESS = "（名前を言わずに否定したときも、いま話者としている人のこれ）"
+
+
+def _actions_for(
+    meaning: str,
+    family: "list[str]",
+    *,
+    speaker: str = "",
+    silenced: bool = True,
+    tools: "set[str] | None" = None,
+) -> "dict[str, str]":
     if meaning == "claim":
         return {**{n: f"{n}だと名乗った" for n in family}, OTHER: "家族の誰でもない人だと名乗った"}
     if meaning == "deny":
-        return {
-            **{n: f"{n}ではないと言った" for n in family},
-            OTHER: "どの呼び方を否定したか分からない",
-        }
-    return {k: ACTIONS[k] for k in ACTIONS_BY_MEANING[meaning]}
+        out = {n: f"{n}ではないと言った" for n in family}
+        if speaker:
+            out[speaker] = f"{speaker}ではないと言った{_NAMELESS}"
+        return {**out, OTHER: "どの呼び方を否定したか分からない"}
+    keys = ACTIONS_BY_MEANING[meaning]
+    if not silenced:
+        keys = tuple(k for k in keys if k != "lift_quiet")  # 解くは黙っているあいだだけ（段 5）
+    if tools is not None:
+        keys = tuple(
+            k for k in keys if k not in _HOUSE_TOOLS or k in tools
+        )  # 繋がっている道具だけ（段 5）
+    return {k: ACTIONS[k] for k in keys}
 
 
 def fanout_questions(
@@ -221,8 +245,15 @@ def fanout_questions(
     camera: bool,
     family: "list[str]",
     suggesting: bool = False,
+    speaker: str = "",
+    silenced: bool = True,
+    tools: "set[str] | None" = None,
 ) -> "dict[str, dict]":
-    """意味の問いと、意味ごとの 2 回目の問いを、先読みで 1 回に並べる（返った意味の答えだけ使う）。"""
+    """意味の問いと、意味ごとの 2 回目の問いを、先読みで 1 回に並べる（返った意味の答えだけ使う）。
+
+    段 5（2026-10-10 本人の決定ア）で、古い問いにあった決まりを移した：名前を言わない否定はいまの話者（`speaker`）を
+    選べる・解くは黙っているあいだ（`silenced`）だけ・家の記録の道具は繋がっているもの（`tools`・None なら全部）だけ。
+    """
     from ..backends.jev import choice
 
     meanings = offered(confirming=confirming, music=music, camera=camera, suggesting=suggesting)
@@ -240,7 +271,7 @@ def fanout_questions(
             "もしこの人がしばらく黙っていてと頼んでいるなら、何分か", dict(QUIET_MINUTES)
         )
     for m in meanings:
-        actions = _actions_for(m, family)
+        actions = _actions_for(m, family, speaker=speaker, silenced=silenced, tools=tools)
         if len(actions) < 2:
             continue
         qs[f"action_{m}"] = choice(

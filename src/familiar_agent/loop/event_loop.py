@@ -2856,11 +2856,7 @@ class InformationProcessing:
 
     def _arbiter(self) -> Arbiter:
         agent = self._agent
-        return Arbiter(
-            jev=getattr(agent, "_jev", None),
-            writer=agent._utility_backend,
-            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
-        )
+        return Arbiter(jev=getattr(agent, "_jev", None), writer=agent._utility_backend)
 
     def _arbiter_input(
         self,
@@ -2897,7 +2893,9 @@ class InformationProcessing:
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
-            returned=returned_lookups,  # 完了を機械で分ける（出-ay 段 4-2）
+            # 完了を機械で分ける（出-ay 段 4-2）。主LLM は外部の道具を道具の名前（`get_family_schedule`）で呼ぶので、
+            # 完了の表が引く動作の名前（`family_schedule`）に揃える（段 5b）。揃えないと表に当たらなかった。
+            returned=tuple((_action_family(a), failed, r) for a, failed, r in returned_lookups),
             fired_axis=str(
                 getattr(self._req, "fired_axis", "") or ""
             ),  # 情動を軸で決める（出-ay 段 4-3）

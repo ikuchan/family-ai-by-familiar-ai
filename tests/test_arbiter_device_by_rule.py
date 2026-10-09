@@ -42,17 +42,21 @@ def test_if_the_writer_fails_it_falls_back_to_full():
 
 
 def test_a_tool_return_inside_a_device_request_is_not_this_road():
+    """機器の求めの中で道具が返った反復は、機器の道ではなく完了の道を通る（段 4-2・段 5e）。"""
     jev = jev_says("light")
+    writer = writer_says({"text": "はい"})
     asyncio.run(
         decide(
             jev=jev,
-            writer=writer_says({"text": "はい"}),
+            writer=writer,
             utterance=_NOTICES[0],
             origin="機器",
             tool_return=True,
+            returned=(("cancel_timer", False, "タイマーを止めた"),),
         )
     )
-    jev.ask.assert_awaited()  # 完了の判定は段 4-2 まで、いまのまま
+    assert "軽く知らせる" not in prompt_of(writer)  # 機器の道の「決めたこと」ではない
+    assert "軽く伝える" in prompt_of(writer)  # 完了の表：止めた → 軽く伝える
 
 
 def test_the_device_lead_no_longer_says_stay_quiet():

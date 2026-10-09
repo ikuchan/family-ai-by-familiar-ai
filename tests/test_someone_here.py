@@ -102,14 +102,6 @@ def test_social_drives_grow_while_someone_is_here():
     assert _tonic(present=[], occupied=None)._someone_here() is False  # カメラの無い機体
 
 
-def test_rest_waits_while_someone_is_here():
-    assert _tonic(present=["papa"], occupied=False)._nobody_is_present() is False
-    assert _tonic(present=[], occupied=False)._nobody_is_present() is True
-    assert (
-        _tonic(present=[], occupied=None)._nobody_is_present() is False
-    )  # カメラが無ければ内省へ落とさない
-
-
 def test_the_tick_passes_someone_here_to_the_drives():
     import inspect
 

@@ -86,3 +86,10 @@ def test_a_result_inside_an_affect_request_is_the_completion_road():
     )
     criteria = set(jev.ask.await_args.args[1]["action"]["criteria"])
     assert criteria == {"look", "talk_light", "silent"}  # 自分から見に行った結果（完了の表）
+
+
+def test_an_axis_not_in_the_table_goes_to_the_main_llm_without_asking():
+    """表に無い軸は、Jev に聞かずに主LLM に任せる（出-ay 段 5e）。rest は段 5a から調停に来ない。"""
+    d, jev = _run("rest")
+    jev.ask.assert_not_awaited()
+    assert d.branch == "full"

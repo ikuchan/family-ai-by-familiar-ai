@@ -67,17 +67,18 @@ def test_the_arbiter_can_choose_the_family_schedule() -> None:
 
 
 def test_the_arbiter_prompt_offers_the_schedule_when_available() -> None:
-    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+    import asyncio
 
-    # 動作は Jev の選択肢（出-au 段 5-7d）。繋がっているときだけ載る。
-    def actions(extra):
-        qs = Arbiter(jev=None, writer=None)._questions(
-            ArbiterInput(utterance="今日の予定は？", workspace_ctx="", extra_actions=extra)
-        )
-        return qs["action"]["criteria"]
+    from tests._arbiter_fakes import decide, jev_says
 
-    assert "family_schedule" in actions(("family_schedule",))
-    assert "family_schedule" not in actions(())
+    # 段 4-4b から、家の記録の道具は発話の意味「調べる必要のある問い」の動作。繋がっているときだけ並ぶ（段 5・本人の決定ア）。
+    def actions(extra, utterance):
+        jev = jev_says("full")
+        asyncio.run(decide(jev=jev, utterance=utterance, extra_actions=extra))
+        return jev.ask.await_args.args[1]["action_research"]["criteria"]
+
+    assert "family_schedule" in actions(("family_schedule",), "今日の予定は？")
+    assert "family_schedule" not in actions((), "今日の予定は？")
 
 
 def test_the_arbiters_choice_reaches_the_tool_with_the_arguments_it_takes() -> None:

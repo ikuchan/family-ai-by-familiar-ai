@@ -91,3 +91,36 @@ def test_the_fan_out_also_asks_how_deeply_to_think():
     """考える深さ（low・medium・high）も同じ 1 回で聞く（2026-10-09 本人の決定ウ）。考えて返すとき主LLM に渡す。"""
     qs = um.fanout_questions(confirming=False, music=True, camera=True, family=[])
     assert set(qs["effort"]["criteria"]) == {"low", "medium", "high"}
+
+
+# ── 段 5（2026-10-10 本人の決定ア）：古い問いにあった決まりを新しい問いへ移す ──────────────────────
+
+
+def _qs(**kw):
+    base = dict(confirming=False, music=False, camera=False, family=["パパ", "たいき"])
+    return um.fanout_questions(**{**base, **kw})
+
+
+def test_a_nameless_denial_can_point_to_the_current_speaker():
+    """「ちがうよ」（名前なし）は、いま話者としている人を否定したとして選べる。"""
+    deny = _qs(speaker="パパ")["action_deny"]["criteria"]
+    assert "名前を言わず" in deny["パパ"]
+    stranger = _qs(speaker="おきゃくさん")["action_deny"]["criteria"]
+    assert "名前を言わず" in stranger["おきゃくさん"]
+    assert "名前を言わず" not in str(_qs()["action_deny"]["criteria"])
+
+
+def test_waiting_is_not_a_request_for_silence():
+    assert "待って" in um.ACTIONS["quiet"] and "これには当たらない" in um.ACTIONS["quiet"]
+
+
+def test_lifting_the_silence_is_offered_only_while_silenced():
+    assert "lift_quiet" in _qs(silenced=True)["action_time"]["criteria"]
+    assert "lift_quiet" not in _qs(silenced=False)["action_time"]["criteria"]
+
+
+def test_the_house_tools_are_offered_only_when_connected():
+    research = _qs(tools={"family_schedule"})["action_research"]["criteria"]
+    assert {"search_deferred", "recall", "family_schedule"} <= set(research)
+    assert not {"house_rules", "notion_search", "journal", "vault"} & set(research)
+    assert "family_schedule" not in _qs(tools=set())["action_research"]["criteria"]

@@ -55,16 +55,14 @@ def test_the_denial_may_be_absent():
 
 
 def test_the_prompt_asks_for_the_denial():
-    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+    from familiar_agent.core import utterance_meaning as um
 
-    # 打ち消しは Jev に問う（出-au 段 5-7d）。
-    qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(utterance="x", workspace_ctx=""))
-    asked = qs["denies"]["instructions"]
-    assert "名前の人ではないと打ち消した" in asked
-    assert "denied" in qs
-    # 見本は番人の範囲内で置く（「〜」で始まる形か 3 字以内）。見本を全部外すと、
-    # 名前を言わない打ち消し（「ちがうよ」）が 3 回中 0 回になった（実測・2026-09-22）。
-    assert "〜じゃないよ" in asked
+    # 打ち消しは Jev に問う。段 4-4c から発話の 1 回目の意味（名乗りの否定）で、2 回目はどの呼び方か。
+    asked = um.MEANINGS["deny"][1]
+    assert "相手ではない" in asked
+    # 見本は鉤括弧の外に置く（言わせる見本ではない）。名前を言わない打ち消し（「ちがうよ」）も見本に入れる。
+    # 見本を全部外すと、名前を言わない打ち消しが 3 回中 0 回になった（実測・2026-09-22）。
+    assert "じゃないよ" in asked and "ちがうよ" in asked
 
 
 # ── 否定を顔ぶれへ効かせる ──────────────────────────────────────────────────
@@ -196,34 +194,40 @@ def test_todays_form_keeps_the_voice_speaker():
 
 
 def test_a_denial_without_a_name_arrives_with_the_current_speaker():
-    """「ちがうよ」（名前なし）：Jev は「いま話者としている人」を選ぶので、その名前で届いて外れる。"""
+    """「ちがうよ」（名前なし）：Jev は「いま話者としている人」を選べるので、その名前で届いて外れる。
+
+    古い問いにあった決まりを、段 5（2026-10-10 本人の決定ア）で新しい問い（否定の 2 回目）に移した。
+    """
     import asyncio
 
     from familiar_agent.backends.jev import JevAnswer
-    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+    from tests._arbiter_fakes import decide, writer_says
 
     class _Jev:
         available = True
+        asked: dict = {}
 
         async def ask(self, state, questions):
+            _Jev.asked = questions
             return JevAnswer(
                 ok=True,
                 answers={
-                    "branch": {"choice": "light", "confidence": 0.9},
-                    "effort": {"choice": "low", "confidence": 0.9},
-                    "denies": {"noul": 0.9},
-                    "denied": {"choice": "パパ", "confidence": 0.9},
+                    "meaning": {"choice": "deny", "confidence": 0.9},
+                    "action_deny": {"choice": "パパ", "confidence": 0.9},
                 },
             )
 
-    arb = Arbiter(jev=_Jev(), writer=None, min_conf=0.5)
-    data = asyncio.run(
-        arb._judge(
-            ArbiterInput(
-                utterance="ちがうよ", workspace_ctx="", family_md=_FAMILY, current_speaker="パパ"
-            )
+    d = asyncio.run(
+        decide(
+            jev=_Jev(),
+            writer=writer_says({"text": "ごめんね"}),
+            utterance="ちがうよ",
+            family_md=_FAMILY,
+            current_speaker="パパ",
         )
     )
+    assert "名前を言わず" in _Jev.asked["action_deny"]["criteria"]["パパ"]
+    data = {"not_person": d.not_person}
     assert data["not_person"] == "パパ"
     pmm = _FakePMM2({"パパ": "p-yusuke"})
     persons = _FakePersons("パパ")

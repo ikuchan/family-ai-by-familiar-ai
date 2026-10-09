@@ -73,6 +73,10 @@ def test_the_arbiter_state_keeps_the_moment_in_order():
 
 
 def test_the_arbiter_state_places_the_guide_before_the_moment():
-    """判断の目安（分岐の決め方）は、いつ・誰・何を言われたかより前にある。"""
+    """いま何が起きたか（起点ごとの先導文）は、いつ・誰・何を言われたかより前にある。
+
+    段 5c（2026-10-10）で、古い分岐の目安（`[判断の目安]`）を外し、`[いま起きたこと]` に書き直した。
+    """
     state = _jev_state()
-    assert state.index("[判断の目安]") < state.index("{now}")
+    assert "[判断の目安]" not in state
+    assert state.index("[いま起きたこと]") < state.index("{now}")

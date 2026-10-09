@@ -27,7 +27,8 @@ def _columns() -> dict[str, str]:
 
 def test_the_table_has_what_jev_saw_and_said():
     cols = _columns()
-    assert cols == {
+    # 075 で道・意味・最終の動作を足した（出-ay 段 5d）。ここでは 074 が作った列を見る。
+    assert {k: v for k, v in cols.items() if k not in ("path", "meaning", "final")} == {
         "id": "bigint",
         "at": "timestamp with time zone",
         "origin": "text",

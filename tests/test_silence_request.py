@@ -48,8 +48,11 @@ def test_arbiter_can_flag_a_silence_request():
 
     from tests._arbiter_fakes import decide, jev_says, writer_says
 
-    qs = _arbiter_questions()
-    assert qs["asks_quiet"]["type"] == "noul" and qs["quiet_minutes"]["type"] == "choice"
+    # 段 4-4c から、黙る依頼は意味「時間に関する依頼」の動作「quiet」と、何分かの問い（同じ 1 回）。
+    from familiar_agent.core import utterance_meaning as um
+
+    qs = um.fanout_questions(confirming=False, music=False, camera=False, family=[])
+    assert "quiet" in qs["action_time"]["criteria"] and qs["quiet_minutes"]["type"] == "choice"
     d = asyncio.run(
         decide(
             jev=jev_says("light", quiet="default"),
@@ -187,9 +190,9 @@ def test_the_arbiter_can_flag_a_release():
 
     from tests._arbiter_fakes import decide, jev_says, writer_says
 
-    # 解く言葉は、黙っているあいだだけ Jev に問う。
-    assert "lifts_quiet" in _arbiter_questions(silenced=True)
-    assert "lifts_quiet" not in _arbiter_questions(silenced=False)
+    # 解く言葉は、黙っているあいだだけ Jev に問う（段 5 で新しい問いへ移した：意味「時間に関する依頼」の動作）。
+    assert "lift_quiet" in _arbiter_questions(silenced=True)["action_time"]["criteria"]
+    assert "lift_quiet" not in _arbiter_questions(silenced=False)["action_time"]["criteria"]
 
     def lifted(utterance: str, *, lifts: bool):
         return asyncio.run(
@@ -207,15 +210,16 @@ def test_the_arbiter_can_flag_a_release():
 
 
 def test_waiting_is_not_a_request_for_silence():
-    asked = _arbiter_questions()["asks_quiet"]["instructions"]
+    asked = _arbiter_questions()["action_time"]["criteria"]["quiet"]
     assert "待って" in asked and "これには当たらない" in asked
 
 
-def _arbiter_questions(**kw) -> dict:
-    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+def _arbiter_questions(*, silenced: bool = False) -> dict:
+    """発話の問い（段 4-4c から、黙る依頼・解くは意味「時間に関する依頼」の動作）。"""
+    from familiar_agent.core import utterance_meaning as um
 
-    return Arbiter(jev=None, writer=None)._questions(
-        ArbiterInput(utterance="x", workspace_ctx="", **kw)
+    return um.fanout_questions(
+        confirming=False, music=False, camera=False, family=[], silenced=silenced
     )
 
 

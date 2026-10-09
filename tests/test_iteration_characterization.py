@@ -33,11 +33,20 @@ def _run_until(ip, done, *, push):
     asyncio.run(scenario())
 
 
-def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently():
+def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently(monkeypatch):
     """情動の求めで調停が「黙る」（light・言葉なし）と決めたら、主LLM を呼ばず沈黙で閉じる（出-w）。"""
+    from familiar_agent.loop.arbiter import Arbiter, Decision
+
     a = _agent(stream_returns=[])
     a._jev = jev_says("light")
     a._utility_backend = writer_says({"text": ""})
+
+    async def quiet(self, inp):
+        return Decision(branch="light", text="")
+
+    # 段 5e（2026-10-10）から、表に無い軸は Jev に聞かずに主LLM へ行く（古い問いを外した）。ここで固めたいのは反復の
+    # 側（調停が黙ると決めたら主LLM を呼ばず沈黙で閉じる）なので、調停の答えを黙るに固定する。
+    monkeypatch.setattr(Arbiter, "decide", quiet)
     ip = InformationProcessing(a)
     outcomes: list[str] = []
     real_finish = ip._finish
@@ -47,9 +56,7 @@ def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently():
         return await real_finish(text, memories, outcome, **kw)
 
     ip._finish = finish  # type: ignore[method-assign]
-    # 出-ay 段 4-3（2026-10-09）から、seeking・safety・bond・esteem は軸の表で決まり、最初の反復で黙るは選ばれない
-    # （seeking は調べに行く）。ここで固めたいのは「調停が黙ると決めたら、反復が主LLM を呼ばず沈黙で閉じる」ことなので、
-    # 表に無い軸（いままでの判定を通る）で調停に黙らせる。結果が届いた反復の黙るは test_arbiter_completion_by_rule が見る。
+    # 結果が届いた反復の黙るは test_arbiter_completion_by_rule が見る。
     _run_until(ip, lambda: outcomes, push=lambda: ip.push_affect("CALM", "落ち着いている"))
     assert outcomes == ["沈黙"]
     a.backend.stream_turn.assert_not_awaited()

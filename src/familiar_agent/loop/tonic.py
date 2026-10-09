@@ -293,25 +293,6 @@ class Tonic:
         except Exception:  # noqa: BLE001
             return False
 
-    def _nobody_is_present(self) -> bool:
-        """誰も居ないか（REST 内省に入るか）。顔ぶれの持ち時間が残っていれば居る（知-ai）。無ければ在席で見る。
-
-        顔ぶれが空でも、カメラが人を見ていれば居る（顔が未登録でも目の前に人が居る・#15 で実機に出た欠陥）。
-
-        **センサが無ければ偽を返す。** 「センサが無い」を「誰も居ない」と扱うと、カメラの
-        無い構成で REST が常に内省へ落ち、人が居ても話しかけなくなる。
-        """
-        if self._has_presence():
-            return False
-        sensor = self._occupancy_sensor
-        if sensor is None:
-            return False
-        try:
-            return not sensor.room_occupied()
-        except Exception:  # noqa: BLE001
-            logger.debug("在席センサを読めなかったので、内省へは回さない")
-            return False
-
     async def _maybe_tell_credit(self) -> None:
         """残高切れの「知らせたい」を、人が来たら録音済みの声で伝える（環-z・`設計方針_クレジット切れの知らせ`）。
 
@@ -481,9 +462,10 @@ class Tonic:
                 axis = select_fired_axis(firing, accumulated)
                 if axis is None:
                     continue
-                if axis == "rest" and self._nobody_is_present():
-                    # 誰も居ないときの REST は内省へ回す（設計の折衷型・#2）。人へ話しかける
-                    # 相手が居ないので、自発ターンにしても保留されるだけである。
+                if axis == "rest":
+                    # REST は人が居ても内省へ回す（出-ay 段 5a・2026-10-10 本人の決定ウ）。以前は誰も居ないときだけで、
+                    # 人が居ると調停へ積み、表に無い軸として古い問いに落ちていた。人が居るときに回すと、その日の要約が
+                    # 途中で切れうることと、約 2 分半ほかの情動が発火しないことを受け入れた。
                     logger.info("Drive fired: rest → 内省パスへ")
                     await run_rest_pass(self._agent)
                     continue

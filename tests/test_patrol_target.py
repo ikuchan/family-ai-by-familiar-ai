@@ -11,7 +11,7 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.loop.arbiter import _CAMERA_ACTION_TEXT, Decision
+from familiar_agent.loop.arbiter import Decision, _action_note
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.occupancy_map import OccupancyMap, stale_order
 
@@ -50,7 +50,8 @@ def test_no_sensor_means_no_note():
 
 
 def test_the_arbiter_option_points_to_the_stalest_pose():
-    assert "見ていない順" in _CAMERA_ACTION_TEXT["look"]  # Jev の選択肢の説明（出-au 段 5-7d）
+    # 首を向ける先（`pose`）は軽量LLM が書く。その説明に見ていない順を指す（段 5e で Jev の古い選択肢の説明は外した）。
+    assert "見ていない順" in _action_note("look")
 
 
 # ── 既定 ─────────────────────────────────────────────────────────────────

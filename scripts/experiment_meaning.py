@@ -697,9 +697,7 @@ async def through_arbiter() -> None:
 
     arbiter_records.record = lambda **kw: None  # 実験の判定を本番の記録に残さない
     cfg = AgentConfig()
-    arbiter = Arbiter(
-        jev=JevClient.from_env(timeout=15.0), writer=create_utility_backend(cfg), min_conf=0.6
-    )
+    arbiter = Arbiter(jev=JevClient.from_env(timeout=15.0), writer=create_utility_backend(cfg))
     print("場面\t返った道具\t起点\t最終（branch・動作・文の長さ）\t正解の動作\t一致\t秒")
     hits = total = 0
     for c in parse_done(GOLD.read_text(encoding="utf-8")):

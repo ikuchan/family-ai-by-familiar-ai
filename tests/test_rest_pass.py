@@ -6,6 +6,7 @@
 
 在/不在は `OccupancySensor`（YOLO・登録が要らない）で見る。`_occupancy()`
 は PMM（顔の照合）と直近の発話しか見ないので使わない（#15 で判明した欠陥）。
+**出-ay 段 5a（2026-10-10）から、REST の発火は人が居ても内省へ回す**（在/不在を見ない・本人の決定ウ）。
 """
 
 from __future__ import annotations
@@ -94,30 +95,30 @@ def test_rest_starts_the_introspection_pass_when_nobody_is_present():
     assert not ip.push_affect.called  # 人へ話しかける自発ターンにはしない
 
 
-def test_rest_still_speaks_when_someone_is_present():
-    """誰か居るときの REST 発火は従来どおり。「休みたい」と伝えるのは自然な振る舞い。"""
-    ip, rest_pass = _run_until(
-        _REST,
-        occupancy=_sensor(occupied=True),
-        predicate=lambda ip, rp: ip.push_affect.call_count > 0,
-    )
-    assert ip.push_affect.call_args.args[0] == "REST"
-    assert rest_pass.await_count == 0
+def test_rest_starts_the_introspection_pass_even_when_someone_is_present():
+    """人が居ても REST は内省へ回す（出-ay 段 5a・2026-10-10 本人の決定ウ）。
 
-
-def test_rest_speaks_when_there_is_no_occupancy_sensor():
-    """センサが無い構成（カメラ無し）では従来どおり。
-
-    「センサが無い」を「誰も居ない」と扱うと、カメラの無い環境で REST が常に内省へ
-    落ちて、人が居ても話しかけなくなる。
+    休みたい気持ちを人に話しかける場面は少ない。人が居るときに回すと、その日の要約が途中で切れうる
+    （畳み込みは「まだ畳まれていない」をいまの時刻までで畳む）こと、約 2 分半ほかの情動が発火しないことを受け入れた。
     """
     ip, rest_pass = _run_until(
         _REST,
-        occupancy=None,
-        predicate=lambda ip, rp: ip.push_affect.call_count > 0,
+        occupancy=_sensor(occupied=True),
+        predicate=lambda ip, rp: rp.await_count > 0,
     )
-    assert ip.push_affect.call_args.args[0] == "REST"
-    assert rest_pass.await_count == 0
+    assert rest_pass.await_count == 1
+    assert not ip.push_affect.called
+
+
+def test_rest_starts_the_introspection_pass_without_an_occupancy_sensor():
+    """在席を見る仕組みが無い構成（カメラ無し）でも、REST は内省へ回す（段 5a）。"""
+    ip, rest_pass = _run_until(
+        _REST,
+        occupancy=None,
+        predicate=lambda ip, rp: rp.await_count > 0,
+    )
+    assert rest_pass.await_count == 1
+    assert not ip.push_affect.called
 
 
 def test_other_drives_are_unaffected_by_absence():

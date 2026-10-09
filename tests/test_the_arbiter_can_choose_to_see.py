@@ -21,34 +21,18 @@ def test_see_is_rounded_to_recall_without_a_camera() -> None:
     assert d is not None and d.action == "recall"
 
 
-def _questions(can_see: bool) -> dict:
-    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+def _offered(can_see: bool) -> set:
+    """発話の問いに並ぶ動作（段 4-4b から、見る・首を向けるは意味「見る依頼」の動作）。"""
+    from familiar_agent.core import utterance_meaning as um
 
-    return Arbiter(jev=None, writer=None)._questions(
-        ArbiterInput(utterance="何が見える？", workspace_ctx="", can_see=can_see)
-    )
-
-
-def _state(can_see: bool) -> str:
-    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
-
-    return Arbiter(jev=None, writer=None)._state(
-        ArbiterInput(utterance="何が見える？", workspace_ctx="", can_see=can_see)
-    )
+    qs = um.fanout_questions(confirming=False, music=False, camera=can_see, family=[])
+    return {a for k, q in qs.items() if k.startswith("action_") for a in q["criteria"]}
 
 
 def test_see_is_offered_only_with_a_camera() -> None:
-    # 動作は Jev の選択肢（出-au 段 5-7d）。
-    assert "see" in _questions(True)["action"]["criteria"]
-    assert "see" not in _questions(False)["action"]["criteria"]
+    assert "see" in _offered(True)
+    assert "see" not in _offered(False)
 
 
-def test_the_guide_says_the_photo_goes_to_the_main_llm() -> None:
-    assert "写真そのものは主LLM に渡る" in _state(True)
-    assert "写真そのものは主LLM に渡る" not in _state(False)
-
-
-def test_the_guide_lets_light_answer_from_the_reading() -> None:
-    """写真の読み取り（『見えたもの』）で足りる問いは light。写真を見て語るなら full（出-au 段 5-7a）。"""
-    state = _state(True)
-    assert "『見えたもの』" in state and "light でよい" in state
+# 写真の読み取りで答えるか主LLM が写真を見て語るかの古い目安（`SEE_GUIDE`）は、出-ay 段 5c で外した。見た結果が届いた
+# あとは完了の表（頼まれて見た結果 → 軽く返す／もう一度見る・2026-10-09 本人）で決める（`test_completion_kind`）。

@@ -1,6 +1,7 @@
 """調停ごとの記録の器（出-ay 段 3・2026-10-08・本人の決定）。表 `arbiter_records`（074）。
 
-調停のたびに、Jev に渡したそのままの文（`state`・W を含む）・問い・答え・結末を残す。正解（`JEV_正解.md`）の時刻から
+調停で Jev に聞いたたびに、渡したそのままの文（`state`・W を含む）・問い・答え・結末を残す。段 5d（075）から、道
+（発話・完了・情動）・発話の意味・最終の動作も残す。Jev に聞かなかった回は残さない（本人の決定イ）。正解（`JEV_正解.md`）の時刻から
 `near` で引き、前提を足して投げ直すのに使う。記-o（W に何が載っていたか）もこれで見る。
 
 - **書くのは別スレッド**（`record`）。調停を待たせない。失敗しても調停は止めず、警告を 1 行出すだけ（中身は出さない）。
@@ -21,7 +22,16 @@ _pending: "set[asyncio.Task[None]]" = set()
 
 
 def _insert(
-    *, origin: str, utterance: str, state: str, questions: Any, answer: Any, outcome: str
+    *,
+    origin: str,
+    utterance: str,
+    state: str,
+    questions: Any,
+    answer: Any,
+    outcome: str,
+    path: str = "",
+    meaning: str = "",
+    final: str = "",
 ) -> None:
     from ..db import get_db
 
@@ -30,8 +40,9 @@ def _insert(
         conn = db.conn()
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO arbiter_records (origin, utterance, state, questions, answer, outcome) "
-                "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s)",
+                "INSERT INTO arbiter_records "
+                "(origin, utterance, state, questions, answer, outcome, path, meaning, final) "
+                "VALUES (%s, %s, %s, %s::jsonb, %s::jsonb, %s, %s, %s, %s)",
                 (
                     origin,
                     utterance,
@@ -39,6 +50,9 @@ def _insert(
                     json.dumps(questions, ensure_ascii=False, default=str),
                     json.dumps(answer, ensure_ascii=False, default=str),
                     outcome,
+                    path,
+                    meaning,
+                    final,
                 ),
             )
         conn.commit()
@@ -80,7 +94,7 @@ def near(at: datetime, *, seconds: float) -> "list[dict]":
         conn = db.conn()
         with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
             cur.execute(
-                "SELECT id, at, origin, utterance, state, questions, answer, outcome "
+                "SELECT id, at, origin, utterance, state, questions, answer, outcome, path, meaning, final "
                 "FROM arbiter_records WHERE at >= %s AND at < %s ORDER BY at",
                 (at, at + timedelta(seconds=seconds)),
             )

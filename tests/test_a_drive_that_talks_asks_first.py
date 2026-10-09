@@ -64,10 +64,12 @@ def _light_prompt(*, talking: bool) -> str:
     writer = writer_says({"text": "いま、少しいい？"})
     asyncio.run(
         decide(
-            jev=jev_says("light"),
+            # 段 5e から情動は軸で決める（軸の無い情動は古い問いに落ちていた）。bond で軽く話しかけると決まった場面。
+            jev=jev_says("light", action="talk_light"),
             writer=writer,
             utterance="誰かと居たい気持ちが湧いている。",
             origin="情動",
+            fired_axis="bond",
             talking=talking,
         )
     )

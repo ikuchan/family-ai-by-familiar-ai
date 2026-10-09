@@ -128,12 +128,15 @@ def test_the_arbiter_uses_the_tool_return_lead_when_asked():
         assert d.branch == "light"
         return prompt_of(writer)
 
-    assert "取り返そうとして道具を選ばない" in written(tool_return=True)
+    # 道具の返りの反復には、返った道具が載る（段 5e：完了の道を通る。返った道具なしの道具の返りは無い）。
+    back = (("set_timer", False, "まだ掛けていない。本人に一度聞く：「3 分ね、いい？」"),)
+    assert "取り返そうとして道具を選ばない" in written(tool_return=True, returned=back)
     assert "取り返そうとして道具を選ばない" not in written()
+    # Jev に送る文は、段 5c から「いま何が起きたか」だけを言う（選び方の説明は問いの側）。
     state = Arbiter(jev=None, writer=None)._state(
-        ArbiterInput(utterance="x", workspace_ctx="", tool_return=True)
+        ArbiterInput(utterance="x", workspace_ctx="", tool_return=True, returned=back)
     )
-    assert "取り返そうとして道具を選ばない" in state
+    assert "自分の動作の結果が届いた" in state
 
 
 def test_the_needs_tools_guard_does_not_fire_on_a_tool_return():
@@ -146,5 +149,6 @@ def test_the_needs_tools_guard_does_not_fire_on_a_tool_return():
         )
 
     ws = "[いま道具から返った]\n- set_timer「タイマーを掛ける「x」」→ まだ掛けていない。本人に一度聞く：「…」"
-    assert light(workspace_ctx=ws, tool_return=True).branch == "light"
+    back = (("set_timer", False, "まだ掛けていない。本人に一度聞く：「…」"),)
+    assert light(workspace_ctx=ws, tool_return=True, returned=back).branch == "light"
     assert light().branch == "full"  # 初回の反復の守りは残る

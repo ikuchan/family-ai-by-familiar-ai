@@ -69,14 +69,16 @@ def test_the_arbiter_can_choose_notion_search_with_a_query() -> None:
 
 
 def test_the_arbiter_prompt_offers_notion_when_available() -> None:
-    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+    import asyncio
 
-    # 動作は Jev の選択肢（出-au 段 5-7d）。
-    qs = Arbiter(jev=None, writer=None)._questions(
-        ArbiterInput(
-            utterance="サッカー教室の話、どこかに書いてある？",
-            workspace_ctx="",
-            extra_actions=("notion_search",),
-        )
-    )
-    assert "notion_search" in qs["action"]["criteria"]
+    from tests._arbiter_fakes import decide, jev_says
+
+    # 段 4-4b から、家の記録の道具は発話の意味「調べる必要のある問い」の動作。繋がっているときだけ並ぶ（段 5・本人の決定ア）。
+    def actions(extra, utterance):
+        jev = jev_says("full")
+        asyncio.run(decide(jev=jev, utterance=utterance, extra_actions=extra))
+        return jev.ask.await_args.args[1]["action_research"]["criteria"]
+
+    said = "サッカー教室の話、どこかに書いてある？"
+    assert "notion_search" in actions(("notion_search",), said)
+    assert "notion_search" not in actions((), said)

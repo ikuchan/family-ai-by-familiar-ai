@@ -96,12 +96,15 @@ def test_thinking_goes_to_the_main_llm():
     assert d.branch == "full"
 
 
-def test_an_unknown_tool_keeps_the_old_judge():
+def test_an_unknown_tool_goes_to_the_main_llm_without_asking():
+    """表に無い道具（これから足す外部の道具など）は、Jev に聞かずに主LLM に任せる（出-ay 段 5e・本人の決定ア）。
+
+    以前は古い分岐の問いに落ちていた。段 5 で古い問いを外した。
+    """
     jev = jev_says("full")
-    # 表に無い道具（外部の道具など）。すすめた曲への返事は段 4-4f で表に入った。
     d, jev, _ = _run((("some_external_tool", False, "x"),), jev=jev)
-    jev.ask.assert_awaited()
-    assert "branch" in jev.ask.await_args.args[1]
+    jev.ask.assert_not_awaited()
+    assert d.branch == "full"
 
 
 def test_a_quiet_decision_on_a_result_closes_silently_even_for_a_conversation():

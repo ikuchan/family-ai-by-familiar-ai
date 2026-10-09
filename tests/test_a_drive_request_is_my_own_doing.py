@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock, patch
 from familiar_agent.config import DriveConfig
 from familiar_agent.loop import reply_budget
 from familiar_agent.loop.arbiter import Decision as ArbiterDecision
-from tests._arbiter_fakes import decide, jev_says, writer_says
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.prompt import build_event_system_prompt
 
@@ -43,18 +42,8 @@ def test_the_arbiter_gets_a_self_doing_frame_for_a_drive_request() -> None:
     prompt = _jev_state(utterance="探索したい気持ちが湧いている。", origin="情動")
     assert "[いま湧いたこと]" in prompt and "[人の言葉]" not in prompt
     assert "許可は要らない" in prompt and "理由も要らない" in prompt
-    # つなぎは書かせない：見るだけの動作では軽量LLM を呼びもしない。
-    writer = writer_says()
-    asyncio.run(
-        decide(
-            jev=jev_says("action", action="see"),
-            writer=writer,
-            utterance="探索したい気持ちが湧いている。",
-            origin="情動",
-            can_see=True,
-        )
-    )
-    writer.complete.assert_not_awaited()
+    # 「見るだけの動作では軽量LLM を呼ばない」は、軸の無い情動で `see` を選ばせていた。段 4-3 から情動の動作は軸で
+    # 決まり（safety は look か調べる）、`see` を選ぶ道が無いので、ここでは確かめない（出-ay 段 5e）。
 
 
 def test_a_human_request_keeps_the_reply_frame() -> None:

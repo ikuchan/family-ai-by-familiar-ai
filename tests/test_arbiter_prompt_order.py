@@ -95,12 +95,6 @@ def test_the_writer_still_answers_only_json():
     assert "挨拶や説明はせず" in WRITER_PROMPT
 
 
-def test_the_three_branches_are_unchanged():
-    """分岐の名前と役割は変えない（Jev の選択肢）。"""
-    qs = Arbiter(jev=None, writer=None)._questions(ArbiterInput(utterance="x", workspace_ctx=""))
-    assert set(qs["branch"]["criteria"]) >= {"light", "full", "action"}
-
-
 def test_the_identity_block_matches_what_the_context_mouth_builds():
     """調停の先頭は、文脈の口が組む安定部と**同じ形**である（出-e）。
 
