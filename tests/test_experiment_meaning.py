@@ -117,3 +117,13 @@ def test_off_context_asks_back_only_when_sure():
     assert d(ctx, {"choice": "ask_back", "confidence": 0.7})[0] == "ask_back"
     assert d(ctx, {"choice": "ask_back", "confidence": 0.4})[0] == "silent"
     assert d(ctx, {"choice": "silent", "confidence": 0.9})[0] == "silent"
+
+
+def test_done_cases_are_read():
+    md = """## 2026-10-08 18:17:06（4）
+- 起点：完了
+- 結果が届いた：play_music「（name=ケイマン order=ランダム）」
+- 正解の動作：黙る
+"""
+    (c,) = em.parse_done(md)
+    assert (c.n, c.action, c.gold) == ("4", "play_music", "黙る")

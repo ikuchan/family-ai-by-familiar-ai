@@ -620,12 +620,117 @@ async def fanout(client, cases: "list[Case]") -> None:
     print(f"1 場面の秒：平均 {sum(seconds) / len(seconds):.2f}・最大 {max(seconds):.2f}")
 
 
+@dataclass
+class DoneCase:
+    """完了の正解の場面（`JEV_正解.md` の「起点：完了」）。"""
+
+    n: str
+    at: str
+    action: str
+    gold: str  # 正解の動作（そのままの書き方）
+
+
+def parse_done(text: str) -> "list[DoneCase]":
+    out: list[DoneCase] = []
+    for block in re.split(r"\n(?=## )", text):
+        head = re.match(r"## (\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)（(\d+)）", block)
+        if not head or "- 起点：完了" not in block:
+            continue
+        got = re.search(r"- 結果が届いた：(\w+)", block)
+        gold = re.search(r"- 正解の動作：(.+)", block)
+        if got and gold:
+            out.append(DoneCase(head.group(2), head.group(1), got.group(1), gold.group(1).strip()))
+    return out
+
+
+#: 完了の正解の書き方 → 本体の `Decision` で当たりとみなすもの。
+_DONE_GOLD = {
+    "黙る": lambda d: d.branch == "light" and not d.text,
+    "返事をする": lambda d: d.branch == "full" or (d.branch == "light" and bool(d.text)),
+}
+
+
+def _result_from_db(at: str) -> str:
+    """その時刻の直前に記録へ書かれた「結果が届いた」の版を、本番 DB から**読むだけ**で引く。無ければ空。"""
+    import os
+
+    import psycopg2
+
+    url = os.environ.get("DATABASE_URL", "")
+    if not url:
+        return ""
+    conn = psycopg2.connect(url)
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SET default_transaction_read_only = on")
+            cur.execute(
+                "SELECT content FROM observations WHERE direction = '求め' AND content LIKE %s "
+                "AND timestamp BETWEEN (%s::timestamp AT TIME ZONE 'Asia/Tokyo') - interval '20 seconds' "
+                "AND (%s::timestamp AT TIME ZONE 'Asia/Tokyo') + interval '2 seconds' "
+                "ORDER BY timestamp DESC LIMIT 1",
+                ("%結果が届いた%", at, at),
+            )
+            row = cur.fetchone()
+        return str(row[0]) if row else ""
+    finally:
+        conn.close()
+
+
+async def through_arbiter() -> None:
+    """本体の調停（`Arbiter.decide`）をそのまま呼び、完了の正解の場面を通す。W は空（直前のやりとりと届いた結果だけ）。"""
+    from familiar_agent.backends.factory import create_utility_backend
+    from familiar_agent.backends.jev import JevClient
+    from familiar_agent.config import AgentConfig
+    from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
+    from familiar_agent.store import arbiter_records
+
+    arbiter_records.record = lambda **kw: None  # 実験の判定を本番の記録に残さない
+    cfg = AgentConfig()
+    arbiter = Arbiter(
+        jev=JevClient.from_env(timeout=15.0), writer=create_utility_backend(cfg), min_conf=0.6
+    )
+    print("場面\t返った道具\t起点\t最終（branch・動作・文の長さ）\t正解の動作\t一致\t秒")
+    hits = total = 0
+    for c in parse_done(GOLD.read_text(encoding="utf-8")):
+        playing, recent = context_at(c.at)
+        origin = "情動" if c.action in ("look", "see") else "発話"
+        result = _result_from_db(c.at) or "結果あり"
+        person = [t for who, t in recent if who == "人"]
+        lines = "\n".join(f"- {who}：{t}" for who, t in recent) or "（なし）"
+        inp = ArbiterInput(
+            utterance=person[-1] if (person and origin == "発話") else "",
+            workspace_ctx=f"[いま道具から返った]\n- {result[:1500]}\n\n[直近のやりとり]\n{lines}",
+            now_ctx=c.at,
+            origin=origin,
+            can_see=True,
+            extra_actions=("play_music", "stop_music", "next_track", "music_volume"),
+            returned=((c.action, False, result),),
+        )
+        started = time.monotonic()
+        d = await arbiter.decide(inp)
+        took = time.monotonic() - started
+        judge = _DONE_GOLD.get(c.gold)
+        if judge is None:
+            mark = "（W 次第）"
+        else:
+            total += 1
+            ok = judge(d)
+            hits += ok
+            mark = "○" if ok else "×"
+        shown = f"{d.branch}・{d.action if d.branch == 'action' else '-'}・{len(d.text)} 字"
+        print(f"{c.n}\t{c.action}\t{origin}\t{shown}\t{c.gold}\t{mark}\t{took:.2f}")
+    print(f"\n正解の決まる場面の一致 {hits}/{total}")
+
+
 async def main() -> None:
     from dotenv import load_dotenv
 
     load_dotenv(ROOT / ".env")  # 鍵だけを読む（表示しない）
     from familiar_agent.backends.jev import JevClient
 
+    if ARBITER_MODE:
+        await through_arbiter()
+        return
     cases = parse_gold(GOLD.read_text(encoding="utf-8"))
     if ACTION_MODE:
         cases = [c for c in cases if c.action]  # 動作が W に関係なく決まる場面だけ
@@ -682,6 +787,7 @@ ACTION_MODE = False
 PIPELINE_MODE = False
 SINGLE_MODE = False
 FANOUT_MODE = False
+ARBITER_MODE = False
 
 if __name__ == "__main__":
     import sys
@@ -691,4 +797,5 @@ if __name__ == "__main__":
     PIPELINE_MODE = "--pipeline" in sys.argv  # 本番と同じ流れで最終の動作まで出す
     SINGLE_MODE = "--single" in sys.argv  # 意味と動作を 1 回の問いでまとめて聞く
     FANOUT_MODE = "--fanout" in sys.argv  # 意味と、意味ごとの 2 回目を先読みで 1 回に並べる
+    ARBITER_MODE = "--arbiter" in sys.argv  # 本体の調停をそのまま呼んで完了の場面を通す
     asyncio.run(main())
