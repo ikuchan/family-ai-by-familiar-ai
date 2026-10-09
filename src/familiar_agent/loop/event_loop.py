@@ -2886,6 +2886,9 @@ class InformationProcessing:
             extra_actions=self._extra_actions(exclude=returned),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
             returned=returned_lookups,  # 完了を機械で分ける（出-ay 段 4-2）
+            fired_axis=str(
+                getattr(self._req, "fired_axis", "") or ""
+            ),  # 情動を軸で決める（出-ay 段 4-3）
             timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
             current_speaker=self._current_speaker_name(),
             silenced=bool(silence_note),

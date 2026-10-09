@@ -46,7 +46,10 @@ def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently():
         return await real_finish(text, memories, outcome, **kw)
 
     ip._finish = finish  # type: ignore[method-assign]
-    _run_until(ip, lambda: outcomes, push=lambda: ip.push_affect("SEEKING", "探索したい"))
+    # 出-ay 段 4-3（2026-10-09）から、seeking・safety・bond・esteem は軸の表で決まり、最初の反復で黙るは選ばれない
+    # （seeking は調べに行く）。ここで固めたいのは「調停が黙ると決めたら、反復が主LLM を呼ばず沈黙で閉じる」ことなので、
+    # 表に無い軸（いままでの判定を通る）で調停に黙らせる。結果が届いた反復の黙るは test_arbiter_completion_by_rule が見る。
+    _run_until(ip, lambda: outcomes, push=lambda: ip.push_affect("CALM", "落ち着いている"))
     assert outcomes == ["沈黙"]
     a.backend.stream_turn.assert_not_awaited()
 

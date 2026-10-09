@@ -496,6 +496,8 @@ class ArbiterInput:
     talking: bool = False
     #: この反復で道具から返ったもの（名前・失敗の印・結果の文）。完了を機械で分けるのに使う（出-ay 段 4-2）。
     returned: "tuple[tuple[str, bool, str], ...]" = ()
+    #: 情動の求めで発火した軸（seeking・safety・bond・esteem）。情動を軸で決めるのに使う（出-ay 段 4-3）。
+    fired_axis: str = ""
 
 
 #: 分岐の決め方の目安（出-au 段 5-7d・一つの軽量LLM の指示文にあったものを、Jev に送る文へ移した）。
@@ -600,6 +602,14 @@ _COMPLETION_TEXT: "dict[str, str]" = {
     "reply_light": "結果をもとに短く返す",
     "talk_light": "結果をもとに、家族に短く話しかける",
     "reply_full": "結果を読んで、考えて返す",
+    "talk_full": "記憶を踏まえて、考えて話しかける",
+}
+#: 情動の軸 → 2 回目に並べる動作（出-ay 段 4-3・本人の表）。rest は調停に来ない（REST の内省パス）。
+_AFFECT_ACTIONS: "dict[str, tuple[str, ...]]" = {
+    "seeking": ("search_deferred",),
+    "safety": ("look", "search_deferred"),
+    "bond": ("talk_light", "talk_full"),
+    "esteem": ("talk_light", "talk_full", "search_deferred"),
 }
 #: 軽量LLM が書く一言の種類 → 決めたこととして渡す言葉。
 _LIGHT_WORDS: "dict[str, str]" = {
@@ -743,6 +753,8 @@ class Arbiter:
             ruled = await self._completion_by_rule(inp, started)
             if ruled is not None:
                 return ruled
+        elif inp.origin == "情動" and inp.fired_axis in _AFFECT_ACTIONS:
+            return await self._affect_by_rule(inp, started)
         data = await self._judge(inp)
         texts = None if data is None else await self._write(inp, data)
         decision = None
@@ -841,13 +853,51 @@ class Arbiter:
         )
         return decision if decision is not None else _FALLBACK
 
+    async def _affect_by_rule(self, inp: ArbiterInput, started: float) -> Decision:
+        """情動は発火した軸で決め、要るときだけ Jev に 2 回目を聞く（出-ay 段 4-3・2026-10-09・`設計方針_判定の段` §2.2.5）。
+
+        seeking は調べに行くだけ。safety は見るか調べるか、bond は軽く／考えて話しかけるか、esteem はそれに調べるを
+        足して Jev に聞く。**確信度は使わない**（本人）。Jev が答えない・書けなければ full。
+        """
+        from ..backends.jev import choice
+        from ..core.jev_judges import _ask
+
+        actions = _AFFECT_ACTIONS[inp.fired_axis]
+        final = actions[0]
+        if len(actions) > 1:
+            answer = await _ask(
+                self._jev,
+                self._state(inp),
+                {
+                    "action": choice(
+                        f"自分の内から求めが起きた（{inp.fired_axis}）。パジュは次にどうするか",
+                        {a: _COMPLETION_TEXT.get(a, _action_note(a) or a) for a in actions},
+                    )
+                },
+            )
+            picked = str(
+                ((getattr(answer, "answers", None) or {}).get("action") or {}).get("choice") or ""
+            )
+            if not getattr(answer, "ok", False) or picked not in actions:
+                logger.info("調停（情動・%s）：Jev が答えなかったので full", inp.fired_axis)
+                return _FALLBACK
+            final = picked
+        decision = await self._completion_decision(inp, final, tool="")
+        logger.info(
+            "調停 %.2f 秒（情動・軸で決めた：%s → %s）",
+            time.monotonic() - started,
+            inp.fired_axis,
+            final if decision is not None else "書けなかったので full",
+        )
+        return decision if decision is not None else _FALLBACK
+
     async def _completion_decision(
         self, inp: ArbiterInput, final: str, *, tool: str
     ) -> "Decision | None":
         """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
         if final == "silent":
             return Decision(branch="light", text="")
-        if final == "reply_full":
+        if final in ("reply_full", "talk_full"):
             return Decision(branch="full", effort="low")
         if final in _LIGHT_WORDS:
             texts = await _writer_call(self, inp, {"decided": _LIGHT_WORDS[final]}, ["text"])
