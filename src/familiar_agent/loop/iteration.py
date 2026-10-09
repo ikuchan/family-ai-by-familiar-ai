@@ -33,6 +33,19 @@ def _log_recall_weights(trigger, base, used, memories) -> None:
     )  # fmt: skip
 
 
+def closes_silently(decision, *, trigger_kind: str, returned: "frozenset[str]") -> bool:
+    """調停が黙ると決めた反復を、主LLM を呼ばずに沈黙で閉じるか（出-w・出-ay 段 4-2）。
+
+    light で文が無いとき。情動の求めと、道具の結果が届いた反復（完了）だけ。人の言葉への最初の反復で文が無いのは
+    書けなかっただけなので閉じない。
+    """
+    return (
+        decision.branch == "light"
+        and not decision.text
+        and (trigger_kind == "情動" or bool(returned))
+    )
+
+
 class Iteration:
     """1 反復の流れと、段どうしで渡す状態。`ip` は `InformationProcessing`。"""
 
@@ -161,6 +174,7 @@ class Iteration:
             round_=self.round_,
             memories=self.ws.memories,
             returned=self.ws.returned_actions,
+            returned_lookups=self.ws.returned_lookups,
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る（次の反復から）。解くのも同じ口。
         await ip._apply_requests(self.decision, utterance=said)
@@ -175,9 +189,12 @@ class Iteration:
         if self.gen != ip._request_generation:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（調停後）")
             return ""
-        # (a') 情動の求めで調停が「黙る」（light・text 空）と決めた：沈黙で閉じる（出-w）。
-        if decision.branch == "light" and not decision.text and ip._req.trigger_kind == "情動":
-            logger.info("event-loop 調停が黙ると決めたので沈黙で閉じる（情動）")
+        # (a') 調停が「黙る」（light・text 空）と決めた：沈黙で閉じる。情動の求め（出-w）と、結果が届いた反復
+        # （出-ay 段 4-2：音楽をかけた・次の曲などは黙る）。
+        if closes_silently(
+            decision, trigger_kind=ip._req.trigger_kind, returned=self.ws.returned_actions
+        ):
+            logger.info("event-loop 調停が黙ると決めたので沈黙で閉じる（%s）", ip._req.trigger_kind)
             await ip._finish("", memories, "沈黙", gen=self.gen)
             return ""
         # (a) 軽量で閉じる。**記憶が育つ経路は申告1本しかない。** 主LLM を起こさない反復もそこを通す

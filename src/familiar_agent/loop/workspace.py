@@ -208,6 +208,16 @@ def returned_actions(req: Request) -> frozenset[str]:
     return frozenset(lk.action for lk in req.lookups if lk.index in idx and lk.result is not None)
 
 
+def returned_lookups(req: Request) -> "tuple[tuple[str, bool, str], ...]":
+    """この反復で道具から返ったもの（名前・失敗の印・結果の文・返った順）。完了を機械で分けるのに使う（出-ay 段 4-2）。"""
+    idx = set(getattr(req, "just_returned", ()) or ())
+    return tuple(
+        (lk.action, bool(lk.failed), str(lk.result))
+        for lk in sorted(req.lookups, key=lambda lk: lk.index)
+        if lk.index in idx and lk.result is not None
+    )
+
+
 def just_returned(req: Request) -> str:
     """W の最上部：**この反復で道具から返ったもの**（出-x・2026-09-18）。
 
@@ -340,6 +350,8 @@ class Workspace:
     #: 道具の返りを受けるものに替える。`_iterate` は W を組んだら `just_returned` を空にするので、
     #: ここに固定する。
     returned_actions: frozenset[str] = frozenset()
+    #: この反復で返った道具の中身（`returned_lookups`・出-ay 段 4-2）。組んだ時点の値を固定する。
+    returned_lookups: "tuple[tuple[str, bool, str], ...]" = ()
     #: 申告（`memory_verdicts`）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
@@ -541,6 +553,7 @@ async def recall(
         basis=describe_basis(cfg, viewpoint=viewpoint, time_ref=time_ref, memories=memories),
     )
     ws.returned_actions = returned
+    ws.returned_lookups = returned_lookups(req)
     return ws
 
 

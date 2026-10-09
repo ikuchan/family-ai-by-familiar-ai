@@ -1357,8 +1357,12 @@ def test_the_arbiter_sees_what_was_already_looked_up():
 
     _run_chain(a, utterance="どこの天気？")
 
-    prompts = [c.args[0] for c in a._utility_backend.complete.call_args_list]
-    assert len(prompts) >= 2, "2反復目まで回っていない"
+    # 調停が見たもの＝Jev に送った状態の文と、軽量LLM へのプロンプト（どちらも W を含む）。
+    # 出-ay 段 4-2（2026-10-09）から、結果が届いた反復は Jev に 2 回目だけを聞き、軽量LLM を呼ばないことがある。
+    # 確かめたいのは「2 回目の判定に、調べた事実が届いているか」なので、両方を見る。
+    seen = [c.args[0] for c in a._jev.ask.await_args_list] + [
+        c.args[0] for c in a._utility_backend.complete.call_args_list
+    ]
+    assert len(a._jev.ask.await_args_list) >= 2, "2反復目まで回っていない"
     # 調べた事実は完了 O として W に載り、そこから調停へ届く（手組みの一覧ではない）。
-    # 調停のプロンプトは W を含むので、そのどれかに完了 O の内容が入っていればよい。
-    assert any("直近の天気" in p for p in prompts[1:]), "調べた事実が調停へ届いていない"
+    assert any("直近の天気" in str(p) for p in seen[1:]), "調べた事実が調停へ届いていない"

@@ -2794,6 +2794,7 @@ class InformationProcessing:
         round_: int,
         memories: "list[Recalled] | None" = None,
         returned: frozenset[str] = frozenset(),
+        returned_lookups: "tuple[tuple[str, bool, str], ...]" = (),
     ) -> "ArbiterDecision":
         """この反復の分岐を決める。**see の帰りは、出した側が判断する。**
 
@@ -2829,6 +2830,7 @@ class InformationProcessing:
                 capped=capped,
                 round_=round_,
                 returned=returned,
+                returned_lookups=returned_lookups,
             )
         )
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
@@ -2857,6 +2859,7 @@ class InformationProcessing:
         capped: bool = False,
         round_: int = 1,
         returned: frozenset[str] = frozenset(),
+        returned_lookups: "tuple[tuple[str, bool, str], ...]" = (),
     ) -> ArbiterInput:
         """調停へ渡す材料。判定（`_decide`）と待ちの一言（`_say_waiting_filler`）が同じものを見る。"""
         from ..capability_state import load_summary
@@ -2882,6 +2885,7 @@ class InformationProcessing:
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
+            returned=returned_lookups,  # 完了を機械で分ける（出-ay 段 4-2）
             timer_active=self._timer_active(),  # 操作の言葉の守り（出-aa）
             current_speaker=self._current_speaker_name(),
             silenced=bool(silence_note),

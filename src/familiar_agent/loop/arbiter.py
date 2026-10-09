@@ -389,6 +389,12 @@ def assemble(
         query = str(tool_input.get("label") or tool_input.get("id") or query or action).strip()
         # 道具は 0.1 秒で返る。つなぎを言うと、返りを見て言う一言と同じ文が 2 回出る（実機 08:59）。
         text = ""
+    if action in _MUSIC_ACTIONS:
+        # 音楽の道具は語ではなく道具の入力（曲の名前）を受ける。語が空のまま残ると「動作なのに語が無い」で倒れ、
+        # Jev が play_music を選んでも必ず主LLM に回っていた（2026-10-09・出-ay 段 4-2）。タイマーと同じく入力から語を作る。
+        tool_input = tool_input or {}
+        query = str(tool_input.get("name") or query or action).strip()
+        text = ""
     if action not in allowed:
         # **書き換えた後にも候補に照らす**（出-ag-ろ 穴 1）。上の書き換えは候補に照らした後で
         # 道具名を変えるので、返りの反復で外した `set_timer` が `set_alarm` から戻ってきた
@@ -488,6 +494,8 @@ class ArbiterInput:
     season_env: str = ""
     # 情動のうち話しかける軸（bond・esteem）。light の文を話しかけにする（出-at）
     talking: bool = False
+    #: この反復で道具から返ったもの（名前・失敗の印・結果の文）。完了を機械で分けるのに使う（出-ay 段 4-2）。
+    returned: "tuple[tuple[str, bool, str], ...]" = ()
 
 
 #: 分岐の決め方の目安（出-au 段 5-7d・一つの軽量LLM の指示文にあったものを、Jev に送る文へ移した）。
@@ -580,6 +588,25 @@ def _unsure(label: str, answer: Any, key: str, min_conf: float) -> str:
     if not ranks and got.get("choice"):
         ranks = f"1 番 {got.get('choice')}"
     return f"{label}の確信度 {conf:.2f}＜{min_conf:g}" + (f"（{ranks}）" if ranks else "")
+
+
+#: 音楽の道具（語ではなく道具の入力を受ける・`assemble` が入力から語を作る）。
+_MUSIC_ACTIONS = frozenset({"play_music", "stop_music", "next_track", "music_volume"})
+
+#: 完了の 2 回目の説明（出-ay 段 4-2）。道具は `_action_note` の説明を使う。
+_COMPLETION_TEXT: "dict[str, str]" = {
+    "silent": "黙る（結果を持っていれば足りる）",
+    "tell_light": "結果を短く伝える",
+    "reply_light": "結果をもとに短く返す",
+    "talk_light": "結果をもとに、家族に短く話しかける",
+    "reply_full": "結果を読んで、考えて返す",
+}
+#: 軽量LLM が書く一言の種類 → 決めたこととして渡す言葉。
+_LIGHT_WORDS: "dict[str, str]" = {
+    "tell_light": "軽く伝える",
+    "reply_light": "軽く返す",
+    "talk_light": "軽く話しかける",
+}
 
 
 def _extra_action_text(action: str) -> str:
@@ -710,8 +737,12 @@ class Arbiter:
         from ..core.timer_rules import is_control_word
 
         started = time.monotonic()
-        if inp.origin == "機器" and not inp.tool_return:
+        if inp.origin == "機器" and not inp.tool_return and not inp.returned:
             return await self._device_by_rule(inp, started)
+        if inp.returned:
+            ruled = await self._completion_by_rule(inp, started)
+            if ruled is not None:
+                return ruled
         data = await self._judge(inp)
         texts = None if data is None else await self._write(inp, data)
         decision = None
@@ -765,6 +796,74 @@ class Arbiter:
             "軽く知らせる" if decision else "書けなかったので full",
         )
         return decision if decision is not None else _FALLBACK
+
+    async def _completion_by_rule(self, inp: ArbiterInput, started: float) -> "Decision | None":
+        """完了は機械で分け、選択肢が 1 つなら Jev に聞かない（出-ay 段 4-2・2026-10-09・`設計方針_判定の段` §2.2.5）。
+
+        何が起きたかは `core/completion_kind.kind_of` が、最後に返った道具から決める。選択肢が 2 つ以上なら Jev に
+        2 回目だけ聞き、**確信度に関係なく 1 番を使う**（本人：この領域では確信度を使わない）。表に無い道具は None
+        （いままでの判定）。
+        """
+        from ..backends.jev import choice
+        from ..core.completion_kind import kind_of
+        from ..core.jev_judges import _ask
+
+        action, failed, result = inp.returned[-1]
+        got = kind_of(action, failed=failed, result=result, origin=inp.origin)
+        if got is None:
+            return None
+        kind, actions = got
+        final = actions[0]
+        if len(actions) > 1:
+            answer = await _ask(
+                self._jev,
+                self._state(inp),
+                {
+                    "action": choice(
+                        f"自分の動作の結果が届いた（{kind}）。パジュは次にどうするか",
+                        {a: _COMPLETION_TEXT.get(a, _action_note(a) or a) for a in actions},
+                    )
+                },
+            )
+            picked = str(
+                ((getattr(answer, "answers", None) or {}).get("action") or {}).get("choice") or ""
+            )
+            if not getattr(answer, "ok", False) or picked not in actions:
+                logger.info("調停（完了・%s）：Jev が答えなかったので full", kind)
+                return _FALLBACK
+            final = picked
+        decision = await self._completion_decision(inp, final, tool=action)
+        logger.info(
+            "調停 %.2f 秒（完了・機械で分けた：%s → %s）",
+            time.monotonic() - started,
+            kind,
+            final if decision is not None else "書けなかったので full",
+        )
+        return decision if decision is not None else _FALLBACK
+
+    async def _completion_decision(
+        self, inp: ArbiterInput, final: str, *, tool: str
+    ) -> "Decision | None":
+        """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
+        if final == "silent":
+            return Decision(branch="light", text="")
+        if final == "reply_full":
+            return Decision(branch="full", effort="low")
+        if final in _LIGHT_WORDS:
+            texts = await _writer_call(self, inp, {"decided": _LIGHT_WORDS[final]}, ["text"])
+            text = str((texts or {}).get("text", "")).strip()
+            return Decision(branch="light", text=text) if text else None
+        data = {"branch": "action", "action": final, "effort": "low"}
+        texts = await self._write(inp, data)
+        if texts is None:
+            return None
+        # 返った道具は候補から外されている（`_extra_actions(exclude=returned)`）。かけ直す・続けて見るために足す。
+        return assemble(
+            {**data, **texts},
+            can_see=inp.can_see or final in ("look", "see") or tool in ("look", "see"),
+            origin=inp.origin,
+            extra_actions=(*inp.extra_actions, final),
+        )
 
     def _record(self, inp: ArbiterInput, decision: "Decision | None") -> None:
         """Jev に渡したそのままと答え・結末を残す（出-ay 段 3・2026-10-08・本人の決定）。
