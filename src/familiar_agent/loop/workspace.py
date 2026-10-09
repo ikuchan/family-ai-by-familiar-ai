@@ -176,9 +176,12 @@ def compose(
         ):
             names[r.mi.obs_id] = "相手"
     basis_line = f"[この想起：{basis}]" if basis else ""
-    text = "\n\n".join(
-        p for p in [said, added, heard, basis_line, _lines(shown, names)] if p and p.strip()
-    )
+    # 想起した記憶には見出しを付ける。直近のやりとりの枠（文脈）と分ける（出-ay 段 4-4b：文脈は直前のやりとりで、
+    # 思い出したことではない）。
+    remembered = _lines(shown, names)
+    if remembered.strip():
+        remembered = "[思い出したこと]\n" + remembered
+    text = "\n\n".join(p for p in [said, added, heard, basis_line, remembered] if p and p.strip())
     return text, id_map
 
 

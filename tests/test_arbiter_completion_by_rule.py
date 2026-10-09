@@ -109,7 +109,8 @@ def test_a_quiet_decision_on_a_result_closes_silently_even_for_a_conversation():
     quiet = Decision(branch="light", text="")
     assert iteration.closes_silently(quiet, trigger_kind="発話", returned=frozenset({"play_music"}))
     assert iteration.closes_silently(quiet, trigger_kind="情動", returned=frozenset())
-    assert not iteration.closes_silently(quiet, trigger_kind="発話", returned=frozenset())
+    # 段 4-4b（2026-10-09）から、人の言葉への最初の反復でも黙るを選ぶ（成立しないもの・文脈に合わない言葉）ので閉じる。
+    assert iteration.closes_silently(quiet, trigger_kind="発話", returned=frozenset())
 
 
 # ── 音楽の道具が調停で必ず倒れていた（2026-10-09・段 4-2 で一緒に直す・本人の決定ア）──────────────────────

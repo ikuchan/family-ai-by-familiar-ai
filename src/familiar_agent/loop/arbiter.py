@@ -613,10 +613,24 @@ _AFFECT_ACTIONS: "dict[str, tuple[str, ...]]" = {
 }
 #: 軽量LLM が書く一言の種類 → 決めたこととして渡す言葉。
 _LIGHT_WORDS: "dict[str, str]" = {
+    "ask_back": "聞き返す",
+    "state_light": "頼まれていたことの状態を短く伝える",
     "tell_light": "軽く伝える",
     "reply_light": "軽く返す",
     "talk_light": "軽く話しかける",
 }
+
+
+def _family_call_names(family_md: str) -> "list[str]":
+    """家族の呼び方（1 人 1 つ）。名乗り・否定の 2 回目に並べる（出-ay 段 4-4b）。"""
+    from ..core import parsing
+    from ..core.speaker_claim import call_name_of
+
+    try:
+        members = parsing.parse_family_md(family_md or "")
+    except Exception:  # noqa: BLE001
+        return []
+    return [n for n in (call_name_of(m) for m in members) if n]
 
 
 def _extra_action_text(action: str) -> str:
@@ -747,14 +761,16 @@ class Arbiter:
         from ..core.timer_rules import is_control_word
 
         started = time.monotonic()
-        if inp.origin == "機器" and not inp.tool_return and not inp.returned:
-            return await self._device_by_rule(inp, started)
-        if inp.returned:
-            ruled = await self._completion_by_rule(inp, started)
-            if ruled is not None:
-                return ruled
-        elif inp.origin == "情動" and inp.fired_axis in _AFFECT_ACTIONS:
-            return await self._affect_by_rule(inp, started)
+        ruled = await self._by_rule(inp, started)
+        if ruled is not None:
+            # 新しい道でも計測ログは書く（層 3 が調停の待ち時間を調整するのに使う・出-ay 段 4-4b）。
+            measure.record(
+                "調停",
+                秒=f"{time.monotonic() - started:.2f}",
+                分岐=ruled.branch,
+                時間切れ="yes" if self._timed_out else "no",
+            )
+            return ruled
         data = await self._judge(inp)
         texts = None if data is None else await self._write(inp, data)
         decision = None
@@ -792,6 +808,19 @@ class Arbiter:
         )
         self._record(inp, decision)
         return decision if decision is not None else _FALLBACK
+
+    async def _by_rule(self, inp: ArbiterInput, started: float) -> "Decision | None":
+        """起点ごとの新しい道（出-ay 段 4）。当てはまらなければ None（いままでの判定）。"""
+        self._timed_out = False
+        if inp.origin == "機器" and not inp.tool_return and not inp.returned:
+            return await self._device_by_rule(inp, started)
+        if inp.returned:
+            return await self._completion_by_rule(inp, started)
+        if inp.origin == "情動" and inp.fired_axis in _AFFECT_ACTIONS:
+            return await self._affect_by_rule(inp, started)
+        if inp.origin == "発話" and not inp.tool_return:
+            return await self._utterance_by_meaning(inp, started)
+        return None
 
     async def _device_by_rule(self, inp: ArbiterInput, started: float) -> Decision:
         """機器の知らせは「軽く知らせる」と機械で決める（出-ay 段 4-1・2026-10-09・`設計方針_判定の段` §2.2.5）。
@@ -891,14 +920,81 @@ class Arbiter:
         )
         return decision if decision is not None else _FALLBACK
 
+    async def _utterance_by_meaning(self, inp: ArbiterInput, started: float) -> Decision:
+        """発話は意味 → 動作を先読みの 1 回で聞く（出-ay 段 4-4b・2026-10-09・`設計方針_判定の段` §2.2.5）。
+
+        問いと決まりは `core/utterance_meaning`。越えなければ「よく考えるか、軽く聞き返すか」をもう 1 回聞き、それも越え
+        なければ軽く聞き返す。Jev が答えない・書けなければ full。黙る依頼・名乗り・否定・時期は段 4-4c で欄に戻す
+        （それまでは軽く返す・本人：一時的に効かないのはかまわない）。
+        """
+        from ..core import utterance_meaning as um
+        from ..core.jev_judges import _ask
+
+        family = _family_call_names(inp.family_md)
+        state = self._state(inp)
+        answer = await _ask(
+            self._jev,
+            state,
+            um.fanout_questions(
+                confirming="confirm" in inp.extra_actions,
+                music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
+                camera=inp.can_see,
+                family=family,
+            ),
+        )
+        got = getattr(answer, "answers", None) or {}
+        if not getattr(answer, "ok", False) or not got.get("meaning"):
+            logger.info("調停（発話）：Jev が答えなかったので full")
+            return _FALLBACK
+        meaning = got["meaning"]
+        m = str(meaning.get("choice") or "")
+        offered = um.offered(
+            confirming="confirm" in inp.extra_actions,
+            music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
+            camera=inp.can_see,
+        )
+        if m in offered:
+            outcome = um.decide(meaning, got.get(f"action_{m}"))
+        else:
+            # 並べていない意味（使えない道具）が返ってきたら使わない。首を回せないのに回す、などを防ぐ。
+            outcome = um.Outcome("unsure", why=f"並べていない意味（{m}）")
+        final = outcome.final
+        if final == "unsure":
+            again = await _ask(self._jev, state, um.unsure_question())
+            final = um.resolve_unsure((getattr(again, "answers", None) or {}).get("action"))
+        if final in ("quiet", "lift_quiet", "claim", "deny"):
+            final = "reply_light"  # 欄に戻すのは段 4-4c
+        from ..core.timer_rules import is_control_word
+
+        if final == "reply_light" and (
+            needs_tools(inp.utterance) or (inp.timer_active and is_control_word(inp.utterance))
+        ):
+            # 軽く返すだけでは道具が動かない（「セットしました」と言うだけになる）。いままでの機械の守りを引き継ぐ。
+            logger.info("調停（発話）：道具が要る頼みを軽く返さず full へ：%.30s", inp.utterance)
+            final = "reply_full"
+        if final in ("look", "see") and not inp.can_see:
+            final = "reply_full"  # カメラが無いのに見ない
+        if inp.capped and final not in ("silent", "reply_full") and final not in _LIGHT_WORDS:
+            final = "reply_full"  # 上限に達した反復は調べさせずに閉じる
+        effort = str((got.get("effort") or {}).get("choice") or "low")  # 考える深さ（本人の決定ウ）
+        decision = await self._completion_decision(inp, final, tool="", effort=effort)
+        logger.info(
+            "調停 %.2f 秒（発話・意味で決めた：%s → %s・%s）",
+            time.monotonic() - started,
+            m,
+            final if decision is not None else "書けなかったので full",
+            outcome.why,
+        )
+        return decision if decision is not None else _FALLBACK
+
     async def _completion_decision(
-        self, inp: ArbiterInput, final: str, *, tool: str
+        self, inp: ArbiterInput, final: str, *, tool: str, effort: str = "low"
     ) -> "Decision | None":
         """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
         if final == "silent":
             return Decision(branch="light", text="")
         if final in ("reply_full", "talk_full"):
-            return Decision(branch="full", effort="low")
+            return Decision(branch="full", effort=effort if effort in _EFFORTS else "low")
         if final in _LIGHT_WORDS:
             texts = await _writer_call(self, inp, {"decided": _LIGHT_WORDS[final]}, ["text"])
             text = str((texts or {}).get("text", "")).strip()

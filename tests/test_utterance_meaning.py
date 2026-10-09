@@ -81,3 +81,9 @@ def test_when_unsure_think_or_ask_back():
 
 def test_ask_back_is_twenty_characters():
     assert um.ASK_BACK_MAX_CHARS == 20
+
+
+def test_the_fan_out_also_asks_how_deeply_to_think():
+    """考える深さ（low・medium・high）も同じ 1 回で聞く（2026-10-09 本人の決定ウ）。考えて返すとき主LLM に渡す。"""
+    qs = um.fanout_questions(confirming=False, music=True, camera=True, family=[])
+    assert set(qs["effort"]["criteria"]) == {"low", "medium", "high"}

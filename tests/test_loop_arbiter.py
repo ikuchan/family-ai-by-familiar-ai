@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 
 from familiar_agent.loop.arbiter import (
@@ -276,6 +278,10 @@ def test_a_request_that_needs_a_tool_is_never_answered_lightly():
     assert "道具が要る" in qs["branch"]["criteria"]["light"]
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 4-4c で戻す：発話の新しい問い（出-ay 段 4-4b）は、黙る依頼・解く・名乗り・否定・時期をまだ聞かない（本人：一時的に効かないのはかまわない）",
+)
 def test_the_silence_request_survives_the_fall_to_full():
     d, _ = _run(jev_says("light", quiet=30), {"text": "わかった"}, utterance="話すの止めて")
     assert d.branch == "full" and d.silence_minutes == 30

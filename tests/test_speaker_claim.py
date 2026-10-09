@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
@@ -68,6 +70,10 @@ def test_someone_outside_the_family_still_resolves_to_nothing():
     assert resolve_claim("太郎", FAMILY_ALIASES) is None
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 4-4c で戻す：発話の新しい問い（出-ay 段 4-4b）は、黙る依頼・解く・名乗り・否定・時期をまだ聞かない（本人：一時的に効かないのはかまわない）",
+)
 def test_the_arbiter_carries_the_claim_and_drops_it_on_a_tool_return():
     def claim(**kw):
         return asyncio.run(

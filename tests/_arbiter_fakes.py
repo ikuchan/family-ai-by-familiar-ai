@@ -53,10 +53,45 @@ def jev_says(
         "denies": _yes(bool(denied)),
         "denied": _pick(denied or "other", confidence),
     }
+    # 発話の新しい問い（出-ay 段 4-4b：意味＋意味ごとの動作）にも同じ答えを写す。古い分岐で書いた試験の意図を変えずに、
+    # 新しい道を通す（light→その他の会話で軽く返す・full→考えて返す・action→その道具が属する意味の道具）。
+    meaning, act = _as_meaning(branch, action)
+    answers["meaning"] = _pick(meaning, confidence)
+    answers[f"action_{meaning}"] = _pick(act, confidence)
     jev = MagicMock()
     jev.available = True
     jev.ask = AsyncMock(return_value=JevAnswer(ok=True, answers=answers))
     return jev
+
+
+_MUSIC = {"play_music", "stop_music", "next_track", "music_volume"}
+_TIME = {
+    "set_timer",
+    "cancel_timer",
+    "pause_timer",
+    "resume_timer",
+    "set_alarm",
+    "cancel_alarm",
+    "start_stopwatch",
+    "stop_stopwatch",
+}
+
+
+def _as_meaning(branch: str, action: str) -> "tuple[str, str]":
+    """古い分岐の答え → 発話の新しい問いの（意味, 動作）。"""
+    if branch == "light":
+        return "other", "reply_light"
+    if branch != "action":
+        return "other", "reply_full"
+    if action in _MUSIC:
+        return "music", action
+    if action in _TIME:
+        return "time", action
+    if action in ("look", "see"):
+        return "look", action
+    if action in ("confirm", "decline"):
+        return "confirm", action
+    return "research", action
 
 
 def jev_in_order(*jevs: MagicMock) -> MagicMock:

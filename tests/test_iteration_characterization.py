@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 from unittest.mock import patch
 
@@ -54,6 +56,10 @@ def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently():
     a.backend.stream_turn.assert_not_awaited()
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 4-4c で戻す：発話の新しい問い（出-ay 段 4-4b）は、黙る依頼・解く・名乗り・否定・時期をまだ聞かない（本人：一時的に効かないのはかまわない）",
+)
 def test_a_time_reference_recalls_again_from_that_time():
     """調停が時期を指したら（「去年の夏の話」）、その時点を基準に想起し直す。"""
     a = _agent(stream_returns=[])

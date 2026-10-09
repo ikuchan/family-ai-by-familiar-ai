@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import time
 
 from familiar_agent.silence_state import (
@@ -41,6 +43,10 @@ def test_no_request_means_no_silence():
     assert is_silenced(None, now=time.time()) is False
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 4-4c で戻す：発話の新しい問い（出-ay 段 4-4b）は、黙る依頼・解く・名乗り・否定・時期をまだ聞かない（本人：一時的に効かないのはかまわない）",
+)
 def test_arbiter_can_flag_a_silence_request():
     # 気づくのは Jev（出-au 段 5-7d）。言い方は無数にあるので、文字列の一覧を持たない。黙る依頼と長さを問う。
     import asyncio
@@ -181,6 +187,10 @@ def test_merely_speaking_to_her_does_not_lift_it(monkeypatch):
     assert ip._triggers.empty()
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 4-4c で戻す：発話の新しい問い（出-ay 段 4-4b）は、黙る依頼・解く・名乗り・否定・時期をまだ聞かない（本人：一時的に効かないのはかまわない）",
+)
 def test_the_arbiter_can_flag_a_release():
     import asyncio
 

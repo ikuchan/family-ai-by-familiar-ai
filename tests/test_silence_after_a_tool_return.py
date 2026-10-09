@@ -11,6 +11,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 import time
 from unittest.mock import MagicMock
@@ -38,6 +40,10 @@ def test_a_tool_return_never_carries_a_silence_request():
     assert d.branch == "light" and d.silence_minutes == 0 and d.lift_silence is False
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 4-4c で戻す：発話の新しい問い（出-ay 段 4-4b）は、黙る依頼・解く・名乗り・否定・時期をまだ聞かない（本人：一時的に効かないのはかまわない）",
+)
 def test_a_first_iteration_still_carries_it():
     said = _light("うん、黙るね", quiet="default")
     d = asyncio.run(decide(**said, utterance="パジュ、静かにして"))

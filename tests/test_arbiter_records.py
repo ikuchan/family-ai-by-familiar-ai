@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import pytest
+
 import asyncio
 from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
@@ -40,6 +42,10 @@ def _rows():
     return arbiter_records.near(now - timedelta(seconds=30), seconds=120)
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 5 で戻す：発話の新しい問い（出-ay 段 4-4b）は、まだ arbiter_records に残さない（本人：たまらなくていい）",
+)
 def test_each_judgement_is_recorded_with_what_jev_saw():
     jev = _jev({"branch": _c("full", 0.9), "effort": _c("low"), "action": _c("recall", 0.3)})
     _decide(jev)
@@ -53,6 +59,10 @@ def test_each_judgement_is_recorded_with_what_jev_saw():
     assert row["outcome"].startswith("full")
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason="段 5 で戻す：発話の新しい問い（出-ay 段 4-4b）は、まだ arbiter_records に残さない（本人：たまらなくていい）",
+)
 def test_a_fallback_records_why():
     jev = _jev({"branch": _p("action", 0.33, {"action": 0.55, "full": 0.31})})
     _decide(jev)

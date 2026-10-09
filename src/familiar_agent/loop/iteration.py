@@ -34,16 +34,13 @@ def _log_recall_weights(trigger, base, used, memories) -> None:
 
 
 def closes_silently(decision, *, trigger_kind: str, returned: "frozenset[str]") -> bool:
-    """調停が黙ると決めた反復を、主LLM を呼ばずに沈黙で閉じるか（出-w・出-ay 段 4-2）。
+    """調停が黙ると決めた反復を、主LLM を呼ばずに沈黙で閉じるか（出-w・出-ay 段 4-2・4-4b）。
 
-    light で文が無いとき。情動の求めと、道具の結果が届いた反復（完了）だけ。人の言葉への最初の反復で文が無いのは
-    書けなかっただけなので閉じない。
+    light で文が無いとき。出-ay 段 4-4b から人の言葉への最初の反復でも「黙る」を選ぶ（成立しないもの・文脈に合わない
+    言葉）。書けなかったときは調停が full へ倒すので、light で文が無いのは黙ると決めたときだけになった。
     """
-    return (
-        decision.branch == "light"
-        and not decision.text
-        and (trigger_kind == "情動" or bool(returned))
-    )
+    del trigger_kind, returned  # 起点を問わない（呼び手の形は残す）
+    return decision.branch == "light" and not decision.text
 
 
 class Iteration:

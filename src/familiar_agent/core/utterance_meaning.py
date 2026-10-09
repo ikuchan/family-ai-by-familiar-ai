@@ -156,6 +156,12 @@ ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
 OTHER = "other"
 #: 確信度に関係なくそのまま使う意味（成立しないもの・文脈に合わない言葉・本人）。
 ALWAYS_USE = frozenset({"unformed", "off_context"})
+#: 考える深さ（2026-10-09 本人の決定ウ：先読みの 1 回に足す）。考えて返す（主LLM）ときに渡す。いままでの調停と同じ説明。
+EFFORTS: "dict[str, str]" = {
+    "low": "ふつう。ほとんどの場合",
+    "medium": "ひと言で表せない複雑な気持ちを受け止める、4 つ以上の記憶を踏まえて応える、調べた結果をまとめる",
+    "high": "人がよく考えるよう明示的に求めた",
+}
 #: 越えなかったときに聞く問いの選択肢。
 UNSURE_ACTIONS: "dict[str, str]" = {
     "reply_full": "よく考えてみる（記憶を踏まえて、考えて返す）",
@@ -200,6 +206,7 @@ def fanout_questions(
             {k: MEANINGS[k][1] for k in meanings},
         )
     }
+    qs["effort"] = choice("考えて答えるなら、どれくらい深く考えるべきか", dict(EFFORTS))
     for m in meanings:
         actions = _actions_for(m, family)
         if len(actions) < 2:

@@ -195,8 +195,10 @@ def test_the_warning_carries_the_why(caplog):
         writer=MagicMock(),
         min_conf=0.6,
     )
+    # 段 4（2026-10-09）から発話・情動の主な軸・完了・機器は新しい道を通る。倒れの警告はいままでの判定の道
+    # （表に無い軸の情動など）に残るので、そこで確かめる。
     with caplog.at_level("WARNING"):
-        asyncio.run(arb.decide(_inp()))
+        asyncio.run(arb.decide(_inp(origin="情動", fired_axis="")))
     assert "判定=なし・分岐の確信度 0.55＜0.6" in caplog.text
 
 
