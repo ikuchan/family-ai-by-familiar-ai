@@ -22,7 +22,7 @@ from familiar_agent.core.completion_kind import kind_of
         ("family_schedule", "発話", ("reply_full", "reply_light", "search_deferred")),
         ("ask_vault_yusuke", "発話", ("reply_full", "reply_light", "search_deferred")),
         ("play_music", "発話", ("silent",)),
-        ("stop_music", "発話", ("tell_light",)),
+        ("stop_music", "発話", ("silent",)),  # 2026-10-09 本人：止めたも黙る（正解の 6）
         ("next_track", "発話", ("silent",)),
         ("music_volume", "発話", ("silent",)),
         ("set_timer", "発話", ("tell_light",)),

@@ -46,14 +46,21 @@ def _run(returned, *, jev=None, writer=None, origin="発話"):
     return d, jev, writer
 
 
-def test_music_played_is_silent_without_asking_jev():
-    d, jev, writer = _run((("play_music", False, "「ケイマン」をランダムでかけ始めた"),))
+@pytest.mark.parametrize(
+    "returned",
+    [
+        ("play_music", False, "「ケイマン」をランダムでかけ始めた"),
+        ("stop_music", False, "音楽を止めた"),
+    ],
+)
+def test_music_played_or_stopped_is_silent_without_asking_jev(returned):
+    d, jev, writer = _run((returned,))
     jev.ask.assert_not_awaited()
     writer.complete.assert_not_awaited()
     assert (d.branch, d.text) == ("light", "")
 
 
-@pytest.mark.parametrize("action", ["set_timer", "stop_music", "start_stopwatch", "confirm"])
+@pytest.mark.parametrize("action", ["set_timer", "start_stopwatch", "confirm"])
 def test_a_finished_operation_is_told_lightly(action):
     d, jev, writer = _run(((action, False, "済んだ"),))
     jev.ask.assert_not_awaited()

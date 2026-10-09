@@ -36,7 +36,10 @@ _LOOK = frozenset({"look", "see"})
 #: 成功した操作 → 並べる動作（本人の表・2026-10-09）。
 _DONE: "dict[str, tuple[str, tuple[str, ...]]]" = {
     "play_music": ("音楽をかけた", ("silent",)),
-    "stop_music": ("音楽を止めた", ("tell_light",)),
+    "stop_music": (
+        "音楽を止めた",
+        ("silent",),
+    ),  # 止まったことは音で分かる（2026-10-09 本人・正解の 6）
     "next_track": ("次の曲・音量を変えた", ("silent",)),
     "music_volume": ("次の曲・音量を変えた", ("silent",)),
     "set_timer": ("タイマー・アラームを掛けた", ("tell_light",)),
