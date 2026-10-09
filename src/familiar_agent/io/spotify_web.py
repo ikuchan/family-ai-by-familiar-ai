@@ -152,6 +152,18 @@ class Spotify:
         logger.info("音楽：機器「%s」で鳴らし始めた（%s）", name, uri)
         return True
 
+    def resume(self, name: str) -> bool:
+        """機器 `name` で、止まっていた続きを鳴らす（曲を指定しない・出-ay 段 4-4e）。機器が見つからなければ False。
+
+        Spotify 側に続きが無くても、ここは失敗を返さない（`_http` が誤りを空で返す）。鳴ったかは呼び手が確かめる。
+        """
+        device = self.device_id(name or "")
+        if not device:
+            return False
+        self._call("PUT", f"/me/player/play?device_id={device}", {})
+        logger.info("音楽：機器「%s」で止まっていた続きを頼んだ", name)
+        return True
+
     def now_playing(self) -> dict:
         """いま鳴っているもの（機器名・鳴っているか・曲の URI・その上の URI）。読めなければ空の値。"""
         st = self._call("GET", "/me/player") or {}

@@ -34,6 +34,7 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
             "Spotify 全体から探す。kind に「曲」「アーティスト」「アルバム」「プレイリスト」を渡すと、全体から"
             "探すときの種類になる。order に「ランダム」か「順番」を渡すと、そのときだけ順番を変えられる。"
             "返りで何をどこから見つけたかを言うので、違えば言い直してもらう。"
+            "名前を言われなければ name は空にする——Spotify で止まっていた続きをかける。"
         ),
         "input_schema": {
             "type": "object",
@@ -45,7 +46,6 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
                 },
                 "order": {"type": "string", "description": "「ランダム」か「順番」（省略可）"},
             },
-            "required": ["name"],
         },
     },
     {
@@ -168,7 +168,9 @@ class MusicTool:
         """
         from ..core import music_catalog
 
-        said = str(tool_input.get("name") or "")
+        said = str(tool_input.get("name") or "").strip()
+        if not said:
+            return await self._resume()
         order = str(tool_input.get("order") or "")
         catalog = music_catalog.stored()
         local = music_rules.find_local(said, self._table(), catalog)
@@ -217,13 +219,36 @@ class MusicTool:
         logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
         return f"{heading}{how}かけ始めた", True
 
-    async def _confirm(self, uri: str) -> bool:
-        """Spotify 側でいま鳴っているもの（曲かその上）が `uri` か。`_CONFIRM_TICK` おきに最大 `_CONFIRM_SEC` 見る。"""
+    async def _resume(self) -> "tuple[str, bool]":
+        """曲名なし：Spotify で止まっていた続きを鳴らす（出-ay 段 4-4e・2026-10-09）。
+
+        Web API で曲を指定せずに再生を頼み、鳴り始めたかを確かめる。Web API は失敗しても空を返すので、頼めたかでは
+        なく鳴っているかで見る。続きが無い・Web API が無いときは、かけられなかったと返す（本人の決定ア）。
+        """
+        if self._web is None or not self._device_name:
+            return "続きをかけられなかった（Spotify につながっていない）", False
+        await self._ensure_spotifyd()
+        try:
+            asked = bool(await asyncio.to_thread(self._web.resume, self._device_name))
+        except Exception:  # noqa: BLE001
+            logger.warning("音楽：続きを頼めなかった", exc_info=True)
+            asked = False
+        if not asked or not await self._confirm(None):
+            logger.info("音楽：止まっていた続きが鳴らなかった")
+            return "止まっていた続きが無く、かけるものが無かった", False
+        self._mark(True)
+        logger.info("音楽：止まっていた続きをかけ始めた")
+        return "止まっていた続きをかけ始めた", True
+
+    async def _confirm(self, uri: "str | None") -> bool:
+        """Spotify 側でいま鳴っているもの（曲かその上）が `uri` か（None なら鳴っているか）。`_CONFIRM_TICK` おきに最大 `_CONFIRM_SEC` 見る。"""
         waited = 0.0
         while True:
             with contextlib.suppress(Exception):
                 now = await asyncio.to_thread(self._web.now_playing)
-                if uri in (now.get("item"), now.get("context")):
+                if uri is None and now.get("playing"):
+                    return True  # 続き：何が鳴るかは決めていないので、鳴っているかだけを見る
+                if uri is not None and uri in (now.get("item"), now.get("context")):
                     return True
             if waited >= _CONFIRM_SEC:
                 return False

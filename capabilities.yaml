@@ -178,7 +178,8 @@ capabilities:
       looking closest first: the names in MUSIC.md (spelling variations allowed), your own
       Spotify playlists, your saved albums and songs, the artists and songs inside your
       playlists (read every night), and only then the whole of Spotify, preferring artists
-      you already have; it says what it found and where. `stop_music`, `next_track` and
+      you already have; it says what it found and where. With no name ("音楽かけて") it
+      resumes what Spotify had stopped, and says so if there was nothing to resume. `stop_music`, `next_track` and
       `music_volume` stop it, skip a song and turn it up or down. The agent never starts
       music by itself: every night it picks one song you do not have yet, close to the
       artists in your playlists, and at a moment when it may talk (at most once a day) it
