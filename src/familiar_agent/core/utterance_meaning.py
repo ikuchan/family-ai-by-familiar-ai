@@ -4,7 +4,8 @@
 （`scripts/experiment_meaning.py`・正解 8 場面中 7・1 場面 約 0.3 秒）で決めた問いと決まりを、本体の部品としてここに置く。
 ここは問いを組むのと、答えから最終の動作を決めるだけで、Jev も軽量LLM も呼ばない。
 
-- 意味は明確なものから、あやふやなものの順。使えないもの（確認待ちでない・音楽が無い・カメラが無い）は並べない。
+- 意味は明確なものから、あやふやなものの順。使えないもの（確認待ちでない・すすめた曲の返事を待っていない・音楽が無い・
+  カメラが無い）は並べない。
 - 先読みで 1 回に並べる：意味の問いと、意味ごとの「もしこの言葉が○○なら」の問いを同じ回で聞き、返った意味の答えだけ使う
   （Jev にキャッシュは無く、2 回に分けると状態の文を 2 回送る）。
 - 「文脈」は直前のやりとり（人とパジュの言葉）のことで、思い出した記憶ではない。
@@ -32,6 +33,11 @@ MEANINGS: "dict[str, tuple[str, str]]" = {
     "confirm": (
         "確認待ちへの答え",
         "パジュがいま待っている確認の問いへの答え（いい・お願い・やめて・いらない）",
+    ),
+    # すすめた曲への返事（段 4-4f・2026-10-10 本人）。返事のあとはかけるか、かけないかだけなので Jev が決める。
+    "suggestion": (
+        "すすめた曲への返事",
+        "パジュがさっきすすめた曲への返事（いいね・かけて・いらない・いまはいい）",
     ),
     "claim": ("名乗り", "自分が誰かを名乗っている（パパだよ・たいきです）"),
     "deny": (
@@ -80,6 +86,8 @@ ACTIONS: "dict[str, str]" = {
     "silent": "黙る（何も言わず、何もしない）",
     "confirm": "確認の問いに「はい」と答えたとして進める",
     "decline": "確認の問いに「いいえ」と答えたとして取りやめる",
+    "suggestion_like": "すすめた曲をかける（気に入った・聞いてみたい）",
+    "suggestion_decline": "すすめた曲をかけない（いらない・いまはいい）。二度とすすめない",
     "state_light": (
         "どの依頼のことかが、直前のやりとりや思い出したことから一つに分かり、"
         "その依頼がどうなっているかを短く伝えられるとき"
@@ -119,6 +127,7 @@ _COMMON = ("ask_back", "silent")
 #: 意味ごとに並べる動作（本人の表）。名乗りと否定は家族の呼び方から作る（`fanout_questions`）。
 ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
     "confirm": ("confirm", "decline", *_COMMON),
+    "suggestion": ("suggestion_like", "suggestion_decline", *_COMMON),
     "claim": (),
     "deny": (),
     "accepted_check": ("state_light", *_COMMON),
@@ -178,11 +187,15 @@ UNSURE_ACTIONS: "dict[str, str]" = {
 }
 
 
-def offered(*, confirming: bool, music: bool, camera: bool) -> "list[str]":
-    """1 回目に並べる意味。使えないものは並べない。"""
+def offered(
+    *, confirming: bool, music: bool, camera: bool, suggesting: bool = False
+) -> "list[str]":
+    """1 回目に並べる意味。使えないもの（すすめた曲の返事を待っていない、なども）は並べない。"""
     skip = set()
     if not confirming:
         skip.add("confirm")
+    if not suggesting:
+        skip.add("suggestion")
     if not music:
         skip.add("music")
     if not camera:
@@ -202,12 +215,17 @@ def _actions_for(meaning: str, family: "list[str]") -> "dict[str, str]":
 
 
 def fanout_questions(
-    *, confirming: bool, music: bool, camera: bool, family: "list[str]"
+    *,
+    confirming: bool,
+    music: bool,
+    camera: bool,
+    family: "list[str]",
+    suggesting: bool = False,
 ) -> "dict[str, dict]":
     """意味の問いと、意味ごとの 2 回目の問いを、先読みで 1 回に並べる（返った意味の答えだけ使う）。"""
     from ..backends.jev import choice
 
-    meanings = offered(confirming=confirming, music=music, camera=camera)
+    meanings = offered(confirming=confirming, music=music, camera=camera, suggesting=suggesting)
     qs: dict[str, dict] = {
         "meaning": choice(
             "この人の言葉を、直前のやりとりの続きとして読むと、次のどれに当たるか"

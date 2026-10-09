@@ -75,6 +75,11 @@ def kind_of(
         if self_started:
             return "自分から調べに行った結果が届いた", ("silent", "talk_light", "search_deferred")
         return "頼まれた調べものの答えが届いた", ("reply_full", "reply_light", "search_deferred")
+    if action == "music_suggestion_reply":
+        # すすめた曲への返事（段 4-4f・本人の決定ア）。かけたら音で分かるので黙り、断られたら受け取ったと軽く伝える。
+        if "もう勧めない" in text:
+            return "すすめた曲を断られた", ("tell_light",)
+        return "すすめた曲をかけた", ("silent",)
     if action in _LOOK:
         if self_started:
             return "自分から見に行った結果が届いた", ("look", "talk_light", "silent")

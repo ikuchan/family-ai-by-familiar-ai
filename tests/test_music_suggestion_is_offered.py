@@ -3,8 +3,9 @@
 - **勧める**：bond・esteem の発火（話しかけてよいとき）で、その日にまだ勧めていなければ、主LLM のシステム文に
   `[音楽のおすすめ]`（曲名・アーティスト・理由）を載せる。「こんな曲あるけどどう？」と聞くかは主LLM が決める。
 - **勧めた印**：声にした返事に曲名が入っていたら、機械が「勧めた」と印をつける（勧めた回数・その日・前に勧めた曲）。
-- **返事**：勧めたあとの会話では、何を勧めたかを `[音楽のおすすめ]` に載せる。主LLM が道具 `music_suggestion_reply`
-  で受ける——「気に入った」ならかけて気に入った曲に控え、「いらない」ならその曲は二度と勧めない。
+- **返事**：勧めたあとの会話では、何を勧めたかを `[音楽のおすすめ]` に載せる。返事は道具 `music_suggestion_reply`
+  で受ける——「気に入った」ならかけて気に入った曲に控え、「いらない」ならその曲は二度と勧めない。どちらかは調停が
+  意味と動作で決める（出-ay 段 4-4f・`test_music_suggestion_reply_by_jev`）。
 - 返事が無いまま 2 回勧めたら、その候補は捨てて、晩に次を用意する。
 """
 
@@ -50,7 +51,7 @@ def test_no_frame_for_other_drives_or_without_a_candidate():
 def test_after_offering_the_conversation_is_told_what_was_offered():
     s = ms.Suggestions(candidate=_cand(1), last_offered_on=TODAY)
     text = ms.frame(s, today=TODAY, talking=False, conversation=True)
-    assert "忘れられないの" in text and "music_suggestion_reply" in text
+    assert "忘れられないの" in text  # 返事の受け方は調停が持つ（出-ay 段 4-4f）
     assert (
         ms.frame(ms.Suggestions(candidate=_cand()), today=TODAY, talking=False, conversation=True)
         == ""

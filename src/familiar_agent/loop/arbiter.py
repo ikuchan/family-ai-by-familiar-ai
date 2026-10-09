@@ -613,6 +613,11 @@ _AFFECT_ACTIONS: "dict[str, tuple[str, ...]]" = {
     "bond": ("talk_light", "talk_full"),
     "esteem": ("talk_light", "talk_full", "search_deferred"),
 }
+#: すすめた曲への返事の動作 → `music_suggestion_reply` に渡す返事（出-ay 段 4-4f）。
+_SUGGESTION_REPLIES: "dict[str, str]" = {
+    "suggestion_like": "気に入った",
+    "suggestion_decline": "いらない",
+}
 #: 軽量LLM が書く一言の種類 → 決めたこととして渡す言葉。
 _LIGHT_WORDS: "dict[str, str]" = {
     # 字数は `utterance_meaning.ASK_BACK_MAX_CHARS`（段 4-4d）。超えて書けても切らずに話す（切ると文が途中で切れる・本人）。
@@ -935,6 +940,8 @@ class Arbiter:
 
         family = _family_call_names(inp.family_md)
         state = self._state(inp)
+        # すすめた曲への返事を待っているときだけ、調停の候補に返事の道具が載る（段 4-4f）。
+        suggesting = "music_suggestion_reply" in inp.extra_actions
         answer = await _ask(
             self._jev,
             state,
@@ -943,6 +950,7 @@ class Arbiter:
                 music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
                 camera=inp.can_see,
                 family=family,
+                suggesting=suggesting,
             ),
         )
         got = getattr(answer, "answers", None) or {}
@@ -955,6 +963,7 @@ class Arbiter:
             confirming="confirm" in inp.extra_actions,
             music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
             camera=inp.can_see,
+            suggesting=suggesting,
         )
         if m in offered:
             outcome = um.decide(meaning, got.get(f"action_{m}"))
@@ -965,6 +974,18 @@ class Arbiter:
         if final == "unsure":
             again = await _ask(self._jev, state, um.unsure_question())
             final = um.resolve_unsure((getattr(again, "answers", None) or {}).get("action"))
+        if final in _SUGGESTION_REPLIES:
+            # 返事は 2 つに決まっていて、書く言葉が無いので軽量LLM は呼ばない（段 4-4f）。
+            reply = _SUGGESTION_REPLIES[final]
+            logger.info(
+                "調停 %.2f 秒（発話・意味で決めた：%s → %s）", time.monotonic() - started, m, final
+            )
+            return Decision(
+                branch="action",
+                action="music_suggestion_reply",
+                query=reply,
+                tool_input={"reply": reply},
+            )
         # 黙る依頼・解く・名乗り・否定は、軽く返したうえで欄に入れる（段 4-4c）。
         fields: "dict[str, Any]" = {}
         if final == "quiet":

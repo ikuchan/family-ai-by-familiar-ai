@@ -98,7 +98,8 @@ def test_thinking_goes_to_the_main_llm():
 
 def test_an_unknown_tool_keeps_the_old_judge():
     jev = jev_says("full")
-    d, jev, _ = _run((("music_suggestion_reply", False, "x"),), jev=jev)
+    # 表に無い道具（外部の道具など）。すすめた曲への返事は段 4-4f で表に入った。
+    d, jev, _ = _run((("some_external_tool", False, "x"),), jev=jev)
     jev.ask.assert_awaited()
     assert "branch" in jev.ask.await_args.args[1]
 

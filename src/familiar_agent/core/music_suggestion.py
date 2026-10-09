@@ -101,12 +101,16 @@ def frame(s: Suggestions, *, today: str, talking: bool, conversation: bool) -> s
             "話しかけるなら、「こんな曲あるけどどう？」と、曲名とアーティストと理由を添えて聞いてよい"
             "（聞かなくてもよい。かけるのは返事を聞いてから）。"
         )
-    if conversation and s.last_offered_on == today and c.offered > 0:
-        return (
-            f"{HEADING}\nさっき {song} をすすめた。返事があれば music_suggestion_reply で受ける"
-            "（「気に入った」ならかける・「いらない」なら二度とすすめない）。"
-        )
+    if conversation and awaiting_reply(s, today=today):
+        # 返事は調停（Jev が意味と動作で）が受ける（出-ay 段 4-4f）。主LLM には何をすすめたかだけを渡す。
+        return f"{HEADING}\nさっき {song} をすすめた。"
     return ""
+
+
+def awaiting_reply(s: Suggestions, *, today: str) -> bool:
+    """すすめた曲への返事を待っているか（候補があり、今日すすめた）。調停が返事の意味を並べるのに使う（出-ay 段 4-4f）。"""
+    c = s.candidate
+    return c is not None and c.offered > 0 and s.last_offered_on == today
 
 
 def mark_offered(s: Suggestions, said: str, *, today: str) -> bool:

@@ -65,6 +65,7 @@ def _ip_with_timer():
                 "stop_music",
                 "next_track",
                 "music_volume",
+                "music_suggestion_reply",  # すすめた曲への返事（出-ay 段 4-4f で調停の候補を通る）
             )
         },
         "set_timer": lambda ip: [{"name": "set_timer"}],

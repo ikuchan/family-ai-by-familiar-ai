@@ -189,10 +189,24 @@ class MusicTool:
                 return f"「{said}」は見つからなかったので、かけられない", False
             heading, uri = found
             shuffle = music_rules.wants_shuffle(order, False)
-        await self._ensure_spotifyd()
+        failed = await self._start(heading, uri)
+        if failed is not None:
+            return failed
         bus = self._bus()
-        # **Web API で始め、鳴ったものを確かめる**（知-al・2026-10-07）。MPRIS の `OpenUri` では曲の URI に切り替わらず、
-        # 前のアルバムが鳴ったのに「かけましたよ」と答えた（実機 22:01）。Web API が無い・失敗したら MPRIS の道へ。
+        if ":playlist:" in uri or ":album:" in uri or ":artist:" in uri:
+            await self._io.set_shuffle(bus, shuffle)
+        self._mark(True)
+        how = "ランダムで" if shuffle else ""
+        logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
+        return f"{heading}{how}かけ始めた", True
+
+    async def _start(self, heading: str, uri: str) -> "tuple[str, bool] | None":
+        """`uri` を鳴らし始める。鳴らせたら None、できなければ返りの文（失敗）。`_play` とすすめた曲の返事が使う。
+
+        **Web API で始め、鳴ったものを確かめる**（知-al・2026-10-07）。MPRIS の `OpenUri` では曲の URI に切り替わらず、
+        前のアルバムが鳴ったのに「かけましたよ」と答えた（実機 22:01）。Web API が無い・失敗したら MPRIS の道へ。
+        """
+        await self._ensure_spotifyd()
         started = False
         if self._web is not None and self._device_name:
             try:
@@ -205,19 +219,14 @@ class MusicTool:
             if not await self._confirm(uri):
                 logger.info("音楽：%sかけようとしたが、別の曲が鳴っている（%s）", heading, uri)
                 return f"{heading}かけようとしたが、別の曲が鳴っている", False
-        else:
-            # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新もここで起きる。
-            if self._web is not None and self._device_name:
-                with contextlib.suppress(Exception):
-                    self._web.activate(self._device_name)
-            if not await self._io.play(bus, uri):
-                return f"{heading}かけられなかった（音の出口が見つからない）", False
-        if ":playlist:" in uri or ":album:" in uri or ":artist:" in uri:
-            await self._io.set_shuffle(bus, shuffle)
-        self._mark(True)
-        how = "ランダムで" if shuffle else ""
-        logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
-        return f"{heading}{how}かけ始めた", True
+            return None
+        # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新もここで起きる。
+        if self._web is not None and self._device_name:
+            with contextlib.suppress(Exception):
+                self._web.activate(self._device_name)
+        if not await self._io.play(self._bus(), uri):
+            return f"{heading}かけられなかった（音の出口が見つからない）", False
+        return None
 
     async def _resume(self) -> "tuple[str, bool]":
         """曲名なし：Spotify で止まっていた続きを鳴らす（出-ay 段 4-4e・2026-10-09）。
@@ -302,11 +311,10 @@ class MusicTool:
             return f"「{c.title}」はもう勧めない", True
         s.liked.append(song)
         ms.store(s)
-        if self._web is not None and self._device_name:
-            with contextlib.suppress(Exception):
-                self._web.activate(self._device_name)
-        if not await self._io.play(self._bus(), c.uri):
-            return f"「{c.title}」（{c.artist}）をかけられなかった（音の出口が見つからない）", False
+        # play_music と同じ道で鳴らし、鳴ったかを確かめる（出-ay 段 4-4f・知-al の穴を塞ぐ）。返りに曲名を入れる。
+        failed = await self._start(f"すすめた「{c.title}」（{c.artist}）を", c.uri)
+        if failed is not None:
+            return failed
         self._mark(True)
         return f"すすめた「{c.title}」（{c.artist}）をかけ始めた", True
 

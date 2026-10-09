@@ -103,6 +103,7 @@ def test_the_lead_is_the_experiments_sentence_and_the_returned_tool_is_not_offer
                 "stop_music",
                 "next_track",
                 "music_volume",
+                "music_suggestion_reply",  # すすめた曲への返事（出-ay 段 4-4f で調停の候補を通る）
             )
         },
         **{

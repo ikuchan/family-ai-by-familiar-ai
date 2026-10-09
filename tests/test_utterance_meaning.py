@@ -18,6 +18,7 @@ def _a(choice: str, confidence: float) -> dict:
 def test_the_meanings_go_from_clear_to_vague():
     assert list(um.MEANINGS) == [
         "confirm",
+        "suggestion",
         "claim",
         "deny",
         "accepted_check",
@@ -35,7 +36,10 @@ def test_the_meanings_go_from_clear_to_vague():
 def test_unusable_meanings_are_not_offered():
     got = um.offered(confirming=False, music=False, camera=False)
     assert "confirm" not in got and "music" not in got and "look" not in got
-    assert um.offered(confirming=True, music=True, camera=True) == list(um.MEANINGS)
+    assert "suggestion" not in got
+    assert um.offered(confirming=True, music=True, camera=True, suggesting=True) == list(
+        um.MEANINGS
+    )
 
 
 def test_every_meaning_offers_ask_back_and_silence_except_the_fixed_ones():

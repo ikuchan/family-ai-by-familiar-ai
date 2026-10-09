@@ -441,6 +441,18 @@ def _music_def(agent, name: str) -> list[dict]:
     return [d for d in tool.get_tool_definitions() if d.get("name") == name]
 
 
+def _suggestion_reply_def(agent) -> list[dict]:
+    """すすめた曲への返事の道具定義。返事を待っているとき（今日すすめた）だけ（出-ay 段 4-4f・確認待ちと同じ形）。"""
+    from ..core import music_suggestion as ms
+
+    try:
+        if not ms.awaiting_reply(ms.stored(), today=ms.today()):
+            return []
+    except Exception:  # noqa: BLE001
+        return []
+    return _music_def(agent, "music_suggestion_reply")
+
+
 def _stopwatch_def(agent, name: str) -> list[dict]:
     """ストップウォッチの道具定義から 1 つだけ。器が無ければ空（知-u）。"""
     tool = getattr(agent, "_stopwatch_tool", None)
@@ -1897,7 +1909,7 @@ class InformationProcessing:
         "stop_music": lambda ip: _music_def(ip._agent, "stop_music"),
         "next_track": lambda ip: _music_def(ip._agent, "next_track"),
         "music_volume": lambda ip: _music_def(ip._agent, "music_volume"),
-        "music_suggestion_reply": lambda ip: _music_def(ip._agent, "music_suggestion_reply"),
+        "music_suggestion_reply": lambda ip: _suggestion_reply_def(ip._agent),
         "start_stopwatch": lambda ip: _stopwatch_def(ip._agent, "start_stopwatch"),
         "stop_stopwatch": lambda ip: _stopwatch_def(ip._agent, "stop_stopwatch"),
         # 確認待ちへの答え（出-y）。預かりが生きているあいだだけ。
@@ -1945,8 +1957,8 @@ class InformationProcessing:
                 *_ALARM_ACTIONS,
                 *_STOPWATCH_ACTIONS,
                 *_CONFIRM_ACTIONS,
-                # 音楽（知-ak 段 6）。勧めた曲への返事は勧めの流れの中で主LLM が使うので載せない。
-                *(a for a in _MUSIC_ACTIONS if a != "music_suggestion_reply"),
+                # 音楽（知-ak 段 6）。すすめた曲への返事は、返事を待っているときだけ道具の定義が出る（出-ay 段 4-4f）。
+                *_MUSIC_ACTIONS,
             )
             if a not in self._req.failed_actions
             and a not in exclude

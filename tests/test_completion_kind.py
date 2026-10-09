@@ -77,4 +77,5 @@ def test_an_empty_search_asks_memory_or_search_again(result):
 
 
 def test_an_unknown_tool_is_left_to_the_old_judge():
-    assert kind_of("music_suggestion_reply", failed=False, result="x", origin="発話") is None
+    # 表に無い道具（外部の道具など）。すすめた曲への返事は段 4-4f で表に入った。
+    assert kind_of("some_external_tool", failed=False, result="x", origin="発話") is None
