@@ -559,6 +559,11 @@ def fanout_questions() -> dict:
     from familiar_agent.backends.jev import choice
 
     qs = meaning_question(confirming=False, music=True, camera=True)
+    if WITH_EFFORT:
+        # 考える深さも同じ 1 回で聞く（2026-10-09 本人の決定ウ・本体と同じ説明）
+        from familiar_agent.core.utterance_meaning import EFFORTS
+
+        qs["effort"] = choice("考えて答えるなら、どれくらい深く考えるべきか", dict(EFFORTS))
     for meaning, keys in ACTIONS_BY_MEANING.items():
         if len(keys) < 2 or meaning == "confirm":
             continue
@@ -612,9 +617,15 @@ async def fanout(client, cases: "list[Case]") -> None:
             if action
             else "—"
         )
+        eff = got.get("effort") or {}
+        effort = (
+            f"\t深さ {eff.get('choice')}（{float(eff.get('confidence', 0) or 0):.2f}）"
+            if eff
+            else ""
+        )
         print(
             f"{c.n}\t{names.get(m, m)}（{float(meaning.get('confidence', 0) or 0):.2f}）\t{second}\t"
-            f"{final}\t{why}\t{c.action or '—'}\t{mark}\t{took:.2f}\t{calls}"
+            f"{final}\t{why}\t{c.action or '—'}\t{mark}\t{took:.2f}\t{calls}{effort}"
         )
     print(f"\n動作が決まる場面の一致 {hits}/{total}")
     print(f"1 場面の秒：平均 {sum(seconds) / len(seconds):.2f}・最大 {max(seconds):.2f}")
@@ -788,6 +799,7 @@ PIPELINE_MODE = False
 SINGLE_MODE = False
 FANOUT_MODE = False
 ARBITER_MODE = False
+WITH_EFFORT = False
 
 if __name__ == "__main__":
     import sys
@@ -797,5 +809,6 @@ if __name__ == "__main__":
     PIPELINE_MODE = "--pipeline" in sys.argv  # 本番と同じ流れで最終の動作まで出す
     SINGLE_MODE = "--single" in sys.argv  # 意味と動作を 1 回の問いでまとめて聞く
     FANOUT_MODE = "--fanout" in sys.argv  # 意味と、意味ごとの 2 回目を先読みで 1 回に並べる
+    WITH_EFFORT = "--effort" in sys.argv  # 先読みの 1 回に考える深さの問いも足す
     ARBITER_MODE = "--arbiter" in sys.argv  # 本体の調停をそのまま呼んで完了の場面を通す
     asyncio.run(main())
