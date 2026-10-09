@@ -2,7 +2,7 @@
 
 人の言葉への最初の反復は、`core/utterance_meaning` の問い（意味＋意味ごとの動作）を Jev に 1 回で聞き、決まりで最終の動作を
 決めて `Decision` に写す。越えなければ「よく考えるか、軽く聞き返すか」をもう 1 回聞く。黙ると決まったら、発話の最初の反復でも
-主LLM を呼ばずに閉じる。黙る依頼・名乗り・否定・時期は段 4-4c で戻す（本人：一時的に効かないのはかまわない）。
+主LLM を呼ばずに閉じる。黙る依頼・解く・名乗り・否定は意味と動作で、時期は recall の語と一緒に軽量LLM が書く（段 4-4c）。
 """
 
 from __future__ import annotations
@@ -123,3 +123,47 @@ def test_the_chosen_depth_reaches_the_main_llm():
     )
     d, _ = _run(jev)
     assert (d.branch, d.effort) == ("full", "high")
+
+
+# ── 段 4-4c：黙る依頼・解く・名乗り・否定・時期を、新しい問いで欄に戻す（2026-10-09）──────────────────────
+
+
+def test_a_quiet_request_sets_the_minutes():
+    jev = _jev(
+        {
+            "meaning": _a("time", 0.9),
+            "action_time": _a("quiet", 0.9),
+            "quiet_minutes": _a("30", 0.8),
+        }
+    )
+    d, _ = _run(jev)
+    assert (d.branch, d.silence_minutes) == ("light", 30)
+    assert "quiet_minutes" in jev.ask.await_args.args[1]
+
+
+def test_a_release_lifts_the_silence():
+    jev = _jev({"meaning": _a("time", 0.9), "action_time": _a("lift_quiet", 0.9)})
+    d, _ = _run(jev)
+    assert d.lift_silence and d.branch == "light"
+
+
+def test_a_claim_names_the_speaker():
+    d, _ = _run(_jev({"meaning": _a("claim", 0.9), "action_claim": _a("パパ", 0.9)}))
+    assert (d.speaker_claim, d.branch) == ("パパ", "light")
+    d, _ = _run(_jev({"meaning": _a("claim", 0.9), "action_claim": _a("other", 0.9)}))
+    assert d.speaker_claim == ""
+
+
+def test_a_denial_names_who_it_is_not():
+    d, _ = _run(_jev({"meaning": _a("deny", 0.9), "action_deny": _a("パパ", 0.9)}))
+    assert d.not_person == "パパ"
+
+
+def test_a_recall_also_writes_the_time_it_points_to():
+    jev = _jev({"meaning": _a("research", 0.9), "action_research": _a("recall", 0.9)})
+    writer = writer_says(
+        {"query": "夏の旅行", "time_ref": "2025-08-15T00:00:00", "time_span_days": 30}
+    )
+    d, writer = _run(jev, writer=writer)
+    assert (d.action, d.time_ref, d.time_span_days) == ("recall", "2025-08-15T00:00:00", 30.0)
+    assert "指していなければ空" in prompt_of(writer)

@@ -962,8 +962,19 @@ class Arbiter:
         if final == "unsure":
             again = await _ask(self._jev, state, um.unsure_question())
             final = um.resolve_unsure((getattr(again, "answers", None) or {}).get("action"))
+        # 黙る依頼・解く・名乗り・否定は、軽く返したうえで欄に入れる（段 4-4c）。
+        fields: "dict[str, Any]" = {}
+        if final == "quiet":
+            minutes = str((got.get("quiet_minutes") or {}).get("choice") or "default")
+            fields["silence_minutes"] = _QUIET_MINUTES.get(minutes, -1)
+        elif final == "lift_quiet":
+            fields["lift_silence"] = True
+        elif final == "claim":
+            fields["speaker_claim"] = outcome.name
+        elif final == "deny":
+            fields["not_person"] = outcome.name
         if final in ("quiet", "lift_quiet", "claim", "deny"):
-            final = "reply_light"  # 欄に戻すのは段 4-4c
+            final = "reply_light"
         from ..core.timer_rules import is_control_word
 
         if final == "reply_light" and (
@@ -977,7 +988,11 @@ class Arbiter:
         if inp.capped and final not in ("silent", "reply_full") and final not in _LIGHT_WORDS:
             final = "reply_full"  # 上限に達した反復は調べさせずに閉じる
         effort = str((got.get("effort") or {}).get("choice") or "low")  # 考える深さ（本人の決定ウ）
-        decision = await self._completion_decision(inp, final, tool="", effort=effort)
+        decision = await self._completion_decision(
+            inp, final, tool="", effort=effort, refers_time=final == "recall"
+        )
+        if fields:
+            decision = replace(decision if decision is not None else _FALLBACK, **fields)
         logger.info(
             "調停 %.2f 秒（発話・意味で決めた：%s → %s・%s）",
             time.monotonic() - started,
@@ -988,7 +1003,13 @@ class Arbiter:
         return decision if decision is not None else _FALLBACK
 
     async def _completion_decision(
-        self, inp: ArbiterInput, final: str, *, tool: str, effort: str = "low"
+        self,
+        inp: ArbiterInput,
+        final: str,
+        *,
+        tool: str,
+        effort: str = "low",
+        refers_time: bool = False,
     ) -> "Decision | None":
         """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
         if final == "silent":
@@ -999,7 +1020,11 @@ class Arbiter:
             texts = await _writer_call(self, inp, {"decided": _LIGHT_WORDS[final]}, ["text"])
             text = str((texts or {}).get("text", "")).strip()
             return Decision(branch="light", text=text) if text else None
-        data = {"branch": "action", "action": final, "effort": "low"}
+        data: "dict[str, Any]" = {"branch": "action", "action": final, "effort": "low"}
+        if refers_time:
+            data["refers_time"] = (
+                True  # recall の語と一緒に時期も書かせる（指していなければ空・段 4-4c）
+            )
         texts = await self._write(inp, data)
         if texts is None:
             return None
@@ -1174,7 +1199,7 @@ _FIELD_TEXT = {
     "source": '"source"：探す担い手。答えに数字や事実（天気・時刻表・値段・結果など）を使うなら "tavily"（本文の抜粋）、'
     'どこに何があるかを探す・話題を広く見るなら "brave"（題名・短い抜粋・リンクの一覧）。',
     "tool_input": '"tool_input"：道具へそのまま渡す入力（JSON の辞書）。',
-    "time_ref": '"time_ref"：人の言葉が指している時期を ISO 8601（例 "2025-08-15T00:00:00"）で。',
+    "time_ref": '"time_ref"：人の言葉が指している時期を ISO 8601（例 "2025-08-15T00:00:00"）で。指していなければ空。',
     "time_span_days": '"time_span_days"：その言い方が指す幅を日数で（広い言い方ほど大きい）。',
 }
 

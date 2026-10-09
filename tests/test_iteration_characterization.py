@@ -6,7 +6,6 @@
 
 from __future__ import annotations
 
-import pytest
 
 import asyncio
 from unittest.mock import patch
@@ -56,16 +55,13 @@ def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently():
     a.backend.stream_turn.assert_not_awaited()
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="段 4-4c で戻す：発話の新しい問い（出-ay 段 4-4b）は、黙る依頼・解く・名乗り・否定・時期をまだ聞かない（本人：一時的に効かないのはかまわない）",
-)
 def test_a_time_reference_recalls_again_from_that_time():
     """調停が時期を指したら（「去年の夏の話」）、その時点を基準に想起し直す。"""
     a = _agent(stream_returns=[])
-    a._jev = jev_says("light", refers_time=True)
+    # 段 4-4c（2026-10-09）から、時期は recall を選んだときに語と一緒に軽量LLM が書く（別の問いにしない・本人）。
+    a._jev = jev_says("action", action="recall")
     a._utility_backend = writer_says(
-        {"text": "覚えてるよ", "time_ref": "2025-08-15T00:00:00", "time_span_days": 30}
+        {"query": "去年の夏", "time_ref": "2025-08-15T00:00:00", "time_span_days": 30}
     )
     ip = InformationProcessing(a)
     calls: list[dict] = []

@@ -162,6 +162,15 @@ EFFORTS: "dict[str, str]" = {
     "medium": "ひと言で表せない複雑な気持ちを受け止める、4 つ以上の記憶を踏まえて応える、調べた結果をまとめる",
     "high": "人がよく考えるよう明示的に求めた",
 }
+#: 黙る依頼の長さの選択肢（分）。`default` は長さの指定なし（受け手が既定を当てる）。
+QUIET_MINUTES: "dict[str, str]" = {
+    "default": "長さを言っていない",
+    "5": "5 分",
+    "10": "10 分",
+    "15": "15 分",
+    "30": "30 分",
+    "60": "1 時間",
+}
 #: 越えなかったときに聞く問いの選択肢。
 UNSURE_ACTIONS: "dict[str, str]" = {
     "reply_full": "よく考えてみる（記憶を踏まえて、考えて返す）",
@@ -207,6 +216,11 @@ def fanout_questions(
         )
     }
     qs["effort"] = choice("考えて答えるなら、どれくらい深く考えるべきか", dict(EFFORTS))
+    if "time" in meanings:
+        # 黙る依頼の長さ（段 4-4c・いままでと同じ選択肢）。「黙る依頼を受ける」を選んだときだけ使う。
+        qs["quiet_minutes"] = choice(
+            "もしこの人がしばらく黙っていてと頼んでいるなら、何分か", dict(QUIET_MINUTES)
+        )
     for m in meanings:
         actions = _actions_for(m, family)
         if len(actions) < 2:

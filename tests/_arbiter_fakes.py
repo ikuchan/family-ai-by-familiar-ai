@@ -56,6 +56,15 @@ def jev_says(
     # 発話の新しい問い（出-ay 段 4-4b：意味＋意味ごとの動作）にも同じ答えを写す。古い分岐で書いた試験の意図を変えずに、
     # 新しい道を通す（light→その他の会話で軽く返す・full→考えて返す・action→その道具が属する意味の道具）。
     meaning, act = _as_meaning(branch, action)
+    # 黙る依頼・解く・名乗り・否定は、新しい問いでは意味と動作になる（段 4-4c）。
+    if quiet is not None:
+        meaning, act = "time", "quiet"
+    elif lifts_quiet:
+        meaning, act = "time", "lift_quiet"
+    elif claimed:
+        meaning, act = "claim", claimed
+    elif denied:
+        meaning, act = "deny", denied
     answers["meaning"] = _pick(meaning, confidence)
     answers[f"action_{meaning}"] = _pick(act, confidence)
     jev = MagicMock()
