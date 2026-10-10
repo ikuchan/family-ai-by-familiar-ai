@@ -25,7 +25,9 @@ unit は2組ある。守る対象が違い、片方が壊れてももう片方�
 ## 設置
 
 ```bash
-sudo cp deploy/systemd/familiar-ai-backup.{service,timer} /etc/systemd/system/
+# unit の場所・ホーム・ユーザー名は印（@REPO@・@HOME@・@USER@）にしてある。リポジトリ直下で、この機械の値に置き換えて置く。
+sed -e "s|@REPO@|$PWD|g" -e "s|@HOME@|$HOME|g" -e "s|@USER@|$USER|g" deploy/systemd/familiar-ai-backup.service | sudo tee /etc/systemd/system/familiar-ai-backup.service >/dev/null
+sudo cp deploy/systemd/familiar-ai-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now familiar-ai-backup.timer
 ```
@@ -111,7 +113,8 @@ pajubackup:familiar_ai_config/
 ### 設置
 
 ```bash
-sudo cp deploy/systemd/familiar-ai-config-backup.{service,timer} /etc/systemd/system/
+sed -e "s|@REPO@|$PWD|g" -e "s|@HOME@|$HOME|g" -e "s|@USER@|$USER|g" deploy/systemd/familiar-ai-config-backup.service | sudo tee /etc/systemd/system/familiar-ai-config-backup.service >/dev/null
+sudo cp deploy/systemd/familiar-ai-config-backup.timer /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now familiar-ai-config-backup.timer
 sudo systemctl start familiar-ai-config-backup.service

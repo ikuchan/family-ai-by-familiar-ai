@@ -3,7 +3,7 @@
 # Chrome リモートデスクトップの仮想画面（Cinnamon）が始まると、ターミナルで run-gui.sh を開く。
 # 落ちたときの起動し直しとクラッシュログは run-gui.sh が持つ。引数（--debug など）は Exec の末尾に足す。
 # Exec は単引用符を引用として扱わないので、run-gui.sh を絶対パスで直接呼ぶ（run-gui.sh は自分の場所へ移ってから動く）。
-# リポジトリの場所が違う機械では、このパスを書き換える。
+# @REPO@ はリポジトリの場所。置くときに置き換える（README の設置）。リポジトリに絶対パスを置かない。
 Type=Application
 Name=familiar-ai（パジュ）
 Exec=gnome-terminal --title=パジュ -- @REPO@/run-gui.sh

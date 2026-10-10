@@ -31,7 +31,8 @@
 
 ```bash
 mkdir -p ~/.config/autostart
-cp deploy/autostart/familiar-ai.desktop ~/.config/autostart/
+# リポジトリの場所は印（@REPO@）にしてある。リポジトリ直下で、この機械の場所に置き換えて置く。
+sed "s|@REPO@|$PWD|g" deploy/autostart/familiar-ai.desktop > ~/.config/autostart/familiar-ai.desktop
 ```
 
 外すときは `~/.config/autostart/familiar-ai.desktop` を消す。

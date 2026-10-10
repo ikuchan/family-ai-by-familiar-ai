@@ -1,4 +1,4 @@
-# familiar-ai 直近の進め方と進捗（v0.95）
+# familiar-ai 直近の進め方と進捗（v0.96）
 
 > Phase 1（O/MI モデルの確立）の作業について、直近の進め方と現在地の記録。詳しい方法論は「出力に関する指示」に、段取りは課題8 に、値の根拠は課題5 と計測台帳にある。
 
@@ -74,7 +74,7 @@
 
 - **`FAMILIAR_ENV_FILE` を使うと、コマンドラインで渡した環境変数が `.env` に負ける**。`bootstrap.py:60` が素の `.env` を `override=True` で読むためで、`DATABASE_URL=... FAMILIAR_ENV_FILE=.env.quiet ./run-gui.sh` としても `.env` 側の値が効く。実機確認でテスト DB へ向けたつもりが本番 DB を見ていた（本番は壊していない）。上書きしたい値は指定ファイル側に書く必要がある。docstring は「`.env.quiet` は上書きしたい数行だけで済む」と説明しており、**意図された挙動かどうかは確かめていない**。
 
-- **`~/.familiar-ai.json` の `command` が `"python"` で、この機械に `python` が無い**（2026-09-04・リポジトリ外）。あるのは `/usr/bin/python3` だけである。それでも `obsidian-memo` が上がるのは、`uv run familiar` で起こすと `python` が `.venv/bin/python` へ解決されるためで、**起動の仕方に依存している**。venv の外から起こせば上がらない。確実にするならフルパス（`@REPO@/.venv/bin/python`）にする。`memo_mcp` は依存ゼロなのでこちらの venv（3.11.16）でそのまま動き、`--selftest` が `initialize` から `get_house_rules` まで通ることは確かめた。**まだ変えていない**（実機まわりの作業として後回し）。詳細は `設計方針_家の記録との接続` §7。
+- **`~/.familiar-ai.json` の `command` が `"python"` で、この機械に `python` が無い**（2026-09-04・リポジトリ外）。あるのは `/usr/bin/python3` だけである。それでも `obsidian-memo` が上がるのは、`uv run familiar` で起こすと `python` が `.venv/bin/python` へ解決されるためで、**起動の仕方に依存している**。venv の外から起こせば上がらない。確実にするならフルパス（`<リポジトリ>/.venv/bin/python`）にする。`memo_mcp` は依存ゼロなのでこちらの venv（3.11.16）でそのまま動き、`--selftest` が `initialize` から `get_house_rules` まで通ることは確かめた。**まだ変えていない**（実機まわりの作業として後回し）。詳細は `設計方針_家の記録との接続` §7。
 
 - **検索の MCP サーバーが空行を出す**。`search_deferred` を使うと `mcp.client.stdio: Failed to parse JSONRPC message from server` が数件出る（中身は空文字）。`fetch` は手で JSONRPC を送って検証し、空行を出さないことを確認した。犯人は `brave-search` か `tavily`（どちらも Node 製）だが、ロガーがサーバー名を出さないので特定できていない。**実害は無い**（同じ反復で検索も取得も成功している）。直す先はこちらのコードに無い。
 
@@ -111,6 +111,8 @@
 
 ## 更新履歴（進捗ログを兼ねる）
 
+> v0.96：本文の例から機械の絶対パスを外した（`<リポジトリ>` に置き換え・2026-10-10）。
+>
 > v0.95：`課題8` の参照を順番の番号（F-3・E-1）から課題の番号（知-e・知-c）に直した（2026-09-29）。
 完了した課題は新しいものが上。各行の詳しい中身は `課題8_段取り設計` §7 と各設計方針にある。
 
