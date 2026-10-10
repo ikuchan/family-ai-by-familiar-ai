@@ -76,6 +76,8 @@ class DIF:
         self._music_ducker: "Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]] | None" = None
         # 山谷の既定（小さくする秒・戻す秒・その倍率）。T が Config から入れる
         self._ring_shape = (8.0, 25.0, 0.1)
+        # 話しかけたときの合図（出-bg）。流している合図。返事の声はこれが終わってから流す。
+        self._cue_task: asyncio.Task | None = None
 
     # ── 声 ────────────────────────────────────────────────────────────────
 
@@ -110,6 +112,10 @@ class DIF:
         """
         if self._tts is None:
             return
+        if self._cue_task is not None and not self._cue_task.done():
+            # 合図（作り置きの声・効果音）が終わってから返事を流す（出-bg・重ねない）。
+            with contextlib.suppress(Exception):
+                await self._cue_task
         logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
         if gain != 1.0:
             logger.debug("DIF 声の倍率 %.2f（タイマーの知らせ・この 1 回だけ）", gain)
@@ -136,6 +142,50 @@ class DIF:
                 await _say()
         # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
         logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
+
+    # ── 話しかけたときの合図（出-bg・2026-10-10 本人の決定）──────────────────────────────
+
+    def start_thinking(self) -> "_Thinking":
+        """Jev が判断しているあいだ、機械音 A を鳴らし続ける。返した印の `stop()` で止める。"""
+        return _Thinking(asyncio.ensure_future(self._think_loop()))
+
+    async def _think_loop(self) -> None:
+        from ..core.reaction_cue import THINKING_WAV
+
+        try:
+            while True:
+                # 音楽は絞らない（短い音を続けて鳴らすので、絞ると音量が上下し続ける）。
+                if not await _play_wav(THINKING_WAV, 1.0):
+                    return
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.debug("DIF 機械音が鳴らせなかった", exc_info=True)
+
+    def play_cue(self, cue: str) -> None:
+        """決まった動作の合図を 1 回流す（待たない）。なしなら何もしない。音楽が鳴っていれば絞る。"""
+        from ..core.reaction_cue import sound_for
+
+        path = sound_for(cue)
+        if path is None:
+            return
+
+        async def _play() -> None:
+            async def _one() -> None:
+                await _play_wav(path, 1.0)
+
+            try:
+                if self._music_ducker is not None:
+                    await self._music_ducker(_one)
+                else:
+                    await _one()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.debug("DIF 合図が鳴らせなかった", exc_info=True)
+
+        self._cue_task = asyncio.ensure_future(_play())
+        logger.info("DIF 合図：%s（%s）", cue, path.name)
 
     def set_music_ducker(self, ducker) -> None:
         """声のあいだ音楽を絞る口を挿す（知-aa）。挿さなければ、声はそのまま出る。"""
@@ -317,3 +367,14 @@ class DIF:
 
 
 __all__ = ["DIF"]
+
+
+class _Thinking:
+    """鳴らし続けている機械音 A の印（出-bg）。`stop()` は何度呼んでもよい。"""
+
+    def __init__(self, task: "asyncio.Future[None]") -> None:
+        self._task = task
+
+    def stop(self) -> None:
+        if not self._task.done():
+            self._task.cancel()

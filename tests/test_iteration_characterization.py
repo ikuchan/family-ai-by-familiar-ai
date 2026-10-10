@@ -41,7 +41,7 @@ def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently(monkeypatc
     a._jev = jev_says("light")
     a._utility_backend = writer_says({"text": ""})
 
-    async def quiet(self, inp):
+    async def quiet(self, inp, on_decided=None):
         return Decision(branch="light", text="")
 
     # 段 5e（2026-10-10）から、表に無い軸は Jev に聞かずに主LLM へ行く（古い問いを外した）。ここで固めたいのは反復の

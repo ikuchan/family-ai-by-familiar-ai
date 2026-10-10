@@ -29,6 +29,7 @@ import re
 import time
 from dataclasses import dataclass, replace
 from typing import Any
+from collections.abc import Callable
 
 from ..core import measure
 from ..core.aio import wait_within
@@ -615,13 +616,19 @@ class Arbiter:
             f"[いまの作業状態]\n{inp.workspace_ctx or '（なし）'}"
         )
 
-    async def decide(self, inp: ArbiterInput) -> Decision:
+    async def decide(
+        self, inp: ArbiterInput, on_decided: "Callable[[str], None] | None" = None
+    ) -> Decision:
         """次の一手を決める。起点ごとの道（発話・完了・情動・機器）が決め、要るときだけ軽量LLM が書く。倒れたら full。
 
         どの道にも当たらない入力（表に無い道具の完了・表に無い軸）は、Jev に聞かずに主LLM に任せる（出-ay 段 5e・
         本人の決定ア）。以前はここで古い分岐の問い（light・full・action を 1 回で聞く）に落ちていた。
+
+        `on_decided`：発話の道で最終の動作が決まったら、軽量LLM が文を書く**前に** 1 回だけ呼ぶ（出-bg・聞こえた合図と
+        反応の合図を遅らせないため）。
         """
         started = time.monotonic()
+        self._on_decided = on_decided
         decision = await self._by_rule(inp, started)
         if decision is None:
             logger.info("調停：どの道にも当たらないので full（%s）", inp.origin)
@@ -779,6 +786,7 @@ class Arbiter:
         if not getattr(answer, "ok", False) or not got.get("meaning"):
             logger.info("調停（発話）：Jev が答えなかったので full")
             self._keep(inp, "発話", state, questions, answer, "reply_full", "Jev が答えなかった")
+            self._tell_decided("reply_full")
             return _FALLBACK
         meaning = got["meaning"]
         m = str(meaning.get("choice") or "")
@@ -803,6 +811,7 @@ class Arbiter:
             said["unsure"] = dict(getattr(again, "answers", None) or {})
         self._keep(inp, "発話", state, asked, said, final, outcome.why, meaning=m)
         if final in _SUGGESTION_REPLIES:
+            self._tell_decided(final)
             # 返事は 2 つに決まっていて、書く言葉が無いので軽量LLM は呼ばない（段 4-4f）。
             reply = _SUGGESTION_REPLIES[final]
             logger.info(
@@ -840,6 +849,7 @@ class Arbiter:
         if inp.capped and final not in ("silent", "reply_full") and final not in _LIGHT_WORDS:
             final = "reply_full"  # 上限に達した反復は調べさせずに閉じる
         effort = str((got.get("effort") or {}).get("choice") or "low")  # 考える深さ（本人の決定ウ）
+        self._tell_decided(final)  # 軽量LLM が書く前に（出-bg）
         decision = await self._completion_decision(
             inp, final, tool="", effort=effort, refers_time=final == "recall"
         )
@@ -853,6 +863,16 @@ class Arbiter:
             outcome.why,
         )
         return decision if decision is not None else _FALLBACK
+
+    def _tell_decided(self, final: str) -> None:
+        """発話の最終の動作が決まったことを 1 回だけ知らせる（出-bg）。知らせる側が落ちても調停は止めない。"""
+        tell, self._on_decided = getattr(self, "_on_decided", None), None
+        if tell is None:
+            return
+        try:
+            tell(final)
+        except Exception:  # noqa: BLE001
+            logger.warning("調停：決まったことを知らせられなかった", exc_info=True)
 
     def _keep(
         self,

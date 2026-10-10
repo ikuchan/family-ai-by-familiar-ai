@@ -2104,6 +2104,11 @@ class InformationProcessing:
         self._req.heard_at = getattr(self, "_pending_heard_at", None)
         self._pending_heard_at: "float | None" = None
         self._req.last_progress_at = None
+        self._req.source = getattr(self, "_pending_source", "") if kind == "発話" else ""
+        self._pending_source = ""
+        self._req.cue_rang = False
+        self._req.cue_voice_said = False
+        self._req.cue_replaced_filler = False
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -2706,6 +2711,7 @@ class InformationProcessing:
             return
         stopped = False
         self._pending_heard_at = self._arrival(trigger)  # つなぎの見張りの起点（出-bc）
+        self._pending_source = trigger.source  # 声かキーボードか（出-bg：合図は声だけ）
         task = asyncio.create_task(self._utterance_iteration(trigger.query, trigger.voice))
 
         def _stop(f: "asyncio.Future[str]") -> None:
@@ -2834,17 +2840,24 @@ class InformationProcessing:
         # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない。
         logger.debug("event-loop 調停へ渡す W:\n%s", workspace_ctx)
         # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
-        decision = await self._arbiter().decide(
-            self._arbiter_input(
-                utterance=utterance,
-                workspace_ctx=workspace_ctx,
-                present_ctx=present_ctx,
-                capped=capped,
-                round_=round_,
-                returned=returned,
-                returned_lookups=returned_lookups,
+        # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
+        cue = self._start_reaction_cue(returned_lookups)
+        try:
+            decision = await self._arbiter().decide(
+                self._arbiter_input(
+                    utterance=utterance,
+                    workspace_ctx=workspace_ctx,
+                    present_ctx=present_ctx,
+                    capped=capped,
+                    round_=round_,
+                    returned=returned,
+                    returned_lookups=returned_lookups,
+                ),
+                on_decided=cue.decided if cue is not None else None,
             )
-        )
+        finally:
+            if cue is not None:
+                cue.stop()  # 調停が落ちても・時間切れでも、機械音 A は必ず止める
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
             "event-loop 調停=%s effort=%s action=%s",
@@ -2853,6 +2866,22 @@ class InformationProcessing:
             decision.action if decision.branch == "action" else "-",
         )
         return decision
+
+    def _start_reaction_cue(self, returned_lookups) -> "_ReactionCue | None":
+        """声で話しかけた求めの最初の判断なら、機械音 A を鳴らし始める（出-bg・2026-10-10 本人の決定）。
+
+        キーボード・情動・機器・道具の返りの反復では鳴らさない。求めに 1 回だけ。
+        """
+        req = self._req
+        if req.trigger_kind != "発話" or req.source != "voice" or returned_lookups or req.cue_rang:
+            return None
+        req.cue_rang = True
+        try:
+            thinking = self._dif.start_thinking()
+        except Exception:  # noqa: BLE001
+            logger.debug("event-loop 機械音を鳴らせなかった", exc_info=True)
+            return None
+        return _ReactionCue(self, thinking)
 
     def _arbiter(self) -> Arbiter:
         agent = self._agent
@@ -2920,6 +2949,11 @@ class InformationProcessing:
         waiting = self._waiting_on()
         if not waiting:
             return ""  # 答えがもう届いている
+        if self._req.cue_voice_said and not self._req.cue_replaced_filler:
+            # 作り置きの声（「はい」「んー」など）が最初のつなぎの役を済ませた（出-bg）。二言目以降は流す。
+            self._req.cue_replaced_filler = True
+            logger.info("event-loop 作り置きの声を流したので、最初のつなぎは省く")
+            return ""
         what = (
             "いまは返事を考えている最中"
             if all(lk.action == "主LLM" for lk in waiting)
@@ -4378,3 +4412,27 @@ class InformationProcessing:
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("event-loop persistence spawn failed: %s", e)
+
+
+class _ReactionCue:
+    """話しかけたときの合図の 1 回分（出-bg）。Jev が決めたら機械音 A を止め、決めた動作に合わせた合図を流す。"""
+
+    def __init__(self, ip: "InformationProcessing", thinking: Any) -> None:
+        self._ip = ip
+        self._thinking = thinking
+
+    def decided(self, final: str) -> None:
+        from ..core import reaction_cue as rc
+
+        self.stop()
+        cue = rc.cue_for(final)
+        if cue == rc.NONE:
+            return
+        self._ip._dif.play_cue(cue)
+        if cue in (rc.TOOL, rc.THINK):
+            # 作り置きの声が「受けた・考えている」を言ったので、最初のつなぎは省く（二言目以降は流す）。
+            self._ip._req.cue_voice_said = True
+
+    def stop(self) -> None:
+        with contextlib.suppress(Exception):
+            self._thinking.stop()

@@ -167,9 +167,13 @@ def system_of(writer: MagicMock) -> str:
     return writer.complete.await_args.kwargs.get("system") or ""
 
 
-async def decide(*, jev, writer=None, timeout: "float | None" = 2.0, **inp) -> Decision:
-    """材料（`ArbiterInput` の欄）から本物の `Arbiter.decide` を呼ぶ。"""
+async def decide(
+    *, jev, writer=None, timeout: "float | None" = 2.0, on_decided=None, **inp
+) -> Decision:
+    """材料（`ArbiterInput` の欄）から本物の `Arbiter.decide` を呼ぶ。`on_decided` は決まったら知らせる口（出-bg）。"""
     inp.setdefault("workspace_ctx", "")
     # しきい値は新しい道の各部品が持つ（`utterance_meaning.THRESHOLD`）。古い問いの `min_conf` は段 5e で外した。
     arbiter = Arbiter(jev=jev, writer=writer or writer_says(), timeout=timeout)
-    return await arbiter.decide(ArbiterInput(**inp))
+    if on_decided is None:
+        return await arbiter.decide(ArbiterInput(**inp))
+    return await arbiter.decide(ArbiterInput(**inp), on_decided=on_decided)

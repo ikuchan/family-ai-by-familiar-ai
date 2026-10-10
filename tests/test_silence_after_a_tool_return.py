@@ -101,7 +101,7 @@ def test_the_control_guard_is_not_applied_on_a_tool_return():
 def test_decide_passes_whether_a_timer_is_running():
     seen = {}
 
-    async def fake_decide(self, inp):
+    async def fake_decide(self, inp, on_decided=None):
         seen["inp"] = inp
         return arbiter.Decision(branch="light", text="x")
 

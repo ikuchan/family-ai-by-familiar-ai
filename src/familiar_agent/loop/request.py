@@ -116,6 +116,13 @@ class Request:
     # この求めを起こした発話の声の特徴（知-ae・ローカルの書き起こしの 1.5 秒以上の区切りだけ）。名乗りが話者に
     # 付いたとき、その人の登録の声と今日の声に足す（段 5）。キーボード・情動・機器では None。
     voice: Any = None
+    # 求めを起こした入力が声か（`voice`）キーボードか（`keyboard`）。情動・機器では空（出-bg：合図は声だけ）。
+    source: str = ""
+    # 話しかけたときの合図（出-bg）。機械音 A を鳴らしたか（求めに 1 回だけ）・作り置きの声を流したか・
+    # それで最初のつなぎを省いたか（二言目以降は流す）。
+    cue_rang: bool = False
+    cue_voice_said: bool = False
+    cue_replaced_filler: bool = False
     # 人の言葉が届いた時刻（`time.monotonic`・出-bb で話し始め）。つなぎの見張りはここから通しで数える（出-bc）。
     # 情動・機器、時刻の分からない入力では None（見張りは立った時刻から数える）。
     heard_at: "float | None" = None
