@@ -49,6 +49,31 @@ def test_look_that_could_not_turn_takes_no_picture():
     cam.capture.assert_not_awaited()
 
 
+# ── 定点の名前が direction に入っても向く（知-aw・2026-10-11・本人の決定ア）──────────────────
+# 調停の書き手が `direction=出入口` のように定点の名前を direction に入れ、首が動かず撮りもしなかった
+# （10 月に 37 回・1 秒を超えた回は 0）。右・左・上・下でなく、定点の名前と一致するなら pose として向く。
+
+
+def test_a_pose_name_given_as_direction_turns_there():
+    cam = _cam((-0.254, -0.143))
+    text, image = asyncio.run(cam.call("look", {"direction": "正面"}))
+    cam.move_to.assert_awaited_once_with(-0.078, -0.143)
+    assert "正面" in text and image == "B64"
+
+
+def test_an_unknown_name_as_direction_does_not_turn():
+    cam = _cam((-0.254, -0.143))
+    _, image = asyncio.run(cam.call("look", {"direction": "台所"}))
+    cam.move_to.assert_not_awaited()
+    assert image is None
+
+
+def test_the_arbiter_is_told_pose_names_go_to_pose():
+    from familiar_agent.loop.arbiter import _LOOK_INPUT
+
+    assert "定点の名前は必ず pose" in _LOOK_INPUT and "右・左・上・下だけ" in _LOOK_INPUT
+
+
 def _ip_with_camera():
     a = _agent(stream_returns=[])
     cam = MagicMock()

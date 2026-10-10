@@ -478,6 +478,10 @@ class CameraTool:
             return "Camera capture failed.", None
         elif tool_name == "look":
             direction = str(tool_input.get("direction", "") or "").strip()
+            if direction not in DIRECTIONS and any(p.name == direction for p in self._poses):
+                # 調停が定点の名前を direction に入れ、首が動かず撮りもしなかった（知-aw・10 月に 37 回）。
+                tool_input = {**tool_input, "pose": direction}
+                direction = ""
             if direction:
                 # 相対の向き（知-m ③）。いまの向きから、その方向で最も近い定点へ**絶対移動**する
                 # （名前の無い向きへは行かない——在席マップ・norm・見回りは定点名を鍵にする）。

@@ -998,7 +998,8 @@ _TOOL_ACTIONS = frozenset(
 )
 _NO_WORDS_ACTIONS = frozenset({"see", "confirm", "decline"})
 _LOOK_INPUT = (
-    'tool_input に {"direction":"右|左|上|下"} か {"pose":"定点の名前"}。'
+    'tool_input に {"pose":"定点の名前"} か {"direction":"右|左|上|下"}。'
+    "定点の名前は必ず pose に入れる（direction は右・左・上・下だけ）。"
     "自分から見回るなら、[いま] の見ていない順で最も長く見ていない定点へ"
 )
 
