@@ -84,6 +84,8 @@ _TRUNCATE_TABLES = [
     "persons",
     "mental_state_log",
     "agent_state",
+    # 平均中心化の mu。残ると次のテストの問いが中心化されて向きが変わる（環-ag）。
+    "embedding_means",
 ]
 
 
