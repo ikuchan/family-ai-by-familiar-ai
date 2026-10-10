@@ -544,7 +544,10 @@ class EmbodiedAgent:
             logger.warning("MCP_CONFIG points to non-existent file: %s", cfg_path)
 
         self._deferred_search = DeferredSearchTool(
-            self._mcp_search, self._utility_backend, context=self._stance_context
+            self._mcp_search,
+            self._utility_backend,
+            context=self._stance_context,
+            judge=self._judge_search,
         )
         self._deferred_fetch = DeferredFetchTool(self._mcp_search)
 
@@ -1389,6 +1392,17 @@ class EmbodiedAgent:
     def _now(self) -> float:
         """いまの時刻（差し替え点）。"""
         return time.time()
+
+    async def _judge_search(self, query: str, text: str) -> "str | None":
+        """検索の返りから、問いに合わない結果を Jev が捨てる（知-an・`core/search_relevance`）。"""
+        from .core.search_relevance import keep_relevant
+
+        return await keep_relevant(
+            getattr(self, "_jev", None),
+            query,
+            text,
+            min_conf=float(getattr(self.config, "jev_confidence_min", 0.6)),
+        )
 
     def _voice_store(self):
         """声の特徴の器（共有接続・短く使う・知-ae）。"""

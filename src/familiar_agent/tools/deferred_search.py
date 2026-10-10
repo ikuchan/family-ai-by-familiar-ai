@@ -44,8 +44,12 @@ class DeferredSearchTool:
         search_fn: Callable[[str, dict], Awaitable[Any]],  # MCP の `call_result`（本文・画像・ok）
         utility_backend: Any = None,
         context: Any = None,
+        judge: "Callable[[str, str], Awaitable[str | None]] | None" = None,
     ) -> None:
         self._search_fn = search_fn
+        # 返りが問いに合うかを照らす口（知-an）。(問い, 返りの文) → 合う結果だけの文、1 件も合わなければ None。
+        # 渡さなければ照らさない。
+        self._judge = judge
         self._utility_backend = utility_backend
         # `context(stance)` は立ち位置と文脈を返す（出-e）。渡さなければ
         # 立ち位置を渡さない（いままでと同じ）。
@@ -203,6 +207,38 @@ class DeferredSearchTool:
                 )
                 if other is not None:
                     r = await self._search_fn(other, {"query": query})
+                    mcp_tool = other
+            if r.ok and self._judge is not None:
+                checked = await self._judge(query, r.text)
+                if checked is None:
+                    # 全部外れた（知-an）。もう一方の検索で 1 回だけ調べ直す。外れた返りは届けない——届けると
+                    # ループの調べものが済みになり、つなぎも止まる。
+                    other = next((t for t in _SOURCE_TO_TOOL.values() if t != mcp_tool), None)
+                    logger.info(
+                        "deferred search %s の返りが問いに合わない → %s で調べ直す", mcp_tool, other
+                    )
+                    r2 = await self._search_fn(other, {"query": query}) if other else None
+                    checked = (
+                        await self._judge(query, r2.text) if r2 is not None and r2.ok else None
+                    )
+                if checked is None:
+                    _msg = f"「{query}」は関係のある結果が見つからなかった"
+                    if (
+                        not self._deliver(query, _msg, failed=True)
+                        and len(self._pending) < _MAX_PENDING
+                    ):
+                        self._pending.append(
+                            {
+                                "query": query,
+                                "result": _msg,
+                                "source": source,
+                                "user_initiated": user_initiated,
+                            }
+                        )
+                    return
+                r_text = checked
+            else:
+                r_text = r.text
             if not r.ok:
                 logger.warning("deferred search 両方の道具が使えなかった（%.120s）", r.text)
                 _msg = f"「{query}」は検索の道具が使えず失敗した"
@@ -219,7 +255,7 @@ class DeferredSearchTool:
                         }
                     )
                 return
-            result = r.text
+            result = r_text
             logger.debug(
                 "deferred search _run completed (query=%r result_len=%d)", query, len(result)
             )
