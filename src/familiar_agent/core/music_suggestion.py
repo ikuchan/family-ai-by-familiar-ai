@@ -18,6 +18,7 @@ from . import state_json
 STATE_KEY = "music_suggestion"
 #: 返事が無いまま勧めてよい回数。2 回目でも返事が無ければ、その候補は捨てる（本人の決定：もう一度だけ）。
 MAX_OFFERS = 2
+MISSING_MAX = 20  # 覚えておく「無かった曲」の数〔仮・知-aq〕
 
 
 @dataclass
@@ -36,6 +37,8 @@ class Suggestions:
     liked: "list[dict]" = field(default_factory=list)
     declined: "list[dict]" = field(default_factory=list)
     offered_uris: "list[str]" = field(default_factory=list)
+    # 挙げたが Spotify に無かった曲（新しい順・`MISSING_MAX` 件まで）。次の晩の頼みに渡して避けさせる（知-aq）。
+    missing: "list[dict]" = field(default_factory=list)
 
 
 def _to_json(s: Suggestions) -> dict:
@@ -62,6 +65,7 @@ def _from_json(raw: object) -> Suggestions:
         liked=list(raw.get("liked") or []),
         declined=list(raw.get("declined") or []),
         offered_uris=[str(u) for u in raw.get("offered_uris") or []],
+        missing=[m for m in raw.get("missing") or [] if isinstance(m, dict)],
     )
 
 

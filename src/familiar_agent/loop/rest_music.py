@@ -67,13 +67,13 @@ _PROMPT = """\
 あなたはパジュ（この家で家族と暮らす伴侶）で、家族に 1 曲すすめたい。家族のプレイリストに入っている
 アーティストを、多く入っている順に並べる（括弧の数は入っている曲の数）。
 
-この好みに合いそうで、**プレイリストに入っていない曲**を 1 つ選び、選んだ理由を添える。プレイリストの
-アーティストの別の曲でも、似たテイストの別のアーティストの曲でもよい。実在する曲だけを選ぶ（曲名と
-アーティスト名は、Spotify で検索して見つかる正確な表記で）。前に気に入ってもらえた曲は好みの手がかりに、
-断られた曲は避ける手がかりにする。
+この好みに合いそうで、**プレイリストに入っていない曲**を、合いそうな順に {count} つ選び、それぞれ選んだ理由を
+添える。プレイリストのアーティストの別の曲でも、似たテイストの別のアーティストの曲でもよい。実在する曲だけを
+選ぶ（曲名とアーティスト名は、Spotify で検索して見つかる正確な表記で）。前に気に入ってもらえた曲は好みの
+手がかりに、断られた曲は避ける手がかりにする。無かった曲は、前に挙げたが Spotify に無かった曲なので挙げない。
 
 出力は次の JSON だけ（ほかには何も書かない）：
-{{"title": "曲名", "artist": "アーティスト名", "reason": "選んだ理由（1〜2 文）"}}
+{{"candidates": [{{"title": "曲名", "artist": "アーティスト名", "reason": "選んだ理由（1〜2 文）"}}]}}
 
 [プレイリストのアーティスト]
 {artists}
@@ -83,7 +83,13 @@ _PROMPT = """\
 
 [断られた曲]
 {declined}
+
+[無かった曲]
+{missing}
 """
+
+#: 1 回の頼みで挙げてもらう候補の数（知-aq・本人の決定ア）。
+CANDIDATES = 5
 
 
 def _parse(raw: str) -> "dict | None":
@@ -92,6 +98,24 @@ def _parse(raw: str) -> "dict | None":
         return None
     out = {k: str(data.get(k, "")).strip() for k in ("title", "artist", "reason")}
     return out if all(out.values()) else None
+
+
+def _candidates(raw: str) -> "list[dict]":
+    """`candidates` の並びを読む。前の形（1 つの物体）が返っても 1 件として読む。欄が欠けたものは外す。"""
+    data = read_json_merged(raw)
+    if data is None:
+        return []
+    items = data.get("candidates")
+    if not isinstance(items, list):
+        one = _parse(raw)
+        return [one] if one else []
+    out = []
+    for item in items:
+        if isinstance(item, dict):
+            c = {k: str(item.get(k, "")).strip() for k in ("title", "artist", "reason")}
+            if all(c.values()):
+                out.append(c)
+    return out
 
 
 def _songs(rows: "list[dict]") -> str:
@@ -116,37 +140,60 @@ async def prepare_suggestion(agent) -> bool:
         artists="\n".join(f"- {a}（{n}）" for a, n in artists),
         liked=_songs(state.liked),
         declined=_songs(state.declined),
+        missing=_songs(state.missing),
+        count=CANDIDATES,
     )
     try:
-        raw = await agent.backend.complete(prompt, max_tokens=400)
+        raw = await agent.backend.complete(prompt, max_tokens=1000)
     except Exception as e:  # noqa: BLE001
         logger.warning("rest おすすめの依頼に失敗（次の晩に持ち越す）: %s", e)
         return False
-    got = _parse(str(raw or ""))
-    if got is None:
+    got_all = _candidates(str(raw or ""))[:CANDIDATES]
+    if not got_all:
         logger.warning("rest おすすめの返りを読めなかった")
-        return False
-    hits = await asyncio.to_thread(web.search, f"{got['title']} {got['artist']}", "track")
-    pick = next(
-        (
-            h
-            for h in hits or []
-            if music_rules.same_name(h.get("title", ""), got["title"])
-            and music_rules.same_name(h.get("artist", ""), got["artist"])
-        ),
-        None,
-    )
-    if pick is None:
-        logger.info(
-            "rest おすすめ「%s」（%s）は実在を確かめられなかった", got["title"], got["artist"]
-        )
         return False
     known = {str(t.get("uri") or "") for t in catalog.playlist_tracks()}
     known |= set(state.offered_uris) | {str(d.get("uri") or "") for d in state.declined}
-    if pick["uri"] in known:
-        logger.info("rest おすすめ「%s」はもう知っている曲なので見送る", got["title"])
-        return False
-    state.candidate = ms.Candidate(got["title"], got["artist"], str(pick["uri"]), got["reason"])
+    absent = already = 0
+    for n, got in enumerate(got_all, 1):
+        # 上から順に確かめ、最初に「実在して、まだ知らない曲」を採る（知-aq）。無かった曲は覚えて次の晩に避けさせる。
+        hits = await asyncio.to_thread(web.search, f"{got['title']} {got['artist']}", "track")
+        pick = next(
+            (
+                h
+                for h in hits or []
+                if music_rules.same_name(h.get("title", ""), got["title"])
+                and music_rules.same_name(h.get("artist", ""), got["artist"])
+            ),
+            None,
+        )
+        if pick is None:
+            absent += 1
+            state.missing = [{"title": got["title"], "artist": got["artist"]}] + [
+                m
+                for m in state.missing
+                if (m.get("title"), m.get("artist")) != (got["title"], got["artist"])
+            ]
+            state.missing = state.missing[: ms.MISSING_MAX]
+            continue
+        if pick["uri"] in known:
+            already += 1
+            continue
+        state.candidate = ms.Candidate(got["title"], got["artist"], str(pick["uri"]), got["reason"])
+        ms.store(state)
+        logger.info(
+            "rest おすすめを用意した：「%s」（%s）・%d 件中 %d 件目",
+            got["title"],
+            got["artist"],
+            len(got_all),
+            n,
+        )
+        return True
     ms.store(state)
-    logger.info("rest おすすめを用意した：「%s」（%s）", got["title"], got["artist"])
-    return True
+    logger.info(
+        "rest おすすめを用意できなかった：%d 件中 Spotify に無かった %d・知っている曲 %d",
+        len(got_all),
+        absent,
+        already,
+    )
+    return False
