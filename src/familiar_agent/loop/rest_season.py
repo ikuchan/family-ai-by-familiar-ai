@@ -14,12 +14,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass
 from datetime import date
 
+from ..core.structured_ask import read_json_merged
 from ..core import measure
 from ..core import season_env as se
 
@@ -84,14 +84,7 @@ async def _search(agent, query: str) -> str:
 
 
 def _parse(text: str) -> "dict | None":
-    m = re.search(r"\{.*\}", text or "", re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
+    return read_json_merged(text)  # 2 つに分けた・書き直した返りも読む（記-p）
 
 
 def _rows(data: dict) -> "dict[str, tuple[se.Row, ...]] | None":

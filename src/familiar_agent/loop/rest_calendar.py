@@ -15,12 +15,11 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 
+from ..core.structured_ask import read_json_merged
 from ..core import measure, parsing
 from ..core.memory_tree import parse_node
 from ..io.oif import MI
@@ -138,14 +137,8 @@ def _prompt(task: Task, rows: "list[dict]") -> str:
 
 
 def _parse(raw: str, limit: int) -> "str | None":
-    m = re.search(r"\{.*\}", raw or "", re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    text = str(data.get("summary", "") if isinstance(data, dict) else "").strip()
+    data = read_json_merged(raw)  # 2 つに分けた・書き直した返りも読む（記-p）
+    text = str(data.get("summary", "") if data else "").strip()
     if not text or len(text) > limit:
         return None
     return text

@@ -19,14 +19,13 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import numpy as np
 
+from ..core.structured_ask import read_json_merged
 from ..core import bundling, measure
 from ..core import info_measure as im
 from ..io.oif import MI
@@ -94,14 +93,8 @@ def check(
 
 
 def _parse(raw: str) -> "tuple[str, list[str], list[str]] | None":
-    m = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict):
+    data = read_json_merged(raw)  # 2 つに分けた・書き直した返りも読む（記-p）
+    if data is None:
         return None
     sources = [str(s) for s in (data.get("sources") or []) if s]
     people = [str(p).strip() for p in (data.get("people") or []) if str(p).strip()]

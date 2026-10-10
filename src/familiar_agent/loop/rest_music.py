@@ -11,11 +11,10 @@
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import re
 from dataclasses import dataclass
 
+from ..core.structured_ask import read_json_merged
 from ..core import music_catalog as mc
 from ..core import music_rules
 from ..core import music_suggestion as ms
@@ -88,14 +87,8 @@ _PROMPT = """\
 
 
 def _parse(raw: str) -> "dict | None":
-    m = re.search(r"\{.*\}", raw or "", re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict):
+    data = read_json_merged(raw)  # 2 つに分けた・書き直した返りも読む（記-p）
+    if data is None:
         return None
     out = {k: str(data.get(k, "")).strip() for k in ("title", "artist", "reason")}
     return out if all(out.values()) else None

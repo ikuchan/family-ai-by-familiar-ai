@@ -163,6 +163,33 @@ def read_json(raw: str) -> "dict[str, Any] | None":
     return loaded if isinstance(loaded, dict) else None
 
 
+def read_json_merged(raw: "str | None") -> "dict[str, Any] | None":
+    """返りの文の中の JSON の物体を前から順にすべて読み、後のもので上書きしながら 1 つにまとめる（記-p）。
+
+    LLM は時々、JSON を 2 つに分けて書く（`{"episode": …}` の次の行に `{"persons": …}`）か、1 度書いてから
+    「出力形式を誤りました。正しく出力します。」と書き直す（畳み込みの頼みの再現で 18 回中 3 回・途切れは 0 回）。
+    最初の `{` から最後の `}` までを 1 つとして読むと、間の文ごと読もうとして落ちる。`{` ごとに物体として読めるかを
+    試し、読めたら物体の終わりまで飛ばす（入れ子は数え直さない）。読めない `{`（地の文の括弧）は飛ばす。重ねるのは
+    浅く（同じキーは後が勝つ）。物体が 1 つも無ければ `None`。REST の各層の返りはここで読む。
+    """
+    text = raw or ""
+    decoder = json.JSONDecoder()
+    merged: dict[str, Any] = {}
+    found = False
+    i = text.find("{")
+    while i != -1:
+        try:
+            obj, end = decoder.raw_decode(text, i)
+        except json.JSONDecodeError:
+            i = text.find("{", i + 1)
+            continue
+        if isinstance(obj, dict):
+            merged.update(obj)
+            found = True
+        i = text.find("{", end)
+    return merged if found else None
+
+
 async def ask_json(
     backend, prompt: str, *, max_tokens: int = 512, system: str | None = None
 ) -> "dict[str, Any] | None":

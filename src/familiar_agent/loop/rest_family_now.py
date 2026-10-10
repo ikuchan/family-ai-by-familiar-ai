@@ -12,12 +12,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from ..core.structured_ask import read_json_merged
 from ..core import family_now, parsing
 from ..core.speaker_claim import call_name_of
 from .rest_fold import PERSON_MAX_CHARS
@@ -75,14 +75,8 @@ def _members(agent) -> "list[tuple[str, str, str]]":
 
 
 def _parse(raw: str) -> "str | None":
-    m = re.search(r"\{.*\}", raw or "", re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    text = str(data.get("now", "") if isinstance(data, dict) else "").strip()
+    data = read_json_merged(raw)  # 2 つに分けた・書き直した返りも読む（記-p）
+    text = str(data.get("now", "") if data else "").strip()
     if not text or len(text) > PERSON_MAX_CHARS:
         return None
     return text

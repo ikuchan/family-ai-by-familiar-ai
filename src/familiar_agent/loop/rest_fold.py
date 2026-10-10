@@ -13,13 +13,12 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
+from ..core.structured_ask import read_json_merged
 from ..core import measure, parsing
 from ..io.oif import MI
 from ..store import clock
@@ -132,14 +131,8 @@ async def ask_summaries(
 
 
 def _parse(text: str) -> "Summaries | None":
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(data, dict):
+    data = read_json_merged(text)  # 2 つに分けた・書き直した返りも読む（記-p）
+    if data is None:
         return None
     persons = data.get("persons") or {}
     if not isinstance(persons, dict):

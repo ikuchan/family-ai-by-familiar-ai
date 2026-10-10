@@ -12,10 +12,10 @@ from __future__ import annotations
 
 import json
 import logging
-import re
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
+from ..core.structured_ask import read_json_merged
 from ..core import measure
 from ..core import self_image as si
 
@@ -142,14 +142,7 @@ async def propose(
 
 
 def _parse(text: str) -> "dict | None":
-    m = re.search(r"\{.*\}", text, re.DOTALL)
-    if not m:
-        return None
-    try:
-        data = json.loads(m.group(0))
-    except json.JSONDecodeError:
-        return None
-    return data if isinstance(data, dict) else None
+    return read_json_merged(text)  # 2 つに分けた・書き直した返りも読む（記-p）
 
 
 async def update_self_image(agent, materials: list) -> Proposal:

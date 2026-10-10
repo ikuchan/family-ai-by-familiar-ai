@@ -14,10 +14,9 @@ LLM が数字を見て提案する（生の行は渡さない）。動かした�
 
 from __future__ import annotations
 
-import json
 import logging
-import re
 
+from ..core.structured_ask import read_json_merged
 from .. import config_overrides as co
 from ..core import measure, settings
 
@@ -139,6 +138,15 @@ _TIMEOUT_PROMPT = """\
 """
 
 
+def _proposed(raw: str) -> "float | None":
+    """返りから提案の秒数を読む。2 つに分けた・書き直した返りも読む（記-p）。読めなければ None。"""
+    data = read_json_merged(raw)
+    try:
+        return float((data or {}).get("arbiter_timeout_sec"))  # type: ignore[arg-type]
+    except (ValueError, TypeError):
+        return None
+
+
 async def adjust_timeout(agent, summary: dict) -> list[Change]:
     """`arbiter_timeout_sec` は LLM が数字を見て提案する。提案は 1 刻み・範囲内に丸める。"""
     field = "AgentConfig.arbiter_timeout_sec"
@@ -164,12 +172,8 @@ async def adjust_timeout(agent, summary: dict) -> list[Change]:
     except Exception as e:  # noqa: BLE001
         logger.warning("rest 設定値：時間切れの提案に失敗: %s", e)
         return []
-    m = re.search(r"\{.*\}", raw, re.DOTALL)
-    if not m:
-        return []
-    try:
-        proposed = float(json.loads(m.group(0)).get("arbiter_timeout_sec"))
-    except (ValueError, TypeError, json.JSONDecodeError, AttributeError):
+    proposed = _proposed(raw)
+    if proposed is None:
         return []
     nxt = _step_toward(field, cur, proposed)
     return [(field, cur, nxt)] if nxt is not None else []
