@@ -13,6 +13,9 @@
 
 from __future__ import annotations
 
+#: 同じ求めで同じ見出しの操作をもう一度投げようとして、投げずに前の結果を返したときの印（`event_loop._dispatch_lookup`）。
+ALREADY_TRIED = "この求めですでに調べた"
+
 #: 調べものの道具（頼まれたら答えを返す・自分からなら覚えておく）。`ask_vault_` で始まる本人の記録も含む。
 _RESEARCH = frozenset(
     {
@@ -64,6 +67,10 @@ def kind_of(
 ) -> "tuple[str, tuple[str, ...]] | None":
     """(何が起きたか, 2 回目に並べる動作)。表に無い道具は None（いままでの判定に任せる）。"""
     text = (result or "").strip()
+    if ALREADY_TRIED in text:
+        # 同じ求めで同じ操作をもう一度選んだ（出-be）。投げずに前の結果が返ってきたので、もう一度かけ直す・調べ直すと
+        # 反復の上限まで同じことが続く。道具に関係なく、前の結果を軽く伝えて終える。
+        return "同じことをもう一度頼もうとした", ("tell_light",)
     if failed:
         if "別の曲が鳴っている" in text:
             return "頼んだものと違うものになった", ("play_music",)

@@ -190,6 +190,19 @@ def _query_label(action: str, tool_input: dict) -> str:
         )
     if action in _CONFIRM_ACTIONS:
         return {"confirm": "「いい」と言われて掛ける", "decline": "確かめたものをやめる"}[action]
+    if action in _MUSIC_ACTIONS:
+        # 音楽にも見出しを付ける（出-be・2026-10-10 実機 11:05:16）。空だと同じ求めの 2 回目の音楽の操作が、名前に
+        # 関係なく「すでに調べた」で止まり、かけ直しが投げられなかった。名前が違えば別の操作として投げる。
+        name = str(tool_input.get("name") or "").strip()
+        return {
+            "play_music": f"音楽をかける「{name}」" if name else "音楽をかける（止まっていた続き）",
+            "stop_music": "音楽を止める",
+            "next_track": "次の曲にする",
+            "music_volume": f"音量を変える「{str(tool_input.get('how') or '').strip()}」",
+            "music_suggestion_reply": (
+                f"すすめた曲に返事する「{str(tool_input.get('reply') or '').strip()}」"
+            ),
+        }[action]
     if action == "look":
         return f"{tool_input.get('pose') or tool_input.get('direction') or ''}を見に行く"
     if action.startswith("ask_vault_"):
@@ -1116,6 +1129,8 @@ class InformationProcessing:
             # **前に返ったものをそのまま返す**（出-ag-ろ 穴 3）。以前は「結果は W にある」と
             # 返していたが、タイマーの返りの反復は想起をしないので W に無かった。材料の無い W を
             # 見て、調停は掛かっていないタイマーを「セットしました」と言った（実機 2026-09-21 17:34）。
+            from ..core.completion_kind import ALREADY_TRIED
+
             earlier = (
                 f"前の結果：{seen.result}" if seen.result is not None else "（まだ返っていない）"
             )
@@ -1123,9 +1138,12 @@ class InformationProcessing:
                 Trigger(
                     kind="完了",
                     query=query,
-                    result=f"「{query}」はこの求めですでに調べた。{earlier}",
+                    result=f"「{query}」は{ALREADY_TRIED}。{earlier}",  # 完了の表が見る印
                     intent_id=intent_id,
                     index=seen.index,
+                    # 前の失敗の印を引き継ぐ（出-be）。無いと届いた側が「失敗していない」で上書きし、
+                    # 「別の曲が鳴っている」の結果を完了の表が「かけた → 黙る」と読んだ（実機 11:05:16）。
+                    failed=bool(seen.failed),
                 )
             )
             return
