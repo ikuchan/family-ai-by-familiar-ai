@@ -2204,6 +2204,7 @@ class InformationProcessing:
         )
         if await self._swallow_if_unheard(trigger):
             self._notify_heard(utterance, False)
+            self._log_swallowed_voice(voice)  # 点数だけ残す（知-as 段 1）
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
         self._notify_heard(utterance, True)
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
@@ -3673,23 +3674,70 @@ class InformationProcessing:
         """誰の声か分からないか：声の特徴が無い、または、どの家族にも付け替えの閾値（0.35）以上で当たらない。"""
         if voice is None:
             return True
+        try:
+            cfg = self._agent.config.recognition
+            scores = self._voice_scores(voice)
+            return not any(v >= cfg.voice_switch_threshold for v in scores.values())
+        except Exception:  # noqa: BLE001
+            return True
+
+    def _voice_scores(self, voice: Any) -> "dict[str, float]":
+        """人ごとの似かた（登録の重心と今日の重心のうち近いほう・`core/voice_speaker.scores`）。読めなければ例外。
+
+        門を通った声（`_match_voice`）も、窓の外で捨てた声（`_log_swallowed_voice`）も、ここで測る。捨てた声は測って
+        記録するだけで、話者・今日の声には触らない（知-as 段 1）。
+        """
         from datetime import datetime
 
         from ..core import voice_speaker
         from ..store.clock import local_tz
 
+        store = self._voice_store()
+        today = datetime.now(local_tz()).date()
+        return voice_speaker.scores(
+            voice,
+            store.centroids("voice", "registered"),
+            store.centroids("voice", "today", day=today),
+        )
+
+    def _log_voice_scores(self, heard: bool, scores: "dict[str, float]", verdict: Any) -> None:
+        """声の似かたを 1 行（知-as 段 1）。全員の点数・いまの話者・在席と付け替えの基準・判定。本文は出さない。"""
+        cfg = self._agent.config.recognition
+        occupied = self._occupied()
+        strict = cfg.voice_switch_threshold if occupied else cfg.voice_alone_threshold
+        current = self._current_speaker_pid()
+        who = self._call_name_for(verdict.person_id) if verdict.person_id else None
+        ranked = sorted(scores.items(), key=lambda kv: kv[1], reverse=True)
+        logger.info(
+            "声の似かた：%s・いま %s・在席%s（付け替え %.2f）→ %s%s %s %.2f｜%s",
+            "通した" if heard else "捨てた",
+            (self._call_name_for(current) or current) if current else "既定",
+            "あり" if occupied else "なし",
+            strict,
+            "" if heard else "通していたら ",
+            verdict.action,
+            who or verdict.person_id or "-",
+            verdict.score,
+            "・".join(f"{self._call_name_for(pid) or pid} {v:.2f}" for pid, v in ranked)
+            or "基準なし",
+        )
+
+    def _log_swallowed_voice(self, voice: Any) -> None:
+        """窓の外で捨てた声も、点数と「通していたら」の答えだけ残す（知-as 段 1）。話者・今日の声には触らない。"""
+        if voice is None:
+            return
+        from ..core import voice_speaker
+
+        cfg = self._agent.config.recognition
         try:
-            cfg = self._agent.config.recognition
-            store = self._voice_store()
-            today = datetime.now(local_tz()).date()
-            scores = voice_speaker.scores(
-                voice,
-                store.centroids("voice", "registered"),
-                store.centroids("voice", "today", day=today),
+            scores = self._voice_scores(voice)
+            strict = cfg.voice_switch_threshold if self._occupied() else cfg.voice_alone_threshold
+            verdict = voice_speaker.decide(
+                self._current_speaker_pid(), scores, loose=cfg.voice_threshold, strict=strict
             )
-            return not any(v >= cfg.voice_switch_threshold for v in scores.values())
+            self._log_voice_scores(False, scores, verdict)
         except Exception:  # noqa: BLE001
-            return True
+            logger.warning("捨てた声の似かたを測れなかった", exc_info=True)
 
     def _wake_window_admits(self, trigger: "Trigger") -> bool:
         """会話入力を窓で受けるか（出-as 段 3・出-au 段 1-2・`設計方針_判定の段` §2.1）。受けたら窓を開ける／延ばす。
@@ -4157,11 +4205,7 @@ class InformationProcessing:
             store = self._voice_store()
             today = datetime.now(local_tz()).date()
             store.drop_old_today(today)
-            scores = voice_speaker.scores(
-                voice,
-                store.centroids("voice", "registered"),
-                store.centroids("voice", "today", day=today),
-            )
+            scores = self._voice_scores(voice)
             strict = cfg.voice_switch_threshold if self._occupied() else cfg.voice_alone_threshold
             verdict = voice_speaker.decide(
                 self._current_speaker_pid(),
@@ -4174,6 +4218,8 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             logger.warning("声で話者を照らせなかった（会話は続ける）", exc_info=True)
             return
+        with contextlib.suppress(Exception):
+            self._log_voice_scores(True, scores, verdict)
         if verdict.action == "switch" and verdict.person_id:
             name = self._call_name_for(verdict.person_id)
             if name:
@@ -4185,11 +4231,9 @@ class InformationProcessing:
             logger.info(
                 "声が誰にも当たらないので、話者を既定の人に戻した（最も近い %.2f）", verdict.score
             )
-        else:
-            if verdict.action == "keep" and verdict.person_id:
-                with contextlib.suppress(Exception):
-                    self._agent._pmm.refresh_signal(verdict.person_id)  # 顔ぶれの持ち時間を数え直す
-            logger.debug("声：%s（%s %.2f）", verdict.action, verdict.person_id, verdict.score)
+        elif verdict.action == "keep" and verdict.person_id:
+            with contextlib.suppress(Exception):
+                self._agent._pmm.refresh_signal(verdict.person_id)  # 顔ぶれの持ち時間を数え直す
 
     def _occupied(self) -> bool:
         try:
