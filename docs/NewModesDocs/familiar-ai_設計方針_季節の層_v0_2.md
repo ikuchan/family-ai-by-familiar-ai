@@ -83,11 +83,11 @@ REST 内省は、アプリが起動していて誰も居ないときにしか回
 
 | 段 | 中身 | コミット |
 |---|---|---|
-| 1 | `core/season_env.py`——暦（`calendar_line`）・検査（`check`）・渡し方（`render`）・置き場（`stored`／`store`／`clear`） | `ba13213` |
-| 2 | `loop/rest_season.py`——`update_season`（1 日 1 回・住所で検索・Brave→Tavily・フル LLM・検査・`内省` の記録・計測 `季節`） | `0d193a4` |
-| 3 | `loop/rest.py`——層 1 と層 2 のあいだで呼ぶ（失敗しても層 2 へ進む） | `d5c0955` |
-| 4 | `build_context(season_env=…)`・`build_event_system_prompt`・`arbitrate`・`event_loop._season_env_text`——主LLM と調停の安定部 | `1d54102` |
-| 5 | `/season clear`（`agent._handle_season_command`・LLM を通さない） | `7bb6502` |
+| 1 | `core/season_env.py`——暦（`calendar_line`）・検査（`check`）・渡し方（`render`）・置き場（`stored`／`store`／`clear`） | `a1d2a54` |
+| 2 | `loop/rest_season.py`——`update_season`（1 日 1 回・住所で検索・Brave→Tavily・フル LLM・検査・`内省` の記録・計測 `季節`） | `40f6efb` |
+| 3 | `loop/rest.py`——層 1 と層 2 のあいだで呼ぶ（失敗しても層 2 へ進む） | `683ddf4` |
+| 4 | `build_context(season_env=…)`・`build_event_system_prompt`・`arbitrate`・`event_loop._season_env_text`——主LLM と調停の安定部 | `fc2dc4f` |
+| 5 | `/season clear`（`agent._handle_season_command`・LLM を通さない） | `d9f4720` |
 
 - 住所は `ME.md` の本文から正規表現で都道府県と市を取る（`place_of`・例「茨城県守谷市」）。
 - 検索結果をプロンプトへ渡すのは 4,000 字まで。出典の照合は全文で、空白を詰めてから行う。

@@ -182,7 +182,7 @@ class Verdict(Enum):
 ## 更新履歴
 
 > v0.8：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
-> v0.7：`feedback` に面（`viewpoint`）を足した。ループの申告は、記憶の器を直に掴むのをやめてこの口を通り、想起と同じ面へ当てる（2026-09-28・環-ab R-6 と直し `0a08806`）。
+> v0.7：`feedback` に面（`viewpoint`）を足した。ループの申告は、記憶の器を直に掴むのをやめてこの口を通り、想起と同じ面へ当てる（2026-09-28・環-ab R-6 と直し `7da8083`）。
 > v0.6：**MI の同定を面へ移した**（案3・2026-09-02 実装）。`id` は面
 > （`situated_memories.id`）、`obs_id`／`person_id`／`relation_key` が面を同定する。
 > 視点3属性（`writer_id`／`subject_id`／`participants`）は落とし、誰がしたこと・誰が
