@@ -898,10 +898,14 @@ class DriveConfig:
     epsilon: float = 0.001
     theta_fire: float = 1.0 - 0.001  # 発火閾値 Θ_fire = 1−ε
     discharge_q: float = 1.0 - 0.001  # 放電量 q = 1−ε（全放電）
-    # 声がしたのに応じられなかった（聞く相手が居ない）ときに SEEKING へ足す量（案ア・2026-09-17）。
-    # 発火閾値の半分〔仮〕＝2 回目の声で発火して見回りへ。`DRIVE_VOICE_NUDGE` で上書き。
-    voice_nudge: float = field(
-        default_factory=lambda: _float_env("DRIVE_VOICE_NUDGE", (1.0 - 0.001) * 0.5)
+    # 窓の外で捨てた声で、カメラに誰か居るときに足す量（情-p・2026-10-10・本人の決定）。知っている声なら BOND へ
+    # 0.05（声 20 回に 1 回ほど）、知らない声なら SAFETY へ 0.10（10 回に 1 回ほど）。誰も居なければ足さない。
+    # 以前は誰も見えないとき SEEKING へ 0.50 足し、家族の会話のあいだ声 2 つごとに検索した。
+    voice_bond_nudge: float = field(
+        default_factory=lambda: _float_env("DRIVE_VOICE_BOND_NUDGE", 0.05)
+    )
+    voice_safety_nudge: float = field(
+        default_factory=lambda: _float_env("DRIVE_VOICE_SAFETY_NUDGE", 0.10)
     )
 
     # バイアス b_i（中立時 g_{D,i}=b_i・0〜1・仮値）

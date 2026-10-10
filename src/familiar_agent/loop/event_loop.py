@@ -3609,10 +3609,7 @@ class InformationProcessing:
                 # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
                 logger.info("event-loop 窓の外の入力なので捨てる：%.40s", trigger.query)
-                if self._nobody_here():
-                    # 声がしたのに誰も居ない（顔ぶれも在席も無い）のは見に行く理由（案ア・知-ai で顔ぶれも見る）。
-                    with contextlib.suppress(Exception):
-                        await self._agent._nudge_seeking()
+                await self._nudge_by_voice(trigger)
                 return self._swallowed(trigger)
             if not trigger.named:
                 if trigger.source == "voice" and await self._between_family(trigger):
@@ -3803,6 +3800,29 @@ class InformationProcessing:
             min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
         )
         return verdict == jev_judges.TO_FAMILY
+
+    async def _nudge_by_voice(self, trigger: "Trigger") -> None:
+        """窓の外で捨てた声で、欲求を押し上げる（情-p・2026-10-10・本人の決定）。
+
+        カメラに誰か居るとき（顔ぶれか在席）だけ。知っている声（家族に 0.35 以上・`_voice_unknown` が偽）なら BOND を
+        `voice_bond_nudge`（0.05）、知らない声（当たらない・声の特徴が無い）なら SAFETY を `voice_safety_nudge`（0.10）。
+        誰も居なければ何もしない。声で届いた入力だけ（キーボードは押し上げない）。以前は誰も見えないとき SEEKING へ
+        0.50 足し、家族の会話のあいだ声 2 つごとに検索した（10/10 の SEEKING からの検索 68 回）。
+        """
+        if trigger.source != "voice" or self._nobody_here():
+            return
+        from ..config import DriveConfig
+
+        cfg = DriveConfig()
+        with contextlib.suppress(Exception):
+            if self._voice_unknown(trigger.voice):
+                await self._agent._nudge_drive(
+                    "safety", cfg.voice_safety_nudge, "知らない声がした（誰か居る）"
+                )
+            else:
+                await self._agent._nudge_drive(
+                    "bond", cfg.voice_bond_nudge, "知っている声がした（誰か居る）"
+                )
 
     def _nobody_here(self) -> bool:
         """出口の門と同じ「居る」（`agent._someone_here`・顔ぶれか在席・知-ai）が無いか。読めなければ居る扱い。"""

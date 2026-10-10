@@ -26,7 +26,7 @@ def _ip(*, present: float):
     a._observation_perspective = MagicMock(return_value={})
     a._conversation_perspective = MagicMock(return_value={})
     a._occupancy = MagicMock(return_value=present)
-    a._nudge_seeking = AsyncMock()
+    a._nudge_drive = AsyncMock()
     ip = InformationProcessing(a)
     ip._load_silence = lambda: None  # 黙ってはいない
     return ip, a
@@ -44,7 +44,7 @@ def test_device_and_affect_still_go_to_the_exit_gate_when_absent():
     d = _run(ip._swallow_if_unheard(Trigger(kind="機器", query="タイマー", result="時間")))
     u = _run(ip._swallow_if_unheard(Trigger(kind="情動", query="seeking")))
     assert (d, u) == (False, False)
-    a._nudge_seeking.assert_not_awaited()
+    a._nudge_drive.assert_not_awaited()
 
 
 def test_the_heading_says_it_was_silent():

@@ -33,7 +33,7 @@ def _ip(*, timer: bool = False):
     a = _agent(stream_returns=[])
     a.config.agent_names = ["パジュ"]
     a._occupancy = MagicMock(return_value=1.0)
-    a._nudge_seeking = AsyncMock()
+    a._nudge_drive = AsyncMock()
     a._last_human_at = None
     ip = InformationProcessing(a)
     ip._load_silence = lambda: None

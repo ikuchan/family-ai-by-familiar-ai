@@ -6,7 +6,7 @@
   （記録しない・ログだけ）。**カメラに誰も映っていなくても**、窓の中なら受ける。
 - キーボード：声と同じ。名前で窓を開ける（出-au 段 1-2 で改めた）。
 - タイマーの操作の言葉（「止めて」など）にも名前が要る（出-au 段 1-2 で改めた）。
-- 捨てた声で、しかも誰も映っていなければ、見回したくなる押し上げ（seeking・いまのまま）。
+- 捨てた声の押し上げは、誰か居るときだけ（知っている声は BOND・知らない声は SAFETY・情-p・`test_voice_nudges_bond_or_safety`）。
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _ip(*, present: float = 1.0, names=("パジュ",)):
     a._conversation_perspective = MagicMock(return_value={})
     a._occupancy = MagicMock(return_value=present)
     a._someone_here = MagicMock(return_value=bool(present))  # 顔ぶれは空・在席だけ（知-ai）
-    a._nudge_seeking = AsyncMock()
+    a._nudge_drive = AsyncMock()
     a._timer_tool.frame = MagicMock(return_value="")
     a._dif.ringing = False
     ip = InformationProcessing(a)
@@ -87,13 +87,14 @@ def test_nobody_on_camera_does_not_stop_the_window():
     """名前で呼ばれたこと・打たれたことが居る証拠になる（本人の決定）。"""
     ip, a = _ip(present=0.0)
     assert _heard(ip, "パジュ、聞こえる？") is True
-    a._nudge_seeking.assert_not_awaited()
+    a._nudge_drive.assert_not_awaited()
 
 
-def test_a_dropped_voice_while_unoccupied_still_nudges_seeking():
+def test_a_dropped_voice_while_unoccupied_no_longer_nudges():
+    """以前は誰も居ないとき SEEKING を押し上げた。情-p で、誰か居るときだけに改めた。"""
     ip, a = _ip(present=0.0)
     assert _heard(ip, "こんにちは") is False
-    a._nudge_seeking.assert_awaited_once()
+    a._nudge_drive.assert_not_awaited()
 
 
 def test_without_names_nothing_is_heard():

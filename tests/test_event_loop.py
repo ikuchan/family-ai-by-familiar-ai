@@ -682,10 +682,10 @@ def test_typing_with_nobody_present_is_still_answered():
     # （`設計方針_話していいかの決まり` §2.3）。声の窓の決まりは `test_the_wake_window_gates_voice.py`。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "ねえ聞いて"})])])
     a._occupancy = MagicMock(return_value=0.0)  # カメラには誰も映っていない
-    a._nudge_seeking = AsyncMock()
+    a._nudge_drive = AsyncMock()
     _run_chain(a)  # 声を待たず、主LLM の呼び出しを待つ（声になるかは段 6 の発話の門）
     a.backend.stream_turn.assert_awaited()  # 主LLM が返事を考えた
-    a._nudge_seeking.assert_not_awaited()  # 捨てていないので押し上げもしない
+    a._nudge_drive.assert_not_awaited()  # 捨てていないので押し上げもしない
 
 
 def test_speech_goes_out_when_someone_is_present():

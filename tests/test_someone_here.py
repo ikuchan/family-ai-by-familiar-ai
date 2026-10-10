@@ -66,18 +66,19 @@ def test_the_exit_gate_lets_affect_speak_while_someone_is_here():
 
 
 @pytest.mark.real_window
-def test_a_dropped_voice_does_not_send_her_looking_while_someone_is_here():
+def test_a_dropped_voice_nudges_only_while_someone_is_here():
+    """情-p：誰か居るときだけ押し上げる（以前は誰も居ないときだけ SEEKING を押し上げた）。"""
     from familiar_agent.loop.event_loop import Trigger
 
-    for here, nudged in ((True, False), (False, True)):
+    for here, nudged in ((True, True), (False, False)):
         ip, a = _ip(here=here)
-        a._nudge_seeking = AsyncMock()
+        a._nudge_drive = AsyncMock()
         a.config.agent_names = ["パジュ"]
         ip._load_silence = lambda: None  # type: ignore[method-assign]
         fut = asyncio.new_event_loop().create_future()
         t = Trigger(kind="会話入力", query="ごはんまだ？", future=fut, source="voice", arrived=0.0)
         asyncio.run(ip._swallow_if_unheard(t))
-        assert a._nudge_seeking.await_count == (1 if nudged else 0), here
+        assert a._nudge_drive.await_count == (1 if nudged else 0), here
 
 
 # ── T：欲求の溜まり方と REST ─────────────────────────────────────────────────

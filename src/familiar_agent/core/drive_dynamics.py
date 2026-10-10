@@ -160,7 +160,7 @@ def nudge(drives: AiDrivers, axis: str, amount: float, cfg: DriveConfig | None =
 
     押し上げは蓄積の一部で、**発火は通常の tick（`fired`）が決める**。出来事から直接
     発火させると、間隔の伸び（情-d）や静穏時間の抑えを飛び越えてしまう。
-    使い手：声がしたが応じられないとき SEEKING へ（案ア・2026-09-17）。
+    使い手：窓の外の声で、誰か居るとき BOND（知っている声）か SAFETY（知らない声）へ（情-p・2026-10-10）。
     """
     cfg = cfg or DriveConfig()
     if axis not in ("seeking", "rest", "bond", "safety", "esteem"):

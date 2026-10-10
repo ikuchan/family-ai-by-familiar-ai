@@ -789,33 +789,29 @@ class EmbodiedAgent:
                 return True
         return self._occupancy() > 0.0
 
-    async def _nudge_seeking(self) -> None:
-        """声がしたが応じられなかったので SEEKING を押し上げる（案ア・2026-09-17）。
+    async def _nudge_drive(self, axis: str, amount: float, why: str) -> None:
+        """出来事で欲求の 1 軸を押し上げる（窓の外の声・情-p・`event_loop._nudge_by_voice`）。
 
-        `step_drives` と同じ順（`db.lock` の中で読み・書き・commit）でスレッドへ逃がす。
-        量は `DriveConfig.voice_nudge`（発火閾値の半分〔仮〕）。発火は T の tick に任せる。
+        `step_drives` と同じ順（`db.lock` の中で読み・書き・commit）でスレッドへ逃がす。発火は T の tick に任せる。
         """
         from .config import DriveConfig
         from .core import drive_dynamics as dd
         from .drive_register import load_drives, save_drives
 
-        def _work() -> tuple[float, float]:
+        def _work() -> float:
             from .db import get_db
 
             cfg = DriveConfig()
             database = get_db()
             with database.lock:
                 conn = database.conn()
-                drives = load_drives(conn)
-                nudged = dd.nudge(drives, "seeking", cfg.voice_nudge, cfg)
+                nudged = dd.nudge(load_drives(conn), axis, amount, cfg)
                 save_drives(conn, nudged)
                 conn.commit()
-            return cfg.voice_nudge, nudged.seeking
+            return float(getattr(nudged, axis))
 
-        amount, now_value = await asyncio.to_thread(_work)
-        logger.info(
-            "drive 声がしたが誰も見えないので seeking を +%.2f（いま %.2f）", amount, now_value
-        )
+        now_value = await asyncio.to_thread(_work)
+        logger.info("drive %sので %s を +%.2f（いま %.2f）", why, axis, amount, now_value)
 
     def _music_table(self) -> tuple:
         """`MUSIC.md` の表。読めなければ空（`ME.md` と同じ探し方）。"""
