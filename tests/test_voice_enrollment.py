@@ -39,7 +39,7 @@ def _agent(clock):
     a._now = lambda: clock["t"]
     a._voice_enroll = None
     a._handle_voice_command = lambda ui: Agent._handle_voice_command(a, ui)
-    a._enroll_voice = lambda v: Agent._enroll_voice(a, v)
+    a._enroll_voice = lambda v, at=None: Agent._enroll_voice(a, v, at)
     return a, store
 
 
@@ -51,10 +51,11 @@ def test_the_window_is_ten_seconds(monkeypatch):
 def test_a_voice_after_the_command_is_registered_and_names_the_speaker():
     clock = {"t": 1000.0}
     a, store = _agent(clock)
-    out = asyncio.run(Agent.run(a, KeyText("/voice パパ")))
+    # 受付は入力に付いた時刻（話し始め・`time.monotonic()`）で見る（知-au）。
+    out = asyncio.run(Agent.run(a, KeyText("/voice パパ", at=1000.0)))
     assert "パパ" in out and "10 秒" in out
     clock["t"] = 1005.0
-    out = asyncio.run(Agent.run(a, VoiceText("こんにちは、パジュ", voice=VOICE)))
+    out = asyncio.run(Agent.run(a, VoiceText("こんにちは、パジュ", at=1005.0, voice=VOICE)))
     assert "声を登録しました" in out
     origins = [c.args[2] for c in store.add.call_args_list]
     assert origins == ["registered", "today"]
@@ -75,9 +76,9 @@ def test_a_name_outside_the_family_is_refused():
 def test_after_ten_seconds_the_voice_goes_to_the_conversation():
     clock = {"t": 1000.0}
     a, store = _agent(clock)
-    asyncio.run(Agent.run(a, KeyText("/voice パパ")))
+    asyncio.run(Agent.run(a, KeyText("/voice パパ", at=1000.0)))
     clock["t"] = 1011.0
-    asyncio.run(Agent.run(a, VoiceText("こんにちは", voice=VOICE)))
+    asyncio.run(Agent.run(a, VoiceText("こんにちは", at=1011.0, voice=VOICE)))
     store.add.assert_not_called()
     a._info_processing.push_utterance.assert_awaited_once()
     assert a._voice_enroll is None

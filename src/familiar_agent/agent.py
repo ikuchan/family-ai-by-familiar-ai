@@ -194,8 +194,9 @@ class EmbodiedAgent:
         self._oif = OIF(self._memory, for_person=self._pmm.get_memory_for)
         self._memory_tool = MemoryTool(self._pmm)
         self._occupancy_sensor: OccupancySensor | None = None
-        # `/voice 名前` の受付（呼びかけ名, 人物 id, 締め切り）。知-ai・最初の声の登録。
-        self._voice_enroll: "tuple[str, str, float] | None" = None
+        # `/voice 名前` の受付（呼びかけ名, 人物 id, 開いた時刻, 締め切り）。知-ai・最初の声の登録。時刻は話し始めと
+        # 同じ `time.monotonic()`（知-au）。
+        self._voice_enroll: "tuple[str, str, float, float] | None" = None
         # 人検出（YOLO）。在席と `see` の即席の意味づけで共有（カメラが無ければ None）。
         self._person_detector: PersonDetector | None = None
         # 見えのエンコーダ（DINOv2）。起動時に温めるため参照を持つ。
@@ -1416,21 +1417,31 @@ class EmbodiedAgent:
             self._voice_enroll = None
             return f"[家族に「{arg}」がいないので、声を登録できません]"
         sec = float(self.config.recognition.voice_enroll_sec)
-        self._voice_enroll = (call, pid, self._now() + sec)
+        # 受付は話し始めた時刻と同じ時計（`time.monotonic()`・入力に付いた `at`）で持つ（知-au・2026-10-10 実機 11:53）。
+        # 書き起こしが届いた時刻で見ると、書き起こしに 6.77 秒かかった声が受付の間に話し始めていても捨てられた。
+        from .core.wake_window import arrived_at
+
+        opened = arrived_at(user_input)
+        self._voice_enroll = (call, pid, opened, opened + sec)
         logger.info("声の登録を受け付ける：%s（%.0f 秒）", call, sec)
         return f"[声を登録します：{call}。{sec:.0f} 秒以内に話してください]"
 
-    async def _enroll_voice(self, voice) -> str | None:
+    async def _enroll_voice(self, voice, at: "float | None" = None) -> str | None:
         """受付中に届いた声を、その人の登録の声と今日の声に足し、話者にする（知-ai）。登録したら知らせの文を返す。
 
-        声の特徴が無い入力（キーボード・短い断片）は使わず受付を開いたままにする。受付が過ぎていれば閉じて None
+        声の特徴が無い入力（キーボード・短い断片）は使わず受付を開いたままにする。`at` は話し始めた時刻（知-au）：
+        受付を開く前から話していた声は使わず（受付は開いたまま）、締め切りの後に話し始めた声なら閉じて None
         （その声は普段どおり会話へ流れる）。
         """
         kept = getattr(self, "_voice_enroll", None)
         if kept is None or voice is None:
             return None
-        call, pid, until = kept
-        if self._now() > until:
+        call, pid, opened, until = kept
+        started = time.monotonic() if at is None else float(at)
+        if started < opened:
+            logger.info("声の登録：受付を開く前から話していた声なので使わない：%s", call)
+            return None
+        if started > until:
             self._voice_enroll = None
             logger.info("声の登録の受付が過ぎた：%s", call)
             return None
@@ -1694,7 +1705,7 @@ class EmbodiedAgent:
         _voice_reply = self._handle_voice_command(user_input)
         if _voice_reply is not None:
             return self._command_done(_original, _voice_reply, on_text)
-        _enrolled = await self._enroll_voice(_voice)
+        _enrolled = await self._enroll_voice(_voice, _arrived)
         if _enrolled is not None:
             return self._command_done(_original, _enrolled, on_text)
         # ── Speaker identification ────────────────────────────────────────────
