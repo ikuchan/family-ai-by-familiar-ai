@@ -166,10 +166,15 @@ cp persona-template/en.md ME.md
 **macOS / Linux / WSL2:**
 ```bash
 ./run.sh             # Textual TUI (backward-compatible default)
-./run-gui.sh         # Desktop GUI launcher
-./run.sh --gui       # Desktop GUI (same as run-gui.sh)
+./run-gui.sh         # Desktop GUI launcher (restarts after a crash)
+./run.sh --gui       # Desktop GUI (runs once, no restart)
 ./run.sh --no-tui    # Plain REPL
 ```
+
+`./run-gui.sh` restarts the app when it crashes (any exit code other than 0, 130 or 143), waiting 10 s and
+then 1.5x longer after each crash. It appends native crash traces (`PYTHONFAULTHANDLER=1`) to
+`~/.cache/familiar-ai/crash.log` and each restart to `~/.cache/familiar-ai/restart.log`. Arguments such as
+`--debug` are passed on every start. To start it at login, see `deploy/autostart/README.md`.
 
 **Windows:**
 ```bat

@@ -1,0 +1,11 @@
+[Desktop Entry]
+# パソコンが起動したら、パジュを立ち上げる（環-ah・2026-10-10 本人の決定）。
+# Chrome リモートデスクトップの仮想画面（Cinnamon）が始まると、ターミナルで run-gui.sh を開く。
+# 落ちたときの起動し直しとクラッシュログは run-gui.sh が持つ。引数（--debug など）は Exec の末尾に足す。
+# Exec は単引用符を引用として扱わないので、run-gui.sh を絶対パスで直接呼ぶ（run-gui.sh は自分の場所へ移ってから動く）。
+# リポジトリの場所が違う機械では、このパスを書き換える。
+Type=Application
+Name=familiar-ai（パジュ）
+Exec=gnome-terminal --title=パジュ -- @REPO@/run-gui.sh
+Terminal=false
+X-GNOME-Autostart-enabled=true
