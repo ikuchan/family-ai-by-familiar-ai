@@ -199,7 +199,8 @@ def test_the_night_refresh_keeps_what_it_could_not_read(clean_catalog):
     got = {p.name: p for p in mc.stored().playlists}
     assert [t["title"] for t in got["ケイマン"].tracks] == ["Tokyo"]
     assert [t["title"] for t in got["人の"].tracks] == ["前の曲"]  # 読めなかったので前の中身
-    assert r.playlists == 2 and r.unread == 1
+    # 他人のものが読めないのは「中身を読めない他人のもの」に数える（知-ao・本人の決定ア）
+    assert r.playlists == 2 and r.unread == 0 and r.unreadable == 1
 
 
 def test_no_spotify_means_nothing_to_do(clean_catalog):

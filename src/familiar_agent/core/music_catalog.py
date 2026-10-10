@@ -21,6 +21,9 @@ class Playlist:
     uri: str
     tracks: "list[dict]" = field(default_factory=list)  # {"title","artist","uri"}
     mine: bool = True
+    # 中身を読めないと分かった日（YYYY-MM-DD・空なら読める）。他人のプレイリストは Spotify の決まりで中身を読めない
+    # ことがある（403）ので、覚えて `UNREADABLE_RETRY_DAYS` 日は読みに行かない（知-ao）。
+    unreadable_since: str = ""
 
 
 @dataclass
@@ -55,7 +58,14 @@ class Catalog:
 def _to_json(cat: Catalog) -> dict:
     return {
         "playlists": [
-            {"id": p.id, "name": p.name, "uri": p.uri, "tracks": p.tracks, "mine": p.mine}
+            {
+                "id": p.id,
+                "name": p.name,
+                "uri": p.uri,
+                "tracks": p.tracks,
+                "mine": p.mine,
+                "unreadable_since": p.unreadable_since,
+            }
             for p in cat.playlists
         ],
         "albums": cat.albums,
@@ -76,6 +86,7 @@ def _from_json(raw: object) -> Catalog:
                     uri=str(p["uri"]),
                     tracks=list(p.get("tracks") or []),
                     mine=bool(p.get("mine", True)),
+                    unreadable_since=str(p.get("unreadable_since", "") or ""),
                 )
             )
     return Catalog(

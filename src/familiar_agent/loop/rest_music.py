@@ -25,7 +25,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class CatalogResult:
     playlists: int = 0
-    unread: int = 0  # 中身を読めず、前の晩の中身を残したプレイリスト
+    unread: int = 0  # 中身を読めず、前の晩の中身を残したプレイリスト（自分のもの）
+    unreadable: int = 0  # 中身を読めない他人のプレイリスト（知-ao）
     tracks: int = 0
 
 
@@ -38,16 +39,53 @@ async def refresh_catalog(agent) -> CatalogResult:
     return await asyncio.to_thread(_refresh, web)
 
 
-def _refresh(web) -> CatalogResult:
+#: 中身を読めない他人のプレイリストを読み直すまでの日数〔仮・知-ao〕。
+UNREADABLE_RETRY_DAYS = 7
+
+
+def _days_between(since: str, today: str) -> int:
+    from datetime import date
+
+    try:
+        return (date.fromisoformat(today) - date.fromisoformat(since)).days
+    except ValueError:
+        return UNREADABLE_RETRY_DAYS  # 読めない日付なら読み直す
+
+
+def _refresh(web, *, today: "str | None" = None) -> CatalogResult:
+    """目録を読み直す。他人のもので中身を読めないものは、覚えて `UNREADABLE_RETRY_DAYS` 日は読まない（知-ao）。
+
+    Spotify のプレイリストの中身を読む口は、自分が持っているか共同編集者のものだけで、ほかは 403 を返す（公式の
+    リファレンス）。毎晩 403 を叩いていた。どちらも読めなければ前の中身は残す。自分のものは一時の失敗として毎晩読み直す。
+    """
+    if today is None:
+        from ..store.clock import local_tz
+        from datetime import datetime
+
+        today = datetime.now(local_tz()).date().isoformat()
     before = {p.id: p for p in mc.stored().playlists}
     result = CatalogResult()
     playlists: list[mc.Playlist] = []
     for p in web.my_playlists():
+        old = before.get(p["id"])
+        since = old.unreadable_since if old is not None and not p["mine"] else ""
+        if since and _days_between(since, today) < UNREADABLE_RETRY_DAYS:
+            result.unreadable += 1
+            kept = list(old.tracks) if old is not None else []
+            playlists.append(mc.Playlist(p["id"], p["name"], p["uri"], kept, p["mine"], since))
+            result.tracks += len(kept)
+            continue
         items = web.playlist_items(p["id"])
+        mark = ""
         if items is None:
-            result.unread += 1
-            items = before[p["id"]].tracks if p["id"] in before else []
-        playlists.append(mc.Playlist(p["id"], p["name"], p["uri"], list(items), p["mine"]))
+            # 読めなくても前の中身は残す（データを失わない）。他人のものは印を付けて数え分ける。
+            items = old.tracks if old is not None else []
+            if p["mine"]:
+                result.unread += 1
+            else:
+                result.unreadable += 1
+                mark = today
+        playlists.append(mc.Playlist(p["id"], p["name"], p["uri"], list(items), p["mine"], mark))
         result.tracks += len(items)
     result.playlists = len(playlists)
     if playlists or not before:
@@ -55,10 +93,11 @@ def _refresh(web) -> CatalogResult:
             mc.Catalog(playlists=playlists, albums=web.saved_albums(), tracks=web.saved_tracks())
         )
     logger.info(
-        "rest 音楽の目録：プレイリスト %d・曲 %d（読めず前のまま %d）",
+        "rest 音楽の目録：プレイリスト %d・曲 %d（読めず前のまま %d・中身を読めない他人のもの %d）",
         result.playlists,
         result.tracks,
         result.unread,
+        result.unreadable,
     )
     return result
 
