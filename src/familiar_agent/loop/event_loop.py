@@ -2210,6 +2210,13 @@ class InformationProcessing:
         agent = self._agent
         self._on_text = on_text or self._on_text
         self._ensure_driver()
+        # 名前が区切りの直後にあれば、そこから後ろだけを受ける（出-bh・10/11 08:18 に前の会話がくっついた呼びかけを捨てた）。
+        from ..core.wake_window import from_name
+
+        cut = from_name(utterance, list(getattr(agent.config, "agent_names", None) or []))
+        if cut != utterance:
+            logger.info("event-loop 名前より前を落とした（%d 字）", len(utterance) - len(cut))
+            utterance = cut
         fut: "asyncio.Future[str]" = asyncio.get_running_loop().create_future()
         trigger = Trigger(
             kind="会話入力",

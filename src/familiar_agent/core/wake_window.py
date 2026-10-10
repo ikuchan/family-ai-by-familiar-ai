@@ -31,6 +31,29 @@ def heard_name(text: str, names: "list[str]") -> bool:
     return names_me(text, names)
 
 
+#: 文の区切り（出-bh）。この直後に名前があれば呼ばれたとみなす。「、」は入れない（「ねえ、パジュ」は通さない・2026-09-30）。
+_BREAKS = frozenset("。．.？?！!")
+
+
+def from_name(text: str, names: "list[str]") -> str:
+    """文頭に名前が無ければ、区切りの直後の名前から後ろを返す（出-bh・2026-10-11・本人の決定ア）。無ければそのまま。
+
+    書き起こしが前の家族の会話や雑音と名前を 1 つにまとめ、「…ちょっとしていいの?アパージュ、おはよう」を窓の外として
+    捨てた（10/11 08:18）。名前より前はパジュへの言葉ではないので落とす。区切りは「。？！?!.」と空白。
+    """
+    if not names or names_me(text, names):
+        return text
+    for i in range(1, len(text)):
+        if not (text[i - 1] in _BREAKS or text[i - 1].isspace()):
+            continue
+        rest = text[i:]
+        if rest[:1].isspace() or rest[:1] in _BREAKS:
+            continue  # 区切りが続くなら、最後の区切りの直後で見る
+        if names_me(rest, names):
+            return rest
+    return text
+
+
 def _plain(s: str) -> str:
     """呼び方の違いだけを均す：カタカナをひらがなに、長音を落とす（濁点と小書きは残す）。"""
     out = []
