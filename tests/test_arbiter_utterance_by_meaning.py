@@ -43,7 +43,11 @@ def _a(choice: str, confidence: float) -> dict:
 
 def _run(jev, *, writer=None, extra=("play_music", "stop_music")):
     writer = writer or writer_says(
-        {"text": "もう一度お願いします", "tool_input": {"name": "ケイマン"}, "query": "明日の天気"}
+        {
+            "text": "もう一度言ってもらえますか？",
+            "tool_input": {"name": "ケイマン"},
+            "query": "明日の天気",
+        }
     )
     d = asyncio.run(
         decide(
@@ -79,7 +83,7 @@ def test_unformed_is_silent_without_writing():
 def test_ask_back_is_written_by_the_light_llm():
     jev = _jev({"meaning": _a("music", 0.9), "action_music": _a("ask_back", 0.2)})
     d, writer = _run(jev)
-    assert (d.branch, d.text) == ("light", "もう一度お願いします")
+    assert (d.branch, d.text) == ("light", "もう一度言ってもらえますか？")
     assert "聞き返す" in prompt_of(writer)
 
 
@@ -91,13 +95,16 @@ def test_when_unsure_it_asks_think_or_ask_back():
     assert d.branch == "full"
     jev = _jev({"meaning": _a("research", 0.5)}, {"action": _a("reply_full", 0.4)})
     d, _ = _run(jev)
-    assert (d.branch, d.text) == ("light", "もう一度お願いします")  # それも越えなければ軽く聞き返す
+    assert (d.branch, d.text) == (
+        "light",
+        "もう一度言ってもらえますか？",
+    )  # それも越えなければ軽く聞き返す
 
 
 def test_answering_from_what_is_known():
     jev = _jev({"meaning": _a("answerable", 0.9), "action_answerable": _a("reply_light", 0.8)})
     d, _ = _run(jev)
-    assert (d.branch, d.text) == ("light", "もう一度お願いします")
+    assert (d.branch, d.text) == ("light", "もう一度言ってもらえますか？")
 
 
 def test_a_quiet_decision_closes_silently_for_a_conversation_too():
@@ -187,6 +194,6 @@ def test_an_ask_back_is_told_to_stay_within_twenty_characters():
 
 def test_a_long_ask_back_is_spoken_whole():
     jev = _jev({"meaning": _a("music", 0.9), "action_music": _a("ask_back", 0.9)})
-    long = "どの曲をかけたらいいか、もう一度だけ教えてもらえますか"
+    long = "どの曲をかけたらいいか、もう一度だけ教えてもらえますか？"
     d, _ = _run(jev, writer=writer_says({"text": long}))
     assert d.text == long

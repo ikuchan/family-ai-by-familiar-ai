@@ -566,6 +566,11 @@ _LIGHT_WORDS: "dict[str, str]" = {
 }
 
 
+def _is_question(text: str) -> bool:
+    """「？」か「?」で終わるか（終わりの空白と閉じ括弧は飛ばす・出-bk）。"""
+    return text.rstrip().rstrip("」』）)】").rstrip().endswith(("？", "?"))
+
+
 def _family_call_names(family_md: str) -> "list[str]":
     """家族の呼び方（1 人 1 つ）。名乗り・否定の 2 回目に並べる（出-ay 段 4-4b）。"""
     from ..core import parsing
@@ -942,8 +947,15 @@ class Arbiter:
         if final in ("reply_full", "talk_full"):
             return Decision(branch="full", effort=effort if effort in _EFFORTS else "low")
         if final in _LIGHT_WORDS:
-            texts = await _writer_call(self, inp, {"decided": _LIGHT_WORDS[final]}, ["text"])
+            ask = final == "ask_back"
+            texts = await _writer_call(
+                self, inp, {"decided": _LIGHT_WORDS[final], "ask": ask}, ["text"]
+            )
             text = str((texts or {}).get("text", "")).strip()
+            if ask and text and not _is_question(text):
+                # 問いでない聞き返しは、やらないことの約束になりうる（出-bk）。捨てて主LLM に考えて返させる。
+                logger.info("聞き返しが問いになっていないので主LLM へ：%.40s", text)
+                return Decision(branch="full", effort="low")
             return Decision(branch="light", text=text) if text else None
         data: "dict[str, Any]" = {"branch": "action", "action": final, "effort": "low"}
         if refers_time:
@@ -1042,6 +1054,8 @@ _FIELD_TEXT = {
     "text_talk": '"text"：相手に話しかける短い一言。相手が驚かないよう丁寧に、短く。**まず話してよいかを尋ねる一言にする**。'
     "いつも通りなら空にして黙る。",
     "text_self": '"text"：自分から言うなら短いひとこと。**いつも通りなら空にして黙る**。返事や約束の形にしない。',
+    # 聞き返しは問いにする（出-bk・10/11 08:24 に「調べますので、少々お待ちください。」と約束して何もしなかった）。
+    "text_ask": '"text"：何をしてほしいのかを確かめる短い**問い**（「？」で終える）。答えない。調べる・やる・待ってと約束しない。',
     "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
     "trash": '"trash"：用件はこのあと本応答が言う。いま言いたいことがあるならここに書く（捨てられ、誰にも届かない）。',
     "query": '"query"：探す語。',
@@ -1122,7 +1136,14 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
     if data.get("branch") == "action":
         decided += f"（{data.get('action')}：{_action_note(str(data.get('action')))}）"
     fields = "\n".join(
-        _FIELD_TEXT[_text_field(inp) if (n == "text" and self_doing) else n] for n in needs
+        _FIELD_TEXT[
+            "text_ask"
+            if (n == "text" and data.get("ask"))
+            else _text_field(inp)
+            if (n == "text" and self_doing)
+            else n
+        ]
+        for n in needs
     )
     shape = "{" + ", ".join(f'"{n}": …' for n in needs) + "}"
     prompt = WRITER_PROMPT.format(
