@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.67・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.68・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -303,7 +303,8 @@ $$\text{思い出した時：}\; last\_recalled\_at \leftarrow now\quad(\text{�
 | 静穏時間 `QUIET_HOURS_START` / `QUIET_HOURS_END`（Config） | 23 / 7 | 〔確定〕 | **自分から話しかけない時間帯**。人の発話が起点の反復には掛けない。出所は環境変数 → Config の既定の2段（旧 `schedule.conf`・`ROUTINES.md` は撤去） | 【実装済み】 |
 | 沈黙依頼の長さ `SILENCE_MINUTES`（Config） | 60 分 | 〔確定〕 | 「黙っていて」と頼まれてから時間で解けるまで。もう一つの解除は**退室**（頼んだ人が顔ぶれの集合から消える） | 【実装済み・人が指定】 |
 | 話者の寿命 `SPEAKER_HOLD_SEC`（Config） | 60 秒 | 〔仮〕 | 話者を付けてから・その人に返事してから、話者が分かっているとみなす長さ（知-t）。2026-10-04 に `PRESENCE_SAID_SEC` から改名 | 【設計】知覚在席 §3-2b |
-| 声で SEEKING を押し上げる量 `DRIVE_VOICE_NUDGE`（DriveConfig.voice_nudge） | $\Theta_{fire}/2$ | 〔仮〕 | 返事が「聞く相手が居ない」で保留になるたび加算。2 回目で発火 | 【設計】発火_mood §2-c |
+| 知っている声で BOND を押し上げる量 `DRIVE_VOICE_BOND_NUDGE`（DriveConfig.voice_bond_nudge） | 0.05 | 本人の決定（2026-10-10・情-p） | 窓の外の声・誰か居るときだけ。声 20 回に 1 回ほどで発火 | 【設計】発火_mood §2-c |
+| 知らない声で SAFETY を押し上げる量 `DRIVE_VOICE_SAFETY_NUDGE`（DriveConfig.voice_safety_nudge） | 0.10 | 本人の決定（2026-10-10・情-p） | 窓の外の声・誰か居るときだけ。声 10 回に 1 回ほどで発火 | 【設計】発火_mood §2-c |
 | 顔ぶれの持ち時間 `PRESENCE_HOLD_SEC`（Config） | 60 秒 | 〔仮・2026-10-05・本人〕 | 最後にその人だと分かってから顔ぶれに保つ長さ。在席では消さない（知-ai。以前の `PRESENCE_EXPIRE_SEC`＝在席が 60 秒「誰も居ない」で顔ぶれ表を空にする、は撤去） | 【設計】設計方針_在席と顔ぶれ §4 |
 | タイマーの音の長さ `TIMER_RING_SEC`（Config） | 30 秒 | 〔仮〕 | 鳴ったら `timer_alarm.wav` を繰り返す。0 で声だけ | 【設計】設計方針_タイマー v0.2 §5a |
 | アラームの音の長さ `ALARM_RING_SEC`（Config） | 30 秒 | 〔仮〕 | タイマーとは別（知-q） | 【設計】設計方針_アラーム v0.1 §4 |
@@ -412,6 +413,8 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.68：声の押し上げを BOND 0.05・SAFETY 0.10 に改めた（情-p・2026-10-10）。
+>
 > v0.67：`OPENJTALK_MAX_BYTES` 4,000 バイト〔仮〕を足した（環-ad・2026-10-07）。
 >
 > v0.66：`STT_PREROLL_SEC` 0.2 秒〔仮〕を足した（知-z-は 段 2・2026-10-07）。
