@@ -182,6 +182,9 @@ class MusicTool:
                 "プレイリスト": f"あなたのプレイリスト「{label}」を",
                 "ライブラリ": f"ライブラリの{label}を",
                 "プレイリストの曲": f"プレイリストに入っている{label}を",
+                # 読みで当てたときは、そう言う（知-at）。違えば言い直してもらえるように。
+                "読み:MUSIC.md": f"「{said}」を、読みから「{label}」と取って",
+                "読み:プレイリスト": f"「{said}」を、読みからあなたのプレイリスト「{label}」と取って",
             }[source]
         else:
             found = await self._search(said, str(tool_input.get("kind") or ""), catalog)

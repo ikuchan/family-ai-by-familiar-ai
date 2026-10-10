@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 
 #: 鳴らし続けられる上限（秒）。30 分で止めて通常状態へ戻る。
@@ -147,7 +148,50 @@ def find_local(said: str, table, catalog) -> "tuple[str, str, str, bool] | None"
     for t in catalog.playlist_tracks():
         if _hits(str(t.get("title") or ""), key):
             return "プレイリストの曲", _label(t), str(t["uri"]), False
+    # 文字で当たらなければ、読みで照らす（知-at・2026-10-10・本人の決定ア）。「プレイリストたいき」が「待機」「対キー」と
+    # 書き起こされ、文字では当たらなかった。範囲は `MUSIC.md` と自分のプレイリストだけ（名前が少なく、誤りも速さも心配が少ない）。
+    said_reading = reading(said)
+    if said_reading:
+        for name, uri, shuffle in sorted(table or (), key=lambda r: -len(r[0])):
+            if _reads_in(name, said_reading):
+                return "読み:MUSIC.md", name, uri, shuffle
+        for p in sorted(catalog.playlists, key=lambda p: -len(p.name)):
+            if _reads_in(p.name, said_reading):
+                return "読み:プレイリスト", p.name, p.uri, False
     return None
+
+
+#: 読みで当てる手元の名前の読みの最短（字）。短い読み（「あい」）はほかの言葉の読みに入りやすい〔仮・本人の決定〕。
+READING_MIN = 3
+_O_ROW = set("おこそとのほもよろを")
+_E_ROW = set("えけせてねへめれ")
+
+
+@functools.lru_cache(maxsize=512)
+def reading(text: str) -> str:
+    """読み（ひらがな・ゆるく均したもの）。OpenJTalk で読めなければ空。
+
+    `_norm` で長音・濁点・小書きを均したうえで、長音の書き分けも均す——オ段の後の「う」（よるのうた → ヨルノータ と
+    夜の歌 → ヨルノウタ）とエ段の後の「い」（けいまん → ケイマン と ケーマン）を落とす。OpenJTalk はひらがなと漢字で
+    長音の書き方を変えるので、落とさないと同じ名前が一致しない。
+    """
+    from .openjtalk_safe import g2p_kana
+
+    try:
+        kana = g2p_kana(text or "")
+    except Exception:  # noqa: BLE001
+        return ""
+    out: list[str] = []
+    for ch in _norm(kana):
+        if out and ((ch == "う" and out[-1] in _O_ROW) or (ch == "い" and out[-1] in _E_ROW)):
+            continue
+        out.append(ch)
+    return "".join(out)
+
+
+def _reads_in(name: str, said_reading: str) -> bool:
+    r = reading(name)
+    return len(r) >= READING_MIN and r in said_reading
 
 
 def playlist_artist_in(said: str, catalog) -> "str | None":
