@@ -118,16 +118,16 @@ class Request:
     voice: Any = None
     # 求めを起こした入力が声か（`voice`）キーボードか（`keyboard`）。情動・機器では空（出-bg：合図は声だけ）。
     source: str = ""
-    # 話しかけたときの合図（出-bg）。機械音 A を鳴らしたか（求めに 1 回だけ）・作り置きの声を流したか・
-    # それで最初のつなぎを省いたか（二言目以降は流す）。
+    # 話しかけたときの合図（出-bg）。機械音 A を鳴らしたか（求めに 1 回だけ）。
     cue_rang: bool = False
-    cue_voice_said: bool = False
-    cue_replaced_filler: bool = False
     # 人の言葉が届いた時刻（`time.monotonic`・出-bb で話し始め）。つなぎの見張りはここから通しで数える（出-bc）。
     # 情動・機器、時刻の分からない入力では None（見張りは立った時刻から数える）。
     heard_at: "float | None" = None
     # この求めで最後につなぎ（`進捗`）を積んだ時刻。2 回目以降はここから数える（出-bc）。
     last_progress_at: "float | None" = None
+    # この求めで最後に音（つなぎの声・合図の声）が鳴り終わった時刻（`time.monotonic`）。2 つ目以降のつなぎは
+    # ここから `wait_filler_gap_seconds`（3 秒）黙ったら出す（出-bd ②）。
+    last_sound_ended_at: "float | None" = None
     # この反復で取込が受けた返り（`lookups` の index）。W の最上部に「いま道具から返った」として
     # 載せ、調停が**記憶でなくいま届いた返り**として読めるようにする（出-x・2026-09-18）。
     # W を組んだら空にする（次の反復には持ち越さない）。

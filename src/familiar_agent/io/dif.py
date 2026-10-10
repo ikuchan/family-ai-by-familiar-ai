@@ -162,13 +162,16 @@ class DIF:
         except Exception:  # noqa: BLE001
             logger.debug("DIF 機械音が鳴らせなかった", exc_info=True)
 
-    def play_cue(self, cue: str) -> None:
-        """決まった動作の合図を 1 回流す（待たない）。なしなら何もしない。音楽が鳴っていれば絞る。"""
+    def play_cue(self, cue: str) -> "asyncio.Future[None] | None":
+        """決まった動作の合図を 1 回流す（待たない）。なしなら何もしない。音楽が鳴っていれば絞る。
+
+        返りは鳴らしている仕事（鳴らさなければ None）。呼び手は鳴り終わった時刻を、つなぎの間に使う（出-bd ②）。
+        """
         from ..core.reaction_cue import sound_for
 
         path = sound_for(cue)
         if path is None:
-            return
+            return None
 
         async def _play() -> None:
             async def _one() -> None:
@@ -186,6 +189,7 @@ class DIF:
 
         self._cue_task = asyncio.ensure_future(_play())
         logger.info("DIF 合図：%s（%s）", cue, path.name)
+        return self._cue_task
 
     def set_music_ducker(self, ducker) -> None:
         """声のあいだ音楽を絞る口を挿す（知-aa）。挿さなければ、声はそのまま出る。"""

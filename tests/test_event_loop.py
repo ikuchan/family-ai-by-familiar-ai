@@ -120,8 +120,8 @@ def _agent(*, stream_returns, max_iters=3):
     # 調べものを使う試験がそれぞれ 1 秒待っていた（試験の組み立ては裏のタスクが終わるまで待つ・環-aa）。
     # 偽の調べものはその場で返るので、0.2 秒で「遅い」を知らせることは無い。
     a.config.lookup_slow_seconds = 0.2
-    a.config.wait_filler_repeat_seconds = (
-        20.0  # 会話の求めで待たせ続けるときの繰り返し（出-au 段 2）
+    a.config.wait_filler_gap_seconds = (
+        20.0  # 会話の求めで待たせ続けるときの、音のあとの間（出-bd ②・試験では長くして出さない）
     )
     return a
 

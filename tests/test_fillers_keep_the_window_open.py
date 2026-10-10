@@ -1,8 +1,8 @@
 """待たせている間はつなぎを繰り返し、窓を保つ（出-au 段 2・2026-09-27・`設計方針_判定の段` §2.3）。
 
 窓は 10 秒（2026-10-07 から・以前は 30 秒）。調べものか主LLM を待つあいだに窓が切れると、出来上がった答えは独り言になって消える。
-**会話の求めでは**、待たせている時間が 5 秒（`lookup_slow_seconds`）を超えたら 1 回、その後は 20 秒
-（`wait_filler_repeat_seconds`）ごとに「進捗」を積み、つなぎを出す（つなぎは窓を延ばす）。主LLM の待ちにも付ける。
+**会話の求めでは**、待たせている時間が 5 秒（`lookup_slow_seconds`）を超えたら 1 回、その後は前のつなぎ（と最後に
+鳴り終わった音）から 3 秒（`wait_filler_gap_seconds`・出-bd ②）ごとに「進捗」を積み、つなぎを出す（つなぎは窓を延ばす）。主LLM の待ちにも付ける。
 情動と機器の求めには見張りを立てない（出-aq 段 6・つなぎは会話の求めだけ。待たせている相手が居ない）。
 
 - 見張りは**求めごとに 1 本**。求めが閉じる・打ち切られると止まる。
@@ -24,7 +24,7 @@ from tests.test_event_loop import _agent
 def _ip(kind: str, action: str, *, first=0.01, every=0.02):
     a = _agent(stream_returns=[])
     a.config.lookup_slow_seconds = first
-    a.config.wait_filler_repeat_seconds = every
+    a.config.wait_filler_gap_seconds = every
     ip = InformationProcessing(a)
     ip._req.trigger_kind = kind
     ip._req.request_id = "req-1"
@@ -50,7 +50,7 @@ def test_the_repeat_interval_comes_from_config():
 
     with patch.dict(os.environ, {}, clear=True):
         cfg = AgentConfig()
-        assert (cfg.lookup_slow_seconds, cfg.wait_filler_repeat_seconds) == (5.0, 20.0)
+        assert (cfg.lookup_slow_seconds, cfg.wait_filler_gap_seconds) == (5.0, 3.0)
 
 
 def test_a_conversation_keeps_hearing_progress_while_waiting():
@@ -236,7 +236,7 @@ def test_a_long_wait_already_gives_a_filler_at_once():
 
 def test_the_next_filler_counts_from_the_last_one():
     """見張りが立ち直しても、つなぎを言った直後に「最初の 1 回」をまた出さない。次は最後のつなぎから
-    `wait_filler_repeat_seconds`（立ち直すたびに 0 から数えると、言った直後にまた言う）。"""
+    `wait_filler_gap_seconds`（立ち直すたびに 0 から数えると、言った直後にまた言う）。"""
     import time
 
     ip = _ip("発話", "search_deferred", first=0.05, every=0.3)

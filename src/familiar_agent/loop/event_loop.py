@@ -716,6 +716,7 @@ class InformationProcessing:
         # 参照を持っておき、終わるときに止める。
         self._filler_voices: set[asyncio.Task] = set()
         self._filler_voice_ended = 0.0  # つなぎの声が鳴り終わった時刻（monotonic・出-aq 段 5）
+        self._cue_sound: "asyncio.Future[None] | None" = None  # いま鳴らしている合図（出-bd ②）
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
         # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
         # 事実で、あとから古くならない（出-h-ろ）。
@@ -1161,6 +1162,13 @@ class InformationProcessing:
         """主LLM が考えている最中か（返りがまだ来ていない）。"""
         return any(lk.in_flight and lk.action == "主LLM" for lk in self._req.lookups)
 
+    def _sounding(self) -> bool:
+        """つなぎの声か合図の声が、いま鳴っているか（出-bd ②：鳴っているあいだは次のつなぎを出さない）。"""
+        if self._filler_voices:
+            return True
+        cue = getattr(self, "_cue_sound", None)
+        return cue is not None and not cue.done()
+
     def _ensure_wait_watch(self) -> None:
         """待たせている時間の見張りを、**求めごとに 1 本**立てる（出-au 段 2）。立っていれば何もしない。"""
         if self._req.trigger_kind != "発話":
@@ -1187,8 +1195,10 @@ class InformationProcessing:
     async def _watch_waiting(self, gen: int) -> None:
         """待たせている時間が長いとき、「まだかかっている」（`進捗`）を積む（案G-3・出-au 段 2）。
 
-        最初は `lookup_slow_seconds`（5 秒）、その後は `wait_filler_repeat_seconds`（20 秒）ごとに繰り返し、
-        主LLM の待ちも数える（`設計方針_判定の段` §2.3）。**会話の求めだけ**（出-aq 段 6）。時計で定期的に起こすのでは
+        次を出すのは、次のうち遅い時刻（出-bd ②・本人の決定 2026-10-10）：人の言葉から `lookup_slow_seconds`（5 秒）・
+        前のつなぎを決めてから `wait_filler_gap_seconds`（3 秒）・最後に音（つなぎ・合図の声）が鳴り終わってから 3 秒。
+        つなぎや合図が鳴っているあいだは出さない。以前は 2 つ目以降を前のつなぎから 20 秒にしていたので、つなぎの後に
+        答えまで 8.3 秒黙った（10/08 21:23）。主LLM の待ちも数える（`設計方針_判定の段` §2.3）。**会話の求めだけ**（出-aq 段 6）。時計で定期的に起こすのでは
         なく、**待たせているという事実**が続くあいだだけ起こす。
 
         **待たせているあいだは窓を閉じない**（2026-10-07 本人の決定）。窓を 10 秒に縮めたので、つなぎの合間に窓が切れ、
@@ -1197,17 +1207,24 @@ class InformationProcessing:
         """
         cfg = self._agent.config
         delay = float(getattr(cfg, "lookup_slow_seconds", 5.0))
-        every = float(getattr(cfg, "wait_filler_repeat_seconds", 20.0))
-        tick = min(1.0, delay, every)
+        gap = float(getattr(cfg, "wait_filler_gap_seconds", 3.0))
+        tick = min(1.0, delay, gap)
         # 人の言葉から通しで数える（出-bc・2026-10-08 実機 18:18）。待ちの段ごとに 0 から数えていたので、検索 5 秒弱と
         # 主LLM 4.70 秒のどちらもしきい値に届かず、言ってから 18 秒声が無いのに、つなぎが出なかった。見張りが立ち直しても、
         # 起点（`heard_at`）と最後のつなぎ（`last_progress_at`）は求めに残るので失わない。
         req = self._req
         origin = req.heard_at if req.heard_at is not None else time.monotonic()
-        last = req.last_progress_at
-        due = (last + every) if last is not None else (origin + delay)
+
+        def _due() -> float:
+            marks = [origin + delay]
+            for at in (req.last_progress_at, req.last_sound_ended_at):
+                if at is not None:
+                    marks.append(at + gap)
+            return max(marks)
+
         with contextlib.suppress(asyncio.CancelledError):
             while True:
+                due = _due()
                 left = due - time.monotonic()
                 step = min(tick, left) if left > 0 else 0.0
                 await asyncio.sleep(step)
@@ -1218,7 +1235,7 @@ class InformationProcessing:
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
                 now = time.monotonic()
                 self._wake_window().extend(now)
-                if now + 1e-9 < due:
+                if now + 1e-9 < _due() or self._sounding():
                     continue
                 logger.info(
                     "event-loop 待たせている時間が %.0f 秒を超えた：%.40s",
@@ -1227,7 +1244,6 @@ class InformationProcessing:
                 )
                 self._triggers.put_nowait(Trigger(kind="進捗", query=waiting[0].query))
                 req.last_progress_at = now
-                due = now + every
 
     def _dispatch_main_llm(
         self,
@@ -2122,11 +2138,10 @@ class InformationProcessing:
         self._req.heard_at = getattr(self, "_pending_heard_at", None)
         self._pending_heard_at: "float | None" = None
         self._req.last_progress_at = None
+        self._req.last_sound_ended_at = None
         self._req.source = getattr(self, "_pending_source", "") if kind == "発話" else ""
         self._pending_source = ""
         self._req.cue_rang = False
-        self._req.cue_voice_said = False
-        self._req.cue_replaced_filler = False
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -2990,11 +3005,6 @@ class InformationProcessing:
         waiting = self._waiting_on()
         if not waiting:
             return ""  # 答えがもう届いている
-        if self._req.cue_voice_said and not self._req.cue_replaced_filler:
-            # 作り置きの声（「はい」「んー」など）が最初のつなぎの役を済ませた（出-bg）。二言目以降は流す。
-            self._req.cue_replaced_filler = True
-            logger.info("event-loop 作り置きの声を流したので、最初のつなぎは省く")
-            return ""
         what = (
             "いまは返事を考えている最中"
             if all(lk.action == "主LLM" for lk in waiting)
@@ -3462,6 +3472,7 @@ class InformationProcessing:
         """
 
         gain = self._voice_gain()  # 背景で鳴らすので、倍率はこの求めのうちに決めておく
+        req = self._req
 
         async def _voice() -> None:
             try:
@@ -3472,6 +3483,9 @@ class InformationProcessing:
                 logger.warning("event-loop つなぎの声を出せなかった：%.40s", text, exc_info=True)
             finally:
                 self._filler_voice_ended = time.monotonic()  # 答えはここから数えて待つ（段 5）
+                req.last_sound_ended_at = (
+                    self._filler_voice_ended
+                )  # 次のつなぎもここから（出-bd ②）
 
         task = asyncio.ensure_future(_voice())
         self._filler_voices.add(task)
@@ -4512,10 +4526,17 @@ class _ReactionCue:
         cue = rc.cue_for(final)
         if cue == rc.NONE:
             return
-        self._ip._dif.play_cue(cue)
-        if cue in (rc.TOOL, rc.THINK):
-            # 作り置きの声が「受けた・考えている」を言ったので、最初のつなぎは省く（二言目以降は流す）。
-            self._ip._req.cue_voice_said = True
+        task = self._ip._dif.play_cue(cue)
+        if task is None:
+            return
+        # 合図も音に数える（出-bd ②）。鳴っているあいだはつなぎを出さず、鳴り終わってから 3 秒黙ったら出す。
+        req = self._ip._req
+        self._ip._cue_sound = task
+
+        def _ended(_t: Any) -> None:
+            req.last_sound_ended_at = time.monotonic()
+
+        task.add_done_callback(_ended)
 
     def stop(self) -> None:
         with contextlib.suppress(Exception):

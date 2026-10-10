@@ -174,14 +174,12 @@ def test_a_spoken_request_rings_then_cues():
     ip = _ip(source="voice")
     _decide_with(ip, _deciding("play_music"))
     assert ip.cue_events == ["A 開始", "A 停止", f"合図 {rc.TOOL}", "A 停止"]
-    assert ip._req.cue_voice_said is True
 
 
 def test_a_light_reply_cues_the_sound_not_a_voice():
     ip = _ip(source="voice")
     _decide_with(ip, _deciding("reply_light"))
     assert f"合図 {rc.ACK}" in ip.cue_events
-    assert ip._req.cue_voice_said is False
 
 
 def test_silence_stops_the_sound_and_plays_nothing():
@@ -222,31 +220,10 @@ def test_the_sound_rings_only_once_per_request():
     assert ip.cue_events == []
 
 
-# ── つなぎ：作り置きの声を流した求めでは、最初のつなぎを流さない ─────────────────────
-
-
-def test_the_first_filler_is_replaced_by_the_cue_voice():
-    from familiar_agent.loop.event_loop import InformationProcessing
-    from tests.test_event_loop import _agent
-
-    ip = InformationProcessing(_agent(stream_returns=[]))
-    ip._req.cue_voice_said = True
-    said: list[str] = []
-    ip._waiting_on = lambda: [MagicMock(action="主LLM")]  # type: ignore[method-assign]
-
-    async def say(text):
-        said.append(text)
-
-    ip._say_filler = say  # type: ignore[method-assign]
-    ip._arbiter = lambda: MagicMock(write_filler=AsyncMock(return_value="もう少しね"))  # type: ignore[method-assign]
-
-    async def go():
-        await ip._say_waiting_filler("x", "", 1)
-        await ip._say_waiting_filler("x", "", 2)
-        await ip.close()
-
-    asyncio.run(go())
-    assert said == ["もう少しね"]  # 1 回目は作り置きの声が代わりに言った
+# ── つなぎ：作り置きの声のあとも最初のつなぎは省かない（出-bd ②で改めた）──────────────────────
+#
+# 出-bg では作り置きの声が最初のつなぎの役を済ませるとして省いていた。出-bd ②で、合図の声も音に数え、鳴り終わってから
+# 3 秒黙ったらつなぎを出すことにしたので、省かない（`test_filler_gap_after_sound.py` が見る）。
 
 
 # ── 声の出口：返事の声は合図が終わってから ───────────────────────────────────────
