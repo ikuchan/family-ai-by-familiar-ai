@@ -1235,7 +1235,11 @@ class InformationProcessing:
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
                 now = time.monotonic()
                 self._wake_window().extend(now)
-                if now + 1e-9 < _due() or self._sounding():
+                if now + 1e-9 < _due():
+                    continue
+                if self._sounding():
+                    # 鳴り終わりが次の時刻を延ばすまで、見回りの間隔で待つ（待たずに戻ると空回りする）。
+                    await asyncio.sleep(tick)
                     continue
                 logger.info(
                     "event-loop 待たせている時間が %.0f 秒を超えた：%.40s",

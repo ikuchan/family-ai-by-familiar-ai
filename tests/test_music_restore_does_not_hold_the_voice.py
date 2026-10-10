@@ -69,6 +69,8 @@ async def test_a_second_voice_keeps_it_down_and_the_first_base():
     await once()
     await asyncio.sleep(0)
     assert first.cancelled()
+    await once()  # 3 つ目（合図 → つなぎ → 答え）でも、最初の基準を失わない
+    await asyncio.sleep(0)
     io.status.assert_not_awaited()  # 読み直さない（読めば 0.2 を基準にしてしまう）
     release.set()
     await state.restore_task

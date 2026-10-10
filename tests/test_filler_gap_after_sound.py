@@ -70,7 +70,17 @@ def test_the_next_filler_comes_a_gap_after_the_last_sound():
 
 
 def test_nothing_while_a_filler_is_still_sounding():
+    """鳴っているあいだは出さず、見回りの間隔で待つ（空回りしない）。"""
     ip = _ip()
+    calls = 0
+    real = ip._waiting_on
+
+    def counted():
+        nonlocal calls
+        calls += 1
+        return real()
+
+    ip._waiting_on = counted  # type: ignore[method-assign]
 
     def setup():
         now = time.monotonic()
@@ -80,6 +90,7 @@ def test_nothing_while_a_filler_is_still_sounding():
         ip._filler_voices.add(asyncio.ensure_future(asyncio.sleep(10)))  # まだ鳴っている
 
     assert _counts(ip, setup=setup, checks=(0.3,)) == [0]
+    assert calls < 30  # 見回りは 0.05 秒ごと。空回りすると数千回になる
 
 
 def test_the_cue_voice_counts_as_a_sound():
