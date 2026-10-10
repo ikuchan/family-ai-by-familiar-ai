@@ -149,7 +149,7 @@ def test_the_local_engine_is_not_used_for_elevenlabs():
 def test_the_silence_window_and_limit_have_defaults():
     with patch.dict(os.environ, {}, clear=True):
         cfg = STTConfig()
-        assert cfg.vad_silence_sec == pytest.approx(1.0)
+        assert cfg.vad_silence_sec == pytest.approx(0.6)  # 出-bi（2026-10-11・本人の決定）
         assert cfg.max_segment_sec == pytest.approx(30.0)
 
 

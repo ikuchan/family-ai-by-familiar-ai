@@ -517,9 +517,10 @@ class STTConfig:
         default_factory=lambda: os.environ.get("WHISPER_COMPUTE_TYPE", "int8_float16")
     )
     whisper_device: str = field(default_factory=lambda: os.environ.get("WHISPER_DEVICE", "cuda"))
-    # 常時集音で「発話が終わった」とみなす無音の長さ（秒）。ElevenLabs も 1.0 だった。
-    # 短くすると息継ぎで切れ、長くすると返事が遅れる。
-    vad_silence_sec: float = field(default_factory=lambda: _float_env("STT_VAD_SILENCE_SEC", 1.0))
+    # 常時集音で「発話が終わった」とみなす無音の長さ（秒）。短くすると息継ぎで切れ、長くすると返事が遅れる。
+    # ElevenLabs の 1.0 を引き継いでいたが、家族が話し続けると 8〜10 秒にまとまり、名前の前に前の会話がくっついた
+    # （出-bi・2026-10-11・本人の決定 0.6）。短い断片は `min_segment_sec` で次とつなぐ。
+    vad_silence_sec: float = field(default_factory=lambda: _float_env("STT_VAD_SILENCE_SEC", 0.6))
     # 書き起こしを「音声でなかった」として捨てる境目（`no_speech_prob` の上限）。
     # Whisper は無音や物音に対して字幕の常套句（「ご視聴ありがとうございました」等）を
     # 当てはめる。実機15件にラベルを付けて測ったところ、幻聴は全件 0.722 以上、本物は
