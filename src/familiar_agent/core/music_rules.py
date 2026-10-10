@@ -40,6 +40,14 @@ _CONTROL = re.compile(
 )
 #: 操作の言葉として受ける長さ（字）。プレイリスト名はこれと別に表で当てる。
 CONTROL_MAX_CHARS = 14
+#: 何も指していない言葉。「音楽かけて」の「音楽」を曲名として探していた（知-al (2)・10/07）。
+_NO_NAME = frozenset({"音楽", "曲", "何か", "なにか", "なんか", "bgm"})
+
+
+def means_no_name(said: str) -> bool:
+    """名前として言われた言葉が、何も指していないか（「音楽」「曲」「何か」…。後ろの「を」「の」は落とす）。"""
+    word = said.strip().strip("　").rstrip("をの").strip().lower()
+    return word in _NO_NAME
 
 
 def parse_music_md(text: str) -> "tuple[tuple[str, str, bool], ...]":

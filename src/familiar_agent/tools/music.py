@@ -28,13 +28,13 @@ TOOL_DEFINITIONS: list[dict[str, Any]] = [
     {
         "name": "play_music",
         "description": (
-            "音楽をかける（「音楽かけて」「ケイマンかけて」「米津玄師かけて」「Lemon かけて」）。"
+            "音楽をかける（「ケイマンかけて」「米津玄師かけて」「Lemon かけて」）。"
             "name は言われた名前（プレイリスト・アーティスト・アルバム・曲）。覚えているプレイリスト、"
             "あなたのプレイリストとライブラリ、プレイリストに入っているアーティストの順に探し、無ければ "
             "Spotify 全体から探す。kind に「曲」「アーティスト」「アルバム」「プレイリスト」を渡すと、全体から"
             "探すときの種類になる。order に「ランダム」か「順番」を渡すと、そのときだけ順番を変えられる。"
             "返りで何をどこから見つけたかを言うので、違えば言い直してもらう。"
-            "名前を言われなければ name は空にする——Spotify で止まっていた続きをかける。"
+            "名前を言われなければ（「音楽かけて」「何か曲かけて」）name は空にする——Spotify で止まっていた続きをかける。"
         ),
         "input_schema": {
             "type": "object",
@@ -169,7 +169,7 @@ class MusicTool:
         from ..core import music_catalog
 
         said = str(tool_input.get("name") or "").strip()
-        if not said:
+        if not said or music_rules.means_no_name(said):  # 「音楽」「曲」は名前ではない（知-al (2)）
             return await self._resume()
         order = str(tool_input.get("order") or "")
         catalog = music_catalog.stored()

@@ -120,3 +120,32 @@ def test_the_arbiter_leaves_the_name_empty_when_none_was_said():
     assert (d.branch, d.action) == ("action", "play_music")
     assert not (d.tool_input or {}).get("name")
     assert "止まっていた続き" in prompt_of(writer)
+
+
+# ── 何も指していない言葉は名前ではない（知-al (2)・2026-10-11・本人の決定ア）────────────
+# 「音楽をかけて」の「音楽」を曲名として探していた（10/07）。「音楽」「曲」「何か」「なにか」「なんか」「BGM」だけなら
+# 空の名前と同じに扱い、止まっていた続きをかける。
+
+
+@pytest.mark.parametrize(
+    "said", ["音楽", "曲", "何か", "なにか", "なんか", "BGM", "音楽を", " 曲 "]
+)
+def test_a_word_that_names_nothing_resumes(said):
+    tool, io, web = _tool(True)
+    text, ok = _play(tool, name=said)
+    assert ok and "続き" in text
+    web.resume.assert_called_once_with("パジュ")
+    web.play.assert_not_called()
+
+
+def test_a_real_name_is_still_searched():
+    tool, io, web = _tool(True)
+    _play(tool, name="ケイマン")
+    web.resume.assert_not_called()
+
+
+def test_the_description_puts_the_no_name_example_on_the_empty_side():
+    (play,) = [d for d in music_mod.TOOL_DEFINITIONS if d["name"] == "play_music"]
+    desc = play["description"]
+    head, _, tail = desc.partition("名前を言われなければ")
+    assert "音楽かけて" not in head and "音楽かけて" in tail
