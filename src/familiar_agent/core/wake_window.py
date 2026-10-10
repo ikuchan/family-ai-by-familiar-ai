@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, cast
 
-from .silence_rules import names_me
+from .silence_rules import _loose, _one_insertion_apart, _within_one_edit, names_me
 
 #: 窓の長さ（出-as の 1 分 → 30 秒・2026-09-26・`設計方針_判定の段` §2.1 → 10 秒・2026-10-07 本人の決定）。
 WAKE_WINDOW_SEC = 10.0
@@ -29,6 +29,70 @@ def heard_name(text: str, names: "list[str]") -> bool:
     if not names:
         return False
     return names_me(text, names)
+
+
+def _plain(s: str) -> str:
+    """呼び方の違いだけを均す：カタカナをひらがなに、長音を落とす（濁点と小書きは残す）。"""
+    out = []
+    for ch in s:
+        if ch in ("ー", "〜", "～"):
+            continue
+        o = ord(ch)
+        out.append(chr(o - 0x60) if 0x30A1 <= o <= 0x30F6 else ch)
+    return "".join(out)
+
+
+def _head_at(text: str) -> int:
+    """文頭の空白と記号を飛ばした位置（`silence_rules._head` と同じ飛ばし方）。"""
+    import unicodedata
+
+    i = 0
+    while i < len(text) and (text[i].isspace() or unicodedata.category(text[i])[0] in "PSZ"):
+        i += 1
+    return i
+
+
+def fix_name(text: str, names: "list[str]") -> "tuple[str, str]":
+    """文頭の聞き違いの名前を、当たった名前に直す（知-ap・2026-10-10・本人の決定）。返りは（先へ渡す文, 画面の文）。
+
+    窓の門は文頭の 1 字違いまで名前とみなす（`names_me`）が、文は書き起こしのまま O・調停・主LLM に渡っていた。
+    10/08 18:16「バージュ音楽をかけて」に、主LLM が「『バージュ』っていう曲かアーティストですか？」と聞き返した。
+    直すのは聞き違えた部分だけで、画面には聞こえたままの形に名前を括弧で添える（`バージュ（パジュ）音楽をかけて`）。
+
+    長音とかなの違いだけ（「パジュー」「ぱじゅ」）は直さない。聞き違いではなく呼び方の違いで、主LLM も読める。
+    名前が文頭に無ければ、何も変えない。
+    """
+    if not names or not names_me(text, names):
+        return text, text
+    i0 = _head_at(text)
+    rest = text[i0:]
+    for raw in names:
+        n = _loose(raw)
+        if not n:
+            continue
+        # 当たり方の近い順に探す：ゆるい読みが同じ → 同じ長さで 1 字違い → 1 字の抜け・足し（`names_me` と同じ許し方）。
+        # 同じ段では長いほうを取り、名前の後ろの長音まで聞き違いに含める。
+        tiers: "list[list[int]]" = [[], [], []]
+        for k in range(1, len(rest) + 1):
+            lp = _loose(rest[:k])
+            if lp == n:
+                tiers[0].append(k)
+            elif len(n) >= 3 and len(lp) == len(n) and _within_one_edit(lp, n):
+                tiers[1].append(k)
+            elif len(n) >= 3 and abs(len(lp) - len(n)) == 1 and _one_insertion_apart(lp, n):
+                tiers[2].append(k)
+        for found in tiers:
+            if not found:
+                continue
+            k = max(found)
+            heard = rest[:k]
+            if _plain(heard) == _plain(raw):
+                return text, text  # 呼び方の違いだけ
+            return (
+                text[:i0] + raw + rest[k:],
+                text[:i0] + heard + f"（{raw}）" + rest[k:],
+            )
+    return text, text
 
 
 class InputText(str):

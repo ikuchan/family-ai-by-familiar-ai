@@ -2225,7 +2225,18 @@ class InformationProcessing:
             self._notify_heard(utterance, False)
             self._log_swallowed_voice(voice)  # 点数だけ残す（知-as 段 1）
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
-        self._notify_heard(utterance, True)
+        shown = utterance
+        if trigger.named:
+            # 窓を開けた聞き違いの名前を直して先へ渡す。画面には聞こえたままの形に名前を添える（知-ap）。
+            from ..core.wake_window import fix_name
+
+            fixed, shown = fix_name(
+                utterance, list(getattr(agent.config, "agent_names", None) or [])
+            )
+            if fixed != utterance:
+                logger.info("event-loop 名前の聞き違いを直した：%s", shown[: shown.find("）") + 1])
+                trigger.query = fixed
+        self._notify_heard(shown, True)
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
         # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
