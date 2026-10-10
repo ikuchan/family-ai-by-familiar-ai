@@ -1,7 +1,8 @@
 """返事とつなぎは窓の中でだけ出し、出したら窓を延ばす（出-as 段 4・2026-09-26・`設計方針_話していいかの決まり` §2.3）。
 
-- 会話の求めの返事を出す時点で**窓が切れていたら、話さずに独り言にする**（本人の決定）。受けた時点では
-  会話だったが、1 分を過ぎてから答えても相手はもう聞いていない。
+- 会話で頼まれたことへの返事は、**窓が切れていても話す**（出-bj・2026-10-11・本人の決定イ）。以前は独り言に
+  していたが、7.5 秒話し・書き起こし 2.58 秒・調停 1.5 秒で 10 秒を超え、受けた入力への返事を独り言にした。
+  窓が切れた後に話しても、窓は開け直さない。
 - 返事を出したら、そこから 1 分へ延ばす（「パジュ、明日の天気は？」→ 返事 →「じゃあ傘いる？」が続く）。
 - つなぎも同じ：窓が切れていれば言わない。言ったら延ばす。
 - 情動・機器の求めは窓で決めない（別の決まり）。
@@ -44,12 +45,21 @@ def test_a_reply_inside_the_window_is_spoken_and_extends_it(monkeypatch):
     assert ip._wake.is_open(1009.0)  # 返事から 10 秒
 
 
-def test_a_reply_after_the_window_closed_is_kept_as_a_monologue(monkeypatch):
+def test_a_reply_after_the_window_closed_is_still_spoken(monkeypatch):
     a, ip = _ip(window_open=False, monkeypatch=monkeypatch)
     spoken, outcome = asyncio.run(ip._speak("晴れだよ"))
-    assert (spoken, outcome) == ("晴れだよ", "独白")
+    assert (spoken, outcome) == ("晴れだよ", "発話")
+    ip._dif.speak.assert_awaited_once()
+    assert not ip._wake.is_open(1000.0)  # 開け直さない
+
+
+def test_a_safety_firing_is_still_not_spoken_after_the_window(monkeypatch):
+    """情動の決まり（話すのは bond・esteem だけ）は変えない。"""
+    a, ip = _ip("情動", window_open=False, monkeypatch=monkeypatch)
+    ip._req.fired_axis = "safety"
+    spoken, outcome = asyncio.run(ip._speak("おはよう"))
+    assert outcome == "沈黙"
     ip._dif.speak.assert_not_awaited()
-    assert not ip._wake.is_open(1000.0)  # 延ばさない
 
 
 def test_a_filler_inside_the_window_is_said_and_extends_it(monkeypatch):

@@ -3372,11 +3372,9 @@ class InformationProcessing:
             # 発火は行動だけで、返事の文は声に出さない（声にしなかっただけの独り言として残る）。
             logger.info("event-loop %s の発火なので話しかけない：%.40s", self._req.fired_axis, text)
             return text, "沈黙"
-        if self._window_closed_for_conversation():
-            # **窓が切れた後の返事は話さない**（出-as 段 4・本人の決定）。受けた時点では会話だったが、
-            # 1 分を過ぎてから答えても相手はもう聞いていない。思ったことは独白として O に残る。
-            logger.info("event-loop 窓が切れた後の返事なので話さず独り言にする：%.40s", text)
-            return text, "独白"
+        # **頼まれたことへの返事は窓を見ない**（出-bj・2026-10-11・本人の決定イ）。窓で独り言にしていたが、7.5 秒話し・
+        # 書き起こし 2.58 秒・調停 1.5 秒で 10 秒を超え、受けた入力への返事を独り言にした。窓は開け直さない（延ばすのは
+        # 開いているときだけ）。つなぎはいまどおり窓を見る（`_say_filler`）。
         blocked = self._delivery_block_reason()
         if blocked and self._req.said_fillers and blocked != "黙っているよう頼まれている":
             # **つなぎを出したなら本応答も出す**（環-i）。つなぎと本応答は別々にゲートを引く
@@ -3652,7 +3650,7 @@ class InformationProcessing:
         return wake
 
     def _window_closed_for_conversation(self) -> bool:
-        """会話の求めで、窓が切れているか（出-as 段 4）。情動・機器の求めは窓で決めない。"""
+        """会話の求めで、窓が切れているか（出-as 段 4）。つなぎだけが見る（返事は見ない・出-bj）。情動・機器は窓で決めない。"""
         return self._req.trigger_kind == "発話" and not self._wake_window().is_open(
             time.monotonic()
         )
