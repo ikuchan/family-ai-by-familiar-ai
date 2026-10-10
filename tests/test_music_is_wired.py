@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from familiar_agent.core.music_rules import DUCK_RATIO, MUSIC_MAX_SEC
+from familiar_agent.core.music_state import MusicState
 
 
 # ── 門（聞かないあいだと同じ器）─────────────────────────────────────────────
@@ -81,7 +82,7 @@ async def test_the_music_ducks_while_paju_speaks_and_comes_back():
     io = MagicMock()
     io.status = AsyncMock(return_value={"playing": True, "volume": 0.8})
     io.set_volume = AsyncMock(return_value=True)
-    state = MagicMock(playing=True, base_volume=None)
+    state = MusicState(playing=True)
 
     async def speak():
         return "話した"
@@ -90,6 +91,7 @@ async def test_the_music_ducks_while_paju_speaks_and_comes_back():
         io=io, bus=MagicMock(), state=state, speak=speak, sleep=AsyncMock()
     )
     assert got == "話した"
+    await state.restore_task  # 戻しは裏で予約する（出-bd ①）
     # 絞ってから戻す（基準は人が変えた値）
     assert io.set_volume.await_args_list[0].args[1] == pytest.approx(0.8 * DUCK_RATIO)
     assert io.set_volume.await_args_list[-1].args[1] == pytest.approx(0.8)
@@ -361,7 +363,7 @@ async def test_ducking_is_logged_both_ways(caplog):
     io = MagicMock()
     io.status = AsyncMock(return_value={"playing": True, "volume": 0.5})
     io.set_volume = AsyncMock(return_value=True)
-    state = MagicMock(playing=True)
+    state = MusicState(playing=True)
 
     async def speak():
         return "話した"
@@ -370,5 +372,6 @@ async def test_ducking_is_logged_both_ways(caplog):
         await duck_while_speaking(
             io=io, bus=MagicMock(), state=state, speak=speak, sleep=AsyncMock()
         )
+        await state.restore_task  # 戻しは裏で予約する（出-bd ①）
     assert "音楽：話すあいだ音量を下げた（0.50 → 0.12）" in caplog.text
     assert "音楽：音量を戻した（0.50）" in caplog.text

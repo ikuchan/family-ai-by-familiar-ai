@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 
 @dataclass
@@ -17,3 +18,7 @@ class MusicState:
     playing: bool = False
     started_at: float = 0.0
     last_title: str = ""
+    # 減音の戻しの予約（出-bd ①）。動いているあいだだけの控えで、DB には書かない。予約中の次の声は
+    # 予約を取り消し、絞ったまま最初に読んだ基準（`ducked_base`）を引き継ぐ。
+    restore_task: Any = None
+    ducked_base: "float | None" = None

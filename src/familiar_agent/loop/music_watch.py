@@ -49,16 +49,25 @@ async def duck_while_speaking(
 
     絞る前に**そのときの音量を読む**（人が変えていれば、その値へ戻す）。声が終わってから
     `RESTORE_AFTER_SEC` 秒おいて戻す——すぐ戻すと、続けて話すたびに上下してうるさい。
+
+    **戻しは裏で予約し、待たずに返す**（出-bd ①）。以前はこの 10 秒をここで待ったので、音楽が鳴っていると
+    声を 1 つ出すたびに次へ進めなかった（実機 10/10 11:05:57：17 字の聞き返しで `DIF 声 12.46 秒`）。予約中に
+    次の声が来たら予約を取り消し、絞ったまま最初に読んだ基準を引き継ぐ（読み直すと絞った値を基準にしてしまう）。
     """
     base: "float | None" = None
     # **絞れなくても声は出す。** ここで例外を外へ出すと、`DIF.speak` の例外抑止に飲まれて
     # 声そのものが消える（テストが 4 件捕まえた・2026-09-21）。音楽は添え物で、声が本体である。
     with contextlib.suppress(Exception):
-        if getattr(state, "playing", False):
+        pending = getattr(state, "restore_task", None)
+        if isinstance(pending, asyncio.Task) and not pending.done():
+            pending.cancel()
+            base = state.ducked_base
+        elif getattr(state, "playing", False):
             s = await io.status(bus)
             if s and s.get("playing"):
                 base = float(s.get("volume", 0.5))
                 await io.set_volume(bus, duck(base))
+                state.ducked_base = base
                 # 効いたかを後から確かめられるように残す（知-ak-ろ・2026-10-07）
                 logger.info("音楽：話すあいだ音量を下げた（%.2f → %.2f）", base, duck(base))
     try:
@@ -66,9 +75,28 @@ async def duck_while_speaking(
     finally:
         if base is not None:
             with contextlib.suppress(Exception):
-                await (sleep or asyncio.sleep)(RESTORE_AFTER_SEC)
-                await io.set_volume(bus, base)
-                logger.info("音楽：音量を戻した（%.2f）", base)
+                state.restore_task = asyncio.ensure_future(
+                    _restore_later(io=io, bus=bus, state=state, base=base, sleep=sleep)
+                )
+
+
+async def _restore_later(
+    *,
+    io: Any,
+    bus: Any,
+    state: Any,
+    base: float,
+    sleep: "Callable[[float], Awaitable[None]] | None",
+) -> None:
+    """`RESTORE_AFTER_SEC` 秒おいて基準へ戻す（裏の仕事）。取り消されたら戻さない（次の声が絞ったまま使う）。"""
+    await (sleep or asyncio.sleep)(RESTORE_AFTER_SEC)
+    try:
+        await io.set_volume(bus, base)
+        logger.info("音楽：音量を戻した（%.2f）", base)
+    except Exception:  # noqa: BLE001
+        logger.warning("音楽の音量を戻せなかった", exc_info=True)
+    finally:
+        state.ducked_base = None
 
 
 async def observe(*, io: Any, bus: Any, state: Any, record: Callable[[str], Any]) -> dict:
