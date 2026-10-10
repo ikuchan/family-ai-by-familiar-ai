@@ -60,9 +60,10 @@ def test_a_line_over_forty_chars_is_refused():
     assert "40" in _check(_env(**{**GOOD, "まわり": [(long, "金木犀が咲き始めました")]}))
 
 
-def test_more_than_two_rows_are_refused():
+def test_three_rows_pass():
+    """行数は頼むときの目安で、機械は弾かない（知-av・10/10 に家の話題 3 行で晩の書き直しを丸ごと捨てた）。"""
     three = [("金木犀が咲いた。", "金木犀が咲き始めました")] * 3
-    assert _check(_env(**{**GOOD, "まわり": three})) is not None
+    assert _check(_env(**{**GOOD, "まわり": three})) is None
 
 
 def test_an_unknown_field_is_refused():

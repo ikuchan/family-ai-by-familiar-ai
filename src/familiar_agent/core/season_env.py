@@ -5,7 +5,7 @@
 
 - 現在値は DB（`agent_state` の鍵 `season_env`）。ファイルは作らない——機械が書き換えるファイルは
   「ファイルは既定値と人の入力だけ」（`CLAUDE.md`）に反するので、09-20 の `SeasonAndEnv.md` を改めた。
-- 4 つの欄：暦・天気・まわり・家の話題。各欄 1〜2 行・1 行 40 字まで。
+- 4 つの欄：暦・天気・まわり・家の話題。各欄 2 行を目安に頼み（行数は検査しない・知-av）、1 行 40 字まで。
 - **暦は保存しない。** 渡すたびにその日の日付から計算する（いつ渡しても正しい）。
 - 天気とまわりは検索結果から**そのまま引いた文**、家の話題は出来事の id を出典に持つ。文にするときは
   出典を出さない。
@@ -25,7 +25,7 @@ STATE_KEY = "season_env"
 HEADING = "[いまの季節とまわり]"
 #: LLM が書く欄（暦は機械が書くので入らない）。並びが渡す順。
 FIELDS = ("天気", "まわり", "家の話題")
-MAX_ROWS = 2
+MAX_ROWS = 2  # 頼むときの目安。機械は行数を検査しない（知-av）
 MAX_CHARS = 40
 FRESH_DAYS = 7  # ここまではそのまま渡す
 STALE_DAYS = 30  # これを過ぎたら暦だけ
@@ -99,8 +99,6 @@ def check(env: SeasonEnv, *, search_text: str, material_ids: "set[str]") -> "str
     for name, rows in env.rows.items():
         if name not in FIELDS:
             return f"欄「{name}」は書けない（暦は機械が書く）"
-        if len(rows) > MAX_ROWS:
-            return f"{name}が {len(rows)} 行（{MAX_ROWS} 行まで）"
         for r in rows:
             if not r.text.strip():
                 return f"{name}に空の行"
