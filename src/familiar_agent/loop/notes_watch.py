@@ -56,7 +56,26 @@ def _load_state() -> "str | None":
         return None
 
 
-def _save_state(body: "str | None") -> None:
+def last_added() -> "list[str]":
+    """最後に変わったとき新しく書かれた行（BOND の手がかりが使う・情-q）。無ければ空。"""
+    try:
+        db = get_db()
+        with db.lock:
+            conn = db.conn()
+            with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+                cur.execute(
+                    "SELECT value_json FROM agent_state WHERE state_key = %s", (_STATE_KEY,)
+                )
+                row = cur.fetchone()
+        data = json.loads(row["value_json"]) if row is not None else {}
+        added = data.get("added", []) if isinstance(data, dict) else []
+        return [str(x) for x in added] if isinstance(added, list) else []
+    except Exception:  # noqa: BLE001
+        logger.warning("パジュへのメモの新しい行を読めない", exc_info=True)
+        return []
+
+
+def _save_state(body: "str | None", *, added: "list[str] | None" = None) -> None:
     db = get_db()
     with db.lock:
         conn = db.conn()
@@ -71,7 +90,10 @@ def _save_state(body: "str | None") -> None:
                     "updated_at = EXCLUDED.updated_at",
                     (
                         _STATE_KEY,
-                        json.dumps({"body": body, "read_at": now}, ensure_ascii=False),
+                        json.dumps(
+                            {"body": body, "read_at": now, "added": list(added or [])},
+                            ensure_ascii=False,
+                        ),
                         now,
                     ),
                 )
@@ -114,7 +136,7 @@ async def check_notes(ip) -> bool:
     # **先に記録してから覚える。** 逆だと、記録で落ちたときに差分が失われる（実機 19:40・
     # `device()` が落ちて前回値だけ進み、次の読みで「変わっていない」になった）。
     await ip.record_device("メモ", content[:1500])
-    _save_state(body)
+    _save_state(body, added=added)  # 新しい行は BOND の手がかりが使う（情-q）
     logger.info(
         "パジュへのメモが変わった（足された行 %d・全 %d 字）→ 記憶に記録した", len(added), len(body)
     )

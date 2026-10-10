@@ -8,7 +8,9 @@ capabilities:
       without speaking (look around, turn the head, rest), and their words stay unspoken.
       When bond or esteem speaks, it talks to the person rather than musing aloud:
       politely and briefly, careful not to startle, and first asking whether now is a
-      good time to talk.
+      good time to talk. When bond fires, the next 7 days of the family schedule and
+      the lines newly written in the note to the agent are added to what recall
+      searches with, so what comes to mind leans towards the family and their plans.
       Bond and esteem build up only while the camera sees a person, and ebb at a third of
       that speed while nobody is seen; at night (23-7) they build up at 0.083 times the
       speed. An urge speaks aloud only when the camera sees someone; otherwise what it
@@ -208,9 +210,10 @@ capabilities:
       default, or the next few days when asked — with the current date, weekday
       and time already written at the top, so there is no need to work out what
       day it is. Use it when someone asks about today's or tomorrow's plans, or
-      what time something starts. The schedule lives in the family's calendar,
-      not in the agent's memory, so it is never mixed into recall, and it says
-      when it was fetched. Anyone in the family may ask.
+      what time something starts. It says when it was fetched. Anyone in the
+      family may ask. Besides this, the agent reads the next 7 days once an hour
+      (and once at start-up) and, whenever they change, keeps them in memory as a
+      "予定" record, so recall can bring the coming plans back on its own.
       Treated as a tool: read it when the question needs what is on the
       calendar, not on every turn.
     enabled_tool: get_family_schedule

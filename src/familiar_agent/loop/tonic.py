@@ -27,7 +27,14 @@ from ..core.drive_autonomy import inner_voice_for, select_fired_axis
 from ..core.solitude import AXES, next_interval_minutes
 from ..drive_register import AiDrivers, load_drives, load_solitude, save_drives, save_solitude
 from ..mood_register import load_current_mood
-from . import alarm_watch, music_watch, notes_watch, stopwatch_watch, timer_watch
+from . import (
+    alarm_watch,
+    music_watch,
+    notes_watch,
+    schedule_watch,
+    stopwatch_watch,
+    timer_watch,
+)
 from .rest import run_rest_pass
 from ..core import credit
 
@@ -337,6 +344,20 @@ class Tonic:
         except Exception as e:  # noqa: BLE001
             logger.warning("パジュへのメモの確認に失敗: %s", e)
 
+    def _schedule_due(self, *, now: float) -> bool:
+        """家族の予定を先読みする頃合いか（`schedule_watch.INTERVAL_SEC` に 1 回・起動直後にも 1 回・情-q）。"""
+        last = getattr(self, "_schedule_checked_at", None)
+        return last is None or now - last >= schedule_watch.INTERVAL_SEC
+
+    async def _maybe_check_schedule(self, now: float) -> None:
+        if not self._schedule_due(now=now):
+            return
+        self._schedule_checked_at = now
+        try:
+            await schedule_watch.check_schedule(self._ip)
+        except Exception:  # noqa: BLE001
+            logger.warning("家族の予定の先読みに失敗した", exc_info=True)
+
     def _fire_timers(self) -> None:
         """due を過ぎたタイマーを鳴らす（知-n）。器が無ければ何もしない。"""
         tool = getattr(self._agent, "_timer_tool", None)
@@ -445,6 +466,7 @@ class Tonic:
                 self.scan_presence()
                 await self._maybe_tell_credit()
                 await self._maybe_check_notes(now)
+                await self._maybe_check_schedule(now)
                 self._fire_timers()
                 firing, accumulated = await step_drives(
                     dt,

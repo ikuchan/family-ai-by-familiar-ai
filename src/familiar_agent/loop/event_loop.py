@@ -2823,6 +2823,15 @@ class InformationProcessing:
         """
         await self._begin_request(kind="情動", text=f"[内的な促し:{drive_name}] {prompt}")
         self._req.fired_axis = str(drive_name or "").lower()  # 内部状態の言葉で明示する（情-f）
+        if self._req.fired_axis == "bond":
+            # BOND は想起の手がかりに家族の予定とメモの新しい行を並べ、W を家族へ寄せる（情-q）。O の起点は変えない。
+            from ..core.bond_cue import cue_for
+            from . import notes_watch, schedule_watch
+
+            with contextlib.suppress(Exception):
+                self._req.cue = cue_for(
+                    self._req.cue, schedule_watch.stored() or "", notes_watch.last_added()
+                )
         await self._iterate()
 
     async def _begin_device(self, kind: str, content: str, *, passes_gate: bool = False) -> None:

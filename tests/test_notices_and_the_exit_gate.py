@@ -51,7 +51,7 @@ def test_the_memo_watcher_records_instead_of_notifying(monkeypatch):
     ip._dif.tool_defs = MagicMock(return_value=[{"name": notes_watch.TOOL}])
     ip._dif.call_tool = AsyncMock(return_value=("本文：パパへ：牛乳を買う", True))
     monkeypatch.setattr(notes_watch, "_load_state", lambda: "本文：")
-    monkeypatch.setattr(notes_watch, "_save_state", lambda body: None)
+    monkeypatch.setattr(notes_watch, "_save_state", lambda body, **k: None)
     monkeypatch.setattr(notes_watch, "body_of", lambda text: text)
     ip.record_device = AsyncMock()
     assert asyncio.run(notes_watch.check_notes(ip)) is True
