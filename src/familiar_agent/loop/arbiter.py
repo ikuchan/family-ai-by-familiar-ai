@@ -29,7 +29,7 @@ import re
 import time
 from dataclasses import dataclass, replace
 from typing import Any
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
 from ..core import measure
 from ..core.aio import wait_within
@@ -517,6 +517,8 @@ class ArbiterInput:
     returned: "tuple[tuple[str, bool, str], ...]" = ()
     #: 情動の求めで発火した軸（seeking・safety・bond・esteem）。情動を軸で決めるのに使う（出-ay 段 4-3）。
     fired_axis: str = ""
+    #: いまの音楽の様子を読む口（非同期・出-bf）。「いま何の曲？」に答えるときだけ呼ぶ。無ければ読めなかったとして答える。
+    music_status: "Callable[[], Awaitable[dict | None]] | None" = None
 
 
 #: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
@@ -810,6 +812,21 @@ class Arbiter:
             asked["unsure"] = um.unsure_question()
             said["unsure"] = dict(getattr(again, "answers", None) or {})
         self._keep(inp, "発話", state, asked, said, final, outcome.why, meaning=m)
+        if final == "music_now":
+            # いまの曲は機械が決まった形で答える（出-bf・本人の決定ア）。曲名を取り違えず、軽量LLM を待たない。
+            from ..core.music_now import text_for
+
+            self._tell_decided(final)
+            status = None
+            if inp.music_status is not None:
+                try:
+                    status = await inp.music_status()
+                except Exception:  # noqa: BLE001
+                    logger.warning("調停：音楽の様子を読めなかった", exc_info=True)
+            logger.info(
+                "調停 %.2f 秒（発話・意味で決めた：%s → %s）", time.monotonic() - started, m, final
+            )
+            return Decision(branch="light", text=text_for(status))
         if final in _SUGGESTION_REPLIES:
             self._tell_decided(final)
             # 返事は 2 つに決まっていて、書く言葉が無いので軽量LLM は呼ばない（段 4-4f）。

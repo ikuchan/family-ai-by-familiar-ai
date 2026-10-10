@@ -49,7 +49,10 @@ MEANINGS: "dict[str, tuple[str, str]]" = {
         "前にパジュに頼んだこと（調べもの・覚えておいて・かけて など）がどうなったか、"
         "やってくれたか、続けてほしいかを確かめる・念を押す",
     ),
-    "music": ("音楽に関する依頼", "音楽に関する依頼（かける・止める・次の曲・音量）"),
+    "music": (
+        "音楽に関する依頼",
+        "音楽に関する依頼（かける・止める・次の曲・音量・いま何の曲か聞く）",
+    ),
     "time": (
         "時間に関する依頼",
         "時間に関する依頼（アラーム・タイマー・ストップウォッチ・しばらく黙っていて・もう話していいよ）",
@@ -98,6 +101,8 @@ ACTIONS: "dict[str, str]" = {
     "stop_music": "音楽を止める",
     "next_track": "次の曲にする",
     "music_volume": "音楽の音量を変える",
+    # いま鳴っている曲を聞かれたら答える（出-bf・2026-10-10）。答えの文は機械が作る（`core/music_now`）。
+    "music_now": "いま鳴っている曲が何かを伝える（何の曲か聞かれた）",
     "set_timer": "タイマーを掛ける（何分後に鳴る）",
     "cancel_timer": "タイマーを止める・取り消す",
     "pause_timer": "タイマーを一時停止する",
@@ -135,7 +140,7 @@ ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
     "claim": (),
     "deny": (),
     "accepted_check": ("state_light", *_COMMON),
-    "music": ("play_music", "stop_music", "next_track", "music_volume", *_COMMON),
+    "music": ("play_music", "stop_music", "next_track", "music_volume", "music_now", *_COMMON),
     "time": (
         "set_timer",
         "cancel_timer",

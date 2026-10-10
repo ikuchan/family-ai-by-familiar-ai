@@ -34,7 +34,9 @@ TOOL_WAVS = tuple(_SOUNDS / f"react_tool_{i}.wav" for i in range(len(TOOL_WORDS)
 THINK_WAVS = tuple(_SOUNDS / f"react_think_{i}.wav" for i in range(len(THINK_WORDS)))
 
 #: 効果音 B を流す動作（軽量LLM の一言がすぐ続くもの）。黙る・考えて返す以外の、言葉だけで返すもの。
-_LIGHT = frozenset({"ask_back", "reply_light", "state_light", "tell_light", "talk_light"})
+_LIGHT = frozenset(
+    {"ask_back", "reply_light", "state_light", "tell_light", "talk_light", "music_now"}
+)
 
 
 def cue_for(final: str) -> str:

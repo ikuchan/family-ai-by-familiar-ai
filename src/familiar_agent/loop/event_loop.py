@@ -2471,16 +2471,37 @@ class InformationProcessing:
 
         読むのは T の見張りと同じ口（`music_watch.observe`）。主LLM が「いま何の曲？」に答えられるように。
         """
+        tool = getattr(self._agent, "_music_tool", None)
+        if tool is None or getattr(self._agent, "_music_state", None) is None:
+            return ""
+        from ..tools.music import NOT_PLAYING
+
+        status = await self._music_status()
+        if status == {}:
+            return NOT_PLAYING  # パジュはかけていない（読まない・知-ak 段 5）
+        try:
+            return await tool.frame(status) if status else ""
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 音楽の枠を組めなかった", exc_info=True)
+            return ""
+
+    async def _music_status(self) -> "dict | None":
+        """いまの音楽の様子（鳴っているか・曲名・アーティスト・音量）。パジュがかけていなければ空の辞書、読めなければ None。
+
+        主LLM の `[音楽]` の枠（`_music_now`）と、調停が「いま何の曲？」に答える文（出-bf・`core/music_now`）が同じ
+        読み方を使う。読むのは T の見張りと同じ口（`music_watch.observe`）で、曲送りもここで記録する（知-aa 段 2）。
+        """
         agent = self._agent
         tool = getattr(agent, "_music_tool", None)
         state = getattr(agent, "_music_state", None)
         if tool is None or state is None:
-            return ""
-        from ..tools.music import NOT_PLAYING
+            return None
+        if not getattr(state, "playing", False):
+            return {}
         from .music_watch import observe
 
-        if not getattr(state, "playing", False):
-            return NOT_PLAYING  # パジュはかけていない（読まない・知-ak 段 5）
         try:
             status = await observe(
                 io=tool._io,
@@ -2488,12 +2509,12 @@ class InformationProcessing:
                 state=state,
                 record=lambda text: self.note_device("音楽", text),
             )
-            return await tool.frame(status) if status else ""
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
-            logger.warning("event-loop 音楽の枠を組めなかった", exc_info=True)
-            return ""
+            logger.warning("event-loop 音楽の様子を読めなかった", exc_info=True)
+            return None
+        return status or None
 
     def note_device(self, kind: str, content: str) -> None:
         """T から（DIF 経由）：機器の出来事を記録だけする。書くのは非同期なので、タスクとして立てる。"""
@@ -2950,6 +2971,7 @@ class InformationProcessing:
             current_speaker=self._current_speaker_name(),
             silenced=bool(silence_note),
             talking=self._talking(),
+            music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
         )
 
     def _talking(self) -> bool:
