@@ -38,6 +38,6 @@ def careful_voice(branch: str, returned: "frozenset[str] | set[str] | tuple[str,
     if branch != "full":
         return False
     for action in returned or ():
-        if action in ASYNC_RETURNS or action.startswith("ask_vault_"):
+        if action in ASYNC_RETURNS or action.startswith(("ask_vault_", "get_journal_")):
             return True
     return False

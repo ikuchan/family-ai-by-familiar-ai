@@ -119,6 +119,8 @@ _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
     # Notion（知-k）。検索は語を持つので見出しに語を入れる（`_query_label` が組む）。
     "notion_search": ("search_notion", "Notion で「{query}」を探す"),
     "search_notion": ("search_notion", "Notion で「{query}」を探す"),
+    # 日次記録は 1 人の体の記録なので、持ち主があれば名前に英字が付く（`get_journal_<latin>`・知-az）。
+    # 付いた名前は `_PERSONAL_PREFIXES` が `journal` に戻す。道具名は `_personal_tool_name()` が解く。
     "journal": ("get_journal", "日次記録を見る"),
     "get_journal": ("get_journal", "日次記録を見る"),
     # 個人ティアの記録（`obsidian-memo`・知-g-い）。道具名は話者の英字で決まる（`ask_vault_<latin>`）
@@ -126,6 +128,15 @@ _MCP_LOOKUPS: dict[str, tuple[str, str]] = {
     # 調べものは投げっぱなしなので別経路は要らない（MCP の時間切れだけ長い・`call_timeout_for`）。
     "vault": ("ask_vault_", "記録に「{query}」を聞く"),
 }
+# 名前に持ち主の英字が付く道具（個人ティア）の頭と、その動作名。話者ゲート（`_gated`）が本人以外を落とす。
+_PERSONAL_PREFIXES = {"ask_vault_": "vault", "get_journal_": "journal"}
+
+
+def _personal_action(name: str) -> str:
+    """持ち主の英字が付いた道具名なら動作名（`ask_vault_yusuke` → `vault`）。違えば空。"""
+    return next((a for p, a in _PERSONAL_PREFIXES.items() if name.startswith(p)), "")
+
+
 # 調べる動作＝結果が後の反復に届くもの。投げたらその反復は終わる。
 # `see`・`look` も含める。結果はその場で返るが、それを見て何を言うかは次の反復が決める
 # （`recall` と同じ）。ここに入れないと 1反復1出力 が崩れる。
@@ -205,8 +216,7 @@ def _query_label(action: str, tool_input: dict) -> str:
         }[action]
     if action == "look":
         return f"{tool_input.get('pose') or tool_input.get('direction') or ''}を見に行く"
-    if action.startswith("ask_vault_"):
-        action = "vault"
+    action = _personal_action(action) or action
     if action in _MCP_LOOKUPS:
         return _MCP_LOOKUPS[action][1].format(
             query=str(tool_input.get("query") or tool_input.get("question") or "").strip(),
@@ -250,8 +260,8 @@ def _self_image_text() -> str:
 
 def _action_family(action: str) -> str:
     """道具名（主LLM が呼ぶ）を動作名（候補の表の鍵）に正規化する（`get_family_schedule` → `family_schedule`）。"""
-    if action.startswith("ask_vault_"):
-        return "vault"
+    if personal := _personal_action(action):
+        return personal
     if action in _MCP_LOOKUPS:
         tool = _MCP_LOOKUPS[action][0]
         for name, (t, _label) in _MCP_LOOKUPS.items():
@@ -1490,13 +1500,17 @@ class InformationProcessing:
                 )
             )
             return
-        if action in _MCP_LOOKUPS or action.startswith("ask_vault_"):
+        if action in _MCP_LOOKUPS or _personal_action(action):
             # MCP の同期の道具。結果はその場で返るので、完了として積む（`recall` と同じ）。
-            # `vault` は話者の英字で道具名が決まる（知-g-い）。主LLM が道具名で呼んだときはそのまま。
+            # `vault`・`journal` は話者の英字で道具名が決まる（知-g-い・知-az）。主LLM が道具名で呼んだときはそのまま。
             tool_name = (
                 action
-                if action.startswith("ask_vault_")
-                else (self._vault_tool_name() if action == "vault" else _MCP_LOOKUPS[action][0])
+                if _personal_action(action)
+                else (
+                    self._personal_tool_name(action)
+                    if action in _PERSONAL_PREFIXES.values()
+                    else _MCP_LOOKUPS[action][0]
+                )
             )
             failed = False
             try:
@@ -1930,7 +1944,9 @@ class InformationProcessing:
         "family_schedule": lambda ip: ip._dif.tool_defs("get_family_schedule"),
         # Notion の目次と日次記録（`notion-memo`・知-k）。中身は基本すべて家族ティア。
         "notion_search": lambda ip: ip._dif.tool_defs("search_notion"),
-        "journal": lambda ip: ip._dif.tool_defs("get_journal"),
+        # 日次記録は 1 人の記録（2026-10-11・知-az）。持ち主があれば `get_journal_<latin>` なので頭で引き、
+        # 話者ゲートが本人以外を落とす。持ち主の設定が無い `get_journal` は家族の誰とでも通る。
+        "journal": lambda ip: ip._dif.tool_defs_with_prefix("get_journal"),
         # 個人ティアの記録（知-g-い）。`ask_vault_*` を全部出し、話者ゲート（`_gated`）が本人以外を落とす。
         "vault": lambda ip: ip._dif.tool_defs_with_prefix("ask_vault_"),
         # タイマー（知-n）。器（`agent._timer_tool`）が無ければ渡さない。
@@ -1957,7 +1973,14 @@ class InformationProcessing:
 
     def _vault_tool_name(self) -> str:
         """話者の英字から `ask_vault_<latin>` を解く。本人の道具が無ければ空（呼べない）。"""
-        names = {str(d.get("name", "")) for d in self._gated(self._ACTIONS["vault"](self))}
+        return self._personal_tool_name("vault")
+
+    def _personal_tool_name(self, action: str) -> str:
+        """話者ゲートを通った道具の名前（`vault` → `ask_vault_<latin>`・`journal` → `get_journal_<latin>`）。
+
+        本人の道具が無ければ空（呼べない）。
+        """
+        names = {str(d.get("name", "")) for d in self._gated(self._ACTIONS[action](self))}
         return next(iter(sorted(names)), "")
 
     def _gated(self, defs: list[dict]) -> list[dict]:

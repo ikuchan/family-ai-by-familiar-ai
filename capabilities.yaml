@@ -228,7 +228,10 @@ capabilities:
       few days of the daily log (morning mood, fatigue, sleep). Both live in
       the family's notes, not in the agent's memory, so they are never mixed
       into recall, and both say when they were fetched. Anyone in the family
-      may ask. Treated as tools: read them when the question needs what is
+      may ask about the notes. The daily log is one person's own record: when
+      its owner is set, the tool carries the owner's name
+      (`get_journal_<name>`) and is there only while talking with that person.
+      Treated as tools: read them when the question needs what is
       written down, not on every turn.
     enabled_tool: search_notion
   - id: house_rules

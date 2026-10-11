@@ -66,6 +66,7 @@ def _server(api=None, token="ntn_x"):
         api=api or _Api(),
         token=token,
         journal_ds="ds-journal",
+        journal_owner="",  # 持ち主の設定が無い形（機体の MCP 設定を読まない）
         now=lambda: datetime(2026, 9, 13, 15, 0, tzinfo=TZ),
     )
 
@@ -74,7 +75,8 @@ def test_tools_list_has_search_and_journal() -> None:
     res = _server().handle({"jsonrpc": "2.0", "id": 1, "method": "tools/list"})
     names = [t["name"] for t in res["result"]["tools"]]
     assert names == ["search_notion", "get_journal"]
-    assert all("_yusuke" not in n for n in names), "家族ティアなので名前に人は入らない"
+    # 持ち主の設定が無ければ名前に人は入らない（設定があるときは `test_the_journal_belongs_to_its_owner`）
+    assert all("_yusuke" not in n for n in names)
 
 
 def test_search_returns_title_abstract_path_and_dates() -> None:
@@ -144,6 +146,7 @@ def test_journal_without_data_source_says_so() -> None:
         api=_Api(),
         token="ntn_x",
         journal_ds="",
+        journal_owner="",
         now=lambda: datetime(2026, 9, 13, 15, 0, tzinfo=TZ),
     )
     res = s.handle(

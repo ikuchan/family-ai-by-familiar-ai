@@ -2,7 +2,9 @@
 
 `obsidian-memo` の `memo_mcp` と同じ作法（SDK 無し・stdout は JSON-RPC 専用・道具の失敗は
 result の `isError`）。**中身は基本すべて家族ティア**（2026-09-13 の決定）なので、道具の名前に
-人は入れない。鍵は `NOTION_TOKEN` か `~/.config/obsidian-memo.env`（memo_mcp と同じ置き場・
+人は入れない。ただし**日次記録は 1 人の体の記録**（気分・疲労・睡眠）なので、持ち主の英字を名前に付ける
+（`get_journal_<latin>`・`NOTION_JOURNAL_OWNER`・2026-10-11・知-az）。話者ゲートがその人のターンにだけ出す。
+持ち主の設定が無ければ `get_journal` のまま家族の誰とでも使える。鍵は `NOTION_TOKEN` か `~/.config/obsidian-memo.env`（memo_mcp と同じ置き場・
 git に置かない）。権限の壁は「インテグレーションに共有した DB だけ読める」で作る。
 
 この鍵から見える Notion（2026-09-13 実測）は 2 つのデータソース：**`ObsidianMemo 索引`**
@@ -43,8 +45,10 @@ SEARCH_DESCRIPTION = (
 )
 JOURNAL_DESCRIPTION = (
     "日ごとの記録（Notion の ObsidianMemo 日次記録）を直近 days 日ぶん返す：朝の気分・肉体疲労・"
-    "脳疲労・体感・睡眠。「最近よく眠れてる？」「調子どう？」に引く。家族の誰と話しているときでも使ってよい。"
+    "脳疲労・体感・睡眠。「最近よく眠れてる？」「調子どう？」に引く。"
 )
+_FOR_ANYONE = "家族の誰と話しているときでも使ってよい。"
+_FOR_OWNER = "この記録の持ち主と話しているときにだけ届く。"
 
 
 def token_from_env() -> str:
@@ -131,6 +135,7 @@ class Server:
     api: Callable[..., dict]
     token: str
     journal_ds: str
+    journal_owner: str = ""  # 日次記録の持ち主の英字（空なら家族の誰とでも）
     now: Callable[[], datetime] = lambda: datetime.now(TZ)
     tools: dict[str, dict[str, Any]] = field(default_factory=dict)
 
@@ -153,9 +158,10 @@ class Server:
                 "additionalProperties": False,
             },
         }
-        self.tools["get_journal"] = {
-            "name": "get_journal",
-            "description": JOURNAL_DESCRIPTION,
+        self.tools[self.journal_name] = {
+            "name": self.journal_name,
+            "description": JOURNAL_DESCRIPTION
+            + (_FOR_OWNER if self.journal_owner else _FOR_ANYONE),
             "inputSchema": {
                 "type": "object",
                 "properties": {
@@ -169,6 +175,10 @@ class Server:
                 "additionalProperties": False,
             },
         }
+
+    @property
+    def journal_name(self) -> str:
+        return f"get_journal_{self.journal_owner}" if self.journal_owner else "get_journal"
 
     def _head(self, source: str) -> str:
         now = self.now().astimezone(TZ)
@@ -297,7 +307,7 @@ class Server:
 
     def _call(self, params: dict[str, Any]) -> dict[str, Any]:
         name = params.get("name")
-        fn = {"search_notion": self.search_notion, "get_journal": self.get_journal}.get(name)
+        fn = {"search_notion": self.search_notion, self.journal_name: self.get_journal}.get(name)
         if fn is None:
             return {
                 "content": [{"type": "text", "text": f"そのツールはありません: {name}"}],
@@ -336,7 +346,14 @@ def _from_mcp_config(key: str) -> str:
         return ""
 
 
-def build(*, api=None, token: str | None = None, journal_ds: str | None = None, now=None) -> Server:
+def build(
+    *,
+    api=None,
+    token: str | None = None,
+    journal_ds: str | None = None,
+    journal_owner: str | None = None,
+    now=None,
+) -> Server:
     tok = token_from_env() if token is None else token
     ds = (
         (
@@ -346,7 +363,17 @@ def build(*, api=None, token: str | None = None, journal_ds: str | None = None, 
         if journal_ds is None
         else journal_ds
     )
-    kwargs: dict[str, Any] = {"api": api or make_http_api(tok), "token": tok, "journal_ds": ds}
+    owner = (
+        (os.environ.get("NOTION_JOURNAL_OWNER") or _from_mcp_config("NOTION_JOURNAL_OWNER"))
+        if journal_owner is None
+        else journal_owner
+    )
+    kwargs: dict[str, Any] = {
+        "api": api or make_http_api(tok),
+        "token": tok,
+        "journal_ds": ds,
+        "journal_owner": owner.strip().lower(),
+    }
     if now is not None:
         kwargs["now"] = now
     return Server(**kwargs)

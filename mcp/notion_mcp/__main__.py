@@ -4,7 +4,8 @@
         "type": "stdio",
         "command": "/path/to/.venv/bin/python", "args": ["-m", "notion_mcp"],
         "cwd": "/path/to/family-ai-by-familiar-ai/mcp",
-        "env": { "NOTION_JOURNAL_DATA_SOURCE": "<日次記録のデータソース id>" }
+        "env": { "NOTION_JOURNAL_DATA_SOURCE": "<日次記録のデータソース id>",
+                 "NOTION_JOURNAL_OWNER": "<日次記録の持ち主の英字（例 yusuke）・無ければ家族の誰とでも>" }
     }}}
 
 鍵は `~/.config/obsidian-memo.env` の `NOTION_TOKEN`（memo_mcp と同じ）。
@@ -45,7 +46,7 @@ def selftest() -> int:
             "jsonrpc": "2.0",
             "id": 4,
             "method": "tools/call",
-            "params": {"name": "get_journal", "arguments": {"days": 3}},
+            "params": {"name": server.journal_name, "arguments": {"days": 3}},
         },
     ):
         response = server.handle(request)
