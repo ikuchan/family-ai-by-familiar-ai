@@ -3567,6 +3567,7 @@ class InformationProcessing:
     async def _swallow_if_unheard(self, trigger: "Trigger") -> bool:
         """入口の門：聞けないものは求めを立てない。
 
+        - **知らない声**（知-ar）：声を登録した誰にも基準まで届かない声は、いちばん先で捨てる（基準が未設定なら効かない）。
         - **黙っているよう頼まれている**（情-h）：会話入力・機器・情動のどれも O に残して器
           （`_muted`・`silence_hold`）に控えるだけにする。通すのは解くきっかけだけ（`lifts`）。控えたものは
           聞けるようになった最初の求めへ渡す（`_pending_heard` → `Request.heard_while_silent`）。
@@ -3583,6 +3584,11 @@ class InformationProcessing:
 
         now = time.time()
         names = list(getattr(self._agent.config, "agent_names", None) or [])
+        if trigger.kind == "会話入力" and trigger.source == "voice":
+            if self._voice_stranger(trigger.voice):
+                # **知らない声は無条件に捨てる**（知-ar）。名前・黙っていての依頼・窓より前。気配として SAFETY だけ上げる。
+                await self._nudge_by_voice(trigger, stranger=True)
+                return self._swallowed(trigger)
         if trigger.kind == "会話入力":
             if trigger.source == "voice" and is_name_repeat(trigger.query, names):
                 # 名前だけの繰り返しは想定外（2026-10-07 本人の決定）。窓が開いていても、値に関わらず捨てる。
@@ -3721,6 +3727,30 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             return True
 
+    def _voice_stranger(self, voice: Any) -> bool:
+        """知らない声か（知-ar）：声紋があり、声を登録した誰にも `voice_stranger_threshold` まで届かない。
+
+        `_voice_unknown`（声紋が無いと真・付け替えの閾値で見る）とは別物。判断できないもの（基準が未設定・声紋が無い・
+        登録した声が 1 つも無い・点数を読めない）は知らない声にしない。
+        """
+        threshold = getattr(self._agent.config.recognition, "voice_stranger_threshold", None)
+        if threshold is None or voice is None:
+            return False
+        try:
+            scores = self._voice_scores(voice)
+        except Exception:  # noqa: BLE001
+            logger.warning("知らない声か確かめられなかった（通す）", exc_info=True)
+            return False
+        if not scores:
+            return False
+        best = max(scores.values())
+        if best >= threshold:
+            return False
+        logger.info(
+            "event-loop 知らない声なので捨てた（最も近い %.2f・基準 %.2f）", best, threshold
+        )
+        return True
+
     def _voice_scores(self, voice: Any) -> "dict[str, float]":
         """人ごとの似かた（登録の重心と今日の重心のうち近いほう・`core/voice_speaker.scores`）。読めなければ例外。
 
@@ -3815,12 +3845,13 @@ class InformationProcessing:
         )
         return verdict == jev_judges.TO_FAMILY
 
-    async def _nudge_by_voice(self, trigger: "Trigger") -> None:
+    async def _nudge_by_voice(self, trigger: "Trigger", *, stranger: bool = False) -> None:
         """窓の外で捨てた声で、欲求を押し上げる（情-p・2026-10-10・本人の決定）。
 
         カメラに誰か居るとき（顔ぶれか在席）だけ。知っている声（家族に 0.35 以上・`_voice_unknown` が偽）なら BOND を
         `voice_bond_nudge`（0.05）、知らない声（当たらない・声の特徴が無い）なら SAFETY を `voice_safety_nudge`（0.10）。
-        誰も居なければ何もしない。声で届いた入力だけ（キーボードは押し上げない）。以前は誰も見えないとき SEEKING へ
+        誰も居なければ何もしない。声で届いた入力だけ（キーボードは押し上げない）。`stranger` は門の先で捨てた知らない声
+        （知-ar）で、いつも SAFETY 側。以前は誰も見えないとき SEEKING へ
         0.50 足し、家族の会話のあいだ声 2 つごとに検索した（10/10 の SEEKING からの検索 68 回）。
         """
         if trigger.source != "voice" or self._nobody_here():
@@ -3829,7 +3860,7 @@ class InformationProcessing:
 
         cfg = DriveConfig()
         with contextlib.suppress(Exception):
-            if self._voice_unknown(trigger.voice):
+            if stranger or self._voice_unknown(trigger.voice):
                 await self._agent._nudge_drive(
                     "safety", cfg.voice_safety_nudge, "知らない声がした（誰か居る）"
                 )

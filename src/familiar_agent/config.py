@@ -42,6 +42,15 @@ def _float_env(name: str, default: float) -> float:
         return default
 
 
+def _opt_float_env(name: str) -> "float | None":
+    """値があれば float、無い・読めなければ None（未設定なら効かない設定に使う）。"""
+    raw = os.environ.get(name, "").strip()
+    try:
+        return float(raw) if raw else None
+    except ValueError:
+        return None
+
+
 def _int_env(name: str, default: int) -> int:
     try:
         return int(os.environ.get(name, str(default)))
@@ -600,6 +609,11 @@ class RecognitionConfig:
     )
     voice_alone_threshold: float = field(
         default_factory=lambda: _float_env("VOICE_ALONE_THRESHOLD", 0.45)
+    )
+    # 知らない声の基準（知-ar・2026-10-11・本人の決定）。声を登録した誰にもこれに届かない声は、門のいちばん先で捨てる。
+    # 値は 4 人の登録と正解付きの点数が揃ってから決める。未設定（None）なら効かない。
+    voice_stranger_threshold: "float | None" = field(
+        default_factory=lambda: _opt_float_env("VOICE_STRANGER_THRESHOLD")
     )
     # `/voice 名前` のあと、声の登録を受け付ける秒数（知-ai・2026-10-05・本人の決定・仮）。
     voice_enroll_sec: float = field(default_factory=lambda: _float_env("VOICE_ENROLL_SEC", 10.0))
