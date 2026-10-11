@@ -564,6 +564,8 @@ _LIGHT_WORDS: "dict[str, str]" = {
     "reply_light": "軽く返す",
     "talk_light": "軽く話しかける",
 }
+#: 見立てがあるときの聞き返し（出-bl）。何をしてほしいかではなく、見立てが合っているかを確かめる。
+_ASK_GUESS_WORDS = f"聞き返す（{ASK_BACK_MAX_CHARS} 字まで・見立てが合っているかを短く確かめる）"
 
 
 def _is_question(text: str) -> bool:
@@ -818,7 +820,14 @@ class Arbiter:
             # 越えなかったときの問いと答えは「unsure」の下に残す（段 5d）。
             asked["unsure"] = um.unsure_question()
             said["unsure"] = dict(getattr(again, "answers", None) or {})
-        self._keep(inp, "発話", state, asked, said, final, outcome.why, meaning=m)
+        # 迷って聞き返すなら、何を迷ったかを書く側に渡す（出-bl）。記録にも残す。
+        guess = (
+            um.guess(meaning, got.get(f"action_{m}"))
+            if final == "ask_back" and m in offered
+            else ""
+        )
+        why = f"{outcome.why}・見立て：{guess}" if guess else outcome.why
+        self._keep(inp, "発話", state, asked, said, final, why, meaning=m)
         if final == "music_now":
             # いまの曲は機械が決まった形で答える（出-bf・本人の決定ア）。曲名を取り違えず、軽量LLM を待たない。
             from ..core.music_now import text_for
@@ -875,7 +884,7 @@ class Arbiter:
         effort = str((got.get("effort") or {}).get("choice") or "low")  # 考える深さ（本人の決定ウ）
         self._tell_decided(final)  # 軽量LLM が書く前に（出-bg）
         decision = await self._completion_decision(
-            inp, final, tool="", effort=effort, refers_time=final == "recall"
+            inp, final, tool="", effort=effort, refers_time=final == "recall", guess=guess
         )
         if fields:
             decision = replace(decision if decision is not None else _FALLBACK, **fields)
@@ -940,6 +949,7 @@ class Arbiter:
         tool: str,
         effort: str = "low",
         refers_time: bool = False,
+        guess: str = "",
     ) -> "Decision | None":
         """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
         if final == "silent":
@@ -948,8 +958,11 @@ class Arbiter:
             return Decision(branch="full", effort=effort if effort in _EFFORTS else "low")
         if final in _LIGHT_WORDS:
             ask = final == "ask_back"
+            decided = _LIGHT_WORDS[final]
+            if ask and guess:
+                decided = f"{_ASK_GUESS_WORDS}。見立て（確かではない）：{guess}"
             texts = await _writer_call(
-                self, inp, {"decided": _LIGHT_WORDS[final], "ask": ask}, ["text"]
+                self, inp, {"decided": decided, "ask": ask, "guess": bool(guess)}, ["text"]
             )
             text = str((texts or {}).get("text", "")).strip()
             if ask and text and not _is_question(text):
@@ -1056,6 +1069,9 @@ _FIELD_TEXT = {
     "text_self": '"text"：自分から言うなら短いひとこと。**いつも通りなら空にして黙る**。返事や約束の形にしない。',
     # 聞き返しは問いにする（出-bk・10/11 08:24 に「調べますので、少々お待ちください。」と約束して何もしなかった）。
     "text_ask": '"text"：何をしてほしいのかを確かめる短い**問い**（「？」で終える）。答えない。調べる・やる・待ってと約束しない。',
+    # 迷った聞き返しは見立てを確かめる（出-bl・空の問いしか書けなかった）。
+    "text_ask_guess": '"text"：見立てが合っているかを確かめる短い**問い**（「？」で終える）。答えない。'
+    "調べる・やる・待ってと約束しない。",
     "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
     "trash": '"trash"：用件はこのあと本応答が言う。いま言いたいことがあるならここに書く（捨てられ、誰にも届かない）。',
     "query": '"query"：探す語。',
@@ -1137,7 +1153,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         decided += f"（{data.get('action')}：{_action_note(str(data.get('action')))}）"
     fields = "\n".join(
         _FIELD_TEXT[
-            "text_ask"
+            ("text_ask_guess" if data.get("guess") else "text_ask")
             if (n == "text" and data.get("ask"))
             else _text_field(inp)
             if (n == "text" and self_doing)

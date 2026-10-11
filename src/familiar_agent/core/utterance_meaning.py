@@ -299,6 +299,32 @@ def _conf(answer: "dict[str, Any] | None") -> float:
     return float((answer or {}).get("confidence", 0) or 0)
 
 
+#: 見立てを渡さない意味（言葉として読めていない）。
+_NO_GUESS = frozenset({"off_context", "unformed"})
+
+
+def guess(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> str:
+    """聞き返すときに渡す Jev の見立て。数字は言葉に直す。見立てが無ければ空。
+
+    迷って聞き返しに倒れても、書く側は何を迷ったかを知らず、空の問いしか書けなかった（出-bl・2026-10-11）。
+    いちばん高い意味と、その意味でいちばん高い動作（聞き返す・黙るを除く）を渡す。名乗り・否定の動作は呼び方なので渡さない。
+    """
+    m = str(meaning.get("choice") or "")
+    if m not in MEANINGS or m in _NO_GUESS:
+        return ""
+    sure = "たぶん" if _conf(meaning) >= THRESHOLD else "もしかすると"
+    out = f"{sure}「{MEANINGS[m][0]}」"
+    action = action or {}
+    probs = dict(action.get("probabilities") or {})
+    if not probs and action.get("choice"):
+        probs = {str(action["choice"]): _conf(action)}
+    acts = [(k, p) for k, p in probs.items() if k in ACTIONS and k not in _COMMON]
+    if acts and m not in ("claim", "deny"):
+        top = max(acts, key=lambda kv: kv[1])[0]
+        out += f"。するなら：{ACTIONS[top]}"
+    return out
+
+
 def decide(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> Outcome:
     """1 回目と 2 回目の答えから、本人の決まりで最終の動作を決める。"""
     m = str(meaning.get("choice") or "")
