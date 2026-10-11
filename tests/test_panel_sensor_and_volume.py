@@ -39,6 +39,8 @@ def test_the_note_warns_below_half_and_is_quiet_otherwise(monkeypatch):
     from familiar_agent.agent import EmbodiedAgent
 
     a = EmbodiedAgent.__new__(EmbodiedAgent)
+    # 機器の名前はテストで決める（本物の `.env` は読まない・環-aj）。
+    monkeypatch.setenv("AUDIO_OUTPUT_DEVICE", "YVC-300")
     monkeypatch.setattr("familiar_agent.core.audio_volume.read_percent", lambda name: 40)
     note = a.audio_volume_note()
     assert "40%" in note and "YVC-300" in note and "amixer" in note

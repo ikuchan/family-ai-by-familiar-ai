@@ -18,6 +18,9 @@ _BASE_DB = "familiar_test"
 _WORKER = os.environ.get("PYTEST_XDIST_WORKER")
 _DB_NAME = f"{_BASE_DB}_{_WORKER}" if (_WORKER and _WORKER != "master") else _BASE_DB
 os.environ["DATABASE_URL"] = f"{_PG_HOST}/{_DB_NAME}"
+# 本物の `.env` を読ませない（環-aj・2026-10-11）。`config.py` の import が読んでいて、`STT_SAVE_AUDIO` が漏れ、
+# テストの音が本物の録音の置き場を最新 20 本ぶん押し出していた。`familiar_agent` の import より前に立てる。
+os.environ["FAMILIAR_SKIP_DOTENV"] = "1"
 
 import psycopg2  # noqa: E402
 import pytest  # noqa: E402

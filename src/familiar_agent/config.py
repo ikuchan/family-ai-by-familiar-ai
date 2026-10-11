@@ -12,7 +12,9 @@ from dotenv import load_dotenv
 
 from ._i18n import _t
 
-load_dotenv()
+# テストは印を立てて本物の `.env` を読まない（環-aj・`tests/conftest.py`）。アプリは起動時に `bootstrap` も読み直す。
+if not os.environ.get("FAMILIAR_SKIP_DOTENV"):
+    load_dotenv()
 
 
 def _resolve_setting(field: str, default: float) -> float:
