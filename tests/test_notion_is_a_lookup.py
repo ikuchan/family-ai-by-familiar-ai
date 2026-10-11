@@ -73,11 +73,11 @@ def test_the_arbiter_prompt_offers_notion_when_available() -> None:
 
     from tests._arbiter_fakes import decide, jev_says
 
-    # 段 4-4b から、家の記録の道具は発話の意味「調べる必要のある問い」の動作。繋がっているときだけ並ぶ（段 5・本人の決定ア）。
+    # 家の記録の道具は発話の意味「家族に関わる情報源を見に行く問い」の動作（知-ax）。繋がっているときだけ並ぶ（段 5）。
     def actions(extra, utterance):
         jev = jev_says("full")
         asyncio.run(decide(jev=jev, utterance=utterance, extra_actions=extra))
-        return jev.ask.await_args.args[1]["action_research"]["criteria"]
+        return jev.ask.await_args.args[1]["action_家族の情報源"]["criteria"]
 
     said = "サッカー教室の話、どこかに書いてある？"
     assert "notion_search" in actions(("notion_search",), said)

@@ -26,6 +26,7 @@ def test_the_meanings_go_from_clear_to_vague():
         "time",
         "look",
         "research",
+        "家族の情報源",
         "answerable",
         "other",
         "off_context",
@@ -120,7 +121,10 @@ def test_lifting_the_silence_is_offered_only_while_silenced():
 
 
 def test_the_house_tools_are_offered_only_when_connected():
+    # 家の道具は意味「家族に関わる情報源を見に行く問い」の動作（知-ax）。調べる問いには並ばない。
+    family = _qs(tools={"family_schedule"})["action_家族の情報源"]["criteria"]
+    assert {"recall", "family_schedule"} <= set(family)
+    assert not {"house_rules", "notion_search", "journal", "vault"} & set(family)
+    assert "family_schedule" not in _qs(tools=set())["action_家族の情報源"]["criteria"]
     research = _qs(tools={"family_schedule"})["action_research"]["criteria"]
-    assert {"search_deferred", "recall", "family_schedule"} <= set(research)
-    assert not {"house_rules", "notion_search", "journal", "vault"} & set(research)
-    assert "family_schedule" not in _qs(tools=set())["action_research"]["criteria"]
+    assert set(research) == {"search_deferred", "recall", "ask_back", "silent"}

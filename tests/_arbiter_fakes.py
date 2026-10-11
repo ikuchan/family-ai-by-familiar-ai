@@ -74,6 +74,7 @@ def jev_says(
 
 
 _MUSIC = {"play_music", "stop_music", "next_track", "music_volume"}
+_HOUSE = {"family_schedule", "house_rules", "notion_search", "journal", "vault"}
 _TIME = {
     "set_timer",
     "cancel_timer",
@@ -100,6 +101,8 @@ def _as_meaning(branch: str, action: str) -> "tuple[str, str]":
         return "look", action
     if action in ("confirm", "decline"):
         return "confirm", action
+    if action in _HOUSE:
+        return "家族の情報源", action  # 家の記録の道具（知-ax）
     return "research", action
 
 
