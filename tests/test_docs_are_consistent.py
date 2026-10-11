@@ -56,14 +56,23 @@ def test_the_history_has_an_entry_for_this_version(doc: pathlib.Path):
     assert re.search(rf"^> v{re.escape(ver)}[：:]", text[head.end() :], re.M), f"v{ver} の項が無い"
 
 
+def _linked(index: str) -> "list[str]":
+    """索引の本文にある md へのリンク先（file 名）。"""
+    return [urllib.parse.unquote(m.group(1)) for m in re.finditer(r"\]\(([^)]+\.md)\)", index)]
+
+
+def _unlinked(index: str) -> "list[str]":
+    """README 以外の md のうち、索引からリンクされていないもの。"""
+    linked = set(_linked(index))
+    return sorted(
+        p.name for p in _DOCS.glob("*.md") if p.name != "README.md" and p.name not in linked
+    )
+
+
 def test_the_index_links_resolve():
     """索引から引けない資料は、無いのと同じである。"""
     index = (_DOCS / "README.md").read_text(encoding="utf-8")
-    dead = [
-        t
-        for m in re.finditer(r"\]\(([^)]+\.md)\)", index)
-        if not (_DOCS / (t := urllib.parse.unquote(m.group(1)))).exists()
-    ]
+    dead = [t for t in _linked(index) if not (_DOCS / t).exists()]
     assert dead == [], f"索引のリンク切れ：{dead}"
 
 
@@ -73,3 +82,18 @@ def test_numbered_headings_do_not_repeat(doc: pathlib.Path):
     nums = re.findall(r"^## (\d+)\.", doc.read_text(encoding="utf-8"), re.M)
     dup = sorted({n for n in nums if nums.count(n) > 1})
     assert dup == [], f"見出し番号の重複：{dup}"
+
+
+def test_every_document_is_in_the_index():
+    """逆向き（資料→索引）。リンク切れだけを見ていると、索引が空になっても切れたリンクが 0 本で緑になる
+    （`0b64d35`・2026-10-11 に README の 195 行が消えて緑だった）。"""
+    assert _unlinked((_DOCS / "README.md").read_text(encoding="utf-8")) == []
+
+
+def test_an_emptied_or_trimmed_index_is_caught():
+    """**反証側**：空の索引と 1 行欠けた索引で、リンクの無い資料が出ること。"""
+    index = (_DOCS / "README.md").read_text(encoding="utf-8")
+    everything = sorted(p.name for p in _DOCS.glob("*.md") if p.name != "README.md")
+    assert _unlinked("") == everything
+    trimmed = "\n".join(line for line in index.splitlines() if "Notionとの接続" not in line)
+    assert [n for n in _unlinked(trimmed)] == [n for n in everything if "Notionとの接続" in n]
