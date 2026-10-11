@@ -48,6 +48,10 @@ def _mask_source(source) -> str:
     return re.sub(r"://[^@/]*@", "://***:***@", text)
 
 
+def _where(at: "tuple[float, float] | None") -> str:
+    return "不明" if at is None else f"({at[0]:.3f}, {at[1]:.3f})"
+
+
 class CameraTool:
     """Controls a camera via OpenCV (RTSP, USB, file) and optionally via ONVIF (PTZ)."""
 
@@ -79,6 +83,8 @@ class CameraTool:
         self._cam_onvif: Any = None
         self._ptz: Any = None
         self._profile_token: str | None = None
+        # 諦めたあとも着くまで読み続ける裏の仕事（知-ay）。次の動きで取り消す。
+        self._follow: "asyncio.Task[None] | None" = None
 
         self._cap: cv2.VideoCapture | None = None
         self._last_frame: Any = None
@@ -316,6 +322,10 @@ class CameraTool:
             return "Camera movement (PTZ) not supported for this source."
         pan = max(-1.0, min(1.0, float(pan)))
         tilt = max(-1.0, min(1.0, float(tilt)))
+        if self._follow is not None and not self._follow.done():
+            self._follow.cancel()  # 前の動きの読み続けを次の動きと混ぜない（知-ay）
+        self._follow = None
+        start = await self.position()
         try:
             await self._ptz.AbsoluteMove(
                 {
@@ -326,7 +336,7 @@ class CameraTool:
         except Exception as e:  # noqa: BLE001
             logger.warning("Camera absolute move failed: %s", e)
             return f"Camera move failed: {e}"
-        await self._settle(pan, tilt)
+        await self._settle(pan, tilt, start)
         return f"Turned to pan={pan:+.4f} tilt={tilt:+.4f}."
 
     #: 着いたとみなす差（定点の一致判定 `camera.pose_tolerance` の既定と同じ 0.02）。
@@ -334,13 +344,26 @@ class CameraTool:
     #: 動き終わるのを待つ上限（秒）と刻み。実機は正面→押入（pan 0.18）に約 1 秒。
     SETTLE_MAX_SEC = 3.0
     SETTLE_STEP_SEC = 0.2
+    #: 諦めたあと着くまで読み続ける窓（秒・動き始めから）。待ちの上限ではなく、上限を決め直すための測り（知-ay）。
+    SETTLE_FOLLOW_SEC = 15.0
 
-    async def _settle(self, pan: float, tilt: float) -> None:
+    def _arrived(self, here: "tuple[float, float]", pan: float, tilt: float) -> bool:
+        return (
+            abs(here[0] - pan) <= self.SETTLE_TOLERANCE
+            and abs(here[1] - tilt) <= self.SETTLE_TOLERANCE
+        )
+
+    async def _settle(
+        self, pan: float, tilt: float, start: "tuple[float, float] | None" = None
+    ) -> None:
         """動き終わるまで待つ（2026-09-16 実機）。
 
         以前は 0.4 秒待つだけで返り、`look` はその直後に撮っていた。位置は目標の途中で、
         写真は動いている最中のもの。この機体の `MoveStatus` は UNKNOWN なので、読んだ位置が
         目標に収まるまで待つ。読めない・着かないときは上限で諦めて先へ進む（警告は残す）。
+
+        着くまでの秒数を残す（知-ay・横を動かしてから傾きを動かすように見え、遠い定点へは 3 秒で着かない）。
+        諦めたときは裏で読み続け、遅れて着いた秒数を残す。
         """
         waited = 0.0
         while True:
@@ -349,10 +372,14 @@ class CameraTool:
             here = await self.position()
             if here is None:
                 return
-            if (
-                abs(here[0] - pan) <= self.SETTLE_TOLERANCE
-                and abs(here[1] - tilt) <= self.SETTLE_TOLERANCE
-            ):
+            if self._arrived(here, pan, tilt):
+                logger.info(
+                    "Camera settled（着いた）: %.1f 秒 from=%s to=(%.3f, %.3f)",
+                    waited,
+                    _where(start),
+                    pan,
+                    tilt,
+                )
                 return
             if waited >= self.SETTLE_MAX_SEC:
                 logger.warning(
@@ -362,7 +389,35 @@ class CameraTool:
                     here[0],
                     here[1],
                 )
+                self._follow = asyncio.ensure_future(self._follow_up(pan, tilt, start, waited))
                 return
+
+    async def _follow_up(
+        self, pan: float, tilt: float, start: "tuple[float, float] | None", waited: float
+    ) -> None:
+        """諦めたあとも着くまで読み、遅れて着いた秒数を残す（知-ay）。撮る処理は待たせない。"""
+        while waited < self.SETTLE_FOLLOW_SEC:
+            await asyncio.sleep(self.SETTLE_STEP_SEC)
+            waited += self.SETTLE_STEP_SEC
+            here = await self.position()
+            if here is None:
+                return
+            if self._arrived(here, pan, tilt):
+                logger.info(
+                    "Camera settled late（遅れて着いた）: %.1f 秒 from=%s to=(%.3f, %.3f)",
+                    waited,
+                    _where(start),
+                    pan,
+                    tilt,
+                )
+                return
+        logger.warning(
+            "Camera did not settle in %.0f 秒でも着かない: from=%s to=(%.3f, %.3f)",
+            self.SETTLE_FOLLOW_SEC,
+            _where(start),
+            pan,
+            tilt,
+        )
 
     async def position(self) -> tuple[float, float] | None:
         """いまどこを向いているか。読めなければ `None`。

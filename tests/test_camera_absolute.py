@@ -144,8 +144,13 @@ def test_move_gives_up_waiting_after_the_limit(monkeypatch, caplog):
 
     monkeypatch.setattr("familiar_agent.tools.camera.asyncio.sleep", fake_sleep)
     cam, _ = _tool_moving([(-0.163, -0.143)] * 100)  # いつまでも途中
+
+    async def move():
+        text = await cam.move_to(-0.254, -0.143)
+        return text, sum(slept)  # 返った時点まで（諦めたあと裏で読み続けるぶんは数えない・知-ay）
+
     with caplog.at_level("WARNING", logger="familiar_agent.tools.camera"):
-        text = asyncio.run(cam.move_to(-0.254, -0.143))
+        text, waited = asyncio.run(move())
     assert "Turned to" in text
-    assert sum(slept) <= 3.5  # 上限で諦める
+    assert waited <= 3.5  # 上限で諦める
     assert any("着かない" in r.message for r in caplog.records)
