@@ -51,11 +51,30 @@ def cue_for(final: str) -> str:
 
 
 def word_for(path: Path) -> str:
-    """合図の音のファイル → 言った言葉（出-bt）。機械音・効果音は言葉が無いので空。"""
+    """合図の音のファイル → 言った言葉（出-bt）。機械音・効果音は言葉が無いので空。
+
+    ファイル名で比べる。どの声のフォルダ（`voiced`）でも、「はい」は `react_tool_0.wav` である。
+    """
     for words, wavs in ((TOOL_WORDS, TOOL_WAVS), (THINK_WORDS, THINK_WAVS)):
-        if path in wavs:
-            return words[wavs.index(path)]
+        names = [w.name for w in wavs]
+        if path.name in names:
+            return words[names.index(path.name)]
     return ""
+
+
+def voiced(path: Path) -> Path:
+    """作り置きの声を、いまの声のもので返す（出-bv）。返事（Gemini）と声をそろえる。
+
+    主の担い手が gemini で、`<置き場>/voices/<声>/` に同じ名前のファイルがあればそれ、無ければ元のファイル（SBV2 版）。
+    主が SBV2 なら SBV2 版を使う。声は `.env` の `GEMINI_TTS_VOICE` で切り替える。
+    """
+    from ..config import TTSConfig
+
+    cfg = TTSConfig()
+    if cfg.engine != "gemini":
+        return path
+    candidate = path.parent / "voices" / cfg.gemini_voice / path.name
+    return candidate if candidate.exists() else path
 
 
 def sound_for(cue: str) -> "Path | None":
@@ -63,9 +82,9 @@ def sound_for(cue: str) -> "Path | None":
     if cue == ACK:
         return ACK_WAV
     if cue == TOOL:
-        return random.choice(TOOL_WAVS)
+        return voiced(random.choice(TOOL_WAVS))
     if cue == THINK:
-        return random.choice(THINK_WAVS)
+        return voiced(random.choice(THINK_WAVS))
     return None
 
 

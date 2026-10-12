@@ -220,7 +220,9 @@ class DIF:
 
         録音が無ければ鳴らさず偽を返す（落とさない）。録音は `scripts/gen_credit_voices.py` が作る。
         """
-        path = _SOUNDS / f"credit_{name}.wav"
+        from ..core.reaction_cue import voiced
+
+        path = voiced(_SOUNDS / f"credit_{name}.wav")  # いまの声の録音（出-bv）。無ければ SBV2 版
         if not path.exists():
             logger.warning("DIF クレジット切れの録音が無い：%s", path.name)
             return False

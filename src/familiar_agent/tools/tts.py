@@ -137,7 +137,7 @@ DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
 #: Gemini TTS の既定（環-v・`根拠台帳` §45）。実機で詰まった 5 文を漢字のまま 5/5 で読み、
 #: 感情も 3 つとも聞き分けられた組み合わせ。同じモデルでも声で変わる。
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash-lite-tts"
-DEFAULT_GEMINI_VOICE = "Charon"
+DEFAULT_GEMINI_VOICE = "Laomedeia"  # 出-bv・本人の決定（`config.TTSConfig.gemini_voice` と同じ）
 
 #: Gemini の逐次の返りは生 PCM（24kHz・16bit・mono）。一括のときだけ WAV で返る。
 GEMINI_RATE = 24000
@@ -755,6 +755,45 @@ class TTSTool:
             )
             return result, None
         return f"Unknown tool: {tool_name}", None
+
+
+def gemini_wav(cfg, text: str, voice: str) -> bytes:
+    """Gemini で 1 文を合成し、WAV（24 kHz・モノ）のバイト列で返す（出-bv・作り置きの声を作るスクリプトが使う）。
+
+    音が返らなければ例外にする（空の WAV を書かない）。
+    """
+    import io
+    import wave
+
+    from google.genai import types
+
+    client = _gemini_client(cfg.gemini_api_key)
+    config = types.GenerateContentConfig(
+        response_modalities=["AUDIO"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
+            )
+        ),
+    )
+    buf: list[bytes] = []
+    for chunk in client.models.generate_content_stream(
+        model=cfg.gemini_model, contents=text, config=config
+    ):
+        for part in (chunk.candidates[0].content.parts or []) if chunk.candidates else []:
+            blob = getattr(part, "inline_data", None)
+            if blob is not None and blob.data:
+                buf.append(blob.data)
+    pcm = b"".join(buf)
+    if not pcm:
+        raise RuntimeError(f"Gemini から音が返らなかった（{voice}：{text}）")
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(GEMINI_RATE)
+        w.writeframes(pcm)
+    return out.getvalue()
 
 
 def describe_voice(cfg) -> str:

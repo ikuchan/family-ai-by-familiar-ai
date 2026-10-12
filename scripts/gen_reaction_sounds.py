@@ -11,6 +11,9 @@
 出典の記録が要るので、効果音は自分で合成する（`gen_timer_alarm.py` と同じ）。
 
 使い方：`uv run python scripts/gen_reaction_sounds.py`（効果音だけなら `--tones`）
+
+声ごとの作り置き（出-bv）：`--voice Laomedeia` のように声を指定すると、作り置きの声だけを Gemini のその声で読み上げ、
+`sounds/voices/<声>/` に書く（返事と声をそろえる。鳴らす側は `.env` の `GEMINI_TTS_VOICE` の声のフォルダから選ぶ）。
 """
 
 from __future__ import annotations
@@ -121,7 +124,35 @@ def write_voices() -> int:
     return 0
 
 
+def _load_env() -> None:
+    for line in pathlib.Path(".env").read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            k, v = line.split("=", 1)
+            os.environ.setdefault(k.strip(), v.strip())
+
+
+def write_gemini_voices(voice: str) -> int:
+    """作り置きの声を Gemini の `voice` で読み上げ、`sounds/voices/<voice>/` に書く（出-bv）。"""
+    _load_env()
+    from familiar_agent.config import TTSConfig
+    from familiar_agent.tools import tts
+
+    cfg = TTSConfig()
+    pairs = list(zip(rc.TOOL_WORDS, rc.TOOL_WAVS)) + list(zip(rc.THINK_WORDS, rc.THINK_WAVS))
+    for text, base in pairs:
+        path = base.parent / "voices" / voice / base.name
+        path.parent.mkdir(parents=True, exist_ok=True)
+        wav = tts.gemini_wav(cfg, text, voice)
+        path.write_bytes(wav)
+        print(f"{voice}/{path.name}：{text}（{len(wav)} バイト）")
+        time.sleep(7)  # 無料枠は 1 分に 10 回
+    return 0
+
+
 def main() -> int:
+    if "--voice" in sys.argv:
+        return write_gemini_voices(sys.argv[sys.argv.index("--voice") + 1])
     write_tones()
     if "--tones" in sys.argv:
         return 0

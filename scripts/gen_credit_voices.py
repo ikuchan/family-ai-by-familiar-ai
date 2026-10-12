@@ -6,6 +6,9 @@ LLM も TTS も切れているかもしれないときに鳴らすので、前�
 合成サーバーが動いていなければ起こし（アプリと同じ口 `tools/tts._spawn_sbv2`）、作り終えたら止める。
 
 使い方：`uv run python scripts/gen_credit_voices.py`
+
+声ごとの録音（出-bv）：`--voice Laomedeia` のように声を指定すると、Gemini のその声で読み上げ、`sounds/voices/<声>/` に
+書く（返事と声をそろえる。鳴らす側は `.env` の `GEMINI_TTS_VOICE` の声のフォルダから選ぶ）。
 """
 
 from __future__ import annotations
@@ -45,7 +48,24 @@ def _synth(cfg: TTSConfig, text: str) -> bytes:
         return resp.read()
 
 
+def write_gemini(voice: str) -> int:
+    """Gemini の `voice` で読み上げ、`sounds/voices/<voice>/` に書く（出-bv）。"""
+    cfg = TTSConfig()
+    out = OUT / "voices" / voice
+    out.mkdir(parents=True, exist_ok=True)
+    for name in READINGS:
+        text = sentence(name)
+        wav = tts.gemini_wav(cfg, text, voice)
+        path = out / f"credit_{name}.wav"
+        path.write_bytes(wav)
+        print(f"{voice}/{path.name}：{text}（{len(wav)} バイト）")
+        time.sleep(7)  # 無料枠は 1 分に 10 回
+    return 0
+
+
 def main() -> int:
+    if "--voice" in sys.argv:
+        return write_gemini(sys.argv[sys.argv.index("--voice") + 1])
     cfg = TTSConfig()
     started_here = False
     if not tts._sbv2_is_alive(cfg.sbv2_url):
