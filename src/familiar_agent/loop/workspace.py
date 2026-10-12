@@ -60,6 +60,7 @@ def compose(
     *,
     exclude: "set[str] | None" = None,
     basis: str = "",
+    drop: int = 0,
 ) -> "tuple[str, dict[str, str]]":
     """W を組み、**(W の文字列, 12桁 → 完全な id の対応表) を返す**。
 
@@ -82,43 +83,16 @@ def compose(
     使うきっかけを持てない。空なら何も足さない。
 
     `said`（言ったつなぎ）は手組みのまま残す。O にもあるが、この求めで言った分だけを載せる。
+
+    `drop`＝思い出したことのうち、適合度の低い側から外す件数（出-bm）。調停が Jev に断られたときの写しにだけ使い、
+    対応表は外す前の列で作る。
     """
     from ..config import MemoryConfig
 
-    budget = MemoryConfig().workspace_max_chars
-
-    # 適合度の高い順に、枠へ入るぶんだけ採る。落ちたものは薄れた＝忘れたのであって、
-    # 抜けを検出する仕組みは置かない（W は速く薄れる・改めて調べるのが自然な振る舞い）。
-    ranked = sorted(memories, key=lambda r: r.fit, reverse=True)
-    kept: "list[Recalled]" = []
-    used = 0
-    for r in ranked:
-        size = len(r.mi.content)
-        if kept and used + size > budget:
-            continue
-        kept.append(r)
-        used += size
-    dropped = len(memories) - len(kept)
-    if dropped:
-        # 何件落ちたかを残す。枠に収まったのか溢れたのかが分からないと、枠の値を
-        # 決められない。記憶の内容は出さない。
-        logger.info(
-            "event-loop W に入らなかった記録＝%d件（枠 %d 字・載せた %d 件）",
-            dropped,
-            budget,
-            len(kept),
-        )
-    # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
-    memories = kept
-    # 直近のやりとりの枠に載った記録は、過去の列には出さない（同じ話が二重に載る）。
-    # 対応表には残す——申告は直近の行の id でも来る。黙っていたあいだの列挙に載せたものも同じ（情-h）。
-    heard_ids = {h.obs_id for h in req.heard_while_silent if getattr(h, "obs_id", "")}
-    heard_ids |= {obs_id for obs_id, _ in getattr(req, "added", []) if obs_id}
-    shown = [
-        r
-        for r in memories
-        if not (exclude and r.mi.obs_id in exclude) and r.mi.obs_id not in heard_ids
-    ]
+    memories = _fit_in(memories)
+    shown = _shown(memories, req, exclude)
+    if drop:
+        shown = shown[: max(len(shown) - drop, 0)]
 
     id_map = {r.mi.obs_id.replace("-", "")[:12]: r.mi.obs_id for r in memories if r.mi.obs_id}
     # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
@@ -183,6 +157,52 @@ def compose(
         remembered = "[思い出したこと]\n" + remembered
     text = "\n\n".join(p for p in [said, added, heard, basis_line, remembered] if p and p.strip())
     return text, id_map
+
+
+def _fit_in(memories: "list[Recalled]") -> "list[Recalled]":
+    """適合度の高い順に、枠（`workspace_max_chars`）へ入るぶんだけ採る。"""
+    from ..config import MemoryConfig
+
+    budget = MemoryConfig().workspace_max_chars
+
+    # 適合度の高い順に、枠へ入るぶんだけ採る。落ちたものは薄れた＝忘れたのであって、
+    # 抜けを検出する仕組みは置かない（W は速く薄れる・改めて調べるのが自然な振る舞い）。
+    ranked = sorted(memories, key=lambda r: r.fit, reverse=True)
+    kept: "list[Recalled]" = []
+    used = 0
+    for r in ranked:
+        size = len(r.mi.content)
+        if kept and used + size > budget:
+            continue
+        kept.append(r)
+        used += size
+    dropped = len(memories) - len(kept)
+    if dropped:
+        # 何件落ちたかを残す。枠に収まったのか溢れたのかが分からないと、枠の値を
+        # 決められない。記憶の内容は出さない。
+        logger.info(
+            "event-loop W に入らなかった記録＝%d件（枠 %d 字・載せた %d 件）",
+            dropped,
+            budget,
+            len(kept),
+        )
+    # 想起が返した順（適合度の降順）を保つ。並べ替えた結果をそのまま渡す。
+    return kept
+
+
+def _shown(
+    memories: "list[Recalled]", req: Request, exclude: "set[str] | None"
+) -> "list[Recalled]":
+    """思い出したことの列に載せる記録（適合度の降順）。"""
+    # 直近のやりとりの枠に載った記録は、過去の列には出さない（同じ話が二重に載る）。
+    # 対応表には残す——申告は直近の行の id でも来る。黙っていたあいだの列挙に載せたものも同じ（情-h）。
+    heard_ids = {h.obs_id for h in req.heard_while_silent if getattr(h, "obs_id", "")}
+    heard_ids |= {obs_id for obs_id, _ in getattr(req, "added", []) if obs_id}
+    return [
+        r
+        for r in memories
+        if not (exclude and r.mi.obs_id in exclude) and r.mi.obs_id not in heard_ids
+    ]
 
 
 #: 帰りの反復で**想起を回さない**道具（出-x・2026-09-18）。掛けた・確かめて・止めた、の返りは
@@ -413,16 +433,32 @@ class Workspace:
     def recent_text(self, n: int) -> str:
         return self._recent(n)[1]
 
-    def render(self, n: int) -> str:
+    def render(self, n: int, drop: int = 0) -> str:
         _rows, recent, recent_ids = self._recent(n)
         past, _ = compose(
-            self.oif, self.memories, self.req, exclude=set(recent_ids.values()), basis=self.basis
+            self.oif,
+            self.memories,
+            self.req,
+            exclude=set(recent_ids.values()),
+            basis=self.basis,
+            drop=drop,
         )
         return "\n\n".join(p for p in (self.just_returned_text, recent, past) if p and p.strip())
 
     @property
     def for_arbiter(self) -> str:
         return self.render(self.n_arbiter)
+
+    def for_arbiter_without(self, k: int) -> "str | None":
+        """調停の W から、思い出したことを適合度の低い順に k 件外した写し。外せる件数を超えたら None（出-bm）。
+
+        Jev は state といちばん長い問いを足して 32k 語までしか受けない（models.md）。完了の道で断られたら、
+        調停がこれで 1 件ずつ縮めて聞き直す。主LLM の W（`for_main`）と申告の対応表（`id_map`）は変えない。
+        """
+        _rows, _text, recent_ids = self._recent(self.n_arbiter)
+        if k > len(_shown(_fit_in(self.memories), self.req, set(recent_ids.values()))):
+            return None
+        return self.render(self.n_arbiter, drop=k)
 
     @property
     def for_main(self) -> str:

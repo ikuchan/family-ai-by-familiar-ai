@@ -17,7 +17,7 @@ import time
 from unittest.mock import MagicMock
 
 from familiar_agent.loop import arbiter
-from tests._arbiter_fakes import decide, jev_says, writer_says
+from tests._arbiter_fakes import decide, jev_says, writer_says, ws_of
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.silence_state import SilenceRequest
 
@@ -114,6 +114,6 @@ def test_decide_passes_whether_a_timer_is_running():
 
     with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=fake_decide):
         asyncio.run(
-            ip._decide(utterance="再開", workspace_ctx="", present_ctx="", capped=False, round_=1)
+            ip._decide(utterance="再開", ws=ws_of(), present_ctx="", capped=False, round_=1)
         )
     assert seen["inp"].timer_active is True

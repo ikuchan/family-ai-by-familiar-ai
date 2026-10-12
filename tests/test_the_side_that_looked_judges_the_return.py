@@ -13,6 +13,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from familiar_agent.loop.arbiter import Decision as ArbiterDecision
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigger
 
+from tests._arbiter_fakes import ws_of
 from tests.test_event_loop import _agent
 
 
@@ -39,9 +40,7 @@ def test_a_see_thrown_by_the_arbiter_comes_back_to_the_arbiter() -> None:
             "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="full", effort="low")),
         ) as arb:
-            d = await ip._decide(
-                utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1
-            )
+            d = await ip._decide(utterance="x", ws=ws_of(), present_ctx="", capped=False, round_=1)
         await ip.close()
         return d, arb
 
@@ -55,9 +54,7 @@ def test_a_see_thrown_by_the_main_llm_skips_the_arbiter() -> None:
         ip._req.see_by = "主LLM"
         await _returned_see(ip)
         with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=AsyncMock()) as arb:
-            d = await ip._decide(
-                utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1
-            )
+            d = await ip._decide(utterance="x", ws=ws_of(), present_ctx="", capped=False, round_=1)
         await ip.close()
         return d, arb
 
@@ -73,9 +70,7 @@ def test_the_arbiter_is_told_whether_it_can_see() -> None:
             "familiar_agent.loop.arbiter.Arbiter.decide",
             new=AsyncMock(return_value=ArbiterDecision(branch="full")),
         ) as arb:
-            await ip._decide(
-                utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1
-            )
+            await ip._decide(utterance="x", ws=ws_of(), present_ctx="", capped=False, round_=1)
         await ip.close()
         return arb
 

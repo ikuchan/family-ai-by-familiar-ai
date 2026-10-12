@@ -16,6 +16,7 @@ from familiar_agent.loop.arbiter import Decision as ArbiterDecision
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.loop.prompt import build_event_system_prompt
 
+from tests._arbiter_fakes import ws_of
 from tests.test_event_loop import _agent
 
 
@@ -106,7 +107,11 @@ def test_the_loop_passes_the_origin_and_frames_the_user_message() -> None:
             new=AsyncMock(return_value=ArbiterDecision(branch="full")),
         ) as arb:
             await ip._decide(
-                utterance="", workspace_ctx="", present_ctx="", capped=False, round_=1, memories=[]
+                utterance="",
+                ws=ws_of(memories=[]),
+                present_ctx="",
+                capped=False,
+                round_=1,
             )
         await ip.close()
         return arb.call_args.args[0].origin  # ArbiterInput

@@ -26,6 +26,9 @@ logger = logging.getLogger(__name__)
 URL = "https://api.typesafe.ai/v1/systemone"
 DEFAULT_MODEL = "jev-latest"
 
+#: 断られたときにログへ残す本文の長さ（出-bm）。
+_DETAIL_CHARS = 200
+
 #: `post(url, headers, payload, timeout) -> (status, body)`。試験では偽物を渡す。
 Post = Callable[[str, dict, dict, float], Awaitable["tuple[int, Any]"]]
 
@@ -54,6 +57,8 @@ class JevAnswer:
     model: str = ""
     seconds: float = 0.0
     error: str = ""
+    #: 使った語の数（`usage.input_tokens`）。上限（32k 語）までの余りを測るため（出-bm）。返りに無ければ None。
+    input_tokens: "int | None" = None
 
 
 async def _aiohttp_post(
@@ -117,18 +122,34 @@ class JevClient:
             return self._failed(started, f"{type(e).__name__}")
         if status != 200:
             credit.note_failure("jev", status)  # 402 なら残高切れの「知らせたい」を立てる（環-z）
-            return self._failed(started, f"HTTP {status}")
+            # 断られた理由は本文にしか無い（400 の意味は資料に無い・出-bm）。先頭だけログへ。呼び手は `error` で見分ける。
+            return self._failed(started, f"HTTP {status}", detail=str(body or "")[:_DETAIL_CHARS])
         answers = body.get("answers") if isinstance(body, dict) else None
         if not isinstance(answers, dict):
             return self._failed(started, "返りの形が違う")
         seconds = time.monotonic() - started
         credit.note_success("jev")  # 通った＝残高は戻っている（環-z）
-        logger.info("Jev %d 問 %.2f 秒", len(questions), seconds)
+        tokens = _input_tokens(body)
+        logger.info("Jev %d 問 %.2f 秒（入力 %s 語）", len(questions), seconds, tokens)
         return JevAnswer(
-            ok=True, answers=answers, model=str(body.get("model", "")), seconds=seconds
+            ok=True,
+            answers=answers,
+            model=str(body.get("model", "")),
+            seconds=seconds,
+            input_tokens=tokens,
         )
 
     @staticmethod
-    def _failed(started: float, error: str) -> JevAnswer:
-        logger.warning("Jev に聞けなかった：%s", error)
+    def _failed(started: float, error: str, detail: str = "") -> JevAnswer:
+        if detail:
+            logger.warning("Jev に聞けなかった：%s（%s）", error, detail)
+        else:
+            logger.warning("Jev に聞けなかった：%s", error)
         return JevAnswer(ok=False, seconds=time.monotonic() - started, error=error)
+
+
+def _input_tokens(body: dict) -> "int | None":
+    """返りの `usage.input_tokens`（api.md）。無い・形が違うなら None。"""
+    usage = body.get("usage")
+    tokens = usage.get("input_tokens") if isinstance(usage, dict) else None
+    return tokens if isinstance(tokens, int) else None

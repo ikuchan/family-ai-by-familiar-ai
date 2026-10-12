@@ -165,13 +165,10 @@ class Iteration:
         ip, said = self.ip, self.utterance or self.ip._req.cue
         self.decision = await ip._decide(
             utterance=said,
-            workspace_ctx=self.ws.for_arbiter,  # 同じ W・狭い窓（記-h）
+            ws=self.ws,
             present_ctx=self.present_ctx,
             capped=self.capped,
             round_=self.round_,
-            memories=self.ws.memories,
-            returned=self.ws.returned_actions,
-            returned_lookups=self.ws.returned_lookups,
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る（次の反復から）。解くのも同じ口。
         await ip._apply_requests(self.decision, utterance=said)

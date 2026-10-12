@@ -21,6 +21,7 @@ from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigge
 from familiar_agent.poses import Pose
 from familiar_agent.tools.camera import CameraTool
 
+from tests._arbiter_fakes import ws_of
 from tests.test_event_loop import _agent
 
 POSES = [Pose("押入", -0.254, -0.143), Pose("正面", -0.078, -0.143)]
@@ -116,7 +117,7 @@ def test_a_look_thrown_by_the_arbiter_comes_back_to_the_arbiter_without_the_phot
             new=AsyncMock(return_value=ArbiterDecision(branch="light", text="右を向いたよ")),
         ) as arb:
             d = await ip._decide(
-                utterance="右向いて", workspace_ctx="", present_ctx="", capped=False, round_=1
+                utterance="右向いて", ws=ws_of(), present_ctx="", capped=False, round_=1
             )
         await ip.close()
         return d, arb
@@ -133,7 +134,7 @@ def test_a_look_thrown_by_the_main_llm_skips_the_arbiter():
         await _returned_look(ip)
         with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=AsyncMock()) as arb:
             d = await ip._decide(
-                utterance="右向いて", workspace_ctx="", present_ctx="", capped=False, round_=1
+                utterance="右向いて", ws=ws_of(), present_ctx="", capped=False, round_=1
             )
         await ip.close()
         return d, arb

@@ -24,6 +24,8 @@ from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from ..backends.types import TurnResult
 
 from ..poses import nearest_pose
@@ -2915,17 +2917,17 @@ class InformationProcessing:
         self,
         *,
         utterance: str,
-        workspace_ctx: str,
+        ws: "workspace.Workspace",
         present_ctx: str,
         capped: bool,
         round_: int,
-        memories: "list[Recalled] | None" = None,
-        returned: frozenset[str] = frozenset(),
-        returned_lookups: "tuple[tuple[str, bool, str], ...]" = (),
     ) -> "ArbiterDecision":
         """この反復の分岐を決める。**see の帰りは、出した側が判断する。**
 
-        `returned`＝この反復で道具から返ったもの（`Workspace.returned_actions`・出-x）。タイマー・
+        `ws`＝この反復で組んだ W。調停へ渡す写し・返ったもの・断られたときに縮める口を、ここで取り出す
+        （出-bm・反復の本体を短く保つため W ごと受け取る）。
+
+        `ws.returned_actions`＝この反復で道具から返ったもの（出-x）。タイマー・
         アラームの帰りなら、調停の先導文を「返りを受ける」型にし、返った道具を候補から外す。
 
         主LLM が見ると決めたなら、その続きは主LLM（調停を飛ばす）。画像を受け取るのも主LLM
@@ -2947,20 +2949,21 @@ class InformationProcessing:
             # 写真は渡さない（出-au 段 5-7a）。読み取りは状態として W に載っている（`_read_photo_into_state`）。
             logger.info("event-loop 調停が出した see の帰りなので調停が判断する（読み取りは W に）")
         # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない。
-        logger.debug("event-loop 調停へ渡す W:\n%s", workspace_ctx)
+        logger.debug("event-loop 調停へ渡す W:\n%s", ws.for_arbiter)
         # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
         # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
-        cue = self._start_reaction_cue(returned_lookups)
+        cue = self._start_reaction_cue(ws.returned_lookups)
         try:
             decision = await self._arbiter().decide(
                 self._arbiter_input(
                     utterance=utterance,
-                    workspace_ctx=workspace_ctx,
+                    workspace_ctx=ws.for_arbiter,  # 同じ W・狭い窓（記-h）
                     present_ctx=present_ctx,
                     capped=capped,
                     round_=round_,
-                    returned=returned,
-                    returned_lookups=returned_lookups,
+                    returned=ws.returned_actions,
+                    returned_lookups=ws.returned_lookups,
+                    workspace_without=ws.for_arbiter_without,  # 断られたら縮めて聞き直す（出-bm）
                 ),
                 on_decided=cue.decided if cue is not None else None,
             )
@@ -3006,6 +3009,7 @@ class InformationProcessing:
         round_: int = 1,
         returned: frozenset[str] = frozenset(),
         returned_lookups: "tuple[tuple[str, bool, str], ...]" = (),
+        workspace_without: "Callable[[int], str | None] | None" = None,
     ) -> ArbiterInput:
         """調停へ渡す材料。判定（`_decide`）と待ちの一言（`_say_waiting_filler`）が同じものを見る。"""
         from ..capability_state import load_summary
@@ -3042,6 +3046,7 @@ class InformationProcessing:
             silenced=bool(silence_note),
             talking=self._talking(),
             music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
+            workspace_without=workspace_without,  # 完了の道で断られたら縮めて聞き直す（出-bm）
         )
 
     def _talking(self) -> bool:

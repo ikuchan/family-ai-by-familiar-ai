@@ -14,6 +14,7 @@ from familiar_agent.io.oif import MI, Recalled
 from familiar_agent.loop.arbiter import Decision as ArbiterDecision
 from familiar_agent.loop.event_loop import InformationProcessing, Lookup, Trigger
 
+from tests._arbiter_fakes import ws_of
 from tests.test_event_loop import _agent
 
 
@@ -54,11 +55,10 @@ def test_the_photo_no_longer_goes_to_the_arbiter_when_it_looked(tmp_path) -> Non
         ) as arb:
             await ip._decide(
                 utterance="x",
-                workspace_ctx="",
+                ws=ws_of(memories=[_recalled("見た1", str(path))]),
                 present_ctx="",
                 capped=False,
                 round_=1,
-                memories=[_recalled("見た1", str(path))],
             )
         await ip.close()
         return arb
@@ -76,7 +76,11 @@ def test_no_photo_is_sent_when_nothing_was_seen() -> None:
             new=AsyncMock(return_value=ArbiterDecision(branch="full")),
         ) as arb:
             await ip._decide(
-                utterance="x", workspace_ctx="", present_ctx="", capped=False, round_=1, memories=[]
+                utterance="x",
+                ws=ws_of(memories=[]),
+                present_ctx="",
+                capped=False,
+                round_=1,
             )
         await ip.close()
         return arb
@@ -99,11 +103,10 @@ def test_the_decision_is_logged_at_info(caplog) -> None:
             with caplog.at_level(logging.INFO, logger="familiar_agent.loop.event_loop"):
                 await ip._decide(
                     utterance="x",
-                    workspace_ctx="",
+                    ws=ws_of(memories=[]),
                     present_ctx="",
                     capped=False,
                     round_=1,
-                    memories=[],
                 )
         await ip.close()
 

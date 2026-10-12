@@ -521,6 +521,9 @@ class ArbiterInput:
     fired_axis: str = ""
     #: いまの音楽の様子を読む口（非同期・出-bf）。「いま何の曲？」に答えるときだけ呼ぶ。無ければ読めなかったとして答える。
     music_status: "Callable[[], Awaitable[dict | None]] | None" = None
+    #: 思い出したことを k 件外した W を返す口（`Workspace.for_arbiter_without`・外せなければ None）。完了の道で Jev に
+    #: 長すぎると断られたら（400）、これで 1 件ずつ縮めて聞き直す（出-bm）。無ければ聞き直さない。
+    workspace_without: "Callable[[int], str | None] | None" = None
 
 
 #: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
@@ -682,6 +685,34 @@ class Arbiter:
         )
         return decision if decision is not None else _FALLBACK
 
+    async def _ask_smaller(
+        self, inp: ArbiterInput, kind: str, state: str, questions: dict, answer: Any
+    ) -> "tuple[str, Any]":
+        """完了の道で長すぎると断られた（400）あいだ、思い出したことを 1 件ずつ外して聞き直す（出-bm・本人の決定）。
+
+        Jev は state といちばん長い問いを足して 32k 語までしか受けない（models.md）。W に積もった検索の結果で超え、
+        主LLM に倒れていた（10/10〜 53 件）。外す順は W の枠と同じ適合度の低い順で、今回の結果と直近のやりとりは
+        外さない。外せる記憶が尽きたら、最後の答えのまま返す（呼び手が full に倒す）。返りは最後に送った文と答え。
+        """
+        from ..core.jev_judges import _ask
+
+        k = 0
+        while getattr(answer, "error", "") == "HTTP 400" and inp.workspace_without is not None:
+            smaller = inp.workspace_without(k + 1)
+            if smaller is None:
+                logger.info("調停（完了・%s）：思い出したことを %d 件外しても断られた", kind, k)
+                break
+            k += 1
+            state = self._state(replace(inp, workspace_ctx=smaller))
+            answer = await _ask(self._jev, state, questions)
+            logger.info(
+                "調停（完了・%s）：Jev に断られたので思い出したことを %d 件外して聞き直した（%s）",
+                kind,
+                k,
+                "通った" if getattr(answer, "ok", False) else getattr(answer, "error", "答えなし"),
+            )
+        return state, answer
+
     async def _completion_by_rule(self, inp: ArbiterInput, started: float) -> "Decision | None":
         """完了は機械で分け、選択肢が 1 つなら Jev に聞かない（出-ay 段 4-2・2026-10-09・`設計方針_判定の段` §2.2.5）。
 
@@ -708,6 +739,7 @@ class Arbiter:
                 )
             }
             answer = await _ask(self._jev, state, questions)
+            state, answer = await self._ask_smaller(inp, kind, state, questions, answer)
             picked = str(
                 ((getattr(answer, "answers", None) or {}).get("action") or {}).get("choice") or ""
             )

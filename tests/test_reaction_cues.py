@@ -15,7 +15,7 @@ import pytest
 
 from familiar_agent.backends.jev import JevAnswer
 from familiar_agent.core import reaction_cue as rc
-from tests._arbiter_fakes import decide
+from tests._arbiter_fakes import decide, ws_of
 
 # ── どの合図を流すか ─────────────────────────────────────────────────────────
 
@@ -145,11 +145,10 @@ def _decide_with(ip, arbiter_decide, **kw):
             try:
                 return await ip._decide(
                     utterance="パジュ、ケイマンかけて",
-                    workspace_ctx="",
+                    ws=ws_of(**kw),
                     present_ctx="",
                     capped=False,
                     round_=1,
-                    **kw,
                 )
             finally:
                 await ip.close()

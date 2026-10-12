@@ -7,12 +7,14 @@
 - `jev_down()`：使えない Jev（鍵が無い・時間切れ）。調停は full へ倒れる。
 - `writer_says({...})`：偽の軽量LLM。書くものを辞書で返す。遅らせる・失敗させることもできる。
 - `decide(jev=..., writer=..., **材料)`：`ArbiterInput` を組んで本物の `Arbiter.decide` を呼ぶ。
+- `ws_of(...)`：`InformationProcessing._decide` に渡す W の代わり（出-bm で W ごと渡すようになった）。
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.backends.jev import JevAnswer
@@ -180,3 +182,14 @@ async def decide(
     if on_decided is None:
         return await arbiter.decide(ArbiterInput(**inp))
     return await arbiter.decide(ArbiterInput(**inp), on_decided=on_decided)
+
+
+def ws_of(*, text: str = "", memories=None, returned_lookups=()) -> SimpleNamespace:
+    """W の代わり。`_decide` が取り出す欄だけを持つ。縮める口は無い（断られても聞き直さない）。"""
+    return SimpleNamespace(
+        for_arbiter=text,
+        memories=memories or [],
+        returned_actions=frozenset(a for a, _f, _r in returned_lookups),
+        returned_lookups=returned_lookups,
+        for_arbiter_without=None,
+    )

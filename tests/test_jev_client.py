@@ -116,3 +116,29 @@ def test_the_key_and_model_come_from_the_environment(monkeypatch):
     monkeypatch.delenv("JEV_MODEL")
     c = JevClient.from_env()
     assert not c.available and c.model == "jev-latest"
+
+
+# --- 使った語の数と、断られた理由を残す（出-bm・2026-10-12） ---
+
+
+def test_the_input_tokens_are_kept_and_logged(caplog):
+    caplog.set_level("INFO", logger="familiar_agent.backends.jev")
+    got = asyncio.run(_client(_Fake(body=_OK)).ask("状況", {"to_whom": noul("x")}))
+    assert got.input_tokens == 120
+    assert "入力 120 語" in caplog.text
+
+
+def test_without_usage_the_answer_still_passes():
+    """**反証の側**：`usage` が無い返りでも通り、語の数は分からないまま。"""
+    body = {k: v for k, v in _OK.items() if k != "usage"}
+    got = asyncio.run(_client(_Fake(body=body)).ask("状況", {"to_whom": noul("x")}))
+    assert got.ok and got.input_tokens is None
+
+
+def test_a_rejected_request_logs_the_head_of_the_body(caplog):
+    caplog.set_level("WARNING", logger="familiar_agent.backends.jev")
+    body = {"detail": "state is too long" + "x" * 500}
+    got = asyncio.run(_client(_Fake(status=400, body=body)).ask("状況", {"q": noul("x")}))
+    assert not got.ok and got.error == "HTTP 400"  # 呼び手はこの値で 400 を見分ける
+    assert "HTTP 400" in caplog.text and "state is too long" in caplog.text
+    assert "x" * 300 not in caplog.text  # 本文は先頭だけ
