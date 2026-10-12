@@ -34,11 +34,14 @@ _SOUNDS = Path(__file__).resolve().parent.parent / "sounds"
 _ALARM_WAV = _SOUNDS / "timer_alarm.wav"
 
 
-async def _play_wav(path: Path, gain: float) -> bool:
-    """wav を 1 回鳴らす（差し替え点）。再生は `tools/tts` の sounddevice の口を借りる。"""
+async def _play_wav(path: Path, gain: float, *, quiet: bool = False) -> bool:
+    """wav を 1 回鳴らす（差し替え点）。再生は `tools/tts` の sounddevice の口を借りる。
+
+    `quiet` は短く繰り返す音（機械音 A・待ちの電子音）のため。鳴らした行を DEBUG にする（出-bu）。
+    """
     from ..tools.tts import _play_via_sounddevice
 
-    return await _play_via_sounddevice(str(path), gain)
+    return await _play_via_sounddevice(str(path), gain, quiet=quiet)
 
 
 _SESSION_MARK = re.compile(r"\s*──（\d{4}-\d{2}-\d{2} のセッション／[^）]*）\s*$")
@@ -157,12 +160,18 @@ class DIF:
         try:
             while True:
                 # 音楽は絞らない（短い音を続けて鳴らすので、絞ると音量が上下し続ける）。
-                if not await _play_wav(THINKING_WAV, 1.0):
+                if not await _play_wav(THINKING_WAV, 1.0, quiet=True):
                     return
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             logger.debug("DIF 機械音が鳴らせなかった", exc_info=True)
+
+    async def beep(self) -> bool:
+        """待ちの電子音を 1 回（機械音 A を 1 周期・出-bu）。音楽は絞らない（短い音を続けるので）。"""
+        from ..core.reaction_cue import THINKING_WAV
+
+        return await _play_wav(THINKING_WAV, 1.0, quiet=True)
 
     def play_cue(self, cue: str) -> "asyncio.Future[None] | None":
         """決まった動作の合図を 1 回流す（待たない）。なしなら何もしない。音楽が鳴っていれば絞る。

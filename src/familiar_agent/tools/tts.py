@@ -964,7 +964,7 @@ def _mp3_to_wav(mp3_path: str) -> str:
 _PW_ERR_CHARS = 200
 
 
-def _play_with_pw_play(binary: str, audio_path: str, gain: float) -> bool:
+def _play_with_pw_play(binary: str, audio_path: str, gain: float, quiet: bool = False) -> bool:
     """`pw-play` で鳴らし、声の長さ＋余裕で打ち切る。戻り値が 0 で鳴り終われば True。
 
     鳴らした結果を毎回 1 行残す（知-ak-は）。戻り値とエラー出力を捨てていたので、声が途中で切れたとき
@@ -1006,7 +1006,9 @@ def _play_with_pw_play(binary: str, audio_path: str, gain: float) -> bool:
                 head,
             )
             return False
-        logger.info(
+        # 電子音のように短く繰り返す音は DEBUG にする（出-bu・0.5 秒ごとに INFO が増えるので）。
+        logger.log(
+            logging.DEBUG if quiet else logging.INFO,
             "声を鳴らした（pw-play・戻り値 0・%.2f 秒／声 %.2f 秒・出口 %s"
             "・有音の終わり %.2f 秒・最長の無音 %.2f 秒・既定の出口 %s）",
             took,
@@ -1054,7 +1056,7 @@ def _wait_bounded(sd, seconds: float) -> bool:
 _PLAYBACK_LOCK = threading.Lock()
 
 
-async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
+async def _play_via_sounddevice(audio_path: str, gain: float = 1.0, *, quiet: bool = False) -> bool:
     """Play WAV or MP3 file using sounddevice (pure Python, no system dependency).
 
     WAV: decoded by soundfile directly, resampled to the output device's native rate
@@ -1071,7 +1073,7 @@ async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
         binary = _pw_play_binary() if sys.platform != "win32" else None
         if binary:
             try:
-                return _play_with_pw_play(binary, audio_path, gain)
+                return _play_with_pw_play(binary, audio_path, gain, quiet)
             except Exception as e:  # noqa: BLE001
                 logger.warning("pw-play で鳴らせなかったので PortAudio で鳴らす: %s", e)
         if audio_path.lower().endswith(".mp3"):

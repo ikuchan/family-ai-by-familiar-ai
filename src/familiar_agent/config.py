@@ -691,6 +691,11 @@ class AgentConfig:
     wait_filler_gap_seconds: float = field(
         default_factory=lambda: _float_env("WAIT_FILLER_GAP_SECONDS", 3.0)
     )
+    # 待ちのあいだの電子音（機械音 A を 1 回ずつ）の間隔（秒・出-bu）。0.5 秒は本人の決定（2026-10-12）。合図が鳴り終わって
+    # から答えの声が始まるまで鳴らす。音楽が鳴っているあいだは鳴らさない（本人）。
+    wait_beep_interval_seconds: float = field(
+        default_factory=lambda: _float_env("WAIT_BEEP_INTERVAL_SECONDS", 0.5)
+    )
     # つなぎの声が鳴り終わってから、答えを声にするまでの間（秒）。つなぎの直後に答えが始まると、つなぎの
     # 意味が無くなる（出-aq 段 5）。数え始めは鳴り終わったとき、1 秒は本人の決定（2026-09-29）。
     filler_answer_gap_seconds: float = field(

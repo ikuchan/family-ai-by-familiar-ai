@@ -1193,8 +1193,48 @@ class InformationProcessing:
                 self._watch_waiting(self._request_generation)
             )
 
+    def _start_beeps(self) -> None:
+        """待ちの電子音の見張りを、求めごとに 1 本立てる（出-bu）。立っていれば何もしない。"""
+        beeps = self.__dict__.get("_beeps")
+        if beeps is not None and not beeps.done():
+            return
+        self._beep_count = 0
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ立てない
+            self._beeps: "asyncio.Task[None] | None" = asyncio.get_running_loop().create_task(
+                self._beep_while_waiting(self._request_generation)
+            )
+
+    def _stop_beeps(self) -> None:
+        """答えの声を出し始めた・求めが閉じた。電子音を止め、鳴らした回数を 1 行残す。"""
+        beeps = self.__dict__.get("_beeps")
+        if beeps is None:
+            return
+        self._beeps = None
+        if not beeps.done():
+            beeps.cancel()
+        logger.info("event-loop 待ちの電子音 %d 回", getattr(self, "_beep_count", 0))
+
+    async def _beep_while_waiting(self, gen: int) -> None:
+        """合図が鳴り終わってから答えの声が始まるまで、機械音 A を間隔をあけて 1 回ずつ鳴らす（出-bu）。
+
+        10/12 22:15 に、合図「はい」から最初のつなぎまで 13 秒無音だった。音楽が鳴っているあいだは鳴らさない（本人）。
+        つなぎや合図の声が鳴っている・準備中のあいだは休む。鳴らすのにかかった時間を引いて、次まで待つ。
+        """
+        interval = float(getattr(self._agent.config, "wait_beep_interval_seconds", 0.5))
+        loop = asyncio.get_running_loop()
+        with contextlib.suppress(asyncio.CancelledError):
+            while gen == self._request_generation:
+                started = loop.time()
+                music = getattr(self._agent, "_music_state", None)
+                if not getattr(music, "playing", False) and not self._sounding():
+                    with contextlib.suppress(Exception):
+                        await self._dif.beep()
+                    self._beep_count += 1
+                await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
+
     def _stop_wait_watch(self) -> None:
         """求めが閉じた・打ち切られた。見張りを止める。"""
+        self._stop_beeps()  # 待ちの電子音も求めと一緒に止める（出-bu）
         watch = self.__dict__.get("_wait_watch")
         if watch is not None and not watch.done():
             watch.cancel()
@@ -3440,6 +3480,7 @@ class InformationProcessing:
             # 本文を返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
             logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
             return text, "独白"
+        self._stop_beeps()  # 答えの声が始まる。待ちの電子音を止める（出-bu）
         await self._pause_after_filler()
         await self._say_aloud(text, careful=self._careful_voice(branch))
         self._note_suggestion_offered(text)
@@ -4654,6 +4695,7 @@ class _ReactionCue:
         task = self._ip._dif.play_cue(cue)
         if task is None:
             return
+        self._ip._start_beeps()  # 合図が鳴り終わったら、答えまで待ちの電子音（出-bu）。合図の音は `_sounding` で休む
         word = getattr(self._ip._dif, "last_cue_word", "")
         if word:
             # 作り置きの声で言った言葉は、言ったことに数える（出-bt）。書き手が知らず、つなぎが「はい、」を繰り返した。
