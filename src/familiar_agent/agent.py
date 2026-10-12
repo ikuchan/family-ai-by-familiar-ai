@@ -536,6 +536,10 @@ class EmbodiedAgent:
             gemini_api_key=tts.gemini_api_key,
             fallback_engine=tts.fallback_engine,
         )
+        # 何で話しているかを起動時に残す（知-ak-に）。
+        from .tools.tts import describe_voice
+
+        logger.info("%s", describe_voice(tts))
 
         cfg_path = _resolve_config_path()
         if cfg_path.exists():

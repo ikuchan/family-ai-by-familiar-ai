@@ -404,12 +404,24 @@ class TTSTool:
         return result
 
     async def _say_with(self, engine: str, text: str, output: str, *, careful: bool) -> str:
-        """担い手を 1 つ名指しで合成する。主にも控えにも同じ口を使う。"""
+        """担い手を 1 つ名指しで合成する。主にも控えにも同じ口を使う。
+
+        声ごとに、どの担い手で話したかを 1 行残す（知-ak-に）。`.env` が担い手の決定を上書きしていても
+        ログから気づけなかった。中身は出さず、字数と秒だけ。
+        """
+        started = time.monotonic()
         if engine == "sbv2":
-            return await self._say_sbv2(text, output)
-        if engine == "gemini":
-            return await self._say_gemini(text, output)
-        return await self._say_elevenlabs(text, output, careful=careful)
+            result = await self._say_sbv2(text, output)
+        elif engine == "gemini":
+            result = await self._say_gemini(text, output)
+        else:
+            result = await self._say_elevenlabs(text, output, careful=careful)
+        took = time.monotonic() - started
+        if result.startswith("Said:"):
+            logger.info("TTS: %s で話した（%d 字・%.2f 秒）", engine, len(text), took)
+        else:
+            logger.info("TTS: %s で話せなかった（%d 字・%.2f 秒）", engine, len(text), took)
+        return result
 
     async def _say_gemini(self, text: str, output: str) -> str:
         """Gemini TTS で合成して鳴らす（環-v・2026-09-24）。
@@ -745,6 +757,25 @@ class TTSTool:
         return f"Unknown tool: {tool_name}", None
 
 
+def describe_voice(cfg) -> str:
+    """起動時に出す、声の担い手の 1 行（知-ak-に）。鍵の値は入れない。
+
+    `.env` の `TTS_ENGINE` が担い手の決定（`根拠台帳` §45）を 9/24 から上書きしていたのに、ログに
+    何で話しているかが出ず、気づけなかった。
+    """
+
+    def _one(engine: str) -> str:
+        if engine == "gemini":
+            return f"gemini（{getattr(cfg, 'gemini_model', '?')}・{getattr(cfg, 'gemini_voice', '?')}）"
+        if engine == "sbv2":
+            return f"sbv2（{getattr(cfg, 'sbv2_model', '?')}・{getattr(cfg, 'sbv2_style', '?')}）"
+        return f"{engine}（{getattr(cfg, 'elevenlabs_model', '?')}）"
+
+    fallback = getattr(cfg, "fallback_engine", "")
+    spare = _one(fallback) if fallback and fallback != cfg.engine else "なし"
+    return f"声の担い手：主 {_one(cfg.engine)}／控え {spare}・出力 {getattr(cfg, 'output', '?')}"
+
+
 def _pulse_env() -> dict[str, str] | None:
     """Build env dict with PULSE_SERVER/PULSE_SINK if set. Returns None if neither is set."""
     server = os.environ.get("PULSE_SERVER")
@@ -829,6 +860,74 @@ def _pw_target() -> "str | None":
     return None
 
 
+#: 無音とみなす強さ。その声のいちばん大きい音より 40 dB 小さい（知-ak-に・〔仮〕本人の承認 2026-10-12）。
+_SILENCE_BELOW_PEAK_DB = 40.0
+#: 声の強さを測る区切り（秒）。
+_SHAPE_FRAME_SEC = 0.02
+
+
+def _voice_shape(data, rate: int) -> "tuple[float, float]":
+    """合成した声の（有音の終わり, 最長の無音）を秒で返す（知-ak-に）。
+
+    声が途中で切れて聞こえたとき、合成した音そのものが途中から無音なのかを見分けるため。
+    区切りごとの強さ（RMS）が、その声の最大より `_SILENCE_BELOW_PEAK_DB` 小さければ無音とみなす。
+    """
+    import numpy as np
+
+    a = np.asarray(data, dtype=np.float64)
+    if a.ndim > 1:
+        a = a.mean(axis=1)
+    step = max(1, int(rate * _SHAPE_FRAME_SEC))
+    n = len(a) // step
+    if n == 0:
+        return 0.0, 0.0
+    rms = np.sqrt((a[: n * step].reshape(n, step) ** 2).mean(axis=1))
+    peak = float(rms.max())
+    if peak <= 0.0:
+        return 0.0, n * step / rate
+    voiced = rms >= peak * 10 ** (-_SILENCE_BELOW_PEAK_DB / 20)
+    end = (int(np.nonzero(voiced)[0][-1]) + 1) * step / rate
+    longest = run = 0
+    for v in voiced:
+        run = 0 if v else run + 1
+        longest = max(longest, run)
+    return end, longest * step / rate
+
+
+def _sink_state() -> str:
+    """PipeWire の**既定の**出口の名前・音量・ミュート（知-ak-に・差し替え点）。
+
+    `--target` で名指しした出口の音量ではない。名指しできなかったとき（出口 既定）に、声が実際に
+    どこへ流れたかを見るため。`wpctl` は `PIPEWIRE_REMOTE` に従うので、遠隔デスクトップの口は
+    起動時に外してある（`io/audio_env`）。
+    """
+
+    def _wpctl(*args: str) -> str:
+        r = subprocess.run(
+            ["wpctl", *args, "@DEFAULT_AUDIO_SINK@"], capture_output=True, text=True, timeout=1
+        )
+        return r.stdout or ""
+
+    vol = _wpctl("get-volume")
+    name = "?"
+    for line in _wpctl("inspect").splitlines():
+        if "node.description" in line and "=" in line:
+            name = line.split("=", 1)[1].strip().strip('"')
+            break
+    parts = vol.split()
+    level = parts[1] if len(parts) > 1 else "?"
+    muted = "あり" if "[MUTED]" in vol else "なし"
+    return f"{name}・音量 {level}・ミュート{muted}"
+
+
+def _sink_state_or_unknown() -> str:
+    """出口を聞けなくても声は止めない。"""
+    try:
+        return _sink_state()
+    except Exception:  # noqa: BLE001
+        return "不明"
+
+
 def _play_margin() -> float:
     from ..config import TTSConfig
 
@@ -876,7 +975,10 @@ def _play_with_pw_play(binary: str, audio_path: str, gain: float) -> bool:
     tmp = _mp3_to_wav(audio_path) if audio_path.lower().endswith(".mp3") else None
     path = tmp or audio_path
     try:
-        seconds = float(sf.info(path).duration)
+        data, rate = sf.read(path)
+        seconds = len(data) / float(rate)
+        end, gap = _voice_shape(data, rate)
+        sink = _sink_state_or_unknown()
         target = _pw_target()
         args = [binary]
         if target:
@@ -897,14 +999,22 @@ def _play_with_pw_play(binary: str, audio_path: str, gain: float) -> bool:
         if proc.returncode != 0:
             head = (err or b"").decode(errors="replace").strip()[:_PW_ERR_CHARS]
             logger.warning(
-                "声を鳴らせなかった（pw-play・戻り値 %s・出口 %s）：%s",
+                "声を鳴らせなかった（pw-play・戻り値 %s・出口 %s・既定の出口 %s）：%s",
                 proc.returncode,
                 where,
+                sink,
                 head,
             )
             return False
         logger.info(
-            "声を鳴らした（pw-play・戻り値 0・%.2f 秒／声 %.2f 秒・出口 %s）", took, seconds, where
+            "声を鳴らした（pw-play・戻り値 0・%.2f 秒／声 %.2f 秒・出口 %s"
+            "・有音の終わり %.2f 秒・最長の無音 %.2f 秒・既定の出口 %s）",
+            took,
+            seconds,
+            where,
+            end,
+            gap,
+            sink,
         )
         if took < seconds:
             # 鳴り終わりを待って戻るので、ふつうは声の長さ以上かかる（実測 6.36 秒の声で 6.42〜6.67 秒）。
@@ -978,6 +1088,13 @@ async def _play_via_sounddevice(audio_path: str, gain: float = 1.0) -> bool:
                 return False
             try:
                 data, samplerate = sf.read(audio_path)
+                end, gap = _voice_shape(data, samplerate)
+                logger.info(
+                    "声を鳴らす（PortAudio・声 %.2f 秒・有音の終わり %.2f 秒・最長の無音 %.2f 秒）",
+                    len(data) / float(samplerate),
+                    end,
+                    gap,
+                )
                 device_idx = _resolve_output_device()
                 # Determine device's native sample rate; resample if needed.
                 try:

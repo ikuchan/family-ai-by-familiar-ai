@@ -211,10 +211,14 @@ def _no_real_pw_play(monkeypatch):
 
     機体に本物の `pw-play` があると、PortAudio を差し替えた試験も子のプロセスで本当に鳴らしにいく。
     `pw-play` の道を見る試験（`test_play_with_pw_play.py`）は、自分で差し替え直す。
+
+    既定の出口を聞く `wpctl` も呼ばない（知-ak-に）。試験を回す端末が遠隔デスクトップの環境を持つと、
+    その口を見にいく。
     """
     from familiar_agent.tools import tts
 
     monkeypatch.setattr(tts, "_pw_play_binary", lambda: None)
+    monkeypatch.setattr(tts, "_sink_state", lambda: "試験の出口")
     yield
 
 
