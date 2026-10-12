@@ -74,7 +74,7 @@ def _filler_ip(*, still_waiting_after_write: bool):
     waiting = [MagicMock(action="主LLM")]
     ip._waiting_on = lambda: waiting  # type: ignore[method-assign]
 
-    async def write(inp, what):
+    async def write(inp, what, avoid=()):
         if not still_waiting_after_write:
             waiting.clear()  # 書いているあいだに答えが届いた
         return "もう少しね"
@@ -137,10 +137,13 @@ def _decide(final: str, monkeypatch) -> "list[str]":
         await ip.close()
 
     asyncio.run(go())
-    return list(ip._req.said_fillers)
+    assert (
+        ip._req.said_fillers == []
+    )  # 言ったつなぎには数えない（出-ca・同じつなぎの判定に引っかかった）
+    return list(ip._req.cue_words)
 
 
-def test_the_cue_word_is_remembered_as_said(monkeypatch):
+def test_the_cue_word_is_kept_as_a_word_not_to_use(monkeypatch):
     assert _decide("play_music", monkeypatch) in (["はい"], ["うん"])
 
 

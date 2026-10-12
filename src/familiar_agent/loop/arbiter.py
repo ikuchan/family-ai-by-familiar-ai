@@ -1022,14 +1022,19 @@ class Arbiter:
             extra_actions=(*inp.extra_actions, final),
         )
 
-    async def write_filler(self, inp: ArbiterInput, waiting: str) -> str:
+    async def write_filler(
+        self, inp: ArbiterInput, waiting: str, avoid: "list[str] | tuple[str, ...]" = ()
+    ) -> str:
         """待たせているあいだの一言だけを書かせる（出-aq 段 6）。**分岐は決めない**——つなぎを出すのは
         待たせている事実であって、Jev の分岐ではない。以前は分岐しだいで、light なら返事（内容に触れる）を
         言い、full で深さが low なら何も書かれず黙った。書けなければ空（黙る）。`trash` は読み捨てる。
         """
-        texts = await _writer_call(
-            self, inp, {"decided": f"待ってもらう一言を言う（{waiting}）"}, ["filler", "trash"]
-        )
+        decided = f"待ってもらう一言を言う（{waiting}）"
+        if avoid:
+            # 合図の作り置きの声で言った言葉は、つなぎに使わない（出-ca・本人の決定）。
+            words = "・".join(f"「{w}」" for w in avoid)
+            decided += f"。次の言葉は合図でもう言ったので、つなぎに使わない：{words}"
+        texts = await _writer_call(self, inp, {"decided": decided}, ["filler", "trash"])
         return str((texts or {}).get("filler", "")).strip()
 
     async def _write(self, inp: ArbiterInput, data: dict) -> "dict | None":

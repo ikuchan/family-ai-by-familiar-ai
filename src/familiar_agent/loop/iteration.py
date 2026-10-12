@@ -290,7 +290,7 @@ class Iteration:
             recent_frame=ws.recent_text(ws.n_main),
             max_tokens=budget.max_tokens,
         )
-        await ip._write_version()
+        ip._write_version_later()  # 投げたあとの版は裏で書く（出-bz-ろ）
         logger.info(
             "event-loop 反復 %d/%d 考え=%d回目 出力=主LLM（続きは返りで起きる）",
             self.chain, self.max_chain, self.round_,

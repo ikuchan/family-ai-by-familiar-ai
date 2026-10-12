@@ -21,7 +21,7 @@ def _ip(*, write_takes: float = 0.2):
     said: list[str] = []
     ip._waiting_on = lambda: [MagicMock(action="主LLM")]  # type: ignore[method-assign]
 
-    async def write(inp, what):
+    async def write(inp, what, avoid=()):
         await asyncio.sleep(write_takes)
         return "もう少しね"
 

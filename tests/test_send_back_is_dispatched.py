@@ -149,8 +149,10 @@ def test_the_send_back_writes_a_version():
     """投げた事実は版に載る（`N番：考えている`）。載らないと求めの状態が飛ぶ。"""
     ip, _a = _ip()
     ip._speech_check_violation = AsyncMock(return_value=_VIOLATION)
+    ip._write_version_later = MagicMock()  # type: ignore[method-assign]
     _run(ip, _say())
-    ip._write_version.assert_awaited_once()
+    # 投げ直したあとの版は裏で書く（出-bz-ろ）。書き終わりを待つものが無い。
+    ip._write_version_later.assert_called_once()
 
 
 # ── 3. 言い直しは検査しない（1回だけ）──────────────────────────────────────

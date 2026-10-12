@@ -729,6 +729,9 @@ class InformationProcessing:
         self._filler_voices: set[asyncio.Task] = set()
         #: 裏で書いているつなぎ（出-bx）。答えが始まったら言わず、終わるときに取り消す。
         self._filler_jobs: "set[asyncio.Future]" = set()
+        #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
+        self._version_writes: "set[asyncio.Future]" = set()
+        self._version_tail: "asyncio.Future[str | None] | None" = None
         self._filler_voice_ended = 0.0  # つなぎの声が鳴り終わった時刻（monotonic・出-aq 段 5）
         self._cue_sound: "asyncio.Future[None] | None" = None  # いま鳴らしている合図（出-bd ②）
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
@@ -810,8 +813,27 @@ class InformationProcessing:
 
         人の発話の記録と、自分が答えた記録は**鎖の外**にある。畳まない。
         """
+        return await self._queue_version(self._version_content(aborted=aborted))
+
+    def _queue_version(self, content: str) -> "asyncio.Future[str | None]":
+        """版を書く列に並べる（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に、前の書き込みが済んでから書く。
+
+        鍵で順に通す形では、裏の仕事が走り出す前に、あとから来た待つ書き込みが先に鍵を取り、順番が崩れた。
+        """
+        before = self.__dict__.get("_version_tail")  # `__new__` で組んだ装置（試験）でも落ちない
+
+        async def _write() -> "str | None":
+            if before is not None:
+                await asyncio.gather(before, return_exceptions=True)
+            return await self._write_version_body(content)
+
+        task = asyncio.ensure_future(_write())
+        self._version_tail = task
+        return task
+
+    async def _write_version_body(self, content: str) -> str | None:
+        """版を 1 つ書いて、直前の版を畳む（`_write_version` の中身・鍵の中で呼ぶ）。"""
         agent = self._agent
-        content = self._version_content(aborted=aborted)
         started = time.monotonic()  # 版を書く（埋め込み・新しさ）にかかった時間を残す（出-bz）
         version_id = await agent._oif.write(
             MI(
@@ -836,6 +858,24 @@ class InformationProcessing:
             # 手がかり（次の反復の想起クエリ）は、いまの版そのものにする。
             self._req.cue = content
         return version_id
+
+    def _write_version_later(self) -> None:
+        """版を裏で書く（出-bz-ろ・2026-10-13・本人の決定）。書き終わりを待つものが無いときだけ使う。
+
+        主LLM を投げたあとと、主LLM の答えが届いたときの版は、書き終わりを待っているものが無い。10/13 00:35 には
+        それぞれ 0.8 秒、駆動体と答えの声を待たせた。調べものの結果が届いたときの版は、直後の想起で使うので待つ。
+        """
+        # 版の文は頼んだ時点で組む。書く時点で組むと、そのあいだに増えた調べものが前の版に入る。
+        task = self._queue_version(self._version_content())
+        writes = self.__dict__.setdefault("_version_writes", set())
+        writes.add(task)
+        task.add_done_callback(writes.discard)
+
+    async def _settle_versions(self) -> None:
+        """裏で書いている版が書き終わるのを待つ（求めを閉じる前・出-bz-ろ）。失敗は書いた側が残す。"""
+        writes = self.__dict__.get("_version_writes") or set()
+        if writes:
+            await asyncio.gather(*list(writes), return_exceptions=True)
 
     async def _write_seen_mark(self, content: str, *, image_path: str | None = None) -> str | None:
         """見たことを O へ書く（`direction="観察"`・鎖の外・畳まない）。
@@ -1610,11 +1650,18 @@ class InformationProcessing:
             # 投げ直す（実機で1つの求めに検索が4本走り、つなぎを4回喋った）。減らすのは
             # 完了の取込1点に揃える。
             return
+        # 自分が出した検索が、いま書いた版そのもの（語を丸ごと含む）を拾わないよう、版が書き終わるのを待って、
+        # いまの版で除く（出-bz-ろ）。版は列に並んで書くので、待たないと検索が走る時点で版の id が決まっていない。
+        tail = self.__dict__.get("_version_tail")
+        if tail is not None:
+            with contextlib.suppress(Exception):
+                await asyncio.shield(tail)
+        exclude = self._req.live_version_id or self._recall_exclude_id
         try:
             out, _ = await self._agent._memory_tool.call(
                 "recall",
                 tool_input,
-                exclude_ids=[self._recall_exclude_id] if self._recall_exclude_id else None,
+                exclude_ids=[exclude] if exclude else None,
             )
         except asyncio.CancelledError:
             raise
@@ -1930,8 +1977,12 @@ class InformationProcessing:
                     # その求めのあいだ、この道具を候補から外す（構造で呼び直しを起こさない）。
                     self._req.failed_actions.add(_action_family(lk.action))
         if items:
-            # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。
-            await self._write_version()
+            # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。主LLM の答えだけなら、書き終わりを待つものが無いので
+            # 裏で書く（答えの声を待たせない・出-bz-ろ）。調べものの結果は直後の想起で使うので待つ（本人）。
+            if all(c.kind == "決定" for c in items):
+                self._write_version_later()
+            else:
+                await self._write_version()
         return len(items), decided
 
     # この反復で使える動作の表。値＝その動作のツール定義を取り出す関数で、引数はループ。
@@ -2191,6 +2242,7 @@ class InformationProcessing:
         self._req.cue_rang = False
         self._req.filler_pending = False
         self._req.answering = False
+        self._req.cue_words.clear()
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -3127,7 +3179,7 @@ class InformationProcessing:
                 workspace_ctx=workspace_ctx,
                 present_ctx=_present_ctx(self._agent),
             )
-            text = await self._arbiter().write_filler(inp, what)
+            text = await self._arbiter().write_filler(inp, what, avoid=list(req.cue_words))
             if gen != self._request_generation:
                 return  # 書いているあいだに求めが打ち切られた
             if req.answering:
@@ -3284,7 +3336,7 @@ class InformationProcessing:
                     retried=True,
                     original_text=text,
                 )
-                await self._write_version()
+                self._write_version_later()  # 投げ直したあとの版は裏で書く（出-bz-ろ）
                 return ""
             spoken, outcome = await self._speak(text)
             await self._finish(spoken, decision.memories, outcome, gen=gen)
@@ -4575,6 +4627,7 @@ class InformationProcessing:
         自分が答えた記録は鎖の外にある。要約と内省は背景で遅れて来て、その記録を supersede
         する。
         """
+        await self._settle_versions()  # 裏で書いている版を待ってから閉じる（出-bz-ろ）
         agent = self._agent
         logger.info(
             # **数えるのは考えた回数**。反復は主LLM の返りで 0 へ戻るので、閉じた時点では
@@ -4714,8 +4767,9 @@ class _ReactionCue:
         self._ip._start_beeps()  # 合図が鳴り終わったら、答えまで待ちの電子音（出-bu）。合図の音は `_sounding` で休む
         word = getattr(self._ip._dif, "last_cue_word", "")
         if word:
-            # 作り置きの声で言った言葉は、言ったことに数える（出-bt）。書き手が知らず、つなぎが「はい、」を繰り返した。
-            self._ip._req.said_fillers.append(word)
+            # 作り置きの声で言った言葉は、つなぎに使わない言葉として書き手に渡す（出-ca・本人の決定）。書き手が知らず、
+            # つなぎが「はい、」を繰り返した（出-bt）。言ったつなぎに数えると、同じつなぎの判定に引っかかる。
+            self._ip._req.cue_words.append(word)
         # 合図も音に数える（出-bd ②）。鳴っているあいだはつなぎを出さず、鳴り終わってから 3 秒黙ったら出す。
         req = self._ip._req
         self._ip._cue_sound = task

@@ -150,6 +150,14 @@ class _EmbeddingModel(ModelResource):
         if model is None:
             return self._zeros(len(texts))
         miss_idx, miss_texts, results = self._lookup(self._q_cache, texts)
+        # 同じ文を文書として埋め込んだ控えがあれば使う（出-bz-い）。版を書いた直後の想起は、その版の文を手がかりに
+        # するので、同じベクトルを 2 回計算していた（10/13 00:35・約 6,800 字）。2 つは同じ設定でモデルを呼ぶ。
+        for i, t in zip(list(miss_idx), list(miss_texts)):
+            vec = self._d_cache.get(self._key(t))
+            if vec is not None:
+                results[i] = vec
+                miss_idx.remove(i)
+                miss_texts.remove(t)
         if miss_texts:
             try:
                 new = model.encode(
