@@ -172,6 +172,8 @@ _LEAD_SELF = (
 _HEADING_SELF = "[いま湧いたこと]"
 
 _FALLBACK = Decision(branch="full", effort="low")
+#: W が無いときに Jev への文へ書く言葉。
+_NO_WORKSPACE = "（なし）"
 
 #: MCP の同期の道具（動作名 → 見出し・説明）。候補に載せるのは繋がっているときだけ。
 _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
@@ -521,9 +523,13 @@ class ArbiterInput:
     fired_axis: str = ""
     #: いまの音楽の様子を読む口（非同期・出-bf）。「いま何の曲？」に答えるときだけ呼ぶ。無ければ読めなかったとして答える。
     music_status: "Callable[[], Awaitable[dict | None]] | None" = None
-    #: 思い出したことを k 件外した W を返す口（`Workspace.for_arbiter_without`・外せなければ None）。完了の道で Jev に
-    #: 長すぎると断られたら（400）、これで 1 件ずつ縮めて聞き直す（出-bm）。無ければ聞き直さない。
-    workspace_without: "Callable[[int], str | None] | None" = None
+    #: Jev へ送る W を返す口（`Workspace.for_jev_arbiter`・出-bw）。W に使える字数を渡すと、重なりを除き、超えたぶん
+    #: 記憶を一度に外した W を返す。収まらなければ None。無ければ `workspace_ctx` をそのまま測る。
+    jev_workspace: "Callable[[int], str | None] | None" = None
+    #: Jev へ送る起点の言葉（情動の [いま湧いたこと] から、いま返った結果の本文を外したもの・出-bw）。空なら `utterance`。
+    jev_utterance: str = ""
+    #: Jev へ送る文の字数の上限（`AgentConfig.jev_state_max_chars`・出-bw）。
+    jev_max_chars: int = 28_000
 
 
 #: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
@@ -602,6 +608,26 @@ class Arbiter:
         #: 文章の口が時間切れになったか（計測ログの「時間切れ」・層 3 が調停の秒数を見直す材料）
         self._timed_out = False
 
+    def _jev_state(self, inp: ArbiterInput, path: str) -> "str | None":
+        """Jev へ送る文を、送る前に測って組む（出-bw）。収まらなければ None（呼び手は聞かずに倒し先へ倒す）。
+
+        W 以外の部分の字数を数え、残りを W に使える字数として `jev_workspace` に渡す。書き手（軽量LLM）への文は
+        今までどおり全文の W を使う（`_writer_call`）。断られてから少しずつ削る往復はしない（出-bm を撤去）。
+        """
+        jinp = replace(inp, utterance=inp.jev_utterance or inp.utterance, workspace_ctx="")
+        base = len(self._state(jinp)) - len(_NO_WORKSPACE)
+        room = inp.jev_max_chars - base
+        if inp.jev_workspace is not None:
+            w = inp.jev_workspace(room)
+        else:
+            w = inp.workspace_ctx if len(inp.workspace_ctx) <= room else None
+        if w is None:
+            logger.info(
+                "調停（%s）：長すぎるので Jev に聞かなかった（上限 %d 字）", path, inp.jev_max_chars
+            )
+            return None
+        return self._state(replace(jinp, workspace_ctx=w))
+
     def _state(self, inp: ArbiterInput) -> str:
         """Jev に送る文。いま何が起きたか（起点ごと）・いま・顔ぶれ・その場の言葉・作業状態（W 全部・本人の決定 イ）。"""
         if inp.returned or inp.tool_return:
@@ -627,7 +653,7 @@ class Arbiter:
             f"[いま]\n{inp.now_ctx or '（分からない）'}\n\n"
             f"[いま誰が居るか]\n{inp.present_ctx or '（分からない）'}\n\n"
             f"{heading}\n{inp.utterance}\n\n"
-            f"[いまの作業状態]\n{inp.workspace_ctx or '（なし）'}"
+            f"[いまの作業状態]\n{inp.workspace_ctx or _NO_WORKSPACE}"
         )
 
     async def decide(
@@ -685,34 +711,6 @@ class Arbiter:
         )
         return decision if decision is not None else _FALLBACK
 
-    async def _ask_smaller(
-        self, inp: ArbiterInput, kind: str, state: str, questions: dict, answer: Any
-    ) -> "tuple[str, Any]":
-        """完了の道で長すぎると断られた（400）あいだ、思い出したことを 1 件ずつ外して聞き直す（出-bm・本人の決定）。
-
-        Jev は state といちばん長い問いを足して 32k 語までしか受けない（models.md）。W に積もった検索の結果で超え、
-        主LLM に倒れていた（10/10〜 53 件）。外す順は W の枠と同じ適合度の低い順で、今回の結果と直近のやりとりは
-        外さない。外せる記憶が尽きたら、最後の答えのまま返す（呼び手が full に倒す）。返りは最後に送った文と答え。
-        """
-        from ..core.jev_judges import _ask
-
-        k = 0
-        while getattr(answer, "error", "") == "HTTP 400" and inp.workspace_without is not None:
-            smaller = inp.workspace_without(k + 1)
-            if smaller is None:
-                logger.info("調停（完了・%s）：思い出したことを %d 件外しても断られた", kind, k)
-                break
-            k += 1
-            state = self._state(replace(inp, workspace_ctx=smaller))
-            answer = await _ask(self._jev, state, questions)
-            logger.info(
-                "調停（完了・%s）：Jev に断られたので思い出したことを %d 件外して聞き直した（%s）",
-                kind,
-                k,
-                "通った" if getattr(answer, "ok", False) else getattr(answer, "error", "答えなし"),
-            )
-        return state, answer
-
     async def _completion_by_rule(self, inp: ArbiterInput, started: float) -> "Decision | None":
         """完了は機械で分け、選択肢が 1 つなら Jev に聞かない（出-ay 段 4-2・2026-10-09・`設計方針_判定の段` §2.2.5）。
 
@@ -731,7 +729,9 @@ class Arbiter:
         kind, actions = got
         final = actions[0]
         if len(actions) > 1:
-            state = self._state(inp)
+            state = self._jev_state(inp, "完了")
+            if state is None:
+                return _FALLBACK
             questions = {
                 "action": choice(
                     f"自分の動作の結果が届いた（{kind}）。パジュは次にどうするか",
@@ -739,7 +739,6 @@ class Arbiter:
                 )
             }
             answer = await _ask(self._jev, state, questions)
-            state, answer = await self._ask_smaller(inp, kind, state, questions, answer)
             picked = str(
                 ((getattr(answer, "answers", None) or {}).get("action") or {}).get("choice") or ""
             )
@@ -772,7 +771,9 @@ class Arbiter:
         actions = _AFFECT_ACTIONS[inp.fired_axis]
         final = actions[0]
         if len(actions) > 1:
-            state = self._state(inp)
+            state = self._jev_state(inp, "情動")
+            if state is None:
+                return _FALLBACK
             questions = {
                 "action": choice(
                     f"自分の内から求めが起きた（{inp.fired_axis}）。パジュは次にどうするか",
@@ -811,7 +812,10 @@ class Arbiter:
         from ..core.jev_judges import _ask
 
         family = _family_call_names(inp.family_md)
-        state = self._state(inp)
+        state = self._jev_state(inp, "発話")
+        if state is None:
+            self._tell_decided("reply_full")
+            return _FALLBACK
         # すすめた曲への返事を待っているときだけ、調停の候補に返事の道具が載る（段 4-4f）。
         suggesting = "music_suggestion_reply" in inp.extra_actions
         questions = um.fanout_questions(

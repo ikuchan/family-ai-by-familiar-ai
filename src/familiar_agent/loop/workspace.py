@@ -18,6 +18,7 @@ from __future__ import annotations
 import contextlib
 import logging
 from dataclasses import dataclass, field
+from dataclasses import replace as _replace
 from datetime import datetime
 
 from ..core import measure
@@ -27,6 +28,62 @@ from ..store.relations import KIND_SUCCESSION
 from .request import Request
 
 logger = logging.getLogger(__name__)
+
+
+#: Jev へ送る版の文で、本文を外した結果の書き方（出-bw）。全文は W の最上部 [いま道具から返った] にある。
+_BODY_ELSEWHERE = "の結果が届いた（中身は [いま道具から返った]）"
+
+
+def version_text(
+    req: Request, *, omit: "frozenset[int]" = frozenset(), aborted: bool = False
+) -> str:
+    """いまの求めの状態を、1つの版の文として組み立てる（O に書く版と、Jev へ送る版の写しの両方が使う）。
+
+    求めは1本の版チェーンとして進み、各版が状態を表す。**どの版にも求めそのものを
+    入れる**（前の版は畳まれて想起の候補から外れるので、辿る道が残らない）。
+
+    並行する調査は通し番号で列挙し、鎖は分岐させない。状態は「求め」の状態であって
+    個々の調査の状態ではないので、3件飛んでいても求めの状態はひとつである。
+
+    結果はここでは切らない。切るなら書き込みの上限で切る。ここで切ると、どこで短く
+    なったのかが追えなくなる。
+
+    `omit`：本文を外す返り（index）。Jev へ送る文だけが使う（出-bw）。同じ反復で返った結果は W の最上部に全文で
+    載るので、版の文からは「何を調べて届いたか」だけを残す。O に書く版は何も外さない。
+    """
+    parts: list[str] = []
+    for lk in sorted(req.lookups, key=lambda x: x.index):
+        if lk.action == "主LLM":
+            # 主LLM には探す語が無く、**返りの中身も版には載せない**（`see` と同じで、
+            # 中身は `_finish` の「自分が答えた」が持つ）。求めの状態としては
+            # 「何番が返ったか」だけあればよい。
+            if aborted:
+                parts.append(f"{lk.index}番：考えるのを打ち切った")
+            elif lk.in_flight:
+                parts.append(f"{lk.index}番：考えている")
+            else:
+                parts.append(f"{lk.index}番：考えて答えた")
+            continue
+        if lk.in_flight:
+            verb = "を打ち切った" if aborted else "を起動中"
+            parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{verb}")
+        elif lk.failed:
+            # 結果ではない。生のエラー文は載せない（対処できる情報ではない・出-o）。
+            parts.append(f"{lk.index}番：{lk.action}「{lk.query}」は道具が使えず失敗した")
+        elif lk.index in omit:
+            parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{_BODY_ELSEWHERE}")
+        else:
+            parts.append(f"{lk.index}番：{lk.action}「{lk.query}」の結果が届いた：{lk.result}")
+
+    head = f"「{req.request_text}」と聞かれた"
+    if not parts:
+        return head + ("（打ち切った）" if aborted else "")
+    return f"「{req.request_text}」と聞かれ、" + "／".join(parts)
+
+
+def _cut(text: str, cap: "int | None") -> str:
+    """1 項目の本文を `cap` 字までにする（出-bw・続き先の判定へ送る W だけ）。切ったら「…」を付ける。"""
+    return text if cap is None or len(text) <= cap else text[:cap] + "…"
 
 
 def open_ids(req: Request) -> list[str]:
@@ -60,7 +117,7 @@ def compose(
     *,
     exclude: "set[str] | None" = None,
     basis: str = "",
-    drop: int = 0,
+    cap: "int | None" = None,
 ) -> "tuple[str, dict[str, str]]":
     """W を組み、**(W の文字列, 12桁 → 完全な id の対応表) を返す**。
 
@@ -84,15 +141,12 @@ def compose(
 
     `said`（言ったつなぎ）は手組みのまま残す。O にもあるが、この求めで言った分だけを載せる。
 
-    `drop`＝思い出したことのうち、適合度の低い側から外す件数（出-bm）。調停が Jev に断られたときの写しにだけ使い、
-    対応表は外す前の列で作る。
+    `cap`＝記憶 1 件の本文の字数の上限（出-bw）。続き先の判定へ送る W が上限を超えたときにだけ使う。
     """
     from ..config import MemoryConfig
 
     memories = _fit_in(memories)
     shown = _shown(memories, req, exclude)
-    if drop:
-        shown = shown[: max(len(shown) - drop, 0)]
 
     id_map = {r.mi.obs_id.replace("-", "")[:12]: r.mi.obs_id for r in memories if r.mi.obs_id}
     # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
@@ -152,7 +206,7 @@ def compose(
     basis_line = f"[この想起：{basis}]" if basis else ""
     # 想起した記憶には見出しを付ける。直近のやりとりの枠（文脈）と分ける（出-ay 段 4-4b：文脈は直前のやりとりで、
     # 思い出したことではない）。
-    remembered = _lines(shown, names)
+    remembered = _lines(shown, names, cap=cap)
     if remembered.strip():
         remembered = "[思い出したこと]\n" + remembered
     text = "\n\n".join(p for p in [said, added, heard, basis_line, remembered] if p and p.strip())
@@ -241,7 +295,9 @@ def returned_lookups(req: Request) -> "tuple[tuple[str, bool, str], ...]":
     )
 
 
-def just_returned(req: Request) -> str:
+def just_returned(
+    req: Request, *, idx: "frozenset[int] | None" = None, cap: "int | None" = None
+) -> str:
     """W の最上部：**この反復で道具から返ったもの**（出-x・2026-09-18）。
 
     道具の返りは版（過去の列の全文）に載るだけで、調停は「記憶」として読み、いま届いた返りとして
@@ -249,13 +305,14 @@ def just_returned(req: Request) -> str:
     実験（`scripts/experiment_arbiter_confirm.py`・出-au 段 5-7d で撤去・履歴にある・8 回ずつ）：最上部に 1 行載せると 8/8 で
     light の確認文、先導文の差し替えだけでは 6/8。載せるのは取込がこの反復で受けた分だけ。
     """
-    idx = set(getattr(req, "just_returned", ()) or ())
+    if idx is None:
+        idx = frozenset(getattr(req, "just_returned", ()) or ())
     if not idx:
         return ""
     lines = ["[いま道具から返った]"]
     for lk in sorted(req.lookups, key=lambda x: x.index):
         if lk.index in idx and lk.result is not None:
-            lines.append(f"- {lk.action}「{lk.query}」→ {lk.result}")
+            lines.append(f"- {lk.action}「{lk.query}」→ {_cut(str(lk.result), cap)}")
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
@@ -375,6 +432,8 @@ class Workspace:
     returned_actions: frozenset[str] = frozenset()
     #: この反復で返った道具の中身（`returned_lookups`・出-ay 段 4-2）。組んだ時点の値を固定する。
     returned_lookups: "tuple[tuple[str, bool, str], ...]" = ()
+    #: この反復で返った道具の index（出-bw）。Jev へ送る版の文から本文を外すのに使う。組んだ時点の値を固定する。
+    returned_idx: "frozenset[int]" = frozenset()
     #: 申告（`memory_verdicts`）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
@@ -404,6 +463,7 @@ class Workspace:
             max_age_sec,
             basis,
         )
+        ws.returned_idx = frozenset(getattr(req, "just_returned", ()) or ())
         # 最上部＝確認待ち（出-y）と、この反復で道具から返ったもの（出-x）。
         ws.just_returned_text = "\n\n".join(
             p for p in (getattr(req, "confirm_frame", ""), just_returned(req)) if p
@@ -433,43 +493,130 @@ class Workspace:
     def recent_text(self, n: int) -> str:
         return self._recent(n)[1]
 
-    def render(self, n: int, drop: int = 0) -> str:
+    def render(
+        self,
+        n: int,
+        *,
+        memories: "list[Recalled] | None" = None,
+        cap: "int | None" = None,
+        top: "str | None" = None,
+    ) -> str:
         _rows, recent, recent_ids = self._recent(n)
         past, _ = compose(
             self.oif,
-            self.memories,
+            self.memories if memories is None else memories,
             self.req,
             exclude=set(recent_ids.values()),
             basis=self.basis,
-            drop=drop,
+            cap=cap,
         )
-        return "\n\n".join(p for p in (self.just_returned_text, recent, past) if p and p.strip())
+        head = self.just_returned_text if top is None else top
+        return "\n\n".join(p for p in (head, recent, past) if p and p.strip())
 
     @property
     def for_arbiter(self) -> str:
         return self.render(self.n_arbiter)
 
-    def for_arbiter_without(self, k: int) -> "str | None":
-        """調停の W から、思い出したことを適合度の低い順に k 件外した写し。外せる件数を超えたら None（出-bm）。
+    # ── Jev へ送る W（出-bw・2026-10-12・本人の決定）────────────────────────────────
+    # 重なりを除き、送る前に測って、上限を超えたら一度で削る。主LLM の W（`for_main`）は変えない。
 
-        Jev は state といちばん長い問いを足して 32k 語までしか受けない（models.md）。完了の道で断られたら、
-        調停がこれで 1 件ずつ縮めて聞き直す。主LLM の W（`for_main`）と申告の対応表（`id_map`）は変えない。
+    def _jev_memories(self) -> "list[Recalled]":
+        """いまの求めの版を、この反復で返った結果の本文を外した文に置き換えた記憶の列（全文は最上部に 1 回）。"""
+        live = self.req.live_version_id
+        if not live:
+            return list(self.memories)
+        short = version_text(self.req, omit=self.returned_idx)
+        return [
+            _replace(r, mi=_replace(r.mi, content=short)) if r.mi.obs_id == live else r
+            for r in self.memories
+        ]
+
+    def jev_cue(self) -> str:
+        """Jev へ送る [いま湧いたこと]（情動の求めの版の文）。この反復で返った結果の本文を外す。"""
+        return version_text(self.req, omit=self.returned_idx)
+
+    def for_jev_arbiter(self, max_chars: int) -> "str | None":
+        """調停の Jev へ送る W。`max_chars` を超えたら、記憶を適合度の低い順に、収まるところまで一度に外す。
+
+        外す件数は字数の合計から決める（断られてから 1 件ずつ外して聞き直すのはやめた・出-bm を撤去）。判断の中身
+        （いま返った結果）・直近・いまの求めの記録（`open_ids`）は外さない。記憶を全部外しても超えるなら None。
         """
-        _rows, _text, recent_ids = self._recent(self.n_arbiter)
-        if k > len(_shown(_fit_in(self.memories), self.req, set(recent_ids.values()))):
+        memories = self._jev_memories()
+        text = self.render(self.n_arbiter, memories=memories)
+        if len(text) <= max_chars:
+            return text
+        keep = set(open_ids(self.req))
+        droppable = sorted((r for r in memories if r.mi.obs_id not in keep), key=lambda r: r.fit)
+        over, freed, drop = len(text) - max_chars, 0, set()
+        for r in droppable:
+            if freed >= over:
+                break
+            drop.add(r.mi.obs_id)
+            freed += len(r.mi.content)
+        while True:
+            text = self.render(
+                self.n_arbiter, memories=[r for r in memories if r.mi.obs_id not in drop]
+            )
+            if len(text) <= max_chars:
+                logger.info(
+                    "event-loop Jev へ送る W：記憶を %d 件外した（%d 字）", len(drop), len(text)
+                )
+                return text
+            rest = [r for r in droppable if r.mi.obs_id not in drop]
+            if not rest:
+                return None
+            drop.add(rest[0].mi.obs_id)
+
+    def for_jev_follows(self, utterance: str, max_chars: int) -> "str | None":
+        """続き先の判定の Jev へ送る W。言葉と合わせて `max_chars` を超えたら、各項目の本文を同じ字数まで縮める。
+
+        選択肢は W の行なので、行の数は減らさない（遠い記憶ほどつながったときの価値が高い・本人）。縮める字数は
+        二分探索で一度に決める。50 字まで縮めても超えるなら None。
+        """
+        budget = max_chars - len(utterance) - _FOLLOWS_FRAME
+        memories = self._jev_memories()
+        text = self.render(self.n_main, memories=memories)
+        if len(text) <= budget:
+            return text
+
+        def shrunk(cap: int) -> str:
+            top = "\n\n".join(
+                p
+                for p in (
+                    getattr(self.req, "confirm_frame", ""),
+                    just_returned(self.req, idx=self.returned_idx, cap=cap),
+                )
+                if p
+            )
+            return self.render(self.n_main, memories=memories, cap=cap, top=top)
+
+        lo, hi = _FOLLOWS_MIN_CAP, max(len(text), _FOLLOWS_MIN_CAP)
+        if len(shrunk(lo)) > budget:
             return None
-        return self.render(self.n_arbiter, drop=k)
+        while lo < hi:
+            mid = (lo + hi + 1) // 2
+            if len(shrunk(mid)) <= budget:
+                lo = mid
+            else:
+                hi = mid - 1
+        logger.info("event-loop 続き先の判定へ送る W：各項目を %d 字までにした", lo)
+        return shrunk(lo)
 
     @property
     def for_main(self) -> str:
         return self.render(self.n_main)
 
 
+#: 続き先の判定の state のうち、W 以外の見出しの字数（`jev_judges.judge_follows`）。
+_FOLLOWS_FRAME = 80
+#: 続き先の判定へ送る W で、1 項目をこれより短くは縮めない（id のある 1 行目の頭を残す）。
+_FOLLOWS_MIN_CAP = 50
+
 #: 確かさがこれを下回ったら印を付ける（`format_for_context` から引き継いだ値）。
 _CONF_LOW = 0.55
 
 
-def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
+def _lines(memories: "list[Recalled]", names: "dict[str, str]", *, cap: "int | None" = None) -> str:
     """W の1行を組む。**核の仕事**である（環-e-い）。
 
     **1 行は全文で載せる**（2026-09-20）。以前は過去の記憶だけ 120 字で切り、細部は直近の
@@ -501,7 +648,7 @@ def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
         day = clock.ts_to_date(mi.timestamp) if mi.timestamp else "?"
         at = clock.ts_to_time(mi.timestamp) if mi.timestamp else "?"
         subject = subject_line(mi.direction, names.get(mi.obs_id))
-        body = mi.content
+        body = _cut(mi.content, cap)
         out.append(
             f"- {day} {at} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
             f" {subject}{emo}: {body}"

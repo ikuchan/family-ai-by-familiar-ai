@@ -185,11 +185,10 @@ async def decide(
 
 
 def ws_of(*, text: str = "", memories=None, returned_lookups=()) -> SimpleNamespace:
-    """W の代わり。`_decide` が取り出す欄だけを持つ。縮める口は無い（断られても聞き直さない）。"""
+    """W の代わり。`_decide` が取り出す欄だけを持つ。Jev 用の口は無い（全文の W をそのまま測る・出-bw）。"""
     return SimpleNamespace(
         for_arbiter=text,
         memories=memories or [],
         returned_actions=frozenset(a for a, _f, _r in returned_lookups),
         returned_lookups=returned_lookups,
-        for_arbiter_without=None,
     )

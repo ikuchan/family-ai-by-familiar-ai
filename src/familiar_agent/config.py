@@ -690,6 +690,12 @@ class AgentConfig:
     # 時間切れは実験の秒数（中央 0.21・最大 0.72 秒）から。
     jev_timeout_sec: float = field(default_factory=lambda: _float_env("JEV_TIMEOUT_SEC", 2.0))
     jev_confidence_min: float = field(default_factory=lambda: _float_env("JEV_CONFIDENCE_MIN", 0.6))
+    # Jev へ送る文（state）の字数の上限（出-bw・本人の決定 2026-10-12・仮）。Jev は state といちばん長い問いで 32k 語
+    # まで。問いのぶん約 2,000 語を引き、1 字 0.90 語（実測 0.65〜0.90）で割った約 33,000 字に 1 割の余裕を見た。
+    # 送る前に測り、超えたら一度で削る。収まらなければ聞かずに倒し先へ倒す。
+    jev_state_max_chars: int = field(
+        default_factory=lambda: int(_float_env("JEV_STATE_MAX_CHARS", 28_000))
+    )
     # 会話の求めで待たせ続けるとき、最初の「まだかかっている」の後は、最後に音（つなぎ・合図の声）が鳴り終わってから
     # この秒数黙ったら次を出す（出-bd ②）。3 秒は本人の決定（2026-10-10・以前は前のつなぎから 20 秒ごと）。
     # 窓（10 秒）は、待たせているあいだ見張りが延ばす（2026-10-07）。

@@ -113,6 +113,8 @@ def _agent(*, stream_returns, max_iters=3):
     # 数値として使う設定は明示する。MagicMock のままだと `content[:cap]` の cap が
     # `__index__`=1 と解釈され、content が黙って1文字に切られる（実際に起きた）。
     a.config.completion_content_max = 8192
+    # Jev へ送る文の上限（出-bw）。MagicMock のままだと int() が 1 になり、Jev への文が組めなくなる。
+    a.config.jev_state_max_chars = 28_000
     # つなぎの後に答えを待たせる間（出-aq 段 5）。偽物の設定のままだと 1.0 秒になり、つなぎを
     # 出す試験がそのぶん待たされる。間そのものは `test_the_answer_waits_after_the_filler` が見る。
     a.config.filler_answer_gap_seconds = 0.0

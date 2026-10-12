@@ -1042,43 +1042,8 @@ class InformationProcessing:
         return None, ""
 
     def _version_content(self, *, aborted: bool = False) -> str:
-        """いまの求めの状態を、1つの版の content として組み立てる。
-
-        求めは1本の版チェーンとして進み、各版が状態を表す。**どの版にも求めそのものを
-        入れる**（前の版は畳まれて想起の候補から外れるので、辿る道が残らない）。
-
-        並行する調査は通し番号で列挙し、鎖は分岐させない。状態は「求め」の状態であって
-        個々の調査の状態ではないので、3件飛んでいても求めの状態はひとつである。
-
-        結果はここでは切らない。切るなら書き込みの上限で切る。ここで切ると、どこで短く
-        なったのかが追えなくなる。
-        """
-        parts: list[str] = []
-        for lk in sorted(self._req.lookups, key=lambda x: x.index):
-            if lk.action == "主LLM":
-                # 主LLM には探す語が無く、**返りの中身も版には載せない**（`see` と同じで、
-                # 中身は `_finish` の「自分が答えた」が持つ）。求めの状態としては
-                # 「何番が返ったか」だけあればよい。
-                if aborted:
-                    parts.append(f"{lk.index}番：考えるのを打ち切った")
-                elif lk.in_flight:
-                    parts.append(f"{lk.index}番：考えている")
-                else:
-                    parts.append(f"{lk.index}番：考えて答えた")
-                continue
-            if lk.in_flight:
-                verb = "を打ち切った" if aborted else "を起動中"
-                parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{verb}")
-            elif lk.failed:
-                # 結果ではない。生のエラー文は載せない（対処できる情報ではない・出-o）。
-                parts.append(f"{lk.index}番：{lk.action}「{lk.query}」は道具が使えず失敗した")
-            else:
-                parts.append(f"{lk.index}番：{lk.action}「{lk.query}」の結果が届いた：{lk.result}")
-
-        head = f"「{self._req.request_text}」と聞かれた"
-        if not parts:
-            return head + ("（打ち切った）" if aborted else "")
-        return f"「{self._req.request_text}」と聞かれ、" + "／".join(parts)
+        """いまの求めの状態を、1つの版の content として組み立てる（組み方は `workspace.version_text`・出-bw）。"""
+        return workspace.version_text(self._req, aborted=aborted)
 
     @property
     def _in_flight_count(self) -> int:
@@ -2948,6 +2913,14 @@ class InformationProcessing:
 
         return await Iteration(self).run()
 
+    def _follows_view(self, ws: "workspace.Workspace", utterance: str) -> str:
+        """続き先の判定へ送る W（出-bw）。重なりを除き、上限を超えたら各項目を縮める。縮めても収まらなければ空。"""
+        limit = int(getattr(self._agent.config, "jev_state_max_chars", 28_000))
+        view = ws.for_jev_follows(utterance, limit)
+        if view is None:
+            logger.info("event-loop 続き先の判定：長すぎるので W を渡さない")
+        return view or ""
+
     def _judge_follows(self, workspace_ctx: str, utterance: str):
         """続き先の判定（Jev・出-au 段 5-4）。失敗は `JudgeFailed` で、`_note_follows` が「落ちた」と数える。"""
         agent = self._agent
@@ -3008,7 +2981,13 @@ class InformationProcessing:
                     round_=round_,
                     returned=ws.returned_actions,
                     returned_lookups=ws.returned_lookups,
-                    workspace_without=ws.for_arbiter_without,  # 断られたら縮めて聞き直す（出-bm）
+                    # Jev へ送る W と [いま湧いたこと] は、重なりを除いて測る（出-bw）。書き手は全文を見る。
+                    jev_workspace=getattr(ws, "for_jev_arbiter", None),
+                    jev_utterance=(
+                        ws.jev_cue()
+                        if utterance and utterance == self._req.cue and hasattr(ws, "jev_cue")
+                        else ""
+                    ),
                 ),
                 on_decided=cue.decided if cue is not None else None,
             )
@@ -3054,7 +3033,8 @@ class InformationProcessing:
         round_: int = 1,
         returned: frozenset[str] = frozenset(),
         returned_lookups: "tuple[tuple[str, bool, str], ...]" = (),
-        workspace_without: "Callable[[int], str | None] | None" = None,
+        jev_workspace: "Callable[[int], str | None] | None" = None,
+        jev_utterance: str = "",
     ) -> ArbiterInput:
         """調停へ渡す材料。判定（`_decide`）と待ちの一言（`_say_waiting_filler`）が同じものを見る。"""
         from ..capability_state import load_summary
@@ -3091,7 +3071,9 @@ class InformationProcessing:
             silenced=bool(silence_note),
             talking=self._talking(),
             music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
-            workspace_without=workspace_without,  # 完了の道で断られたら縮めて聞き直す（出-bm）
+            jev_workspace=jev_workspace,
+            jev_utterance=jev_utterance,
+            jev_max_chars=int(getattr(agent.config, "jev_state_max_chars", 28_000)),
         )
 
     def _talking(self) -> bool:

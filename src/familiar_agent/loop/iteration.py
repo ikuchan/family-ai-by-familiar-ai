@@ -134,7 +134,7 @@ class Iteration:
         # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、実測 0.72 秒
         # （`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む直前で、そこは待つ。
         self.follows_task = asyncio.ensure_future(
-            ip._judge_follows(self.ws.for_main, self.utterance or "")
+            ip._judge_follows(ip._follows_view(self.ws, self.utterance or ""), self.utterance or "")
         )
 
     def _cap(self) -> None:
