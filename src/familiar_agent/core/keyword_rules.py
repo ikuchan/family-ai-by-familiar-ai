@@ -25,6 +25,10 @@ KEEP_POS_GROUPS = frozenset({"一般", "固有名詞", "サ変接続"})
 BOOST_K = 10
 #: これ以上の割合に当たる語は使わない（ありふれすぎて証拠にならない）。
 DF_MAX_RATIO = 0.25
+#: 使う語の数の上限（出-bz-は・本人の決定・2026-10-13）。語ごとの当たりを数える問い合わせは語の数に比例し、
+#: 本番の記録 4,748 件で 15 語 0.12 秒・303 語 1.67 秒だった（調べものの結果が入った 8,192 字の版を手がかりにした
+#: 想起）。文に出てくる順で取るので、「「…」と聞かれ」から始まる版では人の問いの語が先に残る。
+WORDS_MAX = 20
 
 
 def pick_words(text: str) -> list[str]:
@@ -51,6 +55,8 @@ def pick_words(text: str) -> list[str]:
         word = str(f.get("string") or "").strip()
         if word and word not in out:
             out.append(word)
+            if len(out) >= WORDS_MAX:
+                break
     return out
 
 

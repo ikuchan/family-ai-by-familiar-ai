@@ -919,8 +919,13 @@ class ObservationMemory:
             mood_pad = None
 
         try:
+            # 埋め込む手がかりは、版を書くときと同じ上限で切る（出-bz-は）。同じ文になるので、版の埋め込みの控えが
+            # 当たる（10/13 03:55 は版が 8,192 字で切られ、全文の手がかりで計算し直していた）。語の軸には全文を渡す。
+            from ..config import AgentConfig
+
+            q_text = query[: AgentConfig().completion_content_max]
             q_vec = _coerce_to_embedding_dim(
-                np.array(self._embedder.encode_query([query])[0], dtype=np.float32)
+                np.array(self._embedder.encode_query([q_text])[0], dtype=np.float32)
             )
             situated_q = _situated_vector(q_vec, self._situated._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
