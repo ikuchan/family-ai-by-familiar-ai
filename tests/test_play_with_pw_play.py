@@ -30,13 +30,20 @@ class _Proc:
         self.args = args
         self.finishes = finishes
         self.killed = False
+        self.returncode = None
 
     def wait(self, timeout=None):
         if self.finishes:
+            self.returncode = 0
             return 0
         import subprocess
 
         raise subprocess.TimeoutExpired(self.args, timeout)
+
+    def communicate(self, timeout=None):
+        # 鳴らした結果を見るようになった（知-ak-は）。待ちの上限は `wait` と同じに数える。
+        self.wait(timeout)
+        return b"", b""
 
     def kill(self):
         self.killed = True
@@ -48,7 +55,11 @@ def pw(monkeypatch):
     monkeypatch.setattr(tts, "_pw_play_binary", lambda: "/usr/bin/pw-play")
     monkeypatch.setattr(tts, "_pw_target", lambda: "alsa_output.usb-Yamaha_YVC-300.mono-fallback")
 
+    real = tts.subprocess.Popen
+
     def popen(args, **kw):
+        if not (args and args[0] == "/usr/bin/pw-play"):
+            return real(args, **kw)  # ライブラリの読み込みが使う Popen はそのまま
         p = _Proc(args, finishes=seen.get("finishes", True))
         orig = p.wait
 

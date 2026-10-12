@@ -861,8 +861,16 @@ def _mp3_to_wav(mp3_path: str) -> str:
     return out
 
 
+#: 鳴らせなかったときにログへ残すエラー出力の長さ（知-ak-は）。
+_PW_ERR_CHARS = 200
+
+
 def _play_with_pw_play(binary: str, audio_path: str, gain: float) -> bool:
-    """`pw-play` で鳴らし、声の長さ＋余裕で打ち切る。鳴り終われば True。"""
+    """`pw-play` で鳴らし、声の長さ＋余裕で打ち切る。戻り値が 0 で鳴り終われば True。
+
+    鳴らした結果を毎回 1 行残す（知-ak-は）。戻り値とエラー出力を捨てていたので、声が途中で切れたとき
+    （実機 10/12 11:41・11:49）に何が起きたか分からなかった。戻り値が 0 でなければ話せなかったとする。
+    """
     import soundfile as sf
 
     tmp = _mp3_to_wav(audio_path) if audio_path.lower().endswith(".mp3") else None
@@ -875,15 +883,35 @@ def _play_with_pw_play(binary: str, audio_path: str, gain: float) -> bool:
             args.append(f"--target={target}")
         args += [f"--volume={gain:g}", "--media-role=Communication", path]
         limit = seconds + _play_margin()
-        proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        started = time.monotonic()
+        proc = subprocess.Popen(args, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         try:
-            proc.wait(timeout=limit)
-            return True
+            _, err = proc.communicate(timeout=limit)
         except subprocess.TimeoutExpired:
             with contextlib.suppress(Exception):
                 proc.kill()
             logger.warning("声の再生が %.1f 秒で終わらないので打ち切った（pw-play）", limit)
             return False
+        took = time.monotonic() - started
+        where = target or "既定"
+        if proc.returncode != 0:
+            head = (err or b"").decode(errors="replace").strip()[:_PW_ERR_CHARS]
+            logger.warning(
+                "声を鳴らせなかった（pw-play・戻り値 %s・出口 %s）：%s",
+                proc.returncode,
+                where,
+                head,
+            )
+            return False
+        logger.info(
+            "声を鳴らした（pw-play・戻り値 0・%.2f 秒／声 %.2f 秒・出口 %s）", took, seconds, where
+        )
+        if took < seconds:
+            # 鳴り終わりを待って戻るので、ふつうは声の長さ以上かかる（実測 6.36 秒の声で 6.42〜6.67 秒）。
+            logger.warning(
+                "声の長さより早く終わった（%.2f 秒／声 %.2f 秒・出口 %s）", took, seconds, where
+            )
+        return True
     finally:
         if tmp:
             with contextlib.suppress(OSError):
@@ -1091,10 +1119,12 @@ async def _play_local(tmp_path: str, gain: float = 1.0) -> bool:
 
     # --- sounddevice with named output device (Linux: avoids ALSA hw exclusive-access
     #     conflict when mic is simultaneously open via PortAudio on the same device) ---
+    tried_sd = False
     if sys.platform != "darwin" and os.environ.get("AUDIO_INPUT_DEVICE", "").strip():
         sd_ok = await _play_via_sounddevice(tmp_path, gain=gain)
         if sd_ok:
             return True
+        tried_sd = True
 
     # --- paplay (PulseAudio native, WAV only) ---
     paplay = shutil.which("paplay")
@@ -1137,6 +1167,9 @@ async def _play_local(tmp_path: str, gain: float = 1.0) -> bool:
             logger.warning("Could not launch mpv: %s", e)
 
     # --- sounddevice (pure Python, no system dependency) ---
+    if tried_sd:
+        # 最初に同じ道（pw-play）で失敗している。もう一度呼ぶと同じ声が 2 回鳴りうる（知-ak-は）。
+        return False
     return await _play_via_sounddevice(tmp_path, gain=gain)
 
 
