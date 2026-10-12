@@ -1045,7 +1045,7 @@ def _play_with_pw_play(binary: str, audio_path: str, gain: float, quiet: bool = 
                 head,
             )
             return False
-        # 電子音のように短く繰り返す音は DEBUG にする（出-bu・0.5 秒ごとに INFO が増えるので）。
+        # 電子音のように短く繰り返す音は DEBUG にする（出-bu・1 秒ごとに INFO が増えるので）。
         logger.log(
             logging.DEBUG if quiet else logging.INFO,
             "声を鳴らした（pw-play・戻り値 0・%.2f 秒／声 %.2f 秒・出口 %s"

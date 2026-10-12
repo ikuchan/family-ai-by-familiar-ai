@@ -1185,7 +1185,7 @@ class InformationProcessing:
         10/12 22:15 に、合図「はい」から最初のつなぎまで 13 秒無音だった。音楽が鳴っているあいだは鳴らさない（本人）。
         つなぎや合図の声が鳴っている・準備中のあいだは休む。鳴らすのにかかった時間を引いて、次まで待つ。
         """
-        interval = float(getattr(self._agent.config, "wait_beep_interval_seconds", 0.5))
+        interval = float(getattr(self._agent.config, "wait_beep_interval_seconds", 1.0))
         loop = asyncio.get_running_loop()
         with contextlib.suppress(asyncio.CancelledError):
             while gen == self._request_generation:

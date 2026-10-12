@@ -247,4 +247,5 @@ def test_the_limit_comes_from_config():
     from familiar_agent.config import AgentConfig
 
     with patch.dict(os.environ, {}, clear=True):
-        assert AgentConfig().jev_state_max_chars == 28_000
+        limit = AgentConfig().jev_state_max_chars  # 設定を丸ごと表示させない（鍵が出る）
+    assert limit == 28_000

@@ -181,4 +181,5 @@ def test_the_interval_comes_from_config():
     from familiar_agent.config import AgentConfig
 
     with patch.dict(os.environ, {}, clear=True):
-        assert AgentConfig().wait_beep_interval_seconds == 0.5
+        interval = AgentConfig().wait_beep_interval_seconds  # 設定を丸ごと表示させない（鍵が出る）
+    assert interval == 1.0  # 0.5 秒は短すぎた（本人 2026-10-13）
