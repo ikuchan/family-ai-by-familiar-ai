@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：MI 間の関係（v0.20・全 5 段 実装済み）
+# familiar-ai 設計方針：MI 間の関係（v0.21・全 5 段 実装済み）
 
 ## この文書の位置づけ
 
@@ -118,7 +118,7 @@ CREATE INDEX idx_relations_kind        ON relations(kind);
 
 **関係は反復を閉じるときに同期で書く**（v0.14・2026-09-13）。会話要約は背景で遅れて来るので、それを待って一度に書くと、閉じた 0.1 秒後に起きた反復（待たされていた入室）が直近のやりとりを空で引く（実機で `exchanges → 0件`・関係が書かれたのは 2.4 秒後）。閉じるときに起点・つなぎ・版・答えで関係を書き、要約はできたときにその末尾へ足す（`RelationStore.extend`・位置は最大の次）。
 
-会話は関係の連なりをたどる経路になる。何歩さかのぼるかで窓の大きさが決まるので、数秒の
+会話は関係の連なりをたどる経路になる。何歩さかのぼるかで載せる量が決まるので、数秒の
 追跡と数か月の想起が同じ仕組みで出る。単一の識別子で区切らないから、会話の境界を決める
 必要も無い。
 
@@ -371,7 +371,7 @@ CREATE UNIQUE INDEX idx_relation_members_old
 ### 段 4 改訂：直近のやりとりは W の枠（実装済み・2026-09-13）
 
 **直近のやりとりは、想起と同じく O からの派生ビューであり、W の枠の一つとして `compose()` が組む。**
-調停（軽量LLM）と主LLM は**同じ作り方**の W を受け取り、記憶に関する差は**窓の大きさ**だけである。
+調停（軽量LLM）と主LLM は**同じ作り方**の W を受け取り、記憶に関する差は**直近の往復数**だけである。
 
 **組み立て**
 
@@ -386,11 +386,11 @@ CREATE UNIQUE INDEX idx_relation_members_old
    直近を組むときに要るのは「直前までがどう繋がっていたか」で、それはもう辺として書かれている。
 
 **$n$ は Config に 2 つ持つ**（`課題5` D 章）：`RECENT_EXCHANGES_ARBITER`（軽量LLM・既定 **3**）と
-`RECENT_EXCHANGES_MAIN`（主LLM・既定 **6**）。同じ関係の並びを、窓の大きさだけ変えて切り出す。
+`RECENT_EXCHANGES_MAIN`（主LLM・既定 **6**）。同じ関係の並びを、直近の往復数だけ変えて切り出す。
 
 **REST 内省で $n$ を統計的に見直す**（記-a-に「Config 自己調整」の最初の対象・設計のみ）。材料は
 「答えが実際に参照した直近の深さ」——`memory_verdicts` で `referred`／`important` と申告された記録が、
-直近の何往復目に居たかの分布。窓の端（$n$ 往復目）に参照が集まっていれば $n$ を +1、末尾側が一定期間
+直近の何往復目に居たかの分布。載せた最古の往復（$n$ 往復目）に参照が集まっていれば $n$ を +1、末尾側が一定期間
 まったく参照されなければ −1。範囲と頻度は `課題5` に置き、値は自己調整の器（`agent_state` の
 `config_overrides`・env が常に勝つ）へ書く。
 
@@ -400,7 +400,7 @@ CREATE UNIQUE INDEX idx_relation_members_old
 （時刻順に引くため）。
 
 **実装**（2026-09-13）：`RelationStore.latest_origins(n)`（起点 O の時刻順・辺は見ない）→ `OIF.latest_origins`／
-`OIF.exchanges`（継起の walk・`Said` に `obs_id` を足した）→ `workspace.recent_chains`（窓の最大幅で 1 度引く）→
+`OIF.exchanges`（継起の walk・`Said` に `obs_id` を足した）→ `workspace.recent_chains`（多いほうの直近の往復数で 1 度引く）→
 `workspace.render_recent(n)`。`workspace.recall()` は `Workspace`（記録・`for_arbiter`・`for_main`・対応表）を返し、
 調停は `for_arbiter`、主LLM は `for_main` を受け取る。`compose()` は直近に載った id を過去の列から除く。
 `_recent_rows`／`_recent_for_arbiter`／`_recent_ctx`／`_recent_cursor`／`OIF.latest_origin` と、`arbitrate`・
@@ -542,6 +542,8 @@ day_summary の記録を書くだけである。計測が見た置換先は、�
 
 ## 更新履歴
 
+> v0.21：直近のやりとりで使っていた「窓」（直近の窓・窓の大きさ・窓の端・窓の外）を、用語一覧で定義した「直近の往復数」「載せた最古の往復」「載せなかった最新の往復」「直近を引き直す範囲」に言い換えた。会話の窓とぶつかるため（2026-10-12・本人の指示）。
+>
 > v0.20：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.19：関係の箱の口のうち呼び手の無かった `members_of`・`relations_for`・`latest_member` を外したことと、いまの公開の口を注記した（2026-09-28・環-ab R-7）。
 > v0.18：過去の記憶の列が 120 字で切られなくなったので、その但し書きを直す（2026-09-20）。
