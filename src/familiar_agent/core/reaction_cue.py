@@ -50,6 +50,14 @@ def cue_for(final: str) -> str:
     return TOOL
 
 
+def word_for(path: Path) -> str:
+    """合図の音のファイル → 言った言葉（出-bt）。機械音・効果音は言葉が無いので空。"""
+    for words, wavs in ((TOOL_WORDS, TOOL_WAVS), (THINK_WORDS, THINK_WAVS)):
+        if path in wavs:
+            return words[wavs.index(path)]
+    return ""
+
+
 def sound_for(cue: str) -> "Path | None":
     """合図 → 流すファイル。作り置きの声は毎回その中から選ぶ。なしは None。"""
     if cue == ACK:

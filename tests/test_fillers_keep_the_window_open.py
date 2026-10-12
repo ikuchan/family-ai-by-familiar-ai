@@ -33,13 +33,22 @@ def _ip(kind: str, action: str, *, first=0.01, every=0.02):
 
 
 def _progress_count(ip, *, run_for: float) -> int:
+    """見張りを `run_for` 秒立て、積まれた「進捗」を数える。
+
+    取り出すたびに、つなぎの反復が言った（か取り下げた）ものとして印を下ろす（出-bt）。下ろさないと、書いている
+    つなぎがあるとみなして次を頼まない。
+    """
+
     async def go():
         ip._ensure_wait_watch()
-        await asyncio.sleep(run_for)
+        n, end = 0, asyncio.get_running_loop().time() + run_for
+        while asyncio.get_running_loop().time() < end:
+            await asyncio.sleep(0.002)
+            while not ip._triggers.empty():
+                if ip._triggers.get_nowait().kind == "進捗":
+                    n += 1
+                    ip._req.filler_pending = False
         ip._stop_wait_watch()
-        n = 0
-        while not ip._triggers.empty():
-            n += ip._triggers.get_nowait().kind == "進捗"
         return n
 
     return asyncio.run(go())

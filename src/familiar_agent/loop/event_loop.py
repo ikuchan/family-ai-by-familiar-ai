@@ -1176,8 +1176,8 @@ class InformationProcessing:
 
     def _sounding(self) -> bool:
         """つなぎの声か合図の声が、いま鳴っているか（出-bd ②：鳴っているあいだは次のつなぎを出さない）。"""
-        if self._filler_voices:
-            return True
+        if self._filler_voices or self._req.filler_pending:
+            return True  # 書いている・合成しているつなぎも数える（出-bt）
         cue = getattr(self, "_cue_sound", None)
         return cue is not None and not cue.done()
 
@@ -1260,6 +1260,7 @@ class InformationProcessing:
                 )
                 self._triggers.put_nowait(Trigger(kind="進捗", query=waiting[0].query))
                 req.last_progress_at = now
+                req.filler_pending = True  # 声か取り下げで下ろす（出-bt）
 
     def _dispatch_main_llm(
         self,
@@ -1864,6 +1865,10 @@ class InformationProcessing:
 
         progress = [c for c in items if c.kind == "進捗"]
         items = [c for c in items if c.kind != "進捗"]
+        if progress and items:
+            # 本物の結果が一緒に届いたので、つなぎの反復は起きない。頼んだつなぎは取り下げ、間はここから数え直す（出-bt）。
+            self._req.filler_pending = False
+            self._req.last_progress_at = time.monotonic()
         if progress and not items:
             # 「まだかかっている」は結果ではない。飛行中の数も一覧も触らず、意図も
             # supersede しない。次の反復で、調停に短い一言を書かせるためだけに起こす。
@@ -3061,22 +3066,34 @@ class InformationProcessing:
         つなぎを出すのは待たせている事実なので、待っているものだけを伝えて軽量LLM に書かせる。
         """
         self._slow_notice_received = False
-        waiting = self._waiting_on()
-        if not waiting:
-            return ""  # 答えがもう届いている
-        what = (
-            "いまは返事を考えている最中"
-            if all(lk.action == "主LLM" for lk in waiting)
-            else "いまは調べものの答えを待っている最中"
-        )
-        inp = self._arbiter_input(
-            utterance=utterance or self._req.cue,
-            workspace_ctx=workspace_ctx,
-            present_ctx=_present_ctx(self._agent),
-        )
-        await self._say_filler(await self._arbiter().write_filler(inp, what))
-        logger.info("event-loop 反復 %d 出力=つなぎ（待たせている）", chain)
-        return ""
+        req = self._req
+        try:
+            waiting = self._waiting_on()
+            if not waiting:
+                return ""  # 答えがもう届いている
+            what = (
+                "いまは返事を考えている最中"
+                if all(lk.action == "主LLM" for lk in waiting)
+                else "いまは調べものの答えを待っている最中"
+            )
+            inp = self._arbiter_input(
+                utterance=utterance or self._req.cue,
+                workspace_ctx=workspace_ctx,
+                present_ctx=_present_ctx(self._agent),
+            )
+            text = await self._arbiter().write_filler(inp, what)
+            if not self._waiting_on():
+                # 書いているあいだに答えが届いた（出-bt）。言うと答えがつなぎの後まで待たされる（10/12 22:15 に約 10 秒）。
+                logger.info("event-loop 答えが届いたのでつなぎを言わない：%.40s", text)
+                return ""
+            await self._say_filler(text)
+            logger.info("event-loop 反復 %d 出力=つなぎ（待たせている）", chain)
+            return ""
+        finally:
+            # 声になった（`_filler_voices` が鳴っているあいだを数える）か、取り下げた。間は鳴り終わりか、ここから数える。
+            req.filler_pending = False
+            if not self._filler_voices:
+                req.last_progress_at = time.monotonic()
 
     async def _act_on_decision(self, decision: Decision, *, utterance: str, gen: int) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
@@ -4637,6 +4654,10 @@ class _ReactionCue:
         task = self._ip._dif.play_cue(cue)
         if task is None:
             return
+        word = getattr(self._ip._dif, "last_cue_word", "")
+        if word:
+            # 作り置きの声で言った言葉は、言ったことに数える（出-bt）。書き手が知らず、つなぎが「はい、」を繰り返した。
+            self._ip._req.said_fillers.append(word)
         # 合図も音に数える（出-bd ②）。鳴っているあいだはつなぎを出さず、鳴り終わってから 3 秒黙ったら出す。
         req = self._ip._req
         self._ip._cue_sound = task
