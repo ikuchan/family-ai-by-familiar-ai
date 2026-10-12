@@ -812,6 +812,7 @@ class InformationProcessing:
         """
         agent = self._agent
         content = self._version_content(aborted=aborted)
+        started = time.monotonic()  # 版を書く（埋め込み・新しさ）にかかった時間を残す（出-bz）
         version_id = await agent._oif.write(
             MI(
                 id="",
@@ -821,6 +822,11 @@ class InformationProcessing:
                 parent_id=self._req.request_id,
             ),
             **agent._observation_perspective(),
+        )
+        logger.info(
+            "event-loop 版を書いた %.2f 秒（%d 字）",
+            time.monotonic() - started,
+            min(len(content), agent.config.completion_content_max),
         )
         if version_id:
             self._note_record(version_id, "版")

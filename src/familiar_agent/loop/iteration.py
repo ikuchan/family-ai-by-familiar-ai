@@ -8,7 +8,9 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import logging
+import time
 
 from ..config import MemoryConfig
 from ..person_memory_manager import AGENT_SELF_ID
@@ -31,6 +33,28 @@ def _log_recall_weights(trigger, base, used, memories) -> None:
         "event-loop 想起 trigger=%s w=%s 基底=%s 上位=%s %d件",
         trigger, _fmt(used), _fmt(base), top or "なし", len(memories),
     )  # fmt: skip
+
+
+def _timed(label: str):
+    """反復の段にかかった時間を INFO で 1 行残す飾り（出-bz・2026-10-13）。
+
+    10/12 23:59 に、つなぎの反復のあと完了の想起が W を組むまで 2.35 秒ログが途切れ、取込と想起のどちらが重いか
+    分からなかった。例外になっても時間は残し、例外はそのまま投げる。
+    """
+
+    def wrap(fn):
+        @functools.wraps(fn)
+        async def timed(self, *args, **kwargs):
+            started = time.monotonic()
+            try:
+                return await fn(self, *args, **kwargs)
+            finally:
+                logger.info("event-loop %s %.2f 秒", label, time.monotonic() - started)
+
+        timed._timed_label = label  # type: ignore[attr-defined]
+        return timed
+
+    return wrap
 
 
 def closes_silently(decision, *, trigger_kind: str, returned: "frozenset[str]") -> bool:
@@ -75,6 +99,7 @@ class Iteration:
         closed = await self._close_early()
         return closed if closed is not None else await self._throw_main_llm()
 
+    @_timed("取込")
     async def _intake(self):
         """1. 取込：駆動体が受けた完了を O に書き、open 意図を解決する。"""
         ip = self.ip
@@ -102,6 +127,7 @@ class Iteration:
                 "event-loop iter=%d/%d QC取込=%d件", self.chain, self.max_chain, self.drained
             )
 
+    @_timed("想起")
     async def _recall(self) -> None:
         """2. REC（想起）：O（＋現入力）→ W。W は派生なので反復末に捨てる。
 
