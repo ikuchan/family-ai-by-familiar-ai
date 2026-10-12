@@ -596,17 +596,18 @@ async def recall(
     return ws
 
 
-def link_follows(agent, req: Request, w_id_map: "dict[str, str]", full: "str | None") -> bool:
+def link_follows(agent, req: Request, w_id_map: "dict[str, str]", short: "str | None") -> bool:
     """判定が返した続き先へ、継起の辺を張る（`根拠台帳` §29）。
 
-    **W に無い id は捨てる。** 判定は12桁の形で返すが、実在するかまでは見ていない。
-    突き合わせは `memory_verdicts` と同じ対応表を通す。
+    **W に無い id は捨てる。** 判定は W の行の 12 桁の短い id を返す。`memory_verdicts` と同じ
+    対応表で完全な id に直してから張る（直さずに完全な id と比べていて、一度も繋がらなかった・出-bo）。
 
     自分の起点を指しても繋がない。自己ループはさかのぼりが止まらなくなる。
     """
-    if not full or not req.request_id or not w_id_map:
+    if not short or not req.request_id or not w_id_map:
         return False
-    if full not in set(w_id_map.values()) or full == req.request_id:
+    full = w_id_map.get(short)
+    if not full or full == req.request_id:
         return False
     logger.info("event-loop このターンは %.8s に続く", full)
     with contextlib.suppress(Exception):
