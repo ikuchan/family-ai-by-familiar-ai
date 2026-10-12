@@ -36,6 +36,7 @@ def _progress(action: str, *, writer, lookups=True):
             ip._req.lookups = [Lookup(index=1, action=action, query="明日の天気", generation=0)]
         ip._drained_completions.append(Trigger(kind="進捗", query="明日の天気"))
         await ip._iterate()
+        await asyncio.gather(*ip._filler_jobs)  # つなぎの書き手と声は裏の仕事（出-bx）
         await ip.close()
         return ip
 

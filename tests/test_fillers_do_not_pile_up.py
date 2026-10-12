@@ -94,6 +94,7 @@ def test_a_filler_written_after_the_answer_is_not_said(caplog):
 
     async def go():
         await ip._say_waiting_filler("x", "", 1)
+        await asyncio.gather(*ip._filler_jobs)  # 書き手と声は裏の仕事（出-bx）
         await ip.close()
 
     with caplog.at_level("INFO"):
@@ -109,6 +110,7 @@ def test_a_filler_is_said_while_still_waiting():
 
     async def go():
         await ip._say_waiting_filler("x", "", 1)
+        await asyncio.gather(*ip._filler_jobs)  # 書き手と声は裏の仕事（出-bx）
         await ip.close()
 
     asyncio.run(go())

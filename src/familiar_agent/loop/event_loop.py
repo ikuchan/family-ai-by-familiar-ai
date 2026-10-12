@@ -727,6 +727,8 @@ class InformationProcessing:
         # 鳴っている最中のつなぎの声（出-aq 段 1）。**待たずに鳴らす**ので、捨てられないよう
         # 参照を持っておき、終わるときに止める。
         self._filler_voices: set[asyncio.Task] = set()
+        #: 裏で書いているつなぎ（出-bx）。答えが始まったら言わず、終わるときに取り消す。
+        self._filler_jobs: "set[asyncio.Future]" = set()
         self._filler_voice_ended = 0.0  # つなぎの声が鳴り終わった時刻（monotonic・出-aq 段 5）
         self._cue_sound: "asyncio.Future[None] | None" = None  # いま鳴らしている合図（出-bd ②）
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
@@ -2181,6 +2183,8 @@ class InformationProcessing:
         self._req.source = getattr(self, "_pending_source", "") if kind == "発話" else ""
         self._pending_source = ""
         self._req.cue_rang = False
+        self._req.filler_pending = False
+        self._req.answering = False
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -2897,10 +2901,10 @@ class InformationProcessing:
                 await self._driver
             self._driver = None
         self._stop_wait_watch()
-        # 鳴っている最中のつなぎは止める（出-aq 段 1）。**終わるときに声を待たない。**
-        for task in list(self._filler_voices):
+        # 鳴っている最中のつなぎと、裏で書いているつなぎは止める（出-aq 段 1・出-bx）。**終わるときに声を待たない。**
+        for task in list(self._filler_voices) + list(self._filler_jobs):
             task.cancel()
-        for task in list(self._filler_voices):
+        for task in list(self._filler_voices) + list(self._filler_jobs):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
 
@@ -3086,13 +3090,27 @@ class InformationProcessing:
         求めは待ったまま続く。ここで light を選ばせると、あとから届く結果に行き場が無くなる（案ハ）。
         以前はつなぎ 1 つのために調停をまるごと回し、Jev の分岐しだいで返事を言ったり黙ったりした。
         つなぎを出すのは待たせている事実なので、待っているものだけを伝えて軽量LLM に書かせる。
+
+        **書き手と声は裏の仕事に出し、反復はすぐ閉じる**（出-bx・2026-10-13）。反復は 1 つずつ回るので、書き手（1 秒ほど）
+        を待つと、そのあいだに届いた結果の取込が始まらない（10/12 23:59 に 1.33 秒待たされた）。
         """
         self._slow_notice_received = False
+        job = asyncio.ensure_future(
+            self._write_and_say_filler(utterance, workspace_ctx, chain, self._request_generation)
+        )
+        self._filler_jobs.add(job)
+        job.add_done_callback(self._filler_jobs.discard)
+        return ""
+
+    async def _write_and_say_filler(
+        self, utterance: str, workspace_ctx: str, chain: int, gen: int
+    ) -> None:
+        """裏の仕事：つなぎを書かせ、まだ待たせていて、答えも始まっていなければ言う（出-bt・出-bx）。"""
         req = self._req
         try:
             waiting = self._waiting_on()
             if not waiting:
-                return ""  # 答えがもう届いている
+                return  # 答えがもう届いている
             what = (
                 "いまは返事を考えている最中"
                 if all(lk.action == "主LLM" for lk in waiting)
@@ -3104,13 +3122,22 @@ class InformationProcessing:
                 present_ctx=_present_ctx(self._agent),
             )
             text = await self._arbiter().write_filler(inp, what)
+            if gen != self._request_generation:
+                return  # 書いているあいだに求めが打ち切られた
+            if req.answering:
+                # 言うと答えのあとにつなぎが鳴る（出-bx）。
+                logger.info("event-loop 答えを言い始めたのでつなぎを言わない：%.40s", text)
+                return
             if not self._waiting_on():
                 # 書いているあいだに答えが届いた（出-bt）。言うと答えがつなぎの後まで待たされる（10/12 22:15 に約 10 秒）。
                 logger.info("event-loop 答えが届いたのでつなぎを言わない：%.40s", text)
-                return ""
+                return
             await self._say_filler(text)
             logger.info("event-loop 反復 %d 出力=つなぎ（待たせている）", chain)
-            return ""
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop つなぎを書けなかった", exc_info=True)
         finally:
             # 声になった（`_filler_voices` が鳴っているあいだを数える）か、取り下げた。間は鳴り終わりか、ここから数える。
             req.filler_pending = False
@@ -3463,6 +3490,7 @@ class InformationProcessing:
             logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
             return text, "独白"
         self._stop_beeps()  # 答えの声が始まる。待ちの電子音を止める（出-bu）
+        self._req.answering = True  # 裏で書いているつなぎは、もう言わない（出-bx）
         await self._pause_after_filler()
         await self._say_aloud(text, careful=self._careful_voice(branch))
         self._note_suggestion_offered(text)

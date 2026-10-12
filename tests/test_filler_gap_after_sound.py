@@ -141,6 +141,7 @@ def test_the_first_filler_is_not_skipped_after_the_cue_voice():
     async def go():
         ip._req.last_sound_ended_at = time.monotonic()  # 合図の声が鳴った
         await ip._say_waiting_filler("x", "", 1)
+        await asyncio.gather(*ip._filler_jobs)  # 書き手と声は裏の仕事（出-bx）
         await ip.close()
 
     asyncio.run(go())
