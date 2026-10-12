@@ -1,7 +1,7 @@
 """話しかけたら、聞こえた合図と反応の合図をすぐ流す（出-bg・2026-10-10・本人の決定）。
 
 声で話しかけた言葉が門を通り、Jev が判断を始めたら機械音 A を鳴らし続ける。Jev が決めたら A を止め、決めた動作に合わせて
-流す：黙る → なし・軽く返す／聞き返す／状態を伝える → 効果音 B・道具を使う → 作り置きの声（はい・うん・りょ）・考えて返す →
+流す：黙る → なし・軽く返す／聞き返す／状態を伝える → 効果音 B・道具を使う → 作り置きの声（はい・うん）・考えて返す →
 作り置きの声（んー・えっと・うーん）。キーボードの入力では鳴らさない。合図は軽量LLM が文を書く前に出す（遅くならない）。
 作り置きの声のあとも最初のつなぎは省かない（出-bd ②で改めた・合図が鳴り終わってから 3 秒で出す）。返事の声は合図が終わってから流す。
 """
@@ -40,9 +40,26 @@ def test_each_decision_has_its_cue(final, cue):
 
 def test_the_sounds_are_in_the_package():
     files = rc.sound_files()
-    assert len(files) == 8  # A・B・道具の声 3・考える声 3
+    assert len(files) == 7  # A・B・道具の声 2・考える声 3
     for path in files:
         assert path.exists(), path
+
+
+def test_the_tool_voice_has_no_ryo():
+    """「りょ」は外した。0.36 秒の SBV2 の声で「キョ」と聞こえ、合図として伝わらなかった（2026-10-12・本人）。"""
+    assert rc.TOOL_WORDS == ("はい", "うん")
+    assert [p.name for p in rc.TOOL_WAVS] == ["react_tool_0.wav", "react_tool_1.wav"]
+
+
+def test_no_unused_tool_voice_is_left():
+    """**反証の側**：使わない声のファイルが置き場に残っていない。"""
+    left = sorted(p.name for p in rc.TOOL_WAVS[0].parent.glob("react_tool_*.wav"))
+    assert left == [p.name for p in rc.TOOL_WAVS]
+
+
+def test_the_tool_cue_picks_from_the_two():
+    picked = {rc.sound_for(rc.TOOL).name for _ in range(200)}
+    assert picked == {"react_tool_0.wav", "react_tool_1.wav"}
 
 
 # ── 調停は、軽量LLM より前に決まったことを知らせる ─────────────────────────────
