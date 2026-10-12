@@ -22,6 +22,7 @@ import contextlib
 import json
 import logging
 import os
+import queue
 import shutil
 import struct
 import subprocess
@@ -31,6 +32,7 @@ import threading
 import time
 import urllib.request
 from pathlib import Path
+from typing import cast
 from urllib.parse import quote
 
 from ..voice_guard import VoiceLoopGuard, get_shared_voice_guard
@@ -427,8 +429,11 @@ class TTSTool:
         """Gemini TTS で合成して鳴らす（環-v・2026-09-24）。
 
         **逐次で受け取る。** 最初の音までが 0.98 秒、音が全部そろうまでは長文で 3.9 秒で、
-        待ちを決めるのは前者である（`根拠台帳` §45）。いまは全部溜めてから鳴らしているので
-        差は出ないが、受け取り方は逐次のままにしておく（鳴らす側を後で直せる）。
+        待ちを決めるのは前者である（`根拠台帳` §45）。
+
+        **合成しながら鳴らす**（出-by・2026-10-13）。出口がこの機体で `pw-play` があれば、最初の生の音が届いた時点で
+        鳴らし始める（`_stream_gemini`）。10/12 23:59 の答えは、最初の音 0.91 秒に対し全部そろうまで 3.62 秒待っていた。
+        WAV で届いた・カメラのスピーカー・`pw-play` が無いときは、今までどおり溜めてから鳴らす。
 
         サーバーが返さなくても例外は投げない。話せなかったことだけを返す。
         """
@@ -445,8 +450,21 @@ class TTSTool:
             tmp_path: str | None = None
             voice_guard.on_tts_start(text)
             try:
+                binary = (
+                    _pw_play_binary() if output == "local" and sys.platform != "win32" else None
+                )
                 try:
-                    audio, is_wav = await asyncio.to_thread(self._synth_gemini, text)
+                    if binary:
+                        state, audio, is_wav = await asyncio.to_thread(
+                            self._stream_gemini, text, binary
+                        )
+                        if state == "played":
+                            played_via = ["local"]
+                            return f"Said: {text[:50]}... (via local・逐次)"
+                        if state == "failed":
+                            return f"話せなかった（合成に失敗）: {text[:40]}"
+                    else:
+                        audio, is_wav = await asyncio.to_thread(self._synth_gemini, text)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("Gemini で合成できなかったので話せなかった: %s", e)
                     return f"話せなかった（合成に失敗）: {text[:40]}"
@@ -467,16 +485,11 @@ class TTSTool:
                     with contextlib.suppress(OSError):
                         os.unlink(tmp_path)
 
-    def _synth_gemini(self, text: str) -> "tuple[bytes, bool]":
-        """逐次に受け取って繋ぐ。返りは（音のバイト列, それが WAV か）。
-
-        **`mime_type` で見分ける。** 逐次は生 PCM、一括は WAV で返る（2026-09-24 実測）。
-        包み方を間違えると、雑音になるか無音になる。
-        """
+    def _gemini_config(self):
+        """Gemini TTS の呼び出しの設定（声の名前）。溜める道と逐次に鳴らす道で同じものを使う。"""
         from google.genai import types
 
-        client = _gemini_client(self.gemini_api_key)
-        config = types.GenerateContentConfig(
+        return types.GenerateContentConfig(
             response_modalities=["AUDIO"],
             speech_config=types.SpeechConfig(
                 voice_config=types.VoiceConfig(
@@ -484,6 +497,162 @@ class TTSTool:
                 )
             ),
         )
+
+    def _stream_gemini(self, text: str, binary: str) -> "tuple[str, bytes, bool]":
+        """Gemini から逐次に受け取りながら、`pw-play` の標準入力へ流し込んで鳴らす（出-by）。
+
+        返りは（結果, 届いた音, WAV か）。結果は `played`（1 つでも鳴らした。途中で止まっても控えへは落ちない。同じ文を
+        頭から 2 回聞かせないため）・`buffered`（WAV で届いたので、溜めた音を呼び手が今までどおり鳴らす）・`failed`
+        （何も鳴らさないうちに失敗。呼び手は控えへ落ちる）。音が `_STREAM_IDLE_SEC` 届かなければ止める。
+        """
+        client = _gemini_client(self.gemini_api_key)
+        config = self._gemini_config()
+        items: "queue.Queue[object]" = queue.Queue()
+
+        def _read() -> None:
+            try:
+                for chunk in client.models.generate_content_stream(
+                    model=self.gemini_model, contents=self._text_for_synth(text), config=config
+                ):
+                    parts = (chunk.candidates[0].content.parts or []) if chunk.candidates else []
+                    for part in parts:
+                        blob = getattr(part, "inline_data", None)
+                        if blob is not None and blob.data:
+                            items.put((blob.data, str(blob.mime_type or "")))
+                items.put(None)
+            except Exception as e:  # noqa: BLE001
+                items.put(e)
+
+        threading.Thread(target=_read, daemon=True, name="tts-stream").start()
+        started = time.monotonic()
+        first: "float | None" = None
+        began = 0.0
+        buf: list[bytes] = []
+        proc: "subprocess.Popen | None" = None
+        locked = False
+        sink = _sink_state_or_unknown()
+        target = _pw_target()
+        where = target or "既定"
+        try:
+            while True:
+                try:
+                    item = items.get(timeout=_STREAM_IDLE_SEC)
+                except queue.Empty:
+                    logger.warning(
+                        "TTS: Gemini の音が届かないので止めた（%.1f 秒・逐次）", _STREAM_IDLE_SEC
+                    )
+                    if proc is not None:
+                        with contextlib.suppress(Exception):
+                            proc.kill()
+                    return ("played" if proc is not None else "failed"), b"".join(buf), False
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    logger.warning("Gemini で合成できなかった（逐次）: %s", item)
+                    if proc is None:
+                        return "failed", b"", False
+                    break
+                data, mime = cast("tuple[bytes, str]", item)
+                if first is None:
+                    first = time.monotonic() - started
+                    if "wav" in mime:
+                        # 一括の WAV で届いた。溜めて、呼び手が今までどおり鳴らす。
+                        buf.append(data)
+                        while (rest := items.get(timeout=_STREAM_IDLE_SEC)) is not None:
+                            if isinstance(rest, Exception):
+                                raise rest
+                            buf.append(cast("tuple[bytes, str]", rest)[0])
+                        return "buffered", b"".join(buf), True
+                buf.append(data)
+                if proc is None:
+                    _PLAYBACK_LOCK.acquire()
+                    locked = True
+                    args = [
+                        binary,
+                        "--raw",
+                        f"--rate={GEMINI_RATE}",
+                        "--channels=1",
+                        "--format=s16",
+                    ]
+                    if target:
+                        args.append(f"--target={target}")
+                    gain = float(getattr(self, "_gain", 1.0))
+                    args += [f"--volume={gain:g}", "--media-role=Communication", "-"]
+                    proc = subprocess.Popen(
+                        args,
+                        stdin=subprocess.PIPE,
+                        stdout=subprocess.DEVNULL,
+                        stderr=subprocess.PIPE,
+                    )
+                    began = time.monotonic() - started
+                try:
+                    proc.stdin.write(data)  # type: ignore[union-attr]
+                    proc.stdin.flush()  # type: ignore[union-attr]
+                except OSError as e:
+                    logger.warning("TTS: 声を流し込めなかった（逐次）: %s", e)
+                    break
+            if proc is None:
+                return "failed", b"", False
+            with contextlib.suppress(Exception):
+                proc.stdin.close()  # type: ignore[union-attr]
+            pcm = b"".join(buf)
+            seconds = len(pcm) / 2 / GEMINI_RATE
+            played_for = time.monotonic() - started - began
+            try:
+                code = proc.wait(timeout=max(0.0, seconds - played_for) + _play_margin())
+            except subprocess.TimeoutExpired:
+                with contextlib.suppress(Exception):
+                    proc.kill()
+                logger.warning("声の再生が終わらないので打ち切った（pw-play・逐次）")
+                return "played", pcm, False
+            took = time.monotonic() - started - began
+            logger.info(
+                "TTS: Gemini で合成した（%s・%s・最初の音 %.2f 秒・鳴り始め %.2f 秒・全部 %.2f 秒・%d 字・逐次）",
+                self.gemini_model,
+                self.gemini_voice,
+                first or 0.0,
+                began,
+                time.monotonic() - started,
+                len(text),
+            )
+            if code != 0:
+                err = b""
+                with contextlib.suppress(Exception):
+                    err = proc.stderr.read() or b""  # type: ignore[union-attr]
+                logger.warning(
+                    "声を鳴らせなかった（pw-play・逐次・戻り値 %s・出口 %s・既定の出口 %s）：%s",
+                    code,
+                    where,
+                    sink,
+                    err.decode(errors="replace").strip()[:_PW_ERR_CHARS],
+                )
+                return "played", pcm, False
+            import numpy as np
+
+            end, gap = _voice_shape(np.frombuffer(pcm, dtype="<i2") / 32768.0, GEMINI_RATE)
+            logger.info(
+                "声を鳴らした（pw-play・逐次・戻り値 0・%.2f 秒／声 %.2f 秒・出口 %s"
+                "・有音の終わり %.2f 秒・最長の無音 %.2f 秒・既定の出口 %s）",
+                took,
+                seconds,
+                where,
+                end,
+                gap,
+                sink,
+            )
+            return "played", pcm, False
+        finally:
+            if locked:
+                _PLAYBACK_LOCK.release()
+
+    def _synth_gemini(self, text: str) -> "tuple[bytes, bool]":
+        """逐次に受け取って繋ぐ。返りは（音のバイト列, それが WAV か）。
+
+        **`mime_type` で見分ける。** 逐次は生 PCM、一括は WAV で返る（2026-09-24 実測）。
+        包み方を間違えると、雑音になるか無音になる。
+        """
+        client = _gemini_client(self.gemini_api_key)
+        config = self._gemini_config()
         started = time.monotonic()
         first: float | None = None
         buf: list[bytes] = []
@@ -998,6 +1167,9 @@ def _mp3_to_wav(mp3_path: str) -> str:
     sf.write(out, audio, 44100)
     return out
 
+
+#: 逐次に鳴らしているとき、Gemini の音がこの秒数届かなければ止める（出-by・〔仮〕本人の承認 2026-10-13）。
+_STREAM_IDLE_SEC = 10.0
 
 #: 鳴らせなかったときにログへ残すエラー出力の長さ（知-ak-は）。
 _PW_ERR_CHARS = 200
