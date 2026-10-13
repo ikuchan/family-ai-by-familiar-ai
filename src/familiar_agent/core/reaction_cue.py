@@ -9,7 +9,7 @@
 | 黙る | なし |
 | 軽く返す・聞き返す・状態を伝える | 効果音 B（返事がすぐ続くので、声の相づちを重ねない） |
 | 道具を使う | 作り置きの声（はい・うん） |
-| 考えて返す | 作り置きの声（んー・えっと・うーん） |
+| 考えて返す | 作り置きの声（えっと・うーん） |
 """
 
 from __future__ import annotations
@@ -29,7 +29,7 @@ THINKING_WAV = _SOUNDS / "react_thinking.wav"
 ACK_WAV = _SOUNDS / "react_ack.wav"
 #: 作り置きの声（パジュの声・SBV2）。毎回その中から選ぶ。
 TOOL_WORDS = ("はい", "うん")  # 「りょ」は「キョ」と聞こえたので外した（2026-10-12・本人）
-THINK_WORDS = ("んー", "えっと", "うーん")
+THINK_WORDS = ("えっと", "うーん")  # 「んー」は変に聞こえたので外した（出-ce・2026-10-13・本人）
 TOOL_WAVS = tuple(_SOUNDS / f"react_tool_{i}.wav" for i in range(len(TOOL_WORDS)))
 THINK_WAVS = tuple(_SOUNDS / f"react_think_{i}.wav" for i in range(len(THINK_WORDS)))
 

@@ -2,7 +2,7 @@
 
 声で話しかけた言葉が門を通り、Jev が判断を始めたら機械音 A を鳴らし続ける。Jev が決めたら A を止め、決めた動作に合わせて
 流す：黙る → なし・軽く返す／聞き返す／状態を伝える → 効果音 B・道具を使う → 作り置きの声（はい・うん）・考えて返す →
-作り置きの声（んー・えっと・うーん）。キーボードの入力では鳴らさない。合図は軽量LLM が文を書く前に出す（遅くならない）。
+作り置きの声（えっと・うーん）。キーボードの入力では鳴らさない。合図は軽量LLM が文を書く前に出す（遅くならない）。
 作り置きの声のあとも最初のつなぎは省かない（出-bd ②で改めた・合図が鳴り終わってから 3 秒で出す）。返事の声は合図が終わってから流す。
 """
 
@@ -40,7 +40,7 @@ def test_each_decision_has_its_cue(final, cue):
 
 def test_the_sounds_are_in_the_package():
     files = rc.sound_files()
-    assert len(files) == 7  # A・B・道具の声 2・考える声 3
+    assert len(files) == 6  # A・B・道具の声 2・考える声 2（「んー」を外した・出-ce）
     for path in files:
         assert path.exists(), path
 
@@ -272,3 +272,25 @@ def test_a_reply_waits_for_the_cue(monkeypatch):
 
     asyncio.run(go())
     assert order == ["合図 始め", "合図 終わり", "返事"]
+
+
+# ── 考える声から「んー」を外す（出-ce・2026-10-13・本人の決定ア）──────────────────
+
+
+def test_the_think_words_are_two():
+    from pathlib import Path
+
+    from familiar_agent.core import reaction_cue as rc
+
+    assert rc.THINK_WORDS == ("えっと", "うーん")
+    sounds = Path(rc.THINK_WAVS[0]).parent
+    for folder in (sounds, sounds / "voices" / "Laomedeia", sounds / "voices" / "Puck"):
+        got = sorted(p.name for p in folder.glob("react_think_*.wav"))
+        assert got == ["react_think_0.wav", "react_think_1.wav"], folder
+
+
+def test_the_first_think_file_is_etto():
+    """**反証の側**：番号を詰めたので、0 番は「えっと」（言葉とファイルがずれていない）。"""
+    from familiar_agent.core import reaction_cue as rc
+
+    assert rc.word_for(rc.THINK_WAVS[0]) == "えっと"

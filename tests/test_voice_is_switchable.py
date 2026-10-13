@@ -74,7 +74,9 @@ def test_the_cue_comes_from_the_voice_folder():
 
 def test_the_word_is_found_by_file_name():
     assert rc.word_for(SOUNDS / "voices" / "Laomedeia" / "react_tool_0.wav") == "はい"
-    assert rc.word_for(SOUNDS / "voices" / "Puck" / "react_think_1.wav") == "えっと"
+    assert (
+        rc.word_for(SOUNDS / "voices" / "Puck" / "react_think_0.wav") == "えっと"
+    )  # 「んー」を外して詰めた（出-ce）
     assert rc.word_for(rc.THINKING_WAV) == ""
 
 

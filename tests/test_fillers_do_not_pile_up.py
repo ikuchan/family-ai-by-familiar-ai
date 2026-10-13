@@ -156,7 +156,7 @@ def test_word_for_maps_the_files():
     from familiar_agent.core import reaction_cue as rc
 
     assert rc.word_for(rc.TOOL_WAVS[0]) == "はい"
-    assert rc.word_for(rc.THINK_WAVS[1]) == "えっと"
+    assert rc.word_for(rc.THINK_WAVS[0]) == "えっと"  # 「んー」を外して詰めた（出-ce）
     assert rc.word_for(rc.ACK_WAV) == ""
 
 
