@@ -136,3 +136,10 @@ def test_the_confirm_meaning_is_retired():
     assert "confirm" not in um.ACTIONS_BY_MEANING
     assert "confirming" not in inspect.signature(um.offered).parameters
     assert "confirming" not in inspect.signature(um.fanout_questions).parameters
+
+
+def test_time_is_read_from_lengths_and_clock_times():
+    """書き起こしが崩れても、何分・何秒・何時があれば時間と読む（出-cb・10/13 19:58「3分のダイマーをかけて」を音楽と読んだ）。"""
+    time_desc = um.MEANINGS["time"][1]
+    assert "何分・何秒・何時" in time_desc and "書き起こしが崩れていても" in time_desc
+    assert "音楽ではない" in um.MEANINGS["music"][1]

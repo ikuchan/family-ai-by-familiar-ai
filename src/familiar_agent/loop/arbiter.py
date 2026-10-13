@@ -582,6 +582,26 @@ _LIGHT_WORDS: "dict[str, str]" = {
 _ASK_GUESS_WORDS = f"聞き返す（{ASK_BACK_MAX_CHARS} 字まで・見立てが合っているかを短く確かめる）"
 
 
+def _what_happened(kind: str, action: str, failed: bool, result: "str | None") -> str:
+    """完了で軽量LLM に渡す、何が起きたか・できたか・道具の返り（出-cb・出-cd・2026-10-13・本人の決定）。
+
+    10/13 19:58 に音楽が失敗したのに「タイマーをセットしますね」と書き、20:00:33 に掛けた後で「開始しますね」と書いた。
+    「軽く伝える」しか渡しておらず、頼みの言葉に引っぱられた。調べものの返りは長く W に載っているので繰り返さない。
+    """
+    from ..core.completion_kind import is_research
+
+    parts = [f"起きたこと：{kind}", f"結果：{'できなかった' if failed else 'できた'}"]
+    text = (result or "").strip()
+    if text and (failed or not is_research(action)):
+        parts.append(f"道具の返り：{text}")
+    parts.append(
+        "できなかったことを、できたように言わない"
+        if failed
+        else "これからするようにではなく、できたと言う"
+    )
+    return "。".join(parts)
+
+
 def _is_question(text: str) -> bool:
     """「？」か「?」で終わるか（終わりの空白と閉じ括弧は飛ばす・出-bk）。"""
     return text.rstrip().rstrip("」』）)】").rstrip().endswith(("？", "?"))
@@ -783,7 +803,9 @@ class Arbiter:
                 return _FALLBACK
             final = picked
             self._keep(inp, "完了", state, questions, answer, final, kind)
-        decision = await self._completion_decision(inp, final, tool=action)
+        decision = await self._completion_decision(
+            inp, final, tool=action, happened=_what_happened(kind, action, failed, result)
+        )
         logger.info(
             "調停 %.2f 秒（完了・機械で分けた：%s → %s）",
             time.monotonic() - started,
@@ -1017,6 +1039,7 @@ class Arbiter:
         effort: str = "low",
         refers_time: bool = False,
         guess: str = "",
+        happened: str = "",
     ) -> "Decision | None":
         """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
         if final == "silent":
@@ -1028,6 +1051,8 @@ class Arbiter:
             decided = _LIGHT_WORDS[final]
             if ask and guess:
                 decided = f"{_ASK_GUESS_WORDS}。見立て（確かではない）：{guess}"
+            if happened:
+                decided = f"{decided}。{happened}"
             texts = await _writer_call(
                 self, inp, {"decided": decided, "ask": ask, "guess": bool(guess)}, ["text"]
             )

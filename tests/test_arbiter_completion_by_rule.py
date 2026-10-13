@@ -144,3 +144,36 @@ def test_the_arbiter_can_dispatch_a_music_tool(action, tool_input, query):
     )
     assert (d.branch, d.action, d.query) == ("action", action, query)
     assert d.tool_input == tool_input
+
+
+# ── 何が起きたかを軽量LLM に渡す（出-cb・出-cd・2026-10-13・本人の決定）──────────────
+# 10/13 19:58 に音楽が失敗したのに「3分のタイマーをセットしますね」と書き、20:00:33 に掛けた後で「開始しますね」と書いた。
+# 軽量LLM には「軽く伝える」しか渡しておらず、何が起きたか・できたか・道具の返りを知らなかった。
+
+
+def test_a_failure_is_told_as_a_failure():
+    failed = "止まっていた続きが無く、かけるものが無かった"
+    _, _, writer = _run((("play_music", True, failed),))
+    prompt = prompt_of(writer)
+    assert "起きたこと：うまくいかなかった" in prompt
+    assert "結果：できなかった" in prompt
+    assert failed in prompt
+    assert "できなかったことを、できたように言わない" in prompt
+
+
+def test_a_success_is_told_as_done():
+    done = "パパに頼まれて、20:03 に「タイマー」のタイマーを掛けた"
+    _, _, writer = _run((("set_timer", False, done),))
+    prompt = prompt_of(writer)
+    assert "起きたこと：タイマー・アラームを掛けた" in prompt
+    assert "結果：できた" in prompt and done in prompt
+    assert "これからするようにではなく、できたと言う" in prompt
+
+
+def test_a_long_research_result_is_not_repeated():
+    """**反証の側**：調べものの返りは長く W に載っているので、決まったことには繰り返さない（結果は渡す）。"""
+    found = "守谷市の天気は晴れ。" * 50
+    _, _, writer = _run((("search_deferred", False, found),), jev=_jev_picks("reply_light"))
+    prompt = prompt_of(writer)
+    assert "結果：できた" in prompt
+    assert "道具の返り：" not in prompt

@@ -62,6 +62,11 @@ _DONE: "dict[str, tuple[str, tuple[str, ...]]]" = {
 }
 
 
+def is_research(action: str) -> bool:
+    """調べもの（検索・記憶・家の記録）の完了か。返りが長く W に載っているもの。"""
+    return _research(action)
+
+
 def _research(action: str) -> bool:
     return action in _RESEARCH or action.startswith("ask_vault_")
 
