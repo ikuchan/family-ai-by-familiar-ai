@@ -32,7 +32,7 @@ def resolve_at(at: str, *, now: datetime) -> datetime:
 def needs_confirmation(at: datetime, *, quiet) -> "str | None":
     """静穏時間に鳴るなら確かめる理由。それ以外は None（アラームは黙らないので沈黙中の確認も無い）。"""
     if quiet is not None and quiet.is_quiet(at):
-        return f"{at:%H:%M} は静穏時間（{quiet.start_hour}〜{quiet.end_hour} 時）なので、鳴らしてよいか"
+        return f"{at:%H:%M} は静穏時間（{quiet.start_hour}〜{quiet.end_hour} 時）"
     return None
 
 

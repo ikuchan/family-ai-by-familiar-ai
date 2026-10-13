@@ -121,7 +121,7 @@ class AlarmTool:
             return f"同時に掛けられるのは {MAX_ACTIVE} 本まで。先にどれかを止めて", False
         reason = alarm_rules.needs_confirmation(at, quiet=self._quiet())
         if reason and not confirmed:
-            ask = f"{reason}。{at:%H:%M} に「{label}」で鳴らしていい？"
+            ask = f"{reason}だけど、「{label}」を鳴らしていい？"  # 問いは 1 つだけ（知-o・タイマーと同じ）
             if self._ask is not None:
                 from ..core.confirm_state import PendingConfirm
 

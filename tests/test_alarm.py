@@ -251,3 +251,14 @@ def test_the_slash_command_stops_an_alarm_without_the_llm():
     assert asyncio.run(a._handle_alarm_command("/alarm stop 2")) == "止めた：id=2 「薬」"
     a._alarm_tool.call.assert_awaited_once_with("cancel_alarm", {"id": "2"})
     assert asyncio.run(a._handle_alarm_command("/timer stop")) is None
+
+
+def test_the_quiet_hours_alarm_question_is_asked_once():
+    t, _, _, _ = _tool()
+    asked: list = []
+    t._ask = lambda pc: asked.append(pc.text)
+    asyncio.run(t.call("set_alarm", {"at": "6:30", "label": "起きる"}))
+    assert asked == ["06:30 は静穏時間（23〜7 時）だけど、「起きる」を鳴らしていい？"]
+    assert alarm_rules.needs_confirmation(
+        NOW.replace(hour=6, minute=30), quiet=QuietHoursRule(23, 7)
+    ) == ("06:30 は静穏時間（23〜7 時）")

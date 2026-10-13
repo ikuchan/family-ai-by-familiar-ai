@@ -228,3 +228,13 @@ def test_stopping_a_timer_reports_the_remaining_time():
     )
     text, ok = asyncio.run(t.call("cancel_timer", {"id": 1}))
     assert ok and "残り 2:00" in text
+
+
+def test_the_quiet_hours_question_is_asked_once():
+    """静穏時間の確認は 1 つの問い（知-o・10/13 23:39 に「鳴らしてよいか。…鳴らしていい？」と二重だった）。"""
+    t, _, _ = _tool()
+    t._now = lambda: NOW.replace(hour=23, minute=39)
+    asked: list = []
+    t._ask = lambda pc: asked.append(pc.text)
+    asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "タイマー"}))
+    assert asked == ["23:42 は静穏時間（23〜7 時）だけど、「タイマー」を鳴らしていい？"]

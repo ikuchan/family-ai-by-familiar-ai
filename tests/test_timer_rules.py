@@ -75,3 +75,14 @@ def test_the_frame_shows_remaining_and_recently_fired():
     assert "id=3 パスタ 残り 2:05（19:32 に鳴る）" in text
     assert "id=2 お茶 は 1 分前に鳴った（もう止まっている）" in text
     assert tr.render_frame([], [], now=NOW) == ""
+
+
+def test_the_reason_is_only_the_reason():
+    """理由の文は理由だけにし、問いは道具が 1 つだけ付ける（知-o・10/13 23:39「鳴らしてよいか。…鳴らしていい？」と二重だった）。"""
+    quiet = QuietHoursRule(start_hour=23, end_hour=7)
+    night = tr.needs_confirmation(
+        NOW.replace(hour=23, minute=42), quiet=quiet, silence_active=False
+    )
+    assert night == "23:42 は静穏時間（23〜7 時）"
+    silent = tr.needs_confirmation(NOW.replace(hour=21), quiet=quiet, silence_active=True)
+    assert silent == "いま黙っているよう頼まれている"

@@ -30,9 +30,9 @@ def resolve_due(*, after_minutes: "float | None", now: datetime) -> datetime:
 def needs_confirmation(due: datetime, *, quiet, silence_active: bool) -> "str | None":
     """確かめてから登録すべき理由。要らなければ None。"""
     if silence_active:
-        return "いま黙っているよう頼まれているので、鳴らしてよいか"
+        return "いま黙っているよう頼まれている"
     if quiet is not None and quiet.is_quiet(due):
-        return f"{due:%H:%M} は静穏時間（{quiet.start_hour}〜{quiet.end_hour} 時）なので、鳴らしてよいか"
+        return f"{due:%H:%M} は静穏時間（{quiet.start_hour}〜{quiet.end_hour} 時）"
     return None
 
 

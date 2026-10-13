@@ -270,7 +270,8 @@ class TimerTool:
             self._keep(inp, ask, what)
             return f"まだ掛けていない。本人に一度聞く：「{ask}」", True
         if reason and not confirmed:
-            ask = f"{reason}。{due:%H:%M} に「{label}」で鳴らしていい？"
+            # 理由は理由だけで、問いはここで 1 つだけ付ける（知-o・10/13 23:39「鳴らしてよいか。…鳴らしていい？」と二重だった）。
+            ask = f"{reason}だけど、「{label}」を鳴らしていい？"
             self._keep(inp, ask, what)
             return f"まだ掛けていない。確かめてから：{reason}——本人に一度聞く：「{ask}」", True
         who = self._speaker() or ""
