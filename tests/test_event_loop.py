@@ -596,6 +596,7 @@ def test_intake_drains_inbox_in_place():
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
     before = ip._drained_completions
+    ip._open_lookup("recall", "q")  # 意図の無い完了は数えない（出-cc）ので、器を開いておく
     ip._drained_completions.append(Trigger(kind="完了", query="q", result="結果", index=1))
     assert asyncio.run(ip._intake()) == (1, None)  # (件数, 主LLM の決定)
     assert ip._drained_completions is before  # 作り直さない
@@ -887,7 +888,8 @@ def test_action_branch_dispatches_without_a_filler():
     assert asyncio.run(scenario()) == ""  # 本来の出力はツール投げ
     assert "".join(shown) == ""  # 軽量LLM が書いても、投げる前には言わない
     a.backend.stream_turn.assert_not_awaited()  # フルLLM を起こさない
-    assert a._deferred_search.dispatch.await_args.args[0] == {"query": "今日の天気"}
+    sent = a._deferred_search.dispatch.await_args.args[0]
+    assert sent["query"] == "今日の天気" and sent.get("_intent_id")  # 意図の uuid も運ぶ（出-cc）
 
 
 def test_full_branch_keeps_the_tool_when_say_comes_along():

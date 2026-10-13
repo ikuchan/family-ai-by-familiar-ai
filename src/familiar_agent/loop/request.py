@@ -23,6 +23,7 @@
 
 from __future__ import annotations
 
+import uuid
 from datetime import datetime
 
 from typing import Any
@@ -48,6 +49,8 @@ class Lookup:
     result: "str | None" = None
     #: 道具の失敗で終わった（出-o）。結果ではない。文は「道具が使えず失敗した」だけ。
     failed: bool = False
+    #: 意図の uuid（出-cc・2026-10-13）。完了はこれで器を引く（語で引くと、前の求めの同じ語の結果が当たった）。
+    intent_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     @property
     def in_flight(self) -> bool:

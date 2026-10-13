@@ -58,6 +58,8 @@ class DeferredSearchTool:
         # 完了の渡し先（RH → 完了キュー）。繋がっていれば溜めずにここへ渡す。
         # 繋がっていなければ従来どおり `_pending` に溜めてポーリングで拾われる（排他）。
         self._completion_sink = None
+        # 投げた語ごとの意図の uuid（出-cc）。完了と一緒に返し、ループは uuid で器を引く。
+        self._intent_of: dict[str, str] = {}
         self._running: int = 0
         self._running_queries: set[str] = set()
         self._user_turn: bool = False
@@ -74,7 +76,11 @@ class DeferredSearchTool:
         if self._completion_sink is None:
             return False
         try:
-            self._completion_sink(query, result, failed=failed)
+            intent_id = self._intent_of.pop(query, None)
+            if intent_id is None:
+                self._completion_sink(query, result, failed=failed)
+            else:  # 意図の uuid を持つときだけ渡す（出-cc）
+                self._completion_sink(query, result, failed=failed, intent_id=intent_id)
             return True
         except Exception as e:  # noqa: BLE001
             logger.warning("完了キューへ渡せなかったので溜める: %s", e)
@@ -184,6 +190,8 @@ class DeferredSearchTool:
         # Increment synchronously before task starts to prevent race conditions.
         self._running += 1
         self._running_queries.add(query)
+        if tool_input.get("_intent_id"):
+            self._intent_of[query] = str(tool_input["_intent_id"])  # 検索の相手には渡さない
         task = asyncio.create_task(self._run(query, mcp_tool, source, user_initiated))
         asyncio.create_task(_cancel_after(task, _SEARCH_TIMEOUT_SEC))
         return (

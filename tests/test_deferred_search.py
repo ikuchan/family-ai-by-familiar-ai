@@ -377,3 +377,21 @@ def test_the_description_names_no_unavailable_tools() -> None:
     tool, _ = _make_tool()
     desc = tool.get_tool_definitions()[0]["description"]
     assert "brave_web_search" not in desc and "tavily_search" not in desc
+
+
+# ── 意図の uuid を完了まで運ぶ（出-cc・2026-10-13）───────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_the_intent_id_rides_to_the_completion():
+    fn = AsyncMock(return_value=_ok("晴れ"))
+    tool = DeferredSearchTool(fn)
+    delivered: list = []
+    tool.set_completion_sink(lambda q, r, **kw: delivered.append((q, r, kw)))
+    await tool.dispatch({"query": "今日の天気", "_intent_id": "id-1"})
+    for _ in range(50):
+        if delivered:
+            break
+        await asyncio.sleep(0.005)
+    assert delivered[0][2].get("intent_id") == "id-1"
+    assert all("_intent_id" not in c.args[1] for c in fn.call_args_list)  # 検索の相手には渡さない

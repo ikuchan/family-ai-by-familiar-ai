@@ -38,6 +38,8 @@ class DeferredFetchTool:
         self._pending: list[dict] = []
         # 完了の渡し先（RH → 完了キュー）。繋がっていれば溜めずに渡す（二重配信を避ける）。
         self._completion_sink = None
+        # 投げた語ごとの意図の uuid（出-cc）。完了と一緒に返し、ループは uuid で器を引く。
+        self._intent_of: dict[str, str] = {}
         self._running: int = 0
         self._user_turn: bool = False
 
@@ -99,6 +101,8 @@ class DeferredFetchTool:
 
         user_initiated = self._user_turn
         self._running += 1  # increment synchronously before task starts to prevent race
+        if tool_input.get("_intent_id"):
+            self._intent_of[url] = str(tool_input["_intent_id"])  # 取得の相手には渡さない
         task = asyncio.create_task(self._run(url, user_initiated))
         asyncio.create_task(_cancel_after(task, _FETCH_TIMEOUT_SEC))
         return (
@@ -114,7 +118,11 @@ class DeferredFetchTool:
         if self._completion_sink is None:
             return False
         try:
-            self._completion_sink(url, result, failed=failed)
+            intent_id = self._intent_of.pop(url, None)
+            if intent_id is None:
+                self._completion_sink(url, result, failed=failed)
+            else:  # 意図の uuid を持つときだけ渡す（出-cc）
+                self._completion_sink(url, result, failed=failed, intent_id=intent_id)
             return True
         except Exception as e:  # noqa: BLE001
             logger.warning("完了キューへ渡せなかったので溜める: %s", e)

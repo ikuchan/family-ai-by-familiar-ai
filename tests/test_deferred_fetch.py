@@ -236,3 +236,30 @@ def test_the_description_says_to_fetch_when_the_snippet_lacks_facts() -> None:
     assert "抜粋" in desc and "数字" in desc
     # 使えない道具（反復のループでは渡していない `fetch`）の案内は無い
     assert "fetch を使う" not in desc
+
+
+# ── 意図の uuid を完了まで運ぶ（出-cc・2026-10-13）───────────────────────────────
+
+
+def test_the_intent_id_rides_to_the_fetched_completion():
+    import asyncio as _asyncio
+    from unittest.mock import AsyncMock as _AsyncMock
+
+    from familiar_agent.mcp_client import CallResult
+    from familiar_agent.tools.deferred_fetch import DeferredFetchTool
+
+    fn = _AsyncMock(return_value=CallResult("本文", None, True))
+    tool = DeferredFetchTool(fn)
+    delivered: list = []
+    tool.set_completion_sink(lambda u, r, **kw: delivered.append((u, r, kw)))
+
+    async def go():
+        await tool.dispatch({"url": "https://example.com", "_intent_id": "id-2"})
+        for _ in range(50):
+            if delivered:
+                break
+            await _asyncio.sleep(0.005)
+
+    _asyncio.run(go())
+    assert delivered[0][2].get("intent_id") == "id-2"
+    assert all("_intent_id" not in c.args[1] for c in fn.call_args_list)

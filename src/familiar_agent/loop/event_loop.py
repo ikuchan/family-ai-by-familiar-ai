@@ -45,6 +45,8 @@ from .speech_check import facts_ctx, used_lines
 from ..core.wake_window import WakeWindow
 from .generator import _pi_ctx, _present_ctx
 from . import workspace
+from ..store import intents as _intents
+from .intent_ledger import IntentLedger
 from .request import Lookup, Request
 from .prompt import build_event_system_prompt
 
@@ -757,6 +759,8 @@ class InformationProcessing:
         self._driver: asyncio.Task | None = None
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
         self._drained_completions: list[Trigger] = []
+        # 開いている意図の台帳（出-cc）。完了は uuid で器を引く。求めをまたぐので装置の寿命で持つ（`_ledger`）。
+        self._ledger_obj: IntentLedger = IntentLedger()
         # 求めの寿命の状態は `Request` が持つ（に-5-に）。**`None` にしない**——求めが無い
         # ことは `request_id is None` が表す約束を、そのまま器の中へ持ち込む。
         self._req = Request()
@@ -1125,6 +1129,52 @@ class InformationProcessing:
         """
         return sum(1 for lk in self._req.lookups if lk.action == "主LLM") + 1
 
+    @property
+    def _ledger(self) -> IntentLedger:
+        """意図の台帳（出-cc）。殻だけの器（`__new__` で組んだ試験の装置）でも、最初に使うときに作る。"""
+        led = self.__dict__.get("_ledger_obj")
+        if led is None:
+            led = self.__dict__["_ledger_obj"] = IntentLedger()
+        return led
+
+    @_ledger.setter
+    def _ledger(self, value: IntentLedger) -> None:
+        self.__dict__["_ledger_obj"] = value
+
+    def _open_lookup(self, action: str, query: str) -> Lookup:
+        """意図の器を作り、求めに足し、台帳に載せる（出-cc）。器を作る口はここだけ。"""
+        lk = Lookup(
+            index=self._next_lookup_index(),
+            action=action,
+            query=query,
+            generation=self._request_generation,
+        )
+        self._req.lookups.append(lk)
+        self._ledger.open(
+            lk, request_id=str(self._req.request_id or ""), origin=self._req.trigger_kind
+        )
+        return lk
+
+    def _lookup_for(self, c: "Trigger") -> "Lookup | None":
+        """完了の器。uuid を持てば台帳で引き（出-cc）、持たなければ語で引く（試験の組み立て）。"""
+        if c.intent_id:
+            return self._ledger.get(c.intent_id)
+        return self._lookup_of(c.query)
+
+    def _drop_orphan_completions(self) -> bool:
+        """意図の無い完了を捨てる（出-cc・2026-10-13・本人の決定）。捨てて何も残らなければ真（反復を起こさない）。
+
+        10/13 20:00:33 に、閉じた求めの `look` の完了が取込に数えられ、想起と調停が回ってタイマー中に話した。
+        """
+        kept = [c for c in self._drained_completions if self._lookup_for(c) is not None]
+        for c in self._drained_completions:
+            if c not in kept:
+                logger.info("event-loop 意図の無い完了を捨てる：%.40s", c.query)
+                self._ledger.late(c.intent_id)
+        dropped = len(kept) < len(self._drained_completions)
+        self._drained_completions[:] = kept
+        return dropped and not kept
+
     def _lookup_of(self, query: str) -> "Lookup | None":
         """語で1件を引く。同じ語は二度投げないので、引き当ては一意になる。"""
         return next((lk for lk in self._req.lookups if lk.query == query), None)
@@ -1160,12 +1210,15 @@ class InformationProcessing:
             earlier = (
                 f"前の結果：{seen.result}" if seen.result is not None else "（まだ返っていない）"
             )
+            self._ledger.reopen(
+                seen
+            )  # 前の意図は閉じているので、台帳に戻して完了を引けるようにする（出-cc）
             self._triggers.put_nowait(
                 Trigger(
                     kind="完了",
                     query=query,
                     result=f"「{query}」は{ALREADY_TRIED}。{earlier}",  # 完了の表が見る印
-                    intent_id=intent_id,
+                    intent_id=seen.intent_id,
                     index=seen.index,
                     # 前の失敗の印を引き継ぐ（出-be）。無いと届いた側が「失敗していない」で上書きし、
                     # 「別の曲が鳴っている」の結果を完了の表が「かけた → 黙る」と読んだ（実機 11:05:16）。
@@ -1174,11 +1227,11 @@ class InformationProcessing:
             )
             return
 
-        index = self._next_lookup_index()
-        self._req.lookups.append(
-            Lookup(index=index, action=action, query=query, generation=self._request_generation)
+        lk = self._open_lookup(action, query)
+        # 完了はこの器の uuid を持って戻る（出-cc）。呼び手の `intent_id` はいつも None だった。
+        task = asyncio.create_task(
+            self._run_lookup(action, tool_input, query, lk.intent_id, lk.index)
         )
-        task = asyncio.create_task(self._run_lookup(action, tool_input, query, intent_id, index))
         self._background_tasks.add(task)
         task.add_done_callback(self._background_tasks.discard)
         self._ensure_wait_watch()
@@ -1311,7 +1364,9 @@ class InformationProcessing:
                     now - origin,
                     waiting[0].query,
                 )
-                self._triggers.put_nowait(Trigger(kind="進捗", query=waiting[0].query))
+                self._triggers.put_nowait(
+                    Trigger(kind="進捗", query=waiting[0].query, intent_id=waiting[0].intent_id)
+                )
                 req.last_progress_at = now
                 req.filler_pending = True  # 声か取り下げで下ろす（出-bt）
 
@@ -1340,17 +1395,11 @@ class InformationProcessing:
         （2026-09-09 の決定）。
         """
         index = self._next_lookup_index()
-        self._req.lookups.append(
-            Lookup(
-                index=index,
-                action="主LLM",
-                query=f"主LLM{index}",
-                generation=self._request_generation,
-            )
-        )
+        lk = self._open_lookup("主LLM", f"主LLM{index}")
         task = asyncio.create_task(
             self._run_main_llm(
                 index=index,
+                intent_id=lk.intent_id,
                 messages=messages,
                 system=system,
                 effort=effort,
@@ -1383,6 +1432,7 @@ class InformationProcessing:
         max_tokens: int,
         retried: bool,
         original_text: str = "",
+        intent_id: "str | None" = None,
     ) -> None:
         """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
         agent = self._agent
@@ -1444,6 +1494,7 @@ class InformationProcessing:
                 kind="決定",
                 query=f"主LLM{index}",
                 index=index,
+                intent_id=intent_id,
                 decision=Decision(
                     result=result,
                     memories=memories,
@@ -1620,7 +1671,9 @@ class InformationProcessing:
             return
         if action != "recall":
             try:
-                text, dispatched = await self._dif.lookup(action, tool_input)
+                # 投げっぱなしの道具には意図の uuid を渡し、完了と一緒に返してもらう（出-cc）。
+                carried = {**tool_input, "_intent_id": intent_id} if intent_id else tool_input
+                text, dispatched = await self._dif.lookup(action, carried)
             except asyncio.CancelledError:
                 raise
             except Exception as e:  # noqa: BLE001
@@ -1936,6 +1989,7 @@ class InformationProcessing:
             # 取り込んだ結果に答える反復が二度と起きない。
             self._slow_notice_received = True
         decided: "Decision | None" = None
+        taken = 0
         for c in items:
             if c.kind in _NEW_REQUEST_KINDS:
                 # 起きないはずのこと（列の口は 1 つ）。静かに戻さず、大きく失敗させる——
@@ -1951,13 +2005,17 @@ class InformationProcessing:
                 # 版には返りの中身を載せない（`see` と同じ）。求めの状態としては
                 # 「何番が返ったか」だけあればよい。
                 result_text = "（返りを実行した）"
-            lk = self._lookup_of(query)
+            lk = self._lookup_for(c)
             if lk is None:
-                # 対応する開いた意図が無い完了（打ち切り後に遅れて届いた等）。無言で落とさない。
+                # 対応する開いた意図が無い完了（打ち切り後・閉じた後に遅れて届いた等）。駆動体が先に捨てるので
+                # ここへは来ないはずだが、来ても数えずに捨てる（出-cc：数えると反復が回り、閉じた求めで話した）。
                 logger.warning(
                     "event-loop 取込：対応する意図が無い完了を捨てる（query=%.40s）", query
                 )
-            action = lk.action if lk is not None else "recall"
+                self._ledger.late(c.intent_id)
+                continue
+            taken += 1
+            action = lk.action
             if action in _CAMERA_ACTIONS:
                 self._see_returned = True  # `look` も向いた先を撮って帰る（`see` と同じ扱い）
                 # 版には結果を載せない。見たことは `_run_camera` が鎖の外へ独立した
@@ -1971,19 +2029,22 @@ class InformationProcessing:
             if lk is not None:
                 lk.result = result_text
                 lk.failed = bool(getattr(c, "failed", False))
+                self._ledger.close(
+                    lk.intent_id, state=_intents.RETURNED, failed=lk.failed, result=c.result
+                )
                 if lk.index not in self._req.just_returned:
                     self._req.just_returned.append(lk.index)  # W の最上部に載せる（出-x）
                 if lk.failed:
                     # その求めのあいだ、この道具を候補から外す（構造で呼び直しを起こさない）。
                     self._req.failed_actions.add(_action_family(lk.action))
-        if items:
+        if taken:
             # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。主LLM の答えだけなら、書き終わりを待つものが無いので
             # 裏で書く（答えの声を待たせない・出-bz-ろ）。調べものの結果は直後の想起で使うので待つ（本人）。
             if all(c.kind == "決定" for c in items):
                 self._write_version_later()
             else:
                 await self._write_version()
-        return len(items), decided
+        return taken, decided
 
     # この反復で使える動作の表。値＝その動作のツール定義を取り出す関数で、引数はループ。
     # 身体を1つ繋ぐたびにここへ1行足すだけで済むようにしてある（see・look・net など）。
@@ -2247,6 +2308,7 @@ class InformationProcessing:
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
         self._req.live_version_id = None
+        self._ledger.close_request(self._req.lookups, state=_intents.CLOSED)
         self._req.lookups.clear()
         self._req.iterations = 0
         self._req.iterations_capped = False
@@ -2407,6 +2469,7 @@ class InformationProcessing:
                     )
         self._req.request_id = None
         self._req.live_version_id = None
+        self._ledger.close_request(self._req.lookups, state=_intents.ABORTED)
         self._req.lookups.clear()
         self._req.cue = ""
         self._req.said_fillers.clear()
@@ -2498,7 +2561,13 @@ class InformationProcessing:
         self._ensure_driver()
 
     def push_completion(
-        self, query: str, result: str, index: int = 0, *, failed: bool = False
+        self,
+        query: str,
+        result: str,
+        index: int = 0,
+        *,
+        failed: bool = False,
+        intent_id: "str | None" = None,
     ) -> None:
         """RH（資源ハンドラ）が deferred の完了を QC へ積む。
 
@@ -2510,9 +2579,11 @@ class InformationProcessing:
         # 打ち切られたものしか無い**（打ち切りは器を空にする）。世代だけ見ていると器が
         # 消えたあとの完了が素通りし、停止ボタンで打ち切った求めが反復 2/5 として続いた
         # （2026-09-13 実機・M）。
-        _lk = self._lookup_of(query)
+        # uuid を持つ完了は台帳で引く（出-cc）。台帳に無ければ閉じた後に届いたものとして記録して捨てる。
+        _lk = self._ledger.get(intent_id) if intent_id else self._lookup_of(query)
         if _lk is None or _lk.generation != self._request_generation:
             logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
+            self._ledger.late(intent_id)
             return
         loop = getattr(self, "_asyncio_loop", None)
         item = Trigger(
@@ -2521,6 +2592,7 @@ class InformationProcessing:
             result=str(result),
             index=index or (_lk.index if _lk is not None else 0),
             failed=failed,
+            intent_id=intent_id,
         )
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(self._triggers.put_nowait, item)
@@ -2790,6 +2862,8 @@ class InformationProcessing:
                     continue
                 if self._skip_while_confirming(trigger):
                     continue
+                if trigger is None and self._drop_orphan_completions():
+                    continue  # 意図の無い完了しか無かった（出-cc）
                 if trigger is None:
                     logger.debug(
                         "event-loop 駆動体が完了を受領（id=%s inbox=%d）",
@@ -3176,19 +3250,12 @@ class InformationProcessing:
     def _skip_while_confirming(self, trigger: "Trigger | None") -> bool:
         """確認待ちのあいだ、排他で止めるきっかけか（知-o・2026-10-13・本人の決定）。
 
-        情動の求めは立てない。対応する意図が無い完了は捨てて反復を起こさない（10/13 20:00:33 に、確認待ちのあいだ始めた
-        `look` の完了が会話の求めを回し、タイマー中に話した）。機器と会話入力はここでは止めない。
+        情動の求めは立てない（10/13 20:00:25 に、確認待ちのあいだ見回りを始めた）。意図の無い完了は、確認待ちに関係なく
+        駆動体が捨てる（`_drop_orphan_completions`・出-cc）。機器と会話入力はここでは止めない。
         """
         if not self._confirming():
             return False
-        if trigger is None:
-            kept = [c for c in self._drained_completions if self._lookup_of(c.query) is not None]
-            for c in self._drained_completions:
-                if c not in kept:
-                    logger.info("event-loop 確認待ちなので意図の無い完了を捨てる：%.40s", c.query)
-            self._drained_completions[:] = kept
-            return not kept
-        if trigger.kind == "情動":
+        if trigger is not None and trigger.kind == "情動":
             logger.info("event-loop 確認待ちなので情動の求めを立てない：%s", trigger.query)
             return True
         return False
@@ -4755,6 +4822,7 @@ class InformationProcessing:
         self._stop_wait_watch()  # 待たせている時間の見張りは求めと一緒に閉じる（出-au 段 2）
         self._req.request_id = None
         self._req.live_version_id = None
+        self._ledger.close_request(self._req.lookups, state=_intents.CLOSED)
         self._req.lookups.clear()
         self._req.said_fillers.clear()
         self._req.told_unsaid = []
