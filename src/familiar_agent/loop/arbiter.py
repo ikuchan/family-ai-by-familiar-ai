@@ -852,7 +852,6 @@ class Arbiter:
         # すすめた曲への返事を待っているときだけ、調停の候補に返事の道具が載る（段 4-4f）。
         suggesting = "music_suggestion_reply" in inp.extra_actions
         questions = um.fanout_questions(
-            confirming="confirm" in inp.extra_actions,
             music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
             camera=inp.can_see,
             family=family,
@@ -871,7 +870,6 @@ class Arbiter:
         meaning = got["meaning"]
         m = str(meaning.get("choice") or "")
         offered = um.offered(
-            confirming="confirm" in inp.extra_actions,
             music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
             camera=inp.can_see,
             suggesting=suggesting,

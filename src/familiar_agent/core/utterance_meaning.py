@@ -28,12 +28,9 @@ THRESHOLD = 0.6
 #: 聞き返すときに軽量LLM へ渡す文字数の上限（2026-10-08 本人の決定）。
 ASK_BACK_MAX_CHARS = 20
 
-#: 意味。鍵 → (名前, Jev への説明)。明確なものから、あやふやなものの順（本人）。
+#: 意味。鍵 → (名前, Jev への説明)。明確なものから、あやふやなものの順（本人）。確認待ちへの答えは、確認待ちのあいだ調停が
+#: 3 択だけで決めるので、ここには置かない（知-o・2026-10-13・`arbiter._confirm_by_rule`）。
 MEANINGS: "dict[str, tuple[str, str]]" = {
-    "confirm": (
-        "確認待ちへの答え",
-        "パジュがいま待っている確認の問いへの答え（いい・お願い・やめて・いらない）",
-    ),
     # すすめた曲への返事（段 4-4f・2026-10-10 本人）。返事のあとはかけるか、かけないかだけなので Jev が決める。
     "suggestion": (
         "すすめた曲への返事",
@@ -94,8 +91,6 @@ MEANINGS: "dict[str, tuple[str, str]]" = {
 ACTIONS: "dict[str, str]" = {
     "ask_back": "聞き返す（何をしてほしいのかを確かめる）",
     "silent": "黙る（何も言わず、何もしない）",
-    "confirm": "確認の問いに「はい」と答えたとして進める",
-    "decline": "確認の問いに「いいえ」と答えたとして取りやめる",
     "suggestion_like": "すすめた曲をかける（気に入った・聞いてみたい）",
     "suggestion_decline": "すすめた曲をかけない（いらない・いまはいい）。二度とすすめない",
     "state_light": (
@@ -148,7 +143,6 @@ ACTIONS: "dict[str, str]" = {
 _COMMON = ("ask_back", "silent")
 #: 意味ごとに並べる動作（本人の表）。名乗りと否定は家族の呼び方から作る（`fanout_questions`）。
 ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
-    "confirm": ("confirm", "decline", *_COMMON),
     "suggestion": ("suggestion_like", "suggestion_decline", *_COMMON),
     "claim": (),
     "deny": (),
@@ -209,13 +203,9 @@ UNSURE_ACTIONS: "dict[str, str]" = {
 }
 
 
-def offered(
-    *, confirming: bool, music: bool, camera: bool, suggesting: bool = False
-) -> "list[str]":
+def offered(*, music: bool, camera: bool, suggesting: bool = False) -> "list[str]":
     """1 回目に並べる意味。使えないもの（すすめた曲の返事を待っていない、なども）は並べない。"""
     skip = set()
-    if not confirming:
-        skip.add("confirm")
     if not suggesting:
         skip.add("suggestion")
     if not music:
@@ -258,7 +248,6 @@ def _actions_for(
 
 def fanout_questions(
     *,
-    confirming: bool,
     music: bool,
     camera: bool,
     family: "list[str]",
@@ -274,7 +263,7 @@ def fanout_questions(
     """
     from ..backends.jev import choice
 
-    meanings = offered(confirming=confirming, music=music, camera=camera, suggesting=suggesting)
+    meanings = offered(music=music, camera=camera, suggesting=suggesting)
     qs: dict[str, dict] = {
         "meaning": choice(
             "この人の言葉を、直前のやりとりの続きとして読むと、次のどれに当たるか"

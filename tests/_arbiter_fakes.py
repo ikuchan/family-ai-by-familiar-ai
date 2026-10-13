@@ -101,8 +101,6 @@ def _as_meaning(branch: str, action: str) -> "tuple[str, str]":
         return "time", action
     if action in ("look", "see"):
         return "look", action
-    if action in ("confirm", "decline"):
-        return "confirm", action
     if action in _HOUSE:
         return "家族の情報源", action  # 家の記録の道具（知-ax）
     return "research", action

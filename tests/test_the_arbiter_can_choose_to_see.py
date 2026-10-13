@@ -25,7 +25,7 @@ def _offered(can_see: bool) -> set:
     """発話の問いに並ぶ動作（段 4-4b から、見る・首を向けるは意味「見る依頼」の動作）。"""
     from familiar_agent.core import utterance_meaning as um
 
-    qs = um.fanout_questions(confirming=False, music=False, camera=can_see, family=[])
+    qs = um.fanout_questions(music=False, camera=can_see, family=[])
     return {a for k, q in qs.items() if k.startswith("action_") for a in q["criteria"]}
 
 

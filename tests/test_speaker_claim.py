@@ -90,7 +90,7 @@ def test_the_arbiter_carries_the_claim_and_drops_it_on_a_tool_return():
     # 名乗りは発話の 1 回目の意味に並ぶ（段 4-4c）。2 回目は家族の呼び方。
     from familiar_agent.core import utterance_meaning as um
 
-    qs = um.fanout_questions(confirming=False, music=False, camera=False, family=["パパ"])
+    qs = um.fanout_questions(music=False, camera=False, family=["パパ"])
     assert "名乗" in um.MEANINGS["claim"][1] and "パパ" in qs["action_claim"]["criteria"]
 
 

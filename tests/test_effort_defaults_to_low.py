@@ -25,9 +25,7 @@ def test_the_prompt_enumerates_medium_and_reserves_high() -> None:
 
     # 深さは Jev の選択肢。段 4-4b から発話の先読みの 1 回で聞く（説明はいままでと同じ）。low が「ほとんどの場合」、
     # high は明示的に求められたときだけ。
-    effort = um.fanout_questions(confirming=False, music=False, camera=False, family=[])["effort"][
-        "criteria"
-    ]
+    effort = um.fanout_questions(music=False, camera=False, family=[])["effort"]["criteria"]
     assert "ひと言で表せない複雑な気持ち" in effort["medium"]
     assert "4 つ以上の記憶" in effort["medium"]
     assert "調べた結果をまとめる" in effort["medium"]

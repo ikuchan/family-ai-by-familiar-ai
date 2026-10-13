@@ -49,7 +49,7 @@ def _questions(**kw):
     """発話の問い（段 4-4c から、黙る依頼は意味「時間に関する依頼」の動作「quiet」と、何分かの問い）。"""
     from familiar_agent.core import utterance_meaning as um
 
-    return um.fanout_questions(confirming=False, music=False, camera=False, family=[])
+    return um.fanout_questions(music=False, camera=False, family=[])
 
 
 def test_the_name_is_not_passed_separately():

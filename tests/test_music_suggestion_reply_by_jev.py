@@ -50,10 +50,11 @@ def test_the_main_llm_is_no_longer_told_to_take_the_reply():
 # ── 意味と動作 ───────────────────────────────────────────────────────────────
 
 
-def test_the_reply_meaning_comes_after_confirm_and_only_while_awaited():
-    got = um.offered(confirming=True, suggesting=True, music=True, camera=True)
-    assert got[:2] == ["confirm", "suggestion"]
-    assert "suggestion" not in um.offered(confirming=True, music=True, camera=True)
+def test_the_reply_meaning_comes_first_and_only_while_awaited():
+    # 確認待ちへの答えは意味から撤去した（知-o・2026-10-13）ので、すすめた曲への返事が先頭。
+    got = um.offered(suggesting=True, music=True, camera=True)
+    assert got[0] == "suggestion"
+    assert "suggestion" not in um.offered(music=True, camera=True)
     assert set(um.ACTIONS_BY_MEANING["suggestion"]) == {
         "suggestion_like",
         "suggestion_decline",

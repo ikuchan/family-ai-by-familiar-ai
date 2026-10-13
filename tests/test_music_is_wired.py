@@ -322,11 +322,9 @@ def test_the_arbiter_knows_how_to_write_play_music():
     # 段 4-4b から、音楽の道具は発話の意味「音楽に関する依頼」の動作として並ぶ（道具が繋がっているときだけ）。
     from familiar_agent.core import utterance_meaning as um
 
-    qs = um.fanout_questions(confirming=False, music=True, camera=False, family=[])
+    qs = um.fanout_questions(music=True, camera=False, family=[])
     assert "play_music" in qs["action_music"]["criteria"]
-    assert "action_music" not in um.fanout_questions(
-        confirming=False, music=False, camera=False, family=[]
-    )
+    assert "action_music" not in um.fanout_questions(music=False, camera=False, family=[])
     inp = ArbiterInput(utterance="ケイマンかけて", workspace_ctx="")
     assert _writer_needs(inp, {"branch": "action", "action": "play_music"}) == ["tool_input"]
 

@@ -17,7 +17,6 @@ def _a(choice: str, confidence: float) -> dict:
 
 def test_the_meanings_go_from_clear_to_vague():
     assert list(um.MEANINGS) == [
-        "confirm",
         "suggestion",
         "claim",
         "deny",
@@ -35,12 +34,10 @@ def test_the_meanings_go_from_clear_to_vague():
 
 
 def test_unusable_meanings_are_not_offered():
-    got = um.offered(confirming=False, music=False, camera=False)
-    assert "confirm" not in got and "music" not in got and "look" not in got
+    got = um.offered(music=False, camera=False)
+    assert "music" not in got and "look" not in got
     assert "suggestion" not in got
-    assert um.offered(confirming=True, music=True, camera=True, suggesting=True) == list(
-        um.MEANINGS
-    )
+    assert um.offered(music=True, camera=True, suggesting=True) == list(um.MEANINGS)
 
 
 def test_every_meaning_offers_ask_back_and_silence_except_the_fixed_ones():
@@ -56,7 +53,7 @@ def test_every_meaning_offers_ask_back_and_silence_except_the_fixed_ones():
 
 
 def test_the_fan_out_asks_the_meaning_and_each_meanings_actions_at_once():
-    qs = um.fanout_questions(confirming=False, music=True, camera=True, family=["パパ", "ママ"])
+    qs = um.fanout_questions(music=True, camera=True, family=["パパ", "ママ"])
     assert "meaning" in qs
     assert "action_music" in qs and "action_research" in qs
     assert "action_unformed" not in qs  # 1 つしか無いので聞かない
@@ -90,7 +87,7 @@ def test_ask_back_is_twenty_characters():
 
 def test_the_fan_out_also_asks_how_deeply_to_think():
     """考える深さ（low・medium・high）も同じ 1 回で聞く（2026-10-09 本人の決定ウ）。考えて返すとき主LLM に渡す。"""
-    qs = um.fanout_questions(confirming=False, music=True, camera=True, family=[])
+    qs = um.fanout_questions(music=True, camera=True, family=[])
     assert set(qs["effort"]["criteria"]) == {"low", "medium", "high"}
 
 
@@ -98,7 +95,7 @@ def test_the_fan_out_also_asks_how_deeply_to_think():
 
 
 def _qs(**kw):
-    base = dict(confirming=False, music=False, camera=False, family=["パパ", "たいき"])
+    base = dict(music=False, camera=False, family=["パパ", "たいき"])
     return um.fanout_questions(**{**base, **kw})
 
 
@@ -128,3 +125,14 @@ def test_the_house_tools_are_offered_only_when_connected():
     assert "family_schedule" not in _qs(tools=set())["action_家族の情報源"]["criteria"]
     research = _qs(tools={"family_schedule"})["action_research"]["criteria"]
     assert set(research) == {"search_deferred", "recall", "ask_back", "silent"}
+
+
+def test_the_confirm_meaning_is_retired():
+    """確認待ちのあいだは調停が 3 択だけで決める（知-o・2026-10-13）ので、意味の「確認待ちへの答え」は撤去した。"""
+    import inspect
+
+    assert "confirm" not in um.MEANINGS
+    assert "confirm" not in um.ACTIONS and "decline" not in um.ACTIONS
+    assert "confirm" not in um.ACTIONS_BY_MEANING
+    assert "confirming" not in inspect.signature(um.offered).parameters
+    assert "confirming" not in inspect.signature(um.fanout_questions).parameters

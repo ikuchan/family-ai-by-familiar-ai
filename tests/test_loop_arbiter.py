@@ -95,7 +95,7 @@ def _jev_actions(*, can_see: bool = False, **_kw) -> set:
     """Jev に選ばせる動作の選択肢（発話の意味ごとの 2 回目をすべて合わせたもの・出-ay 段 5e で古い問いから移した）。"""
     from familiar_agent.core import utterance_meaning as um
 
-    qs = um.fanout_questions(confirming=False, music=False, camera=can_see, family=[])
+    qs = um.fanout_questions(music=False, camera=can_see, family=[])
     return {a for k, q in qs.items() if k.startswith("action_") for a in q["criteria"]}
 
 
@@ -195,8 +195,8 @@ def test_prompt_holds_no_quotable_sample_utterances():
 
     from familiar_agent.core import utterance_meaning as um
 
-    # 選択肢の説明だけを見る（問いの文に入る意味の名前「確認待ちへの答え」は言わせる見本ではない）。
-    questions = um.fanout_questions(confirming=True, music=True, camera=True, family=[])
+    # 選択肢の説明だけを見る（問いの文に入る意味の名前は言わせる見本ではない）。
+    questions = um.fanout_questions(music=True, camera=True, family=[])
     criteria = [q["criteria"] for q in questions.values()]
     text = _ALL_TEXT + _jev_state(utterance="x") + str(criteria)
     for sample in re.findall(r"「([^」]*)」", text):

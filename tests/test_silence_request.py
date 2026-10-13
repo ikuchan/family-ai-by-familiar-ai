@@ -51,7 +51,7 @@ def test_arbiter_can_flag_a_silence_request():
     # 段 4-4c から、黙る依頼は意味「時間に関する依頼」の動作「quiet」と、何分かの問い（同じ 1 回）。
     from familiar_agent.core import utterance_meaning as um
 
-    qs = um.fanout_questions(confirming=False, music=False, camera=False, family=[])
+    qs = um.fanout_questions(music=False, camera=False, family=[])
     assert "quiet" in qs["action_time"]["criteria"] and qs["quiet_minutes"]["type"] == "choice"
     d = asyncio.run(
         decide(
@@ -218,9 +218,7 @@ def _arbiter_questions(*, silenced: bool = False) -> dict:
     """発話の問い（段 4-4c から、黙る依頼・解くは意味「時間に関する依頼」の動作）。"""
     from familiar_agent.core import utterance_meaning as um
 
-    return um.fanout_questions(
-        confirming=False, music=False, camera=False, family=[], silenced=silenced
-    )
+    return um.fanout_questions(music=False, camera=False, family=[], silenced=silenced)
 
 
 def test_the_decision_is_applied_through_one_door(monkeypatch):
