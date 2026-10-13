@@ -4,13 +4,13 @@
 - 機械音 A `react_thinking.wav`：Jev が判断しているあいだ鳴らし続ける。600 Hz の短い「ポッ」（0.08 秒）＋休みで 1 周期
   0.35 秒。鳴らす側（`io/dif`）が繰り返す。
 - 効果音 B `react_ack.wav`：軽く返す・聞き返すときに 1 回。880 Hz → 1320 Hz と上がる「ピロッ」（0.12 秒）。
-- 作り置きの声 `react_tool_*.wav`（はい・うん）・`react_think_*.wav`（えっと・うーん）：いまの声
+- 作り置きの声 `react_tool_*.wav`（はい・はーい！・待ってね・オッケー）・`react_think_*.wav`（えっと・うーん）：いまの声
   （Style-Bert-VITS2・`.env` の `SBV2_*`）で読み上げる。合成サーバーが動いていなければ起こし、作り終えたら止める。
 
 音量はタイマー（振幅 0.6）よりずっと小さくする（本人：もう一声小さく）。A は 0.15、B は 0.25。拾ってきた音源は許諾の確認と
 出典の記録が要るので、効果音は自分で合成する（`gen_timer_alarm.py` と同じ）。
 
-使い方：`uv run python scripts/gen_reaction_sounds.py`（効果音だけなら `--tones`）
+使い方：`uv run python scripts/gen_reaction_sounds.py`（効果音だけなら `--tones`。足した言葉だけ作るなら `--only はーい！,オッケー`）
 
 声ごとの作り置き（出-bv）：`--voice Laomedeia` のように声を指定すると、作り置きの声だけを Gemini のその声で読み上げ、
 `sounds/voices/<声>/` に書く（返事と声をそろえる。鳴らす側は `.env` の `GEMINI_TTS_VOICE` の声のフォルダから選ぶ）。
@@ -74,6 +74,19 @@ def _write(path: pathlib.Path, data: np.ndarray) -> None:
         w.writeframes(pcm.tobytes())
 
 
+def _pairs(only: "set[str] | None") -> "list[tuple[str, pathlib.Path]]":
+    """作る言葉と置き場の組。`only` があれば、その言葉だけ（聞いて決めたほかの声を作り直さない・出-ce）。"""
+    pairs = list(zip(rc.TOOL_WORDS, rc.TOOL_WAVS)) + list(zip(rc.THINK_WORDS, rc.THINK_WAVS))
+    return [(t, p) for t, p in pairs if only is None or t in only]
+
+
+def _only() -> "set[str] | None":
+    """`--only 言葉,言葉` の言葉。無ければ None（全部）。"""
+    if "--only" not in sys.argv:
+        return None
+    return {w.strip() for w in sys.argv[sys.argv.index("--only") + 1].split(",") if w.strip()}
+
+
 def write_tones() -> None:
     _write(rc.THINKING_WAV, build_thinking())
     _write(rc.ACK_WAV, build_ack())
@@ -106,8 +119,7 @@ def write_voices() -> int:
             print("合成サーバーが 120 秒で起きなかった。")
             return 1
     try:
-        pairs = list(zip(rc.TOOL_WORDS, rc.TOOL_WAVS)) + list(zip(rc.THINK_WORDS, rc.THINK_WAVS))
-        for text, path in pairs:
+        for text, path in _pairs(_only()):
             payload = json.dumps(
                 {"text": text, "style": cfg.sbv2_style, "weight": cfg.sbv2_weight}
             ).encode()
@@ -139,8 +151,7 @@ def write_gemini_voices(voice: str) -> int:
     from familiar_agent.tools import tts
 
     cfg = TTSConfig()
-    pairs = list(zip(rc.TOOL_WORDS, rc.TOOL_WAVS)) + list(zip(rc.THINK_WORDS, rc.THINK_WAVS))
-    for text, base in pairs:
+    for text, base in _pairs(_only()):
         path = base.parent / "voices" / voice / base.name
         path.parent.mkdir(parents=True, exist_ok=True)
         wav = tts.gemini_wav(cfg, text, voice)
@@ -153,7 +164,8 @@ def write_gemini_voices(voice: str) -> int:
 def main() -> int:
     if "--voice" in sys.argv:
         return write_gemini_voices(sys.argv[sys.argv.index("--voice") + 1])
-    write_tones()
+    if "--only" not in sys.argv:
+        write_tones()
     if "--tones" in sys.argv:
         return 0
     return write_voices()

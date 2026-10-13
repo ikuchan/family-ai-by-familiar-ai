@@ -144,7 +144,9 @@ def _decide(final: str, monkeypatch) -> "list[str]":
 
 
 def test_the_cue_word_is_kept_as_a_word_not_to_use(monkeypatch):
-    assert _decide("play_music", monkeypatch) in (["はい"], ["うん"])
+    assert _decide("play_music", monkeypatch) in [
+        [w] for w in ("はい", "はーい！", "待ってね", "オッケー")
+    ]  # 4 つにした（出-ce）
 
 
 def test_an_effect_sound_is_not_a_word(monkeypatch):

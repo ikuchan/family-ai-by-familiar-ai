@@ -40,15 +40,17 @@ def test_each_decision_has_its_cue(final, cue):
 
 def test_the_sounds_are_in_the_package():
     files = rc.sound_files()
-    assert len(files) == 6  # A・B・道具の声 2・考える声 2（「んー」を外した・出-ce）
+    assert (
+        len(files) == 8
+    )  # A・B・道具の声 4・考える声 2（出-ce：「うん」を替え、待ってね・オッケーを足した）
     for path in files:
         assert path.exists(), path
 
 
 def test_the_tool_voice_has_no_ryo():
     """「りょ」は外した。0.36 秒の SBV2 の声で「キョ」と聞こえ、合図として伝わらなかった（2026-10-12・本人）。"""
-    assert rc.TOOL_WORDS == ("はい", "うん")
-    assert [p.name for p in rc.TOOL_WAVS] == ["react_tool_0.wav", "react_tool_1.wav"]
+    assert "りょ" not in rc.TOOL_WORDS  # 2026-10-14 に 4 つにした（出-ce）
+    assert [p.name for p in rc.TOOL_WAVS] == [f"react_tool_{i}.wav" for i in range(4)]
 
 
 def test_no_unused_tool_voice_is_left():
@@ -57,9 +59,9 @@ def test_no_unused_tool_voice_is_left():
     assert left == [p.name for p in rc.TOOL_WAVS]
 
 
-def test_the_tool_cue_picks_from_the_two():
-    picked = {rc.sound_for(rc.TOOL).name for _ in range(200)}
-    assert picked == {"react_tool_0.wav", "react_tool_1.wav"}
+def test_the_tool_cue_picks_from_the_four():
+    picked = {rc.sound_for(rc.TOOL).name for _ in range(400)}
+    assert picked == {f"react_tool_{i}.wav" for i in range(4)}  # 4 つにした（出-ce）
 
 
 # ── 調停は、軽量LLM より前に決まったことを知らせる ─────────────────────────────
@@ -294,3 +296,17 @@ def test_the_first_think_file_is_etto():
     from familiar_agent.core import reaction_cue as rc
 
     assert rc.word_for(rc.THINK_WAVS[0]) == "えっと"
+
+
+# ── 道具の声を はい・はーい！・待ってね・オッケー にする（出-ce・2026-10-14・本人の決定）────────
+
+
+def test_the_tool_words_are_four():
+    from pathlib import Path
+
+    assert rc.TOOL_WORDS == ("はい", "はーい！", "待ってね", "オッケー")
+    sounds = Path(rc.TOOL_WAVS[0]).parent
+    for folder in (sounds, sounds / "voices" / "Laomedeia", sounds / "voices" / "Puck"):
+        got = sorted(p.name for p in folder.glob("react_tool_*.wav"))
+        assert got == [f"react_tool_{i}.wav" for i in range(4)], folder
+    assert rc.word_for(rc.TOOL_WAVS[1]) == "はーい！"  # 「うん」だった 1 番は「はーい！」
