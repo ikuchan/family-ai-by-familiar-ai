@@ -2788,6 +2788,8 @@ class InformationProcessing:
                     and await self._swallow_if_unheard(trigger)
                 ):
                     continue
+                if self._skip_while_confirming(trigger):
+                    continue
                 if trigger is None:
                     logger.debug(
                         "event-loop 駆動体が完了を受領（id=%s inbox=%d）",
@@ -2795,7 +2797,12 @@ class InformationProcessing:
                         len(self._drained_completions),
                     )
                     await self._iterate()
-                elif trigger.kind == "会話入力" and not trigger.named and self._in_flight_count:
+                elif (
+                    trigger.kind == "会話入力"
+                    and not trigger.named
+                    and self._in_flight_count
+                    and not self._confirming()  # 確認待ちのあいだは添えず、3 択の求めにする（知-o）
+                ):
                     # 調べもの中の名前の無い入力は、新しい求めを始めず前の求めに添える（出-au 段 3）。
                     await self._attach_to_request(trigger)
                 elif trigger.kind == "会話入力":
@@ -3057,6 +3064,7 @@ class InformationProcessing:
         finally:
             if cue is not None:
                 cue.stop()  # 調停が落ちても・時間切れでも、機械音 A は必ず止める
+        self._note_confirm_prompt(decision)
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
             "event-loop 調停=%s effort=%s action=%s",
@@ -3137,7 +3145,53 @@ class InformationProcessing:
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,
             jev_max_chars=int(getattr(agent.config, "jev_state_max_chars", 28_000)),
+            **self._confirm_inputs(),
         )
+
+    def _confirming(self) -> bool:
+        """確認待ちが生きているか（知-o）。器が無い・真偽でない返り（土台だけの器の差し替え）なら偽。"""
+        alive = getattr(self._agent, "confirm_alive", None)
+        return callable(alive) and alive() is True
+
+    def _confirm_inputs(self) -> dict:
+        """確認待ちのあいだ調停へ渡す、問いの文・決まった促し・促す間隔が空いたか（知-o・2026-10-13）。"""
+        if not self._confirming():
+            return {}
+        from ..core.confirm_state import prompt_due, prompt_text
+
+        pc = self._agent._pending_confirm
+        last = getattr(self._agent, "_confirm_prompted_at", None)
+        return {
+            "confirm_question": str(getattr(pc, "text", "") or "確認の問い"),
+            "confirm_prompt": prompt_text(pc),
+            "confirm_prompt_due": prompt_due(last, now=time.time()),
+        }
+
+    def _note_confirm_prompt(self, decision) -> None:
+        """調停が決まった促しを選んだら、その時刻を残す（次の促しまで 20 秒〔仮〕空ける・知-o）。"""
+        prompt = self._confirm_inputs().get("confirm_prompt")
+        if prompt and getattr(decision, "branch", "") == "light" and decision.text == prompt:
+            self._agent._confirm_prompted_at = time.time()
+
+    def _skip_while_confirming(self, trigger: "Trigger | None") -> bool:
+        """確認待ちのあいだ、排他で止めるきっかけか（知-o・2026-10-13・本人の決定）。
+
+        情動の求めは立てない。対応する意図が無い完了は捨てて反復を起こさない（10/13 20:00:33 に、確認待ちのあいだ始めた
+        `look` の完了が会話の求めを回し、タイマー中に話した）。機器と会話入力はここでは止めない。
+        """
+        if not self._confirming():
+            return False
+        if trigger is None:
+            kept = [c for c in self._drained_completions if self._lookup_of(c.query) is not None]
+            for c in self._drained_completions:
+                if c not in kept:
+                    logger.info("event-loop 確認待ちなので意図の無い完了を捨てる：%.40s", c.query)
+            self._drained_completions[:] = kept
+            return not kept
+        if trigger.kind == "情動":
+            logger.info("event-loop 確認待ちなので情動の求めを立てない：%s", trigger.query)
+            return True
+        return False
 
     def _talking(self) -> bool:
         """情動が話しかける軸（bond・esteem）で起きた求めか（出-at）。"""

@@ -27,6 +27,11 @@ TO_FAMILY = "家族どうし"
 RETHINK = "考え直す"
 AS_IS = "そのまま出す"
 
+#: 確認待ちへの答え（知-o・2026-10-13）。
+CONFIRM_YES = "はい"
+CONFIRM_NO = "いいえ"
+CONFIRM_OTHER = "それ以外"
+
 
 def picked(answer, key: str, min_conf: float) -> "str | None":
     """Choice の答えを読む。失敗・答えが無い・確信度が `min_conf` 未満なら None（倒し先へ）。"""
@@ -72,6 +77,28 @@ async def judge_rethink(
     pick = picked(await _ask(client, state, questions), "rethink", min_conf)
     verdict = RETHINK if pick == "rethink" else AS_IS
     logger.info("Jev 判定 考え直すか：%s（言い足し %d 件）", verdict, len(added))
+    return verdict
+
+
+async def judge_confirm_answer(client, *, question: str, text: str, min_conf: float) -> str:
+    """確認待ちのあいだに届いた言葉が、確認の問いへの答えか（知-o）。倒し先は「それ以外」（掛けもやめもせず促すだけ）。
+
+    確認待ちのあいだは発話の意味の大きな問いを使わず、この 3 択だけを聞く（10/13 20:00:17 に「はい」を確信度不足で聞き返した）。
+    """
+    state = f"[家のロボット（パジュ）が聞いた確認の問い]\n{question}\n\n[いま聞こえた言葉]\n{text}"
+    questions = {
+        "answer": choice(
+            "いま聞こえた言葉は、確認の問いへの答えか",
+            {
+                "yes": "はい。そのとおりにしてよいと答えている（はい・うん・いいよ・お願い）",
+                "no": "いいえ。やめてと答えている（いいえ・いや・やめて・いらない）",
+                "other": "それ以外。答えになっていない、または別の話・別の頼み",
+            },
+        )
+    }
+    pick = picked(await _ask(client, state, questions), "answer", min_conf)
+    verdict = {"yes": CONFIRM_YES, "no": CONFIRM_NO}.get(pick or "", CONFIRM_OTHER)
+    logger.info("Jev 判定 確認の答え：%s", verdict)
     return verdict
 
 

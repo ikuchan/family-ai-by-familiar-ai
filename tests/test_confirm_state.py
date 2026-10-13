@@ -230,3 +230,25 @@ def test_an_alarm_pending_goes_to_the_alarm_tool(monkeypatch):
     a._alarm_tool.call.assert_awaited_once_with(
         "set_alarm", {"at": "6:30", "label": "起こす"}, confirmed=True
     )
+
+
+# ── 確認待ちのあいだの促し（知-o・2026-10-13・本人の決定）──────────────────────
+
+
+def test_the_prompt_names_what_is_being_confirmed():
+    timer = confirm_state.PendingConfirm(action="set_timer")
+    alarm = confirm_state.PendingConfirm(action="set_alarm")
+    assert confirm_state.prompt_text(timer) == (
+        "いまタイマーを掛けるか確かめているところだよ。はいか、いいえで答えてね"
+    )
+    assert confirm_state.prompt_text(alarm) == (
+        "いまアラームを掛けるか確かめているところだよ。はいか、いいえで答えてね"
+    )
+
+
+def test_a_prompt_waits_for_the_gap():
+    assert confirm_state.PROMPT_GAP_SEC == 20.0
+    assert confirm_state.prompt_due(T0, now=T0 + 20.0)
+    assert not confirm_state.prompt_due(
+        T0, now=T0 + 19.0
+    )  # **反証の側**：20 秒たたないうちは促さない

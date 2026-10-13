@@ -530,6 +530,11 @@ class ArbiterInput:
     jev_utterance: str = ""
     #: Jev へ送る文の字数の上限（`AgentConfig.jev_state_max_chars`・出-bw）。
     jev_max_chars: int = 28_000
+    #: 確認待ちの問いの文（知-o・2026-10-13）。空でなければ、会話の求めは意味の道を通らず 3 択だけで決める。
+    confirm_question: str = ""
+    #: 答えになっていない言葉への決まった促し（`confirm_state.prompt_text`）と、前に促してから間隔が空いたか。
+    confirm_prompt: str = ""
+    confirm_prompt_due: bool = False
 
 
 #: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
@@ -691,9 +696,37 @@ class Arbiter:
             return await self._completion_by_rule(inp, started)
         if inp.origin == "情動" and inp.fired_axis in _AFFECT_ACTIONS:
             return await self._affect_by_rule(inp, started)
+        if inp.origin == "発話" and not inp.tool_return and inp.confirm_question:
+            return await self._confirm_by_rule(inp, started)
         if inp.origin == "発話" and not inp.tool_return:
             return await self._utterance_by_meaning(inp, started)
         return None
+
+    async def _confirm_by_rule(self, inp: ArbiterInput, started: float) -> Decision:
+        """確認待ちのあいだの会話は 3 択だけで決める（知-o・2026-10-13・本人の決定）。
+
+        はい → 掛ける、いいえ → やめる、それ以外 → 間隔が空いていれば決まった文で促し、空いていなければ黙る。文は機械が
+        用意したもので、軽量LLM には書かせない（10/13 20:00 に聞き返しの言い方が毎回変わった）。
+        """
+        from ..core import jev_judges
+        from ..core.utterance_meaning import THRESHOLD
+
+        verdict = await jev_judges.judge_confirm_answer(
+            self._jev, question=inp.confirm_question, text=inp.utterance, min_conf=THRESHOLD
+        )
+        if verdict == jev_judges.CONFIRM_YES:
+            final, decision = "confirm", Decision(branch="action", action="confirm")
+        elif verdict == jev_judges.CONFIRM_NO:
+            final, decision = "decline", Decision(branch="action", action="decline")
+        elif inp.confirm_prompt_due and inp.confirm_prompt:
+            final, decision = "ask_back", Decision(branch="light", text=inp.confirm_prompt)
+        else:
+            final, decision = "silent", Decision(branch="light", text="")
+        self._tell_decided(final)
+        logger.info(
+            "調停 %.2f 秒（確認待ち・3 択：%s → %s）", time.monotonic() - started, verdict, final
+        )
+        return decision
 
     async def _device_by_rule(self, inp: ArbiterInput, started: float) -> Decision:
         """機器の知らせは「軽く知らせる」と機械で決める（出-ay 段 4-1・2026-10-09・`設計方針_判定の段` §2.2.5）。

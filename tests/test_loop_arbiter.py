@@ -344,3 +344,80 @@ def test_the_label_of_a_look_names_the_direction():
 
     assert _query_label("look", {"direction": "右"}) == "右を見に行く"
     assert _query_label("look", {"pose": "窓"}) == "窓を見に行く"
+
+
+# ── 確認待ちのあいだは 3 択だけ（知-o・2026-10-13・本人の決定）────────────────────
+# 10/13 20:00:17 に、確認待ちへの「はい」を意味の大きな問いで読み、確信度不足で聞き返した。聞き返しの文も軽量LLM が
+# 毎回違う言い方で書いた。確認待ちのあいだは Jev の 3 択で読み、促すのは決まった文だけにする。
+
+
+def _confirm_jev(pick: str, conf: float = 0.9):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from familiar_agent.backends.jev import JevAnswer
+
+    jev = MagicMock()
+    jev.available = True
+    jev.ask = AsyncMock(
+        return_value=JevAnswer(ok=True, answers={"answer": {"choice": pick, "confidence": conf}})
+    )
+    return jev
+
+
+_ASKED = "3 分のタイマーね。その間は黙って聞かないよ、いい？"
+_PROMPT = "いまタイマーを掛けるか確かめているところだよ。はいか、いいえで答えてね"
+
+
+def _confirming(pick: str, *, due: bool = True, conf: float = 0.9):
+    writer = writer_says({"text": "書いてはいけない"})
+    seen: list = []
+    d = asyncio.run(
+        decide(
+            jev=_confirm_jev(pick, conf),
+            writer=writer,
+            utterance="はい",
+            confirm_question=_ASKED,
+            confirm_prompt=_PROMPT,
+            confirm_prompt_due=due,
+            on_decided=seen.append,
+        )
+    )
+    return d, writer, seen
+
+
+def test_a_yes_while_confirming_sets_it():
+    d, writer, seen = _confirming("yes")
+    assert (d.branch, d.action) == ("action", "confirm")
+    writer.complete.assert_not_awaited()
+    assert seen == ["confirm"]
+
+
+def test_a_no_while_confirming_drops_it():
+    d, _, _ = _confirming("no")
+    assert (d.branch, d.action) == ("action", "decline")
+
+
+def test_anything_else_gets_the_fixed_prompt():
+    d, writer, _ = _confirming("other")
+    assert (d.branch, d.text) == ("light", _PROMPT)
+    writer.complete.assert_not_awaited()  # 軽量LLM には書かせない
+
+
+def test_a_prompt_waits_for_its_gap():
+    d, _, seen = _confirming("other", due=False)
+    assert (d.branch, d.text) == ("light", "")  # 黙る
+    assert seen == ["silent"]
+
+
+def test_an_unsure_yes_is_not_taken():
+    """**反証の側**：確信度が足りなければ掛けない（促すだけ）。"""
+    d, _, _ = _confirming("yes", conf=0.5)
+    assert (d.branch, d.text) == ("light", _PROMPT)
+
+
+def test_without_a_confirmation_the_meaning_path_is_used():
+    """**反証の側**：確認待ちが無ければ、いままでどおり意味の道を通る（3 択は聞かない）。"""
+    jev = _confirm_jev("yes")
+    asyncio.run(decide(jev=jev, writer=writer_says({"text": "x"}), utterance="はい"))
+    questions = jev.ask.await_args.args[1]
+    assert "answer" not in questions

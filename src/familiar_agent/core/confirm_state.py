@@ -29,6 +29,24 @@ class PendingConfirm:
 #: 預かりの寿命（秒・`AgentConfig.confirm_ttl_sec` の既定と同じ）。純関数からも見えるように置く。
 CONFIRM_TTL_SEC = 300.0
 
+#: 確認待ちのあいだ、答えになっていない言葉に促す間隔（秒・〔仮〕・2026-10-13 本人の決定）。窓（10 秒）の中で家族が続けて
+#: 話しても、促すのは 1 回で済む。最初の問いも「前に促した」に数える。
+PROMPT_GAP_SEC = 20.0
+
+_WHAT = {"set_timer": "タイマー", "set_alarm": "アラーム"}
+
+
+def prompt_text(pc: "PendingConfirm") -> str:
+    """答えになっていない言葉への決まった促し（知-o）。軽量LLM には書かせない（言い方が毎回変わった）。"""
+    what = _WHAT.get(getattr(pc, "action", ""), "それ")
+    return f"いま{what}を掛けるか確かめているところだよ。はいか、いいえで答えてね"
+
+
+def prompt_due(last: "float | None", *, now: float, gap: float = PROMPT_GAP_SEC) -> bool:
+    """前に促して（または問いを出して）から `gap` 秒以上たったか。"""
+    return last is None or now - float(last) >= gap
+
+
 #: 確認待ちのあいだ**機械が落とす**動作（出-ag-ろ・2026-09-21）。掛ける系だけを止める——
 #: 答える（`confirm`・`decline`）・止める（`cancel_*`・`stop_*`）・話す・調べるは通す。
 #: 実機 17:34：1 回の「3 分測って」で `set_timer` が 3 回投げられ、確認待ちを作り直したうえで

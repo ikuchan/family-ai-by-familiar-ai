@@ -224,6 +224,7 @@ class EmbodiedAgent:
         )
         # 掛ける前の確認の預かり（出-y・`core/confirm_state.py`）。タイマーとアラームで 1 つ。
         self._pending_confirm: PendingConfirm | None = None
+        self._confirm_prompted_at: float | None = None  # 確認待ちで最後に促した時刻（知-o）
         # アラーム（知-q・2026-09-18）。タイマーとは別物：表 `alarms`・黙らない・聞かない状態にしない・
         # 確認は静穏時間だけ。止める口は道具 `cancel_alarm` と命令 `/alarm stop`。
         self._alarm_tool = AlarmTool(
@@ -874,6 +875,7 @@ class EmbodiedAgent:
     def ask_confirm(self, pc: "PendingConfirm") -> None:
         """道具が「確かめて」と判定した預かりを置く。新しいものが前のものを上書きする（「5 分にして」）。"""
         self._pending_confirm = pc
+        self._confirm_prompted_at = pc.asked_at  # 問いも「前に促した」に数える（知-o・促す間隔）
         logger.info("確認待ち %s asked_at=%.0f", pc.what, pc.asked_at)
 
     def confirm_alive(self) -> bool:
