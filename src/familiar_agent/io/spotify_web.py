@@ -116,6 +116,13 @@ class Spotify:
                 logger.info("音楽：鍵を更新しても通らない（もう一度承認が要る）")
                 return {}
 
+    def devices(self) -> "list[str] | None":
+        """Spotify に見えている機器の名前。読めなかった（鍵・通信）ら None、0 台なら空（知-bd・見分けるため）。"""
+        got = self._call("GET", "/me/player/devices")
+        if "devices" not in got:
+            return None
+        return [str(d.get("name") or "") for d in got.get("devices") or []]
+
     def device_id(self, name: str) -> "str | None":
         """機器の名前から id。見つからなければ None。"""
         if not name:

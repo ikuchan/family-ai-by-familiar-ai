@@ -101,3 +101,36 @@ def test_an_empty_name_never_switches(tmp_path, name):
         token_path=_token_file(tmp_path), client_id="c", http=http, refresh=lambda r: "A"
     )
     assert s.activate(name) is False
+
+
+# ── 機器の一覧を見分ける（知-bd・2026-10-13）──────────────────────────────────────
+
+
+def test_the_device_names_are_listed(tmp_path):
+    s = web.Spotify(
+        token_path=_token_file(tmp_path), client_id="c", http=_Http(), refresh=lambda r: "A2"
+    )
+    assert s.devices() == ["パジュ", "Amazon FireTV Stick 4K"]
+
+
+def test_an_empty_list_is_not_unreadable(tmp_path):
+    """**反証の側**：機器が 0 台なら空のリスト（読めなかったのとは別）。"""
+    s = web.Spotify(
+        token_path=_token_file(tmp_path),
+        client_id="c",
+        http=_Http(devices=[]),
+        refresh=lambda r: "A2",
+    )
+    assert s.devices() == []
+
+
+def test_an_unreadable_list_is_none(tmp_path):
+    class _Down(_Http):
+        def __call__(self, method, url, *, token, body=None):
+            self.calls.append((method, url, body))
+            return {}
+
+    s = web.Spotify(
+        token_path=_token_file(tmp_path), client_id="c", http=_Down(), refresh=lambda r: "A2"
+    )
+    assert s.devices() is None

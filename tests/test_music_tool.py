@@ -125,3 +125,48 @@ async def test_playing_still_works_without_the_web_key():
     out, ok = await tool.call("play_music", {"name": "ケイマン"})
     assert ok
     io.play.assert_awaited_once()
+
+
+# ── 動いていても機器が見えなければ立ち上げ直す（知-bd・2026-10-13・本人の決定ア）──────────
+
+
+def _ensure(monkeypatch, devices):
+    import asyncio
+
+    from familiar_agent.io import spotifyd
+
+    calls: list = []
+    monkeypatch.setattr(spotifyd, "ensure_running", lambda conf: "running")
+    monkeypatch.setattr(spotifyd, "restart", lambda conf: calls.append("restart") or "started")
+
+    async def wait(web, name, *, wait_sec):
+        calls.append("wait")
+        return True
+
+    monkeypatch.setattr(spotifyd, "wait_for_device", wait)
+    web = MagicMock()
+    web.devices = MagicMock(return_value=devices)
+    tool, _ = _tool(web=web, device_name="パジュ", spotifyd_conf="c")
+    asyncio.run(tool._ensure_spotifyd())
+    return calls
+
+
+def test_a_missing_device_restarts_spotifyd(monkeypatch, caplog):
+    import logging
+
+    caplog.set_level(logging.INFO)
+    assert _ensure(monkeypatch, ["Amazon FireTV Stick 4K"]) == ["restart", "wait"]
+    assert "一覧に 1 台あるが「パジュ」が無い" in caplog.text
+
+
+def test_an_unreadable_list_does_not_restart(monkeypatch, caplog):
+    import logging
+
+    caplog.set_level(logging.INFO)
+    assert _ensure(monkeypatch, None) == []
+    assert "機器の一覧が空（鍵か通信）" in caplog.text
+
+
+def test_a_visible_device_needs_nothing(monkeypatch):
+    """**反証の側**：「パジュ」が見えていれば何もしない。"""
+    assert _ensure(monkeypatch, ["パジュ", "Amazon FireTV Stick 4K"]) == []

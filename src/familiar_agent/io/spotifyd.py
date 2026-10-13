@@ -83,6 +83,58 @@ def ensure_running(config_path: str) -> str:
     return "started"
 
 
+#: 立ち上げ直すとき、止めた spotifyd が終わるのを待つ最大の秒数（〔仮〕・2026-10-13 本人の決定）。
+STOP_WAIT_SEC = 5.0
+
+
+def _spotifyd_pids() -> "list[int]":
+    """動いている spotifyd の pid（差し替え点）。"""
+    try:
+        out = subprocess.run(["pgrep", "-x", "spotifyd"], capture_output=True, text=True).stdout
+    except Exception:  # noqa: BLE001
+        return []
+    return [int(x) for x in out.split() if x.isdigit()]
+
+
+def _cmdline(pid: int) -> "list[str]":
+    """プロセスの起動の引数（差し替え点）。読めなければ空。"""
+    try:
+        return Path(f"/proc/{pid}/cmdline").read_bytes().decode(errors="replace").split("\0")
+    except Exception:  # noqa: BLE001
+        return []
+
+
+def _alive(pid: int) -> bool:
+    """プロセスがまだ居るか（差し替え点）。"""
+    return Path(f"/proc/{pid}").exists()
+
+
+def restart(config_path: str, *, sleep: "Callable[[float], Any] | None" = None) -> str:
+    """同じ設定ファイルで動いている spotifyd を止めて、立ち上げ直す（知-bd・2026-10-13・本人の決定ア）。
+
+    動いていても Spotify から機器が見えなくなることがある（10/13 19:58・20:12、10/07 から動き続けていた spotifyd）。
+    アプリを起動し直すと自分で立てたかが分からなくなるので、誰が立てたかではなく、起動の引数にパジュと同じ設定ファイルを
+    含むかで決める。別の設定ファイルで動いている spotifyd には触らない。終わるのを最大 `STOP_WAIT_SEC` 秒待つ。
+    """
+    import signal
+    import time
+
+    global _started
+    pause = sleep or time.sleep
+    conf = os.path.expanduser(config_path)
+    ours = [pid for pid in _spotifyd_pids() if conf in _cmdline(pid)]
+    for pid in ours:
+        with contextlib.suppress(Exception):
+            os.kill(pid, signal.SIGTERM)
+    waited = 0.0
+    while any(_alive(pid) for pid in ours) and waited < STOP_WAIT_SEC:
+        pause(0.2)
+        waited += 0.2
+    _started = None
+    logger.info("spotifyd を立ち上げ直す（止めた %d 件）", len(ours))
+    return ensure_running(config_path)
+
+
 async def wait_for_device(
     web: Any,
     name: str,

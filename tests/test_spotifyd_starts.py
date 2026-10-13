@@ -269,3 +269,32 @@ def test_the_spawned_spotifyd_gets_that_env(monkeypatch):
     monkeypatch.setattr(spotifyd.subprocess, "Popen", popen)
     spotifyd.ensure_running("c")
     assert seen["env"] == {"PULSE_SERVER": "unix:/x"}
+
+
+# ── 機器が見えなければ立ち上げ直す（知-bd・2026-10-13・本人の決定ア）──────────────────
+
+
+def test_restart_stops_only_our_spotifyd(monkeypatch):
+    conf = "/home/u/.config/spotifyd/spotifyd.conf"
+    w = _world(monkeypatch, running=True)
+    procs = {
+        11: ["spotifyd", "--no-daemon", "--config-path", conf],
+        22: ["spotifyd", "--config-path", "/other.conf"],
+    }
+    killed: list = []
+    monkeypatch.setattr(spotifyd, "_spotifyd_pids", lambda: list(procs))
+    monkeypatch.setattr(spotifyd, "_cmdline", lambda pid: procs[pid])
+
+    def kill(pid, sig):
+        killed.append(pid)
+        w["running"] = False  # 止まった
+
+    monkeypatch.setattr(spotifyd.os, "kill", kill)
+    monkeypatch.setattr(spotifyd, "_alive", lambda pid: pid not in killed)
+    assert spotifyd.restart(conf) == "started"
+    assert killed == [11]  # **反証の側**：別の設定ファイルの spotifyd（22）には触らない
+    assert len(w["spawned"]) == 1
+
+
+def test_restart_waits_at_most_five_seconds(monkeypatch):
+    assert spotifyd.STOP_WAIT_SEC == 5.0

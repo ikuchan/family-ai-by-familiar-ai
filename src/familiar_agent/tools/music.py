@@ -274,7 +274,20 @@ class MusicTool:
         from ..io import spotifyd
 
         state = await asyncio.to_thread(spotifyd.ensure_running, self._spotifyd_conf)
-        if state == "started" and self._web is not None and self._device_name:
+        if self._web is None or not self._device_name:
+            return
+        if state == "running" and callable(getattr(self._web, "devices", None)):
+            # 動いていても Spotify から機器が見えないことがある（知-bd・10/13 19:58・20:12。10/07 から動いていた spotifyd）。
+            # 一覧が読めなければ鍵か通信の問題なので立ち上げ直さない。「パジュ」だけ無ければ立ち上げ直す（本人の決定ア）。
+            names = await asyncio.to_thread(self._web.devices)
+            if not isinstance(names, list):
+                logger.info("音楽：機器の一覧が空（鍵か通信）")
+                return
+            if any(self._device_name in n for n in names):
+                return
+            logger.info("音楽：一覧に %d 台あるが「%s」が無い", len(names), self._device_name)
+            state = await asyncio.to_thread(spotifyd.restart, self._spotifyd_conf)
+        if state == "started":
             await spotifyd.wait_for_device(
                 self._web, self._device_name, wait_sec=self._spotifyd_wait
             )
