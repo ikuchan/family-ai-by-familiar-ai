@@ -68,7 +68,9 @@ def test_the_rules():
     assert d(_a("off_context", 0.2), _a("ask_back", 0.4)).final == "silent"
     assert d(_a("music", 0.5), _a("play_music", 0.9)).final == "unsure"
     assert d(_a("music", 0.9), _a("ask_back", 0.2)).final == "ask_back"
-    assert d(_a("music", 0.9), _a("play_music", 0.5)).final == "unsure"
+    assert (
+        d(_a("time", 0.9), _a("set_timer", 0.5)).final == "unsure"
+    )  # 音楽以外の 2 回目は見込みを見る（出-cf）
     assert d(_a("music", 0.9), _a("play_music", 0.9)).final == "play_music"
     claimed = d(_a("claim", 0.9), _a("パパ", 0.9))
     assert (claimed.final, claimed.name) == ("claim", "パパ")
@@ -143,3 +145,15 @@ def test_time_is_read_from_lengths_and_clock_times():
     time_desc = um.MEANINGS["time"][1]
     assert "何分・何秒・何時" in time_desc and "書き起こしが崩れていても" in time_desc
     assert "音楽ではない" in um.MEANINGS["music"][1]
+
+
+def test_music_takes_the_likeliest_action_whatever_its_confidence():
+    """音楽の 2 回目は見込みを見ない（出-cf・10/14 00:46 に「ストップ」を確信度不足で聞き返した・本人の決定ウ）。"""
+    got = um.decide(_a("music", 0.9), _a("stop_music", 0.45))
+    assert got.final == "stop_music"
+
+
+def test_other_meanings_and_the_first_question_still_need_confidence():
+    """**反証の側**：音楽以外の 2 回目と、1 回目（意味）は今までどおり 0.6 を見る。"""
+    assert um.decide(_a("time", 0.9), _a("set_timer", 0.45)).final == "unsure"
+    assert um.decide(_a("music", 0.5), _a("stop_music", 0.9)).final == "unsure"

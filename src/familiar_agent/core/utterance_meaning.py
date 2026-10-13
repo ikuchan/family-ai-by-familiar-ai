@@ -345,6 +345,10 @@ def decide(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> Outcom
         return Outcome("unsure", why="2 回目の答えが無い")
     if a == "ask_back":
         return Outcome("ask_back", why="聞き返す（確信度に関係なく）")
+    if m == "music":
+        # 音楽の 2 回目は見込みを見ず、いちばん見込みの大きい動作を使う（出-cf・10/14 00:46 に「ストップ」を確信度不足で
+        # 聞き返した・本人の決定ウ）。ほかの意味の 2 回目と、1 回目（意味）は 0.6 を見る。
+        return Outcome(a, why="使う（音楽は 2 回目の見込みを見ない）")
     if _conf(action) < THRESHOLD:
         return Outcome("unsure", why="2 回目がしきい値未満")
     if m in ("claim", "deny"):
