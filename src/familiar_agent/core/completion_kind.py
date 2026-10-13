@@ -36,6 +36,10 @@ _RESEARCH = frozenset(
 )
 _LOOK = frozenset({"look", "see"})
 
+#: 掛ける道具（`set_timer`・`set_alarm`）が確認待ちを置いたときの返りの書き出し。
+NOT_SET_YET = "まだ掛けていない"
+_ASKS_FIRST = frozenset({"set_timer", "set_alarm"})
+
 #: 成功した操作 → 並べる動作（本人の表・2026-10-09）。
 _DONE: "dict[str, tuple[str, tuple[str, ...]]]" = {
     "play_music": ("音楽をかけた", ("silent",)),
@@ -91,4 +95,7 @@ def kind_of(
         if self_started:
             return "自分から見に行った結果が届いた", ("look", "talk_light", "silent")
         return "頼まれて見た結果が届いた", ("reply_light", "look")
+    if action in _ASKS_FIRST and text.startswith(NOT_SET_YET):
+        # 確認の問いは機械が読み上げている（出-ag-ろ）ので、完了では話さない（10/13 19:19 に軽量LLM が同じ問いをもう一度言った）。
+        return "確認の問いを出した", ("silent",)
     return _DONE.get(action)

@@ -129,7 +129,8 @@ def test_the_arbiter_uses_the_tool_return_lead_when_asked():
         return prompt_of(writer)
 
     # 道具の返りの反復には、返った道具が載る（段 5e：完了の道を通る。返った道具なしの道具の返りは無い）。
-    back = (("set_timer", False, "まだ掛けていない。本人に一度聞く：「3 分ね、いい？」"),)
+    # 確認待ちを置いた返り（「まだ掛けていない」）は完了で黙るので（10/13・知-o）、掛けた返りで見る。
+    back = (("set_timer", False, "パパに頼まれて、19:22 に「パスタ」のタイマーを掛けた"),)
     assert "取り返そうとして道具を選ばない" in written(tool_return=True, returned=back)
     assert "取り返そうとして道具を選ばない" not in written()
     # Jev に送る文は、段 5c から「いま何が起きたか」だけを言う（選び方の説明は問いの側）。

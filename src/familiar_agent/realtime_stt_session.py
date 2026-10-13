@@ -35,7 +35,9 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # ── Filler / short-utterance filter ──────────────────────────────────
-_FILLER_WORDS = frozenset("えー ええと えっと あの その うーん んー ま はい うん ん".split())
+# 言いよどみだけを捨てる。「はい」「うん」は確認待ちへの答えになるので通し（2026-10-13 19:19 に確認の「はい」を捨てた）、
+# 意味のない音かどうかは Jev の発話の意味（成立しないもの → 黙る）に任せる。1 字の「ま」「ん」は 2 字未満として捨てる。
+_FILLER_WORDS = frozenset("えー ええと えっと あの その うーん んー".split())
 _DEDUPE_WINDOW_SECS = 3.0
 _RECONNECT_POLL_SECS = 1.0
 _RECONNECT_BACKOFF_SECS = 2.0

@@ -334,3 +334,16 @@ def test_the_session_makes_the_name_a_word_group(monkeypatch, tmp_path) -> None:
     session = create_realtime_stt_session()
     assert session is not None
     assert session._stt_config.word_groups == (("パジュ", ("はじゅ", "パチュ")),)
+
+
+def test_short_answers_reach_the_loop() -> None:
+    """「はい」「うん」は確認待ちへの答えになる（2026-10-13 19:19：「3 分測って」の確認に「はい」と答えたのに、入口の言いよどみの一覧で
+    黙って捨てられた）。意味のない音を落とすのは Jev の発話の意味（成立しないもの → 黙る）に任せる。「ま」「ん」は 1 字で、2 字未満として捨てる。"""
+    assert should_skip_stt("はい") is False
+    assert should_skip_stt("うん") is False
+
+
+def test_hesitations_are_still_dropped() -> None:
+    """**反証の側**：言いよどみは今のまま捨てる。"""
+    for word in ("えー", "ええと", "えっと", "あの", "その", "うーん", "んー"):
+        assert should_skip_stt(word) is True

@@ -79,3 +79,38 @@ def test_an_empty_search_asks_memory_or_search_again(result):
 def test_an_unknown_tool_is_left_to_the_old_judge():
     # 表に無い道具（外部の道具など）。すすめた曲への返事は段 4-4f で表に入った。
     assert kind_of("some_external_tool", failed=False, result="x", origin="発話") is None
+
+
+# ── 確認待ちを置いた掛ける道具は黙る（2026-10-13 19:19）────────────────────────
+# 確認の問いは機械が読み上げる（出-ag-ろ）。完了を「掛けた」と分けると、軽量LLM が同じ問いをもう一度言った。
+
+
+@pytest.mark.parametrize("action", ["set_timer", "set_alarm"])
+def test_a_confirmation_question_is_not_said_twice(action):
+    asked = (
+        "まだ掛けていない。本人に一度聞く：「3 分のタイマーね。その間は黙って聞かないよ、いい？」"
+    )
+    assert kind_of(action, failed=False, result=asked, origin="発話") == (
+        "確認の問いを出した",
+        ("silent",),
+    )
+
+
+def test_a_set_timer_is_still_told():
+    """**反証の側**：本当に掛けたら、今のまま軽く伝える。"""
+    done = "パパに頼まれて、19:22 に「パパの3分」のタイマーを掛けた"
+    assert kind_of("set_timer", failed=False, result=done, origin="発話") == (
+        "タイマー・アラームを掛けた",
+        ("tell_light",),
+    )
+
+
+def test_the_tools_open_their_confirmation_with_the_mark():
+    """道具の確認待ちの返りは、仕分けが見る書き出しで始まる（文言を変えたら気づく）。"""
+    import inspect
+
+    from familiar_agent.core.completion_kind import NOT_SET_YET
+    from familiar_agent.tools import alarm, timer
+
+    for module, n in ((timer, 2), (alarm, 1)):
+        assert inspect.getsource(module).count(f'return f"{NOT_SET_YET}。') == n
