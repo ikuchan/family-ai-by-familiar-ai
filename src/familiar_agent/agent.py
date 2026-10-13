@@ -829,6 +829,17 @@ class EmbodiedAgent:
                     return parse_music_md(path.read_text(encoding="utf-8"))
         return ()
 
+    def _music_default(self) -> "str | None":
+        """`MUSIC.md` で `既定` と書いた行の名前（知-bd）。読めなければ None。"""
+        from .core.music_rules import default_name
+
+        for c in ("MUSIC.md", "~/.familiar_ai/MUSIC.md"):
+            path = Path(c).expanduser()
+            if path.exists():
+                with contextlib.suppress(Exception):
+                    return default_name(path.read_text(encoding="utf-8"))
+        return None
+
     def _build_music_tool(self):
         """音楽の器。表が空なら作らない（鳴らす先が無い機体では道具を渡さない）。"""
         if not self._music_table():
@@ -850,6 +861,7 @@ class EmbodiedAgent:
             device_name=os.environ.get("SPOTIFY_DEVICE_NAME", "パジュ"),
             spotifyd_conf=self.config.spotifyd_config,
             spotifyd_wait_sec=self.config.spotifyd_wait_sec,
+            default_name=self._music_default,
         )
 
     def mic_gate_reason(self) -> str:
@@ -875,7 +887,8 @@ class EmbodiedAgent:
     def ask_confirm(self, pc: "PendingConfirm") -> None:
         """道具が「確かめて」と判定した預かりを置く。新しいものが前のものを上書きする（「5 分にして」）。"""
         self._pending_confirm = pc
-        self._confirm_prompted_at = pc.asked_at  # 問いも「前に促した」に数える（知-o・促す間隔）
+        # 問いは前の促しに数えない（知-o）。10/13 23:39 に、問いの 8 秒後の「はい」の聞き違いに黙った。
+        self._confirm_prompted_at = None
         logger.info("確認待ち %s asked_at=%.0f", pc.what, pc.asked_at)
 
     def confirm_alive(self) -> bool:

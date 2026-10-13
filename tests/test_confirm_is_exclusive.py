@@ -129,9 +129,12 @@ def test_the_arbiter_gets_the_confirmation():
     assert got.confirm_prompt_due
 
 
-def test_the_prompt_waits_after_the_question():
-    """**反証の側**：問いを出してすぐ（20 秒未満）は促さない。確認待ちが無ければ問いを渡さない。"""
-    ip, _ = _ip()
+def test_the_first_non_answer_is_prompted_right_away():
+    """問いは前の促しに数えない（10/13 23:39、問いの 8 秒後の「はい」の聞き違いに黙った）。一度促した直後は促さない。"""
+    ip, a = _ip()
+    a._confirm_prompted_at = None  # 確認待ちを置いたとき
+    assert ip._arbiter_input(utterance="x", workspace_ctx="", present_ctx="").confirm_prompt_due
+    a._confirm_prompted_at = time.time()  # **反証の側**：促したばかり
     assert not ip._arbiter_input(utterance="x", workspace_ctx="", present_ctx="").confirm_prompt_due
     ip2, _ = _ip(confirming=False)
     assert (
@@ -150,11 +153,12 @@ def test_a_prompt_is_stamped():
     assert a._confirm_prompted_at == 0.0  # 促しでなければ時刻を動かさない
 
 
-def test_asking_a_confirmation_starts_the_gap():
+def test_asking_a_confirmation_clears_the_last_prompt():
     from familiar_agent.agent import EmbodiedAgent
 
     a = _agent(stream_returns=[])
 
     pc = PendingConfirm(action="set_timer", asked_at=123.0, text=ASKED)
+    a._confirm_prompted_at = 99.0  # 前の確認待ちで促した時刻
     EmbodiedAgent.ask_confirm(a, pc)
-    assert a._confirm_prompted_at == 123.0
+    assert a._confirm_prompted_at is None  # 問いは前の促しに数えない

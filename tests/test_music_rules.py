@@ -95,3 +95,19 @@ def test_a_named_voice_is_a_music_word_whatever_it_says():
     assert is_music_word("パジュ、3 分測って", TABLE, names=names)
     assert not is_music_word("いま何の曲？", TABLE, names=names)
     assert not is_music_word("3 分測って", TABLE, names=names)
+
+
+# ── 既定のプレイリスト（知-bd・2026-10-13）─────────────────────────────────────
+
+
+def test_the_default_row_is_found():
+    from familiar_agent.core.music_rules import default_name, parse_music_md
+
+    text = "朝の曲：spotify:playlist:aaa\nケイマン：spotify:playlist:bbb：既定\n"
+    assert default_name(text) == "ケイマン"
+    assert parse_music_md(text)[1] == (
+        "ケイマン",
+        "spotify:playlist:bbb",
+        False,
+    )  # 既定は順番のまま
+    assert default_name("朝の曲：spotify:playlist:aaa：ランダム") is None

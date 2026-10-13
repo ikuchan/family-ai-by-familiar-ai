@@ -62,6 +62,20 @@ def parse_music_md(text: str) -> "tuple[tuple[str, str, bool], ...]":
     )
 
 
+_DEFAULT = re.compile(r"既定")
+
+
+def default_name(text: str) -> "str | None":
+    """`MUSIC.md` で 3 つ目以降の欄に `既定` と書いた行の名前（知-bd・2026-10-13）。無ければ None。
+
+    曲名なしの「音楽をかけて」で、止まっていた続きが鳴らなかったときにかけるもの。
+    """
+    for m in _ROW.finditer(text or ""):
+        if _DEFAULT.search(m.group(3) or ""):
+            return m.group(1).strip()
+    return None
+
+
 def find_playlist(
     text: str, table: "tuple[tuple[str, str, bool], ...]"
 ) -> "tuple[str, str, bool] | None":

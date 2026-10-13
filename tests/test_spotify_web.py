@@ -134,3 +134,14 @@ def test_an_unreadable_list_is_none(tmp_path):
         token_path=_token_file(tmp_path), client_id="c", http=_Down(), refresh=lambda r: "A2"
     )
     assert s.devices() is None
+
+
+def test_a_non_json_success_body_is_not_an_error(monkeypatch):
+    """成功の返事の中身が JSON でなくても例外にしない（10/13 23:32、受け付けられた再生の頼みで落ちた）。"""
+
+    class _Resp:
+        def read(self):
+            return b"1 accepted"
+
+    monkeypatch.setattr(web.urllib.request, "urlopen", lambda req, timeout=10: _Resp())
+    assert web._http("PUT", "https://api.spotify.com/v1/me/player/play", token="t", body={}) == {}

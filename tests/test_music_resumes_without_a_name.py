@@ -149,3 +149,57 @@ def test_the_description_puts_the_no_name_example_on_the_empty_side():
     desc = play["description"]
     head, _, tail = desc.partition("名前を言われなければ")
     assert "音楽かけて" not in head and "音楽かけて" in tail
+
+
+# ── 続きが鳴らなければ既定をランダムで（知-bd・2026-10-13・本人の決定）──────────────────
+
+
+def _tool_with_default(default: "str | None"):
+    state = {"playing": False, "context": "spotify:album:old"}
+    io = MagicMock()
+    io.play = AsyncMock(return_value=True)
+    io.set_shuffle = AsyncMock(return_value=True)
+    w = MagicMock()
+    w.resume = MagicMock(return_value=True)  # 頼めたが、続きは鳴らない
+
+    def play(name, uri):
+        state.update(playing=True, context=uri)
+        return True
+
+    w.play = MagicMock(side_effect=play)
+    w.now_playing = MagicMock(
+        side_effect=lambda: {"playing": state["playing"], "context": state["context"], "item": None}
+    )
+    tool = MusicTool(
+        io=io,
+        bus=lambda: MagicMock(),
+        table=lambda: (("ケイマン", "spotify:playlist:aaa", False),),
+        web=w,
+        device_name="パジュ",
+        default_name=lambda: default,
+    )
+    return tool, io, w
+
+
+def test_nothing_to_resume_plays_the_default_shuffled():
+    tool, io, w = _tool_with_default("ケイマン")
+    text, ok = _play(tool)
+    assert ok
+    assert (
+        text.startswith("止まっていた続きが無かったので、")
+        and "ケイマン" in text
+        and "ランダム" in text
+    )
+    w.play.assert_called_once_with("パジュ", "spotify:playlist:aaa")
+    io.set_shuffle.assert_awaited_once()
+    assert (
+        io.set_shuffle.await_args.args[1] is True
+    )  # 表では順番でも、既定としてかけるときはランダム
+
+
+def test_without_a_default_nothing_is_played():
+    """**反証の側**：既定が無ければ、今までどおりかけられなかったと返す。"""
+    tool, _, w = _tool_with_default(None)
+    text, ok = _play(tool)
+    assert not ok and "かけるものが無かった" in text
+    w.play.assert_not_called()

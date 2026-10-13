@@ -12,9 +12,13 @@
 
 （名前）：（spotify:playlist:… の形の URI）：（ランダム と書くか、空のまま）
 
+**どれか 1 行に `既定` と書くと、曲名を言わずに「音楽をかけて」と頼んで止まっていた続きが無かったとき、その行をランダムでかける**
+（`ランダム` と並べるなら `：ランダム 既定`。名前で頼んだときは 3 つ目の欄のとおり）。
+
 例：
 
 ```
 朝の曲：spotify:playlist:37i9dQZF1DX0XUsuxWHRQd
 ドライブ：spotify:album:1DFixLWuPkv3KT3TnV35m3：ランダム
+夜の曲：spotify:playlist:37i9dQZF1DWZd79rJ6a7lp：既定
 ```

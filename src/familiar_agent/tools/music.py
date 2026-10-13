@@ -108,6 +108,7 @@ class MusicTool:
         device_name: str = "",
         spotifyd_conf: str = "",
         spotifyd_wait_sec: float = 10.0,
+        default_name: "Callable[[], str | None] | None" = None,
     ) -> None:
         self._io = io
         self._bus = bus
@@ -121,6 +122,8 @@ class MusicTool:
         # 鳴らす前に spotifyd が居るかを見て、居なければ立ち上げる（2026-10-07）。空なら見ない（試験の土台）。
         self._spotifyd_conf = spotifyd_conf
         self._spotifyd_wait = spotifyd_wait_sec
+        # 曲名なしで続きが鳴らなかったときにかけるもの（`MUSIC.md` の `既定`・知-bd）。
+        self._default_name = default_name or (lambda: None)
 
     def get_tool_definitions(self) -> list[dict]:
         return [dict(d) for d in TOOL_DEFINITIONS]
@@ -247,6 +250,12 @@ class MusicTool:
             asked = False
         if not asked or not await self._confirm(None):
             logger.info("音楽：止まっていた続きが鳴らなかった")
+            # 続きが無ければ既定をランダムでかける（知-bd・2026-10-13・本人の決定）。表で順番でも、既定のときはランダム。
+            default = self._default_name()
+            if default:
+                text, ok = await self._play({"name": default, "order": "ランダム"})
+                if ok:
+                    return f"止まっていた続きが無かったので、{text}", True
             return "止まっていた続きが無く、かけるものが無かった", False
         self._mark(True)
         logger.info("音楽：止まっていた続きをかけ始めた")

@@ -48,11 +48,16 @@ def _http(method: str, url: str, *, token: str, body: "dict | None" = None) -> d
     )
     try:
         raw = urllib.request.urlopen(req, timeout=10).read()
-        return json.loads(raw) if raw else {}
     except urllib.error.HTTPError as e:
         if e.code == 401:
             raise Unauthorized() from e
         logger.info("音楽：Web API が %s を返した（%s）", e.code, url.rsplit("/", 1)[-1])
+        return {}
+    # 成功の返事の中身が JSON でないことがある（10/13 23:32、受け付けられた再生の頼みで落ちて、鳴らなかった扱いになった）。
+    # 受け付けられたことは成功として先へ進め、中身は空として扱う（知-bd）。
+    try:
+        return json.loads(raw) if raw else {}
+    except ValueError:
         return {}
 
 
