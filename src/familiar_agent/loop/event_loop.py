@@ -2340,12 +2340,13 @@ class InformationProcessing:
             if fixed != utterance:
                 logger.info("event-loop 名前の聞き違いを直した：%s", shown[: shown.find("）") + 1])
                 trigger.query = fixed
+        # 門を通った声だけ、誰が話しているかを照らす（知-ae）。捨てた声は聞いていないのと同じなので照らさない。
+        # 吹き出しの名前は知らせた時点の話者を読むので、先に声で話者を決める（10/13 18:56 にこうきの名前で出て、返事はパパ宛てだった）。
+        await self._match_voice(voice)
         self._notify_heard(shown, True)
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
         # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
-        # 門を通った声だけ、誰が話しているかを照らす（知-ae）。捨てた声は聞いていないのと同じなので照らさない。
-        await self._match_voice(voice)
         if trigger.named:
             # 名前で呼ばれたら、**調べかけを打ち切る**（言い直し・別の用事・「パジュ、止めて」）。結果は
             # 捨てるが、**何を打ち切ったかは記録に残す**。名前の無い入力（「うん」）では止めない。

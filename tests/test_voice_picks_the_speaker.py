@@ -175,3 +175,32 @@ def test_run_hands_the_voice_to_the_loop():
     a = _run_agent()
     asyncio.run(Agent.run(a, VoiceText("パパだよ", voice=PAPA)))
     assert np.allclose(a._info_processing.push_utterance.await_args.kwargs["voice"], PAPA)
+
+
+# ── 画面の名前：声で話者を決めてから吹き出しを出す ───────────────────────────
+# 10/13 18:56 に、声でこうきからパパへ付け替える前に吹き出しを出したので、パパの言葉がこうきの名前で出た
+# （返事はパパ宛てだった）。画面は知らせた時点の話者を読む。
+
+
+def _order(*, swallowed: bool) -> list[str]:
+    ip, _, _ = _ip()
+    order: list[str] = []
+    ip._swallow_if_unheard = AsyncMock(return_value=swallowed)  # type: ignore[method-assign]
+    ip._match_voice = AsyncMock(side_effect=lambda v: order.append("照らす"))  # type: ignore[method-assign]
+    ip._notify_heard = MagicMock(  # type: ignore[method-assign]
+        side_effect=lambda text, heard: order.append("受けた" if heard else "捨てた")
+    )
+    ip._ensure_driver = lambda: None  # type: ignore[method-assign]
+    ip._triggers = MagicMock()
+    ip._triggers.put_nowait = lambda trigger: trigger.future.set_result("")
+    asyncio.run(ip.push_utterance("パパだよ", source="voice", voice=PAPA))
+    return order
+
+
+def test_the_speaker_is_judged_before_the_bubble():
+    assert _order(swallowed=False) == ["照らす", "受けた"]
+
+
+def test_a_swallowed_voice_is_only_shown_as_unheard():
+    """**反証の側**：捨てた声は照らさず、「捨てた」だけを知らせる。"""
+    assert _order(swallowed=True) == ["捨てた"]
