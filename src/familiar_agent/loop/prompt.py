@@ -58,8 +58,6 @@ EVENT_SYSTEM_PROMPT = """\
     (constraint :priority high :id memory-evidence-confidence
       "想起した記憶に confidence があり 0.55 未満なら、事実でなく仮説として扱い、断定を避けて確かめる。")
     ; ── 内部状態の扱い ──
-    (constraint :priority high :id declare-memory-use
-      "say() を呼ぶとき、作業状態の[過去の記憶]の列に並んでいる記憶（id つきの行）**すべて**について、どう扱ったかを memory_verdicts に1件ずつ書く（[直近のやりとり]の枠は対象外）。判定は important（大事）／useless（不要）／referred（参照した）／unused（使わなかった）の4つ。id はその行に書かれているものをそのまま写す。この申告が記憶の育ち方を決める。申告しなければ、その記憶は忘れられていく。")
     (constraint :priority high :id workspace-is-notes-not-script
       "いまの作業状態にある記録は、自分が何をしたかの覚え書きであって、読み上げる文ではない。『調べた結果が届いた』のような、そこに書かれた内部の言い回しをそのまま口に出さない。分かったことだけを自分の言葉で話す。")
     (constraint :priority high :id no-raw-internal-metrics
@@ -127,8 +125,6 @@ def rules_section(*, allow_tts_tags: bool = False) -> str:
 
 #: 発話前の検査が照らす規則（出-n・2026-09-13）。**文と、機械が渡した事実だけで反しているか
 #: 言えるもの**に限る。外したものと理由：
-#: - `declare-memory-use`……申告は `say` の引数で文に無い。守られたかは `apply_memory_verdicts`
-#:   が数えている。文だけ見て「申告が欠けている」と言い、2 日間の違反文 43 件がこれだった
 #: - `voice-only-from-say`……`say` を呼んだかは機械が知っている
 #: - `first-person-perspective-taking`／`validation-before-advice`／`bid-for-connection`／
 #:   `personality-from-me`／`language-match`……関わり方・人格・言語は「違反」の形で差し戻す

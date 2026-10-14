@@ -434,7 +434,7 @@ class Workspace:
     returned_lookups: "tuple[tuple[str, bool, str], ...]" = ()
     #: この反復で返った道具の index（出-bw）。Jev へ送る版の文から本文を外すのに使う。組んだ時点の値を固定する。
     returned_idx: "frozenset[int]" = frozenset()
-    #: 申告（`memory_verdicts`）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
+    #: 記憶の申告（Jev が答える・記-r）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
 
@@ -746,7 +746,7 @@ async def recall(
 def link_follows(agent, req: Request, w_id_map: "dict[str, str]", short: "str | None") -> bool:
     """判定が返した続き先へ、継起の辺を張る（`根拠台帳` §29）。
 
-    **W に無い id は捨てる。** 判定は W の行の 12 桁の短い id を返す。`memory_verdicts` と同じ
+    **W に無い id は捨てる。** 判定は W の行の 12 桁の短い id を返す。記憶の申告と同じ
     対応表で完全な id に直してから張る（直さずに完全な id と比べていて、一度も繋がらなかった・出-bo）。
 
     自分の起点を指しても繋がない。自己ループはさかのぼりが止まらなくなる。

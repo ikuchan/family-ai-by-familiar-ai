@@ -211,7 +211,7 @@ def test_nothing_happens_without_a_guess():
 
 
 def test_the_say_tool_takes_the_guess():
-    """`say()` の入力に見立ての欄がある（`memory_verdicts` と同じ形）。
+    """`say()` の入力に見立ての欄がある（並びの欄）。
 
     写真は主LLM にも届く。実機 15:57 の写真で測ると、欄が無ければ 6 回とも「パパ」と呼んで
     機械へは何も渡らず、欄を足せば 6 回とも書く（確信度 0.7〜0.9）。

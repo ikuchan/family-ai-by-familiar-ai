@@ -85,7 +85,7 @@ def test_the_loop_asks_jev_with_the_facts():
         await ip.close()
         return got
 
-    got = asyncio.run(go())
+    got, _verdicts = asyncio.run(go())  # 検査は申告と一緒に返る（記-r）
     assert got is not None and got.startswith("決まり no-fake-perception：")
     # 照らすのは文と事実だけで判断できる決まりだけ（`CHECKER_RULE_IDS`・出-n）
     _state, questions = a._jev.ask.await_args.args

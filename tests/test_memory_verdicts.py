@@ -1,4 +1,7 @@
-"""フルLLM が「想起した記憶をどう扱ったか」を申告する（課題5 E節 段2）。
+"""「想起した記憶をどう扱ったか」の申告を当てる（課題5 E節 段2）。
+
+申告を出すのは、記-r（2026-10-14）から Jev だけである（主LLM の `say` の引数は外した）。ここでは、申告を
+当てる側（`apply_memory_verdicts`）の照合と面を見る。
 
 設計は「**フルLLM が参照した MI だけ**再評価（上げ下げ）＋freshness 更新」と定めている。
 その更新契機がこの申告である。想起しただけで更新すると、一度上がった記録が自分を押し上げ
@@ -26,7 +29,6 @@ from familiar_agent.loop.request import Request
 from unittest.mock import MagicMock
 
 from familiar_agent.backends import ToolCall
-from familiar_agent.loop.prompt import EVENT_SYSTEM_PROMPT
 from tests.test_event_loop import _agent, _run, _turn
 
 
@@ -50,37 +52,12 @@ def _rec(obs_id="m1", content="昔の話", fit=0.5, conf=0.8, direction="発話"
     )
 
 
-def test_the_say_tool_accepts_verdicts():
+def test_the_say_tool_no_longer_takes_verdicts():
+    """記-r（2026-10-14）で主LLM の自己申告をやめた。申告は Jev が出す（`test_verdicts_come_from_jev_only`）。"""
     from familiar_agent.tools.tts import TTSTool
 
     schema = TTSTool.get_tool_definitions(MagicMock())[0]["input_schema"]
-    verdicts = schema["properties"]["memory_verdicts"]
-    assert verdicts["items"]["properties"]["verdict"]["enum"] == [
-        "important",
-        "useless",
-        "referred",
-        "unused",
-    ]
-    assert "memory_verdicts" in schema["required"]  # 必須（出-h-い）
-
-
-def test_the_schema_tells_how_to_choose_each_verdict():
-    """**4つの判定に、別々の引き金を与える。**
-
-    引き金が無いと、無難な `referred` が全件に並び、W の記憶が一斉に若返る（47日前の
-    挨拶が居座った形）。逆に「迷うなら unused」だけだと `important` が1件も出ず、
-    `groundedness_n` が増えない。**両側へ倒れないよう、条件で分ける。**
-    """
-    from familiar_agent.tools.tts import TTSTool
-
-    schema = TTSTool.get_tool_definitions(MagicMock())[0]["input_schema"]
-    desc = schema["properties"]["memory_verdicts"]["description"]
-    for verdict in ("important", "useless", "referred", "unused"):
-        assert f"`{verdict}`" in desc, f"{verdict} の引き金が書かれていない"
-    # `important` と `referred` を分ける軸は「この反復だけか、この先も効くか」。
-    assert "beyond this turn" in desc and "only for this turn" in desc
-    # 欠けさせない指示。
-    assert "every id" in desc
+    assert "memory_verdicts" not in schema["properties"]
 
 
 def test_the_schema_is_the_same_every_turn():
@@ -95,13 +72,6 @@ def test_the_schema_is_the_same_every_turn():
     a = TTSTool.get_tool_definitions(MagicMock())[0]
     b = TTSTool.get_tool_definitions(MagicMock())[0]
     assert a == b
-    id_schema = a["input_schema"]["properties"]["memory_verdicts"]["items"]["properties"]["id"]
-    assert "enum" not in id_schema
-
-
-def test_the_prompt_asks_for_every_recalled_memory():
-    assert "memory_verdicts" in EVENT_SYSTEM_PROMPT
-    assert "important" in EVENT_SYSTEM_PROMPT and "unused" in EVENT_SYSTEM_PROMPT
 
 
 def test_verdicts_are_matched_through_the_index_not_by_prefix_guessing():
@@ -168,16 +138,6 @@ def test_the_workspace_prints_twelve_digit_ids():
         a._oif, [_rec("aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee")], Request()
     )
     assert list(id_map) == ["aaaaaaaabbbb"]
-
-
-def test_the_rule_asks_for_the_past_column_not_every_id_on_the_page():
-    """規則文は「過去の記憶の列」の id つきの行を対象にする（出-n 4）。直近の枠は対象外。"""
-    from familiar_agent.loop.prompt import EVENT_SYSTEM_PROMPT
-
-    at = EVENT_SYSTEM_PROMPT.index(":id declare-memory-use")
-    rule = EVENT_SYSTEM_PROMPT[at : at + 400]
-    assert "過去の記憶" in rule
-    assert "直近のやりとり" in rule
 
 
 def test_the_loop_counts_verdicts_against_the_past_column():

@@ -1,8 +1,9 @@
 """道具呼び出しを**関数呼び出し風の文**で書いてきたときも拾う（2026-09-15 実機）。
 
-`say(text="パパ、…", memory_verdicts=[{"id":"…","verdict":"important"}, …])` が本文として返り、
+`say(text="パパ、…", <並びの引数>=[{…}, …])` が本文として返り、
 ループは「道具なし・542 字」と見て**沈黙**にした（パジュへのメモの初回・20:12）。`<invoke>` の形
-（09-13）に加えて、この形も `ToolCall` に直す。
+（09-13）に加えて、この形も `ToolCall` に直す。当時の並びの引数は記憶の申告で、記-r（2026-10-14）で `say` から
+外したので、例はいまの並びの引数（見立て `seen_people`）に替えた。
 """
 
 from __future__ import annotations
@@ -11,7 +12,7 @@ from familiar_agent.core.tool_text import tool_calls_from_text
 
 SAY = (
     'say(text="パパ、今日は体調崩して午後お休みしてたんだね。もう大丈夫？キャンプの件、9/17までに決めるやつだね、覚えとくよ。", '
-    'memory_verdicts=[{"id":"2e46d9cc40e3","verdict":"important"},{"id":"e6a97d44a8f5","verdict":"unused"}])'
+    'seen_people=[{"name":"パパ","confidence":0.8},{"name":"","confidence":0.2}])'
 )
 
 
@@ -22,7 +23,7 @@ def test_a_call_style_say_is_recovered_with_its_arguments():
         calls[0].input["text"].startswith("パパ、今日は体調崩して")
         and "9/17" in calls[0].input["text"]
     )
-    assert calls[0].input["memory_verdicts"][0] == {"id": "2e46d9cc40e3", "verdict": "important"}
+    assert calls[0].input["seen_people"][0] == {"name": "パパ", "confidence": 0.8}
 
 
 def test_numbers_bools_and_single_quotes_are_read():

@@ -203,14 +203,13 @@ def test_the_verdicts_use_the_map_that_the_main_llm_saw():
     ip, a = _ip()
     ip._speak = AsyncMock(return_value=("はい", "発話"))
     ip._finish = AsyncMock()
-    ip._speech_check_violation = AsyncMock(return_value=None)
+    # 申告は Jev が検査と同じ呼び出しで返す（記-r）。
+    ip._speech_check_violation = AsyncMock(
+        return_value=(None, [{"id": "abcdef123456", "verdict": "important"}])
+    )
     a._oif = MagicMock()  # 申告は記憶の口（OIF）を通る（環-ab）
 
-    said = ToolCall(
-        "t",
-        "say",
-        {"text": "はい", "memory_verdicts": [{"id": "abcdef123456", "verdict": "important"}]},
-    )
+    said = ToolCall("t", "say", {"text": "はい"})
     asyncio.run(
         ip._act_on_decision(
             _decision(

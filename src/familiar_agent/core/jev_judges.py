@@ -133,31 +133,69 @@ async def judge_speech(
 ) -> "str | None":
     """返事が決まりを破っていないか（発話前の検査・§2.2.3）。破っていれば差し戻しの文、無ければ None。
 
-    選択肢は決まり（id → 説明）と「破っていない」。差し戻しの文は「決まり <id>：<説明>」（本人の決定 ア）。
-    倒し先は「破っていない」——迷っただけで主LLM を呼び直さない。
+    記憶の申告を一緒に聞かない形（`judge_speech_and_verdicts` の `rows` が空）。
     """
-    if not response or not rules:
-        return None
+    violation, _ = await judge_speech_and_verdicts(
+        client,
+        response=response,
+        recent=recent,
+        facts=facts,
+        rules=rules,
+        rows={},
+        min_conf=min_conf,
+    )
+    return violation
+
+
+async def judge_speech_and_verdicts(
+    client,
+    *,
+    response: str,
+    recent: str,
+    facts: str,
+    rules: "dict[str, str]",
+    rows: "dict[str, str]",
+    min_conf: float,
+) -> "tuple[str | None, list]":
+    """発話前の検査と、記憶の申告を **1 回の呼び出しで** 聞く（記-r・2026-10-14・本人の決定）。
+
+    検査の選択肢は決まり（id → 説明）と「破っていない」。差し戻しの文は「決まり <id>：<説明>」（本人の決定 ア）。
+    倒し先は「破っていない」——迷っただけで主LLM を呼び直さない。
+
+    申告は主LLM に書かせず、ここで Jev に聞く。検査は声にする前に同期で走るので、同じ呼び出しに問いを足せば
+    待ちは増えない。`rows` は W の過去の記憶（12 桁 → 行の文）。問いと読み方は `judge_verdicts` と同じで、確信度の
+    低い記憶は申告しない。返事は切らない——申告は返事のどこで記憶を使ったかを見るので、600 字で切ると後ろで使った
+    記憶を見落とす。返りは `(差し戻しの文 | None, [{"id", "verdict"}])`。
+    """
+    if not response:
+        return None, []
     state = (
         f"[機械が確かめた事実]\n{facts or '（なし）'}\n\n"
         f"[直近のやりとり]\n{recent or '（なし）'}\n\n"
-        f"[家のロボット（パジュ）がいま言おうとしている返事]\n{response[:600]}"
+        f"[家のロボット（パジュ）がいま言おうとしている返事]\n{response}"
     )
-    criteria = dict(rules)
-    criteria["ok"] = (
-        "どの決まりも破っていない。書かれた事実だけでは破っているとも言えない場合もこれ"
-    )
-    questions = {
-        "broken": choice(
+    questions: dict = {}
+    if rules:
+        criteria = dict(rules)
+        criteria["ok"] = (
+            "どの決まりも破っていない。書かれた事実だけでは破っているとも言えない場合もこれ"
+        )
+        questions["broken"] = choice(
             "この返事が破っている決まりはどれか（事実に書かれていないことは推測しない）", criteria
         )
-    }
-    pick = picked(await _ask(client, state, questions), "broken", min_conf)
+    questions.update(_verdict_questions(rows))
+    if not questions:
+        return None, []
+    answer = await _ask(client, state, questions)
+    verdicts = _verdicts_from(answer, list(rows), min_conf)
+    if rows:
+        logger.info("Jev 判定 記憶の申告（検査と一緒）：%d／%d 件", len(verdicts), len(rows))
+    pick = picked(answer, "broken", min_conf)
     if not pick or pick == "ok" or pick not in rules:
         logger.info("Jev 判定 発話前の検査：破っていない")
-        return None
+        return None, verdicts
     logger.info("Jev 判定 発話前の検査：%s", pick)
-    return f"決まり {pick}：{rules[pick]}"
+    return f"決まり {pick}：{rules[pick]}", verdicts
 
 
 #: W の中で id を持つ行（`id:<12桁>`）。
@@ -212,7 +250,7 @@ async def judge_follows(client, *, workspace: str, utterance: str, min_conf: flo
     return pick if pick in rows else None
 
 
-#: 記憶の申告の 4 通り（主LLM の `say` の `memory_verdicts` と同じ・根づきの更新がこれを使う）。
+#: 記憶の申告の 4 通り（Jev が答える・根づきの更新がこれを使う）。主LLM には申告させない（記-r）。
 VERDICT_CRITERIA = {
     "important": "答えに使い、かつこのやりとりを越えて効く（相手が尋ねた・覚えておきたいこと）",
     "referred": "答えに使ったが、このやりとりだけ",
@@ -221,28 +259,46 @@ VERDICT_CRITERIA = {
 }
 
 
-async def judge_verdicts(
-    client, *, utterance: str, reply: str, workspace_ctx: str, ids: "list[str]", min_conf: float
-) -> list:
-    """軽量LLM が答えて閉じた反復で、W の記憶をどう使ったかを申告する（出-h-ろ・§2.2.3）。
-
-    記憶ごとに 1 問、1 回の呼び出しでまとめて聞く。返りは主LLM の申告と同じ `[{"id", "verdict"}]`。確信度が
-    低い記憶は申告しない（間違った「大事」は根づきを誤って動かす）。Jev が使えない・失敗なら空。
-    """
-    rows = workspace_rows(workspace_ctx or "")
-    wanted = [i for i in ids if i in rows]
-    if not wanted or not reply:
-        return []
-    state = f"[人の言葉]\n{utterance or '（なし）'}\n\n[家のロボット（パジュ）の答え]\n{reply}"
-    questions = {
-        i: choice(f"この記憶を、答えにどう使ったか：{rows[i]}", VERDICT_CRITERIA) for i in wanted
+def _verdict_questions(rows: "dict[str, str]") -> dict:
+    """記憶ごとに 1 問（id は W の 12 桁）。"""
+    return {
+        i: choice(f"この記憶を、答えにどう使ったか：{row}", VERDICT_CRITERIA)
+        for i, row in rows.items()
     }
-    answer = await _ask(client, state, questions)
+
+
+def _verdicts_from(answer, ids: "list[str]", min_conf: float) -> list:
+    """答えから申告を読む。確信度の低い記憶は申告しない（間違った「大事」は根づきを誤って動かす）。"""
     out = []
-    for i in wanted:
+    for i in ids:
         pick = picked(answer, i, min_conf)
         if pick in VERDICT_CRITERIA:
             out.append({"id": i, "verdict": pick})
+    return out
+
+
+async def judge_verdicts(
+    client,
+    *,
+    utterance: str,
+    reply: str,
+    workspace_ctx: str,
+    ids: "list[str]",
+    min_conf: float,
+    rows: "dict[str, str] | None" = None,
+) -> list:
+    """記憶の申告を背景で聞く（軽量LLM が答えた反復・主LLM の言い直しと検査を切った反復・出-h-ろ・記-r）。
+
+    記憶ごとに 1 問、1 回の呼び出しでまとめて聞く。返りは `[{"id", "verdict"}]`。確信度が低い記憶は申告しない。
+    行の文は `rows`（12 桁 → 文）で渡すか、無ければ W の文（`workspace_ctx`）から取る。Jev が使えない・失敗なら空。
+    """
+    rows = rows if rows is not None else workspace_rows(workspace_ctx or "")
+    wanted = {i: rows[i] for i in ids if i in rows}
+    if not wanted or not reply:
+        return []
+    state = f"[人の言葉]\n{utterance or '（なし）'}\n\n[家のロボット（パジュ）の答え]\n{reply}"
+    answer = await _ask(client, state, _verdict_questions(wanted))
+    out = _verdicts_from(answer, list(wanted), min_conf)
     logger.info("Jev 判定 記憶の申告：%d／%d 件", len(out), len(wanted))
     return out
 

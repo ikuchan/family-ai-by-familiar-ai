@@ -23,25 +23,24 @@ CONF_UNCERTAIN = 0.55
 ARRIVED_CHARS = 2000
 
 
-def used_lines(raw, w_id_map: "dict[str, str]", memories: "list") -> list[str]:
-    """主LLM が `referred`／`important` と申告した記憶の中身（W の行の本文）を返す。
+#: 検査と申告に渡す、W の過去の記憶 1 件の上限（記憶の申告の問いと同じ・記-r）。
+PAST_CHARS = 300
 
-    照合は `apply_memory_verdicts` と同じ対応表（12 桁 → 完全な id）で行う。当たらない id は捨てる。
+
+def past_rows(
+    memories: "list", w_id_map: "dict[str, str]", cap: int = PAST_CHARS
+) -> "dict[str, str]":
+    """W の過去の記憶の列（12 桁 → 中身・`PAST_CHARS` まで）。対応表（`verdict_map`）に無い記録は載せない。
+
+    対応表は過去の列だけを持つので、直近のやりとりの枠に載った行はここに来ない（記-r）。発話前の検査には、
+    これを事実として渡し、同じ呼び出しで記憶ごとの申告を聞く。
     """
-    if not raw or not w_id_map:
-        return []
     by_id = {r.mi.obs_id: r.mi.content for r in memories if getattr(r, "mi", None)}
-    out: list[str] = []
-    for item in raw if isinstance(raw, list) else []:
-        if not isinstance(item, dict):
-            continue
-        verdict = str(item.get("verdict", "")).strip().lower()
-        if verdict not in ("referred", "important"):
-            continue
-        full = w_id_map.get(str(item.get("id", "")).replace("-", "")[:12])
-        if full and full in by_id:
-            out.append(by_id[full])
-    return out
+    return {
+        short: str(by_id[full])[:cap]
+        for short, full in (w_id_map or {}).items()
+        if full in by_id and by_id[full]
+    }
 
 
 def facts_ctx(
@@ -50,7 +49,7 @@ def facts_ctx(
     memories: "list",
     picture: bool = False,
     seen: "str | None" = None,
-    used: "list[str] | None" = None,
+    past: "list[str] | None" = None,
     arrived: "list[str] | None" = None,
 ) -> str:
     """この反復でループが知っていることを、そのまま並べる。
@@ -62,9 +61,9 @@ def facts_ctx(
     人が2人見えると正しく語った返事を `no-fake-perception` で差し戻した）。
     `memories` は W に実際に載った記録で、落とされたものは含まない——載らなかった記憶は
     主LLM が見ていないので、それを材料と呼べない。
-    `used` は主LLM が `referred`／`important` と申告した記憶の**中身**（2026-09-13）。件数と
-    日付だけでは、記憶にある天気で答えた返事が「検索も提示も無いのに事実を言った」
-    （`no-invented-knowledge`）に見えた。根拠が作業状態にあることを、中身で示す。
+    `past` は作業状態の過去の記憶の**中身**（`past_rows` が 1 件 `PAST_CHARS` までに切ったもの・記-r）。件数と日付だけでは、記憶にある天気で
+    答えた返事が「検索も提示も無いのに事実を言った」（`no-invented-knowledge`）に見えた（2026-09-13）。以前は主LLM が
+    使ったと申告した記憶だけを渡していたが、申告は Jev が検査と同じ呼び出しで出すので、過去の列をまるごと渡す。
 
     `arrived` はこの求めで**届いた結果**（open な版・完了 O の content・出-n）。主LLM が申告
     しなくても事実として渡す——届いたことはループが知っている。**切らない**（1 件
@@ -88,11 +87,13 @@ def facts_ctx(
         )
         low = sum(1 for r in memories if r.confidence < CONF_UNCERTAIN)
         mem = f"{len(memories)}件（{dates}。うち conf<{CONF_UNCERTAIN} が{low}件）"
-    if used:
-        leaned = "\n".join(f"  - {u[:ARRIVED_CHARS]}" for u in used)
-        leaned_line = f"主LLM が使ったと申告した記憶（{len(used)}件・これが根拠）：\n{leaned}"
+    if past:
+        leaned = "\n".join(f"  - {u}" for u in past)
+        leaned_line = (
+            f"作業状態の過去の記憶の中身（{len(past)}件・返事の根拠になりうる）：\n{leaned}"
+        )
     else:
-        leaned_line = "主LLM が使ったと申告した記憶：申告なし"
+        leaned_line = "作業状態の過去の記憶の中身：なし"
     if arrived:
         got = "\n".join(f"  - {a[:ARRIVED_CHARS]}" for a in arrived)
         arrived_line = f"\nこの求めで届いた結果（{len(arrived)}件・これも根拠）：\n{got}"
@@ -102,3 +103,15 @@ def facts_ctx(
         f"[この反復で分かっていること]\n見たか：{seen_line}\n画像を受け取った：{pic}\n"
         f"作業状態に並んだ記憶：{mem}\n{leaned_line}{arrived_line}"
     )
+
+
+def fitting_cap(fixed: int, rows: "dict[str, str]", limit: int) -> int:
+    """検査と申告の state が上限 `limit`（出-bw）に収まる、記憶 1 件の字数（記-r）。
+
+    記憶の中身は事実の欄と申告の問いの 2 か所に載る。それ以外（`fixed`：返事・直近・ほかの事実）は削らない。
+    収まっていれば `PAST_CHARS` のまま。縮めても 50 字より短くはしない（それでも超えれば Jev が断り、倒し先へ倒れる）。
+    """
+    used = sum(len(v) for v in rows.values())
+    if not rows or fixed + 2 * used <= limit:
+        return PAST_CHARS
+    return max(50, (limit - fixed) // (2 * len(rows)))

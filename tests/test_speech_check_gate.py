@@ -158,7 +158,6 @@ def test_the_checker_only_gets_rules_it_can_judge_from_the_text_and_the_facts():
         assert f":id {rid}\n" in text, rid
         assert rid in CHECKER_RULE_IDS
     for rid in (
-        "declare-memory-use",  # 申告は `say` の引数で、文には無い（機械が数えている）
         "voice-only-from-say",  # `say` を呼んだかは機械が知っている
         "first-person-perspective-taking",
         "validation-before-advice",
@@ -167,10 +166,11 @@ def test_the_checker_only_gets_rules_it_can_judge_from_the_text_and_the_facts():
         "language-match",
     ):
         assert f":id {rid}\n" not in text, rid
-    # 正本（主LLM へ渡る規則）は変わらない。
+    # 正本（主LLM へ渡る規則）は変わらない。`declare-memory-use` は記-r（2026-10-14）で正本からも外した
+    # （申告は Jev が出す）。正本に残るほかの規則で見る。
     from familiar_agent.loop.prompt import rules_section
 
-    assert ":id declare-memory-use\n" in rules_section()
+    assert ":id voice-only-from-say\n" in rules_section()
 
 
 def test_the_checker_still_drops_tts_tags_when_the_voice_understands_them():
@@ -200,11 +200,12 @@ def test_the_arrived_results_are_facts_whether_or_not_they_were_declared():
     assert "最高 · 25 ℃" in out, "届いた結果が切られている"
 
 
-def test_the_declared_memories_are_not_cut_at_200_chars():
+def test_the_past_memories_are_not_cut_again_by_the_facts():
+    """事実の欄は、渡された記憶の中身をそのまま載せる（切るのは `past_rows` の 1 か所・記-r）。"""
     from familiar_agent.loop.speech_check import facts_ctx
 
     body = "a" * 480 + "末尾の事実"
-    out = facts_ctx(saw=False, memories=[], used=[body])
+    out = facts_ctx(saw=False, memories=[], past=[body])
     assert "末尾の事実" in out
 
 
@@ -230,6 +231,6 @@ def test_the_loop_hands_the_arrived_results_to_the_checker_without_a_declaration
     ip._seen_image = MagicMock(return_value=None)
     arrived = _rec("ver-2", content="1番：search_deferred の結果が届いた：雨のち曇 · 最高 · 25 ℃")
     old = _rec("m1", content="昔の話")
-    facts = ip._checker_facts([arrived, old], verdicts=None, w_id_map={})
+    facts = ip._checker_facts([arrived, old], w_id_map={})
     assert "この求めで届いた結果" in facts and "最高 · 25 ℃" in facts
-    assert "昔の話" not in facts  # 申告されていない過去の記憶は根拠にならない
+    assert "昔の話" not in facts  # 過去の列（対応表）に無い記憶は渡さない（記-r）

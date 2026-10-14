@@ -15,7 +15,7 @@ import pytest
 def test_the_module_has_the_new_name():
     mod = importlib.import_module("familiar_agent.loop.speech_check")
     assert callable(mod.facts_ctx)
-    assert callable(mod.used_lines)
+    assert callable(mod.past_rows)  # 記-r で used_lines から替えた
 
 
 def test_the_old_module_is_gone():

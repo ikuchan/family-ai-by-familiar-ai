@@ -31,7 +31,7 @@ def _ip(gen: int = 0):
     ip._req.cue = "手がかり"
     ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
-    ip._speech_check_violation = AsyncMock(return_value=None)
+    ip._speech_check_violation = AsyncMock(return_value=(None, []))
     ip._speak = AsyncMock(return_value=("はい", "発話"))
     ip._finish = AsyncMock()
     ip._emit = MagicMock()
@@ -139,7 +139,7 @@ def test_a_violation_sends_it_back_once():
     `tests/test_send_back_is_dispatched.py` が見る。
     """
     ip, a = _ip()
-    ip._speech_check_violation = AsyncMock(return_value="見ていないのに見たと言っている")
+    ip._speech_check_violation = AsyncMock(return_value=("見ていないのに見たと言っている", []))
     ip._dispatch_main_llm = MagicMock()
     ip._write_version = AsyncMock(return_value="ver-1")
     assert _run(ip, _turn(ToolCall("t", "say", {"text": "そこに本があるね"}))) == ""

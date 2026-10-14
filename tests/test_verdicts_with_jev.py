@@ -1,11 +1,11 @@
 """記憶の申告（軽量LLM が答えて閉じた反復）を Jev が決める（出-au 段 5-5・2026-09-27・`設計方針_判定の段` §2.2.3）。
 
-主LLM の申告（`say` の `memory_verdicts`）は主LLM 自身がするので移さない。移すのは、調停の light で軽量LLM が答えて
-閉じた反復の申告（出-h-ろ）だけ。
+当時、主LLM の申告は主LLM 自身がしていたので移さず、移したのは調停の light で軽量LLM が答えて閉じた反復の申告
+（出-h-ろ）だけだった。記-r（2026-10-14）で主LLM の道も Jev が申告する（`test_verdicts_come_from_jev_only`）。
 
 - W の過去の記憶（`w_id_map` の id）ごとに 1 問、**1 回の呼び出しでまとめて**聞く。選択肢は important／referred／
-  useless／unused（主LLM と同じ 4 通り・後ろの根づきの更新がこれを使う）。
-- 返りは `[{"id": 12桁, "verdict": …}]`（主LLM の申告と同じ形）。確信度 0.6 未満の記憶は申告しない。
+  useless／unused（後ろの根づきの更新がこれを使う）。
+- 返りは `[{"id": 12桁, "verdict": …}]`（申告を当てる `apply_memory_verdicts` が受ける形）。確信度 0.6 未満の記憶は申告しない。
 - Jev が使えない・失敗なら空（申告しない＝倒し先）。軽量LLM の口（`workspace.ask_verdicts`）は外した。
 """
 

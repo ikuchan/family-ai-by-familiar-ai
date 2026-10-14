@@ -41,7 +41,7 @@ from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
-from .speech_check import facts_ctx, used_lines
+from .speech_check import PAST_CHARS, facts_ctx, fitting_cap, past_rows
 from ..core.wake_window import WakeWindow
 from .generator import _pi_ctx, _present_ctx
 from . import workspace
@@ -560,7 +560,7 @@ class Decision:
 
     - `memories`：共起は「その反復で一緒に活性した記録」なので、**主LLM が見た W** でなければ
       意味がない
-    - `w_id_map`：申告（`memory_verdicts`）は W に印字された12桁で返るので、その W を作った
+    - `w_id_map`：記憶の申告（Jev が答える・記-r）は W に印字された12桁で返るので、その W を作った
       ときの対応表でないと引けない
     - `verdict_view`：**申告を当てる面**（`OIF.feedback` の viewpoint）。`situated_memories` は人ごとで、
       想起は話者の面を通る。基底の記憶へ書くと視点が `__self__` へ寄り、話者が同定されている場面で
@@ -629,7 +629,7 @@ class Trigger:
     いる）。用語一覧が定めるきっかけの語は `会話入力` である。
 
     **`決定` は投げたときの W を一緒に運ぶ。** 共起は「その反復で一緒に活性した記録」なので
-    主LLM が実際に見た W でなければ意味がなく、申告（`memory_verdicts`）は W に印字された
+    主LLM が実際に見た W でなければ意味がなく、記憶の申告（Jev）は W に印字された
     12桁で返るので、その W を作ったときの対応表でないと引けない（`設計方針_主LLMを投げっぱなし
     にする` ②）。求めの寿命の状態に頼ると、飛行中に別の完了が届いたとき上書きされる。
     """
@@ -3401,16 +3401,6 @@ class InformationProcessing:
                 await self._say_filler(str(filler_tc.input.get("text", "")).strip())
 
         if say_tc is not None:
-            workspace.apply_memory_verdicts(
-                self._agent._oif,
-                decision.verdict_view,
-                say_tc.input.get("memory_verdicts"),
-                decision.w_id_map,
-            )
-            # 使った言いたかったことを控える。声に出せたら `_finish` が畳む（出-as 段 7）。
-            self._req.told_unsaid = unsaid.told(
-                say_tc.input.get("memory_verdicts"), decision.w_id_map, decision.memories
-            )
             # 写真からの見立て（出-an）。**口に出すなら機械にも渡す**——調停と同じ道を通す。
             await self._apply_seen_people(say_tc.input.get("seen_people"))
             text = str(say_tc.input.get("text", "")).strip()
@@ -3420,14 +3410,15 @@ class InformationProcessing:
             # **検査より前に落とす**——検査には、実際に出す文を見せる。
             text = filler_echo.drop_echo(text, self._req.said_fillers)
             # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
-            violation = (
-                None
+            # 記憶の申告は Jev だけが出す（記-r・2026-10-14・本人の決定）。主LLM が `say` に申告を書いてきても使わない。
+            # 検査と同じ呼び出しで聞く（`verdicts`）。検査しなかった返事は `None` で、話したあとに背景で聞く。
+            violation, verdicts = (
+                (None, None)
                 if decision.retried
                 else await self._speech_check_violation(
                     text,
                     decision.recent_frame,
                     decision.memories,
-                    verdicts=say_tc.input.get("memory_verdicts"),
                     w_id_map=decision.w_id_map,
                 )
             )
@@ -3441,11 +3432,8 @@ class InformationProcessing:
                 logger.info("event-loop 発話前の検査が違反を捕まえた：%s", violation)
                 # 言い直しに根拠を添える（出-n）。違反の一文だけだと、検査しない 2 度目に
                 # 別の捏造が出た（2026-09-13 16:32「東京は晴れ 30℃」）。
-                facts = self._checker_facts(
-                    decision.memories,
-                    verdicts=say_tc.input.get("memory_verdicts"),
-                    w_id_map=decision.w_id_map,
-                )
+                # 差し戻した返事は声にならないので、申告は当てない（言い直しの返事を背景で聞く）。
+                facts = self._checker_facts(decision.memories, w_id_map=decision.w_id_map)
                 self._dispatch_main_llm(
                     messages=[
                         agent.backend.make_user_message(
@@ -3473,7 +3461,24 @@ class InformationProcessing:
                 )
                 self._write_version_later()  # 投げ直したあとの版は裏で書く（出-bz-ろ）
                 return ""
+            if verdicts is not None:
+                workspace.apply_memory_verdicts(
+                    self._agent._oif, decision.verdict_view, verdicts, decision.w_id_map
+                )
+                # 使った言いたかったことを控える。声に出せたら `_finish` が畳む（出-as 段 7）。
+                self._req.told_unsaid = unsaid.told(verdicts, decision.w_id_map, decision.memories)
             spoken, outcome = await self._speak(text)
+            if verdicts is None:
+                self._declare_light_memory_use(
+                    utterance=utterance or self._req.cue,
+                    reply=spoken or text,
+                    workspace_ctx="",
+                    w_id_map=decision.w_id_map,
+                    verdict_view=decision.verdict_view,
+                    memories=decision.memories,
+                    spoken=outcome == "発話",
+                    rows=past_rows(decision.memories, decision.w_id_map),
+                )
             await self._finish(spoken, decision.memories, outcome, gen=gen)
             return spoken
 
@@ -3499,10 +3504,12 @@ class InformationProcessing:
         recent: str,
         memories: "list[Recalled]",
         *,
-        verdicts=None,
         w_id_map: "dict[str, str] | None" = None,
-    ) -> "str | None":
-        """発話の前に規則違反を見る（出-f）。違反の説明を返す。無ければ None。
+    ) -> "tuple[str | None, list | None]":
+        """発話の前に規則違反を見て、同じ呼び出しで記憶の申告も聞く（出-f・記-r）。`(違反の説明 | None, 申告)` を返す。
+
+        申告は Jev の答え（`[{"id", "verdict"}]`）。検査を切っている・返事が空なら聞いていないので `None`
+        （呼び手が背景で聞く）。Jev が使えない・失敗なら空の並び（軽量LLM の道と同じ倒し先：申告しない）。
 
         **応答の文字列を機械で削らない。** 機械が出すのは、見たか・記憶が載ったかという
         推測の要らない事実だけで、規則に反するかどうかの判断は Jev がする（出-au 段 5-3）。照らす決まりは
@@ -3513,14 +3520,26 @@ class InformationProcessing:
 
         agent = self._agent
         if not agent.config.speech_check or not text:
-            return None
+            return None, None
         started = time.monotonic()
         tts = getattr(agent, "_tts", None)
-        violation = await jev_judges.judge_speech(
+        # 記憶の中身は事実の欄と申告の問いの 2 か所に載る。上限（出-bw）を超えるなら、記憶 1 件の字数だけを縮める。
+        rows = past_rows(memories, w_id_map or {})
+        bare = self._checker_facts(memories, w_id_map=w_id_map, cap=0)
+        cap = fitting_cap(
+            len(bare) + len(recent) + len(text),
+            rows,
+            int(getattr(agent.config, "jev_state_max_chars", 28_000)),
+        )
+        if cap < PAST_CHARS:
+            logger.info("event-loop 発話前の検査：長いので記憶 1 件を %d 字に縮める", cap)
+            rows = past_rows(memories, w_id_map or {}, cap)
+        violation, verdicts = await jev_judges.judge_speech_and_verdicts(
             getattr(agent, "_jev", None),
             response=text,
             recent=recent,
-            facts=self._checker_facts(memories, verdicts=verdicts, w_id_map=w_id_map),
+            facts=self._checker_facts(memories, w_id_map=w_id_map, cap=cap),
+            rows=rows,
             rules=rule_list(
                 rules_for_checker(
                     allow_tts_tags=bool(getattr(tts, "understands_tags", False)),
@@ -3534,7 +3553,7 @@ class InformationProcessing:
             time.monotonic() - started,
             "あり" if violation else "なし",
         )
-        return violation
+        return violation, verdicts
 
     async def _note_follows(
         self, w_text: str, utterance: str, w_id_map: "dict[str, str]", follows_task
@@ -3569,8 +3588,8 @@ class InformationProcessing:
         self,
         memories: "list[Recalled]",
         *,
-        verdicts=None,
         w_id_map: "dict[str, str] | None" = None,
+        cap: int = PAST_CHARS,
     ) -> str:
         """発話前の検査へ渡す事実（出-n）。言い直しにも同じものを添える。
 
@@ -3590,7 +3609,7 @@ class InformationProcessing:
             memories=memories,
             picture=found is not None,
             seen=seen_mark,
-            used=used_lines(verdicts, w_id_map or {}, memories),
+            past=list(past_rows(memories, w_id_map or {}, cap).values()) if cap > 0 else [],
             arrived=arrived,
         )
 
@@ -3604,8 +3623,12 @@ class InformationProcessing:
         verdict_view: str,
         memories: "list | None" = None,
         spoken: bool = False,
+        rows: "dict[str, str] | None" = None,
     ) -> None:
-        """**軽量LLM** が答えて閉じた反復の申告を、背景で聞いて当てる（出-h-ろ・判定は Jev・出-au 段 5-5）。
+        """発話前の検査で聞かなかった返事の申告を、背景で聞いて当てる（出-h-ろ・判定は Jev・出-au 段 5-5・記-r）。
+
+        軽量LLM が答えた反復と、主LLM の言い直し（検査しない）・検査を切った反復がここを通る。記憶の行の文は、
+        軽量LLM の道は W の文（`workspace_ctx`）から、主LLM の道は記憶の中身（`rows`）から取る。
 
         **待たない。** 申告は答えを出したあとの後片付けで、発話を待たせる理由がない
         （実測 1.03 秒）。
@@ -3630,6 +3653,7 @@ class InformationProcessing:
                     workspace_ctx=workspace_ctx,
                     ids=list(w_id_map),
                     min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+                    rows=rows,
                 )
             except asyncio.CancelledError:
                 raise
