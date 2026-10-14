@@ -33,6 +33,7 @@ from collections.abc import Awaitable, Callable
 
 from ..core import measure
 from ..core.aio import wait_within
+from ..core.filler_length import FILLER_MAX_CHARS
 from ..core.utterance_meaning import ASK_BACK_MAX_CHARS
 
 logger = logging.getLogger(__name__)
@@ -1085,7 +1086,8 @@ class Arbiter:
         待たせている事実であって、Jev の分岐ではない。以前は分岐しだいで、light なら返事（内容に触れる）を
         言い、full で深さが low なら何も書かれず黙った。書けなければ空（黙る）。`trash` は読み捨てる。
         """
-        decided = f"待ってもらう一言を言う（{waiting}）"
+        # 字数を書いて頼む（出-cj・10/14 10:13 に 26 字が流れた）。超えたものは呼び手が作り置きに替える（`core/filler_length`）。
+        decided = f"待ってもらう一言を言う（{waiting}・{FILLER_MAX_CHARS} 字以内）"
         if avoid:
             # 合図の作り置きの声で言った言葉は、つなぎに使わない（出-ca・本人の決定）。
             words = "・".join(f"「{w}」" for w in avoid)

@@ -34,7 +34,7 @@ from ..store import clock
 from .arbiter import Arbiter, ArbiterInput, Decision as ArbiterDecision
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION
 from ..io.dif import DIF
-from ..core import family_now, filler_echo, jev_judges, measure, parsing, unsaid
+from ..core import family_now, filler_echo, filler_length, jev_judges, measure, parsing, unsaid
 from ..core.drive_autonomy import TALKING_AXES
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
@@ -1357,6 +1357,11 @@ class InformationProcessing:
                     continue
                 if self._sounding():
                     # 鳴り終わりが次の時刻を延ばすまで、見回りの間隔で待つ（待たずに戻ると空回りする）。
+                    await asyncio.sleep(tick)
+                    continue
+                if self._confirming():
+                    # 確認の問いと確認待ちのあいだは、問いが返事の役をしているので待たせていない（出-ci・本人の決定ア）。
+                    # 10/14 10:13 に、問いを読んでいる最中の `set_timer` を待ちに数え、問いの直後につなぎが流れた。
                     await asyncio.sleep(tick)
                     continue
                 logger.info(
@@ -3302,8 +3307,16 @@ class InformationProcessing:
                 present_ctx=_present_ctx(self._agent),
             )
             text = await self._arbiter().write_filler(inp, what, avoid=list(req.cue_words))
+            # 15 字〔仮〕を超えたら作り置きの短い言葉に替える（出-cj・本人の決定ア）。
+            text = filler_length.fit(
+                text, said=list(req.said_fillers), cue_words=list(req.cue_words)
+            )
             if gen != self._request_generation:
                 return  # 書いているあいだに求めが打ち切られた
+            if self._confirming():
+                # 書いているあいだに確認の問いが出た（出-ci・10/14 10:13 に問いの直後につなぎが流れた）。
+                logger.info("event-loop 確認待ちなのでつなぎを言わない：%.40s", text)
+                return
             if req.answering:
                 # 言うと答えのあとにつなぎが鳴る（出-bx）。
                 logger.info("event-loop 答えを言い始めたのでつなぎを言わない：%.40s", text)
