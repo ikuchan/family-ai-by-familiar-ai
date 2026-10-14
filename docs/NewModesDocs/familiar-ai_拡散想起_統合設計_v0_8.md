@@ -1,4 +1,4 @@
-# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.7）
+# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.8）
 
 ## 目的とシナリオ
 
@@ -10,7 +10,7 @@
 
 現在の W から連想で MI を足す **spreading 根づき** という点は両案で共通で、違うのは**たどる辺(edge)の種類**だけである。これを2種類の辺として1つの再帰に束ねる。
 
-- **(A) 共起辺（WRDB）**：経験的な連想。「**過去に一緒に想起された**」MI をたどる。
+- **(A) 共起辺（WRDB）**：経験的な連想。「**過去に同じ答えに使われた**」MI をたどる（記-s で「一緒に想起された」から改めた）。
 - **(B) エンティティ辺（関係の面）**：意味的な連想。想起 MI が**誰/何の話か**を種にして、その人や主題でさらに想起する（不在の人へ広がる）。種も母集合も `situated_memories` の面から引く（段4）。
 
 両者は相補的で、(B) が不在の人を W へ呼び込み、(A) がその人と過去に一緒に想起された文脈を厚くする、という**交互再帰**になる。
@@ -49,7 +49,7 @@
 
 薄い縦切りで実装した（各スライスは pytest で通る最小の一本・実装後 `DIFFUSE_RECALL` を既定 on へ）。
 
-1. **WR の記録【済】**：`wr_records`／`wr_record_items(wr_id, mi_id)`（migration 030）。**060 で種類 `共起` の関係へ移した**（`設計方針_MI間の関係` 段 5）。いまの口は `RelationStore.record_cooccurrence` で、`wr_store.py` は撤去した。ターン後（`agent._record_cooccurrence`）に**そのターンの W（想起 MI）＋そのターンに作った記憶（観察・会話 id）を**1つの共起**として記録**（`combine_cooccurring_ids`・新記憶↔W の接続）。
+1. **WR の記録【済・記-s で改めた】**：**記-s（2026-10-14・本人の決定）で、共起は求めの起点と、Jev が答えに使ったと申告した記憶（important・referred・useless）だけで作る。記憶が 2 件未満なら書かない。書くのは申告を当てる所（`workspace.apply_memory_verdicts`）で、ターン後の書き込み（`_record_cooccurrence`・`combine_cooccurring_ids`）は撤去した。** 以下は当時の形：`wr_records`／`wr_record_items(wr_id, mi_id)`（migration 030）。**060 で種類 `共起` の関係へ移した**（`設計方針_MI間の関係` 段 5）。いまの口は `RelationStore.record_cooccurrence` で、`wr_store.py` は撤去した。ターン後（`agent._record_cooccurrence`）に**そのターンの W（想起 MI）＋そのターンに作った記憶（観察・会話 id）を**1つの共起**として記録**（`combine_cooccurring_ids`・新記憶↔W の接続）。
 2. **(B) エンティティ辺【済】**：`core/diffuse.select_entity_seeds`（**関係の面**から種 person・`about`→`present`→`actor` の順・自分/話者/DEFAULT 除外）＋`diffuse_store.recall_by_person`（その人が `about` か `present` の面を持つ現行版観測を新しい順）。LLM フリー。
 
    **段4（2026-09-02）で視点列から面へ移した。** それまでは `subject_id`／`participants_json`／`writer_id` を読んでいた。047 で situated の person が「誰の視点で符号化したか」から「**どの関係の面か**」へ変わったので、面で引けるようになった。`fetch_perspectives` は `fetch_relation_persons` へ改名。**母集合に `actor` は入れない**——その人が「やった」だけの記録まで入れると、パジュ自身が書いた記録（`actor` が `__self__` の 5949 行）がどの種からも湧く。種にするのと母集合にするのは別の問いである。
@@ -72,6 +72,8 @@
 
 ## 更新履歴
 
+> v0.8：(A) 共起辺の母集合を、同じ答えに使われた記憶に改めた（記-s・2026-10-14・本人の決定）。
+>
 > v0.7：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.6：**撤去した略語 WR を名前から落とした**（2026-09-08・環-g 段い）。`agent._record_wr`
 > は `_record_cooccurrence` へ、`combine_wr_ids` は `combine_cooccurring_ids` へ改名した。

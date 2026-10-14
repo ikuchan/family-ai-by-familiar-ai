@@ -38,9 +38,9 @@ def test_no_old_wr_name_survives():
 
 def test_the_new_names_are_there():
     from familiar_agent.loop.event_loop import InformationProcessing
-    from familiar_agent.store.relations import combine_cooccurring_ids
+    from familiar_agent.store.relations import cooccurring_members  # 記-s で combine_… から替えた
 
-    assert callable(combine_cooccurring_ids)
+    assert callable(cooccurring_members)
     assert callable(InformationProcessing._note_record)
 
 

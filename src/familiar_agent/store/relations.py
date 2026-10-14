@@ -42,7 +42,7 @@ KIND_RESOLVE = "解決"  # 保留していたことが果たされた
 KIND_ADVANCE = "前進"  # 記録の鎖が一つ進んだ
 KIND_EXCHANGE = "やりとり"  # 一つのターンの記録（起点・版・見た・答え・要約）
 KIND_SUCCESSION = "継起"  # ターンどうしの前後
-KIND_COOCCURRENCE = "共起"  # ある反復で一緒に活性した記録の集まり（順序を持たない）
+KIND_COOCCURRENCE = "共起"  # 求めの起点と、その答えに使った記憶の集まり（順序を持たない・記-s）
 KIND_UNCLASSIFIED = "未分類"  # 059 が移した既存の辺。どの書き手が作ったか判別できない
 
 
@@ -57,22 +57,22 @@ def _first(row):
     return row[0]
 
 
-def combine_cooccurring_ids(
-    memories: "list | None", new_ids: "list[str | None] | None" = None
-) -> "list[str]":
-    """共起に入れる id ＝そのターンの W（想起 MI）＋作った記憶。順序保存で重複除去。
+#: 共起に入れる申告（答えに使った・見たが価値が無かった）。unused は入れない（記-s）。
+COOCCURRING_VERDICTS = ("important", "referred", "useless")
 
-    W は口から `Recalled` として来る（環-e-い）。共起は**出来事の id** で動くので
-    `mi.obs_id` を使う（面の id ではない）。
+
+def cooccurring_members(origin: str, verdicts: "dict[str, str]") -> "list[str] | None":
+    """共起の項＝そのターンの起点と、申告が important・referred・useless の記憶（記-s・2026-10-14・本人の決定）。
+
+    `verdicts` は完全な id → 申告。起点は判定せずに入れる。使った記憶が 2 件未満なら None（2 つにしか
+    かからない網は作らない）。W の全部を入れていたころは 1 本が十数件を結び、1 日が 1 つの塊になった（出-bq の計測）。
     """
-    seen: set[str] = set()
-    out: list[str] = []
-    _w = [getattr(getattr(m, "mi", None), "obs_id", None) for m in (memories or [])]
-    for raw in _w + list(new_ids or []):
-        if raw and str(raw) not in seen:
-            seen.add(str(raw))
-            out.append(str(raw))
-    return out
+    if not origin:
+        return None
+    used = [i for i, v in verdicts.items() if v in COOCCURRING_VERDICTS and i != origin]
+    if len(used) < 2:
+        return None
+    return [origin, *used]
 
 
 def not_hidden(alias: str = "o") -> str:

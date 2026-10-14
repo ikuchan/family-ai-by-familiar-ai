@@ -1,4 +1,7 @@
-"""ループが作った記録を、拡散想起の母集合（WR）へ載せる。
+"""ループが作った記録を、拡散想起の母集合（WR）へ載せる——**記-s（2026-10-14）で改めた**。
+
+記-s で、共起は起点と Jev が答えに使ったと申告した記憶だけで作ることにした（`test_cooccurrence_from_jev_verdicts`）。
+ターンの記録（`turn_records`）はもう共起へ渡さない。下の段落は当時の理由で、ターンの記録はいまもやりとりの関係の項になる。
 
 拡散想起は WR の共起をたどる。**逐語（自分が答えた記録）はどの WR にも載っておらず**、
 辿り着く辺が無かった（実機で、逐語の WR 掲載数が 0 だった）。
@@ -25,9 +28,9 @@ def _written_ids(a):
     return [f"obs{i}" for i in range(1, a._memory.save_async_with_id.await_count + 1)]
 
 
-def _extra_cooccurring_ids(a):
+def _passes_turn_records(a):
     _, kwargs = a._run_post_response_pipeline.call_args
-    return list(kwargs.get("extra_cooccurring_ids") or [])
+    return "extra_cooccurring_ids" in kwargs
 
 
 def test_the_answer_is_put_into_the_diffuse_pool():
@@ -36,7 +39,8 @@ def test_the_answer_is_put_into_the_diffuse_pool():
     # **起点も載せる**（段 3）。載せないと、問いだけが母集合に入らず、拡散想起が問いから
     # 答えへ辿れない。**件数は固定しない**——環-h で主LLM の投げと返りにも版が書かれ、
     # 増えた。守るのは「このターンで書いた記録が残らず載る」ことである。
-    assert _extra_cooccurring_ids(a) == _written_ids(a)
+    assert not _passes_turn_records(a)  # 記-s：ターンの記録は共起へ渡さない
+    assert _written_ids(a)  # 記録そのものは書く
 
 
 def test_intent_and_completion_are_put_into_the_diffuse_pool():
@@ -47,7 +51,7 @@ def test_intent_and_completion_are_put_into_the_diffuse_pool():
         ]
     )
     _run_chain(a, utterance="調べて")
-    assert _extra_cooccurring_ids(a) == _written_ids(a)
+    assert not _passes_turn_records(a)
 
 
 def test_the_filler_is_written_and_pooled():

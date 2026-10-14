@@ -154,8 +154,8 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
     # 続くターンのやりとりにも、起点は1つだけ。
     _, kwargs = a._run_post_response_pipeline.call_args
     assert [r for _, r in _exchange_members(a)].count("起点") == 1, _exchange_members(a)
-    # 母集合へは、打ち切りの分も持ち越して渡る。
-    assert "obs1" in kwargs["extra_cooccurring_ids"]
+    # ターンの記録は共起へ渡さない（記-s・2026-10-14）。
+    assert "extra_cooccurring_ids" not in kwargs
 
 
 def test_the_exchange_is_linked_before_the_background_pipeline_starts():

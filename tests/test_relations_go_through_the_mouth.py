@@ -91,7 +91,8 @@ def test_the_mouth_has_one_way_to_write_a_relation():
         (_SRC / p).read_text(encoding="utf-8")
         for p in ("agent.py", "loop/workspace.py", "loop/event_loop.py")
     )
-    assert src.count("_oif.link(") == 4  # やりとり2・継起1・共起1
+    # やりとり2・継起1・共起1。共起は記-s から `workspace.apply_memory_verdicts` が受け取った口（`oif`）で書く。
+    assert src.count("oif.link(") == 4
     # 直近の枠は `workspace` が口（`oif.latest_origins`・`oif.exchanges`）で引く（記-h）。
     assert src.count("oif.latest_origins(") == 1
     assert src.count("oif.exchanges(") == 1

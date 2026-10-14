@@ -41,7 +41,6 @@ def _bare_agent():
     agent._summarize_exchange = AsyncMock(return_value="")
     agent._emotion_for_turn = AsyncMock(return_value=(None, 0.0, "neutral"))
     agent._maybe_discharge_satisfied_drives = AsyncMock()
-    agent._record_cooccurrence = MagicMock()
     agent._oif.extend = MagicMock()
     agent._oif.recall = AsyncMock(return_value=[])
     agent._oif.write = AsyncMock(return_value="conv-1")

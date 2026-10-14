@@ -398,7 +398,6 @@ class EmbodiedAgent:
         arousal: float = 0.0,
         memories: "list[Recalled] | None" = None,
         exchange_id: "int | None" = None,
-        extra_cooccurring_ids: "list[str] | None" = None,
     ) -> None:
         """Persist and adapt after a reply without blocking that reply.
 
@@ -433,8 +432,6 @@ class EmbodiedAgent:
         # （`設計図` ③-2 の4つの口）。
         self._aif.nudge(Nudge(items=_nudge_items))
 
-        # そのターンで作った記憶 id（観察・会話）。共起の記録で W と結ぶ。
-        _new_ids: list[str | None] = []
         # 観察 O をここで書くのはやめた（上記）。None のまま残すのは、下の
         # supersede の宛先が `_obs_id or _conv_id` で会話へ落ちるためである。
         _obs_id: str | None = None
@@ -468,7 +465,6 @@ class EmbodiedAgent:
                 arousal=emotion_a,
                 **self._conversation_perspective(),
             )
-            _new_ids.append(_conv_id)
 
             # **答えの逐語は畳まない**（段 3）。畳むと想起の母集合から消え、残るのは
             # 軽量LLM の一文だけになる。細部のベクトルが無ければ、細部での近接は起きない。
@@ -481,11 +477,8 @@ class EmbodiedAgent:
                 with contextlib.suppress(Exception):
                     self._oif.extend(exchange_id, [(_conv_id, "要約", None)])
 
-            # 拡散想起の母集合：そのターンの W（想起 MI）と、そのターンに作った記憶を
-            # **1つの共起**として記録する（新記憶↔W の接続・記録のみ・拡散は未接続）。
-            self._record_cooccurrence(
-                memories, list(_new_ids or []) + list(extra_cooccurring_ids or [])
-            )
+            # 共起はここでは書かない。申告を当てる所（`workspace.apply_memory_verdicts`）が、起点と答えに
+            # 使った記憶だけで書く（記-s・2026-10-14）。
 
             # 人の印（`_last_human_at`）は入口（`push_utterance`）が付ける。ここでは書かない
             # （情-g・2026-09-15：自発ターンの cue も `user_input` に入るので、ここで書くと
@@ -708,27 +701,6 @@ class EmbodiedAgent:
         if not self.speaker_known():
             return self._pmm.get_agent_memory()
         return self._pmm.get_speaker_memory() or self._pmm.get_agent_memory()
-
-    def _record_cooccurrence(
-        self, memories: "list[Recalled] | None", new_ids: "list[str | None] | None" = None
-    ) -> None:
-        """そのターンの W（想起 MI）＋そのターンに作った記憶を1つの共起として記録する。
-
-        新記憶↔W の接続を作る（拡散想起の母集合・記録のみ・挙動不変）。id は重複除去する。
-        器は関係へ移した（段 5）。
-        """
-        from .store.relations import KIND_COOCCURRENCE, combine_cooccurring_ids
-
-        mi_ids = combine_cooccurring_ids(memories, new_ids)
-        if not mi_ids:
-            return
-        try:
-            # **記憶の私的属性を掴まない**（環-e-い）。以前は `RelationStore(self._memory._ctx)`
-            # と、記憶の内部構造を外から組み立てていた。共起は順序を持たない関係なので
-            # 位置は `None`。
-            self._oif.link(KIND_COOCCURRENCE, [(str(i), "項", None) for i in mi_ids])
-        except Exception as e:  # noqa: BLE001
-            logger.warning("共起の記録に失敗: %s", e)
 
     def _observation_perspective(self) -> dict:
         """知覚観察の面の材料（P1）。書き手＝エージェント自身、顔ぶれは知覚から。

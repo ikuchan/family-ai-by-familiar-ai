@@ -159,7 +159,7 @@ def _oif(a):
     a._oif.write = AsyncMock(return_value="ver-1")
 
 
-def _run_with_map(ip, result, *, memories=None, retried=False):
+def _run_with_map(ip, result, *, memories=None, retried=False, w_map=None):
     from familiar_agent.loop.event_loop import Decision
 
     return asyncio.run(
@@ -167,7 +167,7 @@ def _run_with_map(ip, result, *, memories=None, retried=False):
             Decision(
                 result=result,
                 memories=memories or [],
-                w_id_map={"abcdef123456": "m-full"},
+                w_id_map=w_map or {"abcdef123456": "m-full"},
                 verdict_view="__self__",
                 recent_frame="",
                 system=("安定", "可変"),

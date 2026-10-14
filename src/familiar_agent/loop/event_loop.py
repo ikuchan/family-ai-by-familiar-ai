@@ -3463,7 +3463,11 @@ class InformationProcessing:
                 return ""
             if verdicts is not None:
                 workspace.apply_memory_verdicts(
-                    self._agent._oif, decision.verdict_view, verdicts, decision.w_id_map
+                    self._agent._oif,
+                    decision.verdict_view,
+                    verdicts,
+                    decision.w_id_map,
+                    origin=self._req.request_id or "",
                 )
                 # 使った言いたかったことを控える。声に出せたら `_finish` が畳む（出-as 段 7）。
                 self._req.told_unsaid = unsaid.told(verdicts, decision.w_id_map, decision.memories)
@@ -3641,6 +3645,8 @@ class InformationProcessing:
             return
         w_id_map = dict(w_id_map)
         kept = list(memories or [])  # 走っているあいだに作り直されないよう写す
+        # 共起の起点も投げた時点で写す（記-s）。届くまでに次の求めが始まれば `request_id` は次のものになる。
+        origin = self._req.request_id or ""
         agent = self._agent
 
         async def _run() -> None:
@@ -3662,7 +3668,7 @@ class InformationProcessing:
                 # 理由が分からなくなる。
                 logger.warning("event-loop 申告を聞けなかった: %s", e)
                 return
-            workspace.apply_memory_verdicts(agent._oif, verdict_view, raw, w_id_map)
+            workspace.apply_memory_verdicts(agent._oif, verdict_view, raw, w_id_map, origin=origin)
             # 声に出した返事で使った言いたかったことを畳む（出-as 段 7）。
             if spoken:
                 told = unsaid.told(raw, w_id_map, kept)
@@ -4871,10 +4877,9 @@ class InformationProcessing:
         self._req.iterations = 0
         self._req.iterations_capped = False
         self._notify_request_state(False)
-        # 母集合とやりとりへ渡す分を取り出してから捨てる（渡す前に消すと空で渡る）。
-        # やりとりは**区間**、母集合は**全部**である（打ち切りの分も次へ持ち越している）。
+        # やりとりへ渡す区間を取り出してから捨てる（渡す前に消すと空で渡る）。共起はターンの記録を使わない
+        # （起点と答えに使った記憶だけ・記-s）。
         noted = self._close_exchange() or []
-        turn_records = [i for i, _ in self._req.turn_records]
         self._req.turn_records, self._req.exchange_start = [], 0
         # **やりとりの関係はここで同期で書く。** 背景（要約待ち）で書くと、閉じた 0.1 秒後に
         # 起きた反復（待たされていた入室）が直近のやりとりを空で引く（2026-09-13 実機）。
@@ -4897,9 +4902,6 @@ class InformationProcessing:
                     memories=memories,
                     # 会話要約は背景で作られるので、向こうでこの関係の末尾に足す。
                     exchange_id=exchange_id,
-                    # ループが作った記録も拡散想起の母集合へ。載せないと、閉じた逐語へ
-                    # 辿り着く辺が WR に無い（実機で、逐語の WR 掲載数が0だった）。
-                    extra_cooccurring_ids=turn_records,
                 ),
                 name="event-post-response",
             )

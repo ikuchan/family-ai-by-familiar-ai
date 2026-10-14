@@ -24,7 +24,7 @@ from datetime import datetime
 from ..core import measure
 from ..io.oif import Cue, Recalled, View
 from ..store import clock
-from ..store.relations import KIND_SUCCESSION
+from ..store.relations import KIND_COOCCURRENCE, KIND_SUCCESSION, cooccurring_members
 from .request import Request
 
 logger = logging.getLogger(__name__)
@@ -762,7 +762,9 @@ def link_follows(agent, req: Request, w_id_map: "dict[str, str]", short: "str | 
     return True
 
 
-def apply_memory_verdicts(oif, viewpoint: str, raw, w_id_map: "dict[str, str]") -> None:
+def apply_memory_verdicts(
+    oif, viewpoint: str, raw, w_id_map: "dict[str, str]", *, origin: str = ""
+) -> None:
     """申告された「想起した記憶の扱い」を反映する（課題5 E節 段2）。
 
     **照合できたものだけ適用する**。指示しても、落としたり無い id を足したりする。
@@ -803,3 +805,12 @@ def apply_memory_verdicts(oif, viewpoint: str, raw, w_id_map: "dict[str, str]") 
 
         with contextlib.suppress(Exception):
             oif.feedback({i: Verdict(v) for i, v in verdicts.items()}, viewpoint=viewpoint)
+    # 共起も、ここで当てた申告から書く（記-s・2026-10-14・本人の決定）。答えに使った記憶だけを、求めの起点
+    # （`origin`）と 1 本の網にする。申告の道は主LLM・軽量LLM・背景のどれもここを通るので、書き手は 1 か所。
+    members = cooccurring_members(origin, verdicts)
+    if members:
+        try:
+            oif.link(KIND_COOCCURRENCE, [(i, "項", None) for i in members])
+            logger.info("event-loop 共起を書いた：起点＋記憶 %d 件", len(members) - 1)
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 共起の記録に失敗", exc_info=True)
