@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：REST 内省・層 3「設定値を調整する」（v0.5）
+# familiar-ai 設計方針：REST 内省・層 3「設定値を調整する」（v0.6）
 
 設定値は REST 内省の 4 層（出来事 → 自己像 → 設定値 → 能力・`用語一覧` v0.70）の第 3 層で、機構の振る舞いを
 決める値を持つ。**登録制・範囲つき**で、REST 内省が計測ログを読み、登録済みの範囲で値を動かす（動詞は
@@ -28,7 +28,7 @@
 | 値 | 範囲〔仮〕 | 見る計測 | 規則 |
 |---|---|---|---|
 | `MemoryConfig.distill_min_a0` | 0.20〜0.70（登録済み） | 蒸留の材料の a0 分布 | LLM |
-| `MemoryConfig.recent_exchanges_arbiter`／`_main` | 1〜10 | 申告の深さ（`referred`／`important` が直近の何往復目か） | 機械：載せた最古の往復に参照が 20% 以上なら +1、末尾が一度も参照されなければ −1（`課題5` D 章） |
+| `MemoryConfig.recent_exchanges_arbiter`／`_main` | 1〜10 | — | 動かさない（記-t 段 3・2026-10-15 でいまの値に固定。材料の続き先の判定を撤去した） |
 | `AgentConfig.arbiter_timeout_sec` | 1.0〜10.0 | 調停の秒数・時間切れの割合 | LLM（時間切れの割合と p90） |
 | `MemoryConfig.recall_half_life_days`（$HL$・登録済み） | 1〜30 日 | 層 1 の $I$（毎晩 1 行） | LLM（$I$ の目標との差） |
 | `MemoryConfig.diffuse_far_share`（登録済み） | 0〜1 | 関連想起で載った記録の申告（遠い順由来／思い出していない順由来） | 機械：参照された側へ寄せる |
@@ -45,7 +45,6 @@
 
 | 種別 | 欄 | 用途 |
 |---|---|---|
-| `続き先` | 結末・相手・起点（記-i・済） | 判定の健全性 |
 | `気分`・`欲求` | PAD 4 軸・欲求 5 軸の生値・発火（情-f・済） | 内部状態の言葉の境目 |
 | `調停` | 秒・分岐・時間切れ | `arbiter_timeout_sec` |
 | `申告` | 記録 id・判定・直近の何往復目か | $n$ の見直し |
@@ -65,14 +64,12 @@
 - 優先順位：`config._resolve_setting`（**DB > 既定**・env は読まず WARNING）に一本化（旧 `resolve_float`／`_resolve_float`
   は撤去）。`distill_min_a0`・`recall_half_life_days`・`diffuse_far_share`・`arbiter_timeout_sec`・`recent_exchanges_*`・
   内部状態の境目 21 個がこれを通る。
-- 計測ログの行：`調停 秒 分岐 時間切れ`（`arbiter.arbitrate`）、`直近 窓 端 外`（`Workspace.build`・欄名の `窓` は直近の往復数、`端` は載せた最古の往復の起点、`外` は載せなかった最新の往復の起点）、
-  `申告 important useless referred unused`（`apply_memory_verdicts`）、`関連 遠い 掘り`（拡散想起）、
-  `設定値 名前 前 後`（動かしたとき）。既存の `続き先`・`気分`・`欲求`・`層1`・`層2`。
+- 計測ログの行：`調停 秒 分岐 時間切れ`（`arbiter.arbitrate`）、`申告 important useless referred unused`（`apply_memory_verdicts`）、`関連 遠い 掘り`（拡散想起）、
+  `設定値 名前 前 後`（動かしたとき）。既存の `気分`・`欲求`・`層1`・`層2`。
 - 読み手と集計：`core/measure.read_rows`・`summarize_arbiter`（件数・中央・p90・最大・時間切れ）・
-  `summarize_window`（続きの相手が端か外だった回数）・`summarize_inner_state`（軸ごとの分位）・
+  `summarize_inner_state`（軸ごとの分位）・
   `summarize_relation`（参照された数を並びごと）・`rotate`（`measure.log.<時刻>` へ改名）。
-- 規則：`loop/rest_settings.py`——`adjust_window`（端か外の参照 ≥20% で +1・続きがあるのに 0 で −1）、
-  `adjust_inner_state`（計測した分位へ 1 刻み）、`adjust_far_share`（参照された側へ 0.1）、`adjust_timeout`
+- 規則：`loop/rest_settings.py`——`adjust_inner_state`（計測した分位へ 1 刻み）、`adjust_far_share`（参照された側へ 0.1）、`adjust_timeout`
   （LLM に数字を渡し、提案を 1 刻み・範囲内に丸める）、`apply`（`save_override`・`内省` の記録・計測ログ）、
   `adjust_settings`（読む → 集計 → 動かす → 改名）。`rest.run_rest_pass` が層 2 の後に呼ぶ。
 
@@ -81,17 +78,18 @@
 | 項目 | 仮値 | 決め方 |
 |---|---|---|
 | 各値の範囲・刻み | 上表 | 登録時に `根拠台帳` へ |
-| 「載せた最古の往復に 20%」の閾値 | 20% | 数晩の実測 |
 | LLM が提案する値の呼び方 | 内省の 1 往復に同梱 | 層 1・2 の実装で決まる内省ループの形に合わせる |
 
 ## 最小の標本数（v0.3・記-k・2026-09-15）
 
 規則ごとに標本が足りなければその晩は動かさない（`rest_settings.MIN_SAMPLES`〔仮〕）：内部状態 50 行（`気分`／`欲求`）・
-直近の往復数 20 行（`続き先` の続き）・時間切れ 20 行（`調停`）・関連 20 行（`申告`）。実機で計測ログ 121 行のうち `気分`／`欲求` が
+時間切れ 20 行（`調停`）・関連 20 行（`申告`）。実機で計測ログ 121 行のうち `気分`／`欲求` が
 4 行だったのに、境目 9 件が 1 刻みずつ動いた。集計（`core/measure.summarize_*`）が `件数` を持つ。
 
 ## 更新履歴
 
+> v0.6：直近の往復数の規則（`adjust_window`・`summarize_window`・計測ログの `直近`／`続き先`）を撤去し、値を固定にした（記-t 段 3・2026-10-15・本人の決定）。
+>
 > v0.5：直近のやりとりで使っていた「窓」（直近の窓・窓の大きさ・窓の端・窓の外）を、用語一覧で定義した「直近の往復数」「載せた最古の往復」「載せなかった最新の往復」「直近を引き直す範囲」に言い換えた。会話の窓とぶつかるため（2026-10-12・本人の指示）。
 >
 > v0.4：登録表に 2026-09-15 に登録した 5 つ（$I^\*$ と核の固めの 4 つ）を足し、「出来事を畳む v0.2 の未決」の行を置き換えた（`REGISTRY` と照合・2026-09-17）。

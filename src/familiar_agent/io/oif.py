@@ -509,6 +509,12 @@ class OIF:
         logger.debug("OIF fold_materials ← %s → %d件", "/".join(directions), len(out))
         return out
 
+    def recent_finals(self, since: datetime, until: datetime, *, exclude_id: str) -> list[dict]:
+        """`since` から `until` までに閉じた最終版を新しい順に（記-t 段 2・継起の候補）。"""
+        got = self._memory.recent_finals(since, until, exclude_id=exclude_id)
+        logger.debug("OIF recent_finals ← %s〜%s → %d件", since, until, len(got))
+        return got
+
     def latest_origins(self, n: int) -> list[str]:
         """時系列で新しい順に、やりとりの起点を n 件（記-h）。
 

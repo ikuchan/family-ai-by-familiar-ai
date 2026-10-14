@@ -100,3 +100,15 @@ def cut(text: str, limit: int) -> str:
 def is_final(text: str) -> bool:
     """最終版の文か（想起の頭「[そばに居た] 」などが前に付いていても見る）。"""
     return MARK in str(text or "")[:40]
+
+
+def fit(current: str, candidates: "dict[str, str]", limit: int) -> "tuple[str, dict[str, str]]":
+    """続き先の判定（記-t 段 2）へ送る文を、上限 `limit` 字に収める。
+
+    収まっていればそのまま。超えれば、いまの最終版と候補の 1 件ずつを同じ字数まで切る（候補の数は減らさない・
+    最終版は時刻の頭と聞かれたことが前にあるので、末尾を切っても何の塊かは残る）。50 字より短くはしない。
+    """
+    if len(current) + sum(len(v) for v in candidates.values()) <= limit:
+        return current, dict(candidates)
+    cap = max(50, limit // (len(candidates) + 1))
+    return current[:cap], {k: v[:cap] for k, v in candidates.items()}

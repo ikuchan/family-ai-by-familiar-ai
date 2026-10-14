@@ -24,10 +24,9 @@ logger = logging.getLogger(__name__)
 
 Change = tuple[str, float, float]  # (完全名, 前, 後)
 
-EDGE_SHARE = 0.20  # 窓の端か外の参照がこの割合以上なら広げる〔仮・課題5 D 章〕
 # 規則ごとの最小の標本数〔仮・記-k・2026-09-15〕。足りなければその晩は動かさない。
 # 実機で計測ログ 121 行のうち `気分`／`欲求` が 4 行だったのに、境目 9 件が動いた。
-MIN_SAMPLES = {"内部状態": 50, "窓": 20, "時間切れ": 20, "関連": 20}
+MIN_SAMPLES = {"内部状態": 50, "時間切れ": 20, "関連": 20}
 
 
 def _current(field: str, default: float) -> float:
@@ -69,25 +68,6 @@ def _defaults() -> dict[str, float]:
             out[f"InnerStateConfig.mood_{axis}_{q}"] = float(v)
     for axis in ("seeking", "rest", "bond", "safety", "esteem"):
         out[f"InnerStateConfig.drive_p70_{axis}"] = float(getattr(inner, f"drive_p70_{axis}"))
-    return out
-
-
-def adjust_window(summary: dict) -> list[Change]:
-    """窓 $n$（主LLM と軽量LLM の両方を同じ向きに 1 刻み）。"""
-    if int(summary.get("続き", 0) or 0) < MIN_SAMPLES["窓"]:
-        return []
-    share = float(summary.get("端か外の割合", 0.0))
-    direction = 1 if share >= EDGE_SHARE else (-1 if share == 0.0 else 0)
-    if direction == 0:
-        return []
-    out: list[Change] = []
-    for field in ("MemoryConfig.recent_exchanges_main", "MemoryConfig.recent_exchanges_arbiter"):
-        cur = _current(field, _defaults()[field])
-        s = settings.get(field)
-        assert s is not None
-        nxt = max(s.lo, min(s.hi, cur + direction * s.step))
-        if nxt != cur:
-            out.append((field, cur, nxt))
     return out
 
 
@@ -204,7 +184,7 @@ async def adjust_settings(agent) -> int:
     """層 3 の 1 段：読む → 集計 → 規則で動かす → 記録 → 計測ログを改名する。"""
     rows = measure.read_rows()
     changes: list[Change] = []
-    changes += adjust_window(measure.summarize_window(rows))
+    # 直近の往復数（`recent_exchanges_*`）はいまの値で固定する（記-t 段 3・続きが 20 件に届かず一度も動かなかった）。
     changes += adjust_inner_state(measure.summarize_inner_state(rows))
     changes += adjust_far_share(measure.summarize_relation(rows))
     changes += await adjust_timeout(agent, measure.summarize_arbiter(rows))

@@ -40,25 +40,6 @@ def test_arbiter_summary_gives_counts_quantiles_and_timeout_rate(tmp_path):
     assert s["中央"] == 1.0 and s["p90"] >= 1.2 and s["最大"] == 5.0
 
 
-def test_window_summary_matches_follow_targets_against_the_edge_and_beyond(tmp_path):
-    _write(
-        tmp_path,
-        [
-            "2026-09-14T10:00:00 直近 窓=3 端=q2 外=q1",
-            "2026-09-14T10:00:01 続き先 結末=続き 相手=q2 起点=x1",  # 端を参照
-            "2026-09-14T10:01:00 直近 窓=3 端=q3 外=q2",
-            "2026-09-14T10:01:01 続き先 結末=続き 相手=q2 起点=x2",  # 窓の外を参照
-            "2026-09-14T10:02:00 直近 窓=3 端=q4 外=q3",
-            "2026-09-14T10:02:01 続き先 結末=途切れ 相手=- 起点=x3",
-            "2026-09-14T10:03:00 直近 窓=3 端=q5 外=q4",
-            "2026-09-14T10:03:01 続き先 結末=続き 相手=q5 起点=x4",  # 端を参照
-        ],
-    )
-    s = measure.summarize_window(measure.read_rows(base_dir=tmp_path))
-    assert s["続き"] == 3 and s["端を参照"] == 2 and s["外を参照"] == 1
-    assert abs(s["端か外の割合"] - 1.0) < 1e-9
-
-
 def test_inner_state_summary_gives_quantiles_per_axis(tmp_path):
     lines = [
         f"2026-09-14T10:{i:02d}:00 気分 P={0.1 + i * 0.01:.2f} Pn=0.10 A=0.50 Dom=0.50"

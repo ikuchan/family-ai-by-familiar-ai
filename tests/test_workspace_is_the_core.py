@@ -7,7 +7,7 @@
 「核が殻を呼び返す」形が戻る。**殻は残す。**
 
 一方、W をめぐる 174 行は**何も呼び返さない**。対応表は W の索引、`compose` が組み、
-`recall` が中身を入れ、`link_follows` と `apply_memory_verdicts` が W の id を使う。
+`recall` が中身を入れ、`apply_memory_verdicts` が W の id を使う。
 これが核である（Functional core / Imperative shell）。
 
 **class を作らずモジュール関数にする**（`loop/generator.py` の前例）。W は反復ごとに
@@ -64,7 +64,7 @@ def test_the_core_never_calls_back_into_the_shell():
 
 def test_the_core_keeps_no_state_of_its_own():
     """モジュール関数だけで、状態を持たない（`self` も、module 変数の書き換えも無い）。"""
-    for name in ("open_ids", "compose", "recall", "link_follows", "apply_memory_verdicts"):
+    for name in ("open_ids", "compose", "recall", "apply_memory_verdicts"):
         fn = getattr(workspace, name)
         assert "self" not in inspect.signature(fn).parameters, name
 
@@ -141,7 +141,6 @@ def test_the_shell_delegates_instead_of_composing():
     src = inspect.getsource(InformationProcessing)
     for call in (
         "workspace.recall(",
-        "workspace.link_follows(",
         "workspace.apply_memory_verdicts(",
     ):
         assert call in src, call

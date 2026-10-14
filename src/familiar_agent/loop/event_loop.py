@@ -20,7 +20,7 @@ from dataclasses import dataclass, replace
 import logging
 import re
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -32,7 +32,7 @@ from ..poses import nearest_pose
 from ..scene import extract_entities, read_photo
 from ..store import clock
 from .arbiter import Arbiter, ArbiterInput, Decision as ArbiterDecision
-from ..store.relations import KIND_EXCHANGE, KIND_REVISION
+from ..store.relations import KIND_EXCHANGE, KIND_REVISION, KIND_SUCCESSION
 from ..io.dif import DIF
 from ..core import (
     family_now,
@@ -40,7 +40,6 @@ from ..core import (
     filler_length,
     final_version,
     jev_judges,
-    measure,
     parsing,
     unsaid,
 )
@@ -170,19 +169,6 @@ _LOOKUP_ACTIONS = (
     # 音楽も主LLM が道具名で呼ぶ。載っていなかったので `play_music` が捨てられ、求めが沈黙で閉じた（2026-10-07 実機）。
     *_MUSIC_ACTIONS,
 )
-
-
-async def _result_or_failure(task) -> "tuple[str | None, bool]":
-    """待ち合わせて (結果, 落ちたか) を返す。落ちたら (None, True)（繋がない側へ倒す）。
-
-    判定が来ないターンは新しい話の始まりとして扱う。誤って繋ぐと、関係のない会話が
-    文脈に混ざる（`設計方針_MI間の関係`）。落ちたことは計測ログに残す（記-i）。
-    """
-    try:
-        return await task, False
-    except Exception as e:  # noqa: BLE001
-        logger.debug("続き先の判定を受け取れなかった（続行する）: %s", e)
-        return None, True
 
 
 def _query_label(action: str, tool_input: dict) -> str:
@@ -792,10 +778,8 @@ class InformationProcessing:
     def _note_origin(self, obs_id: str | None) -> None:
         """このターンの起点を控える。
 
-        **何に続くかはここで決めない。** 続き先は、そのターンを作るのに使った W の中に
-        しかない（`workspace.link_follows`）。段 3 では「直前の起点へ無条件に繋ぐ」形に
-        していたが、
-        それは鎖の種類を機構の側で数え上げることになり、並行して走る本数に上限が生まれた。
+        **何に続くかはここで決めない。** 継起は、求めを閉じて最終版を書いた後に、最終版どうしで結ぶ
+        （記-t 段 3・`_link_succession`）。
         """
         if not obs_id:
             return
@@ -905,13 +889,17 @@ class InformationProcessing:
         limit = int(agent.config.completion_content_max)
         parent, live = req.request_id, req.live_version_id
         if len(head + body + course) > limit:
-            return (head, body, course, limit, parent, live, end)
+            return (head, body, course, limit, parent, live, end, start)
         final_id = None
         with contextlib.suppress(Exception):
             final_id = await self._write_final(head + body + course, parent=parent, live=live)
         if final_id:
             self._note_record(final_id, "版")
             req.live_version_id = final_id
+            content = head + body + course
+            writes = self.__dict__.setdefault("_final_writes", set())
+            writes.add(task := asyncio.create_task(self._link_succession(final_id, content, start)))
+            task.add_done_callback(writes.discard)
         return None
 
     async def _write_final(
@@ -941,7 +929,7 @@ class InformationProcessing:
         要約が空・長すぎ・失敗なら、聞かれたことと答えを残して経緯の末尾を切った文で書く（書かないことはしない）。
         書いたらやりとりの関係の末尾に「版」として足す（閉じたときの関係には、まだ入っていない）。
         """
-        head, body, course, limit, parent, live, end = pending
+        head, body, course, limit, parent, live, end, start = pending
         agent = self._agent
         room = max(1, limit - len(head))
 
@@ -970,10 +958,49 @@ class InformationProcessing:
             if final_id and exchange_id:
                 with contextlib.suppress(Exception):
                     agent._oif.extend(exchange_id, [(final_id, "版", None)])
+            if final_id:
+                await self._link_succession(final_id, content, start)
 
         writes = self.__dict__.setdefault("_final_writes", set())
         writes.add(task := asyncio.create_task(_run()))
         task.add_done_callback(writes.discard)
+
+    async def _link_succession(self, final_id: str, content: str, start: datetime) -> None:
+        """いま書いた最終版を、その前に閉じた最終版の続きなら継起（前 → 後）で結ぶ（記-t 段 2・背景）。
+
+        結ぶのは最終版どうし（本人の決定）。起点どうしでは、想起しても人の言葉しか出てこず意味のない網になる。
+        候補は開始時刻の前 `succession_window_sec`（5 分〔仮〕）のうちに閉じた最終版で、Jev が「どれの続きか」を
+        「どれの続きでもない」と並べて選ぶ。候補が無ければ聞かない。失敗・確信度が低いときは書かない。
+        """
+        agent = self._agent
+        try:
+            window = timedelta(seconds=int(agent.config.memory.succession_window_sec))
+            rows = agent._oif.recent_finals(start - window, start, exclude_id=final_id)
+            if not rows:
+                logger.info("event-loop 最終版の継起を書かない：候補なし")
+                return
+            limit = int(getattr(agent.config, "jev_state_max_chars", 28_000))
+            current, cands = final_version.fit(
+                content, {str(r["id"]): str(r["content"]) for r in rows}, limit
+            )
+            prev = await jev_judges.judge_succession(
+                getattr(agent, "_jev", None),
+                current=current,
+                candidates=cands,
+                min_conf=float(agent.config.jev_confidence_min),
+            )
+            if prev is None:
+                logger.info(
+                    "event-loop 最終版の継起を書かない：どれの続きでもない（候補 %d 件）",
+                    len(cands),
+                )
+                return
+            agent._oif.link(KIND_SUCCESSION, [(prev, "前", 0), (final_id, "後", 1)])
+            logger.info("event-loop 最終版の継起を書いた：前 %.8s → 後 %.8s", prev, final_id)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 最終版の継起を書けなかった", exc_info=True)
 
     async def settle_finals(self) -> None:
         """背景で書いている最終版が書き終わるのを待つ（試験と終了時）。"""
@@ -3193,24 +3220,6 @@ class InformationProcessing:
 
         return await Iteration(self).run()
 
-    def _follows_view(self, ws: "workspace.Workspace", utterance: str) -> str:
-        """続き先の判定へ送る W（出-bw）。重なりを除き、上限を超えたら各項目を縮める。縮めても収まらなければ空。"""
-        limit = int(getattr(self._agent.config, "jev_state_max_chars", 28_000))
-        view = ws.for_jev_follows(utterance, limit)
-        if view is None:
-            logger.info("event-loop 続き先の判定：長すぎるので W を渡さない")
-        return view or ""
-
-    def _judge_follows(self, workspace_ctx: str, utterance: str):
-        """続き先の判定（Jev・出-au 段 5-4）。失敗は `JudgeFailed` で、`_note_follows` が「落ちた」と数える。"""
-        agent = self._agent
-        return jev_judges.judge_follows(
-            getattr(agent, "_jev", None),
-            workspace=workspace_ctx,
-            utterance=utterance,
-            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
-        )
-
     async def _decide(
         self,
         *,
@@ -3689,35 +3698,6 @@ class InformationProcessing:
             "あり" if violation else "なし",
         )
         return violation, verdicts
-
-    async def _note_follows(
-        self, w_text: str, utterance: str, w_id_map: "dict[str, str]", follows_task
-    ) -> None:
-        """続き先の判定を受け取り、辺を書き、結末を計測ログへ 1 行書く（記-i）。
-
-        結末は 5 通り——続き（辺を書いた）／途切れ（none）／未判定（言葉が無い・W が空で
-        判定を呼んでいない）／落ちた（例外・時間切れ）／不一致（返った id が W に無い・自分の
-        起点）。以前は「続き」しか形に残らず、継起が 0 本のとき「判定が壊れている」のか
-        「続きの場面が無かった」のかを切り分けられなかった。REST 内省が読む（記-a-に）。
-        """
-        follows, failed = await _result_or_failure(follows_task)
-        linked = workspace.link_follows(self._agent, self._req, w_id_map, follows)
-        if not w_text.strip() or not utterance.strip():
-            outcome = "未判定"
-        elif failed:
-            outcome = "落ちた"
-        elif follows is None:
-            outcome = "途切れ"
-        elif linked:
-            outcome = "続き"
-        else:
-            outcome = "不一致"
-        measure.record(
-            "続き先",
-            結末=outcome,
-            相手=(follows or "-")[:12] if outcome == "続き" else "-",
-            起点=(self._req.request_id or "-").replace("-", "")[:12],
-        )
 
     def _checker_facts(
         self,

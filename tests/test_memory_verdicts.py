@@ -144,12 +144,5 @@ def test_the_loop_counts_verdicts_against_the_past_column():
     """`_dispatch_main_llm` に渡る対応表は `verdict_map`（過去の列）である。"""
     import inspect
 
-    from familiar_agent.loop.event_loop import InformationProcessing
-
     src = inspect.getsource(Iteration)
     assert "w_id_map=dict(ws.verdict_map)" in src
-    # 続き先の辺は両方の枠を名指せる（`_note_follows` が `id_map` で照合する）。
-    assert "w_id_map, self.follows_task" in src
-    assert "link_follows(self._agent, self._req, w_id_map, follows)" in inspect.getsource(
-        InformationProcessing._note_follows
-    )

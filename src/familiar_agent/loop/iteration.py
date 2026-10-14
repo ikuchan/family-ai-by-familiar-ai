@@ -155,13 +155,7 @@ class Iteration:
         _log_recall_weights(trigger, w_base, self.weights, self.ws.memories)
         ip._returned_now = self.ws.returned_actions  # 声の選び方が読む（環-u）
         ip._req.just_returned.clear()  # 「いま道具から返った」はこの反復の W にだけ載せる
-        if ip._slow_notice_received:
-            return  # 待ちの一言だけの反復は、続き先を判定しない（出-aq 段 6）
-        # 続き先の判定を投げる。**待たずに先へ進む。** 調停と並行して走らせれば、実測 0.72 秒
-        # （`根拠台帳` §29）はほぼ隠れる。受け取るのはシステム文を組む直前で、そこは待つ。
-        self.follows_task = asyncio.ensure_future(
-            ip._judge_follows(ip._follows_view(self.ws, self.utterance or ""), self.utterance or "")
-        )
+        # 継起は反復ごとには判定しない。最終版を閉じた後に最終版どうしで結ぶ（記-t 段 3・`_link_succession`）。
 
     def _cap(self) -> None:
         ip = self.ip
@@ -245,12 +239,10 @@ class Iteration:
     async def _throw_main_llm(self) -> str:
         """(b) 主LLM を投げる。前につなぎは挟まない——待たせたら待ちの知らせが言う（出-aq 段 7）。"""
         ip, agent, decision, ws = self.ip, self.agent, self.decision, self.ws
-        memories, workspace_ctx, w_id_map = ws.memories, ws.for_main, ws.id_map
+        memories, workspace_ctx = ws.memories, ws.for_main
         mood = asyncio.ensure_future(
             ip._judge_companion(self.utterance or "")
         )  # 相手の気分（出-av）
-        # 判定は辺を書くだけで W は変えない（記-h）。結末は計測ログへ（記-i）。
-        await ip._note_follows(workspace_ctx, self.utterance or "", w_id_map, self.follows_task)
         companion = _companion_ctx(await mood, ip._current_speaker_name())
         # 返事の予算（出-k-ろ）：長さは数字で渡し、`max_tokens` はそこから固定する。
         budget = reply_budget.decide(

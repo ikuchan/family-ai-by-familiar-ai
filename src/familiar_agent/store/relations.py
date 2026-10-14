@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime
 
 from .context import StoreContext
 
@@ -250,6 +251,28 @@ class RelationStore:
                 (KIND_COOCCURRENCE, ids, min_shared, ids, limit),
             )
             return [str(_first(r)) for r in cur.fetchall()]
+
+    def recent_finals(
+        self, since: datetime, until: datetime, *, exclude_id: str, mark: str
+    ) -> list[dict]:
+        """`since` から `until` までに閉じた最終版（記-t 段 2）を、新しい順に返す。
+
+        最終版は向き `求め` で、文が `mark` で始まる（`kind` では見分けない・記-u）。時刻は閉じた時刻なので、
+        時刻で絞れば「その前に終わった塊」になる。改訂で畳まれた最終版と、`exclude_id`（いま書いた自分）は除く。
+        返りは `id`・`content`・`timestamp` を持つ dict の並び。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT o.id, o.content, o.timestamp FROM observations o "
+                    "WHERE o.direction = '求め' AND o.content LIKE %s "
+                    "AND o.timestamp >= %s AND o.timestamp <= %s AND o.id <> %s "
+                    f"AND {not_hidden('o')} "
+                    "ORDER BY o.timestamp DESC",
+                    (mark + "%", since, until, exclude_id),
+                )
+                return [dict(r) for r in cur.fetchall()]
 
     def recent_exchanges(
         self, origin_id: str, *, roles: "tuple[str, ...]" = ("起点", "添え", "つなぎ", "答え")

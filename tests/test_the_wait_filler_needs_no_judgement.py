@@ -29,7 +29,6 @@ def _progress(action: str, *, writer, lookups=True):
         ip._wake_window().open(time.monotonic())  # 入口を通った会話（出-as 段 4）
         ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
         ip.set_output(shown.append)
-        ip._judge_follows = AsyncMock()  # type: ignore[method-assign]
         ip._apply_requests = AsyncMock()  # type: ignore[method-assign]
         ip._req.utterance = "明日の天気は？"
         if lookups:
@@ -53,7 +52,6 @@ def test_the_filler_is_written_without_asking_jev():
 
 def test_no_follow_up_or_request_reading_for_a_filler():
     _, ip, _ = _progress("search_deferred", writer=writer_says({"filler": "もう少しです"}))
-    ip._judge_follows.assert_not_awaited()
     ip._apply_requests.assert_not_awaited()
 
 

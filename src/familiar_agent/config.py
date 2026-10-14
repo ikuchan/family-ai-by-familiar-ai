@@ -369,6 +369,9 @@ class MemoryConfig:
     # が混じったとき本命が押し出される（3 件で実機観測・根拠台帳 §14）。
     # 候補をいくつ集めるかは下の `recall_primary_n`（N）が別に決める。
     recall_k: int = field(default_factory=lambda: _int_env("RECALL_K", 7))
+    # 最終版どうしの継起の候補の幅（秒・記-t 段 2・2026-10-14 本人の決定・5 分〔仮〕）。いま閉じた求めの開始時刻から
+    # さかのぼってこの幅のうちに閉じた最終版だけを、続き先の候補にする。`.env` を読まない。
+    succession_window_sec: int = 300
     # 無関係排除の主たる足切り＝合成 final score の soft 床（生コサインではない）。
     # 0.05 起点（根拠台帳 §4・確定は5軸スコア分布の計測後）。
     recall_min_score: float = field(default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.05))

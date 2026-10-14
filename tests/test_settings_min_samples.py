@@ -28,10 +28,6 @@ def test_summaries_carry_their_sample_counts():
         _rows("気分", 4, P=0.3, Pn=0.1, A=0.4, Dom=0.5) + _rows("欲求", 3, seeking=0.6)
     )
     assert inner["件数"] == {"気分": 4, "欲求": 3}
-    win = measure.summarize_window(
-        _rows("直近", 1, 端="a", 外="b") + _rows("続き先", 5, 結末="続き", 相手="a")
-    )
-    assert win["続き"] == 5
     rel = measure.summarize_relation(
         _rows("関連", 1, 遠い="x", 掘り="y") + _rows("申告", 1, important="x", referred="-")
     )
@@ -47,19 +43,6 @@ def test_inner_state_does_not_move_below_the_minimum():
         _rows("気分", rs.MIN_SAMPLES["内部状態"], P=0.9, Pn=0.0, A=0.9, Dom=0.9)
     )
     assert rs.adjust_inner_state(enough) != []
-
-
-def test_window_does_not_move_below_the_minimum():
-    few = measure.summarize_window(
-        _rows("直近", 1, 端="a", 外="b")
-        + _rows("続き先", rs.MIN_SAMPLES["窓"] - 1, 結末="続き", 相手="b")
-    )
-    assert rs.adjust_window(few) == []
-    enough = measure.summarize_window(
-        _rows("直近", 1, 端="a", 外="b")
-        + _rows("続き先", rs.MIN_SAMPLES["窓"], 結末="続き", 相手="b")
-    )
-    assert rs.adjust_window(enough) != []
 
 
 def test_far_share_does_not_move_below_the_minimum():
@@ -85,4 +68,4 @@ def test_timeout_is_not_asked_below_the_minimum():
 
 
 def test_the_minimums_are_the_agreed_values():
-    assert rs.MIN_SAMPLES == {"内部状態": 50, "窓": 20, "時間切れ": 20, "関連": 20}
+    assert rs.MIN_SAMPLES == {"内部状態": 50, "時間切れ": 20, "関連": 20}

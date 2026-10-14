@@ -20,34 +20,6 @@ def _reset():
     co.clear_cache()
 
 
-def test_the_window_grows_when_the_edge_or_beyond_is_referenced_often():
-    _reset()
-    changes = rs.adjust_window({"続き": 20, "端を参照": 4, "外を参照": 4, "端か外の割合": 0.4})
-    assert changes == [
-        ("MemoryConfig.recent_exchanges_main", 6, 7),
-        ("MemoryConfig.recent_exchanges_arbiter", 3, 4),
-    ]
-
-
-def test_the_window_shrinks_when_continuations_never_reach_the_edge():
-    _reset()
-    changes = rs.adjust_window({"続き": 20, "端を参照": 0, "外を参照": 0, "端か外の割合": 0.0})
-    assert changes == [
-        ("MemoryConfig.recent_exchanges_main", 6, 5),
-        ("MemoryConfig.recent_exchanges_arbiter", 3, 2),
-    ]
-
-
-def test_the_window_stays_without_continuations_and_stops_at_the_range():
-    _reset()
-    assert rs.adjust_window({"続き": 0, "端を参照": 0, "外を参照": 0, "端か外の割合": 0.0}) == []
-    co.save_override("MemoryConfig.recent_exchanges_main", 10)
-    co.save_override("MemoryConfig.recent_exchanges_arbiter", 10)
-    co.clear_cache()
-    assert rs.adjust_window({"続き": 20, "端を参照": 8, "外を参照": 4, "端か外の割合": 0.6}) == []
-    _reset()
-
-
 def test_inner_state_boundaries_follow_the_measured_quantiles_one_step_at_a_time():
     _reset()
     summary = {

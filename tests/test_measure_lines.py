@@ -37,33 +37,6 @@ def test_the_arbiter_records_seconds_branch_and_timeout(tmp_path):
     assert "時間切れ=yes" in _lines(tmp_path, "調停")[-1]
 
 
-def test_the_workspace_records_the_window_edge_and_the_next_origin_beyond_it(tmp_path):
-    from datetime import datetime, timedelta, timezone
-
-    from familiar_agent.io.oif import Said
-    from familiar_agent.loop import workspace
-    from familiar_agent.loop.request import Request
-
-    measure.setup(base_dir=tmp_path)
-    t0 = datetime(2026, 9, 14, 9, 0, tzinfo=timezone.utc)
-    chains = {
-        f"q{i}": [
-            Said(
-                obs_id=f"q{i}", content=str(i), role="起点", when=t0 + timedelta(minutes=i), depth=0
-            )
-        ]
-        for i in range(5)
-    }
-    oif = MagicMock()
-    oif.latest_origins = MagicMock(side_effect=lambda n: ["q4", "q3", "q2", "q1", "q0"][:n])
-    oif.exchanges = MagicMock(side_effect=lambda o: chains[o])
-    oif.actors = MagicMock(return_value={})
-    oif.roles = MagicMock(return_value={})
-    workspace.Workspace.build(oif, [], Request(), n_arbiter=2, n_main=3)
-    line = _lines(tmp_path, "直近")[-1]
-    assert "窓=3" in line and "端=q2" in line and "外=q1" in line
-
-
 def test_verdicts_are_recorded_by_kind(tmp_path):
     from familiar_agent.loop import workspace
 

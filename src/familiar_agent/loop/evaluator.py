@@ -1,6 +1,6 @@
 """評価器 — ターン評価の集合（W2b-2）。判定は Jev、文章は軽量LLM（出-au 段 5・`core/jev_judges`）。
 
-agent.py から分離した、次の3つを持つ（発話前の検査・続き先・記憶の申告は `core/jev_judges` へ移した）。
+agent.py から分離した、次の3つを持つ（発話前の検査・記憶の申告は `core/jev_judges` へ移した。続き先の判定は記-t 段 3 で撤去した）。
 
 - emotion_for_turn: ターンの感情を PAD で評価し派生ラベルを返す（値踏みゲート込み・判定は Jev）
 - summarize_exchange: やり取りを1文へ蒸留（記憶保存用・軽量LLM が書く）

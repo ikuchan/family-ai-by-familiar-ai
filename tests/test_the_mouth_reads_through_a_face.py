@@ -9,7 +9,7 @@
 （`k`・`floor`・`weights`・`present`・`time_ref`・`time_span_days`）。足す。
 
 **呼び替えはここではやらない。** 器が違う（`Recalled` 対 辞書の並び）ので、`compose`・
-`format_for_context`・申告の突き合わせ・共起・`link_follows` の5つが動く。口が正しい面を
+`format_for_context`・申告の突き合わせ・共起の4つが動く。口が正しい面を
 引けるようにするところまでを、この段で扱う。
 """
 

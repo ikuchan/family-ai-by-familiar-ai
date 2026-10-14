@@ -24,7 +24,7 @@ from datetime import datetime
 from ..core import final_version, measure
 from ..io.oif import Cue, Recalled, View
 from ..store import clock
-from ..store.relations import KIND_COOCCURRENCE, KIND_SUCCESSION, cooccurring_members
+from ..store.relations import KIND_COOCCURRENCE, cooccurring_members
 from .request import Request
 
 logger = logging.getLogger(__name__)
@@ -97,11 +97,6 @@ def version_text(
     return f"「{req.request_text}」と聞かれ、" + "／".join(parts)
 
 
-def _cut(text: str, cap: "int | None") -> str:
-    """1 項目の本文を `cap` 字までにする（出-bw・続き先の判定へ送る W だけ）。切ったら「…」を付ける。"""
-    return text if cap is None or len(text) <= cap else text[:cap] + "…"
-
-
 def open_ids(req: Request) -> list[str]:
     """この求めの open な記録（活性に下限を課して W へ浮かせる対象）。
 
@@ -133,7 +128,6 @@ def compose(
     *,
     exclude: "set[str] | None" = None,
     basis: str = "",
-    cap: "int | None" = None,
 ) -> "tuple[str, dict[str, str]]":
     """W を組み、**(W の文字列, 12桁 → 完全な id の対応表) を返す**。
 
@@ -156,8 +150,6 @@ def compose(
     使うきっかけを持てない。空なら何も足さない。
 
     `said`（言ったつなぎ）は手組みのまま残す。O にもあるが、この求めで言った分だけを載せる。
-
-    `cap`＝記憶 1 件の本文の字数の上限（出-bw）。続き先の判定へ送る W が上限を超えたときにだけ使う。
     """
     from ..config import MemoryConfig
 
@@ -222,7 +214,7 @@ def compose(
     basis_line = f"[この想起：{basis}]" if basis else ""
     # 想起した記憶には見出しを付ける。直近のやりとりの枠（文脈）と分ける（出-ay 段 4-4b：文脈は直前のやりとりで、
     # 思い出したことではない）。
-    remembered = _lines(shown, names, cap=cap)
+    remembered = _lines(shown, names)
     if remembered.strip():
         remembered = "[思い出したこと]\n" + remembered
     text = "\n\n".join(p for p in [said, added, heard, basis_line, remembered] if p and p.strip())
@@ -320,9 +312,7 @@ def returned_lookups(req: Request) -> "tuple[tuple[str, bool, str], ...]":
     )
 
 
-def just_returned(
-    req: Request, *, idx: "frozenset[int] | None" = None, cap: "int | None" = None
-) -> str:
+def just_returned(req: Request, *, idx: "frozenset[int] | None" = None) -> str:
     """W の最上部：**この反復で道具から返ったもの**（出-x・2026-09-18）。
 
     道具の返りは版（過去の列の全文）に載るだけで、調停は「記憶」として読み、いま届いた返りとして
@@ -337,7 +327,7 @@ def just_returned(
     lines = ["[いま道具から返った]"]
     for lk in sorted(req.lookups, key=lambda x: x.index):
         if lk.index in idx and lk.result is not None:
-            lines.append(f"- {lk.action}「{lk.query}」→ {_cut(str(lk.result), cap)}")
+            lines.append(f"- {lk.action}「{lk.query}」→ {str(lk.result)}")
     return "\n".join(lines) if len(lines) > 1 else ""
 
 
@@ -475,14 +465,12 @@ class Workspace:
         max_age_sec: int = 0,
         basis: str = "",
     ) -> "Workspace":
-        chains = recent_chains(
-            oif, max(n_arbiter, n_main) + 1
-        )  # 窓の外の次の起点も 1 つ引く（計測用）
+        chains = recent_chains(oif, max(n_arbiter, n_main))
         ws = cls(
             oif,
             memories,
             req,
-            chains[: max(n_arbiter, n_main)],
+            chains,
             n_arbiter,
             n_main,
             max_age_sec,
@@ -493,11 +481,6 @@ class Workspace:
         ws.just_returned_text = "\n\n".join(
             p for p in (getattr(req, "confirm_frame", ""), just_returned(req)) if p
         )
-        # 層 3 の材料（記-a-に）：窓のいちばん古い起点と、窓の外の次の起点。続き先の `相手` と
-        # 突き合わせ、端や窓の外が参照されるなら +1、端が一度も参照されなければ −1。
-        edge = chains[n_main - 1][0] if len(chains) >= n_main else "-"
-        beyond = chains[n_main][0] if len(chains) > n_main else "-"
-        measure.record("直近", 窓=n_main, 端=edge, 外=beyond)
         # 対応表は最も広い窓で作る（申告・判定はどちらの窓の id でも来る）。
         _rows, _text, recent_ids = ws._recent(max(n_arbiter, n_main))
         _past, past_ids = compose(
@@ -523,8 +506,6 @@ class Workspace:
         n: int,
         *,
         memories: "list[Recalled] | None" = None,
-        cap: "int | None" = None,
-        top: "str | None" = None,
     ) -> str:
         _rows, recent, recent_ids = self._recent(n)
         past, _ = compose(
@@ -533,9 +514,8 @@ class Workspace:
             self.req,
             exclude=set(recent_ids.values()),
             basis=self.basis,
-            cap=cap,
         )
-        head = self.just_returned_text if top is None else top
+        head = self.just_returned_text
         return "\n\n".join(p for p in (head, recent, past) if p and p.strip())
 
     @property
@@ -592,56 +572,16 @@ class Workspace:
                 return None
             drop.add(rest[0].mi.obs_id)
 
-    def for_jev_follows(self, utterance: str, max_chars: int) -> "str | None":
-        """続き先の判定の Jev へ送る W。言葉と合わせて `max_chars` を超えたら、各項目の本文を同じ字数まで縮める。
-
-        選択肢は W の行なので、行の数は減らさない（遠い記憶ほどつながったときの価値が高い・本人）。縮める字数は
-        二分探索で一度に決める。50 字まで縮めても超えるなら None。
-        """
-        budget = max_chars - len(utterance) - _FOLLOWS_FRAME
-        memories = self._jev_memories()
-        text = self.render(self.n_main, memories=memories)
-        if len(text) <= budget:
-            return text
-
-        def shrunk(cap: int) -> str:
-            top = "\n\n".join(
-                p
-                for p in (
-                    getattr(self.req, "confirm_frame", ""),
-                    just_returned(self.req, idx=self.returned_idx, cap=cap),
-                )
-                if p
-            )
-            return self.render(self.n_main, memories=memories, cap=cap, top=top)
-
-        lo, hi = _FOLLOWS_MIN_CAP, max(len(text), _FOLLOWS_MIN_CAP)
-        if len(shrunk(lo)) > budget:
-            return None
-        while lo < hi:
-            mid = (lo + hi + 1) // 2
-            if len(shrunk(mid)) <= budget:
-                lo = mid
-            else:
-                hi = mid - 1
-        logger.info("event-loop 続き先の判定へ送る W：各項目を %d 字までにした", lo)
-        return shrunk(lo)
-
     @property
     def for_main(self) -> str:
         return self.render(self.n_main)
 
 
-#: 続き先の判定の state のうち、W 以外の見出しの字数（`jev_judges.judge_follows`）。
-_FOLLOWS_FRAME = 80
-#: 続き先の判定へ送る W で、1 項目をこれより短くは縮めない（id のある 1 行目の頭を残す）。
-_FOLLOWS_MIN_CAP = 50
-
 #: 確かさがこれを下回ったら印を付ける（`format_for_context` から引き継いだ値）。
 _CONF_LOW = 0.55
 
 
-def _lines(memories: "list[Recalled]", names: "dict[str, str]", *, cap: "int | None" = None) -> str:
+def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
     """W の1行を組む。**核の仕事**である（環-e-い）。
 
     **1 行は全文で載せる**（2026-09-20）。以前は過去の記憶だけ 120 字で切り、細部は直近の
@@ -673,7 +613,7 @@ def _lines(memories: "list[Recalled]", names: "dict[str, str]", *, cap: "int | N
         day = clock.ts_to_date(mi.timestamp) if mi.timestamp else "?"
         at = clock.ts_to_time(mi.timestamp) if mi.timestamp else "?"
         subject = subject_line(mi.direction, names.get(mi.obs_id))
-        body = _cut(mi.content, cap)
+        body = mi.content
         out.append(
             f"- {day} {at} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
             f" {subject}{emo}: {body}"
@@ -766,25 +706,6 @@ async def recall(
     ws.returned_actions = returned
     ws.returned_lookups = returned_lookups(req)
     return ws
-
-
-def link_follows(agent, req: Request, w_id_map: "dict[str, str]", short: "str | None") -> bool:
-    """判定が返した続き先へ、継起の辺を張る（`根拠台帳` §29）。
-
-    **W に無い id は捨てる。** 判定は W の行の 12 桁の短い id を返す。記憶の申告と同じ
-    対応表で完全な id に直してから張る（直さずに完全な id と比べていて、一度も繋がらなかった・出-bo）。
-
-    自分の起点を指しても繋がない。自己ループはさかのぼりが止まらなくなる。
-    """
-    if not short or not req.request_id or not w_id_map:
-        return False
-    full = w_id_map.get(short)
-    if not full or full == req.request_id:
-        return False
-    logger.info("event-loop このターンは %.8s に続く", full)
-    with contextlib.suppress(Exception):
-        agent._oif.link(KIND_SUCCESSION, [(full, "前", 0), (req.request_id, "後", 1)])
-    return True
 
 
 def apply_memory_verdicts(

@@ -15,10 +15,6 @@ from ..backends.jev import choice, score
 logger = logging.getLogger(__name__)
 
 
-class JudgeFailed(Exception):
-    """Jev が使えない・失敗した。結末を「落ちた」と数えたい判定（続き先）だけが投げる。"""
-
-
 #: 宛先（§2.2.3）。窓の中の名前の無い声がパジュ宛てか。
 TO_PAJU = "パジュ宛て"
 TO_FAMILY = "家族どうし"
@@ -200,7 +196,7 @@ async def judge_speech_and_verdicts(
 
 #: W の中で id を持つ行（`id:<12桁>`）。
 _W_ROW = re.compile(r"id:([0-9A-Za-z]{1,12})\b")
-#: Choice の選択肢は 255 個まで。「どれの続きでもない」の分を残す。
+#: Choice の選択肢は 255 個まで。
 _MAX_ROWS = 254
 
 
@@ -216,38 +212,32 @@ def workspace_rows(workspace: str) -> "dict[str, str]":
     return rows
 
 
-async def judge_follows(client, *, workspace: str, utterance: str, min_conf: float) -> "str | None":
-    """いまの言葉が W のどの行の続きか（`根拠台帳` §29・§2.2.3）。続きならその id、無ければ None。
+#: 最終版の続き先で「どれの続きでもない」を表す選択肢（記-t 段 2）。
+NOT_FOLLOWING = "none"
 
-    言葉か W が無ければ聞かない。確信度が低ければ None（続きではない）。**Jev が使えない・失敗したときは
-    `JudgeFailed` を投げる**——呼び手は「落ちた」と数え、「途切れ」と混ぜない（辺は書かない＝倒し先と同じ）。
+
+async def judge_succession(
+    client, *, current: str, candidates: "dict[str, str]", min_conf: float
+) -> "str | None":
+    """いま閉じた塊（最終版）が、候補の塊（直前に閉じた最終版）のどれの続きか（記-t 段 2）。
+
+    選んだ候補の id を返す。候補が無い・「どれの続きでもない」・確信度が低い・Jev が使えない／失敗したときは
+    None（継起を書かない＝倒し先）。候補の文の字数は呼び手が合わせる。
     """
-    rows = workspace_rows(workspace or "")
-    if not (utterance or "").strip() or not rows:
+    if not candidates or not (current or "").strip():
         return None
-    if client is None or not getattr(client, "available", False):
-        raise JudgeFailed("Jev が使えない")
-    criteria = dict(rows)
-    criteria["none"] = "どの行の続きでもない。話題が変わった、またはやりとりを終える言葉"
-    state = (
-        f"[いま話しかけられた言葉]\n{utterance}\n\n"
-        f"[いま頭にある記憶と直近のやりとり（各行の id が選択肢）]\n{workspace}"
-    )
+    criteria = dict(candidates)
+    criteria[NOT_FOLLOWING] = "どれの続きでもない。別の話題・別の用件のやりとり"
+    state = f"[いま終わったやりとり]\n{current}"
     questions = {
         "follows": choice(
-            "いまの言葉は、どの行のやりとりの続きか。続きとは、同じ話題・同じ用件・同じ相手のやりとりが"
-            "そのまま先へ進んだもの。「さっきの話」「それ」のような指す言葉があれば、指す先の行を選ぶ",
+            "いま終わったやりとりは、選択肢のどのやりとりの続きか。続きとは、同じ話題・同じ用件のやりとりが"
+            "そのまま先へ進んだもの（聞き直し・言い直し・それを受けた次の問いを含む）",
             criteria,
         )
     }
-    try:
-        answer = await client.ask(state, questions)
-    except Exception as e:  # noqa: BLE001
-        raise JudgeFailed(type(e).__name__) from e
-    if not getattr(answer, "ok", False):
-        raise JudgeFailed(getattr(answer, "error", "失敗"))
-    pick = picked(answer, "follows", min_conf)
-    return pick if pick in rows else None
+    pick = picked(await _ask(client, state, questions), "follows", min_conf)
+    return pick if pick in candidates else None
 
 
 #: 記憶の申告の 4 通り（Jev が答える・根づきの更新がこれを使う）。主LLM には申告させない（記-r）。

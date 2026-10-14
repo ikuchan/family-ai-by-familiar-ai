@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.41）
+# familiar-ai モジュール分割設計（v0.42）
 
 ## この文書が決めること
 
@@ -616,7 +616,7 @@ package が違うので import は衝突しないが、**開いた人は同じ�
 | `open_ids(req)` | 活性に下限を課して W へ浮かせる対象 |
 | `compose(mem, memories, req)` | **(W の文字列, 12桁→完全な id の対応表)** を返す |
 | `recall(mem, cue, *, weights, req, …)` | 想起して W を組む。**(記録, W, 対応表)** を返す |
-| `link_follows(agent, req, w_id_map, full)` | 続き先へ継起の辺を張る |
+| ~~`link_follows(agent, req, w_id_map, full)`~~ | 続き先へ継起の辺を張る（記-t 段 3 で撤去。継起は `event_loop._link_succession` が最終版どうしで結ぶ） |
 | `apply_memory_verdicts(agent, raw, w_id_map)` | 申告を反映する |
 
 **対応表を属性から外した**（に-2「ニ．反復の寿命は束にしない。引数と返り値で渡す」）。
@@ -1281,6 +1281,8 @@ backends/cli.py          166 行
 
 ## 更新履歴
 
+> v0.42：`workspace.link_follows` を撤去済みにした（記-t 段 3・2026-10-15）。
+>
 > v0.41：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.40：環-e-は の は-3（`see`・`look`）を `課題8` の 環-ac へ移した（2026-09-27・本人）。いま見えているものを DIF から I へ届けることと一つの課題にした。
 > v0.39：**`workspace.py` に申告を聞く口が入った**（2026-09-11・出-h-ろ）。`ask_verdicts()`

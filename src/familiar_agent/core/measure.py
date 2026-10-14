@@ -45,7 +45,7 @@ def setup(base_dir: "Path | None" = None) -> Path:
 
 
 def record(kind: str, **fields: object) -> None:
-    """1 行書く。`kind` は種別（`続き先` など）、続きは `key=value` の並び（渡した順）。"""
+    """1 行書く。`kind` は種別（`調停` など）、続きは `key=value` の並び（渡した順）。"""
     if not _logger.handlers:
         return  # 書き手が無い（試験や CLI の一部）。黙って捨てる——計測は主の仕事ではない
     body = " ".join(f"{k}={_clean(v)}" for k, v in fields.items())
@@ -128,28 +128,6 @@ def summarize_arbiter(rows: list[Row]) -> dict:
         "最大": max(secs) if secs else 0.0,
         "時間切れ": timeouts,
         "時間切れの割合": (timeouts / n) if n else 0.0,
-    }
-
-
-def summarize_window(rows: list[Row]) -> dict:
-    """`直近` と `続き先` を突き合わせ、続きの相手が窓の端・窓の外だった回数（窓 n の材料）。"""
-    last_window: "dict | None" = None
-    follows = edge = beyond = 0
-    for r in rows:
-        if r.kind == "直近":
-            last_window = r.fields
-        elif r.kind == "続き先" and r.fields.get("結末") == "続き" and last_window is not None:
-            follows += 1
-            target = r.fields.get("相手", "-")
-            if target == last_window.get("端"):
-                edge += 1
-            elif target == last_window.get("外"):
-                beyond += 1
-    return {
-        "続き": follows,
-        "端を参照": edge,
-        "外を参照": beyond,
-        "端か外の割合": ((edge + beyond) / follows) if follows else 0.0,
     }
 
 

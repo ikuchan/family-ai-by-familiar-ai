@@ -119,29 +119,6 @@ def test_the_cue_for_jev_drops_the_returned_body():
     assert "（中身は [いま道具から返った]）" in ws.jev_cue()
 
 
-# ── 続き先の判定へ送る W ─────────────────────────────────────────────
-
-
-def test_follows_shrinks_each_item_and_keeps_every_row():
-    from familiar_agent.core.jev_judges import workspace_rows
-
-    big = "長い記憶の中身。" * 250
-    mems = [_rec(f"m{i}", f"記憶{i}" + big, fit=0.5) for i in range(3)]
-    ws = _ws(mems)
-    whole = ws.for_jev_follows("さっきの話", 1_000_000)
-    limit = len(whole) // 2
-    text = ws.for_jev_follows("さっきの話", limit)
-    assert text is not None and len(text) + len("さっきの話") <= limit
-    assert set(workspace_rows(text)) == set(workspace_rows(whole))  # 選択肢の行は減らさない
-
-
-def test_follows_is_untouched_within_the_limit():
-    """**反証の側**：内側なら縮めない（重なりだけ除く）。"""
-    ws = _ws([_rec("m1", "短い記憶", fit=0.5)])
-    text = ws.for_jev_follows("さっきの話", 28_000)
-    assert "短い記憶" in text and text.count(RESULT) == 1
-
-
 # ── 調停：送る前に測る ───────────────────────────────────────────────
 
 _RETURNED = (("search_deferred", False, RESULT),)

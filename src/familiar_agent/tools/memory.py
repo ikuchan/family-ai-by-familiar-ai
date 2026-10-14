@@ -553,6 +553,14 @@ class ObservationMemory:
         """時系列で新しい順に、やりとりの起点を n 件（記-h・辺は見ない）。"""
         return RelationStore(self._ctx).latest_origins(int(n), KIND_EXCHANGE)
 
+    def recent_finals(self, since: datetime, until: datetime, *, exclude_id: str) -> list[dict]:
+        """`since` から `until` までに閉じた最終版を新しい順に（記-t 段 2・継起の候補）。"""
+        from ..core.final_version import MARK
+
+        return RelationStore(self._ctx).recent_finals(
+            since, until, exclude_id=exclude_id, mark=MARK
+        )
+
     def recent_exchanges(self, origin_id: "str") -> "list[dict]":
         """継起をさかのぼり、各やりとりの口に出した項を古い順に返す。"""
         return RelationStore(self._ctx).recent_exchanges(origin_id)
