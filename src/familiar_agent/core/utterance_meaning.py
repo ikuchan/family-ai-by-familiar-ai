@@ -284,10 +284,15 @@ def fanout_questions(
         actions = _actions_for(m, family, speaker=speaker, silenced=silenced, tools=tools)
         if len(actions) < 2:
             continue
-        qs[f"action_{m}"] = choice(
-            f"もしこの人の言葉が「{MEANINGS[m][0]}」なら、直前のやりとりの続きとして、パジュは次にどうするか",
-            actions,
+        # 出-cq（2026-10-15 本人の決定ア）：動作は「続きとしてどうするか」でなく「何を頼んでいるか」で聞く。
+        # 続きとして聞くと、直前に音楽を頼んだやりとりに引かれ「ストップ」でも play_music を選んだ（id 455）。
+        # 名乗り・否定は頼みではないので、続きとして読む元の問いのまま。
+        ask = (
+            "直前のやりとりの続きとして、パジュは次にどうするか"
+            if m in ("claim", "deny")
+            else "この人の言葉は、パジュに何をしてほしいと頼んでいるか"
         )
+        qs[f"action_{m}"] = choice(f"もしこの人の言葉が「{MEANINGS[m][0]}」なら、{ask}", actions)
     return qs
 
 
