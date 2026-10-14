@@ -32,8 +32,10 @@ def test_the_turn_hands_over_its_records_in_order():
     # 守るのは順序——先頭が起点、末尾が答え、あいだは求めの版である。
     roles = [r for _i, r in _exchange(a)]
     assert roles[0] == "起点"
-    assert roles[-1] == "答え"
-    assert set(roles[1:-1]) == {"版"}
+    # 末尾は閉じるときの最終版（版の鎖の最後・記-t）、その前が答え。あいだは求めの版。
+    assert roles[-1] == "版"
+    assert roles[-2] == "答え"
+    assert set(roles[1:-2]) <= {"版"}
 
 
 def test_a_silent_turn_hands_over_no_answer():

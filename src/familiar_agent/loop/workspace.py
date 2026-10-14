@@ -21,7 +21,7 @@ from dataclasses import dataclass, field
 from dataclasses import replace as _replace
 from datetime import datetime
 
-from ..core import measure
+from ..core import final_version, measure
 from ..io.oif import Cue, Recalled, View
 from ..store import clock
 from ..store.relations import KIND_COOCCURRENCE, KIND_SUCCESSION, cooccurring_members
@@ -34,25 +34,21 @@ logger = logging.getLogger(__name__)
 _BODY_ELSEWHERE = "の結果が届いた（中身は [いま道具から返った]）"
 
 
-def version_text(
-    req: Request, *, omit: "frozenset[int]" = frozenset(), aborted: bool = False
-) -> str:
-    """いまの求めの状態を、1つの版の文として組み立てる（O に書く版と、Jev へ送る版の写しの両方が使う）。
+def lookup_lines(
+    req: Request,
+    *,
+    omit: "frozenset[int]" = frozenset(),
+    aborted: bool = False,
+    with_main: bool = True,
+) -> "list[str]":
+    """調べものごとの行（版の文と、最終版の経緯が使う・記-t）。結果はここでは切らない。
 
-    求めは1本の版チェーンとして進み、各版が状態を表す。**どの版にも求めそのものを
-    入れる**（前の版は畳まれて想起の候補から外れるので、辿る道が残らない）。
-
-    並行する調査は通し番号で列挙し、鎖は分岐させない。状態は「求め」の状態であって
-    個々の調査の状態ではないので、3件飛んでいても求めの状態はひとつである。
-
-    結果はここでは切らない。切るなら書き込みの上限で切る。ここで切ると、どこで短く
-    なったのかが追えなくなる。
-
-    `omit`：本文を外す返り（index）。Jev へ送る文だけが使う（出-bw）。同じ反復で返った結果は W の最上部に全文で
-    載るので、版の文からは「何を調べて届いたか」だけを残す。O に書く版は何も外さない。
+    `with_main=False` は主LLM の行（「考えて答えた」）を外す。最終版は答えそのものを持つので要らない。
     """
     parts: list[str] = []
     for lk in sorted(req.lookups, key=lambda x: x.index):
+        if lk.action == "主LLM" and not with_main:
+            continue
         if lk.action == "主LLM":
             # 主LLM には探す語が無く、**返りの中身も版には載せない**（`see` と同じで、
             # 中身は `_finish` の「自分が答えた」が持つ）。求めの状態としては
@@ -74,7 +70,27 @@ def version_text(
             parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{_BODY_ELSEWHERE}")
         else:
             parts.append(f"{lk.index}番：{lk.action}「{lk.query}」の結果が届いた：{lk.result}")
+    return parts
 
+
+def version_text(
+    req: Request, *, omit: "frozenset[int]" = frozenset(), aborted: bool = False
+) -> str:
+    """いまの求めの状態を、1つの版の文として組み立てる（O に書く版と、Jev へ送る版の写しの両方が使う）。
+
+    求めは1本の版チェーンとして進み、各版が状態を表す。**どの版にも求めそのものを
+    入れる**（前の版は畳まれて想起の候補から外れるので、辿る道が残らない）。
+
+    並行する調査は通し番号で列挙し、鎖は分岐させない。状態は「求め」の状態であって
+    個々の調査の状態ではないので、3件飛んでいても求めの状態はひとつである。
+
+    結果はここでは切らない。切るなら書き込みの上限で切る。ここで切ると、どこで短く
+    なったのかが追えなくなる。
+
+    `omit`：本文を外す返り（index）。Jev へ送る文だけが使う（出-bw）。同じ反復で返った結果は W の最上部に全文で
+    載るので、版の文からは「何を調べて届いたか」だけを残す。O に書く版は何も外さない。
+    """
+    parts = lookup_lines(req, omit=omit, aborted=aborted)
     head = f"「{req.request_text}」と聞かれた"
     if not parts:
         return head + ("（打ち切った）" if aborted else "")
@@ -255,8 +271,17 @@ def _shown(
     return [
         r
         for r in memories
-        if not (exclude and r.mi.obs_id in exclude) and r.mi.obs_id not in heard_ids
+        if not (exclude and r.mi.obs_id in exclude)
+        and r.mi.obs_id not in heard_ids
+        and not _final_of_recent(r, exclude)
     ]
+
+
+def _final_of_recent(r: "Recalled", exclude: "set[str] | None") -> bool:
+    """直近の枠に起点が載ったやりとりの最終版か（記-t）。載せると、同じ会話が直近の枠と思い出したことの列に 2 回並ぶ。"""
+    if not exclude or not r.mi.parent_id:
+        return False
+    return r.mi.parent_id in exclude and final_version.is_final(r.mi.content)
 
 
 #: 帰りの反復で**想起を回さない**道具（出-x・2026-09-18）。掛けた・確かめて・止めた、の返りは

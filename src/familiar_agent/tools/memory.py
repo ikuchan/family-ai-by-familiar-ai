@@ -713,6 +713,8 @@ class ObservationMemory:
             # A（高ぶり）は機械値なので、PAD が測れなくても入る（050）。
             arousal=kwargs.get("arousal"),
             parent_id=kwargs.get("parent_id"),
+            # 記録の時刻（記-t・最終版を閉じた時刻で書く）。payload は JSON で残るので文字列にする。
+            at=kwargs["at"].isoformat() if kwargs.get("at") else None,
         )
         try:
             event_id, created_new = self.append_memory_event(
@@ -1133,6 +1135,8 @@ class ObservationMemory:
                             "source_kind": row["kind"],
                             "emotion": row["emotion"],
                             "image_path": row["image_path"],
+                            # 版の親（起点）。直近の枠に載ったやりとりの最終版を、思い出したことの列から外すのに使う（記-t）。
+                            "parent_id": row.get("parent_id"),
                             "fit": final,
                             "confidence": max(0.0, min(1.0, (cosine + 1.0) / 2.0)),
                             "retrieval_method": "semantic",

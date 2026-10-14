@@ -94,3 +94,20 @@ def test_override_date_is_stored_as_local_end_of_day() -> None:
     # 2026-07-01 23:59:59 JST == 2026-07-01 14:59:59 UTC
     expected = datetime(2026, 7, 1, 14, 59, 59, tzinfo=timezone.utc)
     assert abs(row["timestamp"] - expected) < timedelta(seconds=2), row["timestamp"]
+
+
+def test_a_given_time_is_stored_as_is() -> None:
+    """時刻を渡せば、その時刻で保存される（記-t：最終版を閉じた時刻で書く）。"""
+    content = f"tz at {uuid.uuid4()}"
+    at = datetime(2026, 7, 1, 3, 4, 5, tzinfo=timezone.utc)
+    with patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1] * 1024]):
+        _mem().save_with_id(content, direction="求め", at=at)
+
+    conn = _pg()
+    with conn.cursor() as cur:
+        cur.execute("SELECT timestamp FROM observations WHERE content = %s", (content,))
+        row = cur.fetchone()
+    conn.close()
+
+    assert row is not None
+    assert abs(row["timestamp"] - at) < timedelta(seconds=1), row["timestamp"]

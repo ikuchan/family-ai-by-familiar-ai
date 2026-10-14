@@ -253,8 +253,12 @@ class OIF:
         now: bool = True,
         participants: "list[str] | None" = None,
         arousal: "float | None" = None,
+        at: "datetime | None" = None,
     ) -> str:
         """記憶を1件書き、**出来事の** id を返す。空欄は書き込み側が埋める。
+
+        `at` は記録の時刻（tz 付き）。渡さなければ書いた時刻。最終版を閉じた時刻で書くのに使う（記-t）。
+        `mi.timestamp` は日付だけを使い「その日の終わり」に置き換えるので、時刻そのものはこちらで渡す。
 
         `writer_id`（誰がしたことか）と `participants`（誰が居たか）は**書き込みの材料**で、
         MI の属性ではない（案3）。書いた直後に `actor` と `present` の面が立ち、以後は
@@ -291,6 +295,7 @@ class OIF:
             override_date=override_date,
             # そのとき外からどれだけ揺さぶられたか（a0／A の源）。測っていなければ渡さない。
             arousal=arousal,
+            at=at,
         )
         logger.debug("OIF write → %s", obs_id)
         return str(obs_id or "")

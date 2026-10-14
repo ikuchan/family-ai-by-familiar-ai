@@ -227,12 +227,12 @@ def test_speaks_via_say_tool():
     # 調停は effort=high を返すので：上限 160 字×2 ＋ 申告分（W 1 件×20＋60）＋ 思考分 2048。
     assert kwargs["max_tokens"] == 160 * 2 + (1 * 20 + 60) + 2048
     assert "on_text" in kwargs
-    # 4件：取込でトリガ（発話）O、**主LLM を投げるときの版**、**返ったときの版**、
-    # 発話時点で本応答 O。主LLM は投げっぱなしになり、調べものと同じく投げるとき・
+    # 5件：取込でトリガ（発話）O、**主LLM を投げるときの版**、**返ったときの版**、
+    # 発話時点で本応答 O、閉じるときの最終版（版の鎖の最後・記-t）。主LLM は投げっぱなしになり、調べものと同じく投げるとき・
     # 返るときに版が書かれる（環-h ①）。本応答を背景の永続化に任せると2秒遅れ、
     # 次の反復が「さっき何と言ったか」を拾えない。
     kinds = [c.kwargs.get("direction") for c in a._memory.save_async_with_id.call_args_list]
-    assert kinds == ["発話", "求め", "求め", "発話"], kinds
+    assert kinds == ["発話", "求め", "求め", "発話", "求め"], kinds
     a._spawn_background_task.assert_called_once()
 
 
@@ -1087,8 +1087,10 @@ def test_all_loop_os_become_one_exchange():
     assert len(exchange) == written
     roles = [r for _i, r in exchange]
     assert roles[0] == "起点"
-    assert roles[-1] == "答え"
-    assert set(roles[1:-1]) == {"版"}
+    # 末尾は閉じるときの最終版（版の鎖の最後・記-t）、その前が答え。あいだは求めの版。
+    assert roles[-1] == "版"
+    assert roles[-2] == "答え"
+    assert set(roles[1:-2]) <= {"版"}
 
 
 def test_max_iterations_bounds_the_chain():

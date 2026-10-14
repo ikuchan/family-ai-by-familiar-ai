@@ -34,6 +34,8 @@ def _ip():
     ip = InformationProcessing.__new__(InformationProcessing)
     a = MagicMock()
     a._memory.save_async_with_id = AsyncMock(return_value=("obs-1", True))
+    # 最終版の上限（記-t）。偽の設定のままだと 1 字になり、最終版が背景の要約へ回る。
+    a.config.completion_content_max = 8192
     from familiar_agent.io.oif import OIF
 
     # 書き込みは OIF を通る（環-e-い）。**口は本物・内側の記憶だけ偽物**にすれば、
@@ -72,8 +74,10 @@ def _ip():
 
 
 def _saved(a) -> dict:
-    """`_finish` が O へ書いた1件（内容と direction）。"""
-    call = a._memory.save_async_with_id.await_args
+    """`_finish` が O へ書いた答えの1件（内容と direction）。閉じるときに書く最終版（記-t）は除く。"""
+    from familiar_agent.core.final_version import is_final
+
+    call = next(c for c in a._memory.save_async_with_id.await_args_list if not is_final(c.args[0]))
     return {"content": call.args[0], "direction": call.kwargs.get("direction")}
 
 
@@ -125,4 +129,8 @@ def test_the_soliloquy_still_reaches_the_cooccurrence_set():
 def test_nothing_is_written_when_there_is_no_text():
     ip, a, noted = _ip()
     asyncio.run(ip._finish("", [], "沈黙"))
-    a._memory.save_async_with_id.assert_not_awaited()
+    # 答えの記録は書かない。書くのは閉じるときの最終版（記-t）だけ。
+    from familiar_agent.core.final_version import is_final
+
+    written = [c.args[0] for c in a._memory.save_async_with_id.await_args_list]
+    assert written and all(is_final(w) for w in written)

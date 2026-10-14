@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import date as _date
+from datetime import datetime
 from typing import Any
 
 import numpy as np
@@ -184,7 +185,7 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path,
+                           o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
                            s.id AS facet_id, s.person_id, s.relation_key,
                            COALESCE(s.content, o.content) AS content,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -241,7 +242,7 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path,
+                           o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
                            s.id AS facet_id, s.person_id, s.relation_key,
                            COALESCE(s.content, o.content) AS content,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -330,7 +331,7 @@ class ObservationStore:
         live = not_hidden("o")
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         columns = """o.id, o.timestamp,
-                     o.direction, o.kind, o.emotion, o.image_path,
+                     o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
                      s.id AS facet_id, s.person_id, s.relation_key,
                      COALESCE(s.content, o.content) AS content,
                      COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -424,7 +425,7 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path,
+                           o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
                            s.id AS facet_id, s.person_id, s.relation_key,
                            COALESCE(s.content, o.content) AS content,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -735,6 +736,9 @@ class ObservationStore:
         # どの時計を使うかは store/clock.py に集約してある。
         now = clock.now_utc()
         save_ts = clock.end_of_day_utc(override_date) if override_date else now
+        if payload.get("at"):
+            # 呼び手が時刻を決めた記録（記-t：最終版は閉じた時刻で書く。要約を待つぶん書くのが遅れる）。
+            save_ts = datetime.fromisoformat(str(payload["at"]))
 
         # 042：重複とは「同じ**書き手**が同じ内容を同じ kind で窓の内に」であって、
         # 家族の二人が同じ挨拶をしたものは重複ではない。段5 で列は落ちたが、書き手は

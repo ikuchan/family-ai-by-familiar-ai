@@ -34,7 +34,16 @@ from ..store import clock
 from .arbiter import Arbiter, ArbiterInput, Decision as ArbiterDecision
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION
 from ..io.dif import DIF
-from ..core import family_now, filler_echo, filler_length, jev_judges, measure, parsing, unsaid
+from ..core import (
+    family_now,
+    filler_echo,
+    filler_length,
+    final_version,
+    jev_judges,
+    measure,
+    parsing,
+    unsaid,
+)
 from ..core.drive_autonomy import TALKING_AXES
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
@@ -598,6 +607,13 @@ _NEVER_HELD_KINDS = ("会話入力",)
 #: 目と首。`look` は首を向けたあとその場で 1 枚撮るので、帰りは `see` と同じ扱い
 #: （誰が出したかを控え、出した側が判断し、写真と見た印を残す・2026-09-16）。
 _CAMERA_ACTIONS = ("see", "look")
+#: 長すぎる最終版の要約を主LLM に頼む文（記-t 段 1・本人の決定：O の最大に入らなければフルLLM が要約する）。
+#: 時刻の頭は機械が付けるので、ここでは渡さない。
+_FINAL_SUMMARY_PROMPT = (
+    "次は、家のロボット（パジュ）の 1 回のやりとりの記録である。{n} 字以内の、一続きの日本語に要約する。"
+    "何を聞かれたか（何が起きたか）と、何と答えたか（どう終わったか）は、必ず言葉どおりに残す。"
+    "調べた結果と見たものは、要点を残す。要約の文だけを返す。\n\n{text}"
+)
 
 
 @dataclass
@@ -863,6 +879,108 @@ class InformationProcessing:
             self._req.cue = content
         return version_id
 
+    # ── 最終版（記-t 段 1・2026-10-14・本人の決定）──────────────────────────────────────
+
+    async def _close_final(self, outcome: str, text: str, *, aborted: bool = False):
+        """閉じるときに最終版を組み、収まればその場で書く。超えれば背景に回す材料を返す（`_spawn_final`）。
+
+        最終版は「何を聞かれ、何を答えたか」の塊で、版の鎖の最後（親は起点・前の版は改訂で畳む・やりとりの「版」の項）。
+        閉じた時刻を残すため、収まるものは閉じたその場で書く。
+        """
+        req, agent = self._req, self._agent
+        end = clock.now_utc()
+        start = req.began_at or end
+        head = final_version.head(start, end)
+        body = final_version.body(
+            trigger_kind=req.trigger_kind or "発話",
+            asked=req.request_text,
+            added=[t for _, t in req.added],
+            outcome="打ち切り" if aborted else outcome,
+            answer=text,
+            block_reason=req.block_reason,
+        )
+        steps = workspace.lookup_lines(req, aborted=aborted, with_main=False)
+        steps += [f"見た：{t}" for t in req.seen_texts.values()]
+        course = final_version.course(steps)
+        limit = int(agent.config.completion_content_max)
+        parent, live = req.request_id, req.live_version_id
+        if len(head + body + course) > limit:
+            return (head, body, course, limit, parent, live, end)
+        final_id = None
+        with contextlib.suppress(Exception):
+            final_id = await self._write_final(head + body + course, parent=parent, live=live)
+        if final_id:
+            self._note_record(final_id, "版")
+            req.live_version_id = final_id
+        return None
+
+    async def _write_final(
+        self,
+        content: str,
+        *,
+        parent: "str | None",
+        live: "str | None",
+        at: "datetime | None" = None,
+    ) -> "str | None":
+        """最終版を 1 件書き、前の版を改訂で畳む。`at` は閉じた時刻（背景で書くときだけ渡す）。"""
+        agent = self._agent
+        extra = {"at": at} if at is not None else {}
+        final_id = await agent._oif.write(
+            MI(id="", content=content, timestamp=None, direction="求め", parent_id=parent),
+            **agent._observation_perspective(),
+            **extra,
+        )
+        if final_id and live and live != final_id:
+            agent._oif.supersede(live, final_id, kind=KIND_REVISION)
+        logger.info("event-loop 最終版を書いた（%d 字）", len(content))
+        return final_id
+
+    def _spawn_final(self, pending, exchange_id: "int | None") -> None:
+        """長すぎる最終版を、背景で主LLM に要約させて書く。時刻の頭は機械が付け、閉じた時刻で書く。
+
+        要約が空・長すぎ・失敗なら、聞かれたことと答えを残して経緯の末尾を切った文で書く（書かないことはしない）。
+        書いたらやりとりの関係の末尾に「版」として足す（閉じたときの関係には、まだ入っていない）。
+        """
+        head, body, course, limit, parent, live, end = pending
+        agent = self._agent
+        room = max(1, limit - len(head))
+
+        async def _run() -> None:
+            summary = ""
+            try:
+                summary = str(
+                    await agent.backend.complete(
+                        _FINAL_SUMMARY_PROMPT.format(n=room, text=body + course), room
+                    )
+                    or ""
+                ).strip()
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "event-loop 最終版の要約に失敗した（経緯を切って書く）", exc_info=True
+                )
+            if summary and len(summary) <= room:
+                content = head + summary
+            else:
+                content = final_version.cut(head + body + course, limit)
+            final_id = None
+            with contextlib.suppress(Exception):
+                final_id = await self._write_final(content, parent=parent, live=live, at=end)
+            if final_id and exchange_id:
+                with contextlib.suppress(Exception):
+                    agent._oif.extend(exchange_id, [(final_id, "版", None)])
+
+        writes = self.__dict__.setdefault("_final_writes", set())
+        writes.add(task := asyncio.create_task(_run()))
+        task.add_done_callback(writes.discard)
+
+    async def settle_finals(self) -> None:
+        """背景で書いている最終版が書き終わるのを待つ（試験と終了時）。"""
+        writes = self.__dict__.get("_final_writes") or set()
+        if writes:
+            await asyncio.gather(*list(writes), return_exceptions=True)
+
     def _write_version_later(self) -> None:
         """版を裏で書く（出-bz-ろ・2026-10-13・本人の決定）。書き終わりを待つものが無いときだけ使う。
 
@@ -917,6 +1035,8 @@ class InformationProcessing:
         # 役割 `見た` で控える。やりとりの関係と共起の材料になり、**`open_ids` が W へ
         # 浮かせる**（docstring）。
         self._note_record(obs_id, "見た")
+        if obs_id:
+            self._req.seen_texts[obs_id] = content  # 最終版の経緯（記-t）
         if image_path:
             self._req.seen_image_path = image_path
         return obs_id
@@ -1061,6 +1181,10 @@ class InformationProcessing:
         self._revise(old_id, new_id)
         if gen != self._request_generation:
             return
+        if (
+            self._req.seen_texts.pop(old_id, None) is not None
+        ):  # 最終版の経緯も書き直した中身に（記-t）
+            self._req.seen_texts[new_id] = f"{prefix}見えたもの：{'、'.join(labels)}"
         self._req.turn_records = [
             (new_id if (i == old_id and r == "見た") else i, r) for i, r in self._req.turn_records
         ]
@@ -2318,6 +2442,8 @@ class InformationProcessing:
         self._req.iterations = 0
         self._req.iterations_capped = False
         self._req.added = []  # 言い足したことは求めごと（出-au 段 3）
+        self._req.seen_texts = {}  # 見たもの・止められた理由も求めごと（記-t の最終版の材料）
+        self._req.block_reason = ""
         self._req.draft = ""
         # 明けた瞬間の求めにだけ載る（情-h）。`__new__` で組んだ装置（テスト）でも落ちないよう既定を持つ。
         self._req.heard_while_silent = getattr(self, "_pending_heard", [])
@@ -2461,17 +2587,22 @@ class InformationProcessing:
         if self._req.request_id:
             # 打ち切りも版のひとつ。何を打ち切ったかは版の content が持つので、
             # **飛行中の一覧を消す前**に、かつ親を捨てる前に書く。
+            # 打ち切りの版は、最終版の形で書く（記-t 段 1）。
+            pending_final = None
             with contextlib.suppress(Exception):
-                await self._write_version(aborted=True)
+                pending_final = await self._close_final("打ち切り", "", aborted=True)
             # ここまでが一つのやりとりである。打ち切りの版の親は、この求めの起点だから
             # である。閉じないと並びが次のターンへ持ち越され、一つのやりとりに起点が2つ
             # 入る。答えも要約も無いやりとりになるが、それが起きた事実そのものである。
             _aborted = self._close_exchange()
+            _xid = None
             if _aborted:
                 with contextlib.suppress(Exception):
-                    self._agent._oif.link(
+                    _xid = self._agent._oif.link(
                         KIND_EXCHANGE, [(i, r, n) for n, (i, r) in enumerate(_aborted)]
                     )
+            if pending_final is not None:
+                self._spawn_final(pending_final, _xid)
         self._req.request_id = None
         self._req.live_version_id = None
         self._ledger.close_request(self._req.lookups, state=_intents.ABORTED)
@@ -3711,6 +3842,7 @@ class InformationProcessing:
             # **止められた発話は、すべて独り言にする**（出-as §2.6・2026-09-26）。思ったこと自体は残す——
             # 本文を返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
             logger.info("event-loop %s ので独り言は言わずに残す（積まない）", blocked)
+            self._req.block_reason = blocked  # 最終版の「言えなかった（理由）」（記-t）
             return text, "独白"
         self._stop_beeps()  # 答えの声が始まる。待ちの電子音を止める（出-bu）
         self._req.answering = True  # 裏で書いているつなぎは、もう言わない（出-bx）
@@ -4862,6 +4994,8 @@ class InformationProcessing:
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
+        # **最終版を書く**（記-t 段 1）。求めの状態を消す前に組む。収まれば閉じたその場で、超えれば下で背景に出す。
+        pending_final = await self._close_final(outcome, text)
         self._stop_wait_watch()  # 待たせている時間の見張りは求めと一緒に閉じる（出-au 段 2）
         self._req.request_id = None
         self._req.live_version_id = None
@@ -4890,6 +5024,8 @@ class InformationProcessing:
                 exchange_id = agent._oif.link(
                     KIND_EXCHANGE, [(i, r, n) for n, (i, r) in enumerate(noted)]
                 )
+        if pending_final is not None:
+            self._spawn_final(pending_final, exchange_id)
         try:
             origin = self._req.utterance or self._req.cue
             arousal = await agent._turn_arousal(origin, text)
