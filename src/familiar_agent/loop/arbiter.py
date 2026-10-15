@@ -72,6 +72,8 @@ class Decision:
     # 既定（None）は「いま」が基準・幅は Config の既定（3日）。
     time_ref: str = ""  # ISO 8601（例 "2025-08-15T00:00:00"）
     time_span_days: float = 0.0  # 幅＝半減期（日）。0 は指定なし
+    #: 聞き取りの確認の預かり（出-cm）。見立てつきで聞き返したときだけ、見立ての動作（`action`）と元の言葉（`utterance`）。
+    heard_check: "dict | None" = None
 
 
 # 倒れたときも low（2026-09-12 決定・課題5 G 章）。以前は high で、Sonnet では 2 倍遅かった。
@@ -536,6 +538,11 @@ class ArbiterInput:
     #: 答えになっていない言葉への決まった促し（`confirm_state.prompt_text`）と、前に促してから間隔が空いたか。
     confirm_prompt: str = ""
     confirm_prompt_due: bool = False
+    #: 聞き取りの確認の預かり（出-cm・2026-10-15）。見立ての動作が空でなければ、会話の求めはまず 3 択で読み、はいなら
+    #: 見立ての動作を元の言葉で書いて投げる。問いの文は聞き返しで言った文。
+    heard_check_action: str = ""
+    heard_check_utterance: str = ""
+    heard_check_question: str = ""
 
 
 #: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
@@ -579,8 +586,9 @@ _LIGHT_WORDS: "dict[str, str]" = {
     "reply_light": "軽く返す",
     "talk_light": "軽く話しかける",
 }
-#: 見立てがあるときの聞き返し（出-bl）。何をしてほしいかではなく、見立てが合っているかを確かめる。
-_ASK_GUESS_WORDS = f"聞き返す（{ASK_BACK_MAX_CHARS} 字まで・見立てが合っているかを短く確かめる）"
+#: 見立てがあるときの聞き返し（出-bl）。聞き取りの確認にする（出-cm・2026-10-15・本人の決定①）：「タイマーを開始しますか？」と
+#: やるかどうかを聞くと、「はい」が何への答えか分からなかった。何と言ったかを確かめ、「はい」なら見立ての動作を投げる。
+_ASK_GUESS_WORDS = f"聞き返す（{ASK_BACK_MAX_CHARS} 字まで・聞き取りを確かめる。見立てを言葉にして「〜と言ったの？」と短く聞く）"
 
 
 def _what_happened(kind: str, action: str, failed: bool, result: "str | None") -> str:
@@ -719,6 +727,10 @@ class Arbiter:
             return await self._affect_by_rule(inp, started)
         if inp.origin == "発話" and not inp.tool_return and inp.confirm_question:
             return await self._confirm_by_rule(inp, started)
+        if inp.origin == "発話" and not inp.tool_return and inp.heard_check_action:
+            heard = await self._heard_by_rule(inp, started)
+            if heard is not None:
+                return heard
         if inp.origin == "発話" and not inp.tool_return:
             return await self._utterance_by_meaning(inp, started)
         return None
@@ -748,6 +760,38 @@ class Arbiter:
             "調停 %.2f 秒（確認待ち・3 択：%s → %s）", time.monotonic() - started, verdict, final
         )
         return decision
+
+    async def _heard_by_rule(self, inp: ArbiterInput, started: float) -> "Decision | None":
+        """聞き取りの確認への答えを 3 択で読む（出-cm・2026-10-15・本人の決定②）。はい以外は None（ふつうに読む）。
+
+        はいなら、見立ての動作を**元の言葉**（「3分測って」）でふつうの道に書かせて投げる。「はい」を言葉にすると中身が
+        書けない。タイマーなら、その先は掛ける前の確認待ちがいままでどおり通る。
+        """
+        from ..core import jev_judges
+        from ..core.utterance_meaning import THRESHOLD
+
+        verdict = await jev_judges.judge_confirm_answer(
+            self._jev, question=inp.heard_check_question, text=inp.utterance, min_conf=THRESHOLD
+        )
+        action = inp.heard_check_action
+        yes = verdict == jev_judges.CONFIRM_YES
+        logger.info(
+            "調停：聞き取りの確認の答え：%s → %s", verdict, action if yes else "ふつうに読む"
+        )
+        if not yes:
+            return None
+        heard = replace(inp, utterance=inp.heard_check_utterance, jev_utterance="")
+        return await self._utterance_final(
+            heard,
+            action,
+            m="聞き取りの確認",
+            got={},
+            name="",
+            why="聞き取りの確認ではい",
+            guess="",
+            heard="",
+            started=started,
+        )
 
     async def _device_by_rule(self, inp: ArbiterInput, started: float) -> Decision:
         """機器の知らせは「軽く知らせる」と機械で決める（出-ay 段 4-1・2026-10-09・`設計方針_判定の段` §2.2.5）。
@@ -918,6 +962,34 @@ class Arbiter:
         )
         why = f"{outcome.why}・見立て：{guess}" if guess else outcome.why
         self._keep(inp, "発話", state, asked, said, final, why, meaning=m)
+        # 見立ての動作を聞き取りの確認として預ける（出-cm）。名乗り・否定・文脈に合わない言葉には動作が無い。
+        heard = um.guess_action(meaning, got.get(f"action_{m}")) if guess else ""
+        return await self._utterance_final(
+            inp,
+            final,
+            m=m,
+            got=got,
+            name=outcome.name,
+            why=outcome.why,
+            guess=guess,
+            heard=heard,
+            started=started,
+        )
+
+    async def _utterance_final(
+        self,
+        inp: ArbiterInput,
+        final: str,
+        *,
+        m: str,
+        got: "dict[str, Any]",
+        name: str,
+        why: str,
+        guess: str,
+        heard: str,
+        started: float,
+    ) -> Decision:
+        """発話の最終の動作から `Decision` を組む（意味で決めた道と、聞き取りの確認ではいの道が通る・出-cm）。"""
         if final == "music_now":
             # いまの曲は機械が決まった形で答える（出-bf・本人の決定ア）。曲名を取り違えず、軽量LLM を待たない。
             from ..core.music_now import text_for
@@ -954,9 +1026,9 @@ class Arbiter:
         elif final == "lift_quiet":
             fields["lift_silence"] = True
         elif final == "claim":
-            fields["speaker_claim"] = outcome.name
+            fields["speaker_claim"] = name
         elif final == "deny":
-            fields["not_person"] = outcome.name
+            fields["not_person"] = name
         if final in ("quiet", "lift_quiet", "claim", "deny"):
             final = "reply_light"
         from ..core.timer_rules import is_control_word
@@ -978,12 +1050,14 @@ class Arbiter:
         )
         if fields:
             decision = replace(decision if decision is not None else _FALLBACK, **fields)
+        if heard and final == "ask_back" and decision is not None and decision.text:
+            decision = replace(decision, heard_check={"action": heard, "utterance": inp.utterance})
         logger.info(
             "調停 %.2f 秒（発話・意味で決めた：%s → %s・%s）",
             time.monotonic() - started,
             m,
             final if decision is not None else "書けなかったので full",
-            outcome.why,
+            why,
         )
         return decision if decision is not None else _FALLBACK
 
@@ -1169,9 +1243,9 @@ _FIELD_TEXT = {
     "text_self": '"text"：自分から言うなら短いひとこと。**いつも通りなら空にして黙る**。返事や約束の形にしない。',
     # 聞き返しは問いにする（出-bk・10/11 08:24 に「調べますので、少々お待ちください。」と約束して何もしなかった）。
     "text_ask": '"text"：何をしてほしいのかを確かめる短い**問い**（「？」で終える）。答えない。調べる・やる・待ってと約束しない。',
-    # 迷った聞き返しは見立てを確かめる（出-bl・空の問いしか書けなかった）。
-    "text_ask_guess": '"text"：見立てが合っているかを確かめる短い**問い**（「？」で終える）。答えない。'
-    "調べる・やる・待ってと約束しない。",
+    # 迷った聞き返しは見立てを確かめる（出-bl・空の問いしか書けなかった）。聞き取りの確認の形にする（出-cm）。
+    "text_ask_guess": '"text"：聞き取りが合っているかを確かめる短い**問い**。見立てを言葉にして「〜と言ったの？」の形で'
+    "聞く（「？」で終える）。「〜しますか？」とやるかどうかは聞かない。答えない。調べる・やる・待ってと約束しない。",
     "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
     "trash": '"trash"：用件はこのあと本応答が言う。いま言いたいことがあるならここに書く（捨てられ、誰にも届かない）。',
     "query": '"query"：探す語。',

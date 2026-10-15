@@ -226,6 +226,21 @@ def _query_label(action: str, tool_input: dict) -> str:
 
 SCHEDULE_DAYS_MAX = 14  # カレンダー MCP の `days` の上限（`mcp/calendar_mcp/server.py` と同じ）
 
+#: 聞き取りの確認の預かりの寿命（秒・〔仮〕・出-cm・2026-10-15 本人の決定）。聞き返しへの答えはすぐ返るので短くし、
+#: あとの別の話の「はい」で見立ての動作を動かさない。
+HEARD_CHECK_TTL_SEC = 30.0
+
+
+def _heard_inputs(heard: "dict | None") -> dict:
+    """聞き取りの確認の預かりを調停の材料の欄へ写す（出-cm）。無ければ空。"""
+    if not heard:
+        return {}
+    return {
+        "heard_check_action": str(heard.get("action") or ""),
+        "heard_check_utterance": str(heard.get("utterance") or ""),
+        "heard_check_question": str(heard.get("question") or ""),
+    }
+
 
 def _days_of(tool_input: dict) -> int:
     """入力の `days`（無ければ道具の既定 1）。見出しの期間に使う。"""
@@ -727,6 +742,8 @@ class InformationProcessing:
         self._slow_notice_received = False
         # see の帰りで起きた反復か。調停を飛ばして主LLM へ戻す（`_decide`）。
         self._see_returned = False
+        # 聞き取りの確認の預かり（出-cm）：見立ての動作・元の言葉・聞き返した文・預けた時刻（monotonic）。
+        self._heard_check: "dict | None" = None
         self._background_tasks: set[asyncio.Task] = set()
         # 鳴っている最中のつなぎの声（出-aq 段 1）。**待たずに鳴らす**ので、捨てられないよう
         # 参照を持っておき、終わるときに止める。
@@ -3260,6 +3277,7 @@ class InformationProcessing:
         # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
         # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
         cue = self._start_reaction_cue(ws.returned_lookups)
+        heard = self._take_heard_check(ws)
         try:
             decision = await self._arbiter().decide(
                 self._arbiter_input(
@@ -3277,6 +3295,7 @@ class InformationProcessing:
                         if utterance and utterance == self._req.cue and hasattr(ws, "jev_cue")
                         else ""
                     ),
+                    heard=heard,
                 ),
                 on_decided=cue.decided if cue is not None else None,
             )
@@ -3284,6 +3303,7 @@ class InformationProcessing:
             if cue is not None:
                 cue.stop()  # 調停が落ちても・時間切れでも、機械音 A は必ず止める
         self._note_confirm_prompt(decision)
+        self._keep_heard_check(decision)
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
             "event-loop 調停=%s effort=%s action=%s",
@@ -3325,6 +3345,7 @@ class InformationProcessing:
         returned_lookups: "tuple[tuple[str, bool, str], ...]" = (),
         jev_workspace: "Callable[[int], str | None] | None" = None,
         jev_utterance: str = "",
+        heard: "dict | None" = None,
     ) -> ArbiterInput:
         """調停へ渡す材料。判定（`_decide`）と待ちの一言（`_say_waiting_filler`）が同じものを見る。"""
         from ..capability_state import load_summary
@@ -3365,7 +3386,32 @@ class InformationProcessing:
             jev_utterance=jev_utterance,
             jev_max_chars=int(getattr(agent.config, "jev_state_max_chars", 28_000)),
             **self._confirm_inputs(),
+            **_heard_inputs(heard),
         )
+
+    def _take_heard_check(self, ws) -> "dict | None":
+        """会話の求めの最初の判断なら、聞き取りの確認の預かりを取り出して消す（出-cm）。切れていれば渡さない。
+
+        答えに使うのは 1 回だけ（答えがどれでも消す）。道具の返りの反復・情動・機器では取り出さない。
+        """
+        held = self._heard_check
+        if held is None or self._req.trigger_kind != "発話":
+            return None
+        if ws.returned_actions or ws.returned_lookups:
+            return None
+        self._heard_check = None
+        if time.monotonic() - float(held.get("at", 0.0)) > HEARD_CHECK_TTL_SEC:
+            logger.info("event-loop 聞き取りの確認は切れていたので使わない：%s", held.get("action"))
+            return None
+        return held
+
+    def _keep_heard_check(self, decision) -> None:
+        """見立てつきの聞き返しなら、聞き取りの確認として預ける（出-cm）。本文はログに出さない。"""
+        check, text = getattr(decision, "heard_check", None), getattr(decision, "text", "")
+        if not isinstance(check, dict) or not check or not isinstance(text, str) or not text:
+            return  # 辞書でない返り（土台だけの調停の差し替え）は預けない
+        self._heard_check = {**check, "question": text, "at": time.monotonic()}
+        logger.info("event-loop 聞き取りの確認を預けた：%s", check.get("action"))
 
     def _confirming(self) -> bool:
         """確認待ちが生きているか（知-o）。器が無い・真偽でない返り（土台だけの器の差し替え）なら偽。"""

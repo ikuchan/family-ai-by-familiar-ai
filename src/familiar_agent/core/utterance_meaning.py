@@ -324,15 +324,26 @@ def guess(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> str:
         return ""
     sure = "たぶん" if _conf(meaning) >= THRESHOLD else "もしかすると"
     out = f"{sure}「{MEANINGS[m][0]}」"
+    top = guess_action(meaning, action)
+    if top:
+        out += f"。するなら：{ACTIONS[top]}"
+    return out
+
+
+def guess_action(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> str:
+    """見立ての動作の名前（その意味でいちばん高い動作・聞き返す・黙るを除く）。無ければ空。
+
+    聞き取りの確認に「はい」と答えたら、この動作を投げる（出-cm）。名乗り・否定の動作は呼び方なので動作に数えない。
+    """
+    m = str(meaning.get("choice") or "")
+    if m not in MEANINGS or m in _NO_GUESS or m in ("claim", "deny"):
+        return ""
     action = action or {}
     probs = dict(action.get("probabilities") or {})
     if not probs and action.get("choice"):
         probs = {str(action["choice"]): _conf(action)}
     acts = [(k, p) for k, p in probs.items() if k in ACTIONS and k not in _COMMON]
-    if acts and m not in ("claim", "deny"):
-        top = max(acts, key=lambda kv: kv[1])[0]
-        out += f"。するなら：{ACTIONS[top]}"
-    return out
+    return max(acts, key=lambda kv: kv[1])[0] if acts else ""
 
 
 def decide(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> Outcome:
