@@ -8,7 +8,7 @@
 - **名前だけ**（名前 1 つと、伸ばす音・句読点だけの書き起こし）：ふだん 無音らしさ 0.10 以下・確かさ -0.65 以上、
   厳しい 0.05 以下・-0.60 以上で受ける。名前のくり返し（「パジュ、パジュー」）は名前＋言葉の側に入る。
 - **名前＋言葉**：ふだんはいまのまま（1 字違いを許す・確かさを見ない）。厳しいときは 1 字違いを許さず、無音らしさ
-  0.20 以下・確かさ -0.90 以上で受ける。
+  0.30 以下（出-ch・2026-10-15 に 0.20 から）・確かさ -0.90 以上で受ける。
 - 確かさが無い入力（ElevenLabs・TUI）は確かさを見ずに通す。
 """
 
@@ -104,7 +104,7 @@ def test_strict_does_not_allow_one_letter_off():
 
 
 def test_strict_words_need_the_floor():
-    assert not _ok("パジュ、いま何時？", strict=True, ns=0.25, lp=-0.5)
+    assert not _ok("パジュ、いま何時？", strict=True, ns=0.31, lp=-0.5)
     assert not _ok("パジュ、いま何時？", strict=True, ns=0.05, lp=-0.95)
     assert _ok("パジュ、いま何時？", strict=False, ns=0.25, lp=-0.95)  # ふだんは確かさを見ない
 
@@ -258,3 +258,36 @@ def test_a_repeated_name_typed_on_the_keyboard_is_kept():
 def test_a_repeat_followed_by_words_still_opens():
     ip, _ = _gate(here=True, known_voice=True)
     assert _heard(ip, "パジュ、パジュ、いま何時？", ns=0.05, lp=-0.5) is True
+
+
+# ── 出-ch 段 1（2026-10-15・本人の決定ア・0.30）──────────────────────────────────────────
+
+
+@pytest.mark.parametrize(
+    "ns,lp",
+    [(0.213, -0.607), (0.214, -0.397), (0.246, -0.699), (0.247, -0.535)],
+)
+def test_calls_dropped_at_0_20_now_pass_when_strict(ns, lp):
+    """実機で厳しい段が捨てた名前＋言葉（10/10・10/13・10/14 23:07 ほか）。無音らしさの上限を 0.30 にした。"""
+    assert _ok("パジュ、3分測って", strict=True, ns=ns, lp=lp)
+
+
+def test_what_stays_dropped_when_strict():
+    """**反証の側**：上限の外・確かさの不足・名前だけの聞き違い・1 字違いは、いままでどおり捨てる。"""
+    assert not _ok("パジュ、おはよう", strict=True, ns=0.346, lp=-0.457)
+    assert not _ok("パジュ、おはよう", strict=True, ns=0.105, lp=-0.957)
+    assert not _ok("パジュー", strict=True, ns=0.150, lp=-0.723)
+    assert not _ok("パチュ、3分測って", strict=True, ns=0.213, lp=-0.607)
+
+
+@pytest.mark.real_window
+def test_opening_the_window_by_name_logs_the_measures(caplog):
+    import logging
+
+    ip, _ = _gate()
+    with caplog.at_level(logging.INFO, logger="familiar_agent.loop.event_loop"):
+        assert _heard(ip, "パジュ、3分測って", ns=0.247, lp=-0.535) is True
+    lines = [r.getMessage() for r in caplog.records if "名前で起こした" in r.getMessage()]
+    assert len(lines) == 1
+    assert "無音らしさ=0.247" in lines[0] and "確かさ=-0.535" in lines[0] and "居ない" in lines[0]
+    assert "3分" not in lines[0]  # 本文は出さない

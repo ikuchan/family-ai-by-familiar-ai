@@ -559,8 +559,10 @@ class STTConfig:
     wake_strict_name_logprob: float = field(
         default_factory=lambda: _float_env("WAKE_STRICT_NAME_LOGPROB", -0.60)
     )
+    # 名前＋言葉・厳しい段の無音らしさの上限（出-ch・2026-10-15 本人の決定・0.30〔仮〕）。0.20 では、名前をつけて
+    # 呼んだ本物の声（0.213〜0.247）を捨てていた。厳しい段は在席と声の見張りが外れてほぼいつも効いている。
     wake_strict_no_speech: float = field(
-        default_factory=lambda: _float_env("WAKE_STRICT_NO_SPEECH", 0.20)
+        default_factory=lambda: _float_env("WAKE_STRICT_NO_SPEECH", 0.30)
     )
     wake_strict_logprob: float = field(
         default_factory=lambda: _float_env("WAKE_STRICT_LOGPROB", -0.90)

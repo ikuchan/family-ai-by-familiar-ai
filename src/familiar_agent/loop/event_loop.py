@@ -4135,16 +4135,17 @@ class InformationProcessing:
             logprob=trigger.logprob,
             cfg=cfg,
         )
-        if not ok:
-            logger.info(
-                "event-loop 名前で起こさなかった：%s（無音らしさ=%s・確かさ=%s・%d 字・%s・声%s）",
-                why,
-                "-" if trigger.no_speech is None else f"{trigger.no_speech:.3f}",
-                "-" if trigger.logprob is None else f"{trigger.logprob:.3f}",
-                len(trigger.query or ""),
-                "居ない" if alone else "居る",
-                "が分からない" if unknown else "が当たる",
-            )
+        # 通したときも値を残す（出-ch）。捨てた値だけでは、上限を上げて物音で起きたかを見直せない。本文は出さない。
+        logger.info(
+            "event-loop %s：%s（無音らしさ=%s・確かさ=%s・%d 字・%s・声%s）",
+            "名前で起こした" if ok else "名前で起こさなかった",
+            ("厳しい" if strict else "ふだん") if ok else why,
+            "-" if trigger.no_speech is None else f"{trigger.no_speech:.3f}",
+            "-" if trigger.logprob is None else f"{trigger.logprob:.3f}",
+            len(trigger.query or ""),
+            "居ない" if alone else "居る",
+            "が分からない" if unknown else "が当たる",
+        )
         return ok
 
     def _voice_unknown(self, voice: Any) -> bool:
