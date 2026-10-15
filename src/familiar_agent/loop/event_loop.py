@@ -594,6 +594,8 @@ class Decision:
     max_tokens: int = 0  # 返事の予算（出-k-ろ）。言い直しも同じ値で呼ぶ
     retried: bool = False
     original_text: str = ""
+    #: say の無い文を、say で言い直すよう差し戻した返りか（出-ck）。真ならもう差し戻さない（1 回だけ）。
+    say_asked: bool = False
 
 
 #: **新しい求めを始めるきっかけ**（ほかは、開いている求めの続きとして取り込む）。
@@ -1557,6 +1559,7 @@ class InformationProcessing:
         max_tokens: int,
         retried: bool = False,
         original_text: str = "",
+        say_asked: bool = False,
     ) -> None:
         """主LLM を投げる（**待たない**・環-h・段は）。
 
@@ -1584,6 +1587,7 @@ class InformationProcessing:
                 max_tokens=max_tokens,
                 retried=retried,
                 original_text=original_text,
+                say_asked=say_asked,
             )
         )
         self._background_tasks.add(task)
@@ -1606,6 +1610,7 @@ class InformationProcessing:
         retried: bool,
         original_text: str = "",
         intent_id: "str | None" = None,
+        say_asked: bool = False,
     ) -> None:
         """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
         agent = self._agent
@@ -1623,7 +1628,10 @@ class InformationProcessing:
             result, _raw = await agent.backend.stream_turn(
                 system=system,
                 messages=messages + turns,
-                tools=self._tools(actions=narrow if capped or retried else _FULL_ACTIONS),
+                # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
+                tools=self._tools(
+                    actions=narrow if capped or retried or say_asked else _FULL_ACTIONS
+                ),
                 # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
                 max_tokens=max_tokens,
                 on_text=None,
@@ -1680,6 +1688,7 @@ class InformationProcessing:
                     max_tokens=max_tokens,
                     retried=retried,
                     original_text=original_text,
+                    say_asked=say_asked,
                 ),
             )
         )
@@ -3683,10 +3692,63 @@ class InformationProcessing:
         # **声にはならない**（音になるのは say() だけ）。`_finish` が `独白` として残す。
         logger.debug("event-loop 決定=none（素テキスト）")
         text = (decision.result.text or "").strip()
+        if text and await self._send_back_for_say(decision, text, utterance=utterance):
+            return ""
         if text:
             self._emit(text)
         await self._finish(text, decision.memories, "沈黙", gen=gen)
         return text
+
+    async def _send_back_for_say(self, decision: Decision, text: str, *, utterance: str) -> bool:
+        """say の無い文が返事なら、主LLM へ 1 回だけ「say で言って」と差し戻す（出-ck・2026-10-15・本人の決定チ）。
+
+        文そのものは機械が声にしない——独り言として書いた文を外に出すことになる（本人）。聞くのは声にしてよい求め
+        （会話・情動の bond・esteem）で、言い直し（`retried`）でも差し戻しの返り（`say_asked`）でもないときだけ。
+        差し戻したら真（呼び手は閉じずに言い直しを待つ）。言い直しは発話前の検査を通す。
+        """
+        req = self._req
+        if decision.retried or decision.say_asked:
+            return False
+        if req.trigger_kind != "発話" and not self._talking():
+            return False
+        agent = self._agent
+        reply = await jev_judges.judge_bare_reply(
+            getattr(agent, "_jev", None),
+            heard=utterance or req.cue,
+            text=text,
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+        )
+        logger.info(
+            "event-loop 主LLM が say を呼ばずに文で返した（起点=%s・%d 字）→ Jev：%s",
+            req.trigger_kind,
+            len(text),
+            "返事" if reply else "独り言",
+        )
+        if not reply:
+            return False
+        logger.info("event-loop say で言い直すよう主LLM へ差し戻す")
+        self._dispatch_main_llm(
+            messages=[
+                agent.backend.make_user_message(
+                    self._user_content(
+                        f"{utterance or req.cue}\n\n[SELF-CHECK] いま返した「{text}」は say() を呼んで"
+                        "いないので、相手に聞こえていない。相手への返事なら、say() で言う。",
+                        decision.memories,
+                    )
+                )
+            ],
+            system=decision.system,
+            effort=decision.effort,
+            capped=decision.capped,
+            memories=decision.memories,
+            w_id_map=dict(decision.w_id_map),
+            verdict_view=decision.verdict_view,
+            recent_frame=decision.recent_frame,
+            max_tokens=decision.max_tokens,
+            say_asked=True,
+        )
+        self._write_version_later()  # 投げ直したあとの版は裏で書く（出-bz-ろ）
+        return True
 
     async def _speech_check_violation(
         self,

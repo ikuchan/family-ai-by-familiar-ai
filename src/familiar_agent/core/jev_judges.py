@@ -98,6 +98,26 @@ async def judge_confirm_answer(client, *, question: str, text: str, min_conf: fl
     return verdict
 
 
+async def judge_bare_reply(client, *, heard: str, text: str, min_conf: float) -> bool:
+    """say の無い主LLM の文が、いまの相手への返事か（出-ck・2026-10-15）。倒し先は独り言（偽・差し戻さない）。
+
+    返事なら、呼び手が主LLM へ 1 回だけ「say で言って」と差し戻す。文そのものは声にしない（独り言の文を外に出さない・本人）。
+    """
+    state = f"[いま届いた言葉]\n{heard or '（なし）'}\n\n[家のロボット（パジュ）が書いた文]\n{text}"
+    questions = {
+        "reply": choice(
+            "パジュが書いた文は、いま届いた言葉の相手に声で届けるための返事か、パジュ自身の考えや独り言か",
+            {
+                "reply": "相手への返事。相手に向けて答え・気持ち・問いを言っている",
+                "monologue": "自分の考えや独り言。相手に向けて言う形になっていない",
+            },
+        )
+    }
+    pick = picked(await _ask(client, state, questions), "reply", min_conf)
+    logger.info("Jev 判定 say の無い文：%s", "返事" if pick == "reply" else "独り言")
+    return pick == "reply"
+
+
 async def judge_addressee(client, *, text: str, recent: str, present: str, min_conf: float) -> str:
     """窓の中の名前の無い声が、パジュ宛てか家族どうしか（§2.2.3）。倒し先は「パジュ宛て」（受ける）。
 
