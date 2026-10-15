@@ -72,6 +72,8 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
             not_listening = str(gate() or "")
         except Exception:  # noqa: BLE001
             not_listening = ""
+    # 理由が音楽か（関門 `realtime_stt_session._passes_gate` と同じ見分け方）。
+    music_gate = "音楽" in not_listening
 
     if agent_init_failed:
         phase = "error"
@@ -85,6 +87,12 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
         phase = "thinking"
         headline = "Thinking"
         detail = "The agent is processing the current turn."
+    elif not_listening and music_gate:
+        # 音楽中に届くのは、文頭に名前のある言葉と音楽の言葉（出-co・2026-10-15・本人の決定ア）。タイマーの型で出すと
+        # 「聞いていない（音楽が鳴っている が鳴るまで）」と崩れ、下の行もタイマーの言葉だった。
+        phase = "not_listening"
+        headline = "🎵 音楽中：名前か音楽の言葉だけ届く"
+        detail = "止めて・次の曲・音量・プレイリスト名は名前なしで届く。ほかは名前から話す。"
     elif not_listening:
         phase = "not_listening"
         headline = f"🔇 聞いていない（{not_listening} が鳴るまで）"
@@ -107,7 +115,7 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     if stt_gated:
         readiness_bits.append("stt=gated")
     if not_listening:
-        readiness_bits.append("mic=closed")
+        readiness_bits.append("mic=music" if music_gate else "mic=closed")
     readiness = ", ".join(readiness_bits)
 
     if config is None:
