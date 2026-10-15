@@ -684,12 +684,6 @@ class AgentConfig:
     # 環境変数 → ここの既定の2段だけ（旧 schedule.conf・ROUTINES.md は撤去）。
     quiet_hours_start: int = field(default_factory=lambda: _int_env("QUIET_HOURS_START", 23))
     quiet_hours_end: int = field(default_factory=lambda: _int_env("QUIET_HOURS_END", 7))
-    # 調べものがこの秒数を超えても結果が来なければ、「まだかかっている」を1回だけ知らせる。
-    # 時計で定期的に起こすのではなく、**遅いという事実**が1回きりの起点になる。
-    # 実測は search_deferred が平均2.5秒・最長22.1秒、fetch と recall は3〜4秒以内。
-    lookup_slow_seconds: float = field(
-        default_factory=lambda: _float_env("LOOKUP_SLOW_SECONDS", 5.0)
-    )
     # Jev（判断専用モデル）に判定を聞くときの時間切れと、答えを使う確信度の下限（出-au 段 5・`設計方針_判定の段`
     # §2.2.1）。確信度がこれより低い・時間切れなら、判定ごとの倒し先へ倒す。値は本人の決定（2026-09-27・どちらも仮）。
     # 時間切れは実験の秒数（中央 0.21・最大 0.72 秒）から。
@@ -701,14 +695,8 @@ class AgentConfig:
     jev_state_max_chars: int = field(
         default_factory=lambda: int(_float_env("JEV_STATE_MAX_CHARS", 28_000))
     )
-    # 会話の求めで待たせ続けるとき、最初の「まだかかっている」の後は、最後に音（つなぎ・合図の声）が鳴り終わってから
-    # この秒数黙ったら次を出す（出-bd ②）。3 秒は本人の決定（2026-10-10・以前は前のつなぎから 20 秒ごと）。
-    # 窓（10 秒）は、待たせているあいだ見張りが延ばす（2026-10-07）。
-    wait_filler_gap_seconds: float = field(
-        default_factory=lambda: _float_env("WAIT_FILLER_GAP_SECONDS", 3.0)
-    )
     # 待ちのあいだの電子音（機械音 A を 1 回ずつ）の間隔（秒・出-bu）。1.0 秒は本人の決定（2026-10-13・0.5 秒は短すぎた）。合図が鳴り終わって
-    # から答えの声が始まるまで鳴らす。音楽が鳴っているあいだは鳴らさない（本人）。
+    # から答えの声が始まるまで鳴らす。音楽が鳴っているあいだも鳴らす（出-cl・2026-10-15・本人の決定カ）。
     wait_beep_interval_seconds: float = field(
         default_factory=lambda: _float_env("WAIT_BEEP_INTERVAL_SECONDS", 1.0)
     )

@@ -74,14 +74,6 @@ def test_an_orphan_does_not_iterate_outside_a_confirmation():
     assert "to" not in _drive_once(ip, None)
 
 
-def test_a_progress_notice_does_not_close_the_intent():
-    ip, _ = _ip()
-    lk = ip._open_lookup("search_deferred", "天気")
-    ip._drained_completions.append(Trigger(kind="進捗", query="天気", intent_id=lk.intent_id))
-    asyncio.run(ip._intake())
-    assert ip._ledger.get(lk.intent_id) is lk
-
-
 def test_a_completion_without_an_id_still_finds_its_lookup_by_words():
     """uuid を持たない完了（試験の組み立てなど）は語で引く。器があれば埋める。"""
     ip, _ = _ip()

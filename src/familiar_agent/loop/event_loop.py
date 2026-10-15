@@ -37,7 +37,6 @@ from ..io.dif import DIF
 from ..core import (
     family_now,
     filler_echo,
-    filler_length,
     final_version,
     jev_judges,
     parsing,
@@ -225,6 +224,9 @@ def _query_label(action: str, tool_input: dict) -> str:
 
 
 SCHEDULE_DAYS_MAX = 14  # カレンダー MCP の `days` の上限（`mcp/calendar_mcp/server.py` と同じ）
+
+#: 待ちの見張りが起きる間隔（秒）。待たせているあいだ、この間隔で窓を延ばす（窓は 10 秒なので 1 秒で足りる）。
+WAIT_WATCH_TICK_SEC = 1.0
 
 #: 聞き取りの確認の預かりの寿命（秒・〔仮〕・出-cm・2026-10-15 本人の決定）。聞き返しへの答えはすぐ返るので短くし、
 #: あとの別の話の「はい」で見立ての動作を動かさない。
@@ -628,12 +630,12 @@ class Trigger:
     列に並ぶようになったので、中身に合う語へ改めた（2026-09-11）。
 
     以前は `(語, 結果, 意図id, 種別, 番号)` の5つ組で、**位置で意味が決まっていた**。種別に
-    よって埋まる欄が違う（`進捗` は結果も番号も持たない）のに、位置で運んでいた。
+    よって埋まる欄が違うのに、位置で運んでいた。待たせている時間の知らせ（種別 `進捗`）は、つなぎと一緒に
+    撤去した（出-cl 段 2・2026-10-15）。
 
     | 種別 | いつ | 埋まる欄 |
     |---|---|---|
     | `完了` | 調べものが終わった | `query`・`result`・`index` |
-    | `進捗` | 待たせている時間が長い（`_watch_waiting`） | `query` |
     | `決定` | 主LLM が返った | `decision`（`Decision`） |
     | `情動` | drive が発火した（AIF 経由） | `query`（drive の名）・`result`（促しの文） |
     | `機器` | 人が出入りした（DIF 経由） | `query`（種別）・`result`（中身） |
@@ -703,8 +705,6 @@ class InformationProcessing:
         self._agent = agent
         # QC：完了キュー（Trigger Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
-        # 要素＝(何を探したか, 結果, 起点の open 意図 id, 種別)。種別＝完了｜進捗。
-        # 「進捗」は結果ではないので、飛行中の数も一覧も触らず、意図も supersede しない。
         self._triggers: asyncio.Queue[Trigger] = asyncio.Queue()
         # 外の機械（声・調べもの）へはこの口だけを通す（環-e-は）。要るものだけを渡す。
         self._dif = DIF(
@@ -740,8 +740,6 @@ class InformationProcessing:
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
         self._request_generation = 0
-        # 「まだかかっている」を受けたか。次の反復でつなぎだけ出して閉じない。
-        self._slow_notice_received = False
         # see の帰りで起きた反復か。調停を飛ばして主LLM へ戻す（`_decide`）。
         self._see_returned = False
         # 聞き取りの確認の預かり（出-cm）：見立ての動作・元の言葉・聞き返した文・預けた時刻（monotonic）。
@@ -750,8 +748,6 @@ class InformationProcessing:
         # 鳴っている最中のつなぎの声（出-aq 段 1）。**待たずに鳴らす**ので、捨てられないよう
         # 参照を持っておき、終わるときに止める。
         self._filler_voices: set[asyncio.Task] = set()
-        #: 裏で書いているつなぎ（出-bx）。答えが始まったら言わず、終わるときに取り消す。
-        self._filler_jobs: "set[asyncio.Future]" = set()
         #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
         self._version_writes: "set[asyncio.Future]" = set()
         self._version_tail: "asyncio.Future[str | None] | None" = None
@@ -1412,8 +1408,8 @@ class InformationProcessing:
 
     def _sounding(self) -> bool:
         """つなぎの声か合図の声が、いま鳴っているか（出-bd ②：鳴っているあいだは次のつなぎを出さない）。"""
-        if self._filler_voices or self._req.filler_pending:
-            return True  # 書いている・合成しているつなぎも数える（出-bt）
+        if self._filler_voices:
+            return True
         cue = getattr(self, "_cue_sound", None)
         return cue is not None and not cue.done()
 
@@ -1481,69 +1477,23 @@ class InformationProcessing:
         return [lk for lk in self._req.lookups if lk.in_flight]
 
     async def _watch_waiting(self, gen: int) -> None:
-        """待たせている時間が長いとき、「まだかかっている」（`進捗`）を積む（案G-3・出-au 段 2）。
+        """会話の求めで待たせているあいだ、窓を延ばし続ける（2026-10-07 本人の決定）。
 
-        次を出すのは、次のうち遅い時刻（出-bd ②・本人の決定 2026-10-10）：人の言葉から `lookup_slow_seconds`（5 秒）・
-        前のつなぎを決めてから `wait_filler_gap_seconds`（3 秒）・最後に音（つなぎ・合図の声）が鳴り終わってから 3 秒。
-        つなぎや合図が鳴っているあいだは出さない。以前は 2 つ目以降を前のつなぎから 20 秒にしていたので、つなぎの後に
-        答えまで 8.3 秒黙った（10/08 21:23）。主LLM の待ちも数える（`設計方針_判定の段` §2.3）。**会話の求めだけ**（出-aq 段 6）。時計で定期的に起こすのでは
-        なく、**待たせているという事実**が続くあいだだけ起こす。
+        窓は 10 秒なので、調べものや主LLM を待つあいだに切れると、出来上がった答えが独り言になる。見張りは
+        `WAIT_WATCH_TICK_SEC`（1 秒）ごとに起き、待っているものがあれば窓を延ばす（開いているときだけ）。待ちが終わって
+        見張りが閉じたら、最後に延ばしたところから 10 秒で閉じる。**会話の求めだけ**（出-aq 段 6）。
 
-        **待たせているあいだは窓を閉じない**（2026-10-07 本人の決定）。窓を 10 秒に縮めたので、つなぎの合間に窓が切れ、
-        出来上がった答えが独り言になる。見張りは 1 秒ごと（つなぎの間がそれより短ければその間）に起き、窓を延ばす
-        （開いているときだけ）。待ちが終わって見張りが閉じたら、最後に延ばしたところから 10 秒で閉じる。
+        以前は待ちが 5 秒を超えると「まだかかっている」を積み、軽量LLM が書いたつなぎを言っていた。考えているあいだは合図の
+        声と待ちの電子音で分かるので、つなぎはやめた（出-cl 段 2・2026-10-15・本人の決定ア）。
         """
-        cfg = self._agent.config
-        delay = float(getattr(cfg, "lookup_slow_seconds", 5.0))
-        gap = float(getattr(cfg, "wait_filler_gap_seconds", 3.0))
-        tick = min(1.0, delay, gap)
-        # 人の言葉から通しで数える（出-bc・2026-10-08 実機 18:18）。待ちの段ごとに 0 から数えていたので、検索 5 秒弱と
-        # 主LLM 4.70 秒のどちらもしきい値に届かず、言ってから 18 秒声が無いのに、つなぎが出なかった。見張りが立ち直しても、
-        # 起点（`heard_at`）と最後のつなぎ（`last_progress_at`）は求めに残るので失わない。
-        req = self._req
-        origin = req.heard_at if req.heard_at is not None else time.monotonic()
-
-        def _due() -> float:
-            marks = [origin + delay]
-            for at in (req.last_progress_at, req.last_sound_ended_at):
-                if at is not None:
-                    marks.append(at + gap)
-            return max(marks)
-
         with contextlib.suppress(asyncio.CancelledError):
             while True:
-                due = _due()
-                left = due - time.monotonic()
-                step = min(tick, left) if left > 0 else 0.0
-                await asyncio.sleep(step)
+                await asyncio.sleep(WAIT_WATCH_TICK_SEC)
                 if gen != self._request_generation:
                     return  # 打ち切られた求めの見張り
-                waiting = self._waiting_on()
-                if not waiting:
+                if not self._waiting_on():
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
-                now = time.monotonic()
-                self._wake_window().extend(now)
-                if now + 1e-9 < _due():
-                    continue
-                if self._sounding():
-                    # 鳴り終わりが次の時刻を延ばすまで、見回りの間隔で待つ（待たずに戻ると空回りする）。
-                    await asyncio.sleep(tick)
-                    continue
-                if self._confirming():
-                    # 確認の問いと確認待ちのあいだは、問いが返事の役をしているので待たせていない（出-ci・本人の決定ア）。
-                    # 10/14 10:13 に、問いを読んでいる最中の `set_timer` を待ちに数え、問いの直後につなぎが流れた。
-                    await asyncio.sleep(tick)
-                    continue
-                logger.info(
-                    "event-loop 待たせている時間が %.0f 秒を超えた：%.40s",
-                    now - origin,
-                    waiting[0].query,
-                )
-                self._triggers.put_nowait(
-                    Trigger(kind="進捗", query=waiting[0].query, intent_id=waiting[0].intent_id)
-                )
-                req.last_progress_at = now
-                req.filler_pending = True  # 声か取り下げで下ろす（出-bt）
+                self._wake_window().extend(time.monotonic())
 
     def _dispatch_main_llm(
         self,
@@ -2158,18 +2108,6 @@ class InformationProcessing:
             self._triggers.qsize(),
         )
 
-        progress = [c for c in items if c.kind == "進捗"]
-        items = [c for c in items if c.kind != "進捗"]
-        if progress and items:
-            # 本物の結果が一緒に届いたので、つなぎの反復は起きない。頼んだつなぎは取り下げ、間はここから数え直す（出-bt）。
-            self._req.filler_pending = False
-            self._req.last_progress_at = time.monotonic()
-        if progress and not items:
-            # 「まだかかっている」は結果ではない。飛行中の数も一覧も触らず、意図も
-            # supersede しない。次の反復で、調停に短い一言を書かせるためだけに起こす。
-            # **本物の結果が一緒に届いたら、結果に答える**（出-au 段 2）。つなぎだけ言って返ると、
-            # 取り込んだ結果に答える反復が二度と起きない。
-            self._slow_notice_received = True
         decided: "Decision | None" = None
         taken = 0
         for c in items:
@@ -2476,16 +2414,9 @@ class InformationProcessing:
         # 同じく脇から受けて空にする（求めの始め方に渡すものは種別・文面・発話の 3 つだけ・環-e-に）。
         self._req.voice = getattr(self, "_pending_voice", None)
         self._pending_voice = None
-        self._req.heard_at = getattr(self, "_pending_heard_at", None)
-        self._pending_heard_at: "float | None" = None
-        self._req.last_progress_at = None
-        self._req.last_sound_ended_at = None
         self._req.source = getattr(self, "_pending_source", "") if kind == "発話" else ""
         self._pending_source = ""
         self._req.cue_rang = False
-        self._req.filler_pending = False
-        self._req.answering = False
-        self._req.cue_words.clear()
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -3155,7 +3086,6 @@ class InformationProcessing:
             # 待ち手がもう居ない（中断された・呼び手が消えた）。反復を始める理由がない。
             return
         stopped = False
-        self._pending_heard_at = self._arrival(trigger)  # つなぎの見張りの起点（出-bc）
         self._pending_source = trigger.source  # 声かキーボードか（出-bg：合図は声だけ）
         task = asyncio.create_task(self._utterance_iteration(trigger.query, trigger.voice))
 
@@ -3230,10 +3160,10 @@ class InformationProcessing:
                 await self._driver
             self._driver = None
         self._stop_wait_watch()
-        # 鳴っている最中のつなぎと、裏で書いているつなぎは止める（出-aq 段 1・出-bx）。**終わるときに声を待たない。**
-        for task in list(self._filler_voices) + list(self._filler_jobs):
+        # 鳴っている最中のつなぎは止める（出-aq 段 1）。**終わるときに声を待たない。**
+        for task in list(self._filler_voices):
             task.cancel()
-        for task in list(self._filler_voices) + list(self._filler_jobs):
+        for task in list(self._filler_voices):
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
 
@@ -3356,7 +3286,7 @@ class InformationProcessing:
         jev_utterance: str = "",
         heard: "dict | None" = None,
     ) -> ArbiterInput:
-        """調停へ渡す材料。判定（`_decide`）と待ちの一言（`_say_waiting_filler`）が同じものを見る。"""
+        """調停へ渡す材料。判定（`_decide`）が見る。"""
         from ..capability_state import load_summary
 
         agent = self._agent
@@ -3463,74 +3393,6 @@ class InformationProcessing:
     def _talking(self) -> bool:
         """情動が話しかける軸（bond・esteem）で起きた求めか（出-at）。"""
         return self._req.trigger_kind == "情動" and self._req.fired_axis in TALKING_AXES
-
-    async def _say_waiting_filler(self, utterance: str, workspace_ctx: str, chain: int) -> str:
-        """「まだかかっている」で起きた反復：**分岐は決めず、つなぎだけ言って閉じない**（出-aq 段 6）。
-
-        求めは待ったまま続く。ここで light を選ばせると、あとから届く結果に行き場が無くなる（案ハ）。
-        以前はつなぎ 1 つのために調停をまるごと回し、Jev の分岐しだいで返事を言ったり黙ったりした。
-        つなぎを出すのは待たせている事実なので、待っているものだけを伝えて軽量LLM に書かせる。
-
-        **書き手と声は裏の仕事に出し、反復はすぐ閉じる**（出-bx・2026-10-13）。反復は 1 つずつ回るので、書き手（1 秒ほど）
-        を待つと、そのあいだに届いた結果の取込が始まらない（10/12 23:59 に 1.33 秒待たされた）。
-        """
-        self._slow_notice_received = False
-        job = asyncio.ensure_future(
-            self._write_and_say_filler(utterance, workspace_ctx, chain, self._request_generation)
-        )
-        self._filler_jobs.add(job)
-        job.add_done_callback(self._filler_jobs.discard)
-        return ""
-
-    async def _write_and_say_filler(
-        self, utterance: str, workspace_ctx: str, chain: int, gen: int
-    ) -> None:
-        """裏の仕事：つなぎを書かせ、まだ待たせていて、答えも始まっていなければ言う（出-bt・出-bx）。"""
-        req = self._req
-        try:
-            waiting = self._waiting_on()
-            if not waiting:
-                return  # 答えがもう届いている
-            what = (
-                "いまは返事を考えている最中"
-                if all(lk.action == "主LLM" for lk in waiting)
-                else "いまは調べものの答えを待っている最中"
-            )
-            inp = self._arbiter_input(
-                utterance=utterance or self._req.cue,
-                workspace_ctx=workspace_ctx,
-                present_ctx=_present_ctx(self._agent),
-            )
-            text = await self._arbiter().write_filler(inp, what, avoid=list(req.cue_words))
-            # 15 字〔仮〕を超えたら作り置きの短い言葉に替える（出-cj・本人の決定ア）。
-            text = filler_length.fit(
-                text, said=list(req.said_fillers), cue_words=list(req.cue_words)
-            )
-            if gen != self._request_generation:
-                return  # 書いているあいだに求めが打ち切られた
-            if self._confirming():
-                # 書いているあいだに確認の問いが出た（出-ci・10/14 10:13 に問いの直後につなぎが流れた）。
-                logger.info("event-loop 確認待ちなのでつなぎを言わない：%.40s", text)
-                return
-            if req.answering:
-                # 言うと答えのあとにつなぎが鳴る（出-bx）。
-                logger.info("event-loop 答えを言い始めたのでつなぎを言わない：%.40s", text)
-                return
-            if not self._waiting_on():
-                # 書いているあいだに答えが届いた（出-bt）。言うと答えがつなぎの後まで待たされる（10/12 22:15 に約 10 秒）。
-                logger.info("event-loop 答えが届いたのでつなぎを言わない：%.40s", text)
-                return
-            await self._say_filler(text)
-            logger.info("event-loop 反復 %d 出力=つなぎ（待たせている）", chain)
-        except asyncio.CancelledError:
-            raise
-        except Exception:  # noqa: BLE001
-            logger.warning("event-loop つなぎを書けなかった", exc_info=True)
-        finally:
-            # 声になった（`_filler_voices` が鳴っているあいだを数える）か、取り下げた。間は鳴り終わりか、ここから数える。
-            req.filler_pending = False
-            if not self._filler_voices:
-                req.last_progress_at = time.monotonic()
 
     async def _act_on_decision(self, decision: Decision, *, utterance: str, gen: int) -> str:
         """主LLM の決定を実行する（環-h・段ろ）。
@@ -3933,7 +3795,6 @@ class InformationProcessing:
             self._req.block_reason = blocked  # 最終版の「言えなかった（理由）」（記-t）
             return text, "独白"
         self._stop_beeps()  # 答えの声が始まる。待ちの電子音を止める（出-bu）
-        self._req.answering = True  # 裏で書いているつなぎは、もう言わない（出-bx）
         await self._pause_after_filler()
         await self._say_aloud(text, careful=self._careful_voice(branch))
         self._note_suggestion_offered(text)
@@ -4040,7 +3901,6 @@ class InformationProcessing:
         """
 
         gain = self._voice_gain()  # 背景で鳴らすので、倍率はこの求めのうちに決めておく
-        req = self._req
 
         async def _voice() -> None:
             try:
@@ -4051,9 +3911,6 @@ class InformationProcessing:
                 logger.warning("event-loop つなぎの声を出せなかった：%.40s", text, exc_info=True)
             finally:
                 self._filler_voice_ended = time.monotonic()  # 答えはここから数えて待つ（段 5）
-                req.last_sound_ended_at = (
-                    self._filler_voice_ended
-                )  # 次のつなぎもここから（出-bd ②）
 
         task = asyncio.ensure_future(_voice())
         self._filler_voices.add(task)
@@ -5180,19 +5037,7 @@ class _ReactionCue:
         if task is None:
             return
         self._ip._start_beeps()  # 合図が鳴り終わったら、答えまで待ちの電子音（出-bu）。合図の音は `_sounding` で休む
-        word = getattr(self._ip._dif, "last_cue_word", "")
-        if word:
-            # 作り置きの声で言った言葉は、つなぎに使わない言葉として書き手に渡す（出-ca・本人の決定）。書き手が知らず、
-            # つなぎが「はい、」を繰り返した（出-bt）。言ったつなぎに数えると、同じつなぎの判定に引っかかる。
-            self._ip._req.cue_words.append(word)
-        # 合図も音に数える（出-bd ②）。鳴っているあいだはつなぎを出さず、鳴り終わってから 3 秒黙ったら出す。
-        req = self._ip._req
-        self._ip._cue_sound = task
-
-        def _ended(_t: Any) -> None:
-            req.last_sound_ended_at = time.monotonic()
-
-        task.add_done_callback(_ended)
+        self._ip._cue_sound = task  # 合図が鳴っているあいだ、待ちの電子音は休む（`_sounding`）
 
     def stop(self) -> None:
         with contextlib.suppress(Exception):

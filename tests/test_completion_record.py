@@ -38,13 +38,6 @@ def test_a_finished_lookup_carries_its_result():
     assert c.decision is None
 
 
-def test_a_slow_notice_carries_only_the_query():
-    """`進捗` は結果ではない。飛行中の数も一覧も触らない。"""
-    c = Trigger(kind="進捗", query="明日の天気")
-    assert c.result == ""
-    assert c.index == 0
-
-
 def test_a_decision_carries_the_turn_result_and_the_workspace():
     """主LLM の返りは、**投げたときの W** と一緒に運ぶ（環-h ②）。"""
     from familiar_agent.backends import ToolCall

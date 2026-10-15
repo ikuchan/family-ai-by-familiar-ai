@@ -33,7 +33,6 @@ from collections.abc import Awaitable, Callable
 
 from ..core import measure
 from ..core.aio import wait_within
-from ..core.filler_length import FILLER_MAX_CHARS
 from ..core.utterance_meaning import ASK_BACK_MAX_CHARS
 
 logger = logging.getLogger(__name__)
@@ -303,13 +302,8 @@ def assemble(
     effort = str(data.get("effort", "low")).strip().lower()
     if effort not in _EFFORTS:
         effort = "low"
-    # つなぎは**別の欄**で受ける（出-aj・2026-09-23）。`text` は `light` の返事の欄で、
-    # 同じ欄を 3 つの用途で共有していたため、`light` の書き方（＝返事）が既定になり、
-    # つなぎが用件を言い切っていた（実機 15:49・144 字）。`trash` は言いたいことの行き先で、
-    # **読み捨てる**——行き先が無いと軽量LLM は何も書かず、`filler` が空になる（実測）。
-    text = str(
-        data.get("filler", "") if branch in ("full", "action") else data.get("text", "")
-    ).strip()
+    # `text` は `light` の返事の欄。つなぎ（`filler`）は書かせなくなった（出-cl 段 2・2026-10-15）。
+    text = str(data.get("text", "") if branch == "light" else "").strip()
     try:
         silence_minutes = int(data.get("silence_minutes", 0))
     except (TypeError, ValueError):
@@ -331,9 +325,6 @@ def assemble(
         + (("see", "look") if can_see else ())
         + tuple(a for a in extra_actions if a in _EXTRA_ACTIONS)
     )
-    if branch == "action" and not query and not tool_input and text and not data.get("action"):
-        # 動作が無く言葉だけ（「鳴らしていい？」と聞きたかった）は light として扱う（実機 23:14）。
-        branch = "light"
     if action not in allowed:
         action = "recall"
     if action == "see":
@@ -1153,22 +1144,6 @@ class Arbiter:
             extra_actions=(*inp.extra_actions, final),
         )
 
-    async def write_filler(
-        self, inp: ArbiterInput, waiting: str, avoid: "list[str] | tuple[str, ...]" = ()
-    ) -> str:
-        """待たせているあいだの一言だけを書かせる（出-aq 段 6）。**分岐は決めない**——つなぎを出すのは
-        待たせている事実であって、Jev の分岐ではない。以前は分岐しだいで、light なら返事（内容に触れる）を
-        言い、full で深さが low なら何も書かれず黙った。書けなければ空（黙る）。`trash` は読み捨てる。
-        """
-        # 字数を書いて頼む（出-cj・10/14 10:13 に 26 字が流れた）。超えたものは呼び手が作り置きに替える（`core/filler_length`）。
-        decided = f"待ってもらう一言を言う（{waiting}・{FILLER_MAX_CHARS} 字以内）"
-        if avoid:
-            # 合図の作り置きの声で言った言葉は、つなぎに使わない（出-ca・本人の決定）。
-            words = "・".join(f"「{w}」" for w in avoid)
-            decided += f"。次の言葉は合図でもう言ったので、つなぎに使わない：{words}"
-        texts = await _writer_call(self, inp, {"decided": decided}, ["filler", "trash"])
-        return str((texts or {}).get("filler", "")).strip()
-
     async def _write(self, inp: ArbiterInput, data: dict) -> "dict | None":
         """要るものだけを軽量LLM に 1 回で書かせる（出-au 段 5-7c）。何も要らなければ呼ばずに空。"""
         needs = _writer_needs(inp, data)
@@ -1208,14 +1183,8 @@ WRITER_PROMPT = """\
 {lead}
 次にすることはもう決まっている：{decided}
 
-**text と filler の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か子どもかで
+**text の口調は、はじめに渡された【あなたは誰か】と【一緒に暮らす人たち】に従う。** 相手が大人か子どもかで
 丁寧さが変わる。**短い一言でも同じ**で、短さのために丁寧さを崩さない。一つのやり取りの中で丁寧さを混ぜない。
-
-**すでに相手へ伝えた一言があるなら、言い直さず、その続きとして書く。** 一言目は、次にすることの括弧の中に渡された様子だけを伝える（考えている最中か、調べものの答えを待っている最中か。
-渡された様子と違うことを言わない）。
-**二言目以降は、まだ考えている最中だと伝わるだけの短い言葉**にする。用件を述べ直さない。何を調べているかにも触れない。
-長さは一言目より短く、多くても十数文字にとどめる。同じ人が続けて言っているように聞こえることを最優先する。
-言うことが無ければ filler を空にしてよい。
 
 [いま]
 {now}
@@ -1246,8 +1215,6 @@ _FIELD_TEXT = {
     # 迷った聞き返しは見立てを確かめる（出-bl・空の問いしか書けなかった）。聞き取りの確認の形にする（出-cm）。
     "text_ask_guess": '"text"：聞き取りが合っているかを確かめる短い**問い**。見立てを言葉にして「〜と言ったの？」の形で'
     "聞く（「？」で終える）。「〜しますか？」とやるかどうかは聞かない。答えない。調べる・やる・待ってと約束しない。",
-    "filler": '"filler"：待ってもらうための短い一言（相槌・受けだけ。**内容に触れない**。答えを先取りしない）。',
-    "trash": '"trash"：用件はこのあと本応答が言う。いま言いたいことがあるならここに書く（捨てられ、誰にも届かない）。',
     "query": '"query"：探す語。',
     # 担い手（知-am・2026-10-07）。書けなかったので、調停が投げる検索はいつも既定の Brave（リンクの一覧）だった。
     "source": '"source"：探す担い手。答えに数字や事実（天気・時刻表・値段・結果など）を使うなら "tavily"（本文の抜粋）、'
@@ -1272,8 +1239,7 @@ def _for_writer(lead: str) -> str:
 def _writer_needs(inp: ArbiterInput, data: dict) -> "list[str]":
     """Jev の答えから、軽量LLM に書かせるものを決める。何も要らなければ空。
 
-    **つなぎは書かせない**（出-aq 段 7）。つなぎは答えまで 5 秒かかったときだけ、待ちの知らせの口
-    （`write_filler`）が書く。以前は full で深さが low でなければ、action では投げる前に書かせていた。
+    **つなぎは書かせない**（出-aq 段 7・出-cl 段 2 で待ちの知らせのつなぎもやめた）。
     """
     needs: "list[str]" = []
     branch = data.get("branch")

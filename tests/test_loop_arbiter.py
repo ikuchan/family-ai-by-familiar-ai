@@ -161,30 +161,14 @@ def test_filler_examples_do_not_fix_the_register():
 
 
 def _rendered_reply_prompt() -> str:
-    """人の発話が起点のとき、軽量LLM につなぎを書かせる文面（分岐の説明は起点で差し替わる・情-e）。
+    """人の発話が起点のとき、軽量LLM に light の返事を書かせる文面（分岐の説明は起点で差し替わる・情-e）。
 
-    つなぎを書かせるのは待ちの知らせの口（`write_filler`）だけ（出-aq 段 6・7）。
+    つなぎは書かせなくなった（出-cl 段 2・2026-10-15）。口調の決まりは返事の文面で見る。
     """
-    w = writer_says({"filler": "うん"})
+    w = writer_says({"text": "うん"})
     inp = ArbiterInput(utterance="x", workspace_ctx="", origin="発話")
-    asyncio.run(
-        Arbiter(jev=None, writer=w, timeout=2.0).write_filler(inp, "いまは返事を考えている最中")
-    )
+    asyncio.run(Arbiter(jev=None, writer=w, timeout=2.0)._write(inp, {"branch": "light"}))
     return _prompt_of(w)
-
-
-def test_the_filler_is_written_to_avoid_committing_to_content():
-    # つなぎは答えの前に置かれるので、中身を先取りすると本応答と食い違う。
-    assert "内容に触れない" in _rendered_reply_prompt()
-
-
-def test_second_filler_is_asked_to_continue_not_restart():
-    # 実機で「調べてみるね」に相当する前置きが5回続いた。つなぎを止めるのではなく、
-    # 二言目以降を「まだ考えている最中だと伝わるだけの短い言葉」にさせる。軽量LLM と
-    # フルLLM が交互に喋ると、聞いている側には別々の人格が居るように聞こえる。
-    assert "その続きとして書く" in WRITER_PROMPT
-    assert "二言目以降" in WRITER_PROMPT
-    assert "同じ人が続けて言っている" in WRITER_PROMPT
 
 
 def test_prompt_holds_no_quotable_sample_utterances():
@@ -203,12 +187,12 @@ def test_prompt_holds_no_quotable_sample_utterances():
         assert sample.startswith("〜") or len(sample) <= 3, f"見本が残っている: {sample}"
 
 
-def test_tone_rule_sits_next_to_where_the_filler_is_asked_for():
-    # 口調の指示は分岐の説明から離れた位置にあり、短いつなぎのときだけ守られなかった
+def test_tone_rule_sits_next_to_where_the_words_are_asked_for():
+    # 口調の指示は分岐の説明から離れた位置にあり、短い一言のときだけ守られなかった
     # （実機で、本応答はですますなのに待ってもらう一言だけタメ口）。文章を書けと言う
     # 場所（決まったこと）の直後へ置く。キャッシュ境界（毎分変わる [いま]）より手前。
     prompt = _rendered_reply_prompt()
-    tone = prompt.index("text と filler の口調は")
+    tone = prompt.index("text の口調は")
     assert prompt.index("次にすることはもう決まっている") < tone
     assert tone < prompt.index("[いま]")
     assert "短い一言でも同じ" in prompt

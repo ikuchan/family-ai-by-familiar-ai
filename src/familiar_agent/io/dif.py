@@ -77,8 +77,6 @@ class DIF:
         self._ring_task: asyncio.Task | None = None  # 鳴っているタイマーの音（知-n-ろ）
         #: 声を出すあいだ音楽を絞る口（知-aa・2026-09-21）。無ければ何もしない。
         self._music_ducker: "Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]] | None" = None
-        #: 最後に流した合図の言葉（作り置きの声のとき・出-bt）。
-        self.last_cue_word = ""
         # 山谷の既定（小さくする秒・戻す秒・その倍率）。T が Config から入れる
         self._ring_shape = (8.0, 25.0, 0.1)
         # 話しかけたときの合図（出-bg）。流している合図。返事の声はこれが終わってから流す。
@@ -183,9 +181,6 @@ class DIF:
         path = sound_for(cue)
         if path is None:
             return None
-        from ..core.reaction_cue import word_for
-
-        self.last_cue_word = word_for(path)  # 作り置きの声なら言った言葉（出-bt）。音だけなら空
 
         async def _play() -> None:
             async def _one() -> None:

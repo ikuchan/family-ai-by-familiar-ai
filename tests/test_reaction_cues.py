@@ -291,13 +291,6 @@ def test_the_think_words_are_two():
         assert got == ["react_think_0.wav", "react_think_1.wav"], folder
 
 
-def test_the_first_think_file_is_etto():
-    """**反証の側**：番号を詰めたので、0 番は「えっと」（言葉とファイルがずれていない）。"""
-    from familiar_agent.core import reaction_cue as rc
-
-    assert rc.word_for(rc.THINK_WAVS[0]) == "えっと"
-
-
 # ── 道具の声を はい・はーい！・待ってね・オッケー にする（出-ce・2026-10-14・本人の決定）────────
 
 
@@ -309,4 +302,3 @@ def test_the_tool_words_are_four():
     for folder in (sounds, sounds / "voices" / "Laomedeia", sounds / "voices" / "Puck"):
         got = sorted(p.name for p in folder.glob("react_tool_*.wav"))
         assert got == [f"react_tool_{i}.wav" for i in range(4)], folder
-    assert rc.word_for(rc.TOOL_WAVS[1]) == "はーい！"  # 「うん」だった 1 番は「はーい！」

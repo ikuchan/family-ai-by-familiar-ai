@@ -243,15 +243,18 @@ def test_a_timer_query_without_tool_input_is_read_into_one():
     )
 
 
-def test_an_action_branch_with_only_text_is_a_light_reply():
-    """動作が無く text だけの action（「鳴らしていい？」と聞きたかった）は light として扱う（実機 23:14）。"""
-    d = assemble({"branch": "action", "filler": "鳴らしていい？"}, can_see=False, extra_actions=())
-    assert d is not None and d.branch == "light" and d.text == "鳴らしていい？"
+def test_an_action_branch_without_an_action_falls_through():
+    """動作が無い action は組めない（呼び手が full へ倒す）。言葉だけでも light にしない。
+
+    以前はつなぎ（`filler`）の言葉があれば light として扱っていた（実機 23:14）。action の決定は言葉を持たなくなった
+    （出-cl 段 2・2026-10-15）ので、その守りは外した。
+    """
+    assert assemble({"branch": "action", "filler": "鳴らしていい？"}, can_see=False) is None
     assert assemble({"branch": "action"}, can_see=False, extra_actions=()) is None
 
 
-def test_timer_actions_carry_no_filler_because_they_return_at_once():
-    """道具が 0.1 秒で返るので、つなぎを言うと返りの一言と重なって 2 回出る（実機 08:59）。"""
+def test_action_turns_carry_no_filler():
+    """action の決定は言葉を持たない（出-cl 段 2・2026-10-15）。道具は 0.1 秒で返るので、もともとつなぎは言わなかった（実機 08:59）。"""
     d = assemble(
         {
             "branch": "action",
@@ -273,7 +276,7 @@ def test_timer_actions_carry_no_filler_because_they_return_at_once():
         can_see=False,
         extra_actions=(),
     )
-    assert d is not None and d.text == "調べてみるね"  # 遅い調べものはつなぎを残す
+    assert d is not None and d.text == ""  # 調べものでも言わない（待ちは合図の声と電子音）
 
 
 def test_a_json_string_in_query_or_tool_input_is_read_as_the_tool_input():

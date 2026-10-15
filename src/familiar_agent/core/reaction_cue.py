@@ -52,18 +52,6 @@ def cue_for(final: str) -> str:
     return TOOL
 
 
-def word_for(path: Path) -> str:
-    """合図の音のファイル → 言った言葉（出-bt）。機械音・効果音は言葉が無いので空。
-
-    ファイル名で比べる。どの声のフォルダ（`voiced`）でも、「はい」は `react_tool_0.wav` である。
-    """
-    for words, wavs in ((TOOL_WORDS, TOOL_WAVS), (THINK_WORDS, THINK_WAVS)):
-        names = [w.name for w in wavs]
-        if path.name in names:
-            return words[names.index(path.name)]
-    return ""
-
-
 def voiced(path: Path) -> Path:
     """作り置きの声を、いまの声のもので返す（出-bv）。返事（Gemini）と声をそろえる。
 

@@ -118,13 +118,6 @@ def _agent(*, stream_returns, max_iters=3):
     # つなぎの後に答えを待たせる間（出-aq 段 5）。偽物の設定のままだと 1.0 秒になり、つなぎを
     # 出す試験がそのぶん待たされる。間そのものは `test_the_answer_waits_after_the_filler` が見る。
     a.config.filler_answer_gap_seconds = 0.0
-    # 待たせている時間の見張り（`_watch_waiting`）。偽物の設定のままだと `float(MagicMock)` が 1.0 になり、
-    # 調べものを使う試験がそれぞれ 1 秒待っていた（試験の組み立ては裏のタスクが終わるまで待つ・環-aa）。
-    # 偽の調べものはその場で返るので、0.2 秒で「遅い」を知らせることは無い。
-    a.config.lookup_slow_seconds = 0.2
-    a.config.wait_filler_gap_seconds = (
-        20.0  # 会話の求めで待たせ続けるときの、音のあとの間（出-bd ②・試験では長くして出さない）
-    )
     return a
 
 

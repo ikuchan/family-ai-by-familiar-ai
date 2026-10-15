@@ -88,12 +88,6 @@ class Iteration:
             return await self.ip._act_on_decision(decided, utterance=self.utterance, gen=self.gen)
         self._count()
         await self._recall()
-        if (
-            self.ip._slow_notice_received
-        ):  # 待ちの一言だけ言って閉じない（分岐は決めない・出-aq 段 6）
-            return await self.ip._say_waiting_filler(
-                self.utterance, self.ws.for_arbiter, self.chain
-            )
         self._cap()
         await self._decide()
         closed = await self._close_early()
@@ -115,12 +109,9 @@ class Iteration:
         return decided
 
     def _count(self) -> None:
-        # ここから先は**決める反復**である。数えるのはここだけ。「まだかかっている」で起きた反復
-        # （つなぎだけ出す）は数えない（出-au 段 2）。20 秒ごとに繰り返すと、数えれば上限
-        # （`event_max_iterations`）に届き、答えを考える前に打ち切りになる。
+        # ここから先は**決める反復**である。数えるのはここだけ。
         ip = self.ip
-        if not ip._slow_notice_received:
-            ip._req.iterations += 1
+        ip._req.iterations += 1
         self.chain = ip._req.iterations
         if self.drained:
             logger.debug(

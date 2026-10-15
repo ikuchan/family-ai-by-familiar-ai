@@ -72,14 +72,6 @@ def test_the_cue_comes_from_the_voice_folder():
         assert rc.sound_for(rc.TOOL).parent == SOUNDS / "voices" / "Laomedeia"
 
 
-def test_the_word_is_found_by_file_name():
-    assert rc.word_for(SOUNDS / "voices" / "Laomedeia" / "react_tool_0.wav") == "はい"
-    assert (
-        rc.word_for(SOUNDS / "voices" / "Puck" / "react_think_0.wav") == "えっと"
-    )  # 「んー」を外して詰めた（出-ce）
-    assert rc.word_for(rc.THINKING_WAV) == ""
-
-
 def test_the_credit_voice_comes_from_the_voice_folder(monkeypatch, tmp_path):
     from familiar_agent.io import dif
 
