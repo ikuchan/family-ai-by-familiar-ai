@@ -23,6 +23,7 @@ def test_the_meanings_go_from_clear_to_vague():
         "accepted_check",
         "music",
         "time",
+        "speaking",
         "look",
         "research",
         "家族の情報源",
@@ -46,10 +47,14 @@ def test_every_meaning_offers_ask_back_and_silence_except_the_fixed_ones():
             assert keys == ("silent",)
         elif meaning in ("claim", "deny"):
             continue  # 2 回目は誰か・どの呼び方か（家族の呼び方から作る）
+        elif meaning == "speaking":
+            assert (
+                "ask_back" in keys and "silent" not in keys
+            )  # 黙るは「黙って」とぶつかる（出-cn）
         else:
             assert {"ask_back", "silent"} <= set(keys), meaning
     assert "reply_full" not in um.ACTIONS_BY_MEANING["research"]
-    assert {"quiet", "lift_quiet"} <= set(um.ACTIONS_BY_MEANING["time"])
+    assert {"quiet", "lift_quiet"} <= set(um.ACTIONS_BY_MEANING["speaking"])
 
 
 def test_the_fan_out_asks_the_meaning_and_each_meanings_actions_at_once():
@@ -115,8 +120,8 @@ def test_waiting_is_not_a_request_for_silence():
 
 
 def test_lifting_the_silence_is_offered_only_while_silenced():
-    assert "lift_quiet" in _qs(silenced=True)["action_time"]["criteria"]
-    assert "lift_quiet" not in _qs(silenced=False)["action_time"]["criteria"]
+    assert "lift_quiet" in _qs(silenced=True)["action_speaking"]["criteria"]
+    assert "lift_quiet" not in _qs(silenced=False)["action_speaking"]["criteria"]
 
 
 def test_the_house_tools_are_offered_only_when_connected():

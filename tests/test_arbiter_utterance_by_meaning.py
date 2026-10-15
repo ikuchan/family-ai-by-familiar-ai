@@ -138,8 +138,8 @@ def test_the_chosen_depth_reaches_the_main_llm():
 def test_a_quiet_request_sets_the_minutes():
     jev = _jev(
         {
-            "meaning": _a("time", 0.9),
-            "action_time": _a("quiet", 0.9),
+            "meaning": _a("speaking", 0.9),
+            "action_speaking": _a("quiet", 0.9),
             "quiet_minutes": _a("30", 0.8),
         }
     )
@@ -149,7 +149,7 @@ def test_a_quiet_request_sets_the_minutes():
 
 
 def test_a_release_lifts_the_silence():
-    jev = _jev({"meaning": _a("time", 0.9), "action_time": _a("lift_quiet", 0.9)})
+    jev = _jev({"meaning": _a("speaking", 0.9), "action_speaking": _a("lift_quiet", 0.9)})
     d, _ = _run(jev)
     assert d.lift_silence and d.branch == "light"
 

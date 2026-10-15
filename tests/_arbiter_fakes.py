@@ -60,9 +60,9 @@ def jev_says(
     meaning, act = _as_meaning(branch, action)
     # 黙る依頼・解く・名乗り・否定は、新しい問いでは意味と動作になる（段 4-4c）。
     if quiet is not None:
-        meaning, act = "time", "quiet"
+        meaning, act = "speaking", "quiet"  # 黙る依頼は意味「話しかけ方の依頼」（出-cn）
     elif lifts_quiet:
-        meaning, act = "time", "lift_quiet"
+        meaning, act = "speaking", "lift_quiet"
     elif claimed:
         meaning, act = "claim", claimed
     elif denied:

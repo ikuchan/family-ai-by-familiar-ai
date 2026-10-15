@@ -60,7 +60,7 @@ def test_the_name_is_not_passed_separately():
 
 def test_the_name_is_checked_by_the_window_not_by_the_question():
     """名前の関門は入口の窓（名前を聞いてから 30 秒）にまとめた（出-as §2.5）。Jev は名前を知らないので問わない。"""
-    asked = _questions()["action_time"]["criteria"]["quiet"]
+    asked = _questions()["action_speaking"]["criteria"]["quiet"]
     assert "名前" not in asked
     assert "黙っていて" in asked
 

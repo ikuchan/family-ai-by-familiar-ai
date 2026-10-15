@@ -48,11 +48,11 @@ def test_arbiter_can_flag_a_silence_request():
 
     from tests._arbiter_fakes import decide, jev_says, writer_says
 
-    # 段 4-4c から、黙る依頼は意味「時間に関する依頼」の動作「quiet」と、何分かの問い（同じ 1 回）。
+    # 黙る依頼は意味「話しかけ方の依頼」の動作「quiet」と、何分かの問い（同じ 1 回・出-cn で時間から独立）。
     from familiar_agent.core import utterance_meaning as um
 
     qs = um.fanout_questions(music=False, camera=False, family=[])
-    assert "quiet" in qs["action_time"]["criteria"] and qs["quiet_minutes"]["type"] == "choice"
+    assert "quiet" in qs["action_speaking"]["criteria"] and qs["quiet_minutes"]["type"] == "choice"
     d = asyncio.run(
         decide(
             jev=jev_says("light", quiet="default"),
@@ -191,8 +191,8 @@ def test_the_arbiter_can_flag_a_release():
     from tests._arbiter_fakes import decide, jev_says, writer_says
 
     # 解く言葉は、黙っているあいだだけ Jev に問う（段 5 で新しい問いへ移した：意味「時間に関する依頼」の動作）。
-    assert "lift_quiet" in _arbiter_questions(silenced=True)["action_time"]["criteria"]
-    assert "lift_quiet" not in _arbiter_questions(silenced=False)["action_time"]["criteria"]
+    assert "lift_quiet" in _arbiter_questions(silenced=True)["action_speaking"]["criteria"]
+    assert "lift_quiet" not in _arbiter_questions(silenced=False)["action_speaking"]["criteria"]
 
     def lifted(utterance: str, *, lifts: bool):
         return asyncio.run(
@@ -210,7 +210,7 @@ def test_the_arbiter_can_flag_a_release():
 
 
 def test_waiting_is_not_a_request_for_silence():
-    asked = _arbiter_questions()["action_time"]["criteria"]["quiet"]
+    asked = _arbiter_questions()["action_speaking"]["criteria"]["quiet"]
     assert "待って" in asked and "これには当たらない" in asked
 
 
