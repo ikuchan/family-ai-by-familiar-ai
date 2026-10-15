@@ -28,7 +28,6 @@ def _ip(kind="発話", *, window_open=True, now=1000.0, monkeypatch=None):
     ip._dif = MagicMock()
     ip._dif.speak = AsyncMock()
     ip._speak_filler_in_background = MagicMock()
-    ip._oif_write_filler = AsyncMock()
     if window_open:
         ip._wake.open(now - 5.0)  # 5 秒前に開いた（残り 5 秒・窓 10 秒）
     else:

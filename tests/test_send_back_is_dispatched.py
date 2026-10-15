@@ -41,7 +41,6 @@ def _ip():
     ip._req.lookups = []
     ip._background_tasks = set()
     ip._triggers = asyncio.Queue()
-    ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
     ip._speech_check_violation = AsyncMock(return_value=(None, []))
     ip._speak = AsyncMock(return_value=("直した", "発話"))

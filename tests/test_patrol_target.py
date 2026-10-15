@@ -9,7 +9,7 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 from familiar_agent.loop.arbiter import Decision, _action_note
 from familiar_agent.loop.event_loop import InformationProcessing
@@ -86,7 +86,6 @@ def test_a_look_asked_by_a_person_is_not_filled_by_the_machine():
 
 def test_the_dispatch_uses_the_filled_target():
     ip = _ip_with_map("情動")
-    ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
     decision = Decision(branch="action", action="look", query="首を向ける", text="", tool_input={})
     asyncio.run(ip._dispatch_arbiter_action(decision, utterance=""))

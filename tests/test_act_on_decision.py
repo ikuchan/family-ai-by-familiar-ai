@@ -29,7 +29,6 @@ def _ip(gen: int = 0):
     ip._req = Request()
     ip._request_generation = gen
     ip._req.cue = "手がかり"
-    ip._say_filler = AsyncMock()
     ip._start_lookup = MagicMock()
     ip._speech_check_violation = AsyncMock(return_value=(None, []))
     ip._speak = AsyncMock(return_value=("はい", "発話"))
@@ -118,7 +117,6 @@ def test_a_say_alongside_a_tool_is_not_spoken():
             ToolCall("s", "say", {"text": "調べるね"}), ToolCall("t", "recall", {"query": "昨日"})
         ),
     )
-    ip._say_filler.assert_not_awaited()
     ip._start_lookup.assert_called_once()
 
 

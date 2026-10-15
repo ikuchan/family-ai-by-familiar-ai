@@ -82,7 +82,6 @@ def test_the_action_branch_records_who_looked() -> None:
     """`(c)` で調停が see を投げると、`see_by` が調停になり lookup が始まる（`look` も同じ）。"""
     a, ip = _ip()
     ip._start_lookup = MagicMock()
-    ip._say_filler = AsyncMock()
     for action in ("see", "look"):
         ip._req.see_by = ""
         asyncio.run(
