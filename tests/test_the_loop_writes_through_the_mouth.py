@@ -59,7 +59,8 @@ def test_the_loop_uses_the_mouth():
     # 見た印の差し替え（VLM の返り）が 1 本ずつ足した（`イベント駆動ループ` v0.43）。
     # 黙っていたあいだに届いたものの記録（`_note_muted`・情-h・2026-09-16）で 1 本増えて 8。
     # 閉じるときの最終版（`_write_final`・記-t）で、書き込みと改訂が 1 本ずつ増えた。
-    assert src.count("_oif.write(") == 8
+    # つなぎの記録（`_say_filler`）を撤去して 1 本減り 7（出-cl 段 3・2026-10-15）。
+    assert src.count("_oif.write(") == 7
     assert src.count("_oif.supersede(") == 3
     assert src.count("_oif.append(") == 1
 

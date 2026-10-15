@@ -148,8 +148,6 @@ def compose(
     `basis`＝**この想起の引き方**（出-ah・2026-09-21）。面・件数・時期・直近の広さを 1 行で添える。
     引き方が見えないと、主LLM は「足りない」ことに気づけず、引き直す道具（`recall_as` ほか）を
     使うきっかけを持てない。空なら何も足さない。
-
-    `said`（言ったつなぎ）は手組みのまま残す。O にもあるが、この求めで言った分だけを載せる。
     """
     from ..config import MemoryConfig
 
@@ -157,15 +155,6 @@ def compose(
     shown = _shown(memories, req, exclude)
 
     id_map = {r.mi.obs_id.replace("-", "")[:12]: r.mi.obs_id for r in memories if r.mi.obs_id}
-    # すでに相手へ伝えた一言。これが無いと、同じ言い回しを最初から言い直す
-    # （実機で「〜ですね！」で始まる前置きが3回続いた）。
-    said = ""
-    if req.said_fillers:
-        lines = "\n".join(f"- 「{t}」" for t in req.said_fillers)
-        said = (
-            "すでに相手へ伝えた一言（言った順。次に何か言うなら、"
-            "同じ言い回しを繰り返さず、この続きとして自然につなぐ）：\n" + lines
-        )
     added = ""
     if getattr(req, "added", None):
         # 調べているあいだに名前無しで言い足されたこと（出-au 段 3）。この求めの答えに含める。
@@ -217,7 +206,7 @@ def compose(
     remembered = _lines(shown, names)
     if remembered.strip():
         remembered = "[思い出したこと]\n" + remembered
-    text = "\n\n".join(p for p in [said, added, heard, basis_line, remembered] if p and p.strip())
+    text = "\n\n".join(p for p in [added, heard, basis_line, remembered] if p and p.strip())
     return text, id_map
 
 

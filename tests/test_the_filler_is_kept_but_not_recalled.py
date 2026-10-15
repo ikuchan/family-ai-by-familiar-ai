@@ -1,32 +1,22 @@
-"""つなぎを、やりとりの項としては持ち、想起には出さない（段 4）。
+"""過去の「つなぎ」の記録は、やりとりの項としては残り、想起には出さない（段 4）。
 
-**つなぎは声に出している。** 記録に無いと、相手が聞いた会話とパジュが読み返す会話が
-食い違う。「調べてみるね」と言ったことを、あとで辿れない。
-
-054 で O から外したのは、想起の候補を汚すからだった。役割が「想起に出さない」を担う形に
-なったので（段 2）、**項として持ちながら想起から外す**ことができる。
-
-想起に出さない役割は二つある。`旧`（もう現行ではない）と `つなぎ`（口に出したが、
-覚えておく中身がない）である。
+つなぎを言う仕組みは撤去した（出-cl 段 3・2026-10-15）が、O には役割 `つなぎ` の記録が残っている。想起に出さない
+役割は二つある。`旧`（もう現行ではない）と `つなぎ`（口に出したが、覚えておく中身がない）である。
 """
 
 from __future__ import annotations
 
-import time
-import asyncio
 import uuid
 from datetime import datetime, timezone
 
 import pytest
 
-from familiar_agent.backends import ToolCall
 from familiar_agent.db import get_db
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.store.context import StoreContext, viewpoint_of
 from familiar_agent.store.observations import ObservationStore
 from familiar_agent.store.relations import RelationStore
 from familiar_agent.store.situated import SituatedVectors
-from tests.test_event_loop import _agent, _turn
 
 _VEC = "[" + ",".join(["0.03125"] * 1024) + "]"
 
@@ -35,46 +25,6 @@ _VEC = "[" + ",".join(["0.03125"] * 1024) + "]"
 def ctx() -> StoreContext:
     db = get_db()
     return StoreContext(db=db, lock=db.lock, person_id=DEFAULT_PERSON_ID, embedder=None)
-
-
-def test_the_filler_is_written_as_an_observation():
-    """054 の書式（`つなぎに言った：…`）で O に書く。"""
-    a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])])
-
-    async def scenario():
-        from familiar_agent.loop.event_loop import InformationProcessing
-
-        ip = InformationProcessing(a)
-        ip._wake_window().open(
-            time.monotonic()
-        )  # 入口を通った会話として窓を開けておく（出-as 段 4）
-        await ip._say_filler("調べてみるね")
-
-    asyncio.run(scenario())
-
-    written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
-    assert any("つなぎに言った：調べてみるね" in str(t) for t in written), written
-
-
-def test_the_filler_joins_the_exchange_in_order():
-    """つなぎはやりとりの項に入る。一つのターンで何度出ても、その順に並ぶ。"""
-    # 主LLM がつなぎと返事を一緒に返したら、つなぎを先に鳴らす（出-aq 段 2）。
-    a = _agent(
-        stream_returns=[
-            _turn(
-                [
-                    ToolCall(id="f", name="filler", input={"text": "えっとね"}),
-                    ToolCall(id="s", name="say", input={"text": "晴れてたよ"}),
-                ]
-            ),
-        ]
-    )
-    from tests.test_event_loop import _exchange_members, _run_chain
-
-    _run_chain(a)
-    roles = [r for _, r in _exchange_members(a)]
-    assert "つなぎ" in roles, roles
-    assert roles.index("つなぎ") < roles.index("答え"), roles
 
 
 def test_a_filler_does_not_come_back_from_recall(ctx):

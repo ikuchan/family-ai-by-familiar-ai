@@ -58,11 +58,12 @@ def test_beeps_while_music_plays():
     assert len(beeps) >= 3
 
 
-def test_beeps_rest_while_a_filler_sounds():
+def test_beeps_rest_while_a_cue_sounds():
+    """**反証の側**：合図の声が鳴っているあいだは休む（つなぎの声は出-cl 段 3 で撤去）。"""
     ip, beeps = _ip()
 
     async def voice():
-        ip._filler_voices.add(asyncio.ensure_future(asyncio.sleep(10)))
+        ip._cue_sound = asyncio.ensure_future(asyncio.sleep(10))
 
     _run(ip, seconds=0.3, during=voice)
     assert beeps == []

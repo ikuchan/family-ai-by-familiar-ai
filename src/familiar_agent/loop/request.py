@@ -64,7 +64,7 @@ class Request:
 
     - `iterations`／`iterations_capped`：**決める反復**を数える（環-h ⑤）。主LLM の返りで
       0 へ戻るので、この数は求めの長さを表さない。長さを表すのは考えた回数のほうである
-    - 列（`lookups`・`said_fillers`・`turn_records`）は
+    - 列（`lookups`・`turn_records`）は
       **`default_factory` で求めごとに別の入れ物にする**。既定値を1つにすると、次の求めへ
       前の一言や前のターンの記録が残る
     """
@@ -103,9 +103,6 @@ class Request:
     # 対応づけるために振る。求めをまたいだ突き合わせは要らないので、一意な id ではなく
     # 通し番号で足りる。
     lookups: list[Lookup] = field(default_factory=list)
-    # この求めのあいだに言ったつなぎ（言った順）。次のつなぎを、繰り返しでなく続きとして
-    # 自然につなぐために見せる。
-    said_fillers: list[str] = field(default_factory=list)
     # 返事で「使った」と申告された言いたかったこと（記録の id と中身・出-as 段 7）。声に出したら畳む。
     told_unsaid: list = field(default_factory=list)
     # 調べているあいだに名前無しで言い足されたこと（出-au 段 3）。`(obs_id, 本文)` の並び。W の作業状態の枠で

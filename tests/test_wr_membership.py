@@ -54,25 +54,6 @@ def test_intent_and_completion_are_put_into_the_diffuse_pool():
     assert not _passes_turn_records(a)
 
 
-def test_the_filler_is_written_and_pooled():
-    # つなぎを出す口は、待ちの知らせと主LLM の `filler`（出-aq 段 7）。ここでは主LLM の口で出す。
-    a = _agent(
-        stream_returns=[
-            _turn(
-                [
-                    ToolCall(id="f", name="filler", input={"text": "えっとね"}),
-                    ToolCall(id="s", name="say", input={"text": "はい"}),
-                ]
-            ),
-        ]
-    )
-    _run_chain(a, utterance="調べて")
-    # つなぎは O へ書く（段 4）。**ただし母集合には載せる。** 想起から外すのは役割が
-    # 担っており、拡散想起は役割を見ない。載せないと、聞こえた一言へ辿り着く辺が無い。
-    written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
-    assert any(str(t).startswith("つなぎに言った：") for t in written), "つなぎを書いていない"
-
-
 def test_an_aborted_investigation_is_carried_to_the_next_pool():
     # 中断はその求めで閉じるが、次の求めの WR に載る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])

@@ -45,17 +45,11 @@ def test_a_fresh_request_starts_from_zero():
 # ── 束 B：発話の持ち越し ───────────────────────────────────────────────────
 
 
-def test_the_request_owns_what_was_already_said():
-    """つなぎ。打ち切りと `_finish` で空になる＝求めの寿命である。"""
-    r = Request()
-    assert r.said_fillers == []
-
-
 def test_each_request_gets_its_own_lists():
-    """**入れ物を共有しない。** 既定値を1つにすると、次の求めに前の一言が残る。"""
+    """**入れ物を共有しない。** 既定値を1つにすると、次の求めに前の言い足しが残る。"""
     a, b = Request(), Request()
-    a.said_fillers.append("調べますね")
-    assert b.said_fillers == []
+    a.added.append(("obs-1", "それと明日も"))
+    assert b.added == []
 
 
 # ── 束 C：やりとり ─────────────────────────────────────────────────────────

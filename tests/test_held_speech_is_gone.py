@@ -43,5 +43,5 @@ def test_the_audience_module_is_gone():
 
 def test_speak_has_no_branch_for_leaving():
     src = (SRC / "loop" / "event_loop.py").read_text(encoding="utf-8")
-    body = src[src.index("async def _speak(") : src.index("async def _say_filler(")]
+    body = src[src.index("async def _speak(") : src.index("def _delivery_block_reason(")]
     assert not re.search(r"\[退室\]", body)

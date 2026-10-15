@@ -62,20 +62,6 @@ def test_a_safety_firing_is_still_not_spoken_after_the_window(monkeypatch):
     ip._dif.speak.assert_not_awaited()
 
 
-def test_a_filler_inside_the_window_is_said_and_extends_it(monkeypatch):
-    a, ip = _ip(monkeypatch=monkeypatch)
-    a._oif.write = AsyncMock(return_value="obs-f")
-    asyncio.run(ip._say_filler("ちょっと待ってね"))
-    ip._speak_filler_in_background.assert_called_once()
-    assert ip._wake.is_open(1009.0)
-
-
-def test_a_filler_after_the_window_closed_is_not_said(monkeypatch):
-    a, ip = _ip(window_open=False, monkeypatch=monkeypatch)
-    asyncio.run(ip._say_filler("ちょっと待ってね"))
-    ip._speak_filler_in_background.assert_not_called()
-
-
 def test_affect_is_not_governed_by_the_window(monkeypatch):
     """情動の発話は窓で決めない（§2.1）。窓が切れていても出口の門のとおりに出る。"""
     a, ip = _ip("情動", window_open=False, monkeypatch=monkeypatch)
@@ -119,19 +105,6 @@ def test_a_long_reply_keeps_the_window_until_ten_seconds_after_it_ends(monkeypat
     assert seen["mid"]  # 話しているあいだ（1006・窓の残りを過ぎた）も開いている
     assert ip._wake.is_open(1021.9)  # 話し終わり（1012）から 10 秒
     assert not ip._wake.is_open(1022.0)
-
-
-def test_a_filler_voice_keeps_the_window_until_ten_seconds_after_it_ends(monkeypatch):
-    ip, clock, seen = _talking_ip(monkeypatch, speech_sec=8.0)
-    del ip._speak_filler_in_background  # 本物（背景で鳴らす）を使う
-
-    async def run():
-        ip._speak_filler_in_background("承知いたしました。少々お待ちください。")
-        await asyncio.wait(list(ip._filler_voices))
-
-    asyncio.run(run())
-    assert seen["mid"]
-    assert ip._wake.is_open(1017.9) and not ip._wake.is_open(1018.0)
 
 
 def test_a_closed_window_is_not_reopened_by_a_voice(monkeypatch):

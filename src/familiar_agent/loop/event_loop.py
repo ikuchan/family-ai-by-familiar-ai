@@ -36,7 +36,6 @@ from ..store.relations import KIND_EXCHANGE, KIND_REVISION, KIND_SUCCESSION
 from ..io.dif import DIF
 from ..core import (
     family_now,
-    filler_echo,
     final_version,
     jev_judges,
     parsing,
@@ -62,9 +61,7 @@ logger = logging.getLogger(__name__)
 # 連鎖が続けられる反復で渡す動作。上限に達した反復では say だけにして必ず閉じる。
 _FULL_ACTIONS = (
     "say",
-    # つなぎ（出-aq 段 2）。**`say` とは別の道具**——`say` は返事なので、つなぎを `say` で
-    # 表すと「もう返事をした」と受け取られ、主LLM は黙った。
-    "filler",
+    # 主LLM のつなぎの道具（`filler`）は撤去した（出-cl 段 3・2026-10-15）。待ちは合図の声と電子音で知らせる。
     "recall",
     # 思い出し方を変えて引き直す道具（出-ah・2026-09-21）。W に載る情報が足りないとき、
     # 面・件数と思い出し方・時期と幅・直近の窓を、主LLM 自身が動かせる。効き目はその 1 回だけ。
@@ -745,13 +742,9 @@ class InformationProcessing:
         # 聞き取りの確認の預かり（出-cm）：見立ての動作・元の言葉・聞き返した文・預けた時刻（monotonic）。
         self._heard_check: "dict | None" = None
         self._background_tasks: set[asyncio.Task] = set()
-        # 鳴っている最中のつなぎの声（出-aq 段 1）。**待たずに鳴らす**ので、捨てられないよう
-        # 参照を持っておき、終わるときに止める。
-        self._filler_voices: set[asyncio.Task] = set()
         #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
         self._version_writes: "set[asyncio.Future]" = set()
         self._version_tail: "asyncio.Future[str | None] | None" = None
-        self._filler_voice_ended = 0.0  # つなぎの声が鳴り終わった時刻（monotonic・出-aq 段 5）
         self._cue_sound: "asyncio.Future[None] | None" = None  # いま鳴らしている合図（出-bd ②）
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
         # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
@@ -1407,9 +1400,7 @@ class InformationProcessing:
         return any(lk.in_flight and lk.action == "主LLM" for lk in self._req.lookups)
 
     def _sounding(self) -> bool:
-        """つなぎの声か合図の声が、いま鳴っているか（出-bd ②：鳴っているあいだは次のつなぎを出さない）。"""
-        if self._filler_voices:
-            return True
+        """合図の声が、いま鳴っているか（鳴っているあいだ待ちの電子音は休む・出-bu）。"""
         cue = getattr(self, "_cue_sound", None)
         return cue is not None and not cue.done()
 
@@ -1565,19 +1556,14 @@ class InformationProcessing:
         """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
         agent = self._agent
         started = time.monotonic()
-        # **言ったつなぎを、主LLM 自身の発言として会話に置く**（出-aq 段 2）。W はつなぎの前に
-        # 組まれるので、ここで足さなければ主LLM はつなぎを知らない（実機 9/21 15:49）。
-        # 通常の呼び出しも発話前の検査の差し戻しも、ここを通る。
-        turns = self._filler_turns(agent.backend)
         # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
         # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
         # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
-        # 会話につなぎを置いたなら、その道具の定義も渡す（使った道具が一覧に無いと読めない）。
-        narrow = ("say", "filler") if turns else ("say",)
+        narrow = ("say",)
         try:
             result, _raw = await agent.backend.stream_turn(
                 system=system,
-                messages=messages + turns,
+                messages=messages,
                 # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
                 tools=self._tools(
                     actions=narrow if capped or retried or say_asked else _FULL_ACTIONS
@@ -2172,7 +2158,6 @@ class InformationProcessing:
     # `ip._agent` を見る（カメラは 段3・記憶は OIF の担当）。
     _ACTIONS: dict = {
         "say": lambda ip: ip._dif.speak_defs(),
-        "filler": lambda ip: ip._dif.filler_defs(),
         "recall": lambda ip: [
             d for d in ip._agent._memory_tool.get_tool_definitions() if d.get("name") == "recall"
         ],
@@ -2592,7 +2577,6 @@ class InformationProcessing:
         self._ledger.close_request(self._req.lookups, state=_intents.ABORTED)
         self._req.lookups.clear()
         self._req.cue = ""
-        self._req.said_fillers.clear()
         self._req.told_unsaid = []
         self._req.added = []
         self._req.draft = ""
@@ -3160,12 +3144,6 @@ class InformationProcessing:
                 await self._driver
             self._driver = None
         self._stop_wait_watch()
-        # 鳴っている最中のつなぎは止める（出-aq 段 1）。**終わるときに声を待たない。**
-        for task in list(self._filler_voices):
-            task.cancel()
-        for task in list(self._filler_voices):
-            with contextlib.suppress(asyncio.CancelledError, Exception):
-                await task
 
     async def _iterate(self) -> str:
         """1反復：取込 → W 構築 → 生成 → 出力（発話 or ツール投げ）で終わる。
@@ -3433,12 +3411,8 @@ class InformationProcessing:
             if draft and await self._rethink_or_speak(draft) == jev_judges.RETHINK:
                 return await self._rethink(draft)
 
-        # 主LLM 自身のつなぎ（出-aq 段 2）。**`say` とは別の道具**なので、返事としては扱わない。
-        filler_tc = next((tc for tc in decision.result.tool_calls if tc.name == "filler"), None)
-
         if lookup_tc is not None:
-            # 調べものと一緒の `filler`・`say` は声にしない（出-aq 段 7）。待たせる間は待ちの知らせが受け、
-            # 5 秒を超えたときだけ一言言う。速く返れば、つなぎ無しで答える。
+            # 調べものと一緒の `say` は声にしない（出-aq 段 7）。待たせる間は合図の声と電子音が受ける。
             if lookup_tc.name in _CAMERA_ACTIONS:
                 self._req.see_by = "主LLM"
             self._start_lookup(
@@ -3447,25 +3421,10 @@ class InformationProcessing:
             logger.info("event-loop 出力=%s（続きは完了で起きる）", lookup_tc.name)
             return ""
 
-        if filler_tc is not None:
-            if say_tc is None:
-                # **つなぎだけ返したら、それを返事として出す。** 黙らせない——本題が無いまま
-                # 閉じれば、相手は何も聞かずに終わる。
-                logger.info("event-loop 主LLM がつなぎだけを返したので、返事として出す")
-                say_tc = filler_tc
-            else:
-                # つなぎ＋返事。つなぎを先に鳴らし、返事はその続きとして出す（重複は `drop_echo`）。
-                await self._say_filler(str(filler_tc.input.get("text", "")).strip())
-
         if say_tc is not None:
             # 写真からの見立て（出-an）。**口に出すなら機械にも渡す**——調停と同じ道を通す。
             await self._apply_seen_people(say_tc.input.get("seen_people"))
             text = str(say_tc.input.get("text", "")).strip()
-            # つなぎで言ったばかりの言葉を、そのまま繰り返させない（出-aj #4）。**言葉では
-            # 止まらなかった**——9 通り試して最良 2/8、基準は 8/8 で繰り返す（`根拠台帳` §47）。
-            # どちらも自分が言った言葉なので、意味を判断せず、重なった冒頭だけを落とす。
-            # **検査より前に落とす**——検査には、実際に出す文を見せる。
-            text = filler_echo.drop_echo(text, self._req.said_fillers)
             # **1回だけ**言い直させる。言い直した応答は検査しない（際限なく往復させない）。
             # 記憶の申告は Jev だけが出す（記-r・2026-10-14・本人の決定）。主LLM が `say` に申告を書いてきても使わない。
             # 検査と同じ呼び出しで聞く（`verdicts`）。検査しなかった返事は `None` で、話したあとに背景で聞く。
@@ -3779,15 +3738,8 @@ class InformationProcessing:
             return text, "沈黙"
         # **頼まれたことへの返事は窓を見ない**（出-bj・2026-10-11・本人の決定イ）。窓で独り言にしていたが、7.5 秒話し・
         # 書き起こし 2.58 秒・調停 1.5 秒で 10 秒を超え、受けた入力への返事を独り言にした。窓は開け直さない（延ばすのは
-        # 開いているときだけ）。つなぎはいまどおり窓を見る（`_say_filler`）。
+        # 開いているときだけ）。
         blocked = self._delivery_block_reason()
-        if blocked and self._req.said_fillers and blocked != "黙っているよう頼まれている":
-            # **つなぎを出したなら本応答も出す**（環-i）。つなぎと本応答は別々にゲートを引く
-            # ので、あいだで在席の証拠（顔の検出・5 分の窓）が切れると「見てみますね」だけ
-            # 出て本文が保留になった（実機）。つなぎを聞いた相手が居た事実を優先する。
-            # 名前で呼ばれた「黙っていて」だけは、つなぎの後でも守る。
-            logger.info("event-loop %s が、つなぎを出した相手へ本応答を出す", blocked)
-            blocked = ""
         if blocked:
             # **止められた発話は、すべて独り言にする**（出-as §2.6・2026-09-26）。思ったこと自体は残す——
             # 本文を返して `_finish` が「考えたが言わなかった」（役割 `独白`）で O に書く。
@@ -3795,126 +3747,12 @@ class InformationProcessing:
             self._req.block_reason = blocked  # 最終版の「言えなかった（理由）」（記-t）
             return text, "独白"
         self._stop_beeps()  # 答えの声が始まる。待ちの電子音を止める（出-bu）
-        await self._pause_after_filler()
         await self._say_aloud(text, careful=self._careful_voice(branch))
         self._note_suggestion_offered(text)
         self._stamp_said()
         self._extend_window_for_conversation()  # 返事から窓の長さぶん（出-as 段 4）
         self._emit(text)
         return text, "発話"
-
-    async def _say_filler(self, text: str) -> None:
-        """つなぎの一言を出す（内容にコミットしない前置き）。配信ゲートは同じく効かせる。
-
-        本応答ではないので、これで反復を閉じない。出せない場面では黙って落とす（独り言としても残さない）。
-        """
-        if not text or self._delivery_block_reason():
-            return
-        if self._window_closed_for_conversation():
-            # 窓が切れた会話にはつなぎも言わない（出-as 段 4）。
-            logger.info("event-loop 窓が切れているのでつなぎを言わない：%.40s", text)
-            return
-        if text.rstrip().endswith(("？", "?")):
-            # **つなぎは疑問文にしない。** 調停が検索を投げながら「何を調べましょうか？」と
-            # 聞き返した（2026-09-13 実機）。相手は答えるべきか待つべきか分からない。規則は
-            # 文で頼んでいたが守られなかったので、機械で落とす。
-            logger.info("event-loop つなぎが疑問文なので出さない：%.40s", text)
-            return
-        if filler_echo.repeats(text, self._req.said_fillers):
-            # **同じつなぎは 2 度言わない**（出-aq 段 4）。もう一言伝えてあるので、黙っても無視には聞こえない。
-            logger.info("event-loop 言ったつなぎと同じなので出さない：%.40s", text)
-            return
-        agent = self._agent
-        # **声は待たずに鳴らす**（出-aq 段 1・2026-09-24）。つなぎは「時間がかかっている
-        # あいだ、無視していないと伝える」ためにあるのに、再生の終わりまで待ってから戻って
-        # いたため、**その後の調べものと主LLM が待たされていた**（実機 15:58：検索は 4.59 秒
-        # 遅れて投げられた）。声が本応答と重ならないのは `TTSTool` の鍵が保証している。
-        self._speak_filler_in_background(text)
-        self._stamp_said()  # つなぎも自分の発話
-        self._extend_window_for_conversation()  # つなぎから窓の長さぶん（出-as 段 4）
-        self._emit(text)
-        # 言ったことを覚えておく。覚えないと、調停は「もう一言伝えた」ことを知らないまま
-        # 同じことをまた言う（実機で1秒差に同じ文が2回出た）。抑止で黙らせるのではなく、
-        # 判断できる材料を渡して解く。
-        #
-        self._req.said_fillers.append(text)
-        # **O へ書く**（段 4）。054 で外したのは、想起の候補を食うからだった。役割が
-        # 「想起に出さない」を担う形になったので、項として持ちながら想起から外せる。
-        # 書かないと、相手が聞いた会話とパジュが読み返す会話が食い違う。
-        obs_id = await agent._oif.write(
-            MI(
-                id="",
-                content=f"つなぎに言った：{text}"[:500],
-                timestamp=None,
-                direction="発話",
-                parent_id=self._req.request_id,
-            ),
-            **agent._observation_perspective(),
-        )
-        self._note_record(obs_id, "つなぎ")
-
-    def _filler_turns(self, backend) -> list:
-        """言ったつなぎを「`filler` を使った発言＋その返り」として組む（出-aq 段 2）。
-
-        **返りは「言った」の報告だけ。** 指示を紛れ込ませない（本人の指摘：道具の返りに
-        「本題はまだ」と書くのは、報告の口の流用である）。つなぎが何であるかは、道具の
-        定義（`FILLER_TOOL`）が持つ。
-
-        口（`make_tool_call_message`）の無い担い手では何もしない。重複は `drop_echo` が受ける。
-        """
-        said = list(getattr(getattr(self, "_req", None), "said_fillers", ()) or ())
-        make = getattr(backend, "make_tool_call_message", None)
-        if not said or make is None:
-            return []
-        from ..backends.types import ToolCall
-
-        calls = [
-            ToolCall(id=f"filler_{i}", name="filler", input={"text": t}) for i, t in enumerate(said)
-        ]
-        return [
-            make(calls),
-            *backend.make_tool_results(calls, [(f"Said: {t}", None) for t in said]),
-        ]
-
-    async def _pause_after_filler(self) -> None:
-        """つなぎの声が鳴り終わって `filler_answer_gap_seconds`（1 秒）たつまで、答えを待たせる（出-aq 段 5）。
-
-        つなぎの直後に答えが始まると、つなぎの意味が無くなる（本人）。数え始めは**鳴り終わったとき**——
-        声は背景で鳴り、長さは文で違う。この求めでつなぎを言っていなければ待たない。
-        """
-        if not self._req.said_fillers:
-            return
-        voices = list(self._filler_voices)
-        if voices:
-            await asyncio.wait(voices)
-        gap = float(getattr(self._agent.config, "filler_answer_gap_seconds", 1.0))
-        left = self._filler_voice_ended + gap - time.monotonic()
-        if left > 0:
-            logger.info("event-loop つなぎの後なので %.1f 秒おいて答える", left)
-            await asyncio.sleep(left)
-
-    def _speak_filler_in_background(self, text: str) -> None:
-        """つなぎの声を背景で鳴らす（出-aq 段 1）。**失敗しても反復は続ける。**
-
-        機器は落ちる前提のもの。声が出なかったことは記録に残すが、例外は外へ出さない
-        ——つなぎを言ったつもりで本応答が止まるほうが困る。
-        """
-
-        gain = self._voice_gain()  # 背景で鳴らすので、倍率はこの求めのうちに決めておく
-
-        async def _voice() -> None:
-            try:
-                await self._say_aloud(text, gain=gain)
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001
-                logger.warning("event-loop つなぎの声を出せなかった：%.40s", text, exc_info=True)
-            finally:
-                self._filler_voice_ended = time.monotonic()  # 答えはここから数えて待つ（段 5）
-
-        task = asyncio.ensure_future(_voice())
-        self._filler_voices.add(task)
-        task.add_done_callback(self._filler_voices.discard)
 
     def _delivery_block_reason(self) -> str:
         """配信ゲート。発話を出せない理由を返す（出せるなら空文字）。
@@ -4069,14 +3907,8 @@ class InformationProcessing:
             wake = self.__dict__["_wake"] = WakeWindow()
         return wake
 
-    def _window_closed_for_conversation(self) -> bool:
-        """会話の求めで、窓が切れているか（出-as 段 4）。つなぎだけが見る（返事は見ない・出-bj）。情動・機器は窓で決めない。"""
-        return self._req.trigger_kind == "発話" and not self._wake_window().is_open(
-            time.monotonic()
-        )
-
     def _extend_window_for_conversation(self) -> None:
-        """会話の求めで返事・つなぎを出したら、そこから窓の長さ（10 秒）へ延ばす（開いているときだけ）。"""
+        """会話の求めで返事を出したら、そこから窓の長さ（10 秒）へ延ばす（開いているときだけ）。"""
         if self._req.trigger_kind == "発話":
             self._wake_window().extend(time.monotonic())
 
@@ -4975,7 +4807,6 @@ class InformationProcessing:
         self._req.live_version_id = None
         self._ledger.close_request(self._req.lookups, state=_intents.CLOSED)
         self._req.lookups.clear()
-        self._req.said_fillers.clear()
         self._req.told_unsaid = []
         self._req.added = []
         self._req.draft = ""

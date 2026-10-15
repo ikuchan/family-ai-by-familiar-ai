@@ -59,26 +59,6 @@ def test_answer_is_reported_as_a_say_action():
     assert _run_with_action(a) == [("say", {"text": "やあ"})]
 
 
-def test_filler_is_reported_as_a_say_action_too():
-    # つなぎも発話なので、同じ経路で画面に出す。出さないと、調べているあいだ GUI が
-    # 無反応に見える。つなぎは待ちの知らせが言う（出-aq 段 6・7）ので、その口を直接呼ぶ。
-    import time
-
-    a = _agent(stream_returns=[])
-    actions: list[tuple[str, dict]] = []
-
-    async def scenario():
-        ip = InformationProcessing(a)
-        ip._wake_window().open(time.monotonic())  # 入口を通った会話（出-as 段 4）
-        ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
-        ip.set_output(lambda _t: None, on_action=lambda n, i: actions.append((n, i)))
-        await ip._say_filler("調べてみますね")
-        await ip.close()
-
-    asyncio.run(scenario())
-    assert ("say", {"text": "調べてみますね"}) in actions
-
-
 def test_output_can_be_registered_without_an_action_sink():
     # CUI は on_action を持たない。渡さなくても壊れないこと。
     ip = InformationProcessing(MagicMock())

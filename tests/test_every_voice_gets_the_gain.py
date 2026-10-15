@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import inspect
 from unittest.mock import AsyncMock, MagicMock
 
@@ -26,33 +25,6 @@ def _ip():
     ip._dif = MagicMock()
     ip._dif.speak = AsyncMock()
     return ip
-
-
-def test_the_filler_voice_gets_the_everyday_gain():
-    ip = _ip()
-
-    async def run():
-        ip._speak_filler_in_background("承知いたしました。少々お待ちください。")
-        await asyncio.wait(list(ip._filler_voices))
-
-    asyncio.run(run())
-    ip._dif.speak.assert_awaited_once()
-    assert ip._dif.speak.await_args.kwargs.get("gain") == 0.25
-
-
-def test_the_reply_and_the_filler_get_the_same_gain():
-    ip = _ip()
-    ip._delivery_block_reason = lambda: ""
-    ip._wake.open(event_loop.time.monotonic())
-
-    async def run():
-        ip._speak_filler_in_background("少々お待ちください。")
-        await asyncio.wait(list(ip._filler_voices))
-        await ip._speak("はい、何の曲にしますか？")
-
-    asyncio.run(run())
-    gains = [c.kwargs.get("gain") for c in ip._dif.speak.await_args_list]
-    assert gains == [0.25, 0.25]
 
 
 def test_only_one_place_calls_the_speaker():

@@ -27,13 +27,10 @@ def _make_tts(api_key: str = "fake-key", voice_id: str = "fake-voice"):
 
 
 def test_get_tool_definitions_returns_say():
-    """先頭は `say`。2 つめにつなぎ（`filler`）がある（出-aq 段 2・2026-09-25）。
-
-    つなぎを `say` で表すと主LLM は「もう返事をした」と受け取って黙ったので、別の道具にした。
-    """
+    """声の道具は `say` だけ。つなぎの道具（`filler`）は撤去した（出-cl 段 3・2026-10-15）。"""
     tool = _make_tts()
     defs = tool.get_tool_definitions()
-    assert [d["name"] for d in defs] == ["say", "filler"]
+    assert [d["name"] for d in defs] == ["say"]
 
 
 # ---------------------------------------------------------------------------

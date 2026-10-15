@@ -27,7 +27,7 @@ capabilities:
       the name must come first (spaces and punctuation before it are skipped, but words
       such as "ねえ" or "あのさ" before it are not), with one letter of difference allowed,
       whether spoken or typed. A name in the middle of a sentence does not count.
-      Hearing the name opens a 30-second window; each accepted input, reply or filler
+      Hearing the name opens a 30-second window; each accepted input or reply
       extends it by 30 seconds. The window is judged by when the input arrived. Input
       outside the window is dropped without side effects: nothing in progress is
       interrupted, and the screen shows it only as "聞いていない" in the status line, not
@@ -152,12 +152,7 @@ capabilities:
       While someone is kept waiting in a conversation, no filler line is spoken: after
       the short acknowledgement cue, a soft beep repeats every second until the answer
       starts (also while music is playing), and the waiting keeps the listening window
-      open. Besides `say` (the reply),
-      the reply may use a second voice tool `filler` for its opening; it is kept apart
-      from `say` because a filler given as `say` reads as the reply already given.
-      Fillers already spoken are placed in the reply's conversation as the agent's own
-      `filler` calls, and words the reply repeats at its start are dropped before
-      speaking.
+      open. The only voice tool is `say` (the reply); there is no separate filler tool.
       Implemented in `tools/tts.py`.
     enabled: true
   - id: appraisal_engine
