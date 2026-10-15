@@ -1453,16 +1453,16 @@ class InformationProcessing:
     async def _beep_while_waiting(self, gen: int) -> None:
         """合図が鳴り終わってから答えの声が始まるまで、機械音 A を間隔をあけて 1 回ずつ鳴らす（出-bu）。
 
-        10/12 22:15 に、合図「はい」から最初のつなぎまで 13 秒無音だった。音楽が鳴っているあいだは鳴らさない（本人）。
-        つなぎや合図の声が鳴っている・準備中のあいだは休む。鳴らすのにかかった時間を引いて、次まで待つ。
+        10/12 22:15 に、合図「はい」から最初のつなぎまで 13 秒無音だった。音楽が鳴っているあいだも鳴らす（出-cl・2026-10-15・
+        本人の決定カ・つなぎの声をやめたので、鳴らさないと待ちのあいだ何も鳴らない）。音楽は絞らない（`dif.beep`）。
+        合図の声が鳴っている・準備中のあいだは休む。鳴らすのにかかった時間を引いて、次まで待つ。
         """
         interval = float(getattr(self._agent.config, "wait_beep_interval_seconds", 1.0))
         loop = asyncio.get_running_loop()
         with contextlib.suppress(asyncio.CancelledError):
             while gen == self._request_generation:
                 started = loop.time()
-                music = getattr(self._agent, "_music_state", None)
-                if not getattr(music, "playing", False) and not self._sounding():
+                if not self._sounding():
                     with contextlib.suppress(Exception):
                         await self._dif.beep()
                     self._beep_count += 1

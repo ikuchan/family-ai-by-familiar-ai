@@ -1,4 +1,4 @@
-"""待ちのあいだの電子音（出-bu・2026-10-12・本人の決定：間隔 0.5 秒・音楽中は鳴らさない）。
+"""待ちのあいだの電子音（出-bu・2026-10-12・本人の決定：間隔 0.5 秒→1 秒）。音楽中も鳴らす（出-cl・2026-10-15・本人の決定カ）。
 
 10/12 22:15「明日の天気は?」では、合図「はい」から最初のつなぎまで 13 秒無音だった（調べもの約 5 秒・調停の聞き直し
 約 2 秒・主LLM 約 5 秒）。機械音 A は最初の判断のあいだ（0.5 秒ほど）しか鳴らない。合図が鳴り終わってから答えの声が
@@ -50,24 +50,12 @@ def test_it_beeps_while_waiting():
     assert len(beeps) >= 3
 
 
-def test_no_beeps_while_music_plays():
+def test_beeps_while_music_plays():
+    """つなぎの声をやめたので、音楽中に鳴らさないと待ちのあいだ何も鳴らない（出-cl・本人の決定カ）。音楽は絞らない。"""
     ip, beeps = _ip()
     ip._agent._music_state.playing = True
     _run(ip, seconds=0.3)
-    assert beeps == []
-
-
-def test_beeps_come_back_when_the_music_stops():
-    """**反証の側**：音楽が止まれば鳴る。"""
-    ip, beeps = _ip()
-    ip._agent._music_state.playing = True
-
-    async def stop_music():
-        await asyncio.sleep(0.1)
-        ip._agent._music_state.playing = False
-
-    _run(ip, seconds=0.25, during=stop_music)
-    assert beeps
+    assert len(beeps) >= 3
 
 
 def test_beeps_rest_while_a_filler_sounds():
