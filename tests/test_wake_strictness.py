@@ -7,8 +7,7 @@
 
 - **名前だけ**（名前 1 つと、伸ばす音・句読点だけの書き起こし）：ふだん 無音らしさ 0.10 以下・確かさ -0.65 以上、
   厳しい 0.05 以下・-0.60 以上で受ける。名前のくり返し（「パジュ、パジュー」）は名前＋言葉の側に入る。
-- **名前＋言葉**：ふだんはいまのまま（1 字違いを許す・確かさを見ない）。厳しいときは 1 字違いを許さず、無音らしさ
-  0.30 以下（出-ch・2026-10-15 に 0.20 から）・確かさ -0.90 以上で受ける。
+- **名前＋言葉**：ふだんは確かさを見ない。厳しいときは無音らしさ 0.30 以下（出-ch・2026-10-15 に 0.20 から）・確かさ -0.90 以上で受ける。
 - 確かさが無い入力（ElevenLabs・TUI）は確かさを見ずに通す。
 """
 
@@ -98,9 +97,13 @@ def test_not_a_repeat(text):
     assert not ws.is_name_repeat(text, NAMES)
 
 
-def test_strict_does_not_allow_one_letter_off():
-    assert _ok("パチュ、いま何時？", strict=False, ns=0.05, lp=-0.5)  # 1 字違い（ふだんは許す）
-    assert not _ok("パチュ、いま何時？", strict=True, ns=0.05, lp=-0.5)
+def test_one_letter_off_needs_the_meaning_in_both_modes():
+    """1 字違いは、段にかかわらず意味の確かめ（`near_ok`）が要る（出-ch・2026-10-16・本人の決定サ）。"""
+    for strict in (False, True):
+        assert not _ok("パチュ、いま何時？", strict=strict, ns=0.05, lp=-0.5)
+        assert ws.admits(
+            "パチュ、いま何時？", NAMES, strict=strict, no_speech=0.05, logprob=-0.5, near_ok=True
+        )[0]
 
 
 def test_strict_words_need_the_floor():
@@ -190,9 +193,13 @@ def test_the_keyboard_is_unchanged():
 def test_with_someone_here_a_known_voice_and_a_recent_talk_it_is_lenient():
     import time
 
-    ip, _ = _gate(here=True, known_voice=True)
+    from tests.test_a_near_name_needs_a_meaning import _Jev
+
+    ip, a = _gate(here=True, known_voice=True)
+    a._jev = _Jev("other")  # 1 字違いは意味を確かめてから（出-ch・2026-10-16）
     ip._wake_window().until = time.monotonic() - 60  # 1 分前に閉じた
-    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is True  # 1 字違いを許す
+    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is True
+    assert _heard(ip, "パジュ、いま何時？", ns=0.31, lp=-0.5) is True  # ふだんは値を見ない
 
 
 @pytest.mark.real_window
@@ -201,7 +208,7 @@ def test_an_unknown_voice_makes_it_strict_even_with_someone_here():
 
     ip, _ = _gate(here=True, known_voice=False)
     ip._wake_window().until = time.monotonic() - 60
-    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is False
+    assert _heard(ip, "パジュ、いま何時？", ns=0.31, lp=-0.5) is False  # 厳しい段の値で落ちる
 
 
 @pytest.mark.real_window
@@ -210,7 +217,7 @@ def test_nobody_here_makes_it_strict_at_once():
 
     ip, _ = _gate(here=False, known_voice=True)
     ip._wake_window().until = time.monotonic() - 60  # 1 分前に閉じたばかりでも
-    assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is False
+    assert _heard(ip, "パジュ、いま何時？", ns=0.31, lp=-0.5) is False  # 厳しい段の値で落ちる
 
 
 def test_the_quiet_minutes_setting_is_gone():

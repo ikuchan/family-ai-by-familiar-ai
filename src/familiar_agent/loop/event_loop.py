@@ -3883,7 +3883,7 @@ class InformationProcessing:
         名前で呼ばれたか（`Trigger.named`）もここで決める。
         """
         from ..core.silence_hold import lifts
-        from ..core.wake_strictness import is_name_repeat
+        from ..core.wake_strictness import is_name_repeat, near_name_only
         from ..core.wake_window import heard_name
         from ..silence_state import is_silenced
 
@@ -3907,7 +3907,19 @@ class InformationProcessing:
                 and trigger.source == "voice"
                 and not self._wake_window().is_open(self._arrival(trigger))
             ):
-                trigger.named = self._wake_admits(trigger, names)
+                near_ok = False
+                if near_name_only(trigger.query, names):
+                    # 1 字違いでだけ当たった名前は、言葉の意味を Jev に確かめてから（出-ch・2026-10-16・本人の決定サ）。
+                    # 名前がそのまま当たるときは待たない。
+                    started = time.monotonic()
+                    near_ok = await jev_judges.judge_wake_meaning(
+                        getattr(self._agent, "_jev", None), text=trigger.query
+                    )
+                    logger.info(
+                        "event-loop 1 字違いの名前の意味を聞いた（%.2f 秒）",
+                        time.monotonic() - started,
+                    )
+                trigger.named = self._wake_admits(trigger, names, near_ok=near_ok)
         req = None
         with contextlib.suppress(Exception):
             req = self._load_silence()
@@ -3988,7 +4000,9 @@ class InformationProcessing:
         """会話入力が届いた時刻（`time.monotonic()`）。付いていなければいま。"""
         return trigger.arrived or time.monotonic()
 
-    def _wake_admits(self, trigger: "Trigger", names: "list[str]") -> bool:
+    def _wake_admits(
+        self, trigger: "Trigger", names: "list[str]", *, near_ok: bool = False
+    ) -> bool:
         """窓が閉じているときの声で、名前で窓を開けてよいか（2026-10-05 実機の聞き違い「パジュー」・本人の決定）。
 
         基準は 2 段（`core/wake_strictness`）。**厳しい**のは、居ない（顔ぶれも在席も無い）とき、または誰の声か分からない
@@ -4013,6 +4027,7 @@ class InformationProcessing:
             no_speech=trigger.no_speech,
             logprob=trigger.logprob,
             cfg=cfg,
+            near_ok=near_ok,
         )
         # 通したときも値を残す（出-ch）。捨てた値だけでは、上限を上げて物音で起きたかを見直せない。本文は出さない。
         logger.info(

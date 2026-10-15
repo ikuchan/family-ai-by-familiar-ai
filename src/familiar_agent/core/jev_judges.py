@@ -144,6 +144,42 @@ async def judge_addressee(client, *, text: str, recent: str, present: str, min_c
     return verdict
 
 
+#: 意味を成さないとみなす発話の意味（成立しないもの・文脈に合わない言葉）。
+_NO_MEANING = frozenset({"unformed", "off_context"})
+
+
+async def judge_wake_meaning(client, *, text: str) -> bool:
+    """1 字違いでだけ名前に当たった声の言葉が、意味を成すか（出-ch・2026-10-16・本人の決定サ）。倒し先は「成さない」（捨てる）。
+
+    ふつう名前のあとには用件が続く（本人）。発話の意味の一覧（`utterance_meaning.MEANINGS`）で聞き、「成立しないもの」
+    「文脈に合わない言葉」以外なら意味を成すとする。確信度では絞らない——実機の 22 件で、本物の「バジルのこのこと…」が
+    0.32、崩れた音が 0.61・0.86 だった（jev-1.13.0・`計測_設定値根拠台帳` §59）。
+    """
+    from . import utterance_meaning as um
+
+    state = (
+        f"[パジュが聞いた言葉（音声の書き起こし・名前は崩れて書き起こされることがある）]\n{text}"
+    )
+    questions = {
+        "meaning": choice(
+            "この人の言葉は、次のどれに当たるか（直前のやりとりは無い）",
+            {k: um.MEANINGS[k][1] for k in um.offered(music=True, camera=True)},
+        )
+    }
+    answer = await _ask(client, state, questions)
+    if not getattr(answer, "ok", False):
+        logger.info("Jev 判定 1 字違いの名前：答えなし（捨てる）")
+        return False
+    got = (getattr(answer, "answers", None) or {}).get("meaning") or {}
+    pick = str(got.get("choice") or "")
+    logger.info(
+        "Jev 判定 1 字違いの名前：%s（確信 %.2f）",
+        pick or "-",
+        float(got.get("confidence", 0.0) or 0.0),
+    )
+    return bool(pick) and pick not in _NO_MEANING
+
+
 async def judge_speech(
     client, *, response: str, recent: str, facts: str, rules: "dict[str, str]", min_conf: float
 ) -> "str | None":
