@@ -71,7 +71,12 @@ capabilities:
       top of those writes month and year summaries for the family and for each person.
       `recall_tree` walks that tree for the far past: name a year ("2025"), a month
       ("2025-08") or a day ("2025-08-15") — several at once, for the family or one
-      person — and it returns just those summaries. All memory goes through
+      person — and it returns just those summaries. `recall_thread` follows one
+      remembered exchange forward and back along the chain of what came before and
+      after it ("what happened after that?"): give the 12-character id shown in the
+      workspace and how many steps before and after (up to 10 each). When a remembered
+      exchange is recalled, the one just before it and the one just after it are also
+      offered as related memories. All memory goes through
       `io/oif.py`; the store is `tools/memory.py` and `store/`, on `DATABASE_URL`.
     enabled: true
   - id: mic_capture

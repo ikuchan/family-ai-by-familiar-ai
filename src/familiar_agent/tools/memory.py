@@ -561,6 +561,14 @@ class ObservationMemory:
             since, until, exclude_id=exclude_id, mark=MARK
         )
 
+    def thread(self, obs_id: str, *, before: int, after: int) -> list[dict]:
+        """継起を前後にたどる（記-q・`RelationStore.thread`）。"""
+        return RelationStore(self._ctx).thread(obs_id, before=before, after=after)
+
+    def id_from_short(self, short: str) -> "str | None":
+        """W に印字した 12 桁の id から完全な id を引く（記-q）。"""
+        return RelationStore(self._ctx).id_from_short(short)
+
     def recent_exchanges(self, origin_id: "str") -> "list[dict]":
         """継起をさかのぼり、各やりとりの口に出した項を古い順に返す。"""
         return RelationStore(self._ctx).recent_exchanges(origin_id)
@@ -866,6 +874,12 @@ class ObservationMemory:
                         cands += recall_by_person(conn, pid, limit=cap)
                     # 段4：居合わせた人たちで共有している出来事。2人以上のときだけ効く。
                     cands += shared_memory_ids(conn, present_ids, limit=cap)
+                    # 継起の前後 1 つずつ（記-q・2026-10-15・本人の決定ホ）。思い出した話の前とあとも候補にする。
+                    # 上限（`diffuse_max_add`）は増やさず、ほかの出どころと取り合う。
+                    neighbors = RelationStore(self._ctx).succession_neighbors(known, conn=conn)
+                    if neighbors:
+                        logger.info("関連想起：継起の前後 %d 件を候補に", len(neighbors))
+                    cands += neighbors
                     # **2 つの並びから交互に取る**（記-a-ろ-い・2026-09-14）：seed から遠い順
                     # （分類上の新規性・4b）と、思い出していない順（`last_recalled_at` が古い・
                     # 掘り起こし）。配分は `diffuse_far_share`（層 3 の設定値）。

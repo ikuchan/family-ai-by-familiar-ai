@@ -27,6 +27,7 @@ _RESEARCH = frozenset(
         "recall_when",
         "recall_recent",
         "recall_tree",
+        "recall_thread",
         "house_rules",
         "family_schedule",
         "notion_search",

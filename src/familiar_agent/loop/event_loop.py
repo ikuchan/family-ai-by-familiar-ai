@@ -70,6 +70,7 @@ _FULL_ACTIONS = (
     "recall_when",
     "recall_recent",
     "recall_tree",  # 記憶の木の節を指して要約を読む（記-m）
+    "recall_thread",  # 記録の前後の話をたどる（記-q）
     "search_deferred",
     "fetch_deferred",
     "see",
@@ -96,7 +97,17 @@ _FULL_ACTIONS = (
     "stop_stopwatch",
 )
 #: 思い出し方を変える道具（出-ah）。`recall` と同じく、その場で引いて完了として返る。
-_WIDEN_ACTIONS = ("recall_as", "recall_deeper", "recall_when", "recall_recent", "recall_tree")
+_WIDEN_ACTIONS = (
+    "recall_as",
+    "recall_deeper",
+    "recall_when",
+    "recall_recent",
+    "recall_tree",
+    "recall_thread",
+)
+
+#: `recall_thread` で前後それぞれにたどる件数の上限（〔仮〕・記-q・2026-10-15 本人の決定メ）。道具の説明でも教える。
+THREAD_MAX_STEPS = 10
 
 #: 音楽の道具（知-aa）。`recall` と同じく、その場で返る。
 _MUSIC_ACTIONS = (
@@ -428,6 +439,25 @@ _WIDEN_DEFS: dict[str, dict] = {
                 "minutes": {"type": "integer", "description": "何分前まで（1〜30・省略で 30）"},
                 "turns": {"type": "integer", "description": "何往復まで（1〜20・省略で 20）"},
             },
+        },
+    },
+    # 記録の前後の話をたどる（記-q・2026-10-15・本人の決定ハ・メ）。件数は主LLM が決める（既定は持たない）。
+    "recall_thread": {
+        "name": "recall_thread",
+        "description": (
+            "思い出した話の前後をたどる。**「あのあとどうなった？」「その話の続きは？」「その前は何の話だった？」のとき**"
+            "に使う。作業状態に載った記録の id（12 桁）を渡すと、その記録から話の続きの鎖を前と後にたどって、古い順に返す。"
+            "前に何件・後に何件たどるかは自分で決める（前だけなら after を 0）。どちらも 10 件まで"
+            "（それより多く書いても 10 件で止める）。"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "id": {"type": "string", "description": "作業状態に載った記録の id（12 桁）"},
+                "before": {"type": "integer", "description": "前に何件たどるか（0〜10）"},
+                "after": {"type": "integer", "description": "後に何件たどるか（0〜10）"},
+            },
+            "required": ["id", "before", "after"],
         },
     },
 }
@@ -1879,6 +1909,44 @@ class InformationProcessing:
             return "節が指されていない（年 2025・月 2025-08・日 2025-08-15 の形で指す）"
         return whose + "\n" + "\n".join(parts)
 
+    def _recall_thread(self, tool_input: dict) -> str:
+        """記録の前後の話を継起でたどる（記-q・2026-10-15）。機械が O から引くだけで、LLM は使わない。
+
+        件数は主LLM が決め、前後それぞれ `THREAD_MAX_STEPS`（10 件〔仮〕）で止める。止めたら返りの先頭にそう書く。
+        """
+        oif = self._agent._oif
+        short = str(tool_input.get("id") or "").strip()
+        full = oif.id_from_short(short) if short else None
+        if full is None:
+            return f"id「{short}」の記録は見つからない（作業状態に載った 12 桁の id を渡す）"
+
+        def _steps(key: str) -> int:
+            try:
+                return max(0, int(tool_input.get(key) or 0))
+            except (TypeError, ValueError):
+                return 0
+
+        before, after = _steps("before"), _steps("after")
+        notes = []
+        if before > THREAD_MAX_STEPS:
+            notes.append(f"前は {THREAD_MAX_STEPS} 件までにした")
+        if after > THREAD_MAX_STEPS:
+            notes.append(f"後は {THREAD_MAX_STEPS} 件までにした")
+        before, after = min(before, THREAD_MAX_STEPS), min(after, THREAD_MAX_STEPS)
+        rows = oif.thread(full, before=before, after=after)
+        logger.info("event-loop recall_thread：前 %d・後 %d 件", before, after)
+        head = f"（{THREAD_MAX_STEPS} 件まで：" + "・".join(notes) + "）\n" if notes else ""
+        if len(rows) <= 1:
+            return head + "前後につながる記録が無い"
+
+        def _label(off: int) -> str:
+            return "【これ】" if off == 0 else (f"【前 {-off}】" if off < 0 else f"【後 {off}】")
+
+        n_before = sum(1 for r in rows if int(r.get("offset", 0)) < 0)
+        n_after = sum(1 for r in rows if int(r.get("offset", 0)) > 0)
+        lines = [f"{_label(int(r.get('offset', 0)))}{r.get('content', '')}" for r in rows]
+        return head + f"（id {short} の前 {n_before} 件・後 {n_after} 件）\n" + "\n".join(lines)
+
     async def _run_widen(self, action: str, tool_input: dict) -> str:
         """思い出し方を変えて引き直す（出-ah・2026-09-21）。
 
@@ -1891,6 +1959,8 @@ class InformationProcessing:
 
         if action == "recall_tree":
             return self._recall_tree(tool_input)
+        if action == "recall_thread":
+            return self._recall_thread(tool_input)
         agent = self._agent
         cfg = MemoryConfig()
         query = str(tool_input.get("query") or self._req.cue or "")
@@ -2168,6 +2238,7 @@ class InformationProcessing:
         "recall_when": lambda ip: [_widen_def("recall_when")],
         "recall_recent": lambda ip: [_widen_def("recall_recent")],
         "recall_tree": lambda ip: [_widen_def("recall_tree")],
+        "recall_thread": lambda ip: [_widen_def("recall_thread")],
         # net（投げっぱなしの外部呼び出し）。結果は完了キュー経由で後の反復に届く。
         "search_deferred": lambda ip: ip._dif.lookup_defs("search_deferred"),
         "fetch_deferred": lambda ip: ip._dif.lookup_defs("fetch_deferred"),

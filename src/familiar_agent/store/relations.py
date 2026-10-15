@@ -274,6 +274,93 @@ class RelationStore:
                 )
                 return [dict(r) for r in cur.fetchall()]
 
+    def thread(self, obs_id: str, *, before: int, after: int) -> list[dict]:
+        """`obs_id` から継起を前へ `before` 歩・後へ `after` 歩たどり、古い順に返す（記-q・2026-10-15）。
+
+        前へさかのぼるだけの `recent_exchanges` と違い、ある記録の**あと**どう続いたかも引く。たどるのは継起の辺だけで、
+        項の役割は見ない（最終版どうしも、昔の起点どうしも同じに歩く）。改訂で畳まれた記録は返さない（歩くのは通り抜ける）。
+        返りは `id`・`content`・`timestamp`・`offset`（前は負・自分は 0・後は正）を持つ dict の並び。
+        """
+        walk = (
+            "WITH RECURSIVE back AS ("
+            "  SELECT %s::text AS obs_id, 0 AS depth"
+            "  UNION ALL"
+            "  SELECT p.obs_id, b.depth + 1 FROM back b"
+            "    JOIN relation_members n ON n.obs_id = b.obs_id AND n.role = '後'"
+            "    JOIN relations r ON r.id = n.relation_id AND r.kind = %s"
+            "    JOIN relation_members p ON p.relation_id = n.relation_id AND p.role = '前'"
+            "  WHERE b.depth < %s"
+            "), fwd AS ("
+            "  SELECT %s::text AS obs_id, 0 AS depth"
+            "  UNION ALL"
+            "  SELECT n.obs_id, f.depth + 1 FROM fwd f"
+            "    JOIN relation_members p ON p.obs_id = f.obs_id AND p.role = '前'"
+            "    JOIN relations r ON r.id = p.relation_id AND r.kind = %s"
+            "    JOIN relation_members n ON n.relation_id = p.relation_id AND n.role = '後'"
+            "  WHERE f.depth < %s"
+            "), steps AS ("
+            "  SELECT obs_id, -depth AS off FROM back UNION SELECT obs_id, depth FROM fwd"
+            ") "
+            "SELECT o.id, o.content, o.timestamp, min(s.off) AS pos FROM steps s "
+            "JOIN observations o ON o.id::text = s.obs_id "
+            f"WHERE {not_hidden('o')} "
+            "GROUP BY o.id, o.content, o.timestamp ORDER BY pos"
+        )
+        args = (obs_id, KIND_SUCCESSION, max(0, before), obs_id, KIND_SUCCESSION, max(0, after))
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(walk, args)
+                rows = [dict(r) for r in cur.fetchall()]
+        # `offset` は SQL の予約語なので、列は `pos` で受けて詰め替える。
+        return [
+            {**{k: v for k, v in r.items() if k != "pos"}, "offset": int(r["pos"])} for r in rows
+        ]
+
+    def id_from_short(self, short: str) -> "str | None":
+        """W に印字した 12 桁の id（`-` を除いた先頭 12 字）から、記録の完全な id を引く（記-q）。
+
+        12 桁の 16 進でなければ引かない。当たりが 1 件でなければ（無い・重なる）None。
+        """
+        sid = (short or "").strip().lower()
+        if len(sid) != 12 or any(c not in "0123456789abcdef" for c in sid):
+            return None
+        prefix = f"{sid[:8]}-{sid[8:]}%"
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute("SELECT id FROM observations WHERE id::text LIKE %s LIMIT 2", (prefix,))
+                rows = cur.fetchall()
+        return str(_first(rows[0])) if len(rows) == 1 else None
+
+    def succession_neighbors(
+        self, obs_ids: "list[str]", *, conn: "object | None" = None
+    ) -> list[str]:
+        """渡した記録それぞれと継起で直接つながる記録（前後 1 つずつ）の id を返す（記-q・関連想起の出どころ）。
+
+        渡した id 自身と、改訂で畳まれた記録は除く。**既に錠を持っている呼び手は `conn` を渡す**（`cooccurring` と同じ）。
+        """
+        ids = [str(o) for o in obs_ids if o]
+        if not ids:
+            return []
+        if conn is not None:
+            return self._succession_neighbors(conn, ids)
+        with self._ctx.lock:
+            return self._succession_neighbors(self._ctx.conn(), ids)
+
+    def _succession_neighbors(self, conn, ids: list) -> list[str]:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT other.obs_id FROM relation_members me "
+                "JOIN relations r ON r.id = me.relation_id AND r.kind = %s "
+                "JOIN relation_members other ON other.relation_id = me.relation_id "
+                " AND other.obs_id <> me.obs_id "
+                "JOIN observations o ON o.id::text = other.obs_id "
+                f"WHERE me.obs_id = ANY(%s) AND NOT (other.obs_id = ANY(%s)) AND {not_hidden('o')}",
+                (KIND_SUCCESSION, ids, ids),
+            )
+            return [str(_first(r)) for r in cur.fetchall()]
+
     def recent_exchanges(
         self, origin_id: str, *, roles: "tuple[str, ...]" = ("起点", "添え", "つなぎ", "答え")
     ) -> list[dict]:

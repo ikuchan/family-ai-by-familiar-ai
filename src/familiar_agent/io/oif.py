@@ -515,6 +515,16 @@ class OIF:
         logger.debug("OIF recent_finals ← %s〜%s → %d件", since, until, len(got))
         return got
 
+    def thread(self, obs_id: str, *, before: int, after: int) -> list[dict]:
+        """継起を前へ `before`・後へ `after` たどり、古い順に（記-q・主LLM の道具 `recall_thread`）。"""
+        got = self._memory.thread(obs_id, before=before, after=after)
+        logger.debug("OIF thread ← 前 %d・後 %d → %d件", before, after, len(got))
+        return got
+
+    def id_from_short(self, short: str) -> "str | None":
+        """W に印字した 12 桁の id から完全な id を引く（記-q）。"""
+        return self._memory.id_from_short(short)
+
     def latest_origins(self, n: int) -> list[str]:
         """時系列で新しい順に、やりとりの起点を n 件（記-h）。
 
