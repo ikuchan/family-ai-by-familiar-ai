@@ -121,6 +121,11 @@ def is_music_word(
     return len(s) <= CONTROL_MAX_CHARS and bool(_CONTROL.search(s))
 
 
+def passes_unnamed(text: str, table: "tuple[tuple[str, str, bool], ...]") -> bool:
+    """鳴っているあいだ、名前が無くても入口で受ける言葉か（操作の言葉かプレイリスト名・出-cp・本人の決定ア）。"""
+    return is_music_word(text, table)
+
+
 def expired(started_at: float, *, now: float) -> bool:
     """鳴らし始めてから `MUSIC_MAX_SEC` を過ぎたか。"""
     return (now - started_at) >= MUSIC_MAX_SEC

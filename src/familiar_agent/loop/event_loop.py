@@ -4056,6 +4056,17 @@ class InformationProcessing:
         if trigger.kind == "会話入力":
             # タイマーの操作の言葉（止めて・一時停止・再開）にも**名前が要る**（出-au 段 1-2・`設計方針_判定の段`
             # §2.1）。以前は名前が無くても通していたが（出-ab）、打ち切りには名前が要る決まりにそろえた。
+            if self._music_word_while_playing(trigger):
+                # 鳴っているあいだの音楽の言葉は、名前が無くても受ける（出-cp・2026-10-15・本人の決定ア）。マイクの関門は
+                # 通しているのに、ここで捨てて止まらなかった（10/14 23:21）。**窓は開けない**——開けるとテレビや家族の話も
+                # 30 秒受ける。家族どうしかも聞かない（「ストップ」は短く、家族どうしと読まれやすい）。返事は頼まれたことへの
+                # 返事なので、窓を見ずに話す（出-bj）。
+                logger.info(
+                    "event-loop 音楽の言葉なので名前なしで受けた（%d 字）", len(trigger.query or "")
+                )
+                if self._muted:
+                    self._pending_heard = self._take_muted()
+                return False
             if not self._wake_window_admits(trigger):
                 # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
@@ -4240,6 +4251,23 @@ class InformationProcessing:
             self._log_voice_scores(False, scores, verdict)
         except Exception:  # noqa: BLE001
             logger.warning("捨てた声の似かたを測れなかった", exc_info=True)
+
+    def _music_word_while_playing(self, trigger: "Trigger") -> bool:
+        """声で、名前が無く、窓が閉じていて、音楽が鳴っていて、音楽の言葉か（出-cp）。"""
+        if trigger.source != "voice" or trigger.named:
+            return False
+        if self._wake_window().is_open(self._arrival(trigger)):
+            return False
+        state = getattr(self._agent, "_music_state", None)
+        if getattr(state, "playing", False) is not True:
+            return False
+        from ..core.music_rules import passes_unnamed
+
+        table: tuple = ()
+        with contextlib.suppress(Exception):
+            got = self._agent._music_table()
+            table = got if isinstance(got, tuple) else ()
+        return passes_unnamed(trigger.query or "", table)
 
     def _wake_window_admits(self, trigger: "Trigger") -> bool:
         """会話入力を窓で受けるか（出-as 段 3・出-au 段 1-2・`設計方針_判定の段` §2.1）。受けたら窓を開ける／延ばす。

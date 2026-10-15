@@ -123,14 +123,15 @@ def test_a_timer_control_word_needs_the_name():
     ip._abort_lookups.assert_awaited_once()
 
 
-def test_a_music_word_while_playing_also_needs_the_name():
-    # 鳴っているあいだの音楽の操作にも名前が要る（知-aa・本人の決定・2026-09-30）。声の入口の音楽の門
-    # （`realtime_stt_session._passes_gate`）を通った言葉も、窓の門は別に通る。窓の中なら名前は要らない。
+def test_a_music_word_while_playing_passes_without_the_name():
+    # 鳴っているあいだの音楽の言葉は、名前が無くても受ける（出-cp・2026-10-15・本人の決定ア）。9/30 の決定（知-aa）
+    # では名前が要ったが、名前の無い「ストップ」を捨てて止まらなかった（10/14 23:21）。音楽でない言葉は捨てる。
     ip, a = _ip()
     a._music_state = MagicMock(playing=True)
-    assert _push(ip, "次の曲") is False
+    a._music_table = lambda: ()
+    assert _push(ip, "次の曲") is True
+    assert _push(ip, "今日の天気は？") is False  # 窓は開けていないので、音楽でない言葉は捨てる
     assert _push(ip, "パジュ、次の曲") is True
-    assert _push(ip, "小さくして") is True  # 名前で開いた窓の中
 
 
 def test_a_timer_silence_is_lifted_only_by_the_named_control_word():
