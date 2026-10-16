@@ -29,8 +29,11 @@ capabilities:
       that is one letter off ("パンシュー、おはよう") counts only when the words make sense as
       something said to the agent: the agent asks Jev what the words mean, and drops them
       when they do not form anything or do not fit (a garbled "シュー" does not wake it). A name in the middle of a sentence does not count.
-      Hearing the name opens a 30-second window; each accepted input or reply
-      extends it by 30 seconds. The window is judged by when the input arrived. Input
+      Hearing the name opens a 10-second window; each accepted input or reply
+      extends it by 10 seconds, and it closes 10 seconds after the agent stops speaking.
+      A spoken name alone ("パジュー") gets no reply: it quietly opens the window, so the
+      request said next is heard without the name, and it always raises the wish to be
+      close (a repeated name alone does not open the window). The window is judged by when the input arrived. Input
       outside the window is dropped without side effects: nothing in progress is
       interrupted, and the screen shows it only as "聞いていない" in the status line, not
       in the conversation log. If no name is set in ME.md, nothing is taken as

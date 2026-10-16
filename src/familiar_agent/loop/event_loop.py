@@ -706,6 +706,8 @@ class Trigger:
     # `会話入力` だけが使う。書き起こしの無音らしさと確かさ（名前で起きる基準・2026-10-05）。無ければ None。
     no_speech: "float | None" = None
     logprob: "float | None" = None
+    # `会話入力` だけが使う。声で名前だけを聞き、返事をせずに窓を開けた（出-ch 段 3）。画面には「聞いた」と出す。
+    quiet_open: bool = False
 
 
 class InformationProcessing:
@@ -2559,7 +2561,7 @@ class InformationProcessing:
             logprob=logprob,
         )
         if await self._swallow_if_unheard(trigger):
-            self._notify_heard(utterance, False)
+            self._notify_heard(utterance, trigger.quiet_open)
             self._log_swallowed_voice(voice)  # 点数だけ残す（知-as 段 1）
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
         shown = utterance
@@ -3883,7 +3885,7 @@ class InformationProcessing:
         名前で呼ばれたか（`Trigger.named`）もここで決める。
         """
         from ..core.silence_hold import lifts
-        from ..core.wake_strictness import is_name_repeat, near_name_only
+        from ..core.wake_strictness import is_name_only, is_name_repeat, near_name_only
         from ..core.wake_window import heard_name
         from ..silence_state import is_silenced
 
@@ -3900,6 +3902,9 @@ class InformationProcessing:
                 logger.info(
                     "event-loop 名前の繰り返しなので捨てた（%d 字）", len(trigger.query or "")
                 )
+                await (
+                    self._nudge_by_name()
+                )  # 窓は開けないが、情動は動かす（出-ch 段 3・本人の決定タ）
                 return self._swallowed(trigger)
             trigger.named = heard_name(trigger.query, names)
             if (
@@ -3939,13 +3944,30 @@ class InformationProcessing:
                 return False
             await self._note_muted(trigger, now)
             return self._swallowed(trigger)
+        if (
+            trigger.kind == "会話入力"
+            and trigger.source == "voice"
+            and is_name_only(trigger.query, names)
+        ):
+            # 声で名前だけなら返事をしない。値が足りれば黙って窓を開け、続けて言う用件を名前なしで受ける。ふつうは
+            # 名前のあとに用件が続く（出-ch 段 3・2026-10-16・本人の決定ア・カ）。呼ばれたことで情動はいつも動かす。
+            if trigger.named:
+                self._wake_window().open(self._arrival(trigger))
+                trigger.quiet_open = True
+            logger.info(
+                "event-loop 名前だけなので黙って窓を%s（%d 字）",
+                "開けた" if trigger.named else "開けなかった",
+                len(trigger.query or ""),
+            )
+            await self._nudge_by_name()
+            return self._swallowed(trigger)
         if trigger.kind == "会話入力":
             # タイマーの操作の言葉（止めて・一時停止・再開）にも**名前が要る**（出-au 段 1-2・`設計方針_判定の段`
             # §2.1）。以前は名前が無くても通していたが（出-ab）、打ち切りには名前が要る決まりにそろえた。
             if self._music_word_while_playing(trigger):
                 # 鳴っているあいだの音楽の言葉は、名前が無くても受ける（出-cp・2026-10-15・本人の決定ア）。マイクの関門は
                 # 通しているのに、ここで捨てて止まらなかった（10/14 23:21）。**窓は開けない**——開けるとテレビや家族の話も
-                # 30 秒受ける。家族どうしかも聞かない（「ストップ」は短く、家族どうしと読まれやすい）。返事は頼まれたことへの
+                # 10 秒受ける。家族どうしかも聞かない（「ストップ」は短く、家族どうしと読まれやすい）。返事は頼まれたことへの
                 # 返事なので、窓を見ずに話す（出-bj）。
                 logger.info(
                     "event-loop 音楽の言葉なので名前なしで受けた（%d 字）", len(trigger.query or "")
@@ -4211,6 +4233,18 @@ class InformationProcessing:
                 await self._agent._nudge_drive(
                     "bond", cfg.voice_bond_nudge, "知っている声がした（誰か居る）"
                 )
+
+    async def _nudge_by_name(self) -> None:
+        """声で名前だけを聞いたら BOND を `voice_name_bond_nudge`（0.05）押し上げる（出-ch 段 3・本人の決定カ・サ）。
+
+        `_nudge_by_voice` と違い、居るか・誰の声かは見ない。呼ばれたことが、誰かが居る証拠になる。
+        """
+        from ..config import DriveConfig
+
+        with contextlib.suppress(Exception):
+            await self._agent._nudge_drive(
+                "bond", DriveConfig().voice_name_bond_nudge, "名前を呼ばれた"
+            )
 
     def _nobody_here(self) -> bool:
         """出口の門と同じ「居る」（`agent._someone_here`・顔ぶれか在席・知-ai）が無いか。読めなければ居る扱い。"""

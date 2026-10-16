@@ -170,8 +170,12 @@ def test_tonights_form_is_dropped_at_the_gate():
 
 @pytest.mark.real_window
 def test_a_real_call_opens_the_window():
+    import time
+
     ip, _ = _gate()
-    assert _heard(ip, "パジュ", ns=0.019, lp=-0.558) is True
+    # 名前だけなので返事はしないが、窓は開ける（出-ch 段 3・`test_a_bare_name_opens_quietly`）
+    assert _heard(ip, "パジュ", ns=0.019, lp=-0.558) is False
+    assert ip._wake_window().is_open(time.monotonic())
 
 
 @pytest.mark.real_window
@@ -180,7 +184,8 @@ def test_an_open_window_still_hears_everything():
 
     ip, _ = _gate()
     ip._wake_window().open(time.monotonic())
-    assert _heard(ip, "パジュー", ns=0.150, lp=-0.723) is True
+    # 名前だけは窓の中でも返事をしない（出-ch 段 3）ので、用件を続けた形で見る
+    assert _heard(ip, "パジュー、いま何時？", ns=0.150, lp=-0.723) is True
 
 
 @pytest.mark.real_window

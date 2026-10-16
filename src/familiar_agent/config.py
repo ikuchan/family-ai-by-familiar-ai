@@ -928,6 +928,11 @@ class DriveConfig:
     voice_safety_nudge: float = field(
         default_factory=lambda: _float_env("DRIVE_VOICE_SAFETY_NUDGE", 0.10)
     )
+    # 声で名前だけを聞いたときに BOND へ足す量（出-ch 段 3・2026-10-16・本人の決定サ）。返事はしないが、呼ばれたことで
+    # 情動は動かす。居るか・声が当たるか・値は見ない。漏れ聞こえた声（`voice_bond_nudge`）と同じ量から始める〔仮〕。
+    voice_name_bond_nudge: float = field(
+        default_factory=lambda: _float_env("DRIVE_VOICE_NAME_BOND_NUDGE", 0.05)
+    )
 
     # バイアス b_i（中立時 g_{D,i}=b_i・0〜1・仮値）
     bias_seeking: float = 0.20

@@ -66,7 +66,7 @@ def test_the_window_closes_after_ten_seconds(monkeypatch):
     ip, _ = _ip()
     clock = [1000.0]
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.monotonic", lambda: clock[0])
-    assert _heard(ip, "パジュ") is True
+    assert _heard(ip, "パジュ") is False  # 名前だけは返事をせず、窓だけ開ける（出-ch 段 3）
     clock[0] += 9.0
     assert _heard(ip, "ねえ") is True  # 窓の中・延びる
     clock[0] += 11.0
