@@ -56,13 +56,13 @@ capabilities:
   - id: deferred_fetch
     summary: Asynchronously fetch content from a URL and inject it on the next turn
     detail: >
-      Used for fire-and-forget URL fetching. The result is made available in the
+      `fetch_deferred` is used for fire-and-forget URL fetching. The result is made available in the
       agent's workspace on the subsequent turn. Implemented in `tools/deferred_fetch.py`.
     enabled: true
   - id: deferred_search
     summary: Asynchronously perform a search and inject results on the next turn
     detail: >
-      Enables fire-and-forget search queries. The search results are delivered to
+      `search_deferred` enables fire-and-forget search queries. The search results are delivered to
       the agent's workspace on the subsequent turn. Implemented in `tools/deferred_search.py`.
     enabled: true
   - id: memory
@@ -70,7 +70,8 @@ capabilities:
     detail: >
       Observations are embedded and stored in PostgreSQL with pgvector. Each turn
       recalls from the current person's view by relevance, recency, emotion,
-      groundedness and viewpoint; `recall_as`, `recall_deeper`, `recall_when` and
+      groundedness and viewpoint; `recall` searches the memories of everyone present on
+      purpose, and `recall_as`, `recall_deeper`, `recall_when` and
       `recall_recent` let the agent draw again in another way when it cannot remember.
       Every night REST folds the day into a day summary and a note per person, and on
       top of those writes month and year summaries for the family and for each person.
@@ -177,6 +178,38 @@ capabilities:
       label quantisation and the mood register live in `emotion_pad.py` and
       `mood_register.py`.
     enabled: true
+  - id: timer
+    summary: Set a timer that rings after some minutes, and pause, resume or stop it
+    detail: >
+      `set_timer` rings after the given minutes ("パジュ、3 分測って") with a short label
+      of what it is for; only one timer runs at a time. `pause_timer` and `resume_timer`
+      hold and continue it (the ringing time moves later by the paused time), and
+      `cancel_timer` stops it. The running timer and its time left are shown as [タイマー]
+      on every turn. When it would ring in the quiet hours or while asked to be quiet, the
+      agent first asks once whether to set it; the answer is taken by `confirm` or
+      `decline`. When due it rings once and says what it was for, even in the quiet hours.
+      A time of day ("7 時に") is an alarm, not a timer. Implemented in `tools/timer.py`,
+      `loop/timer_watch.py` and `core/confirm_state.py`.
+    enabled_tool: set_timer
+  - id: alarm
+    summary: Set an alarm that rings at a time of day, and cancel it
+    detail: >
+      `set_alarm` rings at a time of day ("7 時に起こして"); a time already past means
+      tomorrow. Up to 5 alarms can be set at once, shown as [アラーム] on every turn, and
+      `cancel_alarm` cancels one or all. It asks once before setting only when it would
+      ring in the quiet hours (23-7); the answer is taken by `confirm` or `decline`.
+      Something to be rung after some minutes is a timer, not an alarm. Implemented in
+      `tools/alarm.py` and `loop/alarm_watch.py`.
+    enabled_tool: set_alarm
+  - id: stopwatch
+    summary: Measure how long something takes with a stopwatch
+    detail: >
+      `start_stopwatch` starts measuring from now ("今から測って"); it never rings, and
+      only one runs at a time. The time so far is shown as [ストップウォッチ] on every
+      turn, and `stop_stopwatch` stops it and says how long it was ("何分だった？"). One
+      left running for 6 hours is stopped by itself without a word. Implemented in
+      `tools/stopwatch.py` and `loop/stopwatch_watch.py`.
+    enabled_tool: start_stopwatch
   - id: music
     summary: Play the family's Spotify playlists, say what is playing, and remember it
     detail: >

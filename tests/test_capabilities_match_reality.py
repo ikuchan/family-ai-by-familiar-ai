@@ -145,3 +145,52 @@ def test_the_spare_engine_is_named_in_the_manifest():
     """控え（`TTS_FALLBACK`）は**仕組みそのもの**なので、名前で確かめる（環-y）。"""
     m = load_manifest()
     assert "TTS_FALLBACK" in m, "控えの担い手の仕組みが台帳に無い"
+
+
+# ── 道具を足したら台帳も直す（出-cr・2026-10-16） ──────────────────────────
+
+#: 台帳に書かなくてよい道具。1 件ずつ理由を書く。
+_NOT_A_CAPABILITY = {
+    # 作られるが、主LLM にも調停にも渡っていない（2026-10-16）。書けばできないことを語る。
+    # 配線するか撤去するかは環-ak で決める。
+    "walk",
+}
+
+
+def _tool_names() -> set[str]:
+    """道具の定義（`"name": "…", "description"`）の名前。**コードが正**である。"""
+    from pathlib import Path
+
+    src = Path(__file__).parent.parent / "src/familiar_agent"
+    names: set[str] = set()
+    for p in src.rglob("*.py"):
+        text = p.read_text(encoding="utf-8")
+        names |= set(re.findall(r'"name":\s*"([a-z_]+)",\s*"description"', text))
+    return names
+
+
+def test_every_tool_is_named_in_the_manifest():
+    """**道具を足したら台帳も直す。**
+
+    タイマー・アラーム・ストップウォッチ（知-n・知-q・知-u）を作ったのに、台帳に 1 件も
+    書いていなかった。誰も気づかなかった——パジュは自分にタイマーがあると知らない（出-cr）。
+
+    名前を並べて見張らない。並べた数は網羅を証明しないので、**定義の形から全部集める**。
+    """
+    names = _tool_names()
+    assert names, "道具の名前が 1 つも取れていない（正規表現が壊れている）"
+    m = load_manifest()
+    missing = sorted(
+        n for n in names - _NOT_A_CAPABILITY if f"`{n}`" not in m and f"`{n}(" not in m
+    )
+    assert missing == [], f"台帳に書いていない道具: {missing}"
+
+
+def test_timers_are_gated_by_their_own_tools():
+    """タイマー・アラーム・ストップウォッチは別物なので、項も門も別に持つ。"""
+    tools = {"set_timer", "set_alarm", "start_stopwatch"}
+    with_tools = _ids(filter_enabled(load_manifest(), env={}, tools=tools))
+    without = _ids(filter_enabled(load_manifest(), env={}, tools=set()))
+    for cap in ("timer", "alarm", "stopwatch"):
+        assert cap in with_tools
+        assert cap not in without
