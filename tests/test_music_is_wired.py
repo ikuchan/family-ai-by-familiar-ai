@@ -53,7 +53,7 @@ async def test_music_stops_by_itself_after_thirty_minutes():
         io=io, bus=MagicMock(), state=state, now=1000.0 + MUSIC_MAX_SEC, say=said.append
     )
     io.stop.assert_awaited_once()
-    assert said and "30 分" in said[0]
+    assert said == ["音楽：30 分たったので止めた"]  # 事実の形。言い方は軽量LLM が書く（知-bh）
     assert state.playing is False
 
 

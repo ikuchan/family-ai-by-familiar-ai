@@ -128,7 +128,7 @@ async def test_the_tonic_watch_records_what_it_reads(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_a_finished_playlist_is_not_announced_at_thirty_minutes(monkeypatch):
-    """鳴り終わっていたら、30 分たっても「止めるね」とは言わない（もう鳴っていない）。"""
+    """鳴り終わっていたら、30 分たっても「30 分たったので止めた」とは知らせない（もう鳴っていない）。"""
     from familiar_agent.loop.tonic import Tonic
 
     monkeypatch.setattr("familiar_agent.loop.tonic.time.time", lambda: 1000.0 + MUSIC_MAX_SEC)

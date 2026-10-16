@@ -16,7 +16,7 @@ from tests._arbiter_fakes import decide, jev_says, prompt_of, writer_says
 _NOTICES = [
     "[タイマー] タイマー：「パパとの約束」の時間（パパに頼まれたもの）",
     "[アラーム] アラーム：7 時（パパに頼まれたもの）",
-    "[音楽] 30 分たったから、音楽を止めるね",
+    "[音楽] 音楽：30 分たったので止めた",
 ]
 
 
@@ -64,3 +64,36 @@ def test_the_device_lead_no_longer_says_stay_quiet():
 
     assert "黙っていてよい" not in _LEAD_DEVICE
     assert "済んだこと" in _LEAD_DEVICE and "改めて応じない" in _LEAD_DEVICE
+
+
+# ── 知らせの理由・時刻を落とさない（知-bh・2026-10-16・本人の決定イ） ──────────
+
+_KEEP = "知らせにある理由・時刻・何のためは落とさずに入れる"
+
+
+@pytest.mark.parametrize("notice", _NOTICES)
+def test_the_writer_is_told_to_keep_the_reason_and_time(notice):
+    """実機 10/16 14:03、30 分で止めた知らせが「音楽を止めました。」になり、理由が落ちた。"""
+    writer = writer_says({"text": "30 分たったから止めたよ"})
+    asyncio.run(decide(jev=jev_says("full"), writer=writer, utterance=notice, origin="機器"))
+    assert _KEEP in prompt_of(writer)
+
+
+def test_the_other_roads_are_not_told_the_device_rule():
+    """**反証の側**：機器の知らせ以外（返事・情動・道具の返り）の先導文には載せない。"""
+    from familiar_agent.loop import arbiter
+
+    for lead in (arbiter._LEAD_REPLY, arbiter._LEAD_SELF, arbiter._LEAD_TOOL_RETURN):
+        assert _KEEP not in lead
+    writer = writer_says({"text": "はい"})
+    asyncio.run(
+        decide(
+            jev=jev_says("light"),
+            writer=writer,
+            utterance=_NOTICES[0],
+            origin="機器",
+            tool_return=True,
+            returned=(("cancel_timer", False, "タイマーを止めた"),),
+        )
+    )
+    assert _KEEP not in prompt_of(writer)

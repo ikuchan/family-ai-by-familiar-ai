@@ -231,7 +231,8 @@ capabilities:
       as [音楽] on every turn, so the agent can say what is playing. Each new song and
       the moment the music stops (the playlist ended or it was stopped elsewhere) are
       kept in memory, so it can later recall what was listened to. The music is turned
-      down to a quarter while the agent speaks, and stops by itself after 30 minutes.
+      down to a quarter while the agent speaks, and stops by itself after 30 minutes, saying
+      that 30 minutes have passed.
       Implemented in `tools/music.py`, `io/music.py` and `loop/music_watch.py`.
     enabled_tool: play_music
   - id: mcp_client

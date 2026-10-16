@@ -33,7 +33,8 @@ async def check_music_expired(
     await io.stop(bus)
     state.playing = False
     logger.info("音楽：30 分たったので止めた")
-    say("30 分たったから、音楽を止めるね")
+    # 言い方は軽量LLM が書くので、事実の形で渡す（知-bh・2026-10-16）。
+    say("音楽：30 分たったので止めた")
     return True
 
 
