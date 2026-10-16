@@ -226,7 +226,6 @@ familiar-ai কিছুমান হাৰ্ডওয়্যাৰ সহ �
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ camera | Eyes + neck | Tapo C220 (~$30, Eufy C220) | **Recommended** |
 | USB webcam | Eyes (fixed) | Any UVC camera | **Recommended** |
-| Robot vacuum | Legs | Any Tuya-compatible model | No |
 | PC / Raspberry Pi | Brain | Anything that runs Python | **Yes** |
 
 > **এটা কেমেৰা দৃঢ়ভাৱে এইটো চাৰা।** একো নাথাকিলে, familiar-ai কথাবাৰ্তা কৰিব পাৰে — কিন্তু ই জগত চাবলৈ অক্ষম, যিটো সঁচাকৈয়ে সম্পূৰ্ণ মূলক।

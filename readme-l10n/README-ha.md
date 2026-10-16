@@ -225,7 +225,6 @@ familiar-ai yana aiki tare da kowanne kayan aiki da kuke da shi — ko ba komai 
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ kyamara | Ido + wuya | Tapo C220 (~$30, Eufy C220) | **An ba da shawara** |
 | USB webcam | Ido (daskare) | Kowane kyamara UVC | **An ba da shawara** |
-| Robot vacuum | Kafafu | Kowane samfurin da ya dace da Tuya | A'a |
 | PC / Raspberry Pi | Kwamfuta | Kowane abu da ke gudanar da Python | **Iya** |
 
 > **Ana ba da shawarar kyamara sosai.** Sai dai idan ba shi da ita, familiar-ai na iya magana — amma ba zai iya ganin duniya ba, wanda shine babban dalilin.

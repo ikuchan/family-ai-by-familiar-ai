@@ -226,7 +226,6 @@ familiar-ai toimii kaikella laitteistolla, joka sinulla on — tai ilman sitä.
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ -kamera | Silmät + kaula | Tapo C220 (~30€, Eufy C220) | **Suositeltava** |
 | USB-web-kamera | Silmät (kiinteä) | Mikä tahansa UVC-kamera | **Suositeltava** |
-| Robotti-imuri | Jalat | Mikä tahansa Tuya-yhteensopiva malli | Ei |
 | PC / Raspberry Pi | Aivot | Mikä tahansa, joka pyörittää Pythonia | **Kyllä** |
 
 > **Kamera on vahvasti suositeltava.** Ilman sitä familiar-ai voi edelleen puhua — mutta se ei voi nähdä maailmaa, mikä on ikään kuin koko idea.

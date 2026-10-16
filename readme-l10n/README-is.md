@@ -224,7 +224,6 @@ familiar-ai virkar með hvaða vélbúnaði sem þú hefur — eða engu að öl
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ myndavél | Augu + háls | Tapo C220 (~$30, Eufy C220) | **Mælt með** |
 | USB vefmyndavél | Augu (föst) | Allar UVC myndavélar | **Mælt með** |
-| Robot ryksuga | Fætur | Allar Tuya-samsvörunar líkön | Nei |
 | PC / Raspberry Pi | Heili | Allt sem keyrir Python | **Já** |
 
 > **Myndavél er mjög mælt með.** án þess getur familiar-ai samt talað — en það getur ekki séð heiminn, sem er í raun aðal atriðið.

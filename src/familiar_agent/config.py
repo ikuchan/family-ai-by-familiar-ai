@@ -200,14 +200,6 @@ class CameraConfig:
 
 
 @dataclass
-class MobilityConfig:
-    api_region: str = field(default_factory=lambda: os.environ.get("TUYA_REGION", "us"))
-    api_key: str = field(default_factory=lambda: os.environ.get("TUYA_API_KEY", ""))
-    api_secret: str = field(default_factory=lambda: os.environ.get("TUYA_API_SECRET", ""))
-    device_id: str = field(default_factory=lambda: os.environ.get("TUYA_DEVICE_ID", ""))
-
-
-@dataclass
 class TTSConfig:
     elevenlabs_api_key: str = field(
         default_factory=lambda: os.environ.get("ELEVENLABS_API_KEY", "")
@@ -833,7 +825,6 @@ class AgentConfig:
         default_factory=lambda: _float_env("MUSIC_SPOTIFYD_WAIT_SEC", 10.0)
     )
     camera: CameraConfig = field(default_factory=CameraConfig)
-    mobility: MobilityConfig = field(default_factory=MobilityConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)

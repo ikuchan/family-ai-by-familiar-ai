@@ -225,7 +225,6 @@ familiar-ai veikia su bet kuria turima aparatine įranga — arba visai be jos.
 |-------|------------|-----------|---------|
 | Wi-Fi PTZ kamera | Akys + kaklas | Tapo C220 (~$30, Eufy C220) | **Rekomenduojama** |
 | USB vaizdo kamera | Akys (fiksuotos) | Bet kuri UVC kamera | **Rekomenduojama** |
-| Robotinis dulkių siurblys | Kojos | Bet kuris Tuya suderinamas modelis | Ne |
 | PC / Raspberry Pi | Smegenys | Bet kas, kas veikia Python | **Taip** |
 
 > **Kamera stipriai rekomenduojama.** Be jos, familiar-ai vis tiek gali kalbėti — tačiau jis negali matyti pasaulio, kas yra esmė.

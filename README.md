@@ -283,7 +283,6 @@ familiar-ai works with whatever hardware you have — or none at all.
 | Wi-Fi PTZ camera | Eyes + neck | Tapo C220 (~$30) | **Recommended** |
 | Wi-Fi camera (fixed) | Eyes only | Eufy C220 (no pan/tilt) | Optional |
 | USB webcam | Eyes (fixed) | Any UVC camera | **Recommended** |
-| Robot vacuum | Legs | Any Tuya-compatible model | No |
 | PC / Raspberry Pi | Brain | Anything that runs Python | **Yes** |
 
 > **A camera is strongly recommended.** Without one, familiar-ai can still talk — but it can't see the world, which is kind of the whole point.

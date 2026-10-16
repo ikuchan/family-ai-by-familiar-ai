@@ -225,7 +225,6 @@ familiar-ai funcționează cu orice hardware ai, sau fără deloc.
 |-------|---------|---------|-----------|
 | Cameră Wi-Fi PTZ | Ochi + gât | Tapo C220 (~$30, Eufy C220) | **Recomandat** |
 | Webcam USB | Ochi (fix) | Orice cameră UVC | **Recomandat** |
-| Aspirator robot | Picioare | Orice model compatibil Tuya | Nu |
 | PC / Raspberry Pi | Creier | Orice care rulează Python | **Da** |
 
 > **O cameră este foarte recomandată.** Fără ea, familiar-ai poate încă vorbi — dar nu poate vedea lumea, ceea ce este cam tot.

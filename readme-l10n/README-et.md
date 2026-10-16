@@ -226,7 +226,6 @@ familiar-ai töötab koos igasuguse riistvaraga — või üldse mitte.
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ kaamera | Silmad + kael | Tapo C220 (~$30, Eufy C220) | **Soovitatav** |
 | USB veebikaamera | Silmad (staatilised) | Ükskõik milline UVC kaamera | **Soovitatav** |
-| Robotitolmuimeja | Jalad | Mis tahes Tuya-ühilduv mudel | Ei |
 | PC / Raspberry Pi | Aju | Mis tahes, mis käivitab Pythonit | **Jah** |
 
 > **Kaamera on kindlalt soovitatav.** Ilma selleta saab familiar-ai siiski rääkida — kuid ta ei näe maailma, mis on kogu idee.

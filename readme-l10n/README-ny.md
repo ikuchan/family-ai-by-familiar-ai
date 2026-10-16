@@ -225,7 +225,6 @@ familiar-ai ikugwira ntchito ndi hardware yanu iliyonse — kapena ilibe chilich
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ camera | Maso + khosi | Tapo C220 (~$30, Eufy C220) | **Zokhulupirira** |
 | USB webcam | Maso (omangidwa) | Kamera iliyonse ya UVC | **Zokhulupirira** |
-| Robot vacuum | Magazi | Chochita chilichonse cha Tuya | Ayi |
 | PC / Raspberry Pi | Maganizo | Chilichonse chomwe chimagwiritsidwa ntchito ndi Python | **Chofunika** |
 
 > **Kamera iyenera kuthandizidwa.** Popanda imwe, familiar-ai ingalankhule — koma siyikuwona dziko, zomwe zili kundochita mopanga.

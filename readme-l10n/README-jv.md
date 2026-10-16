@@ -226,7 +226,6 @@ familiar-ai bisa digunakake kanthi hardware apa wae sing sampeyan duwe — utawa
 |------|-------------|---------|-----------|
 | Kamera Wi-Fi PTZ | Mata + leher | Tapo C220 (~$30, Eufy C220) | **Disaranake** |
 | Webcam USB | Mata (tetep) | Sembarang kamera UVC | **Disaranake** |
-| Vacuum robot | Sikil | Sembarang model kompatibel Tuya | Ora |
 | PC / Raspberry Pi | Otak | Apa wae sing mlaku Python | **Ya** |
 
 > **Kamera disaranake banget.** Tanpa kamera, familiar-ai isih bisa ngomong — nanging ora bisa ndeleng jagad, sing iku kita'repè ngatur.

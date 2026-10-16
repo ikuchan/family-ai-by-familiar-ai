@@ -226,7 +226,6 @@ mae familiar-ai yn gweithio gyda pha bynnag offer sydd gennyf — neu dim o gwbl
 |------|---------------------|------------|---------|
 | Camera PTZ Wi-Fi | Llygaid + gwddf | Tapo C220 (~$30, Eufy C220) | **Argymhell** |
 | Camera USB | Llygaid (ffisegol) | Unrhyw gamera UVC | **Argymhell** |
-| Pwmpen robot | Coesau | Unrhyw fodel sy'n gydnaws â Tuya | Na |
 | PC / Raspberry Pi | Ymennydd | Unrhyw beth sy'n rhedeg Python | **Ie** |
 
 > **Mae camera yn annerchadwy.** Heb un, gall familiar-ai dal siarad — ond ni all wel neu gyffwrdd â'r byd, sy'n rhyw fath o'r holl bwynt.

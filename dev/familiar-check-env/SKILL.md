@@ -80,19 +80,6 @@ which mpv || which ffplay
 
 ---
 
-### Section 4: Mobility / Robot Vacuum (optional)
-
-| Var | Notes |
-|-----|-------|
-| `TUYA_API_KEY` | From Tuya IoT Platform |
-| `TUYA_API_SECRET` | From Tuya IoT Platform |
-| `TUYA_DEVICE_ID` | The vacuum's device ID in Tuya |
-| `TUYA_REGION` | `us` / `eu` / `cn` / `in` |
-
-Mobility tool silently skips init if any of these are missing.
-
----
-
 ## Output Format
 
 Report findings grouped by severity:
@@ -112,9 +99,6 @@ Report findings grouped by severity:
 [TTS]
   ⚠️  ELEVENLABS_API_KEY not set → TTS disabled
   ⚠️  mpv not found in PATH, ffplay not found → no local audio playback
-
-[MOBILITY]
-  ℹ️  TUYA_* not set → mobility disabled (OK if no robot vacuum)
 ```
 
 Always end with a summary:

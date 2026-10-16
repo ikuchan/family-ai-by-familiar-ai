@@ -224,7 +224,6 @@ familiar-ai funciona amb qualsevol maquinari que tinguis — o cap en absolut.
 |-------|--------|---------|-----------|
 | Càmera PTZ Wi-Fi | Ulls + coll | Tapo C220 (~$30, Eufy C220) | **Recomanat** |
 | Webcam USB | Ulls (fixa) | Qualsevol càmera UVC | **Recomanat** |
-| Robot aspirador | Cames | Qualsevol model compatible amb Tuya | No |
 | PC / Raspberry Pi | Cervell | Qualsevol cosa que executi Python | **Sí** |
 
 > **Es recomana fortament una càmera.** Sense ella, familiar-ai pot parlar — però no pot veure el món, que és una mica el tema.

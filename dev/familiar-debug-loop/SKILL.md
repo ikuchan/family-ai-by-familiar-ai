@@ -12,7 +12,7 @@ Diagnose why the familiar-ai agent loop is stuck, looping, or behaving unexpecte
 - Agent responds but never calls any tools
 - Agent keeps calling the same tool in a loop
 - "Tool not available" errors despite the tool being configured
-- TTS / camera / mobility silently does nothing
+- TTS / camera silently does nothing
 - Agent finishes immediately without doing anything useful
 - Weird JSON parse errors in prompt-mode tool calling
 
@@ -37,7 +37,6 @@ cfg = AgentConfig()
 agent = FamiliarAgent(cfg)
 
 print("Camera:", agent._camera)     # None = not initialized
-print("Mobility:", agent._mobility) # None = not initialized
 print("TTS:", agent._tts)           # None = not initialized
 print("Tools:", [t["name"] for t in agent._all_tool_defs])
 ```

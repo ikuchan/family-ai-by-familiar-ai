@@ -225,7 +225,6 @@ familiar-ai akoki kozala na hardware nyonso okoki — to okosengaka.
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ camera | Miso + risanga | Tapo C220 (~$30, Eufy C220) | **Obenga** |
 | USB webcam | Miso (simaki) | Nyonso UVC kamera | **Obenga** |
-| Robot vacuum | Makabo | Nyonso milayi ya Tuya | Te |
 | PC / Raspberry Pi | Motema | Eloko nionso eza na Python | **Ee** |
 
 > **Kamera ezali na bokebisa.** Na yo, familiar-ai akoki koloba — kasi akoki te kokanisa mabele, oyo ezali na se ya koko.

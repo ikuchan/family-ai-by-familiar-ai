@@ -225,7 +225,6 @@ familiar-ai oibríonn le haon chrua-earraí atá agat — nó gan aon chrua-earr
 |------|-------------|---------|-----------|
 | Ceamara PTZ Wi-Fi | Súil + muineál | Tapo C220 (~$30, Eufy C220) | **Moltar** |
 | Webcam USB | Súil (duillín) | Aon cheamara UVC | **Moltar** |
-| Vacuím róbó | Cosanna | Aon mhúnla comhoiriúnach Tuya | Níl |
 | PC / Raspberry Pi | Cuimhne | Aon rud a reáchtálann Python | **Sea** |
 
 > **Moltar ceamara go forte.** Gan ceamara, is féidir le familiar-ai labhairt — ach ní féidir leis an domhan a fheiceáil, rud atá i ndáiríre mar an pointe ar fad.

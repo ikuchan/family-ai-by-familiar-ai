@@ -51,25 +51,6 @@ TOOL_LOOK = {
     },
 }
 
-TOOL_WALK = {
-    "name": "walk",
-    "description": (
-        "Move the robot vacuum body. "
-        "NOTE: The camera is a SEPARATE fixed device. "
-        "walk() does NOT change what the camera sees."
-    ),
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "direction": {
-                "type": "string",
-                "enum": ["forward", "backward", "left", "right"],
-            }
-        },
-        "required": ["direction"],
-    },
-}
-
 TOOL_REMEMBER = {
     "name": "remember",
     "description": "Save a memory to long-term storage.",
@@ -94,7 +75,7 @@ TOOL_RECALL = {
 }
 
 # Default tool set used when a scenario doesn't override
-DEFAULT_TOOLS = [TOOL_SAY, TOOL_SEE, TOOL_LOOK, TOOL_WALK, TOOL_REMEMBER, TOOL_RECALL]
+DEFAULT_TOOLS = [TOOL_SAY, TOOL_SEE, TOOL_LOOK, TOOL_REMEMBER, TOOL_RECALL]
 
 
 # ── Scenario dataclass ───────────────────────────────────────────────────────
@@ -178,18 +159,6 @@ SCENARIOS: list[Scenario] = [
         verdict_question=(
             "Is the say() content in English? "
             "Japanese output would mean the language-match rule was not followed."
-        ),
-    ),
-    # ── 6. Camera + legs independence ───────────────────────────────────────
-    Scenario(
-        name="camera_legs_independent",
-        description="User asks to 'get closer' — model must NOT use walk() for vision.",
-        user_input="もっと近くで見せて。",
-        avoid_tool_calls=["walk"],
-        want_tool_calls=["look", "see"],  # correct: look closer, then see
-        verdict_question=(
-            "Did the model use look() + see() to 'get closer', "
-            "NOT walk()? walk() for vision purposes is wrong."
         ),
     ),
     # ── 7. Health awareness → remember() ────────────────────────────────────

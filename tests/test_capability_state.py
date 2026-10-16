@@ -76,11 +76,6 @@ def test_tts_has_silent_mode():
     assert any(k in d for k in ["silent", "display-only"]), f"got: {d!r}"
 
 
-def test_mobility_has_walk():
-    """mobility.py docstring mentions walk()."""
-    assert "walk(" in _doc("mobility.py"), f"got: {_doc('mobility.py')!r}"
-
-
 # `tools/person.py`（`declare_speaker` など）は主LLM に渡っておらず、環-ab で外した。
 
 

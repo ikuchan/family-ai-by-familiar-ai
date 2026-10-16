@@ -226,7 +226,6 @@ familiar-ai funguje s jakýmkoli hardwarem, který máte — nebo ani s jedním.
 |------|---------|---------|-------------|
 | Wi-Fi PTZ kamera | Oči + krk | Tapo C220 (~$30, Eufy C220) | **Doporučeno** |
 | USB webová kamera | Oči (pevné) | Jakákoli UVC kamera | **Doporučeno** |
-| Robotický vysavač | Nohy | Jakýkoli model kompatibilní s Tuya | Ne |
 | PC / Raspberry Pi | Mozek | Cokoli, co spuští Python | **Ano** |
 
 > **Kamera je velmi doporučena.** Bez ní může familiar-ai stále mluvit — ale nemůže vidět svět, což je vlastně celé to, o co jde.

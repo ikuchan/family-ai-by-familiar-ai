@@ -225,7 +225,6 @@ familiar-ai hoạt động với bất kỳ phần cứng nào bạn có — ho�
 |------|-----------|---------|-----------|
 | Camera PTZ Wi-Fi | Đôi mắt + cổ | Tapo C220 (~$30, Eufy C220) | **Khuyến nghị** |
 | Webcam USB | Đôi mắt (cố định) | Bất kỳ camera UVC nào | **Khuyến nghị** |
-| Robot hút bụi | Đôi chân | Bất kỳ mẫu tương thích Tuya nào | Không |
 | PC / Raspberry Pi | Bộ não | Bất kỳ thứ gì chạy Python | **Có** |
 
 > **Một camera được khuyến nghị mạnh mẽ.** Nếu không có một cái, familiar-ai vẫn có thể nói — nhưng nó không thể nhìn thấy thế giới, điều này khá quan trọng.

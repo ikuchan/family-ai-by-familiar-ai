@@ -82,7 +82,6 @@ ACTION_ICONS: dict[str, str] = {
     "look_up": "🔼",
     "look_down": "🔽",
     "look_around": "🔄",
-    "walk": "🚶",
     "say": "🗣️",
     "recall": "💭",
     "listen": "🎙️",
@@ -92,7 +91,7 @@ ACTION_ICONS: dict[str, str] = {
 }
 
 # Tool names that have dedicated i18n labels (key: "action_{name}")
-_I18N_ACTION_NAMES: frozenset[str] = frozenset({"see", "look", "walk", "say", "recall"})
+_I18N_ACTION_NAMES: frozenset[str] = frozenset({"see", "look", "say", "recall"})
 
 
 def format_action(name: str, tool_input: dict) -> str:
@@ -114,13 +113,6 @@ def format_action(name: str, tool_input: dict) -> str:
         deg = tool_input.get("degrees", "")
         suffix = f"({deg}°)" if deg else ""
         return f"{dir_icon} {_t(key)}{suffix}"
-
-    if name == "walk":
-        direction = tool_input.get("direction", "?")
-        duration = tool_input.get("duration")
-        if duration:
-            return f"{icon} {_t('walk_timed', direction=direction, duration=str(duration))}"
-        return f"{icon} {_t('walk_dir', direction=direction)}"
 
     if name == "say":
         raw = str(tool_input.get("text", ""))

@@ -41,7 +41,6 @@ from .recognition.motion_events import MotionEventWatcher
 from .recognition.person_detector import PersonDetector
 from .recognition.visual_encoder import VisualEncoder
 from .store.pose_norms import PoseNormStore
-from .tools.mobility import MobilityTool
 from .tools.stt import STTTool
 from .core.confirm_state import PendingConfirm
 from .tools.alarm import AlarmTool
@@ -61,7 +60,6 @@ _DEFAULT_TOOL_TIMEOUT = 20.0
 _TOOL_TIMEOUTS: dict[str, float] = {
     "see": 12.0,
     "look": 8.0,
-    "walk": 12.0,
     "say": 60.0,
     "recall": 20.0,
     "read_file": 30.0,
@@ -169,7 +167,6 @@ class EmbodiedAgent:
         self._session_output_tokens: int = 0
 
         self._camera: CameraTool | None = None
-        self._mobility: MobilityTool | None = None
         self._tts: TTSTool | None = None
         self._stt: STTTool | None = None
         self._me_md: str = self._load_me_md()  # loaded once; restart to pick up changes
@@ -501,12 +498,6 @@ class EmbodiedAgent:
                 ptz_username=cam.ptz_username,
                 ptz_password=cam.ptz_password,
                 ptz_port=cam.ptz_port,
-            )
-
-        mob = self.config.mobility
-        if mob.api_key and mob.device_id:
-            self._mobility = MobilityTool(
-                mob.api_region, mob.api_key, mob.api_secret, mob.device_id
             )
 
         tts = self.config.tts

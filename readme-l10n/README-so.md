@@ -225,7 +225,6 @@ familiar-ai waxay la shaqeyn kartaa qalab kasta oo aad haysato — ama waxba.
 |------|-------------|---------|-----------|
 | Kamarada Wi-Fi PTZ | Indhaha + qoorta | Tapo C220 (~$30, Eufy C220) | **La talinay** |
 | Webcam USB | Indho (deggan) | Kamarad kasta oo UVC ah | **La talinay** |
-| Vacuum robot | Lugaha | Moodal kasta oo la jaanqaadaya Tuya | Maya |
 | PC / Raspberry Pi | Maskaxda | Wax kasta oo Python ku shaqeeya | **Haa** |
 
 > **Kamarad waa la talinayaa.** Iyadoo mid la'aan ah, familiar-ai wali waxay hadli kartaa — laakiin ma arki karto adduunka, taas oo ah sababta asaasiga ah.

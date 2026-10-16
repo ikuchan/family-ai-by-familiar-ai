@@ -94,7 +94,6 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     agent._coding = coding
 
     agent._camera = None
-    agent._mobility = None
     agent._mcp = None
 
     if with_tts:

@@ -225,7 +225,6 @@ familiar-ai sizin malik olduğunuz hər hansı bir hardware ilə işləyir — y
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ kamera | Gözlər + boyun | Tapo C220 (~$30, Eufy C220) | **Tövsiyə olunur** |
 | USB veb kamera | Gözlər (düzgün) | Hər hansı UVC kamera | **Tövsiyə olunur** |
-| Robot tozsoran | Ayaqlar | Hər hansı Tuya-uyğun model | Xeyr |
 | PC / Raspberry Pi | Beyin | Python işlətə bilən hər şey | **Bəli** |
 
 > **Bir kamera mütləq tövsiyə olunur.** O olmadan, familiar-ai hələ də danışa bilir — amma dünyanı görə bilmir, bu da tam da məqsədin özüdür.

@@ -226,7 +226,6 @@ familiar-ai berfungsi dengan mana-mana perkakasan yang anda ada — atau tanpa a
 |----------|-----------------------|--------|-------------|
 | Kamera PTZ Wi-Fi | Mata + leher | Tapo C220 (~$30, Eufy C220) | **Disyorkan** |
 | Webcam USB | Mata (tetap) | Mana-mana kamera UVC | **Disyorkan** |
-| Vakum robot | Kaki | Mana-mana model yang serasi Tuya | Tidak |
 | PC / Raspberry Pi | Otak | Apa sahaja yang menjalankan Python | **Ya** |
 
 > **Kamera sangat disyorkan.** Tanpa satu, familiar-ai masih boleh bercakap — tetapi ia tidak dapat melihat dunia, yang merupakan maksud keseluruhan.

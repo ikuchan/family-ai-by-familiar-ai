@@ -1,7 +1,7 @@
 """MCP (Model Context Protocol) client manager.
 
 Connects to external MCP servers and exposes their tools to the agent.
-Body-related tools (camera, TTS, mobility) stay as built-in; MCP is for everything else.
+Body-related tools (camera, TTS) stay as built-in; MCP is for everything else.
 
 Supported transports
 --------------------

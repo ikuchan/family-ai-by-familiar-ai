@@ -115,7 +115,6 @@ class TestEmbodiedAgentAccumulatesTokens:
         cfg.agent_name = "A"
         cfg.companion_name = "U"
         cfg.camera = MagicMock(host=None)
-        cfg.mobility = MagicMock(api_key=None, device_id=None)
         cfg.tts = MagicMock(elevenlabs_api_key=None)
         cfg.stt = MagicMock(elevenlabs_api_key=None)
         cfg.max_tokens = 1000

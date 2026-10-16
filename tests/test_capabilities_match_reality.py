@@ -56,7 +56,6 @@ def test_a_capability_that_really_needs_hardware_still_drops():
     """カメラは `CAMERA_HOST` が無ければ本当に無い。落とす仕組み自体は生きている。"""
     ids = _ids(_no_env())
     assert "camera_vision" not in ids
-    assert "mobility" not in ids
 
 
 def test_the_env_gate_still_keeps_what_is_configured():
@@ -150,11 +149,8 @@ def test_the_spare_engine_is_named_in_the_manifest():
 # ── 道具を足したら台帳も直す（出-cr・2026-10-16） ──────────────────────────
 
 #: 台帳に書かなくてよい道具。1 件ずつ理由を書く。
-_NOT_A_CAPABILITY = {
-    # 作られるが、主LLM にも調停にも渡っていない（2026-10-16）。書けばできないことを語る。
-    # 配線するか撤去するかは環-ak で決める。
-    "walk",
-}
+#: 歩く道具 `walk` は環-ak（2026-10-17）で撤去したので、いまは無い。
+_NOT_A_CAPABILITY: set[str] = set()
 
 
 def _tool_names() -> set[str]:

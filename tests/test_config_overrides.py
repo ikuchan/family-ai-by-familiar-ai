@@ -63,7 +63,6 @@ def test_connection_settings_are_protected():
     for field in (
         "CameraConfig.password",
         "TTSConfig.elevenlabs_api_key",
-        "MobilityConfig.api_secret",
         "CameraConfig.host",
         "CameraConfig.username",
     ):

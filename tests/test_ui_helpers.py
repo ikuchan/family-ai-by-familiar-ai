@@ -106,16 +106,6 @@ class TestFormatAction:
         assert "90" in result
         assert "°" in result
 
-    def test_walk_with_direction_and_duration(self):
-        result = format_action("walk", {"direction": "forward", "duration": 5})
-        assert "🚶" in result
-        # Should include duration info
-        assert "5" in result
-
-    def test_walk_with_direction_only(self):
-        result = format_action("walk", {"direction": "backward"})
-        assert "🚶" in result
-
     def test_say_truncates_long_text(self):
         long_text = "あ" * 100
         result = format_action("say", {"text": long_text})
@@ -142,7 +132,7 @@ class TestFormatAction:
 
 class TestActionIcons:
     def test_all_required_tools_have_icons(self):
-        required = {"see", "look", "walk", "say", "recall"}  # remember は環-ab D で撤去
+        required = {"see", "look", "say", "recall"}  # remember は環-ab D、walk は環-ak で撤去
         for tool in required:
             assert tool in ACTION_ICONS, f"ACTION_ICONS missing entry for '{tool}'"
 

@@ -224,7 +224,6 @@ familiar-ai inafanya kazi na vifaa vyovyote ulivyonavyo — au hakuna hata kidog
 |------|-------------|---------|-----------|
 | Kamera ya PTZ ya Wi-Fi | Macho + shingo | Tapo C220 (~$30, Eufy C220) | **Inapendekezwa** |
 | Webcam ya USB | Macho (ya kudumu) | Kamera yoyote ya UVC | **Inapendekezwa** |
-| Roboti ya kuondoa vumbi | Miguu | Mfano wowote unaohusiana na Tuya | Hapana |
 | PC / Raspberry Pi | Ubongo | Kila kitu kinachoweza kuendesha Python | **Ndio** |
 
 > **Kamera inashauriwa sana.** Bila moja, familiar-ai bado inaweza kuzungumza — lakini haiwezi kuona ulimwengu, ambao ni maana nzima.

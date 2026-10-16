@@ -210,7 +210,6 @@ familiar-ai fonctionne avec le matériel que vous avez — ou rien du tout.
 |------|-------------|---------|-----------|
 | Caméra PTZ Wi-Fi | Yeux + cou | Tapo C220 (~$30, Eufy C220) | **Recommandé** |
 | Webcam USB | Yeux (fixes) | Toute caméra UVC | **Recommandé** |
-| Aspirateur robot | Jambes | Tout modèle compatible Tuya | Non |
 | PC / Raspberry Pi | Cerveau | Tout ce qui exécute Python | **Oui** |
 
 > **Une caméra est fortement recommandée.** Sans elle, familiar-ai peut toujours parler — mais elle ne peut pas voir le monde, ce qui est un peu tout l'intérêt.

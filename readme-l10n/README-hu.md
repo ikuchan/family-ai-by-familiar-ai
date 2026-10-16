@@ -226,7 +226,6 @@ A familiar-ai működik bármilyen hardverrel, amit rendelkezel — vagy egyált
 |------|-------------|---------|-----------|
 | Wi-Fi PTZ kamera | Szemek + nyak | Tapo C220 (~$30, Eufy C220) | **Ajánlott** |
 | USB webkamera | Szemek (fix) | Bármilyen UVC kamera | **Ajánlott** |
-| Robotporszívó | Lábak | Bármilyen Tuya-kompatibilis modell | Nem |
 | PC / Raspberry Pi | Agy | Bármi, ami Python-t futtat | **Igen** |
 
 > **A kamera erősen ajánlott.** Nélküle a familiar-ai még mindig tud beszélni — de nem látja a világot, ami ennek az egésznek az alapja.

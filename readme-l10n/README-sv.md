@@ -226,7 +226,6 @@ familiar-ai fungerar med vilken hårdvara du än har — eller ingen alls.
 |-----|-------------|---------|----------|
 | Wi-Fi PTZ-kamera | Ögon + nacke | Tapo C220 (~$30, Eufy C220) | **Rekommenderas** |
 | USB-webbkamera | Ögon (fast) | Valfri UVC-kamera | **Rekommenderas** |
-| Robotdammsugare | Ben | Valfri modell kompatibel med Tuya | Nej |
 | PC / Raspberry Pi | Hjärna | Vad som helst som kör Python | **Ja** |
 
 > **En kamera rekommenderas starkt.** Utan en kan familiar-ai fortfarande prata — men den kan inte se världen, vilket är ganska mycket poängen.

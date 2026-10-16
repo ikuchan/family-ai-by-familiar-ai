@@ -225,7 +225,6 @@ familiar-ai funktionnéiert mat all Hardware déi Dir hutt — oder och keng.
 |------|--------------|----------|---------|
 | Wi-Fi PTZ Kamera | Aen + Hals | Tapo C220 (~$30, Eufy C220) | **Recommandéiert** |
 | USB Webcam | Aen (fest) | All UVC Kamera | **Recommandéiert** |
-| Roboter-Stëbsauger | Been | All Tuya-kompatibel Modell | Nee |
 | PC / Raspberry Pi | Gehier | Alles wat Python ënnerstëtzt | **Jo** |
 
 > **Eng Kamera ass staark recommandéiert.** Ouni eng, kann familiar-ai nach ëmmer schwätzen — mä et kann d'Welt net gesin, firwat et tatsächlech enges do ass.

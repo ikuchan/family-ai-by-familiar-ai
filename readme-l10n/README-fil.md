@@ -226,7 +226,6 @@ familiar-ai ay gumagana sa anumang hardware na mayroon ka — o wala man.
 |--------|----------------------|-----------|----------------|
 | Wi-Fi PTZ camera | Mga mata + leeg | Tapo C220 (~$30, Eufy C220) | **Inirerekomenda** |
 | USB webcam | Mga mata (fixed) | Anumang UVC camera | **Inirerekomenda** |
-| Robot vacuum | Mga binti | Anumang model na compatible sa Tuya | Hindi |
 | PC / Raspberry Pi | Utak | Anumang tumatakbo ng Python | **Oo** |
 
 > **Strongly recommended ang kamera.** Kung wala nito, ang familiar-ai ay makakapagsalita pa — ngunit hindi nito makikita ang mundo, na siyang buong layunin.

@@ -224,7 +224,6 @@ familiar-ai nagtrabaho sa bisan unsang hardware nga imong naa — o walay bisan 
 |------|------------------|---------|----------------|
 | Wi-Fi PTZ camera | Mga mata + liog | Tapo C220 (~$30, Eufy C220) | **Girekomenda** |
 | USB webcam | Mga mata (fixed) | Bisan unsang UVC camera | **Girekomenda** |
-| Robot vacuum | Mga tiil | Bisan unsang modelo nga compatible sa Tuya | Dili |
 | PC / Raspberry Pi | Utok | Bisan unsang nagdagan og Python | **Oo** |
 
 > **Girekomenda jud ang usa ka kamera.** Kung wala, ang familiar-ai makapagsulti gihapon — apan dili kini makakita sa kalibutan, nga mao ang kinatibuk-ang tuyo.
