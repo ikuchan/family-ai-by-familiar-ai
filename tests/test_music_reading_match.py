@@ -64,6 +64,7 @@ def test_the_reply_says_it_was_read(monkeypatch):
     io = MagicMock()
     io.play = AsyncMock(return_value=True)
     io.set_shuffle = AsyncMock(return_value=True)
+    io.next_track = AsyncMock(return_value=True)
     tool = MusicTool(io=io, bus=lambda: MagicMock(), table=lambda: TABLE)
     text, ok = asyncio.run(tool.call("play_music", {"name": "待機"}))
     assert ok and "読み" in text and "たいき" in text and "待機" in text

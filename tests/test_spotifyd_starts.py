@@ -164,6 +164,7 @@ def _tool(monkeypatch, state: str):
     io = MagicMock()
     io.play = AsyncMock(side_effect=lambda bus, uri: order.append("play") or True)
     io.set_shuffle = AsyncMock()
+    io.next_track = AsyncMock()
     web = MagicMock()
     web.activate = MagicMock(side_effect=lambda name: order.append("activate") or True)
     # 再生は Web API で始めて確かめる（知-al）

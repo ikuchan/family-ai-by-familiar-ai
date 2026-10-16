@@ -31,6 +31,7 @@ def _tool(now_playing, *, play=None):
     io = MagicMock()
     io.play = AsyncMock(return_value=True)
     io.set_shuffle = AsyncMock(return_value=True)
+    io.next_track = AsyncMock(return_value=True)
     web = MagicMock()
     web.play = MagicMock(side_effect=play or (lambda name, uri: True))
     web.now_playing = MagicMock(return_value=now_playing)
@@ -85,6 +86,7 @@ def test_without_the_web_mpris_is_used():
     io = MagicMock()
     io.play = AsyncMock(return_value=True)
     io.set_shuffle = AsyncMock(return_value=True)
+    io.next_track = AsyncMock(return_value=True)
     tool = MusicTool(io=io, bus=lambda: MagicMock(), table=lambda: TABLE)
     _, ok = _play(tool, name="ケイマン")
     assert ok and io.play.await_args.args[1] == "spotify:playlist:aaa"
@@ -97,6 +99,52 @@ def test_a_web_failure_falls_back_to_mpris():
     tool, io, web = _tool({}, play=boom)
     _, ok = _play(tool, name="ケイマン")
     assert ok and io.play.await_args.args[1] == "spotify:playlist:aaa"
+
+
+# ── ランダムなら頭の 1 曲を飛ばす（知-bf・2026-10-16・本人の決定イ）────────────────────────
+# プレイリストを頭から鳴らし始めてからランダムを入れるので、最初の 1 曲がいつも 1 番目だった（10/16 実機・83 曲中 1 番目、
+# 次の 10 曲はばらばら）。ランダムが入ったら「次の曲」を 1 回送る。
+
+
+_PLAYING = {"playing": True, "context": "spotify:playlist:aaa", "item": "spotify:track:x"}
+
+
+def test_a_shuffled_playlist_skips_its_first_song():
+    tool, io, _ = _tool(_PLAYING)
+    order: list = []
+    io.set_shuffle.side_effect = lambda bus, on: order.append(("shuffle", on)) or True
+    io.next_track.side_effect = lambda bus: order.append("next") or True
+    _, ok = _play(tool, name="ケイマン")
+    assert ok
+    assert order == [("shuffle", True), "next"]  # 入れてから飛ばす（先に飛ばすと 2 番目へ進むだけ）
+
+
+def test_in_order_does_not_skip():
+    """**反証の側**：順番を頼んだら飛ばさない。"""
+    tool, io, _ = _tool(_PLAYING)
+    _, ok = _play(tool, name="ケイマン", order="順番")
+    assert ok
+    io.set_shuffle.assert_awaited_once()
+    assert io.set_shuffle.await_args.args[1] is False
+    io.next_track.assert_not_awaited()
+
+
+def test_a_single_song_does_not_skip():
+    tool, io, _ = _tool({"playing": True, "context": None, "item": "spotify:track:yoru"})
+    _, ok = _play(tool, name="だから僕は音楽を辞めた", order="ランダム")
+    assert ok
+    io.set_shuffle.assert_not_awaited()
+    io.next_track.assert_not_awaited()
+
+
+def test_when_shuffle_cannot_be_set_it_does_not_skip_and_says_so(caplog):
+    tool, io, _ = _tool(_PLAYING)
+    io.set_shuffle.return_value = False  # MPRIS の口が無い
+    with caplog.at_level("INFO", logger="familiar_agent.tools.music"):
+        _, ok = _play(tool, name="ケイマン")
+    assert ok
+    io.next_track.assert_not_awaited()
+    assert "ランダムを入れられなかった" in caplog.text
 
 
 # ── Web API の口 ──────────────────────────────────────────────────────────────

@@ -159,6 +159,7 @@ def _tool_with_default(default: "str | None"):
     io = MagicMock()
     io.play = AsyncMock(return_value=True)
     io.set_shuffle = AsyncMock(return_value=True)
+    io.next_track = AsyncMock(return_value=True)
     w = MagicMock()
     w.resume = MagicMock(return_value=True)  # 頼めたが、続きは鳴らない
 
@@ -195,6 +196,7 @@ def test_nothing_to_resume_plays_the_default_shuffled():
     assert (
         io.set_shuffle.await_args.args[1] is True
     )  # 表では順番でも、既定としてかけるときはランダム
+    io.next_track.assert_awaited_once()  # 頭の 1 曲を飛ばす（知-bf）
 
 
 def test_without_a_default_nothing_is_played():

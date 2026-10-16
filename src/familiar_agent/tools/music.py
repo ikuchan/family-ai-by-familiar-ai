@@ -200,7 +200,14 @@ class MusicTool:
             return failed
         bus = self._bus()
         if ":playlist:" in uri or ":album:" in uri or ":artist:" in uri:
-            await self._io.set_shuffle(bus, shuffle)
+            set_ok = await self._io.set_shuffle(bus, shuffle)
+            # 頭から鳴らし始めてからランダムを入れるので、最初の 1 曲がいつも 1 番目だった（10/16 実機・83 曲中 1 番目）。
+            # 入ったら 1 曲飛ばす（知-bf・2026-10-16・本人の決定イ）。1 番目の曲が一瞬鳴る。
+            if shuffle and set_ok:
+                await self._io.next_track(bus)
+                logger.info("音楽：ランダムを入れ、頭の 1 曲を飛ばした")
+            elif shuffle:
+                logger.info("音楽：ランダムを入れられなかった（MPRIS の口が無い）")
         self._mark(True)
         how = "ランダムで" if shuffle else ""
         logger.info("音楽：%s%sかけ始めた（%s）", heading, how or "", uri)
