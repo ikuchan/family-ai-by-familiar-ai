@@ -97,3 +97,15 @@ def test_the_other_roads_are_not_told_the_device_rule():
         )
     )
     assert _KEEP not in prompt_of(writer)
+
+
+def test_jev_hears_the_notices_that_actually_reach_it():
+    """Jev に渡す機器の文は、調停に届く知らせだけを並べる（知-bh・2026-10-17・本人の決定ア）。
+
+    人の出入りとメモは記録するだけで調停に届かない（`設計方針_判定の段` §2.2.5）。書き手の先導文と並びをそろえる。
+    """
+    from familiar_agent.loop.arbiter import _JEV_LEAD, _LEAD_DEVICE
+
+    lead = _JEV_LEAD["機器"]
+    assert "（タイマー・アラーム・音楽）" in lead and "（タイマー・アラーム・音楽）" in _LEAD_DEVICE
+    assert "人の出入り" not in lead and "メモ" not in lead
