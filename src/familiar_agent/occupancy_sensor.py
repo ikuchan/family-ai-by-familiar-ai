@@ -30,6 +30,17 @@ from .visual_norm import cosine_distance, is_ready, update_ema
 logger = logging.getLogger(__name__)
 
 
+#: 人を見なかった読みの種類（知-bg 段 1）。居なくなった行に、この順で回数を並べる。
+_READINGS = (
+    "枠なし",
+    "動かないので数えない",
+    "向きが読めない",
+    "移動中",
+    "撮れなかった",
+    "確認に失敗",
+)
+
+
 def _delay_before(last_check: float, now: float, min_gap: float) -> float:
     """次の確認まで待つ秒数。前回から間が空いていれば 0（すぐ確かめる）。
 
@@ -82,6 +93,11 @@ class OccupancySensor:
         self._task: asyncio.Task | None = None
         # 動体イベントで即座に起こすための合図。間隔の待ちを飛び越える。
         self._wake = asyncio.Event()
+        # 在席の切り替わりを 1 行残すための控え（知-bg 段 1）。最後に人を見た定点と時刻、そのあとの読みの種類ごとの回数。
+        self._was_occupied = False
+        self._last_person: "tuple[str, float] | None" = None
+        self._emptied_at: "float | None" = None
+        self._tally: dict[str, int] = dict.fromkeys(_READINGS, 0)
 
     # --- 外から読むもの ---------------------------------------------------
 
@@ -141,6 +157,38 @@ class OccupancySensor:
 
     async def check_once(self) -> str | None:
         """1回見る。記録した定点の名前を返す。記録しなかったときは `None`。"""
+        name = await self._check()
+        self._note_change(time.time())
+        return name
+
+    def _count(self, kind: str) -> None:
+        self._tally[kind] = self._tally.get(kind, 0) + 1
+
+    def _note_change(self, now: float) -> None:
+        """在席が切り替わったときだけ INFO に 1 行残す（知-bg 段 1・2026-10-16・本人の決定ア）。
+
+        名前で呼んだ声の 4 件が「居ない」になり、人が消えた理由（枠なし・動かない・撮れない・別の向き）が DEBUG にしか
+        無かった。居なくなったらそのあいだの読みの回数を、また居るようになったら居なかった長さを残す。判定は変えない。
+        """
+        occupied = self.room_occupied()
+        if self._was_occupied and not occupied:
+            pose, seen_at = self._last_person or ("?", now)
+            counts = "・".join(f"{k} {self._tally.get(k, 0)}" for k in _READINGS)
+            logger.info(
+                "在席：居なくなった（最後に人を見たのは %s・%.0f 秒前／そのあとの読み %s）",
+                pose,
+                now - seen_at,
+                counts,
+            )
+            self._emptied_at = seen_at  # 居なかった長さは、最後に人を見た時刻から数える
+        elif occupied and not self._was_occupied and self._emptied_at is not None:
+            pose = self._last_person[0] if self._last_person else "?"
+            logger.info(
+                "在席：また居る（%s・居なかったのは %.0f 秒）", pose, now - self._emptied_at
+            )
+        self._was_occupied = occupied
+
+    async def _check(self) -> str | None:
         try:
             pmap = await self._ensure_map()
             if pmap is None:
@@ -148,14 +196,17 @@ class OccupancySensor:
             position = await self._camera.position()
             if position is None:
                 logger.debug("向きが読めないので在席を記録しない")
+                self._count("向きが読めない")
                 return None
             pose = nearest_pose(self._poses, position[0], position[1], self._tolerance)
             if pose is None:
                 logger.debug("どの定点でもない向きなので在席を記録しない（移動中）")
+                self._count("移動中")
                 return None
             frame_b64, path = await self._camera.capture()
             if not path:
                 logger.warning("フレームを撮れなかったので在席を記録しない")
+                self._count("撮れなかった")
                 return None
             self._frame_b64 = frame_b64
             boxes = await self._detector.boxes(path)
@@ -163,6 +214,7 @@ class OccupancySensor:
             raise
         except Exception as e:  # noqa: BLE001
             logger.exception("在席の確認に失敗した（記録しない）: %s", e)
+            self._count("確認に失敗")
             return None
         await self._update_scene_norm(pose.name, path)
         now = time.time()
@@ -187,9 +239,12 @@ class OccupancySensor:
         if people > 0:
             pmap.mark_seen(pose.name, now)
             logger.info("在席：%s に %d 人", pose.name, people)
+            self._last_person = (pose.name, now)
+            self._tally = dict.fromkeys(_READINGS, 0)
         else:
             pmap.mark_checked(pose.name, now)
             logger.debug("在席：%s に誰も居ない", pose.name)
+            self._count("動かないので数えない" if boxes else "枠なし")
         return pose.name
 
     async def _update_scene_norm(self, pose_name: str, path: str) -> None:
