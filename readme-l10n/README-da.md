@@ -22,7 +22,6 @@ Det opfatter den virkelige verden gennem kameraer, bevæger sig rundt på en rob
 
 - 👁 **Se** — fanger billeder fra et Wi-Fi PTZ-kamera eller USB-webcam
 - 🔄 **Se rundt** — panorerer og tilter kameraet for at udforske omgivelserne
-- 🦿 **Bevæge sig** — kører en robotstøvsuger for at færdes i rummet
 - 🗣 **Tale** — taler via ElevenLabs TTS
 - 🎙 **Lytte** — håndfri stemmeinddata via ElevenLabs Realtime STT (opt-in)
 - 🧠 **Huske** — gemmer og husker aktivt minder med semantisk søgning (SQLite + embeddings)

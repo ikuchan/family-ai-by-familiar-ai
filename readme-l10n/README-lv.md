@@ -23,7 +23,6 @@ Tas uztver reālo pasauli caur kamerām, pārvietojas uz robota ķermeņa, runā
 
 - 👁 **Redzēt** — uzņem attēlus no Wi-Fi PTZ kameras vai USB webkameras
 - 🔄 **Aplūkot apkārt** — griež un maina kameras leņķi, lai izpētītu apkārtni
-- 🦿 **Pārvietoties** — vada robota sūknēšanas ierīci, lai pārvietotos pa istabu
 - 🗣 **Runāt** — runā caur ElevenLabs TTS
 - 🎙 **Klausīties** — bezrokas balss ievade caur ElevenLabs Realtime STT (piekrišana)
 - 🧠 **Atcerēties** — aktīvi uzglabā un atsauc atmiņas ar semantisko meklēšanu (SQLite + iemaldījumi)

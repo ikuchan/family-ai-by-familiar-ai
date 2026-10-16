@@ -23,7 +23,6 @@ Se havaitsee todellisen maailman kameroiden kautta, liikkuu robotti-kropassa, pu
 
 - 👁 **Nähdä** — ottaa kuvia Wi-Fi PTZ -kamerasta tai USB-web-kamerasta
 - 🔄 **Katsoa ympärilleen** — kääntää ja kallistaa kameraa tutkiakseen ympäristöään
-- 🦿 **Liikkua** — ohjaa robotti-imuria liikkuessaan huoneessa
 - 🗣 **Puhua** — puhuu ElevenLabs TTS:n kautta
 - 🎙 **Kuunnella** — hands-free äänisyöttö ElevenLabs Realtime STT:n kautta (valinnainen)
 - 🧠 **Muistaa** — aktiivisesti tallentaa ja muistella muistoja semanttisen haun avulla (SQLite + upotukset)

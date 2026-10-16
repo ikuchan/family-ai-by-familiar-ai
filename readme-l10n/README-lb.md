@@ -22,7 +22,6 @@ Et erkennt d'ächt Welt duerch Kameras, bewegt sech op engem Roboterkierper, sch
 
 - 👁 **Sehen** — fänkt Biller vun enger Wi-Fi PTZ Kamera oder USB Webcam
 - 🔄 **Rondrëm kucken** — panoraméiert an tilts d'Kamera fir seng Ëmfeld ze entdecken
-- 🦿 **Bewegen** — féiert e Roboter-Stëbsauger ronderëm d'Zëmmer
 - 🗣 **Sprechen** — schwätzt iwwer ElevenLabs TTS
 - 🎙 **Héieren** — freihänschen Spriechinput iwwer ElevenLabs Realtime STT (op opt-in)
 - 🧠 **Erënneren** — aktiv armazenéiert a rëckruff Gedächtnisser mat semantescher Sich (SQLite + Embeddings)

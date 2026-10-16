@@ -23,7 +23,6 @@ Nakikita nito ang totoong mundo sa pamamagitan ng mga kamera, umaabot sa paligid
 
 - 👁 **Makakita** — kumukuha ng mga imahe mula sa Wi-Fi PTZ camera o USB webcam
 - 🔄 **Tumingin sa paligid** — pinapaikot at tinataas ang kamera upang galugarin ang paligid
-- 🦿 **Gumagalaw** — gumagamit ng robot vacuum upang maglakbay sa silid
 - 🗣 **Nagsasalita** — nakikipag-usap sa pamamagitan ng ElevenLabs TTS
 - 🎙 **Nakikinig** — hands-free na voice input sa pamamagitan ng ElevenLabs Realtime STT (opt-in)
 - 🧠 **Naaalala** — aktibong nag-iimbak at nagbabalik ng mga alaala gamit ang semantic search (SQLite + embeddings)

@@ -21,7 +21,6 @@ Het percepeert de echte wereld via camera's, beweegt rond op een robotlichaam, s
 
 - 👁 **Zien** — maakt afbeeldingen van een Wi-Fi PTZ-camera of USB-webcam
 - 🔄 **Om zich heen kijken** — pan en kantel de camera om zijn omgeving te verkennen
-- 🦿 **Bewegen** — laat een robotstofzuiger door de kamer rijden
 - 🗣 **Spreken** — praat via ElevenLabs TTS
 - 🎙 **Luisteren** — handsfree spraakinput via ElevenLabs Realtime STT (opt-in)
 - 🧠 **Onthouden** — slaat actief herinneringen op en haalt ze op met semantische zoekopdrachten (SQLite + embeddings)

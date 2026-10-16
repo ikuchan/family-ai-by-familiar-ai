@@ -22,7 +22,6 @@ Yana gane duniya ta gaske ta hanyar kyamara, yana motsawa akan jikin robot, yana
 
 - 👁 **Gani** — yana ɗaukar hotuna daga kyamara ta Wi-Fi PTZ ko USB webcam
 - 🔄 **Duba** — yana juyawa da tsayawa da kyamara don bincika kewayon sa
-- 🦿 **Motsi** — yana tuka na'urar shara ta robot don yawo a cikin dakin
 - 🗣 **Magana** — yana magana ta ElevenLabs TTS
 - 🎙 **Sauraro** — shigar murya mara hannu ta ElevenLabs Realtime STT (zaɓi)
 - 🧠 **Tuna** — yana adana da kuma tuna tunane-tunane tare da binciken ma'anar (SQLite + embeddings)

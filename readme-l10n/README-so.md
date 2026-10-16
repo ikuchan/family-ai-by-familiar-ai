@@ -22,7 +22,6 @@ Waxay aragtaa adduunka dhabta ah iyadoo loo marayo kamaradaha, waxay ku dhaqaaqd
 
 - 👁 **Arag** — qabta sawirro ka socota kamarad Wi-Fi PTZ ama webcam USB
 - 🔄 **Eeg agagaarka** — wuxuu rogaa oo wuxuu leexin kaamarka si uu u baadho agagaarkeeda
-- 🦿 **Dhaqaaq** — wuxuu kaxeeyaa vacuum robot si uu u dhex socdo qolka
 - 🗣 **Hadlo** — wuxuu hadlaa iyada oo loo marayo ElevenLabs TTS
 - 🎙 **Dhageyso** — habka codka oo gacmo la'aan ah iyada oo loo marayo ElevenLabs Realtime STT (ikhtiyaari)
 - 🧠 **Xusuus** — si firfircoon ayuu u kaydiyaa oo u soo celinayaa xusuus leh raadinta macnaha (SQLite + embeds)

@@ -2,7 +2,7 @@
 
 <img width="25%" height="25%" alt="familiar-ai-icon" src="https://github.com/user-attachments/assets/944b2023-9ca0-4b30-8240-de766e4439ed" />
 
-**An AI that lives alongside you** — with eyes, voice, legs, and memory.
+**An AI that lives alongside you** — with eyes, voice, and memory.
 
 [![Lint](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml)
 [![Test](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml)
@@ -25,7 +25,6 @@ It perceives the real world through cameras, moves around on a robot body, speak
 
 - 👁 **See** — captures images from a Wi-Fi PTZ camera or USB webcam
 - 🔄 **Look around** — turns the camera to named spots ("the door", "the window") or relative directions ("look right"), and looks at what it finds
-- 🦿 **Move** — drives a robot vacuum to roam the room
 - 🗣 **Speak** — talks via ElevenLabs TTS
 - 🎙 **Listen** — hands-free voice input (ElevenLabs Realtime STT or local Whisper, opt-in)
 - 🧠 **Remember** — stores what happens in PostgreSQL (pgvector) and recalls it by relevance, recency, emotion, presence and groundedness

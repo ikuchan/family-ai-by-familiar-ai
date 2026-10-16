@@ -22,7 +22,6 @@ Imawona dziko lenileni kudzera pa makamera, imatembenukira pa thupi la robot, im
 
 - 👁 **Onani** — imapeza zithunzi kuchokera ku Wi-Fi PTZ kamera kapena USB webcam
 - 🔄 **Kuwona momwemo** — imapanga komanso kutembenuka kwa kamera kuti iwone zinthu zomwe zikuchitika
-- 🦿 **Kuyenda** — imatembenukira ndi vacuum robot kuti iphunzire m'nyumba
 - 🗣 **Lankhulani** — imalankhula kudzera pa ElevenLabs TTS
 - 🎙 **Mvetsera** — mawu osapatsika kudzera pa ElevenLabs Realtime STT (opt-in)
 - 🧠 **Kumbukirani** — imakhala ndi kukumbukira komanso kukumbukira ndi kufufuza kwa semantics (SQLite + embeddings)

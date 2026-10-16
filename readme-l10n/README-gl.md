@@ -22,7 +22,6 @@ Percibe o mundo real a través de cámaras, móvese nun corpo robot, fala en voz
 
 - 👁 **Ver** — captura imaxes dende unha cámara PTZ Wi-Fi ou webcam USB
 - 🔄 **Mirar arredor** — panorámica e inclina a cámara para explorar o seu arredor
-- 🦿 **Mover** — xira un aspirador robot para percorrer a habitación
 - 🗣 **Falar** — conversa a través de ElevenLabs TTS
 - 🎙 **Escoitar** — entrada de voz sen mans a través de ElevenLabs Realtime STT (optativo)
 - 🧠 **Lembrar** — almacena e recupera activamente recordos cunha busca semántica (SQLite + embeddings)

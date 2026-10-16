@@ -22,7 +22,6 @@ Percepe lumea reală prin camere, se mișcă pe un corp de robot, vorbește cu v
 
 - 👁 **Vezi** — captează imagini de la o cameră Wi-Fi PTZ sau webcam USB
 - 🔄 **Cercetează** — rotește și înclină camera pentru a explora împrejurimile
-- 🦿 **Mergi** — conduce un aspirator robot pentru a se plimba prin cameră
 - 🗣 **Vorbește** — comunică prin ElevenLabs TTS
 - 🎙 **Ascultă** — input vocal hands-free prin ElevenLabs Realtime STT (opt-in)
 - 🧠 **Amintește** — stochează activ și își amintește amintirile cu căutare semantică (SQLite + embeddings)

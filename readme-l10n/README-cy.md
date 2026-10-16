@@ -23,7 +23,6 @@ Mae'n deall y byd real trwy gamariau, yn symud o amgylch ar gorff robot, yn siar
 
 - 👁 **Gwelwch** — yn dal lluniau o gamera PTZ Wi-Fi neu gamera USB
 - 🔄 **Edrych o gwmpas** — yn panner a symud y camera i archwilio ei chyffiniau
-- 🦿 **Symud** — yn gyrrwr pwmpen robot i deithio drwy'r ystafell
 - 🗣 **Siarad** — yn siarad trwy ElevenLabs TTS
 - 🎙 **Gwrando** — mewnbwn llais di-hadau trwy ElevenLabs Realtime STT (dewisol)
 - 🧠 **Cofio** — yn actif yn storio a chofio atgofion gyda chwiliad semanteg (SQLite + ymgyffro)

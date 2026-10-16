@@ -22,7 +22,6 @@ Elandaka mabele ya solo na nzela ya ba kamera, ezali kobanga na moto ya roboti, 
 
 - 👁 **Kakisa** — ezua maboko na ba kamera ya Wi-Fi PTZ to ba webcam ya USB
 - 🔄 **Zala niboko** — pesaka mokumba mpe otaki kameran na elongo ya makambo
-- 🦿 **Luka** — kondima boyfriend ya roboti mpo na koluka na se
 - 🗣 **Loba** — lobá na nzela ya ElevenLabs TTS
 - 🎙 **Yeba** — nzela ya mabe mpo na yebisa nga na nzela ya ElevenLabs Realtime STT (okitani)
 - 🧠 **Koyeba** — ebandaka mpe ezosala koya na banzela ya semantiki (SQLite + embeddings)

@@ -22,7 +22,6 @@ Postrzega prawdziwy świat przez kamery, porusza się na ciele robota, mówi na 
 
 - 👁 **Widzieć** — rejestruje obrazy z kamery PTZ Wi-Fi lub kamery USB
 - 🔄 **Rozglądać się** — przesuwa i przechyla kamerę, aby zbadać otoczenie
-- 🦿 **Poruszać się** — prowadzi robota-odkurzacza po pomieszczeniu
 - 🗣 **Mówić** — rozmawia za pomocą ElevenLabs TTS
 - 🎙 **Słuchać** — bezprzewodowy input głosowy za pomocą ElevenLabs Realtime STT (opcja)
 - 🧠 **Pamiętać** — aktywnie przechowuje i przywołuje wspomnienia z semantycznym wyszukiwaniem (SQLite + osadzenia)

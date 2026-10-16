@@ -21,7 +21,6 @@ Nakaplagan niini ang tinuod nga kalibutan pinaagi sa mga kamera, nagalihok sa us
 
 - 👁 **Makakita** — nagkuha og mga hulagway gikan sa Wi-Fi PTZ camera o USB webcam
 - 🔄 **Tan-awa ang palibot** — naglingkod ug nag-tilt sa kamera aron masusi ang palibot
-- 🦿 **Makalihok** — nag drive sa usa ka robot vacuum aron maglakaw sa silid
 - 🗣 **Makapanggawas og tingog** — nagtug-an pinaagi sa ElevenLabs TTS
 - 🎙 **Makapaminaw** — hands-free nga tingog nga input pinaagi sa ElevenLabs Realtime STT (opt-in)
 - 🧠 **Makahunahuna** — aktibo nga nagtipig ug nagbalik sa mga panumduman gamit ang semantic search (SQLite + embeddings)

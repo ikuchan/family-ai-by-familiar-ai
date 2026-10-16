@@ -23,7 +23,6 @@ A valós világot kamerákon keresztül érzékeli, robot testén mozog, hangosa
 
 - 👁 **Lát** — képeket rögzít egy Wi-Fi PTZ kamerából vagy USB webkamerából
 - 🔄 **Körbenéz** — mozgatja a kamerát, hogy felfedezze a környezetét
-- 🦿 **Mozog** — egy robotporszívót irányít, hogy bejárja a szobát
 - 🗣 **Beszél** — az ElevenLabs TTS segítségével beszél
 - 🎙 **Hallgat** — kéz nélküli hangbeviteli lehetőség az ElevenLabs Realtime STT-vel (opcionális)
 - 🧠 **Emlékezik** — aktívan tárol és hívja elő az emlékeket szemantikai kereséssel (SQLite + beágyazások)

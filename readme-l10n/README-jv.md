@@ -23,7 +23,6 @@ Iku ngrasakake jagad nyata liwat kamera, obah ing badan robot, ngomong kanthi ny
 
 - 👁 **Deleng** — njupuk gambar saka kamera Wi-Fi PTZ utawa webcam USB
 - 🔄 **Ndeleng sakupeng** — ngusap lan nuntun kamera kanggo njelajah lingkungan sekitar
-- 🦿 **Obah** — nggerakake vacuum robot kanggo mlaku-mlaku ing ruangan
 - 🗣 **Ngomong** — ngomong liwat ElevenLabs TTS
 - 🎙 **Ngrungokake** — input suara tanpa tangan liwat ElevenLabs Realtime STT (opt-in)
 - 🧠 **Eling** — aktif nyimpen lan eling kenangan nganggo panelusuran semantik (SQLite + embedding)

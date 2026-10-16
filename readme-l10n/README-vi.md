@@ -22,7 +22,6 @@ Nó cảm nhận thế giới thực qua camera, di chuyển trên một cơ th�
 
 - 👁 **Nhìn** — chụp hình từ một camera PTZ Wi-Fi hoặc webcam USB
 - 🔄 **Nhìn xung quanh** — điều chỉnh camera để khám phá xung quanh
-- 🦿 **Di chuyển** — điều khiển một robot hút bụi để đi vòng quanh trong phòng
 - 🗣 **Nói** — trò chuyện qua ElevenLabs TTS
 - 🎙 **Nghe** — nhập giọng nói rảnh tay qua ElevenLabs Realtime STT (tùy chọn)
 - 🧠 **Nhớ** — lưu trữ và gọi lại ký ức một cách chủ động bằng tìm kiếm ngữ nghĩa (SQLite + embeddings)

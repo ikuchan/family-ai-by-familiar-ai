@@ -1,6 +1,6 @@
 # familiar-ai 🐾
 
-**あなたのそばで生きるAI** — 目・声・足・記憶を持つコンパニオン。
+**あなたのそばで生きるAI** — 目・声・記憶を持つコンパニオン。
 
 [![Lint](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml)
 [![Test](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml)
@@ -25,7 +25,6 @@ familiar-ai は、あなたの家に住むAIコンパニオンです。
 
 - 👁 **見る** — Wi-Fi PTZカメラまたはUSBウェブカメラから画像を取得
 - 🔄 **見回す** — カメラをパン・チルトして周囲を探索
-- 🦿 **動く** — ロボット掃除機で部屋を移動
 - 🗣 **話す** — ElevenLabs TTSで音声出力
 - 🎙 **聞く** — ElevenLabs Realtime STTによるハンズフリー音声入力（オプション）
 - 🧠 **記憶する** — セマンティック検索で記憶を積極的に保存・想起

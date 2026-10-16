@@ -21,7 +21,6 @@ Perceputuje stvarni svet putem kamera, kreće se na robotskom telu, govori nagla
 
 - 👁 **Sviđa** — hvata slike iz Wi-Fi PTZ kamere ili USB veb kamere
 - 🔄 **Gleda oko** — pomera i naginje kameru kako bi istražila okolinu
-- 🦿 **Pokreće se** — pokreće robotski usisivač da se kreće po prostoriji
 - 🗣 **Govori** — razgovara putem ElevenLabs TTS
 - 🎙 **Sluša** — unos glasa bez ruku putem ElevenLabs Realtime STT (opcija)
 - 🧠 **Pamti** — aktivno skladišti i seća se uspomena uz semantičku pretragu (SQLite + embeddings)

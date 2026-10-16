@@ -22,7 +22,6 @@ Det oppfatter den virkelige verden gjennom kameraer, beveger seg rundt på en ro
 
 - 👁 **Se** — tar bilder fra et Wi-Fi PTZ-kamera eller USB-webkamera
 - 🔄 **Se rundt** — panorering og neigen av kameraet for å utforske omgivelsene
-- 🦿 **Bevege seg** — kjører en robotstøvsuger for å vandre rundt i rommet
 - 🗣 **Snakke** — snakker via ElevenLabs TTS
 - 🎙 **Lytte** — hands-free talebehandling via ElevenLabs Realtime STT (opt-in)
 - 🧠 **Huske** — lagrer aktivt og husker minner med semantisk søk (SQLite + innbøttinger)

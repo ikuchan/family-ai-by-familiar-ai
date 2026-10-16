@@ -21,7 +21,6 @@ Perceba el món real a través de càmeres, es mou en un cos de robot, parla en 
 
 - 👁 **Veure** — captura imatges d'una càmera PTZ Wi-Fi o webcam USB
 - 🔄 **Mirar al voltant** — gira i inclina la càmera per explorar els voltants
-- 🦿 **Moure's** — condueix un robot aspirador per recórrer l'habitació
 - 🗣 **Parlar** — parla a través d'ElevenLabs TTS
 - 🎙 **Escoltar** — entrada de veu sense mans a través d'ElevenLabs Realtime STT (opcional)
 - 🧠 **Recordar** — emmagatzema i recorda activament records amb cerca semàntica (SQLite + embeddings)

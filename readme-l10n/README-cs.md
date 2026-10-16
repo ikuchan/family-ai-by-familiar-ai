@@ -23,7 +23,6 @@ Vnímá reálný svět prostřednictvím kamer, pohybuje se na robotickém těle
 
 - 👁 **Vidět** — zachycuje obrázky z Wi-Fi PTZ kamery nebo USB webové kamery
 - 🔄 **Ohlédnout se** — natáčí a naklání kameru, aby prozkoumala své okolí
-- 🦿 **Pohybovat se** — ovládá robotický vysavač, aby se pohyboval po místnosti
 - 🗣 **Mluvit** — mluví pomocí ElevenLabs TTS
 - 🎙 **Poslouchat** — bezdrátový hlasový vstup pomocí ElevenLabs Realtime STT (opt-in)
 - 🧠 **Pamatovat** — aktivně ukládá a vybavuje si vzpomínky s použitím sémantického vyhledávání (SQLite + embeddings)

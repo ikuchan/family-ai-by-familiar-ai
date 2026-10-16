@@ -21,7 +21,6 @@ Percepisce il mondo reale attraverso telecamere, si muove su un corpo robotico, 
 
 - 👁 **Vedere** — cattura immagini da una telecamera PTZ Wi-Fi o da una webcam USB
 - 🔄 **Guardarsi intorno** — panoramica e inclinazione della telecamera per esplorare i dintorni
-- 🦿 **Muoversi** — guida un aspirapolvere robotico per vagare nella stanza
 - 🗣 **Parlare** — parla tramite ElevenLabs TTS
 - 🎙 **Ascoltare** — input vocale a mani libere tramite ElevenLabs Realtime STT (opzionale)
 - 🧠 **Ricordare** — memorizza e richiama attivamente ricordi con ricerca semantica (SQLite + embedding)

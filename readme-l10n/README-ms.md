@@ -23,7 +23,6 @@ Ia melihat dunia sebenar melalui kamera, bergerak di atas badan robot, bercakap 
 
 - 👁 **Melihat** — menangkap gambar dari kamera PTZ Wi-Fi atau webcam USB
 - 🔄 **Melihat sekitar** — panning dan mencondongkan kamera untuk meneroka persekitaran
-- 🦿 **Bergerak** — mengendalikan vakum robot untuk menjelajah bilik
 - 🗣 **Bercakap** — bercakap melalui ElevenLabs TTS
 - 🎙 **Mendengar** — input suara tanpa tangan melalui ElevenLabs Realtime STT (opt-in)
 - 🧠 **Ingat** — secara aktif menyimpan dan mengingat memori dengan carian semantik (SQLite + embeddings)

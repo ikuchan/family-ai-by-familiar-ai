@@ -23,7 +23,6 @@ Ta tajub reaalsust kaamerate kaudu, liigub robotkeha peal, räägib valjult ja m
 
 - 👁 **Näha** — teeb pilte Wi-Fi PTZ kaamerast või USB veebikaamerast
 - 🔄 **Ringis vaadata** — kallutab ja pööra kaamerat, et uurida ümbritsevat keskkonda
-- 🦿 **Liikuda** — juhib robotitolmuimejat ruumis ringi
 - 🗣 **Rääkida** — räägib ElevenLabsi TTS kaudu
 - 🎙 **Kuulata** — käed-vabad häälesisestus ElevenLabsi Realtime STT kaudu (valikuline)
 - 🧠 **Mäleta** — salvestab ja meenutab aktiivselt mälestusi semantilise otsingu abil (SQLite + embeddingud)

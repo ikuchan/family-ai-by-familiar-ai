@@ -21,7 +21,6 @@ familiar-ai er AI félagi sem lifir í heimili þínu. Settu það upp á nokkru
 
 - 👁 **Sjá** — tekur myndir með Wi-Fi PTZ myndavél eða USB vefmyndavél
 - 🔄 **Skoða í kring** — snýr og hallar myndavélinni til að kanna umhverfið
-- 🦿 **Hreyfa sig** — keyrir robot ryksugu um herbergið
 - 🗣 **Tala** — talar í gegnum ElevenLabs TTS
 - 🎙 **Heyra** — hljóðnema inntak í gegnum ElevenLabs Realtime STT (valfrjálst)
 - 🧠 **Muna** — geymir og kallar minningar með merkingarleit (SQLite + embeddings)

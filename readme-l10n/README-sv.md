@@ -23,7 +23,6 @@ Det uppfattar den verkliga världen genom kameror, rör sig runt på en robotkro
 
 - 👁 **Se** — fångar bilder från en Wi-Fi PTZ-kamera eller USB-webbkamera
 - 🔄 **Titta runt** — panorering och lutning av kameran för att utforska omgivningen
-- 🦿 **Röra sig** — kör en robotdammsugare för att utforska rummet
 - 🗣 **Tala** — pratar via ElevenLabs TTS
 - 🎙 **Lyssna** — handsfree röstinmatning via ElevenLabs Realtime STT (opt-in)
 - 🧠 **Minna** — lagrar aktivt och hämtar minnen med semantisk sökning (SQLite + inbäddningar)

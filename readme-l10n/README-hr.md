@@ -22,7 +22,6 @@ Perceptira stvarni svijet kroz kamere, kreće se na robotskom tijelu, govori gla
 
 - 👁 **Vidjeti** — snima slike s Wi-Fi PTZ kamere ili USB web kamere
 - 🔄 **Gledati okolo** — pomiče i naginje kameru kako bi istražio okolinu
-- 🦿 **Kretati se** — vozi robotski usisavač po sobi
 - 🗣 **Govoriti** — govori putem ElevenLabs TTS-a
 - 🎙 **Slušati** — hands-free glasovni unos putem ElevenLabs Realtime STT (opcionalno)
 - 🧠 **Pamtiti** — aktivno pohranjuje i prisjeća se uspomena s semantičkom pretragom (SQLite + ugradnje)

@@ -21,7 +21,6 @@ Dit waarneem die werklike wêreld deur kamera's, beweeg rond op 'n robot liggaam
 
 - 👁 **Sien** — neem beelde op van 'n Wi-Fi PTZ kamera of USB webcam
 - 🔄 **Kyk rondom** — pan en kantel die kamera om die omgewing te verken
-- 🦿 **Beweeg** — dryf 'n robot stofsuiweraar om die kamer te verken
 - 🗣 **Praat** — praat via ElevenLabs TTS
 - 🎙 **Luister** — hands-free steminvoer via ElevenLabs Realtime STT (opt-in)
 - 🧠 **Onthou** — stoor aktief en roep herinneringe op met semantiese soektog (SQLite + embeddings)

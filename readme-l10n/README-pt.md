@@ -22,7 +22,6 @@ Ele percebe o mundo real através de câmeras, se move em um corpo robótico, fa
 
 - 👁 **Ver** — captura imagens de uma câmera PTZ Wi-Fi ou webcam USB
 - 🔄 **Olhar ao redor** — faz panorâmicas e inclina a câmera para explorar os arredores
-- 🦿 **Mover** — dirige um aspirador robô para perambular pelo ambiente
 - 🗣 **Falar** — se comunica via ElevenLabs TTS
 - 🎙 **Ouvir** — entrada de voz sem as mãos via ElevenLabs Realtime STT (opcional)
 - 🧠 **Lembrar** — armazena e recorda ativamente memórias com busca semântica (SQLite + embeddings)

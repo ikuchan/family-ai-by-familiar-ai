@@ -22,7 +22,6 @@ Gerçek dünyayı kameralar yoluyla algılar, bir robot gövdesinde hareket eder
 
 - 👁 **Gör** — Wi-Fi PTZ kamerasından veya USB web kamerasından görüntüler yakalar
 - 🔄 **Etrafa bak** — kamerayı panner ve tiltir ederek çevresini keşfeder
-- 🦿 **Hareket et** — odayı dolaşmak için bir robot süpürgeyi kullanır
 - 🗣 **Konuş** — ElevenLabs TTS aracılığıyla konuşur
 - 🎙 **Dinle** — ElevenLabs Realtime STT ile eller serbest ses girişi (katılma gerektirir)
 - 🧠 **Hatırla** — belleği aktif olarak saklar ve hatırlar, anlamsal arama ile (SQLite + embeddings)

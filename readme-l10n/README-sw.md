@@ -21,7 +21,6 @@ Anaona ulimwengu wa kweli kupitia kamera, anatembea kwa mwili wa roboti, anasema
 
 - 👁 **Kuwaona** — anachukua picha kutoka kwa kamera ya PTZ ya Wi-Fi au webcam ya USB
 - 🔄 **Angalia mazingira** — inapunguza na kuinua kamera ili kuchunguza mazingira yake
-- 🦿 **Hama** — anasafirisha roboti ya kuondoa vumbi ili kutembea kwenye chumba
 - 🗣 **Zungumza** — anasema kupitia ElevenLabs TTS
 - 🎙 **Sikia** — ingizo la sauti lisilo na mikono kupitia ElevenLabs Realtime STT (opt-in)
 - 🧠 **Kumbuka** — kwa kuchukua kumbukumbu na kuziingiza kwa utaftaji wa semantiki (SQLite + embeddings)

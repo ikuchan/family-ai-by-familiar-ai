@@ -22,7 +22,6 @@ O, kameralar vasitəsilə real dünyanı qəbul edir, robot bədəni ilə hərə
 
 - 👁 **Görmək** — Wi-Fi PTZ kamera və ya USB veb kamerasından görüntü alır
 - 🔄 **Dünyaya baxmaq** — ətrafını araşdırmaq üçün kameranı çevirir və əyir
-- 🦿 **Hərəkət etmək** — otaqda gəzmək üçün robot tozsoranı idarə edir
 - 🗣 **Danışmaq** — ElevenLabs TTS vasitəsilə danışır
 - 🎙 **Dinləmək** — ElevenLabs Realtime STT (opt-in) vasitəsilə əllə azad səs girişi
 - 🧠 **Yaddaş** — aktiv şəkildə xatirələri saxlayır və çağırır, semantik axtarışla (SQLite + embeddinglər)

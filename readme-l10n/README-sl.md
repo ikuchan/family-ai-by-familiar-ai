@@ -22,7 +22,6 @@ Zaznava resnični svet preko kamer, se premika na robotskem telesu, govori na gl
 
 - 👁 **Vidite** — zajemanje slik iz Wi-Fi PTZ kamere ali USB kamere
 - 🔄 **Poglejte okoli** — premika in nagiba kamero, da raziskuje okolico
-- 🦿 **Premik** — vozi robotski sesalnik po prostoru
 - 🗣 **Govorite** — govori preko ElevenLabs TTS
 - 🎙 **Poslušajte** — brezrokovni glasovni vhod preko ElevenLabs Realtime STT (opt-in)
 - 🧠 **Zapomnite si** — aktivno shrani in prikliče spomine s semantičnim iskanjem (SQLite + embeddings)

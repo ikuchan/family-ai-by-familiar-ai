@@ -21,7 +21,6 @@ Elle perçoit le monde réel par des caméras, se déplace sur un corps de robot
 
 - 👁 **Voir** — capture des images à partir d'une caméra PTZ Wi-Fi ou d'une webcam USB
 - 🔄 **Regarder autour** — incline et fait pivoter la caméra pour explorer ses alentours
-- 🦿 **Se déplacer** — conduit un aspirateur robot pour explorer la pièce
 - 🗣 **Parler** — s'exprime via la synthèse vocale ElevenLabs
 - 🎙 **Écouter** — saisie vocale mains libres via ElevenLabs STT temps réel (optionnel)
 - 🧠 **Se souvenir** — enregistre et rappelle activement les souvenirs avec recherche sémantique (SQLite + embeddings)

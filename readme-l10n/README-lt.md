@@ -22,7 +22,6 @@ Jis suvokia tikrą pasaulį per kameras, juda robotinėje kūno formoje, kalba g
 
 - 👁 **Matyti** — fiksuoja vaizdus iš Wi-Fi PTZ kameros arba USB vaizdo kameros
 - 🔄 **Apsidairyti** — pasuka ir pakreipia kamerą, kad ištirtų aplinką
-- 🦿 **Judėti** — vairuoja robotinį dulkių siurblį, kad nuskristų po kambarį
 - 🗣 **Kalbėti** — kalba per ElevenLabs TTS
 - 🎙 **Klausytis** — laisvomis rankomis balsu įvesti per ElevenLabs Realtime STT (opt-in)
 - 🧠 **Prisiminti** — aktyviai saugo ir prisimena prisiminimus su semantiniu paieškos (SQLite + embedding)

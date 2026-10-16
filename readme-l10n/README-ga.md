@@ -22,7 +22,6 @@ Tuigeann sé an domhan réalaíoch trí cheamaraí, gluaiseann sé timpeall ar c
 
 - 👁 **Feic** — ghabhann íomhánaí ó cheamara PTZ Wi-Fi nó webcam USB
 - 🔄 **Féach timpeall** — pivot agus tilts an cheamara chun a thimpealla
-- 🦿 **Gluais** — gluaiseann robó vacaim chun an seomra a chíoradh
 - 🗣 **Labhraigh** — labhraíonn trí ElevenLabs TTS
 - 🎙 **Éisteacht** — ionchur guth gan lámh trí ElevenLabs Realtime STT (tacaíocht)
 - 🧠 **Cuimhnigh** — stórann gníomhach agus cuireann cuimhní i gcuimhne le cuardach sémantach (SQLite + embeddings)

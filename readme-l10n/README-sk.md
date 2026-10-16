@@ -22,7 +22,6 @@ Vníma reálny svet prostredníctvom kamier, pohybuje sa na robotickom tele, hov
 
 - 👁 **Vidieť** — zachytáva obrázky z Wi-Fi PTZ kamery alebo USB webkamery
 - 🔄 **Pozerať sa okolo** — panning a naklonenie kamery na preskúmanie okolia
-- 🦿 **Pohybovať sa** — jazdí na robotickom vysávači po miestnosti
 - 🗣 **Hovoriť** — hovorí cez ElevenLabs TTS
 - 🎙 **Počúvať** — hlasový vstup bez rúk cez ElevenLabs Realtime STT (opt-in)
 - 🧠 **Pamätať si** — aktívne ukladá a pripomína si spomienky pomocou sémantického vyhľadávania (SQLite + embeddings)

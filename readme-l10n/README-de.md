@@ -21,7 +21,6 @@ Es nimmt die reale Welt durch Kameras wahr, bewegt sich auf einem Roboter, spric
 
 - 👁 **Sehen** — erfasst Bilder von einer Wi-Fi-PTZ-Kamera oder USB-Webcam
 - 🔄 **Umschauen** — schwenkt und neigt die Kamera, um die Umgebung zu erkunden
-- 🦿 **Bewegen** — steuert einen Roboterstaubsauger durchs Zimmer
 - 🗣 **Sprechen** — spricht via ElevenLabs TTS
 - 🎙 **Zuhören** — freihändige Spracheingabe via ElevenLabs Realtime STT (opt-in)
 - 🧠 **Erinnern** — speichert und ruft aktiv Erinnerungen mit semantischer Suche ab (SQLite + Embeddings)
