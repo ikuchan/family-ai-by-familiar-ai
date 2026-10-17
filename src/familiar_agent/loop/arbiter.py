@@ -75,6 +75,9 @@ class Decision:
     heard_check: "dict | None" = None
 
 
+#: 確認待ちへの答えの見出し（求めの見出し・ログ・完了の見出しにも使う）。
+CONFIRM_QUERY = {"confirm": "「いい」と言われて掛ける", "decline": "確かめたものをやめる"}
+
 # 倒れたときも low（2026-09-12 決定・課題5 G 章）。以前は high で、Sonnet では 2 倍遅かった。
 #: 人の発話・機器が起点のとき（返事の型）。
 _LEAD_REPLY = "いま人から届いた言葉と、いまの作業状態を見て、次のどれかを選ぶ。"
@@ -266,11 +269,11 @@ _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
     ),
     # 確認待ちへの答え（出-y・2026-09-18）。[確認待ち] が作業状態の最上部にあるときだけ候補に載る。
     "confirm": (
-        "「いい」と言われて掛ける",
+        CONFIRM_QUERY["confirm"],
         '"confirm"（[確認待ち] の問いに「いい」「うん」「お願い」と答えた。tool_input は要らない）',
     ),
     "decline": (
-        "確かめたものをやめる",
+        CONFIRM_QUERY["decline"],
         '"decline"（[確認待ち] の問いに「やめて」「いらない」「今はいい」と答えた。tool_input は要らない）',
     ),
     # 個人ティアの記録（知-g-い）。候補に載るのは本人のターンだけ（話者ゲート・`_extra_actions`）。
@@ -740,10 +743,14 @@ class Arbiter:
         verdict = await jev_judges.judge_confirm_answer(
             self._jev, question=inp.confirm_question, text=inp.utterance, min_conf=THRESHOLD
         )
+        # 見出し（`query`）を付けて、調停がそのまま投げる。空だと `_close_early` を通らず主LLM へ回り、
+        # 主LLM が道具を呼ばずに「手続きを進めています」と言って、掛からなかった（2026-10-17 17:58）。
         if verdict == jev_judges.CONFIRM_YES:
-            final, decision = "confirm", Decision(branch="action", action="confirm")
+            final = "confirm"
+            decision = Decision(branch="action", action="confirm", query=CONFIRM_QUERY["confirm"])
         elif verdict == jev_judges.CONFIRM_NO:
-            final, decision = "decline", Decision(branch="action", action="decline")
+            final = "decline"
+            decision = Decision(branch="action", action="decline", query=CONFIRM_QUERY["decline"])
         elif inp.confirm_prompt_due and inp.confirm_prompt:
             final, decision = "ask_back", Decision(branch="light", text=inp.confirm_prompt)
         else:

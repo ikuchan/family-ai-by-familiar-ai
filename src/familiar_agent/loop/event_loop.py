@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 from ..poses import nearest_pose
 from ..scene import extract_entities, read_photo
 from ..store import clock
-from .arbiter import Arbiter, ArbiterInput, Decision as ArbiterDecision
+from .arbiter import CONFIRM_QUERY, Arbiter, ArbiterInput, Decision as ArbiterDecision
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION, KIND_SUCCESSION
 from ..io.dif import DIF
 from ..core import (
@@ -212,7 +212,7 @@ def _query_label(action: str, tool_input: dict) -> str:
             f"「{what}」" if what else ""
         )
     if action in _CONFIRM_ACTIONS:
-        return {"confirm": "「いい」と言われて掛ける", "decline": "確かめたものをやめる"}[action]
+        return CONFIRM_QUERY[action]
     if action in _MUSIC_ACTIONS:
         # 音楽にも見出しを付ける（出-be・2026-10-10 実機 11:05:16）。空だと同じ求めの 2 回目の音楽の操作が、名前に
         # 関係なく「すでに調べた」で止まり、かけ直しが投げられなかった。名前が違えば別の操作として投げる。

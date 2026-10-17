@@ -13,6 +13,7 @@ import asyncio
 
 from familiar_agent.loop.arbiter import (
     _FIELD_TEXT,
+    CONFIRM_QUERY,
     WRITER_PROMPT,
     Arbiter,
     ArbiterInput,
@@ -372,6 +373,8 @@ def _confirming(pick: str, *, due: bool = True, conf: float = 0.9):
 def test_a_yes_while_confirming_sets_it():
     d, writer, seen = _confirming("yes")
     assert (d.branch, d.action) == ("action", "confirm")
+    # 見出しが無いと `_close_early` を通らず主LLM へ回り、掛からなかった（2026-10-17 17:58）。
+    assert d.query == CONFIRM_QUERY["confirm"]
     writer.complete.assert_not_awaited()
     assert seen == ["confirm"]
 
@@ -379,6 +382,7 @@ def test_a_yes_while_confirming_sets_it():
 def test_a_no_while_confirming_drops_it():
     d, _, _ = _confirming("no")
     assert (d.branch, d.action) == ("action", "decline")
+    assert d.query == CONFIRM_QUERY["decline"]
 
 
 def test_anything_else_gets_the_fixed_prompt():
