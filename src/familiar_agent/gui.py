@@ -2525,10 +2525,19 @@ class FamiliarWindow(QMainWindow):
 # ---------------------------------------------------------------------------
 
 
-def run_gui(config: "AgentConfig") -> None:
-    """Launch the PySide6 GUI with qasync event loop."""
+def _install_quit_signals(qt_app: Any) -> None:
+    """Ctrl+C（SIGINT）と `kill`（SIGTERM）で、ふつうに閉じる（`aboutToQuit` → 後片付け）。
+
+    以前は SIGINT だけで、`kill` では後片付け（`agent.close()`）が走らず、spotifyd と SBV2 が残った（知-bj・2026-10-17）。
+    """
     import signal
 
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: qt_app.quit())
+
+
+def run_gui(config: "AgentConfig") -> None:
+    """Launch the PySide6 GUI with qasync event loop."""
     # Save terminal settings before Qt takes over. Qt/PySide6 can put the
     # terminal in raw/noecho mode for keyboard handling; without saving and
     # restoring these settings, closing the GUI leaves the launching terminal
@@ -2570,7 +2579,7 @@ def run_gui(config: "AgentConfig") -> None:
     _signal_timer = QTimer()
     _signal_timer.start(200)
     _signal_timer.timeout.connect(lambda: None)
-    signal.signal(signal.SIGINT, lambda *_: qt_app.quit())
+    _install_quit_signals(qt_app)
 
     with loop:
         loop.run_forever()

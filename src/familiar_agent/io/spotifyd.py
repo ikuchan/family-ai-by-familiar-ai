@@ -5,7 +5,10 @@ spotifyd は Spotify の音をこの機体で鳴らす裏方で、以前は手�
 
 - **居るかはプロセスで見る。** MPRIS の口は機器が現役になってから出る（`io/music`）ので、待機中は見えない。
   自分で立てたものはその手綱で、ほかは `pgrep -x spotifyd` で見る。
-- **自分で立てたものだけを止める**（SBV2 の合成サーバーと同じ扱い）。人が立てたものには触らない。
+- **パジュと一緒に終わる**（知-bj・2026-10-17・本人の決定ア・イ）。閉じるときは、自分で立てたものと、パジュと同じ
+  設定ファイルで残っていたものを止める（`stop_ours`）。別の設定ファイルの spotifyd には触らない。起動時に同じ設定
+  ファイルの spotifyd が残っていれば立ち上げ直して自分のものにする（`start_for_paju`）。強制終了でも一緒に終わるよう、
+  `setpriv --pdeathsig TERM` で立ち上げる。10/16 13:33 に立てたものが、`kill` で何度止めても残っていた。
 - 本体が見つからなければ警告を残すだけで落ちない（音楽は「かけられなかった」と返る）。
 - **音の出口はこの機体**（2026-10-07 実機）。アプリを遠隔デスクトップのターミナルから起動すると、その接続用の音の口を
   指す環境変数を引き継ぎ、spotifyd の音が遠隔デスクトップへ流れて Yamaha から鳴らなかった。立ち上げるときだけ外し、
@@ -15,6 +18,7 @@ spotifyd は Spotify の音をこの機体で鳴らす裏方で、以前は手�
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
 import contextlib
 import logging
 import os
@@ -27,6 +31,11 @@ logger = logging.getLogger(__name__)
 
 _started: "subprocess.Popen | None" = None
 
+#: spotifyd を立ち上げる専用のスレッド（知-bj）。`--pdeathsig` は**立ち上げたスレッド**が終わっても効くので、
+#: `asyncio.to_thread` の使い捨てのスレッドで立てると、思わぬときに spotifyd が止まる。アプリが動いているあいだ
+#: 終わらないこの 1 本だけで立てる（`ThreadPoolExecutor` の働き手は閉じるまで終わらない）。
+_OWNER = concurrent.futures.ThreadPoolExecutor(max_workers=1, thread_name_prefix="spotifyd")
+
 
 def find_binary() -> "str | None":
     """spotifyd の本体。PATH → `~/.local/bin/spotifyd` の順に探す。無ければ None。"""
@@ -35,6 +44,11 @@ def find_binary() -> "str | None":
         return found
     local = Path.home() / ".local" / "bin" / "spotifyd"
     return str(local) if local.exists() else None
+
+
+def _setpriv() -> "str | None":
+    """`setpriv`（util-linux）の場所（差し替え点）。無ければ None。"""
+    return shutil.which("setpriv")
 
 
 def _audio_env() -> "dict[str, str]":
@@ -69,9 +83,17 @@ def ensure_running(config_path: str) -> str:
         logger.warning("spotifyd が見つからないので立ち上げられない（音楽は鳴らない）")
         return "missing"
     conf = os.path.expanduser(config_path)
+    cmd = [binary, "--no-daemon", "--config-path", conf]
+    # パジュが強制終了（SIGKILL・メモリ不足）しても一緒に終わる（知-bj）。`setpriv` は spotifyd に置き換わるので
+    # pid もプロセス名も変わらない。`preexec_fn` はスレッドがあると固まるおそれがあるので使わない。
+    setpriv = _setpriv()
+    if setpriv:
+        cmd = [setpriv, "--pdeathsig", "TERM", *cmd]
+    else:
+        logger.warning("setpriv が無いので、パジュが強制終了すると spotifyd が残る")
     try:
         _started = subprocess.Popen(
-            [binary, "--no-daemon", "--config-path", conf],
+            cmd,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
             env=_audio_env(),
@@ -121,8 +143,7 @@ def restart(config_path: str, *, sleep: "Callable[[float], Any] | None" = None) 
 
     global _started
     pause = sleep or time.sleep
-    conf = os.path.expanduser(config_path)
-    ours = [pid for pid in _spotifyd_pids() if conf in _cmdline(pid)]
+    ours = _ours(config_path)
     for pid in ours:
         with contextlib.suppress(Exception):
             os.kill(pid, signal.SIGTERM)
@@ -157,13 +178,53 @@ async def wait_for_device(
         waited += 1.0
 
 
-def stop_started() -> None:
-    """自分で立てた spotifyd だけを止める。持っていなければ何もしない。"""
+def _ours(config_path: str) -> "list[int]":
+    """パジュと同じ設定ファイルで動いている spotifyd の pid。"""
+    conf = os.path.expanduser(config_path)
+    return [pid for pid in _spotifyd_pids() if conf in _cmdline(pid)]
+
+
+def stop_ours(config_path: str) -> None:
+    """閉じるとき：自分で立てたものと、同じ設定ファイルで残っていたものを止める（知-bj）。別の設定には触らない。"""
+    import signal
+
     global _started
     proc = _started
     _started = None
-    if proc is None or proc.poll() is not None:
-        return
-    logger.info("spotifyd を止める（自分で立てたもの）")
-    with contextlib.suppress(Exception):
-        proc.terminate()
+    if proc is not None and proc.poll() is None:
+        logger.info("spotifyd を止める（自分で立てたもの）")
+        with contextlib.suppress(Exception):
+            proc.terminate()
+    left = _ours(config_path)
+    for pid in left:
+        with contextlib.suppress(Exception):
+            os.kill(pid, signal.SIGTERM)
+    if left:
+        logger.info("spotifyd を止める（同じ設定ファイルで残っていたもの %d 件）", len(left))
+
+
+def start_for_paju(config_path: str) -> str:
+    """起動時：同じ設定ファイルの spotifyd が残っていれば立ち上げ直して自分のものにし、居なければ立てる（知-bj）。"""
+    if _started is None and _ours(config_path):
+        logger.info("spotifyd が前から残っていたので立ち上げ直す")
+        return restart(config_path)
+    return ensure_running(config_path)
+
+
+async def _owned(fn: "Callable[..., str]", *args: Any) -> str:
+    return await asyncio.get_running_loop().run_in_executor(_OWNER, fn, *args)
+
+
+async def ensure_running_async(config_path: str) -> str:
+    """`ensure_running` を専用のスレッドで（知-bj）。"""
+    return await _owned(lambda conf: ensure_running(conf), config_path)
+
+
+async def restart_async(config_path: str) -> str:
+    """`restart` を専用のスレッドで（知-bj）。"""
+    return await _owned(lambda conf: restart(conf), config_path)
+
+
+def start_for_paju_in_owner(config_path: str) -> None:
+    """起動時の `start_for_paju` を専用のスレッドへ投げる（待たない）。"""
+    _OWNER.submit(lambda: start_for_paju(config_path))

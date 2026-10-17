@@ -5,7 +5,7 @@
 
 - 起動時：音楽の器があって spotifyd が居なければ立ち上げる（待たない）。
 - `play_music` の前：居なければ立ち上げ、機器「パジュ」が Spotify に見えるまで 1 秒おきに最大 10 秒〔仮〕待つ。
-- 終了時：自分で立てたものだけを止める。人が立てたものには触らない。
+- 終了時：自分で立てたものと、同じ設定ファイルで残っていたものを止める（知-bj）。別の設定には触らない。
 - 居るかはプロセスで見る（MPRIS の口は機器が現役になるまで出ないので、待機中は見えない）。
 - 本体は PATH → `~/.local/bin/spotifyd` の順に探す。見つからなければ警告を残して落ちない。
 """
@@ -40,6 +40,8 @@ class _Proc:
 def _world(monkeypatch, *, running=False, binary="/usr/bin/spotifyd"):
     w = {"running": running, "spawned": []}
     monkeypatch.setattr(spotifyd, "_pgrep", lambda: w["running"])
+    # `setpriv` の有無は `test_spotifyd_goes_with_paju` が見る。ここは spotifyd を直接立てる形で見る（知-bj）。
+    monkeypatch.setattr(spotifyd, "_setpriv", lambda: None)
     monkeypatch.setattr(spotifyd, "find_binary", lambda: binary)
 
     def popen(args, **kw):
@@ -102,14 +104,22 @@ def test_only_the_one_we_started_is_stopped(monkeypatch):
     _world(monkeypatch)
     spotifyd.ensure_running("c")
     proc = spotifyd._started
-    spotifyd.stop_started()
+    monkeypatch.setattr(spotifyd, "_spotifyd_pids", lambda: [])
+    spotifyd.stop_ours("c")
     assert proc.terminated and spotifyd._started is None
 
 
 def test_one_someone_else_started_is_left_alone(monkeypatch):
     _world(monkeypatch, running=True)
+    monkeypatch.setattr(spotifyd, "_spotifyd_pids", lambda: [33])
+    monkeypatch.setattr(
+        spotifyd, "_cmdline", lambda pid: ["spotifyd", "--config-path", "/other.conf"]
+    )
+    killed: list = []
+    monkeypatch.setattr(spotifyd.os, "kill", lambda pid, sig: killed.append(pid))
     spotifyd.ensure_running("c")
-    spotifyd.stop_started()  # 何も持っていないので何もしない（落ちない）
+    spotifyd.stop_ours("c")  # 別の設定ファイルの spotifyd には触らない（落ちない）
+    assert killed == []
 
 
 # ── 機器が見えるまで待つ ───────────────────────────────────────────────────────
@@ -214,8 +224,8 @@ def test_the_agent_starts_it_at_startup_and_stops_it_at_exit():
     from familiar_agent import agent
 
     src = inspect.getsource(agent)
-    assert "spotifyd.ensure_running" in src
-    assert "spotifyd.stop_started()" in src
+    assert "spotifyd.start_for_paju" in src  # 残っていれば立ち上げ直す（知-bj）
+    assert "spotifyd.stop_ours(" in src
     assert "spotifyd_conf=" in src and "spotifyd_wait_sec=" in src
 
 

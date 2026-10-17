@@ -295,7 +295,8 @@ class MusicTool:
             return
         from ..io import spotifyd
 
-        state = await asyncio.to_thread(spotifyd.ensure_running, self._spotifyd_conf)
+        # 立ち上げは専用のスレッドで（`--pdeathsig` は立てたスレッドの終わりでも効く・知-bj）
+        state = await spotifyd.ensure_running_async(self._spotifyd_conf)
         if self._web is None or not self._device_name:
             return
         if state == "running" and callable(getattr(self._web, "devices", None)):
@@ -308,7 +309,7 @@ class MusicTool:
             if any(self._device_name in n for n in names):
                 return
             logger.info("音楽：一覧に %d 台あるが「%s」が無い", len(names), self._device_name)
-            state = await asyncio.to_thread(spotifyd.restart, self._spotifyd_conf)
+            state = await spotifyd.restart_async(self._spotifyd_conf)
         if state == "started":
             await spotifyd.wait_for_device(
                 self._web, self._device_name, wait_sec=self._spotifyd_wait
