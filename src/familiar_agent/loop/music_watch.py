@@ -3,9 +3,9 @@
 **寿命**：鳴らし始めてから 30 分で止め、止めたことを一言言う（本人の決定）。T の刻みから
 呼ぶ（ストップウォッチと同じ形・`loop/stopwatch_watch.py`）。
 
-**減音**：パジュが声を出しているあいだ（と、その後 10 秒）は音量を 4 分の 1 に絞り、基準へ戻す。
-基準は**人が変えた値**をそのつど読む（こちらで覚え込むと、人が動かした値を踏み潰す）。これは
-機械の反射で、主LLM は通らない（`ユースケース④` [D-会話減音]）。
+**減音**：パジュが声を出しているあいだ（と、その後 10 秒）は音量を 2 分の 1 に絞り、基準へ戻す。
+減音の基準はそのつど読む（人が動かした値を踏み潰さない）。ふだんの音量は、人が声で変えたときと止めたときに
+記録し、かけ始めに使う（`core/music_state`・知-bi）。これは機械の反射で、主LLM は通らない（`ユースケース④` [D-会話減音]）。
 """
 
 from __future__ import annotations
@@ -16,6 +16,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from ..core import music_state
 from ..core.music_rules import RESTORE_AFTER_SEC, duck, expired
 
 logger = logging.getLogger(__name__)
@@ -30,8 +31,14 @@ async def check_music_expired(
     started = float(getattr(state, "started_at", 0.0) or 0.0)
     if not started or not expired(started, now=now):
         return False
+    s: "dict | None" = None
+    with contextlib.suppress(Exception):  # 止める前に読む（止めたときの音量を覚える・知-bi）
+        s = await io.status(bus)
     await io.stop(bus)
     state.playing = False
+    base = music_state.base_volume(state, s) if s else None
+    if base is not None:
+        music_state.save_volume(base)
     logger.info("音楽：30 分たったので止めた")
     # 言い方は軽量LLM が書くので、事実の形で渡す（知-bh・2026-10-16）。
     say("音楽：30 分たったので止めた")
@@ -118,6 +125,10 @@ async def observe(*, io: Any, bus: Any, state: Any, record: Callable[[str], Any]
         logger.warning("音楽：いまの様子を読めなかった", exc_info=True)
         return {}
     if not s or not s.get("playing"):
+        # 鳴り止んだときの音量を覚える（知-bi）。読めなければ覚えない（スマホから止めて spotifyd が居ないなど）。
+        base = music_state.base_volume(state, s) if s else None
+        if base is not None:
+            music_state.save_volume(base)
         state.playing = False
         logger.info("音楽：止まっていたので鳴っている印を下ろした")
         record("音楽が止まった")

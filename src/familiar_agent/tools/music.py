@@ -17,7 +17,7 @@ import time
 from collections.abc import Callable
 from typing import Any
 
-from ..core import music_rules
+from ..core import music_rules, music_state
 
 logger = logging.getLogger(__name__)
 
@@ -148,9 +148,12 @@ class MusicTool:
         if name == "play_music":
             return await self._play(tool_input)
         if name == "stop_music":
+            base = await self._base_volume()  # 止める前に読む（止めたときの音量を覚える・知-bi）
             ok = await self._io.stop(self._bus())
             if ok:
                 self._mark(False)
+                if base is not None:
+                    music_state.save_volume(base)
             return ("音楽を止めた", True) if ok else ("いま音楽は鳴っていない", False)
         if name == "next_track":
             ok = await self._io.next_track(self._bus())
@@ -232,6 +235,7 @@ class MusicTool:
             if not await self._confirm(uri):
                 logger.info("音楽：%sかけようとしたが、別の曲が鳴っている（%s）", heading, uri)
                 return f"{heading}かけようとしたが、別の曲が鳴っている", False
+            await self._use_saved_volume()
             return None
         # **鳴らす直前に機器をこちらへ**（MPRIS の口は現役になってから出る）。鍵の更新もここで起きる。
         if self._web is not None and self._device_name:
@@ -239,6 +243,7 @@ class MusicTool:
                 self._web.activate(self._device_name)
         if not await self._io.play(self._bus(), uri):
             return f"{heading}かけられなかった（音の出口が見つからない）", False
+        await self._use_saved_volume()
         return None
 
     async def _resume(self) -> "tuple[str, bool]":
@@ -264,6 +269,7 @@ class MusicTool:
                 if ok:
                     return f"止まっていた続きが無かったので、{text}", True
             return "止まっていた続きが無く、かけるものが無かった", False
+        await self._use_saved_volume()
         self._mark(True)
         logger.info("音楽：止まっていた続きをかけ始めた")
         return "止まっていた続きをかけ始めた", True
@@ -359,15 +365,46 @@ class MusicTool:
             self._state.started_at = self._now()
             self._state.last_title = ""  # かけ直しでも最初の曲を書く（知-aa 段 2）
 
+    async def _base_volume(self) -> "float | None":
+        """絞る前のいまの音量（`music_state.base_volume`）。読めなければ None。"""
+        try:
+            s = await self._io.status(self._bus())
+        except Exception:  # noqa: BLE001
+            logger.warning("音楽：音量を読めなかった", exc_info=True)
+            return None
+        return music_state.base_volume(self._state, s) if s else None
+
+    async def _use_saved_volume(self) -> None:
+        """かけ始めに、覚えているふだんの音量にする（知-bi）。記録が無ければ触らない（spotifyd の初期値）。
+
+        話している最中（絞っている最中）は上げず、戻す先だけを替える。戻しの予約がその値へ戻す。
+        """
+        v = music_state.saved_volume()
+        if v is None:
+            return
+        if self._state is not None and self._state.ducked_base is not None:
+            self._state.ducked_base = v
+            return
+        with contextlib.suppress(Exception):
+            await self._io.set_volume(self._bus(), v)
+            logger.info("音楽：覚えていた音量にした（%.2f）", v)
+
     async def _volume(self, tool_input: dict) -> "tuple[str, bool]":
         how = str(tool_input.get("how") or "")
         s = await self._io.status(self._bus())
         if not s:
             return "いま音楽は鳴っていない", False
-        now = float(s.get("volume", 0.5))
+        # 絞る前の値から足し引きする。頼んだ合図の声で先に絞られているので、読んだ値は絞った値（知-bi）。
+        now = music_state.base_volume(self._state, s)
+        now = 0.5 if now is None else now
         if "小さ" in how or "下げ" in how:
             value = max(0.0, now - VOLUME_STEP)
         else:
             value = min(1.0, now + VOLUME_STEP)
-        await self._io.set_volume(self._bus(), value)
+        if self._state is not None and self._state.ducked_base is not None:
+            self._state.ducked_base = value  # 戻す先も新しい値。いまは話しているので絞ったまま
+            await self._io.set_volume(self._bus(), music_rules.duck(value))
+        else:
+            await self._io.set_volume(self._bus(), value)
+        music_state.save_volume(value)
         return f"音量を {int(value * 100)}% にした", True

@@ -1,7 +1,7 @@
 """音楽の結線（知-aa 段 1・2026-09-21）。門・寿命・減音。
 
 鳴っているあいだは**音楽の話だけ**を通す（時間の道具は通さない・本人の決定）。30 分で止めて
-一言言う。パジュが声を出しているあいだ（と、その後 10 秒）は 4 分の 1 に絞る。
+一言言う。パジュが声を出しているあいだ（と、その後 10 秒）は 2 分の 1 に絞る（知-bi で 4 分の 1 から変えた）。
 """
 
 from __future__ import annotations
@@ -371,5 +371,5 @@ async def test_ducking_is_logged_both_ways(caplog):
             io=io, bus=MagicMock(), state=state, speak=speak, sleep=AsyncMock()
         )
         await state.restore_task  # 戻しは裏で予約する（出-bd ①）
-    assert "音楽：話すあいだ音量を下げた（0.50 → 0.12）" in caplog.text
+    assert "音楽：話すあいだ音量を下げた（0.50 → 0.25）" in caplog.text  # 2 分の 1（知-bi）
     assert "音楽：音量を戻した（0.50）" in caplog.text

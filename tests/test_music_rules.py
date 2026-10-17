@@ -80,12 +80,12 @@ def test_music_stops_after_thirty_minutes():
     assert expired(1000.0, now=1000.0 + 1800)
 
 
-def test_the_volume_ducks_to_a_quarter_and_comes_back():
-    assert DUCK_RATIO == 0.25
+def test_the_volume_ducks_to_a_half_and_comes_back():
+    assert DUCK_RATIO == 0.5  # 4 分の 1 では止まったように聞こえた（知-bi・2026-10-17）
     assert RESTORE_AFTER_SEC == 10
-    assert duck(0.8) == 0.2
+    assert duck(0.8) == 0.4
     assert duck(0.0) == 0.0
-    assert duck(1.0) == 0.25
+    assert duck(1.0) == 0.5
 
 
 def test_a_named_voice_is_a_music_word_whatever_it_says():
