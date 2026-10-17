@@ -229,5 +229,15 @@ def events_between(cal: Calendar, first: date, days: int) -> list[Event]:
             found.append(
                 Event(summary=ev.summary, start_local=s, end_local=e, all_day=all_day, note=note)
             )
-    found.sort(key=lambda e: (e.start_local.date(), not e.all_day, e.start_local))
+    # 同じ日の終日・同じ時刻の予定にも決まった順を付ける。ICS の VEVENT の順は取得のたびに変わり、
+    # 毎時「変わった」と記録していた（情-s・2026-10-17）。
+    found.sort(
+        key=lambda e: (
+            e.start_local.date(),
+            not e.all_day,
+            e.start_local,
+            e.summary,
+            e.end_local or e.start_local,
+        )
+    )
     return found

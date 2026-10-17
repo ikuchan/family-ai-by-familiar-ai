@@ -100,3 +100,37 @@ def test_a_range_of_days_is_sorted() -> None:
         "UTC の予定",
         "運動会",
     ]  # 09:00 → 10:00 → 翌日の終日
+
+
+# ── 情-s（2026-10-17）：ICS の VEVENT の順が変わっても、並びは変わらない ──────────────
+
+
+def _ics(*events: str) -> str:
+    return "BEGIN:VCALENDAR\nVERSION:2.0\n" + "".join(events) + "END:VCALENDAR\n"
+
+
+_ALL_DAY_B = "BEGIN:VEVENT\nDTSTART;VALUE=DATE:20261018\nSUMMARY:遠足\nEND:VEVENT\n"
+_ALL_DAY_A = "BEGIN:VEVENT\nDTSTART;VALUE=DATE:20261018\nSUMMARY:お弁当\nEND:VEVENT\n"
+_AT_FOUR_B = (
+    "BEGIN:VEVENT\nDTSTART;TZID=Asia/Tokyo:20261018T160000\n"
+    "DTEND;TZID=Asia/Tokyo:20261018T180000\nSUMMARY:塾\nEND:VEVENT\n"
+)
+_AT_FOUR_A = (
+    "BEGIN:VEVENT\nDTSTART;TZID=Asia/Tokyo:20261018T160000\n"
+    "DTEND;TZID=Asia/Tokyo:20261018T170000\nSUMMARY:塾\nEND:VEVENT\n"
+)
+
+
+def _order(text: str):
+    return [
+        (e.summary, e.end_local) for e in events_between(parse_ics(text), date(2026, 10, 18), 1)
+    ]
+
+
+def test_all_day_events_on_the_same_day_keep_one_order() -> None:
+    assert _order(_ics(_ALL_DAY_A, _ALL_DAY_B)) == _order(_ics(_ALL_DAY_B, _ALL_DAY_A))
+
+
+def test_events_starting_together_keep_one_order() -> None:
+    """同じ名前・同じ開始でも、終わりの時刻で決まった順になる。"""
+    assert _order(_ics(_AT_FOUR_A, _AT_FOUR_B)) == _order(_ics(_AT_FOUR_B, _AT_FOUR_A))
