@@ -4029,7 +4029,8 @@ class InformationProcessing:
 
         基準は 2 段（`core/wake_strictness`）。**厳しい**のは、居ない（顔ぶれも在席も無い）とき、または誰の声か分からない
         とき。以前は居なくても最後の会話から 10 分たつまでは厳しくしなかった（2026-10-07 本人の決定で撤去）。捨てたら段と値を
-        ログに残す（本文は出さない・値は実機で貯めて見直す）。
+        ログに残す（本文は出さない・値は実機で貯めて見直す）。最後に人を見た定点と秒も残す（知-bg 段 2・2026-10-17・
+        本人の決定ウ）。呼んだ時点で在席がどれだけ切れていたかを、この行だけで数えるため。
         """
         from ..config import STTConfig
         from ..core.wake_strictness import admits
@@ -4053,7 +4054,7 @@ class InformationProcessing:
         )
         # 通したときも値を残す（出-ch）。捨てた値だけでは、上限を上げて物音で起きたかを見直せない。本文は出さない。
         logger.info(
-            "event-loop %s：%s（無音らしさ=%s・確かさ=%s・%d 字・%s・声%s）",
+            "event-loop %s：%s（無音らしさ=%s・確かさ=%s・%d 字・%s・声%s）%s",
             "名前で起こした" if ok else "名前で起こさなかった",
             ("厳しい" if strict else "ふだん") if ok else why,
             "-" if trigger.no_speech is None else f"{trigger.no_speech:.3f}",
@@ -4061,8 +4062,24 @@ class InformationProcessing:
             len(trigger.query or ""),
             "居ない" if alone else "居る",
             "が分からない" if unknown else "が当たる",
+            self._last_seen_note(),
         )
         return ok
+
+    def _last_seen_note(self) -> str:
+        """名前で起こす判定のログの末尾：最後に人を見た定点と秒（知-bg 段 2）。読めなければ何も足さない。"""
+        sensor = getattr(self._agent, "_occupancy_sensor", None)
+        if sensor is None:
+            return "・在席の見張りなし"
+        try:
+            seen = sensor.last_person()
+        except Exception:  # noqa: BLE001
+            return ""
+        if seen is None:
+            return "・起動してから人を見ていない"
+        if not (isinstance(seen, tuple) and len(seen) == 2 and isinstance(seen[1], (int, float))):
+            return ""
+        return f"・最後に人を見たのは {seen[0]}・{seen[1]:.0f} 秒前"
 
     def _voice_unknown(self, voice: Any) -> bool:
         """誰の声か分からないか：声の特徴が無い、または、どの家族にも付け替えの閾値（0.35）以上で当たらない。"""

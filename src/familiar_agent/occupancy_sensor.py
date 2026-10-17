@@ -139,6 +139,13 @@ class OccupancySensor:
         pose, people, at = self._last_reading
         return (pose, people, max(0.0, time.time() - at))
 
+    def last_person(self) -> "tuple[str, float] | None":
+        """最後に人を見た定点と、それが何秒前か。まだ見ていなければ None（知-bg 段 2・名前で起こす判定のログ用）。"""
+        if self._last_person is None:
+            return None
+        pose, at = self._last_person
+        return (pose, max(0.0, time.time() - at))
+
     def on_motion(self) -> None:
         """カメラが「動いた」と言ってきた。次の間隔を待たずに確かめる。動いた証拠なので静止の積算は捨てる。"""
         self._static = {k: reset(v) for k, v in self._static.items()}

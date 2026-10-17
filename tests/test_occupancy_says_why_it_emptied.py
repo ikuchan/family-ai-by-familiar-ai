@@ -154,3 +154,20 @@ def test_staying_empty_says_it_only_once(clock, caplog):
             clock[0] += 3
             _see(s, detector, [])
     assert len(_lines(caplog, "在席：居なくなった")) == 1
+
+
+# ── 知-bg 段 2（2026-10-17）：名前で起こす判定のログが読む ──────────────────────────────
+
+
+def test_last_person_is_where_and_how_long_ago(clock):
+    s, _, detector = _sensor()
+    _see(s, detector, _BOX)
+    clock[0] += 40
+    _see(s, detector, [])
+    assert s.last_person() == ("出入り口", 40.0)
+
+
+def test_last_person_is_none_before_anyone_is_seen(clock):
+    s, _, detector = _sensor()
+    _see(s, detector, [])
+    assert s.last_person() is None

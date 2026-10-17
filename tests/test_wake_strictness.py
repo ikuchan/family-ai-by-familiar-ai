@@ -303,3 +303,52 @@ def test_opening_the_window_by_name_logs_the_measures(caplog):
     assert len(lines) == 1
     assert "無音らしさ=0.247" in lines[0] and "確かさ=-0.535" in lines[0] and "居ない" in lines[0]
     assert "3分" not in lines[0]  # 本文は出さない
+
+
+# ── 知-bg 段 2（2026-10-17・本人の決定ウ）：呼んだ時点で在席がどれだけ切れていたか ──────────────────
+
+
+def _wake_line(ip, caplog) -> str:
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="familiar_agent.loop.event_loop"):
+        assert _heard(ip, "パジュ、3分測って", ns=0.247, lp=-0.535) is True
+    lines = [r.getMessage() for r in caplog.records if "名前で起こした" in r.getMessage()]
+    assert len(lines) == 1
+    return lines[0]
+
+
+@pytest.mark.real_window
+def test_the_wake_line_says_where_and_when_a_person_was_last_seen(caplog):
+    from unittest.mock import MagicMock
+
+    ip, a = _gate()
+    a._occupancy_sensor.last_person = MagicMock(return_value=("窓", 412.3))
+    assert _wake_line(ip, caplog).endswith("・最後に人を見たのは 窓・412 秒前")
+
+
+@pytest.mark.real_window
+def test_the_wake_line_says_no_one_has_been_seen_since_start(caplog):
+    from unittest.mock import MagicMock
+
+    ip, a = _gate()
+    a._occupancy_sensor.last_person = MagicMock(return_value=None)
+    assert _wake_line(ip, caplog).endswith("・起動してから人を見ていない")
+
+
+@pytest.mark.real_window
+def test_the_wake_line_says_there_is_no_watcher(caplog):
+    ip, a = _gate()
+    a._occupancy_sensor = None
+    assert _wake_line(ip, caplog).endswith("・在席の見張りなし")
+
+
+@pytest.mark.real_window
+def test_a_broken_watcher_does_not_change_the_decision(caplog):
+    """**反証の側**：見張りが読めなくても、起こすものは起こし、何も足さない。"""
+    from unittest.mock import MagicMock
+
+    ip, a = _gate()
+    a._occupancy_sensor.last_person = MagicMock(side_effect=RuntimeError("壊れた"))
+    line = _wake_line(ip, caplog)
+    assert "最後に人を見た" not in line and "見ていない" not in line and "見張り" not in line
