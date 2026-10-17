@@ -139,7 +139,9 @@ DEFAULT_ELEVENLABS_MODEL = "eleven_flash_v2_5"
 #: Gemini TTS の既定（環-v・`根拠台帳` §45）。実機で詰まった 5 文を漢字のまま 5/5 で読み、
 #: 感情も 3 つとも聞き分けられた組み合わせ。同じモデルでも声で変わる。
 DEFAULT_GEMINI_MODEL = "gemini-3.8-flash-lite-tts"
-DEFAULT_GEMINI_VOICE = "Laomedeia"  # 出-bv・本人の決定（`config.TTSConfig.gemini_voice` と同じ）
+DEFAULT_GEMINI_VOICE = (
+    "ja-jp-commercial-3"  # 出-cs・本人の決定（`config.TTSConfig.gemini_voice` と同じ）
+)
 
 #: Gemini の逐次の返りは生 PCM（24kHz・16bit・mono）。一括のときだけ WAV で返る。
 GEMINI_RATE = 24000

@@ -53,11 +53,11 @@ def test_the_model_defaults_to_flash_lite():
         assert TTSConfig().gemini_model == "gemini-3.8-flash-lite-tts"
 
 
-def test_the_voice_defaults_to_laomedeia():
-    """同じモデルでも声で点が変わる。9/24 は Charon（読み 10・感情 ○○○）を選んだが、10/12 の本人の聞き比べで
-    「おっさん」とされ、Laomedeia を既定にした（出-bv・`根拠台帳` §45）。"""
+def test_the_voice_defaults_to_commercial_3():
+    """同じモデルでも声で点が変わる。9/24 は Charon、10/12 は Laomedeia を選んだが、10/17 の本人の聞き比べで
+    「男の子の声」とされ、日本語専用の声 `ja-jp-commercial-3` を既定にした（出-cs・`根拠台帳` §45）。"""
     with patch.dict(os.environ, {}, clear=True):
-        assert TTSConfig().gemini_voice == "Laomedeia"
+        assert TTSConfig().gemini_voice == "ja-jp-commercial-3"
 
 
 def test_the_model_and_voice_can_be_changed():
@@ -142,7 +142,7 @@ def test_the_model_and_voice_reach_the_call():
     _, _, client = _say(_tool(), [_chunk(_PCM, "audio/pcm;rate=24000")])
     kwargs = client.models.generate_content_stream.call_args.kwargs
     assert kwargs["model"] == "gemini-3.8-flash-lite-tts"
-    assert "Laomedeia" in str(kwargs["config"])
+    assert "ja-jp-commercial-3" in str(kwargs["config"])
 
 
 def test_a_failure_does_not_raise():

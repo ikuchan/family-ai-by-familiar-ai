@@ -286,7 +286,8 @@ def test_the_think_words_are_two():
 
     assert rc.THINK_WORDS == ("えっと", "うーん")
     sounds = Path(rc.THINK_WAVS[0]).parent
-    for folder in (sounds, sounds / "voices" / "Laomedeia", sounds / "voices" / "Puck"):
+    voices = ("Laomedeia", "Puck", "ja-jp-commercial-3", "ja-jp-csagent-8")
+    for folder in (sounds, *(sounds / "voices" / v for v in voices)):
         got = sorted(p.name for p in folder.glob("react_think_*.wav"))
         assert got == ["react_think_0.wav", "react_think_1.wav"], folder
 
@@ -299,6 +300,7 @@ def test_the_tool_words_are_four():
 
     assert rc.TOOL_WORDS == ("はい", "はーい！", "待ってね", "オッケー")
     sounds = Path(rc.TOOL_WAVS[0]).parent
-    for folder in (sounds, sounds / "voices" / "Laomedeia", sounds / "voices" / "Puck"):
+    voices = ("Laomedeia", "Puck", "ja-jp-commercial-3", "ja-jp-csagent-8")
+    for folder in (sounds, *(sounds / "voices" / v for v in voices)):
         got = sorted(p.name for p in folder.glob("react_tool_*.wav"))
         assert got == [f"react_tool_{i}.wav" for i in range(4)], folder

@@ -23,9 +23,10 @@ from familiar_agent.core import reaction_cue as rc
 SOUNDS = pathlib.Path(__file__).resolve().parents[1] / "src" / "familiar_agent" / "sounds"
 
 
-def test_the_voice_defaults_to_laomedeia():
+def test_the_voice_defaults_to_commercial_3():
+    """既定は `ja-jp-commercial-3`（出-cs・2026-10-17・本人の聞き比べで 1 位・`根拠台帳` §45）。"""
     with patch.dict(os.environ, {}, clear=True):
-        assert TTSConfig().gemini_voice == "Laomedeia"
+        assert TTSConfig().gemini_voice == "ja-jp-commercial-3"
 
 
 def test_the_voice_follows_the_env():
@@ -125,7 +126,7 @@ def test_gemini_wav_fails_without_sound(monkeypatch):
 # ── 2 組そろっている ───────────────────────────────────────────────────
 
 
-@pytest.mark.parametrize("voice", ["Puck", "Laomedeia"])
+@pytest.mark.parametrize("voice", ["Puck", "Laomedeia", "ja-jp-commercial-3", "ja-jp-csagent-8"])
 def test_each_voice_has_all_recordings(voice):
     from familiar_agent.core.credit import READINGS
 

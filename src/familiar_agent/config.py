@@ -241,14 +241,14 @@ class TTSConfig:
     # Gemini TTS（環-v・2026-09-24）。`gemini-3.8-flash-lite-tts` × `Charon` は、実機で
     # 詰まった 5 文を漢字のまま 5/5 で読み、感情も 3 つとも聞き分けられた。同じモデルでも
     # 声で変わる（`Puck` は感情が △△△ だった）ので、声もここで持つ。
-    # 既定の声は `Laomedeia`（出-bv・2026-10-12・本人の決定）。本人の聞き比べで Charon は「おっさん」、Puck と Laomedeia が
-    # よく、Laomedeia を既定にした（`根拠台帳` §45）。`.env` の `GEMINI_TTS_VOICE` で Puck に替えられ、作り置きの声も
-    # `sounds/voices/<声>/` から一緒に切り替わる。
+    # 既定の声は日本語専用の `ja-jp-commercial-3`（出-cs・2026-10-17・本人の聞き比べで 1 位・`根拠台帳` §45）。
+    # 10/12 に選んだ Laomedeia は、10/17 に聞き直して「男の子の声」とされた。`.env` の `GEMINI_TTS_VOICE` で替えられ
+    # （2 位は `ja-jp-csagent-8`。Laomedeia・Puck も残してある）、作り置きの声も `sounds/voices/<声>/` から一緒に切り替わる。
     gemini_model: str = field(
         default_factory=lambda: os.environ.get("GEMINI_TTS_MODEL", "gemini-3.8-flash-lite-tts")
     )
     gemini_voice: str = field(
-        default_factory=lambda: os.environ.get("GEMINI_TTS_VOICE", "Laomedeia")
+        default_factory=lambda: os.environ.get("GEMINI_TTS_VOICE", "ja-jp-commercial-3")
     )
     # 鍵は軽量LLM と同じものでよい（`UTILITY_API_KEY`）。分けたいときだけ専用の鍵を置く。
     gemini_api_key: str = field(
