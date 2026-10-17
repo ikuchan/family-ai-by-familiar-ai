@@ -72,3 +72,33 @@ def test_complete_disables_thinking_so_the_budget_goes_to_the_text():
     b = _backend([_text("ok")])
     asyncio.run(b.complete_with_image("p", "aGVsbG8=", max_tokens=10))
     assert b.client.messages.create.call_args.kwargs.get("thinking") == {"type": "disabled"}
+
+
+def _backend_for(model: str) -> AnthropicBackend:
+    b = _backend([_text("ok")])
+    b.model = model
+    return b
+
+
+def test_sonnet_5_5_turns_thinking_off_with_between_tools():
+    """Sonnet 5.5 は `disabled` を 400 で断り、代わりに `between_tools` を受け取る（環-al・2026-10-17）。
+
+    公式の文書（Troubleshooting thinking）と実測で、`between_tools` は返事の前に考えない。予算 120 でも
+    返事が空にならなかった（adaptive low は 5 回中 2 回、考えで予算を使い切って空だった）。
+    """
+    b = _backend_for("claude-sonnet-5-5")
+    asyncio.run(b.complete("p", max_tokens=10))
+    assert b.client.messages.create.call_args.kwargs.get("thinking") == {"type": "between_tools"}
+    b = _backend_for("claude-sonnet-5-5")
+    asyncio.run(b.complete_with_image("p", "aGVsbG8=", max_tokens=10))
+    assert b.client.messages.create.call_args.kwargs.get("thinking") == {"type": "between_tools"}
+
+
+def test_other_models_keep_disabled():
+    """**反証の側**：`between_tools` を受け取るのは Sonnet 5.5 だけ。ほかに送れば 400 になる。"""
+    for model in ("claude-sonnet-5", "claude-opus-5", "claude-haiku-5-5"):
+        b = _backend_for(model)
+        asyncio.run(b.complete("p", max_tokens=10))
+        assert b.client.messages.create.call_args.kwargs.get("thinking") == {"type": "disabled"}, (
+            model
+        )

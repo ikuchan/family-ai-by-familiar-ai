@@ -20,8 +20,15 @@ from .types import ToolCall, TurnResult
 logger = logging.getLogger(__name__)
 
 
-#: 利用の呼び出し（`complete`・`complete_with_image`）は思考を切る。
-_NO_THINKING = {"type": "disabled"}
+def _no_thinking(model: str) -> dict:
+    """利用の呼び出し（`complete`・`complete_with_image`）で思考を切る指定。
+
+    Sonnet 5.5 は `disabled` を 400 で断り、代わりに `between_tools`（返事の前に考えない）を受け取る。
+    `between_tools` を受け取るのは Sonnet 5.5 だけで、ほかへ送れば 400 になる（公式の文書・環-al・2026-10-17）。
+    """
+    if "sonnet-5-5" in model:
+        return {"type": "between_tools"}
+    return {"type": "disabled"}
 
 
 def _text_of(resp) -> str:
@@ -345,7 +352,7 @@ class AnthropicBackend:
             # 利用の呼び出しは**思考を切る**。指定しないと Sonnet 5 は適応的思考を働かせ、REST の
             # 層 2・4 が予算（2,000〜2,500）を思考で使い切り `stop=max_tokens`・本文ゼロで返った
             # （2026-09-16 04:31 実機・環-l）。
-            extra: dict = {"thinking": _NO_THINKING}
+            extra: dict = {"thinking": _no_thinking(self.model)}
             if system:
                 extra["system"] = system
             resp = await self.client.messages.create(
@@ -374,7 +381,9 @@ class AnthropicBackend:
     ) -> str:
         """Vision completion — sends base64 JPEG alongside text prompt."""
         try:
-            extra: dict = {"thinking": _NO_THINKING}  # 利用の呼び出しは思考を切る（上と同じ理由）
+            extra: dict = {
+                "thinking": _no_thinking(self.model)
+            }  # 利用の呼び出しは思考を切る（上と同じ理由）
             if system:
                 extra["system"] = system
             resp = await self.client.messages.create(
