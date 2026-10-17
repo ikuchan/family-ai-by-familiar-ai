@@ -58,6 +58,12 @@ from .prompt import build_event_system_prompt
 
 logger = logging.getLogger(__name__)
 
+#: 起点の記録を O へ書くときの上限（字）。会話・独白・情動・知らせの起点。
+_ORIGIN_MAX = 500
+#: 記録だけする機器の知らせ（予定・メモ）は 1,500 字まで（情-s・2026-10-17・本人の決定ア）。入口が 500 字で
+#: 切っていて、予定 67 件中 54 件が後ろの日を失っていた。
+_DEVICE_MAX = 1500
+
 # 連鎖が続けられる反復で渡す動作。上限に達した反復では say だけにして必ず閉じる。
 _FULL_ACTIONS = (
     "say",
@@ -2786,9 +2792,11 @@ class InformationProcessing:
         書き方は知らせの求めが始まるときと同じ（`[種別] 中身`・`direction="機器"`・パジュ自身の面）。
         """
         with contextlib.suppress(Exception):
-            await self._write_origin("機器", f"[{kind}] {content}")
+            await self._write_origin("機器", f"[{kind}] {content[:_DEVICE_MAX]}", max_chars=None)
 
-    async def _write_origin(self, kind: str, text: str) -> str:
+    async def _write_origin(
+        self, kind: str, text: str, *, max_chars: "int | None" = _ORIGIN_MAX
+    ) -> str:
         """起点の記録を O へ書く（求めの始まり・`record_device` の 2 つの口が共有する・同じ形で書く）。
 
         会話は話者の面、情動と機器はパジュ自身の面（`__self__`）。
@@ -2800,7 +2808,12 @@ class InformationProcessing:
             else agent._observation_perspective()
         )
         return await agent._oif.write(
-            MI(id="", content=text[:500], timestamp=None, direction=kind),
+            MI(
+                id="",
+                content=text if max_chars is None else text[:max_chars],
+                timestamp=None,
+                direction=kind,
+            ),
             **perspective,
         )
 

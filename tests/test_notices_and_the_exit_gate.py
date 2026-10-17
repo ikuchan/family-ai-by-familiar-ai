@@ -135,3 +135,29 @@ def test_a_timer_control_word_under_a_timer_silence_opens_the_window():
     ip = _timer_ip(silence=SilenceRequest(person="", until=time.time() + 300, reason="timer:1"))
     assert _admit(ip, "パジュ、止めて") is True
     assert ip._wake_window().is_open(time.monotonic())
+
+
+# ── 情-s（2026-10-17・本人の決定ア）：記録だけする機器の知らせは 1,500 字まで ────────────────
+
+
+def _written(a) -> list[str]:
+    return [str(c.args[0]) for c in a._memory.save_async_with_id.call_args_list]
+
+
+def test_a_long_device_record_is_kept_whole():
+    a, ip = _ip()
+    asyncio.run(ip.record_device("予定", "あ" * 1200))
+    assert any(w == "[予定] " + "あ" * 1200 for w in _written(a))
+
+
+def test_a_device_record_stops_at_1500():
+    a, ip = _ip()
+    asyncio.run(ip.record_device("予定", "あ" * 2000))
+    assert any(w == "[予定] " + "あ" * 1500 for w in _written(a))
+
+
+def test_a_spoken_origin_is_still_cut_at_500():
+    """**反証の側**：会話の起点は、いままでどおり 500 字。"""
+    a, ip = _ip()
+    asyncio.run(ip._write_origin("発話", "あ" * 800))
+    assert "あ" * 500 in _written(a) and not any(len(w) > 500 for w in _written(a))
