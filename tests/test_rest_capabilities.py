@@ -46,14 +46,14 @@ def test_the_summary_keeps_me_md_verbatim_and_is_saved():
     assert "family_schedule" not in prompt  # 有効条件を満たさない行は渡さない（env 無し）
 
 
-def test_a_summary_that_rewrote_me_md_or_grew_too_long_is_refused():
-    me = "名前： パジュ\n一人称：ぼく"
-    a = _agent("名前： パジュ（要約された）\n## 私にできること\n- x")
+def test_a_summary_without_the_section_or_grew_too_long_is_refused():
+    """`ME.md` はコードが置くので、写し間違いでは捨てない。捨てるのは節が無いときと長すぎるとき（記-v）。"""
+    a = _agent("名前： パジュ（要約された）\n- x")
     with patch.object(rc, "save_summary") as save:
         reason = asyncio.run(rc.refresh_summary(a, GOOD_YAML))
-    assert reason and "そのまま" in reason
+    assert reason and "見出し" in reason
     save.assert_not_called()
-    a = _agent(me + "\n## 私にできること\n" + "- あ" * rc.SUMMARY_MAX_CHARS)
+    a = _agent("## 私にできること\n" + "- あ" * rc.SUMMARY_MAX_CHARS)
     with patch.object(rc, "save_summary") as save:
         reason = asyncio.run(rc.refresh_summary(a, GOOD_YAML))
     assert reason and "字" in reason
@@ -161,3 +161,40 @@ def test_the_cap_fits_me_md_plus_twenty_lines():
 def test_the_ask_is_big_enough_for_the_cap():
     """`max_tokens` は上限から決める。足りないと途中で切れる（日本語 1 字 ≈ 2 トークン）。"""
     assert rc.summary_max_tokens() >= rc.SUMMARY_MAX_CHARS
+
+
+# ---- 記-v（2026-10-17・本人の決定ア）：ME.md はコードが先頭に置く --------------------------
+
+_ME = "# パジュ\n名前： パジュ\n一人称：ぼく"
+_SECTION = "## 私にできること\n- 記憶を探せる"
+
+
+def test_the_section_alone_is_joined_after_me_md():
+    a = _agent(_SECTION, me_md=_ME)
+    with patch.object(rc, "save_summary") as save:
+        assert asyncio.run(rc.refresh_summary(a, GOOD_YAML)) is None
+    assert save.call_args.args[0] == _ME + "\n\n" + _SECTION
+
+
+def test_a_garbled_copy_of_me_md_before_the_section_is_dropped():
+    """実機で崩れた形：見出しの記号を外して写した（10/17 の 8 回中 1 回）。節から後ろだけを使う。"""
+    a = _agent("パジュ\n名前： パジュ\n一人称：ぼく\n\n" + _SECTION, me_md=_ME)
+    with patch.object(rc, "save_summary") as save:
+        assert asyncio.run(rc.refresh_summary(a, GOOD_YAML)) is None
+    assert save.call_args.args[0] == _ME + "\n\n" + _SECTION
+
+
+def test_a_reply_without_the_section_heading_is_refused():
+    """**反証の側**：節の見出しが無ければ捨てる。"""
+    a = _agent("- 記憶を探せる", me_md=_ME)
+    with patch.object(rc, "save_summary") as save:
+        reason = asyncio.run(rc.refresh_summary(a, GOOD_YAML))
+    assert reason and "見出し" in reason
+    save.assert_not_called()
+
+
+def test_the_ask_says_how_long_the_section_may_be():
+    from familiar_agent.capability_state import build_self_understanding_prompt
+
+    prompt = build_self_understanding_prompt(me_md=_ME, manifest=GOOD_YAML)
+    assert f"{rc.SUMMARY_MAX_CHARS - len(_ME) - 2} 字以内" in prompt

@@ -19,6 +19,8 @@ import logging
 from datetime import datetime
 
 from ..capability_state import (
+    SECTION_HEADING,
+    SUMMARY_MAX_CHARS,
     build_self_understanding_prompt,
     filter_enabled,
     live_tool_names,
@@ -30,12 +32,6 @@ from ..core import measure
 from ..core.helpers import strip_code_fence
 
 logger = logging.getLogger(__name__)
-
-#: 要約の上限（字）。`ME.md`（人が書くぶん・実測 1,223 字）＋「私にできること」20 行
-#: （実測 35 字／行）を容れる（本人の決定・2026-09-23）。1,000 字だった頃は `ME.md` だけで
-#: 超えており、**要約を作っても必ず捨てられていた**（出-ao）。`[あなたは誰か]` は毎ターン
-#: 主LLM へ届くが、system の安定部に入るのでキャッシュ越しである。
-SUMMARY_MAX_CHARS = 2000
 
 
 def summary_max_tokens() -> int:
@@ -92,9 +88,13 @@ async def refresh_summary(agent, manifest: str) -> "str | None":
         raw = str(await agent.backend.complete(prompt, max_tokens=summary_max_tokens()) or "")
     except Exception as e:  # noqa: BLE001
         return f"依頼に失敗：{e}"
-    text = strip_code_fence(raw).strip()
-    if me_md.strip() and not text.startswith(me_md.strip()):
-        return "ME.md がそのまま残っていない"
+    reply = strip_code_fence(raw).strip()
+    at = reply.find(SECTION_HEADING)
+    if at < 0:
+        return "節の見出しが無い"
+    # `ME.md` はコードが先頭に置く。節より前に写しが付いていても捨てる（記-v）。
+    section = reply[at:]
+    text = (me_md.strip() + "\n\n" + section) if me_md.strip() else section
     if _cut_off(text):
         # 生成が尽きた出力は、上限の検査を通り抜けてしまう（保存済みの 749 字は末尾が
         # `- ` のままだった・出-ao）。**途中で切れたものを置かない。**

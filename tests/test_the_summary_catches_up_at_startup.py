@@ -74,14 +74,14 @@ def test_a_missing_summary_is_built():
 def test_a_refused_rebuild_is_reported_not_raised():
     """検査に落ちても起動は続く。理由は返して記録に残す。"""
     a = _agent()
-    a.backend.complete = AsyncMock(return_value="ME.md を書き換えてしまった要約")
+    a.backend.complete = AsyncMock(return_value="節の見出しを付け忘れた要約")
     with (
         patch.object(rc, "load_summary", return_value="古い"),
         patch.object(rc, "load_capabilities", return_value="capabilities:\n  - id: memory\n"),
         patch.object(rc, "save_summary") as save,
     ):
         reason = asyncio.run(rc.catch_up_summary(a))
-    assert reason and "そのまま" in reason
+    assert reason and "見出し" in reason  # 記-v：ME.md はコードが置くので、捨てるのは節が無いとき
     save.assert_not_called()
 
 
