@@ -50,6 +50,7 @@ def _ip(blocked: str = ""):
     ip._dif = MagicMock(speak=AsyncMock())
     ip._emit = MagicMock()
     ip._finish = AsyncMock()
+    ip._agent = MagicMock(confirm_alive=lambda: False)  # 確認待ちでない（出-cw で話し終わりに見る）
     ip._wake_window().open(time.monotonic())  # 入口を通った会話として窓を開けておく（出-as 段 4）
     return ip
 

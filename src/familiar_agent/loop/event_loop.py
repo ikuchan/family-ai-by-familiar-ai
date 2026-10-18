@@ -4405,6 +4405,10 @@ class InformationProcessing:
         finally:
             if hold:
                 wake.release(time.monotonic())
+            if self._confirming():
+                # 確認待ちのあいだの声（問い・聞き返し）は、窓が閉じていても話し終わりから開ける（出-cw・本人の決定イ）。
+                # 10/18 07:55 に 12.9 秒の頼みで窓が問いの前に閉じ、名前の無い「はい」を窓の外として捨てた。
+                wake.open(time.monotonic())
 
     def _voice_gain(self) -> float:
         """この求めの声の倍率。タイマーが鳴った知らせ（`[タイマー]`）だけ `TIMER_VOICE_GAIN`（既定 1.0）。
