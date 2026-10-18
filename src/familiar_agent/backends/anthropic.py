@@ -43,6 +43,29 @@ def _text_of(resp) -> str:
     return "".join(parts).strip()
 
 
+def _log_usage(kind: str, resp, *, tools: int = 0) -> None:
+    """呼び出しごとのキャッシュの読み・書きと入力・出力のトークン数を 1 行残す（出-bs の計測・2026-10-19）。
+
+    管理画面に「キャッシュの当たりが低い」と出たが、どこで外れているかを数えられなかった。数だけを出し、
+    文の中身は出さない。`usage` が無い・値が None の返りは 0 とみなす。
+    """
+    usage = getattr(resp, "usage", None)
+
+    def n(name: str) -> int:
+        v = getattr(usage, name, 0)
+        return v if isinstance(v, int) else 0
+
+    logger.info(
+        "主LLM トークン 呼び=%s 読み=%d 書き=%d 入力=%d 出力=%d 道具=%d",
+        kind,
+        n("cache_read_input_tokens"),
+        n("cache_creation_input_tokens"),
+        n("input_tokens"),
+        n("output_tokens"),
+        tools,
+    )
+
+
 class AnthropicBackend:
     """Backend using the official Anthropic SDK."""
 
@@ -281,6 +304,7 @@ class AnthropicBackend:
             if b.type == "tool_use"
         ]
         stop = "tool_use" if tool_calls else "end_turn"
+        _log_usage("反復", response, tools=len(tools))  # 出-bs の計測
         in_tok = getattr(response.usage, "input_tokens", 0) if response.usage else 0
         out_tok = getattr(response.usage, "output_tokens", 0) if response.usage else 0
         # Return response.content (including ThinkingBlocks) so interleaved thinking
@@ -361,6 +385,7 @@ class AnthropicBackend:
                 messages=msgs,
                 **extra,
             )
+            _log_usage("利用", resp)  # 出-bs の計測
             result = _text_of(resp)
             if not result:
                 logger.warning(
@@ -407,6 +432,7 @@ class AnthropicBackend:
                     }
                 ],
             )
+            _log_usage("写真", resp)  # 出-bs の計測
             return _text_of(resp)
         except Exception as e:
             credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）
