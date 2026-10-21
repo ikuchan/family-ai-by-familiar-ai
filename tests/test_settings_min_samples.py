@@ -68,4 +68,5 @@ def test_timeout_is_not_asked_below_the_minimum():
 
 
 def test_the_minimums_are_the_agreed_values():
-    assert rs.MIN_SAMPLES == {"内部状態": 50, "時間切れ": 20, "関連": 20}
+    # 主LLM 20 回（7 日分）は出-bs 段 2 で足した（2026-10-21・本人の決定ア）。
+    assert rs.MIN_SAMPLES == {"内部状態": 50, "時間切れ": 20, "関連": 20, "主LLM": 20}

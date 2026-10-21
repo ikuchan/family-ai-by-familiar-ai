@@ -10,11 +10,14 @@ LLM が数字を見て提案する（生の行は渡さない）。動かした�
 - 内部状態の境目：計測した分位へ 1 刻みずつ近づける（等頻度を保つ・`課題5` C2 節）。
 - `diffuse_far_share`：参照された側へ 0.1 寄せる。
 - `arbiter_timeout_sec`：件数・中央・p90・最大・時間切れの割合を LLM に渡し、提案を 1 刻み・範囲内に丸める。
+- `main_llm_cache`：直近 7 日（改名済みの計測ログもまたぐ）に、前の反復から 5 分以内に続いた割合が、料金の倍率から
+  計算した境目以上なら使う、下回れば使わない（出-bs 段 2）。
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timedelta
 
 from ..core.structured_ask import read_json_merged
 from .. import config_overrides as co
@@ -26,7 +29,10 @@ Change = tuple[str, float, float]  # (完全名, 前, 後)
 
 # 規則ごとの最小の標本数〔仮・記-k・2026-09-15〕。足りなければその晩は動かさない。
 # 実機で計測ログ 121 行のうち `気分`／`欲求` が 4 行だったのに、境目 9 件が動いた。
-MIN_SAMPLES = {"内部状態": 50, "時間切れ": 20, "関連": 20}
+MIN_SAMPLES = {"内部状態": 50, "時間切れ": 20, "関連": 20, "主LLM": 20}
+
+#: 主LLM のキャッシュの規則が見る長さ（出-bs 段 2・本人の決定）。ほかの規則は前の晩からの分だけを見る。
+CACHE_WINDOW_DAYS = 7
 
 
 def _current(field: str, default: float) -> float:
@@ -110,6 +116,29 @@ def adjust_far_share(summary: dict) -> list[Change]:
     return [(field, cur, nxt)] if nxt is not None else []
 
 
+def cache_threshold(write: float, read: float) -> float:
+    """キャッシュを使うほうが安くなる当たりの割合（出-bs 段 2・本人の決定イ）。
+
+    外れると書き込みの割増し（write − 1）を払い、当たると（1 − read）を浮かす。固定部分の大きさは打ち消し合う。
+    """
+    return (write - 1.0) / (write - read)
+
+
+def adjust_main_llm_cache(summary: dict, *, write: float, read: float) -> list[Change]:
+    """直近 7 日の当たりの割合が境目以上なら使う、下回れば使わない（出-bs 段 2）。20 回に届かなければ動かさない。
+
+    当たりは時刻で数える（`measure.summarize_main_llm`・本人の決定ア）。
+    """
+    if int(summary.get("件数", 0) or 0) < MIN_SAMPLES["主LLM"]:
+        return []
+    from ..config import MAIN_LLM_CACHE_DEFAULT, MAIN_LLM_CACHE_FIELD
+
+    cur = _current(MAIN_LLM_CACHE_FIELD, MAIN_LLM_CACHE_DEFAULT)
+    target = 1.0 if float(summary.get("割合", 0.0)) >= cache_threshold(write, read) else 0.0
+    nxt = _step_toward(MAIN_LLM_CACHE_FIELD, cur, target)
+    return [(MAIN_LLM_CACHE_FIELD, cur, nxt)] if nxt is not None else []
+
+
 _TIMEOUT_PROMPT = """\
 調停（軽量LLM）の時間切れの秒数を見直す。いまの値は {current} 秒（範囲 {lo}〜{hi}・一晩に {step} 秒まで）。
 前回以降の実測（数字だけ）：件数 {n}・中央 {median} 秒・p90 {p90} 秒・最大 {max} 秒・時間切れ {timeouts} 回（{rate:.0%}）。
@@ -188,6 +217,12 @@ async def adjust_settings(agent) -> int:
     changes += adjust_inner_state(measure.summarize_inner_state(rows))
     changes += adjust_far_share(measure.summarize_relation(rows))
     changes += await adjust_timeout(agent, measure.summarize_arbiter(rows))
+    week = measure.read_rows_since(datetime.now() - timedelta(days=CACHE_WINDOW_DAYS))
+    changes += adjust_main_llm_cache(
+        measure.summarize_main_llm(week),
+        write=float(agent.config.prompt_cache_write_ratio),
+        read=float(agent.config.prompt_cache_read_ratio),
+    )
     n = await apply(agent, changes)
     rotated = measure.rotate()
     if rotated is not None:

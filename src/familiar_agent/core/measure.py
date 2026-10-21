@@ -76,6 +76,11 @@ def read_rows(base_dir: "Path | None" = None) -> list[Row]:
     p = _path(base_dir)
     if not p.exists():
         return []
+    return _parse(p)
+
+
+def _parse(p: Path) -> list[Row]:
+    """計測ログ 1 つを行に分ける。時刻の読めない行は飛ばす。"""
     out: list[Row] = []
     for line in p.read_text(encoding="utf-8").splitlines():
         parts = line.split(" ")
@@ -92,6 +97,28 @@ def read_rows(base_dir: "Path | None" = None) -> list[Row]:
                 k, v = kv.split("=", 1)
                 fields[k] = v
         out.append(Row(when=when, kind=kind, fields=fields))
+    return out
+
+
+def read_rows_since(since: datetime, base_dir: "Path | None" = None) -> list[Row]:
+    """`since` 以後の行を、改名済みの計測ログもまたいで返す（出-bs 段 2・主LLM のキャッシュは 7 日分を見る）。
+
+    `since` より前に改名したファイルには `since` 以後の行が無いので読まない。読んだファイルの中でも行の時刻で絞る。
+    ほかの規則は今までどおり `read_rows`（前の晩からの分）を使う。
+    """
+    d = _path(base_dir).parent
+    if not d.exists():
+        return []
+    out: list[Row] = []
+    for p in sorted(d.glob(f"{FILE_NAME}*")):
+        stamp = p.name[len(FILE_NAME) + 1 :]
+        if stamp:
+            try:
+                if datetime.strptime(stamp, "%Y%m%dT%H%M%S") < since:
+                    continue
+            except ValueError:
+                continue  # 名前の読めないファイルは計測ログではない
+        out.extend(r for r in _parse(p) if r.when >= since)
     return out
 
 
@@ -170,3 +197,24 @@ def summarize_relation(rows: list[Row]) -> dict:
                 counts[side] += len(ids & used)
             last = None
     return counts
+
+
+#: 主LLM のキャッシュが残る長さ（Anthropic の ephemeral・5 分）。前の反復からこれ以内なら当たりとみなす。
+CACHE_TTL_SEC = 300.0
+
+
+def summarize_main_llm(rows: list[Row]) -> dict:
+    """主LLM の反復の件数と、時刻で数えた当たり（出-bs 段 2・本人の決定ア）。
+
+    当たりは「前の反復から 5 分以内・道具の数が同じ」。キャッシュを使わない週は本物の当たりが記録されないので、
+    使う週も使わない週も同じ物差しで数える。最初の 1 回は外れ（前が無い）。
+    """
+    calls = sorted((r for r in rows if r.kind == "主LLM"), key=lambda r: r.when)
+    hits = sum(
+        1
+        for prev, cur in zip(calls, calls[1:])
+        if (cur.when - prev.when).total_seconds() <= CACHE_TTL_SEC
+        and cur.fields.get("道具") == prev.fields.get("道具")
+    )
+    n = len(calls)
+    return {"件数": n, "当たり": hits, "割合": hits / n if n else 0.0}

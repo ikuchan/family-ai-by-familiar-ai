@@ -37,6 +37,15 @@ def _resolve_setting(field: str, default: float) -> float:
         return default
 
 
+MAIN_LLM_CACHE_FIELD = "AgentConfig.main_llm_cache"
+MAIN_LLM_CACHE_DEFAULT = 1.0
+
+
+def main_llm_cache_on() -> bool:
+    """主LLM の反復でプロンプトキャッシュを使うか（出-bs 段 2）。呼ぶたびに読む——層 3 が切り替えたら次の反復から効く。"""
+    return _resolve_setting(MAIN_LLM_CACHE_FIELD, MAIN_LLM_CACHE_DEFAULT) >= 0.5
+
+
 def _float_env(name: str, default: float) -> float:
     try:
         return float(os.environ.get(name, str(default)))
@@ -701,6 +710,15 @@ class AgentConfig:
     arbiter_timeout_sec: float = field(
         default_factory=lambda: _resolve_setting("AgentConfig.arbiter_timeout_sec", 5.0)
     )
+    # 主LLM の反復でプロンプトキャッシュを使うか（1.0＝使う・0.0＝使わない・出-bs 段 2・2026-10-21 本人の決定）。
+    # 層 3 が毎晩、直近 7 日に前の反復から 5 分以内に続いた割合で入り切りする。呼ぶたびに読むのは `main_llm_cache_on()`。
+    main_llm_cache: float = field(
+        default_factory=lambda: _resolve_setting(MAIN_LLM_CACHE_FIELD, MAIN_LLM_CACHE_DEFAULT)
+    )
+    # Anthropic の料金表の倍率（通常の入力 1 に対し、キャッシュへの書き込み 1.25・読み込み 0.1）。層 3 には登録しない——
+    # 料金が変わったら人が写す。使うかどうかの境目はここから計算する（出-bs 段 2・本人の決定イ）。
+    prompt_cache_write_ratio: float = 1.25
+    prompt_cache_read_ratio: float = 0.1
     # 「黙っていて」と頼まれてから、時間で解けるまでの長さ（分）。もう一つの解除は名前つきの「話していいよ」。
     # 「黙って」と頼まれたが長さを言われなかったときの既定。
     # 既定 30 分（出-as・本人の決まり「黙れと言われたら原則 30 分」・2026-09-26。以前は 60・その前は 15）。

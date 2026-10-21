@@ -49,6 +49,8 @@ from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .speech_check import PAST_CHARS, facts_ctx, fitting_cap, past_rows
 from ..core.wake_window import WakeWindow
+from ..core.measure import record as measure_record
+from ..config import main_llm_cache_on
 from .generator import _pi_ctx, _present_ctx
 from . import workspace
 from ..store import intents as _intents
@@ -1598,14 +1600,23 @@ class InformationProcessing:
         # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
         # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
         narrow = ("say",)
+        # プロンプトキャッシュを使うか（出-bs 段 2）。層 3 が直近 7 日の続き方で入り切りする。使わないなら固定部分と
+        # 道具の印を付けない（組を 1 本の文にすれば、どの backend も印を付けない）。
+        cache_on = main_llm_cache_on()
+        if not cache_on and isinstance(system, tuple):
+            system = "\n\n".join(s for s in system if s)
+        # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
+        tools = self._tools(
+            actions=narrow if capped or retried or say_asked else _FULL_ACTIONS,
+            cache_tools=cache_on,
+        )
+        # 当たりは層 3 が時刻と道具の数で数える（使わない週も同じ物差し・出-bs 段 2）。
+        measure_record("主LLM", 道具=len(tools))
         try:
             result, _raw = await agent.backend.stream_turn(
                 system=system,
                 messages=messages,
-                # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
-                tools=self._tools(
-                    actions=narrow if capped or retried or say_asked else _FULL_ACTIONS
-                ),
+                tools=tools,
                 # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
                 max_tokens=max_tokens,
                 on_text=None,
