@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.77・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.78・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -111,6 +111,7 @@ $$\tau_M = \frac{HL_M}{\ln 2}, \qquad M \leftarrow M_{rest} + (M - M_{rest})\,\e
 | `AgentConfig.arbiter_timeout_sec` | 1.0〜10.0・0.5 | 調停 | LLM：件数・中央・p90・最大・時間切れの割合を見て提案 |
 | `AgentConfig.main_llm_cache`（既定 1＝使う） | 0〜1・1 | 主LLM（直近 7 日・20 行以上） | 機械：5 分以内に同じ道具で続いた割合が境目（いま約 21.7%）以上なら使う（出-bs 段 2） |
 | `AgentConfig.prompt_cache_write_ratio`／`prompt_cache_read_ratio` | 1.25／0.1（登録しない） | — | 動かさない。Anthropic の料金表の倍率を人が写す（出-bs 段 2・根拠台帳 §61） |
+| `AgentConfig.music_pick_fixed_at` | 0.5〔仮〕（登録しない） | — | 動かさない。Jev が選んだ 1 番目の確率がこれ以上なら 2 番目以降から引く（知-aq・根拠台帳 §62） |
 | `MemoryConfig.recent_exchanges_arbiter`／`_main` | 1〜10・1 | — | 動かさない（記-t 段 3・2026-10-15 でいまの値に固定。続き先の判定とともに規則を撤去した） |
 | `InnerStateConfig.mood_*_p10/p30/p70/p90`（16） | 0〜1・0.05 | 気分 | 機械：計測した分位へ 1 刻み |
 | `InnerStateConfig.drive_p70_*`（5） | 0〜1・0.05 | 欲求 | 機械：計測した p70 へ 1 刻み |
@@ -419,6 +420,8 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.78：おすすめが固まったとみなす境目 `music_pick_fixed_at` 0.5〔仮〕を足した（知-aq・2026-10-22・本人の決定）。
+>
 > v0.77：主LLM のキャッシュの入り切り（`main_llm_cache`）と、料金の倍率 2 つを足した（出-bs 段 2・2026-10-21・本人の決定）。
 >
 > v0.76：在席の滞留窓 30 → 10 秒・顔ぶれの持ち時間 60 → 10 秒（知-bg・2026-10-19・本人の決定）。在席 timeout の行の古い 60 秒も直した。

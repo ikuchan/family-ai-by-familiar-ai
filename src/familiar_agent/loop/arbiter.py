@@ -516,6 +516,8 @@ class ArbiterInput:
     season_env: str = ""
     # 情動のうち話しかける軸（bond・esteem）。light の文を話しかけにする（出-at）
     talking: bool = False
+    #: 話しかけるときに勧めてよい曲（`[音楽のおすすめ]`・知-aq）。主LLM にしか載らず、軽く話しかける文では勧められなかった。
+    suggestion_ctx: str = ""
     #: この反復で道具から返ったもの（名前・失敗の印・結果の文）。完了を機械で分けるのに使う（出-ay 段 4-2）。
     returned: "tuple[tuple[str, bool, str], ...]" = ()
     #: 情動の求めで発火した軸（seeking・safety・bond・esteem）。情動を軸で決めるのに使う（出-ay 段 4-3）。
@@ -1318,7 +1320,8 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         present=inp.present_ctx or "（分からない）",
         heading=heading,
         utterance=inp.utterance,
-        workspace=inp.workspace_ctx or "（なし）",
+        workspace=(inp.workspace_ctx or "（なし）")
+        + (f"\n\n{inp.suggestion_ctx}" if self_doing and inp.suggestion_ctx else ""),
         fields=fields,
         shape=shape,
     )

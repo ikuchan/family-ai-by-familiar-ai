@@ -3399,6 +3399,7 @@ class InformationProcessing:
             current_speaker=self._current_speaker_name(),
             silenced=bool(silence_note),
             talking=self._talking(),
+            suggestion_ctx=self._suggestion_frame() if self._talking() else "",  # 知-aq
             music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,

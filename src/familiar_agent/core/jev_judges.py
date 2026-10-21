@@ -415,3 +415,40 @@ async def judge_companion_mood(client, *, text: str) -> str:
     answer = await _ask(client, f"[家族の言葉]\n{text[:300]}", questions)
     pick = picked(answer, "mood", 0.0)
     return pick if pick in COMPANION_MOODS else MOOD_DEFAULT
+
+
+async def judge_music_pick(
+    client, *, candidates: "list[dict]", family_now: str, artists: str, previous: str
+) -> "dict[str, float] | None":
+    """どのおすすめがいまの家族に合うか（知-aq・2026-10-22・本人の決定）。選択肢 `c1`… ごとの確率を返す。
+
+    確信度で倒さない——確率は呼び手が `music_suggestion.pick` で使う（固まったら 2 番目以降から引く）。
+    使えない・失敗・確率が無ければ None（倒し先：前日の候補を残す）。
+    """
+    state = (
+        f"[家族のいまの様子]\n{family_now or '（なし）'}\n\n"
+        f"[プレイリストのアーティスト]\n{artists or '（なし）'}\n\n"
+        f"[前日のおすすめ]\n{previous or '（なし）'}"
+    )
+    criteria = {
+        f"c{n}": f"「{c['title']}」（{c['artist']}）。選んだ理由：{c['reason']}"
+        for n, c in enumerate(candidates, 1)
+    }
+    questions = {
+        "pick": choice(
+            "家のロボット（パジュ）が家族に 1 曲すすめる。家族のいまの様子とプレイリストの好みに、いちばん合う曲はどれか",
+            criteria,
+        )
+    }
+    answer = await _ask(client, state, questions)
+    if not getattr(answer, "ok", False):
+        logger.info("Jev 判定 おすすめ：答えなかった")
+        return None
+    got = (getattr(answer, "answers", None) or {}).get("pick") or {}
+    probs = {
+        str(k): float(v) for k, v in dict(got.get("probabilities") or {}).items() if k in criteria
+    }
+    if not probs:
+        logger.info("Jev 判定 おすすめ：確率が無かった")
+        return None
+    return probs

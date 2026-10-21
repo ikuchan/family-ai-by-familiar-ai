@@ -7,7 +7,7 @@
 - フルLLM が、プレイリストに入っていない曲を 1 つ、理由を添えて選ぶ（その人の別の曲でも、似たテイストの人でも）。
   おすすめ・関連アーティストの API は使えない（404・403）ので、似たテイストはフルLLM の知識で選ぶ。
 - 機械が検索で実在を確かめ、プレイリストにある曲・前に勧めた曲・断られた曲を除く。確かめられなければ候補無し。
-- 候補が残っているあいだは作らない（1 件を使い切ってから次）。
+- 候補が残っていても、晩ごとに選び直す（知-aq で改めた・`test_music_suggestion_follows_the_family`）。
 """
 
 from __future__ import annotations
@@ -117,11 +117,14 @@ def test_a_song_offered_or_declined_before_is_not_offered_again(state):
     assert asyncio.run(prepare_suggestion(a)) is False
 
 
-def test_no_new_candidate_while_one_is_left(state):
+def test_a_left_candidate_is_chosen_again(state):
+    """候補が残っていても毎晩選び直す（知-aq で改めた・本人の決定）。Jev が答えなければ前日の候補を残す。"""
     state["s"] = ms.Suggestions(candidate=ms.Candidate("前の曲", "A", "u", "r"))
     a = _agent(REPLY, [HIT])
+    a._jev.available = False  # Jev が答えない晩
     assert asyncio.run(prepare_suggestion(a)) is False
-    a.backend.complete.assert_not_awaited()
+    a.backend.complete.assert_awaited()
+    assert state["s"].candidate.uri == "u"
 
 
 def test_a_bad_reply_makes_no_candidate(state):

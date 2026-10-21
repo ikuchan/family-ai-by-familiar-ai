@@ -39,6 +39,8 @@ class Suggestions:
     offered_uris: "list[str]" = field(default_factory=list)
     # 挙げたが Spotify に無かった曲（新しい順・`MISSING_MAX` 件まで）。次の晩の頼みに渡して避けさせる（知-aq）。
     missing: "list[dict]" = field(default_factory=list)
+    # 前の晩に選んだ曲（title・artist・reason・uri）。勧め終えて候補から消えても、次の晩の Jev に渡す（知-aq）。
+    last_pick: "dict" = field(default_factory=dict)
 
 
 def _to_json(s: Suggestions) -> dict:
@@ -66,6 +68,9 @@ def _from_json(raw: object) -> Suggestions:
         declined=list(raw.get("declined") or []),
         offered_uris=[str(u) for u in raw.get("offered_uris") or []],
         missing=[m for m in raw.get("missing") or [] if isinstance(m, dict)],
+        last_pick=dict(raw.get("last_pick") or {})
+        if isinstance(raw.get("last_pick"), dict)
+        else {},
     )
 
 
@@ -140,3 +145,24 @@ def drop_if_unanswered(s: Suggestions) -> None:
     """返事が無いまま `MAX_OFFERS` 回勧めた候補は捨てる（晩に次を用意する）。"""
     if s.candidate is not None and s.candidate.offered >= MAX_OFFERS:
         s.candidate = None
+
+
+def pick(probs: "dict[str, float]", *, fixed_at: float, rng) -> "tuple[str, int, bool]":
+    """Jev の確率から 1 件を選ぶ（知-aq・本人の決定）。返りは（鍵, 確率の高い順で何番目か, 一つに固まったか）。
+
+    1 番目の確率が `fixed_at` 以上なら一つに固まったとみなし、1 番目を外して残りから pᵢ ÷ (1 − p₁) で引く
+    （お勧めは変わることに意味がある）。固まっていなければ 1 番目を採る。残りの確率がすべて 0 なら等しく引く。
+    """
+    ranked = sorted(probs.items(), key=lambda kv: kv[1], reverse=True)
+    top, p1 = ranked[0]
+    rest = ranked[1:]
+    if not rest or p1 < fixed_at:
+        return top, 1, False
+    total = sum(max(p, 0.0) for _k, p in rest)
+    weights = [max(p, 0.0) / total for _k, p in rest] if total > 0 else [1 / len(rest)] * len(rest)
+    r, acc = rng.random(), 0.0
+    for n, ((key, _p), w) in enumerate(zip(rest, weights), 2):
+        acc += w
+        if r < acc:
+            return key, n, True
+    return rest[-1][0], len(ranked), True

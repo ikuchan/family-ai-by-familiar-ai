@@ -2,8 +2,8 @@
 
 - **目録の読み直し**：晩に、自分の Spotify のプレイリストの中身と、保存したアルバムと曲を読み直して DB に置く
   （`core/music_catalog`）。読めなかったプレイリストは前の晩の中身を残す（Spotify は落ちる前提のもの）。
-- **おすすめの候補**：晩に 1 件だけ用意する（`core/music_suggestion`）。フルLLM がプレイリストのアーティストを材料に、
-  プレイリストに入っていない曲を 1 つ理由つきで選び、機械が検索で実在を確かめる。候補が残っていれば作らない。
+- **おすすめの候補**：晩ごとに選び直す（`core/music_suggestion`・知-aq）。フルLLM がプレイリストのアーティストを材料に、
+  プレイリストに入っていない曲を 5 つ理由つきで挙げ、機械が検索で実在を確かめ、前日の候補と並べて Jev が選ぶ。
 
 音楽の器が無い機体では何もしない。
 """
@@ -12,9 +12,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import random
 from dataclasses import dataclass
 
 from ..core.structured_ask import read_json_merged
+from ..core import family_now, jev_judges
 from ..core import music_catalog as mc
 from ..core import music_rules
 from ..core import music_suggestion as ms
@@ -161,22 +163,63 @@ def _songs(rows: "list[dict]") -> str:
     return "\n".join(f"- {r.get('title', '')}（{r.get('artist', '')}）" for r in rows) or "（なし）"
 
 
-async def prepare_suggestion(agent) -> bool:
-    """おすすめの候補を 1 件用意する。用意できたら True。"""
+def _family_lines() -> str:
+    """家族のいまの様子を人ごとに 1 行（見出しは付けない・Jev の材料の欄が付ける）。読めなければ空。"""
+    try:
+        data = family_now.stored()
+    except Exception:  # noqa: BLE001
+        logger.warning("rest おすすめ：家族のいまの様子を読めなかった", exc_info=True)
+        return ""
+    return "\n".join(f"{name}：{n.text}" for name, n in data.items() if n.text.strip())
+
+
+def _previous(state: ms.Suggestions) -> str:
+    """前の晩に選んだ曲と、その後どうなったか（勧めたか・返事）。Jev の `[前日のおすすめ]`（知-aq）。"""
+    last = state.last_pick or (
+        {
+            "title": state.candidate.title,
+            "artist": state.candidate.artist,
+            "uri": state.candidate.uri,
+        }
+        if state.candidate is not None
+        else {}
+    )
+    if not last:
+        return ""
+    uri = str(last.get("uri") or "")
+    c = state.candidate
+    if uri in {str(d.get("uri") or "") for d in state.liked}:
+        how = "勧めて、気に入ってもらえた"
+    elif uri in {str(d.get("uri") or "") for d in state.declined}:
+        how = "勧めて、断られた"
+    elif c is not None and c.uri == uri:
+        how = f"勧めた回数 {c.offered}・返事なし" if c.offered else "まだ勧めていない"
+    else:
+        how = "返事が無いまま候補から外した"
+    return f"「{last.get('title', '')}」（{last.get('artist', '')}）。{how}"
+
+
+async def prepare_suggestion(agent, *, rng=None) -> bool:
+    """おすすめを毎晩選び直す（知-aq・2026-10-22・本人の決定）。新しく選べたら True。
+
+    新しい候補をフルLLM に 5 つ挙げてもらい、全部を Spotify で確かめる。通ったものと前日の候補を並べ、Jev が家族の
+    いまの様子・プレイリストのアーティスト・前日のおすすめを見て選ぶ（`music_suggestion.pick`：1 番目が
+    `music_pick_fixed_at` 以上なら 2 番目以降から引き、そうでなければ 1 番目）。Jev が答えなければ前日の候補を残し、
+    無ければ通った最初の 1 件を採る。
+    """
     state = ms.stored()
     if state.candidate is not None and state.candidate.offered >= ms.MAX_OFFERS:
         ms.drop_if_unanswered(state)  # 返事が無いまま 2 回すすめた（もう一度だけ・本人の決定）
         ms.store(state)
-    if state.candidate is not None:
-        return False  # 1 件を使い切ってから次
     tool = getattr(agent, "_music_tool", None)
     web = getattr(tool, "_web", None) if tool is not None else None
     catalog = mc.stored()
     artists = catalog.playlist_artists()
     if web is None or not artists:
         return False
+    artist_lines = "\n".join(f"- {a}（{n}）" for a, n in artists)
     prompt = _PROMPT.format(
-        artists="\n".join(f"- {a}（{n}）" for a, n in artists),
+        artists=artist_lines,
         liked=_songs(state.liked),
         declined=_songs(state.declined),
         missing=_songs(state.missing),
@@ -193,11 +236,15 @@ async def prepare_suggestion(agent) -> bool:
         return False
     known = {str(t.get("uri") or "") for t in catalog.playlist_tracks()}
     known |= set(state.offered_uris) | {str(d.get("uri") or "") for d in state.declined}
+    old = state.candidate
+    if old is not None:
+        known.add(old.uri)  # 前日の候補は下で別に並べる（重ねない）
     absent = already = 0
-    for n, got in enumerate(got_all, 1):
-        # 上から順に確かめ、最初に「実在して、まだ知らない曲」を採る（知-aq）。無かった曲は覚えて次の晩に避けさせる。
+    found: "list[ms.Candidate]" = []
+    for got in got_all:
+        # 全部を確かめる（知-aq）。無かった曲は覚えて次の晩に避けさせる。
         hits = await asyncio.to_thread(web.search, f"{got['title']} {got['artist']}", "track")
-        pick = next(
+        hit = next(
             (
                 h
                 for h in hits or []
@@ -206,7 +253,7 @@ async def prepare_suggestion(agent) -> bool:
             ),
             None,
         )
-        if pick is None:
+        if hit is None:
             absent += 1
             state.missing = [{"title": got["title"], "artist": got["artist"]}] + [
                 m
@@ -215,24 +262,70 @@ async def prepare_suggestion(agent) -> bool:
             ]
             state.missing = state.missing[: ms.MISSING_MAX]
             continue
-        if pick["uri"] in known:
+        if hit["uri"] in known:
             already += 1
             continue
-        state.candidate = ms.Candidate(got["title"], got["artist"], str(pick["uri"]), got["reason"])
+        known.add(str(hit["uri"]))
+        found.append(ms.Candidate(got["title"], got["artist"], str(hit["uri"]), got["reason"]))
+    pool = found + ([old] if old is not None else [])
+    if not pool:
         ms.store(state)
         logger.info(
-            "rest おすすめを用意した：「%s」（%s）・%d 件中 %d 件目",
-            got["title"],
-            got["artist"],
+            "rest おすすめを用意できなかった：%d 件中 Spotify に無かった %d・知っている曲 %d",
             len(got_all),
-            n,
+            absent,
+            already,
         )
-        return True
+        return False
+    probs = None
+    if len(pool) > 1:
+        probs = await jev_judges.judge_music_pick(
+            getattr(agent, "_jev", None),
+            candidates=[
+                {
+                    "title": c.title,
+                    "artist": c.artist,
+                    "reason": c.reason + ("（前日から残っている候補）" if c is old else ""),
+                }
+                for c in pool
+            ],
+            family_now=_family_lines(),
+            artists=artist_lines,
+            previous=_previous(state),
+        )
+    if probs is None and len(pool) > 1:
+        if old is not None:
+            ms.store(state)
+            logger.info("rest おすすめを選び直さなかった：Jev が答えず、前日の候補を残した")
+            return False
+        chosen, rank, fixed, p1 = pool[0], 1, False, 0.0
+        how = "Jev が答えず、通った最初の 1 件"
+    elif probs is None:
+        chosen, rank, fixed, p1 = pool[0], 1, False, 1.0
+        how = "候補が 1 件"
+    else:
+        key, rank, fixed = ms.pick(
+            probs,
+            fixed_at=float(getattr(agent.config, "music_pick_fixed_at", 0.5)),
+            rng=rng or random,
+        )
+        chosen, p1 = pool[int(key[1:]) - 1], max(probs.values())
+        how = "固まったので 2 番目以降から引いた" if fixed else "1 番目"
+    state.candidate = chosen
+    state.last_pick = {
+        "title": chosen.title,
+        "artist": chosen.artist,
+        "reason": chosen.reason,
+        "uri": chosen.uri,
+    }
     ms.store(state)
     logger.info(
-        "rest おすすめを用意できなかった：%d 件中 Spotify に無かった %d・知っている曲 %d",
-        len(got_all),
-        absent,
-        already,
+        "rest おすすめを選んだ：「%s」（%s）・%d 件から %d 番目・p1=%.2f・%s",
+        chosen.title,
+        chosen.artist,
+        len(pool),
+        rank,
+        p1,
+        how,
     )
-    return False
+    return True
