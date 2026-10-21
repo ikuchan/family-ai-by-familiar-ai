@@ -80,4 +80,4 @@ def test_without_a_sensor_the_old_source_still_works():
 
 
 # 顔ぶれ表の失効（在席が 60 秒「誰も居ない」で全員消す・2026-09-17）は知-ai で撤去した。顔ぶれは人ごとの
-# 持ち時間で切れる（`test_presence_holds_a_minute`）。
+# 持ち時間で切れる（`test_presence_holds_ten_seconds`）。

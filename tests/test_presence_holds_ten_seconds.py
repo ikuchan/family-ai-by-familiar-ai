@@ -1,7 +1,8 @@
 """顔ぶれは人ごとの持ち時間で保つ（知-ai 段 2・2026-10-05・本人の決定・`設計方針_在席と顔ぶれ` v0.1）。
 
 **顔ぶれ**（特定の誰がいるか）は、その人だと分かる印（写真で見つけた・声が当たった・名乗りが当たった・`/voice`）
-が来るたびに、人ごとの**持ち時間** 1 分（`PRESENCE_HOLD_SEC`・仮）を数え直す。切れたら外す。
+が来るたびに、人ごとの**持ち時間**（`PRESENCE_HOLD_SEC`）を数え直す。切れたら外す。持ち時間は 1 分（仮）から 10 秒にした
+（知-bg・2026-10-19・本人の決定）。下の `HOLD` は仕組みを見るための値で、既定値とは別である。
 
 以前は上下が逆だった：在席（カメラ）が「誰も居ない」を 60 秒見続けると顔ぶれ表を全員消し、写真の見立てが来る
 たびに見立ての人を置き換え、1 人なら話者にしていた。首を回して写らなくなっただけでも消え、SEEKING の見回りの
@@ -35,12 +36,13 @@ def pmm(monkeypatch):
     return m
 
 
-def test_the_hold_is_one_minute(monkeypatch):
+def test_the_hold_is_ten_seconds(monkeypatch):
     from familiar_agent.config import AgentConfig
 
     monkeypatch.delenv("PRESENCE_HOLD_SEC", raising=False)
     cfg = AgentConfig()
-    assert cfg.presence_hold_sec == 60.0
+    hold = cfg.presence_hold_sec  # 設定を丸ごと表示させない
+    assert hold == 10.0
     assert not hasattr(cfg, "presence_expire_sec")  # 在席で顔ぶれを消す失効は撤去
 
 

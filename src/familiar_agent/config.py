@@ -144,8 +144,9 @@ class CameraConfig:
     # 窓をまるごと延ばし、無人でも「居る」が 3 分続いて声が出た。見落とし側の余裕を削り、
     # 誤検出の延びを最大 60 秒に。60 → 30（知-ai・2026-10-05・本人の決定・仮）：確かめる間隔を 3 秒にしたので、
     # 見落としを埋める余裕は 10 回ぶんある。誰がいるかは顔ぶれの持ち時間が別に持つ。
+    # 30 → 10（知-bg・2026-10-19・本人の決定）：居るかどうかをいまに近づける。名前で起こす判定は在席を見なくなった（ア）。
     occupancy_dwell_sec: float = field(
-        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_DWELL", 30.0)
+        default_factory=lambda: _float_env("CAMERA_OCCUPANCY_DWELL", 10.0)
     )
     # 静止物を人と数えない（知-v・2026-09-18）：人の枠が前回と重なり `static_iou` 以上のまま
     # `static_sec` 動かなければ物とみなす（出入口の暗い塊を 7 分間「1 人」と読んだ）。〔仮〕
@@ -725,7 +726,8 @@ class AgentConfig:
     speaker_hold_sec: float = field(default_factory=lambda: _float_env("SPEAKER_HOLD_SEC", 60.0))
     # 顔ぶれの持ち時間（秒・知-ai・2026-10-05・本人の決定・仮）。その人だと分かる印（写真・声・名乗り・`/voice`）が
     # 来るたびに数え直し、切れたら顔ぶれから外す。在席（カメラ）が「誰も居ない」でも消さない（以前は在席で消していた）。
-    presence_hold_sec: float = field(default_factory=lambda: _float_env("PRESENCE_HOLD_SEC", 60.0))
+    # 60 → 10（知-bg・2026-10-19・本人の決定）。
+    presence_hold_sec: float = field(default_factory=lambda: _float_env("PRESENCE_HOLD_SEC", 10.0))
     # 掛ける前の確認（「3 分のタイマーね、いい？」）の預かりの寿命（秒・出-y）。過ぎたら捨て、
     # 「いいよ」が来ても掛けない（何に「いい」と言ったか分からない）。〔仮〕
     confirm_ttl_sec: float = field(default_factory=lambda: _float_env("CONFIRM_TTL_SEC", 300.0))

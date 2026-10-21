@@ -1,4 +1,4 @@
-# familiar-ai 課題5：パラメータ全体仮案（v0.75・数式併記）
+# familiar-ai 課題5：パラメータ全体仮案（v0.76・数式併記）
 
 ## この資料の位置づけ
 - **全パラメータを一望する叩き台**。確定は領域ごとに一つずつ承認して行う。
@@ -308,7 +308,7 @@ $$\text{思い出した時：}\; last\_recalled\_at \leftarrow now\quad(\text{�
 | 話者の寿命 `SPEAKER_HOLD_SEC`（Config） | 60 秒 | 〔仮〕 | 話者を付けてから・その人に返事してから、話者が分かっているとみなす長さ（知-t）。2026-10-04 に `PRESENCE_SAID_SEC` から改名 | 【設計】知覚在席 §3-2b |
 | 知っている声で BOND を押し上げる量 `DRIVE_VOICE_BOND_NUDGE`（DriveConfig.voice_bond_nudge） | 0.05 | 本人の決定（2026-10-10・情-p） | 窓の外の声・誰か居るときだけ。声 20 回に 1 回ほどで発火 | 【設計】発火_mood §2-c |
 | 知らない声で SAFETY を押し上げる量 `DRIVE_VOICE_SAFETY_NUDGE`（DriveConfig.voice_safety_nudge） | 0.10 | 本人の決定（2026-10-10・情-p） | 窓の外の声・誰か居るときだけ。声 10 回に 1 回ほどで発火 | 【設計】発火_mood §2-c |
-| 顔ぶれの持ち時間 `PRESENCE_HOLD_SEC`（Config） | 60 秒 | 〔仮・2026-10-05・本人〕 | 最後にその人だと分かってから顔ぶれに保つ長さ。在席では消さない（知-ai。以前の `PRESENCE_EXPIRE_SEC`＝在席が 60 秒「誰も居ない」で顔ぶれ表を空にする、は撤去） | 【設計】設計方針_在席と顔ぶれ §4 |
+| 顔ぶれの持ち時間 `PRESENCE_HOLD_SEC`（Config） | 10 秒 | 〔2026-10-19・本人（知-bg）。2026-10-05 の仮は 60 秒〕 | 最後にその人だと分かってから顔ぶれに保つ長さ。在席では消さない（知-ai。以前の `PRESENCE_EXPIRE_SEC`＝在席が 60 秒「誰も居ない」で顔ぶれ表を空にする、は撤去） | 【設計】設計方針_在席と顔ぶれ §4 |
 | タイマーの音の長さ `TIMER_RING_SEC`（Config） | 30 秒 | 〔仮〕 | 鳴ったら `timer_alarm.wav` を繰り返す。0 で声だけ | 【設計】設計方針_タイマー v0.2 §5a |
 | アラームの音の長さ `ALARM_RING_SEC`（Config） | 30 秒 | 〔仮〕 | タイマーとは別（知-q） | 【設計】設計方針_アラーム v0.1 §4 |
 | 山谷 `RING_SOFT_AFTER_SEC`／`RING_SOFT_UNTIL_SEC`／`RING_SOFT_GAIN`（Config） | 8 秒／25 秒／0.1 | 〔確定・2026-09-19・聴いて決めた〕 | 30 秒のうち 8〜25 秒は倍率 0.1、それ以外は 1.5 | 【設計】設計方針_タイマー v0.17 §5a |
@@ -375,9 +375,9 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 |---|---|---|---|---|
 | カメラ判定による驚き量 $\widehat{S}$ | $\max(\widehat{S}_{在席},\widehat{S}_{景色})$ | 〔確定（枠）／係数のみ課題7〕 | 2系統を固定係数 min-max で 0〜1 化し max 合成。在席系統＝確率差[0,1]・景色系統＝コサイン距離$1-\cos$。**係数 $d_{lo}/d_{hi}$ 初期値は課題7**。$g_A$・$a_0$ がこれを使う（D- 承認） | 【新規仮置き→枠承認】 |
 | norm EMA 係数 $\alpha_{norm}$ | 0.10 | 〔確定（Config・初期値課題7）〕 | 上式（定点別「普通」更新）。驚き $S$ を取る | 【新規仮置き→承認・課題7】（[D-知覚]） |
-| 在席 timeout（滞留窓 `CAMERA_OCCUPANCY_DWELL`） | **60.0 秒** | 〔確定（Config）・2026-09-19 に 180 → 60（知-x）〕 | $\Delta t_{seen} > timeout \Rightarrow 不在$。1 フレームの誤検出で延びるのは最大 60 秒。静止している人の見落とし側の余裕は削った | 【コード事実→承認】config.py |
+| 在席 timeout（滞留窓 `CAMERA_OCCUPANCY_DWELL`） | **10.0 秒** | 〔2026-09-19 に 180 → 60（知-x）、2026-10-05 に 30（知-ai）、2026-10-19 に 10（知-bg・本人）〕 | $\Delta t_{seen} > timeout \Rightarrow 不在$。1 フレームの誤検出で延びるのは最大 60 秒。静止している人の見落とし側の余裕は削った | 【コード事実→承認】config.py |
 | 声の閾値（状況ごと）`VOICE_CLAIM_THRESHOLD`・`VOICE_SWITCH_THRESHOLD`・`VOICE_ALONE_THRESHOLD`（RecognitionConfig） | 0.30・0.35・0.45 | 〔仮・2026-10-05・本人〕 | 声で付け替える閾値：名乗りあり（本人にだけ）・在席あり・何もなし。続けるのは 0.25（`VOICE_THRESHOLD`）。名乗りの預かり（`PENDING_CLAIM_SEC`・30 秒）は知-ai で撤去 | 【設計】設計方針_在席と顔ぶれ §6 |
-| 在席を確かめる間隔・滞留窓 `CAMERA_OCCUPANCY_INTERVAL`・`CAMERA_OCCUPANCY_DWELL`（CameraConfig） | 3 秒・30 秒 | 〔仮・2026-10-05・本人〕 | 30 秒・60 秒から縮めた（知-ai） | 【設計】設計方針_在席と顔ぶれ §3 |
+| 在席を確かめる間隔・滞留窓 `CAMERA_OCCUPANCY_INTERVAL`・`CAMERA_OCCUPANCY_DWELL`（CameraConfig） | 3 秒・10 秒 | 〔仮・2026-10-05・本人。滞留窓は 2026-10-19 に 10 秒（知-bg・本人）〕 | 30 秒・60 秒から縮め（知-ai）、滞留窓をさらに 30 → 10 秒（知-bg） | 【設計】設計方針_在席と顔ぶれ §3 |
 | 会話の窓 `WAKE_WINDOW_SEC`（`core/wake_window`・定数） | 10 秒 | 〔仮・2026-10-07・本人〕 | 名前で開き、窓の中の入力・返事で延び直す長さ（つなぎは出-cl で撤去）。会話の求めを待たせているあいだは閉じない（見張りが 1 秒ごとに延ばす・`WAIT_WATCH_TICK_SEC`）。1 分 → 30 秒（2026-09-26）→ 10 秒 | 【設計】判定の段 v0.10 §2.1・§2.3 |
 | pyopenjtalk に渡す塊の大きさ `OPENJTALK_MAX_BYTES`（env・`core/openjtalk_safe`） | 4,000 バイト | 〔仮・2026-10-07・本人〕 | これを越える文は塊に切って渡す。8,002 バイトは通り、約 8,150 バイトでスタックを壊して落ちた（環-ad） | 【実測】別プロセスでの再現 |
 | 話し始める前の音 `STT_PREROLL_SEC`（STTConfig） | 0.2 秒 | 〔仮・2026-10-07・本人〕 | 区切りの頭に付ける長さ（7 フレーム）。名前の頭（パ）が欠けていた（知-z-は 段 2） | 【設計】音声入力からGUIへの経路 v0.15 |
@@ -417,6 +417,8 @@ $$\mu \leftarrow (1-\alpha)\,\mu + \alpha\,x_t, \qquad S = \lVert x_t - \mu \rVe
 
 ## 更新履歴
 
+> v0.76：在席の滞留窓 30 → 10 秒・顔ぶれの持ち時間 60 → 10 秒（知-bg・2026-10-19・本人の決定）。在席 timeout の行の古い 60 秒も直した。
+>
 > v0.75：話の前後をたどる件数の上限 `THREAD_MAX_STEPS` 10 件〔仮〕を足した（記-q・2026-10-15）。
 >
 > v0.74：会話の窓の行から、つなぎで延び直すことを外し、待ちの見張りが 1 秒ごとに延ばすことを書いた（出-cl・2026-10-15）。

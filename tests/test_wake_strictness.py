@@ -217,11 +217,27 @@ def test_an_unknown_voice_makes_it_strict_even_with_someone_here():
 
 
 @pytest.mark.real_window
-def test_nobody_here_makes_it_strict_at_once():
+@pytest.mark.parametrize("ns", [0.391, 0.436])
+def test_nobody_here_but_a_known_voice_is_not_strict(ns):
+    """居ない（カメラに写っていない）だけでは厳しい段にしない（知-bg ア・2026-10-19・本人の決定）。
+
+    10/17 17:22（無音らしさ 0.391）と 10/18 07:56（0.436）、声紋が家族に当たった名前＋言葉を、最後に人を見てから
+    79〜89 秒で「居ない」として厳しい段で捨てていた。
+    """
     import time
 
     ip, _ = _gate(here=False, known_voice=True)
-    ip._wake_window().until = time.monotonic() - 60  # 1 分前に閉じたばかりでも
+    ip._wake_window().until = time.monotonic() - 60
+    assert _heard(ip, "パジュ、いま何時？", ns=ns, lp=-0.5) is True
+
+
+@pytest.mark.real_window
+def test_nobody_here_and_an_unknown_voice_stays_strict():
+    """**反証の側**：居なくて誰の声か分からなければ、今までどおり厳しい段で捨てる。"""
+    import time
+
+    ip, _ = _gate(here=False, known_voice=False)
+    ip._wake_window().until = time.monotonic() - 60
     assert _heard(ip, "パジュ、いま何時？", ns=0.31, lp=-0.5) is False  # 厳しい段の値で落ちる
 
 

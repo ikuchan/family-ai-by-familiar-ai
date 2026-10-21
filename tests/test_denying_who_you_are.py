@@ -8,7 +8,7 @@
 （本人の決定・2026-09-22）。名前を言わずに否定されたら、いま話者としている人を外す。
 
 （在席が「誰も居ない 60 秒」で顔ぶれ表を消す失効の試験は、知-ai でその失効ごと撤去した。顔ぶれは人ごとの
-持ち時間で切れる・`test_presence_holds_a_minute`。）
+持ち時間で切れる・`test_presence_holds_ten_seconds`。）
 """
 
 from __future__ import annotations
