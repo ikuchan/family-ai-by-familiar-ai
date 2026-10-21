@@ -2480,6 +2480,8 @@ class InformationProcessing:
         self._pending_voice = None
         self._req.source = getattr(self, "_pending_source", "") if kind == "発話" else ""
         self._pending_source = ""
+        self._req.named = bool(getattr(self, "_pending_named", False)) if kind == "発話" else False
+        self._pending_named = False
         self._req.cue_rang = False
         self._req.trigger_kind = kind
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
@@ -3157,6 +3159,8 @@ class InformationProcessing:
             return
         stopped = False
         self._pending_source = trigger.source  # 声かキーボードか（出-bg：合図は声だけ）
+        # 名前で呼ばれたか（出-cx：返事の話し終わりから窓を開ける）
+        self._pending_named = trigger.named
         task = asyncio.create_task(self._utterance_iteration(trigger.query, trigger.voice))
 
         def _stop(f: "asyncio.Future[str]") -> None:
@@ -4394,7 +4398,8 @@ class InformationProcessing:
         倍率を渡し忘れ、普段の 4 倍の声で鳴った（2026-10-07 実機 23:18:39「承知いたしました。少々お待ちください。」）。
         """
         # 会話の求めで窓が開いていれば、話しているあいだは開けておき、話し終わりから 10 秒にする（本人
-        # 「話し終わってから１０秒」）。閉じていれば触らない——声で窓を開け直さない。
+        # 「話し終わってから１０秒」）。閉じていれば触らない——声で窓を開け直さない（確認待ちと名前で受けた話しかけは
+        # 話し終わりに開ける・下の finally）。
         wake = self._wake_window()
         hold = self._req.trigger_kind == "発話" and wake.is_open(time.monotonic())
         if hold:
@@ -4406,9 +4411,11 @@ class InformationProcessing:
         finally:
             if hold:
                 wake.release(time.monotonic())
-            if self._confirming():
+            if self._confirming() or (self._req.trigger_kind == "発話" and self._req.named):
                 # 確認待ちのあいだの声（問い・聞き返し）は、窓が閉じていても話し終わりから開ける（出-cw・本人の決定イ）。
                 # 10/18 07:55 に 12.9 秒の頼みで窓が問いの前に閉じ、名前の無い「はい」を窓の外として捨てた。
+                # 名前で受けた話しかけの返事も同じ（出-cx・2026-10-21 本人の決定）。名前つきで 10 秒を超えて話すと窓は
+                # 話し始めから 10 秒で切れていて、返事のあとの名前なしの声を捨てていた。考えている最中には開けない。
                 wake.open(time.monotonic())
 
     def _voice_gain(self) -> float:

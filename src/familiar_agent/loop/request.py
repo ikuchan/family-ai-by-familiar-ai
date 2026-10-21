@@ -122,6 +122,8 @@ class Request:
     voice: Any = None
     # 求めを起こした入力が声か（`voice`）キーボードか（`keyboard`）。情動・機器では空（出-bg：合図は声だけ）。
     source: str = ""
+    # 求めを起こした会話入力が名前で呼ばれたか（出-cx）。返事の話し終わりから窓を開けるのに使う。情動・機器では偽。
+    named: bool = False
     # 話しかけたときの合図（出-bg）。機械音 A を鳴らしたか（求めに 1 回だけ）。
     cue_rang: bool = False
     # この反復で取込が受けた返り（`lookups` の index）。W の最上部に「いま道具から返った」として
