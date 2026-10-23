@@ -328,10 +328,13 @@ capabilities:
     detail: >
       Every system prompt carries `[いまの季節とまわり]`. The solar-term line (e.g. past the
       autumn equinox, next is 寒露) is computed from today's date each time. Once a day,
-      when nobody is around, the REST pass's season layer searches the web for the town
-      written in ME.md (weather and seasonal topics) and, together with that night's
-      events, writes up to two lines each for weather, surroundings and family topics.
-      Each line must quote the search result or cite an event, or nothing is stored.
+      during the REST pass, the season layer reads fixed pages with fetch. Weather: the
+      Yahoo! weather page for the town given as 「天気のページ」 in ME.md; the machine reads its
+      tables and writes tomorrow and the day after, with dates. Surroundings: the solar-term
+      page of Yahoo!'s weather columns, plus Weathernews articles (up to two) and Yahoo!
+      columns (up to one) that Jev picks by title as fitting the season; the LLM writes up to
+      two lines from them, without quote checks. Family topics must cite that night's events.
+      If no page could be read, nothing is stored and the next REST pass tries again.
       Older than 7 days it is marked with its age; older than 30 days only the solar-term
       line remains. `/season clear` wipes it. Stored in `agent_state.season_env`.
       Implemented in `core/season_env.py` and `loop/rest_season.py`.

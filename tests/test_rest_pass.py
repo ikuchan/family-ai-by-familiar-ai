@@ -33,7 +33,7 @@ def _no_layer_four():
 
 @pytest.fixture(autouse=True)
 def _no_season_layer():
-    """季節の層は検索と LLM を呼ぶ。季節の層自身の試験は `test_rest_season.py`。"""
+    """季節の層は fetch と Jev と LLM を呼ぶ。季節の層自身の試験は `test_rest_season.py`。"""
     from familiar_agent.loop.rest_season import Outcome
 
     with patch(

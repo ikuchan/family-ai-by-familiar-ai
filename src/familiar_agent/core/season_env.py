@@ -7,8 +7,9 @@
   「ファイルは既定値と人の入力だけ」（`CLAUDE.md`）に反するので、09-20 の `SeasonAndEnv.md` を改めた。
 - 4 つの欄：暦・天気・まわり・家の話題。各欄 2 行を目安に頼み（行数は検査しない・知-av）、1 行 40 字まで。
 - **暦は保存しない。** 渡すたびにその日の日付から計算する（いつ渡しても正しい）。
-- 天気とまわりは検索結果から**そのまま引いた文**、家の話題は出来事の id を出典に持つ。文にするときは
-  出典を出さない。
+- 天気は Yahoo!天気の住まいの市のページの表から**機械が**書き（明日と明後日・日付つき）、まわりは
+  ウェザーニュースと Yahoo!のお天気コラムから LLM が書く（引用の検査はしない・2026-10-24・本人の決定）。
+  家の話題は出来事の id を出典に持つ。文にするときは出典を出さない。
 - 古さで渡し方を変える：7 日までそのまま・8〜30 日は「（N 日前の様子）」・それより古い（か無い）と暦だけ。
 """
 
@@ -63,7 +64,7 @@ SOLAR_TERMS: tuple[tuple[int, int, str], ...] = (
 @dataclass(frozen=True)
 class Row:
     text: str
-    #: 天気・まわりは検索結果からそのまま引いた文、家の話題は出来事の id。
+    #: 家の話題の出来事の id（天気・まわりは空）。
     source: str = ""
 
 
@@ -78,24 +79,30 @@ def _term(month: int, day: int) -> str:
     return f"{name}（{month}/{day}）"
 
 
+def _last(today: date) -> "tuple[int, int]":
+    key = (today.month, today.day)
+    past = [(m, d) for m, d, _ in SOLAR_TERMS if (m, d) <= key]
+    return past[-1] if past else (SOLAR_TERMS[-1][0], SOLAR_TERMS[-1][1])  # 年明け前は冬至
+
+
+def last_term(today: date) -> str:
+    """直前の節気の名前（当日を含む）。季節の層が読む節気のページを決める。"""
+    m, d = _last(today)
+    return next(n for mm, dd, n in SOLAR_TERMS if (mm, dd) == (m, d))
+
+
 def calendar_line(today: date) -> str:
     """いまの暦の行。直前の節気と次の節気を言う。"""
     key = (today.month, today.day)
-    past = [(m, d) for m, d, _ in SOLAR_TERMS if (m, d) <= key]
-    last = past[-1] if past else (SOLAR_TERMS[-1][0], SOLAR_TERMS[-1][1])  # 年明け前は冬至
+    last = _last(today)
     upcoming = [(m, d) for m, d, _ in SOLAR_TERMS if (m, d) > key]
     nxt = upcoming[0] if upcoming else (SOLAR_TERMS[0][0], SOLAR_TERMS[0][1])  # 年末は小寒
     now = f"今日は{_term(*last)}" if last == key else f"{_term(*last)}を過ぎたころ"
     return f"{now}。次は{_term(*nxt)}。"
 
 
-def _squash(text: str) -> str:
-    return "".join(str(text).split())
-
-
-def check(env: SeasonEnv, *, search_text: str, material_ids: "set[str]") -> "str | None":
-    """通さない理由。通るなら None。まとめ方は LLM、通すかどうかは機械。"""
-    found = _squash(search_text)
+def check(env: SeasonEnv, *, material_ids: "set[str]") -> "str | None":
+    """通さない理由。通るなら None。欄・字数・家の話題の出典を見る（天気とまわりの出典は見ない）。"""
     for name, rows in env.rows.items():
         if name not in FIELDS:
             return f"欄「{name}」は書けない（暦は機械が書く）"
@@ -104,11 +111,8 @@ def check(env: SeasonEnv, *, search_text: str, material_ids: "set[str]") -> "str
                 return f"{name}に空の行"
             if len(r.text) > MAX_CHARS:
                 return f"{name}の行が {len(r.text)} 字（{MAX_CHARS} 字まで）"
-            if name == "家の話題":
-                if r.source not in material_ids:
-                    return f"家の話題の出典「{r.source[:12]}」が今夜の出来事に無い"
-            elif not r.source or len(r.source) > MAX_CHARS or _squash(r.source) not in found:
-                return f"{name}の出典が検索結果に無い：「{r.source[:20]}」"
+            if name == "家の話題" and r.source not in material_ids:
+                return f"家の話題の出典「{r.source[:12]}」が今夜の出来事に無い"
     return None
 
 

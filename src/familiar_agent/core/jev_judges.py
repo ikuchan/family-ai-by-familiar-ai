@@ -452,3 +452,60 @@ async def judge_music_pick(
         logger.info("Jev 判定 おすすめ：確率が無かった")
         return None
     return probs
+
+
+#: 季節の層で「どれも合わない」を表す選択肢（知-ac・2026-10-24）。
+SEASON_NONE = "none"
+
+
+def _season_picks(got: dict, keys: "dict[str, object]", most: int) -> list:
+    """確率の高い順に `most` 本まで。1 位が「どれも合わない」なら読まない。2 位以降は「どれも合わない」より上だけ。"""
+    probs = {str(k): float(v) for k, v in dict(got.get("probabilities") or {}).items()}
+    if not probs:
+        return []
+    order = sorted(probs, key=lambda k: probs[k], reverse=True)
+    if order[0] not in keys:
+        return []
+    none = probs.get(SEASON_NONE, 0.0)
+    picks = [order[0]] + [k for k in order[1:] if k in keys and probs[k] > none]
+    return [keys[k] for k in picks[:most]]
+
+
+async def judge_season_reads(
+    client, *, today, place: str, news: list, columns: list
+) -> "tuple[list, list]":
+    """季節の層で読む記事（知-ac・2026-10-24・本人の決定）。ウェザーニュースは 2 本まで、Yahoo!のコラムは 1 本まで。
+
+    題名に「どれも合わない」を足して選ばせ、確率どうしを比べる（しきい値は置かない）。
+    使えない・失敗・確率が無ければ何も選ばない（倒し先：節気のページだけ読む）。
+    """
+    from .season_env import last_term
+
+    news_keys = {f"n{i}": n for i, n in enumerate(news, 1)}
+    column_keys = {f"c{i}": c for i, c in enumerate(columns, 1)}
+    none = "どれも合わない"
+    questions = {}
+    if news_keys:
+        questions["news"] = choice(
+            "家のロボット（パジュ）が、季節の話のきっかけに天気のニュースを読む。住んでいる土地といまの時期に"
+            "いちばん合う記事はどれか",
+            {**{k: n.title for k, n in news_keys.items()}, SEASON_NONE: none},
+        )
+    if column_keys:
+        questions["column"] = choice(
+            "家のロボット（パジュ）が、季節の話のきっかけに歳時記や天気の読み物を読む。いまの時期にいちばん"
+            "合う読み物はどれか（季節外れの行事は合わない）",
+            {**{k: c.title for k, c in column_keys.items()}, SEASON_NONE: none},
+        )
+    if not questions:
+        return [], []
+    state = f"[今日]\n{today.isoformat()}（節気は{last_term(today)}）\n\n[住んでいる土地]\n{place or '（分からない）'}"
+    answer = await _ask(client, state, questions)
+    if not getattr(answer, "ok", False):
+        logger.info("Jev 判定 季節の読み物：答えなかった")
+        return [], []
+    got = getattr(answer, "answers", None) or {}
+    return (
+        _season_picks(got.get("news") or {}, news_keys, 2),
+        _season_picks(got.get("column") or {}, column_keys, 1),
+    )

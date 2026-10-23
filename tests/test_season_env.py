@@ -18,12 +18,9 @@ def _env(written_on=date(2026, 9, 26), **rows):
     )
 
 
-SEARCH = (
-    "茨城県守谷市の天気。この数日は最高24℃前後で、朝晩は15℃ほど。守谷では金木犀が咲き始めました。"
-)
 GOOD = dict(
-    天気=[("この数日は最高 24℃前後、朝晩は 15℃ほど。", "最高24℃前後で、朝晩は15℃ほど")],
-    まわり=[("守谷では金木犀が咲き始めた。", "金木犀が咲き始めました")],
+    天気=[("10/25（日）：曇時々雨、15〜21℃、雨60%",)],
+    まわり=[("守谷では金木犀が咲き始めた。",)],
     家の話題=[("たいきの運動会が近いと話していた。", "obs-1")],
 )
 
@@ -48,7 +45,7 @@ def test_the_calendar_wraps_around_the_new_year():
 
 
 def _check(env):
-    return se.check(env, search_text=SEARCH, material_ids={"obs-1"})
+    return se.check(env, material_ids={"obs-1"})
 
 
 def test_a_good_env_passes():
@@ -57,12 +54,12 @@ def test_a_good_env_passes():
 
 def test_a_line_over_forty_chars_is_refused():
     long = "あ" * 41
-    assert "40" in _check(_env(**{**GOOD, "まわり": [(long, "金木犀が咲き始めました")]}))
+    assert "40" in _check(_env(**{**GOOD, "まわり": [(long,)]}))
 
 
 def test_three_rows_pass():
     """行数は頼むときの目安で、機械は弾かない（知-av・10/10 に家の話題 3 行で晩の書き直しを丸ごと捨てた）。"""
-    three = [("金木犀が咲いた。", "金木犀が咲き始めました")] * 3
+    three = [("金木犀が咲いた。",)] * 3
     assert _check(_env(**{**GOOD, "まわり": three})) is None
 
 
@@ -75,10 +72,9 @@ def test_the_calendar_is_not_written_by_the_llm():
     assert _check(_env(**GOOD, 暦=[("秋分。", "")])) is not None
 
 
-def test_a_quote_not_in_the_search_is_refused():
-    """天気とまわりは、検索結果から**そのまま引いた文**が本文にあること。"""
-    bad = {**GOOD, "天気": [("最高 30℃。", "最高30℃の真夏日")]}
-    assert "検索" in _check(_env(**bad))
+def test_weather_and_surroundings_need_no_quote():
+    """天気は機械が表から書き、まわりは引用の検査をしない（知-ac・2026-10-24・本人の決定）。"""
+    assert _check(_env(**{**GOOD, "まわり": [("来週後半は強い寒気が来るらしい。", "")]})) is None
 
 
 def test_a_house_topic_without_a_known_event_is_refused():
@@ -87,7 +83,7 @@ def test_a_house_topic_without_a_known_event_is_refused():
 
 
 def test_empty_fields_are_fine():
-    """検索できなかった晩は、天気とまわりが空でよい。"""
+    """ページを読めなかった晩は、天気とまわりが空でよい。"""
     assert _check(_env(家の話題=GOOD["家の話題"])) is None
 
 
