@@ -22,7 +22,7 @@ def test_the_writer_is_asked_for_the_source_with_a_search():
     needs = _writer_needs(_inp(), {"branch": "action", "action": "search_deferred"})
     assert needs[:2] == ["query", "source"]
     assert "tavily" in _FIELD_TEXT["source"] and "brave" in _FIELD_TEXT["source"]
-    assert "数字" in _FIELD_TEXT["source"]
+    assert "日によって変わる" in _FIELD_TEXT["source"] and "変わらない事実" in _FIELD_TEXT["source"]
     assert "source" not in _writer_needs(_inp(), {"branch": "action", "action": "recall"})
 
 

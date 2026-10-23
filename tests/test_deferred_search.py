@@ -368,8 +368,10 @@ def test_the_description_tells_when_to_use_each_source() -> None:
     d = tool.get_tool_definitions()[0]
     desc = d["description"] + d["input_schema"]["properties"]["source"]["description"]
     assert "Brave" in desc and "Tavily" in desc
-    assert "リンク" in desc  # Brave は題名・抜粋・リンクの一覧
-    assert "本文" in desc and "数字" in desc  # Tavily は本文の抜粋・数字や事実が要るとき
+    # 数字が要るかでは分けられなかった（知-bm・2026-10-22）。変わるか変わらないかで分ける
+    assert "日によって変わる" in desc  # Tavily
+    assert "変わらない事実" in desc  # Brave
+    assert "数字" not in desc
     assert "省略時" in desc and "brave" in desc.lower()  # 既定はいまどおり
 
 

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Awaitable, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from ..core.structured_ask import ask_yes_no
+
+if TYPE_CHECKING:
+    from ..core.search_relevance import Checked
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +47,11 @@ class DeferredSearchTool:
         search_fn: Callable[[str, dict], Awaitable[Any]],  # MCP の `call_result`（本文・画像・ok）
         utility_backend: Any = None,
         context: Any = None,
-        judge: "Callable[[str, str], Awaitable[str | None]] | None" = None,
+        judge: "Callable[[str, str, str], Awaitable[Checked | None]] | None" = None,
     ) -> None:
         self._search_fn = search_fn
-        # 返りが問いに合うかを照らす口（知-an）。(問い, 返りの文) → 合う結果だけの文、1 件も合わなければ None。
-        # 渡さなければ照らさない。
+        # 返りが問いに合うかを照らす口（知-an）。(問い, 返りの文, 返した道具) → 合う結果だけの文と読みに行く
+        # ページ（知-bm）、1 件も合わなければ None。渡さなければ照らさない。
         self._judge = judge
         self._utility_backend = utility_backend
         # `context(stance)` は立ち位置と文脈を返す（出-e）。渡さなければ
@@ -102,8 +105,10 @@ class DeferredSearchTool:
                     "結果は次のターンで自動的にコンテキストに提供される。"
                     # 担い手の使い分け（知-am・2026-10-07）。書いていなかったので、数字が要る問い（天気）でも Brave を
                     # 使い「リンクの一覧しか出てこない」と答えた。
-                    "担い手は問いで選ぶ：Brave は題名・短い抜粋・リンクの一覧（どこに何があるかを探す・話題を広く見る）。"
-                    "Tavily はページの本文の抜粋（答えに数字や事実を使うとき——天気・時刻表・値段・結果など）。"
+                    # 数字が要るかでは分けられなかった（知-bm・2026-10-22）。変わるか変わらないかで分ける。
+                    "担い手は問いで選ぶ：いまの情報（天気・ニュース・値段・時刻表・試合の結果など、日によって変わること）は "
+                    "Tavily。変わらない事実（意味・由来・歴史・人や物の説明など）は Brave。Brave の結果に答えが無ければ、"
+                    "合いそうなページを機械が読んで一緒に届ける。"
                     " 結果が届いたターンでは必ず say() を使って自分の言葉（だよ・みたい口語）で報告すること。"
                 ),
                 "input_schema": {
@@ -116,7 +121,7 @@ class DeferredSearchTool:
                         "source": {
                             "type": "string",
                             "enum": ["brave", "tavily"],
-                            "description": "担い手（省略時: brave）。数字や事実が要るなら tavily",
+                            "description": "担い手（省略時: brave）。日によって変わることなら tavily、変わらない事実なら brave",
                         },
                     },
                     "required": ["query"],
@@ -199,6 +204,19 @@ class DeferredSearchTool:
             True,
         )
 
+    async def _read_page(self, url: str) -> str:
+        """抜粋に答えが無かったときに読むページ（知-bm）。一覧に継ぐ文。読めなければ空（一覧だけ届ける）。"""
+        try:
+            r = await self._search_fn("fetch", {"url": url})  # 字数は fetch の既定（5,000 字）
+        except Exception:  # noqa: BLE001
+            logger.warning("deferred search ページを読めなかった（%s）", url, exc_info=True)
+            return ""
+        if not r.ok:
+            logger.warning("deferred search ページを読めなかった（%s・%.120s）", url, r.text)
+            return ""
+        logger.info("deferred search ページを読んだ（%s・%d 字）", url, len(r.text))
+        return f"\n\n[読んだページ] {url}\n{r.text}"
+
     async def _run(
         self, query: str, mcp_tool: str, source: str, user_initiated: bool = False
     ) -> None:
@@ -217,7 +235,8 @@ class DeferredSearchTool:
                     r = await self._search_fn(other, {"query": query})
                     mcp_tool = other
             if r.ok and self._judge is not None:
-                checked = await self._judge(query, r.text)
+                # 3 択か 2 択かは、頼んだ担い手でなく実際に返した道具で決める（知-bm）
+                checked = await self._judge(query, r.text, mcp_tool)
                 if checked is None:
                     # 全部外れた（知-an）。もう一方の検索で 1 回だけ調べ直す。外れた返りは届けない——届けると
                     # ループの調べものが済みになり、つなぎも止まる。
@@ -227,7 +246,9 @@ class DeferredSearchTool:
                     )
                     r2 = await self._search_fn(other, {"query": query}) if other else None
                     checked = (
-                        await self._judge(query, r2.text) if r2 is not None and r2.ok else None
+                        await self._judge(query, r2.text, other)
+                        if other is not None and r2 is not None and r2.ok
+                        else None
                     )
                 if checked is None:
                     _msg = f"「{query}」は関係のある結果が見つからなかった"
@@ -244,7 +265,9 @@ class DeferredSearchTool:
                             }
                         )
                     return
-                r_text = checked
+                r_text = checked.text
+                if checked.read:
+                    r_text += await self._read_page(checked.read)
             else:
                 r_text = r.text
             if not r.ok:

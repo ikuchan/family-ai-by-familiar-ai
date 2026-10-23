@@ -19,7 +19,7 @@ from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内�
     _noop_str,
     format_present_ctx,
 )
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from .backends import create_backend, create_scene_backend, create_utility_backend
 from .core.context_parts import Stance as _Stance
@@ -50,6 +50,9 @@ from .tools.tts import TTSTool
 from .loop.evaluator import Evaluator
 from .mcp_client import CallResult, MCPClientManager, _resolve_config_path
 from .capability_state import load_summary
+
+if TYPE_CHECKING:
+    from .core.search_relevance import Checked
 
 logger = logging.getLogger(__name__)
 
@@ -1372,8 +1375,11 @@ class EmbodiedAgent:
         """いまの時刻（差し替え点）。"""
         return time.time()
 
-    async def _judge_search(self, query: str, text: str) -> "str | None":
-        """検索の返りから、問いに合わない結果を Jev が捨てる（知-an・`core/search_relevance`）。"""
+    async def _judge_search(self, query: str, text: str, tool: str) -> "Checked | None":
+        """検索の返りから、問いに合わない結果を Jev が捨てる（知-an・`core/search_relevance`）。
+
+        Brave の返りは 3 択で照らし、答えが無ければ読みに行くページも選ぶ（知-bm）。
+        """
         from .core.search_relevance import keep_relevant
 
         return await keep_relevant(
@@ -1381,6 +1387,7 @@ class EmbodiedAgent:
             query,
             text,
             min_conf=float(getattr(self.config, "jev_confidence_min", 0.6)),
+            three_way=tool == "brave_web_search",
         )
 
     def _voice_store(self):

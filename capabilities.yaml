@@ -64,6 +64,10 @@ capabilities:
     detail: >
       `search_deferred` enables fire-and-forget search queries. The search results are delivered to
       the agent's workspace on the subsequent turn. Implemented in `tools/deferred_search.py`.
+      Choose Tavily for things that change by the day (weather, news, prices, timetables, results)
+      and Brave for facts that do not change (meanings, origins, history, explanations). When no
+      Brave result holds the answer, the page most likely to hold it is read and delivered with
+      the list.
     enabled: true
   - id: memory
     summary: Store and recall observations, episodes, semantic facts, and unfinished business
