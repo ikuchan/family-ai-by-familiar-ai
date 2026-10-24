@@ -221,7 +221,8 @@ async def judge_speech_and_verdicts(
     低い記憶は申告しない。返事は切らない——申告は返事のどこで記憶を使ったかを見るので、600 字で切ると後ろで使った
     記憶を見落とす。返りは `(差し戻しの文 | None, [{"id", "verdict"}])`。
 
-    `on_asked` は、Jev に聞いて答えが返ったときだけ `(state, questions, answer)` で呼ぶ（記録は呼び手が書く・知-bn）。
+    `on_asked` は、Jev に聞いて答えが返ったとき（`ok`）だけ `(state, questions, answer)` で呼ぶ（記録は呼び手が書く・知-bn）。
+    失敗の答えは渡さない——記録に「破っていない」と書かれ、本当に通った回と混ざる。
     """
     if not response:
         return None, []
@@ -243,7 +244,7 @@ async def judge_speech_and_verdicts(
     if not questions:
         return None, []
     answer = await _ask(client, state, questions)
-    if answer is not None and on_asked is not None:
+    if on_asked is not None and getattr(answer, "ok", False):
         on_asked(state, questions, answer)
     verdicts = _verdicts_from(answer, list(rows), min_conf)
     if rows:

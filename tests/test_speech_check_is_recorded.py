@@ -61,12 +61,13 @@ def test_the_check_hands_what_it_asked():
 
 
 def test_nothing_is_handed_when_jev_was_not_asked():
-    """**反証の側**：Jev が使えない回は聞いていないので渡さない。"""
+    """**反証の側**：Jev が使えない・失敗した回は、答えを聞けていないので渡さない（通った回と混ざる）。"""
     asked: list = []
     down = MagicMock()
     down.available = False
     _judge(down, asked)
     _judge(None, asked)
+    _judge(_client(JevAnswer(ok=False, error="時間切れ")), asked)
     assert asked == []
 
 
