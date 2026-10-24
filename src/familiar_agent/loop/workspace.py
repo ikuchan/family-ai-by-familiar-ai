@@ -499,7 +499,7 @@ class Workspace:
         _rows, recent, recent_ids = self._recent(n)
         past, _ = compose(
             self.oif,
-            self.memories if memories is None else memories,
+            self._memories_once() if memories is None else memories,
             self.req,
             exclude=set(recent_ids.values()),
             basis=self.basis,
@@ -512,9 +512,9 @@ class Workspace:
         return self.render(self.n_arbiter)
 
     # ── Jev へ送る W（出-bw・2026-10-12・本人の決定）────────────────────────────────
-    # 重なりを除き、送る前に測って、上限を超えたら一度で削る。主LLM の W（`for_main`）は変えない。
+    # 送る前に測って、上限を超えたら一度で削る。重なりは 3 つの道（Jev・主LLM・軽量LLM）とも除く（出-br）。
 
-    def _jev_memories(self) -> "list[Recalled]":
+    def _memories_once(self) -> "list[Recalled]":
         """いまの求めの版を、この反復で返った結果の本文を外した文に置き換えた記憶の列（全文は最上部に 1 回）。"""
         live = self.req.live_version_id
         if not live:
@@ -535,7 +535,7 @@ class Workspace:
         外す件数は字数の合計から決める（断られてから 1 件ずつ外して聞き直すのはやめた・出-bm を撤去）。判断の中身
         （いま返った結果）・直近・いまの求めの記録（`open_ids`）は外さない。記憶を全部外しても超えるなら None。
         """
-        memories = self._jev_memories()
+        memories = self._memories_once()
         text = self.render(self.n_arbiter, memories=memories)
         if len(text) <= max_chars:
             return text

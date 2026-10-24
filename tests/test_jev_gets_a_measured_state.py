@@ -4,10 +4,11 @@ Jev は state といちばん長い問いを足して 32k 語までしか受け�
 [いま道具から返った]・W の記憶（いまの求めの版）・情動の求めでは [いま湧いたこと]（版の文）の 3 か所に入り、
 断られた回が 64 件あった（`根拠台帳` §54）。断られると記憶を 1 件ずつ外して聞き直していた（出-bm・22:15 に 5 回）。
 
-- 重なりは Jev へ送る文だけで除く。全文は [いま道具から返った] に 1 回、版の文からは同じ反復で返った結果の本文だけ外す。
+- 重なりは Jev・主LLM・軽量LLM の W のどれでも除く（出-br・2026-10-24・本人の決定）。全文は [いま道具から返った]
+  に 1 回、版の文からは同じ反復で返った結果の本文だけ外す。O に書く版は全文のまま。
 - 送る前に字数を測り、上限（`jev_state_max_chars`・28,000 字・仮）を超えたら、収まるところまで一度に削る。
   調停は記憶を適合度の低い順に外す。続き先の判定は各項目を同じ字数まで縮める（行の数は減らさない）。
-- 収まらなければ聞かずに倒し先へ倒す。断られても聞き直さない。主LLM の W は変えない。
+- 収まらなければ聞かずに倒し先へ倒す。断られても聞き直さない。
 """
 
 from __future__ import annotations
@@ -74,16 +75,21 @@ def test_the_written_version_keeps_the_whole_result():
 # ── 調停へ送る W ─────────────────────────────────────────────────
 
 
-def test_the_result_appears_once_for_jev_and_twice_for_the_main_llm():
+def test_the_result_appears_once_everywhere():
+    """Jev・主LLM・軽量LLM の W のどれでも、この反復で返った結果の全文は最上部に 1 回（出-br）。"""
     ws = _ws()
     assert ws.for_jev_arbiter(28_000).count(RESULT) == 1
-    assert ws.for_main.count(RESULT) == 2  # 主LLM の W は変えない（本人）
+    assert ws.for_main.count(RESULT) == 1
+    assert ws.for_arbiter.count(RESULT) == 1
+    assert "（中身は [いま道具から返った]）" in ws.for_main
 
 
 def test_a_result_from_an_earlier_iteration_stays_in_the_version():
-    """**反証の側**：この反復で返っていない結果は、版にしか無いので残す。"""
+    """**反証の側**：この反復で返っていない結果は、版にしか無いので、どの W でも全文で残す。"""
     ws = _ws(returned_now=False)
-    assert ws.for_jev_arbiter(28_000).count(RESULT) == 1
+    for text in (ws.for_jev_arbiter(28_000), ws.for_main, ws.for_arbiter):
+        assert text.count(RESULT) == 1
+        assert "（中身は [いま道具から返った]）" not in text
 
 
 def test_nothing_is_dropped_within_the_limit():
