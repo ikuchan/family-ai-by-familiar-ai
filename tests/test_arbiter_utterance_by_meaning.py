@@ -1,7 +1,7 @@
 """発話は意味 → 動作を先読みの 1 回で聞く（出-ay 段 4-4b・2026-10-09・`設計方針_判定の段` §2.2.5）。
 
 人の言葉への最初の反復は、`core/utterance_meaning` の問い（意味＋意味ごとの動作）を Jev に 1 回で聞き、決まりで最終の動作を
-決めて `Decision` に写す。越えなければ「よく考えるか、軽く聞き返すか」をもう 1 回聞く。黙ると決まったら、発話の最初の反復でも
+決めて `Decision` に写す（確率で決める・出-db 段 A）。黙ると決まったら、発話の最初の反復でも
 主LLM を呼ばずに閉じる。黙る依頼・解く・名乗り・否定は意味と動作で、時期は recall の語と一緒に軽量LLM が書く（段 4-4c）。
 """
 
@@ -85,20 +85,6 @@ def test_ask_back_is_written_by_the_light_llm():
     d, writer = _run(jev)
     assert (d.branch, d.text) == ("light", "もう一度言ってもらえますか？")
     assert "聞き返す" in prompt_of(writer)
-
-
-def test_when_unsure_it_asks_think_or_ask_back():
-    jev = _jev({"meaning": _a("research", 0.5)}, {"action": _a("reply_full", 0.7)})
-    d, _ = _run(jev)
-    assert jev.ask.await_count == 2
-    assert set(jev.ask.await_args.args[1]["action"]["criteria"]) == {"reply_full", "ask_back"}
-    assert d.branch == "full"
-    jev = _jev({"meaning": _a("research", 0.5)}, {"action": _a("reply_full", 0.4)})
-    d, _ = _run(jev)
-    assert (d.branch, d.text) == (
-        "light",
-        "もう一度言ってもらえますか？",
-    )  # それも越えなければ軽く聞き返す
 
 
 def test_answering_from_what_is_known():
@@ -187,9 +173,6 @@ def test_an_ask_back_is_told_to_stay_within_twenty_characters():
     jev = _jev({"meaning": _a("music", 0.9), "action_music": _a("ask_back", 0.2)})
     _, writer = _run(jev)
     assert limit in prompt_of(writer)
-    jev = _jev({"meaning": _a("research", 0.5)}, {"action": _a("reply_full", 0.4)})
-    _, writer = _run(jev)
-    assert limit in prompt_of(writer)  # 越えなかったときの軽く聞き返すも同じ
 
 
 def test_a_long_ask_back_is_spoken_whole():

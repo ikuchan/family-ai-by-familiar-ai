@@ -10,8 +10,9 @@
   （Jev にキャッシュは無く、2 回に分けると状態の文を 2 回送る）。
 - 「文脈」は直前のやりとり（人とパジュの言葉）のことで、思い出した記憶ではない。
 - 決まり：成立しないものは黙る。文脈に合わない言葉は、聞き返すを 0.6 以上で選んだときだけ聞き返し、それ以外は黙る。ほかは
-  しきい値 0.6。聞き返すは確信度に関係なく。越えなければ「よく考えるか、軽く聞き返すか」を聞き、それも 0.6 未満なら軽く
-  聞き返す（聞き返すは軽量LLM が 20 字までで書く）。
+  確率で決める（出-db 段 A・2026-10-25・本人の決定 1-a）：返す側（軽く返す＋考えて返す）の確率の和が、ほかのどの動作よりも
+  大きければ返し、そうでなければいちばん確率の高い動作。名乗り・否定だけは 0.6 を見て、足りなければ聞き返す（聞き返すは
+  軽量LLM が 20 字までで書く）。
 
 動作の鍵：`ask_back`（聞き返す）・`silent`（黙る）・`state_light`（状態を伝える）・`reply_light`（軽く返す）・
 `reply_full`（考えて返す＝主LLM）・`quiet`（黙る依頼を受ける）・`lift_quiet`（黙るのを解く）・道具の名前。名乗りと否定の
@@ -23,7 +24,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-#: しきい値（1 回目・2 回目・越えなかったときの問い・2026-10-09 本人の決定）。
+#: しきい値（2026-10-09 本人の決定）。出-db 段 A（2026-10-25）から、意味と動作の決まりでは名乗り・否定と、文脈に合わない言葉の
+#: 聞き返しだけに使う。ほかの意味と動作は確率で決める——確信度は確率の集まり方で、害の無い選択肢に割れただけで聞き返しに
+#: 倒れていた。見立ての「たぶん」と、調停の確認の答え・聞き取りの確認の答えもこの値を見る。
 THRESHOLD = 0.6
 #: 聞き返すときに軽量LLM へ渡す文字数の上限（2026-10-08 本人の決定）。
 ASK_BACK_MAX_CHARS = 20
@@ -206,11 +209,6 @@ QUIET_MINUTES: "dict[str, str]" = {
     "30": "30 分",
     "60": "1 時間",
 }
-#: 越えなかったときに聞く問いの選択肢。
-UNSURE_ACTIONS: "dict[str, str]" = {
-    "reply_full": "よく考えてみる（記憶を踏まえて、考えて返す）",
-    "ask_back": "軽く聞き返す（何をしてほしいのかを短く確かめる）",
-}
 
 
 def offered(*, music: bool, camera: bool, suggesting: bool = False) -> "list[str]":
@@ -305,7 +303,7 @@ def fanout_questions(
 
 @dataclass(frozen=True)
 class Outcome:
-    """決まりで決めた最終の動作。`unsure` のときは `unsure_question` を聞いて決め直す。"""
+    """決まりで決めた最終の動作。"""
 
     final: str
     name: str = ""  # 名乗り・否定の 2 回目で選んだ呼び方
@@ -345,12 +343,45 @@ def guess_action(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> 
     m = str(meaning.get("choice") or "")
     if m not in MEANINGS or m in _NO_GUESS or m in ("claim", "deny"):
         return ""
-    action = action or {}
-    probs = dict(action.get("probabilities") or {})
-    if not probs and action.get("choice"):
-        probs = {str(action["choice"]): _conf(action)}
-    acts = [(k, p) for k, p in probs.items() if k in ACTIONS and k not in _COMMON]
+    acts = [(k, p) for k, p in _probs(action).items() if k in ACTIONS and k not in _COMMON]
     return max(acts, key=lambda kv: kv[1])[0] if acts else ""
+
+
+def _probs(answer: "dict[str, Any] | None") -> "dict[str, float]":
+    """選択肢ごとの確率。確率が無ければ、選ばれた 1 つを 1.0 と読む。"""
+    answer = answer or {}
+    probs = {str(k): float(v or 0) for k, v in dict(answer.get("probabilities") or {}).items()}
+    if not probs and answer.get("choice"):
+        probs = {str(answer["choice"]): 1.0}
+    return probs
+
+
+#: 返す側の動作。確率は二つに割れやすいので、和で比べる（出-db 段 A）。
+_ANSWERS = ("reply_light", "reply_full")
+
+
+#: 返す側の意味。動作と同じく、確率は二つに割れやすいので和で比べる（出-db 段 A）。
+_ANSWERING_MEANINGS = ("other", "answerable")
+#: 返す側の和では覆さない意味（道具を動かさない・黙る・名乗り）。
+_KEPT_MEANINGS = frozenset({*_ANSWERING_MEANINGS, "unformed", "off_context", "claim", "deny"})
+
+
+def settle_meaning(meaning: "dict[str, Any]") -> "dict[str, Any]":
+    """道具を動かす意味が弱く選ばれたら、返す側の意味に置き換える（出-db 段 A・2026-10-25・本人の決定ア）。
+
+    1 回目の確信度で絞るのをやめたので、意味の確率が割れたまま道具が動いていた（見直しの指摘：話しかけ方 0.30 で
+    30 分黙る）。返す側の意味（その他の会話・知っていることで答えられる）の確率の和が、選ばれた意味の確率より大きければ、
+    返す側のうち確率の高いほうにする。成立しない・文脈に合わない・名乗り・否定は覆さない。
+    """
+    m = str(meaning.get("choice") or "")
+    if not m or m in _KEPT_MEANINGS:
+        return meaning
+    probs = _probs(meaning)
+    answering = {k: probs[k] for k in _ANSWERING_MEANINGS if k in probs}
+    if answering and sum(answering.values()) > probs.get(m, 0.0):
+        best = max(answering, key=lambda k: answering[k])
+        return {**meaning, "choice": best, "confidence": answering[best]}
+    return meaning
 
 
 def decide(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> Outcome:
@@ -362,37 +393,16 @@ def decide(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> Outcom
     if m == "off_context":
         sure_ask = a == "ask_back" and _conf(action) >= THRESHOLD
         return Outcome("ask_back" if sure_ask else "silent", why="文脈に合わない言葉")
-    if _conf(meaning) < THRESHOLD:
-        return Outcome("unsure", why="1 回目がしきい値未満")
-    if not a:
-        return Outcome("unsure", why="2 回目の答えが無い")
-    if a == "ask_back":
-        return Outcome("ask_back", why="聞き返す（確信度に関係なく）")
-    if m == "music":
-        # 音楽の 2 回目は見込みを見ず、いちばん見込みの大きい動作を使う（出-cf・10/14 00:46 に「ストップ」を確信度不足で
-        # 聞き返した・本人の決定ウ）。ほかの意味の 2 回目と、1 回目（意味）は 0.6 を見る。
-        return Outcome(a, why="使う（音楽は 2 回目の見込みを見ない）")
-    if _conf(action) < THRESHOLD:
-        return Outcome("unsure", why="2 回目がしきい値未満")
     if m in ("claim", "deny"):
+        # 誰かを決めつけるので、名乗り・否定だけは 0.6 を見る（出-db 段 A・本人）。
+        if _conf(meaning) < THRESHOLD or _conf(action) < THRESHOLD:
+            return Outcome("ask_back", why="名乗り・否定の確信度不足")
         return Outcome(m, name="" if a == OTHER else a, why="名乗り・否定")
-    return Outcome(a, why="使う")
-
-
-def unsure_question() -> "dict[str, dict]":
-    """越えなかったときの問い：よく考えるか、軽く聞き返すか。"""
-    from ..backends.jev import choice
-
-    return {
-        "action": choice(
-            "この人の言葉に、パジュはよく考えて返すか、軽く聞き返すか", dict(UNSURE_ACTIONS)
-        )
-    }
-
-
-def resolve_unsure(answer: "dict[str, Any] | None") -> str:
-    """越えなかったときの問いの答え。0.6 以上ならそれ、未満なら軽く聞き返す（本人）。"""
-    picked = str((answer or {}).get("choice") or "")
-    if picked in UNSURE_ACTIONS and _conf(answer) >= THRESHOLD:
-        return picked
-    return "ask_back"
+    probs = _probs(action)
+    if not probs:
+        return Outcome("reply_full", why="2 回目の答えが無い")
+    answering = {k: p for k, p in probs.items() if k in _ANSWERS}
+    rest = [p for k, p in probs.items() if k not in _ANSWERS]
+    if answering and sum(answering.values()) > max(rest, default=0.0):
+        return Outcome(max(answering, key=lambda k: answering[k]), why="返す側の和がまさる")
+    return Outcome(max(probs, key=lambda k: probs[k]), why="いちばん確率の高い動作")

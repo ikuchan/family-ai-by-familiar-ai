@@ -16,7 +16,8 @@ from tests.test_arbiter_utterance_by_meaning import _a, _jev
 
 
 def _ask_back(text: str):
-    jev = _jev({"meaning": _a("music", 0.9), "action_music": _a("ask_back", 0.9)})
+    # 意味は並べたものを使う（音楽の道具を並べていないので、音楽が返ると主LLM へ行く・出-db 段 A）。
+    jev = _jev({"meaning": _a("research", 0.9), "action_research": _a("ask_back", 0.9)})
     writer = writer_says({"text": text})
     d = asyncio.run(
         decide(jev=jev, writer=writer, utterance="パジュ、今日の予定は?", origin="発話")

@@ -59,13 +59,14 @@ def test_an_utterance_is_recorded_with_what_jev_saw():
     assert row["answer"]["meaning"]["choice"] == "research"
 
 
-def test_an_unsure_utterance_records_the_second_answer_and_why():
-    jev = _jev({"meaning": _c("research", 0.4)}, {"action": _c("ask_back", 0.3)})
+def test_a_low_confidence_utterance_records_why_by_probability():
+    """迷ったときの 2 回目の問いは外した（出-db 段 A）。記録には 1 回の答えと、確率で決めた理由が残る。"""
+    jev = _jev({"meaning": _c("research", 0.4), "action_research": _c("ask_back", 0.3)})
     _decide(jev)
     (row,) = _rows()
     assert row["final"] == "ask_back"
-    assert row["answer"]["unsure"]["action"]["choice"] == "ask_back"
-    assert "しきい値未満" in row["outcome"]
+    assert "unsure" not in row["answer"] and "unsure" not in row["questions"]
+    assert "いちばん確率の高い動作" in row["outcome"]
 
 
 def test_a_completion_asked_to_jev_is_recorded_as_a_completion():

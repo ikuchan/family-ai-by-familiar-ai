@@ -62,7 +62,7 @@ def test_a_claim_gives_only_the_meaning():
 def _ask_back_after_doubt(monkeypatch, answers: dict):
     kept: dict = {}
     monkeypatch.setattr(arbiter_records, "record", lambda **kw: kept.update(kw))
-    jev = _jev(answers, {"action": _a("ask_back", 0.5)})
+    jev = _jev(answers)
     writer = writer_says({"text": "家族の予定を見ればいいですか？"})
     d = asyncio.run(
         decide(jev=jev, writer=writer, utterance="パジュ、今日の予定は?", origin="発話")
@@ -75,7 +75,10 @@ def test_a_doubtful_ask_back_tells_the_writer_the_guess(monkeypatch):
         monkeypatch,
         {
             "meaning": _a("research", 0.5),
-            "action_research": _with_probs("recall", 0.5, {"recall": 0.5, "ask_back": 0.3}),
+            # 聞き返すが確率でまさる（出-db 段 A）。見立ては聞き返す・黙るを除いた最大の recall。
+            "action_research": _with_probs(
+                "ask_back", 0.5, {"ask_back": 0.5, "recall": 0.3, "search_deferred": 0.2}
+            ),
         },
     )
     assert (d.branch, d.text) == ("light", "家族の予定を見ればいいですか？")

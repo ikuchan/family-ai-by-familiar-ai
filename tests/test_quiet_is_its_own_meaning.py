@@ -52,9 +52,9 @@ def test_a_speaking_quiet_answer_sets_the_minutes(monkeypatch):
 
 
 def test_what_stays_the_same():
-    """**反証の側**：silent の説明は元のまま・時間はタイマーのまま・しきい値はまだ見る。"""
+    """**反証の側**：silent の説明は元のまま・時間はタイマーのまま・確率で決める（出-db 段 A）。"""
     assert um.ACTIONS["silent"] == "黙る（何も言わず、何もしない）"
     assert "set_timer" in um.ACTIONS_BY_MEANING["time"]
     assert um.decide(_a("time", 0.99), _a("set_timer", 0.9)).final == "set_timer"
-    assert um.decide(_a("speaking", 0.5), _a("quiet", 0.9)).final == "unsure"
-    assert um.decide(_a("speaking", 0.9), _a("quiet", 0.5)).final == "unsure"
+    assert um.decide(_a("speaking", 0.5), _a("quiet", 0.9)).final == "quiet"
+    assert um.decide(_a("speaking", 0.9), _a("quiet", 0.5)).final == "quiet"

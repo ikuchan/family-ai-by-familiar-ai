@@ -906,8 +906,8 @@ class Arbiter:
     async def _utterance_by_meaning(self, inp: ArbiterInput, started: float) -> Decision:
         """発話は意味 → 動作を先読みの 1 回で聞く（出-ay 段 4-4b・2026-10-09・`設計方針_判定の段` §2.2.5）。
 
-        問いと決まりは `core/utterance_meaning`。越えなければ「よく考えるか、軽く聞き返すか」をもう 1 回聞き、それも越え
-        なければ軽く聞き返す。Jev が答えない・書けなければ full。黙る依頼・名乗り・否定・時期は段 4-4c で欄に戻す
+        問いと決まりは `core/utterance_meaning`（確率で決める・出-db 段 A）。Jev が答えない・書けなければ full。
+        黙る依頼・名乗り・否定・時期は段 4-4c で欄に戻す
         （それまでは軽く返す・本人：一時的に効かないのはかまわない）。
         """
         from ..core import utterance_meaning as um
@@ -936,7 +936,8 @@ class Arbiter:
             self._keep(inp, "発話", state, questions, answer, "reply_full", "Jev が答えなかった")
             self._tell_decided("reply_full")
             return _FALLBACK
-        meaning = got["meaning"]
+        # 道具を動かす意味が弱く選ばれたら、返す側の意味に置き換える（出-db 段 A・本人の決定ア）。記録には Jev の答えのまま残す。
+        meaning = um.settle_meaning(got["meaning"])
         m = str(meaning.get("choice") or "")
         offered = um.offered(
             music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
@@ -947,15 +948,14 @@ class Arbiter:
             outcome = um.decide(meaning, got.get(f"action_{m}"))
         else:
             # 並べていない意味（使えない道具）が返ってきたら使わない。首を回せないのに回す、などを防ぐ。
-            outcome = um.Outcome("unsure", why=f"並べていない意味（{m}）")
+            # 迷ったときに 2 回目を聞く問いは外したので（出-db 段 A）、主LLM に考えて返させる。
+            outcome = um.Outcome("reply_full", why=f"並べていない意味（{m}）")
         final = outcome.final
-        asked, said = dict(questions), dict(got)
-        if final == "unsure":
-            again = await _ask(self._jev, state, um.unsure_question())
-            final = um.resolve_unsure((getattr(again, "answers", None) or {}).get("action"))
-            # 越えなかったときの問いと答えは「unsure」の下に残す（段 5d）。
-            asked["unsure"] = um.unsure_question()
-            said["unsure"] = dict(getattr(again, "answers", None) or {})
+        jev_meaning = str(got["meaning"].get("choice") or "")
+        if jev_meaning != m:
+            outcome = um.Outcome(
+                final, outcome.name, f"意味を返す側にした（{jev_meaning}→{m}）・{outcome.why}"
+            )
         # 迷って聞き返すなら、何を迷ったかを書く側に渡す（出-bl）。記録にも残す。
         guess = (
             um.guess(meaning, got.get(f"action_{m}"))
@@ -963,7 +963,7 @@ class Arbiter:
             else ""
         )
         why = f"{outcome.why}・見立て：{guess}" if guess else outcome.why
-        self._keep(inp, "発話", state, asked, said, final, why, meaning=m)
+        self._keep(inp, "発話", state, questions, got, final, why, meaning=m)
         # 見立ての動作を聞き取りの確認として預ける（出-cm）。名乗り・否定・文脈に合わない言葉には動作が無い。
         heard = um.guess_action(meaning, got.get(f"action_{m}")) if guess else ""
         return await self._utterance_final(

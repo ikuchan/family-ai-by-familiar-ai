@@ -61,9 +61,11 @@ def _doubtful_timer(monkeypatch, *, writer_text: str = "3分のタイマーと�
     jev = _jev(
         {
             "meaning": _a("time", 0.5),
-            "action_time": _probs("set_timer", 0.5, {"set_timer": 0.5, "ask_back": 0.3}),
+            # 聞き返すが確率でまさる（出-db 段 A で 2 回目の問いを外した）。見立ては聞き返す・黙るを除いた最大のタイマー。
+            "action_time": _probs(
+                "ask_back", 0.6, {"ask_back": 0.6, "set_timer": 0.3, "silent": 0.1}
+            ),
         },
-        {"action": _a("ask_back", 0.9)},  # 越えなかったときの問い → 軽く聞き返す
     )
     return asyncio.run(
         decide(jev=jev, writer=writer_says({"text": writer_text}), utterance="3分測って")

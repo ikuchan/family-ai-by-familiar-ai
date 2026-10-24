@@ -2,8 +2,8 @@
 
 実験（`scripts/experiment_meaning.py`）で決めた形を本体へ移す。1 回目に意味（12 個・明確なものからあやふやなものの順）、
 2 回目に意味ごとの動作。先読みで 1 回に並べる（意味の問いと、意味ごとの「もしこの言葉が○○なら」の問い）。決まり：
-成立しないものは黙る。文脈に合わない言葉は、聞き返すを 0.6 以上で選んだときだけ聞き返し、それ以外は黙る。ほかはしきい値
-0.6。聞き返すは確信度に関係なく。越えなければ「よく考えるか、軽く聞き返すか」を聞き、それも 0.6 未満なら軽く聞き返す。
+成立しないものは黙る。文脈に合わない言葉は、聞き返すを 0.6 以上で選んだときだけ聞き返し、それ以外は黙る。ほかは確率で
+決める（出-db 段 A・`tests/test_meaning_by_probability.py`）。
 """
 
 from __future__ import annotations
@@ -71,21 +71,14 @@ def test_the_rules():
     assert d(_a("unformed", 0.1), None).final == "silent"
     assert d(_a("off_context", 0.2), _a("ask_back", 0.7)).final == "ask_back"
     assert d(_a("off_context", 0.2), _a("ask_back", 0.4)).final == "silent"
-    assert d(_a("music", 0.5), _a("play_music", 0.9)).final == "unsure"
+    assert d(_a("music", 0.5), _a("play_music", 0.9)).final == "play_music"
     assert d(_a("music", 0.9), _a("ask_back", 0.2)).final == "ask_back"
     assert (
-        d(_a("time", 0.9), _a("set_timer", 0.5)).final == "unsure"
-    )  # 音楽以外の 2 回目は見込みを見る（出-cf）
+        d(_a("time", 0.9), _a("set_timer", 0.5)).final == "set_timer"
+    )  # 確率で決める（出-db 段 A）
     assert d(_a("music", 0.9), _a("play_music", 0.9)).final == "play_music"
     claimed = d(_a("claim", 0.9), _a("パパ", 0.9))
     assert (claimed.final, claimed.name) == ("claim", "パパ")
-
-
-def test_when_unsure_think_or_ask_back():
-    assert um.resolve_unsure(_a("reply_full", 0.7)) == "reply_full"
-    assert um.resolve_unsure(_a("ask_back", 0.7)) == "ask_back"
-    assert um.resolve_unsure(_a("reply_full", 0.4)) == "ask_back"
-    assert set(um.unsure_question()["action"]["criteria"]) == {"reply_full", "ask_back"}
 
 
 def test_ask_back_is_twenty_characters():
@@ -156,9 +149,3 @@ def test_music_takes_the_likeliest_action_whatever_its_confidence():
     """音楽の 2 回目は見込みを見ない（出-cf・10/14 00:46 に「ストップ」を確信度不足で聞き返した・本人の決定ウ）。"""
     got = um.decide(_a("music", 0.9), _a("stop_music", 0.45))
     assert got.final == "stop_music"
-
-
-def test_other_meanings_and_the_first_question_still_need_confidence():
-    """**反証の側**：音楽以外の 2 回目と、1 回目（意味）は今までどおり 0.6 を見る。"""
-    assert um.decide(_a("time", 0.9), _a("set_timer", 0.45)).final == "unsure"
-    assert um.decide(_a("music", 0.5), _a("stop_music", 0.9)).final == "unsure"
