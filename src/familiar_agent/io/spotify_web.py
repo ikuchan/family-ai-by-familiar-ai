@@ -167,11 +167,15 @@ class Spotify:
     def resume(self, name: str) -> bool:
         """機器 `name` で、止まっていた続きを鳴らす（曲を指定しない・出-ay 段 4-4e）。機器が見つからなければ False。
 
+        続きはアカウントにあり、パジュの機器は持っていない（ほかの機器で止めた続き・立ち上げ直した spotifyd）。だから
+        **先に再生をこの機器へ移し**（`play: false`）、それから曲を指定せずに鳴らす（知-al・2026-10-24 実機）。空の再生だけ
+        では受け付けられても鳴らず（10/13〜10/17 の 7 回中 6 回）、移して鳴らす（`play: true`）だけでも 3 秒鳴らなかった。
         Spotify 側に続きが無くても、ここは失敗を返さない（`_http` が誤りを空で返す）。鳴ったかは呼び手が確かめる。
         """
         device = self.device_id(name or "")
         if not device:
             return False
+        self._call("PUT", "/me/player", {"device_ids": [device], "play": False})
         self._call("PUT", f"/me/player/play?device_id={device}", {})
         logger.info("音楽：機器「%s」で止まっていた続きを頼んだ", name)
         return True

@@ -72,20 +72,38 @@ def test_without_the_web_it_cannot_resume():
     io.play.assert_not_awaited()
 
 
-def test_resume_puts_play_without_naming_anything():
+def _spotify(devices):
     calls = []
 
     def http(method, url, *, token, body=None):
         calls.append((method, url, body))
         if url.endswith("/me/player/devices"):
-            return {"devices": [{"name": "パジュ", "id": "dev1"}]}
+            return {"devices": devices}
         return {}
 
     sp = spotify_web.Spotify(token_path="/nonexistent", http=http)
     sp._token = lambda: {"access_token": "t"}  # type: ignore[method-assign]
+    return sp, calls
+
+
+def test_resume_moves_playback_here_then_plays():
+    """続きはアカウントにあり、パジュは持っていない。先にパジュへ移し、それから曲を指定せずに鳴らす（知-al・10/24 実機）。
+
+    空の再生だけでは、受け付けられても鳴らなかった（10/13〜10/17 の 7 回中 6 回）。移して鳴らす（`play: true`）だけでも
+    3 秒鳴らず、移してから空の再生を頼むと 1.5 秒で続き（41.8 秒）から鳴った。
+    """
+    sp, calls = _spotify([{"name": "パジュ", "id": "dev1"}])
     assert sp.resume("パジュ") is True
-    (put,) = [c for c in calls if c[0] == "PUT"]
-    assert put[1].endswith("/me/player/play?device_id=dev1") and put[2] == {}
+    move, play = [c for c in calls if c[0] == "PUT"]
+    assert move[1].endswith("/me/player") and move[2] == {"device_ids": ["dev1"], "play": False}
+    assert play[1].endswith("/me/player/play?device_id=dev1") and play[2] == {}
+
+
+def test_resume_does_nothing_without_the_device():
+    """**反証の側**：機器が見えなければ何も頼まない。"""
+    sp, calls = _spotify([{"name": "ほかの機器", "id": "dev2"}])
+    assert sp.resume("パジュ") is False
+    assert [c for c in calls if c[0] == "PUT"] == []
 
 
 def test_the_name_is_not_required():
