@@ -1,7 +1,6 @@
 """agent.py から切り出した module レベルの純関数（loop 非依存・境界R B2）。
 
-内受容の felt-sense 文字列生成、顔ぶれの文脈の整形、検索の長さガイド、LLM 返答の
-コードフェンス剥がし、任意 async 呼び出しの安全ラッパ、asyncio.gather 用の no-op。
+顔ぶれの文脈の整形、LLM 返答のコードフェンス剥がし、任意 async 呼び出しの安全ラッパ、asyncio.gather 用の no-op。
 これらは EmbodiedAgent の制御流れ（run/ReAct）に依存しない純関数である。
 """
 

@@ -7,10 +7,10 @@
 撤去したのは次の3つで、いずれも生きた呼び出し元が無かった。
 
 - `_system_prompt`：旧 ReAct のシステムプロンプト（安定部・可変部の対）を組む
-- `_interoception`：内受容の felt-sense テキスト。呼び出し元は `_system_prompt` だけ
+- `_interoception`：気分や身体の状態を言葉にした文（felt-sense）。呼び出し元は `_system_prompt` だけ
 - `SYSTEM_PROMPT` と `MAX_ITERATIONS`：どちらも `_system_prompt` の中だけで使われていた
 
-内受容そのものが無くなったわけではない。実行中の経路は `[内部状態(PI)]`（気分と欲求から
+気分と欲求を言葉で渡すこと自体が無くなったわけではない。実行中の経路は `[内部状態(PI)]`（気分と欲求から
 `event_loop._pi_ctx` が組む）が担う。
 """
 
