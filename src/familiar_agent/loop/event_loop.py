@@ -3709,6 +3709,7 @@ class InformationProcessing:
         if cap < PAST_CHARS:
             logger.info("event-loop 発話前の検査：長いので記憶 1 件を %d 字に縮める", cap)
             rows = past_rows(memories, w_id_map or {}, cap)
+        asked: list = []
         violation, verdicts = await jev_judges.judge_speech_and_verdicts(
             getattr(agent, "_jev", None),
             response=text,
@@ -3722,13 +3723,37 @@ class InformationProcessing:
                 )
             ),
             min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+            on_asked=lambda *got: asked.append(got),
         )
+        if asked:
+            self._record_speech_check(*asked[0], violation=violation)
         logger.info(
             "event-loop 発話前の検査 %.2f 秒（違反=%s）",
             time.monotonic() - started,
             "あり" if violation else "なし",
         )
         return violation, verdicts
+
+    def _record_speech_check(
+        self, state: str, questions: dict, answer: Any, *, violation: "str | None"
+    ) -> None:
+        """発話前の検査で Jev に聞いた回を、調停の記録に道「発話前の検査」で残す（知-bn・本人の決定ア-1）。
+
+        差し戻した返事は声にならず、どこにも残らなかった。検査が正しいのか厳しすぎるのかを比べるため、通った回も残す。
+        書くのは別スレッドで、中身はログに出さない（`arbiter_records.record`）。
+        """
+        from ..store import arbiter_records
+
+        arbiter_records.record(
+            origin=self._req.trigger_kind,
+            utterance=self._req.request_text or self._req.cue,
+            state=state,
+            questions=questions,
+            answer=dict(getattr(answer, "answers", None) or {}),
+            outcome=violation or "破っていない",
+            path="発話前の検査",
+            final="差し戻した" if violation else "話す",
+        )
 
     def _checker_facts(
         self,

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from typing import Any, Callable
 
 from ..backends.jev import choice, score
 
@@ -208,6 +209,7 @@ async def judge_speech_and_verdicts(
     rules: "dict[str, str]",
     rows: "dict[str, str]",
     min_conf: float,
+    on_asked: "Callable[[str, dict, Any], None] | None" = None,
 ) -> "tuple[str | None, list]":
     """発話前の検査と、記憶の申告を **1 回の呼び出しで** 聞く（記-r・2026-10-14・本人の決定）。
 
@@ -218,6 +220,8 @@ async def judge_speech_and_verdicts(
     待ちは増えない。`rows` は W の過去の記憶（12 桁 → 行の文）。問いと読み方は `judge_verdicts` と同じで、確信度の
     低い記憶は申告しない。返事は切らない——申告は返事のどこで記憶を使ったかを見るので、600 字で切ると後ろで使った
     記憶を見落とす。返りは `(差し戻しの文 | None, [{"id", "verdict"}])`。
+
+    `on_asked` は、Jev に聞いて答えが返ったときだけ `(state, questions, answer)` で呼ぶ（記録は呼び手が書く・知-bn）。
     """
     if not response:
         return None, []
@@ -239,6 +243,8 @@ async def judge_speech_and_verdicts(
     if not questions:
         return None, []
     answer = await _ask(client, state, questions)
+    if answer is not None and on_asked is not None:
+        on_asked(state, questions, answer)
     verdicts = _verdicts_from(answer, list(rows), min_conf)
     if rows:
         logger.info("Jev 判定 記憶の申告（検査と一緒）：%d／%d 件", len(verdicts), len(rows))
