@@ -735,6 +735,9 @@ class Trigger:
     named: bool = True
     #: 窓の中で 1 字違いの名前だけが当たった声（出-db 段 D）。名前つきには数えず、聞き違えた名前の直しにだけ使う。
     near_name: bool = False
+    #: `会話入力` だけが使う。門で受けたときの窓の会話の番号（環-ar 段 B）。窓で受けていなければ 0。番号は門で 1 回だけ
+    #: 決め、宛先の判定と求めはこれを使う（後から届いた時刻で引き直すと、門の決め方とずれる）。
+    window_session: int = 0
     # `会話入力` だけが使う。その発話の声の特徴（知-ae）。門を通ったら話者を照らし、求めに持たせる。
     voice: Any = None
     # `会話入力` だけが使う。書き起こしの無音らしさと確かさ（名前で起きる基準・2026-10-05）。無ければ None。
@@ -2529,8 +2532,14 @@ class InformationProcessing:
         self._pending_named = False
         self._req.cue_rang = False
         self._req.trigger_kind = kind
+        # 窓の会話の番号は、人の言葉なら門が決めた番号（環-ar 段 B）。始めるまでに窓が切れても、窓で受けた言葉の求めにする。
+        # 門を通らない求め（情動・機器）と、門が番号を付けていない言葉は、いま窓が開いているかで決める。
         wake = self._wake_window()
-        self._req.window_session = wake.session if wake.is_open(time.monotonic()) else 0
+        session = getattr(self, "_pending_window_session", 0) if kind == "発話" else 0
+        self._pending_window_session = 0
+        self._req.window_session = session or (
+            wake.session if wake.is_open(time.monotonic()) else 0
+        )
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
         self._req.live_version_id = None
@@ -3209,6 +3218,9 @@ class InformationProcessing:
         self._pending_source = trigger.source  # 声かキーボードか（出-bg：合図は声だけ）
         # 名前で呼ばれたか（出-cx：返事の話し終わりから窓を開ける）
         self._pending_named = trigger.named
+        self._pending_window_session = (
+            trigger.window_session
+        )  # 門が決めた窓の会話の番号（環-ar 段 B）
         task = asyncio.create_task(self._utterance_iteration(trigger.query, trigger.voice))
 
         def _stop(f: "asyncio.Future[str]") -> None:
@@ -3240,8 +3252,9 @@ class InformationProcessing:
     async def _utterance_iteration(self, utterance: str, voice: Any = None) -> str:
         """人の言葉を O へ書き、1反復回す。**打ち切りは `push_utterance` が済ませている。**"""
         self._pending_voice = voice
-        self._talk_line(self._current_speaker_name() or "相手", utterance)  # 窓の会話（環-ar 段 A）
         await self._begin_request(kind="発話", text=utterance, utterance=utterance)
+        # 窓の会話（環-ar 段 A）。求めの窓の番号が決まってから足す（前の求めの番号で、閉じた会話に足さない）。
+        self._talk_line(self._current_speaker_name() or "相手", utterance)
         return await self._iterate()
 
     async def _begin_affect(self, drive_name: str, prompt: str) -> None:
@@ -3334,6 +3347,14 @@ class InformationProcessing:
         # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
         cue = self._start_reaction_cue(ws.returned_lookups)
         heard = self._take_heard_check(ws)
+        # Jev へ送る W では、窓が開いていれば直近の枠の代わりに窓の会話の全部（環-ar 段 B）。
+        ws.window_talk = self._talk_of(self._req.window_session)
+        if ws.window_talk is not None:
+            logger.debug(
+                "event-loop Jev へ送る W：直近の代わりに窓の会話 %d 行（%d 字）",
+                ws.window_talk.count("\n"),
+                len(ws.window_talk),
+            )
         try:
             decision = await self._arbiter().decide(
                 self._arbiter_input(
@@ -4060,6 +4081,7 @@ class InformationProcessing:
                     # 通した言葉（名前つきの「話していいよ」・名前つきのタイマーの操作の言葉）への返事を声に
                     # するため、窓を開ける（出-as 段 6）。開けないと、返事が「窓が切れた後」になって独り言になる。
                     self._wake_window().open(self._arrival(trigger))
+                    trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
                     self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
                 return False
             await self._note_muted(trigger, now)
@@ -4101,6 +4123,7 @@ class InformationProcessing:
                 logger.info("event-loop 窓の外の入力なので捨てる：%.40s", trigger.query)
                 await self._nudge_by_voice(trigger)
                 return self._swallowed(trigger)
+            trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
             if not trigger.named:
                 if trigger.source == "voice" and await self._between_family(trigger):
                     # **パジュ宛てでない話は受けない**（家族どうし・どこにも向いていない・出-au 段 5-2・出-db 段 C）。窓の外の入力と
@@ -4154,17 +4177,28 @@ class InformationProcessing:
         窓が閉じた後に届いた返事（出-bj）は、その求めが窓の中で始まっていれば同じ会話の行にする。窓の外で始まった
         求めの声や結果は、閉じた会話に足さない。
         """
+        if self._in_window():
+            self._window_talk().add(datetime.now(clock.local_tz()), who, text)
+
+    def _in_window(self) -> bool:
+        """いまの窓の会話の中か（環-ar 段 A）。窓が開いているか、いまの求めがその窓の中で始まったとき。"""
         wake = self._wake_window()
         if wake.session == 0:
-            return
-        if not wake.is_open(time.monotonic()) and self._req.window_session != wake.session:
-            return
-        self._window_talk().add(datetime.now(clock.local_tz()), who, text)
+            return False
+        return wake.is_open(time.monotonic()) or self._req.window_session == wake.session
 
     def _window_text(self) -> str:
-        """窓が開いていれば、窓の会話の全部（1 つの文）。閉じていれば空（いまどおりの直近を使う）。"""
-        if not self._wake_window().is_open(time.monotonic()):
-            return ""
+        """窓の会話の中なら、窓の会話の全部（1 つの文）。外なら空（いまどおりの直近を使う）。"""
+        return self._window_talk().render() if self._in_window() else ""
+
+    def _talk_of(self, session: int) -> "str | None":
+        """窓の会話の番号 `session` の会話がいまの会話なら、その全部（行がまだ無ければ空文字）。違えば None（環-ar 段 B）。
+
+        判定（宛先・返すか黙るか）と Jev へ送る W は、これで窓の会話か直近かを決める。前の窓の番号を持つ声や求めは、
+        新しい窓の会話を見ない。
+        """
+        if not session or session != self._wake_window().session:
+            return None
         return self._window_talk().render()
 
     def _extend_window_for_conversation(self) -> None:
@@ -4361,11 +4395,20 @@ class InformationProcessing:
         # 家族どうしの話で窓を延ばさないため。
         return self._wake_window().is_open(now)
 
-    def _recent_for_judges(self) -> str:
-        """判定に渡す直近のやりとり（3 往復・W と同じ時間の上限）。読めなければ空。
+    def _recent_for_judges(self, session: "int | None" = None) -> str:
+        """判定に渡す直前のやりとり。窓が開いていれば窓の会話の全部、閉じていれば直近 3 往復（W と同じ時間の上限）。
 
-        時間の上限を付けないと、再起動をまたいだ前の晩のやりとりが「直前」に載る（出-ae(2) と同じ）。
+        窓が開いたばかりで行がまだ無ければ空（環-ar 段 B）。前の窓の話を、いまの会話の直前として載せない。
+        時間の上限を付けないと、再起動をまたいだ前の晩のやりとりが「直前」に載る（出-ae(2) と同じ）。読めなければ空。
         """
+        talk = self._talk_of(self._req.window_session if session is None else session)
+        if talk is None:
+            return self._recent_from_memory(talk=True)
+        # 窓の会話はやりとりの代わり。タイマー・入室などの [そのあいだに起きたこと] は Jev の W と同じく添える。
+        return "\n\n".join(p for p in (talk, self._recent_from_memory(talk=False)) if p)
+
+    def _recent_from_memory(self, *, talk: bool) -> str:
+        """記録から引いた直近 3 往復（W と同じ時間の上限）。`talk` が偽なら [そのあいだに起きたこと] だけ。読めなければ空。"""
         with contextlib.suppress(Exception):
             agent = self._agent
             _rows, recent, _ids = workspace.render_recent(
@@ -4373,6 +4416,7 @@ class InformationProcessing:
                 workspace.recent_chains(agent._oif, 3),
                 3,
                 max_age_sec=int(agent.config.memory.recent_exchanges_max_sec),
+                talk=talk,
             )
             return str(recent or "")
         return ""
@@ -4381,10 +4425,13 @@ class InformationProcessing:
         """窓の中の名前の無い声がパジュ宛てでないか（家族どうし・どこにも向いていない）を Jev に聞く（出-au 段 5-2・出-db 段 C・
         `設計方針_判定の段` §2.2.3）。
 
-        送るのはその言葉・直近のやりとり（3 往復）・顔ぶれ・ME.md の呼び名・声の似かた。ロボット宛ての確率が
+        送るのはその言葉・直前のやりとり（窓の会話の全部・`_recent_for_judges`）・顔ぶれ・ME.md の呼び名・声の似かた。ロボット宛ての確率が
         `jev_judges.ADDRESSEE_ROBOT_MIN` 未満なら宛てでない（真）。Jev が使えないときは受ける（偽）。
         """
-        verdict = await self._ask_addressee(trigger, recent=self._recent_for_judges())
+        # 窓の会話かは、門で受けたときの番号で見る。判定するまでに窓が切れても、窓の会話で判定する。
+        verdict = await self._ask_addressee(
+            trigger, recent=self._recent_for_judges(trigger.window_session)
+        )
         return verdict == jev_judges.NOT_TO_PAJU
 
     async def _near_name_is_for_me(self, trigger: "Trigger") -> bool:

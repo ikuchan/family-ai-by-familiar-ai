@@ -343,8 +343,12 @@ def render_recent(
     *,
     max_age_sec: int = 0,
     now: "datetime | None" = None,
+    talk: bool = True,
 ) -> "tuple[list, str, dict[str, str]]":
     """直近の枠を文にする。窓 n は新しい側から n 往復（鎖ごと）。
+
+    `talk` が偽なら [直近のやりとり] を出さず、[そのあいだに起きたこと] だけを文にする（窓の会話が代わりに載るとき・
+    環-ar 段 B）。行と対応表はどちらでも同じ。
 
     `max_age_sec`（0 で無し）より古い行は、起点でも鎖でさかのぼった行でも載せない（出-ae(2)）。
     往復数だけで切ると再起動をまたいで前の相手の名前が最上部に居続ける。外した行は直近の
@@ -381,7 +385,7 @@ def render_recent(
     # 起きたこと、情動は湧いたことで、どちらもやりとりではない。起点を数えると
     # 発話 309・情動 175・機器 130 で、人以外が半分を占めていた——実機 15:49 の枠は
     # `[タイマー]` の 1 行だけで、人とのやりとりが 1 行も無いのに「直近のやりとり」だった。
-    talk: list[str] = []
+    lines: list[str] = []
     happened: list[str] = []
     for r in rows:
         sid = r.obs_id.replace("-", "")[:12]
@@ -396,11 +400,11 @@ def render_recent(
         else:
             who = names.get(r.obs_id) or "相手"
             who = "相手" if who == "わたし" else who
-        talk.append(f"- {at} id:{sid} {who}：{r.content}")
+        lines.append(f"- {at} id:{sid} {who}：{r.content}")
     blocks: list[str] = []
-    if talk:
+    if lines and talk:
         blocks.append(
-            "\n".join([f"[直近のやりとり（人との言葉だけ・古い順・最新 {n} 往復）]", *talk])
+            "\n".join([f"[直近のやりとり（人との言葉だけ・古い順・最新 {n} 往復）]", *lines])
         )
     if happened:
         blocks.append("\n".join(["[そのあいだに起きたこと]", *happened]))
@@ -438,6 +442,9 @@ class Workspace:
     returned_lookups: "tuple[tuple[str, bool, str], ...]" = ()
     #: この反復で返った道具の index（出-bw）。Jev へ送る版の文から本文を外すのに使う。組んだ時点の値を固定する。
     returned_idx: "frozenset[int]" = frozenset()
+    #: 窓の会話の全部（環-ar 段 B）。窓の会話の中ならループが入れ、Jev へ送る W では [直近のやりとり] の代わりに載る。
+    #: 行がまだ無ければ空文字（前の窓の話を直近として載せない）。窓の外は None で、いまどおり直近。
+    window_talk: "str | None" = None
     #: 記憶の申告（Jev が答える・記-r）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
@@ -479,12 +486,13 @@ class Workspace:
         ws.verdict_map = {k: v for k, v in past_ids.items() if v not in set(recent_ids.values())}
         return ws
 
-    def _recent(self, n: int) -> "tuple[list, str, dict[str, str]]":
+    def _recent(self, n: int, *, talk: bool = True) -> "tuple[list, str, dict[str, str]]":
         return render_recent(
             self.oif,
             self.chains,
             n,
             max_age_sec=self.max_age_sec,
+            talk=talk,
         )
 
     def recent_text(self, n: int) -> str:
@@ -495,8 +503,13 @@ class Workspace:
         n: int,
         *,
         memories: "list[Recalled] | None" = None,
+        window: bool = False,
     ) -> str:
-        _rows, recent, recent_ids = self._recent(n)
+        # 窓の会話はやりとりの代わりで、[そのあいだに起きたこと]（タイマー・入室など）はいまどおり載せる（環-ar 段 B）。
+        talk_instead = window and self.window_talk is not None
+        _rows, recent, recent_ids = self._recent(n, talk=not talk_instead)
+        if talk_instead:
+            recent = "\n\n".join(p for p in (self.window_talk, recent) if p)
         past, _ = compose(
             self.oif,
             self._memories_once() if memories is None else memories,
@@ -534,9 +547,11 @@ class Workspace:
 
         外す件数は字数の合計から決める（断られてから 1 件ずつ外して聞き直すのはやめた・出-bm を撤去）。判断の中身
         （いま返った結果）・直近・いまの求めの記録（`open_ids`）は外さない。記憶を全部外しても超えるなら None。
+
+        窓が開いていれば、直近の枠の代わりに窓の会話の全部を載せ（`window_talk`・環-ar 段 B）、これも外さない。
         """
         memories = self._memories_once()
-        text = self.render(self.n_arbiter, memories=memories)
+        text = self.render(self.n_arbiter, memories=memories, window=True)
         if len(text) <= max_chars:
             return text
         keep = set(open_ids(self.req))
@@ -549,7 +564,9 @@ class Workspace:
             freed += len(r.mi.content)
         while True:
             text = self.render(
-                self.n_arbiter, memories=[r for r in memories if r.mi.obs_id not in drop]
+                self.n_arbiter,
+                memories=[r for r in memories if r.mi.obs_id not in drop],
+                window=True,
             )
             if len(text) <= max_chars:
                 logger.info(
