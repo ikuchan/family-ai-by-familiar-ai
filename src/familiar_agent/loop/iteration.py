@@ -209,6 +209,8 @@ class Iteration:
             decision, trigger_kind=ip._req.trigger_kind, returned=self.ws.returned_actions
         ):
             logger.info("event-loop 調停が黙ると決めたので沈黙で閉じる（%s）", ip._req.trigger_kind)
+            if decision.judged_silent:
+                ip._play_silent_cue("軽量LLM の判定")  # 合図の後で黙った（出-dc）
             await ip._finish("", memories, "沈黙", gen=self.gen)
             return ""
         # (a) 軽量で閉じる。**記憶が育つ経路は申告1本しかない。** 主LLM を起こさない反復もそこを通す

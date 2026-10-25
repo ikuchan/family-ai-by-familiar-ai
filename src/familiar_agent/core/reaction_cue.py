@@ -10,6 +10,9 @@
 | 軽く返す・聞き返す・状態を伝える | 効果音 B（返事がすぐ続くので、声の相づちを重ねない） |
 | 道具を使う | 作り置きの声（はい・はーい！・待ってね・オッケー） |
 | 考えて返す | 作り置きの声（えっと・うーん） |
+
+合図を鳴らした後で、軽量LLM の判定か主LLM の印で黙ると決まったら、黙る音（`SILENT_WAV`・低い和音）を 1 回鳴らす
+（出-dc・2026-10-26・本人の決定）。合図だけ鳴って何も言わない、を「聞こえたけど返事はやめた」と分かるようにする。
 """
 
 from __future__ import annotations
@@ -21,12 +24,15 @@ NONE = "なし"
 ACK = "効果音"
 TOOL = "道具の声"
 THINK = "考える声"
+SILENT = "黙る音"
 
 _SOUNDS = Path(__file__).resolve().parent.parent / "sounds"
 #: Jev が判断しているあいだ鳴らし続ける機械音 A（1 周期ぶん。鳴らす側が繰り返す）。
 THINKING_WAV = _SOUNDS / "react_thinking.wav"
 #: 軽く返す・聞き返すときの効果音 B。
 ACK_WAV = _SOUNDS / "react_ack.wav"
+#: 合図の後で黙ると決まったときの黙る音（出-dc）。
+SILENT_WAV = _SOUNDS / "react_silent.wav"
 #: 作り置きの声（パジュの声・SBV2）。毎回その中から選ぶ。
 TOOL_WORDS = ("はい", "はーい！", "待ってね", "オッケー")
 # 「りょ」は「キョ」と聞こえたので外した（2026-10-12・本人）。「うん」は「んー」に聞こえて使いにくかったので「はーい！」に替え、
@@ -71,6 +77,8 @@ def sound_for(cue: str) -> "Path | None":
     """合図 → 流すファイル。作り置きの声は毎回その中から選ぶ。なしは None。"""
     if cue == ACK:
         return ACK_WAV
+    if cue == SILENT:
+        return SILENT_WAV
     if cue == TOOL:
         return voiced(random.choice(TOOL_WAVS))
     if cue == THINK:
@@ -80,4 +88,4 @@ def sound_for(cue: str) -> "Path | None":
 
 def sound_files() -> "list[Path]":
     """合図の音のファイル全部（作る道具と試験が見る）。"""
-    return [THINKING_WAV, ACK_WAV, *TOOL_WAVS, *THINK_WAVS]
+    return [THINKING_WAV, ACK_WAV, SILENT_WAV, *TOOL_WAVS, *THINK_WAVS]

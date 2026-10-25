@@ -2718,6 +2718,7 @@ class InformationProcessing:
         self._req.named = bool(getattr(self, "_pending_named", False)) if kind == "発話" else False
         self._pending_named = False
         self._req.cue_rang = False
+        self._req.cue_played = False
         self._req.skills = []  # 窓の外で選んだスキルは、その求めのあいだだけ（環-au）
         self._req.trigger_kind = kind
         # 窓の会話の番号は、人の言葉なら門が決めた番号（環-ar 段 B）。始めるまでに窓が切れても、窓で受けた言葉の求めにする。
@@ -3799,6 +3800,7 @@ class InformationProcessing:
             and _is_silence_mark(mark_text or "")
         ):
             logger.info("event-loop 主LLM が返しようがないと決めたので黙る")
+            self._play_silent_cue("主LLM の印")  # 合図（えっと など）の後で黙った（出-dc）
             await self._finish("", decision.memories, "沈黙", gen=gen)
             return ""
 
@@ -4383,6 +4385,28 @@ class InformationProcessing:
             opened = datetime.now(clock.local_tz()) - timedelta(seconds=ago)
             talk = self.__dict__["_talk"] = WindowTalk(session=wake.session, opened_at=opened)
         return talk
+
+    def _play_silent_cue(self, why: str) -> None:
+        """合図を鳴らした後で黙ると決まったら、黙る音を 1 回鳴らす（出-dc・2026-10-26・本人の決定イ）。
+
+        鳴らすのは、決まった動作の合図が実際に鳴った求め（`cue_played`）で、まだ道具を使っていない（頼まれたことをやり終えて
+        黙るのではない）ときだけ。待ちの電子音は、黙ると決まったので止める（鳴り続けると、まだ考えているように聞こえる）。
+        """
+        self._stop_beeps()
+        # 主LLM の呼び出しも `lookups` に「主LLM」として積まれる。数えるのは道具だけ（`_main_llm_in_flight` と同じ見分け）。
+        used_tool = any(lk.action != "主LLM" for lk in self._req.lookups)
+        if not self._req.cue_played or used_tool:
+            return
+        from ..core import reaction_cue as rc
+
+        logger.debug("event-loop 黙ったので黙る音を鳴らす（%s）", why)
+        try:
+            task = self._dif.play_cue(rc.SILENT)
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 黙る音を鳴らせなかった（%s）", why, exc_info=True)
+            return
+        if task is not None:
+            self._cue_sound = task  # 鳴っているあいだ、待ちの電子音は休む（`_sounding`）
 
     def _skill_store(self) -> "list[str]":
         """選んだスキルの貯め場所（環-au）。窓の会話の中なら窓の会話（窓が閉じるまで）、窓の外ならいまの求め。"""
@@ -5507,17 +5531,21 @@ class _ReactionCue:
     def __init__(self, ip: "InformationProcessing", thinking: Any) -> None:
         self._ip = ip
         self._thinking = thinking
+        #: 合図を始めた求めの世代。決まるまでに打ち切られて次の求めになっていたら、合図の印を次の求めに立てない（出-dc）。
+        self._gen = getattr(ip, "_request_generation", 0)
 
     def decided(self, final: str) -> None:
         from ..core import reaction_cue as rc
 
         self.stop()
         cue = rc.cue_for(final)
-        if cue == rc.NONE:
+        if cue == rc.NONE or self._gen != getattr(self._ip, "_request_generation", 0):
+            # 決まるまでに打ち切られて次の求めになっていたら、古い求めの合図も待ちの電子音も鳴らさない（出-dc）。
             return
         task = self._ip._dif.play_cue(cue)
         if task is None:
             return
+        self._ip._req.cue_played = True  # 黙ったら黙る音を鳴らす目印（出-dc）
         self._ip._start_beeps()  # 合図が鳴り終わったら、答えまで待ちの電子音（出-bu）。合図の音は `_sounding` で休む
         self._ip._cue_sound = task  # 合図が鳴っているあいだ、待ちの電子音は休む（`_sounding`）
 

@@ -4,10 +4,13 @@
 - 機械音 A `react_thinking.wav`：Jev が判断しているあいだ鳴らし続ける。600 Hz の短い「ポッ」（0.08 秒）＋休みで 1 周期
   0.35 秒。鳴らす側（`io/dif`）が繰り返す。
 - 効果音 B `react_ack.wav`：軽く返す・聞き返すときに 1 回。880 Hz → 1320 Hz と上がる「ピロッ」（0.12 秒）。
+- 黙る音 `react_silent.wav`：合図の後で黙ると決まったときに 1 回（出-dc・2026-10-26・本人が聞いて決めた）。低い和音
+  （ド・ミ・ソ）を 0.4 秒、出だしと終わりを丸くやわらかく。振幅 0.35。`--tones` と既定の実行で A・B と一緒に書き直す。
 - 作り置きの声 `react_tool_*.wav`（はい・はーい！・待ってね・オッケー）・`react_think_*.wav`（えっと・うーん）：いまの声
   （Style-Bert-VITS2・`.env` の `SBV2_*`）で読み上げる。合成サーバーが動いていなければ起こし、作り終えたら止める。
 
-音量はタイマー（振幅 0.6）よりずっと小さくする（本人：もう一声小さく）。A は 0.15、B は 0.25。拾ってきた音源は許諾の確認と
+音量はタイマー（振幅 0.6）よりずっと小さくする（本人：もう一声小さく）。A は 0.15、B は 0.25。黙る音は 0.35（和音なので
+平均の強さは B の約 7 割・本人が聞いて決めた値）。拾ってきた音源は許諾の確認と
 出典の記録が要るので、効果音は自分で合成する（`gen_timer_alarm.py` と同じ）。
 
 使い方：`uv run python scripts/gen_reaction_sounds.py`（効果音だけなら `--tones`。足した言葉だけ作るなら `--only はーい！,オッケー`）
@@ -38,6 +41,13 @@ THINK_AMPLITUDE = 0.15
 ACK_FREQS = (880.0, 1320.0)  # 上がる 2 音
 ACK_NOTE_SEC = 0.06
 ACK_AMPLITUDE = 0.25
+#: 黙る音（出-dc・2026-10-26・本人が YAMAHA で聞いて決めた）：低い和音（ド・ミ・ソ）を 0.4 秒。出だし 0.06 秒・終わり 0.18 秒を
+#: 丸い曲線でやわらかくする。振幅 0.35 も聞いて決めた値（B に連動させない。3 音を 3 で割るので、平均の強さは B の約 7 割）。
+SILENT_FREQS = (130.81, 164.81, 196.00)
+SILENT_SEC = 0.4
+SILENT_ATTACK_SEC = 0.06
+SILENT_RELEASE_SEC = 0.18
+SILENT_AMPLITUDE = 0.35
 
 
 def _tone(freq: float, sec: float, amplitude: float) -> np.ndarray:
@@ -62,6 +72,17 @@ def build_ack() -> np.ndarray:
     return np.concatenate([_tone(f, ACK_NOTE_SEC, ACK_AMPLITUDE) for f in ACK_FREQS]).astype(
         np.float32
     )
+
+
+def build_silent() -> np.ndarray:
+    """黙る音（低い和音・出だしと終わりを丸くやわらかく）。"""
+    t = np.arange(int(RATE * SILENT_SEC)) / RATE
+    wave_ = sum(np.sin(2 * np.pi * f * t) for f in SILENT_FREQS) / len(SILENT_FREQS)
+    env = np.ones_like(t)
+    a, r = int(RATE * SILENT_ATTACK_SEC), int(RATE * SILENT_RELEASE_SEC)
+    env[:a] *= 0.5 - 0.5 * np.cos(np.linspace(0.0, np.pi, a))
+    env[-r:] *= 0.5 + 0.5 * np.cos(np.linspace(0.0, np.pi, r))
+    return (wave_ * env * SILENT_AMPLITUDE).astype(np.float32)
 
 
 def _write(path: pathlib.Path, data: np.ndarray) -> None:
@@ -90,7 +111,8 @@ def _only() -> "set[str] | None":
 def write_tones() -> None:
     _write(rc.THINKING_WAV, build_thinking())
     _write(rc.ACK_WAV, build_ack())
-    print(f"{rc.THINKING_WAV.name}・{rc.ACK_WAV.name}")
+    _write(rc.SILENT_WAV, build_silent())
+    print(f"{rc.THINKING_WAV.name}・{rc.ACK_WAV.name}・{rc.SILENT_WAV.name}")
 
 
 def write_voices() -> int:

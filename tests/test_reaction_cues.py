@@ -40,9 +40,8 @@ def test_each_decision_has_its_cue(final, cue):
 
 def test_the_sounds_are_in_the_package():
     files = rc.sound_files()
-    assert (
-        len(files) == 8
-    )  # A・B・道具の声 4・考える声 2（出-ce：「うん」を替え、待ってね・オッケーを足した）
+    # A・B・黙る音（出-dc）・道具の声 4・考える声 2（出-ce：「うん」を替え、待ってね・オッケーを足した）
+    assert len(files) == 9
     for path in files:
         assert path.exists(), path
 

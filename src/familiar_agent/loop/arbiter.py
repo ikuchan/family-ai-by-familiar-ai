@@ -76,6 +76,9 @@ class Decision:
     heard_check: "dict | None" = None
     #: 調停の Jev が「使う」と選んだスキルの名前（環-au）。ループが窓の会話か求めに貯める。
     skills: "tuple[str, ...]" = ()
+    #: 軽量LLM の判定で黙った（出-db 段 E）。合図を鳴らした後なので、ループが黙る音を鳴らす（出-dc）。Jev が最初から黙ると
+    #: 決めた回（文が空の light）は偽。
+    judged_silent: bool = False
 
 
 #: 確認待ちへの答えの見出し（求めの見出し・ログ・完了の見出しにも使う）。
@@ -1190,7 +1193,7 @@ class Arbiter:
                 quiet, texts = await asyncio.gather(_stays_silent(self, inp), write)
                 if quiet:
                     logger.info("調停：軽量LLM が返しようがないと決めたので黙る（%s）", final)
-                    return Decision(branch="light", text="")
+                    return Decision(branch="light", text="", judged_silent=True)
             else:
                 texts = await write
             text = str((texts or {}).get("text", "")).strip()

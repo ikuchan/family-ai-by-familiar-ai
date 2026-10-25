@@ -179,7 +179,8 @@ class DIF:
 
         async def _play() -> None:
             async def _one() -> None:
-                await _play_wav(path, 1.0)
+                if not await _play_wav(path, 1.0):
+                    logger.warning("DIF 合図が鳴らせなかった：%s（%s）", cue, path.name)
 
             try:
                 if self._music_ducker is not None:
@@ -189,7 +190,8 @@ class DIF:
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001
-                logger.debug("DIF 合図が鳴らせなかった", exc_info=True)
+                # 鳴らせなかったことは回復した異常として残す（合図・黙る音が鳴らないまま気づけなくなる・出-dc）。
+                logger.warning("DIF 合図が鳴らせなかった：%s", cue, exc_info=True)
 
         self._cue_task = asyncio.ensure_future(_play())
         logger.info("DIF 合図：%s（%s）", cue, path.name)
