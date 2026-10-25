@@ -33,7 +33,8 @@ familiar-ai は、家庭で家族が使う伴侶エージェント。仕組み�
 - 非同期を基本とする。
 - **保存は PostgreSQL だけ。SQLite も JSON/JSONL も使わない。**
 - ファイルに置くのは、既定値と人が書いたものだけ（`config.py` の既定、`capabilities.yaml`、
-  `ME.md`／`FAMILY.md`／`PEOPLE.md`）。
+  `ME.md`／`FAMILY.md`／`PEOPLE.md`、`skills/`）。`skills/` はパジュ用のやり方（遊びの決まりなど）で、
+  git に入れるので家族の固有名詞を書かない。
 - `.env` に置くのは、機密と機体固有のものだけ（鍵・URL・機器 id・モデル・TTS の担い手）。
 - 大きなプロンプトに任せるより、決まった手順で書けるロジックと型付きの dataclass を選ぶ。
 - スキーマを変えたら、`migration/` にマイグレーションを足す。
