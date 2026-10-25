@@ -3378,6 +3378,12 @@ class InformationProcessing:
             # 文脈に合わない言葉の読み直し（出-db 段 B）。キーボードで打った言葉は話しかけなので、名前が無くても
             # 名前つきと同じに読む（本人の決定ア）。窓の開け閉めには使わない。
             named=self._req.named or self._req.source == "keyboard",
+            # 軽く返すか黙るかの判定に渡す（出-db 段 E）。人の言葉の求めのときだけ読む。
+            agent_names=tuple(getattr(agent.config, "agent_names", None) or ()),
+            recent_ctx=self._recent_for_judges()
+            if self._req.trigger_kind == "発話" and not returned_lookups
+            else "",
+            typed=self._req.source == "keyboard",
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             people_md=str(getattr(agent, "_people_md", "") or ""),
@@ -4272,6 +4278,22 @@ class InformationProcessing:
         # 家族どうしの話で窓を延ばさないため。
         return self._wake_window().is_open(now)
 
+    def _recent_for_judges(self) -> str:
+        """判定に渡す直近のやりとり（3 往復・W と同じ時間の上限）。読めなければ空。
+
+        時間の上限を付けないと、再起動をまたいだ前の晩のやりとりが「直前」に載る（出-ae(2) と同じ）。
+        """
+        with contextlib.suppress(Exception):
+            agent = self._agent
+            _rows, recent, _ids = workspace.render_recent(
+                agent._oif,
+                workspace.recent_chains(agent._oif, 3),
+                3,
+                max_age_sec=int(agent.config.memory.recent_exchanges_max_sec),
+            )
+            return str(recent or "")
+        return ""
+
     async def _between_family(self, trigger: "Trigger") -> bool:
         """窓の中の名前の無い声がパジュ宛てでないか（家族どうし・どこにも向いていない）を Jev に聞く（出-au 段 5-2・出-db 段 C・
         `設計方針_判定の段` §2.2.3）。
@@ -4279,13 +4301,7 @@ class InformationProcessing:
         送るのはその言葉・直近のやりとり（3 往復）・顔ぶれ・ME.md の呼び名・声の似かた。ロボット宛ての確率が
         `jev_judges.ADDRESSEE_ROBOT_MIN` 未満なら宛てでない（真）。Jev が使えないときは受ける（偽）。
         """
-        agent = self._agent
-        recent = ""
-        with contextlib.suppress(Exception):
-            _rows, recent, _ids = workspace.render_recent(
-                agent._oif, workspace.recent_chains(agent._oif, 3), 3
-            )
-        verdict = await self._ask_addressee(trigger, recent=str(recent or ""))
+        verdict = await self._ask_addressee(trigger, recent=self._recent_for_judges())
         return verdict == jev_judges.NOT_TO_PAJU
 
     async def _near_name_is_for_me(self, trigger: "Trigger") -> bool:

@@ -499,6 +499,11 @@ class ArbiterInput:
     workspace_ctx: str
     #: 名前で呼ばれた発話か（`_req.named`）。文脈に合わない言葉でも黙らずに読み直す（出-db 段 B）。
     named: bool = False
+    #: ロボットの呼び名（`ME.md`）と直近のやりとり（3 往復）。軽く返すか黙るかの判定に渡す（出-db 段 E）。
+    agent_names: tuple[str, ...] = ()
+    recent_ctx: str = ""
+    #: キーボードで打った言葉か。テレビも崩れた書き起こしも来ないので、軽く返すか黙るかの判定はしない（出-db 段 E）。
+    typed: bool = False
     present_ctx: str = ""
     now_ctx: str = ""
     origin: str = "発話"  # 発話／機器／情動
@@ -1056,9 +1061,25 @@ class Arbiter:
         if inp.capped and final not in ("silent", "reply_full") and final not in _LIGHT_WORDS:
             final = "reply_full"  # 上限に達した反復は調べさせずに閉じる
         effort = str((got.get("effort") or {}).get("choice") or "low")  # 考える深さ（本人の決定ウ）
+        # 返すか黙るかを先に決めさせるのは、人の声にじかに軽く返す・聞き返すときだけ（出-db 段 E・本人の決定イ）。黙る依頼・
+        # 名乗り・否定の受け答えと、聞き取りの確認にはいと答えた後は、もう頼まれたことへの返事なので判定しない。
+        judge = (
+            final in _SILENCE_JUDGED
+            and not fields
+            and m != "聞き取りの確認"
+            and inp.origin == "発話"
+            and not inp.returned
+            and not inp.typed
+        )
         self._tell_decided(final)  # 軽量LLM が書く前に（出-bg）
         decision = await self._completion_decision(
-            inp, final, tool="", effort=effort, refers_time=final == "recall", guess=guess
+            inp,
+            final,
+            tool="",
+            effort=effort,
+            refers_time=final == "recall",
+            guess=guess,
+            judge_silence=judge,
         )
         if fields:
             decision = replace(decision if decision is not None else _FALLBACK, **fields)
@@ -1127,6 +1148,7 @@ class Arbiter:
         refers_time: bool = False,
         guess: str = "",
         happened: str = "",
+        judge_silence: bool = False,
     ) -> "Decision | None":
         """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
         if final == "silent":
@@ -1140,9 +1162,18 @@ class Arbiter:
                 decided = f"{_ASK_GUESS_WORDS}。見立て（確かではない）：{guess}"
             if happened:
                 decided = f"{decided}。{happened}"
-            texts = await _writer_call(
+            write = _writer_call(
                 self, inp, {"decided": decided, "ask": ask, "guess": bool(guess)}, ["text"]
             )
+            if judge_silence:
+                # 返すか黙るかを先に決めさせる（出-db 段 E・本人の決定ウ・形 2）。待ちを足さないよう書く呼び出しと
+                # 同時に走らせる（判定を先に始める）。黙るなら書いた文を捨て、主LLM にも回さない。
+                quiet, texts = await asyncio.gather(_stays_silent(self, inp), write)
+                if quiet:
+                    logger.info("調停：軽量LLM が返しようがないと決めたので黙る（%s）", final)
+                    return Decision(branch="light", text="")
+            else:
+                texts = await write
             text = str((texts or {}).get("text", "")).strip()
             if ask and text and not _is_question(text):
                 # 問いでない聞き返しは、やらないことの約束になりうる（出-bk）。捨てて主LLM に考えて返させる。
@@ -1294,6 +1325,71 @@ def _text_field(inp: ArbiterInput) -> str:
     return "text_talk" if inp.talking else "text_self"
 
 
+#: 返すか黙るかを先に決めさせる軽量LLM の一言（出-db 段 E・本人の決定イ：軽く返す・聞き返すだけ）。
+_SILENCE_JUDGED = frozenset({"reply_light", "ask_back"})
+
+#: 返すか黙るかの判定の指示（出-db 段 E・2026-10-25・本人の決定ウ・形 2）。書く呼び出しの中で確かめさせると、長い指示に
+#: 埋もれて 12 件中 5 件しか黙らなかった。短い指示で判定だけを聞くと 9 件黙った（gemini-3.1-flash-lite・本物は全部返した）。
+_SILENCE_JUDGE = """\
+あなたは家庭のロボット。家族と声で話す。
+[ロボットの呼び名]
+{names}
+
+いま届いた言葉は、音声の書き起こし。テレビや動画の声、家族どうしの話、聞き間違いで崩れた文も届く。
+直前のやりとりはひと続きの会話として読む。
+
+次の三つを確かめる。
+1. 書き起こしが、意味の通る日本語になっているか
+2. あなたに向けた言葉か（あなたへの頼み・問い、あなたの問いへの返事、あなたとしている遊びの続き）
+3. 返す中身があるか
+三つとも当てはまるときだけ「判定：返す」。一つでも当てはまらない、または迷うときは「判定：黙る」。迷って聞き返すより、黙る方を選ぶ。
+
+書き方：「判定：返す」か「判定：黙る」の 1 行だけを書く。"""
+
+
+def _timeout_of(arbiter: "Arbiter") -> float:
+    """軽量LLM を待つ秒（調停の時間切れ）。"""
+    if arbiter._timeout is not None:
+        return arbiter._timeout
+    from ..config import AgentConfig
+
+    return AgentConfig().arbiter_timeout_sec
+
+
+#: 判定の行（「判定：返す」「判定：黙る」）。説明が続いても、この行だけを読む。
+_JUDGED = re.compile(r"判定[：:]\s*(返す|黙る)")
+
+
+async def _stays_silent(arbiter: "Arbiter", inp: ArbiterInput) -> bool:
+    """人の言葉に、返しようがないので黙るか（出-db 段 E）。失敗・時間切れ・読めない答えは返す（偽）。本文はログに出さない。"""
+    system = _SILENCE_JUDGE.format(names="、".join(inp.agent_names) or "（なし）")
+    prompt = (
+        f"[いま部屋に居る人]\n{inp.present_ctx or '（分からない）'}\n\n"
+        f"[直前のやりとり（古い順）]\n{inp.recent_ctx or '（なし）'}\n\n"
+        f"[いま届いた言葉]\n{inp.utterance}"
+    )
+    started = time.monotonic()
+    try:
+        reply = str(
+            await wait_within(
+                arbiter._writer.complete(prompt, 50, system=system), _timeout_of(arbiter)
+            )
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.warning("返すか黙るかを決められなかった（返す）", exc_info=True)
+        return False
+    got = _JUDGED.search(reply)
+    quiet = got is not None and got.group(1) == "黙る"
+    logger.info(
+        "調停：返すか黙るか %.2f 秒（%s）",
+        time.monotonic() - started,
+        "黙る" if quiet else ("返す" if got else "読めないので返す"),
+    )
+    return quiet
+
+
 async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs: "list[str]"):
     """軽量LLM を 1 回呼ぶ。時間切れ・失敗は None（呼び手が full へ倒す）。"""
     from ..core.context_parts import Stance, build_context
@@ -1345,11 +1441,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         self_image=inp.self_image,
         season_env=inp.season_env,
     ).stable
-    timeout = arbiter._timeout
-    if timeout is None:
-        from ..config import AgentConfig
-
-        timeout = AgentConfig().arbiter_timeout_sec
+    timeout = _timeout_of(arbiter)
     started = time.monotonic()
     call = asyncio.ensure_future(arbiter._writer.complete(prompt, 300, system=system))
     try:
