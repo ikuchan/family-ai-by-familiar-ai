@@ -23,7 +23,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from .skills import Skill
 
 #: しきい値（2026-10-09 本人の決定）。出-db 段 A（2026-10-25）から、意味と動作の決まりでは名乗り・否定だけに使う。
 #: ほかの意味と動作は確率で決める——確信度は確率の集まり方で、害の無い選択肢に割れただけで聞き返しに倒れていた。見立ての「たぶん」と、調停の確認の答え・聞き取りの確認の答えもこの値を見る。
@@ -264,6 +267,8 @@ def fanout_questions(
     speaker: str = "",
     silenced: bool = True,
     tools: "set[str] | None" = None,
+    skills: "tuple[Skill, ...] | list[Skill]" = (),
+    active: "tuple[str, ...]" = (),
 ) -> "dict[str, dict]":
     """意味の問いと、意味ごとの 2 回目の問いを、先読みで 1 回に並べる（返った意味の答えだけ使う）。
 
@@ -301,7 +306,30 @@ def fanout_questions(
             else "この人の言葉は、パジュに何をしてほしいと頼んでいるか"
         )
         qs[f"action_{m}"] = choice(f"もしこの人の言葉が「{MEANINGS[m][0]}」なら、{ask}", actions)
+    # パジュ用のスキル（環-au 段 B・2026-10-25・本人の決定ア）。スキルごとに「いま要るか」を 2 択で聞く（待ちは増えない）。
+    # 鍵は英数字（記録の欄名）で、何番目のスキルかを `chosen_skills` が名前に戻す。すでに載っているもの（`active`）は外さない
+    # ので聞かない。
+    for i, sk in enumerate(skills):
+        if sk.name in active:
+            continue
+        qs[f"skill_{i}"] = choice(
+            f"この会話で、パジュは「{sk.name}」のやり方を使うか。使うのは、{sk.when}",
+            dict(SKILL_NEED),
+        )
     return qs
+
+
+#: スキルの問いの選択肢（環-au）。
+SKILL_NEED = (("need", "使う（いまのやりとりに要る）"), ("no", "使わない"))
+
+
+def chosen_skills(got: "dict[str, Any]", skills: "tuple[Skill, ...] | list[Skill]") -> "list[str]":
+    """Jev が「使う」を選んだスキルの名前（環-au）。答えが無いものは選ばない。"""
+    return [
+        sk.name
+        for i, sk in enumerate(skills)
+        if str((got.get(f"skill_{i}") or {}).get("choice") or "") == "need"
+    ]
 
 
 @dataclass(frozen=True)

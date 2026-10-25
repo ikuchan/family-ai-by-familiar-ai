@@ -252,6 +252,7 @@ class Iteration:
             origin=ip._req.trigger_kind,
             talking=ip._talking(),
         )
+        skills_text = await ip._skills_text()
         system = ip._build_system(
             present_ctx="\n".join(p for p in (self.present_ctx, companion) if p),
             workspace_ctx=workspace_ctx,
@@ -272,6 +273,7 @@ class Iteration:
             ),
             music=await ip._music_now(),
             window=ws.window_blocks,  # 窓の会話の見出しと行（環-ar 段 D）
+            skills=skills_text,  # 載せているスキル（環-au）
         )
         # 起点が人の発話ならそのまま、情動・機器なら内的な出来事として渡す（空文字は API が受けない）。
         user_msg = agent.backend.make_user_message(
@@ -287,7 +289,8 @@ class Iteration:
             w_id_map=dict(ws.verdict_map),  # 申告の母数は過去の列だけ（出-n 4）
             verdict_view=self.verdict_view,
             # 発話前の検査も、主LLM が見た窓の会話を見る（環-ar 段 D：窓の古い行を踏まえた返事を作り話と読まない）。
-            recent_frame=ws.recent_for_checker(),
+            # 検査にもスキルの決まりを渡す（環-au：決まりどおりの返事を、変だと差し戻さない）。
+            recent_frame="\n\n".join(p for p in (ws.recent_for_checker(), skills_text) if p),
             max_tokens=budget.max_tokens,
         )
         ip._write_version_later()  # 投げたあとの版は裏で書く（出-bz-ろ）

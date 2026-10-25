@@ -34,6 +34,7 @@ from collections.abc import Awaitable, Callable
 from ..core import measure
 from ..core.aio import wait_within
 from ..core.utterance_meaning import ASK_BACK_MAX_CHARS
+from ..core.skills import Skill, merged, skills_frame
 
 logger = logging.getLogger(__name__)
 
@@ -73,6 +74,8 @@ class Decision:
     time_span_days: float = 0.0  # 幅＝半減期（日）。0 は指定なし
     #: 聞き取りの確認の預かり（出-cm）。見立てつきで聞き返したときだけ、見立ての動作（`action`）と元の言葉（`utterance`）。
     heard_check: "dict | None" = None
+    #: 調停の Jev が「使う」と選んだスキルの名前（環-au）。ループが窓の会話か求めに貯める。
+    skills: "tuple[str, ...]" = ()
 
 
 #: 確認待ちへの答えの見出し（求めの見出し・ログ・完了の見出しにも使う）。
@@ -504,6 +507,9 @@ class ArbiterInput:
     recent_ctx: str = ""
     #: 窓の会話の全部（環-ar 段 C）。書き手の文で、起点の言葉のすぐ前に置く。窓の外・行がまだ無ければ空。
     window_ctx: str = ""
+    #: パジュ用のスキルの候補（`skills/`・環-au）と、すでに載せているものの名前（窓の中なら窓が閉じるまで）。
+    skills: "tuple[Skill, ...]" = ()
+    active_skills: "tuple[str, ...]" = ()
     #: キーボードで打った言葉か。テレビも崩れた書き起こしも来ないので、軽く返すか黙るかの判定はしない（出-db 段 E）。
     typed: bool = False
     present_ctx: str = ""
@@ -939,6 +945,8 @@ class Arbiter:
             speaker=inp.current_speaker,
             silenced=inp.silenced,
             tools=set(inp.extra_actions),
+            skills=inp.skills,
+            active=inp.active_skills,
         )
         answer = await _ask(self._jev, state, questions)
         got = getattr(answer, "answers", None) or {}
@@ -985,7 +993,12 @@ class Arbiter:
         self._keep(inp, "発話", state, questions, got, final, why, meaning=m)
         # 見立ての動作を聞き取りの確認として預ける（出-cm）。名乗り・否定・文脈に合わない言葉には動作が無い。
         heard = um.guess_action(meaning, got.get(f"action_{m}")) if guess else ""
-        return await self._utterance_final(
+        # Jev が「使う」と選んだスキルを、前から載っているものに足して書き手に渡す（環-au 段 B・本人の決定ア）。
+        chosen = um.chosen_skills(got, inp.skills)
+        if chosen:
+            logger.info("調停（発話）：スキルを選んだ：%s", "・".join(chosen))
+            inp = replace(inp, active_skills=merged(inp.active_skills, chosen))
+        decision = await self._utterance_final(
             inp,
             final,
             m=m,
@@ -996,6 +1009,8 @@ class Arbiter:
             heard=heard,
             started=started,
         )
+        # 倒し先（`_FALLBACK`）は共有の決定なので、書き換えずに写しを返す。
+        return replace(decision, skills=tuple(chosen))
 
     async def _utterance_final(
         self,
@@ -1248,7 +1263,7 @@ WRITER_PROMPT = """\
 [いま誰が居るか]
 {present}
 
-{window}{heading}
+{skills}{window}{heading}
 {utterance}
 
 [いまの作業状態]
@@ -1431,6 +1446,8 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         decided=decided,
         now=inp.now_ctx or "（分からない）",
         present=inp.present_ctx or "（分からない）",
+        # スキルは窓の会話の前（窓の会話のすぐ後が起点の言葉・環-ar 段 C の並びは崩さない・環-au）。
+        skills=f"{frame}\n\n" if (frame := skills_frame(inp.skills, inp.active_skills)) else "",
         window=f"{inp.window_ctx}\n\n" if inp.window_ctx else "",
         heading=heading,
         utterance=inp.utterance,

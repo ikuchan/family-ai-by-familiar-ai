@@ -191,6 +191,7 @@ def build_event_system_prompt(
     people_md: str = "",
     family_now: str = "",
     window: "tuple[str, ...]" = (),
+    skills: str = "",
 ) -> "tuple[str, ...]":
     """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 規則 ＋ 自己像 ＋ 日時 ＋ 顔ぶれ ＋ PI ＋ 反復 ＋ W を組む。
 
@@ -225,6 +226,7 @@ def build_event_system_prompt(
         iteration=iter_ctx,
         workspace=workspace_ctx,
         window=window,
+        skills=skills,
     )
     # 窓の会話の中なら (安定部, 見出し, 行…, 可変部)。backend が行ごとにキャッシュの境目を置く（環-ar 段 D）。
     return (ctx.stable, *ctx.window, ctx.variable)

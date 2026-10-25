@@ -51,6 +51,8 @@ class WindowTalk:
     before_id: str = ""
     #: 窓の中の求めの経緯（調べた結果・見たもの・声にならなかった閉じ方・段 E）。窓の最終版に全部載せる。
     steps: list[str] = field(default_factory=list)
+    #: この窓で調停の Jev が「使う」と選んだスキルの名前（環-au）。窓が閉じるまで載せる（窓と一緒に消える）。
+    skills: list[str] = field(default_factory=list)
     #: 行になった記録の id（段 B）。Jev へ送る W は、これを思い出した記憶の列から外す（同じ話を 2 回載せない）。
     ids: set[str] = field(default_factory=set)
 

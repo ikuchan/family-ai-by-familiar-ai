@@ -51,6 +51,7 @@ from .speech_check import PAST_CHARS, facts_ctx, fitting_cap, past_rows
 from ..core.wake_window import WakeWindow
 from ..core.window_talk import WindowTalk, result_text as _talk_result
 from ..backends.types import system_text
+from ..core import skills as skills_mod
 from ..core.measure import record as measure_record
 from ..config import main_llm_cache_on
 from .generator import SILENCE_MARK, SILENCE_NOTE, _pi_ctx, _present_ctx
@@ -1282,6 +1283,7 @@ class InformationProcessing:
         iter_ctx: str,
         music: str = "",
         window: "tuple[str, ...]" = (),
+        skills: str = "",
     ) -> "tuple[str, ...]":
         """主LLM の system 文（安定部・可変部）を組む。材料の出所はここに集める。
 
@@ -1323,6 +1325,7 @@ class InformationProcessing:
             # 見回りの行き先の材料（知-c）。自発の求めだけ。
             now_note=self._patrol_note() if self._req.trigger_kind == "情動" else "",
             window=window,
+            skills=skills,
         )
 
     def _researched(self) -> bool:
@@ -2715,6 +2718,7 @@ class InformationProcessing:
         self._req.named = bool(getattr(self, "_pending_named", False)) if kind == "発話" else False
         self._pending_named = False
         self._req.cue_rang = False
+        self._req.skills = []  # 窓の外で選んだスキルは、その求めのあいだだけ（環-au）
         self._req.trigger_kind = kind
         # 窓の会話の番号は、人の言葉なら門が決めた番号（環-ar 段 B）。始めるまでに窓が切れても、窓で受けた言葉の求めにする。
         # 門を通らない求め（情動・機器）と、門が番号を付けていない言葉は、いま窓が開いているかで決める。
@@ -3567,9 +3571,18 @@ class InformationProcessing:
                         else ""
                     ),
                     heard=heard,
+                    # パジュ用のスキル（環-au）。判断のたびに読み直す（直したらすぐ効く）。読むのはループの外で。
+                    # 問いを聞くのは人の言葉の求めの最初の判断（道具の返りではない回）だけ。載っているものがあれば、書き手の枠の
+                    # ためにも読む。
+                    skills=await self._load_skills()
+                    if (self._req.trigger_kind == "発話" and not ws.returned_lookups)
+                    or self._active_skills()
+                    else (),
+                    active_skills=self._active_skills(),
                 ),
                 on_decided=cue.decided if cue is not None else None,
             )
+            self._keep_skills(decision.skills)
         finally:
             if cue is not None:
                 cue.stop()  # 調停が落ちても・時間切れでも、機械音 A は必ず止める
@@ -3618,6 +3631,8 @@ class InformationProcessing:
         jev_utterance: str = "",
         heard: "dict | None" = None,
         window_ctx: str = "",
+        skills: "tuple[skills_mod.Skill, ...]" = (),
+        active_skills: "tuple[str, ...]" = (),
     ) -> ArbiterInput:
         """調停へ渡す材料。判定（`_decide`）が見る。"""
         from ..capability_state import load_summary
@@ -3667,6 +3682,8 @@ class InformationProcessing:
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,
             window_ctx=window_ctx,
+            skills=skills,
+            active_skills=active_skills,
             jev_max_chars=int(getattr(agent.config, "jev_state_max_chars", 28_000)),
             **self._confirm_inputs(),
             **_heard_inputs(heard),
@@ -4366,6 +4383,35 @@ class InformationProcessing:
             opened = datetime.now(clock.local_tz()) - timedelta(seconds=ago)
             talk = self.__dict__["_talk"] = WindowTalk(session=wake.session, opened_at=opened)
         return talk
+
+    def _skill_store(self) -> "list[str]":
+        """選んだスキルの貯め場所（環-au）。窓の会話の中なら窓の会話（窓が閉じるまで）、窓の外ならいまの求め。"""
+        talk = self._talk_of(self._req.window_session)
+        return talk.skills if talk is not None else self._req.skills
+
+    def _active_skills(self) -> "tuple[str, ...]":
+        """いま載せるスキルの名前。"""
+        return tuple(self._skill_store())
+
+    def _keep_skills(self, names: "tuple[str, ...]") -> None:
+        """調停の Jev が選んだスキルを貯める（足すだけで、外さない・本人の決定ア）。"""
+        kept = self._skill_store()
+        kept[:] = skills_mod.merged(tuple(kept), names)
+
+    async def _load_skills(self) -> "tuple[skills_mod.Skill, ...]":
+        """スキルを読み直す（判断のたびに・直したらすぐ効く）。読むのはループの外。主LLM の枠も、この読んだものを使う。"""
+        self._skills = tuple(await asyncio.to_thread(skills_mod.load_skills))
+        return self._skills
+
+    async def _skills_text(self) -> str:
+        """主LLM へ渡す [やり方] の枠（書き手と同じ文・環-au）。載せるものが無ければ空。"""
+        names = self._active_skills()
+        if not names:
+            return ""
+        loaded = self.__dict__.get("_skills")
+        skills = loaded if loaded is not None else await self._load_skills()
+        logger.debug("event-loop 主LLM にスキルを載せる：%s", "・".join(names))
+        return skills_mod.skills_frame(skills, names)
 
     def _talk_line(self, who: str, text: str, obs_id: str = "") -> None:
         """窓の会話に 1 行足す（環-ar 段 A）。窓が開いているときか、いまの求めがその窓の中で始まったときだけ。

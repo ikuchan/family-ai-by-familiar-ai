@@ -74,6 +74,11 @@ def test_the_window_talk_comes_just_before_what_the_person_said():
     assert _pos("{window}{heading}") > _pos("[いま誰が居るか]")
 
 
+def test_the_skills_come_before_the_window_talk():
+    """スキル（[やり方]・環-au）は [いま誰が居るか] の後、窓の会話の前。窓の会話のすぐ後が起点の言葉（環-ar 段 C）。"""
+    assert _pos("{skills}{window}{heading}") > _pos("[いま誰が居るか]")
+
+
 def test_the_name_is_not_passed_separately():
     # `ME.md` の「名前： …」が `[あなたは誰か]`（システム文）に入っている。二重に渡さない。
     assert "{agent_name}" not in WRITER_PROMPT

@@ -75,6 +75,7 @@ def build_context(
     workspace: str = "",
     today: "date | None" = None,
     window: "tuple[str, ...]" = (),
+    skills: str = "",
 ) -> Context:
     """部品を選び、安定 → 窓の会話（`window`・環-ar 段 D）→ 可変の順に組む。
 
@@ -138,7 +139,8 @@ def build_context(
 
     variable_parts = [
         t.strip()
-        for t in (now, presence, inner_state, iteration, recent, workspace)
+        # スキル（[やり方]・環-au）は可変部。窓の中で増えうるので、安定部と窓の会話のあいだには置かない。
+        for t in (now, presence, inner_state, iteration, skills, recent, workspace)
         if t and t.strip()
     ]
 
