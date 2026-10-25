@@ -125,13 +125,21 @@ async def judge_bare_reply(client, *, heard: str, text: str, min_conf: float) ->
 
 
 async def judge_addressee(
-    client, *, text: str, recent: str, present: str, names: "list[str]", voice: str
+    client,
+    *,
+    text: str,
+    recent: str,
+    present: str,
+    names: "list[str]",
+    voice: str,
+    drop_unanswered: bool = False,
 ) -> str:
     """窓の中の名前の無い声が、パジュ宛てか（§2.2.3・出-db 段 C）。ロボット宛ての確率で決める。
 
     確信度ではなく確率で見る（確信度は確率の集まり方で、宛てでない側が家族どうし・どこにも・分からないに割れると低くなる）。
     ロボット宛ての確率が `ADDRESSEE_ROBOT_MIN` 未満なら宛てでない。Jev が答えないときは受ける（返事を書く LLM が、
-    返しようがなければ黙る・本人の決定ア）。以前は「迷ったら受ける」で、確信度 0.6 未満と「分からない」も受けていた
+    返しようがなければ黙る・本人の決定ア）。`drop_unanswered` なら、答えないときも宛てでない（窓が閉じているときの
+    1 字違いの名前・崩れた音で窓を開けない）。以前は「迷ったら受ける」で、確信度 0.6 未満と「分からない」も受けていた
     （出-au）が、テレビや崩れた声に口をはさむ害の方が大きく出た（10/23〜10/24）。
 
     問いの文にパジュの名前は入れない。呼び名は ME.md から `[ロボットの呼び名]` として材料に入れる。
@@ -162,51 +170,16 @@ async def judge_addressee(
     if not probs and got.get("choice"):
         probs = {str(got["choice"]): 1.0}
     if not getattr(answer, "ok", False) or not probs:
-        # 答えが無い・答えに確率も選んだものも無いときは、答えなしと同じに受ける（確率 0 として黙らせない）。
-        logger.info("Jev 判定 宛先：答えなし（受ける）")
-        return TO_PAJU
+        # 答えが無い・答えに確率も選んだものも無いときは、答えなしと同じに扱う（確率 0 として黙らせない）。
+        verdict = NOT_TO_PAJU if drop_unanswered else TO_PAJU
+        logger.info("Jev 判定 宛先：答えなし（%s）", verdict)
+        return verdict
     robot = float(probs.get("robot", 0.0) or 0.0)
     verdict = TO_PAJU if robot >= ADDRESSEE_ROBOT_MIN else NOT_TO_PAJU
     logger.info(
         "Jev 判定 宛先：%s（ロボット宛て %.2f・%s）", verdict, robot, got.get("choice") or "-"
     )
     return verdict
-
-
-#: 意味を成さないとみなす発話の意味（成立しないもの・文脈に合わない言葉）。
-_NO_MEANING = frozenset({"unformed", "off_context"})
-
-
-async def judge_wake_meaning(client, *, text: str) -> bool:
-    """1 字違いでだけ名前に当たった声の言葉が、意味を成すか（出-ch・2026-10-16・本人の決定サ）。倒し先は「成さない」（捨てる）。
-
-    ふつう名前のあとには用件が続く（本人）。発話の意味の一覧（`utterance_meaning.MEANINGS`）で聞き、「成立しないもの」
-    「文脈に合わない言葉」以外なら意味を成すとする。確信度では絞らない——実機の 22 件で、本物の「バジルのこのこと…」が
-    0.32、崩れた音が 0.61・0.86 だった（jev-1.13.0・`計測_設定値根拠台帳` §59）。
-    """
-    from . import utterance_meaning as um
-
-    state = (
-        f"[パジュが聞いた言葉（音声の書き起こし・名前は崩れて書き起こされることがある）]\n{text}"
-    )
-    questions = {
-        "meaning": choice(
-            "この人の言葉は、次のどれに当たるか（直前のやりとりは無い）",
-            {k: um.MEANINGS[k][1] for k in um.offered(music=True, camera=True)},
-        )
-    }
-    answer = await _ask(client, state, questions)
-    if not getattr(answer, "ok", False):
-        logger.info("Jev 判定 1 字違いの名前：答えなし（捨てる）")
-        return False
-    got = (getattr(answer, "answers", None) or {}).get("meaning") or {}
-    pick = str(got.get("choice") or "")
-    logger.info(
-        "Jev 判定 1 字違いの名前：%s（確信 %.2f）",
-        pick or "-",
-        float(got.get("confidence", 0.0) or 0.0),
-    )
-    return bool(pick) and pick not in _NO_MEANING
 
 
 async def judge_speech(

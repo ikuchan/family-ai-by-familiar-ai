@@ -201,7 +201,7 @@ def test_with_someone_here_a_known_voice_and_a_recent_talk_it_is_lenient():
     from tests.test_a_near_name_needs_a_meaning import _Jev
 
     ip, a = _gate(here=True, known_voice=True)
-    a._jev = _Jev("other")  # 1 字違いは意味を確かめてから（出-ch・2026-10-16）
+    a._jev = _Jev(0.9)  # 1 字違いは宛先を確かめてから（出-db 段 D・ロボット宛て 0.9）
     ip._wake_window().until = time.monotonic() - 60  # 1 分前に閉じた
     assert _heard(ip, "パチュ、いま何時？", ns=0.05, lp=-0.5) is True
     assert _heard(ip, "パジュ、いま何時？", ns=0.31, lp=-0.5) is True  # ふだんは値を見ない

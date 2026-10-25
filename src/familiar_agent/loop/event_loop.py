@@ -709,6 +709,8 @@ class Trigger:
     # `会話入力` だけが使う。名前で呼ばれたか（出-au 段 1-2）。名前がある入力だけが打ち切り、名前の無い
     # 入力は飛行中の調べものがある間は待つ。門が決める。直に作った会話入力（試験）は名前ありとして扱う。
     named: bool = True
+    #: 窓の中で 1 字違いの名前だけが当たった声（出-db 段 D）。名前つきには数えず、聞き違えた名前の直しにだけ使う。
+    near_name: bool = False
     # `会話入力` だけが使う。その発話の声の特徴（知-ae）。門を通ったら話者を照らし、求めに持たせる。
     voice: Any = None
     # `会話入力` だけが使う。書き起こしの無音らしさと確かさ（名前で起きる基準・2026-10-05）。無ければ None。
@@ -2584,8 +2586,8 @@ class InformationProcessing:
             self._log_swallowed_voice(voice)  # 点数だけ残す（知-as 段 1）
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
         shown = utterance
-        if trigger.named:
-            # 窓を開けた聞き違いの名前を直して先へ渡す。画面には聞こえたままの形に名前を添える（知-ap）。
+        if trigger.named or trigger.near_name:
+            # 窓を開けた聞き違いの名前を直して先へ渡す（窓の中の 1 字違いも・出-db 段 D）。画面には聞こえたままの形に名前を添える（知-ap）。
             from ..core.wake_window import fix_name
 
             fixed, shown = fix_name(
@@ -3964,21 +3966,25 @@ class InformationProcessing:
                 )  # 窓は開けないが、情動は動かす（出-ch 段 3・本人の決定タ）
                 return self._swallowed(trigger)
             trigger.named = heard_name(trigger.query, names)
-            if (
-                trigger.named
-                and trigger.source == "voice"
-                and not self._wake_window().is_open(self._arrival(trigger))
-            ):
+            near = (
+                trigger.named and trigger.source == "voice" and near_name_only(trigger.query, names)
+            )
+            window_open = self._wake_window().is_open(self._arrival(trigger))
+            if near and window_open:
+                # 窓の中の 1 字違いは、名前の証拠にしない。名前の無い言葉と同じに宛先の判定を通す（出-db 段 D・
+                # 2026-10-25・本人の決定 3-c）。聞き違えた名前の直し（知-ap）だけは行う（`near_name`）。
+                trigger.named = False
+                trigger.near_name = True
+            elif trigger.named and trigger.source == "voice" and not window_open:
                 near_ok = False
-                if near_name_only(trigger.query, names):
-                    # 1 字違いでだけ当たった名前は、言葉の意味を Jev に確かめてから（出-ch・2026-10-16・本人の決定サ）。
-                    # 名前がそのまま当たるときは待たない。
+                if near:
+                    # 1 字違いでだけ当たった名前は、宛先を Jev に確かめてから窓を開ける（出-db 段 D・本人の決定 3-c）。
+                    # 以前は言葉の意味を聞いていた（出-ch サ）が、言葉だけでは本物と崩れた声が分からなかった。
+                    # Jev が答えなければ捨てる（崩れた音で窓を開けない）。名前がそのまま当たるときは待たない。
                     started = time.monotonic()
-                    near_ok = await jev_judges.judge_wake_meaning(
-                        getattr(self._agent, "_jev", None), text=trigger.query
-                    )
+                    near_ok = await self._near_name_is_for_me(trigger)
                     logger.info(
-                        "event-loop 1 字違いの名前の意味を聞いた（%.2f 秒）",
+                        "event-loop 1 字違いの名前の宛先を聞いた（%.2f 秒）",
                         time.monotonic() - started,
                     )
                 trigger.named = self._wake_admits(trigger, names, near_ok=near_ok)
@@ -4274,22 +4280,40 @@ class InformationProcessing:
         `jev_judges.ADDRESSEE_ROBOT_MIN` 未満なら宛てでない（真）。Jev が使えないときは受ける（偽）。
         """
         agent = self._agent
-        recent = present = ""
+        recent = ""
         with contextlib.suppress(Exception):
             _rows, recent, _ids = workspace.render_recent(
                 agent._oif, workspace.recent_chains(agent._oif, 3), 3
             )
+        verdict = await self._ask_addressee(trigger, recent=str(recent or ""))
+        return verdict == jev_judges.NOT_TO_PAJU
+
+    async def _near_name_is_for_me(self, trigger: "Trigger") -> bool:
+        """窓が閉じているときの 1 字違いの名前が、パジュ宛てか（出-db 段 D・本人の決定 3-c）。Jev が答えなければ偽（捨てる）。
+
+        直前のやりとりは送らない。窓が閉じたなら会話は終わっていて、終わった話の続きと読まれると崩れた音でも
+        ロボット宛てが上がる（以前の意味の判定も送っていなかった。線 0.3 を測った実験でも、窓の閉じた言葉は 0 行だった）。
+        """
+        verdict = await self._ask_addressee(trigger, recent="", drop_unanswered=True)
+        return verdict == jev_judges.TO_PAJU
+
+    async def _ask_addressee(
+        self, trigger: "Trigger", *, recent: str, drop_unanswered: bool = False
+    ) -> str:
+        """宛先の判定（`jev_judges.judge_addressee`）に、顔ぶれ・呼び名・声の似かたを添えて聞く。"""
+        agent = self._agent
+        present = ""
         with contextlib.suppress(Exception):
             present = _present_ctx(agent)
-        verdict = await jev_judges.judge_addressee(
+        return await jev_judges.judge_addressee(
             getattr(agent, "_jev", None),
             text=trigger.query,
-            recent=str(recent or ""),
+            recent=recent,
             present=str(present or ""),
             names=list(getattr(agent.config, "agent_names", None) or []),
             voice=self._voice_line(trigger.voice),
+            drop_unanswered=drop_unanswered,
         )
-        return verdict == jev_judges.NOT_TO_PAJU
 
     def _voice_line(self, voice: Any) -> str:
         """宛先の判定に渡す声の似かた（呼びかけ名と点数・近い順）。読めなければ空（出-db 段 C・本人の決定 3-d）。

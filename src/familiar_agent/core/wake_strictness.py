@@ -78,7 +78,7 @@ def admits(
 ) -> "tuple[bool, str]":
     """名前で窓を開けてよいか。（受けるか, 捨てた理由）。
 
-    `near_ok` は、1 字違いでだけ当たる名前のあとの言葉が意味を成すと Jev が答えたか（`jev_judges.judge_wake_meaning`）。
+    `near_ok` は、1 字違いでだけ当たる名前の言葉が、ロボット宛てだと Jev が答えたか（宛先の判定・出-db 段 D）。
     """
     if cfg is None:
         from ..config import STTConfig
@@ -87,7 +87,7 @@ def admits(
     if not names_me(text, names, fuzzy=True):
         return False, "名前が無い"
     if not names_me(text, names, fuzzy=False) and not near_ok:
-        return False, "1 字違いの名前で中身が成り立たない"
+        return False, "1 字違いの名前でロボット宛てでない"
     measured = no_speech is not None and logprob is not None
     if is_name_only(text, names):
         if not measured:
