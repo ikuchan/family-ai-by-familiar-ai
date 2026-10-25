@@ -3197,7 +3197,9 @@ class InformationProcessing:
             obs_id = await self._write_origin("発話", text) or ""
         self._note_record(obs_id, "添え")
         self._req.added.append((obs_id, text))
-        self._talk_line(self._current_speaker_name() or "相手", text)  # 窓の会話（環-ar 段 A）
+        self._talk_line(
+            self._current_speaker_name() or "相手", text, obs_id
+        )  # 窓の会話（環-ar 段 A）
         logger.info("event-loop 調べているあいだの言葉を求めに添える：%.40s", text)
         if trigger.future is not None and not trigger.future.done():
             trigger.future.set_result("")
@@ -3254,7 +3256,9 @@ class InformationProcessing:
         self._pending_voice = voice
         await self._begin_request(kind="発話", text=utterance, utterance=utterance)
         # 窓の会話（環-ar 段 A）。求めの窓の番号が決まってから足す（前の求めの番号で、閉じた会話に足さない）。
-        self._talk_line(self._current_speaker_name() or "相手", utterance)
+        self._talk_line(
+            self._current_speaker_name() or "相手", utterance, str(self._req.request_id or "")
+        )
         return await self._iterate()
 
     async def _begin_affect(self, drive_name: str, prompt: str) -> None:
@@ -3348,7 +3352,9 @@ class InformationProcessing:
         cue = self._start_reaction_cue(ws.returned_lookups)
         heard = self._take_heard_check(ws)
         # Jev へ送る W では、窓が開いていれば直近の枠の代わりに窓の会話の全部（環-ar 段 B）。
-        ws.window_talk = self._talk_of(self._req.window_session)
+        talk = self._talk_of(self._req.window_session)
+        ws.window_talk = talk.render() if talk is not None else None
+        ws.window_ids = frozenset(talk.ids) if talk is not None else frozenset()
         if ws.window_talk is not None:
             logger.debug(
                 "event-loop Jev へ送る W：直近の代わりに窓の会話 %d 行（%d 字）",
@@ -4171,14 +4177,14 @@ class InformationProcessing:
             talk = self.__dict__["_talk"] = WindowTalk(session=wake.session, opened_at=opened)
         return talk
 
-    def _talk_line(self, who: str, text: str) -> None:
+    def _talk_line(self, who: str, text: str, obs_id: str = "") -> None:
         """窓の会話に 1 行足す（環-ar 段 A）。窓が開いているときか、いまの求めがその窓の中で始まったときだけ。
 
         窓が閉じた後に届いた返事（出-bj）は、その求めが窓の中で始まっていれば同じ会話の行にする。窓の外で始まった
         求めの声や結果は、閉じた会話に足さない。
         """
         if self._in_window():
-            self._window_talk().add(datetime.now(clock.local_tz()), who, text)
+            self._window_talk().add(datetime.now(clock.local_tz()), who, text, obs_id)
 
     def _in_window(self) -> bool:
         """いまの窓の会話の中か（環-ar 段 A）。窓が開いているか、いまの求めがその窓の中で始まったとき。"""
@@ -4191,15 +4197,15 @@ class InformationProcessing:
         """窓の会話の中なら、窓の会話の全部（1 つの文）。外なら空（いまどおりの直近を使う）。"""
         return self._window_talk().render() if self._in_window() else ""
 
-    def _talk_of(self, session: int) -> "str | None":
-        """窓の会話の番号 `session` の会話がいまの会話なら、その全部（行がまだ無ければ空文字）。違えば None（環-ar 段 B）。
+    def _talk_of(self, session: int) -> "WindowTalk | None":
+        """窓の会話の番号 `session` の会話がいまの会話なら、その会話。違えば None（環-ar 段 B）。
 
         判定（宛先・返すか黙るか）と Jev へ送る W は、これで窓の会話か直近かを決める。前の窓の番号を持つ声や求めは、
         新しい窓の会話を見ない。
         """
         if not session or session != self._wake_window().session:
             return None
-        return self._window_talk().render()
+        return self._window_talk()
 
     def _extend_window_for_conversation(self) -> None:
         """会話の求めで返事を出したら、そこから窓の長さ（10 秒）へ延ばす（開いているときだけ）。"""
@@ -4405,7 +4411,7 @@ class InformationProcessing:
         if talk is None:
             return self._recent_from_memory(talk=True)
         # 窓の会話はやりとりの代わり。タイマー・入室などの [そのあいだに起きたこと] は Jev の W と同じく添える。
-        return "\n\n".join(p for p in (talk, self._recent_from_memory(talk=False)) if p)
+        return "\n\n".join(p for p in (talk.render(), self._recent_from_memory(talk=False)) if p)
 
     def _recent_from_memory(self, *, talk: bool) -> str:
         """記録から引いた直近 3 往復（W と同じ時間の上限）。`talk` が偽なら [そのあいだに起きたこと] だけ。読めなければ空。"""
@@ -4611,6 +4617,10 @@ class InformationProcessing:
         if not text or self._delivery_block_reason():
             return
         await self._say_aloud(text)
+        # 問いの話し終わりに窓が開き、答えはその窓で受ける。答える相手が読めるよう、問いを窓の会話の行にする（環-ar 段 B）。
+        # 人の言葉で始まった求めでなければ、宛先は書かない（いまの話者の名前は、前に話した人のことがある）。
+        to = self._current_speaker_name() if self._req.trigger_kind == "発話" else ""
+        self._talk_line(f"わたし（{to}へ）" if to else "わたし", text)
         self._stamp_said()
         self._emit(text)
         logger.info("確認の問いを出した：%.40s", text)
@@ -5197,9 +5207,10 @@ class InformationProcessing:
             await self._fold_told(list(self._req.told_unsaid))
         if spoken and text and (self._req.trigger_kind == "発話" or self._talking()):
             # 声になった返事だけを、窓の会話に足す（環-ar 段 A）。声にしなかった文は相手に届いていない。人の言葉への
-            # 返事と、パジュから話しかけた言葉だけで、タイマーなどの知らせは会話の行にしない。
+            # 返事と、パジュから話しかけた言葉だけで、タイマーなどの知らせは会話の行にしない（確認の問いは
+            # `_ask_confirm_aloud` が足す）。
             to = self._current_speaker_name()
-            self._talk_line(f"わたし（{to}へ）" if to else "わたし", text)
+            self._talk_line(f"わたし（{to}へ）" if to else "わたし", text, str(answer_id or ""))
         self._note_record(answer_id, "答え" if spoken else "独白")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を

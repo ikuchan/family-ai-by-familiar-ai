@@ -393,7 +393,7 @@ def render_recent(
         if r.role in ("答え", "つなぎ"):
             heard = to.get(r.obs_id) or []
             who = f"わたし（{'・'.join(heard)}へ）" if heard else "わたし"
-        elif getattr(r, "direction", "発話") in ("情動", "機器"):
+        elif _happened(r):
             # 札（`[タイマー]`・`[内的な促し:…]`）は本文の先頭にあるので、誰かは書かない。
             happened.append(f"- {at} id:{sid} {r.content}")
             continue
@@ -409,6 +409,11 @@ def render_recent(
     if happened:
         blocks.append("\n".join(["[そのあいだに起きたこと]", *happened]))
     return rows, "\n\n".join(blocks), id_map
+
+
+def _happened(r) -> bool:
+    """直近の行が [そのあいだに起きたこと]（情動・機器）か。人との言葉と、わたしの答え・つなぎは違う。"""
+    return r.role not in ("答え", "つなぎ") and getattr(r, "direction", "発話") in ("情動", "機器")
 
 
 @dataclass
@@ -445,6 +450,9 @@ class Workspace:
     #: 窓の会話の全部（環-ar 段 B）。窓の会話の中ならループが入れ、Jev へ送る W では [直近のやりとり] の代わりに載る。
     #: 行がまだ無ければ空文字（前の窓の話を直近として載せない）。窓の外は None で、いまどおり直近。
     window_talk: "str | None" = None
+    #: 窓の会話の行になった記録の id。Jev へ送る W では、これと [そのあいだに起きたこと] の行だけを記憶の列から外す。
+    #: 窓が開く前のやりとりや、行にならない記録（いまの求めの版・知らせの答え）は、点が付けば記憶の列に出す（本人の決定ア）。
+    window_ids: "frozenset[str]" = frozenset()
     #: 記憶の申告（Jev が答える・記-r）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
@@ -507,14 +515,17 @@ class Workspace:
     ) -> str:
         # 窓の会話はやりとりの代わりで、[そのあいだに起きたこと]（タイマー・入室など）はいまどおり載せる（環-ar 段 B）。
         talk_instead = window and self.window_talk is not None
-        _rows, recent, recent_ids = self._recent(n, talk=not talk_instead)
+        rows, recent, recent_ids = self._recent(n, talk=not talk_instead)
+        shown = set(recent_ids.values())
         if talk_instead:
             recent = "\n\n".join(p for p in (self.window_talk, recent) if p)
+            # 記憶の列から外すのは、窓の会話の行になった記録と [そのあいだに起きたこと] に載った行だけ（本人の決定ア）。
+            shown = set(self.window_ids) | {r.obs_id for r in rows if _happened(r)}
         past, _ = compose(
             self.oif,
             self._memories_once() if memories is None else memories,
             self.req,
-            exclude=set(recent_ids.values()),
+            exclude=shown,
             basis=self.basis,
         )
         head = self.just_returned_text

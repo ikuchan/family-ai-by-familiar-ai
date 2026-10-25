@@ -41,12 +41,16 @@ class WindowTalk:
     lines: list[str] = field(default_factory=list)
     #: この窓の、いま生きている最終版の id（段 E：窓の中の次の最終版が改訂で畳む）。
     final_id: str = ""
+    #: 行になった記録の id（段 B）。Jev へ送る W は、これを思い出した記憶の列から外す（同じ話を 2 回載せない）。
+    ids: set[str] = field(default_factory=set)
 
-    def add(self, at: datetime, who: str, text: str) -> None:
-        """1 行足す。前の行には触らない。"""
+    def add(self, at: datetime, who: str, text: str, obs_id: str = "") -> None:
+        """1 行足す。前の行には触らない。`obs_id` はその行の記録（調べた結果のように、記録が別にある行は空）。"""
         body = _one_line(text)
         if body:
             self.lines.append(f"- {at:%H:%M:%S} {who}：{body}")
+            if obs_id:
+                self.ids.add(obs_id)
 
     def header(self) -> str:
         return f"[窓の会話（{self.opened_at:%H:%M:%S} から・古い順・全部）]"

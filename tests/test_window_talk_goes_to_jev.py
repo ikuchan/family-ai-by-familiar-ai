@@ -206,9 +206,10 @@ def test_the_iteration_gives_the_window_talk_to_the_jev_view(monkeypatch):
     ip._current_speaker_name = lambda: "パパ"
     ip._wake_window().open(time.monotonic())
     ip._wake_window().until += 3600  # 反復が回るあいだ開けておく
-    ip._talk_line("パパ", "しりとりしよう")
+    ip._talk_line("パパ", "しりとりしよう", obs_id="obs-1")
     _run_until(ip, lambda: got, push=lambda: ip.push_affect("CALM", "落ち着いている"))
     assert "パパ：しりとりしよう" in got[0].jev_workspace(28_000)
+    assert "obs-1" in got[0].jev_workspace.__self__.window_ids
 
 
 # --- 見直しの指摘（2 回目・3 回目）---
@@ -251,3 +252,123 @@ def test_a_word_outside_the_window_is_not_added_to_the_last_talk():
     ip._write_origin = AsyncMock(return_value="obs-1")
     asyncio.run(ip._utterance_iteration("つぎの曲"))
     assert ip._window_talk().lines == []
+
+
+# --- 窓が開く前のやりとりは、点が付けば思い出した記憶の列に出る（2026-10-25・本人の決定ア）---
+
+
+def _ws_across_the_window():
+    """窓が開く前の往復・機器の出来事・窓の中の往復（窓の会話の行）。3 つとも想起された。"""
+    from familiar_agent.loop import workspace
+    from familiar_agent.loop.request import Request
+    from tests.test_recent_window_is_a_workspace_frame import _oif, _said
+
+    oif = _oif(
+        ["q3", "q2", "q1"],
+        {
+            "q1": [_said("q1", "窓の前のはなし", "起点", 0)],
+            "q2": [_said("q2", "[タイマー] 3 分たった", "起点", 1, direction="機器")],
+            "q3": [_said("q3", "窓の中のはなし", "起点", 5)],
+        },
+    )
+    oif.roles = MagicMock(return_value={})
+    oif.actors = MagicMock(return_value={})
+    recalled = [
+        _rec("q1", "窓の前のはなし", fit=0.9),
+        _rec("q2", "[タイマー] 3 分たった", fit=0.8),
+        _rec("q3", "窓の中のはなし", fit=0.7),
+    ]
+    ws = workspace.Workspace.build(oif, recalled, Request(), n_arbiter=3, n_main=3)
+    ws.window_talk = TALK
+    ws.window_ids = frozenset({"q3"})  # 窓の会話の行になった記録
+    return ws
+
+
+def _past(text: str) -> str:
+    return text[text.index("[過去の記憶") :] if "[過去の記憶" in text else ""
+
+
+def test_an_exchange_from_before_the_window_comes_back_as_a_memory():
+    text = _ws_across_the_window().for_jev_arbiter(28_000)
+    assert "窓の前のはなし" in _past(text)
+
+
+def test_an_exchange_inside_the_window_is_not_shown_twice():
+    """**反証の側**：窓が開いた後の行は窓の会話に載っているので、想起されても記憶の列に出さない。"""
+    text = _ws_across_the_window().for_jev_arbiter(28_000)
+    assert "窓の中のはなし" not in _past(text)
+
+
+def test_a_happening_shown_in_its_frame_is_not_shown_twice():
+    """**反証の側**：[そのあいだに起きたこと] に載った行も、記憶の列に出さない。"""
+    text = _ws_across_the_window().for_jev_arbiter(28_000)
+    assert text.count("[タイマー] 3 分たった") == 1
+    assert "[タイマー] 3 分たった" not in _past(text)
+
+
+# --- 見直しの指摘（窓が開く前のやりとり）---
+
+
+def test_an_old_line_of_a_long_window_is_not_shown_twice():
+    """長い窓で直近の数を越えた行も、窓の会話の行になった記録なら、想起されても記憶の列に出さない。"""
+    ws = _ws_across_the_window()
+    ws.memories.append(_rec("q0", "窓の中の最初のはなし", fit=0.95))
+    ws.window_ids = ws.window_ids | {"q0"}
+    assert "窓の中の最初のはなし" not in _past(ws.for_jev_arbiter(28_000))
+
+
+def test_records_of_the_window_that_are_not_lines_stay_as_memories():
+    """**反証の側**：窓の中に書いた記録でも、窓の会話の行でないもの（いまの求めの版・知らせの答え）は外さない。
+
+    版は調べた結果の全文を持つ（行は 80 字）。外すと Jev は全文を見られず、調べ直す。
+    """
+    ws = _ws_across_the_window()
+    ws.memories.append(_rec("v-live", "「明日の天気は？」と聞かれ、結果の全文", fit=0.6))
+    ws.memories.append(_rec("a-timer", "3 分たちました", fit=0.5))
+    past = _past(ws.for_jev_arbiter(28_000))
+    assert "結果の全文" in past and "3 分たちました" in past
+
+
+def test_lines_keep_the_ids_of_their_records():
+    ip = _ip()
+    ip._wake_window().open(time.monotonic())
+    ip._iterate = AsyncMock(return_value="")
+    ip._write_origin = AsyncMock(return_value="obs-1")
+    asyncio.run(ip._utterance_iteration("しりとりしよう"))
+    assert "obs-1" in ip._window_talk().ids
+
+
+def _asks(ip, kind):
+    from types import SimpleNamespace
+    from unittest.mock import MagicMock
+
+    ip._req.trigger_kind = kind
+    ip._dif = MagicMock(speak=AsyncMock())
+    ip._confirming = lambda: True  # 問いを出す前に確認待ちが立っている（`_ask_confirm_if_fresh`）
+    ip._delivery_block_reason = lambda: ""
+    asyncio.run(ip._ask_confirm_aloud(SimpleNamespace(text="5 分のタイマーを掛けていい？")))
+    return [line.split(" ", 2)[2] for line in ip._window_talk().lines]
+
+
+def test_a_confirm_question_is_a_line_of_the_window_it_opens():
+    """窓の外で始まった求め（タイマーなど）の確認の問いは、話し終わりに窓を開け、その窓の会話の行になる。宛先は書かない。"""
+    ip = _ip()
+    assert _asks(ip, "機器") == ["わたし：5 分のタイマーを掛けていい？"]
+
+
+def test_a_confirm_question_to_a_person_names_them():
+    ip = _ip()
+    ip._wake_window().open(time.monotonic())
+    ip._req.window_session = ip._wake_window().session
+    assert _asks(ip, "発話") == ["わたし（パパへ）：5 分のタイマーを掛けていい？"]
+
+
+def test_the_final_version_of_a_request_in_the_window_is_not_shown_twice():
+    """窓の中の前の求めの最終版（問いと答えのまとめ）は、起点が窓の会話の行なので、記憶の列に出さない（記-t）。"""
+    from familiar_agent.core import final_version
+
+    ws = _ws_across_the_window()
+    final = _rec("f3", final_version.MARK + "19:00〕窓の中のはなしと、その答え", fit=0.9)
+    final.mi.parent_id = "q3"
+    ws.memories.append(final)
+    assert "その答え" not in _past(ws.for_jev_arbiter(28_000))
