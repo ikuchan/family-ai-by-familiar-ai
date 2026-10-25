@@ -51,7 +51,7 @@ from .speech_check import PAST_CHARS, facts_ctx, fitting_cap, past_rows
 from ..core.wake_window import WakeWindow
 from ..core.measure import record as measure_record
 from ..config import main_llm_cache_on
-from .generator import _pi_ctx, _present_ctx
+from .generator import SILENCE_MARK, SILENCE_NOTE, _pi_ctx, _present_ctx
 from . import workspace
 from ..store import intents as _intents
 from .intent_ledger import IntentLedger
@@ -654,6 +654,29 @@ _FINAL_SUMMARY_PROMPT = (
     "何を聞かれたか（何が起きたか）と、何と答えたか（どう終わったか）は、必ず言葉どおりに残す。"
     "調べた結果と見たものは、要点を残す。要約の文だけを返す。\n\n{text}"
 )
+
+
+#: 黙る印のまわりに付きうるもの（かぎ括弧・句読点・空白）。
+_MARK_TRIM = "「」『』。．.、,!！ \t\n　"
+
+
+def _is_silence_mark(text: str) -> bool:
+    """主LLM の文が、黙る印（`SILENCE_MARK`）で終わるか（出-db 段 F）。
+
+    かぎ括弧や句点を付けて写す・短い理由を前に添える（「テレビの声なので（黙る）」）こともあるので、括弧の全角・半角、
+    まわりのかぎ括弧・句読点・空白は問わず、終わりが印なら黙るとみなす。印を声にも画面にも出さない。
+    """
+    t = (text or "").replace("(", "（").replace(")", "）").strip(_MARK_TRIM)
+    return t.endswith(SILENCE_MARK)
+
+
+def _without_silence_note(system: Any) -> Any:
+    """言い直しに渡す system から、黙ってよいの指示を外す（出-db 段 F：伝えるのは最初の返事だけ）。"""
+    if isinstance(system, tuple):
+        return tuple(_without_silence_note(part) for part in system)
+    if isinstance(system, str):
+        return system.replace("\n" + SILENCE_NOTE, "").replace(SILENCE_NOTE, "")
+    return system
 
 
 @dataclass
@@ -3517,6 +3540,21 @@ class InformationProcessing:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（生成後）")
             return ""
 
+        # 返しようがないと主LLM が決めた（出-db 段 F）。say の中に書いても、文だけでも、考え直しや写真の見立てより先に見て、
+        # Jev に聞かず、差し戻さず、声にも画面にも出さずに閉じる。言い直しの返りには指示を渡していないので見ない。
+        mark_text = (
+            str(say_tc.input.get("text", "")) if say_tc is not None else decision.result.text
+        )
+        if (
+            lookup_tc is None
+            and not decision.retried
+            and not decision.say_asked
+            and _is_silence_mark(mark_text or "")
+        ):
+            logger.info("event-loop 主LLM が返しようがないと決めたので黙る")
+            await self._finish("", decision.memories, "沈黙", gen=gen)
+            return ""
+
         # 主LLM が考えているあいだに名前無しで言い足されたことがあれば、考え直すかを Jev が決める（出-au 段 5-1）。
         # 返事（`say`）を出す返りだけが対象——道具を投げる返りは声にしないので、考え直す理由が無い。
         if say_tc is not None and lookup_tc is None:
@@ -3577,7 +3615,7 @@ class InformationProcessing:
                             )
                         )
                     ],
-                    system=decision.system,
+                    system=_without_silence_note(decision.system),
                     effort=decision.effort,
                     capped=decision.capped,
                     memories=decision.memories,
@@ -3671,7 +3709,7 @@ class InformationProcessing:
                     )
                 )
             ],
-            system=decision.system,
+            system=_without_silence_note(decision.system),
             effort=decision.effort,
             capped=decision.capped,
             memories=decision.memories,

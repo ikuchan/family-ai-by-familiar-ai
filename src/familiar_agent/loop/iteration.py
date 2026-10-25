@@ -67,6 +67,15 @@ def closes_silently(decision, *, trigger_kind: str, returned: "frozenset[str]") 
     return decision.branch == "light" and not decision.text
 
 
+def may_stay_silent(*, kind: str, round_: int, returned: bool, source: str) -> bool:
+    """主LLM に、返しようがなければ黙ってよいと伝えるか（出-db 段 F・本人の決定ウ・ア）。
+
+    人の声への最初の返事だけ。調べものの結果が返ったあと（頼まれたことの答え）・考え直しや言い直し・内からの求め・
+    機器の知らせ・キーボードで打った言葉（テレビも崩れた書き起こしも来ない）には伝えない。
+    """
+    return kind == "発話" and round_ == 1 and not returned and source == "voice"
+
+
 class Iteration:
     """1 反復の流れと、段どうしで渡す状態。`ip` は `InformationProcessing`。"""
 
@@ -254,6 +263,12 @@ class Iteration:
                 budget=budget,
                 missing=ip._missing_tools(),
                 tone=ip._tone_note(),
+                may_stay_silent=may_stay_silent(
+                    kind=ip._req.trigger_kind,
+                    round_=self.round_,
+                    returned=bool(ws.returned_lookups),
+                    source=ip._req.source,
+                ),
             ),
             music=await ip._music_now(),
         )

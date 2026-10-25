@@ -111,6 +111,16 @@ def _present_ctx(agent) -> str:
     return "".join(parts) + ")"
 
 
+#: 主LLM が黙るときに書く印（出-db 段 F）。`event_loop` がこれだけの文を見つけたら、声にせずに閉じる。
+SILENCE_MARK = "（黙る）"
+#: 人の声への最初の返事で、黙ってよいと伝える行（実験：テレビと崩れた声 5 件を全部黙らせた・claude-sonnet-5-5）。
+SILENCE_NOTE = (
+    "[黙ってよい] いま届いた言葉は音声の書き起こしで、テレビや動画の声、家族どうしの話、聞き間違いで崩れた文も届く。"
+    "返しようがない（意味が取れない、あなたに向けた言葉とは思えない、返す中身が思いつかない）ときは、"
+    f"say を呼ばず「{SILENCE_MARK}」とだけ書く。迷って聞き返すより、黙る方を選ぶ。"
+)
+
+
 def _iter_ctx(
     *,
     chain: int,
@@ -120,6 +130,7 @@ def _iter_ctx(
     budget=None,
     missing: "list[str] | None" = None,
     tone: str = "",
+    may_stay_silent: bool = False,
 ) -> str:
     """この反復がどこに居るかを、主LLM へ渡す1行に組む。
 
@@ -136,6 +147,8 @@ def _iter_ctx(
       「嘘をつかない」は基準を与えないので、道具の返りだけを根拠にさせる
     - `budget`：返事の予算（`reply_budget.ReplyBudget`）。長さは規則の文言でなく**数字で**
       渡す（出-k-ろ）。無ければ行を足さない
+    - `may_stay_silent`：人の声への最初の返事。返しようがなければ say を呼ばずに黙ってよいと伝える
+      （出-db 段 F・本人の決定ウ）。system 文の固定部分に書くとキャッシュが崩れるので、ここに置く
     """
     text = f"[反復] {chain}/{max_chain}（この件を考えるのは {thinking_round} 回目）"
     if budget is not None:
@@ -149,6 +162,8 @@ def _iter_ctx(
         # 1 行置くだけで伝わる（実機の場面で 8 回中 0 回 → 8 回・2026-09-22）。言い聞かせる
         # 文は足さない——足しても 8 回のままだった。
         text = "[いま使えない] " + "・".join(missing) + "\n" + text
+    if may_stay_silent:
+        text += "\n" + SILENCE_NOTE
     if capped:
         text += (
             "（これ以上は調べられない。調べきりたかったが上限に達したことを述べ、"
