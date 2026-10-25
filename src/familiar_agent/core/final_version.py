@@ -59,6 +59,34 @@ def body(
     return _opening(trigger_kind, asked, added) + _answer(outcome, answer, block_reason)
 
 
+def window_body(lines: "list[str]") -> str:
+    """窓の会話の最終版の本文（環-ar 段 E）。窓の会話の行を古い順に全部。"""
+    return "窓の会話：\n" + "\n".join(lines)
+
+
+def cut_window(head: str, body: str, course: str, limit: int) -> str:
+    """窓の最終版を `limit` 字に収める。新しい行を残し、古い行から落とす（いま閉じたやりとりは最後にある）。
+
+    経緯は貯まるので、超えたら新しい側の 3 分の 1 までにする（声にならなかった閉じ方は最後に足してある）。
+    いちばん新しい行は落とさず、入らなければ短くする。行を落としたときだけ「…」を置く。
+    """
+    if len(head + body + course) <= limit:
+        return head + body + course
+    if len(course) > limit // 3:
+        course = "。経緯：…" + course[-(limit // 3) :]
+    title, *lines = body.split("\n")
+    room = limit - len(head + title + course) - len("\n…")
+    kept: "list[str]" = []
+    for line in reversed(lines):
+        if len("\n".join([line, *kept])) + 1 > room:
+            break
+        kept.insert(0, line)
+    if not kept and lines:
+        kept = [lines[-1][: max(0, room - 1)]]
+    gap = ["…"] if len(kept) < len(lines) else []
+    return (head + "\n".join([title, *gap, *kept]) + course)[:limit]
+
+
 def course(steps: "list[str]") -> str:
     """経緯（調べた結果・見たもの）。無ければ空。"""
     return ("。経緯：" + "／".join(steps)) if steps else ""

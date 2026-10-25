@@ -1064,8 +1064,11 @@ def test_iteration_context_is_injected_into_prompt():
     assert "2 回目" in systems[1]
 
 
-def test_all_loop_os_become_one_exchange():
+def test_all_loop_os_become_one_exchange(monkeypatch):
     # 起点・open 意図・完了・本応答は、ターン末に一つのやりとりとして並ぶ（段 3）。
+    # 窓の外として見る。窓の会話の中の求めの最終版は背景の列で書き、関係へは後から足す（環-ar 段 E・
+    # `test_window_final_is_rewritten`）。
+    monkeypatch.setattr(InformationProcessing, "_talk_of", lambda self, session: None)
     a = _agent(
         stream_returns=[
             _turn([ToolCall(id="r", name="recall", input={"query": "q"})]),

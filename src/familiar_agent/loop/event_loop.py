@@ -658,6 +658,33 @@ _FINAL_SUMMARY_PROMPT = (
 )
 
 
+#: 窓の最終版の要約（環-ar 段 E）。窓の会話は何往復もあるので、1 回のやりとり向けの指示では大半の往復が落ちる。
+_WINDOW_SUMMARY_PROMPT = (
+    "次は、家のロボット（パジュ）と家族の、ひと続きの会話の記録である。{n} 字以内の、一続きの日本語に要約する。"
+    "何をして遊んだか・何を話したか、その流れと終わり方を残す。最後のやりとりは言葉どおりに残す。"
+    "調べた結果と見たものは、要点を残す。要約の文だけを返す。\n\n{text}"
+)
+
+
+@dataclass
+class _PendingFinal:
+    """背景で書く最終版の材料（`_close_final` → `_spawn_final`）。窓の会話の求めなら `talk` 以下を持つ（環-ar 段 E）。"""
+
+    head: str
+    body: str
+    course: str
+    limit: int
+    parent: "str | None"
+    live: "str | None"
+    end: datetime
+    start: datetime
+    talk: "WindowTalk | None" = None
+    #: 閉じた時点の窓の会話の行（背景で書くあいだに行が足されても、閉じた時点のものを書く）。
+    lines: "tuple[str, ...]" = ()
+    #: 窓の中で貯めた経緯（調べた結果・見たもの・声にならなかった閉じ方）。
+    steps: "tuple[str, ...]" = ()
+
+
 #: 黙る印のまわりに付きうるもの（かぎ括弧・句読点・空白）。
 _MARK_TRIM = "「」『』。．.、,!！ \t\n　"
 
@@ -969,6 +996,10 @@ class InformationProcessing:
 
         最終版は「何を聞かれ、何を答えたか」の塊で、版の鎖の最後（親は起点・前の版は改訂で畳む・やりとりの「版」の項）。
         閉じた時刻を残すため、収まるものは閉じたその場で書く。
+
+        窓の会話の中の、人との会話の求め（窓の会話の行を足すのと同じ条件）は、いつも背景の列に回す（環-ar 段 E）。
+        窓の最終版は前の窓の最終版を畳んで書き直すので、前が書き終わってから順に書く（前が背景で要約中でも
+        同じものを二度畳まない）。行にならない求め（タイマーの知らせなど）は窓の最終版に触らない（記録が消える）。
         """
         req, agent = self._req, self._agent
         end = clock.now_utc()
@@ -987,8 +1018,19 @@ class InformationProcessing:
         course = final_version.course(steps)
         limit = int(agent.config.completion_content_max)
         parent, live = req.request_id, req.live_version_id
+        talk = self._talk_of(req.window_session)
+        if talk is not None and (req.trigger_kind == "発話" or self._talking()):
+            # 窓の中の経緯は貯めて、窓の最終版に全部載せる。声にならなかった閉じ方（打ち切った・言えなかった）は
+            # 行にならないので、これも経緯に貯める（次の書き直しで消えないように）。
+            talk.steps.extend(steps)
+            if aborted or outcome != "発話":
+                talk.steps.append(body)
+            return _PendingFinal(
+                head, body, course, limit, parent, live, end, start,
+                talk=talk, lines=tuple(talk.lines), steps=tuple(talk.steps),
+            )  # fmt: skip
         if len(head + body + course) > limit:
-            return (head, body, course, limit, parent, live, end, start)
+            return _PendingFinal(head, body, course, limit, parent, live, end, start)
         final_id = None
         with contextlib.suppress(Exception):
             final_id = await self._write_final(head + body + course, parent=parent, live=live)
@@ -1008,8 +1050,12 @@ class InformationProcessing:
         parent: "str | None",
         live: "str | None",
         at: "datetime | None" = None,
+        fold: str = "",
     ) -> "str | None":
-        """最終版を 1 件書き、前の版を改訂で畳む。`at` は閉じた時刻（背景で書くときだけ渡す）。"""
+        """最終版を 1 件書き、前の版を改訂で畳む。`at` は閉じた時刻（背景で書くときだけ渡す）。
+
+        `fold` は前の窓の最終版（環-ar 段 E）。これも改訂で畳む。
+        """
         agent = self._agent
         extra = {"at": at} if at is not None else {}
         final_id = await agent._oif.write(
@@ -1017,89 +1063,150 @@ class InformationProcessing:
             **agent._observation_perspective(),
             **extra,
         )
-        if final_id and live and live != final_id:
-            agent._oif.supersede(live, final_id, kind=KIND_REVISION)
-        logger.info("event-loop 最終版を書いた（%d 字）", len(content))
+        folded = [
+            old
+            for old in ((live, fold) if final_id else ())
+            if old and old != final_id and agent._oif.supersede(old, final_id, kind=KIND_REVISION)
+        ]
+        logger.info(
+            "event-loop 最終版を書いた（%d 字%s）",
+            len(content),
+            "・前の窓の最終版を畳んだ" if fold and fold in folded else "",
+        )
         return final_id
 
-    def _spawn_final(self, pending, exchange_id: "int | None") -> None:
-        """長すぎる最終版を、背景で主LLM に要約させて書く。時刻の頭は機械が付け、閉じた時刻で書く。
+    def _spawn_final(self, pending: "_PendingFinal", exchange_id: "int | None") -> None:
+        """最終版を背景で書く。長すぎれば主LLM に要約させる。時刻の頭は機械が付け、閉じた時刻で書く。
 
         要約が空・長すぎ・失敗なら、聞かれたことと答えを残して経緯の末尾を切った文で書く（書かないことはしない）。
-        書いたらやりとりの関係の末尾に「版」として足す（閉じたときの関係には、まだ入っていない）。
+        窓の最終版は新しい行を残して古い行から落とす。書いたらやりとりの関係の末尾に「版」として足す（閉じたときの
+        関係には、まだ入っていない）。
+
+        窓の会話の求め（`pending.talk`）は、窓ごとの列に並べて順に書く（環-ar 段 E）。前の窓の最終版があれば、窓が
+        開いた時刻から始まる窓の会話の全部で書き直して前を畳み、続きの辺は聞かずに、窓の 1 つ目の最終版が持っていた
+        「前」を付け直す。無ければ（窓の 1 つ目）、いまどおりその求めの文で書き、続きの辺を聞いて「前」を控える。
         """
-        head, body, course, limit, parent, live, end, start = pending
-        agent = self._agent
-        room = max(1, limit - len(head))
+        p, agent = pending, self._agent
+        talk = p.talk
+        before = talk.final_tail if talk is not None else None
 
         async def _run() -> None:
-            summary = ""
-            try:
-                summary = str(
-                    await agent.backend.complete(
-                        _FINAL_SUMMARY_PROMPT.format(n=room, text=body + course), room
-                    )
-                    or ""
-                ).strip()
-            except asyncio.CancelledError:
-                raise
-            except Exception:  # noqa: BLE001
-                logger.warning(
-                    "event-loop 最終版の要約に失敗した（経緯を切って書く）", exc_info=True
-                )
-            if summary and len(summary) <= room:
-                content = head + summary
+            if before is not None and not before.done():
+                # 前を待つだけで、こちらが取り消されても前は取り消さない（`gather` は前まで取り消す）。
+                await asyncio.wait({before})
+            fold = talk.final_id if talk is not None else ""
+            if fold:
+                head = final_version.head(talk.opened_at, p.end)  # type: ignore[union-attr]
+                body = final_version.window_body(list(p.lines))
+                course, prompt = final_version.course(list(p.steps)), _WINDOW_SUMMARY_PROMPT
             else:
-                content = final_version.cut(head + body + course, limit)
+                head, body, course, prompt = p.head, p.body, p.course, _FINAL_SUMMARY_PROMPT
+            content = head + body + course
+            if len(content) > p.limit:
+                content = await self._shorten_final(head, body, course, p.limit, prompt, bool(fold))
             final_id = None
             with contextlib.suppress(Exception):
-                final_id = await self._write_final(content, parent=parent, live=live, at=end)
+                final_id = await self._write_final(
+                    content, parent=p.parent, live=p.live, at=p.end, fold=fold
+                )
             if final_id and exchange_id:
                 with contextlib.suppress(Exception):
                     agent._oif.extend(exchange_id, [(final_id, "版", None)])
-            if final_id:
-                await self._link_succession(final_id, content, start)
+            if not final_id:
+                return
+            if talk is None:
+                await self._link_succession(final_id, content, p.start)
+                return
+            talk.final_id = final_id  # 窓の次の求めが畳む
+            if not fold:
+                talk.before_id = await self._link_succession(final_id, content, p.start) or ""
+            elif talk.before_id:
+                # 畳んだ窓の 1 つ目の最終版が持っていた「前」を、書き直した最終版にも付ける（窓の前とつなぐ）。
+                await self._link_succession(final_id, content, p.start, prev=talk.before_id)
 
         writes = self.__dict__.setdefault("_final_writes", set())
         writes.add(task := asyncio.create_task(_run()))
         task.add_done_callback(writes.discard)
+        if talk is not None:
+            talk.final_tail = task
+            logger.info(
+                "event-loop 窓の最終版を列に並べた（前を待つ=%s）",
+                "はい" if before is not None and not before.done() else "いいえ",
+            )
 
-    async def _link_succession(self, final_id: str, content: str, start: datetime) -> None:
+    async def _shorten_final(
+        self, head: str, body: str, course: str, limit: int, prompt: str, window: bool
+    ) -> str:
+        """長すぎる最終版を主LLM に要約させる。だめなら切る（窓の最終版は古い行から落とす）。"""
+        room = max(1, limit - len(head))
+        logger.info(
+            "event-loop 最終版を要約する（%s・%d 字 → %d 字まで）",
+            "窓の会話" if window else "1 回のやりとり",
+            len(body + course),
+            room,
+        )
+        summary = ""
+        try:
+            summary = str(
+                await self._agent.backend.complete(prompt.format(n=room, text=body + course), room)
+                or ""
+            ).strip()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 最終版の要約に失敗した（切って書く）", exc_info=True)
+        if summary and len(summary) <= room:
+            return head + summary
+        if window:
+            return final_version.cut_window(head, body, course, limit)
+        return final_version.cut(head + body + course, limit)
+
+    async def _link_succession(
+        self, final_id: str, content: str, start: datetime, *, prev: str = ""
+    ) -> "str | None":
         """いま書いた最終版を、その前に閉じた最終版の続きなら継起（前 → 後）で結ぶ（記-t 段 2・背景）。
 
         結ぶのは最終版どうし（本人の決定）。起点どうしでは、想起しても人の言葉しか出てこず意味のない網になる。
         候補は開始時刻の前 `succession_window_sec`（5 分〔仮〕）のうちに閉じた最終版で、Jev が「どれの続きか」を
         「どれの続きでもない」と並べて選ぶ。候補が無ければ聞かない。失敗・確信度が低いときは書かない。
+        結んだ「前」の id を返す。`prev` を渡されたら聞かずにそれと結ぶ（書き直した窓の最終版に、窓の 1 つ目が
+        結んでいた「前」を付け直す・環-ar 段 E）。
         """
         agent = self._agent
         try:
-            window = timedelta(seconds=int(agent.config.memory.succession_window_sec))
-            rows = agent._oif.recent_finals(start - window, start, exclude_id=final_id)
-            if not rows:
-                logger.info("event-loop 最終版の継起を書かない：候補なし")
-                return
-            limit = int(getattr(agent.config, "jev_state_max_chars", 28_000))
-            current, cands = final_version.fit(
-                content, {str(r["id"]): str(r["content"]) for r in rows}, limit
-            )
-            prev = await jev_judges.judge_succession(
-                getattr(agent, "_jev", None),
-                current=current,
-                candidates=cands,
-                min_conf=float(agent.config.jev_confidence_min),
-            )
-            if prev is None:
-                logger.info(
-                    "event-loop 最終版の継起を書かない：どれの続きでもない（候補 %d 件）",
-                    len(cands),
+            if not prev:
+                window = timedelta(seconds=int(agent.config.memory.succession_window_sec))
+                rows = agent._oif.recent_finals(start - window, start, exclude_id=final_id)
+                if not rows:
+                    logger.info("event-loop 最終版の継起を書かない：候補なし")
+                    return None
+                limit = int(getattr(agent.config, "jev_state_max_chars", 28_000))
+                current, cands = final_version.fit(
+                    content, {str(r["id"]): str(r["content"]) for r in rows}, limit
                 )
-                return
+                prev = (
+                    await jev_judges.judge_succession(
+                        getattr(agent, "_jev", None),
+                        current=current,
+                        candidates=cands,
+                        min_conf=float(agent.config.jev_confidence_min),
+                    )
+                    or ""
+                )
+                if not prev:
+                    logger.info(
+                        "event-loop 最終版の継起を書かない：どれの続きでもない（候補 %d 件）",
+                        len(cands),
+                    )
+                    return None
             agent._oif.link(KIND_SUCCESSION, [(prev, "前", 0), (final_id, "後", 1)])
             logger.info("event-loop 最終版の継起を書いた：前 %.8s → 後 %.8s", prev, final_id)
+            return prev
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001
             logger.warning("event-loop 最終版の継起を書けなかった", exc_info=True)
+            return None
 
     async def settle_finals(self) -> None:
         """背景で書いている最終版が書き終わるのを待つ（試験と終了時）。"""

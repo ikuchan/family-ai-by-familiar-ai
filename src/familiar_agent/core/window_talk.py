@@ -15,6 +15,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    import asyncio
 
 #: 調べた結果の 1 行に載せる字数（2026-10-25 本人の決定）。
 RESULT_MAX_CHARS = 80
@@ -41,6 +45,12 @@ class WindowTalk:
     lines: list[str] = field(default_factory=list)
     #: この窓の、いま生きている最終版の id（段 E：窓の中の次の最終版が改訂で畳む）。
     final_id: str = ""
+    #: 窓の最終版を書く背景の仕事の最後（段 E）。次の最終版はこれが済んでから書く（同じものを二度畳まない）。
+    final_tail: "asyncio.Task[None] | None" = None
+    #: 窓の 1 つ目の最終版が続きの辺で結んだ「前」（段 E）。書き直した最終版にも付け直す。
+    before_id: str = ""
+    #: 窓の中の求めの経緯（調べた結果・見たもの・声にならなかった閉じ方・段 E）。窓の最終版に全部載せる。
+    steps: list[str] = field(default_factory=list)
     #: 行になった記録の id（段 B）。Jev へ送る W は、これを思い出した記憶の列から外す（同じ話を 2 回載せない）。
     ids: set[str] = field(default_factory=set)
 

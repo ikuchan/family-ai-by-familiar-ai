@@ -24,8 +24,10 @@ def _exchange(a):
     return _exchange_members(a)
 
 
-def test_the_turn_hands_over_its_records_in_order():
+def test_the_turn_hands_over_its_records_in_order(monkeypatch):
     """起点が先、答えが後。順序は関係の `position` になる。"""
+    # 窓の外として見る。窓の会話の中の求めの最終版は背景の列で書き、関係へは後から足す（環-ar 段 E）。
+    monkeypatch.setattr(InformationProcessing, "_talk_of", lambda self, session: None)
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "晴れだよ"})])])
     _run(a, utterance="今日の天気は？")
     # **件数は固定しない。** 環-h で主LLM の投げと返りにも版が書かれ、あいだが増えた。
