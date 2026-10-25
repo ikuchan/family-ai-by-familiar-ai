@@ -16,7 +16,7 @@ from .shared import (
     _build_tools_system,
     _parse_tool_calls_from_text,
 )
-from .types import ToolCall, TurnResult
+from .types import ToolCall, TurnResult, system_text
 
 logger = logging.getLogger(__name__)
 
@@ -82,9 +82,8 @@ class CLIBackend:
         prefix = "User" if role == "user" else "Assistant"
         return f"{prefix}:\n{text}"
 
-    def _serialize(self, system: str | tuple[str, str], messages: list, tools: list[dict]) -> str:
-        if isinstance(system, tuple):
-            system = "\n\n---\n\n".join(s for s in system if s)
+    def _serialize(self, system: str | tuple[str, ...], messages: list, tools: list[dict]) -> str:
+        system = system_text(system)  # 窓の会話の行は 1 つの枠にする（環-ar 段 D）
         parts: list[str] = []
         augmented = _build_tools_system(system, tools)
         if augmented:
@@ -145,7 +144,7 @@ class CLIBackend:
 
     async def stream_turn(
         self,
-        system: str | tuple[str, str],
+        system: str | tuple[str, ...],
         messages: list,
         tools: list[dict],
         max_tokens: int,

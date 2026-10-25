@@ -19,6 +19,9 @@ from .types import ToolCall, TurnResult
 
 logger = logging.getLogger(__name__)
 
+#: 窓の会話の区切りの印の間隔（まとまりの数・環-ar 段 D）。API が印から前へ探すのは 20 まとまりまでなので、それより短くする。
+_WINDOW_STRIDE = 16
+
 
 def _no_thinking(model: str) -> dict:
     """利用の呼び出し（`complete`・`complete_with_image`）で思考を切る指定。
@@ -214,19 +217,33 @@ class AnthropicBackend:
         return messages
 
     @staticmethod
-    def _build_system_param(system: str | tuple[str, str]) -> str | list[dict]:
+    def _build_system_param(system: str | tuple[str, ...]) -> str | list[dict]:
         """Convert system prompt to Anthropic API format, adding cache_control when possible.
 
         If system is a (stable, variable) tuple, the stable block gets
         cache_control so it is reused across turns within the 5-minute window.
         If system is a plain string (e.g. from tests or other callers), pass as-is.
+
+        窓の会話の中なら (stable, 見出し, 行…, variable)（環-ar 段 D）。見出しと行は 1 つずつ別のまとまりにし、
+        最後の行にも印を付ける。前の呼び出しの最後の行がまとまりの境目として残るので、行が足されてもそこまでが当たる。
+        ただし、印から前へ探すのは 20 まとまりまで。足された行が 20 まとまりまでなら最後の行の印で当たる。それより多く
+        足されたときのために、`_WINDOW_STRIDE` まとまりごとの区切りのうち最後のものにも印を付ける。前の呼び出しの
+        印が今回の区切りから 20 まとまり以内にあれば当たる。必ずではなく、行が 21 を超えて足されると外れることがある。
+        印は道具の末尾・stable・区切り・最後の行の 4 つで、上限の 4 つに収まる。
         """
         if not isinstance(system, tuple):
             return system
-        stable, variable = system
+        stable, window, variable = system[0], system[1:-1], system[-1] if len(system) > 1 else ""
         blocks: list[dict] = []
         if stable:
             blocks.append({"type": "text", "text": stable, "cache_control": {"type": "ephemeral"}})
+        lines: list[dict] = [{"type": "text", "text": t} for t in window if t]
+        if lines:
+            lines[-1]["cache_control"] = {"type": "ephemeral"}
+            stride = (len(lines) - 1) // _WINDOW_STRIDE * _WINDOW_STRIDE
+            if stride:
+                lines[stride - 1]["cache_control"] = {"type": "ephemeral"}
+        blocks.extend(lines)
         if variable:
             blocks.append({"type": "text", "text": variable})
         # Degenerate: if only one block, return as plain string (no cache_control needed)
@@ -237,7 +254,7 @@ class AnthropicBackend:
     @watch_credit
     async def stream_turn(
         self,
-        system: str | tuple[str, str],
+        system: str | tuple[str, ...],
         messages: list,
         tools: list[dict],
         max_tokens: int,

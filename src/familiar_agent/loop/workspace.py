@@ -448,12 +448,14 @@ class Workspace:
     #: この反復で返った道具の index（出-bw）。Jev へ送る版の文から本文を外すのに使う。組んだ時点の値を固定する。
     returned_idx: "frozenset[int]" = frozenset()
     #: 窓の会話の全部（環-ar 段 B・段 C）。窓の会話の中ならループが入れ、Jev へ送る W では [直近のやりとり] の代わりに載る。
-    #: 書き手の W（`for_arbiter`）は [直近のやりとり] を外すだけで、窓の会話は書き手の文の別の場所に置く。
+    #: 書き手と主LLM の W（`for_arbiter`・`for_main`）は [直近のやりとり] を外すだけで、窓の会話は文の別の場所に置く（段 C・段 D）。
     #: 行がまだ無ければ空文字（前の窓の話を直近として載せない）。窓の外は None で、いまどおり直近。
     window_talk: "str | None" = None
     #: 窓の会話の行になった記録の id。Jev へ送る W では、これと [そのあいだに起きたこと] の行だけを記憶の列から外す。
     #: 窓が開く前のやりとりや、行にならない記録（いまの求めの版・知らせの答え）は、点が付けば記憶の列に出す（本人の決定ア）。
     window_ids: "frozenset[str]" = frozenset()
+    #: 窓の会話の見出しと行（主LLM の system へ 1 つずつ置く・環-ar 段 D）。窓の外・行がまだ無ければ空。
+    window_blocks: "tuple[str, ...]" = ()
     #: 記憶の申告（Jev が答える・記-r）の母数と照合に使う対応表＝**過去の記憶の列だけ**（出-n 4）。
     #: 直近の枠は無条件に載せたもので、大事／不要を申告させて根づきを動かす意味がない。
     verdict_map: "dict[str, str]" = field(default_factory=dict)
@@ -495,6 +497,25 @@ class Workspace:
         ws.verdict_map = {k: v for k, v in past_ids.items() if v not in set(recent_ids.values())}
         return ws
 
+    def set_window(self, talk) -> None:
+        """窓の会話（`WindowTalk`・窓の外は None）を入れる（環-ar 段 B〜D）。
+
+        窓の中では、窓が開く前のやりとりが [直近のやりとり] ではなく記憶の列に出る（本人の決定ア）。その id でも記憶の
+        申告を受けられるよう、対応表を窓の見え方で組み直す（直近として外していた id が、記憶の列の id になる）。
+        """
+        self.window_talk = talk.render() if talk is not None else None
+        self.window_ids = frozenset(talk.ids) if talk is not None else frozenset()
+        self.window_blocks = talk.blocks() if talk is not None else ()
+        if talk is None:
+            return
+        rows, _text, _ids = self._recent(max(self.n_arbiter, self.n_main), talk=False)
+        shown = set(self.window_ids) | {r.obs_id for r in rows if _happened(r)}
+        _past, past_ids = compose(
+            self.oif, self.memories, self.req, exclude=shown, basis=self.basis
+        )
+        self.id_map = {**self.id_map, **past_ids}
+        self.verdict_map = {k: v for k, v in past_ids.items() if v not in shown}
+
     def _recent(self, n: int, *, talk: bool = True) -> "tuple[list, str, dict[str, str]]":
         return render_recent(
             self.oif,
@@ -506,6 +527,14 @@ class Workspace:
 
     def recent_text(self, n: int) -> str:
         return self._recent(n)[1]
+
+    def recent_for_checker(self) -> str:
+        """発話前の検査へ渡す直近。窓の会話の中なら窓の会話の全部と [そのあいだに起きたこと]（環-ar 段 D）。"""
+        if self.window_talk is None:
+            return self.recent_text(self.n_main)
+        return "\n\n".join(
+            p for p in (self.window_talk, self._recent(self.n_main, talk=False)[1]) if p
+        )
 
     def render(
         self,
@@ -595,7 +624,8 @@ class Workspace:
 
     @property
     def for_main(self) -> str:
-        return self.render(self.n_main)
+        """主LLM へ渡す W。窓の会話の中なら [直近のやりとり] を外す（窓の会話は system に別に置く・環-ar 段 D）。"""
+        return self.render(self.n_main, window=True, with_talk=False)
 
 
 #: 確かさがこれを下回ったら印を付ける（`format_for_context` から引き継いだ値）。

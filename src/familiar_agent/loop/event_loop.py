@@ -50,6 +50,7 @@ from ..person_memory_manager import AGENT_SELF_ID
 from .speech_check import PAST_CHARS, facts_ctx, fitting_cap, past_rows
 from ..core.wake_window import WakeWindow
 from ..core.window_talk import WindowTalk, result_text as _talk_result
+from ..backends.types import system_text
 from ..core.measure import record as measure_record
 from ..config import main_llm_cache_on
 from .generator import SILENCE_MARK, SILENCE_NOTE, _pi_ctx, _present_ctx
@@ -671,6 +672,27 @@ def _is_silence_mark(text: str) -> bool:
     return t.endswith(SILENCE_MARK)
 
 
+def _caches_window(backend) -> bool:
+    """窓の会話の行ごとにキャッシュの印を付ける backend か（環-ar 段 D）。ほかは system を 1 本の文にするので守るものが無い。"""
+    from ..backends.anthropic import AnthropicBackend
+
+    return isinstance(backend, AnthropicBackend)
+
+
+#: 窓の会話の中の say だけの回に、毎回変わる部分の最後へ添える言葉（環-ar 段 D）。道具の一覧は変えないので、言葉で伝える。
+SAY_ONLY_NOTE = "[この回] say だけを使う。ほかの道具は呼ばない（呼んでも使われない）。"
+
+
+def _with_say_only_note(system: Any) -> Any:
+    """system の最後（毎回変わる部分）に、say だけの回の言葉を添える。前のまとまりには触らない（キャッシュを外さない）。
+
+    言い直しは前の回の system をそのまま使うので、すでに添えてあれば足さない。
+    """
+    if not isinstance(system, tuple) or not system or SAY_ONLY_NOTE in system[-1]:
+        return system
+    return (*system[:-1], f"{system[-1]}\n\n{SAY_ONLY_NOTE}" if system[-1] else SAY_ONLY_NOTE)
+
+
 def _without_silence_note(system: Any) -> Any:
     """言い直しに渡す system から、黙ってよいの指示を外す（出-db 段 F：伝えるのは最初の返事だけ）。"""
     if isinstance(system, tuple):
@@ -1146,9 +1168,18 @@ class InformationProcessing:
         return obs_id
 
     def _build_system(
-        self, *, present_ctx: str, workspace_ctx: str, iter_ctx: str, music: str = ""
-    ) -> "tuple[str, str]":
-        """主LLM の system 文（安定部・可変部）を組む。材料の出所はここに集める。"""
+        self,
+        *,
+        present_ctx: str,
+        workspace_ctx: str,
+        iter_ctx: str,
+        music: str = "",
+        window: "tuple[str, ...]" = (),
+    ) -> "tuple[str, ...]":
+        """主LLM の system 文（安定部・可変部）を組む。材料の出所はここに集める。
+
+        窓の会話の中なら、あいだに見出しと行（`window`）が 1 つずつ入る（環-ar 段 D）。
+        """
         from ..capability_state import load_summary
 
         agent = self._agent
@@ -1184,6 +1215,7 @@ class InformationProcessing:
             origin=self._req.trigger_kind,
             # 見回りの行き先の材料（知-c）。自発の求めだけ。
             now_note=self._patrol_note() if self._req.trigger_kind == "情動" else "",
+            window=window,
         )
 
     def _researched(self) -> bool:
@@ -1623,52 +1655,52 @@ class InformationProcessing:
         say_asked: bool = False,
     ) -> None:
         """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
-        agent = self._agent
         started = time.monotonic()
         # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
         # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
         # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
         narrow = ("say",)
+        say_only = capped or retried or say_asked
         # プロンプトキャッシュを使うか（出-bs 段 2）。層 3 が直近 7 日の続き方で入り切りする。使わないなら固定部分と
         # 道具の印を付けない（組を 1 本の文にすれば、どの backend も印を付けない）。
         cache_on = main_llm_cache_on()
+        # 窓の会話の中では、say だけの回も道具の一覧を変えない（環-ar 段 D）。一覧を変えると、道具から後ろ（安定部と
+        # 窓の会話）のキャッシュが全部外れる。say だけであることは毎回変わる部分（最後）で伝え、ほかの呼び出しは捨てる。
+        # キャッシュを使わない日は守るものが無いので、いまどおり say だけを渡す。
+        say_only_in_window = (
+            say_only
+            and cache_on
+            and _caches_window(self._agent.backend)
+            and self._talk_of(self._req.window_session) is not None
+        )
+        if say_only_in_window:
+            system = _with_say_only_note(system)
         if not cache_on and isinstance(system, tuple):
-            system = "\n\n".join(s for s in system if s)
+            system = system_text(system, sep="\n\n")
         # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
         tools = self._tools(
-            actions=narrow if capped or retried or say_asked else _FULL_ACTIONS,
+            actions=narrow if say_only and not say_only_in_window else _FULL_ACTIONS,
             cache_tools=cache_on,
         )
-        # 当たりは層 3 が時刻と道具の数で数える（使わない週も同じ物差し・出-bs 段 2）。
-        measure_record("主LLM", 道具=len(tools))
-        try:
-            result, _raw = await agent.backend.stream_turn(
-                system=system,
-                messages=messages,
-                tools=tools,
-                # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
-                max_tokens=max_tokens,
-                on_text=None,
-                effort=effort,
+        result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
+        if say_only_in_window and any(tc.name != "say" for tc in result.tool_calls):
+            # 道具は渡してあるが、この回は say だけ（環-ar 段 D）。ほかの呼び出しは投げずに捨てる。
+            kept = [tc for tc in result.tool_calls if tc.name == "say"]
+            logger.info(
+                "event-loop 主LLM の say だけの回なので道具の呼び出しを捨てた：%s",
+                "/".join(tc.name for tc in result.tool_calls if tc.name != "say"),
             )
-        except asyncio.CancelledError:
-            raise
-        except Exception as e:  # noqa: BLE001
-            logger.exception("event-loop 主LLM の呼び出しに失敗: %s", e)
-            from ..backends.types import TurnResult as _TR
-
-            result = _TR(stop_reason="end_turn", text="")
-        if not result.tool_calls and _looks_like_text_tool_call(result.text or ""):
-            # 道具呼び出しを**文で**書いてきた（Sonnet 5・`<invoke>` 約 50 回に 1 回、関数呼び出し風
-            # `say(text="…")` も・2026-09-15）。読めるなら呼び出しに直す。素テキストのままだと
-            # 画面と O にそのまま出るか、沈黙になる。
-            recovered = tool_calls_from_text(result.text)
-            if recovered:
-                logger.info(
-                    "event-loop 主LLM が道具呼び出しを文で書いたので拾い直す：%s",
-                    "/".join(tc.name for tc in recovered),
+            result = replace(result, tool_calls=kept)
+            if not kept:
+                # 捨てたら何も言えない。黙って終わらないよう、say だけを渡してもう一度呼ぶ（キャッシュはこの 1 回だけ外れる）。
+                logger.info("event-loop say が無かったので、say だけを渡して呼び直す")
+                # この並びは二度と使わないので、道具にキャッシュの印は付けない（書き込みの割増を払わない）。
+                tools = self._tools(actions=narrow, cache_tools=False)
+                result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
+                # 文で書いた呼び出しを拾い直すと say 以外も来うるので、もう一度ふるう。
+                result = replace(
+                    result, tool_calls=[tc for tc in result.tool_calls if tc.name == "say"]
                 )
-                result = replace(result, stop_reason="tool_use", text="", tool_calls=recovered)
         # **生成の秒数は必ず残す**（出-k-い）。何が返ったか（道具・字数・写真の有無）も添える。
         # 所要時間を出していたのは調停だけで、主LLM はログの時刻差から手で引くしかなかった。
         say = next((tc for tc in result.tool_calls if tc.name == "say"), None)
@@ -1706,6 +1738,43 @@ class InformationProcessing:
                 ),
             )
         )
+
+    async def _main_llm_turn(
+        self, system, messages: list, tools: list[dict], max_tokens: int, effort
+    ):
+        """主LLM を 1 回呼ぶ。失敗は空の返りにし、文で書いた道具の呼び出しは拾い直す。"""
+        agent = self._agent
+        # 当たりは層 3 が時刻と道具の数で数える（使わない週も同じ物差し・出-bs 段 2）。
+        measure_record("主LLM", 道具=len(tools))
+        try:
+            result, _raw = await agent.backend.stream_turn(
+                system=system,
+                messages=messages,
+                tools=tools,
+                # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
+                max_tokens=max_tokens,
+                on_text=None,
+                effort=effort,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop 主LLM の呼び出しに失敗: %s", e)
+            from ..backends.types import TurnResult as _TR
+
+            result = _TR(stop_reason="end_turn", text="")
+        if not result.tool_calls and _looks_like_text_tool_call(result.text or ""):
+            # 道具呼び出しを**文で**書いてきた（Sonnet 5・`<invoke>` 約 50 回に 1 回、関数呼び出し風
+            # `say(text="…")` も・2026-09-15）。読めるなら呼び出しに直す。素テキストのままだと
+            # 画面と O にそのまま出るか、沈黙になる。
+            recovered = tool_calls_from_text(result.text)
+            if recovered:
+                logger.info(
+                    "event-loop 主LLM が道具呼び出しを文で書いたので拾い直す：%s",
+                    "/".join(tc.name for tc in recovered),
+                )
+                result = replace(result, stop_reason="tool_use", text="", tool_calls=recovered)
+        return result
 
     async def _run_lookup(
         self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
@@ -2399,8 +2468,9 @@ class InformationProcessing:
         """
         if not decision.time_ref:
             return ws
+        moved = None
         with contextlib.suppress(Exception):
-            ws = await workspace.recall(
+            moved = await workspace.recall(
                 self._agent._oif,
                 cue,
                 viewpoint=viewpoint,
@@ -2414,7 +2484,14 @@ class InformationProcessing:
                 decision.time_ref,
                 decision.time_span_days or "既定",
             )
-        return ws
+        if moved is None:
+            return ws
+        # 引き直した W も、同じ窓の会話を持つ（環-ar 段 D：主LLM へ渡す W と system が窓の会話を失わない）。
+        try:
+            moved.set_window(self._talk_of(self._req.window_session))
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 引き直した W に窓の会話を入れられなかった", exc_info=True)
+        return moved
 
     def _tone_note(self) -> str:
         """いまの相手向けの口調を 1 行で（出-ak・2026-09-23）。分からなければ空。
@@ -3337,6 +3414,17 @@ class InformationProcessing:
         渡す**（v0.46）。即席のラベル（YOLO）はこの部屋で `bench` 1 語になり、材料不足で毎回
         full へ倒れた（実機）。写真があれば `light` で「机と椅子が見えます」と答えられる。
         """
+        # 窓が開いていれば、窓の会話の全部を渡す。Jev は W の直近の枠の代わりに、書き手は起点の言葉のすぐ前に、主LLM は
+        # system の安定部の後に置き、書き手と主LLM の W からは直近の枠を外す（環-ar 段 B・C・D）。主LLM へ戻る see の帰りも
+        # 同じ W を使うので、早く戻る道より前で入れる。
+        ws.set_window(self._talk_of(self._req.window_session))
+        if ws.window_talk is not None:
+            logger.debug(
+                "event-loop 窓の会話 %d 行（%d 字）:\n%s",
+                ws.window_talk.count("\n"),
+                len(ws.window_talk),
+                ws.window_talk,
+            )
         if self._see_returned:
             self._see_returned = False
             if self._req.see_by == "主LLM":
@@ -3345,18 +3433,6 @@ class InformationProcessing:
                 return ArbiterDecision(branch="full", effort="low")
             # 写真は渡さない（出-au 段 5-7a）。読み取りは状態として W に載っている（`_read_photo_into_state`）。
             logger.info("event-loop 調停が出した see の帰りなので調停が判断する（読み取りは W に）")
-        # 窓が開いていれば、窓の会話の全部を渡す。Jev は W の直近の枠の代わりに、書き手は起点の言葉のすぐ前に置き、
-        # 書き手の W からは直近の枠を外す（環-ar 段 B・段 C）。
-        talk = self._talk_of(self._req.window_session)
-        ws.window_talk = talk.render() if talk is not None else None
-        ws.window_ids = frozenset(talk.ids) if talk is not None else frozenset()
-        if ws.window_talk is not None:
-            logger.debug(
-                "event-loop 窓の会話 %d 行（%d 字）:\n%s",
-                ws.window_talk.count("\n"),
-                len(ws.window_talk),
-                ws.window_talk,
-            )
         # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない（Jev に聞いた回の文は arbiter_records にある）。
         writer_w = ws.for_arbiter
         logger.debug("event-loop 調停へ渡す W:\n%s", writer_w)

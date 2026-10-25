@@ -58,14 +58,6 @@ def test_the_happenings_stay_beside_the_window_talk():
     assert "直近のひとこと" not in text
 
 
-def test_the_main_view_does_not_change_in_this_stage():
-    """書き手の W は段 C で変わる（`test_window_talk_goes_to_writer`）。主LLM の W は段 D まで、いまどおり。"""
-    ws = _ws()
-    ws.window_talk = TALK
-    text = ws.for_main
-    assert "直近のひとこと" in text and "窓の会話" not in text
-
-
 def test_memories_go_before_the_window_talk():
     big = "長い記憶の中身。" * 250  # 2,000 字
     ws = _ws([_rec("m1", "高い" + big, fit=0.9), _rec("m2", "低い" + big, fit=0.1)])

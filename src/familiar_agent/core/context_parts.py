@@ -53,6 +53,8 @@ class Context:
 
     stable: str
     variable: str
+    #: 窓の会話の見出しと行（環-ar 段 D）。安定部と可変部のあいだに、1 つずつ別のまとまりとして置く。窓の外は空。
+    window: "tuple[str, ...]" = ()
 
 
 def build_context(
@@ -72,8 +74,9 @@ def build_context(
     recent: str = "",
     workspace: str = "",
     today: "date | None" = None,
+    window: "tuple[str, ...]" = (),
 ) -> Context:
-    """部品を選び、安定 → 可変の順に組む。
+    """部品を選び、安定 → 窓の会話（`window`・環-ar 段 D）→ 可変の順に組む。
 
     並びは呼ぶ側が決められない。順序は前方一致キャッシュが効く条件であり、呼ぶたびに手で
     守らせると、いつか崩れる。可変部は **いま → 顔ぶれ → 内部状態 → 反復 → 直近のやりとり → 作業状態**。直近の
@@ -142,4 +145,6 @@ def build_context(
     return Context(
         stable="\n\n".join(stable_parts),
         variable="\n\n".join(variable_parts),
+        # 窓の会話は窓の中で増えるだけなので、安定部の後・毎回変わる可変部の前に置く（環-ar 段 D）。
+        window=tuple(t for t in window if t),
     )

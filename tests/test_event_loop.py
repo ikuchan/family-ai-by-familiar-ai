@@ -594,9 +594,12 @@ def test_intake_drains_inbox_in_place():
     assert ip._drained_completions == []  # 中身だけ空にする
 
 
-def test_system_prompt_is_split_for_caching():
+def test_system_prompt_is_split_for_caching(monkeypatch):
     # 安定部（静的核＋ME＋FAMILY＋capabilities）と可変部を分けて渡すと、安定部に
     # cache_control が付いて反復ごとの再処理が減る。1本の文字列だと効かない。
+    # 窓の外として見る。キーボードの言葉は窓を開けるが、窓の会話の中では system に行が入り、W から直近の枠を外す
+    # （環-ar 段 D・`test_window_talk_goes_to_main`）。
+    monkeypatch.setattr(InformationProcessing, "_talk_of", lambda self, session: None)
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     _run(a)
     system = a.backend.stream_turn.call_args.kwargs["system"]

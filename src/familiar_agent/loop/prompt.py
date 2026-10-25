@@ -190,12 +190,13 @@ def build_event_system_prompt(
     season_env: str = "",
     people_md: str = "",
     family_now: str = "",
-) -> tuple[str, str]:
+    window: "tuple[str, ...]" = (),
+) -> "tuple[str, ...]":
     """案B：静的核 ＋ 自己認識 MI（1枚）＋ FAMILY ＋ 規則 ＋ 自己像 ＋ 日時 ＋ 顔ぶれ ＋ PI ＋ 反復 ＋ W を組む。
 
     返りは **(安定部, 可変部)** の対。安定部（静的核＋自己認識＋FAMILY）は反復ごとに
     変わらないので、backend がここへ `cache_control` を付けて再処理を省ける。1本の文字列で
-    渡すとキャッシュが効かない。
+    渡すとキャッシュが効かない。窓の会話の中なら、あいだに見出しと行が 1 つずつ入る（環-ar 段 D）。
 
     日時は現行 run() と同じ書式で必ず入れる。これが無いと「昨日」「一昨日」を自分で解けず、
     日付を利用者に聞き返すことになる（実機で観測）。
@@ -223,5 +224,7 @@ def build_event_system_prompt(
         inner_state=pi_ctx,
         iteration=iter_ctx,
         workspace=workspace_ctx,
+        window=window,
     )
-    return ctx.stable, ctx.variable
+    # 窓の会話の中なら (安定部, 見出し, 行…, 可変部)。backend が行ごとにキャッシュの境目を置く（環-ar 段 D）。
+    return (ctx.stable, *ctx.window, ctx.variable)

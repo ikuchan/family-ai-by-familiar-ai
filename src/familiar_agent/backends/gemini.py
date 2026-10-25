@@ -18,7 +18,7 @@ from .shared import (
     _retry_transient,
     _ThinkingTagFilter,
 )
-from .types import ToolCall, TurnResult
+from .types import ToolCall, TurnResult, system_text
 
 logger = logging.getLogger(__name__)
 
@@ -264,15 +264,14 @@ class GeminiBackend:
     @watch_credit
     async def stream_turn(
         self,
-        system: str | tuple[str, str],
+        system: str | tuple[str, ...],
         messages: list,
         tools: list[dict],
         max_tokens: int,
         on_text: Callable[[str], None] | None,
         effort: str | None = None,  # 署名を揃えるだけ（未対応）
     ) -> tuple[TurnResult, Any]:
-        if isinstance(system, tuple):
-            system = "\n\n---\n\n".join(s for s in system if s)
+        system = system_text(system)  # 窓の会話の行は 1 つの枠にする（環-ar 段 D）
         types = self._types
         contents = self._flatten_messages(messages)
 

@@ -45,7 +45,7 @@ class LLMBackend(Protocol):
 
     async def stream_turn(
         self,
-        system: str | tuple[str, str],
+        system: str | tuple[str, ...],
         messages: list,
         tools: list[dict],
         max_tokens: int,

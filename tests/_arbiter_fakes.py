@@ -183,10 +183,21 @@ async def decide(
 
 
 def ws_of(*, text: str = "", memories=None, returned_lookups=()) -> SimpleNamespace:
-    """W の代わり。`_decide` が取り出す欄だけを持つ。Jev 用の口は無い（全文の W をそのまま測る・出-bw）。"""
-    return SimpleNamespace(
+    """W の代わり。`_decide` が取り出す欄だけを持つ。Jev 用の口は無い（全文の W をそのまま測る・出-bw）。
+
+    窓の会話は入れるだけ（`set_window`・環-ar 段 D）。対応表は持たないので組み直さない。
+    """
+    ws = SimpleNamespace(
         for_arbiter=text,
         memories=memories or [],
         returned_actions=frozenset(a for a, _f, _r in returned_lookups),
         returned_lookups=returned_lookups,
     )
+
+    def set_window(talk) -> None:
+        ws.window_talk = talk.render() if talk is not None else None
+        ws.window_ids = frozenset(talk.ids) if talk is not None else frozenset()
+        ws.window_blocks = talk.blocks() if talk is not None else ()
+
+    ws.set_window = set_window
+    return ws

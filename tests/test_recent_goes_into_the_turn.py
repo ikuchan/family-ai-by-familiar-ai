@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 from familiar_agent.backends import ToolCall
+from familiar_agent.loop.event_loop import InformationProcessing
 from tests.test_event_loop import _agent, _run, _turn
 
 
@@ -48,7 +49,10 @@ def _with_recent(a, rows):
     a._memory.recent_exchanges = MagicMock(return_value=rows)
 
 
-def test_the_recent_talk_reaches_the_system_text_without_a_judgement():
+def test_the_recent_talk_reaches_the_system_text_without_a_judgement(monkeypatch):
+    # 窓の外として見る。キーボードの言葉は窓を開けるが、窓の会話の中では system に行が入り、W から直近の枠を外す
+    # （環-ar 段 D・`test_window_talk_goes_to_main`）。
+    monkeypatch.setattr(InformationProcessing, "_talk_of", lambda self, session: None)
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
     # 続きと判定されなくても（判定は Jev・出-au 段 5-4。`_agent` は Jev を持たない＝落ちる）
     _with_recent(a, _rows())
@@ -59,8 +63,11 @@ def test_the_recent_talk_reaches_the_system_text_without_a_judgement():
     assert "8時半に開会式だよ。" in system
 
 
-def test_the_verbatim_is_not_shortened():
+def test_the_verbatim_is_not_shortened(monkeypatch):
     """直近の枠は切らない。切ると細部が消える（過去の列も 2026-09-20 から全文）。"""
+    # 窓の外として見る。キーボードの言葉は窓を開けるが、窓の会話の中では system に行が入り、W から直近の枠を外す
+    # （環-ar 段 D・`test_window_talk_goes_to_main`）。
+    monkeypatch.setattr(InformationProcessing, "_talk_of", lambda self, session: None)
     long = "あ" * 400
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "うん"})])])
     _with_recent(
