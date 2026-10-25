@@ -58,11 +58,12 @@ def test_the_happenings_stay_beside_the_window_talk():
     assert "直近のひとこと" not in text
 
 
-def test_the_writer_and_the_main_views_do_not_change_in_this_stage():
+def test_the_main_view_does_not_change_in_this_stage():
+    """書き手の W は段 C で変わる（`test_window_talk_goes_to_writer`）。主LLM の W は段 D まで、いまどおり。"""
     ws = _ws()
     ws.window_talk = TALK
-    for text in (ws.for_arbiter, ws.for_main):
-        assert "直近のひとこと" in text and "窓の会話" not in text
+    text = ws.for_main
+    assert "直近のひとこと" in text and "窓の会話" not in text
 
 
 def test_memories_go_before_the_window_talk():

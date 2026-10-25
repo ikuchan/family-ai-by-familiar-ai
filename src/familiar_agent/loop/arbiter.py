@@ -502,6 +502,8 @@ class ArbiterInput:
     #: ロボットの呼び名（`ME.md`）と直近のやりとり（3 往復）。軽く返すか黙るかの判定に渡す（出-db 段 E）。
     agent_names: tuple[str, ...] = ()
     recent_ctx: str = ""
+    #: 窓の会話の全部（環-ar 段 C）。書き手の文で、起点の言葉のすぐ前に置く。窓の外・行がまだ無ければ空。
+    window_ctx: str = ""
     #: キーボードで打った言葉か。テレビも崩れた書き起こしも来ないので、軽く返すか黙るかの判定はしない（出-db 段 E）。
     typed: bool = False
     present_ctx: str = ""
@@ -653,7 +655,7 @@ class Arbiter:
         """Jev へ送る文を、送る前に測って組む（出-bw）。収まらなければ None（呼び手は聞かずに倒し先へ倒す）。
 
         W 以外の部分の字数を数え、残りを W に使える字数として `jev_workspace` に渡す。書き手（軽量LLM）への文は
-        今までどおり全文の W を使う（`_writer_call`）。断られてから少しずつ削る往復はしない（出-bm を撤去）。
+        Jev の字数の上限（`jev_max_chars`）で記憶を削らない W を使う（`_writer_call`）。断られてから少しずつ削る往復はしない（出-bm を撤去）。
         """
         jinp = replace(inp, utterance=inp.jev_utterance or inp.utterance, workspace_ctx="")
         base = len(self._state(jinp)) - len(_NO_WORKSPACE)
@@ -1246,7 +1248,7 @@ WRITER_PROMPT = """\
 [いま誰が居るか]
 {present}
 
-{heading}
+{window}{heading}
 {utterance}
 
 [いまの作業状態]
@@ -1429,6 +1431,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         decided=decided,
         now=inp.now_ctx or "（分からない）",
         present=inp.present_ctx or "（分からない）",
+        window=f"{inp.window_ctx}\n\n" if inp.window_ctx else "",
         heading=heading,
         utterance=inp.utterance,
         workspace=(inp.workspace_ctx or "（なし）")

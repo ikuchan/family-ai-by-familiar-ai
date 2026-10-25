@@ -69,6 +69,11 @@ def test_what_the_person_said_comes_after_who_is_here():
     assert _pos("[いまの作業状態]") > _pos("{heading}")
 
 
+def test_the_window_talk_comes_just_before_what_the_person_said():
+    """窓の会話（環-ar 段 C）は窓の中で増えていくので、[いま誰が居るか] より後、起点の言葉のすぐ前。"""
+    assert _pos("{window}{heading}") > _pos("[いま誰が居るか]")
+
+
 def test_the_name_is_not_passed_separately():
     # `ME.md` の「名前： …」が `[あなたは誰か]`（システム文）に入っている。二重に渡さない。
     assert "{agent_name}" not in WRITER_PROMPT

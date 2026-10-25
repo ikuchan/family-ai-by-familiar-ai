@@ -53,6 +53,9 @@ def test_the_arbiter_and_the_main_llm_get_the_same_frame_with_different_widths(m
     co.clear_cache()
     a = _agent_with_four_exchanges()
     ip = InformationProcessing(a)
+    # 窓の外の直近の枠を見る。キーボードの言葉は窓を開けるが、窓の会話の中では書き手の W から直近の枠を外し、
+    # 窓の会話を別に渡す（環-ar 段 C・`test_window_talk_goes_to_writer`）。
+    ip._talk_of = lambda session: None
     seen: dict[str, str] = {}
 
     async def scenario():

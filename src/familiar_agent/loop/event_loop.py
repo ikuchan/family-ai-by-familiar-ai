@@ -3345,33 +3345,38 @@ class InformationProcessing:
                 return ArbiterDecision(branch="full", effort="low")
             # 写真は渡さない（出-au 段 5-7a）。読み取りは状態として W に載っている（`_read_photo_into_state`）。
             logger.info("event-loop 調停が出した see の帰りなので調停が判断する（読み取りは W に）")
-        # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない。
-        logger.debug("event-loop 調停へ渡す W:\n%s", ws.for_arbiter)
-        # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
-        # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
-        cue = self._start_reaction_cue(ws.returned_lookups)
-        heard = self._take_heard_check(ws)
-        # Jev へ送る W では、窓が開いていれば直近の枠の代わりに窓の会話の全部（環-ar 段 B）。
+        # 窓が開いていれば、窓の会話の全部を渡す。Jev は W の直近の枠の代わりに、書き手は起点の言葉のすぐ前に置き、
+        # 書き手の W からは直近の枠を外す（環-ar 段 B・段 C）。
         talk = self._talk_of(self._req.window_session)
         ws.window_talk = talk.render() if talk is not None else None
         ws.window_ids = frozenset(talk.ids) if talk is not None else frozenset()
         if ws.window_talk is not None:
             logger.debug(
-                "event-loop Jev へ送る W：直近の代わりに窓の会話 %d 行（%d 字）",
+                "event-loop 窓の会話 %d 行（%d 字）:\n%s",
                 ws.window_talk.count("\n"),
                 len(ws.window_talk),
+                ws.window_talk,
             )
+        # W の全文は DEBUG。調停が何を見て選んだかは、これが無いと後から追えない（Jev に聞いた回の文は arbiter_records にある）。
+        writer_w = ws.for_arbiter
+        logger.debug("event-loop 調停へ渡す W:\n%s", writer_w)
+        # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
+        # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
+        cue = self._start_reaction_cue(ws.returned_lookups)
+        heard = self._take_heard_check(ws)
         try:
             decision = await self._arbiter().decide(
                 self._arbiter_input(
                     utterance=utterance,
-                    workspace_ctx=ws.for_arbiter,  # 同じ W・狭い窓（記-h）
+                    workspace_ctx=writer_w,  # 狭い窓（記-h）。窓の中では [直近のやりとり] を外す
+                    # 書き手の文で起点の言葉のすぐ前に置く（環-ar 段 C）
+                    window_ctx=ws.window_talk or "",
                     present_ctx=present_ctx,
                     capped=capped,
                     round_=round_,
                     returned=ws.returned_actions,
                     returned_lookups=ws.returned_lookups,
-                    # Jev へ送る W と [いま湧いたこと] は、重なりを除いて測る（出-bw）。書き手は全文を見る。
+                    # Jev へ送る W と [いま湧いたこと] は、重なりを除いて測る（出-bw）。書き手は Jev の字数の上限で記憶を削らない W を見る。
                     jev_workspace=getattr(ws, "for_jev_arbiter", None),
                     jev_utterance=(
                         ws.jev_cue()
@@ -3429,6 +3434,7 @@ class InformationProcessing:
         jev_workspace: "Callable[[int], str | None] | None" = None,
         jev_utterance: str = "",
         heard: "dict | None" = None,
+        window_ctx: str = "",
     ) -> ArbiterInput:
         """調停へ渡す材料。判定（`_decide`）が見る。"""
         from ..capability_state import load_summary
@@ -3477,6 +3483,7 @@ class InformationProcessing:
             music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,
+            window_ctx=window_ctx,
             jev_max_chars=int(getattr(agent.config, "jev_state_max_chars", 28_000)),
             **self._confirm_inputs(),
             **_heard_inputs(heard),

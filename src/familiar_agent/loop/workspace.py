@@ -447,7 +447,8 @@ class Workspace:
     returned_lookups: "tuple[tuple[str, bool, str], ...]" = ()
     #: この反復で返った道具の index（出-bw）。Jev へ送る版の文から本文を外すのに使う。組んだ時点の値を固定する。
     returned_idx: "frozenset[int]" = frozenset()
-    #: 窓の会話の全部（環-ar 段 B）。窓の会話の中ならループが入れ、Jev へ送る W では [直近のやりとり] の代わりに載る。
+    #: 窓の会話の全部（環-ar 段 B・段 C）。窓の会話の中ならループが入れ、Jev へ送る W では [直近のやりとり] の代わりに載る。
+    #: 書き手の W（`for_arbiter`）は [直近のやりとり] を外すだけで、窓の会話は書き手の文の別の場所に置く。
     #: 行がまだ無ければ空文字（前の窓の話を直近として載せない）。窓の外は None で、いまどおり直近。
     window_talk: "str | None" = None
     #: 窓の会話の行になった記録の id。Jev へ送る W では、これと [そのあいだに起きたこと] の行だけを記憶の列から外す。
@@ -512,13 +513,15 @@ class Workspace:
         *,
         memories: "list[Recalled] | None" = None,
         window: bool = False,
+        with_talk: bool = True,
     ) -> str:
         # 窓の会話はやりとりの代わりで、[そのあいだに起きたこと]（タイマー・入室など）はいまどおり載せる（環-ar 段 B）。
+        # 書き手は窓の会話を文の別の場所に置くので、W には載せない（`with_talk=False`・段 C）。
         talk_instead = window and self.window_talk is not None
         rows, recent, recent_ids = self._recent(n, talk=not talk_instead)
         shown = set(recent_ids.values())
         if talk_instead:
-            recent = "\n\n".join(p for p in (self.window_talk, recent) if p)
+            recent = "\n\n".join(p for p in (self.window_talk if with_talk else "", recent) if p)
             # 記憶の列から外すのは、窓の会話の行になった記録と [そのあいだに起きたこと] に載った行だけ（本人の決定ア）。
             shown = set(self.window_ids) | {r.obs_id for r in rows if _happened(r)}
         past, _ = compose(
@@ -533,7 +536,8 @@ class Workspace:
 
     @property
     def for_arbiter(self) -> str:
-        return self.render(self.n_arbiter)
+        """書き手（軽量LLM）へ渡す W。窓の会話の中なら [直近のやりとり] を外す（窓の会話は別に渡す・環-ar 段 C）。"""
+        return self.render(self.n_arbiter, window=True, with_talk=False)
 
     # ── Jev へ送る W（出-bw・2026-10-12・本人の決定）────────────────────────────────
     # 送る前に測って、上限を超えたら一度で削る。重なりは 3 つの道（Jev・主LLM・軽量LLM）とも除く（出-br）。
