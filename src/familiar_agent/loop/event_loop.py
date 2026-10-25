@@ -3373,6 +3373,9 @@ class InformationProcessing:
         return ArbiterInput(
             utterance=utterance,
             workspace_ctx=workspace_ctx,
+            # 文脈に合わない言葉の読み直し（出-db 段 B）。キーボードで打った言葉は話しかけなので、名前が無くても
+            # 名前つきと同じに読む（本人の決定ア）。窓の開け閉めには使わない。
+            named=self._req.named or self._req.source == "keyboard",
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             people_md=str(getattr(agent, "_people_md", "") or ""),

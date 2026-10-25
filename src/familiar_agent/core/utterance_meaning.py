@@ -9,7 +9,8 @@
 - 先読みで 1 回に並べる：意味の問いと、意味ごとの「もしこの言葉が○○なら」の問いを同じ回で聞き、返った意味の答えだけ使う
   （Jev にキャッシュは無く、2 回に分けると状態の文を 2 回送る）。
 - 「文脈」は直前のやりとり（人とパジュの言葉）のことで、思い出した記憶ではない。
-- 決まり：成立しないものは黙る。文脈に合わない言葉は、聞き返すを 0.6 以上で選んだときだけ聞き返し、それ以外は黙る。ほかは
+- 決まり：成立しないものは黙る。文脈に合わない言葉は、名前が無ければ黙り、名前で呼ばれたら次に確率の高い意味で読む
+  （出-db 段 B）。ほかは
   確率で決める（出-db 段 A・2026-10-25・本人の決定 1-a）：返す側（軽く返す＋考えて返す）の確率の和が、ほかのどの動作よりも
   大きければ返し、そうでなければいちばん確率の高い動作。名乗り・否定だけは 0.6 を見て、足りなければ聞き返す（聞き返すは
   軽量LLM が 20 字までで書く）。
@@ -24,9 +25,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-#: しきい値（2026-10-09 本人の決定）。出-db 段 A（2026-10-25）から、意味と動作の決まりでは名乗り・否定と、文脈に合わない言葉の
-#: 聞き返しだけに使う。ほかの意味と動作は確率で決める——確信度は確率の集まり方で、害の無い選択肢に割れただけで聞き返しに
-#: 倒れていた。見立ての「たぶん」と、調停の確認の答え・聞き取りの確認の答えもこの値を見る。
+#: しきい値（2026-10-09 本人の決定）。出-db 段 A（2026-10-25）から、意味と動作の決まりでは名乗り・否定だけに使う。
+#: ほかの意味と動作は確率で決める——確信度は確率の集まり方で、害の無い選択肢に割れただけで聞き返しに倒れていた。見立ての「たぶん」と、調停の確認の答え・聞き取りの確認の答えもこの値を見る。
 THRESHOLD = 0.6
 #: 聞き返すときに軽量LLM へ渡す文字数の上限（2026-10-08 本人の決定）。
 ASK_BACK_MAX_CHARS = 20
@@ -89,10 +89,11 @@ MEANINGS: "dict[str, tuple[str, str]]" = {
         "その他の依頼と会話",
         "ほかの依頼と会話（あいさつ・相づち・気持ち・おしゃべり）",
     ),
+    # 出-db 段 B（2026-10-25・本人の決定 3-e・案 C）：「パジュに向けた言葉ではなさそう」は宛先の判定と同じことを聞いていたので
+    # 外し、話の筋が通らないことだけにした。「ところで」で始まる言葉を除く書き方は、かえってこれを選ばせた（実験 0.54〜0.92）。
     "off_context": (
         "これまでの文脈に合わない言葉",
-        "直前のやりとりの続きとして読むと、話の流れに合わない"
-        "（パジュに向けた言葉ではなさそう・別の人との話・急に関係の無い話）",
+        "直前のやりとりの続きとしても、新しい話題としても、何を言いたいのか通らない",
     ),
     "unformed": (
         "成立しないもの（文章・言葉・文字・その他）",
@@ -187,7 +188,7 @@ ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
     ),
     "answerable": ("reply_full", "reply_light", *_COMMON),
     "other": ("reply_light", "reply_full", *_COMMON),
-    "off_context": ("ask_back", "silent"),
+    "off_context": ("silent",),  # 名前が無ければいつも黙る（出-db 段 B）。2 回目は聞かない
     "unformed": ("silent",),
 }
 #: 名乗り・否定の 2 回目で、家族の誰でもないとき。
@@ -274,8 +275,10 @@ def fanout_questions(
     meanings = offered(music=music, camera=camera, suggesting=suggesting)
     qs: dict[str, dict] = {
         "meaning": choice(
-            "この人の言葉を、直前のやりとりの続きとして読むと、次のどれに当たるか"
-            "（思い出したことは文脈に含めない）",
+            # 話題を変えた言葉も、その中身で選ばせる（出-db 段 B・INSTR_C）。続きとしてだけ読むと、話題を変えた頼みを
+            # 文脈に合わないと読む。
+            "この人の言葉は、次のどれに当たるか（直前のやりとりを踏まえて読む。話題を変えた言葉も、その中身で選ぶ。"
+            "思い出したことは文脈に含めない）",
             {k: MEANINGS[k][1] for k in meanings},
         )
     }
@@ -366,6 +369,33 @@ _ANSWERING_MEANINGS = ("other", "answerable")
 _KEPT_MEANINGS = frozenset({*_ANSWERING_MEANINGS, "unformed", "off_context", "claim", "deny"})
 
 
+#: 名前つきの文脈に合わない言葉を読み直すのに要る、次の意味の確率（出-db 段 B・2026-10-25・本人の決定）。記録 2 件
+#: （本物 0.36・崩れた声 0.13）のあいだに置いた仮の値で、実機で貯めて見直す（`計測_設定値根拠台帳`）。
+REREAD_MIN = 0.25
+#: 読み直し先にしない意味。
+_NOT_REREAD = frozenset({"off_context", "unformed", "claim", "deny"})
+
+
+def reread_named(meaning: "dict[str, Any]") -> "dict[str, Any]":
+    """名前で呼ばれた言葉が「文脈に合わない」なら、次に確率の高い意味で読み直す（出-db 段 B・本人の決定 3-e）。
+
+    名前で呼ばれたなら話しかけられているので、黙らない。文脈に合わない・成立しない・名乗り・否定を除いた、いちばん確率の
+    高い意味にする。その確率が `REREAD_MIN` に届かなければ読み直さない（黙る）。名前で始まる崩れた声（10/24 19:02
+    「パチュうちゅう…これです」：次の意味はその他 0.13）を黙らせ、名前つきの本物の頼み（10/24 18:43「アジュントラーズと
+    レイソルの試合の結果を教えて」：調べる 0.36）は活かす（本人の決定ア）。名乗り・否定は読み違えて話者を付け替える害が
+    大きいので、読み直し先にしない。
+    """
+    if str(meaning.get("choice") or "") != "off_context":
+        return meaning
+    rest = {k: p for k, p in _probs(meaning).items() if k not in _NOT_REREAD}
+    if not rest:
+        return meaning
+    best = max(rest, key=lambda k: rest[k])
+    if rest[best] < REREAD_MIN:
+        return meaning
+    return {**meaning, "choice": best, "confidence": rest[best]}
+
+
 def settle_meaning(meaning: "dict[str, Any]") -> "dict[str, Any]":
     """道具を動かす意味が弱く選ばれたら、返す側の意味に置き換える（出-db 段 A・2026-10-25・本人の決定ア）。
 
@@ -389,10 +419,10 @@ def decide(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> Outcom
     m = str(meaning.get("choice") or "")
     if m == "unformed":
         return Outcome("silent", why="成立しないもの→黙る")
-    a = str((action or {}).get("choice") or "")
     if m == "off_context":
-        sure_ask = a == "ask_back" and _conf(action) >= THRESHOLD
-        return Outcome("ask_back" if sure_ask else "silent", why="文脈に合わない言葉")
+        # 名前の無い言葉は、いつも黙る（出-db 段 B・本人の決定 3-e）。名前つきは呼び手が `reread_named` で読み直してから来る。
+        return Outcome("silent", why="文脈に合わない言葉→黙る")
+    a = str((action or {}).get("choice") or "")
     if m in ("claim", "deny"):
         # 誰かを決めつけるので、名乗り・否定だけは 0.6 を見る（出-db 段 A・本人）。
         if _conf(meaning) < THRESHOLD or _conf(action) < THRESHOLD:

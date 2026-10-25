@@ -79,11 +79,14 @@ def test_a_guessed_ask_back_carries_the_heard_check(monkeypatch):
 
 
 def test_a_plain_ask_back_carries_nothing(monkeypatch):
-    """**反証の側**：見立ての無い聞き返し（文脈に合わない言葉）は預けない。"""
+    """**反証の側**：動作の見立ての無い聞き返し（確信度の足りない否定）は預けない。
+
+    文脈に合わない言葉は、出-db 段 B から聞き返さずに黙るので、ここでは否定で確かめる。
+    """
     monkeypatch.setattr(arbiter_records, "record", lambda **kw: None)
-    jev = _jev({"meaning": _a("off_context", 0.4), "action_off_context": _a("ask_back", 0.9)})
-    d = asyncio.run(decide(jev=jev, writer=writer_says({"text": "なんて？"}), utterance="あれ"))
-    assert d.branch == "light" and d.heard_check is None
+    jev = _jev({"meaning": _a("deny", 0.5), "action_deny": _a("パパ", 0.5)})
+    d = asyncio.run(decide(jev=jev, writer=writer_says({"text": "なんて？"}), utterance="ちがう"))
+    assert (d.branch, d.text) == ("light", "なんて？") and d.heard_check is None
 
 
 # --- 4. 預かりがあるときの答え ---

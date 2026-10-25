@@ -89,12 +89,13 @@ def test_a_doubtful_ask_back_tells_the_writer_the_guess(monkeypatch):
     assert "見立て" in kept["outcome"]
 
 
-def test_an_off_context_ask_back_keeps_the_plain_question(monkeypatch):
-    d, prompt, kept = _ask_back_after_doubt(
-        monkeypatch,
-        {"meaning": _a("off_context", 0.4), "action_off_context": _a("ask_back", 0.9)},
-    )
-    assert d.branch == "light"
-    assert "見立て" not in prompt
-    assert "何をしてほしいのかを確かめる" in prompt
-    assert "見立て" not in kept["outcome"]
+def test_an_off_context_word_is_not_asked_back(monkeypatch):
+    """文脈に合わない言葉は、見立ての無い聞き返しをしていた。出-db 段 B から、名前が無ければ黙る（書く側を呼ばない）。"""
+    kept: dict = {}
+    monkeypatch.setattr(arbiter_records, "record", lambda **kw: kept.update(kw))
+    jev = _jev({"meaning": _a("off_context", 0.4), "action_off_context": _a("ask_back", 0.9)})
+    writer = writer_says({"text": "なんて？"})
+    d = asyncio.run(decide(jev=jev, writer=writer, utterance="あれ", origin="発話"))
+    assert (d.branch, d.text) == ("light", "")
+    writer.complete.assert_not_awaited()
+    assert "黙る" in kept["outcome"]

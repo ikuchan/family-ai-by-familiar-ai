@@ -36,7 +36,8 @@ def test_naming_and_denial_questions_keep_their_wording():
 
 
 def test_the_meaning_question_still_reads_the_flow():
-    assert CONTINUATION in _qs()["meaning"]["instructions"]
+    # 意味の問いは直前のやりとりを踏まえて読む。文は出-db 段 B で「話題を変えた言葉も、その中身で選ぶ」形に改めた。
+    assert "直前のやりとりを踏まえて読む" in _qs()["meaning"]["instructions"]
 
 
 def test_the_choices_do_not_change():

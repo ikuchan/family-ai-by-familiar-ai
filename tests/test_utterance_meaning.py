@@ -43,8 +43,8 @@ def test_unusable_meanings_are_not_offered():
 
 def test_every_meaning_offers_ask_back_and_silence_except_the_fixed_ones():
     for meaning, keys in um.ACTIONS_BY_MEANING.items():
-        if meaning == "unformed":
-            assert keys == ("silent",)
+        if meaning in ("unformed", "off_context"):
+            assert keys == ("silent",)  # 文脈に合わないも黙るだけ（出-db 段 B）
         elif meaning in ("claim", "deny"):
             continue  # 2 回目は誰か・どの呼び方か（家族の呼び方から作る）
         elif meaning == "speaking":
@@ -69,7 +69,9 @@ def test_the_fan_out_asks_the_meaning_and_each_meanings_actions_at_once():
 def test_the_rules():
     d = um.decide
     assert d(_a("unformed", 0.1), None).final == "silent"
-    assert d(_a("off_context", 0.2), _a("ask_back", 0.7)).final == "ask_back"
+    assert (
+        d(_a("off_context", 0.2), _a("ask_back", 0.7)).final == "silent"
+    )  # いつも黙る（出-db 段 B）
     assert d(_a("off_context", 0.2), _a("ask_back", 0.4)).final == "silent"
     assert d(_a("music", 0.5), _a("play_music", 0.9)).final == "play_music"
     assert d(_a("music", 0.9), _a("ask_back", 0.2)).final == "ask_back"

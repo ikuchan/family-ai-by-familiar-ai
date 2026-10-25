@@ -497,6 +497,8 @@ class ArbiterInput:
 
     utterance: str
     workspace_ctx: str
+    #: 名前で呼ばれた発話か（`_req.named`）。文脈に合わない言葉でも黙らずに読み直す（出-db 段 B）。
+    named: bool = False
     present_ctx: str = ""
     now_ctx: str = ""
     origin: str = "発話"  # 発話／機器／情動
@@ -937,8 +939,19 @@ class Arbiter:
             self._tell_decided("reply_full")
             return _FALLBACK
         # 道具を動かす意味が弱く選ばれたら、返す側の意味に置き換える（出-db 段 A・本人の決定ア）。記録には Jev の答えのまま残す。
-        meaning = um.settle_meaning(got["meaning"])
+        # 名前で呼ばれた言葉は、文脈に合わないでも黙らずに次の意味で読む（出-db 段 B・本人の決定 3-e）。
+        jev_meaning = str(got["meaning"].get("choice") or "")
+        meaning = got["meaning"]
+        reread = ""
+        if inp.named:
+            meaning = um.reread_named(meaning)
+            if meaning.get("choice") != jev_meaning:
+                reread = f"名前つきの文脈に合わない言葉を読み直した（{jev_meaning}→{meaning.get('choice')}）"
+        before = str(meaning.get("choice") or "")
+        meaning = um.settle_meaning(meaning)
         m = str(meaning.get("choice") or "")
+        if m != before:
+            reread = "・".join(p for p in (reread, f"意味を返す側にした（{before}→{m}）") if p)
         offered = um.offered(
             music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
             camera=inp.can_see,
@@ -951,11 +964,8 @@ class Arbiter:
             # 迷ったときに 2 回目を聞く問いは外したので（出-db 段 A）、主LLM に考えて返させる。
             outcome = um.Outcome("reply_full", why=f"並べていない意味（{m}）")
         final = outcome.final
-        jev_meaning = str(got["meaning"].get("choice") or "")
-        if jev_meaning != m:
-            outcome = um.Outcome(
-                final, outcome.name, f"意味を返す側にした（{jev_meaning}→{m}）・{outcome.why}"
-            )
+        if reread:
+            outcome = um.Outcome(final, outcome.name, f"{reread}・{outcome.why}")
         # 迷って聞き返すなら、何を迷ったかを書く側に渡す（出-bl）。記録にも残す。
         guess = (
             um.guess(meaning, got.get(f"action_{m}"))
