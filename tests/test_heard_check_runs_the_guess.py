@@ -1,7 +1,7 @@
 """迷った聞き返しは聞き取りの確認にし、「はい」で見立ての動作を投げる（出-cm・2026-10-15・本人の決定①②）。
 
 迷って聞き返すと「タイマーを開始しますか？」のような実行の確認を書き、次の「はい」はふつうの言葉として読まれて何も
-動かなかった。聞き返しは「3分のタイマーと言ったの？」のように聞き取りを確かめる形にし、見立ての動作と元の言葉を預ける。
+動かなかった。聞き返しは聞き取りを確かめる形にし（出-db 段 G から「3分のタイマーのこと？」のような短い推測の問い）、見立ての動作と元の言葉を預ける。
 次の発話は確認待ちと同じ 3 択（はい・いいえ・それ以外）で読み、はいなら見立ての動作を元の言葉でふつうの道で書いて投げる。
 預かりは 30 秒〔仮〕で切れ、次の発話で答えがどれでも消える。
 """
@@ -48,7 +48,10 @@ def test_no_guessed_action_for_names_denials_and_unread_words():
 
 def test_the_ask_back_asks_what_was_heard_not_whether_to_do_it():
     words = arbiter._ASK_GUESS_WORDS + arbiter._FIELD_TEXT["text_ask_guess"]
-    assert "と言ったの？" in words  # 聞き取りの確認の形
+    # 短い推測の問いにする（出-db 段 G・本人の決定 1-d）。「〜と言ったの？」は元の言葉を言い直してくどかった。
+    field = arbiter._FIELD_TEXT["text_ask_guess"]
+    assert "「〜のこと？」" in field and "と言ったの？" not in words
+    assert "中身を空けた問いにしない" in field  # 何の・どれの、は推測ではない
     assert "しますか？" in arbiter._FIELD_TEXT["text_ask_guess"]  # 実行の確認の形は名指しで禁じる
     assert "見立てが合っているか" not in words
 
@@ -56,7 +59,7 @@ def test_the_ask_back_asks_what_was_heard_not_whether_to_do_it():
 # --- 3. 調停が見立てつきの聞き返しで預かりを載せる ---
 
 
-def _doubtful_timer(monkeypatch, *, writer_text: str = "3分のタイマーと言ったの？"):
+def _doubtful_timer(monkeypatch, *, writer_text: str = "3分のタイマーのこと？"):
     monkeypatch.setattr(arbiter_records, "record", lambda **kw: None)
     jev = _jev(
         {
@@ -74,7 +77,7 @@ def _doubtful_timer(monkeypatch, *, writer_text: str = "3分のタイマーと�
 
 def test_a_guessed_ask_back_carries_the_heard_check(monkeypatch):
     d = _doubtful_timer(monkeypatch)
-    assert (d.branch, d.text) == ("light", "3分のタイマーと言ったの？")
+    assert (d.branch, d.text) == ("light", "3分のタイマーのこと？")
     assert d.heard_check == {"action": "set_timer", "utterance": "3分測って"}
 
 
@@ -94,7 +97,7 @@ def test_a_plain_ask_back_carries_nothing(monkeypatch):
 _HEARD = {
     "heard_check_action": "set_timer",
     "heard_check_utterance": "3分測って",
-    "heard_check_question": "3分のタイマーと言ったの？",
+    "heard_check_question": "3分のタイマーのこと？",
 }
 
 
@@ -109,7 +112,7 @@ def test_yes_runs_the_guessed_action_with_the_original_words(monkeypatch):
     assert d.tool_input and d.tool_input.get("after_minutes") == 3
     state, questions = jev.ask.await_args_list[0].args
     assert set(questions) == {"answer"}  # 3 択だけを聞いた
-    assert "3分のタイマーと言ったの？" in state and "うん" in state
+    assert "3分のタイマーのこと？" in state and "うん" in state
     assert "3分測って" in prompt_of(writer)  # 書き手には元の言葉を渡す
 
 
@@ -161,7 +164,7 @@ def _decide_with(ip, decision, utterance: str):
 def _asked():
     return arbiter.Decision(
         branch="light",
-        text="3分のタイマーと言ったの？",
+        text="3分のタイマーのこと？",
         heard_check={"action": "set_timer", "utterance": "3分測って"},
     )
 
@@ -176,7 +179,7 @@ def test_the_loop_keeps_the_check_and_passes_it_once():
     assert first.heard_check_action == ""
     second = _decide_with(ip, _plain(), "うん")
     assert (second.heard_check_action, second.heard_check_utterance) == ("set_timer", "3分測って")
-    assert second.heard_check_question == "3分のタイマーと言ったの？"
+    assert second.heard_check_question == "3分のタイマーのこと？"
     # **反証の側**：使った預かりは消える（2 回目の「はい」では動かない）。
     third = _decide_with(ip, _plain(), "うん")
     assert third.heard_check_action == ""

@@ -69,7 +69,7 @@ def test_claims_and_denials_still_need_confidence():
     sure = um.decide(_p("claim", 0.9), _p("パパ", 0.9))
     assert (sure.final, sure.name) == ("claim", "パパ")
     assert um.decide(_p("claim", 0.9), _p("パパ", 0.5)).final == "ask_back"
-    assert um.decide(_p("deny", 0.5), _p("たいき", 0.9)).final == "ask_back"
+    assert um.decide(_p("deny", 0.5), _p("ママ", 0.9)).final == "ask_back"
 
 
 def test_the_second_question_is_gone():

@@ -85,7 +85,10 @@ def test_a_doubtful_ask_back_tells_the_writer_the_guess(monkeypatch):
     assert "見立て" in prompt and um.MEANINGS["research"][0] in prompt
     assert um.ACTIONS["recall"] in prompt
     # 聞き取りの確認の形で聞く（出-cm・見立てが合っているかを聞く形から替えた）。
-    assert "と言ったの？" in prompt and "約束しない" in prompt
+    assert (
+        "「〜のこと？」" in prompt and "と言ったの？" not in prompt
+    )  # 短い推測の問い（出-db 段 G）
+    assert "約束しない" in prompt
     assert "見立て" in kept["outcome"]
 
 

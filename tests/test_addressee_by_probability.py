@@ -39,9 +39,9 @@ def _judge(c, **kw):
     args = dict(
         text="ごはんできたよー",
         recent="- 相手：パジュ、今日の予定は？",
-        present="パパ・たいき",
+        present="パパ・ママ",
         names=["パジュ", "はじゅ"],
-        voice="パパ 0.62・たいき 0.31",
+        voice="パパ 0.62・ママ 0.31",
     )
     args.update(kw)
     return asyncio.run(jev_judges.judge_addressee(c, **args))
@@ -76,7 +76,7 @@ def test_the_choices_and_the_state():
     assert "遊び（しりとりなど）の続きの一語" in q["criteria"]["robot"]
     assert "パジュ" not in q["instructions"] and "パジュ" not in "".join(q["criteria"].values())
     assert "[ロボットの呼び名]\nパジュ、はじゅ" in state
-    assert "ごはんできたよー" in state and "今日の予定" in state and "たいき" in state
+    assert "ごはんできたよー" in state and "今日の予定" in state and "ママ" in state
     assert "パパ 0.62" in state
 
 
@@ -108,12 +108,12 @@ def test_the_loop_passes_the_names_and_the_voice_by_call_name():
     a._jev = _client(_robot(0.9))
     ip = InformationProcessing(a)
     ip._voice_scores = lambda v: {"p1": 0.31, "p2": 0.62, "p3": 0.1}
-    ip._call_name_for = lambda pid: {"p1": "たいき", "p2": "パパ"}.get(pid)
+    ip._call_name_for = lambda pid: {"p1": "ママ", "p2": "パパ"}.get(pid)
     t = Trigger(kind="会話入力", query="はい", source="voice", voice=object())
     assert asyncio.run(ip._between_family(t)) is False
     state, _ = a._jev.ask.await_args.args
     assert "[ロボットの呼び名]\nパジュ、パチュ" in state
-    assert "パパ 0.62・たいき 0.31" in state and "p3" not in state
+    assert "パパ 0.62・ママ 0.31" in state and "p3" not in state
 
 
 def test_a_voice_that_cannot_be_read_is_unknown():
