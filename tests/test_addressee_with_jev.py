@@ -4,8 +4,9 @@
 
 - 窓の中で名前の無い**声**のときだけ、その言葉・直近のやりとり・顔ぶれを送って聞く。名前がある入力とキーボードは聞かない
   （パジュに向けたものと決まっている）。
-- **家族どうし**なら捨てる。窓の外の入力と同じく、打ち切り・時刻の印・会話ログ・窓の延長のどれも起こさない。
-- パジュ宛て・分からない・Jev が使えない・確信度 0.6 未満なら受ける（倒し先）。
+- **パジュ宛てでない**（ロボット宛ての確率が 0.3 未満・出-db 段 C）なら捨てる。窓の外の入力と同じく、打ち切り・時刻の印・
+  会話ログ・窓の延長のどれも起こさない。
+- ロボット宛てが 0.3 以上か、Jev が使えないなら受ける。決め方の細かい確かめは `test_addressee_by_probability.py`。
 - 窓の延長は判定の後（家族どうしの話では延ばさない）。
 """
 
@@ -19,7 +20,6 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from familiar_agent.backends.jev import JevAnswer
-from familiar_agent.core import jev_judges
 from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
@@ -28,7 +28,12 @@ pytestmark = pytest.mark.real_window  # 門そのものを確かめる
 
 
 def _answer(pick: str, conf: float = 0.8) -> JevAnswer:
-    return JevAnswer(ok=True, answers={"to_whom": {"choice": pick, "confidence": conf}})
+    """`pick` に確率 `conf`、残りをほかの選択肢に等分した答え。"""
+    others = [k for k in ("robot", "family", "nowhere", "unknown") if k != pick]
+    probs = {pick: conf, **{k: (1.0 - conf) / len(others) for k in others}}
+    return JevAnswer(
+        ok=True, answers={"to_whom": {"choice": pick, "confidence": conf, "probabilities": probs}}
+    )
 
 
 def _ip(answer=None, *, exc=None):
@@ -64,7 +69,7 @@ def _push(ip, text, *, source="voice", arrived=None):
 
 
 def test_family_talk_inside_the_window_is_dropped_without_side_effects():
-    ip, a, heard = _ip(_answer("family"))
+    ip, a, heard = _ip(_answer("family"))  # ロボット宛ては 0.07
     ip._wake_window().open(100.0)  # 窓は 130 まで
     assert _push(ip, "ごはんできたよー", arrived=110.0) is False
     assert heard == [False]
@@ -75,9 +80,23 @@ def test_family_talk_inside_the_window_is_dropped_without_side_effects():
 @pytest.mark.parametrize(
     "answer",
     [
-        _answer("paju"),
-        _answer("unknown"),
-        _answer("family", 0.5),
+        _answer("robot"),
+        # 家族どうしが 1 番でも、ロボット宛てが 0.3 以上なら受ける（確率で見る・出-db 段 C）。
+        JevAnswer(
+            ok=True,
+            answers={
+                "to_whom": {
+                    "choice": "family",
+                    "confidence": 0.4,
+                    "probabilities": {
+                        "family": 0.4,
+                        "robot": 0.35,
+                        "nowhere": 0.15,
+                        "unknown": 0.1,
+                    },
+                }
+            },
+        ),
         JevAnswer(ok=False, error="時間切れ"),
     ],
 )
@@ -95,22 +114,3 @@ def test_named_input_and_typing_are_not_asked():
     ip._wake_window().open(time.monotonic())
     assert _push(ip, "明日の天気は？", source="keyboard") is True
     a._jev.ask.assert_not_awaited()
-
-
-def test_the_state_carries_the_words_and_who_is_here():
-    c = MagicMock()
-    c.available = True
-    c.ask = AsyncMock(return_value=_answer("paju"))
-    got = asyncio.run(
-        jev_judges.judge_addressee(
-            c,
-            text="ごはんできたよー",
-            recent="- 相手：パジュ、今日の予定は？",
-            present="パパ・たいき",
-            min_conf=0.6,
-        )
-    )
-    assert got == jev_judges.TO_PAJU
-    state, questions = c.ask.await_args.args
-    assert "ごはんできたよー" in state and "今日の予定" in state and "たいき" in state
-    assert set(questions["to_whom"]["criteria"]) == {"paju", "family", "unknown"}

@@ -16,9 +16,14 @@ from ..backends.jev import choice, score
 logger = logging.getLogger(__name__)
 
 
-#: 宛先（§2.2.3）。窓の中の名前の無い声がパジュ宛てか。
+#: 宛先（§2.2.3）。窓の中の名前の無い声がパジュ宛てか。宛てでないのは、家族どうしの話か、どこにも向いていない声
+#: （テレビ・動画の声、独り言、意味の通らない書き起こし・出-db 段 C）。
 TO_PAJU = "パジュ宛て"
-TO_FAMILY = "家族どうし"
+NOT_TO_PAJU = "パジュ宛てでない"
+#: ロボット宛ての確率がこれ未満なら宛てでない（出-db 段 C・2026-10-25・本人の決定）。窓のやりとりを全部渡して測った
+#: 10/23〜10/24 の記録で、本物の返事 0.84〜0.95・しりとりの一語 0.35〜0.42、テレビと崩れた声の多くが 0.05〜0.29
+#: （`計測_設定値根拠台帳` §64）。本番は直近 3 往復しか渡さない（環-ar で全部渡す）。
+ADDRESSEE_ROBOT_MIN = 0.3
 
 #: 考え直すか（§2.2.3・§2.4）。
 RETHINK = "考え直す"
@@ -119,29 +124,52 @@ async def judge_bare_reply(client, *, heard: str, text: str, min_conf: float) ->
     return pick == "reply"
 
 
-async def judge_addressee(client, *, text: str, recent: str, present: str, min_conf: float) -> str:
-    """窓の中の名前の無い声が、パジュ宛てか家族どうしか（§2.2.3）。倒し先は「パジュ宛て」（受ける）。
+async def judge_addressee(
+    client, *, text: str, recent: str, present: str, names: "list[str]", voice: str
+) -> str:
+    """窓の中の名前の無い声が、パジュ宛てか（§2.2.3・出-db 段 C）。ロボット宛ての確率で決める。
 
-    無視されたと感じさせるより、返事をするほうが害が小さい。「分からない」も受ける側に数える。
+    確信度ではなく確率で見る（確信度は確率の集まり方で、宛てでない側が家族どうし・どこにも・分からないに割れると低くなる）。
+    ロボット宛ての確率が `ADDRESSEE_ROBOT_MIN` 未満なら宛てでない。Jev が答えないときは受ける（返事を書く LLM が、
+    返しようがなければ黙る・本人の決定ア）。以前は「迷ったら受ける」で、確信度 0.6 未満と「分からない」も受けていた
+    （出-au）が、テレビや崩れた声に口をはさむ害の方が大きく出た（10/23〜10/24）。
+
+    問いの文にパジュの名前は入れない。呼び名は ME.md から `[ロボットの呼び名]` として材料に入れる。
     """
     state = (
-        f"[いま聞こえた言葉（家のロボット・パジュの名前は含まない）]\n{text}\n\n"
+        "[ロボットの呼び名]\n" + ("、".join(names) or "（なし）") + "\n\n"
+        f"[いま聞こえた言葉]\n{text}\n\n"
         f"[直前のやりとり（古い順）]\n{recent or '（なし）'}\n\n"
-        f"[いま部屋に居る人]\n{present or '（分からない）'}"
+        f"[いま部屋に居る人]\n{present or '（分からない）'}\n\n"
+        f"[声の似かた（家族の声との近さ）]\n{voice or '（分からない）'}"
     )
     questions = {
         "to_whom": choice(
-            "この言葉は、家のロボット（パジュ）に向けたものか、家族どうしの会話か",
+            "この言葉は、この家のロボットに向けたものか",
             {
-                "paju": "パジュに向けた言葉。直前のパジュとのやりとりの続き、またはパジュへの頼み・問い",
-                "family": "家族どうしの会話。パジュには向けていない",
+                # 遊びの続きの一語は、名前も問いも無いので家族どうしに読まれていた（実験 0.21〜0.24 → 0.35〜0.42）。
+                "robot": "ロボットに向けた言葉。ロボットの直前の問いへの返事（はい・いいえ・ちがう・そうだよ）、"
+                "ロボットとしている遊び（しりとりなど）の続きの一語、やりとりの続き、またはロボットへの頼み・問い",
+                "family": "家族どうしの会話。ロボットには向けていない",
+                "nowhere": "どこにも向いていない（テレビ・動画の声、独り言、意味の通らない書き起こし）",
                 "unknown": "どちらとも決められない",
             },
         )
     }
-    pick = picked(await _ask(client, state, questions), "to_whom", min_conf)
-    verdict = TO_FAMILY if pick == "family" else TO_PAJU
-    logger.info("Jev 判定 宛先：%s", verdict)
+    answer = await _ask(client, state, questions)
+    got = (getattr(answer, "answers", None) or {}).get("to_whom") or {}
+    probs = dict(got.get("probabilities") or {})
+    if not probs and got.get("choice"):
+        probs = {str(got["choice"]): 1.0}
+    if not getattr(answer, "ok", False) or not probs:
+        # 答えが無い・答えに確率も選んだものも無いときは、答えなしと同じに受ける（確率 0 として黙らせない）。
+        logger.info("Jev 判定 宛先：答えなし（受ける）")
+        return TO_PAJU
+    robot = float(probs.get("robot", 0.0) or 0.0)
+    verdict = TO_PAJU if robot >= ADDRESSEE_ROBOT_MIN else NOT_TO_PAJU
+    logger.info(
+        "Jev 判定 宛先：%s（ロボット宛て %.2f・%s）", verdict, robot, got.get("choice") or "-"
+    )
     return verdict
 
 

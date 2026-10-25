@@ -74,7 +74,7 @@ def test_the_new_wording():
 
 
 def test_a_named_request_is_reread_above_the_cut():
-    """10/24 18:43「アジュントラーズとレイソルの試合の結果を教えて」：文脈に合わない 0.58・調べる 0.36 → 調べる。"""
+    """10/24 18:43・名前つきで、ある試合の結果を調べてと頼んだ言葉：文脈に合わない 0.58・調べる 0.36 → 調べる。"""
     got = um.reread_named(
         _p("off_context", 0.58, off_context=0.58, research=0.36, answerable=0.05, deny=0.01)
     )

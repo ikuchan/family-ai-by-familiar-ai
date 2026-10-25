@@ -4040,8 +4040,11 @@ class InformationProcessing:
                 return self._swallowed(trigger)
             if not trigger.named:
                 if trigger.source == "voice" and await self._between_family(trigger):
-                    # **家族どうしの話は受けない**（出-au 段 5-2）。窓の外の入力と同じく、何も起こさない。
-                    logger.info("event-loop 家族どうしの話なので受けない：%.40s", trigger.query)
+                    # **パジュ宛てでない話は受けない**（家族どうし・どこにも向いていない・出-au 段 5-2・出-db 段 C）。窓の外の入力と
+                    # 同じく、何も起こさない。
+                    logger.info(
+                        "event-loop パジュ宛てでないので受けない（%d 字）", len(trigger.query or "")
+                    )
                     return self._swallowed(trigger)
                 self._wake_window().extend(self._arrival(trigger))
         if self._muted:
@@ -4264,9 +4267,11 @@ class InformationProcessing:
         return self._wake_window().is_open(now)
 
     async def _between_family(self, trigger: "Trigger") -> bool:
-        """窓の中の名前の無い声が家族どうしの話かを Jev に聞く（出-au 段 5-2・`設計方針_判定の段` §2.2.3）。
+        """窓の中の名前の無い声がパジュ宛てでないか（家族どうし・どこにも向いていない）を Jev に聞く（出-au 段 5-2・出-db 段 C・
+        `設計方針_判定の段` §2.2.3）。
 
-        送るのはその言葉・直近のやりとり（3 往復）・顔ぶれ。Jev が使えない・確信度が低いときは倒し先の「パジュ宛て」。
+        送るのはその言葉・直近のやりとり（3 往復）・顔ぶれ・ME.md の呼び名・声の似かた。ロボット宛ての確率が
+        `jev_judges.ADDRESSEE_ROBOT_MIN` 未満なら宛てでない（真）。Jev が使えないときは受ける（偽）。
         """
         agent = self._agent
         recent = present = ""
@@ -4281,9 +4286,30 @@ class InformationProcessing:
             text=trigger.query,
             recent=str(recent or ""),
             present=str(present or ""),
-            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+            names=list(getattr(agent.config, "agent_names", None) or []),
+            voice=self._voice_line(trigger.voice),
         )
-        return verdict == jev_judges.TO_FAMILY
+        return verdict == jev_judges.NOT_TO_PAJU
+
+    def _voice_line(self, voice: Any) -> str:
+        """宛先の判定に渡す声の似かた（呼びかけ名と点数・近い順）。読めなければ空（出-db 段 C・本人の決定 3-d）。
+
+        声だけで止める決まりにはしない（声の登録が弱い人やお客さんの本当の頼みまで黙る）。判定の材料にするだけ。
+        """
+        if voice is None:
+            return ""
+        try:
+            scores = self._voice_scores(voice)
+            best: dict[str, float] = {}
+            for pid, v in scores.items():
+                name = self._call_name_for(pid)
+                if name and v > best.get(name, -2.0):
+                    best[name] = v  # 同じ呼びかけ名に人物が 2 つあれば、近いほうだけ
+        except Exception:  # noqa: BLE001
+            logger.warning("宛先の判定に声の似かたを渡せなかった", exc_info=True)
+            return ""
+        ranked = sorted(best.items(), key=lambda nv: nv[1], reverse=True)
+        return "・".join(f"{n} {v:.2f}" for n, v in ranked)
 
     async def _nudge_by_voice(self, trigger: "Trigger", *, stranger: bool = False) -> None:
         """窓の外で捨てた声で、欲求を押し上げる（情-p・2026-10-10・本人の決定）。
