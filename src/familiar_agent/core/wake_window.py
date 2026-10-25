@@ -201,6 +201,9 @@ class WakeWindow:
     until: float = 0.0
     #: いま鳴っている声の数。鳴っているあいだは `until` を過ぎても開いている（2026-10-07 実機 23:18）。
     speaking: int = 0
+    #: 窓の会話の番号と、その会話が始まった時刻（環-ar 段 A）。閉じた窓を開けるたびに番号が進む。
+    session: int = 0
+    started: float = 0.0
 
     def is_open(self, now: float) -> bool:
         return self.speaking > 0 or now < self.until
@@ -221,8 +224,15 @@ class WakeWindow:
         if self.speaking == 0:
             self.until = max(self.until, now + WAKE_WINDOW_SEC)
 
-    def open(self, now: float) -> None:
-        """名前を聞いた・キーボードで打たれた。そこから `WAKE_WINDOW_SEC`（縮めない）。"""
+    def open(self, now: float, *, resume: bool = False) -> None:
+        """名前を聞いた・キーボードで打たれた。そこから `WAKE_WINDOW_SEC`（縮めない）。
+
+        閉じた窓を開けると、新しい窓の会話になる（環-ar 段 A）。`resume` は、返事の話し終わりに開け直すとき
+        （出-cx・出-cw）で、同じ会話の続きとして番号を変えない。まだ会話が無ければ始める。
+        """
+        if not self.is_open(now) and (not resume or self.session == 0):
+            self.session += 1
+            self.started = now
         self.until = max(self.until, now + WAKE_WINDOW_SEC)
 
     def extend(self, now: float) -> None:

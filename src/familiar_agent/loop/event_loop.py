@@ -49,6 +49,7 @@ from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .speech_check import PAST_CHARS, facts_ctx, fitting_cap, past_rows
 from ..core.wake_window import WakeWindow
+from ..core.window_talk import WindowTalk, result_text as _talk_result
 from ..core.measure import record as measure_record
 from ..config import main_llm_cache_on
 from .generator import SILENCE_MARK, SILENCE_NOTE, _pi_ctx, _present_ctx
@@ -2249,6 +2250,14 @@ class InformationProcessing:
             if lk is not None:
                 lk.result = result_text
                 lk.failed = bool(getattr(c, "failed", False))
+                if (
+                    self._req.trigger_kind == "発話"
+                    and not lk.failed
+                    and _action_family(action) in _LOOKUP_ACTIONS
+                    and action not in _CAMERA_ACTIONS
+                ):
+                    # 調べた結果は、窓の会話に短い 1 行で足す（環-ar 段 A・全文は W の作業状態）。
+                    self._talk_line("わたし", _talk_result(query, result_text))
                 self._ledger.close(
                     lk.intent_id, state=_intents.RETURNED, failed=lk.failed, result=c.result
                 )
@@ -2520,6 +2529,8 @@ class InformationProcessing:
         self._pending_named = False
         self._req.cue_rang = False
         self._req.trigger_kind = kind
+        wake = self._wake_window()
+        self._req.window_session = wake.session if wake.is_open(time.monotonic()) else 0
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
         self._req.live_version_id = None
@@ -3177,6 +3188,7 @@ class InformationProcessing:
             obs_id = await self._write_origin("発話", text) or ""
         self._note_record(obs_id, "添え")
         self._req.added.append((obs_id, text))
+        self._talk_line(self._current_speaker_name() or "相手", text)  # 窓の会話（環-ar 段 A）
         logger.info("event-loop 調べているあいだの言葉を求めに添える：%.40s", text)
         if trigger.future is not None and not trigger.future.done():
             trigger.future.set_result("")
@@ -3228,6 +3240,7 @@ class InformationProcessing:
     async def _utterance_iteration(self, utterance: str, voice: Any = None) -> str:
         """人の言葉を O へ書き、1反復回す。**打ち切りは `push_utterance` が済ませている。**"""
         self._pending_voice = voice
+        self._talk_line(self._current_speaker_name() or "相手", utterance)  # 窓の会話（環-ar 段 A）
         await self._begin_request(kind="発話", text=utterance, utterance=utterance)
         return await self._iterate()
 
@@ -4122,6 +4135,38 @@ class InformationProcessing:
             wake = self.__dict__["_wake"] = WakeWindow()
         return wake
 
+    def _window_talk(self) -> WindowTalk:
+        """いまの窓の会話（環-ar 段 A）。窓の番号が変わったら、新しい空の会話にする。
+
+        開いた時刻は、窓の器が持つ時刻（`time.monotonic()`）を、いまの時計に引き直して見出しに使う。
+        """
+        wake = self._wake_window()
+        talk = self.__dict__.get("_talk")
+        if talk is None or talk.session != wake.session:
+            ago = max(0.0, time.monotonic() - wake.started) if wake.session else 0.0
+            opened = datetime.now(clock.local_tz()) - timedelta(seconds=ago)
+            talk = self.__dict__["_talk"] = WindowTalk(session=wake.session, opened_at=opened)
+        return talk
+
+    def _talk_line(self, who: str, text: str) -> None:
+        """窓の会話に 1 行足す（環-ar 段 A）。窓が開いているときか、いまの求めがその窓の中で始まったときだけ。
+
+        窓が閉じた後に届いた返事（出-bj）は、その求めが窓の中で始まっていれば同じ会話の行にする。窓の外で始まった
+        求めの声や結果は、閉じた会話に足さない。
+        """
+        wake = self._wake_window()
+        if wake.session == 0:
+            return
+        if not wake.is_open(time.monotonic()) and self._req.window_session != wake.session:
+            return
+        self._window_talk().add(datetime.now(clock.local_tz()), who, text)
+
+    def _window_text(self) -> str:
+        """窓が開いていれば、窓の会話の全部（1 つの文）。閉じていれば空（いまどおりの直近を使う）。"""
+        if not self._wake_window().is_open(time.monotonic()):
+            return ""
+        return self._window_talk().render()
+
     def _extend_window_for_conversation(self) -> None:
         """会話の求めで返事を出したら、そこから窓の長さ（10 秒）へ延ばす（開いているときだけ）。"""
         if self._req.trigger_kind == "発話":
@@ -4560,7 +4605,8 @@ class InformationProcessing:
                 # 10/18 07:55 に 12.9 秒の頼みで窓が問いの前に閉じ、名前の無い「はい」を窓の外として捨てた。
                 # 名前で受けた話しかけの返事も同じ（出-cx・2026-10-21 本人の決定）。名前つきで 10 秒を超えて話すと窓は
                 # 話し始めから 10 秒で切れていて、返事のあとの名前なしの声を捨てていた。考えている最中には開けない。
-                wake.open(time.monotonic())
+                # 開け直しても、同じ窓の会話の続き（環-ar 段 A）。
+                wake.open(time.monotonic(), resume=self._req.window_session == wake.session)
 
     def _voice_gain(self) -> float:
         """この求めの声の倍率。タイマーが鳴った知らせ（`[タイマー]`）だけ `TIMER_VOICE_GAIN`（既定 1.0）。
@@ -5102,6 +5148,11 @@ class InformationProcessing:
             return
         if spoken and self._req.told_unsaid:
             await self._fold_told(list(self._req.told_unsaid))
+        if spoken and text and (self._req.trigger_kind == "発話" or self._talking()):
+            # 声になった返事だけを、窓の会話に足す（環-ar 段 A）。声にしなかった文は相手に届いていない。人の言葉への
+            # 返事と、パジュから話しかけた言葉だけで、タイマーなどの知らせは会話の行にしない。
+            to = self._current_speaker_name()
+            self._talk_line(f"わたし（{to}へ）" if to else "わたし", text)
         self._note_record(answer_id, "答え" if spoken else "独白")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
