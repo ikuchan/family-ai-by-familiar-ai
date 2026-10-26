@@ -64,9 +64,9 @@ def _doubtful_timer(monkeypatch, *, writer_text: str = "3分のタイマーの�
     jev = _jev(
         {
             "meaning": _a("time", 0.5),
-            # 聞き返すが確率でまさる（出-db 段 A で 2 回目の問いを外した）。見立ては聞き返す・黙るを除いた最大のタイマー。
+            # 聞き返すが 0.7 以上でまさる（出-db 段 A・環-at）。見立ては聞き返す・黙るを除いた最大のタイマー。
             "action_time": _probs(
-                "ask_back", 0.6, {"ask_back": 0.6, "set_timer": 0.3, "silent": 0.1}
+                "ask_back", 0.75, {"ask_back": 0.75, "set_timer": 0.2, "silent": 0.05}
             ),
         },
     )
@@ -82,12 +82,13 @@ def test_a_guessed_ask_back_carries_the_heard_check(monkeypatch):
 
 
 def test_a_plain_ask_back_carries_nothing(monkeypatch):
-    """**反証の側**：動作の見立ての無い聞き返し（確信度の足りない否定）は預けない。
+    """**反証の側**：動作の見立ての無い聞き返し（呼び方が割れた否定・環-at）は預けない。
 
     文脈に合わない言葉は、出-db 段 B から聞き返さずに黙るので、ここでは否定で確かめる。
     """
     monkeypatch.setattr(arbiter_records, "record", lambda **kw: None)
-    jev = _jev({"meaning": _a("deny", 0.5), "action_deny": _a("パパ", 0.5)})
+    names = {"パパ": 0.25, "ママ": 0.25, "おばあちゃん": 0.25, "other": 0.25}
+    jev = _jev({"meaning": _a("deny", 0.5), "action_deny": _probs("パパ", 0.25, names)})
     d = asyncio.run(decide(jev=jev, writer=writer_says({"text": "なんて？"}), utterance="ちがう"))
     assert (d.branch, d.text) == ("light", "なんて？") and d.heard_check is None
 

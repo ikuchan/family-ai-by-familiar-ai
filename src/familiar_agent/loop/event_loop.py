@@ -3616,7 +3616,11 @@ class InformationProcessing:
 
     def _arbiter(self) -> Arbiter:
         agent = self._agent
-        return Arbiter(jev=getattr(agent, "_jev", None), writer=agent._utility_backend)
+        return Arbiter(
+            jev=getattr(agent, "_jev", None),
+            writer=agent._utility_backend,
+            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+        )
 
     def _arbiter_input(
         self,

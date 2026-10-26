@@ -12,8 +12,9 @@
 - 決まり：成立しないものは黙る。文脈に合わない言葉は、名前が無ければ黙り、名前で呼ばれたら次に確率の高い意味で読む
   （出-db 段 B）。ほかは
   確率で決める（出-db 段 A・2026-10-25・本人の決定 1-a）：返す側（軽く返す＋考えて返す）の確率の和が、ほかのどの動作よりも
-  大きければ返し、そうでなければいちばん確率の高い動作。名乗り・否定だけは 0.6 を見て、足りなければ聞き返す（聞き返すは
-  軽量LLM が 20 字までで書く）。
+  大きければ返し、そうでなければいちばん確率の高い動作。確率は、0.1 未満を 0 にして残りで割り直してから使う（環-at・
+  2026-10-26・本人の決定）。選んだ意味・決まった動作・名乗りの呼び方が 0.3 に届かなければ聞き返す。聞き返すは 0.7 以上の
+  ときだけ採る（聞き返すは軽量LLM が 20 字までで書く）。
 
 動作の鍵：`ask_back`（聞き返す）・`silent`（黙る）・`state_light`（状態を伝える）・`reply_light`（軽く返す）・
 `reply_full`（考えて返す＝主LLM）・`quiet`（黙る依頼を受ける）・`lift_quiet`（黙るのを解く）・道具の名前。名乗りと否定の
@@ -28,8 +29,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from .skills import Skill
 
-#: しきい値（2026-10-09 本人の決定）。出-db 段 A（2026-10-25）から、意味と動作の決まりでは名乗り・否定だけに使う。
-#: ほかの意味と動作は確率で決める——確信度は確率の集まり方で、害の無い選択肢に割れただけで聞き返しに倒れていた。見立ての「たぶん」と、調停の確認の答え・聞き取りの確認の答えもこの値を見る。
+#: 見立ての言い方の線（2026-10-09 本人の決定）。意味の確信度がこれ以上なら「たぶん」、未満なら「もしかすると」と添える。
+#: 意味と動作の決まりには使わない（確率で決める・出-db 段 A、環-at）。確認の答えは設定の `jev_confidence_min` を見る（環-at）。
 THRESHOLD = 0.6
 #: 聞き返すときに軽量LLM へ渡す文字数の上限（2026-10-08 本人の決定）。
 ASK_BACK_MAX_CHARS = 20
@@ -404,6 +405,53 @@ REREAD_MIN = 0.25
 _NOT_REREAD = frozenset({"off_context", "unformed", "claim", "deny"})
 
 
+#: 足切りの線（環-at・2026-10-26・本人の決定〔仮〕）。これ未満の選択肢を 0 にして、残りを足して 1 になるように割り直す。
+#: 選択肢が増えると確率が薄く散り、どれも線を越えずに聞き返していた。値は記録 178 件から（`計測_設定値根拠台帳`）。
+CUT_MIN = 0.1
+#: 聞き返す線（環-at・本人の決定〔仮〕）。割り直した意味・動作・名乗りの呼び方の確率が、これに届かなければ聞き返す。
+ASK_LINE = 0.3
+#: 聞き返すを採る線（環-at・本人の決定〔仮〕）。割り直した「聞き返す」がこれ未満なら、0 にして割り直す。
+ASK_BACK_TAKE = 0.7
+
+
+def trim(answer: "dict[str, Any] | None", drop: "tuple[str, ...]" = ()) -> "dict[str, Any]":
+    """`CUT_MIN` 未満と `drop` の選択肢を 0 にして（外して）、残りを足して 1 になるように割り直す（環-at）。
+
+    選択肢は、残っていればそのまま（名前つきの読み直しで選んだ意味を戻さない）、外れたら割り直した中のいちばん上にする。
+    確信度は書き換えない（見立ての「たぶん」の言い方は Jev の確信度で決める）。確率の付いていない答えと、残る選択肢が
+    無い答えは、そのまま返す。
+    """
+    answer = answer or {}
+    raw = dict(answer.get("probabilities") or {})
+    kept = {
+        str(k): float(v or 0)
+        for k, v in raw.items()
+        if str(k) not in drop and float(v or 0) >= CUT_MIN
+    }
+    if not raw or not kept:
+        return answer
+    total = sum(kept.values())
+    probs = {k: p / total for k, p in kept.items()}
+    choice = str(answer.get("choice") or "")
+    if choice not in probs:
+        choice = max(probs, key=lambda k: probs[k])
+    return {**answer, "choice": choice, "probabilities": probs}
+
+
+def too_weak(meaning: "dict[str, Any]") -> bool:
+    """選んだ意味の確率（返す側の意味なら和）を割り直して、`ASK_LINE` に届かないか（環-at）。
+
+    成立しない・文脈に合わないは黙る道なので、線と比べない。
+    """
+    m = str(meaning.get("choice") or "")
+    if m in ALWAYS_USE:
+        return False
+    probs = _probs(trim(meaning))
+    if m in _ANSWERING_MEANINGS:
+        return sum(probs.get(k, 0.0) for k in _ANSWERING_MEANINGS) < ASK_LINE
+    return probs.get(m, 0.0) < ASK_LINE
+
+
 def reread_named(meaning: "dict[str, Any]") -> "dict[str, Any]":
     """名前で呼ばれた言葉が「文脈に合わない」なら、次に確率の高い意味で読み直す（出-db 段 B・本人の決定 3-e）。
 
@@ -450,17 +498,30 @@ def decide(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> Outcom
     if m == "off_context":
         # 名前の無い言葉は、いつも黙る（出-db 段 B・本人の決定 3-e）。名前つきは呼び手が `reread_named` で読み直してから来る。
         return Outcome("silent", why="文脈に合わない言葉→黙る")
-    a = str((action or {}).get("choice") or "")
     if m in ("claim", "deny"):
-        # 誰かを決めつけるので、名乗り・否定だけは 0.6 を見る（出-db 段 A・本人）。
-        if _conf(meaning) < THRESHOLD or _conf(action) < THRESHOLD:
-            return Outcome("ask_back", why="名乗り・否定の確信度不足")
+        # 誰かを決めつけるので、割り直した呼び方が 0.3 に届かなければ聞き返す（環-at・本人の決定。確信度 0.6 をやめた）。
+        named = trim(action)
+        a = str(named.get("choice") or "")
+        if _probs(named).get(a, 0.0) < ASK_LINE:
+            return Outcome("ask_back", why="名乗り・否定の呼び方が割れた")
         return Outcome(m, name="" if a == OTHER else a, why="名乗り・否定")
-    probs = _probs(action)
+    trimmed = trim(action)
+    if _probs(trimmed).get("ask_back", 0.0) < ASK_BACK_TAKE:
+        trimmed = trim(trimmed, drop=("ask_back",))
+    probs = _probs(trimmed)
     if not probs:
         return Outcome("reply_full", why="2 回目の答えが無い")
     answering = {k: p for k, p in probs.items() if k in _ANSWERS}
     rest = [p for k, p in probs.items() if k not in _ANSWERS]
     if answering and sum(answering.values()) > max(rest, default=0.0):
-        return Outcome(max(answering, key=lambda k: answering[k]), why="返す側の和がまさる")
-    return Outcome(max(probs, key=lambda k: probs[k]), why="いちばん確率の高い動作")
+        final, p, why = (
+            max(answering, key=lambda k: answering[k]),
+            sum(answering.values()),
+            "返す側の和がまさる",
+        )
+    else:
+        final = max(probs, key=lambda k: probs[k])
+        p, why = probs[final], "いちばん確率の高い動作"
+    if p < ASK_LINE:
+        return Outcome("ask_back", why=f"動作が割れた（{final} {p:.2f}）")
+    return Outcome(final, why=why)

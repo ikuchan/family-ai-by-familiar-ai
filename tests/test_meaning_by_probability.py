@@ -2,7 +2,9 @@
 
 確信度 0.6 で絞っていたころは、確率が害の無い選択肢（軽く返す・考えて返す）に割れただけで聞き返しに倒れ、
 「パジュ、しりとりしよ」を毎回聞き返した（10/24 18:39〜18:42）。返す側（軽く返す＋考えて返す）の確率の和が、ほかの
-どの動作の確率よりも大きければ返す。名乗り・否定は誰かを決めつけるので 0.6 のまま。迷ったときに 2 回目を聞く問いは外す。
+どの動作の確率よりも大きければ返す。迷ったときに 2 回目を聞く問いは外す。確率は足切りして割り直してから使い、聞き返すは
+0.7 以上のときだけ採る。名乗り・否定は誰かを決めつけるので、割り直した呼び方が 0.3 に届かなければ聞き返す（環-at・
+`test_ask_back_by_trimmed_probability.py`）。
 """
 
 from __future__ import annotations
@@ -44,7 +46,9 @@ def test_asking_back_wins_only_over_the_sum_of_the_answers():
     """**反証の側**：聞き返すが返す側の和より大きければ、聞き返す。"""
     got = um.decide(
         _p("other", 0.9, other=0.9),
-        _p("ask_back", 0.6, ask_back=0.6, reply_light=0.25, reply_full=0.15),
+        _p(
+            "ask_back", 0.75, ask_back=0.75, reply_light=0.15, reply_full=0.1
+        ),  # 0.7 以上だけ採る（環-at）
     )
     assert got.final == "ask_back"
 
@@ -64,12 +68,13 @@ def test_without_probabilities_the_choice_is_used():
     assert got.final == "play_music"
 
 
-def test_claims_and_denials_still_need_confidence():
-    """**反証の側**：名乗り・否定は 0.6 のまま。足りなければ聞き返す（2 回目の問いは無い）。"""
+def test_claims_and_denials_ask_back_when_the_names_split():
+    """**反証の側**：名乗り・否定は、呼び方が割れて 0.3 に届かなければ聞き返す（環-at・2 回目の問いは無い）。"""
     sure = um.decide(_p("claim", 0.9), _p("パパ", 0.9))
     assert (sure.final, sure.name) == ("claim", "パパ")
-    assert um.decide(_p("claim", 0.9), _p("パパ", 0.5)).final == "ask_back"
-    assert um.decide(_p("deny", 0.5), _p("ママ", 0.9)).final == "ask_back"
+    split = _p("パパ", 0.25, パパ=0.25, ママ=0.25, おばあちゃん=0.25, other=0.25)
+    assert um.decide(_p("claim", 0.9), split).final == "ask_back"
+    assert um.decide(_p("deny", 0.9), split).final == "ask_back"
 
 
 def test_the_second_question_is_gone():

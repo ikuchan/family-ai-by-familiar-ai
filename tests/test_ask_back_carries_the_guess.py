@@ -75,9 +75,9 @@ def test_a_doubtful_ask_back_tells_the_writer_the_guess(monkeypatch):
         monkeypatch,
         {
             "meaning": _a("research", 0.5),
-            # 聞き返すが確率でまさる（出-db 段 A）。見立ては聞き返す・黙るを除いた最大の recall。
+            # 聞き返すが 0.7 以上でまさる（出-db 段 A・環-at）。見立ては聞き返す・黙るを除いた最大の recall。
             "action_research": _with_probs(
-                "ask_back", 0.5, {"ask_back": 0.5, "recall": 0.3, "search_deferred": 0.2}
+                "ask_back", 0.75, {"ask_back": 0.75, "recall": 0.15, "search_deferred": 0.1}
             ),
         },
     )

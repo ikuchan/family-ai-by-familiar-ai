@@ -653,10 +653,14 @@ class Arbiter:
     ので、写真の読み取りは状態として W に載っている（段 5-7a）。
     """
 
-    def __init__(self, *, jev, writer, timeout: "float | None" = None) -> None:
+    def __init__(
+        self, *, jev, writer, timeout: "float | None" = None, min_conf: float = 0.6
+    ) -> None:
         self._jev = jev
         self._writer = writer
         self._timeout = timeout
+        #: 確認の答え・聞き取りの確認の答えを使う確信度の下限。ほかの判定と同じ設定の `jev_confidence_min`（環-at）。
+        self._min_conf = min_conf
         #: 文章の口が時間切れになったか（計測ログの「時間切れ」・層 3 が調停の秒数を見直す材料）
         self._timed_out = False
 
@@ -760,10 +764,9 @@ class Arbiter:
         用意したもので、軽量LLM には書かせない（10/13 20:00 に聞き返しの言い方が毎回変わった）。
         """
         from ..core import jev_judges
-        from ..core.utterance_meaning import THRESHOLD
 
         verdict = await jev_judges.judge_confirm_answer(
-            self._jev, question=inp.confirm_question, text=inp.utterance, min_conf=THRESHOLD
+            self._jev, question=inp.confirm_question, text=inp.utterance, min_conf=self._min_conf
         )
         # 見出し（`query`）を付けて、調停がそのまま投げる。空だと `_close_early` を通らず主LLM へ回り、
         # 主LLM が道具を呼ばずに「手続きを進めています」と言って、掛からなかった（2026-10-17 17:58）。
@@ -790,10 +793,12 @@ class Arbiter:
         書けない。タイマーなら、その先は掛ける前の確認待ちがいままでどおり通る。
         """
         from ..core import jev_judges
-        from ..core.utterance_meaning import THRESHOLD
 
         verdict = await jev_judges.judge_confirm_answer(
-            self._jev, question=inp.heard_check_question, text=inp.utterance, min_conf=THRESHOLD
+            self._jev,
+            question=inp.heard_check_question,
+            text=inp.utterance,
+            min_conf=self._min_conf,
         )
         action = inp.heard_check_action
         yes = verdict == jev_judges.CONFIRM_YES
@@ -967,17 +972,25 @@ class Arbiter:
             meaning = um.reread_named(meaning)
             if meaning.get("choice") != jev_meaning:
                 reread = f"名前つきの文脈に合わない言葉を読み直した（{jev_meaning}→{meaning.get('choice')}）"
+        # 薄く散った確率を足切りして割り直してから決める（環-at・本人の決定）。読み直しは Jev の生の確率で済ませてある。
+        meaning = um.trim(meaning)
         before = str(meaning.get("choice") or "")
         meaning = um.settle_meaning(meaning)
         m = str(meaning.get("choice") or "")
         if m != before:
             reread = "・".join(p for p in (reread, f"意味を返す側にした（{before}→{m}）") if p)
+            # 見立ての「たぶん」は Jev の生の確率で決める（割り直した値で言い切りを強めない・環-at）。
+            raw = got["meaning"].get("probabilities") or {}
+            meaning = {**meaning, "confidence": float(raw.get(m, 0) or 0)}
         offered = um.offered(
             music=bool(_MUSIC_ACTIONS & set(inp.extra_actions)),
             camera=inp.can_see,
             suggesting=suggesting,
         )
-        if m in offered:
+        if um.too_weak(meaning):
+            # 意味が割れたら、並べていない意味でも聞き返す（環-at）。
+            outcome = um.Outcome("ask_back", why=f"意味が割れた（{m}）")
+        elif m in offered:
             outcome = um.decide(meaning, got.get(f"action_{m}"))
         else:
             # 並べていない意味（使えない道具）が返ってきたら使わない。首を回せないのに回す、などを防ぐ。

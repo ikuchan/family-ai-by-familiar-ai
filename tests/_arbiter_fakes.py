@@ -175,7 +175,7 @@ async def decide(
 ) -> Decision:
     """材料（`ArbiterInput` の欄）から本物の `Arbiter.decide` を呼ぶ。`on_decided` は決まったら知らせる口（出-bg）。"""
     inp.setdefault("workspace_ctx", "")
-    # しきい値は新しい道の各部品が持つ（`utterance_meaning.THRESHOLD`）。古い問いの `min_conf` は段 5e で外した。
+    # 意味と動作の線は `utterance_meaning` が持つ。確認の答えの下限（`min_conf`）は既定の 0.6 のまま（環-at）。
     arbiter = Arbiter(jev=jev, writer=writer or writer_says(), timeout=timeout)
     if on_decided is None:
         return await arbiter.decide(ArbiterInput(**inp))
