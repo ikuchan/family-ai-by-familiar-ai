@@ -127,7 +127,7 @@ def test_the_evaluator_reports_unmeasured_when_it_fails() -> None:
 def test_an_unmeasured_observation_is_written_as_null() -> None:
     """未測定なら3列と `emotion_vec` は NULL。A には機械値が入る。"""
     content = f"未測定テスト_{uuid.uuid4()}"
-    obs_id = _mem().save_with_id(content, kind="observation", arousal=0.4)[0]
+    obs_id = _mem().save_with_id(content, direction="観察", arousal=0.4)[0]
 
     got = _row(obs_id)
     assert got["emotion_p"] is None
@@ -141,7 +141,7 @@ def test_a_measured_observation_keeps_its_values() -> None:
     """測れた観測は従来どおり値が入る（反証側）。"""
     content = f"測定済みテスト_{uuid.uuid4()}"
     pad = MoodPAD(p=0.8, pn=0.2, a=0.6, dom=0.7)
-    obs_id = _mem().save_with_id(content, kind="observation", emotion_pad=pad)[0]
+    obs_id = _mem().save_with_id(content, direction="観察", emotion_pad=pad)[0]
 
     got = _row(obs_id)
     assert got["emotion_p"] == 0.8
@@ -154,7 +154,7 @@ def test_unmeasured_observations_stay_out_of_the_emotion_axis() -> None:
     from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
     content = f"感情軸から外れる_{uuid.uuid4()}"
-    obs_id = _mem().save_with_id(content, kind="observation", arousal=0.1)[0]
+    obs_id = _mem().save_with_id(content, direction="観察", arousal=0.1)[0]
 
     store = _mem().for_person(AGENT_SELF_ID)._observations
     rows = store.by_emotion("[0,0,0,0]", 200)

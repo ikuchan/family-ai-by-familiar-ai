@@ -142,7 +142,7 @@ def _person(cur, pid: str, name: str, display: str) -> None:
 def _memory_of(cur, pid: str) -> None:
     oid = str(uuid.uuid4())
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind) VALUES (%s,'x',%s,'記憶','observation')",
+        "INSERT INTO observations (id, content, timestamp, direction) VALUES (%s,'x',%s,'記憶')",
         (oid, datetime.now(timezone.utc)),
     )
     vec = "[" + ",".join(["0.03125"] * 1024) + "]"

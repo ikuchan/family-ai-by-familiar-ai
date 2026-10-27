@@ -114,9 +114,9 @@ def test_the_recency_index_exists() -> None:
 
 def _plant(cur, obs_id: str, content: str, ts: datetime) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-        " groundedness_g0) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", "observation", "neutral", 0.5),
+        "INSERT INTO observations (id, content, timestamp, direction, emotion, "
+        " groundedness_g0) VALUES (%s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", "neutral", 0.5),
     )
 
 
@@ -151,14 +151,11 @@ def test_groundedness_is_read_from_the_facet_not_the_event() -> None:
 
     with patch.object(_EmbeddingModel, "pre_warm"):
         base = ObservationMemory()
+    # 引いた行の根づきは、引いた視点の面の値（面を引く口は `by_time` など。記-u 段 4 で種類で引く口を外した）。
+    rows = base.for_person(AGENT_SELF_ID)._observations.by_time(now.timestamp(), 50)
+    assert [r["groundedness_n"] for r in rows if r["id"] == obs_id] == [3]
 
     def n_of(person_id: str) -> int:
-        rows = base.for_person(person_id)._observations._read_observations_by_situated(
-            person_id=person_id,
-            n=10,
-            columns=("id", "content"),
-        )
-        assert any(r["id"] == obs_id for r in rows), f"{person_id} の面が引けない"
         conn = _conn()
         try:
             with conn.cursor() as cur:

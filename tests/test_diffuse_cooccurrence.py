@@ -1,6 +1,6 @@
 """拡散想起スライス3 (A) 共起辺：共起≥2 の集まりの要素を候補で返す。
 
-現 W 自身と自己認識 MI（self_model）は除く。seed 最遠の選別は後続。
+現 W 自身と、自己認識の記録（向き「内省」）は除く（記-u 段 4 で種類から向きへ移した）。seed 最遠の選別は後続。
 
 器は関係へ移した（段 5・`設計方針_MI間の関係`）。`wr_records` は
 `relations(kind='共起')` になり、読み書きは `RelationStore` が持つ。
@@ -32,32 +32,31 @@ def _conn():
     return c
 
 
-def _obs(cur, oid, kind="conversation"):
+def _obs(cur, oid, direction="会話"):
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s,%s,%s,%s,%s,%s)",
-        (oid, "c", "2020-01-01", "会話", kind, "neutral"),
+        "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (oid, "c", "2020-01-01", direction, "neutral"),
     )
 
 
-def test_cooccurring_returns_new_mi_excluding_w_and_self_model():
+def test_cooccurring_returns_new_mi_excluding_w_and_introspection():
     conn = _conn()
     t = uuid.uuid4().hex[:8]
     a, b, c = f"{t}-a", f"{t}-b", f"{t}-c"  # 現 W の要素
     d = str(uuid.uuid4())  # 共起で連想したい新 MI（会話）
-    s = str(uuid.uuid4())  # self_model（除外されるべき）
+    e = str(uuid.uuid4())  # 同じ形の内省（自己認識の記録なので除く）
     with conn.cursor() as cur:
-        _obs(cur, d, kind="conversation")
-        _obs(cur, s, kind="self_model")
+        _obs(cur, d)
+        _obs(cur, e, direction="内省")
     store = _store()
-    store.record_cooccurrence([a, b, c, d])  # a,b,c を共有（共起3）→ d を寄与
-    store.record_cooccurrence([b, c, s])  # b,c を共有（共起2）→ s は self_model で除外
+    store.record_cooccurrence([a, b, c, d, e])  # a,b,c を共有（共起3）→ d・e を寄与
     store.record_cooccurrence([b, "z1", "z2"])  # 共有 b のみ（共起1）→ 対象外
 
     got = store.cooccurring([a, b, c], min_shared=2, limit=20)
     conn.close()
     assert d in got  # 共起≥2 の WR の新要素を拾う
-    assert s not in got  # self_model は除外
+    assert e not in got  # 自己認識の記録は除く
     assert a not in got and b not in got and c not in got  # 現 W 自身は除外
 
 
@@ -76,7 +75,7 @@ def test_diffuse_extend_adds_cooccurring_with_a0_zero():
     a, b = f"{t}-a", f"{t}-b"  # 現 W
     d = str(uuid.uuid4())  # 共起で連想したい新 MI
     with conn.cursor() as cur:
-        _obs(cur, d, kind="conversation")
+        _obs(cur, d)
     conn.close()
     _store().record_cooccurrence([a, b, d])  # a,b を共有（共起2）→ d を寄与
 

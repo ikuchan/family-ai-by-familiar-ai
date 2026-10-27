@@ -11,7 +11,7 @@
 **その全件がその人の面を既に持っている**（`present` 337／`about` 79／`addressee` 35／
 `actor` 26／`source` 9／`beneficiary` 2）。写す先が無い。
 
-**重複判定は `actor` の面へ移す。** 重複とは「同じ書き手が同じ内容を同じ kind で窓の内に」
+**重複判定は `actor` の面へ移す。** 重複とは「同じ書き手が同じ内容を同じ向きで窓の内に」
 であって、家族の二人が同じ挨拶をしたものは重複ではない（042 で `writer_id` へ移したものを、
 列の撤去に合わせて面へ移す）。
 """
@@ -106,10 +106,10 @@ def test_dedup_folds_the_same_writer_and_keeps_different_writers() -> None:
     same = f"同じ書き手_{uuid.uuid4()}"
     other = f"別の書き手_{uuid.uuid4()}"
     try:
-        mem.save_with_id(same, kind="utterance", writer_id=AGENT_SELF_ID)
-        mem.save_with_id(same, kind="utterance", writer_id=AGENT_SELF_ID)
-        mem.save_with_id(other, kind="utterance", writer_id=AGENT_SELF_ID)
-        mem.save_with_id(other, kind="utterance", writer_id=who)
+        mem.save_with_id(same, direction="発話", writer_id=AGENT_SELF_ID)
+        mem.save_with_id(same, direction="発話", writer_id=AGENT_SELF_ID)
+        mem.save_with_id(other, direction="発話", writer_id=AGENT_SELF_ID)
+        mem.save_with_id(other, direction="発話", writer_id=who)
     finally:
         if original is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
@@ -173,9 +173,9 @@ def test_the_facets_stand_from_the_arguments_alone() -> None:
                 (other, f"n-{other[:8]}"),
             )
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-                "VALUES (%s,%s,now(),%s,%s,%s)",
-                (obs_id, body, "会話", "conversation", "neutral"),
+                "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+                "VALUES (%s,%s,now(),%s,%s)",
+                (obs_id, body, "会話", "neutral"),
             )
     finally:
         conn.close()
@@ -214,9 +214,9 @@ def test_appending_refreshes_every_facet_without_dropping_the_semantic_ones() ->
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-                "VALUES (%s,%s,now(),%s,%s,%s)",
-                (obs_id, body, "会話", "conversation", "neutral"),
+                "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+                "VALUES (%s,%s,now(),%s,%s)",
+                (obs_id, body, "会話", "neutral"),
             )
             for key, content in (("actor", None), ("about", f"[自分のこと] {body}")):
                 cur.execute(

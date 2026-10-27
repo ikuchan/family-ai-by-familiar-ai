@@ -31,7 +31,7 @@ def memory():
 @pytest.fixture()
 def memory_with_data(memory):
     """ObservationMemory pre-loaded with one observation."""
-    memory.save_with_id("関連する内容についての観察", kind="observation", emotion="curious")
+    memory.save_with_id("関連する内容についての観察", direction="観察", emotion="curious")
     return memory
 
 

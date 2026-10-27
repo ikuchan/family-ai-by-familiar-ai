@@ -31,8 +31,8 @@ def _write(ctx, content: str, *, when: datetime) -> str:
         conn = ctx.conn()
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                "VALUES (%s, %s, %s, '発話', 'observation')",
+                "INSERT INTO observations (id, content, timestamp, direction) "
+                "VALUES (%s, %s, %s, '発話')",
                 (oid, content, when),
             )
         conn.commit()

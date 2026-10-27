@@ -55,9 +55,8 @@ def test_situated_rows_are_created_for_each_person(ctx) -> None:
     conn = ctx.conn()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind) "
-            "VALUES (%s,%s,NOW(),%s,%s)",
-            (obs_id, f"unit situated {obs_id}", "会話", "conversation"),
+            "INSERT INTO observations (id, content, timestamp, direction) VALUES (%s,%s,NOW(),%s)",
+            (obs_id, f"unit situated {obs_id}", "会話"),
         )
     conn.commit()
 
@@ -87,25 +86,13 @@ def test_dead_get_recent_observations_is_removed() -> None:
     assert not hasattr(ObservationStore, "_get_recent_observations")
 
 
-def test_saved_observation_is_readable_by_kind(layers) -> None:
-    """書いたものが by_kind で読める（追記と読み出しが噛み合う）。"""
-    _, observations, _ = layers
-    content = f"unit store {uuid.uuid4()}"
-    observations.materialize_save_event(
-        str(uuid.uuid4()),
-        {"content": content, "direction": "会話", "kind": "curiosity", "emotion": "neutral"},
-    )
-    rows = observations._read_observations_by_kind("curiosity", 50, ("content",))
-    assert any(r["content"] == content for r in rows)
-
-
 def test_supersede_marks_the_old_row_without_deleting_it(layers) -> None:
     """supersede は追記であって削除でない。"""
     _, observations, _ = layers
     old_id, new_id = str(uuid.uuid4()), str(uuid.uuid4())
     for oid in (old_id, new_id):
         observations.materialize_save_event(
-            oid, {"content": f"unit supersede {oid}", "direction": "会話", "kind": "conversation"}
+            oid, {"content": f"unit supersede {oid}", "direction": "会話"}
         )
     observations.mark_superseded(old_id, new_id)
 
@@ -117,20 +104,17 @@ def test_the_person_scope_lives_in_situated_not_in_the_owner_column(layers) -> N
     """人で分かれるのは situated の面であって、観測の所有者列ではない（042）。
 
     042 の前はここが「person が違えば by_kind で読めない」を仕様として固定していた。
-    所有者列を落としたので、kind が合えば誰の文脈からでも読める。人の視点で絞る役は
-    situated が担い、面を持たない person からは引けないままである。
+    所有者列を落としたので、誰の文脈からでも読める。人の視点で絞る役は situated の面が担う。
+    （種類で読む口は記-u 段 4 で外したので、所有者で絞らない新しい順の読み出しで見る。）
     """
     _, observations, _ = layers
     content = f"unit person {uuid.uuid4()}"
     observations.materialize_save_event(
         str(uuid.uuid4()),
-        {"content": content, "direction": "会話", "kind": "curiosity"},
+        {"content": content, "direction": "好奇心"},
     )
-    rows = observations._read_observations_by_kind("curiosity", 50, ("content",))
-    assert any(r["content"] == content for r in rows), "所有者絞りが残っている"
-
-    other = observations._read_observations_by_situated(str(uuid.uuid4()), 50, ("content",))
-    assert all(r["content"] != content for r in other), "面の無い person から引けている"
+    rows = observations.recency_fallback(50)
+    assert any(r["summary"] == content for r in rows), "所有者絞りが残っている"
 
 
 # ── JobQueue ────────────────────────────────────────────────────────────────
@@ -141,7 +125,7 @@ def test_job_round_trip_from_enqueue_to_materialize(layers) -> None:
     _, observations, jobs = layers
     content = f"unit job {uuid.uuid4()}"
     event_id, created = jobs.append_memory_event(
-        "memory.save", {"content": content, "direction": "会話", "kind": "conversation"}
+        "memory.save", {"content": content, "direction": "会話"}
     )
     assert created and event_id
 
@@ -149,16 +133,14 @@ def test_job_round_trip_from_enqueue_to_materialize(layers) -> None:
     assert any(j["event_id"] == event_id for j in claimed), "積んだジョブを拾えない"
 
     assert jobs.materialize_event(event_id) is True
-    rows = observations._read_observations_by_kind("conversation", 100, ("content",))
-    assert any(r["content"] == content for r in rows)
+    rows = observations.recency_fallback(100)
+    assert any(r["summary"] == content for r in rows)
 
 
 def test_failed_job_retries_then_becomes_dead_letter(layers) -> None:
     """失敗は再試行し、上限で dead_letter になる（無限に居座らない）。"""
     _, _, jobs = layers
-    event_id, _ = jobs.append_memory_event(
-        "memory.save", {"content": f"unit fail {uuid.uuid4()}", "kind": "conversation"}
-    )
+    event_id, _ = jobs.append_memory_event("memory.save", {"content": f"unit fail {uuid.uuid4()}"})
     claimed = [j for j in jobs.claim_pending_jobs(limit=50) if j["event_id"] == event_id]
     assert claimed
     job_id = claimed[0]["job_id"]
@@ -183,9 +165,7 @@ def test_by_vector_returns_rows_without_scoring(layers, ctx) -> None:
     situated, observations, _ = layers
     obs_id = str(uuid.uuid4())
     content = f"unit by_vector {obs_id}"
-    observations.materialize_save_event(
-        obs_id, {"content": content, "direction": "会話", "kind": "conversation"}
-    )
+    observations.materialize_save_event(obs_id, {"content": content, "direction": "会話"})
 
     vec = np.zeros(1024, dtype=np.float32)
     vec[0] = 1.0
@@ -195,21 +175,6 @@ def test_by_vector_returns_rows_without_scoring(layers, ctx) -> None:
     for r in rows:
         assert -1.0001 <= float(r["score"]) <= 1.0001, "生のコサインでない値が返っている"
     assert {"groundedness_g0", "groundedness_n", "emotion_p", "last_recalled_at"} <= set(rows[0])
-
-
-def test_by_vector_filters_by_kind(layers) -> None:
-    """kind を渡すとその種別だけが返る。"""
-    from familiar_agent.db import vec_to_sql
-
-    _, observations, _ = layers
-    content = f"unit by_vector kind {uuid.uuid4()}"
-    observations.materialize_save_event(
-        str(uuid.uuid4()), {"content": content, "direction": "会話", "kind": "curiosity"}
-    )
-    vec = np.zeros(1024, dtype=np.float32)
-    vec[0] = 1.0
-    rows = observations.by_vector(vec_to_sql(vec.tolist()), 50, kind="day_summary")
-    assert all(r["kind"] == "day_summary" for r in rows)
 
 
 def test_store_layers_do_not_read_configuration(layers) -> None:

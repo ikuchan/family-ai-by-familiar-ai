@@ -1,6 +1,6 @@
 """取込 novelty（内容の新規性）→ a0（課題5 v0.26）。
 
-AGENT_SELF 視点・self_model 除外・situated 近傍 K 件の平均コサインの裏返し（1−平均）。
+AGENT_SELF 視点・situated 近傍 K 件の平均コサインの裏返し（1−平均）。
 保存時に a0 = clip(w_n·novelty, 0, cap) を設定する。
 """
 
@@ -97,35 +97,47 @@ def test_novelty_wires_a0_on_save():
     try:
         mem = ObservationMemory()
         # 空ストア → 近傍0<7 → 既定 novelty 0.5 → a0 = 1.5*0.5 = 0.75
-        mem.save_with_id("novelty first unique", kind="observation")
+        mem.save_with_id("novelty first unique", direction="観察")
         assert _a0("novelty first unique") == pytest.approx(0.75, abs=0.02)
 
         # 同じ埋め込みの記憶を溜める（内容は別で dedup 回避）
         for i in range(8):
-            mem.save_with_id(f"novelty filler {i}", kind="observation")
+            mem.save_with_id(f"novelty filler {i}", direction="観察")
         # 近傍が K 件以上・コサイン≈1 → novelty≈0 → a0≈0
-        mem.save_with_id("novelty eighth", kind="observation")
+        mem.save_with_id("novelty eighth", direction="観察")
         assert _a0("novelty eighth") < 0.2
     finally:
         for p in ps:
             p.stop()
 
 
-def test_novelty_excludes_self_model():
+def _a0_after_eight(direction: str, tag: str) -> float | None:
+    """同じ埋め込みの記録を向き `direction` で 8 件ためてから、観察を 1 件書いた a0。"""
     ps = _fixed_embed()
     for p in ps:
         p.start()
     try:
         mem = ObservationMemory()
-        # self_model だけを溜める（母集合から除外される想定）
         for i in range(8):
-            mem.save_with_id(f"novelty selfmodel {i}", kind="self_model")
-        # 非 self_model の近傍は0件 → 除外が効けば既定0.5 → a0=0.75
-        mem.save_with_id("novelty against selfmodel", kind="observation")
-        assert _a0("novelty against selfmodel") == pytest.approx(0.75, abs=0.05)
+            mem.save_with_id(f"novelty {tag} {i}", direction=direction)
+        mem.save_with_id(f"novelty against {tag}", direction="観察")
+        return _a0(f"novelty against {tag}")
     finally:
         for p in ps:
             p.stop()
+
+
+def test_novelty_excludes_introspection():
+    """自己認識の記録（向き「内省」）は、新しさの比べる相手から除く（課題5 v0.26）。
+
+    内省だけをためると近傍は 0 件 → 既定 novelty 0.5 → a0 = 1.5·0.5 = 0.75。
+    """
+    assert _a0_after_eight("内省", "introspection") == pytest.approx(0.75, abs=0.05)
+
+
+def test_novelty_counts_other_directions():
+    """**反証の側**：同じ 8 件を向き「観察」でためれば比べる相手になり、a0 は下がる。"""
+    assert _a0_after_eight("観察", "observed") < 0.2
 
 
 def test_content_novelty_facade_empty_returns_default():

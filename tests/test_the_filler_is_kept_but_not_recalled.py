@@ -36,8 +36,8 @@ def test_a_filler_does_not_come_back_from_recall(ctx):
         conn = ctx.conn()
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                "VALUES (%s, %s, %s, '発話', 'observation')",
+                "INSERT INTO observations (id, content, timestamp, direction) "
+                "VALUES (%s, %s, %s, '発話')",
                 (oid, f"つなぎに言った：{mark}", datetime.now(timezone.utc)),
             )
             cur.execute(
@@ -51,7 +51,7 @@ def test_a_filler_does_not_come_back_from_recall(ctx):
     def _found():
         return {
             str(r.get("memory_id") or r.get("id"))
-            for r in store.recency_fallback(400, None)
+            for r in store.recency_fallback(400)
             if mark in str(r.get("summary") or r.get("content") or "")
         }
 

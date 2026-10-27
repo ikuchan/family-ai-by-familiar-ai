@@ -99,9 +99,9 @@ def test_apply_verdicts_still_works_without_recall_count() -> None:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id, content, timestamp, direction, kind, emotion) "
-                "VALUES (%s, %s, now(), %s, %s, %s)",
-                (obs_id, f"若返りテスト_{obs_id}", "unknown", "observation", "neutral"),
+                "(id, content, timestamp, direction, emotion) "
+                "VALUES (%s, %s, now(), %s, %s)",
+                (obs_id, f"若返りテスト_{obs_id}", "unknown", "neutral"),
             )
             cur.execute(
                 "INSERT INTO situated_memories (id, obs_id, person_id, vector) "

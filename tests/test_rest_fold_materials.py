@@ -31,8 +31,8 @@ def _conn():
 def _plant(cur, content: str, ts: datetime, *, direction="発話", n=0, hidden=False) -> str:
     oid = str(uuid.uuid4())
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, groundedness_g0)"
-        " VALUES (%s, %s, %s, %s, 'observation', 'neutral', 0.5)",
+        "INSERT INTO observations (id, content, timestamp, direction, emotion, groundedness_g0)"
+        " VALUES (%s, %s, %s, %s, 'neutral', 0.5)",
         (oid, content, ts, direction),
     )
     cur.execute(
@@ -172,7 +172,7 @@ def test_fold_day_writes_the_episode_and_person_summaries_and_folds_the_material
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT id, content, kind, direction FROM observations WHERE direction IN ('記憶','人物') ORDER BY timestamp"
+                "SELECT id, content, direction FROM observations WHERE direction IN ('記憶','人物') ORDER BY timestamp"
             )
             written = cur.fetchall()
             # 関係の表はテスト間で消えないので、自分の材料が「畳み込み」の旧で、新が自己エピソードであることだけを見る。
@@ -185,14 +185,14 @@ def test_fold_day_writes_the_episode_and_person_summaries_and_folds_the_material
             )
             pairs = {(r["old_id"], r["new_id"]) for r in cur.fetchall()}
             cur.execute(
-                "SELECT person_id FROM situated_memories WHERE obs_id = (SELECT id FROM observations WHERE kind='person_summary' LIMIT 1)"
+                "SELECT person_id FROM situated_memories WHERE obs_id = (SELECT id FROM observations WHERE direction='人物' LIMIT 1)"
             )
             facets = {r["person_id"] for r in cur.fetchall()}
     finally:
         conn.close()
-    kinds = {w["kind"] for w in written}
-    assert kinds == {"day_summary", "person_summary"}, kinds
-    episode_id = next(w["id"] for w in written if w["kind"] == "day_summary")
+    directions = {w["direction"] for w in written}
+    assert directions == {"記憶", "人物"}, directions
+    episode_id = next(w["id"] for w in written if w["direction"] == "記憶")
     assert pairs == {(a1, episode_id), (a2, episode_id)}
     assert "pid-kouki" in facets  # 関係のまとめはその人の面に立つ
 

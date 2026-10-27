@@ -29,7 +29,7 @@ def test_recall_semantic_includes_evidence_metadata() -> None:
         patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]),
     ):
         mem = ObservationMemory()
-        assert mem.save_with_id("saw a cat by the window", kind="observation", emotion="curious")[1]
+        assert mem.save_with_id("saw a cat by the window", direction="観察", emotion="curious")[1]
         rows = mem.recall("cat", n=1)
 
     assert len(rows) == 1
@@ -37,7 +37,7 @@ def test_recall_semantic_includes_evidence_metadata() -> None:
     assert row["retrieval_method"] == "semantic"
     assert row["memory_id"]
     assert row["timestamp"]
-    assert row["source_kind"] == "observation"
+    assert row["direction"] == "観察"
     assert "fit" in row
     assert 0.0 <= float(row["confidence"]) <= 1.0
 
@@ -53,14 +53,13 @@ def test_recall_fallback_includes_metadata_and_low_confidence() -> None:
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,direction,kind,emotion) "
-                "VALUES (%s,%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,emotion) "
+                "VALUES (%s,%s,%s,%s,%s)",
                 (
                     "legacy-row-1",
                     "older memory without embedding",
                     now,
                     "unknown",
-                    "conversation",
                     "neutral",
                 ),
             )
@@ -73,7 +72,7 @@ def test_recall_fallback_includes_metadata_and_low_confidence() -> None:
     row = rows[0]
     assert row["retrieval_method"] == "recency"
     assert row["memory_id"] == "legacy-row-1"
-    assert row["source_kind"] == "conversation"
+    assert row["direction"] == "unknown"
     assert float(row["confidence"]) <= 0.55
 
 
@@ -87,7 +86,6 @@ def test_format_for_context_includes_confidence_guidance() -> None:
                 "date": "2026-03-03",
                 "time": "10:00",
                 "direction": "unknown",
-                "source_kind": "conversation",
                 "emotion": "neutral",
                 "summary": "something uncertain happened",
                 "confidence": 0.3,

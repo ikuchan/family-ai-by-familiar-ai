@@ -43,10 +43,17 @@ def test_the_migration_moves_kind_into_direction():
 
     077 の UPDATE は植えた行に限らないので、確定させるとほかの試験の行（並行に走る継起の候補の試験の、印で始まる
     `求め` の行など）まで書き換える。巻き戻せば、ほかの試験からは何も起きなかったことになる。
+
+    種類の列は 078 で落とした（記-u 段 4）。077 は落とす前に当たるものなので、同じトランザクションの中で列を戻してから
+    植える。巻き戻せば列も消える。
     """
     conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     try:
         with conn.cursor() as cur:
+            cur.execute(
+                "ALTER TABLE observations "
+                "ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'observation'"
+            )
             planted = {
                 _insert(cur, "077 発話", "unknown", "utterance"): "発話",
                 _insert(cur, "077 場面", "unknown", "scene"): "観察",

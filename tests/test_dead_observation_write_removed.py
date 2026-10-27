@@ -20,7 +20,7 @@ def test_the_pipeline_does_not_write_an_observation() -> None:
     """ターン後の処理が `観察` を**書かない**。
 
     **語ではなく構文で見る。** 環-e-い で、同じ処理が新しさを測るために `観察` を
-    **読む**ようになった（`Cue(direction="観察")`）。語で探すとその読みに当たる。
+    **読む**ようになった（当時の `Cue(direction="観察")`。向きの欄は記-u 段 4 で外した）。語で探すとその読みに当たる。
     """
     import ast
     import textwrap

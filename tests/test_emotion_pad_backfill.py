@@ -65,9 +65,9 @@ def _run_backfill_migration(conn):
 
 def _insert(cur, obs_id: str, emotion: str) -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s, %s, NOW(), %s, %s, %s)",
-        (obs_id, "backfill test", "unknown", "conversation", emotion),
+        "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+        "VALUES (%s, %s, NOW(), %s, %s)",
+        (obs_id, "backfill test", "unknown", emotion),
     )
 
 

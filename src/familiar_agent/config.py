@@ -466,7 +466,7 @@ class MemoryConfig:
     recall_emotion_sigma: float = field(
         default_factory=lambda: _float_env("RECALL_EMOTION_SIGMA", 1.0)
     )
-    # 取込 novelty（内容の新規性）→ a0/A。AGENT_SELF 視点・self_model 除外・situated 近傍
+    # 取込 novelty（内容の新規性）→ a0/A。AGENT_SELF 視点・内省除外・situated 近傍
     # K 件の平均コサインの裏返し（課題5 v0.26）。a0 = clip(w_n·novelty, 0, a0_cap)。
     novelty_k: int = field(default_factory=lambda: _int_env("NOVELTY_K", 7))
     novelty_w_n: float = field(default_factory=lambda: _float_env("NOVELTY_W_N", 1.5))

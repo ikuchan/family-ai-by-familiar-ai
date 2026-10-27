@@ -47,8 +47,8 @@ def _write_pair(ctx) -> tuple[str, str, str]:
             for i in range(2):
                 oid = str(uuid.uuid4())
                 cur.execute(
-                    "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                    "VALUES (%s, %s, %s, '発話', 'observation')",
+                    "INSERT INTO observations (id, content, timestamp, direction) "
+                    "VALUES (%s, %s, %s, '発話')",
                     (oid, mark, now - timedelta(seconds=i)),
                 )
                 cur.execute(
@@ -86,28 +86,16 @@ def test_the_vector_recall_skips_the_old_one(ctx, store):
     assert hidden not in got
 
 
-def test_the_situated_read_skips_the_old_one(ctx, store):
-    hidden, kept, mark = _write_pair(ctx)
-    rows = store._read_observations_by_situated(
-        viewpoint_of(DEFAULT_PERSON_ID),
-        400,
-        ("id", "content"),
-    )
-    got = _found(rows, mark)
-    assert kept in got
-    assert hidden not in got
-
-
 def test_the_recency_fallback_skips_the_old_one(ctx, store):
     hidden, kept, mark = _write_pair(ctx)
-    got = _found(store.recency_fallback(400, None), mark)
+    got = _found(store.recency_fallback(400), mark)
     assert kept in got
     assert hidden not in got
 
 
 def test_the_keyword_fallback_skips_the_old_one(ctx, store):
     hidden, kept, mark = _write_pair(ctx)
-    got = _found(store.keyword_fallback(mark, 400, None), mark)
+    got = _found(store.keyword_fallback(mark, 400), mark)
     assert kept in got
     assert hidden not in got
 
@@ -121,8 +109,8 @@ def test_any_kind_of_relation_hides_when_the_role_is_old(ctx, store):
             conn = ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
-                    "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                    "VALUES (%s, %s, %s, '発話', 'observation')",
+                    "INSERT INTO observations (id, content, timestamp, direction) "
+                    "VALUES (%s, %s, %s, '発話')",
                     (oid, mark, datetime.now(timezone.utc)),
                 )
                 cur.execute(
@@ -132,9 +120,9 @@ def test_any_kind_of_relation_hides_when_the_role_is_old(ctx, store):
                     (str(uuid.uuid4()), oid, viewpoint_of(DEFAULT_PERSON_ID), _VEC, mark),
                 )
             conn.commit()
-        assert _found(store.recency_fallback(400, None), mark) == {oid}, kind
+        assert _found(store.recency_fallback(400), mark) == {oid}, kind
         RelationStore(ctx).add(kind, [(oid, "旧", 0), (str(uuid.uuid4()), "新", 1)])
-        assert _found(store.recency_fallback(400, None), mark) == set(), kind
+        assert _found(store.recency_fallback(400), mark) == set(), kind
 
 
 def test_a_member_in_another_role_is_not_hidden(ctx, store):
@@ -145,8 +133,8 @@ def test_a_member_in_another_role_is_not_hidden(ctx, store):
         conn = ctx.conn()
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                "VALUES (%s, %s, %s, '発話', 'observation')",
+                "INSERT INTO observations (id, content, timestamp, direction) "
+                "VALUES (%s, %s, %s, '発話')",
                 (oid, mark, datetime.now(timezone.utc)),
             )
             cur.execute(
@@ -158,4 +146,4 @@ def test_a_member_in_another_role_is_not_hidden(ctx, store):
         conn.commit()
     RelationStore(ctx).add("改訂", [(str(uuid.uuid4()), "旧", 0), (oid, "新", 1)])
     RelationStore(ctx).add("共起", [(oid, "項", None), (str(uuid.uuid4()), "項", None)])
-    assert _found(store.recency_fallback(400, None), mark) == {oid}
+    assert _found(store.recency_fallback(400), mark) == {oid}

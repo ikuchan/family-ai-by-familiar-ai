@@ -71,9 +71,9 @@ def _plant_two_facets(body: str, vec: np.ndarray) -> str:
             # 入れないと「面ごとに返るか」を確かめる前に母集合が空になる。
             cur.execute(
                 "INSERT INTO observations "
-                "(id, content, timestamp, direction, kind, emotion, emotion_vec) "
-                "VALUES (%s,%s,now(),%s,%s,%s,%s::vector)",
-                (obs_id, body, "会話", "conversation", "neutral", "[0,0,0,0]"),
+                "(id, content, timestamp, direction, emotion, emotion_vec) "
+                "VALUES (%s,%s,now(),%s,%s,%s::vector)",
+                (obs_id, body, "会話", "neutral", "[0,0,0,0]"),
             )
             for key, content in (("actor", None), ("about", f"[自分のこと] {body}")):
                 cur.execute(

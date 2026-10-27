@@ -43,14 +43,13 @@ def _insert_observation(
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO observations "
-                "(id,content,timestamp,direction,kind,emotion) "
-                "VALUES (%s,%s,%s,%s,%s,%s)",
+                "(id,content,timestamp,direction,emotion) "
+                "VALUES (%s,%s,%s,%s,%s)",
                 (
                     obs_id,
                     content,
                     now,
                     "test",
-                    kind,
                     emotion,
                 ),
             )
@@ -97,7 +96,7 @@ def test_recall_excludes_superseded_records() -> None:
     old_id = _insert_observation(mem, "stale memory about cats")
     new_id = _insert_observation(mem, "updated memory about cats")
     mem.mark_superseded(old_id=old_id, new_id=new_id)
-    results = mem.recall("cats", n=10, kind=None)
+    results = mem.recall("cats", n=10)
     returned_ids = {r["memory_id"] for r in results}
     assert old_id not in returned_ids
 
@@ -105,7 +104,7 @@ def test_recall_excludes_superseded_records() -> None:
 def test_recall_includes_non_superseded_records() -> None:
     mem = _make_memory()
     obs_id = _insert_observation(mem, "active memory about dogs")
-    results = mem.recall("dogs", n=10, kind=None)
+    results = mem.recall("dogs", n=10)
     returned_ids = {r["memory_id"] for r in results}
     assert obs_id in returned_ids
 

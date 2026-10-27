@@ -54,7 +54,7 @@ def test_saving_adds_an_observation(memory) -> None:
     conn = _pg()
     with conn.cursor() as cur:
         before = _count(cur, "SELECT count(*) FROM observations")
-    memory.save_with_id(f"invariant append {uuid.uuid4()}", direction="会話", kind="conversation")
+    memory.save_with_id(f"invariant append {uuid.uuid4()}", direction="会話")
     with conn.cursor() as cur:
         after = _count(cur, "SELECT count(*) FROM observations")
     conn.close()
@@ -90,7 +90,7 @@ async def test_conversation_turn_persists_the_memory() -> None:
 def test_saved_observation_gets_vectors(memory) -> None:
     """保存した観測に埋め込みと situated 行が付く。無ければ想起で引けない。"""
     content = f"invariant vectors {uuid.uuid4()}"
-    memory.save_with_id(content, direction="会話", kind="conversation")
+    memory.save_with_id(content, direction="会話")
 
     conn = _pg()
     with conn.cursor() as cur:
@@ -109,7 +109,7 @@ def test_saved_observation_gets_vectors(memory) -> None:
 def test_deferred_write_reaches_observations(memory) -> None:
     """materialize_now=False で積んだ書き込みが、観測として現れる。"""
     content = f"invariant deferred {uuid.uuid4()}"
-    memory.save_with_id(content, direction="会話", kind="conversation", materialize_now=False)
+    memory.save_with_id(content, direction="会話", materialize_now=False)
 
     # 積まれたイベントを memory_events から引いて流す。
     conn0 = _pg()
@@ -137,8 +137,8 @@ def test_supersede_keeps_the_original_row(memory) -> None:
     """supersede しても元の行は消えない。"""
     old = f"invariant supersede old {uuid.uuid4()}"
     new = f"invariant supersede new {uuid.uuid4()}"
-    memory.save_with_id(old, direction="会話", kind="conversation")
-    memory.save_with_id(new, direction="会話", kind="conversation")
+    memory.save_with_id(old, direction="会話")
+    memory.save_with_id(new, direction="会話")
 
     conn = _pg()
     with conn.cursor() as cur:
@@ -164,7 +164,7 @@ def test_supersede_keeps_the_original_row(memory) -> None:
 
 def test_recall_returns_usable_fit(memory) -> None:
     """想起が候補を返し、スコアが有限かつ 0 以上。中身は問わない。"""
-    memory.save_with_id(f"invariant recall {uuid.uuid4()}", direction="会話", kind="conversation")
+    memory.save_with_id(f"invariant recall {uuid.uuid4()}", direction="会話")
 
     from familiar_agent.tools.memory import _EmbeddingModel
 

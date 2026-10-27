@@ -89,7 +89,6 @@ def test_materialize_from_payload_dict_round_trips_pad() -> None:
     payload = {
         "content": "deferred pad " + uuid.uuid4().hex,
         "direction": "会話",
-        "kind": "conversation",
         "emotion": "happy",
         "emotion_pad": MoodPAD(0.7, 0.2, 0.35, 0.5).to_json_dict(),
     }

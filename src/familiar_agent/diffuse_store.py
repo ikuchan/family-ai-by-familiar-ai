@@ -102,7 +102,7 @@ def fetch_diffuse_rows(conn, ids: "list[str]") -> "list[dict]":
     rows: list[dict] = []
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT id, content, timestamp, direction, kind, emotion FROM observations "
+            "SELECT id, content, timestamp, direction, emotion FROM observations "
             "WHERE id::text = ANY(%s)",
             ([str(i) for i in ids],),
         )
@@ -112,9 +112,7 @@ def fetch_diffuse_rows(conn, ids: "list[str]") -> "list[dict]":
                 "summary": r[1],
                 "timestamp": r[2],
                 "direction": r[3],
-                "kind": r[4],
-                "source_kind": r[4],
-                "emotion": r[5],
+                "emotion": r[4],
                 "fit": 0.0,
                 "groundedness": 0.0,
                 "retrieval_method": "diffuse",

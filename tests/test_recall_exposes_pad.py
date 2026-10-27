@@ -33,14 +33,13 @@ def _seed_one(obs_id: str) -> None:
     conn.autocommit = True
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
+            "INSERT INTO observations (id, content, timestamp, direction, emotion, "
             " groundedness_g0, emotion_p, emotion_pn, emotion_a, emotion_dom) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s)",
+            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s)",
             (
                 obs_id,
                 "pad recall content",
                 "unknown",
-                "conversation",
                 "happy",
                 0.75,
                 0.8,
@@ -85,6 +84,6 @@ def test_recall_keeps_existing_keys() -> None:
     obs_id = str(uuid.uuid4())
     _seed_one(obs_id)
     m = _recall_one(_mem())
-    for key in ("memory_id", "summary", "emotion", "fit", "kind"):
+    for key in ("memory_id", "summary", "emotion", "fit", "direction"):
         assert key in m
     assert m["emotion"] == "happy"  # 文字列 emotion は従来どおり

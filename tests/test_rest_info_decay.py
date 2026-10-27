@@ -30,9 +30,9 @@ def _conn():
 
 def _plant(cur, obs_id: str, content: str, ts: datetime, *, direction: str = "発話") -> None:
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
-        " groundedness_g0) VALUES (%s, %s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, direction, "observation", "neutral", 0.5),
+        "INSERT INTO observations (id, content, timestamp, direction, emotion, "
+        " groundedness_g0) VALUES (%s, %s, %s, %s, %s, %s)",
+        (obs_id, content, ts, direction, "neutral", 0.5),
     )
 
 
@@ -266,9 +266,3 @@ def test_set_groundedness_can_return_every_face_to_zero() -> None:
     assert _memory()._observations.set_groundedness(i, 0, lower=True) == 2  # 戻した面の数
     assert _facet_row(i)["groundedness_n"] == 0
     assert _facet_row(i, other)["groundedness_n"] == 0
-
-
-def test_the_summary_direction_maps_to_core_summary_kind() -> None:
-    from familiar_agent.io.oif import _KIND_OF_DIRECTION
-
-    assert _KIND_OF_DIRECTION["まとめ"] == "core_summary"

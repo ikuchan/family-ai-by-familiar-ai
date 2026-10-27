@@ -44,9 +44,9 @@ def _plant(body: str, seed: int = 7) -> str:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-                "VALUES (%s,%s,now(),%s,%s,%s)",
-                (obs_id, body, "会話", "conversation", "neutral"),
+                "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+                "VALUES (%s,%s,now(),%s,%s)",
+                (obs_id, body, "会話", "neutral"),
             )
             cur.execute(
                 "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key, content) "

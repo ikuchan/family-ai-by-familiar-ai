@@ -34,7 +34,6 @@ async def test_worker_materializes_memory_save_jobs() -> None:
         payload = {
             "content": "queued memory",
             "direction": "unknown",
-            "kind": "conversation",
             "emotion": "neutral",
             "image_path": None,
             "override_date": None,

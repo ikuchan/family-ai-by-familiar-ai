@@ -40,8 +40,8 @@ def _obs(store: RelationStore, n: int) -> list:
             for i in range(n):
                 oid = str(uuid.uuid4())
                 cur.execute(
-                    "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                    "VALUES (%s, %s, now(), '発話', 'observation')",
+                    "INSERT INTO observations (id, content, timestamp, direction) "
+                    "VALUES (%s, %s, now(), '発話')",
                     (oid, f"共起の検査 {oid}"),
                 )
                 ids.append(oid)

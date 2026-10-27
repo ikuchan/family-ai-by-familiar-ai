@@ -39,7 +39,6 @@ def _row(obs_id: str) -> dict:
         "emotion_a": 0.5,
         "emotion_dom": 0.5,
         "direction": "発話",
-        "kind": "observation",
         "emotion": "neutral",
         "image_path": None,
         "score": 0.3,

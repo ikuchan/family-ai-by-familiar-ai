@@ -139,7 +139,6 @@ def _row(oid: str, score: float) -> dict:
         "content": f"content-{oid}",
         "timestamp": "2026-07-01T10:00:00+09:00",
         "direction": "in",
-        "kind": "observation",
         "emotion": "neutral",
         "image_path": None,
         "groundedness_g0": 1.0,
@@ -168,7 +167,7 @@ def _recall_facade(by_vector_seq, situated_cosines_fn, person_id="spk"):
     seq = list(by_vector_seq)
     calls = {"i": 0}
 
-    def _bv(q_sql, n, kind=None, exclude_ids=None):
+    def _bv(q_sql, n, exclude_ids=None):
         i = calls["i"]
         calls["i"] += 1
         return seq[i] if i < len(seq) else []
@@ -252,7 +251,7 @@ def test_recall_present_others_raises_score():
         c.close()
 
         mem = ObservationMemory()
-        mem.save_with_id("presence corr target", kind="observation", participants=["q-person"])
+        mem.save_with_id("presence corr target", direction="観察", participants=["q-person"])
 
         # 基準時刻を 60 日前にして、適合度を 1.0 の頭打ちから離す。問いと記録に同じ
         # ベクトルを渡す作り物なので、そのまま「いま」で採点すると素の適合度が 0.85 まで
@@ -288,7 +287,7 @@ def test_recall_no_present_others_unchanged():
         p.start()
     try:
         mem = ObservationMemory()
-        mem.save_with_id("presence corr regression", kind="observation")
+        mem.save_with_id("presence corr regression", direction="観察")
         a = mem.recall("presence corr regression", n=1)
         b = mem.recall("presence corr regression", n=1, present_others=[])
         assert a and b

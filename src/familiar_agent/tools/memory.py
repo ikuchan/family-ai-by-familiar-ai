@@ -68,7 +68,7 @@ logger = logging.getLogger(__name__)
 
 DB_PATH_UNUSED = ""  # kept for API compatibility, ignored
 
-# Time-window dedup: identical (person_id, content, kind) within this many seconds
+# Time-window dedup: identical (writer, content, direction) within this many seconds
 # is treated as a duplicate and silently skipped. Set to 0 to disable.
 
 
@@ -597,9 +597,6 @@ class ObservationMemory:
             logger.exception("note_lookup_started failed: %.8s", obs_id)
             return False
 
-    def get_dates_with_summaries(self) -> "list[str]":
-        return self._observations.get_dates_with_summaries()
-
     def recall_on_this_day(self, month: "int", day: "int", n: "int" = 5) -> "list[dict]":
         return self._observations.recall_on_this_day(month, day, n)
 
@@ -662,7 +659,6 @@ class ObservationMemory:
         payload = dict(
             content=content,
             direction=kwargs.get("direction", "unknown"),
-            kind=kwargs.get("kind", "observation"),
             emotion=kwargs.get("emotion", "neutral"),
             image_path=kwargs.get("image_path"),
             override_date=kwargs.get("override_date"),
@@ -701,7 +697,7 @@ class ObservationMemory:
         return await asyncio.to_thread(self.save_with_id, *a, **kw)
 
     def content_novelty(self, content: str) -> float:
-        """内容の新規性 novelty ∈ [0,1]（AGENT_SELF 視点・self_model 除外・課題5 v0.26）。
+        """内容の新規性 novelty ∈ [0,1]（AGENT_SELF 視点・課題5 v0.26）。
 
         a0（保存時の活性）と A（評価器 arousal）の源。空内容は既定を返す。埋め込みは
         重いのでロック外で計算し、近傍検索だけロック内で行う。
@@ -853,7 +849,6 @@ class ObservationMemory:
         self,
         query: str,
         n: int = 3,
-        kind: str | None = None,
         min_score: float = 0.0,
         present_others: list[str] | None = None,
         exclude_ids: list[str] | None = None,
@@ -913,9 +908,7 @@ class ObservationMemory:
             # 渡らないので、トークン量とは無関係に広く取れる（`課題5_パラメータ仮案` §93）。
             # 床（min_score）の有無で N を変えない。床は採点後に効く別の決定である。
             fetch_n = _cfg.recall_primary_n
-            speaker_rows = self._observations.by_vector(
-                q_sql, fetch_n, kind=kind, exclude_ids=exclude_ids
-            )
+            speaker_rows = self._observations.by_vector(q_sql, fetch_n, exclude_ids=exclude_ids)
 
             # 候補の obs_id → 行（列は obs レベルなのでどの視点由来でも同じ）。
             row_by_id: dict[str, dict] = {r["id"]: r for r in speaker_rows}
@@ -943,7 +936,6 @@ class ObservationMemory:
                 time_rows = self._observations.by_time(
                     ref_epoch,
                     fetch_n,
-                    kind=kind,
                     exclude_ids=exclude_ids,
                 )
                 _mark(time_rows)
@@ -961,7 +953,6 @@ class ObservationMemory:
                     other_rows = self._observations.by_vector(
                         sit_q_sql,
                         fetch_n,
-                        kind=kind,
                         exclude_ids=exclude_ids,
                     )
                     _mark(other_rows)  # 顔ぶれの人ごとに 1 本の軸として数える
@@ -983,7 +974,7 @@ class ObservationMemory:
 
                 mood_vec = "[" + ",".join(f"{v:.6f}" for v in pad_to_search_vector(mood_pad)) + "]"
                 emotion_rows = self._observations.by_emotion(
-                    mood_vec, fetch_n, kind=kind, exclude_ids=exclude_ids
+                    mood_vec, fetch_n, exclude_ids=exclude_ids
                 )
                 _mark(emotion_rows)
                 for r in emotion_rows:
@@ -997,9 +988,7 @@ class ObservationMemory:
                 _counts, _total = self._observations.word_counts(raw_words)
                 words = drop_common(raw_words, _counts, _total)
                 if words:
-                    word_rows = self._observations.by_words(
-                        words, fetch_n, kind=kind, exclude_ids=exclude_ids
-                    )
+                    word_rows = self._observations.by_words(words, fetch_n, exclude_ids=exclude_ids)
                     _mark(word_rows)
                     for r in word_rows:
                         row_by_id.setdefault(r["id"], r)
@@ -1094,8 +1083,6 @@ class ObservationMemory:
                             "date": _ts_to_date(row["timestamp"]),
                             "time": _ts_to_time(row["timestamp"]),
                             "direction": row["direction"],
-                            "kind": row["kind"],
-                            "source_kind": row["kind"],
                             "emotion": row["emotion"],
                             "image_path": row["image_path"],
                             # 版の親（起点）。直近の枠に載ったやりとりの最終版を、思い出したことの列から外すのに使う（記-t）。
@@ -1173,7 +1160,7 @@ class ObservationMemory:
             # the threshold cannot be enforced — return empty instead.
             if min_score > 0.0:
                 return []
-            return self._observations.keyword_fallback(query, n, kind)
+            return self._observations.keyword_fallback(query, n)
         except (TypeError, AttributeError, NameError):
             # コードの誤り（署名不一致・属性ミスなど）は degrade しない。`[]` に化けると
             # 「想起0件」に見えて原因が隠れる（by_vector に引数を足したとき、顔ぶれ相関の
@@ -1189,105 +1176,6 @@ class ObservationMemory:
 
     async def recall_async(self, *a, **kw):
         return await asyncio.to_thread(self.recall, *a, **kw)
-
-    def recent_feelings(self, n: int = 5) -> list[dict]:
-        rows = self._observations._read_observations_by_kind(
-            kind=("feeling", "conversation"),
-            n=n,
-            columns=("content", "timestamp", "emotion"),
-        )
-        return [
-            {
-                "summary": r["content"],
-                "date": _ts_to_date(r["timestamp"]),
-                "time": _ts_to_time(r["timestamp"]),
-                "emotion": r["emotion"],
-            }
-            for r in rows
-        ]
-
-    async def recent_feelings_async(self, n: int = 5):
-        return await asyncio.to_thread(self.recent_feelings, n)
-
-    def recall_self_model(self, n: int = 5) -> list[dict]:
-        """パジュ自身の自己理解を新しい順に返す。
-
-        042 の前はここが `person_id=AGENT_SELF_ID` で絞っていたが、書き込みは文脈の
-        person で入るため、8月3日時点の `self_model` 958 行は**全件**が `default` で、
-        **この関数は本番で常に空を返していた**。所有者列ごと外れて食い違いが消えた。
-        """
-        rows = self._observations._read_observations_by_kind(
-            kind="self_model",
-            n=n,
-            columns=(
-                "id",
-                "content",
-                "timestamp",
-                "emotion",
-                "groundedness_g0",
-                "emotion_p",
-                "emotion_pn",
-                "emotion_a",
-                "emotion_dom",
-            ),
-        )
-        # A-1: 器を組み立てる経路を通す。返り値には使わず外部挙動を保つ（利用は次の一本）。
-        # Y（W2a）：PAD 列を渡すことで組み立てる MI が実 PAD を emotion に載せる。返り値の
-        # dict は content/timestamp/emotion しか使わないので外部挙動は不変。
-        _items = [_row_to_mental_item(r) for r in rows]
-        return [
-            {
-                "summary": r["content"],
-                "date": _ts_to_date(r["timestamp"]),
-                "time": _ts_to_time(r["timestamp"]),
-                "emotion": r["emotion"],
-            }
-            for r in rows
-        ]
-
-    async def recall_self_model_async(self, n: int = 5):
-        return await asyncio.to_thread(self.recall_self_model, n)
-
-    def recall_curiosities(self, n: int = 5) -> list[dict]:
-        rows = self._observations._read_observations_by_kind(
-            kind="curiosity",
-            n=n,
-            columns=("content", "timestamp"),
-        )
-        return [
-            {
-                "summary": r["content"],
-                "date": _ts_to_date(r["timestamp"]),
-                "time": _ts_to_time(r["timestamp"]),
-            }
-            for r in rows
-        ]
-
-    async def recall_curiosities_async(self, n: int = 5):
-        return await asyncio.to_thread(self.recall_curiosities, n)
-
-    def recall_day_summaries(self, n: int = 5) -> list[dict]:
-        # C-1: 所有者絞り（observations.person_id）でなく situated 相関で顔ぶれに紐づける。
-        # 母集合は所有者に依らず、**視点**の面に紐づいた観測（`default` は視点でないので
-        # `__self__` へ寄る＝047）。
-        rows = self._observations._read_observations_by_situated(
-            person_id=viewpoint_of(self._person_id),
-            n=n,
-            columns=("content", "timestamp", "emotion"),
-            kind="day_summary",
-        )
-        return [
-            {
-                "summary": r["content"],
-                "date": _ts_to_date(r["timestamp"]),
-                "time": _ts_to_time(r["timestamp"]),
-                "emotion": r["emotion"],
-            }
-            for r in rows
-        ]
-
-    async def recall_day_summaries_async(self, n=5):
-        return await asyncio.to_thread(self.recall_day_summaries, n)
 
     # ── Format helpers (unchanged from original) ───────────────────────────
 

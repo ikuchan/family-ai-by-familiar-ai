@@ -286,8 +286,8 @@ def test_recall_chains_via_triggers_then_says():
     # QC drain＝完了結果を O へ書込（反復2の取込）。
     written = [c.args[0] for c in a._memory.save_async_with_id.call_args_list]
     assert any("recall結果テキスト" in w for w in written)  # 完了 O に結果が入る
-    kinds = {c.kwargs["kind"] for c in a._memory.save_async_with_id.call_args_list}
-    assert kinds == {"observation"}
+    # 記録の種類は渡さない（記-u 段 4。「何の記録か」は向きだけが持つ）。
+    assert all("kind" not in c.kwargs for c in a._memory.save_async_with_id.call_args_list)
 
 
 def test_loop_records_form_a_version_chain():

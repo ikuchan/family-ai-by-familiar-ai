@@ -11,7 +11,7 @@ Memory access
 -------------
 - Writes  → current_speaker's memory space.
 - Reads   → situated search across ALL present persons + AGENT_SELF.
-- Agent's own memories (self_model, curiosity …) always use AGENT_SELF_ID.
+- Agent's own memories (内省, 好奇心 …) always use AGENT_SELF_ID.
 
 Perspective vectors (design α)
 -------------------------------

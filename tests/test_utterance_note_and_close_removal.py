@@ -59,9 +59,7 @@ def memory():
 
 def test_note_is_appended_once(memory) -> None:
     """「検索を始めた」を追記する。二度目は足さない。"""
-    obs_id, _ = memory.save_with_id(
-        f"昨日の天気覚えてる？ {uuid.uuid4()}", direction="発話", kind="observation"
-    )
+    obs_id, _ = memory.save_with_id(f"昨日の天気覚えてる？ {uuid.uuid4()}", direction="発話")
     memory.note_lookup_started(obs_id)
     once = str(_col(obs_id, "content"))
     memory.note_lookup_started(obs_id)
@@ -74,9 +72,7 @@ def test_note_is_appended_once(memory) -> None:
 
 def test_the_embedding_is_recomputed(memory) -> None:
     """追記したら埋め込みを作り直す（content とベクトルを食い違わせない）。"""
-    obs_id, _ = memory.save_with_id(
-        f"今日の天気は？ {uuid.uuid4()}", direction="発話", kind="observation"
-    )
+    obs_id, _ = memory.save_with_id(f"今日の天気は？ {uuid.uuid4()}", direction="発話")
     before = _vector(obs_id)
     assert before, "埋め込みが作られていない（前提が崩れている）"
 
@@ -90,7 +86,7 @@ def test_the_embedding_is_recomputed(memory) -> None:
 def test_the_original_text_survives(memory) -> None:
     """人が言ったことは消さない（追記であって置き換えではない）。"""
     body = f"たいきのサッカーは？ {uuid.uuid4()}"
-    obs_id, _ = memory.save_with_id(body, direction="発話", kind="observation")
+    obs_id, _ = memory.save_with_id(body, direction="発話")
     memory.note_lookup_started(obs_id)
     assert body in str(_col(obs_id, "content")), "元の発話が消えている"
 

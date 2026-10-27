@@ -76,22 +76,10 @@ class TestMI:
             assert name not in got, f"{name} は面が引き取った"
         assert {"obs_id", "person_id", "relation_key"} <= got
 
-    def test_kind_is_derived_from_direction(self) -> None:
-        """`kind` は `direction` から決まる。"""
+    def test_what_the_record_is_is_held_by_the_direction_only(self) -> None:
+        """「何の記録か」は `direction` だけが持つ（記-u 段 4。種類 `kind` は列も属性も無い）。"""
         mi = MI(id="x", content="c", timestamp=datetime.now(), direction="会話")
-        assert mi.kind == "conversation"
-        assert (
-            MI(id="y", content="c", timestamp=datetime.now(), direction="内省").kind == "self_model"
-        )
-        assert (
-            MI(id="z", content="c", timestamp=datetime.now(), direction="好奇心").kind
-            == "curiosity"
-        )
-
-    def test_unknown_direction_falls_back_to_observation(self) -> None:
-        """表に無い direction は observation に落とす（8つの direction がそうなっている）。"""
-        mi = MI(id="x", content="c", timestamp=datetime.now(), direction="求め")
-        assert mi.kind == "observation"
+        assert not hasattr(mi, "kind")
 
     def test_the_two_version_columns_are_separate(self) -> None:
         """`parent_id`（過去へ）と `superseded_by`（未来へ）は別のもの。"""
@@ -118,9 +106,9 @@ class TestCue:
         assert Cue(text="昨日の天気").text == "昨日の天気"
 
     def test_the_ways_of_looking_are_separate_fields(self) -> None:
-        """日付・月日・種別は別の欄（いま別メソッドになっているものをまとめる）。"""
+        """日付・月日は別の欄（別メソッドだったものをまとめる）。向きの欄は記-u 段 4 で外した。"""
         got = {f.name for f in dataclasses.fields(Cue)}
-        assert got == {"text", "direction", "on_date", "on_month_day", "exclude", "open_ids"}, got
+        assert got == {"text", "on_date", "on_month_day", "exclude", "open_ids"}, got
 
     def test_a_cue_is_frozen(self) -> None:
         cue = Cue(text="x")

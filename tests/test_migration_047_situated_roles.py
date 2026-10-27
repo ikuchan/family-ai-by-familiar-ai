@@ -62,9 +62,9 @@ def _plant(cur, obs_id: str, content: str, *, writer: str, participants: list[st
     （段5）。`writer`／`participants` は、呼び出し側が面を立てるときに渡す材料である。"""
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s, %s, now(), %s, %s, %s)",
-        (obs_id, content, "unknown", "observation", "neutral"),
+        "(id, content, timestamp, direction, emotion) "
+        "VALUES (%s, %s, now(), %s, %s)",
+        (obs_id, content, "unknown", "neutral"),
     )
     return {"body": content, "writer_id": writer, "participants": participants}
 
@@ -246,7 +246,7 @@ def test_recall_returns_one_candidate_per_facet() -> None:
         conn.close()
 
     store = _mem().for_person(AGENT_SELF_ID)._observations
-    rows = store.by_vector(vec, 50, kind=None, exclude_ids=None)
+    rows = store.by_vector(vec, 50, exclude_ids=None)
     hits = [r for r in rows if str(r["id"]) == obs_id]
     assert len(hits) == 2, f"面ごとに出ていない（{len(hits)} 回）"
     assert {r["relation_key"] for r in hits} == {"actor", "present"}

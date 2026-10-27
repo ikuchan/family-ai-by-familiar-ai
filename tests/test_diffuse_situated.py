@@ -51,9 +51,9 @@ def _obs(cur, ts: str = "2020-01-01", superseded: bool = False) -> str:
     oid = str(uuid.uuid4())
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s,%s,%s,%s,%s,%s)",
-        (oid, f"段4 {oid}", ts, "会話", "conversation", "neutral"),
+        "(id, content, timestamp, direction, emotion) "
+        "VALUES (%s,%s,%s,%s,%s)",
+        (oid, f"段4 {oid}", ts, "会話", "neutral"),
     )
     # 畳む印は関係にある（段 2）。
     if superseded:

@@ -52,9 +52,9 @@ def _insert(cur, obs_id: str, content: str, kind: str, writer_id: str, ts: datet
     """所有者列を書かずに観測を1件植える（042 後の列構成で書けることも兼ねて確かめる）。"""
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s, %s, %s, %s, %s, %s)",
-        (obs_id, content, ts, "unknown", kind, "neutral"),
+        "(id, content, timestamp, direction, emotion) "
+        "VALUES (%s, %s, %s, %s, %s)",
+        (obs_id, content, ts, "unknown", "neutral"),
     )
 
 
@@ -87,37 +87,6 @@ def test_situated_keeps_its_person_id() -> None:
     assert "person_id" in columns
 
 
-def test_read_observations_by_kind_does_not_filter_by_owner() -> None:
-    """kind が合う行はすべて返る（所有者では絞らない）。
-
-    042 の前はここが「1件だけ返る」ことを仕様として固定していた。だが所有者は実データで
-    `default` に潰れており、分かれて見えたのは fixture が `person_id` を明示して書いて
-    いたからだった。人の視点で絞るなら `_read_observations_by_situated` を使う。
-    """
-    tag = uuid.uuid4().hex[:8]
-    conn = _conn()
-    try:
-        with conn.cursor() as cur:
-            _insert(
-                cur, f"k-self-{tag}", f"agent curiosity {tag}", "curiosity", AGENT_SELF_ID, _NOW
-            )
-            _insert(
-                cur,
-                f"k-user-{tag}",
-                f"user curiosity {tag}",
-                "curiosity",
-                DEFAULT_PERSON_ID,
-                _NOW + timedelta(seconds=1),
-            )
-    finally:
-        conn.close()
-
-    rows = _mem()._observations._read_observations_by_kind("curiosity", 50, ("id", "content"))
-    contents = {r["content"] for r in rows}
-    assert f"agent curiosity {tag}" in contents
-    assert f"user curiosity {tag}" in contents
-
-
 def test_the_fallbacks_do_not_filter_by_owner() -> None:
     """最後の網（語で拾う・新しい順）は所有者で絞らない。
 
@@ -144,11 +113,11 @@ def test_the_fallbacks_do_not_filter_by_owner() -> None:
         conn.close()
 
     store = _mem().for_person(AGENT_SELF_ID)._observations
-    by_keyword = {r["summary"] for r in store.keyword_fallback(tag, 50, "observation")}
+    by_keyword = {r["summary"] for r in store.keyword_fallback(tag, 50)}
     assert f"fallback {tag} alpha" in by_keyword
     assert f"fallback {tag} beta" in by_keyword
 
-    by_recency = {r["summary"] for r in store.recency_fallback(50, "observation")}
+    by_recency = {r["summary"] for r in store.recency_fallback(50)}
     assert f"fallback {tag} alpha" in by_recency
     assert f"fallback {tag} beta" in by_recency
 
@@ -182,8 +151,8 @@ def test_dedup_keeps_rows_from_different_writers() -> None:
     original = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
     os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
-        mem.save_with_id(content, kind="utterance", writer_id=AGENT_SELF_ID)
-        mem.save_with_id(content, kind="utterance", writer_id=who)
+        mem.save_with_id(content, direction="発話", writer_id=AGENT_SELF_ID)
+        mem.save_with_id(content, direction="発話", writer_id=who)
     finally:
         if original is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
@@ -195,8 +164,8 @@ def test_dedup_keeps_rows_from_different_writers() -> None:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT COUNT(*) AS n FROM observations o "
-                "WHERE content=%s AND kind=%s AND " + LIVE.format(alias="o"),
-                (content, "utterance"),
+                "WHERE content=%s AND direction=%s AND " + LIVE.format(alias="o"),
+                (content, "発話"),
             )
             n = cur.fetchone()["n"]
     finally:

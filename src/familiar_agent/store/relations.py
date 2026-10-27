@@ -218,7 +218,7 @@ class RelationStore:
         **種類で絞る。** 一つの表に全部の関係が載っているので、絞りを落とすと同じターンの
         問いと答え（やりとり）が共起として返ってくる。
 
-        渡した id 自身と、自己認識の記録（`kind='self_model'`）は除く。
+        渡した id 自身と、自己認識の記録（向き「内省」）は除く（記-u 段 4 で種類から向きへ移した）。
 
         **既に錠を持っている呼び手は `conn` を渡す。** 錠は再入できないので、拡散想起の
         ように外側で錠を取ったまま呼ぶ経路が、ここで取り直すと止まる。
@@ -245,8 +245,7 @@ class RelationStore:
                 "SELECT DISTINCT i.obs_id FROM relation_members i "
                 "JOIN matched t ON t.relation_id = i.relation_id "
                 "JOIN observations o ON o.id::text = i.obs_id "
-                " AND o.kind <> 'self_model' "
-                "WHERE NOT (i.obs_id = ANY(%s)) "
+                "WHERE NOT (i.obs_id = ANY(%s)) AND o.direction <> '内省' "
                 "LIMIT %s",
                 (KIND_COOCCURRENCE, ids, min_shared, ids, limit),
             )

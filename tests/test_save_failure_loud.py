@@ -37,7 +37,7 @@ def test_save_with_id_failure_is_loud_error_with_trace(caplog):
             ),
             caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"),
         ):
-            mem_id, ok = mem.save_with_id("save loud y", kind="observation")
+            mem_id, ok = mem.save_with_id("save loud y", direction="観察")
         assert (mem_id, ok) == (None, False)
         assert any(
             r.levelno >= logging.ERROR and "save_with_id failed" in r.getMessage() and r.exc_info

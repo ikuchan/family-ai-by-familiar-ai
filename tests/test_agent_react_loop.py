@@ -66,20 +66,14 @@ def _make_agent(*, with_tts: bool = False, with_camera: bool = False, with_mcp: 
     mem = MagicMock()
     mem.is_embedding_ready = MagicMock(return_value=True)
     mem.recall_async = AsyncMock(return_value=[])
-    mem.recent_feelings_async = AsyncMock(return_value=[])
-    mem.recall_self_model_async = AsyncMock(return_value=[])
-    mem.recall_curiosities_async = AsyncMock(return_value=[])
-    mem.recall_day_summaries_async = AsyncMock(return_value=[])
     mem.format_for_context = MagicMock(return_value="")
     mem.format_feelings_for_context = MagicMock(return_value="")
     mem.format_day_summaries_for_context = MagicMock(return_value="")
-    mem.format_self_model_for_context = MagicMock(return_value="")
     mem.format_curiosities_for_context = MagicMock(return_value="")
     mem.save_async = AsyncMock()
     mem.save_async_with_id = AsyncMock(return_value=(None, True))
     mem.content_novelty_async = AsyncMock(return_value=0.5)
     mem.get_dates_with_observations = MagicMock(return_value=[])
-    mem.get_dates_with_summaries = MagicMock(return_value=[])
     agent._memory = mem
     agent._oif = OIF(mem)  # 関係も書き込みも口を通る（環-e-い）
 

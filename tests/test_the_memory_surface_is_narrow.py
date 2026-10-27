@@ -52,16 +52,22 @@ _RETIRED = {
     "get_observations_for_date": "同上",
     "pick_seed_candidates": "同上",
     "save_async": "呼び手は主LLM に渡していない道具 `remember` だけだった（D・本人の決定で道具ごと撤去）",
+    # 記-u 段 4（2026-10-27）：種類（kind）の列を落とした。種類で引いていた読み出しは、呼び手が本体に無かった
+    "recall_self_model": "種類 self_model で引いていた。本番に self_model の行は 0 件で、呼び手も無い",
+    "recall_self_model_async": "同上",
+    "recall_curiosities": "種類 curiosity で引いていた。呼び手が無い",
+    "recall_curiosities_async": "同上",
+    "recent_feelings": "種類 feeling／conversation で引いていた。呼び手が無い",
+    "recent_feelings_async": "同上",
+    "recall_day_summaries": "呼び手は OIF の向き「記憶」の手がかりだけで、その手がかりを渡す者がいなかった",
+    "recall_day_summaries_async": "同上",
+    "get_dates_with_summaries": "種類 day_summary で引いていた。呼び手が無い",
 }
 
 #: **まだ繋いでいないので残す面。** 落とすと、使うときに作り直しになる。
 _NOT_YET = {
-    "recall_self_model_async": "記-a（REST 内省）が使う",
-    "recall_curiosities_async": "同上",
-    "recent_feelings_async": "同上",
     "append_memory_event_async": "記-b（蒸留）のジョブ投入",
     "mark_job_done": "同上（ジョブの完了）",
-    "get_dates_with_summaries": "同上",
 }
 
 
@@ -121,5 +127,6 @@ def test_the_surface_got_narrower():
     （根づきを 0 へ戻す口を別に足すと 60 種になるため、1 つにまとめた）。数は据え置き。
     2026-09-28 に環-ab R-5a で `as_coalition_async` を落とし **58 種**。2026-09-29 に環-ab D で呼び手の無い 10 面を落とし
     **48 種**。上限の 59 は変えていない。
+    2026-10-27 に記-u 段 4 で、種類（kind）で引いていた 9 面を落とし、53 種から **44 種**。上限の 59 は変えていない。
     """
     assert len(_public_faces()) <= 59

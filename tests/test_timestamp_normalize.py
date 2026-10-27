@@ -30,7 +30,7 @@ def memory():
 
 @pytest.fixture()
 def memory_with_data(memory):
-    memory.save_with_id("テスト記憶の内容", kind="observation", emotion="curious")
+    memory.save_with_id("テスト記憶の内容", direction="観察", emotion="curious")
     return memory
 
 
@@ -48,19 +48,9 @@ def test_recall_returns_date_time_derived_from_timestamp(memory_with_data):
 
 def test_save_and_recall_roundtrip(memory):
     """date/time カラムなしで保存 → 想起が一貫すること。"""
-    memory.save_with_id("正規化テスト記憶", emotion="neutral", kind="conversation")
+    memory.save_with_id("正規化テスト記憶", emotion="neutral", direction="会話")
     results = memory.recall("正規化テスト", n=3)
     assert any("正規化テスト" in r.get("summary", "") for r in results)
-
-
-def test_recent_feelings_returns_date_time(memory):
-    """recent_feelings() の返り値に date/time が含まれること。"""
-    memory.save_with_id("楽しかった今日", kind="feeling", emotion="happy")
-    feelings = memory.recent_feelings(n=5)
-    for f in feelings:
-        assert "date" in f
-        assert "time" in f
-        datetime.strptime(f["date"], "%Y-%m-%d")
 
 
 def test_get_earliest_date_returns_string_or_none(memory_with_data):

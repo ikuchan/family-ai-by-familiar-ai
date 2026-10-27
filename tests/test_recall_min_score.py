@@ -53,7 +53,7 @@ def _age_observation(content: str, days: int) -> None:
 def test_min_score_floors_on_composite_not_cosine(memory):
     """古い観測は composite<cosine。中間に床を置くと合成床は切り、生コサイン床は残す。"""
     content = f"min_score composite {uuid.uuid4()}"
-    memory.save_with_id(content, kind="observation", emotion="neutral")
+    memory.save_with_id(content, direction="観察", emotion="neutral")
     _age_observation(content, days=30)  # t をほぼ floor まで落とす → M<1
 
     base = memory.recall(content, n=5, min_score=0.0)

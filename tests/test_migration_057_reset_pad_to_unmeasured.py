@@ -36,15 +36,14 @@ def _insert(cur, *, p, pn, dom, a, emotion, vec):
     oid = str(uuid.uuid4())
     cur.execute(
         "INSERT INTO observations "
-        "(id, content, timestamp, direction, kind, emotion,"
+        "(id, content, timestamp, direction, emotion,"
         " emotion_p, emotion_pn, emotion_a, emotion_dom, emotion_vec) "
-        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+        "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
         (
             oid,
             "057 の検査用",
             datetime.now(timezone.utc),
             "自分",
-            "observation",
             emotion,
             p,
             pn,

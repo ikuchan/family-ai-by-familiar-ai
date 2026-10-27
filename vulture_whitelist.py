@@ -54,9 +54,6 @@ _.loop_counter  # unused property (src/familiar_agent/voice_guard.py:74)
 # ── 使う予定が決まっている口（記-a の記憶の面・構造化の問いの族）─────────────────────
 ask_numbers  # unused function (src/familiar_agent/core/structured_ask.py:60)
 ask_choice  # unused function (src/familiar_agent/core/structured_ask.py:85)
-_.recent_feelings_async  # unused method (src/familiar_agent/tools/memory.py:1245)
-_.recall_self_model_async  # unused method (src/familiar_agent/tools/memory.py:1284)
-_.recall_curiosities_async  # unused method (src/familiar_agent/tools/memory.py:1302)
 
 # ── 結線は知-d（顔と声の登録）で行う（いまはアプリに import されていない）──────────────
 _._absent  # unused attribute (src/familiar_agent/recognition/presence_watcher.py:41)

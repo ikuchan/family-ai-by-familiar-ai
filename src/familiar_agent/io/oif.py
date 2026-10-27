@@ -28,23 +28,8 @@ if TYPE_CHECKING:
 
 # ── MI ─────────────────────────────────────────────────────────────────────
 
-# `direction` から `kind` を決める表。**`kind` は列に持たない。**
-# 実測（本番 DB・2026-08-01）で 12 種の `direction` に対し `kind` は 6 種しかなく、
-# 8 つの `direction` がすべて `observation` に落ちる。片方から他方が決まる。
-_KIND_OF_DIRECTION: dict[str, str] = {
-    "会話": "conversation",
-    "内省": "self_model",
-    "好奇心": "curiosity",
-    "記憶": "day_summary",
-    "人物": "person_summary",  # 関係のまとめ（その日にその人について分かったこと・記-a-ろ-は）
-    "まとめ": "core_summary",  # 核を固めたまとめ知識（週・月・人ごとの「いつもの」・記-a-ろ-に）
-    # 暦のまとめ（REST 層 1 の ③・記-m）。記憶の木の月と年の節。家族全体と人ごとを種類で分ける。
-    "月のまとめ": "month_summary",
-    "年のまとめ": "year_summary",
-    "人の月のまとめ": "person_month_summary",
-    "人の年のまとめ": "person_year_summary",
-}
-_DEFAULT_KIND = "observation"
+# 「何の記録か」は `direction`（向き）だけが持つ。種類（`kind`）の列は 078 で落とした（記-u・案ウ）。
+# 向きから決まる粗い分類だったので、列も表も要らない。
 
 
 @dataclass
@@ -63,8 +48,7 @@ class MI:
     （`設計方針_MI間の関係` 段 2 で `superseded_by` 列を落とした）。
 
     読み手ごとに調べて決めた点は変えていない。主想起・拡散想起・プロンプトのいずれからも
-    読まれない列は入れず、計算で作れるものも入れない（`kind`・`emotion_vec`・ベクトル・
-    採点）。撤去した列（`person_id` の所有者・`scope`・`importance`）も入れない。
+    読まれない列は入れず、計算で作れるものも入れない（`emotion_vec`・ベクトル・採点）。撤去した列（`person_id` の所有者・`scope`・`importance`）も入れない。
     """
 
     # `id` は面（`situated_memories.id`）で、upsert しても保たれる。
@@ -101,11 +85,6 @@ class MI:
     image_path: str | None = None
     image_data: str | None = None
 
-    @property
-    def kind(self) -> str:
-        """`direction` から決まる粗い分類。表に無いものは observation。"""
-        return _KIND_OF_DIRECTION.get(self.direction, _DEFAULT_KIND)
-
 
 @dataclass(frozen=True)
 class Said:
@@ -130,13 +109,12 @@ class Said:
 class Cue:
     """何を手がかりに探すか。
 
-    いま別メソッドになっているもの（日次要約・同じ月日・その日の記録）を、欄の違いで
-    表す。`recall_day_summaries` は `Cue(direction="記憶")`、`recall_on_this_day` は
+    別メソッドだったもの（同じ月日・その日の記録）を、欄の違いで表す。`recall_on_this_day` は
     `Cue(on_month_day=(8, 1))`、`get_observations_for_date` は `Cue(on_date=...)` になる。
+    向きで絞る欄（`direction`）は、渡す呼び手が無かったので、種類の列と一緒に外した（記-u 段 4）。
     """
 
     text: str = ""
-    direction: str | None = None
     on_date: date | None = None
     on_month_day: tuple[int, int] | None = None
     exclude: tuple[str, ...] = ()
@@ -284,7 +262,6 @@ class OIF:
         obs_id, _ = await self._memory.save_async_with_id(
             mi.content,
             direction=mi.direction,
-            kind=mi.kind,
             emotion=mi.emotion,
             emotion_pad=mi.pad,
             parent_id=mi.parent_id,
@@ -322,9 +299,6 @@ class OIF:
         if cue.on_month_day:
             month, day = cue.on_month_day
             rows = await mem.recall_on_this_day_async(month, day, view.k)
-        elif cue.direction == "記憶" and not cue.text:
-            # その日のまとめは**新しい順**に採る。手がかりが無いので似ている順では引けない。
-            rows = await mem.recall_day_summaries_async(n=view.k)
         else:
             rows = await self._recall_by_cue(mem, cue, view)
         out = [_to_recalled(r) for r in (rows or [])]
@@ -336,7 +310,6 @@ class OIF:
         return await mem.recall_async(
             cue.text,
             n=view.k,
-            kind=_KIND_OF_DIRECTION.get(cue.direction, _DEFAULT_KIND) if cue.direction else None,
             min_score=view.floor,
             present_others=list(view.present) or None,
             exclude_ids=list(cue.exclude) or None,

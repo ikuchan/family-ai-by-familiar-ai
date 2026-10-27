@@ -45,11 +45,11 @@ def _seed(content: str, pad: tuple[float, float, float, float]) -> None:
     conn.autocommit = True
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO observations (id, content, timestamp, direction, kind, emotion, "
+            "INSERT INTO observations (id, content, timestamp, direction, emotion, "
             " groundedness_g0, "
             " emotion_p, emotion_pn, emotion_a, emotion_dom) "
-            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s,%s)",
-            (obs_id, content, "unknown", "conversation", "neutral", 1.0, *pad),
+            "VALUES (%s,%s,NOW(),%s,%s,%s,%s,%s,%s,%s)",
+            (obs_id, content, "unknown", "neutral", 1.0, *pad),
         )
         cur.execute(
             "INSERT INTO situated_memories (id, obs_id, person_id, vector) VALUES (%s,%s,%s,%s)",

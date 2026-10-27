@@ -47,9 +47,9 @@ def _run_migration(conn) -> None:
 def _insert_observation(cur, obs_id: str) -> None:
     """PAD 列を指定しない既存経路と同型の INSERT。"""
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s, %s, NOW(), %s, %s, %s)",
-        (obs_id, "emotion pad test", "unknown", "conversation", "neutral"),
+        "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+        "VALUES (%s, %s, NOW(), %s, %s)",
+        (obs_id, "emotion pad test", "unknown", "neutral"),
     )
 
 

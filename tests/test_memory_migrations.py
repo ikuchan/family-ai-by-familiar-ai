@@ -79,10 +79,12 @@ def test_migrates_observations_has_all_columns() -> None:
         mem.append_memory_event("memory.save", {"content": "x"}, queue_job=False)
 
     cols = _pg_columns("observations")
-    for name in ("kind", "emotion", "image_path", "image_data"):
+    for name in ("direction", "emotion", "image_path", "image_data"):
         assert name in cols, f"Missing column: {name}"
     # 畳む印は関係へ移した（段 2）。列が残っていると古い道へ書けてしまう。
     assert "superseded_by" not in cols
+    # 「何の記録か」は向きだけが持つ（記-u 段 4・078 で種類の列を落とした）。
+    assert "kind" not in cols
 
 
 def test_migrations_are_idempotent_across_restarts() -> None:

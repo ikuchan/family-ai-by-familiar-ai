@@ -104,9 +104,9 @@ def test_the_vector_no_longer_depends_on_who() -> None:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-                "VALUES (%s, %s, now(), %s, %s, %s)",
-                (obs_id, f"視点なしテスト_{obs_id}", "unknown", "observation", "neutral"),
+                "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+                "VALUES (%s, %s, now(), %s, %s)",
+                (obs_id, f"視点なしテスト_{obs_id}", "unknown", "neutral"),
             )
         vec = np.arange(1024, dtype=np.float32)
         for pid in (AGENT_SELF_ID, DEFAULT_PERSON_ID):

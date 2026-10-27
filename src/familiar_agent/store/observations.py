@@ -3,8 +3,8 @@
 課題8 v0.6 で「層は生 SQL や WHERE を受けず、取り出しパターンごとの専用メソッドで
 構造化値を受ける」と決めた。取り出しのパターンは3つある。
 
-- **by_kind**      種別と person で新しい順に読む
-- **by_situated**  situated 相関で紐づく観測を読む（所有者に依らない母集合）
+- **軸ごと**       面（situated）を、軸（関連・時間・感情・語）ごとの近い順に読む（`by_vector` など）
+- **向き**         向きで読む（記憶の木の要約・畳み込みの材料。記-u で種類の列を落とし、向きだけで見分ける）
 - **by_date**      日付・周期で読む（日ごとの一覧、その日の観測、記念日）
 
 **層は採点も想起判断も持たない**（[D-データモデル]）。想起スコアは層の外（W の構築）
@@ -62,93 +62,11 @@ class ObservationStore:
         self._ctx = ctx
         self._situated = situated
 
-    def _read_observations_by_kind(
-        self, kind: str | tuple[str, ...], n: int, columns: tuple[str, ...]
-    ) -> list[dict]:
-        """observations を kind で絞り、新しい順に n 件読む dumb な読み出し。
-
-        kind は単一値（str）または複数値（tuple[str, ...]）。複数値のときは kind IN (...)。
-
-        **人では絞らない**（042）。所有者列は撤去した。人の視点で引くなら
-        `_read_observations_by_situated` を使う。
-        採点・想起判断・trigger 判断は持たない（機械的な読み出しのみ）。
-        設計ドキュメントで確定したストアアクセス層の最初の実体。
-        行(dict)のリストを返す。失敗時は空リスト。
-        """
-        col_sql = ", ".join(columns)
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    if isinstance(kind, str):
-                        cur.execute(
-                            f"SELECT {col_sql} FROM observations "
-                            "WHERE kind=%s "
-                            "ORDER BY timestamp DESC LIMIT %s",
-                            (kind, n),
-                        )
-                    else:
-                        placeholders = ", ".join(["%s"] * len(kind))
-                        cur.execute(
-                            f"SELECT {col_sql} FROM observations "
-                            f"WHERE kind IN ({placeholders}) "
-                            "ORDER BY timestamp DESC LIMIT %s",
-                            (*kind, n),
-                        )
-                    return list(cur.fetchall())
-        except Exception as e:
-            logger.warning("_read_observations_by_kind failed: %s", e)
-            return []
-
-    def _read_observations_by_situated(
-        self,
-        person_id: str,
-        n: int,
-        columns: tuple[str, ...],
-        *,
-        kind: str | None = None,
-        keywords: tuple[str, ...] = (),
-    ) -> list[dict]:
-        """observations を situated 相関で person に紐づけ、新しい順に n 件読む dumb な読み出し。
-
-        所有者絞り（observations.person_id）でなく situated_memories を JOIN し
-        s.person_id で紐づける（母集合はその person の視点で状況化された観測・所有者に依らない）。
-        順序は timestamp DESC でベクトル類似度は使わない。kind と keywords（content LIKE の OR）は任意。
-        採点・想起判断・trigger 判断は持たない。行(dict)のリストを返す。失敗時は空リスト。
-        """
-        col_sql = ", ".join(f"o.{c}" for c in columns)
-        clauses = ["s.person_id=%s", not_hidden("o")]
-        params: list = [person_id]
-        if kind is not None:
-            clauses.append("o.kind=%s")
-            params.append(kind)
-        if keywords:
-            like_sql = " OR ".join(["o.content LIKE %s"] * len(keywords))
-            clauses.append(f"({like_sql})")
-            params += [f"%{kw}%" for kw in keywords]
-        params.append(n)
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        f"SELECT {col_sql} FROM situated_memories s "
-                        "JOIN observations o ON o.id = s.obs_id "
-                        f"WHERE {' AND '.join(clauses)} "
-                        "ORDER BY o.timestamp DESC LIMIT %s",
-                        tuple(params),
-                    )
-                    return list(cur.fetchall())
-        except Exception as e:
-            logger.warning("_read_observations_by_situated failed: %s", e)
-            return []
-
     def by_vector(
         self,
         query_vector_sql: str,
         n: int,
         *,
-        kind: str | None = None,
         exclude_ids: list[str] | None = None,
     ) -> list[dict]:
         """situated 相関のコサイン順に n 件読む。**採点も足切りもしない**。
@@ -160,14 +78,11 @@ class ObservationStore:
         `query_vector_sql` は pgvector の文字列表現を受け取る。ベクトルの作り方
         （視点合成・平均中心化）は呼び出し側の責任で、層は受け取った表現で引くだけ。
         """
-        kind_clause = "AND o.kind = %s" if kind else ""
         live = not_hidden("o")
         # 自分が出した検索が自分自身を拾わないようにする（id で狭く除外する）。
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         # situated を引くのは**視点**（`default` は視点でないので `__self__` へ寄る）。
         params: list = [query_vector_sql, self._ctx.viewpoint]
-        if kind:
-            params.append(kind)
         if exclude_ids:
             params.append(list(exclude_ids))
         params += [query_vector_sql, n]
@@ -185,7 +100,7 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
+                           o.direction, o.emotion, o.image_path, o.parent_id,
                            s.id AS facet_id, s.person_id, s.relation_key,
                            COALESCE(s.content, o.content) AS content,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -197,7 +112,6 @@ class ObservationStore:
                     JOIN observations o ON o.id = s.obs_id
                     WHERE s.person_id = %s
                       AND {live}
-                      {kind_clause}
                       {exclude_clause}
                     ORDER BY s.vector <=> %s::vector
                     LIMIT %s
@@ -211,7 +125,6 @@ class ObservationStore:
         words: list[str],
         n: int,
         *,
-        kind: str | None = None,
         exclude_ids: list[str] | None = None,
     ) -> list[dict]:
         """**その語を含む**記録を新しい順に n 件読む（記-k・2026-09-21）。採点も足切りもしない。
@@ -228,11 +141,8 @@ class ObservationStore:
             return []
         live = not_hidden("o")
         like = " OR ".join(["COALESCE(s.content, o.content) LIKE %s"] * len(words))
-        kind_clause = "AND o.kind = %s" if kind else ""
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         params: list = [self._ctx.viewpoint, *[f"%{w}%" for w in words]]
-        if kind:
-            params.append(kind)
         if exclude_ids:
             params.append(list(exclude_ids))
         params.append(n)
@@ -242,7 +152,7 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
+                           o.direction, o.emotion, o.image_path, o.parent_id,
                            s.id AS facet_id, s.person_id, s.relation_key,
                            COALESCE(s.content, o.content) AS content,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -255,7 +165,6 @@ class ObservationStore:
                     WHERE s.person_id = %s
                       AND {live}
                       AND ({like})
-                      {kind_clause}
                       {exclude_clause}
                     ORDER BY o.timestamp DESC
                     LIMIT %s
@@ -307,7 +216,6 @@ class ObservationStore:
         reference_epoch: float,
         n: int,
         *,
-        kind: str | None = None,
         exclude_ids: list[str] | None = None,
     ) -> list[dict]:
         """**基準時刻に近い順**に n 件読む（時間軸の一次絞り）。採点も足切りもしない。
@@ -327,11 +235,10 @@ class ObservationStore:
         同じ列に揃える（関連は呼び出し側が `situated_cosines` で補う）。
         """
         keys = ["o.timestamp"]  # 作られた日だけ
-        kind_clause = "AND o.kind = %s" if kind else ""
         live = not_hidden("o")
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         columns = """o.id, o.timestamp,
-                     o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
+                     o.direction, o.emotion, o.image_path, o.parent_id,
                      s.id AS facet_id, s.person_id, s.relation_key,
                      COALESCE(s.content, o.content) AS content,
                      COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -341,8 +248,6 @@ class ObservationStore:
 
         def _one(key: str, cmp: str, order: str) -> tuple[str, list]:
             params: list = [self._ctx.viewpoint]
-            if kind:
-                params.append(kind)
             if exclude_ids:
                 params.append(list(exclude_ids))
             params += [reference_epoch, n]
@@ -353,7 +258,6 @@ class ObservationStore:
                 WHERE s.person_id = %s
                   AND {live}
                   AND {key} IS NOT NULL
-                  {kind_clause}
                   {exclude_clause}
                   AND {key} {cmp} to_timestamp(%s)
                 ORDER BY {key} {order}
@@ -390,7 +294,6 @@ class ObservationStore:
         mood_vector_sql: str,
         n: int,
         *,
-        kind: str | None = None,
         exclude_ids: list[str] | None = None,
     ) -> list[dict]:
         """**いまの気分に近い順**に n 件読む（感情軸の一次絞り）。採点も足切りもしない。
@@ -406,13 +309,10 @@ class ObservationStore:
         呼び出し側の責任で、層は受け取った表現で引くだけ（`by_vector` と同じ約束）。
         返り行は他の軸と同じ列に揃える（関連は呼び出し側が補う）。
         """
-        kind_clause = "AND o.kind = %s" if kind else ""
         live = not_hidden("o")
         exclude_clause = "AND NOT (o.id = ANY(%s))" if exclude_ids else ""
         # 並べ替えの式を SELECT へ出した（畳み込みのため）ので、気分ベクトルが先頭に来る。
         params: list = [mood_vector_sql, self._ctx.viewpoint]
-        if kind:
-            params.append(kind)
         if exclude_ids:
             params.append(list(exclude_ids))
         params.append(n)
@@ -425,7 +325,7 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path, o.parent_id,
+                           o.direction, o.emotion, o.image_path, o.parent_id,
                            s.id AS facet_id, s.person_id, s.relation_key,
                            COALESCE(s.content, o.content) AS content,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
@@ -438,7 +338,6 @@ class ObservationStore:
                     WHERE s.person_id = %s
                       AND {live}
                       AND o.emotion_vec IS NOT NULL
-                      {kind_clause}
                       {exclude_clause}
                     ORDER BY _d
                     LIMIT %s
@@ -452,8 +351,8 @@ class ObservationStore:
 
         **視点は常に AGENT_SELF**（g0/A はエージェント自身の根づき・高ぶり・話者ではない）。
         内容を AGENT_SELF 視点で situate し、AGENT_SELF スコープの situated 近傍 K 件の
-        コサイン平均の裏返し（1−平均）＝関連 r の鏡。**self_model（自己認識 MI）は母集合
-        から除く**。近傍が K 未満なら既定（初期の横並びを避ける）。
+        コサイン平均の裏返し（1−平均）＝関連 r の鏡。近傍が K 未満なら既定（初期の横並びを避ける）。
+        自己認識の記録（向き「内省」）は母集合から除く（記-u 段 4 で種類から向きへ移した）。
         """
         try:
             v_sit = self._situated.situate(mem_vec, conn)
@@ -462,8 +361,7 @@ class ObservationStore:
                 cur.execute(
                     "SELECT 1 - (s.vector <=> %s::vector) AS c "
                     "FROM situated_memories s JOIN observations o ON o.id = s.obs_id "
-                    f"WHERE s.person_id = %s AND {not_hidden('o')} "
-                    "  AND o.kind <> 'self_model' "
+                    f"WHERE s.person_id = %s AND o.direction <> '内省' AND {not_hidden('o')} "
                     "ORDER BY s.vector <=> %s::vector LIMIT %s",
                     (q_sql, AGENT_SELF_ID, q_sql, k),
                 )
@@ -509,16 +407,13 @@ class ObservationStore:
             logger.warning("situated_cosines failed (person=%s): %s", person_id, e)
             return {}
 
-    def keyword_fallback(self, query: str, n: int, kind: str | None) -> list[dict]:
+    def keyword_fallback(self, query: str, n: int) -> list[dict]:
         keywords = [w for w in query.split() if len(w) > 1][:4]
         if not keywords:
-            return self.recency_fallback(n, kind)
+            return self.recency_fallback(n)
         cond = " OR ".join(["o.content LIKE %s"] * len(keywords))
         params: list = [f"%{kw}%" for kw in keywords]
-        kind_clause = "AND o.kind = %s" if kind else ""
         live = not_hidden("o")
-        if kind:
-            params.append(kind)
         params.append(n)
         with self._ctx.lock:
             conn = self._ctx.conn()
@@ -526,9 +421,9 @@ class ObservationStore:
                 cur.execute(
                     f"""
                     SELECT o.id, o.content, o.timestamp,
-                           o.direction, o.kind, o.emotion, o.image_path
+                           o.direction, o.emotion, o.image_path
                     FROM observations o
-                    WHERE ({cond}) {kind_clause}
+                    WHERE ({cond})
                       AND {live}
                     ORDER BY o.timestamp DESC LIMIT %s
                     """,
@@ -543,8 +438,6 @@ class ObservationStore:
                 "date": clock.ts_to_date(r["timestamp"]),
                 "time": clock.ts_to_time(r["timestamp"]),
                 "direction": r["direction"],
-                "kind": r["kind"],
-                "source_kind": r["kind"],
                 "emotion": r["emotion"],
                 "image_path": r["image_path"],
                 "confidence": 0.45,
@@ -553,21 +446,17 @@ class ObservationStore:
             for r in rows
         ]
 
-    def recency_fallback(self, n: int, kind: str | None) -> list[dict]:
-        kind_clause = "AND o.kind = %s" if kind else ""
-        params: list = []
-        if kind:
-            params.append(kind)
-        params.append(n)
+    def recency_fallback(self, n: int) -> list[dict]:
+        params: list = [n]
         try:
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
                         f"SELECT o.id, o.content, o.timestamp, "
-                        f"o.direction, o.kind, o.emotion, o.image_path "
+                        f"o.direction, o.emotion, o.image_path "
                         f"FROM observations o "
-                        f"WHERE {not_hidden('o')} {kind_clause} "
+                        f"WHERE {not_hidden('o')} "
                         f"ORDER BY o.timestamp DESC LIMIT %s",
                         params,
                     )
@@ -580,8 +469,6 @@ class ObservationStore:
                     "date": clock.ts_to_date(r["timestamp"]),
                     "time": clock.ts_to_time(r["timestamp"]),
                     "direction": r["direction"],
-                    "kind": r["kind"],
-                    "source_kind": r["kind"],
                     "emotion": r["emotion"],
                     "image_path": r["image_path"],
                     "confidence": 0.3,
@@ -626,21 +513,6 @@ class ObservationStore:
             logger.warning("_read_supersede_chain failed: %s", e)
             return []
 
-    def get_dates_with_summaries(self) -> list[str]:
-        """Return distinct dates (YYYY-MM-DD) that already have a day_summary observation."""
-        try:
-            with self._ctx.lock:
-                conn = self._ctx.conn()
-                with conn.cursor() as cur:
-                    cur.execute(
-                        "SELECT DISTINCT timestamp::date AS d FROM observations "
-                        "WHERE kind='day_summary' ORDER BY d DESC",
-                    )
-                    return [row["d"].isoformat() for row in cur.fetchall()]
-        except Exception as e:
-            logger.warning("get_dates_with_summaries failed: %s", e)
-            return []
-
     def recall_on_this_day(self, month: int, day: int, n: int = 5) -> list[dict]:
         """Return observations from past years on the same month/day (anniversary recall)."""
         try:
@@ -649,7 +521,7 @@ class ObservationStore:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:
                     cur.execute(
-                        "SELECT id, content, timestamp, emotion, kind FROM observations "
+                        "SELECT id, content, timestamp, direction, emotion FROM observations "
                         "WHERE EXTRACT(MONTH FROM timestamp) = %s "
                         "  AND EXTRACT(DAY FROM timestamp) = %s "
                         "  AND timestamp::date < %s "
@@ -714,7 +586,6 @@ class ObservationStore:
         """
         content = str(payload.get("content", "")).strip()
         direction = str(payload.get("direction", "unknown"))
-        kind = str(payload.get("kind", "observation"))
         emotion = str(payload.get("emotion", "neutral"))
         image_path = payload.get("image_path")
         override_date = payload.get("override_date")
@@ -740,7 +611,7 @@ class ObservationStore:
             # 呼び手が時刻を決めた記録（記-t：最終版は閉じた時刻で書く。要約を待つぶん書くのが遅れる）。
             save_ts = datetime.fromisoformat(str(payload["at"]))
 
-        # 042：重複とは「同じ**書き手**が同じ内容を同じ kind で窓の内に」であって、
+        # 042：重複とは「同じ**書き手**が同じ内容を同じ向きで窓の内に」であって、
         # 家族の二人が同じ挨拶をしたものは重複ではない。段5 で列は落ちたが、書き手は
         # `actor` の面が引き取った。`subject_id` は誰も読んでいなかったので落とした
         # （実在の 397 件は全件がその人の面を既に持っていた）。
@@ -782,7 +653,7 @@ class ObservationStore:
                         )
                         return str(_dup["id"])
                 # 取込 novelty（内容の新規性）→ a0。挿入前に測るので新観測は母集合に
-                # 居ない（=自分は含まれない）。視点は AGENT_SELF・self_model 除外。
+                # 居ない（=自分は含まれない）。視点は AGENT_SELF。
                 novelty = self.content_novelty(
                     np.asarray(vec, dtype=np.float32),
                     conn,
@@ -799,16 +670,15 @@ class ObservationStore:
                 emotion_a = min(1.0, max(0.0, float(_arousal)))
                 cur.execute(
                     "INSERT INTO observations "
-                    "(id,content,timestamp,direction,kind,emotion,"
+                    "(id,content,timestamp,direction,emotion,"
                     " image_path,image_data,groundedness_g0,parent_id,"
                     " emotion_p,emotion_pn,emotion_a,emotion_dom,emotion_vec) "
-                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
+                    "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)",
                     (
                         event_id,
                         content,
                         save_ts,
                         direction,
-                        kind,
                         emotion,
                         image_path,
                         image_data,
@@ -871,7 +741,7 @@ class ObservationStore:
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT o.id, o.content, o.timestamp, o.direction, o.kind, o.emotion,
+                    SELECT o.id, o.content, o.timestamp, o.direction, o.emotion,
                            COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
                            COALESCE(s.groundedness_n, 0) AS groundedness_n
                     FROM observations o

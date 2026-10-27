@@ -28,9 +28,17 @@ def test_save_appends_event_and_pending_job() -> None:
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
         mem = ObservationMemory()
-        assert mem.save_with_id("hello world", kind="conversation", emotion="curious")[1]
+        assert mem.save_with_id("hello world", direction="会話", emotion="curious")[1]
 
     conn = _pg_conn()
+    # 落ちても接続を閉じる。開いたまま残ると、次の試験の後片づけ（TRUNCATE）がその錠を待って止まる。
+    try:
+        _check_the_event(conn)
+    finally:
+        conn.close()
+
+
+def _check_the_event(conn) -> None:
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
         cur.execute("SELECT event_id, event_type, payload_json FROM memory_events")
         event = cur.fetchone()
@@ -39,7 +47,8 @@ def test_save_appends_event_and_pending_job() -> None:
 
         payload = json.loads(event["payload_json"])
         assert payload["content"] == "hello world"
-        assert payload["kind"] == "conversation"
+        assert payload["direction"] == "会話"
+        assert "kind" not in payload  # 記録の種類は持たない（記-u 段 4）
         assert payload["emotion"] == "curious"
 
         cur.execute(
@@ -51,7 +60,6 @@ def test_save_appends_event_and_pending_job() -> None:
         assert job["job_type"] == "materialize_observation"
         assert job["status"] == "pending"
         assert job["attempts"] == 0
-    conn.close()
 
 
 def test_same_content_within_the_window_is_written_once() -> None:
@@ -66,14 +74,16 @@ def test_same_content_within_the_window_is_written_once() -> None:
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
         mem = ObservationMemory()
-        assert mem.save_with_id("same payload", kind="conversation")[1]
-        assert mem.save_with_id("same payload", kind="conversation")[1]
+        assert mem.save_with_id("same payload", direction="会話")[1]
+        assert mem.save_with_id("same payload", direction="会話")[1]
 
     conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM observations")
-        assert cur.fetchone()[0] == 1, "時間窓が二度目を弾けていない"
-    conn.close()
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM observations")
+            assert cur.fetchone()[0] == 1, "時間窓が二度目を弾けていない"
+    finally:
+        conn.close()
 
 
 def test_save_can_enqueue_without_immediate_materialization() -> None:
@@ -82,16 +92,18 @@ def test_save_can_enqueue_without_immediate_materialization() -> None:
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
         mem = ObservationMemory()
-        assert mem.save_with_id("queued only", kind="conversation", materialize_now=False)[1]
+        assert mem.save_with_id("queued only", direction="会話", materialize_now=False)[1]
 
     conn = _pg_conn()
-    with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
-        cur.execute("SELECT COUNT(*) AS cnt FROM memory_events")
-        assert cur.fetchone()["cnt"] == 1
-        cur.execute("SELECT status FROM memory_jobs")
-        job_row = cur.fetchone()
-        assert job_row is not None
-        assert job_row["status"] == "pending"
-        cur.execute("SELECT COUNT(*) AS cnt FROM observations")
-        assert cur.fetchone()["cnt"] == 0
-    conn.close()
+    try:
+        with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
+            cur.execute("SELECT COUNT(*) AS cnt FROM memory_events")
+            assert cur.fetchone()["cnt"] == 1
+            cur.execute("SELECT status FROM memory_jobs")
+            job_row = cur.fetchone()
+            assert job_row is not None
+            assert job_row["status"] == "pending"
+            cur.execute("SELECT COUNT(*) AS cnt FROM observations")
+            assert cur.fetchone()["cnt"] == 0
+    finally:
+        conn.close()

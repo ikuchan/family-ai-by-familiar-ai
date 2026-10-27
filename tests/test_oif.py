@@ -100,7 +100,7 @@ class TestWrite:
         content, kw = mem.saved[0]
         assert content == "覚えておくこと"
         assert kw["direction"] == "発話"
-        assert kw["kind"] == "observation", "kind が direction から作られていない"
+        assert "kind" not in kw  # 記録の種類は渡さない（記-u 段 4）
         assert kw["parent_id"] == "起点"
 
     @pytest.mark.asyncio

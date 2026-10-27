@@ -52,9 +52,9 @@ def _clear() -> None:
 def _insert_obs_with_vec(cur, vec: np.ndarray) -> None:
     obs_id = str(uuid.uuid4())
     cur.execute(
-        "INSERT INTO observations (id, content, timestamp, direction, kind, emotion) "
-        "VALUES (%s,%s,NOW(),%s,%s,%s)",
-        (obs_id, "mu test", "unknown", "conversation", "neutral"),
+        "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+        "VALUES (%s,%s,NOW(),%s,%s)",
+        (obs_id, "mu test", "unknown", "neutral"),
     )
     cur.execute(
         "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s)",

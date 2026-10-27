@@ -23,14 +23,13 @@ from familiar_agent.tools.memory import ObservationMemory
 
 
 def test_observation_memory_holds_the_read_layer() -> None:
-    assert hasattr(ObservationStore, "_read_observations_by_kind")
-    assert hasattr(ObservationMemory, "get_dates_with_summaries")
+    assert hasattr(ObservationStore, "_read_supersede_chain")
+    assert hasattr(ObservationMemory, "recall_on_this_day")
 
 
 def test_public_entry_points_are_still_reachable() -> None:
     """agent.py が呼ぶ入口が残っている。"""
     for name in (
-        "get_dates_with_summaries",
         "recall_on_this_day_async",
         "get_earliest_date_async",
     ):
@@ -64,11 +63,7 @@ def test_reading_is_owned_by_the_store_layer() -> None:
     from familiar_agent.store.observations import ObservationStore
 
     src = pathlib.Path("src/familiar_agent/tools/memory.py").read_text()
-    for name in (
-        "_read_observations_by_kind",
-        "_read_observations_by_situated",
-        "_read_supersede_chain",
-    ):
+    for name in ("_read_supersede_chain",):
         assert hasattr(ObservationStore, name), f"{name} が層に無い"
         assert not re.search(rf"^    (?:async )?def {name}\b", src, re.M), (
             f"{name} が memory.py にも定義されている（二重実装）"

@@ -98,7 +98,6 @@ def test_recall_result_key_is_groundedness() -> None:
         "emotion_a": 0.5,
         "emotion_dom": 0.5,
         "direction": "発話",
-        "kind": "observation",
         "emotion": "neutral",
         "image_path": None,
         "score": 0.5,
