@@ -33,11 +33,15 @@ logger = logging.getLogger(__name__)
 
 
 def drop_if_hallucination(text: str) -> str:
-    """Whisper の幻聴の定型文（「ご視聴ありがとうございました」）なら空に（知-y・2026-09-19）。INFO に残す。"""
+    """Whisper の幻聴の定型文なら空に（知-y・2026-09-19）。INFO に字数だけ残す。
+
+    「ご視聴」「ご清聴」を含めば、前置きや混ざった発話ごと捨てる（知-be・2026-10-27）。本当の発話が混ざりうるので、
+    INFO には本文を出さない（本文はセグメントの DEBUG にだけ出る）。
+    """
     from ..core.stt_rules import is_hallucination
 
     if text and is_hallucination(text):
-        logger.info("STT: 幻聴の定型文なので捨てた：%r", text[:40])
+        logger.info("STT: 幻聴の定型文なので捨てた（%d 字）", len(text))
         return ""
     return text
 
