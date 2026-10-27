@@ -26,9 +26,9 @@ def _ip(*, speaker_id="", speaker_name=""):
 
 def _written(a):
     """`_finish` が書いた答え（独白）の記録。閉じるときに書く最終版（記-t）は除く。"""
-    from familiar_agent.core.final_version import is_final
+    from familiar_agent.core.final_version import DIRECTION
 
-    call = next(c for c in a._oif.write.await_args_list if not is_final(c.args[0].content))
+    call = next(c for c in a._oif.write.await_args_list if c.args[0].direction != DIRECTION)
     return call.args[0], call.kwargs
 
 

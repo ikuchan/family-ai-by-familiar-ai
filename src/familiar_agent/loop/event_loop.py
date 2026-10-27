@@ -1060,7 +1060,13 @@ class InformationProcessing:
         agent = self._agent
         extra = {"at": at} if at is not None else {}
         final_id = await agent._oif.write(
-            MI(id="", content=content, timestamp=None, direction="求め", parent_id=parent),
+            MI(
+                id="",
+                content=content,
+                timestamp=None,
+                direction=final_version.DIRECTION,
+                parent_id=parent,
+            ),
             **agent._observation_perspective(),
             **extra,
         )

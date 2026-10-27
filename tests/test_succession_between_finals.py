@@ -36,15 +36,15 @@ def store():
     )
 
 
-def _put(store, content: str, at: datetime) -> str:
+def _put(store, content: str, at: datetime, direction: str = "最終版") -> str:
     oid = str(uuid.uuid4())
     with store._ctx.lock:
         conn = store._ctx.conn()
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                "VALUES (%s, %s, %s, '求め', 'observation')",
-                (oid, content, at),
+                "INSERT INTO observations (id, content, timestamp, direction) "
+                "VALUES (%s, %s, %s, %s)",
+                (oid, content, at, direction),
             )
         conn.commit()
     return oid
@@ -59,17 +59,21 @@ def test_only_finals_closed_in_the_last_five_minutes_are_candidates(store):
     start = _base()
     near = _put(store, f"{MARK}近い〕「a」と聞かれ、「b」と答えた", start - timedelta(seconds=60))
     far = _put(store, f"{MARK}遠い〕…", start - timedelta(seconds=400))
-    plain = _put(store, "「a」と聞かれ、1番：…", start - timedelta(seconds=30))
+    plain = _put(store, "「a」と聞かれ、1番：…", start - timedelta(seconds=30), "求め")
+    # 印で始まっても向きが求めなら最終版ではない（記-u 段 1：向きで見分ける）。
+    marked = _put(store, f"{MARK}求めの向き〕…", start - timedelta(seconds=30), "求め")
     old = _put(store, f"{MARK}畳まれた〕…", start - timedelta(seconds=30))
     newer = _put(store, f"{MARK}畳んだ側〕…", start - timedelta(seconds=20))
     store.add(KIND_REVISION, [(old, "旧", 0), (newer, "新", 1)])
     me = _put(store, f"{MARK}自分〕…", start - timedelta(seconds=10))
 
-    got = store.recent_finals(start - timedelta(seconds=300), start, exclude_id=me, mark=MARK)
+    got = store.recent_finals(
+        start - timedelta(seconds=300), start, exclude_id=me, direction="最終版"
+    )
     ids = [r["id"] for r in got]
     assert near in ids and newer in ids
     # **反証の側**：遠い・印の無い版・畳まれた・自分自身は入らない。
-    for x in (far, plain, old, me):
+    for x in (far, plain, marked, old, me):
         assert x not in ids
 
 

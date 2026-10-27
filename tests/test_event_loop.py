@@ -219,11 +219,13 @@ def test_speaks_via_say_tool():
     assert kwargs["max_tokens"] == 160 * 2 + (1 * 20 + 60) + 2048
     assert "on_text" in kwargs
     # 5件：取込でトリガ（発話）O、**主LLM を投げるときの版**、**返ったときの版**、
-    # 発話時点で本応答 O、閉じるときの最終版（版の鎖の最後・記-t）。主LLM は投げっぱなしになり、調べものと同じく投げるとき・
+    # 発話時点で本応答 O、閉じるときの最終版（版の鎖の最後・記-t・向きは「最終版」）。主LLM は投げっぱなしになり、調べものと同じく投げるとき・
     # 返るときに版が書かれる（環-h ①）。本応答を背景の永続化に任せると2秒遅れ、
     # 次の反復が「さっき何と言ったか」を拾えない。
     kinds = [c.kwargs.get("direction") for c in a._memory.save_async_with_id.call_args_list]
-    assert kinds == ["発話", "求め", "求め", "発話", "求め"], kinds
+    assert kinds == ["発話", "求め", "求め", "発話", "最終版"], (
+        kinds
+    )  # 最終版は向き「最終版」（記-u 段 1）
     a._spawn_background_task.assert_called_once()
 
 

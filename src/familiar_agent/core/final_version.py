@@ -7,7 +7,8 @@
 
     〔最終版 2026-10-14 10:13:40〜10:14:05〕「明日の天気は？」と聞かれ、「明日は晴れだよ」と答えた。経緯：1番：…
 
-**見分けは文の頭の印でする。** 向きは版と同じ `求め` で、`kind` は向きから決まるので使えない（記-u で別に考える）。
+**見分けは向きでする。** 向きは「最終版」（`DIRECTION`・記-u 段 1・2026-10-27）。それまでは起点や途中の版と同じ `求め` で、
+文の頭の印でしか見分けられなかった。印は時刻の頭として残る。
 """
 
 from __future__ import annotations
@@ -16,6 +17,8 @@ from datetime import datetime, tzinfo
 
 #: 最終版の印。文はこれで始まる（想起の頭「[そばに居た] 」などが前に付くことはある）。
 MARK = "〔最終版 "
+#: 最終版の向き（記-u 段 1）。窓の最終版も同じ向き。
+DIRECTION = "最終版"
 
 
 def head(start: datetime, end: datetime, tz: "tzinfo | None" = None) -> str:
@@ -123,11 +126,6 @@ def compose(
 def cut(text: str, limit: int) -> str:
     """`limit` 字に収める。並びが 時刻の頭 → 聞かれたこと → 答え → 経緯 なので、切れるのは経緯の末尾。"""
     return text[:limit]
-
-
-def is_final(text: str) -> bool:
-    """最終版の文か（想起の頭「[そばに居た] 」などが前に付いていても見る）。"""
-    return MARK in str(text or "")[:40]
 
 
 def fit(current: str, candidates: "dict[str, str]", limit: int) -> "tuple[str, dict[str, str]]":

@@ -26,7 +26,7 @@ from ..store.relations import KIND_FOLD
 
 logger = logging.getLogger(__name__)
 
-#: 材料にする向き。`求め`（版）・`保留`・`内省`・`記憶` はループが自分のために書いたもの・産物なので含めない。
+#: 材料にする向き。`求め`（版）・`最終版`・`保留`・`内省`・`記憶` はループが自分のために書いたもの・産物なので含めない。
 FOLD_DIRECTIONS: tuple[str, ...] = ("発話", "会話", "観察", "独白", "情動", "機器")
 EPISODE_MAX_CHARS = 500  # O の content の上限と同じ
 PERSON_MAX_CHARS = 300

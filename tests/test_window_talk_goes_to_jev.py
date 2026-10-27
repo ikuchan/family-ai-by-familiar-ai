@@ -363,5 +363,6 @@ def test_the_final_version_of_a_request_in_the_window_is_not_shown_twice():
     ws = _ws_across_the_window()
     final = _rec("f3", final_version.MARK + "19:00〕窓の中のはなしと、その答え", fit=0.9)
     final.mi.parent_id = "q3"
+    final.mi.direction = final_version.DIRECTION  # 最終版は向きで見分ける（記-u 段 1）
     ws.memories.append(final)
     assert "その答え" not in _past(ws.for_jev_arbiter(28_000))

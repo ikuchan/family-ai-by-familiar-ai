@@ -355,6 +355,8 @@ SUBJECT_PHRASE: dict = {
     "会話": "{名}との会話",
     "観察": "{名}が見た",
     "求め": "{名}が調べていたこと",
+    # 最終版（記-u 段 1）。機器や情動から始まった求めにも、窓の会話の全部にも合う言葉にした（本人）。
+    "最終版": "{名}のやりとりのまとめ",
     "保留": "{名}が言えずにいたこと",
     "情動": "{名}の内から起きたこと",
     "機器": "{名}のまわりで起きたこと",
@@ -555,10 +557,10 @@ class ObservationMemory:
 
     def recent_finals(self, since: datetime, until: datetime, *, exclude_id: str) -> list[dict]:
         """`since` から `until` までに閉じた最終版を新しい順に（記-t 段 2・継起の候補）。"""
-        from ..core.final_version import MARK
+        from ..core.final_version import DIRECTION
 
         return RelationStore(self._ctx).recent_finals(
-            since, until, exclude_id=exclude_id, mark=MARK
+            since, until, exclude_id=exclude_id, direction=DIRECTION
         )
 
     def thread(self, obs_id: str, *, before: int, after: int) -> list[dict]:

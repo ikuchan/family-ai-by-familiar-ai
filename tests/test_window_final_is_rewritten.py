@@ -54,8 +54,9 @@ def _close(ip, text="らっぱ！"):
 
 
 def _final_text(a) -> str:
-    texts = [c.args[0].content for c in a._oif.write.await_args_list]
-    finals = [t for t in texts if final_version.is_final(t)]
+    mis = [c.args[0] for c in a._oif.write.await_args_list]
+    texts = [m.content for m in mis]
+    finals = [m.content for m in mis if m.direction == final_version.DIRECTION]
     assert len(finals) == 1, texts
     return finals[0]
 
@@ -150,7 +151,7 @@ def test_two_requests_closed_back_to_back_fold_in_order():
     finals = iter(["final-2", "final-3"])
 
     async def write(mi, **k):  # 返事の記録も同じ口を通るので、最終版だけに id を振る
-        if not final_version.is_final(mi.content):
+        if mi.direction != final_version.DIRECTION:
             return "answer"
         got = next(finals)
         if got == "final-2":

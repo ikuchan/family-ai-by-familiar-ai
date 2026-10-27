@@ -262,7 +262,9 @@ def _final_of_recent(r: "Recalled", exclude: "set[str] | None") -> bool:
     """直近の枠に起点が載ったやりとりの最終版か（記-t）。載せると、同じ会話が直近の枠と思い出したことの列に 2 回並ぶ。"""
     if not exclude or not r.mi.parent_id:
         return False
-    return r.mi.parent_id in exclude and final_version.is_final(r.mi.content)
+    return (
+        r.mi.parent_id in exclude and r.mi.direction == final_version.DIRECTION
+    )  # 向きで見分ける（記-u 段 1）
 
 
 #: 帰りの反復で**想起を回さない**道具（出-x・2026-09-18）。掛けた・確かめて・止めた、の返りは

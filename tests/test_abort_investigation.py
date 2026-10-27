@@ -115,7 +115,8 @@ def test_the_abort_is_written_as_a_version():
     versions = [
         c
         for c in a._memory.save_async_with_id.call_args_list
-        if c.kwargs.get("direction") == "求め"
+        if c.kwargs.get("direction")
+        == "最終版"  # 打ち切りの版は最終版が代わる（記-t・向きは記-u 段 1）
     ]
     assert len(versions) == 1, f"打ち切りの版が1件でない: {len(versions)}"
     body = str(versions[0].args[0])

@@ -76,12 +76,6 @@ def test_each_way_of_closing():
     assert _compose(outcome="打ち切り", answer="").endswith("打ち切った")
 
 
-def test_the_mark_tells_a_final_version():
-    assert fv.is_final(_compose())
-    assert not fv.is_final("「明日の天気は？」と聞かれ、1番：…")  # ふつうの版
-    assert fv.is_final("[そばに居た] " + _compose())  # 想起の頭が付いても見分ける
-
-
 # ── 閉じるときに書く ──────────────────────────────────────────────────────────
 
 
@@ -101,7 +95,11 @@ def _ip(trigger_kind="発話", request_text="明日の天気は？", live_versio
 
 
 def _finals(a):
-    return [c for c in a._memory.save_async_with_id.call_args_list if fv.is_final(c.args[0])]
+    return [
+        c
+        for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") == fv.DIRECTION
+    ]
 
 
 def _close(ip, text, outcome):
@@ -119,7 +117,7 @@ def test_closing_writes_one_final_version_on_the_chain():
     finals = _finals(a)
     assert len(finals) == 1
     call = finals[0]
-    assert call.kwargs["direction"] == "求め"
+    assert call.kwargs["direction"] == "最終版"  # 記-u 段 1：最終版は向きで見分ける
     assert call.kwargs["parent_id"] == "origin-1"
     assert "「明日は晴れだよ」と答えた" in call.args[0]
     final_id = a._memory.save_async_with_id.call_args_list.index(call) + 1
@@ -242,7 +240,7 @@ def test_without_a_time_the_mouth_passes_none():
 # ── W：直近の枠に起点が載ったやりとりの最終版は出さない ─────────────────────────────
 
 
-def _rec(obs_id, content, parent_id):
+def _rec(obs_id, content, parent_id, direction="最終版"):
     from familiar_agent.io.oif import MI, Recalled
 
     mi = MI(
@@ -250,7 +248,7 @@ def _rec(obs_id, content, parent_id):
         obs_id=obs_id,
         content=content,
         timestamp=_END,
-        direction="求め",
+        direction=direction,
         parent_id=parent_id,
     )
     return Recalled(mi=mi, fit=0.5, groundedness=0.5, confidence=0.8)
@@ -262,5 +260,7 @@ def test_the_final_version_of_a_recent_exchange_is_not_shown_again():
 
     recent = _rec("fin-1", _compose(), "origin-recent")
     older = _rec("fin-2", _compose(), "origin-older")
-    shown = workspace._shown([recent, older], Request(), {"origin-recent"})
-    assert [r.mi.obs_id for r in shown] == ["fin-2"]
+    # **反証の側**：文が印で始まっても、向きが最終版でなければ最終版ではない（記-u 段 1）。
+    quoted = _rec("ver-1", _compose(), "origin-recent", direction="求め")
+    shown = workspace._shown([recent, older, quoted], Request(), {"origin-recent"})
+    assert [r.mi.obs_id for r in shown] == ["fin-2", "ver-1"]

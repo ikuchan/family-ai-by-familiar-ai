@@ -74,9 +74,13 @@ def _ip():
 
 def _saved(a) -> dict:
     """`_finish` が O へ書いた答えの1件（内容と direction）。閉じるときに書く最終版（記-t）は除く。"""
-    from familiar_agent.core.final_version import is_final
+    from familiar_agent.core.final_version import DIRECTION
 
-    call = next(c for c in a._memory.save_async_with_id.await_args_list if not is_final(c.args[0]))
+    call = next(
+        c
+        for c in a._memory.save_async_with_id.await_args_list
+        if c.kwargs.get("direction") != DIRECTION
+    )
     return {"content": call.args[0], "direction": call.kwargs.get("direction")}
 
 
@@ -129,7 +133,7 @@ def test_nothing_is_written_when_there_is_no_text():
     ip, a, noted = _ip()
     asyncio.run(ip._finish("", [], "沈黙"))
     # 答えの記録は書かない。書くのは閉じるときの最終版（記-t）だけ。
-    from familiar_agent.core.final_version import is_final
+    from familiar_agent.core.final_version import DIRECTION
 
-    written = [c.args[0] for c in a._memory.save_async_with_id.await_args_list]
-    assert written and all(is_final(w) for w in written)
+    written = [c.kwargs.get("direction") for c in a._memory.save_async_with_id.await_args_list]
+    assert written and all(w == DIRECTION for w in written)

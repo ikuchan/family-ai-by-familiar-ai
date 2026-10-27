@@ -134,6 +134,11 @@ def test_abort_writes_a_version() -> None:
         return a
 
     a = asyncio.run(scenario())
-    bodies = [str(c.args[0]) for c in _versions(a)]
+    # 打ち切りの版は最終版が代わる（記-t）。最終版は向き「最終版」（記-u 段 1）。
+    bodies = [
+        str(c.args[0])
+        for c in a._memory.save_async_with_id.call_args_list
+        if c.kwargs.get("direction") in ("求め", "最終版")
+    ]
     assert any("打ち切った" in b for b in bodies), f"打ち切りが版として残っていない: {bodies}"
     assert any("天気は？" in b for b in bodies), "求めが版に入っていない"

@@ -40,8 +40,8 @@ def _put(store, content: str, at: datetime) -> str:
         conn = store._ctx.conn()
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                "VALUES (%s, %s, %s, '求め', 'observation')",
+                "INSERT INTO observations (id, content, timestamp, direction) "
+                "VALUES (%s, %s, %s, '最終版')",
                 (oid, content, at),
             )
         conn.commit()

@@ -125,10 +125,10 @@ def test_finish_waits_for_the_version():
 
     asyncio.run(go())
     # 裏の版を書き終えてから閉じる。最後に、閉じるときの最終版（記-t）が版の鎖の最後に付く。
-    from familiar_agent.core.final_version import is_final
+    from familiar_agent.core.final_version import MARK
 
     assert seen and seen[0][0] == "「明日の天気は？」と聞かれた"
-    assert len(seen[0]) == 2 and is_final(seen[0][1])
+    assert len(seen[0]) == 2 and seen[0][1].startswith(MARK)
 
 
 def test_the_iteration_writes_the_thinking_version_later():
