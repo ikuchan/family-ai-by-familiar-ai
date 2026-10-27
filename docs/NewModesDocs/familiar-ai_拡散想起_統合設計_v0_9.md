@@ -1,4 +1,4 @@
-# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.8）
+# familiar-ai 拡散想起 統合設計（機械的な再帰 spreading）（v0.9）
 
 ## 目的とシナリオ
 
@@ -55,7 +55,7 @@
    **段4（2026-09-02）で視点列から面へ移した。** それまでは `subject_id`／`participants_json`／`writer_id` を読んでいた。047 で situated の person が「誰の視点で符号化したか」から「**どの関係の面か**」へ変わったので、面で引けるようになった。`fetch_perspectives` は `fetch_relation_persons` へ改名。**母集合に `actor` は入れない**——その人が「やった」だけの記録まで入れると、パジュ自身が書いた記録（`actor` が `__self__` の 5949 行）がどの種からも湧く。種にするのと母集合にするのは別の問いである。
 
 6. **共通の記憶【済・段4】**：`diffuse_store.shared_memory_ids`。顔ぶれが**2人以上**いるとき、その**全員**が関係を持つ観測を候補へ足す（役割は問わない）。片方としか関係の無い観測は入れない。2026-08-21 のダンプで 190 件が該当する。
-3. **(A) 共起辺【済】**：`RelationStore.cooccurring`（共起≥2 の集まりの要素 MI・現 W と `self_model` 除外）。**種類 `共起` で絞る**（絞らないと同じターンの問いと答えが共起として返る）。060 以前は `diffuse_store.cooccurring_mi_ids` だった。
+3. **(A) 共起辺【済】**：`RelationStore.cooccurring`（共起≥2 の集まりの要素 MI・現 W と自己認識の記録〔向き `内省`〕を除く・記-u で種類 `self_model` から移した）。**種類 `共起` で絞る**（絞らないと同じターンの問いと答えが共起として返る）。060 以前は `diffuse_store.cooccurring_mi_ids` だった。
 4. **再帰結線【済・4a】**：`core/diffuse.diffuse_ids`（有界再帰・K/D）で (A)+(B) 候補を W へ **a0=0** で足す。`ObservationMemory._diffuse_extend` を `recall()` の top-n 確定の**後**に append（**reinforce しない＝DB 非破壊**）。044 まではここに `_mark_recalled` があったが、若返りの口が二重だったので撤去し、`apply_verdicts` の一本にした。
 5. **新規性の精緻化【済・4b】**：`diffuse_store.order_ids_by_farthest`（候補を seed=クエリ vec から**遠い順＝コサイン低い順＝新規性高い順**に並べ替え・埋め込み無しは末尾）で novel を優先。
 
@@ -72,6 +72,9 @@
 
 ## 更新履歴
 
+
+> v0.9：(A) 共起辺で除く自己認識の記録を、種類 `self_model` から向き `内省` に書き直した（記-u・2026-10-28）。
+>
 > v0.8：(A) 共起辺の母集合を、同じ答えに使われた記憶に改めた（記-s・2026-10-14・本人の決定）。
 >
 > v0.7：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。

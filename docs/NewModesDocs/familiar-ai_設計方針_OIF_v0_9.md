@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：記憶接続 OIF（v0.8）
+# familiar-ai 設計方針：記憶接続 OIF（v0.9）
 
 ## この文書が決めること
 
@@ -62,7 +62,7 @@ class MI:
 
 | 入れないもの | 理由 |
 |---|---|
-| `kind` | `direction` から決まる。12種の `direction` に対し `kind` は6種で、8つの `direction` がすべて `observation` に落ちる |
+| `kind` | 列ごと無い。「何の記録か」は `direction` だけが持つ（記-u・078 で列を落とした）。以前は `direction` から表で決まり、12種の `direction` に対し6種で、8つの `direction` がすべて `observation` に落ちていた |
 | `emotion_vec` | PAD から機械的に作る索引。感情軸の一次絞り（`by_emotion`）が pgvector の L2 距離で引くために、$\sqrt{\lambda}$ を畳み込んだ4次元の点として持つ。意味としては PAD と同じもの |
 | `obs_embeddings`／`situated_embeddings` のベクトル | 別テーブルの索引。想起の SQL が JOIN で使う |
 | 採点（`fit`・`r`・`t`・`e`・`g`・`m`・`p`） | 想起のたびに算出する導出値。保存しない |
@@ -110,7 +110,6 @@ class OIF:
 class Cue:
     """何を手がかりに探すか。"""
     text: str = ""
-    direction: str | None = None
     on_date: date | None = None
     on_month_day: tuple[int, int] | None = None    # 同じ月日（記念日）
     exclude: tuple[str, ...] = ()
@@ -148,7 +147,7 @@ class Verdict(Enum):
 |---|---|
 | `write` | `save_async`・`save_async_with_id` |
 | `append` | `note_lookup_started` |
-| `recall` | `recall_async`・`recall_day_summaries_async`・`recall_on_this_day_async`・`get_observations_for_date` |
+| `recall` | `recall_async`・`recall_on_this_day_async`・`get_observations_for_date` |
 | `novelty` | `content_novelty_async` |
 | `supersede` | `mark_superseded`・`delete_day_summaries_for_date` |
 | `feedback` | `apply_verdicts`・`adjust_semantic_fact_confidence_async`・`adjust_behavior_policy_confidence_async` |
@@ -181,6 +180,9 @@ class Verdict(Enum):
 
 ## 更新履歴
 
+
+> v0.9：記録の種類（`kind`）の列が無くなったことを反映した（記-u・2026-10-28）。「何の記録か」は向き（`direction`）だけが持ち、`Cue` の向きの欄を外した。`recall` の置き換え先から、外した日の要約の口を除いた。
+>
 > v0.8：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.7：`feedback` に面（`viewpoint`）を足した。ループの申告は、記憶の器を直に掴むのをやめてこの口を通り、想起と同じ面へ当てる（2026-09-28・環-ab R-6 と直し `7da8083`）。
 > v0.6：**MI の同定を面へ移した**（案3・2026-09-02 実装）。`id` は面
