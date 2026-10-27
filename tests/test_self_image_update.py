@@ -48,7 +48,7 @@ def _agent(reply: str):
     a = MagicMock()
     a.backend = AsyncMock()
     a.backend.complete = AsyncMock(return_value=reply)
-    a._memory.save_async_with_id = AsyncMock(return_value=("obs-x", True))
+    a._oif.write = AsyncMock(return_value="obs-x")
     a._observation_perspective = MagicMock(return_value={})
     return a
 

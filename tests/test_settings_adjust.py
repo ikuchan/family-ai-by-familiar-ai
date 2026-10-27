@@ -98,12 +98,12 @@ def test_apply_writes_the_overrides_and_records_the_changes(tmp_path):
     _reset()
     measure.setup(base_dir=tmp_path)
     a = MagicMock()
-    a._memory.save_async_with_id = AsyncMock(return_value=("obs", True))
+    a._oif.write = AsyncMock(return_value="obs")
     a._observation_perspective = MagicMock(return_value={})
     asyncio.run(rs.apply(a, [("MemoryConfig.recent_exchanges_main", 6, 7)]))
     co.clear_cache()
     assert co.load_overrides()["MemoryConfig.recent_exchanges_main"] == 7
     text = (tmp_path / "rest_logs" / "measure.log").read_text(encoding="utf-8")
     assert "設定値 名前=MemoryConfig.recent_exchanges_main 前=6 後=7" in text
-    assert a._memory.save_async_with_id.await_count == 1
+    assert a._oif.write.await_count == 1  # 書く口は OIF（記-u 段 3）
     _reset()

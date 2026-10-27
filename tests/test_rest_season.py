@@ -124,7 +124,7 @@ def _agent(reply: str, *, me: str = ME, pages: "dict | None" = None, jev=None):
     a._mcp_search = _pages(PAGES if pages is None else pages)
     a._jev = jev if jev is not None else _jev()
     a.backend.complete = AsyncMock(return_value=reply)
-    a._memory.save_async_with_id = AsyncMock(return_value=("obs-x", True))
+    a._oif.write = AsyncMock(return_value="obs-x")
     a._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
     return a
 
@@ -168,7 +168,7 @@ def test_a_good_night_is_stored(box):
     ]  # 天気は機械が書き、LLM の天気は使わない
     assert env.rows["まわり"][0].text == "来週後半は強い寒気が来るらしい。"
     assert env.rows["家の話題"][0].source == "obs-1"
-    a._memory.save_async_with_id.assert_awaited()  # `内省` の記録
+    a._oif.write.assert_awaited()  # `内省` の記録（書く口は OIF・記-u 段 3）
 
 
 def test_the_picked_pages_reach_the_llm(box):

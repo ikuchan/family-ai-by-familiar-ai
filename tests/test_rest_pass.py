@@ -140,7 +140,7 @@ def test_rest_pass_folds_the_day_and_records_what_it_did():
     from familiar_agent.loop.rest_fold import FoldResult
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
 
     with patch(
@@ -152,9 +152,9 @@ def test_rest_pass_folds_the_day_and_records_what_it_did():
         content = asyncio.run(run_rest_pass(agent))
 
     fold.assert_awaited_once()
-    assert agent._memory.save_async_with_id.await_count == 1
+    assert agent._oif.write.await_count == 1  # 書く口は OIF（記-u 段 3）
     assert "12 件を畳" in content and "3" in content
-    assert agent._memory.save_async_with_id.call_args.kwargs["direction"] == "内省"
+    assert agent._oif.write.call_args.args[0].direction == "内省"
 
 
 def test_rest_pass_says_when_there_was_nothing_to_fold():
@@ -164,7 +164,7 @@ def test_rest_pass_says_when_there_was_nothing_to_fold():
     from familiar_agent.loop.rest_fold import FoldResult
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     with patch(
         "familiar_agent.loop.rest.fold_since_last_rest",
@@ -183,7 +183,7 @@ def test_a_failing_fold_does_not_break_the_pass():
     from familiar_agent.loop.rest import run_rest_pass
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     with patch(
         "familiar_agent.loop.rest.fold_since_last_rest",
@@ -202,7 +202,7 @@ def test_rest_pass_runs_layer_two_with_what_layer_one_wrote():
     from familiar_agent.loop.rest_self_image import Proposal
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     written = (
         Written("ep-1", "記憶", "今日は…"),
@@ -239,7 +239,7 @@ def test_rest_pass_runs_layer_three_after_layer_two_and_reports_it():
     from familiar_agent.loop.rest_self_image import Proposal
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     order: list[str] = []
     with (
@@ -274,7 +274,7 @@ def test_rest_pass_runs_layer_four_last_and_tells_it_whether_the_self_image_chan
     from familiar_agent.loop.rest_self_image import Proposal
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     order: list[str] = []
     seen: dict = {}
@@ -319,7 +319,7 @@ def test_rest_pass_measures_and_decays_before_folding():
     from familiar_agent.loop.rest_self_image import Proposal
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     order: list[str] = []
     with (
@@ -361,7 +361,7 @@ def test_rest_pass_folds_the_core_after_the_decay_and_feeds_layer_two():
     from familiar_agent.loop.rest_self_image import Proposal
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     order: list[str] = []
     core = CoreResult(
@@ -423,7 +423,7 @@ def _pass_with_season(season):
     from familiar_agent.loop.rest_self_image import Proposal
 
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")
     agent._observation_perspective = MagicMock(return_value={})
     order: list[str] = []
 

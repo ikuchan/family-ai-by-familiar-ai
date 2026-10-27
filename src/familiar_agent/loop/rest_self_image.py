@@ -15,6 +15,7 @@ import logging
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 
+from ..io.oif import MI
 from ..core.structured_ask import read_json_merged
 from ..core import measure
 from ..core import self_image as si
@@ -155,11 +156,10 @@ async def update_self_image(agent, materials: list) -> Proposal:
     if out.applied:
         si.store(out.image)
         content = "自己像を見直した：" + "／".join(out.diffs)
-        await agent._memory.save_async_with_id(
-            content[:500],
-            direction="内省",
-            kind="observation",
-            materialize_now=True,
+        # 書く口は OIF（記-u 段 3）。向き「内省」は REST が回った印でもある（`fresh_since_last_rest`）。
+        await agent._oif.write(
+            MI(id="", content=content[:500], timestamp=None, direction="内省"),
+            now=True,
             **agent._observation_perspective(),
         )
         logger.info("rest 自己像：%d 行を変えた", out.changed)

@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass
 from datetime import date
 
+from ..io.oif import MI
 from ..core.structured_ask import read_json_merged
 from ..core import jev_judges, measure
 from ..core import season_env as se
@@ -190,11 +191,10 @@ async def update_season(agent, records: list, *, today: "date | None" = None) ->
     content = "季節とまわりを書いた：" + "／".join(
         f"{k}：{r.text}" for k in se.FIELDS for r in rows.get(k, ())
     )
-    await agent._memory.save_async_with_id(
-        content[:500],
-        direction="内省",
-        kind="observation",
-        materialize_now=True,
+    # 書く口は OIF（記-u 段 3）。向き「内省」は REST が回った印でもある（`fresh_since_last_rest`）。
+    await agent._oif.write(
+        MI(id="", content=content[:500], timestamp=None, direction="内省"),
+        now=True,
         **agent._observation_perspective(),
     )
     logger.info("rest 季節の層：書いた（天気 %d 行・読み物 %d 本）", len(weather), len(reads))

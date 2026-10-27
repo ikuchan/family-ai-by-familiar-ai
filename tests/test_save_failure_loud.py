@@ -25,29 +25,6 @@ def _fixed_embed():
     )
 
 
-def test_save_failure_is_loud_error_with_trace(caplog):
-    ps = _fixed_embed()
-    for p in ps:
-        p.start()
-    try:
-        mem = ObservationMemory()
-        with (
-            patch.object(
-                mem._observations, "materialize_save_event", side_effect=RuntimeError("boom")
-            ),
-            caplog.at_level(logging.ERROR, logger="familiar_agent.tools.memory"),
-        ):
-            ok = mem.save("save loud x", kind="observation")
-        assert ok is False  # 返りは従来どおり（ターンを落とさない）
-        assert any(
-            r.levelno >= logging.ERROR and "save failed" in r.getMessage() and r.exc_info
-            for r in caplog.records
-        ), "save 失敗が error＋トレースで残っていない"
-    finally:
-        for p in ps:
-            p.stop()
-
-
 def test_save_with_id_failure_is_loud_error_with_trace(caplog):
     ps = _fixed_embed()
     for p in ps:

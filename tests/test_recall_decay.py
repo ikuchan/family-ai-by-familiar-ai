@@ -90,7 +90,7 @@ def test_recall_records_when_a_memory_was_recalled(memory):
     しか使わないので、更新しても循環は起きない。**思い出した時の記録**として、一次想起・
     関連想起のどちらで載ったときも更新する。
     """
-    memory.save("強化しない確認", kind="observation", emotion="neutral")
+    memory.save_with_id("強化しない確認", kind="observation", emotion="neutral")
 
     conn = _fresh_conn()
     try:
@@ -125,7 +125,7 @@ def test_recall_records_when_a_memory_was_recalled(memory):
 
 def test_time_decay_prioritizes_recent_over_old(memory):
     """A recently-saved memory ranks higher than one backdated 60 days, all else equal."""
-    memory.save("記憶古い", kind="observation", emotion="neutral")
+    memory.save_with_id("記憶古い", kind="observation", emotion="neutral")
 
     conn = _fresh_conn()
     try:
@@ -138,7 +138,7 @@ def test_time_decay_prioritizes_recent_over_old(memory):
     finally:
         conn.close()
 
-    memory.save("記憶新しい", kind="observation", emotion="neutral")
+    memory.save_with_id("記憶新しい", kind="observation", emotion="neutral")
 
     results = memory.recall("記憶", n=10)
     scores = {r["summary"]: r["fit"] for r in results}

@@ -30,13 +30,6 @@ def test_the_store_no_longer_takes_a_subject() -> None:
     assert "subject_id" not in _params_of(ObservationStore.materialize_save_event)
 
 
-def test_the_memory_facade_no_longer_takes_a_subject() -> None:
-    """`save_async_with_id` は `**kw` 渡しなので、明示の引数を持つ `save` を見る。"""
-    from familiar_agent.tools.memory import ObservationMemory
-
-    assert "subject_id" not in _params_of(ObservationMemory.save)
-
-
 def test_nobody_passes_a_subject_any_more() -> None:
     """本番コードに `subject_id=` が1つも残っていない（説明文の言及は数えない）。"""
     hits = []

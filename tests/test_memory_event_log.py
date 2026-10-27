@@ -28,7 +28,7 @@ def test_save_appends_event_and_pending_job() -> None:
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
         mem = ObservationMemory()
-        assert mem.save("hello world", kind="conversation", emotion="curious")
+        assert mem.save_with_id("hello world", kind="conversation", emotion="curious")[1]
 
     conn = _pg_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -66,8 +66,8 @@ def test_same_content_within_the_window_is_written_once() -> None:
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
         mem = ObservationMemory()
-        assert mem.save("same payload", kind="conversation")
-        assert mem.save("same payload", kind="conversation")
+        assert mem.save_with_id("same payload", kind="conversation")[1]
+        assert mem.save_with_id("same payload", kind="conversation")[1]
 
     conn = _pg_conn()
     with conn.cursor() as cur:
@@ -82,7 +82,7 @@ def test_save_can_enqueue_without_immediate_materialization() -> None:
         patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
     ):
         mem = ObservationMemory()
-        assert mem.save("queued only", kind="conversation", materialize_now=False)
+        assert mem.save_with_id("queued only", kind="conversation", materialize_now=False)[1]
 
     conn = _pg_conn()
     with conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor) as cur:
@@ -94,22 +94,4 @@ def test_save_can_enqueue_without_immediate_materialization() -> None:
         assert job_row["status"] == "pending"
         cur.execute("SELECT COUNT(*) AS cnt FROM observations")
         assert cur.fetchone()["cnt"] == 0
-    conn.close()
-
-
-def test_save_continues_when_event_append_fails() -> None:
-    with (
-        patch.object(_EmbeddingModel, "pre_warm"),
-        patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1, 0.2, 0.3]]),
-    ):
-        mem = ObservationMemory()
-        with patch.object(mem, "append_memory_event", side_effect=RuntimeError("boom")):
-            assert mem.save("still stored despite event failure")
-
-    conn = _pg_conn()
-    with conn.cursor() as cur:
-        cur.execute("SELECT COUNT(*) FROM memory_events")
-        assert cur.fetchone()[0] == 0
-        cur.execute("SELECT COUNT(*) FROM observations")
-        assert cur.fetchone()[0] == 1
     conn.close()

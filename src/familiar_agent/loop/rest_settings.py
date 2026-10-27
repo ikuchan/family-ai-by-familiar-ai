@@ -19,6 +19,7 @@ from __future__ import annotations
 import logging
 from datetime import datetime, timedelta
 
+from ..io.oif import MI
 from ..core.structured_ask import read_json_merged
 from .. import config_overrides as co
 from ..core import measure, settings
@@ -198,11 +199,10 @@ async def apply(agent, changes: list[Change]) -> int:
     co.clear_cache()
     if done:
         content = "設定値を見直した：" + "／".join(done)
-        await agent._memory.save_async_with_id(
-            content[:500],
-            direction="内省",
-            kind="observation",
-            materialize_now=True,
+        # 書く口は OIF（記-u 段 3）。向き「内省」は REST が回った印でもある（`fresh_since_last_rest`）。
+        await agent._oif.write(
+            MI(id="", content=content[:500], timestamp=None, direction="内省"),
+            now=True,
             **agent._observation_perspective(),
         )
         logger.info("rest 設定値：%d 件を動かした", len(done))

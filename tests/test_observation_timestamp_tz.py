@@ -43,7 +43,7 @@ def test_saved_timestamp_matches_the_db_clock() -> None:
     """保存した観測の timestamp が DB の現在時刻と一致する（9時間ずれない）。"""
     content = f"tz check {uuid.uuid4()}"
     with patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1] * 1024]):
-        _mem().save(content, direction="会話", kind="conversation")
+        _mem().save_with_id(content, direction="会話", kind="conversation")
 
     conn = _pg()
     with conn.cursor() as cur:
@@ -63,7 +63,7 @@ def test_saved_timestamp_is_not_in_the_future() -> None:
     """未来の時刻で保存されない（反証側：ずれていれば9時間先になる）。"""
     content = f"tz future check {uuid.uuid4()}"
     with patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1] * 1024]):
-        _mem().save(content, direction="会話", kind="conversation")
+        _mem().save_with_id(content, direction="会話", kind="conversation")
 
     conn = _pg()
     with conn.cursor() as cur:
@@ -82,7 +82,9 @@ def test_override_date_is_stored_as_local_end_of_day() -> None:
     """日付指定の保存も DB の時計に載る（その日の 23:59:59 JST 相当）。"""
     content = f"tz override {uuid.uuid4()}"
     with patch.object(_EmbeddingModel, "encode_document", return_value=[[0.1] * 1024]):
-        _mem().save(content, direction="会話", kind="day_summary", override_date="2026-07-01")
+        _mem().save_with_id(
+            content, direction="会話", kind="day_summary", override_date="2026-07-01"
+        )
 
     conn = _pg()
     with conn.cursor() as cur:

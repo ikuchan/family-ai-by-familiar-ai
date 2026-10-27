@@ -97,14 +97,14 @@ def test_novelty_wires_a0_on_save():
     try:
         mem = ObservationMemory()
         # 空ストア → 近傍0<7 → 既定 novelty 0.5 → a0 = 1.5*0.5 = 0.75
-        mem.save("novelty first unique", kind="observation")
+        mem.save_with_id("novelty first unique", kind="observation")
         assert _a0("novelty first unique") == pytest.approx(0.75, abs=0.02)
 
         # 同じ埋め込みの記憶を溜める（内容は別で dedup 回避）
         for i in range(8):
-            mem.save(f"novelty filler {i}", kind="observation")
+            mem.save_with_id(f"novelty filler {i}", kind="observation")
         # 近傍が K 件以上・コサイン≈1 → novelty≈0 → a0≈0
-        mem.save("novelty eighth", kind="observation")
+        mem.save_with_id("novelty eighth", kind="observation")
         assert _a0("novelty eighth") < 0.2
     finally:
         for p in ps:
@@ -119,9 +119,9 @@ def test_novelty_excludes_self_model():
         mem = ObservationMemory()
         # self_model だけを溜める（母集合から除外される想定）
         for i in range(8):
-            mem.save(f"novelty selfmodel {i}", kind="self_model")
+            mem.save_with_id(f"novelty selfmodel {i}", kind="self_model")
         # 非 self_model の近傍は0件 → 除外が効けば既定0.5 → a0=0.75
-        mem.save("novelty against selfmodel", kind="observation")
+        mem.save_with_id("novelty against selfmodel", kind="observation")
         assert _a0("novelty against selfmodel") == pytest.approx(0.75, abs=0.05)
     finally:
         for p in ps:

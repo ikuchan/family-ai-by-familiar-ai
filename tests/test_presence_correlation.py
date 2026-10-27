@@ -252,7 +252,7 @@ def test_recall_present_others_raises_score():
         c.close()
 
         mem = ObservationMemory()
-        mem.save("presence corr target", kind="observation", participants=["q-person"])
+        mem.save_with_id("presence corr target", kind="observation", participants=["q-person"])
 
         # 基準時刻を 60 日前にして、適合度を 1.0 の頭打ちから離す。問いと記録に同じ
         # ベクトルを渡す作り物なので、そのまま「いま」で採点すると素の適合度が 0.85 まで
@@ -288,7 +288,7 @@ def test_recall_no_present_others_unchanged():
         p.start()
     try:
         mem = ObservationMemory()
-        mem.save("presence corr regression", kind="observation")
+        mem.save_with_id("presence corr regression", kind="observation")
         a = mem.recall("presence corr regression", n=1)
         b = mem.recall("presence corr regression", n=1, present_others=[])
         assert a and b

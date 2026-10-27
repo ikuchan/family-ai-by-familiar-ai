@@ -29,7 +29,7 @@ def test_recall_semantic_includes_evidence_metadata() -> None:
         patch.object(_EmbeddingModel, "encode_query", return_value=[[1.0, 0.0, 0.0]]),
     ):
         mem = ObservationMemory()
-        assert mem.save("saw a cat by the window", kind="observation", emotion="curious")
+        assert mem.save_with_id("saw a cat by the window", kind="observation", emotion="curious")[1]
         rows = mem.recall("cat", n=1)
 
     assert len(rows) == 1

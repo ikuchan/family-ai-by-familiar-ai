@@ -657,67 +657,6 @@ class ObservationMemory:
 
     # ── Event / job queue ──────────────────────────────────────────────────
 
-    def save(
-        self,
-        content: str,
-        direction: str = "unknown",
-        kind: str = "observation",
-        emotion: str = "neutral",
-        image_path: str | None = None,
-        override_date: str | None = None,
-        materialize_now: bool = True,
-        writer_id: str | None = None,
-        participants: list[str] | None = None,
-        emotion_pad: MoodPAD | None = None,
-    ) -> bool:
-        # PAD は payload へ dict で載せる（JSON 往復可・遅延マテリアライズも通る）。
-        # 呼び出し側の PAD 引き渡しは W2b-2。未指定は中立で外部挙動不変。
-        payload = dict(
-            content=content,
-            direction=direction,
-            kind=kind,
-            emotion=emotion,
-            image_path=image_path,
-            override_date=override_date,
-            emotion_pad=emotion_pad.to_json_dict() if emotion_pad else None,
-        )
-        try:
-            event_id: str | None = None
-            try:
-                event_id, created_new = self.append_memory_event(
-                    "memory.save",
-                    payload,
-                    queue_job=True,
-                    job_type="materialize_observation",
-                )
-                if not materialize_now and event_id:
-                    return True
-            except Exception as e:
-                # 直接 save へフォールバックする回復経路。trace は残す。
-                logger.warning(
-                    "append_memory_event failed, continuing with direct save: %s", e, exc_info=True
-                )
-            obs_id = event_id or str(uuid.uuid4())
-            _cfg = MemoryConfig()
-            return bool(
-                self._observations.materialize_save_event(
-                    obs_id,
-                    payload,
-                    dedup_window_secs=_cfg.dedup_window_secs,
-                    writer_id=writer_id,
-                    participants=participants,
-                    novelty_k=_cfg.novelty_k,
-                    novelty_w_n=_cfg.novelty_w_n,
-                    novelty_default=_cfg.novelty_default,
-                    novelty_a0_cap=_cfg.novelty_a0_cap,
-                )
-            )
-        except Exception:
-            # 保存の失敗（埋め込み次元不一致・モデル未ロード・コードバグ等の決定的
-            # エラーを含む）はトレース付きで loud に残す。返りは False（ターンは落とさない）。
-            logger.exception("save failed")
-            return False
-
     def save_with_id(self, content: str, **kwargs) -> tuple[str | None, bool]:
         _pad = kwargs.get("emotion_pad")
         payload = dict(

@@ -139,7 +139,7 @@ def test_the_rest_pass_runs_it_after_the_daily_fold():
 
     order: list[str] = []
     agent = MagicMock()
-    agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
+    agent._oif.write = AsyncMock(return_value="obs1")  # 書く口は OIF（記-u 段 3）
     agent._observation_perspective = MagicMock(return_value={})
 
     async def fold(_agent):

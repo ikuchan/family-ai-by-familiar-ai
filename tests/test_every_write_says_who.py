@@ -9,7 +9,8 @@
 対応表で採ったのと同じ判断）。
 
 このテストは**数え上げたリストで代えない**。`save`／`save_async`／`save_async_with_id` の
-呼び出しを AST で走査し、1件ずつ見る。
+呼び出しと、OIF の書く口（`_oif.write`）の呼び出しを AST で走査し、1件ずつ見る。書く口は OIF に
+一本化した（記-u 段 3）ので、記憶の口を呼ぶのは OIF の中だけになり、書き手を言うかは OIF の呼び手で見る。
 """
 
 from __future__ import annotations
@@ -30,6 +31,28 @@ _NOT_A_MEMORY_WRITE = {
 }
 
 
+def _is_oif_write(node: ast.Call) -> bool:
+    """OIF の書く口か（`agent._oif.write`・`self._oif.write`・`oif.write`）。ファイルの write は数えない。"""
+    func = node.func
+    if getattr(func, "attr", None) != "write" or not isinstance(func, ast.Attribute):
+        return False
+    recv = ast.unparse(func.value)
+    return recv == "oif" or recv.endswith("_oif") or recv.endswith(".oif")
+
+
+def _perspective_names(fn: ast.AST) -> set[str]:
+    """関数の中で、視点（`_observation_perspective()` など）から作った変数の名前。
+
+    `kw = dict(agent._observation_perspective())` と作ってから顔ぶれを足し、`**kw` で渡す書き方を、
+    書き手を渡したと数えるため。
+    """
+    names: set[str] = set()
+    for node in ast.walk(fn):
+        if isinstance(node, ast.Assign) and "perspective" in ast.unparse(node.value):
+            names |= {t.id for t in node.targets if isinstance(t, ast.Name)}
+    return names
+
+
 def _writes() -> list[tuple[str, int, str, bool]]:
     """(file, 行, 口, 書き手が渡っているか) の並び。"""
     out = []
@@ -37,19 +60,23 @@ def _writes() -> list[tuple[str, int, str, bool]]:
         if "legacy" in f.parts:
             continue
         tree = ast.parse(f.read_text(encoding="utf-8"))
-        for node in ast.walk(tree):
-            if not isinstance(node, ast.Call):
-                continue
-            name = getattr(node.func, "attr", None)
-            if name not in _CALLS:
-                continue
-            if (f.name, name) in _NOT_A_MEMORY_WRITE:
-                continue
-            named = {k.arg for k in node.keywords if k.arg}
-            spread = [ast.unparse(k.value) for k in node.keywords if k.arg is None]
-            said = "writer_id" in named or any("perspective" in s for s in spread)
-            out.append((f.name, node.lineno, name, said))
-    return out
+        fns = [n for n in ast.walk(tree) if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))]
+        for fn in fns:
+            built = _perspective_names(fn)
+            for node in ast.walk(fn):
+                if not isinstance(node, ast.Call):
+                    continue
+                name = getattr(node.func, "attr", None)
+                if name not in _CALLS and not _is_oif_write(node):
+                    continue
+                if (f.name, name) in _NOT_A_MEMORY_WRITE:
+                    continue
+                named = {k.arg for k in node.keywords if k.arg}
+                spread = [ast.unparse(k.value) for k in node.keywords if k.arg is None]
+                said = "writer_id" in named or any("perspective" in s or s in built for s in spread)
+                out.append((f.name, node.lineno, str(name), said))
+    # 入れ子の関数は外の関数の走査でも拾うので、同じ呼び出しを 1 件にする。
+    return sorted(set(out))
 
 
 def test_every_write_to_o_says_who():
@@ -61,7 +88,8 @@ def test_there_are_writes_to_find():
     """**反証側。** 走査が空振りしていれば、上のテストは何も守っていない。
 
     件数は 環-e-い で 15 → 6 に減った。ループと `agent` の9箇所が OIF を通るようになり、
-    その先は `io/oif.py` の1箇所（既に数えている）へ集まったためである。
+    その先は `io/oif.py` の1箇所（既に数えている）へ集まったためである。記-u 段 3 で REST の 4 か所も
+    OIF を通るようにしたので、OIF の書く口の呼び手も数える（記憶の口だけなら 1 件になる）。
     """
     assert len(_writes()) >= 5
 
