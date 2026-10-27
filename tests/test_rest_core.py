@@ -134,7 +134,7 @@ def test_the_oldest_bundle_is_written_and_its_sources_folded(tmp_path):
         _two_topics()[i]["timestamp"] for i in range(6) if f"o{i}" in folded_from
     )
     a._oif.set_groundedness.assert_called()  # 産物が出典の最大 n を引き継ぐ
-    assert r.records and r.records[0].kind == "core_summary" and isinstance(r.records[0], Written)
+    assert r.records and r.records[0].direction == "まとめ" and isinstance(r.records[0], Written)
     line = next(ln for ln in _lines(tmp_path) if " 層1固め " in ln)
     assert "固めた=1" in line and "見送り=0" in line
 

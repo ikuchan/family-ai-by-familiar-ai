@@ -4,7 +4,7 @@ REST の要約は「人 → 年 → 月 → 日」の木になる。節は日（
 その節の要約は、要約の時刻（その日・月・年の終わり）が入る範囲で引く。範囲は **UTC の暦**で切る——
 日ごとの要約は日付の文字列を UTC の 23:59 に置いて書いている（`rest_fold._day_end`）ので、同じ境目で引く。
 
-家族全体と人ごとは**種類で分ける**（人ごとはその人の面から引く）。
+家族全体と人ごとは**向きで分ける**（人ごとはその人の面から引く・記-u 段 2 で種類から向きへ移した）。
 """
 
 from __future__ import annotations
@@ -14,14 +14,14 @@ from datetime import datetime, timezone
 
 _NODE = re.compile(r"^(\d{4})(?:-(\d{2})(?:-(\d{2}))?)?$")
 
-#: 節の段ごとの種類（家族全体・人ごと）。向きとの対応は `io/oif._KIND_OF_DIRECTION`。
-_KINDS = {
-    ("日", False): ("day_summary",),
-    ("月", False): ("month_summary",),
-    ("年", False): ("year_summary",),
-    ("日", True): ("person_summary",),
-    ("月", True): ("person_month_summary",),
-    ("年", True): ("person_year_summary",),
+#: 節の段ごとの要約の向き（家族全体・人ごと）。
+_DIRECTIONS = {
+    ("日", False): ("記憶",),
+    ("月", False): ("月のまとめ",),
+    ("年", False): ("年のまとめ",),
+    ("日", True): ("人物",),
+    ("月", True): ("人の月のまとめ",),
+    ("年", True): ("人の年のまとめ",),
 }
 
 
@@ -49,9 +49,9 @@ def parse_node(text: str) -> "tuple[str, datetime, datetime] | None":
         return None
 
 
-def kinds_for(level: str, *, person: bool) -> "tuple[str, ...]":
-    """その段の要約の種類。人を指していれば人ごとのもの。"""
-    return _KINDS[(level, bool(person))]
+def directions_for(level: str, *, person: bool) -> "tuple[str, ...]":
+    """その段の要約の向き。人を指していれば人ごとのもの。"""
+    return _DIRECTIONS[(level, bool(person))]
 
 
 #: 1 つ下の段。暦のまとめ（REST 層 1 の ③）の材料は、1 つ下の段の要約である。

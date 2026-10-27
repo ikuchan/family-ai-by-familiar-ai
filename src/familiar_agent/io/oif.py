@@ -439,28 +439,28 @@ class OIF:
 
         人を指せばその人の面から人ごとの要約を、指さなければ家族全体の要約を引く。畳まれた記録も返す。
         """
-        from ..core.memory_tree import kinds_for, parse_node
+        from ..core.memory_tree import directions_for, parse_node
 
         got = parse_node(node)
         if got is None:
             return None
         level, start, end = got
         rows = self._memory.tree_summaries(
-            kinds_for(level, person=person_id is not None), start, end, person_id=person_id
+            directions_for(level, person=person_id is not None), start, end, person_id=person_id
         )
         logger.debug("OIF tree_summaries %s（%s）→ %d件", node, person_id or "家族", len(rows))
         return rows
 
     def tree_children(self, node: str, *, person_id: "str | None" = None) -> list[dict]:
         """節の 1 つ下の段の要約（月なら日ごとの要約、年なら月の要約・記-m）。暦のまとめの材料。古い順。"""
-        from ..core.memory_tree import CHILD, kinds_for, parse_node
+        from ..core.memory_tree import CHILD, directions_for, parse_node
 
         got = parse_node(node)
         if got is None or got[0] not in CHILD:
             return []
         level, start, end = got
-        kinds = kinds_for(CHILD[level], person=person_id is not None)
-        return self._memory.tree_summaries(kinds, start, end, person_id=person_id)
+        directions = directions_for(CHILD[level], person=person_id is not None)
+        return self._memory.tree_summaries(directions, start, end, person_id=person_id)
 
     def person_notes_after(self, person_id: str, since) -> list[dict]:
         """その人の関係のまとめ（日々の蒸留の産物）のうち、`since` より後のもの。古い順（知-ad・いまの様子の材料）。"""
@@ -468,11 +468,15 @@ class OIF:
 
         start = since + timedelta(microseconds=1)
         end = datetime.now(timezone.utc) + timedelta(days=1)
-        return self._memory.tree_summaries(("person_summary",), start, end, person_id=person_id)
+        from ..core.memory_tree import directions_for
 
-    def tree_months(self, kind: str, *, person_id: "str | None" = None) -> list[str]:
-        """その種類の要約がある月（YYYY-MM）の一覧（記-m・暦のまとめが何を書くかを決める）。"""
-        return self._memory.tree_months(kind, person_id=person_id)
+        return self._memory.tree_summaries(
+            directions_for("日", person=True), start, end, person_id=person_id
+        )
+
+    def tree_months(self, direction: str, *, person_id: "str | None" = None) -> list[str]:
+        """その向きの要約がある月（YYYY-MM）の一覧（記-m・暦のまとめが何を書くかを決める）。"""
+        return self._memory.tree_months(direction, person_id=person_id)
 
     def core_records(self) -> list[dict]:
         """核の出来事（1 出来事 1 行・面の最大 n・面を持つ人・束ね用ベクトル）。②の材料（記-a-ろ-に）。"""

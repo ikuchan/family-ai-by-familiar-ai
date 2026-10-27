@@ -531,13 +531,13 @@ class ObservationMemory:
         """前回の内省以降の記録（記-a-ろ-ろ・記憶の箱へ委譲）。"""
         return self._observations.fresh_since_last_rest()
 
-    def tree_summaries(self, kinds, start, end, *, person_id=None) -> list[dict]:
+    def tree_summaries(self, directions, start, end, *, person_id=None) -> list[dict]:
         """記憶の木の節の要約（記-m・記憶の箱へ委譲）。畳まれた記録も返す。"""
-        return self._observations.tree_summaries(kinds, start, end, person_id=person_id)
+        return self._observations.tree_summaries(directions, start, end, person_id=person_id)
 
-    def tree_months(self, kind: str, *, person_id=None) -> list[str]:
-        """その種類の要約がある月（記-m・記憶の箱へ委譲）。"""
-        return self._observations.tree_months(kind, person_id=person_id)
+    def tree_months(self, direction: str, *, person_id=None) -> list[str]:
+        """その向きの要約がある月（記-m・記憶の箱へ委譲）。"""
+        return self._observations.tree_months(direction, person_id=person_id)
 
     def core_records(self) -> list[dict]:
         """核の出来事（記-a-ろ-に・記憶の箱へ委譲）。"""

@@ -763,19 +763,19 @@ class ObservationStore:
                         "SELECT o.id FROM observations o "
                         "JOIN situated_memories s ON s.obs_id = o.id "
                         "  AND s.relation_key = 'actor' AND s.person_id = %s "
-                        "WHERE o.content = %s AND o.kind = %s "
+                        "WHERE o.content = %s AND o.direction = %s "
                         "  AND o.timestamp >= now() - (%s * INTERVAL '1 second') "
                         f"  AND {not_hidden('o')} "
                         "ORDER BY o.timestamp DESC LIMIT 1",
-                        (_writer_facet, content, kind, dedup_window_secs),
+                        (_writer_facet, content, direction, dedup_window_secs),
                     )
                     _dup = cur.fetchone()
                     if _dup:
                         logger.debug(
-                            "content dedup skip: (writer_id=%.8s kind=%s content=%.40r) "
+                            "content dedup skip: (writer_id=%.8s direction=%s content=%.40r) "
                             "within %ds window → 既存 %.8s を返す",
                             writer,
-                            kind,
+                            direction,
                             content,
                             dedup_window_secs,
                             _dup["id"],
@@ -989,31 +989,31 @@ class ObservationStore:
 
     def tree_summaries(
         self,
-        kinds: "tuple[str, ...]",
+        directions: "tuple[str, ...]",
         start,
         end,
         *,
         person_id: "str | None" = None,
     ) -> list[dict]:
-        """記憶の木の節の要約（記-m）：種類が `kinds` で、時刻が [start, end) のもの。古い順。
+        """記憶の木の節の要約（記-m）：向きが `directions` で、時刻が [start, end) のもの。古い順。
 
         **畳まれた記録も返す**（`not_hidden` を掛けない）。日ごとの要約は核の固めで隠れることがあるが、
         木は暦で決まる索引で、意味で束ねる核の固めとは別の仕組みである。人を指せばその人の面から引く。
         失敗時は空リスト。
         """
-        params: list = [list(kinds), start, end]
+        params: list = [list(directions), start, end]
         if person_id is None:
             sql = (
-                "SELECT o.id, o.content, o.timestamp, o.kind FROM observations o "
-                "WHERE o.kind = ANY(%s) AND o.timestamp >= %s AND o.timestamp < %s "
+                "SELECT o.id, o.content, o.timestamp, o.direction FROM observations o "
+                "WHERE o.direction = ANY(%s) AND o.timestamp >= %s AND o.timestamp < %s "
                 "ORDER BY o.timestamp, o.id"
             )
         else:
             params.append(viewpoint_of(person_id))
             sql = (
-                "SELECT DISTINCT o.id, o.content, o.timestamp, o.kind FROM observations o "
+                "SELECT DISTINCT o.id, o.content, o.timestamp, o.direction FROM observations o "
                 "JOIN situated_memories s ON s.obs_id = o.id "
-                "WHERE o.kind = ANY(%s) AND o.timestamp >= %s AND o.timestamp < %s "
+                "WHERE o.direction = ANY(%s) AND o.timestamp >= %s AND o.timestamp < %s "
                 "AND s.person_id = %s ORDER BY o.timestamp, o.id"
             )
         try:
@@ -1026,22 +1026,22 @@ class ObservationStore:
             logger.warning("tree_summaries failed: %s", e)
             return []
 
-    def tree_months(self, kind: str, *, person_id: "str | None" = None) -> list[str]:
-        """その種類の要約がある月（YYYY-MM・UTC の暦）の一覧（記-m・暦のまとめが何を書くかを決める）。
+    def tree_months(self, direction: str, *, person_id: "str | None" = None) -> list[str]:
+        """その向きの要約がある月（YYYY-MM・UTC の暦）の一覧（記-m・暦のまとめが何を書くかを決める）。
 
         畳まれた記録も数える（木は暦で決まる索引）。人を指せばその人の面のものだけ。失敗時は空リスト。
         """
         month = "to_char(o.timestamp AT TIME ZONE 'UTC', 'YYYY-MM')"
         if person_id is None:
-            sql = f"SELECT DISTINCT {month} AS m FROM observations o WHERE o.kind = %s ORDER BY m"
-            params: tuple = (kind,)
+            sql = f"SELECT DISTINCT {month} AS m FROM observations o WHERE o.direction = %s ORDER BY m"
+            params: tuple = (direction,)
         else:
             sql = (
                 f"SELECT DISTINCT {month} AS m FROM observations o "
                 "JOIN situated_memories s ON s.obs_id = o.id "
-                "WHERE o.kind = %s AND s.person_id = %s ORDER BY m"
+                "WHERE o.direction = %s AND s.person_id = %s ORDER BY m"
             )
-            params = (kind, viewpoint_of(person_id))
+            params = (direction, viewpoint_of(person_id))
         try:
             with self._ctx.lock:
                 conn = self._ctx.conn()

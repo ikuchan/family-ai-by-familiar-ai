@@ -123,7 +123,9 @@ async def run_rest_pass(agent) -> str:
     # 層 2：層 1 が書いたものを材料に、自己像を見直す（記-a-へ）。
     self_image_changed = False
     try:
-        p = await update_self_image(agent, [Material(w.obs_id, w.kind, w.text) for w in records])
+        p = await update_self_image(
+            agent, [Material(w.obs_id, w.direction, w.text) for w in records]
+        )
         self_image_changed = p.applied
         parts.append(
             f"自己像を {p.changed} 行変えた"

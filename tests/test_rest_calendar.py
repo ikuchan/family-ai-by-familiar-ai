@@ -24,14 +24,14 @@ FAMILY = "## パパ\n\n- **名前**：雄輔\n- **呼び方**：パパ\n"
 
 
 def _agent(months: dict, *, reply='{"summary": "ぼくはこの月、キャンプに行った。"}'):
-    """`months[(kind, pid)]` に、その種類の要約がある月（YYYY-MM）を並べる。"""
+    """`months[(向き, pid)]` に、その向きの要約がある月（YYYY-MM）を並べる。"""
     a = MagicMock()
     a._family_md = FAMILY
     a._pmm.find_person_id_by_name = MagicMock(
         side_effect=lambda name: "pid-papa" if name in ("雄輔", "パパ") else None
     )
     a._oif.tree_months = MagicMock(
-        side_effect=lambda kind, person_id=None: months.get((kind, person_id), [])
+        side_effect=lambda direction, person_id=None: months.get((direction, person_id), [])
     )
     a._oif.tree_children = MagicMock(
         side_effect=lambda node, person_id=None: [{"content": f"{node} の中身", "timestamp": NOW}]
@@ -47,15 +47,15 @@ def _pending_of(a):
 
 
 def test_closed_months_are_listed_oldest_first_and_this_month_is_not():
-    a = _agent({("day_summary", None): ["2026-10", "2026-08", "2026-09"]})
+    a = _agent({("記憶", None): ["2026-10", "2026-08", "2026-09"]})
     assert _pending_of(a) == [("月", "2026-08", None), ("月", "2026-09", None)]
 
 
 def test_a_month_already_summarized_is_skipped():
     a = _agent(
         {
-            ("day_summary", None): ["2026-08", "2026-09"],
-            ("month_summary", None): ["2026-08"],
+            ("記憶", None): ["2026-08", "2026-09"],
+            ("月のまとめ", None): ["2026-08"],
         }
     )
     assert _pending_of(a) == [("月", "2026-09", None)]
@@ -64,35 +64,33 @@ def test_a_month_already_summarized_is_skipped():
 def test_each_person_gets_their_own_months_after_the_family():
     a = _agent(
         {
-            ("day_summary", None): ["2026-09"],
-            ("person_summary", "pid-papa"): ["2026-09"],
+            ("記憶", None): ["2026-09"],
+            ("人物", "pid-papa"): ["2026-09"],
         }
     )
     assert _pending_of(a) == [("月", "2026-09", None), ("月", "2026-09", "雄輔")]
 
 
 def test_a_year_waits_until_its_months_are_summarized():
-    waiting = _agent(
-        {("day_summary", None): ["2025-11", "2025-12"], ("month_summary", None): ["2025-11"]}
-    )
+    waiting = _agent({("記憶", None): ["2025-11", "2025-12"], ("月のまとめ", None): ["2025-11"]})
     assert ("年", "2025", None) not in _pending_of(waiting)
     ready = _agent(
         {
-            ("day_summary", None): ["2025-11", "2025-12"],
-            ("month_summary", None): ["2025-11", "2025-12"],
+            ("記憶", None): ["2025-11", "2025-12"],
+            ("月のまとめ", None): ["2025-11", "2025-12"],
         }
     )
     assert _pending_of(ready) == [("年", "2025", None)]
 
 
 def test_this_year_is_not_summarized():
-    a = _agent({("day_summary", None): ["2026-08"], ("month_summary", None): ["2026-08"]})
+    a = _agent({("記憶", None): ["2026-08"], ("月のまとめ", None): ["2026-08"]})
     assert _pending_of(a) == []
 
 
 def test_six_a_night_at_most():
     months = [f"2025-{m:02d}" for m in range(1, 13)]
-    a = _agent({("day_summary", None): months})
+    a = _agent({("記憶", None): months})
     r = asyncio.run(rest_calendar.write_calendar(a, now=NOW))
     assert rest_calendar.CALENDAR_MAX_PER_NIGHT == 6
     assert r.written == 6 and r.left == 6
@@ -100,7 +98,7 @@ def test_six_a_night_at_most():
 
 
 def test_a_month_is_written_at_its_end_with_the_right_direction():
-    a = _agent({("day_summary", None): ["2026-08"], ("person_summary", "pid-papa"): ["2026-08"]})
+    a = _agent({("記憶", None): ["2026-08"], ("人物", "pid-papa"): ["2026-08"]})
     r = asyncio.run(rest_calendar.write_calendar(a, now=NOW))
     assert r.written == 2
     (fam_mi,), fam_kw = a._oif.write.await_args_list[0].args, a._oif.write.await_args_list[0].kwargs
@@ -119,7 +117,7 @@ def test_a_month_is_written_at_its_end_with_the_right_direction():
 
 
 def test_the_full_llm_is_asked_with_the_materials():
-    a = _agent({("day_summary", None): ["2026-08"]})
+    a = _agent({("記憶", None): ["2026-08"]})
     asyncio.run(rest_calendar.write_calendar(a, now=NOW))
     prompt = a.backend.complete.await_args.args[0]
     assert "2026-08 の中身" in prompt and "2026-08" in prompt
@@ -127,7 +125,7 @@ def test_the_full_llm_is_asked_with_the_materials():
 
 def test_a_bad_reply_is_not_written_and_carried_over():
     for reply in ("", "まとめられない", '{"summary": ""}', '{"summary": "' + "あ" * 501 + '"}'):
-        a = _agent({("day_summary", None): ["2026-08"]}, reply=reply)
+        a = _agent({("記憶", None): ["2026-08"]}, reply=reply)
         r = asyncio.run(rest_calendar.write_calendar(a, now=NOW))
         assert r.written == 0 and r.skipped == 1, reply
         a._oif.write.assert_not_awaited()

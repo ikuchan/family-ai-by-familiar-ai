@@ -25,11 +25,11 @@ def _materials():
     return [
         rsi.Material(
             obs_id="ep-1",
-            kind="day_summary",
+            direction="記憶",
             text="今日はこうきとサッカーの話をした。楽しそうだった。",
         ),
         rsi.Material(
-            obs_id="ps-1", kind="person_summary", text="こうきはサッカーが好きで、負けると泣く。"
+            obs_id="ps-1", direction="人物", text="こうきはサッカーが好きで、負けると泣く。"
         ),
     ]
 

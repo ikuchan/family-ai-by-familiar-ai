@@ -69,11 +69,11 @@ PAGES = {
 @dataclass
 class _Rec:
     obs_id: str
-    kind: str
+    direction: str
     text: str
 
 
-RECORDS = [_Rec("obs-1", "day_summary", "たいきが運動会の練習の話をした")]
+RECORDS = [_Rec("obs-1", "記憶", "たいきが運動会の練習の話をした")]
 
 
 def _reply(**over):

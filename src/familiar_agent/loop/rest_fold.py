@@ -162,7 +162,7 @@ class Written:
     """層 1 が書いた 1 件（層 2 の材料になる）。"""
 
     obs_id: str
-    kind: str  # day_summary / person_summary
+    direction: str  # 記憶・人物・まとめ・月や年のまとめ（記-u 段 2：種類から向きへ）
     text: str
 
 
@@ -247,12 +247,12 @@ async def fold_since_last_rest(
         assert summaries is not None
         episode_id = await _write_episode(agent, batch, summaries.episode)
         written += 1
-        records.append(Written(episode_id, "day_summary", summaries.episode))
+        records.append(Written(episode_id, "記憶", summaries.episode))
         for name, text in summaries.persons.items():
             pid = await _write_person_summary(agent, batch, name, text)
             if pid:
                 written += 1
-                records.append(Written(pid, "person_summary", f"{name}：{text}"))
+                records.append(Written(pid, "人物", f"{name}：{text}"))
         # 材料を自己エピソードで畳む（`畳み込み`＝畳まれた側は誤りではない）。繰り返し（a0 が下限未満・
         # 依頼に載せなかったもの）も同じ要約で畳む——元は残り可逆。
         for r in list(batch.rows) + list(batch.dropped):

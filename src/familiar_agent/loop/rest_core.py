@@ -10,7 +10,7 @@
 4. 選ぶ：平均 u の低い束から、Σb·u の累計が超過 E=I−I* に達するまで（1 晩の上限あり）。
 5. 書く：1 束 1 依頼。JSON {text, sources, people}。検査（出典が束の中・字数・家族の名前）に落ちた
    束はその晩は固めない。
-6. 産物：向き `まとめ`（kind core_summary）・時刻は出典の最新・出典の面の人が居合わせた人・
+6. 産物：向き `まとめ`・時刻は出典の最新・出典の面の人が居合わせた人・
    面の n は出典の最大。各出典を産物で supersede。
 7. 記録：計測ログに `層1同一` と `層1固め`。`内省` の記録には一文。
 
@@ -236,7 +236,7 @@ async def fold_core(agent, *, now: "datetime | None" = None) -> CoreResult:
             skipped += 1
             continue
         written += 1
-        outs.append(Written(new_id, "core_summary", text))
+        outs.append(Written(new_id, "まとめ", text))
         agent._oif.set_groundedness(new_id, max(int(r.get("groundedness_n", 0) or 0) for r in used))
         for r in used:
             if agent._oif.supersede(str(r["obs_id"]), new_id, kind=KIND_FOLD):

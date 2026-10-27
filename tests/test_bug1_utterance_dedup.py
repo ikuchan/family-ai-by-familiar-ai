@@ -28,25 +28,25 @@ def _make_memory() -> ObservationMemory:
         return ObservationMemory()
 
 
-def _obs_count(conn, person_id: str, content: str, kind: str) -> int:
+def _obs_count(conn, person_id: str, content: str, direction: str) -> int:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) AS n FROM observations o "
-            "WHERE content=%s AND kind=%s AND " + LIVE.format(alias="o"),
-            (content, kind),
+            "WHERE content=%s AND direction=%s AND " + LIVE.format(alias="o"),
+            (content, direction),
         )
         return cur.fetchone()["n"]
 
 
-def _insert_obs_at(conn, person_id: str, content: str, kind: str, ts: datetime) -> str:
+def _insert_obs_at(conn, person_id: str, content: str, direction: str, ts: datetime) -> str:
     """Direct INSERT bypassing dedup logic — used to plant fixtures."""
     obs_id = str(uuid.uuid4())
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO observations "
-            "(id,content,timestamp,direction,kind,emotion) "
-            "VALUES (%s,%s,%s,%s,%s,%s)",
-            (obs_id, content, ts, "unknown", kind, "neutral"),
+            "(id,content,timestamp,direction,emotion) "
+            "VALUES (%s,%s,%s,%s,%s)",
+            (obs_id, content, ts, direction, "neutral"),
         )
     conn.commit()
     return obs_id
@@ -55,8 +55,8 @@ def _insert_obs_at(conn, person_id: str, content: str, kind: str, ts: datetime) 
 # ── A: 書き込み側 dedup ──────────────────────────────────────
 
 
-def test_dedup_skips_same_content_kind_within_window() -> None:
-    """Same (person_id, content, kind) within window → only 1 row inserted."""
+def test_dedup_skips_same_content_direction_within_window() -> None:
+    """同じ書き手・内容・向きが窓の内に来たら 1 行だけ書く（記-u 段 2：種類でなく向きで見る）。"""
 
     mem = _make_memory()
     pid = mem._person_id
@@ -66,9 +66,9 @@ def test_dedup_skips_same_content_kind_within_window() -> None:
     original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
     os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
-        ok1, _ = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
-        ok2, _ = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
-        ok3, _ = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
+        ok1, _ = mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
+        ok2, _ = mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
+        ok3, _ = mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
     finally:
         if original_window is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
@@ -76,7 +76,7 @@ def test_dedup_skips_same_content_kind_within_window() -> None:
             os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
-    n = _obs_count(conn, pid, content, "utterance")
+    n = _obs_count(conn, pid, content, "発話")
     conn.close()
     assert n == 1, f"Expected 1 row after dedup, got {n}"
 
@@ -94,8 +94,8 @@ def test_dedup_returns_existing_row_id() -> None:
     original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
     os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
-        id1, ok1 = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
-        id2, ok2 = mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
+        id1, ok1 = mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
+        id2, ok2 = mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
     finally:
         if original_window is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
@@ -122,9 +122,9 @@ def test_mark_superseded_does_not_overwrite() -> None:
     pid = mem._person_id
     conn = _pg_conn()
     now = datetime.now(timezone.utc)
-    old = _insert_obs_at(conn, pid, f"解決される_{uuid.uuid4()}", "utterance", now)
-    first = _insert_obs_at(conn, pid, f"先の解決_{uuid.uuid4()}", "utterance", now)
-    second = _insert_obs_at(conn, pid, f"後の解決_{uuid.uuid4()}", "utterance", now)
+    old = _insert_obs_at(conn, pid, f"解決される_{uuid.uuid4()}", "発話", now)
+    first = _insert_obs_at(conn, pid, f"先の解決_{uuid.uuid4()}", "発話", now)
+    second = _insert_obs_at(conn, pid, f"後の解決_{uuid.uuid4()}", "発話", now)
 
     mem.mark_superseded(old, first)
     mem.mark_superseded(old, second)  # 後から来ても張り替えない
@@ -136,7 +136,7 @@ def test_mark_superseded_does_not_overwrite() -> None:
 
 
 def test_dedup_allows_different_content() -> None:
-    """Different content with same kind must both be inserted."""
+    """Different content with same direction must both be inserted."""
 
     mem = _make_memory()
     pid = mem._person_id
@@ -148,8 +148,8 @@ def test_dedup_allows_different_content() -> None:
     original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
     os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
-        mem.save_with_id(c1, kind="utterance", writer_id=pid, subject_id=pid)
-        mem.save_with_id(c2, kind="utterance", writer_id=pid, subject_id=pid)
+        mem.save_with_id(c1, direction="発話", writer_id=pid, subject_id=pid)
+        mem.save_with_id(c2, direction="発話", writer_id=pid, subject_id=pid)
     finally:
         if original_window is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
@@ -157,25 +157,25 @@ def test_dedup_allows_different_content() -> None:
             os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
-    n1 = _obs_count(conn, pid, c1, "utterance")
-    n2 = _obs_count(conn, pid, c2, "utterance")
+    n1 = _obs_count(conn, pid, c1, "発話")
+    n2 = _obs_count(conn, pid, c2, "発話")
     conn.close()
     assert n1 == 1 and n2 == 1, f"Expected 1+1, got {n1}+{n2}"
 
 
-def test_dedup_allows_different_kind() -> None:
-    """Same content but different kind must both be inserted."""
+def test_dedup_allows_different_direction() -> None:
+    """**反証の側**：同じ内容でも向きが違えば 2 件とも書く（記-u 段 2）。"""
 
     mem = _make_memory()
     pid = mem._person_id
-    content = f"kindテスト_{uuid.uuid4()}"
+    content = f"向きテスト_{uuid.uuid4()}"
 
     # 窓の値は呼び出し時に MemoryConfig から読む（層は設定を持たない）。
     original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
     os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "30"
     try:
-        mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
-        mem.save_with_id(content, kind="conversation", writer_id=pid, subject_id=pid)
+        mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
+        mem.save_with_id(content, direction="会話", writer_id=pid, subject_id=pid)
     finally:
         if original_window is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
@@ -183,10 +183,10 @@ def test_dedup_allows_different_kind() -> None:
             os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
-    n_u = _obs_count(conn, pid, content, "utterance")
-    n_c = _obs_count(conn, pid, content, "conversation")
+    n_u = _obs_count(conn, pid, content, "発話")
+    n_c = _obs_count(conn, pid, content, "会話")
     conn.close()
-    assert n_u == 1 and n_c == 1, f"utterance={n_u} conversation={n_c}"
+    assert n_u == 1 and n_c == 1, f"発話={n_u} 会話={n_c}"
 
 
 def test_dedup_disabled_when_window_zero() -> None:
@@ -200,8 +200,8 @@ def test_dedup_disabled_when_window_zero() -> None:
     original_window = os.environ.get("MEMORY_DEDUP_WINDOW_SECS")
     os.environ["MEMORY_DEDUP_WINDOW_SECS"] = "0"
     try:
-        mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
-        mem.save_with_id(content, kind="utterance", writer_id=pid, subject_id=pid)
+        mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
+        mem.save_with_id(content, direction="発話", writer_id=pid, subject_id=pid)
     finally:
         if original_window is None:
             os.environ.pop("MEMORY_DEDUP_WINDOW_SECS", None)
@@ -209,7 +209,7 @@ def test_dedup_disabled_when_window_zero() -> None:
             os.environ["MEMORY_DEDUP_WINDOW_SECS"] = original_window
 
     conn = _pg_conn()
-    n = _obs_count(conn, pid, content, "utterance")
+    n = _obs_count(conn, pid, content, "発話")
     conn.close()
     assert n == 2, f"Expected 2 rows with dedup disabled, got {n}"
 
@@ -220,4 +220,4 @@ def test_dedup_disabled_when_window_zero() -> None:
 # `test_purge_migration_removes_duplicate_embeddings` は 044 で落とした。019 は重複が
 # あるときだけ `situated_embeddings` を DELETE するので、実際に purge する経路だけが
 # 改名後に流せなくなった。purge は一度きりの掃除で、これから重複を作らせないのは
-# 書き込み側の時間窓（`test_dedup_skips_same_content_kind_within_window`）である。
+# 書き込み側の時間窓（`test_dedup_skips_same_content_direction_within_window`）である。

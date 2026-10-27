@@ -205,8 +205,8 @@ def test_rest_pass_runs_layer_two_with_what_layer_one_wrote():
     agent._memory.save_async_with_id = AsyncMock(return_value=("obs1", True))
     agent._observation_perspective = MagicMock(return_value={})
     written = (
-        Written("ep-1", "day_summary", "今日は…"),
-        Written("ps-1", "person_summary", "こうきは…"),
+        Written("ep-1", "記憶", "今日は…"),
+        Written("ps-1", "人物", "こうきは…"),
     )
     with (
         patch(
@@ -224,9 +224,9 @@ def test_rest_pass_runs_layer_two_with_what_layer_one_wrote():
     ):
         content = asyncio.run(run_rest_pass(agent))
     materials = upd.await_args.args[1]
-    assert [(m.obs_id, m.kind) for m in materials] == [
-        ("ep-1", "day_summary"),
-        ("ps-1", "person_summary"),
+    assert [(m.obs_id, m.direction) for m in materials] == [
+        ("ep-1", "記憶"),
+        ("ps-1", "人物"),
     ]
     assert "自己像" in content and "2 行" in content
 
@@ -372,7 +372,7 @@ def test_rest_pass_folds_the_core_after_the_decay_and_feeds_layer_two():
         bundles=1,
         written=1,
         folded=3,
-        records=(Written("cs-1", "core_summary", "パパとよく話した。"),),
+        records=(Written("cs-1", "まとめ", "パパとよく話した。"),),
     )
     with (
         patch(
@@ -388,7 +388,7 @@ def test_rest_pass_folds_the_core_after_the_decay_and_feeds_layer_two():
             new=AsyncMock(
                 side_effect=lambda a: (
                     order.append("1"),
-                    FoldResult(1, 1, 1, 1, 0, (Written("ep-1", "day_summary", "x"),)),
+                    FoldResult(1, 1, 1, 1, 0, (Written("ep-1", "記憶", "x"),)),
                 )[1]
             ),
         ),
@@ -406,9 +406,9 @@ def test_rest_pass_folds_the_core_after_the_decay_and_feeds_layer_two():
         content = asyncio.run(run_rest_pass(agent))
     assert order == ["計測", "核", "1", "2"]
     materials = upd.await_args.args[1]
-    assert [(m.obs_id, m.kind) for m in materials] == [
-        ("cs-1", "core_summary"),
-        ("ep-1", "day_summary"),
+    assert [(m.obs_id, m.direction) for m in materials] == [
+        ("cs-1", "まとめ"),
+        ("ep-1", "記憶"),
     ]
     assert "同じ記録 3 件" in content and "固めて 3 件" in content
 
@@ -438,7 +438,7 @@ def _pass_with_season(season):
             new=AsyncMock(
                 side_effect=lambda a: (
                     order.append("1"),
-                    FoldResult(1, 1, 1, 1, 0, (Written("ep-1", "day_summary", "運動会"),)),
+                    FoldResult(1, 1, 1, 1, 0, (Written("ep-1", "記憶", "運動会"),)),
                 )[1]
             ),
         ),

@@ -169,7 +169,8 @@ async def update_season(agent, records: list, *, today: "date | None" = None) ->
         chars=se.MAX_CHARS,
         place=place or "（分からない）",
         reads="\n\n".join(f"---\n{p[:share]}" for p in reads) or "（無し）",
-        materials="\n".join(f"- {r.obs_id} [{r.kind}] {r.text}" for r in records) or "（無し）",
+        materials="\n".join(f"- {r.obs_id} [{r.direction}] {r.text}" for r in records)
+        or "（無し）",
     )
     try:
         raw = str(await agent.backend.complete(prompt, max_tokens=1000) or "")

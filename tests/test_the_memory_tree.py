@@ -1,8 +1,8 @@
 """記憶の木（記-m・2026-10-01）。「人 → 年 → 月 → 日」の節を指して、その節の要約を引く。
 
-REST の層 1 が日ごとの要約（`day_summary`）と人ごとのまとめ（`person_summary`）を書き、③ 暦のまとめが
+REST の層 1 が日ごとの要約（向き `記憶`）と人ごとのまとめ（向き `人物`）を書き、③ 暦のまとめが
 月と年の要約を書く。節は日（YYYY-MM-DD）・月（YYYY-MM）・年（YYYY）で、要約の時刻（その日・月・年の
-終わり・UTC）の範囲で引く。家族全体と人ごとは種類で分け、人ごとはその人の面から引く。
+終わり・UTC）の範囲で引く。家族全体と人ごとは向きで分け（記-u 段 2）、人ごとはその人の面から引く。
 
 **畳まれた記録も返す**——日ごとの要約は核の固め（`rest_core`）で隠れることがあるが、木は暦で決まる
 索引で、意味で束ねる核の固めとは別の仕組みである。
@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-from familiar_agent.core.memory_tree import kinds_for, parse_node
+from familiar_agent.core.memory_tree import directions_for, parse_node
 from familiar_agent.db import get_db
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
 from familiar_agent.store.context import StoreContext, viewpoint_of
@@ -57,22 +57,13 @@ def test_other_writings_are_not_nodes(bad):
     assert parse_node(bad) is None
 
 
-def test_the_kinds_follow_the_level_and_whose_tree():
-    assert kinds_for("日", person=False) == ("day_summary",)
-    assert kinds_for("月", person=False) == ("month_summary",)
-    assert kinds_for("年", person=False) == ("year_summary",)
-    assert kinds_for("日", person=True) == ("person_summary",)
-    assert kinds_for("月", person=True) == ("person_month_summary",)
-    assert kinds_for("年", person=True) == ("person_year_summary",)
-
-
-def test_the_new_directions_have_their_kinds():
-    from familiar_agent.io.oif import _KIND_OF_DIRECTION
-
-    assert _KIND_OF_DIRECTION["月のまとめ"] == "month_summary"
-    assert _KIND_OF_DIRECTION["年のまとめ"] == "year_summary"
-    assert _KIND_OF_DIRECTION["人の月のまとめ"] == "person_month_summary"
-    assert _KIND_OF_DIRECTION["人の年のまとめ"] == "person_year_summary"
+def test_the_directions_follow_the_level_and_whose_tree():
+    assert directions_for("日", person=False) == ("記憶",)
+    assert directions_for("月", person=False) == ("月のまとめ",)
+    assert directions_for("年", person=False) == ("年のまとめ",)
+    assert directions_for("日", person=True) == ("人物",)
+    assert directions_for("月", person=True) == ("人の月のまとめ",)
+    assert directions_for("年", person=True) == ("人の年のまとめ",)
 
 
 # ── 読み出し（テスト DB）─────────────────────────────────────────────────
@@ -85,15 +76,15 @@ def store() -> ObservationStore:
     return ObservationStore(ctx, situated=SituatedVectors(ctx))
 
 
-def _put(store: ObservationStore, content: str, when: datetime, kind: str, person: str) -> str:
+def _put(store: ObservationStore, content: str, when: datetime, direction: str, person: str) -> str:
     oid = str(uuid.uuid4())
     with store._ctx.lock:
         conn = store._ctx.conn()
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO observations (id, content, timestamp, direction, kind) "
-                "VALUES (%s, %s, %s, '記憶', %s)",
-                (oid, content, when, kind),
+                "INSERT INTO observations (id, content, timestamp, direction) "
+                "VALUES (%s, %s, %s, %s)",
+                (oid, content, when, direction),
             )
             cur.execute(
                 "INSERT INTO situated_memories (id, obs_id, person_id, relation_key, vector, content) "
@@ -121,14 +112,14 @@ def test_a_day_node_returns_that_days_summaries_even_folded(store):
     mark = uuid.uuid4().hex[:8]
     me = viewpoint_of(DEFAULT_PERSON_ID)
     d15 = datetime(1999, 8, 15, 23, 59, tzinfo=UTC)
-    kept = _put(store, f"{mark} 15 日のこと", d15, "day_summary", me)
-    folded = _put(store, f"{mark} 15 日のもう一つ", d15, "day_summary", me)
-    _put(store, f"{mark} 16 日のこと", datetime(1999, 8, 16, 23, 59, tzinfo=UTC), "day_summary", me)
-    other = _put(store, f"{mark} 核のまとめ", d15, "core_summary", me)
+    kept = _put(store, f"{mark} 15 日のこと", d15, "記憶", me)
+    folded = _put(store, f"{mark} 15 日のもう一つ", d15, "記憶", me)
+    _put(store, f"{mark} 16 日のこと", datetime(1999, 8, 16, 23, 59, tzinfo=UTC), "記憶", me)
+    other = _put(store, f"{mark} 核のまとめ", d15, "まとめ", me)
     store.mark_superseded(folded, other)
 
     _, start, end = parse_node("1999-08-15")
-    got = [r["content"] for r in store.tree_summaries(("day_summary",), start, end)]
+    got = [r["content"] for r in store.tree_summaries(("記憶",), start, end)]
     assert f"{mark} 15 日のこと" in got and f"{mark} 15 日のもう一つ" in got  # 畳まれていても返す
     assert f"{mark} 16 日のこと" not in got and f"{mark} 核のまとめ" not in got
     assert kept
@@ -140,21 +131,20 @@ def test_a_persons_node_comes_from_that_persons_face(store):
     _person(store, papa)
     _person(store, mama)
     when = datetime(1999, 8, 31, 23, 59, tzinfo=UTC)
-    _put(store, f"{mark} パパの 8 月", when, "person_month_summary", papa)
-    _put(store, f"{mark} ママの 8 月", when, "person_month_summary", mama)
+    _put(store, f"{mark} パパの 8 月", when, "人の月のまとめ", papa)
+    _put(store, f"{mark} ママの 8 月", when, "人の月のまとめ", mama)
 
     _, start, end = parse_node("1999-08")
     got = [
-        r["content"]
-        for r in store.tree_summaries(("person_month_summary",), start, end, person_id=papa)
+        r["content"] for r in store.tree_summaries(("人の月のまとめ",), start, end, person_id=papa)
     ]
     assert got == [f"{mark} パパの 8 月"]
 
 
-def test_the_months_with_a_kind_are_listed(store):
-    """暦のまとめが何を書くかを決める読み口（段 3）：その種類の要約がある月の一覧（UTC の暦）。"""
+def test_the_months_with_a_direction_are_listed(store):
+    """暦のまとめが何を書くかを決める読み口（段 3）：その向きの要約がある月の一覧（UTC の暦・記-u 段 2）。"""
     kind = (
-        f"tree_test_{uuid.uuid4().hex[:8]}"  # 試験だけの種類にして、ほかの行と混ざらないようにする
+        f"tree_test_{uuid.uuid4().hex[:8]}"  # 試験だけの向きにして、ほかの行と混ざらないようにする
     )
     me = viewpoint_of(DEFAULT_PERSON_ID)
     papa = str(uuid.uuid4())

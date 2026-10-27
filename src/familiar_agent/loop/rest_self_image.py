@@ -27,7 +27,7 @@ MAX_CHANGES = 3  # 一晩で変えてよい行数〔仮〕（`自己像` v0.2）
 @dataclass(frozen=True)
 class Material:
     obs_id: str
-    kind: str  # day_summary / person_summary
+    direction: str  # 記憶・人物・まとめ（記-u 段 2：種類から向きへ）
     text: str
 
 
@@ -84,7 +84,7 @@ async def propose(
         values_rows=si.FIELDS["価値"][0],
         values_chars=si.FIELDS["価値"][1],
         image=_image_json(image),
-        materials="\n".join(f"- {m.obs_id} [{m.kind}] {m.text}" for m in materials),
+        materials="\n".join(f"- {m.obs_id} [{m.direction}] {m.text}" for m in materials),
     )
     try:
         raw = await agent.backend.complete(prompt, max_tokens=2000)

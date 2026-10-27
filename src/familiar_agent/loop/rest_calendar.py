@@ -1,6 +1,6 @@
 """REST 内省・層 1 ③「暦のまとめ」（記-m 段 3・2026-10-01）。月と年の要約を書いて、記憶の木をつくる。
 
-日次の畳み込み（①）が書く日ごとの要約（`day_summary`）と人ごとのまとめ（`person_summary`）の上に、
+日次の畳み込み（①）が書く日ごとの要約（向き `記憶`）と人ごとのまとめ（向き `人物`）の上に、
 月と年の要約を重ねて「人 → 年 → 月 → 日」の木にする。主LLM は想起の道具 `recall_tree` で節を指して読む。
 
 - **何を書くか**（機械が決める）：家族全体の月は日ごとの要約がある月、人ごとの月はその人の人ごとのまとめが
@@ -21,7 +21,7 @@ from datetime import datetime, timedelta, timezone
 
 from ..core.structured_ask import read_json_merged
 from ..core import measure, parsing
-from ..core.memory_tree import parse_node
+from ..core.memory_tree import directions_for, parse_node
 from ..io.oif import MI
 from .rest_fold import EPISODE_MAX_CHARS, PERSON_MAX_CHARS, Written
 
@@ -30,17 +30,16 @@ logger = logging.getLogger(__name__)
 #: 1 晩に書く本数の上限（本人の決定 2026-10-01）。最初の晩の「残り」を見て見直す。
 CALENDAR_MAX_PER_NIGHT = 6
 
-#: (段, 人か) → 向き。向きから種類が決まる（`io/oif._KIND_OF_DIRECTION`）。
+#: (段, 人か) → 書く要約の向き（記-u 段 2：要約は向きで見分ける）。読む側（記憶の木）と同じ表から引く。
 _DIRECTION = {
-    ("月", False): "月のまとめ",
-    ("年", False): "年のまとめ",
-    ("月", True): "人の月のまとめ",
-    ("年", True): "人の年のまとめ",
+    (level, person): directions_for(level, person=person)[0]
+    for level in ("月", "年")
+    for person in (False, True)
 }
-#: 材料になる種類（月の材料は日ごと、年の材料は月）と、書いた要約の種類。
-_SOURCE = {False: "day_summary", True: "person_summary"}
-_MONTH = {False: "month_summary", True: "person_month_summary"}
-_YEAR = {False: "year_summary", True: "person_year_summary"}
+#: 材料になる要約の向き（月の材料は日ごと、年の材料は月）と、書いた要約の向き。
+_SOURCE = {person: directions_for("日", person=person)[0] for person in (False, True)}
+_MONTH = {person: _DIRECTION[("月", person)] for person in (False, True)}
+_YEAR = {person: _DIRECTION[("年", person)] for person in (False, True)}
 
 _PROMPT = """\
 あなたはパジュ（この家で家族と暮らす伴侶）で、{period}を振り返って{whose}のまとめを書く。
@@ -86,8 +85,8 @@ def _people(agent) -> "list[tuple[str, str]]":
     return out
 
 
-def _months(agent, kind: str, pid: "str | None") -> "set[str]":
-    return set(agent._oif.tree_months(kind, person_id=pid) or [])
+def _months(agent, direction: str, pid: "str | None") -> "set[str]":
+    return set(agent._oif.tree_months(direction, person_id=pid) or [])
 
 
 def pending(agent, *, now: datetime) -> "list[Task]":
@@ -184,8 +183,8 @@ async def write_calendar(agent, *, now: "datetime | None" = None) -> CalendarRes
             result.skipped += 1
             continue
         result.written += 1
-        kind = "month_summary" if task.level == "月" else "year_summary"
-        records.append(Written(obs_id, kind, f"{task.period}：{task.person_name or '家族'}"))
+        direction = _DIRECTION[(task.level, task.person_id is not None)]
+        records.append(Written(obs_id, direction, f"{task.period}：{task.person_name or '家族'}"))
     result.records = tuple(records)
     measure.record("層1暦", 書いた=result.written, 見送り=result.skipped, 残り=result.left)
     logger.info(
