@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.42）
+# familiar-ai モジュール分割設計（v0.43）
 
 ## この文書が決めること
 
@@ -105,7 +105,7 @@ core/     設計の中核。外部 I/O を知らない
   mood_register.py  drive_register.py  tif.py   （既存・T レジスタ）
   config.py         [D-設定]
 store/    O。SQL はここにだけ置く
-  observations.py   追記、supersede、取り出し（by_kind／by_situated／by_date／by_vector）
+  observations.py   追記、supersede、取り出し（by_vector／by_words／by_time／by_emotion）
   situated.py       視点と顔ぶれ相関のベクトル
   embedding.py      埋め込みモデルとベクトル符号化
   jobs.py           memory_events と memory_jobs
@@ -165,7 +165,7 @@ v0.6 は「`run()` の制御構造（ループ管理、生成器、動作器）�
 | 隔離 | 撤去予定の意味・信念層と明示リンク | `legacy/semantic_layer.py` |
 | S4 | 非同期の書き込みキュー | `store/jobs.py` |
 | S5 | 視点ベクトルと situated 行 | `store/situated.py` |
-| S6a | 観測の読み出し層（by_kind／by_situated／by_date） | `store/observations.py` |
+| S6a | 観測の読み出し層（by_words／by_time／by_emotion） | `store/observations.py` |
 | S6b | 観測の書き込み本体 | 同上 |
 | C1〜C3 | 継承から合成への組み替え、層ごとの単体テスト | `store/context.py` ほか |
 | S6c | 想起の類似検索を `by_vector` へ、Config を層から外す | 同上 |
@@ -181,7 +181,7 @@ store/  context.py     層が共有する道具（StoreContext）
         persons.py     人物レジストリ
         situated.py    視点ベクトルと situated 行
         jobs.py        非同期の書き込みキュー
-        observations.py 観測の読み書き（by_kind／by_situated／by_date／by_vector）
+        observations.py 観測の読み書き（by_vector／by_words／by_time／by_emotion）
 legacy/ semantic_layer.py 撤去予定（Phase 6）
 tools/  memory.py      ファサード（ObservationMemory）＝公開面を委譲で集める
 ```
@@ -1281,6 +1281,8 @@ backends/cli.py          166 行
 
 ## 更新履歴
 
+> v0.43：観測の層の読み口の名前を、いまのコード（`by_vector`・`by_words`・`by_time`・`by_emotion`）に直した。`by_kind`・`by_situated`・`by_date` はもう無い（記-u ほか・2026-10-31）。
+>
 > v0.42：`workspace.link_follows` を撤去済みにした（記-t 段 3・2026-10-15）。
 >
 > v0.41：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。

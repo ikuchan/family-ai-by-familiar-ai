@@ -1,4 +1,4 @@
-# familiar-ai 実機確認シナリオ：想起（Phase 2 P スライス）（v0.8）
+# familiar-ai 実機確認シナリオ：想起（Phase 2 P スライス）（v0.9）
 
 ## 目的
 
@@ -64,7 +64,7 @@
 
 ### シナリオ 1：感情のある遣り取りで PAD が書かれるか
 
-- **操作**：はっきり感情の乗る遣り取り（喜び・悲しみ）を1往復し、その会話記憶の PAD 列を DB で見る（`SELECT emotion_p,emotion_pn,emotion_a,emotion_dom FROM observations WHERE kind='conversation' ORDER BY timestamp DESC LIMIT 1`）。
+- **操作**：はっきり感情の乗る遣り取り（喜び・悲しみ）を1往復し、その会話記憶の PAD 列を DB で見る（`SELECT emotion_p,emotion_pn,emotion_a,emotion_dom FROM observations WHERE direction='会話' ORDER BY timestamp DESC LIMIT 1`）。
 - **成立で見えるもの**：喜びは P 高・Pn 低、悲しみは P 低・Pn 高。A は arousal 相応。既定0.5のままでない。
 - **間違っていれば見えるはず**：PAD が全軸0.5のまま（評価器が繋がっていない／payload に載っていない）、または解析失敗で常に mood になる。
 
@@ -133,6 +133,7 @@
 
 ## 更新履歴
 
+> v0.9：シナリオ 1 の SQL を、種類（`kind`）でなく向き（`direction='会話'`）で引く形に直した。種類の列は 078（記-u・2026-10-28）で落とした（2026-10-31）。
 > v0.8：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
 > v0.7：**入口の記述をいま通る道へ直した**（2026-09-10・群H の点検）。
 > `recall_async(user_input, recall_mode="conversation")` と書いていたが、`recall_mode` という
