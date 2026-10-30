@@ -323,15 +323,23 @@ class OIF:
     # 関係は 058〜060（2026-09-06〜07）で入った機構で、2026-08-01 に設計したこの口に
     # 面が無かった。呼び手は7箇所あり、うち1つは記憶の私的属性（`_ctx`）を掴んでいた。
 
-    def link(self, kind: str, members: "Sequence[tuple[str, str, int | None]]") -> "int | None":
+    def link(
+        self,
+        kind: str,
+        members: "Sequence[tuple[str, str, int | None]]",
+        *,
+        at: "datetime | None" = None,
+    ) -> "int | None":
         """関係を1つ書き、その id を返す。**書く口は1つ**で、種類は `kind` が言う。
 
         `members` は `(記録の id, 役割, 位置)` の並び。位置は順序を持たない関係で `None`。
         種類の語は `store/relations.py` の定数（`KIND_EXCHANGE` ほか）を使う。
 
+        `at` を渡すと関係の時刻にする（経験繋がりの持ち主の日・出-bq）。渡さなければ書いた時刻。
+
         畳む（`supersede`）だけは別の面である——先着勝ちで、部分一意索引が二本目を落とす。
         """
-        got = self._memory.link(kind, members)
+        got = self._memory.link(kind, members, at=at)
         logger.debug("OIF link ← %s／%d項 → %s", kind, len(members), got)
         return got
 
@@ -343,6 +351,37 @@ class OIF:
         """
         got = self._memory.extend(relation_id, members)
         logger.debug("OIF extend ← %s／%d項 → %s", relation_id, len(members), got)
+        return got
+
+    def relink(
+        self, kind: str, relation_id: int, members: "Sequence[tuple[str, str, int | None]]"
+    ) -> int:
+        """種類が `kind` の関係の項をまるごと差し替える。id はそのまま（経験繋がりの入れ替え・出-bq）。"""
+        got = self._memory.relink(kind, relation_id, members)
+        logger.debug("OIF relink ← %s %s／%d項 → %s", kind, relation_id, len(members), got)
+        return got
+
+    def unlink(self, kind: str, relation_id: int) -> bool:
+        """種類が `kind` の関係を外す（塊が育って 2 本を含んだ経験繋がりの残り・出-bq）。"""
+        got = self._memory.unlink(kind, relation_id)
+        logger.debug("OIF unlink ← %s %s → %s", kind, relation_id, got)
+        return got
+
+    def experience_material(self, since: datetime) -> dict:
+        """経験繋がりの材料：`since` 以降の共起・継起・やりとり、最終版の親、既存の経験繋がり（出-bq）。"""
+        got = self._memory.experience_material(since)
+        logger.debug(
+            "OIF experience_material ← %s → 辺 %d・繋がり %d",
+            since,
+            len(got["edges"]),
+            len(got["links"]),
+        )
+        return got
+
+    def embeddings(self, obs_ids: "Sequence[str]") -> dict:
+        """記録の id → (時刻, 埋め込み)。埋め込みの無い記録は返さない（出-bq）。"""
+        got = self._memory.embeddings_of(list(obs_ids))
+        logger.debug("OIF embeddings ← %d件 → %d件", len(obs_ids), len(got))
         return got
 
     def exchanges(self, origin_id: str) -> "list[Said]":

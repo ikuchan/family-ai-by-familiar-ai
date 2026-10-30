@@ -501,7 +501,13 @@ class ObservationMemory:
     ) -> "bool":
         return self._observations.mark_superseded(old_id, new_id, kind)
 
-    def link(self, kind: "str", members: "Sequence[tuple[str, str, int | None]]") -> "int | None":
+    def link(
+        self,
+        kind: "str",
+        members: "Sequence[tuple[str, str, int | None]]",
+        *,
+        at: "datetime | None" = None,
+    ) -> "int | None":
         """関係を1つ書く（種類は `kind` が言う）。
 
         **一つの関係が何個でも項を持つ**（`設計方針_MI間の関係`）。改訂・継起・やりとり・
@@ -509,11 +515,31 @@ class ObservationMemory:
         ほか）に分かれており、共起だけは面が無く、呼び手が `RelationStore(self._ctx)` と
         **私的属性を掴んで**いた。
         """
-        return RelationStore(self._ctx).add(kind, list(members))
+        return RelationStore(self._ctx).add(kind, list(members), at=at)
 
     def extend(self, relation_id: "int", members: "Sequence[tuple[str, str, int | None]]") -> int:
         """既にある関係の末尾へ項を足す（要約は背景で遅れて来る）。"""
         return RelationStore(self._ctx).extend(int(relation_id), list(members))
+
+    def relink(
+        self, kind: str, relation_id: "int", members: "Sequence[tuple[str, str, int | None]]"
+    ) -> int:
+        """種類が `kind` の関係の項をまるごと差し替える（id はそのまま・経験繋がりの入れ替え・出-bq）。"""
+        return RelationStore(self._ctx).replace_members(kind, int(relation_id), list(members))
+
+    def unlink(self, kind: str, relation_id: "int") -> bool:
+        """種類が `kind` の関係を外す（経験繋がりの残り・出-bq）。"""
+        return RelationStore(self._ctx).remove(kind, int(relation_id))
+
+    def experience_material(self, since: datetime) -> dict:
+        """経験繋がりの材料（出-bq・`RelationStore.experience_material`）。"""
+        from ..core.final_version import DIRECTION
+
+        return RelationStore(self._ctx).experience_material(since, final_direction=DIRECTION)
+
+    def embeddings_of(self, obs_ids: "list[str]") -> dict:
+        """記録の id → (時刻, 埋め込み)（出-bq・記憶の箱へ委譲）。"""
+        return self._observations.embeddings(list(obs_ids))
 
     def exchange_roles_of(self, obs_ids: "list[str]") -> "dict[str, str]":
         """その記録たちが `やりとり` で取っている役割（起点・つなぎ・答え・要約・…）。"""

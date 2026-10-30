@@ -23,6 +23,7 @@ from .rest_fold import fold_since_last_rest
 from .rest_family_now import update_family_now
 from .rest_music import prepare_suggestion, refresh_catalog
 from .rest_info import measure_and_decay
+from .rest_links import link_experiences
 from .rest_season import update_season
 from .rest_self_image import Material, update_self_image
 from .rest_settings import adjust_settings
@@ -83,6 +84,18 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の暦のまとめに失敗（次の晩に持ち越す）: %s", e)
         parts.append("暦のまとめを書けなかった・次の晩に持ち越す")
+    # 層 1 の④：経験繋がり。直近 7 日の日ごとの会話の塊から、意味の似ていない飛び 3 件を 1 塊 1 本の関係にする（出-bq）。
+    try:
+        x = await link_experiences(agent)
+        if x.written or x.replaced or x.removed:
+            parts.append(
+                f"経験繋がりを {x.written} 本書き、{x.replaced} 本入れ替え、{x.removed} 本外した"
+            )
+        else:
+            parts.append("経験繋がりは張るものが無かった")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 1 の経験繋がりに失敗（次の回に調べ直す）: %s", e)
+        parts.append("経験繋がりを張れなかった")
     # 家族のいまの様子：日々の蒸留の関係のまとめを 10 本ずつ重ねて書き直す（知-ad）。`FAMILY.md` は書き換えない。
     try:
         fam = await update_family_now(agent)

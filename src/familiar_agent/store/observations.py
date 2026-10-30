@@ -28,7 +28,7 @@ from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
 from .context import StoreContext, viewpoint_of
 from .relations import KIND_UNCLASSIFIED, RelationStore, not_hidden
-from .embedding import _encode_vector
+from .embedding import _decode_vector, _encode_vector
 
 logger = logging.getLogger(__name__)
 
@@ -996,6 +996,26 @@ class ObservationStore:
                     (self._ctx.viewpoint, self._ctx.viewpoint),
                 )
                 return [dict(r) for r in cur.fetchall()]
+
+    def embeddings(self, obs_ids: "list[str]") -> "dict[str, tuple[datetime, np.ndarray]]":
+        """記録の id → (時刻, 埋め込み)。埋め込みの無い記録は返さない（経験繋がりの選び出し・出-bq）。"""
+        if not obs_ids:
+            return {}
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT o.id, o.timestamp, e.vector FROM observations o "
+                    "JOIN obs_embeddings e ON e.obs_id = o.id WHERE o.id = ANY(%s)",
+                    (list(obs_ids),),
+                )
+                return {
+                    str(r["id"]): (
+                        r["timestamp"],
+                        _decode_vector(bytes(r["vector"])),
+                    )
+                    for r in cur.fetchall()
+                }
 
     def decay_groundedness(self, delta: int) -> int:
         """前回の内省以降に参照されなかった核（n ≥ 1・全ての視点）の $n$ を Δ 減らす。

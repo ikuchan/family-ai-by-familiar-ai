@@ -45,6 +45,8 @@ KIND_EXCHANGE = "やりとり"  # 一つのターンの記録（起点・版・�
 KIND_SUCCESSION = "継起"  # ターンどうしの前後
 KIND_COOCCURRENCE = "共起"  # 求めの起点と、その答えに使った記憶の集まり（順序を持たない・記-s）
 KIND_UNCLASSIFIED = "未分類"  # 059 が移した既存の辺。どの書き手が作ったか判別できない
+KIND_EXPERIENCE = "経験繋がり"  # 1 日の会話の塊で、意味の似ていない飛び 3 件（REST が書く・出-bq）
+ROLE_TERM = "項"  # 経験繋がりの項。3 つとも同じ役割で、位置は記録の時刻の古い順
 
 
 def _first(row):
@@ -103,8 +105,12 @@ class RelationStore:
     def __init__(self, ctx: StoreContext) -> None:
         self._ctx = ctx
 
-    def add(self, kind: str, members: "list[Member]") -> "int | None":
+    def add(
+        self, kind: str, members: "list[Member]", *, at: "datetime | None" = None
+    ) -> "int | None":
         """関係を1つ書き、その id を返す。項が空なら書かず None を返す。
+
+        `at` を渡すと関係の時刻にする（経験繋がりは持ち主の塊の日・出-bq）。渡さなければ書いた時刻。
 
         ヘッダと項は同じトランザクションで書く。途中で落ちたときにヘッダだけが残ると、
         項の無い関係が溜まり、関係の数が実際のつながりの数と合わなくなる。
@@ -116,7 +122,11 @@ class RelationStore:
             conn = self._ctx.conn()
             try:
                 with conn.cursor() as cur:
-                    cur.execute("INSERT INTO relations (kind) VALUES (%s) RETURNING id", (kind,))
+                    cur.execute(
+                        "INSERT INTO relations (kind, created_at) "
+                        "VALUES (%s, COALESCE(%s, now())) RETURNING id",
+                        (kind, at),
+                    )
                     rid = int(cur.fetchone()["id"])
                     cur.executemany(
                         "INSERT INTO relation_members "
@@ -164,6 +174,110 @@ class RelationStore:
                 conn.rollback()
                 raise
         return len(rows)
+
+    def replace_members(self, kind: str, relation_id: int, members: "list[Member]") -> int:
+        """種類が `kind` の関係の項をまるごと差し替える。id はそのまま（経験繋がりの入れ替え・出-bq）。
+
+        種類が違う・項が空なら何もせず 0 を返す（id の取り違えで改訂の旧を消さない・項の無い関係を残さない）。
+        消すのと書くのは同じトランザクションで行う。途中で落ちたら元の項のまま残る。
+        """
+        rows = [(str(o), str(r), p) for o, r, p in members if o]
+        if not rows:
+            return 0
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "SELECT 1 FROM relations WHERE id = %s AND kind = %s FOR UPDATE",
+                        (relation_id, kind),
+                    )
+                    if cur.fetchone() is None:
+                        conn.rollback()
+                        return 0
+                    cur.execute(
+                        "DELETE FROM relation_members WHERE relation_id = %s", (relation_id,)
+                    )
+                    cur.executemany(
+                        "INSERT INTO relation_members "
+                        "(relation_id, obs_id, role, position) VALUES (%s, %s, %s, %s)",
+                        [(relation_id, o, r, p) for o, r, p in rows],
+                    )
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return len(rows)
+
+    def remove(self, kind: str, relation_id: int) -> bool:
+        """種類が `kind` の関係を外す（項は `ON DELETE CASCADE` で消える）。種類が違えば外さない。
+
+        いま外すのは、塊が育って 2 本を含んだ経験繋がりの残り（出-bq）だけである。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            try:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM relations WHERE id = %s AND kind = %s", (relation_id, kind)
+                    )
+                    got = cur.rowcount
+                conn.commit()
+            except Exception:
+                conn.rollback()
+                raise
+        return bool(got)
+
+    def experience_material(self, since: datetime, *, final_direction: str) -> dict:
+        """経験繋がりの材料（出-bq）。
+
+        - `edges`：`since` より後に書かれた共起・継起・やりとり。`id`・`kind`・`created_at`・
+          `members`（`(記録の id, 役割)` の位置順）を持つ dict の並び。
+        - `parents`：その項のうち、向き `final_direction`（最終版）の記録 → 親（起点）。
+        - `links`：既存の経験繋がり全部。関係の id → `at`（関係の時刻＝持ち主の塊の日）と `ids`（項の記録の id・位置順）。
+
+        畳まれた（役割 `旧` を持つ）記録も除かない。項が後で畳まれても関係は残し、除くのは想起の側である。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT r.id, r.kind, r.created_at, m.obs_id, m.role FROM relations r "
+                    "JOIN relation_members m ON m.relation_id = r.id "
+                    "WHERE r.kind = ANY(%s) AND r.created_at >= %s "
+                    "ORDER BY r.id, m.position NULLS LAST",
+                    ([KIND_COOCCURRENCE, KIND_SUCCESSION, KIND_EXCHANGE], since),
+                )
+                edges: "dict[int, dict]" = {}
+                for r in cur.fetchall():
+                    e = edges.setdefault(
+                        int(r["id"]),
+                        {
+                            "id": int(r["id"]),
+                            "kind": r["kind"],
+                            "created_at": r["created_at"],
+                            "members": [],
+                        },
+                    )
+                    e["members"].append((str(r["obs_id"]), str(r["role"])))
+                ids = sorted({o for e in edges.values() for o, _ in e["members"]})
+                cur.execute(
+                    "SELECT id, parent_id FROM observations "
+                    "WHERE id = ANY(%s) AND direction = %s AND parent_id IS NOT NULL",
+                    (ids, final_direction),
+                )
+                parents = {str(r["id"]): str(r["parent_id"]) for r in cur.fetchall()}
+                cur.execute(
+                    "SELECT r.id, r.created_at, m.obs_id FROM relations r "
+                    "JOIN relation_members m ON m.relation_id = r.id "
+                    "WHERE r.kind = %s ORDER BY r.id, m.position",
+                    (KIND_EXPERIENCE,),
+                )
+                links: "dict[int, dict]" = {}
+                for r in cur.fetchall():
+                    lk = links.setdefault(int(r["id"]), {"at": r["created_at"], "ids": []})
+                    lk["ids"].append(str(r["obs_id"]))
+        return {"edges": list(edges.values()), "parents": parents, "links": links}
 
     def hide(self, old_id: str, new_id: str, kind: str = KIND_UNCLASSIFIED) -> bool:
         """`old_id` を現行から外し、`new_id` を新しい側として関係で結ぶ。

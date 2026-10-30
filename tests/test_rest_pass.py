@@ -32,6 +32,18 @@ def _no_layer_four():
 
 
 @pytest.fixture(autouse=True)
+def _no_experience_links():
+    """経験繋がりは実 DB を読む。この段自身の試験は `test_rest_links.py`。"""
+    from familiar_agent.loop.rest_links import Outcome
+
+    with patch(
+        "familiar_agent.loop.rest.link_experiences",
+        new=AsyncMock(return_value=Outcome(0, 0, 0)),
+    ):
+        yield
+
+
+@pytest.fixture(autouse=True)
 def _no_season_layer():
     """季節の層は fetch と Jev と LLM を呼ぶ。季節の層自身の試験は `test_rest_season.py`。"""
     from familiar_agent.loop.rest_season import Outcome
@@ -480,3 +492,36 @@ def test_a_failing_season_layer_does_not_stop_layer_two():
     order, content = _pass_with_season(season)
     assert order == ["1", "季節", "2"]
     assert "季節とまわりを書けなかった" in content
+
+
+def _pass_with_links(links):
+    from familiar_agent.loop.rest import run_rest_pass
+
+    agent = MagicMock()
+    agent._oif.write = AsyncMock(return_value="obs1")
+    agent._observation_perspective = MagicMock(return_value={})
+    with patch("familiar_agent.loop.rest.link_experiences", new=links):
+        return agent, asyncio.run(run_rest_pass(agent))
+
+
+def test_rest_pass_reports_the_experience_links():
+    """経験繋がり（出-bq）：書いた・入れ替えた・外した本数を内省の記録に載せる。"""
+    from familiar_agent.loop.rest_links import Outcome
+
+    links = AsyncMock(return_value=Outcome(2, 1, 1))
+    _, content = _pass_with_links(links)
+    links.assert_awaited_once()
+    assert "経験繋がりを 2 本書き、1 本入れ替え、1 本外した" in content
+
+
+def test_rest_pass_says_when_there_was_no_jump():
+    from familiar_agent.loop.rest_links import Outcome
+
+    _, content = _pass_with_links(AsyncMock(return_value=Outcome(0, 0, 0)))
+    assert "経験繋がりは張るものが無かった" in content
+
+
+def test_a_failing_experience_link_does_not_break_the_pass():
+    agent, content = _pass_with_links(AsyncMock(side_effect=RuntimeError("DB が落ちた")))
+    assert "経験繋がりを張れなかった" in content
+    assert agent._oif.write.await_count == 1  # 内省の記録は残る

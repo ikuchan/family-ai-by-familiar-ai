@@ -128,5 +128,7 @@ def test_the_surface_got_narrower():
     2026-09-28 に環-ab R-5a で `as_coalition_async` を落とし **58 種**。2026-09-29 に環-ab D で呼び手の無い 10 面を落とし
     **48 種**。上限の 59 は変えていない。
     2026-10-27 に記-u 段 4 で、種類（kind）で引いていた 9 面を落とし、53 種から **44 種**。上限の 59 は変えていない。
+    2026-10-31 に出-bq で経験繋がりの口 4 面（`relink`・`unlink`・`experience_material`・`embeddings_of`）を足し
+    **48 種**。上限の 59 は変えていない。
     """
     assert len(_public_faces()) <= 59

@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.112）
+# familiar-ai 設計図（Mermaid一式・v0.113）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -30,6 +30,7 @@
 　**【実装済み・066＋067＝タイマーの一時停止とアラームの分離】**`timers` に `paused_at`・`paused_total_sec`（何度止めても再開しても合う・`due` は再開のたびに伸びる）・`listen`（聞かない設定の中でそのタイマーだけ聞く）を足した（066・知-o・2026-09-18）。**アラームは別の表 `alarms`**（067・知-q）：`id`・`label`・`at`・`set_at`・`fired_at`・`cancelled_at`・`asked_by`・`obs_id`・`passes_quiet`。器 `store/alarms.py`・鳴らし手 `loop/alarm_watch.py`・道具 `tools/alarm.py`。タイマーの規則（黙る・聞かない・1 本・一時停止）はアラームに当てない。共有は音の再生（`DIF.ring`）・T の tick・`予定` の記録・静穏時間の判定だけ（`設計方針_アラーム` v0.1）。**ストップウォッチも別の表 `stopwatches`**（068・知-u・2026-09-18）：`id`・`label`・`started_at`・`stopped_at`・`asked_by`・`obs_id`・`expired`。器 `store/stopwatches.py`・寿命の見張り `loop/stopwatch_watch.py`（6 時間）・道具 `tools/stopwatch.py`・規則 `core/stopwatch_rules.py`。`timers` の `due` は常にあり、`active` は `due` のある行だけ（`設計方針_ストップウォッチ` v0.1）。
 　**【実装済み・076＝意図の台帳の記録 `intents`】**意図（調べもの・道具・主LLM の答え）ごとに uuid を振り、完了はメモリ上の台帳（`loop/intent_ledger`）で uuid から器を引く。表 `intents` は投げた・終わった・どう終わったかの記録で、別スレッドで書く（`store/intents`・出-cc・2026-10-13）。
 　**【実装済み・077＋078＝何の記録かは向きだけが持つ】**記録の種類（`observations.kind`）の列と索引を落とし、向き（`direction`）に索引を足した（記-u・案ウ・2026-10-28 に本番へ当てた）。077 で向き `unknown` の古い行 180 件を種類から埋め（utterance→発話・scene と witnessed→観察・conversation→会話）、最終版を向き `最終版` にした。記憶の木と畳み込みの材料は向きで引き、書く口は `OIF.write` に一本化した。種類で読む口と、呼び手の無い読み手（気持ち・自己像・好奇心・日の要約を引く口）は外した。新しさの母集合と共起の候補から除く自己認識の記録は、向き `内省` で決める。
+　**【実装済み・経験繋がり（関係の種類・マイグレーション無し）】**REST 層 1 の④（`loop/rest_links.py`・出-bq・2026-10-31）が、直近 7 日の日ごとの会話の塊から意味の似ていない飛び 3 件を、種類「経験繋がり」の関係（役割 `項`）に 1 つの塊に 1 本で書く。選び方と書くかどうかは純関数（`core/experience_links.py`）が決める。関係の時刻は持ち主の塊の日（日本時間の正午）で、関係の書く口（`add`・`OIF.link`）に時刻を渡す引数 `at` を足した。関係の層に項を入れ替える口（`RelationStore.replace_members`）・外す口（`remove`・どちらも種類が違えば何もしない）・材料を読む口（`experience_material`）を、記録の層に埋め込みを引く口（`embeddings`）を足し、OIF に `relink`・`unlink`・`experience_material`・`embeddings` を足した。使う想起は無い。
 - **色**：黄＝出入り口（TIF・AIF・DIF）／青＝処理（G・M・D・メイン・生成器・評価器・動作器・統合保守器）／緑＝揮発記憶（B・W）／桃＝エピソード記憶（O）／紫＝LLM・資源ハンドラ（主・補助LLM・LLM担当・実行担当）／自己状態 SS／灰＝外界。
 - **口（③-2 以降）**：出入り口は **IIF（内部）／DIF（外部の機械）／AIF（自律機構）／OIF（記憶）** の4つだけ。この4つ以外に、コンポーネントどうしが直接つながる線は置かない。
 - **線種（③-2）**：太い実線（`==>`）＝**同期**（呼んだところへその場で返る）／点線（`-.->`）＝**非同期**（投げて先へ進み、結果は IIF の待ち行列へ入る）。
@@ -548,6 +549,8 @@ sequenceDiagram
 ## 更新履歴
 
 
+> v0.113：「store と I/F」台帳に、経験繋がり（出-bq・2026-10-31）を足した。
+>
 > v0.112：「store と I/F」台帳に、記録の種類（`kind`）の列を落としたこと（077・078・記-u・2026-10-28）を足した。
 >
 > v0.111：「store と I/F」台帳に、継起を後ろへもたどる口を足した（記-q・2026-10-15）。
