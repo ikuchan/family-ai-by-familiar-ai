@@ -66,7 +66,7 @@ docs の md だけを変えたときは、本体を止めず、全体テスト�
    - `--debug` は付けない（ログが 1 日 1 GB になる）。
 3. 確かめる：
    - 2 の `ps` の結果が 1 件であること。
-   - `grep -c " | ERROR | " ~/.cache/familiar-ai/app.log` が 0 であること。
+   - `grep -c "\[ERROR\]" ~/.cache/familiar-ai/app.log` が 0 であること。
    - 起動した版が、コミットした版と同じであること。
 
 いまのログは `~/.cache/familiar-ai/app.log` にある。`logs/` の下は、起動のときに退避された過去のぶんである。
