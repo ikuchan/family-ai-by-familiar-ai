@@ -1,8 +1,8 @@
 """話しかけたら、聞こえた合図と反応の合図をすぐ流す（出-bg・2026-10-10・本人の決定）。
 
 声で話しかけた言葉が門を通り、Jev が判断を始めたら機械音 A を鳴らし続ける。Jev が決めたら A を止め、決めた動作に合わせて
-流す：黙る → なし・軽く返す／聞き返す／状態を伝える → 効果音 B・道具を使う → 作り置きの声（はい・うん）・考えて返す →
-作り置きの声（えっと・うーん）。キーボードの入力では鳴らさない。合図は軽量LLM が文を書く前に出す（遅くならない）。
+流す：黙る → なし・軽く返す／聞き返す／状態を伝える → 効果音 B・道具を使う → 作り置きの声（はーい！）・考えて返す →
+作り置きの声（えっと）（出-de で 1 つずつにした）。キーボードの入力では鳴らさない。合図は軽量LLM が文を書く前に出す（遅くならない）。
 作り置きの声のあとも最初のつなぎは省かない（出-bd ②で改めた・合図が鳴り終わってから 3 秒で出す）。返事の声は合図が終わってから流す。
 """
 
@@ -40,16 +40,16 @@ def test_each_decision_has_its_cue(final, cue):
 
 def test_the_sounds_are_in_the_package():
     files = rc.sound_files()
-    # A・B・黙る音（出-dc）・道具の声 4・考える声 2（出-ce：「うん」を替え、待ってね・オッケーを足した）
-    assert len(files) == 9
+    # A・B・黙る音（出-dc）・道具の声 1・考える声 1（出-de：最初の反応は はーい！ と えっと だけ）
+    assert len(files) == 5
     for path in files:
         assert path.exists(), path
 
 
 def test_the_tool_voice_has_no_ryo():
     """「りょ」は外した。0.36 秒の SBV2 の声で「キョ」と聞こえ、合図として伝わらなかった（2026-10-12・本人）。"""
-    assert "りょ" not in rc.TOOL_WORDS  # 2026-10-14 に 4 つにした（出-ce）
-    assert [p.name for p in rc.TOOL_WAVS] == [f"react_tool_{i}.wav" for i in range(4)]
+    assert "りょ" not in rc.TOOL_WORDS  # 2026-10-31 に はーい！ だけにした（出-de）
+    assert [p.name for p in rc.TOOL_WAVS] == ["react_tool_0.wav"]
 
 
 def test_no_unused_tool_voice_is_left():
@@ -58,9 +58,9 @@ def test_no_unused_tool_voice_is_left():
     assert left == [p.name for p in rc.TOOL_WAVS]
 
 
-def test_the_tool_cue_picks_from_the_four():
-    picked = {rc.sound_for(rc.TOOL).name for _ in range(400)}
-    assert picked == {f"react_tool_{i}.wav" for i in range(4)}  # 4 つにした（出-ce）
+def test_the_tool_cue_is_always_hai():
+    picked = {rc.sound_for(rc.TOOL).name for _ in range(50)}
+    assert picked == {"react_tool_0.wav"}  # はーい！ だけにした（出-de）
 
 
 # ── 調停は、軽量LLM より前に決まったことを知らせる ─────────────────────────────
@@ -278,28 +278,30 @@ def test_a_reply_waits_for_the_cue(monkeypatch):
 # ── 考える声から「んー」を外す（出-ce・2026-10-13・本人の決定ア）──────────────────
 
 
-def test_the_think_words_are_two():
+def test_the_think_word_is_eto():
     from pathlib import Path
 
     from familiar_agent.core import reaction_cue as rc
 
-    assert rc.THINK_WORDS == ("えっと", "うーん")
+    assert rc.THINK_WORDS == ("えっと",)  # 「うーん」は外した（出-de・2026-10-31・本人）
     sounds = Path(rc.THINK_WAVS[0]).parent
     voices = ("Laomedeia", "Puck", "ja-jp-commercial-3", "ja-jp-csagent-8")
     for folder in (sounds, *(sounds / "voices" / v for v in voices)):
         got = sorted(p.name for p in folder.glob("react_think_*.wav"))
-        assert got == ["react_think_0.wav", "react_think_1.wav"], folder
+        assert got == ["react_think_0.wav"], folder
 
 
-# ── 道具の声を はい・はーい！・待ってね・オッケー にする（出-ce・2026-10-14・本人の決定）────────
+# ── 最初の反応は はーい！ と えっと だけ（出-de・2026-10-31・本人の決定）。前は道具の声が 4 つ・考える声が 2 つだった（出-ce）────────
 
 
-def test_the_tool_words_are_four():
+def test_the_tool_word_is_hai():
     from pathlib import Path
 
-    assert rc.TOOL_WORDS == ("はい", "はーい！", "待ってね", "オッケー")
+    assert rc.TOOL_WORDS == (
+        "はーい！",
+    )  # はい・待ってね・オッケーは外した（出-de・2026-10-31・本人）
     sounds = Path(rc.TOOL_WAVS[0]).parent
     voices = ("Laomedeia", "Puck", "ja-jp-commercial-3", "ja-jp-csagent-8")
     for folder in (sounds, *(sounds / "voices" / v for v in voices)):
         got = sorted(p.name for p in folder.glob("react_tool_*.wav"))
-        assert got == [f"react_tool_{i}.wav" for i in range(4)], folder
+        assert got == ["react_tool_0.wav"], folder
