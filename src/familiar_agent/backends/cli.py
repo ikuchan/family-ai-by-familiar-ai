@@ -119,6 +119,7 @@ class CLIBackend:
             cmd = self._cmd
             stdin_data = prompt.encode("utf-8")
 
+        proc = None
         try:
             proc = await asyncio.create_subprocess_exec(
                 *cmd,
@@ -136,6 +137,11 @@ class CLIBackend:
                     stderr.decode("utf-8", errors="replace")[:300],
                 )
             return stdout.decode("utf-8", errors="replace").strip()
+        except asyncio.CancelledError:
+            # 主LLM の時間切れ（出-dd）などで取り消されたら、子プロセスを残さない
+            if proc is not None and proc.returncode is None:
+                proc.kill()
+            raise
         except Exception as e:
             logger.error("CLI backend failed: %s", e)
             return f"[CLI backend error: {e}]"

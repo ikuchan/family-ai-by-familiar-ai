@@ -41,6 +41,7 @@ from ..core import (
     parsing,
     unsaid,
 )
+from ..core.aio import wait_within
 from ..core.drive_autonomy import TALKING_AXES
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
@@ -246,6 +247,15 @@ SCHEDULE_DAYS_MAX = 14  # カレンダー MCP の `days` の上限（`mcp/calend
 
 #: 待ちの見張りが起きる間隔（秒）。待たせているあいだ、この間隔で窓を延ばす（窓は 10 秒なので 1 秒で足りる）。
 WAIT_WATCH_TICK_SEC = 1.0
+
+#: 待ちの電子音のあいだに声を聞かないのを、待っているもの（調べもの・主LLM）が 1 つも無いまま続けてよい長さ（秒・出-dd・
+#: 2026-11-01 本人の決定）。電子音を止め損ねても、聞かない状態を残さないための上限。長い調べもののあいだは効かない。
+DEAF_IDLE_LIMIT_SEC = 300.0
+
+#: 主LLM を 1 回呼ぶときの時間切れ（秒・出-dd・2026-11-01 本人の決定 10 分）。音楽の道具（問い合わせ 1 回 10 秒）や検索
+#: （30 秒）と同じく、呼ぶ 1 回ごとに切る。切らないと、固まった呼び出しが飛行中のまま残り、電子音のあいだ声を聞かない
+#: 状態が続く（待つものがあるので 5 分の上限も効かない）。いままでの最長は約 10 秒。
+MAIN_LLM_TIMEOUT_SEC = 600.0
 
 #: 聞き取りの確認の預かりの寿命（秒・〔仮〕・出-cm・2026-10-15 本人の決定）。聞き返しへの答えはすぐ返るので短くし、
 #: あとの別の話の「はい」で見立ての動作を動かさない。
@@ -1639,6 +1649,8 @@ class InformationProcessing:
         if beeps is not None and not beeps.done():
             return
         self._beep_count = 0
+        self._waited_at = time.monotonic()
+        self._deaf_lapsed = False
         with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ立てない
             self._beeps: "asyncio.Task[None] | None" = asyncio.get_running_loop().create_task(
                 self._beep_while_waiting(self._request_generation)
@@ -1666,11 +1678,48 @@ class InformationProcessing:
         with contextlib.suppress(asyncio.CancelledError):
             while gen == self._request_generation:
                 started = loop.time()
+                if self._waiting_on():
+                    # 聞かない上限は、待つものが消えてから数える（出-dd）。上限のログも、また待てば次も残す
+                    self._waited_at = time.monotonic()
+                    self._deaf_lapsed = False
                 if not self._sounding():
-                    with contextlib.suppress(Exception):
+                    try:
                         await self._dif.beep()
+                    except Exception:  # noqa: BLE001
+                        # 鳴らせないなら、聞かない理由も無い。仕事を終えて聞く状態へ戻す（出-dd・閉じたままにしない）。
+                        logger.warning("event-loop 待ちの電子音を鳴らせなかった", exc_info=True)
+                        return
                     self._beep_count += 1
                 await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
+
+    def _deaf_while_beeping(self) -> bool:
+        """待ちの電子音のあいだで、声を聞かないか（出-dd・2026-10-31〜11-01・本人の決定イ・ア・ア・5 分）。
+
+        合図の声が鳴り始めてから答えの声が始まるまで（電子音の仕事が生きているあいだ）は、声を名前があっても・音楽の言葉でも
+        捨てる。10/31 21:51 に、電子音のあいだのパジュ宛てでない言葉を求めに添え、答えの後で新しい求めにした。
+        **閉じたままにしない**：印を持たず、毎回いまの状態から決める。仕事が終われば（例外で落ちても）聞く。待っているものが
+        1 つも無いまま `DEAF_IDLE_LIMIT_SEC` たてば聞く（WARNING を 1 回）。判定が例外を出したら聞くほうへ倒す。
+        """
+        try:
+            beeps = self.__dict__.get("_beeps")
+            if beeps is None or beeps.done():
+                return False
+            if self._waiting_on():
+                self._deaf_lapsed = False  # 待つものがまた立てば、次に上限へ届いたときもログに残す
+                return True
+            idle = time.monotonic() - float(self.__dict__.get("_waited_at", 0.0))
+            if idle <= DEAF_IDLE_LIMIT_SEC:
+                return True
+            if not self.__dict__.get("_deaf_lapsed"):
+                self._deaf_lapsed = True
+                logger.warning(
+                    "event-loop 電子音が鳴り続け、待つものが無いまま %.0f 秒たったので、声を聞く",
+                    idle,
+                )
+            return False
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 電子音のあいだかを決められず、聞くほうへ倒す", exc_info=True)
+            return False
 
     def _stop_wait_watch(self) -> None:
         """求めが閉じた・打ち切られた。見張りを止める。"""
@@ -1770,68 +1819,82 @@ class InformationProcessing:
         intent_id: "str | None" = None,
         say_asked: bool = False,
     ) -> None:
-        """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。"""
+        """RH：主LLM を呼び、返りを QC へ積む（投げっぱなしの担い手）。
+
+        **思わぬ例外でも「決定」を必ず届ける**（出-dd）。届かないと主LLM が飛行中のまま残り、待ちの電子音と、電子音の
+        あいだ声を聞かない状態が続く。届けるのは空の返りで、呼び出しの失敗（`_main_llm_turn`）と同じ道に乗る。
+        """
         started = time.monotonic()
-        # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
-        # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
-        # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
-        narrow = ("say",)
-        say_only = capped or retried or say_asked
-        # プロンプトキャッシュを使うか（出-bs 段 2）。層 3 が直近 7 日の続き方で入り切りする。使わないなら固定部分と
-        # 道具の印を付けない（組を 1 本の文にすれば、どの backend も印を付けない）。
-        cache_on = main_llm_cache_on()
-        # 窓の会話の中では、say だけの回も道具の一覧を変えない（環-ar 段 D）。一覧を変えると、道具から後ろ（安定部と
-        # 窓の会話）のキャッシュが全部外れる。say だけであることは毎回変わる部分（最後）で伝え、ほかの呼び出しは捨てる。
-        # キャッシュを使わない日は守るものが無いので、いまどおり say だけを渡す。
-        say_only_in_window = (
-            say_only
-            and cache_on
-            and _caches_window(self._agent.backend)
-            and self._talk_of(self._req.window_session) is not None
-        )
-        if say_only_in_window:
-            system = _with_say_only_note(system)
-        if not cache_on and isinstance(system, tuple):
-            system = system_text(system, sep="\n\n")
-        # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
-        tools = self._tools(
-            actions=narrow if say_only and not say_only_in_window else _FULL_ACTIONS,
-            cache_tools=cache_on,
-        )
-        result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
-        if say_only_in_window and any(tc.name != "say" for tc in result.tool_calls):
-            # 道具は渡してあるが、この回は say だけ（環-ar 段 D）。ほかの呼び出しは投げずに捨てる。
-            kept = [tc for tc in result.tool_calls if tc.name == "say"]
-            logger.info(
-                "event-loop 主LLM の say だけの回なので道具の呼び出しを捨てた：%s",
-                "/".join(tc.name for tc in result.tool_calls if tc.name != "say"),
+        result = None
+        try:
+            # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
+            # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
+            # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
+            narrow = ("say",)
+            say_only = capped or retried or say_asked
+            # プロンプトキャッシュを使うか（出-bs 段 2）。層 3 が直近 7 日の続き方で入り切りする。使わないなら固定部分と
+            # 道具の印を付けない（組を 1 本の文にすれば、どの backend も印を付けない）。
+            cache_on = main_llm_cache_on()
+            # 窓の会話の中では、say だけの回も道具の一覧を変えない（環-ar 段 D）。一覧を変えると、道具から後ろ（安定部と
+            # 窓の会話）のキャッシュが全部外れる。say だけであることは毎回変わる部分（最後）で伝え、ほかの呼び出しは捨てる。
+            # キャッシュを使わない日は守るものが無いので、いまどおり say だけを渡す。
+            say_only_in_window = (
+                say_only
+                and cache_on
+                and _caches_window(self._agent.backend)
+                and self._talk_of(self._req.window_session) is not None
             )
-            result = replace(result, tool_calls=kept)
-            if not kept:
-                # 捨てたら何も言えない。黙って終わらないよう、say だけを渡してもう一度呼ぶ（キャッシュはこの 1 回だけ外れる）。
-                logger.info("event-loop say が無かったので、say だけを渡して呼び直す")
-                # この並びは二度と使わないので、道具にキャッシュの印は付けない（書き込みの割増を払わない）。
-                tools = self._tools(actions=narrow, cache_tools=False)
-                result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
-                # 文で書いた呼び出しを拾い直すと say 以外も来うるので、もう一度ふるう。
-                result = replace(
-                    result, tool_calls=[tc for tc in result.tool_calls if tc.name == "say"]
+            if say_only_in_window:
+                system = _with_say_only_note(system)
+            if not cache_on and isinstance(system, tuple):
+                system = system_text(system, sep="\n\n")
+            # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
+            tools = self._tools(
+                actions=narrow if say_only and not say_only_in_window else _FULL_ACTIONS,
+                cache_tools=cache_on,
+            )
+            result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
+            if say_only_in_window and any(tc.name != "say" for tc in result.tool_calls):
+                # 道具は渡してあるが、この回は say だけ（環-ar 段 D）。ほかの呼び出しは投げずに捨てる。
+                kept = [tc for tc in result.tool_calls if tc.name == "say"]
+                logger.info(
+                    "event-loop 主LLM の say だけの回なので道具の呼び出しを捨てた：%s",
+                    "/".join(tc.name for tc in result.tool_calls if tc.name != "say"),
                 )
-        # **生成の秒数は必ず残す**（出-k-い）。何が返ったか（道具・字数・写真の有無）も添える。
-        # 所要時間を出していたのは調停だけで、主LLM はログの時刻差から手で引くしかなかった。
-        say = next((tc for tc in result.tool_calls if tc.name == "say"), None)
-        chars = len(str(say.input.get("text", ""))) if say else len(result.text or "")
-        if result.stop_reason == "max_tokens":
-            # 予算で切れた。返事は捨てない（`say` が壊れていれば素テキストへ倒れる既存経路）。
-            logger.info("event-loop 主LLM の出力が max_tokens=%d で切れた", max_tokens)
-        logger.info(
-            "event-loop 主LLM %.2f 秒（effort=%s 道具=%s %d 字 写真=%s）",
-            time.monotonic() - started,
-            effort or "-",
-            "/".join(tc.name for tc in result.tool_calls) or "なし",
-            chars,
-            "あり" if _has_image(messages) else "なし",
-        )
+                result = replace(result, tool_calls=kept)
+                if not kept:
+                    # 捨てたら何も言えない。黙って終わらないよう、say だけを渡してもう一度呼ぶ（キャッシュはこの 1 回だけ外れる）。
+                    logger.info("event-loop say が無かったので、say だけを渡して呼び直す")
+                    # この並びは二度と使わないので、道具にキャッシュの印は付けない（書き込みの割増を払わない）。
+                    tools = self._tools(actions=narrow, cache_tools=False)
+                    result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
+                    # 文で書いた呼び出しを拾い直すと say 以外も来うるので、もう一度ふるう。
+                    result = replace(
+                        result, tool_calls=[tc for tc in result.tool_calls if tc.name == "say"]
+                    )
+            # **生成の秒数は必ず残す**（出-k-い）。何が返ったか（道具・字数・写真の有無）も添える。
+            # 所要時間を出していたのは調停だけで、主LLM はログの時刻差から手で引くしかなかった。
+            say = next((tc for tc in result.tool_calls if tc.name == "say"), None)
+            chars = len(str(say.input.get("text", ""))) if say else len(result.text or "")
+            if result.stop_reason == "max_tokens":
+                # 予算で切れた。返事は捨てない（`say` が壊れていれば素テキストへ倒れる既存経路）。
+                logger.info("event-loop 主LLM の出力が max_tokens=%d で切れた", max_tokens)
+            logger.info(
+                "event-loop 主LLM %.2f 秒（effort=%s 道具=%s %d 字 写真=%s）",
+                time.monotonic() - started,
+                effort or "-",
+                "/".join(tc.name for tc in result.tool_calls) or "なし",
+                chars,
+                "あり" if _has_image(messages) else "なし",
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            logger.exception("event-loop 主LLM の前後で失敗: %s", e)
+            if result is None:  # 返りがもうあれば、その後の段で落ちても返りは捨てない
+                from ..backends.types import TurnResult as _TR
+
+                result = _TR(stop_reason="end_turn", text="")
         self._triggers.put_nowait(
             Trigger(
                 kind="決定",
@@ -1860,20 +1923,35 @@ class InformationProcessing:
     ):
         """主LLM を 1 回呼ぶ。失敗は空の返りにし、文で書いた道具の呼び出しは拾い直す。"""
         agent = self._agent
+        started = time.monotonic()
         # 当たりは層 3 が時刻と道具の数で数える（使わない週も同じ物差し・出-bs 段 2）。
         measure_record("主LLM", 道具=len(tools))
         try:
-            result, _raw = await agent.backend.stream_turn(
-                system=system,
-                messages=messages,
-                tools=tools,
-                # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
-                max_tokens=max_tokens,
-                on_text=None,
-                effort=effort,
+            result, _raw = await wait_within(
+                agent.backend.stream_turn(
+                    system=system,
+                    messages=messages,
+                    tools=tools,
+                    # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
+                    max_tokens=max_tokens,
+                    on_text=None,
+                    effort=effort,
+                ),
+                MAIN_LLM_TIMEOUT_SEC,
             )
         except asyncio.CancelledError:
             raise
+        except asyncio.TimeoutError:
+            # 担い手の中の時間切れ（通信など）もここへ来るので、かかった秒数と元の例外を添える
+            logger.warning(
+                "event-loop 主LLM が時間切れ（%.1f 秒・上限 %.0f 秒）",
+                time.monotonic() - started,
+                MAIN_LLM_TIMEOUT_SEC,
+                exc_info=True,
+            )
+            from ..backends.types import TurnResult as _TR
+
+            result = _TR(stop_reason="end_turn", text="")
         except Exception as e:  # noqa: BLE001
             logger.exception("event-loop 主LLM の呼び出しに失敗: %s", e)
             from ..backends.types import TurnResult as _TR
@@ -1899,6 +1977,23 @@ class InformationProcessing:
         started = time.monotonic()
         try:
             await self._run_lookup_body(action, tool_input, query, intent_id, index)
+        except asyncio.CancelledError:
+            raise
+        except Exception as e:  # noqa: BLE001
+            # **思わぬ例外でも完了を必ず届ける**（出-dd）。届かないと飛行中のまま残り、待ちの電子音と、電子音のあいだ声を
+            # 聞かない状態が続く（音楽・範囲を広げる道具には受け口が無かった）。道具が済んだ後の段（確認の問いを言うなど）で
+            # 落ちることもあるので、「使えなかった」とは言わず、できたかは分からないと届ける。
+            logger.exception("event-loop %s の実行に失敗: %s", action, e)
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=f"「{query}」の途中で思わぬ失敗があり、できたかは分からない",
+                    intent_id=intent_id,
+                    index=index,
+                    failed=True,
+                )
+            )
         finally:
             # 入力も残す（`days=2`・`query=…`）。無いと「何で呼んだか」が後から分からない。
             logger.info(
@@ -3339,6 +3434,8 @@ class InformationProcessing:
                 raise
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop 駆動体で例外: %s", e)
+                # 答えの声にも求めを閉じる所にも届かないと、電子音と聞かない状態が残る（出-dd）。ここで止める。
+                self._stop_beeps()
                 # **必ず一度譲る。** 待つ前に投げる例外（作り直し前の待ち行列など）だと、
                 # ここで譲らなければ await を挟まない密な繰り返しになり、event loop ごと
                 # 止まる（実機では固まって見える）。
@@ -4258,6 +4355,14 @@ class InformationProcessing:
                 # **知らない声は無条件に捨てる**（知-ar）。名前・黙っていての依頼・窓より前。気配として SAFETY だけ上げる。
                 await self._nudge_by_voice(trigger, stranger=True)
                 return self._swallowed(trigger)
+            if self._deaf_while_beeping():
+                # 待ちの電子音のあいだの声は、名前があっても捨てる（出-dd）。打ち切りより前なので、調べかけも止めない。
+                # 知らない声の気配（SAFETY）は残すので、その後に置く。
+                logger.info(
+                    "event-loop 待ちの電子音のあいだの声なので捨てた（%d 字）",
+                    len(trigger.query or ""),
+                )
+                return self._swallowed(trigger)
         if trigger.kind == "会話入力":
             if trigger.source == "voice" and is_name_repeat(trigger.query, names):
                 # 名前だけの繰り返しは想定外（2026-10-07 本人の決定）。窓が開いていても、値に関わらず捨てる。
@@ -4886,6 +4991,7 @@ class InformationProcessing:
         text = getattr(pc, "text", "") or ""
         if not text or self._delivery_block_reason():
             return
+        self._stop_beeps()  # 問いへの答えは声で来る。電子音のあいだは声を聞かないので、問う前に止める（出-dd）
         await self._say_aloud(text)
         # 問いの話し終わりに窓が開き、答えはその窓で受ける。答える相手が読めるよう、問いを窓の会話の行にする（環-ar 段 B）。
         # 人の言葉で始まった求めでなければ、宛先は書かない（いまの話者の名前は、前に話した人のことがある）。
