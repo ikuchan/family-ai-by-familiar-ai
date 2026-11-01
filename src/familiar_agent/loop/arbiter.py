@@ -606,6 +606,10 @@ _LIGHT_WORDS: "dict[str, str]" = {
 #: やるかどうかを聞くと、「はい」が何への答えか分からなかった。何と言ったかを確かめ、「はい」なら見立ての動作を投げる。
 #: 出-db 段 G（2026-10-25・本人の決定 1-d）で、相手の言葉をそのまま言い直す「〜と言ったの？」から、短い推測の問いに
 #: 改めた（言い直す形はくどく聞こえた）。問いの形の細かい決まりは書く欄（`text_ask_guess`）にだけ書く。
+#: 人の言葉に状態を伝える・軽く返すときに添える（出-dg は・2026-11-01・本人の決定）。出-bk で聞き返しだけ止め、10/31 21:52 に
+#: 状態を伝える返事が「改めて詳しくお調べします」と約束した。黙る依頼・名乗りの返事も軽く返すで書くが、本当にやることなので添えない。
+_NO_PROMISE = "調べる・やる・待ってと約束しない（いま進んでいることを伝えるのはよい）"
+_NO_PROMISE_FINALS = frozenset({"state_light", "reply_light"})
 _ASK_GUESS_WORDS = f"聞き返す（{ASK_BACK_MAX_CHARS} 字まで・聞き取りを確かめる短い推測の問い）"
 
 
@@ -1081,7 +1085,9 @@ class Arbiter:
             fields["speaker_claim"] = name
         elif final == "deny":
             fields["not_person"] = name
-        if final in ("quiet", "lift_quiet", "claim", "deny"):
+        # 黙る依頼・名乗りの返事は、本当にやることを伝えるので約束を止めない（出-dg は）。置き換える前の名前で決める。
+        acting = final in ("quiet", "lift_quiet", "claim", "deny")
+        if acting:
             final = "reply_light"
         from ..core.timer_rules import is_control_word
 
@@ -1115,6 +1121,7 @@ class Arbiter:
             refers_time=final == "recall",
             guess=guess,
             judge_silence=judge,
+            no_promise=not acting,
         )
         if fields:
             decision = replace(decision if decision is not None else _FALLBACK, **fields)
@@ -1184,6 +1191,7 @@ class Arbiter:
         guess: str = "",
         happened: str = "",
         judge_silence: bool = False,
+        no_promise: bool = False,
     ) -> "Decision | None":
         """完了の最終の動作を `Decision` に写す。黙る→light・文なし、軽く…→light・軽量LLM の一言、考えて返す→full、道具→action。"""
         if final == "silent":
@@ -1197,6 +1205,8 @@ class Arbiter:
                 decided = f"{_ASK_GUESS_WORDS}。見立て（確かではない）：{guess}"
             if happened:
                 decided = f"{decided}。{happened}"
+            if no_promise and final in _NO_PROMISE_FINALS:
+                decided = f"{decided}。{_NO_PROMISE}"
             write = _writer_call(
                 self, inp, {"decided": decided, "ask": ask, "guess": bool(guess)}, ["text"]
             )
