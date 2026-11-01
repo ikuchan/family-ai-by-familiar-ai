@@ -67,7 +67,9 @@ capabilities:
       Choose Tavily for things that change by the day (weather, news, prices, timetables, results)
       and Brave for facts that do not change (meanings, origins, history, explanations). When no
       Brave result holds the answer, the page most likely to hold it is read and delivered with
-      the list.
+      the list. One request may use it twice in all (try different words the second time); after the
+      second result arrives it is no longer offered, and the answer is what the two results show and
+      what they do not.
     enabled: true
   - id: memory
     summary: Store and recall observations, episodes, semantic facts, and unfinished business

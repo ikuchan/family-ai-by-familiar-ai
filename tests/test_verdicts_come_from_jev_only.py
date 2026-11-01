@@ -246,16 +246,18 @@ def test_the_checker_gets_the_past_memories_and_asks_about_them():
     assert verdicts == [{"id": "aaaaaaaaaaaa", "verdict": "referred"}]
 
 
-def test_a_long_state_shrinks_only_the_memories():
-    """上限（出-bw の `jev_state_max_chars`）を超えたら、記憶 1 件の字数だけを縮める。返事は削らない。"""
+def test_a_long_state_shrinks_only_the_long_results():
+    """上限（出-bw の `jev_state_max_chars`）を超えたら、届いた結果の長いものだけを縮める（出-dg ろ）。返事と記憶の行は削らない。"""
     a = _agent(stream_returns=[])
     a.config.speech_check = True
     a.config.jev_confidence_min = 0.6
-    a.config.jev_state_max_chars = 3000
+    a.config.jev_state_max_chars = 6000
     a._jev = _client({"broken": _c("ok")})
     ip = InformationProcessing(a)
-    ids = [f"{i:012d}" for i in range(10)]
+    ip._req.request_id = "origin"  # 起点の記録は open（届いた結果として渡る）
+    ids = [f"{i:012d}" for i in range(3)]
     memories = [_recalled(f"{i}-full", f"記憶{i}：" + "う" * 400) for i in ids]
+    memories.append(_recalled("origin", "届いた結果。" * 1000))
     reply = "明日は晴れだよ" + "え" * 500
 
     async def scenario():
@@ -268,13 +270,42 @@ def test_a_long_state_shrinks_only_the_memories():
     asyncio.run(scenario())
     state, questions = a._jev.ask.await_args.args
     assert reply in state  # 返事は削らない
-    assert len(state) + sum(len(q["instructions"]) for q in questions.values()) < 3600
+    rows = [q["instructions"] for i, q in questions.items() if i != "broken"]
+    assert state.count("う" * 280) == 3 and all(
+        "う" * 280 in r for r in rows
+    )  # 記憶の行は 300 字のまま
+    assert 400 <= state.count("届いた結果。") * 6 < 5000  # 結果（6,000 字）だけが縮んだ
     assert set(questions) == {"broken", *ids}  # 問いの数は減らさない
 
 
-def test_a_short_state_keeps_300_chars():
+def test_results_fit_without_shrinking_when_there_is_room():
     """**反証の側**：収まっていれば縮めない。"""
-    from familiar_agent.loop.speech_check import PAST_CHARS, fitting_cap
+    from familiar_agent.loop.speech_check import fit_arrived
 
-    assert fitting_cap(100, {"a": "x" * 300}, 28_000) == PAST_CHARS
-    assert fitting_cap(100, {"a": "x" * 300, "b": "x" * 300}, 900) == 200
+    items = ["x" * 5000, "y" * 300]
+    assert fit_arrived(items, 28_000) == items
+
+
+def test_long_results_shrink_by_the_same_ratio_and_short_ones_stay():
+    from familiar_agent.loop.speech_check import KEEP_CHARS, fit_arrived
+
+    from familiar_agent.loop.speech_check import facts_ctx
+
+    got = fit_arrived(["a" * 8000, "b" * 4000, "c" * 300], 6300)
+    assert got[2] == "c" * 300  # 400 字以下は縮めない
+    assert abs(len(got[0]) - 2 * len(got[1])) <= 1  # 長い件は同じ割合で縮む
+    empty = facts_ctx(saw=False, memories=[])
+    assert (
+        6200 < len(facts_ctx(saw=False, memories=[], arrived=got)) - len(empty) <= 6300
+    )  # 見出しと行頭も入れて収まる
+    assert KEEP_CHARS == 400
+
+
+def test_a_long_result_is_not_cut_below_the_floor():
+    from familiar_agent.loop.speech_check import KEEP_CHARS, fit_arrived
+
+    got = fit_arrived(["a" * 9000, "b" * 600], 100)
+    assert [len(g) for g in got] == [
+        KEEP_CHARS,
+        KEEP_CHARS,
+    ]  # それでも超えれば Jev が断り、倒し先へ倒れる

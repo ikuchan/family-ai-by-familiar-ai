@@ -155,6 +155,8 @@ class Request:
     # 起きない。再試行はしない：失敗の中身（`TypeError` など）は対処できる情報でなく、
     # 代わりのある道具（検索の Brave／Tavily）は道具の側で切り替える。求めが閉じれば戻る。
     failed_actions: set[str] = field(default_factory=set)
+    # この求めで回数を使い切った動作（出-dg ろ）。調べものは合わせて 2 回で、使い切ったら主LLM の道具と調停の候補から外す。
+    spent_actions: set[str] = field(default_factory=set)
     # この求めを起こした欲求の軸（`seeking` など・情動が起点のときだけ・情-f）。内部状態の
     # 言葉で「発火：SEEKING（探索したい）」と明示するために持つ。会話・機器が起点なら空。
     fired_axis: str = ""

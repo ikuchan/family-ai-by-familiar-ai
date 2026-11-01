@@ -16,6 +16,9 @@ from __future__ import annotations
 #: 同じ求めで同じ見出しの操作をもう一度投げようとして、投げずに前の結果を返したときの印（`event_loop._dispatch_lookup`）。
 ALREADY_TRIED = "この求めですでに調べた"
 
+#: この求めで調べもの（`search_deferred`）を使い切って、投げなかったときの印（出-dg ろ・`event_loop._dispatch_lookup`）。
+SEARCH_SPENT = "この求めの調べもの（合わせて 2 回）は使い切った"
+
 #: 調べものの道具（頼まれたら答えを返す・自分からなら覚えておく）。`ask_vault_` で始まる本人の記録も含む。
 _RESEARCH = frozenset(
     {
@@ -81,6 +84,12 @@ def kind_of(
         # 同じ求めで同じ操作をもう一度選んだ（出-be）。投げずに前の結果が返ってきたので、もう一度かけ直す・調べ直すと
         # 反復の上限まで同じことが続く。道具に関係なく、前の結果を軽く伝えて終える。
         return "同じことをもう一度頼もうとした", ("tell_light",)
+    if SEARCH_SPENT in text:
+        # 調べものを使い切った（出-dg ろ）。届いた結果から、分かったことと分からないことを主LLM が答える。
+        # 自分から調べた（情動）なら頼まれていないので、話しかけるまで。
+        if origin == "情動":
+            return "自分から調べに行ったが使い切った", ("silent", "talk_light")
+        return "調べものを使い切った", ("reply_full",)
     if failed:
         if "別の曲が鳴っている" in text:
             return "頼んだものと違うものになった", ("play_music",)

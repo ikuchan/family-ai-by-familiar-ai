@@ -48,7 +48,7 @@ from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
-from .speech_check import PAST_CHARS, facts_ctx, fitting_cap, past_rows
+from .speech_check import ARRIVED_CHARS, PAST_CHARS, facts_ctx, fit_arrived, past_rows
 from ..core.wake_window import WakeWindow
 from ..core.window_talk import WindowTalk, result_text as _talk_result
 from ..backends.types import system_text
@@ -260,6 +260,19 @@ MAIN_LLM_TIMEOUT_SEC = 600.0
 #: 聞き取りの確認の預かりの寿命（秒・〔仮〕・出-cm・2026-10-15 本人の決定）。聞き返しへの答えはすぐ返るので短くし、
 #: あとの別の話の「はい」で見立ての動作を動かさない。
 HEARD_CHECK_TTL_SEC = 30.0
+#: 1 つの求めで調べもの（`search_deferred`）を使える回数（出-dg ろ・2026-11-01 本人の決定：合わせて 2 回）。
+SEARCH_LIMIT = 2
+
+
+def _searches(req, *, arrived: bool) -> int:
+    """この求めの調べものの数（失敗は数えない）。`arrived` なら結果が届いたものだけ、でなければ飛んでいるものも数える。"""
+    return sum(
+        1
+        for lk in req.lookups
+        if _action_family(lk.action) == "search_deferred"
+        and not lk.failed
+        and (lk.result is not None or not arrived)
+    )
 
 
 def _heard_inputs(heard: "dict | None") -> dict:
@@ -1613,6 +1626,33 @@ class InformationProcessing:
             )
             return
 
+        out = _searches(self._req, arrived=False)
+        if _action_family(action) == "search_deferred" and out >= SEARCH_LIMIT:
+            # 調べものは 2 回まで（出-dg ろ）。道具を外しても、同時に 2 つ出す・文で書いた呼び出し・調停が選んだ
+            # 調べものはここを通る。投げずに、使い切ったことを完了として積む（器は作る・完了の行き先になる）。
+            from ..core.completion_kind import SEARCH_SPENT
+
+            self._req.spent_actions.add("search_deferred")
+            if out > _searches(self._req, arrived=True):
+                # まだ届いていない調べもの（か、積んだ使い切りの完了）がある。それが届いた反復で答えるので、何も積まない
+                # （いま積むと、その完了で答えるか黙って閉じ、届いた結果の行き先が無くなる）。
+                logger.info(
+                    "event-loop 調べものを使い切ったので投げない（届くのを待つ）：%.40s", query
+                )
+                return
+            logger.info("event-loop 調べものを使い切ったので投げない：%.40s", query)
+            lk = self._open_lookup(action, query)
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=f"{SEARCH_SPENT}。届いた結果から、分かったことと分からないことを伝える",
+                    intent_id=lk.intent_id,
+                    index=lk.index,
+                )
+            )
+            return
+
         lk = self._open_lookup(action, query)
         # 完了はこの器の uuid を持って戻る（出-cc）。呼び手の `intent_id` はいつも None だった。
         task = asyncio.create_task(
@@ -2549,6 +2589,12 @@ class InformationProcessing:
                 if lk.failed:
                     # その求めのあいだ、この道具を候補から外す（構造で呼び直しを起こさない）。
                     self._req.failed_actions.add(_action_family(lk.action))
+                elif (
+                    _action_family(lk.action) == "search_deferred"
+                    and _searches(self._req, arrived=True) >= SEARCH_LIMIT
+                ):
+                    # 調べものは合わせて 2 回まで。3 回目は言葉でなく機械が止める（出-dg ろ）。
+                    self._req.spent_actions.add("search_deferred")
         if taken:
             # 求めの新しい版を書き、直前の版を畳む（1本の鎖）。主LLM の答えだけなら、書き終わりを待つものが無いので
             # 裏で書く（答えの声を待たせない・出-bz-ろ）。調べものの結果は直後の想起で使うので待つ（本人）。
@@ -2776,16 +2822,17 @@ class InformationProcessing:
         最小長が低く、道具を載せると読み出し料が増えて 581円 → 635円 と高くなる）。
         """
         defs: list[dict] = []
-        # この求めで道具が使えなかった動作（出-o）。求めの器が無い呼び方（土台だけの試験）でも
-        # 落ちないよう、無ければ空とみなす。
-        failed = getattr(getattr(self, "_req", None), "failed_actions", ())
+        # この求めで道具が使えなかった動作（出-o）と、回数を使い切った動作（出-dg ろ）。求めの器が無い呼び方
+        # （土台だけの試験）でも落ちないよう、無ければ空とみなす。
+        req = getattr(self, "_req", None)
+        blocked = set(getattr(req, "failed_actions", ())) | set(getattr(req, "spent_actions", ()))
         for name in actions:
             build = self._ACTIONS.get(name)
             if build is None:
                 logger.debug("event-loop 未接続の動作を要求された（無視する）: %s", name)
                 continue
-            if name in failed:
-                # この求めで道具が使えなかった動作は渡さない（出-o・呼び直しを構造で止める）。
+            if name in blocked:
+                # この求めで道具が使えなかった・使い切った動作は渡さない（出-o・呼び直しを構造で止める）。
                 continue
             with contextlib.suppress(Exception):
                 defs.extend(build(self))
@@ -3009,6 +3056,7 @@ class InformationProcessing:
         self._req.draft = ""
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
+        self._req.spent_actions.clear()
         self._req.fired_axis = ""
 
     def _emit(self, text: str) -> None:
@@ -3774,6 +3822,7 @@ class InformationProcessing:
             can_see=getattr(agent, "_camera", None) is not None,
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
+            spent_actions=frozenset(self._req.spent_actions),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
             # 完了を機械で分ける（出-ay 段 4-2）。主LLM は外部の道具を道具の名前（`get_family_schedule`）で呼ぶので、
             # 完了の表が引く動作の名前（`family_schedule`）に揃える（段 5b）。揃えないと表に当たらなかった。
@@ -4103,23 +4152,27 @@ class InformationProcessing:
             return None, None
         started = time.monotonic()
         tts = getattr(agent, "_tts", None)
-        # 記憶の中身は事実の欄と申告の問いの 2 か所に載る。上限（出-bw）を超えるなら、記憶 1 件の字数だけを縮める。
+        # 記憶の中身は事実の欄と申告の問いの 2 か所に載る。上限（出-bw）を超えるなら、届いた結果の長い件だけを縮める（出-dg ろ）。
         rows = past_rows(memories, w_id_map or {})
-        bare = self._checker_facts(memories, w_id_map=w_id_map, cap=0)
-        cap = fitting_cap(
-            len(bare) + len(recent) + len(text),
-            rows,
-            int(getattr(agent.config, "jev_state_max_chars", 28_000)),
+        bare = self._checker_facts(memories, w_id_map=w_id_map, cap=0, arrived=[])
+        room = int(getattr(agent.config, "jev_state_max_chars", 28_000)) - (
+            len(bare) + len(recent) + len(text) + 2 * sum(len(v) for v in rows.values())
         )
-        if cap < PAST_CHARS:
-            logger.info("event-loop 発話前の検査：長いので記憶 1 件を %d 字に縮める", cap)
-            rows = past_rows(memories, w_id_map or {}, cap)
+        got = [a[:ARRIVED_CHARS] for a in self._arrived(memories)]
+        arrived = fit_arrived(got, room)
+        if arrived != got:
+            logger.info(
+                "event-loop 発話前の検査：長いので届いた結果 %d 件を %d 字から %d 字に縮める",
+                len(got),
+                sum(len(a) for a in got),
+                sum(len(a) for a in arrived),
+            )
         asked: list = []
         violation, verdicts = await jev_judges.judge_speech_and_verdicts(
             getattr(agent, "_jev", None),
             response=text,
             recent=recent,
-            facts=self._checker_facts(memories, w_id_map=w_id_map, cap=cap),
+            facts=self._checker_facts(memories, w_id_map=w_id_map, arrived=arrived),
             rows=rows,
             rules=rule_list(
                 rules_for_checker(
@@ -4166,11 +4219,12 @@ class InformationProcessing:
         *,
         w_id_map: "dict[str, str] | None" = None,
         cap: int = PAST_CHARS,
+        arrived: "list[str] | None" = None,
     ) -> str:
         """発話前の検査へ渡す事実（出-n）。言い直しにも同じものを添える。
 
         届いた結果（この求めの open な記録＝版・完了 O）は、主LLM が申告しなくても根拠に
-        なる。届いたことはループが知っているので、申告の有無に頼らない。
+        なる。届いたことはループが知っているので、申告の有無に頼らない。`arrived` を渡せばそれを使う（検査が上限に収めた結果）。
         """
         saw = any(role == "見た" for _, role in self._req.turn_records)
         found = self._seen_image(memories)
@@ -4178,16 +4232,32 @@ class InformationProcessing:
         if found is not None:
             rec = next((r for r in memories if getattr(r.mi, "image_path", None) == found[1]), None)
             seen_mark = rec.mi.content if rec is not None else None
-        open_set = set(workspace.open_ids(self._req))
-        arrived = [r.mi.content for r in memories if r.mi.obs_id in open_set and r.mi.content]
         return facts_ctx(
             saw=saw,
             memories=memories,
             picture=found is not None,
             seen=seen_mark,
             past=list(past_rows(memories, w_id_map or {}, cap).values()) if cap > 0 else [],
-            arrived=arrived,
+            arrived=self._arrived(memories) if arrived is None else arrived,
         )
+
+    def _arrived(self, memories: "list[Recalled]") -> "list[str]":
+        """この求めで届いた結果（open な記録の中身）。いまの求めの版は、記録に書いた中身（8,192 字で切る）でなく、
+        W と同じく手元から組み直し、版の頭と調べもの 1 件ずつに分ける（出-dg ろ）。"""
+        open_set = set(workspace.open_ids(self._req))
+        live = self._req.live_version_id
+        out: list[str] = []
+        for r in memories:
+            if r.mi.obs_id not in open_set or not r.mi.content:
+                continue
+            if live and r.mi.obs_id == live and self._req.lookups:
+                out += [
+                    f"「{self._req.request_text}」と聞かれた",
+                    *workspace.lookup_lines(self._req),
+                ]
+            else:
+                out.append(r.mi.content)
+        return out
 
     def _declare_light_memory_use(
         self,
@@ -5603,6 +5673,7 @@ class InformationProcessing:
         self._req.draft = ""
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
+        self._req.spent_actions.clear()
         self._req.fired_axis = ""
         self._req.iterations = 0
         self._req.iterations_capped = False

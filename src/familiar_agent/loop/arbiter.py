@@ -522,6 +522,8 @@ class ArbiterInput:
     thinking_round: int = 1
     can_see: bool = False
     extra_actions: tuple[str, ...] = ()
+    #: この求めで回数を使い切った動作（出-dg ろ）。結果が返ったときの候補から外す。
+    spent_actions: frozenset[str] = frozenset()
     tool_return: bool = False
     timer_active: bool = False
     family_md: str = ""
@@ -856,6 +858,9 @@ class Arbiter:
         if got is None:
             return None
         kind, actions = got
+        actions = tuple(
+            a for a in actions if a not in inp.spent_actions
+        )  # 調べものは 2 回まで（出-dg ろ）
         final = actions[0]
         if len(actions) > 1:
             state = self._jev_state(inp, "完了")
