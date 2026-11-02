@@ -35,7 +35,9 @@ _ARRIVED_HEAD = "この求めで届いた結果（{n}件・これも根拠）：
 #: 見出しの言葉を変えても Jev の判定は変わらなかった（jev-1.14.0・人が言った予定の言い返しと、アラームの知らせ・4 回）。
 _ASKED_HEAD = "この求めの頼み（人が言ったこと・根拠ではない）："
 _DEVICE_HEAD = "この求めのきっかけ（機器からの知らせ・これも根拠）："
-_CAUSE_HEAD = "この求めのきっかけ（パジュの中で起きたこと・根拠ではない）："
+#: 名前は `me_name`（ME.md の呼び名の先頭・無ければ「わたし」）から差し込む（記-x の続き・2026-11-03・本人の決定）。
+#: W と検査を Jev が同じ反復で読むので、同じ名前にする。
+_CAUSE_HEAD = "この求めのきっかけ（{me}の中で起きたこと・根拠ではない）："
 
 
 #: 検査と申告に渡す、W の過去の記憶 1 件の上限（記憶の申告の問いと同じ・記-r）。
@@ -68,6 +70,7 @@ def facts_ctx(
     arrived: "list[str] | None" = None,
     asked: str = "",
     kind: str = "発話",
+    me: str | None = None,
 ) -> str:
     """この反復でループが知っていることを、そのまま並べる。
 
@@ -89,7 +92,8 @@ def facts_ctx(
 
     `asked` はこの求めの頼み（`request_text`）。届いた結果の欄の前に、根拠ではないと書いた見出しの下に 1 回だけ書く
     （`kind` が「発話」〔空も〕なら頼み、「機器」なら機器の知らせ〔これも根拠〕、それ以外はきっかけ・知-bn）。結果の欄には
-    入れない。
+    入れない。`me` はパジュ自身の名前（`me_name`・きっかけの見出しに差し込む・記-x の続き）。渡さなければ `me_name` の
+    呼び名が無いときの名前（名前を決めるのは `me_name` だけ）。
     """
     seen_line = (
         "はい（この求めで see を呼んだ）" if saw else "いいえ（この求めで see を呼んでいない）"
@@ -117,7 +121,11 @@ def facts_ctx(
         leaned_line = "作業状態の過去の記憶の中身：なし"
     if asked:
         # 求めの起点は 発話・機器・情動 の 3 つ（`_NEW_REQUEST_KINDS`）。空は会話（`req.trigger_kind or "発話"` と同じ）。
-        head = {"発話": _ASKED_HEAD, "機器": _DEVICE_HEAD}.get(kind or "発話", _CAUSE_HEAD)
+        head = {"発話": _ASKED_HEAD, "機器": _DEVICE_HEAD}.get(kind or "発話")
+        if head is None:
+            from ..tools.memory import me_name
+
+            head = _CAUSE_HEAD.format(me=me or me_name(None))
         asked_line = f"\n{head}\n  - {asked}"
     else:
         asked_line = ""

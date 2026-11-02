@@ -108,6 +108,7 @@ def test_the_reply_is_sent_whole_for_the_verdicts():
             rules={"x": "y"},
             rows={"aaaaaaaaaaaa": "最高 30℃"},
             min_conf=0.6,
+            me="パジュ",
         )
     )
     state, _ = c.ask.await_args.args

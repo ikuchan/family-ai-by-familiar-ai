@@ -225,6 +225,7 @@ async def judge_speech_and_verdicts(
     min_conf: float,
     on_asked: "Callable[[str, dict, Any], None] | None" = None,
     ask_offer: bool = False,
+    me: str | None = None,
 ) -> "tuple[str | None, list]":
     """発話前の検査と、記憶の申告を **1 回の呼び出しで** 聞く（記-r・2026-10-14・本人の決定）。
 
@@ -241,13 +242,21 @@ async def judge_speech_and_verdicts(
 
     `ask_offer` なら、返事が申し出で終わるか（`OFFER_QUESTION`）も同じ呼び出しで聞く。答えは呼び手が `on_asked` で受けて
     `offered` で読む（出-dj）。
+
+    `me` はパジュ自身の名前（`memory.me_name`・ME.md の呼び名の先頭・無ければ「わたし」）。W と検査を Jev が同じ反復で
+    読むので、返事の見出しも同じ名前にする（記-x の続き・2026-11-03・本人の決定）。渡さなければ `me_name` の呼び名が無いときの
+    名前（名前を決めるのは `me_name` だけ）。
     """
     if not response:
         return None, []
+    if not me:
+        from ..tools.memory import me_name
+
+        me = me_name(None)
     state = (
         f"[機械が確かめた事実]\n{facts or '（なし）'}\n\n"
         f"[直近のやりとり]\n{recent or '（なし）'}\n\n"
-        f"[家のロボット（パジュ）がいま言おうとしている返事]\n{response}"
+        f"[家のロボット（{me}）がいま言おうとしている返事]\n{response}"
     )
     questions: dict = {}
     if rules:

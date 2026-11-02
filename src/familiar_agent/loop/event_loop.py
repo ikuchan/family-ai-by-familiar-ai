@@ -4391,6 +4391,7 @@ class InformationProcessing:
             min_conf=min_conf,
             on_asked=lambda *got: asked.append(got),
             ask_offer=not confirming,
+            me=self._me(),
         )
         if asked:
             self._record_speech_check(*asked[0], violation=violation)
@@ -4466,6 +4467,7 @@ class InformationProcessing:
                 self._req.request_text,
             ),
             kind=self._req.trigger_kind,
+            me=self._me(),
         )
 
     def _arrived(self, memories: "list[Recalled]") -> "list[str]":
