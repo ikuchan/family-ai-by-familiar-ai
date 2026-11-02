@@ -885,6 +885,9 @@ class InformationProcessing:
         self._heard_check: "dict | None" = None
         # パジュの申し出の預かり（出-dj）：申し出た返事の文と、そのときの窓の会話の番号。次の 1 回の返事で消す。
         self._offer: "dict | None" = None
+        # 仮の呼びかけの預かり（知-bs）：名前だけで確かさが足りなかった声の届いた時刻（monotonic）。続きとして受けたら消す
+        # （宛てでない声では消さない）。10 秒（`WAKE_WINDOW_SEC`）たてば使わない。
+        self._tentative_call: "float | None" = None
         self._background_tasks: set[asyncio.Task] = set()
         #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
         self._version_writes: "set[asyncio.Future]" = set()
@@ -4470,6 +4473,7 @@ class InformationProcessing:
 
         now = time.time()
         names = list(getattr(self._agent.config, "agent_names", None) or [])
+        tentative: "float | None" = None
         if trigger.kind == "会話入力" and trigger.source == "voice":
             if self._voice_stranger(trigger.voice):
                 # **知らない声は無条件に捨てる**（知-ar）。名前・黙っていての依頼・窓より前。気配として SAFETY だけ上げる。
@@ -4494,6 +4498,12 @@ class InformationProcessing:
                 )  # 窓は開けないが、情動は動かす（出-ch 段 3・本人の決定タ）
                 return self._swallowed(trigger)
             trigger.named = heard_name(trigger.query, names)
+            if trigger.source == "voice" and not trigger.named:
+                # 名前の聞こえなかった声だけ、仮の呼びかけの続きかを見る。名前の聞こえた声は名前の基準で決める（宛先を 2 度
+                # 聞かない・知-bs）。
+                tentative = self.__dict__.get(
+                    "_tentative_call"
+                )  # `__new__` で組んだ装置（試験）でも落ちない
             near = (
                 trigger.named and trigger.source == "voice" and near_name_only(trigger.query, names)
             )
@@ -4546,6 +4556,9 @@ class InformationProcessing:
             if trigger.named:
                 self._wake_window().open(self._arrival(trigger))
                 trigger.quiet_open = True
+            else:
+                # 確かさが足りない名前は、仮の呼びかけとして届いた時刻を預ける。窓は開けず、返事もしない（知-bs）。
+                self._tentative_call = self._arrival(trigger)
             logger.info(
                 "event-loop 名前だけなので黙って窓を%s（%d 字）",
                 "開けた" if trigger.named else "開けなかった",
@@ -4564,10 +4577,15 @@ class InformationProcessing:
                 logger.info(
                     "event-loop 音楽の言葉なので名前なしで受けた（%d 字）", len(trigger.query or "")
                 )
+                self._tentative_call = None  # パジュ宛てと分かって受けた（知-bs）
                 if self._muted:
                     self._pending_heard = self._take_muted()
                 return False
-            if not self._wake_window_admits(trigger):
+            admitted = self._wake_window_admits(trigger)
+            if not admitted and await self._follows_tentative_call(trigger, tentative, names):
+                trigger.named = True  # 名前で呼ばれた用件として受ける（知-bs）
+                admitted = self._wake_window_admits(trigger)
+            if not admitted:
                 # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
                 logger.info("event-loop 窓の外の入力なので捨てる：%.40s", trigger.query)
@@ -4934,6 +4952,34 @@ class InformationProcessing:
             trigger, recent=self._recent_for_judges(trigger.window_session)
         )
         return verdict == jev_judges.NOT_TO_PAJU
+
+    async def _follows_tentative_call(
+        self, trigger: "Trigger", tentative: "float | None", names: "list[str]"
+    ) -> bool:
+        """窓の外の声が、仮の呼びかけ（名前だけで確かさの足りなかった声）の続きか（知-bs・2026-11-02・本人の決定）。
+
+        預けた時刻から `WAKE_WINDOW_SEC` 未満（窓と同じ）の声だけ、頭に呼び名を付けて 1 字違いの名前と同じ宛先の判定に見せる
+        （頭を付けないと頼みでもロボット宛てが下限すれすれだった・実験 0.33〜0.67）。`tentative` は声で、名前の聞こえなかった
+        ときだけ門が渡す。
+        """
+        from ..core.wake_window import WAKE_WINDOW_SEC
+
+        if tentative is None or not names:
+            return False
+        if not 0 <= self._arrival(trigger) - tentative < WAKE_WINDOW_SEC:
+            return False
+        # 宛てでない声（せき・テレビ）では消さない。10 秒のうちの次の用件を受けられるように残す（本人の決定イ）。
+        started = time.monotonic()
+        ok = await self._near_name_is_for_me(replace(trigger, query=f"{names[0]}、{trigger.query}"))
+        logger.info(
+            "event-loop 仮の呼びかけの続き%s（%d 字・%.2f 秒）",
+            "として受けた" if ok else "だがパジュ宛てでないので捨てる",
+            len(trigger.query or ""),
+            time.monotonic() - started,
+        )
+        if ok:
+            self._tentative_call = None
+        return ok
 
     async def _near_name_is_for_me(self, trigger: "Trigger") -> bool:
         """窓が閉じているときの 1 字違いの名前が、パジュ宛てか（出-db 段 D・本人の決定 3-c）。Jev が答えなければ偽（捨てる）。
