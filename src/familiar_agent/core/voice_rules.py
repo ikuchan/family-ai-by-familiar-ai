@@ -41,3 +41,56 @@ def careful_voice(branch: str, returned: "frozenset[str] | set[str] | tuple[str,
         if action in ASYNC_RETURNS or action.startswith(("ask_vault_", "get_journal_")):
             return True
     return False
+
+
+#: 長い返事を分けるかたまりの字数（出-dh 段 1 の直し・2026-11-02・本人の決定イ）。声の道具は 200 字を超えた文を切るので、
+#: 分けて続けて話す。短いほど最初の声が早く出る（本人「100 文字以下に分けて流していく形」）。
+SPEECH_CHUNK_CHARS = 100
+_SENTENCE_ENDS = "。！？!?\n"
+_PAUSES = "、，"  # 半角のカンマは数字の位取り（1,000）に使うので区切らない
+#: 文の終わりのあとに続いても、前の文に付ける閉じかっこ（次のかたまりの頭に回さない）。
+_CLOSERS = "」』）)】〉》\"'”’"
+
+
+def split_for_speech(text: str, limit: int = SPEECH_CHUNK_CHARS) -> list[str]:
+    """声にする文を、`limit` 字以内のかたまりに分ける（何も落とさない・つなげば元に戻る）。
+
+    文の終わりで切り、1 文が長すぎれば読点で、それでも長ければ `limit` 字で切る。かたまりは、入るだけ前へ詰める。
+    """
+    if len(text) <= limit:
+        return [text] if text else []
+
+    def pieces(s: str, ends: str) -> list[str]:
+        out, cur = [], ""
+        for i, ch in enumerate(s):
+            cur += ch
+            nxt = s[i + 1] if i + 1 < len(s) else ""
+            closes = ch in _CLOSERS and len(cur) >= 2 and cur[-2] in ends
+            if (ch in ends or closes) and nxt not in _CLOSERS:
+                out.append(cur)
+                cur = ""
+        return out + ([cur] if cur else [])
+
+    units: list[str] = []
+    for sentence in pieces(text, _SENTENCE_ENDS):
+        if len(sentence) <= limit:
+            units.append(sentence)
+            continue
+        for clause in pieces(sentence, _PAUSES):
+            units += [clause[i : i + limit] for i in range(0, len(clause), limit)]
+    chunks: list[str] = []
+    for u in units:
+        # 音の無いかたまり（「。」「」」・空白だけ）は作らない（合成器が音を返さない・断る）。前のかたまりに付ける
+        # （上限を少し超えても落とさない）。文頭なら次のかたまりの頭に付ける。
+        if chunks and (len(chunks[-1]) + len(u) <= limit or not _speakable(u)):
+            chunks[-1] += u
+        elif chunks and not _speakable(chunks[-1]):
+            chunks[-1] += u
+        else:
+            chunks.append(u)
+    return chunks
+
+
+def _speakable(text: str) -> bool:
+    """声になる字（文字か数字）を含むか。"""
+    return any(ch.isalnum() for ch in text)

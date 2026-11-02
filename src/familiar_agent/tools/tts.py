@@ -246,6 +246,10 @@ def ensure_sbv2_server(cfg, *, engine: str, output: str) -> None:
     _spawn_sbv2(cfg)
 
 
+class _SynthRefused(Exception):
+    """合成の担い手が断った（返りの文を持つ・`_say_elevenlabs` がそのまま返す）。"""
+
+
 class TTSTool:
     """Text-to-speech using ElevenLabs, played via go2rtc camera speaker and/or local speaker."""
 
@@ -291,6 +295,8 @@ class TTSTool:
         self._voice_guard = voice_guard or get_shared_voice_guard()
         # Serialize concurrent say() calls so audio never overlaps
         self._lock = asyncio.Lock()
+        # 返事 1 つ（分けて話す長い返事も）を話し終わるまで、ほかの声を待たせる（出-dh 段 1 の直し）。`_lock` は 1 回の再生。
+        self._reply_lock = asyncio.Lock()
         if self.api_key:
             _ensure_go2rtc(self.go2rtc_url)
 
@@ -326,7 +332,7 @@ class TTSTool:
             if careful
             else getattr(self, "elevenlabs_model", DEFAULT_ELEVENLABS_MODEL)
         )
-        body = text if careful else self._text_for_synth(text)
+        body = text if careful else self._text_for_synth(text, engine="elevenlabs")
         return {
             "text": body,
             "model_id": model,
@@ -337,7 +343,7 @@ class TTSTool:
             },
         }
 
-    def _text_for_synth(self, text: str) -> str:
+    def _text_for_synth(self, text: str, engine: str = "") -> str:
         """合成器へ渡す文。担い手ごとに、必要なぶんだけ直す。
 
         - `elevenlabs`：漢字を読めないので全文をひらがなに（環-t・出-ac）
@@ -348,9 +354,12 @@ class TTSTool:
         """
         from ..core.reading import fix_readings, for_speech
 
-        if self.engine == "elevenlabs":
+        engine = (
+            engine or self.engine
+        )  # 控えの担い手で作るときは、その担い手の読み（出-dh 段 1 の直し）
+        if engine == "elevenlabs":
             return for_speech(text)
-        if self.engine == "sbv2":
+        if engine == "sbv2":
             return fix_readings(text)
         return text
 
@@ -368,7 +377,22 @@ class TTSTool:
             output = self.output
         if output == "silent":
             return f"Said (silent): {text[:60]}"
+        reply_lock = self.__dict__.setdefault(
+            "_reply_lock", asyncio.Lock()
+        )  # `__new__` で組んだ道具にも
+        async with reply_lock:
+            return await self._say_locked(text, output, gain=gain, careful=careful)
+
+    async def _say_locked(self, text: str, output: str, *, gain: float, careful: bool) -> str:
+        """`say` の中身（返事 1 つぶんの錠の中）。"""
+        from ..core.voice_rules import split_for_speech
+
         self._gain = gain  # この 1 回の再生にだけ効く（`_play_paths`／`_play_local` が読む）
+        # 長い返事は 100 字以内に分け、話しながら次を作る（出-dh 段 1 の直し・本人の決定イ）。担い手ごとの道は
+        # 200 字を超えた文を切っていた。短い返事は、いまの 1 回の道のまま。
+        parts = split_for_speech(self._clean_for_speech(text))
+        if len(parts) > 1:
+            return await self._say_parts(parts, output, careful=careful)
         result = await self._say_with(self.engine, text, output, careful=careful)
         # 控えへ落ちる（環-v）。ネットが切れても話せるように、ローカルの SBV2 を残してある。
         # **1 回だけ**。控えでも駄目なら、主の言い分をそのまま返す（何が起きたかが残る）。
@@ -419,8 +443,6 @@ class TTSTool:
         text = self._clean_for_speech(text)
         if not text:
             return "Said: (nothing to speak after cleaning)"
-        if len(text) > 200:
-            text = text[:197] + "..."
 
         async with self._lock:
             voice_guard = self._voice_guard or get_shared_voice_guard()
@@ -491,7 +513,9 @@ class TTSTool:
         def _read() -> None:
             try:
                 for chunk in client.models.generate_content_stream(
-                    model=self.gemini_model, contents=self._text_for_synth(text), config=config
+                    model=self.gemini_model,
+                    contents=self._text_for_synth(text, engine="gemini"),
+                    config=config,
                 ):
                     parts = (chunk.candidates[0].content.parts or []) if chunk.candidates else []
                     for part in parts:
@@ -637,7 +661,9 @@ class TTSTool:
         buf: list[bytes] = []
         is_wav = False
         for chunk in client.models.generate_content_stream(
-            model=self.gemini_model, contents=self._text_for_synth(text), config=config
+            model=self.gemini_model,
+            contents=self._text_for_synth(text, engine="gemini"),
+            config=config,
         ):
             for part in (chunk.candidates[0].content.parts or []) if chunk.candidates else []:
                 blob = getattr(part, "inline_data", None)
@@ -666,8 +692,6 @@ class TTSTool:
         text = self._clean_for_speech(text)
         if not text:
             return "Said: (nothing to speak after cleaning)"
-        if len(text) > 200:
-            text = text[:197] + "..."
 
         async with self._lock:
             voice_guard = self._voice_guard or get_shared_voice_guard()
@@ -677,11 +701,10 @@ class TTSTool:
             voice_guard.on_tts_start(text)
             try:
                 try:
-                    wav = await self._synth_sbv2(text)
+                    tmp_path = await self._synth_file("sbv2", text, False)
                 except Exception as e:  # noqa: BLE001
                     logger.warning("SBV2 で合成できなかったので話せなかった: %s", e)
                     return f"話せなかった（合成に失敗）: {text[:40]}"
-                tmp_path = _write_tmp_audio(wav, suffix=".wav")
                 played_via = await self._play_paths(tmp_path, output)
                 if not played_via:
                     return "話せなかった（鳴らせる出力が無い）"
@@ -726,19 +749,11 @@ class TTSTool:
         if not self.api_key:
             return f"(silent) {text}"
 
-        import aiohttp
-
         # 丸括弧のト書き（'（静かに待つ）'）は落とし、[audio tags] は残す——eleven_v3 は
         # それを話し方の指示として解する。
         text = self._clean_for_speech(text)
         if not text:
             return "Said: (nothing to speak after cleaning)"
-        if len(text) > 200:
-            text = text[:197] + "..."
-
-        url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}?output_format=pcm_16000"
-        headers = {"xi-api-key": self.api_key, "Content-Type": "application/json"}
-        payload = self._elevenlabs_payload(text, careful=careful)
 
         async with self._lock:
             voice_guard = getattr(self, "_voice_guard", None)
@@ -749,25 +764,10 @@ class TTSTool:
             tmp_path: str | None = None
             voice_guard.on_tts_start(text)
             try:
-                async with aiohttp.ClientSession() as session:
-                    async with session.post(url, json=payload, headers=headers) as resp:
-                        if resp.status != 200:
-                            err = await resp.text()
-                            return f"TTS API failed ({resp.status}): {err[:80]}"
-                        content_type = resp.headers.get("Content-Type", "")
-                        audio_data = await resp.read()
-
-                # ElevenLabs may return MP3 even when PCM was requested (model-dependent).
-                # Detect by content-type and save to the correct format.
-                is_mp3 = "mpeg" in content_type or audio_data[:3] in (
-                    b"ID3",
-                    b"\xff\xfb",
-                    b"\xff\xf3",
-                )
-                if is_mp3:
-                    tmp_path = _write_tmp_audio(audio_data, suffix=".mp3")
-                else:
-                    tmp_path = _write_pcm_as_wav(audio_data, sample_rate=16000)
+                try:
+                    tmp_path = await self._synth_elevenlabs_file(text, careful=careful)
+                except _SynthRefused as e:
+                    return str(e)
 
                 if output in ("remote", "both"):
                     ok, msg = await asyncio.to_thread(
@@ -795,6 +795,136 @@ class TTSTool:
                         os.unlink(tmp_path)
                     except OSError:
                         pass
+
+    async def _synth_elevenlabs_file(self, text: str, *, careful: bool = False) -> str:
+        """ElevenLabs で合成し、音声ファイルの場所を返す。断られたら `_SynthRefused`（返りの文を持つ）。"""
+        import aiohttp
+
+        url = f"https://api.elevenlabs.io/v1/text-to-speech/{self.voice_id}?output_format=pcm_16000"
+        headers = {"xi-api-key": self.api_key, "Content-Type": "application/json"}
+        payload = self._elevenlabs_payload(text, careful=careful)
+        async with aiohttp.ClientSession() as session:
+            async with session.post(url, json=payload, headers=headers) as resp:
+                if resp.status != 200:
+                    err = await resp.text()
+                    raise _SynthRefused(f"TTS API failed ({resp.status}): {err[:80]}")
+                content_type = resp.headers.get("Content-Type", "")
+                audio_data = await resp.read()
+        # ElevenLabs may return MP3 even when PCM was requested (model-dependent).
+        # Detect by content-type and save to the correct format.
+        is_mp3 = "mpeg" in content_type or audio_data[:3] in (b"ID3", b"\xff\xfb", b"\xff\xf3")
+        if is_mp3:
+            return _write_tmp_audio(audio_data, suffix=".mp3")
+        return _write_pcm_as_wav(audio_data, sample_rate=16000)
+
+    async def _synth_file(self, engine: str, text: str, careful: bool) -> str:
+        """担い手を名指しで、声を作ってファイルにする（鳴らさない）。作れなければ例外（出-dh 段 1 の直し）。"""
+        if engine == "sbv2":
+            return _write_tmp_audio(await self._synth_sbv2(text), suffix=".wav")
+        if engine == "gemini":
+            audio, is_wav = await asyncio.to_thread(self._synth_gemini, text)
+            if not audio:
+                raise OSError("Gemini から音が返らなかった")
+            if is_wav:
+                return _write_tmp_audio(audio, suffix=".wav")
+            return _write_pcm_as_wav(audio, sample_rate=GEMINI_RATE)
+        if not self.api_key:
+            raise OSError("ElevenLabs の鍵が無い")
+        return await self._synth_elevenlabs_file(text, careful=careful)
+
+    async def _say_parts(self, parts: "list[str]", output: str, *, careful: bool) -> str:
+        """長い返事を、かたまりごとに話す。鳴らしているあいだに次のかたまりの声を作っておく（出-dh 段 1 の直し・本人の決定イ）。
+
+        Gemini は 1 つ目を、いまの 1 回の道（届いた分から鳴らす）で話し、そのあいだに 2 つ目を作る（最初の声を遅らせない）。
+        ほかの担い手（Style-Bert-VITS2 は同じ GPU を使う）は、1 つ目を作り終えてから 2 つ目を頼む。以後はどれも、鳴らして
+        いるあいだに次を作る。主の担い手で作れなかったかたまりは控えで作り直し、それでも作れなければ飛ばして続ける（警告に
+        残す）。1 つでも話せたら成功と返す（全部の言い直しを招かない）。声の門（自分の声を聞き取らない印）は返事全体で 1 回
+        立て、話し終わるまで下げない。打ち切られたら、作りかけ・作り終えた次のかたまりも捨てる。Gemini はスレッドで作るので、
+        打ち切っても作り終えるまでは止まらない（作った声は使わない）。
+        """
+        fallback = getattr(self, "fallback_engine", "")
+        engines = [self.engine] + ([fallback] if fallback and fallback != self.engine else [])
+        used: list[str] = []
+
+        async def make(part: str) -> "str | None":
+            for engine in engines:
+                try:
+                    path = await self._synth_file(engine, part, careful)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "TTS: %s でかたまりを作れなかった（%d 字）",
+                        engine,
+                        len(part),
+                        exc_info=True,
+                    )
+                    continue
+                used.append(engine)
+                return path
+            return None
+
+        async def say_first(part: str) -> bool:
+            for engine in engines:
+                try:
+                    if (await self._say_with(engine, part, output, careful=careful)).startswith(
+                        "Said:"
+                    ):
+                        used.append(engine)
+                        return True
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001
+                    logger.warning("TTS: %s で 1 つ目を話せなかった", engine, exc_info=True)
+            return False
+
+        voice_guard = self._voice_guard or get_shared_voice_guard()
+        self._voice_guard = voice_guard
+        whole = "".join(parts)
+        voice_guard.on_tts_start(whole)
+        started = time.monotonic()
+        played, lost = 0, 0
+        stream_first = self.engine == "gemini"
+        start = 1 if stream_first else 0
+        nxt: "asyncio.Future[str | None] | None" = asyncio.ensure_future(make(parts[start]))
+        try:
+            if stream_first:
+                ok = await say_first(parts[0])
+                played, lost = played + ok, lost + (not ok)
+            for i in range(start, len(parts)):
+                assert nxt is not None
+                path = await nxt
+                nxt = asyncio.ensure_future(make(parts[i + 1])) if i + 1 < len(parts) else None
+                if path is None:
+                    lost += 1
+                    continue
+                try:
+                    async with self._lock:
+                        ok = bool(await self._play_paths(path, output))
+                    played, lost = played + ok, lost + (not ok)
+                finally:
+                    with contextlib.suppress(OSError):
+                        os.unlink(path)
+        finally:
+            if nxt is not None:
+                if not nxt.done():
+                    nxt.cancel()
+                elif not nxt.cancelled() and nxt.exception() is None and nxt.result():
+                    with contextlib.suppress(OSError):
+                        os.unlink(str(nxt.result()))  # 作り終えていた次のかたまりの音声ファイル
+            voice_guard.on_tts_end(whole, played=played > 0)
+        logger.info(
+            "TTS: %s で分けて話した（%d 字・%d かたまり・%.2f 秒）",
+            "・".join(dict.fromkeys(used)) or self.engine,
+            len(whole),
+            len(parts),
+            time.monotonic() - started,
+        )
+        if lost:
+            logger.warning("TTS: 分けた %d かたまりのうち %d つを話せなかった", len(parts), lost)
+        if not played:
+            return f"話せなかった（分けた {len(parts)} かたまり）"
+        return f"Said: {parts[0][:50]}... (分けて {len(parts)} かたまり)"
 
     def get_tool_definitions(self) -> list[dict]:
         return [

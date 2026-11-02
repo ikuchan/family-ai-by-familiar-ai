@@ -106,8 +106,8 @@ async def test_say_calls_elevenlabs_api():
 
 
 @pytest.mark.asyncio
-async def test_say_truncates_long_text():
-    """say() truncates text longer than 200 characters."""
+async def test_say_splits_long_text():
+    """長い文は切らずに 100 字以内に分けて、全部を送る（出-dh 段 1 の直し・以前は 197 字＋「...」に切っていた）。"""
     tool = _make_tts()
     long_text = "x" * 300
 
@@ -150,10 +150,10 @@ async def test_say_truncates_long_text():
 
         await tool.say(long_text)
 
-    assert posted_payloads, "API was never called"
-    sent_text = posted_payloads[0]["text"]
-    assert len(sent_text) <= 200
-    assert sent_text.endswith("...")
+    assert len(posted_payloads) == 3, "300 字は 100 字ずつ 3 回に分けて送る"
+    sent = [p["text"] for p in posted_payloads]
+    assert all(len(t) <= 100 and not t.endswith("...") for t in sent)
+    assert sum(len(t) for t in sent) == 300
 
 
 @pytest.mark.asyncio
