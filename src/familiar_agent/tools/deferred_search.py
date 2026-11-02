@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from ..core.structured_ask import ask_yes_no
@@ -16,6 +17,19 @@ logger = logging.getLogger(__name__)
 _MAX_CONCURRENT = 3
 _MAX_PENDING = 10
 _SEARCH_TIMEOUT_SEC = 30
+# fetch はリンクを `[文字](URL)` にしてから切るので、全文で読み、URL を消してから切る（知-bp）
+_FETCH_ALL = 999_999  # fetch が受ける上限
+_PAGE_CHARS = 8000
+# URL と題（`(URL "題")`）。URL の中の空白と 1 段の括弧（…/X_(Y)）まで。行はまたがない
+_URL = r"\((?:[^()\n]|\([^()\n]*\))*\)"
+_IMAGE = re.compile(r"!\[([^\]\n]*)\]" + _URL)
+# 見える文字の中の 1 段の角括弧（Wikipedia の注 `[[1]](…)`）まで
+_LINK = re.compile(r"\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]" + _URL)
+
+
+def _visible(text: str) -> str:
+    """画像とリンクを見える文字だけにする（`![説明](URL)`→説明・`[文字](URL)`→文字）。"""
+    return _LINK.sub(r"\1", _IMAGE.sub(r"\1", text))
 
 
 async def _cancel_after(task: "asyncio.Task[object]", delay: float) -> None:
@@ -207,15 +221,23 @@ class DeferredSearchTool:
     async def _read_page(self, url: str) -> str:
         """抜粋に答えが無かったときに読むページ（知-bm）。一覧に継ぐ文。読めなければ空（一覧だけ届ける）。"""
         try:
-            r = await self._search_fn("fetch", {"url": url})  # 字数は fetch の既定（5,000 字）
+            r = await self._search_fn("fetch", {"url": url, "max_length": _FETCH_ALL})
         except Exception:  # noqa: BLE001
             logger.warning("deferred search ページを読めなかった（%s）", url, exc_info=True)
             return ""
         if not r.ok:
             logger.warning("deferred search ページを読めなかった（%s・%.120s）", url, r.text)
             return ""
-        logger.info("deferred search ページを読んだ（%s・%d 字）", url, len(r.text))
-        return f"\n\n[読んだページ] {url}\n{r.text}"
+        seen = _visible(r.text)
+        page = seen[:_PAGE_CHARS]
+        logger.info(
+            "deferred search ページを読んだ（%s・%d 字・見える字 %d 字 → %d 字）",
+            url,
+            len(r.text),
+            len(seen),
+            len(page),
+        )
+        return f"\n\n[読んだページ] {url}\n{page}"
 
     async def _run(
         self, query: str, mcp_tool: str, source: str, user_initiated: bool = False

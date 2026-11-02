@@ -243,12 +243,61 @@ def test_the_picked_page_is_read_and_delivered_with_the_list():
     )
     asyncio.run(tool._run("霜降の由来", "brave_web_search", "brave"))
     assert seen == ["brave_web_search"]
-    assert calls[1] == ("fetch", {"url": "https://b.example/yurai"})  # 字数は fetch の既定
+    assert calls[1] == (
+        "fetch",
+        {"url": "https://b.example/yurai", "max_length": 999_999},
+    )  # 全文で読み、URL を消してから切る（知-bp）
     assert len(delivered) == 1
     text, failed = delivered[0]
     assert failed is False
     assert text.startswith(BRAVE) and "[読んだページ] https://b.example/yurai" in text
     assert text.endswith(PAGE)
+
+
+def _read(page: str) -> str:
+    """ページを読んで届いた文の、`[読んだページ] URL` より後ろ。"""
+    tool, _, _, delivered = _reading_tool(
+        {"brave_web_search": CallResult(BRAVE, None, True), "fetch": CallResult(page, None, True)},
+        Checked(BRAVE, read="https://b.example/yurai"),
+    )
+    asyncio.run(tool._run("霜降の由来", "brave_web_search", "brave"))
+    return delivered[0][0].split("[読んだページ] https://b.example/yurai\n", 1)[1]
+
+
+def test_links_and_images_keep_only_what_is_seen():
+    """fetch はリンクを `[文字](URL)` にして返す。日本語の URL は符号化されて 1 本 100 字を超える（知-bp・出-dg の
+    ページは 145,282 字のうち本文 35,652 字）。"""
+    page = (
+        "霜降は[二十四節気](https://ja.example/wiki/%E4%BA%8C%E5%8D%81)の一つ。"
+        "![霜の写真](https://img.example/a.jpg)"
+        "[![図](https://img.example/b.png)](https://ja.example/zu)"
+        "詳しくは[霜](https://ja.example/wiki/X_(Y))を見る。"
+        '[題つき](https://a.example/x "題")・[空白](https://c.example/a b)'  # markdownify が出す形
+    )
+    assert _read(page) == "霜降は二十四節気の一つ。霜の写真図詳しくは霜を見る。題つき・空白"
+
+
+def test_a_footnote_link_keeps_its_number():
+    """Wikipedia の注は `[[1]](…#cite_note-1)` になる（markdownify の実物）。1 ページに数百ある。"""
+    assert _read("本文[[1]](https://x/#cite_note-1)続き") == "本文[1]続き"
+
+
+def test_a_stray_bracket_does_not_reach_a_later_link():
+    """**反証の側**：閉じない「[」は、次の行のリンクと組まない。"""
+    assert _read("霜降[注 本文\n[霜](https://x)") == "霜降[注 本文\n霜"
+
+
+def test_brackets_that_are_not_links_stay():
+    """**反証の側**：リンクでない角括弧・丸括弧は本文である。"""
+    page = "霜降[注]は（2024 年）10 月 23 日。[1] (参考)"
+    assert _read(page) == page
+
+
+def test_the_page_is_cut_after_the_links_are_gone():
+    link = "[霜](https://ja.example/wiki/" + "%E9%9C%9C" * 20 + ")"  # 1 本 190 字ほど・見える字は 1
+    page = (link + "降") * 3000  # 見える字は 6,000
+    assert _read(page) == "霜降" * 3000
+    assert len(_read("あ" * 20_000)) == 8000
 
 
 def test_no_page_to_read_means_no_fetch():
