@@ -46,6 +46,8 @@ _ASKS_FIRST = frozenset({"set_timer", "set_alarm"})
 
 #: 成功した操作 → 並べる動作（本人の表・2026-10-09）。
 _DONE: "dict[str, tuple[str, tuple[str, ...]]]" = {
+    # 深く調べた答え（出-dh）。調停が書き直さずにそのまま話す（`arbiter._completion_by_rule` の `speak_result`）。
+    "deep_research": ("深く調べた答えが届いた", ("speak_result",)),
     "play_music": ("音楽をかけた", ("silent",)),
     "stop_music": (
         "音楽を止めた",

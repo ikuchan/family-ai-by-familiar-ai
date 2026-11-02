@@ -143,6 +143,12 @@ ACTIONS: "dict[str, str]" = {
         "インターネットで調べる。世の中のこと（天気・ニュース・試合の日程・場所や営業時間）で、"
         "まだ答えを持っていないか、変わることで前の答えが古いとき"
     ),
+    # 深く調べる（出-dh・2026-11-02）。見本をカギ括弧で括らない（写される・番人のテスト）。この文で（`jev-1.14.0`・3 回）、
+    # しっかり考えて などは 0.99、ふつうの 〜調べて は 0.00 だった。
+    "deep_research": (
+        "高度な別のモデルに、時間をかけてじっくり調べて考えてもらう。深く考えて調べることをはっきり頼まれたとき"
+        "（しっかり考えて・じっくり調べて・時間をかけていいから詳しく、など）"
+    ),
     "recall": (
         "自分の記憶を探す。家族のことや前にあったこと・前の会話を尋ねられ、直前のやりとりに答えが無いとき"
     ),
@@ -180,7 +186,7 @@ ACTIONS_BY_MEANING: "dict[str, tuple[str, ...]]" = {
     # 黙る（`silent`）は並べない（出-cn）。「黙って」と字面が合い、黙る依頼より選ばれた（実験 3 で外すと 18 回中 18 回 quiet）。
     "speaking": ("quiet", "lift_quiet", "ask_back"),
     "look": ("look", "see", *_COMMON),
-    "research": ("search_deferred", "recall", *_COMMON),
+    "research": ("search_deferred", "deep_research", "recall", *_COMMON),
     "家族の情報源": (
         "family_schedule",
         "house_rules",
@@ -230,6 +236,8 @@ def offered(*, music: bool, camera: bool, suggesting: bool = False) -> "list[str
 
 #: 家族の情報源の動作のうち、繋がっているときだけ並べる道具（家の記録・本人の記録）。記憶はいつも並べる（知-ax）。
 _HOUSE_TOOLS = frozenset({"family_schedule", "house_rules", "notion_search", "journal", "vault"})
+#: 使えるときだけ並べる動作（繋がっている家の記録の道具と、深く調べる・出-dh）。使えるかは呼び手が `tools` で渡す。
+_WHEN_AVAILABLE = _HOUSE_TOOLS | {"deep_research"}
 #: 名前を言わずに否定したとき（「ちがうよ」）に選ぶ、いまの話者の印（古い問いから移した・段 5）。
 _NAMELESS = "（名前を言わずに否定したときも、いま話者としている人のこれ）"
 
@@ -254,8 +262,8 @@ def _actions_for(
         keys = tuple(k for k in keys if k != "lift_quiet")  # 解くは黙っているあいだだけ（段 5）
     if tools is not None:
         keys = tuple(
-            k for k in keys if k not in _HOUSE_TOOLS or k in tools
-        )  # 繋がっている道具だけ（段 5）
+            k for k in keys if k not in _WHEN_AVAILABLE or k in tools
+        )  # 繋がっている道具・使える動作だけ（段 5・出-dh）
     return {k: ACTIONS[k] for k in keys}
 
 

@@ -75,6 +75,18 @@ capabilities:
       second result arrives it is no longer offered, and the answer is what the two results show and
       what they do not.
     enabled: true
+  - id: deep_research
+    summary: Ask a more capable model to research and think carefully, then speak its answer as it is
+    detail: >
+      `deep_research` is offered only when someone clearly asks to think carefully or research in
+      depth ("しっかり考えて", "じっくり調べて"). A separate model (set in `config.py`, by default
+      Claude Fable 5.1 at low effort) searches the web up to five times and writes the answer in
+      spoken Japanese, about 400 characters and at most 800, without symbols, checking that its
+      sources are trustworthy and ending with the answer rather than an offer. It runs in the
+      background like a search (waiting beeps, voices are not taken meanwhile) and is cut off after
+      two minutes. The answer is spoken as it is, not rewritten. One request may use it once. It is
+      available only when the main model runs on Anthropic. Implemented in `tools/deep_research.py`.
+    enabled: true
   - id: memory
     summary: Store and recall observations, episodes, semantic facts, and unfinished business
     detail: >

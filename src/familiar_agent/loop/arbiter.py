@@ -191,6 +191,13 @@ _NO_WORKSPACE = "（なし）"
 
 #: MCP の同期の道具（動作名 → 見出し・説明）。候補に載せるのは繋がっているときだけ。
 _EXTRA_ACTIONS: dict[str, tuple[str, str]] = {
+    # 深く調べる（出-dh・2026-11-02）。別モデルが調べて考え、答えは完了で届いてそのまま話す。使えるとき・この求めでまだ
+    # 使っていないときだけ、ループが候補に入れる（1 つの求めで 1 回まで）。
+    "deep_research": (
+        "",
+        '"deep_research"（高度な別のモデルに、時間をかけてじっくり調べて考えてもらう。深く考えて調べることをはっきり'
+        "頼まれたとき。query に、頼まれたことを短く書く）",
+    ),
     "house_rules": (
         "家の決まりを見る",
         '"house_rules"（家の決まり・ゲームをしていい曜日・帰宅時の約束を引く。query は要らない）',
@@ -917,6 +924,16 @@ class Arbiter:
                 return _FALLBACK
             final = picked
             self._keep(inp, "完了", state, questions, answer, final, kind)
+        if final == "speak_result":
+            # 深く調べた答えは、書き直さずにそのまま話す（出-dh・本人：主LLM にもう一回聞くのはやめて）。「いまの曲」の答えと
+            # 同じ道で、話す前の検査は通さない（守りは別モデルへの指示が持つ）。
+            logger.info(
+                "調停 %.2f 秒（完了・機械で分けた：%s → そのまま話す・%d 字）",
+                time.monotonic() - started,
+                kind,
+                len(result or ""),
+            )
+            return Decision(branch="light", text=str(result or "").strip())
         decision = await self._completion_decision(
             inp, final, tool=action, happened=_what_happened(kind, action, failed, result)
         )

@@ -837,6 +837,17 @@ class AgentConfig:
         )
     )
     max_tokens: int = 4096
+    # 深く調べる別モデル（出-dh・2026-11-02・本人の決定）。「しっかり考えて」と頼まれたら、Web 検索を持たせて 1 回で調べさせ、
+    # 答えをそのまま話す。`.env` は読まない（資格情報でも起動に要るものでもない・本人）。モデルを替えるならここを書き換える
+    # （例：claude-opus-5-5 と medium）。試し（合成の問い 3 つ）で Fable 5.1・low は平均 24 秒・約 $0.33、Opus 5.5・medium は
+    # 平均 32 秒・約 $0.22。
+    deep_model: str = "claude-fable-5-1"
+    deep_effort: str = "low"
+    deep_max_searches: int = 5  # Web 検索の回数の上限（費用をいちばん左右する）
+    deep_max_tokens: int = 4096  # 出力（考える分を含む）の上限。主LLM が深く考えるときと同じくらい
+    deep_timeout_sec: float = 120.0  # これを過ぎたら打ち切って、失敗の完了にする
+    deep_reply_target: int = 400  # 答えの目標字数（この場合だけ長い答えを許す・本人）
+    deep_reply_limit: int = 800  # 答えの上限字数（指示で守らせる・機械では切らない・本人の決定イ）
     # spotifyd（Spotify の音をこの機体で鳴らす裏方）。居なければパジュが立ち上げ、立ち上げた直後は機器が
     # Spotify に見えるまで待つ（2026-10-07・本人の決定）。〔仮〕
     spotifyd_config: str = field(

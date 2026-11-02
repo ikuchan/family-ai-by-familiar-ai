@@ -23,6 +23,15 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+#: Anthropic 以外の担い手の名前（`create_backend` はこれら以外をすべて Anthropic にする）。
+NON_ANTHROPIC = ("gemini", "openai", "kimi", "glm", "cli")
+
+
+def is_anthropic(config: "AgentConfig") -> bool:
+    """主LLM の担い手が Anthropic か（`create_backend` と同じ決め方・深く調べるが見る・出-dh）。"""
+    return getattr(config, "platform", "") not in NON_ANTHROPIC
+
+
 def create_backend(
     config: "AgentConfig",
 ) -> (

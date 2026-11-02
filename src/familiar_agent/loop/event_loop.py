@@ -175,6 +175,7 @@ _LOOKUP_ACTIONS = (
     "recall",
     "search_deferred",
     "fetch_deferred",
+    "deep_research",  # 別モデルに深く調べさせる（出-dh）
     "see",
     "look",
     # MCP の同期の道具は即座に返るが、それを見て何を言うかは次の反復が決める（`recall` と
@@ -1609,6 +1610,32 @@ class InformationProcessing:
         # 止めた調査は完了として積む。投げずに黙って帰ると、完了も時間切れも来ないまま
         # 飛行中の数だけが残り、駆動体が待ち続ける（`deferred` が投げられなかったときと
         # 同じ形にする）。
+        if action == "deep_research":
+            # 器の見出しを分ける（同じ語の調べものと器が 2 つになり、語で引くと取り違える）。
+            query = f"{query}（深く調べる）"
+        running = any(lk.in_flight and lk.action == "deep_research" for lk in self._req.lookups)
+        if action == "deep_research" and running:
+            # 1 回目がまだ走っている。それが届いた反復で答えるので、何も積まない（調べものの 2 回と同じ扱い）。
+            logger.info("event-loop 深く調べているあいだなので、もう一度は投げない：%.40s", query)
+            return
+        if action == "deep_research" and (
+            "deep_research" in self._req.spent_actions or not self._deep_available()
+        ):
+            # 1 つの求めで 1 回まで・Anthropic のときだけ（出-dh）。調停の候補だけでなく、主LLM が文で書いた呼び出しもここを
+            # 通るので、投げる口でも止める（調べものの 2 回と同じ形）。投げずに失敗の完了にする（器は作る）。
+            logger.info("event-loop 深く調べるのは使い切ったか使えないので投げない：%.40s", query)
+            lk = self._open_lookup(action, query)
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=f"「{query}」は深く調べられない（この求めでは使い切ったか、いま使えない）",
+                    intent_id=lk.intent_id,
+                    index=lk.index,
+                    failed=True,
+                )
+            )
+            return
         seen = self._lookup_of(query)
         if seen is not None:
             logger.info("event-loop すでに調べた語なので投げない：%.40s", query)
@@ -1669,6 +1696,8 @@ class InformationProcessing:
             )
             return
 
+        if action == "deep_research":
+            self._req.spent_actions.add("deep_research")  # 1 つの求めで 1 回まで（出-dh・本人）
         lk = self._open_lookup(action, query)
         # 完了はこの器の uuid を持って戻る（出-cc）。呼び手の `intent_id` はいつも None だった。
         task = asyncio.create_task(
@@ -2060,6 +2089,79 @@ class InformationProcessing:
                 " ".join(f"{k}={str(v)[:40]}" for k, v in tool_input.items()) or "入力なし",
             )
 
+    def _deep_available(self) -> bool:
+        """深く調べる別モデルを呼べるか（主LLM の担い手が Anthropic で、鍵がある・出-dh）。"""
+        from ..backends.factory import is_anthropic
+
+        cfg = self._agent.config
+        key = getattr(cfg, "api_key", "")
+        return is_anthropic(cfg) and isinstance(key, str) and bool(key)
+
+    async def _run_deep(self, query: str) -> "tuple[str, bool]":
+        """別モデルに深く調べさせる（出-dh・2026-11-02・本人の決定）。返りは（完了の文, 失敗か）。
+
+        値は `config.py` の既定値（モデル・深さ・検索の回数・出力・時間・長さ）。`deep_timeout_sec` を過ぎたら打ち切って
+        失敗にする。求めの打ち切り（`_abort_lookups`）は、この調べものの task ごと止める。待つあいだは電子音を鳴らし声を
+        聞かない（本人の決定イ）ので、声で止めることはできない。
+        """
+        import datetime
+
+        import anthropic
+
+        from ..capability_state import load_summary
+        from ..tools import deep_research as dr
+
+        agent, cfg = self._agent, self._agent.config
+        me = str(getattr(agent, "_me_md", "") or "")
+        self_text = ""
+        with contextlib.suppress(Exception):
+            self_text = str(
+                await asyncio.to_thread(load_summary) or ""
+            )  # DB を読むのでループの外で
+        adult = self._speaker_adult()
+        system = dr.system_prompt(
+            me,
+            self_text=self_text or me,  # 自己の要約が無ければ ME.md（主LLM と同じ）
+            target=int(cfg.deep_reply_target),
+            limit=int(cfg.deep_reply_limit),
+            adult=adult is not False,  # 分からなければ大人向けの話し方
+        )
+        found = "\n".join(
+            f"- {lk.query}：{lk.result}"
+            for lk in self._req.lookups
+            if lk.action == "search_deferred" and lk.result and not lk.failed
+        )
+        user = dr.user_message(
+            today=datetime.date.today().isoformat(),
+            request=str(self._req.request_text or query),
+            recent=self._recent_for_judges(),
+            results=found,
+        )
+        timeout = float(cfg.deep_timeout_sec)
+        client = anthropic.AsyncAnthropic(api_key=cfg.api_key, timeout=timeout, max_retries=0)
+        try:
+            answer = await wait_within(
+                dr.research(
+                    client,
+                    model=str(cfg.deep_model),
+                    effort=str(cfg.deep_effort),
+                    max_searches=int(cfg.deep_max_searches),
+                    max_tokens=int(cfg.deep_max_tokens),
+                    system=system,
+                    user=user,
+                ),
+                timeout,
+            )
+        except asyncio.TimeoutError:
+            logger.info("event-loop 深く調べるのが %.0f 秒で終わらなかったので打ち切った", timeout)
+            return f"「{query}」は {timeout:.0f} 秒のうちに調べきれなかった", True
+        finally:
+            with contextlib.suppress(Exception):
+                await client.close()
+        if answer.failed:
+            return f"「{query}」は深く調べられなかった（{answer.why}）", True
+        return answer.text, False
+
     async def _run_lookup_body(
         self, action: str, tool_input: dict, query: str, intent_id: str | None, index: int = 0
     ) -> None:
@@ -2078,6 +2180,19 @@ class InformationProcessing:
                     intent_id=intent_id,
                     index=index,
                     failed=True,
+                )
+            )
+            return
+        if action == "deep_research":
+            out, failed = await self._run_deep(query)
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result=out,
+                    intent_id=intent_id,
+                    index=index,
+                    failed=failed,
                 )
             )
             return
@@ -2712,26 +2827,38 @@ class InformationProcessing:
         timer_ringing = self._req.trigger_kind == "機器" and str(self._req.request_text).startswith(
             "[タイマー]"
         )
-        return tuple(
-            a
-            for a in (
-                "house_rules",
-                "family_schedule",
-                "notion_search",
-                "journal",
-                "vault",
-                *_TIMER_ACTIONS,
-                *_ALARM_ACTIONS,
-                *_STOPWATCH_ACTIONS,
-                *_CONFIRM_ACTIONS,
-                # 音楽（知-ak 段 6）。すすめた曲への返事は、返事を待っているときだけ道具の定義が出る（出-ay 段 4-4f）。
-                *_MUSIC_ACTIONS,
+        return (
+            tuple(
+                a
+                for a in (
+                    "house_rules",
+                    "family_schedule",
+                    "notion_search",
+                    "journal",
+                    "vault",
+                    *_TIMER_ACTIONS,
+                    *_ALARM_ACTIONS,
+                    *_STOPWATCH_ACTIONS,
+                    *_CONFIRM_ACTIONS,
+                    # 音楽（知-ak 段 6）。すすめた曲への返事は、返事を待っているときだけ道具の定義が出る（出-ay 段 4-4f）。
+                    *_MUSIC_ACTIONS,
+                )
+                if a not in self._req.failed_actions
+                and a not in exclude
+                and not (timer_ringing and a in ("set_timer", "start_stopwatch"))
+                and self._gated(self._ACTIONS[a](self))
             )
-            if a not in self._req.failed_actions
-            and a not in exclude
-            and not (timer_ringing and a in ("set_timer", "start_stopwatch"))
-            and self._gated(self._ACTIONS[a](self))
+            + self._deep_offer()
         )
+
+    def _deep_offer(self) -> tuple[str, ...]:
+        """調停に載せる「深く調べる」（出-dh）。使えて、この求めでまだ使っていないときだけ（1 つの求めで 1 回まで）。
+
+        道具の定義の表（`_ACTIONS`）には入れない。主LLM の道具の並びには出さず、調停の候補にだけ出すため。
+        """
+        if not self._deep_available() or "deep_research" in self._req.spent_actions:
+            return ()
+        return ("deep_research",)
 
     async def _recall_at(self, decision, ws, *, cue, viewpoint, weights):
         """調停が時期を指していたら、その時期を基準に引き直す。指していなければそのまま。
@@ -2775,25 +2902,30 @@ class InformationProcessing:
         規則の側（`personality-from-me`）や顔ぶれの行だけでは効かなかった（実測 0/12）。
         `[返事]` の行に置き、W の過去の発話に相手を添え、顔ぶれに大人と書いて、揃って 11/12。
         """
-        from ..core.tone import is_adult, tone_line
+        from ..core.tone import tone_line
+
+        adult = self._speaker_adult()
+        if adult is None:
+            return ""  # 話者が分からない・関係が書かれていない人。決めつけない
+        line = tone_line(str(getattr(self._agent, "_me_md", "") or ""), adult=adult)
+        if not line:
+            return ""
+        who = "大人" if adult else "子ども"
+        return f"いま向き合っている相手は{who}。{line}"
+
+    def _speaker_adult(self) -> "bool | None":
+        """いまの話者が大人か（`FAMILY.md` の関係から）。話者が分からない・関係が書かれていなければ None。"""
+        from ..core.tone import is_adult
 
         agent = self._agent
         try:
             rows = agent._pmm.presence_status()
         except Exception:  # noqa: BLE001
-            return ""
+            return None
         speaker = next((r for r in rows if r.get("is_speaker")), None)
         if not speaker:
-            return ""
-        name = str(speaker.get("name") or "")
-        adult = is_adult(name, str(getattr(agent, "_family_md", "") or ""))
-        if adult is None:
-            return ""  # 関係が書かれていない人。決めつけない
-        line = tone_line(str(getattr(agent, "_me_md", "") or ""), adult=adult)
-        if not line:
-            return ""
-        who = "大人" if adult else "子ども"
-        return f"いま向き合っている相手は{who}。{line}"
+            return None
+        return is_adult(str(speaker.get("name") or ""), str(getattr(agent, "_family_md", "") or ""))
 
     def _missing_tools(self) -> "list[str]":
         """いま使えない道具の呼び名（出-al・2026-09-22）。
