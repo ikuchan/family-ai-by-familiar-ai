@@ -348,7 +348,7 @@ def _emotion_match(
 #: 誰の記録かは、種別と主体を並べただけでは読みにならない（`(会話・ゆうすけ)` は
 #: 「ゆうすけが書いた」とも読める）。**種別ごとに、主体の入る文面を持つ。**
 #:
-#: `{名}` にその記録の主体（`actor` の面）が入る。`__self__` は `わたし`。
+#: `{名}` にその記録の主体（`actor` の面）が入る。パジュ自身は `me_name` の名前（記-x）。
 SUBJECT_PHRASE: dict = {
     "発話": "{名}が言った",
     "独白": "{名}が考えた（言わなかった）",
@@ -380,6 +380,20 @@ def subject_line(direction: str, name: "str | None") -> str:
     if name:
         return f"{name}の記録"
     return direction or "記録"
+
+
+def me_name(names) -> str:
+    """W でパジュ自身を書く名前（記-x）。ME.md の呼び名の先頭。呼び名が無ければ「わたし」（本人の決定ア）。
+
+    W は主LLM・軽量LLM・Jev・発話前の検査の 4 つが読み、指示文の立場がそろっていない。「わたし」は読み手によって
+    指す人が変わるので、名前で書く。名前を決めるのはここだけ。
+
+    `config.agent_name` は使わない。既定が「AI」（画面の表示用）で、呼び名が無いときに W へ「AI」と書いてしまう。
+    """
+    for n in names or ():
+        if isinstance(n, str) and n.strip():
+            return n.strip()
+    return "わたし"
 
 
 def _first_alias(display: str) -> str:
@@ -1208,7 +1222,7 @@ class ObservationMemory:
     def voices_of(self, obs_ids: "list[str]") -> "dict[str, tuple[str, list[str]]]":
         """その記録たちの**主体と相手**を `obs_id → (誰がやったか, [誰へ…])` で返す。
 
-        主体は `actor` の面（`__self__` は `わたし`）、相手は `present` の面（そばに居た人）
+        主体は `actor` の面（パジュ自身は印 `AGENT_SELF_ID`）、相手は `present` の面（そばに居た人）
         から自分を除いたもの。**一度に返すのは、W の 1 行が両方を要るからである**——別々の
         面にすると口が 2 つになり、問い合わせも 2 回になる（出-ak・2026-09-23）。
 
@@ -1227,7 +1241,8 @@ class ObservationMemory:
         out: dict[str, tuple[str, list[str]]] = {}
         for obs_id, pid in actors.items():
             if pid == AGENT_SELF_ID:
-                who = "わたし"
+                # 名前ではなく印で返す（記-x）。名前は印字する側が `me_name` で書き、相手の判定は印で見る。
+                who = AGENT_SELF_ID
             elif pid in names:
                 who = names[pid]
             else:

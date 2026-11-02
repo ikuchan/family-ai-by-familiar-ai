@@ -346,14 +346,14 @@ def _asks(ip, kind):
 def test_a_confirm_question_is_a_line_of_the_window_it_opens():
     """窓の外で始まった求め（タイマーなど）の確認の問いは、話し終わりに窓を開け、その窓の会話の行になる。宛先は書かない。"""
     ip = _ip()
-    assert _asks(ip, "機器") == ["わたし：5 分のタイマーを掛けていい？"]
+    assert _asks(ip, "機器") == ["パジュ：5 分のタイマーを掛けていい？"]  # 呼び名で書く（記-x）
 
 
 def test_a_confirm_question_to_a_person_names_them():
     ip = _ip()
     ip._wake_window().open(time.monotonic())
     ip._req.window_session = ip._wake_window().session
-    assert _asks(ip, "発話") == ["わたし（パパへ）：5 分のタイマーを掛けていい？"]
+    assert _asks(ip, "発話") == ["パジュ（パパへ）：5 分のタイマーを掛けていい？"]
 
 
 def test_the_final_version_of_a_request_in_the_window_is_not_shown_twice():

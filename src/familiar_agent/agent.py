@@ -191,7 +191,11 @@ class EmbodiedAgent:
         # 埋め込みはここを通る（想起はまだ——器が違う）。**どの面へ書くかは `writer_id` が
         # 決める**ので、載せる記憶は基底でよい。読むときの面は `View.viewpoint` が言い、
         # **人ごとの実体は `pmm` が持つ**（1人につき1つ。口が作り直すと実体が増える）。
-        self._oif = OIF(self._memory, for_person=self._pmm.get_memory_for)
+        self._oif = OIF(
+            self._memory,
+            for_person=self._pmm.get_memory_for,
+            names=lambda: self.config.agent_names,
+        )
         self._memory_tool = MemoryTool(self._pmm)
         self._occupancy_sensor: OccupancySensor | None = None
         # `/voice 名前` の受付（呼びかけ名, 人物 id, 開いた時刻, 締め切り）。知-ai・最初の声の登録。時刻は話し始めと

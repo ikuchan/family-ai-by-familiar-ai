@@ -500,7 +500,7 @@ _WIDEN_DEFS: dict[str, dict] = {
 
 def _widen_lines(ws, k: int) -> str:
     """引き直した記憶を、`recall` と同じ読み方の行にする（出-ah）。載せるのは `k` 件まで。"""
-    from .workspace import _lines
+    from .workspace import _lines, me_of, named
 
     picked = sorted(ws.memories, key=lambda r: r.fit, reverse=True)[:k]
     if not picked:
@@ -508,7 +508,7 @@ def _widen_lines(ws, k: int) -> str:
     names: dict = {}
     with contextlib.suppress(Exception):
         names = dict(ws.oif.actors([r.mi.obs_id for r in picked]))
-    return _lines(picked, names)
+    return _lines(picked, named(names, me_of(ws.oif)))
 
 
 def _widen_def(name: str) -> dict:
@@ -2714,7 +2714,11 @@ class InformationProcessing:
                 # **W のどこにあるかを言う。**「観察に記録した」だと、主LLM は別の場所を
                 # 見ろと読み、W の最下位にある `見えたもの` より重く見て `see` を繰り返した
                 # （2026-09-12 実機・5回）。
-                result_text = "（見えたものは、作業状態の『わたしが見た』の行にある）"
+                # 見出しは観察の見出しと同じ関数で作る（記-x・文字を直書きすると、無い行を探させる）。
+                from ..tools.memory import subject_line
+
+                seen = subject_line("観察", self._me())
+                result_text = f"（見えたものは、作業状態の『{seen}』の行にある）"
             if lk is not None:
                 lk.result = result_text
                 lk.failed = bool(getattr(c, "failed", False))
@@ -2725,7 +2729,7 @@ class InformationProcessing:
                     and action not in _CAMERA_ACTIONS
                 ):
                     # 調べた結果は、窓の会話に短い 1 行で足す（環-ar 段 A・全文は W の作業状態）。
-                    self._talk_line("わたし", _talk_result(query, result_text))
+                    self._talk_line(self._me(), _talk_result(query, result_text))
                 self._ledger.close(
                     lk.intent_id, state=_intents.RETURNED, failed=lk.failed, result=c.result
                 )
@@ -4872,6 +4876,13 @@ class InformationProcessing:
         if self._in_window():
             self._window_talk().add(datetime.now(clock.local_tz()), who, text, obs_id)
 
+    def _me(self, to: str = "") -> str:
+        """窓の会話でパジュ自身を書く名前（記-x）。宛先があれば「パジュ（パパへ）」。呼び名が無ければ「わたし」。"""
+        from ..tools.memory import me_name
+
+        me = me_name(getattr(self._agent.config, "agent_names", None))
+        return f"{me}（{to}へ）" if to else me
+
     def _in_window(self) -> bool:
         """いまの窓の会話の中か（環-ar 段 A）。窓が開いているか、いまの求めがその窓の中で始まったとき。"""
         wake = self._wake_window()
@@ -5381,7 +5392,7 @@ class InformationProcessing:
         if gen is not None and gen != self._request_generation:
             return  # 問いのあいだに次の求めが始まった。古い問いを預けない
         to = self._current_speaker_name()
-        self._talk_line(f"わたし（{to}へ）" if to else "わたし", OFFER_TEXT)
+        self._talk_line(self._me(to), OFFER_TEXT)
         self._stamp_said()
         self._emit(OFFER_TEXT)
         self._extend_window_for_conversation()  # 答えを窓で受ける（開いているときだけ延ばす）
@@ -5409,7 +5420,7 @@ class InformationProcessing:
         # 問いの話し終わりに窓が開き、答えはその窓で受ける。答える相手が読めるよう、問いを窓の会話の行にする（環-ar 段 B）。
         # 人の言葉で始まった求めでなければ、宛先は書かない（いまの話者の名前は、前に話した人のことがある）。
         to = self._current_speaker_name() if self._req.trigger_kind == "発話" else ""
-        self._talk_line(f"わたし（{to}へ）" if to else "わたし", text)
+        self._talk_line(self._me(to), text)
         self._stamp_said()
         self._emit(text)
         logger.info("確認の問いを出した：%.40s", text)
@@ -5999,7 +6010,7 @@ class InformationProcessing:
             # 返事と、パジュから話しかけた言葉だけで、タイマーなどの知らせは会話の行にしない（確認の問いは
             # `_ask_confirm_aloud` が足す）。
             to = self._current_speaker_name()
-            self._talk_line(f"わたし（{to}へ）" if to else "わたし", text, str(answer_id or ""))
+            self._talk_line(self._me(to), text, str(answer_id or ""))
         self._note_record(answer_id, "答え" if spoken else "独白")
         # **自分が答えた記録は鎖の外**。何も畳まない。求めの版チェーンは、最後の版
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を

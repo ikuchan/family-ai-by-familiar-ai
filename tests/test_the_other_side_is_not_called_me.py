@@ -21,6 +21,7 @@ from unittest.mock import MagicMock
 from familiar_agent.io.oif import MI, Recalled
 from familiar_agent.loop import workspace
 from familiar_agent.loop.request import Request
+from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 
 def _r(obs_id, content, direction="発話"):
@@ -48,7 +49,7 @@ def _oif(actors, roles):
 def test_an_unresolved_speakers_words_are_the_other_sides():
     """面は `__self__`（048）でも、役割 `起点` なら相手が言った。"""
     req = Request()
-    oif = _oif({"q": "わたし"}, {"q": "起点"})
+    oif = _oif({"q": AGENT_SELF_ID}, {"q": "起点"})
     text, _ = workspace.compose(oif, [_r("q", "何が見えますか？")], req)
     assert "相手が言った: 何が見えますか？" in text
     assert "わたしが言った" not in text
@@ -61,7 +62,7 @@ def test_a_named_speaker_keeps_the_name():
 
 
 def test_the_agents_own_answer_is_still_me():
-    oif = _oif({"a": "わたし"}, {"a": "答え"})
+    oif = _oif({"a": AGENT_SELF_ID}, {"a": "答え"})
     text, _ = workspace.compose(oif, [_r("a", "自分が答えた：はい")], Request())
     assert "わたしが言った" in text
 
@@ -70,7 +71,7 @@ def test_the_current_requests_origin_is_known_before_the_exchange_closes():
     """いまの求めの起点は、まだ関係に無い。`turn_records` から分かる。"""
     req = Request()
     req.turn_records = [("q", "起点")]
-    oif = _oif({"q": "わたし"}, {})  # 関係にはまだ無い
+    oif = _oif({"q": AGENT_SELF_ID}, {})  # 関係にはまだ無い
     text, _ = workspace.compose(oif, [_r("q", "何が見えますか？")], req)
     assert "相手が言った" in text
 
@@ -82,4 +83,4 @@ def test_the_version_points_to_the_workspace_for_what_was_seen():
 
     src = inspect.getsource(InformationProcessing._intake)
     assert "（見たことは観察に記録した）" not in src
-    assert "わたしが見た" in src
+    assert 'subject_line("観察"' in src  # 見出しは観察の見出しと同じ関数で作る（記-x）

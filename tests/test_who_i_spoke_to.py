@@ -102,7 +102,8 @@ def test_several_people_come_back_in_one_list():
 def test_myself_is_not_an_addressee():
     """自分の面（`actor`）は相手ではない。"""
     oid = _plant("ひとりごと", present=[])
-    assert _store().voices_of([oid]) == {oid: ("わたし", [])}
+    # パジュ自身は名前ではなく印で返る（記-x）。名前は印字する側が書く。
+    assert _store().voices_of([oid]) == {oid: (AGENT_SELF_ID, [])}
 
 
 def test_a_record_without_any_face_is_absent():

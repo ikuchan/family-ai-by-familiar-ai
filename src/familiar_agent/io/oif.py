@@ -207,7 +207,7 @@ class OIF:
     8つの口だけで、待ち行列（`memory_jobs`）は内側の都合として隠す。
     """
 
-    def __init__(self, memory, *, for_person=None) -> None:
+    def __init__(self, memory, *, for_person=None, names=None) -> None:
         """`memory`＝既定の記憶。`for_person`＝その人の面を返すもの（`View.viewpoint` 用）。
 
         **人ごとの実体は呼び手が持つ。** `PersonMemoryManager` が1人につき1つ持っており、
@@ -216,6 +216,14 @@ class OIF:
         """
         self._memory = memory
         self._for_person = for_person or getattr(memory, "for_person", None)
+        # パジュの呼び名を返すもの（記-x）。動いているエージェントの設定を毎回読むので、ME.md の読み直しにも付いてくる。
+        self._names = names
+
+    def me(self) -> str:
+        """W でパジュ自身を書く名前（記-x・`me_name`）。呼び名が無ければ「わたし」。"""
+        from ..tools.memory import me_name
+
+        return me_name(self._names() if self._names is not None else ())
 
     def _through(self, viewpoint: str):
         """その視点で引く記憶を返す。視点が無ければ既定の記憶のまま。"""
@@ -405,7 +413,7 @@ class OIF:
         return got
 
     def actors(self, obs_ids: "Sequence[str]") -> "dict[str, str]":
-        """その記録たちの**主体**を `記録の id → 名前` で返す（`__self__` は `わたし`）。
+        """その記録たちの**主体**を `記録の id → 名前` で返す（パジュ自身は印 `AGENT_SELF_ID`・名前は `me()`）。
 
         「誰がやったか」は `actor` の面が持つ（記-f）。面が立っていない記録は入らない
         ——呼び手は主体を言わない（名前を捏造しない）。
@@ -417,7 +425,7 @@ class OIF:
     def voices(self, obs_ids: "Sequence[str]") -> "dict[str, tuple[str, list[str]]]":
         """その記録たちの**主体と相手**を `記録の id → (誰が, [誰へ…])` で返す（出-ak）。
 
-        W の 1 行は両方を要る（`わたし（パパへ）：…`）ので、一度に取る。
+        W の 1 行は両方を要る（`パジュ（パパへ）：…`）ので、一度に取る。パジュ自身は印 `AGENT_SELF_ID` で返る。
         """
         got = self._memory.voices_of(list(obs_ids))
         logger.debug("OIF voices ← %d件 → %d件", len(obs_ids), len(got))

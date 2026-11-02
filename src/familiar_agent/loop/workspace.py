@@ -23,6 +23,7 @@ from datetime import datetime
 
 from ..core import final_version, measure
 from ..io.oif import Cue, Recalled, View
+from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
 from ..store.relations import KIND_COOCCURRENCE, cooccurring_members
 from .request import Request
@@ -189,7 +190,7 @@ def compose(
     with contextlib.suppress(Exception):
         names = oif.actors([r.mi.obs_id for r in memories])
     # **誰が言ったかは役割が持つ。** 話者が解決できないと `actor` の面は規則 048 で
-    # `__self__` に寄り、相手の言葉が「わたしが言った」になる。`起点` と `添え`（出-au 段 3）は相手である。
+    # `__self__` に寄り、相手の言葉が「パジュが言った」になる。`起点` と `添え`（出-au 段 3）は相手である。
     # いまの求めの分はまだ関係に無いので `turn_records` から、閉じた分は関係から。
     roles: "dict[str, str]" = {i: r for i, r in req.turn_records if i}
     with contextlib.suppress(Exception):
@@ -197,9 +198,10 @@ def compose(
     for r in memories:
         if (
             roles.get(r.mi.obs_id) in ("起点", "添え")
-            and names.get(r.mi.obs_id, "わたし") == "わたし"
+            and names.get(r.mi.obs_id, AGENT_SELF_ID) == AGENT_SELF_ID
         ):
             names[r.mi.obs_id] = "相手"
+    names = named(names, me_of(oif))
     basis_line = f"[この想起：{basis}]" if basis else ""
     # 想起した記憶には見出しを付ける。直近のやりとりの枠（文脈）と分ける（出-ay 段 4-4b：文脈は直前のやりとりで、
     # 思い出したことではない）。
@@ -387,6 +389,7 @@ def render_recent(
     # 起きたこと、情動は湧いたことで、どちらもやりとりではない。起点を数えると
     # 発話 309・情動 175・機器 130 で、人以外が半分を占めていた——実機 15:49 の枠は
     # `[タイマー]` の 1 行だけで、人とのやりとりが 1 行も無いのに「直近のやりとり」だった。
+    me = me_of(oif)  # パジュ自身を書く名前（記-x）。行ごとに引かない
     lines: list[str] = []
     happened: list[str] = []
     for r in rows:
@@ -394,14 +397,16 @@ def render_recent(
         at = clock.ts_to_time(r.when)
         if r.role in ("答え", "つなぎ"):
             heard = to.get(r.obs_id) or []
-            who = f"わたし（{'・'.join(heard)}へ）" if heard else "わたし"
+            who = f"{me}（{'・'.join(heard)}へ）" if heard else me
         elif _happened(r):
             # 札（`[タイマー]`・`[内的な促し:…]`）は本文の先頭にあるので、誰かは書かない。
             happened.append(f"- {at} id:{sid} {r.content}")
             continue
         else:
             who = names.get(r.obs_id) or "相手"
-            who = "相手" if who == "わたし" else who
+            who = (
+                "相手" if who == AGENT_SELF_ID else who
+            )  # 話者が分からない人の言葉（主体は印で見る・記-x）
         lines.append(f"- {at} id:{sid} {who}：{r.content}")
     blocks: list[str] = []
     if lines and talk:
@@ -413,8 +418,24 @@ def render_recent(
     return rows, "\n\n".join(blocks), id_map
 
 
+def me_of(oif) -> str:
+    """W でパジュ自身を書く名前（記-x）。口が呼び名を持たない（テストの偽物）ときは「わたし」。"""
+    from ..tools.memory import me_name
+
+    with contextlib.suppress(Exception):
+        name = oif.me()
+        if isinstance(name, str) and name:
+            return name
+    return me_name(())
+
+
+def named(names: "dict[str, str]", me: str) -> "dict[str, str]":
+    """主体の印 `AGENT_SELF_ID` を、W に書く名前へ直す（記-x）。相手の判定は、この前に印で済ませる。"""
+    return {k: (me if v == AGENT_SELF_ID else v) for k, v in names.items()}
+
+
 def _happened(r) -> bool:
-    """直近の行が [そのあいだに起きたこと]（情動・機器）か。人との言葉と、わたしの答え・つなぎは違う。"""
+    """直近の行が [そのあいだに起きたこと]（情動・機器）か。人との言葉と、パジュの答え・つなぎは違う。"""
     return r.role not in ("答え", "つなぎ") and getattr(r, "direction", "発話") in ("情動", "機器")
 
 

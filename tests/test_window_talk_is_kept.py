@@ -53,7 +53,7 @@ def test_a_spoken_answer_is_a_line_and_an_unspoken_one_is_not():
         await ip.close()
 
     asyncio.run(go())
-    assert _lines(ip) == ["わたし（パパへ）：めだか！"]
+    assert _lines(ip) == ["パジュ（パパへ）：めだか！"]  # 呼び名で書く（記-x）
 
 
 def test_a_returned_result_is_one_short_line():
@@ -67,7 +67,7 @@ def test_a_returned_result_is_one_short_line():
     ip._write_version = AsyncMock(return_value="ver-1")
     asyncio.run(ip._intake())
     (line,) = _lines(ip)
-    assert line.startswith("わたし：調べた（明日の天気）：晴れ。")
+    assert line.startswith("パジュ：調べた（明日の天気）：晴れ。")
     assert len(line) < 120
 
 

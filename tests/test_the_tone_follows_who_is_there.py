@@ -128,7 +128,9 @@ class _OIF:
         self._addr = addressees or {}
 
     def voices(self, ids):
-        return {i: ("わたし", self._addr.get(i, [])) for i in ids if i in self._addr}
+        from familiar_agent.person_memory_manager import AGENT_SELF_ID
+
+        return {i: (AGENT_SELF_ID, self._addr.get(i, [])) for i in ids if i in self._addr}
 
 
 def _row(obs_id: str, role: str, content: str):
