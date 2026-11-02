@@ -5217,6 +5217,14 @@ class InformationProcessing:
         cfg = DriveConfig()
         with contextlib.suppress(Exception):
             if stranger or self._voice_unknown(trigger.voice):
+                if not stranger and self._known_person_in_view():
+                    # 誰か分かった人が見えているなら、聞こえた声もたいてい家族かテレビ。SAFETY は上げない（情-r・2026-11-02・
+                    # 本人の決定ア）。11/02 22:26 に、家族の声と認められない声 10 回ほどで 1 分のうちに発火した。知-ar の基準で
+                    # 弾いた声（`stranger`）は家族でないとはっきりしているので、いまどおり上げる。
+                    logger.info(
+                        "drive 知らない声だが、誰か分かった人が見えているので safety を上げない"
+                    )
+                    return
                 await self._agent._nudge_drive(
                     "safety", cfg.voice_safety_nudge, "知らない声がした（誰か居る）"
                 )
@@ -5224,6 +5232,32 @@ class InformationProcessing:
                 await self._agent._nudge_drive(
                     "bond", cfg.voice_bond_nudge, "知っている声がした（誰か居る）"
                 )
+
+    def _quiet_at_cap(self) -> bool:
+        """SAFETY の発火の求めか（情-r・2026-11-02・本人の決定イ）。真なら、反復の上限の回は主LLM を呼ばずに黙って閉じる。
+
+        SAFETY の発火は話しかけないので、上限の回に主LLM を呼んで書かせても声にならない（11/02 22:27 に画像つきで書かせて
+        捨てた）。見回しは上限まで続けてよい。閉じるのは反復の組（`Iteration`）で、ここは決めるだけ。
+        """
+        if self._req.trigger_kind != "情動" or getattr(self._req, "fired_axis", "") != "safety":
+            return False
+        logger.info("event-loop safety の発火で上限に達したので、主LLM を呼ばずに閉じる")
+        return True
+
+    def _known_person_in_view(self) -> bool:
+        """誰か分かった人（顔・声・手入力のどれかで）が、いま顔ぶれに居るか（情-r・本人の決定ア）。読めなければ偽。
+
+        名前の分からない札は数えない。しばらく合図の無い（古い）顔ぶれは、もう見えていないとみる。
+        """
+        try:
+            pmm = self._agent._pmm
+            stale = set(
+                pmm.stale_present_ids()
+            )  # しばらく合図の無い顔ぶれは、もう見えていないとみる
+            return any(pid not in stale for pid in pmm.get_present_ids())
+        except Exception:  # noqa: BLE001
+            logger.warning("顔ぶれを読めなかったので、見えている人は無いとみる", exc_info=True)
+            return False
 
     async def _nudge_by_name(self) -> None:
         """声で名前だけを聞いたら BOND を `voice_name_bond_nudge`（0.05）押し上げる（出-ch 段 3・本人の決定カ・サ）。

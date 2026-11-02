@@ -51,6 +51,8 @@ def _ip(*, here: bool):
     a = MagicMock()
     a.config.agent_names = ["パジュ"]
     a._pmm.presence_status = MagicMock(return_value=[])
+    a._pmm.get_present_ids = MagicMock(return_value=[])  # 誰か分かった人は見えていない（情-r）
+    a._pmm.stale_present_ids = MagicMock(return_value=[])
     a._oif.write = AsyncMock(return_value="obs-1")
     a._observation_perspective = MagicMock(return_value={})
     a._conversation_perspective = MagicMock(return_value={})

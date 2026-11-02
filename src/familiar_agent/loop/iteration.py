@@ -236,6 +236,10 @@ class Iteration:
                 self.chain, self.max_chain, decision.action,
             )  # fmt: skip
             return ""
+        # (d) SAFETY の発火の上限の回は主LLM を呼ばない（情-r）
+        if self.capped and ip._quiet_at_cap():
+            await ip._finish("", memories, "沈黙", gen=self.gen)
+            return ""
         return None
 
     async def _throw_main_llm(self) -> str:
