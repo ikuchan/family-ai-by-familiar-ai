@@ -62,10 +62,15 @@ docs の md だけを変えたときは、本体を止めず、全体テスト�
 
 1. デスクトップの画面につなぐ環境変数（`DBUS_SESSION_BUS_ADDRESS`・`DISPLAY`・`XAUTHORITY`・
    `XDG_RUNTIME_DIR`・`XDG_SESSION_TYPE`）を、デスクトップの側から受け取ってから起動する。
+   - 受け取り先は Cinnamon（`pgrep -u "$USER" -x cinnamon` の pid の `/proc/<pid>/environ`）。gnome-shell は居ない
+     （2026-11-02 に空の `DISPLAY` で起動し、終了コード 134 で落ち続けた）。
+   - あわせて、リモートデスクトップの音の設定（`PIPEWIRE_REMOTE`・`PULSE_RUNTIME_PATH`・`PULSE_SINK`）を `unset` する。
+     残すと声が YAMAHA に出ない。
 2. リポジトリの直下で起動する：`setsid nohup ./run-gui.sh </dev/null >/dev/null 2>&1 &`
    - `--debug` は付けない（ログが 1 日 1 GB になる）。
 3. 確かめる：
    - 2 の `ps` の結果が 1 件であること。
+   - `run-gui.sh` も 1 つだけであること（古いスクリプトが起こし直しの待ちに入っていたら止める）。本体を探すのは上の `ps` の形で、`pgrep -f "familiar --gui"` は自分のシェルに当たる。
    - `grep -c "\[ERROR\]" ~/.cache/familiar-ai/app.log` が 0 であること。
    - 起動した版が、コミットした版と同じであること。
 
