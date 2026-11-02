@@ -4439,8 +4439,10 @@ class InformationProcessing:
     ) -> str:
         """発話前の検査へ渡す事実（出-n）。言い直しにも同じものを添える。
 
-        届いた結果（この求めの open な記録＝版・完了 O）は、主LLM が申告しなくても根拠に
-        なる。届いたことはループが知っているので、申告の有無に頼らない。`arrived` を渡せばそれを使う（検査が上限に収めた結果）。
+        届いた結果（この求めの open な記録のうち、頼みの記録を除いたもの＝版の調べもの・見た記録・`_arrived`）は、主LLM が
+        申告しなくても根拠になる。届いたことはループが知っているので、申告の有無に頼らない。`arrived` を渡せばそれを使う
+        （検査が上限に収めた結果）。頼みは別の見出しで 1 回だけ書く（知-bn）。中身は頼みの記録から取る——`request_text` は
+        500 字で切れるが、機器の知らせは 1,500 字まで記録に残る（`_DEVICE_MAX`）。記録が W に無ければ `request_text`。
         """
         saw = any(role == "見た" for _, role in self._req.turn_records)
         found = self._seen_image(memories)
@@ -4455,22 +4457,33 @@ class InformationProcessing:
             seen=seen_mark,
             past=list(past_rows(memories, w_id_map or {}, cap).values()) if cap > 0 else [],
             arrived=self._arrived(memories) if arrived is None else arrived,
+            asked=next(
+                (
+                    r.mi.content[:ARRIVED_CHARS]
+                    for r in memories
+                    if r.mi.obs_id == self._req.request_id and r.mi.content
+                ),
+                self._req.request_text,
+            ),
+            kind=self._req.trigger_kind,
         )
 
     def _arrived(self, memories: "list[Recalled]") -> "list[str]":
         """この求めで届いた結果（open な記録の中身）。いまの求めの版は、記録に書いた中身（8,192 字で切る）でなく、
-        W と同じく手元から組み直し、版の頭と調べもの 1 件ずつに分ける（出-dg ろ）。"""
+        W と同じく手元から組み直し、調べもの 1 件ずつに分ける（出-dg ろ）。
+
+        頼みは入れない。頼みの記録（`request_id`）も版の頭（「『…』と聞かれた」）も外し、頼みは `facts_ctx` が
+        根拠ではないと書いた見出しの下に 1 回だけ書く（知-bn）。見た記録は届いたものなので残す。"""
         open_set = set(workspace.open_ids(self._req))
         live = self._req.live_version_id
         out: list[str] = []
         for r in memories:
             if r.mi.obs_id not in open_set or not r.mi.content:
                 continue
+            if r.mi.obs_id == self._req.request_id:
+                continue
             if live and r.mi.obs_id == live and self._req.lookups:
-                out += [
-                    f"「{self._req.request_text}」と聞かれた",
-                    *workspace.lookup_lines(self._req),
-                ]
+                out += workspace.lookup_lines(self._req)
             else:
                 out.append(r.mi.content)
         return out

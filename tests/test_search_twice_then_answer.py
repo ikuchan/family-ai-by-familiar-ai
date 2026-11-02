@@ -133,15 +133,15 @@ def test_each_search_is_its_own_fact():
     ]
     ip._req.live_version_id = "v-live"
     facts = ip._checker_facts([_rec("v-live", "記録に書いた版", fit=0.95)])
-    assert "（3件・これも根拠）" in facts  # 版の頭と 2 件
+    assert "（2件・これも根拠）" in facts  # 2 件（版の頭の頼みは結果に数えない・知-bn）
     assert "\n  - 1番：" in facts and "\n  - 2番：" in facts
 
 
 def test_other_records_keep_their_stored_text():
-    """**反証の側**：いまの求めでない記録は、組み直さない。"""
+    """**反証の側**：いまの版でない記録は、組み直さない（頼みの記録は結果に入れないので、見た記録で見る・知-bn）。"""
     ip = _ip()
-    ip._req.request_id = "m-old"  # 起点の記録（open）
-    facts = ip._checker_facts([_rec("m-old", "記録に書いた文", fit=0.9)])
+    ip._req.turn_records = [("m-seen", "見た")]  # この求めで見た記録（open）
+    facts = ip._checker_facts([_rec("m-seen", "記録に書いた文", fit=0.9)])
     assert "記録に書いた文" in facts
 
 

@@ -254,10 +254,12 @@ def test_a_long_state_shrinks_only_the_long_results():
     a.config.jev_state_max_chars = 6000
     a._jev = _client({"broken": _c("ok")})
     ip = InformationProcessing(a)
-    ip._req.request_id = "origin"  # 起点の記録は open（届いた結果として渡る）
+    ip._req.request_id = "origin"
+    # この求めで見た記録は open（届いた結果として渡る）。頼みの記録は結果に入れない（知-bn）。
+    ip._req.turn_records = [("seen", "見た")]
     ids = [f"{i:012d}" for i in range(3)]
     memories = [_recalled(f"{i}-full", f"記憶{i}：" + "う" * 400) for i in ids]
-    memories.append(_recalled("origin", "届いた結果。" * 1000))
+    memories.append(_recalled("seen", "届いた結果。" * 1000))
     reply = "明日は晴れだよ" + "え" * 500
 
     async def scenario():
