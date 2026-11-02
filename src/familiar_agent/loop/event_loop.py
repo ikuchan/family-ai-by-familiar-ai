@@ -3859,6 +3859,10 @@ class InformationProcessing:
             talking=self._talking(),
             suggestion_ctx=self._suggestion_frame() if self._talking() else "",  # 知-aq
             music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
+            music_playing=getattr(  # 鳴っているあいだは曲名の無い play_music を使わない（知-bq）
+                getattr(agent, "_music_state", None), "playing", False
+            )
+            is True,
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,
             window_ctx=window_ctx,

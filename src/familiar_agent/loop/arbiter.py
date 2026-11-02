@@ -546,6 +546,8 @@ class ArbiterInput:
     fired_axis: str = ""
     #: いまの音楽の様子を読む口（非同期・出-bf）。「いま何の曲？」に答えるときだけ呼ぶ。無ければ読めなかったとして答える。
     music_status: "Callable[[], Awaitable[dict | None]] | None" = None
+    #: 音楽が鳴っているか（知-bq）。鳴っているあいだは、曲名の無い play_music（止まっていた続きをかける）を使わない。
+    music_playing: bool = False
     #: Jev へ送る W を返す口（`Workspace.for_jev_arbiter`・出-bw）。W に使える字数を渡すと、重なりを除き、超えたぶん
     #: 記憶を一度に外した W を返す。収まらなければ None。無ければ `workspace_ctx` をそのまま測る。
     jev_workspace: "Callable[[int], str | None] | None" = None
@@ -1039,32 +1041,90 @@ class Arbiter:
         final = outcome.final
         if reread:
             outcome = um.Outcome(final, outcome.name, f"{reread}・{outcome.why}")
+        acts = got.get(f"action_{m}")
+        if inp.music_playing:
+            # 鳴っているあいだは、曲名の無い play_music を見立てにしない（「はい」でかけ直さない・知-bq）。
+            acts = um.without(acts, "play_music")
         # 迷って聞き返すなら、何を迷ったかを書く側に渡す（出-bl）。記録にも残す。
-        guess = (
-            um.guess(meaning, got.get(f"action_{m}"))
-            if final == "ask_back" and m in offered
-            else ""
-        )
-        why = f"{outcome.why}・見立て：{guess}" if guess else outcome.why
-        self._keep(inp, "発話", state, questions, got, final, why, meaning=m)
+        guess = um.guess(meaning, acts) if final == "ask_back" and m in offered else ""
         # 見立ての動作を聞き取りの確認として預ける（出-cm）。名乗り・否定・文脈に合わない言葉には動作が無い。
-        heard = um.guess_action(meaning, got.get(f"action_{m}")) if guess else ""
+        heard = um.guess_action(meaning, acts) if guess else ""
         # Jev が「使う」と選んだスキルを、前から載っているものに足して書き手に渡す（環-au 段 B・本人の決定ア）。
         chosen = um.chosen_skills(got, inp.skills)
         if chosen:
             logger.info("調停（発話）：スキルを選んだ：%s", "・".join(chosen))
             inp = replace(inp, active_skills=merged(inp.active_skills, chosen))
-        decision = await self._utterance_final(
-            inp,
-            final,
-            m=m,
-            got=got,
-            name=outcome.name,
-            why=outcome.why,
-            guess=guess,
-            heard=heard,
-            started=started,
-        )
+        # 鳴っているあいだの play_music は、曲名を書くまで合図を待つ（決め直すなら、決め直した動作の合図を鳴らす・知-bq）。
+        held = inp.music_playing and final == "play_music"
+        try:
+            decision = await self._utterance_final(
+                inp,
+                final,
+                m=m,
+                got=got,
+                name=outcome.name,
+                why=outcome.why,
+                guess=guess,
+                heard=heard,
+                started=started,
+                tell=not held,
+            )
+            nameless = (
+                decision.branch == "action"
+                and decision.action == "play_music"
+                and not str((decision.tool_input or {}).get("name") or "").strip()
+            )
+            if held and nameless:
+                # 鳴っているのに曲名の無い play_music（止まっていた続きをかける）は意味が無い。外して、いまの決まりのとおり割り
+                # 直して決め直す（知-bq・2026-11-02・本人の決定ア）。12:52 は崩れた「止めて」でかけ直した。書き手が失敗した・
+                # 考えて返す道に変わったときは決め直さない（曲名が無いとは限らない）。
+                probs = dict((acts or {}).get("probabilities") or {})
+                if any(float(p or 0) >= um.CUT_MIN for p in probs.values()):
+                    outcome = um.decide(meaning, acts)
+                    final = outcome.final
+                    guess = um.guess(meaning, acts) if final == "ask_back" else ""
+                else:
+                    # ほかに読める動作が残らない。見立て無しで聞き返す（わずかな残りを「はい」で動かさない）。
+                    outcome, final, guess = (
+                        um.Outcome("ask_back", why="ほかに読める動作が無い"),
+                        "ask_back",
+                        "",
+                    )
+                heard = um.guess_action(meaning, acts) if guess else ""
+                outcome = um.Outcome(
+                    final,
+                    outcome.name,
+                    "・".join(
+                        p
+                        for p in (
+                            reread,
+                            "鳴っているので曲名の無い play_music を外した",
+                            outcome.why,
+                        )
+                        if p
+                    ),
+                )
+                logger.info(
+                    "調停（発話）：鳴っているので曲名の無い play_music をやめて読み直した（→ %s）",
+                    final,
+                )
+                decision = await self._utterance_final(
+                    inp,
+                    final,
+                    m=m,
+                    got=got,
+                    name=outcome.name,
+                    why=outcome.why,
+                    guess=guess,
+                    heard=heard,
+                    started=started,
+                )
+            elif held:
+                self._tell_decided(final)  # 決め直さないので、待たせた合図を鳴らす
+        finally:
+            # 記録は、実際にやる動作で残す（決め直したら決め直した動作・知-bq）。打ち切られても残す。
+            why = f"{outcome.why}・見立て：{guess}" if guess else outcome.why
+            self._keep(inp, "発話", state, questions, got, final, why, meaning=m)
         # 倒し先（`_FALLBACK`）は共有の決定なので、書き換えずに写しを返す。
         return replace(decision, skills=tuple(chosen))
 
@@ -1080,13 +1140,18 @@ class Arbiter:
         guess: str,
         heard: str,
         started: float,
+        tell: bool = True,
     ) -> Decision:
-        """発話の最終の動作から `Decision` を組む（意味で決めた道と、聞き取りの確認ではいの道が通る・出-cm）。"""
+        """発話の最終の動作から `Decision` を組む（意味で決めた道と、聞き取りの確認ではいの道が通る・出-cm）。
+
+        `tell` が偽なら、決まった動作の合図を鳴らさない（呼び手が後で鳴らす・知-bq）。
+        """
         if final == "music_now":
             # いまの曲は機械が決まった形で答える（出-bf・本人の決定ア）。曲名を取り違えず、軽量LLM を待たない。
             from ..core.music_now import text_for
 
-            self._tell_decided(final)
+            if tell:
+                self._tell_decided(final)
             status = None
             if inp.music_status is not None:
                 try:
@@ -1098,7 +1163,8 @@ class Arbiter:
             )
             return Decision(branch="light", text=text_for(status))
         if final in _SUGGESTION_REPLIES:
-            self._tell_decided(final)
+            if tell:
+                self._tell_decided(final)
             # 返事は 2 つに決まっていて、書く言葉が無いので軽量LLM は呼ばない（段 4-4f）。
             reply = _SUGGESTION_REPLIES[final]
             logger.info(
@@ -1148,7 +1214,8 @@ class Arbiter:
             and not inp.returned
             and not inp.typed
         )
-        self._tell_decided(final)  # 軽量LLM が書く前に（出-bg）
+        if tell:
+            self._tell_decided(final)  # 軽量LLM が書く前に（出-bg）
         decision = await self._completion_decision(
             inp,
             final,

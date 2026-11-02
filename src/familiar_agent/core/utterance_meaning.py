@@ -379,6 +379,20 @@ def guess_action(meaning: "dict[str, Any]", action: "dict[str, Any] | None") -> 
     return max(acts, key=lambda kv: kv[1])[0] if acts else ""
 
 
+def without(answer: "dict[str, Any] | None", key: str) -> "dict[str, Any]":
+    """答えから選択肢 `key` を確かに外す（知-bq）。選ばれていたら、残りでいちばん高いものにする。残らなければ空。
+
+    `trim(drop=…)` は、残る選択肢が足切りの線に届かないと答えをそのまま返すので、外したいものが残ってしまう。
+    """
+    probs = {k: p for k, p in _probs(answer).items() if k != key}
+    if not probs:
+        return {}
+    choice = str((answer or {}).get("choice") or "")
+    if choice not in probs:
+        choice = max(probs, key=lambda k: probs[k])
+    return {**(answer or {}), "choice": choice, "confidence": probs[choice], "probabilities": probs}
+
+
 def _probs(answer: "dict[str, Any] | None") -> "dict[str, float]":
     """選択肢ごとの確率。確率が無ければ、選ばれた 1 つを 1.0 と読む。"""
     answer = answer or {}
