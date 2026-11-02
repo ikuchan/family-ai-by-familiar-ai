@@ -147,3 +147,45 @@ def test_a_word_with_a_name_is_judged_by_the_name_rule_only():
     _called_by_name_only(ip)
     _t, ok = _say(ip, "パンシュー、ごはんできたよ", at=T0 + 4)
     assert ok is False and len(jev.calls) == 1
+
+
+# ── 1 字違いの名前だけの声も預ける（知-bs の続き・2026-11-02・本人の決定ア）─────────────────────
+#
+# 10 月の録音では、名前を Whisper に渡さないと「アジュー」などの 1 字違いで取れた（知-z-は）。名前だけの言葉には Jev が宛先を
+# 決める材料がほとんど無いので聞かず、完全な名前と同じく預ける。窓は開けず、返事もしない。
+
+
+@pytest.mark.parametrize("heard", ["アジュー", "ジュ"])
+def test_a_near_name_alone_is_held_without_asking(heard):
+    jev = _Jev(0.9)
+    ip = _gate(jev)
+    _t, ok = _say(ip, heard, at=T0, lp=-0.893)
+    assert ok is False and jev.calls == [] and not ip._wake_window().is_open(T0)
+    t, ok = _say(ip, "明日の天気は？", at=T0 + 5)
+    assert ok is True and t.named is True and len(jev.calls) == 1
+
+
+def test_a_near_name_with_words_is_still_asked():
+    """**反証の側**：1 字違いの名前のあとに言葉が続けば、いまどおり宛先を聞き、預けない。"""
+    jev = _Jev(0.1)
+    ip = _gate(jev)
+    _t, ok = _say(ip, "パンシュー、おはよう。", at=T0)
+    assert ok is False and len(jev.calls) == 1 and ip._tentative_call is None
+
+
+def test_a_near_name_alone_in_an_open_window_gets_no_reply():
+    """**反証の側**：窓が開いていても、1 字違いの名前だけの声は返事に回さない（窓も延ばさない）。"""
+    jev = _Jev(0.9)
+    ip = _gate(jev, open_window=True)
+    until = ip._wake_window().until
+    _t, ok = _say(ip, "アジュー", at=time.monotonic())
+    assert ok is False and jev.calls == [] and ip._wake_window().until == until
+    assert ip._tentative_call is None  # 窓の中なので預けない
+
+
+def test_a_near_name_with_more_sounds_is_asked_and_not_held():
+    """**反証の側**：1 字違いの名前の後ろに音が続く声（「ジュース」）は名前だけではない。いまどおり宛先を聞き、預けない。"""
+    jev = _Jev(0.1)
+    ip = _gate(jev)
+    _t, ok = _say(ip, "ジュース", at=T0)
+    assert ok is False and len(jev.calls) == 1 and ip._tentative_call is None

@@ -4468,12 +4468,14 @@ class InformationProcessing:
         """
         from ..core.silence_hold import lifts
         from ..core.wake_strictness import is_name_only, is_name_repeat, near_name_only
-        from ..core.wake_window import heard_name
+        from ..core.wake_window import fix_name, heard_name
         from ..silence_state import is_silenced
 
         now = time.time()
         names = list(getattr(self._agent.config, "agent_names", None) or [])
         tentative: "float | None" = None
+        name_only = False  # 声で名前だけ（1 字違いは直した形で見る・知-bs）
+        near_alone = False  # そのうち 1 字違いの名前だけの声
         if trigger.kind == "会話入力" and trigger.source == "voice":
             if self._voice_stranger(trigger.voice):
                 # **知らない声は無条件に捨てる**（知-ar）。名前・黙っていての依頼・窓より前。気配として SAFETY だけ上げる。
@@ -4500,15 +4502,23 @@ class InformationProcessing:
             trigger.named = heard_name(trigger.query, names)
             if trigger.source == "voice" and not trigger.named:
                 # 名前の聞こえなかった声だけ、仮の呼びかけの続きかを見る。名前の聞こえた声は名前の基準で決める（宛先を 2 度
-                # 聞かない・知-bs）。
-                tentative = self.__dict__.get(
-                    "_tentative_call"
-                )  # `__new__` で組んだ装置（試験）でも落ちない
+                # 聞かない・知-bs）。`__new__` で組んだ装置（試験）でも落ちないように辞書から読む。
+                tentative = self.__dict__.get("_tentative_call")
             near = (
                 trigger.named and trigger.source == "voice" and near_name_only(trigger.query, names)
             )
+            # 完全な名前は `fix_name` で変わらないので、名前だけかは直した形で 1 度だけ見る。
+            name_only = trigger.source == "voice" and is_name_only(
+                fix_name(trigger.query, names)[0], names
+            )
+            near_alone = near and name_only
             window_open = self._wake_window().is_open(self._arrival(trigger))
-            if near and window_open:
+            if near_alone:
+                # 1 字違いの名前だけの声（「アジュー」）は、Jev に聞かず、名前で呼ばれたことにもしない。名前だけの道で仮の
+                # 呼びかけとして預ける（知-bs・2026-11-02・本人の決定ア）。名前だけの言葉には宛先を決める材料がほとんど無い。
+                # 窓が開いていても返事に回さない。
+                trigger.named = False
+            elif near and window_open:
                 # 窓の中の 1 字違いは、名前の証拠にしない。名前の無い言葉と同じに宛先の判定を通す（出-db 段 D・
                 # 2026-10-25・本人の決定 3-c）。聞き違えた名前の直し（知-ap）だけは行う（`near_name`）。
                 trigger.named = False
@@ -4546,23 +4556,27 @@ class InformationProcessing:
                 return False
             await self._note_muted(trigger, now)
             return self._swallowed(trigger)
-        if (
-            trigger.kind == "会話入力"
-            and trigger.source == "voice"
-            and is_name_only(trigger.query, names)
-        ):
+        if trigger.kind == "会話入力" and trigger.source == "voice" and name_only:
             # 声で名前だけなら返事をしない。値が足りれば黙って窓を開け、続けて言う用件を名前なしで受ける。ふつうは
             # 名前のあとに用件が続く（出-ch 段 3・2026-10-16・本人の決定ア・カ）。呼ばれたことで情動はいつも動かす。
             if trigger.named:
                 self._wake_window().open(self._arrival(trigger))
                 trigger.quiet_open = True
+                state = "開けた"
+            elif near_alone and self._wake_window().is_open(self._arrival(trigger)):
+                state = "延ばさなかった"  # 窓の中の 1 字違いは名前の証拠にしない。窓の中なので預けもしない
             else:
-                # 確かさが足りない名前は、仮の呼びかけとして届いた時刻を預ける。窓は開けず、返事もしない（知-bs）。
+                # 値が足りない名前と 1 字違いの名前は、仮の呼びかけとして届いた時刻を預ける。窓は開けず、返事もしない（知-bs）。
                 self._tentative_call = self._arrival(trigger)
+                state = "開けず仮の呼びかけとして預けた"
+            # 値は捨てても残す（実機で貯めて見直す・出-ch）。本文は出さない。
             logger.info(
-                "event-loop 名前だけなので黙って窓を%s（%d 字）",
-                "開けた" if trigger.named else "開けなかった",
+                "event-loop 名前だけ%sなので黙って窓を%s（%d 字・無音らしさ %s・確かさ %s）",
+                "（1 字違い）" if near_alone else "",
+                state,
                 len(trigger.query or ""),
+                trigger.no_speech,
+                trigger.logprob,
             )
             await self._nudge_by_name()
             return self._swallowed(trigger)

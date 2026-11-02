@@ -1,4 +1,4 @@
-# familiar-ai 用語・略語一覧（v1.48）
+# familiar-ai 用語・略語一覧（v1.49）
 
 | 分類 | 日本語 | 英語 | 略語／頭文字 | 意味 |
 |---|---|---|---|---|
@@ -124,7 +124,7 @@
 | I | 窓の会話 | window talk | `core/window_talk.WindowTalk`・`InformationProcessing._window_talk` | 窓が開いてから閉じるまでの会話（環-ar・2026-10-25）。閉じた窓を開けるたびに新しい番号の会話になり、返事の話し終わりに開け直すときは同じ会話の続き。人の言葉（添えた言葉も）・声になった返事・確認の問い・調べた結果（短い 1 行）を、起きたその場で 1 行ずつ足し、書いた行は書き換えない。メモリ上にだけ置く。窓の中では、宛先と返すか黙るかの判定・調停の Jev・軽量LLM の書き手・主LLM へ、直近の往復の代わりにこの全部を渡し、削らない（段 B〜D・本人の決定）。 |
 | I | スキル | skill | `core/skills.Skill`・`load_skills`・`skills_frame` | パジュ用のやり方（遊びの決まりなど）を、人が `skills/` に 1 つずつ md で書いたもの（環-au・2026-10-25）。1 行目が見出し（名前）、2 行目が「いつ要る：」（調停の Jev にはこの行だけを見せて「いま要るか」を聞く）、3 行目からが本文。Jev が「使う」と選んだものだけを、書き手（軽量LLM）・主LLM・発話前の検査に `[やり方]` の枠で載せ、窓の中なら窓が閉じるまで、窓の外ならその求めのあいだ残す。判断のたびに読み直す。開発に使う Claude Code のスキル（`.claude/skills/`）とは別物 |
 | I | 名前で起きる基準 | wake strictness | `core/wake_strictness`・`InformationProcessing._wake_admits` | 窓が閉じているときに声で名前が聞こえたら、会話の窓を開けてよいかを書き起こしの無音らしさと確かさで判定する（出-aw・2026-10-06）。**ふだん**と**厳しい**の 2 段で、厳しいのは最後の会話から 10 分たって居ないとき、または誰の声か分からないとき。名前だけの短い声は確かさが届かなければ捨てる。正本は `設計方針_話していいかの決まり` §2.3a。 |
-| I | 仮の呼びかけ | tentative call | `InformationProcessing._tentative_call` | 値が足りずに窓を開けなかった名前だけの声の届いた時刻（知-bs・2026-11-02）。10 秒（`WAKE_WINDOW_SEC`）のうちに届いた名前の聞こえない声は、窓の外として捨てる前に、頭に呼び名を付けて宛先の判定に見せ、宛てなら名前で呼ばれた用件として受ける。受けたら消し、宛てでない声では消さない（`設計方針_話していいかの決まり` §2.3）。 |
+| I | 仮の呼びかけ | tentative call | `InformationProcessing._tentative_call` | 値が足りずに窓を開けなかった名前だけの声、または 1 字違いの名前だけの声（Jev に聞かない）の届いた時刻（知-bs・2026-11-02）。10 秒（`WAKE_WINDOW_SEC`）のうちに届いた名前の聞こえない声は、窓の外として捨てる前に、頭に呼び名を付けて宛先の判定に見せ、宛てなら名前で呼ばれた用件として受ける。受けたら消し、宛てでない声では消さない（`設計方針_話していいかの決まり` §2.3）。 |
 | I | 入力の出どころ | input source | `core/wake_window.VoiceText`・`source_of`・`Trigger.source` | 会話入力が声（`voice`）かキーボード（`keyboard`）か。声の書き起こしは積むときに `VoiceText`、キーボードは `KeyText` の印が付き、どちらも**届いた時刻**を持つ（`arrived_at`・出-au）。印が無ければキーボードで、届いた時刻は読んだ時刻。 |
 | I | チェッカーの規則 | checker rules | `CHECKER_RULE_IDS` | 発話前の検査（Jev）に渡す規則の部分集合。文と機械の事実だけで反しているか言える 8 つ（`no-fake-perception`・`no-invented-knowledge`・`no-past-comparison-without-memory`・`memory-evidence-confidence`・`workspace-is-notes-not-script`・`no-raw-internal-metrics`・`no-tts-tags`・`no-claim-while-confirming`）。正本 `(rules …)` から `rules_for_checker()` が落として作る（出-n・2026-09-13。8 つめは出-ag-ろ・2026-09-21）。 |
 | MI／記憶モデル | MI（メンタルアイテム：Mental Item） | — | — | 記憶 O のレコード。基底 **PI＝emotion/drive**、**MI＝PI＋id/content/vector/supersedes/根づき**。timestamp は store メタdata。kind なし・意味は content→LLM 解釈（[D-MIモデル]・別紙 v2）。**実装クラス名は `MentalItem`**（`PrimitiveMentalItem` を継承し `id`／`content`／`vector`／`supersedes`／`根づき` を足す拡張クラス）。 |
@@ -361,6 +361,8 @@
 ## 更新履歴
 
 
+> v1.49：「仮の呼びかけ」に 1 字違いの名前だけの声を足した（知-bs・2026-11-02）。
+>
 > v1.48：「仮の呼びかけ」を足した（知-bs・2026-11-02）。
 >
 > v1.47：「申し出の預かり」を足した（出-dj・2026-11-02）。
