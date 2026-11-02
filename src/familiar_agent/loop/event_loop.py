@@ -2089,6 +2089,14 @@ class InformationProcessing:
                 " ".join(f"{k}={str(v)[:40]}" for k, v in tool_input.items()) or "入力なし",
             )
 
+    def _search_results(self) -> str:
+        """この求めで届いた調べもの（search_deferred）の結果を、深く調べるの材料の形で（出-dh）。"""
+        return "\n".join(
+            f"- {lk.query}：{lk.result}"
+            for lk in self._req.lookups
+            if lk.action == "search_deferred" and lk.result and not lk.failed
+        )
+
     def _deep_available(self) -> bool:
         """深く調べる別モデルを呼べるか（主LLM の担い手が Anthropic で、鍵がある・出-dh）。"""
         from ..backends.factory import is_anthropic
@@ -2097,7 +2105,9 @@ class InformationProcessing:
         key = getattr(cfg, "api_key", "")
         return is_anthropic(cfg) and isinstance(key, str) and bool(key)
 
-    async def _run_deep(self, query: str) -> "tuple[str, bool]":
+    async def _run_deep(
+        self, query: str, *, request: str = "", found: "str | None" = None
+    ) -> "tuple[str, bool]":
         """別モデルに深く調べさせる（出-dh・2026-11-02・本人の決定）。返りは（完了の文, 失敗か）。
 
         値は `config.py` の既定値（モデル・深さ・検索の回数・出力・時間・長さ）。`deep_timeout_sec` を過ぎたら打ち切って
@@ -2126,14 +2136,12 @@ class InformationProcessing:
             limit=int(cfg.deep_reply_limit),
             adult=adult is not False,  # 分からなければ大人向けの話し方
         )
-        found = "\n".join(
-            f"- {lk.query}：{lk.result}"
-            for lk in self._req.lookups
-            if lk.action == "search_deferred" and lk.result and not lk.failed
-        )
+        # 確かめて始めたとき（出-dh 段 2）は、預かった前の求めの調べものの結果（いまの求めの器には無い）。
+        found = self._search_results() if found is None else str(found)
         user = dr.user_message(
             today=datetime.date.today().isoformat(),
-            request=str(self._req.request_text or query),
+            # 確かめて始めたとき（出-dh 段 2）は、預かった元の頼み（いまの求めの言葉は「はい」）。
+            request=request or str(self._req.request_text or query),
             recent=self._recent_for_judges(),
             results=found,
         )
@@ -2184,7 +2192,13 @@ class InformationProcessing:
             )
             return
         if action == "deep_research":
-            out, failed = await self._run_deep(query)
+            out, failed = await self._run_deep(
+                query,
+                request=str(tool_input.get("request") or ""),
+                found=tool_input.get(
+                    "found"
+                ),  # 預けて始めたときは、空でも前の求めの結果（いまの求めの器ではない）
+            )
             self._triggers.put_nowait(
                 Trigger(
                     kind="完了",
@@ -3852,7 +3866,7 @@ class InformationProcessing:
         # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
         cue = self._start_reaction_cue(ws.returned_lookups)
         heard = self._take_heard_check(ws)
-        offer = self._take_offer(ws)
+        offer, offer_deep = self._take_offer(ws)
         try:
             decision = await self._arbiter().decide(
                 self._arbiter_input(
@@ -3874,6 +3888,7 @@ class InformationProcessing:
                     ),
                     heard=heard,
                     offer=offer,
+                    offer_deep=offer_deep,
                     # パジュ用のスキル（環-au）。判断のたびに読み直す（直したらすぐ効く）。読むのはループの外で。
                     # 問いを聞くのは人の言葉の求めの最初の判断（道具の返りではない回）だけ。載っているものがあれば、書き手の枠の
                     # ためにも読む。
@@ -3941,6 +3956,7 @@ class InformationProcessing:
         jev_utterance: str = "",
         heard: "dict | None" = None,
         offer: str = "",
+        offer_deep: "dict | None" = None,
         window_ctx: str = "",
         skills: "tuple[skills_mod.Skill, ...]" = (),
         active_skills: "tuple[str, ...]" = (),
@@ -4004,6 +4020,7 @@ class InformationProcessing:
             **self._confirm_inputs(),
             **_heard_inputs(heard),
             offer_question=offer,
+            offer_deep=offer_deep if offer else None,
         )
 
     def _take_heard_check(self, ws) -> "dict | None":
@@ -4022,7 +4039,7 @@ class InformationProcessing:
             return None
         return held
 
-    def _take_offer(self, ws) -> str:
+    def _take_offer(self, ws) -> "tuple[str, dict | None]":
         """会話の求めの最初の判断なら、申し出の預かりを取り出して消す（出-dj・本人の決定 a）。渡すのは申し出た文。
 
         答えに使うのは次の 1 回だけ（答えがどれでも消す）。窓が閉じた・別の窓の会話になったなら渡さない（名前の無い「はい」は
@@ -4030,15 +4047,16 @@ class InformationProcessing:
         """
         held = self._offer
         if held is None or self._req.trigger_kind != "発話":
-            return ""
+            return "", None
         if ws.returned_actions or ws.returned_lookups:
-            return ""
+            return "", None
         self._offer = None
         # 門が決めた求めの窓の番号で見る（`_begin_request`）。判断までに窓が切れても、窓で受けた返事なら使う。
         if not self._req.window_session or self._req.window_session != held.get("session"):
             logger.info("event-loop 申し出の預かりは窓が変わったので使わない")
-            return ""
-        return str(held.get("question") or "")
+            return "", None
+        # 申し出た文と、はいなら深く調べる入力（出-dh 段 2・深く調べるの問いのときだけ）。
+        return str(held.get("question") or ""), held.get("deep")
 
     def _keep_heard_check(self, decision) -> None:
         """見立てつきの聞き返しなら、聞き取りの確認として預ける（出-cm）。本文はログに出さない。"""
@@ -4233,7 +4251,12 @@ class InformationProcessing:
                     spoken=outcome == "発話",
                     rows=past_rows(decision.memories, decision.w_id_map),
                 )
+            # 調べものを使い切ったら、深く調べるかを問う（出-dh 段 2）。後始末が器を片づける前に材料を控え、答えを書き残して
+            # から問う（窓の会話が答え → 問いの順になる）。そのあいだに打ち切られていたら問わない。
+            deep = self._deep_offer_material() if outcome == "発話" else None
             await self._finish(spoken, decision.memories, outcome, gen=gen)
+            if deep is not None and (gen is None or gen == self._request_generation):
+                await self._offer_deep(deep, gen=gen)
             return spoken
 
         if decision.retried and decision.original_text:
@@ -5290,6 +5313,46 @@ class InformationProcessing:
         pc = getattr(self._agent, "_pending_confirm", None)
         ttl = float(getattr(getattr(self._agent, "config", None), "confirm_ttl_sec", 300.0))
         return blocks(action, pc, now=time.time(), ttl=ttl)
+
+    def _deep_offer_material(self) -> "dict | None":
+        """調べもの 2 回を使い切った会話の求めなら、深く調べるの入力（元の頼み・届いた結果）を控える（出-dh 段 2・出-dg ろ）。
+
+        深く調べるが使えて、この求めでまだ深く調べておらず、確認待ちが無いときだけ。後始末（`_finish`）が器を片づける前に呼ぶ。
+        """
+        spent = self._req.spent_actions
+        if (
+            self._req.trigger_kind != "発話"
+            or "search_deferred" not in spent
+            or "deep_research" in spent
+            or not self._deep_available()
+            or self._confirming()
+            or not str(self._req.request_text or "").strip()  # 頼みが空なら、何を深く調べるかが無い
+            or self._offer is not None  # 答えが申し出で終わった（出-dj）。問いを 2 つ続けない
+        ):
+            return None
+        return {"request": str(self._req.request_text or ""), "found": self._search_results()}
+
+    async def _offer_deep(self, deep: dict, *, gen: "int | None" = None) -> None:
+        """パジュから「もっと詳しく、時間をかけて調べましょうか？」と問い、申し出として預ける（出-dh 段 2・本人の決定ア）。
+
+        確認待ち（タイマーと同じ・5 分 3 択だけで読む）ではなく、申し出の預かり（出-dj）を使う。次の 1 回の返事だけを、同じ
+        窓のあいだだけ 3 択で読み、はいなら預かった頼みで深く調べる。それ以外はふつうに読む（ほかの頼みを止めない）。決まった
+        問いを機械が話す（答えの検査が置いた申し出の預かりは、この問いで置き直す）。話してよい門が閉じていれば問わない。
+        """
+        from ..tools.deep_research import OFFER_TEXT
+
+        if self._delivery_block_reason():
+            return
+        await self._say_aloud(OFFER_TEXT)
+        if gen is not None and gen != self._request_generation:
+            return  # 問いのあいだに次の求めが始まった。古い問いを預けない
+        to = self._current_speaker_name()
+        self._talk_line(f"わたし（{to}へ）" if to else "わたし", OFFER_TEXT)
+        self._stamp_said()
+        self._emit(OFFER_TEXT)
+        self._extend_window_for_conversation()  # 答えを窓で受ける（開いているときだけ延ばす）
+        self._offer = {"question": OFFER_TEXT, "session": self._wake_window().session, "deep": deep}
+        logger.info("event-loop 深く調べるかを問うた（申し出として預けた）")
 
     async def _ask_confirm_if_fresh(self, before) -> None:
         """道具の呼び出しで**新しく置かれた**預かりだけ、その場で問いを出す（出-ag-ろ）。"""

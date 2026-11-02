@@ -7,6 +7,10 @@ import time
 
 # Must be set before any familiar_agent imports so Database singleton picks up correct URL.
 os.environ.setdefault("FAMILIAR_EMBEDDING_PREWARM", "0")
+# 埋め込みのモデルは CPU に載せる（`store/embedding._EmbeddingModel` の説明どおり・2026-11-02）。自動に任せると GPU に
+# 載せようとし、GPU の初期化に失敗した worker はゼロのベクトルへ縮退して、埋め込みを確かめるテストが揺れた（機体の
+# NVIDIA のドライバとライブラリの版が合わず `nvmlInit` が失敗・`test_the_embedding_is_recomputed`）。
+os.environ.setdefault("EMBEDDING_DEVICE", "cpu")
 
 # 並列実行（pytest-xdist）ではワーカーごとに別 DB を使う。autouse の clean_db が
 # 共有テーブルを truncate するため、1 DB を並列共有すると互いにデータを消し合う。

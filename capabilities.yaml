@@ -84,7 +84,10 @@ capabilities:
       spoken Japanese, about 400 characters and at most 800, without symbols, checking that its
       sources are trustworthy and ending with the answer rather than an offer. It runs in the
       background like a search (waiting beeps, voices are not taken meanwhile) and is cut off after
-      two minutes. The answer is spoken as it is, not rewritten. One request may use it once. It is
+      two minutes. The answer is spoken as it is, not rewritten. One request may use it once.
+      When the two ordinary searches of a request are used up and the main model has answered,
+      Paju may ask "もっと詳しく、時間をかけて調べましょうか？" (not when the answer itself ended with an
+      offer); only a yes in the next reply starts it. It is
       available only when the main model runs on Anthropic. Implemented in `tools/deep_research.py`.
     enabled: true
   - id: memory

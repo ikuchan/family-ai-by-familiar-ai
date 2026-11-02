@@ -574,6 +574,8 @@ class ArbiterInput:
     heard_check_question: str = ""
     #: パジュが直前にした申し出の文（出-dj）。次の 1 回の返事で、同じ窓のあいだだけ渡る（ループの `_take_offer`）。
     offer_question: str = ""
+    #: 申し出が「深く調べましょうか？」なら、はいで投げる入力（元の頼み・届いた調べものの結果・出-dh 段 2）。空なら主LLM へ。
+    offer_deep: "dict | None" = None
 
 
 #: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
@@ -863,6 +865,16 @@ class Arbiter:
         )
         if not yes:
             return None
+        if inp.offer_deep:
+            # パジュから出した「もっと詳しく調べましょうか？」にはい（出-dh 段 2）。預かった元の頼みで深く調べる。
+            self._tell_decided("deep_research")
+            request = str(inp.offer_deep.get("request") or "")
+            return Decision(
+                branch="action",
+                action="deep_research",
+                query=request,
+                tool_input={**inp.offer_deep, "query": request},
+            )
         self._tell_decided("reply_full")
         return Decision(branch="full", effort="low", offer_accepted=True)
 

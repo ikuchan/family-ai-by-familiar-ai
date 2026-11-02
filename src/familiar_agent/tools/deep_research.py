@@ -17,6 +17,8 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+#: 調べもの 2 回を使い切ったあと、パジュから深く調べるかを問う文（出-dh 段 2・2026-11-02・本人の決定）。
+OFFER_TEXT = "もっと詳しく、時間をかけて調べましょうか？"
 #: 別モデルが持つ Web 検索の道具（結果を絞ってから文脈に入れる版・Fable 5.1 と Opus 5.5 で使える・Models API で確認）。
 WEB_SEARCH = "web_search_20260209"
 #: 続き（`pause_turn`）を受ける回数の上限。検索の回数は `max_uses` が抑える。
