@@ -182,6 +182,19 @@ async def judge_addressee(
     return verdict
 
 
+#: 返事が申し出で終わるか（出-dj・2026-11-02 本人の承認）。確認待ちの問いも申し出と読まれる（実験 0.94）ので、呼び手は確認待ちの
+#: あいだ聞かない。
+OFFER_QUESTION = choice(
+    "この返事は、相手に何かをしようかと申し出て（〜しましょうか・〜してみましょうか）、相手の返事を待って終わっているか",
+    {"offer": "申し出て返事を待っている", "none": "申し出ていない"},
+)
+
+
+def offered(answer: Any, min_conf: float) -> bool:
+    """話す前の検査の答えから、返事が申し出で終わるかを読む（出-dj）。迷ったら偽（預けない）。"""
+    return picked(answer, "offer", min_conf) == "offer"
+
+
 async def judge_speech(
     client, *, response: str, recent: str, facts: str, rules: "dict[str, str]", min_conf: float
 ) -> "str | None":
@@ -211,6 +224,7 @@ async def judge_speech_and_verdicts(
     rows: "dict[str, str]",
     min_conf: float,
     on_asked: "Callable[[str, dict, Any], None] | None" = None,
+    ask_offer: bool = False,
 ) -> "tuple[str | None, list]":
     """発話前の検査と、記憶の申告を **1 回の呼び出しで** 聞く（記-r・2026-10-14・本人の決定）。
 
@@ -224,6 +238,9 @@ async def judge_speech_and_verdicts(
 
     `on_asked` は、Jev に聞いて答えが返ったとき（`ok`）だけ `(state, questions, answer)` で呼ぶ（記録は呼び手が書く・知-bn）。
     失敗の答えは渡さない——記録に「破っていない」と書かれ、本当に通った回と混ざる。
+
+    `ask_offer` なら、返事が申し出で終わるか（`OFFER_QUESTION`）も同じ呼び出しで聞く。答えは呼び手が `on_asked` で受けて
+    `offered` で読む（出-dj）。
     """
     if not response:
         return None, []
@@ -242,6 +259,8 @@ async def judge_speech_and_verdicts(
             "この返事が破っている決まりはどれか（事実に書かれていないことは推測しない）", criteria
         )
     questions.update(_verdict_questions(rows))
+    if ask_offer:
+        questions["offer"] = OFFER_QUESTION
     if not questions:
         return None, []
     answer = await _ask(client, state, questions)

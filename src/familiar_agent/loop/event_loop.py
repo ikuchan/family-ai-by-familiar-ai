@@ -883,6 +883,8 @@ class InformationProcessing:
         self._see_returned = False
         # 聞き取りの確認の預かり（出-cm）：見立ての動作・元の言葉・聞き返した文・預けた時刻（monotonic）。
         self._heard_check: "dict | None" = None
+        # パジュの申し出の預かり（出-dj）：申し出た返事の文と、そのときの窓の会話の番号。次の 1 回の返事で消す。
+        self._offer: "dict | None" = None
         self._background_tasks: set[asyncio.Task] = set()
         #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
         self._version_writes: "set[asyncio.Future]" = set()
@@ -1337,6 +1339,17 @@ class InformationProcessing:
         suggestion = self._suggestion_frame()  # `[音楽のおすすめ]`（知-aa 段 4）
         if suggestion:
             iter_ctx = (iter_ctx + "\n\n" + suggestion) if iter_ctx else suggestion
+        if self._req.accepted_offer and len(self._req.lookups) > self._req.accepted_offer_lookups:
+            self._req.accepted_offer = (
+                ""  # もう調べものを投げた。やったあとの反復で「いまやる」を繰り返させない
+            )
+        if self._req.accepted_offer:
+            # 申し出を受けた返事（出-dj・本人の決定 b）。添えないと「しましょうか？」と聞き直しうる。差し戻しの書き直しにも載せる。
+            accepted = (
+                f"パジュの申し出（「{self._req.accepted_offer}」）に、相手は受けると答えた。"
+                "申し出たことを、いまやる"
+            )
+            iter_ctx = (iter_ctx + "\n\n" + accepted) if iter_ctx else accepted
         return build_event_system_prompt(
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
@@ -2868,6 +2881,7 @@ class InformationProcessing:
         self._req.cue_rang = False
         self._req.cue_played = False
         self._req.skills = []  # 窓の外で選んだスキルは、その求めのあいだだけ（環-au）
+        self._req.accepted_offer = ""  # 器は求めをまたいで使い回す（出-dj）
         self._req.trigger_kind = kind
         # 窓の会話の番号は、人の言葉なら門が決めた番号（環-ar 段 B）。始めるまでに窓が切れても、窓で受けた言葉の求めにする。
         # 門を通らない求め（情動・機器）と、門が番号を付けていない言葉は、いま窓が開いているかで決める。
@@ -3703,6 +3717,7 @@ class InformationProcessing:
         # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
         cue = self._start_reaction_cue(ws.returned_lookups)
         heard = self._take_heard_check(ws)
+        offer = self._take_offer(ws)
         try:
             decision = await self._arbiter().decide(
                 self._arbiter_input(
@@ -3723,6 +3738,7 @@ class InformationProcessing:
                         else ""
                     ),
                     heard=heard,
+                    offer=offer,
                     # パジュ用のスキル（環-au）。判断のたびに読み直す（直したらすぐ効く）。読むのはループの外で。
                     # 問いを聞くのは人の言葉の求めの最初の判断（道具の返りではない回）だけ。載っているものがあれば、書き手の枠の
                     # ためにも読む。
@@ -3740,6 +3756,9 @@ class InformationProcessing:
                 cue.stop()  # 調停が落ちても・時間切れでも、機械音 A は必ず止める
         self._note_confirm_prompt(decision)
         self._keep_heard_check(decision)
+        if getattr(decision, "offer_accepted", False) is True:
+            self._req.accepted_offer = offer  # 主LLM に 1 行添える（`_build_system`・出-dj）
+            self._req.accepted_offer_lookups = len(self._req.lookups)
         # 何を選んだかは INFO（出-k-い の材料。DEBUG では実機で見えなかった）。
         logger.info(
             "event-loop 調停=%s effort=%s action=%s",
@@ -3786,6 +3805,7 @@ class InformationProcessing:
         jev_workspace: "Callable[[int], str | None] | None" = None,
         jev_utterance: str = "",
         heard: "dict | None" = None,
+        offer: str = "",
         window_ctx: str = "",
         skills: "tuple[skills_mod.Skill, ...]" = (),
         active_skills: "tuple[str, ...]" = (),
@@ -3844,6 +3864,7 @@ class InformationProcessing:
             jev_max_chars=int(getattr(agent.config, "jev_state_max_chars", 28_000)),
             **self._confirm_inputs(),
             **_heard_inputs(heard),
+            offer_question=offer,
         )
 
     def _take_heard_check(self, ws) -> "dict | None":
@@ -3861,6 +3882,24 @@ class InformationProcessing:
             logger.info("event-loop 聞き取りの確認は切れていたので使わない：%s", held.get("action"))
             return None
         return held
+
+    def _take_offer(self, ws) -> str:
+        """会話の求めの最初の判断なら、申し出の預かりを取り出して消す（出-dj・本人の決定 a）。渡すのは申し出た文。
+
+        答えに使うのは次の 1 回だけ（答えがどれでも消す）。窓が閉じた・別の窓の会話になったなら渡さない（名前の無い「はい」は
+        窓の外ではどのみち届かない）。道具の返りの反復・情動・機器では取り出さない。
+        """
+        held = self._offer
+        if held is None or self._req.trigger_kind != "発話":
+            return ""
+        if ws.returned_actions or ws.returned_lookups:
+            return ""
+        self._offer = None
+        # 門が決めた求めの窓の番号で見る（`_begin_request`）。判断までに窓が切れても、窓で受けた返事なら使う。
+        if not self._req.window_session or self._req.window_session != held.get("session"):
+            logger.info("event-loop 申し出の預かりは窓が変わったので使わない")
+            return ""
+        return str(held.get("question") or "")
 
     def _keep_heard_check(self, decision) -> None:
         """見立てつきの聞き返しなら、聞き取りの確認として預ける（出-cm）。本文はログに出さない。"""
@@ -4168,6 +4207,9 @@ class InformationProcessing:
                 sum(len(a) for a in arrived),
             )
         asked: list = []
+        # 確認待ちの問いも申し出と読まれる（出-dj の実験 0.94）。確認待ちが答えを読むので、そのあいだは聞かない。
+        confirming = getattr(agent, "_pending_confirm", None) is not None
+        min_conf = float(getattr(agent.config, "jev_confidence_min", 0.6))
         violation, verdicts = await jev_judges.judge_speech_and_verdicts(
             getattr(agent, "_jev", None),
             response=text,
@@ -4177,14 +4219,22 @@ class InformationProcessing:
             rules=rule_list(
                 rules_for_checker(
                     allow_tts_tags=bool(getattr(tts, "understands_tags", False)),
-                    confirming=getattr(agent, "_pending_confirm", None) is not None,
+                    confirming=confirming,
                 )
             ),
-            min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+            min_conf=min_conf,
             on_asked=lambda *got: asked.append(got),
+            ask_offer=not confirming,
         )
         if asked:
             self._record_speech_check(*asked[0], violation=violation)
+            if violation is None:
+                # 話す返事ごとに置き直す（出-dj）。申し出で終わるなら、次の返事を 3 択で読むために預ける。申し出でない返事を
+                # 話したら、前の申し出は預からない（次の「うん」はその返事への答え）。本文はログに出さない。
+                self._offer = None
+                if not confirming and jev_judges.offered(asked[0][2], min_conf):
+                    self._offer = {"question": text, "session": self._wake_window().session}
+                    logger.info("event-loop 申し出を預けた")
         logger.info(
             "event-loop 発話前の検査 %.2f 秒（違反=%s）",
             time.monotonic() - started,

@@ -79,6 +79,8 @@ class Decision:
     #: 軽量LLM の判定で黙った（出-db 段 E）。合図を鳴らした後なので、ループが黙る音を鳴らす（出-dc）。Jev が最初から黙ると
     #: 決めた回（文が空の light）は偽。
     judged_silent: bool = False
+    #: パジュの申し出を相手が受けた（出-dj）。ループが主LLM に 1 行添える。
+    offer_accepted: bool = False
 
 
 #: 確認待ちへの答えの見出し（求めの見出し・ログ・完了の見出しにも使う）。
@@ -561,6 +563,8 @@ class ArbiterInput:
     heard_check_action: str = ""
     heard_check_utterance: str = ""
     heard_check_question: str = ""
+    #: パジュが直前にした申し出の文（出-dj）。次の 1 回の返事で、同じ窓のあいだだけ渡る（ループの `_take_offer`）。
+    offer_question: str = ""
 
 
 #: 動作の短い説明（軽量LLM に、決まった動作として渡す・`_action_note`）。
@@ -759,6 +763,10 @@ class Arbiter:
             heard = await self._heard_by_rule(inp, started)
             if heard is not None:
                 return heard
+        if inp.origin == "発話" and not inp.tool_return and inp.offer_question:
+            offer = await self._offer_by_rule(inp, started)
+            if offer is not None:
+                return offer
         if inp.origin == "発話" and not inp.tool_return:
             return await self._utterance_by_meaning(inp, started)
         return None
@@ -825,6 +833,29 @@ class Arbiter:
             heard="",
             started=started,
         )
+
+    async def _offer_by_rule(self, inp: ArbiterInput, started: float) -> "Decision | None":
+        """パジュの申し出への答えを 3 択で読む（出-dj・2026-11-02・本人の決定ア）。はい以外は None（ふつうに読む）。
+
+        はいなら考えて返す。申し出たことは決まった動作ではない（調べ直す・続きを話す・読み直す）ので、主LLM に任せる。
+        意味の道へ回すと、申し出を受ける意味が無く「頼んだことの確認」→ 状態を伝える、で軽く返して閉じた（11/02 12:55）。
+        """
+        from ..core import jev_judges
+
+        verdict = await jev_judges.judge_confirm_answer(
+            self._jev, question=inp.offer_question, text=inp.utterance, min_conf=self._min_conf
+        )
+        yes = verdict == jev_judges.CONFIRM_YES
+        logger.info(
+            "調停 %.2f 秒（申し出への答え：%s → %s）",
+            time.monotonic() - started,
+            verdict,
+            "考えて返す" if yes else "ふつうに読む",
+        )
+        if not yes:
+            return None
+        self._tell_decided("reply_full")
+        return Decision(branch="full", effort="low", offer_accepted=True)
 
     async def _device_by_rule(self, inp: ArbiterInput, started: float) -> Decision:
         """機器の知らせは「軽く知らせる」と機械で決める（出-ay 段 4-1・2026-10-09・`設計方針_判定の段` §2.2.5）。

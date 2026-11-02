@@ -127,6 +127,10 @@ class Request:
     # この求めが始まったときに開いていた窓の会話の番号（環-ar 段 A）。0 なら窓の外で始まった。返事の行と、話し終わりの
     # 開け直しを、この会話に結ぶのに使う。
     window_session: int = 0
+    # 相手が受けたパジュの申し出の文と、受けたときの調べものの数（出-dj）。主LLM が調べものを投げるまで system に添える
+    # （差し戻しの書き直しにも載せ、やったあとの反復には載せない・`_build_system`）。
+    accepted_offer: str = ""
+    accepted_offer_lookups: int = 0
     # 窓の外の求めで、調停の Jev が「使う」と選んだスキルの名前（環-au）。求めのあいだだけ載せる（窓の中は窓の会話が持つ）。
     skills: list[str] = field(default_factory=list)
     # 話しかけたときの合図（出-bg）。機械音 A を鳴らしたか（求めに 1 回だけ）。
