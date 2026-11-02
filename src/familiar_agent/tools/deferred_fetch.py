@@ -9,6 +9,8 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
+from .page_text import FETCH_ALL, PAGE_CHARS, visible
+
 logger = logging.getLogger(__name__)
 
 _MAX_CONCURRENT = 3
@@ -130,7 +132,7 @@ class DeferredFetchTool:
 
     async def _run(self, url: str, user_initiated: bool = False) -> None:
         try:
-            r = await self._fetch_fn("fetch", {"url": url})
+            r = await self._fetch_fn("fetch", {"url": url, "max_length": FETCH_ALL})
             if not r.ok:
                 # 取得の道具に代わりは無い。生の文はログにだけ（出-o）。
                 logger.warning("deferred fetch の道具が使えなかった（%.120s）", r.text)
@@ -140,13 +142,21 @@ class DeferredFetchTool:
                         {"url": url, "result": _msg, "user_initiated": user_initiated}
                     )
                 return
-            result = r.text
+            seen = visible(r.text)
+            result = seen[:PAGE_CHARS]
+            # URL は出さない（固有名詞が入る・2026-11-02）
+            logger.info(
+                "deferred fetch ページを読んだ（%d 字・見える字 %d 字 → %d 字）",
+                len(r.text),
+                len(seen),
+                len(result),
+            )
             if not self._deliver(url, result) and len(self._pending) < _MAX_PENDING:
                 self._pending.append(
                     {"url": url, "result": result, "user_initiated": user_initiated}
                 )
         except asyncio.CancelledError:
-            logger.warning("deferred fetch timed out after %ds (url=%r)", _FETCH_TIMEOUT_SEC, url)
+            logger.warning("deferred fetch timed out after %ds", _FETCH_TIMEOUT_SEC)
             _msg = f"取得がタイムアウトしました（{_FETCH_TIMEOUT_SEC}秒）: {url}"
             if not self._deliver(url, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
                 self._pending.append(
@@ -159,7 +169,7 @@ class DeferredFetchTool:
             # **再送出する。** 締切の見張りだけでなく終了時のキャンセルもここを通る。
             raise
         except Exception as exc:
-            logger.warning("deferred fetch failed (url=%r): %s", url, exc)
+            logger.warning("deferred fetch failed: %s", exc, exc_info=True)
             _msg = f"取得中にエラーが発生しました: {exc}"
             if not self._deliver(url, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
                 self._pending.append(

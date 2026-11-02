@@ -68,7 +68,41 @@ async def test_calls_fetch_mcp_tool():
     await asyncio.sleep(0)
     fn.assert_called_once()
     assert fn.call_args[0][0] == "fetch"
-    assert fn.call_args[0][1] == {"url": "https://example.com"}
+    # 全文で読み、URL を消してから切る（知-br・知-bp と同じ）
+    assert fn.call_args[0][1] == {"url": "https://example.com", "max_length": 999_999}
+
+
+async def _delivered(page: str, *, ok: bool = True) -> str:
+    """完了の渡し先へ届いた文（ループの道・2026-11-02 知-br）。"""
+    fn = AsyncMock(return_value=CallResult(page, None, ok))
+    tool = DeferredFetchTool(fn)
+    got: list[str] = []
+    tool.set_completion_sink(lambda url, result, *, failed=False: got.append(result))
+    await tool.call("fetch_deferred", {"url": "https://example.com"})
+    await asyncio.sleep(0)
+    return got[0]
+
+
+@pytest.mark.asyncio
+async def test_links_reach_the_main_llm_as_what_is_seen():
+    """読んだリンクから次を読んだ回は 60 日で 0 回だった（13 件）ので、URL は消す。"""
+    got = await _delivered(
+        '記事は[ここ](https://a.example/x_(y) "題")に。![写真](https://i.example/a.png)'
+    )
+    assert got == "記事はここに。写真"
+
+
+@pytest.mark.asyncio
+async def test_the_page_is_cut_at_8000_seen_chars():
+    """12:54 のページは全文 8,785 字（見える字 7,534）を 5,000 字で切り、後ろの 43% を読めなかった。"""
+    assert len(await _delivered("あ" * 20_000)) == 8000
+
+
+@pytest.mark.asyncio
+async def test_a_short_page_is_not_cut():
+    """**反証の側**：見える文字が 8,000 字までなら、そのまま全部届く。"""
+    page = "い" * 7534  # 12:54 のページの見える文字
+    assert await _delivered(page) == page
 
 
 @pytest.mark.asyncio

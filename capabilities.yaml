@@ -58,6 +58,8 @@ capabilities:
     detail: >
       `fetch_deferred` is used for fire-and-forget URL fetching. The result is made available in the
       agent's workspace on the subsequent turn. Implemented in `tools/deferred_fetch.py`.
+      The page arrives cut to 8,000 characters, and markdown links and images in it keep only their
+      visible text (their URLs are removed), so those links cannot be followed from the result.
     enabled: true
   - id: deferred_search
     summary: Asynchronously perform a search and inject results on the next turn
