@@ -177,3 +177,54 @@ def test_the_loop_tells_the_arbiter_that_music_is_playing():
                 ip._decide(utterance="止めて", ws=ws_of(), present_ctx="", capped=False, round_=1)
             )
     assert seen == [True, False]
+
+
+# ── 道具の側でも止める（どの道から呼ばれても・2026-11-02・本人「そこまで実装してしまって」）──────────────
+#
+# 調停が意味で決めた道だけでなく、主LLM が考えて返す道や、聞き返しに「はい」と答えた道からも、鳴っているあいだに曲名の
+# 無い play_music が来うる。道具が鳴っている印を見て、続きをかけ直さずに返す。完了の表で「かけた → 黙る」なので、成功で返す。
+
+
+def _music_tool(playing: bool, *, spotify_playing: bool = True):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock, MagicMock
+
+    from familiar_agent.tools.music import MusicTool
+
+    web = MagicMock()
+    web.resume = MagicMock(return_value=True)
+    web.now_playing = MagicMock(return_value={"playing": spotify_playing})
+    tool = MusicTool(
+        io=MagicMock(play=AsyncMock(return_value=True)),
+        bus=lambda: MagicMock(),
+        table=lambda: (),
+        state=SimpleNamespace(playing=playing, started_at=0.0),
+        web=web,
+        device_name="パジュ",
+    )
+    return tool, web
+
+
+@pytest.mark.parametrize("said", ["", "音楽"])
+def test_the_tool_does_not_resume_while_playing(said):
+    tool, web = _music_tool(True)
+    text, ok = asyncio.run(tool.call("play_music", {"name": said}))
+    assert ok is True and "鳴っている" in text
+    web.resume.assert_not_called()
+
+
+def test_the_tool_resumes_when_not_playing():
+    """**反証の側**：鳴っていなければ、いまどおり止まっていた続きをかける。"""
+    tool, web = _music_tool(False)
+    text, ok = asyncio.run(tool.call("play_music", {"name": ""}))
+    assert ok is True and "続き" in text
+    web.resume.assert_called_once()
+
+
+def test_a_stale_flag_is_checked_with_spotify():
+    """**反証の側**：印が古く（外で止めた直後など）Spotify では止まっていれば、いまどおり続きをかける。"""
+    tool, web = _music_tool(True, spotify_playing=False)
+    web.now_playing.side_effect = [{"playing": False}] + [{"playing": True}] * 20
+    text, ok = asyncio.run(tool.call("play_music", {"name": ""}))
+    assert ok is True and "続き" in text
+    web.resume.assert_called_once()

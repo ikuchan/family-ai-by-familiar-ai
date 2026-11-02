@@ -176,6 +176,11 @@ class MusicTool:
 
         said = str(tool_input.get("name") or "").strip()
         if not said or music_rules.means_no_name(said):  # 「音楽」「曲」は名前ではない（知-al (2)）
+            if await self._really_playing():
+                # 鳴っているのに続きをかけると、鳴っている曲をかけ直す（11/02 12:52・崩れた「止めて」で起きた）。どの道から
+                # 呼ばれても、かけ直さずに返す（知-bq・2026-11-02・本人）。完了の表で「かけた → 黙る」になるよう成功で返す。
+                logger.info("音楽：鳴っているので、曲名の無い続きはかけ直さなかった")
+                return "いま鳴っているので、そのまま鳴らしている（続きはかけ直さない）", True
             return await self._resume()
         order = str(tool_input.get("order") or "")
         catalog = music_catalog.stored()
@@ -245,6 +250,25 @@ class MusicTool:
             return f"{heading}かけられなかった（音の出口が見つからない）", False
         await self._use_saved_volume()
         return None
+
+    async def _really_playing(self) -> bool:
+        """いま本当に鳴っているか（知-bq）。印（`_state.playing`）が立っていなければ鳴っていない。
+
+        印は見回り（約 30 秒おき）でしか下がらないので、外（スマホ）で止めた直後やプレイリストが終わった直後も立っている。
+        立っていたら Spotify に聞いて確かめる。聞けなければ印を信じる。
+        """
+        if getattr(self._state, "playing", False) is not True:
+            return False
+        if self._web is None:
+            return True
+        try:
+            now = await asyncio.to_thread(self._web.now_playing)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "音楽：いま鳴っているかを Spotify に聞けなかった（印を信じる）", exc_info=True
+            )
+            return True
+        return bool((now or {}).get("playing"))
 
     async def _resume(self) -> "tuple[str, bool]":
         """曲名なし：Spotify で止まっていた続きを鳴らす（出-ay 段 4-4e・2026-10-09）。
