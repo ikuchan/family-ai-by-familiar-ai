@@ -95,7 +95,23 @@ async def test_links_reach_the_main_llm_as_what_is_seen():
 @pytest.mark.asyncio
 async def test_the_page_is_cut_at_8000_seen_chars():
     """12:54 のページは全文 8,785 字（見える字 7,534）を 5,000 字で切り、後ろの 43% を読めなかった。"""
-    assert len(await _delivered("あ" * 20_000)) == 8000
+    got = await _delivered("あ" * 20_000)
+    assert (
+        got == "あ" * 8000 + "\n（ページはここまで：全 20,000 字のうち 8,000 字）"
+    )  # 切ったと分かる
+
+
+@pytest.mark.asyncio
+async def test_the_mark_counts_what_is_seen():
+    """印の N は、URL を消したあとの字数（fetch が返した字数ではない）。"""
+    got = await _delivered(("[あ](https://x.example/" + "%E3" * 10 + ")") * 9000)
+    assert got.endswith("\n（ページはここまで：全 9,000 字のうち 8,000 字）")
+
+
+@pytest.mark.asyncio
+async def test_exactly_8000_is_not_marked():
+    """**反証の側**：ちょうど 8,000 字は切っていない。"""
+    assert await _delivered("う" * 8000) == "う" * 8000
 
 
 @pytest.mark.asyncio

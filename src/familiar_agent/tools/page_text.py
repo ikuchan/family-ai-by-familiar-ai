@@ -19,3 +19,17 @@ _LINK = re.compile(r"\[((?:[^\[\]\n]|\[[^\[\]\n]*\])*)\]" + _URL)
 def visible(text: str) -> str:
     """画像とリンクを見える文字だけにする（`![説明](URL)`→説明・`[文字](URL)`→文字）。"""
     return _LINK.sub(r"\1", _IMAGE.sub(r"\1", text))
+
+
+def fit_page(text: str) -> "tuple[str, int]":
+    """見える文字にして `PAGE_CHARS` で切る。切ったら末尾に印を付ける（主LLM が全文と思わない・知-br）。
+
+    返すのは（渡す文、見える文字の数）。
+    """
+    seen = visible(text)
+    if len(seen) <= PAGE_CHARS:
+        return seen, len(seen)
+    return (
+        f"{seen[:PAGE_CHARS]}\n（ページはここまで：全 {len(seen):,} 字のうち {PAGE_CHARS:,} 字）",
+        len(seen),
+    )

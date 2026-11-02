@@ -7,7 +7,7 @@ import logging
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from ..core.structured_ask import ask_yes_no
-from .page_text import FETCH_ALL, PAGE_CHARS, visible
+from .page_text import FETCH_ALL, fit_page
 
 if TYPE_CHECKING:
     from ..core.search_relevance import Checked
@@ -215,13 +215,12 @@ class DeferredSearchTool:
         if not r.ok:
             logger.warning("deferred search ページを読めなかった（%.120s）", r.text)
             return ""
-        seen = visible(r.text)
-        page = seen[:PAGE_CHARS]
+        page, seen = fit_page(r.text)
         # URL は出さない（固有名詞が入る・2026-11-02）
         logger.info(
             "deferred search ページを読んだ（%d 字・見える字 %d 字 → %d 字）",
             len(r.text),
-            len(seen),
+            seen,
             len(page),
         )
         return f"\n\n[読んだページ] {url}\n{page}"

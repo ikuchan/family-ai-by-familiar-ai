@@ -297,7 +297,9 @@ def test_the_page_is_cut_after_the_links_are_gone():
     link = "[霜](https://ja.example/wiki/" + "%E9%9C%9C" * 20 + ")"  # 1 本 190 字ほど・見える字は 1
     page = (link + "降") * 3000  # 見える字は 6,000
     assert _read(page) == "霜降" * 3000
-    assert len(_read("あ" * 20_000)) == 8000
+    assert (
+        _read("あ" * 20_000) == "あ" * 8000 + "\n（ページはここまで：全 20,000 字のうち 8,000 字）"
+    )
 
 
 def test_no_page_to_read_means_no_fetch():

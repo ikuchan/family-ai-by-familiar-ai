@@ -9,7 +9,7 @@ import asyncio
 import logging
 from typing import Any, Awaitable, Callable
 
-from .page_text import FETCH_ALL, PAGE_CHARS, visible
+from .page_text import FETCH_ALL, fit_page
 
 logger = logging.getLogger(__name__)
 
@@ -142,13 +142,12 @@ class DeferredFetchTool:
                         {"url": url, "result": _msg, "user_initiated": user_initiated}
                     )
                 return
-            seen = visible(r.text)
-            result = seen[:PAGE_CHARS]
+            result, seen = fit_page(r.text)
             # URL は出さない（固有名詞が入る・2026-11-02）
             logger.info(
                 "deferred fetch ページを読んだ（%d 字・見える字 %d 字 → %d 字）",
                 len(r.text),
-                len(seen),
+                seen,
                 len(result),
             )
             if not self._deliver(url, result) and len(self._pending) < _MAX_PENDING:

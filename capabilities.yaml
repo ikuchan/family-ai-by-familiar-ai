@@ -60,6 +60,7 @@ capabilities:
       agent's workspace on the subsequent turn. Implemented in `tools/deferred_fetch.py`.
       The page arrives cut to 8,000 characters, and markdown links and images in it keep only their
       visible text (their URLs are removed), so those links cannot be followed from the result.
+      When the page was cut, it ends with a note giving the full length, so the rest was not read.
     enabled: true
   - id: deferred_search
     summary: Asynchronously perform a search and inject results on the next turn
@@ -69,7 +70,8 @@ capabilities:
       Choose Tavily for things that change by the day (weather, news, prices, timetables, results)
       and Brave for facts that do not change (meanings, origins, history, explanations). When no
       Brave result holds the answer, the page most likely to hold it is read and delivered with
-      the list. One request may use it twice in all (try different words the second time); after the
+      the list, as visible text cut to 8,000 characters; a cut page ends with a note giving its full
+      length, so the rest was not read. One request may use it twice in all (try different words the second time); after the
       second result arrives it is no longer offered, and the answer is what the two results show and
       what they do not.
     enabled: true
