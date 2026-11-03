@@ -120,3 +120,30 @@ def test_stops_early_when_the_model_cannot_load() -> None:
         written, failed = _fill()
     assert (written, failed) == (0, 3)
     assert _count(ids) == 0
+
+
+def test_run_does_not_deadlock_on_settings() -> None:
+    """設定値の控えが空でも固まらない（2026-11-03 本番で固まった）。
+
+    Ruri の入れ物は作るときに設定値を読み、設定値の読みは DB の錠を取る。錠を持ったまま入れ物を作ると、
+    自分で自分を待つ。テストでは控えが先に入っていて通ってしまったので、控えを空にして確かめる。
+    """
+    import threading
+
+    from familiar_agent import config_overrides
+    from familiar_agent.store.ruri_backfill import run
+
+    ids = _save_without_ruri(2)
+    config_overrides._cache = None
+    out: list[str] = []
+    result: dict = {}
+    t = threading.Thread(
+        target=lambda: result.update(code=run(get_db(), out=out.append)), daemon=True
+    )
+    t.start()
+    t.join(timeout=20)
+    assert not t.is_alive(), "固まった：" + " / ".join(out)
+    assert result["code"] == 0
+    assert _count(ids) == 2
+    assert out[0].startswith("Ruri を読み込んだ") and out[1].startswith("はじめ")
+    assert out[-1].startswith("おわり")

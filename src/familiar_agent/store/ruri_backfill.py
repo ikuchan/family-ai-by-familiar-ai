@@ -87,3 +87,47 @@ def fill_missing(
         if report is not None:
             report(written + failed, total)
     return written, failed
+
+
+def _counts(conn: Any) -> tuple[int, int]:
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) AS c FROM observations")
+        obs = cur.fetchone()
+        cur.execute("SELECT count(*) AS c FROM obs_ruri_embeddings")
+        ruri = cur.fetchone()
+    conn.rollback()
+
+    def pick(r: Any) -> int:
+        return int(r["c"] if isinstance(r, dict) else r[0])
+
+    return pick(obs), pick(ruri)
+
+
+def run(db: Any, *, batch_size: int = 16, out: "Callable[[str], None]" = print) -> int:
+    """道具の本体（`scripts/backfill_ruri.py` から呼ぶ）。終了コードを返す（0＝全部埋めた）。"""
+    import time
+
+    from .embedding import _RuriModel
+
+    started = time.monotonic()
+    # **Ruri は錠の外で作り、読み込んでおく。** 作るときに設定値を読み、設定値の読みは DB の錠を取る。
+    # 錠を持ったまま作ると自分で自分を待って固まる（2026-11-03 本番で固まった）。
+    ruri = _RuriModel()
+    if ruri.ensure() is None:
+        out("Ruri のモデルを読み込めなかったので、何もしないで終わる")
+        return 1
+    out(f"Ruri を読み込んだ（{time.monotonic() - started:.0f} 秒）")
+    with db.lock:
+        conn = db.conn()
+        obs, ruri_rows = _counts(conn)
+        out(f"はじめ：記録 {obs} 件・Ruri の行 {ruri_rows} 件")
+
+        def report(done: int, total: int) -> None:
+            if done == total or done % (batch_size * 50) == 0:
+                out(f"  {done}/{total} 件（{time.monotonic() - started:.0f} 秒）")
+
+        written, failed = fill_missing(conn, ruri, batch_size=batch_size, report=report)
+        obs, ruri_rows = _counts(conn)
+    out(f"書いた {written} 件・飛ばした {failed} 件・{time.monotonic() - started:.0f} 秒")
+    out(f"おわり：記録 {obs} 件・Ruri の行 {ruri_rows} 件")
+    return 0 if failed == 0 else 1
