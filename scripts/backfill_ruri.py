@@ -17,6 +17,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+import familiar_agent.config  # noqa: E402,F401  .env を読む（DATABASE_URL）。アプリと同じ読み方にする
 from familiar_agent.db import get_db  # noqa: E402
 from familiar_agent.store.embedding import _RuriModel  # noqa: E402
 from familiar_agent.store.ruri_backfill import app_is_running, fill_missing  # noqa: E402
