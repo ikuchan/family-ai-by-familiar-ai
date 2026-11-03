@@ -533,6 +533,8 @@ class ArbiterInput:
     extra_actions: tuple[str, ...] = ()
     #: この求めで回数を使い切った動作（出-dg ろ）。結果が返ったときの候補から外す。
     spent_actions: frozenset[str] = frozenset()
+    #: この求めに、結果の届いた調べものがあるか（出-dh）。使い切ったあとの失敗を「使い切った」と同じに分けるのに使う。
+    search_arrived: bool = False
     tool_return: bool = False
     timer_active: bool = False
     family_md: str = ""
@@ -906,7 +908,13 @@ class Arbiter:
         from ..core.jev_judges import _ask
 
         action, failed, result = inp.returned[-1]
-        got = kind_of(action, failed=failed, result=result, origin=inp.origin)
+        got = kind_of(
+            action,
+            failed=failed,
+            result=result,
+            origin=inp.origin,
+            spent_with_results="search_deferred" in inp.spent_actions and inp.search_arrived,
+        )
         if got is None:
             return None
         kind, actions = got

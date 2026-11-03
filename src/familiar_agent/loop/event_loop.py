@@ -42,6 +42,7 @@ from ..core import (
     unsaid,
 )
 from ..core.aio import wait_within
+from ..core.completion_kind import is_spent
 from ..core.drive_autonomy import TALKING_AXES
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
@@ -273,6 +274,17 @@ def _searches(req, *, arrived: bool) -> int:
         if _action_family(lk.action) == "search_deferred"
         and not lk.failed
         and (lk.result is not None or not arrived)
+    )
+
+
+def _search_arrived(req) -> bool:
+    """この求めに、結果の届いた調べものがあるか（出-dh）。失敗と、使い切って投げなかった器は数えない。"""
+    return any(
+        _action_family(lk.action) == "search_deferred"
+        and bool(lk.result)  # 0 件（空の結果）は、答えに使える結果ではない
+        and not lk.failed
+        and not is_spent(lk.result)
+        for lk in req.lookups
     )
 
 
@@ -2094,7 +2106,11 @@ class InformationProcessing:
         return "\n".join(
             f"- {lk.query}：{lk.result}"
             for lk in self._req.lookups
-            if lk.action == "search_deferred" and lk.result and not lk.failed
+            # 使い切って投げなかった器は結果ではない（出-dh）。
+            if _action_family(lk.action) == "search_deferred"
+            and lk.result
+            and not lk.failed
+            and not is_spent(lk.result)
         )
 
     def _deep_available(self) -> bool:
@@ -2727,6 +2743,8 @@ class InformationProcessing:
                     and not lk.failed
                     and _action_family(action) in _LOOKUP_ACTIONS
                     and action not in _CAMERA_ACTIONS
+                    # 使い切って投げなかった器は、調べていないので窓の会話に「調べた」と書かない（出-dh）。
+                    and not is_spent(result_text)
                 ):
                     # 調べた結果は、窓の会話に短い 1 行で足す（環-ar 段 A・全文は W の作業状態）。
                     self._talk_line(self._me(), _talk_result(query, result_text))
@@ -3998,6 +4016,7 @@ class InformationProcessing:
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
             spent_actions=frozenset(self._req.spent_actions),
+            search_arrived=_search_arrived(self._req),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
             # 完了を機械で分ける（出-ay 段 4-2）。主LLM は外部の道具を道具の名前（`get_family_schedule`）で呼ぶので、
             # 完了の表が引く動作の名前（`family_schedule`）に揃える（段 5b）。揃えないと表に当たらなかった。

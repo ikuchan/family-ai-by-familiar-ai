@@ -54,7 +54,7 @@ EVENT_SYSTEM_PROMPT = """\
     (constraint :priority critical :id no-claim-while-confirming
       "[確認待ち] の枠があるあいだは、まだ掛かっていない。「掛けた」「セットした」「始めた」と言わない。確かめている最中だと伝えるか、相手の答えを待つ。")
     (constraint :priority high :id widen-before-giving-up
-      "「思い出せない」「見つからない」と言うのは、引き方を変えて引き直した**後**だけ。まだ一度も引き直していないなら、say を呼ばずに recall_when（いつ頃か見当がつくとき）か recall_deeper（件数と思い出し方を変える）を先に呼ぶ。面を変える recall_as、直近を広げる recall_recent もある。調べもの（search_deferred）なら、聞き返さずに語を変えて（別の言い方・英語の呼び方など）呼び直してから。")
+      "「思い出せない」「見つからない」と言うのは、引き方を変えて引き直した**後**だけ。まだ一度も引き直していないなら、say を呼ばずに recall_when（いつ頃か見当がつくとき）か recall_deeper（件数と思い出し方を変える）を先に呼ぶ。面を変える recall_as、直近を広げる recall_recent もある。調べもの（search_deferred）は 1 つの求めで合わせて 2 回まで。1 回目で見つからなければ、聞き返さずに語を大きく変えて（別の言い方・英語の呼び方など）2 回目を呼ぶ。")
     (constraint :priority high :id memory-evidence-confidence
       "想起した記憶に confidence があり 0.55 未満なら、事実でなく仮説として扱い、断定を避けて確かめる。")
     ; ── 内部状態の扱い ──

@@ -22,6 +22,7 @@ from dataclasses import replace as _replace
 from datetime import datetime
 
 from ..core import final_version, measure
+from ..core.completion_kind import is_spent
 from ..io.oif import Cue, Recalled, View
 from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
@@ -67,6 +68,10 @@ def lookup_lines(
         elif lk.failed:
             # 結果ではない。生のエラー文は載せない（対処できる情報ではない・出-o）。
             parts.append(f"{lk.index}番：{lk.action}「{lk.query}」は道具が使えず失敗した")
+        elif is_spent(lk.result):
+            # 使い切って投げなかった（出-dh）。器は完了の行き先なので残るが、調べていないので「届いた」と書かない
+            # （書くと、話す前の検査や主LLM が調べた結果の 1 件として読む）。
+            parts.append(f"{lk.index}番：{lk.action}「{lk.query}」は使い切ったので投げなかった")
         elif lk.index in omit:
             parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{_BODY_ELSEWHERE}")
         else:

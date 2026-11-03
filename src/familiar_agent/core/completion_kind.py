@@ -19,6 +19,12 @@ ALREADY_TRIED = "この求めですでに調べた"
 #: この求めで調べもの（`search_deferred`）を使い切って、投げなかったときの印（出-dg ろ・`event_loop._dispatch_lookup`）。
 SEARCH_SPENT = "この求めの調べもの（合わせて 2 回）は使い切った"
 
+
+def is_spent(result: "str | None") -> bool:
+    """使い切って投げなかった調べものの完了か（出-dh）。器は完了の行き先なので作るが、調べた結果ではない。"""
+    return SEARCH_SPENT in (result or "")
+
+
 #: 調べものの道具（頼まれたら答えを返す・自分からなら覚えておく）。`ask_vault_` で始まる本人の記録も含む。
 _RESEARCH = frozenset(
     {
@@ -78,20 +84,34 @@ def _research(action: str) -> bool:
 
 
 def kind_of(
-    action: str, *, failed: bool, result: "str | None", origin: str
+    action: str,
+    *,
+    failed: bool,
+    result: "str | None",
+    origin: str,
+    spent_with_results: bool = False,
 ) -> "tuple[str, tuple[str, ...]] | None":
-    """(何が起きたか, 2 回目に並べる動作)。表に無い道具は None（いままでの判定に任せる）。"""
+    """(何が起きたか, 2 回目に並べる動作)。表に無い道具は None（いままでの判定に任せる）。
+
+    `spent_with_results`：この求めで調べものを使い切っていて、ほかに結果の届いた調べものがある（出-dh）。
+    """
     text = (result or "").strip()
     if ALREADY_TRIED in text:
         # 同じ求めで同じ操作をもう一度選んだ（出-be）。投げずに前の結果が返ってきたので、もう一度かけ直す・調べ直すと
         # 反復の上限まで同じことが続く。道具に関係なく、前の結果を軽く伝えて終える。
         return "同じことをもう一度頼もうとした", ("tell_light",)
-    if SEARCH_SPENT in text:
+    if is_spent(text):
         # 調べものを使い切った（出-dg ろ）。届いた結果から、分かったことと分からないことを主LLM が答える。
         # 自分から調べた（情動）なら頼まれていないので、話しかけるまで。
         if origin == "情動":
             return "自分から調べに行ったが使い切った", ("silent", "talk_light")
         return "調べものを使い切った", ("reply_full",)
+    if failed and spent_with_results and action == "search_deferred":
+        # 使い切ったあとに、まだ届いていなかった調べものが失敗して届いた（出-dh）。いまやることは使い切ったときと
+        # 同じで、届いた結果から答える。軽く伝えると、1 回目の結果が軽く触れるだけで終わる。
+        if origin == "情動":
+            return "自分から調べに行ったが使い切った", ("silent", "talk_light")
+        return "調べものを使い切った（最後の 1 回は失敗した）", ("reply_full",)
     if failed:
         if "別の曲が鳴っている" in text:
             return "頼んだものと違うものになった", ("play_music",)

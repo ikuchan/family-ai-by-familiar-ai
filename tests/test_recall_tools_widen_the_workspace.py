@@ -144,4 +144,5 @@ def test_the_widening_rule_covers_searching_again():
 
     (line,) = [ln for ln in rules_section().splitlines() if "widen-before-giving-up" in ln]
     rule = rules_section().split(line, 1)[1].split("(constraint", 1)[0]
-    assert "search_deferred" in rule and "語を変えて" in rule
+    # 出-dh（2026-11-03・本人の決定ア）で「1 つの求めで合わせて 2 回まで。…語を大きく変えて 2 回目を呼ぶ」にした。
+    assert "search_deferred" in rule and "語を大きく変えて" in rule
