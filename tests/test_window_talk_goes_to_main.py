@@ -198,19 +198,23 @@ def test_a_say_only_round_in_the_window_keeps_the_tool_list(monkeypatch, kw):
     sent, decided = _run(ip, monkeypatch, calls=[other, say], **kw)
     assert _names(sent["tools"]) == full  # 道具の一覧は変えない
     assert sent["system"][:-1] == ("安定", HEAD, L1)  # 前のまとまりは変えない
-    assert "say だけ" in sent["system"][-1]  # 毎回変わる部分で伝える
+    # 毎回変わる部分で伝える（言い直しの回は RETRY_NOTE・それ以外は SAY_ONLY_NOTE・出-dk）
+    from familiar_agent.loop.event_loop import RETRY_NOTE, SAY_ONLY_NOTE
+
+    want, other = (RETRY_NOTE, SAY_ONLY_NOTE) if kw.get("retried") else (SAY_ONLY_NOTE, RETRY_NOTE)
+    assert want in sent["system"][-1] and other not in sent["system"][-1]
     assert [tc.name for tc in decided.result.tool_calls] == ["say"]  # say 以外は捨てる
 
 
 def test_a_say_only_round_outside_the_window_still_narrows_the_tools(monkeypatch):
-    """**反証の側**：窓の外の言い直しは、いまどおり say だけを渡す。"""
+    """**反証の側**：窓の外の言い直しは、道具を絞って渡す（say と、出-dk で調べものだけ）。"""
     from familiar_agent.loop.event_loop import InformationProcessing
     from tests.test_event_loop import _agent
 
     ip = InformationProcessing(_agent(stream_returns=[]))
     say = ToolCall(id="s", name="say", input={"text": "ごりら"})
     sent, _decided = _run(ip, monkeypatch, calls=[say], retried=True)
-    assert _names(sent["tools"]) == ["say"]
+    assert _names(sent["tools"]) == ["say", "search_deferred"]
     assert "say だけ" not in system_text(sent["system"])
 
 
@@ -287,10 +291,10 @@ def test_a_short_window_has_no_stride_mark():
 
 
 def test_the_say_only_note_is_added_once():
-    from familiar_agent.loop.event_loop import SAY_ONLY_NOTE, _with_say_only_note
+    from familiar_agent.loop.event_loop import SAY_ONLY_NOTE, _with_round_note
 
-    once = _with_say_only_note(("安定", HEAD, "可変"))
-    assert _with_say_only_note(once) == once
+    once = _with_round_note(("安定", HEAD, "可変"))
+    assert _with_round_note(once) == once
     assert once[-1].count(SAY_ONLY_NOTE) == 1
 
 
@@ -315,7 +319,8 @@ def test_when_only_other_tools_were_called_it_asks_again_with_say_only(monkeypat
         )
     )  # fmt: skip
     calls = ip._agent.backend.stream_turn.await_args_list
-    assert len(calls) == 2 and _names(calls[1].kwargs["tools"]) == ["say"]
+    # 言い直しの回は、say と調べものだけを渡して呼び直す（出-dk）
+    assert len(calls) == 2 and _names(calls[1].kwargs["tools"]) == ["say", "search_deferred"]
     assert [tc.name for tc in ip._triggers.get_nowait().decision.result.tool_calls] == ["say"]
 
 
@@ -336,7 +341,11 @@ def test_with_the_cache_off_a_say_only_round_still_narrows_the_tools(monkeypatch
         )
     )  # fmt: skip
     sent = ip._agent.backend.stream_turn.await_args.kwargs
-    assert _names(sent["tools"]) == ["say"] and "say だけ" not in sent["system"]
+    # 言い直しの回は、say と調べものだけ。調べるあいだは say を呼ばないことは言葉で伝える（出-dk）
+    from familiar_agent.loop.event_loop import RETRY_NOTE, SAY_ONLY_NOTE
+
+    assert _names(sent["tools"]) == ["say", "search_deferred"]
+    assert RETRY_NOTE in sent["system"] and SAY_ONLY_NOTE not in sent["system"]
     assert f"{HEAD}\n{L1}" in sent["system"]  # 1 本の文でも、窓の会話は 1 つの枠
 
 
@@ -384,7 +393,7 @@ def test_a_backend_that_joins_the_system_still_narrows_the_tools(monkeypatch):
     monkeypatch.setattr(event_loop, "_caches_window", lambda backend: False)
     say = ToolCall(id="s", name="say", input={"text": "ごりら"})
     sent, _decided = _run(_ip_in_window(), monkeypatch, calls=[say], retried=True)
-    assert _names(sent["tools"]) == ["say"]
+    assert _names(sent["tools"]) == ["say", "search_deferred"]  # 言い直しの回は調べものも（出-dk）
 
 
 def test_only_the_anthropic_backend_marks_the_window_lines():

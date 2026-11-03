@@ -745,16 +745,29 @@ def _caches_window(backend) -> bool:
 
 #: 窓の会話の中の say だけの回に、毎回変わる部分の最後へ添える言葉（環-ar 段 D）。道具の一覧は変えないので、言葉で伝える。
 SAY_ONLY_NOTE = "[この回] say だけを使う。ほかの道具は呼ばない（呼んでも使われない）。"
+#: 発話前の検査に差し戻された言い直しの回に添える言葉（出-dk・2026-11-03・本人の決定ア）。調べものだけは通す。
+RETRY_NOTE = (
+    "[この回] say か search_deferred だけを使う。調べれば分かることなら search_deferred を呼び、say は呼ばない"
+    "（調べているあいだは声にしない）。ほかの道具は呼ばない（呼んでも使われない）。"
+)
 
 
-def _with_say_only_note(system: Any) -> Any:
-    """system の最後（毎回変わる部分）に、say だけの回の言葉を添える。前のまとまりには触らない（キャッシュを外さない）。
+def _with_round_note(system: Any, note: str = SAY_ONLY_NOTE) -> Any:
+    """system の最後（毎回変わる部分）に、道具を絞る回の言葉（`SAY_ONLY_NOTE` か `RETRY_NOTE`）を添える。
+    前のまとまりには触らない（キャッシュを外さない）。
 
-    言い直しは前の回の system をそのまま使うので、すでに添えてあれば足さない。
+    言い直しは前の回の system をそのまま使う。同じ言葉がすでにあれば足さず、**もう一方の言葉は外す**
+    （「say で言い直して」の回の system を言い直しに使うと、食い違う 2 つの言葉が並んでいた・出-dk の見直し）。
     """
-    if not isinstance(system, tuple) or not system or SAY_ONLY_NOTE in system[-1]:
+    if not isinstance(system, tuple) or not system:
         return system
-    return (*system[:-1], f"{system[-1]}\n\n{SAY_ONLY_NOTE}" if system[-1] else SAY_ONLY_NOTE)
+    last = system[-1]
+    for other in (SAY_ONLY_NOTE, RETRY_NOTE):
+        if other != note:
+            last = last.replace(f"\n\n{other}", "").replace(other, "")
+    if note in last:
+        return (*system[:-1], last)
+    return (*system[:-1], f"{last}\n\n{note}" if last else note)
 
 
 def _without_silence_note(system: Any) -> Any:
@@ -1926,8 +1939,19 @@ class InformationProcessing:
         try:
             # 発話だけに絞る理由は2つあり、**別のことである**（1つの名前へまとめない）。
             # `capped`＝連鎖上限なので、調べさせずに必ず閉じる。
-            # `retried`＝言い直しなので、答え直すだけでよい（調べ直すためではない）。
-            narrow = ("say",)
+            # `retried`＝発話前の検査に差し戻された言い直し。答え直すのが基本だが、**調べもの（search_deferred）だけは
+            # 通す**（出-dk・2026-11-03・本人の決定ア）。検査は「調べれば分かることは search_deferred で確かめてから
+            # 話す」で差し戻すのに、調べる呼び出しを捨てると「いま調べています」だけが声になった（19:14）。
+            # 上限の回は連鎖を必ず閉じるため、「say で言い直して」の回は文で返したものを言い直すだけのため、say だけにする。
+            # この求めで調べものを使い切った・失敗したなら通さない（窓の中は道具の一覧で外せないので、ここで外す）。
+            retry_search = (
+                retried
+                and not capped
+                and not say_asked
+                and "search_deferred" not in self._req.spent_actions
+                and "search_deferred" not in self._req.failed_actions
+            )
+            narrow = ("say", "search_deferred") if retry_search else ("say",)
             say_only = capped or retried or say_asked
             # プロンプトキャッシュを使うか（出-bs 段 2）。層 3 が直近 7 日の続き方で入り切りする。使わないなら固定部分と
             # 道具の印を付けない（組を 1 本の文にすれば、どの backend も印を付けない）。
@@ -1942,7 +1966,10 @@ class InformationProcessing:
                 and self._talk_of(self._req.window_session) is not None
             )
             if say_only_in_window:
-                system = _with_say_only_note(system)
+                system = _with_round_note(system, RETRY_NOTE if retry_search else SAY_ONLY_NOTE)
+            elif retry_search:
+                # 窓の外の言い直しは道具を絞って渡すが、調べるあいだは say を呼ばないことは言葉で伝える。
+                system = _with_round_note(system, RETRY_NOTE)
             if not cache_on and isinstance(system, tuple):
                 system = system_text(system, sep="\n\n")
             # say で言い直すよう差し戻した呼び出しも、言い直しと同じく say だけを渡す（出-ck）。
@@ -1951,23 +1978,26 @@ class InformationProcessing:
                 cache_tools=cache_on,
             )
             result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
-            if say_only_in_window and any(tc.name != "say" for tc in result.tool_calls):
-                # 道具は渡してあるが、この回は say だけ（環-ar 段 D）。ほかの呼び出しは投げずに捨てる。
-                kept = [tc for tc in result.tool_calls if tc.name == "say"]
+            if say_only_in_window and any(tc.name not in narrow for tc in result.tool_calls):
+                # 道具は渡してあるが、この回は say だけ（言い直しなら調べものも）（環-ar 段 D）。ほかの呼び出しは捨てる。
+                kept = [tc for tc in result.tool_calls if tc.name in narrow]
                 logger.info(
-                    "event-loop 主LLM の say だけの回なので道具の呼び出しを捨てた：%s",
-                    "/".join(tc.name for tc in result.tool_calls if tc.name != "say"),
+                    "event-loop 主LLM の道具を絞る回（%s）なので道具の呼び出しを捨てた：%s",
+                    "/".join(narrow),
+                    "/".join(tc.name for tc in result.tool_calls if tc.name not in narrow),
                 )
                 result = replace(result, tool_calls=kept)
                 if not kept:
-                    # 捨てたら何も言えない。黙って終わらないよう、say だけを渡してもう一度呼ぶ（キャッシュはこの 1 回だけ外れる）。
-                    logger.info("event-loop say が無かったので、say だけを渡して呼び直す")
+                    # 捨てたら何も言えない。黙って終わらないよう、絞った道具だけを渡してもう一度呼ぶ（キャッシュはこの 1 回だけ外れる）。
+                    logger.info(
+                        "event-loop say が無かったので、%s だけを渡して呼び直す", "/".join(narrow)
+                    )
                     # この並びは二度と使わないので、道具にキャッシュの印は付けない（書き込みの割増を払わない）。
                     tools = self._tools(actions=narrow, cache_tools=False)
                     result = await self._main_llm_turn(system, messages, tools, max_tokens, effort)
                     # 文で書いた呼び出しを拾い直すと say 以外も来うるので、もう一度ふるう。
                     result = replace(
-                        result, tool_calls=[tc for tc in result.tool_calls if tc.name == "say"]
+                        result, tool_calls=[tc for tc in result.tool_calls if tc.name in narrow]
                     )
             # **生成の秒数は必ず残す**（出-k-い）。何が返ったか（道具・字数・写真の有無）も添える。
             # 所要時間を出していたのは調停だけで、主LLM はログの時刻差から手で引くしかなかった。
