@@ -958,6 +958,11 @@ class ObservationMemory:
             )
             situated_q = _situated_vector(q_vec, self._situated._embedding_mu())
             q_sql = vec_to_sql(situated_q.tolist())
+            # 2 つめの頭 Ruri の問い（記-y）。平均は引かない。数値にできない・Ruri が無いなら None＝休みで、
+            # いままでどおり bge-m3 だけで想起する。
+            _ruri = getattr(self, "_ruri", None)
+            _rq = _ruri.encode_query([q_text]) if _ruri is not None else None
+            ruri_q_sql = vec_to_sql(_rq[0]) if _rq else None
 
             _cfg = MemoryConfig()
             # 呼び出し側が trigger 別の採用値を渡してくる。渡さない経路（連想想起など）は
@@ -1063,6 +1068,18 @@ class ObservationMemory:
                         row_by_id.setdefault(r["id"], r)
                     logger.debug("語の軸：%s → 候補 %d 件", words, len(word_rows))
 
+            # Ruri の軸（記-y）。**ほかの軸の後に足す**——すでに拾われた記録の行（代表の面）は置き換えない。
+            # bge-m3 の軸と同じ扱い（視点の面がある・隠されていない記録・順位の加点も同じ）。
+            # 行の `score` は Ruri の近さなので `cos_by_id` には入れない——Ruri だけで拾った記録の bge-m3 の
+            # 近さは、下の「関連軸以外から入った候補」の補いが埋める。
+            if ruri_q_sql is not None:
+                ruri_rows = self._observations.by_ruri(
+                    ruri_q_sql, q_sql, _cfg.ruri_primary_n, exclude_ids=exclude_ids
+                )
+                _mark(ruri_rows)
+                for r in ruri_rows:
+                    row_by_id.setdefault(r["id"], r)
+
             # 関連軸以外から入った候補には score 列が無いので、話者視点の r を補って
             # 公平に採点する（顔ぶれ相関の拡張と同じやり方）。
             missing = [oid for oid in row_by_id if oid not in cos_by_id]
@@ -1083,6 +1100,16 @@ class ObservationMemory:
                     c_lo=_cfg.recall_c_lo,
                     c_hi=_cfg.recall_c_hi,
                 )
+
+            # 候補全部の Ruri の近さ（どの軸から入った記録にも付ける）。数値の無い記録は bge-m3 だけで採点する。
+            ruri_cos: dict[str, float] = (
+                self._observations.ruri_cosines(ruri_q_sql, list(row_by_id))
+                if ruri_q_sql is not None
+                else {}
+            )
+            # 候補があるのに Ruri の近さが 1 つも取れなければ、Ruri は効いていない（DB から引けない等）。
+            # ログで「Ruri 0」（動いて負けた）と取り違えないよう、休みとして扱う。
+            ruri_resting = ruri_q_sql is None or (bool(row_by_id) and not ruri_cos)
 
             rows = list(row_by_id.values())
             if rows:
@@ -1119,6 +1146,9 @@ class ObservationMemory:
                         p=p_by_id.get(row["id"]),
                         sigma=_cfg.recall_emotion_sigma,
                         g_floor=(_cfg.recall_g_open if row["id"] in _open else 0.0),
+                        ruri_cosine=ruri_cos.get(row["id"]),
+                        ruri_c_lo=_cfg.ruri_c_lo,
+                        ruri_c_hi=_cfg.ruri_c_hi,
                     )
                     # 軸ごとの順位による底上げ（記-k）。いくつもの軸で上位に来た記録ほど
                     # きつく持ち上がる。適合度の目盛りは残るので、5 軸の効きは変わらない。
@@ -1180,6 +1210,16 @@ class ObservationMemory:
                 # 書いたものは必ず載せる。
                 results = _seat_open_records(results, open_ids=_open, n=n)
 
+                # どちらの頭が選んだか（記-y・本人の決定）。本番（info）で毎回見えるよう、件数だけを 1 行で出す。
+                # 記憶の中身は出さない。1 件ずつの頭と 2 つの値は下の debug の内訳にある。
+                _top = [breakdowns[item["facet_id"]].head for item in results[:10]]
+                logger.info(
+                    "想起 上位 %d 件の頭：bge-m3 %d%s",
+                    len(_top),
+                    _top.count("bge-m3"),
+                    "（Ruri 休み）" if ruri_resting else f"・Ruri {_top.count('Ruri')}",
+                )
+
                 # 想起順の内訳。実機確認で「なぜこの順なのか」を後から再構成する
                 # ために出す。記憶内容を含むうえ想起のたびに走るので debug 限定。
                 if logger.isEnabledFor(logging.DEBUG):
@@ -1193,10 +1233,13 @@ class ObservationMemory:
                     for rank, item in enumerate(results[:10], start=1):
                         b = breakdowns[item["facet_id"]]
                         logger.debug(
-                            "  #%d recall score=%.4f r=%.3f t=%.3f a=%.3f e=%s | %s | %s | %s",
+                            "  #%d recall score=%.4f r=%.3f 頭=%s r_ruri=%s t=%.3f a=%.3f e=%s"
+                            " | %s | %s | %s",
                             rank,
                             item["fit"],
                             b.r,
+                            b.head,
+                            "なし" if b.r_ruri is None else "%.3f" % b.r_ruri,
                             b.t,
                             b.g,
                             "なし" if b.e is None else "%.3f" % b.e,
