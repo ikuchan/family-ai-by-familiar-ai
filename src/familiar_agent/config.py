@@ -415,6 +415,14 @@ class MemoryConfig:
     recall_c_hi: float = field(  # c_hi
         default_factory=lambda: _float_env("RECALL_C_HI", 1.0)
     )
+    # 2 つめの頭 Ruri（記-y・2026-11-03）。記録の本文から作る数値で、平均は引かない。
+    ruri_model: str = "cl-nagoya/ruri-v3-310m"
+    # Ruri の近さを 0〜1 へ伸ばす係数。隠されていない記録 3,070 件・問い 200 件の近さの散らばりで、
+    # 中央値と上位 0.1% を bge-m3（平均を引く）の目盛りに重ねた値（本人の決定ア・2026-11-03）。
+    ruri_c_lo: float = 0.782
+    ruri_c_hi: float = 0.995
+    # Ruri の軸で一次に拾う件数（bge-m3 の軸の `recall_primary_n` と同じ 50）。
+    ruri_primary_n: int = 50
     # 基底の重みプロファイル（正本の (1,1,1,1.5,1.0)）。trigger を指定しない呼び出し
     # （連想想起など）と、知らない trigger の落とし先に使う。trigger 別の値は下の
     # `recall_weights()` が返す。

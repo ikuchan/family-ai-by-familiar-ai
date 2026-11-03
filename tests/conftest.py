@@ -195,6 +195,35 @@ def _measure_log_in_tmp(tmp_path, monkeypatch):
     yield
 
 
+class _HashRuri:
+    """Ruri の偽物。文から決まる 768 個の数値（正規化済み）を返す。同じ文には同じ数値。"""
+
+    def encode(self, texts, **_kw):
+        import hashlib
+
+        import numpy as np
+
+        out = []
+        for t in texts:
+            seed = int.from_bytes(hashlib.sha256(t.encode("utf-8")).digest()[:8], "little")
+            v = np.random.default_rng(seed).standard_normal(768).astype(np.float32)
+            out.append(v / np.linalg.norm(v))
+        return np.array(out, dtype=np.float32)
+
+
+@pytest.fixture(autouse=True)
+def _fake_ruri(monkeypatch):
+    """全体テストでは本物の Ruri を読み込まない（記-y）。
+
+    記録を書く道と想起が Ruri を呼ぶので、差し替えないと並列のワーカーごとに Ruri（CPU なら fp32 で
+    約 1.2 GB）を読み込み、メモリが足りなくなる。読み込みの失敗を見る試験は、自分で `_load` を差し替える。
+    """
+    from familiar_agent.store.embedding import _RuriModel
+
+    monkeypatch.setattr(_RuriModel, "_load", lambda self: _HashRuri())
+    yield
+
+
 @pytest.fixture(autouse=True)
 def _no_real_camera_thread(monkeypatch):
     """`CameraTool` を作っても、本物の裏方スレッド（映像の取り込み）を立てない。

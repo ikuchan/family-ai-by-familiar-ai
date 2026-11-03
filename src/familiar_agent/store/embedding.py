@@ -172,4 +172,78 @@ class _EmbeddingModel(ModelResource):
         return results  # type: ignore
 
 
+# ── 2 つめの頭 Ruri（記-y） ─────────────────────────────────────────────────
+
+RURI_DIM = 768
+_RURI_DOC_PREFIX = "検索文書: "
+_RURI_QUERY_PREFIX = "検索クエリ: "
+
+
+def _ruri_model_kwargs(device: str) -> dict:
+    """載せる先ごとの読み込み方。
+
+    GPU では **bf16 で直接読む**。fp16 では一部の記録が数にならない値（nan）になった（2026-11-03 実測）。
+    fp32 で読んでから bf16 へ直すと、読み込みの一瞬だけ GPU を約 1.1 GB 余計に使う。CPU は fp32 のまま。
+    """
+    if device.startswith("cuda"):
+        import torch
+
+        return {"dtype": torch.bfloat16}
+    return {}
+
+
+class _RuriModel(ModelResource):
+    """日本語の符号化器 Ruri（`cl-nagoya/ruri-v3-310m`・768 次元）。想起の 2 つめの頭（記-y）。
+
+    **縮退の側**である。読み込めなくても止めず、Ruri は休んで bge-m3 だけで想起する。
+    失敗したときは 0 ではなく **None** を返す。0 は「近さ 0」と区別できない値として表に残るため。
+
+    数値にするのは**記録の本文**で、記録 1 件に 1 つ（面ごとに持たない）。平均は引かない
+    （本人の決定・係数は平均を引かない近さで測った）。載せる先は bge-m3 と同じ `EMBEDDING_DEVICE`
+    で選ぶ（2 つの頭を同じ所に置く）。
+    """
+
+    def __init__(self, model_name: str | None = None) -> None:
+        super().__init__(name="Ruri", device_env="EMBEDDING_DEVICE")
+        if model_name is None:
+            from ..config import MemoryConfig
+
+            model_name = MemoryConfig().ruri_model
+        self._model_name = model_name
+
+    def _load(self) -> Any:
+        for name in ("sentence_transformers", "huggingface_hub", "transformers"):
+            logging.getLogger(name).setLevel(logging.ERROR)
+        import sentence_transformers
+        import torch
+
+        device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
+        return sentence_transformers.SentenceTransformer(
+            self._model_name, device=device, model_kwargs=_ruri_model_kwargs(device)
+        )
+
+    def _encode(self, texts: list[str], prefix: str) -> list[list[float]] | None:
+        model = self.ensure()
+        if model is None:
+            return None
+        try:
+            vecs = model.encode(
+                [prefix + t for t in texts], normalize_embeddings=True, show_progress_bar=False
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Ruri で数値にできなかった: %s", e, exc_info=True)
+            return None
+        arr = np.asarray(vecs, dtype=np.float32)
+        if not np.isfinite(arr).all():
+            logger.warning("Ruri の数値に数にならない値が混じったので使わない（%d 件）", len(texts))
+            return None
+        return arr.tolist()
+
+    def encode_document(self, texts: list[str]) -> list[list[float]] | None:
+        return self._encode(texts, _RURI_DOC_PREFIX)
+
+    def encode_query(self, texts: list[str]) -> list[list[float]] | None:
+        return self._encode(texts, _RURI_QUERY_PREFIX)
+
+
 # ── MentalItem ──────────────────────────────────────────────────────────────

@@ -14,6 +14,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from datetime import date as _date
 from datetime import datetime
@@ -58,9 +59,11 @@ class ObservationStore:
     その2つを渡してもらう。
     """
 
-    def __init__(self, ctx: StoreContext, *, situated: Any) -> None:
+    def __init__(self, ctx: StoreContext, *, situated: Any, ruri: Any = None) -> None:
         self._ctx = ctx
         self._situated = situated
+        # 2 つめの頭 Ruri の符号化器（記-y）。無ければ Ruri の数値を書かない。
+        self._ruri = ruri
 
     def by_vector(
         self,
@@ -407,6 +410,96 @@ class ObservationStore:
             logger.warning("situated_cosines failed (person=%s): %s", person_id, e)
             return {}
 
+    def by_ruri(
+        self,
+        ruri_query_sql: str,
+        bge_query_sql: str,
+        n: int,
+        *,
+        exclude_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """Ruri（2 つめの頭・記-y）の近い順に n 件読む。**採点も足切りもしない**。
+
+        絞りは `by_vector` と同じ：隠されていない記録で、**想起の視点の面がある**もの。Ruri の数値は
+        記録 1 件に 1 つなので、行の面は記録ごとに 1 つへ畳む。代表の面は `by_vector` と同じ考え方で、
+        bge-m3 の問いにいちばん近い視点の面。返り行の列は `by_vector` と同じで、`score` は Ruri の生の
+        コサイン（bge-m3 の近さではない）。
+        """
+        live = not_hidden("o")
+        exclude_clause = "AND NOT (o.id = ANY(%(ex)s))" if exclude_ids else ""
+        params = {
+            "rq": ruri_query_sql,
+            "bq": bge_query_sql,
+            "vp": self._ctx.viewpoint,
+            "n": n,
+            "ex": list(exclude_ids or []),
+        }
+        rows = self._ruri_query(
+            "by_ruri",
+            f"""
+            WITH cand AS (
+                SELECT r.obs_id, 1 - (r.vector <=> %(rq)s::vector) AS score
+                FROM obs_ruri_embeddings r
+                JOIN observations o ON o.id = r.obs_id
+                WHERE {live}
+                  AND EXISTS (SELECT 1 FROM situated_memories s0
+                              WHERE s0.obs_id = o.id AND s0.person_id = %(vp)s)
+                  {exclude_clause}
+                ORDER BY r.vector <=> %(rq)s::vector
+                LIMIT %(n)s
+            )
+            SELECT DISTINCT ON (o.id)
+                   o.id, o.timestamp,
+                   o.direction, o.emotion, o.image_path, o.parent_id,
+                   s.id AS facet_id, s.person_id, s.relation_key,
+                   COALESCE(s.content, o.content) AS content,
+                   COALESCE(o.groundedness_g0, 1.0) AS groundedness_g0,
+                   COALESCE(s.groundedness_n, 0) AS groundedness_n,
+                   s.last_recalled_at,
+                   o.emotion_p, o.emotion_pn, o.emotion_a, o.emotion_dom,
+                   c.score
+            FROM cand c
+            JOIN observations o ON o.id = c.obs_id
+            JOIN situated_memories s ON s.obs_id = o.id AND s.person_id = %(vp)s
+            ORDER BY o.id, s.vector <=> %(bq)s::vector
+            """,
+            params,
+        )
+        rows.sort(key=lambda r: -float(r["score"]))
+        return rows
+
+    def ruri_cosines(self, ruri_query_sql: str, obs_ids: list[str]) -> dict[str, float]:
+        """指定した記録の Ruri の近さ（記-y）。Ruri の数値が無い記録は結果に含めない。
+
+        Ruri の数値は記録 1 件に 1 つなので、視点では絞らない。失敗したら空を返す
+        （Ruri は縮退の側で、無ければ bge-m3 だけで採点する）。
+        """
+        if not obs_ids:
+            return {}
+        rows = self._ruri_query(
+            "ruri_cosines",
+            "SELECT obs_id, 1 - (vector <=> %(rq)s::vector) AS c "
+            "FROM obs_ruri_embeddings WHERE obs_id = ANY(%(ids)s)",
+            {"rq": ruri_query_sql, "ids": list(obs_ids)},
+        )
+        return {row["obs_id"]: float(row["c"]) for row in rows}
+
+    def _ruri_query(self, what: str, sql: str, params: dict) -> list[dict]:
+        """Ruri の読み出しを 1 本流す。**失敗したら空を返す**（Ruri は縮退の側・bge-m3 だけで続ける）。
+
+        接続の取り直しの失敗もここで受ける。失敗したトランザクションは、次に接続を取るときに
+        `Database.conn()` が巻き戻す（ここでは巻き戻さない）。
+        """
+        with self._ctx.lock:
+            try:
+                conn = self._ctx.conn()
+                with conn.cursor() as cur:
+                    cur.execute(sql, params)
+                    return list(cur.fetchall())
+            except Exception:  # noqa: BLE001
+                logger.warning("%s failed（bge-m3 だけで想起する）", what, exc_info=True)
+                return []
+
     def keyword_fallback(self, query: str, n: int) -> list[dict]:
         keywords = [w for w in query.split() if len(w) > 1][:4]
         if not keywords:
@@ -604,6 +697,8 @@ class ObservationStore:
         image_data = _encode_image(image_path) if image_path else None
         vec = self._ctx.embedder.encode_document([content])[0]
         blob = _encode_vector(vec)
+        # Ruri の数値も本文から作る（記-y）。bge-m3 と同じくロックの外で計算する。
+        ruri_sql = self._ruri_sql(content)
         # どの時計を使うかは store/clock.py に集約してある。
         now = clock.now_utc()
         save_ts = clock.end_of_day_utc(override_date) if override_date else now
@@ -709,6 +804,7 @@ class ObservationStore:
                     "ON CONFLICT DO NOTHING",
                     (event_id, blob),
                 )
+                self._write_ruri(cur, event_id, ruri_sql)
             # 面を立てる。材料（誰がしたこと・誰が居たか）は引数で渡す（段5）。
             mem_vec = np.array(vec, dtype=np.float32)
             self._situated.refresh_situated_memories(
@@ -1040,6 +1136,43 @@ class ObservationStore:
             conn.commit()
         return int(n or 0)
 
+    def _ruri_sql(self, content: str) -> "str | None":
+        """本文の Ruri の数値（pgvector の文字列）。Ruri が無い・数値にできなければ None。"""
+        ruri = self._ruri
+        if ruri is None:
+            return None
+        vecs = ruri.encode_document([content])
+        return vec_to_sql(vecs[0]) if vecs else None
+
+    @staticmethod
+    def _write_ruri(cur, obs_id: str, ruri_sql: "str | None", *, drop_stale: bool = False) -> None:
+        """Ruri の数値を書く（あれば書き直す）。**None なら行を書かない**——0 を書くと
+        「近さ 0」と区別できない値が残る。行が無い記録は、想起で bge-m3 だけで採点される。
+
+        `drop_stale`：本文を書き換えたのに数値にできなかったときは、古い本文の行を消す
+        （「行が無い＝いまの本文の数値が無い」を保つ）。
+
+        **書けなくても記録は残す。** Ruri は縮退の側なので、記録と同じトランザクションの中でも
+        セーブポイントで包み、失敗したらそこまで戻して続ける（記録・面は巻き戻さない）。
+        """
+        if ruri_sql is None and not drop_stale:
+            return
+        try:
+            cur.execute("SAVEPOINT ruri_write")
+            if ruri_sql is None:
+                cur.execute("DELETE FROM obs_ruri_embeddings WHERE obs_id = %s", (obs_id,))
+            else:
+                cur.execute(
+                    "INSERT INTO obs_ruri_embeddings (obs_id, vector) VALUES (%s, %s::vector) "
+                    "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",
+                    (obs_id, ruri_sql),
+                )
+            cur.execute("RELEASE SAVEPOINT ruri_write")
+        except Exception:  # noqa: BLE001
+            logger.warning("Ruri の数値を書けなかった（記録は書く）: %.8s", obs_id, exc_info=True)
+            with contextlib.suppress(Exception):
+                cur.execute("ROLLBACK TO SAVEPOINT ruri_write")
+
     def append_and_reembed(self, obs_id: str, note: str) -> bool:
         """content の末尾へ note を足し、埋め込みを作り直す。既にあれば何もしない。
 
@@ -1069,8 +1202,10 @@ class ObservationStore:
 
             vec = self._ctx.embedder.encode_document([content])[0]
             blob = np.array(vec, dtype=np.float32).tobytes()
+            ruri_sql = self._ruri_sql(content)
             with conn.cursor() as cur:
                 cur.execute("UPDATE observations SET content = %s WHERE id = %s", (content, obs_id))
+                self._write_ruri(cur, obs_id, ruri_sql, drop_stale=True)
                 cur.execute(
                     "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
                     "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",

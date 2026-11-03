@@ -54,6 +54,7 @@ from ..store.embedding import (  # noqa: F401  既存の呼び出し側が memor
     _cosine_similarity,
     _decode_vector,
     _EmbeddingModel,
+    _RuriModel,
     _encode_vector,
     _normalise,
 )
@@ -119,6 +120,10 @@ class _ScoreParts:
     m: float
     e: float | None
     p: float | None = None
+    # どちらの頭が r を決めたか（記-y）。ログで「どっちが選んだか」を出すために持つ。
+    head: str = "bge-m3"
+    # Ruri の近さを伸ばした値。Ruri の数値が無い記録では None。
+    r_ruri: float | None = None
 
 
 def _score_breakdown(
@@ -143,6 +148,9 @@ def _score_breakdown(
     p: float | None = None,
     sigma: float = 1.0,
     g_floor: float = 0.0,
+    ruri_cosine: float | None = None,
+    ruri_c_lo: float | None = None,
+    ruri_c_hi: float | None = None,
 ) -> _ScoreParts:
     """想起スコアと各軸の内訳を返す（合成式の正本）。
 
@@ -176,6 +184,18 @@ def _score_breakdown(
     )
 
     r = _stretch_relevance(cosine, c_lo=c_lo, c_hi=c_hi)
+    # 2 つめの頭 Ruri（記-y）。頭ごとに 0〜1 へ伸ばし、**大きいほう**を r にする。Ruri の近さは
+    # 平均を引かないので 0.78〜0.9 に詰まっており、そのままでは bge-m3（平均を引く）と目盛りが違う。
+    # 同じ値なら bge-m3（いまの頭）を選ぶ。Ruri の数値が無い記録は bge-m3 だけで決まる。
+    head = "bge-m3"
+    r_ruri: float | None = None
+    if ruri_cosine is not None:
+        if ruri_c_lo is None or ruri_c_hi is None:
+            # 伸ばしていない Ruri（0.8 前後）は bge-m3 をいつも上回る。渡し忘れを黙って通さない。
+            raise ValueError("ruri_cosine を渡すときは ruri_c_lo と ruri_c_hi も渡す")
+        r_ruri = _stretch_relevance(ruri_cosine, c_lo=ruri_c_lo, c_hi=ruri_c_hi)
+        if r_ruri > r:
+            r, head = r_ruri, "Ruri"
     t = state.score(ref_epoch)
     # open な記録は下限で持ち上げる（a_open・`課題5_パラメータ仮案` §184）。max なので
     # 導出が下限より高い記録は下がらない。open でない記録は g_floor=0.0 で素通りする。
@@ -195,7 +215,7 @@ def _score_breakdown(
         denominator += w_p
 
     m = 1.0 if denominator <= 0.0 else numerator / denominator
-    return _ScoreParts(fit=(r**w_r) * m, r=r, t=t, g=g, m=m, e=e, p=p)
+    return _ScoreParts(fit=(r**w_r) * m, r=r, t=t, g=g, m=m, e=e, p=p, head=head, r_ruri=r_ruri)
 
 
 def _compute_final_score(
@@ -437,6 +457,8 @@ class ObservationMemory:
         self._db: Database = get_db()
         self._db_lock = self._db.lock
         self._embedder = _EmbeddingModel(model_name)
+        # 2 つめの頭 Ruri（記-y）。インスタンスごとに持つ（試験は `_load` の差し替えだけで偽物になる）。
+        self._ruri = _RuriModel()
         self._build_layers()
         import os
 
@@ -447,6 +469,8 @@ class ObservationMemory:
             "off",
         }:
             self._embedder.pre_warm()
+            # Ruri も同じ切り替えで先に読む（最初の書き込みが読み込みを待たない・記-y）。
+            self._ruri.pre_warm()
 
     def _build_layers(self) -> None:
         """層を組み立てる。依存は引数に出す（宿主の名前空間を共有しない）。
@@ -460,7 +484,11 @@ class ObservationMemory:
             embedder=self._embedder,
         )
         self._situated = SituatedVectors(self._ctx)
-        self._observations = ObservationStore(self._ctx, situated=self._situated)
+        # Ruri は記録の層だけが使うので、層が共有する文脈には入れず、記録の層へ直接渡す（記-y）。
+        # `__new__` で組んだ記憶（試験）は Ruri を持たない＝Ruri は休み。
+        self._observations = ObservationStore(
+            self._ctx, situated=self._situated, ruri=getattr(self, "_ruri", None)
+        )
         self._jobs = JobQueue(self._ctx, observations=self._observations)
         self._persons_store = PersonRegistry(self._ctx)
 
@@ -687,6 +715,7 @@ class ObservationMemory:
         obj._db = self._db
         obj._db_lock = self._db_lock
         obj._embedder = self._embedder
+        obj._ruri = self._ruri
         obj._build_layers()
         return obj
 
