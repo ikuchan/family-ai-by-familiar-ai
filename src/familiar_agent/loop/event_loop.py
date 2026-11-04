@@ -277,6 +277,14 @@ def _searches(req, *, arrived: bool) -> int:
     )
 
 
+def _search_in_flight(req) -> bool:
+    """この求めに、結果のまだ届いていない調べもの（search_deferred・deep_research）があるか（出-dl）。"""
+    return any(
+        _action_family(lk.action) in ("search_deferred", "deep_research") and lk.in_flight
+        for lk in req.lookups
+    )
+
+
 def _search_arrived(req) -> bool:
     """この求めに、結果の届いた調べものがあるか（出-dh）。失敗と、使い切って投げなかった器は数えない。"""
     return any(
@@ -3992,6 +4000,7 @@ class InformationProcessing:
             jev=getattr(agent, "_jev", None),
             writer=agent._utility_backend,
             min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+            promise_min=float(getattr(agent.config, "arbiter_promise_min", 0.6)),
         )
 
     def _arbiter_input(
@@ -4047,6 +4056,7 @@ class InformationProcessing:
             extra_actions=self._extra_actions(exclude=returned),
             spent_actions=frozenset(self._req.spent_actions),
             search_arrived=_search_arrived(self._req),
+            search_in_flight=_search_in_flight(self._req),
             tool_return=bool(returned & workspace.RETURN_WITHOUT_RECALL),
             # 完了を機械で分ける（出-ay 段 4-2）。主LLM は外部の道具を道具の名前（`get_family_schedule`）で呼ぶので、
             # 完了の表が引く動作の名前（`family_schedule`）に揃える（段 5b）。揃えないと表に当たらなかった。

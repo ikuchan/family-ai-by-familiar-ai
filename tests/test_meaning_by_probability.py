@@ -97,7 +97,9 @@ def test_the_arbiter_asks_jev_once_and_answers():
             jev=jev, writer=writer, utterance="パジュ、しりとりしよ", origin="発話", family_md=""
         )
     )
-    assert jev.ask.await_count == 1
+    # 2 回目は、書いた軽い返事が約束しているかの問い（出-dl）。答えに欄が無いので文はそのまま。
+    assert jev.ask.await_count == 2
+    assert "promise" in jev.ask.await_args_list[1].args[1]
     assert (d.branch, d.text) == ("light", "いいよ、しりとりしよう！")
 
 

@@ -718,6 +718,9 @@ class AgentConfig:
     arbiter_timeout_sec: float = field(
         default_factory=lambda: _resolve_setting("AgentConfig.arbiter_timeout_sec", 5.0)
     )
+    # 軽い返事が先のことを約束していると見なす、Jev のはいの確率の境目（出-dl・2026-11-04 本人の決定）。
+    # 13 文×3 回の試しで、約束の文は 0.83〜0.97・約束しない文は 0.05〜0.42 に分かれた。そのあいだに置く。
+    arbiter_promise_min: float = 0.6
     # 主LLM の反復でプロンプトキャッシュを使うか（1.0＝使う・0.0＝使わない・出-bs 段 2・2026-10-21 本人の決定）。
     # 層 3 が毎晩、直近 7 日に前の反復から 5 分以内に続いた割合で入り切りする。呼ぶたびに読むのは `main_llm_cache_on()`。
     main_llm_cache: float = field(

@@ -535,6 +535,9 @@ class ArbiterInput:
     spent_actions: frozenset[str] = frozenset()
     #: この求めに、結果の届いた調べものがあるか（出-dh）。使い切ったあとの失敗を「使い切った」と同じに分けるのに使う。
     search_arrived: bool = False
+    #: この求めに、結果のまだ届いていない調べもの（search_deferred・deep_research）があるか（出-dl）。調べもの中は
+    #: 「調べています」が正しいので、軽い返事が約束しているかを聞かない。
+    search_in_flight: bool = False
     tool_return: bool = False
     timer_active: bool = False
     family_md: str = ""
@@ -677,9 +680,17 @@ class Arbiter:
     """
 
     def __init__(
-        self, *, jev, writer, timeout: "float | None" = None, min_conf: float = 0.6
+        self,
+        *,
+        jev,
+        writer,
+        timeout: "float | None" = None,
+        min_conf: float = 0.6,
+        promise_min: float = 0.6,
     ) -> None:
         self._jev = jev
+        #: 軽い返事が約束していると見なすはいの確率の境目（`AgentConfig.arbiter_promise_min`・出-dl）。
+        self._promise_min = promise_min
         self._writer = writer
         self._timeout = timeout
         #: 確認の答え・聞き取りの確認の答えを使う確信度の下限。ほかの判定と同じ設定の `jev_confidence_min`（環-at）。
@@ -1364,6 +1375,17 @@ class Arbiter:
                 # 問いでない聞き返しは、やらないことの約束になりうる（出-bk）。捨てて主LLM に考えて返させる。
                 logger.info("聞き返しが問いになっていないので主LLM へ：%.40s", text)
                 return Decision(branch="full", effort="low")
+            if (
+                text
+                and no_promise
+                and final in _NO_PROMISE_FINALS
+                and not inp.search_in_flight
+                and await _promises(self, inp, text)
+            ):
+                # 調べものが動いていないのに先のことを約束した（出-dl・11/03 19:12「すぐに確かめて…お待ち」と言って黙った）。
+                # 指示 `_NO_PROMISE` があっても出たので、書いた文を捨てて主LLM に考えて返させる（本人の決定イ）。
+                logger.info("調停：軽い返事が先のことを約束しているので主LLM へ（%s）", final)
+                return Decision(branch="full", effort="low")
             return Decision(branch="light", text=text) if text else None
         data: "dict[str, Any]" = {"branch": "action", "action": final, "effort": "low"}
         if refers_time:
@@ -1575,6 +1597,31 @@ async def _stays_silent(arbiter: "Arbiter", inp: ArbiterInput) -> bool:
         "黙る" if quiet else ("返す" if got else "読めないので返す"),
     )
     return quiet
+
+
+#: 軽い返事が先のことを約束しているかの問い（出-dl・2026-11-04 に 13 文×3 回で試した文のまま）。
+_PROMISE_QUESTION = (
+    "`reply` は、ロボットが家族に言おうとしている一言。この一言は、これから調べる・確かめる・やる・待ってほしい、"
+    "と先のことを約束しているか（いま進んでいることを伝えるだけ・できたことを伝えるだけなら、いいえ）"
+)
+
+
+async def _promises(arbiter: "Arbiter", inp: ArbiterInput, text: str) -> bool:
+    """書いた軽い返事が先のことを約束しているか（出-dl）。Jev が使えない・失敗・答えが無いときは偽（文をそのまま言う）。"""
+    from ..backends.jev import noul
+    from ..core.jev_judges import _ask
+
+    state = json.dumps({"utterance": inp.utterance, "reply": text}, ensure_ascii=False)
+    answer = await _ask(arbiter._jev, state, {"promise": noul(_PROMISE_QUESTION)})
+    if not getattr(answer, "ok", False):
+        return False
+    got = (getattr(answer, "answers", None) or {}).get("promise") or {}
+    try:
+        p = float(got["noul"])
+    except (KeyError, TypeError, ValueError):
+        return False
+    logger.info("調停：軽い返事が約束しているか はい %.2f（境目 %.2f）", p, arbiter._promise_min)
+    return p >= arbiter._promise_min
 
 
 async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs: "list[str]"):
