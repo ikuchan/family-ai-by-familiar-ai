@@ -39,6 +39,7 @@ dependencies = [
     "onnxruntime-gpu>=1.24.3 ; python_version >= '3.11'",
     "soxr>=1.1.0",
     "pyopenjtalk>=0.4.1",
+    "python-statemachine==3.2.2",
 ]
 
 [project.optional-dependencies]

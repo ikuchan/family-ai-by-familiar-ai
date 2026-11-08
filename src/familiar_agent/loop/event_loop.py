@@ -60,6 +60,7 @@ from .generator import SILENCE_MARK, SILENCE_NOTE, _pi_ctx, _present_ctx
 from . import workspace
 from ..store import intents as _intents
 from .intent_ledger import IntentLedger
+from .paju_state import PajuState
 from .request import Lookup, Request
 from .prompt import build_event_system_prompt
 
@@ -249,10 +250,6 @@ SCHEDULE_DAYS_MAX = 14  # カレンダー MCP の `days` の上限（`mcp/calend
 
 #: 待ちの見張りが起きる間隔（秒）。待たせているあいだ、この間隔で窓を延ばす（窓は 10 秒なので 1 秒で足りる）。
 WAIT_WATCH_TICK_SEC = 1.0
-
-#: 待ちの電子音のあいだに声を聞かないのを、待っているもの（調べもの・主LLM）が 1 つも無いまま続けてよい長さ（秒・出-dd・
-#: 2026-11-01 本人の決定）。電子音を止め損ねても、聞かない状態を残さないための上限。長い調べもののあいだは効かない。
-DEAF_IDLE_LIMIT_SEC = 300.0
 
 #: 主LLM を 1 回呼ぶときの時間切れ（秒・出-dd・2026-11-01 本人の決定 10 分）。音楽の道具（問い合わせ 1 回 10 秒）や検索
 #: （30 秒）と同じく、呼ぶ 1 回ごとに切る。切らないと、固まった呼び出しが飛行中のまま残り、電子音のあいだ声を聞かない
@@ -1761,14 +1758,33 @@ class InformationProcessing:
                 self._watch_waiting(self._request_generation)
             )
 
+    def _paju(self) -> PajuState:
+        """パジュの状態図（環-aw）。`__new__` で組んだ装置（試験）でも使えるように、初めて読んだときに作る。"""
+        sm = self.__dict__.get("_paju_state")
+        if sm is None:
+            sm = self._paju_state = PajuState()
+        return sm
+
+    async def _to_state(self, event: str) -> None:
+        """状態図へ事象を送る（環-aw）。状態図が落ちても、会話は止めない。"""
+        try:
+            sm = self._paju()
+            await sm.start()
+            await sm.fire(event)
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 状態図に %s を送れなかった", event, exc_info=True)
+
+    async def _hear_again(self) -> None:
+        """求めが閉じる所に届かずに終わった（例外・中断）。電子音を止め、耳を聞く側へ戻す（環-aw・出-dd）。"""
+        self._stop_beeps()
+        await self._to_state("request_closed")
+
     def _start_beeps(self) -> None:
         """待ちの電子音の見張りを、求めごとに 1 本立てる（出-bu）。立っていれば何もしない。"""
         beeps = self.__dict__.get("_beeps")
         if beeps is not None and not beeps.done():
             return
         self._beep_count = 0
-        self._waited_at = time.monotonic()
-        self._deaf_lapsed = False
         with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ立てない
             self._beeps: "asyncio.Task[None] | None" = asyncio.get_running_loop().create_task(
                 self._beep_while_waiting(self._request_generation)
@@ -1796,47 +1812,42 @@ class InformationProcessing:
         with contextlib.suppress(asyncio.CancelledError):
             while gen == self._request_generation:
                 started = loop.time()
-                if self._waiting_on():
-                    # 聞かない上限は、待つものが消えてから数える（出-dd）。上限のログも、また待てば次も残す
-                    self._waited_at = time.monotonic()
-                    self._deaf_lapsed = False
                 if not self._sounding():
                     try:
                         await self._dif.beep()
                     except Exception:  # noqa: BLE001
-                        # 鳴らせないなら、聞かない理由も無い。仕事を終えて聞く状態へ戻す（出-dd・閉じたままにしない）。
+                        # 鳴らせないなら、仕事を終え、耳を聞く側へ戻す（出-dd・環-aw 決定ミ）。
                         logger.warning("event-loop 待ちの電子音を鳴らせなかった", exc_info=True)
+                        if (
+                            gen == self._request_generation
+                        ):  # 打ち切られていたら、次の求めの耳に触らない
+                            await self._to_state("limit_reached")
                         return
                     self._beep_count += 1
                 await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
 
-    def _deaf_while_beeping(self) -> bool:
-        """待ちの電子音のあいだで、声を聞かないか（出-dd・2026-10-31〜11-01・本人の決定イ・ア・ア・5 分）。
+    def _deaf_to(self, trigger: "Trigger") -> bool:
+        """この声を、考えているあいだの声として捨てるか（環-aw・`設計方針_パジュの状態` v0.3 決定ト、モ）。
 
-        合図の声が鳴り始めてから答えの声が始まるまで（電子音の仕事が生きているあいだ）は、声を名前があっても・音楽の言葉でも
-        捨てる。10/31 21:51 に、電子音のあいだのパジュ宛てでない言葉を求めに添え、答えの後で新しい求めにした。
-        **閉じたままにしない**：印を持たず、毎回いまの状態から決める。仕事が終われば（例外で落ちても）聞く。待っているものが
-        1 つも無いまま `DEAF_IDLE_LIMIT_SEC` たてば聞く（WARNING を 1 回）。判定が例外を出したら聞くほうへ倒す。
+        耳が「考えているあいだ聞かない」にいれば捨てる。答えを言っているあいだもそこにいる。次の 2 つは捨てない
+        （キーボードはこの判定に来ない）。
+
+        - 確認の問いへの答え。問いを言っているあいだに届いた答えも、列に積んで受ける。
+        - 鳴っている最中（`DIF.ringing`）の、名前つきの言葉（新しい動き）。
+
+        判定が例外を出したら聞くほうへ倒す。
         """
+        from ..core.wake_window import heard_name
+
         try:
-            beeps = self.__dict__.get("_beeps")
-            if beeps is None or beeps.done():
+            if not self._paju().is_deaf() or self._confirming():
                 return False
-            if self._waiting_on():
-                self._deaf_lapsed = False  # 待つものがまた立てば、次に上限へ届いたときもログに残す
-                return True
-            idle = time.monotonic() - float(self.__dict__.get("_waited_at", 0.0))
-            if idle <= DEAF_IDLE_LIMIT_SEC:
-                return True
-            if not self.__dict__.get("_deaf_lapsed"):
-                self._deaf_lapsed = True
-                logger.warning(
-                    "event-loop 電子音が鳴り続け、待つものが無いまま %.0f 秒たったので、声を聞く",
-                    idle,
-                )
-            return False
+            names = list(getattr(self._agent.config, "agent_names", None) or [])
+            return not (self._ringing() and heard_name(trigger.query, names))
         except Exception:  # noqa: BLE001
-            logger.warning("event-loop 電子音のあいだかを決められず、聞くほうへ倒す", exc_info=True)
+            logger.warning(
+                "event-loop 考えているあいだかを決められず、聞くほうへ倒す", exc_info=True
+            )
             return False
 
     def _stop_wait_watch(self) -> None:
@@ -2721,6 +2732,7 @@ class InformationProcessing:
         # **列には触らない。** 列から取り出す口は `_take_trigger` だけ（2026-09-16）。以前は
         # 3 本のキューだったころの「QC を drain」がそのまま残り、列にいた会話入力を完了として
         # 取ってしまった（Future は誰にも解決されず、GUI が 88 秒待った）。
+        await self._to_state("recall_began")  # 頭は考えている/思い出している（環-aw 決定チ）
         items = list(self._drained_completions)
         self._drained_completions.clear()
         logger.debug(
@@ -3125,6 +3137,7 @@ class InformationProcessing:
         obs_id = await self._write_origin(kind, text)
         self._req.request_id = obs_id
         self._notify_request_state(True)
+        await self._to_state("request_opened")  # 頭は考えている、耳は聞かない（環-aw）
         # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
         # やりとりの関係にも拡散想起の母集合にも入らない。
         self._note_origin(obs_id)
@@ -3270,6 +3283,7 @@ class InformationProcessing:
             if pending_final is not None:
                 self._spawn_final(pending_final, _xid)
         self._req.request_id = None
+        await self._to_state("request_closed")  # 打ち切った求めも閉じる（環-aw）
         self._req.live_version_id = None
         self._ledger.close_request(self._req.lookups, state=_intents.ABORTED)
         self._req.lookups.clear()
@@ -3647,6 +3661,9 @@ class InformationProcessing:
             if self._drained_completions:
                 return None
             # 何も無い（または調査中に情動・機器だけが届いた）。列を待ち、届いたら同じ仕分けへ。
+            if busy and self._paju().head_state() == "thinking":
+                # 投げた仕事の返りを待つあいだは、頭は考えている/返りを待っている（環-aw 決定チ）。
+                await self._to_state("wait_began")
             carry = [await self._triggers.get()]
 
     async def _drive(self) -> None:
@@ -3706,7 +3723,7 @@ class InformationProcessing:
             except Exception as e:  # noqa: BLE001
                 logger.exception("event-loop 駆動体で例外: %s", e)
                 # 答えの声にも求めを閉じる所にも届かないと、電子音と聞かない状態が残る（出-dd）。ここで止める。
-                self._stop_beeps()
+                await self._hear_again()
                 # **必ず一度譲る。** 待つ前に投げる例外（作り直し前の待ち行列など）だと、
                 # ここで譲らなければ await を挟まない密な繰り返しになり、event loop ごと
                 # 止まる（実機では固まって見える）。
@@ -3800,11 +3817,13 @@ class InformationProcessing:
         except asyncio.CancelledError:
             if stopped:
                 logger.info("event-loop 待ち手が中断したので反復を止めた")
+                await self._hear_again()
                 return
             raise
         except Exception as e:  # noqa: BLE001
             if not fut.done():
                 fut.set_exception(e)
+            await self._hear_again()  # 反復が求めを閉じずに落ちても、閉じたままにしない
             return
         if not fut.done():
             fut.set_result(spoken)
@@ -3903,6 +3922,7 @@ class InformationProcessing:
         # 窓が開いていれば、窓の会話の全部を渡す。Jev は W の直近の枠の代わりに、書き手は起点の言葉のすぐ前に、主LLM は
         # system の安定部の後に置き、書き手と主LLM の W からは直近の枠を外す（環-ar 段 B・C・D）。主LLM へ戻る see の帰りも
         # 同じ W を使うので、早く戻る道より前で入れる。
+        await self._to_state("decide_began")  # 頭は考えている/決めている（環-aw 決定チ）
         ws.set_window(self._talk_of(self._req.window_session))
         if ws.window_talk is not None:
             logger.debug(
@@ -4414,6 +4434,7 @@ class InformationProcessing:
         agent = self._agent
         if not agent.config.speech_check or not text:
             return None, None
+        await self._to_state("check_began")  # 頭は考えている/確かめている（環-aw 決定チ）
         started = time.monotonic()
         tts = getattr(agent, "_tts", None)
         # 記憶の中身は事実の欄と申告の問いの 2 か所に載る。上限（出-bw）を超えるなら、届いた結果の長い件だけを縮める（出-dg ろ）。
@@ -4718,12 +4739,13 @@ class InformationProcessing:
                 # **知らない声は無条件に捨てる**（知-ar）。名前・黙っていての依頼・窓より前。気配として SAFETY だけ上げる。
                 await self._nudge_by_voice(trigger, stranger=True)
                 return self._swallowed(trigger)
-            if self._deaf_while_beeping():
-                # 待ちの電子音のあいだの声は、名前があっても捨てる（出-dd）。打ち切りより前なので、調べかけも止めない。
+            if self._deaf_to(trigger):
+                # 考えているあいだの声は、名前があっても捨てる（環-aw 決定ト、モ）。打ち切りより前なので、調べかけも止めない。
                 # 知らない声の気配（SAFETY）は残すので、その後に置く。
                 logger.info(
-                    "event-loop 待ちの電子音のあいだの声なので捨てた（%d 字）",
+                    "event-loop 考えているあいだの声なので捨てた（%d 字、%s）",
                     len(trigger.query or ""),
+                    self._paju().describe(),
                 )
                 return self._swallowed(trigger)
         if trigger.kind == "会話入力":
@@ -4869,6 +4891,10 @@ class InformationProcessing:
         if _timer_frame(self._agent):
             return True
         return bool(getattr(getattr(self._agent, "_dif", None), "ringing", False))
+
+    def _ringing(self) -> bool:
+        """タイマーかアラームの音が、いま鳴っているか（`DIF.ringing`）。DIF はループが持つ（`agent` には無い）。"""
+        return bool(getattr(self.__dict__.get("_dif"), "ringing", False))
 
     def _wake_window(self) -> WakeWindow:
         """窓の器。`__new__` で組んだ装置（試験）でも落ちないよう、無ければ閉じた窓を置く。"""
@@ -5489,7 +5515,7 @@ class InformationProcessing:
         text = getattr(pc, "text", "") or ""
         if not text or self._delivery_block_reason():
             return
-        self._stop_beeps()  # 問いへの答えは声で来る。電子音のあいだは声を聞かないので、問う前に止める（出-dd）
+        self._stop_beeps()  # 問いを言うあいだは電子音を鳴らさない（出-dd）
         await self._say_aloud(text)
         # 問いの話し終わりに窓が開き、答えはその窓で受ける。答える相手が読めるよう、問いを窓の会話の行にする（環-ar 段 B）。
         # 人の言葉で始まった求めでなければ、宛先は書かない（いまの話者の名前は、前に話した人のことがある）。
@@ -5524,11 +5550,21 @@ class InformationProcessing:
         hold = self._req.trigger_kind == "発話" and wake.is_open(time.monotonic())
         if hold:
             wake.hold()
+        # 言い始めを送るのは、頭が考えているときだけ。何もしていないとき（求めを閉じたあとの、深く調べるかの申し出）と、
+        # もう言っているとき（内側の声）は送らない（移りが無く、捨てたログになる）。言い終わりも、言っているあいだに
+        # 打ち切られて頭が何もしていないへ戻っていたら送らない。
+        began = self._paju().head_state() == "thinking"
+        if began:
+            await self._to_state("speech_began")  # 頭は答えを言っている（環-aw 決定ツ）
         try:
             await self._dif.speak(
                 text, gain=self._voice_gain() if gain is None else gain, careful=careful
             )
         finally:
+            # 再生に失敗しても話し終えたことにする（決定ツ）。頭は書き留めている、耳は聞く（決定モ）。
+            # 自分が言い始めを送った呼び出しだけが言い終わりを送る（言っているあいだの内側の声で、外の答えを終えない）。
+            if began and self._paju().head_state() == "answering":
+                await self._to_state("speech_ended")
             if hold:
                 wake.release(time.monotonic())
             if self._confirming() or (self._req.trigger_kind == "発話" and self._req.named):
@@ -6042,6 +6078,9 @@ class InformationProcessing:
             return
         if aborted:
             logger.info("event-loop 打ち切られた求めの返事なので、言った事実だけ残す")
+        else:
+            # 頭は考えている/書き留めている（環-aw 決定カ）。打ち切られた求めの後始末は、次の求めの子を動かさない。
+            await self._to_state("note_began")
         spoken = outcome == "発話"
         # **話そうとして止められた発話は「〇〇に言いたかったこと」**（出-as 段 7・§2.6）。相手の面に立て、
         # 根づきを 2 にする——情動が発火して相手が映ったとき、想起で上がってくるように。相手が分からなければ
@@ -6093,6 +6132,7 @@ class InformationProcessing:
         pending_final = await self._close_final(outcome, text)
         self._stop_wait_watch()  # 待たせている時間の見張りは求めと一緒に閉じる（出-au 段 2）
         self._req.request_id = None
+        await self._to_state("request_closed")  # 頭は何もしていない、耳は聞く（環-aw）
         self._req.live_version_id = None
         self._ledger.close_request(self._req.lookups, state=_intents.CLOSED)
         self._req.lookups.clear()
