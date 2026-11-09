@@ -10,14 +10,23 @@
 
 状態を変えるのは事象だけで、送る口は `fire` の 1 つにする。移りの無い事象は捨て、事象の名前と各領域の状態を
 1 行残す（決定ユ）。言葉の中身は書かない。
+
+考えているの合計には上限がある（決定ミ）。考えているに入ると数え始め、答えを言っているに移ると止めて使った時間を
+残りから引き、話し終えて戻ると残りから続ける。何もしていないに入るとやめ、次の求めは初めから数える。残りが 0 に
+なったら `limit_reached` を送る。残り時間はこの図の中だけで持つ。
 """
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
+import time
 from typing import Callable
 
 from statemachine import State, StateChart
+
+from ..core.aio import spawn_outside
 from statemachine.exceptions import TransitionNotAllowed
 
 logger = logging.getLogger(__name__)
@@ -48,11 +57,19 @@ class PajuState(StateChart):
         self,
         on_child: "Callable[[str], None] | None" = None,
         on_idle: "Callable[[], None] | None" = None,
+        thinking_limit_sec: "float | None" = None,
     ) -> None:
         #: 考えているの子に入ったときに呼ぶ口（子の名前を渡す）。ループが電子音を鳴らす（決定テ）。
         self._on_child = on_child
         #: 頭が何もしていないに入ったときに呼ぶ口。ループが電子音の仕事を片付ける（求めの閉じ方によらない）。
         self._on_idle = on_idle
+        #: 考えているの合計の上限（秒・決定ミ）。無ければ数えない。
+        self._limit_sec = thinking_limit_sec
+        #: この求めで考えているに使える残り（秒）。この求めでもう `limit_reached` を送ったら None。
+        self._limit_left: "float | None" = thinking_limit_sec
+        #: 数えている仕事と、数え始めた時刻（`time.monotonic`）。
+        self._limit_task: "asyncio.Task[None] | None" = None
+        self._limit_since = 0.0
         super().__init__()
 
     class paju(State.Parallel):
@@ -99,12 +116,71 @@ class PajuState(StateChart):
         # 事象に付いて起きる（決定テ）。
         # ライブラリは動作の例外を内部の事象に変えて DEBUG にしか残さないので、ここで捕まえて残す（移りは止めない）。
         try:
+            self._count_limit(state.id)
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "状態図 %s で考えているの上限を数えられなかった", state.id, exc_info=True
+            )
+        try:
             if self._on_child is not None and state.id in CHILDREN:
                 self._on_child(state.id)
             elif self._on_idle is not None and state.id == "idle":
                 self._on_idle()
         except Exception:  # noqa: BLE001
             logger.warning("状態図 %s に入るときの動作が失敗した", state.id, exc_info=True)
+
+    def _count_limit(self, state_id: str) -> None:
+        """考えているの合計を数える（決定ミ）。考えているに入ると数え、答えを言っているで止め、何もしていないでやめる。"""
+        if self._limit_sec is None:
+            return
+        if state_id == "thinking":
+            not_counting = (
+                self._limit_task is None or self._limit_task.done()
+            )  # 外で止められた仕事も数えない
+            if self._limit_left is not None and not_counting:
+                with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ数えない
+                    # 入るときの動作は処理の段の中なので、外の仕事として立てる（そのままでは送る事象が列に残る）
+                    self._limit_task = spawn_outside(
+                        self._wait_limit(self._limit_left, self._limit_sec)
+                    )
+                    self._limit_since = time.monotonic()
+        elif state_id == "answering":
+            self.stop_counting()
+        elif state_id == "idle":
+            self.stop_counting()
+            self._limit_left = self._limit_sec
+
+    def stop_counting(self) -> None:
+        """数えるのを止め、使った時間を残りから引く。残りは 0 で止める（届いた刻みに止めても、戻ったときに送る）。"""
+        task, self._limit_task = self._limit_task, None
+        if task is None:
+            return
+        task.cancel()
+        if self._limit_left is not None:
+            self._limit_left = max(self._limit_left - (time.monotonic() - self._limit_since), 0.0)
+
+    def end_counting(self) -> None:
+        """もう数えない（ループを閉じるとき）。このあと考えているに入っても数え始めない。"""
+        self.stop_counting()
+        self._limit_sec = None
+
+    async def _wait_limit(self, seconds: float, limit: float) -> None:
+        # 送り終えるまで `_limit_task` に残す（閉じるときに、送っている途中でも止められる）。
+        try:
+            await asyncio.sleep(seconds)
+            self._limit_left = None  # この求めでは、もう送らない（何もしていないに入ると戻す）
+            if not self.is_deaf():
+                # 答えたあとの書き留めでは、耳はもう聞いている。移りの無い事象を送ると、ライブラリはそのとき列に
+                # 待っていたほかの事象も退けて列を空にするので、送らない。
+                logger.info("状態図 考えているが上限 %.1f 秒に届いたが、耳は聞いている", limit)
+                return
+            logger.info("状態図 考えているが上限 %.1f 秒に届いた", limit)
+            await self.fire("limit_reached")
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 考えているの上限を送れなかった", exc_info=True)
+        finally:
+            if self._limit_task is asyncio.current_task():
+                self._limit_task = None
 
     async def start(self) -> None:
         """初めの状態に入る。入っていれば何もしない。"""
@@ -115,8 +191,19 @@ class PajuState(StateChart):
         """事象を送る、ただ 1 つの口。移りが無ければ捨て、1 行残す（決定ユ）。"""
         try:
             await self.send(event)
-        except TransitionNotAllowed:
-            logger.info("状態図 %s を受ける移りが無いので捨てた（%s）", event, self.describe())
+        except TransitionNotAllowed as e:
+            # 同じ処理の中で別の送り手の事象が捨てられると、ライブラリは列に待っていた送り手みなに同じ例外を返す。
+            # そのときは、送った事象と捨てられた事象の両方を残す（どちらか一方では取り違える）。
+            dropped = getattr(e.event, "id", None) or event
+            if dropped == event:
+                logger.info("状態図 %s を受ける移りが無いので捨てた（%s）", event, self.describe())
+            else:
+                logger.info(
+                    "状態図 %s を送ったが、%s を受ける移りが無く捨てられた（%s）",
+                    event,
+                    dropped,
+                    self.describe(),
+                )
 
     def is_deaf(self) -> bool:
         """耳が、考えているあいだ聞かないにいるか。活性化の前は聞いているとみなす。"""

@@ -115,6 +115,9 @@ def _agent(*, stream_returns, max_iters=3):
     a.config.completion_content_max = 8192
     # Jev へ送る文の上限（出-bw）。MagicMock のままだと int() が 1 になり、Jev への文が組めなくなる。
     a.config.jev_state_max_chars = 28_000
+    # 考えているの合計の上限と、主LLM 1 回の待ち（環-aw 決定ミ、マ）。偽の値のままだと比べるところで落ちる。
+    a.config.thinking_limit_sec = 180.0
+    a.config.main_llm_timeout_sec = 60.0
     return a
 
 

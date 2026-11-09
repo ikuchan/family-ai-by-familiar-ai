@@ -12,7 +12,9 @@ Python 3.11 の `asyncio.wait_for` は、中の処理が終わるのとキャン
 from __future__ import annotations
 
 import asyncio
-from typing import Awaitable, TypeVar
+import contextvars
+from typing import Any, Coroutine, TypeVar
+from typing import Awaitable
 
 T = TypeVar("T")
 
@@ -24,3 +26,14 @@ async def wait_within(aw: "Awaitable[T]", timeout: float) -> T:
         return await asyncio.wait_for(aw, timeout=timeout)
     async with timeout_cm(timeout):
         return await aw
+
+
+def spawn_outside(coro: "Coroutine[Any, Any, T]") -> "asyncio.Task[T]":
+    """`coro` を、いまの文脈変数を受け継がない仕事として立てる（環-aw・2026-11-10）。
+
+    状態図のライブラリは、処理の段の中にいるかを文脈変数で見分ける。状態図に入るときの動作の中で立てた仕事は、それを
+    受け継ぐ。するとその仕事が送る事象は「処理の中から送った」とみなされ、待つ口（future）が付かない。ほかの送り手が
+    処理していれば、次の事象が来るまで列に残る。空の文脈で立てれば、外から送った事象になる。3.10 には
+    `create_task(context=)` が無いので、空の文脈の中で `create_task` を呼ぶ（仕事はそのときの文脈を写す）。
+    """
+    return contextvars.Context().run(asyncio.get_running_loop().create_task, coro)

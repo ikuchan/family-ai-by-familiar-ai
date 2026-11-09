@@ -41,7 +41,7 @@ from ..core import (
     parsing,
     unsaid,
 )
-from ..core.aio import wait_within
+from ..core.aio import spawn_outside, wait_within
 from ..core.completion_kind import is_spent
 from ..core.drive_autonomy import TALKING_AXES
 from ..core.silence_hold import Heard
@@ -250,11 +250,6 @@ SCHEDULE_DAYS_MAX = 14  # カレンダー MCP の `days` の上限（`mcp/calend
 
 #: 待ちの見張りが起きる間隔（秒）。待たせているあいだ、この間隔で窓を延ばす（窓は 10 秒なので 1 秒で足りる）。
 WAIT_WATCH_TICK_SEC = 1.0
-
-#: 主LLM を 1 回呼ぶときの時間切れ（秒・出-dd・2026-11-01 本人の決定 10 分）。音楽の道具（問い合わせ 1 回 10 秒）や検索
-#: （30 秒）と同じく、呼ぶ 1 回ごとに切る。切らないと、固まった呼び出しが飛行中のまま残り、電子音のあいだ声を聞かない
-#: 状態が続く（待つものがあるので 5 分の上限も効かない）。いままでの最長は約 10 秒。
-MAIN_LLM_TIMEOUT_SEC = 600.0
 
 #: 聞き取りの確認の預かりの寿命（秒・〔仮〕・出-cm・2026-10-15 本人の決定）。聞き返しへの答えはすぐ返るので短くし、
 #: あとの別の話の「はい」で見立ての動作を動かさない。
@@ -1764,8 +1759,11 @@ class InformationProcessing:
         sm = self.__dict__.get("_paju_state")
         if sm is None:
             # 考えているの子に入るたびに、待ちの電子音を立てる（立っていれば何もしない・決定テ）。
+            # 考えているの合計の上限（決定ミ）は設定から渡す。
             sm = self._paju_state = PajuState(
-                on_child=lambda _child: self._start_beeps(), on_idle=self._on_head_idle
+                on_child=lambda _child: self._start_beeps(),
+                on_idle=self._on_head_idle,
+                thinking_limit_sec=self._agent.config.thinking_limit_sec,
             )
         return sm
 
@@ -1798,7 +1796,9 @@ class InformationProcessing:
         if self.__dict__.get("_beeps") is not None:
             return
         with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ立てない
-            self._beeps: "asyncio.Task[None] | None" = asyncio.get_running_loop().create_task(
+            # 入るときの動作（状態図の処理の段の中）から呼ばれるので、外の仕事として立てる（`spawn_outside`）。
+            # そのままでは、鳴らせないときに送る `limit_reached` に待つ口が付かず、列に残ることがある。
+            self._beeps: "asyncio.Task[None] | None" = spawn_outside(
                 self._beep_while_waiting(self._request_generation)
             )
 
@@ -1845,7 +1845,8 @@ class InformationProcessing:
                 played = False
             if played is False:
                 # 鳴らせないなら、仕事を終え、耳を聞く側へ戻す（出-dd・環-aw 決定ミ）。打ち切られていたら、次の求めの耳に触らない。
-                if gen == self._request_generation:
+                # 耳がもう聞いていれば（答えのあとの書き留め）送らない。移りの無い事象は、列に待つほかの事象も退けさせる。
+                if gen == self._request_generation and self._paju().is_deaf():
                     await self._to_state("limit_reached")
                 return
             await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
@@ -2094,6 +2095,8 @@ class InformationProcessing:
         """主LLM を 1 回呼ぶ。失敗は空の返りにし、文で書いた道具の呼び出しは拾い直す。"""
         agent = self._agent
         started = time.monotonic()
+        # 呼ぶ 1 回ごとに切る（出-dd・環-aw 決定マ）。切らないと、固まった呼び出しが飛行中のまま残る。
+        limit = agent.config.main_llm_timeout_sec
         # 当たりは層 3 が時刻と道具の数で数える（使わない週も同じ物差し・出-bs 段 2）。
         measure_record("主LLM", 道具=len(tools))
         try:
@@ -2107,7 +2110,7 @@ class InformationProcessing:
                     on_text=None,
                     effort=effort,
                 ),
-                MAIN_LLM_TIMEOUT_SEC,
+                limit,
             )
         except asyncio.CancelledError:
             raise
@@ -2116,7 +2119,7 @@ class InformationProcessing:
             logger.warning(
                 "event-loop 主LLM が時間切れ（%.1f 秒・上限 %.0f 秒）",
                 time.monotonic() - started,
-                MAIN_LLM_TIMEOUT_SEC,
+                limit,
                 exc_info=True,
             )
             from ..backends.types import TurnResult as _TR
@@ -3895,6 +3898,13 @@ class InformationProcessing:
         await self._iterate()
 
     async def close(self) -> None:
+        # 閉じたあとに考えているの上限（決定ミ）を送らない。ほかの片付けより先に止める（待つあいだに届かないように）。
+        sm = self.__dict__.get("_paju_state")
+        if sm is not None:
+            try:
+                sm.end_counting()
+            except Exception:  # noqa: BLE001
+                logger.warning("event-loop 考えているの上限を止められなかった", exc_info=True)
         # **待たせたままの呼び手を残さない。** 列と保留箱に会話入力が残っていると、
         # `push_utterance` の `await` が永久に返らない（環-f-い-2）。
         for item in list(self._held) + list(self._triggers._queue):  # type: ignore[attr-defined]

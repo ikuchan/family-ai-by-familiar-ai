@@ -495,18 +495,12 @@ def test_no_confirm_question_leaves_the_beeps():
     assert ip.__dict__.get("_beeps") is not None
 
 
-# ── 主LLM の時間切れ（2026-11-01・本人の決定 10 分） ─────────────────────────
+# ── 主LLM の時間切れ（2026-11-01・本人の決定。上限は 60 秒・環-aw 決定マ・test_thinking_limit） ─────────────────────────
 
 
-def test_the_main_llm_limit_is_ten_minutes():
-    assert (
-        el.MAIN_LLM_TIMEOUT_SEC == 600.0
-    )  # 本人の決定（2026-11-01・音楽の道具と同じく 1 回ごとに切る）
-
-
-def test_a_hung_main_llm_call_times_out_to_an_empty_result(monkeypatch, caplog):
+def test_a_hung_main_llm_call_times_out_to_an_empty_result(caplog):
     ip, _ = _ip()
-    monkeypatch.setattr(el, "MAIN_LLM_TIMEOUT_SEC", 0.05)
+    ip._agent.config.main_llm_timeout_sec = 0.05
 
     async def hang(**_kw):
         await asyncio.sleep(10)
@@ -520,12 +514,12 @@ def test_a_hung_main_llm_call_times_out_to_an_empty_result(monkeypatch, caplog):
     )
 
 
-def test_a_quick_main_llm_call_is_not_cut(monkeypatch):
+def test_a_quick_main_llm_call_is_not_cut():
     """反証の側：時間内に返れば、その返りをそのまま使う。"""
     from familiar_agent.backends.types import TurnResult
 
     ip, _ = _ip()
-    monkeypatch.setattr(el, "MAIN_LLM_TIMEOUT_SEC", 5.0)
+    ip._agent.config.main_llm_timeout_sec = 5.0
 
     async def quick(**_kw):
         return TurnResult(stop_reason="end_turn", text="はい"), None

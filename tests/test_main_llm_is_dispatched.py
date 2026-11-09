@@ -42,6 +42,7 @@ def _ip():
     ip._write_version = AsyncMock(return_value="ver-1")
     a = MagicMock()
     a.config.max_tokens = 1000
+    a.config.main_llm_timeout_sec = 60.0  # 主LLM 1 回の待ち（環-aw 決定マ）
     ip._agent = a
     ip._tools = MagicMock(return_value=[])
     return ip, a

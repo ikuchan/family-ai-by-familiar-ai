@@ -710,6 +710,11 @@ class AgentConfig:
     wait_beep_interval_seconds: float = field(
         default_factory=lambda: _float_env("WAIT_BEEP_INTERVAL_SECONDS", 1.0)
     )
+    # 考えているの合計の上限（秒・環-aw 決定ミ・本人の決定 3 分）。答えを言っているあいだは数えない。届いたら状態図が
+    # `limit_reached` を送り、耳を聞く側へ戻す。
+    thinking_limit_sec: float = 180.0
+    # 主LLM を 1 回呼ぶときの時間切れ（秒・環-aw 決定マ・本人の決定。出-dd の 10 分から縮めた）。いままでの最長は約 10 秒。
+    main_llm_timeout_sec: float = 60.0
     # 調停（軽量LLM）の時間切れ。届かなければフルへ倒す。普通の会話は 0.93〜1.10 秒だが、
     # 「黙って」と頼まれたときは **4.18 秒**かかると実測した（判断が重い）。2.0 秒では
     # 届かず、沈黙依頼が読まれないまま素通りしていた。0.8 秒の余裕を見て 5.0 とする。
