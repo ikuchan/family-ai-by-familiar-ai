@@ -31,7 +31,7 @@ docs だけの変更は見直さない。
 worker が死に（`worker crashed`）、テストが揺れる。
 
 1. `free -h` で空きを見る。
-2. 本体を探す：`ps -eo pid,cmd | grep -E "[.]venv/bin/python3 .*familiar --gui"`
+2. 本体を探す：`ps -eo pid,cmd | grep -E "[.]venv/bin/python3? .*familiar --gui"`
 3. 見つかった pid を `kill <pid>` で止める。`kill -9` は使わない（`run-gui.sh` は終了コード 137 を
    「落ちた」と見て起動し直す。ふつうの `kill` の 143 なら止まったままになる）。
 4. 2 の結果が 0 件になるまで待つ。`sbv2_server` と、ほかの `psql` は残ってよい。
