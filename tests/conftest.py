@@ -256,6 +256,24 @@ def _no_real_pw_play(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_sounddevice_play(monkeypatch):
+    """試験では、本物の sounddevice でも鳴らさない（`pw-play` を外したあとの道・環-aw 第 1 段 項目 5）。
+
+    考えているの子に入ると待ちの電子音が立つ。求めを開いたまま終わるループの試験が、機械音 A を本物の機器で
+    鳴らしにいった（2026-11-09・ループの試験 186 本で 140 回）。偽の `sounddevice` を差し込む試験は
+    `sys.modules` ごと替えるので、この差し替えに触れない。
+    """
+    try:
+        import sounddevice as sd
+    except Exception:  # noqa: BLE001  # 入っていない機体では、鳴らす道がもともと無い
+        yield
+        return
+    monkeypatch.setattr(sd, "play", lambda *a, **k: None)
+    monkeypatch.setattr(sd, "wait", lambda *a, **k: None)
+    yield
+
+
+@pytest.fixture(autouse=True)
 def _tests_open_the_window(request, monkeypatch):
     """ループの仕組みを確かめる試験では、会話入力の窓の判定を「受けて窓を開ける」にする（出-au 段 1-2）。
 

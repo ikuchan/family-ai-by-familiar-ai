@@ -128,3 +128,56 @@ def test_speaking_again_after_hearing_stops_hearing():
     """言い終えて聞いたあと、同じ求めでもう一度言うあいだは、また聞かない（決定モ。途中の確認の問いのあとの答え）。"""
     sm = _run("request_opened", "speech_began", "speech_ended", "decide_began", "speech_began")
     assert {"answering", "deaf"} <= _ids(sm)
+
+
+def test_entering_a_thinking_child_calls_the_hook():
+    """考えているの子に入るたびに、子の名前で口が呼ばれる（電子音を鳴らす・決定テ）。耳と頭の外の状態では呼ばれない。"""
+    entered: list[str] = []
+
+    async def go():
+        sm = PajuState(on_child=entered.append)
+        await sm.start()
+        for e in ("request_opened", "decide_began", "wait_began", "speech_began", "speech_ended"):
+            await sm.fire(e)
+        await sm.fire("request_closed")
+
+    asyncio.run(go())
+    assert entered == ["recalling", "deciding", "awaiting", "noting"]
+
+
+def test_a_failing_hook_does_not_break_the_transition(caplog):
+    """入るときの動作（電子音を鳴らし始める）が例外を出しても、移りは最後まで済み、WARNING に残る。
+
+    ライブラリは動作の例外を内部の事象に変えて DEBUG にしか残さないので、黙って消えないようにする。
+    """
+
+    def broken(child):
+        raise RuntimeError("鳴らし始められない")
+
+    sm = PajuState(on_child=broken)
+
+    async def go():
+        await sm.start()
+        await sm.fire("request_opened")
+        return sm.head_state(), sm.is_deaf()
+
+    with caplog.at_level(logging.WARNING):
+        head, deaf = asyncio.run(go())
+    assert head == "thinking" and deaf
+    assert any("入るときの動作" in r.getMessage() for r in caplog.records)
+
+
+def test_entering_idle_calls_the_idle_hook():
+    """頭が何もしていないに入るたびに呼ぶ（初めの状態に入るときも、求めを閉じたときも）。"""
+    idles: list = []
+    sm = PajuState(on_idle=lambda: idles.append(sm.head_state()))
+
+    async def go():
+        await sm.start()
+        await sm.fire("request_opened")
+        await sm.fire("decide_began")
+        assert len(idles) == 1  # 反証の側：考えているの子の移りでは呼ばない
+        await sm.fire("request_closed")
+
+    asyncio.run(go())
+    assert len(idles) == 2

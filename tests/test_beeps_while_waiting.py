@@ -11,6 +11,8 @@ import asyncio
 import os
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import pytest
+
 from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
@@ -24,7 +26,7 @@ def _ip(*, interval=0.05):
     ip._req.trigger_kind = "発話"
     beeps: list[float] = []
 
-    async def beep():
+    async def beep(kind):
         beeps.append(asyncio.get_running_loop().time())
         return True
 
@@ -34,9 +36,9 @@ def _ip(*, interval=0.05):
 
 def _run(ip, *, seconds, during=None):
     async def go():
-        ip._start_beeps()
         if during is not None:
             await during()
+        await ip._to_state("request_opened")  # 考えているの子に入ると鳴り始める（環-aw 決定テ）
         await asyncio.sleep(seconds)
         ip._stop_beeps()
         await ip.close()
@@ -76,7 +78,7 @@ def test_the_answer_stops_the_beeps(caplog):
     after: list[int] = []
 
     async def go():
-        ip._start_beeps()
+        await ip._to_state("request_opened")
         await asyncio.sleep(0.2)
         await ip._speak("明日は晴れです")
         after.append(len(beeps))
@@ -95,7 +97,7 @@ def test_closing_the_request_stops_the_beeps():
     counts: list[int] = []
 
     async def go():
-        ip._start_beeps()
+        await ip._to_state("request_opened")
         await asyncio.sleep(0.15)
         ip._stop_wait_watch()  # 求めが閉じる・打ち切られる道はここを通る
         counts.append(len(beeps))
@@ -107,7 +109,101 @@ def test_closing_the_request_stops_the_beeps():
     assert counts[0] == counts[1]
 
 
-def _decided(final: str) -> bool:
+def _kinds(ip, events, *, seconds=0.12):
+    """事象を順に送り、そのあいだに鳴らした電子音の種類を返す。"""
+    kinds: list[str] = []
+
+    async def beep(kind):
+        kinds.append(kind)
+        return True
+
+    ip._dif.beep = beep  # type: ignore[method-assign]
+
+    async def go():
+        for e in events:
+            await ip._to_state(e)
+        await asyncio.sleep(seconds)
+        ip._stop_beeps()
+        await ip.close()
+
+    asyncio.run(go())
+    return kinds
+
+
+def test_opening_a_keyboard_request_starts_the_beeps():
+    """キーボード・情動・機器の求めでも鳴らす（環-aw 決定テ）。前は声の合図のあとだけだった。"""
+    ip, _ = _ip()
+    ip._req.source = "keyboard"
+    assert _kinds(ip, ["request_opened"])[:1] == ["recalling"]
+
+
+def test_no_request_no_beeps():
+    """**反証の側**：求めが無ければ、考えているの子に入らないので鳴らない。"""
+    ip, _ = _ip()
+    assert _kinds(ip, []) == []
+
+
+def test_each_child_beeps_its_own_kind():
+    """考えているの子に入るときの動作で、その子の音を鳴らす（決定テ）。"""
+    for event, kind in (
+        ("decide_began", "deciding"),
+        ("wait_began", "awaiting"),
+        ("check_began", "checking"),
+    ):
+        ip, _ = _ip()
+        kinds = _kinds(ip, ["request_opened", event])
+        assert kinds and kinds[-1] == kind and set(kinds) <= {"recalling", kind}
+
+
+def test_noting_after_the_answer_beeps_again():
+    """答えを言い終えて書き留めているへ戻ったら、また鳴らす（決定ヤ）。言っているあいだは鳴らさない。"""
+    ip, _ = _ip()
+    kinds = _kinds(ip, ["request_opened", "speech_began", "speech_ended"])
+    assert kinds[-1:] == ["noting"]
+
+
+def test_no_beeps_while_answering():
+    """**反証の側**：答えを言っているあいだは、電子音の仕事が動いていても鳴らさない（決定テ）。"""
+    ip, _ = _ip()
+    ip._stop_beeps = lambda: None  # type: ignore[method-assign]  # 止め忘れても鳴らないこと
+    kinds = _kinds(ip, ["request_opened", "speech_began"], seconds=0.2)
+    assert kinds and set(kinds) <= {"recalling"}
+
+
+def test_beeps_rest_while_the_judging_sound_plays():
+    """Jev が判断しているあいだは機械音 A が鳴り続けるので、電子音は重ねずに休む（出-bg）。"""
+    ip, _ = _ip()
+    ip._req.source = "voice"
+    ip._req.trigger_kind = "発話"
+
+    async def forever():
+        await asyncio.sleep(10)
+
+    kinds: list[str] = []
+
+    async def beep(kind):
+        kinds.append(kind)
+        return True
+
+    ip._dif.beep = beep  # type: ignore[method-assign]
+
+    async def go():
+        from familiar_agent.io.dif import _Thinking
+
+        ip._dif.start_thinking = lambda: _Thinking(asyncio.ensure_future(forever()))  # type: ignore[method-assign]
+        cue = ip._start_reaction_cue([])
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.15)
+        cue.stop()
+        ip._stop_beeps()
+        await ip.close()
+
+    asyncio.run(go())
+    assert kinds == []
+
+
+def test_a_cue_no_longer_starts_the_beeps():
+    """鳴らし始めは考えているの子に入るときの動作へ移した（決定テ）。合図の決まりは鳴らし始めない。"""
     from familiar_agent.loop.event_loop import _ReactionCue
 
     ip, _ = _ip()
@@ -116,20 +212,39 @@ def _decided(final: str) -> bool:
 
     async def go():
         ip._dif.play_cue = lambda cue: asyncio.get_running_loop().create_future()  # type: ignore[method-assign]
-        _ReactionCue(ip, MagicMock()).decided(final)
+        _ReactionCue(ip, MagicMock()).decided("search_deferred")
         await ip.close()
 
     asyncio.run(go())
-    return bool(started)
+    assert started == []
 
 
-def test_a_cue_starts_the_beeps():
-    assert _decided("search_deferred") is True
+def test_the_dif_plays_each_kind_its_own_sound():
+    """音は `reaction_cue` の表で決める（環-aw 第 1 段 項目 6）。決めているは機械音 A と同じ音、ほかの 4 つは子ごとの音。"""
+    from familiar_agent.core import reaction_cue as rc
+    from familiar_agent.io import dif as dif_mod
 
+    played: list = []
 
-def test_silence_starts_no_beeps():
-    """**反証の側**：黙ると決めたら（合図なし）、電子音も鳴らさない。"""
-    assert _decided("silent") is False
+    async def play(path, gain, *, quiet=False):
+        played.append(path)
+        return True
+
+    from familiar_agent.loop.paju_state import CHILDREN
+
+    kinds = CHILDREN
+    assert set(rc.BEEP_WAVS) == set(CHILDREN)  # 子を足したら、音の表にも足す
+    d = dif_mod.DIF()
+    with patch.object(dif_mod, "_play_wav", play):
+        for kind in kinds:
+            assert asyncio.run(d.beep(kind)) is True
+    assert played == [rc.BEEP_WAVS[k] for k in kinds]
+    assert rc.BEEP_WAVS["deciding"] == rc.THINKING_WAV
+    names = {k: rc.BEEP_WAVS[k].name for k in kinds if k != "deciding"}
+    assert names == {
+        k: f"react_beep_{k}.wav" for k in names
+    }  # 反証の側：4 つの子は機械音 A ではない
+    assert all(p.exists() for p in played)
 
 
 def test_a_quiet_play_logs_at_debug(tmp_path, monkeypatch, caplog):
@@ -172,3 +287,35 @@ def test_the_interval_comes_from_config():
     with patch.dict(os.environ, {}, clear=True):
         interval = AgentConfig().wait_beep_interval_seconds  # 設定を丸ごと表示させない（鍵が出る）
     assert interval == 1.0  # 0.5 秒は短すぎた（本人 2026-10-13）
+
+
+# ── 声を出さない求めでは鳴らさない（環-aw 第 1 段・2026-11-09・本人の決定） ─────────────
+# 情動と機器から来た求めは、人が居なければ声に出さない（`_delivery_block_reason`）。そのとき電子音だけが空の家に
+# 鳴らないようにする。声とキーボードの求めは、門が理由を返さないので、いつも鳴らす。
+
+
+@pytest.mark.parametrize("kind", ["情動", "機器"])
+def test_no_beeps_when_nobody_would_hear_the_answer(kind):
+    ip, beeps = _ip()
+    ip._req.trigger_kind = kind
+    ip._delivery_block_reason = lambda: "聞く相手が居ない"  # type: ignore[method-assign]
+    _run(ip, seconds=0.3)
+    assert beeps == []
+
+
+@pytest.mark.parametrize("kind", ["情動", "機器"])
+def test_beeps_when_someone_would_hear_the_answer(kind):
+    """**反証の側**：人が居れば、情動と機器の求めでも鳴らす。"""
+    ip, beeps = _ip()
+    ip._req.trigger_kind = kind
+    ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
+    _run(ip, seconds=0.3)
+    assert len(beeps) >= 3
+
+
+def test_a_voice_request_beeps_even_when_the_camera_sees_nobody():
+    """**反証の側**：声の求めは在席で止めない（門が理由を返さない・出-as §2.3）。"""
+    ip, beeps = _ip()
+    ip._agent._someone_here = lambda: False
+    _run(ip, seconds=0.3)
+    assert len(beeps) >= 3

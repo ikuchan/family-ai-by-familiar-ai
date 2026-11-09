@@ -1050,7 +1050,7 @@ class PresencePanel(QWidget):
         return format_sensor_rows(reading, basis)
 
     def _timer_rows(self) -> "list[str]":
-        """器（`_timer_tool`・`_alarm_tool`・`_stopwatch_tool`・`_dif`）から読むだけ。無ければ「なし」。"""
+        """器（`_timer_tool`・`_alarm_tool`・`_stopwatch_tool`・`timer_ringing`）から読むだけ。無ければ「なし」。"""
         agent = self._get_agent()
         if agent is None:
             return ["（タイマー・アラーム・ストップウォッチなし）"]
@@ -1062,7 +1062,10 @@ class PresencePanel(QWidget):
             except Exception:  # noqa: BLE001
                 return ""
 
-        ringing = bool(getattr(getattr(agent, "_dif", None), "ringing", False))
+        try:
+            ringing = bool(agent.timer_ringing())  # DIF はループが持つ（agent には _dif が無い）
+        except Exception:  # noqa: BLE001
+            ringing = False
         return format_timer_rows(
             frame_of("_timer_tool"),
             ringing=ringing,

@@ -149,6 +149,11 @@ def _command_text(user_input: str) -> str:
     return s.rstrip(_COMMAND_TAIL) if s.startswith("/") else s
 
 
+def _loop_dif(agent):
+    """タイマーの音を鳴らす DIF。ループ（`_info_processing`）が持つ（`agent` には `_dif` が無い）。無ければ None。"""
+    return getattr(getattr(agent, "_info_processing", None), "_dif", None)
+
+
 # Day summary prompt — condense a day's observations into a diary-like entry
 
 
@@ -890,10 +895,13 @@ class EmbodiedAgent:
             return await self._alarm_tool.call(pc.action, pc.tool_input, confirmed=True)
         return await self._timer_tool.call(pc.action, pc.tool_input, now=now, confirmed=True)
 
+    def timer_ringing(self) -> bool:
+        """タイマーかアラームの音が、いま鳴っているか（画面のタイマーの欄が読む）。"""
+        return bool(getattr(_loop_dif(self), "ringing", False))
+
     def _stop_timer_ring(self) -> bool:
         """鳴っているタイマーの音を止める（`cancel_timer`・`/timer stop` から）。止めたら True（出-af）。"""
-        ip = getattr(self, "_info_processing", None)
-        dif = getattr(ip, "_dif", None)
+        dif = _loop_dif(self)
         if dif is None:
             return False
         was = bool(getattr(dif, "ringing", False))

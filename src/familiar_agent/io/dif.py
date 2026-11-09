@@ -160,11 +160,17 @@ class DIF:
         except Exception:  # noqa: BLE001
             logger.debug("DIF 機械音が鳴らせなかった", exc_info=True)
 
-    async def beep(self) -> bool:
-        """待ちの電子音を 1 回（機械音 A を 1 周期・出-bu）。音楽は絞らない（短い音を続けるので）。"""
-        from ..core.reaction_cue import THINKING_WAV
+    async def beep(self, kind: str) -> bool:
+        """考えているの子 `kind` の電子音を 1 回（出-bu・環-aw 決定テ）。音楽は絞らない（短い音を続けるので）。
 
-        return await _play_wav(THINKING_WAV, 1.0, quiet=True)
+        その子に音が無ければ鳴らさず真を返す（鳴らせなかったのではない）。
+        """
+        from ..core.reaction_cue import BEEP_WAVS
+
+        path = BEEP_WAVS.get(kind)
+        if path is None:
+            return True
+        return await _play_wav(path, 1.0, quiet=True)
 
     def play_cue(self, cue: str) -> "asyncio.Future[None] | None":
         """決まった動作の合図を 1 回流す（待たない）。なしなら何もしない。音楽が鳴っていれば絞る。
@@ -386,6 +392,11 @@ class _Thinking:
 
     def __init__(self, task: "asyncio.Future[None]") -> None:
         self._task = task
+
+    @property
+    def future(self) -> "asyncio.Future[None]":
+        """鳴らしている仕事。鳴っているあいだ、待ちの電子音は休む（`_sounding`）。"""
+        return self._task
 
     def stop(self) -> None:
         if not self._task.done():

@@ -8,10 +8,10 @@
 |---|---|
 | 黙る | なし |
 | 軽く返す・聞き返す・状態を伝える | 効果音 B（返事がすぐ続くので、声の相づちを重ねない） |
-| 道具を使う | 作り置きの声（はーい！） |
+| 道具を使う | 作り置きの声（はいっ） |
 | 考えて返す | 作り置きの声（えっと） |
 
-合図を鳴らした後で、軽量LLM の判定か主LLM の印で黙ると決まったら、黙る音（`SILENT_WAV`・低い和音）を 1 回鳴らす
+合図を鳴らした後で、軽量LLM の判定か主LLM の印で黙ると決まったら、黙る音（`SILENT_WAV`・下がっていく 2 つの和音）を 1 回鳴らす
 （出-dc・2026-10-26・本人の決定）。合図だけ鳴って何も言わない、を「聞こえたけど返事はやめた」と分かるようにする。
 """
 
@@ -29,14 +29,24 @@ SILENT = "黙る音"
 _SOUNDS = Path(__file__).resolve().parent.parent / "sounds"
 #: Jev が判断しているあいだ鳴らし続ける機械音 A（1 周期ぶん。鳴らす側が繰り返す）。
 THINKING_WAV = _SOUNDS / "react_thinking.wav"
+#: 考えているの子ごとの電子音（環-aw 決定テ、ヤ。音は第 1 段 項目 6・2026-11-09・本人が聞いて決めた）。決めているは
+#: 機械音 A と同じ音。ここを差し替えれば、鳴らす側は変えずに済む。
+BEEP_WAVS: "dict[str, Path]" = {
+    "recalling": _SOUNDS / "react_beep_recalling.wav",
+    "deciding": THINKING_WAV,
+    "awaiting": _SOUNDS / "react_beep_awaiting.wav",
+    "checking": _SOUNDS / "react_beep_checking.wav",
+    "noting": _SOUNDS / "react_beep_noting.wav",
+}
 #: 軽く返す・聞き返すときの効果音 B。
 ACK_WAV = _SOUNDS / "react_ack.wav"
 #: 合図の後で黙ると決まったときの黙る音（出-dc）。
 SILENT_WAV = _SOUNDS / "react_silent.wav"
 #: 作り置きの声（パジュの声・SBV2）。いまは 1 つずつ（出-de）。増やせば、鳴らす側が毎回その中から選ぶ（`sound_for`）。
-TOOL_WORDS = ("はーい！",)
-# 最初の反応は「はーい！」と「えっと」だけにした（出-de・2026-10-31・本人）。前は道具の声が はい・はーい！・待ってね・
-# オッケー、考える声が えっと・うーん だった（出-ce）。「はーい！」の大きさは作る道具が「えっと」に揃える（出-df）。
+TOOL_WORDS = ("はいっ",)
+# 最初の反応は道具の声 1 つと「えっと」だけにした（出-de・2026-10-31・本人）。前は道具の声が はい・はーい！・待ってね・
+# オッケー、考える声が えっと・うーん だった（出-ce）。道具の声は「はーい！」から「はいっ」に変えた（環-aw 第 1 段 項目 6・
+# 2026-11-09・本人が聞いて決めた）。2 つの声の大きさは、作る道具が決まった大きさに揃える（出-df）。
 THINK_WORDS = ("えっと",)
 TOOL_WAVS = tuple(_SOUNDS / f"react_tool_{i}.wav" for i in range(len(TOOL_WORDS)))
 THINK_WAVS = tuple(_SOUNDS / f"react_think_{i}.wav" for i in range(len(THINK_WORDS)))
@@ -88,4 +98,5 @@ def sound_for(cue: str) -> "Path | None":
 
 def sound_files() -> "list[Path]":
     """合図の音のファイル全部（作る道具と試験が見る）。"""
-    return [THINKING_WAV, ACK_WAV, SILENT_WAV, *TOOL_WAVS, *THINK_WAVS]
+    beeps = [p for p in BEEP_WAVS.values() if p != THINKING_WAV]
+    return [THINKING_WAV, ACK_WAV, SILENT_WAV, *beeps, *TOOL_WAVS, *THINK_WAVS]

@@ -170,7 +170,7 @@ def test_a_failing_check_falls_back_to_listening(caplog):
 def test_a_failing_beep_ends_the_beep_task(caplog):
     ip, _ = _ip()
 
-    async def broken():
+    async def broken(kind):
         raise RuntimeError("鳴らせない")
 
     ip._dif.beep = broken  # type: ignore[method-assign]
@@ -190,11 +190,112 @@ def test_a_failing_beep_ends_the_beep_task(caplog):
     assert any("電子音を鳴らせなかった" in r.getMessage() for r in caplog.records)
 
 
+def test_a_beep_the_player_could_not_play_ends_the_beep_task(caplog):
+    """本物の再生の口は、鳴らせないと例外ではなく偽を返す。偽でも仕事を終え、耳を聞く側へ戻す（決定ミ）。"""
+    ip, _ = _ip()
+
+    async def refused(kind):
+        return False
+
+    ip._dif.beep = refused  # type: ignore[method-assign]
+
+    async def go():
+        await ip._to_state("request_opened")
+        ip._start_beeps()
+        task = ip._beeps
+        await asyncio.sleep(0.2)
+        done, deaf = task.done(), ip._paju().is_deaf()
+        await ip.close()
+        return done, deaf
+
+    with caplog.at_level(logging.WARNING, logger=LOG):
+        assert asyncio.run(go()) == (True, False)
+    assert any("電子音を鳴らせなかった" in r.getMessage() for r in caplog.records)
+
+
+def test_a_failed_beep_is_not_started_again_in_the_same_request():
+    """鳴らせなかった求めでは、次の子に入っても電子音の仕事を立て直さない（失敗を毎回くり返さない）。"""
+    ip, _ = _ip()
+    calls: list = []
+
+    async def broken(kind):
+        calls.append(kind)
+        raise RuntimeError("鳴らせない")
+
+    ip._dif.beep = broken  # type: ignore[method-assign]
+
+    async def go():
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.2)
+        for event in ("decide_began", "wait_began", "check_began"):
+            await ip._to_state(event)
+            await asyncio.sleep(0.05)
+        first = list(calls)
+        ip._stop_wait_watch()  # 求めを閉じる道と同じく、電子音の仕事を片付ける
+        await ip._to_state("request_closed")
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.2)
+        await ip.close()
+        return first, calls
+
+    first, every = asyncio.run(go())
+    assert first == ["recalling"]
+    assert every == ["recalling", "recalling"]  # 反証の側：次の求めでは、また鳴らしてみる
+
+
+def test_after_the_answer_the_failed_beep_is_tried_once_more():
+    """答えを言い始めると仕事を片付けるので、答えのあとの書き留めているでは、もう 1 度だけ鳴らしてみる（くり返しは 2 回まで）。"""
+    ip, _ = _ip()
+    calls: list = []
+
+    async def broken(kind):
+        calls.append(kind)
+        raise RuntimeError("鳴らせない")
+
+    ip._dif.beep = broken  # type: ignore[method-assign]
+
+    async def go():
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.2)
+        ip._stop_beeps()  # 答えを言い始めた
+        await ip._to_state("speech_began")
+        await ip._to_state("speech_ended")  # 書き留めている
+        await asyncio.sleep(0.2)
+        await ip._to_state("note_began")
+        await asyncio.sleep(0.1)
+        await ip.close()
+
+    asyncio.run(go())
+    assert calls == ["recalling", "noting"]
+
+
+def test_a_failed_task_left_by_an_unusual_close_does_not_silence_the_next_request():
+    """片付けを通らずに閉じても（打ち切りの競り合いなど）、頭が何もしていないに入れば片付くので、次の求めは鳴る。"""
+    ip, beeps = _ip()
+    working = ip._dif.beep
+
+    async def broken(kind):
+        raise RuntimeError("鳴らせない")
+
+    async def go():
+        ip._dif.beep = broken  # type: ignore[method-assign]
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.1)
+        await ip._to_state("request_closed")  # _stop_beeps を通らない
+        ip._dif.beep = working  # type: ignore[method-assign]
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.2)
+        await ip.close()
+
+    asyncio.run(go())
+    assert len(beeps) >= 2
+
+
 def test_a_beep_failing_after_an_abort_leaves_the_next_request_alone():
     """**反証の側**：鳴らすあいだに世代が進んでいたら（打ち切られた）、次の求めの耳には触らない。"""
     ip, _ = _ip()
 
-    async def broken():
+    async def broken(kind):
         ip._request_generation += 1
         raise RuntimeError("鳴らせない")
 
@@ -323,7 +424,9 @@ def test_an_exception_in_the_driver_stops_the_beeps():
     ip._take_trigger = take  # type: ignore[method-assign]
 
     async def go():
-        ip._start_beeps()
+        await ip._to_state(
+            "request_opened"
+        )  # 考えているあいだの仕事（何もしていないなら自分で終わってしまう）
         await asyncio.sleep(0.05)
         driver = asyncio.ensure_future(ip._drive())
         await asyncio.sleep(0.1)
@@ -345,7 +448,9 @@ def test_without_an_exception_the_driver_leaves_the_beeps():
     ip._take_trigger = take  # type: ignore[method-assign]
 
     async def go():
-        ip._start_beeps()
+        await ip._to_state(
+            "request_opened"
+        )  # 考えているあいだだけ鳴る（何もしていないなら仕事は終わる）
         driver = asyncio.ensure_future(ip._drive())
         await asyncio.sleep(0.1)
         alive = ip.__dict__.get("_beeps") is not None
@@ -482,3 +587,74 @@ def test_a_cancelled_cli_call_kills_its_child(monkeypatch):
 
     asyncio.run(go())
     assert killed == [True]
+
+
+# ── 見直し 2 回目（2026-11-09）：電子音の仕事の終わり方 ─────────────────────────────
+
+
+def test_a_failing_check_before_the_beep_also_takes_the_fallback(caplog):
+    """鳴らす前の判定（在席など）が例外を出しても、鳴らせないときと同じく仕事を終え、耳を聞く側へ戻す（決定ミ）。"""
+    ip, _ = _ip()
+
+    def broken():
+        raise RuntimeError("在席が読めない")
+
+    ip._delivery_block_reason = broken  # type: ignore[method-assign]
+
+    async def go():
+        await ip._to_state("request_opened")
+        task = ip._beeps
+        await asyncio.sleep(0.2)
+        done, failed, deaf = task.done(), task.done() and task.exception(), ip._paju().is_deaf()
+        await ip.close()
+        return done, failed, deaf
+
+    with caplog.at_level(logging.WARNING, logger=LOG):
+        assert asyncio.run(go()) == (True, None, False)
+    assert any("電子音を鳴らせなかった" in r.getMessage() for r in caplog.records)
+
+
+def test_the_beep_task_ends_when_the_head_leaves_thinking():
+    """頭が考えているを出たら（何もしていないへ移ったら）、電子音の仕事は自分で終わり、次の求めで立て直せる。"""
+    ip, beeps = _ip()
+
+    async def go():
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.1)
+        await ip._to_state("request_closed")  # 片付けを通らずに閉じた（打ち切りの競り合いなど）
+        await asyncio.sleep(0.2)
+        left = ip.__dict__.get("_beeps")
+        n = len(beeps)
+        await ip._to_state("request_opened")  # 次の求め
+        await asyncio.sleep(0.2)
+        again = len(beeps) > n
+        await ip.close()
+        return left, again
+
+    left, again = asyncio.run(go())
+    assert left is None and again
+
+
+def test_the_closing_count_covers_the_whole_request(caplog):
+    """答えの前と書き留めのあいだの両方を、閉じるときの 1 行に数える（2 本目の仕事で 0 から数え直さない）。"""
+    ip, beeps = _ip()
+
+    async def go():
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.2)
+        ip._stop_beeps()  # 答えを言い始めた
+        before = len(beeps)
+        await ip._to_state("speech_began")
+        await ip._to_state("speech_ended")  # 書き留めている：鳴らし直す
+        await asyncio.sleep(0.2)
+        ip._stop_wait_watch()  # 求めを閉じる
+        total = len(beeps)
+        await ip._to_state("request_closed")
+        await ip.close()
+        return before, total
+
+    with caplog.at_level(logging.INFO, logger=LOG):
+        before, total = asyncio.run(go())
+    counts = [r.getMessage() for r in caplog.records if "待ちの電子音" in r.getMessage()]
+    assert before > 0 and total > before
+    assert counts[-1] == f"event-loop 待ちの電子音 {total} 回"

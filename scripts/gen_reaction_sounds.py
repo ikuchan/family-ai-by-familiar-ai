@@ -1,23 +1,33 @@
 #!/usr/bin/env python
 """話しかけたときの合図の音 `src/familiar_agent/sounds/react_*.wav` を作る（出-bg・2026-10-10・本人の決定）。
 
-- 機械音 A `react_thinking.wav`：Jev が判断しているあいだ鳴らし続ける。600 Hz の短い「ポッ」（0.08 秒）＋休みで 1 周期
-  0.35 秒。鳴らす側（`io/dif`）が繰り返す。
-- 効果音 B `react_ack.wav`：軽く返す・聞き返すときに 1 回。880 Hz → 1320 Hz と上がる「ピロッ」（0.12 秒）。
-- 黙る音 `react_silent.wav`：合図の後で黙ると決まったときに 1 回（出-dc・2026-10-26・本人が聞いて決めた）。低い和音
-  （ド・ミ・ソ）を 0.4 秒、出だしと終わりを丸くやわらかく。振幅 0.35。`--tones` と既定の実行で A・B と一緒に書き直す。
-- 作り置きの声 `react_tool_0.wav`（はーい！）・`react_think_0.wav`（えっと）：いまの声（Style-Bert-VITS2・`.env` の
+音の高さは、ドを 523.25 Hz に置いた純正律のハ長調の 1 つの音階から取る（環-aw 第 1 段 項目 6・2026-11-09・本人が聞いて
+決めた）。一瞬で終わる段は和音、時間がかかる段は単音にし、段から段へ高さがつながるようにした。大きさは、振幅 0.15 を基に
+した dB で決めた（黙る音だけは 0.35 を基にする）。
+
+| 音 | ファイル | 高さ | 形 | 長さ | 大きさ |
+|---|---|---|---|---|---|
+| 思い出している | `react_beep_recalling.wav` | ド・ミ・ソ | だんだん消える | 0.40 秒 | −1 dB |
+| 機械音 A・決めている | `react_thinking.wav` | ド | 平ら | 0.08 秒（0.35 秒で 1 周期） | −6 dB |
+| 返りを待っている | `react_beep_awaiting.wav` | ミ | 平ら | 0.06 秒 | −6 dB |
+| 確かめている・効果音 B | `react_beep_checking.wav`・`react_ack.wav` | ド・ミ・ソ | 平ら | 0.12 秒 | −1 dB |
+| 書き留めている | `react_beep_noting.wav` | 1 つ下のド | 平ら | 0.12 秒 | −24 dB |
+| 黙る音 | `react_silent.wav` | 1 つ下のド・ミ・ソ → さらに低いラ・ド・ミ | だんだん消える | 0.15 秒 → 0.40 秒 | −6 dB（0.35 から） |
+
+- 「平ら」は、5 ms で立ち上がり、長さの 15 % ＋ 5 ms で絞って終わる。「だんだん消える」は、叩いた音のように鳴らした瞬間が
+  いちばん大きく、長さの 4 分の 1 ごとに 1/e へ減る（立ち上がりは 5 ms）。
+- 機械音 A は Jev が判断しているあいだ、鳴らす側（`io/dif`）が繰り返す。考えているの子の電子音は、待ちのループが
+  1 秒ごとに 1 回鳴らす（`wait_beep_interval_seconds`）。
+- 作り置きの声 `react_tool_0.wav`（はいっ）・`react_think_0.wav`（えっと）：いまの声（Style-Bert-VITS2・`.env` の
   `SBV2_*`）で読み上げる。合成サーバーが動いていなければ起こし、作り終えたら止める（出-de・2026-10-31・本人：最初の反応は
-  この 2 つだけ）。
-- 大きさを揃える（出-df・2026-11-01・本人の決定ア）：声を作り終えたら、そのフォルダの「はーい！」を「えっと」と同じ大きさに
-  する（声が出ている部分の実効値・`active_db`）。大きくするときは最大の振れを `PEAK_LIMIT_DB` で止める。声を作らずに
-  揃えるだけなら `--level`（元の声と、声ごとのフォルダ全部）。
+  この 2 つだけ）。「はいっ」は作ったあと、出だしを `VOICE_ONSET_SEC` かけて丸くする（やわらかくする・本人が聞いて決めた）。
+- 大きさを揃える（出-df・2026-11-01）：声を作り終えたら、そのフォルダの 2 つの声を、声が出ている部分の実効値（`active_db`）で
+  `VOICE_LEVEL_DB` に合わせる（環-aw 第 1 段 項目 6 で、「えっと」に合わせる形から決まった大きさに合わせる形にした）。
+  大きくするときは最大の振れを `PEAK_LIMIT_DB` で止める。声を作らずに揃えるだけなら `--level`（元の声と、声ごとのフォルダ全部）。
 
-音量はタイマー（振幅 0.6）よりずっと小さくする（本人：もう一声小さく）。A は 0.15、B は 0.25。黙る音は 0.35（和音なので
-平均の強さは B の約 7 割・本人が聞いて決めた値）。拾ってきた音源は許諾の確認と
-出典の記録が要るので、効果音は自分で合成する（`gen_timer_alarm.py` と同じ）。
+拾ってきた音源は許諾の確認と出典の記録が要るので、効果音は自分で合成する（`gen_timer_alarm.py` と同じ）。
 
-使い方：`uv run python scripts/gen_reaction_sounds.py`（効果音だけなら `--tones`。言葉を選んで作るなら `--only はーい！`。
+使い方：`uv run python scripts/gen_reaction_sounds.py`（効果音だけなら `--tones`。言葉を選んで作るなら `--only はいっ`。
 揃えるだけなら `--level`）
 
 声ごとの作り置き（出-bv）：`--voice Laomedeia` のように声を指定すると、作り置きの声だけを Gemini のその声で読み上げ、
@@ -39,20 +49,25 @@ sys.path.insert(0, "src")
 from familiar_agent.core import reaction_cue as rc  # noqa: E402
 
 RATE = 48000  # 再生側は機器の rate へ合わせ直すが、元もタイマーと揃えておく
-THINK_FREQ = 600.0
-THINK_BEEP_SEC = 0.08
+#: 音階の基のド（Hz）と、ドを 1 とした純正律の比（環-aw 第 1 段 項目 6）。全部の音をこの 1 つの音階から取る。
+C5 = 523.25
+JUST = {"ド": 1.0, "レ": 9 / 8, "ミ": 5 / 4, "ファ": 4 / 3, "ソ": 3 / 2, "ラ": 5 / 3, "シ": 15 / 8}
+#: 大きさの基の振幅と、音ごとの dB。和音は −1 dB、単音は −6 dB、書き留めるは −24 dB（本人が聞いて決めた）。
+BASE_AMPLITUDE = 0.15
+CHORD_DB = -1.0
+SINGLE_DB = -6.0
+NOTING_DB = -24.0
+#: 機械音 A の 1 周期。
 THINK_PERIOD_SEC = 0.35
-THINK_AMPLITUDE = 0.15
-ACK_FREQS = (880.0, 1320.0)  # 上がる 2 音
-ACK_NOTE_SEC = 0.06
-ACK_AMPLITUDE = 0.25
-#: 黙る音（出-dc・2026-10-26・本人が YAMAHA で聞いて決めた）：低い和音（ド・ミ・ソ）を 0.4 秒。出だし 0.06 秒・終わり 0.18 秒を
-#: 丸い曲線でやわらかくする。振幅 0.35 も聞いて決めた値（B に連動させない。3 音を 3 で割るので、平均の強さは B の約 7 割）。
-SILENT_FREQS = (130.81, 164.81, 196.00)
-SILENT_SEC = 0.4
-SILENT_ATTACK_SEC = 0.06
-SILENT_RELEASE_SEC = 0.18
+#: 黙る音（出-dc）：振幅 0.35 を基にして −6 dB。
 SILENT_AMPLITUDE = 0.35
+SILENT_DB = -6.0
+#: 考えているの子のうち、自分の音のファイルを持つもの（決めているは機械音 A のファイルを使う）。表は `reaction_cue` が持つ。
+BEEP_KINDS = tuple(k for k, p in rc.BEEP_WAVS.items() if p != rc.THINKING_WAV)
+#: 作り置きの声の大きさ（dB・声が出ている部分の実効値）。いまの「えっと」（−20.1 dB）から −6 dB（本人が聞いて決めた）。
+VOICE_LEVEL_DB = -26.1
+#: 道具の声の出だしを丸くする長さ（秒）。声が 0.01 を超えた所から上げ、その前は消す。
+VOICE_ONSET_SEC = 0.12
 #: 大きさを測る窓（秒）と、数に入れる窓（いちばん大きい窓から何 dB 以内か）。無音と息の音を数に入れない（出-df）。
 LEVEL_WINDOW_SEC = 0.02
 LEVEL_FLOOR_DB = 30.0
@@ -62,39 +77,88 @@ PEAK_LIMIT_DB = -1.0
 LEVEL_SKIP_DB = 0.05
 
 
-def _tone(freq: float, sec: float, amplitude: float) -> np.ndarray:
+def pitch(name: str, octave: int = 0) -> float:
+    """音階の音（Hz）。`octave` が −1 なら 1 つ下。"""
+    return C5 * JUST[name] * 2.0**octave
+
+
+def _amp(db: float, base: float = BASE_AMPLITUDE) -> float:
+    return base * 10 ** (db / 20)
+
+
+def _mix(freqs: "tuple[float, ...]", sec: float) -> "tuple[np.ndarray, np.ndarray]":
     t = np.arange(int(RATE * sec)) / RATE
-    wave_ = np.sin(2 * np.pi * freq * t)
-    ramp = int(RATE * 0.005)  # 頭と尻を 5 ms で絞り、クリック音を出さない
-    env = np.ones_like(wave_)
-    env[:ramp] = np.linspace(0.0, 1.0, ramp)
-    env[-ramp:] = np.linspace(1.0, 0.0, ramp)
-    return wave_ * env * amplitude
+    return t, sum(np.sin(2 * np.pi * f * t) for f in freqs) / len(freqs)
+
+
+def _flat(freqs: "tuple[float, ...]", sec: float, amplitude: float) -> np.ndarray:
+    """平らに鳴る音。5 ms で立ち上がり、長さの 15 % ＋ 5 ms で絞る（ぶつっと切れない）。"""
+    _, w = _mix(freqs, sec)
+    a, r = int(RATE * 0.005), int(RATE * (0.005 + sec * 0.15))
+    env = np.ones_like(w)
+    env[:a] = np.linspace(0.0, 1.0, a)
+    env[-r:] = np.linspace(1.0, 0.0, r)
+    return w * env * amplitude
+
+
+def _decay(freqs: "tuple[float, ...]", sec: float, amplitude: float) -> np.ndarray:
+    """だんだん消える音。鳴らした瞬間がいちばん大きく、長さの 4 分の 1 ごとに 1/e へ減る（立ち上がりは 5 ms）。"""
+    t, w = _mix(freqs, sec)
+    a = int(RATE * 0.005)
+    env = np.exp(-t / (sec / 4))
+    env[:a] *= np.linspace(0.0, 1.0, a)
+    return w * env * amplitude
+
+
+_TRIAD = (pitch("ド"), pitch("ミ"), pitch("ソ"))
 
 
 def build_thinking() -> np.ndarray:
-    """機械音 A の 1 周期（ポッ ＋ 休み）。"""
-    beep = _tone(THINK_FREQ, THINK_BEEP_SEC, THINK_AMPLITUDE)
+    """機械音 A の 1 周期（ドを 0.08 秒 ＋ 休み）。決めているの子も同じ音。"""
+    beep = _flat((pitch("ド"),), 0.08, _amp(SINGLE_DB))
     rest = np.zeros(max(0, int(RATE * THINK_PERIOD_SEC) - len(beep)))
     return np.concatenate([beep, rest]).astype(np.float32)
 
 
+def build_beep(kind: str) -> np.ndarray:
+    """考えているの子の電子音（1 回ぶん。間隔は待ちのループがあける）。"""
+    if kind == "recalling":
+        x = _decay(_TRIAD, 0.40, _amp(CHORD_DB))
+    elif kind == "awaiting":
+        x = _flat((pitch("ミ"),), 0.06, _amp(SINGLE_DB))
+    elif kind == "checking":
+        x = _flat(_TRIAD, 0.12, _amp(CHORD_DB))
+    elif kind == "noting":
+        x = _flat((pitch("ド", -1),), 0.12, _amp(NOTING_DB))
+    else:
+        raise ValueError(kind)
+    return x.astype(np.float32)
+
+
 def build_ack() -> np.ndarray:
-    """効果音 B（ピロッ）。"""
-    return np.concatenate([_tone(f, ACK_NOTE_SEC, ACK_AMPLITUDE) for f in ACK_FREQS]).astype(
-        np.float32
-    )
+    """効果音 B。確かめているの子と同じ音（ド・ミ・ソを 0.12 秒）。"""
+    return build_beep("checking")
 
 
 def build_silent() -> np.ndarray:
-    """黙る音（低い和音・出だしと終わりを丸くやわらかく）。"""
-    t = np.arange(int(RATE * SILENT_SEC)) / RATE
-    wave_ = sum(np.sin(2 * np.pi * f * t) for f in SILENT_FREQS) / len(SILENT_FREQS)
-    env = np.ones_like(t)
-    a, r = int(RATE * SILENT_ATTACK_SEC), int(RATE * SILENT_RELEASE_SEC)
-    env[:a] *= 0.5 - 0.5 * np.cos(np.linspace(0.0, np.pi, a))
-    env[-r:] *= 0.5 + 0.5 * np.cos(np.linspace(0.0, np.pi, r))
-    return (wave_ * env * SILENT_AMPLITUDE).astype(np.float32)
+    """黙る音。1 つ下のド・ミ・ソを 0.15 秒、続けてさらに低いラ・ド・ミを 0.40 秒。どちらもだんだん消える。"""
+    amp = _amp(SILENT_DB, SILENT_AMPLITUDE)
+    high = _decay((pitch("ド", -1), pitch("ミ", -1), pitch("ソ", -1)), 0.15, amp)
+    low = _decay((pitch("ラ", -3), pitch("ド", -2), pitch("ミ", -2)), 0.40, amp)
+    return np.concatenate([high, low]).astype(np.float32)
+
+
+def soft_onset(samples: np.ndarray, rate: int, sec: float = VOICE_ONSET_SEC) -> np.ndarray:
+    """声の出だしを丸くする。声が 0.01 を超えた所から `sec` 秒かけて上げ、その前は消す。声が無ければそのまま。"""
+    loud = np.flatnonzero(np.abs(samples) > 0.01)
+    if len(loud) == 0:
+        return samples
+    on, n = int(loud[0]), int(rate * sec)
+    y = np.array(samples, dtype=np.float64)
+    ramp = 0.5 - 0.5 * np.cos(np.linspace(0.0, np.pi, n))
+    y[on : on + n] *= ramp[: len(y) - on]
+    y[:on] = 0.0
+    return y
 
 
 def _write(path: pathlib.Path, data: np.ndarray) -> None:
@@ -146,39 +210,48 @@ def _read_wav(path: pathlib.Path) -> "tuple[np.ndarray, wave._wave_params]":
     return data, params
 
 
-def level_folder(folder: pathlib.Path) -> None:
-    """`folder` の「はーい！」（`react_tool_0.wav`）を、同じフォルダの「えっと」（`react_think_0.wav`）の大きさに揃える。
-
-    どちらかが無音（大きさが測れない）・形が違うときは、書き換えずに知らせる。変える量がわずかなら書き直さない。
-    """
-    hai_path = folder / rc.TOOL_WAVS[0].name
-    eto_path = folder / rc.THINK_WAVS[0].name
-    if not (hai_path.exists() and eto_path.exists()):
-        return
-    try:
-        eto, eto_params = _read_wav(eto_path)
-        hai, params = _read_wav(hai_path)
-    except ValueError as e:
-        print(f"{folder.name}：揃えなかった（{e}）")
-        return
-    target = active_db(eto, eto_params.framerate)
-    before = active_db(hai, params.framerate)
-    if not (np.isfinite(target) and np.isfinite(before)):
-        print(f"{folder.name}：揃えなかった（無音のファイルがある）")
-        return
-    if abs(target - before) < LEVEL_SKIP_DB:
-        print(f"{folder.name}/{hai_path.name}：{before:.1f} dB（えっと {target:.1f}）のまま")
-        return
-    out, short = match_level(hai, target, params.framerate)
-    pcm = np.round(np.clip(out, -1.0, 32767 / 32768) * 32768).astype("<i2")
-    with wave.open(str(hai_path), "wb") as w:
+def _rewrite(path: pathlib.Path, samples: np.ndarray, params: "wave._wave_params") -> None:
+    pcm = np.round(np.clip(samples, -1.0, 32767 / 32768) * 32768).astype("<i2")
+    with wave.open(str(path), "wb") as w:
         w.setparams(params)
         w.writeframes(pcm.tobytes())
-    after = active_db(out, params.framerate)
+
+
+def level_file(path: pathlib.Path) -> None:
+    """`path` の声を `VOICE_LEVEL_DB` の大きさにする。
+
+    無音（大きさが測れない）・形が違うときは、書き換えずに知らせる。変える量がわずかなら書き直さない。
+    """
+    label = f"{path.parent.name}/{path.name}"
+    try:
+        x, params = _read_wav(path)
+    except ValueError as e:
+        print(f"{label}：揃えなかった（{e}）")
+        return
+    before = active_db(x, params.framerate)
+    if not np.isfinite(before):
+        print(f"{label}：揃えなかった（無音）")
+        return
+    if abs(VOICE_LEVEL_DB - before) < LEVEL_SKIP_DB:
+        print(f"{label}：{before:.1f} dB のまま")
+        return
+    out, short = match_level(x, VOICE_LEVEL_DB, params.framerate)
+    _rewrite(path, out, params)
     note = f"・{short:.1f} dB 足りない（最大の振れの上限）" if short else ""
-    print(
-        f"{folder.name}/{hai_path.name}：{before:.1f} → {after:.1f} dB（えっと {target:.1f}）{note}"
-    )
+    print(f"{label}：{before:.1f} → {active_db(out, params.framerate):.1f} dB{note}")
+
+
+def level_folder(folder: pathlib.Path) -> None:
+    """`folder` の作り置きの声（道具の声と考える声）を、どちらも `VOICE_LEVEL_DB` の大きさにする（出-df）。"""
+    for path in (folder / p.name for p in (*rc.TOOL_WAVS, *rc.THINK_WAVS)):
+        if path.exists():
+            level_file(path)
+
+
+def soften_file(path: pathlib.Path) -> None:
+    """作ったばかりの道具の声の出だしを丸くする（`soft_onset`）。作るたびに 1 回だけかける。"""
+    x, params = _read_wav(path)
+    _rewrite(path, soft_onset(x, params.framerate), params)
 
 
 def _all_folders() -> "list[pathlib.Path]":
@@ -201,10 +274,15 @@ def _only() -> "set[str] | None":
 
 
 def write_tones() -> None:
-    _write(rc.THINKING_WAV, build_thinking())
-    _write(rc.ACK_WAV, build_ack())
-    _write(rc.SILENT_WAV, build_silent())
-    print(f"{rc.THINKING_WAV.name}・{rc.ACK_WAV.name}・{rc.SILENT_WAV.name}")
+    made = {
+        rc.THINKING_WAV: build_thinking(),
+        rc.ACK_WAV: build_ack(),
+        rc.SILENT_WAV: build_silent(),
+    }
+    made.update({rc.BEEP_WAVS[k]: build_beep(k) for k in BEEP_KINDS})
+    for path, data in made.items():
+        _write(path, data)
+    print("・".join(p.name for p in made))
 
 
 def write_voices() -> int:
@@ -243,10 +321,10 @@ def write_voices() -> int:
             with urllib.request.urlopen(req, timeout=60) as resp:
                 wav = resp.read()
             path.write_bytes(wav)
+            if text in rc.TOOL_WORDS:
+                soften_file(path)
             print(f"{path.name}：{text}（{len(wav)} バイト）")
-        level_folder(
-            rc.TOOL_WAVS[0].parent
-        )  # 作り直しても「はーい！」を「えっと」に揃えたままにする（出-df）
+        level_folder(rc.TOOL_WAVS[0].parent)  # 作り直しても決まった大きさのままにする（出-df）
     finally:
         if started_here and tts._sbv2_proc is not None:
             tts._sbv2_proc.terminate()
@@ -273,6 +351,8 @@ def write_gemini_voices(voice: str) -> int:
         path.parent.mkdir(parents=True, exist_ok=True)
         wav = tts.gemini_wav(cfg, text, voice)
         path.write_bytes(wav)
+        if text in rc.TOOL_WORDS:
+            soften_file(path)
         print(f"{voice}/{path.name}：{text}（{len(wav)} バイト）")
         time.sleep(7)  # 無料枠は 1 分に 10 回
     level_folder(rc.TOOL_WAVS[0].parent / "voices" / voice)  # 作り直しても揃えたままにする（出-df）

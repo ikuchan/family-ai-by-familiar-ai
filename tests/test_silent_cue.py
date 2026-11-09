@@ -3,7 +3,8 @@
 合図（返事の合図・「えっと」など）は動作が決まった時点で鳴る（出-bg・本人の決定イ）。その後で、軽量LLM の黙る判定
 （出-db 段 E）か主LLM の黙る印（出-db 段 F）で黙ると、合図だけ鳴って何も言わなかった。黙ったその時に「黙る音」を 1 回
 鳴らす（鳴らす道はイ：その 2 つすべて）。合図を鳴らしていない回（キーボードの言葉・Jev が最初から黙ると決めた回）では
-鳴らさない。音は低い和音（ド・ミ・ソ）を 0.4 秒、出だしと終わりを丸くやわらかくしたもの（聞いて決めた・本人）。
+鳴らさない。音は、ド・ミ・ソの和音を 0.15 秒、続けてそれより低いラ・ド・ミの和音を 0.40 秒、どちらもだんだん消える形
+（環-aw 第 1 段 項目 6・2026-11-09・本人が聞いて決めた。前は低いド・ミ・ソを 0.4 秒、出-dc）。
 """
 
 from __future__ import annotations
@@ -23,15 +24,15 @@ def test_the_silent_cue_has_its_own_sound():
     assert rc.SILENT_WAV.name == "react_silent.wav" and rc.SILENT_WAV.exists()
 
 
-def test_the_sound_is_the_low_soft_chord(monkeypatch):
+def test_the_sound_is_two_soft_falling_chords(monkeypatch):
     root = Path(__file__).resolve().parents[1]
     monkeypatch.syspath_prepend(str(root / "src"))
     monkeypatch.syspath_prepend(str(root / "scripts"))
     import gen_reaction_sounds as g
 
     x = g.build_silent()
-    assert abs(len(x) / g.RATE - 0.4) < 0.001
-    assert abs(x).max() <= 0.35 + 1e-6
+    assert abs(len(x) / g.RATE - 0.55) < 0.001
+    assert abs(x).max() <= 0.35 * 10 ** (-6 / 20) + 1e-6
     assert abs(x[0]) < 0.01 and abs(x[-1]) < 0.01  # 出だしと終わりはやわらかい（ぶつっと鳴らない）
 
 

@@ -910,6 +910,7 @@ class InformationProcessing:
         # 古い世代として捨てるのに使う。打ち切りの時点で外部呼び出しは既に飛んでおり、
         # 反復もフルLLM の返りを待っている最中なので、止めるには番号で見分けるしかない。
         self._request_generation = 0
+        self._beep_count = 0  # この求めで鳴らした待ちの電子音の回数（閉じるときに 0 へ戻す）
         # see の帰りで起きた反復か。調停を飛ばして主LLM へ戻す（`_decide`）。
         self._see_returned = False
         # 聞き取りの確認の預かり（出-cm）：見立ての動作・元の言葉・聞き返した文・預けた時刻（monotonic）。
@@ -1762,7 +1763,10 @@ class InformationProcessing:
         """パジュの状態図（環-aw）。`__new__` で組んだ装置（試験）でも使えるように、初めて読んだときに作る。"""
         sm = self.__dict__.get("_paju_state")
         if sm is None:
-            sm = self._paju_state = PajuState()
+            # 考えているの子に入るたびに、待ちの電子音を立てる（立っていれば何もしない・決定テ）。
+            sm = self._paju_state = PajuState(
+                on_child=lambda _child: self._start_beeps(), on_idle=self._on_head_idle
+            )
         return sm
 
     async def _to_state(self, event: str) -> None:
@@ -1779,19 +1783,27 @@ class InformationProcessing:
         self._stop_beeps()
         await self._to_state("request_closed")
 
-    def _start_beeps(self) -> None:
-        """待ちの電子音の見張りを、求めごとに 1 本立てる（出-bu）。立っていれば何もしない。"""
-        beeps = self.__dict__.get("_beeps")
-        if beeps is not None and not beeps.done():
-            return
+    def _on_head_idle(self) -> None:
+        """頭が何もしていないに入った。電子音の仕事を片付け、回数を 0 に戻す（求めの閉じ方によらず、状態の移りで片付ける）。"""
+        self._stop_beeps()
         self._beep_count = 0
+
+    def _start_beeps(self) -> None:
+        """待ちの電子音の仕事を 1 本立てる（出-bu）。考えているの子に入るときに呼ばれる（環-aw 決定テ）。
+
+        仕事が残っていれば何もしない。鳴らせずに終わった仕事も、答えを言い始める・頭が何もしていないに入る（`_stop_beeps`）
+        までは残すので、そのあいだに次の子へ入っても立て直さない。答えのあとの書き留めているでは、もう 1 度だけ鳴らしてみる。
+        回数は頭が何もしていないに入るまで数え続ける（`_on_head_idle`）。
+        """
+        if self.__dict__.get("_beeps") is not None:
+            return
         with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ立てない
             self._beeps: "asyncio.Task[None] | None" = asyncio.get_running_loop().create_task(
                 self._beep_while_waiting(self._request_generation)
             )
 
     def _stop_beeps(self) -> None:
-        """答えの声を出し始めた・求めが閉じた。電子音を止め、鳴らした回数を 1 行残す。"""
+        """答えの声を出し始めた・求めが閉じた。電子音を止め、この求めでここまで鳴らした回数を 1 行残す。"""
         beeps = self.__dict__.get("_beeps")
         if beeps is None:
             return
@@ -1801,30 +1813,42 @@ class InformationProcessing:
         logger.info("event-loop 待ちの電子音 %d 回", getattr(self, "_beep_count", 0))
 
     async def _beep_while_waiting(self, gen: int) -> None:
-        """合図が鳴り終わってから答えの声が始まるまで、機械音 A を間隔をあけて 1 回ずつ鳴らす（出-bu）。
+        """考えているあいだ、いまの子の電子音を間隔をあけて 1 回ずつ鳴らす（出-bu・環-aw 決定テ）。答えを言っているあいだは鳴らさない。
 
         10/12 22:15 に、合図「はい」から最初のつなぎまで 13 秒無音だった。音楽が鳴っているあいだも鳴らす（出-cl・2026-10-15・
         本人の決定カ・つなぎの声をやめたので、鳴らさないと待ちのあいだ何も鳴らない）。音楽は絞らない（`dif.beep`）。
-        合図の声が鳴っている・準備中のあいだは休む。鳴らすのにかかった時間を引いて、次まで待つ。
+        合図の声が鳴っている・準備中のあいだは休む。答えを声に出さない求め（`_delivery_block_reason`）でも休む。
+        鳴らすのにかかった時間を引いて、次まで待つ。頭が何もしていないに入ると、状態図の動作が止める（`_on_head_idle`）。
+        止められた（取り消された）ときは、取り消しをそのまま上へ返す（握り潰さない）。
         """
         interval = float(getattr(self._agent.config, "wait_beep_interval_seconds", 1.0))
         loop = asyncio.get_running_loop()
-        with contextlib.suppress(asyncio.CancelledError):
-            while gen == self._request_generation:
-                started = loop.time()
-                if not self._sounding():
-                    try:
-                        await self._dif.beep()
-                    except Exception:  # noqa: BLE001
-                        # 鳴らせないなら、仕事を終え、耳を聞く側へ戻す（出-dd・環-aw 決定ミ）。
-                        logger.warning("event-loop 待ちの電子音を鳴らせなかった", exc_info=True)
-                        if (
-                            gen == self._request_generation
-                        ):  # 打ち切られていたら、次の求めの耳に触らない
-                            await self._to_state("limit_reached")
-                        return
-                    self._beep_count += 1
-                await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
+        while gen == self._request_generation:
+            started = loop.time()
+            try:
+                kind = self._paju().thinking_child()
+                # 声を出さない求め（情動と機器で、人が居ない）では鳴らさない。口は相手が居なければ動かない
+                # （2026-11-09・本人の決定）。声とキーボードの求めは門が理由を返さないので、いつも鳴らす。
+                if not kind or self._sounding() or self._delivery_block_reason():
+                    played: "bool | None" = True
+                else:
+                    played = await self._dif.beep(kind)
+                    if played is False:
+                        # 本物の再生の口は、鳴らせないと例外ではなく偽を返す（`tools/tts._play_via_sounddevice`）。
+                        logger.warning(
+                            "event-loop 待ちの電子音を鳴らせなかった（再生の口が偽を返した）"
+                        )
+                    else:
+                        self._beep_count = getattr(self, "_beep_count", 0) + 1
+            except Exception:  # noqa: BLE001
+                logger.warning("event-loop 待ちの電子音を鳴らせなかった", exc_info=True)
+                played = False
+            if played is False:
+                # 鳴らせないなら、仕事を終え、耳を聞く側へ戻す（出-dd・環-aw 決定ミ）。打ち切られていたら、次の求めの耳に触らない。
+                if gen == self._request_generation:
+                    await self._to_state("limit_reached")
+                return
+            await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
 
     def _deaf_to(self, trigger: "Trigger") -> bool:
         """この声を、考えているあいだの声として捨てるか（環-aw・`設計方針_パジュの状態` v0.3 決定ト、モ）。
@@ -4012,6 +4036,10 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             logger.debug("event-loop 機械音を鳴らせなかった", exc_info=True)
             return None
+        future = getattr(thinking, "future", None)
+        if isinstance(future, asyncio.Future):
+            # 機械音 A が鳴っているあいだ、待ちの電子音は重ねずに休む（`_sounding`）。
+            self._cue_sound = future
         return _ReactionCue(self, thinking)
 
     def _arbiter(self) -> Arbiter:
@@ -4888,9 +4916,7 @@ class InformationProcessing:
 
     def _timer_active(self) -> bool:
         """タイマーが動いている／一時停止中（`[タイマー]` の枠がある）か、音が鳴っているか。"""
-        if _timer_frame(self._agent):
-            return True
-        return bool(getattr(getattr(self._agent, "_dif", None), "ringing", False))
+        return bool(_timer_frame(self._agent)) or self._ringing()
 
     def _ringing(self) -> bool:
         """タイマーかアラームの音が、いま鳴っているか（`DIF.ringing`）。DIF はループが持つ（`agent` には無い）。"""
@@ -6201,7 +6227,6 @@ class _ReactionCue:
         if task is None:
             return
         self._ip._req.cue_played = True  # 黙ったら黙る音を鳴らす目印（出-dc）
-        self._ip._start_beeps()  # 合図が鳴り終わったら、答えまで待ちの電子音（出-bu）。合図の音は `_sounding` で休む
         self._ip._cue_sound = task  # 合図が鳴っているあいだ、待ちの電子音は休む（`_sounding`）
 
     def stop(self) -> None:
