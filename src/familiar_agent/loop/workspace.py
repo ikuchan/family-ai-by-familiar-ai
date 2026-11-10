@@ -36,6 +36,14 @@ logger = logging.getLogger(__name__)
 _BODY_ELSEWHERE = "の結果が届いた（中身は [いま道具から返った]）"
 
 
+#: 答えのあとまで待たせた言葉に添える文（環-aw 第 1 段 項目 9・2026-11-10 本人の承認）。`{n}` は届いてからの秒数。
+WAITED_NOTE = "この言葉は {n} 秒前、前の求めに答えているあいだに届き、答えのあとまで待たせた。"
+#: 届いたときに鳴っていたタイマーかアラームの音が、もう鳴り終わっている（項目 9）。
+RING_OVER = "届いたときに鳴っていたタイマーかアラームの音は、もう鳴り終わっている。"
+#: 添えた言葉の行に付ける形（項目 9）。
+RING_OVER_TAIL = "（届いたときに鳴っていたタイマーかアラームの音は、もう鳴り終わっている）"
+
+
 def lookup_lines(
     req: Request,
     *,
@@ -162,11 +170,19 @@ def compose(
 
     id_map = {r.mi.obs_id.replace("-", "")[:12]: r.mi.obs_id for r in memories if r.mi.obs_id}
     added = ""
+    ring_over = not getattr(req, "ringing_now", False)
     if getattr(req, "added", None):
-        # 調べているあいだに名前無しで言い足されたこと（出-au 段 3）。この求めの答えに含める。
+        # 調べているあいだに言い足されたこと（出-au 段 3）。この求めの答えに含める。届いたときに鳴っていた音が鳴り終わって
+        # いれば、その行に添える（環-aw 第 1 段 項目 9）。
+        rang: "set[int]" = getattr(req, "added_rang", set())
         added = "調べているあいだに相手が言い足したこと（この答えに含める）：\n" + "\n".join(
-            f"- 「{text}」" for _, text in req.added
+            f"- 「{text}」" + (RING_OVER_TAIL if ring_over and i in rang else "")
+            for i, (_, text) in enumerate(req.added)
         )
+    if getattr(req, "waited", ""):
+        # 答えのあとまで待たせた言葉（環-aw 第 1 段 項目 9）。待たせたことと、そのあいだに鳴り終わった音を伝える。
+        waited = req.waited + (RING_OVER if ring_over and getattr(req, "rang", False) else "")
+        added = waited + ("\n\n" + added if added else "")
     if getattr(req, "draft", ""):
         # 言い足されたことで考え直す（出-au 段 5-1）。下書きは声にしていない。
         added = (added + "\n\n" if added else "") + (

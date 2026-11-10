@@ -847,11 +847,15 @@ class Trigger:
     source: str = ""
     # `会話入力` だけが使う。届いた時刻（`time.monotonic()`・出-au 段 1-1）。窓はこの時刻で判定する。
     arrived: float = 0.0
-    # `会話入力` だけが使う。名前で呼ばれたか（出-au 段 1-2）。名前がある入力だけが打ち切り、名前の無い
-    # 入力は飛行中の調べものがある間は待つ。門が決める。直に作った会話入力（試験）は名前ありとして扱う。
+    # `会話入力` だけが使う。名前で呼ばれたか（出-au 段 1-2）。門が決める。直に作った会話入力（試験）は名前ありとして
+    # 扱う。名前があっても打ち切らず、飛行中の調べものがある間は待つ（環-aw 決定ホ・第 1 段 項目 9）。
     named: bool = True
     #: 窓の中で 1 字違いの名前だけが当たった声（出-db 段 D）。名前つきには数えず、聞き違えた名前の直しにだけ使う。
     near_name: bool = False
+    #: `会話入力` だけが使う。保留箱で待たせてから取り出した（環-aw 第 1 段 項目 9）。`_take_trigger` が付ける。
+    waited: bool = False
+    #: `会話入力` だけが使う。届いたときにタイマーかアラームの音が鳴っていたか（項目 9）。
+    rang: bool = False
     #: `会話入力` だけが使う。門で受けたときの窓の会話の番号（環-ar 段 B）。窓で受けていなければ 0。番号は門で 1 回だけ
     #: 決め、宛先の判定と求めはこれを使う（後から届いた時刻で引き直すと、門の決め方とずれる）。
     window_session: int = 0
@@ -3162,6 +3166,9 @@ class InformationProcessing:
         self._pending_source = ""
         self._req.named = bool(getattr(self, "_pending_named", False)) if kind == "発話" else False
         self._pending_named = False
+        self._req.waited = getattr(self, "_pending_waited", "") if kind == "発話" else ""
+        self._req.rang = bool(getattr(self, "_pending_rang", False)) if kind == "発話" else False
+        self._pending_waited, self._pending_rang = "", False
         self._req.cue_rang = False
         self._req.cue_played = False
         self._req.skills = []  # 窓の外で選んだスキルは、その求めのあいだだけ（環-au）
@@ -3183,6 +3190,7 @@ class InformationProcessing:
         self._req.iterations = 0
         self._req.iterations_capped = False
         self._req.added = []  # 言い足したことは求めごと（出-au 段 3）
+        self._req.added_rang = set()
         self._req.seen_texts = {}  # 見たもの・止められた理由も求めごと（記-t の最終版の材料）
         self._req.block_reason = ""
         self._req.draft = ""
@@ -3232,8 +3240,8 @@ class InformationProcessing:
         家族の話）でも、調べもの・考えている途中の主LLM・情動やタイマーの求めが取り消され、「ひとりの回数」が
         0 に戻った。駆動体の中で判定すると、反復を回している間（調停は最大 5 秒）は判定も打ち切りも遅れる。
 
-        **打ち切りは名前がある入力でだけ。** 名前の無い入力は、飛行中の調べものがある間は待たせる
-        （`_take_trigger`）。
+        **名前で呼ばれても打ち切らない**（環-aw 決定ホ・第 1 段 項目 9）。名前の無い入力は、飛行中の調べものがある間は
+        待たせる（`_take_trigger`）。
 
         `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
         （`keyboard`）か（出-as 段 2）。`arrived` は届いた時刻（`time.monotonic()`・出-au 段 1-1）で、
@@ -3279,13 +3287,14 @@ class InformationProcessing:
         # 吹き出しの名前は知らせた時点の話者を読むので、先に声で話者を決める（10/13 18:56 にこうきの名前で出て、返事はパパ宛てだった）。
         await self._match_voice(voice)
         self._notify_heard(shown, True)
+        # 届いたときのことを持たせる（環-aw 第 1 段 項目 9）。答えのあとまで待たせたら、それと鳴り終わった音を W に書く。
+        trigger.rang = self._ringing()
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
         # 聞き違いを拾う）。使い道は「ひとりの回数」のリセット（情-d・`step_drives`）と記録。
         agent._last_human_at = time.time()
-        if trigger.named:
-            # 名前で呼ばれたら、**調べかけを打ち切る**（言い直し・別の用事・「パジュ、止めて」）。結果は
-            # 捨てるが、**何を打ち切ったかは記録に残す**。名前の無い入力（「うん」）では止めない。
-            await self._abort_lookups()
+        # 名前で呼ばれても、ここでは打ち切らない（環-aw 決定ホ・第 1 段 項目 9）。答えより前の考えているあいだの声は門が
+        # 捨て、門を通った言葉（キーボード・鳴っている最中の声）は `_take_trigger` が待たせるか添える。答えのあとの
+        # 書き留めのあいだに打ち切ると、版の保存を止めてしまう。
         self._triggers.put_nowait(trigger)
         return await fut
 
@@ -3428,7 +3437,7 @@ class InformationProcessing:
         if req.request_id is None:
             logger.debug("event-loop 閉じた求めなので、時間切れの答えは言わない")
             return ""
-        # 書いているあいだに名前で呼ばれる・止められると、打ち切りが世代を進めて求めを閉じる。入ったときの世代で見張る。
+        # 書いているあいだに止められると（停止ボタン）、打ち切りが世代を進めて求めを閉じる。入ったときの世代で見張る。
         gen = self._request_generation
         drafts = self._timeout_drafts(partial)
         # 届いていて下書きに使った完了は、器に結果を入れて届いたものにする（打ち切ったと書かない）。
@@ -3478,7 +3487,7 @@ class InformationProcessing:
         return spoken if outcome == "発話" else ""
 
     async def _abort_lookups(self) -> None:
-        """飛行中の調査を打ち切る（人に話しかけられたとき）。
+        """飛行中の調査を打ち切る（停止ボタン・`abort_current`）。名前で呼ばれても、もう呼ばない（環-aw 決定ホ）。
 
         飛行中のツール呼び出しを止め、まだ取り込んでいない完了を捨て、**何を打ち切ったかを
         O に残す**。打ち切りも版のひとつなので、直前の版を `改訂` で畳む——鎖は「打ち切った」
@@ -3528,6 +3537,7 @@ class InformationProcessing:
         self._req.cue = ""
         self._req.told_unsaid = []
         self._req.added = []
+        self._req.added_rang = set()
         self._req.draft = ""
         self._req.seen_image_path = None
         self._req.failed_actions.clear()
@@ -3590,7 +3600,7 @@ class InformationProcessing:
     async def abort_current(self, *, reason: str = "停止") -> None:
         """いま開いている求めを丸ごと打ち切る（停止ボタン・環-j）。
 
-        話しかけ直しの打ち切り（`_abort_lookups`）と同じ口を使う——飛行中の調べものと
+        打ち切りの口（`_abort_lookups`）を使う——飛行中の調べものと
         主LLM の背景タスクを cancel し、未取込の完了を捨て、世代を進め、打ち切った版を
         O に残す。世代が進むので、飛行中だった返りは出す前に畳まれる。**すでに鳴り始めた
         声は止められない**（合成済みの再生は別課題）。
@@ -3848,9 +3858,10 @@ class InformationProcessing:
         **優先順位は「同時に届いた中から1つ選ぶとき」の規則である。** 保留箱で待っている
         ものは**待った順に**片づく（待たせたのだから、待った順で出す）。
 
-        **名前の無い会話入力は、飛行中の調べもの（主LLM を含む）がある間は待たせる**（出-au 段 1-3）。
-        新しい求めを始めると `_begin_request` が前の求めの状態を空にし、届く結果の行き場が無くなる——打ち切りと
-        同じになる。打ち切ってよいのは名前がある入力だけである。前の求めの答えが出てから、別の求めとして扱う
+        **会話入力は、名前があってもなくても、主LLM が考えている間は待たせる**（出-au 段 1-3、環-aw 決定ホ・第 1 段
+        項目 9）。調べものだけが飛んでいるなら、会話の求めのときだけ取り出して添える。情動・機器の求めのときは、その求めが
+        閉じるまで待たせる（2026-11-10 本人の決定ア）。新しい求めを始めると `_begin_request` が前の求めの状態を空にし、届く結果の行き場が
+        無くなる——打ち切りと同じになる。打ち切るのは停止ボタンだけである。前の求めの答えが出てから、別の求めとして扱う
         （段 3 で「前の求めに添える」を入れるまでの既定）。飛行中の印は取り込んだ時点で外れるので、届いた
         結果を取り込む反復は必ず先に回る。
         """
@@ -3867,41 +3878,42 @@ class InformationProcessing:
             batch = [t for t in batch if t.kind != TIMED_OUT_KIND]
             fresh = [t for t in batch if t.kind in _NEW_REQUEST_KINDS]
             self._drained_completions.extend(t for t in batch if t.kind not in _NEW_REQUEST_KINDS)
-            if timed_out and any(
-                t.kind in _NEVER_HELD_KINDS and t.named for t in self._held + fresh
-            ):
-                # 名前で呼ばれた言葉は、時間切れの答えより先（①）。知らせは列へ戻す（新しい求めになれば古くなって捨てる）。
-                self._triggers.put_nowait(timed_out[-1])
-            elif timed_out:
+            if timed_out:
+                # 名前で呼ばれた言葉も待たせ、時間切れの答えを先に言う（環-aw 決定ホ・第 1 段 項目 9）。
                 self._held.extend(fresh)
                 return timed_out[-1]
             # ① 会話入力は保留箱より常に先（調査中でも）。保留箱を列より先に返していた近道が、
             #    列で待つ人の言葉より保留箱の入室を先に走らせ、会話入力が別の求めの取込に
             #    横取りされる隙を作った（実機 12:40・88 秒返らず）。
             busy = bool(self._in_flight_count)
-            # 主LLM が考えている最中の名前の無い入力は待たせる（返りの時点で考え直すかを決める・段 3）。
-            # 調べものだけが飛んでいるなら、取り出して前の求めに添える（`_attach_to_request`）。
-            thinking = self._main_llm_in_flight()
-            utterance = next(
-                (
-                    t
-                    for t in self._held + fresh
-                    if t.kind in _NEVER_HELD_KINDS and (t.named or not thinking)
-                ),
-                None,
-            )
+            # 主LLM が考えている最中の入力は、名前があってもなくても待たせる（返りの時点で考え直すかを決める・段 3、
+            # 環-aw 決定ホ・第 1 段 項目 9）。調べものだけが飛んでいるなら、会話の求めのときだけ取り出して前の求めに添える
+            # （`_attach_to_request`）。人の言葉から始まっていない求め（情動・機器）には添えず、その求めが閉じるまで待たせる
+            # （添えた言葉に答えが返らないおそれがある・2026-11-10 本人の決定ア）。確認待ち（知-o）の返事は、いままでどおり
+            # 取り出して 3 択の求めにする（駆動体の `_confirming` の分かれ）。
+            utterance = None
+            if not self._main_llm_in_flight() and (
+                not busy or self._joins_words() or self._confirming()
+            ):
+                utterance = next(
+                    (t for t in self._held + fresh if t.kind in _NEVER_HELD_KINDS), None
+                )
             if utterance is not None:
                 if utterance in self._held:
                     self._held.remove(utterance)
+                    utterance.waited = True  # 待たせた（環-aw 第 1 段 項目 9）
                 self._held.extend(t for t in fresh if t is not utterance)
                 return utterance
             if busy:
-                # 調査中は新しい求めを待たせる（名前の無い会話入力も）。取りこぼしではなく待たせるだけ。
+                # 調査中は新しい求めを待たせる（主LLM が考えている最中の会話入力と、情動・機器の求めのあいだの会話入力も）。
+                # 取りこぼしではなく待たせるだけ。
                 self._held.extend(fresh)
             elif self._held:
                 # ② 待たせていたぶんを、待った順に。いま届いたものはその後ろへ。
                 self._held.extend(fresh)
-                return self._held.pop(0)
+                taken = self._held.pop(0)
+                taken.waited = True  # 待たせた（環-aw 第 1 段 項目 9）
+                return taken
             elif fresh:
                 # ③ 同時に届いた中から 1 つ選ぶ（機器 ＞ 情動）。選ばれなかったものは保留箱へ。
                 chosen = max(fresh, key=lambda t: _TRIGGER_PRIORITY[t.kind])
@@ -3951,11 +3963,11 @@ class InformationProcessing:
                     await self._iterate()
                 elif (
                     trigger.kind == "会話入力"
-                    and not trigger.named
                     and self._in_flight_count
                     and not self._confirming()  # 確認待ちのあいだは添えず、3 択の求めにする（知-o）
                 ):
-                    # 調べもの中の名前の無い入力は、新しい求めを始めず前の求めに添える（出-au 段 3）。
+                    # 調べもの中の入力は、名前があってもなくても、新しい求めを始めず前の求めに添える（出-au 段 3、環-aw 決定ホ）。
+                    # ここへ来るのは会話の求めのときだけ（情動・機器の求めのあいだは `_take_trigger` が待たせる・決定ア）。
                     await self._attach_to_request(trigger)
                 elif trigger.kind == "会話入力":
                     logger.debug("event-loop 駆動体が会話入力を受領")
@@ -3981,20 +3993,29 @@ class InformationProcessing:
                 # 止まる（実機では固まって見える）。
                 await asyncio.sleep(0)
 
+    def _joins_words(self) -> bool:
+        """いまの求めに、人の言葉を添えてよいか。会話の求め（人の言葉から始まった求め）のときだけ添える。
+
+        情動の求めは人と話していなければ声にせず、機器の求めは「人の言葉ではない」と W に書く。どちらに添えても、
+        添えた言葉に答えが返らないおそれがある（2026-11-10 本人の決定ア）。
+        """
+        return self._req.trigger_kind == "発話"
+
     def _waiting_words(self) -> "list[Trigger]":
-        """主LLM が考えているあいだに名前無しで言い足され、保留箱で待っている言葉。"""
+        """主LLM が考えているあいだに言い足され、保留箱で待っている言葉（名前があってもなくても・環-aw 決定ホ）。"""
         held = self.__dict__.get("_held", [])  # 殻だけの器（テスト）でも落ちない
-        return [t for t in held if t.kind == "会話入力" and not t.named]
+        return [t for t in held if t.kind == "会話入力"]
 
     async def _rethink_or_speak(self, draft: str) -> str:
-        """主LLM の返りが来たとき、考えているあいだに名前無しで言い足された言葉があれば、**考え直す**か
+        """主LLM の返りが来たとき、考えているあいだに言い足された言葉（名前があっても・環-aw 決定ホ）があれば、**考え直す**か
         **そのまま出す**かを Jev に決めさせる（出-au 段 5-1・`設計方針_判定の段` §2.2.3・§2.4）。
 
         待っている言葉が無ければ聞かない。Jev が使えない・確信度が低いときは倒し先の「そのまま出す」——返りを声にし、
         待っている言葉は答えの後に別の新しい求めになる（`_take_trigger` の保留箱）。
         """
         waiting = self._waiting_words()
-        if not waiting:
+        if not waiting or not self._joins_words():
+            # 情動・機器の求めには考え直して添えない。言葉は答えのあとで新しい求めになる（2026-11-10 本人の決定ア）。
             return jev_judges.AS_IS
         agent = self._agent
         return await jev_judges.judge_rethink(
@@ -4016,10 +4037,10 @@ class InformationProcessing:
         return await self._iterate()
 
     async def _attach_to_request(self, trigger: "Trigger") -> None:
-        """名前の無い入力を、調べもの中の求めに添える（出-au 段 3・`設計方針_判定の段` §2.4）。
+        """入力を、調べもの中の求めに添える（出-au 段 3・`設計方針_判定の段` §2.4）。名前があっても添える（環-aw 決定ホ）。
 
-        新しい求めを始めると、`_begin_request` が前の求めの状態を空にし、届く結果の行き場が無くなる。打ち切って
-        よいのは名前で呼ばれたときだけである。O へは人の言葉として書き（話者の面）、やりとりの役割は「添え」
+        新しい求めを始めると、`_begin_request` が前の求めの状態を空にし、届く結果の行き場が無くなる。打ち切るのは
+        停止ボタンだけである。O へは人の言葉として書き（話者の面）、やりとりの役割は「添え」
         （起点にすると 1 つのやりとりに起点が 2 つになり、境目が崩れる）。結果が届いた後の決める反復で、W の
         作業状態の枠に「言い足したこと」として載る。待っている呼び手（画面）にはすぐ返す。
         """
@@ -4028,6 +4049,14 @@ class InformationProcessing:
         with contextlib.suppress(Exception):
             obs_id = await self._write_origin("発話", text) or ""
         self._note_record(obs_id, "添え")
+        if trigger.named:
+            self._req.named = (
+                True  # 名前で呼ばれた（出-db 段 B の読み直し・話し終わりの窓・環-aw 決定ホ）
+            )
+        if trigger.rang:
+            self._req.added_rang.add(
+                len(self._req.added)
+            )  # 届いたときに鳴っていた（環-aw 第 1 段 項目 9）
         self._req.added.append((obs_id, text))
         self._talk_line(
             self._current_speaker_name() or "相手", text, obs_id
@@ -4055,6 +4084,10 @@ class InformationProcessing:
         self._pending_window_session = (
             trigger.window_session
         )  # 門が決めた窓の会話の番号（環-ar 段 B）
+        self._pending_waited = self._waited_note(
+            trigger
+        )  # 答えのあとまで待たせたか（環-aw 第 1 段 項目 9）
+        self._pending_rang = trigger.rang
         task = asyncio.create_task(self._utterance_iteration(trigger.query, trigger.voice))
 
         def _stop(f: "asyncio.Future[str]") -> None:
@@ -4086,7 +4119,11 @@ class InformationProcessing:
             await asyncio.sleep(0)
 
     async def _utterance_iteration(self, utterance: str, voice: Any = None) -> str:
-        """人の言葉を O へ書き、1反復回す。**打ち切りは `push_utterance` が済ませている。**"""
+        """人の言葉を O へ書き、1反復回す。
+
+        前の求めは閉じている。求めが開いているあいだの言葉は、名前があっても待たせるか添えるので（環-aw 決定ホ・第 1 段
+        項目 9）、ここへ来るのは前の求めが閉じたあとである。
+        """
         self._pending_voice = voice
         await self._begin_request(kind="発話", text=utterance, utterance=utterance)
         # 窓の会話（環-ar 段 A）。求めの窓の番号が決まってから足す（前の求めの番号で、閉じた会話に足さない）。
@@ -4149,7 +4186,20 @@ class InformationProcessing:
         """
         from .iteration import Iteration
 
+        self._mark_ringing()
         return await Iteration(self).run()
+
+    def _mark_ringing(self) -> None:
+        """いまタイマーかアラームの音が鳴っているかを、求めに書く（環-aw 第 1 段 項目 9）。W が鳴り終わったかを書くのに使う。"""
+        self._req.ringing_now = self._ringing()
+
+    @staticmethod
+    def _waited_note(trigger: "Trigger") -> str:
+        """答えのあとまで待たせた言葉に添える文（項目 9）。保留箱で待たせていなければ空。"""
+        if not trigger.waited:
+            return ""
+        waited = max(0, int(time.monotonic() - (trigger.arrived or time.monotonic())))
+        return workspace.WAITED_NOTE.format(n=waited)
 
     async def _decide(
         self,
@@ -4512,7 +4562,8 @@ class InformationProcessing:
             await self._finish("", decision.memories, "沈黙", gen=gen)
             return ""
 
-        # 主LLM が考えているあいだに名前無しで言い足されたことがあれば、考え直すかを Jev が決める（出-au 段 5-1）。
+        # 主LLM が考えているあいだに言い足されたことがあれば（名前があっても・環-aw 決定ホ）、考え直すかを Jev が決める
+        # （出-au 段 5-1）。情動・機器の求めでは考え直さない（`_rethink_or_speak`・2026-11-10 本人の決定ア）。
         # 返事（`say`）を出す返りだけが対象——道具を投げる返りは声にしないので、考え直す理由が無い。
         if say_tc is not None and lookup_tc is None:
             draft = str(say_tc.input.get("text", "")).strip()
@@ -5128,7 +5179,8 @@ class InformationProcessing:
             return self._swallowed(trigger)
         if trigger.kind == "会話入力":
             # タイマーの操作の言葉（止めて・一時停止・再開）にも**名前が要る**（出-au 段 1-2・`設計方針_判定の段`
-            # §2.1）。以前は名前が無くても通していたが（出-ab）、打ち切りには名前が要る決まりにそろえた。
+            # §2.1）。以前は名前が無くても通していたが（出-ab）、そのころの「打ち切りには名前が要る」決まりにそろえた
+            # （名前で打ち切ることは環-aw 決定ホでやめた）。
             if self._music_word_while_playing(trigger):
                 # 鳴っているあいだの音楽の言葉は、名前が無くても受ける（出-cp・2026-10-15・本人の決定ア）。マイクの関門は
                 # 通しているのに、ここで捨てて止まらなかった（10/14 23:21）。**窓は開けない**——開けるとテレビや家族の話も
@@ -6381,7 +6433,7 @@ class InformationProcessing:
         # やりとりの項にならないが（`recent_exchanges` が引く役割に無い）、拡散想起の
         # 母集合には入る（`HIDDEN_ROLES` に入れない）。
         # **打ち切られた求めの後始末は、次の求めに触らない**（出-au 段 1-5）。求めの状態は 1 つを共有しており、
-        # 返事を声にしている最中に名前で呼ばれて打ち切られると、状態はもう次の求めのものになっている。声になった
+        # 返事を声にしている最中に打ち切られると（停止ボタン）、状態はもう次の求めのものになっている。声になった
         # 事実だけを書き（次の求めの id を親にしない）、状態・やりとり・背景の後始末には触らない。
         aborted = gen is not None and gen != self._request_generation
         if aborted and outcome != "発話":
@@ -6448,6 +6500,7 @@ class InformationProcessing:
         self._req.lookups.clear()
         self._req.told_unsaid = []
         self._req.added = []
+        self._req.added_rang = set()
         self._req.draft = ""
         self._req.seen_image_path = None
         self._req.failed_actions.clear()

@@ -205,7 +205,10 @@ def test_an_open_window_near_name_is_heard_when_jev_does_not_answer():
 
 @pytest.mark.real_window
 def test_an_open_window_near_name_does_not_abort_lookups():
-    """名前つきに数えないので、調べかけを打ち切らない（本人の決定ア）。"""
+    """1 字違いの名前でも、調べかけを打ち切らない（本人の決定ア）。
+
+    名前がそのままでも、もう打ち切らない（環-aw 決定ホ・第 1 段 項目 9。以前は反証の側として打ち切っていた）。
+    """
     from tests.test_addressee_with_jev import _answer, _ip, _push
 
     ip, _a, _ = _ip(_answer("robot", 0.9))
@@ -215,4 +218,4 @@ def test_an_open_window_near_name_does_not_abort_lookups():
     ip2, _a2, _ = _ip(_answer("robot", 0.9))
     ip2._wake_window().open(100.0)
     assert _push(ip2, "パジュ、明日の天気は？", arrived=105.0) is True
-    ip2._abort_lookups.assert_awaited()  # **反証の側**：名前がそのままなら打ち切る
+    ip2._abort_lookups.assert_not_awaited()  # 名前がそのままでも打ち切らない（環-aw 決定ホ）

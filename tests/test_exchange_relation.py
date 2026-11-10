@@ -108,7 +108,10 @@ def test_no_relation_is_written_when_the_turn_left_nothing():
 
 
 def test_an_interrupted_turn_does_not_leak_into_the_next_one():
-    """話しかけられて調べかけを打ち切ったら、そこで一つのやりとりが閉じる。
+    """調べかけを打ち切ったら（停止ボタン）、そこで一つのやりとりが閉じる。
+
+    名前で呼ばれても、もう打ち切らない（環-aw 決定ホ・第 1 段 項目 9）。打ち切るのは停止ボタン（`abort_current`）だけ
+    なので、その道で確かめる。
 
     閉じないと、打ち切られた問いと新しい問いが**一つのやりとり**に入る（起点が2つ）。
     母集合への持ち越しは別で、打ち切りの記録は次のターンの WR にも載り続ける。
@@ -140,8 +143,8 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
             if a._memory_tool.call.called:
                 break
             await asyncio.sleep(0.005)
-        # 調べかけの途中で話しかける。
-        # 打ち切るのは名前で呼ばれたときだけ（出-au 段 1-2）。
+        # 調べかけの途中で停止ボタンを押し、それから話しかける。
+        await ip.abort_current()
         await ip.push_utterance("パジュ、それより明日の予定は？")
         for _ in range(_WAIT_TICKS):
             if a._run_post_response_pipeline.called:

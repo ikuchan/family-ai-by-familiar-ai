@@ -6,8 +6,8 @@
 
 - 門は `push_utterance` の中で、**届いた時刻**で判定する（駆動体が取り出した時刻ではない）。
 - 窓は **30 秒**。**声もキーボードも**名前で開く。窓の外の入力は捨て、副作用を起こさない。
-- **打ち切りは名前がある入力でだけ。** タイマーの操作も名前が要る（「パジュ、止めて」）。
-- 名前の無い入力は、飛行中の調べもの（主LLM を含む）がある間は待たせ、前の求めの答えが出てから別の求めに
+- **名前で呼ばれても、門では打ち切らない**（環-aw 決定ホ・第 1 段 項目 9）。タイマーの操作も名前が要る（「パジュ、止めて」）。
+- 入力は、名前があってもなくても（環-aw 決定ホ）、飛行中の調べもの（主LLM を含む）がある間は待たせ、前の求めの答えが出てから別の求めに
   する（段 3 で「前の求めに添える」を入れるまでの既定・Jev が使えないときの「そのまま出す」と同じ）。
 """
 
@@ -75,13 +75,14 @@ def test_the_keyboard_also_needs_the_name():
     assert _push(ip, "パジュ、明日の天気は？", source="keyboard") is True
 
 
-# ── 名前がある入力だけが打ち切る ─────────────────────────────────────────
+# ── 名前がある入力も、門では打ち切らない ─────────────────────────────────────
 
 
-def test_a_named_input_is_heard_and_interrupts():
+def test_a_named_input_is_heard_without_interrupting():
+    """名前つきでも打ち切らない（環-aw 決定ホ・第 1 段 項目 9。以前は打ち切っていた）。"""
     ip, a = _ip()
     assert _push(ip, "パジュ、いや明後日の天気") is True
-    ip._abort_lookups.assert_awaited_once()
+    ip._abort_lookups.assert_not_awaited()
     assert a._last_human_at is not None
 
 
@@ -120,7 +121,7 @@ def test_a_timer_control_word_needs_the_name():
     ip, _ = _ip(timer=True)
     assert _push(ip, "止めて") is False
     assert _push(ip, "パジュ、止めて") is True
-    ip._abort_lookups.assert_awaited_once()
+    ip._abort_lookups.assert_not_awaited()  # 名前があっても打ち切らない（環-aw 決定ホ）。言葉は列に積み、求めとして読む
 
 
 def test_a_music_word_while_playing_passes_without_the_name():
@@ -166,10 +167,55 @@ def test_the_waiting_input_goes_first_once_nothing_is_in_flight():
     assert got is not None and got.query == "うん"
 
 
-def test_a_named_input_does_not_wait():
+def test_a_named_input_also_waits():
+    """名前つきでも、主LLM が考えている最中は待たせる（環-aw 決定ホ・第 1 段 項目 9。以前は待たせなかった）。"""
     ip, _ = _ip()
     ip._req.request_id = "req-1"
     ip._req.lookups.append(Lookup(index=1, action="主LLM", query="主LLM1", generation=0))
     ip._triggers.put_nowait(_convo("パジュ、いや明後日", named=True))
-    got = asyncio.run(ip._take_trigger())
-    assert got is not None and got.query == "パジュ、いや明後日"
+    ip._triggers.put_nowait(Trigger(kind="完了", query="主LLM1", result="{}"))
+    assert asyncio.run(ip._take_trigger()) is None  # 先に主LLM の返りを取り込む
+    assert [t.query for t in ip._held] == ["パジュ、いや明後日"]
+
+
+# ── 名前で呼ばれても割り込まない（環-aw 決定ホ・第 1 段 項目 9）────────────────
+
+
+def test_a_named_voice_while_noting_does_not_stop_the_version_save():
+    """答えのあとの書き留めのあいだも、求めは開いている。名前つきの声が届いても、版を書く仕事を止めない。
+
+    以前は `push_utterance` が名前つきの入力で `_abort_lookups` を呼び、動いている仕事（版の保存を含む）を
+    取り消し、求めの世代を進めていた。答えより前の考えているあいだは門が捨て、何もしていないときは止めるものが無い。
+    """
+    a = _agent(stream_returns=[])
+    a.config.agent_names = ["パジュ"]
+    a._occupancy = MagicMock(return_value=1.0)
+    a._nudge_drive = AsyncMock()
+    a._last_human_at = None
+    ip = InformationProcessing(a)
+    ip._load_silence = lambda: None
+    ip._ensure_driver = lambda: None
+    ip._timer_active = lambda: False
+
+    async def go():
+        ip._req.request_id = "書き留めている求め"
+        saving = asyncio.ensure_future(asyncio.sleep(10))  # 版を書いている仕事の代わり
+        ip._background_tasks.add(saving)
+        gen = ip._request_generation
+        task = asyncio.ensure_future(ip.push_utterance("パジュ、ありがとう", source="voice"))
+        await asyncio.sleep(0.01)
+        queued = not task.done()
+        cancelled = saving.cancelled() or saving.done()
+        task.cancel()
+        saving.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await task
+        with contextlib.suppress(asyncio.CancelledError):
+            await saving
+        return queued, cancelled, gen, ip._request_generation
+
+    queued, cancelled, gen_before, gen_after = asyncio.run(go())
+    assert queued is True  # 声は受けて、列に積む
+    assert cancelled is False  # 版を書く仕事は止めない
+    assert gen_after == gen_before  # 求めの世代を進めない（書き留めの後始末を打ち切りにしない）
+    assert ip._req.request_id == "書き留めている求め"

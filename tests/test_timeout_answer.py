@@ -564,7 +564,8 @@ def test_a_request_that_cannot_speak_does_not_write():
     assert _finals(a)[0].endswith("時間切れになり、何も言わなかった")
 
 
-def test_a_held_named_utterance_also_goes_first():
+def test_a_held_named_utterance_waits_for_the_time_out():
+    """時間切れの知らせは、待っている名前つきの言葉より先（環-aw 決定ホ・第 1 段 項目 9。以前は言葉が先だった）。"""
     a, ip = _ip()
     words = Trigger(kind="会話入力", query="止めて", named=True)
     ip._held.append(words)
@@ -574,11 +575,12 @@ def test_a_held_named_utterance_also_goes_first():
         ip._triggers.put_nowait(t)
         return await ip._take_trigger()
 
-    assert asyncio.run(go()) is words
+    assert asyncio.run(go()) is t
+    assert ip._held == [words]
 
 
-def test_a_named_utterance_goes_before_the_time_out():
-    """①：名前で呼ばれた言葉は、時間切れの答えより先。知らせは列に戻る。"""
+def test_the_time_out_goes_before_a_named_utterance():
+    """同時に届いた名前つきの言葉も待たせ、時間切れの答えを先に言う（環-aw 決定ホ・第 1 段 項目 9）。"""
     a, ip = _ip()
     words = Trigger(kind="会話入力", query="止めて", named=True)
     t = Trigger(kind=el.TIMED_OUT_KIND, query="origin-1")
@@ -586,11 +588,10 @@ def test_a_named_utterance_goes_before_the_time_out():
     async def go():
         ip._triggers.put_nowait(t)
         ip._triggers.put_nowait(words)
-        first = await ip._take_trigger()
-        return first, ip._triggers.get_nowait()
+        return await ip._take_trigger()
 
-    first, back = asyncio.run(go())
-    assert first is words and back is t
+    assert asyncio.run(go()) is t
+    assert ip._held == [words]
 
 
 def test_a_timed_out_call_does_not_recover_a_half_written_tool_call():
