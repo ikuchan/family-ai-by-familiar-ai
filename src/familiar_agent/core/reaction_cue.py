@@ -48,6 +48,11 @@ TOOL_WORDS = ("はいっ",)
 # オッケー、考える声が えっと・うーん だった（出-ce）。道具の声は「はーい！」から「はいっ」に変えた（環-aw 第 1 段 項目 6・
 # 2026-11-09・本人が聞いて決めた）。2 つの声の大きさは、作る道具が決まった大きさに揃える（出-df）。
 THINK_WORDS = ("えっと",)
+#: 時間切れの答えを軽量LLM が書けなかったときの一言（環-aw 第 1 段 項目 8・2026-11-10 本人の決定）。軽量LLM が言っている
+#: ように聞こえないよう、クレジット切れの知らせと同じくお知らせの口調にした。録音は `sounds/timeout_answer.wav`。
+TIMEOUT_WORDS = "時間内に答えをまとめられませんでした。"
+TIMEOUT_RECORDING = "timeout_answer"
+TIMEOUT_WAV = _SOUNDS / f"{TIMEOUT_RECORDING}.wav"
 TOOL_WAVS = tuple(_SOUNDS / f"react_tool_{i}.wav" for i in range(len(TOOL_WORDS)))
 THINK_WAVS = tuple(_SOUNDS / f"react_think_{i}.wav" for i in range(len(THINK_WORDS)))
 

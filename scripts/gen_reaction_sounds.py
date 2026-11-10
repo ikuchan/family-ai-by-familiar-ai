@@ -24,6 +24,8 @@
 - 大きさを揃える（出-df・2026-11-01）：声を作り終えたら、そのフォルダの 2 つの声を、声が出ている部分の実効値（`active_db`）で
   `VOICE_LEVEL_DB` に合わせる（環-aw 第 1 段 項目 6 で、「えっと」に合わせる形から決まった大きさに合わせる形にした）。
   大きくするときは最大の振れを `PEAK_LIMIT_DB` で止める。声を作らずに揃えるだけなら `--level`（元の声と、声ごとのフォルダ全部）。
+- 時間切れの一言 `timeout_answer.wav`（「時間内に答えをまとめられませんでした。」・環-aw 第 1 段 項目 8）：時間切れの答えを
+  軽量LLM が書けなかったときに鳴らす。ほかの作り置きの声と同じに作り、同じ大きさに揃える。
 
 拾ってきた音源は許諾の確認と出典の記録が要るので、効果音は自分で合成する（`gen_timer_alarm.py` と同じ）。
 
@@ -243,7 +245,7 @@ def level_file(path: pathlib.Path) -> None:
 
 def level_folder(folder: pathlib.Path) -> None:
     """`folder` の作り置きの声（道具の声と考える声）を、どちらも `VOICE_LEVEL_DB` の大きさにする（出-df）。"""
-    for path in (folder / p.name for p in (*rc.TOOL_WAVS, *rc.THINK_WAVS)):
+    for path in (folder / p.name for p in (*rc.TOOL_WAVS, *rc.THINK_WAVS, rc.TIMEOUT_WAV)):
         if path.exists():
             level_file(path)
 
@@ -263,6 +265,7 @@ def _all_folders() -> "list[pathlib.Path]":
 def _pairs(only: "set[str] | None") -> "list[tuple[str, pathlib.Path]]":
     """作る言葉と置き場の組。`only` があれば、その言葉だけ（聞いて決めたほかの声を作り直さない・出-ce）。"""
     pairs = list(zip(rc.TOOL_WORDS, rc.TOOL_WAVS)) + list(zip(rc.THINK_WORDS, rc.THINK_WAVS))
+    pairs.append((rc.TIMEOUT_WORDS, rc.TIMEOUT_WAV))
     return [(t, p) for t, p in pairs if only is None or t in only]
 
 

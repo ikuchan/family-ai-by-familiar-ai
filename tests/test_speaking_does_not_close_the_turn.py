@@ -122,7 +122,12 @@ def test_speaking_no_longer_takes_the_memories():
 
 
 def test_only_the_iteration_closes_the_turn():
-    """`_finish` を呼ぶのは、1 反復（`Iteration`・環-ab E で `_iterate` から移した）と `_act_on_decision` だけ。"""
+    """`_finish` を呼ぶのは、1 反復（`Iteration`・環-ab E で `_iterate` から移した）と `_act_on_decision` と
+    `_answer_timed_out` だけ。
+
+    `_answer_timed_out` を足したのは環-aw 第 1 段 項目 8（2026-11-10・本人の承認）。時間切れの答えは、
+    考えすぎて時間切れになったことを受けて、その求めの終わり方を実行する側なので、決定を実行している側に入る。
+    """
     text = _LOOP.read_text(encoding="utf-8")
     lines = text.splitlines()
     cls = next(
@@ -138,7 +143,8 @@ def test_only_the_iteration_closes_the_turn():
             callers.add(m.name)
     # 環-h・段ろ で、主LLM の返りを実行する部分を `_act_on_decision` へ出した。
     # **閉じるのは、その決定を実行している側**である（話す動作ではない）。
-    assert callers == {"_act_on_decision"}, callers
+    # 環-aw 第 1 段 項目 8 で、時間切れの答え（`_answer_timed_out`）も、求めの終わり方を実行する側として足した。
+    assert callers == {"_act_on_decision", "_answer_timed_out"}, callers
     from familiar_agent.loop.iteration import Iteration
     import inspect
 

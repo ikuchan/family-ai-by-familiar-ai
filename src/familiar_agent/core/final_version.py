@@ -37,8 +37,13 @@ def _opening(trigger_kind: str, asked: str, added: "list[str]") -> str:
     return said + "".join(f"「{a}」と言い足され、" for a in added if a)
 
 
-def _answer(outcome: str, answer: str, block_reason: str) -> str:
-    """どう閉じたか。声にならなかった言葉は、言ったことと取り違えないよう書き分ける。"""
+def _answer(outcome: str, answer: str, block_reason: str, timed_out: bool = False) -> str:
+    """どう閉じたか。声にならなかった言葉は、言ったことと取り違えないよう書き分ける。
+
+    考えすぎて時間切れで閉じたときは、頭に「時間切れになり、」を置く（環-aw 第 1 段 項目 8）。
+    """
+    if timed_out:
+        return "時間切れになり、" + _answer(outcome, answer, block_reason)
     if outcome == "打ち切り":
         return "打ち切った"
     if outcome == "発話":
@@ -57,9 +62,10 @@ def body(
     outcome: str,
     answer: str,
     block_reason: str,
+    timed_out: bool = False,
 ) -> str:
     """聞かれたことと答え（時刻の頭と経緯を除いた部分）。長すぎて切るときも、ここは必ず残す。"""
-    return _opening(trigger_kind, asked, added) + _answer(outcome, answer, block_reason)
+    return _opening(trigger_kind, asked, added) + _answer(outcome, answer, block_reason, timed_out)
 
 
 def window_body(lines: "list[str]") -> str:

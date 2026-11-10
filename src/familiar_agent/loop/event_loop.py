@@ -44,6 +44,7 @@ from ..core import (
 from ..core.aio import spawn_outside, wait_within
 from ..core.completion_kind import is_spent
 from ..core.drive_autonomy import TALKING_AXES
+from ..core.reaction_cue import TIMEOUT_RECORDING, TIMEOUT_WORDS
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
@@ -676,6 +677,23 @@ class Decision:
 
 #: **新しい求めを始めるきっかけ**（ほかは、開いている求めの続きとして取り込む）。
 _NEW_REQUEST_KINDS = ("会話入力", "機器", "情動")
+#: 考えているが 3 分に届いた知らせのきっかけ（環-aw 第 1 段 項目 8）。`query` に求めの id を持つ。新しい求めは始めず、
+#: 完了箱にも入れない。駆動体が時間切れの答えへ渡す。
+TIMED_OUT_KIND = "時間切れ"
+#: 主LLM の 1 回が時間切れで終わった返りの印（`TurnResult.stop_reason`・項目 8）。例外の空の返り（`end_turn`）と分ける。
+MAIN_LLM_TIMED_OUT = "timeout"
+#: 時間切れの答えを書く軽量LLM への前置き（`設計方針_パジュの状態` 決定ム）と、頼む文。
+TIMEOUT_PREMISE = "考えすぎてよく分からなくなった。"
+TIMEOUT_ANSWER_PROMPT = """\
+{premise}考えるのに時間を使いすぎたので、いまここで答える。
+
+[聞かれたこと]
+{asked}
+
+[ここまでに分かったこと]
+{drafts}
+
+分かったことだけを使って、短く答える。分からないことは分からないと言う。返すのは口に出す言葉だけ。"""
 #: 複数来ていたらこの順に採る。**人の言葉が最優先**である（環-f-い-2）。機器が情動より
 #: 先なのは、3本のキューを `asyncio.wait` の union で待っていたころ、取り出したあとの
 #: 分岐がこの順だったため（環-f-い-1 でその規則をここへ移した）。
@@ -1047,7 +1065,9 @@ class InformationProcessing:
 
     # ── 最終版（記-t 段 1・2026-10-14・本人の決定）──────────────────────────────────────
 
-    async def _close_final(self, outcome: str, text: str, *, aborted: bool = False):
+    async def _close_final(
+        self, outcome: str, text: str, *, aborted: bool = False, timed_out: bool = False
+    ):
         """閉じるときに最終版を組み、収まればその場で書く。超えれば背景に回す材料を返す（`_spawn_final`）。
 
         最終版は「何を聞かれ、何を答えたか」の塊で、版の鎖の最後（親は起点・前の版は改訂で畳む・やりとりの「版」の項）。
@@ -1068,8 +1088,10 @@ class InformationProcessing:
             outcome="打ち切り" if aborted else outcome,
             answer=text,
             block_reason=req.block_reason,
+            timed_out=timed_out,
         )
-        steps = workspace.lookup_lines(req, aborted=aborted, with_main=False)
+        # 時間切れでは、止めた調べものを「打ち切った」と書く（項目 8）。
+        steps = workspace.lookup_lines(req, aborted=aborted or timed_out, with_main=False)
         steps += [f"見た：{t}" for t in req.seen_texts.values()]
         course = final_version.course(steps)
         limit = int(agent.config.completion_content_max)
@@ -1764,8 +1786,18 @@ class InformationProcessing:
                 on_child=lambda _child: self._start_beeps(),
                 on_idle=self._on_head_idle,
                 thinking_limit_sec=self._agent.config.thinking_limit_sec,
+                on_limit=self._tell_timed_out,
             )
         return sm
+
+    def _tell_timed_out(self) -> None:
+        """考えているが 3 分に届いた（状態図の数える仕事から）。待ち行列に積み、駆動体が時間切れの答えを言う（項目 8）。
+
+        ここで答えを始めない。列から取り出す口は駆動体の 1 つで、反復と重ならないようにするためである。
+        """
+        request_id = self._req.request_id
+        if request_id:
+            self._triggers.put_nowait(Trigger(kind=TIMED_OUT_KIND, query=request_id))
 
     async def _to_state(self, event: str) -> None:
         """状態図へ事象を送る（環-aw）。状態図が落ちても、会話は止めない。"""
@@ -2099,6 +2131,8 @@ class InformationProcessing:
         limit = agent.config.main_llm_timeout_sec
         # 当たりは層 3 が時刻と道具の数で数える（使わない週も同じ物差し・出-bs 段 2）。
         measure_record("主LLM", 道具=len(tools))
+        # 時間切れのときの下書きに、流れてきた地の文を控える（`say` の中身は流れない・項目 8）。
+        streamed: list[str] = []
         try:
             result, _raw = await wait_within(
                 agent.backend.stream_turn(
@@ -2107,7 +2141,7 @@ class InformationProcessing:
                     tools=tools,
                     # 返事の予算（出-k-ろ）。`config.max_tokens`（4096 固定）は使わない。
                     max_tokens=max_tokens,
-                    on_text=None,
+                    on_text=streamed.append,
                     effort=effort,
                 ),
                 limit,
@@ -2124,7 +2158,9 @@ class InformationProcessing:
             )
             from ..backends.types import TurnResult as _TR
 
-            result = _TR(stop_reason="end_turn", text="")
+            # 時間切れの印を付ける。返りを受ける段が時間切れの答えへ進む（項目 8）。例外の空の返りとは分ける。
+            # 途中の文から道具の呼び出しを拾い直さない（書きかけの呼び出しを実行しない）ので、ここで返す。
+            return _TR(stop_reason=MAIN_LLM_TIMED_OUT, text="".join(streamed))
         except Exception as e:  # noqa: BLE001
             logger.exception("event-loop 主LLM の呼び出しに失敗: %s", e)
             from ..backends.types import TurnResult as _TR
@@ -3253,20 +3289,11 @@ class InformationProcessing:
         self._triggers.put_nowait(trigger)
         return await fut
 
-    async def _abort_lookups(self) -> None:
-        """飛行中の調査を打ち切る（人に話しかけられたとき）。
+    def _drop_work(self) -> int:
+        """動いている仕事（主LLM・調べもの）を止め、まだ取り込んでいない完了を捨てる。捨てた完了の数を返す。
 
-        飛行中のツール呼び出しを止め、まだ取り込んでいない完了を捨て、**何を打ち切ったかを
-        O に残す**。打ち切りも版のひとつなので、直前の版を `改訂` で畳む——鎖は「打ち切った」
-        1件へ収束する（親と子をまとめて閉じる操作は要らない・`_write_version`）。
-
-        結果を捨てるのは、残すと次の求めの W に無関係な完了が載るためである。ただし
-        **打ち切った事実は残す**（あとで「あのとき何を調べていたか」を辿れる）。
+        打ち切り（`_abort_lookups`）と時間切れの答え（`_answer_timed_out`）が使う。世代は進めない（呼び手が決める）。
         """
-        in_flight = [lk for lk in self._req.lookups if lk.in_flight]
-        if not self._background_tasks and not in_flight and self._req.request_id is None:
-            return
-        dropped = [f"{lk.index}番：{lk.action}「{lk.query}」" for lk in in_flight]
         for task in list(self._background_tasks):
             task.cancel()
         self._background_tasks.clear()
@@ -3281,6 +3308,190 @@ class InformationProcessing:
                 drained += 1
         drained += len(self._drained_completions)
         self._drained_completions.clear()
+        return drained
+
+    async def _on_timed_out(self, trigger: "Trigger") -> None:
+        """考えているが 3 分に届いた知らせを受ける（項目 8）。閉じた求めの知らせなら捨てる。"""
+        if trigger.query != self._req.request_id:
+            logger.debug("event-loop もう閉じた求めの時間切れなので捨てる")
+            return
+        logger.info("event-loop 考えているが上限に届いたので、時間切れの答えを言って閉じる")
+        await self._answer_timed_out()
+
+    def _timeout_drafts(self, partial: str) -> "list[str]":
+        """時間切れの答えの下書き（決定ム）。長いと後ろが切れるので、答えに近いものから並べる。
+
+        前の主LLM の返り（考え直しの下書き・まだ取り込んでいない返りの答え）→ 途中の文 → 見たもの → 調べものの結果
+        （届いて取り込んだもの、まだ取り込んでいないもの）。
+
+        - まだ取り込んでいない完了は、この求めの意図に当たるものだけを使う（打ち切った前の求めの遅れた完了を混ぜない）。
+        - 返りの `say` が調べものと一緒なら、声にしない合いの手なので使わない。言い直しの返りなら、元の答えも使う。
+        - カメラの結果の行は作業状態の場所を指すだけなので、見えたものの文（`seen_texts`）を使う。
+        - 使い切って投げなかった器の文は、調べた結果ではないので使わない。
+
+        言い直しが飛んでいるあいだに 3 分に届くと、言い直す前の答えは止めた仕事の中にあり、ここでは拾えない。
+        """
+        req = self._req
+        said: list[str] = []
+        if req.draft:
+            said.append(req.draft)
+        results: list[str] = []
+        for c in self._drained_completions:
+            lk = self._lookup_for(c)
+            if lk is None:
+                continue
+            if c.kind == "決定" and c.decision is not None:
+                calls = c.decision.result.tool_calls
+                say = next((tc for tc in calls if tc.name == "say"), None)
+                if any(tc.name in _LOOKUP_ACTIONS for tc in calls):
+                    text = ""  # 調べものと一緒の say も地の文も声にならない合いの手（出-aq 段 7）
+                else:
+                    text = str(say.input.get("text", "")) if say else c.decision.result.text
+                if c.decision.retried and c.decision.original_text:
+                    said.append(c.decision.original_text)
+                if text:
+                    said.append(text)
+            elif (
+                c.result
+                and not c.failed
+                and lk.action not in _CAMERA_ACTIONS
+                and not is_spent(c.result)
+            ):
+                results.append(f"「{c.query}」の結果：{c.result}")
+        drafts = [f"言おうとしていたこと：{t}" for t in said]
+        if partial:
+            drafts.append(f"考えかけていたこと：{partial}")
+        drafts += [f"見えたもの：{t}" for t in req.seen_texts.values() if t]
+        drafts += [
+            f"{lk.action}「{lk.query}」の結果：{lk.result}"
+            for lk in sorted(req.lookups, key=lambda x: x.index)
+            if lk.action != "主LLM"
+            and lk.action not in _CAMERA_ACTIONS
+            and lk.result
+            and not lk.failed
+            and not is_spent(lk.result)
+        ]
+        return drafts + results
+
+    async def _write_timeout_answer(self, drafts: "list[str]") -> str:
+        """時間切れの答えを軽量LLM に書かせる（決定ム）。失敗・時間切れ・空なら空文字（呼び手が録音を鳴らす）。"""
+        agent, req = self._agent, self._req
+        limit = int(agent.config.completion_content_max)
+        prompt = TIMEOUT_ANSWER_PROMPT.format(
+            premise=TIMEOUT_PREMISE,
+            asked=req.request_text or req.cue or "（分からない）",
+            drafts=("\n".join(drafts) or "（なし）")[:limit],
+        )
+        wait = float(agent.config.timeout_answer_wait_sec)
+        started = time.monotonic()
+        try:
+            from ..core.context_parts import Stance
+
+            system = agent._stance_context(Stance.PAJU)
+            reply = await wait_within(
+                agent._utility_backend.complete(prompt, 300, system=system), wait
+            )
+        except asyncio.CancelledError:
+            raise
+        except asyncio.TimeoutError:
+            logger.warning("event-loop 時間切れの答えを軽量LLM が %.1f 秒で書けなかった", wait)
+            return ""
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 時間切れの答えを軽量LLM が書けなかった", exc_info=True)
+            return ""
+        text = str(reply or "").strip()
+        logger.info(
+            "event-loop 時間切れの答えを書いた %.2f 秒（下書き %d 件・%d 字）",
+            time.monotonic() - started,
+            len(drafts),
+            len(text),
+        )
+        return text
+
+    async def _answer_timed_out(
+        self, *, partial: str = "", decision: "Decision | None" = None
+    ) -> str:
+        """時間切れの答え（環-aw 第 1 段 項目 8・`設計方針_パジュの状態` 決定ム、メ・2026-11-10 本人の決定）。
+
+        考えているが 3 分に届いた（`_on_timed_out`）か、主LLM の 1 回が 60 秒で時間切れになった（`_act_on_decision`）。
+        1. 届いていた結果を下書きに集める（届いていない完了も、下書きにしてから捨てる）。
+        2. 動いている主LLM と調べものを止める。
+        3. 軽量LLM が「考えすぎてよく分からなくなった」を前置きに、下書き（無ければ家族の言葉だけ）から答えを書く。
+           待つのは `timeout_answer_wait_sec`（5 秒）まで。
+        4. 発話前の検査に掛ける。違反があっても言い、決まった文と数を 1 行残す（決定メ）。
+        5. 言って閉じる。最終版には時間切れと書く。深く調べるかの申し出はしない。
+
+        軽量LLM が書けなければ、クレジット切れと同じ形の録音（`TIMEOUT_WORDS`）を鳴らす。鳴らせなければ黙って閉じる。
+        主LLM の呼び出しが**例外**で終わったときは、ここへ来ない（いままでどおり沈黙で閉じる）。
+        """
+        req = self._req
+        if req.request_id is None:
+            logger.debug("event-loop 閉じた求めなので、時間切れの答えは言わない")
+            return ""
+        # 書いているあいだに名前で呼ばれる・止められると、打ち切りが世代を進めて求めを閉じる。入ったときの世代で見張る。
+        gen = self._request_generation
+        drafts = self._timeout_drafts(partial)
+        # 届いていて下書きに使った完了は、器に結果を入れて届いたものにする（打ち切ったと書かない）。
+        for c in self._drained_completions:
+            lk = self._lookup_for(c)
+            if lk is not None and lk.in_flight:
+                lk.result = c.result or "（返りを受けた）"
+        # 止めた調べものは、打ち切りと同じく打ち切ったものとして台帳に残す（下書きを集めたあとで閉じる）。
+        self._ledger.close_request(
+            [lk for lk in req.lookups if lk.in_flight], state=_intents.ABORTED
+        )
+        self._drop_work()
+        memories = decision.memories if decision is not None else []
+        # 声にならない求め（話しかけない情動・聞く相手が居ない）なら、書かせず検査もしない（`_speak` が独り言にする）。
+        quiet = (req.trigger_kind == "情動" and not self._talking()) or bool(
+            self._delivery_block_reason()
+        )
+        text = "" if quiet else await self._write_timeout_answer(drafts)
+        if gen != self._request_generation:
+            logger.info("event-loop 時間切れの答えを書いているあいだに打ち切られたので、言わない")
+            return ""
+        if text:
+            violation, _verdicts = await self._speech_check_violation(
+                text,
+                decision.recent_frame if decision is not None else "",
+                memories,
+                w_id_map=dict(decision.w_id_map) if decision is not None else {},
+            )
+            if violation:
+                # 違反の中身は言葉を含みうるので出さない。
+                logger.info(
+                    "event-loop 時間切れの答えに発話前の検査の違反があったが、そのまま言う（%d 字）",
+                    len(text),
+                )
+            if gen != self._request_generation:
+                logger.info(
+                    "event-loop 時間切れの答えを確かめているあいだに打ち切られたので、言わない"
+                )
+                return ""
+            spoken, outcome = await self._speak(text)
+        else:
+            spoken, outcome = await self._speak(TIMEOUT_WORDS, recording=TIMEOUT_RECORDING)
+            if outcome != "発話":
+                # 鳴らせなかった・言わなかった決まった一言は、思ったことや言いたかったこととして残さない（黙って閉じる）。
+                spoken, outcome = "", "沈黙"
+        await self._finish(spoken, memories, outcome, gen=gen, timed_out=True)
+        return spoken if outcome == "発話" else ""
+
+    async def _abort_lookups(self) -> None:
+        """飛行中の調査を打ち切る（人に話しかけられたとき）。
+
+        飛行中のツール呼び出しを止め、まだ取り込んでいない完了を捨て、**何を打ち切ったかを
+        O に残す**。打ち切りも版のひとつなので、直前の版を `改訂` で畳む——鎖は「打ち切った」
+        1件へ収束する（親と子をまとめて閉じる操作は要らない・`_write_version`）。
+
+        結果を捨てるのは、残すと次の求めの W に無関係な完了が載るためである。ただし
+        **打ち切った事実は残す**（あとで「あのとき何を調べていたか」を辿れる）。
+        """
+        in_flight = [lk for lk in self._req.lookups if lk.in_flight]
+        if not self._background_tasks and not in_flight and self._req.request_id is None:
+            return
+        dropped = [f"{lk.index}番：{lk.action}「{lk.query}」" for lk in in_flight]
+        drained = self._drop_work()
 
         self._request_generation += 1
         self._stop_wait_watch()
@@ -3651,8 +3862,19 @@ class InformationProcessing:
             carry = []
             while not self._triggers.empty():
                 batch.append(self._triggers.get_nowait())
+            # 3 分に届いた知らせは、完了箱に入れず先に返す（項目 8）。届いていた完了は下書きになる。
+            timed_out = [t for t in batch if t.kind == TIMED_OUT_KIND]
+            batch = [t for t in batch if t.kind != TIMED_OUT_KIND]
             fresh = [t for t in batch if t.kind in _NEW_REQUEST_KINDS]
             self._drained_completions.extend(t for t in batch if t.kind not in _NEW_REQUEST_KINDS)
+            if timed_out and any(
+                t.kind in _NEVER_HELD_KINDS and t.named for t in self._held + fresh
+            ):
+                # 名前で呼ばれた言葉は、時間切れの答えより先（①）。知らせは列へ戻す（新しい求めになれば古くなって捨てる）。
+                self._triggers.put_nowait(timed_out[-1])
+            elif timed_out:
+                self._held.extend(fresh)
+                return timed_out[-1]
             # ① 会話入力は保留箱より常に先（調査中でも）。保留箱を列より先に返していた近道が、
             #    列で待つ人の言葉より保留箱の入室を先に走らせ、会話入力が別の求めの取込に
             #    横取りされる隙を作った（実機 12:40・88 秒返らず）。
@@ -3706,6 +3928,9 @@ class InformationProcessing:
         while True:
             try:
                 trigger = await self._take_trigger()
+                if trigger is not None and trigger.kind == TIMED_OUT_KIND:
+                    await self._on_timed_out(trigger)
+                    continue
                 # 会話入力は `push_utterance` が届いた時刻で門に通してある（出-au 段 1-2）。
                 if (
                     trigger is not None
@@ -4261,6 +4486,16 @@ class InformationProcessing:
             logger.info("event-loop 打ち切られた求めの反復なので畳む（生成後）")
             return ""
 
+        # 主LLM が時間切れなら、時間切れの答えを言って閉じる（環-aw 第 1 段 項目 8）。言い直しが時間切れなら、元の答えを
+        # 言う（下の「言い直しが say を返さなかった」と同じ道）。
+        if decision.result.stop_reason == MAIN_LLM_TIMED_OUT and not (
+            decision.retried and decision.original_text
+        ):
+            logger.info("event-loop 主LLM が時間切れだったので、時間切れの答えを言って閉じる")
+            return await self._answer_timed_out(
+                partial=decision.result.text or "", decision=decision
+            )
+
         # 返しようがないと主LLM が決めた（出-db 段 F）。say の中に書いても、文だけでも、考え直しや写真の見立てより先に見て、
         # Jev に聞かず、差し戻さず、声にも画面にも出さずに閉じる。言い直しの返りには指示を渡していないので見ない。
         mark_text = (
@@ -4384,7 +4619,14 @@ class InformationProcessing:
             # 言い直しが say を返さなかった。**元の応答で出す**（黙るよりはよい）。
             logger.info("event-loop 言い直しが say を返さなかったので元の応答で出す")
             spoken, outcome = await self._speak(decision.original_text)
-            await self._finish(spoken, decision.memories, outcome, gen=gen)
+            # 言い直しが時間切れだったなら、最終版と終了のログに時間切れと書く（項目 8）。
+            await self._finish(
+                spoken,
+                decision.memories,
+                outcome,
+                gen=gen,
+                timed_out=decision.result.stop_reason == MAIN_LLM_TIMED_OUT,
+            )
             return spoken
 
         # どちらも無ければ素テキストへフォールバック（表示はここで1回）。
@@ -4669,7 +4911,9 @@ class InformationProcessing:
         self._verdict_tasks.add(task := asyncio.create_task(_run()))
         task.add_done_callback(self._verdict_tasks.discard)
 
-    async def _speak(self, text: str, *, branch: str = "full") -> tuple[str, str]:
+    async def _speak(
+        self, text: str, *, branch: str = "full", recording: "str | None" = None
+    ) -> tuple[str, str]:
         """声に出す。返りは **(実際に出した文, 結末)**。**反復は閉じない。**
 
         身体を持つ以上、発話は相手が居て初めて意味を持つ。出せないとき（情動の軸・窓・出口の門）は
@@ -4698,7 +4942,12 @@ class InformationProcessing:
             self._req.block_reason = blocked  # 最終版の「言えなかった（理由）」（記-t）
             return text, "独白"
         self._stop_beeps()  # 答えの声が始まる。待ちの電子音を止める（出-bu）
-        await self._say_aloud(text, careful=self._careful_voice(branch))
+        # `recording`＝録音済みの声で言う（時間切れの一言・環-aw 第 1 段 項目 8）。門と電子音と状態図は声と同じに通す。
+        if not await self._say_aloud(
+            text, careful=self._careful_voice(branch), recording=recording
+        ):
+            logger.warning("event-loop 録音 %s を鳴らせなかったので、黙って閉じる", recording)
+            return text, "沈黙"
         self._note_suggestion_offered(text)
         self._stamp_said()
         self._extend_window_for_conversation()  # 返事から窓の長さぶん（出-as 段 4）
@@ -5572,12 +5821,20 @@ class InformationProcessing:
         return careful_voice(branch, getattr(self, "_returned_now", frozenset()))
 
     async def _say_aloud(
-        self, text: str, *, careful: bool = False, gain: "float | None" = None
-    ) -> None:
+        self,
+        text: str,
+        *,
+        careful: bool = False,
+        gain: "float | None" = None,
+        recording: "str | None" = None,
+    ) -> bool:
         """声を出す口（本応答・つなぎ・確認の問い）。**`dif.speak` を呼ぶのはここだけ**。
 
         倍率はここで必ず付ける（`gain` を渡さなければ `_voice_gain()`）。口が分かれていたころ、つなぎの声だけ
         倍率を渡し忘れ、普段の 4 倍の声で鳴った（2026-10-07 実機 23:18:39「承知いたしました。少々お待ちください。」）。
+
+        `recording` を渡すと、声を作らずに録音済みの声 `sounds/<recording>.wav` を鳴らす（時間切れの一言・項目 8）。
+        返りは、録音を鳴らせなかったときだけ偽（声はいままでどおり、出せなくても真）。
         """
         # 会話の求めで窓が開いていれば、話しているあいだは開けておき、話し終わりから 10 秒にする（本人
         # 「話し終わってから１０秒」）。閉じていれば触らない——声で窓を開け直さない（確認待ちと名前で受けた話しかけは
@@ -5592,10 +5849,16 @@ class InformationProcessing:
         began = self._paju().head_state() == "thinking"
         if began:
             await self._to_state("speech_began")  # 頭は答えを言っている（環-aw 決定ツ）
+        played = True
         try:
-            await self._dif.speak(
-                text, gain=self._voice_gain() if gain is None else gain, careful=careful
-            )
+            if recording is not None:
+                played = await self._dif.say_recorded(
+                    recording, gain=self._voice_gain() if gain is None else gain
+                )
+            else:
+                await self._dif.speak(
+                    text, gain=self._voice_gain() if gain is None else gain, careful=careful
+                )
         finally:
             # 再生に失敗しても話し終えたことにする（決定ツ）。頭は書き留めている、耳は聞く（決定モ）。
             # 自分が言い始めを送った呼び出しだけが言い終わりを送る（言っているあいだの内側の声で、外の答えを終えない）。
@@ -5610,6 +5873,7 @@ class InformationProcessing:
                 # 話し始めから 10 秒で切れていて、返事のあとの名前なしの声を捨てていた。考えている最中には開けない。
                 # 開け直しても、同じ窓の会話の続き（環-ar 段 A）。
                 wake.open(time.monotonic(), resume=self._req.window_session == wake.session)
+        return played
 
     def _voice_gain(self) -> float:
         """この求めの声の倍率。タイマーが鳴った知らせ（`[タイマー]`）だけ `TIMER_VOICE_GAIN`（既定 1.0）。
@@ -6073,13 +6337,22 @@ class InformationProcessing:
                 )
 
     async def _finish(
-        self, text: str, memories: "list[Recalled]", outcome: str, *, gen: "int | None" = None
+        self,
+        text: str,
+        memories: "list[Recalled]",
+        outcome: str,
+        *,
+        gen: "int | None" = None,
+        timed_out: bool = False,
     ) -> None:
         """求めが閉じた反復の後始末：総括ログと永続化。
 
         閉じ方は `outcome` が持つ——`発話`（声になった）・`沈黙`（地の文だけで声にならず
         `独白` として残る）・`保留`（配信ゲートに止められた）・`独白`（相手が居ない独り言。
         積まずに、思ったことだけ残す・情-c）。**発話だけではない。**
+
+        `timed_out`＝考えすぎて時間切れで閉じた（環-aw 第 1 段 項目 8）。結末とは別に持つ——言った答えは結末 `発話` の
+        まま「自分が答えた」として残し、最終版と終了のログにだけ時間切れと書く。
 
         **ここでは何も畳まない。** 求めの版チェーンは `_write_version` が `改訂` で畳み、
         自分が答えた記録は鎖の外にある。要約と内省は背景で遅れて来て、その記録を supersede
@@ -6090,10 +6363,11 @@ class InformationProcessing:
         logger.info(
             # **数えるのは考えた回数**。反復は主LLM の返りで 0 へ戻るので、閉じた時点では
             # 常に 0 で、この求めに何回かかったかを伝えない（環-h）。
-            "event-loop 終了: 考えた回数=%d 結末=%s 上限到達=%s text_len=%d",
+            "event-loop 終了: 考えた回数=%d 結末=%s 上限到達=%s 時間切れ=%s text_len=%d",
             self._thinking_round - 1,
             outcome,
             "はい" if self._req.iterations_capped else "いいえ",
+            "はい" if timed_out else "いいえ",
             len(text),
         )
         # 自分が言ったことを、**発話の時点で同期に** O へ書く。背景の永続化（要約・内省）を
@@ -6165,7 +6439,7 @@ class InformationProcessing:
         # （結果が届いた状態）のまま残る。まとめ知識の MI を作る場合は、それが最後の版を
         # 畳む（未実装・`設計方針_求めの版チェーン`）。
         # **最終版を書く**（記-t 段 1）。求めの状態を消す前に組む。収まれば閉じたその場で、超えれば下で背景に出す。
-        pending_final = await self._close_final(outcome, text)
+        pending_final = await self._close_final(outcome, text, timed_out=timed_out)
         self._stop_wait_watch()  # 待たせている時間の見張りは求めと一緒に閉じる（出-au 段 2）
         self._req.request_id = None
         await self._to_state("request_closed")  # 頭は何もしていない、耳は聞く（環-aw）

@@ -1008,8 +1008,11 @@ def test_recall_iteration_does_not_display_filler_text():
         ]
     )
     assert _run_chain(a) == "晴れ"  # 前置きは出さず、発話だけ1回
-    # 生成中のストリームを止める＝呼び手の on_text を stream_turn へ渡さない。
-    assert all(c.kwargs["on_text"] is None for c in a.backend.stream_turn.call_args_list)
+    # 生成中のストリームを止める＝呼び手の on_text を stream_turn へ渡さない。渡すのは、時間切れの下書きに地の文を
+    # 控える並びの口だけ（画面へは出さない・環-aw 第 1 段 項目 8）。
+    for c in a.backend.stream_turn.call_args_list:
+        on_text = c.kwargs["on_text"]
+        assert on_text is None or isinstance(getattr(on_text, "__self__", None), list)
 
 
 def test_present_ctx_tells_who_is_there_with_confidence():

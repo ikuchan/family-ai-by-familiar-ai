@@ -1,8 +1,9 @@
-"""考えているの上限（環-aw 第 1 段 項目 7・`設計方針_パジュの状態` v0.3 決定ミ、マ）。
+"""考えているの上限（環-aw 第 1 段 項目 7、8・`設計方針_パジュの状態` v0.3 決定ミ、マ）。
 
-求めを開いてから考えているの合計が上限（既定 3 分）に届いたら、状態図が `limit_reached` を送る。答えを言っている
-あいだは数えず、話し終えて考えているへ戻ったら残りから続ける。何もしていないに入ったら数えるのをやめ、次の求めは
-初めから数える。残り時間は状態図のファイルの中だけで持つ。主LLM を 1 回呼ぶ待ちは 60 秒で切る（決定マ）。
+求めを開いてから考えているの合計が上限（既定 3 分）に届いたら、状態図が `limit_reached` を送り、ループへ知らせる
+（`on_limit`）。答えを言い始めたら、その求めではもう数えない（項目 8・2026-11-10 本人の決定）。何もしていないに
+入ったら数えるのをやめ、次の求めは初めから数える。残り時間は状態図のファイルの中だけで持つ。主LLM を 1 回呼ぶ待ちは
+60 秒で切る（決定マ）。
 """
 
 from __future__ import annotations
@@ -59,17 +60,24 @@ def test_before_the_limit_nothing_happens(caplog):
 
 
 def test_time_spent_answering_is_not_counted(caplog):
-    """答えを言っているあいだは数えない。話し終えたら、残りから続ける。"""
+    """答えを言っているあいだは数えない。"""
     _play(caplog, 0.3, ["request_opened", 0.1, "speech_began", 0.5])
     assert _limit_events(caplog) == 0  # 数えていれば 0.3 秒で届いている
-    caplog.clear()
-    _play(caplog, 0.3, ["request_opened", 0.1, "speech_began", 0.5, "speech_ended", 0.5])
-    assert _limit_events(caplog) == 1  # 残りの 0.2 秒で届く
 
 
-def test_the_rest_is_not_started_over_after_the_answer(caplog):
-    """**反証の側**：話し終えたあと、上限を初めからやり直さない（やり直せば 0.35 秒では届かない）。"""
-    _play(caplog, 0.6, ["request_opened", 0.5, "speech_began", 0.05, "speech_ended", 0.35])
+def test_after_the_answer_it_is_no_longer_counted(caplog):
+    """**反証の側**：話し終えて書き留めに戻っても、その求めではもう数えない（続けて数えれば残りの 0.2 秒で届く）。"""
+    _play(caplog, 0.3, ["request_opened", 0.1, "speech_began", 0.05, "speech_ended", 0.5])
+    assert _limit_events(caplog) == 0
+
+
+def test_the_next_request_after_an_answer_counts_again(caplog):
+    """数えるのをやめるのは、答えた求めだけ。次の求めは初めから数える。"""
+    _play(
+        caplog,
+        0.1,
+        ["request_opened", "speech_began", "speech_ended", "request_closed", "request_opened", 0.3],
+    )
     assert _limit_events(caplog) == 1
 
 
@@ -99,8 +107,8 @@ def test_it_is_sent_once_per_request(caplog):
     assert _limit_events(caplog) == 1
 
 
-def test_stopping_right_at_the_limit_still_counts_after_the_answer(caplog):
-    """上限の刻みに答え始めて数えるのを止めても、残りは 0 で止まり、考えているへ戻ったときに届く（見直しの指摘）。"""
+def test_answering_right_at_the_limit_ends_the_count(caplog):
+    """上限の刻みに答え始めても（数える仕事はまだ動いていない）、その求めではもう届かない。"""
 
     async def go():
         sm = PajuState(thinking_limit_sec=10.0)
@@ -114,16 +122,49 @@ def test_stopping_right_at_the_limit_still_counts_after_the_answer(caplog):
         return left
 
     with caplog.at_level(logging.DEBUG, logger=LOG):
-        assert asyncio.run(go()) == 0.0
-    assert _limit_events(caplog) == 1
+        assert asyncio.run(go()) is None
+    assert _limit_events(caplog) == 0
 
 
 def test_no_limit_event_into_a_hearing_ear(caplog):
-    """答えのあとの書き留めでは耳はもう聞いているので、`limit_reached` を送らない（移りの無い事象は、列に待つほかの
+    """電子音を鳴らせず耳がもう聞いていれば、`limit_reached` を送らない（移りの無い事象は、列に待つほかの
     事象もライブラリに退けさせる）。届いたことは 1 行残す。"""
-    _play(caplog, 0.1, ["request_opened", "speech_began", "speech_ended", 0.3])
+    _play(caplog, 0.1, ["request_opened", "limit_reached", 0.3])
     assert _limit_events(caplog) == 1
-    assert _sent(caplog) == 0
+    assert _sent(caplog) == 1  # 電子音の失敗の代わりに送った 1 回だけ
+
+
+def _told(limit, steps):
+    """`on_limit` が呼ばれた回数。"""
+    calls: list = []
+
+    async def go():
+        sm = PajuState(thinking_limit_sec=limit, on_limit=lambda: calls.append(1))
+        await sm.start()
+        for s in steps:
+            if isinstance(s, str):
+                await sm.fire(s)
+            else:
+                await asyncio.sleep(s)
+
+    asyncio.run(go())
+    return len(calls)
+
+
+def test_reaching_the_limit_tells_the_loop():
+    assert _told(0.1, ["request_opened", 0.3]) == 1
+
+
+def test_the_loop_is_told_even_when_the_ear_already_hears():
+    """耳が聞いているかは、事象を送るかだけを決める。考えすぎたことは知らせる。"""
+    assert _told(0.1, ["request_opened", "limit_reached", 0.3]) == 1
+
+
+def test_the_loop_is_not_told_without_reaching_the_limit():
+    """**反証の側**：電子音の失敗で送る `limit_reached`・上限より前・答えたあとは、知らせない。"""
+    assert _told(10.0, ["request_opened", "limit_reached", 0.1]) == 0
+    assert _told(0.5, ["request_opened", 0.1]) == 0
+    assert _told(0.2, ["request_opened", "speech_began", "speech_ended", 0.4]) == 0
 
 
 def test_the_count_runs_outside_the_charts_processing():

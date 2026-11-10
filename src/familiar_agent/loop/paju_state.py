@@ -11,9 +11,10 @@
 状態を変えるのは事象だけで、送る口は `fire` の 1 つにする。移りの無い事象は捨て、事象の名前と各領域の状態を
 1 行残す（決定ユ）。言葉の中身は書かない。
 
-考えているの合計には上限がある（決定ミ）。考えているに入ると数え始め、答えを言っているに移ると止めて使った時間を
-残りから引き、話し終えて戻ると残りから続ける。何もしていないに入るとやめ、次の求めは初めから数える。残りが 0 に
-なったら `limit_reached` を送る。残り時間はこの図の中だけで持つ。
+考えているの合計には上限がある（決定ミ）。考えているに入ると数え始め、答えを言い始めたら、その求めではもう数えない
+（環-aw 第 1 段 項目 8・2026-11-10 本人の決定：答えたあとの書き留めは 3 分を過ぎてもよい）。何もしていないに入ると
+やめ、次の求めは初めから数える。上限に届いたら `limit_reached` を送り、ループへ知らせる（`on_limit`）。残り時間は
+この図の中だけで持つ。
 """
 
 from __future__ import annotations
@@ -58,6 +59,7 @@ class PajuState(StateChart):
         on_child: "Callable[[str], None] | None" = None,
         on_idle: "Callable[[], None] | None" = None,
         thinking_limit_sec: "float | None" = None,
+        on_limit: "Callable[[], None] | None" = None,
     ) -> None:
         #: 考えているの子に入ったときに呼ぶ口（子の名前を渡す）。ループが電子音を鳴らす（決定テ）。
         self._on_child = on_child
@@ -65,7 +67,10 @@ class PajuState(StateChart):
         self._on_idle = on_idle
         #: 考えているの合計の上限（秒・決定ミ）。無ければ数えない。
         self._limit_sec = thinking_limit_sec
-        #: この求めで考えているに使える残り（秒）。この求めでもう `limit_reached` を送ったら None。
+        #: 上限に届いたときに呼ぶ口。ループが時間切れの答えを始める（項目 8）。数える仕事からだけ呼ぶ——電子音を
+        #: 鳴らせないときに送る `limit_reached` では呼ばない（そのときは求めを閉じず、耳を戻すだけ・本人の決定）。
+        self._on_limit = on_limit
+        #: この求めで考えているに使える残り（秒）。この求めでもう届いた、または答え始めたら None。
         self._limit_left: "float | None" = thinking_limit_sec
         #: 数えている仕事と、数え始めた時刻（`time.monotonic`）。
         self._limit_task: "asyncio.Task[None] | None" = None
@@ -130,7 +135,8 @@ class PajuState(StateChart):
             logger.warning("状態図 %s に入るときの動作が失敗した", state.id, exc_info=True)
 
     def _count_limit(self, state_id: str) -> None:
-        """考えているの合計を数える（決定ミ）。考えているに入ると数え、答えを言っているで止め、何もしていないでやめる。"""
+        """考えているの合計を数える（決定ミ）。考えているに入ると数え、答えを言い始めたらその求めでは終え、何もしていないで
+        初めに戻す。"""
         if self._limit_sec is None:
             return
         if state_id == "thinking":
@@ -146,6 +152,7 @@ class PajuState(StateChart):
                     self._limit_since = time.monotonic()
         elif state_id == "answering":
             self.stop_counting()
+            self._limit_left = None  # 答えたあとは、その求めでもう数えない（項目 8）
         elif state_id == "idle":
             self.stop_counting()
             self._limit_left = self._limit_sec
@@ -170,12 +177,14 @@ class PajuState(StateChart):
             await asyncio.sleep(seconds)
             self._limit_left = None  # この求めでは、もう送らない（何もしていないに入ると戻す）
             if not self.is_deaf():
-                # 答えたあとの書き留めでは、耳はもう聞いている。移りの無い事象を送ると、ライブラリはそのとき列に
-                # 待っていたほかの事象も退けて列を空にするので、送らない。
+                # 電子音を鳴らせず、耳はもう聞いている。移りの無い事象を送ると、ライブラリはそのとき列に待っていた
+                # ほかの事象も退けて列を空にするので、送らない。
                 logger.info("状態図 考えているが上限 %.1f 秒に届いたが、耳は聞いている", limit)
-                return
-            logger.info("状態図 考えているが上限 %.1f 秒に届いた", limit)
-            await self.fire("limit_reached")
+            else:
+                logger.info("状態図 考えているが上限 %.1f 秒に届いた", limit)
+                await self.fire("limit_reached")
+            if self._on_limit is not None:
+                self._on_limit()  # 考えすぎたことは、耳によらず知らせる
         except Exception:  # noqa: BLE001
             logger.warning("状態図 考えているの上限を送れなかった", exc_info=True)
         finally:

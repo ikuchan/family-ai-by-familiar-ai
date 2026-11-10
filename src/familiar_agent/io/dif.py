@@ -110,10 +110,7 @@ class DIF:
         """
         if self._tts is None:
             return
-        if self._cue_task is not None and not self._cue_task.done():
-            # 合図（作り置きの声・効果音）が終わってから返事を流す（出-bg・重ねない）。
-            with contextlib.suppress(Exception):
-                await self._cue_task
+        await self._after_cue()
         logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
         if gain != 1.0:
             logger.debug("DIF 声の倍率 %.2f（タイマーの知らせ・この 1 回だけ）", gain)
@@ -133,11 +130,7 @@ class DIF:
                 logger.warning("DIF 声が出なかった：%s", str(result)[:160])
 
         with contextlib.suppress(Exception):
-            # 音楽が鳴っていれば、声のあいだだけ絞る（知-aa・機械の反射）。
-            if self._music_ducker is not None:
-                await self._music_ducker(_say)
-            else:
-                await _say()
+            await self._ducked(_say)
         # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
         logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
 
@@ -213,23 +206,51 @@ class DIF:
     def ringing(self) -> bool:
         return self._ring_task is not None and not self._ring_task.done()
 
+    async def _after_cue(self) -> None:
+        """合図（作り置きの声・効果音）が鳴っていれば、終わるのを待つ（出-bg・声を重ねない）。声と録音が使う。"""
+        if self._cue_task is not None and not self._cue_task.done():
+            with contextlib.suppress(Exception):
+                await self._cue_task
+
+    async def _ducked(self, play: "Callable[[], Awaitable[Any]]") -> Any:
+        """音楽が鳴っていれば、`play` のあいだだけ絞る（知-aa・機械の反射）。声と録音が使う。"""
+        if self._music_ducker is not None:
+            return await self._music_ducker(play)
+        return await play()
+
     async def say_credit(self, name: str, *, gain: float) -> bool:
         """残高切れを録音済みの声で知らせる（環-z・`sounds/credit_<担い手>.wav`）。LLM も TTS も通さない。
 
         録音が無ければ鳴らさず偽を返す（落とさない）。録音は `scripts/gen_credit_voices.py` が作る。
         """
+        logger.info("DIF クレジット切れを知らせる：%s", name)
+        # クレジット切れの知らせは、いままでどおり合図を待たず、音楽も絞らない。
+        return await self.say_recorded(f"credit_{name}", gain=gain, like_speech=False)
+
+    async def say_recorded(self, name: str, *, gain: float, like_speech: bool = True) -> bool:
+        """録音済みの声 `sounds/<name>.wav` を鳴らす。LLM も TTS も通さない（クレジット切れ・環-z、時間切れの一言・環-aw
+        第 1 段 項目 8）。いまの声の録音があればそれを使う（出-bv）。
+
+        `like_speech`＝声（`speak`）と同じく、合図が終わるのを待ち、音楽を絞って鳴らす。
+        録音が無い・鳴らせなければ偽を返す（落とさない）。
+        """
         from ..core.reaction_cue import voiced
 
-        path = voiced(_SOUNDS / f"credit_{name}.wav")  # いまの声の録音（出-bv）。無ければ SBV2 版
+        path = voiced(_SOUNDS / f"{name}.wav")  # いまの声の録音（出-bv）。無ければ SBV2 版
         if not path.exists():
-            logger.warning("DIF クレジット切れの録音が無い：%s", path.name)
+            logger.warning("DIF 録音が無い：%s", path.name)
             return False
-        logger.info("DIF クレジット切れを知らせる：%s", name)
+        if like_speech:
+            await self._after_cue()
         try:
-            return await _play_wav(path, gain)
+            if like_speech:
+                played = await self._ducked(lambda: _play_wav(path, gain))
+            else:
+                played = await _play_wav(path, gain)
         except Exception:  # noqa: BLE001
-            logger.warning("DIF クレジット切れの録音を鳴らせなかった：%s", name, exc_info=True)
+            logger.warning("DIF 録音を鳴らせなかった：%s", path.name, exc_info=True)
             return False
+        return played
 
     def configure_ring(self, *, soft_after: float, soft_until: float, soft_gain: float) -> None:
         """山谷の形を Config から入れる（`RING_SOFT_AFTER_SEC`・`RING_SOFT_UNTIL_SEC`・`RING_SOFT_GAIN`）。"""

@@ -31,9 +31,9 @@ def test_without_only_every_word_is_made():
     """**反証の側**：指定が無ければ、今までどおり全部。"""
     gen = _script()
     got = [text for text, _ in gen._pairs(None)]
-    assert got == ["はいっ", "えっと"] and len(got) == len(gen.rc.TOOL_WORDS) + len(
-        gen.rc.THINK_WORDS
-    )
+    # 時間切れの一言も作り置きの声として作る（環-aw 第 1 段 項目 8）。
+    assert got == ["はいっ", "えっと", gen.rc.TIMEOUT_WORDS]
+    assert len(got) == len(gen.rc.TOOL_WORDS) + len(gen.rc.THINK_WORDS) + 1
 
 
 # ── 声の大きさを揃える（出-df・2026-11-01。環-aw 第 1 段 項目 6 で決まった大きさに合わせる形にした） ─────────────
