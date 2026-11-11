@@ -75,32 +75,6 @@ def _head_at(text: str) -> int:
     return i
 
 
-def after_name(text: str, names: "list[str]") -> str:
-    """文頭の名前と、その後ろの長音、読点、空白を外した残り（環-aw・2026-11-11）。名前が無ければそのまま。
-
-    名前は呼び方の違い（ひらがな、長音）を均して当て、1 字違いは `fix_name` で直した形で当てる。
-    """
-    fixed, _shown = fix_name(text, names)
-    i = _head_at(fixed)
-    for n in sorted((n for n in names if n), key=len, reverse=True):
-        want = _plain(n)
-        for k in range(1, len(fixed) - i + 1):
-            got = _plain(fixed[i : i + k])
-            if got == want:
-                return fixed[i + k + _head_at_or_long(fixed[i + k :]) :]
-            if len(got) > len(want):
-                break
-    return text
-
-
-def _head_at_or_long(text: str) -> int:
-    """文頭の長音、空白、記号を飛ばした位置（名前の後ろの「ー」「、」を外す）。"""
-    i = 0
-    while i < len(text) and (text[i] in ("ー", "〜", "～") or _head_at(text[i]) == 1):
-        i += 1
-    return i
-
-
 def fix_name(text: str, names: "list[str]") -> "tuple[str, str]":
     """文頭の聞き違いの名前を、当たった名前に直す（知-ap・2026-10-10・本人の決定）。返りは（先へ渡す文, 画面の文）。
 
