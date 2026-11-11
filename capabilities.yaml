@@ -180,7 +180,8 @@ capabilities:
       jvnv-M2-jp, no API key and no network needed) and `elevenlabs` (external API).
       A second engine can be named in TTS_FALLBACK: when the main one cannot speak,
       the spare is tried once, so a network outage does not leave the agent silent.
-      The spare is warmed up at startup. Each engine is handed a different text:
+      The spare is warmed up at startup. By default no spare is set, so when the
+      network is down the agent cannot speak. Each engine is handed a different text:
       ElevenLabs cannot read kanji so the whole line is converted to hiragana,
       SBV2 reads kanji itself but needs a small table of corrections, and Gemini is
       given the line unchanged. Audio plays on the PC speaker and/or a camera

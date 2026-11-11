@@ -64,12 +64,20 @@ docs の md だけを変えたときは、本体を止めず、全体テスト�
    `XDG_RUNTIME_DIR`・`XDG_SESSION_TYPE`）を、デスクトップの側から受け取ってから起動する。
    - 受け取り先は Cinnamon（`pgrep -u "$USER" -x cinnamon` の pid の `/proc/<pid>/environ`）。gnome-shell は居ない
      （2026-11-02 に空の `DISPLAY` で起動し、終了コード 134 で落ち続けた）。
-   - あわせて、リモートデスクトップの音の設定（`PIPEWIRE_REMOTE`・`PULSE_RUNTIME_PATH`・`PULSE_SINK`）を `unset` する。
+   - あわせて、リモートデスクトップの音の設定（`PIPEWIRE_REMOTE`・`PULSE_RUNTIME_PATH`・`PULSE_SINK`・`PULSE_SERVER`）を `unset` する。
      残すと声が YAMAHA に出ない。
-2. リポジトリの直下で起動する：`setsid nohup ./run-gui.sh </dev/null >/dev/null 2>&1 &`
+2. リポジトリの直下で、**このセッションとは別の枠（systemd の scope）で**起動する：
+   `setsid nohup systemd-run --user --scope --collect --unit="paju-$(date +%Y%m%d-%H%M%S)" ./run-gui.sh </dev/null >/dev/null 2>&1 &`
+   - `setsid` だけでは、本体は Claude Code の tmux の枠（cgroup）に入ったままになる。メモリの圧が 20 秒続けて
+     50% を超えると、systemd-oomd がその枠を丸ごと止め、本体とこのセッションが一緒に消える（2026-11-10 22:19。
+     止まったことに、本人に聞かれるまで気づかなかった）。別の枠にすれば、本体がいちばん重いので、たいていは本体の枠だけが
+     止まり、このセッションは残る（どの枠を止めるかは oomd が決めるので、必ずではない）。止まると `run-gui.sh` も同じ枠で
+     消えるので、起こし直しは起きない。
    - `--debug` は付けない（ログが 1 日 1 GB になる）。
 3. 確かめる：
-   - 2 の `ps` の結果が 1 件であること。
+   - 「2. 本体を止める」の 2 の `ps` の結果が 1 件であること。
+   - 本体の枠が `paju-…scope` であること（その `ps` で出た pid で `cat /proc/<pid>/cgroup`）。`tmux-spawn-…scope` なら、このセッションと同じ枠に入っている。
+   - `journalctl --user --since -5min | grep -c oomd` が 0 であること。
    - `run-gui.sh` も 1 つだけであること（古いスクリプトが起こし直しの待ちに入っていたら止める）。本体を探すのは上の `ps` の形で、`pgrep -f "familiar --gui"` は自分のシェルに当たる。
    - `grep -c "\[ERROR\]" ~/.cache/familiar-ai/app.log` が 0 であること。
    - 起動した版が、コミットした版と同じであること。

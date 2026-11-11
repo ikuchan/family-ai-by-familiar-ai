@@ -233,7 +233,8 @@ def ensure_sbv2_server(cfg, *, engine: str, output: str) -> None:
     発話までに間に合わなければ、その1回だけ話せない（degrade して次から鳴る）。
 
     **控えに回っているときも起こす**（環-v）。主（Gemini）が話せなくなるのはネットが切れた
-    ときで、そこからモデルを読むと 26.3 秒黙る。それでは控えの役を果たさない。
+    ときで、そこからモデルを読むと 26.3 秒黙る。それでは控えの役を果たさない。既定では控えを
+    置かないので起こさない（2026-11-10 本人の決定ア）。
 
     使わない構成（別のエンジン・音を出さない）では起こさない。GPU と十数秒を無駄にしない。
     """
@@ -394,7 +395,7 @@ class TTSTool:
         if len(parts) > 1:
             return await self._say_parts(parts, output, careful=careful)
         result = await self._say_with(self.engine, text, output, careful=careful)
-        # 控えへ落ちる（環-v）。ネットが切れても話せるように、ローカルの SBV2 を残してある。
+        # 控えへ落ちる（環-v）。控え（`TTS_FALLBACK`、既定は無し）にローカルの SBV2 を置けば、ネットが切れても話せる。
         # **1 回だけ**。控えでも駄目なら、主の言い分をそのまま返す（何が起きたかが残る）。
         # 控えは既存のテストが `__new__` で組む道具にも無い。他の後付けの属性（`speed`・
         # `careful_model`）と同じく `getattr` で受ける。

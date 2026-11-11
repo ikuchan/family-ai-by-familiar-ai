@@ -41,13 +41,14 @@ def test_sbv2_is_now_the_spare_not_the_main_one():
 
     実機で詰まった 5 文を漢字のまま 12 とおりに読ませたところ、SBV2 は読み 9/10（促音が
     惜しい）で感情が △△△ だった。Gemini の `flash-lite × Charon` は読み 10/10・感情 ○○○。
-    **SBV2 はネットが切れたときの控えに回す**——ローカルで動き、費用が 0 で、そこだけは
-    どの担い手にも代えられない。
+    SBV2 はネットが切れたときの控えに回していたが、**既定では控えを置かない**（2026-11-10 本人の決定ア）。
+    10/31 から 10 日のログで控えに落ちたことは 0 回で、起動から RAM 2.2 GB と GPU 1.4 GB を使い、起動中の
+    メモリの圧で systemd-oomd に本体ごと止められた（11/10 22:19）。置くなら `TTS_FALLBACK=sbv2`。
     """
     with patch.dict(os.environ, {}, clear=True):
         cfg = TTSConfig()
         assert cfg.engine == "gemini"
-        assert cfg.fallback_engine == "sbv2"
+        assert cfg.fallback_engine == ""
 
 
 def test_the_engine_can_be_switched_back():
@@ -134,11 +135,22 @@ def test_the_server_is_started_at_boot_only_when_it_will_be_used():
         assert spawn.called
         spawn.reset_mock()
 
-        # 控えも SBV2 でない構成（環-v の後は、控えに回っていても起こすので明示して外す）。
+        # 控えも SBV2 でない構成（控えに回っていても起こすので、`.env` の値に左右されないよう明示して外す）。
         with patch.dict(os.environ, {"TTS_FALLBACK": ""}, clear=True):
             no_spare = TTSConfig()
         ensure_sbv2_server(no_spare, engine="elevenlabs", output="local")
         assert not spawn.called  # 別のエンジンを使う構成
+        # 既定（主 Gemini・控え無し）では起こさない（2026-11-10 本人の決定ア）。
+        with patch.dict(os.environ, {}, clear=True):
+            by_default = TTSConfig()
+        ensure_sbv2_server(by_default, engine=by_default.engine, output="local")
+        assert not spawn.called
+        # **反証の側**：控えに SBV2 を置けば、主が Gemini でも起こす。
+        with patch.dict(os.environ, {"TTS_FALLBACK": "sbv2"}, clear=True):
+            with_spare = TTSConfig()
+        ensure_sbv2_server(with_spare, engine="gemini", output="local")
+        assert spawn.called
+        spawn.reset_mock()
         ensure_sbv2_server(TTSConfig(), engine="sbv2", output="silent")
         assert not spawn.called  # 音を出さない構成
 

@@ -244,10 +244,11 @@ class TTSConfig:
     # （ローカル）／`elevenlabs`＝外部 API。実機で詰まった 5 文を 12 とおりに読ませて選んだ
     # （環-v・`根拠台帳` §45）。**戻せるようにしてある**（`.env` の `TTS_ENGINE`）。
     engine: str = field(default_factory=lambda: os.environ.get("TTS_ENGINE", "gemini"))
-    # 主が話せなかったときの控え（環-v）。ネットが切れても話せるように、ローカルの SBV2 へ
-    # 落ちる。**空にすれば落ちない。** 控えは起動時から温めておく（切れてから読み込むと
-    # 26.3 秒黙るので、控えの役を果たさない・本人の決定 2026-09-24）。
-    fallback_engine: str = field(default_factory=lambda: os.environ.get("TTS_FALLBACK", "sbv2"))
+    # 主が話せなかったときの控え（環-v）。`sbv2` を置けば、ネットが切れてもローカルの SBV2 へ落ちる。
+    # 控えは起動時から温めておく（切れてから読み込むと 26.3 秒黙るので、控えの役を果たさない・本人の決定
+    # 2026-09-24）。**既定では置かない**（2026-11-10 本人の決定ア）：10 日のログで控えに落ちたのは 0 回で、
+    # 温めておくと RAM 2.2 GB と GPU 1.4 GB を使い、起動中のメモリの圧で本体ごと止められた（11/10 22:19）。
+    fallback_engine: str = field(default_factory=lambda: os.environ.get("TTS_FALLBACK", ""))
     # Gemini TTS（環-v・2026-09-24）。`gemini-3.8-flash-lite-tts` × `Charon` は、実機で
     # 詰まった 5 文を漢字のまま 5/5 で読み、感情も 3 つとも聞き分けられた。同じモデルでも
     # 声で変わる（`Puck` は感情が △△△ だった）ので、声もここで持つ。
