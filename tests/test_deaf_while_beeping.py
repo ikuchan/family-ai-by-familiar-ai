@@ -1,8 +1,9 @@
-"""考えているあいだは声を聞かない（環-aw 第 1 段・`設計方針_パジュの状態` v0.4 決定ト、モ）。
+"""考えているあいだは声を聞かない（環-aw 第 1 段・`設計方針_パジュの状態` v0.5 決定ト、モ）。
 
 始まりは出-dd（2026-10-31〜11-01）。10/31 21:51 に、待ちの電子音が 16 回鳴るあいだに、パジュ宛てでないとみられる言葉を
 2 つ拾い、調べものの求めに添え、答えの後で新しい求めにした。いまは電子音の仕事ではなく、状態図の耳で決める：耳が
-「考えているあいだ聞かない」にいるあいだは、声を名前があっても・音楽の言葉でも捨てる。
+「考えているあいだ聞かない」にいるあいだは、声を名前があっても・音楽の言葉でも捨てる。ただし答えより前の考えているあいだに、
+パジュがかけた音楽が鳴っているときの名前つきの音楽の言葉は捨てない（2026-11-11 本人の決定ア）。
 
 - 答えより前の考えているあいだも、確認の問いへの答え、鳴っている最中の名前つきの言葉、キーボードは捨てない（決定ト）。
 - 答えを言っているあいだも耳は聞かない（決定モ）。言い終えて書き留めているあいだは聞く。
@@ -132,6 +133,107 @@ def test_a_music_word_while_thinking_is_dropped(caplog):
     ip._agent._music_state.playing = True
     with caplog.at_level(logging.INFO, logger=LOG):
         assert _gate(ip, query="ストップ") is True
+    assert _dropped(caplog)
+
+
+def test_a_named_music_word_while_thinking_is_taken(caplog):
+    """パジュがかけた音楽が鳴っているあいだの、名前つきの音楽の言葉は捨てない（決定ト・2026-11-11 本人の決定ア）。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    with caplog.at_level(logging.INFO, logger=LOG):
+        _gate(ip, query="パジュ、ストップ")
+    assert not _dropped(caplog)
+
+
+def test_a_longer_named_music_word_while_thinking_is_taken(caplog):
+    """名前を外した残りで 14 字を数える（名前のぶん短くならない）。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    with caplog.at_level(logging.INFO, logger=LOG):
+        _gate(ip, query="パジュ、ちょっと音楽止めてくれる？")
+    assert not _dropped(caplog)
+
+
+def test_an_unnamed_music_word_is_not_taken_while_thinking():
+    """1 字違いの名前で耳を通ったあと宛先で名前が外れた言葉は、名前の無い音楽の言葉として受けない。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    trig = Trigger(kind="会話入力", query="パジャ、止めて", source="voice", named=False)
+
+    async def go():
+        await ip._to_state("request_opened")
+        return ip._music_word_while_playing(trig)
+
+    assert asyncio.run(go()) is False
+
+
+def test_a_hiragana_named_music_word_while_thinking_is_taken(caplog):
+    """書き起こしが名前をひらがなで書いても、名前を外して数える。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    with caplog.at_level(logging.INFO, logger=LOG):
+        _gate(ip, query="ぱじゅ、ちょっと音楽止めてくれる？")
+    assert not _dropped(caplog)
+
+
+def test_an_unnamed_music_word_is_taken_while_confirming():
+    """確認待ちのあいだは、耳が聞かなくても、名前の無い音楽の言葉を受ける（耳は確認待ちの声を通す）。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    ip._confirming = lambda: True  # type: ignore[method-assign]
+    trig = Trigger(kind="会話入力", query="止めて", source="voice", named=False)
+
+    async def go():
+        await ip._to_state("request_opened")
+        return ip._music_word_while_playing(trig)
+
+    assert asyncio.run(go()) is True
+
+
+def test_the_same_unnamed_music_word_is_taken_while_listening():
+    """反証の側：耳が聞いていれば、名前の無い音楽の言葉として受ける（出-cp）。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    trig = Trigger(kind="会話入力", query="止めて", source="voice", named=False)
+    assert ip._music_word_while_playing(trig) is True
+
+
+def test_a_named_other_word_while_music_plays_is_dropped(caplog):
+    """反証の側：音楽が鳴っていても、音楽の言葉でなければ名前つきでも捨てる。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    with caplog.at_level(logging.INFO, logger=LOG):
+        assert _gate(ip, query="パジュ、いま何時？") is True
+    assert _dropped(caplog)
+
+
+def test_a_named_music_word_while_answering_is_dropped(caplog):
+    """反証の側：答えを言っているあいだは、音楽が鳴っていても名前つきの「ストップ」を捨てる（決定モ）。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    with caplog.at_level(logging.INFO, logger=LOG):
+        assert (
+            _gate(ip, query="パジュ、ストップ", events=("request_opened", "speech_began")) is True
+        )
+    assert _dropped(caplog)
+
+
+def test_a_named_music_word_is_taken_when_the_table_cannot_be_read(caplog):
+    """プレイリストの表が読めなくても、操作の言葉なら捨てない。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = True
+    ip._agent._music_table = MagicMock(side_effect=OSError("読めない"))
+    with caplog.at_level(logging.INFO, logger=LOG):
+        _gate(ip, query="パジュ、ストップ")
+    assert not _dropped(caplog)
+
+
+def test_a_named_music_word_without_music_is_dropped(caplog):
+    """反証の側：音楽が鳴っていなければ、名前つきの「ストップ」も捨てる。"""
+    ip = _quiet_ip()
+    ip._agent._music_state.playing = False
+    with caplog.at_level(logging.INFO, logger=LOG):
+        assert _gate(ip, query="パジュ、ストップ") is True
     assert _dropped(caplog)
 
 

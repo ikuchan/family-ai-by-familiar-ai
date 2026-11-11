@@ -701,6 +701,8 @@ _TRIGGER_PRIORITY = {"会話入力": 3, "機器": 2, "情動": 1}
 #: **調査中でも待たせないきっかけ。** 人が言い直したら前の調査は打ち切る側なので、
 #: 保留箱へは入れない（`push_utterance` が積む前に打ち切っている）。
 _NEVER_HELD_KINDS = ("会話入力",)
+
+
 #: 目と首。`look` は首を向けたあとその場で 1 枚撮るので、帰りは `see` と同じ扱い
 #: （誰が出したかを控え、出した側が判断し、写真と見た印を残す・2026-09-16）。
 _CAMERA_ACTIONS = ("see", "look")
@@ -1888,23 +1890,45 @@ class InformationProcessing:
             await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
 
     def _deaf_to(self, trigger: "Trigger") -> bool:
-        """この声を、考えているあいだの声として捨てるか（環-aw・`設計方針_パジュの状態` v0.4 決定ト、モ）。
+        """この声を、考えているあいだの声として捨てるか（環-aw・`設計方針_パジュの状態` v0.5 決定ト、モ）。
 
-        耳が「考えているあいだ聞かない」にいれば捨てる。答えを言っているあいだもそこにいる。次の 2 つは捨てない
+        耳が「考えているあいだ聞かない」にいれば捨てる。答えを言っているあいだもそこにいる。次の 3 つは捨てない
         （キーボードはこの判定に来ない）。
 
         - 確認の問いへの答え。問いを言っているあいだに届いた答えも、列に積んで受ける。
         - 鳴っている最中（`DIF.ringing`）の、名前つきの言葉（新しい動き）。
+        - 答えより前の考えているあいだに、パジュがかけた音楽が鳴っているときの、名前つきの音楽の言葉（操作の言葉か
+          プレイリストの名前・2026-11-11 本人の決定ア）。見回りのような声を出さない情動の求めのあいだに、「パジュ、ストップ」が
+          知らせなしに消えていた。通したあとはほかの言葉と同じく、情動と機器の求めのあいだは閉じるまで待たせる
+          （`_take_trigger`）。答えを言っているあいだは通さない（決定モ。声に向けた「ストップ」でありうる）。
 
         判定が例外を出したら聞くほうへ倒す。
         """
-        from ..core.wake_window import heard_name
+        from ..core.music_rules import passes_unnamed
+        from ..core.wake_window import after_name, heard_name
 
         try:
             if not self._paju().is_deaf() or self._confirming():
                 return False
             names = list(getattr(self._agent.config, "agent_names", None) or [])
-            return not (self._ringing() and heard_name(trigger.query, names))
+            query = trigger.query or ""
+            if not heard_name(query, names):
+                return True
+            if self._ringing():
+                return False
+            if self._paju().head_state() != "thinking":
+                return True  # 答えを言っているあいだ（決定モ）
+            if not self._music_playing():
+                return True
+            # 名前を外した残りを、名前の無い音楽の言葉と同じ決まり（14 字まで）で見る。名前は上で見た。
+            if not passes_unnamed(after_name(query, names), self._music_table_or_empty()):
+                return True
+            logger.info(
+                "event-loop 考えているあいだの名前つきの音楽の言葉なので通した（%d 字、%s）",
+                len(query),
+                self._paju().describe(),
+            )
+            return False
         except Exception:  # noqa: BLE001
             logger.warning(
                 "event-loop 考えているあいだかを決められず、聞くほうへ倒す", exc_info=True
@@ -4403,10 +4427,7 @@ class InformationProcessing:
             talking=self._talking(),
             suggestion_ctx=self._suggestion_frame() if self._talking() else "",  # 知-aq
             music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
-            music_playing=getattr(  # 鳴っているあいだは曲名の無い play_music を使わない（知-bq）
-                getattr(agent, "_music_state", None), "playing", False
-            )
-            is True,
+            music_playing=self._music_playing(),  # 鳴っているあいだは曲名の無い play_music を使わない（知-bq）
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,
             window_ctx=window_ctx,
@@ -5078,7 +5099,8 @@ class InformationProcessing:
                 await self._nudge_by_voice(trigger, stranger=True)
                 return self._swallowed(trigger)
             if self._deaf_to(trigger):
-                # 考えているあいだの声は、名前があっても捨てる（環-aw 決定ト、モ）。打ち切りより前なので、調べかけも止めない。
+                # 考えているあいだの声は、名前があっても捨てる（環-aw 決定ト、モ。鳴っている最中と、音楽が鳴っているあいだの
+                # 名前つきの言葉は除く・`_deaf_to`）。打ち切りより前なので、調べかけも止めない。
                 # 知らない声の気配（SAFETY）は残すので、その後に置く。
                 logger.info(
                     "event-loop 考えているあいだの声なので捨てた（%d 字、%s）",
@@ -5510,16 +5532,26 @@ class InformationProcessing:
             return False
         if self._wake_window().is_open(self._arrival(trigger)):
             return False
-        state = getattr(self._agent, "_music_state", None)
-        if getattr(state, "playing", False) is not True:
+        if not self._music_playing():
+            return False
+        if self._paju().is_deaf() and not self._confirming():
+            # 考えているあいだは、名前の無い音楽の言葉を受けない（決定ト）。1 字違いの名前で耳を通ったあと、宛先で
+            # 名前が外れた言葉もここで止める。
             return False
         from ..core.music_rules import passes_unnamed
 
-        table: tuple = ()
+        return passes_unnamed(trigger.query or "", self._music_table_or_empty())
+
+    def _music_playing(self) -> bool:
+        """パジュがかけた音楽が、いま鳴っているか（`_music_state.playing`）。"""
+        return getattr(getattr(self._agent, "_music_state", None), "playing", False) is True
+
+    def _music_table_or_empty(self) -> tuple:
+        """`MUSIC.md` のプレイリストの表。読めなければ空（操作の言葉だけで決める）。"""
         with contextlib.suppress(Exception):
             got = self._agent._music_table()
-            table = got if isinstance(got, tuple) else ()
-        return passes_unnamed(trigger.query or "", table)
+            return got if isinstance(got, tuple) else ()
+        return ()
 
     def _wake_window_admits(self, trigger: "Trigger") -> bool:
         """会話入力を窓で受けるか（出-as 段 3・出-au 段 1-2・`設計方針_判定の段` §2.1）。受けたら窓を開ける／延ばす。
