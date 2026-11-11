@@ -1888,7 +1888,7 @@ class InformationProcessing:
             await asyncio.sleep(max(0.0, interval - (loop.time() - started)))
 
     def _deaf_to(self, trigger: "Trigger") -> bool:
-        """この声を、考えているあいだの声として捨てるか（環-aw・`設計方針_パジュの状態` v0.3 決定ト、モ）。
+        """この声を、考えているあいだの声として捨てるか（環-aw・`設計方針_パジュの状態` v0.4 決定ト、モ）。
 
         耳が「考えているあいだ聞かない」にいれば捨てる。答えを言っているあいだもそこにいる。次の 2 つは捨てない
         （キーボードはこの判定に来ない）。
