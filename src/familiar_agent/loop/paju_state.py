@@ -1,9 +1,15 @@
-"""パジュの状態図（環-aw 第 1 段・`設計方針_パジュの状態` v0.4）。いまは頭と耳の 2 つの領域だけを持つ。
+"""パジュの状態図（環-aw 第 1 段・第 2 段・`設計方針_パジュの状態` v0.4）。頭、耳、口の 3 つの領域を持つ。
 
 - 頭：何もしていない（`idle`）、考えている（`thinking`）、答えを言っている（`answering`）。考えているは子を 5 つ持つ
   （思い出している `recalling`、決めている `deciding`、返りを待っている `awaiting`、確かめている `checking`、
   書き留めている `noting`・決定チ）。答えを言っているは考えているの兄弟（決定ツ）。
-- 耳：聞いている（`hearing`）、考えているあいだ聞かない（`deaf`）。
+- 耳：並行の 2 つの領域を持つ。考えているあいだ（`listening`）は、聞いている（`hearing`）、考えているあいだ聞かない
+  （`deaf`）。窓（`window`）は、閉じている（`shut`）、開いている（`open`）、仮の呼びかけ（`tentative`）（第 2 段）。
+- 口：いまは黙るか（`hush`）の 1 つの領域だけを持つ。話してよい（`may_speak`）、黙っている（`silent`）（第 2 段。
+  黙っているあいだも耳は聞いていて、答えを声にしないだけなので、口に置く）。
+
+同じ状態へ戻る移りは、外へ出て入り直す形（`x.to.itself()`）にする。`internal=True` の形では、並行の領域の中で
+ほかの領域の状態が二重になった（python-statemachine 3.2.2）。
 
 **耳は事象で動かす。頭に入るときの動作には付けない。** 答えのあと、頭は書き留めのために考えているへ戻るが、
 そのとき耳は聞いたままにする（決定モ）。考えているに入るときの動作で耳を閉じると、ここでまた聞かなくなる。
@@ -46,6 +52,11 @@ _NAMES = {
     "answering": "答えを言っている",
     "hearing": "聞いている",
     "deaf": "聞かない",
+    "shut": "閉じている",
+    "open": "開いている",
+    "tentative": "仮の呼びかけ",
+    "may_speak": "話してよい",
+    "silent": "黙っている",
 }
 
 
@@ -101,16 +112,38 @@ class PajuState(StateChart):
             speech_ended = answering.to(thinking.noting)
             request_closed = thinking.to(idle) | answering.to(idle)
 
-        class ear(State.Compound):
-            hearing = State(initial=True)
-            deaf = State()
+        class ear(State.Parallel):
+            class listening(State.Compound):
+                hearing = State(initial=True)
+                deaf = State()
 
-            request_opened = hearing.to(deaf)
-            # 言っているあいだは、いつも聞かない（決定モ）。途中の確認の問いのあとで聞いていても、次の答えでまた閉じる。
-            speech_began = hearing.to(deaf)
-            speech_ended = deaf.to(hearing)
-            request_closed = deaf.to(hearing)
-            limit_reached = deaf.to(hearing)
+                request_opened = hearing.to(deaf)
+                # 言っているあいだは、いつも聞かない（決定モ）。途中の確認の問いのあとで聞いていても、次の答えでまた閉じる。
+                speech_began = hearing.to(deaf)
+                speech_ended = deaf.to(hearing)
+                request_closed = deaf.to(hearing)
+                limit_reached = deaf.to(hearing)
+
+            class window(State.Compound):
+                shut = State(initial=True)
+                open = State()
+                tentative = State()
+
+                # 同じ状態へ戻る移りは、外へ出て入り直す形にする。`internal=True` の形では、並行の領域の中でほかの
+                # 領域の状態が二重になった（python-statemachine 3.2.2）。
+                window_opened = shut.to(open) | tentative.to(open) | open.to.itself()
+                window_lapsed = open.to(shut)
+                tentative_called = shut.to(tentative) | tentative.to.itself()
+                tentative_lapsed = tentative.to(shut)
+                tentative_dropped = tentative.to(shut)
+
+        class mouth(State.Parallel):
+            class hush(State.Compound):
+                may_speak = State(initial=True)
+                silent = State()
+
+                silence_began = may_speak.to(silent) | silent.to.itself()
+                silence_ended = silent.to(may_speak)
 
     async def after_transition(self, event: str) -> None:
         # 非同期の動作を 1 つ持つことで、ライブラリが非同期の担い手を選ぶ（無いと同期で動き、`start` を待てない）。
@@ -238,4 +271,9 @@ class PajuState(StateChart):
         else:
             head_text = _NAMES.get(head, "")
         ear = next((n for n in ("hearing", "deaf") if n in ids), "")
-        return f"頭={head_text} 耳={_NAMES.get(ear, '')}"
+        window = next((n for n in ("shut", "open", "tentative") if n in ids), "")
+        mouth = next((n for n in ("may_speak", "silent") if n in ids), "")
+        return (
+            f"頭={head_text} 耳={_NAMES.get(ear, '')}/窓={_NAMES.get(window, '')}"
+            f" 口={_NAMES.get(mouth, '')}"
+        )

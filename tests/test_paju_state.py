@@ -108,7 +108,7 @@ def test_an_event_without_a_transition_is_logged_and_changes_nothing(caplog):
     assert {"idle", "hearing"} <= _ids(sm)
     lines = [r.getMessage() for r in caplog.records if "捨てた" in r.getMessage()]
     assert lines == [
-        "状態図 speech_ended を受ける移りが無いので捨てた（頭=何もしていない 耳=聞いている）"
+        "状態図 speech_ended を受ける移りが無いので捨てた（頭=何もしていない 耳=聞いている/窓=閉じている 口=話してよい）"
     ]
 
 
@@ -121,7 +121,7 @@ def test_an_event_with_a_transition_is_not_logged(caplog):
 
 def test_the_description_names_the_child():
     sm = _run("request_opened", "decide_began")
-    assert sm.describe() == "頭=考えている/決めている 耳=聞かない"
+    assert sm.describe() == "頭=考えている/決めている 耳=聞かない/窓=閉じている 口=話してよい"
 
 
 def test_speaking_again_after_hearing_stops_hearing():
@@ -181,3 +181,89 @@ def test_entering_idle_calls_the_idle_hook():
 
     asyncio.run(go())
     assert len(idles) == 2
+
+
+# ---- 環-aw 第 2 段 項目 1：耳の窓と、口の黙るか（形だけ） ----
+
+#: 1 つの領域の状態。どの領域も、同時に 1 つだけ取る。
+_REGIONS = {
+    "頭": {"idle", "thinking", "answering"},
+    "考えているあいだ": {"hearing", "deaf"},
+    "窓": {"shut", "open", "tentative"},
+    "黙るか": {"may_speak", "silent"},
+}
+
+
+def _one_each(sm: PajuState) -> None:
+    ids = _ids(sm)
+    for name, states in _REGIONS.items():
+        assert len(ids & states) == 1, (name, sorted(ids & states))
+
+
+def test_it_starts_with_the_window_shut_and_free_to_speak():
+    sm = _run()
+    assert {"idle", "hearing", "shut", "may_speak"} <= _ids(sm)
+    _one_each(sm)
+
+
+def test_opening_a_request_leaves_the_window_and_the_mouth_alone():
+    """耳の考えているあいだと窓は並行の領域。求めを開いても、窓は閉じたまま、口は話してよいのまま。"""
+    sm = _run("request_opened")
+    assert sm.is_deaf()
+    assert {"deaf", "shut", "may_speak"} <= _ids(sm)
+
+
+@pytest.mark.parametrize(
+    "events, state",
+    [
+        (("window_opened",), "open"),
+        (("window_opened", "window_lapsed"), "shut"),
+        (("tentative_called",), "tentative"),
+        (("tentative_called", "tentative_lapsed"), "shut"),
+        (("tentative_called", "tentative_dropped"), "shut"),
+        (("tentative_called", "window_opened"), "open"),
+        (("silence_began",), "silent"),
+        (("silence_began", "silence_ended"), "may_speak"),
+    ],
+)
+def test_each_new_event_moves_its_region(events, state):
+    sm = _run(*events)
+    assert state in _ids(sm)
+    _one_each(sm)
+
+
+def test_re_entering_a_state_keeps_one_state_per_region():
+    """**番人**：同じ状態へ戻る移りは、外へ出て入り直す形にする。`internal=True` の形では、並行の領域の中で
+    ほかの領域の状態が二重になった（python-statemachine 3.2.2、2026-11-12 に作業用の場所で確かめた）。"""
+    sm = _run(
+        "request_opened",
+        "window_opened",
+        "window_opened",
+        "silence_began",
+        "silence_began",
+        "window_lapsed",
+        "tentative_called",
+        "tentative_called",
+    )
+    _one_each(sm)
+    assert {"thinking", "deaf", "tentative", "silent"} <= _ids(sm)
+
+
+@pytest.mark.parametrize(
+    "event", ["window_lapsed", "tentative_lapsed", "tentative_dropped", "silence_ended"]
+)
+def test_a_new_event_without_a_transition_is_dropped_and_changes_nothing(event, caplog):
+    with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+        sm = _run("request_opened", event)
+    assert {"thinking", "deaf", "shut", "may_speak"} <= _ids(sm)
+    _one_each(sm)
+    assert [
+        r
+        for r in caplog.records
+        if f"状態図 {event} を受ける移りが無いので捨てた" in r.getMessage()
+    ]
+
+
+def test_the_description_names_the_window_and_the_mouth():
+    sm = _run("tentative_called", "silence_began")
+    assert sm.describe() == "頭=何もしていない 耳=聞いている/窓=仮の呼びかけ 口=黙っている"
