@@ -202,6 +202,9 @@ def test_completion_driven_iteration_keeps_the_origin_kind() -> None:
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         await ip.push_utterance("昨日の天気覚えてる？")
         for _ in range(400):
             if a.backend.stream_turn.await_count >= a._expected_turns and not ip._background_tasks:

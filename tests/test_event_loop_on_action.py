@@ -42,6 +42,9 @@ def _run_with_action(a, utterance="こんにちは"):
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         ip.set_output(lambda _t: None, on_action=lambda n, i: actions.append((n, i)))
         await ip.push_utterance(utterance)
         for _ in range(_WAIT_TICKS):
@@ -62,5 +65,8 @@ def test_answer_is_reported_as_a_say_action():
 def test_output_can_be_registered_without_an_action_sink():
     # CUI は on_action を持たない。渡さなくても壊れないこと。
     ip = InformationProcessing(MagicMock())
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip.set_output(lambda _t: None)
     assert ip._on_action is None

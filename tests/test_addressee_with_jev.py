@@ -47,6 +47,9 @@ def _ip(answer=None, *, exc=None):
     a._jev = client
     a.config.jev_confidence_min = 0.6
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._ensure_driver = lambda: None
     ip._abort_lookups = AsyncMock()
     heard: list = []

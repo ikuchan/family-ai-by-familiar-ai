@@ -22,6 +22,9 @@ def test_an_affect_turn_does_not_move_the_human_mark():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         ip.set_output(lambda _t: None)
         ip.start()
         ip.push_affect("SEEKING", "何かを知りたい")

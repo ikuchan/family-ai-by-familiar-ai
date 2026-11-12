@@ -48,6 +48,9 @@ def test_an_affect_request_the_arbiter_keeps_quiet_on_closes_silently(monkeypatc
     # 側（調停が黙ると決めたら主LLM を呼ばず沈黙で閉じる）なので、調停の答えを黙るに固定する。
     monkeypatch.setattr(Arbiter, "decide", quiet)
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     outcomes: list[str] = []
     real_finish = ip._finish
 
@@ -71,6 +74,9 @@ def test_a_time_reference_recalls_again_from_that_time():
         {"query": "去年の夏", "time_ref": "2025-08-15T00:00:00", "time_span_days": 30}
     )
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     calls: list[dict] = []
     real_recall = workspace.recall
 

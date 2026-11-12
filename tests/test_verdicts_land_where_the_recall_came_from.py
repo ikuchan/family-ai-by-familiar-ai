@@ -23,6 +23,9 @@ def test_the_declaration_uses_the_face_the_recall_used():
     a._jev = jev_says("light")
     a._utility_backend = writer_says({"text": "うん"})
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     seen: dict = {}
     ip._declare_light_memory_use = lambda **kw: seen.update(kw)  # type: ignore[method-assign]
 

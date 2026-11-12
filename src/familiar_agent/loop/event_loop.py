@@ -5068,11 +5068,6 @@ class InformationProcessing:
 
     # ── 黙っているあいだ（情-h）────────────────────────────────────────────
 
-    def _load_silence(self):
-        from ..silence_state import load_silence
-
-        return load_silence()
-
     async def _swallow_if_unheard(self, trigger: "Trigger") -> bool:
         """入口の門：聞けないものは求めを立てない。
 
@@ -5803,21 +5798,6 @@ class InformationProcessing:
         items, self._muted = self._muted, []
         self._muted_since = None
         return items
-
-    def check_silence_lifted(self) -> None:
-        """T が tick ごとに呼ぶ：明示の依頼が期限で明けたら記録を消す。求めは立てない（出-as §2.7）。"""
-        with contextlib.suppress(Exception):
-            from ..silence_state import clear_silence, is_silenced
-
-            req = self._load_silence()
-            lifted = not is_silenced(req, now=time.time())
-            if lifted and req is not None and not req.reason.startswith("timer:"):
-                # 明示の依頼が期限で解けたら**記録も消す**（情-l-ろ・実機 2026-09-18 20:46）。残すと、
-                # タイマーの沈黙（`hush_for_timer`）が「人の依頼が生きている」と負ける。
-                clear_silence()
-                logger.info("黙る期限が来たので沈黙を消した：%s", req.person or "不明")
-            # **明けても何もしない**（出-as §2.7・2026-09-26）。以前は「沈黙が明けた」の求めを立てて
-            # 話しかけていた。黙っていたあいだに聞いたことは、次の会話の求めに乗る（入口の `_take_muted`）。
 
     def _confirm_blocks(self, action: str) -> bool:
         """確認待ちのあいだ落とす動作か（出-ag-ろ・`core/confirm_state.blocks`）。"""

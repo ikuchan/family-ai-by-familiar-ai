@@ -137,6 +137,9 @@ def test_an_interrupted_turn_does_not_leak_into_the_next_one():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         await ip.push_utterance("昨日の天気覚えてる？")
         # 環-h で主LLM は投げっぱなしになった。調べかけになるまで待つ。
         for _ in range(_WAIT_TICKS):

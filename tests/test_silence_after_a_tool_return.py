@@ -5,6 +5,7 @@
   `silence_minutes`／`lift_silence` を機械で落とす。
 - **情-l-ろ**：明示の沈黙が退室（誰も居ないを 60 秒）で解けても記録が `until` まで残り、タイマーの沈黙
   （`hush_for_timer`）が負けた／人が映れば復活する。解けたら記録も消す。タイマー由来は消さない。
+  環-aw 第 2 段 項目 4 から、期限で解くのは状態図の数える仕事で、タイマー由来の控えも期限で消す。
 - **出-aa**：「再開」を調停が light で受け流し「再開しますね」と言うだけだった。`[タイマー]` に動いて
   いる／一時停止中があるとき、操作の言葉（`is_control_word`）の light は full へ倒す（主LLM が道具で決める）。
 """
@@ -50,22 +51,20 @@ def test_a_first_iteration_still_carries_it():
 # ── 情-l-ろ ───────────────────────────────────────────────────────────────
 
 
-def _ip(req):
-    a = _agent(stream_returns=[])
-    ip = InformationProcessing(a)
-    ip._load_silence = lambda: req
-    ip.push_device = MagicMock()
-    return ip
-
-
 def test_a_live_silence_is_not_cleared(monkeypatch):
-    """期限までは消さない。誰も居なくなっても解けない（出-as §2.5・2026-09-26。以前は 60 秒で解けた）。"""
+    """期限までは消さない（出-as §2.5・2026-09-26）。期限で解くのは状態図の数える仕事（環-aw 第 2 段 項目 4・5）。
+    居るかで解けないことは `test_silence_follows_the_window.py` の `test_nobody_around_does_not_lift_it` が見る。"""
     cleared = []
     monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: cleared.append(1))
-    _ip(
-        SilenceRequest(person="パパ", until=time.time() + 120, reason="timer:1")
-    ).check_silence_lifted()
-    _ip(SilenceRequest(person="パパ", until=time.time() + 3000)).check_silence_lifted()
+
+    async def go(req):
+        ip = InformationProcessing(_agent(stream_returns=[]))
+        await ip._paju().hush_with(req)
+        await asyncio.sleep(0.3)
+        return ip._paju().is_silent() and ip._paju().silence_request() == req
+
+    assert asyncio.run(go(SilenceRequest(person="パパ", until=time.time() + 120, reason="timer:1")))
+    assert asyncio.run(go(SilenceRequest(person="パパ", until=time.time() + 3000)))
     assert cleared == []
 
 

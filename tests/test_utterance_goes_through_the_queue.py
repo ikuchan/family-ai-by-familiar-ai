@@ -21,6 +21,9 @@ from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 
 def _ip():
     ip = InformationProcessing(MagicMock())
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._abort_lookups = AsyncMock()
     ip._begin_request = AsyncMock()
     return ip

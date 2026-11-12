@@ -56,6 +56,9 @@ def _push(text: str, *, named: bool):
     a = _agent(stream_returns=[])
     a.config.agent_names = list(NAMES)
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     shown: list[tuple[str, bool]] = []
     ip._on_heard = lambda t, h: shown.append((t, h))  # type: ignore[attr-defined]
     ip._ensure_driver = lambda: None  # type: ignore[method-assign]  # 積まれた入力をそのまま見る

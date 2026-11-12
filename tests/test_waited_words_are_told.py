@@ -40,6 +40,9 @@ def _pushed(*, open_request, ringing: bool) -> Trigger:
     a._occupancy = MagicMock(return_value=1.0)
     a._nudge_drive = AsyncMock()
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._ensure_driver = lambda: None
     ip._timer_active = lambda: False
     ip._wake_admits = lambda *a, **k: True
@@ -75,6 +78,9 @@ def test_a_word_while_quiet_remembers_nothing():
 def test_a_word_taken_from_the_held_box_has_waited():
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     t = Trigger(kind="会話入力", query="パジュ、止めて")
     ip._held.append(t)
     assert asyncio.run(ip._take_trigger()) is t
@@ -85,6 +91,9 @@ def test_a_word_taken_at_once_has_not_waited():
     """**反証の側**：求めが開いていても、待たせずにすぐ取り出した言葉は、待たせたことにしない（確認待ちの答えなど）。"""
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._req.request_id = "req-1"  # 開いているが、何も動いていない
     t = Trigger(kind="会話入力", query="はい")
 
@@ -102,6 +111,9 @@ def test_a_word_taken_at_once_has_not_waited():
 def _begun(trigger: Trigger, *, ringing_now: bool) -> Request:
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._dif = MagicMock(ringing=ringing_now)
     captured: dict = {}
 
@@ -158,6 +170,9 @@ def test_a_word_that_did_not_wait_is_told_nothing():
 def _attached(*, rang: bool, ringing_now: bool) -> Request:
     a = _agent(stream_returns=[])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._req.request_id = "req-1"
     ip._dif = MagicMock(ringing=ringing_now)
 

@@ -434,9 +434,6 @@ class Tonic:
             music_task = asyncio.ensure_future(self._check_music())
             self._background.add(music_task)
             music_task.add_done_callback(self._background.discard)
-        # 沈黙が期限切れで明けたのに何も届かないとき、まとめの求めを起こす（情-h）。時計は T。
-        with contextlib.suppress(Exception):
-            self._ip.check_silence_lifted()
 
     async def _check_music(self) -> None:
         """鳴っているあいだの様子を読んで記録し（知-aa 段 2）、30 分たっていたら止めて一言言う。
@@ -507,13 +504,3 @@ class Tonic:
             except Exception as e:  # noqa: BLE001
                 # 自律は落とさない（アイドルが止まると何も起きなくなる）。
                 logger.exception("tonic tick に失敗: %s", e)
-
-
-def _silenced_now() -> bool:
-    """「黙っていて」の依頼が生きているか（情動と同じ門・環-z）。読めなければ黙っていない扱い。"""
-    try:
-        from ..silence_state import is_silenced, load_silence
-
-        return is_silenced(load_silence(), now=time.time())
-    except Exception:  # noqa: BLE001
-        return False

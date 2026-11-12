@@ -28,7 +28,6 @@ def _ip(*, present: float):
     a._occupancy = MagicMock(return_value=present)
     a._nudge_drive = AsyncMock()
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None  # 黙ってはいない
     return ip, a
 
 
@@ -61,11 +60,24 @@ def test_things_heard_while_silent_do_not_start_anything_when_it_lifts():
     """明けても何もしない（出-as §2.7）。聞いたことは次の会話の求めに乗る。"""
     from familiar_agent.core.silence_hold import Heard
 
+    from familiar_agent.silence_state import SilenceRequest
+
     ip, a = _ip(present=1.0)
     ip.push_device = MagicMock()
     ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time())]
-    ip.check_silence_lifted()  # 依頼は消えている（`_load_silence` は None）
+
+    async def go():
+        # 期限で解けるのは状態図の数える仕事（環-aw 第 2 段 項目 4・5）。先に始めて控えを戻しておく（戻す分の時間を
+        # 0.1 秒の期限に入れない）。
+        await ip._paju().start()
+        await ip._paju().hush_with(SilenceRequest(person="パパ", until=time.time() + 0.1))
+        assert ip._paju().is_silent()  # 黙り始めた
+        await asyncio.sleep(0.3)
+        return ip._paju().is_silent()
+
+    assert _run(go()) is False  # 明けた
     ip.push_device.assert_not_called()
+    assert ip._triggers.empty()
     assert [h.text for h in ip._muted] == ["明日の予定は？"]  # 捨てずに次の求めまで持つ
 
 

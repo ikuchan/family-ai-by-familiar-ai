@@ -60,16 +60,25 @@ def test_the_memo_watcher_records_instead_of_notifying(monkeypatch):
     ip._dif.device.assert_not_called()
 
 
-def test_a_lifted_silence_does_not_start_a_request(monkeypatch):
+def test_a_lifted_silence_does_not_start_a_request():
     from familiar_agent.core.silence_hold import Heard
 
     a, ip = _ip()
     ip.push_device = MagicMock()
-    ip._load_silence = lambda: SilenceRequest(person="パパ", until=time.time() - 1)
-    monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: None)
     ip._muted = [Heard(kind="会話入力", text="明日の予定は？", at=time.time())]
-    ip.check_silence_lifted()
+
+    async def go():
+        # 期限で解けるのは状態図の数える仕事（環-aw 第 2 段 項目 4・5）。先に始めて控えを戻しておく（戻す分の時間を
+        # 0.1 秒の期限に入れない）。
+        await ip._paju().start()
+        await ip._paju().hush_with(SilenceRequest(person="パパ", until=time.time() + 0.1))
+        assert ip._paju().is_silent()  # 黙り始めた
+        await asyncio.sleep(0.3)
+        return ip._paju().is_silent()
+
+    assert asyncio.run(go()) is False  # 明けた
     ip.push_device.assert_not_called()
+    assert ip._triggers.empty()
 
 
 # ── 発話の門 ───────────────────────────────────────────────────────────────

@@ -136,6 +136,9 @@ def _run(a, utterance="こんにちは", on_text=None):
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         first = await ip.push_utterance(utterance, on_text=_tap)
         if first:
             shown.append(first)
@@ -167,6 +170,9 @@ def _run_chain(a, utterance="こんにちは"):
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         await ip.push_utterance(utterance, on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a.backend.stream_turn.await_count >= a._expected_turns and not ip._background_tasks:
@@ -386,6 +392,9 @@ def test_completion_content_reads_as_this_chains_action():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         await ip.push_utterance("今日の天気を調べて")
         # 環-h で `push_utterance` は主LLM を投げた時点で返るようになった。調べものが
         # 起動する前に完了を押すと、待ち受ける調べものが無く、結果が宙に浮く。
@@ -437,6 +446,9 @@ def test_completion_content_keeps_the_fetched_body_up_to_the_embedding_limit():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         await ip.push_utterance("今日の天気を調べて")
         # 環-h で `push_utterance` は主LLM を投げた時点で返るようになった。調べものが
         # 起動する前に完了を押すと、待ち受ける調べものが無く、結果が宙に浮く。
@@ -591,6 +603,9 @@ def test_intake_drains_inbox_in_place():
     # （実機で観測：受領 inbox=0 → 取込 items=0）。同一オブジェクトを空にして守る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     before = ip._drained_completions
     ip._open_lookup("recall", "q")  # 意図の無い完了は数えない（出-cc）ので、器を開いておく
     ip._drained_completions.append(Trigger(kind="完了", query="q", result="結果", index=1))
@@ -643,6 +658,9 @@ def test_action_branch_dispatches_recall_without_the_full_llm():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         first = await ip.push_utterance("こんにちは", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._memory_tool.call.called:
@@ -779,6 +797,9 @@ def test_driver_wakes_on_an_affect_trigger():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         ip.set_output(shown.append)  # 人の発話を待たずに出口を持てる
         ip.start()  # 駆動体だけ起こす
         ip.push_affect("BOND", "誰かと居たい")  # 話しかける軸（出-as 段 8：seeking は話さない）
@@ -798,6 +819,9 @@ def test_affect_iteration_does_not_send_an_empty_user_message():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         ip.start()
         ip.push_affect("SEEKING", "何かを知りたい")
         for _ in range(_WAIT_TICKS):
@@ -821,6 +845,9 @@ def test_iteration_ends_when_tool_is_dispatched():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         first = await ip.push_utterance("こんにちは", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._memory_tool.call.await_count:
@@ -846,6 +873,9 @@ def test_driver_runs_next_iteration_when_completion_arrives():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         first = await ip.push_utterance("昨日の天気覚えてる？", on_text=shown.append)
         for _ in range(_WAIT_TICKS):  # 駆動体が起こす2反復目を待つ
             if shown:
@@ -876,6 +906,9 @@ def test_action_branch_dispatches_without_a_filler():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         first = await ip.push_utterance("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._deferred_search.dispatch.await_count:
@@ -908,6 +941,9 @@ def test_full_branch_keeps_the_tool_when_say_comes_along():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         first = await ip.push_utterance("今日の天気を調べて", on_text=shown.append)
         for _ in range(_WAIT_TICKS):
             if a._deferred_search.dispatch.await_count:
@@ -926,6 +962,9 @@ def test_net_actions_are_available():
     # 連鎖が意味を持たない。表に2行足すだけで載る。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     assert _names(ip._tools(actions=("search_deferred",))) == [_SEARCH_DEF["name"]]
     assert _names(ip._tools(actions=("fetch_deferred",))) == [_FETCH_DEF["name"]]
 
@@ -935,6 +974,9 @@ def test_tools_are_selected_by_the_action_set():
     # ようにしておく（段階3 の次で see・look・search_deferred を載せる）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     assert _names(ip._tools(actions=("say",))) == [_SAY_DEF["name"]]
     assert _names(ip._tools(actions=("say", "recall"))) == [_SAY_DEF["name"], _RECALL_DEF["name"]]
     assert ip._tools(actions=()) == []
@@ -944,6 +986,9 @@ def test_unknown_action_is_ignored_not_crashing():
     # 表に無い動作名は黙って落とす（まだ繋いでいない身体を渡そうとしても壊れない）。
     a = _agent(stream_returns=[_turn([ToolCall(id="t", name="say", input={"text": "はい"})])])
     ip = InformationProcessing(a)
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     assert _names(ip._tools(actions=("say", "walk"))) == [_SAY_DEF["name"]]
 
 
@@ -984,6 +1029,9 @@ def test_recall_is_dispatched_async_and_loop_waits_on_queue():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         assert await ip.push_utterance("こんにちは", on_text=shown.append) == ""
         await asyncio.sleep(0.05)  # 意図を書いて dispatch し終えた頃
         ip._triggers.put_nowait(Trigger(kind="完了", query="q", result="外から届いた結果", index=1))
@@ -1195,6 +1243,9 @@ def test_w_shows_the_completion_record_so_the_same_thing_is_not_fetched_twice():
 
     async def scenario():
         ip = InformationProcessing(a)
+        await (
+            ip._paju().start()
+        )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
         await ip.push_utterance("今日はどんな天気？")
         ip.push_completion("https://example.com/1hour.html", "時間別の表…")
         # 主LLM は 1 回しか呼ばれない（2 回を待つと 10 秒の上限まで待ち切っていた・環-aa）。W の中身は、
