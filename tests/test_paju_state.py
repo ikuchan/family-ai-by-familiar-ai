@@ -1,4 +1,4 @@
-"""環-aw 第 1 段 項目 1：パジュの状態図（頭と耳）の骨組みと、捨てた事象のログ（`設計方針_パジュの状態` v0.5 決定ス、ユ）。
+"""環-aw 第 1 段 項目 1：パジュの状態図（頭と耳）の骨組みと、捨てた事象のログ（`設計方針_パジュの状態` v0.6 決定ス、ユ）。
 
 頭は何もしていない、考えている（子 5 つ）、答えを言っている。耳は聞いている、考えているあいだ聞かない。耳は頭に
 入るときの動作ではなく事象で動く（答えのあと考えているへ戻っても、聞いたまま）。
@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import time
 
@@ -414,14 +415,14 @@ def test_a_window_reopened_while_the_lapse_is_sent_goes_back_open():
     """`window_lapsed` を送っているあいだに開け直されたら、送り終えてからデータを見て、開いているへ戻す。"""
 
     async def go(sm):
-        real_fire = sm.fire
+        real_fire = sm._fire
 
         async def fire(event):
             if event == "window_lapsed":
                 sm.wake.open(time.monotonic())  # 送っている最中に、名前で開け直された
             await real_fire(event)
 
-        sm.fire = fire
+        sm._fire = fire
         await sm.open_window(_almost_lapsed(0.1))
         await asyncio.sleep(0.4)
         assert "open" in _ids(sm)
@@ -437,7 +438,7 @@ def test_a_failing_chart_does_not_stop_the_window(caplog):
         async def fire(event):
             raise RuntimeError("落ちた")
 
-        sm.fire = fire
+        sm._fire = fire
         with caplog.at_level(logging.WARNING, logger="familiar_agent.loop.paju_state"):
             await sm.open_window(time.monotonic())
         assert sm.window_open_at(time.monotonic())
@@ -539,7 +540,7 @@ def test_a_lapse_being_sent_is_finished_even_if_stopped():
     """切れたことを送っている印のあいだは、数える仕事を止めない（送り終える）。"""
 
     async def go(sm):
-        real_fire = sm.fire
+        real_fire = sm._fire
 
         async def fire(event):
             if event == "tentative_lapsed":
@@ -549,7 +550,7 @@ def test_a_lapse_being_sent_is_finished_even_if_stopped():
                 await asyncio.sleep(0)
             await real_fire(event)
 
-        sm.fire = fire
+        sm._fire = fire
         await sm.call_tentatively(_almost_lapsed(0.1))
         await asyncio.sleep(0.4)
         assert "shut" in _ids(sm)
@@ -561,18 +562,21 @@ def test_dropping_while_the_lapse_is_sent_sends_nothing(caplog):
     """**番人**：切れたことを送っている最中に捨てても、`tentative_dropped` は送らない（送り終えれば閉じているにいる）。"""
 
     async def go(sm):
-        real_fire = sm.fire
+        real_fire = sm._fire
+        late: list = []
 
         async def fire(event):
             if event == "tentative_lapsed":
-                await sm.drop_tentative()  # 送っている最中に、音楽の言葉を受けた
+                # 送っている最中に、音楽の言葉を受けた。順番を待つので、送り終えてから処理される（決定ン）
+                late.append(asyncio.ensure_future(sm.drop_tentative()))
             await real_fire(event)
 
-        sm.fire = fire
+        sm._fire = fire
         await sm.call_tentatively(_almost_lapsed(0.1))
         with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
             await asyncio.sleep(0.4)
-        assert "shut" in _ids(sm) and sm.tentative_since() is None
+            await asyncio.gather(*late)
+        assert late and "shut" in _ids(sm) and sm.tentative_since() is None
 
     _window(go)
     assert not [r for r in caplog.records if "捨て" in r.getMessage()]
@@ -582,17 +586,20 @@ def test_a_call_while_the_lapse_is_sent_goes_back_to_tentative():
     """切れたことを送っている最中に新しい呼びかけが届いたら、送り終えてからデータを見て、仮の呼びかけへ戻す。"""
 
     async def go(sm):
-        real_fire = sm.fire
+        real_fire = sm._fire
+        late: list = []
 
         async def fire(event):
             if event == "tentative_lapsed":
-                await sm.call_tentatively(time.monotonic())
+                # 送っている最中に届いた。順番を待つので、送り終えてから処理される（決定ン）
+                late.append(asyncio.ensure_future(sm.call_tentatively(time.monotonic())))
             await real_fire(event)
 
-        sm.fire = fire
+        sm._fire = fire
         await sm.call_tentatively(_almost_lapsed(0.1))
         await asyncio.sleep(0.4)
-        assert "tentative" in _ids(sm)
+        await asyncio.gather(*late)
+        assert late and "tentative" in _ids(sm)
         assert sm._tentative_task is not None and not sm._tentative_task.done()
 
     _window(go)
@@ -849,7 +856,7 @@ def test_unhushing_frees_a_mouth_left_silent_by_a_failed_end():
     """期限で解けたことを送れず、データが無いのに黙っているに残っても、`unhush` で話してよいへ戻す。"""
 
     async def go(sm, book):
-        real_fire = sm.fire
+        real_fire = sm._fire
         failed: list[int] = []
 
         async def fire(event):
@@ -858,7 +865,7 @@ def test_unhushing_frees_a_mouth_left_silent_by_a_failed_end():
                 raise RuntimeError("落ちた")
             await real_fire(event)
 
-        sm.fire = fire
+        sm._fire = fire
         await sm.hush_with(_req(0.1))
         await asyncio.sleep(0.4)
         assert "silent" in _ids(sm) and sm.silence_request() is None
@@ -866,3 +873,152 @@ def test_unhushing_frees_a_mouth_left_silent_by_a_failed_end():
         assert "may_speak" in _ids(sm)
 
     _hushing(go)
+
+
+# ── 送る口は 1 つの順番待ちに並ぶ（環-aw 第 2 段のあと・ウの 1・決定ン）──────────────────────────
+# ライブラリは事象の処理の途中で動作を `asyncio.gather` で呼び、ほかの仕事に順番を譲る。そのあいだに並んだ事象は
+# まだ処理されていないので、ほかの口から見える状態は古い。古い状態を見て送った事象は移りが無く、ライブラリは列に
+# 並んでいたほかの事象も一緒に退ける。
+
+
+def test_a_lapse_behind_an_opened_window_does_not_drop_the_next_head_event():
+    """仮の呼びかけが切れて送るのと窓が開くのが、頭の事象の処理中に重なっても、後ろの頭の事象は捨てない。"""
+    from familiar_agent.core.wake_window import WAKE_WINDOW_SEC
+
+    async def go(sm):
+        await sm.call_tentatively(time.monotonic())
+        sm._stop_tentative_task()
+        sm.tentative_at = (
+            time.monotonic() - WAKE_WINDOW_SEC
+        )  # もう切れている。数える仕事は、すぐ見て送る
+        tasks = [
+            asyncio.ensure_future(sm.fire("request_opened")),  # 処理の途中で順番を譲る
+            asyncio.ensure_future(sm.open_window(time.monotonic())),  # 仮の呼びかけから開いているへ
+            asyncio.ensure_future(sm._wait_tentative()),  # 本物の数える仕事
+            asyncio.ensure_future(sm.fire("decide_began")),  # 後ろに並ぶ頭の事象
+        ]
+        await asyncio.gather(*tasks)
+        assert {"open", "deciding"} <= _ids(sm)
+
+    _window(go)
+
+
+def test_hush_and_unhush_together_leave_no_backup_behind():
+    """「黙って」と「話していいよ」が頭の事象の処理中に重なっても、話してよいにいて、控えも残らない。"""
+    from familiar_agent.silence_state import SilenceRequest
+
+    row: dict = {}  # DB の控えの行の代わり
+
+    def saved(req: SilenceRequest) -> None:
+        row["req"] = req
+
+    def cleared() -> None:
+        row.pop("req", None)
+
+    def chart() -> PajuState:
+        return PajuState(
+            on_silence_saved=saved,
+            on_silence_cleared=cleared,
+            restore_silence=lambda: row.get("req"),
+        )
+
+    async def go():
+        sm = chart()
+        await sm.start()
+        await asyncio.gather(
+            sm.fire("request_opened"),  # 処理の途中で順番を譲る
+            sm.hush_with(_req(600)),
+            sm.unhush(),
+        )
+        assert "may_speak" in _ids(sm) and sm.silence_request() is None
+        again = chart()  # 起動し直したときの状態図
+        await again.start()
+        assert "may_speak" in _ids(again)
+        for m in (sm, again):
+            m.end_timers()
+            m.end_counting()
+
+    asyncio.run(asyncio.wait_for(go(), timeout=5.0))
+
+
+def test_a_timer_queued_behind_a_person_does_not_override_the_person():
+    """人の「黙って」が順番を待つあいだにタイマーを掛けても、タイマーの依頼は人の依頼を上書きしない。依頼は、呼び手が
+    読んで決めたその場で置く（決定ン）。"""
+    from familiar_agent.silence_state import hush_for_timer
+
+    async def go():
+        sm = PajuState()
+        await sm.start()
+        person = _req(3600)
+
+        async def timer() -> None:  # タイマーを掛ける口と同じ形（読んで決めて置く）
+            current = sm.silence_request()
+            nxt = hush_for_timer(current, person="ママ", until=time.time() + 60, tid=1)
+            if nxt is not current:
+                await sm.hush_with(nxt)
+
+        await asyncio.gather(
+            sm.fire("request_opened"),  # 処理の途中で順番を譲る
+            sm.hush_with(person),
+            timer(),
+        )
+        assert sm.silence_request() is person
+        assert "silent" in _ids(sm)
+        sm.end_timers()
+        sm.end_counting()
+
+    asyncio.run(asyncio.wait_for(go(), timeout=5.0))
+
+
+def test_the_turn_survives_a_new_event_loop():
+    """**番人**：状態図を 1 つ目のループで始め、2 つ目のループで送る口を取り合わせても落ちない（試験の装置と画面は、
+    状態図をループより長く使う）。"""
+    sm = PajuState()
+
+    async def contend():
+        await sm.start()
+        await asyncio.gather(
+            sm.fire("request_opened"), sm.fire("decide_began"), sm.fire("request_closed")
+        )
+
+    asyncio.run(asyncio.wait_for(contend(), timeout=5.0))
+    asyncio.run(asyncio.wait_for(contend(), timeout=5.0))
+    assert "idle" in _ids(sm)
+
+
+def test_a_sender_cancelled_mid_send_still_finishes_the_transition():
+    """送っている最中に呼び手が取り消されても、その事象の移りは最後まで済み、次の送り手も送れる（決定ン）。"""
+
+    async def go():
+        sm = PajuState()
+        await sm.start()
+        sender = asyncio.ensure_future(sm.fire("request_opened"))
+        for _ in range(3):
+            await asyncio.sleep(0)  # 処理の途中（動作の gather）まで進める
+        sender.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await sender
+        await sm.fire("decide_began")
+        assert {"deciding", "deaf"} <= _ids(sm)
+        sm.end_timers()
+        sm.end_counting()
+
+    asyncio.run(asyncio.wait_for(go(), timeout=5.0))
+
+
+def test_a_call_after_a_queued_drop_is_kept():
+    """**番人**：捨てる口が順番を待つあいだに届いた呼びかけは、捨てない（届いた時刻はすぐ書き、すぐ消す）。"""
+
+    async def go(sm):
+        await sm.call_tentatively(time.monotonic())
+        tasks = [
+            asyncio.ensure_future(sm.fire("request_opened")),  # 順番を持って処理の途中で譲る
+            asyncio.ensure_future(sm.drop_tentative()),  # 音楽の言葉を受けた（順番を待つ）
+            asyncio.ensure_future(
+                sm.call_tentatively(time.monotonic())
+            ),  # そのあとに届いた呼びかけ
+        ]
+        await asyncio.gather(*tasks)
+        assert sm.tentative_since() is not None and "tentative" in _ids(sm)
+
+    _window(go)

@@ -1,4 +1,4 @@
-"""パジュの状態図（環-aw 第 1 段・第 2 段・`設計方針_パジュの状態` v0.5）。頭、耳、口の 3 つの領域を持つ。
+"""パジュの状態図（環-aw 第 1 段・第 2 段・`設計方針_パジュの状態` v0.6）。頭、耳、口の 3 つの領域を持つ。
 
 - 頭：何もしていない（`idle`）、考えている（`thinking`）、答えを言っている（`answering`）。考えているは子を 5 つ持つ
   （思い出している `recalling`、決めている `deciding`、返りを待っている `awaiting`、確かめている `checking`、
@@ -14,7 +14,7 @@
 窓、仮の呼びかけ、黙るかは、状態とデータ（`wake`、`tentative_at`、`silence`）の両方を持つ。門はデータで決め、状態は
 移りとログのために持つ。データを変えるのはこの図の口（`open_window`、`call_tentatively`、`hush_with` など）だけ。時間で
 切れる移り（窓、仮の呼びかけ、黙るの期限）は、この図の中の数える仕事が、状態を見てから送る（決定ヰ）。黙る依頼の
-持ち主はこの図で、DB の `agent_state` の行は再起動で戻すための控え（入ると書き、出ると消し、`start` で戻す・決定ヱ）。
+持ち主はこの図で、DB の `agent_state` の行は再起動で戻すための控え（依頼を置くと書き、解くと消し、`start` で戻す・決定ヱ）。
 
 **耳は事象で動かす。頭に入るときの動作には付けない。** 答えのあと、頭は書き留めのために考えているへ戻るが、
 そのとき耳は聞いたままにする（決定モ）。考えているに入るときの動作で耳を閉じると、ここでまた聞かなくなる。
@@ -112,7 +112,7 @@ class PajuState(StateChart):
         self._tentative_task: "asyncio.Task[None] | None" = None
         self._tentative_sending = False
         #: 黙っている依頼（第 2 段 項目 4）。持ち主はこの図で、DB の `agent_state` の行は控え（再起動で戻すため）。
-        #: 黙っているに入ると `on_silence_saved` で書き、出ると `on_silence_cleared` で消す。`start` のとき
+        #: 依頼を置くと `on_silence_saved` で書き、解くと `on_silence_cleared` で消す。`start` のとき
         #: `restore_silence` で読み、生きていれば残りの期限で黙り、過ぎていれば消す。
         self.silence: "SilenceRequest | None" = None
         self._on_silence_saved = on_silence_saved
@@ -121,6 +121,11 @@ class PajuState(StateChart):
         #: 黙るの期限を数える仕事と、それが `silence_ended` を送っているあいだ真の印（窓と同じ作り）。
         self._silence_task: "asyncio.Task[None] | None" = None
         self._silence_sending = False
+        #: 送る口の順番待ち（決定ン）。状態を見て送る口は、この中で見る、データを変える、送る、控えを書くを続けて行う。
+        #: 錠は作ったループに縛られるので、走っているループが変わったら作り直す（試験の装置と画面は、状態図をループより
+        #: 長く使う。`InformationProcessing._ensure_driver` と同じ）。
+        self._turn_lock: "asyncio.Lock | None" = None
+        self._turn_loop: "asyncio.AbstractEventLoop | None" = None
         #: 初めの状態に入り、控えを戻し終えたら済む。同時に待つ読み手も、戻し終えるまで待つ。
         self._starting: "asyncio.Future[None] | None" = None
         #: ループを閉じたら真。もう時間を数える仕事を立てない。
@@ -247,14 +252,14 @@ class PajuState(StateChart):
         # 送り終えるまで `_limit_task` に残す（閉じるときに、送っている途中でも止められる）。
         try:
             await asyncio.sleep(seconds)
-            self._limit_left = None  # この求めでは、もう送らない（何もしていないに入ると戻す）
-            if not self.is_deaf():
-                # 電子音を鳴らせず、耳はもう聞いている。移りの無い事象を送ると、ライブラリはそのとき列に待っていた
-                # ほかの事象も退けて列を空にするので、送らない。
-                logger.info("状態図 考えているが上限 %.1f 秒に届いたが、耳は聞いている", limit)
-            else:
-                logger.info("状態図 考えているが上限 %.1f 秒に届いた", limit)
-                await self.fire("limit_reached")
+            async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+                self._limit_left = None  # この求めでは、もう送らない（何もしていないに入ると戻す）
+                if not self.is_deaf():
+                    # 電子音を鳴らせず、耳はもう聞いている。移りの無い事象は送らない（決定ユ）。
+                    logger.info("状態図 考えているが上限 %.1f 秒に届いたが、耳は聞いている", limit)
+                else:
+                    logger.info("状態図 考えているが上限 %.1f 秒に届いた", limit)
+                    await self._fire("limit_reached")
             if self._on_limit is not None:
                 self._on_limit()  # 考えすぎたことは、耳によらず知らせる
         except Exception:  # noqa: BLE001
@@ -303,7 +308,7 @@ class PajuState(StateChart):
         self._stop_silence_task()
 
     async def hush_with(self, req: "SilenceRequest") -> None:
-        """黙っている依頼を受けた（人の「黙って」、タイマー）。データを置き換え、黙っているへ移り、控えを書く。
+        """黙っている依頼を受けた（人の「黙って」、タイマー）。データを置き換え、控えを書き、黙っているへ移る。
 
         名前を `hush` にしないのは、口の領域 `hush` と重なり、ライブラリが許さないため。
 
@@ -313,29 +318,25 @@ class PajuState(StateChart):
         await self.start()
         if time.time() >= req.until:
             return
-        await self._enter_silence(req)
+        # 呼び手が読んで決めたその場で、待たずに依頼と控えを置く。待つと、そのあいだに読んだ値が古くなる（決定ン）
+        self.silence = req
         if self._on_silence_saved is not None:
             try:
                 self._on_silence_saved(req)
             except Exception:  # noqa: BLE001
                 logger.warning("状態図 黙っている依頼の控えを書けなかった", exc_info=True)
+        await self._settle_silence()
 
     async def unhush(self) -> None:
         """黙るのを解く（「話していいよ」、止めたタイマー）。黙っていなければ何も送らない。"""
         await self.start()
         if self.silence is None and not self._in("silent"):
             return
-        # データが無くても状態が黙っているなら戻す（期限で解けたことを送れなかったとき）。
+        # 依頼と控えは待たずに消す。データが無くても状態が黙っているなら戻す（期限で解けたことを送れなかったとき）
         self.silence = None
         self._stop_silence_task()
         self._clear_silence_backup()
-        if self._silence_sending:
-            return  # 期限で解けたことを送っている。送り終えれば話してよいにいる
-        try:
-            if self._in("silent"):
-                await self.fire("silence_ended")
-        except Exception:  # noqa: BLE001
-            logger.warning("状態図 黙るのを解けなかった", exc_info=True)
+        await self._settle_silence()
 
     def silence_request(self) -> "SilenceRequest | None":
         """いまの黙っている依頼。門は、これを処理した時刻で `is_silenced` に掛けて決める。無ければ None。"""
@@ -345,14 +346,18 @@ class PajuState(StateChart):
         """口が黙っているにいるか。"""
         return self._in("silent")
 
-    async def _enter_silence(self, req: "SilenceRequest") -> None:
-        self.silence = req
-        try:
-            if not self._silence_sending:
-                await self.fire("silence_began")
+    async def _settle_silence(self) -> None:
+        """順番が来たら依頼を読み直し、口の状態を依頼に合わせる。黙る口と解く口が重なっても、最後に置いた依頼に合う
+        （決定ン）。依頼があれば期限を数え直す。"""
+        async with self._turn():
+            try:
+                if self.silence is not None and not self._in("silent"):
+                    await self._fire("silence_began")
+                elif self.silence is None and self._in("silent"):
+                    await self._fire("silence_ended")
                 self._arm_silence()
-        except Exception:  # noqa: BLE001
-            logger.warning("状態図 黙っているへ移せなかった", exc_info=True)
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 口の状態を黙っている依頼に合わせられなかった", exc_info=True)
 
     def _clear_silence_backup(self) -> None:
         if self._on_silence_cleared is not None:
@@ -381,22 +386,28 @@ class PajuState(StateChart):
     async def _wait_silence(self) -> None:
         try:
             # 期限は壁の時計（`time.time`）の秒。依頼が置き換わったら、新しい期限まで待つ。
-            while (req := self.silence) is not None and (left := req.until - time.time()) > 0:
-                await asyncio.sleep(left)
-            if req is None or not self._in("silent"):
-                return  # 送る前に状態を見る（移りの無い事象を送らない）
-            logger.info("状態図 黙る期限が来たので解いた")
-            self.silence = None
-            self._clear_silence_backup()
-            self._silence_sending = True
-            try:
-                await self.fire("silence_ended")
-            finally:
-                self._silence_sending = False
-            if not self._timers_ended and (nxt := self.silence) is not None:
+            while True:
+                while (req := self.silence) is not None and (left := req.until - time.time()) > 0:
+                    await asyncio.sleep(left)
+                async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+                    req = self.silence
+                    if req is not None and req.until - time.time() > 0:
+                        continue  # 順番を待つあいだに依頼が置き換わった。新しい期限まで待つ
+                    if req is None or not self._in("silent"):
+                        return  # 送る前に状態を見る（移りの無い事象を送らない）
+                    logger.info("状態図 黙る期限が来たので解いた")
+                    self.silence = None
+                    self._clear_silence_backup()
+                    self._silence_sending = True
+                    try:
+                        await self._fire("silence_ended")
+                    finally:
+                        self._silence_sending = False
+                break
+            if not self._timers_ended and self.silence is not None:
                 # 送っているあいだに新しい依頼が届いた。黙っているへ戻して数え直す。自分を止めないよう、先に手放す。
                 self._silence_task = None
-                await self._enter_silence(nxt)
+                await self._settle_silence()
         except Exception:  # noqa: BLE001
             logger.warning("状態図 黙る期限で解けたことを送れなかった", exc_info=True)
         finally:
@@ -414,15 +425,18 @@ class PajuState(StateChart):
 
     async def drop_tentative(self) -> None:
         """仮の呼びかけを捨てる（鳴っているあいだの音楽の言葉を窓を開けずに受けた）。いなければ何も送らない。"""
+        # 届いた時刻は、すぐ消す。門はすぐ読み、仮に呼ぶ口（`call_tentatively`）も、すぐ書く。順番の中で消すと、
+        # 順番を待つあいだにあとから届いた呼びかけまで消す。
         self.tentative_at = None
         self._stop_tentative_task()
-        if self._tentative_sending:
-            return  # 切れたことを送っている。送り終えれば閉じているにいる（ここで送ると移りが無い）
-        try:
-            if self._in("tentative"):
-                await self.fire("tentative_dropped")
-        except Exception:  # noqa: BLE001
-            logger.warning("状態図 仮の呼びかけを捨てられなかった", exc_info=True)
+        async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+            if self._tentative_sending:
+                return  # 切れたことを送っている。送り終えれば閉じているにいる（ここで送ると移りが無い）
+            try:
+                if self._in("tentative"):
+                    await self._fire("tentative_dropped")
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 仮の呼びかけを捨てられなかった", exc_info=True)
 
     def tentative_since(self) -> "float | None":
         """仮の呼びかけの届いた時刻。門はこの時刻で続きかを決める（状態では決めない）。無ければ None。"""
@@ -437,11 +451,12 @@ class PajuState(StateChart):
         """データの上で仮の呼びかけが生きていて、窓の状態が開いていなければ、仮の呼びかけへ移して数え直す。
         状態図が落ちても、会話は止めない（警告を 1 行残す）。"""
         try:
-            if self._tentative_sending:
-                return  # 送り終えてから、仕事がデータを見て移し直す
-            if self._tentative_live() and not self._in("open"):
-                await self.fire("tentative_called")
-            self._arm_tentative()
+            async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+                if self._tentative_sending:
+                    return  # 送り終えてから、仕事がデータを見て移し直す
+                if self._tentative_live() and not self._in("open"):
+                    await self._fire("tentative_called")
+                self._arm_tentative()
         except Exception:  # noqa: BLE001
             logger.warning("状態図 仮の呼びかけへ移せなかった", exc_info=True)
 
@@ -464,18 +479,26 @@ class PajuState(StateChart):
 
     async def _wait_tentative(self) -> None:
         try:
-            while (at := self.tentative_at) is not None and (
-                left := at + WAKE_WINDOW_SEC - time.monotonic()
-            ) > 0:
-                await asyncio.sleep(left)
-            # 送る前に状態を見る（移りの無い事象を送らない）。届いた時刻は残す。
-            if self._in("tentative"):
-                logger.debug("状態図 仮の呼びかけが切れた")
-                self._tentative_sending = True
-                try:
-                    await self.fire("tentative_lapsed")
-                finally:
-                    self._tentative_sending = False
+            while True:
+                while (at := self.tentative_at) is not None and (
+                    left := at + WAKE_WINDOW_SEC - time.monotonic()
+                ) > 0:
+                    await asyncio.sleep(left)
+                async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+                    if self._tentative_live():
+                        continue  # 順番を待つあいだに新しい呼びかけが届いた。その 10 秒まで待つ
+                    # 送る前に状態を見る（移りの無い事象を送らない）。届いた時刻は残す。
+                    lapsed = self._in("tentative")
+                    if lapsed:
+                        logger.debug("状態図 仮の呼びかけが切れた")
+                        self._tentative_sending = True
+                        try:
+                            await self._fire("tentative_lapsed")
+                        finally:
+                            self._tentative_sending = False
+                break
+            if lapsed:
+                # 送り終えてから見直す。順番は手放してから呼ぶ（錠は二重に取れない）。
                 if not self._timers_ended and self._tentative_live():
                     # 送っているあいだに新しい呼びかけが届いた。仮の呼びかけへ戻して数え直す。自分を止めないよう、先に手放す。
                     self._tentative_task = None
@@ -493,11 +516,12 @@ class PajuState(StateChart):
         """いまの時刻でデータの上の窓が開いていれば、開いているへ移して数え直す。古い届いた時刻で開けても、もう
         切れている窓は開いているへ移さない。状態図が落ちても、会話は止めない（警告を 1 行残す）。"""
         try:
-            if not self._in("open") and self.wake.is_open(time.monotonic()):
-                await self.fire("window_opened")
-                # 仮の呼びかけからも移るので、その 10 秒は数えない（届いた時刻は残す。窓が切れたとき生きていれば移し直す）
-                self._stop_tentative_task()
-            self._arm_window()
+            async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+                if not self._in("open") and self.wake.is_open(time.monotonic()):
+                    await self._fire("window_opened")
+                    # 仮の呼びかけからも移るので、その 10 秒は数えない（届いた時刻は残す。窓が切れたとき生きていれば移し直す）
+                    self._stop_tentative_task()
+                self._arm_window()
         except Exception:  # noqa: BLE001
             logger.warning("状態図 窓を開いているへ移せなかった", exc_info=True)
 
@@ -523,16 +547,24 @@ class PajuState(StateChart):
 
     async def _wait_window(self) -> None:
         try:
-            while (left := self.wake.until - time.monotonic()) > 0:
-                await asyncio.sleep(left)
-            # 送る前に状態を見る。もう閉じているのに送ると、移りが無く、ライブラリが列のほかの事象も退ける。
-            if self.wake.speaking == 0 and self._in("open"):
-                logger.debug("状態図 窓が切れた")
-                self._window_sending = True
-                try:
-                    await self.fire("window_lapsed")
-                finally:
-                    self._window_sending = False
+            while True:
+                while (left := self.wake.until - time.monotonic()) > 0:
+                    await asyncio.sleep(left)
+                async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+                    if self.wake.until - time.monotonic() > 0:
+                        continue  # 順番を待つあいだに延ばされた。新しい切れる時刻まで待つ
+                    # 送る前に状態を見る。もう閉じているのに送ると、移りが無い（決定ユ）。
+                    lapsed = self.wake.speaking == 0 and self._in("open")
+                    if lapsed:
+                        logger.debug("状態図 窓が切れた")
+                        self._window_sending = True
+                        try:
+                            await self._fire("window_lapsed")
+                        finally:
+                            self._window_sending = False
+                break
+            if lapsed:
+                # 送り終えてから見直す。順番は手放してから呼ぶ（錠は二重に取れない）。
                 if not self._timers_ended and self.wake.is_open(time.monotonic()):
                     # 送っているあいだに開け直された（`_to_open` は、まだ開いていると見て送らなかった）。開いているへ
                     # 戻して数え直す。自分を止めないよう、先に手放す。
@@ -589,12 +621,34 @@ class PajuState(StateChart):
                 "状態図 黙っている依頼を控えから戻した（残り %.0f 分）",
                 (req.until - time.time()) / 60,
             )
-            await self._enter_silence(req)
+            self.silence = req
+            await self._settle_silence()
         else:
             self._clear_silence_backup()
 
+    def _turn(self) -> asyncio.Lock:
+        """いま走っているループの順番待ち（決定ン）。ループが変わっていたら作り直す。"""
+        loop = asyncio.get_running_loop()
+        if self._turn_lock is None or self._turn_loop is not loop:
+            self._turn_lock = asyncio.Lock()
+            self._turn_loop = loop
+        return self._turn_lock
+
     async def fire(self, event: str) -> None:
-        """事象を送る、ただ 1 つの口。移りが無ければ捨て、1 行残す（決定ユ）。"""
+        """外から事象を送る口（ループの `_to_state`）。順番を待ってから送る（決定ン）。
+
+        ライブラリは事象の処理の途中で動作を `asyncio.gather` で呼び、ほかの仕事に順番を譲る。順番を待たずに送ると、
+        並んだ事象はまだ処理されておらず、ほかの口から見える状態が古い。古い状態で送った事象は移りが無く、ライブラリは
+        列に並んでいたほかの事象も一緒に退ける。順番を待てば、ライブラリの列にはいつも 1 つしか並ばない。
+
+        状態図に入るときの動作の中からは待たない（順番を持った送り手が、その動作の終わりを待っているので止まる）。
+        動作の中で送るときは、外の仕事として立てる（`spawn_outside`）。
+        """
+        async with self._turn():
+            await self._fire(event)
+
+    async def _fire(self, event: str) -> None:
+        """事象を送る、ただ 1 つの口。順番を持っているあいだに呼ぶ。移りが無ければ捨て、1 行残す（決定ユ）。"""
         try:
             await self.send(event)
         except TransitionNotAllowed as e:
