@@ -839,7 +839,7 @@ class Trigger:
     #: 調べものが**道具の失敗**で終わった（出-o）。結果ではなく「その道具はいま使えない」。
     failed: bool = False
     decision: "Decision | None" = None
-    # 確かめて掛けたタイマーが鳴った（知-n）。配信ゲートを通り抜ける。
+    # 確かめて掛けたタイマーとアラームが鳴ったか、音楽の知らせ（知-n、知-q、知-aa）。配信ゲートを通り抜ける。
     passes_gate: bool = False
     # `会話入力` だけが使う。呼び手がここで返事を待っている。
     future: "asyncio.Future[str] | None" = None
@@ -3825,7 +3825,11 @@ class InformationProcessing:
             task.add_done_callback(self._background_tasks.discard)
 
     def push_device(self, kind: str, content: str, *, passes_gate: bool = False) -> None:
-        """T が人の出入りを待ち行列へ積む（DIF 経由・I は時計を見ない）。`passes_gate` はタイマー（知-n）。"""
+        """機器の出来事（タイマー、アラーム、音楽の知らせ）を待ち行列へ積む（DIF の `device` 経由。I は時計を見ない）。
+
+        `passes_gate` は、配信ゲート（在席の確かめ）を通り抜けるもの（タイマー〔知-n〕とアラーム〔知-q〕は確かめて掛けた
+        もの、音楽の知らせ〔知-aa〕はいつも）。
+        """
         self._triggers.put_nowait(
             Trigger(
                 kind="機器",
@@ -4171,9 +4175,9 @@ class InformationProcessing:
         await self._iterate()
 
     async def _begin_device(self, kind: str, content: str, *, passes_gate: bool = False) -> None:
-        """機器（タイマー・アラームなど）で新しい連鎖を始める。取込＝来た事実を O に書き、鎖の起点にする。
+        """機器の出来事（タイマー、アラーム、音楽の知らせ）で新しい連鎖を始める。取込＝来た事実を O に書き、鎖の起点にする。
 
-        `passes_gate` は確かめて掛けたタイマー（知-n）。
+        `passes_gate` は配信ゲートを通り抜ける印（確かめて掛けたタイマーとアラーム、音楽の知らせ。知-n、知-q、知-aa）。
         """
         await self._begin_request(kind="機器", text=f"[{kind}] {content}")
         self._req.passes_gate = bool(passes_gate)
@@ -5034,8 +5038,9 @@ class InformationProcessing:
 
         正本③ の「配信ゲート（結果有り＋在席）」。見るのは在席だけで、会話の求めには掛けない（出-as §2.3）。
 
-        **確かめたうえで掛けたタイマーが鳴った求めは通り抜ける**（知-n・`passes_gate`）。頼んだ本人が
-        「静かな時間でも鳴らしていい」と言ったものなので、在席にも掛けない。
+        **確かめたうえで掛けたタイマーとアラームが鳴った求めは通り抜ける**（知-n、知-q、`passes_gate`）。頼んだ本人が
+        「静かな時間でも鳴らしていい」と言ったものなので、在席にも掛けない。音楽の知らせ（知-aa、`tonic`）も、この門はいつも通り抜ける。
+        黙っている依頼は入口（`silence_hold.lifts`）で見るので、黙っているあいだに入口を通る機器はタイマーだけである。
         """
         agent = self._agent
         if getattr(self._req, "passes_gate", False):

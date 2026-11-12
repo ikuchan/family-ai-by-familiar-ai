@@ -112,9 +112,7 @@ if [ "$EXIT_CODE" -eq 0 ] && [ -n "$COMMIT_MSG" ]; then
     if git diff --cached --quiet; then
         echo "Nothing to commit — working tree clean."
     else
-        git commit -m "${COMMIT_MSG}
-
-Co-Authored-By: Claude Sonnet 4.6 <noreply@anthropic.com>"
+        git commit -m "${COMMIT_MSG}"
         VERSION=$(uv run python -c "from familiar_agent import __version__; print(__version__)" 2>/dev/null || echo "unknown")
         echo "Committed. Version: ${VERSION}"
     fi
