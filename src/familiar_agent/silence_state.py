@@ -3,13 +3,14 @@
 止めるのは**入口**（情-h）：黙っているあいだ、会話入力・機器・情動のきっかけは O に残す
 だけで求めを立てない（`InformationProcessing._swallow_if_unheard`）。聞いたものは
 `core/silence_hold` が溜め、明けたときに 1 つの求めにまとめて主LLM が答える。
-解けるのは、**時間**（`until`・既定 60 分）と**退室**（頼んだ人が居なくなる。どちらも
-`is_silenced` の判定だけ）、頼んだ本人の「話していいよ」・止める頼み（`core/silence_rules`）、
+解けるのは、**時間**（`until`・既定 30 分、上限 60 分。`is_silenced` の判定だけで、居るかでは解けない）、
+名前と「話していいよ」が同じ発話にあるとき（誰の言葉でも・`core/silence_hold.lifts`、`core/silence_rules`）、
 調停の `lift_silence`。タイマー由来の沈黙（`reason=timer:<id>`）は鳴る時刻を期限に掛け、
 鳴った知らせだけが通り抜ける（`hush_for_timer`／`unhush_timer`）。
 
-状態は `agent_state` に置く。再起動で消えると、頼んだ本人からは「勝手に喋り出した」と
-しか見えない。
+依頼の持ち主は状態図の口の黙るか（`loop/paju_state.PajuState`・環-aw 第 2 段）。`agent_state` の行は再起動で
+戻すための控えで、`save_silence`・`clear_silence` は状態図が黙っているに入るとき・出るときに呼び、`load_silence` は
+起動のときに戻すためだけに読む。控えが無いと再起動で依頼が消え、頼んだ本人からは「勝手に喋り出した」としか見えない。
 """
 
 from __future__ import annotations
