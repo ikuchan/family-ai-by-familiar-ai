@@ -444,3 +444,185 @@ def test_a_failing_chart_does_not_stop_the_window(caplog):
 
     _window(go)
     assert [r for r in caplog.records if "窓を開いているへ移せなかった" in r.getMessage()]
+
+
+# ---- 環-aw 第 2 段 項目 3：仮の呼びかけ ----
+# 名前だけで確かさの足りなかった声（知-bs）。届いた時刻から 10 秒で閉じているへ戻る。続きかは届いた時刻のデータで決める。
+
+
+def test_a_tentative_call_lapses_ten_seconds_after_it_arrived():
+    """数え始めは届いた時刻で、処理した時刻ではない。切れたあとも、届いた時刻は残す（続きかを決めるのに使う）。"""
+
+    async def go(sm):
+        at = _almost_lapsed(0.1)
+        await sm.call_tentatively(at)
+        assert "tentative" in _ids(sm) and sm.tentative_since() == at
+        await asyncio.sleep(0.4)
+        assert "shut" in _ids(sm)
+        assert sm.tentative_since() == at
+
+    _window(go)
+
+
+def test_an_old_tentative_call_does_not_move_the_state():
+    """**反証の側**：10 秒より前に届いた声では、仮の呼びかけへ移らない（移ってすぐ戻らない）。"""
+
+    async def go(sm):
+        await sm.call_tentatively(time.monotonic() - 20.0)
+        assert "shut" in _ids(sm)
+
+    _window(go)
+
+
+def test_a_window_opened_from_a_tentative_call_keeps_its_arrival(caplog):
+    """窓が開くと、仮の呼びかけから 1 回で開いているへ移る。届いた時刻は捨てない（2026-11-12 本人の決定）。"""
+
+    async def go(sm):
+        at = time.monotonic()
+        await sm.call_tentatively(at)
+        with caplog.at_level(logging.DEBUG, logger="familiar_agent.loop.paju_state"):
+            await sm.open_window(time.monotonic())
+        assert "open" in _ids(sm)
+        assert sm.tentative_since() == at
+
+    _window(go)
+    moved = [r.getMessage() for r in caplog.records if "で移った" in r.getMessage()]
+    assert len(moved) == 1 and "window_opened" in moved[0]
+
+
+def test_dropping_the_tentative_call_shuts_it():
+    async def go(sm):
+        await sm.call_tentatively(time.monotonic())
+        await sm.drop_tentative()
+        assert "shut" in _ids(sm) and sm.tentative_since() is None
+
+    _window(go)
+
+
+def test_dropping_without_a_tentative_call_sends_nothing(caplog):
+    """**番人**：仮の呼びかけにいないときは、`tentative_dropped` を送らない（移りの無い事象は列のほかの事象も退ける）。"""
+
+    async def go(sm):
+        with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+            await sm.drop_tentative()
+        assert "shut" in _ids(sm)
+
+    _window(go)
+    assert not [r for r in caplog.records if "捨てた" in r.getMessage()]
+
+
+def test_ending_the_timers_stops_the_tentative_lapse():
+    async def go(sm):
+        await sm.call_tentatively(_almost_lapsed(0.1))
+        sm.end_timers()
+        await asyncio.sleep(0.4)
+        assert "tentative" in _ids(sm)
+
+    _window(go)
+
+
+def test_a_tentative_call_is_kept_while_the_state_is_open(caplog):
+    """門は届いた時刻の窓で決めるので、状態が開いていても届いた時刻は預ける（前と同じ）。事象は送らない。"""
+
+    async def go(sm):
+        await sm.open_window(time.monotonic())
+        at = time.monotonic()
+        with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+            await sm.call_tentatively(at)
+        assert "open" in _ids(sm) and sm.tentative_since() == at
+
+    _window(go)
+    assert not [r for r in caplog.records if "捨てた" in r.getMessage()]
+
+
+def test_a_lapse_being_sent_is_finished_even_if_stopped():
+    """切れたことを送っている印のあいだは、数える仕事を止めない（送り終える）。"""
+
+    async def go(sm):
+        real_fire = sm.fire
+
+        async def fire(event):
+            if event == "tentative_lapsed":
+                # 送っている最中に、別の道（仕事の外）が止めた
+                asyncio.get_running_loop().call_soon(sm._stop_tentative_task)
+                await asyncio.sleep(0)
+                await asyncio.sleep(0)
+            await real_fire(event)
+
+        sm.fire = fire
+        await sm.call_tentatively(_almost_lapsed(0.1))
+        await asyncio.sleep(0.4)
+        assert "shut" in _ids(sm)
+
+    _window(go)
+
+
+def test_dropping_while_the_lapse_is_sent_sends_nothing(caplog):
+    """**番人**：切れたことを送っている最中に捨てても、`tentative_dropped` は送らない（送り終えれば閉じているにいる）。"""
+
+    async def go(sm):
+        real_fire = sm.fire
+
+        async def fire(event):
+            if event == "tentative_lapsed":
+                await sm.drop_tentative()  # 送っている最中に、音楽の言葉を受けた
+            await real_fire(event)
+
+        sm.fire = fire
+        await sm.call_tentatively(_almost_lapsed(0.1))
+        with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+            await asyncio.sleep(0.4)
+        assert "shut" in _ids(sm) and sm.tentative_since() is None
+
+    _window(go)
+    assert not [r for r in caplog.records if "捨て" in r.getMessage()]
+
+
+def test_a_call_while_the_lapse_is_sent_goes_back_to_tentative():
+    """切れたことを送っている最中に新しい呼びかけが届いたら、送り終えてからデータを見て、仮の呼びかけへ戻す。"""
+
+    async def go(sm):
+        real_fire = sm.fire
+
+        async def fire(event):
+            if event == "tentative_lapsed":
+                await sm.call_tentatively(time.monotonic())
+            await real_fire(event)
+
+        sm.fire = fire
+        await sm.call_tentatively(_almost_lapsed(0.1))
+        await asyncio.sleep(0.4)
+        assert "tentative" in _ids(sm)
+        assert sm._tentative_task is not None and not sm._tentative_task.done()
+
+    _window(go)
+
+
+def test_a_call_kept_in_the_window_moves_to_tentative_when_the_window_lapses():
+    """窓が切れる間際に届いた仮の呼びかけは、窓が切れたら仮の呼びかけへ移る（状態とデータをそろえる）。"""
+
+    async def go(sm):
+        await sm.open_window(_almost_lapsed(0.1))
+        await sm.call_tentatively(time.monotonic())
+        assert "open" in _ids(sm)
+        await asyncio.sleep(0.4)
+        assert "tentative" in _ids(sm)
+
+    _window(go)
+
+
+def test_an_old_tentative_call_starts_no_timer():
+    async def go(sm):
+        await sm.call_tentatively(time.monotonic() - 20.0)
+        assert sm._tentative_task is None
+
+    _window(go)
+
+
+def test_a_window_opened_from_a_tentative_call_stops_its_timer():
+    async def go(sm):
+        await sm.call_tentatively(time.monotonic())
+        await sm.open_window(time.monotonic())
+        assert sm._tentative_task is None
+
+    _window(go)

@@ -34,7 +34,7 @@ from typing import Callable
 from statemachine import State, StateChart
 
 from ..core.aio import spawn_outside
-from ..core.wake_window import WakeWindow
+from ..core.wake_window import WAKE_WINDOW_SEC, WakeWindow
 from statemachine.exceptions import TransitionNotAllowed
 
 logger = logging.getLogger(__name__)
@@ -94,6 +94,12 @@ class PajuState(StateChart):
         self._window_task: "asyncio.Task[None] | None" = None
         #: 数える仕事が `window_lapsed` を送っているあいだ真。そのあいだは仕事を止めない（送り終えてから見直す）。
         self._window_sending = False
+        #: 仮の呼びかけの届いた時刻（`time.monotonic`・知-bs）。名前だけで確かさの足りなかった声。続きかは届いた時刻から
+        #: 10 秒（`WAKE_WINDOW_SEC`）のうちかで決めるので、時間で閉じているへ戻っても、窓が開いても残す。捨てると None。
+        self.tentative_at: "float | None" = None
+        #: 仮の呼びかけの 10 秒を数える仕事と、それが `tentative_lapsed` を送っているあいだ真の印（窓と同じ作り）。
+        self._tentative_task: "asyncio.Task[None] | None" = None
+        self._tentative_sending = False
         #: ループを閉じたら真。もう時間を数える仕事を立てない。
         self._timers_ended = False
         super().__init__()
@@ -235,7 +241,11 @@ class PajuState(StateChart):
                 self._limit_task = None
 
     async def open_window(self, at: float, *, resume: bool = False) -> None:
-        """名前を聞いた、打たれた、返事を言い終えた。窓を `at` から開け（`WakeWindow.open`）、開いているへ移る。"""
+        """名前を聞いた、打たれた、返事を言い終えた。窓を `at` から開け（`WakeWindow.open`）、開いているへ移る。
+
+        仮の呼びかけからも 1 回で開いているへ移る。届いた時刻は捨てない（2026-11-12 本人の決定。窓のあいだ門は窓で受けるので、
+        預かりは使われない）。
+        """
         self.wake.open(at, resume=resume)
         await self._to_open()
 
@@ -266,6 +276,90 @@ class PajuState(StateChart):
         """時間を数える仕事をみな止める（ループを閉じるとき）。このあとは立てない。"""
         self._timers_ended = True
         self._stop_window_task()
+        self._stop_tentative_task()
+
+    async def call_tentatively(self, at: float) -> None:
+        """名前だけで確かさの足りない声が `at` に届いた（知-bs）。届いた時刻を預け、仮の呼びかけへ移る。
+
+        10 秒は届いた時刻から数える。もう 10 秒たった声では移らない（移ってすぐ戻らない）。届いた時刻は、いつも預ける
+        （門は届いた時刻の窓で決めるので、状態が開いていても預ける）。状態が開いているときは移らず、窓が切れたら移る。
+        """
+        self.tentative_at = at
+        await self._to_tentative()
+
+    async def drop_tentative(self) -> None:
+        """仮の呼びかけを捨てる（鳴っているあいだの音楽の言葉を窓を開けずに受けた）。いなければ何も送らない。"""
+        self.tentative_at = None
+        self._stop_tentative_task()
+        if self._tentative_sending:
+            return  # 切れたことを送っている。送り終えれば閉じているにいる（ここで送ると移りが無い）
+        try:
+            if self._in("tentative"):
+                await self.fire("tentative_dropped")
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 仮の呼びかけを捨てられなかった", exc_info=True)
+
+    def tentative_since(self) -> "float | None":
+        """仮の呼びかけの届いた時刻。門はこの時刻で続きかを決める（状態では決めない）。無ければ None。"""
+        return self.tentative_at
+
+    def _tentative_live(self) -> bool:
+        """データの上で、仮の呼びかけが届いてから 10 秒たっていないか（門の `_follows_tentative_call` と同じ下限と上限）。"""
+        at = self.tentative_at
+        return at is not None and 0 <= time.monotonic() - at < WAKE_WINDOW_SEC
+
+    async def _to_tentative(self) -> None:
+        """データの上で仮の呼びかけが生きていて、窓の状態が開いていなければ、仮の呼びかけへ移して数え直す。
+        状態図が落ちても、会話は止めない（警告を 1 行残す）。"""
+        try:
+            if self._tentative_sending:
+                return  # 送り終えてから、仕事がデータを見て移し直す
+            if self._tentative_live() and not self._in("open"):
+                await self.fire("tentative_called")
+            self._arm_tentative()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 仮の呼びかけへ移せなかった", exc_info=True)
+
+    def _stop_tentative_task(self) -> None:
+        if self._tentative_sending:
+            return  # 送っている仕事は止めない。送り終えてから、データを見て移し直す
+        task, self._tentative_task = self._tentative_task, None
+        if task is not None:
+            task.cancel()
+
+    def _arm_tentative(self) -> None:
+        """仮の呼びかけの 10 秒を数え直す（届いた時刻が変わりうるので、生きている仕事も立て直す）。"""
+        if self._tentative_sending:
+            return
+        self._stop_tentative_task()
+        if self._timers_ended or not self._in("tentative"):
+            return
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ数えない
+            self._tentative_task = spawn_outside(self._wait_tentative())
+
+    async def _wait_tentative(self) -> None:
+        try:
+            while (at := self.tentative_at) is not None and (
+                left := at + WAKE_WINDOW_SEC - time.monotonic()
+            ) > 0:
+                await asyncio.sleep(left)
+            # 送る前に状態を見る（移りの無い事象を送らない）。届いた時刻は残す。
+            if self._in("tentative"):
+                logger.debug("状態図 仮の呼びかけが切れた")
+                self._tentative_sending = True
+                try:
+                    await self.fire("tentative_lapsed")
+                finally:
+                    self._tentative_sending = False
+                if not self._timers_ended and self._tentative_live():
+                    # 送っているあいだに新しい呼びかけが届いた。仮の呼びかけへ戻して数え直す。自分を止めないよう、先に手放す。
+                    self._tentative_task = None
+                    await self._to_tentative()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 仮の呼びかけが切れたことを送れなかった", exc_info=True)
+        finally:
+            if self._tentative_task is asyncio.current_task():
+                self._tentative_task = None
 
     def _in(self, state_id: str) -> bool:
         return any(s.id == state_id for s in self.configuration)
@@ -276,6 +370,8 @@ class PajuState(StateChart):
         try:
             if not self._in("open") and self.wake.is_open(time.monotonic()):
                 await self.fire("window_opened")
+                # 仮の呼びかけからも移るので、その 10 秒は数えない（届いた時刻は残す。窓が切れたとき生きていれば移し直す）
+                self._stop_tentative_task()
             self._arm_window()
         except Exception:  # noqa: BLE001
             logger.warning("状態図 窓を開いているへ移せなかった", exc_info=True)
@@ -317,6 +413,9 @@ class PajuState(StateChart):
                     # 戻して数え直す。自分を止めないよう、先に手放す。
                     self._window_task = None
                     await self._to_open()
+                elif not self._timers_ended:
+                    # 窓が開いているあいだに届いた仮の呼びかけが、まだ生きていれば移す（切れる間際に届いた声）。
+                    await self._to_tentative()
         except asyncio.CancelledError:
             raise
         except Exception:  # noqa: BLE001

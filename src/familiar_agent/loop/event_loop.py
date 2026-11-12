@@ -934,9 +934,7 @@ class InformationProcessing:
         self._heard_check: "dict | None" = None
         # パジュの申し出の預かり（出-dj）：申し出た返事の文と、そのときの窓の会話の番号。次の 1 回の返事で消す。
         self._offer: "dict | None" = None
-        # 仮の呼びかけの預かり（知-bs）：名前だけで確かさが足りなかった声の届いた時刻（monotonic）。続きとして受けたら消す
-        # （宛てでない声では消さない）。10 秒（`WAKE_WINDOW_SEC`）たてば使わない。
-        self._tentative_call: "float | None" = None
+        # 仮の呼びかけ（知-bs）の持ち主は状態図（`PajuState.call_tentatively`・環-aw 第 2 段 項目 3）。
         self._background_tasks: set[asyncio.Task] = set()
         #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
         self._version_writes: "set[asyncio.Future]" = set()
@@ -5102,8 +5100,8 @@ class InformationProcessing:
             trigger.named = heard_name(trigger.query, names)
             if trigger.source == "voice" and not trigger.named:
                 # 名前の聞こえなかった声だけ、仮の呼びかけの続きかを見る。名前の聞こえた声は名前の基準で決める（宛先を 2 度
-                # 聞かない・知-bs）。`__new__` で組んだ装置（試験）でも落ちないように辞書から読む。
-                tentative = self.__dict__.get("_tentative_call")
+                # 聞かない・知-bs）。続きかは届いた時刻で決めるので、状態ではなく届いた時刻を読む。
+                tentative = self._paju().tentative_since()
             near = (
                 trigger.named and trigger.source == "voice" and near_name_only(trigger.query, names)
             )
@@ -5167,7 +5165,7 @@ class InformationProcessing:
                 state = "延ばさなかった"  # 窓の中の 1 字違いは名前の証拠にしない。窓の中なので預けもしない
             else:
                 # 値が足りない名前と 1 字違いの名前は、仮の呼びかけとして届いた時刻を預ける。窓は開けず、返事もしない（知-bs）。
-                self._tentative_call = self._arrival(trigger)
+                await self._paju().call_tentatively(self._arrival(trigger))
                 state = "開けず仮の呼びかけとして預けた"
             # 値は捨てても残す（実機で貯めて見直す・出-ch）。本文は出さない。
             logger.info(
@@ -5192,7 +5190,8 @@ class InformationProcessing:
                 logger.info(
                     "event-loop 音楽の言葉なので名前なしで受けた（%d 字）", len(trigger.query or "")
                 )
-                self._tentative_call = None  # パジュ宛てと分かって受けた（知-bs）
+                # 窓を開けずに受けたので、仮の呼びかけを捨てる。残すと、残りの 10 秒のテレビの声にも名前を付けて宛先を聞く（知-bs）。
+                await self._paju().drop_tentative()
                 if self._muted:
                     self._pending_heard = self._take_muted()
                 return False
@@ -5593,7 +5592,8 @@ class InformationProcessing:
             return False
         if not 0 <= self._arrival(trigger) - tentative < WAKE_WINDOW_SEC:
             return False
-        # 宛てでない声（せき・テレビ）では消さない。10 秒のうちの次の用件を受けられるように残す（本人の決定イ）。
+        # 宛てでない声（せき・テレビ）では消さない。10 秒のうちの次の用件を受けられるように残す（本人の決定イ）。続きとして
+        # 受けても消さない（受けた用件が窓を開け、窓が残りを覆う・2026-11-12 本人の決定）。
         started = time.monotonic()
         ok = await self._near_name_is_for_me(replace(trigger, query=f"{names[0]}、{trigger.query}"))
         logger.info(
@@ -5602,8 +5602,6 @@ class InformationProcessing:
             len(trigger.query or ""),
             time.monotonic() - started,
         )
-        if ok:
-            self._tentative_call = None
         return ok
 
     async def _near_name_is_for_me(self, trigger: "Trigger") -> bool:

@@ -5,7 +5,8 @@
 捨てていた。名前だけで確かさの足りない声は、窓を開けず返事もせず、聞いた時刻を預ける。10 秒（`WAKE_WINDOW_SEC`）以内の
 次の声は、捨てる前に「パジュ、」＋その言葉を宛先の判定（1 字違いの名前と同じ問いと下限）に見せ、宛てなら名前で呼ばれた
 用件として受ける。宛てでない声（せき・テレビ）では消さず、10 秒のあいだ残す（見直しの指摘 3 番・本人の決定イ）。
-宛てと分かって受けたときと、10 秒たったときに消える。
+10 秒たてば使わない。鳴っているあいだの音楽の言葉を窓を開けずに受けたときは消える。続きとして受けても、名前で窓が開いても
+消さない（受けた言葉が窓を開け、窓が残りの 10 秒を覆う・2026-11-12 本人の決定）。
 Jev の確かめ（`jev-1.14.0`・合成した場面・3 回）：頭に「パジュ、」を付けると、頼み 3 つはロボット宛て 0.73〜0.95、テレビや
 家族の話 3 つは 0.01〜0.19。頭を付けないと、頼みは 0.33〜0.67 で下限 0.3 にすれすれだった。
 """
@@ -87,7 +88,7 @@ def test_a_music_word_taken_while_playing_uses_up_the_hold():
     _called_by_name_only(ip)
     ip._music_word_while_playing = lambda trigger: trigger.query == "ストップ"
     _t, ok = _say(ip, "ストップ", at=T0 + 2)
-    assert ok is True and ip._tentative_call is None
+    assert ok is True and ip._paju().tentative_since() is None
 
 
 def test_after_ten_seconds_jev_is_not_asked():
@@ -100,7 +101,7 @@ def test_after_ten_seconds_jev_is_not_asked():
 
 
 def test_a_cough_in_between_does_not_lose_the_request():
-    """宛てでない声（せき・テレビ）をはさんでも、10 秒のうちなら次の用件を受ける。受けたら預かりは消える。"""
+    """宛てでない声（せき・テレビ）をはさんでも、10 秒のうちなら次の用件を受ける。受けても預かりは残す（窓が覆う）。"""
     jev = _Jev(0.1)
     ip = _gate(jev)
     _called_by_name_only(ip)
@@ -109,7 +110,7 @@ def test_a_cough_in_between_does_not_lose_the_request():
     jev._robot = 0.9
     t, ok = _say(ip, "明日の天気は？", at=T0 + 6)
     assert ok is True and t.named is True and len(jev.calls) == 2
-    assert ip._tentative_call is None
+    assert ip._paju().tentative_since() == T0
 
 
 def test_a_name_that_opened_the_window_is_not_held():
@@ -118,7 +119,7 @@ def test_a_name_that_opened_the_window_is_not_held():
     ip = _gate(jev)
     _t, ok = _say(ip, "パジュ", at=T0, lp=-0.5)
     assert ok is False and ip._wake_window().is_open(T0)
-    assert ip._tentative_call is None
+    assert ip._paju().tentative_since() is None
 
 
 def test_typed_words_do_not_use_the_hold():
@@ -170,7 +171,7 @@ def test_a_near_name_with_words_is_still_asked():
     jev = _Jev(0.1)
     ip = _gate(jev)
     _t, ok = _say(ip, "パンシュー、おはよう。", at=T0)
-    assert ok is False and len(jev.calls) == 1 and ip._tentative_call is None
+    assert ok is False and len(jev.calls) == 1 and ip._paju().tentative_since() is None
 
 
 def test_a_near_name_alone_in_an_open_window_gets_no_reply():
@@ -180,7 +181,7 @@ def test_a_near_name_alone_in_an_open_window_gets_no_reply():
     until = ip._wake_window().until
     _t, ok = _say(ip, "アジュー", at=time.monotonic())
     assert ok is False and jev.calls == [] and ip._wake_window().until == until
-    assert ip._tentative_call is None  # 窓の中なので預けない
+    assert ip._paju().tentative_since() is None  # 窓の中なので預けない
 
 
 def test_a_near_name_with_more_sounds_is_asked_and_not_held():
@@ -188,4 +189,27 @@ def test_a_near_name_with_more_sounds_is_asked_and_not_held():
     jev = _Jev(0.1)
     ip = _gate(jev)
     _t, ok = _say(ip, "ジュース", at=T0)
-    assert ok is False and len(jev.calls) == 1 and ip._tentative_call is None
+    assert ok is False and len(jev.calls) == 1 and ip._paju().tentative_since() is None
+
+
+# ── 環-aw 第 2 段 項目 3：仮の呼びかけの持ち主は状態図 ──────────────────────────────────────
+
+
+def test_the_next_words_are_taken_after_the_state_has_lapsed():
+    """状態が閉じているへ戻ったあとでも、届いた時刻が 10 秒のうちなら、いまと同じく続きとして判定に回す。"""
+    jev = _Jev(0.9)
+    ip = _gate(jev)
+    _called_by_name_only(ip)
+    asyncio.run(ip._paju().fire("tentative_lapsed"))  # 数える仕事が先に送った
+    t, ok = _say(ip, "明日の天気は？", at=T0 + 5)
+    assert ok is True and t.named is True and len(jev.calls) == 1
+
+
+def test_a_clear_name_keeps_the_tentative_call():
+    """仮の呼びかけのあいだに、はっきり名前で呼ばれて窓が開いても、預かりは捨てない（2026-11-12 本人の決定）。"""
+    jev = _Jev(0.9)
+    ip = _gate(jev)
+    _called_by_name_only(ip)
+    _t, ok = _say(ip, "パジュ", at=T0 + 2, lp=-0.5)
+    assert ok is False and ip._wake_window().is_open(T0 + 2)
+    assert ip._paju().tentative_since() == T0
