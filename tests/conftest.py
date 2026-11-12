@@ -295,6 +295,22 @@ def _tests_open_the_window(request, monkeypatch):
     yield
 
 
+def silence(ip, req) -> None:
+    """黙っている依頼を、ループの状態図に置く（環-aw 第 2 段 項目 4・持ち主は状態図）。
+
+    状態図の `hush_with` を通るので、黙っているへ移り、控え（テスト DB の `agent_state`）も書く。期限を過ぎた依頼では
+    黙らない。非同期の試験の中からは呼べないので、そこでは `await ip._paju().hush_with(req)` を使う。
+    """
+    import asyncio
+
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        asyncio.run(ip._paju().hush_with(req))
+        return
+    raise RuntimeError("非同期の試験では await ip._paju().hush_with(req) を使う")
+
+
 @pytest.fixture(autouse=True)
 def _async_stuck_guard(monkeypatch):
     """`asyncio.run` が終わらなければ、待っていたタスクの場所を載せて失敗させる（環-aa・2026-09-26）。

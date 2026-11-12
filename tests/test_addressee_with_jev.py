@@ -47,7 +47,6 @@ def _ip(answer=None, *, exc=None):
     a._jev = client
     a.config.jev_confidence_min = 0.6
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None
     ip._ensure_driver = lambda: None
     ip._abort_lookups = AsyncMock()
     heard: list = []

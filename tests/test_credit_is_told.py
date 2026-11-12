@@ -22,7 +22,6 @@ from familiar_agent.core import credit
 def world(monkeypatch):
     w = {"alerts": {"gemini": "t"}, "here": True, "silenced": False}
     monkeypatch.setattr(credit, "pending", lambda: dict(w["alerts"]))
-    monkeypatch.setattr("familiar_agent.loop.tonic._silenced_now", lambda: w["silenced"])
     return w
 
 
@@ -31,7 +30,10 @@ def _tonic(world):
 
     agent = MagicMock()
     agent.config.tts_gain = 0.25
-    t = Tonic(MagicMock(), agent=agent)
+    ip = MagicMock()
+    ip._paju.return_value.start = AsyncMock()  # 黙っている依頼の控えを戻し終える
+    ip.is_silenced_now = lambda: world["silenced"]  # 持ち主は状態図（環-aw 第 2 段 項目 4）
+    t = Tonic(ip, agent=agent)
     t._someone_here = lambda: world["here"]  # type: ignore[method-assign]
     t._dif = MagicMock()
     t._dif.say_credit = AsyncMock(return_value=True)

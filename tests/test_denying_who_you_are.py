@@ -182,7 +182,11 @@ def test_todays_form_keeps_the_voice_speaker():
     pmm = _FakePMM2({"パパ": "p-yusuke"})
     persons = _FakePersons("パパ")
     ip = _loop(pmm, persons)
-    ip._apply_silence = lambda decision, utterance="": None
+
+    async def no_silence(decision, utterance=""):
+        return None
+
+    ip._apply_silence = no_silence
 
     async def no_claim(decision):
         return None

@@ -19,7 +19,7 @@ from dataclasses import dataclass
 import logging
 import time
 from datetime import datetime, timezone
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from ..core import timer_rules
 from ..core.label_rules import clean_label
@@ -107,8 +107,8 @@ class TimerTool:
         quiet: Callable[[], Any],
         silence_active: Callable[[], bool],
         now: "Callable[[], datetime] | None" = None,
-        hush: "Callable[[str, datetime, int], None] | None" = None,
-        unhush: "Callable[[int | str], None] | None" = None,
+        hush: "Callable[[str, datetime, int], Awaitable[None]] | None" = None,
+        unhush: "Callable[[int | str], Awaitable[None]] | None" = None,
         on_cancel: "Callable[[], object] | None" = None,  # 音を止めたら真を返してよい（出-af）
         ask: "Callable[[PendingConfirm], None] | None" = None,
     ) -> None:
@@ -293,7 +293,7 @@ class TimerTool:
             # 掛けた瞬間から鳴るまで黙る。鳴る時刻＝期限なので、鳴る知らせは何もしなくても通る。
             # **頼んだ人が分からなくても黙る**（知-ai・2026-10-05）。依頼の「人」は記録に使うだけで、黙るかは
             # 人を見ない（`silence_state.is_silenced`）。以前は分かるときだけ黙り、耳だけ閉じて口は開いていた。
-            self._hush(who, due, tid)
+            await self._hush(who, due, tid)
             hushed = "。鳴るまで黙っている"
         return f"掛けた：id={tid} 「{label}」 {due:%H:%M} に鳴る" + (
             "（静かな時間でも鳴らす）" if reason else ""
@@ -316,7 +316,7 @@ class TimerTool:
                 ), True
             n = store.cancel_all(now=now)
             if self._unhush is not None:
-                self._unhush("all")
+                await self._unhush("all")
             await self._write("やめた：" + "・".join(f"「{r['label']}」" for r in rows))
             logger.info("タイマーを全部止めた（%d 本）", n)
             return f"{n} 本止めた：" + "・".join(f"「{r['label']}」" for r in rows), True
@@ -328,7 +328,7 @@ class TimerTool:
         if row is None or not store.cancel(tid, now=now):
             return f"id={tid} のタイマーは動いていない", False
         if self._unhush is not None:
-            self._unhush(tid)
+            await self._unhush(tid)
         measured = timer_rules.measure_at(row, now)  # 止めた瞬間の残り
         await self._write(f"やめた：「{row['label']}」{measured}")
         logger.info("タイマーを止めた id=%d %s %s", tid, row["label"], measured)

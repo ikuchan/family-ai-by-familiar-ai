@@ -29,13 +29,16 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from statemachine import State, StateChart
 
 from ..core.aio import spawn_outside
 from ..core.wake_window import WAKE_WINDOW_SEC, WakeWindow
 from statemachine.exceptions import TransitionNotAllowed
+
+if TYPE_CHECKING:
+    from ..silence_state import SilenceRequest
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +75,9 @@ class PajuState(StateChart):
         on_idle: "Callable[[], None] | None" = None,
         thinking_limit_sec: "float | None" = None,
         on_limit: "Callable[[], None] | None" = None,
+        on_silence_saved: "Callable[[SilenceRequest], None] | None" = None,
+        on_silence_cleared: "Callable[[], None] | None" = None,
+        restore_silence: "Callable[[], SilenceRequest | None] | None" = None,
     ) -> None:
         #: 考えているの子に入ったときに呼ぶ口（子の名前を渡す）。ループが電子音を鳴らす（決定テ）。
         self._on_child = on_child
@@ -100,6 +106,18 @@ class PajuState(StateChart):
         #: 仮の呼びかけの 10 秒を数える仕事と、それが `tentative_lapsed` を送っているあいだ真の印（窓と同じ作り）。
         self._tentative_task: "asyncio.Task[None] | None" = None
         self._tentative_sending = False
+        #: 黙っている依頼（第 2 段 項目 4）。持ち主はこの図で、DB の `agent_state` の行は控え（再起動で戻すため）。
+        #: 黙っているに入ると `on_silence_saved` で書き、出ると `on_silence_cleared` で消す。`start` のとき
+        #: `restore_silence` で読み、生きていれば残りの期限で黙り、過ぎていれば消す。
+        self.silence: "SilenceRequest | None" = None
+        self._on_silence_saved = on_silence_saved
+        self._on_silence_cleared = on_silence_cleared
+        self._restore_silence = restore_silence
+        #: 黙るの期限を数える仕事と、それが `silence_ended` を送っているあいだ真の印（窓と同じ作り）。
+        self._silence_task: "asyncio.Task[None] | None" = None
+        self._silence_sending = False
+        #: 初めの状態に入り、控えを戻し終えたら済む。同時に待つ読み手も、戻し終えるまで待つ。
+        self._starting: "asyncio.Future[None] | None" = None
         #: ループを閉じたら真。もう時間を数える仕事を立てない。
         self._timers_ended = False
         super().__init__()
@@ -277,6 +295,108 @@ class PajuState(StateChart):
         self._timers_ended = True
         self._stop_window_task()
         self._stop_tentative_task()
+        self._stop_silence_task()
+
+    async def hush_with(self, req: "SilenceRequest") -> None:
+        """黙っている依頼を受けた（人の「黙って」、タイマー）。データを置き換え、黙っているへ移り、控えを書く。
+
+        名前を `hush` にしないのは、口の領域 `hush` と重なり、ライブラリが許さないため。
+
+        どの依頼にするか（タイマーは人の依頼を上書きしない、遅いタイマーは延ばす）は、呼び手が `silence_state` の
+        純関数で決める。期限を過ぎた依頼では黙らない。
+        """
+        await self.start()
+        if time.time() >= req.until:
+            return
+        await self._enter_silence(req)
+        if self._on_silence_saved is not None:
+            try:
+                self._on_silence_saved(req)
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 黙っている依頼の控えを書けなかった", exc_info=True)
+
+    async def unhush(self) -> None:
+        """黙るのを解く（「話していいよ」、止めたタイマー）。黙っていなければ何も送らない。"""
+        await self.start()
+        if self.silence is None and not self._in("silent"):
+            return
+        # データが無くても状態が黙っているなら戻す（期限で解けたことを送れなかったとき）。
+        self.silence = None
+        self._stop_silence_task()
+        self._clear_silence_backup()
+        if self._silence_sending:
+            return  # 期限で解けたことを送っている。送り終えれば話してよいにいる
+        try:
+            if self._in("silent"):
+                await self.fire("silence_ended")
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 黙るのを解けなかった", exc_info=True)
+
+    def silence_request(self) -> "SilenceRequest | None":
+        """いまの黙っている依頼。門は、これを処理した時刻で `is_silenced` に掛けて決める。無ければ None。"""
+        return self.silence
+
+    def is_silent(self) -> bool:
+        """口が黙っているにいるか。"""
+        return self._in("silent")
+
+    async def _enter_silence(self, req: "SilenceRequest") -> None:
+        self.silence = req
+        try:
+            if not self._silence_sending:
+                await self.fire("silence_began")
+                self._arm_silence()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 黙っているへ移せなかった", exc_info=True)
+
+    def _clear_silence_backup(self) -> None:
+        if self._on_silence_cleared is not None:
+            try:
+                self._on_silence_cleared()
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 黙っている依頼の控えを消せなかった", exc_info=True)
+
+    def _stop_silence_task(self) -> None:
+        if self._silence_sending:
+            return  # 送っている仕事は止めない。送り終えてから、データを見て移し直す
+        task, self._silence_task = self._silence_task, None
+        if task is not None:
+            task.cancel()
+
+    def _arm_silence(self) -> None:
+        """黙るの期限を数え直す（依頼が変わりうるので、生きている仕事も立て直す）。"""
+        if self._silence_sending:
+            return
+        self._stop_silence_task()
+        if self._timers_ended or self.silence is None or not self._in("silent"):
+            return
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ数えない
+            self._silence_task = spawn_outside(self._wait_silence())
+
+    async def _wait_silence(self) -> None:
+        try:
+            # 期限は壁の時計（`time.time`）の秒。依頼が置き換わったら、新しい期限まで待つ。
+            while (req := self.silence) is not None and (left := req.until - time.time()) > 0:
+                await asyncio.sleep(left)
+            if req is None or not self._in("silent"):
+                return  # 送る前に状態を見る（移りの無い事象を送らない）
+            logger.info("状態図 黙る期限が来たので解いた")
+            self.silence = None
+            self._clear_silence_backup()
+            self._silence_sending = True
+            try:
+                await self.fire("silence_ended")
+            finally:
+                self._silence_sending = False
+            if not self._timers_ended and (nxt := self.silence) is not None:
+                # 送っているあいだに新しい依頼が届いた。黙っているへ戻して数え直す。自分を止めないよう、先に手放す。
+                self._silence_task = None
+                await self._enter_silence(nxt)
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 黙る期限で解けたことを送れなかった", exc_info=True)
+        finally:
+            if self._silence_task is asyncio.current_task():
+                self._silence_task = None
 
     async def call_tentatively(self, at: float) -> None:
         """名前だけで確かさの足りない声が `at` に届いた（知-bs）。届いた時刻を預け、仮の呼びかけへ移る。
@@ -425,9 +545,48 @@ class PajuState(StateChart):
                 self._window_task = None
 
     async def start(self) -> None:
-        """初めの状態に入る。入っていれば何もしない。"""
-        if not self.configuration:
-            await self.activate_initial_state()
+        """初めの状態に入り、黙っている依頼の控えを戻す。済んでいれば何もしない。
+
+        戻し終えるまでは、同時に待つ読み手（門、トニック）も待たせる（戻す前に読むと、黙っていないと読む）。
+        """
+        while (starting := self._starting) is not None:
+            if starting.done():
+                return
+            # 戻している読み手を待つ。落ちたら `_starting` は None に戻るので、もう一度見て自分で戻し直す。
+            await asyncio.shield(starting)
+        self._starting = starting = asyncio.get_running_loop().create_future()
+        try:
+            # ほかの口が先に事象を送ると、ライブラリはひとりでに初めの状態に入る。そのときも控えは戻す。
+            if not self.configuration:
+                await self.activate_initial_state()
+            await self._restore()
+        except BaseException:
+            self._starting = None  # 途中で落ちた、止められた。次の `start` でやり直す
+            raise
+        finally:
+            starting.set_result(None)
+
+    async def _restore(self) -> None:
+        """再起動しなおし：控えに生きた依頼があれば残りの期限で黙る。過ぎていれば控えを消す。控えは書き直さない。"""
+        if self._restore_silence is None:
+            return
+        from ..silence_state import is_silenced
+
+        try:
+            req = self._restore_silence()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 黙っている依頼の控えを読めなかった", exc_info=True)
+            return
+        if req is None:
+            return
+        if is_silenced(req, now=time.time()):
+            logger.info(
+                "状態図 黙っている依頼を控えから戻した（残り %.0f 分）",
+                (req.until - time.time()) / 60,
+            )
+            await self._enter_silence(req)
+        else:
+            self._clear_silence_backup()
 
     async def fire(self, event: str) -> None:
         """事象を送る、ただ 1 つの口。移りが無ければ捨て、1 行残す（決定ユ）。"""

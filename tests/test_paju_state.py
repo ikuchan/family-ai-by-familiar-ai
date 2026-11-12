@@ -626,3 +626,243 @@ def test_a_window_opened_from_a_tentative_call_stops_its_timer():
         assert sm._tentative_task is None
 
     _window(go)
+
+
+# ---- 環-aw 第 2 段 項目 4：黙っている（口の黙るか） ----
+# 持ち主は状態図。DB の `agent_state` の行は控えで、入ると書き、出ると消し、起動のときに残りの期限で戻す。
+
+
+def _hushing(go, *, restore=None):
+    """黙るかを確かめる装置。控えを書く口と消す口の呼ばれ方を `book` に残す。"""
+    book: dict = {"saved": [], "cleared": 0, "loaded": 0}
+
+    def saved(req):
+        book["saved"].append(req)
+
+    def cleared():
+        book["cleared"] += 1
+
+    def load():
+        book["loaded"] += 1
+        return restore
+
+    async def run():
+        sm = PajuState(on_silence_saved=saved, on_silence_cleared=cleared, restore_silence=load)
+        await sm.start()
+        await go(sm, book)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=5.0))
+    return book
+
+
+def _req(left: float, reason: str = ""):
+    from familiar_agent.silence_state import SilenceRequest
+
+    return SilenceRequest(person="パパ", until=time.time() + left, reason=reason)
+
+
+def test_hushing_makes_the_mouth_silent_and_saves_the_request():
+    req = _req(600)
+
+    async def go(sm, book):
+        await sm.hush_with(req)
+        assert "silent" in _ids(sm)
+        assert sm.is_silent() and sm.silence_request() == req
+        assert book["saved"] == [req]
+
+    _hushing(go)
+
+
+def test_the_silence_ends_on_time_and_clears_the_request():
+    async def go(sm, book):
+        await sm.hush_with(_req(0.1))
+        await asyncio.sleep(0.4)
+        assert "may_speak" in _ids(sm)
+        assert sm.silence_request() is None and book["cleared"] == 1
+
+    _hushing(go)
+
+
+def test_unhushing_frees_the_mouth_and_clears_the_request():
+    async def go(sm, book):
+        await sm.hush_with(_req(600))
+        await sm.unhush()
+        assert "may_speak" in _ids(sm) and not sm.is_silent()
+        assert sm.silence_request() is None and book["cleared"] == 1
+
+    _hushing(go)
+
+
+def test_unhushing_while_free_sends_nothing(caplog):
+    """**番人**：話してよいにいるときは `silence_ended` を送らない（移りの無い事象は列のほかの事象も退ける）。"""
+
+    async def go(sm, book):
+        with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+            await sm.unhush()
+        assert "may_speak" in _ids(sm)
+        assert book["cleared"] == 0
+
+    _hushing(go)
+    assert not [r for r in caplog.records if "捨てた" in r.getMessage()]
+
+
+def test_a_new_request_while_silent_replaces_it_and_its_end():
+    """黙っているあいだの新しい依頼（遅いタイマー）は、データも期限も置き換える。"""
+    later = _req(0.6, reason="timer:2")
+
+    async def go(sm, book):
+        await sm.hush_with(_req(0.1, reason="timer:1"))
+        await sm.hush_with(later)
+        await asyncio.sleep(0.3)
+        assert "silent" in _ids(sm) and sm.silence_request() == later  # 元の期限は過ぎた
+        await asyncio.sleep(0.6)
+        assert "may_speak" in _ids(sm)
+
+    book = _hushing(go)
+    assert len(book["saved"]) == 2
+
+
+def test_a_live_request_is_restored_at_start_with_its_end():
+    """再起動しなおし：DB に生きた依頼があれば、`start` のあと、残りの期限で黙っている。控えは書き直さない。"""
+    req = _req(0.3)
+
+    async def go(sm, book):
+        assert "silent" in _ids(sm) and sm.silence_request() == req
+        await asyncio.sleep(0.6)
+        assert "may_speak" in _ids(sm)
+
+    book = _hushing(go, restore=req)
+    assert book["saved"] == [] and book["loaded"] == 1
+
+
+def test_an_expired_request_is_cleared_at_start():
+    """**反証の側**：期限を過ぎた控えは消し、話してよいにいる。"""
+
+    async def go(sm, book):
+        assert "may_speak" in _ids(sm) and sm.silence_request() is None
+        assert book["cleared"] == 1
+
+    _hushing(go, restore=_req(-1))
+
+
+def test_start_restores_once_even_when_awaited_together():
+    """戻し終えるまで、ほかの読み手も待つ（門とトニックが同時に `start` を待っても、読むのは 1 度）。"""
+    req = _req(600)
+    loaded = []
+
+    def load():
+        loaded.append(1)
+        return req
+
+    async def run():
+        sm = PajuState(restore_silence=load)
+        await asyncio.gather(sm.start(), sm.start())
+        assert sm.is_silent()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=5.0))
+    assert loaded == [1]
+
+
+def test_the_window_can_open_while_silent():
+    """例 1、例 2：黙っているあいだも耳は聞いていて、窓は開けられる（窓と黙るかは別の領域）。"""
+
+    async def go(sm, book):
+        await sm.hush_with(_req(600))
+        await sm.open_window(time.monotonic())
+        assert {"open", "silent"} <= _ids(sm)
+
+    _hushing(go)
+
+
+def test_ending_the_timers_stops_the_silence_end():
+    async def go(sm, book):
+        await sm.hush_with(_req(0.1))
+        sm.end_timers()
+        await asyncio.sleep(0.4)
+        assert "silent" in _ids(sm)
+
+    _hushing(go)
+
+
+def test_a_chart_entered_by_another_event_still_restores_at_start():
+    """ほかの口が先に事象を送り、ライブラリがひとりでに初めの状態に入っても、`start` で控えを戻す。"""
+    req = _req(600)
+
+    async def run():
+        sm = PajuState(restore_silence=lambda: req)
+        await sm.fire("window_opened")
+        await sm.start()
+        assert sm.is_silent() and sm.silence_request() == req
+
+    asyncio.run(asyncio.wait_for(run(), timeout=5.0))
+
+
+def test_a_failed_restore_is_tried_again_at_the_next_start():
+    """戻す途中で落ちたら、済んだことにしない。次の `start` でやり直す。"""
+    req = _req(600)
+
+    async def run():
+        sm = PajuState(restore_silence=lambda: req)
+        real = sm._restore
+        failed: list[int] = []
+
+        async def restore():
+            if not failed:
+                failed.append(1)
+                raise RuntimeError("落ちた")
+            await real()
+
+        sm._restore = restore  # type: ignore[method-assign]
+        with pytest.raises(RuntimeError):
+            await sm.start()
+        await sm.start()
+        assert sm.is_silent()
+
+    asyncio.run(asyncio.wait_for(run(), timeout=5.0))
+
+
+def test_a_reader_waiting_on_a_failed_restore_restores_again_itself():
+    """同時に待っていた読み手は、戻しが落ちても「戻し終えた」とみなさず、自分で戻し直してから読む。"""
+    req = _req(600)
+
+    async def run():
+        sm = PajuState(restore_silence=lambda: req)
+        real = sm._restore
+        failed: list[int] = []
+
+        async def restore():
+            if not failed:
+                failed.append(1)
+                await asyncio.sleep(0.01)  # 二人目が待ち始めるまで
+                raise RuntimeError("落ちた")
+            await real()
+
+        sm._restore = restore  # type: ignore[method-assign]
+        first, second = await asyncio.gather(sm.start(), sm.start(), return_exceptions=True)
+        assert isinstance(first, RuntimeError) and second is None
+        assert sm.is_silent()  # 二人目が読む前に戻っている
+
+    asyncio.run(asyncio.wait_for(run(), timeout=5.0))
+
+
+def test_unhushing_frees_a_mouth_left_silent_by_a_failed_end():
+    """期限で解けたことを送れず、データが無いのに黙っているに残っても、`unhush` で話してよいへ戻す。"""
+
+    async def go(sm, book):
+        real_fire = sm.fire
+        failed: list[int] = []
+
+        async def fire(event):
+            if event == "silence_ended" and not failed:
+                failed.append(1)
+                raise RuntimeError("落ちた")
+            await real_fire(event)
+
+        sm.fire = fire
+        await sm.hush_with(_req(0.1))
+        await asyncio.sleep(0.4)
+        assert "silent" in _ids(sm) and sm.silence_request() is None
+        await sm.unhush()
+        assert "may_speak" in _ids(sm)
+
+    _hushing(go)

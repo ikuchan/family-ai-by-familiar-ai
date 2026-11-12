@@ -317,7 +317,15 @@ class Tonic:
         except Exception:  # noqa: BLE001
             return
         told.intersection_update(alerts)  # 戻ったものは忘れる（また切れたら伝え直す）
-        if not alerts or _silenced_now():
+        if not alerts:
+            return
+        silenced = False  # 読めなければ黙っていない扱い（前と同じ）
+        with contextlib.suppress(Exception):
+            # 黙っている依頼の控えを戻し終えてから読む（第 2 段 項目 4）。始められなくても、読むのはやめない。
+            await self._ip._paju().start()
+        with contextlib.suppress(Exception):
+            silenced = self._ip.is_silenced_now()
+        if silenced:
             return
         gain = getattr(getattr(self._agent, "config", None), "tts_gain", 1.0)
         gain = float(gain) if isinstance(gain, (int, float)) else 1.0

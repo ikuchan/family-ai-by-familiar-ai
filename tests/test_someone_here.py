@@ -74,7 +74,6 @@ def test_a_dropped_voice_nudges_only_while_someone_is_here():
         ip, a = _ip(here=here)
         a._nudge_drive = AsyncMock()
         a.config.agent_names = ["パジュ"]
-        ip._load_silence = lambda: None  # type: ignore[method-assign]
         fut = asyncio.new_event_loop().create_future()
         t = Trigger(kind="会話入力", query="ごはんまだ？", future=fut, source="voice", arrived=0.0)
         asyncio.run(ip._swallow_if_unheard(t))

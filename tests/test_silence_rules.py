@@ -81,33 +81,44 @@ def _ip(speaker="パパ"):
     )
     ip = InformationProcessing(a)
     calls: list[str] = []
-    ip._accept_silence = lambda m: calls.append(f"掛ける{m}")
-    ip._release_silence = lambda: calls.append("解く")
+
+    async def accept(m):
+        calls.append(f"掛ける{m}")
+
+    async def release():
+        calls.append("解く")
+
+    ip._accept_silence = accept
+    ip._release_silence = release
     return ip, calls
+
+
+def _apply(ip, decision, *, utterance=""):
+    import asyncio
+
+    asyncio.run(ip._apply_silence(decision, utterance=utterance))
 
 
 def test_an_unnamed_request_is_accepted_inside_the_window():
     """名前の関門は入口の窓にまとめた（出-as §2.5・2026-09-26）。ここへ来るのは窓を通った入力だけ。"""
     ip, calls = _ip()
-    ip._apply_silence(Decision(branch="light", silence_minutes=-1), utterance="しなよ")
+    _apply(ip, Decision(branch="light", silence_minutes=-1), utterance="しなよ")
     assert calls == ["掛ける-1"]
 
 
 def test_a_named_request_is_accepted():
     ip, calls = _ip()
-    ip._apply_silence(
-        Decision(branch="light", silence_minutes=5), utterance="パジュ、5分静かにして"
-    )
+    _apply(ip, Decision(branch="light", silence_minutes=5), utterance="パジュ、5分静かにして")
     assert calls == ["掛ける5"]
 
 
 def test_a_release_phrase_lifts_even_if_the_arbiter_missed_it():
     ip, calls = _ip()
-    ip._apply_silence(Decision(branch="full"), utterance="話していいよ")
+    _apply(ip, Decision(branch="full"), utterance="話していいよ")
     assert calls == ["解く"]
 
 
 def test_the_arbiters_release_flag_still_works():
     ip, calls = _ip()
-    ip._apply_silence(Decision(branch="light", lift_silence=True), utterance="もういいよ")
+    _apply(ip, Decision(branch="light", lift_silence=True), utterance="もういいよ")
     assert calls == ["解く"]

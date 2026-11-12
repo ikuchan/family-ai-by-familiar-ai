@@ -134,19 +134,28 @@ def _ip_with_speaker(speaker: str):
     return InformationProcessing(a)
 
 
-def _patched(monkeypatch, req):
+def _patched(monkeypatch, ip, req):
+    """黙っている依頼を状態図に置き（持ち主は状態図・環-aw 第 2 段 項目 4）、控えを消す口を数える。"""
     import familiar_agent.silence_state as ss
+    from tests.conftest import silence
 
     cleared: list[bool] = []
-    monkeypatch.setattr(ss, "load_silence", lambda: req)
+    if req is not None:
+        silence(ip, req)
     monkeypatch.setattr(ss, "clear_silence", lambda: cleared.append(True))
     return cleared
 
 
+def _release(ip):
+    import asyncio
+
+    asyncio.run(ip._release_silence())
+
+
 def test_the_asker_saying_she_may_talk_lifts_the_request(monkeypatch):
     ip = _ip_with_speaker("パパ")
-    cleared = _patched(monkeypatch, SilenceRequest(person="パパ", until=time.time() + 3600))
-    ip._release_silence()
+    cleared = _patched(monkeypatch, ip, SilenceRequest(person="パパ", until=time.time() + 3600))
+    _release(ip)
     assert cleared == [True]
 
 
@@ -154,15 +163,15 @@ def test_someone_else_can_lift_it(monkeypatch):
     """誰でも解ける（出-as §2.5・2026-09-26）。話者が分からない家では本人かを決められなかった。
     解く言葉に名前が要ることは入口（`silence_hold.lifts`）が見る。"""
     ip = _ip_with_speaker("たいきくん")
-    cleared = _patched(monkeypatch, SilenceRequest(person="パパ", until=time.time() + 3600))
-    ip._release_silence()
+    cleared = _patched(monkeypatch, ip, SilenceRequest(person="パパ", until=time.time() + 3600))
+    _release(ip)
     assert cleared == [1]
 
 
 def test_nothing_to_lift_when_no_request(monkeypatch):
     ip = _ip_with_speaker("パパ")
-    cleared = _patched(monkeypatch, None)
-    ip._release_silence()
+    cleared = _patched(monkeypatch, ip, None)
+    _release(ip)
     assert cleared == []
 
 
@@ -172,7 +181,7 @@ def test_merely_speaking_to_her_does_not_lift_it(monkeypatch):
     from unittest.mock import AsyncMock
 
     ip = _ip_with_speaker("パパ")
-    cleared = _patched(monkeypatch, SilenceRequest(person="パパ", until=time.time() + 3600))
+    cleared = _patched(monkeypatch, ip, SilenceRequest(person="パパ", until=time.time() + 3600))
     ip._ensure_driver = lambda: None
     ip._abort_lookups = AsyncMock()
 
@@ -227,9 +236,97 @@ def test_the_decision_is_applied_through_one_door(monkeypatch):
 
     ip = _ip_with_speaker("パパ")
     calls: list[str] = []
-    ip._accept_silence = lambda m: calls.append(f"掛ける{m}")
-    ip._release_silence = lambda: calls.append("解く")
-    ip._apply_silence(Decision(branch="light", silence_minutes=-1))
-    ip._apply_silence(Decision(branch="light", lift_silence=True))
-    ip._apply_silence(Decision(branch="light"))
+    import asyncio
+
+    async def accept(m):
+        calls.append(f"掛ける{m}")
+
+    async def release():
+        calls.append("解く")
+
+    ip._accept_silence = accept
+    ip._release_silence = release
+    asyncio.run(ip._apply_silence(Decision(branch="light", silence_minutes=-1)))
+    asyncio.run(ip._apply_silence(Decision(branch="light", lift_silence=True)))
+    asyncio.run(ip._apply_silence(Decision(branch="light")))
     assert calls == ["掛ける-1", "解く"]
+
+
+# ── 環-aw 第 2 段 項目 4：持ち主は状態図、DB の行は控え ─────────────────────────────────────
+
+
+def _gate_ip():
+    from unittest.mock import AsyncMock, MagicMock
+
+    from familiar_agent.loop.event_loop import InformationProcessing
+
+    a = MagicMock()
+    a.config.agent_names = ["パジュ"]
+    a._pmm.presence_status = MagicMock(return_value=[])
+    a._oif.write = AsyncMock(return_value="obs-1")
+    a._observation_perspective = MagicMock(return_value={})
+    a._conversation_perspective = MagicMock(return_value={})
+    a._dif.ringing = False
+    a._timer_tool.frame = MagicMock(return_value="")
+    ip = InformationProcessing(a)
+    ip._note_muted = AsyncMock()
+    return ip
+
+
+def _heard_while_silent(ip) -> bool:
+    """黙っているあいだの道（`_note_muted`）を通ったか。"""
+    import asyncio
+
+    from familiar_agent.loop.event_loop import Trigger
+
+    asyncio.run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="パジュ、明日の予定は？")))
+    return ip._note_muted.await_count == 1
+
+
+def test_the_gate_reads_the_chart_not_the_backup(monkeypatch):
+    """状態図が黙っていれば、控え（DB）が無くても黙る。"""
+    import familiar_agent.silence_state as ss
+    from tests.conftest import silence
+
+    monkeypatch.setattr(ss, "save_silence", lambda req: None)  # 控えを書かない
+    ip = _gate_ip()
+    silence(ip, SilenceRequest(person="パパ", until=time.time() + 600))
+    assert ss.load_silence() is None
+    assert _heard_while_silent(ip) is True
+
+
+def test_a_backup_row_alone_does_not_silence_a_started_chart():
+    """**反証の側**：状態図が始まったあとの DB の行は控えでしかなく、門は読まない。"""
+    import asyncio
+
+    import familiar_agent.silence_state as ss
+
+    ip = _gate_ip()
+    asyncio.run(ip._paju().start())
+    ss.save_silence(SilenceRequest(person="パパ", until=time.time() + 600))
+    assert _heard_while_silent(ip) is False
+
+
+def test_a_live_backup_is_restored_after_a_restart():
+    """再起動しなおし：門の初めで状態図を始め、控えの生きた依頼を戻してから読む。"""
+    import familiar_agent.silence_state as ss
+
+    ss.save_silence(SilenceRequest(person="パパ", until=time.time() + 600))
+    ip = _gate_ip()  # 新しく起動したループ
+    assert _heard_while_silent(ip) is True
+    assert ip._paju().is_silent()
+
+
+def test_accepting_a_request_silences_the_chart_and_saves_the_backup():
+    import asyncio
+
+    import familiar_agent.silence_state as ss
+
+    ip = _gate_ip()
+    ip._current_speaker_name = lambda: "パパ"
+    ip._agent.config.silence_minutes = 30
+    ip._agent.config.silence_max_minutes = 60
+    asyncio.run(ip._accept_silence(-1))
+    assert ip._paju().is_silent()
+    saved = ss.load_silence()
+    assert saved is not None and saved == ip._paju().silence_request()

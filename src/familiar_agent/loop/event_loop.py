@@ -1783,13 +1783,29 @@ class InformationProcessing:
         if sm is None:
             # 考えているの子に入るたびに、待ちの電子音を立てる（立っていれば何もしない・決定テ）。
             # 考えているの合計の上限（決定ミ）は設定から渡す。
+            # 黙っている依頼の持ち主も状態図で、DB の行は控え（再起動で戻す・第 2 段 項目 4）。控えの口は呼ぶときに
+            # `silence_state` から引く（差し替えた試験でも効く）。
+            from .. import silence_state
+
             sm = self._paju_state = PajuState(
                 on_child=lambda _child: self._start_beeps(),
                 on_idle=self._on_head_idle,
                 thinking_limit_sec=self._agent.config.thinking_limit_sec,
                 on_limit=self._tell_timed_out,
+                on_silence_saved=lambda req: silence_state.save_silence(req),
+                on_silence_cleared=lambda: silence_state.clear_silence(),
+                restore_silence=lambda: silence_state.load_silence(),
             )
+            # タイマーの沈黙（`agent._hush_for_timer`）も同じ状態図へ送る。
+            with contextlib.suppress(Exception):
+                self._agent.paju_state = sm
         return sm
+
+    def is_silenced_now(self) -> bool:
+        """いま黙っているか（トニックの知らせの門・環-z）。状態図の依頼を、いまの時刻で決める。"""
+        from ..silence_state import is_silenced
+
+        return is_silenced(self._paju().silence_request(), now=time.time())
 
     def _tell_timed_out(self) -> None:
         """考えているが 3 分に届いた（状態図の数える仕事から）。待ち行列に積み、駆動体が時間切れの答えを言う（項目 8）。
@@ -5068,6 +5084,11 @@ class InformationProcessing:
         from ..core.wake_window import fix_name, heard_name
         from ..silence_state import is_silenced
 
+        try:
+            # 黙っている依頼の控えを戻し終えてから読む（再起動のすぐあと・第 2 段 項目 4）。
+            await self._paju().start()
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 状態図を始められなかった", exc_info=True)
         now = time.time()
         names = list(getattr(self._agent.config, "agent_names", None) or [])
         tentative: "float | None" = None
@@ -5134,9 +5155,10 @@ class InformationProcessing:
                         time.monotonic() - started,
                     )
                 trigger.named = self._wake_admits(trigger, names, near_ok=near_ok)
+        # 黙っているかは、状態図の依頼を処理した時刻で決める（期限の仕事が送るより前でも、過ぎていれば聞く）。
         req = None
-        with contextlib.suppress(Exception):
-            req = self._load_silence()
+        with contextlib.suppress(Exception):  # 読めなければ黙っていない扱い（前と同じ）
+            req = self._paju().silence_request()
         if is_silenced(req, now=now):
             assert req is not None
             if lifts(
@@ -6008,15 +6030,14 @@ class InformationProcessing:
         """調停へ渡す「いま黙っている」の一行（無ければ空）。黙っている前提が無いと「解かれた」と読めない。"""
         with contextlib.suppress(Exception):
             from ..core.silence_rules import silence_note
-            from ..silence_state import load_silence
 
-            note = silence_note(load_silence(), now=time.time())
+            note = silence_note(self._paju().silence_request(), now=time.time())
             return f"\n{note}" if note else ""
         return ""
 
     async def _apply_requests(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ人の求め（沈黙の依頼・名乗り）を掛ける（反復本体の呼び口は 1 つ・番人 231 行）。"""
-        self._apply_silence(decision, utterance=utterance)
+        await self._apply_silence(decision, utterance=utterance)
         # **否定が先**（出-am）。「ちがう、ママだよ」で パパ を外してから ママ を付ける。
         # 逆だと、付けたばかりの人を否定で消すことになる。
         await self._apply_not_person(getattr(decision, "not_person", ""))
@@ -6285,7 +6306,7 @@ class InformationProcessing:
             await agent._sync_pmm_speaker(name)
         logger.info("話者を付けた：%s（%s）", name, why)
 
-    def _apply_silence(self, decision, *, utterance: str = "") -> None:
+    async def _apply_silence(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
 
         **名前の関門は窓にまとめた**（出-as §2.5・2026-09-26）。ここへ来る会話入力は、入口で窓を通った
@@ -6295,11 +6316,11 @@ class InformationProcessing:
         from ..core.silence_rules import is_release
 
         if decision.silence_minutes:
-            self._accept_silence(decision.silence_minutes)
+            await self._accept_silence(decision.silence_minutes)
         elif decision.lift_silence or is_release(utterance):
-            self._release_silence()
+            await self._release_silence()
 
-    def _release_silence(self) -> None:
+    async def _release_silence(self) -> None:
         """「もう話していいよ」と解かれたら、依頼を消す（2026-09-16 実機）。
 
         「待てぃ」を調停が「黙っていて」と読み 60 分の依頼になったあと、解く口が無かった
@@ -6308,22 +6329,22 @@ class InformationProcessing:
         話していいと言ったとき。
         """
         with contextlib.suppress(Exception):
-            from ..silence_state import clear_silence, load_silence
-
-            req = load_silence()
+            sm = self._paju()
+            await sm.start()  # 控えを戻してから読む
+            req = sm.silence_request()
             if req is None:
                 return
             if req.reason.startswith("timer:"):
                 # タイマー由来の沈黙は鳴る・止めるまで（タイマーは従来どおり・出-as §2.4）。
                 logger.info("話していいと言われたが、タイマーの沈黙なので解かない")
                 return
-            # **誰が言っても解く**（出-as §2.5）。話者が分からない家では本人かを決められなかった。
-            clear_silence()
+            # **誰が言っても解く**（出-as §2.5）。話者が分からない家では本人かを決められなかった。控えも状態図が消す。
+            await sm.unhush()
             logger.info(
                 "話していいと言われたので黙るのを解く（頼んだのは %s）", req.person or "不明"
             )
 
-    def _accept_silence(self, asked_minutes: int) -> None:
+    async def _accept_silence(self, asked_minutes: int) -> None:
         """黙っている依頼を受ける。宛先は、いま話している相手。
 
         `asked_minutes` は調停が読み取った分数で、`-1` は「頼まれたが長さの指定なし」。
@@ -6331,7 +6352,7 @@ class InformationProcessing:
         """
         agent = self._agent
         with contextlib.suppress(Exception):
-            from ..silence_state import SilenceRequest, save_silence
+            from ..silence_state import SilenceRequest
 
             # **話者が分からなくても受ける**（出-as §2.5）。頼んだ人は分かれば記録し、分からなければ空。
             who = self._current_speaker_name()
@@ -6344,7 +6365,10 @@ class InformationProcessing:
             )
             if minutes <= 0:
                 return
-            save_silence(SilenceRequest(person=who, until=time.time() + minutes * 60))
+            # 状態図が黙っているへ移り、控え（`save_silence`）を書く。
+            await self._paju().hush_with(
+                SilenceRequest(person=who, until=time.time() + minutes * 60)
+            )
 
     def _current_speaker_name(self) -> str:
         """いま話している相手の名前。分からなければ空文字。

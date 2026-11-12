@@ -34,7 +34,6 @@ def _ip(*, present: float = 1.0, names=("パジュ",)):
     a._timer_tool.frame = MagicMock(return_value="")
     a._dif.ringing = False
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None  # 黙ってはいない
     return ip, a
 
 

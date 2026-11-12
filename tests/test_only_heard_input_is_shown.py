@@ -30,7 +30,6 @@ def _ip():
     a._nudge_drive = AsyncMock()
     a._occupancy = MagicMock(return_value=1.0)
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None
     ip._ensure_driver = lambda: None
     ip._abort_lookups = AsyncMock()
     heard: list = []

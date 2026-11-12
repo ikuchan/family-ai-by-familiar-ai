@@ -33,7 +33,6 @@ def _with_threshold(value=0.3, **kw):
     a.config.recognition.voice_stranger_threshold = value
     a._nudge_drive = AsyncMock()
     a._someone_here = MagicMock(return_value=True)
-    ip._load_silence = lambda: None  # type: ignore[method-assign]  # 黙っていての依頼は無い（DB を読まない）
     return ip, a, s
 
 
@@ -67,8 +66,12 @@ async def _now() -> float:
 
 def test_a_stranger_while_silenced_is_not_kept(monkeypatch):
     ip, a, s = _with_threshold()
-    monkeypatch.setattr("familiar_agent.silence_state.is_silenced", lambda *a, **k: True)
-    ip._load_silence = lambda: MagicMock(reason="")  # type: ignore[method-assign]
+    import time
+
+    from familiar_agent.silence_state import SilenceRequest
+    from tests.conftest import silence
+
+    silence(ip, SilenceRequest(person="パパ", until=time.time() + 600))
     ip._note_muted = AsyncMock()  # type: ignore[method-assign]
     assert _gate(ip, voice=STRANGER) is True
     ip._note_muted.assert_not_awaited()

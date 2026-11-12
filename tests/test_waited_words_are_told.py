@@ -40,7 +40,6 @@ def _pushed(*, open_request, ringing: bool) -> Trigger:
     a._occupancy = MagicMock(return_value=1.0)
     a._nudge_drive = AsyncMock()
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None
     ip._ensure_driver = lambda: None
     ip._timer_active = lambda: False
     ip._wake_admits = lambda *a, **k: True

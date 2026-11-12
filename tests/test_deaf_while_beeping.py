@@ -42,7 +42,6 @@ def _gate(ip, *, query=CALL, source="voice", events=("request_opened",), voice=N
 
 def _quiet_ip():
     ip, _beeps = _ip()
-    ip._load_silence = lambda: None  # type: ignore[method-assign]  # 黙っていての依頼は無い（DB を読まない）
     ip._agent._nudge_drive = AsyncMock()
     ip._agent._someone_here = MagicMock(return_value=True)
     return ip

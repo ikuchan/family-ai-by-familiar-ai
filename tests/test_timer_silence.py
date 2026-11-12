@@ -91,6 +91,13 @@ def _tool(*, speaker: str = "パパ"):
     oif.write = AsyncMock(return_value="obs-1")
     hushed: list = []
     unhushed: list = []
+
+    async def hush(person, until, tid):
+        hushed.append((person, until, tid))
+
+    async def unhush(tid):
+        unhushed.append(tid)
+
     t = TimerTool(
         store=lambda: store,
         oif=oif,
@@ -98,8 +105,8 @@ def _tool(*, speaker: str = "パパ"):
         quiet=lambda: QuietHoursRule(23, 7),
         silence_active=lambda: False,
         now=lambda: NOW,
-        hush=lambda person, until, tid: hushed.append((person, until, tid)),
-        unhush=lambda tid: unhushed.append(tid),
+        hush=hush,
+        unhush=unhush,
     )
     return t, hushed, unhushed
 
@@ -141,3 +148,91 @@ def test_cancelling_unhushes():
     asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "お茶"}))
     asyncio.run(t.call("cancel_timer", {"id": "all"}))
     assert unhushed == [1, "all"]
+
+
+# ── 環-aw 第 2 段 項目 4：タイマーの沈黙も状態図へ送る（持ち主は状態図）──────────────────────────
+
+
+def _agent_with_chart():
+    from types import SimpleNamespace
+
+    from familiar_agent.agent import EmbodiedAgent
+    from familiar_agent.loop.paju_state import PajuState
+
+    sm = PajuState()
+    a = SimpleNamespace(paju_state=sm)
+    hush = lambda person, due, tid: EmbodiedAgent._hush_for_timer(a, person, due, tid)  # noqa: E731
+    unhush = lambda tid: EmbodiedAgent._unhush_timer(a, tid)  # noqa: E731
+    return sm, hush, unhush
+
+
+def _due(minutes: float) -> datetime:
+    return datetime.now(ZoneInfo("Asia/Tokyo")) + timedelta(minutes=minutes)
+
+
+def test_a_timer_through_the_agent_silences_the_chart():
+    async def go():
+        sm, hush, unhush = _agent_with_chart()
+        await hush("パパ", _due(3), 1)
+        assert sm.is_silent() and sm.silence_request().reason == "timer:1"
+        await unhush(2)  # 違うタイマーでは解かない
+        assert sm.is_silent()
+        await unhush(1)
+        assert not sm.is_silent() and sm.silence_request() is None
+
+    asyncio.run(go())
+
+
+def test_a_timer_through_the_agent_does_not_overwrite_a_spoken_request():
+    async def go():
+        sm, hush, unhush = _agent_with_chart()
+        spoken = SilenceRequest(person="パパ", until=time.time() + 600)
+        await sm.hush_with(spoken)
+        await hush("パパ", _due(3), 1)
+        assert sm.silence_request() == spoken
+        await unhush("all")  # 人の依頼は、タイマーを止めても解けない
+        assert sm.silence_request() == spoken
+
+    asyncio.run(go())
+
+
+def test_a_later_timer_through_the_agent_extends_the_silence():
+    async def go():
+        sm, hush, _unhush = _agent_with_chart()
+        await hush("パパ", _due(3), 1)
+        await hush("パパ", _due(8), 2)
+        assert sm.silence_request().until == pytest.approx(_due(8).timestamp(), abs=2)
+        assert (
+            sm.silence_request().reason == "timer:2"
+        )  # 遅いタイマーの依頼に置き換わる（純関数の決まり）
+
+    asyncio.run(go())
+
+
+def test_without_a_chart_the_timer_silence_does_nothing():
+    from types import SimpleNamespace
+
+    from familiar_agent.agent import EmbodiedAgent
+
+    a = SimpleNamespace(paju_state=None)
+    asyncio.run(EmbodiedAgent._hush_for_timer(a, "パパ", _due(3), 1))
+    asyncio.run(EmbodiedAgent._unhush_timer(a, 1))
+    assert EmbodiedAgent._silence_active_now(a) is False
+
+
+def test_a_timer_before_the_chart_has_started_keeps_a_restored_spoken_request():
+    """再起動のすぐあと、状態図を始める前にタイマーを掛けても、控えの人の依頼を戻してから決める（上書きしない）。"""
+    from types import SimpleNamespace
+
+    from familiar_agent.agent import EmbodiedAgent
+    from familiar_agent.loop.paju_state import PajuState
+
+    spoken = SilenceRequest(person="パパ", until=time.time() + 3600)
+
+    async def go():
+        sm = PajuState(restore_silence=lambda: spoken)
+        a = SimpleNamespace(paju_state=sm)
+        await EmbodiedAgent._hush_for_timer(a, "パパ", _due(3), 1)
+        assert sm.silence_request() == spoken
+
+    asyncio.run(go())

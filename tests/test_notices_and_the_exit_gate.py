@@ -114,7 +114,10 @@ def _timer_ip(*, silence=None):
     a._dif.ringing = True
     a._occupancy = MagicMock(return_value=1.0)
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: silence
+    if silence is not None:
+        from tests.conftest import silence as hush
+
+        hush(ip, silence)
     return ip
 
 

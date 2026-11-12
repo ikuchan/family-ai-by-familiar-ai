@@ -62,7 +62,6 @@ def _ip(*, here: bool):
     a._timer_tool.frame = MagicMock(return_value="")
     a._dif.ringing = False
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None  # type: ignore[method-assign]  # 黙ってはいない
     ip._voice_unknown = lambda v: v != KNOWN  # type: ignore[method-assign]
     return ip, a
 
@@ -119,7 +118,9 @@ def test_a_voice_while_silenced_does_not_nudge():
     ip, a = _ip(here=True)
     import time
 
-    ip._load_silence = lambda: SilenceRequest(person="パパ", until=time.time() + 600)  # type: ignore[method-assign]
+    from tests.conftest import silence
+
+    silence(ip, SilenceRequest(person="パパ", until=time.time() + 600))
     ip._note_muted = AsyncMock()  # type: ignore[method-assign]
     assert _drop(ip, "ごはんまだ？") is True
     ip._note_muted.assert_awaited_once()  # 黙っている間の道を通った

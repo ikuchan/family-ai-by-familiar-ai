@@ -13,6 +13,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import pytest
 
 import time
@@ -22,6 +24,7 @@ from familiar_agent.core.silence_hold import lifts
 from familiar_agent.loop.event_loop import InformationProcessing
 from familiar_agent.silence_state import SilenceRequest, is_silenced
 
+from tests.conftest import silence
 from tests.test_event_loop import _agent
 
 pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftest の窓の開き口を使わない）
@@ -50,7 +53,11 @@ def test_a_request_is_taken_even_when_the_speaker_is_unknown(monkeypatch):
     saved = []
     monkeypatch.setattr("familiar_agent.silence_state.save_silence", saved.append)
     ip = _ip(speaker="")
-    ip._apply_silence(SimpleNamespace(silence_minutes=-1, lift_silence=False), utterance="黙ってて")
+    asyncio.run(
+        ip._apply_silence(
+            SimpleNamespace(silence_minutes=-1, lift_silence=False), utterance="黙ってて"
+        )
+    )
     assert len(saved) == 1
     assert 29 * 60 < saved[0].until - time.time() <= 30 * 60
 
@@ -60,8 +67,10 @@ def test_a_request_without_the_name_is_taken_inside_the_window(monkeypatch):
     saved = []
     monkeypatch.setattr("familiar_agent.silence_state.save_silence", saved.append)
     ip = _ip(speaker="パパ")
-    ip._apply_silence(
-        SimpleNamespace(silence_minutes=30, lift_silence=False), utterance="30分だまってて"
+    asyncio.run(
+        ip._apply_silence(
+            SimpleNamespace(silence_minutes=30, lift_silence=False), utterance="30分だまってて"
+        )
     )
     assert len(saved) == 1 and saved[0].person == "パパ"
 
@@ -93,24 +102,20 @@ def test_timer_rules_are_unchanged():
 
 def test_anyone_can_lift_an_explicit_silence(monkeypatch):
     cleared = []
-    monkeypatch.setattr(
-        "familiar_agent.silence_state.load_silence",
-        lambda: SilenceRequest(person="パパ", until=time.time() + 600),
-    )
+    ip = _ip(speaker="")
+    silence(ip, SilenceRequest(person="パパ", until=time.time() + 600))
     monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: cleared.append(1))
-    _ip(speaker="")._release_silence()
-    assert cleared == [1]
+    asyncio.run(ip._release_silence())
+    assert cleared == [1] and ip._paju().silence_request() is None
 
 
 def test_a_timer_silence_is_not_lifted_by_words(monkeypatch):
     cleared = []
-    monkeypatch.setattr(
-        "familiar_agent.silence_state.load_silence",
-        lambda: SilenceRequest(person="パパ", until=time.time() + 600, reason="timer:3"),
-    )
+    ip = _ip(speaker="パパ")
+    silence(ip, SilenceRequest(person="パパ", until=time.time() + 600, reason="timer:3"))
     monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: cleared.append(1))
-    _ip(speaker="パパ")._release_silence()
-    assert cleared == []
+    asyncio.run(ip._release_silence())
+    assert cleared == [] and ip._paju().is_silent()
 
 
 def test_nobody_around_does_not_lift_it():

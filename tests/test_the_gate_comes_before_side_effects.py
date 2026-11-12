@@ -36,10 +36,12 @@ def _ip(*, timer: bool = False):
     a._nudge_drive = AsyncMock()
     a._last_human_at = None
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None
     ip._ensure_driver = lambda: None  # 駆動体を起こさず、積んだものだけを見る
     ip._abort_lookups = AsyncMock()
     ip._timer_active = lambda: timer
+    asyncio.run(
+        ip._paju().start()
+    )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、0.01 秒の待ちに入れない）
     return ip, a
 
 
@@ -193,9 +195,9 @@ def test_a_named_voice_while_noting_does_not_stop_the_version_save():
     a._nudge_drive = AsyncMock()
     a._last_human_at = None
     ip = InformationProcessing(a)
-    ip._load_silence = lambda: None
     ip._ensure_driver = lambda: None
     ip._timer_active = lambda: False
+    asyncio.run(ip._paju().start())  # 控えを先に戻しておく（上の `_ip` と同じ）
 
     async def go():
         ip._req.request_id = "書き留めている求め"

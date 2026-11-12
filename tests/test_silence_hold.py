@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.core.silence_hold import Heard, lifts, render
 from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 from familiar_agent.silence_state import SilenceRequest
+from tests.conftest import silence
 
 # ── 純関数 ────────────────────────────────────────────────────────────────
 
@@ -80,8 +81,8 @@ def _ip(speaker="パパ", *, silenced_for="パパ", others=()):
     a._observation_perspective = MagicMock(return_value={})
     a._conversation_perspective = MagicMock(return_value={})
     ip = InformationProcessing(a)
-    req = SilenceRequest(person=silenced_for, until=time.time() + 600) if silenced_for else None
-    ip._load_silence = lambda: req
+    if silenced_for:
+        silence(ip, SilenceRequest(person=silenced_for, until=time.time() + 600))
     return ip, a
 
 
@@ -224,9 +225,7 @@ def test_stop_words_do_not_lift_a_human_silence():
 def test_the_entrance_passes_a_pause_during_a_timer_when_the_speaker_has_expired():
     ip, a = _ip(speaker="", silenced_for=None)
     a._pmm.presence_status = MagicMock(return_value=[])  # 話者は切れている
-    ip._load_silence = lambda: SilenceRequest(
-        person="パパ", until=time.time() + 120, reason="timer:1"
-    )
+    silence(ip, SilenceRequest(person="パパ", until=time.time() + 120, reason="timer:1"))
     ip._swallowed = MagicMock(return_value=True)
     ip._agent.config.agent_names = ["パジュ"]
     assert _run(ip._swallow_if_unheard(Trigger(kind="会話入力", query="パジュ、一時停止"))) is False

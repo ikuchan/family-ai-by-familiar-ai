@@ -170,6 +170,9 @@ class EmbodiedAgent:
         self._jev = JevClient.from_env(timeout=config.jev_timeout_sec)
         self._scene_backend = create_scene_backend(config) or self._utility_backend
         self._background_tasks: set[asyncio.Task[None]] = set()
+        #: パジュの状態図（`loop/paju_state.PajuState`）。黙っている依頼の持ち主で、ループが作るときに置く（環-aw 第 2 段
+        #: 項目 4）。ループの無いとき（試験）は None で、タイマーの沈黙は何もしない。
+        self.paju_state: Any = None
         self.messages: list = []
         self._session_input_tokens: int = 0
         self._session_output_tokens: int = 0
@@ -1513,38 +1516,47 @@ class EmbodiedAgent:
         次のタイマーに「確かめて」が付くのは筋が違う。
         """
         try:
-            from .silence_state import is_silenced, load_silence
+            from .silence_state import is_silenced
 
-            req = load_silence()
+            sm = self.paju_state
+            req = sm.silence_request() if sm is not None else None
             if req is not None and req.reason.startswith("timer:"):
                 return False
             return is_silenced(req, now=time.time())
         except Exception:  # noqa: BLE001
             return False
 
-    def _hush_for_timer(self, person: str, due, tid: int) -> None:
-        """タイマーを掛けたら鳴るまで黙る（`TIMER_SILENCE`・2026-09-16）。"""
+    async def _hush_for_timer(self, person: str, due, tid: int) -> None:
+        """タイマーを掛けたら鳴るまで黙る（`TIMER_SILENCE`・2026-09-16）。状態図へ送り、控えは状態図が書く。"""
+        sm = self.paju_state
+        if sm is None:
+            return
         try:
-            from .silence_state import hush_for_timer, load_silence, save_silence
+            from .silence_state import hush_for_timer
 
-            current = load_silence()
+            await sm.start()  # 控えを戻してから読む（人の依頼が生きていれば上書きしない）
+            current = sm.silence_request()
             nxt = hush_for_timer(current, person=person, until=due.timestamp(), tid=tid)
             if nxt is not current:
-                save_silence(nxt)
+                await sm.hush_with(nxt)
                 logger.info(
                     "タイマーが鳴るまで黙る id=%d %s まで", tid, due.astimezone().strftime("%H:%M")
                 )
         except Exception as e:  # noqa: BLE001
             logger.warning("タイマーの沈黙を掛けられなかった: %s", e)
 
-    def _unhush_timer(self, tid) -> None:
-        """止めたタイマー由来の沈黙を解く。"""
+    async def _unhush_timer(self, tid) -> None:
+        """止めたタイマー由来の沈黙を解く。状態図へ送り、控えは状態図が消す。"""
+        sm = self.paju_state
+        if sm is None:
+            return
         try:
-            from .silence_state import clear_silence, load_silence, unhush_timer
+            from .silence_state import unhush_timer
 
-            current = load_silence()
+            await sm.start()  # 控えを戻してから読む
+            current = sm.silence_request()
             if unhush_timer(current, tid=tid) is None and current is not None:
-                clear_silence()
+                await sm.unhush()
                 logger.info("タイマーを止めたので沈黙を解く（%s）", tid)
         except Exception as e:  # noqa: BLE001
             logger.warning("タイマーの沈黙を解けなかった: %s", e)
