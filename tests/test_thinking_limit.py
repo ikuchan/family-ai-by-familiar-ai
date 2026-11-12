@@ -212,6 +212,7 @@ def test_closing_the_loop_stops_the_count(caplog):
 
     ip, _ = _ip()
     ip._agent.config.thinking_limit_sec = 0.15
+    ip._paju_state = None  # 状態図はループを作った時点の上限で作られるので、変えた値で作り直す
 
     async def go():
         await ip._to_state("request_opened")
@@ -239,6 +240,7 @@ def test_the_loop_gives_the_chart_the_configured_limit(caplog):
 
     ip, _ = _ip()
     ip._agent.config.thinking_limit_sec = 0.1
+    ip._paju_state = None  # 状態図はループを作った時点の上限で作られるので、変えた値で作り直す
 
     async def go():
         await ip._to_state("request_opened")

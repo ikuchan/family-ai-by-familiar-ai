@@ -975,6 +975,13 @@ class InformationProcessing:
         self._on_request_state = None
         # 投げる前に控える1件（`_start_lookup` が置き、背景タスクが読む）。
         self._pending_lookup: tuple[str, dict, str] = ("", {}, "recall")
+        # 状態図は、ループを作った時点で作って `agent.paju_state` に置く。`/timer stop` は門より前に agent が直に
+        # 処理するので、最初の入力を待つと状態図が無く、止めたタイマーの沈黙の控えが残った（2026-11-12 本人の決定ア）。
+        # 作れなくても会話は止めない。そのときは、初めて使うときに作り直す。
+        try:
+            self._paju()
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 状態図を作れなかった", exc_info=True)
 
     def _note_origin(self, obs_id: str | None) -> None:
         """このターンの起点を控える。
@@ -1778,7 +1785,7 @@ class InformationProcessing:
             )
 
     def _paju(self) -> PajuState:
-        """パジュの状態図（環-aw）。`__new__` で組んだ装置（試験）でも使えるように、初めて読んだときに作る。"""
+        """パジュの状態図（環-aw）。ループを作った時点で作る。`__new__` で組んだ試験の装置では、初めて読んだときに作る。"""
         sm = self.__dict__.get("_paju_state")
         if sm is None:
             # 考えているの子に入るたびに、待ちの電子音を立てる（立っていれば何もしない・決定テ）。

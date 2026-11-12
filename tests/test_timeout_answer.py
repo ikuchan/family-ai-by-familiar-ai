@@ -232,6 +232,7 @@ def test_a_closed_request_is_not_answered_again():
 def test_reaching_three_minutes_queues_a_time_out_for_the_request():
     a, ip = _ip()
     a.config.thinking_limit_sec = 0.1
+    ip._paju_state = None  # 状態図はループを作った時点の上限で作られるので、変えた値で作り直す
 
     async def go():
         await ip._to_state("request_opened")

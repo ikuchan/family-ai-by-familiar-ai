@@ -236,3 +236,28 @@ def test_a_timer_before_the_chart_has_started_keeps_a_restored_spoken_request():
         assert sm.silence_request() == spoken
 
     asyncio.run(go())
+
+
+def test_the_chart_exists_as_soon_as_the_loop_is_made():
+    """`/timer stop` は門より前に agent が直に処理する。ループを作った時点で状態図があり、`agent.paju_state` に置かれる。"""
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from tests.test_event_loop import _agent
+
+    a = _agent(stream_returns=[])
+    ip = InformationProcessing(a)
+    assert a.paju_state is ip._paju()
+
+
+def test_a_timer_stopped_before_any_input_clears_its_restored_silence(monkeypatch):
+    """再起動のすぐあと、最初の入力の前に `/timer stop` で止めても、控えのタイマーの沈黙を戻してから解き、控えも消す。"""
+    import familiar_agent.silence_state as ss
+    from familiar_agent.agent import EmbodiedAgent
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from tests.test_event_loop import _agent
+
+    ss.save_silence(SilenceRequest(person="パパ", until=time.time() + 600, reason="timer:1"))
+    a = _agent(stream_returns=[])
+    InformationProcessing(a)  # 起動したループ（まだ何も届いていない）
+    asyncio.run(EmbodiedAgent._unhush_timer(a, 1))
+    assert ss.load_silence() is None
+    assert a.paju_state.silence_request() is None
