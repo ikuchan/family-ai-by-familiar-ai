@@ -287,8 +287,8 @@ def _tests_open_the_window(request, monkeypatch):
         return
     from familiar_agent.loop.event_loop import InformationProcessing
 
-    def _admits(self, trigger):
-        self._wake_window().open(self._arrival(trigger))
+    async def _admits(self, trigger):
+        await self._paju().open_window(self._arrival(trigger))
         return True
 
     monkeypatch.setattr(InformationProcessing, "_wake_window_admits", _admits)

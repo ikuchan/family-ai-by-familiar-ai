@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 
 import pytest
 
@@ -267,3 +268,179 @@ def test_a_new_event_without_a_transition_is_dropped_and_changes_nothing(event, 
 def test_the_description_names_the_window_and_the_mouth():
     sm = _run("tentative_called", "silence_began")
     assert sm.describe() == "頭=何もしていない 耳=聞いている/窓=仮の呼びかけ 口=黙っている"
+
+
+# ---- 環-aw 第 2 段 項目 2：窓 ----
+# 窓の中だったかは、届いた時刻でデータ（`wake`）から決める。状態は、数える仕事が時間で移す（第 2 段の決定 2、ア）。
+
+
+def _window(go):
+    async def run():
+        sm = PajuState()
+        await sm.start()
+        await go(sm)
+
+    asyncio.run(asyncio.wait_for(run(), timeout=5.0))
+
+
+def _almost_lapsed(left: float) -> float:
+    """いまから `left` 秒で切れる窓の、開けた時刻。"""
+    from familiar_agent.core.wake_window import WAKE_WINDOW_SEC
+
+    return time.monotonic() - WAKE_WINDOW_SEC + left
+
+
+def test_an_opened_window_is_open_and_lapses_on_time():
+    async def go(sm):
+        await sm.open_window(_almost_lapsed(0.1))
+        assert "open" in _ids(sm)
+        assert sm.window_open_at(time.monotonic())
+        await asyncio.sleep(0.4)
+        assert "shut" in _ids(sm)
+        assert not sm.window_open_at(time.monotonic())
+
+    _window(go)
+
+
+def test_the_window_stays_open_while_speaking_and_lapses_after_the_release():
+    """話しているあいだは閉じない。話し終わり（`release_window`）から 10 秒で閉じる（本人「話し終わってから１０秒」）。"""
+
+    async def go(sm):
+        await sm.open_window(_almost_lapsed(0.1))
+        await sm.hold_window()
+        await asyncio.sleep(0.4)
+        assert "open" in _ids(sm)  # 話している
+        await sm.release_window(_almost_lapsed(0.1))
+        assert "open" in _ids(sm)
+        await asyncio.sleep(0.4)
+        assert "shut" in _ids(sm)
+
+    _window(go)
+
+
+def test_extending_moves_the_lapse_later():
+    async def go(sm):
+        await sm.open_window(_almost_lapsed(0.2))
+        await sm.extend_window(
+            _almost_lapsed(0.8) + 0.0
+        )  # 届いた時刻は窓の中（開けた時刻より 0.6 秒あと）
+        await asyncio.sleep(0.45)
+        assert "open" in _ids(sm)  # 元のままなら、もう閉じている
+        await asyncio.sleep(0.7)
+        assert "shut" in _ids(sm)
+
+    _window(go)
+
+
+def test_extending_a_shut_window_does_nothing(caplog):
+    """閉じた窓は延ばさない（`WakeWindow.extend` と同じ）。事象も送らない（捨てたログが出ない）。"""
+
+    async def go(sm):
+        with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+            await sm.extend_window(time.monotonic())
+        assert "shut" in _ids(sm)
+        assert not sm.window_open_at(time.monotonic())
+
+    _window(go)
+    assert not [r for r in caplog.records if "捨てた" in r.getMessage()]
+
+
+def test_the_lapse_is_not_sent_when_the_window_is_already_shut(caplog):
+    """**番人**：数える仕事は、送る前に状態を見る。閉じているのに `window_lapsed` を送ると、ライブラリが列のほかの
+    事象も退けるため（第 1 段 項目 7）。"""
+
+    async def go(sm):
+        await sm.open_window(_almost_lapsed(0.1))
+        await sm.fire("window_lapsed")  # ほかの道で、先に閉じた
+        with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+            await asyncio.sleep(0.4)
+        assert "shut" in _ids(sm)
+
+    _window(go)
+    assert not [r for r in caplog.records if "捨てた" in r.getMessage()]
+
+
+def test_a_word_from_inside_the_window_reopens_it_in_the_same_talk():
+    """切れる直前に話し始めた声は、`window_lapsed` が先に届いても窓の中。同じ窓の会話のまま開け直す（決定 2）。"""
+
+    async def go(sm):
+        await sm.open_window(_almost_lapsed(0.1))
+        session = sm.wake.session
+        said = time.monotonic()  # 窓の中で話し始めた
+        await asyncio.sleep(0.4)
+        assert "shut" in _ids(sm)
+        assert sm.window_open_at(said)
+        await sm.extend_window(said)
+        assert "open" in _ids(sm)
+        assert sm.wake.session == session
+        from familiar_agent.core.wake_window import WAKE_WINDOW_SEC
+
+        assert sm.wake.until == pytest.approx(said + WAKE_WINDOW_SEC)
+
+    _window(go)
+
+
+def test_ending_the_timers_stops_the_lapse():
+    async def go(sm):
+        await sm.open_window(_almost_lapsed(0.1))
+        sm.end_timers()
+        await asyncio.sleep(0.4)
+        assert "open" in _ids(sm)
+
+    _window(go)
+
+
+def test_an_old_arrival_does_not_move_the_window_open():
+    """10 秒より前の届いた時刻で開けても、いまはもう切れているので、開いているへ移さない（開いてすぐ閉じない）。"""
+
+    async def go(sm):
+        await sm.open_window(time.monotonic() - 20.0)
+        assert "shut" in _ids(sm)
+
+    _window(go)
+
+
+def test_no_timer_starts_after_the_timers_are_ended():
+    async def go(sm):
+        sm.end_timers()
+        await sm.open_window(_almost_lapsed(0.1))
+        await asyncio.sleep(0.4)
+        assert "open" in _ids(sm)  # 数えていない
+
+    _window(go)
+
+
+def test_a_window_reopened_while_the_lapse_is_sent_goes_back_open():
+    """`window_lapsed` を送っているあいだに開け直されたら、送り終えてからデータを見て、開いているへ戻す。"""
+
+    async def go(sm):
+        real_fire = sm.fire
+
+        async def fire(event):
+            if event == "window_lapsed":
+                sm.wake.open(time.monotonic())  # 送っている最中に、名前で開け直された
+            await real_fire(event)
+
+        sm.fire = fire
+        await sm.open_window(_almost_lapsed(0.1))
+        await asyncio.sleep(0.4)
+        assert "open" in _ids(sm)
+        assert sm._window_task is not None and not sm._window_task.done()  # 数え直している
+
+    _window(go)
+
+
+def test_a_failing_chart_does_not_stop_the_window(caplog):
+    """状態図が落ちても、会話は止めない。データは開け、警告を 1 行残す。"""
+
+    async def go(sm):
+        async def fire(event):
+            raise RuntimeError("落ちた")
+
+        sm.fire = fire
+        with caplog.at_level(logging.WARNING, logger="familiar_agent.loop.paju_state"):
+            await sm.open_window(time.monotonic())
+        assert sm.window_open_at(time.monotonic())
+
+    _window(go)
+    assert [r for r in caplog.records if "窓を開いているへ移せなかった" in r.getMessage()]

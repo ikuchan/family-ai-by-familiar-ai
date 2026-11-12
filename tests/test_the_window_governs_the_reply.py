@@ -29,9 +29,9 @@ def _ip(kind="発話", *, window_open=True, now=1000.0, monkeypatch=None):
     ip._dif.speak = AsyncMock()
     ip._speak_filler_in_background = MagicMock()
     if window_open:
-        ip._wake.open(now - 5.0)  # 5 秒前に開いた（残り 5 秒・窓 10 秒）
+        ip._wake_window().open(now - 5.0)  # 5 秒前に開いた（残り 5 秒・窓 10 秒）
     else:
-        ip._wake.open(now - 45.0)  # 45 秒前に開いて切れた
+        ip._wake_window().open(now - 45.0)  # 45 秒前に開いて切れた
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.monotonic", lambda: now)
     return a, ip
 
@@ -41,7 +41,7 @@ def test_a_reply_inside_the_window_is_spoken_and_extends_it(monkeypatch):
     spoken, outcome = asyncio.run(ip._speak("晴れだよ"))
     assert (spoken, outcome) == ("晴れだよ", "発話")
     ip._dif.speak.assert_awaited_once()
-    assert ip._wake.is_open(1009.0)  # 返事から 10 秒
+    assert ip._wake_window().is_open(1009.0)  # 返事から 10 秒
 
 
 def test_a_reply_after_the_window_closed_is_still_spoken(monkeypatch):
@@ -49,7 +49,7 @@ def test_a_reply_after_the_window_closed_is_still_spoken(monkeypatch):
     spoken, outcome = asyncio.run(ip._speak("晴れだよ"))
     assert (spoken, outcome) == ("晴れだよ", "発話")
     ip._dif.speak.assert_awaited_once()
-    assert not ip._wake.is_open(1000.0)  # 開け直さない
+    assert not ip._wake_window().is_open(1000.0)  # 開け直さない
 
 
 def test_a_safety_firing_is_still_not_spoken_after_the_window(monkeypatch):
@@ -91,7 +91,7 @@ def _talking_ip(monkeypatch, *, speech_sec: float):
 
     async def speak(text, **kw):
         clock.t += speech_sec / 2
-        seen["mid"] = ip._wake.is_open(clock.t)
+        seen["mid"] = ip._wake_window().is_open(clock.t)
         clock.t += speech_sec / 2
 
     ip._dif.speak = AsyncMock(side_effect=speak)
@@ -102,12 +102,12 @@ def test_a_long_reply_keeps_the_window_until_ten_seconds_after_it_ends(monkeypat
     ip, clock, seen = _talking_ip(monkeypatch, speech_sec=12.0)
     asyncio.run(ip._speak("はい！何の曲にしますか？前にケイマンかけてましたよね"))
     assert seen["mid"]  # 話しているあいだ（1006・窓の残りを過ぎた）も開いている
-    assert ip._wake.is_open(1021.9)  # 話し終わり（1012）から 10 秒
-    assert not ip._wake.is_open(1022.0)
+    assert ip._wake_window().is_open(1021.9)  # 話し終わり（1012）から 10 秒
+    assert not ip._wake_window().is_open(1022.0)
 
 
 def test_a_closed_window_is_not_reopened_by_a_voice(monkeypatch):
     """話し始めに窓が閉じていたら、話しても開け直さない（呼ばれていないのに話し出さない）。"""
     a, ip = _ip(window_open=False, monkeypatch=monkeypatch)
     asyncio.run(ip._say_aloud("確認です"))
-    assert not ip._wake.is_open(1000.0)
+    assert not ip._wake_window().is_open(1000.0)

@@ -116,3 +116,53 @@ def test_a_control_word_without_a_timer_is_just_talk():
     """タイマーが無ければ「止めて」は操作の言葉ではない。名前が無ければ捨てる。"""
     ip, _ = _ip()
     assert _heard(ip, "止めて") is False
+
+
+def test_the_gate_opens_the_window_in_the_state_chart():
+    """環-aw 第 2 段 項目 2：名前で開けた窓は、状態図の窓が開いているに移る（窓の持ち主は状態図）。"""
+    ip, _ = _ip()
+
+    async def go():
+        sm = ip._paju()
+        await sm.start()
+        fut = asyncio.get_running_loop().create_future()
+        await ip._swallow_if_unheard(
+            Trigger(kind="会話入力", query="パジュ、おはよう", future=fut, source="voice")
+        )
+        return {s.id for s in sm.configuration}, ip._wake_window() is sm.wake
+
+    ids, same = asyncio.run(asyncio.wait_for(go(), timeout=2.0))
+    assert "open" in ids
+    assert same
+
+
+def test_a_word_said_inside_the_window_is_heard_after_the_lapse():
+    """切れる直前に話し始めた声は、状態図で窓が切れたあとに門を通っても受ける。同じ窓の会話のまま、届いた時刻から
+    10 秒にする（第 2 段の決定 2）。"""
+    import time
+
+    from familiar_agent.core.wake_window import WAKE_WINDOW_SEC
+
+    ip, _ = _ip()
+
+    async def go():
+        sm = ip._paju()
+        await sm.start()
+        await sm.open_window(time.monotonic() - WAKE_WINDOW_SEC + 0.1)
+        session = sm.wake.session
+        said = time.monotonic()
+        await asyncio.sleep(0.4)
+        lapsed = "shut" in {s.id for s in sm.configuration}
+        fut = asyncio.get_running_loop().create_future()
+        trigger = Trigger(
+            kind="会話入力", query="明日の天気は？", future=fut, source="voice", arrived=said
+        )
+        swallowed = await ip._swallow_if_unheard(trigger)
+        return lapsed, swallowed, trigger.window_session, session, sm, said
+
+    lapsed, swallowed, got, session, sm, said = asyncio.run(asyncio.wait_for(go(), timeout=3.0))
+    assert lapsed
+    assert swallowed is False
+    assert got == session
+    assert sm.wake.until == pytest.approx(said + WAKE_WINDOW_SEC)
+    assert "open" in {s.id for s in sm.configuration}

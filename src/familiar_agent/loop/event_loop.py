@@ -959,8 +959,7 @@ class InformationProcessing:
         self._muted: list[Heard] = []
         self._muted_since: "float | None" = None
         self._pending_heard: list[Heard] = []
-        # ウェイクワードの窓（出-as）。声は窓の中でだけ会話として受ける。
-        self._wake = WakeWindow()
+        # ウェイクワードの窓（出-as）は、状態図が持つ（`_wake_window`・環-aw 第 2 段）。
         # 駆動体（キュー到来で次の反復を起こす）と、そこへ渡す取込待ちの完了。
         self._driver: asyncio.Task | None = None
         self._asyncio_loop: asyncio.AbstractEventLoop | None = None
@@ -1940,7 +1939,7 @@ class InformationProcessing:
                     return  # 打ち切られた求めの見張り
                 if not self._waiting_on():
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
-                self._wake_window().extend(time.monotonic())
+                await self._paju().extend_window(time.monotonic())
 
     def _dispatch_main_llm(
         self,
@@ -3180,7 +3179,7 @@ class InformationProcessing:
         session = getattr(self, "_pending_window_session", 0) if kind == "発話" else 0
         self._pending_window_session = 0
         self._req.window_session = session or (
-            wake.session if wake.is_open(time.monotonic()) else 0
+            wake.session if self._paju().window_open_at(time.monotonic()) else 0
         )
         self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
@@ -4167,6 +4166,10 @@ class InformationProcessing:
                 sm.end_counting()
             except Exception:  # noqa: BLE001
                 logger.warning("event-loop 考えているの上限を止められなかった", exc_info=True)
+            try:
+                sm.end_timers()  # 窓などの時間を数える仕事も止める（環-aw 第 2 段）
+            except Exception:  # noqa: BLE001
+                logger.warning("event-loop 窓の時間を数える仕事を止められなかった", exc_info=True)
         # **待たせたままの呼び手を残さない。** 列と保留箱に会話入力が残っていると、
         # `push_utterance` の `await` が永久に返らない（環-f-い-2）。
         for item in list(self._held) + list(self._triggers._queue):  # type: ignore[attr-defined]
@@ -5001,7 +5004,7 @@ class InformationProcessing:
             return text, "沈黙"
         self._note_suggestion_offered(text)
         self._stamp_said()
-        self._extend_window_for_conversation()  # 返事から窓の長さぶん（出-as 段 4）
+        await self._extend_window_for_conversation()  # 返事から窓の長さぶん（出-as 段 4）
         self._emit(text)
         return text, "発話"
 
@@ -5109,7 +5112,7 @@ class InformationProcessing:
                 fix_name(trigger.query, names)[0], names
             )
             near_alone = near and name_only
-            window_open = self._wake_window().is_open(self._arrival(trigger))
+            window_open = self._paju().window_open_at(self._arrival(trigger))
             if near_alone:
                 # 1 字違いの名前だけの声（「アジュー」）は、Jev に聞かず、名前で呼ばれたことにもしない。名前だけの道で仮の
                 # 呼びかけとして預ける（知-bs・2026-11-02・本人の決定ア）。名前だけの言葉には宛先を決める材料がほとんど無い。
@@ -5147,7 +5150,7 @@ class InformationProcessing:
                 if trigger.kind == "会話入力":
                     # 通した言葉（名前つきの「話していいよ」・名前つきのタイマーの操作の言葉）への返事を声に
                     # するため、窓を開ける（出-as 段 6）。開けないと、返事が「窓が切れた後」になって独り言になる。
-                    self._wake_window().open(self._arrival(trigger))
+                    await self._paju().open_window(self._arrival(trigger))
                     trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
                     self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
                 return False
@@ -5157,10 +5160,10 @@ class InformationProcessing:
             # 声で名前だけなら返事をしない。値が足りれば黙って窓を開け、続けて言う用件を名前なしで受ける。ふつうは
             # 名前のあとに用件が続く（出-ch 段 3・2026-10-16・本人の決定ア・カ）。呼ばれたことで情動はいつも動かす。
             if trigger.named:
-                self._wake_window().open(self._arrival(trigger))
+                await self._paju().open_window(self._arrival(trigger))
                 trigger.quiet_open = True
                 state = "開けた"
-            elif near_alone and self._wake_window().is_open(self._arrival(trigger)):
+            elif near_alone and self._paju().window_open_at(self._arrival(trigger)):
                 state = "延ばさなかった"  # 窓の中の 1 字違いは名前の証拠にしない。窓の中なので預けもしない
             else:
                 # 値が足りない名前と 1 字違いの名前は、仮の呼びかけとして届いた時刻を預ける。窓は開けず、返事もしない（知-bs）。
@@ -5193,10 +5196,10 @@ class InformationProcessing:
                 if self._muted:
                     self._pending_heard = self._take_muted()
                 return False
-            admitted = self._wake_window_admits(trigger)
+            admitted = await self._wake_window_admits(trigger)
             if not admitted and await self._follows_tentative_call(trigger, tentative, names):
                 trigger.named = True  # 名前で呼ばれた用件として受ける（知-bs）
-                admitted = self._wake_window_admits(trigger)
+                admitted = await self._wake_window_admits(trigger)
             if not admitted:
                 # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
@@ -5212,7 +5215,7 @@ class InformationProcessing:
                         "event-loop パジュ宛てでないので受けない（%d 字）", len(trigger.query or "")
                     )
                     return self._swallowed(trigger)
-                self._wake_window().extend(self._arrival(trigger))
+                await self._paju().extend_window(self._arrival(trigger))
         if self._muted:
             self._pending_heard = self._take_muted()
         return False
@@ -5234,11 +5237,9 @@ class InformationProcessing:
         return bool(getattr(self.__dict__.get("_dif"), "ringing", False))
 
     def _wake_window(self) -> WakeWindow:
-        """窓の器。`__new__` で組んだ装置（試験）でも落ちないよう、無ければ閉じた窓を置く。"""
-        wake = self.__dict__.get("_wake")
-        if wake is None:
-            wake = self.__dict__["_wake"] = WakeWindow()
-        return wake
+        """窓のデータ。持ち主は状態図で（環-aw 第 2 段）、ここでは読むだけに使う。変えるのは状態図の口（`open_window`
+        など）で、窓の状態は事象で移る。"""
+        return self._paju().wake
 
     def _window_talk(self) -> WindowTalk:
         """いまの窓の会話（環-ar 段 A）。窓の番号が変わったら、新しい空の会話にする。
@@ -5325,7 +5326,10 @@ class InformationProcessing:
         wake = self._wake_window()
         if wake.session == 0:
             return False
-        return wake.is_open(time.monotonic()) or self._req.window_session == wake.session
+        return (
+            self._paju().window_open_at(time.monotonic())
+            or self._req.window_session == wake.session
+        )
 
     def _window_text(self) -> str:
         """窓の会話の中なら、窓の会話の全部（1 つの文）。外なら空（いまどおりの直近を使う）。"""
@@ -5341,10 +5345,10 @@ class InformationProcessing:
             return None
         return self._window_talk()
 
-    def _extend_window_for_conversation(self) -> None:
+    async def _extend_window_for_conversation(self) -> None:
         """会話の求めで返事を出したら、そこから窓の長さ（10 秒）へ延ばす（開いているときだけ）。"""
         if self._req.trigger_kind == "発話":
-            self._wake_window().extend(time.monotonic())
+            await self._paju().extend_window(time.monotonic())
 
     @staticmethod
     def _arrival(trigger: "Trigger") -> float:
@@ -5508,7 +5512,7 @@ class InformationProcessing:
         """声で、名前が無く、窓が閉じていて、音楽が鳴っていて、音楽の言葉か（出-cp）。"""
         if trigger.source != "voice" or trigger.named:
             return False
-        if self._wake_window().is_open(self._arrival(trigger)):
+        if self._paju().window_open_at(self._arrival(trigger)):
             return False
         state = getattr(self._agent, "_music_state", None)
         if getattr(state, "playing", False) is not True:
@@ -5521,7 +5525,7 @@ class InformationProcessing:
             table = got if isinstance(got, tuple) else ()
         return passes_unnamed(trigger.query or "", table)
 
-    def _wake_window_admits(self, trigger: "Trigger") -> bool:
+    async def _wake_window_admits(self, trigger: "Trigger") -> bool:
         """会話入力を窓で受けるか（出-as 段 3・出-au 段 1-2・`設計方針_判定の段` §2.1）。受けたら窓を開ける／延ばす。
 
         **声もキーボードも**、名前があれば開けて受け、窓が開いていれば延ばして受ける。判定は**届いた時刻**で
@@ -5529,11 +5533,11 @@ class InformationProcessing:
         """
         now = self._arrival(trigger)
         if trigger.named:
-            self._wake_window().open(now)
+            await self._paju().open_window(now)
             return True
         # 名前の無い入力は、窓の中なら受ける。**延ばすのは宛先を決めた後**（出-au 段 5-2・`_swallow_if_unheard`）——
         # 家族どうしの話で窓を延ばさないため。
-        return self._wake_window().is_open(now)
+        return self._paju().window_open_at(now)
 
     def _recent_for_judges(self, session: "int | None" = None) -> str:
         """判定に渡す直前のやりとり。窓が開いていれば窓の会話の全部、閉じていれば直近 3 往復（W と同じ時間の上限）。
@@ -5832,7 +5836,7 @@ class InformationProcessing:
         self._talk_line(self._me(to), OFFER_TEXT)
         self._stamp_said()
         self._emit(OFFER_TEXT)
-        self._extend_window_for_conversation()  # 答えを窓で受ける（開いているときだけ延ばす）
+        await self._extend_window_for_conversation()  # 答えを窓で受ける（開いているときだけ延ばす）
         self._offer = {"question": OFFER_TEXT, "session": self._wake_window().session, "deep": deep}
         logger.info("event-loop 深く調べるかを問うた（申し出として預けた）")
 
@@ -5892,9 +5896,9 @@ class InformationProcessing:
         # 「話し終わってから１０秒」）。閉じていれば触らない——声で窓を開け直さない（確認待ちと名前で受けた話しかけは
         # 話し終わりに開ける・下の finally）。
         wake = self._wake_window()
-        hold = self._req.trigger_kind == "発話" and wake.is_open(time.monotonic())
+        hold = self._req.trigger_kind == "発話" and self._paju().window_open_at(time.monotonic())
         if hold:
-            wake.hold()
+            await self._paju().hold_window()
         # 言い始めを送るのは、頭が考えているときだけ。何もしていないとき（求めを閉じたあとの、深く調べるかの申し出）と、
         # もう言っているとき（内側の声）は送らない（移りが無く、捨てたログになる）。言い終わりも、言っているあいだに
         # 打ち切られて頭が何もしていないへ戻っていたら送らない。
@@ -5917,14 +5921,16 @@ class InformationProcessing:
             if began and self._paju().head_state() == "answering":
                 await self._to_state("speech_ended")
             if hold:
-                wake.release(time.monotonic())
+                await self._paju().release_window(time.monotonic())
             if self._confirming() or (self._req.trigger_kind == "発話" and self._req.named):
                 # 確認待ちのあいだの声（問い・聞き返し）は、窓が閉じていても話し終わりから開ける（出-cw・本人の決定イ）。
                 # 10/18 07:55 に 12.9 秒の頼みで窓が問いの前に閉じ、名前の無い「はい」を窓の外として捨てた。
                 # 名前で受けた話しかけの返事も同じ（出-cx・2026-10-21 本人の決定）。名前つきで 10 秒を超えて話すと窓は
                 # 話し始めから 10 秒で切れていて、返事のあとの名前なしの声を捨てていた。考えている最中には開けない。
                 # 開け直しても、同じ窓の会話の続き（環-ar 段 A）。
-                wake.open(time.monotonic(), resume=self._req.window_session == wake.session)
+                await self._paju().open_window(
+                    time.monotonic(), resume=self._req.window_session == wake.session
+                )
         return played
 
     def _voice_gain(self) -> float:

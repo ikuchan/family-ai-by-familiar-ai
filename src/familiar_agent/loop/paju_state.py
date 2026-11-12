@@ -34,6 +34,7 @@ from typing import Callable
 from statemachine import State, StateChart
 
 from ..core.aio import spawn_outside
+from ..core.wake_window import WakeWindow
 from statemachine.exceptions import TransitionNotAllowed
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,15 @@ class PajuState(StateChart):
         #: 数えている仕事と、数え始めた時刻（`time.monotonic`）。
         self._limit_task: "asyncio.Task[None] | None" = None
         self._limit_since = 0.0
+        #: 窓のデータ（第 2 段）。窓の中だったかは、届いた時刻（話し始め）でこのデータから決める（決定 2）。
+        #: 状態（閉じている、開いている）は、移りとログのために持ち、時間で切れるのは数える仕事が送る。
+        self.wake = WakeWindow()
+        #: 窓の時間を数える仕事。話しているあいだ（`speaking` が 1 以上）は立てない。
+        self._window_task: "asyncio.Task[None] | None" = None
+        #: 数える仕事が `window_lapsed` を送っているあいだ真。そのあいだは仕事を止めない（送り終えてから見直す）。
+        self._window_sending = False
+        #: ループを閉じたら真。もう時間を数える仕事を立てない。
+        self._timers_ended = False
         super().__init__()
 
     class paju(State.Parallel):
@@ -223,6 +233,97 @@ class PajuState(StateChart):
         finally:
             if self._limit_task is asyncio.current_task():
                 self._limit_task = None
+
+    async def open_window(self, at: float, *, resume: bool = False) -> None:
+        """名前を聞いた、打たれた、返事を言い終えた。窓を `at` から開け（`WakeWindow.open`）、開いているへ移る。"""
+        self.wake.open(at, resume=resume)
+        await self._to_open()
+
+    async def extend_window(self, at: float) -> None:
+        """窓の中の入力、返事、つなぎ。`at` に窓が開いていたときだけ延ばす（`WakeWindow.extend`）。
+
+        状態がもう閉じていても、`at` がデータの上で窓の中なら延ばして開いているへ戻す（切れる直前に話し始めた声）。
+        開いていたかは `WakeWindow.extend` が見る。閉じた窓は延びないので、`_to_open` も移さない。
+        """
+        self.wake.extend(at)
+        await self._to_open()
+
+    async def hold_window(self) -> None:
+        """話し始め（窓が開いているときだけ呼ぶ）。言い終える（`release_window`）まで数えない。"""
+        self.wake.hold()
+        self._stop_window_task()
+
+    async def release_window(self, at: float) -> None:
+        """言い終えた。声がみな鳴り終わったら、そこから 10 秒を数える（`WakeWindow.release`）。"""
+        self.wake.release(at)
+        await self._to_open()
+
+    def window_open_at(self, at: float) -> bool:
+        """`at`（`time.monotonic` の秒）に窓が開いていたか。門はこの 1 つで決める（状態では決めない）。"""
+        return self.wake.is_open(at)
+
+    def end_timers(self) -> None:
+        """時間を数える仕事をみな止める（ループを閉じるとき）。このあとは立てない。"""
+        self._timers_ended = True
+        self._stop_window_task()
+
+    def _in(self, state_id: str) -> bool:
+        return any(s.id == state_id for s in self.configuration)
+
+    async def _to_open(self) -> None:
+        """いまの時刻でデータの上の窓が開いていれば、開いているへ移して数え直す。古い届いた時刻で開けても、もう
+        切れている窓は開いているへ移さない。状態図が落ちても、会話は止めない（警告を 1 行残す）。"""
+        try:
+            if not self._in("open") and self.wake.is_open(time.monotonic()):
+                await self.fire("window_opened")
+            self._arm_window()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 窓を開いているへ移せなかった", exc_info=True)
+
+    def _stop_window_task(self) -> None:
+        if self._window_sending:
+            return  # 送っている仕事は止めない。送り終えてから、データを見て数え直す
+        task, self._window_task = self._window_task, None
+        if task is not None:
+            task.cancel()
+
+    def _arm_window(self) -> None:
+        """窓の時間を数え直す。開いていないか、話しているあいだは数えない。"""
+        if self._window_sending:
+            return
+        if self._timers_ended or self.wake.speaking > 0 or not self._in("open"):
+            self._stop_window_task()
+            return
+        task = self._window_task
+        if task is not None and not task.done():
+            return  # 生きている仕事は、切れる時刻を読み直すので、そのまま使う（待つあいだは毎秒延ばす）
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ数えない
+            self._window_task = spawn_outside(self._wait_window())
+
+    async def _wait_window(self) -> None:
+        try:
+            while (left := self.wake.until - time.monotonic()) > 0:
+                await asyncio.sleep(left)
+            # 送る前に状態を見る。もう閉じているのに送ると、移りが無く、ライブラリが列のほかの事象も退ける。
+            if self.wake.speaking == 0 and self._in("open"):
+                logger.debug("状態図 窓が切れた")
+                self._window_sending = True
+                try:
+                    await self.fire("window_lapsed")
+                finally:
+                    self._window_sending = False
+                if not self._timers_ended and self.wake.is_open(time.monotonic()):
+                    # 送っているあいだに開け直された（`_to_open` は、まだ開いていると見て送らなかった）。開いているへ
+                    # 戻して数え直す。自分を止めないよう、先に手放す。
+                    self._window_task = None
+                    await self._to_open()
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 窓が切れたことを送れなかった", exc_info=True)
+        finally:
+            if self._window_task is asyncio.current_task():
+                self._window_task = None
 
     async def start(self) -> None:
         """初めの状態に入る。入っていれば何もしない。"""

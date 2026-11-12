@@ -33,7 +33,7 @@ def test_the_confirm_question_opens_the_window_after_it_ends(monkeypatch):
     pc = SimpleNamespace(text="15 分のタイマーね。その間は黙って聞かないよ、いい？")
     asyncio.run(ip._ask_confirm_aloud(pc))
     ip._dif.speak.assert_awaited_once()
-    assert ip._wake.is_open(1006.0 + 9.0)  # 話し終わり（1006）から 9 秒後も開いている
+    assert ip._wake_window().is_open(1006.0 + 9.0)  # 話し終わり（1006）から 9 秒後も開いている
 
 
 def test_the_ask_back_opens_the_window_after_it_ends(monkeypatch):
@@ -42,18 +42,18 @@ def test_the_ask_back_opens_the_window_after_it_ends(monkeypatch):
         ip._speak("いまタイマーを掛けるか確かめているところだよ。はいか、いいえで")
     )
     assert outcome == "発話"
-    assert ip._wake.is_open(1006.0 + 9.0)
+    assert ip._wake_window().is_open(1006.0 + 9.0)
 
 
 def test_without_a_pending_confirm_a_closed_window_stays_closed(monkeypatch):
     """**反証の側**：確認待ちでなければ、閉じた窓は声で開け直さない（今までの決まり）。"""
     ip = _confirming_ip(monkeypatch, confirming=False)
     asyncio.run(ip._speak("晴れだよ"))
-    assert not ip._wake.is_open(1006.0)
+    assert not ip._wake_window().is_open(1006.0)
 
 
 def test_the_reopened_window_still_closes_ten_seconds_after(monkeypatch):
     """延ばしすぎない：話し終わりから 10 秒で閉じる。"""
     ip = _confirming_ip(monkeypatch)
     asyncio.run(ip._speak("はいか、いいえで"))
-    assert not ip._wake.is_open(1006.0 + 10.0)
+    assert not ip._wake_window().is_open(1006.0 + 10.0)

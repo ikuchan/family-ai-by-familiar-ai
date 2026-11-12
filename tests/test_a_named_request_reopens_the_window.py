@@ -32,21 +32,21 @@ def test_a_named_request_opens_the_window_after_the_reply(monkeypatch):
     ip = _closed_ip(monkeypatch, named=True)
     spoken, outcome = asyncio.run(ip._speak("晴れだよ"))
     assert outcome == "発話"
-    assert ip._wake.is_open(1006.0 + 9.0)  # 話し終わり（1006）から 9 秒後も開いている
+    assert ip._wake_window().is_open(1006.0 + 9.0)  # 話し終わり（1006）から 9 秒後も開いている
 
 
 def test_the_reopened_window_still_closes_ten_seconds_after(monkeypatch):
     """延ばしすぎない：話し終わりから 10 秒で閉じる。"""
     ip = _closed_ip(monkeypatch, named=True)
     asyncio.run(ip._speak("晴れだよ"))
-    assert not ip._wake.is_open(1006.0 + 10.0)
+    assert not ip._wake_window().is_open(1006.0 + 10.0)
 
 
 def test_an_unnamed_request_leaves_a_closed_window_closed(monkeypatch):
     """**反証の側**：名前なしで受けた求め（窓の中で受け、返事の前に閉じた）は、今までどおり開け直さない。"""
     ip = _closed_ip(monkeypatch, named=False)
     asyncio.run(ip._speak("晴れだよ"))
-    assert not ip._wake.is_open(1006.0)
+    assert not ip._wake_window().is_open(1006.0)
 
 
 def test_affect_and_device_speech_leave_a_closed_window_closed(monkeypatch):
@@ -55,7 +55,7 @@ def test_affect_and_device_speech_leave_a_closed_window_closed(monkeypatch):
         ip = _closed_ip(monkeypatch, named=True, kind=kind)
         ip._req.request_text = "[入室] パパ が来た"
         asyncio.run(ip._speak("おかえりなさい"))
-        assert not ip._wake.is_open(1006.0), kind
+        assert not ip._wake_window().is_open(1006.0), kind
 
 
 def _begin(ip, kind: str) -> None:
