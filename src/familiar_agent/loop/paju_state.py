@@ -1,4 +1,4 @@
-"""パジュの状態図（環-aw 第 1 段・第 2 段・`設計方針_パジュの状態` v0.6）。頭、耳、口の 3 つの領域を持つ。
+"""パジュの状態図（環-aw 第 1 段・第 2 段・`設計方針_パジュの状態` v0.7）。頭、耳、口の 3 つの領域を持つ。
 
 - 頭：何もしていない（`idle`）、考えている（`thinking`）、答えを言っている（`answering`）。考えているは子を 5 つ持つ
   （思い出している `recalling`、決めている `deciding`、返りを待っている `awaiting`、確かめている `checking`、
@@ -355,9 +355,9 @@ class PajuState(StateChart):
                     await self._fire("silence_began")
                 elif self.silence is None and self._in("silent"):
                     await self._fire("silence_ended")
-                self._arm_silence()
             except Exception:  # noqa: BLE001
                 logger.warning("状態図 口の状態を黙っている依頼に合わせられなかった", exc_info=True)
+            self._arm_silence()  # 移りが落ちても数える。期限で依頼と控えを消す役を残す
 
     def _clear_silence_backup(self) -> None:
         if self._on_silence_cleared is not None:
@@ -374,11 +374,12 @@ class PajuState(StateChart):
             task.cancel()
 
     def _arm_silence(self) -> None:
-        """黙るの期限を数え直す（依頼が変わりうるので、生きている仕事も立て直す）。"""
+        """黙るの期限を数え直す（依頼が変わりうるので、生きている仕事も立て直す）。依頼があれば数える。口の状態には
+        従わない。黙っているへ移るのが落ちても、期限で依頼と控えを消すため。"""
         if self._silence_sending:
             return
         self._stop_silence_task()
-        if self._timers_ended or self.silence is None or not self._in("silent"):
+        if self._timers_ended or self.silence is None:
             return
         with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ数えない
             self._silence_task = spawn_outside(self._wait_silence())
@@ -393,16 +394,18 @@ class PajuState(StateChart):
                     req = self.silence
                     if req is not None and req.until - time.time() > 0:
                         continue  # 順番を待つあいだに依頼が置き換わった。新しい期限まで待つ
-                    if req is None or not self._in("silent"):
-                        return  # 送る前に状態を見る（移りの無い事象を送らない）
+                    if req is None:
+                        return
+                    # 期限が来たら依頼と控えをいつも消し、黙っているにいるときだけ送る（移りの無い事象を送らない）
                     logger.info("状態図 黙る期限が来たので解いた")
                     self.silence = None
                     self._clear_silence_backup()
-                    self._silence_sending = True
-                    try:
-                        await self._fire("silence_ended")
-                    finally:
-                        self._silence_sending = False
+                    if self._in("silent"):
+                        self._silence_sending = True
+                        try:
+                            await self._fire("silence_ended")
+                        finally:
+                            self._silence_sending = False
                 break
             if not self._timers_ended and self.silence is not None:
                 # 送っているあいだに新しい依頼が届いた。黙っているへ戻して数え直す。自分を止めないよう、先に手放す。

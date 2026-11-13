@@ -1,4 +1,4 @@
-"""環-aw 第 1 段 項目 1：パジュの状態図（頭と耳）の骨組みと、捨てた事象のログ（`設計方針_パジュの状態` v0.6 決定ス、ユ）。
+"""環-aw 第 1 段 項目 1：パジュの状態図（頭と耳）の骨組みと、捨てた事象のログ（`設計方針_パジュの状態` v0.7 決定ス、ユ）。
 
 頭は何もしていない、考えている（子 5 つ）、答えを言っている。耳は聞いている、考えているあいだ聞かない。耳は頭に
 入るときの動作ではなく事象で動く（答えのあと考えているへ戻っても、聞いたまま）。
@@ -964,6 +964,44 @@ def test_a_timer_queued_behind_a_person_does_not_override_the_person():
         )
         assert sm.silence_request() is person
         assert "silent" in _ids(sm)
+        sm.end_timers()
+        sm.end_counting()
+
+    asyncio.run(asyncio.wait_for(go(), timeout=5.0))
+
+
+def test_a_failed_entry_into_silence_still_lapses_and_clears_the_backup():
+    """黙っているへ移るのが落ちても、期限が来れば依頼と控えを消す。期限を数える仕事は、口の状態ではなく依頼に従う。"""
+    from familiar_agent.silence_state import SilenceRequest
+
+    row: dict = {}  # DB の控えの行の代わり
+
+    async def go():
+        sm = PajuState(
+            on_silence_saved=lambda r: row.__setitem__("req", r),
+            on_silence_cleared=lambda: row.pop("req", None),
+        )
+        await sm.start()
+        real = sm._fire
+        sent: list[str] = []
+
+        async def broken(event: str) -> None:
+            sent.append(event)
+            if event == "silence_began":
+                raise RuntimeError("移りを落とす")
+            await real(event)
+
+        sm._fire = broken  # type: ignore[method-assign]
+        await sm.hush_with(SilenceRequest(person="パパ", until=time.time() + 0.3, reason=""))
+        assert "req" in row and not sm.is_silent()
+        for _ in range(300):  # 期限で消えるまで待つ（3 秒まで。混んだ機械でも揺れないように）
+            if sm.silence_request() is None:
+                break
+            await asyncio.sleep(0.01)
+        assert sm.silence_request() is None
+        assert "req" not in row
+        assert "may_speak" in _ids(sm)
+        assert "silence_ended" not in sent  # 黙っているにいないので、移りの無い事象を送らない
         sm.end_timers()
         sm.end_counting()
 
