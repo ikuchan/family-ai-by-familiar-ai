@@ -305,6 +305,53 @@ def test_no_answer_drops_while_the_ear_is_closed():
     assert swallowed is True and t.ear_dropped is True
 
 
+def test_music_and_a_timer_silence_together_ask_jev_once():
+    """音楽とタイマーが重なると、耳は音楽が先。口がタイマーで黙っていれば、名前つきの問いは Jev に 1 回だけ聞いて通す。"""
+    ip, a = _gate(robot=None, timer=jev_judges.TIMER_QUESTION, ear="音楽が鳴っている")
+    swallowed, _ = _voice(ip, "パジュ、あと何分？")
+    assert swallowed is False
+    assert _asked(a) == {"timer"}
+
+
+def test_an_unnamed_control_word_in_the_window_lifts_the_timer_silence():
+    """既定の設定（耳も口もタイマーで閉じる）でも、「パジュ」の後の窓の中の「止めて」は、沈黙を解いて通す（案 2・2026-11-14）。"""
+    ip, a = _gate(timer=jev_judges.NOT_TIMER_QUESTION)
+    _voice(ip, "パジュ")
+    swallowed, t = _voice(ip, "止めて")
+    assert swallowed is False and t.ear_dropped is False
+    assert _asked(a) == {"to_whom"}  # 宛先だけを 1 回聞く（タイマーへの問いは聞かない）
+    assert ip._pending_heard and ip._muted == []  # 解く言葉の求めがまとめの求めになる
+
+
+def test_family_talk_in_the_window_does_not_lift_the_timer_silence():
+    """窓の中でも、家族どうしの「やめて」では解かない（宛先を聞く・見直し 3 回目の指摘 1・2026-11-14）。"""
+    ip, a = _gate(robot=0.1, timer=jev_judges.NOT_TIMER_QUESTION)
+    _voice(ip, "パジュ")
+    swallowed, t = _voice(ip, "やめて")
+    assert swallowed is True and t.ear_dropped is True
+    assert _asked(a) == {"to_whom"}
+    assert not ip._pending_heard and [h.text for h in ip._muted] == ["こんにちは"]
+
+
+def test_a_stop_after_a_tentative_call_lifts_the_timer_silence():
+    """1 字違いの名前（仮の呼びかけ）の後の「止めて」も、パジュ宛てなら解く（見直し 3 回目の指摘 2）。"""
+    ip, a = _gate(robot=0.9, timer=jev_judges.NOT_TIMER_QUESTION)
+    asyncio.run(ip._paju().call_tentatively(time.monotonic()))
+    swallowed, _ = _voice(ip, "止めて")
+    assert swallowed is False
+    assert _asked(a) == {"to_whom"}
+    assert "パジュ、止めて" in a._jev.ask.await_args.args[0]  # 呼び名を頭に付けて聞く
+
+
+@pytest.mark.real_window  # 窓の外は本物の判定で見る
+def test_an_unnamed_control_word_outside_the_window_still_does_not_lift_it():
+    """**反証の側**：窓の外の名前の無い「止めて」では解かない（窓の外の決まり）。"""
+    ip, a = _gate(timer=jev_judges.NOT_TIMER_QUESTION)
+    swallowed, _ = _voice(ip, "止めて")
+    assert swallowed is True
+    assert not ip._pending_heard and [h.text for h in ip._muted] == ["こんにちは"]  # 解かない
+
+
 # --- 4. 軽く返すときも `[タイマー]` の枠を見る ---
 
 _TIMER_FRAME = "[タイマー]\n- id=1 パスタ 残り 3:20（12:05 に鳴る）"

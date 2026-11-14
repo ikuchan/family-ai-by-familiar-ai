@@ -5100,7 +5100,7 @@ class InformationProcessing:
           （`_muted`・`silence_hold`）に控えるだけにする。通すのは解くきっかけだけ（`lifts`）。控えたものは
           聞けるようになった最初の求めへ渡す（`_pending_heard` → `Request.heard_while_silent`）。
         - **窓の外の入力**（出-as 段 3・出-au 段 1-2）：声もキーボードも捨てる。誰も見えないのに声がしたのは
-          見に行く理由なので、SEEKING を押し上げる（案ア）。タイマーの操作の言葉にも名前が要る。
+          見に行く理由なので、SEEKING を押し上げる（案ア）。タイマーの操作の言葉にも名前が要る（窓の中なら要らない）。
 
         会話入力はここを `push_utterance` から**届いた時刻で**通る（駆動体は会話入力をもう一度は見ない）。耳の状態と
         黙っているかは、ここで 1 回だけ読む。名前で呼ばれたか（`Trigger.named`）もここで決める。
@@ -5267,7 +5267,7 @@ class InformationProcessing:
         if trigger.kind == "会話入力":
             # タイマーの操作の言葉（止めて・一時停止・再開）にも**名前が要る**（出-au 段 1-2・`設計方針_判定の段`
             # §2.1）。以前は名前が無くても通していたが（出-ab）、そのころの「打ち切りには名前が要る」決まりにそろえた
-            # （名前で打ち切ることは環-aw 決定ホでやめた）。
+            # （名前で打ち切ることは環-aw 決定ホでやめた）。窓の中なら名前は要らない（タイマーで黙っていても、`_timer_gate`・案 2）。
             if self._music_word_while_playing(trigger):
                 # 鳴っているあいだの音楽の言葉は、名前が無くても受ける（出-cp・2026-10-15・本人の決定ア）。マイクの関門は
                 # 通しているのに、ここで捨てて止まらなかった（10/14 23:21）。**窓は開けない**——開けるとテレビや家族の話も
@@ -5337,7 +5337,7 @@ class InformationProcessing:
 
             return not is_music_word(trigger.query or "", self._music_table_now())
         if is_control_word(trigger.query):
-            return False  # 名前の無い操作の言葉は、いままでどおり窓の決まりへ（窓の外なら情動を押し上げて捨てる）
+            return False  # 名前の無い操作の言葉は耳では捨てない（窓の中ならタイマーの入口、窓の外なら情動を押し上げて捨てる）
         at = self._arrival(trigger)
         if self._paju().window_open_at(at):
             return False
@@ -5358,7 +5358,8 @@ class InformationProcessing:
         """タイマーで耳が閉じている（`EAR_TIMER`）か、口がタイマーで黙っているときの入口（ウの 3 の改め・2026-11-14・
         本人の決定・`設計方針_タイマー` §9）。捨てた（真）・通した（偽）・この先のいつもの決まりに任せる（None）を返す。
 
-        - 名前つきの操作の言葉：黙っていれば解く（`lifts`）。黙っていなければ、いつもの決まりへ。
+        - 名前つきの操作の言葉と、窓の中の名前の無い操作の言葉：黙っていれば解く（`lifts`・案 2）。黙っていなければ、
+          いつもの決まりへ。
         - 名前の無い操作の言葉：黙っていなければ、いつもの決まり（窓の中なら宛先）へ。
         - 名前だけの声：いつもの決まり（黙って窓を開ける、または仮の呼びかけにする）へ。黙っていても控えない。
         - それ以外の名前つきの声と、窓の中か仮の呼びかけの続き（10 秒）の名前の無い声：Jev に **1 回だけ** 聞く
@@ -5370,9 +5371,42 @@ class InformationProcessing:
         from ..core.timer_rules import is_control_word
 
         query = trigger.query or ""
-        if silenced and lifts(trigger.kind, query, names=names, reason="timer:"):
-            # 解く言葉（名前つきの操作の言葉・「話していいよ」）への返事を声にするため、窓を開ける（出-as 段 6）。
-            await self._paju().open_window(self._arrival(trigger))
+        voice = trigger.source == "voice"
+        at = self._arrival(trigger)
+        window_open = self._paju().window_open_at(at)
+        in_window = voice and window_open
+        follows = (
+            voice and not trigger.named and not in_window and self._follows_tentative(at, tentative)
+        )
+        lift = silenced and lifts(trigger.kind, query, names=names, reason="timer:")
+        unnamed_stop = (
+            silenced
+            and not lift
+            and not trigger.named
+            and (window_open or follows)
+            and is_control_word(query)
+        )
+        if unnamed_stop and voice:
+            # 窓の中か仮の呼びかけの続きの名前の無い操作の言葉は、宛先を 1 回だけ聞き、パジュ宛てのときだけ解く（案 2 と
+            # 見直しの指摘 1・2、2026-11-14・本人の決定）。家族どうしの「やめて」で沈黙を解かない。キーボードは聞かない。
+            asked = replace(trigger, query=f"{names[0]}、{query}") if follows and names else trigger
+            got = await self._ask_entrance(
+                asked,
+                addressee=True,
+                timer=False,
+                recent="" if follows else self._recent_for_judges(self._wake_window().session),
+                drop_unanswered=True,
+            )
+            if got.to_paju != jev_judges.TO_PAJU:
+                return await self._timer_gate_refuses(trigger, ear=ear, now=now)
+        if unnamed_stop or lift:
+            # 解く言葉（名前つきの操作の言葉・「話していいよ」・窓の中の操作の言葉）への返事を声にするため、窓を開ける（出-as 段 6）。
+            logger.info(
+                "event-loop タイマーの沈黙を%sで解いた（%d 字）",
+                "名前の無い操作の言葉" if unnamed_stop else "解く言葉",
+                len(query),
+            )
+            await self._paju().open_window(at)
             trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
             self._pending_heard = self._take_muted()  # 解く言葉の求めがまとめの求めになる
             return False
@@ -5380,12 +5414,6 @@ class InformationProcessing:
             return None
         if name_only:
             return None
-        voice = trigger.source == "voice"
-        at = self._arrival(trigger)
-        in_window = voice and self._paju().window_open_at(at)
-        follows = (
-            voice and not trigger.named and not in_window and self._follows_tentative(at, tentative)
-        )
         passes = False
         if trigger.named and asked_timer is not None:
             passes = asked_timer  # 1 字違いの名前で、宛先と一緒にもう聞いた
@@ -5414,9 +5442,15 @@ class InformationProcessing:
             trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
             logger.info("event-loop タイマーへの問いなので通す（%d 字）", len(query))
             return False
+        return await self._timer_gate_refuses(trigger, ear=ear, now=now)
+
+    async def _timer_gate_refuses(self, trigger: "Trigger", *, ear: str, now: float) -> bool:
+        """タイマーの入口で通さない声：耳がタイマーで閉じていれば記録なしで捨て、耳が開いていれば控える。"""
         if ear == EAR_TIMER:
             trigger.ear_dropped = True
-            logger.info("event-loop タイマーで耳が閉じているので捨てた（%d 字）", len(query))
+            logger.info(
+                "event-loop タイマーで耳が閉じているので捨てた（%d 字）", len(trigger.query or "")
+            )
             return self._swallowed(trigger)
         await self._note_muted(trigger, now)
         return self._swallowed(trigger)
