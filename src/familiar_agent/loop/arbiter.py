@@ -540,6 +540,10 @@ class ArbiterInput:
     search_in_flight: bool = False
     tool_return: bool = False
     timer_active: bool = False
+    #: `[タイマー]` の枠（残り・鳴る時刻・一時停止中か、直前 180 秒に鳴った・止めたもの）。どれも無ければ空。
+    #: 軽く返す文にも添える（ウの 3・2026-11-13）。
+    #: 枠は主LLM にしか載らず、軽量LLM は「パジュ、あと何分？」に残りを知らずに答えることになっていた。
+    timer_ctx: str = ""
     family_md: str = ""
     people_md: str = ""  # 家族以外で知っている人（`PEOPLE.md`・知-ab）
     family_now: str = ""  # 家族のいまの様子（`[家族のいまの様子]`・知-ad）
@@ -1665,7 +1669,8 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         heading=heading,
         utterance=inp.utterance,
         workspace=(inp.workspace_ctx or "（なし）")
-        + (f"\n\n{inp.suggestion_ctx}" if self_doing and inp.suggestion_ctx else ""),
+        + (f"\n\n{inp.suggestion_ctx}" if self_doing and inp.suggestion_ctx else "")
+        + (f"\n\n{inp.timer_ctx}" if inp.timer_ctx else ""),
         fields=fields,
         shape=shape,
     )

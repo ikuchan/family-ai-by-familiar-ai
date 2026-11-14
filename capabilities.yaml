@@ -211,7 +211,10 @@ capabilities:
       of what it is for; only one timer runs at a time. `pause_timer` and `resume_timer`
       hold and continue it (the ringing time moves later by the paused time), and
       `cancel_timer` stops it. The running timer and its time left are shown as [タイマー]
-      on every turn. When it would ring in the quiet hours or while asked to be quiet, the
+      on every turn. While a timer runs and the agent is not listening, a question that
+      starts with its name ("パジュ、あと何分？"), or follows its name within the
+      10-second window, still reaches it when Jev reads it as a question about the timer,
+      and it answers from [タイマー]. When it would ring in the quiet hours or while asked to be quiet, the
       agent first asks once whether to set it; the answer is taken by `confirm` or
       `decline`. When due it rings once and says what it was for, even in the quiet hours.
       A time of day ("7 時に") is an alarm, not a timer. Implemented in `tools/timer.py`,

@@ -214,6 +214,13 @@ def test_a_timer_silence_lets_named_control_words_through_from_anyone():
         names=["パジュ"],
         reason="timer:1",
     )
+    # 長さでは切らない（ウの 3・2026-11-14・本人の決定）。名前つきなら長い文の中の操作の言葉でも解く。
+    assert lifts(
+        "会話入力",
+        "パジュ、タイマーをいったん止めてもらってもいいかな",
+        names=["パジュ"],
+        reason="timer:1",
+    )
 
 
 def test_stop_words_do_not_lift_a_human_silence():

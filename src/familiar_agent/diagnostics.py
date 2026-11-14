@@ -72,8 +72,10 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
             not_listening = str(gate() or "")
         except Exception:  # noqa: BLE001
             not_listening = ""
-    # 理由が音楽か（関門 `realtime_stt_session._passes_gate` と同じ見分け方）。
-    music_gate = "音楽" in not_listening
+    # 理由が音楽か。入口の耳（`event_loop._ear`）と同じく、文字列が同じかで見る（タイマーの名前に「音楽」が入っても取り違えない）。
+    from .agent import MUSIC_GATE_REASON
+
+    music_gate = not_listening == MUSIC_GATE_REASON
 
     if agent_init_failed:
         phase = "error"
@@ -96,7 +98,11 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     elif not_listening:
         phase = "not_listening"
         headline = f"🔇 聞いていない（{not_listening} が鳴るまで）"
-        detail = "止めて・一時停止・再開の言葉だけ届く。/mic on で聞く。"
+        # 名前が要ること（出-au 段 1-2）と、時間を聞けること（ウの 3・2026-11-13）。`[タイマー]` の枠と同じことを言う。
+        detail = (
+            "名前を呼んだときの、止めて・一時停止・再開の言葉と、タイマーへの問いだけ届く。"
+            "/mic on で聞く。"
+        )
     elif stt_gated:
         phase = "stt_gated"
         headline = "STT gated by TTS"

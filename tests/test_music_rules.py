@@ -72,6 +72,8 @@ def test_the_words_that_pass_while_music_plays():
     assert not is_music_word("3 分測って", TABLE)
     assert not is_music_word("明日の天気は？", TABLE)
     assert not is_music_word("", TABLE)
+    # 長さでは切らない（ウの 3・2026-11-14・本人の決定・案 1）。長い文の中の操作の言葉でも通す。
+    assert is_music_word("ちょっと音楽止めてくれないかなって思ってるんだけど", TABLE)
 
 
 def test_music_stops_after_thirty_minutes():
@@ -86,15 +88,6 @@ def test_the_volume_ducks_to_a_half_and_comes_back():
     assert duck(0.8) == 0.4
     assert duck(0.0) == 0.0
     assert duck(1.0) == 0.5
-
-
-def test_a_named_voice_is_a_music_word_whatever_it_says():
-    """鳴っているあいだも、文頭に名前があれば何でも通す（2026-09-30・本人の決定ア）。"""
-    names = ["パジュ"]
-    assert is_music_word("パジュ、いま何の曲？", TABLE, names=names)
-    assert is_music_word("パジュ、3 分測って", TABLE, names=names)
-    assert not is_music_word("いま何の曲？", TABLE, names=names)
-    assert not is_music_word("3 分測って", TABLE, names=names)
 
 
 # ── 既定のプレイリスト（知-bd・2026-10-13）─────────────────────────────────────

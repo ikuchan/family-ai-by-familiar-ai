@@ -35,12 +35,10 @@ _ROW = re.compile(
 #: 順番の指し方。3 つ目の欄（`名前：URI：ランダム`）と、言葉の中の言い方に同じ表を使う。
 _SHUFFLE = re.compile(r"(ランダム|しゃっふる|シャッフル|順不同)")
 _IN_ORDER = re.compile(r"(順番|順に|そのまま)")
-#: 音楽の操作の言葉。長い文の中の「止めて」は通さない（テレビの台詞でありうる）。
+#: 音楽の操作の言葉。長さでは切らない（ウの 3・2026-11-14・本人の決定）。
 _CONTROL = re.compile(
     r"(止め|ストップ|中止|やめ|次の曲|次へ|スキップ|大きく|小さく|音量|ランダム|シャッフル|順番)"
 )
-#: 操作の言葉として受ける長さ（字）。プレイリスト名はこれと別に表で当てる。
-CONTROL_MAX_CHARS = 14
 #: 何も指していない言葉。「音楽かけて」の「音楽」を曲名として探していた（知-al (2)・10/07）。
 _NO_NAME = frozenset({"音楽", "曲", "何か", "なにか", "なんか", "bgm"})
 
@@ -100,31 +98,17 @@ def wants_shuffle(text: str, default: bool) -> bool:
     return default
 
 
-def is_music_word(
-    text: str,
-    table: "tuple[tuple[str, str, bool], ...]",
-    *,
-    names: "list[str] | tuple[str, ...]" = (),
-) -> bool:
-    """鳴っているあいだに通す言葉か（文頭に名前があるか、音楽の操作か、表にあるプレイリストの名前）。
+def is_music_word(text: str, table: "tuple[tuple[str, str, bool], ...]") -> bool:
+    """鳴っているあいだに、名前が無くても通す言葉か（音楽の操作か、表にあるプレイリストの名前）。
 
-    名前の判定は窓の門と同じ（文頭・`heard_name`）。名前つきなら時間の道具も通す（本人の決定ア）。
+    名前つきの声は、耳の入口（`event_loop._ear_drops`）が名前で通す（本人の決定ア・2026-09-30）。長さでは切らない。
     """
-    from .wake_window import heard_name
-
     s = (text or "").strip()
     if not s:
         return False
-    if heard_name(s, list(names)):
-        return True
     if find_playlist(s, table) is not None:
         return True
-    return len(s) <= CONTROL_MAX_CHARS and bool(_CONTROL.search(s))
-
-
-def passes_unnamed(text: str, table: "tuple[tuple[str, str, bool], ...]") -> bool:
-    """鳴っているあいだ、名前が無くても入口で受ける言葉か（操作の言葉かプレイリスト名・出-cp・本人の決定ア）。"""
-    return is_music_word(text, table)
+    return bool(_CONTROL.search(s))
 
 
 def expired(started_at: float, *, now: float) -> bool:

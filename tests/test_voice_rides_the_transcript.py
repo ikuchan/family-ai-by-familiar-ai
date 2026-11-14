@@ -74,7 +74,6 @@ async def test_the_relay_keeps_the_voice():
     input_q: asyncio.Queue = asyncio.Queue()
     session._incoming_committed = committed_q
     session._committed_queue = input_q
-    session.mic_gate = lambda: ""
     task = asyncio.create_task(session._committed_relay())
     await committed_q.put(VoiceText("パジュ、パパだよ", voice=VEC))
     await asyncio.sleep(0.05)
@@ -162,7 +161,6 @@ async def test_the_relay_keeps_the_measurements():
     input_q: asyncio.Queue = asyncio.Queue()
     session._incoming_committed = committed_q
     session._committed_queue = input_q
-    session.mic_gate = lambda: ""
     task = asyncio.create_task(session._committed_relay())
     await committed_q.put(VoiceText("パジュー", no_speech=0.15, logprob=-0.72))
     await asyncio.sleep(0.05)

@@ -118,44 +118,6 @@ async def test_nothing_happens_when_no_music_plays():
     io.set_volume.assert_not_awaited()
 
 
-# ── 集音の門を通る言葉（音楽のときは音楽の言葉だけ）──────────────────────
-
-
-@pytest.mark.asyncio
-async def test_the_session_passes_music_words_when_music_is_the_reason():
-    """門の理由が音楽なら、通すのは音楽の言葉（タイマーの操作語ではない）。"""
-    from familiar_agent.realtime_stt_session import RealtimeSttSession
-
-    session = MagicMock(spec=RealtimeSttSession)
-    session.music_table = lambda: (("ケイマン", "spotify:playlist:aaa", False),)
-    assert RealtimeSttSession._passes_gate(session, "音楽が鳴っている", "止めて")
-    assert RealtimeSttSession._passes_gate(session, "音楽が鳴っている", "ケイマンかけて")
-    assert not RealtimeSttSession._passes_gate(session, "音楽が鳴っている", "3 分測って")
-    # タイマーのときは従来どおり（操作の言葉）
-    assert RealtimeSttSession._passes_gate(session, "タイマー中", "止めて")
-    assert not RealtimeSttSession._passes_gate(session, "タイマー中", "ケイマンかけて")
-
-
-@pytest.mark.asyncio
-async def test_while_music_plays_a_named_voice_passes_whatever_it_says():
-    """鳴っているあいだも、文頭に名前があれば何でも通す（2026-09-30・本人の決定ア）。
-
-    09-21 の「時間の道具は通さない」は、名前が無いときだけになった。名前の判定は窓の門と同じ（文頭）。
-    """
-    from familiar_agent.realtime_stt_session import RealtimeSttSession
-
-    session = MagicMock(spec=RealtimeSttSession)
-    session.music_table = lambda: (("ケイマン", "spotify:playlist:aaa", False),)
-    session.agent_names = lambda: ["パジュ"]
-    passes = RealtimeSttSession._passes_gate
-    assert passes(session, "音楽が鳴っている", "パジュ、いま何の曲？")
-    assert passes(session, "音楽が鳴っている", "パジュ、3 分測って")
-    assert not passes(session, "音楽が鳴っている", "いま何の曲？")
-    assert not passes(session, "音楽が鳴っている", "3 分測って、パジュ")  # 名前は文頭だけ
-    # タイマーのときは従来どおり（操作の言葉）。名前があっても操作の言葉でなければ通さない
-    assert not passes(session, "タイマー中", "パジュ、いま何の曲？")
-
-
 # ── 道具が主LLM へ渡る ─────────────────────────────────────────────────────
 
 

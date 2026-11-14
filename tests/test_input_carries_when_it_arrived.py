@@ -46,7 +46,6 @@ async def test_the_stt_relay_stamps_what_it_heard():
     input_q: asyncio.Queue = asyncio.Queue()
     session._incoming_committed = committed_q
     session._committed_queue = input_q
-    session.mic_gate = lambda: ""
     task = asyncio.create_task(session._committed_relay())
     await committed_q.put("パジュ、おはよう")
     await asyncio.sleep(0.05)

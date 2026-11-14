@@ -58,6 +58,9 @@ logger = logging.getLogger(__name__)
 
 
 _MORNING_CONTEXT_MAX_CHARS = 2600
+#: 音楽が鳴っているときの `mic_gate_reason`。入口（`event_loop._ear`）はこれと同じかで耳の状態を決める（タイマーの名前に
+#: 「音楽」が入っても取り違えない）。
+MUSIC_GATE_REASON = "音楽が鳴っている"
 _CACHE_HEARTBEAT_INTERVAL = 240  # 4 min; Anthropic cache TTL is 5 min
 _DEFAULT_TOOL_TIMEOUT = 20.0
 _TOOL_TIMEOUTS: dict[str, float] = {
@@ -843,15 +846,15 @@ class EmbodiedAgent:
         )
 
     def mic_gate_reason(self) -> str:
-        """常時集音へ挿す口：聞かない状態ならその理由（空＝聞く）。
+        """耳の入口の状態：聞かない状態ならその理由（空＝聞く）。読むのはループの入口（`event_loop._ear`）と状態の行。
 
         2 つある。**タイマー**（`TimerTool.listening_closed`・知-o）と、**音楽**（知-aa・
-        2026-09-21）。音楽が鳴っているあいだは音楽の話だけを通す（時間の道具は通さない・
-        本人の決定）。通す言葉の判定は入口側（`core.music_rules.is_music_word`）が持つ。
+        2026-09-21・`MUSIC_GATE_REASON`）。重なれば音楽が先。音楽が鳴っているあいだは音楽の話だけを通す（時間の道具は
+        通さない・本人の決定）。通す言葉の判定は入口（`event_loop._ear_drops`）が持つ。
         """
         state = getattr(self, "_music_state", None)
         if state is not None and getattr(state, "playing", False):
-            return "音楽が鳴っている"
+            return MUSIC_GATE_REASON
         tool = getattr(self, "_timer_tool", None)
         if tool is None:
             return ""

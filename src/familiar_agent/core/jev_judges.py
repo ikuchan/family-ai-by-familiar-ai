@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+from dataclasses import dataclass
 from typing import Any, Callable
 
 from ..backends.jev import choice, score
@@ -33,6 +34,10 @@ AS_IS = "そのまま出す"
 CONFIRM_YES = "はい"
 CONFIRM_NO = "いいえ"
 CONFIRM_OTHER = "それ以外"
+
+#: タイマーへの問いか（ウの 3・2026-11-13・`設計方針_タイマー` §9）。
+TIMER_QUESTION = "タイマーへの問い"
+NOT_TIMER_QUESTION = "それ以外"
 
 
 def picked(answer, key: str, min_conf: float) -> "str | None":
@@ -124,7 +129,37 @@ async def judge_bare_reply(client, *, heard: str, text: str, min_conf: float) ->
     return pick == "reply"
 
 
-async def judge_addressee(
+#: 宛先の問い（§2.2.3）。問いの文にパジュの名前は入れない（呼び名は材料の `[ロボットの呼び名]`）。
+_TO_WHOM = choice(
+    "この言葉は、この家のロボットに向けたものか",
+    {
+        # 遊びの続きの一語は、名前も問いも無いので家族どうしに読まれていた（実験 0.21〜0.24 → 0.35〜0.42）。
+        "robot": "ロボットに向けた言葉。ロボットの直前の問いへの返事（はい・いいえ・ちがう・そうだよ）、"
+        "ロボットとしている遊び（しりとりなど）の続きの一語、やりとりの続き、またはロボットへの頼み・問い",
+        "family": "家族どうしの会話。ロボットには向けていない",
+        "nowhere": "どこにも向いていない（テレビ・動画の声、独り言、意味の通らない書き起こし）",
+        "unknown": "どちらとも決められない",
+    },
+)
+#: タイマーへの問い（ウの 3・`設計方針_タイマー` §9）。答えの中身は調停と主LLM が `[タイマー]` の枠を見て決める。
+_TIMER = choice(
+    "いま届いた言葉は、動いているタイマーについて尋ねる問い（残りの時間・鳴る時刻・いまの様子など）か",
+    {
+        TIMER_QUESTION: "動いているタイマーについて尋ねている",
+        NOT_TIMER_QUESTION: "タイマーについて尋ねていない（ほかの話・頼み・独り言など）",
+    },
+)
+
+
+@dataclass(frozen=True)
+class EntranceVerdict:
+    """入口の判定の答え。聞かなかった問いは None。"""
+
+    to_paju: "str | None" = None
+    timer_question: "bool | None" = None
+
+
+async def judge_entrance(
     client,
     *,
     text: str,
@@ -132,39 +167,54 @@ async def judge_addressee(
     present: str,
     names: "list[str]",
     voice: str,
+    addressee: bool,
+    timer: bool,
+    min_conf: float,
     drop_unanswered: bool = False,
-) -> str:
-    """窓の中の名前の無い声が、パジュ宛てか（§2.2.3・出-db 段 C）。ロボット宛ての確率で決める。
+) -> EntranceVerdict:
+    """入口で要る問い（宛先・タイマーへの問い）を **1 回で** 聞く（ウの 3 の改め・2026-11-14・本人の決定）。
 
-    確信度ではなく確率で見る（確信度は確率の集まり方で、宛てでない側が家族どうし・どこにも・分からないに割れると低くなる）。
-    ロボット宛ての確率が `ADDRESSEE_ROBOT_MIN` 未満なら宛てでない。Jev が答えないときは受ける（返事を書く LLM が、
-    返しようがなければ黙る・本人の決定ア）。`drop_unanswered` なら、答えないときも宛てでない（窓が閉じているときの
-    1 字違いの名前・崩れた音で窓を開けない）。以前は「迷ったら受ける」で、確信度 0.6 未満と「分からない」も受けていた
-    （出-au）が、テレビや崩れた声に口をはさむ害の方が大きく出た（10/23〜10/24）。
+    Jev を直列に呼ぶと返事が遅れるので、入口で聞くのはこの 1 回だけにする。状態は宛先の状態（§2.2.3）で、タイマーへの
+    問いを聞くときだけ「[いま] タイマーが動いている」の 1 行を足す（本人の決定・案 A。線 0.3 は変えない）。
 
-    問いの文にパジュの名前は入れない。呼び名は ME.md から `[ロボットの呼び名]` として材料に入れる。
+    - 宛先：ロボット宛ての確率が `ADDRESSEE_ROBOT_MIN` 未満なら宛てでない。確信度ではなく確率で見る（確信度は確率の
+      集まり方で、宛てでない側が家族どうし・どこにも・分からないに割れると低くなる）。Jev が答えないときは受ける（返事を
+      書く LLM が、返しようがなければ黙る・本人の決定ア）。`drop_unanswered` なら、答えないときも宛てでない（窓が閉じて
+      いるときの 1 字違いの名前・崩れた音で窓を開けない）。以前は「迷ったら受ける」で、確信度 0.6 未満と「分からない」も
+      受けていた（出-au）が、テレビや崩れた声に口をはさむ害の方が大きく出た（10/23〜10/24）。
+    - タイマーへの問い：確信度が `min_conf` 未満・答えなしは「いいえ」（捨てる側）。
+    - 本文はログに出さない。
     """
+    if not addressee and not timer:
+        return EntranceVerdict()
     state = (
-        "[ロボットの呼び名]\n" + ("、".join(names) or "（なし）") + "\n\n"
-        f"[いま聞こえた言葉]\n{text}\n\n"
+        "[ロボットの呼び名]\n"
+        + ("、".join(names) or "（なし）")
+        + "\n\n"
+        + ("[いま]\nタイマーが動いている\n\n" if timer else "")
+        + f"[いま聞こえた言葉]\n{text}\n\n"
         f"[直前のやりとり（古い順）]\n{recent or '（なし）'}\n\n"
         f"[いま部屋に居る人]\n{present or '（分からない）'}\n\n"
         f"[声の似かた（家族の声との近さ）]\n{voice or '（分からない）'}"
     )
-    questions = {
-        "to_whom": choice(
-            "この言葉は、この家のロボットに向けたものか",
-            {
-                # 遊びの続きの一語は、名前も問いも無いので家族どうしに読まれていた（実験 0.21〜0.24 → 0.35〜0.42）。
-                "robot": "ロボットに向けた言葉。ロボットの直前の問いへの返事（はい・いいえ・ちがう・そうだよ）、"
-                "ロボットとしている遊び（しりとりなど）の続きの一語、やりとりの続き、またはロボットへの頼み・問い",
-                "family": "家族どうしの会話。ロボットには向けていない",
-                "nowhere": "どこにも向いていない（テレビ・動画の声、独り言、意味の通らない書き起こし）",
-                "unknown": "どちらとも決められない",
-            },
-        )
-    }
+    questions: dict = {}
+    if addressee:
+        questions["to_whom"] = _TO_WHOM
+    if timer:
+        questions["timer"] = _TIMER
     answer = await _ask(client, state, questions)
+    to_paju: "str | None" = None
+    if addressee:
+        to_paju = _to_paju(answer, drop_unanswered=drop_unanswered)
+    timer_question: "bool | None" = None
+    if timer:
+        timer_question = picked(answer, "timer", min_conf) == TIMER_QUESTION
+        logger.info("Jev 判定 タイマーへの問い：%s", "はい" if timer_question else "いいえ")
+    return EntranceVerdict(to_paju=to_paju, timer_question=timer_question)
+
+
+def _to_paju(answer, *, drop_unanswered: bool) -> str:
+    """宛先の答えを読む（`judge_entrance`）。"""
     got = (getattr(answer, "answers", None) or {}).get("to_whom") or {}
     probs = dict(got.get("probabilities") or {})
     if not probs and got.get("choice"):
@@ -180,6 +230,33 @@ async def judge_addressee(
         "Jev 判定 宛先：%s（ロボット宛て %.2f・%s）", verdict, robot, got.get("choice") or "-"
     )
     return verdict
+
+
+async def judge_addressee(
+    client,
+    *,
+    text: str,
+    recent: str,
+    present: str,
+    names: "list[str]",
+    voice: str,
+    drop_unanswered: bool = False,
+) -> str:
+    """窓の中の名前の無い声が、パジュ宛てか（§2.2.3・出-db 段 C）。宛先だけを聞く `judge_entrance`。"""
+    got = await judge_entrance(
+        client,
+        text=text,
+        recent=recent,
+        present=present,
+        names=names,
+        voice=voice,
+        addressee=True,
+        timer=False,
+        min_conf=0.0,
+        drop_unanswered=drop_unanswered,
+    )
+    assert got.to_paju is not None
+    return got.to_paju
 
 
 #: 返事が申し出で終わるか（出-dj・2026-11-02 本人の承認）。確認待ちの問いも申し出と読まれる（実験 0.94）ので、呼び手は確認待ちの

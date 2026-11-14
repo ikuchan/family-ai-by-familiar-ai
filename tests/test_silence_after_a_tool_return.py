@@ -80,6 +80,8 @@ def test_a_control_word_answered_lightly_falls_to_full_while_a_timer_is_running(
     assert branch("再開", timer_active=True) == "full"
     assert branch("再開") == "light"  # タイマーが無ければ会話（「再開発の話？」）
     assert branch("こんにちは", timer_active=True) == "light"
+    # 長さでは切らない（ウの 3・2026-11-14・本人の決定）。長い文の中の操作の言葉でも主LLM が道具で決める。
+    assert branch("ちょっとタイマーを止めてもらってもいいかなと思って", timer_active=True) == "full"
 
 
 def test_the_control_guard_is_not_applied_on_a_tool_return():

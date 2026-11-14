@@ -33,8 +33,18 @@ def test_music_says_what_gets_through():
 
 
 def test_a_timer_keeps_its_own_words():
-    """**反証の側**：タイマーのときは、いままでの文と印のまま。"""
+    """**反証の側**：タイマーのときは、タイマーの文と印（名前が要ること・時間を聞けること・ウの 3・2026-11-13）。"""
     snap = _snap("タイマー「パスタ」")
     assert snap.headline == "🔇 聞いていない（タイマー「パスタ」 が鳴るまで）"
-    assert snap.detail == "止めて・一時停止・再開の言葉だけ届く。/mic on で聞く。"
+    assert snap.detail == (
+        "名前を呼んだときの、止めて・一時停止・再開の言葉と、タイマーへの問いだけ届く。/mic on で聞く。"
+    )
+    assert "mic=closed" in snap.readiness and "mic=music" not in snap.readiness
+
+
+def test_a_timer_named_after_music_is_still_a_timer():
+    """**反証の側**：音楽かは理由の文字列が同じかで見る（`agent.MUSIC_GATE_REASON`・入口の耳と同じ見分け方）。
+    タイマーの名前に「音楽」が入っても、タイマーの文で出す（ウの 3 の改め・2026-11-14・本人の承認）。"""
+    snap = _snap("タイマー「音楽の練習」")
+    assert snap.headline.startswith("🔇 聞いていない")
     assert "mic=closed" in snap.readiness and "mic=music" not in snap.readiness

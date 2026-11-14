@@ -25,7 +25,6 @@ import time
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
-from .core.timer_rules import is_control_word
 from .core.wake_window import InputText, VoiceText, measures_of, voice_of
 from .voice_guard import VoiceLoopGuard, get_shared_voice_guard
 
@@ -150,12 +149,6 @@ class RealtimeSttSession:
         self._api_key = api_key
         self._language_code = language_code.strip()
         self._voice_guard = voice_guard or get_shared_voice_guard()
-        # 聞かない状態を返す口（空＝聞く・文字列＝理由）。GUI が agent の `timer_tool.listening_closed` を挿す。
-        self.mic_gate: "Callable[[], str] | None" = None
-        #: 音楽の表（`MUSIC.md`）を読む口。音楽が鳴っているあいだ、通す言葉の判定に使う。
-        self.music_table: "Callable[[], tuple] | None" = None
-        #: 自分の名前（`ME.md`）を読む口。鳴っているあいだも、文頭に名前があれば通す（2026-09-30）。
-        self.agent_names: "Callable[[], list[str]] | None" = None
         # 書き起こしの担い手。ローカル（`LocalSttEngine`）と WebSocket
         # （`RealtimeSttClient`）の2種類あり、口の形は同じ（`connected`／`connect`／
         # `close`／`send_audio`／`on_committed`）。共通の基底は置かず、型は緩めて扱う。
@@ -404,12 +397,7 @@ class RealtimeSttSession:
             ):
                 logger.debug("Dropped duplicate realtime STT transcript: %s", text)
                 continue
-            # 聞かないあいだ（タイマー中・`TIMER_MIC_CLOSE`・知-o）：操作の言葉だけ通す。
-            # マイクは止めない（止めると「止めて」が届かない）。機械が決めるのは通すかまで。
-            closed = self._mic_gate_reason()
-            if closed and not self._passes_gate(closed, text):
-                logger.info("聞いていない（%s）：%r", closed, text)
-                continue
+            # 聞かないあいだ（タイマー中・音楽中）に通すかは、ループの入口の耳が決める（`event_loop._ear`・ウの 3 の改め）。
             decision = self._voice_guard.check_transcript(text)
             if decision.blocked:
                 logger.info("Realtime STT gated transcript (%s): %r", decision.reason, text)
@@ -428,32 +416,6 @@ class RealtimeSttSession:
             await self._committed_queue.put(
                 VoiceText(text, at=at, voice=voice_of(text), no_speech=no_speech, logprob=logprob)
             )
-
-    def _passes_gate(self, reason: str, text: str) -> bool:
-        """聞かないあいだに通す言葉か。**理由で通す言葉が違う**（知-aa・2026-09-21）。
-
-        タイマー中は操作の言葉（止め・一時停止・再開）。音楽が鳴っているあいだは**音楽の話だけ**
-        （操作とプレイリストの名前）で、時間の道具は通さない（本人の決定）。ただし文頭に名前があれば
-        何でも通す（2026-09-30・本人の決定ア。名前の判定は窓の門と同じ）。
-        """
-        if "音楽" in reason:
-            from .core.music_rules import is_music_word
-
-            table: tuple = ()
-            names: list[str] = []
-            with contextlib.suppress(Exception):
-                table = self.music_table() if self.music_table is not None else ()
-            with contextlib.suppress(Exception):
-                read_names = getattr(self, "agent_names", None)
-                names = list(read_names() or []) if read_names is not None else []
-            return is_music_word(text, table, names=names)
-        return is_control_word(text)
-
-    def _mic_gate_reason(self) -> str:
-        try:
-            return str(self.mic_gate() or "") if self.mic_gate is not None else ""
-        except Exception:  # noqa: BLE001
-            return ""
 
     async def _partial_relay(self) -> None:
         while True:
@@ -478,18 +440,6 @@ class RealtimeSttController:
         self.on_partial: Callable[[str], None] | None = None
         self.on_committed: Callable[[str], None] | None = None
         self.on_restart: Callable[[str], None] | None = None
-
-    def set_mic_gate(self, gate: "Callable[[], str] | None") -> None:
-        """聞かない状態を返す口を挿す（タイマー中・`TIMER_MIC_CLOSE`）。"""
-        self._session.mic_gate = gate
-
-    def set_music_table(self, table: "Callable[[], tuple] | None") -> None:
-        """音楽の表を読む口を挿す（知-aa）。鳴っているあいだ、通す言葉の判定に使う。"""
-        self._session.music_table = table
-
-    def set_agent_names(self, names: "Callable[[], list[str]] | None") -> None:
-        """自分の名前を読む口を挿す。鳴っているあいだも、文頭に名前があれば通す（2026-09-30）。"""
-        self._session.agent_names = names
 
     @property
     def engine_label(self) -> str:

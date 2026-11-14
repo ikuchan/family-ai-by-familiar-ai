@@ -1836,23 +1836,6 @@ class FamiliarWindow(QMainWindow):
         dlg = SettingsDialog(config, _ENV_PATH, parent=self)
         dlg.exec()
 
-    def _attach_mic_gate(self) -> None:
-        """聞かない状態を常時集音へ挿す（agent と集音の両方が要る）。
-
-        理由は 2 つ——タイマー中（`TIMER_MIC_CLOSE`・知-o）と、音楽が鳴っているあいだ（知-aa）。
-        音楽のときは通す言葉が違う（音楽の操作とプレイリストの名前）ので、表を読む口も挿す。
-        """
-        agent = getattr(self, "_agent", None)
-        ctrl = getattr(self, "_realtime_stt", None)
-        if agent is None or ctrl is None:
-            return
-        with contextlib.suppress(Exception):
-            ctrl.set_mic_gate(agent.mic_gate_reason)
-        with contextlib.suppress(Exception):
-            ctrl.set_music_table(agent._music_table)
-        with contextlib.suppress(Exception):  # 名前つきなら鳴っているあいだも通す（2026-09-30）
-            ctrl.set_agent_names(lambda: list(agent.config.agent_names or []))
-
     def _on_restart_stt_clicked(self) -> None:
         self._create_task(self._restart_realtime_stt(reason="manual"))
 
@@ -1971,7 +1954,6 @@ class FamiliarWindow(QMainWindow):
                 logger.warning("古い常時集音を止められなかった: %s", exc)
         self._realtime_stt = create_realtime_stt_controller()
         self._realtime_stt_task = None
-        self._attach_mic_gate()
         if self._realtime_stt is None:
             self._log.append_line("🎤 Realtime STT OFF（REALTIME_STT が偽）")
             return
@@ -2402,7 +2384,6 @@ class FamiliarWindow(QMainWindow):
 
             agent = await asyncio.to_thread(EmbodiedAgent, self._config)
             self._agent = agent
-            self._attach_mic_gate()
             # Refresh display name from ME.md now that the agent has loaded it.
             agent_name = (getattr(self._config, "agent_name", "") or "").strip()
             current = getattr(self, "_agent_display_name", "")

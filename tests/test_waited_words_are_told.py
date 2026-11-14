@@ -44,7 +44,7 @@ def _pushed(*, open_request, ringing: bool) -> Trigger:
         ip._paju().start()
     )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._ensure_driver = lambda: None
-    ip._timer_active = lambda: False
+    ip._timer_active = lambda frame=None: False
     ip._wake_admits = lambda *a, **k: True
     ip._req.request_id = open_request
     ip._dif = MagicMock(ringing=ringing)

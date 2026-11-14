@@ -50,20 +50,15 @@ def confirm_text(minutes: float, *, silence: bool, mic_close: bool) -> str:
 
 
 _CONTROL = re.compile(r"止め|ストップ|中止|やめ|一時停止|再開(?!発)")  # 「再開発」は会話
-CONTROL_MAX_CHARS = 12  # 操作の言葉として通す発話の長さ〔仮〕。長い文は会話（テレビ）とみなす
 
 
 def is_control_word(text: str) -> bool:
     """聞かないあいだ（`TIMER_MIC_CLOSE`）でも通す、タイマーの操作の言葉か。
 
-    短い発話（12 字〔仮〕以内）で、止める・一時停止・再開の語を含むもの。長い文の中の
-    「止めて」は会話（テレビの台詞も含む）とみなして通さない。**通すかを決めるだけ**で、
-    何をするかは調停か主LLM が道具で決める（言葉はあいまいでありうる）。
+    止める・一時停止・再開の語を含むもの。長さでは切らない（ウの 3・2026-11-14・本人の決定）。
+    **通すかを決めるだけ**で、何をするかは調停か主LLM が道具で決める（言葉はあいまいでありうる）。
     """
-    s = (text or "").strip()
-    if not s or len(s) > CONTROL_MAX_CHARS:
-        return False
-    return bool(_CONTROL.search(s))
+    return bool(_CONTROL.search((text or "").strip()))
 
 
 def _mmss(delta: timedelta) -> str:
@@ -99,8 +94,10 @@ def render_frame(
         return ""
     lines = ["[タイマー]"]
     if not_listening:
+        # 名前が要ること（出-au 段 1-2）と、時間を聞けること（ウの 3・2026-11-13）も書く。主LLM・軽量LLM と GUI のパネルが読む。
         lines.append(
-            f"- 聞いていない（{not_listening} が鳴るまで。止めて・一時停止・再開の言葉だけ届く）"
+            f"- 聞いていない（{not_listening} が鳴るまで。名前を呼んだときの、止めて・一時停止・再開の言葉と、"
+            "タイマーへの問いだけ届く）"
         )
     for r in active:
         due = r["due"]

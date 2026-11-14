@@ -31,10 +31,12 @@ def _flags(monkeypatch):
 # ── 操作の言葉 ────────────────────────────────────────────────────────────
 
 
-def test_control_words_are_short_utterances_about_the_timer():
+def test_control_words_are_words_about_the_timer_whatever_the_length():
+    """長さでは切らない（ウの 3・2026-11-14・本人「文字の長さで切る仕組みを全面的にやめなさい」）。"""
     for s in ("止めて", "タイマー止めて", "一時停止", "再開して", "ストップ", "中止", "やめて"):
         assert timer_rules.is_control_word(s), s
-    for s in ("こんにちは", "止めてほしいって昨日言ってたよね", "再開発の話だけど", ""):
+    assert timer_rules.is_control_word("止めてほしいって昨日言ってたよね")  # 長い文の中でも当たる
+    for s in ("こんにちは", "再開発の話だけど", ""):
         assert not timer_rules.is_control_word(s), s
 
 
@@ -77,13 +79,12 @@ def test_mic_on_reopens_listening_for_that_timer():
 # ── 書き起こしの門 ─────────────────────────────────────────────────────────
 
 
-async def _relay(texts, gate):
+async def _relay(texts):
     session = RealtimeSttSession("dummy")
     committed_q: asyncio.Queue[str] = asyncio.Queue()
     input_q: asyncio.Queue[str | None] = asyncio.Queue()
     session._incoming_committed = committed_q
     session._committed_queue = input_q
-    session.mic_gate = gate
     task = asyncio.create_task(session._committed_relay())
     for s in texts:
         await committed_q.put(s)
@@ -98,17 +99,11 @@ async def _relay(texts, gate):
 
 
 @pytest.mark.asyncio
-async def test_only_control_words_pass_while_closed():
-    out = await _relay(
-        ["こんにちは", "止めて", "今日の天気は", "再開して"], gate=lambda: "タイマー「パスタ」"
-    )
-    assert out == ["止めて", "再開して"]
-
-
-@pytest.mark.asyncio
-async def test_everything_passes_while_open():
-    out = await _relay(["こんにちは", "止めて"], gate=lambda: "")
-    assert out == ["こんにちは", "止めて"]
+async def test_the_transcript_side_no_longer_drops_anything():
+    """聞かないあいだに通すかは、ループの入口の耳が決める（声の門は撤去・ウの 3 の改め・2026-11-14・本人の決定 案 2）。
+    書き起こしの側は全部を入口へ渡す（入口の試験は `test_timer_question` の 3b と 4）。"""
+    out = await _relay(["こんにちは", "止めて", "今日の天気は", "再開して"])
+    assert out == ["こんにちは", "止めて", "今日の天気は", "再開して"]
 
 
 # ── 枠と命令 ──────────────────────────────────────────────────────────────

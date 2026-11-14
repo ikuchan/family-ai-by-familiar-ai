@@ -80,7 +80,6 @@ async def test_the_relay_keeps_when_the_voice_started():
     input_q: asyncio.Queue = asyncio.Queue()
     session._incoming_committed = committed_q
     session._committed_queue = input_q
-    session.mic_gate = lambda: ""
     task = asyncio.create_task(session._committed_relay())
     await committed_q.put(VoiceText("パジュ、週末の天気は", at=12.5, no_speech=0.1, logprob=-0.3))
     await asyncio.sleep(0.05)
