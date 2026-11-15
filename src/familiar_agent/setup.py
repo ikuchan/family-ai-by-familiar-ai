@@ -86,8 +86,9 @@ def save_setup_config(
 def migrate_legacy_env_file(path: Path | None = None) -> tuple[bool, list[str]]:
     """Add unified keys for legacy Anthropic-only env files.
 
-    Keeps old keys in place for compatibility, but writes the new keys so the rest
-    of the app can consistently use PLATFORM/API_KEY/MODEL.
+    Keeps old keys in place for compatibility, but writes API_KEY so the rest of the
+    app can consistently use it. モデルの選び分け（PLATFORM、MODEL）は `config.py` の既定値で決めるので、
+    `.env` へは書き戻さない（2026-11-14 本人承認）。
     """
     env_path = path or Path.cwd() / ".env"
     if not env_path.exists():
@@ -98,20 +99,11 @@ def migrate_legacy_env_file(path: Path | None = None) -> tuple[bool, list[str]]:
     notes: list[str] = []
 
     legacy_api_key = str(values.get("ANTHROPIC_API_KEY") or "").strip()
-    legacy_model = str(values.get("ANTHROPIC_MODEL") or "").strip()
-    platform = str(values.get("PLATFORM") or "").strip()
     api_key = str(values.get("API_KEY") or "").strip()
-    model = str(values.get("MODEL") or "").strip()
 
     if legacy_api_key and not api_key:
         updates["API_KEY"] = legacy_api_key
         notes.append("Migrated ANTHROPIC_API_KEY -> API_KEY")
-    if legacy_model and not model:
-        updates["MODEL"] = legacy_model
-        notes.append("Migrated ANTHROPIC_MODEL -> MODEL")
-    if (legacy_api_key or legacy_model) and not platform:
-        updates["PLATFORM"] = "anthropic"
-        notes.append("Set PLATFORM=anthropic for legacy Anthropic config")
 
     if not updates:
         return False, []

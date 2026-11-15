@@ -64,12 +64,15 @@ def test_setup_config_with_camera():
 
 
 def test_generate_env_contains_required_key(tmp_path: Path):
-    """Generated .env contains the unified API key and platform."""
+    """Generated .env contains the unified API key, but not the platform.
+
+    モデルの選び分けは `config.py` の既定値で決めるので、`.env` へは書かない（2026-11-14 本人承認）。
+    """
     config = SetupConfig(platform="anthropic", api_key="sk-ant-abc123")
     env_path = tmp_path / ".env"
     generate_env_file(config, path=env_path)
     content = env_path.read_text()
-    assert "PLATFORM=anthropic" in content
+    assert "PLATFORM=" not in content
     assert "API_KEY=sk-ant-abc123" in content
 
 
@@ -124,13 +127,13 @@ def test_generate_env_creates_parent_dirs(tmp_path: Path):
     assert env_path.exists()
 
 
-def test_generate_env_includes_custom_model(tmp_path: Path):
-    """Generated .env includes MODEL when specified."""
+def test_generate_env_does_not_write_the_model(tmp_path: Path):
+    """モデルを指定しても `.env` へは書かない（`config.py` の既定値で決める・2026-11-14 本人承認）。"""
     config = SetupConfig(api_key="sk-ant-test", model="claude-sonnet-4-6")
     env_path = tmp_path / ".env"
     generate_env_file(config, path=env_path)
     content = env_path.read_text()
-    assert "MODEL=claude-sonnet-4-6" in content
+    assert "MODEL=" not in content
 
 
 def test_save_setup_config_preserves_blank_sensitive_fields(tmp_path: Path):
@@ -160,9 +163,10 @@ def test_migrate_legacy_env_file_adds_unified_keys(tmp_path: Path):
     content = env_path.read_text(encoding="utf-8")
     assert migrated is True
     assert notes
-    assert "PLATFORM=anthropic" in content
-    assert "API_KEY=sk-ant-old" in content
-    assert "MODEL=claude-sonnet-4-6" in content
+    assert "\nAPI_KEY=sk-ant-old" in content  # 鍵は移す（資格情報なので .env に置く）
+    # モデルの選び分けは config.py の既定値で決めるので、.env へは書き戻さない（2026-11-14 本人承認）。
+    assert "PLATFORM=" not in content
+    assert "\nMODEL=" not in content
 
 
 # ---------------------------------------------------------------------------

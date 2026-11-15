@@ -33,6 +33,7 @@ def test_load_app_bootstrap_migrates_legacy_anthropic_env(tmp_path: Path, monkey
     assert state.needs_setup is False
     assert state.legacy_config_detected is True
     assert state.migrated is True
-    assert "API_KEY=sk-ant-old" in content
-    assert "MODEL=claude-haiku" in content
-    assert "PLATFORM=anthropic" in content
+    assert "\nAPI_KEY=sk-ant-old" in content
+    # モデルの選び分けは config.py の既定値で決めるので、.env へは書き戻さない（2026-11-14 本人承認）。
+    assert "\nMODEL=" not in content
+    assert "PLATFORM=" not in content

@@ -23,15 +23,9 @@ logger = logging.getLogger(__name__)
 _WINDOW_STRIDE = 16
 
 
-def _no_thinking(model: str) -> dict:
-    """利用の呼び出し（`complete`・`complete_with_image`）で思考を切る指定。
-
-    Sonnet 5.5 は `disabled` を 400 で断り、代わりに `between_tools`（返事の前に考えない）を受け取る。
-    `between_tools` を受け取るのは Sonnet 5.5 だけで、ほかへ送れば 400 になる（公式の文書・環-al・2026-10-17）。
-    """
-    if "sonnet-5-5" in model:
-        return {"type": "between_tools"}
-    return {"type": "disabled"}
+def _is_opus5(model: str) -> bool:
+    """Opus 5 系か（名前に `opus-5` を含むもの。Opus 5 と Opus 5.5 の両方に当たる）。扱いの違いは呼ぶ側の注釈にある。"""
+    return "opus-5" in model
 
 
 def _text_of(resp) -> str:
@@ -58,14 +52,17 @@ def _log_usage(kind: str, resp, *, tools: int = 0) -> None:
         v = getattr(usage, name, 0)
         return v if isinstance(v, int) else 0
 
+    # 速さ：fast mode で答えたか（`usage.speed`・2026-11-14 本人承認）。無ければ「-」。
+    speed = getattr(usage, "speed", None)
     logger.info(
-        "主LLM トークン 呼び=%s 読み=%d 書き=%d 入力=%d 出力=%d 道具=%d",
+        "主LLM トークン 呼び=%s 読み=%d 書き=%d 入力=%d 出力=%d 道具=%d 速さ=%s",
         kind,
         n("cache_read_input_tokens"),
         n("cache_creation_input_tokens"),
         n("input_tokens"),
         n("output_tokens"),
         tools,
+        speed if isinstance(speed, str) else "-",
     )
 
 
@@ -75,6 +72,19 @@ class AnthropicBackend:
     #: 残高切れの知らせで使う担い手の名前（環-z・`core/credit`）。
     credit_name = "anthropic"
 
+    #: Opus 5 系の利用の呼び出し（`complete`・`complete_with_image`）の effort と、考える分として足すトークン数。
+    #: Opus 5 系は思考を切る指定（disabled）を 400 で断るので、思考の指定を送らず effort で深さを決める。
+    #: 値は `config.py` の `opus_complete_effort`・`opus_complete_extra_tokens`（2026-11-14 本人承認）。
+    #: 既定値が `config.py` と二重なのは承知のうえ。`factory.py` が config の値で必ず上書きし、ここはクラスだけで作る
+    #: 試験のための既定（作業 4 の計画どおり・見直しで直さないと決めた・2026-11-15 本人）。
+    complete_effort = "medium"
+    complete_extra_tokens = 2000
+
+    #: 会話の 1 回（`stream_turn`）を fast mode で頼むか（Opus 5.5・2026-11-14 本人承認）。やり直しは SDK の自動の
+    #: やり直しに任せ（2026-11-15 本人）、それでも 429 なら、モデルを替えずに `speed` だけを外して送り直す（本人「ウ」）。
+    #: 値は `config.py` の `main_llm_fast`。主LLM だけが持つ（軽量LLM は頼まない）。
+    fast = False
+
     def __init__(
         self,
         api_key: str,
@@ -82,6 +92,9 @@ class AnthropicBackend:
         thinking_mode: str = "auto",
         thinking_budget: int = 10000,
         thinking_effort: str = "high",
+        complete_effort: str | None = None,
+        complete_extra_tokens: int | None = None,
+        fast: bool = False,
     ) -> None:
         import anthropic
 
@@ -90,6 +103,11 @@ class AnthropicBackend:
         self.thinking_mode = thinking_mode
         self.thinking_budget = thinking_budget
         self.thinking_effort = thinking_effort
+        if complete_effort is not None:
+            self.complete_effort = complete_effort
+        if complete_extra_tokens is not None:
+            self.complete_extra_tokens = complete_extra_tokens
+        self.fast = fast
 
     def _build_thinking_params(self, effort: str | None = None) -> dict:
         """Return thinking kwargs for the Anthropic API call.
@@ -115,21 +133,22 @@ class AnthropicBackend:
         if mode == "adaptive":
             # No beta header required — adaptive thinking is GA on Opus 4.6 / Sonnet 4.6.
             # Interleaved thinking is automatically enabled in adaptive mode.
-            params: dict = {"thinking": {"type": "adaptive"}}
-            if chosen_effort != "high":  # "high" is the default; skip if default
-                params["output_config"] = {"effort": chosen_effort}
-            return params
+            # effort は high でも必ず送る。既定はモデルで違い、Opus 5.5 は medium（2026-11-14 本人承認）。
+            return {"thinking": {"type": "adaptive"}, "output_config": {"effort": chosen_effort}}
 
         if mode == "extended":
             # budget_tokens is deprecated on Opus 4.6 / Sonnet 4.6 but still accepted.
             # interleaved-thinking-2025-05-14 beta enables interleaved thinking on Sonnet 4.6
             # only (Opus 4.6 extended mode does not support interleaved thinking).
-            params = {"thinking": {"type": "enabled", "budget_tokens": self.thinking_budget}}
+            params: dict = {"thinking": {"type": "enabled", "budget_tokens": self.thinking_budget}}
             if "sonnet-4" in self.model:
                 params["betas"] = ["interleaved-thinking-2025-05-14"]
             return params
 
-        # disabled (or unknown)
+        # disabled (or unknown)。Opus 5 系は思考を切る指定を 400 で断るので、考えない代わりに effort low で送る
+        # （2026-11-14 本人承認）。
+        if _is_opus5(self.model):
+            return {"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}}
         return {}
 
     # ── message factories ─────────────────────────────────────────
@@ -292,27 +311,43 @@ class AnthropicBackend:
 
         import anthropic as _anthropic
 
+        response = None
+        # fast mode は 1 回目にだけ頼む。fast mode は別の上限を持つので、SDK のやり直しのあとも 429 なら、待たずに
+        # `speed` だけを外した同じ中身で送り直す（本人「ウ」）。ふつうの速さの 429 は、60 秒、120 秒と待って 2 回まで。
+        # 直さないと決めたこと（見直しでくり返し出た・2026-11-15 本人）：
+        # - fast mode の 429 を次の会話へ持ち越さない。家で 429 の回数と遅れを数えてから決める（課題8 出-dq の (3)）。
+        # - fast mode はモデルを見ずに頼む。主LLM は `config.py` で Opus 5.5 に決めてあり、Opus 5.5 は受ける。モデルを替えるときに見直す。
+        fast = self.fast
         _rate_limit_retries = 2
-        for _attempt in range(_rate_limit_retries + 1):
+        _attempt = 0
+        while True:
+            speed: dict = {"extra_body": {"speed": "fast"}} if fast else {}
             try:
-                async with self.client.messages.stream(**stream_kwargs) as stream:  # type: ignore[arg-type]
+                async with self.client.messages.stream(**stream_kwargs, **speed) as stream:  # type: ignore[arg-type]
                     async for chunk in stream.text_stream:
                         if on_text:
                             on_text(chunk)
                     response = await stream.get_final_message()
                 break  # success
-            except _anthropic.RateLimitError:
+            except _anthropic.RateLimitError as e:
+                # 429 は流し始める前（`async with` に入るとき）に返るので、`on_text` へ同じ言葉を二度渡すことはない（見直しで直さないと決めた）。
+                if fast:
+                    logger.warning("fast mode が 429。ふつうの速さで送り直す（%s）", e)
+                    fast = False
+                    continue
                 if _attempt >= _rate_limit_retries:
                     raise
-                _wait = 60 * (_attempt + 1)
+                _attempt += 1
+                _wait = 60 * _attempt
                 logger.warning(
                     "Anthropic 429 rate limit — waiting %ds before retry %d/%d",
                     _wait,
-                    _attempt + 1,
+                    _attempt,
                     _rate_limit_retries,
                 )
                 await asyncio.sleep(_wait)
 
+        assert response is not None
         # ThinkingBlock has no .text attribute — hasattr check excludes it automatically
         text = "".join(b.text for b in response.content if hasattr(b, "text"))
         tool_calls = [
@@ -384,16 +419,34 @@ class AnthropicBackend:
         """全部の鍵を落とす（終了時）。同じ理由で API は呼ばない。"""
         getattr(self, "_warm", {}).clear()
 
+    def _complete_params(self) -> tuple[dict, int]:
+        """利用の呼び出し（`complete`・`complete_with_image`）に付ける指定と、`max_tokens` に足すトークン。
+
+        モデルごとの違いはここだけに置く（2026-11-15 本人「ア」）。
+
+        - 思考を**切る**。指定しないと Sonnet 5 は適応的思考を働かせ、REST の層 2・4 が予算（2,000〜2,500）を
+          思考で使い切り `stop=max_tokens`・本文ゼロで返った（2026-09-16 04:31 実機・環-l）。
+        - Sonnet 5.5 は `disabled` を 400 で断り、代わりに `between_tools`（返事の前に考えない）を受け取る。
+          `between_tools` を受け取るのは Sonnet 5.5 だけで、ほかへ送れば 400 になる（公式の文書・環-al・2026-10-17）。
+        - Opus 5 系は思考を切れないので、思考の指定を送らず effort で考える量を決め、考える分のトークンを足す
+          （クラスの注釈・2026-11-14 本人承認）。
+        """
+        if _is_opus5(self.model):
+            return {"output_config": {"effort": self.complete_effort}}, self.complete_extra_tokens
+        if "sonnet-5-5" in self.model:
+            return {"thinking": {"type": "between_tools"}}, 0
+        return {"thinking": {"type": "disabled"}}, 0
+
     @watch_credit
     async def complete(self, prompt: str, max_tokens: int, *, system: str | None = None) -> str:
         """Simple completion (no tools, no streaming) for utility calls."""
         try:
             logger.debug("complete() calling %s with %d chars", self.model, len(prompt))
             msgs: list = [{"role": "user", "content": prompt}]
-            # 利用の呼び出しは**思考を切る**。指定しないと Sonnet 5 は適応的思考を働かせ、REST の
-            # 層 2・4 が予算（2,000〜2,500）を思考で使い切り `stop=max_tokens`・本文ゼロで返った
-            # （2026-09-16 04:31 実機・環-l）。
-            extra: dict = {"thinking": _no_thinking(self.model)}
+            extra, more = (
+                self._complete_params()
+            )  # 思考の指定と足すトークン（モデルごと・`_complete_params`）
+            max_tokens += more
             if system:
                 extra["system"] = system
             resp = await self.client.messages.create(
@@ -403,6 +456,9 @@ class AnthropicBackend:
                 **extra,
             )
             _log_usage("利用", resp)  # 出-bs の計測
+            if resp.stop_reason == "max_tokens":
+                # 足した分で足りているかを家で数えるため（2026-11-14 本人承認）。
+                logger.info("利用の呼び出しが上限で止まった（%s・上限 %d）", self.model, max_tokens)
             result = _text_of(resp)
             if not result:
                 logger.warning(
@@ -423,9 +479,10 @@ class AnthropicBackend:
     ) -> str:
         """Vision completion — sends base64 JPEG alongside text prompt."""
         try:
-            extra: dict = {
-                "thinking": _no_thinking(self.model)
-            }  # 利用の呼び出しは思考を切る（上と同じ理由）
+            extra, more = (
+                self._complete_params()
+            )  # 思考の指定と足すトークン（モデルごと・`_complete_params`）
+            max_tokens += more
             if system:
                 extra["system"] = system
             resp = await self.client.messages.create(
@@ -450,6 +507,8 @@ class AnthropicBackend:
                 ],
             )
             _log_usage("写真", resp)  # 出-bs の計測
+            if resp.stop_reason == "max_tokens":  # 上と同じ（足した分で足りているかを家で数える）
+                logger.info("利用の呼び出しが上限で止まった（%s・上限 %d）", self.model, max_tokens)
             return _text_of(resp)
         except Exception as e:
             credit.note_failure(self.credit_name, e)  # 受け止めた失敗も残高切れなら知らせる（環-z）

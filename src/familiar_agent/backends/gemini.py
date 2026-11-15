@@ -288,7 +288,7 @@ class GeminiBackend:
             )
 
         # 対話ターンも同じ交渉を通す。ここを決め打ちにすると、思考を切る言い方を拒む
-        # モデルを `PLATFORM=gemini` に選んだとき、主LLM ごと 400 で落ちる。
+        # モデルを `platform = "gemini"` に選んだとき、主LLM ごと 400 で落ちる。
         stream = await self._with_think_off(_open, "gemini.stream_turn")
 
         text_chunks: list[str] = []

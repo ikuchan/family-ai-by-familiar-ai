@@ -24,5 +24,6 @@ def test_call_level_effort_overrides_the_instance_setting():
 
 
 def test_default_keeps_the_instance_setting():
-    assert "output_config" not in _backend("high")._build_thinking_params()
+    # high でも effort を送る（既定はモデルで違う・2026-11-14 本人承認）。
+    assert _backend("high")._build_thinking_params()["output_config"]["effort"] == "high"
     assert _backend("medium")._build_thinking_params()["output_config"]["effort"] == "medium"

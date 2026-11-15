@@ -8,7 +8,7 @@
 | `types.py` | `ToolCall`・`TurnResult`。どの実装からも独立している |
 | `shared.py` | 一時的な失敗の再試行、思考の深さの判定、道具の説明の畳み込み、返答からの道具の読み取り、思考タグの濾し器 |
 | `anthropic.py` ほか6つ | モデルごとの実装 |
-| `factory.py` | `PLATFORM` と `MODEL` から実体を選ぶ |
+| `factory.py` | `config.py` の `platform` と `model` から実体を選ぶ |
 
 約束は `core.llm_protocol.LLMBackend`（6つとも満たすことを型で確かめている）。
 """

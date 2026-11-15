@@ -28,12 +28,12 @@ class CLIBackend:
     as OpenAICompatibleBackend with tools_mode="prompt").  Images are text-only
     — binary data from camera tools is dropped silently.
 
-    Config::
+    Config（`config.py` の既定値。`.env` からは読まない）::
 
-        PLATFORM=cli
-        MODEL=claude -p {}            # Claude Code — {} is replaced with the prompt
-        MODEL=ollama run gemma3:27b   # stdin-based (no {} needed)
-        MODEL=llm -m gpt-4o {}        # Simon Willison's llm CLI
+        platform = "cli"
+        model = "claude -p {}"            # Claude Code — {} is replaced with the prompt
+        model = "ollama run gemma3:27b"   # stdin-based (no {} needed)
+        model = "llm -m gpt-4o {}"        # Simon Willison's llm CLI
 
     If the command contains ``{}``, the serialised prompt is injected there as a
     positional argument (good for ``claude -p`` which doesn't read stdin).

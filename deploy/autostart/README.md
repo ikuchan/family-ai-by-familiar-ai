@@ -10,7 +10,11 @@
 
 1. パソコンが起動すると、Chrome リモートデスクトップのサービス（`chrome-remote-desktop@<ユーザー>`）が仮想の画面
    （`DISPLAY=:20`・Cinnamon）を作る。誰もログインしなくても始まる。
-2. Cinnamon の自動起動が `familiar-ai.desktop` を読み、ターミナルで `./run-gui.sh` を開く。
+2. Cinnamon の自動起動が `familiar-ai.desktop` を読み、`./run-gui.sh` を起動する。手で起こすとき（スキル `full-test` の
+   「本体を元に戻す」）と同じ形にする（2026-11-14）。
+   - リモートデスクトップの音の設定（`PIPEWIRE_REMOTE`・`PULSE_RUNTIME_PATH`・`PULSE_SINK`・`PULSE_SERVER`）を外す。
+   - 自分の枠（systemd の scope `paju-autostart`）で動かす。メモリが足りなくなったとき、systemd-oomd がほかの枠と一緒に止めないため。
+   - ターミナルは開かない。様子は `~/.cache/familiar-ai/app.log` で見る。
 3. `run-gui.sh` がパジュを起動する。落ちたら起動し直す。
 
 `run-gui.sh` が持つこと：

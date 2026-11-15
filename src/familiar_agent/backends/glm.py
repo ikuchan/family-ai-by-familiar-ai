@@ -24,11 +24,11 @@ class GLMBackend:
     before the actual response, similar to Kimi K2.5.  That field must be
     round-tripped in subsequent turns to keep the conversation valid.
 
-    Configuration::
+    Configuration（`platform` と `model` は `config.py` の既定値、鍵だけ `.env`）::
 
-        PLATFORM=glm
-        API_KEY=<your-key>              # from bigmodel.cn / api.z.ai
-        MODEL=glm-4.6v                  # default (vision-enabled)
+        platform = "glm"
+        model = "glm-4.6v"              # default (vision-enabled)
+        API_KEY=<your-key>              # .env、from bigmodel.cn / api.z.ai
     """
 
     #: 残高切れの知らせで使う担い手の名前（環-z・`core/credit`）。

@@ -1,11 +1,15 @@
 [Desktop Entry]
 # パソコンが起動したら、パジュを立ち上げる（環-ah・2026-10-10 本人の決定）。
-# Chrome リモートデスクトップの仮想画面（Cinnamon）が始まると、ターミナルで run-gui.sh を開く。
+# Chrome リモートデスクトップの仮想画面（Cinnamon）が始まると、run-gui.sh を起動する。
+# 手で起こすとき（スキル full-test の「本体を元に戻す」）と同じ形にする（2026-11-14 本人の指示）：
+# リモートデスクトップの音の設定（PIPEWIRE_REMOTE・PULSE_RUNTIME_PATH・PULSE_SINK・PULSE_SERVER）を外し、
+# 自分の枠（systemd の scope「paju-autostart」）で動かす。メモリが足りなくなったとき、systemd-oomd がほかと一緒に止めないため。
+# ターミナルは開かない。出力は ~/.cache/familiar-ai/app.log・crash.log・restart.log で見る。
 # 落ちたときの起動し直しとクラッシュログは run-gui.sh が持つ。引数（--debug など）は Exec の末尾に足す。
 # Exec は単引用符を引用として扱わないので、run-gui.sh を絶対パスで直接呼ぶ（run-gui.sh は自分の場所へ移ってから動く）。
 # @REPO@ はリポジトリの場所。置くときに置き換える（README の設置）。リポジトリに絶対パスを置かない。
 Type=Application
 Name=familiar-ai（パジュ）
-Exec=gnome-terminal --title=パジュ -- @REPO@/run-gui.sh
+Exec=env -u PIPEWIRE_REMOTE -u PULSE_RUNTIME_PATH -u PULSE_SINK -u PULSE_SERVER systemd-run --user --scope --collect --unit=paju-autostart @REPO@/run-gui.sh
 Terminal=false
 X-GNOME-Autostart-enabled=true

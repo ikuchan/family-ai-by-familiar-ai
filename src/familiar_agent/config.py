@@ -261,7 +261,8 @@ class TTSConfig:
     gemini_voice: str = field(
         default_factory=lambda: os.environ.get("GEMINI_TTS_VOICE", "ja-jp-commercial-3")
     )
-    # 鍵は軽量LLM と同じものでよい（`UTILITY_API_KEY`）。分けたいときだけ専用の鍵を置く。
+    # 鍵は `GEMINI_TTS_API_KEY`、無ければ `UTILITY_API_KEY`。軽量LLM は 2026-11-14 から Anthropic の鍵を使うので、
+    # `UTILITY_API_KEY` はいまこの声の合成のためだけに読まれる。
     gemini_api_key: str = field(
         default_factory=lambda: (
             os.environ.get("GEMINI_TTS_API_KEY", "") or os.environ.get("UTILITY_API_KEY", "")
@@ -798,16 +799,24 @@ class AgentConfig:
         default_factory=lambda: _int_env("COMPLETION_CONTENT_MAX", 8192)
     )
 
-    # Platform: "anthropic" | "gemini" | "openai" | "kimi" | "glm"
-    platform: str = field(default_factory=lambda: os.environ.get("PLATFORM", "anthropic"))
+    # 主LLM の会社とモデル。`.env` からは読まない（モデルの選び分けは `config.py` の既定値で替える・開発ルール・2026-11-14
+    # 本人の決定 案 B）。会話の 1 回の中央（作った問い 10 問・本物の道具 18 個・2026-11-14）：Opus 5.5 fast 0.85 秒、
+    # Sonnet 5.5 1.51〜1.60 秒、ふつうの Opus 5.5 1.65 秒。会社は "anthropic" | "gemini" | "openai" | "kimi" | "glm" | "cli"。
+    platform: str = "anthropic"
 
     # Unified API key (used for whichever platform is selected).
     # Legacy ANTHROPIC_API_KEY is still accepted for backward compatibility.
     api_key: str = field(default_factory=lambda: _env_value("API_KEY", "ANTHROPIC_API_KEY"))
 
-    # Model name — platform-specific defaults applied in create_backend().
-    # Legacy ANTHROPIC_MODEL is still accepted for backward compatibility.
-    model: str = field(default_factory=lambda: _env_value("MODEL", "ANTHROPIC_MODEL"))
+    model: str = "claude-opus-5-5"
+    # 会話の 1 回（`stream_turn`）だけ fast mode（`speed: "fast"`・$8 ／ $40・本人の決定）。REST などの `complete` は
+    # ふつうの速さ。fast mode の回数の上限（429）に当たったら、モデルを替えずに `speed` だけを外し、ふつうの速さで送り直す
+    # （キャッシュ、思考のブロック、調停が選んだ effort が保たれる・本人「ウ」）。
+    main_llm_fast: bool = True
+    # Opus 5.5 は考えるのを切れない。`complete` では effort medium（本人の決定）にし、考える分が上限を食うので呼び手の
+    # `max_tokens` に足す（作った REST の問い 5 種で、考えた分は最大およそ 450 トークン・2026-11-14 実測。その 4 倍ほど）。
+    opus_complete_effort: str = "medium"
+    opus_complete_extra_tokens: int = 2000
 
     # OpenAI-compatible only: base URL and tool-calling mode
     # TOOLS_MODE: "native" = use function-calling API, "prompt" = inject into system prompt
@@ -818,16 +827,18 @@ class AgentConfig:
 
     # Thinking mode: "auto" | "adaptive" | "extended" | "disabled"
     # "auto" = adaptive for claude-sonnet-4/opus-4, disabled for others
-    thinking_mode: str = field(default_factory=lambda: os.environ.get("THINKING_MODE", "auto"))
+    thinking_mode: str = "adaptive"  # `.env` からは読まない（2026-11-14）
 
     # Budget tokens for "extended" thinking mode (ignored in "adaptive" / "disabled")
     thinking_budget: int = field(
         default_factory=lambda: int(os.environ.get("THINKING_BUDGET_TOKENS", "10000"))
     )
 
-    # Effort level for adaptive thinking: "high" (default) | "medium" | "low" | "max"
-    # "max" is Opus 4.6 only. Ignored unless THINKING_MODE=adaptive (or auto on supported models).
-    thinking_effort: str = field(default_factory=lambda: os.environ.get("THINKING_EFFORT", "high"))
+    # Effort level for adaptive thinking: "low" | "medium" | "high" | "max"
+    # Ignored unless `thinking_mode` is adaptive (or auto on supported models).
+    thinking_effort: str = (
+        "low"  # `.env` からは読まない（2026-11-14）。会話の 1 回ごとの effort は調停が決めて渡す
+    )
 
     realtime_stt: bool = field(default_factory=lambda: _bool_env("REALTIME_STT", default=False))
 
@@ -835,9 +846,12 @@ class AgentConfig:
     # Separate backend for non-conversation LLM calls (day summaries, emotion
     # inference, self-model updates, etc.).  Falls back to the main backend
     # when not configured.
-    utility_platform: str = field(default_factory=lambda: os.environ.get("UTILITY_PLATFORM", ""))
+    # 軽量LLM の会社とモデル（写真の読み取りも、専用の口が無ければここ）。`.env` からは読まない（2026-11-14）。書き手の形の
+    # 測り（10 回）で Haiku 5.5 は中央 0.97 秒・10 回とも素の JSON（3.5-flash-lite は包みと崩れが出た）。Anthropic の口なら
+    # 主LLM と同じ鍵を使う（`factory.create_utility_backend`）。`UTILITY_API_KEY` は声の合成（Gemini）の鍵として残る。
+    utility_platform: str = "anthropic"
     utility_api_key: str = field(default_factory=lambda: os.environ.get("UTILITY_API_KEY", ""))
-    utility_model: str = field(default_factory=lambda: os.environ.get("UTILITY_MODEL", ""))
+    utility_model: str = "claude-haiku-5-5"
 
     # ── Scene backend (optional) ────────────────────────────────────────
     # Separate backend for scene entity extraction — cheaper/local model.

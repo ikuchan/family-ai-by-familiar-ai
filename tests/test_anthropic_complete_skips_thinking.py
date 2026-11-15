@@ -96,9 +96,46 @@ def test_sonnet_5_5_turns_thinking_off_with_between_tools():
 
 def test_other_models_keep_disabled():
     """**反証の側**：`between_tools` を受け取るのは Sonnet 5.5 だけ。ほかに送れば 400 になる。"""
-    for model in ("claude-sonnet-5", "claude-opus-5", "claude-haiku-5-5"):
+    for model in ("claude-sonnet-5", "claude-haiku-5-5"):  # Opus 5 系は effort medium（下の試験）
         b = _backend_for(model)
         asyncio.run(b.complete("p", max_tokens=10))
         assert b.client.messages.create.call_args.kwargs.get("thinking") == {"type": "disabled"}, (
             model
         )
+
+
+def test_opus_complete_sends_medium_effort_and_more_tokens_instead_of_disabled():
+    """Opus 5 系は思考を切る指定（disabled）を 400 で断る。思考の指定を送らず effort medium にし、考える分として
+    max_tokens に 2000 を足す（2026-11-14 本人承認・Opus 5.5 の実測で考える分は最大およそ 450）。"""
+    b = _backend_for("claude-opus-5-5")
+    asyncio.run(b.complete("p", max_tokens=120))
+    kwargs = b.client.messages.create.call_args.kwargs
+    assert "thinking" not in kwargs
+    assert kwargs["output_config"] == {"effort": "medium"}
+    assert kwargs["max_tokens"] == 2120
+
+
+def test_opus_image_completion_does_the_same():
+    b = _backend_for("claude-opus-5-5")
+    asyncio.run(b.complete_with_image("p", "aGVsbG8=", max_tokens=100))
+    kwargs = b.client.messages.create.call_args.kwargs
+    assert "thinking" not in kwargs
+    assert (kwargs["output_config"], kwargs["max_tokens"]) == ({"effort": "medium"}, 2100)
+
+
+def test_hitting_max_tokens_is_logged(caplog):
+    """上限で止まったことを INFO に 1 行残す（足した 2000 で足りているかを家で数えるため）。"""
+    b = _backend([_text("途中まで")], stop="max_tokens")
+    b.model = "claude-opus-5-5"
+    with caplog.at_level("INFO"):
+        asyncio.run(b.complete("p", max_tokens=120))
+    assert any("上限で止まった" in r.message for r in caplog.records)
+
+
+def test_hitting_max_tokens_in_an_image_completion_is_logged_too(caplog):
+    """写真の呼び出しも上限で止まったら INFO に 1 行残す（足した 2000 を家で数えるとき写真も入れる・2026-11-15 本人「ア」）。"""
+    b = _backend([_text("途中まで")], stop="max_tokens")
+    b.model = "claude-opus-5-5"
+    with caplog.at_level("INFO"):
+        asyncio.run(b.complete_with_image("p", "aGVsbG8=", max_tokens=100))
+    assert any("上限で止まった" in r.message for r in caplog.records)

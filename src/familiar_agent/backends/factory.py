@@ -1,6 +1,7 @@
 """どのバックエンドを使うかを決める（出-d-は）。
 
-`PLATFORM` と `MODEL` から実体を選ぶ。主LLM・軽量LLM・情景の意味づけで別の口がある。
+`config.py` の `platform` と `model`（主LLM）、`utility_platform` と `utility_model`（軽量LLM）から実体を選ぶ。`.env` からは
+読まない（2026-11-14）。主LLM・軽量LLM・情景の意味づけで別の口がある。
 """
 
 from __future__ import annotations
@@ -42,16 +43,16 @@ def create_backend(
     | GeminiBackend
     | CLIBackend
 ):
-    """Factory: pick backend based on PLATFORM env var / config.
+    """Factory: pick backend based on `config.platform` (a `config.py` default, not read from .env).
 
-    Supported values for PLATFORM:
+    Supported values for `config.platform`:
       anthropic  — Anthropic Claude (default)
       gemini     — Google Gemini via native google-genai SDK
       openai     — OpenAI API (or compatible via BASE_URL)
       kimi       — Moonshot AI Kimi K2.5 (api.moonshot.ai/v1)
       glm        — Z.AI GLM API (api.z.ai/api/paas/v4); set ZAI_API_KEY
-      cli        — any CLI LLM tool via stdin/stdout (MODEL = the command)
-                   e.g. MODEL="claude -p"  or  MODEL="ollama run gemma3:27b"
+      cli        — any CLI LLM tool via stdin/stdout (`config.model` = the command)
+                   e.g. "claude -p"  or  "ollama run gemma3:27b"
     """
     if config.platform == "gemini":
         model = config.model or "gemini-2.5-flash"
@@ -100,7 +101,7 @@ def create_backend(
         cmd = shlex.split(raw_cmd)
         logger.info("Using CLI backend: %s", " ".join(cmd))
         return CLIBackend(cmd)
-    model = config.model or "claude-haiku-4-5-20251001"
+    model = config.model or "claude-opus-5-5"
     logger.info("Using Anthropic backend: %s", model)
     return AnthropicBackend(
         api_key=config.api_key,
@@ -108,6 +109,9 @@ def create_backend(
         thinking_mode=config.thinking_mode,
         thinking_budget=config.thinking_budget,
         thinking_effort=config.thinking_effort,
+        complete_effort=config.opus_complete_effort,
+        complete_extra_tokens=config.opus_complete_extra_tokens,
+        fast=config.main_llm_fast,
     )
 
 
@@ -116,18 +120,20 @@ def create_utility_backend(
 ) -> AnthropicBackend | OpenAICompatibleBackend | KimiBackend | GLMBackend | GeminiBackend | None:
     """Create a separate backend for utility LLM calls (summaries, emotion, etc.).
 
-    Returns None if UTILITY_PLATFORM is not configured — caller should
+    Returns None if `config.utility_platform` is empty or has no key — caller should
     fall back to the main conversation backend.
-    """
-    if not config.utility_platform or not config.utility_api_key:
-        return None
 
+    Anthropic のときは主LLM と同じ鍵（`config.api_key`）を使う。`UTILITY_API_KEY` は声の合成（Gemini）の鍵として
+    残っているので、ほかの platform のときだけ使う（2026-11-14 本人承認「軽量LLM を Haiku 5.5 に」）。
+    """
     platform = config.utility_platform
-    api_key = config.utility_api_key
+    api_key = config.api_key if platform == "anthropic" else config.utility_api_key
+    if not platform or not api_key:
+        return None
     model = config.utility_model
 
     if platform == "anthropic":
-        model = model or "claude-haiku-4-5-20251001"
+        model = model or "claude-haiku-5-5"
         logger.info("Using Anthropic utility backend: %s", model)
         return AnthropicBackend(api_key=api_key, model=model, thinking_mode="disabled")
     if platform == "gemini":
@@ -149,7 +155,7 @@ def create_utility_backend(
             api_key=api_key, model=model, base_url="https://api.openai.com/v1"
         )
 
-    logger.warning("Unknown UTILITY_PLATFORM: %s, falling back to main backend", platform)
+    logger.warning("Unknown utility_platform: %s, falling back to main backend", platform)
     return None
 
 
@@ -169,7 +175,7 @@ def create_scene_backend(
     model = config.scene_model
 
     if platform == "anthropic":
-        model = model or "claude-haiku-4-5-20251001"
+        model = model or "claude-haiku-5-5"
         logger.info("Using Anthropic scene backend: %s", model)
         return AnthropicBackend(api_key=api_key, model=model, thinking_mode="disabled")
     if platform == "gemini":

@@ -102,11 +102,18 @@ class TestBuildThinkingParams:
         params = b._build_thinking_params()
         assert "betas" not in params
 
-    def test_adaptive_mode_default_effort_no_output_config(self):
-        """Default effort 'high' should NOT add output_config (it's the default)."""
-        b = self._make_backend("claude-sonnet-4-6", "adaptive", thinking_effort="high")
+    def test_adaptive_mode_always_sends_the_effort(self):
+        """effort は high でも必ず送る。既定はモデルで違い、Opus 5.5 は medium なので、送らないと high にならない
+        （2026-11-14 本人承認「主LLM を Opus 5.5 の fast mode に」）。"""
+        b = self._make_backend("claude-opus-5-5", "adaptive", thinking_effort="high")
         params = b._build_thinking_params()
-        assert "output_config" not in params
+        assert params["output_config"] == {"effort": "high"}
+
+    def test_disabled_on_opus_becomes_low_effort(self):
+        """Opus 5.5 は思考を切る指定（disabled）を 400 で断るので、考えない代わりに effort low で送る。"""
+        b = self._make_backend("claude-opus-5-5", "disabled")
+        params = b._build_thinking_params()
+        assert params == {"thinking": {"type": "adaptive"}, "output_config": {"effort": "low"}}
 
     def test_adaptive_mode_medium_effort_adds_output_config(self):
         b = self._make_backend("claude-sonnet-4-6", "adaptive", thinking_effort="medium")
@@ -314,32 +321,11 @@ class TestStreamTurnThinkingIntegration:
 
 
 class TestAgentConfig:
-    """Verify that AgentConfig reads thinking-related env vars."""
+    """Verify that AgentConfig reads thinking-related env vars.
 
-    def test_thinking_mode_default_is_auto(self, monkeypatch):
-        import importlib
-
-        import familiar_agent.config as cfg_mod
-
-        monkeypatch.delenv("THINKING_MODE", raising=False)
-        with patch("dotenv.load_dotenv"):
-            importlib.reload(cfg_mod)
-        from familiar_agent.config import AgentConfig
-
-        config = AgentConfig()
-        assert config.thinking_mode == "auto"
-
-    def test_thinking_mode_env_adaptive(self, monkeypatch):
-        monkeypatch.setenv("THINKING_MODE", "adaptive")
-        import importlib
-
-        import familiar_agent.config as cfg_mod
-
-        importlib.reload(cfg_mod)
-        from familiar_agent.config import AgentConfig
-
-        config = AgentConfig()
-        assert config.thinking_mode == "adaptive"
+    考え方（`THINKING_MODE`・`THINKING_EFFORT`）は `.env` から読まなくなった（2026-11-14 本人承認）。その確かめは
+    `tests/test_model_choice.py`。ここには、いまも `.env` から読む予算だけが残る。
+    """
 
     def test_thinking_budget_default(self, monkeypatch):
         monkeypatch.delenv("THINKING_BUDGET_TOKENS", raising=False)
@@ -364,42 +350,6 @@ class TestAgentConfig:
 
         config = AgentConfig()
         assert config.thinking_budget == 5000
-
-    def test_thinking_effort_default_high(self, monkeypatch):
-        monkeypatch.delenv("THINKING_EFFORT", raising=False)
-        import importlib
-
-        import familiar_agent.config as cfg_mod
-
-        importlib.reload(cfg_mod)
-        from familiar_agent.config import AgentConfig
-
-        config = AgentConfig()
-        assert config.thinking_effort == "high"
-
-    def test_thinking_effort_medium(self, monkeypatch):
-        monkeypatch.setenv("THINKING_EFFORT", "medium")
-        import importlib
-
-        import familiar_agent.config as cfg_mod
-
-        importlib.reload(cfg_mod)
-        from familiar_agent.config import AgentConfig
-
-        config = AgentConfig()
-        assert config.thinking_effort == "medium"
-
-    def test_thinking_effort_low(self, monkeypatch):
-        monkeypatch.setenv("THINKING_EFFORT", "low")
-        import importlib
-
-        import familiar_agent.config as cfg_mod
-
-        importlib.reload(cfg_mod)
-        from familiar_agent.config import AgentConfig
-
-        config = AgentConfig()
-        assert config.thinking_effort == "low"
 
 
 # ── helpers ────────────────────────────────────────────────────────────────
