@@ -16,6 +16,9 @@
 切れる移り（窓、仮の呼びかけ、黙るの期限）は、この図の中の数える仕事が、状態を見てから送る（決定ヰ）。黙る依頼の
 持ち主はこの図で、DB の `agent_state` の行は再起動で戻すための控え（依頼を置くと書き、解くと消し、`start` で戻す・決定ヱ）。
 
+話しかけない求め（seeking・safety・rest の発火）は `quiet_request_opened` で開く。頭は考えているへ移るが、耳の領域には
+この事象の移りが無いので、耳は聞いたまま（決定ザ・2026-11-15）。声にしない求めのあいだに届いた声を捨てないため。
+
 **耳は事象で動かす。頭に入るときの動作には付けない。** 答えのあと、頭は書き留めのために考えているへ戻るが、
 そのとき耳は聞いたままにする（決定モ）。考えているに入るときの動作で耳を閉じると、ここでまた聞かなくなる。
 
@@ -146,6 +149,8 @@ class PajuState(StateChart):
             answering = State()
 
             request_opened = idle.to(thinking)
+            # 話しかけない求め（seeking・safety・rest の発火）を開いた。耳の領域には移りを置かない（耳は聞いたまま・決定ザ）。
+            quiet_request_opened = idle.to(thinking)
             # 子へは親の中で移る（`internal`）。親を出入りしないので、考えているに入るときの動作は繰り返さない。
             recall_began = thinking.to(thinking.recalling, internal=True)
             decide_began = thinking.to(thinking.deciding, internal=True)
@@ -255,8 +260,11 @@ class PajuState(StateChart):
             async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
                 self._limit_left = None  # この求めでは、もう送らない（何もしていないに入ると戻す）
                 if not self.is_deaf():
-                    # 電子音を鳴らせず、耳はもう聞いている。移りの無い事象は送らない（決定ユ）。
-                    logger.info("状態図 考えているが上限 %.1f 秒に届いたが、耳は聞いている", limit)
+                    # 耳はもう聞いている（電子音を鳴らせなかった、または話しかけない求め・決定ザ）。移りの無い事象は送らない（決定ユ）。
+                    logger.info(
+                        "状態図 考えているが上限 %.1f 秒に届いた（耳は聞いているので移りは送らない）",
+                        limit,
+                    )
                 else:
                     logger.info("状態図 考えているが上限 %.1f 秒に届いた", limit)
                     await self._fire("limit_reached")

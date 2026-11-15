@@ -1060,3 +1060,27 @@ def test_a_call_after_a_queued_drop_is_kept():
         assert sm.tentative_since() is not None and "tentative" in _ids(sm)
 
     _window(go)
+
+
+# ── 話しかけない求めでは耳を閉じない（決定ザ・2026-11-15・本人の決定ア） ─────────────
+# 話しかけない発火（seeking・safety・rest）は声にしないので、考えているあいだも耳は聞いている。
+
+
+def test_a_quiet_request_thinks_but_keeps_hearing():
+    sm = _run("quiet_request_opened")
+    assert {"thinking", "recalling", "hearing"} <= _ids(sm)
+    assert not sm.is_deaf()
+    _one_each(sm)
+
+
+def test_closing_a_quiet_request_returns_to_idle_and_hearing():
+    sm = _run("quiet_request_opened", "check_began", "request_closed")
+    assert {"idle", "hearing"} <= _ids(sm)
+    _one_each(sm)
+
+
+def test_an_ordinary_request_still_stops_hearing():
+    """**反証の側**：話しかける求めは、今までどおり聞かないへ移る。"""
+    sm = _run("request_opened")
+    assert sm.is_deaf()
+    _one_each(sm)

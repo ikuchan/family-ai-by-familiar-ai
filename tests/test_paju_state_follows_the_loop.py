@@ -35,6 +35,9 @@ def _ids(ip) -> set[str]:
 @pytest.mark.parametrize("kind", ["発話", "情動", "機器"])
 def test_beginning_a_request_thinks(kind):
     ip = _ip()
+    ip._req.fired_axis = (
+        "bond" if kind == "情動" else ""
+    )  # 話しかける発火（話しかけない発火は耳を閉じない・決定ザ）
 
     async def go():
         await ip._begin_request(kind=kind, text="x", utterance="x" if kind == "発話" else "")
@@ -330,6 +333,7 @@ def test_a_failing_driver_step_lets_the_ear_hear():
         await asyncio.sleep(10)
 
     async def broken(query, result):
+        ip._req.fired_axis = "bond"  # 話しかける発火（耳を聞かないにする求め・決定ザ）
         await ip._begin_request(kind="情動", text=result)
         ip._beeps = MagicMock(done=lambda: False)
         raise RuntimeError("求めの途中で落ちた")

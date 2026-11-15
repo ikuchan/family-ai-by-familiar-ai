@@ -3244,7 +3244,8 @@ class InformationProcessing:
         obs_id = await self._write_origin(kind, text)
         self._req.request_id = obs_id
         self._notify_request_state(True)
-        await self._to_state("request_opened")  # 頭は考えている、耳は聞かない（環-aw）
+        # 頭は考えている、耳は聞かない（環-aw）。話しかけない発火は声にしないので、耳を閉じない（決定ザ・2026-11-15）。
+        await self._to_state("quiet_request_opened" if self._never_speaks() else "request_opened")
         # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
         # やりとりの関係にも拡散想起の母集合にも入らない。
         self._note_origin(obs_id)
@@ -3277,7 +3278,8 @@ class InformationProcessing:
         0 に戻った。駆動体の中で判定すると、反復を回している間（調停は最大 5 秒）は判定も打ち切りも遅れる。
 
         **名前で呼ばれても打ち切らない**（環-aw 決定ホ・第 1 段 項目 9）。名前の無い入力は、飛行中の調べものがある間は
-        待たせる（`_take_trigger`）。
+        待たせる（`_take_trigger`）。ただし話しかけない求め（seeking・safety・rest の発火）は、門を通った言葉で駆動体が
+        打ち切って答える（決定ジ）。
 
         `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
         （`keyboard`）か（出-as 段 2）。`arrived` は届いた時刻（`time.monotonic()`・出-au 段 1-1）で、
@@ -3523,7 +3525,7 @@ class InformationProcessing:
         return spoken if outcome == "発話" else ""
 
     async def _abort_lookups(self) -> None:
-        """飛行中の調査を打ち切る（停止ボタン・`abort_current`）。名前で呼ばれても、もう呼ばない（環-aw 決定ホ）。
+        """飛行中の調査を打ち切る（停止ボタン・`abort_current`、話しかけない求めに届いた言葉・決定ジ）。名前で呼ばれても、もう呼ばない（環-aw 決定ホ）。
 
         飛行中のツール呼び出しを止め、まだ取り込んでいない完了を捨て、**何を打ち切ったかを
         O に残す**。打ち切りも版のひとつなので、直前の版を `改訂` で畳む——鎖は「打ち切った」
@@ -3634,7 +3636,7 @@ class InformationProcessing:
             logger.exception("event-loop 求めの状態を知らせられなかった")
 
     async def abort_current(self, *, reason: str = "停止") -> None:
-        """いま開いている求めを丸ごと打ち切る（停止ボタン・環-j）。
+        """いま開いている求めを丸ごと打ち切る（停止ボタン・環-j）。話しかけない求めに言葉が届いたときは駆動体も呼ぶ（決定ジ）。
 
         打ち切りの口（`_abort_lookups`）を使う——飛行中の調べものと
         主LLM の背景タスクを cancel し、未取込の完了を捨て、世代を進め、打ち切った版を
@@ -3901,7 +3903,9 @@ class InformationProcessing:
         **会話入力は、名前があってもなくても、主LLM が考えている間は待たせる**（出-au 段 1-3、環-aw 決定ホ・第 1 段
         項目 9）。調べものだけが飛んでいるなら、会話の求めのときだけ取り出して添える。情動・機器の求めのときは、その求めが
         閉じるまで待たせる（2026-11-10 本人の決定ア）。新しい求めを始めると `_begin_request` が前の求めの状態を空にし、届く結果の行き場が
-        無くなる——打ち切りと同じになる。打ち切るのは停止ボタンだけである。前の求めの答えが出てから、別の求めとして扱う
+        無くなる——打ち切りと同じになる。打ち切るのは停止ボタンと、話しかけない求め（`_quiet_request_open`）に届いた言葉だけである
+        （話しかけない求めでは、言葉を主LLM やカメラが飛んでいても取り出し、駆動体が打ち切ってから答える・決定ジ）。
+        それ以外は、前の求めの答えが出てから、別の求めとして扱う
         （段 3 で「前の求めに添える」を入れるまでの既定）。飛行中の印は取り込んだ時点で外れるので、届いた
         結果を取り込む反復は必ず先に回る。
         """
@@ -3930,10 +3934,11 @@ class InformationProcessing:
             # 環-aw 決定ホ・第 1 段 項目 9）。調べものだけが飛んでいるなら、会話の求めのときだけ取り出して前の求めに添える
             # （`_attach_to_request`）。人の言葉から始まっていない求め（情動・機器）には添えず、その求めが閉じるまで待たせる
             # （添えた言葉に答えが返らないおそれがある・2026-11-10 本人の決定ア）。確認待ち（知-o）の返事は、いままでどおり
-            # 取り出して 3 択の求めにする（駆動体の `_confirming` の分かれ）。
+            # 取り出して 3 択の求めにする（駆動体の `_confirming` の分かれ）。話しかけない求めのあいだは、いつも取り出す（決定ジ）。
             utterance = None
-            if not self._main_llm_in_flight() and (
-                not busy or self._joins_words() or self._confirming()
+            if self._quiet_request_open() or (
+                not self._main_llm_in_flight()
+                and (not busy or self._joins_words() or self._confirming())
             ):
                 utterance = next(
                     (t for t in self._held + fresh if t.kind in _NEVER_HELD_KINDS), None
@@ -3992,6 +3997,24 @@ class InformationProcessing:
                     continue
                 if self._skip_while_confirming(trigger):
                     continue
+                if (
+                    trigger is not None
+                    and trigger.kind == "会話入力"
+                    and self._quiet_request_open()
+                ):
+                    # 話しかけない求め（見回しなど）は、届いた言葉で打ち切って閉じ、新しい求めとして答える（決定ジ）。
+                    # 添えると答えが返らず、待たせると見回しが終わるまで答えが遅れる。待ち手がもう居ない言葉では止めない。
+                    if trigger.future is None or trigger.future.done():
+                        logger.debug(
+                            "event-loop 待ち手の居ない言葉なので、話しかけない求めを打ち切らない"
+                        )
+                        continue
+                    try:
+                        await self.abort_current(reason="話しかけない求めに届いた言葉")
+                    except Exception as e:  # noqa: BLE001
+                        # 言葉の待ち手を返してから、駆動体の片付けへ渡す
+                        trigger.future.set_exception(e)
+                        raise
                 if trigger is None and self._drop_orphan_completions():
                     continue  # 意図の無い完了しか無かった（出-cc）
                 if trigger is None:
@@ -4007,7 +4030,8 @@ class InformationProcessing:
                     and not self._confirming()  # 確認待ちのあいだは添えず、3 択の求めにする（知-o）
                 ):
                     # 調べもの中の入力は、名前があってもなくても、新しい求めを始めず前の求めに添える（出-au 段 3、環-aw 決定ホ）。
-                    # ここへ来るのは会話の求めのときだけ（情動・機器の求めのあいだは `_take_trigger` が待たせる・決定ア）。
+                    # ここへ来るのは会話の求めのときだけ（情動・機器の求めのあいだは `_take_trigger` が待たせる・決定ア。
+                    # 話しかけない求めは上で打ち切ってあるので、飛んでいるものは無い・決定ジ）。
                     await self._attach_to_request(trigger)
                 elif trigger.kind == "会話入力":
                     logger.debug("event-loop 駆動体が会話入力を受領")
@@ -4177,8 +4201,9 @@ class InformationProcessing:
 
         情動は中身を持たないので、取り込み時に想起で状況づける（正本③ 手順1・2）。
         """
-        await self._begin_request(kind="情動", text=f"[内的な促し:{drive_name}] {prompt}")
+        # 軸は求めを開く前に入れる。開く事象（耳を閉じるか）と電子音の仕事が、話しかける軸かを見る（決定ザ）。
         self._req.fired_axis = str(drive_name or "").lower()  # 内部状態の言葉で明示する（情-f）
+        await self._begin_request(kind="情動", text=f"[内的な促し:{drive_name}] {prompt}")
         if self._req.fired_axis == "bond":
             # BOND は想起の手がかりに家族の予定とメモの新しい行を並べ、W を家族へ寄せる（情-q）。O の起点は変えない。
             from ..core.bond_cue import cue_for
@@ -5985,6 +6010,10 @@ class InformationProcessing:
         ログは出さない（電子音が毎秒呼ぶ）。
         """
         return self._req.trigger_kind == "情動" and not self._talking()
+
+    def _quiet_request_open(self) -> bool:
+        """話しかけない求め（`_never_speaks`）が、いま開いているか。届いた言葉はこの求めを打ち切って答える（決定ジ）。"""
+        return self._req.request_id is not None and self._never_speaks()
 
     def _known_person_in_view(self) -> bool:
         """誰か分かった人（顔・声・手入力のどれかで）が、いま顔ぶれに居るか（情-r・本人の決定ア）。読めなければ偽。

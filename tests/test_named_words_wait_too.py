@@ -132,6 +132,8 @@ def test_an_attached_unnamed_word_leaves_the_request_as_it_was():
 def _not_spoken_to(kind: str, action: str = "search_deferred"):
     ip, a = _ip(action)
     ip._req.trigger_kind = kind
+    # 話しかける発火（bond）で見る。話しかけない発火は、届いた言葉で打ち切って答える（決定ジ・試験は test_quiet_firing_keeps_listening）
+    ip._req.fired_axis = "bond" if kind == "情動" else ""
     return ip, a
 
 
