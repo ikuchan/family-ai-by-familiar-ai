@@ -305,9 +305,11 @@ def test_no_beeps_when_nobody_would_hear_the_answer(kind):
 
 @pytest.mark.parametrize("kind", ["情動", "機器"])
 def test_beeps_when_someone_would_hear_the_answer(kind):
-    """**反証の側**：人が居れば、情動と機器の求めでも鳴らす。"""
+    """**反証の側**：人が居れば、情動と機器の求めでも鳴らす。情動は話しかける軸（bond）の発火（決定ロ・2026-11-15）。"""
     ip, beeps = _ip()
     ip._req.trigger_kind = kind
+    if kind == "情動":
+        ip._req.fired_axis = "bond"
     ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
     _run(ip, seconds=0.3)
     assert len(beeps) >= 3
@@ -317,5 +319,34 @@ def test_a_voice_request_beeps_even_when_the_camera_sees_nobody():
     """**反証の側**：声の求めは在席で止めない（門が理由を返さない・出-as §2.3）。"""
     ip, beeps = _ip()
     ip._agent._someone_here = lambda: False
+    _run(ip, seconds=0.3)
+    assert len(beeps) >= 3
+
+
+# ── 話しかけない求めでは鳴らさない（環-aw 決定ロの直し・2026-11-15・本人の決定 案 1 とア） ─────────────
+# 情動の発火で話しかけるのは bond と esteem だけ（出-as §2.1）。ほかの発火は人が居ても声にしないのに、答えの来ない電子音が
+# 15〜23 秒鳴っていた（11/15 12:34 など、safety）。
+
+
+@pytest.mark.parametrize("axis", ["safety", "seeking", "rest"])
+def test_no_beeps_for_a_firing_that_never_speaks_even_with_people_here(axis):
+    ip, beeps = _ip()
+    ip._req.trigger_kind = "情動"
+    ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
+
+    async def fired():
+        ip._req.fired_axis = axis
+
+    _run(ip, seconds=0.3, during=fired)
+    assert beeps == []
+
+
+@pytest.mark.parametrize("axis", ["bond", "esteem"])
+def test_talking_firings_still_beep_with_people_here(axis):
+    """**反証の側**：話しかける発火は、人が居れば今までどおり鳴らす。"""
+    ip, beeps = _ip()
+    ip._req.trigger_kind = "情動"
+    ip._req.fired_axis = axis
+    ip._delivery_block_reason = lambda: ""  # type: ignore[method-assign]
     _run(ip, seconds=0.3)
     assert len(beeps) >= 3

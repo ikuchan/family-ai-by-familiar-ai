@@ -1894,7 +1894,14 @@ class InformationProcessing:
                 kind = self._paju().thinking_child()
                 # 声を出さない求め（情動と機器で、人が居ない）では鳴らさない。口は相手が居なければ動かない
                 # （2026-11-09・本人の決定）。声とキーボードの求めは門が理由を返さないので、いつも鳴らす。
-                if not kind or self._sounding() or self._delivery_block_reason():
+                # 話しかけない発火（seeking・safety・rest）は人が居ても声にしないので、答えの来ない電子音を鳴らさない
+                # （決定ロ・2026-11-15）。
+                if (
+                    not kind
+                    or self._sounding()
+                    or self._delivery_block_reason()
+                    or self._never_speaks()
+                ):
                     played: "bool | None" = True
                 else:
                     played = await self._dif.beep(kind)
@@ -3483,9 +3490,7 @@ class InformationProcessing:
         self._drop_work()
         memories = decision.memories if decision is not None else []
         # 声にならない求め（話しかけない情動・聞く相手が居ない）なら、書かせず検査もしない（`_speak` が独り言にする）。
-        quiet = (req.trigger_kind == "情動" and not self._talking()) or bool(
-            self._delivery_block_reason()
-        )
+        quiet = self._never_speaks() or bool(self._delivery_block_reason())
         text = "" if quiet else await self._write_timeout_answer(drafts)
         if gen != self._request_generation:
             logger.info("event-loop 時間切れの答えを書いているあいだに打ち切られたので、言わない")
@@ -5020,7 +5025,7 @@ class InformationProcessing:
         """
         if not text:
             return "", "沈黙"
-        if self._req.trigger_kind == "情動" and self._req.fired_axis not in TALKING_AXES:
+        if self._never_speaks():
             # **会話をしようとするのは BOND と ESTEEM だけ**（出-as §2.1・本人の決定）。見回る・探すなどの
             # 発火は行動だけで、返事の文は声に出さない（声にしなかっただけの独り言として残る）。
             logger.info("event-loop %s の発火なので話しかけない：%.40s", self._req.fired_axis, text)
@@ -5971,6 +5976,15 @@ class InformationProcessing:
             return False
         logger.info("event-loop safety の発火で上限に達したので、主LLM を呼ばずに閉じる")
         return True
+
+    def _never_speaks(self) -> bool:
+        """人が居ても話しかけない求めか。情動の求めで、話しかける軸（bond・esteem、`_talking`）でないもの（出-as §2.1）。
+
+        返事の文を声にしない口（`_speak`）、時間切れの答えを書かない口（`_answer_timed_out`）、電子音を鳴らさない口
+        （`_beep_while_waiting`・決定ロ）が、この 1 つで決める。
+        ログは出さない（電子音が毎秒呼ぶ）。
+        """
+        return self._req.trigger_kind == "情動" and not self._talking()
 
     def _known_person_in_view(self) -> bool:
         """誰か分かった人（顔・声・手入力のどれかで）が、いま顔ぶれに居るか（情-r・本人の決定ア）。読めなければ偽。
