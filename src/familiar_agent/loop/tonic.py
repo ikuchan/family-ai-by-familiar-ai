@@ -36,6 +36,7 @@ from . import (
     timer_watch,
 )
 from .rest import run_rest_pass
+from ..core.music_state import playing as music_playing
 from ..core import credit
 
 logger = logging.getLogger(__name__)
@@ -488,6 +489,12 @@ class Tonic:
                     continue
                 axis = select_fired_axis(firing, accumulated)
                 if axis is None:
+                    continue
+                if music_playing(self._agent):
+                    # 鳴っているあいだは名前の無い声を聞かないので、話しかけても返事を受けられない。どの軸も何もせずに
+                    # 終える（環-ba・2026-11-15 本人の決定）。溜まった情動は `step_drives` でもう戻っている。rest は
+                    # イベントループを通らずここから内省へ回るので、止めるのはこの口。
+                    logger.info("Drive fired: %s → 音楽が鳴っているので何もせずに終える", axis)
                     continue
                 if axis == "rest":
                     # REST は人が居ても内省へ回す（出-ay 段 5a・2026-10-10 本人の決定ウ）。以前は誰も居ないときだけで、

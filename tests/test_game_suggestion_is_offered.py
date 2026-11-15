@@ -7,7 +7,6 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
 
 import pytest
 
@@ -45,11 +44,10 @@ def test_said_counts_only_with_a_game_name():
 
 
 def _ip(
-    monkeypatch, *, axis: str, last: str = "", playing: bool = False, saves: bool = True
+    monkeypatch, *, axis: str, last: str = "", saves: bool = True
 ) -> tuple[InformationProcessing, list]:
     ip = InformationProcessing(_agent(stream_returns=[]))
     ip._agent._music_tool = None  # 音楽の道具が無くても、遊びの枠は出す
-    ip._agent._music_state = SimpleNamespace(playing=playing)
     ip._skills = tuple(
         load_skills(SKILLS_DIR)
     )  # 話しかける発火の始めに `_load_skills` で読んだもの
@@ -70,12 +68,6 @@ def test_the_loop_frame_carries_the_games_without_a_music_tool(monkeypatch):
 def test_the_loop_frame_skips_the_games_for_a_quiet_firing(monkeypatch):
     """**反証の側**：seeking の発火では載せない。"""
     ip, _ = _ip(monkeypatch, axis="seeking")
-    assert gs.HEADING not in ip._suggestion_frame()
-
-
-def test_no_offer_while_music_plays(monkeypatch):
-    """鳴っているあいだは名前の無い声を聞かないので、遊べない。誘わない（本人の決定）。"""
-    ip, _ = _ip(monkeypatch, axis="bond", playing=True)
     assert gs.HEADING not in ip._suggestion_frame()
 
 

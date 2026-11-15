@@ -30,7 +30,9 @@ def store_offered_on(day: str) -> bool:
 def frame(names: "list[str]", *, today: str, last: str) -> str:
     """主LLM と軽量LLM の文に載せる枠。その日まだ誘っていなければ載せる。載せなければ空。
 
-    話しかける発火か、音楽が鳴っていないかは、呼び手（`event_loop._game_frame`）が見る。
+    話しかける発火かは、呼び手（`event_loop._game_frame`）が見る。音楽が鳴っているあいだは、情動が発火しても何もしない
+    （T の発火の口と `event_loop._begin_affect` が
+    `music_state.playing` で見る）ので、ここへは来ない。
     """
     if not names or last == today:
         return ""

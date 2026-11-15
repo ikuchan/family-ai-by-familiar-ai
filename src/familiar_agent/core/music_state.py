@@ -24,6 +24,15 @@ class MusicState:
     ducked_base: "float | None" = None
 
 
+def playing(agent: Any) -> bool:
+    """音楽が鳴っているか（`agent._music_state.playing`）。分からなければ鳴っていないとみなす。
+
+    T の発火の口とループの情動の始め（環-ba）、窓の外の音楽の言葉の見分け、調停への印、`[音楽]` の様子が同じ判定を使う
+    （2026-11-15 本人の決定）。耳を閉じる判定（`agent.mic_gate_reason`）と音楽の道具、見張りは、まだそれぞれで見ている。
+    """
+    return getattr(getattr(agent, "_music_state", None), "playing", False) is True
+
+
 # ── ふだんの音量（知-bi・2026-10-17・本人の決定イ）────────────────────────────
 # 人が声で変えたときと、止めたときの音量を DB に 1 つ持ち、かけ始めに使う。いまの音量は MPRIS から読むが、
 # spotifyd は起動し直すと初期値（50%）に戻るので、人が選んだ値はここに残す。

@@ -55,6 +55,7 @@ from ..core.wake_window import WakeWindow
 from ..core.window_talk import WindowTalk, result_text as _talk_result
 from ..backends.types import system_text
 from ..core import skills as skills_mod
+from ..core.music_state import playing as music_playing
 from ..core.measure import record as measure_record
 from ..config import main_llm_cache_on
 from .generator import SILENCE_MARK, SILENCE_NOTE, _pi_ctx, _present_ctx
@@ -3764,9 +3765,8 @@ class InformationProcessing:
         return [s.name for s in self.__dict__.get("_skills") or ()]
 
     def _game_frame(self) -> str:
-        # 話しかけない求めでは載せない。音楽が鳴っているあいだは名前の無い声を聞かず遊べないので、誘わない（本人の決定）。
-        playing = getattr(getattr(self._agent, "_music_state", None), "playing", False) is True
-        if not self._talking() or playing:
+        # 話しかけない求めでは載せない。音楽が鳴っているあいだは、情動がそもそも何もしない（`_begin_affect`）。
+        if not self._talking():
             return ""
         from ..core import game_suggestion as gs
         from ..core import music_suggestion as ms
@@ -3860,7 +3860,7 @@ class InformationProcessing:
         state = getattr(agent, "_music_state", None)
         if tool is None or state is None:
             return None
-        if not getattr(state, "playing", False):
+        if not music_playing(agent):
             return {}
         from .music_watch import observe
 
@@ -4246,6 +4246,10 @@ class InformationProcessing:
 
         情動は中身を持たないので、取り込み時に想起で状況づける（正本③ 手順1・2）。
         """
+        if music_playing(self._agent):
+            # 鳴る前に積まれていた発火も、鳴っていれば何もせずに終える（T の発火の口と同じ決まり・環-ba・2026-11-15 本人の決定）。
+            logger.info("event-loop 情動 %s：音楽が鳴っているので何もせずに終える", drive_name)
+            return
         # 軸は求めを開く前に入れる。開く事象（耳を閉じるか）と電子音の仕事が、話しかける軸かを見る（決定ザ）。
         self._req.fired_axis = str(drive_name or "").lower()  # 内部状態の言葉で明示する（情-f）
         await self._begin_request(kind="情動", text=f"[内的な促し:{drive_name}] {prompt}")
@@ -4524,10 +4528,8 @@ class InformationProcessing:
             talking=self._talking(),
             suggestion_ctx=self._suggestion_frame() if self._talking() else "",  # 知-aq
             music_status=self._music_status,  # 「いま何の曲？」に答えるときだけ読む（出-bf）
-            music_playing=getattr(  # 鳴っているあいだは曲名の無い play_music を使わない（知-bq）
-                getattr(agent, "_music_state", None), "playing", False
-            )
-            is True,
+            # 鳴っているあいだは曲名の無い play_music を使わない（知-bq）
+            music_playing=music_playing(agent),
             jev_workspace=jev_workspace,
             jev_utterance=jev_utterance,
             window_ctx=window_ctx,
@@ -5861,8 +5863,7 @@ class InformationProcessing:
             return False
         if self._paju().window_open_at(self._arrival(trigger)):
             return False
-        state = getattr(self._agent, "_music_state", None)
-        if getattr(state, "playing", False) is not True:
+        if not music_playing(self._agent):
             return False
         from ..core.music_rules import is_music_word
 
