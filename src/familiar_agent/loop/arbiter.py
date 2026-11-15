@@ -554,7 +554,8 @@ class ArbiterInput:
     season_env: str = ""
     # 情動のうち話しかける軸（bond・esteem）。light の文を話しかけにする（出-at）
     talking: bool = False
-    #: 話しかけるときに勧めてよい曲（`[音楽のおすすめ]`・知-aq）。主LLM にしか載らず、軽く話しかける文では勧められなかった。
+    #: 話しかけるときに勧めてよい曲（`[音楽のおすすめ]`・知-aq）と誘ってよい遊び（`[遊びのおすすめ]`・環-ba）。主LLM にしか
+    #: 載らず、軽く話しかける文では勧められなかった。
     suggestion_ctx: str = ""
     #: この反復で道具から返ったもの（名前・失敗の印・結果の文）。完了を機械で分けるのに使う（出-ay 段 4-2）。
     returned: "tuple[tuple[str, bool, str], ...]" = ()

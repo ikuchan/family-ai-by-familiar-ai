@@ -50,9 +50,13 @@ def test_an_unnamed_request_leaves_a_closed_window_closed(monkeypatch):
 
 
 def test_affect_and_device_speech_leave_a_closed_window_closed(monkeypatch):
-    """**反証の側**：会話の求めでなければ、名前の印が残っていても開け直さない。"""
+    """**反証の側**：会話の求めでなければ、名前の印が残っていても開け直さない。
+
+    話しかける発火（bond、esteem）の声は開ける（環-ba・2026-11-15 本人の決定）ので、ここでは話しかけない軸で見る。
+    """
     for kind in ("情動", "機器"):
         ip = _closed_ip(monkeypatch, named=True, kind=kind)
+        ip._req.fired_axis = "seeking"
         ip._req.request_text = "[入室] パパ が来た"
         asyncio.run(ip._speak("おかえりなさい"))
         assert not ip._wake_window().is_open(1006.0), kind

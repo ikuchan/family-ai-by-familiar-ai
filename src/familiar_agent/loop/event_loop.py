@@ -3737,7 +3737,14 @@ class InformationProcessing:
         )
 
     def _suggestion_frame(self) -> str:
-        """`[音楽のおすすめ]`：話しかけてよいとき（bond・esteem）に勧める材料、勧めた日の会話では返事の受け方。"""
+        """`[音楽のおすすめ]`：話しかけてよいとき（bond・esteem）に勧める材料、勧めた日の会話では返事の受け方。
+
+        `[遊びのおすすめ]`（環-ba）：話しかけてよいときに、その日まだ誘っていなければ遊びに誘ってよいこと。音楽の
+        道具が無くても載せる。両方あるときは空行でつなぐ（どちらを誘うかは書く側が決める）。
+        """
+        return "\n\n".join(f for f in (self._music_suggestion_frame(), self._game_frame()) if f)
+
+    def _music_suggestion_frame(self) -> str:
         if getattr(self._agent, "_music_tool", None) is None:
             return ""
         from ..core import music_suggestion as ms
@@ -3752,9 +3759,47 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             return ""
 
+    def _game_names(self) -> "list[str]":
+        """誘える遊びの名前。話しかける発火の始めに `_load_skills` で読んだもの（ループの上で skills/ を読まない）。"""
+        return [s.name for s in self.__dict__.get("_skills") or ()]
+
+    def _game_frame(self) -> str:
+        # 話しかけない求めでは載せない。音楽が鳴っているあいだは名前の無い声を聞かず遊べないので、誘わない（本人の決定）。
+        playing = getattr(getattr(self._agent, "_music_state", None), "playing", False) is True
+        if not self._talking() or playing:
+            return ""
+        from ..core import game_suggestion as gs
+        from ..core import music_suggestion as ms
+
+        try:
+            return gs.frame(self._game_names(), today=ms.today(), last=gs.last_offered_on())
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 遊びのおすすめの枠を作れなかった", exc_info=True)
+            return ""
+
     def _note_suggestion_offered(self, said: str) -> None:
-        """声にした返事に、すすめたい曲の名前が入っていたら「勧めた」と印をつける（知-aa 段 4）。"""
-        if not self._talking() or getattr(self._agent, "_music_tool", None) is None:
+        """声にした返事に、すすめたい曲の名前が入っていたら「勧めた」と印をつける（知-aa 段 4）。
+
+        遊びの名前が入っていたら、その日は遊びに誘ったと記録する（環-ba・1 日 1 回まで）。
+        """
+        if not self._talking():
+            return
+        from ..core import game_suggestion as gs
+        from ..core import music_suggestion as ms
+
+        try:
+            day = ms.today()  # 日の区切りは音楽のおすすめと同じ口
+            # 名前が入っているかを先に見る（DB を読むのは、入っていたときだけ）。
+            if gs.offered(said, self._game_names()) and gs.last_offered_on() != day:
+                if gs.store_offered_on(day):
+                    logger.info("event-loop 遊びに誘った")
+                else:
+                    logger.warning(
+                        "event-loop 遊びに誘った日を残せなかった（同じ日にまた誘うことがある）"
+                    )
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 遊びに誘ったかを確かめられなかった", exc_info=True)
+        if getattr(self._agent, "_music_tool", None) is None:
             return
         from ..core import music_suggestion as ms
 
@@ -4204,6 +4249,9 @@ class InformationProcessing:
         # 軸は求めを開く前に入れる。開く事象（耳を閉じるか）と電子音の仕事が、話しかける軸かを見る（決定ザ）。
         self._req.fired_axis = str(drive_name or "").lower()  # 内部状態の言葉で明示する（情-f）
         await self._begin_request(kind="情動", text=f"[内的な促し:{drive_name}] {prompt}")
+        if self._talking():
+            # 遊びに誘う枠と、誘ったかを数える口が使う遊びの名前を、ループの外で読んでおく（環-ba）。
+            await self._load_skills()
         if self._req.fired_axis == "bond":
             # BOND は想起の手がかりに家族の予定とメモの新しい行を並べ、W を家族へ寄せる（情-q）。O の起点は変えない。
             from ..core.bond_cue import cue_for
@@ -6210,6 +6258,7 @@ class InformationProcessing:
         if began:
             await self._to_state("speech_began")  # 頭は答えを言っている（環-aw 決定ツ）
         played = True
+        voiced = False  # 声が出たか（落ちたり録音を鳴らせなかったりしたら偽。話しかける発火の窓はこれで開ける）
         try:
             if recording is not None:
                 played = await self._dif.say_recorded(
@@ -6219,6 +6268,7 @@ class InformationProcessing:
                 await self._dif.speak(
                     text, gain=self._voice_gain() if gain is None else gain, careful=careful
                 )
+            voiced = played
         finally:
             # 再生に失敗しても話し終えたことにする（決定ツ）。頭は書き留めている、耳は聞く（決定モ）。
             # 自分が言い始めを送った呼び出しだけが言い終わりを送る（言っているあいだの内側の声で、外の答えを終えない）。
@@ -6226,12 +6276,19 @@ class InformationProcessing:
                 await self._to_state("speech_ended")
             if hold:
                 await self._paju().release_window(time.monotonic())
-            if self._confirming() or (self._req.trigger_kind == "発話" and self._req.named):
+            if (
+                self._confirming()
+                or (self._req.trigger_kind == "発話" and self._req.named)
+                or (self._talking() and voiced)
+            ):
                 # 確認待ちのあいだの声（問い・聞き返し）は、窓が閉じていても話し終わりから開ける（出-cw・本人の決定イ）。
                 # 10/18 07:55 に 12.9 秒の頼みで窓が問いの前に閉じ、名前の無い「はい」を窓の外として捨てた。
                 # 名前で受けた話しかけの返事も同じ（出-cx・2026-10-21 本人の決定）。名前つきで 10 秒を超えて話すと窓は
                 # 話し始めから 10 秒で切れていて、返事のあとの名前なしの声を捨てていた。考えている最中には開けない。
                 # 開け直しても、同じ窓の会話の続き（環-ar 段 A）。
+                # 話しかける発火（bond、esteem）の一言も同じ（環-ba・2026-11-15 本人の決定）。「しりとりしない？」や
+                # 「いま話していい？」への名前の無い「いいよ」を、門で捨てずに受ける。パジュから始めた求めなので、声が出なかった
+                # ときは開けない（何も言っていないのに、家族どうしの会話を受けてしまう）。
                 await self._paju().open_window(
                     time.monotonic(), resume=self._req.window_session == wake.session
                 )
