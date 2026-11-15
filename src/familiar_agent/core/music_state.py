@@ -24,13 +24,18 @@ class MusicState:
     ducked_base: "float | None" = None
 
 
-def playing(agent: Any) -> bool:
-    """音楽が鳴っているか（`agent._music_state.playing`）。分からなければ鳴っていないとみなす。
+def is_playing(state: Any) -> bool:
+    """音楽の状態（`MusicState`）が鳴っているか。印が `True` のときだけ鳴っているとみなし、無ければ鳴っていない。
 
-    T の発火の口とループの情動の始め（環-ba）、窓の外の音楽の言葉の見分け、調停への印、`[音楽]` の様子が同じ判定を使う
-    （2026-11-15 本人の決定）。耳を閉じる判定（`agent.mic_gate_reason`）と音楽の道具、見張りは、まだそれぞれで見ている。
+    鳴っているかは、ここ 1 か所で決める（2026-11-15 本人の決定）。耳を閉じる判定、T の発火の口とループの情動の始め（環-ba）、
+    窓の外の音楽の言葉の見分け、調停への印、`[音楽]` の様子、音楽の道具、見張りが、みなこれを使う。
     """
-    return getattr(getattr(agent, "_music_state", None), "playing", False) is True
+    return getattr(state, "playing", False) is True
+
+
+def playing(agent: Any) -> bool:
+    """エージェントの音楽が鳴っているか（`is_playing(agent._music_state)`）。"""
+    return is_playing(getattr(agent, "_music_state", None))
 
 
 # ── ふだんの音量（知-bi・2026-10-17・本人の決定イ）────────────────────────────

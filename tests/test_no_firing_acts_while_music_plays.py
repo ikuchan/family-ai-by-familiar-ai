@@ -102,3 +102,17 @@ def test_one_check_decides_whether_music_plays():
     assert not playing(SimpleNamespace(_music_state=SimpleNamespace(playing=False)))
     assert not playing(SimpleNamespace())  # 音楽の様子が無ければ鳴っていない
     assert not playing(None)
+
+
+def test_the_ear_gate_uses_the_same_check():
+    """耳を閉じる判定も同じ判定を使う。真偽値でない印（テストの偽物など）を鳴っているとみなさない。"""
+    from familiar_agent.agent import MUSIC_GATE_REASON, EmbodiedAgent
+    from familiar_agent.core.music_state import is_playing
+
+    assert is_playing(SimpleNamespace(playing=True))
+    assert not is_playing(SimpleNamespace(playing=MagicMock()))  # 真偽値でない
+    assert not is_playing(None)
+    agent = SimpleNamespace(_music_state=SimpleNamespace(playing=True), _timer_tool=None)
+    assert EmbodiedAgent.mic_gate_reason(agent) == MUSIC_GATE_REASON  # type: ignore[arg-type]
+    agent._music_state.playing = MagicMock()
+    assert EmbodiedAgent.mic_gate_reason(agent) == ""  # type: ignore[arg-type]

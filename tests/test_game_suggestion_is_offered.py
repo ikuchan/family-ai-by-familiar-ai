@@ -196,3 +196,26 @@ def test_the_invite_is_the_window_talk_and_a_plain_yes_is_heard(monkeypatch):
     assert outcome == "発話"
     assert "ねえ、しりとりしない？" in ip._window_talk().render()
     assert admitted
+
+
+# ── 遊んでいる最中は誘わない（2026-11-15 本人の決定） ──────────────
+
+
+def test_no_offer_while_a_game_is_in_the_window_talk(monkeypatch):
+    """窓の会話でしりとりをしている最中の bond では、もう一度は誘わない（求めは窓の外で始まっていても、窓の会話を見る）。"""
+    import time
+
+    ip, _ = _ip(monkeypatch, axis="bond")
+    ip._paju().wake.open(time.monotonic())
+    ip._window_talk().skills.append("しりとり")
+    assert gs.HEADING not in ip._suggestion_frame()
+
+
+def test_an_open_window_without_a_game_still_offers(monkeypatch):
+    """**反証の側**：窓が開いていても、やり方が載っていなければ誘ってよい。"""
+    import time
+
+    ip, _ = _ip(monkeypatch, axis="bond")
+    ip._paju().wake.open(time.monotonic())
+    assert ip._in_window()  # 窓は本当に開いている（窓を見る側を通っている）
+    assert gs.HEADING in ip._suggestion_frame()

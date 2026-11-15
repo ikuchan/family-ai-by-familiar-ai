@@ -3768,6 +3768,10 @@ class InformationProcessing:
         # 話しかけない求めでは載せない。音楽が鳴っているあいだは、情動がそもそも何もしない（`_begin_affect`）。
         if not self._talking():
             return ""
+        # 遊んでいる最中は、もう一度は誘わない（2026-11-15 本人の決定）。bond の求めは窓の外で始まることが多いので、
+        # 求めの側のスキルに加えて、窓の会話の中なら窓の会話のスキルを見る（窓が閉じれば遊びも外れる・環-au）。
+        if self._req.skills or (self._in_window() and self._window_talk().skills):
+            return ""
         from ..core import game_suggestion as gs
         from ..core import music_suggestion as ms
 

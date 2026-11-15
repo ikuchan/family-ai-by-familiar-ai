@@ -257,7 +257,7 @@ class MusicTool:
         印は見回り（約 30 秒おき）でしか下がらないので、外（スマホ）で止めた直後やプレイリストが終わった直後も立っている。
         立っていたら Spotify に聞いて確かめる。聞けなければ印を信じる。
         """
-        if getattr(self._state, "playing", False) is not True:
+        if not music_state.is_playing(self._state):
             return False
         if self._web is None:
             return True

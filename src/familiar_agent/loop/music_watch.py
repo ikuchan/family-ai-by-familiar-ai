@@ -26,7 +26,7 @@ async def check_music_expired(
     *, io: Any, bus: Any, state: Any, now: float, say: Callable[[str], Any]
 ) -> bool:
     """30 分を過ぎていたら止めて一言言う。止めたら True。"""
-    if not getattr(state, "playing", False):
+    if not music_state.is_playing(state):
         return False
     started = float(getattr(state, "started_at", 0.0) or 0.0)
     if not started or not expired(started, now=now):
@@ -70,7 +70,7 @@ async def duck_while_speaking(
         if isinstance(pending, asyncio.Task) and not pending.done():
             pending.cancel()
             base = state.ducked_base
-        elif getattr(state, "playing", False):
+        elif music_state.is_playing(state):
             s = await io.status(bus)
             if s and s.get("playing"):
                 base = float(s.get("volume", 0.5))
@@ -115,7 +115,7 @@ async def observe(*, io: Any, bus: Any, state: Any, record: Callable[[str], Any]
     門が開く）、声には出さずに記録する。**読めないときは何もしない**——機器は落ちる前提で、読めない
     ことを「止まった」とは見ない。鳴らしていなければ読まない。
     """
-    if not getattr(state, "playing", False):
+    if not music_state.is_playing(state):
         return {}
     try:
         s = await io.status(bus)

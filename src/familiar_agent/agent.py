@@ -12,7 +12,7 @@ from collections.abc import Callable, Coroutine
 from pathlib import Path
 
 from .core import family_now, parsing  # noqa: E402  ME.md/FAMILY.md/話者接頭辞の純粋パーサ
-from .core.music_state import MusicState  # noqa: E402  音楽の状態（知-aa）
+from .core.music_state import MusicState, playing  # noqa: E402  音楽の状態（知-aa）
 from .core.helpers import (  # noqa: F401,E402  切り出した純関数。内部利用＋既存の import 経路を保つ再輸出
     _call_optional_async,
     _noop_list,
@@ -852,8 +852,7 @@ class EmbodiedAgent:
         2026-09-21・`MUSIC_GATE_REASON`）。重なれば音楽が先。音楽が鳴っているあいだは音楽の話だけを通す（時間の道具は
         通さない・本人の決定）。通す言葉の判定は入口（`event_loop._ear_drops`）が持つ。
         """
-        state = getattr(self, "_music_state", None)
-        if state is not None and getattr(state, "playing", False):
+        if playing(self):
             return MUSIC_GATE_REASON
         tool = getattr(self, "_timer_tool", None)
         if tool is None:
