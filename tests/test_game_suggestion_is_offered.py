@@ -181,3 +181,26 @@ def test_a_talking_firing_without_a_voice_leaves_the_window_closed(monkeypatch):
     with pytest.raises(RuntimeError):  # 再生の例外は、いままでどおり呼び手へ出る
         asyncio.run(ip._speak("ねえ、しりとりしない？"))
     assert not ip._wake_window().is_open(1000.0)
+
+
+def test_the_invite_is_the_window_talk_and_a_plain_yes_is_heard(monkeypatch):
+    """声にして後始末（`_finish`）まで通すと、誘いが窓の会話の行になり、数秒後の名前の無い「いいよ」を窓で受ける。"""
+    import asyncio
+
+    from familiar_agent.loop.event_loop import Trigger
+
+    from tests.test_a_named_request_reopens_the_window import _closed_ip
+
+    ip = _closed_ip(monkeypatch, named=False, kind="情動")
+    ip._req.fired_axis = "bond"
+
+    async def go():
+        spoken, outcome = await ip._speak("ねえ、しりとりしない？")
+        await ip._finish(spoken, [], outcome)
+        yes = Trigger(kind="会話入力", query="いいよ", source="voice", arrived=1009.0)
+        return outcome, await ip._wake_window_admits(yes)
+
+    outcome, admitted = asyncio.run(go())
+    assert outcome == "発話"
+    assert "ねえ、しりとりしない？" in ip._window_talk().render()
+    assert admitted
