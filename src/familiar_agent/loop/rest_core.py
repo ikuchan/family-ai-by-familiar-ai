@@ -10,7 +10,8 @@
 4. 選ぶ：平均 u の低い束から、Σb·u の累計が超過 E=I−I* に達するまで（1 晩の上限あり）。
 5. 書く：1 束 1 依頼。JSON {text, sources, people}。検査（出典が束の中・字数・家族の名前）に落ちた
    束はその晩は固めない。
-6. 産物：向き `まとめ`・時刻は出典の最新・出典の面の人が居合わせた人・
+6. 産物：向き `まとめ`・時刻は出典の最新の行の日の終わり（当日なら書いた時刻・記-aa。出典に時刻が無ければ時刻なしで渡し、
+   書いた時刻・記-ab）・出典の面の人が居合わせた人・
    面の n は出典の最大。各出典を産物で supersede。
 7. 記録：計測ログに `層1同一` と `層1固め`。`内省` の記録には一文。
 
@@ -29,6 +30,7 @@ from ..core.structured_ask import read_json_merged
 from ..core import bundling, measure
 from ..core import info_measure as im
 from ..io.oif import MI
+from ..store import clock
 from ..store.relations import KIND_FOLD
 from .rest_fold import Written, family_names_of
 
@@ -138,13 +140,17 @@ def _fold_identical(agent, records: list[dict], tau_same: float) -> tuple[list[d
     return kept, len(groups), folded
 
 
-def _timestamp_of(rows: list[dict]) -> datetime:
+def _timestamp_of(rows: list[dict]) -> "datetime | None":
+    """出典の最新の時刻。出典に時刻が無ければ時刻なしで返し、`OIF.write` がいまの時刻で書く（記-ab）。
+
+    代わりの時刻を作ると、UTC のいまはローカルの 0〜9 時に前の日の日付に取られた。
+    """
     ts: list[datetime] = [r["timestamp"] for r in rows if isinstance(r.get("timestamp"), datetime)]
-    return max(ts) if ts else datetime.now(timezone.utc)
+    return max(ts) if ts else None
 
 
 async def _write_summary(agent, text: str, rows: list[dict]) -> str:
-    """`まとめ` を書く。時刻は出典の最新、居合わせた人は出典の面の人（自分は除く）。"""
+    """`まとめ` を書く。時刻は出典の最新（記録はその日の終わり、無ければ時刻なし・記-ab）、居合わせた人は出典の面の人（自分は除く）。"""
     from .rest_fold import _pad_for
 
     pad, arousal = await _pad_for(agent, text)
@@ -206,8 +212,10 @@ async def fold_core(agent, *, now: "datetime | None" = None) -> CoreResult:
     for members in chosen:
         rows = [records[i] for i in members]
         ids = {str(r["obs_id"]) for r in rows}
+        # 日付はローカルの暦で書く（記-ab）。出典に時刻が無ければいまの日付で、UTC のままだとローカルの 0〜9 時に前の日になった。
         lines = "\n".join(
-            f"{r['obs_id']} {(r.get('timestamp') or now):%Y-%m-%d} [{r.get('direction', '')}] "
+            f"{r['obs_id']} {(r.get('timestamp') or now).astimezone(clock.local_tz()):%Y-%m-%d} "
+            f"[{r.get('direction', '')}] "
             f"{str(r.get('content', ''))[:400]}"
             for r in rows
         )

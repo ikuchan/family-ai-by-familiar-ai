@@ -291,12 +291,16 @@ async def fold_since_last_rest(
     return result
 
 
-def _day_end(day: str) -> datetime:
-    """その日の終わり（日づけを MI が持つ・`OIF.write` の `override_date` に効く）。"""
+def _day_end(day: str) -> "datetime | None":
+    """その日の終わり（日づけを MI が持つ・`OIF.write` の `override_date` に効く）。
+
+    日付が読めなければ時刻なしで返し、`OIF.write` がいまの時刻で書く（記-ab）。代わりの時刻を作ると、
+    UTC のいまはローカルの 0〜9 時に前の日の日付に取られた。
+    """
     try:
         return datetime.strptime(day, "%Y-%m-%d").replace(hour=23, minute=59, tzinfo=timezone.utc)
     except ValueError:
-        return datetime.now(timezone.utc)
+        return None
 
 
 async def _pad_for(agent, text: str):

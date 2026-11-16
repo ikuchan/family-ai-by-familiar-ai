@@ -171,3 +171,26 @@ def test_check_rejects_out_of_bundle_sources_long_text_and_unknown_names():
         "たろうと話した", ["o1"], ["たろう"], bundle_ids={"o1"}, family=fam
     )
     assert "空" in rest_core.check("", ["o1"], [], bundle_ids={"o1"}, family=fam)
+
+
+def test_the_prompt_dates_sources_by_the_local_day(tmp_path, monkeypatch):
+    """記-ab：頼む文の出典の日付はローカルの暦で書く。時刻の無い出典はいまの日付（UTC のままだと、早朝は前の日になった）。"""
+    from familiar_agent.store import clock
+
+    jst = timezone(timedelta(hours=9))
+    monkeypatch.setattr(clock, "local_tz", lambda: jst)
+    early = datetime(2026, 11, 16, 20, 0, tzinfo=timezone.utc)  # ローカルでは 11/17 の 5 時
+    measure.setup(base_dir=tmp_path)
+    records = [{**r, "timestamp": early if i % 2 else None} for i, r in enumerate(_two_topics())]
+    a = _agent(records, target=1.0)
+    a.config.memory.core_bundles_per_night = 1
+    asyncio.run(rest_core.fold_core(a, now=early))
+    prompt = a.backend.complete.await_args.args[0]
+    assert " 2026-11-17 [" in prompt and " 2026-11-16 [" not in prompt
+
+
+def test_a_summary_of_time_less_rows_is_written_without_a_time():
+    """記-ab：時刻の無い材料なら、MI を時刻なしで `OIF.write` へ渡す（保存の側がいまの時刻で書く）。"""
+    a = _agent([], target=1.0)
+    asyncio.run(rest_core._write_summary(a, "まとめの文", [{"timestamp": None}]))
+    assert a._oif.write.await_args.args[0].timestamp is None

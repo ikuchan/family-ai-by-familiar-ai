@@ -179,3 +179,53 @@ def test_the_fold_supersedes_dropped_rows_too_and_counts_them():
         result = asyncio.run(rest_fold.fold_since_last_rest(agent))
     assert result.folded == 2 and result.left_out == 1
     assert {c.args[0] for c in agent._oif.supersede.call_args_list} == {"o1", "o2"}
+
+
+# ── 記-ab：日付が読めない日のまとめは、時刻なしで渡す（2026-11-16・本人の決定） ──────────────
+
+
+def _writer_agent():
+    from unittest.mock import MagicMock
+
+    agent = MagicMock()
+    agent._evaluator.emotion_for_turn = AsyncMock(side_effect=RuntimeError("測らない"))
+    agent._observation_perspective = MagicMock(return_value={"writer_id": "__self__"})
+    agent._pmm.find_person_id_by_name = MagicMock(return_value="pid-papa")
+    agent._oif.write = AsyncMock(return_value="obs-1")
+    return agent
+
+
+def test_an_episode_of_an_unreadable_day_is_written_without_a_time():
+    """UTC のいまを代わりに渡すと、ローカルの 0〜9 時に前の日の日付に取られた。時刻なしなら保存の側がいまの時刻で書く。"""
+    import asyncio
+    from unittest.mock import patch
+
+    agent = _writer_agent()
+    with patch.object(rest_fold, "_participants", return_value=[]):
+        asyncio.run(rest_fold._write_episode(agent, rest_fold.Batch(day="?"), "その日のこと"))
+    assert agent._oif.write.await_args.args[0].timestamp is None
+
+
+def test_a_person_summary_of_an_unreadable_day_is_written_without_a_time():
+    import asyncio
+
+    agent = _writer_agent()
+    asyncio.run(
+        rest_fold._write_person_summary(agent, rest_fold.Batch(day="?"), "パパ", "パパのこと")
+    )
+    assert agent._oif.write.await_args.args[0].timestamp is None
+
+
+def test_an_episode_of_a_readable_day_keeps_its_day():
+    """**反証の側**：日付が読めるときは、いままでどおり、その日の文字の 23:59 で渡す。"""
+    import asyncio
+    from unittest.mock import patch
+
+    agent = _writer_agent()
+    with patch.object(rest_fold, "_participants", return_value=[]):
+        asyncio.run(
+            rest_fold._write_episode(agent, rest_fold.Batch(day="2026-11-16"), "その日のこと")
+        )
+    got = agent._oif.write.await_args.args[0].timestamp
+    assert got is not None
+    assert (got.strftime("%Y-%m-%d"), got.hour, got.minute) == ("2026-11-16", 23, 59)
