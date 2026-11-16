@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import time
 from dataclasses import dataclass, field
 from dataclasses import replace as _replace
 from datetime import datetime
@@ -50,10 +51,15 @@ def lookup_lines(
     omit: "frozenset[int]" = frozenset(),
     aborted: bool = False,
     with_main: bool = True,
+    now: "float | None" = None,
 ) -> "list[str]":
     """調べものごとの行（版の文と、最終版の経緯が使う・記-t）。結果はここでは切らない。
 
     `with_main=False` は主LLM の行（「考えて答えた」）を外す。最終版は答えそのものを持つので要らない。
+
+    `now`（`time.time()`）を渡すと、届いた結果の行に「（3 分前に投げた）」を添える（出-ds）。渡すのは LLM に渡す文
+    （W のいまの求めの版、Jev の [いま湧いたこと]、発話前の検査）だけで、O に書く版と最終版の経緯には渡さない。
+    距離を O に残すと、あとで思い出したとき、いまからの距離に読めてしまう。
     """
     parts: list[str] = []
     for lk in sorted(req.lookups, key=lambda x: x.index):
@@ -80,15 +86,23 @@ def lookup_lines(
             # 使い切って投げなかった（出-dh）。器は完了の行き先なので残るが、調べていないので「届いた」と書かない
             # （書くと、話す前の検査や主LLM が調べた結果の 1 件として読む）。
             parts.append(f"{lk.index}番：{lk.action}「{lk.query}」は使い切ったので投げなかった")
-        elif lk.index in omit:
-            parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{_BODY_ELSEWHERE}")
         else:
-            parts.append(f"{lk.index}番：{lk.action}「{lk.query}」の結果が届いた：{lk.result}")
+            sent = f"（{clock.ago(now - lk.sent_at)}に投げた）" if now is not None else ""
+            if lk.index in omit:
+                parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{sent}{_BODY_ELSEWHERE}")
+            else:
+                parts.append(
+                    f"{lk.index}番：{lk.action}「{lk.query}」{sent}の結果が届いた：{lk.result}"
+                )
     return parts
 
 
 def version_text(
-    req: Request, *, omit: "frozenset[int]" = frozenset(), aborted: bool = False
+    req: Request,
+    *,
+    omit: "frozenset[int]" = frozenset(),
+    aborted: bool = False,
+    now: "float | None" = None,
 ) -> str:
     """いまの求めの状態を、1つの版の文として組み立てる（O に書く版と、Jev へ送る版の写しの両方が使う）。
 
@@ -103,8 +117,10 @@ def version_text(
 
     `omit`：本文を外す返り（index）。Jev へ送る文だけが使う（出-bw）。同じ反復で返った結果は W の最上部に全文で
     載るので、版の文からは「何を調べて届いたか」だけを残す。O に書く版は何も外さない。
+
+    `now`：LLM に渡す文だけが渡す（`lookup_lines`・出-ds）。O に書く版は渡さない。
     """
-    parts = lookup_lines(req, omit=omit, aborted=aborted)
+    parts = lookup_lines(req, omit=omit, aborted=aborted, now=now)
     head = f"「{req.request_text}」と聞かれた"
     if not parts:
         return head + ("（打ち切った）" if aborted else "")
@@ -226,7 +242,7 @@ def compose(
     basis_line = f"[この想起：{basis}]" if basis else ""
     # 想起した記憶には見出しを付ける。直近のやりとりの枠（文脈）と分ける（出-ay 段 4-4b：文脈は直前のやりとりで、
     # 思い出したことではない）。
-    remembered = _lines(shown, names)
+    remembered = _lines(shown, names, now=clock.now_utc())
     if remembered.strip():
         remembered = "[思い出したこと]\n" + remembered
     text = "\n\n".join(p for p in [added, heard, basis_line, remembered] if p and p.strip())
@@ -388,8 +404,9 @@ def render_recent(
             if r.obs_id and r.obs_id not in seen:
                 seen.add(r.obs_id)
                 rows.append(r)
+    now = now or clock.now_utc()
     if max_age_sec > 0 and rows:
-        floor = (now or clock.now_utc()).timestamp() - max_age_sec
+        floor = now.timestamp() - max_age_sec
         kept = [r for r in rows if r.when and r.when.timestamp() >= floor]
         if len(kept) < len(rows):
             logger.info("直近: %d 秒より古い %d 行を外した", max_age_sec, len(rows) - len(kept))
@@ -415,7 +432,8 @@ def render_recent(
     happened: list[str] = []
     for r in rows:
         sid = r.obs_id.replace("-", "")[:12]
-        at = clock.ts_to_time(r.when)
+        # 時刻のあとに、いまからの距離を添える（出-ds）。窓の会話の行には付けない（環-ar 段 D の写しを保つ）。
+        at = clock.ts_to_time(r.when) + _since(r.when, now)
         if r.role in ("答え", "つなぎ"):
             heard = to.get(r.obs_id) or []
             who = f"{me}（{'・'.join(heard)}へ）" if heard else me
@@ -620,7 +638,7 @@ class Workspace:
         live = self.req.live_version_id
         if not live:
             return list(self.memories)
-        short = version_text(self.req, omit=self.returned_idx)
+        short = version_text(self.req, omit=self.returned_idx, now=time.time())
         return [
             _replace(r, mi=_replace(r.mi, content=short)) if r.mi.obs_id == live else r
             for r in self.memories
@@ -628,7 +646,7 @@ class Workspace:
 
     def jev_cue(self) -> str:
         """Jev へ送る [いま湧いたこと]（情動の求めの版の文）。この反復で返った結果の本文を外す。"""
-        return version_text(self.req, omit=self.returned_idx)
+        return version_text(self.req, omit=self.returned_idx, now=time.time())
 
     def for_jev_arbiter(self, max_chars: int) -> "str | None":
         """調停の Jev へ送る W。`max_chars` を超えたら、記憶を適合度の低い順に、収まるところまで一度に外す。
@@ -676,7 +694,20 @@ class Workspace:
 _CONF_LOW = 0.55
 
 
-def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
+def _since(ts, now: "datetime | None") -> str:
+    """行の時刻に添える「（10 時間前）」（出-ds）。`now` が無い、時刻が読めないときは空。
+
+    tz の無い時刻はローカル時刻として読む。LLM に渡す W だけが `now` を渡す。
+    """
+    if now is None or not isinstance(ts, datetime):
+        return ""
+    when = ts if ts.tzinfo else ts.replace(tzinfo=clock.local_tz())
+    return f"（{clock.ago((now - when).total_seconds())}）"
+
+
+def _lines(
+    memories: "list[Recalled]", names: "dict[str, str]", *, now: "datetime | None" = None
+) -> str:
     """W の1行を組む。**核の仕事**である（環-e-い）。
 
     **1 行は全文で載せる**（2026-09-20）。以前は過去の記憶だけ 120 字で切り、細部は直近の
@@ -690,6 +721,9 @@ def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
     以前は `ObservationMemory.format_for_context` が組んでいたが、`Recalled` を受ける形に
     すると**記憶が OIF の器を知る**ことになる（依存が逆向き）。W を組むのは核なので、
     ここへ移した。`agent` 側の呼び手は辞書のままなので、記憶の面は残してある。
+
+    `now` を渡すと、時刻のあとに、いまからの距離を添える（出-ds）。夜に朝の記憶の「おはよう」を並べると、
+    日時だけでは、いつのことかを取り違えて「おはよう」と言い出した（11/15 19:40）。
 
     **12桁で指す。** 8桁だと記録が10万件規模でほぼ確実に衝突する。照合は呼び出し側が
     対応表で行うので、写し間違いは一致せず件数のずれに出る。
@@ -710,7 +744,7 @@ def _lines(memories: "list[Recalled]", names: "dict[str, str]") -> str:
         subject = subject_line(mi.direction, names.get(mi.obs_id))
         body = mi.content
         out.append(
-            f"- {day} {at} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
+            f"- {day} {at}{_since(mi.timestamp, now)} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
             f" {subject}{emo}: {body}"
         )
     return "\n".join(out)

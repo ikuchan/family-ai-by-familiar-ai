@@ -30,6 +30,10 @@ pytestmark = pytest.mark.real_window  # 門そのものを確かめる（conftes
 
 
 def _ip(*, timer: bool = False):
+    # 耳の入口（`_ear`）は関数の中で `familiar_agent.agent` を読み込む。初めての読み込み（数十 ms）が `_push` の 0.01 秒の
+    # 待ちに入ると、門を通り終える前に切れて落ちる（1 本だけで回すと落ちた・2026-11-16）。本番は起動で読み込み済み。
+    import familiar_agent.agent  # noqa: F401
+
     a = _agent(stream_returns=[])
     a.config.agent_names = ["パジュ"]
     a._occupancy = MagicMock(return_value=1.0)

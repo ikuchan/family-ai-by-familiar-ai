@@ -701,7 +701,9 @@ class ObservationStore:
         ruri_sql = self._ruri_sql(content)
         # どの時計を使うかは store/clock.py に集約してある。
         now = clock.now_utc()
-        save_ts = clock.end_of_day_utc(override_date) if override_date else now
+        # 日付だけの記録はその日の終わりに置く。ただし、その終わりがまだ来ていなければ、いまの時刻にする
+        # （記-aa・2026-11-16）。当日のうちに作ったまとめが先の時刻を持ち、W の日時の欄に出ていた。
+        save_ts = min(clock.end_of_day_utc(override_date), now) if override_date else now
         if payload.get("at"):
             # 呼び手が時刻を決めた記録（記-t：最終版は閉じた時刻で書く。要約を待つぶん書くのが遅れる）。
             save_ts = datetime.fromisoformat(str(payload["at"]))
@@ -993,11 +995,12 @@ class ObservationStore:
             return []
 
     def tree_months(self, direction: str, *, person_id: "str | None" = None) -> list[str]:
-        """その向きの要約がある月（YYYY-MM・UTC の暦）の一覧（記-m・暦のまとめが何を書くかを決める）。
+        """その向きの要約がある月（YYYY-MM・ローカルの暦）の一覧（記-m・暦のまとめが何を書くかを決める）。
 
         畳まれた記録も数える（木は暦で決まる索引）。人を指せばその人の面のものだけ。失敗時は空リスト。
         """
-        month = "to_char(o.timestamp AT TIME ZONE 'UTC', 'YYYY-MM')"
+        # 月はセッションの TimeZone（ローカル・`db.py`）で切る。記憶の木の節と同じ暦（記-aa）。
+        month = "to_char(o.timestamp, 'YYYY-MM')"
         if person_id is None:
             sql = f"SELECT DISTINCT {month} AS m FROM observations o WHERE o.direction = %s ORDER BY m"
             params: tuple = (direction,)

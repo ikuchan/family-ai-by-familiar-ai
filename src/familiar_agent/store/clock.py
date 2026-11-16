@@ -65,10 +65,32 @@ def now_local_iso() -> str:
 def now_local_str() -> str:
     """プロンプト表示用の現在時刻＝OS のローカル時刻にタイムゾーンを付記した文字列。
 
-    例：`2026-07-23 15:00 JST(+0900)`。DB は UTC で持つが、プロンプト上は OS が持つ
-    タイムゾーンを添えて見せる。
+    例：`2026-11-15（日）19:50 JST(+0900)`。DB は UTC で持つが、プロンプト上は OS が持つ
+    タイムゾーンを添えて見せる。曜日が無いと、日時だけでは曜日に合う言葉を選べない（出-ds）。
+    `%a` は言語の設定で変わるので、曜日は表から引く。
     """
-    return datetime.now().astimezone().strftime("%Y-%m-%d %H:%M %Z(%z)")
+    t = datetime.now().astimezone()
+    return f"{t:%Y-%m-%d}（{_WEEKDAYS[t.weekday()]}）{t:%H:%M} " + t.strftime("%Z(%z)")
+
+
+#: 月曜を 0 とする曜日（`datetime.weekday()`）。
+_WEEKDAYS = "月火水木金土日"
+
+
+def ago(seconds: float) -> str:
+    """いまからの距離を「N 秒前」「N 分前」「N 時間前」「N 日前」で書く（出-ds）。端数は切り捨てる。
+
+    LLM に渡す文にだけ使う。DB に書く文に入れると、あとで読んだときに、いまからの距離に読めてしまう。
+    負（時計のずれで先の時刻）は 0 秒として書く。
+    """
+    s = max(0, int(seconds))
+    if s < 60:
+        return f"{s} 秒前"
+    if s < 3600:
+        return f"{s // 60} 分前"
+    if s < 86400:
+        return f"{s // 3600} 時間前"
+    return f"{s // 86400} 日前"
 
 
 def end_of_day_utc(date_str: str) -> datetime:

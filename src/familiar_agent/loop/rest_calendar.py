@@ -10,7 +10,7 @@
 - **書き手はフルLLM**（本人の決定・日次の畳み込みと同じ担い手）。材料は 1 つ下の段の要約（月なら日ごと、
   年なら月）で、`{"summary": …}` だけを返させる。空・読めない・字数の超過は書かず、次の晩に持ち越す。
 - **置き方**：向き「月のまとめ／年のまとめ／人の月のまとめ／人の年のまとめ」、時刻はその月・年の終わり
-  （UTC 23:59・日ごとの要約がその日の 23:59 に置かれるのと同じ）、人ごとのものはその人の面。
+  （ローカル 23:59・記憶の木の節と同じローカルの暦・記-aa）、人ごとのものはその人の面。
 """
 
 from __future__ import annotations
@@ -23,6 +23,7 @@ from ..core.structured_ask import read_json_merged
 from ..core import measure, parsing
 from ..core.memory_tree import directions_for, parse_node
 from ..io.oif import MI
+from ..store import clock
 from .rest_fold import EPISODE_MAX_CHARS, PERSON_MAX_CHARS, Written
 
 logger = logging.getLogger(__name__)
@@ -91,7 +92,9 @@ def _months(agent, direction: str, pid: "str | None") -> "set[str]":
 
 def pending(agent, *, now: datetime) -> "list[Task]":
     """まだ書いていない暦のまとめを、古い順に並べる（家族全体が人ごとより先）。"""
-    this_month = now.astimezone(timezone.utc).strftime("%Y-%m")
+    this_month = now.astimezone(clock.local_tz()).strftime(
+        "%Y-%m"
+    )  # 記憶の木と同じローカルの暦（記-aa）
     this_year = this_month[:4]
     trees: list[tuple[str | None, str | None]] = [(None, None), *_people(agent)]
     tasks: list[tuple[tuple, Task]] = []
@@ -110,7 +113,7 @@ def pending(agent, *, now: datetime) -> "list[Task]":
 
 
 def _period_end(period: str) -> datetime:
-    """その月・年の終わり（UTC 23:59）。"""
+    """その月・年の終わり（ローカル 23:59・記憶の木の節の終わりの 1 分前）。"""
     got = parse_node(period)
     assert got is not None
     return got[2] - timedelta(minutes=1)

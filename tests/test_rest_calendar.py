@@ -6,7 +6,7 @@
 - 家族全体の月：日ごとの要約がある月 ／ 人ごとの月：その人の人ごとのまとめがある月。いまの月は書かない。
 - 年：いまの年より前で、その年の月の要約がそろっている年。
 - 検査（空・読めない・字数の超過）に落ちたものは書かず、次の晩に持ち越す。
-- 向き「月のまとめ／年のまとめ／人の月のまとめ／人の年のまとめ」、時刻はその月・年の終わり（UTC 23:59）、
+- 向き「月のまとめ／年のまとめ／人の月のまとめ／人の年のまとめ」、時刻はその月・年の終わり（ローカル 23:59・記-aa）、
   人ごとのものはその人の面（`participants=[pid]`）。
 """
 
@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop import rest_calendar
+from familiar_agent.store import clock
 
 UTC = timezone.utc
 NOW = datetime(2026, 10, 1, 3, 0, tzinfo=UTC)
@@ -103,7 +104,9 @@ def test_a_month_is_written_at_its_end_with_the_right_direction():
     assert r.written == 2
     (fam_mi,), fam_kw = a._oif.write.await_args_list[0].args, a._oif.write.await_args_list[0].kwargs
     assert fam_mi.direction == "月のまとめ"
-    assert fam_mi.timestamp == datetime(2026, 8, 31, 23, 59, tzinfo=UTC)
+    assert fam_mi.timestamp == datetime(
+        2026, 8, 31, 23, 59, tzinfo=clock.local_tz()
+    )  # 節はローカルの暦（記-aa）
     assert not fam_kw.get("participants")
     (papa_mi,), papa_kw = (
         a._oif.write.await_args_list[1].args,
@@ -157,3 +160,11 @@ def test_the_rest_pass_runs_it_after_the_daily_fold():
         content = asyncio.run(run_rest_pass(agent))
     assert order == ["日次", "暦"]
     assert "暦のまとめを 2 本書いた（残り 5 本・見送り 1 本）" in content
+
+
+def test_this_month_is_judged_by_the_local_calendar():
+    """いまの月もローカルの暦で決める（記-aa）。10/1 の 5 時（ローカル）なら 9 月は終わっている。UTC ではまだ 9/30。"""
+    a = _agent({("記憶", None): ["2026-09"]})
+    early = datetime(2026, 10, 1, 5, 0, tzinfo=clock.local_tz())
+    got = [(t.level, t.period) for t in rest_calendar.pending(a, now=early)]
+    assert got == [("月", "2026-09")]

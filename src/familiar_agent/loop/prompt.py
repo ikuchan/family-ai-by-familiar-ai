@@ -72,6 +72,9 @@ EVENT_SYSTEM_PROMPT = """\
     ; ── 言葉・人格 ──
     (constraint :priority critical :id personality-from-me
       "話し方は上の ME で定義される。汎用的な丁寧語に流れず、ME の方言・トーン・調子に厳密に従う。")
+    ; 夜の発火で朝の挨拶をした（出-ds・11/15 19:40）。発話前の検査には渡さない（CHECKER_RULE_IDS の外）
+    (constraint :priority high :id fit-the-time
+      "now の日時と曜日に合う言葉で話す。")
     (constraint :id language-match
       "相手が使った言語で応答する。")))
 """

@@ -5023,7 +5023,7 @@ class InformationProcessing:
             if r.mi.obs_id == self._req.request_id:
                 continue
             if live and r.mi.obs_id == live and self._req.lookups:
-                out += workspace.lookup_lines(self._req)
+                out += workspace.lookup_lines(self._req, now=time.time())
             else:
                 out.append(r.mi.content)
         return out

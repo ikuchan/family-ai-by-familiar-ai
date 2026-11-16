@@ -263,8 +263,8 @@ class OIF:
         if not writer_id:
             raise ValueError("誰の記録かを渡していない（OIF.write の writer_id）")
         # **その日づけは MI が持つ。** 日次要約は「その日のこと」として残すので、書いた
-        # 時刻ではなくその日の終わりを時刻にする（`override_date`）。`timestamp` が空なら
-        # いまの時刻になる。
+        # 時刻ではなくその日の終わりを時刻にする（`override_date`）。その日の終わりがまだ来ていなければ、
+        # 書いた時刻になる（`materialize_save_event`・記-aa）。`timestamp` が空ならいまの時刻になる。
         override_date = mi.timestamp.strftime("%Y-%m-%d") if mi.timestamp else None
         logger.debug("OIF write ← %s／%d字／%s", mi.direction, len(mi.content), _head(mi.content))
         obs_id, _ = await self._memory.save_async_with_id(

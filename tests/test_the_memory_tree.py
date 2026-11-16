@@ -2,7 +2,7 @@
 
 REST の層 1 が日ごとの要約（向き `記憶`）と人ごとのまとめ（向き `人物`）を書き、③ 暦のまとめが
 月と年の要約を書く。節は日（YYYY-MM-DD）・月（YYYY-MM）・年（YYYY）で、要約の時刻（その日・月・年の
-終わり・UTC）の範囲で引く。家族全体と人ごとは向きで分け（記-u 段 2）、人ごとはその人の面から引く。
+終わり・ローカルの暦・記-aa）の範囲で引く。家族全体と人ごとは向きで分け（記-u 段 2）、人ごとはその人の面から引く。
 
 **畳まれた記録も返す**——日ごとの要約は核の固め（`rest_core`）で隠れることがあるが、木は暦で決まる
 索引で、意味で束ねる核の固めとは別の仕組みである。
@@ -18,12 +18,14 @@ import pytest
 from familiar_agent.core.memory_tree import directions_for, parse_node
 from familiar_agent.db import get_db
 from familiar_agent.person_memory_manager import DEFAULT_PERSON_ID
+from familiar_agent.store import clock
 from familiar_agent.store.context import StoreContext, viewpoint_of
 from familiar_agent.store.observations import ObservationStore
 from familiar_agent.store.situated import SituatedVectors
 
 _VEC = "[" + ",".join(["0.03125"] * 1024) + "]"
 UTC = timezone.utc
+LOCAL = clock.local_tz()  # 節はローカルの暦で切る（記-aa）
 
 
 # ── 節の読み方（純関数）──────────────────────────────────────────────────
@@ -32,23 +34,23 @@ UTC = timezone.utc
 def test_a_year_a_month_and_a_day_are_nodes():
     assert parse_node("2025") == (
         "年",
-        datetime(2025, 1, 1, tzinfo=UTC),
-        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2025, 1, 1, tzinfo=LOCAL),
+        datetime(2026, 1, 1, tzinfo=LOCAL),
     )
     assert parse_node("2025-08") == (
         "月",
-        datetime(2025, 8, 1, tzinfo=UTC),
-        datetime(2025, 9, 1, tzinfo=UTC),
+        datetime(2025, 8, 1, tzinfo=LOCAL),
+        datetime(2025, 9, 1, tzinfo=LOCAL),
     )
     assert parse_node("2025-12") == (
         "月",
-        datetime(2025, 12, 1, tzinfo=UTC),
-        datetime(2026, 1, 1, tzinfo=UTC),
+        datetime(2025, 12, 1, tzinfo=LOCAL),
+        datetime(2026, 1, 1, tzinfo=LOCAL),
     )
     assert parse_node(" 2025-08-15 ") == (
         "日",
-        datetime(2025, 8, 15, tzinfo=UTC),
-        datetime(2025, 8, 16, tzinfo=UTC),
+        datetime(2025, 8, 15, tzinfo=LOCAL),
+        datetime(2025, 8, 16, tzinfo=LOCAL),
     )
 
 
@@ -111,10 +113,10 @@ def _person(store: ObservationStore, pid: str) -> None:
 def test_a_day_node_returns_that_days_summaries_even_folded(store):
     mark = uuid.uuid4().hex[:8]
     me = viewpoint_of(DEFAULT_PERSON_ID)
-    d15 = datetime(1999, 8, 15, 23, 59, tzinfo=UTC)
+    d15 = datetime(1999, 8, 15, 23, 59, tzinfo=LOCAL)
     kept = _put(store, f"{mark} 15 日のこと", d15, "記憶", me)
     folded = _put(store, f"{mark} 15 日のもう一つ", d15, "記憶", me)
-    _put(store, f"{mark} 16 日のこと", datetime(1999, 8, 16, 23, 59, tzinfo=UTC), "記憶", me)
+    _put(store, f"{mark} 16 日のこと", datetime(1999, 8, 16, 23, 59, tzinfo=LOCAL), "記憶", me)
     other = _put(store, f"{mark} 核のまとめ", d15, "まとめ", me)
     store.mark_superseded(folded, other)
 
@@ -130,7 +132,7 @@ def test_a_persons_node_comes_from_that_persons_face(store):
     papa, mama = str(uuid.uuid4()), str(uuid.uuid4())
     _person(store, papa)
     _person(store, mama)
-    when = datetime(1999, 8, 31, 23, 59, tzinfo=UTC)
+    when = datetime(1999, 8, 31, 23, 59, tzinfo=LOCAL)
     _put(store, f"{mark} パパの 8 月", when, "人の月のまとめ", papa)
     _put(store, f"{mark} ママの 8 月", when, "人の月のまとめ", mama)
 
@@ -142,15 +144,62 @@ def test_a_persons_node_comes_from_that_persons_face(store):
 
 
 def test_the_months_with_a_direction_are_listed(store):
-    """暦のまとめが何を書くかを決める読み口（段 3）：その向きの要約がある月の一覧（UTC の暦・記-u 段 2）。"""
+    """暦のまとめが何を書くかを決める読み口（段 3）：その向きの要約がある月の一覧（ローカルの暦・記-u 段 2・記-aa）。"""
     kind = (
         f"tree_test_{uuid.uuid4().hex[:8]}"  # 試験だけの向きにして、ほかの行と混ざらないようにする
     )
     me = viewpoint_of(DEFAULT_PERSON_ID)
     papa = str(uuid.uuid4())
     _person(store, papa)
-    _put(store, "8 月末", datetime(1999, 8, 31, 23, 59, tzinfo=UTC), kind, me)
-    _put(store, "9 月頭", datetime(1999, 9, 1, 0, 0, tzinfo=UTC), kind, me)
-    _put(store, "パパの 7 月", datetime(1999, 7, 10, 12, 0, tzinfo=UTC), kind, papa)
+    _put(store, "8 月末", datetime(1999, 8, 31, 23, 59, tzinfo=LOCAL), kind, me)
+    _put(store, "9 月頭", datetime(1999, 9, 1, 0, 0, tzinfo=LOCAL), kind, me)
+    _put(store, "パパの 7 月", datetime(1999, 7, 10, 12, 0, tzinfo=LOCAL), kind, papa)
     assert store.tree_months(kind) == ["1999-07", "1999-08", "1999-09"]
     assert store.tree_months(kind, person_id=papa) == ["1999-07"]
+
+
+# ── 節はローカルの暦で切る（記-aa・2026-11-16・本人の決定）──────────────────────
+
+
+def test_a_node_is_cut_by_the_local_calendar():
+    """日の分け方（`rest_fold`）はローカルの日付なので、節もローカルの 0 時で切る（以前は UTC の 0 時）。"""
+    local = clock.local_tz()
+    assert parse_node("2026-11-17") == (
+        "日",
+        datetime(2026, 11, 17, tzinfo=local),
+        datetime(2026, 11, 18, tzinfo=local),
+    )
+
+
+def test_a_summary_written_after_local_midnight_stays_in_its_day(store):
+    """深夜 1 時（ローカル）に書いた当日のまとめは、その日の節に入る。UTC の暦では前の日に入っていた。"""
+    mark = uuid.uuid4().hex[:8]
+    me = viewpoint_of(DEFAULT_PERSON_ID)
+    _put(
+        store,
+        f"{mark} 15 日の夜中",
+        datetime(1999, 8, 15, 1, 0, tzinfo=clock.local_tz()),
+        "記憶",
+        me,
+    )
+    _, start, end = parse_node("1999-08-15")
+    assert f"{mark} 15 日の夜中" in [
+        r["content"] for r in store.tree_summaries(("記憶",), start, end)
+    ]
+    _, start, end = parse_node("1999-08-14")
+    assert f"{mark} 15 日の夜中" not in [  # **反証の側**：前の日には入らない
+        r["content"] for r in store.tree_summaries(("記憶",), start, end)
+    ]
+
+
+def test_the_months_are_listed_by_the_local_calendar(store):
+    """月の一覧もローカルの暦で切る（月の初めの日の夜中のまとめを、前の月に数えない）。"""
+    kind = f"tree_test_{uuid.uuid4().hex[:8]}"
+    _put(
+        store,
+        "9 月 1 日の夜中",
+        datetime(1999, 9, 1, 1, 0, tzinfo=clock.local_tz()),
+        kind,
+        viewpoint_of(DEFAULT_PERSON_ID),
+    )
+    assert store.tree_months(kind) == ["1999-09"]
