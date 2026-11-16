@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import contextlib
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 from dataclasses import replace as _replace
@@ -60,6 +61,8 @@ def lookup_lines(
     `now`（`time.time()`）を渡すと、届いた結果の行に「（3 分前に投げた）」を添える（出-ds）。渡すのは LLM に渡す文
     （W のいまの求めの版、Jev の [いま湧いたこと]、発話前の検査）だけで、O に書く版と最終版の経緯には渡さない。
     距離を O に残すと、あとで思い出したとき、いまからの距離に読めてしまう。
+    `now` が無いときは、道具の返りが持つ距離（記憶の道具が W の行の形で付けた「（10 分前）」）も `strip_ago` で外す。
+    外すのは W の行の頭の形だけなので、ネットの検索などの返りにある同じ言葉（「地震速報（2 時間前）」）は残る。
     """
     parts: list[str] = []
     for lk in sorted(req.lookups, key=lambda x: x.index):
@@ -91,9 +94,8 @@ def lookup_lines(
             if lk.index in omit:
                 parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{sent}{_BODY_ELSEWHERE}")
             else:
-                parts.append(
-                    f"{lk.index}番：{lk.action}「{lk.query}」{sent}の結果が届いた：{lk.result}"
-                )
+                body = lk.result if now is not None else strip_ago(str(lk.result))
+                parts.append(f"{lk.index}番：{lk.action}「{lk.query}」{sent}の結果が届いた：{body}")
     return parts
 
 
@@ -433,7 +435,7 @@ def render_recent(
     for r in rows:
         sid = r.obs_id.replace("-", "")[:12]
         # 時刻のあとに、いまからの距離を添える（出-ds）。窓の会話の行には付けない（環-ar 段 D の写しを保つ）。
-        at = clock.ts_to_time(r.when) + _since(r.when, now)
+        at = clock.ts_to_time(r.when) + clock.since(r.when, now)
         if r.role in ("答え", "つなぎ"):
             heard = to.get(r.obs_id) or []
             who = f"{me}（{'・'.join(heard)}へ）" if heard else me
@@ -694,15 +696,24 @@ class Workspace:
 _CONF_LOW = 0.55
 
 
-def _since(ts, now: "datetime | None") -> str:
-    """行の時刻に添える「（10 時間前）」（出-ds）。`now` が無い、時刻が読めないときは空。
+#: 行の頭の時刻（`- 2026-11-15 09:25` か `- 19:40`）の直後で、` id:` の前に、`ago` を括弧で添えた形（「（10 分前）」）。
+#: `clock.ago` か、W の行の形（`_lines`、`render_recent`）を変えたら、ここも変える（テストは本物の作り手で組む）。
+#: ふつうの `recall` の行（`MemoryTool._recall`）は `[名前] 2026-11-15 09:25（10 時間前） (0.83) …` の形で、直後は半角の空白。
+_AGO_AFTER_LINE_TIME = re.compile(
+    r"^(- (?:[0-9]{4}-[0-9]{2}-[0-9]{2} )?[0-9]{2}:[0-9]{2})（[0-9]+ (?:秒|分|時間|日)前）(?= id:)"
+    r"|^(\[[^\]\n]*\] [0-9]{4}-[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2})（[0-9]+ (?:秒|分|時間|日)前）(?= )",
+    re.MULTILINE,
+)
 
-    tz の無い時刻はローカル時刻として読む。LLM に渡す W だけが `now` を渡す。
+
+def strip_ago(text: str) -> str:
+    """LLM に渡すときに添えた距離「（N 分前）」を、記憶に書く文から外す（出-ds）。
+
+    記憶の道具の返り（ふつうの `recall`、`recall_recent`、思い出し方を変える道具）は LLM に渡すため距離を持つが、
+    同じ文が O に書く版にも入る。
+    外すのは行の頭の時刻の直後だけで、記憶の中身や家族の言葉にある同じ形（「地震速報（2 時間前）」）は外さない。
     """
-    if now is None or not isinstance(ts, datetime):
-        return ""
-    when = ts if ts.tzinfo else ts.replace(tzinfo=clock.local_tz())
-    return f"（{clock.ago((now - when).total_seconds())}）"
+    return _AGO_AFTER_LINE_TIME.sub(r"\1\2", text)
 
 
 def _lines(
@@ -744,7 +755,7 @@ def _lines(
         subject = subject_line(mi.direction, names.get(mi.obs_id))
         body = mi.content
         out.append(
-            f"- {day} {at}{_since(mi.timestamp, now)} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
+            f"- {day} {at}{clock.since(mi.timestamp, now)} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
             f" {subject}{emo}: {body}"
         )
     return "\n".join(out)

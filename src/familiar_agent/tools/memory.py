@@ -1416,10 +1416,15 @@ class MemoryTool:
         if not top:
             return "関連する記憶はありません。", None
 
+        # 時刻のあとに、いまからの距離を添える（出-ds）。主LLM が、いつのことかを日時からの引き算に頼らずに読めるように。
+        # 記憶（O）に書く文（版の文と最終版の経緯は `workspace.lookup_lines`、窓の会話の「調べた」の行は `_intake`）では、
+        # この距離を外す（`workspace.strip_ago`）。
+        now = clock.now_utc()
         lines = []
         for m in top:
             s = f" ({m['fit']:.2f})" if "fit" in m else ""
+            ago = clock.since(m.get("timestamp"), now)
             lines.append(
-                f"[{m.get('_from', '?')}] {m['date']} {m['time']}{s} [{m['emotion']}]: {m['summary'][:130]}"
+                f"[{m.get('_from', '?')}] {m['date']} {m['time']}{ago}{s} [{m['emotion']}]: {m['summary'][:130]}"
             )
         return "\n".join(lines), None

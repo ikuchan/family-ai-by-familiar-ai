@@ -86,7 +86,7 @@ def test_a_naive_time_is_read_as_local_time():
 
 
 def test_without_now_the_line_is_unchanged():
-    """**反証の側**：`now` を渡さない呼び手（引き直しの道具の返り）は、いまの書式のまま。"""
+    """**反証の側**：`now` を渡さなければ、いまの書式のまま。"""
     got = workspace._lines([_r("a", datetime(2026, 11, 15, 9, 25, tzinfo=JST))], {})
     assert "- 2026-11-15 09:25 id:a" in got
     assert "前）" not in got
@@ -280,3 +280,227 @@ def test_the_writer_is_told_to_fit_the_time(field):
     from familiar_agent.loop.arbiter import _FIELD_TEXT
 
     assert "[いま] の日時と曜日に合う言葉で" in _FIELD_TEXT[field]
+
+
+# ── 続き：記憶に書く文から、道具が返した距離を取り除く（2026-11-16・本人の承認） ──────────────
+
+
+def _distance(sec: int) -> str:
+    """W の行に添える距離を、本物の作り手（`clock.since`）で作る。形が変わったら、ここから落ちる。"""
+    return clock.since(NOW - timedelta(seconds=sec), NOW)
+
+
+@pytest.mark.parametrize("sec", [3, 3 * 60, 3 * 3600, 3 * 86400])
+def test_strip_ago_removes_each_unit(sec):
+    """本物の作り手（`_lines`）が組んだ行から外すと、`now` なしで組んだ行と同じになる。"""
+    memory = [_r("a", NOW - timedelta(seconds=sec))]
+    with_distance = workspace._lines(memory, {}, now=NOW)
+    assert _distance(sec) in with_distance
+    assert workspace.strip_ago(with_distance) == workspace._lines(memory, {})
+
+
+def test_strip_ago_leaves_other_forms():
+    """**反証の側**：行の時刻の直後でない同じ形（記憶の中身、家族の言葉）と、投げてからの距離は残す。"""
+    text = (
+        "- 09:25 id:a 地震速報（2 時間前）震度3\n- 09:25（2 時間前）記憶の中身の行\n"
+        "1番：q（3 分前に投げた）の結果／3 分前に出た"
+    )
+    assert workspace.strip_ago(text) == text
+
+
+def _req_with_result(action: str, result: str) -> Request:
+    req = _searching_req()
+    req.lookups[0].action = action
+    req.lookups[0].result = result
+    return req
+
+
+def _recent_return(monkeypatch) -> str:
+    """`recall_recent` の本物の返り。本物の `Workspace` の `recent_text` が直近の文を作る（家族の言葉に同じ形を持たせる）。"""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from tests.test_recent_window_is_a_workspace_frame import _oif
+
+    monkeypatch.setattr(workspace.clock, "now_utc", lambda: NOW)
+    row = _said("x", "（5 分前）に言ったでしょ", datetime(2026, 11, 15, 19, 40, tzinfo=JST))
+    oif = _oif(["x"], {"x": [row]})
+    oif.roles = MagicMock(return_value={})
+    oif.actors = MagicMock(return_value={})
+    ws = workspace.Workspace.build(oif, [], Request(), n_arbiter=1, n_main=2)
+    with patch("familiar_agent.loop.workspace.recall", new=AsyncMock(return_value=ws)):
+        return asyncio.run(
+            _ip_with(Request())._run_widen("recall_recent", {"minutes": 30, "turns": 6})
+        )
+
+
+def test_the_written_texts_drop_the_distance_of_recall_recent(monkeypatch):
+    """記憶に書く版と最終版の経緯（`now` なし）には、`recall_recent` の返りの距離を残さない。家族の言葉は残す。"""
+    out = _recent_return(monkeypatch)
+    assert "19:40（10 分前） id:x" in out
+    req = _req_with_result("recall_recent", out)
+    for text in (
+        workspace.version_text(req),
+        "".join(workspace.lookup_lines(req, with_main=False)),
+    ):
+        assert "（10 分前）" not in text
+        assert "- 19:40 id:x 相手：（5 分前）に言ったでしょ" in text
+
+
+def test_the_llm_text_keeps_the_distance_of_recall_recent(monkeypatch):
+    """**反証の側**：LLM に渡す行（`now` あり）には残す。"""
+    req = _req_with_result("recall_recent", _recent_return(monkeypatch))
+    assert "（10 分前）" in "".join(workspace.lookup_lines(req, now=SENT + 180))
+
+
+def test_other_tools_keep_their_words():
+    """**反証の側**：ネットの検索の返りにある同じ形の言葉は、W の行の形ではないので外さない。"""
+    req = _req_with_result("search_deferred", "地震速報（2 時間前）震度3")
+    assert "地震速報（2 時間前）震度3" in workspace.version_text(req)
+
+
+@pytest.mark.parametrize("action", ["recall_tree", "search_deferred"])
+def test_any_tool_return_drops_a_w_line_distance(action):
+    """どの道具の返りでも、W の行の形の距離は、記憶に書く版では外す（道具の名前の表で絞らない）。"""
+    line = workspace._lines([_r("a", datetime(2026, 11, 15, 9, 25, tzinfo=JST))], {}, now=NOW)
+    written = workspace.version_text(_req_with_result(action, line))
+    assert "（10 時間前）" not in written
+    assert "- 2026-11-15 09:25 id:a" in written
+
+
+def test_a_widened_recall_says_how_long_ago(monkeypatch):
+    """思い出し方を変える道具（`recall_deeper`）の返りにも、いまからの距離を付け、記憶に書く版では外す。"""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    monkeypatch.setattr(clock, "now_utc", lambda: NOW)
+    ip = _ip_with(Request())
+    ws = MagicMock()
+    ws.memories = [_r("a", datetime(2026, 11, 15, 9, 25, tzinfo=JST))]
+    ws.oif.actors = MagicMock(return_value={})
+    with patch("familiar_agent.loop.workspace.recall", new=AsyncMock(return_value=ws)):
+        out = asyncio.run(ip._run_widen("recall_deeper", {"query": "朝"}))
+    assert "09:25（10 時間前）" in out
+    written = workspace.version_text(_req_with_result("recall_deeper", out))
+    assert "（10 時間前）" not in written
+    assert "- 2026-11-15 09:25 id:a (適合度:0.50) conf:0.80 発話: おはよう" in written
+
+
+# ── 続き 2：ふつうの recall の返りにも距離を付ける（2026-11-16・本人の承認） ──────────────
+
+
+def _plain_recall(monkeypatch, person: "str | None" = None) -> str:
+    """偽の記憶 1 件で、ふつうの `recall`（`MemoryTool._recall`）を呼んだ返り。`person` を渡すと、その場にいる人の面だけから引く。"""
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock
+
+    from familiar_agent.tools.memory import MemoryTool
+
+    monkeypatch.setattr(clock, "now_utc", lambda: NOW)
+    when = datetime(2026, 11, 15, 9, 25, tzinfo=JST)
+    agent_mem = MagicMock()
+    agent_mem.recall_async = AsyncMock(
+        return_value=[
+            {
+                "timestamp": when,
+                "date": "2026-11-15",
+                "time": "09:25",
+                "fit": 0.83,
+                "emotion": "neutral",
+                "summary": "おはよう",
+            }
+        ]
+    )
+    none = MagicMock()
+    none.recall_async = AsyncMock(return_value=[])
+    manager = MagicMock()
+    manager.get_agent_memory = MagicMock(return_value=none if person else agent_mem)
+    manager.get_all_present_memories = MagicMock(
+        return_value=[("pid-1", agent_mem)] if person else []
+    )
+    manager.get_person_name = MagicMock(return_value=person)
+    out, _ = asyncio.run(MemoryTool(manager).call("recall", {"query": "朝"}))
+    return out
+
+
+def test_a_plain_recall_says_how_long_ago(monkeypatch):
+    assert (
+        _plain_recall(monkeypatch)
+        == "[自分] 2026-11-15 09:25（10 時間前） (0.83) [neutral]: おはよう"
+    )
+
+
+def test_the_written_text_drops_the_distance_on_a_persons_line(monkeypatch):
+    """その場にいる人の面の行（`[パパ] …`）も、記憶に書く版では外す。"""
+    line = _plain_recall(monkeypatch, "パパ")
+    assert line == "[パパ] 2026-11-15 09:25（10 時間前） (0.83) [neutral]: おはよう"
+    assert workspace.strip_ago(line) == "[パパ] 2026-11-15 09:25 (0.83) [neutral]: おはよう"
+
+
+def test_the_written_texts_drop_the_distance_of_a_plain_recall(monkeypatch):
+    """記憶に書く版では外し、行の残りはそのまま。LLM に渡す行（`now` あり）には残す。"""
+    req = _req_with_result("recall", _plain_recall(monkeypatch))
+    written = workspace.version_text(req)
+    assert "（10 時間前）" not in written
+    assert "[自分] 2026-11-15 09:25 (0.83) [neutral]: おはよう" in written
+    assert "（10 時間前）" in "".join(workspace.lookup_lines(req, now=SENT + 180))
+
+
+def test_strip_ago_leaves_a_recall_shape_inside_a_line():
+    """**反証の側**：行の途中にある、ふつうの recall の行と同じ形は外さない。"""
+    text = "[自分] 2026-11-15 09:25 (0.83) [neutral]: [x] 2026-11-15 09:25（2 時間前） の話"
+    assert workspace.strip_ago(text) == text
+
+
+def test_the_window_talk_line_of_a_plain_recall_has_no_distance(monkeypatch):
+    """ふつうの `recall` は窓の会話に「調べた」の行を足す。その行は窓の最終版として O に書かれるので、距離を入れない。"""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from familiar_agent.loop.event_loop import Trigger
+    from familiar_agent.loop.intent_ledger import IntentLedger
+    from tests.test_intent_ledger import _Store
+    from tests.test_window_talk_is_kept import _ip as _window_ip, _lines as _talk_lines
+
+    result = _plain_recall(monkeypatch)
+    ip = _window_ip()
+    ip._ledger = IntentLedger(store=_Store())
+    ip._req.request_id, ip._req.trigger_kind = "req-1", "発話"
+    lk = ip._open_lookup("recall", "朝")
+    ip._drained_completions.append(
+        Trigger(kind="完了", query="朝", result=result, intent_id=lk.intent_id)
+    )
+    ip._write_version = AsyncMock(return_value="ver-1")
+    asyncio.run(ip._intake())
+    (line,) = _talk_lines(ip)
+    assert "（10 時間前）" not in line
+    assert "09:25 (0.83)" in line
+    assert "（10 時間前）" in lk.result  # **反証の側**：LLM に渡す返りそのものには残る
+
+
+def test_an_earlier_plain_recall_brought_back_has_no_distance_when_written(monkeypatch):
+    """同じ語でもう一度 `recall` すると前の結果を返す。前置きのあとで改行するので、記憶に書く文と窓の会話の行から距離が外れる。"""
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from familiar_agent.loop.event_loop import Trigger
+    from familiar_agent.loop.intent_ledger import IntentLedger
+    from tests.test_a_repeated_lookup_brings_back_its_result import _second_try
+    from tests.test_intent_ledger import _Store
+    from tests.test_window_talk_is_kept import _ip as _window_ip, _lines as _talk_lines
+
+    again = _second_try(_plain_recall(monkeypatch))
+    assert "（10 時間前）" in again  # **反証の側**：LLM に渡す返りそのものには残る
+    assert "（10 時間前）" not in workspace.version_text(_req_with_result("recall", again))
+    # 窓の会話の行は、本物の取込（`_intake`）で作る
+    ip = _window_ip()
+    ip._ledger = IntentLedger(store=_Store())
+    ip._req.request_id, ip._req.trigger_kind = "req-1", "発話"
+    lk = ip._open_lookup("recall", "朝")
+    ip._drained_completions.append(
+        Trigger(kind="完了", query="朝", result=again, intent_id=lk.intent_id)
+    )
+    ip._write_version = AsyncMock(return_value="ver-1")
+    asyncio.run(ip._intake())
+    (line,) = _talk_lines(ip)
+    assert "（10 時間前）" not in line

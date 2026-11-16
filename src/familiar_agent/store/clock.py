@@ -93,6 +93,17 @@ def ago(seconds: float) -> str:
     return f"{s // 86400} 日前"
 
 
+def since(ts, now: "datetime | None") -> str:
+    """行の時刻に添える「（10 時間前）」（出-ds）。`now` が無い、時刻が読めないときは空。
+
+    tz の無い時刻はローカル時刻として読む。LLM に渡す文にだけ使う。DB に書く文に入ったときは、書く側で外す。
+    """
+    if now is None or not isinstance(ts, datetime):
+        return ""
+    when = ts if ts.tzinfo else ts.replace(tzinfo=local_tz())
+    return f"（{ago((now - when).total_seconds())}）"
+
+
 def end_of_day_utc(date_str: str) -> datetime:
     """`YYYY-MM-DD` の「その日の終わり」をローカル 23:59:59 として UTC で返す。"""
     d = datetime.strptime(str(date_str)[:10], "%Y-%m-%d")

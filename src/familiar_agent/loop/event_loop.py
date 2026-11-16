@@ -512,8 +512,11 @@ _WIDEN_DEFS: dict[str, dict] = {
 }
 
 
-def _widen_lines(ws, k: int) -> str:
-    """引き直した記憶を、`recall` と同じ読み方の行にする（出-ah）。載せるのは `k` 件まで。"""
+def _widen_lines(ws, k: int, now: datetime) -> str:
+    """引き直した記憶を、`recall` と同じ読み方の行にする（出-ah）。載せるのは `k` 件まで。
+
+    W と同じく、`now` からの距離を添える（出-ds）。記憶（O）に書く文では外す（`workspace.strip_ago`）。
+    """
     from .workspace import _lines, me_of, named
 
     picked = sorted(ws.memories, key=lambda r: r.fit, reverse=True)[:k]
@@ -522,7 +525,7 @@ def _widen_lines(ws, k: int) -> str:
     names: dict = {}
     with contextlib.suppress(Exception):
         names = dict(ws.oif.actors([r.mi.obs_id for r in picked]))
-    return _lines(picked, named(names, me_of(ws.oif)))
+    return _lines(picked, named(names, me_of(ws.oif)), now=now)
 
 
 def _widen_def(name: str) -> dict:
@@ -1715,8 +1718,10 @@ class InformationProcessing:
             # 見て、調停は掛かっていないタイマーを「セットしました」と言った（実機 2026-09-21 17:34）。
             from ..core.completion_kind import ALREADY_TRIED
 
+            # 前の結果は改行のあとから始める（出-ds）。記憶の道具の行が行の頭に来るので、O に書く文で
+            # `workspace.strip_ago` が距離を外せる（前置きのあとに続けると、1 行目の距離が残った）。
             earlier = (
-                f"前の結果：{seen.result}" if seen.result is not None else "（まだ返っていない）"
+                f"前の結果：\n{seen.result}" if seen.result is not None else "（まだ返っていない）"
             )
             self._ledger.reopen(
                 seen
@@ -2696,7 +2701,7 @@ class InformationProcessing:
         )
         # 母数を添える（出-ah）。取りこぼしがあるかどうかを、返りだけで判断できるようにする。
         tail = f"\n（候補 {cfg.recall_primary_n} 件から {min(k, len(ws.memories))} 件・載せられるのは {k} 件まで）"
-        body = _widen_lines(ws, k)
+        body = _widen_lines(ws, k, clock.now_utc())
         return f"{head}{body}{tail}"
 
     async def _run_camera(self, action: str, tool_input: dict) -> str:
@@ -2901,7 +2906,10 @@ class InformationProcessing:
                     and not is_spent(result_text)
                 ):
                     # 調べた結果は、窓の会話に短い 1 行で足す（環-ar 段 A・全文は W の作業状態）。
-                    self._talk_line(self._me(), _talk_result(query, result_text))
+                    # 窓の会話の行は窓の最終版として O に書かれるので、記憶の道具が付けた距離を外す（出-ds）。
+                    self._talk_line(
+                        self._me(), _talk_result(query, workspace.strip_ago(result_text))
+                    )
                 self._ledger.close(
                     lk.intent_id, state=_intents.RETURNED, failed=lk.failed, result=c.result
                 )

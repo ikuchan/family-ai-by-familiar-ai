@@ -96,6 +96,6 @@ def test_the_same_name_is_not_played_again_and_stays_a_failure():
 
 @pytest.mark.parametrize("failed", [True, False])
 def test_an_already_tried_result_is_told_lightly(failed):
-    result = "「音楽をかける「待機」」はこの求めですでに調べた。前の結果：別の曲が鳴っている"
+    result = "「音楽をかける「待機」」はこの求めですでに調べた。前の結果：\n別の曲が鳴っている"
     got = kind_of("play_music", failed=failed, result=result, origin="発話")
     assert got is not None and got[1] == ("tell_light",)
