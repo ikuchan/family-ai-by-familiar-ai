@@ -7,17 +7,26 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import MagicMock
 
 from familiar_agent.diagnostics import build_gui_diagnostics
+from familiar_agent.loop.paju_state import PajuState
 
 
 def _snap(reason: str):
+    """持ち主の理由を状態図の入口へ写してから読む（状態の行は写しを読む・環-aw 第 3 段）。"""
+
+    async def chart():
+        sm = PajuState()
+        await sm.copy_gate(reason)
+        return sm
+
     window = MagicMock()
     window._agent_ready = True
     window._agent_running = False
     window._agent_init_failed = False
-    window._agent.mic_gate_reason = lambda: reason
+    window._agent.paju_state = asyncio.run(chart())
     window._realtime_stt.gated = False
     return build_gui_diagnostics(window)
 
@@ -43,7 +52,7 @@ def test_a_timer_keeps_its_own_words():
 
 
 def test_a_timer_named_after_music_is_still_a_timer():
-    """**反証の側**：音楽かは理由の文字列が同じかで見る（`agent.MUSIC_GATE_REASON`・入口の耳と同じ見分け方）。
+    """**反証の側**：音楽かは理由の文字列が同じかで見る（`agent.MUSIC_GATE_REASON`・写す口 `copy_gate` の見分け方）。
     タイマーの名前に「音楽」が入っても、タイマーの文で出す（ウの 3 の改め・2026-11-14・本人の承認）。"""
     snap = _snap("タイマー「音楽の練習」")
     assert snap.headline.startswith("🔇 聞いていない")

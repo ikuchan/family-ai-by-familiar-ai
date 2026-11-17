@@ -16,6 +16,7 @@ import time
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from familiar_agent.backends.jev import JevAnswer
+from familiar_agent.core.confirm_state import PendingConfirm
 from familiar_agent.core import jev_judges
 from familiar_agent.loop import arbiter
 from familiar_agent.loop.event_loop import InformationProcessing
@@ -62,7 +63,7 @@ def test_an_offer_is_read_from_the_answer():
 # ── 2. ループが預ける ─────────────────────────────────────────────
 
 
-def _checked(monkeypatch, answers: dict, *, confirming: bool = False):
+def _checked(monkeypatch, answers: dict, *, confirming: bool = False, asked_ago: float = 0.0):
     monkeypatch.setattr(arbiter_records, "record", lambda **kw: None)
     a = _agent(stream_returns=[])
     a.config.speech_check = True
@@ -70,13 +71,16 @@ def _checked(monkeypatch, answers: dict, *, confirming: bool = False):
     a._jev = MagicMock()
     a._jev.available = True
     a._jev.ask = AsyncMock(return_value=JevAnswer(ok=True, answers=answers))
-    a._pending_confirm = (
-        MagicMock() if confirming else None
-    )  # 偽のエージェントは MagicMock なので明示する
     ip = InformationProcessing(a)
     ip._req.trigger_kind = "発話"
 
     async def go():
+        if confirming:  # 確認の持ち主は状態図（環-aw 第 3 段）
+            await ip._paju().ask_confirm(
+                PendingConfirm(
+                    action="set_timer", asked_at=time.time() - asked_ago, text="3 分でいい？"
+                )
+            )
         await ip._speech_check_violation(OFFER, "", [])
         await ip.close()
 
@@ -84,42 +88,55 @@ def _checked(monkeypatch, answers: dict, *, confirming: bool = False):
     return ip
 
 
+def _held(ip) -> "str | None":
+    """状態図が待っている申し出の文（無ければ None）。持ち主は状態図（環-aw 第 3 段）。"""
+    q = ip._paju().question
+    return q.content["question"] if ip._paju().offer_waiting() else None
+
+
 def test_a_spoken_offer_is_kept(monkeypatch):
     ip = _checked(monkeypatch, {"broken": _a("ok", 0.9), "offer": _a("offer", 0.95)})
-    assert ip._offer is not None and ip._offer["question"] == OFFER
+    assert _held(ip) == OFFER
 
 
 def test_not_an_offer_is_not_kept(monkeypatch):
     """**反証の側**：申し出でない返事は預けない。"""
     ip = _checked(monkeypatch, {"broken": _a("ok", 0.9), "offer": _a("none", 0.95)})
-    assert ip._offer is None
+    assert _held(ip) is None
 
 
 def test_a_sent_back_offer_is_not_kept(monkeypatch):
     """**反証の側**：差し戻した返事は声にならないので預けない。"""
     answers = {"broken": _a("no-invented-knowledge", 0.9), "offer": _a("offer", 0.95)}
     ip = _checked(monkeypatch, answers)
-    assert ip._offer is None
+    assert _held(ip) is None
 
 
 def test_a_later_reply_that_is_not_an_offer_replaces_it(monkeypatch):
     """**反証の側**：あとで申し出でない返事を話したら、前の申し出は預からない（次の「うん」はその返事への答え）。"""
     ip = _checked(monkeypatch, {"broken": _a("ok", 0.9), "offer": _a("none", 0.95)})
-    ip._offer = {"question": OFFER, "session": 1}
 
     async def go():
+        await ip._paju().make_offer(OFFER, session=1)
         await ip._speech_check_violation("わかった。", "", [])
         await ip.close()
 
     asyncio.run(go())
-    assert ip._offer is None
+    assert _held(ip) is None
 
 
 def test_nothing_is_kept_while_confirming(monkeypatch):
     """**反証の側**：確認待ちの問いも申し出と読まれる（0.94）。確認待ちが読むので預けない。"""
     answers = {"broken": _a("ok", 0.9), "offer": _a("offer", 0.95)}
     ip = _checked(monkeypatch, answers, confirming=True)
-    assert ip._offer is None
+    assert _held(ip) is None
+
+
+def test_an_offer_is_kept_after_the_confirm_lapsed(monkeypatch):
+    """確認が 300 秒で切れたあとは、確認は無いと見て申し出を預ける（決定ゼ・2026-11-17 本人の決定）。"""
+    answers = {"broken": _a("ok", 0.9), "offer": _a("offer", 0.95)}
+    ip = _checked(monkeypatch, answers, confirming=True, asked_ago=301.0)
+    assert _held(ip) == OFFER
 
 
 # ── 3. 次の 1 回の返事に、同じ窓のあいだだけ渡す ──────────────────────────
@@ -145,11 +162,11 @@ def _decide_with(ip, decision=None):
     return seen["inp"]
 
 
-def _kept(ip):
+def _kept(ip, *, shift: int = 0):
     """申し出を預け、次の返事は同じ窓の会話で受けた（門が決めた求めの窓の番号・環-ar 段 B）。"""
     wake = ip._wake_window()
     wake.open(time.monotonic())
-    ip._offer = {"question": OFFER, "session": wake.session}
+    asyncio.run(ip._paju().make_offer(OFFER, session=wake.session + shift))
     ip._req.window_session = wake.session
 
 
@@ -166,8 +183,7 @@ def test_another_window_drops_the_offer():
     _kept(ip)
     ip._req.window_session = 0
     assert _decide_with(ip).offer_question == ""
-    _kept(ip)
-    ip._offer["session"] -= 1
+    _kept(ip, shift=-1)
     assert _decide_with(ip).offer_question == ""
 
 

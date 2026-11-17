@@ -3,8 +3,10 @@
 - 頭：何もしていない（`idle`）、考えている（`thinking`）、答えを言っている（`answering`）。考えているは子を 5 つ持つ
   （思い出している `recalling`、決めている `deciding`、返りを待っている `awaiting`、確かめている `checking`、
   書き留めている `noting`・決定チ）。答えを言っているは考えているの兄弟（決定ツ）。
-- 耳：並行の 2 つの領域を持つ。考えているあいだ（`listening`）は、聞いている（`hearing`）、考えているあいだ聞かない
+- 耳：並行の 3 つの領域を持つ。考えているあいだ（`listening`）は、聞いている（`hearing`）、考えているあいだ聞かない
   （`deaf`）。窓（`window`）は、閉じている（`shut`）、開いている（`open`）、仮の呼びかけ（`tentative`）（第 2 段）。
+  待っている答え（`awaited`）は、答えなし（`no_answer`）、確認（`confirm_answer`）、申し出（`offer_answer`）、
+  聞き返し（`heard_answer`）（第 3 段）。
 - 口：いまは黙るか（`hush`）の 1 つの領域だけを持つ。話してよい（`may_speak`）、黙っている（`silent`）（第 2 段。
   黙っているあいだも耳は聞いていて、答えを声にしないだけなので、口に置く）。
 
@@ -15,6 +17,10 @@
 移りとログのために持つ。データを変えるのはこの図の口（`open_window`、`call_tentatively`、`hush_with` など）だけ。時間で
 切れる移り（窓、仮の呼びかけ、黙るの期限）は、この図の中の数える仕事が、状態を見てから送る（決定ヰ）。黙る依頼の
 持ち主はこの図で、DB の `agent_state` の行は再起動で戻すための控え（依頼を置くと書き、解くと消し、`start` で戻す・決定ヱ）。
+
+待っている答えの持ち主もこの図で、問いの中身はデータ（`question`）に持つ（決定グ）。置く口はデータを待つ前に置き、
+順番が来たら状態をデータに合わせる。なしへ戻す仕事は、自分の問いのデータがまだ置かれているときだけ消す。移りは
+打ち切りから守って送る（決定ズ）。
 
 話しかけない求め（seeking・safety・rest の発火）は `quiet_request_opened` で開く。頭は考えているへ移るが、耳の領域には
 この事象の移りが無いので、耳は聞いたまま（決定ザ・2026-11-15）。声にしない求めのあいだに届いた声を捨てないため。
@@ -37,7 +43,8 @@ import asyncio
 import contextlib
 import logging
 import time
-from typing import TYPE_CHECKING, Callable
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any, Callable
 
 from statemachine import State, StateChart
 
@@ -69,7 +76,42 @@ _NAMES = {
     "tentative": "仮の呼びかけ",
     "may_speak": "話してよい",
     "silent": "黙っている",
+    "no_answer": "なし",
+    "confirm_answer": "確認",
+    "offer_answer": "申し出",
+    "heard_answer": "聞き返し",
+    "ear_open": "開いている",
+    "music_only": "音楽の言葉だけ通す",
+    "timer_only": "タイマーの言葉だけ通す",
 }
+
+#: 耳の入口の状態の名前（決定ハ）。門（`event_loop._ear_drops`）と状態の行は、これで比べる。
+EAR_OPEN = _NAMES["ear_open"]
+EAR_MUSIC = _NAMES["music_only"]
+EAR_TIMER = _NAMES["timer_only"]
+#: 入口の状態ごとの、入る事象（決定ガ）。
+_GATE_EVENTS = {"ear_open": "gate_opened", "music_only": "music_gated", "timer_only": "timer_gated"}
+
+#: 待っている答えの種類ごとの、状態と入る事象（決定ノ）。
+_ANSWER_STATES = {"confirm": "confirm_answer", "offer": "offer_answer", "heard": "heard_answer"}
+_ANSWER_EVENTS = {"confirm": "confirm_asked", "offer": "offer_made", "heard": "heard_asked"}
+
+
+@dataclass
+class AwaitedAnswer:
+    """待っている答えの問い 1 つ（決定グ）。データを変えるのは状態図の口だけ。
+
+    中身は、確認なら預かり（`PendingConfirm`）、申し出なら申し出た文と深く調べる入力、聞き返しなら見立て。
+    """
+
+    kind: str  # "confirm"・"offer"・"heard"
+    content: Any
+    #: 置いた時刻（`time.monotonic`）。確認と聞き返しの寿命はここから数える（決定ゲ）。
+    placed_at: float
+    #: 申し出を預けたときの窓の番号。答えた求めの窓の番号と同じときだけ使う（決定ゲ）。
+    session: int = 0
+    #: 確認の決まった促しを最後に言った時刻（`time.time`・知-o）。新しい確認では空（決定グ）。
+    prompted_at: "float | None" = None
 
 
 class PajuState(StateChart):
@@ -86,6 +128,8 @@ class PajuState(StateChart):
         on_silence_saved: "Callable[[SilenceRequest], None] | None" = None,
         on_silence_cleared: "Callable[[], None] | None" = None,
         restore_silence: "Callable[[], SilenceRequest | None] | None" = None,
+        confirm_ttl_sec: float = 300.0,
+        heard_ttl_sec: float = 30.0,
     ) -> None:
         #: 考えているの子に入ったときに呼ぶ口（子の名前を渡す）。ループが電子音を鳴らす（決定テ）。
         self._on_child = on_child
@@ -124,6 +168,15 @@ class PajuState(StateChart):
         #: 黙るの期限を数える仕事と、それが `silence_ended` を送っているあいだ真の印（窓と同じ作り）。
         self._silence_task: "asyncio.Task[None] | None" = None
         self._silence_sending = False
+        #: 待っている答えの問い（第 3 段・決定グ）。無ければ None。寿命は確認 `confirm_ttl_sec`、聞き返し
+        #: `heard_ttl_sec`（決定ゲ）で、数える仕事が切る。申し出は秒数では切らない。
+        self.question: "AwaitedAnswer | None" = None
+        self._confirm_ttl = confirm_ttl_sec
+        self._heard_ttl = heard_ttl_sec
+        self._answer_task: "asyncio.Task[None] | None" = None
+        #: 入口がタイマーの言葉だけ通すのとき、入口を閉じているタイマーの名前（例「タイマー「パスタ」」・決定ゾ）。ほかは空。
+        #: 入口は写しで、持ち主はタイマーの行と音楽の印（決定ガ）。変えるのは写す口（`copy_gate`）だけ。
+        self.gate_timer = ""
         #: 送る口の順番待ち（決定ン）。状態を見て送る口は、この中で見る、データを変える、送るを続けて行う。
         #: 錠は作ったループに縛られるので、走っているループが変わったら作り直す（試験の装置と画面は、状態図をループより
         #: 長く使う。`InformationProcessing._ensure_driver` と同じ）。
@@ -185,6 +238,44 @@ class PajuState(StateChart):
                 tentative_called = shut.to(tentative) | tentative.to.itself()
                 tentative_lapsed = tentative.to(shut)
                 tentative_dropped = tentative.to(shut)
+
+            class awaited(State.Compound):
+                no_answer = State(initial=True)
+                confirm_answer = State()
+                offer_answer = State()
+                heard_answer = State()
+
+                # 新しい問いは前の問いを上書きする（決定ノ）。同じ種類の上書きはデータだけ替え、状態は移さない。
+                confirm_asked = (
+                    no_answer.to(confirm_answer)
+                    | offer_answer.to(confirm_answer)
+                    | heard_answer.to(confirm_answer)
+                )
+                offer_made = (
+                    no_answer.to(offer_answer)
+                    | confirm_answer.to(offer_answer)
+                    | heard_answer.to(offer_answer)
+                )
+                heard_asked = (
+                    no_answer.to(heard_answer)
+                    | confirm_answer.to(heard_answer)
+                    | offer_answer.to(heard_answer)
+                )
+                answer_cleared = (
+                    confirm_answer.to(no_answer)
+                    | offer_answer.to(no_answer)
+                    | heard_answer.to(no_answer)
+                )
+
+            class entrance(State.Compound):
+                # 入口の写し（決定ガ）。持ち主を読んだ口が、違うときだけ送る。名前だけの違いはデータを写し直す（決定ゾ）。
+                ear_open = State(initial=True)
+                music_only = State()
+                timer_only = State()
+
+                gate_opened = music_only.to(ear_open) | timer_only.to(ear_open)
+                music_gated = ear_open.to(music_only) | timer_only.to(music_only)
+                timer_gated = ear_open.to(timer_only) | music_only.to(timer_only)
 
         class mouth(State.Parallel):
             class hush(State.Compound):
@@ -314,6 +405,7 @@ class PajuState(StateChart):
         self._stop_window_task()
         self._stop_tentative_task()
         self._stop_silence_task()
+        self._stop_answer_task()
 
     async def hush_with(self, req: "SilenceRequest") -> None:
         """黙っている依頼を受けた（人の「黙って」、タイマー）。データを置き換え、控えを書き、黙っているへ移る。
@@ -520,6 +612,213 @@ class PajuState(StateChart):
             if self._tentative_task is asyncio.current_task():
                 self._tentative_task = None
 
+    # ── 待っている答え（第 3 段・決定ノ、グ、ゲ、ズ、ゼ）────────────────────────────────
+
+    async def ask_confirm(self, pc: Any) -> None:
+        """道具が「確かめて」と判定した預かりを置く（出-y）。前の問いを上書きし、促した時刻は空から始める。"""
+        await self._place(AwaitedAnswer("confirm", pc, time.monotonic()))
+
+    async def make_offer(self, question: str, *, session: int, deep: "dict | None" = None) -> None:
+        """申し出を預ける（出-dj）。`session` は預けたときの窓の番号。"""
+        content = {"question": question, "deep": deep}
+        await self._place(AwaitedAnswer("offer", content, time.monotonic(), session=session))
+
+    async def ask_heard(self, check: dict) -> None:
+        """見立てつきの聞き返しを預ける（出-cm）。"""
+        await self._place(AwaitedAnswer("heard", check, time.monotonic()))
+
+    def confirm(self) -> Any:
+        """生きている確認の預かり。無い、切れた（決定ゼ）なら None。読み手は状態でなくデータを読む（決定ズの 1）。"""
+        q = self.question
+        if q is None or q.kind != "confirm":
+            return None
+        from ..core.confirm_state import alive
+
+        return q.content if alive(q.content, now=time.time(), ttl=self._confirm_ttl) else None
+
+    def confirm_prompted_at(self) -> "float | None":
+        """確認の決まった促しを最後に言った時刻。確認が無ければ None。"""
+        q = self.question
+        return q.prompted_at if q is not None and q.kind == "confirm" else None
+
+    def note_confirm_prompt(self, at: float) -> None:
+        """確認の決まった促しを言った時刻を残す（知-o）。確認が無ければ何もしない。"""
+        q = self.question
+        if q is not None and q.kind == "confirm":
+            q.prompted_at = at
+
+    async def take_confirm(self) -> Any:
+        """確認を解くために取り出す。生きていれば預かりを返し、どちらでも確認をなしへ戻す。"""
+        pc = self.confirm()
+        await self._take("confirm")
+        return pc
+
+    async def take_offer(self, *, session: int) -> "tuple[str, dict | None] | None":
+        """申し出を取り出す（使っても使わなくても消す）。答えた求めの窓の番号が預けたときと違えば None（決定ゲ）。"""
+        q = await self._take("offer")
+        if q is None:
+            return None
+        if not session or session != q.session:
+            logger.info("状態図 申し出は窓が変わったので使わない")
+            return None
+        return str(q.content.get("question") or ""), q.content.get("deep")
+
+    # ── 入口の写し（第 3 段・決定ハ、ガ、ギ、ゾ）──────────────────────────────────────────
+
+    def gate(self) -> str:
+        """入口のいまの状態の名前（`EAR_OPEN`・`EAR_MUSIC`・`EAR_TIMER`）。活性化の前は開いているとみなす。"""
+        return _NAMES[self._gate_state()]
+
+    def _gate_state(self) -> str:
+        ids = {s.id for s in self.configuration}
+        return next((n for n in ("music_only", "timer_only") if n in ids), "ear_open")
+
+    async def copy_gate(self, reason: str) -> None:
+        """持ち主の理由（`agent.mic_gate_reason`）を入口へ写す。空なら開いている、`MUSIC_GATE_REASON` なら音楽、
+        ほかはタイマーで、理由がそのタイマーの名前。状態も名前も同じなら何もせず、順番も待たない（輪は 0.5 秒ごと）。"""
+        from ..agent import MUSIC_GATE_REASON  # 理由を写しへ直すのはここ 1 か所
+
+        if not reason:
+            target, name = "ear_open", ""
+        elif reason == MUSIC_GATE_REASON:
+            target, name = "music_only", ""
+        else:
+            target, name = "timer_only", reason
+        if self._gate_state() == target and self.gate_timer == name:
+            return
+        try:
+            await self.start()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 入口を写せなかった（初めの状態に入れない）", exc_info=True)
+            return  # 門は止めない。写しは前のまま
+        async with self._turn():  # 見てから送るまでに、ほかの写しを割り込ませない（決定ン）
+            before = self.gate_timer
+            # 名前は移る前に置く（移っている途中に読んだ状態の行も、名前の空いたタイマーを見ない・決定ズの 1 と同じ）
+            self.gate_timer = name
+            try:
+                if self._gate_state() != target:
+                    await self._fire(_GATE_EVENTS[target])
+                # 捨てられた（`_fire` は例外を出さない）。名前も戻す
+                if self._gate_state() != target:
+                    self.gate_timer = before
+                    return
+                logger.info("状態図 入口を写した：%s %s", self.gate(), self.gate_timer)
+            except Exception:  # noqa: BLE001
+                self.gate_timer = before  # 移れなければ名前も戻す（写しの状態と名前をずらさない）
+                logger.warning("状態図 入口を写せなかった", exc_info=True)
+
+    def offer_waiting(self) -> bool:
+        """申し出の答えを待っているか。データを読む（決定ズの 1）。"""
+        q = self.question
+        return q is not None and q.kind == "offer"
+
+    async def drop_offer(self) -> None:
+        """申し出だけを消す（申し出でない返事を話した・出-dj）。ほかの問いには触らない。"""
+        await self._take("offer")
+
+    async def take_heard(self) -> "dict | None":
+        """聞き返しの見立てを取り出す（使っても使わなくても消す）。30 秒を過ぎていれば None（決定ラ）。"""
+        q = await self._take("heard")
+        if q is None:
+            return None
+        if time.monotonic() - q.placed_at > self._heard_ttl:
+            logger.info("状態図 聞き返しの見立ては切れていたので使わない")
+            return None
+        return q.content
+
+    async def _take(self, kind: str) -> "AwaitedAnswer | None":
+        """`kind` の問いが置かれていれば消してなしへ戻し、その問いを返す。ほかの問いには触らない。"""
+        q = self.question
+        if q is None or q.kind != kind:
+            return None
+        self.question = None
+        await asyncio.shield(self._settle_answer())
+        return q
+
+    async def _place(self, q: AwaitedAnswer) -> None:
+        # データは待つ前に置く（決定ズの 1）。待つあいだに走ったほかの道具も、置いた問いを読む。
+        self.question = q
+        # 打ち切られても状態をデータに合わせきる（決定ズの 3）
+        await asyncio.shield(self._settle_answer())
+
+    def _answer_state(self) -> str:
+        ids = {s.id for s in self.configuration}
+        return next(
+            (n for n in ("confirm_answer", "offer_answer", "heard_answer") if n in ids), "no_answer"
+        )
+
+    async def _settle_answer(self) -> None:
+        """順番が来たらデータを読み直し、待っている答えの状態をデータに合わせる。置く口と取り出す口が重なっても、
+        最後に置いたデータに合う（決定ン）。寿命を数え直す。初めの状態に入れなくても、置いたデータは残す（決定ズの 1）。"""
+        try:
+            await self.start()
+        except Exception:  # noqa: BLE001
+            logger.warning(
+                "状態図 待っている答えをデータに合わせられなかった（初めの状態に入れない）",
+                exc_info=True,
+            )
+            return
+        async with self._turn():
+            try:
+                q = self.question
+                target = _ANSWER_STATES[q.kind] if q is not None else "no_answer"
+                if self._answer_state() != target:
+                    await self._fire(_ANSWER_EVENTS[q.kind] if q is not None else "answer_cleared")
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 待っている答えをデータに合わせられなかった", exc_info=True)
+            self._arm_answer()
+
+    def _stop_answer_task(self) -> None:
+        task, self._answer_task = self._answer_task, None
+        if task is not None:
+            task.cancel()
+
+    def _arm_answer(self) -> None:
+        """いまの問いの寿命を数え直す。確認と聞き返しだけを数える（申し出は窓と求めで戻す・決定ゲ）。"""
+        self._stop_answer_task()
+        q = self.question
+        if self._timers_ended or q is None:
+            return
+        ttl = {"confirm": self._confirm_ttl, "heard": self._heard_ttl}.get(q.kind)
+        if ttl is None:
+            return
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ数えない
+            self._answer_task = spawn_outside(self._wait_answer(q, q.placed_at + ttl))
+
+    async def _wait_answer(self, q: AwaitedAnswer, until: float) -> None:
+        try:
+            if (left := until - time.monotonic()) > 0:
+                await asyncio.sleep(left)
+            async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
+                if self.question is not q:
+                    return  # 上書きされたか使われた。自分の問いでなければ触らない（決定ズの 2）
+                logger.info("状態図 %sの答えを待つのが切れた", _NAMES[_ANSWER_STATES[q.kind]])
+                self.question = None
+                if self._answer_state() != "no_answer":
+                    await self._fire("answer_cleared")
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 答えを待つのが切れたことを送れなかった", exc_info=True)
+        finally:
+            if self._answer_task is asyncio.current_task():
+                self._answer_task = None
+
+    async def _drop_stale_offer(self, event: str) -> None:
+        """申し出をなしへ戻す（決定ゲ）。窓が閉じたとき頭が何もしていないか、求めを閉じたとき窓が開いていなければ。
+
+        窓は考えているあいだも数えるので、求めの途中で窓が閉じても、窓の中で受けた返事のために残す。順番の中で呼ぶ。
+        """
+        q = self.question
+        if q is None or q.kind != "offer":
+            return
+        if event == "window_lapsed" and self.head_state() != "idle":
+            return
+        if event == "request_closed" and self._in("open"):
+            return
+        logger.info("状態図 申し出の答えを待つのをやめた（%s）", event)
+        self.question = None
+        if self._answer_state() != "no_answer":
+            await self._fire("answer_cleared")
+
     def _in(self, state_id: str) -> bool:
         return any(s.id == state_id for s in self.configuration)
 
@@ -662,6 +961,8 @@ class PajuState(StateChart):
         """事象を送る、ただ 1 つの口。順番を持っているあいだに呼ぶ。移りが無ければ捨て、1 行残す（決定ユ）。"""
         try:
             await self.send(event)
+            if event in ("window_lapsed", "request_closed"):
+                await self._drop_stale_offer(event)
         except TransitionNotAllowed as e:
             # 同じ処理の中で別の送り手の事象が捨てられると、ライブラリは列に待っていた送り手みなに同じ例外を返す。
             # そのときは、送った事象と捨てられた事象の両方を残す（どちらか一方では取り違える）。
@@ -702,7 +1003,9 @@ class PajuState(StateChart):
         ear = next((n for n in ("hearing", "deaf") if n in ids), "")
         window = next((n for n in ("shut", "open", "tentative") if n in ids), "")
         mouth = next((n for n in ("may_speak", "silent") if n in ids), "")
+        answer = next((n for n in _NAMES if n.endswith("_answer") and n in ids), "")
+        gate = next((n for n in ("ear_open", "music_only", "timer_only") if n in ids), "")
         return (
             f"頭={head_text} 耳={_NAMES.get(ear, '')}/窓={_NAMES.get(window, '')}"
-            f" 口={_NAMES.get(mouth, '')}"
+            f"/答え={_NAMES.get(answer, '')}/入口={_NAMES.get(gate, '')} 口={_NAMES.get(mouth, '')}"
         )

@@ -256,7 +256,11 @@ def test_the_slash_command_stops_an_alarm_without_the_llm():
 def test_the_quiet_hours_alarm_question_is_asked_once():
     t, _, _, _ = _tool()
     asked: list = []
-    t._ask = lambda pc: asked.append(pc.text)
+
+    async def _ask(pc):  # 確認を置く口は非同期（環-aw 第 3 段・決定ズ）
+        asked.append(pc.text)
+
+    t._ask = _ask
     asyncio.run(t.call("set_alarm", {"at": "6:30", "label": "起きる"}))
     assert asked == ["06:30 は静穏時間（23〜7 時）だけど、「起きる」を鳴らしていい？"]
     assert alarm_rules.needs_confirmation(

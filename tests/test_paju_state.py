@@ -110,7 +110,7 @@ def test_an_event_without_a_transition_is_logged_and_changes_nothing(caplog):
     assert {"idle", "hearing"} <= _ids(sm)
     lines = [r.getMessage() for r in caplog.records if "捨てた" in r.getMessage()]
     assert lines == [
-        "状態図 speech_ended を受ける移りが無いので捨てた（頭=何もしていない 耳=聞いている/窓=閉じている 口=話してよい）"
+        "状態図 speech_ended を受ける移りが無いので捨てた（頭=何もしていない 耳=聞いている/窓=閉じている/答え=なし/入口=開いている 口=話してよい）"
     ]
 
 
@@ -123,7 +123,10 @@ def test_an_event_with_a_transition_is_not_logged(caplog):
 
 def test_the_description_names_the_child():
     sm = _run("request_opened", "decide_began")
-    assert sm.describe() == "頭=考えている/決めている 耳=聞かない/窓=閉じている 口=話してよい"
+    assert (
+        sm.describe()
+        == "頭=考えている/決めている 耳=聞かない/窓=閉じている/答え=なし/入口=開いている 口=話してよい"
+    )
 
 
 def test_speaking_again_after_hearing_stops_hearing():
@@ -268,7 +271,10 @@ def test_a_new_event_without_a_transition_is_dropped_and_changes_nothing(event, 
 
 def test_the_description_names_the_window_and_the_mouth():
     sm = _run("tentative_called", "silence_began")
-    assert sm.describe() == "頭=何もしていない 耳=聞いている/窓=仮の呼びかけ 口=黙っている"
+    assert (
+        sm.describe()
+        == "頭=何もしていない 耳=聞いている/窓=仮の呼びかけ/答え=なし/入口=開いている 口=黙っている"
+    )
 
 
 # ---- 環-aw 第 2 段 項目 2：窓 ----

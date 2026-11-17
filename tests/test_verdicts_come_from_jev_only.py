@@ -242,7 +242,8 @@ def test_the_checker_gets_the_past_memories_and_asks_about_them():
     assert "最高30℃" in state
     assert "い" * 300 not in state  # 1 件 300 字まで
     assert "直近の枠に載った行" not in state
-    assert set(questions) == {"broken", "aaaaaaaaaaaa"}
+    # 確認待ちが無いので、申し出で終わるかも聞く（出-dj）
+    assert set(questions) == {"broken", "aaaaaaaaaaaa", "offer"}
     assert violation is None
     assert verdicts == [{"id": "aaaaaaaaaaaa", "verdict": "referred"}]
 
@@ -273,12 +274,16 @@ def test_a_long_state_shrinks_only_the_long_results():
     asyncio.run(scenario())
     state, questions = a._jev.ask.await_args.args
     assert reply in state  # 返事は削らない
-    rows = [q["instructions"] for i, q in questions.items() if i != "broken"]
+    rows = [q["instructions"] for i, q in questions.items() if i not in ("broken", "offer")]
     assert state.count("う" * 280) == 3 and all(
         "う" * 280 in r for r in rows
     )  # 記憶の行は 300 字のまま
     assert 400 <= state.count("届いた結果。") * 6 < 5000  # 結果（6,000 字）だけが縮んだ
-    assert set(questions) == {"broken", *ids}  # 問いの数は減らさない
+    assert set(questions) == {
+        "broken",
+        "offer",
+        *ids,
+    }  # 問いの数は減らさない（確認待ちが無いので申し出も聞く）
 
 
 def test_results_fit_without_shrinking_when_there_is_room():

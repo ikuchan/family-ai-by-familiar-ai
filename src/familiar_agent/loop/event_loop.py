@@ -62,7 +62,7 @@ from .generator import SILENCE_MARK, SILENCE_NOTE, _pi_ctx, _present_ctx
 from . import workspace
 from ..store import intents as _intents
 from .intent_ledger import IntentLedger
-from .paju_state import PajuState
+from .paju_state import EAR_MUSIC, EAR_OPEN, EAR_TIMER, PajuState
 from .request import Lookup, Request
 from .prompt import build_event_system_prompt
 
@@ -875,12 +875,6 @@ class Trigger:
     ear_dropped: bool = False
 
 
-#: 耳の入口の状態（`設計方針_パジュの状態` §3.1・決定ハ）。
-EAR_OPEN = "開いている"
-EAR_MUSIC = "音楽の言葉だけ通す"
-EAR_TIMER = "タイマーの言葉だけ通す"
-
-
 class InformationProcessing:
     """I：情報処理機構（Information-processing）。③ I 詳細図の器。
 
@@ -943,10 +937,7 @@ class InformationProcessing:
         self._beep_count = 0  # この求めで鳴らした待ちの電子音の回数（閉じるときに 0 へ戻す）
         # see の帰りで起きた反復か。調停を飛ばして主LLM へ戻す（`_decide`）。
         self._see_returned = False
-        # 聞き取りの確認の預かり（出-cm）：見立ての動作・元の言葉・聞き返した文・預けた時刻（monotonic）。
-        self._heard_check: "dict | None" = None
-        # パジュの申し出の預かり（出-dj）：申し出た返事の文と、そのときの窓の会話の番号。次の 1 回の返事で消す。
-        self._offer: "dict | None" = None
+        # 待っている答え（確認・申し出・聞き返し）の持ち主は状態図（`PajuState.question`・環-aw 第 3 段・決定グ）。
         # 仮の呼びかけ（知-bs）の持ち主は状態図（`PajuState.call_tentatively`・環-aw 第 2 段 項目 3）。
         self._background_tasks: set[asyncio.Task] = set()
         #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
@@ -1817,6 +1808,8 @@ class InformationProcessing:
                 on_silence_saved=lambda req: silence_state.save_silence(req),
                 on_silence_cleared=lambda: silence_state.clear_silence(),
                 restore_silence=lambda: silence_state.load_silence(),
+                confirm_ttl_sec=self._agent.config.confirm_ttl_sec,
+                heard_ttl_sec=HEARD_CHECK_TTL_SEC,
             )
             # タイマーの沈黙（`agent._hush_for_timer`）も同じ状態図へ送る。
             with contextlib.suppress(Exception):
@@ -2352,7 +2345,7 @@ class InformationProcessing:
         # 言葉で頼んでも守られなかった——1 回の「3 分測って」で `set_timer` が 3 回投げられ、
         # 確認待ちを作り直したうえで「セットしました」と言った（実機 17:34・掛かっていない）。
         if self._confirm_blocks(action):
-            pc = getattr(self._agent, "_pending_confirm", None)
+            pc = self._paju().confirm()
             what = getattr(pc, "what", "") or "掛けること"
             self._triggers.put_nowait(
                 Trigger(
@@ -2398,7 +2391,7 @@ class InformationProcessing:
             or action in _CONFIRM_ACTIONS
         ):
             # 呼ぶ前の預かり。**新しい預かりが置かれたか**を、呼んだ後に見比べる。
-            before_confirm = getattr(self._agent, "_pending_confirm", None)
+            before_confirm = self._paju().confirm()
             # タイマー（知-n）／アラーム（知-q）／ストップウォッチ（知-u）の道具。その場で返る。落ちても求めは閉じる。
             if action in _STOPWATCH_ACTIONS:
                 tool = getattr(self._agent, "_stopwatch_tool", None)
@@ -4387,8 +4380,8 @@ class InformationProcessing:
         # 判定は Jev、文章は要るときだけ軽量LLM（出-au 段 5-7・`Arbiter`）。
         # 声で話しかけた求めの最初の判断では、聞こえた合図（機械音 A）を鳴らし続け、決まったら反応の合図に替える（出-bg）。
         cue = self._start_reaction_cue(ws.returned_lookups)
-        heard = self._take_heard_check(ws)
-        offer, offer_deep = self._take_offer(ws)
+        heard = await self._take_heard_check(ws)
+        offer, offer_deep = await self._take_offer(ws)
         try:
             decision = await self._arbiter().decide(
                 self._arbiter_input(
@@ -4427,7 +4420,7 @@ class InformationProcessing:
             if cue is not None:
                 cue.stop()  # 調停が落ちても・時間切れでも、機械音 A は必ず止める
         self._note_confirm_prompt(decision)
-        self._keep_heard_check(decision)
+        await self._keep_heard_check(decision)
         if getattr(decision, "offer_accepted", False) is True:
             self._req.accepted_offer = offer  # 主LLM に 1 行添える（`_build_system`・出-dj）
             self._req.accepted_offer_lookups = len(self._req.lookups)
@@ -4554,53 +4547,39 @@ class InformationProcessing:
             offer_deep=offer_deep if offer else None,
         )
 
-    def _take_heard_check(self, ws) -> "dict | None":
-        """会話の求めの最初の判断なら、聞き取りの確認の預かりを取り出して消す（出-cm）。切れていれば渡さない。
+    async def _take_heard_check(self, ws) -> "dict | None":
+        """会話の求めの最初の判断なら、聞き取りの確認の預かりを状態図から取り出して消す（出-cm）。切れていれば渡さない。
 
         答えに使うのは 1 回だけ（答えがどれでも消す）。道具の返りの反復・情動・機器では取り出さない。
         """
-        held = self._heard_check
-        if held is None or self._req.trigger_kind != "発話":
+        if self._req.trigger_kind != "発話" or ws.returned_actions or ws.returned_lookups:
             return None
-        if ws.returned_actions or ws.returned_lookups:
-            return None
-        self._heard_check = None
-        if time.monotonic() - float(held.get("at", 0.0)) > HEARD_CHECK_TTL_SEC:
-            logger.info("event-loop 聞き取りの確認は切れていたので使わない：%s", held.get("action"))
-            return None
-        return held
+        return await self._paju().take_heard()
 
-    def _take_offer(self, ws) -> "tuple[str, dict | None]":
+    async def _take_offer(self, ws) -> "tuple[str, dict | None]":
         """会話の求めの最初の判断なら、申し出の預かりを取り出して消す（出-dj・本人の決定 a）。渡すのは申し出た文。
 
         答えに使うのは次の 1 回だけ（答えがどれでも消す）。窓が閉じた・別の窓の会話になったなら渡さない（名前の無い「はい」は
         窓の外ではどのみち届かない）。道具の返りの反復・情動・機器では取り出さない。
         """
-        held = self._offer
-        if held is None or self._req.trigger_kind != "発話":
+        if self._req.trigger_kind != "発話" or ws.returned_actions or ws.returned_lookups:
             return "", None
-        if ws.returned_actions or ws.returned_lookups:
-            return "", None
-        self._offer = None
-        # 門が決めた求めの窓の番号で見る（`_begin_request`）。判断までに窓が切れても、窓で受けた返事なら使う。
-        if not self._req.window_session or self._req.window_session != held.get("session"):
-            logger.info("event-loop 申し出の預かりは窓が変わったので使わない")
-            return "", None
-        # 申し出た文と、はいなら深く調べる入力（出-dh 段 2・深く調べるの問いのときだけ）。
-        return str(held.get("question") or ""), held.get("deep")
+        # 門が決めた求めの窓の番号で見る（`_begin_request`）。判断までに窓が切れても、窓で受けた返事なら使う（決定ゲ）。
+        # 返りは申し出た文と、はいなら深く調べる入力（出-dh 段 2・深く調べるの問いのときだけ）。
+        held = await self._paju().take_offer(session=self._req.window_session)
+        return held if held is not None else ("", None)
 
-    def _keep_heard_check(self, decision) -> None:
-        """見立てつきの聞き返しなら、聞き取りの確認として預ける（出-cm）。本文はログに出さない。"""
+    async def _keep_heard_check(self, decision) -> None:
+        """見立てつきの聞き返しなら、聞き取りの確認として状態図へ預ける（出-cm）。本文はログに出さない。"""
         check, text = getattr(decision, "heard_check", None), getattr(decision, "text", "")
         if not isinstance(check, dict) or not check or not isinstance(text, str) or not text:
             return  # 辞書でない返り（土台だけの調停の差し替え）は預けない
-        self._heard_check = {**check, "question": text, "at": time.monotonic()}
+        await self._paju().ask_heard({**check, "question": text})
         logger.info("event-loop 聞き取りの確認を預けた：%s", check.get("action"))
 
     def _confirming(self) -> bool:
-        """確認待ちが生きているか（知-o）。器が無い・真偽でない返り（土台だけの器の差し替え）なら偽。"""
-        alive = getattr(self._agent, "confirm_alive", None)
-        return callable(alive) and alive() is True
+        """確認待ちが生きているか（知-o）。状態図のデータを読む（300 秒で切れたら無い・決定ゼ）。"""
+        return self._paju().confirm() is not None
 
     def _confirm_inputs(self) -> dict:
         """確認待ちのあいだ調停へ渡す、問いの文・決まった促し・促す間隔が空いたか（知-o・2026-10-13）。"""
@@ -4608,8 +4587,8 @@ class InformationProcessing:
             return {}
         from ..core.confirm_state import prompt_due, prompt_text
 
-        pc = self._agent._pending_confirm
-        last = getattr(self._agent, "_confirm_prompted_at", None)
+        sm = self._paju()
+        pc, last = sm.confirm(), sm.confirm_prompted_at()
         return {
             "confirm_question": str(getattr(pc, "text", "") or "確認の問い"),
             "confirm_prompt": prompt_text(pc),
@@ -4620,7 +4599,7 @@ class InformationProcessing:
         """調停が決まった促しを選んだら、その時刻を残す（次の促しまで 20 秒〔仮〕空ける・知-o）。"""
         prompt = self._confirm_inputs().get("confirm_prompt")
         if prompt and getattr(decision, "branch", "") == "light" and decision.text == prompt:
-            self._agent._confirm_prompted_at = time.time()
+            self._paju().note_confirm_prompt(time.time())
 
     def _skip_while_confirming(self, trigger: "Trigger | None") -> bool:
         """確認待ちのあいだ、排他で止めるきっかけか（知-o・2026-10-13・本人の決定）。
@@ -4920,7 +4899,8 @@ class InformationProcessing:
             )
         asked: list = []
         # 確認待ちの問いも申し出と読まれる（出-dj の実験 0.94）。確認待ちが答えを読むので、そのあいだは聞かない。
-        confirming = getattr(agent, "_pending_confirm", None) is not None
+        # 300 秒で切れた確認は無いと見て、申し出を預ける（決定ゼ）。
+        confirming = self._confirming()
         min_conf = float(getattr(agent.config, "jev_confidence_min", 0.6))
         violation, verdicts = await jev_judges.judge_speech_and_verdicts(
             getattr(agent, "_jev", None),
@@ -4944,10 +4924,12 @@ class InformationProcessing:
             if violation is None:
                 # 話す返事ごとに置き直す（出-dj）。申し出で終わるなら、次の返事を 3 択で読むために預ける。申し出でない返事を
                 # 話したら、前の申し出は預からない（次の「うん」はその返事への答え）。本文はログに出さない。
-                self._offer = None
+                sm = self._paju()
                 if not confirming and jev_judges.offered(asked[0][2], min_conf):
-                    self._offer = {"question": text, "session": self._wake_window().session}
+                    await sm.make_offer(text, session=self._wake_window().session)
                     logger.info("event-loop 申し出を預けた")
+                else:
+                    await sm.drop_offer()
         logger.info(
             "event-loop 発話前の検査 %.2f 秒（違反=%s）",
             time.monotonic() - started,
@@ -5223,7 +5205,7 @@ class InformationProcessing:
         timer_silence = silenced and (getattr(req, "reason", "") or "").startswith("timer:")
         if trigger.kind == "会話入力" and trigger.source == "voice":
             # 耳の入口がいちばん先（ウの 3 の改め）。歌詞やテレビの声で、知らない声の気配や情動を動かさない。
-            ear = self._ear()
+            ear = await self._ear()
             if self._ear_drops(trigger, ear, names):
                 trigger.ear_dropped = True
                 logger.info(
@@ -5397,20 +5379,18 @@ class InformationProcessing:
             self._pending_heard = self._take_muted()
         return False
 
-    def _ear(self) -> str:
+    async def _ear(self) -> str:
         """耳の入口のいまの状態（`設計方針_パジュの状態` §3.1）。持ち主はタイマーと音楽で、`agent.mic_gate_reason` が
-        その場で計算する（状態図にはまだ入れない・2026-11-14 本人の決定 B）。列から出た時刻に、入口で 1 回だけ読む
-        （本人の決定 案 1）。読めなければ開いている。"""
-        from ..agent import MUSIC_GATE_REASON
-
+        その場で計算する。列から出た時刻に、入口で 1 回だけ読み、状態図の入口へ写してから、写しで判定する（決定ガ、ギ）。
+        読めなければ開いている。"""
         try:
             reason = self._agent.mic_gate_reason()
         except Exception:  # noqa: BLE001
             logger.warning("耳の入口の状態を読めなかった（開いている扱い）", exc_info=True)
-            return EAR_OPEN
-        if not isinstance(reason, str) or not reason:
-            return EAR_OPEN
-        return EAR_MUSIC if reason == MUSIC_GATE_REASON else EAR_TIMER
+            reason = ""
+        sm = self._paju()
+        await sm.copy_gate(reason if isinstance(reason, str) else "")
+        return sm.gate()
 
     def _ear_drops(self, trigger: "Trigger", ear: str, names: "list[str]") -> bool:
         """耳の入口で捨てる声か（ウの 3 の改め・2026-11-14・本人の決定）。長さでは切らない。
@@ -6161,9 +6141,9 @@ class InformationProcessing:
         """確認待ちのあいだ落とす動作か（出-ag-ろ・`core/confirm_state.blocks`）。"""
         from ..core.confirm_state import blocks
 
-        pc = getattr(self._agent, "_pending_confirm", None)
+        # 状態図のデータを読む（置いた口は待つ前にデータを置く・決定ズの 1）。並んで走った 2 つめの `set_timer` も落ちる。
         ttl = float(getattr(getattr(self._agent, "config", None), "confirm_ttl_sec", 300.0))
-        return blocks(action, pc, now=time.time(), ttl=ttl)
+        return blocks(action, self._paju().confirm(), now=time.time(), ttl=ttl)
 
     def _deep_offer_material(self) -> "dict | None":
         """調べもの 2 回を使い切った会話の求めなら、深く調べるの入力（元の頼み・届いた結果）を控える（出-dh 段 2・出-dg ろ）。
@@ -6178,7 +6158,7 @@ class InformationProcessing:
             or not self._deep_available()
             or self._confirming()
             or not str(self._req.request_text or "").strip()  # 頼みが空なら、何を深く調べるかが無い
-            or self._offer is not None  # 答えが申し出で終わった（出-dj）。問いを 2 つ続けない
+            or self._paju().offer_waiting()  # 答えが申し出で終わった（出-dj）。問いを 2 つ続けない
         ):
             return None
         return {"request": str(self._req.request_text or ""), "found": self._search_results()}
@@ -6202,12 +6182,12 @@ class InformationProcessing:
         self._stamp_said()
         self._emit(OFFER_TEXT)
         await self._extend_window_for_conversation()  # 答えを窓で受ける（開いているときだけ延ばす）
-        self._offer = {"question": OFFER_TEXT, "session": self._wake_window().session, "deep": deep}
+        await self._paju().make_offer(OFFER_TEXT, session=self._wake_window().session, deep=deep)
         logger.info("event-loop 深く調べるかを問うた（申し出として預けた）")
 
     async def _ask_confirm_if_fresh(self, before) -> None:
         """道具の呼び出しで**新しく置かれた**預かりだけ、その場で問いを出す（出-ag-ろ）。"""
-        pc = getattr(self._agent, "_pending_confirm", None)
+        pc = self._paju().confirm()
         if pc is None or pc is before:
             return
         await self._ask_confirm_aloud(pc)

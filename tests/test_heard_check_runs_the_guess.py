@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import asyncio
-import time
 from unittest.mock import MagicMock, patch
 
 from familiar_agent.core import utterance_meaning as um
@@ -190,7 +189,7 @@ def test_an_old_check_is_not_used():
     """**反証の側**：30 秒を過ぎた預かりは渡さない。"""
     ip = _loop()
     _decide_with(ip, _asked(), "3分測って")
-    ip._heard_check["at"] = time.monotonic() - 31
+    ip._paju().question.placed_at -= 31  # 聞き返しの持ち主は状態図（環-aw 第 3 段）
     later = _decide_with(ip, _plain(), "うん")
     assert later.heard_check_action == ""
 
@@ -236,4 +235,4 @@ def test_a_tool_return_iteration_does_not_use_up_the_check():
     with patch("familiar_agent.loop.arbiter.Arbiter.decide", new=fake_decide):
         asyncio.run(ip._decide(utterance="", ws=ws, present_ctx="", capped=False, round_=2))
     assert seen["inp"].heard_check_action == ""
-    assert ip._heard_check is not None
+    assert ip._paju().question is not None and ip._paju().question.kind == "heard"

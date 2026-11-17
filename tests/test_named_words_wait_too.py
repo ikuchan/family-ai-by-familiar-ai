@@ -218,6 +218,11 @@ def test_the_waiting_word_comes_out_once_the_device_request_is_done():
 def test_a_confirmation_reply_is_still_taken_during_a_device_lookup():
     """確認待ち（知-o）の返事は、機器の求めのあいだでも取り出す。駆動体が 3 択の求めにする（いままでどおり）。"""
     ip, a = _not_spoken_to("機器")
-    a.confirm_alive = lambda: True
+    import time
+
+    from familiar_agent.core.confirm_state import PendingConfirm
+
+    # 確認の持ち主は状態図（環-aw 第 3 段）
+    asyncio.run(ip._paju().ask_confirm(PendingConfirm(action="set_timer", asked_at=time.time())))
     word = Trigger(kind="会話入力", query="はい", source="voice", named=False)
     assert _take_with_a_completion(ip, word) is word

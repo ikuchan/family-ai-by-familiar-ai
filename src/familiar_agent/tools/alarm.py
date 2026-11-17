@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
@@ -69,7 +69,7 @@ class AlarmTool:
         quiet: Callable[[], Any],
         now: "Callable[[], datetime] | None" = None,
         on_cancel: "Callable[[], object] | None" = None,  # 音を止めたら真を返してよい（出-af）
-        ask: "Callable[[PendingConfirm], None] | None" = None,
+        ask: "Callable[[PendingConfirm], Awaitable[None]] | None" = None,
     ) -> None:
         self._store = store
         self._ask = ask  # 「確かめて」の預かりを置く口（`agent.ask_confirm`・出-y）
@@ -125,7 +125,7 @@ class AlarmTool:
             if self._ask is not None:
                 from ..core.confirm_state import PendingConfirm
 
-                self._ask(
+                await self._ask(
                     PendingConfirm(
                         action="set_alarm",
                         tool_input={k: v for k, v in inp.items() if k != "confirmed"},

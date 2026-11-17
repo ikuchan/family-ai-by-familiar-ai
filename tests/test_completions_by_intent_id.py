@@ -66,8 +66,7 @@ def test_the_right_id_fills_the_lookup():
 
 
 def test_an_orphan_does_not_iterate_outside_a_confirmation():
-    ip, _ = _ip()
-    ip._agent._pending_confirm = None
+    ip, _ = _ip()  # 確認待ちは置かない（持ち主は状態図・環-aw 第 3 段）
     ip._drained_completions.append(
         Trigger(kind="完了", query="出入口を見に行く", result="見た", intent_id="gone")
     )

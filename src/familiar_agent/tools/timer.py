@@ -110,7 +110,7 @@ class TimerTool:
         hush: "Callable[[str, datetime, int], Awaitable[None]] | None" = None,
         unhush: "Callable[[int | str], Awaitable[None]] | None" = None,
         on_cancel: "Callable[[], object] | None" = None,  # 音を止めたら真を返してよい（出-af）
-        ask: "Callable[[PendingConfirm], None] | None" = None,
+        ask: "Callable[[PendingConfirm], Awaitable[None]] | None" = None,
     ) -> None:
         self._store = store
         self._ask = (
@@ -217,14 +217,15 @@ class TimerTool:
             return f"タイマーの道具が使えなかった：{e}", False
         return f"そんな道具は無い：{name}", False
 
-    def _keep(self, inp: dict, ask: str, what: str) -> None:
-        """「確かめて」の預かりを置く（`confirm_state.PendingConfirm`）。口が無ければ何もしない。"""
+    async def _keep(self, inp: dict, ask: str, what: str) -> None:
+        """「確かめて」の預かりを置く（`confirm_state.PendingConfirm`）。口が無ければ何もしない。置き終えるまで待つ
+        （返ったときには状態図が確認を待っている・決定ズ）。"""
         if self._ask is None:
             return
         from ..core.confirm_state import PendingConfirm
 
         kept = {k: v for k, v in inp.items() if k != "confirmed"}  # LLM が書いた印は預からない
-        self._ask(
+        await self._ask(
             PendingConfirm(
                 action="set_timer", tool_input=kept, asked_at=time.time(), text=ask, what=what
             )
@@ -267,12 +268,12 @@ class TimerTool:
             ask = timer_rules.confirm_text(
                 minutes, silence=flags.silence, mic_close=flags.mic_close
             )
-            self._keep(inp, ask, what)
+            await self._keep(inp, ask, what)
             return f"まだ掛けていない。本人に一度聞く：「{ask}」", True
         if reason and not confirmed:
             # 理由は理由だけで、問いはここで 1 つだけ付ける（知-o・10/13 23:39「鳴らしてよいか。…鳴らしていい？」と二重だった）。
             ask = f"{reason}だけど、「{label}」を鳴らしていい？"
-            self._keep(inp, ask, what)
+            await self._keep(inp, ask, what)
             return f"まだ掛けていない。確かめてから：{reason}——本人に一度聞く：「{ask}」", True
         who = self._speaker() or ""
         obs_id = await self._write(

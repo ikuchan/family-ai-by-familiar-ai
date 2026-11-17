@@ -29,10 +29,11 @@ def _ip(*, confirming: bool = True):
     pc = (
         PendingConfirm(action="set_timer", asked_at=time.time(), text=ASKED) if confirming else None
     )
-    a._pending_confirm = pc
-    a._confirm_prompted_at = pc.asked_at if pc else None
-    a.confirm_alive = lambda: a._pending_confirm is not None
     ip = InformationProcessing(a)
+    if pc is not None:  # 確認の持ち主は状態図（環-aw 第 3 段）
+        asyncio.run(ip._paju().ask_confirm(pc))
+        ip._paju().note_confirm_prompt(pc.asked_at)
+    a.confirm_alive = lambda: ip._paju().confirm() is not None
     return ip, a
 
 
@@ -122,7 +123,7 @@ def test_an_unnamed_word_is_not_attached_while_confirming():
 
 def test_the_arbiter_gets_the_confirmation():
     ip, a = _ip()
-    a._confirm_prompted_at = time.time() - 30
+    ip._paju().note_confirm_prompt(time.time() - 30)
     got = ip._arbiter_input(utterance="はい", workspace_ctx="", present_ctx="")
     assert got.confirm_question == ASKED
     assert got.confirm_prompt.startswith("いまタイマーを掛けるか")
@@ -132,9 +133,11 @@ def test_the_arbiter_gets_the_confirmation():
 def test_the_first_non_answer_is_prompted_right_away():
     """問いは前の促しに数えない（10/13 23:39、問いの 8 秒後の「はい」の聞き違いに黙った）。一度促した直後は促さない。"""
     ip, a = _ip()
-    a._confirm_prompted_at = None  # 確認待ちを置いたとき
+    asyncio.run(
+        ip._paju().ask_confirm(PendingConfirm(action="set_timer", asked_at=time.time(), text=ASKED))
+    )  # 確認待ちを置いたとき
     assert ip._arbiter_input(utterance="x", workspace_ctx="", present_ctx="").confirm_prompt_due
-    a._confirm_prompted_at = time.time()  # **反証の側**：促したばかり
+    ip._paju().note_confirm_prompt(time.time())  # **反証の側**：促したばかり
     assert not ip._arbiter_input(utterance="x", workspace_ctx="", present_ctx="").confirm_prompt_due
     ip2, _ = _ip(confirming=False)
     assert (
@@ -144,21 +147,27 @@ def test_the_first_non_answer_is_prompted_right_away():
 
 def test_a_prompt_is_stamped():
     ip, a = _ip()
-    a._confirm_prompted_at = 0.0
+    sm = ip._paju()
+    sm.note_confirm_prompt(0.0)
     prompt = ip._arbiter_input(utterance="x", workspace_ctx="", present_ctx="").confirm_prompt
     ip._note_confirm_prompt(Decision(branch="light", text=prompt))
-    assert a._confirm_prompted_at > 0.0
-    a._confirm_prompted_at = 0.0
+    assert sm.confirm_prompted_at() > 0.0
+    sm.note_confirm_prompt(0.0)
     ip._note_confirm_prompt(Decision(branch="light", text="ほかの返事"))
-    assert a._confirm_prompted_at == 0.0  # 促しでなければ時刻を動かさない
+    assert sm.confirm_prompted_at() == 0.0  # 促しでなければ時刻を動かさない
 
 
 def test_asking_a_confirmation_clears_the_last_prompt():
     from familiar_agent.agent import EmbodiedAgent
 
-    a = _agent(stream_returns=[])
+    from familiar_agent.loop.paju_state import PajuState
 
-    pc = PendingConfirm(action="set_timer", asked_at=123.0, text=ASKED)
-    a._confirm_prompted_at = 99.0  # 前の確認待ちで促した時刻
-    EmbodiedAgent.ask_confirm(a, pc)
-    assert a._confirm_prompted_at is None  # 問いは前の促しに数えない
+    async def go():
+        a = _agent(stream_returns=[])
+        a.paju_state = PajuState()
+        await EmbodiedAgent.ask_confirm(a, PendingConfirm(action="set_timer", text=ASKED))
+        a.paju_state.note_confirm_prompt(99.0)  # 前の確認待ちで促した時刻
+        await EmbodiedAgent.ask_confirm(a, PendingConfirm(action="set_timer", text=ASKED))
+        assert a.paju_state.confirm_prompted_at() is None  # 問いは前の促しに数えない
+
+    asyncio.run(go())

@@ -64,18 +64,20 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
     mcp_ready = _mcp_state == "ready"
     stt_connected = bool(getattr(realtime_stt, "connected_for_display", False))
     stt_gated = bool(getattr(realtime_stt, "gated", False))
-    # タイマー中の「聞かない」（`TIMER_MIC_CLOSE`・知-o）。理由（タイマーの名）か空。
-    not_listening = ""
-    gate = getattr(agent, "mic_gate_reason", None)
-    if callable(gate):
-        try:
-            not_listening = str(gate() or "")
-        except Exception:  # noqa: BLE001
-            not_listening = ""
-    # 理由が音楽か。入口の耳（`event_loop._ear`）と同じく、文字列が同じかで見る（タイマーの名前に「音楽」が入っても取り違えない）。
-    from .agent import MUSIC_GATE_REASON
+    # 耳の入口は状態図の写しを読む（環-aw 第 3 段・決定ギ）。タイマーなら、入口を閉じているタイマーの名前（決定ゾ）。
+    from .loop.paju_state import EAR_MUSIC, EAR_TIMER
 
-    music_gate = not_listening == MUSIC_GATE_REASON
+    not_listening = ""
+    music_gate = False
+    sm: Any = getattr(agent, "paju_state", None)
+    try:
+        ear = sm.gate() if sm is not None else ""
+        if ear == EAR_MUSIC:
+            not_listening, music_gate = ear, True
+        elif ear == EAR_TIMER:
+            not_listening = str(getattr(sm, "gate_timer", "") or "タイマー")
+    except Exception:  # noqa: BLE001
+        not_listening, music_gate = "", False
 
     if agent_init_failed:
         phase = "error"

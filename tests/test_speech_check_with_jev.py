@@ -119,10 +119,11 @@ def _loop_criteria(pending):
     a.config.speech_check = True
     a.config.jev_confidence_min = 0.6
     a._jev = _client(_answer("ok"))
-    a._pending_confirm = pending
     ip = InformationProcessing(a)
 
     async def go():
+        if pending is not None:  # 確認の持ち主は状態図（環-aw 第 3 段）
+            await ip._paju().ask_confirm(pending)
         await ip._speech_check_violation("はい、「ケイマン」をランダムでかけ始めましたよ。", "", [])
         await ip.close()
 
@@ -136,4 +137,7 @@ def test_without_a_pending_confirm_the_rule_is_not_asked():
 
 
 def test_with_a_pending_confirm_the_rule_is_asked():
-    assert "no-claim-while-confirming" in _loop_criteria(object())
+    from familiar_agent.core.confirm_state import PendingConfirm
+
+    pc = PendingConfirm(action="set_timer", asked_at=__import__("time").time())
+    assert "no-claim-while-confirming" in _loop_criteria(pc)

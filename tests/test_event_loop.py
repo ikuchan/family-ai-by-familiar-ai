@@ -118,6 +118,7 @@ def _agent(*, stream_returns, max_iters=3):
     # 考えているの合計の上限と、主LLM 1 回の待ち（環-aw 決定ミ、マ）。偽の値のままだと比べるところで落ちる。
     a.config.thinking_limit_sec = 180.0
     a.config.main_llm_timeout_sec = 60.0
+    a.config.confirm_ttl_sec = 300.0  # 確認の寿命（状態図へ渡す・環-aw 第 3 段）
     return a
 
 

@@ -66,7 +66,9 @@ def _ip():
 
     a = _agent(stream_returns=[_turn([])])
     ip = InformationProcessing(a)
-    a._pending_confirm = _pc(time.time())  # いま聞いたばかりの預かり
+    asyncio.run(
+        ip._paju().ask_confirm(_pc(time.time()))
+    )  # いま聞いたばかりの預かり（持ち主は状態図）
     a.confirm_alive = MagicMock(return_value=True)
     a.confirm_frame = MagicMock(return_value="[確認待ち] タイマーを掛ける「タイマー」（3 分）")
     return ip, a
@@ -153,11 +155,10 @@ async def test_a_fresh_confirm_is_asked_aloud_right_away():
     pc = _pc(time.time())
 
     async def fake_call(action, tool_input, **kw):
-        a._pending_confirm = pc  # 道具が預かりを置いた
+        await ip._paju().ask_confirm(pc)  # 道具が預かりを置いた（持ち主は状態図・環-aw 第 3 段）
         return "3 分でいい？", True
 
     a._timer_tool.call = fake_call
-    a._pending_confirm = None
     await ip._run_lookup_body("set_timer", {"minutes": 3}, "タイマー", None)
     ip._dif.speak.assert_awaited_once()
     assert ip._dif.speak.await_args.args[0] == pc.text

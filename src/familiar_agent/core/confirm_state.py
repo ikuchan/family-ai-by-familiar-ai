@@ -9,7 +9,7 @@
 預かりが生きていれば（`CONFIRM_TTL_SEC`）W の最上部に `[確認待ち]`、調停の候補に `confirm`／
 `decline`。`confirm` は機械が預かった入力で道具を呼ぶ（`call(..., confirmed=True)`・キーワード
 引数で、LLM の入力からは届かない）。`decline` は捨てる。別の `set_timer` が来れば上書き。
-状態はメモリ上（`agent._pending_confirm`）。再起動で消えてよい（5 分〔仮〕の預かり）。
+状態は状態図の待っている答えのデータ（`PajuState.question`・環-aw 第 3 段・決定グ）。再起動で消えてよい（5 分〔仮〕の預かり）。
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def blocks(
 def alive(pc: "PendingConfirm | None", *, now: float, ttl: float) -> bool:
     """預かりが生きているか（聞いてから `ttl` 秒以内）。
 
-    **時刻が数でなければ「無い」とみなす。** 預かりの置き場は `agent` の属性なので、土台だけの
+    **時刻が数でなければ「無い」とみなす。** 預かりは状態図の待っている答えに置くが（環-aw 第 3 段）、土台だけの
     呼び方（試験の差し替え）では数でないものが入る。そこで比較して落ちると、確認とは関係のない
     道具まで道連れになる（2026-09-21 に 42 件が赤になった）。
     """

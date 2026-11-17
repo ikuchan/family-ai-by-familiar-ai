@@ -462,6 +462,20 @@ class Tonic:
                 say=lambda text: self._dif.device("音楽", text, passes_gate=True),
             )
 
+    async def _copy_gate(self) -> None:
+        """耳の入口の持ち主（`agent.mic_gate_reason`）を読み、状態図の入口へ写す（決定ギ）。輪が回るたび（0.5 秒ごと）。
+        同じなら状態図は何もしない。読めない・状態図が無いなら写さない（輪は止めない）。"""
+        agent = self._agent
+        sm = getattr(agent, "paju_state", None)
+        gate = getattr(agent, "mic_gate_reason", None)
+        if sm is None or not callable(gate):
+            return
+        try:
+            reason = gate()
+            await sm.copy_gate(reason if isinstance(reason, str) else "")
+        except Exception:  # noqa: BLE001
+            logger.warning("耳の入口を写せなかった", exc_info=True)
+
     async def _run(self) -> None:
         last = time.monotonic()
         while True:
@@ -474,6 +488,8 @@ class Tonic:
                 await self._maybe_check_notes(now)
                 await self._maybe_check_schedule(now)
                 self._fire_timers()
+                # 鳴らしたあとに写す（鳴ったタイマーは入口を閉じない・決定ギ）
+                await self._copy_gate()
                 firing, accumulated = await step_drives(
                     dt,
                     last_human_at=getattr(self._agent, "_last_human_at", None),

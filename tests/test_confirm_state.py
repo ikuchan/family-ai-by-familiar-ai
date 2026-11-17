@@ -1,7 +1,7 @@
 """確認を機械の状態にする（出-y・2026-09-18・`設計方針_タイマー` v0.9 §10・`設計方針_アラーム` v0.2）。
 
 実機 15:42（id=13）で主LLM が `confirmed=true` を勝手に付けて掛けた。確認は求め（LLM の引数）でなく、
-**機械の状態**（`agent._pending_confirm`・`core/confirm_state.py`）が持つ。
+**機械の状態**（状態図の待っている答え・`core/confirm_state.py`・環-aw 第 3 段）が持つ。
 
 - 道具が「確かめて」と判定したら、預かり（何を・どの入力で・いつ・何と聞いたか）を置き、返りは確認文だけ。
   `confirmed` は道具の定義に無く、LLM が入力に書いても効かない。
@@ -41,7 +41,7 @@ def _flags(monkeypatch):
 def test_set_timer_leaves_a_pending_confirm_and_no_hint_to_call_again():
     t, store, _ = _timer_tool()
     asked = []
-    t._ask = lambda pc: asked.append(pc)
+    t._ask = AsyncMock(side_effect=asked.append)  # 確認を置く口は非同期（決定ズ）
     text, ok = asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "パスタ"}))
     assert ok and store.active() == [] and "confirmed" not in text and "3 分" in text
     (pc,) = asked
@@ -51,7 +51,7 @@ def test_set_timer_leaves_a_pending_confirm_and_no_hint_to_call_again():
 
 def test_confirmed_in_the_input_is_ignored_but_the_machine_keyword_sets():
     t, store, _ = _timer_tool()
-    t._ask = lambda pc: None
+    t._ask = AsyncMock(return_value=None)
     asyncio.run(t.call("set_timer", {"after_minutes": 3, "label": "パスタ", "confirmed": True}))
     assert store.active() == []  # LLM が書いても効かない
     text, ok = asyncio.run(
@@ -73,7 +73,7 @@ def test_the_definitions_have_no_confirmed():
 def test_set_alarm_in_quiet_hours_leaves_a_pending_confirm():
     t, store, _, _ = _alarm_tool()
     asked = []
-    t._ask = lambda pc: asked.append(pc)
+    t._ask = AsyncMock(side_effect=asked.append)  # 確認を置く口は非同期（決定ズ）
     text, ok = asyncio.run(t.call("set_alarm", {"at": "6:30", "label": "起こす"}))
     assert ok and store.active() == [] and "confirmed" not in text
     assert asked[0].action == "set_alarm" and asked[0].tool_input["at"] == "6:30"
@@ -116,7 +116,6 @@ def test_the_frame_names_what_and_the_question_and_the_two_answers():
 
 def _ip(pending):
     a = _agent(stream_returns=[])
-    a._pending_confirm = pending
     a.confirm_alive = MagicMock(return_value=pending is not None)
     a.confirm_frame = MagicMock(return_value=confirm_state.frame(pending) if pending else "")
     a._timer_tool = MagicMock()
@@ -126,6 +125,8 @@ def _ip(pending):
     a._mcp = None
     ip = InformationProcessing(a)
     ip._gated = lambda defs: defs
+    if pending is not None:  # 確認の持ち主は状態図（環-aw 第 3 段）
+        asyncio.run(ip._paju().ask_confirm(pending))
     return a, ip
 
 
@@ -176,60 +177,69 @@ def test_decline_is_also_a_return_of_the_machine():
 
 
 def _bare_agent():
+    """状態図を持つ agent。確認の持ち主は状態図（環-aw 第 3 段・決定グ）。"""
     from familiar_agent.agent import EmbodiedAgent
+    from familiar_agent.loop.paju_state import PajuState
 
     a = EmbodiedAgent.__new__(EmbodiedAgent)
-    a._pending_confirm = None
+    a.paju_state = PajuState(confirm_ttl_sec=300.0)
     a._timer_tool = MagicMock()
     a._timer_tool.call = AsyncMock(return_value=("掛けた：id=1", True))
     a._alarm_tool = MagicMock()
     a._alarm_tool.call = AsyncMock(return_value=("掛けた：id=2", True))
-    a.config = MagicMock()
-    a.config.confirm_ttl_sec = 300.0
     return a
 
 
 def test_the_agent_keeps_one_pending_and_the_newer_one_wins(monkeypatch):
-    a = _bare_agent()
-    monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0)
-    a.ask_confirm(_pc())
-    a.ask_confirm(_pc(asked_at=T0 + 1))
-    assert a._pending_confirm.asked_at == T0 + 1 and a.confirm_alive()
-    monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0 + 400)
-    assert not a.confirm_alive() and a.confirm_frame() == ""
+    async def go():
+        a = _bare_agent()
+        monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0)
+        await a.ask_confirm(_pc())
+        await a.ask_confirm(_pc(asked_at=T0 + 1))
+        assert a.paju_state.confirm().asked_at == T0 + 1 and a.confirm_alive()
+        monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0 + 400)
+        assert not a.confirm_alive() and a.confirm_frame() == ""
+
+    asyncio.run(go())
 
 
 def test_yes_calls_the_tool_and_clears_no_just_clears(monkeypatch):
-    a = _bare_agent()
-    monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0)
-    a.ask_confirm(_pc())
-    text, ok = asyncio.run(a.resolve_confirm(True, now="t"))
-    a._timer_tool.call.assert_awaited_once_with(
-        "set_timer", {"after_minutes": 3, "label": "パスタ"}, now="t", confirmed=True
-    )
-    assert ok and text.startswith("掛けた") and a._pending_confirm is None
-    a.ask_confirm(_pc())
-    text, ok = asyncio.run(a.resolve_confirm(False, now="t"))
-    assert ok and "やめ" in text and a._pending_confirm is None
-    text, ok = asyncio.run(a.resolve_confirm(True, now="t"))
-    assert not ok  # 預かりが無い
+    async def go():
+        a = _bare_agent()
+        monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0)
+        await a.ask_confirm(_pc())
+        text, ok = await a.resolve_confirm(True, now="t")
+        a._timer_tool.call.assert_awaited_once_with(
+            "set_timer", {"after_minutes": 3, "label": "パスタ"}, now="t", confirmed=True
+        )
+        assert ok and text.startswith("掛けた") and a.paju_state.confirm() is None
+        await a.ask_confirm(_pc())
+        text, ok = await a.resolve_confirm(False, now="t")
+        assert ok and "やめ" in text and a.paju_state.confirm() is None
+        text, ok = await a.resolve_confirm(True, now="t")
+        assert not ok  # 預かりが無い
+
+    asyncio.run(go())
 
 
 def test_an_alarm_pending_goes_to_the_alarm_tool(monkeypatch):
-    a = _bare_agent()
-    monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0)
-    pc = confirm_state.PendingConfirm(
-        action="set_alarm",
-        tool_input={"at": "6:30", "label": "起こす"},
-        asked_at=T0,
-        text="q",
-        what="w",
-    )
-    a.ask_confirm(pc)
-    asyncio.run(a.resolve_confirm(True, now="t"))
-    a._alarm_tool.call.assert_awaited_once_with(
-        "set_alarm", {"at": "6:30", "label": "起こす"}, confirmed=True
-    )
+    async def go():
+        a = _bare_agent()
+        monkeypatch.setattr("familiar_agent.agent.time.time", lambda: T0)
+        pc = confirm_state.PendingConfirm(
+            action="set_alarm",
+            tool_input={"at": "6:30", "label": "起こす"},
+            asked_at=T0,
+            text="q",
+            what="w",
+        )
+        await a.ask_confirm(pc)
+        await a.resolve_confirm(True, now="t")
+        a._alarm_tool.call.assert_awaited_once_with(
+            "set_alarm", {"at": "6:30", "label": "起こす"}, confirmed=True
+        )
+
+    asyncio.run(go())
 
 
 # ── 確認待ちのあいだの促し（知-o・2026-10-13・本人の決定）──────────────────────

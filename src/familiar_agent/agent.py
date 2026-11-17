@@ -58,8 +58,8 @@ logger = logging.getLogger(__name__)
 
 
 _MORNING_CONTEXT_MAX_CHARS = 2600
-#: 音楽が鳴っているときの `mic_gate_reason`。入口（`event_loop._ear`）はこれと同じかで耳の状態を決める（タイマーの名前に
-#: 「音楽」が入っても取り違えない）。
+#: 音楽が鳴っているときの `mic_gate_reason`。状態図の写す口（`PajuState.copy_gate`）だけが、これと同じかで入口の写しを
+#: 決める（タイマーの名前に「音楽」が入っても取り違えない・環-aw 第 3 段）。
 MUSIC_GATE_REASON = "音楽が鳴っている"
 _CACHE_HEARTBEAT_INTERVAL = 240  # 4 min; Anthropic cache TTL is 5 min
 _DEFAULT_TOOL_TIMEOUT = 20.0
@@ -237,9 +237,6 @@ class EmbodiedAgent:
             on_cancel=self._stop_timer_ring,
             ask=self.ask_confirm,
         )
-        # 掛ける前の確認の預かり（出-y・`core/confirm_state.py`）。タイマーとアラームで 1 つ。
-        self._pending_confirm: PendingConfirm | None = None
-        self._confirm_prompted_at: float | None = None  # 確認待ちで最後に促した時刻（知-o）
         # アラーム（知-q・2026-09-18）。タイマーとは別物：表 `alarms`・黙らない・聞かない状態にしない・
         # 確認は静穏時間だけ。止める口は道具 `cancel_alarm` と命令 `/alarm stop`。
         self._alarm_tool = AlarmTool(
@@ -846,7 +843,8 @@ class EmbodiedAgent:
         )
 
     def mic_gate_reason(self) -> str:
-        """耳の入口の状態：聞かない状態ならその理由（空＝聞く）。読むのはループの入口（`event_loop._ear`）と状態の行。
+        """耳の入口の持ち主：聞かない状態ならその理由（空＝聞く）。読むのは、状態図の入口へ写す 2 か所（ループの入口
+        `event_loop._ear` と、自律機構の輪 `Tonic._copy_gate`・決定ギ）。状態の行は写しを読む。
 
         2 つある。**タイマー**（`TimerTool.listening_closed`・知-o）と、**音楽**（知-aa・
         2026-09-21・`MUSIC_GATE_REASON`）。重なれば音楽が先。音楽が鳴っているあいだは音楽の話だけを通す（時間の道具は
@@ -864,33 +862,33 @@ class EmbodiedAgent:
 
     # ── 掛ける前の確認の預かり（出-y）──────────────────────────────────────────
 
-    def ask_confirm(self, pc: "PendingConfirm") -> None:
-        """道具が「確かめて」と判定した預かりを置く。新しいものが前のものを上書きする（「5 分にして」）。"""
-        self._pending_confirm = pc
-        # 問いは前の促しに数えない（知-o）。10/13 23:39 に、問いの 8 秒後の「はい」の聞き違いに黙った。
-        self._confirm_prompted_at = None
+    async def ask_confirm(self, pc: "PendingConfirm") -> None:
+        """道具が「確かめて」と判定した預かりを、状態図の待っている答えへ置く（決定グ）。新しいものが前のものを
+        上書きする（「5 分にして」）。道具はこの口を待ってから返る（決定ズ）。"""
+        sm = self.paju_state
+        if sm is None:
+            logger.warning("確認待ちを置けなかった（状態図が無い） %s", pc.what)
+            return
+        await sm.ask_confirm(pc)
         logger.info("確認待ち %s asked_at=%.0f", pc.what, pc.asked_at)
 
     def confirm_alive(self) -> bool:
-        from .core.confirm_state import alive
-
-        return alive(
-            getattr(self, "_pending_confirm", None),
-            now=time.time(),
-            ttl=float(getattr(getattr(self, "config", None), "confirm_ttl_sec", 300.0)),
-        )
+        """生きている確認があるか。状態図のデータを読む（300 秒で切れたら無い・決定ゼ）。"""
+        sm = getattr(self, "paju_state", None)
+        return sm is not None and sm.confirm() is not None
 
     def confirm_frame(self) -> str:
         """W の最上部に載せる `[確認待ち]`。預かりが無い・寿命切れなら空。"""
         from .core.confirm_state import frame
 
-        pc = getattr(self, "_pending_confirm", None)
-        return frame(pc) if pc is not None and self.confirm_alive() else ""
+        sm = getattr(self, "paju_state", None)
+        pc = sm.confirm() if sm is not None else None
+        return frame(pc) if pc is not None else ""
 
     async def resolve_confirm(self, yes: bool, *, now: Any = None) -> tuple[str, bool]:
         """預かりを解く。「いい」なら預かった入力で道具を呼ぶ（`confirmed=True` は機械だけが立てる）。"""
-        pc = self._pending_confirm if self.confirm_alive() else None
-        self._pending_confirm = None
+        sm = self.paju_state
+        pc = await sm.take_confirm() if sm is not None else None
         if pc is None:
             return "確認待ちのものは無い（聞いてから時間が経ちすぎたか、もう答えた）", False
         if not yes:

@@ -135,7 +135,14 @@ def test_the_status_card_shows_not_listening():
     window._agent_ready = True
     window._agent_running = False
     window._agent_init_failed = False
-    window._agent.mic_gate_reason = lambda: "タイマー「パスタ」"
+    from familiar_agent.loop.paju_state import PajuState
+
+    async def chart():  # 状態の行は状態図の入口の写しを読む（環-aw 第 3 段）
+        sm = PajuState()
+        await sm.copy_gate("タイマー「パスタ」")
+        return sm
+
+    window._agent.paju_state = asyncio.run(chart())
     window._realtime_stt.gated = False
     snap = build_gui_diagnostics(window)
     assert (

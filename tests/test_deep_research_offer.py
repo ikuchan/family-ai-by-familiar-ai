@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from familiar_agent.core.confirm_state import PendingConfirm
 from familiar_agent.loop.event_loop import Lookup
 from familiar_agent.store import arbiter_records
 from familiar_agent.tools import deep_research as dr
@@ -54,9 +55,9 @@ def test_the_material_holds_the_request_and_what_was_found():
     [
         lambda ip: ip._req.spent_actions.discard("search_deferred"),  # 使い切っていない
         lambda ip: ip._req.spent_actions.add("deep_research"),  # もう深く調べた
-        lambda ip: setattr(
-            ip._agent, "confirm_alive", MagicMock(return_value=True)
-        ),  # 確認待ちがある
+        lambda ip: asyncio.run(  # 確認待ちがある（持ち主は状態図・環-aw 第 3 段）
+            ip._paju().ask_confirm(PendingConfirm(action="set_timer", asked_at=time.time()))
+        ),
     ],
 )
 def test_no_question_when_it_does_not_fit(setup):
@@ -83,7 +84,8 @@ def test_the_question_is_spoken_and_held_as_an_offer_not_a_confirm():
 
     asyncio.run(go())
     ip._say_aloud.assert_awaited_once_with(OFFER_TEXT)
-    assert ip._offer["question"] == OFFER_TEXT and ip._offer["deep"] == deep
+    q = ip._paju().question  # 申し出の持ち主は状態図（環-aw 第 3 段）
+    assert ip._paju().offer_waiting() and q.content == {"question": OFFER_TEXT, "deep": deep}
     ip._agent.ask_confirm.assert_not_called()  # **反証の側**：確認待ち（5 分 3 択だけ）にはしない
 
 
@@ -99,7 +101,7 @@ def test_no_question_when_paju_may_not_speak():
 
     asyncio.run(go())
     ip._say_aloud.assert_not_awaited()
-    assert ip._offer is None
+    assert not ip._paju().offer_waiting()
 
 
 # ── はいで深く調べる ──────────────────────────────────────────────────────
@@ -144,7 +146,7 @@ def test_the_loop_hands_the_held_input_to_the_arbiter():
     wake.open(time.monotonic())
     ip._req.window_session = wake.session
     deep = {"request": REQUEST, "found": ""}
-    ip._offer = {"question": OFFER_TEXT, "session": wake.session, "deep": deep}
+    asyncio.run(ip._paju().make_offer(OFFER_TEXT, session=wake.session, deep=deep))
     seen: dict = {}
 
     async def fake_decide(self, inp, on_decided=None):
@@ -189,7 +191,7 @@ def test_the_deep_model_gets_the_held_request_and_results():
 def test_no_question_after_an_answer_that_already_offered():
     """**反証の側**：答えが申し出で終わっていたら（出-dj の預かりがある）、問いを 2 つ続けない。"""
     ip = _spent(_ip())
-    ip._offer = {"question": "一覧にしましょうか？", "session": 1}
+    asyncio.run(ip._paju().make_offer("一覧にしましょうか？", session=1))
     assert ip._deep_offer_material() is None
 
 
@@ -216,7 +218,7 @@ def test_an_interrupted_question_is_not_held():
         await ip.close()
 
     asyncio.run(go())
-    assert ip._offer is None
+    assert not ip._paju().offer_waiting()
 
 
 def test_held_empty_results_are_not_replaced_by_this_requests():

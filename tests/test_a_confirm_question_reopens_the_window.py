@@ -8,8 +8,11 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
+
+from familiar_agent.core.confirm_state import PendingConfirm
 
 from tests.test_the_window_governs_the_reply import _Clock, _ip
 
@@ -17,7 +20,10 @@ from tests.test_the_window_governs_the_reply import _Clock, _ip
 def _confirming_ip(monkeypatch, *, confirming: bool = True, speech_sec: float = 6.0):
     """窓は閉じている（45 秒前に開いて切れた）。声は `speech_sec` 秒かかる。"""
     a, ip = _ip(window_open=False, monkeypatch=monkeypatch)
-    a.confirm_alive = lambda: confirming
+    if confirming:  # 確認の持ち主は状態図（環-aw 第 3 段）
+        asyncio.run(
+            ip._paju().ask_confirm(PendingConfirm(action="set_timer", asked_at=time.time()))
+        )
     clock = _Clock(1000.0)
     monkeypatch.setattr("familiar_agent.loop.event_loop.time.monotonic", clock)
 
