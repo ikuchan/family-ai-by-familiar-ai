@@ -1725,6 +1725,12 @@ class EmbodiedAgent:
         _voice = voice_of(user_input)  # 声の特徴（知-ae）。`[名前]` を外すと印が落ちるので先に読む
         _no_speech, _logprob = measures_of(user_input)  # 書き起こしの確かさ（名前で起きる基準）
         _original = user_input  # 画面に出す本文（コマンドで返したときの「受けた」の知らせ）
+        # ── 寝ているあいだ（内省中）は、声も打った言葉も命令も捨てる（決定ク、ダ）。画面で知らせず（決定ヨ）、預からない。
+        # 命令も捨てるのは 2026-11-17 本人の決定。言葉の中身はログに出さない。
+        _sm = getattr(self, "paju_state", None)
+        if _sm is not None and _sm.is_sleeping():
+            logger.info("寝ているので捨てた（%s）", _source)
+            return ""
         # ── 声の登録（`/voice 名前`・知-ai）。受付中の声は会話の窓より前で登録だけに使う ─────────
         _voice_reply = self._handle_voice_command(user_input)
         if _voice_reply is not None:

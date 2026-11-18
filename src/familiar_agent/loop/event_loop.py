@@ -1840,6 +1840,13 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             logger.warning("event-loop 状態図に %s を送れなかった", event, exc_info=True)
 
+    async def _open_request(self, event: str) -> None:
+        """状態図で求めを開く（寝ていれば起きるまで待つ・`PajuState.open_request`）。状態図が落ちても、会話は止めない。"""
+        try:
+            await self._paju().open_request(event)
+        except Exception:  # noqa: BLE001
+            logger.warning("event-loop 状態図に %s を送れなかった", event, exc_info=True)
+
     async def _hear_again(self) -> None:
         """求めが閉じる所に届かずに終わった（例外・中断）。電子音を止め、耳を聞く側へ戻す（環-aw・出-dd）。"""
         self._stop_beeps()
@@ -3212,6 +3219,14 @@ class InformationProcessing:
         self._req.skills = []  # 窓の外で選んだスキルは、その求めのあいだだけ（環-au）
         self._req.accepted_offer = ""  # 器は求めをまたいで使い回す（出-dj）
         self._req.trigger_kind = kind
+        # 人が言った瞬間（タイマーの起点・知-n）。寝ていて待つときも、待つ前に取る（「3 分後」を内省の長さだけ遅らせない）
+        self._req.began_at = datetime.now(timezone.utc)
+        # 頭は考えている、耳は聞かない（環-aw）。話しかけない発火は声にしないので、耳を閉じない（決定ザ・2026-11-15）。
+        # 頭が寝ていれば、起きるまで待ってから開く（案 A′・2026-11-18 本人の決定）。種別が決まった直後に開くので、窓の番号と
+        # 起点の書き込みは起きたあとに決まる。
+        await self._open_request(
+            "quiet_request_opened" if self._never_speaks() else "request_opened"
+        )
         # 窓の会話の番号は、人の言葉なら門が決めた番号（環-ar 段 B）。始めるまでに窓が切れても、窓で受けた言葉の求めにする。
         # 門を通らない求め（情動・機器）と、門が番号を付けていない言葉は、いま窓が開いているかで決める。
         wake = self._wake_window()
@@ -3220,7 +3235,6 @@ class InformationProcessing:
         self._req.window_session = session or (
             wake.session if self._paju().window_open_at(time.monotonic()) else 0
         )
-        self._req.began_at = datetime.now(timezone.utc)  # 人が言った瞬間（タイマーの起点・知-n）
         self._req.request_text = text[:500]
         self._req.live_version_id = None
         self._ledger.close_request(self._req.lookups, state=_intents.CLOSED)
@@ -3246,8 +3260,6 @@ class InformationProcessing:
         obs_id = await self._write_origin(kind, text)
         self._req.request_id = obs_id
         self._notify_request_state(True)
-        # 頭は考えている、耳は聞かない（環-aw）。話しかけない発火は声にしないので、耳を閉じない（決定ザ・2026-11-15）。
-        await self._to_state("quiet_request_opened" if self._never_speaks() else "request_opened")
         # このターンを起こした記録を控え、前のターンとつなぐ。控えないと、問いだけが
         # やりとりの関係にも拡散想起の母集合にも入らない。
         self._note_origin(obs_id)

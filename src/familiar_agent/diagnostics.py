@@ -69,15 +69,18 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
 
     not_listening = ""
     music_gate = False
+    sleeping = False
     sm: Any = getattr(agent, "paju_state", None)
     try:
+        # 頭が寝ているか（内省中・環-aw 第 4 段・決定ダ）。状態図の写しでなく、頭の状態をそのまま読む
+        sleeping = bool(sm is not None and sm.is_sleeping())
         ear = sm.gate() if sm is not None else ""
         if ear == EAR_MUSIC:
             not_listening, music_gate = ear, True
         elif ear == EAR_TIMER:
             not_listening = str(getattr(sm, "gate_timer", "") or "タイマー")
     except Exception:  # noqa: BLE001
-        not_listening, music_gate = "", False
+        not_listening, music_gate, sleeping = "", False, False
 
     if agent_init_failed:
         phase = "error"
@@ -87,6 +90,11 @@ def build_gui_diagnostics(window: Any) -> GuiDiagnosticsSnapshot:
         phase = "startup"
         headline = "Starting up"
         detail = startup_status
+    elif sleeping:
+        # 寝ているあいだは、声も打った言葉も命令も捨てる（決定ク、ダ）。黙って聞かない理由を家族に見せる。
+        phase = "sleeping"
+        headline = "😴 寝ている（内省中）"
+        detail = "声も、打った言葉も、命令も届かない。2 分ほどで起きる。"
     elif agent_running:
         phase = "thinking"
         headline = "Thinking"

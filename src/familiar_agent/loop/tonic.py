@@ -476,6 +476,31 @@ class Tonic:
         except Exception:  # noqa: BLE001
             logger.warning("耳の入口を写せなかった", exc_info=True)
 
+    async def _maybe_sleep(self) -> None:
+        """眠くて頭が何もしていなければ、寝ているへ移って内省を回し、終えたら（落ちても）起きる（決定ダ、ナ、ク）。
+        状態図が無ければ何もしない（rest の発火の口が、すぐ内省する）。"""
+        sm = getattr(self._agent, "paju_state", None)
+        if sm is None:
+            return
+        if music_playing(self._agent):
+            # 鳴っているあいだは眠らず、眠いを持ち越す（どの軸も何もしない・環-ba。2026-11-18 本人の決定）
+            return
+        try:
+            asleep = await sm.fall_asleep()
+        except Exception:  # noqa: BLE001
+            logger.warning("眠れなかった（内省は次の輪で見直す）", exc_info=True)
+            return
+        if not asleep:
+            return
+        logger.info("Drive fired: rest → 内省パスへ（寝ている）")
+        try:
+            await run_rest_pass(self._agent)
+        finally:
+            try:
+                await sm.wake_up()
+            except Exception:  # noqa: BLE001
+                logger.warning("起きたことを状態図へ送れなかった", exc_info=True)
+
     async def _run(self) -> None:
         last = time.monotonic()
         while True:
@@ -490,6 +515,8 @@ class Tonic:
                 self._fire_timers()
                 # 鳴らしたあとに写す（鳴ったタイマーは入口を閉じない・決定ギ）
                 await self._copy_gate()
+                # 眠くて頭が何もしていなければ、ここで眠って内省する（決定ダ、ナ）。内省のあいだは、いままでどおり輪が止まる
+                await self._maybe_sleep()
                 firing, accumulated = await step_drives(
                     dt,
                     last_human_at=getattr(self._agent, "_last_human_at", None),
@@ -516,8 +543,16 @@ class Tonic:
                     # REST は人が居ても内省へ回す（出-ay 段 5a・2026-10-10 本人の決定ウ）。以前は誰も居ないときだけで、
                     # 人が居ると調停へ積み、表に無い軸として古い問いに落ちていた。人が居るときに回すと、その日の要約が
                     # 途中で切れうることと、約 2 分半ほかの情動が発火しないことを受け入れた。
-                    logger.info("Drive fired: rest → 内省パスへ")
-                    await run_rest_pass(self._agent)
+                    sm = getattr(self._agent, "paju_state", None)
+                    if sm is None:
+                        # 状態図の無い構成（試験の装置など）は、いままでどおりすぐ内省する
+                        logger.info("Drive fired: rest → 内省パスへ")
+                        await run_rest_pass(self._agent)
+                        continue
+                    # 眠いを置くだけ。眠るのは、頭が何もしていないになった輪で（求めを閉じるまで持ち越す・決定ナ）。
+                    # 待つあいだも輪は止めない（タイマーの見張りを遅らせない・決定ダ）
+                    logger.info("Drive fired: rest → 眠い（頭が何もしていなければ内省パスへ）")
+                    sm.feel_sleepy()
                     continue
                 prompt = inner_voice_for(axis, self._cfg)
                 logger.info("Drive fired: %s → QA へ積む%s", axis, self._solitude_note(axis))

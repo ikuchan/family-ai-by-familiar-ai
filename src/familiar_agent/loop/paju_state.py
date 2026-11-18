@@ -69,6 +69,7 @@ _NAMES = {
     "checking": "確かめている",
     "noting": "書き留めている",
     "answering": "答えを言っている",
+    "sleeping": "寝ている",
     "hearing": "聞いている",
     "deaf": "聞かない",
     "shut": "閉じている",
@@ -84,6 +85,10 @@ _NAMES = {
     "music_only": "音楽の言葉だけ通す",
     "timer_only": "タイマーの言葉だけ通す",
 }
+
+# 寝ているあいだに求めを開こうとした口が、起きたかを見直す間隔。眠ると起きるは自律機構の輪の上でしか変わらないので、
+# 輪の間隔（`tonic.TONIC_PERIOD_SEC`）と同じにする（案 A′・2026-11-18 本人の決定）
+WAKE_POLL_SEC = 0.5
 
 #: 耳の入口の状態の名前（決定ハ）。門（`event_loop._ear_drops`）と状態の行は、これで比べる。
 EAR_OPEN = _NAMES["ear_open"]
@@ -186,6 +191,8 @@ class PajuState(StateChart):
         self._starting: "asyncio.Future[None] | None" = None
         #: ループを閉じたら真。もう時間を数える仕事を立てない。
         self._timers_ended = False
+        #: 眠い（rest が発火したが、まだ眠っていない・決定ナの持ち越し）。頭が何もしていないになったら眠る。
+        self.sleepy = False
         super().__init__()
 
     class paju(State.Parallel):
@@ -200,6 +207,8 @@ class PajuState(StateChart):
                 noting = State()
 
             answering = State()
+            # 内省のあいだ（決定ダ、ク）。何もしていないからだけ入る（決定ナ）。求めを開く移りは持たない。
+            sleeping = State()
 
             request_opened = idle.to(thinking)
             # 話しかけない求め（seeking・safety・rest の発火）を開いた。耳の領域には移りを置かない（耳は聞いたまま・決定ザ）。
@@ -213,13 +222,17 @@ class PajuState(StateChart):
             speech_began = thinking.to(answering)
             speech_ended = answering.to(thinking.noting)
             request_closed = thinking.to(idle) | answering.to(idle)
+            sleep_began = idle.to(sleeping)  # 眠くなった（自律機構の rest の発火・`fall_asleep`）
+            woke = sleeping.to(idle)  # 起きた（内省の層を全部終えた。落ちても送る）
 
         class ear(State.Parallel):
             class listening(State.Compound):
                 hearing = State(initial=True)
                 deaf = State()
 
-                request_opened = hearing.to(deaf)
+                # 禁止の条件：頭が寝ているあいだは、求めを開いても耳を移さない（頭にも移りが無いので、状態図が捨てる・決定エ、ダ）。
+                # 求めを開く口（`open_request`）は寝ているあいだ送らないので、これは `fire` で直に送る口への備え
+                request_opened = hearing.to(deaf, unless="is_sleeping")
                 # 言っているあいだは、いつも聞かない（決定モ）。途中の確認の問いのあとで聞いていても、次の答えでまた閉じる。
                 speech_began = hearing.to(deaf)
                 speech_ended = deaf.to(hearing)
@@ -810,7 +823,8 @@ class PajuState(StateChart):
         q = self.question
         if q is None or q.kind != "offer":
             return
-        if event == "window_lapsed" and self.head_state() != "idle":
+        # 寝ているあいだも、何もしていないと同じく戻す（窓に答える人を待っていない・決定ダ）
+        if event == "window_lapsed" and self.head_state() in ("thinking", "answering"):
             return
         if event == "request_closed" and self._in("open"):
             return
@@ -982,9 +996,57 @@ class PajuState(StateChart):
         return any(s.id == "deaf" for s in self.configuration)
 
     def head_state(self) -> str:
-        """頭の今の状態（`idle`・`thinking`・`answering`）。活性化の前は `idle` とみなす。"""
+        """頭の今の状態（`idle`・`thinking`・`answering`・`sleeping`）。活性化の前は `idle` とみなす。"""
         ids = {s.id for s in self.configuration}
-        return next((n for n in ("thinking", "answering") if n in ids), "idle")
+        return next((n for n in ("thinking", "answering", "sleeping") if n in ids), "idle")
+
+    # ── 頭の寝ている（第 4 段・決定ダ、ナ、ク）────────────────────────────────────────────
+
+    def is_sleeping(self) -> bool:
+        """頭が寝ているか。"""
+        return self.head_state() == "sleeping"
+
+    def feel_sleepy(self) -> None:
+        """眠いを置く（自律機構の rest の発火）。眠るのは、頭が何もしていないになってから（`fall_asleep`）。"""
+        self.sleepy = True
+
+    async def fall_asleep(self) -> bool:
+        """眠くて、頭が何もしていないなら寝ているへ移り、眠いを消して真を返す。考えているか答えを言っているあいだは、
+        眠いを残して偽（求めを閉じるまで持ち越す・決定ナ）。"""
+        if not self.sleepy:
+            return False
+        await self.start()
+        async with self._turn():  # 見てから送るまでに、求めを開く事象を割り込ませない（決定ン）
+            if self.head_state() != "idle":
+                return False
+            await self._fire("sleep_began")
+            if self.head_state() != "sleeping":
+                return False  # 捨てられた（`_fire` は例外を出さない）。眠いは残し、次の輪で見直す
+            self.sleepy = False
+            return True
+
+    async def open_request(self, event: str) -> None:
+        """求めを開く（`request_opened` か `quiet_request_opened`）。頭が寝ていれば、起きるまで待ってから開く。
+
+        眠る口（`fall_asleep`）と同じ順番の中で見て送るので、どちらが先でも、寝ていると考えているは同時に成り立たない。
+        捨てずに待たせるのは、機器の知らせが積む前に済ませていることがあるから（タイマーは鳴った印を付けてから積む・
+        案 A′・2026-11-18 本人の決定）。寝ているあいだに届いた言葉と命令は、ここへ来る前に `agent.run` が捨てる。
+        """
+        await self.start()
+        told = False
+        while True:
+            async with self._turn():
+                if self.head_state() != "sleeping":
+                    await self._fire(event)
+                    return
+            if not told:
+                logger.info("頭が寝ているので、起きるまで求めを始めずに待つ（%s）", event)
+                told = True
+            await asyncio.sleep(WAKE_POLL_SEC)
+
+    async def wake_up(self) -> None:
+        """起きた（内省を終えた。落ちても呼ぶ）。"""
+        await self.fire("woke")
 
     def thinking_child(self) -> str:
         """考えているの今の子の名前。考えていなければ空。"""
@@ -994,7 +1056,7 @@ class PajuState(StateChart):
     def describe(self) -> str:
         """各領域の今の状態を 1 行で（ログ用）。"""
         ids = {s.id for s in self.configuration}
-        head = next((n for n in ("idle", "thinking", "answering") if n in ids), "")
+        head = next((n for n in ("idle", "thinking", "answering", "sleeping") if n in ids), "")
         if head == "thinking":
             child = self.thinking_child()
             head_text = f"{_NAMES[head]}/{_NAMES[child]}" if child else _NAMES[head]

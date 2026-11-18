@@ -18,6 +18,7 @@ import pytest
 
 from familiar_agent.core.drive_dynamics import DriveFiring
 from familiar_agent.drive_register import AiDrivers
+from familiar_agent.loop.paju_state import PajuState
 from familiar_agent.loop.tonic import Tonic
 
 
@@ -84,7 +85,10 @@ def _run_until(firing, *, occupancy, predicate, timeout_ticks: int = 400):
             ),
             patch("familiar_agent.loop.tonic.run_rest_pass", new=rest_pass),
         ):
-            t = Tonic(ip, agent=MagicMock(), period=0.01, occupancy=occupancy)
+            agent = MagicMock()
+            # 状態図を持つ装置（眠いを置いて、次の輪で眠る・環-aw 第 4 段）
+            agent.paju_state = PajuState()
+            t = Tonic(ip, agent=agent, period=0.01, occupancy=occupancy)
             t.start()
             for _ in range(timeout_ticks):
                 if predicate(ip, rest_pass):
