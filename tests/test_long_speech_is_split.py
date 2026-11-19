@@ -167,7 +167,8 @@ def test_cutting_it_off_also_stops_making_the_next_piece():
 
 
 def test_the_voice_guard_stays_up_for_the_whole_reply():
-    """声の門は返事全体で 1 回立て、話し終わるまで下げない（かたまりの境の自分の声を取り違えない）。"""
+    """言った文は返事全体で覚える（かたまりの境の自分の声を取り違えない）。声の門が話し終わるまで下がらないのは、
+    状態図の声の話している（dif が返事全体で 1 回送る・環-aw 第 5 段）。"""
     from unittest.mock import MagicMock
 
     tool = _tool()
@@ -175,8 +176,8 @@ def test_the_voice_guard_stays_up_for_the_whole_reply():
     guard = MagicMock()
     tool._voice_guard = guard
     asyncio.run(tool.say(LONG))
-    guard.on_tts_start.assert_called_once_with(LONG)
-    guard.on_tts_end.assert_called_once()
+    # 分けて鳴らしても、言った文は全文で覚える（言い始めと、鳴った言い終わりの 2 回）
+    assert [c.args for c in guard.remember.call_args_list] == [(LONG,), (LONG,)]
 
 
 def test_another_voice_waits_until_the_long_reply_ends():

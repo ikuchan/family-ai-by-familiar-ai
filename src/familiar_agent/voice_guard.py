@@ -1,10 +1,16 @@
-"""Voice-loop guard for TTS -> realtime STT echo suppression."""
+"""Voice-loop guard for TTS -> realtime STT echo suppression.
+
+声が出ているか（話している）は、見張りが数えずに、つないだ読み口から読む。読み口は、ループが作った状態図の声の話している
+（環-aw 第 5 段・`InformationProcessing._paju`）。状態は状態図、見張りのデータ（言った文の印、話し終えてからの 1.2 秒、
+こだまの数え）は見張りに持つ。話し終えたことは、状態図の話しているを出る動作が `after_speech` で知らせる。
+"""
 
 from __future__ import annotations
 
 import re
 import time
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass
 from difflib import SequenceMatcher
 
@@ -54,17 +60,22 @@ class VoiceLoopGuard:
         self._fingerprint_ttl_secs = fingerprint_ttl_secs
         self._loop_window_secs = loop_window_secs
         self._loop_trigger_count = loop_trigger_count
-        self._speaking_count = 0
+        #: 声が出ているかの読み口（状態図の声の話している）。つないでいなければ出ていないと読む。
+        self._speaking_reader: Callable[[], bool] | None = None
         self._suppressed_until = 0.0
         self._recent_tts_fingerprints: deque[tuple[str, float]] = deque()
         self._loop_fingerprint = ""
         self._loop_counter = 0
         self._loop_last_time = 0.0
 
+    def attach(self, speaking: Callable[[], bool] | None) -> None:
+        """声が出ているかの読み口をつなぐ（ループが状態図を作るとき）。"""
+        self._speaking_reader = speaking
+
     @property
     def speaking(self) -> bool:
-        """True while TTS playback is active."""
-        return self._speaking_count > 0
+        """True while Paju's voice is playing (read from the attached chart)."""
+        return self._speaking_reader is not None and bool(self._speaking_reader())
 
     @property
     def gated(self) -> bool:
@@ -76,25 +87,23 @@ class VoiceLoopGuard:
         """Current watchdog counter for repeated self-echo candidates."""
         return self._loop_counter
 
-    def on_tts_start(self, text: str) -> None:
-        """Enter speaking mode before playback begins."""
-        self._speaking_count += 1
+    def remember(self, text: str) -> None:
+        """言った文の印を覚える（声の担い手が、言い始めと、鳴った言い終わりに呼ぶ）。"""
         normalized = _normalize_voice_text(text)
         if normalized:
             self._remember_fingerprint(normalized, _guard_now())
 
-    def on_tts_end(self, text: str, *, played: bool) -> None:
-        """Exit speaking mode after playback, optionally arming the suppression window."""
-        if self._speaking_count > 0:
-            self._speaking_count -= 1
+    def after_speech(self, *, played: bool) -> None:
+        """話し終えた（状態図の話しているを出る動作から）。鳴ったときだけ、そこから 1.2 秒を数える。
+
+        声は dif の声の鍵で 1 本ずつ通るので、ほかの声がまだ鳴っていることは無い。
+        """
         now = _guard_now()
-        normalized = _normalize_voice_text(text)
-        if played and normalized:
-            self._remember_fingerprint(normalized, now)
+        if played:
             self._suppressed_until = max(
                 self._suppressed_until, now + self._suppression_window_secs
             )
-        elif not self.speaking:
+        else:
             self._suppressed_until = min(self._suppressed_until, now)
 
     def should_gate_partial(self, text: str) -> bool:

@@ -198,31 +198,15 @@ def arrived_at(text: str, *, now: "float | None" = None) -> float:
 class WakeWindow:
     """会話として受ける窓。`until` は窓が閉じる時刻（`time.monotonic()` の秒）。"""
 
+    #: 話していて窓を保っているあいだは無限（`PajuState.on_enter_speaking`）。長い返事を話しているうちに窓が切れ、
+    #: 聞き返しへの返事を窓の外として捨てたため（2026-10-07 実機 23:18）。
     until: float = 0.0
-    #: いま鳴っている声の数。鳴っているあいだは `until` を過ぎても開いている（2026-10-07 実機 23:18）。
-    speaking: int = 0
     #: 窓の会話の番号と、その会話が始まった時刻（環-ar 段 A）。閉じた窓を開けるたびに番号が進む。
     session: int = 0
     started: float = 0.0
 
     def is_open(self, now: float) -> bool:
-        return self.speaking > 0 or now < self.until
-
-    def hold(self) -> None:
-        """話し始め（窓が開いているときだけ呼ぶ）。話し終わる（`release`）まで閉じない。
-
-        窓を残り時間で数えていると、長い返事を話しているうちに切れ、聞き返しへの返事を窓の外として捨てた
-        （2026-10-07 実機 23:18：「何の曲にしますか？」の後の「いいですよ」を 3 回）。
-        """
-        self.speaking += 1
-
-    def release(self, now: float) -> None:
-        """話し終わり。声がみな鳴り終わったら、そこから `WAKE_WINDOW_SEC`（本人「話し終わってから１０秒」）。"""
-        if self.speaking <= 0:
-            return
-        self.speaking -= 1
-        if self.speaking == 0:
-            self.until = max(self.until, now + WAKE_WINDOW_SEC)
+        return now < self.until
 
     def open(self, now: float, *, resume: bool = False) -> None:
         """名前を聞いた・キーボードで打たれた。そこから `WAKE_WINDOW_SEC`（縮めない）。
@@ -245,4 +229,3 @@ class WakeWindow:
 
     def close(self) -> None:
         self.until = 0.0
-        self.speaking = 0

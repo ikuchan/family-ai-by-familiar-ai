@@ -60,15 +60,39 @@ def test_beeps_while_music_plays():
     assert len(beeps) >= 3
 
 
-def test_beeps_rest_while_a_cue_sounds():
-    """**反証の側**：合図の声が鳴っているあいだは休む（つなぎの声は出-cl 段 3 で撤去）。"""
+@pytest.mark.parametrize("began", ["cue_began", "thinking_cue_began"])
+def test_beeps_rest_while_a_cue_sounds(began):
+    """**反証の側**：口の声が合図か考え中の音のあいだは休む（環-aw 第 5 段・声の状態から読む）。"""
     ip, beeps = _ip()
 
     async def voice():
-        ip._cue_sound = asyncio.ensure_future(asyncio.sleep(10))
+        await ip._paju().start()
+        await ip._paju().fire(began)
 
     _run(ip, seconds=0.3, during=voice)
     assert beeps == []
+
+
+def test_beeps_come_back_when_the_cue_ends():
+    """合図が終わって声がなしへ戻れば、また鳴る（休むのは声の状態のあいだだけ）。"""
+    ip, beeps = _ip()
+    counts: list[int] = []
+
+    async def go():
+        sm = ip._paju()
+        await sm.start()
+        await sm.fire("cue_began")
+        await ip._to_state("request_opened")
+        await asyncio.sleep(0.2)
+        counts.append(len(beeps))
+        await sm.fire("cue_ended")
+        await asyncio.sleep(0.3)
+        counts.append(len(beeps))
+        ip._stop_beeps()
+        await ip.close()
+
+    asyncio.run(go())
+    assert counts[0] == 0 and counts[1] >= 2
 
 
 def test_the_answer_stops_the_beeps(caplog):
@@ -170,16 +194,24 @@ def test_no_beeps_while_answering():
     assert kinds and set(kinds) <= {"recalling"}
 
 
-def test_beeps_rest_while_the_judging_sound_plays():
-    """Jev が判断しているあいだは機械音 A が鳴り続けるので、電子音は重ねずに休む（出-bg）。"""
+def test_beeps_rest_while_the_judging_sound_plays(monkeypatch):
+    """Jev が判断しているあいだは機械音 A が鳴り続けるので、電子音は重ねずに休む（出-bg）。
+
+    休むのは、dif が送る口の声「考え中の音」から読む（環-aw 第 5 段）。鳴らす口だけを偽にし、鳴り終えない。
+    """
+    from familiar_agent.io import dif as dif_mod
+
     ip, _ = _ip()
     ip._req.source = "voice"
     ip._req.trigger_kind = "発話"
 
-    async def forever():
+    async def forever(path, gain, *, quiet=False):
         await asyncio.sleep(10)
+        return True
 
+    monkeypatch.setattr(dif_mod, "_play_wav", forever)
     kinds: list[str] = []
+    seen: list[str] = []
 
     async def beep(kind):
         kinds.append(kind)
@@ -188,18 +220,20 @@ def test_beeps_rest_while_the_judging_sound_plays():
     ip._dif.beep = beep  # type: ignore[method-assign]
 
     async def go():
-        from familiar_agent.io.dif import _Thinking
-
-        ip._dif.start_thinking = lambda: _Thinking(asyncio.ensure_future(forever()))  # type: ignore[method-assign]
+        await ip._paju().start()
         cue = ip._start_reaction_cue([])
+        for _ in range(5):  # 考え中の音の始まりが状態図へ届くまで（dif の仕事が送る）
+            await asyncio.sleep(0)
         await ip._to_state("request_opened")
         await asyncio.sleep(0.15)
+        seen.append(ip._paju().voice_state())
         cue.stop()
         ip._stop_beeps()
         await ip.close()
 
     asyncio.run(go())
     assert kinds == []
+    assert seen == ["thinking_cue"]
 
 
 def test_a_cue_no_longer_starts_the_beeps():

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -211,8 +212,8 @@ async def test_committed_relay_drops_recent_tts_echo(monkeypatch) -> None:
     monkeypatch.setattr("familiar_agent.voice_guard._guard_now", lambda: next(ts))
 
     guard = VoiceLoopGuard(suppression_window_secs=1.0)
-    guard.on_tts_start("こんにちは")
-    guard.on_tts_end("こんにちは", played=True)
+    guard.remember("こんにちは")
+    guard.after_speech(played=True)
 
     session = RealtimeSttSession("dummy", voice_guard=guard)
     committed_q: asyncio.Queue[str] = asyncio.Queue()
@@ -238,8 +239,8 @@ async def test_committed_relay_schedules_restart_after_loop_watchdog(monkeypatch
     monkeypatch.setattr("familiar_agent.voice_guard._guard_now", lambda: next(guard_ts))
 
     guard = VoiceLoopGuard(suppression_window_secs=2.0, loop_trigger_count=3)
-    guard.on_tts_start("おはよう")
-    guard.on_tts_end("おはよう", played=True)
+    guard.remember("おはよう")
+    guard.after_speech(played=True)
 
     session = RealtimeSttSession("dummy", voice_guard=guard)
     committed_q: asyncio.Queue[str] = asyncio.Queue()
@@ -347,3 +348,20 @@ def test_hesitations_are_still_dropped() -> None:
     """**反証の側**：言いよどみは今のまま捨てる。"""
     for word in ("えー", "ええと", "えっと", "あの", "その", "うーん", "んー"):
         assert should_skip_stt(word) is True
+
+
+@pytest.mark.asyncio
+async def test_mic_audio_is_dropped_while_the_chart_says_speaking() -> None:
+    """マイクの音は、状態図の声が話しているあいだ送らない（録音の声のあいだも・環-aw 第 5 段）。"""
+    voice = {"speaking": True}
+    guard = VoiceLoopGuard()
+    guard.attach(lambda: voice["speaking"])
+    session = RealtimeSttSession("dummy", voice_guard=guard)
+    client = AsyncMock()
+    client.connected = True
+    session._stt_client = client
+    await session._send_audio(b"\x00\x00")
+    client.send_audio.assert_not_awaited()
+    voice["speaking"] = False
+    await session._send_audio(b"\x00\x00")
+    client.send_audio.assert_awaited_once()

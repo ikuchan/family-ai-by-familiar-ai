@@ -34,6 +34,7 @@ from ..store import clock
 from .arbiter import CONFIRM_QUERY, Arbiter, ArbiterInput, Decision as ArbiterDecision
 from ..store.relations import KIND_EXCHANGE, KIND_REVISION, KIND_SUCCESSION
 from ..io.dif import DIF
+from ..voice_guard import get_shared_voice_guard
 from ..core import (
     family_now,
     final_version,
@@ -943,7 +944,6 @@ class InformationProcessing:
         #: 裏で書いている版と、版を書く列の最後（出-bz-ろ）。版は 1 本の鎖なので、頼まれた順に 1 つずつ書く。
         self._version_writes: "set[asyncio.Future]" = set()
         self._version_tail: "asyncio.Future[str | None] | None" = None
-        self._cue_sound: "asyncio.Future[None] | None" = None  # いま鳴らしている合図（出-bd ②）
         # 申告（軽量LLM）は**打ち切っても消さない**ので、`_background_tasks` とは別に持つ。
         # 主LLM の返りは言い直されれば古くなるが、申告は「実際にその記憶を使った」という
         # 事実で、あとから古くならない（出-h-ろ）。
@@ -1774,9 +1774,8 @@ class InformationProcessing:
         return any(lk.in_flight and lk.action == "主LLM" for lk in self._req.lookups)
 
     def _sounding(self) -> bool:
-        """合図の声が、いま鳴っているか（鳴っているあいだ待ちの電子音は休む・出-bu）。"""
-        cue = getattr(self, "_cue_sound", None)
-        return cue is not None and not cue.done()
+        """口の声が合図か考え中の音か（鳴っているあいだ待ちの電子音は休む・出-bu）。声の状態は dif が送る（環-aw 第 5 段）。"""
+        return self._paju().voice_state() in ("thinking_cue", "cue")
 
     def _ensure_wait_watch(self) -> None:
         """待たせている時間の見張りを、**求めごとに 1 本**立てる（出-au 段 2）。立っていれば何もしない。"""
@@ -1810,17 +1809,14 @@ class InformationProcessing:
                 restore_silence=lambda: silence_state.load_silence(),
                 confirm_ttl_sec=self._agent.config.confirm_ttl_sec,
                 heard_ttl_sec=HEARD_CHECK_TTL_SEC,
+                on_speech_ended=lambda played: get_shared_voice_guard().after_speech(played=played),
             )
+            # 自分の声の見張り（マイクの門）は、声が出ているかをこの状態図の話しているから読む（環-aw 第 5 段）。
+            get_shared_voice_guard().attach(lambda: sm.voice_state() == "speaking")
             # タイマーの沈黙（`agent._hush_for_timer`）も同じ状態図へ送る。
             with contextlib.suppress(Exception):
                 self._agent.paju_state = sm
         return sm
-
-    def is_silenced_now(self) -> bool:
-        """いま黙っているか（トニックの知らせの門・環-z）。状態図の依頼を、いまの時刻で決める。"""
-        from ..silence_state import is_silenced
-
-        return is_silenced(self._paju().silence_request(), now=time.time())
 
     def _tell_timed_out(self) -> None:
         """考えているが 3 分に届いた（状態図の数える仕事から）。待ち行列に積み、駆動体が時間切れの答えを言う（項目 8）。
@@ -1900,7 +1896,7 @@ class InformationProcessing:
                 kind = self._paju().thinking_child()
                 # 声を出さない求め（情動と機器で、人が居ない）では鳴らさない。口は相手が居なければ動かない
                 # （2026-11-09・本人の決定）。声とキーボードの求めは門が理由を返さないので、いつも鳴らす。
-                # 話しかけない発火（seeking・safety・rest）は人が居ても声にしないので、答えの来ない電子音を鳴らさない
+                # 話しかけない発火（seeking・safety）は人が居ても声にしないので、答えの来ない電子音を鳴らさない
                 # （決定ロ・2026-11-15）。
                 if (
                     not kind
@@ -3292,7 +3288,7 @@ class InformationProcessing:
         0 に戻った。駆動体の中で判定すると、反復を回している間（調停は最大 5 秒）は判定も打ち切りも遅れる。
 
         **名前で呼ばれても打ち切らない**（環-aw 決定ホ・第 1 段 項目 9）。名前の無い入力は、飛行中の調べものがある間は
-        待たせる（`_take_trigger`）。ただし話しかけない求め（seeking・safety・rest の発火）は、門を通った言葉で駆動体が
+        待たせる（`_take_trigger`）。ただし話しかけない求め（seeking・safety の発火）は、門を通った言葉で駆動体が
         打ち切って答える（決定ジ）。
 
         `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
@@ -4459,10 +4455,7 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             logger.debug("event-loop 機械音を鳴らせなかった", exc_info=True)
             return None
-        future = getattr(thinking, "future", None)
-        if isinstance(future, asyncio.Future):
-            # 機械音 A が鳴っているあいだ、待ちの電子音は重ねずに休む（`_sounding`）。
-            self._cue_sound = future
+        # 機械音 A が鳴っているあいだ、待ちの電子音は重ねずに休む（声＝考え中の音・`_sounding`）。
         return _ReactionCue(self, thinking)
 
     def _arbiter(self) -> Arbiter:
@@ -5142,6 +5135,8 @@ class InformationProcessing:
         **確かめたうえで掛けたタイマーとアラームが鳴った求めは通り抜ける**（知-n、知-q、`passes_gate`）。頼んだ本人が
         「静かな時間でも鳴らしていい」と言ったものなので、在席にも掛けない。音楽の知らせ（知-aa、`tonic`）も、この門はいつも通り抜ける。
         黙っている依頼は入口（`silence_hold.lifts`）で見るので、黙っているあいだに入口を通る機器はタイマーだけである。
+        声を鳴らす dif も黙るかを見るが、止めるのは求めの外の声（閉じたあとの申し出、クレジットの知らせ）だけで、
+        開いている求めの声は通す（`_say_aloud` の `through_silence`・環-aw 第 5 段）。
         """
         agent = self._agent
         if getattr(self._req, "passes_gate", False):
@@ -5622,12 +5617,10 @@ class InformationProcessing:
 
         logger.debug("event-loop 黙ったので黙る音を鳴らす（%s）", why)
         try:
-            task = self._dif.play_cue(rc.SILENT)
+            # 鳴っているあいだ、待ちの電子音は休む（声＝合図・`_sounding`）。
+            self._dif.play_cue(rc.SILENT)
         except Exception:  # noqa: BLE001
             logger.warning("event-loop 黙る音を鳴らせなかった（%s）", why, exc_info=True)
-            return
-        if task is not None:
-            self._cue_sound = task  # 鳴っているあいだ、待ちの電子音は休む（`_sounding`）
 
     def _skill_store(self) -> "list[str]":
         """選んだスキルの貯め場所（環-au）。窓の会話の中なら窓の会話（窓が閉じるまで）、窓の外ならいまの求め。"""
@@ -6186,7 +6179,10 @@ class InformationProcessing:
 
         if self._delivery_block_reason():
             return
-        await self._say_aloud(OFFER_TEXT)
+        if not await self._say_aloud(OFFER_TEXT):
+            # 黙っていて dif が止めた。言っていない問いを預けない（環-aw 第 5 段）
+            logger.info("event-loop 黙っているので、深く調べるかを問わなかった")
+            return
         if gen is not None and gen != self._request_generation:
             return  # 問いのあいだに次の求めが始まった。古い問いを預けない
         to = self._current_speaker_name()
@@ -6247,41 +6243,51 @@ class InformationProcessing:
         倍率を渡し忘れ、普段の 4 倍の声で鳴った（2026-10-07 実機 23:18:39「承知いたしました。少々お待ちください。」）。
 
         `recording` を渡すと、声を作らずに録音済みの声 `sounds/<recording>.wav` を鳴らす（時間切れの一言・項目 8）。
-        返りは、録音を鳴らせなかったときだけ偽（声はいままでどおり、出せなくても真）。
+        返りは、録音を鳴らせなかったときと、黙っていて dif が止めたときに偽（声はいままでどおり、出せなくても真）。
+
+        求めが開いているあいだ（頭が考えている・言っている）の声は、黙っていても通す印（`through_silence`）を付けて渡す。
+        黙っていて入口を通る求め（タイマーを掛ける・鳴る、本人の「話していい」）の返事だからである。閉じたあとの声
+        （深く調べるかの申し出）には付けない。dif が止めたら（None）、言ったことにせず、窓も開けない（環-aw 第 5 段）。
         """
-        # 会話の求めで窓が開いていれば、話しているあいだは開けておき、話し終わりから 10 秒にする（本人
-        # 「話し終わってから１０秒」）。閉じていれば触らない——声で窓を開け直さない（確認待ちと名前で受けた話しかけと、話しかける発火の一言は
-        # 話し終わりに開ける・下の finally）。
+        # 窓が開いていれば、話しているあいだは開けておき、話し終わりから 10 秒にする。保つのは状態図の声の話している
+        # （dif が送る・環-aw 第 5 段）。閉じていれば触らない——声で窓を開け直さない（確認待ちと名前で受けた話しかけと、
+        # 話しかける発火の一言は話し終わりに開ける・下の finally）。
         wake = self._wake_window()
-        hold = self._req.trigger_kind == "発話" and self._paju().window_open_at(time.monotonic())
-        if hold:
-            await self._paju().hold_window()
         # 言い始めを送るのは、頭が考えているときだけ。何もしていないとき（求めを閉じたあとの、深く調べるかの申し出）と、
         # もう言っているとき（内側の声）は送らない（移りが無く、捨てたログになる）。言い終わりも、言っているあいだに
         # 打ち切られて頭が何もしていないへ戻っていたら送らない。
-        began = self._paju().head_state() == "thinking"
+        head = self._paju().head_state()
+        began = head == "thinking"
+        through = head in ("thinking", "answering")  # 求めが開いている
         if began:
             await self._to_state("speech_began")  # 頭は答えを言っている（環-aw 決定ツ）
         played = True
+        held = False  # 黙っていて dif が止めた（None）
         voiced = False  # 声が出たか（落ちたり録音を鳴らせなかったりしたら偽。話しかける発火の窓はこれで開ける）
         try:
             if recording is not None:
-                played = await self._dif.say_recorded(
-                    recording, gain=self._voice_gain() if gain is None else gain
+                out = await self._dif.say_recorded(
+                    recording,
+                    gain=self._voice_gain() if gain is None else gain,
+                    through_silence=through,
                 )
+                played = bool(out)
             else:
-                await self._dif.speak(
-                    text, gain=self._voice_gain() if gain is None else gain, careful=careful
+                out = await self._dif.speak(
+                    text,
+                    gain=self._voice_gain() if gain is None else gain,
+                    careful=careful,
+                    through_silence=through,
                 )
+                played = out is not None
+            held = out is None
             voiced = played
         finally:
             # 再生に失敗しても話し終えたことにする（決定ツ）。頭は書き留めている、耳は聞く（決定モ）。
             # 自分が言い始めを送った呼び出しだけが言い終わりを送る（言っているあいだの内側の声で、外の答えを終えない）。
             if began and self._paju().head_state() == "answering":
                 await self._to_state("speech_ended")
-            if hold:
-                await self._paju().release_window(time.monotonic())
-            if (
+            if not held and (
                 self._confirming()
                 or (self._req.trigger_kind == "発話" and self._req.named)
                 or (self._talking() and voiced)
@@ -6937,8 +6943,8 @@ class _ReactionCue:
         task = self._ip._dif.play_cue(cue)
         if task is None:
             return
-        self._ip._req.cue_played = True  # 黙ったら黙る音を鳴らす目印（出-dc）
-        self._ip._cue_sound = task  # 合図が鳴っているあいだ、待ちの電子音は休む（`_sounding`）
+        # 黙ったら黙る音を鳴らす目印（出-dc）。合図が鳴っているあいだ、待ちの電子音は休む（声＝合図・`_sounding`）。
+        self._ip._req.cue_played = True
 
     def stop(self) -> None:
         with contextlib.suppress(Exception):

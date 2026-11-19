@@ -7,8 +7,11 @@
   （`deaf`）。窓（`window`）は、閉じている（`shut`）、開いている（`open`）、仮の呼びかけ（`tentative`）（第 2 段）。
   待っている答え（`awaited`）は、答えなし（`no_answer`）、確認（`confirm_answer`）、申し出（`offer_answer`）、
   聞き返し（`heard_answer`）（第 3 段）。
-- 口：いまは黙るか（`hush`）の 1 つの領域だけを持つ。話してよい（`may_speak`）、黙っている（`silent`）（第 2 段。
-  黙っているあいだも耳は聞いていて、答えを声にしないだけなので、口に置く）。
+- 口：並行の 2 つの領域を持つ。黙るか（`hush`）は、話してよい（`may_speak`）、黙っている（`silent`）（第 2 段。
+  黙っているあいだも耳は聞いていて、答えを声にしないだけなので、口に置く）。声（`voice`）は、いま口から何が出ているか
+  で、なし（`no_voice`）、考え中の音（`thinking_cue`・機械の音A）、合図（`cue`・効果音B、はいっ、えっと、黙る音）、
+  話している（`speaking`・作った声も録音の声も、パジュの声のすべて）（第 5 段）。声の事象を送るのは dif だけで、
+  声は dif の声の鍵で 1 本ずつ通す（状態は数を持たないので、重なった声を数えられない）。
 
 同じ状態へ戻る移りは、外へ出て入り直す形（`x.to.itself()`）にする。`internal=True` の形では、並行の領域の中で
 ほかの領域の状態が二重になった（python-statemachine 3.2.2）。
@@ -22,7 +25,7 @@
 順番が来たら状態をデータに合わせる。なしへ戻す仕事は、自分の問いのデータがまだ置かれているときだけ消す。移りは
 打ち切りから守って送る（決定ズ）。
 
-話しかけない求め（seeking・safety・rest の発火）は `quiet_request_opened` で開く。頭は考えているへ移るが、耳の領域には
+話しかけない求め（seeking・safety の発火）は `quiet_request_opened` で開く。頭は考えているへ移るが、耳の領域には
 この事象の移りが無いので、耳は聞いたまま（決定ザ・2026-11-15）。声にしない求めのあいだに届いた声を捨てないため。
 
 **耳は事象で動かす。頭に入るときの動作には付けない。** 答えのあと、頭は書き留めのために考えているへ戻るが、
@@ -42,6 +45,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+import math
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -77,6 +81,10 @@ _NAMES = {
     "tentative": "仮の呼びかけ",
     "may_speak": "話してよい",
     "silent": "黙っている",
+    "no_voice": "なし",
+    "thinking_cue": "考え中の音",
+    "cue": "合図",
+    "speaking": "話している",
     "no_answer": "なし",
     "confirm_answer": "確認",
     "offer_answer": "申し出",
@@ -89,6 +97,9 @@ _NAMES = {
 # 寝ているあいだに求めを開こうとした口が、起きたかを見直す間隔。眠ると起きるは自律機構の輪の上でしか変わらないので、
 # 輪の間隔（`tonic.TONIC_PERIOD_SEC`）と同じにする（案 A′・2026-11-18 本人の決定）
 WAKE_POLL_SEC = 0.5
+
+#: 口の声の状態（第 5 段）。
+VOICE_STATES = ("no_voice", "thinking_cue", "cue", "speaking")
 
 #: 耳の入口の状態の名前（決定ハ）。門（`event_loop._ear_drops`）と状態の行は、これで比べる。
 EAR_OPEN = _NAMES["ear_open"]
@@ -135,11 +146,14 @@ class PajuState(StateChart):
         restore_silence: "Callable[[], SilenceRequest | None] | None" = None,
         confirm_ttl_sec: float = 300.0,
         heard_ttl_sec: float = 30.0,
+        on_speech_ended: "Callable[[bool], None] | None" = None,
     ) -> None:
         #: 考えているの子に入ったときに呼ぶ口（子の名前を渡す）。ループが電子音を鳴らす（決定テ）。
         self._on_child = on_child
         #: 頭が何もしていないに入ったときに呼ぶ口。ループが電子音の仕事を片付ける（求めの閉じ方によらない）。
         self._on_idle = on_idle
+        #: 声の話しているを出たときに呼ぶ口（鳴ったかを渡す）。ループが自分の声の見張りの 1.2 秒を数えさせる（第 5 段）。
+        self._on_speech_ended = on_speech_ended
         #: 考えているの合計の上限（秒・決定ミ）。無ければ数えない。
         self._limit_sec = thinking_limit_sec
         #: 上限に届いたときに呼ぶ口。ループが時間切れの答えを始める（項目 8）。数える仕事からだけ呼ぶ——電子音を
@@ -153,7 +167,7 @@ class PajuState(StateChart):
         #: 窓のデータ（第 2 段）。窓の中だったかは、届いた時刻（話し始め）でこのデータから決める（決定 2）。
         #: 状態（閉じている、開いている）は、移りとログのために持ち、時間で切れるのは数える仕事が送る。
         self.wake = WakeWindow()
-        #: 窓の時間を数える仕事。話しているあいだ（`speaking` が 1 以上）は立てない。
+        #: 窓の時間を数える仕事。話していて窓を保っているあいだ（`wake.until` が無限）は立てない。
         self._window_task: "asyncio.Task[None] | None" = None
         #: 数える仕事が `window_lapsed` を送っているあいだ真。そのあいだは仕事を止めない（送り終えてから見直す）。
         self._window_sending = False
@@ -187,6 +201,11 @@ class PajuState(StateChart):
         #: 長く使う。`InformationProcessing._ensure_driver` と同じ）。
         self._turn_lock: "asyncio.Lock | None" = None
         self._turn_loop: "asyncio.AbstractEventLoop | None" = None
+        #: 声の鍵（第 5 段）。dif が声（作った声、録音の声）を 1 本ずつ鳴らすための順番待ち。声の状態は数を持たないので、
+        #: 2 つの声が重なると、先に終わった声の「話し終えた」で、まだ鳴っている声を「なし」にしてしまう。ループの dif と
+        #: 自律機構の dif が同じ鍵を使うよう、ただ 1 つの状態図に置く。取る順番は、声の鍵 → `_turn` だけ。
+        self._voice_lock: "asyncio.Lock | None" = None
+        self._voice_loop: "asyncio.AbstractEventLoop | None" = None
         #: 初めの状態に入り、控えを戻し終えたら済む。同時に待つ読み手も、戻し終えるまで待つ。
         self._starting: "asyncio.Future[None] | None" = None
         #: ループを閉じたら真。もう時間を数える仕事を立てない。
@@ -211,7 +230,7 @@ class PajuState(StateChart):
             sleeping = State()
 
             request_opened = idle.to(thinking)
-            # 話しかけない求め（seeking・safety・rest の発火）を開いた。耳の領域には移りを置かない（耳は聞いたまま・決定ザ）。
+            # 話しかけない求め（seeking・safety の発火）を開いた。耳の領域には移りを置かない（耳は聞いたまま・決定ザ）。
             quiet_request_opened = idle.to(thinking)
             # 子へは親の中で移る（`internal`）。親を出入りしないので、考えているに入るときの動作は繰り返さない。
             recall_began = thinking.to(thinking.recalling, internal=True)
@@ -297,6 +316,23 @@ class PajuState(StateChart):
 
                 silence_began = may_speak.to(silent) | silent.to.itself()
                 silence_ended = silent.to(may_speak)
+
+            class voice(State.Compound):
+                # 口から何が出ているか（第 5 段）。考え中の音は機械音 A、合図は効果音 B・はいっ・えっと・黙る音、話しているは
+                # パジュの声のすべて（作った声、録音の声）。送り元は dif だけで、声は声の鍵で 1 本ずつ通す（`voice_turn`）。
+                no_voice = State(initial=True)
+                thinking_cue = State()
+                cue = State()
+                speaking = State()
+
+                # 合図の最中に次の求めの考え中の音が始まれば、後から始まった音の状態にする（古い合図の終わりは捨てる）
+                thinking_cue_began = no_voice.to(thinking_cue) | cue.to(thinking_cue)
+                thinking_cue_ended = thinking_cue.to(no_voice)
+                # 合図 → 合図は外へ出て入り直す（はいっ のあとの えっと など、合図が続くとき）
+                cue_began = no_voice.to(cue) | thinking_cue.to(cue) | cue.to.itself()
+                cue_ended = cue.to(no_voice)
+                voice_began = no_voice.to(speaking) | thinking_cue.to(speaking) | cue.to(speaking)
+                voice_ended = speaking.to(no_voice)
 
     async def after_transition(self, event: str) -> None:
         # 非同期の動作を 1 つ持つことで、ライブラリが非同期の担い手を選ぶ（無いと同期で動き、`start` を待てない）。
@@ -387,6 +423,7 @@ class PajuState(StateChart):
         預かりは使われない）。
         """
         self.wake.open(at, resume=resume)
+        self._hold_while_speaking()
         await self._to_open()
 
     async def extend_window(self, at: float) -> None:
@@ -396,17 +433,36 @@ class PajuState(StateChart):
         開いていたかは `WakeWindow.extend` が見る。閉じた窓は延びないので、`_to_open` も移さない。
         """
         self.wake.extend(at)
+        self._hold_while_speaking()
         await self._to_open()
 
-    async def hold_window(self) -> None:
-        """話し始め（窓が開いているときだけ呼ぶ）。言い終える（`release_window`）まで数えない。"""
-        self.wake.hold()
-        self._stop_window_task()
+    # ── 声と窓（第 5 段）─────────────────────────────────────────────────────────────
+    # 窓が開いているあいだの声は、どれも（答え、録音の声）窓を保ち、話し終えてから 10 秒で閉じる（本人「話し終わって
+    # から１０秒」）。保っているあいだは窓の閉じる時刻（`wake.until`）を無限にする。数で保つと、門（`window_open_at`）と
+    # 窓の会話の番号（`WakeWindow.open`）がどちらも `is_open` を読むので、そこから見えなくなる。
 
-    async def release_window(self, at: float) -> None:
-        """言い終えた。声がみな鳴り終わったら、そこから 10 秒を数える（`WakeWindow.release`）。"""
-        self.wake.release(at)
-        await self._to_open()
+    def on_enter_speaking(self) -> None:
+        """話し始めた。窓が開いていれば、話し終えるまで閉じない。閉じていれば触らない（声で窓を開けない）。"""
+        if self.wake.is_open(time.monotonic()):
+            self.wake.until = math.inf
+            self._stop_window_task()
+
+    def on_exit_speaking(self, played: bool = False) -> None:
+        """話し終えた（`played` は鳴ったか）。窓を保っていれば、いまから 10 秒にして数え直す（事象は数える仕事が送る）。
+        見張りにも知らせる（事象ではなく、ただの呼び出し）。"""
+        if math.isinf(self.wake.until):
+            self.wake.until = time.monotonic() + WAKE_WINDOW_SEC
+            self._arm_window()
+        if self._on_speech_ended is not None:
+            try:
+                self._on_speech_ended(played)
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 話し終えたことを見張りへ知らせられなかった", exc_info=True)
+
+    def _hold_while_speaking(self) -> None:
+        """話しているあいだに窓を開けた・延ばしたら、話し終えるまで閉じない。"""
+        if self._in("speaking") and self.wake.is_open(time.monotonic()):
+            self.wake.until = math.inf
 
     def window_open_at(self, at: float) -> bool:
         """`at`（`time.monotonic` の秒）に窓が開いていたか。門はこの 1 つで決める（状態では決めない）。"""
@@ -860,7 +916,7 @@ class PajuState(StateChart):
         """窓の時間を数え直す。開いていないか、話しているあいだは数えない。"""
         if self._window_sending:
             return
-        if self._timers_ended or self.wake.speaking > 0 or not self._in("open"):
+        if self._timers_ended or math.isinf(self.wake.until) or not self._in("open"):
             self._stop_window_task()
             return
         task = self._window_task
@@ -873,12 +929,14 @@ class PajuState(StateChart):
         try:
             while True:
                 while (left := self.wake.until - time.monotonic()) > 0:
+                    if math.isinf(left):
+                        return  # 話しているあいだは数えない。話し終えたら数え直す（`on_exit_speaking`）
                     await asyncio.sleep(left)
                 async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
                     if self.wake.until - time.monotonic() > 0:
                         continue  # 順番を待つあいだに延ばされた。新しい切れる時刻まで待つ
                     # 送る前に状態を見る。もう閉じているのに送ると、移りが無い（決定ユ）。
-                    lapsed = self.wake.speaking == 0 and self._in("open")
+                    lapsed = self._in("open")
                     if lapsed:
                         logger.debug("状態図 窓が切れた")
                         self._window_sending = True
@@ -958,7 +1016,15 @@ class PajuState(StateChart):
             self._turn_loop = loop
         return self._turn_lock
 
-    async def fire(self, event: str) -> None:
+    def voice_turn(self) -> asyncio.Lock:
+        """声の鍵（第 5 段）。いま走っているループのもので、ループが変わっていたら作り直す（`_turn` と同じ）。"""
+        loop = asyncio.get_running_loop()
+        if self._voice_lock is None or self._voice_loop is not loop:
+            self._voice_lock = asyncio.Lock()
+            self._voice_loop = loop
+        return self._voice_lock
+
+    async def fire(self, event: str, **data: Any) -> None:
         """外から事象を送る口（ループの `_to_state`）。順番を待ってから送る（決定ン）。
 
         ライブラリは事象の処理の途中で動作を `asyncio.gather` で呼び、ほかの仕事に順番を譲る。順番を待たずに送ると、
@@ -967,14 +1033,16 @@ class PajuState(StateChart):
 
         状態図に入るときの動作の中からは待たない（順番を持った送り手が、その動作の終わりを待っているので止まる）。
         動作の中で送るときは、外の仕事として立てる（`spawn_outside`）。
+
+        `data` は事象と一緒に動作へ渡す（例：話し終えた `voice_ended` の、鳴ったかの `played`）。
         """
         async with self._turn():
-            await self._fire(event)
+            await self._fire(event, **data)
 
-    async def _fire(self, event: str) -> None:
+    async def _fire(self, event: str, **data: Any) -> None:
         """事象を送る、ただ 1 つの口。順番を持っているあいだに呼ぶ。移りが無ければ捨て、1 行残す（決定ユ）。"""
         try:
-            await self.send(event)
+            await self.send(event, **data)
             if event in ("window_lapsed", "request_closed"):
                 await self._drop_stale_offer(event)
         except TransitionNotAllowed as e:
@@ -1048,6 +1116,11 @@ class PajuState(StateChart):
         """起きた（内省を終えた。落ちても呼ぶ）。"""
         await self.fire("woke")
 
+    def voice_state(self) -> str:
+        """口の声の今の状態（`VOICE_STATES` のどれか）。活性化の前は `no_voice` とみなす。"""
+        ids = {s.id for s in self.configuration}
+        return next((n for n in VOICE_STATES if n in ids), "no_voice")
+
     def thinking_child(self) -> str:
         """考えているの今の子の名前。考えていなければ空。"""
         ids = {s.id for s in self.configuration}
@@ -1065,9 +1138,11 @@ class PajuState(StateChart):
         ear = next((n for n in ("hearing", "deaf") if n in ids), "")
         window = next((n for n in ("shut", "open", "tentative") if n in ids), "")
         mouth = next((n for n in ("may_speak", "silent") if n in ids), "")
+        voice = next((n for n in VOICE_STATES if n in ids), "")
         answer = next((n for n in _NAMES if n.endswith("_answer") and n in ids), "")
         gate = next((n for n in ("ear_open", "music_only", "timer_only") if n in ids), "")
         return (
             f"頭={head_text} 耳={_NAMES.get(ear, '')}/窓={_NAMES.get(window, '')}"
             f"/答え={_NAMES.get(answer, '')}/入口={_NAMES.get(gate, '')} 口={_NAMES.get(mouth, '')}"
+            f"/声={_NAMES.get(voice, '')}"
         )

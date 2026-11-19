@@ -25,6 +25,10 @@ import re
 import time
 import logging
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from ..loop.paju_state import PajuState
 
 logger = logging.getLogger(__name__)
 
@@ -102,48 +106,125 @@ class DIF:
             return []
         return [d for d in self._tts.get_tool_definitions() if d.get("name") == name]
 
-    async def speak(self, text: str, *, gain: float = 1.0, careful: bool = False) -> None:
-        """声に出す。
+    async def speak(
+        self, text: str, *, gain: float = 1.0, careful: bool = False, through_silence: bool = False
+    ) -> "bool | None":
+        """声に出す。返りは鳴ったか。黙っていて止めたら None（`_as_voice`）。
 
         **例外は飲む。** 機器は落ちる前提のもので、声が出せなかったことでターンごと
         壊すわけにはいかない（移す前と同じ扱い）。
         """
         if self._tts is None:
-            return
-        await self._after_cue()
-        logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
-        if gain != 1.0:
-            logger.debug("DIF 声の倍率 %.2f（タイマーの知らせ・この 1 回だけ）", gain)
-        started = time.monotonic()
+            return False
+        tts = self._tts
 
-        async def _say() -> None:
+        async def _say() -> bool:
             payload: dict = {"text": text}
             if gain != 1.0:
                 payload["gain"] = gain  # タイマーの声だけ大きく（この 1 回の再生にだけ効く）
             if careful:
                 # じっくり読む声（環-u）。主LLM が外への問い合わせの返りで話すときだけ。
                 payload["careful"] = True
-            result, _ = await self._tts.call("say", payload)
+            result, _ = await tts.call("say", payload)
             # 合成器は成功なら `Said:` で始める。それ以外（API の 402・再生器が無い）は
             # 返り文字列にしか載らないので、ここで残さないと「声が出ない」が追えない。
             if not str(result).startswith("Said:"):
                 logger.warning("DIF 声が出なかった：%s", str(result)[:160])
+                return False
+            return True
 
-        with contextlib.suppress(Exception):
-            await self._ducked(_say)
-        # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
-        logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
+        async def _voice() -> bool:
+            logger.debug("DIF speak → %s", text[:_TRAIL_CHARS])
+            if gain != 1.0:
+                logger.debug("DIF 声の倍率 %.2f（タイマーの知らせ・この 1 回だけ）", gain)
+            started = time.monotonic()
+            played = False
+            try:
+                played = bool(await self._ducked(_say))
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.warning("DIF 声で例外（声は出ずに続ける）", exc_info=True)
+            # 合成＋再生の秒数は必ず残す（出-k-い）。返事が出るまでの体感にそのまま乗る。
+            logger.info("DIF 声 %.2f 秒（%d 字）", time.monotonic() - started, len(text))
+            return played
+
+        try:
+            return await self._as_voice(_voice, after_cue=True, through_silence=through_silence)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("DIF 声の順番で例外（声は出ずに続ける）", exc_info=True)
+            return False
+
+    def _chart(self) -> "PajuState | None":
+        """声の状態を持つ状態図（環-aw 第 5 段）。`ip` が無い、または状態図を持たない偽物なら None。"""
+        from ..loop.paju_state import PajuState
+
+        paju = getattr(self._ip, "_paju", None)
+        sm = paju() if callable(paju) else None
+        return sm if isinstance(sm, PajuState) else None
+
+    async def _as_voice(
+        self, play: "Callable[[], Awaitable[bool]]", *, after_cue: bool, through_silence: bool
+    ) -> "bool | None":
+        """声（答え、録音）を 1 本鳴らす（環-aw 第 5 段）。声の鍵を取ってから「話し始めた」を送り、鳴らし終えたら
+        「話し終えた」を、鳴ったか（`played`）と一緒に送る。返りは鳴ったか。`after_cue` なら、鍵を取ったあと、
+        合図が鳴り終えるのを待ってから話し始める（合図が鳴っているあいだは、声は合図のまま）。
+
+        鍵を待っているあいだに打ち切られたら、どちらも送らない。鳴らしている途中で打ち切られても、「話し終えた」は
+        打ち切りから守って送る（送らないと、声が話しているのまま残る）。状態図が無ければ、鍵も事象も無しに鳴らす。
+
+        **黙っているあいだは、求めの外の声を鳴らさない。** 鍵を取ったあと、`through_silence`（開いている求めの声）が無く、
+        黙っている依頼がいまの時刻で効いていれば、鳴らさず事象も送らずに None を返す（鳴らなかった＝偽と分ける。呼び手は
+        None のとき、言ったことにしない）。黙るかは入口（`silence_hold`）でも見るので、ここで止めるのは閉じたあとの申し出と、
+        自律機構のクレジットの知らせである。
+        """
+        sm = self._chart()
+        if sm is None:
+            if after_cue:
+                await self._after_cue()
+            return await play()
+        if not through_silence:
+            # 黙っている依頼の控えを戻し終えてから読む（戻す前に読むと、黙っていないと読む・第 2 段 項目 4）。
+            # 始められなくても、鳴らすのはやめない（読めなければ黙っていない扱い・前のトニックと同じ）。
+            with contextlib.suppress(Exception):
+                await sm.start()
+            # 鍵を待つ前にも見る。黙っていれば、ほかの声の終わりを待たずに返す（自律機構の輪は 0.5 秒ごとに知らせを
+            # 試すので、待つと輪のタイマーが遅れる）。輪ごとに起きうるので、ログは開発者向けの段にする。
+            if self._silenced(sm):
+                logger.debug("DIF 黙っているので、求めの外の声を鳴らさない")
+                return None
+        async with sm.voice_turn():
+            if not through_silence and self._silenced(sm):  # 鍵を待つあいだに黙った
+                logger.debug("DIF 黙っているので、求めの外の声を鳴らさない")
+                return None
+            if after_cue:
+                await self._after_cue()
+            played = False
+            try:
+                await self._tell(sm, "voice_began")
+                played = await play()
+                return played
+            finally:
+                await asyncio.shield(self._tell(sm, "voice_ended", played=played))
 
     # ── 話しかけたときの合図（出-bg・2026-10-10 本人の決定）──────────────────────────────
 
     def start_thinking(self) -> "_Thinking":
-        """Jev が判断しているあいだ、機械音 A を鳴らし続ける。返した印の `stop()` で止める。"""
+        """Jev が判断しているあいだ、機械音 A を鳴らし続ける。返した印の `stop()` で止める。
+
+        鳴らす仕事が、声の考え中の音の始まりと終わりを送る（環-aw 第 5 段）。
+        """
         return _Thinking(asyncio.ensure_future(self._think_loop()))
 
     async def _think_loop(self) -> None:
         from ..core.reaction_cue import THINKING_WAV
 
+        sm = self._chart()
         try:
+            if sm is not None:
+                await self._tell(sm, "thinking_cue_began")
             while True:
                 # 音楽は絞らない（短い音を続けて鳴らすので、絞ると音量が上下し続ける）。
                 if not await _play_wav(THINKING_WAV, 1.0, quiet=True):
@@ -152,6 +233,10 @@ class DIF:
             raise
         except Exception:  # noqa: BLE001
             logger.debug("DIF 機械音が鳴らせなかった", exc_info=True)
+        finally:
+            if sm is not None:
+                # 止めた直後に合図が始まっていれば、この終わりは移りが無く捨てられ、合図のまま残る
+                await asyncio.shield(self._tell(sm, "thinking_cue_ended"))
 
     async def beep(self, kind: str) -> bool:
         """考えているの子 `kind` の電子音を 1 回（出-bu・環-aw 決定テ）。音楽は絞らない（短い音を続けるので）。
@@ -176,7 +261,20 @@ class DIF:
         if path is None:
             return None
 
+        sm = self._chart()
+
         async def _play() -> None:
+            if sm is not None:
+                await self._tell(sm, "cue_began")
+            try:
+                await _sound()
+            finally:
+                # 合図の終わりは、終わった仕事がいまの合図のときだけ送る。合図が 2 つ続いたとき、前の合図の終わりで
+                # 後の合図を終わらせない（環-aw 第 5 段）。
+                if sm is not None and self._cue_task is asyncio.current_task():
+                    await asyncio.shield(self._tell(sm, "cue_ended"))
+
+        async def _sound() -> None:
             async def _one() -> None:
                 if not await _play_wav(path, 1.0):
                     logger.warning("DIF 合図が鳴らせなかった：%s（%s）", cue, path.name)
@@ -218,21 +316,46 @@ class DIF:
             return await self._music_ducker(play)
         return await play()
 
-    async def say_credit(self, name: str, *, gain: float) -> bool:
+    @staticmethod
+    async def _tell(sm: "PajuState", event: str, **data: Any) -> None:
+        """声の事象を状態図へ送る（環-aw 第 5 段）。状態図が落ちても音は鳴らし、警告を 1 行残す（会話は止めない）。
+
+        打ち切りはそのまま上へ返す。
+        """
+        try:
+            await sm.fire(event, **data)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("DIF 状態図へ %s を送れなかった（音は鳴らす）", event, exc_info=True)
+
+    @staticmethod
+    def _silenced(sm: "PajuState") -> bool:
+        """いま黙っているか。状態図の依頼を、鳴らす時刻で決める（期限を過ぎた依頼では止めない）。"""
+        from ..silence_state import is_silenced
+
+        return is_silenced(sm.silence_request(), now=time.time())
+
+    async def say_credit(self, name: str, *, gain: float) -> "bool | None":
         """残高切れを録音済みの声で知らせる（環-z・`sounds/credit_<担い手>.wav`）。LLM も TTS も通さない。
 
         録音が無ければ鳴らさず偽を返す（落とさない）。録音は `scripts/gen_credit_voices.py` が作る。
+        求めの外の声なので、黙っているあいだは鳴らさず None を返す（`_as_voice`）。
         """
-        logger.info("DIF クレジット切れを知らせる：%s", name)
         # クレジット切れの知らせは、いままでどおり合図を待たず、音楽も絞らない。
-        return await self.say_recorded(f"credit_{name}", gain=gain, like_speech=False)
+        played = await self.say_recorded(f"credit_{name}", gain=gain, like_speech=False)
+        if played is not None:  # 黙っていて止めたときは、輪ごとに試すので残さない
+            logger.info("DIF クレジット切れを知らせた：%s", name)
+        return played
 
-    async def say_recorded(self, name: str, *, gain: float, like_speech: bool = True) -> bool:
+    async def say_recorded(
+        self, name: str, *, gain: float, like_speech: bool = True, through_silence: bool = False
+    ) -> "bool | None":
         """録音済みの声 `sounds/<name>.wav` を鳴らす。LLM も TTS も通さない（クレジット切れ・環-z、時間切れの一言・環-aw
         第 1 段 項目 8）。いまの声の録音があればそれを使う（出-bv）。
 
         `like_speech`＝声（`speak`）と同じく、合図が終わるのを待ち、音楽を絞って鳴らす。
-        録音が無い・鳴らせなければ偽を返す（落とさない）。
+        録音が無い・鳴らせなければ偽を返す（落とさない）。黙っていて止めたら None（`_as_voice`）。
         """
         from ..core.reaction_cue import voiced
 
@@ -240,17 +363,19 @@ class DIF:
         if not path.exists():
             logger.warning("DIF 録音が無い：%s", path.name)
             return False
-        if like_speech:
-            await self._after_cue()
-        try:
-            if like_speech:
-                played = await self._ducked(lambda: _play_wav(path, gain))
-            else:
-                played = await _play_wav(path, gain)
-        except Exception:  # noqa: BLE001
-            logger.warning("DIF 録音を鳴らせなかった：%s", path.name, exc_info=True)
-            return False
-        return played
+
+        async def _voice() -> bool:
+            try:
+                if like_speech:
+                    return bool(await self._ducked(lambda: _play_wav(path, gain)))
+                return await _play_wav(path, gain)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001
+                logger.warning("DIF 録音を鳴らせなかった：%s", path.name, exc_info=True)
+                return False
+
+        return await self._as_voice(_voice, after_cue=like_speech, through_silence=through_silence)
 
     def configure_ring(self, *, soft_after: float, soft_until: float, soft_gain: float) -> None:
         """山谷の形を Config から入れる（`RING_SOFT_AFTER_SEC`・`RING_SOFT_UNTIL_SEC`・`RING_SOFT_GAIN`）。"""
@@ -413,11 +538,6 @@ class _Thinking:
 
     def __init__(self, task: "asyncio.Future[None]") -> None:
         self._task = task
-
-    @property
-    def future(self) -> "asyncio.Future[None]":
-        """鳴らしている仕事。鳴っているあいだ、待ちの電子音は休む（`_sounding`）。"""
-        return self._task
 
     def stop(self) -> None:
         if not self._task.done():

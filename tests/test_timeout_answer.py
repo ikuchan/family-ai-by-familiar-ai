@@ -376,7 +376,7 @@ def test_the_recording_goes_through_the_same_mouth():
         await ip._to_state("request_opened")
         heads = []
 
-        async def play(name, *, gain):
+        async def play(name, *, gain, through_silence):
             heads.append(ip._paju().head_state())
             return True
 
@@ -397,6 +397,7 @@ def test_the_dif_plays_a_recording_and_reports_a_missing_one(tmp_path, caplog):
     from familiar_agent.io import dif as dif_mod
 
     d = dif_mod.DIF.__new__(dif_mod.DIF)
+    d._ip = None  # 状態図の無い DIF（声の事象を送らない）
     d._cue_task = None
     d._music_ducker = None
     (tmp_path / "timeout_answer.wav").write_bytes(b"x")
@@ -613,6 +614,7 @@ def test_the_recording_waits_for_the_cue_and_lowers_the_music(tmp_path):
     from familiar_agent.io import dif as dif_mod
 
     d = dif_mod.DIF.__new__(dif_mod.DIF)
+    d._ip = None  # 状態図の無い DIF（声の事象を送らない）
     order: list = []
 
     async def cue():
@@ -702,6 +704,7 @@ def test_the_credit_notice_still_does_not_wait_for_the_cue(tmp_path):
     from familiar_agent.io import dif as dif_mod
 
     d = dif_mod.DIF.__new__(dif_mod.DIF)
+    d._ip = None  # 状態図の無い DIF（声の事象を送らない）
     d._cue_task = MagicMock(done=MagicMock(return_value=False))
     d._music_ducker = AsyncMock()
     (tmp_path / "credit_gemini.wav").write_bytes(b"x")

@@ -90,9 +90,12 @@ def _talking_ip(monkeypatch, *, speech_sec: float):
     seen: dict = {}
 
     async def speak(text, **kw):
+        # 本物の dif と同じく、声の始まりと終わりを状態図へ送る（窓を保つのは声の話している・環-aw 第 5 段）
+        await ip._paju().fire("voice_began")
         clock.t += speech_sec / 2
         seen["mid"] = ip._wake_window().is_open(clock.t)
         clock.t += speech_sec / 2
+        await ip._paju().fire("voice_ended", played=True)
 
     ip._dif.speak = AsyncMock(side_effect=speak)
     return ip, clock, seen

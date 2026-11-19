@@ -306,7 +306,8 @@ class Tonic:
 
         **専用の情動**：立つのは担い手の呼び出しが残高切れで失敗したとき（`core/credit`）、消えるのは通ったとき。
         居ない → 居る に変わるたびに伝え（立った時点で居ればすぐ）、居続けているあいだは繰り返さない。門は情動と
-        同じで、「黙っていて」のあいだは控えて明けたら伝え、夜も鳴らす。LLM も TTS も通さない。
+        同じで、「黙っていて」のあいだは控えて明けたら伝え、夜も鳴らす。LLM も TTS も通さない。黙っているかは dif が鳴らす
+        ときに見て、止めたら None を返す（環-aw 第 5 段）。
         """
         told: set[str] = getattr(self, "_credit_told", set())
         self._credit_told = told
@@ -320,22 +321,16 @@ class Tonic:
         told.intersection_update(alerts)  # 戻ったものは忘れる（また切れたら伝え直す）
         if not alerts:
             return
-        silenced = False  # 読めなければ黙っていない扱い（前と同じ）
-        with contextlib.suppress(Exception):
-            # 黙っている依頼の控えを戻し終えてから読む（第 2 段 項目 4）。始められなくても、読むのはやめない。
-            await self._ip._paju().start()
-        with contextlib.suppress(Exception):
-            silenced = self._ip.is_silenced_now()
-        if silenced:
-            return
         gain = getattr(getattr(self._agent, "config", None), "tts_gain", 1.0)
         gain = float(gain) if isinstance(gain, (int, float)) else 1.0
         for name in sorted(alerts):
             if name in told:
                 continue
-            told.add(name)
+            said: "bool | None" = False
             with contextlib.suppress(Exception):
-                await self._dif.say_credit(name, gain=gain)
+                said = await self._dif.say_credit(name, gain=gain)
+            if said is not None:
+                told.add(name)  # 黙っていて dif が止めた（None）ときは、明けたら伝える
 
     def _notes_due(self, *, now: float) -> bool:
         """パジュ宛てのメモを読む頃合いか（`notes_watch.INTERVAL_SEC` に 1 回・知-g-ろ）。"""

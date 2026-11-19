@@ -23,6 +23,7 @@ def _closed_ip(monkeypatch, *, named: bool, kind: str = "発話", speech_sec: fl
 
     async def speak(text, **kw):
         clock.t += speech_sec
+        return True  # 鳴った（None は、黙っていて dif が止めた・環-aw 第 5 段）
 
     ip._dif.speak = AsyncMock(side_effect=speak)
     return ip

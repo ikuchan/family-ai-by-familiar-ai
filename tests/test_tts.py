@@ -208,8 +208,8 @@ async def test_say_notifies_voice_guard_on_success():
 
         await tool.say("hello world")
 
-    tool._voice_guard.on_tts_start.assert_called_once_with("hello world")
-    tool._voice_guard.on_tts_end.assert_called_once_with("hello world", played=True)
+    # 言った文を覚えるのは、言い始めと、鳴ったときの言い終わり（声が出ているかは状態図が持つ・環-aw 第 5 段）
+    assert tool._voice_guard.remember.call_args_list == [(("hello world",),)] * 2
 
 
 @pytest.mark.asyncio

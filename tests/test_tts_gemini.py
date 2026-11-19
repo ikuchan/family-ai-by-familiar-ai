@@ -174,5 +174,4 @@ def test_the_voice_guard_is_told():
         api_key="k", voice_id="v1", engine="gemini", gemini_api_key="g", voice_guard=guard
     )
     _say(tool, [_chunk(_PCM, "audio/pcm;rate=24000")], text="ただいま")
-    guard.on_tts_start.assert_called_once_with("ただいま")
-    assert guard.on_tts_end.call_args.args[0] == "ただいま"
+    assert guard.remember.call_args_list[0].args == ("ただいま",)

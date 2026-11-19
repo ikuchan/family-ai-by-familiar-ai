@@ -194,10 +194,5 @@ def test_an_old_decision_plays_no_cue_and_no_beeps():
     ip._start_beeps.assert_not_called()
 
 
-def test_a_cue_that_could_not_start_keeps_the_sounding_one():
-    ip = _ip(played=True)
-    ip._dif.play_cue = MagicMock(return_value=None)
-    playing = MagicMock()
-    ip._cue_sound = playing
-    ip._play_silent_cue("軽量LLM の判定")
-    assert ip._cue_sound is playing
+# 鳴り始められなかった合図は口の声を変えない（`cue_began` を送らない）。見るのは dif の側
+# （`tests/test_dif_voice_state.py`）。待ちの電子音は声の状態から休む（環-aw 第 5 段）。

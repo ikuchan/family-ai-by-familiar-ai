@@ -450,7 +450,7 @@ class TTSTool:
             self._voice_guard = voice_guard
             played_via: list[str] = []
             tmp_path: str | None = None
-            voice_guard.on_tts_start(text)
+            voice_guard.remember(text)
             try:
                 binary = (
                     _pw_play_binary() if output == "local" and sys.platform != "win32" else None
@@ -482,7 +482,8 @@ class TTSTool:
                     return "話せなかった（鳴らせる出力が無い）"
                 return f"Said: {text[:50]}... (via {', '.join(played_via)})"
             finally:
-                voice_guard.on_tts_end(text, played=bool(played_via))
+                if played_via:
+                    voice_guard.remember(text)
                 if tmp_path is not None:
                     with contextlib.suppress(OSError):
                         os.unlink(tmp_path)
@@ -699,7 +700,7 @@ class TTSTool:
             self._voice_guard = voice_guard
             played_via: list[str] = []
             tmp_path: str | None = None
-            voice_guard.on_tts_start(text)
+            voice_guard.remember(text)
             try:
                 try:
                     tmp_path = await self._synth_file("sbv2", text, False)
@@ -711,7 +712,8 @@ class TTSTool:
                     return "話せなかった（鳴らせる出力が無い）"
                 return f"Said: {text[:50]}... (via {', '.join(played_via)})"
             finally:
-                voice_guard.on_tts_end(text, played=bool(played_via))
+                if played_via:
+                    voice_guard.remember(text)
                 if tmp_path is not None:
                     with contextlib.suppress(OSError):
                         os.unlink(tmp_path)
@@ -763,7 +765,7 @@ class TTSTool:
                 self._voice_guard = voice_guard
             played_via: list[str] = []
             tmp_path: str | None = None
-            voice_guard.on_tts_start(text)
+            voice_guard.remember(text)
             try:
                 try:
                     tmp_path = await self._synth_elevenlabs_file(text, careful=careful)
@@ -790,7 +792,8 @@ class TTSTool:
                     return "TTS playback failed (no working audio player found)"
                 return f"Said: {text[:50]}... (via {', '.join(played_via)})"
             finally:
-                voice_guard.on_tts_end(text, played=bool(played_via))
+                if played_via:
+                    voice_guard.remember(text)
                 if tmp_path is not None:
                     try:
                         os.unlink(tmp_path)
@@ -882,7 +885,7 @@ class TTSTool:
         voice_guard = self._voice_guard or get_shared_voice_guard()
         self._voice_guard = voice_guard
         whole = "".join(parts)
-        voice_guard.on_tts_start(whole)
+        voice_guard.remember(whole)
         started = time.monotonic()
         played, lost = 0, 0
         stream_first = self.engine == "gemini"
@@ -913,7 +916,8 @@ class TTSTool:
                 elif not nxt.cancelled() and nxt.exception() is None and nxt.result():
                     with contextlib.suppress(OSError):
                         os.unlink(str(nxt.result()))  # 作り終えていた次のかたまりの音声ファイル
-            voice_guard.on_tts_end(whole, played=played > 0)
+            if played > 0:
+                voice_guard.remember(whole)
         logger.info(
             "TTS: %s で分けて話した（%d 字・%d かたまり・%.2f 秒）",
             "・".join(dict.fromkeys(used)) or self.engine,

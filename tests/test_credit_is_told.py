@@ -4,7 +4,8 @@
 録音（`sounds/credit_<担い手>.wav`）を鳴らす。LLM も TTS も通さない（切れているかもしれない）。
 
 - 居ない → 居る に変わるたびに伝える。立った時点ですでに居れば、すぐ伝える。居続けているあいだは繰り返さない。
-- 門は情動と同じ：「黙っていて」のあいだは控え、明けたら伝える。夜も鳴らす。
+- 門は情動と同じ：「黙っていて」のあいだは控え、明けたら伝える。夜も鳴らす。止めるのは dif で、止めたら None を返す
+  （環-aw 第 5 段）。
 - 回復したもの（消えた知らせたい）は鳴らさない。録音が無くても落ちない。
 """
 
@@ -31,12 +32,14 @@ def _tonic(world):
     agent = MagicMock()
     agent.config.tts_gain = 0.25
     ip = MagicMock()
-    ip._paju.return_value.start = AsyncMock()  # 黙っている依頼の控えを戻し終える
-    ip.is_silenced_now = lambda: world["silenced"]  # 持ち主は状態図（環-aw 第 2 段 項目 4）
     t = Tonic(ip, agent=agent)
     t._someone_here = lambda: world["here"]  # type: ignore[method-assign]
     t._dif = MagicMock()
-    t._dif.say_credit = AsyncMock(return_value=True)
+
+    async def say_credit(name, *, gain):
+        return None if world["silenced"] else True  # 黙っていれば dif が止める（環-aw 第 5 段）
+
+    t._dif.say_credit = AsyncMock(side_effect=say_credit)
     return t
 
 
@@ -82,10 +85,11 @@ def test_it_holds_back_while_asked_to_be_quiet_and_tells_after(world):
     world["silenced"] = True
     t = _tonic(world)
     _tick(t)
-    t._dif.say_credit.assert_not_awaited()
+    _tick(t)
     world["silenced"] = False
     _tick(t)
-    assert t._dif.say_credit.await_count == 1
+    _tick(t)
+    assert t._dif.say_credit.await_count == 3  # 黙っているあいだ 2 回止められ、明けて 1 回伝えた
 
 
 def test_a_recovered_provider_is_not_told(world):
@@ -166,3 +170,49 @@ def test_every_provider_has_a_reading_and_a_recording():
 
 def test_the_sentence():
     assert credit.sentence("gemini") == "ジェミニのクレジットが足りなくなりました。"
+
+
+def test_a_held_credit_is_told_after_the_silence(world):
+    """黙っていて dif が止めた（None）知らせは、伝えたことにしない。明けたら伝える（環-aw 第 5 段・dif が止める）。"""
+    t = _tonic(world)
+    t._dif.say_credit = AsyncMock(return_value=None)
+    _tick(t)
+    t._dif.say_credit.return_value = True
+    t._dif.say_credit.side_effect = None
+    _tick(t)
+    _tick(t)
+    assert t._dif.say_credit.await_count == 2
+
+
+def test_a_credit_that_failed_is_not_retried(world):
+    """**反証の側**：鳴らそうとして鳴らなかった（偽）知らせは、いままでどおり繰り返さない。"""
+    t = _tonic(world)
+    t._dif.say_credit = AsyncMock(return_value=False)
+    _tick(t)
+    _tick(t)
+    assert t._dif.say_credit.await_count == 1
+
+
+def test_the_real_dif_holds_the_credit_while_silenced(monkeypatch, tmp_path):
+    """本物の dif と状態図で：黙っている依頼が効いていれば、クレジットの録音を鳴らさず None を返す。"""
+    import time
+
+    from familiar_agent.io import dif
+    from familiar_agent.loop.paju_state import PajuState
+    from familiar_agent.silence_state import SilenceRequest
+
+    (tmp_path / "credit_gemini.wav").write_bytes(b"RIFF")
+    monkeypatch.setattr(dif, "_SOUNDS", tmp_path)
+    played = AsyncMock(return_value=True)
+    monkeypatch.setattr(dif, "_play_wav", played)
+
+    async def go():
+        sm = PajuState()
+        await sm.start()
+        await sm.hush_with(SilenceRequest(person="パパ", until=time.time() + 60, reason=""))
+        ip = MagicMock()
+        ip._paju = lambda: sm
+        assert await dif.DIF(ip=ip).say_credit("gemini", gain=0.25) is None
+        played.assert_not_awaited()
+
+    asyncio.run(go())

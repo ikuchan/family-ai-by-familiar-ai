@@ -110,7 +110,7 @@ def test_an_event_without_a_transition_is_logged_and_changes_nothing(caplog):
     assert {"idle", "hearing"} <= _ids(sm)
     lines = [r.getMessage() for r in caplog.records if "捨てた" in r.getMessage()]
     assert lines == [
-        "状態図 speech_ended を受ける移りが無いので捨てた（頭=何もしていない 耳=聞いている/窓=閉じている/答え=なし/入口=開いている 口=話してよい）"
+        "状態図 speech_ended を受ける移りが無いので捨てた（頭=何もしていない 耳=聞いている/窓=閉じている/答え=なし/入口=開いている 口=話してよい/声=なし）"
     ]
 
 
@@ -125,7 +125,7 @@ def test_the_description_names_the_child():
     sm = _run("request_opened", "decide_began")
     assert (
         sm.describe()
-        == "頭=考えている/決めている 耳=聞かない/窓=閉じている/答え=なし/入口=開いている 口=話してよい"
+        == "頭=考えている/決めている 耳=聞かない/窓=閉じている/答え=なし/入口=開いている 口=話してよい/声=なし"
     )
 
 
@@ -196,6 +196,7 @@ _REGIONS = {
     "考えているあいだ": {"hearing", "deaf"},
     "窓": {"shut", "open", "tentative"},
     "黙るか": {"may_speak", "silent"},
+    "声": {"no_voice", "thinking_cue", "cue", "speaking"},
 }
 
 
@@ -273,7 +274,7 @@ def test_the_description_names_the_window_and_the_mouth():
     sm = _run("tentative_called", "silence_began")
     assert (
         sm.describe()
-        == "頭=何もしていない 耳=聞いている/窓=仮の呼びかけ/答え=なし/入口=開いている 口=黙っている"
+        == "頭=何もしていない 耳=聞いている/窓=仮の呼びかけ/答え=なし/入口=開いている 口=黙っている/声=なし"
     )
 
 
@@ -309,15 +310,21 @@ def test_an_opened_window_is_open_and_lapses_on_time():
     _window(go)
 
 
-def test_the_window_stays_open_while_speaking_and_lapses_after_the_release():
-    """話しているあいだは閉じない。話し終わり（`release_window`）から 10 秒で閉じる（本人「話し終わってから１０秒」）。"""
+def test_the_window_stays_open_while_speaking_and_lapses_after_the_voice(monkeypatch):
+    """話しているあいだは閉じない。話し終えてから 10 秒で閉じる（本人「話し終わってから１０秒」）。保つのは声の話している
+    （環-aw 第 5 段・詳しくは `test_paju_state_voice.py`）。"""
+    from familiar_agent.loop import paju_state
+
+    monkeypatch.setattr(
+        paju_state, "WAKE_WINDOW_SEC", 0.1
+    )  # 話し終えてから閉じるまで（本物は 10 秒）
 
     async def go(sm):
         await sm.open_window(_almost_lapsed(0.1))
-        await sm.hold_window()
+        await sm.fire("voice_began")
         await asyncio.sleep(0.4)
         assert "open" in _ids(sm)  # 話している
-        await sm.release_window(_almost_lapsed(0.1))
+        await sm.fire("voice_ended", played=True)
         assert "open" in _ids(sm)
         await asyncio.sleep(0.4)
         assert "shut" in _ids(sm)
@@ -1069,7 +1076,7 @@ def test_a_call_after_a_queued_drop_is_kept():
 
 
 # ── 話しかけない求めでは耳を閉じない（決定ザ・2026-11-15・本人の決定ア） ─────────────
-# 話しかけない発火（seeking・safety・rest）は声にしないので、考えているあいだも耳は聞いている。
+# 話しかけない発火（seeking・safety）は声にしないので、考えているあいだも耳は聞いている。
 
 
 def test_a_quiet_request_thinks_but_keeps_hearing():
