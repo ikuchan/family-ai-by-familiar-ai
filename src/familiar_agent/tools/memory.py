@@ -129,6 +129,17 @@ class _ScoreParts:
     r_ruri: float | None = None
 
 
+def _nearest_first(*axes: "list[dict]", n: int) -> "list[dict]":
+    """いくつかの軸の行を、記録ごとにいちばん近い `score` で 1 本に並べ、上位 `n` 件を返す（記-ad）。"""
+    best: dict[str, tuple[float, dict]] = {}
+    for rows in axes:
+        for r in rows:
+            sc = float(r["score"])
+            if r["id"] not in best or sc > best[r["id"]][0]:
+                best[r["id"]] = (sc, r)
+    return [r for _, r in sorted(best.values(), key=lambda v: -v[0])][:n]
+
+
 def _score_breakdown(
     cosine: float,
     ts,
@@ -1114,27 +1125,31 @@ class ObservationMemory:
                     logger.debug("語の軸：%s → 候補 %d 件", words, len(word_rows))
 
             # Ruri の軸（記-y）。**ほかの軸の後に足す**——すでに拾われた記録の行（代表の面）は置き換えない。
-            # bge-m3 の軸と同じ扱い（視点の面がある・隠されていない記録・順位の加点も同じ）。
+            # bge-m3 の軸と同じ扱い（視点の面がある・隠されていない記録）。順位の加点は鍵の文の軸と 1 本にまとめて下で付ける。
             # 行の `score` は Ruri の近さなので `cos_by_id` には入れない——Ruri だけで拾った記録の bge-m3 の
             # 近さは、下の「関連軸以外から入った候補」の補いが埋める。
+            ruri_rows: "list[dict]" = []
             if ruri_q_sql is not None:
                 ruri_rows = self._observations.by_ruri(
                     ruri_q_sql, q_sql, _cfg.ruri_primary_n, exclude_ids=exclude_ids
                 )
-                _mark(ruri_rows)
                 for r in ruri_rows:
                     row_by_id.setdefault(r["id"], r)
 
             # 鍵の文の軸（記-ad）。記録から抜いた事実を問いの形に書き直した文と、問いの Ruri の近さで拾う。
-            # Ruri の軸の後に足し、順位の加点も同じ（測った形「軸と頭」・課題8 記-ad）。
+            # Ruri の軸の後に候補を足す。**順位は Ruri の軸と 1 本にまとめて付ける**——記録ごとに本文と鍵の文の
+            # 近いほうで並べ、上位 `ruri_primary_n` 件に 1 回だけ加点する。2 本の軸として別々に加点すると、両方で
+            # 上位の記録が二重に持ち上がり、新しさと気分の軸より勝つ（課題8 記-ad の測り直し、2026-11-21）。
             key_rows: "list[dict]" = []
             if ruri_q_sql is not None:
                 key_rows = self._observations.by_fact_keys(
                     ruri_q_sql, q_sql, _cfg.fact_keys_primary_n, exclude_ids=exclude_ids
                 )
-                _mark(key_rows)
                 for r in key_rows:
                     row_by_id.setdefault(r["id"], r)
+            # 加点するのは 1 本に並べた上位 `ruri_primary_n` 件（測った形）。`fact_keys_primary_n` は候補に足す件数で、
+            # 加点の件数ではない。本文だけで拾った記録も、鍵の文の行に押されて加点の外に出ることがある（測った形のまま）。
+            _mark(_nearest_first(ruri_rows, key_rows, n=_cfg.ruri_primary_n))
 
             # 関連軸以外から入った候補には score 列が無いので、話者視点の r を補って
             # 公平に採点する（顔ぶれ相関の拡張と同じやり方）。

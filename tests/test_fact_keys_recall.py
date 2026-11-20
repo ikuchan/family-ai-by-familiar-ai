@@ -1,6 +1,6 @@
 """記-ad：鍵の文を想起につなぐ（鍵の軸で候補に入れ、鍵の近さを Ruri の頭に入れる）。
 
-測った形（課題8 記-ad「軸と頭」）：鍵の軸は Ruri の軸の後ろに足し、順位の底上げも付ける。記録の Ruri の近さは、
+測った形（課題8 記-ad「一本にまとめる」）：鍵の軸は Ruri の軸の後ろに候補を足し、順位の底上げは Ruri の軸と 1 本にまとめて付ける。記録の Ruri の近さは、
 本文の近さと鍵の文のいちばん近い近さの大きいほう。Ruri は conftest の偽物。bge-m3 の問いは固定のベクトル。
 """
 
@@ -107,3 +107,34 @@ def test_a_broken_key_axis_degrades_to_the_old_recall(keyed) -> None:
     ):
         got = [r["memory_id"] for r in mem.recall("夏祭りっていつ？", n=5, min_score=0.0)]
     assert got == [ida]
+
+
+def test_a_record_on_both_the_ruri_and_key_axes_is_lifted_once(keyed, monkeypatch) -> None:
+    """Ruri の軸と鍵の軸は 1 本の軸として順位を付ける（本文と鍵の文の近いほうで並べる）。
+
+    両方で上位に来た記録に順位の持ち上げを二重に付けると、旧来の軸（新しさ、気分）より持ち上げが勝つ
+    （課題8 記-ad の測り直し：二重の形は気分への追従が 0.82、1 本にまとめる形は 1.01）。
+    C を Ruri の軸にも鍵の軸にも 1 位で載せ、持ち上げに渡る順位が 1 つだけであることを見る。
+    """
+    from familiar_agent.tools import memory as m
+
+    mem, ida, idc, tag, key = keyed
+    _write_key(mem, idc, tag)
+    monkeypatch.setattr(
+        ObservationStore,
+        "by_ruri",
+        lambda self, *a, **k: ObservationStore.by_fact_keys(self, *a, **k),
+    )
+    seen: list = []
+    real = m.rank_boost
+
+    def spy(ranks, *a, **k):
+        seen.append(list(ranks))
+        return real(ranks, *a, **k)
+
+    monkeypatch.setattr(m, "rank_boost", spy)
+    got = [r["memory_id"] for r in _recall(mem, key)]
+    assert idc in got
+    # 加点の順位は A（bge-m3 の軸の 1 位）と C（1 本にまとめた軸の 1 位）の 1 つずつ。ほかの軸はこの備えでは空
+    # （新しさと感情の重み 0、語の軸は本文に問いの語が無い）。C が加点を失っても [[1], []] で落ちる。
+    assert sorted(seen) == [[1], [1]], seen
