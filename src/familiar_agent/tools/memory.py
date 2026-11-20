@@ -33,7 +33,6 @@ from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memo
     PrimitiveMentalItem,
     _row_to_mental_item,
 )
-from ..db_migrations import apply_migrations, default_migration_dir
 from ..store.relations import (
     KIND_EXCHANGE,
     KIND_UNCLASSIFIED,
@@ -521,7 +520,6 @@ class ObservationMemory:
     def _ensure_connected(self):
         if callable(getattr(self._db, "conn", None)):
             conn = self._db.conn()
-            apply_migrations(conn, default_migration_dir())
             return _RealDictConnWrapper(conn)
         # Raw sqlite3 connection (used in tests via _memory_with_rows)
         return _SQLiteConnWrapper(self._db)

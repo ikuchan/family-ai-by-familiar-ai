@@ -5,8 +5,8 @@
 絞ってあるのは、層の間で何が共通なのかを一目で読めるようにするためである。
 増やすときは意図的に増やす。
 
-接続の作り方（Database シングルトンか、テストの sqlite3 か）と、マイグレーションの
-適用は、ここに閉じる。層はその違いを知らない。
+接続の作り方（Database シングルトンか、テストの sqlite3 か）は、ここに閉じる。層はその違いを知らない。
+マイグレーションはここでは当てない（当てるのは `Database.conn()` が新しく接続するときだけ・環-av）。
 """
 
 from __future__ import annotations
@@ -15,7 +15,6 @@ import threading
 from dataclasses import dataclass, replace
 from typing import Any
 
-from ..db_migrations import apply_migrations, default_migration_dir
 from .db_compat import _RealDictConnWrapper, _SQLiteConnWrapper
 
 
@@ -53,10 +52,13 @@ class StoreContext:
         return viewpoint_of(self.person_id)
 
     def conn(self) -> Any:
-        """現在の接続を返す。未適用のマイグレーションがあればここで当てる。"""
+        """現在の接続を返す。
+
+        マイグレーションはここで当てない（環-av）。当てるのは `Database.conn()` が新しく接続するときだけで、そこは
+        `HOLD_MIGRATIONS` を見る。借りるたびに当てていたので、留めて起動しても、置いたファイルがすぐ本番へ入った。
+        """
         if callable(getattr(self.db, "conn", None)):
             conn = self.db.conn()
-            apply_migrations(conn, default_migration_dir())
             return _RealDictConnWrapper(conn)
         # テストで使う素の sqlite3 接続
         return _SQLiteConnWrapper(self.db)

@@ -1,6 +1,6 @@
 """マイグレーションの自動適用を起動時に留める（`HOLD_MIGRATIONS`）。
 
-`Database` は接続のたびに `apply_migrations` を無条件で呼ぶ。そのため `migration/` へ
+`Database` は新しく接続するたびに未適用のマイグレーションを当てる。そのため `migration/` へ
 ファイルを置いた時点で、次に本番へ繋いだプロセスが適用してしまい、適用の可否を人が
 握れなかった（実際、列改名のマイグレーションが意図せず本番へ入った）。
 
@@ -10,7 +10,8 @@
 
 ここでは (1) 未適用の列挙、(2) 留めたときに適用されないこと、(3) 保留の一覧が warning に
 出ること、(4) 留めていても未適用が0件なら鳴らないこと、(5) 環境変数が無ければ従来どおり
-適用されること、を見る。
+適用されること、(6) 記憶の層が接続を借りただけでは当てないこと（環-av）、(7) 当てるのが落ちたら
+次の接続で当て直すこと、を見る。
 """
 
 from __future__ import annotations
@@ -102,3 +103,70 @@ def test_without_the_env_var_migrations_apply(conn, tmp_path, monkeypatch) -> No
 
     assert db_mod.apply_or_hold_migrations(conn, tmp_path) == 1
     assert pending_migration_ids(conn, tmp_path) == []
+
+
+class _BorrowedDb:
+    """接続を貸すだけの DB（`Database` の代わり）。新しく接続するときの口は通らない。"""
+
+    def __init__(self, c) -> None:
+        self._c = c
+
+    def conn(self):
+        return self._c
+
+
+@pytest.mark.parametrize("hold", [True, False])
+def test_borrowing_the_connection_in_the_memory_layer_does_not_apply(
+    conn, tmp_path, monkeypatch, hold
+) -> None:
+    """記憶の層が接続を借りるたびに当てない（環-av）。当てるのは `Database` が新しく接続するときだけ。
+
+    2026-11-03、`HOLD_MIGRATIONS=1` で起動したパジュが、`migration/` に置いた 079 をすぐ本番へ当てた。
+    記憶の層（`StoreContext.conn`、`ObservationMemory._ensure_connected`）が、借りるたびに
+    `apply_migrations` を直に呼び、留める決まりを通っていなかった。
+    """
+    import threading
+    from pathlib import Path
+
+    from familiar_agent import db_migrations
+    from familiar_agent.store.context import StoreContext
+    from familiar_agent.tools.memory import ObservationMemory
+
+    mid = _write_migration(tmp_path, "2099-01-01-905_eta")
+    files = [Path(tmp_path) / f"{mid}.py"]
+    monkeypatch.setattr(db_migrations, "_migration_files", lambda d: files)
+    if hold:
+        monkeypatch.setenv("HOLD_MIGRATIONS", "1")
+    else:
+        monkeypatch.delenv("HOLD_MIGRATIONS", raising=False)
+
+    ctx = StoreContext(db=_BorrowedDb(conn), lock=threading.Lock(), person_id="x", embedder=None)
+    ctx.conn()
+    mem = ObservationMemory.__new__(ObservationMemory)
+    mem._db = _BorrowedDb(conn)
+    mem._ensure_connected()
+
+    assert pending_migration_ids(conn, tmp_path) == [mid], "記憶の層が接続を借りただけで当てた"
+
+
+def test_a_failed_migration_is_tried_again_on_the_next_connection(monkeypatch) -> None:
+    """新しく接続したときに当てるのが落ちたら、その接続を持たない（次の `conn()` で当て直す）。
+
+    当てる口は新しく接続するときだけなので、落ちた接続を持ったままだと、古いスキーマのまま動き続ける
+    （起動の最初の接続は、例外を DEBUG で飲む口から来ることがある）。
+    """
+    from familiar_agent import db as db_mod
+
+    calls: list[int] = []
+
+    def boom(c, migration_dir=None):
+        calls.append(1)
+        raise RuntimeError("マイグレーションが落ちた")
+
+    monkeypatch.setattr(db_mod, "apply_or_hold_migrations", boom)
+    d = db_mod.Database()
+    for _ in range(2):
+        with pytest.raises(RuntimeError):
+            d.conn()
+    assert len(calls) == 2, "落ちた接続を持ったまま、2 回目は当て直さなかった"
+    assert d._conn is None

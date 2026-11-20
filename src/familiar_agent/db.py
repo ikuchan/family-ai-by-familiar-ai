@@ -37,6 +37,10 @@ def apply_or_hold_migrations(conn, migration_dir=None) -> int:
     いる場合に実行時へ跳ねるので、何が保留されているかを1件ずつ warning に残す。件数
     だけでは、どれが保留かが分からない。保留が無いときは鳴らさない（毎回鳴ると読まれ
     なくなる）。
+
+    **本体がマイグレーションを当てる口はここ 1 つ**で、呼ぶのは `Database.conn()` が新しく接続するとき（起動と、
+    切れた接続の張り直し）だけ（環-av）。ほかの層から `apply_migrations` を直に呼ばない（記憶の層が接続を借りるたびに
+    呼んでいたため、留めて起動しても置いたファイルがすぐ本番へ入った）。留めないときは、張り直しのときにも当たる。
     """
     from .db_migrations import (
         apply_migrations,
@@ -144,7 +148,14 @@ class Database:
                 # まで走査を続ける。上限は max_scan_tuples（既定 20000）が抑える。
                 _cur.execute("SET hnsw.iterative_scan = relaxed_order")
             self._conn.commit()
-            apply_or_hold_migrations(self._conn)
+            # 当てるのはここだけ（新しく接続したとき・環-av）。落ちたら接続を持たない——持ったままだと次の
+            # `conn()` は当て直さず、古いスキーマのまま動き続ける（最初の接続は例外を DEBUG で飲む口から来うる）。
+            try:
+                apply_or_hold_migrations(self._conn)
+            except Exception:
+                self._conn.close()
+                self._conn = None
+                raise
             logger.debug("PostgreSQL connection established")
         elif self._conn.info.transaction_status == psycopg2.extensions.TRANSACTION_STATUS_INERROR:
             # Recover from a failed transaction so subsequent queries don't all fail.
