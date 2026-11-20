@@ -427,17 +427,9 @@ class ObservationStore:
         """
         live = not_hidden("o")
         exclude_clause = "AND NOT (o.id = ANY(%(ex)s))" if exclude_ids else ""
-        params = {
-            "rq": ruri_query_sql,
-            "bq": bge_query_sql,
-            "vp": self._ctx.viewpoint,
-            "n": n,
-            "ex": list(exclude_ids or []),
-        }
-        rows = self._ruri_query(
+        return self._rows_of_candidates(
             "by_ruri",
             f"""
-            WITH cand AS (
                 SELECT r.obs_id, 1 - (r.vector <=> %(rq)s::vector) AS score
                 FROM obs_ruri_embeddings r
                 JOIN observations o ON o.id = r.obs_id
@@ -447,7 +439,72 @@ class ObservationStore:
                   {exclude_clause}
                 ORDER BY r.vector <=> %(rq)s::vector
                 LIMIT %(n)s
-            )
+            """,
+            ruri_query_sql,
+            bge_query_sql,
+            n,
+            exclude_ids,
+        )
+
+    def by_fact_keys(
+        self,
+        ruri_query_sql: str,
+        bge_query_sql: str,
+        n: int,
+        *,
+        exclude_ids: list[str] | None = None,
+    ) -> list[dict]:
+        """鍵の文（記-ad・表 `obs_fact_keys`）の近い順に、記録を n 件読む。**採点も足切りもしない**。
+
+        記録の点は、その記録の鍵の文のうち問いにいちばん近いものの近さ（Ruri の生のコサイン）。
+        絞り・行の列・代表の面は `by_ruri` と同じ。鍵の文は全部と比べる（索引を使わない・080 の注記）。
+        """
+        live = not_hidden("o")
+        exclude_clause = "AND NOT (o.id = ANY(%(ex)s))" if exclude_ids else ""
+        return self._rows_of_candidates(
+            "by_fact_keys",
+            f"""
+                SELECT k.obs_id, max(1 - (k.vector <=> %(rq)s::vector)) AS score
+                FROM obs_fact_keys k
+                JOIN observations o ON o.id = k.obs_id
+                WHERE {live}
+                  AND EXISTS (SELECT 1 FROM situated_memories s0
+                              WHERE s0.obs_id = o.id AND s0.person_id = %(vp)s)
+                  {exclude_clause}
+                GROUP BY k.obs_id
+                ORDER BY score DESC
+                LIMIT %(n)s
+            """,
+            ruri_query_sql,
+            bge_query_sql,
+            n,
+            exclude_ids,
+        )
+
+    def _rows_of_candidates(
+        self,
+        what: str,
+        cand_sql: str,
+        ruri_query_sql: str,
+        bge_query_sql: str,
+        n: int,
+        exclude_ids: "list[str] | None",
+    ) -> list[dict]:
+        """Ruri の点で選んだ候補（`obs_id`・`score`）を、想起の行の形にする（`by_ruri` と `by_fact_keys`）。
+
+        行の面は記録ごとに 1 つへ畳み、代表は bge-m3 の問いにいちばん近い視点の面。近い順に並べて返す。
+        """
+        params = {
+            "rq": ruri_query_sql,
+            "bq": bge_query_sql,
+            "vp": self._ctx.viewpoint,
+            "n": n,
+            "ex": list(exclude_ids or []),
+        }
+        rows = self._ruri_query(
+            what,
+            f"""
+            WITH cand AS ({cand_sql})
             SELECT DISTINCT ON (o.id)
                    o.id, o.timestamp,
                    o.direction, o.emotion, o.image_path, o.parent_id,
@@ -467,6 +524,18 @@ class ObservationStore:
         )
         rows.sort(key=lambda r: -float(r["score"]))
         return rows
+
+    def fact_key_cosines(self, ruri_query_sql: str, obs_ids: list[str]) -> dict[str, float]:
+        """指定した記録の、鍵の文のいちばん近い近さ（記-ad）。鍵の文の無い記録は結果に含めない。失敗したら空。"""
+        if not obs_ids:
+            return {}
+        rows = self._ruri_query(
+            "fact_key_cosines",
+            "SELECT obs_id, max(1 - (vector <=> %(rq)s::vector)) AS c "
+            "FROM obs_fact_keys WHERE obs_id = ANY(%(ids)s) GROUP BY obs_id",
+            {"rq": ruri_query_sql, "ids": list(obs_ids)},
+        )
+        return {row["obs_id"]: float(row["c"]) for row in rows}
 
     def ruri_cosines(self, ruri_query_sql: str, obs_ids: list[str]) -> dict[str, float]:
         """指定した記録の Ruri の近さ（記-y）。Ruri の数値が無い記録は結果に含めない。
@@ -1209,6 +1278,9 @@ class ObservationStore:
             with conn.cursor() as cur:
                 cur.execute("UPDATE observations SET content = %s WHERE id = %s", (content, obs_id))
                 self._write_ruri(cur, obs_id, ruri_sql, drop_stale=True)
+                # 古い本文から抜いた鍵の文と抜き済みの印を消す（記-ad）。次の REST が足した本文ごと抜き直す。
+                cur.execute("DELETE FROM obs_fact_keys WHERE obs_id = %s", (obs_id,))
+                cur.execute("DELETE FROM obs_fact_runs WHERE obs_id = %s", (obs_id,))
                 cur.execute(
                     "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s, %s) "
                     "ON CONFLICT (obs_id) DO UPDATE SET vector = EXCLUDED.vector",

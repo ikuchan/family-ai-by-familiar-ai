@@ -386,6 +386,24 @@ class OIF:
         )
         return got
 
+    def fact_pending(self, limit: int) -> list:
+        """鍵の文の抜き待ちの本文（記-ad）。"""
+        got = self._memory.fact_pending(limit)
+        logger.debug("OIF fact_pending ← %d → %d 種", limit, len(got))
+        return got
+
+    def fact_ready(self) -> bool:
+        """鍵の文を Ruri で点にできるか（記-ad）。"""
+        return self._memory.fact_ready()
+
+    def write_fact_keys(
+        self, sources: list, facts: list, *, model: str
+    ) -> "tuple[int, int] | None":
+        """抜いた事実を鍵の文にして書く（記-ad）。(書けた本文の種類, 行の数)。Ruri が点にできなければ None。"""
+        n = self._memory.write_fact_keys(sources, facts, model=model)
+        logger.debug("OIF write_fact_keys %d 種 → %s 行", len(sources), n)
+        return n
+
     def embeddings(self, obs_ids: "Sequence[str]") -> dict:
         """記録の id → (時刻, 埋め込み)。埋め込みの無い記録は返さない（出-bq）。"""
         got = self._memory.embeddings_of(list(obs_ids))

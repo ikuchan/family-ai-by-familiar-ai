@@ -425,6 +425,15 @@ class MemoryConfig:
     ruri_c_hi: float = 0.995
     # Ruri の軸で一次に拾う件数（bge-m3 の軸の `recall_primary_n` と同じ 50）。
     ruri_primary_n: int = 50
+    # 鍵の文の軸（記-ad・2026-11-20）で一次に拾う件数。Ruri の軸と同じ 50（測った形・課題8 記-ad）。
+    fact_keys_primary_n: int = 50
+    # REST 内省が 1 晩に事実を抜く本文の種類の上限と、軽量LLM へ 1 回に渡す本文の数。
+    # 1 種あたり入力 約 400、出力 約 90 トークン（3,392 種で測った値）なので、400 種で 1 晩 0.04 ドルほど。
+    fact_extract_per_night: int = 400
+    fact_extract_batch: int = 8
+    # 同時に聞く束の数（3,392 種を 4 つ並べて 5 分で抜けた）と、1 回の呼び出しの締切（秒）。
+    fact_extract_workers: int = 4
+    fact_extract_timeout_sec: float = 120.0
     # 基底の重みプロファイル（正本の (1,1,1,1.5,1.0)）。trigger を指定しない呼び出し
     # （連想想起など）と、知らない trigger の落とし先に使う。trigger 別の値は下の
     # `recall_weights()` が返す。

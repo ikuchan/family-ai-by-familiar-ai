@@ -24,6 +24,9 @@ import numpy as np
 from ..config import MemoryConfig, RecallWeights
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
+from ..core.fact_keys import Fact
+from ..store import fact_keys as fact_keys_store
+from ..store.fact_keys import FactSource
 from ..core.keyword_rules import drop_common, pick_words, rank_boost
 from ..core.mental_item import (  # noqa: F401  既存の呼び出し側が memory 経由で引くための再輸出
     MentalItem,
@@ -573,6 +576,48 @@ class ObservationMemory:
         """種類が `kind` の関係を外す（経験繋がりの残り・出-bq）。"""
         return RelationStore(self._ctx).remove(kind, int(relation_id))
 
+    def fact_pending(self, limit: int) -> "list[FactSource]":
+        """鍵の文の抜き待ちの本文（記-ad・`store/fact_keys.pending`）。"""
+        return fact_keys_store.pending(self._ctx, limit)
+
+    def fact_ready(self) -> bool:
+        """鍵の文を Ruri で点にできるか（記-ad）。読み込めなければ、事実を抜いても書けない。"""
+        return self._ruri.ensure() is not None
+
+    def write_fact_keys(
+        self, sources: "list[FactSource]", facts: "list[list[Fact] | None]", *, model: str
+    ) -> "tuple[int, int] | None":
+        """本文ごとに抜いた事実を鍵の文にし、Ruri で点にして、その本文の記録すべてに書く（記-ad）。
+
+        (書けた本文の種類, 書いた行の数) を返す。事実が None の本文（返りに番号が無かった）は書かない。
+        Ruri が点にできなければ何も書かず None（印も付けないので、次に抜き直す）。
+        事実の無い本文の記録にも印を付ける。抜いたあとに本文が変わった記録は書かない（`store/fact_keys.write`）。
+        """
+        per_source = [[k for f in (fs or []) for k in f.keys()] for fs in facts]
+        sentences = [sentence for keys in per_source for _, sentence in keys]
+        vecs: "list[list[float]]" = []
+        if sentences:
+            got = self._ruri.encode_document(sentences)
+            if not got or len(got) != len(sentences):
+                logger.warning(
+                    "鍵の文を Ruri で点にできなかった（%d 文・次に抜き直す）", len(sentences)
+                )
+                return None
+            vecs = [list(v) for v in got]
+        rows: "list[fact_keys_store.KeyRow]" = []
+        k = 0
+        for src, fs, keys in zip(sources, facts, per_source):
+            if fs is None:
+                continue
+            with_vecs = [(side, sentence, vecs[k + j]) for j, (side, sentence) in enumerate(keys)]
+            k += len(keys)
+            rows.extend(
+                fact_keys_store.KeyRow(obs_id, src.content, len(fs), with_vecs)
+                for obs_id in src.obs_ids
+            )
+        done_ids, written = fact_keys_store.write(self._ctx, rows, model)
+        return sum(1 for src in sources if done_ids & set(src.obs_ids)), written
+
     def experience_material(self, since: datetime) -> dict:
         """経験繋がりの材料（出-bq・`RelationStore.experience_material`）。"""
         from ..core.final_version import DIRECTION
@@ -1080,6 +1125,17 @@ class ObservationMemory:
                 for r in ruri_rows:
                     row_by_id.setdefault(r["id"], r)
 
+            # 鍵の文の軸（記-ad）。記録から抜いた事実を問いの形に書き直した文と、問いの Ruri の近さで拾う。
+            # Ruri の軸の後に足し、順位の加点も同じ（測った形「軸と頭」・課題8 記-ad）。
+            key_rows: "list[dict]" = []
+            if ruri_q_sql is not None:
+                key_rows = self._observations.by_fact_keys(
+                    ruri_q_sql, q_sql, _cfg.fact_keys_primary_n, exclude_ids=exclude_ids
+                )
+                _mark(key_rows)
+                for r in key_rows:
+                    row_by_id.setdefault(r["id"], r)
+
             # 関連軸以外から入った候補には score 列が無いので、話者視点の r を補って
             # 公平に採点する（顔ぶれ相関の拡張と同じやり方）。
             missing = [oid for oid in row_by_id if oid not in cos_by_id]
@@ -1109,6 +1165,20 @@ class ObservationMemory:
             )
             # 候補があるのに Ruri の近さが 1 つも取れなければ、Ruri は効いていない（DB から引けない等）。
             # ログで「Ruri 0」（動いて負けた）と取り違えないよう、休みとして扱う。
+            # 鍵の文の近さを Ruri の頭に入れる（記-ad）：記録の Ruri の近さは、本文と鍵の文のうち近いほう。
+            # 鍵の文は Ruri で作った点なので、本文の Ruri の近さと同じ目盛りで比べられる。
+            # 鍵の軸で拾った記録の近さはその行の score にあるので、残りの候補だけを読む。
+            if ruri_q_sql is not None:
+                key_cos = {r["id"]: float(r["score"]) for r in key_rows}
+                key_cos.update(
+                    self._observations.fact_key_cosines(
+                        ruri_q_sql, [oid for oid in row_by_id if oid not in key_cos]
+                    )
+                )
+                for oid, c in key_cos.items():
+                    if c > ruri_cos.get(oid, -1.0):
+                        ruri_cos[oid] = c
+            # 鍵の文の近さを入れたあとで見る：本文の Ruri が引けなくても、鍵の文の近さで Ruri の頭は動く。
             ruri_resting = ruri_q_sql is None or (bool(row_by_id) and not ruri_cos)
 
             rows = list(row_by_id.values())

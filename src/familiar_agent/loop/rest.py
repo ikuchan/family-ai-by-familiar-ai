@@ -7,7 +7,7 @@
 
 **いま動いているのは層 1 の計測と減り（`rest_info.py`）・②核の固め（`rest_core.py`）・①日次の畳み込み（`rest_fold.py`）、層 2（自己像の見直し・
 `rest_self_image.py`）、層 3（設定値の調整と計測ログの改名・`rest_settings.py`）、層 4（能力の
-再定義と要約の作り直し・`rest_capabilities.py`）**。層 1 は 4 つの段が揃った（2026-09-15）。回ったことは `direction='内省'` の記録に残す——
+再定義と要約の作り直し・`rest_capabilities.py`）**。層 1 は 4 つの段が揃った（2026-09-15）。⑤事実を抜く（`rest_facts.py`・記-ad）を 2026-11-20 に足した。回ったことは `direction='内省'` の記録に残す——
 ログだけだと、起動しなかったのか、起動したが何もしなかったのかを区別できない。
 """
 
@@ -18,6 +18,7 @@ import logging
 from ..io.oif import MI
 from .rest_capabilities import redefine_capabilities
 from .rest_core import fold_core
+from .rest_facts import extract_facts_tonight
 from .rest_calendar import write_calendar
 from .rest_fold import fold_since_last_rest
 from .rest_family_now import update_family_now
@@ -96,6 +97,21 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の経験繋がりに失敗（次の回に調べ直す）: %s", e)
         parts.append("経験繋がりを張れなかった")
+    # 層 1 の⑤：事実を抜く。記録の本文から事実を抜いて鍵の文にし、想起の鍵の軸にする（記-ad）。
+    try:
+        f = await extract_facts_tonight(agent)
+        if f.skipped:
+            parts.append(f"事実を抜かなかった（{f.skipped}）")
+        elif f.sources:
+            parts.append(
+                f"抜き待ち {f.sources} 種のうち {f.done} 種から事実を {f.facts} 個抜いた"
+                f"（失敗 {f.failed_batches} 束）"
+            )
+        else:
+            parts.append("事実を抜く本文は無かった")
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 1 の事実を抜くのに失敗（次の晩に持ち越す）: %s", e)
+        parts.append("事実を抜けなかった")
     # 家族のいまの様子：日々の蒸留の関係のまとめを 10 本ずつ重ねて書き直す（知-ad）。`FAMILY.md` は書き換えない。
     try:
         fam = await update_family_now(agent)
