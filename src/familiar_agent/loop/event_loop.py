@@ -5329,14 +5329,19 @@ class InformationProcessing:
                 return decided
         elif silenced:
             assert req is not None
-            if lifts(
+            lifted = lifts(
                 trigger.kind,
                 trigger.query,
                 names=names,
                 reason=getattr(req, "reason", "") or "",
-            ):
+            )
+            if not lifted and await self._jev_releases(trigger, names, name_only=name_only):
+                # Jev が許しと読んだ名前つきの声（情-u ウ）。確かめずにその場で黙るのを終え（ア）、解く言葉と同じに通す。
+                # Jev を待つあいだに依頼が変わっていたら（期限・別の「黙って」）、解かずに控える。
+                lifted = self._paju().silence_request() == req and await self._release_silence()
+            if lifted:
                 if trigger.kind == "会話入力":
-                    # 通した言葉（名前つきの「話していいよ」・名前つきのタイマーの操作の言葉）への返事を声に
+                    # 通した言葉（名前つきの「話していいよ」・名前つきのタイマーの操作の言葉・Jev が許しと読んだ声）への返事を声に
                     # するため、窓を開ける（出-as 段 6）。開けないと、返事が「窓が切れた後」になって独り言になる。
                     await self._paju().open_window(self._arrival(trigger))
                     trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
@@ -5545,6 +5550,28 @@ class InformationProcessing:
             logger.info("event-loop タイマーへの問いなので通す（%d 字）", len(query))
             return False
         return await self._timer_gate_refuses(trigger, ear=ear, now=now)
+
+    async def _jev_releases(
+        self, trigger: "Trigger", names: "list[str]", *, name_only: bool
+    ) -> bool:
+        """人に頼まれて黙っているあいだの、解く言い回しに当たらない名前つきの声が、また話してよいと許しているか（情-u ウ）。
+
+        聞くのは、入口が名前で呼ばれたと決めた声（`trigger.named`。1 字違いの名前や、厳しい段で退けた声は入らない）で、
+        名前だけでない声だけ。Jev が答えなければ偽（黙ったまま）。
+        """
+        if trigger.kind != "会話入力" or not names or not trigger.named or name_only:
+            return False
+        agent = self._agent
+        try:
+            return await jev_judges.judge_release(
+                getattr(agent, "_jev", None),
+                text=trigger.query or "",
+                names=names,
+                min_p=float(agent.config.silence_release_min),
+            )
+        except Exception:  # noqa: BLE001
+            logger.warning("黙るのを解く許しを Jev に聞けなかった（黙ったまま）", exc_info=True)
+            return False
 
     async def _timer_gate_refuses(self, trigger: "Trigger", *, ear: str, now: float) -> bool:
         """タイマーの入口で通さない声：耳がタイマーで閉じていれば記録なしで捨て、耳が開いていれば控える。"""
@@ -6731,30 +6758,34 @@ class InformationProcessing:
         elif decision.lift_silence or is_release(utterance):
             await self._release_silence()
 
-    async def _release_silence(self) -> None:
+    async def _release_silence(self) -> bool:
         """「もう話していいよ」と解かれたら、依頼を消す（2026-09-16 実機）。
 
         「待てぃ」を調停が「黙っていて」と読み 60 分の依頼になったあと、解く口が無かった
         （解ける条件が退室と期限だけで、`clear_silence()` に呼び手が無かった）。話しかけられた
         だけでは解かない（黙っていてほしい人が用事だけ言うことはある）。解くのは、頼んだ本人が
-        話していいと言ったとき。
+        話していいと言ったとき。解いたら真（解く依頼が無い・タイマーの沈黙・解けなかったは偽）。
         """
-        with contextlib.suppress(Exception):
+        try:
             sm = self._paju()
             await sm.start()  # 控えを戻してから読む
             req = sm.silence_request()
             if req is None:
-                return
+                return False
             if req.reason.startswith("timer:"):
                 # タイマー由来の沈黙は鳴る・止めるまで（タイマーは従来どおり・出-as §2.4）。
                 logger.info("話していいと言われたが、タイマーの沈黙なので解かない")
-                return
+                return False
             # **誰が言っても解く**（出-as §2.5）。話者が分からない家では本人かを決められなかった。控えも状態図が消す。
             await sm.unhush()
             logger.info(
                 "話していいと言われたので黙るのを解く（頼んだのは %s）",
                 tag(req.person) if req.person else "不明",
             )
+            return True
+        except Exception:  # noqa: BLE001
+            logger.warning("黙るのを解けなかった", exc_info=True)
+            return False
 
     async def _accept_silence(self, asked_minutes: int) -> None:
         """黙っている依頼を受ける。宛先は、いま話している相手。

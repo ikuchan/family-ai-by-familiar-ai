@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from ..backends.jev import choice, score
+from ..backends.jev import choice, noul, score
 
 logger = logging.getLogger(__name__)
 
@@ -257,6 +257,36 @@ async def judge_addressee(
     )
     assert got.to_paju is not None
     return got.to_paju
+
+
+#: 黙っているあいだの名前つきの声が、黙るのをやめてよいと許しているか（情-u ウ・2026-11-21）。
+_RELEASE = noul(
+    "ロボットは家族に頼まれて黙っている。いま聞こえた言葉は、ロボットに、黙るのをやめてまた話してよいと許しているか"
+)
+
+
+async def judge_release(client, *, text: str, names: "list[str]", min_p: float) -> bool:
+    """黙っているあいだの名前つきの声が、また話してよいと許しているか（情-u ウ）。はいの確率が `min_p` 以上なら真。
+
+    倒し先は偽（黙ったまま。いままでどおり）。本文はログに出さない。
+    """
+    state = (
+        "[ロボットの呼び名]\n"
+        + ("、".join(names) or "（なし）")
+        + "\n\n[いま]\nロボットは家族に「黙って」と頼まれて黙っている\n\n"
+        + f"[いま聞こえた言葉]\n{text}"
+    )
+    answer = await _ask(client, state, {"release": _RELEASE})
+    got = (getattr(answer, "answers", None) or {}).get("release") or {}
+    try:
+        p = float(got["noul"]) if getattr(answer, "ok", False) else None
+    except (KeyError, TypeError, ValueError):
+        p = None
+    if p is None:
+        logger.info("Jev 判定 黙るのを解く許し：答えなし（黙ったまま）")
+        return False
+    logger.info("Jev 判定 黙るのを解く許し：はい %.2f（境目 %.2f）", p, min_p)
+    return p >= min_p
 
 
 #: 返事が申し出で終わるか（出-dj・2026-11-02 本人の承認）。確認待ちの問いも申し出と読まれる（実験 0.94）ので、呼び手は確認待ちの

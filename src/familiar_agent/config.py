@@ -736,6 +736,9 @@ class AgentConfig:
     # 時間切れは実験の秒数（中央 0.21・最大 0.72 秒）から。
     jev_timeout_sec: float = field(default_factory=lambda: _float_env("JEV_TIMEOUT_SEC", 2.0))
     jev_confidence_min: float = field(default_factory=lambda: _float_env("JEV_CONFIDENCE_MIN", 0.6))
+    # 黙っているあいだの名前つきの声が、また話してよいと許しているとみる Jev のはいの確率の下限（情-u ウ・2026-11-21・
+    # 仮（本人の確認待ち））。作り物の言葉 30 個の試しで、許す言葉は 15 個中 13 個が 0.7 以上、許さない言葉は最大 0.67。
+    silence_release_min: float = 0.7
     # Jev へ送る文（state）の字数の上限（出-bw・本人の決定 2026-10-12・仮）。Jev は state といちばん長い問いで 32k 語
     # まで。問いのぶん約 2,000 語を引き、1 字 0.90 語（実測 0.65〜0.90）で割った約 33,000 字に 1 割の余裕を見た。
     # 送る前に測り、超えたら一度で削る。収まらなければ聞かずに倒し先へ倒す。

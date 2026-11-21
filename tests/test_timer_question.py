@@ -294,7 +294,8 @@ def test_a_named_control_word_with_only_the_ear_closed_takes_the_usual_way():
 def test_a_human_silence_never_asks_about_the_timer():
     ip, a = _gate(timer=jev_judges.TIMER_QUESTION, ear="", reason="")
     swallowed, _ = _voice(ip, "パジュ、あと何分？")
-    assert swallowed is True and a._jev.ask.await_count == 0
+    # 聞くのは黙るのを解く許しだけで、タイマーへの問いは聞かない（情-u ウ・2026-11-21）。許しと読まなければ控える
+    assert swallowed is True and _asked(a) == {"release"}
     assert [h.text for h in ip._muted] == ["こんにちは", "パジュ、あと何分？"]
 
 
@@ -427,7 +428,9 @@ def test_a_human_silence_is_kept_while_the_ear_is_closed_by_the_timer():
         "パジュ、止めて",
         "パジュ",
     ]
-    assert a._jev.ask.await_count == 0
+    # 名前つきの 2 つ（名前だけは聞かない）に、黙るのを解く許しだけを聞く。タイマーへの問いは聞かない（情-u ウ）
+    assert a._jev.ask.await_count == 2
+    assert all(set(c.args[1]) == {"release"} for c in a._jev.ask.await_args_list)
     assert not ip._paju().window_open_at(time.monotonic())
 
 
