@@ -16,7 +16,7 @@ from typing import Any
 
 import numpy as np
 
-from ..core.model_resource import ModelResource
+from ..core.model_resource import ModelResource, load_local_first
 
 logger = logging.getLogger(__name__)
 
@@ -96,9 +96,12 @@ class _EmbeddingModel(ModelResource):
             logging.getLogger(name).setLevel(logging.ERROR)
         import sentence_transformers
 
-        if self.device:
-            return sentence_transformers.SentenceTransformer(self._model_name, device=self.device)
-        return sentence_transformers.SentenceTransformer(self._model_name)
+        # 手元の控えから読む（ネットがつながる前でも起きる・環-ax）。
+        # 載せる先の指定が無ければ None（ライブラリに任せる。SentenceTransformer の既定と同じ）。
+        device = self.device or None
+        return load_local_first(
+            self._model_name, lambda p: sentence_transformers.SentenceTransformer(p, device=device)
+        )
 
     def _zeros(self, n: int) -> list[list[float]]:
         return [[0.0] * EMBEDDING_DIM for _ in range(n)]
@@ -218,8 +221,11 @@ class _RuriModel(ModelResource):
         import torch
 
         device = self.device or ("cuda" if torch.cuda.is_available() else "cpu")
-        return sentence_transformers.SentenceTransformer(
-            self._model_name, device=device, model_kwargs=_ruri_model_kwargs(device)
+        return load_local_first(
+            self._model_name,
+            lambda p: sentence_transformers.SentenceTransformer(
+                p, device=device, model_kwargs=_ruri_model_kwargs(device)
+            ),
         )
 
     def _encode(self, texts: list[str], prefix: str) -> list[list[float]] | None:

@@ -34,14 +34,50 @@ import logging
 import os
 import threading
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Callable, TypeVar
 
 logger = logging.getLogger(__name__)
+
+T = TypeVar("T")
 
 #: 何度試しても結果が変わらない失敗。ライブラリが入っていない（`ImportError`）、
 #: 重みが取れない（`FileNotFoundError`／`OSError`）。カメラやマイクの無い構成では
 #: これが普通に起きるので、再試行の対象にしない。
 _PERMANENT = (ImportError, FileNotFoundError)
+
+
+def local_place(name: str) -> str:
+    """Hugging Face の名前を、手元の控えの場所に引き直す（環-ax）。手元に無ければ名前のまま返す（外から取る）。
+
+    名前のまま渡すと、手元に控えがあっても `transformers` が外へ問い合わせる（字句分けの `is_base_mistral` が
+    `model_info` を呼ぶ。`local_files_only` でも止まらない）。2026-11-08 21:56、パソコンを起動し直した直後で
+    ネットがつながる前に、埋め込みを読めず起動をやめた。場所を渡せば問い合わせない。引くのは通信しない。
+    手元の版に留まるので、埋め込みの版が勝手に変わって記録の点とずれることもない。
+    """
+    from huggingface_hub import snapshot_download
+    from huggingface_hub.errors import LocalEntryNotFoundError
+
+    try:
+        return str(snapshot_download(name, local_files_only=True))
+    except LocalEntryNotFoundError:
+        logger.info("モデル %s は手元に無いので、外から取る", name)
+    except Exception:  # noqa: BLE001
+        logger.warning("モデル %s の手元の控えを引けないので、外から取る", name, exc_info=True)
+    return name
+
+
+def load_local_first(name: str, load: "Callable[[str], T]") -> T:
+    """手元の控えの場所から読み（`local_place`）、読めなければ名前で読み直す（控えが欠けていれば外から足す）。"""
+    place = local_place(name)
+    if place == name:
+        return load(name)
+    try:
+        return load(place)
+    except Exception:  # noqa: BLE001
+        logger.warning(
+            "モデル %s を手元の控えから読めないので、名前で読み直す", name, exc_info=True
+        )
+        return load(name)
 
 
 class ModelResource(ABC):

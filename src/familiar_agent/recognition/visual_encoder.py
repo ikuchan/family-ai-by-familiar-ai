@@ -16,7 +16,7 @@ import asyncio
 import logging
 from typing import Any
 
-from ..core.model_resource import ModelResource
+from ..core.model_resource import ModelResource, load_local_first
 
 logger = logging.getLogger(__name__)
 
@@ -39,8 +39,12 @@ class VisualEncoder(ModelResource):
     def _load(self) -> Any:
         import transformers
 
-        self._processor = transformers.AutoImageProcessor.from_pretrained(self._model_name)
-        model = transformers.AutoModel.from_pretrained(self._model_name)
+        def _load_from(place: str) -> Any:
+            processor = transformers.AutoImageProcessor.from_pretrained(place)
+            return processor, transformers.AutoModel.from_pretrained(place)
+
+        # 手元の控えから読む（環-ax）。
+        self._processor, model = load_local_first(self._model_name, _load_from)
         return model.to(self._torch_device).eval()
 
     @property

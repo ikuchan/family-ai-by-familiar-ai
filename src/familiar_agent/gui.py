@@ -2408,7 +2408,18 @@ class FamiliarWindow(QMainWindow):
         try:
             from PySide6.QtWidgets import QApplication, QMessageBox
 
-            QMessageBox.critical(self, "起動できません", message)
+            from PySide6.QtCore import QTimer
+
+            # 自分から閉じる（環-ax）。誰もいないときにパソコンを起動し直しても、開いたままで起こし直しを止めない。
+            # 時間切れで閉じたときだけ 1 で終わって起こし直させる。人が閉じた、`kill` で止めたときは 0（止める）。
+            box = QMessageBox(QMessageBox.Icon.Critical, "起動できません", message, parent=self)
+
+            def _timed_out() -> None:
+                self._restart_on_exit = True
+                box.done(0)
+
+            QTimer.singleShot(int(FATAL_DIALOG_SEC * 1000), _timed_out)
+            box.exec()
             app = QApplication.instance()
             if app is not None:
                 app.quit()
@@ -2578,6 +2589,11 @@ def _install_quit_signals(qt_app: Any) -> None:
         signal.signal(sig, lambda *_: qt_app.quit())
 
 
+#: 起動の失敗のダイアログが自分から閉じるまでの秒（仮（本人の確認待ち）・2026-11-21・環-ax）。時間切れで閉じたら 1 で終わり、
+#: run-gui.sh が起こし直す。
+FATAL_DIALOG_SEC = 60.0
+
+
 def run_gui(config: "AgentConfig") -> None:
     """Launch the PySide6 GUI with qasync event loop."""
     # Save terminal settings before Qt takes over. Qt/PySide6 can put the
@@ -2639,7 +2655,14 @@ def run_gui(config: "AgentConfig") -> None:
     # Non-daemon threads (ThreadPoolExecutor from run_in_executor, httpx connection
     # pools, etc.) keep the process alive after the Qt event loop exits.
     # Force-exit so the CMD window closes cleanly — same pattern as the REPL.
-    os._exit(0)
+    # 起動に失敗した回は 1 で終わる（環-ax）。0 だと run-gui.sh は「画面を閉じた」と見て起こし直さない。
+    os._exit(_exit_code(window))
+
+
+def _exit_code(window: object) -> int:
+    """GUI の終了コード。起動の失敗のダイアログが時間切れで閉じた回だけ 1（run-gui.sh が待って起こし直す）、
+    ほかは 0（画面を閉じた、`kill`、人がダイアログを閉じた。どれも止めたとみなす）。"""
+    return 1 if getattr(window, "_restart_on_exit", False) else 0
 
 
 def run_setup_wizard(config: "AgentConfig", env_path: Path | None = None) -> bool:
