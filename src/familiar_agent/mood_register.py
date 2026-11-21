@@ -234,10 +234,11 @@ def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
         new_mood = decay_and_nudge(mood, elapsed, items, self_pad=self_pad, self_weight=self_weight)
         save_mood(conn, new_mood)
         conn.commit()
-    # 観測（#1 感情ループ閉じ・tuning 用）：ターンごとの mood 推移を1行で。debug（本番は切る）。
-    logger.debug(
-        "MOOD nudge: (%.2f,%.2f,%.2f,%.2f)→(%.2f,%.2f,%.2f,%.2f) "
-        "N_PAD=(%.2f,%.2f,%.2f,%.2f) items=%d elapsed=%.0fs",
+    # 観測（情-t・振れ幅を数える）：ターンごとの気分の移り変わりを 1 行で。INFO に残す（家は --debug なしで動かす
+    # ので、DEBUG だと残らず、10/18 から振れ幅を数えられなかった）。1 回の返事につき 1 行。
+    logger.info(
+        "気分を動かした：(快,不快,高ぶり,支配)=(%.2f,%.2f,%.2f,%.2f)→(%.2f,%.2f,%.2f,%.2f) "
+        "寄せる先=(%.2f,%.2f,%.2f,%.2f) 記録 %d 件 前から %.0f 秒",
         mood.p,
         mood.pn,
         mood.a,

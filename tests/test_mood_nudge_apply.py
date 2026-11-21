@@ -88,3 +88,13 @@ def test_nudge_current_mood_empty_items_pulls_toward_the_rest_point() -> None:
     assert got.a < 0.9  # 0.50 へ向かって下がる
     assert got.dom > 0.1  # 0.50 へ向かって上がる
     assert got.pn <= 0.1  # すでに戻り先にあるので動かない（上がらない）
+
+
+def test_each_nudge_is_logged_at_info(caplog) -> None:
+    """気分の移り変わりは INFO に 1 行残す（情-t）。DEBUG だと、--debug なしで動かす家では残らず、振れ幅を数えられなかった。"""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="familiar_agent.mood_register"):
+        nudge_current_mood([(MoodPAD(0.8, 0.1, 0.7, 0.6), 1.0)])
+    lines = [r for r in caplog.records if r.levelno == logging.INFO and "気分" in r.getMessage()]
+    assert len(lines) == 1
