@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.120）
+# familiar-ai 設計図（Mermaid一式・v0.121）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -168,6 +168,104 @@ flowchart TD
 ```
 
 注：LLM・MCP・検索は内部資源（資源ハンドラ）。主LLM＝生成器（フルLLM）／補助LLM＝評価器（軽量LLM）。外界は TIF（カメラ直読）と DIF（機器）経由で、AIF は T 専用。保温制御は T（TIF）が主LLMに対して持つ（③参照）。
+
+---
+
+## ①-2 コードから作った部品の図
+
+この図は手で書かず、コードから作る（環-bb・2026-11-21 本人「部品の図も作る」「設計の部品で」）。部品は ① の全体図の部品と、実物にある内省（REST）・画面（UI）・起動と基盤（BOOT）。どのファイルがどの部品かは `src/familiar_agent/parts_chart.py` の対応表で決める（ファイルの名前で決める例外と、フォルダで決める既定。どの部品にも入らないファイルがあれば試験が落ちる。対応表は仮・本人の確認待ち）。矢印は、git に入っているソースの import（関数の中のものも含む。型の注釈のためだけの import〔`if TYPE_CHECKING:` の中〕と、図を作る道具そのものは外す）のうち部品をまたぐもので、そばの数は import している（ファイル → ファイル）の組の数。同じ部品の中の import は描かない。図を直すときは `uv run python -m familiar_agent.parts_chart` の出力を貼る（`tests/test_parts_chart.py` が一致を確かめる）。① の全体図は決めた形（口を通して出入りする）で、この図は実物の import。① で口を通るはずのつながりが、この図では直に結ばれていることがある（たとえば、内省からメインへの矢印）。
+
+```mermaid
+flowchart TD
+  subgraph T["自律機構：Tonic（T）"]
+    TIF["自律活動IF：Tonic Interface（TIF）：T の出入り口"]
+    GMD["外界監視・雰囲気・情動（GMD）：気づき・気分・欠乏"]
+    B["揮発記憶：Buffer（B）：直近の状態"]
+  end
+  subgraph I["情報処理機構：Information-processing（I）"]
+    AIF["非同期IF：Async Interface（AIF）：T 接続"]
+    DIF["機器IF：Device Interface（DIF）：カメラ・スピーカー・マイク・道具"]
+    CORE["メイン：Loop Manager（CORE）：反復・調停・生成・決まり"]
+    RES["資源ハンドラ（RES）：LLM・Jev・MCP・調べもの"]
+    W["作業記憶：Workspace（W）"]
+    O["エピソード記憶：Observation（O）：記憶と DB"]
+    C["設定：Config（C）"]
+    SS["自己状態：Self-state（SS）：パジュの状態図"]
+  end
+  REST["内省：REST：一人の時間の振り返り"]
+  UI["画面：UI"]
+  BOOT["起動と基盤：Boot（BOOT）：起動・DB の用意"]
+  AIF -->|1| GMD
+  B -->|1| CORE
+  B -->|2| O
+  BOOT -->|2| C
+  BOOT -->|6| CORE
+  BOOT -->|2| DIF
+  BOOT -->|1| O
+  BOOT -->|1| RES
+  BOOT -->|4| UI
+  C -->|3| BOOT
+  C -->|1| CORE
+  C -->|1| UI
+  CORE -->|1| AIF
+  CORE -->|8| BOOT
+  CORE -->|11| C
+  CORE -->|20| DIF
+  CORE -->|12| GMD
+  CORE -->|32| O
+  CORE -->|19| RES
+  CORE -->|1| REST
+  CORE -->|3| SS
+  CORE -->|1| TIF
+  CORE -->|1| UI
+  CORE -->|7| W
+  DIF -->|2| BOOT
+  DIF -->|8| C
+  DIF -->|22| CORE
+  DIF -->|8| O
+  DIF -->|5| RES
+  DIF -->|1| SS
+  DIF -->|1| UI
+  GMD -->|2| BOOT
+  GMD -->|4| C
+  GMD -->|1| CORE
+  GMD -->|1| DIF
+  O -->|2| B
+  O -->|7| BOOT
+  O -->|4| C
+  O -->|7| CORE
+  O -->|7| GMD
+  O -->|1| RES
+  O -->|6| W
+  RES -->|16| CORE
+  RES -->|1| GMD
+  RES -->|1| O
+  RES -->|1| W
+  REST -->|5| C
+  REST -->|30| CORE
+  REST -->|18| O
+  REST -->|10| RES
+  SS -->|1| BOOT
+  SS -->|5| CORE
+  TIF -->|1| AIF
+  TIF -->|1| BOOT
+  TIF -->|1| C
+  TIF -->|10| CORE
+  TIF -->|1| DIF
+  TIF -->|7| GMD
+  TIF -->|1| O
+  TIF -->|1| REST
+  UI -->|6| BOOT
+  UI -->|3| C
+  UI -->|7| CORE
+  UI -->|5| DIF
+  UI -->|4| GMD
+  UI -->|1| RES
+  UI -->|2| SS
+  W -->|1| C
+  W -->|6| CORE
+  W -->|8| O
+```
 
 ---
 
@@ -550,6 +648,8 @@ sequenceDiagram
 
 ## 更新履歴
 
+> v0.121：①-2：コードの import から作った部品の図を足した（環-bb、2026-11-21）。
+>
 > v0.120：台帳：パジュの状態図に口の知らせの音を足した（環-aw 第 6 段 項目 1、2026-11-21）。
 >
 > v0.119：「store と I/F」台帳に、080（鍵の文の表と抜き済みの印・記-ad）を足した（2026-11-20）。
