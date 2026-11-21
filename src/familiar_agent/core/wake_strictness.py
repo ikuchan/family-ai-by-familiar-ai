@@ -21,6 +21,7 @@
 
 from __future__ import annotations
 
+import re
 import unicodedata
 
 from .silence_rules import _head, _loose, names_me
@@ -44,7 +45,26 @@ def is_name_only(text: str, names: "list[str] | tuple[str, ...]") -> bool:
 
 
 def is_name_repeat(text: str, names: "list[str] | tuple[str, ...]") -> bool:
-    """書き起こしが名前だけを 2 回以上繰り返したものか（間の伸ばす音・句読点・空白は飛ばす）。"""
+    """書き起こしが名前だけを 2 回以上繰り返したものか（間の伸ばす音・句読点・空白は飛ばす）。
+
+    1 字違いの名前が混ざっても繰り返しとみなす（「カジュー、パジュ」・知-bt）。区切りで分けたかたまりごとに、
+    文頭の聞き違いの名前を直した形（`wake_window.fix_name`）にそろえてから数え直す。
+    """
+    return _exact_repeat(text, names) or _exact_repeat(_fixed_chunks(text, names), names)
+
+
+_SEP = re.compile(r"([、。,，.!！?？・\s]+)")
+
+
+def _fixed_chunks(text: str, names: "list[str] | tuple[str, ...]") -> str:
+    """区切りで分けたかたまりごとに、1 字違いの名前を直す（区切りはそのまま残す）。"""
+    from .wake_window import fix_name
+
+    parts = _SEP.split(text)
+    return "".join(p if _SEP.fullmatch(p) or not p else fix_name(p, list(names))[0] for p in parts)
+
+
+def _exact_repeat(text: str, names: "list[str] | tuple[str, ...]") -> bool:
     s = _loose(text)
     loosed = sorted({_loose(n) for n in names if n and _loose(n)}, key=len, reverse=True)
     count, i = 0, 0

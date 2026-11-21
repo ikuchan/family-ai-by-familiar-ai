@@ -43,7 +43,9 @@ def _ip():
 def _push(ip, text):
     async def go():
         task = asyncio.ensure_future(ip.push_utterance(text, source="voice"))
-        await asyncio.sleep(0.01)
+        # 門を通って「聞いた」を知らせるまで待つ。0.01 秒では、名前で起こす道（名前の聞き違いを直す）が間に合わない
+        # ことがあり、知らせが届く前に止めて揺れた（2026-11-21）。
+        await asyncio.sleep(0.05)
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task

@@ -368,3 +368,22 @@ def test_a_broken_watcher_does_not_change_the_decision(caplog):
     a._occupancy_sensor.last_person = MagicMock(side_effect=RuntimeError("壊れた"))
     line = _wake_line(ip, caplog)
     assert "最後に人を見た" not in line and "見ていない" not in line and "見張り" not in line
+
+
+# ── 知-bt：1 字違いを含む名前の繰り返し ─────────────────────────────────────
+
+
+def test_a_repeat_with_a_one_letter_slip_is_still_a_name_repeat() -> None:
+    """「カジュー、パジュ」は、1 字違いを直すと名前だけの繰り返しになる（知-bt・2026-11-21）。"""
+    from familiar_agent.core.wake_strictness import is_name_repeat
+
+    assert is_name_repeat("カジュー、パジュ", ["パジュ"])
+    assert is_name_repeat("パジュ、カジュー", ["パジュ"])
+
+
+def test_one_slipped_name_alone_or_with_words_is_not_a_repeat() -> None:
+    from familiar_agent.core.wake_strictness import is_name_repeat
+
+    assert not is_name_repeat("カジュー", ["パジュ"])
+    assert not is_name_repeat("カジュー、お茶ちょうだい", ["パジュ"])
+    assert not is_name_repeat("パジュ、カジュー、お茶", ["パジュ"])
