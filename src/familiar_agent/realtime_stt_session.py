@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 
 from .core.wake_window import InputText, VoiceText, measures_of, voice_of
 from .voice_guard import VoiceLoopGuard, get_shared_voice_guard
+from .core.redact import chars
 
 if TYPE_CHECKING:
     from .tools.mic import MicCapture
@@ -430,7 +431,7 @@ class RealtimeSttSession:
             # 聞かないあいだ（タイマー中・音楽中）に通すかは、ループの入口の耳が決める（`event_loop._ear`・ウの 3 の改め）。
             decision = self._voice_guard.check_transcript(text)
             if decision.blocked:
-                logger.info("Realtime STT gated transcript (%s): %r", decision.reason, text)
+                logger.info("Realtime STT gated transcript (%s): %s", decision.reason, chars(text))
                 if decision.should_restart:
                     self._schedule_restart("watchdog_loop")
                 continue

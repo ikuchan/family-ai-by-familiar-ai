@@ -10,6 +10,7 @@ import logging
 from typing import Any, Awaitable, Callable
 
 from .page_text import FETCH_ALL, fit_page
+from ..core.redact import chars
 
 logger = logging.getLogger(__name__)
 
@@ -135,7 +136,7 @@ class DeferredFetchTool:
             r = await self._fetch_fn("fetch", {"url": url, "max_length": FETCH_ALL})
             if not r.ok:
                 # 取得の道具に代わりは無い。生の文はログにだけ（出-o）。
-                logger.warning("deferred fetch の道具が使えなかった（%.120s）", r.text)
+                logger.warning("deferred fetch の道具が使えなかった（%s）", chars(r.text))
                 _msg = f"「{url}」は取得の道具が使えず失敗した"
                 if not self._deliver(url, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
                     self._pending.append(

@@ -20,6 +20,7 @@ from ..core import family_now, jev_judges
 from ..core import music_catalog as mc
 from ..core import music_rules
 from ..core import music_suggestion as ms
+from ..core.redact import tag
 
 logger = logging.getLogger(__name__)
 
@@ -321,8 +322,8 @@ async def prepare_suggestion(agent, *, rng=None) -> bool:
     ms.store(state)
     logger.info(
         "rest おすすめを選んだ：「%s」（%s）・%d 件から %d 番目・p1=%.2f・%s",
-        chosen.title,
-        chosen.artist,
+        tag(chosen.title),
+        tag(chosen.artist),
         len(pool),
         rank,
         p1,

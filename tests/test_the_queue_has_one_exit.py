@@ -23,6 +23,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.event_loop import InformationProcessing, Trigger
 from familiar_agent.loop.request import Lookup
+from familiar_agent.core.redact import chars
 
 
 def _ip():
@@ -109,9 +110,12 @@ def test_a_completion_without_an_open_intent_is_logged_not_silently_dropped(capl
             await ip._intake()
 
     _run(scenario())
+    # 問いは出さず、字数だけ（出-dn）
     assert any(
-        "対応する意図が無い" in r.message and "消えた意図" in r.message for r in caplog.records
+        "対応する意図が無い" in r.message and chars("消えた意図") in r.message
+        for r in caplog.records
     )
+    assert not any("消えた意図" in r.message for r in caplog.records)
 
 
 def test_an_utterance_that_reaches_intake_fails_loudly_and_frees_the_caller(caplog):

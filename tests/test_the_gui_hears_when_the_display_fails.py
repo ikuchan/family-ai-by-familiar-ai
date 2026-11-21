@@ -10,6 +10,7 @@ import logging
 from unittest.mock import MagicMock
 
 from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.core.redact import chars
 
 
 def _loop_with_outputs(on_text, on_action) -> InformationProcessing:
@@ -25,7 +26,9 @@ def test_a_failing_display_is_logged_not_swallowed(caplog) -> None:
     with caplog.at_level(logging.WARNING, logger="familiar_agent.loop.event_loop"):
         ip._emit("目の前を見ますね。")  # 落ちない
     msgs = [r.getMessage() for r in caplog.records]
-    assert any("表示先" in m and "目の前を見ますね。" in m for m in msgs), msgs
+    # 言葉は出さず、字数だけ（出-dn）
+    assert any("表示先" in m and chars("目の前を見ますね。") in m for m in msgs), msgs
+    assert not any("目の前を見ますね。" in m for m in msgs)
     assert any(r.exc_info for r in caplog.records), "例外の中身（トレース）が残らない"
 
 

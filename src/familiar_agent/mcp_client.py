@@ -43,6 +43,7 @@ import os
 from contextlib import AsyncExitStack
 from pathlib import Path
 from typing import Any
+from .core.redact import chars
 
 logger = logging.getLogger(__name__)
 
@@ -420,5 +421,5 @@ class MCPClientManager:
         # サーバー側の失敗（`isError`）。本文はサーバーが書いた失敗の説明である。
         is_error = bool(getattr(result, "isError", False))
         if is_error:
-            logger.warning("MCP tool '%s' returned isError: %.200s", tool_name, text)
+            logger.warning("MCP tool '%s' returned isError: %s", tool_name, chars(text))
         return CallResult(text, image_b64, not is_error)

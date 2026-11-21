@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import psycopg2.extras
 
 from ..db import get_db
+from ..core.redact import chars
 
 logger = logging.getLogger(__name__)
 
@@ -82,7 +83,7 @@ async def check_schedule(ip) -> bool:
         return False
     text, ok = await dif.call_tool(TOOL, {"days": DAYS})
     if not ok:
-        logger.warning("家族の予定を読めなかった：%.120s", text)
+        logger.warning("家族の予定を読めなかった：%s", chars(text))
         return False
     body = body_of(text)
     if body == stored():

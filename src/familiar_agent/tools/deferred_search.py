@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, Callable
 
 from ..core.structured_ask import ask_yes_no
 from .page_text import FETCH_ALL, fit_page
+from ..core.redact import chars
 
 if TYPE_CHECKING:
     from ..core.search_relevance import Checked
@@ -213,7 +214,7 @@ class DeferredSearchTool:
             logger.warning("deferred search ページを読めなかった", exc_info=True)
             return ""
         if not r.ok:
-            logger.warning("deferred search ページを読めなかった（%.120s）", r.text)
+            logger.warning("deferred search ページを読めなかった（%s）", chars(r.text))
             return ""
         page, seen = fit_page(r.text)
         # URL は出さない（固有名詞が入る・2026-11-02）
@@ -237,7 +238,7 @@ class DeferredSearchTool:
             if not r.ok:
                 other = next((t for t in _SOURCE_TO_TOOL.values() if t != mcp_tool), None)
                 logger.warning(
-                    "deferred search %s が使えなかった（%.120s）→ %s", mcp_tool, r.text, other
+                    "deferred search %s が使えなかった（%s）→ %s", mcp_tool, chars(r.text), other
                 )
                 if other is not None:
                     r = await self._search_fn(other, {"query": query})
@@ -279,7 +280,7 @@ class DeferredSearchTool:
             else:
                 r_text = r.text
             if not r.ok:
-                logger.warning("deferred search 両方の道具が使えなかった（%.120s）", r.text)
+                logger.warning("deferred search 両方の道具が使えなかった（%s）", chars(r.text))
                 _msg = f"「{query}」は検索の道具が使えず失敗した"
                 if (
                     not self._deliver(query, _msg, failed=True)
@@ -309,7 +310,7 @@ class DeferredSearchTool:
                 )
         except asyncio.CancelledError:
             logger.warning(
-                "deferred search timed out after %ds (query=%r)", _SEARCH_TIMEOUT_SEC, query
+                "deferred search timed out after %ds (query=%s)", _SEARCH_TIMEOUT_SEC, chars(query)
             )
             _msg = f"検索がタイムアウトしました（{_SEARCH_TIMEOUT_SEC}秒）: {query}"
             if not self._deliver(query, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
@@ -325,7 +326,9 @@ class DeferredSearchTool:
             # ここを通る。飲み込むと、止めようとしているのに止まらない節ができる。
             raise
         except Exception as exc:
-            logger.warning("deferred search failed (query=%r): %s", query, exc)
+            logger.warning(
+                "deferred search failed (query=%s): %s", chars(query), type(exc).__name__
+            )
             _msg = f"「{query}」は検索の道具が使えず失敗した"
             if not self._deliver(query, _msg, failed=True) and len(self._pending) < _MAX_PENDING:
                 self._pending.append(

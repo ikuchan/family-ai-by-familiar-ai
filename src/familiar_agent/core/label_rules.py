@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import re
+from .redact import chars
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,6 @@ def clean_label(text: object, fallback: str) -> str:
     s = str(text or "").strip(_TRIM)
     if not s or len(s) > MAX_CHARS or _UNKNOWN.search(s) or _ACT.search(s):
         if s:
-            logger.info("名前を検めて「%s」にした：%r", fallback, s[:40])
+            logger.info("名前を検めて「%s」にした：%s", fallback, chars(s))
         return fallback
     return s

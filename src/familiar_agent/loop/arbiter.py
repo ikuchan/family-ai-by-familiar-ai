@@ -35,6 +35,7 @@ from ..core import measure
 from ..core.aio import wait_within
 from ..core.utterance_meaning import ASK_BACK_MAX_CHARS
 from ..core.skills import Skill, merged, skills_frame
+from ..core.redact import chars
 
 logger = logging.getLogger(__name__)
 
@@ -1250,7 +1251,9 @@ class Arbiter:
             needs_tools(inp.utterance) or (inp.timer_active and is_control_word(inp.utterance))
         ):
             # 軽く返すだけでは道具が動かない（「セットしました」と言うだけになる）。いままでの機械の守りを引き継ぐ。
-            logger.info("調停（発話）：道具が要る頼みを軽く返さず full へ：%.30s", inp.utterance)
+            logger.info(
+                "調停（発話）：道具が要る頼みを軽く返さず full へ：%s", chars(inp.utterance)
+            )
             final = "reply_full"
         if final in ("look", "see") and not inp.can_see:
             final = "reply_full"  # カメラが無いのに見ない
@@ -1378,7 +1381,7 @@ class Arbiter:
             text = str((texts or {}).get("text", "")).strip()
             if ask and text and not _is_question(text):
                 # 問いでない聞き返しは、やらないことの約束になりうる（出-bk）。捨てて主LLM に考えて返させる。
-                logger.info("聞き返しが問いになっていないので主LLM へ：%.40s", text)
+                logger.info("聞き返しが問いになっていないので主LLM へ：%s", chars(text))
                 return Decision(branch="full", effort="low")
             if (
                 text
@@ -1701,7 +1704,7 @@ async def _writer_call(arbiter: "Arbiter", inp: ArbiterInput, data: dict, needs:
         return None
     got = read_json(str(reply or ""))
     if not isinstance(got, dict):
-        logger.warning("調停の文章を読めなかった: %.200r", reply)
+        logger.warning("調停の文章を読めなかった: %s", chars(reply))
         return None
     logger.info("調停の文章 %.2f 秒（%s）", time.monotonic() - started, "・".join(needs))
     return {k: got[k] for k in needs if k in got}

@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock
 import numpy as np
 
 from tests.test_voice_picks_the_speaker import PAPA, TAIKI, _ip
+from familiar_agent.core.redact import tag
 
 LOGGER = "familiar_agent.loop.event_loop"
 SAID = "ひみつのことば"
@@ -36,7 +37,9 @@ def test_a_passed_voice_logs_every_score_and_the_verdict(caplog):
     assert len(lines) == 1
     line = lines[0]
     assert "通した" in line and "switch" in line
-    assert "たいき 1.00" in line and "パパ 0.00" in line
+    # 名前は出さず、印にする（出-dm）
+    assert f"{tag('たいき')} 1.00" in line and f"{tag('パパ')} 0.00" in line
+    assert "たいき" not in line and "パパ" not in line
 
 
 def _push(ip, voice):
@@ -56,7 +59,7 @@ def test_a_swallowed_voice_logs_scores_but_changes_nothing(caplog):
     lines = _lines(caplog)
     assert len(lines) == 1
     assert "捨てた" in lines[0] and "通していたら switch" in lines[0]
-    assert "たいき 1.00" in lines[0]
+    assert f"{tag('たいき')} 1.00" in lines[0] and "たいき" not in lines[0]
     a._persons.set_active.assert_not_called()
     a._persons.reset_to_default.assert_not_called()
     assert s.added == []

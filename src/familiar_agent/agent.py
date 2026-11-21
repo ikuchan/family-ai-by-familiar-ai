@@ -50,6 +50,7 @@ from .tools.tts import TTSTool
 from .loop.evaluator import Evaluator
 from .mcp_client import CallResult, MCPClientManager, _resolve_config_path
 from .capability_state import load_summary
+from .core.redact import tag
 
 if TYPE_CHECKING:
     from .core.search_relevance import Checked
@@ -968,8 +969,8 @@ class EmbodiedAgent:
             if len(names) > 1:
                 logger.error(
                     "人物：呼び方「%s」が 2 人以上（%s）にある。この言葉では誰とも決まらない",
-                    word,
-                    "・".join(names),
+                    tag(word),
+                    "・".join(tag(n) for n in names),
                 )
         rows = [
             r
@@ -1000,17 +1001,19 @@ class EmbodiedAgent:
                         logger.error(
                             "人物：FAMILY.md の「%s」は人物表に無く、呼び方が既存の「%s」と重なる。名前を書き換えたなら、"
                             "新しい行は作らないので scripts/merge_persons.py で統合する",
-                            name,
-                            clash.get("name"),
+                            tag(name),
+                            tag(clash.get("name")),
                         )
                         continue
                     self._pmm.register_person(name, display_name=display)
-                    logger.info("Family member registered: %s (display=%s)", name, display)
+                    logger.info(
+                        "Family member registered: %s (display=%s)", tag(name), tag(display)
+                    )
                 # 帳面には呼びかけ名（呼び方の先頭）で登録する。`set_active` も呼びかけ名なので、帳面の中の
                 # 書き方を 1 つにそろえる（以前は呼び方の一覧そのものだった・知-af）。
                 self._persons.register(call)
             except Exception as exc:
-                logger.warning("Could not register family member %s: %s", name, exc)
+                logger.warning("Could not register family member %s: %s", tag(name), exc)
 
     async def _emotion_for_turn(
         self, text: str, arousal: float

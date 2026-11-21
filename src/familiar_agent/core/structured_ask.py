@@ -23,6 +23,7 @@ import re
 from typing import Any
 
 from .helpers import strip_code_fence
+from .redact import chars
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +55,12 @@ async def _ask(
 
 def _unusable(want: str, raw: str) -> None:
     """形が取れなかったことを残す。**どのモデルが何を外すかを測るための一行。**"""
-    logger.warning("形のある答えを読めなかった（%s）: %.120r", want, raw)
+    logger.warning(
+        "形のある答えを読めなかった（%s）: %s・始まり %r",
+        want,
+        chars(raw),
+        (raw or "").lstrip()[:1],
+    )  # 答えは家族の言葉を含みうるので、字数と最初の 1 字だけ（出-dn）
 
 
 async def ask_numbers(

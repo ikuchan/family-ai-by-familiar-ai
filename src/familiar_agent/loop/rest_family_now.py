@@ -21,6 +21,7 @@ from ..core.structured_ask import read_json_merged
 from ..core import family_now, parsing
 from ..core.speaker_claim import call_name_of
 from .rest_fold import PERSON_MAX_CHARS
+from ..core.redact import tag
 
 logger = logging.getLogger(__name__)
 
@@ -110,11 +111,13 @@ async def update_family_now(agent) -> FamilyNowResult:
             try:
                 raw = await agent.backend.complete(prompt, max_tokens=800)
             except Exception as e:  # noqa: BLE001
-                logger.warning("rest いまの様子の依頼に失敗（%s・次の晩に持ち越す）: %s", who, e)
+                logger.warning(
+                    "rest いまの様子の依頼に失敗（%s・次の晩に持ち越す）: %s", tag(who), e
+                )
                 raw = ""
             text = _parse(str(raw or ""))
             if text is None:
-                logger.warning("rest いまの様子を見送った（%s・位置は進めない）", who)
+                logger.warning("rest いまの様子を見送った（%s・位置は進めない）", tag(who))
                 result.skipped += 1
                 break
             family_now.update(who, text, counted_from=chunk[-1]["timestamp"])

@@ -17,6 +17,7 @@ from datetime import datetime, timezone
 import psycopg2.extras
 
 from ..db import get_db
+from ..core.redact import chars
 
 logger = logging.getLogger(__name__)
 
@@ -116,7 +117,7 @@ async def check_notes(ip) -> bool:
         return False  # 繋がっていない（相手側がまだ足していない）
     text, ok = await dif.call_tool(TOOL, {})
     if not ok:
-        logger.warning("パジュへのメモを読めなかった：%.120s", text)
+        logger.warning("パジュへのメモを読めなかった：%s", chars(text))
         return False
     body = body_of(text)
     before = _load_state()

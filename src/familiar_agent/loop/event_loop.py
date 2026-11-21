@@ -66,6 +66,7 @@ from .intent_ledger import IntentLedger
 from .paju_state import EAR_MUSIC, EAR_OPEN, EAR_TIMER, PajuState
 from .request import Lookup, Request
 from .prompt import build_event_system_prompt
+from ..core.redact import chars, tag
 
 logger = logging.getLogger(__name__)
 
@@ -1559,7 +1560,7 @@ class InformationProcessing:
                 if new_id:
                     self._revise(obs_id, new_id)
                 self._agent._oif.set_groundedness(obs_id, 0, lower=True)
-                logger.info("event-loop 言いたかったことを伝えたので畳んだ：%.40s", body)
+                logger.info("event-loop 言いたかったことを伝えたので畳んだ：%s", chars(body))
 
     def _addressee(self) -> "tuple[str | None, str]":
         """言いたかった相手（面を立てる id と、呼び名）。分からなければ (None, "")。"""
@@ -1645,7 +1646,7 @@ class InformationProcessing:
         kept = [c for c in self._drained_completions if self._lookup_for(c) is not None]
         for c in self._drained_completions:
             if c not in kept:
-                logger.info("event-loop 意図の無い完了を捨てる：%.40s", c.query)
+                logger.info("event-loop 意図の無い完了を捨てる：%s", chars(c.query))
                 self._ledger.late(c.intent_id)
         dropped = len(kept) < len(self._drained_completions)
         self._drained_completions[:] = kept
@@ -1676,14 +1677,18 @@ class InformationProcessing:
         running = any(lk.in_flight and lk.action == "deep_research" for lk in self._req.lookups)
         if action == "deep_research" and running:
             # 1 回目がまだ走っている。それが届いた反復で答えるので、何も積まない（調べものの 2 回と同じ扱い）。
-            logger.info("event-loop 深く調べているあいだなので、もう一度は投げない：%.40s", query)
+            logger.info(
+                "event-loop 深く調べているあいだなので、もう一度は投げない：%s", chars(query)
+            )
             return
         if action == "deep_research" and (
             "deep_research" in self._req.spent_actions or not self._deep_available()
         ):
             # 1 つの求めで 1 回まで・Anthropic のときだけ（出-dh）。調停の候補だけでなく、主LLM が文で書いた呼び出しもここを
             # 通るので、投げる口でも止める（調べものの 2 回と同じ形）。投げずに失敗の完了にする（器は作る）。
-            logger.info("event-loop 深く調べるのは使い切ったか使えないので投げない：%.40s", query)
+            logger.info(
+                "event-loop 深く調べるのは使い切ったか使えないので投げない：%s", chars(query)
+            )
             lk = self._open_lookup(action, query)
             self._triggers.put_nowait(
                 Trigger(
@@ -1698,7 +1703,7 @@ class InformationProcessing:
             return
         seen = self._lookup_of(query)
         if seen is not None:
-            logger.info("event-loop すでに調べた語なので投げない：%.40s", query)
+            logger.info("event-loop すでに調べた語なので投げない：%s", chars(query))
             # **器は増やさない。** 同じ語の器が2つできると、語で引いたときどちらが返るか
             # 決まらない。飛行中の数は器から導くので、以前のように数だけ増やして釣り合いを
             # 取る必要もない（環-g・段は で挙動が変わったところ）。完了だけを積む——投げずに
@@ -1742,10 +1747,10 @@ class InformationProcessing:
                 # まだ届いていない調べもの（か、積んだ使い切りの完了）がある。それが届いた反復で答えるので、何も積まない
                 # （いま積むと、その完了で答えるか黙って閉じ、届いた結果の行き先が無くなる）。
                 logger.info(
-                    "event-loop 調べものを使い切ったので投げない（届くのを待つ）：%.40s", query
+                    "event-loop 調べものを使い切ったので投げない（届くのを待つ）：%s", chars(query)
                 )
                 return
-            logger.info("event-loop 調べものを使い切ったので投げない：%.40s", query)
+            logger.info("event-loop 調べものを使い切ったので投げない：%s", chars(query))
             lk = self._open_lookup(action, query)
             self._triggers.put_nowait(
                 Trigger(
@@ -2248,11 +2253,16 @@ class InformationProcessing:
         finally:
             # 入力も残す（`days=2`・`query=…`）。無いと「何で呼んだか」が後から分からない。
             logger.info(
-                "event-loop 調べもの %s %.2f 秒：%.40s（%s）",
+                "event-loop 調べもの %s %.2f 秒：%s（%s）",
                 action,
                 time.monotonic() - started,
-                query,
-                " ".join(f"{k}={str(v)[:40]}" for k, v in tool_input.items()) or "入力なし",
+                chars(query),
+                # 数と真偽はそのまま、言葉は字数だけ（家族の言葉を出さない・出-dn）。
+                " ".join(
+                    f"{k}={v}" if isinstance(v, (int, float, bool)) else f"{k}={chars(v)}"
+                    for k, v in tool_input.items()
+                )
+                or "入力なし",
             )
 
     def _search_results(self) -> str:
@@ -2458,7 +2468,7 @@ class InformationProcessing:
                 if not ok:
                     # 生の文（`TypeError …`）は対処できる情報ではない。ログにだけ残し、
                     # 人へは「道具が使えなかった」だけを運ぶ（出-o）。
-                    logger.warning("event-loop %s が使えなかった：%.200s", tool_name, out)
+                    logger.warning("event-loop %s が使えなかった：%s", tool_name, chars(out))
                     out, failed = f"「{query}」は道具が使えず失敗した", True
             except asyncio.CancelledError:
                 raise
@@ -2524,7 +2534,7 @@ class InformationProcessing:
                 # 投げられなかった（クエリが空・同時実行の上限・同じ意図が進行中）。背景
                 # タスクが無いので完了も時間切れも来ない。ここで閉じないと飛行中の数が
                 # 戻らず、駆動体が完了キューだけを待ち続けて何も処理しなくなる。
-                logger.info("event-loop %s は投げられなかった：%.60s", action, text)
+                logger.info("event-loop %s は投げられなかった：%s", action, chars(text))
                 self._triggers.put_nowait(
                     Trigger(kind="完了", query=query, result=text, intent_id=intent_id, index=index)
                 )
@@ -2854,7 +2864,7 @@ class InformationProcessing:
             if c.kind in _NEW_REQUEST_KINDS:
                 # 起きないはずのこと（列の口は 1 つ）。静かに戻さず、大きく失敗させる——
                 # 待ち手が居れば例外を返して解放し、無ければ捨てる（次の出入り・発火で再び来る）。
-                logger.error("event-loop 取込に %s が紛れた（query=%.40s）", c.kind, c.query)
+                logger.error("event-loop 取込に %s が紛れた（query=%s）", c.kind, chars(c.query))
                 if c.future is not None and not c.future.done():
                     c.future.set_exception(RuntimeError(f"取込に{c.kind}が紛れた"))
                 continue
@@ -2870,7 +2880,7 @@ class InformationProcessing:
                 # 対応する開いた意図が無い完了（打ち切り後・閉じた後に遅れて届いた等）。駆動体が先に捨てるので
                 # ここへは来ないはずだが、来ても数えずに捨てる（出-cc：数えると反復が回り、閉じた求めで話した）。
                 logger.warning(
-                    "event-loop 取込：対応する意図が無い完了を捨てる（query=%.40s）", query
+                    "event-loop 取込：対応する意図が無い完了を捨てる（query=%s）", chars(query)
                 )
                 self._ledger.late(c.intent_id)
                 continue
@@ -3599,7 +3609,7 @@ class InformationProcessing:
         if self._on_text is None and self._on_action is None:
             # 出口が無いまま話した。起動直後の自発の求め（メモ・タイマー）で起きた（2026-09-15
             # 21:50）——アプリが `set_output` を起動時に渡していなかった。黙って消えると追えない。
-            logger.warning("event-loop 表示先が無いまま話した（%d 字）：%.40s", len(text), text)
+            logger.warning("event-loop 表示先が無いまま話した（%d 字）：%s", len(text), chars(text))
         if self._on_text is not None:
             self._on_text(text)
         if self._on_action is not None:
@@ -3608,7 +3618,7 @@ class InformationProcessing:
             try:
                 self._on_action("say", {"text": text})
             except Exception:  # noqa: BLE001
-                logger.exception("event-loop 表示先が受け取れなかった：%.40s", text)
+                logger.exception("event-loop 表示先が受け取れなかった：%s", chars(text))
 
     def set_request_state_listener(self, listener) -> None:
         """求めが開いた／閉じたを知らせる先を登録する（環-j）。
@@ -3694,7 +3704,7 @@ class InformationProcessing:
         # uuid を持つ完了は台帳で引く（出-cc）。台帳に無ければ閉じた後に届いたものとして記録して捨てる。
         _lk = self._ledger.get(intent_id) if intent_id else self._lookup_of(query)
         if _lk is None or _lk.generation != self._request_generation:
-            logger.info("event-loop 打ち切った求めの完了なので捨てる：%.40s", query)
+            logger.info("event-loop 打ち切った求めの完了なので捨てる：%s", chars(query))
             self._ledger.late(intent_id)
             return
         loop = getattr(self, "_asyncio_loop", None)
@@ -3821,7 +3831,7 @@ class InformationProcessing:
             if ms.mark_offered(s, said, today=ms.today()):
                 ms.store(s)
                 logger.info(
-                    "event-loop 音楽をすすめた：%s", s.candidate.title if s.candidate else ""
+                    "event-loop 音楽をすすめた：%s", tag(s.candidate.title if s.candidate else "")
                 )
 
     async def _judge_companion(self, utterance: str) -> str:
@@ -4183,7 +4193,7 @@ class InformationProcessing:
         self._talk_line(
             self._current_speaker_name() or "相手", text, obs_id
         )  # 窓の会話（環-ar 段 A）
-        logger.info("event-loop 調べているあいだの言葉を求めに添える：%.40s", text)
+        logger.info("event-loop 調べているあいだの言葉を求めに添える：%s", chars(text))
         if trigger.future is not None and not trigger.future.done():
             trigger.future.set_result("")
 
@@ -4615,7 +4625,7 @@ class InformationProcessing:
         if not self._confirming():
             return False
         if trigger is not None and trigger.kind == "情動":
-            logger.info("event-loop 確認待ちなので情動の求めを立てない：%s", trigger.query)
+            logger.info("event-loop 確認待ちなので情動の求めを立てない：%s", chars(trigger.query))
             return True
         return False
 
@@ -5102,7 +5112,9 @@ class InformationProcessing:
         if self._never_speaks():
             # **会話をしようとするのは BOND と ESTEEM だけ**（出-as §2.1・本人の決定）。見回る・探すなどの
             # 発火は行動だけで、返事の文は声に出さない（声にしなかっただけの独り言として残る）。
-            logger.info("event-loop %s の発火なので話しかけない：%.40s", self._req.fired_axis, text)
+            logger.info(
+                "event-loop %s の発火なので話しかけない：%s", self._req.fired_axis, chars(text)
+            )
             return text, "沈黙"
         # **頼まれたことへの返事は窓を見ない**（出-bj・2026-10-11・本人の決定イ）。窓で独り言にしていたが、7.5 秒話し・
         # 書き起こし 2.58 秒・調停 1.5 秒で 10 秒を超え、受けた入力への返事を独り言にした。窓は開け直さない（延ばすのは
@@ -5369,7 +5381,7 @@ class InformationProcessing:
             if not admitted:
                 # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
                 # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
-                logger.info("event-loop 窓の外の入力なので捨てる：%.40s", trigger.query)
+                logger.info("event-loop 窓の外の入力なので捨てる：%s", chars(trigger.query))
                 await self._nudge_by_voice(trigger)
                 return self._swallowed(trigger)
             trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
@@ -5826,14 +5838,14 @@ class InformationProcessing:
         logger.info(
             "声の似かた：%s・いま %s・在席%s（付け替え %.2f）→ %s%s %s %.2f｜%s",
             "通した" if heard else "捨てた",
-            (self._call_name_for(current) or current) if current else "既定",
+            tag(self._call_name_for(current) or current) if current else "既定",
             "あり" if occupied else "なし",
             strict,
             "" if heard else "通していたら ",
             verdict.action,
-            who or verdict.person_id or "-",
+            tag(who or verdict.person_id) if (who or verdict.person_id) else "-",
             verdict.score,
-            "・".join(f"{self._call_name_for(pid) or pid} {v:.2f}" for pid, v in ranked)
+            "・".join(f"{tag(self._call_name_for(pid) or pid)} {v:.2f}" for pid, v in ranked)
             or "基準なし",
         )
 
@@ -6135,7 +6147,7 @@ class InformationProcessing:
         if self._muted_since is None:
             self._muted_since = now
         self._muted.append(Heard(kind=trigger.kind, text=text, who=who, obs_id=obs_id, at=now))
-        logger.info("黙っているので聞くだけ：%s %.40s", trigger.kind, text)
+        logger.info("黙っているので聞くだけ：%s %s", trigger.kind, chars(text))
 
     def _take_muted(self) -> "list[Heard]":
         items, self._muted = self._muted, []
@@ -6217,7 +6229,7 @@ class InformationProcessing:
         self._talk_line(self._me(to), text)
         self._stamp_said()
         self._emit(text)
-        logger.info("確認の問いを出した：%.40s", text)
+        logger.info("確認の問いを出した：%s", chars(text))
 
     def _careful_voice(self, branch: str) -> bool:
         """じっくり読む声で読むか（環-u・2026-09-21・`core/voice_rules`）。
@@ -6463,11 +6475,11 @@ class InformationProcessing:
             return
         pid = agent._pmm.find_person_id_by_name(name)
         if pid is None:
-            logger.info("否定された「%s」は人物表に無いので何もしない", name)
+            logger.info("否定された「%s」は人物表に無いので何もしない", tag(name))
             return
         await agent._pmm.person_left(pid)  # 顔ぶれから外す（話者だったら話者も外れる）
         agent._persons.reset_to_default()
-        logger.info("「%s ではない」と言われたので顔ぶれから外した", name)
+        logger.info("「%s ではない」と言われたので顔ぶれから外した", tag(name))
 
     async def _apply_speaker_claim(self, decision) -> None:
         """調停が読んだ名乗り（`speaker_claim`）を、**その発話の声が名乗った本人に当たるとき**だけ話者に付ける。
@@ -6493,14 +6505,14 @@ class InformationProcessing:
         voice = getattr(self._req, "voice", None)
         pid = agent._pmm.find_person_id_by_name(name)
         if voice is None or not pid:
-            logger.info("名乗り「%s」に声の特徴が無いので話者にしない", name)
+            logger.info("名乗り「%s」に声の特徴が無いので話者にしない", tag(name))
             return
         score = self._claim_score(pid, voice)
         threshold = agent.config.recognition.voice_claim_threshold
         if score is None or score < threshold:
             logger.info(
                 "名乗り「%s」の声が本人に当たらない（%s・閾値 %.2f）",
-                name,
+                tag(name),
                 "基準なし" if score is None else f"{score:.2f}",
                 threshold,
             )
@@ -6550,7 +6562,7 @@ class InformationProcessing:
             today = datetime.now(local_tz()).date()
             store.add(pid, "voice", "registered", voice, cap=cfg.registered_max)
             store.add(pid, "voice", "today", voice, cap=cfg.today_max, day=today)
-            logger.info("名乗りの声を %s の基準に足した", name)
+            logger.info("名乗りの声を %s の基準に足した", tag(name))
         except Exception:  # noqa: BLE001
             logger.warning("名乗りの声を基準に足せなかった（話者は付けた）", exc_info=True)
 
@@ -6656,7 +6668,7 @@ class InformationProcessing:
         agent._speaker_set_at = time.time()
         with contextlib.suppress(Exception):
             await agent._sync_pmm_speaker(name)
-        logger.info("話者を付けた：%s（%s）", name, why)
+        logger.info("話者を付けた：%s（%s）", tag(name), why)
 
     async def _apply_silence(self, decision, *, utterance: str = "") -> None:
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
@@ -6693,7 +6705,8 @@ class InformationProcessing:
             # **誰が言っても解く**（出-as §2.5）。話者が分からない家では本人かを決められなかった。控えも状態図が消す。
             await sm.unhush()
             logger.info(
-                "話していいと言われたので黙るのを解く（頼んだのは %s）", req.person or "不明"
+                "話していいと言われたので黙るのを解く（頼んだのは %s）",
+                tag(req.person) if req.person else "不明",
             )
 
     async def _accept_silence(self, asked_minutes: int) -> None:

@@ -21,6 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 
 from .db import get_db
+from .core.redact import tag
 
 logger = logging.getLogger(__name__)
 
@@ -105,7 +106,7 @@ def save_silence(req: SilenceRequest) -> None:
             conn.commit()
         logger.info(
             "黙っているよう頼まれた：%s（%.0f 分）",
-            req.person,
+            tag(req.person),
             max(0.0, (req.until - datetime.now(timezone.utc).timestamp())) / 60,
         )
     except Exception as e:  # noqa: BLE001

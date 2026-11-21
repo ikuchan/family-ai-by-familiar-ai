@@ -20,6 +20,7 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop.tonic import Tonic
+from familiar_agent.core.redact import tag
 
 
 @contextlib.contextmanager
@@ -140,7 +141,8 @@ def test_presence_scan_leaves_a_trace_even_when_nothing_changes():
         t.scan_presence()  # パパが来た
     joined = "\n".join(logs)
     assert "初回走査" in joined and "誰も居ない" in joined
-    assert "顔ぶれの変化" in joined and "パパ" in joined
+    # 名前は出さず、印にする（出-dm）
+    assert "顔ぶれの変化" in joined and tag("パパ") in joined and "パパ" not in joined
 
 
 def test_driver_waits_only_on_completions_while_a_lookup_is_in_flight():

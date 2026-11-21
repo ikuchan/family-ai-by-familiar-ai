@@ -13,6 +13,7 @@ from __future__ import annotations
 from unittest.mock import MagicMock
 
 from familiar_agent.core.parsing import parse_family_md
+from familiar_agent.core.redact import tag
 
 TEMPLATE_LIKE = """## （名前を変えてください）
 
@@ -179,7 +180,9 @@ def test_a_word_shared_by_two_family_members_is_reported(caplog):
     ]
     with caplog.at_level("ERROR"):
         _agent_with(rows, family)
-    assert any("にいに" in r.message and "2 人" in r.message for r in caplog.records)
+    # 呼び方は出さず、印にする（出-dm）
+    assert any(tag("にいに") in r.message and "2 人" in r.message for r in caplog.records)
+    assert not any("にいに" in r.message for r in caplog.records)
 
 
 def test_the_store_rewrites_the_call_names():

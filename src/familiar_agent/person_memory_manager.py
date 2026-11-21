@@ -30,6 +30,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Awaitable, Callable
+from .core.redact import tag
 
 if TYPE_CHECKING:
     # 実行時には読み込まない。`tools.memory` はこのモジュールを使う側なので、
@@ -435,8 +436,8 @@ class PersonMemoryManager:
             if len(hits) > 1:
                 logger.error(
                     "人物：「%s」は 2 人以上（%s）に当たるので、誰とも決めない（FAMILY.md の呼び方が重なっている）",
-                    word,
-                    "・".join(str(m["name"]) for m in hits),
+                    tag(word),
+                    "・".join(tag(m["name"]) for m in hits),
                 )
                 return None
             if not hits:

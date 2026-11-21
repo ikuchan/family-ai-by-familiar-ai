@@ -38,6 +38,7 @@ from . import (
 from .rest import run_rest_pass
 from ..core.music_state import playing as music_playing
 from ..core import credit
+from ..core.redact import tag
 
 logger = logging.getLogger(__name__)
 
@@ -115,8 +116,8 @@ def effective_drive_cfg(cfg: DriveConfig, now: datetime | None = None) -> DriveC
 
 
 def _names(names: set[str]) -> str:
-    """顔ぶれの集合をログ用の1行にする。"""
-    return "・".join(sorted(names)) or "（なし）"
+    """顔ぶれの集合をログ用の1行にする。名前は出さず、短い印にする（出-dm・`core/redact.tag`）。"""
+    return "・".join(sorted(tag(n) for n in names)) or "（なし）"
 
 
 class Tonic:
@@ -253,7 +254,9 @@ class Tonic:
             name = getattr(agent._persons, "active_name", "")
             agent._persons.reset_to_default()
             agent._pmm.clear_speaker()
-            logger.info("tonic 話者の指定が切れた：%s（60 秒返事が無く、顔も見ていない）", name)
+            logger.info(
+                "tonic 話者の指定が切れた：%s（60 秒返事が無く、顔も見ていない）", tag(name)
+            )
         except Exception:  # noqa: BLE001
             logger.debug("話者の指定の寿命を見られなかった")
 

@@ -23,6 +23,7 @@ from ..core import measure, parsing
 from ..io.oif import MI
 from ..store import clock
 from ..store.relations import KIND_FOLD
+from ..core.redact import tag
 
 logger = logging.getLogger(__name__)
 
@@ -329,7 +330,7 @@ async def _write_person_summary(agent, batch: Batch, name: str, text: str) -> st
     """書けたら記録の id、書かなければ空文字。"""
     pid = agent._pmm.find_person_id_by_name(name)
     if not pid:
-        logger.warning("rest 関係のまとめ：「%s」の人物 id が無いので書かない", name)
+        logger.warning("rest 関係のまとめ：「%s」の人物 id が無いので書かない", tag(name))
         return ""
     pad, arousal = await _pad_for(agent, text)
     mi = MI(id="", content=text[:PERSON_MAX_CHARS], timestamp=_day_end(batch.day), direction="人物")
