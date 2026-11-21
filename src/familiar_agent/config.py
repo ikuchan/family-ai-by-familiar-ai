@@ -538,6 +538,22 @@ class MemoryConfig:
         return RecallWeights(*values)
 
 
+@dataclass(frozen=True)
+class DeviceWatchConfig:
+    """機器の見張り（知-bv・`設計方針_機器の見張り`）。スピーカー、マイク、カメラを間をおいて確かめ、使えなければ直す。"""
+
+    # 最初の確かめは起動のこの秒数あと（仮・2026-11-21）。カメラは開くのに 18 秒かかったことがあり、すぐ確かめると
+    # 開いている途中を「使えない」と取り違える。
+    first_delay_sec: float = 60.0
+    # 間隔は最初 5 分、使えていれば倍に広げ、最大 4 時間。直したとき（と直せなかったとき・仮）は 5 分に戻す（本人の決定）。
+    base_sec: float = 300.0
+    max_sec: float = 14_400.0
+    # 最後の映像と最後の音がこの秒数より古ければ「取り込めていない」（仮・2026-11-21）。
+    stale_sec: float = 60.0
+    # 開き直したあと、新しい映像と音が来るのを待つ秒（仮・2026-11-21）。カメラは開くのに 18 秒かかったことがある。
+    settle_sec: float = 30.0
+
+
 @dataclass
 class STTConfig:
     # Reuses ELEVENLABS_API_KEY — no separate key needed

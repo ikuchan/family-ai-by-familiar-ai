@@ -1283,6 +1283,10 @@ class FamiliarWindow(QMainWindow):
         self._last_social_fire: float = 0.0
         self._realtime_stt: RealtimeSttController | None = create_realtime_stt_controller()
         self._realtime_stt_task: asyncio.Task[None] | None = None
+        # 機器の見張り（知-bv）。起動の終わりに立て、閉じるときに取り消す。
+        self._device_watch_task: asyncio.Task[None] | None = None
+        # 見張るマイクの聞き取り。始めるのに失敗すると `_realtime_stt` は None になるが、見張りはこちらで始め直す。
+        self._watched_stt: RealtimeSttController | None = None
         self._last_lag_tick = time.perf_counter()
         self._lag_timer = QTimer(self)
         self._lag_timer.setInterval(int(_GUI_LOOP_LAG_CHECK_SEC * 1000))
@@ -2024,6 +2028,7 @@ class FamiliarWindow(QMainWindow):
     async def _start_realtime_stt(self) -> None:
         """Initialize realtime STT and feed transcripts into the GUI input queue."""
         assert self._realtime_stt is not None
+        self._watched_stt = self._realtime_stt
         try:
             loop = asyncio.get_event_loop()
             self._realtime_stt.on_partial = self._on_realtime_stt_partial
@@ -2042,6 +2047,51 @@ class FamiliarWindow(QMainWindow):
             restart_btn = getattr(self, "_restart_stt_btn", None)
             if restart_btn is not None:
                 restart_btn.setEnabled(False)
+
+    async def _run_device_watch(self, agent) -> None:
+        """機器の見張り（知-bv・`設計方針_機器の見張り`）。スピーカー、マイク、カメラを間をおいて確かめ、直す。
+
+        マイクは聞き取りを始め直して開き直す。聞き取りは設定の読み直しで作り直され、始めるのに失敗すると
+        `_realtime_stt` から外れるので、毎回 `_watched_stt` を引く。機器の名前も毎回引く（読み直しに付いていく）。
+        """
+        from .config import DeviceWatchConfig
+        from .io import device_watch
+
+        def output_name() -> str:
+            return (
+                os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
+                or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+            )
+
+        def mic_age() -> "float | None":
+            controller = getattr(self, "_watched_stt", None)
+            if controller is None:
+                return None
+            return controller.mic_audio_age(os.environ.get("AUDIO_INPUT_DEVICE", "").strip())
+
+        async def mic_restart() -> bool:
+            controller = getattr(self, "_watched_stt", None)
+            if controller is None:
+                return False
+            if not await controller.restart(reason="device-watch"):
+                return False
+            self._realtime_stt = controller
+            return True
+
+        cfg = DeviceWatchConfig()
+        items = device_watch.build_items(
+            device_name=output_name,
+            mic_age=mic_age,
+            mic_restart=mic_restart,
+            camera=getattr(agent, "_camera", None),
+            cfg=cfg,
+        )
+        try:
+            await device_watch.run(items, cfg=cfg)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("機器の見張りが止まった")
 
     async def _restart_realtime_stt(self, reason: str = "manual") -> None:
         controller = self._realtime_stt
@@ -2409,6 +2459,8 @@ class FamiliarWindow(QMainWindow):
             self._set_input_enabled(True)
             if self._realtime_stt and self._realtime_stt_task is None:
                 self._realtime_stt_task = self._create_task(self._start_realtime_stt())
+            if getattr(self, "_device_watch_task", None) is None:
+                self._device_watch_task = self._create_task(self._run_device_watch(agent))
         except FatalStartupError as e:
             # #10：致命的な起動失敗（DB 接続不可等）はダイアログで示して終了。
             self._agent_init_failed = True
@@ -2470,6 +2522,12 @@ class FamiliarWindow(QMainWindow):
         self._lag_timer.stop()
         self._status_timer.stop()
         self._cancel_turn(reason="shutdown")
+        watch = getattr(self, "_device_watch_task", None)
+        if watch and not watch.done():
+            watch.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watch
+        self._device_watch_task = None
         if self._realtime_stt_task and not self._realtime_stt_task.done():
             self._realtime_stt_task.cancel()
             with contextlib.suppress(asyncio.CancelledError):

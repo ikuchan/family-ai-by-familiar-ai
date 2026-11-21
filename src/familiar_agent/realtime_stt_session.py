@@ -154,6 +154,12 @@ class RealtimeSttSession:
         # `close`／`send_audio`／`on_committed`）。共通の基底は置かず、型は緩めて扱う。
         self._stt_client: Any = None
         self._mic_capture: MicCapture | None = None
+        # 初めてマイクを開いた時刻と、最後に音を受けた時刻（monotonic）。機器の見張りが古さを見る（知-bv）。
+        # 始め直しても初めの時刻は変えない（変えると、開けないままでも古さが 0 に戻る）。
+        self._mic_started_at: float | None = None
+        self._last_audio_at: float | None = None
+        # 聞き取りを回したいか（`start` で真、`stop` で偽。始め直しの途中で落ちても真のまま）。偽のときは見張らない。
+        self._mic_wanted = False
         self._relay_task: asyncio.Task | None = None
         self._partial_task: asyncio.Task | None = None
         self._monitor_task: asyncio.Task | None = None
@@ -230,6 +236,9 @@ class RealtimeSttSession:
         self._loop = loop
         self._committed_queue = committed_queue
         self._stopping = False
+        self._mic_wanted = True
+        if self._mic_started_at is None:
+            self._mic_started_at = time.monotonic()
         self._last_normalized_text = ""
         self._last_time = 0.0
         self._incoming_committed = asyncio.Queue()
@@ -248,6 +257,7 @@ class RealtimeSttSession:
     async def stop(self) -> None:
         """Stop microphone capture and close the STT WebSocket."""
         self._stopping = True
+        self._mic_wanted = False
         if self._mic_capture:
             self._mic_capture.stop()
             self._mic_capture = None
@@ -285,8 +295,12 @@ class RealtimeSttSession:
             return False
 
         async with self._restart_lock:
-            logger.warning("Restarting realtime STT session (%s)", reason)
+            # 機器の見張りが直すための始め直しは INFO（直せなかったときだけ見張りが WARNING を出す・知-bv）。
+            level = logging.INFO if reason == "device-watch" else logging.WARNING
+            logger.log(level, "Restarting realtime STT session (%s)", reason)
             await self.stop()
+            # 始め直しの途中で落ちても、回したいままにする（見張りが次の回にまた始め直せるように）。
+            self._mic_wanted = True
             await self.start(self._loop, self._committed_queue)
             logger.info("Realtime STT session restarted (%s)", reason)
             return True
@@ -357,7 +371,23 @@ class RealtimeSttSession:
                 logger.warning("Realtime STT reconnect failed: %s", exc)
                 await asyncio.sleep(_RECONNECT_BACKOFF_SECS)
 
+    def mic_audio_age(self, expected: str = "") -> "float | None":
+        """最後に音を受けてからの秒（知-bv）。まだ受けていなければ初めて始めてからの秒。止めているときは None。
+
+        `expected`（機器の名前の一部）を渡すと、開いたマイクがその機器でないときは無限大を返す（YAMAHA が
+        見つからず既定の入力へ落ちても、無音の音は届き続けるので、時刻だけでは見分けられない）。
+        """
+        if not self._mic_wanted:
+            return None
+        mic = self._mic_capture
+        if expected and mic is not None and expected.lower() not in mic.device_name.lower():
+            return float("inf")
+        at = self._last_audio_at or self._mic_started_at
+        return None if at is None else time.monotonic() - at
+
     async def _send_audio(self, pcm16le: bytes) -> None:
+        # 音が届いたことは、声を出しているあいだも数える（聞き取りへ渡すかとは別・知-bv）。
+        self._last_audio_at = time.monotonic()
         # Drop mic audio while TTS is active: prevents speaker echo from reaching
         # ElevenLabs and causing rapid WebSocket disconnect/reconnect loops.
         if self._voice_guard.speaking:
@@ -475,6 +505,10 @@ class RealtimeSttController:
 
     async def stop(self) -> None:
         await self._session.stop()
+
+    def mic_audio_age(self, expected: str = "") -> "float | None":
+        """最後に音を受けてからの秒（`RealtimeSttSession.mic_audio_age`）。"""
+        return self._session.mic_audio_age(expected)
 
     async def restart(self, reason: str = "manual") -> bool:
         if self._loop is None or self._committed_queue is None:

@@ -93,6 +93,10 @@ class CameraTool:
         self.last_capture_path: str | None = None
         self._running = False
         self._thread: threading.Thread | None = None
+        # 取り込みの仕事を立てた時刻と、最後に映像を受けた時刻（monotonic）。機器の見張りが古さを見る（知-bv）。
+        self._started_at: float | None = None
+        self._closed = False
+        self._last_frame_at: float | None = None
         self._lock = threading.Lock()
 
         # Start background capture thread
@@ -116,11 +120,38 @@ class CameraTool:
         if self._running:
             return
         self._running = True
+        # 初めて立てた時刻だけを持つ。立て直しで新しくすると、開けないままでも古さが 0 に戻り、直ったと見誤る。
+        if self._started_at is None:
+            self._started_at = time.monotonic()
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
 
+    def frame_age(self) -> "float | None":
+        """最後に映像を受けてからの秒（知-bv）。まだ 1 枚も受けていなければ、初めて仕事を立ててからの秒。立てていなければ None。"""
+        at = self._last_frame_at or self._started_at
+        return None if at is None else time.monotonic() - at
+
+    def reopen(self) -> bool:
+        """取り込みの仕事が終わっていれば立て直し、True を返す（知-bv）。最初に開けないと、仕事は開き直さずに終わる（11/14）。
+
+        生きている仕事は、読めないときに自分で 2 秒おきに開き直しているので、二つ目を立てない（同じ接続を取り合う）。
+        閉じたあと（`close`）も立てない。どちらも False。
+        """
+        if self._closed:
+            return False
+        if self._thread is not None and self._thread.is_alive():
+            logger.info("カメラの取り込みの仕事は動いているので、立て直さない")
+            return False
+        if self._cap is not None:
+            self._cap.release()
+            self._cap = None
+        self._running = False
+        self.start()
+        return True
+
     def close(self):
         """Stop capture and release resources."""
+        self._closed = True
         self._running = False
         if self._thread:
             self._thread.join(timeout=2.0)
@@ -169,6 +200,7 @@ class CameraTool:
 
                 with self._lock:
                     self._last_frame = frame.copy()
+                    self._last_frame_at = time.monotonic()
 
                 if self.preview:
                     cv2.imshow("Familiar-AI Camera Preview", frame)

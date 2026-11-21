@@ -149,6 +149,8 @@ class MicCapture:
         self._stream: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
         self._native_rate: int = TARGET_RATE
+        # 開いた機器の名前（機器の見張りが、YAMAHA を開いたかを見る・知-bv）。
+        self.device_name: str = ""
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
         """Start capturing from the default input device."""
@@ -180,6 +182,7 @@ class MicCapture:
 
             # Use the device's native sample rate to avoid paInvalidSampleRate
             device_info = sd.query_devices(device=device_idx, kind="input")
+            self.device_name = str(device_info.get("name", ""))
             self._native_rate = int(device_info["default_samplerate"])
             block_size = int(self._native_rate * _BLOCK_MS / 1000)
             # 取り込みごとに1つ持つ（フィルタの状態を前の取り込みと混ぜない）。
