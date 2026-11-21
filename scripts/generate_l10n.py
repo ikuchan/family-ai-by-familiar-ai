@@ -1,16 +1,16 @@
 #!/usr/bin/env python3
-"""Generate i18n translations (36 keys) and localized READMEs for 74 languages (ElevenLabs v3).
+"""Generate i18n translations (UI strings) for 74 languages (ElevenLabs v3).
+
+The README is kept in English (README.md) and Japanese (README_ja.md) only; the 74 translated
+READMEs were removed on 2026-11-21 (環-ap, owner's decision: "英語と日本語だけでいい").
 
 Usage:
-    uv run scripts/generate_l10n.py                        # all 44 new languages
+    uv run scripts/generate_l10n.py                        # all new languages
     uv run scripts/generate_l10n.py --lang es ko hi        # specific languages
-    uv run scripts/generate_l10n.py --only-readme          # only README files
-    uv run scripts/generate_l10n.py --only-i18n            # only _i18n.py keys
     uv run scripts/generate_l10n.py --api openai           # use OpenAI (default: anthropic)
     uv run scripts/generate_l10n.py --api gemini           # use Google Gemini
 
 Output:
-    - readme-l10n/README-{lang}.md  for each language
     - src/familiar_agent/_i18n.py   updated with new language entries
 """
 
@@ -26,8 +26,6 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).parent.parent
 I18N_FILE = REPO_ROOT / "src" / "familiar_agent" / "_i18n.py"
-README_EN = REPO_ROOT / "README.md"
-README_L10N = REPO_ROOT / "readme-l10n"
 
 # 68 new languages (beyond existing en, ja, zh, zh-TW, fr, de) — ElevenLabs v3 full coverage
 NEW_LANGS: list[tuple[str, str]] = [
@@ -128,22 +126,6 @@ Rules:
 - Use casual, friendly tone (present progressive if it's a status label)
 
 English string: {english_value}
-"""
-
-_README_PROMPT = """\
-Translate this README.md from English to {language_name}.
-
-Rules:
-- Keep ALL Markdown formatting (headings, tables, code blocks, badges, links) exactly as-is
-- Do NOT translate: code, variable names, flag names (PLATFORM, API_KEY etc), URLs, badge markdown
-- Do NOT translate the project name "Familiar AI" or "familiar-ai"
-- Do NOT translate command-line examples
-- Keep the casual, friendly tone
-- Replace the language switcher section at the top with just: "[→ English README](../README.md)"
-- Output only the translated Markdown, nothing else
-
-README.md:
-{readme}
 """
 
 
@@ -280,23 +262,6 @@ async def _translate_i18n(
         return None
 
 
-async def _translate_readme(
-    client: object,
-    api: str,
-    code: str,
-    language_name: str,
-    readme_en: str,
-) -> str | None:
-    """Translate README.md to target language."""
-    prompt = _README_PROMPT.format(language_name=language_name, readme=readme_en)
-    try:
-        raw = await _complete(client, api, prompt, 8192)
-        return raw.strip()
-    except Exception as e:
-        print(f"  [README ERROR {code}] {e}", file=sys.stderr)
-        return None
-
-
 async def _process_lang(
     sem: asyncio.Semaphore,
     client: object,
@@ -304,23 +269,12 @@ async def _process_lang(
     code: str,
     language_name: str,
     english_values: dict[str, str],
-    readme_en: str,
-    only_readme: bool,
-    only_i18n: bool,
-) -> tuple[str, dict[str, str] | None, str | None]:
-    """Process one language: i18n + README translation under semaphore."""
+) -> tuple[str, dict[str, str] | None]:
+    """Process one language: i18n translation under semaphore."""
     async with sem:
         print(f"  → {language_name} ({code})", flush=True)
-        i18n_result = None
-        readme_result = None
-
-        if not only_readme:
-            i18n_result = await _translate_i18n(client, api, code, language_name, english_values)
-
-        if not only_i18n:
-            readme_result = await _translate_readme(client, api, code, language_name, readme_en)
-
-        return code, i18n_result, readme_result
+        i18n_result = await _translate_i18n(client, api, code, language_name, english_values)
+        return code, i18n_result
 
 
 async def _translate_single_key(
@@ -400,12 +354,8 @@ async def main_async_add_key(
 
 async def main_async(
     target_langs: list[tuple[str, str]],
-    only_readme: bool,
-    only_i18n: bool,
     api: str,
 ) -> None:
-    README_L10N.mkdir(exist_ok=True)
-
     if api == "openai":
         from openai import AsyncOpenAI  # noqa: PLC0415
 
@@ -435,7 +385,6 @@ async def main_async(
         client = _ant.AsyncAnthropic(api_key=api_key)
 
     english_values = _extract_english_values()
-    readme_en = README_EN.read_text(encoding="utf-8")
 
     # Load current translations to merge into
     current = _read_current_translations()
@@ -445,24 +394,17 @@ async def main_async(
 
     print(f"Processing {len(target_langs)} languages using {api} API...")
     tasks = [
-        _process_lang(
-            sem, client, api, code, lang, english_values, readme_en, only_readme, only_i18n
-        )
-        for code, lang in target_langs
+        _process_lang(sem, client, api, code, lang, english_values) for code, lang in target_langs
     ]
     results = await asyncio.gather(*tasks)
 
     # Merge i18n results into current translations
     i18n_updates: dict[str, tuple[str, dict[str, str]]] = {}
-    for code, i18n_result, readme_result in results:
+    for code, i18n_result in results:
         if i18n_result:
             i18n_updates[code] = i18n_result
-        if readme_result:
-            out_path = README_L10N / f"README-{code}.md"
-            out_path.write_text(readme_result + "\n", encoding="utf-8")
-            print(f"  ✓ readme-l10n/README-{code}.md")
 
-    if i18n_updates and not only_readme:
+    if i18n_updates:
         # Merge into current translations dict
         for key in current:
             for code, translations in i18n_updates.items():
@@ -481,21 +423,11 @@ async def main_async(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate i18n + README localizations.")
+    parser = argparse.ArgumentParser(description="Generate i18n (UI string) localizations.")
     parser.add_argument(
         "--lang",
         nargs="+",
         help="Language codes to process (default: all 68 new languages)",
-    )
-    parser.add_argument(
-        "--only-readme",
-        action="store_true",
-        help="Only generate README files, skip i18n key translation",
-    )
-    parser.add_argument(
-        "--only-i18n",
-        action="store_true",
-        help="Only update _i18n.py, skip README generation",
     )
     parser.add_argument(
         "--add-key",
@@ -531,7 +463,7 @@ def main() -> None:
     else:
         target_langs = NEW_LANGS
 
-    asyncio.run(main_async(target_langs, args.only_readme, args.only_i18n, args.api))
+    asyncio.run(main_async(target_langs, args.api))
     print("Done!")
 
 

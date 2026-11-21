@@ -135,10 +135,11 @@ def _begun(trigger: Trigger, *, ringing_now: bool) -> Request:
 
 def test_a_waited_word_is_told_how_long_it_waited():
     t = Trigger(kind="会話入力", query="パジュ、止めて", waited=True)
-    t.arrived = time.monotonic() - 40.4
+    t.arrived = time.monotonic() - 40.0
     req = _begun(t, ringing_now=False)
     text = _w(req)
-    assert "この言葉は 40 秒前、" + WAITED in text
+    # 文にするまでの時間で 1 秒ずれうる（全体テストで機械が混むと 40.4 秒が 41 秒になって揺れた・2026-11-21）
+    assert ("この言葉は 40 秒前、" + WAITED in text) or ("この言葉は 41 秒前、" + WAITED in text)
     assert RING_OVER not in text  # 届いたときに鳴っていなかった
 
 

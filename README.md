@@ -10,7 +10,7 @@
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 [![GitHub Sponsors](https://img.shields.io/github/sponsors/kmizu?style=flat&logo=github&color=ea4aaa)](https://github.com/sponsors/kmizu)
 
-🌍 [Available in 74 languages](./SUPPORTED_LANGUAGES.md)
+🌍 UI and voice in [74 languages](./SUPPORTED_LANGUAGES.md) · README: English / [日本語](./README_ja.md)
 
 ---
 

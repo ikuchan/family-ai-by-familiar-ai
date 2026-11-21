@@ -5,7 +5,7 @@
 - `tests/`: pytest-based test suite. Follow existing `test_*.py` organization.
 - `benchmarks/`: benchmark scenarios and prompt sets.
 - `scripts/`: maintenance and automation scripts.
-- `persona-template/` and `readme-l10n/`: persona starter files and localized READMEs.
+- `persona-template/`: persona starter files. The README is English (`README.md`) and Japanese (`README_ja.md`) only.
 - `dev/`: local helper commands for development workflows.
 
 ## Build, Test, and Development Commands

@@ -7,7 +7,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/)
 
-🌍 [74言語に対応](./SUPPORTED_LANGUAGES.md)
+🌍 画面と声は [74 言語に対応](./SUPPORTED_LANGUAGES.md) · README： [English](./README.md) / 日本語
 
 ---
 
