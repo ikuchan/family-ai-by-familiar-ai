@@ -11,9 +11,9 @@ DB（`agent_state` の鍵 `music_suggestion`）に持つのは、いまの候補
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 
 from . import state_json
+from ..store import clock
 
 STATE_KEY = "music_suggestion"
 #: 返事が無いまま勧めてよい回数。2 回目でも返事が無ければ、その候補は捨てる（本人の決定：もう一度だけ）。
@@ -91,7 +91,7 @@ HEADING = "[音楽のおすすめ]"
 
 def today() -> str:
     """いまの日付（その日に勧めたかを見る）。試験で差し替えられるよう口にしておく。"""
-    return datetime.now().astimezone().strftime("%Y-%m-%d")
+    return clock.today_local().isoformat()  # 家の暦の「今日」は 1 か所で決める
 
 
 def frame(s: Suggestions, *, today: str, talking: bool, conversation: bool) -> str:

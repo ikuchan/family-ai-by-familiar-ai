@@ -16,20 +16,12 @@ JST = timezone(timedelta(hours=9))
 NOW_UTC = datetime(2026, 11, 15, 23, 0, tzinfo=timezone.utc)  # 家の 11/16 08:00
 
 
-class _FixedDatetime(datetime):
-    @classmethod
-    def now(cls, tz=None):  # noqa: ANN001
-        return (
-            NOW_UTC.astimezone(tz)
-            if tz is not None
-            else NOW_UTC.astimezone(JST).replace(tzinfo=None)
-        )
-
-
 @pytest.fixture
 def morning(monkeypatch):
-    monkeypatch.setattr(si, "datetime", _FixedDatetime)
-    monkeypatch.setattr(si, "local_tz", lambda: JST)
+    """家の 11/16 08:00（UTC ではまだ 11/15 の 23 時）。家の「今日」は `store.clock.today_local` の 1 か所で決める。"""
+    from familiar_agent.store import clock
+
+    monkeypatch.setattr(clock, "today_local", lambda: NOW_UTC.astimezone(JST).date())
 
 
 def test_a_line_seeded_this_morning_is_today(morning, tmp_path):
@@ -47,3 +39,17 @@ def test_a_line_from_yesterday_still_shows_its_age(morning):
         values=(),
     )
     assert "（11/15 から）" in si.render(image)
+
+
+def test_today_local_is_the_home_calendar(monkeypatch):
+    """家の「今日」は、このホストの時刻帯での日付（UTC の日付ではない）。"""
+    from familiar_agent.store import clock
+
+    class _Now(datetime):
+        @classmethod
+        def now(cls, tz=None):  # noqa: ANN001
+            return NOW_UTC.astimezone(tz) if tz is not None else NOW_UTC
+
+    monkeypatch.setattr(clock, "datetime", _Now)
+    monkeypatch.setattr(clock, "local_tz", lambda: JST)
+    assert clock.today_local() == date(2026, 11, 16)

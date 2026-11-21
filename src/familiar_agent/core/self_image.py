@@ -18,8 +18,8 @@ import logging
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from pathlib import Path
+from ..store import clock
 
-from ..store.clock import local_tz
 
 logger = logging.getLogger(__name__)
 
@@ -86,7 +86,7 @@ def check(image: SelfImage) -> "str | None":
 
 def render(image: SelfImage, *, today: "date | None" = None) -> str:
     """システム文の枠 `[いまの自分]`。数値も id も出さない。古さは「（9/10 から）」で添える。"""
-    today = today or datetime.now(local_tz()).date()
+    today = today or clock.today_local()
     parts = ["[いまの自分]"]
     for name in FIELDS:
         parts.append(f"{name}：")
@@ -104,7 +104,7 @@ def _from_json(data: dict) -> SelfImage:
         out = []
         for item in data.get(name) or []:
             if isinstance(item, str):
-                out.append(Line(text=item, since=datetime.now(local_tz()).date(), sources=()))
+                out.append(Line(text=item, since=clock.today_local(), sources=()))
             else:
                 out.append(
                     Line(
@@ -133,7 +133,7 @@ def seed(path: "Path | None" = None, *, today: "date | None" = None) -> SelfImag
     import yaml  # type: ignore[import-untyped]
 
     data = yaml.safe_load((path or SEED_PATH).read_text(encoding="utf-8")) or {}
-    today = today or datetime.now(local_tz()).date()
+    today = today or clock.today_local()
     return SelfImage(
         **{
             _ATTR[name]: tuple(

@@ -16,7 +16,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-from datetime import date as _date
 from datetime import datetime
 from typing import Any
 
@@ -678,7 +677,7 @@ class ObservationStore:
     def recall_on_this_day(self, month: int, day: int, n: int = 5) -> list[dict]:
         """Return observations from past years on the same month/day (anniversary recall)."""
         try:
-            today = _date.today()
+            today = clock.today_local()
             with self._ctx.lock:
                 conn = self._ctx.conn()
                 with conn.cursor() as cur:

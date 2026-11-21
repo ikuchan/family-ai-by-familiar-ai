@@ -51,6 +51,7 @@ from .loop.evaluator import Evaluator
 from .mcp_client import CallResult, MCPClientManager, _resolve_config_path
 from .capability_state import load_summary
 from .core.redact import tag
+from .store import clock
 
 if TYPE_CHECKING:
     from .core.search_relevance import Checked
@@ -1473,14 +1474,11 @@ class EmbodiedAgent:
             logger.info("声の登録の受付が過ぎた：%s", call)
             return None
         self._voice_enroll = None
-        from datetime import datetime
-
-        from .store.clock import local_tz
 
         cfg = self.config.recognition
         try:
             store = self._voice_store()
-            today = datetime.now(local_tz()).date()
+            today = clock.today_local()
             store.add(pid, "voice", "registered", voice, cap=cfg.registered_max)
             store.add(pid, "voice", "today", voice, cap=cfg.today_max, day=today)
         except Exception:  # noqa: BLE001

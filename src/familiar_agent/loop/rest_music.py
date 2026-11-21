@@ -21,6 +21,7 @@ from ..core import music_catalog as mc
 from ..core import music_rules
 from ..core import music_suggestion as ms
 from ..core.redact import tag
+from ..store import clock
 
 logger = logging.getLogger(__name__)
 
@@ -62,10 +63,7 @@ def _refresh(web, *, today: "str | None" = None) -> CatalogResult:
     リファレンス）。毎晩 403 を叩いていた。どちらも読めなければ前の中身は残す。自分のものは一時の失敗として毎晩読み直す。
     """
     if today is None:
-        from ..store.clock import local_tz
-        from datetime import datetime
-
-        today = datetime.now(local_tz()).date().isoformat()
+        today = clock.today_local().isoformat()
     before = {p.id: p for p in mc.stored().playlists}
     result = CatalogResult()
     playlists: list[mc.Playlist] = []

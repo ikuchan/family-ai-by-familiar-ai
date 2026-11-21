@@ -26,6 +26,7 @@ from ..core.structured_ask import read_json_merged
 from ..core import jev_judges, measure
 from ..core import season_env as se
 from ..core import season_sources as ss
+from ..store import clock
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ def _rows(data: dict) -> "dict[str, tuple[se.Row, ...]] | None":
 
 async def update_season(agent, records: list, *, today: "date | None" = None) -> Outcome:
     """季節の層の 1 段：確かめる → 読む → 頼む → 検査 → 通れば保存する。"""
-    today = today or date.today()
+    today = today or clock.today_local()
     old = se.stored()
     if old is not None and old.written_on == today:
         measure.record("季節", 書いた="-", 見送り="今日は書いた")

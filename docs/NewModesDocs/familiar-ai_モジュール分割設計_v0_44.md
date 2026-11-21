@@ -1,4 +1,4 @@
-# familiar-ai モジュール分割設計（v0.43）
+# familiar-ai モジュール分割設計（v0.44）
 
 ## この文書が決めること
 
@@ -170,6 +170,8 @@ v0.6 は「`run()` の制御構造（ループ管理、生成器、動作器）�
 | C1〜C3 | 継承から合成への組み替え、層ごとの単体テスト | `store/context.py` ほか |
 | S6c | 想起の類似検索を `by_vector` へ、Config を層から外す | 同上 |
 | S6d | 人物レジストリと観測系の残り | `store/persons.py` ほか |
+
+家の暦の「今日」は `store/clock.today_local()` の 1 か所で決める（呼ぶ側は `clock.today_local()` の形で呼び、試験の差し替えを 1 か所で済ませる）（v0.44・2026-11-21・本人の決定「today_local にまとめる」）。それまで `datetime.now(local_tz()).date()` が 10 か所、`date.today()` が 5 か所、音楽の提案の `music_suggestion.today()` が 1 か所に散らばり、自己像の「今日」だけ UTC の日付だった（記-ac）。日の変わり目を変えるなら、ここだけを直す。
 
 結果の構成。SQL は `store/`（と `legacy/`）にだけ残る。
 
@@ -1281,6 +1283,8 @@ backends/cli.py          166 行
 
 ## 更新履歴
 
+> v0.44：時刻の一元化に、家の暦の「今日」（today_local）を足した（2026-11-21）。
+>
 > v0.43：観測の層の読み口の名前を、いまのコード（`by_vector`・`by_words`・`by_time`・`by_emotion`）に直した。`by_kind`・`by_situated`・`by_date` はもう無い（記-u ほか・2026-10-31）。
 >
 > v0.42：`workspace.link_follows` を撤去済みにした（記-t 段 3・2026-10-15）。

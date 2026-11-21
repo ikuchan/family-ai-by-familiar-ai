@@ -19,6 +19,7 @@ import json
 import logging
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
+from ..store import clock
 
 logger = logging.getLogger(__name__)
 
@@ -118,7 +119,7 @@ def check(env: SeasonEnv, *, material_ids: "set[str]") -> "str | None":
 
 def render(env: "SeasonEnv | None", *, today: "date | None" = None) -> str:
     """システム文の `[いまの季節とまわり]`。出典は出さない。"""
-    today = today or date.today()
+    today = today or clock.today_local()
     lines = [f"- 暦：{calendar_line(today)}"]
     age = (today - env.written_on).days if env is not None else None
     if env is None or age is None or age > STALE_DAYS:

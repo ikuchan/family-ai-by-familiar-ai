@@ -2303,7 +2303,6 @@ class InformationProcessing:
         失敗にする。求めの打ち切り（`_abort_lookups`）は、この調べものの task ごと止める。待つあいだは電子音を鳴らし声を
         聞かない（本人の決定イ）ので、声で止めることはできない。
         """
-        import datetime
 
         import anthropic
 
@@ -2328,7 +2327,7 @@ class InformationProcessing:
         # 確かめて始めたとき（出-dh 段 2）は、預かった前の求めの調べものの結果（いまの求めの器には無い）。
         found = self._search_results() if found is None else str(found)
         user = dr.user_message(
-            today=datetime.date.today().isoformat(),
+            today=clock.today_local().isoformat(),
             # 確かめて始めたとき（出-dh 段 2）は、預かった元の頼み（いまの求めの言葉は「はい」）。
             request=request or str(self._req.request_text or query),
             recent=self._recent_for_judges(),
@@ -5880,13 +5879,10 @@ class InformationProcessing:
         門を通った声（`_match_voice`）も、窓の外で捨てた声（`_listen_swallowed_voice`）も、ここで測る。捨てた声は測って
         記録し、はっきり分かる声（`voice_outside_switch_threshold` 以上）でだけ話者を付け替える。今日の声には足さない（知-as）。
         """
-        from datetime import datetime
-
         from ..core import voice_speaker
-        from ..store.clock import local_tz
 
         store = self._voice_store()
-        today = datetime.now(local_tz()).date()
+        today = clock.today_local()
         return voice_speaker.scores(
             voice,
             store.centroids("voice", "registered"),
@@ -6624,14 +6620,11 @@ class InformationProcessing:
 
     def _claim_score(self, pid: str, voice: Any) -> "float | None":
         """名乗った本人の登録の声・今日の声に対する似かた（近いほう）。本人の基準が無ければ None。"""
-        from datetime import datetime
-
         from ..core import voice_speaker
-        from ..store.clock import local_tz
 
         try:
             store = self._voice_store()
-            today = datetime.now(local_tz()).date()
+            today = clock.today_local()
             registered = {
                 k: v for k, v in store.centroids("voice", "registered").items() if k == pid
             }
@@ -6654,14 +6647,11 @@ class InformationProcessing:
         pid = self._agent._pmm.find_person_id_by_name(name)
         if not pid:
             return
-        from datetime import datetime
-
-        from ..store.clock import local_tz
 
         cfg = self._agent.config.recognition
         try:
             store = self._voice_store()
-            today = datetime.now(local_tz()).date()
+            today = clock.today_local()
             store.add(pid, "voice", "registered", voice, cap=cfg.registered_max)
             store.add(pid, "voice", "today", voice, cap=cfg.today_max, day=today)
             logger.info("名乗りの声を %s の基準に足した", tag(name))
@@ -6708,15 +6698,13 @@ class InformationProcessing:
         """
         if voice is None:
             return
-        from datetime import datetime
 
         from ..core import voice_speaker
-        from ..store.clock import local_tz
 
         cfg = self._agent.config.recognition
         try:
             store = self._voice_store()
-            today = datetime.now(local_tz()).date()
+            today = clock.today_local()
             store.drop_old_today(today)
             scores = self._voice_scores(voice)
             strict = cfg.voice_switch_threshold if self._occupied() else cfg.voice_alone_threshold

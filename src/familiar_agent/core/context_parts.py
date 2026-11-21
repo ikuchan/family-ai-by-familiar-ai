@@ -21,6 +21,7 @@ from datetime import date
 from enum import Enum
 
 from . import family_age
+from ..store import clock
 
 #: パジュとして立つときの言葉。**感情を作るのはパジュである**（2026-09-05 決定）。
 #: 一人称は単独では成り立たないので、自己認識と家族を必ず伴う（`build_context` が確かめる）。
@@ -123,7 +124,7 @@ def build_context(
             stable_parts.append(label + "\n" + text.strip())
         if label == "[一緒に暮らす人たち]" and text and text.strip():
             # 年齢と学年は誕生日から毎回数えて添える（知-ad）。`FAMILY.md` は人の入力のまま書き換えない。
-            ages = family_age.render(text, today or date.today())
+            ages = family_age.render(text, today or clock.today_local())
             if ages:
                 stable_parts.append(ages)
             # 家族のいまの様子（REST が書いて DB に置く・知-ad）。`FAMILY.md` の記述の隣に添える。

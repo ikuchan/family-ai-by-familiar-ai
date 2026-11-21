@@ -16,12 +16,20 @@ TEXT 列をいずれ timestamptz へ移すなら、その判断はこのモジ�
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta, timezone, tzinfo
+from datetime import date, datetime, timedelta, timezone, tzinfo
 
 
 def local_tz() -> tzinfo:
     """このホストのローカルタイムゾーン。生活時間の基準に使う。"""
     return datetime.now().astimezone().tzinfo or timezone.utc
+
+
+def today_local() -> date:
+    """家の暦の「今日」（このホストのローカルの日付）。人の生活の日付は、みなここで決める。
+
+    UTC の日付を使うと、家の 0〜9 時（JST）に前の日になる（記-ac・2026-11-21）。日の変わり目を変えるなら、ここだけを直す。
+    """
+    return datetime.now(local_tz()).date()
 
 
 def local_utc_offset() -> str:
