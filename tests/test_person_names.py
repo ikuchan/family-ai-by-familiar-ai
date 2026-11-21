@@ -18,25 +18,25 @@ from familiar_agent.core.redact import tag
 TEMPLATE_LIKE = """## （名前を変えてください）
 
 - **名前**：
-- **呼び方**：パパ、ゆうすけ
+- **呼び方**：パパ、いちろう
 - **英字**：
 - **関係**：
 
-## たいき
+## さぶろう
 
-- **名前**：泰輝
-- **呼び方**：たいき、たいきくん
+- **名前**：三郎
+- **呼び方**：さぶろう、さぶちゃん
 """
 
 
 def test_an_empty_name_does_not_take_the_next_line():
     got = parse_family_md(TEMPLATE_LIKE)
-    assert [m["name"] for m in got] == ["泰輝"]
+    assert [m["name"] for m in got] == ["三郎"]
 
 
 def test_empty_fields_stay_empty():
     got = parse_family_md(
-        "## a\n- **名前**：雄輔\n- **英字**：\n- **関係**：\n- **呼び方**：パパ\n"
+        "## a\n- **名前**：一郎\n- **英字**：\n- **関係**：\n- **呼び方**：パパ\n"
     )
     assert got[0]["latin"] == "" and got[0]["relation"] == ""
     assert got[0]["display_name"] == "パパ"
@@ -46,7 +46,7 @@ def test_the_speaker_book_gets_the_call_name():
     from familiar_agent.agent import EmbodiedAgent
 
     a = MagicMock(spec=EmbodiedAgent)
-    a._family_md = "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ、ゆうすけ\n"
+    a._family_md = "## パパ\n- **名前**：一郎\n- **呼び方**：パパ、いちろう\n"
     a._pmm = MagicMock()
     a._pmm.list_persons = MagicMock(return_value=[])
     a._persons = MagicMock()
@@ -58,20 +58,20 @@ def test_the_speaker_book_gets_the_call_name():
 
 FAMILY = """## パパ
 
-- **名前**：雄輔
-- **呼び方**：パパ、ゆうすけ
+- **名前**：一郎
+- **呼び方**：パパ、いちろう
 
-## たいき
+## さぶろう
 
-- **名前**：泰輝
-- **呼び方**：たいき、たいきくん
+- **名前**：三郎
+- **呼び方**：さぶろう、さぶちゃん
 """
 
 #: 統合の前の本番と同じ形：古い行（記憶つき）と新しい行が並び、古い行の呼び方は最初に登録したときのまま。
 ROWS = [
-    {"id": "old-papa", "name": "いくながゆうすけ", "display_name": "パパ、いくながさん、ゆうすけ"},
-    {"id": "papa", "name": "雄輔", "display_name": "パパ、ゆうすけ"},
-    {"id": "taiki", "name": "泰輝", "display_name": "たいき"},
+    {"id": "old-papa", "name": "いくながいちろう", "display_name": "パパ、いくながさん、いちろう"},
+    {"id": "papa", "name": "一郎", "display_name": "パパ、いちろう"},
+    {"id": "saburo", "name": "三郎", "display_name": "さぶろう"},
 ]
 
 
@@ -87,9 +87,9 @@ def _pmm(family: str = FAMILY, rows=ROWS):
 
 def test_any_word_for_a_person_finds_their_row_by_name():
     m = _pmm()
-    for word in ("雄輔", "パパ", "ゆうすけ"):
+    for word in ("一郎", "パパ", "いちろう"):
         assert m.find_person_id_by_name(word) == "papa", word
-    assert m.find_person_id_by_name("たいきくん") == "taiki"
+    assert m.find_person_id_by_name("さぶちゃん") == "saburo"
 
 
 def test_the_order_of_rows_no_longer_decides():
@@ -102,9 +102,9 @@ def test_an_alias_only_in_the_old_display_name_does_not_count():
 
 
 def test_a_word_for_two_people_finds_no_one_and_says_so(caplog):
-    family = FAMILY + "\n## こうき\n\n- **名前**：光希\n- **呼び方**：こうき、たいき\n"
+    family = FAMILY + "\n## ももこ\n\n- **名前**：光希\n- **呼び方**：ももこ、さぶろう\n"
     with caplog.at_level("ERROR"):
-        assert _pmm(family).find_person_id_by_name("たいき") is None
+        assert _pmm(family).find_person_id_by_name("さぶろう") is None
     assert any("2 人以上" in r.message for r in caplog.records)
 
 
@@ -114,7 +114,7 @@ def test_a_word_not_in_family_finds_no_one():
 
 def test_without_family_only_the_exact_name_counts():
     m = _pmm(family="")
-    assert m.find_person_id_by_name("雄輔") == "papa"
+    assert m.find_person_id_by_name("一郎") == "papa"
     assert m.find_person_id_by_name("パパ") is None
 
 
@@ -139,11 +139,11 @@ def test_a_renamed_person_makes_no_new_row_and_says_so(caplog):
     old = [
         {
             "id": "old-papa",
-            "name": "いくながゆうすけ",
-            "display_name": "パパ、いくながさん、ゆうすけ",
+            "name": "いくながいちろう",
+            "display_name": "パパ、いくながさん、いちろう",
         }
     ]
-    family = "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ、ゆうすけ\n"
+    family = "## パパ\n- **名前**：一郎\n- **呼び方**：パパ、いちろう\n"
     with caplog.at_level("ERROR"):
         a = _agent_with(old, family)
     a._pmm.register_person.assert_not_called()
@@ -151,32 +151,32 @@ def test_a_renamed_person_makes_no_new_row_and_says_so(caplog):
 
 
 def test_a_new_family_member_is_still_registered():
-    family = "## こうき\n- **名前**：光希\n- **呼び方**：こうき\n"
-    a = _agent_with([{"id": "papa", "name": "雄輔", "display_name": "パパ"}], family)
-    a._pmm.register_person.assert_called_once_with("光希", display_name="こうき")
+    family = "## ももこ\n- **名前**：光希\n- **呼び方**：ももこ\n"
+    a = _agent_with([{"id": "papa", "name": "一郎", "display_name": "パパ"}], family)
+    a._pmm.register_person.assert_called_once_with("光希", display_name="ももこ")
 
 
 def test_the_call_names_follow_family_md():
-    family = "## パパ\n- **名前**：雄輔\n- **呼び方**：おとうさん、パパ\n"
-    a = _agent_with([{"id": "papa", "name": "雄輔", "display_name": "パパ、ゆうすけ"}], family)
-    a._pmm.update_display_name.assert_called_once_with("papa", "おとうさん、パパ")
+    family = "## パパ\n- **名前**：一郎\n- **呼び方**：いっちゃんさん、パパ\n"
+    a = _agent_with([{"id": "papa", "name": "一郎", "display_name": "パパ、いちろう"}], family)
+    a._pmm.update_display_name.assert_called_once_with("papa", "いっちゃんさん、パパ")
     a._pmm.register_person.assert_not_called()
 
 
 def test_the_same_call_names_do_not_touch_the_row():
-    family = "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ\n"
-    a = _agent_with([{"id": "papa", "name": "雄輔", "display_name": "パパ"}], family)
+    family = "## パパ\n- **名前**：一郎\n- **呼び方**：パパ\n"
+    a = _agent_with([{"id": "papa", "name": "一郎", "display_name": "パパ"}], family)
     a._pmm.update_display_name.assert_not_called()
 
 
 def test_a_word_shared_by_two_family_members_is_reported(caplog):
     family = (
-        "## たいき\n- **名前**：泰輝\n- **呼び方**：たいき、にいに\n\n"
-        "## こうき\n- **名前**：光希\n- **呼び方**：こうき、にいに\n"
+        "## さぶろう\n- **名前**：三郎\n- **呼び方**：さぶろう、にいに\n\n"
+        "## ももこ\n- **名前**：光希\n- **呼び方**：ももこ、にいに\n"
     )
     rows = [
-        {"id": "t", "name": "泰輝", "display_name": "たいき、にいに"},
-        {"id": "k", "name": "光希", "display_name": "こうき、にいに"},
+        {"id": "t", "name": "三郎", "display_name": "さぶろう、にいに"},
+        {"id": "k", "name": "光希", "display_name": "ももこ、にいに"},
     ]
     with caplog.at_level("ERROR"):
         _agent_with(rows, family)
@@ -200,7 +200,7 @@ def test_the_store_rewrites_the_call_names():
     )
     name = f"呼び方の試験 {uuid.uuid4().hex[:8]}"
     pid = store.register_person(name, "パパ")
-    assert store.update_display_name(pid, "おとうさん、パパ")
+    assert store.update_display_name(pid, "いっちゃんさん、パパ")
     row = next(p for p in store.list_persons() if p["id"] == pid)
-    assert row["display_name"] == "おとうさん、パパ"
+    assert row["display_name"] == "いっちゃんさん、パパ"
     assert datetime.now(timezone.utc)  # 時刻は updated_at が持つ（値は見ない）

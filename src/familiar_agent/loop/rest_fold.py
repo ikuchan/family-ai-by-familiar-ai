@@ -191,7 +191,7 @@ def _family_members(agent) -> "list[dict]":
 def family_names_of(agent) -> tuple[str, ...]:
     """家族を指す言い方を全部（`FAMILY.md` の名前と、呼び方の一つずつ）。関係のまとめの名前はこれ以外を受け付けない。
 
-    呼び方（「パパ、ゆうすけ、…」）を分けずに 1 つの名前として使っていたので、正しい「パパ」を家族に無いと弾き、
+    呼び方（「パパ、いちろう、…」）を分けずに 1 つの名前として使っていたので、正しい「パパ」を家族に無いと弾き、
     一晩 10 回の枠のうち 6 回を見送った（2026-10-08 実機 04:25）。分け方は `core/speaker_claim.aliases_of` にそろえる。
     """
     from ..core.speaker_claim import aliases_of

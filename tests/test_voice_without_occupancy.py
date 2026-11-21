@@ -21,7 +21,7 @@ from familiar_agent.loop import arbiter
 from tests.test_voice_picks_the_speaker import _ip, _Store
 
 PAPA = np.asarray([1.0, 0.0, 0.0], dtype=np.float32)
-TAIKI = np.asarray([0.0, 1.0, 0.0], dtype=np.float32)
+SABURO = np.asarray([0.0, 1.0, 0.0], dtype=np.float32)
 
 
 def _toward(axis: int, cos: float) -> np.ndarray:
@@ -32,7 +32,7 @@ def _toward(axis: int, cos: float) -> np.ndarray:
 
 
 def _store():
-    return _Store(registered={"papa": PAPA, "taiki": TAIKI})
+    return _Store(registered={"papa": PAPA, "saburo": SABURO})
 
 
 def test_the_thresholds(monkeypatch):
@@ -50,19 +50,19 @@ def test_the_thresholds(monkeypatch):
 
 def test_a_voice_is_matched_without_occupancy():
     ip, a, s = _ip(present=0.0, store=_store())
-    asyncio.run(ip._match_voice(TAIKI))
-    a._persons.set_active.assert_called_once_with("たいき")
+    asyncio.run(ip._match_voice(SABURO))
+    a._persons.set_active.assert_called_once_with("さぶろう")
 
 
 def test_without_occupancy_the_switch_needs_more():
-    voice = _toward(1, 0.40)  # たいきに 0.40・パパに 0
+    voice = _toward(1, 0.40)  # さぶろうに 0.40・パパに 0
     ip, a, _ = _ip(present=0.0, store=_store())
     asyncio.run(ip._match_voice(voice))
     a._persons.set_active.assert_not_called()  # 0.45 に届かない → 分からない
     a._persons.reset_to_default.assert_called_once()
     ip, a, _ = _ip(present=1.0, store=_store())
     asyncio.run(ip._match_voice(voice))
-    a._persons.set_active.assert_called_once_with("たいき")  # 在席ありは 0.35
+    a._persons.set_active.assert_called_once_with("さぶろう")  # 在席ありは 0.35
 
 
 def test_keeping_the_speaker_refreshes_their_presence():
@@ -101,7 +101,7 @@ def test_a_claim_whose_voice_falls_short_does_nothing():
 
 
 def test_a_claim_by_someone_without_a_voice_does_nothing():
-    ip, a, s = _ip(present=1.0, speaker=None, store=_Store(registered={"taiki": TAIKI}))
+    ip, a, s = _ip(present=1.0, speaker=None, store=_Store(registered={"saburo": SABURO}))
     ip._req.voice = PAPA
     _claim(ip, "パパ")
     a._persons.set_active.assert_not_called()

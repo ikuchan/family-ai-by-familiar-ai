@@ -26,10 +26,10 @@ def _materials():
         rsi.Material(
             obs_id="ep-1",
             direction="記憶",
-            text="今日はこうきとサッカーの話をした。楽しそうだった。",
+            text="今日はももことサッカーの話をした。楽しそうだった。",
         ),
         rsi.Material(
-            obs_id="ps-1", direction="人物", text="こうきはサッカーが好きで、負けると泣く。"
+            obs_id="ps-1", direction="人物", text="ももこはサッカーが好きで、負けると泣く。"
         ),
     ]
 
@@ -103,6 +103,6 @@ def test_the_prompt_carries_the_current_image_and_the_materials():
     agent = _agent(_reply(before, {}))
     asyncio.run(rsi.propose(agent, before, _materials(), today=date(2026, 9, 14)))
     prompt = agent.backend.complete.call_args.args[0]
-    assert "ep-1" in prompt and "こうきとサッカーの話" in prompt
+    assert "ep-1" in prompt and "ももことサッカーの話" in prompt
     assert "帰ってきた人を、最初に迎える存在でいたい。" in prompt
     assert "3 行" in prompt  # 一晩で変えてよい行数を伝える

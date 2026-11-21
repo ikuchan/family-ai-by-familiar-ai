@@ -85,7 +85,7 @@ def test_the_embedding_is_recomputed(memory) -> None:
 
 def test_the_original_text_survives(memory) -> None:
     """人が言ったことは消さない（追記であって置き換えではない）。"""
-    body = f"たいきのサッカーは？ {uuid.uuid4()}"
+    body = f"さぶろうのサッカーは？ {uuid.uuid4()}"
     obs_id, _ = memory.save_with_id(body, direction="発話")
     memory.note_lookup_started(obs_id)
     assert body in str(_col(obs_id, "content")), "元の発話が消えている"

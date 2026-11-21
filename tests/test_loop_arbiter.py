@@ -141,17 +141,17 @@ def test_arbiter_gets_the_same_grounding_as_the_full_llm():
         {"text": "やあ"},
         utterance="こんにちは",
         self_understanding="名前： パジュ\n## 私にできること\n- 記憶を探せる",
-        family_md="たいき：家族の長男",
-        present_ctx='(present :speaker "たいき")',
+        family_md="さぶろう：家族の長男",
+        present_ctx='(present :speaker "さぶろう")',
         now_ctx='(now :datetime "2026-07-26 14:39")',
     )
     # 文脈は2箇所へ分かれた（出-e-に）。**合わせて見る**——身元はシステム文、
     # いま誰が居るかと時刻はプロンプトである。片方にだけ渡す形へ戻っていないこと。
     system = system_of(b)
     prompt = _prompt_of(b)
-    for needle in ("パジュ", "記憶を探せる", "たいき：家族の長男"):
+    for needle in ("パジュ", "記憶を探せる", "さぶろう：家族の長男"):
         assert needle in system, needle
-    for needle in (':speaker "たいき"', "14:39"):
+    for needle in (':speaker "さぶろう"', "14:39"):
         assert needle in prompt, needle
 
 

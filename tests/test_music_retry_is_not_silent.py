@@ -24,7 +24,7 @@ from familiar_agent.loop.request import Lookup
 
 def test_play_music_is_labelled_by_name():
     assert _query_label("play_music", {"name": "待機"}) == "音楽をかける「待機」"
-    assert _query_label("play_music", {"name": "たいき"}) != _query_label(
+    assert _query_label("play_music", {"name": "さぶろう"}) != _query_label(
         "play_music", {"name": "待機"}
     )
     assert _query_label("play_music", {}) == "音楽をかける（止まっていた続き）"
@@ -68,7 +68,7 @@ def test_another_name_is_played():
 
     async def go():
         ip._run_lookup = lambda *a, **k: asyncio.sleep(0)  # type: ignore[method-assign]
-        ip._dispatch_lookup("play_music", {"name": "たいき"}, "音楽をかける「たいき」", None)
+        ip._dispatch_lookup("play_music", {"name": "さぶろう"}, "音楽をかける「さぶろう」", None)
         n = len(ip._req.lookups)
         await ip.close()
         return n

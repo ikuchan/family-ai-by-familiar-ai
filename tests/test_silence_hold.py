@@ -40,18 +40,18 @@ def _t(h, m):
 def test_render_lists_talks_verbatim_and_counts_the_rest():
     items = [
         Heard("会話入力", "明日の予定は？", who="パパ", at=_t(17, 1)),
-        Heard("機器", "入室（たいきくん が来た）", at=_t(17, 2)),
+        Heard("機器", "入室（さぶちゃん が来た）", at=_t(17, 2)),
         Heard("情動", "SEEKING", at=_t(17, 2)),
         Heard("情動", "SEEKING", at=_t(17, 3)),
-        Heard("会話入力", "ただいま", who="たいきくん", at=_t(17, 3)),
+        Heard("会話入力", "ただいま", who="さぶちゃん", at=_t(17, 3)),
     ]
     text = render(items, since=_t(17, 0), until=_t(17, 4), max_chars=4000)
     assert text.startswith("黙っていたあいだ（17:00〜17:04）")
     assert "聞いたこと 2 件・起きたこと 1 件・湧いたこと 2 件" in text
     assert "- 17:01 パパ：「明日の予定は？」" in text
-    assert "- 17:03 たいきくん：「ただいま」" in text
-    assert "起きたこと：入室（たいきくん が来た）" in text and "SEEKING ×2" in text
-    assert text.index("パパ") < text.index("たいきくん")  # 時系列
+    assert "- 17:03 さぶちゃん：「ただいま」" in text
+    assert "起きたこと：入室（さぶちゃん が来た）" in text and "SEEKING ×2" in text
+    assert text.index("パパ") < text.index("さぶちゃん")  # 時系列
 
 
 def test_render_keeps_the_newest_within_the_limit():
@@ -112,7 +112,7 @@ def test_an_utterance_during_silence_is_heard_but_not_answered():
 
 def test_someone_else_is_not_answered_either():
     """案イ（他人への返事は通す）は撤回。黙っていてと頼まれたら、誰の声でも黙る。"""
-    ip, _ = _ip(speaker="たいきくん", silenced_for="パパ", others=("パパ",))  # パパは居る
+    ip, _ = _ip(speaker="さぶちゃん", silenced_for="パパ", others=("パパ",))  # パパは居る
 
     async def scenario():
         return await ip._swallow_if_unheard(Trigger(kind="会話入力", query="ねえパジュ"))
@@ -125,7 +125,7 @@ def test_devices_and_urges_are_noted_not_acted_on():
 
     async def scenario():
         d = await ip._swallow_if_unheard(
-            Trigger(kind="機器", query="入室", result="たいきくん が来た")
+            Trigger(kind="機器", query="入室", result="さぶちゃん が来た")
         )
         u = await ip._swallow_if_unheard(Trigger(kind="情動", query="SEEKING", result="探索したい"))
         return d, u

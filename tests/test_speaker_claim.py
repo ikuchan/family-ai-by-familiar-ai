@@ -2,7 +2,7 @@
 
 「パジュ、こんにちはパパだよ」がカメラに映らない位置からの声で入口に飲まれた（実機 11:32）。在席（居るか）は
 カメラだけで決める（マイクは証拠にしない・変えない）。**カメラが人を見ているとき**は、声の名乗り（「パパだよ」
-「僕はたいき」）から話者を付ける（`/speaker` と同じ効き：`set_active`・`_speaker_set_at`・PMM 同期）。
+「僕はさぶろう」）から話者を付ける（`/speaker` と同じ効き：`set_active`・`_speaker_set_at`・PMM 同期）。
 名乗りの読みは調停（`Decision.speaker_claim`）、検めは機械（在席あり・家族の名前か呼び名に一致）。
 道具の帰りの反復では読まない。
 """
@@ -21,23 +21,23 @@ from familiar_agent.loop.event_loop import InformationProcessing
 
 from tests.test_event_loop import _agent
 
-FAMILY = "## ゆうすけ\n- **名前**：ゆうすけ\n- **呼び方**：パパ\n- **英字**：Yusuke Ikunaga\n\n## たいき\n- **名前**：たいき\n- **呼び方**：たいき\n- **英字**：Taiki Ikunaga\n"
+FAMILY = "## いちろう\n- **名前**：いちろう\n- **呼び方**：パパ\n- **英字**：Ichiro Yamada\n\n## さぶろう\n- **名前**：さぶろう\n- **呼び方**：さぶろう\n- **英字**：Saburo Yamada\n"
 
 
 def test_a_claim_resolves_to_a_family_name_or_nothing():
     assert resolve_claim("パパ", FAMILY) == "パパ"
     assert (
-        resolve_claim("ゆうすけ", FAMILY) == "パパ"
+        resolve_claim("いちろう", FAMILY) == "パパ"
     )  # 名前で名乗っても呼び方に寄せる（/speaker パパ と同じ表記）
-    assert resolve_claim("たいき", FAMILY) == "たいき"
+    assert resolve_claim("さぶろう", FAMILY) == "さぶろう"
     assert resolve_claim("太郎", FAMILY) is None
     assert resolve_claim("", FAMILY) is None
 
 
-#: 呼び方が**複数**の家族。実物の `FAMILY.md` はこの形（「パパ、ゆうすけ、おとうさん、Papa、father」）。
+#: 呼び方が**複数**の家族。実物の `FAMILY.md` はこの形（「パパ、いちろう、いっちゃんさん、いちくん、いっくん」）。
 FAMILY_ALIASES = (
-    "## ゆうすけ\n- **名前**：ゆうすけ\n- **呼び方**：パパ、ゆうすけ、おとうさん、Papa、father\n"
-    "\n## たえこ\n- **名前**：たえこ\n- **呼び方**：ママ、たえこ、おかあさん\n"
+    "## いちろう\n- **名前**：いちろう\n- **呼び方**：パパ、いちろう、いっちゃんさん、いちくん、いっくん\n"
+    "\n## じろう\n- **名前**：じろう\n- **呼び方**：ママ、じろう、じっちゃんさん\n"
 )
 
 
@@ -48,20 +48,20 @@ def test_any_one_of_the_ways_we_call_them_resolves():
     話者が付かなかった。当たるのは `名前` の欄と一致する言い方だけだった。
     """
     assert resolve_claim("パパ", FAMILY_ALIASES) == "パパ"
-    assert resolve_claim("おとうさん", FAMILY_ALIASES) == "パパ"
-    assert resolve_claim("Papa", FAMILY_ALIASES) == "パパ"
+    assert resolve_claim("いっちゃんさん", FAMILY_ALIASES) == "パパ"
+    assert resolve_claim("いちくん", FAMILY_ALIASES) == "パパ"
     assert resolve_claim("ママ", FAMILY_ALIASES) == "ママ"
-    assert resolve_claim("おかあさん", FAMILY_ALIASES) == "ママ"
+    assert resolve_claim("じっちゃんさん", FAMILY_ALIASES) == "ママ"
 
 
 def test_the_name_field_still_resolves():
-    assert resolve_claim("ゆうすけ", FAMILY_ALIASES) == "パパ"
-    assert resolve_claim("たえこ", FAMILY_ALIASES) == "ママ"
+    assert resolve_claim("いちろう", FAMILY_ALIASES) == "パパ"
+    assert resolve_claim("じろう", FAMILY_ALIASES) == "ママ"
 
 
 def test_what_comes_back_is_one_name_not_the_whole_list():
     """返すのは**呼びかけに使う名前**（先頭）。一覧のまま `set_active` へ入れない。"""
-    got = resolve_claim("ゆうすけ", FAMILY_ALIASES)
+    got = resolve_claim("いちろう", FAMILY_ALIASES)
     assert "、" not in str(got)
 
 
@@ -112,7 +112,7 @@ def _ip(*, present: float, score: "float | None" = 0.9):
 def test_a_claim_whose_voice_matches_sets_the_speaker_like_the_command():
     """在席（カメラ）は見ない（知-ai）。声が本人に当たれば `/speaker` と同じ効き。"""
     ip, a = _ip(present=0.0)
-    d = arbiter.Decision(branch="light", text="x", speaker_claim="ゆうすけ")
+    d = arbiter.Decision(branch="light", text="x", speaker_claim="いちろう")
     asyncio.run(ip._apply_speaker_claim(d))
     a._persons.set_active.assert_called_once_with("パパ")
     assert isinstance(a._speaker_set_at, float)

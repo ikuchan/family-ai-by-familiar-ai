@@ -1,8 +1,8 @@
 """話者ゲート（知-f・`設計方針_家の記録との接続` §3）。
 
-個人ティアの道具は名前に人が入っている（`ask_vault_yusuke`）。**その人のターン以外では
+個人ティアの道具は名前に人が入っている（`ask_vault_ichiro`）。**その人のターン以外では
 道具の定義そのものを出さない**——description で頼むのでなく構造で落とす。人と英字の対応は
-FAMILY.md の `- **英字**：Yusuke Ikunaga`（先頭の語を小文字にした `yusuke` が鍵）。
+FAMILY.md の `- **英字**：Ichiro Yamada`（先頭の語を小文字にした `ichiro` が鍵）。
 """
 
 from __future__ import annotations
@@ -14,22 +14,22 @@ from familiar_agent.core.tool_gate import gate_personal_tools
 
 FAMILY = """# 一緒に暮らす人たち
 
-## ゆうすけ
+## いちろう
 
-- **名前**：ゆうすけ
+- **名前**：いちろう
 - **呼び方**：パパ
-- **英字**：Yusuke Ikunaga
+- **英字**：Ichiro Yamada
 
-## たいき
+## さぶろう
 
-- **名前**：たいき
-- **呼び方**：たいき
-- **英字**：Taiki Ikunaga
+- **名前**：さぶろう
+- **呼び方**：さぶろう
+- **英字**：Saburo Yamada
 
-## こうき
+## ももこ
 
-- **名前**：こうき
-- **呼び方**：こうき
+- **名前**：ももこ
+- **呼び方**：ももこ
 """
 
 MEMBERS = parse_family_md(FAMILY)
@@ -44,9 +44,9 @@ def _defs(*names: str) -> list[dict]:
 
 def test_the_latin_name_is_the_lowercased_first_word() -> None:
     by_name = {m["name"]: m for m in MEMBERS}
-    assert by_name["ゆうすけ"]["latin"] == "yusuke"
-    assert by_name["たいき"]["latin"] == "taiki"
-    assert by_name["こうき"]["latin"] == ""  # 書いていない人は個人ティアの道具を持たない
+    assert by_name["いちろう"]["latin"] == "ichiro"
+    assert by_name["さぶろう"]["latin"] == "saburo"
+    assert by_name["ももこ"]["latin"] == ""  # 書いていない人は個人ティアの道具を持たない
 
 
 def test_a_template_placeholder_is_not_a_latin_name() -> None:
@@ -58,28 +58,28 @@ def test_a_template_placeholder_is_not_a_latin_name() -> None:
 
 
 def test_the_owner_keeps_the_personal_tool_and_others_lose_it() -> None:
-    defs = _defs("get_house_rules", "ask_vault_yusuke", "search_notion")
-    kept = [d["name"] for d in gate_personal_tools(defs, speaker="ゆうすけ", members=MEMBERS)]
-    assert kept == ["get_house_rules", "ask_vault_yusuke", "search_notion"]
-    kept = [d["name"] for d in gate_personal_tools(defs, speaker="たいき", members=MEMBERS)]
+    defs = _defs("get_house_rules", "ask_vault_ichiro", "search_notion")
+    kept = [d["name"] for d in gate_personal_tools(defs, speaker="いちろう", members=MEMBERS)]
+    assert kept == ["get_house_rules", "ask_vault_ichiro", "search_notion"]
+    kept = [d["name"] for d in gate_personal_tools(defs, speaker="さぶろう", members=MEMBERS)]
     assert kept == ["get_house_rules", "search_notion"]
 
 
 def test_the_owner_is_recognised_by_the_display_name_too() -> None:
-    """顔ぶれ表が返すのは呼び方（パパ）で、FAMILY.md の名前（ゆうすけ）ではない。
+    """顔ぶれ表が返すのは呼び方（パパ）で、FAMILY.md の名前（いちろう）ではない。
 
-    実機（2026-09-15 16:56）で「話者ゲート：ask_vault_yusuke を落とした（話者=パパ）」となり、
+    実機（2026-09-15 16:56）で「話者ゲート：ask_vault_ichiro を落とした（話者=パパ）」となり、
     本人のターンなのに `vault` が候補に載らなかった。呼び方でも名前でも本人と認める。
     """
-    defs = _defs("get_house_rules", "ask_vault_yusuke")
+    defs = _defs("get_house_rules", "ask_vault_ichiro")
     kept = [d["name"] for d in gate_personal_tools(defs, speaker="パパ", members=MEMBERS)]
-    assert kept == ["get_house_rules", "ask_vault_yusuke"]
-    kept = [d["name"] for d in gate_personal_tools(defs, speaker="ゆうすけ", members=MEMBERS)]
-    assert kept == ["get_house_rules", "ask_vault_yusuke"]
+    assert kept == ["get_house_rules", "ask_vault_ichiro"]
+    kept = [d["name"] for d in gate_personal_tools(defs, speaker="いちろう", members=MEMBERS)]
+    assert kept == ["get_house_rules", "ask_vault_ichiro"]
 
 
 def test_an_unknown_speaker_gets_no_personal_tool() -> None:
-    defs = _defs("get_house_rules", "ask_vault_yusuke")
+    defs = _defs("get_house_rules", "ask_vault_ichiro")
     kept = [d["name"] for d in gate_personal_tools(defs, speaker="", members=MEMBERS)]
     assert kept == ["get_house_rules"]
 
@@ -87,16 +87,16 @@ def test_an_unknown_speaker_gets_no_personal_tool() -> None:
 def test_a_suffix_that_is_nobody_is_not_a_person() -> None:
     # 人の英字で終わらない名前は家族ティア（`get_family_schedule` の `_schedule` を人と見ない）。
     defs = _defs("get_family_schedule", "ask_vault_zzz")
-    kept = [d["name"] for d in gate_personal_tools(defs, speaker="たいき", members=MEMBERS)]
+    kept = [d["name"] for d in gate_personal_tools(defs, speaker="さぶろう", members=MEMBERS)]
     assert kept == ["get_family_schedule", "ask_vault_zzz"]
 
 
 def test_the_gate_matches_a_whole_suffix_not_a_substring() -> None:
-    # `_taiki` が `_ki` や `iki` に釣られない。区切りは `_` で、末尾まで一致したときだけ。
+    # `_saburo` が `_ki` や `iki` に釣られない。区切りは `_` で、末尾まで一致したときだけ。
     members = parse_family_md("## き\n- **名前**：き\n- **英字**：Ki X\n")
-    defs = _defs("ask_vault_taiki")
+    defs = _defs("ask_vault_saburo")
     assert [d["name"] for d in gate_personal_tools(defs, speaker="き", members=members)] == [
-        "ask_vault_taiki"
+        "ask_vault_saburo"
     ]
 
 
@@ -119,15 +119,15 @@ def _ip_with(tool_names: list[str], speaker: str):
 
 
 def test_the_main_llm_tools_pass_through_the_gate() -> None:
-    ip = _ip_with(["ask_vault_yusuke"], speaker="ゆうすけ")
-    assert [d["name"] for d in ip._tools(actions=("vault",))] == ["ask_vault_yusuke"]
-    ip = _ip_with(["ask_vault_yusuke"], speaker="たいき")
+    ip = _ip_with(["ask_vault_ichiro"], speaker="いちろう")
+    assert [d["name"] for d in ip._tools(actions=("vault",))] == ["ask_vault_ichiro"]
+    ip = _ip_with(["ask_vault_ichiro"], speaker="さぶろう")
     assert ip._tools(actions=("vault",)) == []
 
 
 def test_the_arbiter_candidates_pass_through_the_same_gate() -> None:
-    ip = _ip_with([], speaker="たいき")
-    ip._ACTIONS["house_rules"] = lambda _ip: _defs("ask_vault_yusuke")  # 個人ティアを装う
+    ip = _ip_with([], speaker="さぶろう")
+    ip._ACTIONS["house_rules"] = lambda _ip: _defs("ask_vault_ichiro")  # 個人ティアを装う
     assert "house_rules" not in ip._extra_actions()
-    ip._current_speaker_name = lambda: "ゆうすけ"  # type: ignore[method-assign]
+    ip._current_speaker_name = lambda: "いちろう"  # type: ignore[method-assign]
     assert "house_rules" in ip._extra_actions()

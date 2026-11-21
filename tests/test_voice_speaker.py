@@ -24,33 +24,33 @@ def _d(current, scores):
 
 
 def test_the_current_speaker_continues_on_the_loose_threshold():
-    v = _d("papa", {"papa": 0.28, "taiki": 0.10})
+    v = _d("papa", {"papa": 0.28, "saburo": 0.10})
     assert (v.action, v.person_id, v.sure) == ("keep", "papa", False)
 
 
 def test_someone_else_on_the_strict_threshold_takes_over():
-    v = _d("papa", {"papa": 0.20, "taiki": 0.40})
-    assert (v.action, v.person_id, v.sure) == ("switch", "taiki", True)
+    v = _d("papa", {"papa": 0.20, "saburo": 0.40})
+    assert (v.action, v.person_id, v.sure) == ("switch", "saburo", True)
 
 
 def test_someone_else_only_on_the_loose_threshold_does_not_take_over():
-    v = _d("papa", {"papa": 0.26, "taiki": 0.30})
+    v = _d("papa", {"papa": 0.26, "saburo": 0.30})
     assert (v.action, v.person_id) == ("keep", "papa")
 
 
 def test_the_current_speaker_closer_than_a_strict_other_stays():
-    v = _d("papa", {"papa": 0.50, "taiki": 0.40})
+    v = _d("papa", {"papa": 0.50, "saburo": 0.40})
     assert (v.action, v.person_id, v.sure) == ("keep", "papa", True)
 
 
 def test_neither_threshold_means_unknown():
-    v = _d("papa", {"papa": 0.20, "taiki": 0.30})
+    v = _d("papa", {"papa": 0.20, "saburo": 0.30})
     assert v.action == "unknown" and v.person_id is None
 
 
 def test_a_current_speaker_without_a_voice_continues():
-    assert _d("koki", {"papa": 0.30}).action == "keep"
-    v = _d("koki", {"papa": 0.36})
+    assert _d("momoko", {"papa": 0.30}).action == "keep"
+    v = _d("momoko", {"papa": 0.36})
     assert (v.action, v.person_id) == ("switch", "papa")
 
 
@@ -70,11 +70,11 @@ def test_scores_take_the_closer_of_registered_and_today():
     registered = {"papa": np.asarray([0.0, 1.0], dtype=np.float32)}
     today = {
         "papa": np.asarray([1.0, 0.1], dtype=np.float32),
-        "taiki": np.asarray([0.0, 1.0], dtype=np.float32),
+        "saburo": np.asarray([0.0, 1.0], dtype=np.float32),
     }
     got = vs.scores(voice, registered, today)
     assert got["papa"] == pytest.approx(1.0 / np.sqrt(1.01))
-    assert got["taiki"] == pytest.approx(0.0)
+    assert got["saburo"] == pytest.approx(0.0)
 
 
 def test_a_zero_vector_scores_nothing():

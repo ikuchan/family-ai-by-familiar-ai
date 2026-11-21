@@ -56,7 +56,7 @@ def _system() -> tuple[str, str]:
     return build_event_system_prompt(
         self_understanding=me,
         family_md=fam,
-        present_ctx='(present :speaker "ゆうすけ")',
+        present_ctx='(present :speaker "いちろう")',
         pi_ctx="(inner-state :mood 落ち着いている :drive 普通)",
         workspace_ctx=_WORKSPACE,
         iter_ctx="(iteration :n 2 :max 5 :thinking-round 1)",

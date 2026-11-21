@@ -41,8 +41,8 @@ def test_with_a_viewpoint_it_reads_through_that_persons_face():
     face = MagicMock(recall_async=AsyncMock(return_value=[]))
     resolve = MagicMock(return_value=face)
     oif = OIF(base, for_person=resolve)
-    asyncio.run(oif.recall(Cue(text="手がかり"), View(viewpoint="ゆうすけ")))
-    resolve.assert_called_once_with("ゆうすけ")
+    asyncio.run(oif.recall(Cue(text="手がかり"), View(viewpoint="いちろう")))
+    resolve.assert_called_once_with("いちろう")
     face.recall_async.assert_awaited_once()
     base.recall_async.assert_not_awaited()
 
@@ -51,8 +51,8 @@ def test_without_a_resolver_it_falls_back_to_the_memorys_own_view():
     base = MagicMock(recall_async=AsyncMock(return_value=[]))
     base.for_person.return_value = MagicMock(recall_async=AsyncMock(return_value=[]))
     oif = OIF(base)
-    asyncio.run(oif.recall(Cue(text="手がかり"), View(viewpoint="ゆうすけ")))
-    base.for_person.assert_called_once_with("ゆうすけ")
+    asyncio.run(oif.recall(Cue(text="手がかり"), View(viewpoint="いちろう")))
+    base.for_person.assert_called_once_with("いちろう")
 
 
 def test_the_agent_hands_the_mouth_the_cached_faces():

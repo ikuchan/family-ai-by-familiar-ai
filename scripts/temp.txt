@@ -46,7 +46,7 @@
 
 ────────────────────────────────────────────────────────────
 [2026-06-11 23:38:37] セッション開始
-familiar-ai 起動。/quit で終了、Ctrl+L で履歴クリア。ログ: /home/yusuke-remote-desktop/.cache/familiar-ai/chat.log
+familiar-ai 起動。/quit で終了、Ctrl+L で履歴クリア。ログ: /home/ichiro-remote-desktop/.cache/familiar-ai/chat.log
 パパ ▶ こんばんは
 パジュ ▶ こんばんは、パパ！もう夜遅いね、どうしたの？
 ── 2.1s ──

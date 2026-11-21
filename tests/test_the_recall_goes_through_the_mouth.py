@@ -50,9 +50,9 @@ def test_the_score_carries_the_confidence():
 def test_the_workspace_builds_its_own_line():
     """W の1行は核が組む。誰の記録かも言う（記-f）。"""
     oif = MagicMock()
-    oif.actors.return_value = {"m1": "ゆうすけ"}
+    oif.actors.return_value = {"m1": "いちろう"}
     text, id_map = workspace.compose(oif, [_r()], Request())
-    assert "ゆうすけが言った: 運動会の話" in text
+    assert "いちろうが言った: 運動会の話" in text
     assert "id:m1" in text and "適合度:0.70" in text and "conf:0.80" in text
     assert id_map == {"m1": "m1"}
     oif.format_for_context.assert_not_called()  # 記憶の面は使わない
@@ -70,11 +70,11 @@ def test_the_recall_asks_the_mouth_with_the_speakers_face():
     `__self__` の面に移ってしまう（記-f の直しを逆向きに壊す）。"""
     oif = MagicMock(recall=AsyncMock(return_value=[_r()]))
     ws = asyncio.run(
-        workspace.recall(oif, "手がかり", viewpoint="ゆうすけ", weights=None, req=Request())
+        workspace.recall(oif, "手がかり", viewpoint="いちろう", weights=None, req=Request())
     )
     cue, view = oif.recall.await_args.args
     assert cue.text == "手がかり"
-    assert view.viewpoint == "ゆうすけ"
+    assert view.viewpoint == "いちろう"
     assert [r.mi.obs_id for r in ws.memories] == ["m1"]
 
 

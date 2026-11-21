@@ -222,7 +222,7 @@ def test_rest_pass_runs_layer_two_with_what_layer_one_wrote():
     agent._observation_perspective = MagicMock(return_value={})
     written = (
         Written("ep-1", "記憶", "今日は…"),
-        Written("ps-1", "人物", "こうきは…"),
+        Written("ps-1", "人物", "ももこは…"),
     )
     with (
         patch(

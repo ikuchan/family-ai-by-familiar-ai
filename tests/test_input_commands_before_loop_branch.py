@@ -75,7 +75,7 @@ def test_speaker_command_accepts_a_full_width_separator():
 
 def test_speaker_prefix_is_stripped_on_the_event_loop_path():
     a = _agent()
-    asyncio.run(Agent.run(a, "[たいき] こんにちは"))
-    a._persons.set_active.assert_called_once_with("たいき")
+    asyncio.run(Agent.run(a, "[さぶろう] こんにちは"))
+    a._persons.set_active.assert_called_once_with("さぶろう")
     # 前置きを外した本文だけが反復へ渡る。
     assert a._info_processing.push_utterance.await_args.args[0] == "こんにちは"

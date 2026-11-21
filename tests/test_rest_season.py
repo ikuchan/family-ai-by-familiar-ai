@@ -73,13 +73,13 @@ class _Rec:
     text: str
 
 
-RECORDS = [_Rec("obs-1", "記憶", "たいきが運動会の練習の話をした")]
+RECORDS = [_Rec("obs-1", "記憶", "さぶろうが運動会の練習の話をした")]
 
 
 def _reply(**over):
     body = {
         "まわり": [{"text": "来週後半は強い寒気が来るらしい。"}],
-        "家の話題": [{"text": "たいきの運動会が近いと話していた。", "source": "obs-1"}],
+        "家の話題": [{"text": "さぶろうの運動会が近いと話していた。", "source": "obs-1"}],
     }
     body.update(over)
     return json.dumps(body, ensure_ascii=False)

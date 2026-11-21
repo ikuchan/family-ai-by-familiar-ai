@@ -68,8 +68,8 @@ def test_the_prompt_asks_for_the_denial():
 # ── 否定を顔ぶれへ効かせる ──────────────────────────────────────────────────
 
 _FAMILY = (
-    "## ゆうすけ\n- **名前**：ゆうすけ\n- **呼び方**：パパ、ゆうすけ、おとうさん\n"
-    "\n## たいき\n- **名前**：たいき\n- **呼び方**：たいき、たいきくん\n"
+    "## いちろう\n- **名前**：いちろう\n- **呼び方**：パパ、いちろう、いっちゃんさん\n"
+    "\n## さぶろう\n- **名前**：さぶろう\n- **呼び方**：さぶろう、さぶちゃん\n"
 )
 
 
@@ -116,11 +116,11 @@ class _FakePMM2:
 def test_a_denied_person_leaves_presence():
     import asyncio
 
-    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    pmm = _FakePMM2({"パパ": "p-ichiro"})
     persons = _FakePersons("パパ")
     ip = _loop(pmm, persons)
     asyncio.run(ip._apply_not_person("パパ"))
-    assert pmm.left == ["p-yusuke"]
+    assert pmm.left == ["p-ichiro"]
     assert persons.reset == 1
 
 
@@ -130,7 +130,7 @@ def test_an_empty_denial_means_no_denial():
     Jev が選択肢「いま話者としている人」を選ぶので名前つきで届く（下の試験）。"""
     import asyncio
 
-    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    pmm = _FakePMM2({"パパ": "p-ichiro"})
     persons = _FakePersons("パパ")
     ip = _loop(pmm, persons)
     asyncio.run(ip._apply_not_person(""))
@@ -141,7 +141,7 @@ def test_an_empty_denial_means_no_denial():
 def test_someone_outside_the_family_is_ignored():
     import asyncio
 
-    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    pmm = _FakePMM2({"パパ": "p-ichiro"})
     persons = _FakePersons("パパ")
     ip = _loop(pmm, persons)
     asyncio.run(ip._apply_not_person("太郎"))
@@ -152,7 +152,7 @@ def test_someone_outside_the_family_is_ignored():
 def test_nothing_happens_without_a_denial_and_no_speaker():
     import asyncio
 
-    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    pmm = _FakePMM2({"パパ": "p-ichiro"})
     persons = _FakePersons("")
     ip = _loop(pmm, persons)
     asyncio.run(ip._apply_not_person(""))
@@ -179,7 +179,7 @@ def test_todays_form_keeps_the_voice_speaker():
 
     from familiar_agent.loop.arbiter import _FALLBACK
 
-    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    pmm = _FakePMM2({"パパ": "p-ichiro"})
     persons = _FakePersons("パパ")
     ip = _loop(pmm, persons)
 
@@ -233,7 +233,7 @@ def test_a_denial_without_a_name_arrives_with_the_current_speaker():
     assert "名前を言わず" in _Jev.asked["action_deny"]["criteria"]["パパ"]
     data = {"not_person": d.not_person}
     assert data["not_person"] == "パパ"
-    pmm = _FakePMM2({"パパ": "p-yusuke"})
+    pmm = _FakePMM2({"パパ": "p-ichiro"})
     persons = _FakePersons("パパ")
     asyncio.run(_loop(pmm, persons)._apply_not_person(data["not_person"]))
-    assert pmm.left == ["p-yusuke"]
+    assert pmm.left == ["p-ichiro"]

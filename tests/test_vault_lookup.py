@@ -23,7 +23,7 @@ from familiar_agent.loop.event_loop import (
 )
 from familiar_agent.mcp_client import call_timeout_for
 
-FAMILY = "## ゆうすけ\n- **名前**：ゆうすけ\n- **呼び方**：パパ\n- **英字**：Yusuke Ikunaga\n\n## たいき\n- **名前**：たいき\n- **呼び方**：たいき\n- **英字**：Taiki Ikunaga\n"
+FAMILY = "## いちろう\n- **名前**：いちろう\n- **呼び方**：パパ\n- **英字**：Ichiro Yamada\n\n## さぶろう\n- **名前**：さぶろう\n- **呼び方**：さぶろう\n- **英字**：Saburo Yamada\n"
 
 
 def _defs(*names: str) -> list[dict]:
@@ -31,8 +31,8 @@ def _defs(*names: str) -> list[dict]:
 
 
 def test_the_tool_name_is_a_family_of_the_vault_action():
-    assert _action_family("ask_vault_yusuke") == "vault"
-    assert _action_family("ask_vault_taeko") == "vault"
+    assert _action_family("ask_vault_ichiro") == "vault"
+    assert _action_family("ask_vault_jiro") == "vault"
     assert "vault" in _MCP_LOOKUPS
 
 
@@ -41,7 +41,7 @@ def test_the_label_carries_the_question_and_the_input_is_the_question():
         _query_label("vault", {"question": "コーチングどうなった？"})
         == "記録に「コーチングどうなった？」を聞く"
     )
-    assert _query_label("ask_vault_yusuke", {"question": "x"}) == "記録に「x」を聞く"
+    assert _query_label("ask_vault_ichiro", {"question": "x"}) == "記録に「x」を聞く"
     assert _tool_input_for("vault", "コーチングどうなった？") == {
         "question": "コーチングどうなった？"
     }
@@ -63,22 +63,22 @@ def _ip(speaker: str, tools: list[str]):
 
 
 def test_the_vault_tool_is_offered_only_to_its_owner():
-    ip = _ip("ゆうすけ", ["get_house_rules", "ask_vault_yusuke"])
-    assert [d["name"] for d in ip._tools(actions=("vault",))] == ["ask_vault_yusuke"]
+    ip = _ip("いちろう", ["get_house_rules", "ask_vault_ichiro"])
+    assert [d["name"] for d in ip._tools(actions=("vault",))] == ["ask_vault_ichiro"]
     assert "vault" in ip._extra_actions()
-    ip = _ip("たいき", ["get_house_rules", "ask_vault_yusuke"])
+    ip = _ip("さぶろう", ["get_house_rules", "ask_vault_ichiro"])
     assert ip._tools(actions=("vault",)) == []
     assert "vault" not in ip._extra_actions()
-    ip = _ip("", ["ask_vault_yusuke"])
+    ip = _ip("", ["ask_vault_ichiro"])
     assert "vault" not in ip._extra_actions()
 
 
 def test_the_lookup_resolves_the_tool_from_the_speaker():
     """`vault` は話者の英字で `ask_vault_<latin>` に解ける。誰か分からなければ呼べない。"""
-    ip = _ip("ゆうすけ", ["ask_vault_yusuke"])
-    assert ip._vault_tool_name() == "ask_vault_yusuke"
-    ip = _ip("たいき", ["ask_vault_yusuke"])
-    assert ip._vault_tool_name() == ""  # たいきの道具は繋がっていない
+    ip = _ip("いちろう", ["ask_vault_ichiro"])
+    assert ip._vault_tool_name() == "ask_vault_ichiro"
+    ip = _ip("さぶろう", ["ask_vault_ichiro"])
+    assert ip._vault_tool_name() == ""  # さぶろうの道具は繋がっていない
 
 
 def test_the_arbiter_offers_the_vault_with_a_question():
@@ -109,9 +109,9 @@ def test_call_tool_strips_the_mark_and_the_slow_tool_gets_a_longer_timeout():
             text="答え\n──（2026-09-15 のセッション／新規）", image=None, ok=True
         )
     )
-    text, ok = asyncio.run(DIF(mcp=mcp).call_tool("ask_vault_yusuke", {"question": "q"}))
+    text, ok = asyncio.run(DIF(mcp=mcp).call_tool("ask_vault_ichiro", {"question": "q"}))
     assert ok and text == "答え"
-    assert call_timeout_for("ask_vault_yusuke") >= 120.0
+    assert call_timeout_for("ask_vault_ichiro") >= 120.0
     assert call_timeout_for("get_house_rules") == 30.0
 
 
@@ -170,7 +170,7 @@ def test_the_arbiter_can_set_a_timer_with_a_tool_input():
 def test_timer_actions_are_offered_to_the_arbiter_when_the_tool_exists():
     from unittest.mock import MagicMock
 
-    ip = _ip("ゆうすけ", [])
+    ip = _ip("いちろう", [])
     ip._agent._timer_tool = MagicMock()
     ip._agent._timer_tool.get_tool_definitions = MagicMock(
         return_value=[{"name": n} for n in ("set_timer", "cancel_timer")]

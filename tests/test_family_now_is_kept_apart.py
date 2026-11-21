@@ -33,20 +33,20 @@ def test_nothing_is_stored_at_first(clean_state):
 def test_a_persons_now_is_kept_with_the_one_before(clean_state):
     assert fn.update("パパ", "サッカーの話が多い。", counted_from=T1)
     assert fn.update("パパ", "最近は釣りに夢中。", counted_from=T2)
-    assert fn.update("たいき", "テストが近くて忙しい。", counted_from=T2)
+    assert fn.update("さぶろう", "テストが近くて忙しい。", counted_from=T2)
     got = fn.stored()
     assert got["パパ"].text == "最近は釣りに夢中。"
     assert got["パパ"].before == "サッカーの話が多い。"
     assert got["パパ"].counted_from == T2
-    assert got["たいき"].before == ""
+    assert got["さぶろう"].before == ""
 
 
 def test_the_frame_lists_each_person(clean_state):
     fn.update("パパ", "最近は釣りに夢中。", counted_from=T2)
-    fn.update("たいき", "テストが近くて忙しい。", counted_from=T2)
+    fn.update("さぶろう", "テストが近くて忙しい。", counted_from=T2)
     text = fn.render(fn.stored())
     assert text.startswith("[家族のいまの様子]")
-    assert "パパ：最近は釣りに夢中。" in text and "たいき：テストが近くて忙しい。" in text
+    assert "パパ：最近は釣りに夢中。" in text and "さぶろう：テストが近くて忙しい。" in text
     assert "サッカー" not in text  # 前の版は載せない
 
 

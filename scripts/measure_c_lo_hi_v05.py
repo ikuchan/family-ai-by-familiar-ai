@@ -3,6 +3,7 @@
 
 読み取り専用 — INSERT/UPDATE/DELETE 禁止。
 """
+
 from __future__ import annotations
 
 import os, sys
@@ -21,13 +22,14 @@ from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
 RNG = np.random.default_rng(42)
 N_UNREL = 50_000
-MU_DIR  = Path.home() / "Downloads" / "measure_mu_bge_m3"
-PCTS    = [25, 50, 75, 90, 95, 99]
+MU_DIR = Path.home() / "Downloads" / "measure_mu_bge_m3"
+PCTS = [25, 50, 75, 90, 95, 99]
 SESSION_GAPS = [timedelta(minutes=10), timedelta(minutes=15)]
-MAX_PAIRS_PER_SESSION = 500   # セッションが大きい場合のペア数上限
+MAX_PAIRS_PER_SESSION = 500  # セッションが大きい場合のペア数上限
 
 
 # ── DB ───────────────────────────────────────────────────────────────────────
+
 
 def get_conn():
     c = psycopg2.connect(
@@ -41,14 +43,17 @@ def get_conn():
 def load_obs_for_person(conn, pid: str) -> list[dict]:
     """situated vector + timestamp + content + kind を時系列順に返す."""
     with conn.cursor() as cur:
-        cur.execute("""
+        cur.execute(
+            """
             SELECT s.obs_id, s.vector, o.timestamp, o.content, o.kind
             FROM situated_embeddings s
             JOIN observations o ON s.obs_id = o.id
             WHERE s.person_id = %s
               AND o.superseded_by IS NULL
             ORDER BY o.timestamp ASC
-        """, (pid,))
+        """,
+            (pid,),
+        )
         return cur.fetchall()
 
 
@@ -66,6 +71,7 @@ def load_persons(conn) -> list[dict]:
 
 # ── ベクトル操作 ─────────────────────────────────────────────────────────────
 
+
 def center_normalize(vecs: np.ndarray, mu: np.ndarray) -> np.ndarray:
     c = vecs - mu
     norms = np.linalg.norm(c, axis=1, keepdims=True) + 1e-9
@@ -78,6 +84,7 @@ def cosine_batch(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 
 # ── 擬似セッション ───────────────────────────────────────────────────────────
+
 
 def to_utc(t):
     if t is None:
@@ -109,8 +116,13 @@ def build_sessions(rows: list[dict], gap: timedelta) -> list[list[int]]:
 def session_stats(sessions: list[list[int]], rows: list[dict]) -> dict:
     lens = [len(s) for s in sessions if len(s) >= 2]
     if not lens:
-        return {"n_sessions": len(sessions), "n_usable": 0,
-                "avg_len": 0.0, "median_len": 0.0, "avg_duration_min": 0.0}
+        return {
+            "n_sessions": len(sessions),
+            "n_usable": 0,
+            "avg_len": 0.0,
+            "median_len": 0.0,
+            "avg_duration_min": 0.0,
+        }
     durations = []
     for s in sessions:
         if len(s) < 2:
@@ -121,8 +133,8 @@ def session_stats(sessions: list[list[int]], rows: list[dict]) -> dict:
             durations.append((t1 - t0).total_seconds() / 60)
     return {
         "n_sessions": len(sessions),
-        "n_usable":   len(lens),
-        "avg_len":    float(np.mean(lens)),
+        "n_usable": len(lens),
+        "avg_len": float(np.mean(lens)),
         "median_len": float(np.median(lens)),
         "avg_duration_min": float(np.mean(durations)) if durations else 0.0,
     }
@@ -173,6 +185,7 @@ def unrelated_sample(vecs_c: np.ndarray, n: int = N_UNREL) -> np.ndarray:
 
 # ── 最近傍 top-5 分布 ────────────────────────────────────────────────────────
 
+
 def nn_top5_distribution(vecs_c: np.ndarray, sample: int = 500) -> np.ndarray:
     """各ベクトルの上位5近傍コサイン（self除外）を sample 件からサンプリング。"""
     N = len(vecs_c)
@@ -180,14 +193,15 @@ def nn_top5_distribution(vecs_c: np.ndarray, sample: int = 500) -> np.ndarray:
     idx = RNG.choice(N, sample, replace=False)
     cosines: list[float] = []
     for i in idx:
-        sims = vecs_c @ vecs_c[i]   # (N,) — 全コサイン
-        sims[i] = -2.0              # self 除外
+        sims = vecs_c @ vecs_c[i]  # (N,) — 全コサイン
+        sims[i] = -2.0  # self 除外
         top5 = np.partition(sims, -5)[-5:]
         cosines.extend(top5.tolist())
     return np.array(cosines, dtype=np.float32)
 
 
 # ── パーセンタイル表 ─────────────────────────────────────────────────────────
+
 
 def pct_table(arr: np.ndarray) -> dict[int, float]:
     if len(arr) == 0:
@@ -199,7 +213,7 @@ def rank_sep(rel: np.ndarray, unrel: np.ndarray, n: int = 10_000) -> float:
     if len(rel) == 0 or len(unrel) == 0:
         return float("nan")
     n = min(n, len(rel), len(unrel))
-    ri = RNG.choice(len(rel),   n, replace=True)
+    ri = RNG.choice(len(rel), n, replace=True)
     ui = RNG.choice(len(unrel), n, replace=True)
     return float(np.mean(rel[ri] > unrel[ui]))
 
@@ -213,10 +227,11 @@ def overlap_rate(rel: np.ndarray, unrel: np.ndarray, c_lo: float) -> float:
 
 # ── メイン計測 ───────────────────────────────────────────────────────────────
 
+
 def measure_person(label: str, pid: str, conn) -> None:
-    print(f"\n{'='*65}")
+    print(f"\n{'=' * 65}")
     print(f"視点: {label}  ({pid[:8]}...)")
-    print(f"{'='*65}")
+    print(f"{'=' * 65}")
 
     # mu ロード
     mu_path = MU_DIR / f"mu_{label}.npy"
@@ -237,21 +252,25 @@ def measure_person(label: str, pid: str, conn) -> None:
         return
 
     raw_vecs = np.array([sql_to_vec(r["vector"]) for r in rows], dtype=np.float32)
-    vecs_c   = center_normalize(raw_vecs, mu)
+    vecs_c = center_normalize(raw_vecs, mu)
 
     # 無関係分布
     unrel = unrelated_sample(vecs_c)
     u_pct = pct_table(unrel)
     print(f"\n  【無関係分布】n={len(unrel):,}")
-    print(f"    p50={u_pct[50]:.4f}  p75={u_pct[75]:.4f}  p90={u_pct[90]:.4f}"
-          f"  p95={u_pct[95]:.4f}  p99={u_pct[99]:.4f}")
+    print(
+        f"    p50={u_pct[50]:.4f}  p75={u_pct[75]:.4f}  p90={u_pct[90]:.4f}"
+        f"  p95={u_pct[95]:.4f}  p99={u_pct[99]:.4f}"
+    )
 
     # 最近傍 top-5 分布
     nn5 = nn_top5_distribution(vecs_c)
     nn5_pct = pct_table(nn5)
     print("\n  【最近傍 top-5 分布】(sample=500 vecs)")
-    print(f"    p25={nn5_pct[25]:.4f}  p50={nn5_pct[50]:.4f}  p75={nn5_pct[75]:.4f}"
-          f"  p90={nn5_pct[90]:.4f}  p95={nn5_pct[95]:.4f}")
+    print(
+        f"    p25={nn5_pct[25]:.4f}  p50={nn5_pct[50]:.4f}  p75={nn5_pct[75]:.4f}"
+        f"  p90={nn5_pct[90]:.4f}  p95={nn5_pct[95]:.4f}"
+    )
 
     # 擬似セッション × ギャップ閾値
     for gap in SESSION_GAPS:
@@ -260,11 +279,13 @@ def measure_person(label: str, pid: str, conn) -> None:
 
         sessions = build_sessions(rows, gap)
         stats = session_stats(sessions, rows)
-        print(f"    セッション数={stats['n_sessions']}  "
-              f"2件以上={stats['n_usable']}  "
-              f"平均発話数={stats['avg_len']:.1f}  "
-              f"中央値発話数={stats['median_len']:.1f}  "
-              f"平均時間長={stats['avg_duration_min']:.1f}分")
+        print(
+            f"    セッション数={stats['n_sessions']}  "
+            f"2件以上={stats['n_usable']}  "
+            f"平均発話数={stats['avg_len']:.1f}  "
+            f"中央値発話数={stats['median_len']:.1f}  "
+            f"平均時間長={stats['avg_duration_min']:.1f}分"
+        )
 
         rel = related_pairs(sessions, vecs_c, rows)
         r_pct = pct_table(rel)
@@ -272,14 +293,16 @@ def measure_person(label: str, pid: str, conn) -> None:
         if len(rel) == 0:
             print("    関連ペアなし — スキップ")
             continue
-        print(f"    p25={r_pct[25]:.4f}  p50={r_pct[50]:.4f}  p75={r_pct[75]:.4f}"
-              f"  p90={r_pct[90]:.4f}  p95={r_pct[95]:.4f}  p99={r_pct[99]:.4f}")
+        print(
+            f"    p25={r_pct[25]:.4f}  p50={r_pct[50]:.4f}  p75={r_pct[75]:.4f}"
+            f"  p90={r_pct[90]:.4f}  p95={r_pct[95]:.4f}  p99={r_pct[99]:.4f}"
+        )
 
         c_lo = u_pct[95]
         c_hi = r_pct[25]
         window = c_hi - c_lo
         p_sep = rank_sep(rel, unrel)
-        veto  = overlap_rate(rel, unrel, c_lo)
+        veto = overlap_rate(rel, unrel, c_lo)
 
         print("\n    【提案値】")
         print(f"    c_lo (無関係 p95) = {c_lo:.4f}")
@@ -291,13 +314,14 @@ def measure_person(label: str, pid: str, conn) -> None:
         # 前回比較 (e5-small)
         prev_clo, prev_chi = 0.354, 0.555
         print("\n    【前回比（e5-small）】")
-        print(f"    c_lo: {prev_clo:.4f} → {c_lo:.4f}  (Δ={c_lo-prev_clo:+.4f})")
-        print(f"    c_hi: {prev_chi:.4f} → {c_hi:.4f}  (Δ={c_hi-prev_chi:+.4f})")
-        print(f"    窓幅: {prev_chi-prev_clo:.4f} → {window:.4f}")
+        print(f"    c_lo: {prev_clo:.4f} → {c_lo:.4f}  (Δ={c_lo - prev_clo:+.4f})")
+        print(f"    c_hi: {prev_chi:.4f} → {c_hi:.4f}  (Δ={c_hi - prev_chi:+.4f})")
+        print(f"    窓幅: {prev_chi - prev_clo:.4f} → {window:.4f}")
         print(f"    前回 veto 率 64% → 今回 {veto:.1%}")
 
 
 # ── エントリポイント ─────────────────────────────────────────────────────────
+
 
 def main() -> None:
     print("計測指示書 v0.5 計測1: c_lo/c_hi（bge-m3 / 中心化後コサイン）")
@@ -312,20 +336,20 @@ def main() -> None:
         print(f"  {p['name']:<20} {p['id'][:8]}...  n={p['n']}")
 
     # 計測対象を特定
-    most_pop  = persons[0]   # n が最大（全員同数の場合は先頭）
-    yuusuke   = next((p for p in persons if "ゆうすけ" in (p["name"] or "")), None)
+    most_pop = persons[0]  # n が最大（全員同数の場合は先頭）
+    ichirou = next((p for p in persons if "いちろう" in (p["name"] or "")), None)
     agent_self = next((p for p in persons if p["id"] == AGENT_SELF_ID), None)
 
-    if yuusuke is None:
-        print("[警告] ゆうすけ が見つかりません")
+    if ichirou is None:
+        print("[警告] いちろう が見つかりません")
     if agent_self is None:
         print("[警告] AGENT_SELF が見つかりません")
 
     targets = [
         ("most_populated", most_pop["name"], most_pop["id"]),
     ]
-    if yuusuke:
-        targets.append(("いくながゆうすけ", yuusuke["name"], yuusuke["id"]))
+    if ichirou:
+        targets.append(("いくながいちろう", ichirou["name"], ichirou["id"]))
     if agent_self:
         targets.append(("AGENT_SELF", "__self__", agent_self["id"]))
 
@@ -333,7 +357,7 @@ def main() -> None:
         measure_person(mu_label, pid, conn)
 
     conn.close()
-    print(f"\n\n{'='*65}")
+    print(f"\n\n{'=' * 65}")
     print("計測完了")
     print(f"mu ファイル保存先: {MU_DIR}")
 

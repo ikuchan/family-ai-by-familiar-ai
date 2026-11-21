@@ -13,7 +13,7 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.loop import notes_watch
 
 NOTE1 = "【いま】2026-09-15 火曜日 15:00（JST）\n【出典】10_Wiki/参照/パジュへ.md（updated: 2026-09-15）\n\n## メモ\n\n- 木曜は早く帰る"
-NOTE2 = "【いま】2026-09-15 火曜日 16:00（JST）\n【出典】10_Wiki/参照/パジュへ.md（updated: 2026-09-15）\n\n## メモ\n\n- 木曜は早く帰る\n- 金曜はたいきの試合"
+NOTE2 = "【いま】2026-09-15 火曜日 16:00（JST）\n【出典】10_Wiki/参照/パジュへ.md（updated: 2026-09-15）\n\n## メモ\n\n- 木曜は早く帰る\n- 金曜はさぶろうの試合"
 
 
 def _agent(reply: str, ok: bool = True, connected: bool = True):
@@ -53,8 +53,8 @@ def test_a_changed_note_is_recorded_with_the_new_lines():
     assert changed is True
     kind, content = a.record_device.await_args.args[:2]
     assert kind == "メモ"
-    assert "パジュへのメモが変わった" in content and "金曜はたいきの試合" in content
-    assert notes_watch._load_state() == "- 木曜は早く帰る\n- 金曜はたいきの試合"
+    assert "パジュへのメモが変わった" in content and "金曜はさぶろうの試合" in content
+    assert notes_watch._load_state() == "- 木曜は早く帰る\n- 金曜はさぶろうの試合"
 
 
 def test_an_unchanged_note_does_nothing():

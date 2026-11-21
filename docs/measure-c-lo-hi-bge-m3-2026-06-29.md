@@ -22,7 +22,7 @@
 ### 重要な現状注記
 
 reembed_all.py 実行時に `persons.perspective_vec` を NULL リセットしたため、**現時点ですべての視点の situated_embeddings は生の bge-m3 ベクトルと等価**（`situated = normalise(mem_vec + 0.30 × 0) = mem_vec`）。  
-3視点（most_populated=default、ゆうすけ、AGENT_SELF）の結果は数値上ほぼ一致する。
+3視点（most_populated=default、いちろう、AGENT_SELF）の結果は数値上ほぼ一致する。
 
 ---
 
@@ -37,9 +37,9 @@ reembed_all.py 実行時に `persons.perspective_vec` を NULL リセットし�
 
 ---
 
-## 3. 分布テーブル（視点: ゆうすけ）
+## 3. 分布テーブル（視点: いちろう）
 
-全視点でほぼ同値のため、ゆうすけを代表値として掲載。
+全視点でほぼ同値のため、いちろうを代表値として掲載。
 
 ### 無関係分布（ランダム対）
 

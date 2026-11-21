@@ -25,7 +25,7 @@ _INDEX_HIT = {
         "ページ": {"type": "title", "title": _rt("サッカー")},
         "abstract": {
             "type": "rich_text",
-            "rich_text": _rt("2人の子が続けている活動。泰輝はレプロ、航輝はアレグレイル。"),
+            "rich_text": _rt("2人の子が続けている活動。三郎はレプロ、桃子はアレグレイル。"),
         },
         "パス": {"type": "rich_text", "rich_text": _rt("10_Wiki/テーマ/サッカー.md")},
         "種別": {"type": "select", "select": {"name": "topic"}},
@@ -76,7 +76,7 @@ def test_tools_list_has_search_and_journal() -> None:
     names = [t["name"] for t in res["result"]["tools"]]
     assert names == ["search_notion", "get_journal"]
     # 持ち主の設定が無ければ名前に人は入らない（設定があるときは `test_the_journal_belongs_to_its_owner`）
-    assert all("_yusuke" not in n for n in names)
+    assert all("_ichiro" not in n for n in names)
 
 
 def test_search_returns_title_abstract_path_and_dates() -> None:

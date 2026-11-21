@@ -22,12 +22,12 @@ from familiar_agent.loop.event_loop import InformationProcessing
 from tests.test_event_loop import _agent
 
 FAMILY = (
-    "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ、ゆうすけ\n\n"
-    "## たいき\n- **名前**：泰輝\n- **呼び方**：たいき\n"
+    "## パパ\n- **名前**：一郎\n- **呼び方**：パパ、いちろう\n\n"
+    "## さぶろう\n- **名前**：三郎\n- **呼び方**：さぶろう\n"
 )
-ROWS = [{"id": "papa", "name": "雄輔"}, {"id": "taiki", "name": "泰輝"}]
+ROWS = [{"id": "papa", "name": "一郎"}, {"id": "saburo", "name": "三郎"}]
 PAPA = np.asarray([1.0, 0.0], dtype=np.float32)
-TAIKI = np.asarray([0.0, 1.0], dtype=np.float32)
+SABURO = np.asarray([0.0, 1.0], dtype=np.float32)
 
 
 class _Store:
@@ -58,20 +58,20 @@ def _ip(*, present: float = 1.0, speaker: "str | None" = "パパ", store=None):
     a._pmm = MagicMock()
     a._pmm.list_persons = MagicMock(return_value=list(ROWS))
     a._pmm.find_person_id_by_name = MagicMock(
-        side_effect=lambda n: {"パパ": "papa", "たいき": "taiki"}.get(n)
+        side_effect=lambda n: {"パパ": "papa", "さぶろう": "saburo"}.get(n)
     )
     ip = InformationProcessing(a)
-    s = store if store is not None else _Store(registered={"papa": PAPA, "taiki": TAIKI})
+    s = store if store is not None else _Store(registered={"papa": PAPA, "saburo": SABURO})
     ip._voice_store = lambda: s  # type: ignore[method-assign]
     return ip, a, s
 
 
 def test_a_clear_other_voice_takes_over_and_feeds_today():
     ip, a, s = _ip()
-    asyncio.run(ip._match_voice(TAIKI))
-    a._persons.set_active.assert_called_once_with("たいき")  # 呼びかけ名で付ける
-    a._sync_pmm_speaker.assert_awaited_once_with("たいき")
-    assert s.added == [("taiki", "voice", "today", 10)]
+    asyncio.run(ip._match_voice(SABURO))
+    a._persons.set_active.assert_called_once_with("さぶろう")  # 呼びかけ名で付ける
+    a._sync_pmm_speaker.assert_awaited_once_with("さぶろう")
+    assert s.added == [("saburo", "voice", "today", 10)]
 
 
 def test_the_same_voice_keeps_and_a_clear_match_feeds_today():
@@ -84,8 +84,10 @@ def test_the_same_voice_keeps_and_a_clear_match_feeds_today():
 
 def test_a_loose_match_keeps_without_feeding_today():
     ip, a, s = _ip()
-    loose = np.asarray([0.3, 0.954], dtype=np.float32)  # パパに 0.30（緩い）・たいきに 0.954 だが…
-    s.registered = {"papa": PAPA}  # たいきの基準は無い
+    loose = np.asarray(
+        [0.3, 0.954], dtype=np.float32
+    )  # パパに 0.30（緩い）・さぶろうに 0.954 だが…
+    s.registered = {"papa": PAPA}  # さぶろうの基準は無い
     asyncio.run(ip._match_voice(loose))
     a._persons.set_active.assert_not_called()
     a._persons.reset_to_default.assert_not_called()
@@ -111,7 +113,7 @@ def test_nothing_happens_without_a_voice():
 
 def test_no_voices_at_all_change_nothing():
     ip, a, s = _ip(store=_Store())
-    asyncio.run(ip._match_voice(TAIKI))
+    asyncio.run(ip._match_voice(SABURO))
     a._persons.set_active.assert_not_called()
     a._persons.reset_to_default.assert_not_called()
 
@@ -178,7 +180,7 @@ def test_run_hands_the_voice_to_the_loop():
 
 
 # ── 画面の名前：声で話者を決めてから吹き出しを出す ───────────────────────────
-# 10/13 18:56 に、声でこうきからパパへ付け替える前に吹き出しを出したので、パパの言葉がこうきの名前で出た
+# 10/13 18:56 に、声でももこからパパへ付け替える前に吹き出しを出したので、パパの言葉がももこの名前で出た
 # （返事はパパ宛てだった）。画面は知らせた時点の話者を読む。
 
 

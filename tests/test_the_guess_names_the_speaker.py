@@ -43,7 +43,7 @@ def test_two_guessed_people_leave_the_speaker_unknown():
     a, ip = _ip()
     asyncio.run(
         ip._apply_seen_people(
-            [{"name": "パパ", "confidence": 0.6}, {"name": "たいき", "confidence": 0.6}]
+            [{"name": "パパ", "confidence": 0.6}, {"name": "さぶろう", "confidence": 0.6}]
         )
     )
     ip._set_speaker.assert_not_awaited()

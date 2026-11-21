@@ -18,7 +18,7 @@ from familiar_agent.loop.arbiter import Arbiter, ArbiterInput
 from familiar_agent.loop.prompt import build_event_system_prompt
 
 _ME = "私は パジュ である。"
-_FAMILY = "ゆうすけ（大人）"
+_FAMILY = "いちろう（大人）"
 
 
 def test_the_event_system_prompt_is_labelled_and_ordered():

@@ -19,7 +19,7 @@ SPLIT = (
 )
 REDONE = (
     '```json\n{"episode": "一度目の日記。"}\n```\n\n...出力形式を誤りました。正しく出力します。\n\n'
-    '```json\n{"episode": "書き直した日記。", "persons": {"たいき": "眠った。"}}\n```'
+    '```json\n{"episode": "書き直した日記。", "persons": {"さぶろう": "眠った。"}}\n```'
 )
 
 
@@ -32,7 +32,7 @@ def test_split_objects_are_merged():
 
 def test_a_redone_answer_keeps_the_later_one():
     got = read_json_merged(REDONE)
-    assert got == {"episode": "書き直した日記。", "persons": {"たいき": "眠った。"}}
+    assert got == {"episode": "書き直した日記。", "persons": {"さぶろう": "眠った。"}}
 
 
 def test_stray_braces_are_skipped_and_one_fenced_object_reads_as_before():

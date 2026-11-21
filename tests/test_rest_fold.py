@@ -55,25 +55,25 @@ def test_the_llm_is_asked_for_an_episode_and_per_person_summaries():
 
     backend = AsyncMock()
     backend.complete = AsyncMock(
-        return_value='{"episode": "今日はこうきとサッカーの話をした。", "persons": {"こうき": "サッカーが好きで、負けると泣く。"}}'
+        return_value='{"episode": "今日はももことサッカーの話をした。", "persons": {"ももこ": "サッカーが好きで、負けると泣く。"}}'
     )
     batch = rest_fold.Batch(
-        day="2026-09-13", rows=[_mi(1, "こうき：サッカーしたよ"), _mi(2, "ぼく：いいね")]
+        day="2026-09-13", rows=[_mi(1, "ももこ：サッカーしたよ"), _mi(2, "ぼく：いいね")]
     )
     out = asyncio.run(
-        rest_fold.ask_summaries(backend, batch, family_names=("パパ", "ママ", "たいき", "こうき"))
+        rest_fold.ask_summaries(backend, batch, family_names=("パパ", "ママ", "さぶろう", "ももこ"))
     )
     assert out.episode.startswith("今日は") and out.persons == {
-        "こうき": "サッカーが好きで、負けると泣く。"
+        "ももこ": "サッカーが好きで、負けると泣く。"
     }
     prompt = backend.complete.call_args.args[0]
-    assert "こうき：サッカーしたよ" in prompt and "一人称" in prompt
+    assert "ももこ：サッカーしたよ" in prompt and "一人称" in prompt
 
 
 def test_the_check_rejects_long_empty_or_unknown_names():
-    fam = ("パパ", "ママ", "たいき", "こうき")
+    fam = ("パパ", "ママ", "さぶろう", "ももこ")
     ok = rest_fold.Summaries(
-        episode="今日はこうきと話した。", persons={"こうき": "サッカーが好き。"}
+        episode="今日はももこと話した。", persons={"ももこ": "サッカーが好き。"}
     )
     assert rest_fold.check(ok, family_names=fam) is None
     assert (
@@ -85,13 +85,13 @@ def test_the_check_rejects_long_empty_or_unknown_names():
     )
     assert (
         rest_fold.check(
-            rest_fold.Summaries(episode="今日", persons={"こうき": "い" * 301}), family_names=fam
+            rest_fold.Summaries(episode="今日", persons={"ももこ": "い" * 301}), family_names=fam
         )
         is not None
     )
     assert (
         rest_fold.check(
-            rest_fold.Summaries(episode="今日", persons={"泰輝": "…"}), family_names=fam
+            rest_fold.Summaries(episode="今日", persons={"三郎": "…"}), family_names=fam
         )
         is not None
     )

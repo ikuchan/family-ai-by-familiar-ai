@@ -1,9 +1,9 @@
 """呼びかけに使う名前は、別名の一覧ではなく代表の1つ。
 
-`display_name` は `FAMILY.md` の「呼び方」で、"パパ、いくながさん、ゆうすけ" のように
+`display_name` は `FAMILY.md` の「呼び方」で、"パパ、いくながさん、いちろう" のように
 読点区切りの**別名の一覧**である（`find_person_id_by_name` は割って照合している）。
 これをそのまま名前として渡すと、顔ぶれの文脈が
-`(present :speaker "たいきくん、たいき")` になり、呼びかけも運任せになる（実機で観測）。
+`(present :speaker "さぶちゃん、さぶろう")` になり、呼びかけも運任せになる（実機で観測）。
 """
 
 from __future__ import annotations
@@ -21,13 +21,13 @@ def _pmm(persons):
 
 
 def test_first_alias_is_used_for_addressing():
-    m = _pmm([{"id": "p1", "display_name": "パパ、いくながさん、ゆうすけ"}])
+    m = _pmm([{"id": "p1", "display_name": "パパ、いくながさん、いちろう"}])
     assert m.get_person_name("p1") == "パパ"
 
 
 def test_comma_separated_aliases_are_split_too():
-    m = _pmm([{"id": "p1", "display_name": "たいきくん, たいき"}])
-    assert m.get_person_name("p1") == "たいきくん"
+    m = _pmm([{"id": "p1", "display_name": "さぶちゃん, さぶろう"}])
+    assert m.get_person_name("p1") == "さぶちゃん"
 
 
 def test_single_name_is_returned_as_is():

@@ -70,25 +70,25 @@ def _scan(tonic, times):
 
 def test_arrival_is_recorded():
     ip = _ip()
-    t = Tonic(ip, agent=_agent_with(_rows(), _rows("たいき")))
+    t = Tonic(ip, agent=_agent_with(_rows(), _rows("さぶろう")))
     _scan(t, 2)
     kinds = [c.args[0] for c in ip.note_device.call_args_list]
     assert kinds == ["入室"]
-    assert "たいき" in ip.note_device.call_args.args[1]
+    assert "さぶろう" in ip.note_device.call_args.args[1]
 
 
 def test_departure_is_recorded():
     ip = _ip()
-    t = Tonic(ip, agent=_agent_with(_rows("たいき"), _rows()))
+    t = Tonic(ip, agent=_agent_with(_rows("さぶろう"), _rows()))
     _scan(t, 2)
     assert [c.args[0] for c in ip.note_device.call_args_list] == ["退室"]
-    assert "たいき" in ip.note_device.call_args.args[1]
+    assert "さぶろう" in ip.note_device.call_args.args[1]
 
 
 def test_every_new_person_is_recorded_even_when_someone_is_already_there():
     # 案B：既に誰か居るところへもう1人来ても立つ。
     ip = _ip()
-    t = Tonic(ip, agent=_agent_with(_rows("パパ"), _rows("パパ", "たいき")))
+    t = Tonic(ip, agent=_agent_with(_rows("パパ"), _rows("パパ", "さぶろう")))
     _scan(t, 2)
     assert [c.args[0] for c in ip.note_device.call_args_list] == ["入室"]
 
@@ -118,7 +118,7 @@ def test_a_device_trigger_wakes_the_driver():
         ip = InformationProcessing(a)
         ip._iterate = AsyncMock(return_value="")
         ip._ensure_driver()
-        ip.push_device("入室", "たいき が来た")
+        ip.push_device("入室", "さぶろう が来た")
         for _ in range(200):
             if ip._iterate.await_count:
                 break

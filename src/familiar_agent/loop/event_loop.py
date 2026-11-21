@@ -170,7 +170,7 @@ _PERSONAL_PREFIXES = {"ask_vault_": "vault", "get_journal_": "journal"}
 
 
 def _personal_action(name: str) -> str:
-    """持ち主の英字が付いた道具名なら動作名（`ask_vault_yusuke` → `vault`）。違えば空。"""
+    """持ち主の英字が付いた道具名なら動作名（`ask_vault_ichiro` → `vault`）。違えば空。"""
     return next((a for p, a in _PERSONAL_PREFIXES.items() if name.startswith(p)), "")
 
 
@@ -2963,7 +2963,7 @@ class InformationProcessing:
         "see": lambda ip: _camera_tool_def(ip._agent, "see"),
         "look": lambda ip: _camera_tool_def(ip._agent, "look"),
         # 家の決まり（`obsidian-memo`）。**家族ティアだけ**を載せる——個人ティア
-        # （`ask_vault_yusuke`）は話者ゲートができるまで載せない。
+        # （`ask_vault_ichiro`）は話者ゲートができるまで載せない。
         "house_rules": lambda ip: ip._dif.tool_defs("get_house_rules"),
         # 家族の予定（`family-calendar`・知-j）。家族ティアなのでゲート無し。
         "family_schedule": lambda ip: ip._dif.tool_defs("get_family_schedule"),
@@ -3344,7 +3344,7 @@ class InformationProcessing:
                 logger.info("event-loop 名前の聞き違いを直した：%s", shown[: shown.find("）") + 1])
                 trigger.query = fixed
         # 門を通った声だけ、誰が話しているかを照らす（知-ae）。捨てた声は聞いていないのと同じなので照らさない。
-        # 吹き出しの名前は知らせた時点の話者を読むので、先に声で話者を決める（10/13 18:56 にこうきの名前で出て、返事はパパ宛てだった）。
+        # 吹き出しの名前は知らせた時点の話者を読むので、先に声で話者を決める（10/13 18:56 にももこの名前で出て、返事はパパ宛てだった）。
         await self._match_voice(voice)
         self._notify_heard(shown, True)
         # 届いたときのことを持たせる（環-aw 第 1 段 項目 9）。答えのあとまで待たせたら、それと鳴り終わった音を W に書く。

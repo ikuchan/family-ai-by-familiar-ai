@@ -142,7 +142,7 @@ def test_one_mcp_tool_definition_is_taken_by_name():
     mcp.get_tool_definitions = MagicMock(
         return_value=[
             {"name": "get_house_rules"},
-            {"name": "ask_vault_yusuke"},
+            {"name": "ask_vault_ichiro"},
         ]
     )
     got = _dif(mcp=mcp).tool_defs("get_house_rules")

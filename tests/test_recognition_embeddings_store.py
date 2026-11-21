@@ -60,19 +60,19 @@ def test_the_table_exists(conn):
 
 def test_the_centroid_is_the_mean_per_person(conn):
     s = RecognitionEmbeddingStore(conn)
-    papa, taiki = _person(conn, "雄輔"), _person(conn, "泰輝")
+    papa, saburo = _person(conn, "一郎"), _person(conn, "三郎")
     s.add(papa, "voice", "registered", _vec(1, 0), cap=30, now=NOW)
     s.add(papa, "voice", "registered", _vec(0, 1), cap=30, now=NOW)
-    s.add(taiki, "voice", "registered", _vec(1, 1), cap=30, now=NOW)
+    s.add(saburo, "voice", "registered", _vec(1, 1), cap=30, now=NOW)
     got = s.centroids("voice", "registered")
-    assert set(got) == {papa, taiki}
+    assert set(got) == {papa, saburo}
     assert np.allclose(got[papa] / np.linalg.norm(got[papa]), _vec(1, 1) / np.sqrt(2))
     assert s.centroids("face", "registered") == {}
 
 
 def test_over_the_cap_the_oldest_go(conn):
     s = RecognitionEmbeddingStore(conn)
-    papa = _person(conn, "雄輔")
+    papa = _person(conn, "一郎")
     for i in range(4):
         s.add(
             papa,
@@ -91,7 +91,7 @@ def test_over_the_cap_the_oldest_go(conn):
 
 def test_today_is_only_today(conn):
     s = RecognitionEmbeddingStore(conn)
-    papa = _person(conn, "雄輔")
+    papa = _person(conn, "一郎")
     s.add(papa, "voice", "today", _vec(1, 0), cap=10, day=TODAY - timedelta(days=1), now=NOW)
     assert s.centroids("voice", "today", day=TODAY) == {}
     assert s.drop_old_today(TODAY) == 1
@@ -100,7 +100,7 @@ def test_today_is_only_today(conn):
 
 def test_deleting_a_person_deletes_the_features(conn):
     s = RecognitionEmbeddingStore(conn)
-    papa = _person(conn, "雄輔")
+    papa = _person(conn, "一郎")
     s.add(papa, "face", "registered", _vec(1, 0), cap=30, now=NOW)
     with conn.cursor() as cur:
         cur.execute("DELETE FROM persons WHERE id = %s", (papa,))
@@ -109,7 +109,7 @@ def test_deleting_a_person_deletes_the_features(conn):
 
 def test_a_bad_kind_or_origin_is_refused(conn):
     s = RecognitionEmbeddingStore(conn)
-    papa = _person(conn, "雄輔")
+    papa = _person(conn, "一郎")
     with pytest.raises(ValueError):
         s.add(papa, "smell", "registered", _vec(1, 0), cap=30)
     with pytest.raises(ValueError):

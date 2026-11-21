@@ -105,10 +105,10 @@ def test_aborted_version() -> None:
 
 def test_origin_is_carried_in_every_version() -> None:
     """どの版にも求めそのものが入る（前の版は畳まれて辿れなくなる）。"""
-    ip = _ip("たいきのサッカーは？")
+    ip = _ip("さぶろうのサッカーは？")
     ip._req.lookups = [
         Lookup(index=1, action="recall", query="サッカー", generation=0, result="水曜"),
         Lookup(index=2, action="search_deferred", query="会場", generation=0),
     ]
-    for kw in ("たいきのサッカーは？", "1番：recall「サッカー」の結果が届いた", "2番："):
+    for kw in ("さぶろうのサッカーは？", "1番：recall「サッカー」の結果が届いた", "2番："):
         assert kw in ip._version_content(), f"{kw} が入っていない"

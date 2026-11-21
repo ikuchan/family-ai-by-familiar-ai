@@ -56,9 +56,9 @@ def test_an_unresolved_speakers_words_are_the_other_sides():
 
 
 def test_a_named_speaker_keeps_the_name():
-    oif = _oif({"q": "ゆうすけ"}, {"q": "起点"})
+    oif = _oif({"q": "いちろう"}, {"q": "起点"})
     text, _ = workspace.compose(oif, [_r("q", "何が見えますか？")], Request())
-    assert "ゆうすけが言った: 何が見えますか？" in text
+    assert "いちろうが言った: 何が見えますか？" in text
 
 
 def test_the_agents_own_answer_is_still_me():

@@ -20,7 +20,7 @@ from familiar_agent.core.context_parts import Stance, build_context
 from familiar_agent.loop.prompt import EVENT_SYSTEM_PROMPT, rules_section
 
 _ME = "# 私について\n名前： パジュ\n性格：好奇心旺盛"
-_FAMILY = "# 家族\nゆうすけ（大人）\nはるか（子ども）"
+_FAMILY = "# 家族\nいちろう（大人）\nはるか（子ども）"
 
 
 # ── 規則の節を切り出す ──────────────────────────────────────────────────────

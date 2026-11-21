@@ -324,9 +324,9 @@ capabilities:
       not on every turn.
     enabled_tool: get_house_rules
   - id: family_notes_deep_question
-    summary: Ask a long question of the family's own written records (Yusuke only)
+    summary: Ask a long question of the family's own written records (Ichiro only)
     detail: >
-      `ask_vault_yusuke` is not a search. A session that can read the whole
+      `ask_vault_ichiro` is not a search. A session that can read the whole
       three-year archive of notes reads, thinks, and answers — so it takes tens
       of seconds and must ride the deferred path, never a synchronous wait.
       NOT CONNECTED YET (2026-09-04). The archive holds private material, so this

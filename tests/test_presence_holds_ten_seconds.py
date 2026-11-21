@@ -66,8 +66,8 @@ def test_a_new_sign_restarts_the_hold(pmm):
 
 def test_a_guess_adds_without_removing_others(pmm):
     asyncio.run(pmm.set_guessed_present([("papa", 0.6)]))
-    asyncio.run(pmm.set_guessed_present([("taiki", 0.6)]))  # 首を回して別の人だけ写った
-    assert sorted(pmm.get_present_ids()) == ["papa", "taiki"]
+    asyncio.run(pmm.set_guessed_present([("saburo", 0.6)]))  # 首を回して別の人だけ写った
+    assert sorted(pmm.get_present_ids()) == ["papa", "saburo"]
 
 
 def test_a_guess_refreshes_someone_already_there(pmm):
@@ -114,7 +114,7 @@ def test_a_single_guess_does_not_name_the_speaker():
     from tests.test_event_loop import _agent
 
     a = _agent(stream_returns=[])
-    a._family_md = "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ\n"
+    a._family_md = "## パパ\n- **名前**：一郎\n- **呼び方**：パパ\n"
     a._pmm = MagicMock()
     a._pmm.find_person_id_by_name = MagicMock(return_value="papa")
     a._pmm.set_guessed_present = AsyncMock()

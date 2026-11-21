@@ -21,14 +21,14 @@ from familiar_agent.loop import rest_family_now as rfn
 UTC = timezone.utc
 FAMILY = """## パパ
 
-- **名前**：雄輔
-- **呼び方**：パパ、ゆうすけ
+- **名前**：一郎
+- **呼び方**：パパ、いちろう
 - **性格・傾向**：話好き
 
-## たいき
+## さぶろう
 
-- **名前**：泰輝
-- **呼び方**：たいき
+- **名前**：三郎
+- **呼び方**：さぶろう
 """
 
 
@@ -57,7 +57,7 @@ def _agent(notes_by_pid: dict, *, replies=None):
     a = MagicMock()
     a._family_md = FAMILY
     a._pmm.find_person_id_by_name = MagicMock(
-        side_effect=lambda name: {"雄輔": "pid-papa", "泰輝": "pid-taiki"}.get(name)
+        side_effect=lambda name: {"一郎": "pid-papa", "三郎": "pid-saburo"}.get(name)
     )
 
     def after(pid, since):
@@ -115,7 +115,7 @@ def test_the_persons_own_section_is_given(state):
     asyncio.run(rfn.update_family_now(a))
     prompt = a.backend.complete.await_args.args[0]
     assert "話好き" in prompt  # 人が書いた `FAMILY.md` のその人の節
-    assert "泰輝" not in prompt  # ほかの人の節は渡さない
+    assert "三郎" not in prompt  # ほかの人の節は渡さない
 
 
 @pytest.mark.parametrize("reply", ["", "書けない", '{"now": ""}', '{"now": "' + "あ" * 301 + '"}'])
@@ -128,9 +128,9 @@ def test_a_bad_reply_keeps_the_old_and_does_not_move(state, reply):
 
 
 def test_each_person_is_read_separately(state):
-    a = _agent({"pid-papa": _notes(10, T0), "pid-taiki": _notes(10, T0)})
+    a = _agent({"pid-papa": _notes(10, T0), "pid-saburo": _notes(10, T0)})
     r = asyncio.run(rfn.update_family_now(a))
-    assert r.rewrites == {"パパ": 1, "たいき": 1}
+    assert r.rewrites == {"パパ": 1, "さぶろう": 1}
 
 
 def test_the_rest_pass_runs_it_after_the_calendar():

@@ -17,10 +17,10 @@ URGE = "[内的な促し:bond] 誰かと居たい気持ちが湧いている。"
 
 
 def test_the_cue_lines_up_the_schedule_and_the_memo():
-    got = cue_for(URGE, "- 10-11（日） サッカー", ["- 金曜はたいきの試合"])
+    got = cue_for(URGE, "- 10-11（日） サッカー", ["- 金曜はさぶろうの試合"])
     assert got.startswith(URGE)
     assert "家族のこれから 7 日の予定：\n- 10-11（日） サッカー" in got
-    assert "パジュへのメモで新しく書かれたこと：\n- 金曜はたいきの試合" in got
+    assert "パジュへのメモで新しく書かれたこと：\n- 金曜はさぶろうの試合" in got
 
 
 def test_the_parts_are_cut_and_missing_ones_left_out():
@@ -32,8 +32,8 @@ def test_the_parts_are_cut_and_missing_ones_left_out():
 
 
 def test_the_notes_keep_the_last_added_lines():
-    notes_watch._save_state("- 木曜は早く帰る", added=["- 金曜はたいきの試合"])
-    assert notes_watch.last_added() == ["- 金曜はたいきの試合"]
+    notes_watch._save_state("- 木曜は早く帰る", added=["- 金曜はさぶろうの試合"])
+    assert notes_watch.last_added() == ["- 金曜はさぶろうの試合"]
     assert notes_watch._load_state() == "- 木曜は早く帰る"
 
 
@@ -57,14 +57,14 @@ def _begin(axis: str):
 
 
 def test_a_bond_fire_brings_the_family_into_the_cue():
-    schedule_watch._save_state("- 10-11（日） たいき サッカーの試合")
-    notes_watch._save_state("- 本文", added=["- 金曜はたいきの試合"])
+    schedule_watch._save_state("- 10-11（日） さぶろう サッカーの試合")
+    notes_watch._save_state("- 本文", added=["- 金曜はさぶろうの試合"])
     ip = _begin("bond")
-    assert "サッカーの試合" in ip._req.cue and "金曜はたいきの試合" in ip._req.cue
+    assert "サッカーの試合" in ip._req.cue and "金曜はさぶろうの試合" in ip._req.cue
 
 
 def test_other_axes_keep_the_urge_as_the_cue():
-    schedule_watch._save_state("- 10-11（日） たいき サッカーの試合")
+    schedule_watch._save_state("- 10-11（日） さぶろう サッカーの試合")
     for axis in ("esteem", "seeking"):
         ip = _begin(axis)
         assert "サッカー" not in ip._req.cue and ip._req.cue.startswith(f"[内的な促し:{axis}]")

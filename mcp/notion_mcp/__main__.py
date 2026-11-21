@@ -5,7 +5,7 @@
         "command": "/path/to/.venv/bin/python", "args": ["-m", "notion_mcp"],
         "cwd": "/path/to/family-ai-by-familiar-ai/mcp",
         "env": { "NOTION_JOURNAL_DATA_SOURCE": "<日次記録のデータソース id>",
-                 "NOTION_JOURNAL_OWNER": "<日次記録の持ち主の英字（例 yusuke）・無ければ家族の誰とでも>" }
+                 "NOTION_JOURNAL_OWNER": "<日次記録の持ち主の英字（例 ichiro）・無ければ家族の誰とでも>" }
     }}}
 
 鍵は `~/.config/obsidian-memo.env` の `NOTION_TOKEN`（memo_mcp と同じ）。

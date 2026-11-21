@@ -97,7 +97,7 @@ def test_the_fan_out_also_asks_how_deeply_to_think():
 
 
 def _qs(**kw):
-    base = dict(music=False, camera=False, family=["パパ", "たいき"])
+    base = dict(music=False, camera=False, family=["パパ", "さぶろう"])
     return um.fanout_questions(**{**base, **kw})
 
 

@@ -63,7 +63,7 @@ _HONORIFICS = ("さん", "くん", "ちゃん")
 def _norm(word: str) -> str:
     """比べる前に揃える：カタカナをひらがなに、英字を小文字に、末尾の敬称（さん・くん・ちゃん）を落とす。
 
-    本番 2026-10-05：「まま、たえこさん」の行が、FAMILY.md の妙子（ママ、たえこ）に当たらなかった。
+    本番 2026-10-05：「まま、じろうさん」の行が、FAMILY.md の次郎（ママ、じろう）に当たらなかった。
     """
     w = "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in word.strip()).lower()
     for h in _HONORIFICS:

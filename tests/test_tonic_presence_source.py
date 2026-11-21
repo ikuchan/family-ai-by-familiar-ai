@@ -70,13 +70,13 @@ def test_a_name_appearing_later_does_not_double_count_the_same_person():
 def test_without_a_sensor_the_old_source_still_works():
     # カメラが無い構成では PMM（`/speaker` の自己申告を含む）だけで動く。
     agent = MagicMock()
-    agent._pmm.presence_status = MagicMock(return_value=[{"name": "たいき"}])
+    agent._pmm.presence_status = MagicMock(return_value=[{"name": "さぶろう"}])
     ip = MagicMock()
     t = Tonic(ip)
     t._agent = agent
     t._present_names = set()
     t.scan_presence()
-    assert "たいき" in ip.note_device.call_args_list[0].args[1]
+    assert "さぶろう" in ip.note_device.call_args_list[0].args[1]
 
 
 # 顔ぶれ表の失効（在席が 60 秒「誰も居ない」で全員消す・2026-09-17）は知-ai で撤去した。顔ぶれは人ごとの

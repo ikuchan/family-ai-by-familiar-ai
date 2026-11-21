@@ -22,7 +22,7 @@ from familiar_agent.config import RecognitionConfig
 from familiar_agent.core.wake_window import KeyText, VoiceText
 from tests.test_input_commands_before_loop_branch import _agent as _base
 
-FAMILY = "## パパ\n- **名前**：雄輔\n- **呼び方**：パパ、ゆうすけ\n"
+FAMILY = "## パパ\n- **名前**：一郎\n- **呼び方**：パパ、いちろう\n"
 VOICE = np.asarray([1.0, 0.0], dtype=np.float32)
 
 
@@ -32,7 +32,7 @@ def _agent(clock):
     a.config.recognition = RecognitionConfig()
     a._pmm = MagicMock()
     a._pmm.find_person_id_by_name = MagicMock(
-        side_effect=lambda n: "papa" if n in ("パパ", "雄輔") else None
+        side_effect=lambda n: "papa" if n in ("パパ", "一郎") else None
     )
     store = MagicMock()
     a._voice_store = MagicMock(return_value=store)

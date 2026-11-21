@@ -85,18 +85,18 @@ def _plant(body: str, *, present: "list[str]") -> str:
 
 
 def test_the_person_who_was_there_is_the_addressee():
-    pid = _person("ゆうすけ", "パパ、ゆうすけ、おとうさん")
+    pid = _person("いちろう", "パパ、いちろう、いっちゃんさん")
     oid = _plant("おかえりなさい", present=[pid])
     got = {k: v[1] for k, v in _store().voices_of([oid]).items()}
     assert got == {oid: ["パパ"]}, "呼びかけに使う名前（呼び方の先頭）で返す"
 
 
 def test_several_people_come_back_in_one_list():
-    a = _person("たいき", "たいき、たいきくん")
-    b = _person("こうき", "こうき、こうきくん")
+    a = _person("さぶろう", "さぶろう、さぶちゃん")
+    b = _person("ももこ", "ももこ、ももちゃん")
     oid = _plant("おかえり！", present=[a, b])
     got = {k: v[1] for k, v in _store().voices_of([oid]).items()}
-    assert sorted(got[oid]) == ["こうき", "たいき"]
+    assert sorted(got[oid]) == sorted(["ももこ", "さぶろう"])
 
 
 def test_myself_is_not_an_addressee():

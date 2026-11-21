@@ -68,10 +68,10 @@ def test_camera_config_empty_ptz_override_falls_back(monkeypatch) -> None:
 def test_stream_url_rtsp(monkeypatch):
     monkeypatch.setenv("CAMERA_HOST", "192.168.1.26")
     monkeypatch.setenv("CAMERA_USERNAME", "storyseller")
-    monkeypatch.setenv("CAMERA_PASSWORD", "yusuke5534")
+    monkeypatch.setenv("CAMERA_PASSWORD", "ichiro5534")
     c = CameraConfig()
-    assert c.stream_url("stream1") == "rtsp://storyseller:yusuke5534@192.168.1.26:554/stream1"
-    assert c.stream_url("stream2") == "rtsp://storyseller:yusuke5534@192.168.1.26:554/stream2"
+    assert c.stream_url("stream1") == "rtsp://storyseller:ichiro5534@192.168.1.26:554/stream1"
+    assert c.stream_url("stream2") == "rtsp://storyseller:ichiro5534@192.168.1.26:554/stream2"
     assert c.is_rtsp() is True
 
 

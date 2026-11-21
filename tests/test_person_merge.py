@@ -1,7 +1,7 @@
 """人物表の統合（知-af 段 4・2026-10-02・本人の決定ア）。本番で使う道具 `scripts/merge_persons.py` の中身。
 
-本番の人物表は二重になっている：記憶の付いた古い行（いくながゆうすけ など）と、いまの `FAMILY.md` が作った記憶 0 件の
-新しい行（ゆうすけ など）。**記憶の付いた古い行を残し**、名前を `FAMILY.md` の名前（漢字）に書き換え、記憶 0 件の行と
+本番の人物表は二重になっている：記憶の付いた古い行（いくながいちろう など）と、いまの `FAMILY.md` が作った記憶 0 件の
+新しい行（いちろう など）。**記憶の付いた古い行を残し**、名前を `FAMILY.md` の名前（漢字）に書き換え、記憶 0 件の行と
 テンプレートから作られたゴミの行を消す。記憶の付け替えはしない。
 
 - 参照は決め打ちにしない。人物表を参照する外部キーを DB から読み、人物ごとに数える。参照が 1 件でもある行は消さない。
@@ -21,27 +21,27 @@ from familiar_agent.store import person_merge as pm
 
 FAMILY = """## パパ
 
-- **名前**：雄輔
-- **呼び方**：パパ、ゆうすけ
+- **名前**：一郎
+- **呼び方**：パパ、いちろう
 
-## たいき
+## さぶろう
 
-- **名前**：泰輝
-- **呼び方**：たいき、たいきくん
+- **名前**：三郎
+- **呼び方**：さぶろう、さぶちゃん
 """
 
 ROWS = [
-    {"id": "old-papa", "name": "いくながゆうすけ", "display_name": "パパ、いくながさん、ゆうすけ"},
-    {"id": "old-taiki", "name": "いくながたいき", "display_name": "たいき"},
-    {"id": "new-papa", "name": "ゆうすけ", "display_name": "パパ、ゆうすけ"},
-    {"id": "new-taiki", "name": "たいき", "display_name": "たいき"},
+    {"id": "old-papa", "name": "いくながいちろう", "display_name": "パパ、いくながさん、いちろう"},
+    {"id": "old-saburo", "name": "いくながさぶろう", "display_name": "さぶろう"},
+    {"id": "new-papa", "name": "いちろう", "display_name": "パパ、いちろう"},
+    {"id": "new-saburo", "name": "さぶろう", "display_name": "さぶろう"},
     {
         "id": "junk",
-        "name": "- **呼び方**：パパ、ゆうすけ",
-        "display_name": "- **呼び方**：パパ、ゆうすけ",
+        "name": "- **呼び方**：パパ、いちろう",
+        "display_name": "- **呼び方**：パパ、いちろう",
     },
 ]
-REFS = {"old-papa": 3585, "old-taiki": 643}
+REFS = {"old-papa": 3585, "old-saburo": 643}
 
 
 def _plan(rows=ROWS, refs=REFS, family=FAMILY):
@@ -52,16 +52,16 @@ def test_the_old_rows_with_memories_are_kept_and_renamed():
     plan = _plan()
     assert not plan.stops
     assert {(r.id, r.new_name) for r in plan.renames} == {
-        ("old-papa", "雄輔"),
-        ("old-taiki", "泰輝"),
+        ("old-papa", "一郎"),
+        ("old-saburo", "三郎"),
     }
     papa = next(r for r in plan.renames if r.id == "old-papa")
-    assert papa.new_display == "パパ、ゆうすけ"  # 呼び方も FAMILY.md に合わせる
+    assert papa.new_display == "パパ、いちろう"  # 呼び方も FAMILY.md に合わせる
 
 
 def test_the_empty_rows_and_the_junk_are_deleted():
     plan = _plan()
-    assert {d.id for d in plan.deletes} == {"new-papa", "new-taiki", "junk"}
+    assert {d.id for d in plan.deletes} == {"new-papa", "new-saburo", "junk"}
 
 
 def test_a_row_with_references_is_never_deleted_but_reassigned():
@@ -74,22 +74,22 @@ def test_a_row_with_references_is_never_deleted_but_reassigned():
 
 
 def test_two_referenced_rows_for_one_person_are_reassigned_into_the_bigger_one():
-    rows = ROWS + [{"id": "older", "name": "ゆうすけ旧", "display_name": "パパ"}]
+    rows = ROWS + [{"id": "older", "name": "いちろう旧", "display_name": "パパ"}]
     plan = _plan(rows=rows, refs={**REFS, "older": 5})
     assert ("older", "old-papa") in {(r.from_id, r.to_id) for r in plan.reassigns}
-    assert ("old-papa", "雄輔") in {(r.id, r.new_name) for r in plan.renames}
+    assert ("old-papa", "一郎") in {(r.id, r.new_name) for r in plan.renames}
     assert not plan.stops
 
 
 def test_a_row_matching_two_people_stops_the_plan():
-    rows = ROWS + [{"id": "both", "name": "なぞ", "display_name": "パパ、たいき"}]
+    rows = ROWS + [{"id": "both", "name": "なぞ", "display_name": "パパ、さぶろう"}]
     plan = _plan(rows=rows, refs={**REFS, "both": 1})
     assert any("なぞ" in s for s in plan.stops)
 
 
 def test_a_row_already_right_is_left_alone():
-    rows = [{"id": "papa", "name": "雄輔", "display_name": "パパ、ゆうすけ"}]
-    plan = _plan(rows=rows, refs={"papa": 10}, family=FAMILY.split("## たいき")[0])
+    rows = [{"id": "papa", "name": "一郎", "display_name": "パパ、いちろう"}]
+    plan = _plan(rows=rows, refs={"papa": 10}, family=FAMILY.split("## さぶろう")[0])
     assert not plan.renames and not plan.deletes and not plan.stops
 
 
@@ -168,10 +168,10 @@ def test_references_are_counted_from_the_foreign_keys(conn):
 
 def test_the_plan_is_applied_in_one_transaction(conn):
     mark = uuid.uuid4().hex[:6]
-    family = f"## パパ\n- **名前**：雄輔{mark}\n- **呼び方**：パパ{mark}\n"
+    family = f"## パパ\n- **名前**：一郎{mark}\n- **呼び方**：パパ{mark}\n"
     with conn.cursor() as cur:
-        _person(cur, f"old-{mark}", f"いくながゆうすけ{mark}", f"パパ{mark}")
-        _person(cur, f"new-{mark}", f"雄輔{mark}", f"パパ{mark}")
+        _person(cur, f"old-{mark}", f"いくながいちろう{mark}", f"パパ{mark}")
+        _person(cur, f"new-{mark}", f"一郎{mark}", f"パパ{mark}")
         _memory_of(cur, f"old-{mark}")
     rows = [r for r in pm.persons(conn) if mark in r["name"]]
     plan = pm.make_plan(rows, pm.references(conn), parse_family_md(family))
@@ -179,23 +179,23 @@ def test_the_plan_is_applied_in_one_transaction(conn):
     pm.apply_plan(conn, plan)
     after = {r["id"]: r for r in pm.persons(conn) if mark in r["id"]}
     assert set(after) == {f"old-{mark}"}
-    assert after[f"old-{mark}"]["name"] == f"雄輔{mark}"
+    assert after[f"old-{mark}"]["name"] == f"一郎{mark}"
     assert pm.references(conn).get(f"old-{mark}") == 1  # 記憶はそのまま
 
 
 # ── 付け替えと緩めた対応づけ（2026-10-05・本番でママの記憶が 2 つの行に分かれた）────────────
 #
-# 本番の統合で、ママの記憶の付いた行が 2 つあった——`いくながたえこ`（呼び方「まま、たえこさん」・43 件）と `たえこ`
-# （「ママ」・12 件）。呼び方の完全一致だけで比べていたので、ひらがなの「まま」とカタカナの「ママ」、「たえこさん」と
-# 「たえこ」が当たらず、`いくながたえこ` は「誰にも当たらない。残す」に回った。比べる前にカタカナをひらがなに直し、
+# 本番の統合で、ママの記憶の付いた行が 2 つあった——`いくながじろう`（呼び方「まま、じろうさん」・43 件）と `じろう`
+# （「ママ」・12 件）。呼び方の完全一致だけで比べていたので、ひらがなの「まま」とカタカナの「ママ」、「じろうさん」と
+# 「じろう」が当たらず、`いくながじろう` は「誰にも当たらない。残す」に回った。比べる前にカタカナをひらがなに直し、
 # 敬称（さん・くん・ちゃん）を落とす。1 人に記憶の付いた行が 2 つ以上あれば、止まらずに付け替える——残すのは
 # FAMILY.md の名前になっている行、無ければ記憶の多い行。
 
 MAMA_ROWS = [
-    {"id": "old-mama", "name": "いくながたえこ", "display_name": "まま、たえこさん"},
-    {"id": "mama", "name": "妙子", "display_name": "ママ、たえこ"},
+    {"id": "old-mama", "name": "いくながじろう", "display_name": "まま、じろうさん"},
+    {"id": "mama", "name": "次郎", "display_name": "ママ、じろう"},
 ]
-MAMA = "## ママ\n- **名前**：妙子\n- **呼び方**：ママ、たえこ、おかあさん\n"
+MAMA = "## ママ\n- **名前**：次郎\n- **呼び方**：ママ、じろう、じっちゃんさん\n"
 
 
 def test_kana_and_honorifics_do_not_hide_the_same_person():
@@ -213,10 +213,10 @@ def test_an_unrelated_row_still_matches_no_one():
 
 def test_reassigning_moves_the_memories_and_drops_the_duplicates(conn):
     mark = uuid.uuid4().hex[:6]
-    family = f"## ママ\n- **名前**：妙子{mark}\n- **呼び方**：ママ{mark}\n"
+    family = f"## ママ\n- **名前**：次郎{mark}\n- **呼び方**：ママ{mark}\n"
     with conn.cursor() as cur:
-        _person(cur, f"old-{mark}", f"いくながたえこ{mark}", f"まま{mark}")
-        _person(cur, f"new-{mark}", f"妙子{mark}", f"ママ{mark}")
+        _person(cur, f"old-{mark}", f"いくながじろう{mark}", f"まま{mark}")
+        _person(cur, f"new-{mark}", f"次郎{mark}", f"ママ{mark}")
         _memory_of(cur, f"old-{mark}")
         _memory_of(cur, f"old-{mark}")
         _memory_of(cur, f"new-{mark}")

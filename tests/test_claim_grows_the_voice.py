@@ -17,7 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 import numpy as np
 
 from familiar_agent.loop import arbiter
-from tests.test_voice_picks_the_speaker import PAPA, TAIKI, _ip, _Store
+from tests.test_voice_picks_the_speaker import PAPA, SABURO, _ip, _Store
 
 
 def _claim(ip, name: str):
@@ -63,7 +63,7 @@ def test_a_claim_by_someone_without_a_voice_grows_nothing():
 
 def test_a_strict_match_alone_never_grows_registered():
     ip, a, s = _ip()
-    asyncio.run(ip._match_voice(TAIKI))
+    asyncio.run(ip._match_voice(SABURO))
     assert all(origin != "registered" for _, _, origin, _ in s.added)
 
 

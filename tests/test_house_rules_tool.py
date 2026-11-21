@@ -1,13 +1,13 @@
 """家の決まりを引く道具を主LLM へ渡す（`設計方針_家の記録との接続` §5）。
 
 **繋ぐのは家族ティアの1本だけである。** `get_house_rules` は話者ゲートが要らない
-（家族の誰と話していても引ける）。`ask_vault_yusuke` は Vault を**全部**読むので、
+（家族の誰と話していても引ける）。`ask_vault_ichiro` は Vault を**全部**読むので、
 **話者ゲートの仕組みができるまで道具一覧に出さない**——存在しない道具は呼べない、が
 唯一の確実な守り方である。
 
 **サーバー側からは誰が話しているか見えない。** だからゲートはこちらが掛ける。規則は
-名前で決まる：**名前に人が入っている道具（`*_yusuke`）は、その人のターン以外では出さない。**
-将来 `*_taeko` が増えても同じ規則で通る。
+名前で決まる：**名前に人が入っている道具（`*_ichiro`）は、その人のターン以外では出さない。**
+将来 `*_jiro` が増えても同じ規則で通る。
 """
 
 from __future__ import annotations
@@ -53,18 +53,18 @@ def test_the_house_rules_tool_is_offered() -> None:
 def test_a_personal_tool_is_never_offered_yet() -> None:
     """**話者ゲートができるまで、個人ティアは出さない。**
 
-    `ask_vault_yusuke` は転職の悩み・人物評・家計・子どもについて父が書いたことを読める。
+    `ask_vault_ichiro` は転職の悩み・人物評・家計・子どもについて父が書いたことを読める。
     子どもと話しているターンで存在してはいけない。
     """
-    agent = _agent_with_mcp(["get_house_rules", "ask_vault_yusuke"])
+    agent = _agent_with_mcp(["get_house_rules", "ask_vault_ichiro"])
     got = _tool_names(agent, ("house_rules",))
-    assert "ask_vault_yusuke" not in got, "個人ティアの道具が主LLM へ渡っている"
+    assert "ask_vault_ichiro" not in got, "個人ティアの道具が主LLM へ渡っている"
     assert got == {"get_house_rules"}
 
 
 def test_the_rule_is_by_name_not_by_a_fixed_list() -> None:
-    """将来 `*_taeko` が増えても同じ規則で落ちる（名前に人が入っているか）。"""
-    agent = _agent_with_mcp(["get_house_rules", "ask_vault_taeko", "ask_vault_yusuke"])
+    """将来 `*_jiro` が増えても同じ規則で落ちる（名前に人が入っているか）。"""
+    agent = _agent_with_mcp(["get_house_rules", "ask_vault_jiro", "ask_vault_ichiro"])
     assert _tool_names(agent, ("house_rules",)) == {"get_house_rules"}
 
 

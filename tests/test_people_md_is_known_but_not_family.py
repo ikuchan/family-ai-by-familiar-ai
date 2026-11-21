@@ -100,13 +100,13 @@ def test_people_are_not_registered_as_persons():
     from familiar_agent.agent import EmbodiedAgent
 
     a = MagicMock(spec=EmbodiedAgent)
-    a._family_md = "## パパ\n\n- **名前**：雄輔\n- **呼び方**：パパ\n"
+    a._family_md = "## パパ\n\n- **名前**：一郎\n- **呼び方**：パパ\n"
     a._people_md = PEOPLE
     a._pmm = MagicMock()
     a._persons = MagicMock()
     EmbodiedAgent._register_family_from_md(a)
     names = [c.args[0] for c in a._pmm.register_person.call_args_list]
-    assert names == ["雄輔"]  # 家族だけ。花子（おばあちゃん）は登録しない
+    assert names == ["一郎"]  # 家族だけ。花子（おばあちゃん）は登録しない
 
 
 @pytest.mark.asyncio
@@ -115,7 +115,7 @@ async def test_the_photo_reader_is_told_both():
     from tests.test_event_loop import _agent
 
     a = _agent(stream_returns=[])
-    a._family_md = "## パパ\n- **名前**：雄輔"
+    a._family_md = "## パパ\n- **名前**：一郎"
     a._people_md = PEOPLE
     ip = InformationProcessing(a)
     seen: dict = {}
@@ -134,4 +134,4 @@ async def test_the_photo_reader_is_told_both():
     finally:
         el.read_photo = orig
         await ip.close()
-    assert "雄輔" in seen["family_md"] and "[家族以外で知っている人]" in seen["family_md"]
+    assert "一郎" in seen["family_md"] and "[家族以外で知っている人]" in seen["family_md"]

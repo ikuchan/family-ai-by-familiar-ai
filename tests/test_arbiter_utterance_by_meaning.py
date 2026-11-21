@@ -15,12 +15,12 @@ from familiar_agent.loop import iteration
 from familiar_agent.loop.arbiter import Decision
 from tests._arbiter_fakes import decide, prompt_of, writer_says
 
-_FAMILY = """## ゆうすけ
-- **名前**：雄輔
-- **呼び方**：パパ、ゆうすけ
-## たいき
-- **名前**：泰輝
-- **呼び方**：たいき
+_FAMILY = """## いちろう
+- **名前**：一郎
+- **呼び方**：パパ、いちろう
+## さぶろう
+- **名前**：三郎
+- **呼び方**：さぶろう
 """
 
 
@@ -69,7 +69,7 @@ def test_the_meaning_and_its_actions_are_asked_at_once():
     (_state, questions), _ = jev.ask.await_args
     assert "meaning" in questions and "action_music" in questions
     assert "branch" not in questions
-    assert set(questions["action_claim"]["criteria"]) == {"パパ", "たいき", "other"}
+    assert set(questions["action_claim"]["criteria"]) == {"パパ", "さぶろう", "other"}
     assert (d.branch, d.action, d.query) == ("action", "play_music", "ケイマン")
 
 

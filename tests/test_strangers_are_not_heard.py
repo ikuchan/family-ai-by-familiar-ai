@@ -19,7 +19,7 @@ import pytest
 from familiar_agent.loop.event_loop import Trigger
 from tests.test_voice_picks_the_speaker import PAPA, _ip, _Store
 
-STRANGER = np.asarray([-1.0, -1.0], dtype=np.float32)  # パパにもたいきにも負の似かた
+STRANGER = np.asarray([-1.0, -1.0], dtype=np.float32)  # パパにもさぶろうにも負の似かた
 CALL = "パジュ、いま何時？"
 
 

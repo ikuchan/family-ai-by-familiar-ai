@@ -14,10 +14,10 @@ from familiar_agent.loop import schedule_watch
 
 S1 = (
     "【いま】2026-10-10 土曜日 15:00（JST）\n【出典】ファミリーカレンダー（15:00 に取得・今日から 7 日ぶん）\n\n"
-    "- 10-11（日） 10:00〜12:00 たいき サッカーの試合"
+    "- 10-11（日） 10:00〜12:00 さぶろう サッカーの試合"
 )
 S1_LATER = S1.replace("15:00", "16:00")
-S2 = S1 + "\n- 10-13（火） 18:00 こうき 塾"
+S2 = S1 + "\n- 10-13（火） 18:00 ももこ 塾"
 
 
 def _ip(reply: str, ok: bool = True, connected: bool = True):
@@ -42,22 +42,22 @@ def test_the_first_read_is_recorded_and_stored():
     kind, content = ip.record_device.await_args.args[:2]
     assert kind == "予定" and "家族のこれから 7 日の予定" in content and "サッカーの試合" in content
     assert "【いま】" not in content
-    assert schedule_watch.stored() == "- 10-11（日） 10:00〜12:00 たいき サッカーの試合"
+    assert schedule_watch.stored() == "- 10-11（日） 10:00〜12:00 さぶろう サッカーの試合"
 
 
 def test_only_the_clock_changing_is_not_a_change():
     ip = _ip(S1_LATER)
-    schedule_watch._save_state("- 10-11（日） 10:00〜12:00 たいき サッカーの試合")
+    schedule_watch._save_state("- 10-11（日） 10:00〜12:00 さぶろう サッカーの試合")
     assert asyncio.run(schedule_watch.check_schedule(ip)) is False
     ip.record_device.assert_not_awaited()
 
 
 def test_a_changed_schedule_is_recorded():
     ip = _ip(S2)
-    schedule_watch._save_state("- 10-11（日） 10:00〜12:00 たいき サッカーの試合")
+    schedule_watch._save_state("- 10-11（日） 10:00〜12:00 さぶろう サッカーの試合")
     assert asyncio.run(schedule_watch.check_schedule(ip)) is True
-    assert "こうき 塾" in ip.record_device.await_args.args[1]
-    assert "こうき 塾" in (schedule_watch.stored() or "")
+    assert "ももこ 塾" in ip.record_device.await_args.args[1]
+    assert "ももこ 塾" in (schedule_watch.stored() or "")
 
 
 def test_a_missing_or_failing_tool_does_nothing():

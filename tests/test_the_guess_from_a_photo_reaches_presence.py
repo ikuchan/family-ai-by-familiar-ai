@@ -20,16 +20,16 @@ from familiar_agent.core.seen_people import SEEN_CONFIDENCE_MAX, parse_seen_peop
 
 _FAMILY = """# 一緒に暮らす人たち
 
-## ゆうすけ
+## いちろう
 
-- **名前**：ゆうすけ
-- **呼び方**：パパ、ゆうすけ、おとうさん
+- **名前**：いちろう
+- **呼び方**：パパ、いちろう、いっちゃんさん
 - **関係**：家族の父
 
-## たいき
+## さぶろう
 
-- **名前**：たいき
-- **呼び方**：たいき、たいきくん
+- **名前**：さぶろう
+- **呼び方**：さぶろう、さぶちゃん
 - **関係**：長男
 """
 
@@ -38,8 +38,8 @@ _FAMILY = """# 一緒に暮らす人たち
 
 
 def test_a_family_member_is_resolved_to_the_way_we_call_them():
-    """調停は `名前` を書いてくることがある（実機は "ゆうすけ"）。呼び方へ直す。"""
-    known, unknown = parse_seen_people([{"name": "ゆうすけ", "confidence": 1.0}], _FAMILY)
+    """調停は `名前` を書いてくることがある（実機は "いちろう"）。呼び方へ直す。"""
+    known, unknown = parse_seen_people([{"name": "いちろう", "confidence": 1.0}], _FAMILY)
     assert [n for n, _ in known] == ["パパ"]
     assert unknown == 0
 
@@ -73,7 +73,7 @@ def test_a_name_that_is_not_in_the_family_is_counted_as_unknown():
 
 def test_the_same_person_twice_is_one_person():
     known, unknown = parse_seen_people(
-        [{"name": "パパ", "confidence": 0.8}, {"name": "ゆうすけ", "confidence": 0.5}], _FAMILY
+        [{"name": "パパ", "confidence": 0.8}, {"name": "いちろう", "confidence": 0.5}], _FAMILY
     )
     assert [n for n, _ in known] == ["パパ"]
     assert unknown == 0
@@ -165,10 +165,10 @@ def test_a_guessed_family_member_enters_presence():
     class _D:
         seen_people: list
 
-    pmm = _FakePMM({"パパ": "p-yusuke"})
+    pmm = _FakePMM({"パパ": "p-ichiro"})
     ip = _loop_with(_FAMILY, pmm)
-    asyncio.run(ip._apply_seen_people([{"name": "ゆうすけ", "confidence": 1.0}]))
-    assert pmm.guessed == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
+    asyncio.run(ip._apply_seen_people([{"name": "いちろう", "confidence": 1.0}]))
+    assert pmm.guessed == [("p-ichiro", SEEN_CONFIDENCE_MAX)]
     assert pmm.unknown == (0, SEEN_CONFIDENCE_MAX)
 
 
@@ -180,14 +180,14 @@ def test_a_nameless_person_becomes_an_unknown_present():
     class _D:
         seen_people: list
 
-    pmm = _FakePMM({"パパ": "p-yusuke"})
+    pmm = _FakePMM({"パパ": "p-ichiro"})
     ip = _loop_with(_FAMILY, pmm)
     asyncio.run(
         ip._apply_seen_people(
             [{"name": "パパ", "confidence": 0.8}, {"name": "", "confidence": 0.4}]
         )
     )
-    assert pmm.guessed == [("p-yusuke", 0.6)]
+    assert pmm.guessed == [("p-ichiro", 0.6)]
     assert pmm.unknown == (1, SEEN_CONFIDENCE_MAX)
 
 
@@ -231,7 +231,7 @@ def test_the_main_llm_guess_goes_through_the_same_door():
     """主LLM の申告も `_apply_seen_people` を通る（写真の読み取りと同じ扱い・同じ上限）。"""
     import asyncio
 
-    pmm = _FakePMM({"パパ": "p-yusuke"})
+    pmm = _FakePMM({"パパ": "p-ichiro"})
     ip = _loop_with(_FAMILY, pmm)
     asyncio.run(ip._apply_seen_people([{"name": "パパ", "confidence": 0.9}]))
-    assert pmm.guessed == [("p-yusuke", SEEN_CONFIDENCE_MAX)]
+    assert pmm.guessed == [("p-ichiro", SEEN_CONFIDENCE_MAX)]

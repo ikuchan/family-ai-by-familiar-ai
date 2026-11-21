@@ -84,7 +84,7 @@ def test_the_event_system_prompt_carries_the_self_image_after_the_rules():
 
     stable, _variable = build_event_system_prompt(
         self_understanding="ぼくはパジュ",
-        family_md="## パパ\n名前: ゆうすけ",
+        family_md="## パパ\n名前: いちろう",
         present_ctx="",
         pi_ctx="",
         workspace_ctx="",
@@ -104,7 +104,7 @@ def test_the_loop_hands_the_current_self_image_to_the_prompt(monkeypatch):
 
     _clear()
     a = MagicMock()
-    a._me_md, a._family_md = "ぼくはパジュ", "## パパ\n名前: ゆうすけ"
+    a._me_md, a._family_md = "ぼくはパジュ", "## パパ\n名前: いちろう"
     a._tts = None
     monkeypatch.setattr("familiar_agent.capability_state.load_summary", lambda: "")
     ip = InformationProcessing.__new__(InformationProcessing)

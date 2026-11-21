@@ -43,9 +43,9 @@ def test_no_speaker_without_an_explicit_one():
 
 
 def test_face_recognised_speaker_wins_over_self_declared():
-    rows = [{"name": "たいき", "is_speaker": True, "confidence": 0.92}]
+    rows = [{"name": "さぶろう", "is_speaker": True, "confidence": 0.92}]
     ctx = _present_ctx(_agent(rows=rows, explicit="パパ"))
-    assert '"たいき"' in ctx and "パパ" not in ctx
+    assert '"さぶろう"' in ctx and "パパ" not in ctx
 
 
 def test_who_we_think_we_are_talking_to_is_logged(caplog):

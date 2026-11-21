@@ -21,7 +21,7 @@ def test_the_full_llm_after_an_outside_lookup_reads_carefully():
     assert careful_voice("full", frozenset({"search_deferred"}))
     assert careful_voice("full", frozenset({"fetch_deferred"}))
     assert careful_voice("full", frozenset({"family_schedule"}))
-    assert careful_voice("full", frozenset({"ask_vault_yusuke"}))
+    assert careful_voice("full", frozenset({"ask_vault_ichiro"}))
 
 
 def test_the_short_word_of_the_arbiter_never_reads_carefully():

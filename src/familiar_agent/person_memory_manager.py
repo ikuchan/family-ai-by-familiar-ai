@@ -397,9 +397,9 @@ class PersonMemoryManager:
     def get_person_name(self, person_id: str) -> str:
         """呼びかけに使う名前。`display_name` は別名の一覧なので先頭だけを返す。
 
-        `display_name` は FAMILY.md の「呼び方」で "パパ、いくながさん、ゆうすけ" のように
+        `display_name` は FAMILY.md の「呼び方」で "パパ、いくながさん、いちろう" のように
         読点区切りの一覧になる（`find_person_id_by_name` も割って照合している）。一覧のまま
-        渡すと顔ぶれの文脈が `(present :speaker "たいきくん、たいき")` になり、呼びかけも
+        渡すと顔ぶれの文脈が `(present :speaker "さぶちゃん、さぶろう")` になり、呼びかけも
         モデルがどれを選ぶか任せになる。
         """
         persons = {p["id"]: p for p in self.list_persons()}

@@ -21,7 +21,7 @@ def _env(written_on=date(2026, 9, 26), **rows):
 GOOD = dict(
     天気=[("10/25（日）：曇時々雨、15〜21℃、雨60%",)],
     まわり=[("守谷では金木犀が咲き始めた。",)],
-    家の話題=[("たいきの運動会が近いと話していた。", "obs-1")],
+    家の話題=[("さぶろうの運動会が近いと話していた。", "obs-1")],
 )
 
 
@@ -95,7 +95,7 @@ def test_a_fresh_env_is_given_whole():
     assert text.startswith("[いまの季節とまわり]（2026-09-26 の晩に書いた）")
     assert "- 暦：秋分（9/23）を過ぎたころ。" in text
     assert "- まわり：守谷では金木犀が咲き始めた。" in text
-    assert "- 家の話題：たいきの運動会が近いと話していた。" in text
+    assert "- 家の話題：さぶろうの運動会が近いと話していた。" in text
     assert "obs-1" not in text and "金木犀が咲き始めました" not in text  # 出典は渡さない
 
 

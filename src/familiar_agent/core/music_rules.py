@@ -160,7 +160,7 @@ def find_local(said: str, table, catalog) -> "tuple[str, str, str, bool] | None"
     for t in catalog.playlist_tracks():
         if _hits(str(t.get("title") or ""), key):
             return "プレイリストの曲", _label(t), str(t["uri"]), False
-    # 文字で当たらなければ、読みで照らす（知-at・2026-10-10・本人の決定ア）。「プレイリストたいき」が「待機」「対キー」と
+    # 文字で当たらなければ、読みで照らす（知-at・2026-10-10・本人の決定ア）。「プレイリストさぶろう」が「待機」「対キー」と
     # 書き起こされ、文字では当たらなかった。範囲は `MUSIC.md` と自分のプレイリストだけ（名前が少なく、誤りも速さも心配が少ない）。
     said_reading = reading(said)
     if said_reading:

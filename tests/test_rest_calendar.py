@@ -21,7 +21,7 @@ from familiar_agent.store import clock
 
 UTC = timezone.utc
 NOW = datetime(2026, 10, 1, 3, 0, tzinfo=UTC)
-FAMILY = "## パパ\n\n- **名前**：雄輔\n- **呼び方**：パパ\n"
+FAMILY = "## パパ\n\n- **名前**：一郎\n- **呼び方**：パパ\n"
 
 
 def _agent(months: dict, *, reply='{"summary": "ぼくはこの月、キャンプに行った。"}'):
@@ -29,7 +29,7 @@ def _agent(months: dict, *, reply='{"summary": "ぼくはこの月、キャン�
     a = MagicMock()
     a._family_md = FAMILY
     a._pmm.find_person_id_by_name = MagicMock(
-        side_effect=lambda name: "pid-papa" if name in ("雄輔", "パパ") else None
+        side_effect=lambda name: "pid-papa" if name in ("一郎", "パパ") else None
     )
     a._oif.tree_months = MagicMock(
         side_effect=lambda direction, person_id=None: months.get((direction, person_id), [])
@@ -69,7 +69,7 @@ def test_each_person_gets_their_own_months_after_the_family():
             ("人物", "pid-papa"): ["2026-09"],
         }
     )
-    assert _pending_of(a) == [("月", "2026-09", None), ("月", "2026-09", "雄輔")]
+    assert _pending_of(a) == [("月", "2026-09", None), ("月", "2026-09", "一郎")]
 
 
 def test_a_year_waits_until_its_months_are_summarized():

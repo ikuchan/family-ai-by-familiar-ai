@@ -89,7 +89,7 @@ def test_the_exit_gate_no_longer_looks_at_the_silence_request(monkeypatch):
     """黙っている依頼が生きていても出口は止めない（止めるのは入口）。"""
     import familiar_agent.silence_state as ss
 
-    ip = _ip_with(speaker="パパ", others=("たいきくん",))
+    ip = _ip_with(speaker="パパ", others=("さぶちゃん",))
     monkeypatch.setattr(
         ss, "load_silence", lambda: SilenceRequest(person="パパ", until=time.time() + 600)
     )
@@ -162,7 +162,7 @@ def test_the_asker_saying_she_may_talk_lifts_the_request(monkeypatch):
 def test_someone_else_can_lift_it(monkeypatch):
     """誰でも解ける（出-as §2.5・2026-09-26）。話者が分からない家では本人かを決められなかった。
     解く言葉に名前が要ることは入口（`silence_hold.lifts`）が見る。"""
-    ip = _ip_with_speaker("たいきくん")
+    ip = _ip_with_speaker("さぶちゃん")
     cleared = _patched(monkeypatch, ip, SilenceRequest(person="パパ", until=time.time() + 3600))
     _release(ip)
     assert cleared == [1]

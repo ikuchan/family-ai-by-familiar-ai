@@ -17,14 +17,14 @@ from familiar_agent.core.family_age import age_on, ages_lines, grade_on, parse_b
 
 FAMILY = """## パパ
 
-- **名前**：雄輔
-- **呼び方**：パパ、ゆうすけ
+- **名前**：一郎
+- **呼び方**：パパ、いちろう
 - **誕生日**：1980 年 3 月 4 日
 
-## たいき
+## さぶろう
 
-- **名前**：泰輝
-- **呼び方**：たいき
+- **名前**：三郎
+- **呼び方**：さぶろう
 - **誕生日**：2014-04-02
 
 ## ばあば
@@ -76,7 +76,7 @@ def test_the_school_grade_follows_the_april_line(born, today, want):
 
 def test_the_lines_name_each_person_by_how_they_are_called():
     lines = ages_lines(FAMILY, date(2026, 10, 1))
-    assert lines == ["パパ：46 歳", "たいき：12 歳・小学 6 年"]  # 誕生日の無いばあばには添えない
+    assert lines == ["パパ：46 歳", "さぶろう：12 歳・小学 6 年"]  # 誕生日の無いばあばには添えない
 
 
 def test_the_family_frame_carries_the_ages():
@@ -86,7 +86,7 @@ def test_the_family_frame_carries_the_ages():
     family_at = ctx.stable.index("[一緒に暮らす人たち]")
     ages_at = ctx.stable.index("[いまの年齢と学年（誕生日と今日の日付から数えた）]")
     assert family_at < ages_at
-    assert "たいき：12 歳・小学 6 年" in ctx.stable
+    assert "さぶろう：12 歳・小学 6 年" in ctx.stable
 
 
 def test_no_ages_frame_without_birthdays():

@@ -104,11 +104,11 @@ def test_the_rows_carry_what_the_fold_needs():
     conn = _conn()
     try:
         with conn.cursor() as cur:
-            _plant(cur, "こうきとサッカーの話", now - timedelta(hours=1))
+            _plant(cur, "ももことサッカーの話", now - timedelta(hours=1))
     finally:
         conn.close()
     r = _oif().fold_materials(FOLD_DIRECTIONS, before=datetime.now(timezone.utc))[0]
-    assert r.content == "こうきとサッカーの話" and r.direction == "発話"
+    assert r.content == "ももことサッカーの話" and r.direction == "発話"
     assert r.timestamp is not None
 
 
@@ -131,8 +131,8 @@ def _agent_for_fold(backend_reply: str):
     a._oif = OIF(a._memory, for_person=lambda pid: a._memory.for_person(pid))
     a.backend = AsyncMock()
     a.backend.complete = AsyncMock(return_value=backend_reply)
-    a._family_md = "## パパ\n名前: ゆうすけ\n\n## こうき\n名前: こうき\n"
-    a._pmm.find_person_id_by_name = MagicMock(side_effect=lambda n: {"こうき": "pid-kouki"}.get(n))
+    a._family_md = "## パパ\n名前: いちろう\n\n## ももこ\n名前: ももこ\n"
+    a._pmm.find_person_id_by_name = MagicMock(side_effect=lambda n: {"ももこ": "pid-momoko"}.get(n))
     a._pmm.get_present_ids = MagicMock(return_value=[])
     a._observation_perspective = MagicMock(
         return_value={"writer_id": AGENT_SELF_ID, "participants": []}
@@ -152,19 +152,19 @@ def test_fold_day_writes_the_episode_and_person_summaries_and_folds_the_material
         with conn.cursor() as cur:
             cur.execute(
                 "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
-                "VALUES ('pid-kouki', 'こうき', 'こうき', now()::text, now()::text) ON CONFLICT DO NOTHING"
+                "VALUES ('pid-momoko', 'ももこ', 'ももこ', now()::text, now()::text) ON CONFLICT DO NOTHING"
             )
-            a1 = _plant(cur, "こうき：サッカーしたよ", now - timedelta(hours=5))
+            a1 = _plant(cur, "ももこ：サッカーしたよ", now - timedelta(hours=5))
             a2 = _plant(
                 cur, "自分が答えた：いいね、楽しかった？", now - timedelta(hours=5, minutes=-1)
             )
     finally:
         conn.close()
     agent = _agent_for_fold(
-        '{"episode": "今日はこうきとサッカーの話をした。楽しそうで、ぼくもうれしかった。", '
-        '"persons": {"こうき": "サッカーが好き。今日は楽しそうだった。"}}'
+        '{"episode": "今日はももことサッカーの話をした。楽しそうで、ぼくもうれしかった。", '
+        '"persons": {"ももこ": "サッカーが好き。今日は楽しそうだった。"}}'
     )
-    with patch("familiar_agent.loop.rest_fold.family_names_of", return_value=("パパ", "こうき")):
+    with patch("familiar_agent.loop.rest_fold.family_names_of", return_value=("パパ", "ももこ")):
         result = asyncio.run(rest_fold.fold_since_last_rest(agent))
     assert result.folded == 2 and result.written == 2 and result.skipped == 0
 
@@ -194,7 +194,7 @@ def test_fold_day_writes_the_episode_and_person_summaries_and_folds_the_material
     assert directions == {"記憶", "人物"}, directions
     episode_id = next(w["id"] for w in written if w["direction"] == "記憶")
     assert pairs == {(a1, episode_id), (a2, episode_id)}
-    assert "pid-kouki" in facets  # 関係のまとめはその人の面に立つ
+    assert "pid-momoko" in facets  # 関係のまとめはその人の面に立つ
 
 
 def test_a_rejected_summary_writes_nothing_and_folds_nothing():

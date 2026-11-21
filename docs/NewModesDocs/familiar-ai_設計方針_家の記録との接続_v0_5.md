@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.4）
+# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.5）
 
 ## この文書が決めること
 
@@ -26,7 +26,7 @@
 | 道具 | ティア | 速さ | 話者ゲート |
 |---|---|---|---|
 | `get_house_rules` | **家族** | **即座**（ファイルを読むだけ） | **要らない** |
-| `ask_vault_yusuke` | **個人** | **数十秒**（Claude Code のセッションが読んで考える） | **要る** |
+| `ask_vault_ichiro` | **個人** | **数十秒**（Claude Code のセッションが読んで考える） | **要る** |
 
 ### `get_house_rules`
 
@@ -37,7 +37,7 @@
 **返るのは Vault のファイルの中身であって、生成物ではない。** ルールが変われば次の呼び出し
 から変わる。**いつ時点のものかが必ず添えられている。**
 
-### `ask_vault_yusuke`
+### `ask_vault_ichiro`
 
 **検索ツールではない。** Vault を全部読める Claude Code のセッションが立ち上がり、読んで、
 考えて、答える。セッションは**1日1本**で、**04:00 JST に切り替わる**（0時ではない——
@@ -54,20 +54,20 @@
 **★ サーバー側からは誰が話しているか見えない。** だからゲートは**こちらが掛ける**。
 
 ```
-話者が Yusuke     →  get_house_rules ＋ ask_vault_yusuke
+話者が Ichiro     →  get_house_rules ＋ ask_vault_ichiro
 それ以外・不明     →  get_house_rules だけ
 ```
 
-**規則は名前で決まる。** 個人ティアの道具名には人が入っている（`*_yusuke`）。
-**名前に人が入っている道具は、その人のターン以外では出さない。** 将来 `*_taeko` が増えても
+**規則は名前で決まる。** 個人ティアの道具名には人が入っている（`*_ichiro`）。
+**名前に人が入っている道具は、その人のターン以外では出さない。** 将来 `*_jiro` が増えても
 同じ規則で通る。
 
 **`description` でお願いするのではなく、構造で落とす。** 存在しない道具は呼べない。
-`ask_vault_yusuke` は Vault を**全部**読む——転職活動の悩み、人物評、家計、子どもについて
+`ask_vault_ichiro` は Vault を**全部**読む——転職活動の悩み、人物評、家計、子どもについて
 父が書いたこと。**子どもと話しているターンで、この道具が存在してはいけない。**
 
 **実装した（v0.3・知-f・2026-09-14）。** 人と英字の対応は FAMILY.md の各人の節に
-`- **英字**：Yusuke Ikunaga`（`parse_family_md` の `latin`＝先頭の語を小文字にした `yusuke`）。
+`- **英字**：Ichiro Yamada`（`parse_family_md` の `latin`＝先頭の語を小文字にした `ichiro`）。
 ゲートは `core/tool_gate.gate_personal_tools(defs, speaker, members)`——道具名が `_<誰かの英字>`
 で終わればその人の個人ティアで、`_current_speaker_name()` がその人のときだけ残す。話者が
 分からなければ個人ティアは全部落とす。**掛ける場所は 1 つ**：`InformationProcessing._gated()` を
@@ -87,16 +87,16 @@
 _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "look")
 ```
 
-**MCP の道具はここに載っていない。** つまり現状、`get_house_rules` も `ask_vault_yusuke` も
+**MCP の道具はここに載っていない。** つまり現状、`get_house_rules` も `ask_vault_ichiro` も
 **主LLM の道具一覧に現れず、呼べない**。呼ぶ経路（`agent.py` の `self._mcp.call`）はあるが、
 名前を知らせていないので使われない。
 
 **いまは事故にならないが、順序を間違えられない。** `_ACTIONS` に MCP を足した瞬間、
-話者ゲートが無ければ `ask_vault_yusuke` が誰のターンでも見える。
+話者ゲートが無ければ `ask_vault_ichiro` が誰のターンでも見える。
 
 **この節は着手前の実測である。**§5 の決定に従って `house_rules` を足したので、いまの
 `_FULL_ACTIONS` は7つある。`_ACTIONS` の項目は `_mcp_tool_def(a, "get_house_rules")` で
-名前を1つに絞っており、`ask_vault_yusuke` は項目そのものが無い。**構造で落ちている**ので、
+名前を1つに絞っており、`ask_vault_ichiro` は項目そのものが無い。**構造で落ちている**ので、
 `description` の書き方に依存しない（2026-09-04 に確認）。
 
 ## 5. 決めたこと（2026-09-04）
@@ -104,7 +104,7 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 **`get_house_rules` だけを先に繋ぐ。** 話者ゲートの要らない家族ティアなので、いま繋いでも
 安全である。子どもが「今日ゲームやっていい?」と聞ける状態を先に作る。
 
-**`ask_vault_yusuke` は繋がない。** 話者ゲートと、遅延（`search_deferred` への相乗り）の
+**`ask_vault_ichiro` は繋がない。** 話者ゲートと、遅延（`search_deferred` への相乗り）の
 設計が決まるまで、道具一覧に出さない。**安全側に倒す。**
 
 ## 6. やらないこと
@@ -167,14 +167,16 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 
 ## 更新履歴
 
+> v0.5：家族の名前を作り物の名前に置き換えた（出-do、2026-11-21）。
+>
 > v0.4 追記（2026-09-15 夕）：知-g-い を実機で確認（`/speaker　パパ`→「髭剃りどうなったっけ？」→ `vault` 29.6 秒→答え）。Notion と Vault の候補文を書き分けた。
 > v0.4：知-g-い（`vault`・話者の英字で道具を解く・120 秒・素性の印を落とす）と 知-g-ろ（`get_notes_for_paju`・1 時間に 1 回・`agent_state.paju_notes`・`機器` の求め）を実装した（2026-09-15）。§6 の「直接触らない」は本人の許可で知-g-ろ の追加に限り外した。
 
-> v0.3：**話者ゲートを実装した**（知-f・2026-09-14）。§3 の直後に実装の形（FAMILY.md の `英字`・`core/tool_gate.py`・`_gated()` の 1 出口）。`ask_vault_yusuke` はまだ `_ACTIONS` に載せない（知-g-い）。
+> v0.3：**話者ゲートを実装した**（知-f・2026-09-14）。§3 の直後に実装の形（FAMILY.md の `英字`・`core/tool_gate.py`・`_gated()` の 1 出口）。`ask_vault_ichiro` はまだ `_ACTIONS` に載せない（知-g-い）。
 
 > v0.2：**§4 に、着手後の状態を追記した**（2026-09-04）。`house_rules` を足したので
 > `_FULL_ACTIONS` は7つになり、§4 の「MCP の道具は載っていない」は着手前の記録になった。
-> `ask_vault_yusuke` は `_ACTIONS` に項目が無く、構造で落ちていることを確かめた。
+> `ask_vault_ichiro` は `_ACTIONS` に項目が無く、構造で落ちていることを確かめた。
 > **§7（起動時のインタプリタ）を新設。**この機械に `python` が無く `python3` だけであること、
 > `uv run` 配下では解決するので起動の仕方に依存していること、`.venv/bin/python`（3.11.16）で
 > `--selftest` が通ることを記録した。変更は後回しにしている。§7 は §8 へ繰り下げた。
@@ -182,4 +184,4 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 > v0.1：`obsidian-memo` が繋がったので、こちら側の判断を起こした（2026-09-04）。
 > **話者ゲートを掛ける場所がまだ無い**ことを実測で確かめ（`_build_tool_definitions()` は
 > 存在せず、MCP の道具は `_ACTIONS` に載っていない）、**`get_house_rules` だけを先に繋ぎ、
-> `ask_vault_yusuke` は設計が決まるまで繋がない**と決めた。
+> `ask_vault_ichiro` は設計が決まるまで繋がない**と決めた。

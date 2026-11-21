@@ -1071,12 +1071,12 @@ def test_present_ctx_tells_who_is_there_with_confidence():
     a._pmm.presence_status = MagicMock(
         return_value=[
             {"person_id": "p1", "name": "パパ", "confidence": 0.92, "is_speaker": True},
-            {"person_id": "p2", "name": "たいきくん", "confidence": 0.61, "is_speaker": False},
+            {"person_id": "p2", "name": "さぶちゃん", "confidence": 0.61, "is_speaker": False},
         ]
     )
     _run(a)
     system = "\n".join(a.backend.stream_turn.call_args.kwargs["system"])
-    assert "パパ" in system and "たいきくん" in system
+    assert "パパ" in system and "さぶちゃん" in system
     assert "0.92" in system and "0.61" in system  # 確信度も渡す
 
 

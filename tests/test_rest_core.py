@@ -53,7 +53,7 @@ def _agent(records, *, target: float, reply=None):
     a.config.memory.core_bundle_cos = 0.5
     a.config.memory.core_bundle_min = 3
     a.config.memory.core_bundles_per_night = 6
-    a._family_md = "## ゆうすけ\n- **名前**：ゆうすけ\n- **呼び方**：パパ\n"
+    a._family_md = "## いちろう\n- **名前**：いちろう\n- **呼び方**：パパ\n"
     a._pmm.find_person_id_by_name = MagicMock(return_value=PAPA)
     a._observation_perspective = MagicMock(return_value={"writer_id": SELF})
     a._evaluator.emotion_for_turn = AsyncMock(side_effect=Exception("未測定"))

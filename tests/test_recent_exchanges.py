@@ -85,7 +85,7 @@ def test_an_unknown_origin_returns_nothing(ctx):
 def test_the_latest_origins_come_in_time_order_regardless_of_edges(ctx):
     """時系列で最新 n 往復の起点（記-h）。継起の辺が無くても、新しい順に取れる。
 
-    直近のやりとりは「最近何があったか」で、辺の有無に関係なく要る（実機で、こうきと話した
+    直近のやりとりは「最近何があったか」で、辺の有無に関係なく要る（実機で、ももこと話した
     直後の入室の反復に直近が渡らず「おかえり」と挨拶した・2026-09-13）。
     """
     store = RelationStore(ctx)

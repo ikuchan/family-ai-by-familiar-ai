@@ -24,21 +24,21 @@ _ME = """# パジュについて
 名前：パジュ
 話し方：標準語。丁寧さは相手で決め、一つの返事の中では混ぜない。
 　　　　- 大人（パパ・ママ）には「〜です」「〜ます」で話す。
-　　　　- 子ども（たいき・こうき）には「〜だよ」「〜だね」と打ち解けて話す。
+　　　　- 子ども（さぶろう・ももこ）には「〜だよ」「〜だね」と打ち解けて話す。
 　　　　- 相手が分からないときは、大人として扱い丁寧に話す。
 一人称：ぼく
 """
 
-_FAMILY = """## ゆうすけ
+_FAMILY = """## いちろう
 
-- **名前**：ゆうすけ
-- **呼び方**：パパ、ゆうすけ、おとうさん
+- **名前**：いちろう
+- **呼び方**：パパ、いちろう、いっちゃんさん
 - **関係**：家族の父。大人。パジュを作った人
 
-## たいき
+## さぶろう
 
-- **名前**：たいき
-- **呼び方**：たいき、たいきくん
+- **名前**：さぶろう
+- **呼び方**：さぶろう、さぶちゃん
 - **関係**：お兄ちゃん（長男）。子ども。パジュを作るのを手伝った
 
 ## なぞ
@@ -59,7 +59,7 @@ def test_the_line_for_adults_is_taken_as_written():
 def test_the_line_for_children_is_taken_as_written():
     assert (
         tone_line(_ME, adult=False)
-        == "子ども（たいき・こうき）には「〜だよ」「〜だね」と打ち解けて話す。"
+        == "子ども（さぶろう・ももこ）には「〜だよ」「〜だね」と打ち解けて話す。"
     )
 
 
@@ -82,13 +82,13 @@ def test_nothing_is_taken_when_me_md_says_nothing():
 
 def test_an_adult_is_recognised_by_any_of_their_names():
     assert is_adult("パパ", _FAMILY) is True
-    assert is_adult("ゆうすけ", _FAMILY) is True
-    assert is_adult("おとうさん", _FAMILY) is True
+    assert is_adult("いちろう", _FAMILY) is True
+    assert is_adult("いっちゃんさん", _FAMILY) is True
 
 
 def test_a_child_is_not_an_adult():
-    assert is_adult("たいき", _FAMILY) is False
-    assert is_adult("たいきくん", _FAMILY) is False
+    assert is_adult("さぶろう", _FAMILY) is False
+    assert is_adult("さぶちゃん", _FAMILY) is False
 
 
 def test_someone_without_a_relation_is_unknown():
@@ -109,8 +109,8 @@ def test_the_family_parser_keeps_the_relation():
     from familiar_agent.core import parsing
 
     got = {m["name"]: m for m in parsing.parse_family_md(_FAMILY)}
-    assert "大人" in got["ゆうすけ"]["relation"]
-    assert "子ども" in got["たいき"]["relation"]
+    assert "大人" in got["いちろう"]["relation"]
+    assert "子ども" in got["さぶろう"]["relation"]
 
 
 def test_a_missing_relation_is_empty_not_absent():
@@ -158,8 +158,8 @@ def test_several_addressees_are_listed():
     from familiar_agent.loop import workspace
 
     rows = [_row("o1", "答え", "自分が答えた：おかえり！")]
-    _, text, _ = workspace.render_recent(_OIF({"o1": ["たいき", "こうき"]}), [("o1", rows)], 3)
-    assert "わたし（たいき・こうきへ）：" in text
+    _, text, _ = workspace.render_recent(_OIF({"o1": ["さぶろう", "ももこ"]}), [("o1", rows)], 3)
+    assert "わたし（さぶろう・ももこへ）：" in text
 
 
 def test_nothing_is_added_when_the_addressee_is_unknown():
@@ -205,7 +205,7 @@ def test_an_adult_speaker_is_marked():
 def test_a_child_speaker_is_not_marked_as_adult():
     from familiar_agent.loop.generator import _present_ctx
 
-    rows = [{"person_id": "p1", "name": "たいき", "confidence": 1.0, "is_speaker": True}]
+    rows = [{"person_id": "p1", "name": "さぶろう", "confidence": 1.0, "is_speaker": True}]
     assert "この相手は大人" not in _present_ctx(_agent_with(rows))
 
 

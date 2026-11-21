@@ -173,7 +173,7 @@ def test_the_exchange_is_linked_before_the_background_pipeline_starts():
 
     背景の要約待ちで書いていたため、閉じた 0.1 秒後に起きた入室の反復が
     `OIF exchanges → 0件` を引き、直近のやりとりが空のまま調停へ渡った（関係が書かれた
-    のは 2.4 秒後）。こうきと話した直後に「おかえり、こうき！」と挨拶した。
+    のは 2.4 秒後）。ももこと話した直後に「おかえり、ももこ！」と挨拶した。
     """
     a = _agent(stream_returns=[_turn([ToolCall(id="s", name="say", input={"text": "はい"})])])
     a._memory.link = MagicMock(return_value=55)
