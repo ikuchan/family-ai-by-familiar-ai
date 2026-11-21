@@ -92,12 +92,21 @@ def test_an_unnamed_voice_is_not_asked():
     assert _release_calls(jev) == []
 
 
-def test_a_release_phrase_is_not_asked():
-    jev = _Jev(0.0)
+def test_a_release_phrase_is_asked_too():
+    """「話していいよ」の形も字だけでは解かず、Jev に聞く（2026-11-21 本人の決定 A）。"""
+    jev = _Jev(0.9)
     ip = _silenced(jev)
-    passed, _req = _say(ip, "パジュ、話していいよ")
-    assert passed is True
-    assert _release_calls(jev) == []
+    passed, req = _say(ip, "パジュ、話していいよ")
+    assert passed is True and req is None
+    assert len(_release_calls(jev)) == 1
+
+
+def test_a_question_that_only_looks_like_a_release_stays_silent():
+    """「パジュ、ママと話してもいい？」は字の形では解く言葉に当たるが、Jev が許しと読まなければ黙ったまま。"""
+    jev = _Jev(0.1)
+    ip = _silenced(jev)
+    passed, req = _say(ip, "パジュ、ママと話してもいい？")
+    assert passed is False and req is not None
 
 
 def test_a_near_name_is_not_asked():
@@ -134,3 +143,11 @@ def test_if_the_request_changed_while_asking_it_is_not_lifted():
     jev.ask = ask_then_rehush  # type: ignore[method-assign]
     passed, req = _say(ip, "パジュ、もう怒ってないから声出して")
     assert passed is False and req is not None
+
+
+def test_without_jev_a_release_phrase_still_lifts_a_human_silence():
+    """Jev が答えないときは、人の沈黙では字の形で決める（「パジュ、話していいよ」で戻れなくならない）。"""
+    jev = _Jev(None)
+    ip = _silenced(jev)
+    passed, req = _say(ip, "パジュ、話していいよ")
+    assert passed is True and req is None

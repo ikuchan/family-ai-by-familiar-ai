@@ -68,5 +68,6 @@ def test_what_was_misheard_is_no_longer_heard(text):
 
 
 def test_lifting_needs_the_name_at_the_head():
-    assert lifts("会話入力", "パジュ、話していいよ", names=NAMES)
-    assert not lifts("会話入力", "話していいよ、パジュ", names=NAMES)
+    # 「話していいよ」の形は字では通さない（入口の Jev が決める・2026-11-21）。名前つきの操作の言葉で、頭の名前を確かめる
+    assert lifts("会話入力", "パジュ、止めて", names=NAMES, reason="timer:3")
+    assert not lifts("会話入力", "止めて、パジュ", names=NAMES, reason="timer:3")

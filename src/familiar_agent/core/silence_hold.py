@@ -14,7 +14,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
-from .silence_rules import is_release, names_me
+from .silence_rules import names_me
 
 
 @dataclass(frozen=True)
@@ -35,9 +35,9 @@ def lifts(kind: str, text: str, *, names: "list[str]", reason: str = "") -> bool
     ループの入口（`event_loop._timer_gate`）が見る。
 
     - タイマーが鳴る（機器「タイマー」）：鳴ってほしいと決めた（知-n）。
-    - **名前と「話していい」が同じ発話にある**：解く言葉。**誰の言葉でもよい**（出-as §2.5・2026-09-26）。
-      以前は頼んだ本人の「話していい」と「止めて・ストップ」を通していたが、話者が分からない家では
-      本人かを決められなかった。窓が開いているだけでは解かない（黙っているあいだも窓は閉じない）。
+    - **名前と「話していい」が同じ発話にある**言葉は、ここでは通さない（2026-11-21 本人の決定 A）。字の形だけでは
+      「パジュ、ママと話してもいい？」「パジュ、電話してもいい？」まで解いた。ループの入口が Jev に許しかを聞く
+      （`event_loop._jev_releases`）。
     - **タイマー由来の沈黙**（`reason` が `timer:`）では、**名前つきの**タイマーの操作の言葉（「パジュ、止めて」・
       止め・一時停止・再開。長さでは切らない）は**誰の言葉でも**通す（情-m・2026-09-18。名前は出-au 段 1-2 で足した）。本人かは話者の指定（60 秒・知-t）で見るが、
       タイマー中は返事をしないので掛けて 60 秒後には本人が「分からない」になり、本人の「一時停止」が
@@ -56,8 +56,6 @@ def lifts(kind: str, text: str, *, names: "list[str]", reason: str = "") -> bool
         and names
         and names_me(text, names)
     ):
-        return True
-    if kind == "会話入力" and is_release(text) and names and names_me(text, names):
         return True
     return False
 

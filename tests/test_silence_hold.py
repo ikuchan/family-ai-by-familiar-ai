@@ -21,9 +21,13 @@ from tests.conftest import silence
 
 
 def test_what_lifts_the_silence():
-    """解くのは名前と「話していいよ」が同じ発話にあるときだけ・誰でも（出-as §2.5・2026-09-26）。"""
+    """言葉だけで通すのは、鳴ったタイマーの知らせと、タイマーの沈黙での名前つきの操作の言葉だけ。「話していいよ」の形は
+    字だけでは通さず、ループの入口が Jev に許しかを聞く（2026-11-21 本人の決定 A）。"""
     assert lifts("機器", "タイマー", names=["パジュ"])
-    assert lifts("会話入力", "パジュ、もう話していいよ", names=["パジュ"])
+    assert not lifts(
+        "会話入力", "パジュ、もう話していいよ", names=["パジュ"]
+    )  # 入口の Jev が決める
+    assert not lifts("会話入力", "パジュ、ママと話してもいい？", names=["パジュ"])
     assert not lifts("会話入力", "もう話していいよ", names=["パジュ"])  # 名前が無い
     assert not lifts(
         "会話入力", "タイマー止めて", names=["パジュ"]
@@ -134,12 +138,23 @@ def test_devices_and_urges_are_noted_not_acted_on():
     assert [h.kind for h in ip._muted] == ["機器", "情動"]
 
 
-def test_a_ringing_timer_and_the_release_phrase_pass():
-    ip, _ = _ip()
+def test_a_ringing_timer_and_a_release_jev_says_yes_to_pass():
+    from types import SimpleNamespace
+
+    ip, a = _ip()
+    a.config.silence_release_min = 0.7
+    a._jev = SimpleNamespace(
+        available=True,
+        ask=AsyncMock(
+            return_value=SimpleNamespace(ok=True, answers={"release": {"noul": 0.9}}, model="t")
+        ),
+    )
 
     async def scenario():
         t = await ip._swallow_if_unheard(Trigger(kind="機器", query="タイマー", result="時間"))
-        r = await ip._swallow_if_unheard(Trigger(kind="会話入力", query="パジュ、もう話していいよ"))
+        r = await ip._swallow_if_unheard(
+            Trigger(kind="会話入力", query="パジュ、もう話していいよ", named=True)
+        )
         return t, r
 
     assert _run(scenario()) == (False, False)

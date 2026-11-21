@@ -261,19 +261,26 @@ async def judge_addressee(
 
 #: 黙っているあいだの名前つきの声が、黙るのをやめてよいと許しているか（情-u ウ・2026-11-21）。
 _RELEASE = noul(
-    "ロボットは家族に頼まれて黙っている。いま聞こえた言葉は、ロボットに、黙るのをやめてまた話してよいと許しているか"
+    "ロボットは黙っている。いま聞こえた言葉は、ロボットに、黙るのをやめてまた話してよいと許しているか"
 )
 
 
-async def judge_release(client, *, text: str, names: "list[str]", min_p: float) -> bool:
+async def judge_release(
+    client, *, text: str, names: "list[str]", min_p: float, timer: bool = False
+) -> "bool | None":
     """黙っているあいだの名前つきの声が、また話してよいと許しているか（情-u ウ）。はいの確率が `min_p` 以上なら真。
 
-    倒し先は偽（黙ったまま。いままでどおり）。本文はログに出さない。
+    `timer` ならタイマーで黙っている場面として聞く。Jev が答えないときは None（呼び手が倒し先を決める）。本文はログに出さない。
     """
+    now = (
+        "ロボットはタイマーが鳴るまで黙っている"
+        if timer
+        else "ロボットは家族に「黙って」と頼まれて黙っている"
+    )
     state = (
         "[ロボットの呼び名]\n"
         + ("、".join(names) or "（なし）")
-        + "\n\n[いま]\nロボットは家族に「黙って」と頼まれて黙っている\n\n"
+        + f"\n\n[いま]\n{now}\n\n"
         + f"[いま聞こえた言葉]\n{text}"
     )
     answer = await _ask(client, state, {"release": _RELEASE})
@@ -283,8 +290,8 @@ async def judge_release(client, *, text: str, names: "list[str]", min_p: float) 
     except (KeyError, TypeError, ValueError):
         p = None
     if p is None:
-        logger.info("Jev 判定 黙るのを解く許し：答えなし（黙ったまま）")
-        return False
+        logger.info("Jev 判定 黙るのを解く許し：答えなし")
+        return None
     logger.info("Jev 判定 黙るのを解く許し：はい %.2f（境目 %.2f）", p, min_p)
     return p >= min_p
 

@@ -78,8 +78,10 @@ def test_a_request_without_the_name_is_taken_inside_the_window(monkeypatch):
 # ── 黙っているあいだに通す言葉 ─────────────────────────────────────────────
 
 
-def test_the_name_with_a_release_lifts_for_anyone():
-    assert lifts("会話入力", "パジュ、話していいよ", names=NAMES, reason="")
+def test_the_name_with_a_release_is_left_to_jev():
+    """字の形だけでは解かない（「パジュ、電話してもいい？」まで解いた）。入口が Jev に聞く（2026-11-21 本人の決定 A）。"""
+    assert not lifts("会話入力", "パジュ、話していいよ", names=NAMES, reason="")
+    assert not lifts("会話入力", "パジュ、電話してもいい？", names=NAMES, reason="timer:3")
 
 
 def test_a_release_without_the_name_does_not_lift():
@@ -119,10 +121,27 @@ def test_a_timer_silence_is_lifted_with_the_timers(monkeypatch):
     silence(ip, SilenceRequest(person="パパ", until=time.time() + 600, reason="timer:3"))
     monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: cleared.append(1))
     ip._agent._timer_tool = SimpleNamespace(call=AsyncMock(return_value=("1 本止めた", True)))
-    assert asyncio.run(ip._release_silence()) is True
+    assert asyncio.run(ip._release_silence(timer_too=True)) is True
     # 取り消すのは黙る依頼のもとのタイマーだけ（一時停止中のほかのタイマーは残す）
     ip._agent._timer_tool.call.assert_awaited_once_with("cancel_timer", {"id": "3"})
     assert not ip._paju().is_silent()
+
+
+def test_the_arbiter_reading_alone_does_not_lift_a_timer_silence(monkeypatch):
+    """調停の読み（`lift_quiet`）や字の形では、タイマーの沈黙を解かない（読み違いでタイマーを消さない）。"""
+    from unittest.mock import AsyncMock
+
+    ip = _ip(speaker="パパ")
+    silence(ip, SilenceRequest(person="パパ", until=time.time() + 600, reason="timer:3"))
+    monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: None)
+    ip._agent._timer_tool = SimpleNamespace(call=AsyncMock(return_value=("止めた", True)))
+    asyncio.run(
+        ip._apply_silence(
+            SimpleNamespace(silence_minutes=0, lift_silence=True), utterance="パジュ、話していいよ"
+        )
+    )
+    ip._agent._timer_tool.call.assert_not_awaited()
+    assert ip._paju().is_silent()
 
 
 def test_a_timer_silence_stays_if_the_timers_cannot_be_cancelled(monkeypatch):
@@ -133,7 +152,7 @@ def test_a_timer_silence_stays_if_the_timers_cannot_be_cancelled(monkeypatch):
     monkeypatch.setattr("familiar_agent.silence_state.clear_silence", lambda: None)
     # 道具は例外を出さず、(文面, 偽) を返す
     ip._agent._timer_tool = SimpleNamespace(call=AsyncMock(return_value=("使えなかった", False)))
-    assert asyncio.run(ip._release_silence()) is False
+    assert asyncio.run(ip._release_silence(timer_too=True)) is False
     assert ip._paju().is_silent()
 
 

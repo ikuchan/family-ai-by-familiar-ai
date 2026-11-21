@@ -441,3 +441,69 @@ def test_an_unnamed_control_word_outside_the_window_takes_the_usual_way():
     swallowed, t = _voice(ip, "ストップ")
     assert swallowed is True and t.ear_dropped is False
     ip._nudge_by_voice.assert_awaited_once()
+
+
+def _release_jev(p: float):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        available=True,
+        ask=AsyncMock(
+            return_value=SimpleNamespace(ok=True, answers={"release": {"noul": p}}, model="t")
+        ),
+    )
+
+
+def test_a_release_jev_says_yes_to_lifts_the_timer_silence_with_the_timer():
+    """タイマーで黙っているときの「パジュ、話していいよ」は、Jev が許しと読めば、入口でタイマーごと解いて通す
+    （2026-11-21 本人の決定「タイマー毎解く」「A」）。"""
+    from types import SimpleNamespace
+
+    ip, a = _gate(reason="timer:1")
+    a.config.silence_release_min = 0.7
+    a._jev = _release_jev(0.9)
+    a._timer_tool = SimpleNamespace(call=AsyncMock(return_value=("止めた", True)))
+    swallowed, _t = _voice(ip, "パジュ、話していいよ")
+    assert swallowed is False
+    a._timer_tool.call.assert_awaited_once_with("cancel_timer", {"id": "1"})
+    assert not ip._paju().is_silent()
+
+
+def test_a_question_shaped_like_a_release_keeps_the_timer():
+    """「パジュ、ママと話してもいい？」は字の形では当たるが、Jev が許しと読まなければタイマーも沈黙も残す。"""
+    from types import SimpleNamespace
+
+    ip, a = _gate(reason="timer:1")
+    a.config.silence_release_min = 0.7
+    a._jev = _release_jev(0.1)
+    a._timer_tool = SimpleNamespace(call=AsyncMock(return_value=("止めた", True)))
+    _voice(ip, "パジュ、ママと話してもいい？")
+    a._timer_tool.call.assert_not_awaited()
+    assert ip._paju().is_silent()
+
+
+def test_without_jev_a_release_keeps_the_timer():
+    """Jev が答えないときは、タイマーの沈黙は解かない（タイマーを消さない）。"""
+    from types import SimpleNamespace
+
+    ip, a = _gate(reason="timer:1")
+    a.config.silence_release_min = 0.7
+    a._jev = SimpleNamespace(
+        available=True, ask=AsyncMock(return_value=SimpleNamespace(ok=False, answers={}, model="t"))
+    )
+    a._timer_tool = SimpleNamespace(call=AsyncMock(return_value=("止めた", True)))
+    _voice(ip, "パジュ、話していいよ")
+    a._timer_tool.call.assert_not_awaited()
+    assert ip._paju().is_silent()
+
+
+def test_a_release_whose_timer_cannot_be_cancelled_asks_jev_only_once():
+    from types import SimpleNamespace
+
+    ip, a = _gate(reason="timer:1")
+    a.config.silence_release_min = 0.7
+    a._jev = _release_jev(0.9)
+    a._timer_tool = SimpleNamespace(call=AsyncMock(return_value=("使えなかった", False)))
+    swallowed, _t = _voice(ip, "パジュ、話していいよ")
+    assert swallowed is True and a._jev.ask.await_count == 1
+    assert ip._paju().is_silent()
