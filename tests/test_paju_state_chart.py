@@ -68,3 +68,30 @@ def test_regions_and_states_carry_japanese_names():
     for ident in ("head", "listening", "no_voice", "alarm_quiet", "hearing"):
         assert ident not in text  # 英字の id は出さない
     assert "聞いている --> 聞かない : request_opened（頭が寝ていなければ）、speech_began" in text
+
+
+def test_each_transition_is_logged_at_info_for_replay(caplog):
+    """移りの 1 行は情報の段に残す（環-bb 二段目・本人の決定 (4)「移りの 1 行を info に上げてログに残し」）。入るのは事象と
+    状態の名前だけで、家族の言葉（事象と一緒に渡すデータ）は入らない。"""
+    import asyncio
+    import logging
+
+    from familiar_agent.loop.paju_state import PajuState
+
+    async def go():
+        sm = PajuState()
+        await sm.start()
+        with caplog.at_level(logging.INFO, logger="familiar_agent.loop.paju_state"):
+            await sm.fire("ring_began", text="ひみつのことば")  # データは 1 行に出さない
+
+    asyncio.run(go())
+    lines = [
+        r.getMessage()
+        for r in caplog.records
+        if r.levelno == logging.INFO and "で移った" in r.getMessage()
+    ]
+    assert lines and re.fullmatch(
+        r"状態図 ring_began で移った（頭=\S* 耳=\S*/窓=\S*/答え=\S*/入口=\S* 口=\S*/声=\S*/知らせの音=\S*）",
+        lines[-1],
+    )
+    assert all("ひみつ" not in r.getMessage() for r in caplog.records)

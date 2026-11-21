@@ -347,7 +347,8 @@ class PajuState(StateChart):
 
     async def after_transition(self, event: str) -> None:
         # 非同期の動作を 1 つ持つことで、ライブラリが非同期の担い手を選ぶ（無いと同期で動き、`start` を待てない）。
-        logger.debug("状態図 %s で移った（%s）", event, self.describe())
+        # 情報の段に残す（環-bb 二段目・あとから再生する）。入るのは事象と状態の名前だけ（`data` は出さない）。
+        logger.info("状態図 %s で移った（%s）", event, self.describe())
 
     def on_enter_state(self, state: State) -> None:
         # 考えているの子に入るときの動作と、何もしていないに入るときの動作。子へは事象で移るので、鳴らし始めも片付けも
