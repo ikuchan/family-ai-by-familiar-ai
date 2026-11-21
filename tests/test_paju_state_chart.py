@@ -47,7 +47,11 @@ def test_every_transition_of_the_chart_is_drawn():
         for st in walk(top):
             for t in st.transitions:
                 if t.event and not t.internal and t.source is not t.target:
-                    want.add((chart._name(t.source), chart._name(t.target), t.event))
+                    # 入れ子の中へ直に向かう移りは、入れ子の箱へ向けて描く（行き先は事象のあとに添える）
+                    target = t.target
+                    while target.parent is not None and target.parent is not t.source.parent:
+                        target = target.parent
+                    want.add((chart._name(t.source), chart._name(target), t.event))
     got = set()
     for line in chart.mermaid().splitlines():
         m = re.match(r"\s*(\S+) --> (\S+) : (.*)", line)
@@ -68,6 +72,9 @@ def test_regions_and_states_carry_japanese_names():
     for ident in ("head", "listening", "no_voice", "alarm_quiet", "hearing"):
         assert ident not in text  # 英字の id は出さない
     assert "聞いている --> 聞かない : request_opened（頭が寝ていなければ）、speech_began" in text
+    assert (
+        "答えを言っている --> 考えている : speech_ended（書き留めているへ）" in text
+    )  # 箱の中へ直に向けない
 
 
 def test_each_transition_is_logged_at_info_for_replay(caplog):
@@ -95,3 +102,37 @@ def test_each_transition_is_logged_at_info_for_replay(caplog):
         lines[-1],
     )
     assert all("ひみつ" not in r.getMessage() for r in caplog.records)
+
+
+# ── 三段目・四段目：いまの状態を光らせる、ログから読む ─────────────────────────
+
+
+def test_the_live_states_are_named_and_highlighted():
+    import asyncio
+
+    from familiar_agent.loop.paju_state import PajuState
+
+    async def go():
+        sm = PajuState()
+        await sm.start()
+        await sm.fire("ring_began")
+        return sm
+
+    sm = asyncio.run(go())
+    now = chart.active_names(sm)
+    assert {"何もしていない", "聞いている", "閉じている", "答えなし", "音鳴っている"} <= now
+    assert not now & {"パジュ", "頭", "耳"}  # 領域は光らせない
+    text = chart.highlighted(now)
+    assert text.startswith(chart.mermaid())
+    assert "    音鳴っている:::now\n" in text and "classDef now " in text
+
+
+def test_transitions_are_read_from_the_log():
+    lines = [
+        "2026-11-21 20:01:02,345 [v0.x] [INFO] familiar_agent.loop.paju_state: 状態図 request_opened で移った"
+        "（頭=考えている/思い出している 耳=聞かない/窓=開いている/答え=なし/入口=開いている 口=話してよい/声=なし/知らせの音=止まっている）",
+        "2026-11-21 20:01:03,000 [v0.x] [INFO] familiar_agent.loop.event_loop: ほかの行",
+    ]
+    [(at, event, desc)] = chart.transitions_in(lines)
+    assert at == "2026-11-21 20:01:02" and event == "request_opened"
+    assert desc.startswith("頭=考えている/思い出している 耳=聞かない")

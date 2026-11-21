@@ -5,7 +5,8 @@
 文字をそのまま貼り、試験（`tests/test_paju_state_chart.py`）が一致を確かめる。
 
 描かないもの：初めの状態へ入る移り（事象が無い）、内側の移り（考えているの子へ移るもの）、自分へ戻る移り（外へ出て入り直す）。
-同じ 2 つの状態のあいだの事象は「、」でつなぐ。条件は事象のあとに（）で書く。
+同じ 2 つの状態のあいだの事象は「、」でつなぐ。条件は事象のあとに（）で書く。入れ子の中の状態へ直に向かう
+移りは、入れ子の箱へ向け、事象のあとに「（行き先へ）」と添える。
 
 使い方：`uv run python -m familiar_agent.loop.paju_state_chart`
 
@@ -15,7 +16,8 @@
 
 from __future__ import annotations
 
-from typing import Any, Iterator
+import re
+from typing import Any, Iterable, Iterator
 
 from .paju_state import _NAMES, PajuState
 
@@ -87,11 +89,20 @@ def _edges(compound: Any) -> "list[str]":
         for t in child.transitions:
             if not _drawn(t):
                 continue
-            key = (_name(t.source), _name(t.target))
+            # 入れ子の中の状態へ直に向かう移りは、その入れ子の箱へ向け、事象のあとに行き先を添える。直に向けると、
+            # Mermaid が行き先を箱の外に作る（2026-11-21 に描いて確かめた）。
+            target = t.target
+            while target.parent is not compound:
+                if target.parent is None:
+                    raise ValueError(
+                        f"{t.event} の行き先が {compound.id} の中に無い（領域をまたぐ移りは描けない）"
+                    )
+                target = target.parent
+            key = (_name(t.source), _name(target))
             if key not in labels:
                 order.append(key)
                 labels[key] = []
-            label = _label(t)
+            label = _label(t) + (f"（{_name(t.target)}へ）" if target is not t.target else "")
             if label not in labels[key]:
                 labels[key].append(label)
     return [f"{a} --> {b} : {'、'.join(labels[(a, b)])}" for a, b in order]
@@ -143,6 +154,35 @@ def events() -> "list[str]":
             for t in state.transitions:
                 if _drawn(t) and t.event not in out:
                     out.append(t.event)
+    return out
+
+
+# ── いまの状態を光らせる（三段目）、ログから読む（四段目） ──────────────────────────
+
+#: 光らせる色（Mermaid の `classDef`）。日本語の名前には `class 名前 now` が通らないので、`名前:::now` で付ける。
+_NOW = "    classDef now fill:#ffd54f,stroke:#e65100,stroke-width:3px\n"
+
+
+def active_names(sm: Any) -> "set[str]":
+    """動いている状態図のいまの状態を、図の上の名前で返す（領域は入れない）。"""
+    return {_name(s) for s in sm.configuration if s.id not in _REGIONS}
+
+
+def highlighted(active: "Iterable[str]") -> str:
+    """図に、`active` の状態を光らせる指定を足す。"""
+    return mermaid() + _NOW + "".join(f"    {n}:::now\n" for n in sorted(active))
+
+
+_MOVED = re.compile(r"^(\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)\S* .*状態図 (\S+) で移った（(.*)）\s*$")
+
+
+def transitions_in(lines: "Iterable[str]") -> "list[tuple[str, str, str]]":
+    """ログの行から、移りの 1 行（`after_transition`）を (時刻, 事象, 各領域の状態) にして返す。ほかの行は捨てる。"""
+    out = []
+    for line in lines:
+        m = _MOVED.match(line)
+        if m:
+            out.append((m.group(1), m.group(2), m.group(3)))
     return out
 
 

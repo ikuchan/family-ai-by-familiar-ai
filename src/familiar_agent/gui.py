@@ -1581,6 +1581,10 @@ class FamiliarWindow(QMainWindow):
         self._test_stt_btn = QPushButton("Test STT")
         self._test_stt_btn.clicked.connect(lambda: self._create_task(self._run_stt_test()))
         status_actions.addWidget(self._test_stt_btn)
+        # パジュの状態図の窓（環-bb 三段目）。開いているあいだ、状態の輪（350 ミリ秒）がいまの状態を光らせる。
+        self._state_chart_btn = QPushButton("状態図")
+        self._state_chart_btn.clicked.connect(self._open_state_chart)
+        status_actions.addWidget(self._state_chart_btn)
         status_actions.addStretch()
         status_layout.addLayout(status_actions)
         left_layout.addWidget(status_card)
@@ -1757,7 +1761,27 @@ class FamiliarWindow(QMainWindow):
         self._last_error = (message or "").strip()
         self._refresh_status_card()
 
+    def _open_state_chart(self) -> None:
+        """状態図の窓を開く（環-bb 三段目）。開いていれば前へ出す。"""
+        try:
+            from .gui_state_chart import StateChartWindow
+
+            win = getattr(self, "_state_chart", None)
+            if win is None:
+                win = self._state_chart = StateChartWindow()
+            win.show()
+            win.raise_()
+            win.refresh(getattr(self._agent, "paju_state", None))
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図の窓を開けなかった", exc_info=True)
+
     def _refresh_status_card(self) -> None:
+        win = getattr(self, "_state_chart", None)
+        if win is not None and win.isVisible():
+            try:
+                win.refresh(getattr(self._agent, "paju_state", None))
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図の窓を更新できなかった", exc_info=True)
         snapshot = build_gui_diagnostics(self)
         headline = getattr(self, "_status_headline", None)
         detail = getattr(self, "_status_detail", None)
@@ -2497,6 +2521,9 @@ class FamiliarWindow(QMainWindow):
             event.ignore()
             return
         self._shutdown_requested = True
+        chart = getattr(self, "_state_chart", None)
+        if chart is not None:
+            chart.close()  # 状態図の窓が残ってアプリが終わらない、を避ける（環-bb 三段目）
         self._closing = True
         self.setEnabled(False)
         self.setWindowTitle(f"familiar-ai  {__version__}  ⏳ shutting down...")
@@ -2610,6 +2637,9 @@ def run_gui(config: "AgentConfig") -> None:
         pass
 
     existing = QApplication.instance()
+    if not isinstance(existing, QApplication):
+        # 状態図の窓（環-bb 三段目）の Web の部品は、アプリを作る前にこの設定が要る（無いと描けない機械がある）。
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     qt_app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
     _apply_global_style(qt_app)
     icon_path = resolve_app_icon_path()
@@ -2668,6 +2698,9 @@ def _exit_code(window: object) -> int:
 def run_setup_wizard(config: "AgentConfig", env_path: Path | None = None) -> bool:
     """Launch the setup dialog without constructing the full main window."""
     existing = QApplication.instance()
+    if not isinstance(existing, QApplication):
+        # 状態図の窓（環-bb 三段目）の Web の部品は、アプリを作る前にこの設定が要る（無いと描けない機械がある）。
+        QApplication.setAttribute(Qt.ApplicationAttribute.AA_ShareOpenGLContexts)
     qt_app = existing if isinstance(existing, QApplication) else QApplication(sys.argv)
     _apply_global_style(qt_app)
     icon_path = resolve_app_icon_path()
