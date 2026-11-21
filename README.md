@@ -89,7 +89,7 @@ tool and waits for the result.
 trigger (speech / device / drive / completed tool)
   → intake      write what arrived to memory (O)
   → recall      score memories on 5 axes, build the working set (W)
-  → arbitrate   a light LLM picks the branch and effort (answer lightly / think deeply / look / search)
+  → arbitrate   Jev (a model built for typed judgments) picks the branch and effort; a light LLM writes light replies
   → generate    the main LLM speaks or calls a tool
   → close       record what was said; summaries and reflection follow in the background
 ```
@@ -385,14 +385,17 @@ uv run familiar-discover-cameras --scan
 
 > **Note:** Eufy C220 allows only **one simultaneous RTSP connection**. If another app (e.g. a Wi-Fi cam MCP server) is connected to the same camera, familiar-ai will fail to get frames. Stop other clients before starting familiar-ai.
 
-### Voice (ElevenLabs)
+### Voice (text-to-speech)
 
-1. Get an API key at [elevenlabs.io](https://elevenlabs.io/)
-2. Set in `.env`:
-   ```env
-   ELEVENLABS_API_KEY=sk_...
-   ELEVENLABS_VOICE_ID=...   # optional, uses default voice if omitted
-   ```
+Pick the engine with `TTS_ENGINE`:
+
+| `TTS_ENGINE=` | Engine | Needs |
+|---|---|---|
+| `gemini` (default) | Gemini TTS (streamed) | `GEMINI_TTS_API_KEY`, or the light LLM's `UTILITY_API_KEY` |
+| `sbv2` | Style-Bert-VITS2 running locally | A local SBV2 server — no key, no network |
+| `elevenlabs` | ElevenLabs | `ELEVENLABS_API_KEY` (`ELEVENLABS_VOICE_ID` optional) — [elevenlabs.io](https://elevenlabs.io/) |
+
+`TTS_FALLBACK` can name a second engine that is tried once when the main one cannot speak.
 
 There are two playback destinations, controlled by `TTS_OUTPUT`:
 
@@ -451,8 +454,8 @@ Set `REALTIME_STT=true` in `.env` for always-on, hands-free voice input:
 
 ```env
 REALTIME_STT=true
-ELEVENLABS_API_KEY=sk_...   # same key as TTS
 STT_LANGUAGE=ja            # recommended for Japanese; used by both batch and realtime STT
+WHISPER_DEVICE=cuda        # default; set cpu when there is no GPU (slower)
 ```
 
 By default the transcription runs locally with faster-whisper and silero-vad (`STT_ENGINE=whisper`); set `STT_ENGINE=elevenlabs` to stream to ElevenLabs Scribe v2 instead. Either way transcripts are committed when you pause speaking — no button press required. `AUDIO_INPUT_DEVICE` picks the microphone and `AUDIO_INPUT_GAIN` boosts a quiet one; `/reload` in the GUI re-reads these without a restart. Coexists with the push-to-talk mode (Ctrl+T).
@@ -499,16 +502,16 @@ See [`persona-template/en.md`](./persona-template/en.md) for an example, or [`pe
 ## FAQ
 
 **Q: Does it work without a GPU?**
-Yes. The embedding model (multilingual-e5-small) runs fine on CPU. A GPU makes it faster but isn't required.
+Yes, but slower. Transcription (faster-whisper large-v3) runs on CUDA by default — set `WHISPER_DEVICE=cpu` without a GPU. The memory embedding models (bge-m3 and the Japanese Ruri) use the GPU when one is available and fall back to the CPU.
 
 **Q: Can I use a camera other than Tapo?**
 Yes. Any RTSP camera works for `see()`. Tested: **Tapo C220** (ONVIF + RTSP, full pan/tilt) and **Eufy C220** (RTSP only — **pan/tilt not supported**). For pan/tilt, use the Tapo C220.
 
 **Q: Is my data sent anywhere?**
-Images and text are sent to your chosen LLM API for processing. Memories are stored locally in `~/.familiar_ai/`.
+Images and text are sent to the LLM API you chose. Memories are stored in PostgreSQL on your own machine (the Docker container from step 4). Transcription runs locally by default.
 
 **Q: Why does the agent write `（...）` instead of speaking?**
-Make sure `ELEVENLABS_API_KEY` is set. Without it, voice is disabled and the agent falls back to text.
+Check that the voice engine you chose can speak: for the default Gemini TTS, a Gemini key (`GEMINI_TTS_API_KEY` or `UTILITY_API_KEY`); for `sbv2`, the local server running; for `elevenlabs`, `ELEVENLABS_API_KEY`.
 
 ## Technical background
 

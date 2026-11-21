@@ -377,12 +377,21 @@ CAMERA_PASSWORD=your-local-pass
 uv run familiar-discover-cameras
 ```
 
-### 音声のセットアップ（ElevenLabs）
+### 音声のセットアップ
+
+声の方式は `TTS_ENGINE` で選びます。
+
+| `TTS_ENGINE=` | 方式 | 要るもの |
+|---|---|---|
+| `gemini`（既定） | Gemini TTS（流して鳴らす） | `GEMINI_TTS_API_KEY`、無ければ軽量LLM の `UTILITY_API_KEY` |
+| `sbv2` | 手元で動かす Style-Bert-VITS2 | 手元の SBV2 のサーバー（鍵もネットも要らない） |
+| `elevenlabs` | ElevenLabs | `ELEVENLABS_API_KEY`（`ELEVENLABS_VOICE_ID` は省略可） |
+
+`TTS_FALLBACK` に 2 つ目の方式を書くと、主の方式で話せないときに 1 回だけ試します。
 
 ```env
-ELEVENLABS_API_KEY=sk_...
-ELEVENLABS_VOICE_ID=...   # 省略可。省略時はデフォルトの声を使用
-ELEVENLABS_MODEL=eleven_flash_v2_5  # 省略可。既定 flash（0.7 秒）。eleven_v3 は表情豊かだが 5 秒かかる
+TTS_ENGINE=gemini          # 省略可。既定 gemini
+ELEVENLABS_MODEL=eleven_flash_v2_5  # ElevenLabs のときだけ。既定 flash（0.7 秒）。eleven_v3 は表情豊かだが 5 秒かかる
 TTS_OUTPUT=local           # local（PCスピーカー）| remote（カメラスピーカー）| both
 TIMER_VOICE_GAIN=1.5       # 省略可。タイマーが鳴った知らせだけ声を大きくする（既定 1.0）
 TIMER_SILENCE=true         # 省略可。タイマー中は黙る（既定 true。false でこれまでどおり）
@@ -405,7 +414,10 @@ VOICE_ENROLL_SEC=10        # 省略可。/voice 名前 のあと声を登録す�
 ```env
 REALTIME_STT=true
 STT_LANGUAGE=ja
+WHISPER_DEVICE=cuda        # 既定。GPU が無ければ cpu（遅くなる）
 ```
+
+書き起こしは、既定では手元の faster-whisper（large-v3）で、鍵もネットも要りません。`STT_ENGINE=elevenlabs` で ElevenLabs に替えられます。
 
 ---
 
@@ -415,10 +427,10 @@ STT_LANGUAGE=ja
 はい。これらはすべてオプションです。設定がなければ自動でスキップされ、テキストチャットとして動作します。
 
 **Q: GPUがなくても動きますか？**
-はい。埋め込みモデル（multilingual-e5-small）はCPUで動きます。
+はい。ただし遅くなります。書き起こし（faster-whisper の large-v3）は既定で GPU（CUDA）を使うので、GPU が無ければ `WHISPER_DEVICE=cpu` にしてください。記憶の埋め込み（bge-m3 と、日本語の Ruri）は、GPU があれば GPU、無ければ CPU で動きます。
 
 **Q: データはどこに保存されますか？**
-記憶はローカルのPostgreSQL（Docker）に保存されます。画像とテキストは選択したLLM APIにのみ送信されます。
+記憶はローカルのPostgreSQL（Docker）に保存されます。画像とテキストは選択したLLM APIにのみ送信されます。書き起こしは、既定では手元で行います。
 
 **Q: Tapo以外のカメラは使えますか？**
 RTSP対応カメラなら映像取得（see）は動作します。PTZ（首振り）はONVIF対応カメラのみ。
