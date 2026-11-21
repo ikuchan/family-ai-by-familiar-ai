@@ -302,6 +302,8 @@ class DIF:
 
     @property
     def ringing(self) -> bool:
+        """いま知らせの音が鳴っているか。持ち主は鳴らしている仕事で、状態図の口の知らせの音はその写し（環-aw 第 6 段・
+        自律機構の輪が写す）。"""
         return self._ring_task is not None and not self._ring_task.done()
 
     async def _after_cue(self) -> None:

@@ -92,6 +92,8 @@ _NAMES = {
     "ear_open": "開いている",
     "music_only": "音楽の言葉だけ通す",
     "timer_only": "タイマーの言葉だけ通す",
+    "alarm_quiet": "止まっている",
+    "alarm_ringing": "鳴っている",
 }
 
 # 寝ているあいだに求めを開こうとした口が、起きたかを見直す間隔。眠ると起きるは自律機構の輪の上でしか変わらないので、
@@ -310,6 +312,15 @@ class PajuState(StateChart):
                 timer_gated = ear_open.to(timer_only) | music_only.to(timer_only)
 
         class mouth(State.Parallel):
+            class alarm(State.Compound):
+                # 知らせの音（第 6 段・決定ニ）。タイマーとアラームの音。持ち主は dif の鳴らしている仕事で、これはその写し
+                # （自律機構の輪が `copy_ring` で写す・入口と同じ形）。声とは再生の鍵で交互に鳴るが、別の領域なので、状態としては同時に成り立つ。
+                alarm_quiet = State(initial=True)
+                alarm_ringing = State()
+
+                ring_began = alarm_quiet.to(alarm_ringing)
+                ring_ended = alarm_ringing.to(alarm_quiet)
+
             class hush(State.Compound):
                 may_speak = State(initial=True)
                 silent = State()
@@ -742,6 +753,29 @@ class PajuState(StateChart):
         ids = {s.id for s in self.configuration}
         return next((n for n in ("music_only", "timer_only") if n in ids), "ear_open")
 
+    async def copy_ring(self, ringing: "Callable[[], bool]") -> None:
+        """知らせの音の持ち主（dif の鳴らしている仕事）を写す（第 6 段）。写すのは自律機構の輪（0.5 秒ごと）だけ。
+        持ち主は順番が来てから読み、違うときだけ送る。同じなら何もせず、順番も待たない。
+        """
+        if self.is_ringing() == bool(ringing()):
+            return
+        try:
+            await self.start()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 知らせの音を写せなかった（初めの状態に入れない）", exc_info=True)
+            return
+        async with self._turn():  # 読んでから送るまでに、ほかの写しを割り込ませない（決定ン）
+            try:
+                now = bool(ringing())
+                if self.is_ringing() != now:
+                    await self._fire("ring_began" if now else "ring_ended")
+                    logger.info(
+                        "状態図 知らせの音を写した：%s",
+                        _NAMES["alarm_ringing" if now else "alarm_quiet"],
+                    )
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 知らせの音を写せなかった", exc_info=True)
+
     async def copy_gate(self, reason: str) -> None:
         """持ち主の理由（`agent.mic_gate_reason`）を入口へ写す。空なら開いている、`MUSIC_GATE_REASON` なら音楽、
         ほかはタイマーで、理由がそのタイマーの名前。状態も名前も同じなら何もせず、順番も待たない（輪は 0.5 秒ごと）。"""
@@ -1121,6 +1155,10 @@ class PajuState(StateChart):
         ids = {s.id for s in self.configuration}
         return next((n for n in VOICE_STATES if n in ids), "no_voice")
 
+    def is_ringing(self) -> bool:
+        """口の知らせの音が鳴っているか（第 6 段）。活性化の前は止まっているとみなす。"""
+        return "alarm_ringing" in {s.id for s in self.configuration}
+
     def thinking_child(self) -> str:
         """考えているの今の子の名前。考えていなければ空。"""
         ids = {s.id for s in self.configuration}
@@ -1141,8 +1179,9 @@ class PajuState(StateChart):
         voice = next((n for n in VOICE_STATES if n in ids), "")
         answer = next((n for n in _NAMES if n.endswith("_answer") and n in ids), "")
         gate = next((n for n in ("ear_open", "music_only", "timer_only") if n in ids), "")
+        alarm = self.is_ringing()
         return (
             f"頭={head_text} 耳={_NAMES.get(ear, '')}/窓={_NAMES.get(window, '')}"
             f"/答え={_NAMES.get(answer, '')}/入口={_NAMES.get(gate, '')} 口={_NAMES.get(mouth, '')}"
-            f"/声={_NAMES.get(voice, '')}"
+            f"/声={_NAMES.get(voice, '')}/知らせの音={_NAMES['alarm_ringing' if alarm else 'alarm_quiet']}"
         )

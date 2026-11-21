@@ -474,6 +474,19 @@ class Tonic:
         except Exception:  # noqa: BLE001
             logger.warning("耳の入口を写せなかった", exc_info=True)
 
+    async def _copy_ring(self) -> None:
+        """知らせの音の持ち主（`agent.timer_ringing`、dif の鳴らしている仕事）を状態図へ写す（環-aw 第 6 段）。写すのは
+        ここだけで、輪が回るたび（0.5 秒ごと）。読めない・状態図が無いなら写さない（輪は止めない）。"""
+        agent = self._agent
+        sm = getattr(agent, "paju_state", None)
+        ringing = getattr(agent, "timer_ringing", None)
+        if sm is None or not callable(ringing) or not hasattr(sm, "copy_ring"):
+            return
+        try:
+            await sm.copy_ring(lambda: bool(ringing()))
+        except Exception:  # noqa: BLE001
+            logger.warning("知らせの音を写せなかった", exc_info=True)
+
     async def _maybe_sleep(self) -> None:
         """眠くて頭が何もしていなければ、寝ているへ移って内省を回し、終えたら（落ちても）起きる（決定ダ、ナ、ク）。
         状態図が無ければ何もしない（rest の発火の口が、すぐ内省する）。"""
@@ -513,6 +526,7 @@ class Tonic:
                 self._fire_timers()
                 # 鳴らしたあとに写す（鳴ったタイマーは入口を閉じない・決定ギ）
                 await self._copy_gate()
+                await self._copy_ring()
                 # 眠くて頭が何もしていなければ、ここで眠って内省する（決定ダ、ナ）。内省のあいだは、いままでどおり輪が止まる
                 await self._maybe_sleep()
                 firing, accumulated = await step_drives(
