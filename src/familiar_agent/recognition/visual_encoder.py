@@ -37,13 +37,16 @@ class VisualEncoder(ModelResource):
         self._processor: Any = None
 
     def _load(self) -> Any:
+        import torch
         import transformers
 
         def _load_from(place: str) -> Any:
             processor = transformers.AutoImageProcessor.from_pretrained(place)
-            return processor, transformers.AutoModel.from_pretrained(place)
+            # 型を指定して読む（出-dr）。指定しないと、読むときの torch の既定の型で作られる（ほかのモデルの読み込みが
+            # 既定を bf16 にしていると、まるごと bf16 になる）。
+            return processor, transformers.AutoModel.from_pretrained(place, dtype=torch.float32)
 
-        # 手元の控えから読む（環-ax）。
+        # 手元の控えから読む（環-ax）。読むのは 1 つずつ（`load_local_first` の錠・出-dr）。
         self._processor, model = load_local_first(self._model_name, _load_from)
         return model.to(self._torch_device).eval()
 
@@ -74,6 +77,23 @@ class VisualEncoder(ModelResource):
             out = self.ensure()(**inputs)
         return out.pooler_output[0].detach().cpu().tolist()
 
+    def _dtype_note(self) -> str:
+        """重みの型ごとの数と、いまの torch の既定の型（出-dr）。型が混ざって落ちたときに原因を確かめるため。"""
+        try:
+            import torch
+
+            counts: dict[str, int] = {}
+            model = self.ensure()
+            for p in model.parameters() if model is not None else ():
+                name = str(p.dtype).removeprefix("torch.")
+                counts[name] = counts.get(name, 0) + 1
+            weights = "・".join(f"{k} {v}" for k, v in sorted(counts.items())) or "なし"
+            return (
+                f"重み {weights}、既定の型 {str(torch.get_default_dtype()).removeprefix('torch.')}"
+            )
+        except Exception:  # noqa: BLE001
+            return "型を読めない"
+
     def warm(self) -> None:
         """読み込むだけ（起動時の温め）。"""
         self.ensure()
@@ -90,5 +110,7 @@ class VisualEncoder(ModelResource):
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
-            logger.exception("見えの埋め込みに失敗した（この回は見送る）: %s", e)
+            logger.exception(
+                "見えの埋め込みに失敗した（この回は見送る）: %s（%s）", e, self._dtype_note()
+            )
             return None

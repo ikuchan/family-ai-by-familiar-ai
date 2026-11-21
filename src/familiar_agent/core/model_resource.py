@@ -66,18 +66,47 @@ def local_place(name: str) -> str:
     return name
 
 
+#: Hugging Face のモデルを 1 つずつ読むための錠（出-dr）。`transformers` は読み込みのあいだ torch の既定の型を
+#: 変えて戻す（`torch.set_default_dtype`）。既定の型はプロセスに 1 つなので、別のスレッドで同時に読むと出入りが重なり、
+#: 既定が bf16 のまま残ることがある。2026-11-14 21:26 の起動では、Ruri（bf16）と並んで読んだあと、見えのエンコーダが
+#: 「expected scalar type Float but found BFloat16」で 17 分落ち続けた。
+_HF_LOAD_LOCK = threading.Lock()
+
+
 def load_local_first(name: str, load: "Callable[[str], T]") -> T:
-    """手元の控えの場所から読み（`local_place`）、読めなければ名前で読み直す（控えが欠けていれば外から足す）。"""
-    place = local_place(name)
-    if place == name:
-        return load(name)
+    """手元の控えの場所から読み（`local_place`）、読めなければ名前で読み直す（控えが欠けていれば外から足す）。
+
+    読むのは 1 つずつ（`_HF_LOAD_LOCK`）。読み終えて既定の型が float32 でなければ、WARNING を残して float32 に戻す。
+    """
+    with _HF_LOAD_LOCK:
+        try:
+            place = local_place(name)
+            if place == name:
+                return load(name)
+            try:
+                return load(place)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "モデル %s を手元の控えから読めないので、名前で読み直す", name, exc_info=True
+                )
+                return load(name)
+        finally:
+            _restore_default_dtype(name)
+
+
+def _restore_default_dtype(name: str) -> None:
+    """読み終えて torch の既定の型が float32 でなければ、戻して WARNING に残す（出-dr）。"""
     try:
-        return load(place)
-    except Exception:  # noqa: BLE001
+        import torch
+    except ImportError:
+        return
+    if torch.get_default_dtype() != torch.float32:
         logger.warning(
-            "モデル %s を手元の控えから読めないので、名前で読み直す", name, exc_info=True
+            "モデル %s を読んだあと torch の既定の型が %s のままだったので、float32 に戻した",
+            name,
+            torch.get_default_dtype(),
         )
-        return load(name)
+        torch.set_default_dtype(torch.float32)
 
 
 class ModelResource(ABC):
