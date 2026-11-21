@@ -20,9 +20,9 @@ import os
 import re
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import urlparse
 
 import cv2
@@ -34,6 +34,45 @@ from ..setup import _onvif_wsdl_dir
 logger = logging.getLogger(__name__)
 
 CAPTURE_DIR = Path.home() / ".familiar_ai" / "captures"
+
+
+_CAPTURE_NAME = re.compile(r"capture_\d{8}_\d{6}\.jpg")
+
+
+def prune_captures(
+    folder: Path,
+    *,
+    keep_sec: float,
+    now: datetime,
+    stop: "threading.Event | None" = None,
+    pause: Callable[[], None] = lambda: time.sleep(0.01),
+) -> int:
+    """`folder` の `capture_YYYYmmdd_HHMMSS.jpg` のうち、撮って `keep_sec` 秒より古いものを消す（環-bc）。消した数を返す。
+
+    古さはファイルの名前（撮ったときの生活時間）で比べる。名前は時刻の順に並ぶので、残すファイルの情報は読まない。
+    この形の名前でないファイルには触らない。消せなかったファイルは飛ばす（次の回にまた試す）。`stop` が立てば途中でやめる。
+    1,000 枚消すごとに `pause` を呼び、パジュの本体（声や聞き取り）に順番を譲る（溜まった分を初めて消すときは 100 万枚ある）。
+    """
+    cutoff = f"capture_{(now - timedelta(seconds=keep_sec)):%Y%m%d_%H%M%S}.jpg"
+    n = 0
+    try:
+        entries = os.scandir(folder)
+    except FileNotFoundError:
+        return 0
+    with entries:
+        for e in entries:
+            if stop is not None and stop.is_set():
+                break
+            if e.name >= cutoff or not _CAPTURE_NAME.fullmatch(e.name):
+                continue
+            try:
+                os.unlink(e.path)
+            except OSError:
+                continue
+            n += 1
+            if n % 1000 == 0:
+                pause()
+    return n
 
 
 def _mask_source(source) -> str:
@@ -67,6 +106,8 @@ class CameraTool:
         ptz_username: str | None = None,
         ptz_password: str | None = None,
         ptz_port: int | None = None,
+        capture_keep_days: float | None = None,
+        capture_prune_interval_sec: float | None = None,
     ):
         self.host = host
         self.username = username
@@ -95,12 +136,24 @@ class CameraTool:
         self._thread: threading.Thread | None = None
         # 取り込みの仕事を立てた時刻と、最後に映像を受けた時刻（monotonic）。機器の見張りが古さを見る（知-bv）。
         self._started_at: float | None = None
-        self._closed = False
+        # 閉じたか（閉じると、立て直しも、古い画像を消す仕事も止まる）。
+        self._closed = threading.Event()
+        # 古い画像を消す裏の仕事（環-bc）。値の既定は `config.CameraConfig`。
+        from ..config import CameraConfig
+
+        days = CameraConfig.capture_keep_days if capture_keep_days is None else capture_keep_days
+        self._keep_sec = days * 86_400.0
+        self._prune_interval = (
+            CameraConfig.capture_prune_interval_sec
+            if capture_prune_interval_sec is None
+            else capture_prune_interval_sec
+        )
         self._last_frame_at: float | None = None
         self._lock = threading.Lock()
 
         # Start background capture thread
         self.start()
+        self._start_prune()
 
     @property
     def is_pan_tilt_available(self) -> bool:
@@ -137,7 +190,7 @@ class CameraTool:
         生きている仕事は、読めないときに自分で 2 秒おきに開き直しているので、二つ目を立てない（同じ接続を取り合う）。
         閉じたあと（`close`）も立てない。どちらも False。
         """
-        if self._closed:
+        if self._closed.is_set():
             return False
         if self._thread is not None and self._thread.is_alive():
             logger.info("カメラの取り込みの仕事は動いているので、立て直さない")
@@ -151,7 +204,7 @@ class CameraTool:
 
     def close(self):
         """Stop capture and release resources."""
-        self._closed = True
+        self._closed.set()
         self._running = False
         if self._thread:
             self._thread.join(timeout=2.0)
@@ -338,6 +391,32 @@ class CameraTool:
         except Exception as e:
             logger.warning("Error processing frame: %s", e)
             return None, None
+
+    def _start_prune(self) -> None:
+        """古い画像を消す裏の仕事を 1 本立てる（環-bc）。間隔だけ待って消す、を閉じるまで繰り返す。
+
+        最初の 1 回も間隔のあとにする（起動のあいだに 100 万枚を消して、モデルの読み込みと取り合わない）。
+        間隔が 0 以下なら立てない（消さない）。
+        """
+        if self._prune_interval <= 0:
+            logger.info("古い画像を消す間隔が 0 以下なので、消さない")
+            return
+
+        def _run() -> None:
+            while not self._closed.wait(self._prune_interval):
+                started = time.monotonic()
+                try:
+                    n = prune_captures(
+                        CAPTURE_DIR, keep_sec=self._keep_sec, now=datetime.now(), stop=self._closed
+                    )
+                    if n:
+                        logger.info(
+                            "古い画像を消した：%d 枚、%.1f 秒", n, time.monotonic() - started
+                        )
+                except Exception:  # noqa: BLE001
+                    logger.warning("古い画像を消せなかった（次の回にまた試す）", exc_info=True)
+
+        threading.Thread(target=_run, name="capture-prune", daemon=True).start()
 
     def set_poses(self, poses: list[Pose]) -> None:
         """見に行ける定点を渡す。道具の定義（`enum`）と `look` の行き先になる。"""

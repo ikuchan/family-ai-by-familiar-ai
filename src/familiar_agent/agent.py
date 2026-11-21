@@ -513,6 +513,8 @@ class EmbodiedAgent:
                 ptz_username=cam.ptz_username,
                 ptz_password=cam.ptz_password,
                 ptz_port=cam.ptz_port,
+                capture_keep_days=cam.capture_keep_days,
+                capture_prune_interval_sec=cam.capture_prune_interval_sec,
             )
 
         tts = self.config.tts

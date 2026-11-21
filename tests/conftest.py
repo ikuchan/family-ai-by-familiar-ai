@@ -235,6 +235,8 @@ def _no_real_camera_thread(monkeypatch):
     from familiar_agent.tools.camera import CameraTool
 
     monkeypatch.setattr(CameraTool, "start", lambda self: None)
+    # 古い画像を消す裏の仕事も立てない（環-bc）。試験の中で本物の画像の置き場（`~/.familiar_ai/captures`）を消さない。
+    monkeypatch.setattr(CameraTool, "_start_prune", lambda self: None)
     yield
 
 
