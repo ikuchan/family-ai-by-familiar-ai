@@ -210,7 +210,8 @@ class OccupancySensor:
                 logger.debug("どの定点でもない向きなので在席を記録しない（移動中）")
                 self._count("移動中")
                 return None
-            frame_b64, path = await self._camera.capture()
+            # 見回りの画像は 1 つのファイルに書き直す（時刻つきで残さない・環-bc）。
+            frame_b64, path = await self._camera.capture(patrol=True)
             if not path:
                 logger.warning("フレームを撮れなかったので在席を記録しない")
                 self._count("撮れなかった")

@@ -111,7 +111,8 @@ class CameraConfig:
         default_factory=lambda: _env_value("CAMERA_PASSWORD", "TAPO_PASSWORD", default="")
     )
     # 撮った画像（`~/.familiar_ai/captures`）を残す日数（環-bc・2026-11-21・本人の決定）。在席の見回りが 3 秒おきに書き、
-    # 消す仕組みが無かったので、約 108 万枚、125 GB 溜まった。消すのは撮って 7 日より古い画像だけ。
+    # 消す仕組みが無かったので、約 108 万枚、125 GB 溜まった。いまは見回りの画像は `patrol.jpg` 1 つに書き直すので、
+    # 時刻つきで残るのは見る道具（`look`・`see`）の画像だけ。消すのは撮って 7 日より古い画像だけ。
     capture_keep_days: float = 7.0
     # 古い画像を消す間隔（秒・仮・2026-11-21）。撮る仕事の裏で、1 時間に 1 回だけ消す。
     capture_prune_interval_sec: float = 3600.0

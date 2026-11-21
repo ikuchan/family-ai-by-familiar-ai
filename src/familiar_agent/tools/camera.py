@@ -34,6 +34,8 @@ from ..setup import _onvif_wsdl_dir
 logger = logging.getLogger(__name__)
 
 CAPTURE_DIR = Path.home() / ".familiar_ai" / "captures"
+#: 在席の見回りの画像を書き直す 1 つのファイル（環-bc）。`capture_*.jpg` の形ではないので、古い画像を消す仕事は触らない。
+_PATROL_NAME = "patrol.jpg"
 
 
 _CAPTURE_NAME = re.compile(r"capture_\d{8}_\d{6}\.jpg")
@@ -353,8 +355,14 @@ class CameraTool:
             password=self.password or "",
         ).stream_url("stream1")
 
-    async def capture(self) -> tuple[str | None, str | None]:
-        """Get the latest frame from the background thread. Returns (base64_jpeg, saved_path)."""
+    async def capture(self, *, patrol: bool = False) -> tuple[str | None, str | None]:
+        """Get the latest frame from the background thread. Returns (base64_jpeg, saved_path).
+
+        `patrol=True`（在席の見回り）は、いつも同じ `patrol.jpg` に書き直し、`last_capture_path` を変えない（環-bc）。
+        見回りは 3 秒おきに撮り、その画像を使うのは同じ 1 回の確かめの中だけなので、時刻つきの名前で残さない。
+        返す場所は次の見回りで書き直されるので、持っておかない（すぐ読むだけにする）。書き直しは一時ファイルから
+        入れ替えるので、読んでいる途中で空や書きかけにはならない。
+        """
         frame = None
         with self._lock:
             if self._last_frame is not None:
@@ -382,10 +390,13 @@ class CameraTool:
 
             # Save to disk
             CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            save_path = CAPTURE_DIR / f"capture_{timestamp}.jpg"
-            save_path.write_bytes(data)
-            self.last_capture_path = str(save_path)
+            name = _PATROL_NAME if patrol else f"capture_{datetime.now():%Y%m%d_%H%M%S}.jpg"
+            save_path = CAPTURE_DIR / name
+            tmp = save_path.with_name(save_path.name + ".tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, save_path)
+            if not patrol:
+                self.last_capture_path = str(save_path)
 
             return b64, str(save_path)
         except Exception as e:
