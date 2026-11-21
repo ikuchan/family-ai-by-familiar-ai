@@ -693,8 +693,11 @@ class Arbiter:
         timeout: "float | None" = None,
         min_conf: float = 0.6,
         promise_min: float = 0.6,
+        me: "Callable[[], str] | None" = None,
     ) -> None:
         self._jev = jev
+        #: Jev の問いでパジュ自身を書く名前を返す口（W と同じ `config.agent_names`・記-z）。無ければ判定の既定（「わたし」）。
+        self._me: "Callable[[], str | None]" = me or (lambda: None)
         #: 軽い返事が約束していると見なすはいの確率の境目（`AgentConfig.arbiter_promise_min`・出-dl）。
         self._promise_min = promise_min
         self._writer = writer
@@ -810,7 +813,11 @@ class Arbiter:
         from ..core import jev_judges
 
         verdict = await jev_judges.judge_confirm_answer(
-            self._jev, question=inp.confirm_question, text=inp.utterance, min_conf=self._min_conf
+            self._jev,
+            question=inp.confirm_question,
+            text=inp.utterance,
+            min_conf=self._min_conf,
+            me=self._me(),
         )
         # 見出し（`query`）を付けて、調停がそのまま投げる。空だと `_close_early` を通らず主LLM へ回り、
         # 主LLM が道具を呼ばずに「手続きを進めています」と言って、掛からなかった（2026-10-17 17:58）。
@@ -843,6 +850,7 @@ class Arbiter:
             question=inp.heard_check_question,
             text=inp.utterance,
             min_conf=self._min_conf,
+            me=self._me(),
         )
         action = inp.heard_check_action
         yes = verdict == jev_judges.CONFIRM_YES
@@ -873,7 +881,11 @@ class Arbiter:
         from ..core import jev_judges
 
         verdict = await jev_judges.judge_confirm_answer(
-            self._jev, question=inp.offer_question, text=inp.utterance, min_conf=self._min_conf
+            self._jev,
+            question=inp.offer_question,
+            text=inp.utterance,
+            min_conf=self._min_conf,
+            me=self._me(),
         )
         yes = verdict == jev_judges.CONFIRM_YES
         logger.info(

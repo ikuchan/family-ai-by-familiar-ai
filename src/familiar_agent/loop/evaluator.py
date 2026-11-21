@@ -12,6 +12,8 @@ agent.py から分離した、次の3つを持つ（発話前の検査・記憶�
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 import logging
 
 from .._i18n import _t
@@ -49,7 +51,15 @@ class Evaluator:
     避けて発見的手法やスキップに落とす。
     """
 
-    def __init__(self, utility_backend, backend, *, context=None, jev=None) -> None:
+    def __init__(
+        self,
+        utility_backend,
+        backend,
+        *,
+        context=None,
+        jev=None,
+        me: "Callable[[], str] | None" = None,
+    ) -> None:
         """`context(stance)` は立ち位置と文脈を返す（出-e）。
 
         渡さなければ立ち位置を渡さない（いままでと同じ）。材料が欠けたときも `None` を
@@ -60,6 +70,8 @@ class Evaluator:
         self._context = context
         # 判定は Jev（出-au 段 5-6：感情の評価と気分の見立て）。無ければ未測定・既定の気分。
         self._jev = jev
+        #: Jev の問いでパジュ自身を書く名前を返す口（W と同じ `config.agent_names`・記-z）。無ければ判定の既定。
+        self._me = me
 
     def _stance(self, stance) -> "str | None":
         """立ち位置と文脈を引く。提供者が無ければ `None`。"""
@@ -87,6 +99,7 @@ class Evaluator:
             mood=load_current_mood() if mood is None else mood,
             arousal=arousal,
             a_gate=A_GATE,
+            me=self._me() if self._me is not None else None,
         )
         return pad, a, ("neutral" if pad is None else label_from_pad(pad))
 

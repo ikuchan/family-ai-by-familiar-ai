@@ -4167,6 +4167,7 @@ class InformationProcessing:
             draft=draft,
             added=[t.query for t in waiting],
             min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+            me=self._me(),  # W と同じ名前（記-z）
         )
 
     async def _rethink(self, draft: str) -> str:
@@ -4486,6 +4487,7 @@ class InformationProcessing:
             writer=agent._utility_backend,
             min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
             promise_min=float(getattr(agent.config, "arbiter_promise_min", 0.6)),
+            me=self._me,  # Jev の問いで自分を書く名前（W と同じ・記-z）
         )
 
     def _arbiter_input(
@@ -4849,6 +4851,7 @@ class InformationProcessing:
             heard=utterance or req.cue,
             text=text,
             min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
+            me=self._me(),  # W と同じ名前（記-z）
         )
         logger.info(
             "event-loop 主LLM が say を呼ばずに文で返した（起点=%s・%d 字）→ Jev：%s",
@@ -5087,6 +5090,7 @@ class InformationProcessing:
                     ids=list(w_id_map),
                     min_conf=float(getattr(agent.config, "jev_confidence_min", 0.6)),
                     rows=rows,
+                    me=self._me(),  # W と同じ名前（記-z）
                 )
             except asyncio.CancelledError:
                 raise

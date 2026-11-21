@@ -667,9 +667,16 @@ class EmbodiedAgent:
                 self.backend,
                 context=self._stance_context,
                 jev=getattr(self, "_jev", None),
+                me=self._me_name,  # Jev の問いで自分を書く名前（W と同じ・記-z）
             )
             self.__dict__["_evaluator_obj"] = ev
         return ev
+
+    def _me_name(self) -> str:
+        """パジュ自身を書く名前（`me_name(config.agent_names)`・W と同じ読み元・記-z）。Jev の判定へ渡す。"""
+        from .tools.memory import me_name
+
+        return me_name(getattr(self.config, "agent_names", None))
 
     def speaker_known(self) -> bool:
         """いま話している相手が**分かっている**か（知-t・2026-09-18・1 箇所で決める）。

@@ -50,7 +50,8 @@ def test_the_state_says_where_the_axes_rest_and_asks_what_paju_felt():
     )
     state, questions = c.ask.await_args.args
     assert "快 0.10・不快 0.10・掌握 0.50" in state
-    assert all("パジュ自身が感じた" in q["instructions"] for q in questions.values())
+    # 名前は呼び手が渡す（記-z）。渡さなければ「わたし」
+    assert all("わたし自身が感じた" in q["instructions"] for q in questions.values())
 
 
 # ── 段2：中立と気分の減衰先 ───────────────────────────────────────────────────

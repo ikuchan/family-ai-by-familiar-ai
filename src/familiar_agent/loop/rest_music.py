@@ -282,6 +282,7 @@ async def prepare_suggestion(agent, *, rng=None) -> bool:
     if len(pool) > 1:
         probs = await jev_judges.judge_music_pick(
             getattr(agent, "_jev", None),
+            me=agent._me_name(),  # W と同じ名前（記-z）
             candidates=[
                 {
                     "title": c.title,

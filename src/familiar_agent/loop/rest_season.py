@@ -117,6 +117,7 @@ async def _reads(agent, today: date, place: str) -> "list[str]":
     columns = ss.column_links(await _fetch(agent, COLUMN_LIST_URL))
     picked_news, picked_columns = await jev_judges.judge_season_reads(
         getattr(agent, "_jev", None),
+        me=agent._me_name(),  # W と同じ名前（記-z）
         today=today,
         place=place,
         news=news,

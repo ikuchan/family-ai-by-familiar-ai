@@ -51,6 +51,13 @@ def picked(answer, key: str, min_conf: float) -> "str | None":
     return str(pick) if pick else None
 
 
+def _fallback_me() -> str:
+    """呼び手が名前を渡さなかったとき（試験など）の名前。`me_name` の呼び名無しの名前（「わたし」）。"""
+    from ..tools.memory import me_name
+
+    return me_name(None)
+
+
 async def _ask(client, state: str, questions: dict):
     """Jev に聞く。使えない・例外は None。"""
     if client is None or not getattr(client, "available", False):
@@ -63,13 +70,20 @@ async def _ask(client, state: str, questions: dict):
 
 
 async def judge_rethink(
-    client, *, question: str, draft: str, added: "list[str]", min_conf: float
+    client,
+    *,
+    question: str,
+    draft: str,
+    added: "list[str]",
+    min_conf: float,
+    me: "str | None" = None,
 ) -> str:
     """主LLM が考えているあいだに言い足された言葉で、返事を考え直すべきか（§2.4）。倒し先は「そのまま出す」。"""
+    me = me or _fallback_me()
     lines = "\n".join(f"- 「{t}」" for t in added)
     state = (
         f"[人が最初に言ったこと]\n{question}\n\n"
-        f"[家のロボット（パジュ）が書いた返事の下書き]\n{draft}\n\n"
+        f"[家のロボット（{me}）が書いた返事の下書き]\n{draft}\n\n"
         f"[下書きを考えているあいだに、人が言い足したこと]\n{lines}"
     )
     questions = {
@@ -87,12 +101,15 @@ async def judge_rethink(
     return verdict
 
 
-async def judge_confirm_answer(client, *, question: str, text: str, min_conf: float) -> str:
+async def judge_confirm_answer(
+    client, *, question: str, text: str, min_conf: float, me: "str | None" = None
+) -> str:
     """確認待ちのあいだに届いた言葉が、確認の問いへの答えか（知-o）。倒し先は「それ以外」（掛けもやめもせず促すだけ）。
 
     確認待ちのあいだは発話の意味の大きな問いを使わず、この 3 択だけを聞く（10/13 20:00:17 に「はい」を確信度不足で聞き返した）。
     """
-    state = f"[家のロボット（パジュ）が聞いた確認の問い]\n{question}\n\n[いま聞こえた言葉]\n{text}"
+    me = me or _fallback_me()
+    state = f"[家のロボット（{me}）が聞いた確認の問い]\n{question}\n\n[いま聞こえた言葉]\n{text}"
     questions = {
         "answer": choice(
             "いま聞こえた言葉は、確認の問いへの答えか",
@@ -109,15 +126,18 @@ async def judge_confirm_answer(client, *, question: str, text: str, min_conf: fl
     return verdict
 
 
-async def judge_bare_reply(client, *, heard: str, text: str, min_conf: float) -> bool:
+async def judge_bare_reply(
+    client, *, heard: str, text: str, min_conf: float, me: "str | None" = None
+) -> bool:
     """say の無い主LLM の文が、いまの相手への返事か（出-ck・2026-10-15）。倒し先は独り言（偽・差し戻さない）。
 
     返事なら、呼び手が主LLM へ 1 回だけ「say で言って」と差し戻す。文そのものは声にしない（独り言の文を外に出さない・本人）。
     """
-    state = f"[いま届いた言葉]\n{heard or '（なし）'}\n\n[家のロボット（パジュ）が書いた文]\n{text}"
+    me = me or _fallback_me()
+    state = f"[いま届いた言葉]\n{heard or '（なし）'}\n\n[家のロボット（{me}）が書いた文]\n{text}"
     questions = {
         "reply": choice(
-            "パジュが書いた文は、いま届いた言葉の相手に声で届けるための返事か、パジュ自身の考えや独り言か",
+            f"{me}が書いた文は、いま届いた言葉の相手に声で届けるための返事か、{me}自身の考えや独り言か",
             {
                 "reply": "相手への返事。相手に向けて答え・気持ち・問いを言っている",
                 "monologue": "自分の考えや独り言。相手に向けて言う形になっていない",
@@ -365,10 +385,7 @@ async def judge_speech_and_verdicts(
     """
     if not response:
         return None, []
-    if not me:
-        from ..tools.memory import me_name
-
-        me = me_name(None)
+    me = me or _fallback_me()
     state = (
         f"[機械が確かめた事実]\n{facts or '（なし）'}\n\n"
         f"[直近のやりとり]\n{recent or '（なし）'}\n\n"
@@ -484,17 +501,19 @@ async def judge_verdicts(
     ids: "list[str]",
     min_conf: float,
     rows: "dict[str, str] | None" = None,
+    me: "str | None" = None,
 ) -> list:
     """記憶の申告を背景で聞く（軽量LLM が答えた反復・主LLM の言い直しと検査を切った反復・出-h-ろ・記-r）。
 
     記憶ごとに 1 問、1 回の呼び出しでまとめて聞く。返りは `[{"id", "verdict"}]`。確信度が低い記憶は申告しない。
     行の文は `rows`（12 桁 → 文）で渡すか、無ければ W の文（`workspace_ctx`）から取る。Jev が使えない・失敗なら空。
     """
+    me = me or _fallback_me()
     rows = rows if rows is not None else workspace_rows(workspace_ctx or "")
     wanted = {i: rows[i] for i in ids if i in rows}
     if not wanted or not reply:
         return []
-    state = f"[人の言葉]\n{utterance or '（なし）'}\n\n[家のロボット（パジュ）の答え]\n{reply}"
+    state = f"[人の言葉]\n{utterance or '（なし）'}\n\n[家のロボット（{me}）の答え]\n{reply}"
     answer = await _ask(client, state, _verdict_questions(wanted))
     out = _verdicts_from(answer, list(wanted), min_conf)
     logger.info("Jev 判定 記憶の申告：%d／%d 件", len(out), len(wanted))
@@ -514,12 +533,15 @@ def _unit(got: dict, levels: int) -> "float | None":
     return min(1.0, max(0.0, float(v) / (levels - 1)))
 
 
-async def judge_emotion(client, *, text: str, mood, arousal: float, a_gate: float):
+async def judge_emotion(
+    client, *, text: str, mood, arousal: float, a_gate: float, me: "str | None" = None
+):
     """いまのやり取りでパジュ自身が何を感じたかを P・Pn・Dom で測る（W2b-2・§2.2.3）。返りは `(PAD|None, A)`。
 
     A は機械の高ぶりで、`a_gate` 未満なら聞かない。平静の位置といまの気分は**事実として**送る（答えの側を指示しない・
     出-e）。Jev が使えない・失敗・3 つそろわなければ未測定（`None`・気分で埋めない・050）。確信度では倒さない。
     """
+    me = me or _fallback_me()
     from ..mood_register import MoodPAD
 
     a = min(1.0, max(0.0, arousal))
@@ -527,15 +549,15 @@ async def judge_emotion(client, *, text: str, mood, arousal: float, a_gate: floa
         return None, a
     state = (
         f"[やり取り]\n{text[:400]}\n\n"
-        "[家のロボット（パジュ）のいまの気分]\n"
+        f"[家のロボット（{me}）のいまの気分]\n"
         f"快 {mood.p:.2f}・不快 {mood.pn:.2f}・掌握 {mood.dom:.2f}"
         "（何も起きていないときは 快 0.10・不快 0.10・掌握 0.50 に落ち着く。快と不快は別々の量で、両方大きいことも"
         "両方小さいこともある）"
     )
     questions = {
-        "p": score("このやり取りで、パジュ自身が感じた心地よさ（快）の大きさ", _AMOUNT_LEVELS),
-        "pn": score("このやり取りで、パジュ自身が感じた嫌さ（不快）の大きさ", _AMOUNT_LEVELS),
-        "dom": score("このやり取りで、パジュ自身が感じた、状況を掌握している度合い", _DOM_LEVELS),
+        "p": score(f"このやり取りで、{me}自身が感じた心地よさ（快）の大きさ", _AMOUNT_LEVELS),
+        "pn": score(f"このやり取りで、{me}自身が感じた嫌さ（不快）の大きさ", _AMOUNT_LEVELS),
+        "dom": score(f"このやり取りで、{me}自身が感じた、状況を掌握している度合い", _DOM_LEVELS),
     }
     answer = await _ask(client, state, questions)
     if not getattr(answer, "ok", False):
@@ -570,13 +592,20 @@ async def judge_companion_mood(client, *, text: str) -> str:
 
 
 async def judge_music_pick(
-    client, *, candidates: "list[dict]", family_now: str, artists: str, previous: str
+    client,
+    *,
+    candidates: "list[dict]",
+    family_now: str,
+    artists: str,
+    previous: str,
+    me: "str | None" = None,
 ) -> "dict[str, float] | None":
     """どのおすすめがいまの家族に合うか（知-aq・2026-10-22・本人の決定）。選択肢 `c1`… ごとの確率を返す。
 
     確信度で倒さない——確率は呼び手が `music_suggestion.pick` で使う（固まったら 2 番目以降から引く）。
     使えない・失敗・確率が無ければ None（倒し先：前日の候補を残す）。
     """
+    me = me or _fallback_me()
     state = (
         f"[家族のいまの様子]\n{family_now or '（なし）'}\n\n"
         f"[プレイリストのアーティスト]\n{artists or '（なし）'}\n\n"
@@ -588,7 +617,7 @@ async def judge_music_pick(
     }
     questions = {
         "pick": choice(
-            "家のロボット（パジュ）が家族に 1 曲すすめる。家族のいまの様子とプレイリストの好みに、いちばん合う曲はどれか",
+            f"家のロボット（{me}）が家族に 1 曲すすめる。家族のいまの様子とプレイリストの好みに、いちばん合う曲はどれか",
             criteria,
         )
     }
@@ -624,13 +653,14 @@ def _season_picks(got: dict, keys: "dict[str, object]", most: int) -> list:
 
 
 async def judge_season_reads(
-    client, *, today, place: str, news: list, columns: list
+    client, *, today, place: str, news: list, columns: list, me: "str | None" = None
 ) -> "tuple[list, list]":
     """季節の層で読む記事（知-ac・2026-10-24・本人の決定）。ウェザーニュースは 2 本まで、Yahoo!のコラムは 1 本まで。
 
     題名に「どれも合わない」を足して選ばせ、確率どうしを比べる（しきい値は置かない）。
     使えない・失敗・確率が無ければ何も選ばない（倒し先：節気のページだけ読む）。
     """
+    me = me or _fallback_me()
     from .season_env import last_term
 
     news_keys = {f"n{i}": n for i, n in enumerate(news, 1)}
@@ -639,13 +669,13 @@ async def judge_season_reads(
     questions = {}
     if news_keys:
         questions["news"] = choice(
-            "家のロボット（パジュ）が、季節の話のきっかけに天気のニュースを読む。住んでいる土地といまの時期に"
+            f"家のロボット（{me}）が、季節の話のきっかけに天気のニュースを読む。住んでいる土地といまの時期に"
             "いちばん合う記事はどれか",
             {**{k: n.title for k, n in news_keys.items()}, SEASON_NONE: none},
         )
     if column_keys:
         questions["column"] = choice(
-            "家のロボット（パジュ）が、季節の話のきっかけに歳時記や天気の読み物を読む。いまの時期にいちばん"
+            f"家のロボット（{me}）が、季節の話のきっかけに歳時記や天気の読み物を読む。いまの時期にいちばん"
             "合う読み物はどれか（季節外れの行事は合わない）",
             {**{k: c.title for k, c in column_keys.items()}, SEASON_NONE: none},
         )
