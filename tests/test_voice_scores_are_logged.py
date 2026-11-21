@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from unittest.mock import AsyncMock
 
 import numpy as np
@@ -97,24 +98,23 @@ def test_a_clearly_known_voice_outside_the_window_switches_the_speaker(caplog):
     そのうち 3,073 回は通していたら付け替えていた。返事はしない（捨てた声のまま）。今日の声にも足さない。
     """
     ip, a, s = _ip()
-    a._speaker_set_at = 0.0  # 指定はとうに切れている
+    _in_talk(a)
     assert a.config.recognition.voice_outside_switch_threshold == 0.55
     with caplog.at_level(logging.INFO, logger=LOGGER):
         out = _push(ip, SABURO)
     assert out == ""  # 返事はしない
     a._persons.set_active.assert_called_once_with("さぶろう")
-    assert a._speaker_set_at == 0.0  # 指定の時刻は新しくしない
     assert s.added == []  # 今日の声には足さない
 
 
 def test_the_threshold_itself_switches_and_just_above_does_not():
     ip, a, s = _ip()
-    a._speaker_set_at = 0.0
+    _in_talk(a)
     a.config.recognition.voice_outside_switch_threshold = 1.0  # SABURO は 1.00
     _push(ip, SABURO)
     a._persons.set_active.assert_called_once()
     ip, a, s = _ip()
-    a._speaker_set_at = 0.0
+    _in_talk(a)
     a.config.recognition.voice_outside_switch_threshold = 1.0001
     _push(ip, SABURO)
     a._persons.set_active.assert_not_called()
@@ -122,9 +122,8 @@ def test_the_threshold_itself_switches_and_just_above_does_not():
 
 def test_a_speaker_set_on_purpose_is_not_taken_over_from_outside():
     """`/speaker`・名乗り・写真・門を通った声で付けた話者は、指定が生きているあいだ（60 秒）窓の外の声で替えない。"""
-    import time
-
     ip, a, s = _ip()
+    _in_talk(a)
     a._speaker_set_at = time.time()
     _push(ip, SABURO)
     a._persons.set_active.assert_not_called()
@@ -134,7 +133,55 @@ def test_an_unknown_voice_outside_does_not_reset_the_speaker():
     import numpy as np
 
     ip, a, s = _ip()
-    a._speaker_set_at = 0.0
+    _in_talk(a)
     _push(ip, np.asarray([0.7071, -0.7071], dtype=np.float32))  # 誰にも当たらない
     a._persons.reset_to_default.assert_not_called()
     a._persons.set_active.assert_not_called()
+
+
+def _in_talk(a, known: bool = True) -> None:
+    """会話の中（パジュが返事してから 60 秒）かどうか。"""
+    a._speaker_set_at = 0.0  # 指定はとうに切れている
+    a._speaker_confirmed_at = time.time() if known else 0.0
+    a.config.speaker_hold_sec = 60.0
+    a._pmm.current_speaker_id = "papa"
+    a._pmm.get_present_ids = lambda: []  # 顔では見ていない
+
+
+def test_outside_a_talk_an_outside_voice_decides_nobody():
+    """会話の外（返事から 60 秒を過ぎた）では、窓の外の声で誰かを決めない（テレビの声など・知-as・2026-11-21）。"""
+    ip, a, s = _ip()
+    _in_talk(a, known=False)
+    _push(ip, SABURO)
+    a._persons.set_active.assert_not_called()
+
+
+def test_an_outside_switch_leaves_the_time_marks_alone():
+    """窓の外の声で付け替えても、指定の時刻も返事の時刻も新しくしない（窓の外の声を根拠にしない）。"""
+    ip, a, s = _ip()
+    _in_talk(a)
+    confirmed = a._speaker_confirmed_at
+    _push(ip, SABURO)
+    a._persons.set_active.assert_called_once_with("さぶろう")
+    assert a._speaker_set_at == 0.0 and a._speaker_confirmed_at == confirmed
+
+
+def test_a_face_alone_is_not_a_talk():
+    """顔が見えているだけ（返事は 60 秒より前）では会話の中としない。テレビの声で付け替えない（知-as）。"""
+    ip, a, s = _ip()
+    _in_talk(a, known=False)
+    a._pmm.get_present_ids = lambda: ["papa"]
+    _push(ip, SABURO)
+    a._persons.set_active.assert_not_called()
+
+
+def test_a_switch_in_a_talk_survives_the_speaker_expiry():
+    """会話の中で付け替えた話者は、本物の `speaker_known`（自律機構の「指定が切れた」の判定）で分かったままである。"""
+    from familiar_agent.agent import EmbodiedAgent
+
+    ip, a, s = _ip()
+    _in_talk(a)
+    _push(ip, SABURO)
+    a._persons.set_active.assert_called_once_with("さぶろう")
+    a._pmm.current_speaker_id = "saburo"  # 偽の同期の代わり
+    assert EmbodiedAgent.speaker_known(a) is True

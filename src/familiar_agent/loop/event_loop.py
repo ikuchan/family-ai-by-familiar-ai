@@ -5854,7 +5854,8 @@ class InformationProcessing:
     async def _listen_swallowed_voice(self, voice: Any) -> None:
         """窓の外で捨てた声も、点数と「通していたら」の答えを残す（知-as 段 1）。
 
-        点数が `voice_outside_switch_threshold`（0.55・仮）以上で別の人に当たれば、話者を付け替える（知-as 段 2・2026-11-21）。
+        会話の中（返事から 60 秒）で、はっきり指定した話者の持ち時間（60 秒）が過ぎていて、点数が
+        `voice_outside_switch_threshold`（0.55・仮）以上で別の人に当たれば、話者を付け替える（知-as 段 2・2026-11-21）。
         二人が交互に話しても、パジュの名前を呼ばない限り話者が変わらなかったため。返事はしない（捨てた声のまま）。
         今日の声には足さず、誰にも当たらないときに既定の人へ戻すこともしない（窓の外の声は確かさが低い）。
         """
@@ -5880,15 +5881,22 @@ class InformationProcessing:
         ):
             return
         agent = self._agent
-        # はっきり指定した話者（`/speaker`・名乗り・写真・門を通った声）は、指定が生きているあいだ上書きしない。
-        set_at = float(getattr(agent, "_speaker_set_at", 0.0) or 0.0)
-        if time.time() - set_at < float(agent.config.speaker_hold_sec):
-            return
         try:
+            now = time.time()
+            hold = float(agent.config.speaker_hold_sec)
+            # はっきり指定した話者（`/speaker`・名乗り・写真・門を通った声）は、指定が生きているあいだ上書きしない。
+            if now - float(getattr(agent, "_speaker_set_at", 0.0) or 0.0) < hold:
+                return
+            # 付け替えるのは会話の中（パジュが返事してから 60 秒・`_speaker_confirmed_at`）だけ。顔が見えているだけでは
+            # 会話の中としない。会話の外の窓の外の声（テレビなど）で誰かを決めない。返事の時刻が生きていれば、
+            # 付け替えたあとも自律機構の「指定が切れた」は既定の人へ戻さない。
+            if now - float(getattr(agent, "_speaker_confirmed_at", 0.0) or 0.0) >= hold:
+                return
             name = self._call_name_for(verdict.person_id)
             if not name:
                 return
-            # 指定の時刻（`_speaker_set_at`）は新しくしない（窓の外の声どうしで指定を延ばし合わない）。
+            # 時刻の印（`_speaker_set_at`・`_speaker_confirmed_at`）は新しくしない。窓の外の声は誰かを決める根拠にならず、
+            # 分かっている話者を、会話の中で別の人へ移すだけ。
             agent._persons.set_active(name)
             with contextlib.suppress(Exception):
                 await agent._sync_pmm_speaker(name)
