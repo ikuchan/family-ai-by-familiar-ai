@@ -6764,7 +6764,8 @@ class InformationProcessing:
         「待てぃ」を調停が「黙っていて」と読み 60 分の依頼になったあと、解く口が無かった
         （解ける条件が退室と期限だけで、`clear_silence()` に呼び手が無かった）。話しかけられた
         だけでは解かない（黙っていてほしい人が用事だけ言うことはある）。解くのは、頼んだ本人が
-        話していいと言ったとき。解いたら真（解く依頼が無い・タイマーの沈黙・解けなかったは偽）。
+        話していいと言ったとき。タイマーで黙っているときは、そのタイマーを取り消して解く（2026-11-21 本人の決定）。
+        解いたら真（解く依頼が無い・タイマーを取り消せない・解けなかったは偽）。
         """
         try:
             sm = self._paju()
@@ -6773,9 +6774,20 @@ class InformationProcessing:
             if req is None:
                 return False
             if req.reason.startswith("timer:"):
-                # タイマー由来の沈黙は鳴る・止めるまで（タイマーは従来どおり・出-as §2.4）。
-                logger.info("話していいと言われたが、タイマーの沈黙なので解かない")
-                return False
+                # タイマーで黙っているときは、タイマーごと解く（2026-11-21 本人の決定「タイマーの沈黙は、話していいよに
+                # なったら、タイマー毎解く認識です」）。取り消すのは、黙る依頼のもとのタイマー（`timer:<id>`）だけ（一時停止中の
+                # ほかのタイマーは残す）。道具は例外を出さず (文面, 成功) を返すので、成功を見る。取り消せなければ黙ったまま。
+                tool = getattr(self._agent, "_timer_tool", None)
+                if tool is not None:
+                    _text, ok = await tool.call("cancel_timer", {"id": req.reason[len("timer:") :]})
+                    if not ok:
+                        logger.warning(
+                            "話していいと言われたが、タイマーを取り消せないので黙ったまま"
+                        )
+                        return False
+                await sm.unhush()
+                logger.info("話していいと言われたので、タイマーごと黙るのを解いた")
+                return True
             # **誰が言っても解く**（出-as §2.5）。話者が分からない家では本人かを決められなかった。控えも状態図が消す。
             await sm.unhush()
             logger.info(
