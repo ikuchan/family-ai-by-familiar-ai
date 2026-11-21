@@ -196,14 +196,16 @@ class DIF:
                 logger.debug("DIF 黙っているので、求めの外の声を鳴らさない")
                 return None
         async with sm.voice_turn():
-            if not through_silence and self._silenced(sm):  # 鍵を待つあいだに黙った
-                logger.debug("DIF 黙っているので、求めの外の声を鳴らさない")
-                return None
             if after_cue:
                 await self._after_cue()
+            # 黙っているかは状態図が決める（`voice_began` の条件 `silenced_outside`・環-bb）。鍵や合図を待つあいだに黙っても、
+            # 状態図が話し始めたを断れば鳴らさない（前は合図の前に見て、そのあと黙っても鳴らしていた・見直し 2026-11-21）。
+            await self._tell(sm, "voice_began", through_silence=through_silence)
+            if sm.voice_state() != "speaking" and sm.silenced_outside(through_silence):
+                logger.debug("DIF 黙っているので、求めの外の声を鳴らさない")
+                return None
             played = False
             try:
-                await self._tell(sm, "voice_began")
                 played = await play()
                 return played
             finally:
@@ -338,10 +340,8 @@ class DIF:
 
     @staticmethod
     def _silenced(sm: "PajuState") -> bool:
-        """いま黙っているか。状態図の依頼を、鳴らす時刻で決める（期限を過ぎた依頼では止めない）。"""
-        from ..silence_state import is_silenced
-
-        return is_silenced(sm.silence_request(), now=time.time())
+        """いま黙っているか（求めの外の声として）。判定は状態図の `silenced_outside` の 1 か所。"""
+        return sm.silenced_outside(False)
 
     async def say_credit(self, name: str, *, gain: float) -> "bool | None":
         """残高切れを録音済みの声で知らせる（環-z・`sounds/credit_<担い手>.wav`）。LLM も TTS も通さない。

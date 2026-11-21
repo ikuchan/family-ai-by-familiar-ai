@@ -6,6 +6,9 @@
 - **行き止まりが無い**：どの領域でも、どの状態からも、事象を送れば初めの状態へ戻れる。
 - **寝ているあいだ耳は言葉を頭へ渡さない**（決定ク・ダ）：頭が寝ているとき `request_opened` を送っても、頭も耳の考えているあいだも
   移らない。
+- **違う問いが同時に待たない**（決定ノ・2026-11-21 本人が足した）：新しい問いは、どの状態からも前の問いを上書きする。
+- **黙っているあいだ話さない**（2026-11-21 本人が足した）：条件 `silenced_outside` が真なら、話し始めたで話しているへ移らない。
+  条件そのもの（黙る依頼のデータと時刻、求めの外の声か）の判定は、Python の試験が受け持つ。
 
 証明するのは、読み出した状態と移りの形だけ。移りの中の動作やデータの動きは、Python の試験が受け持つ。
 使い方：`uv run python -m familiar_agent.loop.paju_state_lean > lean/PajuState.lean`、確かめるのは `lean lean/PajuState.lean`。
@@ -159,6 +162,45 @@ def lean() -> str:
             f"      h != .{_q('sleeping')} ||",
             f"        (Head.step {args('h')} h .{_q('request_opened')} == none &&",
             f"         Listening.step {args('h')} l .{_q('request_opened')} == none))) = true := by",
+            "  decide",
+            "",
+        ]
+    ids = {r.id for r in regions}
+    falses = " ".join("false" for _ in conds)
+
+    def only(cond: str) -> str:
+        """条件 `cond` だけ真、ほかは偽の引数。"""
+        return " ".join("true" if c == cond else "false" for c in conds)
+
+    # 違う問いが同時に待たない（決定ノ・2026-11-21 本人の決定）。待っている答えは 1 つの領域で、同時に 1 つの状態しか
+    # 取らない。そのうえで、新しい問いが来れば、どの状態からも、その問いの答えを待つ状態になる（前の問いを上書きする。
+    # 同じ種類の問いなら状態は移らず、データだけ替わる）。
+    asks = [
+        ("confirm_asked", "confirm_answer"),
+        ("offer_made", "offer_answer"),
+        ("heard_asked", "heard_answer"),
+    ]
+    if "awaited" in ids and all(ev in events for ev, _ in asks):
+        step_a = " ".join(filter(None, ["Awaited.step", falses]))
+        out += [
+            "/-- 新しい問いは、どの状態からも前の問いを上書きし、その問いの答えだけを待つ（決定ノ）。 -/",
+            "theorem a_new_question_replaces_the_old :",
+            "    Awaited.all.all (fun a =>",
+            "      "
+            + " &&\n      ".join(
+                f"({step_a} a .{_q(ev)} == some .{_q(st)} || a == .{_q(st)})" for ev, st in asks
+            )
+            + ") = true := by",
+            "  decide",
+            "",
+        ]
+    # 黙っているあいだ話さない（2026-11-21 本人の決定）。条件 `silenced_outside` は、黙る依頼が効いていて求めの外の声か
+    # （`PajuState.silenced_outside`）。それが真なら、声のどの状態からも、話し始めた（`voice_began`）で話しているへ移らない。
+    if "voice" in ids and "silenced_outside" in conds:
+        out += [
+            "/-- 黙る依頼が効いていて求めの外の声なら、声は話しているへ移らない。 -/",
+            "theorem silenced_takes_no_outside_voice :",
+            f"    Voice.all.all (fun v => Voice.step {only('silenced_outside')} v .{_q('voice_began')} == none) = true := by",
             "  decide",
             "",
         ]

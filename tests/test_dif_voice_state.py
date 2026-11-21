@@ -89,7 +89,10 @@ def test_a_voice_sends_began_and_ended_around_the_playing():
         tts = _TTS(ip)
         await dif_mod.DIF(tts=tts, ip=ip).speak("こんにちは")
         assert tts.seen == ["speaking"]
-        assert ip.sent == [("voice_began", {}), ("voice_ended", {"played": True})]
+        assert ip.sent == [
+            ("voice_began", {"through_silence": False}),
+            ("voice_ended", {"played": True}),
+        ]
         assert ip.sm.voice_state() == "no_voice"
 
     asyncio.run(go())
@@ -462,3 +465,34 @@ def test_a_broken_chart_does_not_silence_paju(monkeypatch, caplog):
     with caplog.at_level(logging.WARNING, logger="familiar_agent.io.dif"):
         asyncio.run(go())
     assert sum("状態図へ" in r.getMessage() for r in caplog.records) >= 3
+
+
+def test_silenced_while_waiting_for_the_cue_the_outside_voice_does_not_play(monkeypatch):
+    """合図を待つあいだに黙ったら、求めの外の声は鳴らさない（状態図が話し始めたを断る。見直し 2026-11-21）。
+
+    前は、鍵を取る前に黙っているかを見たあと合図を待ち、そのあいだに黙っても鳴らしていた。状態図は話しているへ移らず、
+    音だけが鳴った。
+    """
+    import time
+
+    from familiar_agent.silence_state import SilenceRequest
+
+    seen: list = []
+
+    async def go():
+        ip = _IP()
+        await ip.sm.start()
+        _quiet_wav(monkeypatch, seen=seen, ip=ip)
+        d = dif_mod.DIF(ip=ip)
+
+        async def hushed_during_cue():
+            await ip.sm.hush_with(SilenceRequest(person="", until=time.time() + 600, reason=""))
+
+        d._after_cue = hushed_during_cue  # type: ignore[method-assign]
+        played = await d.say_recorded("credit_anthropic", gain=1.0)
+        return played, ip.events()
+
+    played, events = asyncio.run(go())
+    assert played is None  # 黙っていて鳴らさなかった
+    assert seen == []  # 音を出していない
+    assert "voice_ended" not in events

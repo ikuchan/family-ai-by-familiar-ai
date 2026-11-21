@@ -367,3 +367,29 @@ def test_the_thinking_cue_can_start_while_a_cue_sounds():
         assert sm.voice_state() == "no_voice"
 
     asyncio.run(go())
+
+
+# ── 黙っているあいだ話さない（環-bb・Lean で証明する決まり・2026-11-21 本人の決定） ──────────────────
+
+
+def test_an_outside_voice_does_not_start_speaking_while_silenced():
+    """黙る依頼が効いているあいだ、求めの外の声（through_silence なし）では、声は話しているへ移らない。"""
+    import asyncio
+    import time
+
+    from familiar_agent.loop.paju_state import PajuState
+    from familiar_agent.silence_state import SilenceRequest
+
+    async def go():
+        sm = PajuState()
+        await sm.start()
+        await sm.hush_with(SilenceRequest(person="", until=time.time() + 600, reason=""))
+        await sm.fire("voice_began")
+        outside = sm.voice_state()
+        await sm.fire("voice_began", through_silence=True)
+        inside = sm.voice_state()
+        return outside, inside
+
+    outside, inside = asyncio.run(go())
+    assert outside == "no_voice"  # 求めの外の声は移らない
+    assert inside == "speaking"  # 開いている求めの声は通す

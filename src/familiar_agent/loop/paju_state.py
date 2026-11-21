@@ -342,7 +342,14 @@ class PajuState(StateChart):
                 # 合図 → 合図は外へ出て入り直す（はいっ のあとの えっと など、合図が続くとき）
                 cue_began = no_voice.to(cue) | thinking_cue.to(cue) | cue.to.itself()
                 cue_ended = cue.to(no_voice)
-                voice_began = no_voice.to(speaking) | thinking_cue.to(speaking) | cue.to(speaking)
+                # 黙る依頼が効いていて、求めの外の声（`through_silence` なし）なら移らない（環-bb・2026-11-21 本人の決定
+                # 「黙っているあいだ話さない」を Lean で証明するため）。判定は `silenced_outside` の 1 か所で、依頼のデータを
+                # 条件を見る時刻で読む。dif は鍵を待つ前にも同じ口で見て止め、話し始めたを断られたら鳴らさない。
+                voice_began = (
+                    no_voice.to(speaking, unless="silenced_outside")
+                    | thinking_cue.to(speaking, unless="silenced_outside")
+                    | cue.to(speaking, unless="silenced_outside")
+                )
                 voice_ended = speaking.to(no_voice)
 
     async def after_transition(self, event: str) -> None:
@@ -522,6 +529,12 @@ class PajuState(StateChart):
     def silence_request(self) -> "SilenceRequest | None":
         """いまの黙っている依頼。門は、これを処理した時刻で `is_silenced` に掛けて決める。無ければ None。"""
         return self.silence
+
+    def silenced_outside(self, through_silence: bool = False) -> bool:
+        """黙る依頼がいま効いていて、声が求めの外のもの（`through_silence` なし）か（`voice_began` の条件・環-bb）。"""
+        from ..silence_state import is_silenced
+
+        return not through_silence and is_silenced(self.silence_request(), now=time.time())
 
     def is_silent(self) -> bool:
         """口が黙っているにいるか。"""
