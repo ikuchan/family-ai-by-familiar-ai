@@ -47,6 +47,16 @@ year, and uses them to start a conversation.
 
 > "They say the first winter wind blew today. Was it cold on your way home?"
 
+### 🗺 You can see what it is doing right now
+
+Paju holds the state of its head (thinking, answering, asleep…), ears (listening, waiting to be called) and mouth
+(speaking, staying quiet) in a single state chart. Press "状態図" (state chart) in the app to open a window: the
+current states light up on the chart, and the latest transitions are listed below with their times. Load a day's
+log and move the time slider to replay what Paju was doing at any moment. The chart's rules (every state can get
+back to the start; while asleep it takes in no words) are proved in Lean.
+
+> Wondering "why didn't it answer just now?", you replay that moment and see its ears were closed — it was in the middle of answering.
+
 ## Other features
 
 - 📣 Listens only after being called by name; does not cut into the TV or the family's own conversation
@@ -65,7 +75,6 @@ year, and uses them to start a conversation.
 - 🔒 Keeps family words and names out of its logs
 - 💳 Says out loud when an AI provider runs out of credit
 - 🧩 Judgments (who is addressed, the answer to a confirmation, mood) are made by Jev, a model built for typed judgments
-- 🗺 Holds its state in a single state chart you can watch on screen; the chart's rules are proved in Lean
 - 🔌 Add tools through MCP
 - 🌍 UI and voice in 74 languages
 
