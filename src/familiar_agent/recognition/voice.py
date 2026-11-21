@@ -1,30 +1,19 @@
-"""Voice-based speaker identification (ECAPA-TDNN / speechbrain).
+"""声の特徴（ECAPA-TDNN / speechbrain）。
 
-Register a person's voice:
-    from familiar_agent.recognition.voice import VoiceIdentifier
-    vi = VoiceIdentifier(manager)
-    vi.register_voice(alice_id, "/path/to/sample.wav")
-
-人ごとの ECAPA 埋め込みを PostgreSQL の `recognition_embeddings`（`kind='voice'`・人の id キー）に持つ
-（知-ae・2026-10-02。以前は pickle だった）。照らすのは人ごとの重心。
-実モデル（speechbrain）は重いので遅延シングルトンで1回だけロードする。
+書き起こしの区切りの PCM から話者の特徴を取る（`embed_pcm`・`tools/local_stt` が呼ぶ）。照合と登録は
+`loop/event_loop` が行い、人ごとの特徴は PostgreSQL の `recognition_embeddings`（`kind='voice'`）に持つ（知-ae）。
+実モデル（speechbrain）は重いので遅延シングルトンで1回だけロードする。ファイルから照らす `VoiceIdentifier` は
+どこからも呼ばれていなかったので撤去した（知-ae・2026-11-21）。
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 import numpy as np
 
-from ..config import RecognitionConfig
-from ..store.recognition_embeddings import RecognitionEmbeddingStore
-from .embedding_store import best_match
-
-if TYPE_CHECKING:
-    from ..person_memory_manager import PersonMemoryManager, RecognitionHint
 
 logger = logging.getLogger(__name__)
 
@@ -59,22 +48,6 @@ def _get_model() -> Any:
         return None
 
 
-def _extract_voice_embedding(audio_path: str) -> np.ndarray | None:
-    """音声から ECAPA 話者埋め込みを返す。失敗は None。"""
-    model = _get_model()
-    if model is None:
-        return None
-    try:
-        import torchaudio
-
-        signal, _sr = torchaudio.load(audio_path)
-        emb = model.encode_batch(signal)
-        return np.asarray(emb.squeeze().detach().cpu().numpy(), dtype=np.float32)
-    except Exception as e:
-        logger.warning("話者埋め込みの抽出に失敗: %s", e)
-        return None
-
-
 def embed_pcm(pcm16le: bytes) -> np.ndarray | None:
     """16 kHz・16 bit の PCM から ECAPA の話者の特徴を返す（ファイルを介さない・知-ae）。取れなければ None。"""
     if not pcm16le:
@@ -88,50 +61,3 @@ def embed_pcm(pcm16le: bytes) -> np.ndarray | None:
     signal = torch.from_numpy(samples).unsqueeze(0)
     emb = model.encode_batch(signal)
     return np.asarray(emb.squeeze().detach().cpu().numpy(), dtype=np.float32)
-
-
-class VoiceIdentifier:
-    def __init__(
-        self,
-        manager: "PersonMemoryManager",
-        *,
-        cfg: RecognitionConfig | None = None,
-        store: RecognitionEmbeddingStore | None = None,
-    ) -> None:
-        self._manager = manager
-        self._cfg = cfg or RecognitionConfig()
-        if store is None:
-            from ..db import get_db
-
-            store = RecognitionEmbeddingStore(get_db().conn())
-        self._store = store
-
-    def register_voice(self, person_id: str, audio_path: str) -> bool:
-        """人 `person_id` の声埋め込みを登録する。取れなければ False。"""
-        emb = _extract_voice_embedding(audio_path)
-        if emb is None:
-            logger.warning("声が取れず登録できない: pid=%s", person_id)
-            return False
-        self._store.add(person_id, "voice", "registered", emb, cap=self._cfg.registered_max)
-        logger.info("声を登録: %s", person_id)
-        return True
-
-    async def identify_async(self, audio_path: str) -> "RecognitionHint | None":
-        return await asyncio.to_thread(self._identify_sync, audio_path)
-
-    def _identify_sync(self, audio_path: str) -> "RecognitionHint | None":
-        from ..person_memory_manager import RecognitionHint
-
-        emb = _extract_voice_embedding(audio_path)
-        if emb is None:
-            return None
-        m = best_match(emb, self._store.centroids("voice", "registered"), self._cfg.voice_threshold)
-        if m is None:
-            return None
-        person_id, score = m
-        return RecognitionHint(
-            person_id=person_id,
-            confidence=max(0.0, min(1.0, score)),
-            source="voice",
-            reason=f"ecapa cos={score:.3f}",
-        )

@@ -106,28 +106,6 @@ async def test_recognize_face_none_when_no_embedding(tmp_path):
     assert hint is None
 
 
-# ── VoiceIdentifier（モデルをモック） ───────────────────────────────────────
-
-
-@pytest.mark.asyncio
-async def test_voice_identify_returns_hint_for_known_person(tmp_path):
-    from familiar_agent.recognition import voice as voice_mod
-
-    store = MagicMock()
-    store.centroids.return_value = {"pid-bob": np.array([0.0, 1.0, 0.0], dtype=np.float32)}
-
-    vi = voice_mod.VoiceIdentifier(MagicMock(), store=store)
-    with patch.object(
-        voice_mod,
-        "_extract_voice_embedding",
-        return_value=np.array([0.0, 0.98, 0.02], dtype=np.float32),
-    ):
-        hint = await vi.identify_async("/tmp/x.wav")
-    assert hint is not None
-    assert hint.person_id == "pid-bob"
-    assert hint.source == "voice"
-
-
 # ── apply_hint（per-source 自動切替しきい値） ───────────────────────────────
 
 

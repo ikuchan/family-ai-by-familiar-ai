@@ -57,4 +57,3 @@ ask_choice  # unused function (src/familiar_agent/core/structured_ask.py:85)
 
 # ── 結線は知-d（顔と声の登録）で行う（いまはアプリに import されていない）──────────────
 _._absent  # unused attribute (src/familiar_agent/recognition/presence_watcher.py:41)
-_.identify_async  # unused method (src/familiar_agent/recognition/voice.py:91)
