@@ -665,6 +665,10 @@ class RecognitionConfig:
     voice_alone_threshold: float = field(
         default_factory=lambda: _float_env("VOICE_ALONE_THRESHOLD", 0.45)
     )
+    # 窓の外で捨てた声でも、話者を付け替える基準（知-as 段 2・2026-11-21・仮（本人の確認待ち））。返事はしない。
+    # 窓の外の声は門を通った声より確かさが低いので、付け替えの基準（0.35・0.45）より高くする。ログの「通していたら
+    # 付け替えた」声 3,073 回の点数は、真ん中 0.49・上位 1 割 0.60。
+    voice_outside_switch_threshold: float = 0.55
     # 知らない声の基準（知-ar・2026-10-11・本人の決定）。声を登録した誰にもこれに届かない声は、門のいちばん先で捨てる。
     # 値は 4 人の登録と正解付きの点数が揃ってから決める。未設定（None）なら効かない。
     voice_stranger_threshold: "float | None" = field(

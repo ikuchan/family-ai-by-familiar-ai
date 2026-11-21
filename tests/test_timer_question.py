@@ -170,7 +170,7 @@ def test_a_quiet_drop_is_not_shown_nor_measured():
 
     ip = InformationProcessing(_agent(stream_returns=[]))
     ip._notify_heard = MagicMock()
-    ip._log_swallowed_voice = MagicMock()
+    ip._listen_swallowed_voice = AsyncMock()
     ip._ensure_driver = MagicMock()
 
     async def ear_drop(trigger):
@@ -180,7 +180,7 @@ def test_a_quiet_drop_is_not_shown_nor_measured():
     ip._swallow_if_unheard = ear_drop
     assert asyncio.run(ip.push_utterance("あしたの空へ", source="voice")) == ""
     ip._notify_heard.assert_not_called()
-    ip._log_swallowed_voice.assert_not_called()
+    ip._listen_swallowed_voice.assert_not_awaited()
 
 
 # --- 3. タイマーの入口（耳が閉じている／口が黙っている・Jev は 1 回・ウの 3 の改め・2026-11-14・本人の決定） ---

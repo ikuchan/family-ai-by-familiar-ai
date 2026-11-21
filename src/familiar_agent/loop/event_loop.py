@@ -3329,8 +3329,10 @@ class InformationProcessing:
         if await self._swallow_if_unheard(trigger):
             if trigger.ear_dropped:
                 return ""  # 耳で捨てた声は画面に知らせず、点数も測らない（いままでの声の門と同じ）
+            # 点数を残し、はっきり分かる声なら話者を付け替える（知-as）。吹き出しの名前は知らせた時点の話者を読むので、
+            # 門を通った声と同じく、先に話者を決めてから知らせる。
+            await self._listen_swallowed_voice(voice)
             self._notify_heard(utterance, trigger.quiet_open)
-            self._log_swallowed_voice(voice)  # 点数だけ残す（知-as 段 1）
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
         shown = utterance
         if trigger.named or trigger.near_name:
@@ -3343,7 +3345,7 @@ class InformationProcessing:
             if fixed != utterance:
                 logger.info("event-loop 名前の聞き違いを直した：%s", shown[: shown.find("）") + 1])
                 trigger.query = fixed
-        # 門を通った声だけ、誰が話しているかを照らす（知-ae）。捨てた声は聞いていないのと同じなので照らさない。
+        # 門を通った声で、誰が話しているかを照らす（知-ae）。捨てた声は `_listen_swallowed_voice` が、はっきり分かるときだけ付け替える（知-as）。
         # 吹き出しの名前は知らせた時点の話者を読むので、先に声で話者を決める（10/13 18:56 にももこの名前で出て、返事はパパ宛てだった）。
         await self._match_voice(voice)
         self._notify_heard(shown, True)
@@ -5811,8 +5813,8 @@ class InformationProcessing:
     def _voice_scores(self, voice: Any) -> "dict[str, float]":
         """人ごとの似かた（登録の重心と今日の重心のうち近いほう・`core/voice_speaker.scores`）。読めなければ例外。
 
-        門を通った声（`_match_voice`）も、窓の外で捨てた声（`_log_swallowed_voice`）も、ここで測る。捨てた声は測って
-        記録するだけで、話者・今日の声には触らない（知-as 段 1）。
+        門を通った声（`_match_voice`）も、窓の外で捨てた声（`_listen_swallowed_voice`）も、ここで測る。捨てた声は測って
+        記録し、はっきり分かる声（`voice_outside_switch_threshold` 以上）でだけ話者を付け替える。今日の声には足さない（知-as）。
         """
         from datetime import datetime
 
@@ -5849,8 +5851,13 @@ class InformationProcessing:
             or "基準なし",
         )
 
-    def _log_swallowed_voice(self, voice: Any) -> None:
-        """窓の外で捨てた声も、点数と「通していたら」の答えだけ残す（知-as 段 1）。話者・今日の声には触らない。"""
+    async def _listen_swallowed_voice(self, voice: Any) -> None:
+        """窓の外で捨てた声も、点数と「通していたら」の答えを残す（知-as 段 1）。
+
+        点数が `voice_outside_switch_threshold`（0.55・仮）以上で別の人に当たれば、話者を付け替える（知-as 段 2・2026-11-21）。
+        二人が交互に話しても、パジュの名前を呼ばない限り話者が変わらなかったため。返事はしない（捨てた声のまま）。
+        今日の声には足さず、誰にも当たらないときに既定の人へ戻すこともしない（窓の外の声は確かさが低い）。
+        """
         if voice is None:
             return
         from ..core import voice_speaker
@@ -5865,6 +5872,29 @@ class InformationProcessing:
             self._log_voice_scores(False, scores, verdict)
         except Exception:  # noqa: BLE001
             logger.warning("捨てた声の似かたを測れなかった", exc_info=True)
+            return
+        if not (
+            verdict.action == "switch"
+            and verdict.person_id
+            and verdict.score >= cfg.voice_outside_switch_threshold
+        ):
+            return
+        agent = self._agent
+        # はっきり指定した話者（`/speaker`・名乗り・写真・門を通った声）は、指定が生きているあいだ上書きしない。
+        set_at = float(getattr(agent, "_speaker_set_at", 0.0) or 0.0)
+        if time.time() - set_at < float(agent.config.speaker_hold_sec):
+            return
+        try:
+            name = self._call_name_for(verdict.person_id)
+            if not name:
+                return
+            # 指定の時刻（`_speaker_set_at`）は新しくしない（窓の外の声どうしで指定を延ばし合わない）。
+            agent._persons.set_active(name)
+            with contextlib.suppress(Exception):
+                await agent._sync_pmm_speaker(name)
+            logger.info("話者を付けた：%s（窓の外の声 %.2f）", tag(name), verdict.score)
+        except Exception:  # noqa: BLE001
+            logger.warning("窓の外の声で話者を付け替えられなかった", exc_info=True)
 
     def _music_word_while_playing(self, trigger: "Trigger") -> bool:
         """声で、名前が無く、窓が閉じていて、音楽が鳴っていて、音楽の言葉か（出-cp）。"""

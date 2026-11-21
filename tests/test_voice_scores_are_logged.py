@@ -53,7 +53,9 @@ def _push(ip, voice):
 
 
 def test_a_swallowed_voice_logs_scores_but_changes_nothing(caplog):
+    """点数が窓の外の付け替えの基準に届かなければ、捨てた声は話者・今日の声に触らない。"""
     ip, a, s = _ip()
+    a.config.recognition.voice_outside_switch_threshold = 1.01  # 1.00 の声でも届かない
     with caplog.at_level(logging.INFO, logger=LOGGER):
         _push(ip, SABURO)
     lines = _lines(caplog)
@@ -86,3 +88,53 @@ def test_the_unknown_check_uses_the_same_scores():
     assert ip._voice_unknown(SABURO) is False
     assert ip._voice_unknown(np.asarray([-1.0, -1.0], dtype=np.float32)) is True
     assert ip._voice_scores(SABURO) == {"papa": 0.0, "saburo": 1.0}
+
+
+def test_a_clearly_known_voice_outside_the_window_switches_the_speaker(caplog):
+    """窓の外で捨てた声でも、点数が基準（0.55・仮）以上なら話者を付け替える（知-as 段 2・2026-11-21）。
+
+    二人が交互に話しても、パジュの名前を呼ばない限り話者が変わらなかった。ログの 14,958 回の声のうち 97% は窓の外で、
+    そのうち 3,073 回は通していたら付け替えていた。返事はしない（捨てた声のまま）。今日の声にも足さない。
+    """
+    ip, a, s = _ip()
+    a._speaker_set_at = 0.0  # 指定はとうに切れている
+    assert a.config.recognition.voice_outside_switch_threshold == 0.55
+    with caplog.at_level(logging.INFO, logger=LOGGER):
+        out = _push(ip, SABURO)
+    assert out == ""  # 返事はしない
+    a._persons.set_active.assert_called_once_with("さぶろう")
+    assert a._speaker_set_at == 0.0  # 指定の時刻は新しくしない
+    assert s.added == []  # 今日の声には足さない
+
+
+def test_the_threshold_itself_switches_and_just_above_does_not():
+    ip, a, s = _ip()
+    a._speaker_set_at = 0.0
+    a.config.recognition.voice_outside_switch_threshold = 1.0  # SABURO は 1.00
+    _push(ip, SABURO)
+    a._persons.set_active.assert_called_once()
+    ip, a, s = _ip()
+    a._speaker_set_at = 0.0
+    a.config.recognition.voice_outside_switch_threshold = 1.0001
+    _push(ip, SABURO)
+    a._persons.set_active.assert_not_called()
+
+
+def test_a_speaker_set_on_purpose_is_not_taken_over_from_outside():
+    """`/speaker`・名乗り・写真・門を通った声で付けた話者は、指定が生きているあいだ（60 秒）窓の外の声で替えない。"""
+    import time
+
+    ip, a, s = _ip()
+    a._speaker_set_at = time.time()
+    _push(ip, SABURO)
+    a._persons.set_active.assert_not_called()
+
+
+def test_an_unknown_voice_outside_does_not_reset_the_speaker():
+    import numpy as np
+
+    ip, a, s = _ip()
+    a._speaker_set_at = 0.0
+    _push(ip, np.asarray([0.7071, -0.7071], dtype=np.float32))  # 誰にも当たらない
+    a._persons.reset_to_default.assert_not_called()
+    a._persons.set_active.assert_not_called()
