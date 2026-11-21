@@ -40,11 +40,12 @@ def _text_of(resp) -> str:
     return "".join(parts).strip()
 
 
-def _log_usage(kind: str, resp, *, tools: int = 0) -> None:
+def _log_usage(kind: str, resp, *, tools: int = 0, model: str = "") -> None:
     """呼び出しごとのキャッシュの読み・書きと入力・出力のトークン数を 1 行残す（出-bs の計測・2026-10-19）。
 
     管理画面に「キャッシュの当たりが低い」と出たが、どこで外れているかを数えられなかった。数だけを出し、
     文の中身は出さない。`usage` が無い・値が None の返りは 0 とみなす。
+    行の頭は「主LLM」だが、軽量LLM（同じ型の別のモデル）の呼び出しにも出る。どちらかは `モデル=` で分かる（出-dt）。
     """
     usage = getattr(resp, "usage", None)
 
@@ -55,7 +56,7 @@ def _log_usage(kind: str, resp, *, tools: int = 0) -> None:
     # 速さ：fast mode で答えたか（`usage.speed`・2026-11-14 本人承認）。無ければ「-」。
     speed = getattr(usage, "speed", None)
     logger.info(
-        "主LLM トークン 呼び=%s 読み=%d 書き=%d 入力=%d 出力=%d 道具=%d 速さ=%s",
+        "主LLM トークン 呼び=%s 読み=%d 書き=%d 入力=%d 出力=%d 道具=%d 速さ=%s モデル=%s",
         kind,
         n("cache_read_input_tokens"),
         n("cache_creation_input_tokens"),
@@ -63,6 +64,7 @@ def _log_usage(kind: str, resp, *, tools: int = 0) -> None:
         n("output_tokens"),
         tools,
         speed if isinstance(speed, str) else "-",
+        model or "-",
     )
 
 
@@ -356,7 +358,7 @@ class AnthropicBackend:
             if b.type == "tool_use"
         ]
         stop = "tool_use" if tool_calls else "end_turn"
-        _log_usage("反復", response, tools=len(tools))  # 出-bs の計測
+        _log_usage("反復", response, tools=len(tools), model=self.model)  # 出-bs の計測
         in_tok = getattr(response.usage, "input_tokens", 0) if response.usage else 0
         out_tok = getattr(response.usage, "output_tokens", 0) if response.usage else 0
         # Return response.content (including ThinkingBlocks) so interleaved thinking
@@ -455,7 +457,7 @@ class AnthropicBackend:
                 messages=msgs,
                 **extra,
             )
-            _log_usage("利用", resp)  # 出-bs の計測
+            _log_usage("利用", resp, model=self.model)  # 出-bs の計測
             if resp.stop_reason == "max_tokens":
                 # 足した分で足りているかを家で数えるため（2026-11-14 本人承認）。
                 logger.info("利用の呼び出しが上限で止まった（%s・上限 %d）", self.model, max_tokens)
@@ -506,7 +508,7 @@ class AnthropicBackend:
                     }
                 ],
             )
-            _log_usage("写真", resp)  # 出-bs の計測
+            _log_usage("写真", resp, model=self.model)  # 出-bs の計測
             if resp.stop_reason == "max_tokens":  # 上と同じ（足した分で足りているかを家で数える）
                 logger.info("利用の呼び出しが上限で止まった（%s・上限 %d）", self.model, max_tokens)
             return _text_of(resp)

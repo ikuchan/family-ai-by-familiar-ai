@@ -130,3 +130,13 @@ def test_a_reply_without_usage_logs_zeros_and_does_not_fail(caplog):
     assert len(lines) == 2
     for line in lines:
         assert "読み=0" in line and "書き=0" in line and "入力=0" in line, line
+
+
+def test_the_line_names_the_model(caplog):
+    """行にモデルの名前を出す（出-dt）。軽量LLM（Haiku）の呼び出しも同じ行に出るので、名前が無いと主LLM と分けて数えられなかった。"""
+    caplog.set_level(logging.INFO, logger=_LOGGER)
+    b = _backend()
+    _with_create(b, _usage(inp=80, out=3))
+    asyncio.run(b.complete(_SECRET, 64))
+    (line,) = _lines(caplog)
+    assert "モデル=claude-haiku-4-5-20251001" in line, line
