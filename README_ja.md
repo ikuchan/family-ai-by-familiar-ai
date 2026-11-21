@@ -1,6 +1,6 @@
 # familiar-ai 🐾
 
-**あなたのそばで生きるAI** — 目・声・記憶を持つコンパニオン。
+**自分の気持ちで、家族に話しかける AI。**
 
 [![Lint](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml)
 [![Test](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml)
@@ -13,30 +13,60 @@
 
 [![デモ動画](https://img.youtube.com/vi/hiR9uWRnjt4/0.jpg)](https://youtube.com/shorts/hiR9uWRnjt4)
 
-familiar-ai は、あなたの家に住むAIコンパニオンです。
-コーディング不要で数分でセットアップできます。
-
-カメラで世界を認識し、ロボット掃除機で部屋を動き回り、声で話し、見たものを記憶します。
-名前と性格を与え、家族として一緒に暮らしてください。
+familiar-ai は、家で家族と一緒に暮らす AI です。`ME.md` で名前と性格を与えると、その名前で呼ばれて応え、
+家族の一員として過ごします（この README では、わが家での名前「パジュ」で書きます）。
 
 ---
 
-## できること
+## familiar-ai にしかないこと
 
-- 👁 **見る** — Wi-Fi PTZカメラまたはUSBウェブカメラから画像を取得
-- 🔄 **見回す** — カメラをパン・チルトして周囲を探索
-- 🗣 **話す** — ElevenLabs TTSで音声出力
-- 🎙 **聞く** — ElevenLabs Realtime STTによるハンズフリー音声入力（オプション）
-- 🧠 **記憶する** — セマンティック検索で記憶を積極的に保存・想起
-- 👥 **複数人を識別** — 家族ごとの関係・信頼度・好みを個別に記憶
-- 🔍 **Web検索** — Brave Search MCP（月2,000クエリ無料）
-- 🫀 **心の理論** — 相手の視点に立ってから返答
-- 💭 **欲求** — 内的な動機を持ち、自律的に行動
-- 💡 **適応的思考** — 複雑な質問では自動的に深く考える
-- ⏰ **タイマー** — 「3分のタイマーかけて」「一時停止」「再開」「止めて」「ストップウォッチ」。掛ける前に一度確かめ、掛けているあいだは黙って聞かず（止めて・一時停止・再開の言葉だけ届く）、鳴ったらタイマーらしい音。3 つの振る舞いは設定画面で切り替えられる
-- ⏰ **アラーム** — 「7 時に起こして」「21 時に薬って言って」。タイマーとは別物で、それまでは普通に暮らす（黙らない・聞く）。静かな時間に鳴るものだけ確かめる
-- 🤫 **黙っていて** — 名前を呼んで頼まれたら黙り、「話していいよ」で戻る。黙っていたあいだに聞いたことは、戻ったときにまとめて答える
-- 👀 **誰も映っていなければ話さない** — カメラに人が見えないあいだの声（テレビや物音も含む）には返事せず、聞いたことだけ覚えておいて、人が映ったときにまとめて判断する。声がしたのに誰も見えなければ、見回りたい気持ちが上がる
+### 💗 自分の気持ちで動く
+
+パジュは、快・不快・掌握の 3 つの軸の気分と、5 つの欲求（探る・休む・つながる・守る・役に立つ）を持っています。
+欲求は時間とともに溜まり、溜まると、聞かれていなくても自分から動きます。話しかけるのは「つながりたい」
+「役に立ちたい」ときだけで、驚かせないよう、まず「いま話してもいい？」と聞いてから話します。人が見えないときに
+言いたかったことは覚えておき、あとで伝えます。夜（23〜7 時）は、欲求がゆっくり溜まります。
+
+> 夕方、しばらく誰とも話していなかったパジュが、帰ってきた子どもに「おかえり。いま少し話してもいい？」と声をかける。
+
+### 👨‍👩‍👧 家族一人ひとりと、家族どうしの関係をつかむ
+
+パジュは、声で誰が話しているかを見分けます。出来事は「誰が・誰に・誰について・誰の前で」の面に分けて覚えるので、
+一人ひとりとの関係だけでなく、家族どうしの関係もつかめます。話している相手に合わせて、思い出すことと話し方を
+変えます。
+
+> ママが「パパ、最近忙しそう」と話したことを、パジュはパパと話すときに思い出す。
+
+### 🍂 季節と家のまわりを知る
+
+パジュは毎日、住んでいる町の天気のページや、季節の読み物を読みます。いまが二十四節気のどのあたりか、明日と
+あさっての天気、家のまわりで季節らしく起きていることを知っていて、話のきっかけにします。
+
+> 「今日は木枯らし一号が吹いたんだって。帰り道、寒くなかった？」
+
+---
+
+## その他の機能
+
+- 📣 名前で呼ばれたときだけ聞く。テレビや家族どうしの話には口をはさまない
+- 🤫 「黙って」で黙り、許しで戻る。黙っていたあいだに聞いたことは、戻ったときにまとめて答える
+- 🌙 一人の時間に一日を振り返り、出来事をまとめ、自分の望み・気がかり・価値を見直す
+- 🧠 見たこと・話したことを覚え、言い換えても思い出す（bge-m3 と、日本語の Ruri）
+- 🎙 聞く：手元の faster-whisper で書き起こす（鍵もネットも要らない）
+- 🗣 話す：Gemini TTS（既定）、手元の Style-Bert-VITS2、ElevenLabs から選べる
+- 👁 見る：カメラ（RTSP・USB）で見て、首を振って見回し、誰が居るかを知る
+- ⏰ タイマー・アラーム・ストップウォッチ（タイマー中は黙って待ち、止める言葉だけ聞く）
+- 🎵 音楽：家族の Spotify のプレイリストをかける（話すときとタイマーが鳴るときは音を絞る）
+- 📅 家族の予定・メモ・家の決まりを読む（カレンダー・Notion）
+- 🔍 調べもの：あとから答えが届く検索と、深い調べもの
+- ⚡ すぐ「はいっ」と返し、考えているあいだは電子音で知らせる
+- 🛠 スピーカー・マイク・カメラが止まったら、自分で起こし直す
+- 🔒 ログに家族の言葉と名前を残さない
+- 💳 AI の残高が尽きたら、声で知らせる
+- 🧩 判断（宛先・確認の答え・気分など）は、判断専用のモデル Jev が担う
+- 🗺 状態をひとつの状態図で持ち、画面で見られる。決まりは Lean で証明している
+- 🔌 MCP で道具を足せる
+- 🌍 画面と声は 74 言語
 
 ---
 
@@ -52,11 +82,11 @@ familiar-ai は、あなたの家に住むAIコンパニオンです。
 
 | キー | 用途 | 取得先 | 料金 |
 |------|------|--------|------|
-| `ELEVENLABS_API_KEY` | 音声出力（TTS）・音声入力（STT） | [elevenlabs.io](https://elevenlabs.io/) | 無料枠あり |
+| `ELEVENLABS_API_KEY` | 声と書き起こしに ElevenLabs を選んだとき（既定は Gemini TTS と手元の faster-whisper） | [elevenlabs.io](https://elevenlabs.io/) | 無料枠あり |
 | `BRAVE_API_KEY` | Web検索（MCP経由） | [api.search.brave.com](https://api.search.brave.com/) | 無料2,000クエリ/月 |
 | `HF_TOKEN` | 埋め込みモデルのダウンロード高速化 | [huggingface.co/settings/tokens](https://huggingface.co/settings/tokens) | 無料 |
 
-> カメラ・ロボット掃除機は「ハードウェア」セクション参照。
+> カメラは「ハードウェア」セクション参照。
 
 ---
 
@@ -128,7 +158,7 @@ PLATFORM=anthropic
 API_KEY=sk-ant-xxxxxxxx
 
 # モデル選択（推奨設定）
-MODEL=claude-sonnet-4-6
+MODEL=claude-opus-5-5
 THINKING_MODE=disabled        # 会話は高速モード。複雑な質問は自動で深く考えます
 ```
 
@@ -195,7 +225,13 @@ EOF
 ### 7. 起動
 
 ```bash
-# TUI（推奨）
+# 画面のアプリ（推奨。落ちたら起動し直す）
+./run-gui.sh
+
+# 画面のアプリを直に
+uv run familiar --gui
+
+# TUI
 uv run familiar
 
 # シンプルなREPL
@@ -249,7 +285,7 @@ uv run familiar --no-tui
 
 | プラットフォーム | `PLATFORM=` | 推奨モデル | キーの取得先 | 特徴 |
 |----------------|------------|----------|------------|------|
-| **Anthropic Claude** | `anthropic` | `claude-sonnet-4-6` | [console.anthropic.com](https://console.anthropic.com) | 高品質・日本語得意 |
+| **Anthropic Claude** | `anthropic` | `claude-opus-5-5` | [console.anthropic.com](https://console.anthropic.com) | 高品質・日本語得意 |
 | Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) | 高速・低コスト |
 | Moonshot Kimi | `kimi` | `kimi-k2.5` | [platform.moonshot.ai](https://platform.moonshot.ai) | エージェント性能が高い |
 | Z.AI GLM | `glm` | `glm-4.6v` | [api.z.ai](https://api.z.ai) | 画像対応・低コスト |
@@ -259,10 +295,10 @@ uv run familiar --no-tui
 **このブランチの推奨構成（コスパ重視）：**
 
 ```env
-# 会話：Claude Sonnet 4.6（高品質・中コスト）
+# 会話：Claude Opus 5.5（既定）
 PLATFORM=anthropic
 API_KEY=sk-ant-xxxxxxxx
-MODEL=claude-sonnet-4-6
+MODEL=claude-opus-5-5
 THINKING_MODE=disabled
 
 # 感情推論・要約など（軽量タスク用）

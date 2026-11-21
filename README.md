@@ -2,7 +2,7 @@
 
 <img width="25%" height="25%" alt="familiar-ai-icon" src="https://github.com/user-attachments/assets/944b2023-9ca0-4b30-8240-de766e4439ed" />
 
-**An AI that lives alongside you** — with eyes, voice, and memory.
+**An AI that talks to your family because it wants to.**
 
 [![Lint](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/lint.yml)
 [![Test](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml/badge.svg)](https://github.com/lifemate-ai/familiar-ai/actions/workflows/test.yml)
@@ -16,26 +16,58 @@
 
 [![Demo video](https://img.youtube.com/vi/hiR9uWRnjt4/0.jpg)](https://youtube.com/shorts/hiR9uWRnjt4)
 
-familiar-ai is an AI companion that lives in your home.
-Set it up in minutes. No coding required.
+familiar-ai is an AI that lives at home with your family. Give it a name and a personality in `ME.md`; it answers
+to that name and spends its days as one of the family. (This README calls it "Paju", its name in our home.)
 
-It perceives the real world through cameras, moves around on a robot body, speaks aloud, and remembers what it sees. Give it a name, write its personality, and let it live with you.
+## What only familiar-ai does
 
-## What it can do
+### 💗 It acts from its own feelings
 
-- 👁 **See** — captures images from a Wi-Fi PTZ camera or USB webcam
-- 🔄 **Look around** — turns the camera to named spots ("the door", "the window") or relative directions ("look right"), and looks at what it finds
-- 🗣 **Speak** — talks via ElevenLabs TTS
-- 🎙 **Listen** — hands-free voice input (ElevenLabs Realtime STT or local Whisper, opt-in)
-- 🧠 **Remember** — stores what happens in PostgreSQL (pgvector) and recalls it by relevance, recency, emotion, presence and groundedness
-- 👥 **Know the family** — identifies who is speaking, keeps a separate memory perspective per person, notices who is in the room
-- 💭 **Act on its own** — five drives (seeking, rest, bond, safety, esteem) build up over time and fire autonomous behaviour; a mood (PAD) colours what it recalls
-- 🌙 **Reflect at night** — when nobody is around, folds the day's events, updates its self-image, tunes its own settings and re-describes its abilities
-- ⏰ **Timers** — "set a 3-minute timer", stopwatch, "stop it"; stays quiet while a timer runs and speaks up a little louder when it rings
-- 🤫 **Stay quiet when asked** — falls silent when told to by name, resumes on "you can talk now", and then answers what it heard meanwhile in one go
-- 📅 **House knowledge** — reads the family calendar (ICS), Notion and an Obsidian vault through MCP
-- 🔍 **Web search** — Brave Search MCP (2,000 free queries/month)
-- 💡 **Adaptive thinking** — thinks harder on hard questions, answers light ones quickly
+Paju has a mood on three axes (pleasure, displeasure, being in control) and five drives (seeking, rest, bond,
+safety, esteem). The drives build up over time, and when one fills, Paju acts without being asked. It starts a
+conversation only when it wants company or wants to be useful, and to avoid startling anyone it first asks
+"Is now a good time to talk?". Whatever it wanted to say while nobody was in view, it keeps and says later. At
+night (23:00–07:00) the drives build up slowly.
+
+> In the evening, after a quiet afternoon, Paju greets a child coming home: "Welcome back. Can we talk for a bit?"
+
+### 👨‍👩‍👧 It understands each person, and how the family relate to each other
+
+Paju tells who is speaking by voice. It stores each event as facets — who did it, to whom, about whom, in front of
+whom — so it grasps not only its relationship with each person but also the relationships between family members.
+What it recalls and how it speaks change with the person it is talking to.
+
+> Mum mentions "Dad seems busy lately"; later, talking with Dad, Paju remembers it.
+
+### 🍂 It knows the season and what is going on around the house
+
+Every day Paju reads the weather page for your town and a few seasonal articles. It knows where we are among the
+24 solar terms, the weather for tomorrow and the day after, and what is happening around the house this time of
+year, and uses them to start a conversation.
+
+> "They say the first winter wind blew today. Was it cold on your way home?"
+
+## Other features
+
+- 📣 Listens only after being called by name; does not cut into the TV or the family's own conversation
+- 🤫 Falls silent when asked, comes back when allowed, then answers what it heard meanwhile in one go
+- 🌙 Reflects alone: folds the day's events and revisits its own hopes, concerns and values
+- 🧠 Remembers what it saw and heard, and recalls it even when asked in other words (bge-m3 and the Japanese Ruri)
+- 🎙 Listens with local faster-whisper (no key, no network)
+- 🗣 Speaks with Gemini TTS (default), local Style-Bert-VITS2, or ElevenLabs
+- 👁 Sees through a camera (RTSP or USB), turns to look around, and knows who is in the room
+- ⏰ Timers, alarms and a stopwatch (stays quiet while a timer runs and listens only for "stop")
+- 🎵 Plays the family's Spotify playlists (turns the music down while speaking or when a timer rings)
+- 📅 Reads the family calendar, notes and house rules (calendar, Notion)
+- 🔍 Research: searches that answer later, and deep research
+- ⚡ Replies "Yes!" at once, and beeps while it thinks
+- 🛠 Restarts the speaker, microphone or camera when one stops
+- 🔒 Keeps family words and names out of its logs
+- 💳 Says out loud when an AI provider runs out of credit
+- 🧩 Judgments (who is addressed, the answer to a confirmation, mood) are made by Jev, a model built for typed judgments
+- 🗺 Holds its state in a single state chart you can watch on screen; the chart's rules are proved in Lean
+- 🔌 Add tools through MCP
+- 🌍 UI and voice in 74 languages
 
 ## How it works
 
@@ -144,8 +176,8 @@ the setup dialog for you on first launch when `API_KEY` is still missing.
 | `CAMERA_HOST` | IP address of your ONVIF/RTSP camera |
 | `CAMERA_USERNAME` / `CAMERA_PASSWORD` | Camera credentials |
 | `CAMERA_PTZ_HOST` / `CAMERA_PTZ_USERNAME` / `CAMERA_PTZ_PASSWORD` / `CAMERA_PTZ_PORT` | Optional PTZ overrides when the control endpoint differs from the RTSP stream endpoint |
-| `ELEVENLABS_API_KEY` | For voice output — [elevenlabs.io](https://elevenlabs.io/) |
-| `REALTIME_STT` | `true` to enable always-on hands-free voice input (requires `ELEVENLABS_API_KEY`) |
+| `ELEVENLABS_API_KEY` | Only when you choose ElevenLabs for voice or transcription (defaults: Gemini TTS and local faster-whisper) — [elevenlabs.io](https://elevenlabs.io/) |
+| `REALTIME_STT` | `true` to enable always-on hands-free voice input (local faster-whisper by default; `STT_ENGINE=elevenlabs` needs `ELEVENLABS_API_KEY`) |
 | `TTS_OUTPUT` | Where to play audio: `local` (PC speaker, default) \| `remote` (camera speaker) \| `both` |
 | `ELEVENLABS_MODEL` | TTS model: `eleven_flash_v2_5` (default, ~0.7 s) \| `eleven_v3` (expressive, ~5 s) |
 | `AUDIO_INPUT_DEVICE` / `AUDIO_INPUT_GAIN` | Microphone name (substring) and software input gain (1.0 = off) |
@@ -187,13 +219,13 @@ run.bat --no-tui     # Plain REPL
 
 ## Choosing an LLM
 
-> **Recommended: Kimi K2.5** — best agentic performance tested so far. Notices context, asks follow-up questions, and acts autonomously in ways other models don't. Priced similarly to Claude Haiku.
+> **Default: Anthropic Claude Opus 5.5** (`claude-opus-5-5`). Other platforms work too.
 
 | Platform | `PLATFORM=` | Default model | Where to get key |
 |----------|------------|---------------|-----------------|
-| **Moonshot Kimi K2.5** | `kimi` | `kimi-k2.5` | [platform.moonshot.ai](https://platform.moonshot.ai) |
+| Moonshot Kimi K2.5 | `kimi` | `kimi-k2.5` | [platform.moonshot.ai](https://platform.moonshot.ai) |
 | Z.AI GLM | `glm` | `glm-4.6v` | [api.z.ai](https://api.z.ai) |
-| Anthropic Claude | `anthropic` | `claude-haiku-4-5-20251001` | [console.anthropic.com](https://console.anthropic.com) |
+| Anthropic Claude | `anthropic` | `claude-opus-5-5` | [console.anthropic.com](https://console.anthropic.com) |
 | Google Gemini | `gemini` | `gemini-2.5-flash` | [aistudio.google.com](https://aistudio.google.com) |
 | OpenAI | `openai` | `gpt-4o-mini` | [platform.openai.com](https://platform.openai.com) |
 | OpenAI-compatible (Ollama, vllm…) | `openai` + `BASE_URL=` | — | — |
