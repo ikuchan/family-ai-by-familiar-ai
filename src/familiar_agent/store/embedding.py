@@ -70,7 +70,7 @@ class _EmbeddingModel(ModelResource):
     その形は変えない。
 
     載せる先は**未指定なら sentence-transformers の自動判定に任せる**（型枠の `device` が
-    `None` を返す）。テストは並列にワーカーを起こし、**ワーカーごとに**モデルを載せるため、
+    `None` を返す）。GPU に載るときは float16 で読む（環-ay・`根拠台帳` §72）。テストは並列にワーカーを起こし、**ワーカーごとに**モデルを載せるため、
     GPU では VRAM を使い切ってプロセスごと落ちる（実測で `CUDA out of memory`）。
     テスト側で `EMBEDDING_DEVICE=cpu` を選んで奪い合いを断つ。
     """
@@ -95,13 +95,41 @@ class _EmbeddingModel(ModelResource):
         for name in ("sentence_transformers", "huggingface_hub", "transformers"):
             logging.getLogger(name).setLevel(logging.ERROR)
         import sentence_transformers
+        import torch
 
-        # 手元の控えから読む（ネットがつながる前でも起きる・環-ax）。
-        # 載せる先の指定が無ければ None（ライブラリに任せる。SentenceTransformer の既定と同じ）。
-        device = self.device or None
+        # 手元の控えから読む（ネットがつながる前でも起きる・環-ax）。GPU では float16（環-ay）：GPU を約 1.07 GB
+        # 空ける。本番の記録の本文 5,950 種で nan は 0 種、float32 との点の近さは最小 0.99972 だった（2026-11-21）。
+        # 記録の点は float32 で作ってあるが、146 問の上位 7 件は平均 6.84 件が重なった。CPU は float32 のまま。
+        # 載せる先の指定が無ければ None のまま渡す（ライブラリに任せる）。精度は GPU に載るかで決める。
+        device = self.device
+        on_gpu = device.startswith("cuda") if device else torch.cuda.is_available()
+        kwargs = _gpu_model_kwargs("cuda" if on_gpu else "cpu", torch.float16)
         return load_local_first(
-            self._model_name, lambda p: sentence_transformers.SentenceTransformer(p, device=device)
+            self._model_name,
+            lambda p: sentence_transformers.SentenceTransformer(
+                p, device=device, model_kwargs=kwargs or None
+            ),
         )
+
+    def _encode(self, model: Any, texts: list[str]) -> "tuple[list[list[float]], list[bool]]":
+        """点にして、float32 で長さ 1 にそろえる。数にならない点（float16 の溢れ）は 0 にして WARNING（環-ay）。
+
+        返すのは点と、使える点かどうか。使えない点は控えに入れない（0 は、読めないときと同じ縮退の形）。
+        """
+        vecs = np.asarray(
+            model.encode(texts, normalize_embeddings=False, show_progress_bar=False),
+            dtype=np.float32,
+        )
+        norms = np.linalg.norm(vecs, axis=1)
+        ok = np.isfinite(vecs).all(axis=1) & np.isfinite(norms) & (norms > 0)
+        vecs[ok] /= norms[ok, None]
+        vecs[~ok] = 0.0
+        if not ok.all():
+            logger.warning(
+                "埋め込みが数にならなかった %d 件を 0 にした（float16 の溢れの疑い）",
+                int((~ok).sum()),
+            )
+        return vecs.tolist(), ok.tolist()
 
     def _zeros(self, n: int) -> list[list[float]]:
         return [[0.0] * EMBEDDING_DIM for _ in range(n)]
@@ -137,13 +165,12 @@ class _EmbeddingModel(ModelResource):
         miss_idx, miss_texts, results = self._lookup(self._d_cache, texts)
         if miss_texts:
             try:
-                new = model.encode(
-                    miss_texts, normalize_embeddings=True, show_progress_bar=False
-                ).tolist()
+                new, ok = self._encode(model, miss_texts)
             except Exception as e:
                 logger.warning("encode_document failed: %s", e)
                 return self._zeros(len(texts))
-            self._store(self._d_cache, miss_texts, new)
+            good = [(t, v) for t, v, g in zip(miss_texts, new, ok) if g]
+            self._store(self._d_cache, [t for t, _ in good], [v for _, v in good])
             for j, i in enumerate(miss_idx):
                 results[i] = new[j]
         return results  # type: ignore
@@ -163,13 +190,12 @@ class _EmbeddingModel(ModelResource):
                 miss_texts.remove(t)
         if miss_texts:
             try:
-                new = model.encode(
-                    miss_texts, normalize_embeddings=True, show_progress_bar=False
-                ).tolist()
+                new, ok = self._encode(model, miss_texts)
             except Exception as e:
                 logger.warning("encode_query failed: %s", e)
                 return self._zeros(len(texts))
-            self._store(self._q_cache, miss_texts, new)
+            good = [(t, v) for t, v, g in zip(miss_texts, new, ok) if g]
+            self._store(self._q_cache, [t for t, _ in good], [v for _, v in good])
             for j, i in enumerate(miss_idx):
                 results[i] = new[j]
         return results  # type: ignore
@@ -182,17 +208,16 @@ _RURI_DOC_PREFIX = "検索文書: "
 _RURI_QUERY_PREFIX = "検索クエリ: "
 
 
+def _gpu_model_kwargs(device: str, dtype: Any) -> dict:
+    """GPU に載せるときだけ、型を指定して直接読む（読んでから直すと、読み込みの一瞬だけ GPU を余計に使う）。CPU は fp32。"""
+    return {"dtype": dtype} if device.startswith("cuda") else {}
+
+
 def _ruri_model_kwargs(device: str) -> dict:
-    """載せる先ごとの読み込み方。
+    """Ruri の読み込み方。GPU では **bf16**。fp16 では一部の記録が数にならない値（nan）になった（2026-11-03 実測）。"""
+    import torch
 
-    GPU では **bf16 で直接読む**。fp16 では一部の記録が数にならない値（nan）になった（2026-11-03 実測）。
-    fp32 で読んでから bf16 へ直すと、読み込みの一瞬だけ GPU を約 1.1 GB 余計に使う。CPU は fp32 のまま。
-    """
-    if device.startswith("cuda"):
-        import torch
-
-        return {"dtype": torch.bfloat16}
-    return {}
+    return _gpu_model_kwargs(device, torch.bfloat16)
 
 
 class _RuriModel(ModelResource):

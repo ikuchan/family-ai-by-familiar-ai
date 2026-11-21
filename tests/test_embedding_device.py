@@ -48,7 +48,8 @@ def test_the_device_is_passed_to_the_model(monkeypatch) -> None:
     seen = {}
 
     class _FakeST:
-        def __init__(self, name, device=None):
+        # 本物と同じく `model_kwargs` も受ける（GPU では float16 を渡す・環-ay）。
+        def __init__(self, name, device=None, model_kwargs=None):
             seen["name"] = name
             seen["device"] = device
 
@@ -66,7 +67,8 @@ def test_no_device_is_passed_when_auto(monkeypatch) -> None:
     seen = {}
 
     class _FakeST:
-        def __init__(self, name, device=None):
+        # 本物と同じく `model_kwargs` も受ける（GPU では float16 を渡す・環-ay）。
+        def __init__(self, name, device=None, model_kwargs=None):
             seen["name"] = name
             seen["device"] = device
 
