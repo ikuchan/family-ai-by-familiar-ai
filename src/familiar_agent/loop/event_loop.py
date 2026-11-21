@@ -917,12 +917,21 @@ class InformationProcessing:
         if music_tool is not None:
             from .music_watch import duck_while_speaking
 
-            async def _duck(speak, _tool=music_tool, _agent=agent):
+            def _busy() -> bool:
+                # 戻してよいかは持ち主を読む（環-aw 第 6 段 項目 2・決定ヌの禁止の条件）：知らせの音を鳴らしている仕事と、
+                # 状態図の口の声（話している、合図）。
+                if self._ringing():
+                    return True
+                return self._paju().voice_state() in ("speaking", "cue")
+
+            async def _duck(speak, why="話す", _tool=music_tool, _agent=agent):
                 return await duck_while_speaking(
                     io=_tool._io,
                     bus=_tool._bus(),
                     state=getattr(_agent, "_music_state", None),
                     speak=speak,
+                    busy=_busy,
+                    why=why,
                 )
 
             self._dif.set_music_ducker(_duck)

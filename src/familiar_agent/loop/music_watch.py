@@ -52,39 +52,48 @@ async def duck_while_speaking(
     state: Any,
     speak: Callable[[], Awaitable[Any]],
     sleep: "Callable[[float], Awaitable[None]] | None" = None,
+    busy: "Callable[[], bool] | None" = None,
+    why: str = "話す",
 ) -> Any:
-    """声を出すあいだだけ音楽を絞る。鳴っていなければ何もしない。
+    """声と知らせの音（環-aw 第 6 段 項目 2）を出すあいだだけ音楽を絞る。鳴っていなければ何もしない。
 
-    絞る前に**そのときの音量を読む**（人が変えていれば、その値へ戻す）。声が終わってから
-    `RESTORE_AFTER_SEC` 秒おいて戻す——すぐ戻すと、続けて話すたびに上下してうるさい。
+    絞る前に**そのときの音量を読む**（人が変えていれば、その値へ戻す）。終わってから `RESTORE_AFTER_SEC` 秒おいて
+    戻す——すぐ戻すと、続けて話すたびに上下してうるさい。
 
-    **戻しは裏で予約し、待たずに返す**（出-bd ①）。以前はこの 10 秒をここで待ったので、音楽が鳴っていると
-    声を 1 つ出すたびに次へ進めなかった（実機 10/10 11:05:57：17 字の聞き返しで `DIF 声 12.46 秒`）。予約中に
-    次の声が来たら予約を取り消し、絞ったまま最初に読んだ基準を引き継ぐ（読み直すと絞った値を基準にしてしまう）。
+    **戻しは裏で予約し、待たずに返す**（出-bd ①）。予約中に次の声が来たら予約を取り消し、絞ったまま基準
+    （`ducked_base`）を引き継ぐ。声と知らせの音は時間が重なりうるので、絞っている最中（`ducked_base` がある）なら
+    2 度は絞らない。戻す仕事は、戻す前に `busy`（知らせの音が鳴っているか、声が話しているか。持ち主を読む）を見て、
+    忙しければ待ち直す（決定ヌの禁止の条件）。戻す値は、そのときの `ducked_base`（絞っているあいだに人が変えた値）。
     """
-    base: "float | None" = None
     # **絞れなくても声は出す。** ここで例外を外へ出すと、`DIF.speak` の例外抑止に飲まれて
     # 声そのものが消える（テストが 4 件捕まえた・2026-09-21）。音楽は添え物で、声が本体である。
-    with contextlib.suppress(Exception):
-        pending = getattr(state, "restore_task", None)
-        if isinstance(pending, asyncio.Task) and not pending.done():
-            pending.cancel()
-            base = state.ducked_base
-        elif music_state.is_playing(state):
-            s = await io.status(bus)
-            if s and s.get("playing"):
-                base = float(s.get("volume", 0.5))
-                await io.set_volume(bus, duck(base))
-                state.ducked_base = base
-                # 効いたかを後から確かめられるように残す（知-ak-ろ・2026-10-07）
-                logger.info("音楽：話すあいだ音量を下げた（%.2f → %.2f）", base, duck(base))
     try:
+        with contextlib.suppress(Exception):
+            pending = getattr(state, "restore_task", None)
+            if isinstance(pending, asyncio.Task) and not pending.done():
+                pending.cancel()  # 絞ったまま引き継ぐ
+            if getattr(state, "ducked_base", None) is None and music_state.is_playing(state):
+                s = await io.status(bus)
+                # 読んでいるあいだに、ほかの者（声か知らせの音）が絞っていたら、2 度は絞らない
+                if s and s.get("playing") and state.ducked_base is None:
+                    base = float(s.get("volume", 0.5))
+                    state.ducked_base = base  # 絞る前に置く（絞る途中で打ち切られても戻せる）
+                    try:
+                        await io.set_volume(bus, duck(base))
+                    except Exception:
+                        state.ducked_base = None  # 絞れなかった。絞っている最中に見せない
+                        raise
+                    # 効いたかを後から確かめられるように残す（知-ak-ろ・2026-10-07）
+                    logger.info("音楽：%sあいだ音量を下げた（%.2f → %.2f）", why, base, duck(base))
         return await speak()
     finally:
-        if base is not None:
+        if getattr(state, "ducked_base", None) is not None:
             with contextlib.suppress(Exception):
+                pending = getattr(state, "restore_task", None)
+                if isinstance(pending, asyncio.Task) and not pending.done():
+                    pending.cancel()
                 state.restore_task = asyncio.ensure_future(
-                    _restore_later(io=io, bus=bus, state=state, base=base, sleep=sleep)
+                    _restore_later(io=io, bus=bus, state=state, sleep=sleep, busy=busy)
                 )
 
 
@@ -93,18 +102,45 @@ async def _restore_later(
     io: Any,
     bus: Any,
     state: Any,
-    base: float,
     sleep: "Callable[[float], Awaitable[None]] | None",
+    busy: "Callable[[], bool] | None" = None,
 ) -> None:
-    """`RESTORE_AFTER_SEC` 秒おいて基準へ戻す（裏の仕事）。取り消されたら戻さない（次の声が絞ったまま使う）。"""
-    await (sleep or asyncio.sleep)(RESTORE_AFTER_SEC)
+    """`RESTORE_AFTER_SEC` 秒おいて基準へ戻す（裏の仕事）。まだ鳴っているか話していれば待ち直す（環-aw 第 6 段）。
+
+    取り消されたら戻さず、基準も消さない（次の者が絞ったまま使う）。
+    """
+    wait = sleep or asyncio.sleep
+    await wait(RESTORE_AFTER_SEC)
+    for _ in range(_MAX_REWAITS):
+        if busy is None or not _busy(busy):
+            break
+        await wait(RESTORE_AFTER_SEC)
+    else:
+        # 声の終わりの事象が落ちて話しているのまま残るなどで、いつまでも忙しく見えるとき。絞ったまま残すより戻す。
+        logger.warning("音楽：%d 回待っても静かにならないので音量を戻す", _MAX_REWAITS)
+    base = getattr(state, "ducked_base", None)
+    if base is None:
+        return
     try:
         await io.set_volume(bus, base)
         logger.info("音楽：音量を戻した（%.2f）", base)
+    except asyncio.CancelledError:
+        raise
     except Exception:  # noqa: BLE001
         logger.warning("音楽の音量を戻せなかった", exc_info=True)
-    finally:
-        state.ducked_base = None
+    state.ducked_base = None
+
+
+#: 戻す仕事が待ち直す上限（`RESTORE_AFTER_SEC` ごと。10 秒 × 30 回＝5 分。知らせの音は 30 秒）。
+_MAX_REWAITS = 30
+
+
+def _busy(busy: "Callable[[], bool]") -> bool:
+    """まだ鳴っているか話しているか。読めなければ忙しくないとみなす（戻さずに残るより、戻すほうがよい）。"""
+    try:
+        return bool(busy())
+    except Exception:  # noqa: BLE001
+        return False
 
 
 async def observe(*, io: Any, bus: Any, state: Any, record: Callable[[str], Any]) -> dict:

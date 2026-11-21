@@ -80,7 +80,7 @@ class DIF:
         self._ip = ip
         self._ring_task: asyncio.Task | None = None  # 鳴っているタイマーの音（知-n-ろ）
         #: 声を出すあいだ音楽を絞る口（知-aa・2026-09-21）。無ければ何もしない。
-        self._music_ducker: "Callable[[Callable[[], Awaitable[Any]]], Awaitable[Any]] | None" = None
+        self._music_ducker: "Callable[..., Awaitable[Any]] | None" = None
         # 山谷の既定（小さくする秒・戻す秒・その倍率）。T が Config から入れる
         self._ring_shape = (8.0, 25.0, 0.1)
         # 話しかけたときの合図（出-bg）。流している合図。返事の声はこれが終わってから流す。
@@ -295,7 +295,7 @@ class DIF:
         return self._cue_task
 
     def set_music_ducker(self, ducker) -> None:
-        """声のあいだ音楽を絞る口を挿す（知-aa）。挿さなければ、声はそのまま出る。"""
+        """声と知らせの音のあいだ音楽を絞る口を挿す（知-aa・環-aw 第 6 段）。挿さなければ、そのまま鳴る。"""
         self._music_ducker = ducker
 
     # ── タイマーの音 ──────────────────────────────────────────────────────
@@ -312,9 +312,14 @@ class DIF:
             with contextlib.suppress(Exception):
                 await self._cue_task
 
-    async def _ducked(self, play: "Callable[[], Awaitable[Any]]") -> Any:
-        """音楽が鳴っていれば、`play` のあいだだけ絞る（知-aa・機械の反射）。声と録音が使う。"""
+    async def _ducked(self, play: "Callable[[], Awaitable[Any]]", *, why: str = "") -> Any:
+        """音楽が鳴っていれば、`play` のあいだだけ絞る（知-aa・機械の反射）。声と録音と知らせの音（環-aw 第 6 段）が使う。
+
+        `why` はログに出す絞るわけ（知らせの音のときだけ渡す。渡さなければ「話す」）。
+        """
         if self._music_ducker is not None:
+            if why:
+                return await self._music_ducker(play, why=why)
             return await self._music_ducker(play)
         return await play()
 
@@ -430,6 +435,15 @@ class DIF:
     async def _ring(
         self, seconds: float, gain: float, soft_after: float, soft_until: float, soft_gain: float
     ) -> None:
+        # 鳴っているあいだ音楽を絞る（環-aw 第 6 段 項目 2・決定ヌ）。絞れなくても音は鳴らす（絞る口が例外を飲む）。
+        await self._ducked(
+            lambda: self._ring_loop(seconds, gain, soft_after, soft_until, soft_gain),
+            why="知らせの音が鳴る",
+        )
+
+    async def _ring_loop(
+        self, seconds: float, gain: float, soft_after: float, soft_until: float, soft_gain: float
+    ) -> None:
         from ..core.ring_rules import gain_at
 
         started = time.monotonic()
@@ -449,8 +463,8 @@ class DIF:
                     return
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001
-            logger.warning("DIF タイマーの音で例外：%s", e)
+        except Exception:  # noqa: BLE001
+            logger.warning("DIF タイマーの音で例外", exc_info=True)
 
     # ── 調べもの ──────────────────────────────────────────────────────────
 
