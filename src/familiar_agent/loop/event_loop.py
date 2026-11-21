@@ -6497,13 +6497,17 @@ class InformationProcessing:
             return f"\n{note}" if note else ""
         return ""
 
-    async def _apply_requests(self, decision, *, utterance: str = "") -> None:
-        """調停が読んだ人の求め（沈黙の依頼・名乗り）を掛ける（反復本体の呼び口は 1 つ・番人 231 行）。"""
-        await self._apply_silence(decision, utterance=utterance)
+    async def _apply_requests(self, decision, *, utterance: str = "") -> Any:
+        """調停が読んだ人の求め（沈黙の依頼・名乗り）を掛ける（反復本体の呼び口は 1 つ・番人 231 行）。
+
+        返すのは調停の結果。黙る依頼を受けたら、軽く返す返事を分数と戻し方を伝える文にしたもの（情-u・`_with_silence_reply`）。
+        """
+        minutes = await self._apply_silence(decision, utterance=utterance)
         # **否定が先**（出-am）。「ちがう、ママだよ」で パパ を外してから ママ を付ける。
         # 逆だと、付けたばかりの人を否定で消すことになる。
         await self._apply_not_person(getattr(decision, "not_person", ""))
         await self._apply_speaker_claim(decision)
+        return self._with_silence_reply(decision, minutes)
 
     async def _apply_seen_people(self, people: "list | None") -> None:
         """調停が写真から見立てた人を、顔ぶれへ入れる（出-ae-は・2026-09-22）。
@@ -6760,7 +6764,7 @@ class InformationProcessing:
             await agent._sync_pmm_speaker(name)
         logger.info("話者を付けた：%s（%s）", tag(name), why)
 
-    async def _apply_silence(self, decision, *, utterance: str = "") -> None:
+    async def _apply_silence(self, decision, *, utterance: str = "") -> "int | None":
         """調停が読んだ沈黙の依頼を掛ける／解く（反復本体の呼び口は 1 つ）。
 
         **名前の関門は窓にまとめた**（出-as §2.5・2026-09-26）。ここへ来る会話入力は、入口で窓を通った
@@ -6770,9 +6774,10 @@ class InformationProcessing:
         from ..core.silence_rules import is_release
 
         if decision.silence_minutes:
-            await self._accept_silence(decision.silence_minutes)
-        elif decision.lift_silence or is_release(utterance):
+            return await self._accept_silence(decision.silence_minutes)
+        if decision.lift_silence or is_release(utterance):
             await self._release_silence()
+        return None
 
     async def _release_silence(self, *, timer_too: bool = False) -> bool:
         """「もう話していいよ」と解かれたら、依頼を消す（2026-09-16 実機）。
@@ -6822,8 +6827,8 @@ class InformationProcessing:
             logger.warning("黙るのを解けなかった", exc_info=True)
             return False
 
-    async def _accept_silence(self, asked_minutes: int) -> None:
-        """黙っている依頼を受ける。宛先は、いま話している相手。
+    async def _accept_silence(self, asked_minutes: int) -> "int | None":
+        """黙っている依頼を受ける。宛先は、いま話している相手。受けたら黙る分数を返す（受けられなければ None）。
 
         `asked_minutes` は調停が読み取った分数で、`-1` は「頼まれたが長さの指定なし」。
         既定と上限は Config が持つ。
@@ -6842,11 +6847,25 @@ class InformationProcessing:
                 maximum=max(1, int(getattr(agent.config, "silence_max_minutes", 60))),
             )
             if minutes <= 0:
-                return
+                return None
             # 状態図が黙っているへ移り、控え（`save_silence`）を書く。
             await self._paju().hush_with(
                 SilenceRequest(person=who, until=time.time() + minutes * 60)
             )
+            return minutes
+        return None
+
+    def _with_silence_reply(self, decision, minutes: "int | None"):
+        """黙ると受けたら、軽く返す返事を、分数と戻し方を伝える決まった文にする（情-u・2026-11-21 本人の決定「分数と戻し方を
+        伝える」）。家族が戻し方を知らず困った（情-u のもと）。軽く返す道（`light`）のときだけ替え、ほかは触らない。"""
+        if not minutes or getattr(decision, "branch", "") != "light":
+            return decision
+        from dataclasses import replace as _replace
+
+        return _replace(
+            decision,
+            text=f"{minutes} 分しずかにするね。{self._me()}、話していいよって言えば戻るよ。",
+        )
 
     def _current_speaker_name(self) -> str:
         """いま話している相手の名前。分からなければ空文字。

@@ -163,3 +163,26 @@ def test_nobody_around_does_not_lift_it():
     assert "nobody_since" not in inspect.signature(is_silenced).parameters
     now = time.time()
     assert is_silenced(SilenceRequest(person="パパ", until=now + 1800), now=now)
+
+
+# ── 黙ると受けた返事（情-u・2026-11-21 本人「分数と戻し方を伝える」） ──────────────────────────────
+
+
+def test_the_reply_to_a_silence_request_tells_minutes_and_how_to_undo(monkeypatch):
+    """黙ると受けたら、軽く返す返事を「〇分しずかにするね。〈名前〉、話していいよって言えば戻るよ。」にする。"""
+    from familiar_agent.loop.arbiter import Decision
+
+    monkeypatch.setattr("familiar_agent.silence_state.save_silence", lambda req: None)
+    ip = _ip(speaker="")
+    decision = Decision(branch="light", text="しずかにするね", silence_minutes=-1)
+    got = asyncio.run(ip._apply_requests(decision, utterance="黙ってて"))
+    assert got.text == "30 分しずかにするね。パジュ、話していいよって言えば戻るよ。"
+    assert got.silence_minutes == -1  # ほかの欄は変えない
+
+
+def test_a_reply_without_a_silence_request_is_untouched():
+    from familiar_agent.loop.arbiter import Decision
+
+    ip = _ip(speaker="")
+    decision = Decision(branch="light", text="うん")
+    assert ip._with_silence_reply(decision, None) is decision

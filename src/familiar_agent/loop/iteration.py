@@ -191,7 +191,7 @@ class Iteration:
             round_=self.round_,
         )
         # 「いまは話しかけないで」と読めたら、その人が居るあいだ黙る（次の反復から）。解くのも同じ口。
-        await ip._apply_requests(self.decision, utterance=said)
+        self.decision = await ip._apply_requests(self.decision, utterance=said)
         # 調停が時期を指した（「去年の夏の話」）なら、その基準で想起し直して W を組み直す。
         self.ws = await ip._recall_at(
             self.decision, self.ws, cue=self.cue, viewpoint=self.viewpoint, weights=self.weights
