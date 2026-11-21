@@ -136,3 +136,47 @@ def test_transitions_are_read_from_the_log():
     [(at, event, desc)] = chart.transitions_in(lines)
     assert at == "2026-11-21 20:01:02" and event == "request_opened"
     assert desc.startswith("頭=考えている/思い出している 耳=聞かない")
+
+
+def test_a_logged_state_line_maps_back_to_drawn_names():
+    """再生（四段目）：ログの状態の行を、図の上の名前に戻す。名前が重なる状態（なし・開いている）も領域で見分ける。"""
+    desc = (
+        "頭=考えている/思い出している 耳=聞かない/窓=開いている/答え=なし/入口=開いている 口=話してよい/声=なし"
+        "/知らせの音=止まっている"
+    )
+    assert chart.names_from_describe(desc) == {
+        "考えている",
+        "思い出している",
+        "聞かない",
+        "開いている",
+        "答えなし",
+        "入口が開いている",
+        "話してよい",
+        "声なし",
+        "音止まっている",
+    }
+    assert chart.names_from_describe("頭=寝ている 耳=聞いている") == {"寝ている", "聞いている"}
+
+
+def test_the_live_and_logged_names_agree():
+    """動いている状態図から作った名前と、その状態の行から戻した名前が同じ（2 つの読み方がずれない）。"""
+    import asyncio
+
+    from familiar_agent.loop.paju_state import PajuState
+
+    async def go():
+        sm = PajuState()
+        await sm.start()
+        for ev in ("request_opened", "decide_began", "window_opened", "ring_began", "cue_began"):
+            await sm.fire(ev)
+        return sm
+
+    sm = asyncio.run(go())
+    assert chart.names_from_describe(sm.describe()) == chart.active_names(sm)
+
+
+def test_state_names_have_no_separators():
+    """状態の行は「 」と「/」で区切るので、状態の名前に含めない（含めると再生で光らない）。"""
+    from familiar_agent.loop.paju_state import _NAMES
+
+    assert not [n for n in _NAMES.values() if " " in n or "/" in n or "=" in n]

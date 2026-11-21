@@ -16,6 +16,7 @@
 
 from __future__ import annotations
 
+import functools
 import re
 from typing import Any, Iterable, Iterator
 
@@ -138,6 +139,7 @@ def names() -> "list[str]":
     return [_name(s) for top in PajuState.states for s in _walk(top)]
 
 
+@functools.cache
 def mermaid() -> str:
     """状態図の全体を Mermaid の文字にする（`stateDiagram-v2`・上から下）。末尾は改行で終わる。"""
     lines = ["stateDiagram-v2", f"{_INDENT}direction TB"]
@@ -183,6 +185,49 @@ def transitions_in(lines: "Iterable[str]") -> "list[tuple[str, str, str]]":
         m = _MOVED.match(line)
         if m:
             out.append((m.group(1), m.group(2), m.group(3)))
+    return out
+
+
+#: 状態の行（`PajuState.describe`）の見出し → 領域の id。
+_LINE_REGIONS = {
+    "頭": "head",
+    "耳": "listening",
+    "窓": "window",
+    "答え": "awaited",
+    "入口": "entrance",
+    "口": "hush",
+    "声": "voice",
+    "知らせの音": "alarm",
+}
+
+
+@functools.cache
+def _all_states() -> "dict[str, Any]":
+    """id → 状態（型から 1 度だけ作る。再生のつまみごとに作り直さない）。"""
+    return {s.id: s for top in PajuState.states for s in _walk(top)}
+
+
+def names_from_describe(desc: str) -> "set[str]":
+    """状態の行（`describe` の文字）を、図の上の名前の集まりに戻す（四段目の再生が、その時刻の状態を光らせる）。
+
+    行は「頭=考えている/思い出している 耳=…/窓=…」の形。「=」の無い区切り（頭の子）は、前の見出しの領域の中で探す。
+    同じ名前の状態（なし・開いている）は、見出しの領域で見分ける。読めない見出しは捨てる。
+    """
+    regions = _all_states()
+    out: "set[str]" = set()
+    region = None
+    for part in re.split(r"[ /]", desc):
+        if "=" in part:
+            label, value = part.split("=", 1)
+            region = regions.get(_LINE_REGIONS.get(label, ""))
+        else:
+            value = part  # 頭の子
+        if region is None or not value:
+            continue
+        for s in _walk(region):
+            if s is not region and _NAMES.get(s.id) == value:
+                out.add(_name(s))
+                break
     return out
 
 
