@@ -15,7 +15,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from .bootstrap import resolve_env_path
+from .bootstrap import keep_launch_database_url, resolve_env_path
 
 logger = logging.getLogger(__name__)
 
@@ -67,6 +67,8 @@ def reload_env(path: Path | None = None) -> EnvReload:
     if overlay is not None and overlay != base and overlay.exists():
         load_dotenv(overlay, override=True)
         read.append(overlay)
+    # 起動のときに渡した DB の向き先は、読み直しでも勝つ（環-an）。
+    keep_launch_database_url()
     if not read:
         logger.warning(".env を読み直せない（無い）：%s", base or overlay)
         return EnvReload(path=base or overlay or Path(".env"), found=False)

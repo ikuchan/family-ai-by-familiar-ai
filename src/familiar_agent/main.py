@@ -357,6 +357,10 @@ def main() -> None:
     for i, arg in enumerate(sys.argv[:-1]):
         if arg == "--db-url":
             os.environ["DATABASE_URL"] = sys.argv[i + 1]
+            # 渡した DB の向き先として扱う（`.env` の値に負けない・環-an）。
+            import familiar_agent
+
+            familiar_agent.LAUNCH_DATABASE_URL = sys.argv[i + 1]
             break
 
     # Setup logging FIRST — before any library import can add a StreamHandler

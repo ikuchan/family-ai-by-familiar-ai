@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -9,6 +10,8 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 from .setup import migrate_legacy_env_file
+
+logger = logging.getLogger(__name__)
 
 
 def resolve_env_path() -> Path:
@@ -33,6 +36,28 @@ class AppBootstrap:
     legacy_config_detected: bool
     migrated: bool = False
     messages: list[str] = field(default_factory=list)
+
+
+def keep_launch_database_url() -> None:
+    """`.env` を読んだあとに呼ぶ。起動のときに渡した DB の向き先を戻す（渡した値が勝つ・環-an）。
+
+    ファイルの値と違うときは、どちらの向き先か（パスワードは伏せる）を WARNING に残す（シェルに古い値が残っていても気づける）。
+    """
+    import familiar_agent
+
+    given = familiar_agent.LAUNCH_DATABASE_URL
+    if not given:
+        return
+    now = os.environ.get("DATABASE_URL", "")
+    if now != given:
+        from .db import _mask_db_url
+
+        logger.warning(
+            "DB の向き先は起動のときに渡した %s を使う（ファイルの %s は使わない）",
+            _mask_db_url(given),
+            _mask_db_url(now) if now else "（無し）",
+        )
+        os.environ["DATABASE_URL"] = given
 
 
 def _base_env_path() -> Path:
@@ -74,6 +99,8 @@ def load_app_bootstrap(env_path: Path | None = None) -> AppBootstrap:
         legacy_detected = "ANTHROPIC_API_KEY=" in raw or "ANTHROPIC_MODEL=" in raw
         migrated, messages = migrate_legacy_env_file(path)
         load_dotenv(path, override=True)
+    # 起動のときに渡した DB の向き先は、ファイルより勝つ（環-an）。
+    keep_launch_database_url()
 
     api_key = (os.environ.get("API_KEY") or os.environ.get("ANTHROPIC_API_KEY") or "").strip()
     configured = bool(api_key)

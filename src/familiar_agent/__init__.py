@@ -2,8 +2,15 @@
 
 from __future__ import annotations
 
+import os
 import subprocess
 from pathlib import Path
+
+#: 起動のときに渡した DB の向き先（環-an）。パッケージの入口なので、どこから始めても `.env` を読む前に控えられる。
+#: `.env` は `override=True` で読むので、`DATABASE_URL=… ./run-gui.sh` と渡しても `.env` の値が勝ち、テスト DB に
+#: 向けたつもりが本番 DB を見ていた。`bootstrap` と `env_reload` がファイルを読んだあとで戻す（`keep_launch_database_url`）。
+#: 空の値は、渡していないものとして扱う。`--db-url` で渡した値もここに入れる（`main`）。
+LAUNCH_DATABASE_URL: str | None = os.environ.get("DATABASE_URL") or None
 
 _SRC_DIR = Path(__file__).resolve().parent
 
