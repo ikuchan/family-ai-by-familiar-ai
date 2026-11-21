@@ -13,12 +13,13 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 
 from ..io.oif import MI
 from ..core.structured_ask import read_json_merged
 from ..core import measure
 from ..core import self_image as si
+from ..store.clock import local_tz
 
 logger = logging.getLogger(__name__)
 
@@ -75,7 +76,7 @@ async def propose(
     agent, image: si.SelfImage, materials: list, *, today: "date | None" = None
 ) -> Proposal:
     """LLM に見直しを頼み、検査して通れば新しい自己像を返す。DB には書かない（呼び手が書く）。"""
-    today = today or datetime.now(timezone.utc).date()
+    today = today or datetime.now(local_tz()).date()
     prompt = _PROMPT.format(
         max_changes=MAX_CHANGES,
         hopes_rows=si.FIELDS["望み"][0],
