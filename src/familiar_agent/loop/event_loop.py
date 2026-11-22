@@ -3367,7 +3367,7 @@ class InformationProcessing:
                 return ""  # 耳で捨てた声は画面に知らせず、点数も測らない（いままでの声の門と同じ）
             # 点数を残し、はっきり分かる声なら話者を付け替える（知-as）。吹き出しの名前は知らせた時点の話者を読むので、
             # 門を通った声と同じく、先に話者を決めてから知らせる。
-            await self._listen_swallowed_voice(voice)
+            await self._listen_swallowed_voice(voice, text=utterance)
             self._notify_heard(utterance, trigger.quiet_open)
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
         shown = utterance
@@ -5939,7 +5939,7 @@ class InformationProcessing:
             or "基準なし",
         )
 
-    async def _listen_swallowed_voice(self, voice: Any) -> None:
+    async def _listen_swallowed_voice(self, voice: Any, *, text: str = "") -> None:
         """窓の外で捨てた声も、点数と「通していたら」の答えを残す（知-as 段 1）。
 
         会話の中（返事から 60 秒）で、はっきり指定した話者の持ち時間（60 秒）が過ぎていて、点数が
@@ -5959,6 +5959,16 @@ class InformationProcessing:
                 self._current_speaker_pid(), scores, loose=cfg.voice_threshold, strict=strict
             )
             self._log_voice_scores(False, scores, verdict)
+            if text:
+                # 記-ae：家族どうしの話を about の材料にするか（窓の外の声は記録しない決まりを変えるか）を本人に聞くために、
+                # 数えるだけ残す。言葉も名前も出さず、何も記録しない。
+                family = bool(verdict.person_id) and verdict.score >= cfg.voice_threshold
+                named = self._other_family_named(text, verdict.person_id if family else None)
+                logger.info(
+                    "窓の外の声を数えた（記-ae）：家族の声 %s・ほかの家族の呼び名 %s",
+                    "はい" if family else "いいえ",
+                    "はい" if named else "いいえ",
+                )
         except Exception:  # noqa: BLE001
             logger.warning("捨てた声の似かたを測れなかった", exc_info=True)
             return
@@ -6703,6 +6713,23 @@ class InformationProcessing:
         if not getattr(persons, "active_is_explicit", False):
             return None
         return self._agent._pmm.find_person_id_by_name(str(persons.active_name or ""))
+
+    def _other_family_named(self, text: str, speaker_pid: "str | None") -> bool:
+        """`text` に、話した人（`speaker_pid`）以外の家族の呼び名が出るか（記-ae）。2 字に満たない呼び名は見ない。"""
+        from ..core import parsing
+        from ..core.speaker_claim import aliases_of
+
+        members = parsing.parse_family_md(str(getattr(self._agent, "_family_md", "") or ""))
+        for row in self._agent._pmm.list_persons():
+            pid = str(row.get("id") or "")
+            if not pid or pid in (AGENT_SELF_ID, speaker_pid):
+                continue
+            name = str(row.get("name") or "")
+            member = next((m for m in members if m.get("name") == name), None)
+            calls = aliases_of(member) if member else [name]
+            if any(len(c) >= 2 and c in text for c in calls):
+                return True
+        return False
 
     def _call_name_for(self, person_id: str) -> "str | None":
         """人物 id から呼びかけ名（話者の帳面の書き方）。`FAMILY.md` に無ければ人物表の名前。"""
