@@ -4,7 +4,10 @@
 話題にされた人に about の面が無いと、その人と話すときに上がらない。面の生成の段②（REST が本文を読んで意味役割を足す・
 `MIデータモデル`）のうち、about だけを作り直したもの（段②のコードは 2026-08 に失われた・記-a-ほ）。
 
-`about_lookback_days`（2 日）より新しい、人がパジュに言った発話を新しい順に見る（調べた印は持たない）。候補はコードで出す：本文に呼び名が出る登録の人から、話した本人とパジュを除く。
+**面は最終版に立て、判定は起点の言葉でする。** 人の言葉（起点）はその晩の畳み込みで隠れて想起に上がらないので、会話の
+記録で見え続ける最終版（起点を親に持つ）に立てる（`store/observations.about_pending`）。`about_lookback_days`（2 日）より
+新しい最終版を新しい順に見る（調べた印は持たない）。候補はコードで出す：起点の言葉に呼び名が出る登録の人から、話した本人と
+パジュを除く。
 決めるのは Jev（候補ごとに 1 問・`core/jev_judges.judge_about`）。今ある記録にさかのぼって足すのは埋める道具（段 3）。
 """
 
@@ -25,11 +28,6 @@ logger = logging.getLogger(__name__)
 
 #: 話した人が分からない発話（規則 048 で actor が自分の印に寄ったもの）の、Jev に渡す呼び方。
 _UNKNOWN_SPEAKER = "（分からない人）"
-
-
-#: 人がパジュに言った発話の、やりとりの役割（`OIF.roles`）。話者が解決できず actor が自分の印に寄った発話（規則 048）でも、
-#: この役割なら人の言葉。`答え`・`つなぎ` はパジュ自身の言葉なので調べない。
-_HUMAN_ROLES = ("起点", "添え")
 
 
 @dataclass(frozen=True)
@@ -65,7 +63,7 @@ def candidates(content: str, actor: "str | None", persons: "list[dict]", done=()
 async def add_about(
     oif, jev, *, limit: int, min_p: float, since, until=None, rows: "int | None" = None
 ) -> AboutResult:
-    """`since` より後（`until` より前）の、人がパジュに言った発話を新しい順に見て、`limit` 問まで聞き、about の面を足す。
+    """`since` より後（`until` より前）の最終版を新しい順に見て、`limit` 問まで聞き、about の面を足す。
 
     読む発話は `rows` 件まで（無ければ `about_rows_max`）。問いの上限 `limit` とは別にする（名前の出ない発話を数えない）。
     """
@@ -77,17 +75,12 @@ async def add_about(
     names = await asyncio.to_thread(oif.person_names, [str(p["id"]) for p in persons])
     cap = rows if rows is not None else MemoryConfig().about_rows_max
     pending = await asyncio.to_thread(oif.about_pending, cap, since=since, until=until)
-    roles = (
-        await asyncio.to_thread(oif.roles, [str(r["obs_id"]) for r in pending]) if pending else {}
-    )
     examined = asked = added = unanswered = unwritten = 0
     for row in pending:
         if asked >= limit:
             break
         obs_id = str(row["obs_id"])
         actor = row.get("actor")
-        if actor in (None, AGENT_SELF_ID) and roles.get(obs_id) not in _HUMAN_ROLES:
-            continue  # パジュ自身の言葉（話した人の面が無い記録も、人の言葉と分かるときだけ見る）
         examined += 1
         content = str(row.get("content") or "")
         speaker = names.get(str(actor)) or _UNKNOWN_SPEAKER

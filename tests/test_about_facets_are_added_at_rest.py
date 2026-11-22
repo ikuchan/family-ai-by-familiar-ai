@@ -1,5 +1,7 @@
 """記-ae 段 2：ある人について話したことに、REST がその人の about の面を足す（段②の about だけ・2026-11-22）。
 
+面は最終版に立て、判定は起点（人の言葉）でする。起点はその晩の畳み込みで隠れ、想起に上がらないため。
+
 候補はコードで出す（本文に呼び名が出る登録の人から、話した本人とパジュを除く）。決めるのは Jev（偽の返り）。
 面の言葉は「[自分のこと] ＋本文」、ベクトルは記録の埋め込み。足した面は、その人の想起の母集合に入る。
 """
@@ -92,30 +94,6 @@ def test_no_answer_adds_nothing_and_is_counted():
     assert oif.added == [] and got.unanswered == 1
 
 
-def test_pajus_own_words_are_not_examined():
-    """パジュの返事（やりとりの答え）も actor は自分の印。人の言葉ではないので Jev に聞かない。"""
-    oif = _Oif(
-        [{"obs_id": "o1", "content": "パパ、最近忙しそうだね", "actor": AGENT_SELF_ID}],
-        roles={"o1": "答え"},
-    )
-    jev = _Jev(0.9)
-    got = _run(oif, jev)
-    assert jev.states == [] and got.sources == 0 and oif.added == []
-
-
-def test_a_record_without_a_speaker_facet_is_examined_only_as_a_persons_words():
-    oif = _Oif(
-        [
-            {"obs_id": "o1", "content": "パパ、おはよう", "actor": None},
-            {"obs_id": "o2", "content": "パパは出張", "actor": None},
-        ],
-        roles={"o1": "答え", "o2": "起点"},
-    )
-    jev = _Jev(0.9)
-    _run(oif, jev)
-    assert oif.added == [("o2", "p-papa")] and len(jev.states) == 1
-
-
 def test_a_yes_that_cannot_be_written_is_counted():
     oif = _Oif([{"obs_id": "o1", "content": "パパは出張", "actor": "p-mama"}], writes=False)
     got = _run(oif, _Jev(0.9))
@@ -198,10 +176,11 @@ def _store():
         return ObservationMemory()
 
 
-def _plant(body: str, *, actor: str) -> str:
+def _plant(body: str, *, actor: str) -> "tuple[str, str]":
+    """人の言葉の起点（向き 発話・話した人の面）と、それを親に持つ最終版（埋め込みつき）を 1 組。(起点, 最終版) を返す。"""
     from familiar_agent.store.embedding import _encode_vector
 
-    obs_id = str(uuid.uuid4())
+    origin, final = str(uuid.uuid4()), str(uuid.uuid4())
     vec = np.zeros(_DIM, dtype=np.float32)
     vec[3] = 1.0
     sql_vec = "[" + ",".join(f"{x:.1f}" for x in vec) + "]"
@@ -215,28 +194,42 @@ def _plant(body: str, *, actor: str) -> str:
             )
             cur.execute(
                 "INSERT INTO observations (id, content, timestamp, direction, emotion) "
-                "VALUES (%s,%s,now(),%s,%s)",
-                (obs_id, body, "発話", "neutral"),
-            )
-            cur.execute(
-                "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s,%s)",
-                (obs_id, _encode_vector(vec)),
+                "VALUES (%s,%s,now(),'発話','neutral')",
+                (origin, body),
             )
             cur.execute(
                 "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
                 "VALUES (%s,%s,%s,%s::vector,'actor')",
-                (str(uuid.uuid4()), obs_id, actor, sql_vec),
+                (str(uuid.uuid4()), origin, actor, sql_vec),
+            )
+            cur.execute(
+                "INSERT INTO observations (id, content, timestamp, direction, emotion, parent_id) "
+                "VALUES (%s,%s,now(),'最終版','neutral',%s)",
+                (
+                    final,
+                    f"〔最終版 2026-11-22 10:00:00〜10:00:05〕「{body}」と聞かれ、「そうなんだ」と答えた。",
+                    origin,
+                ),
+            )
+            cur.execute(
+                "INSERT INTO obs_embeddings (obs_id, vector) VALUES (%s,%s)",
+                (final, _encode_vector(vec)),
+            )
+            cur.execute(
+                "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
+                "VALUES (%s,%s,%s,%s::vector,'actor')",
+                (str(uuid.uuid4()), final, AGENT_SELF_ID, sql_vec),
             )
         conn.commit()
     finally:
         conn.close()
-    return obs_id
+    return origin, final
 
 
 def test_the_store_writes_an_about_facet_and_tells_who_already_has_one():
     mama = str(uuid.uuid4())
     papa = str(uuid.uuid4())
-    oid = _plant("パパ、最近忙しそうなんだよね", actor=mama)
+    _origin, oid = _plant("パパ、最近忙しそうなんだよね", actor=mama)
     from datetime import datetime, timedelta, timezone
 
     since = datetime.now(timezone.utc) - timedelta(days=2)
@@ -256,7 +249,10 @@ def test_the_store_writes_an_about_facet_and_tells_who_already_has_one():
         conn.close()
     store = _store()
     pending = store.about_pending(10, since=since)
-    assert [(r["obs_id"], r["actor"], r["done"]) for r in pending] == [(oid, mama, [])]
+    # 最終版を、起点の言葉と、起点を話した人で渡す
+    assert [(r["obs_id"], r["content"], r["actor"], r["done"]) for r in pending] == [
+        (oid, "パパ、最近忙しそうなんだよね", mama, [])
+    ]
     assert store.add_about(oid, papa) is True
     conn = _conn()
     try:
@@ -270,7 +266,7 @@ def test_the_store_writes_an_about_facet_and_tells_who_already_has_one():
             content, distance = cur.fetchone()
     finally:
         conn.close()
-    assert content == "[自分のこと] パパ、最近忙しそうなんだよね"
+    assert content.startswith("[自分のこと] 〔最終版 ")  # 面の言葉は、見え続ける最終版の本文
     assert distance < 1e-6  # 記録の埋め込みと同じベクトル
     assert [r["done"] for r in store.about_pending(10, since=since)] == [
         [papa]

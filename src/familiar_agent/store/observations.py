@@ -1167,24 +1167,30 @@ class ObservationStore:
     def about_pending(
         self, limit: int, *, since: datetime, until: "datetime | None" = None
     ) -> "list[dict]":
-        """about の面を足すか調べる発話（記-ae 段 2）。`since` より後（`until` があればそれより前）を新しい順に `limit` 件。
+        """about の面を足すか調べる会話（記-ae 段 2）。`since` より後（`until` があればそれより前）を新しい順に `limit` 件。
 
-        `actor` は話した人（解決できなければ自分の印）、`done` は about の面がもう立っている人（その人には聞き直さない）。
+        **面は最終版に立て、判定は起点の言葉でする。** 人の言葉（起点・向き `発話`）は、その晩の畳み込みで隠れ、想起に
+        上がらない。会話の記録で見え続けるのは最終版（起点を親に持つ・`core/final_version`）なので、面はそこに立てる。
+        判定は起点の言葉でする（最終版は経緯まで入って長く、Jev の境目も人の言葉で測った・`根拠台帳` §74）。
+
+        `obs_id` は最終版、`content` は起点の言葉、`actor` は起点を話した人（解決できなければ自分の印）、`done` は最終版に
+        about の面がもう立っている人（その人には聞き直さない）。
         """
-        live = not_hidden("o")
+        live = not_hidden("f")
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT o.id AS obs_id, o.content, a.person_id AS actor,
+                    SELECT f.id AS obs_id, p.content, a.person_id AS actor,
                            COALESCE((SELECT array_agg(b.person_id) FROM situated_memories b
-                                     WHERE b.obs_id = o.id AND b.relation_key = 'about'), '{{}}') AS done
-                    FROM observations o
-                    LEFT JOIN situated_memories a ON a.obs_id = o.id AND a.relation_key = 'actor'
-                    WHERE {live} AND o.direction = '発話' AND o.timestamp > %s
-                      AND (%s::timestamptz IS NULL OR o.timestamp < %s)
-                    ORDER BY o.timestamp DESC
+                                     WHERE b.obs_id = f.id AND b.relation_key = 'about'), '{{}}') AS done
+                    FROM observations f
+                    JOIN observations p ON p.id = f.parent_id AND p.direction = '発話'
+                    LEFT JOIN situated_memories a ON a.obs_id = p.id AND a.relation_key = 'actor'
+                    WHERE {live} AND f.direction = '最終版' AND f.timestamp > %s
+                      AND (%s::timestamptz IS NULL OR f.timestamp < %s)
+                    ORDER BY f.timestamp DESC
                     LIMIT %s
                     """,
                     (since, until, until, int(limit)),
