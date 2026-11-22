@@ -152,3 +152,36 @@ def test_build_reads_the_url_from_the_mcp_config(tmp_path, monkeypatch) -> None:
     monkeypatch.setenv("MCP_CONFIG", str(cfg))
     monkeypatch.delenv("FAMILY_CALENDAR_ICS", raising=False)
     assert srv.build().ics_url == "https://x/basic.ics"
+
+
+def test_the_reply_says_when_the_calendar_was_last_changed() -> None:
+    """知-l：いちばん新しい LAST-MODIFIED を見出しの 1 行で返す（パジュが、変えてから映るまでの遅れを測る）。"""
+    ics = _ICS.replace("SUMMARY:運動会", "SUMMARY:運動会\nLAST-MODIFIED:20260913T220000Z").replace(
+        "SUMMARY:テニス", "SUMMARY:テニス\nLAST-MODIFIED:20260913T230500Z"
+    )
+    s = _server(fetch=lambda url: ics)
+    res = s.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {"name": "get_family_schedule", "arguments": {"updated": True}},
+        }
+    )
+    text = res["result"]["content"][0]["text"]
+    assert "【更新】2026-09-13T23:05:00Z" in text
+
+
+def test_the_update_line_is_only_given_when_asked() -> None:
+    """主LLM が予定を聞くときは【更新】の行を返さない（家族への答えに UTC の時刻が混ざらない）。"""
+    ics = _ICS.replace("SUMMARY:運動会", "SUMMARY:運動会\nLAST-MODIFIED:20260913T220000Z")
+    s = _server(fetch=lambda url: ics)
+    res = s.handle(
+        {
+            "jsonrpc": "2.0",
+            "id": 4,
+            "method": "tools/call",
+            "params": {"name": "get_family_schedule", "arguments": {}},
+        }
+    )
+    assert "【更新】" not in res["result"]["content"][0]["text"]

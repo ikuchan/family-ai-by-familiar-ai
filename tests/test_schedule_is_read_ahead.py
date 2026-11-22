@@ -38,7 +38,10 @@ def test_the_first_read_is_recorded_and_stored():
     ip = _ip(S1)
     schedule_watch._save_state(None)
     assert asyncio.run(schedule_watch.check_schedule(ip)) is True
-    assert ip._dif.call_tool.await_args.args == ("get_family_schedule", {"days": 7})
+    assert ip._dif.call_tool.await_args.args == (
+        "get_family_schedule",
+        {"days": 7, "updated": True},
+    )
     kind, content = ip.record_device.await_args.args[:2]
     assert kind == "予定" and "家族のこれから 7 日の予定" in content and "サッカーの試合" in content
     assert "【いま】" not in content
@@ -82,3 +85,41 @@ def test_the_tonic_reads_at_start_and_once_an_hour():
     t._schedule_checked_at = 100.0
     assert t._schedule_due(now=100.0 + 3599) is False
     assert t._schedule_due(now=100.0 + 3600) is True
+
+
+def test_the_update_line_alone_is_not_a_change():
+    """知-l：【更新】の行は比べる本文に入れない（変えた時刻が変わっても、見える予定が同じなら記録しない）。"""
+    assert schedule_watch.body_of("【更新】2026-10-10T05:00:00Z\n" + S1) == schedule_watch.body_of(
+        S1
+    )
+
+
+def test_a_newer_change_logs_how_long_it_took_to_show(caplog, monkeypatch):
+    """知-l：いちばん新しい変更が前の読みより新しければ、変えてから映るまでの分を 1 行残す（予定の中身は出さない）。"""
+    import logging
+    from datetime import datetime, timezone
+
+    schedule_watch._save_state(None)
+    monkeypatch.setattr(
+        schedule_watch, "_now", lambda: datetime(2026, 10, 10, 6, 0, tzinfo=timezone.utc)
+    )
+    asyncio.run(schedule_watch.check_schedule(_ip("【更新】2026-10-10T05:00:00Z\n" + S1)))
+    with caplog.at_level(logging.INFO, logger="familiar_agent.loop.schedule_watch"):
+        asyncio.run(schedule_watch.check_schedule(_ip("【更新】2026-10-10T05:20:00Z\n" + S2)))
+    lines = [r.getMessage() for r in caplog.records if "予定表の変更が映った" in r.getMessage()]
+    assert lines == ["予定表の変更が映った（知-l）：変えてから 40 分"]
+
+
+def test_a_newer_change_outside_the_visible_days_is_not_counted(caplog, monkeypatch):
+    """見える 7 日の予定が変わらなければ、変えた時刻が進んでも「映った」とは数えない（7 日より先の予定を変えた）。"""
+    import logging
+    from datetime import datetime, timezone
+
+    schedule_watch._save_state(None)
+    monkeypatch.setattr(
+        schedule_watch, "_now", lambda: datetime(2026, 10, 10, 6, 0, tzinfo=timezone.utc)
+    )
+    asyncio.run(schedule_watch.check_schedule(_ip("【更新】2026-10-10T05:00:00Z\n" + S1)))
+    with caplog.at_level(logging.INFO, logger="familiar_agent.loop.schedule_watch"):
+        asyncio.run(schedule_watch.check_schedule(_ip("【更新】2026-10-10T05:20:00Z\n" + S1)))
+    assert not [r for r in caplog.records if "予定表の変更が映った" in r.getMessage()]

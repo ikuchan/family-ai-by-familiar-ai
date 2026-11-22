@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+
+import contextlib
 import re
 from dataclasses import dataclass
 from datetime import date, datetime, time, timedelta, timezone
@@ -39,6 +41,8 @@ class RawEvent:
 class Calendar:
     name: str
     events: tuple[RawEvent, ...]
+    #: いちばん新しい LAST-MODIFIED（UTC）。無ければ None（知-l：変えてから映るまでの遅れを測る）。
+    newest_modified: datetime | None = None
 
 
 def _unfold(text: str) -> list[str]:
@@ -81,6 +85,7 @@ def _split_prop(line: str) -> tuple[str, dict[str, str], str]:
 
 def parse_ics(text: str) -> Calendar:
     name = ""
+    newest: datetime | None = None
     events: list[RawEvent] = []
     cur: dict | None = None
     for line in _unfold(text):
@@ -110,6 +115,12 @@ def parse_ics(text: str) -> Calendar:
                 cur["start"] = _parse_dt(value, params)
             elif pname == "DTEND":
                 cur["end"] = _parse_dt(value, params)
+            elif pname == "LAST-MODIFIED":
+                with contextlib.suppress(ValueError):
+                    t = datetime.strptime(value.strip(), "%Y%m%dT%H%M%SZ").replace(
+                        tzinfo=timezone.utc
+                    )
+                    newest = t if newest is None or t > newest else newest
             elif pname == "RRULE":
                 cur["rrule"] = {
                     k.upper(): v for k, _, v in (p.partition("=") for p in value.split(";"))
@@ -120,7 +131,7 @@ def parse_ics(text: str) -> Calendar:
                     cur["exdates"].append(
                         d if isinstance(d, date) and not isinstance(d, datetime) else d.date()
                     )
-    return Calendar(name=name, events=tuple(events))
+    return Calendar(name=name, events=tuple(events), newest_modified=newest)
 
 
 def _local_start(start: datetime | date) -> tuple[datetime, bool]:

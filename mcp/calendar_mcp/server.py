@@ -66,7 +66,7 @@ class Server:
 
     # ---- 道具の中身 -------------------------------------------------------
 
-    def get_family_schedule(self, days: int = 1) -> str:
+    def get_family_schedule(self, days: int = 1, updated: bool = False) -> str:
         if not self.ics_url:
             raise RuntimeError(
                 "FAMILY_CALENDAR_ICS が設定されていない（ファミリーカレンダーの秘密の ICS の URL）"
@@ -87,6 +87,10 @@ class Server:
             f"【いま】{now:%Y-%m-%d} {_WEEKDAY_JA[now.weekday()]}曜日 {now:%H:%M}（JST）\n"
             f"【出典】{cal.name or 'ファミリーカレンダー'}（{now:%H:%M} に取得・今日から {days} 日ぶん）\n"
         )
+        if updated and cal.newest_modified is not None:
+            # 知-l：いちばん新しい変更の時刻。パジュの先読みだけが頼む（主LLM の道具の説明には載せないので、家族への
+            # 答えには混ざらない）。先読みが、変えてから映るまでの遅れを測る（比べる本文には入れない）。
+            head += f"【更新】{cal.newest_modified:%Y-%m-%dT%H:%M:%SZ}\n"
         if not events:
             return head + "\n予定は入っていない。"
         lines = []
