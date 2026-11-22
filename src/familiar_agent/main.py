@@ -316,12 +316,8 @@ def _run_repl(agent: EmbodiedAgent, debug: bool) -> None:
         if not main_task.done():
             main_task.cancel()
 
-    if sys.platform != "win32":
-        loop.add_signal_handler(signal.SIGINT, _cancel)
-        loop.add_signal_handler(signal.SIGTERM, _cancel)
-    else:
-        signal.signal(signal.SIGINT, lambda *_: loop.call_soon_threadsafe(_cancel))
-
+    loop.add_signal_handler(signal.SIGINT, _cancel)
+    loop.add_signal_handler(signal.SIGTERM, _cancel)
     try:
         loop.run_until_complete(main_task)
     except (asyncio.CancelledError, KeyboardInterrupt):

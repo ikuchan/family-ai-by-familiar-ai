@@ -11,7 +11,7 @@ Provides a native desktop window with:
 Launch via:
     uv run familiar --gui
 
-or via run-gui.bat / run-gui.sh
+or via run-gui.sh
 """
 
 from __future__ import annotations
@@ -207,7 +207,6 @@ class _IMEAwareScrollArea(QScrollArea):
         return super().viewportEvent(event)  # type: ignore[return-value]
 
 
-_SUBPROCESS_NO_WINDOW = 0x08000000 if os.name == "nt" else 0
 _APP_ICON_ENV = "FAMILIAR_APP_ICON"
 
 

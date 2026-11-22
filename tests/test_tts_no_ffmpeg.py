@@ -186,36 +186,3 @@ async def test_play_via_sounddevice_called_as_fallback(tmp_path) -> None:
 
     assert result is True
     mock_sd.assert_called_once()
-
-
-@pytest.mark.asyncio
-async def test_play_local_prefers_afplay_on_macos(tmp_path) -> None:
-    """macOS should try built-in afplay before other local playback fallbacks."""
-    from familiar_agent.tools import tts
-
-    pcm = _make_pcm(1600)
-    wav_path = _write_pcm_as_wav(pcm, sample_rate=16000, tmp_dir=str(tmp_path))
-
-    proc = AsyncMock()
-    proc.communicate.return_value = (b"", b"")
-    proc.returncode = 0
-
-    def _which(name: str) -> str | None:
-        if name == "afplay":
-            return "/usr/bin/afplay"
-        return None
-
-    with (
-        patch.object(tts.sys, "platform", "darwin"),
-        patch("shutil.which", side_effect=_which),
-        patch("asyncio.create_subprocess_exec", new=AsyncMock(return_value=proc)) as mock_exec,
-        patch(
-            "familiar_agent.tools.tts._play_via_sounddevice", new=AsyncMock(return_value=True)
-        ) as mock_sd,
-    ):
-        result = await tts._play_local(wav_path)
-
-    assert result is True
-    mock_exec.assert_awaited_once()
-    assert mock_exec.await_args.args[:2] == ("/usr/bin/afplay", wav_path)
-    mock_sd.assert_not_called()

@@ -105,23 +105,13 @@ Lean で証明しています。
 
 **uv（Pythonパッケージ管理）:**
 ```bash
-# macOS / Linux / WSL2
 curl -LsSf https://astral.sh/uv/install.sh | sh
-
-# Windows (PowerShell)
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
 ```
 
 **ffmpeg（音声・映像処理）:**
 ```bash
 # Ubuntu / Debian
 sudo apt install ffmpeg
-
-# macOS
-brew install ffmpeg
-
-# Windows
-winget install ffmpeg
 ```
 
 **Docker（データベース用）:**

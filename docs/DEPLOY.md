@@ -20,10 +20,6 @@
 # Ubuntu / Debian
 sudo apt install -y postgresql postgresql-contrib
 
-# macOS (Homebrew)
-brew install postgresql@16
-brew services start postgresql@16
-
 # Raspberry Pi (Ubuntu)
 sudo apt install -y postgresql
 ```
@@ -35,9 +31,6 @@ sudo apt install -y postgresql
 sudo apt install -y postgresql-server-dev-all build-essential git
 git clone --depth 1 https://github.com/pgvector/pgvector.git
 cd pgvector && make && sudo make install
-
-# macOS
-brew install pgvector
 ```
 
 ### データベースとユーザーの作成

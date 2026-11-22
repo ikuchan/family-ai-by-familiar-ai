@@ -10,8 +10,8 @@
 
 ## Build, Test, and Development Commands
 - `uv sync`: install project and dev dependencies from `pyproject.toml` / `uv.lock`.
-- `./run.sh` (Linux/macOS/WSL2) or `run.bat` (Windows): start the app.
-- `./run.sh --no-tui` or `run.bat --no-tui`: run in plain REPL mode.
+- `./run.sh`: start the app (Linux).
+- `./run.sh --no-tui`: run in plain REPL mode.
 - `uv run ruff check .`: lint Python code.
 - `uv run ruff format .`: apply formatting.
 - `uv run --group dev mypy src/familiar_agent`: static type checks.

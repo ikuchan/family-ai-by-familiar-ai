@@ -112,30 +112,22 @@ removed; see [Technical background](#technical-background) for where the design 
 
 ### 1. Install uv
 
-**macOS / Linux / WSL2:**
+It runs on Linux (the home machine runs Ubuntu).
+
 ```bash
 curl -LsSf https://astral.sh/uv/install.sh | sh
 ```
 
-**Windows (PowerShell):**
-```powershell
-powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-```
-Or: `winget install astral-sh.uv`
-
 ### 2. Install ffmpeg
 
 ffmpeg is **required** for camera image capture and camera-speaker playback via go2rtc.
-Local PC audio playback can also use built-in OS players (`afplay` on macOS) or the
-pure-Python fallback.
+Local PC audio playback can also use the pure-Python fallback.
 
 | OS | Command |
 |----|---------|
-| macOS | `brew install ffmpeg` |
 | Ubuntu / Debian | `sudo apt install ffmpeg` |
 | Fedora / RHEL | `sudo dnf install ffmpeg` |
 | Arch Linux | `sudo pacman -S ffmpeg` |
-| Windows | `winget install ffmpeg` — or download from [ffmpeg.org](https://ffmpeg.org/download.html) and add to PATH |
 | Raspberry Pi | `sudo apt install ffmpeg` |
 
 Verify: `ffmpeg -version`
@@ -165,7 +157,7 @@ cp .env.example .env
 # Edit .env with your settings
 ```
 
-If you prefer the desktop flow, `./run-gui.sh` (or `run-gui.bat`) can now open
+If you prefer the desktop flow, `./run-gui.sh` can now open
 the setup dialog for you on first launch when `API_KEY` is still missing.
 
 **Minimum required:**
@@ -203,7 +195,6 @@ cp persona-template/en.md ME.md
 
 ### 7. Run
 
-**macOS / Linux / WSL2:**
 ```bash
 ./run.sh             # Textual TUI (backward-compatible default)
 ./run-gui.sh         # Desktop GUI launcher (restarts after a crash)
@@ -215,14 +206,6 @@ cp persona-template/en.md ME.md
 then 1.5x longer after each crash. It appends native crash traces (`PYTHONFAULTHANDLER=1`) to
 `~/.cache/familiar-ai/crash.log` and each restart to `~/.cache/familiar-ai/restart.log`. Arguments such as
 `--debug` are passed on every start. To start it at login, see `deploy/autostart/README.md`.
-
-**Windows:**
-```bat
-run.bat              # Textual TUI (backward-compatible default)
-run-gui.bat          # Desktop GUI launcher
-run.bat --gui        # Desktop GUI (same as run-gui.bat)
-run.bat --no-tui     # Plain REPL
-```
 
 ---
 
@@ -336,8 +319,8 @@ PLATFORM=kimi
 API_KEY=sk-...
 ```
 
-Run `./run.sh` (macOS/Linux/WSL2) or `run.bat` (Windows) and start chatting. Add hardware as you go.
-If you want the desktop GUI directly, use `./run-gui.sh` or `run-gui.bat`.
+Run `./run.sh` and start chatting. Add hardware as you go.
+If you want the desktop GUI directly, use `./run-gui.sh`.
 
 ### Find Wi-Fi cameras automatically
 
@@ -410,16 +393,11 @@ TTS_OUTPUT=both     # camera speaker + PC speaker simultaneously
 Set `TTS_OUTPUT=remote` (or `both`). Requires [go2rtc](https://github.com/AlexxIT/go2rtc/releases):
 
 1. Download the binary from the [releases page](https://github.com/AlexxIT/go2rtc/releases):
-   - Linux/macOS: `go2rtc_linux_amd64` / `go2rtc_darwin_amd64`
-   - **Windows: `go2rtc_win64.exe`**
+   - `go2rtc_linux_amd64`
 
 2. Place and rename it:
    ```
-   # Linux / macOS
    ~/.cache/embodied-claude/go2rtc/go2rtc          # chmod +x required
-
-   # Windows
-   %USERPROFILE%\.cache\embodied-claude\go2rtc\go2rtc.exe
    ```
 
 3. Create `go2rtc.yaml` in the same directory:
@@ -435,16 +413,12 @@ Set `TTS_OUTPUT=remote` (or `both`). Requires [go2rtc](https://github.com/AlexxI
 #### B) Local PC speaker
 
 The default (`TTS_OUTPUT=local`). Tries players in order:
-**afplay (macOS)** → **paplay** → **mpv** → **sounddevice**.
-On Windows, MP3 playback can also fall back to built-in **MCI** if no external player is available.
+**paplay** → **mpv** → **sounddevice**.
 Local playback is also used as a fallback when `TTS_OUTPUT=remote` and go2rtc is unavailable.
 
 | OS | Install |
 |----|---------|
-| macOS | No extra player required (`afplay` is built in). Optional: `brew install mpv` |
 | Ubuntu / Debian | `sudo apt install mpv` (or `paplay` via `pulseaudio-utils`) |
-| WSL2 / WSLg | `sudo apt install pulseaudio-utils` — set `PULSE_SERVER=unix:/mnt/wslg/PulseServer` in `.env` |
-| Windows | [mpv.io/installation](https://mpv.io/installation/) — download and add to PATH. Without it, familiar-ai still tries built-in/Python fallbacks |
 
 > If no audio player is available, speech is still generated — it just won't play.
 

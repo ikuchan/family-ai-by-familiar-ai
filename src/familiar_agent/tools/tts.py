@@ -26,7 +26,6 @@ import queue
 import shutil
 import struct
 import subprocess
-import sys
 import tempfile
 import threading
 import time
@@ -90,7 +89,7 @@ def _write_tmp_audio(data: bytes, suffix: str = ".mp3") -> str:
 
 _GO2RTC_CACHE = Path.home() / ".cache" / "embodied-claude" / "go2rtc"
 # On Windows the binary is go2rtc.exe; on other platforms there is no extension.
-_GO2RTC_BIN = _GO2RTC_CACHE / ("go2rtc.exe" if sys.platform == "win32" else "go2rtc")
+_GO2RTC_BIN = _GO2RTC_CACHE / "go2rtc"
 _GO2RTC_CONFIG = _GO2RTC_CACHE / "go2rtc.yaml"
 
 
@@ -452,9 +451,7 @@ class TTSTool:
             tmp_path: str | None = None
             voice_guard.remember(text)
             try:
-                binary = (
-                    _pw_play_binary() if output == "local" and sys.platform != "win32" else None
-                )
+                binary = _pw_play_binary() if output == "local" else None
                 try:
                     if binary:
                         state, audio, is_wav = await asyncio.to_thread(
@@ -1349,16 +1346,13 @@ async def _play_via_sounddevice(audio_path: str, gain: float = 1.0, *, quiet: bo
             return _play_unlocked()
 
     def _play_unlocked() -> bool:
-        binary = _pw_play_binary() if sys.platform != "win32" else None
+        binary = _pw_play_binary()
         if binary:
             try:
                 return _play_with_pw_play(binary, audio_path, gain, quiet)
             except Exception as e:  # noqa: BLE001
                 logger.warning("pw-play で鳴らせなかったので PortAudio で鳴らす: %s", e)
         if audio_path.lower().endswith(".mp3"):
-            # On Windows prefer MCI (reliable, built-in) over PyAV+sounddevice
-            if sys.platform == "win32" and _play_mp3_mci(audio_path):
-                return True
             return _play_mp3_via_pyav(audio_path, gain)
         else:
             try:
@@ -1404,30 +1398,6 @@ async def _play_via_sounddevice(audio_path: str, gain: float = 1.0, *, quiet: bo
                 return False
 
     return await asyncio.to_thread(_play)
-
-
-def _play_mp3_mci(mp3_path: str) -> bool:
-    """Play MP3 using Windows MCI (Media Control Interface) via ctypes. Windows only.
-
-    MCI is built into Windows — no extra dependencies, supports MP3 natively.
-    """
-    try:
-        import ctypes
-
-        winmm = ctypes.windll.winmm  # type: ignore[attr-defined]
-        alias = "familiar_tts"
-        abs_path = os.path.abspath(mp3_path)
-        winmm.mciSendStringW(f"close {alias}", None, 0, None)  # clean up any prior
-        ret = winmm.mciSendStringW(f'open "{abs_path}" type mpegvideo alias {alias}', None, 0, None)
-        if ret != 0:
-            logger.warning("MCI open failed (ret=%d)", ret)
-            return False
-        winmm.mciSendStringW(f"play {alias} wait", None, 0, None)
-        winmm.mciSendStringW(f"close {alias}", None, 0, None)
-        return True
-    except Exception as e:
-        logger.warning("MCI playback failed: %s", e)
-        return False
 
 
 def _play_mp3_via_pyav(mp3_path: str, gain: float = 1.0) -> bool:
@@ -1484,41 +1454,18 @@ async def _play_local(tmp_path: str, gain: float = 1.0) -> bool:
     """Play audio file on the local PC speaker. Returns True on success.
 
     Try order:
-    1. afplay (macOS built-in)
-    2. paplay (PulseAudio native — most reliable on WSL2/WSLg when PULSE_SERVER is set)
-    3. mpv (auto audio backend selection)
-    4. sounddevice (pure Python fallback, no system tools required)
+    1. paplay (PulseAudio native — most reliable on WSL2/WSLg when PULSE_SERVER is set)
+    2. mpv (auto audio backend selection)
+    3. sounddevice (pure Python fallback, no system tools required)
 
     Note: file is always WAV (pcm_16000) so paplay needs no ffmpeg conversion.
     """
     pulse_env = _pulse_env()
 
-    # --- afplay (macOS built-in) ---
-    if sys.platform == "darwin":
-        afplay = shutil.which("afplay")
-        if afplay:
-            try:
-                proc = await asyncio.create_subprocess_exec(
-                    afplay,
-                    tmp_path,
-                    stdout=asyncio.subprocess.DEVNULL,
-                    stderr=asyncio.subprocess.PIPE,
-                )
-                _, stderr = await proc.communicate()
-                if proc.returncode == 0:
-                    return True
-                logger.warning(
-                    "afplay failed (exit %d): %s",
-                    proc.returncode,
-                    stderr.decode(errors="replace")[:120],
-                )
-            except (FileNotFoundError, OSError) as e:
-                logger.warning("Could not launch afplay: %s", e)
-
     # --- sounddevice with named output device (Linux: avoids ALSA hw exclusive-access
     #     conflict when mic is simultaneously open via PortAudio on the same device) ---
     tried_sd = False
-    if sys.platform != "darwin" and os.environ.get("AUDIO_INPUT_DEVICE", "").strip():
+    if os.environ.get("AUDIO_INPUT_DEVICE", "").strip():
         sd_ok = await _play_via_sounddevice(tmp_path, gain=gain)
         if sd_ok:
             return True
