@@ -49,6 +49,7 @@ from ..core.reaction_cue import TIMEOUT_RECORDING, TIMEOUT_WORDS
 from ..core.silence_hold import Heard
 from ..core.tool_gate import gate_personal_tools
 from ..core.tool_text import tool_calls_from_text
+from ..core.heard import HEARD_DIRECTION
 from ..io.oif import MI, Recalled
 from ..person_memory_manager import AGENT_SELF_ID
 from .speech_check import ARRIVED_CHARS, PAST_CHARS, facts_ctx, fit_arrived, past_rows
@@ -5426,9 +5427,12 @@ class InformationProcessing:
                 trigger.named = True  # 名前で呼ばれた用件として受ける（知-bs）
                 admitted = await self._wake_window_admits(trigger)
             if not admitted:
-                # **窓の外の入力は捨てる**（出-as 段 3）。記録もしない——呼ばれていない話は聞いて
-                # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。
+                # **窓の外の入力は捨てる**（出-as 段 3）。返事はしない——呼ばれていない話は聞いて
+                # いないのと同じ。家族どうしの話や食事のあいさつにまで返事をしていた（実機 09-26）。ただし、家族の声で
+                # ほかの家族の呼び名が出た言葉だけは「聞こえた」として残す（記-ae 段 4・2026-11-23 本人の決定）。
                 logger.info("event-loop 窓の外の入力なので捨てる：%s", chars(trigger.query))
+                # 家族の声でほかの家族の名が出たら残す（記-ae 段 4）
+                self._keep_family_talk(trigger)
                 await self._nudge_by_voice(trigger)
                 return self._swallowed(trigger)
             trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
@@ -5439,6 +5443,7 @@ class InformationProcessing:
                     logger.info(
                         "event-loop パジュ宛てでないので受けない（%d 字）", len(trigger.query or "")
                     )
+                    self._keep_family_talk(trigger)  # 家族どうしの話（記-ae 段 4）
                     return self._swallowed(trigger)
                 await self._paju().extend_window(self._arrival(trigger))
         if self._muted:
@@ -5960,8 +5965,8 @@ class InformationProcessing:
             )
             self._log_voice_scores(False, scores, verdict)
             if text:
-                # 記-ae：家族どうしの話を about の材料にするか（窓の外の声は記録しない決まりを変えるか）を本人に聞くために、
-                # 数えるだけ残す。言葉も名前も出さず、何も記録しない。
+                # 記-ae：捨てた声のうち、家族の声か・ほかの家族の呼び名が出たかを数える（言葉も名前も出さない）。記録するのは
+                # 窓の外と家族どうしの 2 つの枝だけ（`_keep_family_talk`）で、ここは数えるだけ。
                 family = bool(verdict.person_id) and verdict.score >= cfg.voice_threshold
                 named = self._other_family_named(text, verdict.person_id if family else None)
                 logger.info(
@@ -6713,6 +6718,52 @@ class InformationProcessing:
         if not getattr(persons, "active_is_explicit", False):
             return None
         return self._agent._pmm.find_person_id_by_name(str(persons.active_name or ""))
+
+    def _keep_family_talk(self, trigger: "Trigger") -> None:
+        """窓の外の家族の話を「聞こえた」として残す仕事を、裏で立てる（記-ae 段 4・2026-11-23 本人の決定）。
+
+        呼ぶのは、パジュ宛てでないと分かって捨てる 2 つの枝だけ（窓の外・家族どうし）。考えている最中の声や、知らない声は来ない。
+        吹き出しの表示と話者の付け替えを、埋め込みと DB の書き込みで待たせないよう、裏で書く。
+        """
+        if trigger.source != "voice" or trigger.voice is None or not trigger.query:
+            return
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ記録しない
+            task = asyncio.get_running_loop().create_task(
+                self._record_heard(trigger.query, trigger.voice)
+            )
+            self._background_tasks.add(task)
+            task.add_done_callback(self._background_tasks.discard)
+
+    async def _record_heard(self, text: str, voice: Any) -> None:
+        """声で家族の誰かと分かり、ほかの家族の呼び名が出た言葉だけを、話した人の記録で残す。パジュは何もしない。
+
+        夜の REST が「誰について話したか」を調べ、その人の about の面を立てる（`loop/rest_about`）。畳み込みには入れない
+        （`core/heard`）。
+        """
+        from ..core import voice_speaker
+
+        try:
+            cfg = self._agent.config.recognition
+            scores = self._voice_scores(voice)
+            strict = cfg.voice_switch_threshold if self._occupied() else cfg.voice_alone_threshold
+            verdict = voice_speaker.decide(
+                self._current_speaker_pid(), scores, loose=cfg.voice_threshold, strict=strict
+            )
+            pid = verdict.person_id
+            if (
+                not pid
+                or verdict.score < cfg.voice_threshold
+                or not self._other_family_named(text, pid)
+            ):
+                return
+            kept = text[:_ORIGIN_MAX]
+            await self._agent._oif.write(
+                MI(id="", content=kept, timestamp=None, direction=HEARD_DIRECTION),
+                writer_id=pid,
+            )
+            logger.info("窓の外の声を記録した（記-ae・%d 字）", len(kept))
+        except Exception:  # noqa: BLE001
+            logger.warning("窓の外の声を記録できなかった", exc_info=True)
 
     def _other_family_named(self, text: str, speaker_pid: "str | None") -> bool:
         """`text` に、話した人（`speaker_pid`）以外の家族の呼び名が出るか（記-ae）。2 字に満たない呼び名は見ない。"""

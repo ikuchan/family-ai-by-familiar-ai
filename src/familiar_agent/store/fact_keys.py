@@ -44,7 +44,7 @@ def pending(ctx, limit: int) -> "list[FactSource]":
                 FROM observations o
                 WHERE {live}
                   AND COALESCE(o.content, '') <> ''
-                  AND o.direction <> '内省'
+                  AND o.direction NOT IN ('内省', '聞こえた')  -- 聞こえた話（core/heard）はパジュに言ったことではない
                   AND EXISTS (SELECT 1 FROM situated_memories s WHERE s.obs_id = o.id)
                   AND NOT EXISTS (SELECT 1 FROM obs_fact_runs f WHERE f.obs_id = o.id)
                 GROUP BY o.content

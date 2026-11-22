@@ -701,16 +701,22 @@ _ABOUT = noul(
 )
 
 
+#: 話しかけた相手の書き方（記-ae）。パジュに言った言葉と、窓の外で聞こえた家族どうしの話。
+ABOUT_TO_ROBOT = "ロボット（パジュ）"
+ABOUT_TO_FAMILY = "家族のだれか（ロボットではない）"
+
+
 async def judge_about(
-    client, *, text: str, speaker: str, person: str, min_p: float
+    client, *, text: str, speaker: str, person: str, min_p: float, to: str = ABOUT_TO_ROBOT
 ) -> "bool | None":
     """発話 `text` が `person` について話しているか（記-ae 段 2）。はいの確率が `min_p` 以上なら真。
 
-    話しかけた相手はロボット（呼び手は、人がパジュに言った発話だけを渡す）。Jev が答えないときは None。本文と名前はログに出さない。
+    話しかけた相手は `to`（パジュに言った言葉はロボット、窓の外で聞こえた話は家族・2026-11-23 に jev-latest で 14 文を
+    測り直し、境目 0.7 のまま分かれた）。Jev が答えないときは None。本文と名前はログに出さない。
     """
     state = (
         f"[記録の言葉]\n{text}\n\n[話した人]\n{speaker}\n\n"
-        f"[話しかけた相手]\nロボット（パジュ）\n\n[この人]\n{person}"
+        f"[話しかけた相手]\n{to}\n\n[この人]\n{person}"
     )
     answer = await _ask(client, state, {"about": _ABOUT})
     got = (getattr(answer, "answers", None) or {}).get("about") or {}

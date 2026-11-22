@@ -27,6 +27,7 @@ from ..mood_register import MoodPAD
 from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
 from .context import StoreContext, viewpoint_of
+from ..core.heard import HEARD_DIRECTION
 from .relations import KIND_UNCLASSIFIED, RelationStore, not_hidden
 from .embedding import _decode_vector, _encode_vector
 
@@ -1167,35 +1168,51 @@ class ObservationStore:
     def about_pending(
         self, limit: int, *, since: datetime, until: "datetime | None" = None
     ) -> "list[dict]":
-        """about の面を足すか調べる会話（記-ae 段 2）。`since` より後（`until` があればそれより前）を新しい順に `limit` 件。
+        """about の面を足すか調べる記録（記-ae 段 2・段 4）。`since` より後（`until` があればそれより前）を新しい順に `limit` 件。
 
-        **面は最終版に立て、判定は起点の言葉でする。** 人の言葉（起点・向き `発話`）は、その晩の畳み込みで隠れ、想起に
+        **会話は、面を最終版に立て、判定は起点の言葉でする。** 人の言葉（起点・向き `発話`）は、その晩の畳み込みで隠れ、想起に
         上がらない。会話の記録で見え続けるのは最終版（起点を親に持つ・`core/final_version`）なので、面はそこに立てる。
         判定は起点の言葉でする（最終版は経緯まで入って長く、Jev の境目も人の言葉で測った・`根拠台帳` §74）。
+        **窓の外で聞こえた家族の話**（向き `聞こえた`・記-ae 段 4）は畳まれないので、その記録に立て、その言葉で判定する。
 
-        `obs_id` は最終版、`content` は起点の言葉、`actor` は起点を話した人（解決できなければ自分の印）、`done` は最終版に
-        about の面がもう立っている人（その人には聞き直さない）。
+        `obs_id` は面を立てる記録、`content` は判定する言葉、`actor` は話した人（解決できなければ自分の印）、`done` は
+        about の面がもう立っている人（その人には聞き直さない）、`heard` は聞こえた話か（パジュ宛てではない）。
+        会話を先に並べる（1 晩の問いの上限を、名前の出やすい聞こえた話が先に使い切らないように）。
         """
-        live = not_hidden("f")
+        live_f = not_hidden("f")
+        done = (
+            "COALESCE((SELECT array_agg(b.person_id) FROM situated_memories b "
+            "WHERE b.obs_id = f.id AND b.relation_key = 'about'), '{}')"
+        )
         with self._ctx.lock:
             conn = self._ctx.conn()
             with conn.cursor() as cur:
                 cur.execute(
                     f"""
-                    SELECT f.id AS obs_id, p.content, a.person_id AS actor,
-                           COALESCE((SELECT array_agg(b.person_id) FROM situated_memories b
-                                     WHERE b.obs_id = f.id AND b.relation_key = 'about'), '{{}}') AS done
-                    FROM observations f
-                    JOIN observations p ON p.id = f.parent_id AND p.direction = '発話'
-                    LEFT JOIN situated_memories a ON a.obs_id = p.id AND a.relation_key = 'actor'
-                    WHERE {live} AND f.direction = '最終版' AND f.timestamp > %s
-                      AND (%s::timestamptz IS NULL OR f.timestamp < %s)
-                    ORDER BY f.timestamp DESC
+                    SELECT * FROM (
+                        SELECT f.id AS obs_id, p.content, a.person_id AS actor, {done} AS done,
+                               false AS heard, f.timestamp AS at
+                        FROM observations f
+                        JOIN observations p ON p.id = f.parent_id AND p.direction = '発話'
+                        LEFT JOIN situated_memories a ON a.obs_id = p.id AND a.relation_key = 'actor'
+                        WHERE {live_f} AND f.direction = '最終版'
+                        UNION ALL
+                        SELECT f.id, f.content, a.person_id, {done}, true, f.timestamp
+                        FROM observations f
+                        LEFT JOIN situated_memories a ON a.obs_id = f.id AND a.relation_key = 'actor'
+                        WHERE {live_f} AND f.direction = %s
+                    ) x
+                    WHERE x.at > %s AND (%s::timestamptz IS NULL OR x.at < %s)
+                    ORDER BY x.heard, x.at DESC
                     LIMIT %s
                     """,
-                    (since, until, until, int(limit)),
+                    (HEARD_DIRECTION, since, until, until, int(limit)),
                 )
-                return [dict(r) | {"done": list(r["done"] or [])} for r in cur.fetchall()]
+                return [
+                    {k: v for k, v in dict(r).items() if k != "at"}
+                    | {"done": list(r["done"] or [])}
+                    for r in cur.fetchall()
+                ]
 
     def add_about(self, obs_id: str, person_id: str, *, tag: str) -> bool:
         """その記録に、`person_id` の about の面を立てる（記-ae 段 2）。言葉は `tag` ＋本文、ベクトルは記録の埋め込み。

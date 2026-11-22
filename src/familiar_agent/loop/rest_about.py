@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from ..config import MemoryConfig
-from ..core.jev_judges import judge_about
+from ..core.jev_judges import ABOUT_TO_FAMILY, ABOUT_TO_ROBOT, judge_about
 from ..core.speaker_claim import aliases_of
 from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
@@ -91,7 +91,14 @@ async def add_about(
             if not person:
                 continue  # 呼び名の無い人は、Jev に「この人」を渡せない
             asked += 1
-            got = await judge_about(jev, text=content, speaker=speaker, person=person, min_p=min_p)
+            got = await judge_about(
+                jev,
+                text=content,
+                speaker=speaker,
+                person=person,
+                min_p=min_p,
+                to=ABOUT_TO_FAMILY if row.get("heard") else ABOUT_TO_ROBOT,
+            )
             if got is None:
                 unanswered += 1
             elif got:

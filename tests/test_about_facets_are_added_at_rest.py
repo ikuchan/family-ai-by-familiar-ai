@@ -271,3 +271,58 @@ def test_the_store_writes_an_about_facet_and_tells_who_already_has_one():
     assert [r["done"] for r in store.about_pending(10, since=since)] == [
         [papa]
     ]  # 面の立った人は聞き直さない
+
+
+def test_overheard_family_talk_is_judged_as_said_to_family():
+    """窓の外で聞こえた家族の話（向き 聞こえた・記-ae 段 4）は、話しかけた相手を家族として聞く。"""
+    oif = _Oif(
+        [
+            {
+                "obs_id": "h1",
+                "content": "パパは明日から出張なんだって",
+                "actor": "p-mama",
+                "heard": True,
+            }
+        ]
+    )
+    jev = _Jev(0.89)
+    _run(oif, jev)
+    assert oif.added == [("h1", "p-papa")]
+    assert "[話しかけた相手]\n家族のだれか（ロボットではない）" in jev.states[0]
+
+
+def test_the_store_offers_heard_records_with_their_own_words(tmp_path):
+    from datetime import datetime, timedelta, timezone
+
+    mama, papa = str(uuid.uuid4()), str(uuid.uuid4())
+    heard = str(uuid.uuid4())
+    vec = np.zeros(_DIM, dtype=np.float32)
+    vec[5] = 1.0
+    sql_vec = "[" + ",".join(f"{x:.1f}" for x in vec) + "]"
+    conn = _conn()
+    try:
+        with conn.cursor() as cur:
+            for pid, name, call in ((mama, "はなこ", "ママ"), (papa, "たろう", "パパ")):
+                cur.execute(
+                    "INSERT INTO persons (id, name, display_name, created_at, updated_at) "
+                    "VALUES (%s,%s,%s,now(),now())",
+                    (pid, name, call),
+                )
+            cur.execute(
+                "INSERT INTO observations (id, content, timestamp, direction, emotion) "
+                "VALUES (%s,%s,now(),'聞こえた','neutral')",
+                (heard, "パパは明日から出張なんだって"),
+            )
+            cur.execute(
+                "INSERT INTO situated_memories (id, obs_id, person_id, vector, relation_key) "
+                "VALUES (%s,%s,%s,%s::vector,'actor')",
+                (str(uuid.uuid4()), heard, mama, sql_vec),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+    since = datetime.now(timezone.utc) - timedelta(days=2)
+    rows = _store().about_pending(10, since=since)
+    assert [(r["obs_id"], r["content"], r["actor"], r["heard"]) for r in rows] == [
+        (heard, "パパは明日から出張なんだって", mama, True)
+    ]

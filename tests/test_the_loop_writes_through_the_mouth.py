@@ -60,7 +60,8 @@ def test_the_loop_uses_the_mouth():
     # 黙っていたあいだに届いたものの記録（`_note_muted`・情-h・2026-09-16）で 1 本増えて 8。
     # 閉じるときの最終版（`_write_final`・記-t）で、書き込みと改訂が 1 本ずつ増えた。
     # つなぎの記録（`_say_filler`）を撤去して 1 本減り 7（出-cl 段 3・2026-10-15）。
-    assert src.count("_oif.write(") == 7
+    # 窓の外で聞こえた家族の話の記録（`_record_heard`・記-ae 段 4・2026-11-23）で 1 本増えて 8。
+    assert src.count("_oif.write(") == 8
     assert src.count("_oif.supersede(") == 3
     assert src.count("_oif.append(") == 1
 

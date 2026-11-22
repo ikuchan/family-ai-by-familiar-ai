@@ -203,3 +203,12 @@ def test_a_record_the_reply_skipped_is_not_marked():
     facts = [None if a in s.obs_ids else [Fact("s", "r", "a")] for s in srcs]
     assert mem.write_fact_keys(srcs, facts, model="m") == (1, 2)
     assert _pending_of(mem, [a]) and not _pending_of(mem, [b])
+
+
+def test_overheard_family_talk_is_not_extracted():
+    """窓の外で聞こえた家族の話（向き 聞こえた・記-ae 段 4）からは事実の鍵を抜かない（パジュに言ったことと取り違えない）。"""
+    mem = _mem()
+    heard = _save(mem, "聞こえた " + uuid.uuid4().hex, direction="聞こえた")
+    said = _save(mem, "言った " + uuid.uuid4().hex, direction="発話")
+    got = _pending_of(mem, [heard, said])
+    assert frozenset({said}) in got and all(heard not in k for k in got)

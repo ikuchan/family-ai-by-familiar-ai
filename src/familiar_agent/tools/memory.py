@@ -24,6 +24,7 @@ import numpy as np
 from ..config import MemoryConfig, RecallWeights
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
+from ..core.heard import HEARD_DIRECTION
 from ..core.fact_keys import Fact
 from ..store import fact_keys as fact_keys_store
 from ..store.fact_keys import FactSource
@@ -384,6 +385,8 @@ def _emotion_match(
 #: `{名}` にその記録の主体（`actor` の面）が入る。パジュ自身は `me_name` の名前（記-x）。
 SUBJECT_PHRASE: dict = {
     "発話": "{名}が言った",
+    # 窓の外で聞こえた家族の話（記-ae・2026-11-23）。パジュに言ったことと読まないように。
+    HEARD_DIRECTION: "{名}が話していた（パジュ宛てではない）",
     "独白": "{名}が考えた（言わなかった）",
     "会話": "{名}との会話",
     "観察": "{名}が見た",
