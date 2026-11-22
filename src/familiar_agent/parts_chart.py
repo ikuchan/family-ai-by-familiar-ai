@@ -2,7 +2,7 @@
 
 部品は `設計図_Mermaid` の全体図の部品（T の TIF・GMD・B、I の AIF・DIF・CORE・RES・W・O・C・SS）と、実物にある内省（REST）・
 画面（UI）・起動と基盤（BOOT）。どのファイルがどの部品かは下の対応表で決める（ファイルの名前で決める例外と、フォルダで決める
-既定）。矢印は、git に入っているソースの import（関数の中のものも含み、型の注釈のためだけのものは外す）を読み、部品をまたぐものを、import している（ファイル → ファイル）の組の数つきで描く。図は手で書かず、設計図の
+既定）。矢印は、git に入るソース（追跡しているもの＋無視していない新しいもの）の import（関数の中のものも含み、型の注釈のためだけのものは外す）を読み、部品をまたぐものを、import している（ファイル → ファイル）の組の数つきで描く。図は手で書かず、設計図の
 文書の「①-2」に、ここが出す文字をそのまま貼る（`tests/test_parts_chart.py` が一致を確かめる）。
 
 使い方：`uv run python -m familiar_agent.parts_chart`
@@ -136,14 +136,29 @@ def part_of(module: str) -> "str | None":
 _SKIP = {"parts_chart"}
 
 
+def git_files(root: Path, *patterns: str) -> "list[str]":
+    """`root` から見た、git に入るファイル（`git add -A` が入れるものと同じ）。家族の名前の番人も使う。
+
+    追跡しているもの＋無視していない新しいもの、から、手元で消したものを除く。新しいファイルも見るのは、`run_tests.sh` が
+    試験のあとで `git add -A` するので、試験のあいだ新しいファイルは git に無いため（2026-11-22 に、新しい試験の作り名と
+    部品の図のずれを、それぞれ 1 コミット見落とした）。手元の試しのファイルも、無視していなければコミットされるので数える。
+    `-z` で受ける（日本語の名前のファイルが引用符の形で返り、読み飛ばされないように）。
+    """
+    out = subprocess.run(
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard", *patterns],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    return [f for f in out.split("\0") if f and (root / f).exists()]
+
+
 @functools.cache
 def _modules() -> "dict[str, Path]":
-    """git に入っているソース（手元の試しのファイルで図が変わらない）。git が読めなければ、置いてあるものを読む。"""
+    """git に入るソース（`git_files`）。git が読めなければ、置いてあるものを読む。"""
     try:
-        listed = subprocess.run(
-            ["git", "ls-files", "-z", "*.py"], cwd=_SRC, capture_output=True, text=True, check=True
-        ).stdout.split("\0")
-        paths = [_SRC / p for p in listed if p]
+        paths = [_SRC / p for p in git_files(_SRC, "*.py")]
     except (OSError, subprocess.CalledProcessError):
         paths = list(_SRC.rglob("*.py"))
     out = {}

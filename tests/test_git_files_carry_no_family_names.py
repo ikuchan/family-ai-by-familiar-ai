@@ -10,7 +10,6 @@ from __future__ import annotations
 import collections
 import pathlib
 import re
-import subprocess
 
 import pytest
 
@@ -156,6 +155,10 @@ def _words(text: str) -> set[str]:
     return {w for w in words if len(w) >= 2}
 
 
+#: これより大きいファイルは読まない（録音・ダンプなど。名前を書く文書や試験は小さい）。
+_MAX_BYTES = 1_000_000
+
+
 def test_no_git_file_carries_a_family_name() -> None:
     family = _ROOT / "FAMILY.md"
     if not family.exists():
@@ -167,14 +170,9 @@ def test_no_git_file_carries_a_family_name() -> None:
         else re.compile(re.escape(w))
         for w in words
     ]
-    # `-z` で受ける（日本語の名前のファイルが引用符の形で返り、読み飛ばされないように）。
-    files = [
-        f
-        for f in subprocess.run(
-            ["git", "ls-files", "-z"], cwd=_ROOT, capture_output=True, text=True, check=True
-        ).stdout.split("\0")
-        if f
-    ]
+    from familiar_agent.parts_chart import git_files
+
+    files = [f for f in git_files(_ROOT) if (_ROOT / f).stat().st_size <= _MAX_BYTES]
     found: dict[str, int] = {}
     for f in files:
         if f in _OUTSIDE:
