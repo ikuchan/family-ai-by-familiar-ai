@@ -26,10 +26,7 @@ _DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-09-02-055_relation_key_default.py"
 
 
-def _conn():
-    conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = True
-    return conn
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _default_of(column: str = "relation_key") -> str | None:

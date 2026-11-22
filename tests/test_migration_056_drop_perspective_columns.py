@@ -22,8 +22,6 @@ import os
 import uuid
 
 import numpy as np
-import psycopg2
-import psycopg2.extras
 from unittest.mock import patch
 
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
@@ -33,10 +31,7 @@ _DB_URL = os.environ["DATABASE_URL"]
 _DIM = 1024
 
 
-def _conn():
-    c = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    c.autocommit = True
-    return c
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _mem():

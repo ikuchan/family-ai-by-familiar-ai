@@ -12,8 +12,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-import psycopg2
-import psycopg2.extras
 
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
@@ -22,10 +20,7 @@ _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 FOLD_DIRECTIONS = ("発話", "会話", "観察", "独白", "情動", "機器")
 
 
-def _conn():
-    conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = True
-    return conn
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _plant(cur, content: str, ts: datetime, *, direction="発話", n=0, hidden=False) -> str:

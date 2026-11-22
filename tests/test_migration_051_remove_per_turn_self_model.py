@@ -34,10 +34,7 @@ _DB_URL = os.environ["DATABASE_URL"]
 _MIGRATION = "2026-08-15-051_remove_the_per_turn_self_model.py"
 
 
-def _conn():
-    c = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    c.autocommit = True
-    return c
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _run_migration() -> None:

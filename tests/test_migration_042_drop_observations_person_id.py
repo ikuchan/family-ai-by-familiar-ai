@@ -24,8 +24,6 @@ import uuid
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-import psycopg2
-import psycopg2.extras
 
 from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 from familiar_agent.store import clock
@@ -35,10 +33,7 @@ _DB_URL = os.environ["DATABASE_URL"]
 _NOW = datetime(2026, 6, 1, 12, 0, 0, tzinfo=clock.local_tz())
 
 
-def _conn():
-    conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = True
-    return conn
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _mem():

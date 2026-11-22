@@ -27,18 +27,13 @@ import os
 import uuid
 from unittest.mock import AsyncMock, patch
 
-import psycopg2
-import psycopg2.extras
 
 from familiar_agent.mood_register import MoodPAD
 
 _DB_URL = os.environ["DATABASE_URL"]
 
 
-def _conn():
-    c = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    c.autocommit = True
-    return c
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _mem():

@@ -10,17 +10,12 @@ from __future__ import annotations
 import os
 from importlib import util
 
-import psycopg2
-import psycopg2.extras
 
 _DB_URL = os.environ["DATABASE_URL"]
 _PATH = "migration/2026-09-15-064_drop_relationship_state.py"
 
 
-def _conn():
-    conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = True
-    return conn
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _module():

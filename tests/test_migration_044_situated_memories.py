@@ -20,8 +20,6 @@ import os
 import uuid
 from datetime import datetime, timedelta, timezone
 
-import psycopg2
-import psycopg2.extras
 
 from familiar_agent.person_memory_manager import AGENT_SELF_ID, DEFAULT_PERSON_ID
 
@@ -30,10 +28,7 @@ _DB_URL = os.environ["DATABASE_URL"]
 _VEC = "[" + ",".join(["1"] + ["0"] * 1023) + "]"
 
 
-def _conn():
-    conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = True
-    return conn
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _tables() -> set[str]:

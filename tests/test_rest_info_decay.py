@@ -13,8 +13,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from unittest.mock import patch
 
-import psycopg2
-import psycopg2.extras
 
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
 
@@ -22,10 +20,7 @@ _DB_URL = os.environ["DATABASE_URL"]
 _VEC = "[" + ",".join(["0.01"] * 1024) + "]"
 
 
-def _conn():
-    conn = psycopg2.connect(_DB_URL, cursor_factory=psycopg2.extras.RealDictCursor)
-    conn.autocommit = True
-    return conn
+from tests._db import autocommit_conn as _conn  # noqa: E402
 
 
 def _plant(cur, obs_id: str, content: str, ts: datetime, *, direction: str = "発話") -> None:
