@@ -322,6 +322,7 @@ RETURN_WITHOUT_RECALL = frozenset(
         "set_alarm",
         "cancel_alarm",
         "stop_stopwatch",
+        "print_document",
         "confirm",
         "decline",
     }

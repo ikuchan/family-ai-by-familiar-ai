@@ -230,6 +230,16 @@ capabilities:
       Something to be rung after some minutes is a timer, not an alarm. Implemented in
       `tools/alarm.py` and `loop/alarm_watch.py`.
     enabled_tool: set_alarm
+  - id: printing
+    summary: Print one page of what was just talked about on the home printer
+    detail: >
+      `print_document` (main LLM only) prints one A4 page in black and white, one-sided,
+      on the home printer (Brother DCP-J552N, through CUPS `lp`). The main LLM puts what
+      was just talked about (an answer, a recipe, a list of plans) into a title, a date
+      and a body (one item per line, "- " for a list). Before printing it says the title
+      and asks once ("『〇〇』を 1 枚刷るね。いい？"); the answer is taken by `confirm` or
+      `decline`. Implemented in `tools/print_tool.py` and `io/printer.py`.
+    enabled_tool: print_document
   - id: stopwatch
     summary: Measure how long something takes with a stopwatch
     detail: >

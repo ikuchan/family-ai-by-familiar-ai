@@ -113,6 +113,7 @@ _FULL_ACTIONS = (
     "music_suggestion_reply",  # すすめた曲への返事（知-aa 段 4）
     "start_stopwatch",  # ストップウォッチ（知-u・別物）
     "stop_stopwatch",
+    "print_document",  # 印刷（知-bo 段 2）。主LLM だけに渡す（調停の候補には載せない）
 )
 #: 思い出し方を変える道具（出-ah）。`recall` と同じく、その場で引いて完了として返る。
 _WIDEN_ACTIONS = (
@@ -141,6 +142,8 @@ _TIMER_ACTIONS = ("set_timer", "cancel_timer", "pause_timer", "resume_timer")
 _STOPWATCH_ACTIONS = ("start_stopwatch", "stop_stopwatch")
 # アラーム（知-q・2026-09-18）。タイマーとは別物・別の道具（`agent._alarm_tool`）。
 _ALARM_ACTIONS = ("set_alarm", "cancel_alarm")
+# 印刷（知-bo 段 2・2026-11-22）。主LLM だけが呼ぶ（`agent._print_tool`）。刷る前に 1 回確かめる。
+_PRINT_ACTIONS = ("print_document",)
 # 確認待ちへの答え（出-y・2026-09-18）。預かりが生きているあいだだけ候補と道具に載る（`agent.confirm_alive`）。
 # 機械が預かった入力で掛ける／捨てる。返りは道具の帰りと同じ道（想起なし・`workspace.RETURN_WITHOUT_RECALL`）。
 _CONFIRM_ACTIONS = ("confirm", "decline")
@@ -190,6 +193,7 @@ _LOOKUP_ACTIONS = (
     *_MCP_LOOKUPS.keys(),
     *_TIMER_ACTIONS,
     *_ALARM_ACTIONS,
+    *_PRINT_ACTIONS,
     *_STOPWATCH_ACTIONS,
     *_CONFIRM_ACTIONS,
     # 音楽も主LLM が道具名で呼ぶ。載っていなかったので `play_music` が捨てられ、求めが沈黙で閉じた（2026-10-07 実機）。
@@ -219,6 +223,9 @@ def _query_label(action: str, tool_input: dict) -> str:
         return {"set_alarm": "アラームを掛ける", "cancel_alarm": "アラームを止める"}[action] + (
             f"「{what}」" if what else ""
         )
+    if action in _PRINT_ACTIONS:
+        what = str(tool_input.get("title") or "").strip()
+        return "印刷する" + (f"「{what}」" if what else "")
     if action in _STOPWATCH_ACTIONS:
         what = str(tool_input.get("label") or tool_input.get("id") or "").strip()
         return {"start_stopwatch": "測り始める", "stop_stopwatch": "測るのを止める"}[action] + (
@@ -599,6 +606,17 @@ def _alarm_def(agent, name: str) -> list[dict]:
     if tool is None:
         return []
     return [d for d in tool.get_tool_definitions() if d.get("name") == name]
+
+
+def _print_def(agent) -> list[dict]:
+    """印刷の道具定義。器が無い、PDF を作れない（Qt のアプリが無い・画面の無い起動）なら空（知-bo）。
+
+    作れないのに渡すと、家族に「刷るね。いい？」と聞いてから刷れないと言うことになる。
+    """
+    tool = getattr(agent, "_print_tool", None)
+    if tool is None or not tool.can_render():
+        return []
+    return tool.get_tool_definitions()
 
 
 def _confirm_defs(agent, name: str) -> list[dict]:
@@ -2408,6 +2426,7 @@ class InformationProcessing:
         if (
             action in _TIMER_ACTIONS
             or action in _ALARM_ACTIONS
+            or action in _PRINT_ACTIONS
             or action in _STOPWATCH_ACTIONS
             or action in _CONFIRM_ACTIONS
         ):
@@ -2431,6 +2450,13 @@ class InformationProcessing:
                 tool = getattr(self._agent, "_alarm_tool", None)
                 if tool is None:
                     out, failed = "アラームの道具が無い", True
+                else:
+                    out, ok = await tool.call(action, tool_input)
+                    failed = not ok
+            elif action in _PRINT_ACTIONS:
+                tool = getattr(self._agent, "_print_tool", None)
+                if tool is None:
+                    out, failed = "印刷の道具が無い", True
                 else:
                     out, ok = await tool.call(action, tool_input)
                     failed = not ok
@@ -2990,6 +3016,8 @@ class InformationProcessing:
         # アラーム（知-q）。器（`agent._alarm_tool`）が無ければ渡さない。
         "set_alarm": lambda ip: _alarm_def(ip._agent, "set_alarm"),
         "cancel_alarm": lambda ip: _alarm_def(ip._agent, "cancel_alarm"),
+        # 印刷（知-bo）。器（`agent._print_tool`）が無ければ渡さない。
+        "print_document": lambda ip: _print_def(ip._agent),
         # ストップウォッチ（知-u）。器（`agent._stopwatch_tool`）が無ければ渡さない。
         # 音楽（知-aa）。器が無ければ空（`spotifyd` が居ない機体では渡さない）。
         "play_music": lambda ip: _music_def(ip._agent, "play_music"),

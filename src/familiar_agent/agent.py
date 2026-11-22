@@ -44,6 +44,9 @@ from .store.pose_norms import PoseNormStore
 from .tools.stt import STTTool
 from .core.confirm_state import PendingConfirm
 from .tools.alarm import AlarmTool
+from .tools.print_tool import PrintTool
+from .core.measure import default_base_dir
+from .core import confirm_state
 from .tools.stopwatch import StopwatchTool
 from .tools.timer import TimerTool
 from .tools.tts import TTSTool
@@ -247,6 +250,14 @@ class EmbodiedAgent:
             speaker=self._speaker_name_if_known,
             quiet=lambda: self._schedule_rule,
             on_cancel=self._stop_timer_ring,
+            ask=self.ask_confirm,
+        )
+        # 印刷（知-bo 段 2・2026-11-22）。主LLM だけが呼ぶ。刷る前に題を言って 1 回確かめる（タイマーと同じ預かり）。
+        self._print_tool = PrintTool(
+            oif=self._oif,
+            speaker=self._speaker_name_if_known,
+            printer=str(getattr(config, "printer_name", "") or ""),
+            folder=default_base_dir() / "print",
             ask=self.ask_confirm,
         )
         # ストップウォッチ（知-u・2026-09-18）。タイマーとは別物：表 `stopwatches`・鳴らない・確認しない・
@@ -904,9 +915,11 @@ class EmbodiedAgent:
             return "確認待ちのものは無い（聞いてから時間が経ちすぎたか、もう答えた）", False
         if not yes:
             logger.info("確認待ちを捨てた %s", pc.what)
-            return f"やめた：{pc.what}は掛けない", True
+            return confirm_state.declined_text(pc), True
         if pc.action == "set_alarm":
             return await self._alarm_tool.call(pc.action, pc.tool_input, confirmed=True)
+        if pc.action == "print_document":
+            return await self._print_tool.call(pc.action, pc.tool_input, confirmed=True)
         return await self._timer_tool.call(pc.action, pc.tool_input, now=now, confirmed=True)
 
     def timer_ringing(self) -> bool:

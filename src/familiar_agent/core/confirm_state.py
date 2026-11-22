@@ -19,7 +19,7 @@ from dataclasses import dataclass, field
 
 @dataclass
 class PendingConfirm:
-    action: str  # 掛ける道具（`set_timer`・`set_alarm`）
+    action: str  # 掛ける・刷る道具（`set_timer`・`set_alarm`・`print_document`）
     tool_input: dict = field(default_factory=dict)  # 預かった入力（そのまま呼び直す）
     asked_at: float = 0.0  # 聞いた時刻（`time.time()`）
     text: str = ""  # 本人に聞いた文
@@ -33,13 +33,27 @@ CONFIRM_TTL_SEC = 300.0
 #: 話しても、促すのは 1 回で済む。間隔は促しと促しのあいだだけで、確認の問いは数えない（問いの直後の答えが聞き違いでも促す）。
 PROMPT_GAP_SEC = 20.0
 
-_WHAT = {"set_timer": "タイマー", "set_alarm": "アラーム"}
+#: 確かめている動作の言い方（促しの文に入る）。
+_DOING = {
+    "set_timer": "タイマーを掛ける",
+    "set_alarm": "アラームを掛ける",
+    "print_document": "印刷する",
+}
+
+
+#: 「やめて」と言われたときの言い方（`agent.resolve_confirm`）。
+_NOT_DOING = {"print_document": "刷らない"}
+
+
+def declined_text(pc: "PendingConfirm") -> str:
+    """確かめたものをやめたときの返り（「やめた：『〇〇』は刷らない」）。"""
+    return f"やめた：{pc.what}は{_NOT_DOING.get(pc.action, '掛けない')}"
 
 
 def prompt_text(pc: "PendingConfirm") -> str:
     """答えになっていない言葉への決まった促し（知-o）。軽量LLM には書かせない（言い方が毎回変わった）。"""
-    what = _WHAT.get(getattr(pc, "action", ""), "それ")
-    return f"いま{what}を掛けるか確かめているところだよ。はいか、いいえで答えてね"
+    doing = _DOING.get(getattr(pc, "action", ""), "それを掛ける")
+    return f"いま{doing}か確かめているところだよ。はいか、いいえで答えてね"
 
 
 def prompt_due(last: "float | None", *, now: float, gap: float = PROMPT_GAP_SEC) -> bool:
@@ -51,7 +65,9 @@ def prompt_due(last: "float | None", *, now: float, gap: float = PROMPT_GAP_SEC)
 #: 答える（`confirm`・`decline`）・止める（`cancel_*`・`stop_*`）・話す・調べるは通す。
 #: 実機 17:34：1 回の「3 分測って」で `set_timer` が 3 回投げられ、確認待ちを作り直したうえで
 #: 「セットしました」と言った（掛かっていない）。**禁じたい動作は言葉で頼まず機械が落とす**。
-BLOCKED_WHILE_CONFIRMING = frozenset({"set_timer", "set_alarm", "start_stopwatch"})
+BLOCKED_WHILE_CONFIRMING = frozenset(
+    {"set_timer", "set_alarm", "start_stopwatch", "print_document"}
+)
 
 
 def blocks(
@@ -85,7 +101,7 @@ def frame(pc: PendingConfirm) -> str:
 TOOL_DEFS: list[dict] = [
     {
         "name": "confirm",
-        "description": "[確認待ち] の問いに「いい」「うん」「お願い」と答えた。預かった入力で掛ける。引数は無い。",
+        "description": "[確認待ち] の問いに「いい」「うん」「お願い」と答えた。預かった入力で掛ける・刷る。引数は無い。",
         "input_schema": {"type": "object", "properties": {}},
     },
     {

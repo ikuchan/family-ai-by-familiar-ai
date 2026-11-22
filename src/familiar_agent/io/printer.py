@@ -68,8 +68,8 @@ def page_html(title: str, date_text: str, body: str) -> str:
     return f"<html><head><style>{_STYLE}</style></head><body>{''.join(parts)}</body></html>"
 
 
-def render_pdf(title: str, date_text: str, body: str, path: Path) -> Path:
-    """ひな形にはめて、A4 の PDF を `path` に書く。Qt のアプリが無い、書けなかったときは `PrintError`。"""
+def render_pdf(title: str, date_text: str, body: str, path: Path) -> int:
+    """ひな形にはめて、A4 の PDF を `path` に書き、ページの数を返す。Qt のアプリが無い、書けなかったときは `PrintError`。"""
     from PySide6.QtCore import QMarginsF, QSizeF
     from PySide6.QtGui import QGuiApplication, QPageLayout, QPageSize, QPdfWriter, QTextDocument
 
@@ -90,6 +90,7 @@ def render_pdf(title: str, date_text: str, body: str, path: Path) -> Path:
     # 紙の書ける範囲を「点」で渡す（書き出しのピクセルで渡すと、12pt が点ほどの大きさになった・2026-11-22 に描いて確かめた）。
     rect = writer.pageLayout().paintRect(QPageLayout.Unit.Point)
     doc.setPageSize(QSizeF(rect.width(), rect.height()))
+    pages = doc.pageCount()
     doc.print_(writer)
     del writer  # 書き終える（ファイルを閉じる）
     try:
@@ -98,8 +99,8 @@ def render_pdf(title: str, date_text: str, body: str, path: Path) -> Path:
         ok = False
     if not ok:
         raise PrintError(f"PDF を書けなかった：{path}")
-    logger.info("印刷の PDF を作った（%d 字）", len(body))
-    return path
+    logger.info("印刷の PDF を作った（%d 字・%d 枚）", len(body), pages)
+    return pages
 
 
 def send_to_printer(

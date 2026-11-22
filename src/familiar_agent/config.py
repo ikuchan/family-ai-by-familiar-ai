@@ -714,6 +714,8 @@ class AgentConfig:
     # Agent display name shown in TUI
     # 名前は `ME.md`（「名前： …」）が持つ。env や設定画面からは与えない（正本を1つにする）。
     agent_name: str = "AI"
+    # 印刷のプリンタ（CUPS の名前・知-bo）。家のプリンタ（Brother DCP-J552N）。
+    printer_name: str = "Brother_DCP_J552N"
     # 名前として使える言葉の一覧（`ME.md` に読点で並べる）。沈黙依頼は、このどれかで
     # 呼ばれたときだけ受ける。表示用の主たる名前は `agent_name`。
     agent_names: list[str] = field(default_factory=list)
