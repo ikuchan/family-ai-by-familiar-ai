@@ -691,3 +691,35 @@ async def judge_season_reads(
         _season_picks(got.get("news") or {}, news_keys, 2),
         _season_picks(got.get("column") or {}, column_keys, 1),
     )
+
+
+#: 記録の言葉が、ある人について話しているか（記-ae 段 2・2026-11-22）。呼びかけ・頼み（「パパ、ごはんできたよ」）は
+#: 話していない。話しかけた相手（ロボット）を渡さないと、「パパ、最近忙しそう」を呼びかけと読む（0.32・jev-1.14.0）。
+_ABOUT = noul(
+    "この記録の言葉は、〈この人〉について話しているか（〈この人〉の様子・行い・予定・気持ち・持ち物などを、"
+    "〈この人〉以外に向けて述べている）。〈この人〉に呼びかけている・頼んでいる・話しかけているだけなら、話していない"
+)
+
+
+async def judge_about(
+    client, *, text: str, speaker: str, person: str, min_p: float
+) -> "bool | None":
+    """発話 `text` が `person` について話しているか（記-ae 段 2）。はいの確率が `min_p` 以上なら真。
+
+    話しかけた相手はロボット（呼び手は、人がパジュに言った発話だけを渡す）。Jev が答えないときは None。本文と名前はログに出さない。
+    """
+    state = (
+        f"[記録の言葉]\n{text}\n\n[話した人]\n{speaker}\n\n"
+        f"[話しかけた相手]\nロボット（パジュ）\n\n[この人]\n{person}"
+    )
+    answer = await _ask(client, state, {"about": _ABOUT})
+    got = (getattr(answer, "answers", None) or {}).get("about") or {}
+    try:
+        p = float(got["noul"]) if getattr(answer, "ok", False) else None
+    except (KeyError, TypeError, ValueError):
+        p = None
+    if p is None:
+        logger.debug("Jev 判定 誰についての話か：答えなし")
+        return None
+    logger.debug("Jev 判定 誰についての話か：はい %.2f（境目 %.2f）", p, min_p)
+    return p >= min_p

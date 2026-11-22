@@ -1164,6 +1164,53 @@ class ObservationStore:
                 )
                 return [dict(r) for r in cur.fetchall()]
 
+    def about_pending(self, limit: int, *, since: datetime) -> "list[dict]":
+        """about の面を足すか調べる発話（記-ae 段 2）。`since` より後を新しい順に `limit` 件。
+
+        `actor` は話した人（解決できなければ自分の印）、`done` は about の面がもう立っている人（その人には聞き直さない）。
+        """
+        live = not_hidden("o")
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    f"""
+                    SELECT o.id AS obs_id, o.content, a.person_id AS actor,
+                           COALESCE((SELECT array_agg(b.person_id) FROM situated_memories b
+                                     WHERE b.obs_id = o.id AND b.relation_key = 'about'), '{{}}') AS done
+                    FROM observations o
+                    LEFT JOIN situated_memories a ON a.obs_id = o.id AND a.relation_key = 'actor'
+                    WHERE {live} AND o.direction = '発話' AND o.timestamp > %s
+                    ORDER BY o.timestamp DESC
+                    LIMIT %s
+                    """,
+                    (since, int(limit)),
+                )
+                return [dict(r) | {"done": list(r["done"] or [])} for r in cur.fetchall()]
+
+    def add_about(self, obs_id: str, person_id: str, *, tag: str) -> bool:
+        """その記録に、`person_id` の about の面を立てる（記-ae 段 2）。言葉は `tag` ＋本文、ベクトルは記録の埋め込み。
+
+        埋め込みの無い記録は書かない（偽を返す）。同じ面がもうあれば言葉とベクトルを書き直す。
+        """
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT o.content, e.vector FROM observations o "
+                    "JOIN obs_embeddings e ON e.obs_id = o.id WHERE o.id = %s",
+                    (obs_id,),
+                )
+                row = cur.fetchone()
+            if row is None:
+                return False
+            vec = _decode_vector(bytes(row["vector"]))
+            self._situated._upsert_situated_embedding(
+                conn, obs_id, person_id, vec, relation_key="about", content=f"{tag}{row['content']}"
+            )
+            conn.commit()
+        return True
+
     def embeddings(self, obs_ids: "list[str]") -> "dict[str, tuple[datetime, np.ndarray]]":
         """記録の id → (時刻, 埋め込み)。埋め込みの無い記録は返さない（経験繋がりの選び出し・出-bq）。"""
         if not obs_ids:

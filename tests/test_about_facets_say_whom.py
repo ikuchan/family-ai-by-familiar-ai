@@ -116,7 +116,7 @@ def test_names_by_person_use_the_first_way_of_calling():
 
     memory = SimpleNamespace(
         list_persons=lambda: [
-            {"id": "p-b", "name": "パパ、おとうさん", "display_name": None},
+            {"id": "p-b", "name": "パパ、だいこくさま", "display_name": None},
             {"id": "p-c", "name": "ママ", "display_name": "ママ"},
         ]
     )

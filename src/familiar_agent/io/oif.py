@@ -404,6 +404,20 @@ class OIF:
         logger.debug("OIF write_fact_keys %d 種 → %s 行", len(sources), n)
         return n
 
+    def about_pending(self, limit: int, *, since) -> "list[dict]":
+        """about の面を足すか調べる発話（記-ae 段 2）。`obs_id`・`content`・`actor`・`done`（面の立った人）の辞書。"""
+        got = self._memory.about_pending(limit, since=since)
+        logger.debug("OIF about_pending ← %d → %d件", limit, len(got))
+        return got
+
+    def add_about(self, obs_id: str, person_id: str) -> bool:
+        """その記録に、話題にされた人の about の面を立てる（記-ae 段 2）。"""
+        return bool(self._memory.add_about(obs_id, person_id))
+
+    def persons(self) -> "list[dict]":
+        """登録の人（`id`・`name`・`display_name`）。about の候補を本文の呼び名（言い方の全部）から選ぶのに使う（記-ae 段 2）。"""
+        return list(self._memory.list_persons())
+
     def embeddings(self, obs_ids: "Sequence[str]") -> dict:
         """記録の id → (時刻, 埋め込み)。埋め込みの無い記録は返さない（出-bq）。"""
         got = self._memory.embeddings_of(list(obs_ids))
