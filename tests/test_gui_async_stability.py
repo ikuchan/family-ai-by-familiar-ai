@@ -101,6 +101,7 @@ def _make_window_stub() -> FamiliarWindow:
     win.setEnabled = MagicMock()  # type: ignore[method-assign]
     win.setWindowTitle = MagicMock()  # type: ignore[method-assign]
     win.close = MagicMock()  # type: ignore[method-assign]
+    win.findChild = MagicMock(return_value=None)  # type: ignore[method-assign]  # 起動の失敗のダイアログは開いていない
     return win
 
 

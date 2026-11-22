@@ -2423,30 +2423,44 @@ class FamiliarWindow(QMainWindow):
         self.setWindowTitle(f"familiar-ai  {__version__}")
 
     def _fatal_dialog(self, message: str) -> None:
-        """#10：致命的な起動失敗をダイアログで示してアプリを終了する。"""
+        """#10：致命的な起動失敗をダイアログで示し、閉じて後片付けが済んだらアプリを終える。
+
+        待たずに返る（ダイアログは開いたまま）。先に後片付けを始め、自律と書き起こしを止める（壊れた記憶のまま話さない）。
+        終えるのは、ダイアログが閉じ、かつ後片付けが済んだとき（先に済んだほうを `_finalize_close` が待つ）。
+        """
         logger.error("Fatal startup: %s", message)
         self._agent_init_failed = True
         with contextlib.suppress(Exception):
             self._set_startup_status("起動できません")
             self._set_input_enabled(False)
+        self._ensure_shutdown_task()
         try:
-            from PySide6.QtWidgets import QApplication, QMessageBox
+            from PySide6.QtWidgets import QMessageBox
 
-            from PySide6.QtCore import QTimer
+            from PySide6.QtCore import Qt, QTimer
 
             # 自分から閉じる（環-ax）。誰もいないときにパソコンを起動し直しても、開いたままで起こし直しを止めない。
             # 時間切れで閉じたときだけ 1 で終わって起こし直させる。人が閉じた、`kill` で止めたときは 0（止める）。
             box = QMessageBox(QMessageBox.Icon.Critical, "起動できません", message, parent=self)
+            box.setObjectName(_FATAL_BOX)
+            box.setWindowModality(Qt.WindowModality.ApplicationModal)
 
             def _timed_out() -> None:
+                if not box.isVisible():
+                    return  # 人が先に閉じた。あとから来た時計で起こし直しにしない
                 self._restart_on_exit = True
                 box.done(0)
 
+            def _closed(_code: int) -> None:
+                # ふつうに閉じるのと同じ道で終える。後片付けが済んでいなければ、済んだときに `_finalize_close` が閉じる
+                self.close()
+
+            # `exec()`（入れ子の輪）では開かない。呼び手は非同期の仕事で、入れ子の輪のあいだ qasync がほかの仕事
+            # （書き起こしの音の送り）へ入れず、毎回「Cannot enter into task」を残す（11/14 に 10 分で 6,068 回）。
+            # `open()` も使わない（モーダルを窓だけに戻す）。
+            box.finished.connect(_closed)
             QTimer.singleShot(int(FATAL_DIALOG_SEC * 1000), _timed_out)
-            box.exec()
-            app = QApplication.instance()
-            if app is not None:
-                app.quit()
+            box.show()
         except Exception:  # noqa: BLE001
             # ダイアログを出せない環境（ヘッドレス等）でも致命は伝える。
             print(f"[致命的エラー] {message}", file=sys.stderr)
@@ -2514,6 +2528,9 @@ class FamiliarWindow(QMainWindow):
     # ------------------------------------------------------------------
 
     def closeEvent(self, event) -> None:  # type: ignore[override]
+        chart = getattr(self, "_state_chart", None)
+        if chart is not None:
+            chart.close()  # 状態図の窓が残ってアプリが終わらない、を避ける（環-bb 三段目）
         if self._shutdown_done:
             event.accept()
             return
@@ -2521,9 +2538,6 @@ class FamiliarWindow(QMainWindow):
             event.ignore()
             return
         self._shutdown_requested = True
-        chart = getattr(self, "_state_chart", None)
-        if chart is not None:
-            chart.close()  # 状態図の窓が残ってアプリが終わらない、を避ける（環-bb 三段目）
         self._closing = True
         self.setEnabled(False)
         self.setWindowTitle(f"familiar-ai  {__version__}  ⏳ shutting down...")
@@ -2531,7 +2545,8 @@ class FamiliarWindow(QMainWindow):
         event.ignore()
 
     def _ensure_shutdown_task(self) -> asyncio.Task[None]:
-        if self._shutdown_task and not self._shutdown_task.done():
+        if self._shutdown_task is not None:
+            # 1 度だけ（済んだあとの `aboutToQuit` で、閉じた agent をもう一度閉じない）
             return self._shutdown_task
         self._shutdown_task = self._create_task(self._shutdown())
         self._shutdown_task.add_done_callback(lambda _task: self._finalize_close())
@@ -2540,6 +2555,9 @@ class FamiliarWindow(QMainWindow):
     def _finalize_close(self) -> None:
         if not self._shutdown_done:
             return
+        box = self.findChild(QMessageBox, _FATAL_BOX)
+        if box is not None and box.isVisible():
+            return  # 起動の失敗のダイアログが開いている。閉じたら（`_fatal_dialog`）終える
         self.close()
 
     def _report_event_loop_lag(self) -> None:
@@ -2556,7 +2574,13 @@ class FamiliarWindow(QMainWindow):
             )
 
     async def _shutdown(self) -> None:
-        """Best-effort async cleanup on window close."""
+        """Best-effort async cleanup on window close. 途中で失敗しても済んだことにする（閉じられないまま残さない）。"""
+        try:
+            await self._shutdown_steps()
+        finally:
+            self._shutdown_done = True
+
+    async def _shutdown_steps(self) -> None:
         self._lag_timer.stop()
         self._status_timer.stop()
         self._cancel_turn(reason="shutdown")
@@ -2597,7 +2621,6 @@ class FamiliarWindow(QMainWindow):
                 await asyncio.wait_for(self._agent.close(), timeout=3.0)
         except (asyncio.TimeoutError, Exception):
             pass
-        self._shutdown_done = True
 
 
 # ---------------------------------------------------------------------------
@@ -2615,6 +2638,9 @@ def _install_quit_signals(qt_app: Any) -> None:
     for sig in (signal.SIGINT, signal.SIGTERM):
         signal.signal(sig, lambda *_: qt_app.quit())
 
+
+#: 起動の失敗のダイアログの名前（`_finalize_close` が、開いているかを Qt から読む）。
+_FATAL_BOX = "fatal_startup"
 
 #: 起動の失敗のダイアログが自分から閉じるまでの秒（仮（本人の確認待ち）・2026-11-21・環-ax）。時間切れで閉じたら 1 で終わり、
 #: run-gui.sh が起こし直す。

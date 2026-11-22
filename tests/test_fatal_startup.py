@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -96,53 +97,165 @@ def test_the_gui_exits_non_zero_after_a_fatal_startup():
     assert gui._exit_code(object()) == 0
 
 
-def test_the_fatal_dialog_closes_by_itself(monkeypatch):
-    """誰もいないときに起動し直しても、ダイアログが開いたまま起こし直しを止めない。"""
+def _fatal_fakes(monkeypatch):
+    """`_fatal_dialog` の Qt を偽物にする。返す箱に、開いた・閉じた・時計・後片付けが残る。"""
     import PySide6.QtCore as qtcore
     import PySide6.QtWidgets as qtw
 
     from familiar_agent import gui
 
-    timers: list = []
-    shown: list = []
-    closed: list = []
+    seen = SimpleNamespace(
+        boxes=[], timers=[], shown=[], closed=[], opened=[], modality=[], quit=0, shutdown=0
+    )
 
     class _Box:
         class Icon:
             Critical = 3
 
         def __init__(self, *a, **k):
-            shown.append(a)
+            seen.shown.append(a)
+            seen.boxes.append(self)
+            self._on_finished: list = []
+            self.finished = SimpleNamespace(connect=self._on_finished.append)
+            self._visible = False
+
+        def setWindowModality(self, m):  # noqa: N802
+            seen.modality.append(m)
+
+        def isVisible(self):  # noqa: N802
+            return self._visible
 
         def done(self, code):
-            closed.append(code)
+            seen.closed.append(code)
+            self._visible = False
+            for fn in self._on_finished:
+                fn(code)
 
+        def setObjectName(self, name):  # noqa: N802
+            self.name = name
+
+        def show(self):
+            seen.opened.append(True)
+            self._visible = True
+
+        def open(self):  # open() はモーダルを窓だけに戻すので使わない
+            raise AssertionError("open で開いた")
+
+        # 入れ子の輪は使わない（11/14：開いているあいだ、ほかの仕事に入れず 6,068 回の例外）
         def exec(self):
-            return 0
+            raise AssertionError("exec で開いた")
 
     class _App:
-        quit_called = False
-
         @staticmethod
         def instance():
             return _App
 
         @staticmethod
         def quit():
-            _App.quit_called = True
+            seen.quit += 1
 
     monkeypatch.setattr(qtw, "QMessageBox", _Box)
     monkeypatch.setattr(qtw, "QApplication", _App)
-    monkeypatch.setattr(qtcore.QTimer, "singleShot", lambda ms, fn: timers.append((ms, fn)))
+    monkeypatch.setattr(qtcore.QTimer, "singleShot", lambda ms, fn: seen.timers.append((ms, fn)))
     w = gui.FamiliarWindow.__new__(gui.FamiliarWindow)
     monkeypatch.setattr(w, "_set_startup_status", lambda *a: None, raising=False)
     monkeypatch.setattr(w, "_set_input_enabled", lambda *a: None, raising=False)
+
+    w._shutdown_done = False
+    monkeypatch.setattr(w, "close", lambda: setattr(seen, "quit", seen.quit + 1), raising=False)
+
+    def _shutdown_now():
+        seen.shutdown += 1
+
+    monkeypatch.setattr(w, "_ensure_shutdown_task", _shutdown_now, raising=False)
+    return gui, w, seen
+
+
+def test_the_fatal_dialog_closes_by_itself(monkeypatch):
+    """誰もいないときに起動し直しても、ダイアログが開いたまま起こし直しを止めない。"""
+    import PySide6.QtCore as qtcore
+
+    gui, w, seen = _fatal_fakes(monkeypatch)
     w._fatal_dialog("埋め込みモデルを読み込めません")
-    assert shown and [ms for ms, _ in timers] == [int(gui.FATAL_DIALOG_SEC * 1000)]
-    assert w._agent_init_failed is True and _App.quit_called
-    assert gui._exit_code(w) == 0  # 人が先に閉じたら止める
-    timers[0][1]()  # 時間切れ
-    assert closed == [0] and gui._exit_code(w) == 1
+    assert (
+        seen.shown
+        and seen.opened
+        and [ms for ms, _ in seen.timers] == [int(gui.FATAL_DIALOG_SEC * 1000)]
+    )
+    assert seen.modality == [
+        qtcore.Qt.WindowModality.ApplicationModal
+    ]  # exec と同じく、ほかの窓も止める
+    assert (
+        seen.shutdown == 1
+    )  # 開く前に後片付けを始め、自律と書き起こしを止める（壊れた記憶で話さない）
+    assert w._agent_init_failed is True and seen.quit == 0  # 開いただけでは終わらない
+    seen.timers[0][1]()  # 時間切れ（窓を閉じる。後片付けが済んでいなければ、済んでから閉じる）
+    assert seen.closed == [0] and seen.quit == 1 and gui._exit_code(w) == 1
+
+
+def test_a_fatal_dialog_closed_by_a_person_stops_for_good(monkeypatch):
+    """人が先に閉じたら 0 で終わり、あとから時計が来ても、起こし直しにしない。"""
+    gui, w, seen = _fatal_fakes(monkeypatch)
+    w._fatal_dialog("埋め込みモデルを読み込めません")
+    seen.boxes[0].done(0)  # 人が閉じた
+    assert seen.quit == 1 and gui._exit_code(w) == 0
+    seen.timers[0][1]()  # 60 秒の時計があとから来た
+    assert gui._exit_code(w) == 0 and seen.closed == [0]
+
+
+def test_a_failed_cleanup_still_counts_as_done():
+    """後片付けの途中で失敗しても済んだことにする（済まないと、窓が閉じられないまま残る）。"""
+    import asyncio
+
+    from familiar_agent import gui
+
+    w = gui.FamiliarWindow.__new__(gui.FamiliarWindow)
+    w._shutdown_done = False
+
+    async def broken():
+        raise RuntimeError("見張りの仕事が落ちていた")
+
+    w._shutdown_steps = broken
+    with pytest.raises(RuntimeError):
+        asyncio.run(w._shutdown())
+    assert w._shutdown_done is True
+
+
+def test_the_window_waits_only_for_the_fatal_dialog(monkeypatch):
+    """後片付けが先に済んでも、起動の失敗のダイアログが開いているあいだは窓を閉じない。ほかのダイアログでは待たない。"""
+    from familiar_agent import gui
+
+    w = gui.FamiliarWindow.__new__(gui.FamiliarWindow)
+    closed: list = []
+    monkeypatch.setattr(w, "close", lambda: closed.append(True), raising=False)
+    w._shutdown_done = True
+    box = SimpleNamespace(isVisible=lambda: True)
+    asked: list = []
+
+    def find(cls, name):
+        asked.append(name)
+        return box
+
+    monkeypatch.setattr(w, "findChild", find, raising=False)
+    w._finalize_close()
+    assert closed == [] and asked == [gui._FATAL_BOX]
+    monkeypatch.setattr(
+        w, "findChild", lambda cls, name: None, raising=False
+    )  # 開いていない（ほかのダイアログだけ）
+    w._finalize_close()
+    assert closed == [True]
+
+
+def test_the_cleanup_runs_only_once(monkeypatch):
+    """済んだあとの `aboutToQuit` で、後片付けをもう一度始めない（閉じた agent をもう一度閉じない）。"""
+    from familiar_agent import gui
+
+    w = gui.FamiliarWindow.__new__(gui.FamiliarWindow)
+    done = SimpleNamespace(done=lambda: True)
+    w._shutdown_task = done
+    made: list = []
+    monkeypatch.setattr(w, "_create_task", lambda coro: made.append(coro), raising=False)
+    assert w._ensure_shutdown_task() is done and made == []
 
 
 def test_a_broken_local_copy_is_loaded_again_by_name(monkeypatch):
