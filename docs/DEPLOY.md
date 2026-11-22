@@ -202,60 +202,7 @@ sudo journalctl -u familiar -f   # ログ確認
 
 ---
 
-## 9. 既存 SQLite データの移行（**この節は使えない**）
-
-元の familiar-ai (v0.5) からデータを移行する場合の手順として書いたが、
-**`scripts/migrate_sqlite_to_pg.py` はリポジトリに存在しない**（2026-09-10 確認）。
-下のコードは当時の内容の写しで、そのままでは動かない（列の構成が 039〜060 の
-マイグレーションで変わっている）。移行が必要になったら書き直すこと。
-
-```bash
-# スクリプトを実行（※ 上記のとおり、この file は無い）
-SQLITE_PATH=~/.familiar_ai/observations.db \
-DATABASE_URL=postgresql://familiar:familiar@localhost:5432/familiar_ai \
-uv run python scripts/migrate_sqlite_to_pg.py
-```
-
-当時の `scripts/migrate_sqlite_to_pg.py` の内容:
-
-```python
-import sqlite3, psycopg2, os, struct
-from pathlib import Path
-
-TABLES = [
-    "observations", "obs_embeddings", "memory_events", "memory_jobs",
-    "semantic_facts", "behavior_policies", "memory_revisions",
-    "memory_links", "episodes", "episode_memories",
-    "memory_salience", "unfinished_business",
-    "scene_entities", "scene_events", "exploration_state",
-    "relationship_state",
-]
-
-src = sqlite3.connect(os.environ["SQLITE_PATH"])
-src.row_factory = sqlite3.Row
-dst = psycopg2.connect(os.environ["DATABASE_URL"])
-
-for table in TABLES:
-    rows = src.execute(f"SELECT * FROM {table}").fetchall()
-    if not rows:
-        continue
-    cols = list(rows[0].keys())
-    ph   = ", ".join(["%s"] * len(cols))
-    sql  = f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({ph}) ON CONFLICT DO NOTHING"
-    with dst.cursor() as cur:
-        for row in rows:
-            vals = tuple(bytes(v) if isinstance(v, memoryview) else v for v in row)
-            cur.execute(sql, vals)
-    dst.commit()
-    print(f"✓ {table}: {len(rows)} rows")
-
-src.close(); dst.close()
-print("Migration complete.")
-```
-
----
-
-## 10. 環境変数リファレンス
+## 9. 環境変数リファレンス
 
 | 変数 | 説明 | デフォルト |
 |---|---|---|

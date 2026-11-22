@@ -48,7 +48,7 @@ All three must pass cleanly.
 
 ## Database migrations
 
-When changing SQLite schema/data, add a new migration script under `migration/`.
+When changing the PostgreSQL schema or data, add a new migration script under `migration/`.
 
 ```bash
 scripts/new_migration.sh add_memory_jobs_table

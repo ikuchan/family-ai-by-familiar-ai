@@ -521,11 +521,6 @@ reasoning behind each decision. These documents are written in Japanese and kept
 source of truth; [docs/NewModesDocs/README.md](./docs/NewModesDocs/README.md) is the index.
 For the module layout, see [docs/ソースツリー.md](./docs/%E3%82%BD%E3%83%BC%E3%82%B9%E3%83%84%E3%83%AA%E3%83%BC.md).
 
-[docs/OldDocs/technical.md](./docs/OldDocs/technical.md) describes the **earlier** ReAct
-pipeline — ReAct, SayCan, Reflexion, Voyager, the desire system, Global Workspace Theory. That
-pipeline was removed; the document is kept as a record of the thinking, not as a description of
-what runs today.
-
 ---
 
 ## Contributing

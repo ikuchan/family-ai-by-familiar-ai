@@ -98,7 +98,6 @@ _EXACT = {
     "setup": "BOOT",
     "db": "BOOT",
     "db_migrations": "BOOT",
-    "sqlite_migrations": "BOOT",
     "__init__": "BOOT",
     "camera_discovery": "DIF",
     "realtime_stt_session": "DIF",
