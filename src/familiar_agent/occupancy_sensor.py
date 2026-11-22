@@ -235,6 +235,15 @@ class OccupancySensor:
             min_iou=self._static_iou,
             grace_sec=self._static_grace,
         )
+        if self._scene_surprise is not None:
+            # 知-i 段 1：「大きく変わった」の閾値を決める材料（人が映った回を外して分布を見る）。段 2 で debug へ戻す
+            logger.info(
+                "見えの隔たり：%s は %.3f（枠 %d 個・動く人 %d 人）",
+                pose.name,
+                self._scene_surprise,
+                len(boxes),
+                people,
+            )
         if len(boxes) > people:
             logger.debug(
                 "在席：%s の枠 %d 個のうち %d 個は %.0f 秒以上動かないので数えない",
@@ -259,8 +268,9 @@ class OccupancySensor:
         """見えの「普通」を1枚ぶん育て、そこからの隔たりを控える。
 
         見えが取れなくても在席の判定は続ける（人が居るかは YOLO が別に見ている）。
-        1回抜けても EMA は次で追いつく。
+        1回抜けても EMA は次で追いつく。見えが取れなかった回は隔たりを無しにする（前の定点の値を残さない）。
         """
+        self._scene_surprise = None
         if self._encoder is None or self._norm_store is None:
             return
         try:
@@ -271,8 +281,6 @@ class OccupancySensor:
             self._scene_surprise = (
                 cosine_distance(norm, seen) if norm is not None and is_ready(observations) else None
             )
-            if self._scene_surprise is not None:
-                logger.debug("見えの隔たり：%s は %.3f", pose_name, self._scene_surprise)
             self._norm_store.save(pose_name, update_ema(norm, seen), observations=observations + 1)
         except asyncio.CancelledError:
             raise

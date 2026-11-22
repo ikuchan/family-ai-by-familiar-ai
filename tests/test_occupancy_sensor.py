@@ -212,6 +212,33 @@ def test_a_grown_norm_yields_a_distance():
     assert s.scene_surprise() is not None and s.scene_surprise() > 0.9
 
 
+def test_the_distance_is_logged_with_the_boxes_for_measuring(caplog):
+    """知-i 段 1：見回りのたびに隔たりを info で残す（閾値を決める材料）。人が映った回を外せるよう、枠の数と動く人の数も残す。"""
+    import logging
+
+    s, _, _ = _sensor_with_norm(
+        people=1, norm=[1.0] + [0.0] * 383, observations=5, embedding=[0.0, 1.0] + [0.0] * 382
+    )
+    with caplog.at_level(logging.INFO, logger="familiar_agent.occupancy_sensor"):
+        asyncio.run(s.check_once())
+    lines = [r for r in caplog.records if "見えの隔たり" in r.getMessage()]
+    assert len(lines) == 1 and lines[0].levelno == logging.INFO
+    pose, distance, boxes, people = lines[0].args
+    assert pose == "出入り口" and distance > 0.9 and (boxes, people) == (1, 1)
+
+
+def test_a_failed_view_leaves_no_distance_from_the_last_pose():
+    """見えが取れなかった回は隔たりを無しにする（前の定点の値を、いまの定点のものとして残さない）。"""
+    s, encoder, _ = _sensor_with_norm(
+        norm=[1.0] + [0.0] * 383, observations=5, embedding=[0.0, 1.0] + [0.0] * 382
+    )
+    asyncio.run(s.check_once())
+    assert s.scene_surprise() is not None
+    encoder.embed = AsyncMock(return_value=None)
+    asyncio.run(s.check_once())
+    assert s.scene_surprise() is None
+
+
 def test_an_encoder_that_fails_does_not_stop_the_presence_check():
     # 見えが取れなくても、人が居るかどうかは分かる。
     s, encoder, store = _sensor_with_norm(people=1, norm=[0.5] * 384, observations=5)
