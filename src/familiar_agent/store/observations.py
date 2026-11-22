@@ -1164,8 +1164,10 @@ class ObservationStore:
                 )
                 return [dict(r) for r in cur.fetchall()]
 
-    def about_pending(self, limit: int, *, since: datetime) -> "list[dict]":
-        """about の面を足すか調べる発話（記-ae 段 2）。`since` より後を新しい順に `limit` 件。
+    def about_pending(
+        self, limit: int, *, since: datetime, until: "datetime | None" = None
+    ) -> "list[dict]":
+        """about の面を足すか調べる発話（記-ae 段 2）。`since` より後（`until` があればそれより前）を新しい順に `limit` 件。
 
         `actor` は話した人（解決できなければ自分の印）、`done` は about の面がもう立っている人（その人には聞き直さない）。
         """
@@ -1181,10 +1183,11 @@ class ObservationStore:
                     FROM observations o
                     LEFT JOIN situated_memories a ON a.obs_id = o.id AND a.relation_key = 'actor'
                     WHERE {live} AND o.direction = '発話' AND o.timestamp > %s
+                      AND (%s::timestamptz IS NULL OR o.timestamp < %s)
                     ORDER BY o.timestamp DESC
                     LIMIT %s
                     """,
-                    (since, int(limit)),
+                    (since, until, until, int(limit)),
                 )
                 return [dict(r) | {"done": list(r["done"] or [])} for r in cur.fetchall()]
 

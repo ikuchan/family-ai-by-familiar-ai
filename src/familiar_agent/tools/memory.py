@@ -647,9 +647,9 @@ class ObservationMemory:
 
         return RelationStore(self._ctx).experience_material(since, final_direction=DIRECTION)
 
-    def about_pending(self, limit: int, *, since) -> "list[dict]":
+    def about_pending(self, limit: int, *, since, until=None) -> "list[dict]":
         """about の面を足すか調べる発話（記-ae 段 2・記憶の箱へ委譲）。"""
-        return self._observations.about_pending(int(limit), since=since)
+        return self._observations.about_pending(int(limit), since=since, until=until)
 
     def add_about(self, obs_id: str, person_id: str) -> bool:
         """about の面を立てる（記-ae 段 2・記憶の箱へ委譲）。言葉の頭は `ABOUT_TAG`。"""

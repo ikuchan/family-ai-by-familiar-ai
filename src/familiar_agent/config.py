@@ -448,6 +448,11 @@ class MemoryConfig:
     # 毎晩見る発話の古さ（日）。調べた印は持たないので、2 晩ぶん見る（REST が 1 晩休んでも拾い、Jev が「いいえ」と答えた
     # 発話を、もう 1 晩だけ聞き直す）。それより古いものは埋める道具（段 3）。仮（本人の確認待ち）。
     about_lookback_days: float = 2.0
+    # 一度に読む発話の上限（問いの上限 `about_per_night` とは別）。2 晩ぶんは多くて 700 件ほど（11/15 は 378 件）。
+    about_rows_max: int = 100_000
+    # 埋める道具（`scripts/backfill_about.py`）が Jev を待つ秒。アプリの `jev_timeout_sec`（2 秒・話す前の検査）より長くする
+    # （急がないので、時間切れで答えなしにしない）。
+    about_backfill_timeout_sec: float = 20.0
     # 基底の重みプロファイル（正本の (1,1,1,1.5,1.0)）。trigger を指定しない呼び出し
     # （連想想起など）と、知らない trigger の落とし先に使う。trigger 別の値は下の
     # `recall_weights()` が返す。

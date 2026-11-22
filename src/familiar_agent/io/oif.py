@@ -404,9 +404,9 @@ class OIF:
         logger.debug("OIF write_fact_keys %d 種 → %s 行", len(sources), n)
         return n
 
-    def about_pending(self, limit: int, *, since) -> "list[dict]":
+    def about_pending(self, limit: int, *, since, until=None) -> "list[dict]":
         """about の面を足すか調べる発話（記-ae 段 2）。`obs_id`・`content`・`actor`・`done`（面の立った人）の辞書。"""
-        got = self._memory.about_pending(limit, since=since)
+        got = self._memory.about_pending(limit, since=since, until=until)
         logger.debug("OIF about_pending ← %d → %d件", limit, len(got))
         return got
 

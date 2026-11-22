@@ -39,9 +39,11 @@ class _Jev:
 
 
 class _Oif:
-    def __init__(self, rows, roles=None):
+    def __init__(self, rows, roles=None, writes=True):
         self.rows = rows
         self.role_of = roles or {}
+        self.writes = writes
+        self.read_cap: list[int] = []
         self.added: list[tuple[str, str]] = []
 
     def person_names(self, ids):
@@ -53,10 +55,13 @@ class _Oif:
     def persons(self):
         return [PAPA, MAMA, {"id": AGENT_SELF_ID, "name": "__self__", "display_name": "Agent self"}]
 
-    def about_pending(self, limit, *, since):
+    def about_pending(self, limit, *, since, until=None):
+        self.read_cap.append(limit)
         return self.rows[:limit]
 
     def add_about(self, obs_id, person_id):
+        if not self.writes:
+            return False
         self.added.append((obs_id, person_id))
         return True
 
@@ -98,9 +103,36 @@ def test_pajus_own_words_are_not_examined():
     assert jev.states == [] and got.sources == 0 and oif.added == []
 
 
+def test_a_record_without_a_speaker_facet_is_examined_only_as_a_persons_words():
+    oif = _Oif(
+        [
+            {"obs_id": "o1", "content": "パパ、おはよう", "actor": None},
+            {"obs_id": "o2", "content": "パパは出張", "actor": None},
+        ],
+        roles={"o1": "答え", "o2": "起点"},
+    )
+    jev = _Jev(0.9)
+    _run(oif, jev)
+    assert oif.added == [("o2", "p-papa")] and len(jev.states) == 1
+
+
+def test_a_yes_that_cannot_be_written_is_counted():
+    oif = _Oif([{"obs_id": "o1", "content": "パパは出張", "actor": "p-mama"}], writes=False)
+    got = _run(oif, _Jev(0.9))
+    assert got.added == 0 and got.unwritten == 1
+
+
+def test_the_question_cap_does_not_cap_the_rows_read():
+    """問いの上限で、読む発話を減らさない（名前の出ない発話や、パジュの返事で上限を使い切らない）。"""
+    oif = _Oif([{"obs_id": "o1", "content": "雨だね", "actor": "p-mama"}])
+    asyncio.run(rest_about.add_about(oif, _Jev(0.9), limit=3, min_p=0.7, since=None, rows=50))
+    assert oif.read_cap == [50]
+
+
 def test_a_person_already_with_a_facet_is_not_asked_again():
     oif = _Oif(
-        [{"obs_id": "o1", "content": "パパとママが出かけた", "actor": None, "done": ["p-papa"]}]
+        [{"obs_id": "o1", "content": "パパとママが出かけた", "actor": None, "done": ["p-papa"]}],
+        roles={"o1": "起点"},
     )
     jev = _Jev(0.9)
     _run(oif, jev)
@@ -127,7 +159,7 @@ def test_without_a_name_in_the_words_nothing_is_asked():
 
 def test_questions_stop_at_the_nightly_limit():
     rows = [{"obs_id": f"o{i}", "content": "パパとママが出かけた", "actor": None} for i in range(5)]
-    oif = _Oif(rows)
+    oif = _Oif(rows, roles={f"o{i}": "起点" for i in range(5)})
     got = _run(oif, _Jev(0.9), limit=3)
     assert got.asked == 3 and len(oif.added) == 3 and got.sources == 2  # 調べた発話だけ数える
 

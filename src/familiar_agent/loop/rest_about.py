@@ -34,12 +34,16 @@ _HUMAN_ROLES = ("起点", "添え")
 
 @dataclass(frozen=True)
 class AboutResult:
-    """調べた発話の数、聞いた問いの数、足した面の数、Jev が答えなかった問いの数。`skipped` は何もしなかった理由。"""
+    """調べた発話の数、聞いた問いの数、足した面の数、Jev が答えなかった問いの数、「はい」でも書けなかった数（埋め込みが無い）。
+
+    `skipped` は何もしなかった理由。
+    """
 
     sources: int
     asked: int
     added: int
     unanswered: int
+    unwritten: int = 0
     skipped: str = ""
 
 
@@ -58,24 +62,32 @@ def candidates(content: str, actor: "str | None", persons: "list[dict]", done=()
     return out
 
 
-async def add_about(oif, jev, *, limit: int, min_p: float, since) -> AboutResult:
-    """`since` より後の、人がパジュに言った発話を新しい順に見て、`limit` 問まで聞き、話題にされた人に about の面を足す。"""
+async def add_about(
+    oif, jev, *, limit: int, min_p: float, since, until=None, rows: "int | None" = None
+) -> AboutResult:
+    """`since` より後（`until` より前）の、人がパジュに言った発話を新しい順に見て、`limit` 問まで聞き、about の面を足す。
+
+    読む発話は `rows` 件まで（無ければ `about_rows_max`）。問いの上限 `limit` とは別にする（名前の出ない発話を数えない）。
+    """
     if jev is None or not getattr(jev, "available", False):
         return AboutResult(0, 0, 0, 0, skipped="Jev が使えない")
     persons = [
         p for p in await asyncio.to_thread(oif.persons) if str(p.get("id", "")) != AGENT_SELF_ID
     ]
     names = await asyncio.to_thread(oif.person_names, [str(p["id"]) for p in persons])
-    rows = await asyncio.to_thread(oif.about_pending, limit, since=since)
-    roles = await asyncio.to_thread(oif.roles, [str(r["obs_id"]) for r in rows]) if rows else {}
-    examined = asked = added = unanswered = 0
-    for row in rows:
+    cap = rows if rows is not None else MemoryConfig().about_rows_max
+    pending = await asyncio.to_thread(oif.about_pending, cap, since=since, until=until)
+    roles = (
+        await asyncio.to_thread(oif.roles, [str(r["obs_id"]) for r in pending]) if pending else {}
+    )
+    examined = asked = added = unanswered = unwritten = 0
+    for row in pending:
         if asked >= limit:
             break
         obs_id = str(row["obs_id"])
         actor = row.get("actor")
-        if actor == AGENT_SELF_ID and roles.get(obs_id) not in _HUMAN_ROLES:
-            continue  # パジュ自身の言葉
+        if actor in (None, AGENT_SELF_ID) and roles.get(obs_id) not in _HUMAN_ROLES:
+            continue  # パジュ自身の言葉（話した人の面が無い記録も、人の言葉と分かるときだけ見る）
         examined += 1
         content = str(row.get("content") or "")
         speaker = names.get(str(actor)) or _UNKNOWN_SPEAKER
@@ -89,16 +101,20 @@ async def add_about(oif, jev, *, limit: int, min_p: float, since) -> AboutResult
             got = await judge_about(jev, text=content, speaker=speaker, person=person, min_p=min_p)
             if got is None:
                 unanswered += 1
-            elif got and await asyncio.to_thread(oif.add_about, obs_id, str(p["id"])):
-                added += 1
+            elif got:
+                if await asyncio.to_thread(oif.add_about, obs_id, str(p["id"])):
+                    added += 1
+                else:
+                    unwritten += 1  # 埋め込みの無い記録
     logger.info(
-        "rest about の面：発話 %d 件・問い %d・足した %d・答えなし %d",
+        "rest about の面：発話 %d 件・問い %d・足した %d・答えなし %d・書けなかった %d",
         examined,
         asked,
         added,
         unanswered,
+        unwritten,
     )
-    return AboutResult(examined, asked, added, unanswered)
+    return AboutResult(examined, asked, added, unanswered, unwritten)
 
 
 async def add_about_tonight(agent) -> AboutResult:

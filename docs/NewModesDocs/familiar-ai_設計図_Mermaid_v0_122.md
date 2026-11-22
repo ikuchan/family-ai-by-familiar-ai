@@ -1,4 +1,4 @@
-# familiar-ai 設計図（Mermaid一式・v0.121）
+# familiar-ai 設計図（Mermaid一式・v0.122）
 
 身体性AIエージェント「パジュ」の記憶・感情・Drive 再設計。**自律機構 Tonic（T）** と **情報処理機構 Information-processing（I）** の対称構造。
 
@@ -241,10 +241,10 @@ flowchart TD
   RES -->|1| GMD
   RES -->|1| O
   RES -->|1| W
-  REST -->|5| C
-  REST -->|30| CORE
-  REST -->|18| O
-  REST -->|10| RES
+  REST -->|6| C
+  REST -->|31| CORE
+  REST -->|20| O
+  REST -->|11| RES
   SS -->|1| BOOT
   SS -->|5| CORE
   TIF -->|1| AIF
@@ -648,6 +648,8 @@ sequenceDiagram
 
 ## 更新履歴
 
+> v0.122：①-2 の部品の図を、記-ae の rest_about（REST → C など）に合わせて作り直した（2026-11-22）。
+>
 > v0.121：①-2：コードの import から作った部品の図を足した（環-bb、2026-11-21）。
 >
 > v0.120：台帳：パジュの状態図に口の知らせの音を足した（環-aw 第 6 段 項目 1、2026-11-21）。
