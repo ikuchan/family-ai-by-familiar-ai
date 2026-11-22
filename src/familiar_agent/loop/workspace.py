@@ -244,7 +244,7 @@ def compose(
     basis_line = f"[この想起：{basis}]" if basis else ""
     # 想起した記憶には見出しを付ける。直近のやりとりの枠（文脈）と分ける（出-ay 段 4-4b：文脈は直前のやりとりで、
     # 思い出したことではない）。
-    remembered = _lines(shown, names, now=clock.now_utc())
+    remembered = _lines(shown, names, about=about_names(oif, shown), now=clock.now_utc())
     if remembered.strip():
         remembered = "[思い出したこと]\n" + remembered
     text = "\n\n".join(p for p in [added, heard, basis_line, remembered] if p and p.strip())
@@ -716,8 +716,29 @@ def strip_ago(text: str) -> str:
     return _AGO_AFTER_LINE_TIME.sub(r"\1\2", text)
 
 
+def about_names(oif, memories: "list[Recalled]") -> "dict[str, str]":
+    """about の面で思い出した**面**の id → 話題にされた人の名前（記-ae）。名前が引けない面は入らない。
+
+    面で引く（1 つの出来事に、話題にされた人ぶんの about の面が立つ）。パジュ自身の面は ME.md の名前（記-x）。
+    """
+    about = {r.mi.id: r.mi.person_id for r in memories if r.mi.relation_key == "about"}
+    if not about:
+        return {}
+    names: "dict[str, str]" = {}
+    try:
+        names = dict(oif.person_names(sorted(set(about.values()) - {AGENT_SELF_ID})))
+    except Exception:  # noqa: BLE001
+        logger.warning("about の面の名前を引けなかった（札のまま書く）", exc_info=True)
+    names[AGENT_SELF_ID] = me_of(oif)
+    return {fid: names[pid] for fid, pid in about.items() if pid in names}
+
+
 def _lines(
-    memories: "list[Recalled]", names: "dict[str, str]", *, now: "datetime | None" = None
+    memories: "list[Recalled]",
+    names: "dict[str, str]",
+    *,
+    about: "dict[str, str] | None" = None,
+    now: "datetime | None" = None,
 ) -> str:
     """W の1行を組む。**核の仕事**である（環-e-い）。
 
@@ -742,7 +763,7 @@ def _lines(
     if not memories:
         return ""
     # **読み込み時に引かない。** `tools.memory` は埋め込みを抱えるので、W を組むときだけ引く。
-    from ..tools.memory import subject_line
+    from ..tools.memory import name_about, subject_line
 
     out = ["[過去の記憶（証拠つき）: conf<0.55 は不確か]:"]
     for r in memories:
@@ -754,6 +775,7 @@ def _lines(
         at = clock.ts_to_time(mi.timestamp) if mi.timestamp else "?"
         subject = subject_line(mi.direction, names.get(mi.obs_id))
         body = mi.content
+        body = name_about(body, (about or {}).get(mi.id))
         out.append(
             f"- {day} {at}{clock.since(mi.timestamp, now)} id:{sid} (適合度:{r.fit:.2f}) conf:{r.confidence:.2f}{low}"
             f" {subject}{emo}: {body}"

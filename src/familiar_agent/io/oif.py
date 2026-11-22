@@ -440,6 +440,12 @@ class OIF:
         logger.debug("OIF actors ← %d件 → %d件", len(obs_ids), len(got))
         return got
 
+    def person_names(self, person_ids: "Sequence[str]") -> "dict[str, str]":
+        """人の id → 呼び方の先頭（記-ae：about の面を「〈その人〉のこと」と書く）。"""
+        got = self._memory.person_names(list(person_ids))
+        logger.debug("OIF person_names ← %d件 → %d件", len(person_ids), len(got))
+        return got
+
     def voices(self, obs_ids: "Sequence[str]") -> "dict[str, tuple[str, list[str]]]":
         """その記録たちの**主体と相手**を `記録の id → (誰が, [誰へ…])` で返す（出-ak）。
 

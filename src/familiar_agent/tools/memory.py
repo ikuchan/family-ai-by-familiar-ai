@@ -429,6 +429,20 @@ def me_name(names) -> str:
     return "わたし"
 
 
+#: about の面（話題にされた人の面）の言葉の頭。その人から見た言葉なので、読み手にはその人の名前で書く（記-ae）。
+ABOUT_TAG = "[自分のこと] "
+
+
+def name_about(content: str, whom: "str | None") -> str:
+    """about の面の言葉の頭「[自分のこと] 」を「[〈その人〉のこと] 」にする（記-ae）。名前が無ければそのまま。
+
+    「自分」はその人から見た言葉で、W や道具の返りの読み手には、パジュか相手か読めない。保存する言葉は変えない。
+    """
+    if whom and content.startswith(ABOUT_TAG):
+        return f"[{whom}のこと] " + content[len(ABOUT_TAG) :]
+    return content
+
+
 def _first_alias(display: str) -> str:
     """呼び方の一覧から、呼びかけに使う名前だけを採る（`get_person_name` と同じ割り方）。"""
     out = display
@@ -1374,6 +1388,17 @@ class ObservationMemory:
 
     # ── Format helpers (unchanged from original) ───────────────────────────
 
+    def person_names(self, person_ids: "Sequence[str]") -> "dict[str, str]":
+        """人の id → 呼び方の先頭（`voices_of` と同じ割り方）。登録の無い id は入らない（名前を捏造しない）。"""
+        wanted = set(person_ids)
+        if not wanted:
+            return {}
+        return {pid: _first_alias(d) for pid, d in self._displays().items() if pid in wanted}
+
+    def _displays(self) -> "dict[str, str]":
+        """人の id → 呼び方の一覧（表示名があればそれ）。名前の割り方はここと `_first_alias` の 2 つだけ。"""
+        return {str(p["id"]): str(p.get("display_name") or p["name"]) for p in self.list_persons()}
+
     def voices_of(self, obs_ids: "list[str]") -> "dict[str, tuple[str, list[str]]]":
         """その記録たちの**主体と相手**を `obs_id → (誰がやったか, [誰へ…])` で返す。
 
@@ -1392,7 +1417,7 @@ class ObservationMemory:
         if not actors:
             return {}
         present = self._situated.present_of(obs_ids)
-        names = {str(p["id"]): str(p.get("display_name") or p["name"]) for p in self.list_persons()}
+        names = self._displays()
         out: dict[str, tuple[str, list[str]]] = {}
         for obs_id, pid in actors.items():
             if pid == AGENT_SELF_ID:
@@ -1491,6 +1516,10 @@ class MemoryTool:
             name = self._manager.get_person_name(pid)
             for m in await mem.recall_async(query, n=n, exclude_ids=exclude_ids):
                 m["_from"] = name
+                if (
+                    m.get("relation_key") == "about"
+                ):  # この人の空間の about の面は、この人のこと（記-ae）
+                    m["summary"] = name_about(str(m.get("summary", "")), name)
                 all_results.append(m)
 
         all_results.sort(key=lambda x: x.get("fit", 0.0), reverse=True)
