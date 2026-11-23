@@ -5772,7 +5772,7 @@ class InformationProcessing:
 
     def _me(self, to: str = "") -> str:
         """窓の会話でパジュ自身を書く名前（記-x）。宛先があれば「パジュ（パパへ）」。呼び名が無ければ「わたし」。"""
-        from ..tools.memory import me_name
+        from ..core.parsing import me_name
 
         me = me_name(getattr(self._agent.config, "agent_names", None))
         return f"{me}（{to}へ）" if to else me

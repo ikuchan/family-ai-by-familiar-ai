@@ -26,10 +26,31 @@ def bits_of_chars(chars: int) -> float:
     return float(max(0, int(chars))) * BITS_PER_CHAR
 
 
-def _groundedness(g0: float, n: int) -> float:
-    """`tools/memory._derive_groundedness` と同じ（floor 0・c 2・ε 0.001・step 0.33）。"""
-    from ..tools.memory import _derive_groundedness
+def _derive_groundedness(
+    a0: float,
+    n: int,
+    *,
+    floor: float = 0.0,
+    c: float = 2.0,
+    epsilon: float = 0.001,
+    step: float = 0.33,
+) -> float:
+    """初期値 a0 と正味デルタ回数 n から活性 a を導出する。
 
+    a0 を [floor, c] で正規化し、ε で両端に寄せてロジットで無限区間へ写し、
+    n·step を足してロジスティックで [floor, c] へ戻す。n=0 なら g=g0。
+    floor・c・ε・step は設定値（値の確定は課題5・Config から差し替え可）。
+    """
+    span = c - floor
+    x0 = (a0 - floor) / span
+    x0 = min(max(x0, epsilon), 1.0 - epsilon)
+    u = math.log(x0 / (1.0 - x0)) + n * step
+    y = 1.0 / (1.0 + math.exp(-u))
+    return floor + span * y
+
+
+def _groundedness(g0: float, n: int) -> float:
+    """`_derive_groundedness` の既定（floor 0・c 2・ε 0.001・step 0.33）。"""
     return _derive_groundedness(float(g0), int(n))
 
 

@@ -123,7 +123,7 @@ def facts_ctx(
         # 求めの起点は 発話・機器・情動 の 3 つ（`_NEW_REQUEST_KINDS`）。空は会話（`req.trigger_kind or "発話"` と同じ）。
         head = {"発話": _ASKED_HEAD, "機器": _DEVICE_HEAD}.get(kind or "発話")
         if head is None:
-            from ..tools.memory import me_name
+            from ..core.parsing import me_name
 
             head = _CAUSE_HEAD.format(me=me or me_name(None))
         asked_line = f"\n{head}\n  - {asked}"

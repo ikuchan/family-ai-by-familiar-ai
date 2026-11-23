@@ -25,6 +25,7 @@ from ..config import MemoryConfig, RecallWeights
 from ..db import Database, get_db, vec_to_sql
 from ..mood_register import MoodPAD, load_current_mood
 from ..core.heard import HEARD_DIRECTION
+from ..core.info_measure import _derive_groundedness
 from ..core.fact_keys import Fact
 from ..store import fact_keys as fact_keys_store
 from ..store.fact_keys import FactSource
@@ -321,29 +322,6 @@ def _mood_pad_of(row) -> "MoodPAD | None":
     return None if quad is None else MoodPAD(p=quad[0], pn=quad[1], a=quad[2], dom=quad[3])
 
 
-def _derive_groundedness(
-    a0: float,
-    n: int,
-    *,
-    floor: float = 0.0,
-    c: float = 2.0,
-    epsilon: float = 0.001,
-    step: float = 0.33,
-) -> float:
-    """初期値 a0 と正味デルタ回数 n から活性 a を導出する。
-
-    a0 を [floor, c] で正規化し、ε で両端に寄せてロジットで無限区間へ写し、
-    n·step を足してロジスティックで [floor, c] へ戻す。n=0 なら g=g0。
-    floor・c・ε・step は設定値（値の確定は課題5・Config から差し替え可）。
-    """
-    span = c - floor
-    x0 = (a0 - floor) / span
-    x0 = min(max(x0, epsilon), 1.0 - epsilon)
-    u = math.log(x0 / (1.0 - x0)) + n * step
-    y = 1.0 / (1.0 + math.exp(-u))
-    return floor + span * y
-
-
 def _emotion_match(
     obs_pad: tuple[float, float, float, float],
     mood_pad: tuple[float, float, float, float],
@@ -416,20 +394,6 @@ def subject_line(direction: str, name: "str | None") -> str:
     if name:
         return f"{name}の記録"
     return direction or "記録"
-
-
-def me_name(names) -> str:
-    """W でパジュ自身を書く名前（記-x）。ME.md の呼び名の先頭。呼び名が無ければ「わたし」（本人の決定ア）。
-
-    W は主LLM・軽量LLM・Jev・発話前の検査の 4 つが読み、指示文の立場がそろっていない。「わたし」は読み手によって
-    指す人が変わるので、名前で書く。名前を決めるのはここだけ。
-
-    `config.agent_name` は使わない。既定が「AI」（画面の表示用）で、呼び名が無いときに W へ「AI」と書いてしまう。
-    """
-    for n in names or ():
-        if isinstance(n, str) and n.strip():
-            return n.strip()
-    return "わたし"
 
 
 #: about の面（話題にされた人の面）の言葉の頭。その人から見た言葉なので、読み手にはその人の名前で書く（記-ae）。

@@ -53,7 +53,7 @@ def picked(answer, key: str, min_conf: float) -> "str | None":
 
 def _fallback_me() -> str:
     """呼び手が名前を渡さなかったとき（試験など）の名前。`me_name` の呼び名無しの名前（「わたし」）。"""
-    from ..tools.memory import me_name
+    from ..core.parsing import me_name
 
     return me_name(None)
 

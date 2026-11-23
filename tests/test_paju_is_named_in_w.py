@@ -19,7 +19,8 @@ from familiar_agent.io.oif import MI, OIF, Recalled
 from familiar_agent.loop import workspace
 from familiar_agent.loop.request import Request
 from familiar_agent.person_memory_manager import AGENT_SELF_ID
-from familiar_agent.tools.memory import me_name, subject_line
+from familiar_agent.core.parsing import me_name
+from familiar_agent.tools.memory import subject_line
 
 NAMES = ["パジュ", "パジュちゃん"]
 

@@ -221,7 +221,7 @@ class OIF:
 
     def me(self) -> str:
         """W でパジュ自身を書く名前（記-x・`me_name`）。呼び名が無ければ「わたし」。"""
-        from ..tools.memory import me_name
+        from ..core.parsing import me_name
 
         return me_name(self._names() if self._names is not None else ())
 

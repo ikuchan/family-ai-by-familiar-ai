@@ -127,3 +127,17 @@ def extract_speaker_prefix(user_input: str) -> tuple[str, str | None]:
         return (m.group(2) or "").strip(), m.group(1).strip()
     # @name: format
     return (m.group(4) or "").strip(), m.group(3).strip()
+
+
+def me_name(names) -> str:
+    """W でパジュ自身を書く名前（記-x）。ME.md の呼び名の先頭。呼び名が無ければ「わたし」（本人の決定ア）。
+
+    W は主LLM・軽量LLM・Jev・発話前の検査の 4 つが読み、指示文の立場がそろっていない。「わたし」は読み手によって
+    指す人が変わるので、名前で書く。名前を決めるのはここだけ。
+
+    `config.agent_name` は使わない。既定が「AI」（画面の表示用）で、呼び名が無いときに W へ「AI」と書いてしまう。
+    """
+    for n in names or ():
+        if isinstance(n, str) and n.strip():
+            return n.strip()
+    return "わたし"

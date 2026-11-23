@@ -686,7 +686,7 @@ class EmbodiedAgent:
 
     def _me_name(self) -> str:
         """パジュ自身を書く名前（`me_name(config.agent_names)`・W と同じ読み元・記-z）。Jev の判定へ渡す。"""
-        from .tools.memory import me_name
+        from .core.parsing import me_name
 
         return me_name(getattr(self.config, "agent_names", None))
 

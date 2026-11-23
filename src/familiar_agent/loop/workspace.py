@@ -462,7 +462,7 @@ def render_recent(
 
 def me_of(oif) -> str:
     """W でパジュ自身を書く名前（記-x）。口が呼び名を持たない（テストの偽物）ときは「わたし」。"""
-    from ..tools.memory import me_name
+    from ..core.parsing import me_name
 
     with contextlib.suppress(Exception):
         name = oif.me()
