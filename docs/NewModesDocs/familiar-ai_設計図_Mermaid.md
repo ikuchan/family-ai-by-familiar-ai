@@ -220,7 +220,7 @@ flowchart TD
   CORE -->|1| UI
   CORE -->|8| W
   DIF -->|2| BOOT
-  DIF -->|9| C
+  DIF -->|10| C
   DIF -->|24| CORE
   DIF -->|10| O
   DIF -->|5| RES

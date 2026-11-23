@@ -721,6 +721,10 @@ class AgentConfig:
     # 読むのはクラスの既定値だけ（`audio_devices.device_name()` が `AgentConfig.audio_device` を引く・作った設定の
     # 値は見ない）。音の部品は設定の器を受け取らずに呼ばれるため。
     audio_device: str = "YVC-300"
+    # マイクを pw-record で読むときの区切り（標本・48 kHz で約 21 ミリ秒・仮〔本人の確認待ち〕・出-du 段 3）。既定の
+    # 100 ミリ秒だと、マイクの口が YAMAHA の時計の取りまとめ役になって刻みが粗く、スピーカーが合わせ直しを
+    # くり返して声が割れた。読むのはクラスの既定値だけ（`audio_device` と同じ）。
+    mic_latency_samples: int = 1024
     # 名前として使える言葉の一覧（`ME.md` に読点で並べる）。沈黙依頼は、このどれかで
     # 呼ばれたときだけ受ける。表示用の主たる名前は `agent_name`。
     agent_names: list[str] = field(default_factory=list)

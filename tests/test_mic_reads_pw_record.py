@@ -185,3 +185,21 @@ def test_the_recorder_never_falls_back_to_another_source(monkeypatch):
     asyncio.run(go())
     props = made[0].args[made[0].args.index("-P") + 1]
     assert "node.dont-fallback = true" in props and "node.dont-reconnect = true" in props
+
+
+def test_the_recorder_asks_for_a_short_quantum(monkeypatch):
+    """区切りを 1,024 標本（約 21 ミリ秒）で求める（出-du 段 3・2026-11-23）。
+
+    既定の 100 ミリ秒だと、マイクの口が取りまとめ役の YAMAHA で時計の刻みが粗くなり、スピーカーが合わせ直し（resync）を
+    3 秒で 50〜160 回くり返して声が割れた。1,024 標本の録り手を足すと 0 回になった（無音の試し・11/23 21 時）。
+    """
+    made = _capture(monkeypatch)
+
+    async def go():
+        cap = mic.MicCapture(on_audio=lambda b: asyncio.sleep(0))
+        cap.start(asyncio.get_running_loop())
+        cap.stop()
+
+    asyncio.run(go())
+    assert "--latency=1024" in made[0].args
+    assert "--rate=48000" in made[0].args  # 速さが変わると、1,024 標本が何ミリ秒かも変わる

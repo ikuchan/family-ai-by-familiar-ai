@@ -301,6 +301,9 @@ class MicCapture:
         resampler = _Resampler(rate)
         gain = input_gain_from_env()
         self._stopped = False
+        from ..config import AgentConfig
+
+        latency = int(AgentConfig.mic_latency_samples)
         proc = subprocess.Popen(
             [
                 binary,
@@ -309,6 +312,8 @@ class MicCapture:
                 "-P",
                 "{ node.dont-fallback = true, node.dont-reconnect = true }",
                 f"--target={source}",
+                # 区切り（`AgentConfig.mic_latency_samples`・出-du 段 3）。既定の 100 ミリ秒だと声が割れた。
+                f"--latency={latency}",
                 f"--rate={rate}",
                 f"--channels={CHANNELS}",
                 "--format=s16",
@@ -355,9 +360,10 @@ class MicCapture:
         self._reader = threading.Thread(target=_read, daemon=True, name="mic-pw-record")
         self._reader.start()
         logger.info(
-            "Microphone capture: pw-record source=%s native_rate=%d target_rate=%d gain=%.2f",
+            "Microphone capture: pw-record source=%s native_rate=%d latency=%d target_rate=%d gain=%.2f",
             source,
             rate,
+            latency,
             TARGET_RATE,
             gain,
         )
