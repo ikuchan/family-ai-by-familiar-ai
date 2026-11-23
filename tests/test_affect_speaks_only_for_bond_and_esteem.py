@@ -81,7 +81,7 @@ def _affect(axis: str):
     ip._req.trigger_kind = "情動"
     ip._req.fired_axis = axis
     ip._delivery_block_reason = lambda: ""
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = AsyncMock()
     return ip
 

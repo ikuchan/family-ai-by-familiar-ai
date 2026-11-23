@@ -390,6 +390,8 @@ class InformationProcessing:
             mcp=agent._mcp,
             # 目と首（`see`・`look`・環-ac (1)）。カメラは後から差し替わるので、呼ぶたびに引く。
             camera=lambda: getattr(agent, "_camera", None),
+            # 在席センサ（環-ac (2)-a）。カメラと同じく、呼ぶたびに引く。
+            sensor=lambda: getattr(agent, "_occupancy_sensor", None),
             # 機器の出来事をこのループへ積む口も持つ（メモの見回り・タイマーが `device()` を呼ぶ・
             # 実機で `'NoneType' object has no attribute 'push_device'`・2026-09-15）。
             ip=self,
@@ -2047,7 +2049,6 @@ class InformationProcessing:
         カメラも VLM も落ちる前提の機器なので、例外はここで畳む。見た事実まで失うと
         求めが閉じないまま残る。
         """
-        agent = self._agent
         try:
             text, image_b64 = await self._dif.perceive(action, tool_input)
         except asyncio.CancelledError:
@@ -2061,7 +2062,7 @@ class InformationProcessing:
         # 根づきで薄れ、W 構築で薄れた順に上がることで巡回が創発する。
         where = await self._current_pose_name()
         prefix = f"{where}を見た。" if where else ""
-        image_path = getattr(agent._camera, "last_capture_path", None)
+        image_path = getattr(self._dif.camera(), "last_capture_path", None)
         # **VLM を待たない。** 意味づけ（Gemini へ画像を送る）は実測 2.3 秒で、`see` の帰りの
         # ほぼ全部だった。まずローカルの人検出（YOLO・COCO 80 種・数十ミリ秒）で即席の印を
         # 書いて完了を積み、主LLM は画像そのものを見て話す（`_seen_image`）。VLM は背景で
@@ -2146,7 +2147,7 @@ class InformationProcessing:
         """
         agent = self._agent
         try:
-            camera = getattr(agent, "_camera", None)
+            camera = self._dif.camera()
             if camera is None:
                 return ""
             poses = await agent.poses()
@@ -3861,7 +3862,7 @@ class InformationProcessing:
             + (self._patrol_note() if self._req.trigger_kind == "情動" else ""),
             capped=capped,
             thinking_round=round_,
-            can_see=getattr(agent, "_camera", None) is not None,
+            can_see=self._dif.camera() is not None,
             origin=self._req.trigger_kind,
             extra_actions=self._extra_actions(exclude=returned),
             spent_actions=frozenset(self._req.spent_actions),
@@ -5146,7 +5147,7 @@ class InformationProcessing:
 
     def _last_seen_note(self) -> str:
         """名前で起こす判定のログの末尾：最後に人を見た定点と秒（知-bg 段 2）。読めなければ何も足さない。"""
-        sensor = getattr(self._agent, "_occupancy_sensor", None)
+        sensor = self._dif.sensor()
         if sensor is None:
             return "・在席の見張りなし"
         try:
@@ -5786,7 +5787,7 @@ class InformationProcessing:
         見た印は W に浮かないことがある（印が無い定点は想起に掛からない・08-01）ので、在/不在の層が
         持つ「最後に見た時刻」から出す。渡すのは情動が起点の求めだけ（呼び手が決める）。
         """
-        sensor = getattr(self._agent, "_occupancy_sensor", None)
+        sensor = self._dif.sensor()
         if sensor is None:
             return ""
         try:
@@ -5807,7 +5808,7 @@ class InformationProcessing:
             return tool_input
         if getattr(self._req, "trigger_kind", "") != "情動":
             return tool_input
-        sensor = getattr(self._agent, "_occupancy_sensor", None)
+        sensor = self._dif.sensor()
         if sensor is None:
             return tool_input
         try:

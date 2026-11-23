@@ -49,7 +49,7 @@ def _ip(speaker: str, tools: list[str]):
     a._family_md = FAMILY
     ip = InformationProcessing(a)
     ip._current_speaker_name = lambda: speaker  # type: ignore[method-assign]
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.tool_defs_with_prefix = lambda prefix: [
         d for d in _defs(*tools) if d["name"].startswith(prefix)
     ]

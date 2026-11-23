@@ -34,7 +34,7 @@ def _tonic(world):
     ip = MagicMock()
     t = Tonic(ip, agent=agent)
     t._someone_here = lambda: world["here"]  # type: ignore[method-assign]
-    t._dif = MagicMock()
+    t._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
 
     async def say_credit(name, *, gain):
         return None if world["silenced"] else True  # 黙っていれば dif が止める（環-aw 第 5 段）

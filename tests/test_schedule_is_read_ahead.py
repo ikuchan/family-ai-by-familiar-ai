@@ -25,7 +25,7 @@ def _ip(reply: str, ok: bool = True, connected: bool = True):
     from tests.test_event_loop import _agent as _real_agent
 
     ip = InformationProcessing(_real_agent(stream_returns=[]))
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.call_tool = AsyncMock(return_value=(reply, ok))
     ip._dif.tool_defs = MagicMock(
         return_value=[{"name": "get_family_schedule"}] if connected else []

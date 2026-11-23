@@ -113,7 +113,7 @@ def _ip_with(tool_names: list[str], speaker: str):
     ip._current_speaker_name = lambda: speaker  # type: ignore[method-assign]
     ip._ACTIONS = dict(ip._ACTIONS)
     ip._ACTIONS["vault"] = lambda _ip: _defs(*tool_names)
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.tool_defs = lambda name: _defs(name)
     return ip
 

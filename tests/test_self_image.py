@@ -112,7 +112,7 @@ def test_the_loop_hands_the_current_self_image_to_the_prompt(monkeypatch):
     from familiar_agent.loop.request import Request
 
     ip._req = Request()
-    ip._dif = MagicMock(understands_tags=False)
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, understands_tags=False)
     stable, _ = ip._build_system(present_ctx="", workspace_ctx="", iter_ctx="")
     assert "[いまの自分]" in stable and "帰ってきた人を、最初に迎える存在でいたい。" in stable
 

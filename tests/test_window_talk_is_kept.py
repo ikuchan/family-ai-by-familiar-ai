@@ -93,7 +93,7 @@ def test_a_confirm_long_after_does_not_revive_an_old_talk():
     old = ip._wake_window().session
     ip._wake_window().close()
     ip._req.window_session = 0  # 窓の外で始まった求め（タイマーなど）
-    ip._dif = MagicMock(speak=AsyncMock())
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, speak=AsyncMock())
     ip._confirming = lambda: True
     asyncio.run(ip._say_aloud("3 分のタイマーね。いい？"))
     assert ip._wake_window().session == old + 1
@@ -107,7 +107,7 @@ def test_a_reply_to_a_request_begun_in_the_window_continues_its_talk():
     session = ip._wake_window().session
     ip._req.window_session, ip._req.trigger_kind, ip._req.named = session, "発話", True
     ip._wake_window().close()
-    ip._dif = MagicMock(speak=AsyncMock())
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, speak=AsyncMock())
     ip._confirming = lambda: False
     asyncio.run(ip._say_aloud("いいよ。しりとり！"))
     assert ip._wake_window().session == session

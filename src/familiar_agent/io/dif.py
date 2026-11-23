@@ -11,8 +11,9 @@
 
 段1で通したのは**声と調べもの**で、知覚（`see`・`look`）は 知-c の実機確認が済んでから
 通した（環-ac (1)・2026-11-23・`perceive`）。同じ箇所を切り出しと機能変更の両方で触ると、
-どちらで挙動が変わったのかを切り分けられなくなるので、待っていた。向きの読み取り
-（`position()`）・撮った写真の場所（`last_capture_path`）は、まだループがカメラから直に読む。
+どちらで挙動が変わったのかを切り分けられなくなるので、待っていた。ループ（I）は首の
+向き・撮った写真の場所・在席センサも、この口の `camera()`・`sensor()` から引く（環-ac (2)-a・設計図の案ア＝T は直接
+読み・I は DIF 経由）。
 """
 
 from __future__ import annotations
@@ -74,11 +75,21 @@ class DIF:
     """
 
     def __init__(
-        self, *, tts=None, search=None, fetch=None, mcp=None, ip=None, camera=None
+        self,
+        *,
+        tts=None,
+        search=None,
+        fetch=None,
+        mcp=None,
+        ip=None,
+        camera=None,
+        sensor=None,
     ) -> None:
         self._tts = tts
         #: カメラを引く口（環-ac (1)）。作った時点のカメラを掴まず、呼ぶたびに引く（後から差し替えた先を呼ぶ）。
         self._camera: "Callable[[], Any] | None" = camera
+        #: 在席センサ（YOLO・見えの隔たり）を引く口（環-ac (2)-a）。カメラと同じく呼ぶたびに引く。
+        self._sensor: "Callable[[], Any] | None" = sensor
         self._search = search
         self._fetch = fetch
         self._mcp = mcp
@@ -473,13 +484,21 @@ class DIF:
 
     # ── 知覚 ──────────────────────────────────────────────────────────────
 
+    def camera(self) -> Any:
+        """カメラ（無ければ None）。I は首の向き・撮った写真の場所をここから読む（環-ac (2)-a・設計図の案ア）。"""
+        return self._camera() if self._camera is not None else None
+
+    def sensor(self) -> Any:
+        """在席センサ（無ければ None）。I は見ていない順・最後に人を見た定点をここから読む（環-ac (2)-a）。"""
+        return self._sensor() if self._sensor is not None else None
+
     async def perceive(self, action: str, params: dict) -> tuple[Any, Any]:
         """目と首を動かす（`see`・`look`）。返りは (文面, 画像の base64) で、カメラの `call` のまま（環-ac (1)）。
 
         **挙動は変えない。** 例外もそのまま上げる（カメラが無ければ前と同じ `None.call` の AttributeError）。
         畳むのは呼び手（`_run_camera`）である。
         """
-        camera = self._camera() if self._camera is not None else None
+        camera = self.camera()
         logger.debug("DIF perceive → %s", action)
         return await camera.call(action, params)  # type: ignore[union-attr]
 

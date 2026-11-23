@@ -113,7 +113,7 @@ async def test_the_question_is_spoken_by_the_machine():
 
     a = _agent(stream_returns=[_turn([])])
     ip = InformationProcessing(a)
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = _async_noop()
     await ip._ask_confirm_aloud(_pc())
     ip._dif.speak.assert_awaited_once()
@@ -149,7 +149,7 @@ async def test_a_fresh_confirm_is_asked_aloud_right_away():
 
     a = _agent(stream_returns=[_turn([])])
     ip = InformationProcessing(a)
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = AsyncMock(return_value=None)
 
     pc = _pc(time.time())

@@ -336,7 +336,7 @@ def _asks(ip, kind):
     from unittest.mock import MagicMock
 
     ip._req.trigger_kind = kind
-    ip._dif = MagicMock(speak=AsyncMock())
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, speak=AsyncMock())
     ip._confirming = lambda: True  # 問いを出す前に確認待ちが立っている（`_ask_confirm_if_fresh`）
     ip._delivery_block_reason = lambda: ""
     asyncio.run(ip._ask_confirm_aloud(SimpleNamespace(text="5 分のタイマーを掛けていい？")))

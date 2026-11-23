@@ -47,7 +47,7 @@ def _pushed(*, open_request, ringing: bool) -> Trigger:
     ip._timer_active = lambda frame=None: False
     ip._wake_admits = lambda *a, **k: True
     ip._req.request_id = open_request
-    ip._dif = MagicMock(ringing=ringing)
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, ringing=ringing)
 
     async def go():
         task = asyncio.ensure_future(ip.push_utterance("パジュ、止めて", source="keyboard"))
@@ -114,7 +114,7 @@ def _begun(trigger: Trigger, *, ringing_now: bool) -> Request:
     asyncio.run(
         ip._paju().start()
     )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
-    ip._dif = MagicMock(ringing=ringing_now)
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, ringing=ringing_now)
     captured: dict = {}
 
     async def fake_iteration(utterance, voice=None):
@@ -175,7 +175,7 @@ def _attached(*, rang: bool, ringing_now: bool) -> Request:
         ip._paju().start()
     )  # 控えを先に戻しておく（門の初めの 1 回だけ DB を読むので、短い待ちに入れない）
     ip._req.request_id = "req-1"
-    ip._dif = MagicMock(ringing=ringing_now)
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, ringing=ringing_now)
 
     async def go():
         fut = asyncio.get_running_loop().create_future()

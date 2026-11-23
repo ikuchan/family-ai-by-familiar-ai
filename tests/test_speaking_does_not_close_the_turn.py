@@ -47,7 +47,7 @@ def _ip(blocked: str = ""):
     ip = InformationProcessing.__new__(InformationProcessing)
     ip._req = Request()  # 起点は既定（人の発話扱い）。独り言の分岐は情-c のテストが見る
     ip._delivery_block_reason = MagicMock(return_value=blocked)
-    ip._dif = MagicMock(speak=AsyncMock())
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None, speak=AsyncMock())
     ip._emit = MagicMock()
     ip._finish = AsyncMock()
     ip._agent = MagicMock(confirm_alive=lambda: False)  # 確認待ちでない（出-cw で話し終わりに見る）

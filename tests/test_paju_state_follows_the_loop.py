@@ -65,7 +65,7 @@ def _speak_in_request(ip, *, fail: bool = False) -> set[str]:
         if fail:
             raise RuntimeError("再生に失敗")
 
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = AsyncMock(side_effect=speak)
 
     async def go():
@@ -359,7 +359,7 @@ def test_speaking_outside_a_request_is_not_logged_as_dropped(caplog):
     import logging
 
     ip = _ip()
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = AsyncMock()
 
     async def go():
@@ -381,7 +381,7 @@ def test_an_answer_cut_off_by_an_abort_is_not_logged_as_dropped(caplog):
     async def speak(text, **kw):
         await ip._abort_lookups()
 
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = AsyncMock(side_effect=speak)
 
     async def go():
@@ -404,7 +404,7 @@ def test_a_nested_speech_does_not_end_the_outer_answer():
             await ip._say_aloud("内")
             seen.append(_ids(ip))
 
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = AsyncMock(side_effect=speak)
 
     async def go():

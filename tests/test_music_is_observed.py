@@ -111,7 +111,7 @@ def _tonic(status, *, started_at):
     t._agent = MagicMock()
     t._agent._music_tool = tool
     t._agent._music_state = MusicState(playing=True, started_at=started_at)
-    t._dif = MagicMock()
+    t._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     return t
 
 

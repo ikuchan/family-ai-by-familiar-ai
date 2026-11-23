@@ -23,7 +23,7 @@ def _ip(*, trigger_kind: str, blocked: str):
     ip._req.trigger_kind = trigger_kind
     ip._req.fired_axis = "bond"  # 情動なら話しかける軸（出-as 段 8：話すのは bond・esteem だけ）
     ip._delivery_block_reason = lambda: blocked  # type: ignore[method-assign]
-    a._dif = MagicMock()
+    a._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     a._dif.speak = AsyncMock()
     ip._dif = a._dif
     ip._wake_window().open(time.monotonic())  # 入口を通った会話として窓を開けておく（出-as 段 4）

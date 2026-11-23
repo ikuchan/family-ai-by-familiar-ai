@@ -821,7 +821,7 @@ DIF はその次で、外部への呼び出しを1つの口へ寄せるだけな
 |---|---|---|---|
 | **は-1** | `speak`／`lookup`／`understands_tags` | 4 | **完了**（2026-09-08） |
 | **は-2** | `tool_defs`／`device`／`speak_defs`／`lookup_defs` | 5 | **完了**（2026-09-08） |
-| **は-3** | `perceive`（`see`・`look`） | 1 | **済み**（環-ac (1)・2026-11-23）：`DIF.perceive(action, params)` がカメラの `call` へそのまま渡す（返りも例外も前のまま）。`_run_camera` はこれを通る。DIF はカメラを作った時点で掴まず、呼ぶたびに引く（`camera=lambda: getattr(agent, "_camera", None)`）。tonic の側の DIF はカメラの口を持たない（いま `perceive` を呼ばない・(2) で決める）。向きの読み取り（`position()`）と撮った写真の場所（`last_capture_path`）は、まだループがカメラから直に読む |
+| **は-3** | `perceive`（`see`・`look`） | 1 | **済み**（環-ac (1)・2026-11-23）：`DIF.perceive(action, params)` がカメラの `call` へそのまま渡す（返りも例外も前のまま）。`_run_camera` はこれを通る。DIF はカメラを作った時点で掴まず、呼ぶたびに引く（`camera=lambda: getattr(agent, "_camera", None)`）。tonic の側の DIF はカメラの口を持たない（いま `perceive` を呼ばない・(2) で決める）。ループ（I）の首の向き・撮った写真の場所・在席センサの読み取りも `DIF.camera()`・`DIF.sensor()` を通す（環-ac (2)-a・2026-11-23・設計図の案ア＝T は直接読み・I は DIF 経由）。残り：agent を受け取るモジュール関数 `actions._camera_tool_def`・`generator._present_ctx` は、ループの状態も DIF も持たないので agent から直に引く |
 
 **は-1 で移したもの。** `_speak` と `_say_filler` の `agent._tts.call("say", …)`、`_run_lookup` の
 `agent._deferred_search`／`_deferred_fetch` の `.dispatch()`、そして

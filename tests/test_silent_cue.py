@@ -62,7 +62,7 @@ def _ip(*, played: bool):
 
     ip = InformationProcessing(_agent(stream_returns=[]))
     ip._req.cue_played = played
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     return ip
 
 
@@ -112,7 +112,7 @@ def test_the_main_llm_silence_mark_rings():
     ip, _a = _with_jev("reply")
     ip._req.cue_played = True
     ip._req.lookups.append(Lookup(index=1, action="主LLM", query="主LLM1", generation=0))
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     assert _act(ip, _bare("（黙る）")) == ""
     ip._dif.play_cue.assert_called_once_with(rc.SILENT)
 

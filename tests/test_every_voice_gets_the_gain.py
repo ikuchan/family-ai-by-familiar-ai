@@ -22,7 +22,7 @@ def _ip():
     ip = InformationProcessing(a)
     ip._req.trigger_kind = "発話"
     ip._req.request_text = "パジュ、音楽をかけて"
-    ip._dif = MagicMock()
+    ip._dif = MagicMock(camera=lambda: None, sensor=lambda: None)
     ip._dif.speak = AsyncMock()
     return ip
 
