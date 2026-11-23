@@ -66,7 +66,7 @@ from ..store import intents as _intents
 from .intent_ledger import IntentLedger
 from .paju_state import EAR_MUSIC, EAR_OPEN, EAR_TIMER, PajuState
 from .request import Lookup, Request
-from . import finals
+from . import finals, widen
 from .actions import (
     _action_family,
     _ALARM_ACTIONS,
@@ -100,7 +100,6 @@ from .actions import (
     _stopwatch_def,
     _stopwatch_frame,
     _suggestion_reply_def,
-    THREAD_MAX_STEPS,
     _TIMER_ACTIONS,
     _timer_def,
     _timer_frame,
@@ -1966,74 +1965,6 @@ class InformationProcessing:
             intent_id or "-",
         )
 
-    def _recall_tree(self, tool_input: dict) -> str:
-        """記憶の木の節を指して、その節の要約を読む（記-m 段 2）。機械が O から引くだけで、LLM は使わない。
-
-        節ごとに見出し（【2025-08】）を付けて返す。書かれていない節は「まだ要約が無い」と返し、主LLM は
-        日を指し直せる。人を指せばその人の面から（家族に無い名前は断る）、省けば家族全体。
-        """
-        agent = self._agent
-        nodes = tool_input.get("nodes") or []
-        if isinstance(nodes, str):
-            nodes = [nodes]
-        name = str(tool_input.get("person") or "").strip()
-        pid = None
-        if name:
-            pid = agent._pmm.find_person_id_by_name(name)
-            if pid is None:
-                return f"「{name}」は家族に見つからないので、その人の木はたどれない"
-        whose = f"（{name}との要約）" if name else "（家族全体の要約）"
-        parts: list[str] = []
-        for node in [str(n).strip() for n in nodes if str(n).strip()]:
-            rows = agent._oif.tree_summaries(node, person_id=pid)
-            if rows is None:
-                parts.append(f"【{node}】読めない（年 2025・月 2025-08・日 2025-08-15 の形で指す）")
-            elif not rows:
-                parts.append(f"【{node}】まだ要約が無い")
-            else:
-                parts.append(f"【{node}】\n" + "\n".join(f"- {r.get('content', '')}" for r in rows))
-        if not parts:
-            return "節が指されていない（年 2025・月 2025-08・日 2025-08-15 の形で指す）"
-        return whose + "\n" + "\n".join(parts)
-
-    def _recall_thread(self, tool_input: dict) -> str:
-        """記録の前後の話を継起でたどる（記-q・2026-10-15）。機械が O から引くだけで、LLM は使わない。
-
-        件数は主LLM が決め、前後それぞれ `THREAD_MAX_STEPS`（10 件〔仮〕）で止める。止めたら返りの先頭にそう書く。
-        """
-        oif = self._agent._oif
-        short = str(tool_input.get("id") or "").strip()
-        full = oif.id_from_short(short) if short else None
-        if full is None:
-            return f"id「{short}」の記録は見つからない（作業状態に載った 12 桁の id を渡す）"
-
-        def _steps(key: str) -> int:
-            try:
-                return max(0, int(tool_input.get(key) or 0))
-            except (TypeError, ValueError):
-                return 0
-
-        before, after = _steps("before"), _steps("after")
-        notes = []
-        if before > THREAD_MAX_STEPS:
-            notes.append(f"前は {THREAD_MAX_STEPS} 件までにした")
-        if after > THREAD_MAX_STEPS:
-            notes.append(f"後は {THREAD_MAX_STEPS} 件までにした")
-        before, after = min(before, THREAD_MAX_STEPS), min(after, THREAD_MAX_STEPS)
-        rows = oif.thread(full, before=before, after=after)
-        logger.info("event-loop recall_thread：前 %d・後 %d 件", before, after)
-        head = f"（{THREAD_MAX_STEPS} 件まで：" + "・".join(notes) + "）\n" if notes else ""
-        if len(rows) <= 1:
-            return head + "前後につながる記録が無い"
-
-        def _label(off: int) -> str:
-            return "【これ】" if off == 0 else (f"【前 {-off}】" if off < 0 else f"【後 {off}】")
-
-        n_before = sum(1 for r in rows if int(r.get("offset", 0)) < 0)
-        n_after = sum(1 for r in rows if int(r.get("offset", 0)) > 0)
-        lines = [f"{_label(int(r.get('offset', 0)))}{r.get('content', '')}" for r in rows]
-        return head + f"（id {short} の前 {n_before} 件・後 {n_after} 件）\n" + "\n".join(lines)
-
     async def _run_widen(self, action: str, tool_input: dict) -> str:
         """思い出し方を変えて引き直す（出-ah・2026-09-21）。
 
@@ -2045,9 +1976,9 @@ class InformationProcessing:
         from ..core import recall_options as ro
 
         if action == "recall_tree":
-            return self._recall_tree(tool_input)
+            return widen.recall_tree(self._agent, tool_input)
         if action == "recall_thread":
-            return self._recall_thread(tool_input)
+            return widen.recall_thread(self._agent, tool_input)
         agent = self._agent
         cfg = MemoryConfig()
         query = str(tool_input.get("query") or self._req.cue or "")

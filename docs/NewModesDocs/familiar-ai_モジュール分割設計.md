@@ -1286,15 +1286,19 @@ backends/cli.py          166 行
 |---|---|---|---|
 | 1 | `loop/actions.py` | 主LLM が選べる動作の表（`_FULL_ACTIONS` など）、調べものの見出し（`_query_label`）、道具の定義の組み立て（タイマー・音楽・印刷・確認など）、動作の判定、それに添える小さなもの（起点の記録の字数の上限・季節と自己像の文など） | 599 |
 | 2 | `loop/finals.py` | 最終版を書いて前の版を畳む（`write_final`）・長すぎれば要約する（`shorten_final`）・前の最終版と継起で結ぶ（`link_succession`）。`agent` を引数で受け取る。背景で書くタスクを立てる `_spawn_final` はループに残した。記録の名前は `familiar_agent.loop.finals` に変わった（文の頭の「event-loop」はそのまま） | 130 |
+| 3 | `loop/widen.py` | 広げる道具のうち機械が O から引くだけのもの：記憶の木の節の要約（`recall_tree`）・記録の前後の話（`recall_thread`）。呼び手 `_run_widen` はループに残した。記録の名前は `familiar_agent.loop.widen` に変わった | 82 |
 
 段 1 では中身を変えていない（例外の記録に `exc_info=True` を足しただけ）。試験が `event_loop` の上で差し替える名前
 （`WAIT_WATCH_TICK_SEC`・`_timer_frame`・`_caches_window` など）は、`event_loop` が自分の名前で引くので、差し替えはそのまま
 効く。ただし `actions.py` の中で関数どうしが呼ぶもの（`_suggestion_reply_def` → `_music_def`、`_query_label` →
 `_days_of`・`_personal_action` など）は `actions` の名前で引くので、差し替えるなら `familiar_agent.loop.actions` の上で行う。あわせて、本体から呼ばれていなかった `_window_text` を
-消した。段 2 のあとの `event_loop.py` は 6,557 行で、その大半は `InformationProcessing`（約 6,180 行・234 メソッド）である。
+消した。段 3 のあとの `event_loop.py` は 6,488 行で、その大半は `InformationProcessing`（6,101 行・228 メソッド・ast で数えた）である。
 
 段 2 から、クラスのメソッドを出す形を決めた：`self` に書き込まず、読むのが `self._agent` だけのメソッドを、`agent` を
 引数に取るモジュール関数にする。新しい型（Protocol など）や属性の宣言を足さずに mypy が通ることを、出してよい条件とする。
+もう 1 つの条件として、試験がインスタンスの上で差し替えているメソッド（`ip._set_speaker = AsyncMock()` など）は出さない。
+出すと差し替えが効かなくなり、`assert_not_awaited()` のような確かめが空振りで通る。人と顔ぶれのメソッド（`_set_speaker`・
+`_current_speaker_name`・`_call_name_for`・`_apply_seen_people` など）は、これに当たるので残した。
 
 ## 残り
 
