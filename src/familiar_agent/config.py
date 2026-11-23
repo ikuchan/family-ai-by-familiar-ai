@@ -716,6 +716,11 @@ class AgentConfig:
     agent_name: str = "AI"
     # 印刷のプリンタ（CUPS の名前・知-bo）。家のプリンタ（Brother DCP-J552N）。
     printer_name: str = "Brother_DCP_J552N"
+    # 音の機器（マイクとスピーカー）の名前の一部（家の YAMAHA YVC-300）。マイクも声の出口もこれで選ぶ
+    # （`tools/audio_devices`・2026-11-23 に `.env` の AUDIO_INPUT_DEVICE・AUDIO_OUTPUT_DEVICE から移した）。
+    # 読むのはクラスの既定値だけ（`audio_devices.device_name()` が `AgentConfig.audio_device` を引く・作った設定の
+    # 値は見ない）。音の部品は設定の器を受け取らずに呼ばれるため。
+    audio_device: str = "YVC-300"
     # 名前として使える言葉の一覧（`ME.md` に読点で並べる）。沈黙依頼は、このどれかで
     # 呼ばれたときだけ受ける。表示用の主たる名前は `agent_name`。
     agent_names: list[str] = field(default_factory=list)

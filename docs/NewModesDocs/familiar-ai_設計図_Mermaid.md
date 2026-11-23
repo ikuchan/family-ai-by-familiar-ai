@@ -210,7 +210,7 @@ flowchart TD
   CORE -->|1| AIF
   CORE -->|8| BOOT
   CORE -->|11| C
-  CORE -->|21| DIF
+  CORE -->|22| DIF
   CORE -->|12| GMD
   CORE -->|32| O
   CORE -->|20| RES
@@ -220,7 +220,7 @@ flowchart TD
   CORE -->|1| UI
   CORE -->|8| W
   DIF -->|2| BOOT
-  DIF -->|8| C
+  DIF -->|9| C
   DIF -->|24| CORE
   DIF -->|10| O
   DIF -->|5| RES
@@ -257,7 +257,7 @@ flowchart TD
   UI -->|6| BOOT
   UI -->|3| C
   UI -->|7| CORE
-  UI -->|5| DIF
+  UI -->|6| DIF
   UI -->|4| GMD
   UI -->|1| RES
   UI -->|2| SS

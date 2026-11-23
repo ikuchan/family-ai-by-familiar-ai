@@ -14,6 +14,7 @@ import numpy as np
 import pytest
 import soundfile as sf
 
+from familiar_agent.tools import audio_devices
 from familiar_agent.tools import tts
 
 
@@ -85,7 +86,7 @@ def test_a_play_that_ends_before_the_voice_is_warned_but_counted(pw, tmp_path, c
 
 def test_a_failed_play_is_not_played_again(pw, tmp_path, monkeypatch):
     """`_play_local` は最初に pw-play の道を試し、失敗すると最後にもう一度同じ道を呼んでいた（同じ声が 2 回鳴る）。"""
-    monkeypatch.setenv("AUDIO_INPUT_DEVICE", "Yamaha")
+    monkeypatch.setattr(audio_devices, "device_name", lambda: "Yamaha")
     monkeypatch.setattr(
         tts.shutil, "which", lambda name: None
     )  # paplay・mpv が無い機体（いまの実機）

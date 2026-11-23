@@ -274,7 +274,7 @@ uv run familiar --no-tui
 | `/alarm stop [id]` | アラームを止める（LLM を通さない） |
 | `/reload` | `.env` を読み直し、常時集音（マイク）を新しい値で作り直す（再起動不要） |
 
-効くのは集音の開始時に読まれる値だけです（`AUDIO_INPUT_DEVICE`・`AUDIO_INPUT_GAIN`・`STT_*`・`STT_ENGINE`）。LLM・API 鍵・カメラ・TTS の担い手は起動時に組んだままなので、それらを変えたときは再起動してください。ME.md・FAMILY.md はいまは読み直しません。
+効くのは集音の開始時に読まれる値だけです（`AUDIO_INPUT_GAIN`・`STT_*`・`STT_ENGINE`。マイクとスピーカーの名前は `config.py` の `AgentConfig.audio_device`）。LLM・API 鍵・カメラ・TTS の担い手は起動時に組んだままなので、それらを変えたときは再起動してください。ME.md・FAMILY.md はいまは読み直しません。
 
 ---
 

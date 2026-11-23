@@ -40,7 +40,7 @@ flowchart TD
 
 ## 1. 取り込みと再標本化（`tools/mic.py`）
 
-`MicCapture` は、`AUDIO_INPUT_DEVICE` に名前が合う PipeWire の入力の口（入口の種類が PulseAudio のもの・スピーカーの
+`MicCapture` は、機器の名前（`AgentConfig.audio_device`）に名前が合う PipeWire の入力の口（入口の種類が PulseAudio のもの・スピーカーの
 写し＝`.monitor` は除く）があり `pw-record` があれば、`pw-record --raw --target=<口> --rate=48000 --channels=1
 --format=s16 -` を別のプロセスで起こし、その標準出力を裏の糸で 96 ミリ秒ずつ読む（出-du 段 2・2026-11-23・本人の決定イ）。
 YAMAHA を掴むのを PipeWire だけにするためで、パジュが直接（`hw:1,0`）掴むと、PipeWire が同じ機器の入力の口を開こうと
@@ -201,7 +201,7 @@ GUI は起動時に `RealtimeSttController`（セッションの包み）を作�
 | `STT_NO_SPEECH_MAX` | 0.72 | これを超えたら音声でないとみなして捨てる（幻聴よけ） |
 | （`ME.md` の「名前：」） | — | 綴りの並びが `STTConfig.word_groups` の**先頭の組**になる（先頭の綴りが直すべき語）。env からは与えない |
 | `STT_WORD_GROUPS` | （空） | 語の組を足す。`パジュ：はじゅ、パチュ; -：消す語`（組は `;`・直すべき語と配列は `：`・語は読点・`-` は消す） |
-| `AUDIO_INPUT_DEVICE` | （既定機器） | マイクを名前の一部で選ぶ |
+| `AgentConfig.audio_device`（`config.py`） | `YVC-300` | マイクとスピーカーを名前の一部で選ぶ（2026-11-23 に `.env` の `AUDIO_INPUT_DEVICE`・`AUDIO_OUTPUT_DEVICE` から移した・選び方は `tools/audio_devices.pick_device`） |
 | `AUDIO_INPUT_GAIN` | 1.0 | 取り込んだ PCM に掛ける倍率（0 以下・読めない値は 1.0）。この機械は 2.0 |
 | `ELEVENLABS_API_KEY` | （空） | `STT_ENGINE=elevenlabs` のときだけ要る |
 
@@ -247,8 +247,8 @@ LLM・鍵・カメラ・声の担い手は再起動が要る旨を同じ行に�
 アプリを遠隔デスクトップ（Chrome Remote Desktop）のターミナルから起動すると、その接続用の音の口を指す環境変数
 （`PULSE_RUNTIME_PATH`・`PULSE_SINK`・`PIPEWIRE_REMOTE`）を引き継ぐ。起動の最初（音の部品を読む前）に 3 つを外し、この機体の
 音の口（`<XDG_RUNTIME_DIR>/pulse/native`・既定の出口は Yamaha）を `PULSE_SERVER` で指す（`io/audio_env.apply_local_audio`）。
-声の出口は、名前に `AUDIO_OUTPUT_DEVICE` を含む機器のうち PipeWire（PulseAudio）のものを先に選ぶ（無ければ ALSA の `hw:1,0`）。
-音楽（spotifyd）と声は PipeWire が混ぜる。マイクはいまどおり ALSA の `hw:1,0` を直に開く。
+声の出口は、名前に機器の名前（`AgentConfig.audio_device`）を含む機器のうち PipeWire（PulseAudio）のものを先に選ぶ（無ければ ALSA の `hw:1,0`）。
+音楽（spotifyd）と声は PipeWire が混ぜる。マイクは PipeWire の入力の口を `pw-record` で読み（出-du 段 2・2026-11-23）、口が無いときだけ sounddevice で開く（§1）。
 
 声は PipeWire 付属の `pw-play` を別のプロセスで呼んで鳴らす（v0.13・知-ak-ろ 段 4）。PortAudio の PulseAudio の口では
 鳴り終わりの待ちが戻らず固まったため。鳴り終わりの待ちは声の長さ＋`TTS_PLAY_MARGIN_SEC`（5 秒〔仮〕）で打ち切る。

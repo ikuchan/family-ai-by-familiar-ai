@@ -1103,14 +1103,13 @@ class EmbodiedAgent:
         """出力機器のミキサーが低ければ知らせる 1 行（環-q・2026-09-19）。値は変えない。
 
         YVC-300 の `PCM` が 40% で音も声もほぼ無音だった。50% 未満なら起動時の吹き出しと WARNING。
-        機器の名前は `AUDIO_OUTPUT_DEVICE`（無ければ `AUDIO_INPUT_DEVICE`）。読めなければ黙る。
+        機器の名前は `tools.audio_devices.device_name()`（config の `audio_device`）。読めなければ黙る。
         """
         from .core import audio_volume
 
-        name = (
-            os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
-            or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
-        )
+        from .tools.audio_devices import device_name
+
+        name = device_name()
         percent = audio_volume.read_percent(name) if name else None
         if percent is None or percent >= 50:
             return ""

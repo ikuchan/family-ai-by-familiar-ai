@@ -2080,17 +2080,16 @@ class FamiliarWindow(QMainWindow):
         from .config import DeviceWatchConfig
         from .io import device_watch
 
+        from .tools.audio_devices import device_name
+
         def output_name() -> str:
-            return (
-                os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
-                or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
-            )
+            return device_name()
 
         def mic_age() -> "float | None":
             controller = getattr(self, "_watched_stt", None)
             if controller is None:
                 return None
-            return controller.mic_audio_age(os.environ.get("AUDIO_INPUT_DEVICE", "").strip())
+            return controller.mic_audio_age(device_name())
 
         async def mic_restart() -> bool:
             controller = getattr(self, "_watched_stt", None)

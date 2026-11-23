@@ -21,7 +21,6 @@ logger = logging.getLogger(__name__)
 
 # 読み直しで効く値（集音の立て直しで読まれるもの）。応答に並べて、何が効いたかを見せる。
 LISTENER_KEYS = (
-    "AUDIO_INPUT_DEVICE",
     "AUDIO_INPUT_GAIN",
     "STT_ENGINE",
     "STT_VAD_SILENCE_SEC",

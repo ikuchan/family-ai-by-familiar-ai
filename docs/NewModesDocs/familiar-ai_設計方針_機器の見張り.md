@@ -52,7 +52,7 @@ flowchart TD
 ### 3.1 スピーカー
 
 - **確かめ方**：既定の出口（`wpctl inspect @DEFAULT_AUDIO_SINK@`）の説明（`node.description`）に、出口の機器の名前
-  （`AUDIO_OUTPUT_DEVICE`、無ければ `AUDIO_INPUT_DEVICE`）が入っているか。名前の設定が無ければ確かめない。
+  （`AgentConfig.audio_device`・2026-11-23 まで `.env` の `AUDIO_OUTPUT_DEVICE`／`AUDIO_INPUT_DEVICE`）が入っているか。名前の設定が無ければ確かめない。
 - **直し方**：
   1. `pw-dump` から、説明に機器の名前が入っている機器を引く。機器の番号と `pro-audio` の番号は、毎回ここで引く（起動ごとに変わる）。
   2. いまの使い方が `pro-audio` でなければ、`wpctl set-profile <機器の番号> <pro-audio の番号>`。
@@ -64,7 +64,7 @@ flowchart TD
 ### 3.2 マイク
 
 - **確かめ方**：マイクの取り込み（`MicCapture`）が最後に音を受けた時刻が 60 秒以内で、開いた機器の名前に
-  `AUDIO_INPUT_DEVICE` が入っているか。マイクは鳴っていなくても無音の音を受け続けるので、時刻が古いのは取り込みが
+  機器の名前（`AgentConfig.audio_device`）が入っているか。マイクは鳴っていなくても無音の音を受け続けるので、時刻が古いのは取り込みが
   止まったときである。ただし YAMAHA が見つからず既定の入力（内部マイク）へ落ちたときも無音の音は届くので、機器の
   名前も見る。聞き取りを止めているとき（GUI で切った、聞き取りの設定が無い）は確かめない。始めるのに失敗したときと、
   始め直しの途中で落ちたときは、止めたのとは分けて、確かめ続ける。

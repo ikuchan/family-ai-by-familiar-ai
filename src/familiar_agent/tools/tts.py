@@ -1100,37 +1100,23 @@ def _pulse_env() -> dict[str, str] | None:
 
 
 def _resolve_output_device() -> int | None:
-    """Return sounddevice output device index from AUDIO_OUTPUT_DEVICE or AUDIO_INPUT_DEVICE env vars.
+    """声を出す sounddevice の機器の番号（名前は `audio_devices.device_name()`）。無ければ None（既定）。
 
-    Prefers AUDIO_OUTPUT_DEVICE; falls back to AUDIO_INPUT_DEVICE (both typically refer
-    to the same USB speaker/mic combo like Yamaha YVC-300). Returns None to use the default.
+    **PipeWire（PulseAudio）側の出口を先に選ぶ**（知-ak-ろ・2026-10-07 実機）。ALSA の `hw:1,0` を直に・排他で開くと、
+    音楽（spotifyd）が PipeWire で Yamaha を握っているあいだ `Device unavailable` で声が 10 回消えた。選び方は
+    `audio_devices.pick_device`（マイクと同じ）。
     """
-    name = (
-        os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
-        or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
-    )
+    from .audio_devices import device_name, pick_device
+
+    name = device_name()
     if not name:
         return None
-    # **PipeWire（PulseAudio）側の出口を先に選ぶ**（知-ak-ろ・2026-10-07 実機）。ALSA の `hw:1,0` を直に・排他で
-    # 開くと、音楽（spotifyd）が PipeWire で Yamaha を握っているあいだ `Device unavailable` で声が 10 回消えた。
-    # PipeWire 側に同じ機器が無ければ、いまどおり最初に一致した機器（ALSA）を使う。
     try:
         import sounddevice as sd
 
-        apis = sd.query_hostapis()
-        devices = sd.query_devices()
-        hits = [
-            i
-            for i, d in enumerate(devices)
-            if name.lower() in d["name"].lower() and d["max_output_channels"] > 0
-        ]
-        for i in hits:
-            if "pulse" in str(apis[devices[i]["hostapi"]]["name"]).lower():
-                return i
-        return hits[0] if hits else None
-    except Exception:
-        pass
-    return None
+        return pick_device(list(sd.query_devices()), list(sd.query_hostapis()), name, kind="output")
+    except Exception:  # noqa: BLE001
+        return None
 
 
 # ── pw-play で鳴らす（知-ak-ろ 段 4・2026-10-07）──────────────────────────────
@@ -1146,27 +1132,22 @@ def _pw_play_binary() -> "str | None":
 
 
 def _pw_target() -> "str | None":
-    """`pw-play --target` に渡す出口の名前（PipeWire 側で名前に `AUDIO_OUTPUT_DEVICE` を含むもの）。無ければ None。"""
-    name = (
-        os.environ.get("AUDIO_OUTPUT_DEVICE", "").strip()
-        or os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
-    )
+    """`pw-play --target` に渡す出口の名前（PipeWire 側で名前に `device_name()` を含むもの）。無ければ None。"""
+    from .audio_devices import device_name, is_pipewire, pick_device
+
+    name = device_name()
     if not name:
         return None
     try:
         import sounddevice as sd
 
-        apis = sd.query_hostapis()
-        for d in sd.query_devices():
-            if (
-                name.lower() in d["name"].lower()
-                and d["max_output_channels"] > 0
-                and "pulse" in str(apis[d["hostapi"]]["name"]).lower()
-            ):
-                return str(d["name"])
-    except Exception:  # noqa: BLE001
+        devices, apis = list(sd.query_devices()), list(sd.query_hostapis())
+        i = pick_device(devices, apis, name, kind="output")
+        if i is None or not is_pipewire(apis, devices[i]):
+            return None
+        return str(devices[i]["name"])
+    except Exception:  # noqa: BLE001  機器を数え直している途中（USB の付け直し）などは既定の出口へ
         return None
-    return None
 
 
 #: 無音とみなす強さ。その声のいちばん大きい音より 40 dB 小さい（知-ak-に・〔仮〕本人の承認 2026-10-12）。
@@ -1489,10 +1470,8 @@ def _play_mp3_via_pyav(mp3_path: str, gain: float = 1.0) -> bool:
 async def _play_local(tmp_path: str, gain: float = 1.0) -> bool:
     """Play audio file on the local PC speaker. Returns True on success.
 
-    Try order:
-    1. paplay (PulseAudio native — most reliable on WSL2/WSLg when PULSE_SERVER is set)
-    2. mpv (auto audio backend selection)
-    3. sounddevice (pure Python fallback, no system tools required)
+    試す順：機器の名前（`audio_devices.device_name()`・家では "YVC-300"）があれば、まず sounddevice の道（`pw-play`
+    を含む）。だめなら paplay（PulseAudio）、mpv、最後に sounddevice。名前が空のとき（試験）は paplay から。
 
     Note: file is always WAV (pcm_16000) so paplay needs no ffmpeg conversion.
     """
@@ -1501,7 +1480,9 @@ async def _play_local(tmp_path: str, gain: float = 1.0) -> bool:
     # --- sounddevice with named output device (Linux: avoids ALSA hw exclusive-access
     #     conflict when mic is simultaneously open via PortAudio on the same device) ---
     tried_sd = False
-    if os.environ.get("AUDIO_INPUT_DEVICE", "").strip():
+    from .audio_devices import device_name
+
+    if device_name():
         sd_ok = await _play_via_sounddevice(tmp_path, gain=gain)
         if sd_ok:
             return True

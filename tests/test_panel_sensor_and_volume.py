@@ -12,6 +12,7 @@ import asyncio
 import time
 from unittest.mock import AsyncMock, MagicMock
 
+from familiar_agent.tools import audio_devices
 from familiar_agent.core.audio_volume import parse_amixer
 from familiar_agent.gui import format_sensor_rows
 
@@ -40,7 +41,7 @@ def test_the_note_warns_below_half_and_is_quiet_otherwise(monkeypatch):
 
     a = EmbodiedAgent.__new__(EmbodiedAgent)
     # 機器の名前はテストで決める（本物の `.env` は読まない・環-aj）。
-    monkeypatch.setenv("AUDIO_OUTPUT_DEVICE", "YVC-300")
+    monkeypatch.setattr(audio_devices, "device_name", lambda: "YVC-300")
     monkeypatch.setattr("familiar_agent.core.audio_volume.read_percent", lambda name: 40)
     note = a.audio_volume_note()
     assert "40%" in note and "YVC-300" in note and "amixer" in note

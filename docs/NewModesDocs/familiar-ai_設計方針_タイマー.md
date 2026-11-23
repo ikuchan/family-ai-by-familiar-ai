@@ -60,7 +60,7 @@ T が毎 tick（0.5 秒）`due_now` を拾い、**先に `fired_at` を打って
   wav を `seconds` のあいだ繰り返す（`asyncio.Task`・再生は `tools/tts._play_via_sounddevice`）。
 - **止める**：`cancel_timer`（声の「止めて」・`TimerTool` の `on_cancel` → `agent._stop_timer_ring`）、`/timer stop`（同じ道具）、時間切れ。
   鳴った時点でタイマーは `active` に無いので、`_cancel` は**先に**音を止めてから表を見る。**音を止めたなら返りに「音を止めた」と言う**（v0.21・出-af・実機 13:34：止めたのに「止めるものが無い」と返し、無視されたと受け取られた。`_stop_timer_ring` は止めたかを返す）。
-- **出口の音量の監視**（v0.19・環-q・2026-09-19）：起動時に出力機器（`AUDIO_OUTPUT_DEVICE`）の ALSA ミキサー `PCM` を `amixer` で読み（`core/audio_volume.read_percent`）、50% 未満なら起動の吹き出しと WARNING「🔈 スピーカーの音量が 40%…」。**値は変えない**（勝手に上げると夜に驚かせる）。
+- **出口の音量の監視**（v0.19・環-q・2026-09-19）：起動時に出力機器（`AgentConfig.audio_device`・2026-11-23 まで `.env` の `AUDIO_OUTPUT_DEVICE`）の ALSA ミキサー `PCM` を `amixer` で読み（`core/audio_volume.read_percent`）、50% 未満なら起動の吹き出しと WARNING「🔈 スピーカーの音量が 40%…」。**値は変えない**（勝手に上げると夜に驚かせる）。
 - **音と声は同じ機器を排他で使う**（v0.18・出-ad・2026-09-19）：YVC-300 は `hw:1,0`（排他）。鳴った瞬間に音（1 秒の wav）と知らせの声（mp3）が別スレッドから同時に開き、PortAudio が `Device unavailable` のあと `double free or corruption` でプロセスごと落ちた（実機 11:39・quiet の回は声が silent で重ならなかった）。再生はプロセス内の鍵（`tools/tts._PLAYBACK_LOCK`）で 1 本ずつ：音の 1 秒 → 声 → 音の次の 1 秒。
 - **マイクは閉じない**：声の口（`DIF.speak`）を通らないので `tts_active` の門が立たず、鳴っている最中の「止めて」が届く。
   音をマイクが拾う分は STT の幻聴の門（`no_speech_prob`）で落ちる想定——**実機で確かめる**（`課題8` 束 C）。

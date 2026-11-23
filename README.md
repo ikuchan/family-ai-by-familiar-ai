@@ -179,7 +179,7 @@ the setup dialog for you on first launch when `API_KEY` is still missing.
 | `REALTIME_STT` | `true` to enable always-on hands-free voice input (local faster-whisper by default; `STT_ENGINE=elevenlabs` needs `ELEVENLABS_API_KEY`) |
 | `TTS_OUTPUT` | Where to play audio: `local` (PC speaker, default) \| `remote` (camera speaker) \| `both` |
 | `ELEVENLABS_MODEL` | TTS model: `eleven_flash_v2_5` (default, ~0.7 s) \| `eleven_v3` (expressive, ~5 s) |
-| `AUDIO_INPUT_DEVICE` / `AUDIO_INPUT_GAIN` | Microphone name (substring) and software input gain (1.0 = off) |
+| `AUDIO_INPUT_GAIN` | Software input gain for the mic (1.0 = off). The mic and speaker name is `AgentConfig.audio_device` in `config.py` |
 | `TIMER_SILENCE` / `TIMER_VOICE_GAIN` | Stay quiet while a timer runs (default `true`) / louder voice for the ring only (default 1.0) |
 | `THINKING_MODE` | Anthropic only — `auto` (default) \| `adaptive` \| `extended` \| `disabled` |
 | `THINKING_EFFORT` | Adaptive thinking effort: `high` (default) \| `medium` \| `low` \| `max` (Opus 4.6 only) |
@@ -430,7 +430,7 @@ STT_LANGUAGE=ja            # recommended for Japanese; used by both batch and re
 WHISPER_DEVICE=cuda        # default; set cpu when there is no GPU (slower)
 ```
 
-By default the transcription runs locally with faster-whisper and silero-vad (`STT_ENGINE=whisper`); set `STT_ENGINE=elevenlabs` to stream to ElevenLabs Scribe v2 instead. Either way transcripts are committed when you pause speaking — no button press required. `AUDIO_INPUT_DEVICE` picks the microphone and `AUDIO_INPUT_GAIN` boosts a quiet one; `/reload` in the GUI re-reads these without a restart. Coexists with the push-to-talk mode (Ctrl+T).
+By default the transcription runs locally with faster-whisper and silero-vad (`STT_ENGINE=whisper`); set `STT_ENGINE=elevenlabs` to stream to ElevenLabs Scribe v2 instead. Either way transcripts are committed when you pause speaking — no button press required. `AgentConfig.audio_device` in `config.py` picks the microphone and `AUDIO_INPUT_GAIN` boosts a quiet one; `/reload` in the GUI re-reads these without a restart. Coexists with the push-to-talk mode (Ctrl+T).
 
 On WSL2/WSLg, realtime STT also depends on `sounddevice` / PortAudio being able to
 see your microphone input, not just PulseAudio playback. Install

@@ -67,7 +67,7 @@ v0.6 までは `課題8` の束 C（18 行・2026-09-11〜18 の変更）だけ�
 | 順 | やること |
 |---|---|
 | 1 | `./scripts/backup_db.sh` |
-| 2 | `.env` を確かめる（束ごとに `TTS_OUTPUT`・`REALTIME_STT` を切り替える。`AUDIO_INPUT_GAIN=2.5`・`AUDIO_OUTPUT_DEVICE=YVC-300`） |
+| 2 | `.env` を確かめる（束ごとに `TTS_OUTPUT`・`REALTIME_STT` を切り替える。`AUDIO_INPUT_GAIN=2.5`・機器の名前は `config.py` の `AgentConfig.audio_device`（`YVC-300`・2026-11-23 まで `.env` の `AUDIO_OUTPUT_DEVICE`）） |
 | 3 | `./run-gui.sh --debug` |
 | 4 | **`ME.md`・`FAMILY.md` は 2026-09-21 に全面的に書き換えた。** 起動時に読まれる（動いている最中に直したときは `/reload`） |
 

@@ -35,7 +35,7 @@ _ALLOWED = {
     "store/observations.py": ("Ruri の数値を書けなかった", "append_and_reembed"),
     "store/ruri_backfill.py": ("Ruri で数値にできなかった",),
     "tools/memory.py": ("note_lookup_started failed",),
-    "tools/mic.py": ("AUDIO_INPUT_GAIN", "AUDIO_INPUT_DEVICE"),
+    "tools/mic.py": ("AUDIO_INPUT_GAIN",),
     "tools/realtime_stt.py": ("Realtime STT websocket closed",),
     "tools/deferred_fetch.py": ("deferred fetch の道具が使えなかった",),
     "tools/deferred_search.py": (

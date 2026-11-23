@@ -112,24 +112,13 @@ class _Resampler:
 
 
 def pick_input_device(devices: "list[dict]", apis: "list[dict]", wanted: str) -> "int | None":
-    """名前に `wanted` を含む入力の機器の番号。無ければ None。
+    """名前に `wanted` を含む入力の機器の番号（`audio_devices.pick_device` の入力）。無ければ None。
 
-    PipeWire（PulseAudio の口）を通る機器を、直接の機器より先に選ぶ（出-du 段 2・2026-11-23）。直接掴むと、PipeWire が
-    同じ機器の入力の口を開こうとしたとき「ビジー」でぶつかり、スピーカーの再生も始まらなくなる（11/23 9:37 の再起動から、
-    声を鳴らすたびに声と耳が止まった）。見分けは声の出口（`tts._resolve_output_device`）と同じく入口の種類（host API）で
-    行う。スピーカーの写し（名前が `.monitor` で終わる）は、パジュ自身の声しか入らないので選ばない。PipeWire を通る
-    機器が無ければ、直接の機器を使う。
+    PipeWire を通る機器を直接の機器より先に選び、スピーカーの写しは選ばない（出-du 段 2・2026-11-23）。
     """
-    hits = [
-        i
-        for i, d in enumerate(devices)
-        if wanted.lower() in str(d["name"]).lower()
-        and d["max_input_channels"] > 0
-        and not str(d["name"]).endswith(".monitor")
-    ]
-    routed = [i for i in hits if "pulse" in str(apis[devices[i]["hostapi"]]["name"]).lower()]
-    chosen = routed or hits
-    return chosen[0] if chosen else None
+    from .audio_devices import pick_device
+
+    return pick_device(devices, apis, wanted, kind="input")
 
 
 def _pw_record_binary() -> "str | None":
@@ -149,8 +138,10 @@ def _pw_source_name(wanted: str) -> "str | None":
     except Exception:  # noqa: BLE001
         logger.warning("マイク：PipeWire の入力の口を探せなかった（直接の道で開く）", exc_info=True)
         return None
+    from .audio_devices import is_pipewire
+
     i = pick_input_device(devices, apis, wanted)
-    if i is None or "pulse" not in str(apis[devices[i]["hostapi"]]["name"]).lower():
+    if i is None or not is_pipewire(apis, devices[i]):
         return None
     return str(devices[i]["name"])
 
@@ -216,7 +207,9 @@ class MicCapture:
         """
         self._loop = loop
         self._stopped = False
-        wanted = os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+        from .audio_devices import device_name
+
+        wanted = device_name()
         binary = _pw_record_binary()
         source = _pw_source_name(wanted) if wanted and binary else None
         if binary and source:
@@ -239,17 +232,16 @@ class MicCapture:
             raise RuntimeError(detail)
 
         try:
-            # Resolve device index: AUDIO_INPUT_DEVICE env var selects by name substring.
+            # 機器の名前（`audio_devices.device_name()`）の一部で選ぶ。
             device_idx: int | None = None
-            audio_input_device = os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+            audio_input_device = wanted
             if audio_input_device:
                 device_idx = pick_input_device(
                     list(sd.query_devices()), list(sd.query_hostapis()), audio_input_device
                 )
                 if device_idx is None:
                     logger.warning(
-                        "AUDIO_INPUT_DEVICE=%r not found; falling back to default",
-                        audio_input_device,
+                        "マイク：名前の合う機器が無いので、既定の入力で開く",
                     )
 
             # Use the device's native sample rate to avoid paInvalidSampleRate

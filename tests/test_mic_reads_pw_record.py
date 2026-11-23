@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import numpy as np
 
+from familiar_agent.tools import audio_devices
 from familiar_agent.tools import mic
 
 _SOURCE = "alsa_input.usb-Yamaha_Corporation_Yamaha_YVC-300-00.pro-input-0"
@@ -61,7 +62,7 @@ class _FakeRecord:
 
 
 def _capture(monkeypatch, *, source=_SOURCE):
-    monkeypatch.setenv("AUDIO_INPUT_DEVICE", "YVC")
+    monkeypatch.setattr(audio_devices, "device_name", lambda: "YVC")
     monkeypatch.setattr(mic, "_pw_record_binary", lambda: "/usr/bin/pw-record")
     monkeypatch.setattr(mic, "_pw_source_name", lambda wanted: source)
     made: list = []

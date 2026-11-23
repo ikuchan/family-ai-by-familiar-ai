@@ -254,6 +254,11 @@ def _no_real_pw_play(monkeypatch):
 
     monkeypatch.setattr(tts, "_pw_play_binary", lambda: None)
     monkeypatch.setattr(tts, "_sink_state", lambda: "試験の出口")
+    # 音の機器の名前は空にする（2026-11-23 に `.env` から config へ移して、既定が "YVC-300" になった）。空でないと、試験が
+    # 手元の本物の機器の一覧（PortAudio）を読み、機体ごとに結果が変わる。名前を見る試験は、自分で差し替え直す。
+    from familiar_agent.config import AgentConfig
+
+    monkeypatch.setattr(AgentConfig, "audio_device", "")
     yield
 
 
