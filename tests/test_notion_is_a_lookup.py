@@ -11,7 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF
 from familiar_agent.loop.arbiter import assemble
-from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, InformationProcessing, _query_label
+from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.actions import _LOOKUP_ACTIONS, _query_label
 
 from tests.test_event_loop import _agent
 from tests.test_house_rules_tool import _agent_with_mcp, _tool_names

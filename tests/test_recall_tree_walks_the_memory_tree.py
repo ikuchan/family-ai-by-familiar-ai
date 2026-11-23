@@ -12,7 +12,8 @@ import asyncio
 from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
-from familiar_agent.loop.event_loop import _FULL_ACTIONS, InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.actions import _FULL_ACTIONS
 from tests.test_event_loop import _agent as _base_agent, _turn
 
 

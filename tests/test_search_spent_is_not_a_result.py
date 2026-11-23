@@ -130,7 +130,7 @@ def test_the_arbiter_needs_both_conditions():
 
 def test_the_loop_counts_arrived_searches_without_the_spent_lookup():
     """求めから数える：使い切りの器と失敗は、結果の届いた調べものに数えない。"""
-    from familiar_agent.loop.event_loop import _search_arrived
+    from familiar_agent.loop.actions import _search_arrived
 
     ip = _ip()
     ip._req.lookups += [
@@ -203,7 +203,7 @@ def test_a_real_result_is_still_written_into_the_window_talk():
 
 def test_an_empty_result_does_not_count_as_arrived():
     """0 件（空の結果）は、答えに使える結果ではない。"""
-    from familiar_agent.loop.event_loop import _search_arrived
+    from familiar_agent.loop.actions import _search_arrived
 
     ip = _ip()
     ip._req.lookups.append(

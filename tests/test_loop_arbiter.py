@@ -325,7 +325,7 @@ def test_look_is_not_offered_without_a_camera():
 
 
 def test_the_label_of_a_look_names_the_direction():
-    from familiar_agent.loop.event_loop import _query_label
+    from familiar_agent.loop.actions import _query_label
 
     assert _query_label("look", {"direction": "右"}) == "右を見に行く"
     assert _query_label("look", {"pose": "窓"}) == "窓を見に行く"

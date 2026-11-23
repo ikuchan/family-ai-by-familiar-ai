@@ -147,7 +147,7 @@ def test_the_arbiters_look_is_marked_as_hers():
     """調停が `look` を出したら `see_by` に控える（`see` と同じ）。"""
     a, ip = _ip_with_camera()
     ip._start_lookup = MagicMock()
-    from familiar_agent.loop.event_loop import _tool_input_of  # noqa: F401
+    from familiar_agent.loop.actions import _tool_input_of  # noqa: F401
 
     decision = ArbiterDecision(
         branch="action", action="look", query="首を向ける", tool_input={"direction": "右"}

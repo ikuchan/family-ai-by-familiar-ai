@@ -16,7 +16,7 @@ import asyncio
 import pytest
 
 from familiar_agent.core.completion_kind import kind_of
-from familiar_agent.loop.event_loop import _query_label
+from familiar_agent.loop.actions import _query_label
 from familiar_agent.loop.request import Lookup
 
 # ── 見出し ───────────────────────────────────────────────────────────────────

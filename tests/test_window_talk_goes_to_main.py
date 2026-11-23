@@ -190,7 +190,7 @@ def _names(tools):
 @pytest.mark.parametrize("kw", [{"capped": True}, {"retried": True}, {"say_asked": True}])
 def test_a_say_only_round_in_the_window_keeps_the_tool_list(monkeypatch, kw):
     ip = _ip_in_window()
-    from familiar_agent.loop.event_loop import _FULL_ACTIONS
+    from familiar_agent.loop.actions import _FULL_ACTIONS
 
     full = _names(ip._tools(actions=_FULL_ACTIONS))
     say = ToolCall(id="s", name="say", input={"text": "ごりら"})

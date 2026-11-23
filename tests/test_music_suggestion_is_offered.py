@@ -123,7 +123,7 @@ def test_no_candidate_no_reply(state):
 
 
 def test_the_reply_tool_is_offered_with_the_music_tools():
-    from familiar_agent.loop.event_loop import _FULL_ACTIONS
+    from familiar_agent.loop.actions import _FULL_ACTIONS
 
     tool, _ = _tool()
     assert "music_suggestion_reply" in [d["name"] for d in tool.get_tool_definitions()]

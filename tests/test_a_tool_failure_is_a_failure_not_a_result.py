@@ -107,7 +107,7 @@ def test_a_failed_tool_leaves_the_main_llms_tool_list_for_the_rest_of_the_reques
 def test_a_failure_marks_the_action_family_whichever_name_called_it():
     """主LLM は道具名（`get_family_schedule`）で呼び、調停は動作名（`family_schedule`）で選ぶ。
     どちらの名で失敗しても、両方の入口から消える。"""
-    from familiar_agent.loop.event_loop import _action_family
+    from familiar_agent.loop.actions import _action_family
 
     assert _action_family("get_family_schedule") == "family_schedule"
     assert _action_family("family_schedule") == "family_schedule"

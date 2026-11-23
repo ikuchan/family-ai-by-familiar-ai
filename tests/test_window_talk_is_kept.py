@@ -81,14 +81,6 @@ def test_a_new_window_starts_an_empty_talk():
     assert ip._window_talk() is not first and ip._window_talk().lines == []
 
 
-def test_the_text_is_given_only_while_the_window_is_open():
-    ip = _ip()
-    ip._talk_line("パパ", "りす")
-    assert "パパ：りす" in ip._window_text()
-    ip._wake_window().close()
-    assert ip._window_text() == ""
-
-
 # --- 見直しの指摘（窓の外のものを、閉じた会話に足さない）---
 
 

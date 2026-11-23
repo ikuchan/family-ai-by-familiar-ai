@@ -220,12 +220,8 @@ def test_the_slash_command_stops_a_stopwatch_without_the_llm():
 
 def test_the_loop_routes_stopwatch_actions_to_the_stopwatch_tool():
     from familiar_agent.loop import workspace
-    from familiar_agent.loop.event_loop import (
-        _STOPWATCH_ACTIONS,
-        _TIMER_ACTIONS,
-        InformationProcessing,
-        _query_label,
-    )
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from familiar_agent.loop.actions import _STOPWATCH_ACTIONS, _TIMER_ACTIONS, _query_label
 
     from tests.test_event_loop import _agent
 

@@ -15,7 +15,7 @@ from pathlib import Path
 from unittest.mock import AsyncMock
 
 from familiar_agent.core.voice_rules import careful_voice
-from familiar_agent.loop.event_loop import _action_family, _query_label
+from familiar_agent.loop.actions import _action_family, _query_label
 from tests.test_vault_lookup import _ip
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))

@@ -14,13 +14,8 @@ from unittest.mock import AsyncMock, MagicMock
 from familiar_agent.io.dif import DIF, strip_session_mark
 from familiar_agent.loop.arbiter import _EXTRA_ACTIONS
 from familiar_agent.loop.arbiter import assemble
-from familiar_agent.loop.event_loop import (
-    _MCP_LOOKUPS,
-    InformationProcessing,
-    _action_family,
-    _query_label,
-    _tool_input_for,
-)
+from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.actions import _MCP_LOOKUPS, _action_family, _query_label, _tool_input_for
 from familiar_agent.mcp_client import call_timeout_for
 
 FAMILY = "## いちろう\n- **名前**：いちろう\n- **呼び方**：パパ\n- **英字**：Ichiro Yamada\n\n## さぶろう\n- **名前**：さぶろう\n- **呼び方**：さぶろう\n- **英字**：Saburo Yamada\n"
@@ -186,7 +181,7 @@ def test_timer_actions_are_offered_to_the_arbiter_when_the_tool_exists():
 
 def test_the_decisions_tool_input_reaches_the_dispatch():
     from familiar_agent.loop.arbiter import Decision
-    from familiar_agent.loop.event_loop import _tool_input_of
+    from familiar_agent.loop.actions import _tool_input_of
 
     d = Decision(
         branch="action",

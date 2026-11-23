@@ -20,7 +20,8 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 from tests.test_event_loop import _agent
 
-from familiar_agent.loop.event_loop import _FULL_ACTIONS, _LOOKUP_ACTIONS, InformationProcessing
+from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.actions import _FULL_ACTIONS, _LOOKUP_ACTIONS
 
 
 def _camera(call_return=("You see the current view (saved to /tmp/a.jpg).", "BASE64")):
@@ -163,14 +164,14 @@ def test_camera_actions_get_a_heading_of_their_own():
     見出しを `query`／`url` から取ると両方とも空文字になり、飛行中の一覧・完了の照合・
     W の「この求めのために調べたもの」がすべて衝突する。
     """
-    from familiar_agent.loop.event_loop import _query_label
+    from familiar_agent.loop.actions import _query_label
 
     assert _query_label("see", {}) != ""
     assert _query_label("look", {"pose": "窓側"}) != _query_label("look", {"pose": "襖側"})
 
 
 def test_the_heading_of_a_normal_lookup_is_unchanged():
-    from familiar_agent.loop.event_loop import _query_label
+    from familiar_agent.loop.actions import _query_label
 
     assert _query_label("recall", {"query": "夏の話"}) == "夏の話"
     assert _query_label("fetch_deferred", {"url": "http://x"}) == "http://x"

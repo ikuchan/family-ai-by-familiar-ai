@@ -1275,6 +1275,23 @@ backends/cli.py          166 行
 
 この2つも `ModelResource`（読み込みと失敗の約束）には従う。
 
+## event_loop を分ける（2026-11-23 から）
+
+`loop/event_loop.py` は 7,202 行まで育った（2026-09-10 は 1,822 行）。本人の決め（2026-11-23）：**分けてよいが、ループの
+中で別のループを回す仕組みは作らない。** 移すのは、状態を持たないモジュール関数と表だけで（`workspace.py`・`generator.py`
+と同じ形）、移した先で `while`・タスク・待ち行列・状態を持つクラスを作らない。事象を受けて配るループは `event_loop.py`
+に 1 つだけ残る。確かめ方は、`loop/` の `while `・`create_task`／`spawn_outside(`・`Queue(` の数が前後で同じであること。
+
+| 段 | 移した先 | 中身 | 行 |
+|---|---|---|---|
+| 1 | `loop/actions.py` | 主LLM が選べる動作の表（`_FULL_ACTIONS` など）、調べものの見出し（`_query_label`）、道具の定義の組み立て（タイマー・音楽・印刷・確認など）、動作の判定、それに添える小さなもの（起点の記録の字数の上限・季節と自己像の文など） | 599 |
+
+段 1 では中身を変えていない（例外の記録に `exc_info=True` を足しただけ）。試験が `event_loop` の上で差し替える名前
+（`WAIT_WATCH_TICK_SEC`・`_timer_frame`・`_caches_window` など）は、`event_loop` が自分の名前で引くので、差し替えはそのまま
+効く。ただし `actions.py` の中で関数どうしが呼ぶもの（`_suggestion_reply_def` → `_music_def`、`_query_label` →
+`_days_of`・`_personal_action` など）は `actions` の名前で引くので、差し替えるなら `familiar_agent.loop.actions` の上で行う。あわせて、本体から呼ばれていなかった `_window_text` を
+消した。段 1 のあとの `event_loop.py` は 6,658 行で、その大半は `InformationProcessing`（約 6,280 行・237 メソッド）である。
+
 ## 残り
 
 `min_score` の是正（生コサインの閾値から合成スコアの床へ）は実装済み。`core/recall_score.py` への抽出は D の後（内部R）に置く。persistence の切り出しは、v0.6 では「Phase 5 の `run()` 作り替えの中で行う」としていたが、その作り替えが済んだので **環-e** が引き取る。

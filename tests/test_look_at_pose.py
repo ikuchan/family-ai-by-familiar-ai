@@ -88,13 +88,13 @@ def test_an_unknown_place_is_refused_rather_than_moving_somewhere_odd():
 
 
 def test_the_heading_names_the_place():
-    from familiar_agent.loop.event_loop import _query_label
+    from familiar_agent.loop.actions import _query_label
 
     assert _query_label("look", {"pose": "窓側"}) == "窓側を見に行く"
 
 
 def test_two_places_get_different_headings():
-    from familiar_agent.loop.event_loop import _query_label
+    from familiar_agent.loop.actions import _query_label
 
     assert _query_label("look", {"pose": "窓側"}) != _query_label("look", {"pose": "襖側"})
 

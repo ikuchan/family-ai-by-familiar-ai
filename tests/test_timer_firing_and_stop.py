@@ -7,7 +7,8 @@ from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.loop import timer_watch
-from familiar_agent.loop.event_loop import InformationProcessing, _query_label
+from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.actions import _query_label
 from familiar_agent.loop.request import Request
 
 NOW = datetime(2026, 9, 15, 10, 0, tzinfo=timezone.utc)

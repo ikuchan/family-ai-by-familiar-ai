@@ -63,13 +63,13 @@ def test_the_arbiter_is_told_it_too():
 
 
 def test_the_loop_renders_what_is_stored(monkeypatch):
-    from familiar_agent.loop import event_loop
+    from familiar_agent.loop import actions
 
     env = se.SeasonEnv(
         written_on=date.today(), rows={"まわり": (se.Row("金木犀が咲き始めた。", "q"),)}
     )
     monkeypatch.setattr(se, "stored", lambda: env)
-    text = event_loop._season_env_text()
+    text = actions._season_env_text()
     assert text.startswith("[いまの季節とまわり]") and "金木犀が咲き始めた。" in text
 
 

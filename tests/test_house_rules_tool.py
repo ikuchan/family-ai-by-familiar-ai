@@ -82,7 +82,7 @@ def test_no_mcp_means_no_tool() -> None:
 
 def test_the_house_rules_action_reaches_the_full_llm() -> None:
     """`_ACTIONS` に置いただけでは渡らない。連鎖が続く反復の一覧にも要る。"""
-    from familiar_agent.loop.event_loop import _FULL_ACTIONS
+    from familiar_agent.loop.actions import _FULL_ACTIONS
 
     assert "house_rules" in _FULL_ACTIONS
 
@@ -91,6 +91,6 @@ def test_asking_the_rules_ends_the_iteration() -> None:
     """**1反復1出力を守る。** 即座に返るが、それを見て何を言うかは次の反復が決める
     （`recall`・`see` と同じ扱い）。ここに入れないと、同じ反復で発話まで進んでしまう。
     """
-    from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS
+    from familiar_agent.loop.actions import _LOOKUP_ACTIONS
 
     assert "house_rules" in _LOOKUP_ACTIONS

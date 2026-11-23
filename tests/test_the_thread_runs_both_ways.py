@@ -112,12 +112,12 @@ def _ip():
 
 
 def test_the_tool_is_offered_and_tells_its_limit():
-    from familiar_agent.loop import event_loop
+    from familiar_agent.loop import actions
 
-    assert "recall_thread" in event_loop._FULL_ACTIONS
-    desc = event_loop._WIDEN_DEFS["recall_thread"]["description"]
+    assert "recall_thread" in actions._FULL_ACTIONS
+    desc = actions._WIDEN_DEFS["recall_thread"]["description"]
     assert "10 件まで" in desc
-    req = event_loop._WIDEN_DEFS["recall_thread"]["input_schema"]["required"]
+    req = actions._WIDEN_DEFS["recall_thread"]["input_schema"]["required"]
     assert set(req) == {"id", "before", "after"}  # 件数は主LLM が決める（既定は持たない）
 
 

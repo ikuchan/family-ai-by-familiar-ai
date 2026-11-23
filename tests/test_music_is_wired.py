@@ -122,7 +122,8 @@ async def test_nothing_happens_when_no_music_plays():
 
 
 def test_the_music_tools_reach_the_main_llm():
-    from familiar_agent.loop.event_loop import _FULL_ACTIONS, InformationProcessing
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from familiar_agent.loop.actions import _FULL_ACTIONS
     from tests.test_event_loop import _agent as _base_agent, _turn
 
     for name in ("play_music", "stop_music", "next_track", "music_volume"):
@@ -137,7 +138,8 @@ def test_the_music_tools_reach_the_main_llm():
 
 
 def test_no_music_tools_without_the_device():
-    from familiar_agent.loop.event_loop import _FULL_ACTIONS, InformationProcessing
+    from familiar_agent.loop.event_loop import InformationProcessing
+    from familiar_agent.loop.actions import _FULL_ACTIONS
     from tests.test_event_loop import _agent as _base_agent, _turn
 
     a = _base_agent(stream_returns=[_turn([])])
@@ -207,7 +209,7 @@ async def test_the_voice_still_comes_out_when_the_music_port_is_broken():
 
 
 def test_the_music_actions_are_picked_up_from_the_main_llm():
-    from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, _MUSIC_ACTIONS
+    from familiar_agent.loop.actions import _LOOKUP_ACTIONS, _MUSIC_ACTIONS
 
     assert set(_MUSIC_ACTIONS) == {
         "play_music",

@@ -151,22 +151,22 @@ def test_a_print_pending_goes_to_the_print_tool_and_a_no_says_it_is_not_printed(
 
 
 def test_the_main_llm_gets_the_tool_and_the_loop_runs_it():
-    from familiar_agent.loop import event_loop, workspace
+    from familiar_agent.loop import actions, workspace
 
-    assert "print_document" in event_loop._FULL_ACTIONS
-    assert "print_document" in event_loop._LOOKUP_ACTIONS
+    assert "print_document" in actions._FULL_ACTIONS
+    assert "print_document" in actions._LOOKUP_ACTIONS
     assert "print_document" in workspace.RETURN_WITHOUT_RECALL
-    assert event_loop._query_label("print_document", {"title": "カレー"}) == "印刷する「カレー」"
+    assert actions._query_label("print_document", {"title": "カレー"}) == "印刷する「カレー」"
 
 
 def test_without_a_qt_app_the_tool_is_not_offered(tmp_path, monkeypatch):
     from PySide6.QtGui import QGuiApplication
 
-    from familiar_agent.loop import event_loop
+    from familiar_agent.loop import actions
 
     tool, *_ = _tool(tmp_path)
     agent = MagicMock(_print_tool=tool)
     monkeypatch.setattr(QGuiApplication, "instance", staticmethod(lambda: None))
-    assert event_loop._print_def(agent) == []
+    assert actions._print_def(agent) == []
     monkeypatch.setattr(QGuiApplication, "instance", staticmethod(lambda: object()))
-    assert [d["name"] for d in event_loop._print_def(agent)] == ["print_document"]
+    assert [d["name"] for d in actions._print_def(agent)] == ["print_document"]

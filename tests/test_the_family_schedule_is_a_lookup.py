@@ -13,7 +13,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 from familiar_agent.io.dif import DIF
 from familiar_agent.loop.arbiter import assemble
-from familiar_agent.loop.event_loop import _LOOKUP_ACTIONS, InformationProcessing, _query_label
+from familiar_agent.loop.event_loop import InformationProcessing
+from familiar_agent.loop.actions import _LOOKUP_ACTIONS, _query_label
 
 from tests.test_event_loop import _agent
 from tests.test_house_rules_tool import _agent_with_mcp, _tool_names
@@ -89,7 +90,7 @@ def test_the_arbiters_choice_reaches_the_tool_with_the_arguments_it_takes() -> N
     `TypeError: … unexpected keyword argument 'query'` を返した。家の決まりも同じ。
     語を持つのは `notion_search` だけで、見出しが固定の道具には空の入力を渡す。
     """
-    from familiar_agent.loop.event_loop import _tool_input_for
+    from familiar_agent.loop.actions import _tool_input_for
 
     assert _tool_input_for("family_schedule", "家族の予定を見る") == {}
     assert _tool_input_for("house_rules", "家の決まりを見る") == {}
@@ -102,7 +103,7 @@ def test_the_arbiters_choice_reaches_the_tool_with_the_arguments_it_takes() -> N
 
 def test_the_arbiter_branch_calls_the_calendar_tool_without_a_query() -> None:
     """調停の決定（動作名と語）から投げた反復の末端で、MCP が `{}` で呼ばれ、見出しも保たれる。"""
-    from familiar_agent.loop.event_loop import _tool_input_for
+    from familiar_agent.loop.actions import _tool_input_for
 
     async def scenario():
         a = _agent(stream_returns=[])
