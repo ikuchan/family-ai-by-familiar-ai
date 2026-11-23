@@ -38,8 +38,12 @@ _BACKOFF_CAP = 128.0
 
 
 def _backoff(attempt: int) -> float:
-    """失敗が続いたときの待ち時間。倍々に伸ばして上限で止める。"""
-    return min(2.0**attempt, _BACKOFF_CAP)
+    """失敗が続いたときの待ち時間。倍々に伸ばして上限で止める。
+
+    指数を先に抑える。回数が 1,024 に届くと `2.0**attempt` が OverflowError になり、取り直しの `except` の中で見張りが
+    黙って終わる（128 秒おきで 1 日半ほど。カメラが長く落ちているあいだに届く・知-bw）。
+    """
+    return min(2.0 ** min(attempt, 16), _BACKOFF_CAP)
 
 
 def _count_motion(notifications: Any) -> int:
@@ -113,7 +117,9 @@ class MotionEventWatcher:
             try:
                 pull = await self._subscribe()
                 if pull is None:
-                    return  # カメラが無い構成では黙って終わる
+                    # カメラが無い構成では黙って終わる。口が None を返すのは、カメラが無いか ONVIF を持たない構成のとき
+                    # だけ。持つはずなのにいま繋がらないときは、口が例外を出し、下の取り直しに入る（知-bw）。
+                    return
                 failures = 0
                 while True:
                     msg = await pull.PullMessages(

@@ -22,7 +22,7 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Awaitable, Callable
 from urllib.parse import urlparse
 
 import cv2
@@ -95,6 +95,10 @@ def _where(at: "tuple[float, float] | None") -> str:
 
 class CameraTool:
     """Controls a camera via OpenCV (RTSP, USB, file) and optionally via ONVIF (PTZ)."""
+
+    #: ONVIF が繋がったときに待つ口（事象・知-bw）。`EmbodiedAgent` がここでプリセットを読み、定点を配る。繋がるのは、
+    #: 起動のとき、動体イベントの見張りの取り直し、首を動かす求めと向きを読む求めのどれかで、どの道でもここを 1 回通る。
+    on_connected: "Callable[[], Awaitable[None]] | None" = None
 
     def __init__(
         self,
@@ -182,7 +186,11 @@ class CameraTool:
         self._thread.start()
 
     def frame_is_fresh(self, within: float = 10.0) -> bool:
-        """`within` 秒のうちに映像を受けたか（カメラが繋がっているかの目安・知-bw）。まだ 1 枚も受けていなければ False。"""
+        """`within` 秒のうちに映像を受けたか（カメラが起きているかの目安・知-bw）。まだ 1 枚も受けていなければ False。
+
+        起動のときに繋がらなかった ONVIF を取り直す前に見る（`EmbodiedAgent._connected_onvif`）。`frame_age` は 1 枚も
+        受けていないと起動からの秒を返すので、この用には使えない。
+        """
         at = self._last_frame_at
         return at is not None and time.monotonic() - at <= within
 
@@ -275,8 +283,12 @@ class CameraTool:
         finally:
             pass
 
-    async def _ensure_connected(self) -> bool:
-        """Ensure ONVIF connection is established for PTZ (optional)."""
+    async def _ensure_connected(self, *, retrying: bool = False) -> bool:
+        """Ensure ONVIF connection is established for PTZ (optional).
+
+        繋がったら `on_connected` を待つ（定点を読む・知-bw）。`retrying` は、起動のときに繋がらなかった接続を間をあけて
+        取り直すとき。失敗の記録を DEBUG に下げる（カメラが落ちているあいだ、同じ警告でログを埋めない）。
+        """
         if self._cam_onvif is not None:
             return True
 
@@ -307,7 +319,6 @@ class CameraTool:
                 self._ptz = await cam.create_ptz_service()
                 self._cam_onvif = cam
                 logger.info("Camera PTZ connected via ONVIF: %s (port %d)", hostname, try_port)
-                return True
             except Exception as e:
                 logger.debug("ONVIF PTZ port %d failed for %s: %s", try_port, hostname, e)
                 last_error = e
@@ -315,8 +326,16 @@ class CameraTool:
                 if cam is not None:
                     with contextlib.suppress(Exception):
                         await cam.close()
+                continue
+            # 繋がったことを知らせる。知らせた先が落ちても接続は使えるので、首を動かす道の返りは変えない。
+            if self.on_connected is not None:
+                try:
+                    await self.on_connected()
+                except Exception:  # noqa: BLE001
+                    logger.exception("ONVIF が繋がったあとの定点の読みに失敗した（接続は使える）")
+            return True
 
-        logger.warning(
+        (logger.debug if retrying else logger.warning)(
             "ONVIF PTZ unavailable for %s (tried ports %s). "
             "Pan/tilt will be disabled. Last error: %s. "
             "Tip: set CAMERA_PTZ_PORT to the correct ONVIF port for your camera "

@@ -73,6 +73,16 @@ def test_the_wait_stops_growing_at_the_cap():
     assert _backoff(20) == 128.0
 
 
+def test_the_wait_stays_at_the_cap_however_long_the_camera_is_away():
+    """失敗が 1,024 回（128 秒おきで 1 日半ほど）に届いても、待ちは上限のまま（知-bw・2026-11-24）。
+
+    `2.0**1024` は OverflowError になる。待ちを決めるのは取り直しの `except` の中なので、例外になると見張りが黙って
+    終わる。起動のときに繋がらなかった ONVIF を取り直すのはこの見張りだけなので、終わると定点も読めないままになる。
+    """
+    assert _backoff(1024) == 128.0
+    assert _backoff(100_000) == 128.0
+
+
 # --- 購読 -----------------------------------------------------------------
 
 
@@ -163,6 +173,35 @@ def test_without_a_camera_the_watcher_simply_does_not_run():
         await w.stop()
 
     asyncio.run(go())  # 例外を出さないこと
+
+
+def test_a_camera_that_is_not_up_yet_is_retried_until_it_subscribes():
+    """口が例外を出す（ONVIF を持つはずなのに、いま繋がらない）あいだは、間をあけて取り直し、繋がったら購読する。
+
+    起動のときにカメラが遅れた回（11/23 の 3 回）は、口が None を返して見張りが黙って終わり、その起動のあいだ動体
+    イベントも、ONVIF を繋ぎに行く者も居なかった（知-bw）。None で終わるのは、カメラが無い構成だけ（上の試験）。
+    """
+    onvif, _ = _onvif([_messages([_note(_MOTION)]), asyncio.CancelledError()])
+    answers = [ConnectionError("カメラにまだ繋がらない")] * 3 + [onvif]
+    fired = []
+
+    async def provider():
+        got = answers.pop(0)
+        if isinstance(got, Exception):
+            raise got
+        return got
+
+    w = MotionEventWatcher(provider, on_motion=lambda: fired.append(1))
+    w._wait_for = AsyncMock()  # 取り直しの待ちを飛ばす
+
+    async def go():
+        await w.start()
+        await asyncio.sleep(0.05)
+        await w.stop()
+
+    asyncio.run(go())
+    assert fired == [1]
+    assert [c.args[0] for c in w._wait_for.await_args_list[:3]] == [1.0, 2.0, 4.0]
 
 
 def test_the_onvif_source_may_need_connecting_first():

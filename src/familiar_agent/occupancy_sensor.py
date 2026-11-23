@@ -154,12 +154,20 @@ class OccupancySensor:
     # --- 中身 -------------------------------------------------------------
 
     async def _ensure_map(self) -> OccupancyMap | None:
+        """定点を毎回受け取り、地図の定点を合わせる（知-bw・2026-11-24）。
+
+        定点は、カメラの ONVIF が繋がったときに読まれる（`EmbodiedAgent._on_camera_connected`）。起動のときにカメラが
+        遅れると、あとから届く。受け取るのは覚えた一覧で、ここでカメラを待つことは無い。地図は作り直さず、定点の名前だけ
+        を合わせる（見た時刻を持ち越す。作り直すと、居るのに「居なくなった」になる）。
+        """
+        poses = await self._poses_getter()
+        if not poses:
+            return None
+        names = [p.name for p in poses]
         if self._map is None:
-            poses = await self._poses_getter()
-            if not poses:
-                return None
-            self._map = OccupancyMap([p.name for p in poses], window_sec=self._window)
-            self._poses = poses
+            self._map = OccupancyMap(names, window_sec=self._window)
+        self._map.poses = names
+        self._poses = poses
         return self._map
 
     async def check_once(self) -> str | None:

@@ -143,8 +143,6 @@ class CameraConfig:
     # 求めると絶対移動の誤差で毎回「移動中」になり定点ごとの「普通」が育たないが、実測の
     # 誤差は 1e-6 未満なので、この値でも到着は取りこぼさない。
     pose_tolerance: float = field(default_factory=lambda: _float_env("CAMERA_POSE_TOLERANCE", 0.02))
-    # プリセットを読めなかったとき、映像が戻ってから読み直す間（秒・仮・知-bw・2026-11-24）。カメラ側の WARNING を埋めない間隔。
-    pose_retry_sec: float = 300.0
     # 在席を確かめる間隔。30 → 3 秒（知-ai・2026-10-05・本人の決定・仮）：居なくなったことに早く気づく。
     # 動体イベントでも起きる（下の間引きつき）。
     occupancy_interval_sec: float = field(

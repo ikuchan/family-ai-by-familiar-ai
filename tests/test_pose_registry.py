@@ -1,7 +1,7 @@
 """定点一覧の組み立て（Config ＋ カメラのプリセット）。
 
 定点は S3（在席マップ）・S4（norm）・S5（見回り）が共有するので、**一箇所で組んで配る**。
-プリセットは起動のたびに読む（人がカメラのアプリで足したものが、次の起動から定点になる）。
+プリセットは、カメラの ONVIF が繋がったときに読む（人がカメラのアプリで足したものが、次の起動から定点になる）。
 
 読めなかったときに空へ落ちるのは意図した degrade である。定点ゼロでも見ること自体はできる。
 """
@@ -11,7 +11,9 @@ from __future__ import annotations
 import asyncio
 from unittest.mock import AsyncMock, MagicMock
 
-from familiar_agent.poses import Pose, build_pose_registry
+import pytest
+
+from familiar_agent.poses import Pose, build_pose_registry, parse_poses
 
 
 def _camera(presets):
@@ -57,85 +59,161 @@ def test_a_camera_that_cannot_list_presets_still_yields_the_configured_poses():
     cam = MagicMock()
     cam.presets = AsyncMock(side_effect=RuntimeError("no ptz"))
     got, read = asyncio.run(build_pose_registry("窓側:0.0,-0.5", cam, 0.05))
-    assert [p.name for p in got] == [
-        "窓側"
-    ] and not read  # 読めなかったことを返す（読み直せるように）
+    assert [p.name for p in got] == ["窓側"]
+    assert not read  # 読めなかったことを返す（呼び手は、覚えた定点をこの読みで上書きしない）
 
 
 def test_no_configuration_and_no_camera_is_empty_rather_than_an_error():
     assert asyncio.run(build_pose_registry("", None, 0.05)) == ([], True)
 
 
-# ── 読めなかったプリセットは、映像が戻ってから読み直す（知-bw・2026-11-24）──────────────
+# ── カメラの ONVIF が繋がった事象で、定点を読んで配る（知-bw・2026-11-24）──────────────
+#
+# 起動のときにカメラがまだ繋がらないと、プリセットが読めず、定点 0 件のまま覚えて在席センサが黙って止まった（11/23 の
+# 22:12・23:04・23:56 の起動）。そのあと ONVIF が繋がっても、誰も読み直さなかった。
 
 
-def _cam(presets_seq, *, fresh=True):
-    cam = MagicMock()
-    cam.presets = AsyncMock(side_effect=list(presets_seq))
-    cam.frame_is_fresh = MagicMock(return_value=fresh)
-    return cam
-
-
-def _agent_with(camera, now):
-    """`EmbodiedAgent.poses` だけを動かす最小の器（定点の設定は空・プリセットはカメラから）。"""
+def _agent_with(camera, config_poses=""):
+    """定点まわりだけを動かす最小の器。`_poses` は `__init__` と同じく、設定の定点から始める。"""
     from familiar_agent.agent import EmbodiedAgent
 
     a = EmbodiedAgent.__new__(EmbodiedAgent)
-    a._poses = None
     a._camera = camera
     a.config = MagicMock()
-    a.config.camera.poses = ""
+    a.config.camera.poses = config_poses
     a.config.camera.pose_tolerance = 0.05
-    a.config.camera.pose_retry_sec = 300.0
-    a._clock = lambda: now[0]
+    a._poses = parse_poses(config_poses)
     return a
 
 
-def test_unread_presets_are_read_again_once_frames_come_back(caplog):
-    """起動のときにカメラがまだ繋がらずプリセットが読めないと、0 件のまま覚えて在席センサが黙って止まった（11/23 の 3 回の起動）。
+def _cam(presets_seq):
+    cam = MagicMock()
+    cam.presets = AsyncMock(side_effect=list(presets_seq))
+    cam._ensure_connected = AsyncMock(return_value=False)
+    return cam
 
-    読めなかったときは、映像が届いていて、前の試しから `pose_retry_sec` たったら 1 回読み直す。
-    """
-    now = [0.0]
-    cam = _cam([None, [Pose("正面", 0.0, 0.0), Pose("窓", 0.5, 0.0)]])
-    a = _agent_with(cam, now)
+
+def test_asking_for_poses_never_waits_for_the_camera():
+    """定点を聞く道（反復、在席センサの 3 秒ごとの確かめ）は、覚えたものを受け取るだけで、カメラに聞かない。"""
+    cam = _cam([[Pose("正面", 0.0, 0.0)]])
+    a = _agent_with(cam)
     assert asyncio.run(a.poses()) == []
-    now[0] = 100.0
-    assert asyncio.run(a.poses()) == []  # まだ 5 分たっていないので聞かない
-    assert cam.presets.await_count == 1
-    now[0] = 301.0
+    cam.presets.assert_not_awaited()
+    cam._ensure_connected.assert_not_awaited()
+
+
+def test_poses_are_read_when_the_camera_connects():
+    """起動のときは繋がらず 0 件。あとで ONVIF が繋がった事象で読み、`look` の行き先としても配る。"""
+    cam = _cam([[Pose("正面", 0.0, 0.0), Pose("窓", 0.5, 0.0)]])
+    a = _agent_with(cam)
+    assert asyncio.run(a.poses()) == []
+    asyncio.run(a._on_camera_connected())
+    got = asyncio.run(a.poses())
+    assert [p.name for p in got] == ["正面", "窓"]
+    cam.set_poses.assert_called_once_with(got)
+
+
+def test_late_poses_show_up_in_the_look_definition():
+    """遅れて届いた定点が、道具の定義（`look` の行き先）に出る。定義は聞かれるたびに組むので、起動のときに控えた形は残らない。"""
+    from familiar_agent.tools.camera import CameraTool
+
+    cam = CameraTool.__new__(CameraTool)  # 取り込みの仕事を立てない
+    cam._poses = []
+    cam.presets = AsyncMock(return_value=[Pose("正面", 0.0, 0.0), Pose("窓", 0.5, 0.0)])
+    a = _agent_with(cam)
+    assert [d["name"] for d in cam.get_tool_definitions()] == ["see"]
+    asyncio.run(a._on_camera_connected())
+    look = next(d for d in cam.get_tool_definitions() if d["name"] == "look")
+    assert look["input_schema"]["properties"]["pose"]["enum"] == ["正面", "窓"]
+
+
+def test_presets_that_could_not_be_read_do_not_replace_known_poses():
+    """**反証の側**：繋ぎ直したときにプリセットが読めなくても（None）、覚えた定点を 0 件で上書きしない。"""
+    cam = _cam([[Pose("正面", 0.0, 0.0), Pose("窓", 0.5, 0.0)], None])
+    a = _agent_with(cam)
+    asyncio.run(a._on_camera_connected())
+    asyncio.run(a._on_camera_connected())
     assert [p.name for p in asyncio.run(a.poses())] == ["正面", "窓"]
-    assert cam.presets.await_count == 2
-
-
-def test_no_retry_while_the_camera_sends_no_frames():
-    """カメラが落ちているあいだ（映像が来ない）は聞きに行かない（接続を待ってループを止めない・ログを埋めない）。"""
-    now = [0.0]
-    cam = _cam([None, [Pose("正面", 0.0, 0.0)]], fresh=False)
-    a = _agent_with(cam, now)
-    asyncio.run(a.poses())
-    now[0] = 1000.0
-    assert asyncio.run(a.poses()) == []
-    assert cam.presets.await_count == 1
 
 
 def test_a_camera_with_truly_no_presets_is_not_asked_again():
-    """**反証の側**：読めて 0 件（本当にプリセットが無い）なら覚え、聞き直さない。"""
-    now = [0.0]
+    """**反証の側**：読めて 0 件（本当にプリセットが無い）なら、そのあと何度定点を聞かれても、カメラに聞き直さない。"""
     cam = _cam([[]])
-    a = _agent_with(cam, now)
-    asyncio.run(a.poses())
-    now[0] = 10_000.0
-    asyncio.run(a.poses())
+    a = _agent_with(cam)
+    asyncio.run(a._on_camera_connected())
+    for _ in range(3):
+        assert asyncio.run(a.poses()) == []
     assert cam.presets.await_count == 1
 
 
-def test_config_poses_do_not_hide_unread_presets():
-    """設定に定点があっても、プリセットが読めなかったら、映像が戻ったあとに読み直す。"""
-    now = [0.0]
-    cam = _cam([None, [Pose("窓", 0.5, 0.0)]])
-    a = _agent_with(cam, now)
-    a.config.camera.poses = "正面:0.0,0.0"
+def test_config_poses_do_not_hide_late_presets():
+    """設定に定点があっても、ONVIF が繋がったらプリセットを足す。"""
+    cam = _cam([[Pose("窓", 0.5, 0.0)]])
+    a = _agent_with(cam, "正面:0.0,0.0")
     assert [p.name for p in asyncio.run(a.poses())] == ["正面"]
-    now[0] = 301.0
+    asyncio.run(a._on_camera_connected())
     assert sorted(p.name for p in asyncio.run(a.poses())) == ["正面", "窓"]
+
+
+# ── 起動のときに繋がらなかった ONVIF は、動体イベントの見張りが間をあけて取り直す ──────────────
+#
+# 見張りは口が None を返すと「カメラが無い構成」と見て黙って終わる。以前は「いま繋がらない」も None だったので、
+# 11/23 の 3 回の起動では動体イベントも止まり、ONVIF を繋ぎに行く者が居なくなった。
+
+
+def _onvif_camera(*, connected=False, fresh=True, connects=False):
+    cam = MagicMock()
+    cam.is_pan_tilt_available = True
+    cam._cam_onvif = MagicMock(name="onvif") if connected else None
+    cam.frame_is_fresh = MagicMock(return_value=fresh)
+
+    async def _connect(**_kw):
+        if connects:
+            cam._cam_onvif = MagicMock(name="onvif")
+        return connects
+
+    cam._ensure_connected = AsyncMock(side_effect=_connect)
+    return cam
+
+
+def test_without_onvif_the_motion_watch_gets_none():
+    """カメラが無い、ONVIF を持たない構成（USB など）は None。見張りは黙って終わり、聞き続けない。"""
+    a = _agent_with(None)
+    assert asyncio.run(a._connected_onvif()) is None
+    usb = _onvif_camera()
+    usb.is_pan_tilt_available = False
+    a = _agent_with(usb)
+    assert asyncio.run(a._connected_onvif()) is None
+    usb._ensure_connected.assert_not_awaited()
+
+
+def test_a_camera_that_is_not_up_yet_is_an_error_not_none():
+    """映像が届いていない＝カメラごと落ちている。None で終わらせず例外にし（見張りが取り直す）、ONVIF は聞かない。"""
+    cam = _onvif_camera(fresh=False)
+    a = _agent_with(cam)
+    with pytest.raises(ConnectionError):
+        asyncio.run(a._connected_onvif())
+    cam._ensure_connected.assert_not_awaited()
+
+
+def test_frames_without_onvif_are_retried_quietly():
+    """映像は届くのに ONVIF が繋がらない。例外にして取り直す。失敗の記録を下げるよう、取り直しだと伝える。"""
+    cam = _onvif_camera(fresh=True, connects=False)
+    a = _agent_with(cam)
+    with pytest.raises(ConnectionError):
+        asyncio.run(a._connected_onvif())
+    cam._ensure_connected.assert_awaited_once_with(retrying=True)
+
+
+def test_onvif_is_connected_once_frames_arrive():
+    cam = _onvif_camera(fresh=True, connects=True)
+    a = _agent_with(cam)
+    assert asyncio.run(a._connected_onvif()) is cam._cam_onvif is not None
+
+
+def test_a_connected_onvif_is_handed_over_as_before():
+    """**反証の側**：もう繋がっていれば、映像を見ずにそのまま渡す（ふつうの起動は ONVIF が映像より先に繋がる）。"""
+    cam = _onvif_camera(connected=True, fresh=False)
+    a = _agent_with(cam)
+    assert asyncio.run(a._connected_onvif()) is cam._cam_onvif
+    cam._ensure_connected.assert_not_awaited()

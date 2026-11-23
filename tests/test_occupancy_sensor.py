@@ -90,6 +90,28 @@ def test_without_any_poses_nothing_is_recorded():
     assert asyncio.run(s.check_once()) is None
 
 
+def test_poses_that_arrive_late_reach_the_map():
+    """定点は毎回受け取る（知-bw・2026-11-24）。カメラの ONVIF があとから繋がってプリセットが足されると、地図も付いていく。
+
+    以前は地図を一度作ると定点を聞き直さなかった。設定の定点で地図ができたあとに届いたプリセットの向きは、
+    いつまでも「移動中」になり、記録されなかった。足される前に見た時刻は持ち越す（「居なくなった」を誤って出さない）。
+    """
+    s, camera, _ = _sensor(people=1, position=(0.0, -0.5))
+    s._poses_getter = AsyncMock(side_effect=[_POSES[:1], _POSES])
+    assert asyncio.run(s.check_once()) == "窓側"
+    camera.position = AsyncMock(return_value=(-0.129, -0.5))
+    assert asyncio.run(s.check_once()) == "出入り口"
+    assert s.poses_seen() == ["窓側", "出入り口"]
+
+
+def test_poses_that_arrive_after_none_start_the_map():
+    """起動のときは定点 0 件（カメラがまだ繋がらない）。あとで届けば、次の確かめから記録する。"""
+    s, _, _ = _sensor(people=1)
+    s._poses_getter = AsyncMock(side_effect=[[], _POSES])
+    assert asyncio.run(s.check_once()) is None
+    assert asyncio.run(s.check_once()) == "出入り口"
+
+
 # --- 壊れたときの振る舞い -------------------------------------------------
 
 

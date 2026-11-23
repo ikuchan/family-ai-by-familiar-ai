@@ -29,7 +29,7 @@ from .routines import quiet_hours_rule
 from .io.aif import AIF, Nudge
 from .io.oif import MI, OIF, Recalled
 from .mood_register import MoodPAD
-from .poses import Pose, build_pose_registry
+from .poses import Pose, build_pose_registry, parse_poses
 from .occupancy_sensor import OccupancySensor
 from .memory_worker import MemoryJobWorker
 from .tools.camera import CameraTool
@@ -280,53 +280,40 @@ class EmbodiedAgent:
 
         # Deferred pre-response caches (computed in post-response, used next turn)
 
-        # 定点。プリセットの読み出しに await が要るので、初めて要るときに一度だけ組む
-        # （`_init_tools` は同期で、ここではまだカメラへ問い合わせられない）。
-        self._poses: list[Pose] | None = None
+        # 定点。設定の定点から始め、カメラの ONVIF が繋がったときにプリセットを足す（`_on_camera_connected`・知-bw）。
+        self._poses: list[Pose] = parse_poses(self.config.camera.poses)
 
         self._init_tools()
 
     async def poses(self) -> list[Pose]:
         """定点の一覧。在席マップ・norm・見回りが同じものを使う。
 
-        起動のときにカメラがまだ繋がらずプリセットが読めないと、0 件のまま覚えて在席センサが黙って止まり、カメラが直っても
-        読み直さなかった（11/23 22:12・23:04・23:56・知-bw）。いまは、プリセットを読めなかったときだけ、カメラから映像が
-        届いていて、前の試しから `pose_retry_sec`（5 分・仮）たったら 1 回読み直す。カメラが落ちているあいだは聞きに行かない。
+        覚えたものを返すだけで、カメラには聞かない（反復も、在席センサの 3 秒ごとの確かめも、ここで ONVIF を待たない）。
+        読むのは `_on_camera_connected`。
         """
-        if self._poses is not None and not self._should_reread_poses():
-            return self._poses
-        lock = self.__dict__.setdefault("_poses_lock", asyncio.Lock())
-        async with lock:  # 在席センサと反復が同時に呼んでも、読み直しは 1 本
-            if self._poses is None or self._should_reread_poses():
-                cam = self.config.camera
-                first = self._poses is None
-                poses, read = await build_pose_registry(
-                    cam.poses, self._camera, cam.pose_tolerance, quiet=not first
-                )
-                self.__dict__["_poses_unread"] = not read
-                self.__dict__["_poses_tried_at"] = self._now_mono()
-                if first or len(poses) > len(self._poses or []):
-                    self._poses = poses
-                    # `look` はこの一覧から選んで絶対移動する（道具の定義の enum にもなる）。
-                    if self._camera is not None:
-                        self._camera.set_poses(self._poses)
-        return self._poses or []
+        return self._poses
 
-    def _now_mono(self) -> float:
-        clock = self.__dict__.get("_clock")
-        return float(clock()) if clock is not None else time.monotonic()
+    async def _on_camera_connected(self) -> None:
+        """カメラの ONVIF が繋がった（事象）。プリセットを読み、設定の定点と合わせて覚え、`look` の行き先として配る。
 
-    def _should_reread_poses(self) -> bool:
-        """プリセットを読めなかったとき、映像が届いていて、前の試しから `pose_retry_sec` たったか（知-bw）。"""
-        if not self.__dict__.get("_poses_unread"):
-            return False
-        cam = self._camera
-        try:
-            fresh = cam is not None and bool(cam.frame_is_fresh())
-        except Exception:  # noqa: BLE001
-            fresh = False
-        tried = float(self.__dict__.get("_poses_tried_at", 0.0))
-        return fresh and self._now_mono() - tried >= float(self.config.camera.pose_retry_sec)
+        起動のときにカメラがまだ繋がらないと、プリセットが読めず、定点 0 件のまま覚えて在席センサが黙って止まり、あとで
+        ONVIF が繋がっても誰も読み直さなかった（11/23 の 22:12・23:04・23:56 の起動・知-bw）。いまは、繋がったときに
+        読む。繋がるのは、起動のとき（`start_autonomy`）、動体イベントの見張りの取り直し（`_connected_onvif`）、首を動かす
+        求めと向きを読む求め（`CameraTool` の `move_to`、`position`）のどれかで、どの道でも `CameraTool.on_connected`
+        （`start_autonomy` で渡す）を 1 回通る。繋がった回に限り、繋いだ道でプリセットの読み 1 回を待つ。定点を使う側
+        （在席センサと反復の向きの読み、`look`）はどれも ONVIF が要るので、繋がる前の定点は使われない。
+
+        プリセットを読めなかったときは、覚えた定点を上書きしない。読むのは繋がった回の 1 回だけで、読めなければ次に
+        繋がるまで読み直さない。在席センサは定点を毎回聞くので、足したものは次の確かめから地図に入る。2 回走っても
+        同じ結果になる。
+        """
+        cam = self.config.camera
+        poses, read = await build_pose_registry(cam.poses, self._camera, cam.pose_tolerance)
+        if read:
+            self._poses = poses
+        if self._camera is not None:
+            # `look` はこの一覧から選んで絶対移動する（道具の定義の enum にもなる）。
+            self._camera.set_poses(self._poses)
 
     def _spawn_background_task(self, coro: Coroutine[Any, Any, None], *, name: str) -> None:
         """Run non-critical post-turn work off the response critical path."""
@@ -1194,10 +1181,20 @@ class EmbodiedAgent:
 
         `_cam_onvif` は `_ensure_connected()` を呼ぶまで None なので、素の属性を渡すと
         購読が「カメラが無い構成」とみなして静かに終わる（実機で観測）。
+
+        None を返すのは、カメラが無いか、ONVIF を持たない構成（USB など）のときだけ。持つはずなのにいま繋がらないときは
+        例外にして、見張りに間をあけて取り直させる（知-bw・2026-11-24）。以前はこれも None で、起動のときにカメラが
+        遅れると見張りが黙って終わり、その起動のあいだ動体イベントが止まり、ONVIF を繋ぎに行く者も居なかった（定点も
+        読めないまま）。映像が届いていないあいだはカメラごと落ちているので、ONVIF は聞かない。届いているのに繋がらない
+        ときは、記録を DEBUG に下げて取り直しを続ける（仮・本人の確認待ち）。
         """
         camera = self._camera
-        if camera is None or not await camera._ensure_connected():
+        if camera is None or not camera.is_pan_tilt_available:
             return None
+        if camera._cam_onvif is None and not (
+            camera.frame_is_fresh() and await camera._ensure_connected(retrying=True)
+        ):
+            raise ConnectionError("カメラにまだ繋がらない")
         return camera._cam_onvif
 
     async def start_autonomy(self) -> None:
@@ -1213,10 +1210,14 @@ class EmbodiedAgent:
 
         GUI と CUI の両方の入口から呼ぶ。何度呼んでも二重には立たない。
         """
-        # 定点を先に読む。`look` の道具定義（enum）がこれを要るので、遅れると最初の
-        # 反復で「見に行く」が選べない。
-        with contextlib.suppress(Exception):
-            await self.poses()
+        # カメラに「ONVIF が繋がったら定点を読む」口を渡してから、先に 1 回繋ぐ（`_on_camera_connected`）。`look` の
+        # 道具定義（enum）が定点を要るので、遅れると最初の反復で「見に行く」が選べない。ここで繋がらなければ、動体
+        # イベントの見張りが間をあけて取り直す（`_connected_onvif`・知-bw）。
+        camera = getattr(self, "_camera", None)
+        if camera is not None:
+            camera.on_connected = self._on_camera_connected
+            with contextlib.suppress(Exception):
+                await camera._ensure_connected()
         self._ensure_event_loop()
         for watcher in (
             getattr(self, "_occupancy_sensor", None),
