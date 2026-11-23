@@ -196,3 +196,88 @@ def test_a_failed_player_after_playing_does_not_fall_back(pw, caplog):
     assert result.startswith("Said:")
     sbv2.assert_not_called()
     assert "戻り値 1" in caplog.text
+
+
+def test_a_stalled_player_is_stopped_by_the_clock(monkeypatch, caplog):
+    """音の出口が止まって `pw-play` が読まなくなったら、時計で止める（出-du・2026-11-23）。
+
+    11/23 13:49 に YAMAHA への再生が止まり、`pw-play` の入り口が詰まって書き込みが 21 分返らず、声と耳が止まった
+    （終わりは手で `pw-play` を消したときの Broken pipe）。書き込みに時間の上限が無かった。
+    """
+    monkeypatch.setattr(tts, "_pw_play_binary", lambda: "/usr/bin/pw-play")
+    monkeypatch.setattr(tts, "_pw_target", lambda: None)
+    monkeypatch.setattr(tts, "_play_margin", lambda: 0.1)
+    monkeypatch.setattr(tts, "_STREAM_IDLE_SEC", 0.2)
+    killed = threading.Event()
+
+    class _StuckPipe:
+        """2 つ目の書き込みから返らない（出口が止まって読まれない）。止められたら Broken pipe で返る。"""
+
+        def __init__(self):
+            self.n = 0
+
+        def write(self, data):
+            self.n += 1
+            if self.n >= 2:
+                killed.wait()
+                raise BrokenPipeError(32, "Broken pipe")
+
+        def flush(self):
+            pass
+
+        def close(self):
+            pass
+
+    class _Proc:
+        def __init__(self, args, **kw):
+            self.stdin = _StuckPipe()
+            self.stderr = MagicMock(read=lambda: b"")
+            self.returncode = None
+
+        def wait(self, timeout=None):
+            self.returncode = -9 if killed.is_set() else 0
+            return self.returncode
+
+        def kill(self):
+            killed.set()
+
+    real = tts.subprocess.Popen
+
+    class _Popen:
+        def __new__(cls, args, **kw):
+            if args and args[0] == "/usr/bin/pw-play":
+                return _Proc(args, **kw)
+            return real(args, **kw)
+
+        def __class_getitem__(cls, item):
+            return cls
+
+    monkeypatch.setattr(tts.subprocess, "Popen", _Popen)
+    done: list = []
+
+    def _run():
+        done.append(_say(_tool(), (_chunk(PCM, "audio/pcm;rate=24000") for _ in range(5))))
+
+    with caplog.at_level("WARNING"):
+        t = threading.Thread(target=_run, daemon=True)
+        t.start()
+        t.join(timeout=5.0)
+        stuck = t.is_alive()
+        killed.set()  # 試験のあとに糸を残さない
+        t.join(timeout=2.0)
+    assert not stuck, "書き込みが返らないまま止まった（時計の見張りが無い）"
+    assert "出口が止まった" in caplog.text
+    assert done and done[0].startswith("Said:")  # 途中まで鳴らしたので控えへは落ちない
+
+
+def test_a_slow_synthesis_does_not_trip_the_clock(pw, monkeypatch, caplog):
+    """**反証の側**：Gemini の届きが声の長さより遅いだけなら、元気な `pw-play` は止めない（見張りは書き込みのあいだだけ）。"""
+    monkeypatch.setattr(tts, "_play_margin", lambda: 0.05)
+    monkeypatch.setattr(tts, "_STREAM_IDLE_SEC", 1.0)
+    with caplog.at_level("WARNING"):
+        # 0.1 秒ぶんの塊を 0.45 秒おきに（待ちの上限 1 秒まで 0.55 秒の余裕）。鳴らし始めから測る期限（届いた声＋余裕
+        # ＋待ちの上限）なら、5 つ目（1.8 秒）で期限 0.5＋1.05＝1.55 秒を越えて止めてしまう。
+        _say(_tool(), _slow_chunks(n=6, gap=0.45))
+    assert not pw["killed"]
+    assert "出口が止まった" not in caplog.text
+    assert b"".join(d for _t, d in pw["writes"] if d is not None) == PCM * 6

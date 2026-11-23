@@ -535,6 +535,24 @@ class TTSTool:
         sink = _sink_state_or_unknown()
         target = _pw_target()
         where = target or "既定"
+        watch: "threading.Timer | None" = None
+        # 書き込みごとの「書き終えた」印と、止めるかを決める鍵。印は鍵の中で立て、見張りは鍵の中で印を見てから
+        # 止める（書き終えた直後や次の塊の書き込み中に、前の塊の見張りが鳴っても止めない）。
+        guard = threading.Lock()
+        stalled: list[bool] = []
+        margin = _play_margin()
+
+        def _stalled(p: "subprocess.Popen", done: threading.Event) -> None:
+            with guard:
+                if done.is_set():
+                    return
+                stalled.append(True)
+                logger.warning(
+                    "TTS: 音の出口が止まったので pw-play を止めた（逐次・出口 %s）", where
+                )
+                with contextlib.suppress(Exception):
+                    p.kill()
+
         try:
             while True:
                 try:
@@ -587,12 +605,28 @@ class TTSTool:
                         stderr=subprocess.PIPE,
                     )
                     began = time.monotonic() - started
+                # 出口が止まると `pw-play` が読まなくなり、書き込みが返らない（出-du・11/23 に 21 分止まった）。見張りは
+                # 書き込みのあいだだけ掛ける（Gemini の届きが遅いだけなら止めない）。元気な `pw-play` なら、書き込みは
+                # その塊の声の長さのうちに返るので、それ＋余裕＋音を待つ上限で止める。止めれば Broken pipe で返る。
+                done = threading.Event()
+                watch = threading.Timer(
+                    len(data) / 2 / GEMINI_RATE + margin + _STREAM_IDLE_SEC,
+                    _stalled,
+                    args=(proc, done),
+                )
+                watch.daemon = True
+                watch.start()
                 try:
                     proc.stdin.write(data)  # type: ignore[union-attr]
                     proc.stdin.flush()  # type: ignore[union-attr]
                 except OSError as e:
-                    logger.warning("TTS: 声を流し込めなかった（逐次）: %s", e)
+                    # 見張りが止めたあとの Broken pipe は見込みどおりなので、trace は付けない。
+                    logger.warning("TTS: 声を流し込めなかった（逐次）: %s", e, exc_info=not stalled)
                     break
+                finally:
+                    with guard:
+                        done.set()
+                    watch.cancel()
             if proc is None:
                 return "failed", b"", False
             with contextlib.suppress(Exception):
@@ -644,6 +678,8 @@ class TTSTool:
             )
             return "played", pcm, False
         finally:
+            if watch is not None:
+                watch.cancel()
             if locked:
                 _PLAYBACK_LOCK.release()
 
