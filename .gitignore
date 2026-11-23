@@ -36,3 +36,6 @@ src/familiar_agent/_version.py
 # macOS（別マシンから持ち込まれる）
 .DS_Store
 MUSIC.md
+
+# 人の検出のモデル（ultralytics が無ければ取ってくる・5.6 MB）
+*.pt
