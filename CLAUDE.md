@@ -147,8 +147,8 @@ uv run --group dev mypy src/familiar_agent
 ```
 
 **`docs/` の md しか変えていないなら、全体テストは要らない。** ただし
-`uv run pytest -q -p no:cacheprovider tests/test_docs_are_consistent.py`（題名の版＝file 名の版・更新履歴にその版の項・
-索引のリンク・見出し番号）だけは回してから `git add` と `git commit` で直接コミットする（DB 不要・
+`uv run pytest -q -p no:cacheprovider tests/test_docs_are_consistent.py`（ファイル名と題に版を付けない・更新履歴の節を
+持たない・索引のリンク・見出し番号）だけは回してから `git add` と `git commit` で直接コミットする（DB 不要・
 0.2 秒。2026-09-17 に docs だけのコミットで 6 件赤にした）。コードと md を一緒に変えたときは、
 下の全項目を満たす。
 
@@ -219,10 +219,11 @@ uv run --group dev mypy src/familiar_agent
 
 設計と計画の正本は、日本語の設計ドキュメントで、すべて `docs/NewModesDocs/` に置く。
 **コードを触る前に、`docs/NewModesDocs/README.md`（索引）の「どこから読むか」を読み、触るものに関係する
-文書を全部読む。** 新しい設計・計画ドキュメントは `docs/NewModesDocs/` に版番号つきで書き、索引（README）からリンクする。
+文書を全部読む。** 新しい設計・計画ドキュメントは `docs/NewModesDocs/` に版の無い名前で書き、索引（README）からリンクする。
 これらを `@import` で全部取り込まない（全部で 2.8 MB あり、毎セッション読み込むには重い）。
 
-設計ドキュメントは版番号で管理し、**未実装の決定を含むことがある**。実装済みかどうかは
+設計ドキュメントの変わり目は git の履歴で追う（ファイル名・題に版を付けず、更新履歴の節も持たない・2026-11-23 から。
+コードの注釈にある「v0.33 §10」などの版は、それより前の版を指す）。設計ドキュメントは**未実装の決定を含むことがある**。実装済みかどうかは
 `設計図_Mermaid` の台帳と実コードで確かめる。
 
 ## Git ワークフロー

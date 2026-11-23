@@ -16,7 +16,7 @@ DOCS = Path(__file__).resolve().parents[1] / "docs" / "NewModesDocs"
 
 
 def _doc_block() -> str:
-    docs = list(DOCS.glob("familiar-ai_設計方針_パジュの状態_v*.md"))
+    docs = [DOCS / "familiar-ai_設計方針_パジュの状態.md"]
     assert len(docs) == 1, [d.name for d in docs]  # 版は 1 つだけ置く
     [doc] = docs
     text = doc.read_text(encoding="utf-8")
