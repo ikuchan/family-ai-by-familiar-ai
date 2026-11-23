@@ -16,7 +16,8 @@ from datetime import datetime
 from ..core.completion_kind import is_spent
 from .arbiter import CONFIRM_QUERY
 
-logger = logging.getLogger(__name__)
+# ループの記録と同じ名前で書く（`iteration.py` と同じ。試験は `caplog` をこの名前で絞って見る）。
+logger = logging.getLogger("familiar_agent.loop.event_loop")
 
 _ORIGIN_MAX = 500
 #: 記録だけする機器の知らせ（予定・メモ）は 1,500 字まで（情-s・2026-10-17・本人の決定ア）。入口が 500 字で

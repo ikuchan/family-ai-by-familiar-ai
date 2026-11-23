@@ -10,7 +10,8 @@ import logging
 
 from .actions import THREAD_MAX_STEPS
 
-logger = logging.getLogger(__name__)
+# ループの記録と同じ名前で書く（`iteration.py` と同じ。試験は `caplog` をこの名前で絞って見る）。
+logger = logging.getLogger("familiar_agent.loop.event_loop")
 
 
 def recall_tree(agent, tool_input: dict) -> str:

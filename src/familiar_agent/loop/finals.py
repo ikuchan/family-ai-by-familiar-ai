@@ -15,7 +15,8 @@ from ..core import final_version, jev_judges
 from ..io.oif import MI
 from ..store.relations import KIND_REVISION, KIND_SUCCESSION
 
-logger = logging.getLogger(__name__)
+# ループの記録と同じ名前で書く（`iteration.py` と同じ。試験は `caplog` をこの名前で絞って見る）。
+logger = logging.getLogger("familiar_agent.loop.event_loop")
 
 
 async def write_final(

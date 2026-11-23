@@ -1284,9 +1284,9 @@ backends/cli.py          166 行
 
 | 段 | 移した先 | 中身 | 行 |
 |---|---|---|---|
-| 1 | `loop/actions.py` | 主LLM が選べる動作の表（`_FULL_ACTIONS` など）、調べものの見出し（`_query_label`）、道具の定義の組み立て（タイマー・音楽・印刷・確認など）、動作の判定、それに添える小さなもの（起点の記録の字数の上限・季節と自己像の文など） | 599 |
-| 2 | `loop/finals.py` | 最終版を書いて前の版を畳む（`write_final`）・長すぎれば要約する（`shorten_final`）・前の最終版と継起で結ぶ（`link_succession`）。`agent` を引数で受け取る。背景で書くタスクを立てる `_spawn_final` はループに残した。記録の名前は `familiar_agent.loop.finals` に変わった（文の頭の「event-loop」はそのまま） | 130 |
-| 3 | `loop/widen.py` | 広げる道具のうち機械が O から引くだけのもの：記憶の木の節の要約（`recall_tree`）・記録の前後の話（`recall_thread`）。呼び手 `_run_widen` はループに残した。記録の名前は `familiar_agent.loop.widen` に変わった | 82 |
+| 1 | `loop/actions.py` | 主LLM が選べる動作の表（`_FULL_ACTIONS` など）、調べものの見出し（`_query_label`）、道具の定義の組み立て（タイマー・音楽・印刷・確認など）、動作の判定、それに添える小さなもの（起点の記録の字数の上限・季節と自己像の文など） | 600 |
+| 2 | `loop/finals.py` | 最終版を書いて前の版を畳む（`write_final`）・長すぎれば要約する（`shorten_final`）・前の最終版と継起で結ぶ（`link_succession`）。`agent` を引数で受け取る。背景で書くタスクを立てる `_spawn_final` はループに残した | 131 |
+| 3 | `loop/widen.py` | 広げる道具のうち機械が O から引くだけのもの：記憶の木の節の要約（`recall_tree`）・記録の前後の話（`recall_thread`）。呼び手 `_run_widen` はループに残した | 83 |
 
 段 1 では中身を変えていない（例外の記録に `exc_info=True` を足しただけ）。試験が `event_loop` の上で差し替える名前
 （`WAIT_WATCH_TICK_SEC`・`_timer_frame`・`_caches_window` など）は、`event_loop` が自分の名前で引くので、差し替えはそのまま
@@ -1296,6 +1296,8 @@ backends/cli.py          166 行
 
 段 2 から、クラスのメソッドを出す形を決めた：`self` に書き込まず、読むのが `self._agent` だけのメソッドを、`agent` を
 引数に取るモジュール関数にする。新しい型（Protocol など）や属性の宣言を足さずに mypy が通ることを、出してよい条件とする。
+移した先の記録は、`iteration.py` と同じく `familiar_agent.loop.event_loop` の名前で書く（試験 23 本が `caplog` を
+この名前で絞って見るので、名前を変えると「出ないこと」を確かめる試験が空振りで通る）。
 もう 1 つの条件として、試験がインスタンスの上で差し替えているメソッド（`ip._set_speaker = AsyncMock()` など）は出さない。
 出すと差し替えが効かなくなり、`assert_not_awaited()` のような確かめが空振りで通る。人と顔ぶれのメソッド（`_set_speaker`・
 `_current_speaker_name`・`_call_name_for`・`_apply_seen_people` など）は、これに当たるので残した。
