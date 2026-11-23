@@ -465,6 +465,37 @@ async def judge_succession(
     return pick if pick in candidates else None
 
 
+#: 最近の答えのどれも、いまの問いに答えていない（調べる前の確かめ・2026-11-23・本人の決定ア）。
+NOT_ANSWERED = "none"
+
+
+async def judge_answered(
+    client, *, question: str, candidates: "dict[str, str]", min_conf: float
+) -> "str | None":
+    """いまの問いに、候補の記録（最近閉じた最終版）のどれがもう答えているか（調べる前の確かめ・2026-11-23）。
+
+    選んだ候補の id を返す。候補が無い・「どれも答えていない」・確信度が低い・Jev が使えない／失敗したときは None
+    （いまどおり調べる＝倒し先）。候補の文の字数は呼び手が合わせる。
+    """
+    if not candidates or not (question or "").strip():
+        return None
+    criteria = dict(candidates)
+    criteria[NOT_ANSWERED] = (
+        "どれも答えていない。別のことを聞いている・答えが分からないまま終わっている・"
+        "「調べ直して」「もう一度」「最新の」など、調べ直すことを頼まれている"
+    )
+    state = f"[いま聞かれたこと]\n{question}"
+    questions = {
+        "answers": choice(
+            "いま聞かれたことに、選択肢のどの記録がもう答えているか。答えているとは、同じことを聞かれて調べ、"
+            "その答えを伝えた記録があること（言い方が違っても、聞いていることが同じならよい）",
+            criteria,
+        )
+    }
+    pick = picked(await _ask(client, state, questions), "answers", min_conf)
+    return pick if pick in candidates else None
+
+
 #: 記憶の申告の 4 通り（Jev が答える・根づきの更新がこれを使う）。主LLM には申告させない（記-r）。
 VERDICT_CRITERIA = {
     "important": "答えに使い、かつこのやりとりを越えて効く（相手が尋ねた・覚えておきたいこと）",

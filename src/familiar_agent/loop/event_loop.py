@@ -1907,6 +1907,29 @@ class InformationProcessing:
                 Trigger(kind="完了", query=query, result=out, intent_id=intent_id, index=index)
             )
             return
+        if action == "search_deferred" and self._req.trigger_kind == "発話":
+            # 聞かれたことを調べる前に、1 時間以内に答えた記録を探す（2026-11-23・本人の決定ア）。あればそれで答え、調べない。
+            known = await finals.recent_answer(
+                self._agent,
+                question=self._req.request_text or self._req.utterance or "",
+                query=query,
+            )
+            if known is not None:
+                # 調べていないので、検索の回数（1 つの求めで 2 回まで）にも「調べた求め」にも数えない。
+                seen = self._lookup_of(query)
+                if seen is not None:
+                    seen.action = "recall"
+                minutes = int(self._agent.config.memory.answer_reuse_window_sec) // 60
+                self._triggers.put_nowait(
+                    Trigger(
+                        kind="完了",
+                        query=query,
+                        result=f"{finals.REUSED_MARK}{minutes} 分以内に調べて答えた記録：{known}",
+                        intent_id=intent_id,
+                        index=index,
+                    )
+                )
+                return
         if action != "recall":
             try:
                 # 投げっぱなしの道具には意図の uuid を渡し、完了と一緒に返してもらう（出-cc）。

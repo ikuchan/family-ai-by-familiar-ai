@@ -28,7 +28,10 @@ _ALLOWED = {
         "event-loop 意味づけが返った",
         "event-loop %s見えたもの",
     ),
-    "loop/finals.py": ("event-loop 最終版の継起を書いた",),
+    "loop/finals.py": (
+        "event-loop 最終版の継起を書いた",
+        "event-loop 最近の答えで答える",
+    ),  # 記録の id の頭
     "mcp_client.py": ("MCP connect", "Failed to connect to MCP server"),
     "occupancy_map.py": ("定点の一覧に無い名前",),
     "poses.py": ("定点の設定を読めなかった", "定点が可動範囲の外"),

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from ..core import final_version, jev_judges
 from ..io.oif import MI
@@ -129,3 +129,47 @@ async def link_succession(
     except Exception:  # noqa: BLE001
         logger.warning("event-loop 最終版の継起を書けなかった", exc_info=True)
         return None
+
+
+#: 記憶で答えたときに結果の頭に付ける印（その回の最終版を、次の「最近の答え」の候補から外すのに使う）。
+REUSED_MARK = "（記憶の答え・調べ直していない）"
+
+
+async def recent_answer(agent, *, question: str, query: str) -> "str | None":
+    """いまの問い（`question`・調べる語 `query`）に、範囲のうちに閉じた最終版がもう答えていれば、その文（2026-11-23）。
+
+    範囲は `answer_reuse_window_sec`（1 時間〔仮〕）。候補を Jev に見せ、どれも答えていない・確信が低い・失敗なら None
+    （いまどおり調べる）。本人の決定ア：記憶に最近調べた答えがあれば、まずそれで答える。
+    """
+    if not (question or "").strip():
+        return None
+    try:
+        now = datetime.now(timezone.utc)
+        window = timedelta(seconds=int(agent.config.memory.answer_reuse_window_sec))
+        # 同期の問い合わせなので、ループの外で読む（DB の鍵を待つあいだループを止めない）。
+        rows = await asyncio.to_thread(agent._oif.recent_finals, now - window, now, exclude_id="")
+        # 記憶で答えた回の最終版は外す（それをまた使うと、1 回調べた答えが調べ直されないまま渡り続ける）。
+        rows = [r for r in rows if REUSED_MARK not in str(r.get("content", ""))]
+        if not rows:
+            return None
+        limit = int(getattr(agent.config, "jev_state_max_chars", 28_000))
+        asked = f"{question}（調べる語：{query}）" if query and query not in question else question
+        current, cands = final_version.fit(
+            asked, {str(r["id"]): str(r["content"]) for r in rows}, limit
+        )
+        pick = await jev_judges.judge_answered(
+            getattr(agent, "_jev", None),
+            question=current,
+            candidates=cands,
+            min_conf=float(agent.config.jev_confidence_min),
+        )
+    except asyncio.CancelledError:
+        raise
+    except Exception:  # noqa: BLE001
+        logger.warning("event-loop 最近の答えを探せなかった（調べる）", exc_info=True)
+        return None
+    if not pick:
+        logger.info("event-loop 最近の答えは無い（候補 %d 件・調べる）", len(rows))
+        return None
+    logger.info("event-loop 最近の答えで答える（%.8s・調べない）", pick)
+    return str(next(r["content"] for r in rows if str(r["id"]) == pick))
