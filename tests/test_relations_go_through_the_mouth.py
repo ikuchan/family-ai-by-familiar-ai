@@ -89,7 +89,7 @@ def test_the_mouth_has_one_way_to_write_a_relation():
         assert hasattr(OIF, name), name
     src = "".join(
         (_SRC / p).read_text(encoding="utf-8")
-        for p in ("agent.py", "loop/workspace.py", "loop/event_loop.py")
+        for p in ("agent.py", "loop/workspace.py", "loop/event_loop.py", "loop/finals.py")
     )
     # やりとり2・継起1（最終版どうし・記-t 段 3 で起点どうしの書き手を撤去）・共起1。共起は記-s から `workspace.apply_memory_verdicts` が受け取った口（`oif`）で書く。
     assert src.count("oif.link(") == 4

@@ -24,14 +24,14 @@ import inspect
 import pathlib
 
 _LOOP = pathlib.Path(__file__).resolve().parent.parent / "src" / "familiar_agent" / "loop"
+# 最終版を書く 3 つは 2026-11-23 に `finals.py` へ出した（モジュール分割設計「event_loop を分ける」段 2）。
+_FILES = (_LOOP / "event_loop.py", _LOOP / "finals.py")
 
 
 def _direct_memory_calls(name: str) -> list[tuple[int, str]]:
-    """`event_loop.py` が `agent._memory.<何か>` を直に呼んでいる箇所。"""
-    f = _LOOP / "event_loop.py"
-    tree = ast.parse(f.read_text(encoding="utf-8"))
+    """ループ（`event_loop.py` と、そこから出した `finals.py`）が `agent._memory.<何か>` を直に呼んでいる箇所。"""
     out = []
-    for node in ast.walk(tree):
+    for node in (n for f in _FILES for n in ast.walk(ast.parse(f.read_text(encoding="utf-8")))):
         if not isinstance(node, ast.Call):
             continue
         fn = node.func
@@ -55,10 +55,10 @@ def test_the_loop_does_not_write_to_memory_directly():
 
 def test_the_loop_uses_the_mouth():
     """**反証側。** 直の呼び出しが消えただけで口を通っていなければ、何も守っていない。"""
-    src = (_LOOP / "event_loop.py").read_text(encoding="utf-8")
+    src = "".join(f.read_text(encoding="utf-8") for f in _FILES)
     # 見た印の差し替え（VLM の返り）が 1 本ずつ足した（`イベント駆動ループ` v0.43）。
     # 黙っていたあいだに届いたものの記録（`_note_muted`・情-h・2026-09-16）で 1 本増えて 8。
-    # 閉じるときの最終版（`_write_final`・記-t）で、書き込みと改訂が 1 本ずつ増えた。
+    # 閉じるときの最終版（`finals.write_final`・記-t）で、書き込みと改訂が 1 本ずつ増えた。
     # つなぎの記録（`_say_filler`）を撤去して 1 本減り 7（出-cl 段 3・2026-10-15）。
     # 窓の外で聞こえた家族の話の記録（`_record_heard`・記-ae 段 4・2026-11-23）で 1 本増えて 8。
     assert src.count("_oif.write(") == 8

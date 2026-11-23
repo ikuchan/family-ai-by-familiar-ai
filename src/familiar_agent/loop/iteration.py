@@ -155,7 +155,7 @@ class Iteration:
         _log_recall_weights(trigger, w_base, self.weights, self.ws.memories)
         ip._returned_now = self.ws.returned_actions  # 声の選び方が読む（環-u）
         ip._req.just_returned.clear()  # 「いま道具から返った」はこの反復の W にだけ載せる
-        # 継起は反復ごとには判定しない。最終版を閉じた後に最終版どうしで結ぶ（記-t 段 3・`_link_succession`）。
+        # 継起は反復ごとには判定しない。最終版を閉じた後に最終版どうしで結ぶ（記-t 段 3・`finals.link_succession`）。
 
     def _cap(self) -> None:
         ip = self.ip

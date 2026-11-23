@@ -109,7 +109,7 @@ CREATE INDEX idx_relations_kind        ON relations(kind);
 | 畳み込み | 旧、新 | あり（2 項） | `agent.py:493`（答えの逐語を会話要約へ） |
 | 解決 | 旧、新 | あり（2 項） | `event_loop.py:1051`（配れた保留発話） |
 | 前進 | 旧、新 | あり（2 項） | `event_loop.py:300`（鎖の前進） |
-| 継起 | 前、後 | あり | `event_loop._link_succession`（前に閉じた最終版 → いま書いた最終版・記-t 段 2。窓の 2 つ目からの最終版には、聞かずに窓の 1 つ目の「前」を付け直す・環-ar 段 E）。反復ごとに W の行 → 起点へ張っていた `workspace.link_follows` は記-t 段 3 で撤去した（それまでに書かれた辺は消さない） |
+| 継起 | 前、後 | あり | `finals.link_succession`（前に閉じた最終版 → いま書いた最終版・記-t 段 2。窓の 2 つ目からの最終版には、聞かずに窓の 1 つ目の「前」を付け直す・環-ar 段 E）。反復ごとに W の行 → 起点へ張っていた `workspace.link_follows` は記-t 段 3 で撤去した（それまでに書かれた辺は消さない） |
 | やりとり | 起点、版、見た、答え、要約 | あり（多項） | `_note_record` と `_finish`（閉じるときに `link`）・要約は背景で `extend` |
 | 共起 | 項（求めの起点と、Jev が答えに使ったと申告した記憶・記憶 2 件以上のときだけ・記-s） | 無し（多項） | `workspace.apply_memory_verdicts` → `oif.link`（060 で `wr_records` から移した。記-s で W の全要素から改めた） |
 | 経験繋がり | 項（3 つ） | あり（記録の時刻の古い順） | `loop/rest_links.link_experiences`（REST 層 1 の④・出-bq）。直近 7 日の日ごとの会話の塊から、いちばん近い対がいちばん遠い 3 件を、1 つの塊に 1 本で書く。関係の時刻は持ち主の塊の日（日本時間の正午）。よりよい 3 件が現れたら同じ関係の項を入れ替え（`RelationStore.replace_members`）、1 つの塊に 2 本あればよいほうを残して外す（`RelationStore.remove`）。この 2 つの口は種類を受け取り、種類が違う関係には何もしない。使う想起は無い（`設計方針_REST内省_出来事を畳む` §3e） |

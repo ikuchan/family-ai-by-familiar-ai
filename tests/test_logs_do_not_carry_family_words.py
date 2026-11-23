@@ -25,10 +25,10 @@ _ALLOWED = {
         "形のある答えを読めなかった",
     ),  # 字数と最初の 1 字（`{` か否か）だけ
     "loop/event_loop.py": (
-        "event-loop 最終版の継起を書いた",
         "event-loop 意味づけが返った",
         "event-loop %s見えたもの",
     ),
+    "loop/finals.py": ("event-loop 最終版の継起を書いた",),
     "mcp_client.py": ("MCP connect", "Failed to connect to MCP server"),
     "occupancy_map.py": ("定点の一覧に無い名前",),
     "poses.py": ("定点の設定を読めなかった", "定点が可動範囲の外"),

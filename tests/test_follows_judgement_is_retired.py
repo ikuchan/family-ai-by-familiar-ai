@@ -1,6 +1,6 @@
 """反復ごとの続き先の判定を撤去した（記-t 段 3・2026-10-15・本人の決定）。
 
-継起は、最終版を書いた直後に最終版どうしで結ぶ（段 2・`_link_succession`）。反復ごとに W の行 → 起点へ張っていた
+継起は、最終版を書いた直後に最終版どうしで結ぶ（段 2・`finals.link_succession`）。反復ごとに W の行 → 起点へ張っていた
 判定（`judge_follows`）は、起点どうしの意味のない網を作り、書かれたのも 3 本だけだった。計測ログの「続き先」「直近」と、
 それを読む層 3 の窓の調整（続きが 20 件に届かず一度も動かなかった）も外す。直近の往復数はいまの値で固定する。
 """
@@ -44,5 +44,7 @@ def test_a_turn_writes_neither_follows_nor_recent_to_the_measure_log(tmp_path):
 
 def test_the_only_succession_writer_is_between_finals():
     """**反証の側**：継起を書くのは最終版どうし（段 2）だけで、それは残っている。"""
-    src = inspect.getsource(InformationProcessing._link_succession)
+    from familiar_agent.loop import finals
+
+    src = inspect.getsource(finals.link_succession)
     assert "oif.link(KIND_SUCCESSION" in src
