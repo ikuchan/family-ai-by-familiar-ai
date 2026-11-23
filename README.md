@@ -501,14 +501,6 @@ For the module layout, see [docs/ソースツリー.md](./docs/%E3%82%BD%E3%83%B
 
 familiar-ai is an open experiment. If any of this resonates with you — technically or philosophically — contributions are very welcome.
 
-### Release Flow
-
-- `develop` is the default integration branch.
-- Run the **Prepare Release PR** workflow from `develop` with a target version like `0.6.0`.
-- The workflow creates or updates `release/v0.6.0`, bumps `pyproject.toml`, and rolls `CHANGELOG.md` `Unreleased` into `## [0.6.0] - YYYY-MM-DD`.
-- Merge that release PR into `main` when it is stable enough to ship.
-- Pushing to `main` triggers **Tag Release**, which creates `v0.6.0` and a GitHub Release from the matching changelog section.
-
 **Good places to start:**
 
 | Area | What's needed |

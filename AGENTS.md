@@ -35,7 +35,6 @@
 - Follow Conventional Commits, as used in history (for example: `feat(gui): ...`, `fix(windows): ...`).
 - Keep PRs focused and single-purpose.
 - Before opening a PR, run: Ruff check, Ruff format, mypy, and pytest.
-- Update `CHANGELOG.md` under `[Unreleased]` when behavior changes.
 - PR descriptions should include scope, testing performed, and linked issue context. Include screenshots/GIFs for GUI/TUI visual changes.
 
 ## 思い出

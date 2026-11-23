@@ -72,7 +72,6 @@ chore: bump anthropic to 0.42.0
 
 - Keep PRs focused — one thing per PR
 - Add tests for new behavior
-- Update `CHANGELOG.md` under `[Unreleased]`
 
 ## Code style
 
