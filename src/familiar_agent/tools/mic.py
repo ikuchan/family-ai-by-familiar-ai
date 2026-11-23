@@ -3,9 +3,13 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 import platform
+import shutil
+import subprocess
+import threading
 from typing import Any
 
 import numpy as np
@@ -107,6 +111,50 @@ class _Resampler:
         return self._stream.resample_chunk(arr).tobytes()
 
 
+def pick_input_device(devices: "list[dict]", apis: "list[dict]", wanted: str) -> "int | None":
+    """名前に `wanted` を含む入力の機器の番号。無ければ None。
+
+    PipeWire（PulseAudio の口）を通る機器を、直接の機器より先に選ぶ（出-du 段 2・2026-11-23）。直接掴むと、PipeWire が
+    同じ機器の入力の口を開こうとしたとき「ビジー」でぶつかり、スピーカーの再生も始まらなくなる（11/23 9:37 の再起動から、
+    声を鳴らすたびに声と耳が止まった）。見分けは声の出口（`tts._resolve_output_device`）と同じく入口の種類（host API）で
+    行う。スピーカーの写し（名前が `.monitor` で終わる）は、パジュ自身の声しか入らないので選ばない。PipeWire を通る
+    機器が無ければ、直接の機器を使う。
+    """
+    hits = [
+        i
+        for i, d in enumerate(devices)
+        if wanted.lower() in str(d["name"]).lower()
+        and d["max_input_channels"] > 0
+        and not str(d["name"]).endswith(".monitor")
+    ]
+    routed = [i for i in hits if "pulse" in str(apis[devices[i]["hostapi"]]["name"]).lower()]
+    chosen = routed or hits
+    return chosen[0] if chosen else None
+
+
+def _pw_record_binary() -> "str | None":
+    """`pw-record` の場所。無ければ None（差し替え点）。"""
+    return shutil.which("pw-record")
+
+
+def _pw_source_name(wanted: str) -> "str | None":
+    """名前に `wanted` を含む、PipeWire（PulseAudio の口）の入力の名前。無ければ None（差し替え点）。
+
+    PulseAudio の口に見える名前は、PipeWire の入力の口の名前そのもので、`pw-record --target` にそのまま渡せる。
+    """
+    try:
+        import sounddevice as sd
+
+        devices, apis = list(sd.query_devices()), list(sd.query_hostapis())
+    except Exception:  # noqa: BLE001
+        logger.warning("マイク：PipeWire の入力の口を探せなかった（直接の道で開く）", exc_info=True)
+        return None
+    i = pick_input_device(devices, apis, wanted)
+    if i is None or "pulse" not in str(apis[devices[i]["hostapi"]]["name"]).lower():
+        return None
+    return str(devices[i]["name"])
+
+
 def input_gain_from_env() -> float:
     """`.env` の `AUDIO_INPUT_GAIN`（倍率）。無い・読めない・0 以下なら 1.0（いまのまま）。
 
@@ -151,29 +199,53 @@ class MicCapture:
         self._native_rate: int = TARGET_RATE
         # 開いた機器の名前（機器の見張りが、YAMAHA を開いたかを見る・知-bv）。
         self.device_name: str = ""
+        # `pw-record` の道（出-du 段 2）：子のプロセスと、その音を読む糸。
+        self._proc: "subprocess.Popen | None" = None
+        self._reader: "threading.Thread | None" = None
+        self._stopped = (
+            False  # 止めた印（止めたあとの塊を渡さない・止めないうちの終わりを警告にする）
+        )
 
     def start(self, loop: asyncio.AbstractEventLoop) -> None:
-        """Start capturing from the default input device."""
+        """Start capturing from the default input device.
+
+        名前が合う PipeWire の入力の口があり `pw-record` があれば、そこから読む（出-du 段 2・2026-11-23・本人の決定イ）。
+        YAMAHA を掴むのを PipeWire だけにし（パジュが直接掴むと、PipeWire が入力の口を開くとき「ビジー」でぶつかり、
+        スピーカーの再生も始まらなくなった）、読み取りは別のプロセスにする（声の出口の `pw-play` と同じ・止めるのは子だけ）。
+        無ければ、いままでどおり sounddevice で開く。
+        """
+        self._loop = loop
+        self._stopped = False
+        wanted = os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
+        binary = _pw_record_binary()
+        source = _pw_source_name(wanted) if wanted and binary else None
+        if binary and source:
+            try:
+                self._start_pw_record(binary, source)
+                return
+            except RuntimeError:
+                # 耳が聞こえないまま始まりかけで残るより、直接の道で開く（取り合いで声が止まっても、出-du の見張りで抜ける）。
+                logger.warning(
+                    "マイク：pw-record で始められなかったので、直接の道で開く", exc_info=True
+                )
+        if wanted and binary:
+            # 直接の機器を掴むと、PipeWire が入力の口を開くときにぶつかる（出-du）。黙って戻らない。
+            logger.warning("マイク：PipeWire に名前の合う入力の口が無いので、直接の道で開く")
+
         import sounddevice as sd
 
         ok, detail = probe_sounddevice_input()
         if not ok:
             raise RuntimeError(detail)
 
-        self._loop = loop
-
         try:
             # Resolve device index: AUDIO_INPUT_DEVICE env var selects by name substring.
             device_idx: int | None = None
             audio_input_device = os.environ.get("AUDIO_INPUT_DEVICE", "").strip()
             if audio_input_device:
-                for i, d in enumerate(sd.query_devices()):
-                    if (
-                        audio_input_device.lower() in d["name"].lower()
-                        and d["max_input_channels"] > 0
-                    ):
-                        device_idx = i
-                        break
+                device_idx = pick_input_device(
+                    list(sd.query_devices()), list(sd.query_hostapis()), audio_input_device
+                )
                 if device_idx is None:
                     logger.warning(
                         "AUDIO_INPUT_DEVICE=%r not found; falling back to default",
@@ -200,11 +272,7 @@ class MicCapture:
             def _callback(indata, frames, time_info, status):  # noqa: ANN001, ARG001
                 if status:
                     logger.debug("Mic status: %s", status)
-                pcm = apply_gain(resampler.process(bytes(indata)), gain)
-                if self._loop and not self._loop.is_closed():
-                    self._loop.call_soon_threadsafe(
-                        lambda b=pcm: self._loop.create_task(self._on_audio(b))
-                    )
+                self._deliver(apply_gain(resampler.process(bytes(indata)), gain))
 
             self._stream = sd.RawInputStream(
                 samplerate=self._native_rate,
@@ -218,8 +286,110 @@ class MicCapture:
         except sd.PortAudioError as exc:
             raise RuntimeError(describe_sounddevice_input_failure(exc)) from exc
 
+    def _deliver(self, pcm: bytes) -> None:
+        """16 kHz にした音を、ループの側の `on_audio` へ渡す（取り込みの糸から呼ぶ）。"""
+        loop = self._loop
+        if loop is None or loop.is_closed() or self._stopped:
+            return  # 止めたあとに届いた最後の塊は渡さない（起こし直した次の聞き取りへ混ぜない）
+
+        def _hand() -> None:
+            if not self._stopped:  # 渡す直前にもう一度（止めたのが、積んだあとだったとき）
+                loop.create_task(self._on_audio(pcm))
+
+        with contextlib.suppress(RuntimeError):  # 閉じる途中のループ（止めた直後に届いた最後の塊）
+            loop.call_soon_threadsafe(_hand)
+
+    def _start_pw_record(self, binary: str, source: str) -> None:
+        """`pw-record` を起こし、標準出力の音を 96 ミリ秒ずつ読む糸を立てる。"""
+        # 48 kHz で受け取る（YVC-300 の素の値。ほかの機器なら PipeWire がここへ合わせる）。16 kHz への再標本化は、
+        # 帯域を切る質を保つため、いままでどおりこちらの soxr で行う。
+        rate = 48_000
+        self._native_rate = rate
+        self.device_name = source
+        resampler = _Resampler(rate)
+        gain = input_gain_from_env()
+        self._stopped = False
+        proc = subprocess.Popen(
+            [
+                binary,
+                "--raw",
+                # 行き先が消えても、既定の入力（内蔵のマイクなど）へ黙って付け替えない（見張りが気づけなくなる）。
+                "-P",
+                "{ node.dont-fallback = true, node.dont-reconnect = true }",
+                f"--target={source}",
+                f"--rate={rate}",
+                f"--channels={CHANNELS}",
+                "--format=s16",
+                "-",
+            ],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        try:
+            # 起こしてすぐ終わった（行き先が無い・PipeWire に届かない）なら、始められなかったとして上げる。
+            code = proc.wait(timeout=0.3)
+        except subprocess.TimeoutExpired:
+            code = None
+        if code is not None:
+            with contextlib.suppress(Exception):
+                if proc.stdout is not None:
+                    proc.stdout.close()
+            raise RuntimeError(f"pw-record がすぐ終わった（戻り値 {code}・入力の口 {source}）")
+        self._proc = proc
+        block = int(rate * _BLOCK_MS / 1000) * 2
+
+        def _read() -> None:
+            out = proc.stdout
+            if out is None:
+                return
+            odd = b""
+            try:
+                while data := out.read(block):
+                    data, odd = odd + data, b""
+                    if len(data) % 2:  # 半端な 1 バイトは次の塊へ（int16 の途中で切れた）
+                        data, odd = data[:-1], data[-1:]
+                    self._deliver(apply_gain(resampler.process(data), gain))
+            except Exception:  # noqa: BLE001
+                logger.exception("Microphone capture: pw-record の音を読めなかった")
+                return
+            if self._stopped:
+                logger.info("Microphone capture: pw-record の音が終わった（止めた）")
+            else:
+                logger.warning(
+                    "Microphone capture: pw-record が止めないうちに終わった（戻り値 %s）",
+                    proc.poll(),
+                )
+
+        self._reader = threading.Thread(target=_read, daemon=True, name="mic-pw-record")
+        self._reader.start()
+        logger.info(
+            "Microphone capture: pw-record source=%s native_rate=%d target_rate=%d gain=%.2f",
+            source,
+            rate,
+            TARGET_RATE,
+            gain,
+        )
+
     def stop(self) -> None:
         """Stop capturing."""
+        if self._proc is not None:
+            proc, self._proc = self._proc, None
+            self._stopped = True
+            proc.terminate()
+            try:
+                proc.wait(timeout=1.0)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                with contextlib.suppress(Exception):
+                    proc.wait(timeout=1.0)
+            if self._reader is not None:
+                self._reader.join(timeout=1.0)
+                self._reader = None
+            with contextlib.suppress(Exception):
+                if proc.stdout is not None:
+                    proc.stdout.close()
+            logger.info("Microphone capture stopped（pw-record）")
+            return
         if self._stream:
             self._stream.stop()
             self._stream.close()

@@ -16,7 +16,7 @@
 
 ```mermaid
 flowchart TD
-    MIC["マイク取り込み：MicCapture：機器の素の標本化率で 96 ミリ秒ずつ取り込む"]
+    MIC["マイク取り込み：MicCapture：PipeWire の入力の口を pw-record から読む（無ければ sounddevice）・96 ミリ秒ずつ"]
     RES["再標本化：_Resampler（soxr）：低域通過つきで 16kHz 16 ビットモノラルへ落とす"]
     SES["セッション：RealtimeSttSession：担い手の選択と再接続と発話中の音の破棄"]
     LOC["区間切りと書き起こし：LocalSttEngine：silero-vad で区間を切り faster-whisper で起こす"]
@@ -40,8 +40,18 @@ flowchart TD
 
 ## 1. 取り込みと再標本化（`tools/mic.py`）
 
-`MicCapture` が sounddevice で既定のマイクを開く。`AUDIO_INPUT_DEVICE` に名前の一部を
-指定すると、その機器を選ぶ。標本化率は機器の素の値を使い（Yamaha YVC-300 は 48,000 Hz）、
+`MicCapture` は、`AUDIO_INPUT_DEVICE` に名前が合う PipeWire の入力の口（入口の種類が PulseAudio のもの・スピーカーの
+写し＝`.monitor` は除く）があり `pw-record` があれば、`pw-record --raw --target=<口> --rate=48000 --channels=1
+--format=s16 -` を別のプロセスで起こし、その標準出力を裏の糸で 96 ミリ秒ずつ読む（出-du 段 2・2026-11-23・本人の決定イ）。
+YAMAHA を掴むのを PipeWire だけにするためで、パジュが直接（`hw:1,0`）掴むと、PipeWire が同じ機器の入力の口を開こうと
+したとき「ビジー」でぶつかり、スピーカーの再生も始まらなくなった（11/23 9:37 の再起動から、声を鳴らすたびに声と耳が
+止まった）。止めるときは子のプロセスを止めるだけで、PortAudio を通らないので固まらない（声の出口の `pw-play` と同じ形）。
+`device_name` には口の名前を入れるので、機器の見張り（名前に `YVC` を含むか）はそのまま通る。行き先が消えても既定の入力（内蔵のマイクなど）へ黙って付け替えないよう、`node.dont-fallback`・`node.dont-reconnect` を
+渡す（付け替わると音は届き続け、名前の見張りも通るので、気づけない）。起こしてすぐ終わったら（行き先が無いなど）警告を残して
+直接の道（sounddevice）で開き（耳が聞こえないまま残らない）、つながらないまま音が来なければ機器の見張り（`mic_audio_age`）が
+聞き取りを起こし直す。止めないうちに音が終わったら警告を残す。PipeWire に入力の口が見つからず直接の道で開くときも警告を残す。口が無い・`pw-record` が
+無いときは、いままでどおり sounddevice で開く（名前が合う機器のうち PipeWire を通るものを先に選び、無ければ直接の機器・
+`pick_input_device`）。標本化率は機器の素の値を使い（Yamaha YVC-300 は 48,000 Hz）、
 96 ミリ秒ずつ取り込む。この長さは 16kHz 換算で 1,536 サンプルになり、silero-vad が要求する
 512 サンプルで割り切れる（余りを持ち越さない）。
 
