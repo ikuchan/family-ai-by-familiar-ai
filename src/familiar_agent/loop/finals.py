@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
+from itertools import zip_longest
 
 from ..core import final_version, jev_judges
 from ..io.oif import MI
@@ -135,41 +136,94 @@ async def link_succession(
 REUSED_MARK = "（記憶の答え・調べ直していない）"
 
 
-async def recent_answer(agent, *, question: str, query: str) -> "str | None":
-    """いまの問い（`question`・調べる語 `query`）に、範囲のうちに閉じた最終版がもう答えていれば、その文（2026-11-23）。
+async def recent_answer(
+    agent,
+    *,
+    question: str,
+    query: str,
+    recalled: "list | None" = None,
+    now: "datetime | None" = None,
+) -> "str | None":
+    """いまの問いに、記憶の最終版がもう答えていて、その答えがいまも使えれば、その本文（2026-11-23・本人の決め方）。
 
-    範囲は `answer_reuse_window_sec`（1 時間〔仮〕）。候補を Jev に見せ、どれも答えていない・確信が低い・失敗なら None
-    （いまどおり調べる）。本人の決定ア：記憶に最近調べた答えがあれば、まずそれで答える。
+    候補は、直近 `answer_recent_hours` の最終版（新しい順・読むだけ）と、この求めの W に載った最終版（`recalled`・W に載った順・
+    引き直さないので「思い出した」を書かない）を 1 件ずつ交互に並べたもの。続けて聞いたときの前の答え（直近）と、古い結果
+    （W）のどちらも、もう片方に押し出されない。本文で印と畳みを見て落とし（記憶で答えた回・改訂で畳まれた記録）、残りの頭から
+    `answer_candidates_max` 件。Jev に 2 回聞く：どれが答えているか（`judge_answered`）、選ばれた記録の種類といまから出来事
+    まで（`judge_freshness`）。使うのは、過去の結果か、予報・予定で調べてからの経過がいまから出来事までの下限より短いとき
+    （＝調べた時から出来事までの半分を過ぎていない）。進行中・過ぎた・読めない・確信が低い・失敗なら None（いまどおり調べる）。
+    答えに使う本文は切らない（Jev へ送る文だけを上限に合わせる）。
     """
     if not (question or "").strip():
         return None
     try:
-        now = datetime.now(timezone.utc)
-        window = timedelta(seconds=int(agent.config.memory.answer_reuse_window_sec))
-        # 同期の問い合わせなので、ループの外で読む（DB の鍵を待つあいだループを止めない）。
-        rows = await asyncio.to_thread(agent._oif.recent_finals, now - window, now, exclude_id="")
-        # 記憶で答えた回の最終版は外す（それをまた使うと、1 回調べた答えが調べ直されないまま渡り続ける）。
-        rows = [r for r in rows if REUSED_MARK not in str(r.get("content", ""))]
-        if not rows:
+        now = now or datetime.now(timezone.utc)
+        mem = agent.config.memory
+        since = now - timedelta(hours=float(mem.answer_recent_hours))
+        rows = await asyncio.to_thread(agent._oif.recent_finals, since, now, exclude_id="")
+        recent = {str(r["id"]): r["timestamp"] for r in rows}
+        on_w: "dict[str, datetime]" = {}
+        for r in recalled or []:
+            mi = getattr(r, "mi", None)
+            if (
+                mi is not None
+                and mi.direction == final_version.DIRECTION
+                and mi.timestamp is not None
+            ):
+                on_w.setdefault(str(mi.obs_id or mi.id), mi.timestamp)
+        stamps = {**on_w, **recent}
+        order = dict.fromkeys(k for pair in zip_longest(recent, on_w) for k in pair if k)
+        bodies = await asyncio.to_thread(agent._oif.bodies, list(order)) if order else {}
+        usable = [k for k in order if k in bodies and REUSED_MARK not in bodies[k]]
+        cands = {k: bodies[k] for k in usable[: int(mem.answer_candidates_max)]}
+        if not cands:
+            logger.info("event-loop 記憶の答えの候補なし（調べる）")
             return None
         limit = int(getattr(agent.config, "jev_state_max_chars", 28_000))
         asked = f"{question}（調べる語：{query}）" if query and query not in question else question
-        current, cands = final_version.fit(
-            asked, {str(r["id"]): str(r["content"]) for r in rows}, limit
-        )
+        client, min_conf = getattr(agent, "_jev", None), float(agent.config.jev_confidence_min)
         pick = await jev_judges.judge_answered(
-            getattr(agent, "_jev", None),
-            question=current,
-            candidates=cands,
-            min_conf=float(agent.config.jev_confidence_min),
+            client, question=asked, candidates=cands, now=now, min_conf=min_conf, limit=limit
         )
+        if pick is None:
+            logger.info("event-loop 記憶に答えは無い（候補 %d 件・調べる）", len(cands))
+            return None
+        fresh = await jev_judges.judge_freshness(
+            client, record=cands[pick], now=now, min_conf=min_conf, limit=limit
+        )
+        hours_ago = (now - stamps[pick]).total_seconds() / 3600
+        if fresh is None or not _still_usable(
+            *fresh, hours_ago=hours_ago, lower=mem.answer_remain_hours
+        ):
+            logger.info(
+                "event-loop 記憶の答えは使わない（%.8s・%s・%.1f 時間前・調べ直す）",
+                pick,
+                fresh,
+                hours_ago,
+            )
+            return None
+        logger.info(
+            "event-loop 記憶の答えで答える（%.8s・%s・%.1f 時間前・調べない）",
+            pick,
+            fresh,
+            hours_ago,
+        )
+        return cands[pick]
     except asyncio.CancelledError:
         raise
     except Exception:  # noqa: BLE001
-        logger.warning("event-loop 最近の答えを探せなかった（調べる）", exc_info=True)
+        logger.warning("event-loop 記憶の答えを探せなかった（調べる）", exc_info=True)
         return None
-    if not pick:
-        logger.info("event-loop 最近の答えは無い（候補 %d 件・調べる）", len(rows))
-        return None
-    logger.info("event-loop 最近の答えで答える（%.8s・調べない）", pick)
-    return str(next(r["content"] for r in rows if str(r["id"]) == pick))
+
+
+def _still_usable(kind: str, remain: str, *, hours_ago: float, lower: "dict[str, float]") -> bool:
+    """過去の結果なら使える。予報・予定は、調べてからの経過が、いまから出来事までの下限より短いとき（本人の決め方）。
+
+    調べた時から出来事までの長さ＝経過＋残り なので、「経過がその半分より短い」は「経過 < 残り」と同じ。残りは下限で見積もる。
+    進行中は調べ直す（仮）。
+    """
+    if kind == jev_judges.KIND_RESULT:
+        return True
+    if kind != jev_judges.KIND_FORECAST:
+        return False
+    return hours_ago < float(lower.get(remain, 0))

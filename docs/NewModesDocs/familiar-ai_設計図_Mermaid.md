@@ -237,7 +237,7 @@ flowchart TD
   O -->|7| GMD
   O -->|1| RES
   O -->|6| W
-  RES -->|17| CORE
+  RES -->|18| CORE
   RES -->|1| GMD
   RES -->|1| W
   REST -->|6| C

@@ -387,6 +387,24 @@ class RelationStore:
                 )
                 return [dict(r) for r in cur.fetchall()]
 
+    def bodies(self, obs_ids: "list[str]") -> "dict[str, str]":
+        """記録の本文（`observations.content`）を `id → 本文` で（2026-11-23・記憶の答えの確かめ）。
+
+        想起が返す文は面の文（`COALESCE(s.content, o.content)`）で、最終版の面は書き直されていることがある（14 日で 367 件中
+        69 件）。記録そのものの印（記憶で答えた回か）を見るには本文を読む。改訂で畳まれた記録は返さない。
+        """
+        if not obs_ids:
+            return {}
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT o.id, o.content FROM observations o "
+                    f"WHERE o.id = ANY(%s) AND {not_hidden('o')}",
+                    (list(obs_ids),),
+                )
+                return {str(r["id"]): str(r["content"]) for r in cur.fetchall()}
+
     def thread(self, obs_id: str, *, before: int, after: int) -> list[dict]:
         """`obs_id` から継起を前へ `before` 歩・後へ `after` 歩たどり、古い順に返す（記-q・2026-10-15）。
 

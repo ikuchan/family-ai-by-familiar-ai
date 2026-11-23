@@ -577,6 +577,12 @@ class OIF:
         logger.debug("OIF recent_finals ← %s〜%s → %d件", since, until, len(got))
         return got
 
+    def bodies(self, obs_ids: "Sequence[str]") -> "dict[str, str]":
+        """記録の本文を `id → 本文` で（想起の文は面の文なので、記録そのものの印を見るときに使う・2026-11-23）。"""
+        got = self._memory.bodies(list(obs_ids))
+        logger.debug("OIF bodies ← %d件 → %d件", len(obs_ids), len(got))
+        return got
+
     def thread(self, obs_id: str, *, before: int, after: int) -> list[dict]:
         """継起を前へ `before`・後へ `after` たどり、古い順に（記-q・主LLM の道具 `recall_thread`）。"""
         got = self._memory.thread(obs_id, before=before, after=after)

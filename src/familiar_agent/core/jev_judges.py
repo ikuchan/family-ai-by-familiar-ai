@@ -13,6 +13,7 @@ from dataclasses import dataclass
 from typing import Any, Callable
 
 from ..backends.jev import choice, noul, score
+from . import final_version
 
 logger = logging.getLogger(__name__)
 
@@ -469,31 +470,88 @@ async def judge_succession(
 NOT_ANSWERED = "none"
 
 
-async def judge_answered(
-    client, *, question: str, candidates: "dict[str, str]", min_conf: float
-) -> "str | None":
-    """いまの問いに、候補の記録（最近閉じた最終版）のどれがもう答えているか（調べる前の確かめ・2026-11-23）。
+#: 記憶の答えの種類（`judge_freshness`・2026-11-23）。結果は使い続け、予報・予定は残りで決め、進行中は調べ直す。
+KIND_RESULT = "result"
+KIND_FORECAST = "forecast"
+KIND_CRITERIA = {
+    KIND_RESULT: "調べた時点で済んでいた結果（終わった試合のスコア・過ぎた日の天気）",
+    KIND_FORECAST: "これからのことの予報・予定（明日の天気・次の試合の日時）",
+    "ongoing": "調べた時点で進んでいる最中のこと（試合の途中経過・いまの天気）",
+}
+#: いまの時刻から見て、記憶の答えの出来事までどれくらいか（`judge_freshness`）。下限は `answer_remain_hours`。
+REMAIN_CRITERIA = {
+    "passed": "いまの時刻で、もう過ぎた",
+    "lt1h": "いまから 1 時間以内",
+    "lt1d": "いまから 1 日以内",
+    "lt3d": "いまから 3 日以内",
+    "lt1w": "いまから 1 週間以内",
+    "lt1m": "いまから 1 か月以内",
+    "later": "いまから 1 か月より先",
+}
 
-    選んだ候補の id を返す。候補が無い・「どれも答えていない」・確信度が低い・Jev が使えない／失敗したときは None
-    （いまどおり調べる＝倒し先）。候補の文の字数は呼び手が合わせる。
+
+def _now_text(now) -> str:
+    """Jev へ渡すいまの時刻。最終版の頭と同じく地方時で書く（`final_version.head`）。"""
+    return f"{now.astimezone():%Y-%m-%d %H:%M}"
+
+
+async def judge_answered(
+    client, *, question: str, candidates: "dict[str, str]", now, min_conf: float, limit: int
+) -> "str | None":
+    """いまの問いに、候補の記録（記憶の最終版）のどれがもう十分に答えているか（2026-11-23・調べる前の確かめ）。
+
+    選んだ候補の id。候補が無い・「どれも答えていない」・確信度が低い・Jev が使えない／失敗したときは None（調べる＝倒し先）。
+    いまの時刻を渡す（「明日」「今日の試合」は記録の時刻といまで別の日を指しうる）。送る字数（見出し・問いの文・選択肢の説明を
+    含む）が `limit` を超えるときは、問いと候補を同じ字数まで切る（`final_version.fit`・候補の数は減らさない）。
     """
     if not candidates or not (question or "").strip():
         return None
-    criteria = dict(candidates)
-    criteria[NOT_ANSWERED] = (
-        "どれも答えていない。別のことを聞いている・答えが分からないまま終わっている・"
-        "「調べ直して」「もう一度」「最新の」など、調べ直すことを頼まれている"
+    head = f"[いまの時刻]\n{_now_text(now)}\n[いま聞かれたこと]\n"
+    ask = (
+        "いま聞かれたことに、選択肢のどの記録がもう十分に答えているか。同じことを聞かれて調べ、その答えを伝えた記録で"
+        "あること。言い方が違ってもよいが、指している日や試合が同じであること（「明日」「今日」は、記録の時刻といまの時刻で"
+        "別の日を指しうる）"
     )
-    state = f"[いま聞かれたこと]\n{question}"
-    questions = {
-        "answers": choice(
-            "いま聞かれたことに、選択肢のどの記録がもう答えているか。答えているとは、同じことを聞かれて調べ、"
-            "その答えを伝えた記録があること（言い方が違っても、聞いていることが同じならよい）",
-            criteria,
-        )
-    }
-    pick = picked(await _ask(client, state, questions), "answers", min_conf)
+    none = (
+        "どれも答えていない。別のことを聞いている・指している日や試合が違う・答えが足りない・まだ分かっていない・"
+        "「調べ直して」「もう一度」「最新の」と頼まれている"
+    )
+    # 見出し・問いの文・「答えていない」の説明・候補の id は切れないので、先に上限から引く。
+    fixed = len(head) + len(ask) + len(NOT_ANSWERED) + len(none) + sum(len(k) for k in candidates)
+    question, fitted = final_version.fit(question, candidates, limit - fixed)
+    questions = {"answers": choice(ask, {**fitted, NOT_ANSWERED: none})}
+    pick = picked(await _ask(client, head + question, questions), "answers", min_conf)
     return pick if pick in candidates else None
+
+
+async def judge_freshness(
+    client, *, record: str, now, min_conf: float, limit: int
+) -> "tuple[str, str] | None":
+    """選ばれた記録の答えの種類（`KIND_CRITERIA`）と、いまから出来事までどれくらいか（`REMAIN_CRITERIA`）（2026-11-23）。
+
+    済んだ結果（`KIND_RESULT`）は残りを問わないので、種類だけで返す（残りは空）。それ以外は両方が要る。読めない・確信度が低い・
+    失敗なら None（調べる）。送る字数が `limit` を超えるときは、記録の末尾を切る（最終版は時刻の頭と聞かれたことが前にある）。
+    """
+    head = f"[いまの時刻]\n{_now_text(now)}\n[記録]\n"
+    questions = {
+        "kind": choice("この記録の答えは何についてのものか", KIND_CRITERIA),
+        "remain": choice(
+            "いまの時刻から見て、この記録の答えの出来事（予報の日・試合など）までどれくらいか",
+            REMAIN_CRITERIA,
+        ),
+    }
+    fixed = len(head) + sum(
+        len(q["instructions"]) + sum(len(k) + len(v) for k, v in q["criteria"].items())
+        for q in questions.values()
+    )
+    answer = await _ask(client, head + record[: max(0, limit - fixed)], questions)
+    kind = picked(answer, "kind", min_conf)
+    if kind == KIND_RESULT:
+        return kind, ""
+    remain = picked(answer, "remain", min_conf)
+    if kind not in KIND_CRITERIA or remain not in REMAIN_CRITERIA:
+        return None
+    return kind, remain
 
 
 #: 記憶の申告の 4 通り（Jev が答える・根づきの更新がこれを使う）。主LLM には申告させない（記-r）。

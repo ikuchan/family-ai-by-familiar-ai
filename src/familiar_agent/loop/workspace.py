@@ -868,6 +868,7 @@ async def recall(
     )
     ws.returned_actions = returned
     ws.returned_lookups = returned_lookups(req)
+    req.recalled = list(memories)  # 調べる前に記憶の答えを探す候補（出-dv・引き直さない）
     return ws
 
 

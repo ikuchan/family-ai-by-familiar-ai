@@ -674,6 +674,10 @@ class ObservationMemory:
             since, until, exclude_id=exclude_id, direction=DIRECTION
         )
 
+    def bodies(self, obs_ids: "list[str]") -> "dict[str, str]":
+        """記録の本文を id で（`RelationStore.bodies`）。"""
+        return RelationStore(self._ctx).bodies(list(obs_ids))
+
     def thread(self, obs_id: str, *, before: int, after: int) -> list[dict]:
         """継起を前後にたどる（記-q・`RelationStore.thread`）。"""
         return RelationStore(self._ctx).thread(obs_id, before=before, after=after)

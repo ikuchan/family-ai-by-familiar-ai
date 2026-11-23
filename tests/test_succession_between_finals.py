@@ -77,6 +77,21 @@ def test_only_finals_closed_in_the_last_five_minutes_are_candidates(store):
         assert x not in ids
 
 
+def test_bodies_returns_the_record_text_by_id(store):
+    """記録の本文を id で引く（2026-11-23・記憶の答えの確かめ）。想起の文は面の文なので、印は本文で見る。"""
+    start = _base()
+    a = _put(store, f"{MARK}本文 a〕「a」と聞かれ、（記憶の答え・調べ直していない）…", start)
+    b = _put(store, f"{MARK}本文 b〕「b」と聞かれ、「c」と答えた", start)
+    got = store.bodies([a, b, str(uuid.uuid4())])
+    assert got[a].endswith("（記憶の答え・調べ直していない）…") and "「c」と答えた" in got[b]
+    assert len(got) == 2  # **反証の側**：無い id は入らない
+    assert store.bodies([]) == {}
+    # 改訂で畳まれた記録は返さない（古い答えを記憶の答えとして使わない）。
+    newer = _put(store, f"{MARK}直した b〕…", start + timedelta(seconds=1))
+    store.add(KIND_REVISION, [(b, "旧", 0), (newer, "新", 1)])
+    assert b not in store.bodies([b, newer]) and newer in store.bodies([b, newer])
+
+
 # ── 判定（偽の Jev）──────────────────────────────────────────────────────────────
 
 

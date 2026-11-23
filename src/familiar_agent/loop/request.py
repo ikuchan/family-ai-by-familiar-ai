@@ -106,6 +106,10 @@ class Request:
     # 対応づけるために振る。求めをまたいだ突き合わせは要らないので、一意な id ではなく
     # 通し番号で足りる。
     lookups: list[Lookup] = field(default_factory=list)
+    #: この求めでいちばん新しく組んだ W の記録（調べる前に記憶の答えを探す候補・出-dv）。`workspace.recall` が預け、呼ばれる
+    #: たびに入れ替わる（反復の想起・時期を移した引き直し・広げる道具）。調べものは背景のタスクで走り、W を持つ反復から
+    #: 引数で渡すには口を 5 つ通すことになるので、求めに預ける。
+    recalled: list = field(default_factory=list)
     # 返事で「使った」と申告された言いたかったこと（記録の id と中身・出-as 段 7）。声に出したら畳む。
     told_unsaid: list = field(default_factory=list)
     # 調べているあいだに名前無しで言い足されたこと（出-au 段 3）。`(obs_id, 本文)` の並び。W の作業状態の枠で

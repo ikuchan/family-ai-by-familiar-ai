@@ -382,9 +382,24 @@ class MemoryConfig:
     # 最終版どうしの継起の候補の幅（秒・記-t 段 2・2026-10-14 本人の決定・5 分〔仮〕）。いま閉じた求めの開始時刻から
     # さかのぼってこの幅のうちに閉じた最終版だけを、続き先の候補にする。`.env` を読まない。
     succession_window_sec: int = 300
-    # 調べる前に、この秒のうちに閉じた最終版から、同じ問いへの答えを探す（2026-11-23・本人の決定ア・1 時間〔仮〕）。
-    # 天気も試合の予定も同じ範囲（ものによって分けない）。
-    answer_reuse_window_sec: int = 3600
+    # 記憶の答えの「いまから出来事まで」（Jev が選ぶ・`jev_judges.REMAIN_CRITERIA`）→ その下限（時間・仮〔本人の確認待ち〕）。
+    # 予報・予定は、調べてからの経過がこの下限より短いときだけ記憶で答える（2026-11-23・本人の決め方「調べた時から出来事までの
+    # 半分を過ぎたら調べ直す」＝経過 < 残り）。下限なので調べ直しは早めに倒れる。過去の結果は残りを問わず使う。
+    answer_remain_hours: "dict[str, float]" = field(
+        default_factory=lambda: {
+            "passed": 0,
+            "lt1h": 0,
+            "lt1d": 1,
+            "lt3d": 24,
+            "lt1w": 72,
+            "lt1m": 168,
+            "later": 720,
+        }
+    )
+    # 調べる前の候補にする直近の最終版の範囲（時間）と、候補の上限（件・仮）。続けて聞いたときに前の答えを必ず見るため。
+    # 直近と W に載った最終版を 1 件ずつ交互に並べ、使えない記録を落としてから上限で切る（`finals.recent_answer`）。
+    answer_recent_hours: float = 6.0
+    answer_candidates_max: int = 8
     # 無関係排除の主たる足切り＝合成 final score の soft 床（生コサインではない）。
     # 0.05 起点（根拠台帳 §4・確定は5軸スコア分布の計測後）。
     recall_min_score: float = field(default_factory=lambda: _float_env("RECALL_MIN_SCORE", 0.05))
