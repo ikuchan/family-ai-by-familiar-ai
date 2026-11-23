@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：Notion との接続（v0.3）
+# familiar-ai 設計方針：Notion との接続
 
 > 知-k（Notion を読む口）。家の記録（`obsidian-memo`）・家の予定（`家の予定との接続`）と並ぶ、
 > **家の記録の目次と日次記録**への入口。
@@ -34,11 +34,3 @@
 ```
 
 `cd mcp && python -m notion_mcp --selftest`（実際に Notion を読む・鍵は `~/.config/obsidian-memo.env`）。2026-09-13 に疎通：「サッカー」で 3 件、日次記録 直近 3 日。
-
-## 更新履歴
-
-> v0.3：家族の名前を作り物の名前に置き換えた（出-do、2026-11-21）。
->
-> v0.2：日次記録に持ち主を足した（§2 の 5・`NOTION_JOURNAL_OWNER`・`get_journal_<英字>`・知-az・`a3576f8`・2026-10-11）。
-
-> v0.1：新規（2026-09-13）。

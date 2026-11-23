@@ -1,4 +1,4 @@
-# familiar-ai gap 分析・移行設計（旧構成 → 新構成）（v0.7）
+# familiar-ai gap 分析・移行設計（旧構成 → 新構成）
 
 v0.4：situated V2 の生成規則・移行を確定。関係初期集合＝presence/speaker/subject（視点列 participants_json/writer_id/subject_id から生成）。旧 `_remember` 複製モデル（scope speaker/witnessed/scene・kind utterance/witnessed/scene）の撤去を申し送りへ追加。移行写像を「既存観測1件→複数関係エッジ展開」へ精緻化。
 
@@ -91,12 +91,3 @@ appraisal／social_policy の trust/intimacy 依存を、想起した関係記�
 旧フィールド・旧 kind 参照の撤去は、旧名で grep して残存ゼロを完了条件にする。
 DB 更新を伴うため、既存テストの修正要否を検討し、マイグレーション方法をテストに含める。
 全体テストは `./scripts/run_tests.sh` で自分（Claude Code）が回す。
-
----
-
-## 更新履歴
-
-> v0.7：用語の整理に合わせて書き直した（2026-10-04）。「在席」は不特定の誰かがいるか（occupancy・カメラだけ）、特定の誰がいるかは「顔ぶれ」（presence・顔ぶれ表）と分け、改名したコードの名前（`OccupancySensor`・`CAMERA_OCCUPANCY_*`・`SPEAKER_HOLD_SEC`・`_match_voice` ほか）に揃えた。
-> v0.6：**用語の分離（6概念）を反映**した。`activation`・`a`・`score` に相乗りしていた量を、日本語・英語・記号の頭文字をすべて分けた（根づき groundedness g／高ぶり arousal a／勢い dynamism d／地力 merit m／顕著性 salience s／適合度 fit f）。旧称「覚醒」「喚起」は高ぶりへ統一した。定義は `用語_略語一覧` にある。
-
-> v0.5：一行に潰れていた「旧 DB テーブル → 新構成」対応表と「旧クラス → 新構成」対応表を Markdown テーブルへ復元（内容は保持）。旧運用の記述「全体テストはユーザー実施」を現行運用へ訂正。
