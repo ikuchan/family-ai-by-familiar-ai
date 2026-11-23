@@ -287,14 +287,46 @@ class EmbodiedAgent:
         self._init_tools()
 
     async def poses(self) -> list[Pose]:
-        """定点の一覧。在席マップ・norm・見回りが同じものを使う。"""
-        if self._poses is None:
-            cam = self.config.camera
-            self._poses = await build_pose_registry(cam.poses, self._camera, cam.pose_tolerance)
-            # `look` はこの一覧から選んで絶対移動する（道具の定義の enum にもなる）。
-            if self._camera is not None:
-                self._camera.set_poses(self._poses)
-        return self._poses
+        """定点の一覧。在席マップ・norm・見回りが同じものを使う。
+
+        起動のときにカメラがまだ繋がらずプリセットが読めないと、0 件のまま覚えて在席センサが黙って止まり、カメラが直っても
+        読み直さなかった（11/23 22:12・23:04・23:56・知-bw）。いまは、プリセットを読めなかったときだけ、カメラから映像が
+        届いていて、前の試しから `pose_retry_sec`（5 分・仮）たったら 1 回読み直す。カメラが落ちているあいだは聞きに行かない。
+        """
+        if self._poses is not None and not self._should_reread_poses():
+            return self._poses
+        lock = self.__dict__.setdefault("_poses_lock", asyncio.Lock())
+        async with lock:  # 在席センサと反復が同時に呼んでも、読み直しは 1 本
+            if self._poses is None or self._should_reread_poses():
+                cam = self.config.camera
+                first = self._poses is None
+                poses, read = await build_pose_registry(
+                    cam.poses, self._camera, cam.pose_tolerance, quiet=not first
+                )
+                self.__dict__["_poses_unread"] = not read
+                self.__dict__["_poses_tried_at"] = self._now_mono()
+                if first or len(poses) > len(self._poses or []):
+                    self._poses = poses
+                    # `look` はこの一覧から選んで絶対移動する（道具の定義の enum にもなる）。
+                    if self._camera is not None:
+                        self._camera.set_poses(self._poses)
+        return self._poses or []
+
+    def _now_mono(self) -> float:
+        clock = self.__dict__.get("_clock")
+        return float(clock()) if clock is not None else time.monotonic()
+
+    def _should_reread_poses(self) -> bool:
+        """プリセットを読めなかったとき、映像が届いていて、前の試しから `pose_retry_sec` たったか（知-bw）。"""
+        if not self.__dict__.get("_poses_unread"):
+            return False
+        cam = self._camera
+        try:
+            fresh = cam is not None and bool(cam.frame_is_fresh())
+        except Exception:  # noqa: BLE001
+            fresh = False
+        tried = float(self.__dict__.get("_poses_tried_at", 0.0))
+        return fresh and self._now_mono() - tried >= float(self.config.camera.pose_retry_sec)
 
     def _spawn_background_task(self, coro: Coroutine[Any, Any, None], *, name: str) -> None:
         """Run non-critical post-turn work off the response critical path."""

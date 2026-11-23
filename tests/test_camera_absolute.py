@@ -95,10 +95,11 @@ def test_a_preset_without_a_position_is_skipped():
     assert asyncio.run(cam.presets()) == []
 
 
-def test_presets_degrade_to_empty_when_the_camera_refuses():
+def test_presets_are_none_when_the_camera_refuses():
+    """読めなかったときは None（本当に 0 件の [] と分ける・知-bw・2026-11-24）。呼び手が読み直すかを決める。"""
     cam, ptz = _tool()
     ptz.GetPresets = AsyncMock(side_effect=RuntimeError("no presets"))
-    assert asyncio.run(cam.presets()) == []
+    assert asyncio.run(cam.presets()) is None
 
 
 # ── 動き終わるまで待つ（2026-09-16 実機 16:50）────────────────────────────────

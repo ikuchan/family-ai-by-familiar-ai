@@ -92,29 +92,37 @@ def merge_poses(config: list[Pose], presets: list[Pose], tolerance: float) -> li
     return merged
 
 
-async def build_pose_registry(config_text: str, camera, tolerance: float) -> list[Pose]:
-    """定点一覧を組む。Config を読み、カメラのプリセットを足す。
+async def build_pose_registry(
+    config_text: str, camera, tolerance: float, *, quiet: bool = False
+) -> "tuple[list[Pose], bool]":
+    """定点一覧を組む。Config を読み、カメラのプリセットを足す。返りは（一覧、プリセットを読めたか）。
 
     在席マップ・norm・見回りが同じ一覧を使う必要があるので、一箇所で組んで配る。
     プリセットは起動のたびに読み、人が後から足したものを次の起動から定点にする。
-    カメラが無い、あるいはプリセットを読めないときは Config の分だけで動く。
+    カメラが無い、あるいはプリセットを読めないときは Config の分だけで動く。読めなかったかを返すので、呼び手
+    （`EmbodiedAgent.poses`）はカメラが戻ったあとに読み直せる（知-bw）。カメラが無ければ「読めた」とする。
+    `quiet` は読み直すとき。記録を DEBUG に下げる（一覧が増えたときだけ INFO）。
     """
     poses = parse_poses(config_text)
-    presets: list[Pose] = []
+    presets: "list[Pose] | None" = []
     if camera is not None:
         try:
             presets = await camera.presets()
         except Exception as e:  # noqa: BLE001
-            logger.warning("カメラのプリセットを読めなかったので設定の定点だけ使う: %s", e)
-    merged = merge_poses(poses, presets, tolerance)
-    logger.info(
-        "定点 %d 件（設定 %d ＋ プリセット %d）：%s",
+            (logger.debug if quiet else logger.warning)(
+                "カメラのプリセットを読めなかったので設定の定点だけ使う: %s", e
+            )
+            presets = None
+    read = presets is not None
+    merged = merge_poses(poses, presets or [], tolerance)
+    (logger.debug if quiet and not read else logger.info)(
+        "定点 %d 件（設定 %d ＋ プリセット %s）：%s",
         len(merged),
         len(poses),
-        len(presets),
+        len(presets) if presets is not None else "読めず",
         "、".join(p.name for p in merged) or "なし",
     )
-    return merged
+    return merged, read
 
 
 def nearest_pose(poses: list[Pose], pan: float, tilt: float, tolerance: float) -> Pose | None:

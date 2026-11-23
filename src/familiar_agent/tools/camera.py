@@ -181,6 +181,11 @@ class CameraTool:
         self._thread = threading.Thread(target=self._capture_loop, daemon=True)
         self._thread.start()
 
+    def frame_is_fresh(self, within: float = 10.0) -> bool:
+        """`within` 秒のうちに映像を受けたか（カメラが繋がっているかの目安・知-bw）。まだ 1 枚も受けていなければ False。"""
+        at = self._last_frame_at
+        return at is not None and time.monotonic() - at <= within
+
     def frame_age(self) -> "float | None":
         """最後に映像を受けてからの秒（知-bv）。まだ 1 枚も受けていなければ、初めて仕事を立ててからの秒。立てていなければ None。"""
         at = self._last_frame_at or self._started_at
@@ -557,19 +562,19 @@ class CameraTool:
             logger.warning("Camera position read failed: %s", e)
             return None
 
-    async def presets(self) -> list[Pose]:
+    async def presets(self) -> "list[Pose] | None":
         """カメラに登録されたプリセットを定点として読む。
 
-        人がカメラのアプリで足したものがそのまま定点になる。読めなければ空を返す
-        （Config の定点だけで動ける）。
+        人がカメラのアプリで足したものがそのまま定点になる。読めなければ None を返す（本当に 0 件の [] と分ける・
+        呼び手が後で読み直すかを決める・知-bw・2026-11-24）。
         """
         if not await self._ensure_connected():
-            return []
+            return None
         try:
             raw = await self._ptz.GetPresets({"ProfileToken": self._profile_token})
         except Exception as e:  # noqa: BLE001
             logger.warning("Camera preset read failed: %s", e)
-            return []
+            return None
         out: list[Pose] = []
         for item in raw or []:
             pos = getattr(item, "PTZPosition", None)
