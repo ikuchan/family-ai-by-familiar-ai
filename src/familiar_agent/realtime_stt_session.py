@@ -537,8 +537,8 @@ def create_realtime_stt_session(
     # `on` で Test STT は OK なのに集音が無い、という食い違いになる（2026-09-16 実機）。
     enabled = _bool_env("REALTIME_STT")
     api_key = os.environ.get("ELEVENLABS_API_KEY", "")
-    language_code = os.environ.get("STT_LANGUAGE", "ja").strip()
     stt_config = STTConfig()
+    language_code = stt_config.language.strip()
     # 名前を語の組にする（2026-09-20）。綴りを全部 STT へ渡し、聞き違いの綴りで上がった
     # 書き起こしは `_transcribe` が先頭の綴りへ直す（`stt_rules.fix_words`）。
     names = parse_me_names(read_me_md())

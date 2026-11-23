@@ -6,7 +6,6 @@ import argparse
 import asyncio
 import json
 import logging
-import os
 import re
 import socket
 import subprocess
@@ -330,10 +329,6 @@ async def _discover_ssdp_cameras(timeout: float = 3.0) -> list[dict[str, str]]:
 
 def get_local_network_prefix() -> str | None:
     """Best-effort `/24` prefix for local fallback scanning."""
-    env_prefix = (os.environ.get("FAMILIAR_CAMERA_DISCOVERY_PREFIX", "") or "").strip()
-    if env_prefix:
-        return env_prefix
-
     commands = (
         ["ip", "route", "get", "1.1.1.1"],
         ["ip", "route"],

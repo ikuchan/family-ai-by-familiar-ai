@@ -621,7 +621,9 @@ async def test_call_times_out_and_returns_error(tmp_path: Path, monkeypatch) -> 
 
     sess.call_tool = _hang
 
-    monkeypatch.setenv("MCP_CALL_TIMEOUT", "0.05")
+    import familiar_agent.mcp_client as mcp_client_mod
+
+    monkeypatch.setattr(mcp_client_mod, "CALL_TIMEOUT_SEC", 0.05)
 
     from familiar_agent.mcp_client import MCPClientManager
 

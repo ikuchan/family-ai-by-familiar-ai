@@ -209,8 +209,6 @@ def test_get_local_network_prefix_parses_default_gateway_route(
 ) -> None:
     import familiar_agent.camera_discovery as mod
 
-    monkeypatch.delenv("FAMILIAR_CAMERA_DISCOVERY_PREFIX", raising=False)
-
     def _fake_check_output(cmd, text=True, stderr=None):
         if cmd == ["ip", "route", "get", "1.1.1.1"]:
             raise RuntimeError("route get unavailable")
@@ -226,7 +224,6 @@ def test_get_local_network_prefix_falls_back_to_socket_probe(
 ) -> None:
     import familiar_agent.camera_discovery as mod
 
-    monkeypatch.delenv("FAMILIAR_CAMERA_DISCOVERY_PREFIX", raising=False)
     monkeypatch.setattr(
         mod.subprocess,
         "check_output",

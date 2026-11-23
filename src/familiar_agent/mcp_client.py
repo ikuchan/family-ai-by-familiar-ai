@@ -51,14 +51,17 @@ logger = logging.getLogger(__name__)
 #: 数十秒かかる道具（Vault を読んで考える `ask_vault_*`・`家の記録との接続` §2）。相手側の既定は 300 秒。
 SLOW_TOOL_PREFIXES = ("ask_vault_",)
 SLOW_TOOL_TIMEOUT_SEC = 120.0  # 〔仮・知-g-い〕
+#: 道具 1 回の時間切れ（秒）。以前は環境変数 `MCP_CALL_TIMEOUT` でも変えられたが、`.env` は資格情報だけ（2026-11-23）。
+CALL_TIMEOUT_SEC = 30.0
+#: MCP の口へつなぐ時間切れ（秒）。
+CONNECT_TIMEOUT_SEC = 30.0
 
 
 def call_timeout_for(tool_name: str) -> float:
-    """道具ごとの時間切れ（秒）。既定は `MCP_CALL_TIMEOUT`（30）、遅い道具は長い。"""
-    base = float(os.environ.get("MCP_CALL_TIMEOUT", "30"))
+    """道具ごとの時間切れ（秒）。既定は `CALL_TIMEOUT_SEC`（30）、遅い道具は長い。"""
     if any(tool_name.startswith(p) for p in SLOW_TOOL_PREFIXES):
-        return max(base, float(os.environ.get("MCP_SLOW_CALL_TIMEOUT", str(SLOW_TOOL_TIMEOUT_SEC))))
-    return base
+        return max(CALL_TIMEOUT_SEC, SLOW_TOOL_TIMEOUT_SEC)
+    return CALL_TIMEOUT_SEC
 
 
 @dataclass(frozen=True)
@@ -106,9 +109,6 @@ def _compress_tavily_result(text: str) -> str:
     return "\n".join(
         line for line in text.splitlines() if not line.startswith(_TAVILY_SKIP_PREFIXES)
     )
-
-
-_CONNECT_TIMEOUT = float(os.environ.get("MCP_CONNECT_TIMEOUT", "30"))
 
 
 class MCPClientManager:
@@ -208,7 +208,7 @@ class MCPClientManager:
             params = StdioServerParameters(command=command, args=args, env=env, cwd=cwd)
             read, write = await ctx.enter_async_context(stdio_client(params))
             session: Any = await ctx.enter_async_context(ClientSession(read, write))
-            await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
+            await asyncio.wait_for(session.initialize(), timeout=CONNECT_TIMEOUT_SEC)
 
         elif server_type == "sse":
             from mcp.client.sse import sse_client as _sse_client
@@ -220,7 +220,7 @@ class MCPClientManager:
 
             read, write = await ctx.enter_async_context(_sse_client(url=url))
             session = await ctx.enter_async_context(ClientSession(read, write))
-            await asyncio.wait_for(session.initialize(), timeout=_CONNECT_TIMEOUT)
+            await asyncio.wait_for(session.initialize(), timeout=CONNECT_TIMEOUT_SEC)
 
         else:
             logger.warning("MCP server '%s': unsupported type '%s', skipping", name, server_type)
@@ -325,7 +325,7 @@ class MCPClientManager:
                 self._connect_one(
                     name, cfg, ClientSession, StdioServerParameters, stdio_client, stack=new_stack
                 ),
-                timeout=_CONNECT_TIMEOUT,
+                timeout=CONNECT_TIMEOUT_SEC,
             )
             logger.info("MCP server '%s' reconnected successfully", name)
             return True

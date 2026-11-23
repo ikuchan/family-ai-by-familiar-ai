@@ -1,4 +1,4 @@
-# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.5）
+# familiar-ai 設計方針：家の記録との接続（obsidian-memo）（v0.6）
 
 ## この文書が決めること
 
@@ -144,7 +144,7 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
   `記録に「{query}」を聞く`、入力は `{"question": query}`。
 - 遅さ：調べものはもとから投げっぱなし（背景タスク・完了は待ち行列・5 秒超で「まだかかっている」1 回）なので
   別経路は無い。MCP の時間切れだけ `ask_vault_*` は **120 秒〔仮〕**（`mcp_client.call_timeout_for`・
-  `MCP_SLOW_CALL_TIMEOUT`。相手側の既定は 300 秒）。
+  定数 `SLOW_TOOL_TIMEOUT_SEC`。環境変数では変えない・2026-11-23。相手側の既定は 300 秒）。
 - 返りの末尾 `──（YYYY-MM-DD のセッション／継続）` は `DIF.call_tool` が落とす（`strip_session_mark`）。
 - 失敗は出-o のとおり（「道具が使えず失敗した」・その求めのあいだ候補から外す）。
 - **Notion との書き分け**（2026-09-15・実機で「コーチングどうなった？」が 2 回とも `notion_search` へ行った）：候補文で
@@ -167,6 +167,8 @@ _FULL_ACTIONS = ("say", "recall", "search_deferred", "fetch_deferred", "see", "l
 
 ## 更新履歴
 
+> v0.6：MCP の時間切れを環境変数でなく定数にした（2026-11-23）。
+>
 > v0.5：家族の名前を作り物の名前に置き換えた（出-do、2026-11-21）。
 >
 > v0.4 追記（2026-09-15 夕）：知-g-い を実機で確認（`/speaker　パパ`→「髭剃りどうなったっけ？」→ `vault` 29.6 秒→答え）。Notion と Vault の候補文を書き分けた。
