@@ -211,8 +211,8 @@ flowchart TD
   CORE -->|8| BOOT
   CORE -->|11| C
   CORE -->|22| DIF
-  CORE -->|12| GMD
-  CORE -->|32| O
+  CORE -->|13| GMD
+  CORE -->|33| O
   CORE -->|20| RES
   CORE -->|1| REST
   CORE -->|3| SS
@@ -231,7 +231,7 @@ flowchart TD
   GMD -->|1| CORE
   GMD -->|1| DIF
   O -->|2| B
-  O -->|12| BOOT
+  O -->|13| BOOT
   O -->|4| C
   O -->|11| CORE
   O -->|7| GMD

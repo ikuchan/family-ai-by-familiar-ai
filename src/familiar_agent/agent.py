@@ -628,6 +628,28 @@ class EmbodiedAgent:
                 )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("見えの普通を用意できなかった（景色の驚きは出ない）: %s", exc)
+            # 前の見えと見比べ（知-i 段 2）。見比べは見えの説明と同じ軽い視覚のモデル。画像を受けないモデルなら付けない。
+            from . import view_change as _vc
+
+            scene = self._scene_backend
+            if _vc.can_judge(scene):
+                try:
+                    from .store.pose_views import PoseViewStore
+
+                    async def _judge_view(before: bytes, after: bytes):
+                        return await _vc.compare(scene, before, after)
+
+                    self._occupancy_sensor.attach_view_change(
+                        PoseViewStore(_get_db().conn()),
+                        _judge_view,
+                        threshold=cam_cfg.view_change_threshold,
+                        settled=cam_cfg.view_change_settled,
+                        cooldown_sec=cam_cfg.view_change_cooldown_sec,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.warning(
+                        "前の見えの見比べを用意できなかった（見えの普通は動く）", exc_info=True
+                    )
             # カメラが「動いた」と言ってきたら、間隔を待たずに確かめる。静止している人は
             # 動体を出さないので、イベントだけでは足りず、間隔の確認と併せて使う。
             self._motion_events = MotionEventWatcher(

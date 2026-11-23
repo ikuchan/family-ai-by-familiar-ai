@@ -235,16 +235,17 @@ def test_a_grown_norm_yields_a_distance():
 
 
 def test_the_distance_is_logged_with_the_boxes_for_measuring(caplog):
-    """知-i 段 1：見回りのたびに隔たりを info で残す（閾値を決める材料）。人が映った回を外せるよう、枠の数と動く人の数も残す。"""
+    """知-i 段 1 の測り：見回りのたびに隔たりを残す。人が映った回を外せるよう、枠の数と動く人の数も残す。
+    段 2 で足切りを決めたので、毎回の行は debug に戻した（info では 1 日約 3 MB）。"""
     import logging
 
     s, _, _ = _sensor_with_norm(
         people=1, norm=[1.0] + [0.0] * 383, observations=5, embedding=[0.0, 1.0] + [0.0] * 382
     )
-    with caplog.at_level(logging.INFO, logger="familiar_agent.occupancy_sensor"):
+    with caplog.at_level(logging.DEBUG, logger="familiar_agent.occupancy_sensor"):
         asyncio.run(s.check_once())
     lines = [r for r in caplog.records if "見えの隔たり" in r.getMessage()]
-    assert len(lines) == 1 and lines[0].levelno == logging.INFO
+    assert len(lines) == 1 and lines[0].levelno == logging.DEBUG
     pose, distance, boxes, people = lines[0].args
     assert pose == "出入り口" and distance > 0.9 and (boxes, people) == (1, 1)
 
@@ -274,3 +275,114 @@ def test_without_an_encoder_the_sensor_works_as_before():
     s, _, _ = _sensor(people=1)
     assert asyncio.run(s.check_once()) == "出入り口"
     assert s.scene_surprise() is None
+
+
+# --- 前の見えと見比べ（知-i 段 2） -----------------------------------------
+
+_FAR = [0.0, 1.0] + [
+    0.0
+] * 382  # 見えの普通（_NEAR）と同じで落ち着いているが、前の見え（_OLD）から遠い
+_OLD = [1.0] + [0.0] * 383
+
+
+def _sensor_with_views(*, earlier=None, verdict=None, people=0, tmp_path=None):
+    from familiar_agent.store.pose_views import EarlierView
+
+    path = tmp_path / "patrol.jpg"
+    path.write_bytes(b"\xff\xd8NOW")
+    s, camera, detector = _sensor(people=people, capture=("BASE64", str(path)))
+    encoder = MagicMock()
+    encoder.embed = AsyncMock(return_value=_FAR)
+    norms = MagicMock()
+    norms.load = MagicMock(return_value=(_FAR, 10))  # 普通と同じ＝落ち着いている（隔たり 0）
+    norms.save = MagicMock()
+    s.attach_visual_norm(encoder, norms)
+    views = MagicMock()
+    views.load = MagicMock(
+        return_value=None if earlier is None else EarlierView(earlier, b"\xff\xd8OLD", None)
+    )
+    views.save = MagicMock()
+    views.mark_checked = MagicMock()
+    judge = AsyncMock(return_value=verdict)
+    s.attach_view_change(views, judge, threshold=0.15, settled=0.02, cooldown_sec=6 * 3600.0)
+    return s, views, judge
+
+
+async def _check_and_settle(s):
+    await s.check_once()
+    await s.settle_view()
+
+
+def test_the_first_settled_empty_view_becomes_the_earlier_view(tmp_path):
+    s, views, judge = _sensor_with_views(tmp_path=tmp_path)
+    asyncio.run(_check_and_settle(s))
+    views.save.assert_called_once_with("出入り口", _FAR, b"\xff\xd8NOW")
+    judge.assert_not_awaited()
+
+
+def test_a_view_far_from_the_earlier_one_is_compared_and_a_moved_thing_replaces_it(
+    tmp_path, caplog
+):
+    import logging
+
+    s, views, judge = _sensor_with_views(
+        earlier=_OLD, verdict=("物", "棚に箱が増えた"), tmp_path=tmp_path
+    )
+    with caplog.at_level(logging.INFO, logger="familiar_agent.occupancy_sensor"):
+        asyncio.run(_check_and_settle(s))
+    judge.assert_awaited_once()
+    (before, after), _ = judge.await_args
+    assert (before, after) == (b"\xff\xd8OLD", b"\xff\xd8NOW")  # 前と今の画像を渡す
+    views.save.assert_called_once_with("出入り口", _FAR, b"\xff\xd8NOW")
+    assert any(
+        "見えが変わった" in r.getMessage() and r.levelno == logging.INFO for r in caplog.records
+    )
+
+
+def test_only_light_also_replaces_the_earlier_view_so_it_is_not_asked_again_and_again(tmp_path):
+    """明るさの違う前の見えのままだと、6 時間ごとに見比べを呼び続ける。読めた判定なら種類によらず置き換える。"""
+    s, views, judge = _sensor_with_views(earlier=_OLD, verdict=("明るさ", ""), tmp_path=tmp_path)
+    asyncio.run(_check_and_settle(s))
+    judge.assert_awaited_once()
+    views.save.assert_called_once_with("出入り口", _FAR, b"\xff\xd8NOW")
+    views.mark_checked.assert_not_called()
+
+
+def test_the_patrol_does_not_wait_for_the_comparison(tmp_path):
+    """見比べは別の仕事。返らない見比べのあいだも、見回りは読みを残して戻る。2 つめの見比べは始めない。"""
+
+    async def go():
+        s, views, judge = _sensor_with_views(earlier=_OLD, verdict=None, tmp_path=tmp_path)
+        gate = asyncio.Event()
+
+        async def slow(before, after):
+            await gate.wait()
+            return ("物", "x")
+
+        s._view_judge = slow
+        await asyncio.wait_for(s.check_once(), 1.0)
+        assert s.last_reading() is not None
+        await asyncio.wait_for(s.check_once(), 1.0)
+        assert views.load.call_count == 1  # 走っている見比べがあるので、2 回目は前の見えも読まない
+        gate.set()
+        await s.settle_view()
+        views.save.assert_called_once()
+
+    asyncio.run(go())
+
+
+def test_no_verdict_also_records_the_check_so_it_does_not_ask_every_patrol(tmp_path):
+    s, views, judge = _sensor_with_views(earlier=_OLD, verdict=None, tmp_path=tmp_path)
+    asyncio.run(_check_and_settle(s))
+    views.save.assert_not_called()
+    views.mark_checked.assert_called_once_with("出入り口")
+
+
+def test_a_view_with_someone_in_it_is_neither_kept_nor_compared(tmp_path):
+    s, views, judge = _sensor_with_views(
+        earlier=_OLD, verdict=("物", "x"), people=1, tmp_path=tmp_path
+    )
+    asyncio.run(_check_and_settle(s))
+    judge.assert_not_awaited()
+    views.save.assert_not_called()
+    views.mark_checked.assert_not_called()

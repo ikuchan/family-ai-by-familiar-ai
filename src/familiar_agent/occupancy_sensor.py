@@ -25,9 +25,13 @@ from .poses import nearest_pose
 from .core.aio import wait_within
 from .core.occupancy_rules import StaticBoxes, count_moving, reset
 from .occupancy_map import OccupancyMap
+from . import view_change
 from .visual_norm import cosine_distance, is_ready, update_ema
 
 logger = logging.getLogger(__name__)
+
+# 見比べ 1 回の締切（秒）。視覚のモデルが返らなくても、次の見比べを塞がない。
+_VIEW_JUDGE_SEC = 30.0
 
 
 #: 人を見なかった読みの種類（知-bg 段 1）。居なくなった行に、この順で回数を並べる。
@@ -88,6 +92,14 @@ class OccupancySensor:
         # 見えの「普通」。無ければ在席だけを見る（S4 を入れる前と同じ動き）。
         self._encoder: Any = None
         self._norm_store: Any = None
+        # 前の見えと見比べ（知-i 段 2）。挿されなければ見比べない。
+        self._view_store: Any = None
+        self._view_judge: Any = None
+        self._view_threshold = 0.0
+        self._view_settled = 0.0
+        self._view_cooldown_sec = 0.0
+        #: 走っている見比べ（同時に 1 つだけ・見回りは待たない）。
+        self._view_task: asyncio.Task | None = None
         self._scene_surprise: float | None = None
         self._frame_b64: str | None = None
         self._task: asyncio.Task | None = None
@@ -119,6 +131,26 @@ class OccupancySensor:
         """見えの「普通」を扱う部品を挿す（`知覚在席` §3-4 の見え層）。"""
         self._encoder = encoder
         self._norm_store = store
+
+    def attach_view_change(
+        self,
+        store: Any,
+        judge: Any,
+        *,
+        threshold: float,
+        settled: float,
+        cooldown_sec: float,
+    ) -> None:
+        """前の見えの置き場と、前と今の画像（JPEG のバイト列 2 つ）を見比べる関数を挿す（知-i 段 2）。
+
+        `judge(before, after)` は `("物" | "明るさ" | "なし", 何が変わったか)` か None を返す。値は
+        `config.camera.view_change_*` から渡す（既定はそこにだけ置く）。
+        """
+        self._view_store = store
+        self._view_judge = judge
+        self._view_threshold = threshold
+        self._view_settled = settled
+        self._view_cooldown_sec = cooldown_sec
 
     def scene_surprise(self) -> float | None:
         """直近の $\\widehat{S}_{景色}$（定点の「普通」からのコサイン距離）。
@@ -232,7 +264,7 @@ class OccupancySensor:
             logger.exception("在席の確認に失敗した（記録しない）: %s", e)
             self._count("確認に失敗")
             return None
-        await self._update_scene_norm(pose.name, path)
+        seen = await self._update_scene_norm(pose.name, path)
         now = time.time()
         # 動かない枠は物（知-v）。数える前に落とす。
         people, self._static[pose.name] = count_moving(
@@ -244,8 +276,8 @@ class OccupancySensor:
             grace_sec=self._static_grace,
         )
         if self._scene_surprise is not None:
-            # 知-i 段 1：「大きく変わった」の閾値を決める材料（人が映った回を外して分布を見る）。段 2 で debug へ戻す
-            logger.info(
+            # 知-i 段 1 の測り（2026-11-22〜24 に 41,331 回集めて段 2 の足切りを決めた）。毎回なので debug
+            logger.debug(
                 "見えの隔たり：%s は %.3f（枠 %d 個・動く人 %d 人）",
                 pose.name,
                 self._scene_surprise,
@@ -260,6 +292,8 @@ class OccupancySensor:
                 len(boxes) - people,
                 self._static_sec,
             )
+        if seen is not None:
+            await self._watch_view(pose.name, seen, path, len(boxes), now)
         self._last_reading = (pose.name, int(people), now)
         if people > 0:
             pmap.mark_seen(pose.name, now)
@@ -272,7 +306,7 @@ class OccupancySensor:
             self._count("動かないので数えない" if boxes else "枠なし")
         return pose.name
 
-    async def _update_scene_norm(self, pose_name: str, path: str) -> None:
+    async def _update_scene_norm(self, pose_name: str, path: str) -> list[float] | None:
         """見えの「普通」を1枚ぶん育て、そこからの隔たりを控える。
 
         見えが取れなくても在席の判定は続ける（人が居るかは YOLO が別に見ている）。
@@ -280,20 +314,104 @@ class OccupancySensor:
         """
         self._scene_surprise = None
         if self._encoder is None or self._norm_store is None:
-            return
+            return None
         try:
             seen = await self._encoder.embed(path)
             if seen is None:
-                return
+                return None
             norm, observations = self._norm_store.load(pose_name)
             self._scene_surprise = (
                 cosine_distance(norm, seen) if norm is not None and is_ready(observations) else None
             )
             self._norm_store.save(pose_name, update_ema(norm, seen), observations=observations + 1)
+            return list(seen)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
             logger.exception("見えの普通を更新できなかった（在席の判定は続ける）: %s", e)
+            return None
+
+    async def _watch_view(
+        self, pose_name: str, seen: list[float], path: str, boxes: int, now: float
+    ) -> None:
+        """前の見えと比べ、変わった候補なら前と今の見比べを別の仕事で始める（知-i 段 2・`知覚在席` §4）。
+
+        人が映っていない・落ち着いた見えだけを扱う（毎回 DB を読まないよう、先にここで落とす）。前の見えが
+        まだ無ければ、この見えを前の見えにする。見比べは視覚のモデルを呼ぶので、見回りを待たせないよう
+        1 回きりの仕事にし、同時には 1 つだけ走らせる。いまは記録するだけで、話題にはしない（段 2b）。
+        """
+        if self._view_store is None or self._view_judge is None:
+            return
+        surprise = self._scene_surprise
+        if boxes > 0 or surprise is None or surprise > self._view_settled:
+            return
+        if self._view_task is not None and not self._view_task.done():
+            return
+        try:
+            earlier = self._view_store.load(pose_name)
+            if earlier is None:
+                with open(path, "rb") as f:
+                    self._view_store.save(pose_name, seen, f.read())
+                logger.info("前の見えを残した：%s", pose_name)
+                return
+            if not view_change.is_candidate(
+                ref=earlier.embedding,
+                seen=seen,
+                surprise=surprise,
+                boxes=boxes,
+                checked_at=earlier.checked_at,
+                now=now,
+                threshold=self._view_threshold,
+                settled=self._view_settled,
+                cooldown_sec=self._view_cooldown_sec,
+            ):
+                return
+            with open(path, "rb") as f:
+                image = f.read()  # 見回りの画像は次の回に書き直されるので、いま読んでおく
+        except Exception:  # noqa: BLE001
+            logger.exception("前の見えを読めなかった（在席の判定は続ける）")
+            return
+        self._view_task = asyncio.create_task(
+            self._compare_view(pose_name, seen, earlier, image), name="view-compare"
+        )
+
+    async def _compare_view(
+        self, pose_name: str, seen: list[float], earlier: Any, image: bytes
+    ) -> None:
+        """前と今を見比べる 1 回（締切 `_VIEW_JUDGE_SEC`）。読めた判定なら種類によらず前の見えを今に置き換え
+        （明るさの違う前の見えと比べ続けない）、読めなければ見比べた時刻だけ残す（見回りのたびに呼び直さない）。"""
+        distance = cosine_distance(earlier.embedding, seen)
+        verdict = None
+        try:
+            verdict = await wait_within(self._view_judge(earlier.image, image), _VIEW_JUDGE_SEC)
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001
+            logger.warning("前の見えと見比べられなかった：%s", pose_name, exc_info=True)
+        try:
+            if verdict is None:
+                self._view_store.mark_checked(pose_name)
+                logger.info(
+                    "見比べた：%s は 読めなかった（前の見えから %.3f）", pose_name, distance
+                )
+                return
+            self._view_store.save(pose_name, seen, image)
+            if verdict[0] == "物":
+                logger.info(
+                    "見えが変わった：%s（前の見えから %.3f）%s", pose_name, distance, verdict[1]
+                )
+            else:
+                logger.info(
+                    "見比べた：%s は %s（前の見えから %.3f）", pose_name, verdict[0], distance
+                )
+        except Exception:  # noqa: BLE001
+            logger.exception("見比べの結果を残せなかった：%s", pose_name)
+
+    async def settle_view(self) -> None:
+        """走っている見比べを待つ（試験と止めるとき）。"""
+        if self._view_task is not None:
+            with contextlib.suppress(asyncio.CancelledError):
+                await self._view_task
 
     async def start(self) -> None:
         if self._task and not self._task.done():
@@ -307,6 +425,9 @@ class OccupancySensor:
         with contextlib.suppress(asyncio.CancelledError):
             await self._task
         self._task = None
+        if self._view_task is not None and not self._view_task.done():
+            self._view_task.cancel()
+            await self.settle_view()
 
     async def _run(self) -> None:
         while True:

@@ -46,6 +46,7 @@ _EXACT = {
     "occupancy_sensor": "GMD",
     "occupancy_map": "GMD",
     "visual_norm": "GMD",
+    "view_change": "GMD",
     "time_decay": "GMD",
     "core/drive_autonomy": "GMD",
     "core/drive_dynamics": "GMD",

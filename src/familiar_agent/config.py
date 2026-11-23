@@ -176,6 +176,13 @@ class CameraConfig:
     occupancy_static_grace_sec: float = field(
         default_factory=lambda: _float_env("OCCUPANCY_STATIC_GRACE_SEC", 90.0)
     )
+    # 前の見えと見比べる（知-i 段 2・`設計詳細_活性_O書込_知覚在席` §4・値はすべて仮〔本人の確認待ち〕）。
+    # 前の見えからの距離がこれ以上なら見比べに回す（足切り。枠 0 個の見えの移動平均からの隔たりは 99% で 0.005〜0.385）。
+    view_change_threshold: float = 0.15
+    # 移動平均からの隔たりがこれ以下なら「落ち着いた見え」とする（枠 0 個の中央は 0.001〜0.013）。
+    view_change_settled: float = 0.02
+    # 同じ定点を見比べ直すまで空ける秒（明るさだけの違いで繰り返し呼ばない）。
+    view_change_cooldown_sec: float = 6 * 3600.0
 
     def stream_url(self, stream: str = "stream1") -> str | int:
         """Build the RTSP or USB source URL — the single authoritative place.
