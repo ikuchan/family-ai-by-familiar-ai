@@ -148,3 +148,6 @@ dev      = [
 gui      = ["PySide6>=6.7.0", "qasync>=0.27.0"]
 camera   = ["opencv-python>=4.00", "onvif-zeep-async>=4.0.0", "Pillow>=10.0.0", "zeroconf>=0.132.2"]
 voice    = ["openai-whisper", "sounddevice>=0.5.5", "soundfile>=0.13.1", "av>=14.0.0"]
+memo = [
+    "peft>=0.13",
+]
