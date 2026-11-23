@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from ..db import under_db_lock
+
 import logging
 
 logger = logging.getLogger(__name__)
@@ -16,6 +18,7 @@ logger = logging.getLogger(__name__)
 NORM_DIM = 384
 
 
+@under_db_lock
 class PoseNormStore:
     """`pose_norms` の読み書き。"""
 

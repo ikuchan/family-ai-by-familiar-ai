@@ -8,6 +8,8 @@
 
 from __future__ import annotations
 
+from ..db import under_db_lock
+
 from datetime import datetime, timedelta, timezone
 
 import psycopg2.extras
@@ -18,6 +20,7 @@ _COLS = (
 )
 
 
+@under_db_lock
 class TimerStore:
     def __init__(self, conn) -> None:
         self._conn = conn

@@ -10,6 +10,8 @@
 
 from __future__ import annotations
 
+from ..db import under_db_lock
+
 from datetime import date, datetime, timezone
 
 import numpy as np
@@ -19,6 +21,7 @@ KINDS = ("face", "voice")
 ORIGINS = ("registered", "today")
 
 
+@under_db_lock
 class RecognitionEmbeddingStore:
     def __init__(self, conn) -> None:
         self._conn = conn

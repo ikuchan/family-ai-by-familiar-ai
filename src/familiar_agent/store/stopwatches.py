@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from ..db import under_db_lock
+
 from datetime import datetime, timezone
 
 import psycopg2.extras
@@ -12,6 +14,7 @@ import psycopg2.extras
 _COLS = "id, label, started_at, stopped_at, asked_by, obs_id, expired"
 
 
+@under_db_lock
 class StopwatchStore:
     def __init__(self, conn) -> None:
         self._conn = conn

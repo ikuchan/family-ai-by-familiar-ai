@@ -112,15 +112,42 @@ def get_db() -> "Database":
     return _INSTANCE
 
 
+def under_db_lock(cls):
+    """共有の接続を使う保存先の公開メソッドを、すべて共有の鍵の中で動かす（2026-11-23）。
+
+    保存先（見えの普通・タイマー・アラームなど）は共有の接続を渡されて確定するが、鍵を取っていなかった。記憶の保存が
+    別のスレッドで鍵を持って書いている途中に確定し、セーブポイントを消して記録を落とした（11/23 09:40）。呼び手ごとに
+    鍵を取らせると取り忘れるので、保存先の側で 1 度に包む。
+    """
+    import functools
+
+    for name, fn in list(vars(cls).items()):
+        if name.startswith("_") or not callable(fn):
+            continue
+
+        def wrap(f):
+            @functools.wraps(f)
+            def locked(*a, **kw):
+                with get_db().lock:
+                    return f(*a, **kw)
+
+            return locked
+
+        setattr(cls, name, wrap(fn))
+    return cls
+
+
 class Database:
     """Thread-safe PostgreSQL connection wrapper (singleton)."""
 
     def __init__(self) -> None:
         self._conn: "psycopg2.extensions.connection | None" = None
-        self._lock = threading.Lock()
+        # 同じスレッドなら入れ子で取れる鍵（`under_db_lock` の保存先が、公開メソッドからほかの公開メソッドを呼んでも
+        # 固まらない）。ほかのスレッドから見れば、いままでどおり 1 度に 1 つだけ。
+        self._lock = threading.RLock()
 
     @property
-    def lock(self) -> threading.Lock:
+    def lock(self) -> "threading.RLock":
         return self._lock
 
     def conn(self) -> "psycopg2.extensions.connection":

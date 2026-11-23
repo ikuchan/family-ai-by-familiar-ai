@@ -42,7 +42,7 @@ class StoreContext:
     """層が共有する道具。"""
 
     db: Any  # Database シングルトン、またはテストの sqlite3 接続
-    lock: threading.Lock
+    lock: "threading.RLock"
     person_id: str
     embedder: Any
 

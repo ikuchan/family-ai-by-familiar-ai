@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+from ..db import under_db_lock
+
 from datetime import datetime, timezone
 
 import psycopg2.extras
@@ -12,6 +14,7 @@ import psycopg2.extras
 _COLS = "id, label, at, set_at, fired_at, cancelled_at, asked_by, obs_id, passes_quiet"
 
 
+@under_db_lock
 class AlarmStore:
     def __init__(self, conn) -> None:
         self._conn = conn
