@@ -382,12 +382,14 @@ class InformationProcessing:
         # QC：完了キュー（Trigger Queue）。RH（資源ハンドラ）が書き、LPM が drain する。
         # 要素＝(何を探したか, 結果, 起点の open 意図 id)。意図 id は完了が再会して解決するのに使う。
         self._triggers: asyncio.Queue[Trigger] = asyncio.Queue()
-        # 外の機械（声・調べもの）へはこの口だけを通す（環-e-は）。要るものだけを渡す。
+        # 外の機械（声・調べもの・目と首）へはこの口だけを通す（環-e-は・環-ac）。要るものだけを渡す。
         self._dif = DIF(
             tts=agent._tts,
             search=agent._deferred_search,
             fetch=agent._deferred_fetch,
             mcp=agent._mcp,
+            # 目と首（`see`・`look`・環-ac (1)）。カメラは後から差し替わるので、呼ぶたびに引く。
+            camera=lambda: getattr(agent, "_camera", None),
             # 機器の出来事をこのループへ積む口も持つ（メモの見回り・タイマーが `device()` を呼ぶ・
             # 実機で `'NoneType' object has no attribute 'push_device'`・2026-09-15）。
             ip=self,
@@ -2047,7 +2049,7 @@ class InformationProcessing:
         """
         agent = self._agent
         try:
-            text, image_b64 = await agent._camera.call(action, tool_input)
+            text, image_b64 = await self._dif.perceive(action, tool_input)
         except asyncio.CancelledError:
             raise
         except Exception as e:  # noqa: BLE001
