@@ -139,3 +139,30 @@ def test_hitting_max_tokens_in_an_image_completion_is_logged_too(caplog):
     with caplog.at_level("INFO"):
         asyncio.run(b.complete_with_image("p", "aGVsbG8=", max_tokens=100))
     assert any("上限で止まった" in r.message for r in caplog.records)
+
+
+def test_the_system_text_of_a_utility_call_is_marked_for_caching():
+    """軽量LLM の呼び出しでも、システムの文にキャッシュの印を付ける（出-dx・2026-11-24）。
+
+    11/21〜23 の haiku の呼び出し 301 回（入力 205 万トークン）で、キャッシュの読み書きが 0 だった。システムの文を文字列のまま
+    送っていたため。調停の書き手のシステムの文は主LLM と同じ変わらない部分で、呼び出しの 80% が前から 5 分以内に続く。
+    """
+    b = _backend([_text("ok")])
+    assert asyncio.run(b.complete("問い", 10, system="立ち位置")) == "ok"
+    sent = b.client.messages.create.await_args.kwargs["system"]
+    assert sent == [{"type": "text", "text": "立ち位置", "cache_control": {"type": "ephemeral"}}]
+
+
+def test_no_system_text_means_no_system_block():
+    """**反証の側**：システムの文が無い呼び出しには、何も足さない。"""
+    b = _backend([_text("ok")])
+    asyncio.run(b.complete("問い", 10))
+    assert "system" not in b.client.messages.create.await_args.kwargs
+
+
+def test_the_system_text_of_a_photo_call_is_marked_for_caching():
+    """写真を見る軽量LLM の呼び出し（`complete_with_image`）も、システムの文にキャッシュの印を付ける（出-dx）。"""
+    b = _backend([_text("ok")])
+    asyncio.run(b.complete_with_image("何が見える？", "aGVsbG8=", 10, system="立ち位置"))
+    sent = b.client.messages.create.await_args.kwargs["system"]
+    assert sent == [{"type": "text", "text": "立ち位置", "cache_control": {"type": "ephemeral"}}]

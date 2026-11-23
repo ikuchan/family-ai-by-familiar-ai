@@ -40,6 +40,17 @@ def _text_of(resp) -> str:
     return "".join(parts).strip()
 
 
+def _cached_system(system: str) -> list[dict]:
+    """軽量LLM の呼び出し（`complete`・`complete_with_image`）のシステムの文に、キャッシュの印を付ける（出-dx・2026-11-24）。
+
+    文字列のまま送っていたので、11/21〜23 の haiku の呼び出し 301 回（入力 205 万トークン）でキャッシュの読み書きが 0 だった。
+    調停の書き手のシステムの文は呼び出しどうしで変わらず、呼び出しの 80% が前から 5 分以内に続くので、読みで安くなる見込み。
+    書くたびに割増がかかるので、5 分以内に続かない呼び出し（夜のまばらな呼び出し）はかえって高くなる。最小の長さに届かなければ
+    API がキャッシュしないだけで、壊れはしない。主LLM のキャッシュ（道具が先・モデルが違う）とは分け合わない。
+    """
+    return [{"type": "text", "text": system, "cache_control": {"type": "ephemeral"}}]
+
+
 def _log_usage(kind: str, resp, *, tools: int = 0, model: str = "") -> None:
     """呼び出しごとのキャッシュの読み・書きと入力・出力のトークン数を 1 行残す（出-bs の計測・2026-10-19）。
 
@@ -450,7 +461,8 @@ class AnthropicBackend:
             )  # 思考の指定と足すトークン（モデルごと・`_complete_params`）
             max_tokens += more
             if system:
-                extra["system"] = system
+                # キャッシュの印を付ける（出-dx・2026-11-24・`_cached_system`）。
+                extra["system"] = _cached_system(system)
             resp = await self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
@@ -486,7 +498,8 @@ class AnthropicBackend:
             )  # 思考の指定と足すトークン（モデルごと・`_complete_params`）
             max_tokens += more
             if system:
-                extra["system"] = system
+                # キャッシュの印を付ける（出-dx・2026-11-24・`_cached_system`）。
+                extra["system"] = _cached_system(system)
             resp = await self.client.messages.create(
                 model=self.model,
                 max_tokens=max_tokens,
