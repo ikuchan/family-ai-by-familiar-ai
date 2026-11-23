@@ -83,7 +83,11 @@ was_running=$([[ -n "$(paju_pid)" ]] && echo 1 || echo 0)
 stop_paju || exit 1
 before=$(git rev-parse HEAD)
 out=$(./scripts/run_tests.sh -m "$msg" 2>&1)
+# 全文を残す（末尾だけでは、赤のときにどれが落ちたか分からず、全体を回し直すことになった・2026-11-23）。
+printf '%s\n' "$out" >"$HOME/.cache/familiar-ai/last_test.log"
 tail -25 <<<"$out"
+grep -E "^(FAILED|ERROR) " <<<"$out" | head -20
+echo "試験の全文：$HOME/.cache/familiar-ai/last_test.log"
 
 # 4. 緑だったのに pre-commit の整形でコミットが止まったときだけ、同じメッセージでもう一度（赤ならコミットしない）。
 if grep -q "All tests passed" <<<"$out" && [[ "$(git rev-parse HEAD)" == "$before" ]]; then
