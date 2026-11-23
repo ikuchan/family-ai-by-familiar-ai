@@ -1,7 +1,18 @@
 {
   "permissions": {
     "allow": [
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(uv run ruff check .)",
+      "Bash(uv run ruff check . -q)",
+      "Bash(uv run ruff check src tests)",
+      "Bash(uv run --group dev mypy src/familiar_agent)",
+      "Bash(nvidia-smi)",
+      "Bash(nvidia-smi --query-gpu *)",
+      "Bash(nvidia-smi --query-compute-apps *)",
+      "Bash(wpctl status)",
+      "Bash(pw-dump)",
+      "Bash(aplay -l)",
+      "Bash(systemctl --user status *)"
     ],
     "deny": [
       "Bash(git push --force:*)",
