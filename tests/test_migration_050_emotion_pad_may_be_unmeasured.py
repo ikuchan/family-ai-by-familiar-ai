@@ -86,9 +86,8 @@ def test_the_evaluator_reports_unmeasured_below_the_gate() -> None:
     from familiar_agent.loop.evaluator import A_GATE
 
     client = AsyncMock()  # 判定は Jev（出-au 段 5-6）
-    mood = MoodPAD(p=0.8, pn=0.1, a=0.9, dom=0.7)
     pad, arousal = asyncio.run(
-        judge_emotion(client, text="静かな一日", mood=mood, arousal=A_GATE - 0.01, a_gate=A_GATE)
+        judge_emotion(client, text="静かな一日", arousal=A_GATE - 0.01, a_gate=A_GATE)
     )
     assert pad is None, "気分で埋めている"
     assert arousal == A_GATE - 0.01, "A は機械値なので返る"
@@ -107,7 +106,6 @@ def test_the_evaluator_reports_unmeasured_when_it_fails() -> None:
         judge_emotion(
             client,
             text="何か",
-            mood=MoodPAD(p=0.8, pn=0.1, a=0.9, dom=0.7),
             arousal=0.9,
             a_gate=0.25,
         )

@@ -42,11 +42,13 @@ class Firing:
 class Nudge:
     """I が返す作用。W の感情トーンで T の mood を動かす。
 
-    `items` は (PAD, 重み) の並びで、想起した記憶と現ターンの感情が入る。重みは根づき
-    （現ターンの感情は 1.0）。空でも通す（経過による減衰だけが効く）。
+    `items` は思い出した記憶の (PAD, 重み) の並びで、重みは根づき。`current` はその回の感情（測れなければ None）で、
+    記憶の並びに混ぜず、寄せる先の取り分で効かせる（情-t）。空でも通す（経過による減衰だけが効く）。
     """
 
     items: list = field(default_factory=list)
+    #: その回の感情（測れなかったら None）。記憶の並びに混ぜず、寄せる先の取り分で効かせる（情-t）。
+    current: "MoodPAD | None" = None
 
 
 class AIF:
@@ -76,7 +78,7 @@ class AIF:
             from ..mood_register import nudge_current_mood
 
             fn = nudge_current_mood
-        got = fn(nudge.items)
+        got = fn(nudge.items, current=nudge.current)
         logger.debug("AIF nudge → (%.2f,%.2f,%.2f,%.2f)", got.p, got.pn, got.a, got.dom)
         return got
 

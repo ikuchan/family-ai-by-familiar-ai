@@ -458,9 +458,9 @@ class EmbodiedAgent:
         emotion_pad, emotion_a, emotion = await self._emotion_for_turn(final_text, arousal)
         self._update_mood(emotion)
 
-        # mood を W トーンで nudge（mood-c）。W＝想起記憶（PAD, 根づき）＋現ターンの
-        # 感情 E_cur（重み＝既定 a0=1.0）＋自己認識 MI フラット項（compute_n_pad が内包）。
-        # 評価器の後に呼ぶ（E_cur を W に含めるため）。会話ターンのみ（memories が入力）。
+        # mood を W トーンで nudge（mood-c）。材料は想起記憶（PAD, 根づき）と、その回の感情 E_cur（`current`・
+        # 快と不快では寄せる先の取り分 `turn_emotion_share` を占める・情-t）と、自己認識 MI（compute_n_pad が内包）。
+        # E_cur を使うので評価器の後に呼ぶ。会話ターンのみ（memories が入力）。
         # W は口から `Recalled` で来る（環-e-い）。
         _nudge_items = [
             (r.mi.pad, r.groundedness)
@@ -469,12 +469,11 @@ class EmbodiedAgent:
             # 気分を引っ張ると、静かなターンほど気分が中立へ寄る。
             if r.mi.pad is not None
         ]
-        # いまのターンの感情も**測れていなければ**材料にしない（050）。
-        if emotion_pad is not None:
-            _nudge_items.append((emotion_pad, 1.0))
+        # いまのターンの感情は記憶の並びに混ぜず、別に渡す（寄せる先の取り分 `turn_emotion_share`・情-t）。
+        # **測れていなければ**渡さない（050）。
         # T のレジスタは直接動かさない。行き来は AIF（自律機構接続）へ集める
         # （`設計図` ③-2 の4つの口）。
-        self._aif.nudge(Nudge(items=_nudge_items))
+        self._aif.nudge(Nudge(items=_nudge_items, current=emotion_pad))
 
         # 観察 O をここで書くのはやめた（上記）。None のまま残すのは、下の
         # supersede の宛先が `_obs_id or _conv_id` で会話へ落ちるためである。

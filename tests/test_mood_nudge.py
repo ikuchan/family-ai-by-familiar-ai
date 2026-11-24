@@ -80,3 +80,32 @@ def test_nudge_clips_to_range() -> None:
     out = nudge_toward(mood, n)
     for v in (out.p, out.pn, out.a, out.dom):
         assert 0.0 <= v <= 1.0
+
+
+# ── その回の感情の取り分（情-t・2026-11-24・本人「嬉しい話のあとははっきり明るく、悲しい話のあとは沈む」） ──
+def test_the_current_turn_takes_its_share_however_many_memories_there_are() -> None:
+    """その回の感情は、寄せる先の `current_share` を占める。記憶が何件あっても薄まらない
+    （以前は記憶と同じ並びに重み 1.0 で混ぜ、記憶が 7 件あると 1/8 ほどに薄まっていた）。"""
+    calm = [(MoodPAD(0.2, 0.2, 0.5, 0.5), 1.0)] * 7
+    base = compute_n_pad(calm)
+    happy = MoodPAD(0.8, 0.0, 0.7, 0.6)
+    n = compute_n_pad(calm, current=happy, current_share=0.5)
+    assert n.p == pytest.approx(0.5 * 0.8 + 0.5 * base.p)
+    assert n.pn == pytest.approx(0.5 * 0.0 + 0.5 * base.pn)
+    # 高ぶりと掌握は取り分を使わず、いままでどおり重み 1.0 の 1 件として平均に入る（頼まれたのは明るさと沈みだけ）
+    assert n.a == pytest.approx(compute_n_pad(calm + [(happy, 1.0)]).a)
+    assert n.dom == pytest.approx(compute_n_pad(calm + [(happy, 1.0)]).dom)
+
+
+def test_with_few_memories_the_current_turn_never_pulls_less_than_before() -> None:
+    """記憶が無い回は、重み 1.0 の 1 件として自己認識（0.5）と並べたほうが取り分が大きい（2/3）。そちらを使い、弱めない。"""
+    happy = MoodPAD(0.8, 0.0, 0.7, 0.6)
+    before = compute_n_pad([(happy, 1.0)])
+    now = compute_n_pad([], current=happy, current_share=0.5)
+    assert now.p == pytest.approx(before.p)
+    assert now.p > 0.5 * 0.8 + 0.5 * compute_n_pad([]).p
+
+
+def test_without_a_current_turn_the_target_is_as_before() -> None:
+    items = [(MoodPAD(0.2, 0.2, 0.5, 0.5), 1.0)]
+    assert compute_n_pad(items, current=None, current_share=0.5) == compute_n_pad(items)

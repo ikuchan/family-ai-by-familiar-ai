@@ -538,6 +538,10 @@ class MemoryConfig:
     # 自己認識 MI（W が空のときのデフォルト感情・外部 MI が入れば一員として参加）の重み。
     # 旧・根づき上限 C=2.0 の流用をやめ、支配しない薄い錨へ（emotion は REST が育てる）。
     self_mi_weight: float = field(default_factory=lambda: _float_env("SELF_MI_WEIGHT", 0.5))
+    # 気分を寄せる先のうち、その回の感情が占める割合（情-t・2026-11-24・本人「嬉しい話のあとははっきり明るく、
+    # 悲しい話のあとは沈むくらい」・仮〔本人の確認待ち〕）。残りは思い出した記憶と自己認識の加重平均。0〜1 で、快と不快に
+    # だけ効く。重み 1.0 の 1 件としての取り分のほうが大きい回（記憶が少ない回）は、そちらを使う（弱めない）。
+    turn_emotion_share: float = 0.5
 
     def recall_weights(self, trigger: str) -> RecallWeights:
         """trigger 種別の5軸重みを返す（`課題5_パラメータ仮案` §280）。

@@ -45,7 +45,6 @@ def _all_judges(c):
             c,
             me="ルル",
             text="t",
-            mood=SimpleNamespace(p=0.1, pn=0.1, dom=0.5),
             arousal=0.5,
             a_gate=0.5,
         ),

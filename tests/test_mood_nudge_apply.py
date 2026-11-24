@@ -98,3 +98,18 @@ def test_each_nudge_is_logged_at_info(caplog) -> None:
         nudge_current_mood([(MoodPAD(0.8, 0.1, 0.7, 0.6), 1.0)])
     lines = [r for r in caplog.records if r.levelno == logging.INFO and "気分" in r.getMessage()]
     assert len(lines) == 1
+
+
+def test_a_happy_turn_brightens_the_mood_clearly() -> None:
+    """情-t：平静の気分から、嬉しい回（快 0.8）が 1 回あれば、思い出した記憶が平静でも快ははっきり上がる。"""
+    _set_mood_with_updated_at(MoodPAD(0.15, 0.10, 0.5, 0.5), datetime.now(timezone.utc))
+    calm = [(MoodPAD(0.2, 0.15, 0.5, 0.6), 1.0)] * 5
+    got = nudge_current_mood(calm, current=MoodPAD(0.8, 0.0, 0.6, 0.6))
+    assert got.p >= 0.25  # 以前の形では 0.17 ほど（その回の感情が 1/7 に薄まる）
+
+
+def test_a_sad_turn_lowers_pleasure_and_raises_displeasure() -> None:
+    _set_mood_with_updated_at(MoodPAD(0.15, 0.10, 0.5, 0.5), datetime.now(timezone.utc))
+    calm = [(MoodPAD(0.2, 0.15, 0.5, 0.6), 1.0)] * 5
+    got = nudge_current_mood(calm, current=MoodPAD(0.02, 0.45, 0.6, 0.3))
+    assert got.p < 0.15 and got.pn >= 0.18

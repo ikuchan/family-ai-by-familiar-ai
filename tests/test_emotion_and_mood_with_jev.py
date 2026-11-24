@@ -1,7 +1,7 @@
 """感情の評価と気分の見立てを Jev が決める（出-au 段 5-6・2026-09-27・`設計方針_判定の段` §2.2.3）。
 
 - **感情の評価**：Score を 3 問（P 快・Pn 不快・Dom 掌握）、各 5 段で 1 回に聞く。返る値（段の番号を確率で重みづけた
-  0〜4）を 0〜1 に直す。平静の位置といまの気分は事実として送る（答えの側を指示しない・出-e）。高ぶり（A）が
+  0〜4）を 0〜1 に直す。平静の位置といまの気分は送らない（答えがそこへ引かれる・情-t 2026-11-24）。高ぶり（A）が
   しきい値未満なら聞かない。Jev が使えない・失敗・3 つそろわなければ「未測定」（気分で埋めない・050）。
   確信度では倒さない（Score は迷いが真ん中寄りの値に表れる）。
 - **気分の見立て**：Choice（engaged／tired／frustrated／absent／happy）。確信度では倒さない。Jev が使えないときは
@@ -33,9 +33,7 @@ _MOOD = MoodPAD(p=0.1, pn=0.1, a=0.5, dom=0.5)
 
 def _emotion(client, arousal=0.6):
     return asyncio.run(
-        jev_judges.judge_emotion(
-            client, text="パパ：ありがとう！", mood=_MOOD, arousal=arousal, a_gate=0.25
-        )
+        jev_judges.judge_emotion(client, text="パパ：ありがとう！", arousal=arousal, a_gate=0.25)
     )
 
 
@@ -52,7 +50,14 @@ def test_three_scores_become_the_pad():
     state, questions = c.ask.await_args.args
     assert set(questions) == {"p", "pn", "dom"}
     assert all(q["type"] == "score" and len(q["criteria"]) == 5 for q in questions.values())
-    assert "ありがとう" in state and "0.10" in state  # いまの気分（事実）を送る
+    assert "ありがとう" in state
+    # 情-t（2026-11-24・本人「もっと振れるように」）：いまの気分と平静の位置は送らない。送ると答えがそこへ引かれ、
+    # 嬉しい話でも快が 0.22〜0.39 にとどまった（送らなければ 0.54〜0.84・jev-1.14.0・作り物の 8 例）。
+    assert "気分" not in state and "0.10" not in state and "0.50" not in state
+    # 不快は嫌さだけでなく、悲しさ・つらさも聞く（嫌さだけだと悲しい話の不快が 0.04〜0.39 にとどまった）。
+    assert (
+        "悲しさ" in questions["pn"]["instructions"] and "つらさ" in questions["pn"]["instructions"]
+    )
 
 
 def test_low_arousal_is_not_asked():

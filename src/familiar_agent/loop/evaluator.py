@@ -6,8 +6,8 @@ agent.py から分離した、次の3つを持つ（発話前の検査・記憶�
 - summarize_exchange: やり取りを1文へ蒸留（記憶保存用・軽量LLM が書く）
 - infer_companion_mood: 相手の気分を分類（判定は Jev・使えなければ既定の absent）
 
-依存は構築時に注入する utility_backend・backend・jev。mood レジスタは
-`load_current_mood()` で読むだけ（書かない）。
+依存は構築時に注入する utility_backend・backend・jev。mood レジスタは読まない（感情の見立てに
+いまの気分を添えない・情-t 2026-11-24）。
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from .._i18n import _t
 from ..core import jev_judges
 from ..core.context_parts import Stance as _Stance
 from ..emotion_pad import label_from_pad
-from ..mood_register import MoodPAD, load_current_mood
+from ..mood_register import MoodPAD
 
 logger = logging.getLogger(__name__)
 
@@ -80,13 +80,13 @@ class Evaluator:
         return self._context(stance)
 
     async def emotion_for_turn(
-        self, text: str, arousal: float, *, mood: "MoodPAD | None" = None
+        self, text: str, arousal: float
     ) -> "tuple[MoodPAD | None, float, str]":
         """ターンの感情を PAD で評価し、A と派生ラベルを合わせて返す（W2b-2）。
 
         返すのは `(PAD, A, ラベル)` で、**測れなかったときの PAD は `None`**（050）。
-        現在の mood をベースに評価器（軽量LLM）が P/Pn/Dom を出す（A は機械 arousal・
-        A_gate 未満は呼ばない）。mood は読みだけ。
+        Jev が P/Pn/Dom を出す（A は機械 arousal・A_gate 未満は呼ばない）。いまの気分は添えない（答えが
+        そこへ引かれる・情-t）。
 
         **未測定のラベルは `neutral`。** `observations.emotion` は NOT NULL で、粗い分類に
         すぎない（正は PAD である）。ラベルまで欠かせると既存の読み手が全部 None を扱う
@@ -96,7 +96,6 @@ class Evaluator:
         pad, a = await jev_judges.judge_emotion(
             self._jev,
             text=text,
-            mood=load_current_mood() if mood is None else mood,
             arousal=arousal,
             a_gate=A_GATE,
             me=self._me() if self._me is not None else None,

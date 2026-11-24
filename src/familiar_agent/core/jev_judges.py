@@ -623,12 +623,14 @@ def _unit(got: dict, levels: int) -> "float | None":
 
 
 async def judge_emotion(
-    client, *, text: str, mood, arousal: float, a_gate: float, me: "str | None" = None
+    client, *, text: str, arousal: float, a_gate: float, me: "str | None" = None
 ):
     """いまのやり取りでパジュ自身が何を感じたかを P・Pn・Dom で測る（W2b-2・§2.2.3）。返りは `(PAD|None, A)`。
 
-    A は機械の高ぶりで、`a_gate` 未満なら聞かない。平静の位置といまの気分は**事実として**送る（答えの側を指示しない・
-    出-e）。Jev が使えない・失敗・3 つそろわなければ未測定（`None`・気分で埋めない・050）。確信度では倒さない。
+    A は機械の高ぶりで、`a_gate` 未満なら聞かない。**いまの気分と平静の位置は送らない**（情-t・2026-11-24）：送ると答えが
+    そこへ引かれ、嬉しい話でも快が 0.22〜0.39 にとどまった（送らなければ 0.54〜0.84・jev-1.14.0・作り物の 8 例）。
+    不快は嫌さ・悲しさ・つらさとして聞く（嫌さだけだと悲しい話で上がらない）。
+    Jev が使えない・失敗・3 つそろわなければ未測定（`None`・気分で埋めない・050）。確信度では倒さない。
     """
     me = me or _fallback_me()
     from ..mood_register import MoodPAD
@@ -636,16 +638,12 @@ async def judge_emotion(
     a = min(1.0, max(0.0, arousal))
     if a < a_gate:
         return None, a
-    state = (
-        f"[やり取り]\n{text[:400]}\n\n"
-        f"[家のロボット（{me}）のいまの気分]\n"
-        f"快 {mood.p:.2f}・不快 {mood.pn:.2f}・掌握 {mood.dom:.2f}"
-        "（何も起きていないときは 快 0.10・不快 0.10・掌握 0.50 に落ち着く。快と不快は別々の量で、両方大きいことも"
-        "両方小さいこともある）"
-    )
+    state = f"[やり取り]\n{text[:400]}"
     questions = {
         "p": score(f"このやり取りで、{me}自身が感じた心地よさ（快）の大きさ", _AMOUNT_LEVELS),
-        "pn": score(f"このやり取りで、{me}自身が感じた嫌さ（不快）の大きさ", _AMOUNT_LEVELS),
+        "pn": score(
+            f"このやり取りで、{me}自身が感じた嫌さ・悲しさ・つらさ（不快）の大きさ", _AMOUNT_LEVELS
+        ),
         "dom": score(f"このやり取りで、{me}自身が感じた、状況を掌握している度合い", _DOM_LEVELS),
     }
     answer = await _ask(client, state, questions)

@@ -40,7 +40,7 @@ def _aif(ip=None, nudged=None):
     ip = ip or _IP()
     calls: list = []
 
-    def _nudge(items):
+    def _nudge(items, *, current=None):
         calls.append(items)
         return MoodPAD(p=0.6, pn=0.4, a=0.5, dom=0.5)
 
@@ -78,6 +78,18 @@ class TestNudge:
         assert calls == [[(MoodPAD(p=0.8), 1.0)]]
         assert isinstance(got, MoodPAD)
         assert got.p == pytest.approx(0.6)
+
+    def test_the_current_turn_is_handed_on_apart_from_the_memories(self) -> None:
+        """情-t：その回の感情は記憶の並びに混ぜず、別に渡す（寄せる先の取り分を決めるため）。"""
+        got_kw: list = []
+
+        def _nudge(items, *, current=None):
+            got_kw.append((items, current))
+            return MoodPAD()
+
+        aif = AIF(_IP(), nudge=_nudge)
+        aif.nudge(Nudge(items=[(MoodPAD(p=0.2), 1.0)], current=MoodPAD(p=0.8)))
+        assert got_kw == [([(MoodPAD(p=0.2), 1.0)], MoodPAD(p=0.8))]
 
     def test_an_empty_nudge_still_goes_through(self) -> None:
         """W が空でも通す（経過による減衰だけが効く）。"""

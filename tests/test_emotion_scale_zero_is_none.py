@@ -39,17 +39,16 @@ def test_the_dominance_axis_keeps_its_midpoint():
     assert jev_judges._DOM_LEVELS[2] == "ふつう"
 
 
-def test_the_state_says_where_the_axes_rest_and_asks_what_paju_felt():
+def test_the_state_does_not_say_where_the_axes_rest_and_asks_what_paju_felt():
+    """平静の位置は送らない（情-t・2026-11-24・本人「もっと振れるように」）。送ると答えがそこへ引かれた（根拠台帳 §76）。"""
     import asyncio
     from unittest.mock import AsyncMock, MagicMock
 
     c = MagicMock(available=True)
     c.ask = AsyncMock(return_value=None)
-    asyncio.run(
-        jev_judges.judge_emotion(c, text="やった！", mood=MoodPAD(), arousal=0.9, a_gate=0.25)
-    )
+    asyncio.run(jev_judges.judge_emotion(c, text="やった！", arousal=0.9, a_gate=0.25))
     state, questions = c.ask.await_args.args
-    assert "快 0.10・不快 0.10・掌握 0.50" in state
+    assert "0.10" not in state and "0.50" not in state
     # 名前は呼び手が渡す（記-z）。渡さなければ「わたし」
     assert all("わたし自身が感じた" in q["instructions"] for q in questions.values())
 

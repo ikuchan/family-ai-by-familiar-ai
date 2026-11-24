@@ -115,12 +115,19 @@ def compute_n_pad(
     *,
     self_pad: "MoodPAD | None" = None,
     self_weight: float = SELF_KNOWLEDGE_MI_WEIGHT,
+    current: "MoodPAD | None" = None,
+    current_share: float = 0.0,
 ) -> MoodPAD:
     """W の感情トーン N_PAD を根づき加重平均で作る（課題5）。
 
     `items`＝各 W MI の (PAD, 根づきの重み)。自己認識 MI（`self_pad`・重み
     `self_weight`）を常に足すので、W が空でも自己 MI emotion を返す（デフォルト感情）。
     `self_pad` 未指定は中立。N_PAD_x=(Σ a_i x_i + C·self_x)/(Σ a_i + C)（C＝self_weight）。
+
+    `current`（その回の感情）は、高ぶりと掌握ではいままでどおり重み 1.0 の 1 件として平均に入る。快と不快では、
+    寄せる先の取り分 s＝max(`current_share`, 重み 1.0 での取り分 1/(1+Σa_i+C)) を占める：
+    X_N = s·X_cur + (1−s)·（記憶と自己認識の平均）（情-t・2026-11-24）。記憶が何件もあると重み 1.0 では薄まり、
+    嬉しい話のあとでも気分がほとんど動かなかった。max なので、記憶が少ない回にいままでより弱まることはない。
     """
     if self_pad is None:
         self_pad = MoodPAD()
@@ -135,7 +142,15 @@ def compute_n_pad(
         spn += w * pad.pn
         sa += w * pad.a
         sdom += w * pad.dom
-    return MoodPAD(sp / total_w, spn / total_w, sa / total_w, sdom / total_w).clipped()
+    if current is None:
+        return MoodPAD(sp / total_w, spn / total_w, sa / total_w, sdom / total_w).clipped()
+    s = max(min(1.0, max(0.0, current_share)), 1.0 / (total_w + 1.0))
+    return MoodPAD(
+        s * current.p + (1 - s) * sp / total_w,
+        s * current.pn + (1 - s) * spn / total_w,
+        (sa + current.a) / (total_w + 1.0),
+        (sdom + current.dom) / (total_w + 1.0),
+    ).clipped()
 
 
 def nudge_toward(mood: MoodPAD, n_pad: MoodPAD) -> MoodPAD:
@@ -199,6 +214,8 @@ def decay_and_nudge(
     *,
     self_pad: "MoodPAD | None" = None,
     self_weight: float = SELF_KNOWLEDGE_MI_WEIGHT,
+    current: "MoodPAD | None" = None,
+    current_share: float = 0.0,
 ) -> MoodPAD:
     """mood を経過ぶん平静へ減衰させてから W トーン N_PAD へ nudge する（mood-c・純）。
 
@@ -207,20 +224,33 @@ def decay_and_nudge(
     自己認識 MI の emotion と重み（呼び出し側が store/Config から渡す）。
     """
     decayed = decay_to_rest(mood, elapsed_seconds)
-    return nudge_toward(decayed, compute_n_pad(items, self_pad=self_pad, self_weight=self_weight))
+    return nudge_toward(
+        decayed,
+        compute_n_pad(
+            items,
+            self_pad=self_pad,
+            self_weight=self_weight,
+            current=current,
+            current_share=current_share,
+        ),
+    )
 
 
-def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
+def nudge_current_mood(
+    items: "list[tuple[MoodPAD, float]]", *, current: "MoodPAD | None" = None
+) -> MoodPAD:
     """現 mood を読み、経過で減衰させ、W トーンで nudge して保存する（mood-c・接続）。
 
-    経過秒＝now − updated_at（行が無ければ0）。評価器の後にターンの W（想起記憶＋現ターン
-    感情＋自己認識 MI）から呼ぶ。自己認識 MI の emotion は store から、重みは Config から
-    引く。新しい mood を返す。
+    経過秒＝now − updated_at（行が無ければ0）。評価器の後に、思い出した記憶（`items`）と、その回の感情
+    （`current`・測れなければ None・情-t）から呼ぶ。自己認識 MI の emotion は store から、重みとその回の感情の
+    取り分は Config から引く。新しい mood を返す。
     """
     from .config import MemoryConfig
     from .db import get_db
 
-    self_weight = MemoryConfig().self_mi_weight
+    mem_cfg = MemoryConfig()
+    self_weight = mem_cfg.self_mi_weight
+    share = mem_cfg.turn_emotion_share
     db = get_db()
     with db.lock:
         conn = db.conn()
@@ -230,15 +260,17 @@ def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
             elapsed = (datetime.now(timezone.utc) - updated_at).total_seconds()
         else:
             elapsed = 0.0
-        n_pad = compute_n_pad(items, self_pad=self_pad, self_weight=self_weight)
-        new_mood = decay_and_nudge(mood, elapsed, items, self_pad=self_pad, self_weight=self_weight)
+        n_pad = compute_n_pad(
+            items, self_pad=self_pad, self_weight=self_weight, current=current, current_share=share
+        )
+        new_mood = nudge_toward(decay_to_rest(mood, elapsed), n_pad)
         save_mood(conn, new_mood)
         conn.commit()
     # 観測（情-t・振れ幅を数える）：ターンごとの気分の移り変わりを 1 行で。INFO に残す（家は --debug なしで動かす
     # ので、DEBUG だと残らず、10/18 から振れ幅を数えられなかった）。1 回の返事につき 1 行。
     logger.info(
         "気分を動かした：(快,不快,高ぶり,支配)=(%.2f,%.2f,%.2f,%.2f)→(%.2f,%.2f,%.2f,%.2f) "
-        "寄せる先=(%.2f,%.2f,%.2f,%.2f) 記録 %d 件 前から %.0f 秒",
+        "寄せる先=(%.2f,%.2f,%.2f,%.2f) 記録 %d 件 その回の感情 %s 前から %.0f 秒",
         mood.p,
         mood.pn,
         mood.a,
@@ -252,6 +284,7 @@ def nudge_current_mood(items: "list[tuple[MoodPAD, float]]") -> MoodPAD:
         n_pad.a,
         n_pad.dom,
         len(items),
+        "あり" if current is not None else "なし",
         elapsed,
     )
     return new_mood
