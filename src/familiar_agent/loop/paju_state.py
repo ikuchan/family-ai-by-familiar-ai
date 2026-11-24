@@ -45,7 +45,6 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
-import math
 import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -105,6 +104,13 @@ _NAMES = {
 # 寝ているあいだに求めを開こうとした口が、起きたかを見直す間隔。眠ると起きるは自律機構の輪の上でしか変わらないので、
 # 輪の間隔（`tonic.TONIC_PERIOD_SEC`）と同じにする（案 A′・2026-11-18 本人の決定）
 WAKE_POLL_SEC = 0.5
+
+#: 窓を保つときの上限（秒）。保っているあいだは窓の閉じる時刻をいまからこの先に置く。求めの閉じや声の終わりが届かなくても
+#: （状態図へ送り損ねた）、窓を開けたままにしない控え（端-b 段 1-い）。考えているの上限（3 分）と長い答えより長くする。
+HOLD_CAP_SEC = 600.0
+
+#: 入ると窓を保つか見直す状態（頭と体）。保つかは `PajuState._request_holds` が決める。
+_HOLD_OR_RELEASE = frozenset({"thinking", "answering", "noting", "idle", "patrolling"})
 
 #: 口の声の状態（第 5 段）。
 VOICE_STATES = ("no_voice", "thinking_cue", "cue", "speaking")
@@ -205,7 +211,7 @@ class PajuState(StateChart):
         #: 窓のデータ（第 2 段）。窓の中だったかは、届いた時刻（話し始め）でこのデータから決める（決定 2）。
         #: 状態（閉じている、開いている）は、移りとログのために持ち、時間で切れるのは数える仕事が送る。
         self.wake = WakeWindow()
-        #: 窓の時間を数える仕事。話していて窓を保っているあいだ（`wake.until` が無限）は立てない。
+        #: 窓の時間を数える仕事。窓を保っているあいだは上限（`HOLD_CAP_SEC`）まで数え、保つときが終わったら立て直す。
         self._window_task: "asyncio.Task[None] | None" = None
         #: 数える仕事が `window_lapsed` を送っているあいだ真。そのあいだは仕事を止めない（送り終えてから見直す）。
         self._window_sending = False
@@ -436,6 +442,10 @@ class PajuState(StateChart):
                 "状態図 %s で考えているの上限を数えられなかった", state.id, exc_info=True
             )
         try:
+            if state.id in _HOLD_OR_RELEASE:
+                # 答えるまでの求めのあいだは窓を閉じない（端-b 段 1-い）。保つかは `_request_holds` の 1 か所で決め、
+                # ここは見直すきっかけ（頭の考えている・答えている・書き留めている・何もしていない、体の見回っている）だけ持つ
+                self._review_window()
             if self._on_child is not None and state.id in CHILDREN:
                 self._on_child(state.id)
             elif self._on_idle is not None and state.id == "idle":
@@ -523,23 +533,74 @@ class PajuState(StateChart):
         self._hold_while_speaking()
         await self._to_open()
 
-    # ── 声と窓（第 5 段）─────────────────────────────────────────────────────────────
+    # ── 声と窓（第 5 段）、求めと窓（端-b 段 1-い）───────────────────────────────────────
     # 窓が開いているあいだの声は、どれも（答え、録音の声）窓を保ち、話し終えてから 10 秒で閉じる（本人「話し終わって
-    # から１０秒」）。保っているあいだは窓の閉じる時刻（`wake.until`）を無限にする。数で保つと、門（`window_open_at`）と
+    # から１０秒」）。保っているあいだは窓の閉じる時刻（`wake.until`）を上限（`HOLD_CAP_SEC`）の先に置く。数で保つと、門（`window_open_at`）と
     # 窓の会話の番号（`WakeWindow.open`）がどちらも `is_open` を読むので、そこから見えなくなる。
+    # 求めが開いているあいだ（頭が考えている、答えている）も窓を保つ（2026-11-25 本人の決定・課題9 §7.4）。排他の仕組みを
+    # 窓だけにするため（調べもので長く考えると、答えより前に窓が閉じ、その隙にほかの口が入れた）。保つかは状態から読み、
+    # 印は持たない（`_holding`）。
+
+    def _request_holds(self) -> bool:
+        """求めが窓を保つときか。答えを言っているか、答えより前に考えているあいだ（書き留めているは除く）。
+
+        話しかけない求め（見回り）は保たない。見分けは体の見回っている（`quiet_request_opened` で入る）で、耳では見ない
+        （待ちの電子音を鳴らせないと、考え始めに耳が開く）。答えのあとの書き留め（`noting`）と、そのあとの道具のあいだも
+        保たない（答えのあと 10 秒で閉じるのはいまどおり・課題9 §7.4）。
+        """
+        head = self.head_state()
+        if head == "answering":
+            return True
+        return head == "thinking" and not self._in("noting") and not self._in("patrolling")
+
+    def _holding(self) -> bool:
+        """窓を保つときか。声が話しているか、求めが保つとき（`_request_holds`）。"""
+        return self._in("speaking") or self._request_holds()
+
+    def _held(self) -> bool:
+        """いま窓を保っているか（閉じる時刻が、上限の半分より先にある）。印は持たず、閉じる時刻から読む。
+
+        境目を「ふつうの窓の長さ」にすると、長く開けた窓（試験など）を保っていると取り違えて縮める。保っているあいだは
+        閉じる時刻を上限の先に置き、保つのは考えているの上限（3 分）と答えのあいだなので、上限の半分を割らない。
+        """
+        return self.wake.until - time.monotonic() > HOLD_CAP_SEC / 2
+
+    def _hold_window(self) -> None:
+        """窓が開いていて保つときなら、閉じる時刻を上限（`HOLD_CAP_SEC`）の先へ置く。閉じていれば触らない（声や求めで
+        窓を開けない）。もう保っていれば動かさない（上限は保ち始めから数える）。"""
+        now = time.monotonic()
+        if self._holding() and self.wake.is_open(now) and not self._held():
+            self.wake.until = now + HOLD_CAP_SEC
+            self._stop_window_task()
+            self._arm_window()  # 上限で閉じる控えとして数える
+
+    def _release_window(self, *, voice_ends: bool = False) -> None:
+        """保つときが終わった。保っていて、もう保つときでなければ、いまから 10 秒にして数え直す（事象は数える仕事が送る）。
+
+        `voice_ends` は話し終えた口（出るときの動作で、構成にはまだ話しているが残る）。声は見ず、求めだけを見る。
+        """
+        holding = self._request_holds() if voice_ends else self._holding()
+        if self._held() and not holding:
+            self.wake.until = time.monotonic() + WAKE_WINDOW_SEC
+            self._stop_window_task()  # 上限まで眠っている仕事を、新しい閉じる時刻で立て直す
+            self._arm_window()
+
+    def _review_window(self) -> None:
+        """いまの状態で、窓を保つか手放すかを見直す。"""
+        if self._holding():
+            self._hold_window()
+        else:
+            self._release_window()
 
     def on_enter_speaking(self) -> None:
         """話し始めた。窓が開いていれば、話し終えるまで閉じない。閉じていれば触らない（声で窓を開けない）。"""
-        if self.wake.is_open(time.monotonic()):
-            self.wake.until = math.inf
-            self._stop_window_task()
+        self._hold_window()
 
     def on_exit_speaking(self, played: bool = False) -> None:
-        """話し終えた（`played` は鳴ったか）。窓を保っていれば、いまから 10 秒にして数え直す（事象は数える仕事が送る）。
-        見張りにも知らせる（事象ではなく、ただの呼び出し）。"""
-        if math.isinf(self.wake.until):
-            self.wake.until = time.monotonic() + WAKE_WINDOW_SEC
-            self._arm_window()
+        """話し終えた（`played` は鳴ったか）。求めが保つときでなければ、いまから 10 秒にして数え直す。見張りにも知らせる
+        （事象ではなく、ただの呼び出し）。出るときの動作なので、構成にはまだ話しているが残る（`_holding` でなく
+        `_request_holds` を見る）。"""
+        self._release_window(voice_ends=True)
         if self._on_speech_ended is not None:
             try:
                 self._on_speech_ended(played)
@@ -547,9 +608,9 @@ class PajuState(StateChart):
                 logger.warning("状態図 話し終えたことを見張りへ知らせられなかった", exc_info=True)
 
     def _hold_while_speaking(self) -> None:
-        """話しているあいだに窓を開けた・延ばしたら、話し終えるまで閉じない。"""
-        if self._in("speaking") and self.wake.is_open(time.monotonic()):
-            self.wake.until = math.inf
+        """話しているあいだか求めのあいだに窓を開けた・延ばしたら、保つときが終わるまで閉じない。"""
+        if self._holding():
+            self._hold_window()
 
     def window_open_at(self, at: float) -> bool:
         """`at`（`time.monotonic` の秒）に窓が開いていたか。門はこの 1 つで決める（状態では決めない）。"""
@@ -1011,7 +1072,8 @@ class PajuState(StateChart):
     async def _drop_stale_offer(self, event: str) -> None:
         """申し出をなしへ戻す（決定ゲ）。窓が閉じたとき頭が何もしていないか、求めを閉じたとき窓が開いていなければ。
 
-        窓は考えているあいだも数えるので、求めの途中で窓が閉じても、窓の中で受けた返事のために残す。順番の中で呼ぶ。
+        答えのあとの書き留めのあいだや、上限で窓が閉じても、窓の中で受けた返事のために残す（答えるまでの求めのあいだは、
+        窓を保つ・端-b 段 1-い）。順番の中で呼ぶ。
         """
         q = self.question
         if q is None or q.kind != "offer":
@@ -1050,10 +1112,10 @@ class PajuState(StateChart):
             task.cancel()
 
     def _arm_window(self) -> None:
-        """窓の時間を数え直す。開いていないか、話しているあいだは数えない。"""
+        """窓の時間を数え直す。開いていなければ数えない。保っているあいだは上限（`HOLD_CAP_SEC`）を数える。"""
         if self._window_sending:
             return
-        if self._timers_ended or math.isinf(self.wake.until) or not self._in("open"):
+        if self._timers_ended or not self._in("open"):
             self._stop_window_task()
             return
         task = self._window_task
@@ -1066,8 +1128,7 @@ class PajuState(StateChart):
         try:
             while True:
                 while (left := self.wake.until - time.monotonic()) > 0:
-                    if math.isinf(left):
-                        return  # 話しているあいだは数えない。話し終えたら数え直す（`on_exit_speaking`）
+                    # 保っているあいだは上限まで眠る。保つときが終わったら、短い閉じる時刻で立て直す（`_release_window`）
                     await asyncio.sleep(left)
                 async with self._turn():  # 見てから送るまでに、ほかの口を割り込ませない（決定ン）
                     if self.wake.until - time.monotonic() > 0:

@@ -198,7 +198,7 @@ def arrived_at(text: str, *, now: "float | None" = None) -> float:
 class WakeWindow:
     """会話として受ける窓。`until` は窓が閉じる時刻（`time.monotonic()` の秒）。"""
 
-    #: 話していて窓を保っているあいだは無限（`PajuState.on_enter_speaking`）。長い返事を話しているうちに窓が切れ、
+    #: 話しているあいだと、答えるまでの求めのあいだは、上限（`paju_state.HOLD_CAP_SEC`）の先に置いて保つ（`PajuState._hold_window`）。長い返事を話しているうちに窓が切れ、
     #: 聞き返しへの返事を窓の外として捨てたため（2026-10-07 実機 23:18）。
     until: float = 0.0
     #: 窓の会話の番号と、その会話が始まった時刻（環-ar 段 A）。閉じた窓を開けるたびに番号が進む。
