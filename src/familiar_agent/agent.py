@@ -293,6 +293,29 @@ class EmbodiedAgent:
         """
         return self._poses
 
+    def _on_neck(self, event: str) -> None:
+        """カメラが首を動かし始めた・終えた（`neck_began`・`neck_ended`）を、状態図の体へ送る（環-aw 第 7 段）。
+
+        カメラは待たない（`look` を状態図の順番で遅らせない）。送る仕事は 1 本ずつ順に回す（始めと終わりを入れ替えない）。
+        首の事象どうしの順番だけを守り、求めの事象（開く・閉じる）との前後は保たない（状態図の順番がふさがっていると、首の
+        始めが求めの閉じより後に届くことがある。受け入れる）。止めるときに残った送りは待たない。状態図が無ければ何もしない。
+        """
+        sm = getattr(self, "paju_state", None)
+        if sm is None:
+            return
+        before = getattr(self, "_neck_tail", None)
+
+        async def _send() -> None:
+            if before is not None and not before.done():
+                await asyncio.wait({before})
+            try:
+                await sm.fire(event)
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図へ首の %s を送れなかった", event, exc_info=True)
+
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ送らない
+            self._neck_tail = asyncio.get_running_loop().create_task(_send())
+
     async def _on_camera_connected(self) -> None:
         """カメラの ONVIF が繋がった（事象）。プリセットを読み、設定の定点と合わせて覚え、`look` の行き先として配る。
 
@@ -1237,6 +1260,7 @@ class EmbodiedAgent:
         camera = getattr(self, "_camera", None)
         if camera is not None:
             camera.on_connected = self._on_camera_connected
+            camera.on_neck = self._on_neck
             with contextlib.suppress(Exception):
                 await camera._ensure_connected()
         self._ensure_event_loop()

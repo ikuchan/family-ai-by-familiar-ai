@@ -98,7 +98,7 @@ def test_each_transition_is_logged_at_info_for_replay(caplog):
         if r.levelno == logging.INFO and "で移った" in r.getMessage()
     ]
     assert lines and re.fullmatch(
-        r"状態図 ring_began で移った（頭=\S* 耳=\S*/窓=\S*/答え=\S*/入口=\S* 口=\S*/声=\S*/知らせの音=\S*/歌=\S*）",
+        r"状態図 ring_began で移った（頭=\S* 耳=\S*/窓=\S*/答え=\S*/入口=\S* 口=\S*/声=\S*/知らせの音=\S*/歌=\S* 体=\S*）",
         lines[-1],
     )
     assert all("ひみつ" not in r.getMessage() for r in caplog.records)
@@ -142,7 +142,7 @@ def test_a_logged_state_line_maps_back_to_drawn_names():
     """再生（四段目）：ログの状態の行を、図の上の名前に戻す。名前が重なる状態（なし・開いている）も領域で見分ける。"""
     desc = (
         "頭=考えている/思い出している 耳=聞かない/窓=開いている/答え=なし/入口=開いている 口=話してよい/声=なし"
-        "/知らせの音=止まっている/歌=鳴っている"
+        "/知らせの音=止まっている/歌=鳴っている 体=見回っている"
     )
     assert chart.names_from_describe(desc) == {
         "考えている",
@@ -155,6 +155,7 @@ def test_a_logged_state_line_maps_back_to_drawn_names():
         "声なし",
         "音止まっている",
         "歌鳴っている",
+        "見回っている",
     }
     assert chart.names_from_describe("頭=寝ている 耳=聞いている") == {"寝ている", "聞いている"}
 

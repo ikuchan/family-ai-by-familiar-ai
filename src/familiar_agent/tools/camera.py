@@ -99,6 +99,9 @@ class CameraTool:
     #: ONVIF が繋がったときに待つ口（事象・知-bw）。`EmbodiedAgent` がここでプリセットを読み、定点を配る。繋がるのは、
     #: 起動のとき、動体イベントの見張りの取り直し、首を動かす求めと向きを読む求めのどれかで、どの道でもここを 1 回通る。
     on_connected: "Callable[[], Awaitable[None]] | None" = None
+    #: 首を動かし始めたとき（`neck_began`）と終えたとき（`neck_ended`）に呼ぶ口（環-aw 第 7 段・体）。待たない（`look` を
+    #: 状態図の順番で遅らせない）。`EmbodiedAgent._on_neck` が状態図へ順に送る。
+    on_neck: "Callable[[str], None] | None" = None
 
     def __init__(
         self,
@@ -132,6 +135,9 @@ class CameraTool:
         self._profile_token: str | None = None
         # 諦めたあとも着くまで読み続ける裏の仕事（知-ay）。次の動きで取り消す。
         self._follow: "asyncio.Task[None] | None" = None
+        #: 首の動きを 1 本ずつにする鍵（環-aw 第 7 段）。重なると、前の動きの待ちが次の動きのあとで「着かない」を書き、
+        #: 体の始めと終わりも入れ替わる（見回りの 1 歩と `look` が重なったとき）。
+        self._move_lock = asyncio.Lock()
 
         self._cap: cv2.VideoCapture | None = None
         self._last_frame: Any = None
@@ -458,6 +464,11 @@ class CameraTool:
         self._poses = list(poses)
 
     async def move_to(self, pan: float, tilt: float) -> str:
+        """定点へ向く（絶対 pan/tilt）。首の動きは 1 本ずつ（`_move_lock`・前の動きが着くか諦めるまで待つ）。"""
+        async with self._move_lock:
+            return await self._move_to(pan, tilt)
+
+    async def _move_to(self, pan: float, tilt: float) -> str:
         """定点へ向く（絶対 pan/tilt）。
 
         見回りは「絶対 pan/tilt で1定点へ移動 → 観察」を1ステップとする（`ユースケース③`）。
@@ -471,19 +482,32 @@ class CameraTool:
         if self._follow is not None and not self._follow.done():
             self._follow.cancel()  # 前の動きの読み続けを次の動きと混ぜない（知-ay）
         self._follow = None
-        start = await self.position()
+        self._tell_neck("neck_began")
         try:
-            await self._ptz.AbsoluteMove(
-                {
-                    "ProfileToken": self._profile_token,
-                    "Position": {"PanTilt": {"x": pan, "y": tilt}},
-                }
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("Camera absolute move failed: %s", e)
-            return f"Camera move failed: {e}"
-        await self._settle(pan, tilt, start)
-        return f"Turned to pan={pan:+.4f} tilt={tilt:+.4f}."
+            start = await self.position()
+            try:
+                await self._ptz.AbsoluteMove(
+                    {
+                        "ProfileToken": self._profile_token,
+                        "Position": {"PanTilt": {"x": pan, "y": tilt}},
+                    }
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("Camera absolute move failed: %s", e)
+                return f"Camera move failed: {e}"
+            await self._settle(pan, tilt, start)
+            return f"Turned to pan={pan:+.4f} tilt={tilt:+.4f}."
+        finally:
+            # 着いても、上限で諦めても、読めなくても、打ち切られても終わりを伝える（体が首を動かしているのまま残らない）
+            self._tell_neck("neck_ended")
+
+    def _tell_neck(self, event: str) -> None:
+        if self.on_neck is None:
+            return
+        try:
+            self.on_neck(event)
+        except Exception:  # noqa: BLE001
+            logger.warning("首の %s を伝えられなかった", event, exc_info=True)
 
     #: 着いたとみなす差（定点の一致判定 `camera.pose_tolerance` の既定と同じ 0.02）。
     SETTLE_TOLERANCE = 0.02

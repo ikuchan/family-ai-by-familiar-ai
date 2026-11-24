@@ -97,6 +97,9 @@ _NAMES = {
     "song_stopped": "止まっている",
     "song_playing": "鳴っている",
     "song_ducked": "絞っている",
+    "body_still": "止まっている",
+    "neck_moving": "首を動かしている",
+    "patrolling": "見回っている",
 }
 
 # 寝ているあいだに求めを開こうとした口が、起きたかを見直す間隔。眠ると起きるは自律機構の輪の上でしか変わらないので、
@@ -105,6 +108,9 @@ WAKE_POLL_SEC = 0.5
 
 #: 口の声の状態（第 5 段）。
 VOICE_STATES = ("no_voice", "thinking_cue", "cue", "speaking")
+
+#: 体の状態（第 7 段）。
+BODY_STATES = ("body_still", "neck_moving", "patrolling")
 
 #: 口の歌の状態（第 6 段 項目 3）と、その状態へ入る事象（写しは、いまの状態から行き先へ入る事象を送る）。
 SONG_STATES = ("song_stopped", "song_playing", "song_ducked")
@@ -393,6 +399,26 @@ class PajuState(StateChart):
                     | cue.to(speaking, unless="silenced_outside")
                 )
                 voice_ended = speaking.to(no_voice)
+
+        class body(State.Compound):
+            # 体（第 7 段・決定イ、ウ）。首を動かしているは事象で動く（声と同じ形）：持ち主はカメラの `move_to` で、動かし始めと
+            # 終わりに送る。見回っているは、話しかけない求め（seeking・safety の発火）が開いているあいだで、頭と同じ事象で動く。
+            # 見回っているあいだは首の事象で移らない（自分へ戻る・図のとおり〔仮〕）。遅れて届いた首の終わりも捨てない。
+            body_still = State(initial=True)
+            neck_moving = State()
+            patrolling = State()
+
+            neck_began = (
+                body_still.to(neck_moving) | neck_moving.to.itself() | patrolling.to.itself()
+            )
+            neck_ended = (
+                neck_moving.to(body_still) | patrolling.to.itself() | body_still.to.itself()
+            )
+            # 頭が受けたときだけ（頭は何もしていないからだけ開く。頭が断った求めを、体だけが見回りにしない）
+            quiet_request_opened = body_still.to(patrolling, cond="is_head_idle") | neck_moving.to(
+                patrolling, cond="is_head_idle"
+            )
+            request_closed = patrolling.to(body_still)
 
     async def after_transition(self, event: str) -> None:
         # 非同期の動作を 1 つ持つことで、ライブラリが非同期の担い手を選ぶ（無いと同期で動き、`start` を待てない）。
@@ -1181,6 +1207,10 @@ class PajuState(StateChart):
 
     # ── 頭の寝ている（第 4 段・決定ダ、ナ、ク）────────────────────────────────────────────
 
+    def is_head_idle(self) -> bool:
+        """頭が何もしていないか（体が見回りに入る条件。移りを選ぶ時点の頭を読む）。"""
+        return self.head_state() == "idle"
+
     def is_sleeping(self) -> bool:
         """頭が寝ているか。"""
         return self.head_state() == "sleeping"
@@ -1236,6 +1266,11 @@ class PajuState(StateChart):
         """口の知らせの音が鳴っているか（第 6 段）。活性化の前は止まっているとみなす。"""
         return "alarm_ringing" in {s.id for s in self.configuration}
 
+    def body_state(self) -> str:
+        """体の今の状態（`BODY_STATES` のどれか）。活性化の前は止まっているとみなす。"""
+        ids = {s.id for s in self.configuration}
+        return next((n for n in BODY_STATES if n in ids), "body_still")
+
     def song_state(self) -> str:
         """口の歌の今の状態（`SONG_STATES` のどれか）。活性化の前は止まっているとみなす。"""
         ids = {s.id for s in self.configuration}
@@ -1266,5 +1301,5 @@ class PajuState(StateChart):
             f"頭={head_text} 耳={_NAMES.get(ear, '')}/窓={_NAMES.get(window, '')}"
             f"/答え={_NAMES.get(answer, '')}/入口={_NAMES.get(gate, '')} 口={_NAMES.get(mouth, '')}"
             f"/声={_NAMES.get(voice, '')}/知らせの音={_NAMES['alarm_ringing' if alarm else 'alarm_quiet']}"
-            f"/歌={_NAMES[self.song_state()]}"
+            f"/歌={_NAMES[self.song_state()]} 体={_NAMES[self.body_state()]}"
         )
