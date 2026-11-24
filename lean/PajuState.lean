@@ -25,6 +25,10 @@ inductive Ev where
   | «gate_opened»
   | «ring_began»
   | «ring_ended»
+  | «song_began»
+  | «song_quieted»
+  | «song_ended»
+  | «song_restored»
   | «silence_began»
   | «silence_ended»
   | «thinking_cue_began»
@@ -35,7 +39,7 @@ inductive Ev where
   | «voice_ended»
   deriving DecidableEq, Repr
 
-def Ev.all : List Ev := [.«request_opened», .«quiet_request_opened», .«sleep_began», .«speech_began», .«request_closed», .«speech_ended», .«woke», .«limit_reached», .«window_opened», .«tentative_called», .«window_lapsed», .«tentative_lapsed», .«tentative_dropped», .«confirm_asked», .«offer_made», .«heard_asked», .«answer_cleared», .«music_gated», .«timer_gated», .«gate_opened», .«ring_began», .«ring_ended», .«silence_began», .«silence_ended», .«thinking_cue_began», .«cue_began», .«voice_began», .«thinking_cue_ended», .«cue_ended», .«voice_ended»]
+def Ev.all : List Ev := [.«request_opened», .«quiet_request_opened», .«sleep_began», .«speech_began», .«request_closed», .«speech_ended», .«woke», .«limit_reached», .«window_opened», .«tentative_called», .«window_lapsed», .«tentative_lapsed», .«tentative_dropped», .«confirm_asked», .«offer_made», .«heard_asked», .«answer_cleared», .«music_gated», .«timer_gated», .«gate_opened», .«ring_began», .«ring_ended», .«song_began», .«song_quieted», .«song_ended», .«song_restored», .«silence_began», .«silence_ended», .«thinking_cue_began», .«cue_began», .«voice_began», .«thinking_cue_ended», .«cue_ended», .«voice_ended»]
 
 inductive Head where
   | «idle»
@@ -191,6 +195,31 @@ def Alarm.back (n : Nat) (s : Alarm) : Bool :=
   | n + 1 => s == .«alarm_quiet» || Ev.all.any (fun e => match Alarm.step false false s e with | some t => Alarm.back n t | none => false)
 
 theorem alarm_has_no_dead_end : Alarm.all.all (Alarm.back 2) = true := by decide
+
+inductive Song where
+  | «song_stopped»
+  | «song_playing»
+  | «song_ducked»
+  deriving DecidableEq, Repr
+
+def Song.all : List Song := [.«song_stopped», .«song_playing», .«song_ducked»]
+
+def Song.step («is_sleeping» : Bool) («silenced_outside» : Bool) : Song → Ev → Option Song
+  | .«song_stopped», .«song_began» => some .«song_playing»
+  | .«song_stopped», .«song_quieted» => some .«song_ducked»
+  | .«song_playing», .«song_quieted» => some .«song_ducked»
+  | .«song_playing», .«song_ended» => some .«song_stopped»
+  | .«song_ducked», .«song_restored» => some .«song_playing»
+  | .«song_ducked», .«song_ended» => some .«song_stopped»
+  | _, _ => none
+
+/-- song：n 歩以内に初めの状態（song_stopped）へ戻れるか（条件がみな偽のときの移りで見る）。 -/
+def Song.back (n : Nat) (s : Song) : Bool :=
+  match n with
+  | 0 => s == .«song_stopped»
+  | n + 1 => s == .«song_stopped» || Ev.all.any (fun e => match Song.step false false s e with | some t => Song.back n t | none => false)
+
+theorem song_has_no_dead_end : Song.all.all (Song.back 3) = true := by decide
 
 inductive Hush where
   | «may_speak»

@@ -42,7 +42,17 @@ def test_the_model_states_the_rules():
     # 2026-11-21 本人が足した 2 つ（違う問いが同時に待たない・黙っているあいだ話さない）
     assert "theorem a_new_question_replaces_the_old" in text
     assert "theorem silenced_takes_no_outside_voice" in text
-    for region in ("head", "listening", "window", "awaited", "entrance", "hush", "voice", "alarm"):
+    for region in (
+        "head",
+        "listening",
+        "window",
+        "awaited",
+        "entrance",
+        "hush",
+        "voice",
+        "alarm",
+        "song",
+    ):
         assert f"theorem {region}_has_no_dead_end" in text, region
 
 

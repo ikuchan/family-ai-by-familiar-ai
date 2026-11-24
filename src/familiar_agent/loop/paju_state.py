@@ -94,6 +94,9 @@ _NAMES = {
     "timer_only": "タイマーの言葉だけ通す",
     "alarm_quiet": "止まっている",
     "alarm_ringing": "鳴っている",
+    "song_stopped": "止まっている",
+    "song_playing": "鳴っている",
+    "song_ducked": "絞っている",
 }
 
 # 寝ているあいだに求めを開こうとした口が、起きたかを見直す間隔。眠ると起きるは自律機構の輪の上でしか変わらないので、
@@ -102,6 +105,33 @@ WAKE_POLL_SEC = 0.5
 
 #: 口の声の状態（第 5 段）。
 VOICE_STATES = ("no_voice", "thinking_cue", "cue", "speaking")
+
+#: 口の歌の状態（第 6 段 項目 3）と、その状態へ入る事象（写しは、いまの状態から行き先へ入る事象を送る）。
+SONG_STATES = ("song_stopped", "song_playing", "song_ducked")
+_SONG_ENTERS = {
+    ("song_stopped", "song_playing"): "song_began",
+    ("song_ducked", "song_playing"): "song_restored",
+    ("song_stopped", "song_ducked"): "song_quieted",
+    ("song_playing", "song_ducked"): "song_quieted",
+    ("song_playing", "song_stopped"): "song_ended",
+    ("song_ducked", "song_stopped"): "song_ended",
+}
+
+
+def song_of(music: Any) -> str:
+    """音楽の状態（`MusicState`）から、歌の状態を読む（持ち主は音楽の側・状態図はその写し）。
+
+    鳴っているかは `core/music_state.is_playing` の 1 か所で決める。鳴っていて絞りの基準（`ducked_base`）があれば絞っている。
+    家族が再生の機器で直接かけた曲は、印が立たないので歌に入らない（決定フ）。
+    絞る側は音量を下げる前に基準を置き、下げられなければ消す（`music_watch.duck_while_speaking`）。そのあいだに輪が回ると、
+    一瞬だけ絞っているに写る（受け入れる。印を増やさない）。寝ているあいだは輪が止まるので、起きてから写す。
+    """
+    from ..core.music_state import is_playing
+
+    if not is_playing(music):
+        return "song_stopped"
+    return "song_ducked" if getattr(music, "ducked_base", None) is not None else "song_playing"
+
 
 #: 耳の入口の状態の名前（決定ハ）。門（`event_loop._ear_drops`）と状態の行は、これで比べる。
 EAR_OPEN = _NAMES["ear_open"]
@@ -320,6 +350,18 @@ class PajuState(StateChart):
 
                 ring_began = alarm_quiet.to(alarm_ringing)
                 ring_ended = alarm_ringing.to(alarm_quiet)
+
+            class song(State.Compound):
+                # 歌（第 6 段 項目 3・決定オ、ヌ、フ）。パジュがかけた音楽。持ち主は音楽の状態（鳴っている印と絞りの基準）で、
+                # これはその写し（自律機構の輪が `copy_song` で写す・知らせの音と同じ形）。絞る・戻すは音楽の側が持ち主を読む。
+                song_stopped = State(initial=True)
+                song_playing = State()
+                song_ducked = State()
+
+                song_began = song_stopped.to(song_playing)
+                song_quieted = song_playing.to(song_ducked) | song_stopped.to(song_ducked)
+                song_restored = song_ducked.to(song_playing)
+                song_ended = song_playing.to(song_stopped) | song_ducked.to(song_stopped)
 
             class hush(State.Compound):
                 may_speak = State(initial=True)
@@ -790,6 +832,27 @@ class PajuState(StateChart):
             except Exception:  # noqa: BLE001
                 logger.warning("状態図 知らせの音を写せなかった", exc_info=True)
 
+    async def copy_song(self, read: "Callable[[], str]") -> None:
+        """歌の持ち主（音楽の状態・`song_of`）を写す（第 6 段 項目 3）。写すのは自律機構の輪（0.5 秒ごと）だけ。
+        持ち主は順番が来てから読み、違うときだけ送る。同じなら何もせず、順番も待たない。
+        """
+        try:
+            if self.song_state() == read():
+                return
+            await self.start()
+        except Exception:  # noqa: BLE001
+            logger.warning("状態図 歌を写せなかった", exc_info=True)
+            return
+        async with self._turn():  # 読んでから送るまでに、ほかの写しを割り込ませない（決定ン）
+            try:
+                now = read()
+                event = _SONG_ENTERS.get((self.song_state(), now))
+                if event:
+                    await self._fire(event)
+                    logger.info("状態図 歌を写した：%s", _NAMES[now])
+            except Exception:  # noqa: BLE001
+                logger.warning("状態図 歌を写せなかった", exc_info=True)
+
     async def copy_gate(self, reason: str) -> None:
         """持ち主の理由（`agent.mic_gate_reason`）を入口へ写す。空なら開いている、`MUSIC_GATE_REASON` なら音楽、
         ほかはタイマーで、理由がそのタイマーの名前。状態も名前も同じなら何もせず、順番も待たない（輪は 0.5 秒ごと）。"""
@@ -1173,6 +1236,11 @@ class PajuState(StateChart):
         """口の知らせの音が鳴っているか（第 6 段）。活性化の前は止まっているとみなす。"""
         return "alarm_ringing" in {s.id for s in self.configuration}
 
+    def song_state(self) -> str:
+        """口の歌の今の状態（`SONG_STATES` のどれか）。活性化の前は止まっているとみなす。"""
+        ids = {s.id for s in self.configuration}
+        return next((n for n in SONG_STATES if n in ids), "song_stopped")
+
     def thinking_child(self) -> str:
         """考えているの今の子の名前。考えていなければ空。"""
         ids = {s.id for s in self.configuration}
@@ -1198,4 +1266,5 @@ class PajuState(StateChart):
             f"頭={head_text} 耳={_NAMES.get(ear, '')}/窓={_NAMES.get(window, '')}"
             f"/答え={_NAMES.get(answer, '')}/入口={_NAMES.get(gate, '')} 口={_NAMES.get(mouth, '')}"
             f"/声={_NAMES.get(voice, '')}/知らせの音={_NAMES['alarm_ringing' if alarm else 'alarm_quiet']}"
+            f"/歌={_NAMES[self.song_state()]}"
         )

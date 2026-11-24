@@ -487,6 +487,20 @@ class Tonic:
         except Exception:  # noqa: BLE001
             logger.warning("知らせの音を写せなかった", exc_info=True)
 
+    async def _copy_song(self) -> None:
+        """歌の持ち主（`agent._music_state`、パジュがかけた音楽の鳴っている印と絞りの基準）を状態図へ写す（環-aw 第 6 段
+        項目 3）。写すのはここだけで、輪が回るたび（0.5 秒ごと）。状態図が無いなら写さない（輪は止めない）。"""
+        from .paju_state import song_of
+
+        agent = self._agent
+        sm = getattr(agent, "paju_state", None)
+        if sm is None or not hasattr(sm, "copy_song"):
+            return
+        try:
+            await sm.copy_song(lambda: song_of(getattr(agent, "_music_state", None)))
+        except Exception:  # noqa: BLE001
+            logger.warning("歌を写せなかった", exc_info=True)
+
     async def _maybe_sleep(self) -> None:
         """眠くて頭が何もしていなければ、寝ているへ移って内省を回し、終えたら（落ちても）起きる（決定ダ、ナ、ク）。
         状態図が無ければ何もしない（rest の発火の口が、すぐ内省する）。"""
@@ -527,6 +541,7 @@ class Tonic:
                 # 鳴らしたあとに写す（鳴ったタイマーは入口を閉じない・決定ギ）
                 await self._copy_gate()
                 await self._copy_ring()
+                await self._copy_song()
                 # 眠くて頭が何もしていなければ、ここで眠って内省する（決定ダ、ナ）。内省のあいだは、いままでどおり輪が止まる
                 await self._maybe_sleep()
                 firing, accumulated = await step_drives(
