@@ -32,7 +32,7 @@ def test_a_relative_module_import_is_resolved():
 
 
 def test_the_design_document_shows_the_parts_chart_made_from_the_code():
-    [doc] = [DOCS / "familiar-ai_設計図_Mermaid.md"]
+    [doc] = list(DOCS.rglob("familiar-ai_設計図_Mermaid.md"))
     text = doc.read_text(encoding="utf-8")
     sec = text[text.index("## ①-2 コードから作った部品の図") :]
     m = re.search(r"```mermaid\n(.*?)```", sec, re.S)

@@ -16,7 +16,15 @@ import urllib.parse
 import pytest
 
 _DOCS = pathlib.Path(__file__).resolve().parents[1] / "docs" / "NewModesDocs"
-_ALL = sorted(p for p in _DOCS.glob("*.md") if p.name != "README.md")
+_INDEX = _DOCS / "README.md"
+#: 索引のほかは、種類ごとのフォルダに置く（環-as・2026-11-24）。
+_FOLDERS = ("進め方", "全体", "設計方針", "設計詳細", "ユースケース", "記録")
+_ALL = sorted(p for p in _DOCS.rglob("*.md") if p != _INDEX)
+
+
+def _rel(p: pathlib.Path) -> str:
+    """索引から見た道筋（`設計方針/familiar-ai_….md`）。"""
+    return p.relative_to(_DOCS).as_posix()
 
 
 def test_there_are_documents():
@@ -43,23 +51,41 @@ def test_there_is_no_history_section(doc: pathlib.Path):
 
 
 def _linked(index: str) -> "list[str]":
-    """索引の本文にある md へのリンク先（file 名）。"""
-    return [urllib.parse.unquote(m.group(1)) for m in re.finditer(r"\]\(([^)]+\.md)\)", index)]
+    """索引の本文にある md へのリンク先（索引から見た道筋）。"""
+    return [
+        urllib.parse.unquote(m.group(1))
+        for m in re.finditer(r"\]\(([^)#]+\.md)(?:#[^)]*)?\)", index)
+    ]
 
 
 def _unlinked(index: str) -> "list[str]":
     """README 以外の md のうち、索引からリンクされていないもの。"""
     linked = set(_linked(index))
-    return sorted(
-        p.name for p in _DOCS.glob("*.md") if p.name != "README.md" and p.name not in linked
-    )
+    return sorted(_rel(p) for p in _ALL if _rel(p) not in linked)
 
 
 def test_the_index_links_resolve():
     """索引から引けない資料は、無いのと同じである。"""
-    index = (_DOCS / "README.md").read_text(encoding="utf-8")
+    index = _INDEX.read_text(encoding="utf-8")
     dead = [t for t in _linked(index) if not (_DOCS / t).exists()]
     assert dead == [], f"索引のリンク切れ：{dead}"
+
+
+@pytest.mark.parametrize("doc", _ALL, ids=lambda p: p.name)
+def test_links_between_documents_resolve(doc: pathlib.Path):
+    """文書どうしのリンクも、その文書の置き場から引ける（フォルダを分けたので、名前だけのリンクは切れる）。"""
+    targets = [
+        urllib.parse.unquote(m.group(1))
+        for m in re.finditer(r"\]\(([^)#:]+\.md)(?:#[^)]*)?\)", doc.read_text(encoding="utf-8"))
+    ]
+    dead = [t for t in targets if not (doc.parent / t).resolve().exists()]
+    assert dead == [], f"リンク切れ：{dead}"
+
+
+def test_documents_sit_in_the_kind_folders():
+    """索引のほかに、一番上やほかのフォルダへ置かない（置き場を種類で決める・環-as）。"""
+    stray = [_rel(p) for p in _ALL if p.parent.parent != _DOCS or p.parent.name not in _FOLDERS]
+    assert stray == []
 
 
 @pytest.mark.parametrize("doc", _ALL, ids=lambda p: p.name)
@@ -73,13 +99,13 @@ def test_numbered_headings_do_not_repeat(doc: pathlib.Path):
 def test_every_document_is_in_the_index():
     """逆向き（資料→索引）。リンク切れだけを見ていると、索引が空になっても切れたリンクが 0 本で緑になる
     （`0b64d35`・2026-10-11 に README の 195 行が消えて緑だった）。"""
-    assert _unlinked((_DOCS / "README.md").read_text(encoding="utf-8")) == []
+    assert _unlinked(_INDEX.read_text(encoding="utf-8")) == []
 
 
 def test_an_emptied_or_trimmed_index_is_caught():
     """**反証側**：空の索引と 1 行欠けた索引で、リンクの無い資料が出ること。"""
-    index = (_DOCS / "README.md").read_text(encoding="utf-8")
-    everything = sorted(p.name for p in _DOCS.glob("*.md") if p.name != "README.md")
+    index = _INDEX.read_text(encoding="utf-8")
+    everything = sorted(_rel(p) for p in _ALL)
     assert _unlinked("") == everything
     trimmed = "\n".join(line for line in index.splitlines() if "Notionとの接続" not in line)
     assert [n for n in _unlinked(trimmed)] == [n for n in everything if "Notionとの接続" in n]
