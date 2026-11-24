@@ -51,7 +51,7 @@ def test_the_loop_reads_the_camera_and_the_presence_sensor_through_dif():
     """環-ac (2)-a（2026-11-23）：I はカメラと在席センサを DIF から引く（設計図の案ア＝T は直接読み・I は DIF 経由）。
 
     見るのは `event_loop.py`（ループの持ち主）だけ。T（`tonic.py`）は案アのとおり直接読むので見ない。agent を受け取る
-    モジュール関数 `actions._camera_tool_def`・`generator._present_ctx` は、ループの状態も DIF も持たないので外した。
+    `generator._present_ctx` は顔ぶれと話者を読み、カメラも在席センサも読まないので外した（`actions._camera_tool_def` は 2026-11-24 にカメラを受ける形にした・下の試験）。
     """
     import pathlib
 
@@ -76,3 +76,28 @@ def test_dif_reads_the_sensor_late():
     assert dif.sensor() is None
     holder._occupancy_sensor = sensor = object()
     assert dif.sensor() is sensor
+
+
+def test_the_camera_tool_definitions_come_from_the_camera_dif_hands_out():
+    """環-ac の残り（2026-11-24）：道具の定義も DIF のカメラから取る。`_camera_tool_def` は agent でなくカメラを受ける。
+
+    **反証側**：agent を渡す形が残っていれば、ループは DIF を通らずに agent のカメラを読んでいる。
+    （`generator._present_ctx` は顔ぶれ〔PMM〕と話者を読み、カメラも在席センサも読まないので、DIF の口の対象にしない。）
+    """
+    import pathlib
+
+    from familiar_agent.loop.actions import _camera_tool_def
+
+    cam = MagicMock()
+    cam.get_tool_definitions = MagicMock(return_value=[{"name": "see"}, {"name": "look"}])
+    assert _camera_tool_def(cam, "look") == [{"name": "look"}]
+    assert _camera_tool_def(None, "look") == []
+    src = (
+        pathlib.Path(__file__).resolve().parents[1]
+        / "src"
+        / "familiar_agent"
+        / "loop"
+        / "event_loop.py"
+    ).read_text(encoding="utf-8")
+    assert "_camera_tool_def(ip._agent" not in src
+    assert "ip._dif.camera()" in src

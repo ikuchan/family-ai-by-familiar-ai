@@ -12,6 +12,7 @@ import contextlib
 import logging
 import re
 from datetime import datetime
+from typing import Any
 
 from ..core.completion_kind import is_spent
 from .arbiter import CONFIRM_QUERY
@@ -340,9 +341,8 @@ def _has_image(messages: list) -> bool:
     return False
 
 
-def _camera_tool_def(agent, name: str) -> list[dict]:
-    """カメラの道具定義から1つだけ取り出す。カメラが無ければ空。"""
-    cam = getattr(agent, "_camera", None)
+def _camera_tool_def(cam: Any, name: str) -> list[dict]:
+    """カメラの道具定義から1つだけ取り出す。カメラが無ければ空。カメラは DIF から渡す（環-ac）。"""
     if cam is None:
         return []
     return [d for d in cam.get_tool_definitions() if d.get("name") == name]

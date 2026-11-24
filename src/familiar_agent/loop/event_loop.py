@@ -2311,8 +2311,8 @@ class InformationProcessing:
         "search_deferred": lambda ip: ip._dif.lookup_defs("search_deferred"),
         "fetch_deferred": lambda ip: ip._dif.lookup_defs("fetch_deferred"),
         # 身体。カメラが無ければ空を返し、繋がっていない身体は渡さない。
-        "see": lambda ip: _camera_tool_def(ip._agent, "see"),
-        "look": lambda ip: _camera_tool_def(ip._agent, "look"),
+        "see": lambda ip: _camera_tool_def(ip._dif.camera(), "see"),
+        "look": lambda ip: _camera_tool_def(ip._dif.camera(), "look"),
         # 家の決まり（`obsidian-memo`）。**家族ティアだけ**を載せる——個人ティア
         # （`ask_vault_ichiro`）は話者ゲートができるまで載せない。
         "house_rules": lambda ip: ip._dif.tool_defs("get_house_rules"),
