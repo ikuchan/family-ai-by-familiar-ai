@@ -240,8 +240,8 @@ flowchart TD
   RES -->|18| CORE
   RES -->|1| GMD
   RES -->|1| W
-  REST -->|6| C
-  REST -->|31| CORE
+  REST -->|7| C
+  REST -->|32| CORE
   REST -->|20| O
   REST -->|11| RES
   SS -->|1| BOOT

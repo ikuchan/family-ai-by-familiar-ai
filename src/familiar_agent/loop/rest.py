@@ -45,6 +45,21 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の計測に失敗: %s", e)
         parts.append("使われる情報量を測れなかった")
+    # 層 1 の⑥：話題にされた人の面（about）を足す。ある人について話したことを、その人と話すときに思い出す（記-ae）。
+    # 核の固めと畳み込みより先に回す（2026-11-24・本人の決定ア）：窓の外で聞こえた話（向き `聞こえた`）も畳むので、
+    # 畳まれて隠れる前に読む。
+    try:
+        ab = await add_about_tonight(agent)
+        if ab.skipped:
+            parts.append(f"話題にされた人を調べなかった（{ab.skipped}）")
+        else:
+            parts.append(
+                f"発話 {ab.sources} 件で話題にされた人を {ab.asked} 問調べ、{ab.added} 件の面を足した"
+                + (f"（答えなし {ab.unanswered}）" if ab.unanswered else "")
+            )
+    except Exception as e:  # noqa: BLE001
+        logger.exception("rest 層 1 の話題にされた人を調べるのに失敗（次の晩に持ち越す）: %s", e)
+        parts.append("話題にされた人を調べられなかった")
     # 層 1 の②：同一を 1 件に、核が I* を超えていれば意味の近い束をまとめ知識に固める（記-a-ろ-に）。
     records: tuple = ()
     try:
@@ -113,19 +128,6 @@ async def run_rest_pass(agent) -> str:
     except Exception as e:  # noqa: BLE001
         logger.exception("rest 層 1 の事実を抜くのに失敗（次の晩に持ち越す）: %s", e)
         parts.append("事実を抜けなかった")
-    # 層 1 の⑥：話題にされた人の面（about）を足す。ある人について話したことを、その人と話すときに思い出す（記-ae）。
-    try:
-        ab = await add_about_tonight(agent)
-        if ab.skipped:
-            parts.append(f"話題にされた人を調べなかった（{ab.skipped}）")
-        else:
-            parts.append(
-                f"発話 {ab.sources} 件で話題にされた人を {ab.asked} 問調べ、{ab.added} 件の面を足した"
-                + (f"（答えなし {ab.unanswered}）" if ab.unanswered else "")
-            )
-    except Exception as e:  # noqa: BLE001
-        logger.exception("rest 層 1 の話題にされた人を調べるのに失敗（次の晩に持ち越す）: %s", e)
-        parts.append("話題にされた人を調べられなかった")
     # 家族のいまの様子：日々の蒸留の関係のまとめを 10 本ずつ重ねて書き直す（知-ad）。`FAMILY.md` は書き換えない。
     try:
         fam = await update_family_now(agent)

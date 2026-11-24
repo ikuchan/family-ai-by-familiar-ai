@@ -161,7 +161,10 @@ def test_the_fold_supersedes_dropped_rows_too_and_counts_them():
     rows = [_mi_a0(1, "新しい話", 1, 0.9), _mi_a0(2, "繰り返し", 2, 0.1)]
     agent = MagicMock()
     agent.config.memory.distill_min_a0 = 0.47
-    agent._oif.fold_materials = MagicMock(return_value=rows)
+    # 向きごとに返す（聞こえた話は別に、about の期間を過ぎた分だけを引く・記-ae）。
+    agent._oif.fold_materials = MagicMock(
+        side_effect=lambda directions, *, before: [] if directions == ("聞こえた",) else rows
+    )
     agent._oif.supersede = MagicMock(return_value=True)
     agent._oif.write = AsyncMock(return_value="ep-1")
     agent._evaluator.emotion_for_turn = AsyncMock(side_effect=Exception("未測定"))

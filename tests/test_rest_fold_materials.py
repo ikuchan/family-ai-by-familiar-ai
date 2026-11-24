@@ -246,7 +246,10 @@ def test_only_the_first_batches_are_asked_in_one_night_and_the_rest_are_deferred
         for i in range(5)
     ]  # 5 日 → 5 回
     agent = MagicMock()
-    agent._oif.fold_materials = MagicMock(return_value=rows)
+    # 向きごとに返す（聞こえた話は別に、about の期間を過ぎた分だけを引く・記-ae）。
+    agent._oif.fold_materials = MagicMock(
+        side_effect=lambda directions, *, before: [] if directions == ("聞こえた",) else rows
+    )
     agent.backend.complete = MagicMock()
 
     async def _ask(backend, batch, *, family_names):
@@ -256,3 +259,90 @@ def test_only_the_first_batches_are_asked_in_one_night_and_the_rest_are_deferred
         result = asyncio.run(rest_fold.fold_since_last_rest(agent, max_batches=2))
     assert result.batches == 2 and result.deferred == 3 and result.skipped == 2
     assert rest_fold.DEFAULT_MAX_BATCHES == 10
+
+
+# --- 聞こえた話も畳む（記-ae・2026-11-24・本人の決定ア） ------------------------------------
+
+
+def test_heard_family_talk_is_folded_like_the_other_records():
+    """窓の外で聞こえた家族の話（向き `聞こえた`）も、ほかの記録と同じく夜に畳む（溜め続けない）。"""
+    from familiar_agent.core.heard import HEARD_DIRECTION
+    from familiar_agent.loop.rest_fold import FOLD_DIRECTIONS as LIVE
+
+    assert HEARD_DIRECTION in LIVE
+
+
+def test_the_rest_pass_reads_who_was_talked_about_before_it_folds():
+    """畳むと記録が隠れるので、話題にされた人（about）を読むのは、核の固めと畳み込みより先。
+
+    **反証側**：about が後なら、その晩に聞こえた話は読まれる前に隠れる（`core/heard` がそれまで畳まなかった理由）。
+    """
+    import asyncio
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from familiar_agent.loop.rest import run_rest_pass
+    from familiar_agent.loop.rest_about import AboutResult
+    from familiar_agent.loop.rest_core import CoreResult
+    from familiar_agent.loop.rest_fold import FoldResult
+
+    order: list[str] = []
+    agent = MagicMock()
+    agent._oif.write = AsyncMock(return_value="obs1")
+    agent._observation_perspective = MagicMock(return_value={})
+
+    async def about(_agent):
+        order.append("about")
+        return AboutResult(sources=0, asked=0, added=0, unanswered=0)
+
+    async def core(_agent):
+        order.append("核")
+        return CoreResult()
+
+    async def fold(_agent):
+        order.append("畳み込み")
+        return FoldResult(materials=0, batches=0, written=0, folded=0, skipped=0)
+
+    with (
+        patch("familiar_agent.loop.rest.add_about_tonight", new=about),
+        patch("familiar_agent.loop.rest.fold_core", new=core),
+        patch("familiar_agent.loop.rest.fold_since_last_rest", new=fold),
+    ):
+        asyncio.run(run_rest_pass(agent))
+    assert order == ["about", "核", "畳み込み"]
+
+
+def test_heard_talk_is_folded_only_after_the_about_step_stops_looking_at_it():
+    """about は直近 `about_lookback_days`（2 日）の聞こえた話を毎晩見直す（Jev が落ちた晩や 1 晩の上限で漏れても、次の晩に読む）。
+    畳むと隠れるので、聞こえた話はその期間を過ぎてから畳む。ほかの向きはいままでどおり、いままでの分を畳む。"""
+    import asyncio
+    from datetime import datetime, timedelta, timezone
+    from unittest.mock import MagicMock
+
+    from familiar_agent.config import MemoryConfig
+    from familiar_agent.core.heard import HEARD_DIRECTION
+    from familiar_agent.loop import rest_fold
+
+    calls: list = []
+    agent = MagicMock()
+    agent.config.memory.distill_min_a0 = 0.0
+
+    def materials(directions, *, before):
+        calls.append((tuple(directions), before))
+        return []
+
+    agent._oif.fold_materials = materials
+    asyncio.run(rest_fold.fold_since_last_rest(agent))
+    now = datetime.now(timezone.utc)
+    by_dirs = {d: b for d, b in calls}
+    others = tuple(d for d in rest_fold.FOLD_DIRECTIONS if d != HEARD_DIRECTION)
+    assert set(by_dirs) == {others, (HEARD_DIRECTION,)}
+    assert abs((now - by_dirs[others]).total_seconds()) < 60
+    wait = timedelta(days=MemoryConfig().about_lookback_days)
+    assert abs((now - wait - by_dirs[(HEARD_DIRECTION,)]).total_seconds()) < 60
+
+
+def test_the_diary_is_told_heard_talk_was_not_said_to_paju():
+    """聞こえた話を、パジュに言われたこと・パジュとの約束として日記に書かない（事実の鍵を抜かないのと同じ理由）。"""
+    from familiar_agent.loop import rest_fold
+
+    assert "聞こえた" in rest_fold._PROMPT and "ぼくに言ったことではない" in rest_fold._PROMPT

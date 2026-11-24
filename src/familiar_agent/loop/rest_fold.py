@@ -16,19 +16,24 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
+from ..config import MemoryConfig
 from ..core.structured_ask import read_json_merged
 from ..core import measure, parsing
 from ..io.oif import MI
 from ..store import clock
 from ..store.relations import KIND_FOLD
+from ..core.heard import HEARD_DIRECTION
 from ..core.redact import tag
 
 logger = logging.getLogger(__name__)
 
 #: 材料にする向き。`求め`（版）・`最終版`・`保留`・`内省`・`記憶` はループが自分のために書いたもの・産物なので含めない。
-FOLD_DIRECTIONS: tuple[str, ...] = ("発話", "会話", "観察", "独白", "情動", "機器")
+#: 窓の外で聞こえた家族の話（`聞こえた`）も畳む（記-ae・2026-11-24・本人の決定ア）。ただし about が見直す期間
+#: （`about_lookback_days`）を過ぎてから（`fold_since_last_rest`）。畳んだ出来事は本文に出た家族の面に立つので、その人と
+#: 話すときに思い出せる〔推測・家での確かめ待ち〕。
+FOLD_DIRECTIONS: tuple[str, ...] = ("発話", "会話", "観察", "独白", "情動", "機器", HEARD_DIRECTION)
 EPISODE_MAX_CHARS = 500  # O の content の上限と同じ
 PERSON_MAX_CHARS = 300
 DEFAULT_MAX_ITEMS = 60  # これを超える日は時間帯で分けて頼む〔仮〕
@@ -89,6 +94,8 @@ _PROMPT = """\
 あなたはパジュ（この家で家族と暮らす伴侶）で、今日一日を振り返って日記を書く。
 下に、その日にあった出来事の記録を時間順に並べる。記録は「誰が言った・何を見た・自分が
 何を言った」の生の写しで、内部の言い回し（「求め」「版」など）は無視してよい。
+向きが「聞こえた」の記録は、家族どうしの話を窓の外で聞いたもので、ぼくに言ったことではない。ぼくとの話や約束として
+書かず、聞こえた話として書く（「〇〇が話しているのが聞こえた」）。
 
 各記録の「新しさ」は、その出来事が記憶にどれだけ新しかったかの機械の値（0〜1）。**新しさの高い
 出来事を中心に**書き、低いもの（似た観察の繰り返しなど）は一言にまとめるか触れない。
@@ -225,7 +232,14 @@ async def fold_since_last_rest(
     分は古い順で次の晩へ（材料は「前回の内省より後」でなく「まだ畳まれていない」で選ぶ）。
     """
     started = time.monotonic()
-    rows = agent._oif.fold_materials(FOLD_DIRECTIONS, before=datetime.now(timezone.utc))
+    now = datetime.now(timezone.utc)
+    # 聞こえた話は、about が見直す期間を過ぎてから畳む（畳むと隠れ、Jev が落ちた晩や上限で漏れた分を読み直せなくなる）。
+    wait = timedelta(days=float(getattr(MemoryConfig(), "about_lookback_days", 0.0)))
+    others = tuple(d for d in FOLD_DIRECTIONS if d != HEARD_DIRECTION)
+    rows = list(agent._oif.fold_materials(others, before=now))
+    if HEARD_DIRECTION in FOLD_DIRECTIONS:
+        rows += list(agent._oif.fold_materials((HEARD_DIRECTION,), before=now - wait))
+        rows.sort(key=lambda r: r.timestamp.timestamp() if r.timestamp else 0.0)
     raw_min = getattr(getattr(agent.config, "memory", None), "distill_min_a0", 0.0)
     min_a0 = float(raw_min) if isinstance(raw_min, (int, float)) else 0.0
     all_batches = split_batches(rows, max_items=max_items, min_a0=min_a0)
