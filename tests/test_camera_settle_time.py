@@ -103,3 +103,14 @@ def test_the_next_move_cancels_the_follow_up(caplog):
     follow = asyncio.run(run())
     assert follow.cancelled()
     assert not any("秒でも着かない" in m for m in _messages(caplog))
+
+
+def test_the_wait_covers_the_longest_move_seen_at_home():
+    """家のログ（2026-10-15〜11-24）で 3 秒の待ちに着かなかった 126 回は、どれも 3.2〜4.6 秒で遅れて着いた。
+
+    待ちの上限はその最大に余裕を足した値にする（諦めると動いている最中の写真を撮り、見えの普通や見比べに入る）。
+    """
+    assert CameraTool.SETTLE_MAX_SEC >= 4.6 + 0.4
+    assert (
+        CameraTool.SETTLE_FOLLOW_SEC > CameraTool.SETTLE_MAX_SEC
+    )  # 諦めたあとの読み続けは上限より長い

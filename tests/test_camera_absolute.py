@@ -153,7 +153,7 @@ def test_move_gives_up_waiting_after_the_limit(monkeypatch, caplog):
     with caplog.at_level("WARNING", logger="familiar_agent.tools.camera"):
         text, waited = asyncio.run(move())
     assert "Turned to" in text
-    assert waited <= 3.5  # 上限で諦める
+    assert waited <= cam.SETTLE_MAX_SEC + 0.5  # 上限で諦める（知-ay で 5 秒にした）
     assert any("着かない" in r.message for r in caplog.records)
 
 
