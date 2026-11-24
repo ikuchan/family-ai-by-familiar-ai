@@ -214,7 +214,7 @@ flowchart TD
   CORE -->|13| GMD
   CORE -->|33| O
   CORE -->|20| RES
-  CORE -->|1| REST
+  CORE -->|2| REST
   CORE -->|3| SS
   CORE -->|1| TIF
   CORE -->|1| UI

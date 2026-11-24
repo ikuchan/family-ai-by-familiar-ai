@@ -16,7 +16,7 @@ import asyncio
 import logging
 
 import pytest
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, patch
 
 from tests.test_voice_picks_the_speaker import PAPA, SABURO, _ip
 
@@ -94,8 +94,13 @@ def test_the_line_has_no_words_and_no_names(caplog):
 @pytest.mark.real_window
 def test_a_family_voice_naming_another_member_outside_the_window_is_recorded_as_heard():
     ip, a, s = _ip()
-    _overhear(ip, "いちろう、最近忙しそうだね", SABURO)
+    with patch("familiar_agent.loop.rest_about.add_about_now", new=AsyncMock()) as about:
+        _overhear(ip, "いちろう、最近忙しそうだね", SABURO)
     assert _written(ip) == [("聞こえた", "いちろう、最近忙しそうだね", "saburo")]
+    # 書いたその場で「誰についての話か」を聞く（夜を待たない・2026-11-24 本人の決定）
+    about.assert_awaited_once_with(ip._agent, "obs-1", carry_from="")
+    # 求めの取り消し（`_background_tasks`）に巻き込まれない列で聞く
+    assert not ip._background_tasks
 
 
 @pytest.mark.real_window

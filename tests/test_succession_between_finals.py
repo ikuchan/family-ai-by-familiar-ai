@@ -11,7 +11,7 @@ import asyncio
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -233,3 +233,54 @@ def test_a_summarized_final_is_linked_too():
     a._jev = _client("prev-final")
     _close(ip)
     assert len(_successions(a)) == 1
+
+
+def test_a_closed_final_is_judged_for_about_at_once():
+    """閉じて書いた最終版は、その場で「誰についての話か」を聞く（記-ae・2026-11-24 本人の決定）。"""
+    a, ip = _ip()
+    a._memory.recent_finals = MagicMock(return_value=[])
+    with patch("familiar_agent.loop.rest_about.add_about_now", new=AsyncMock()) as about:
+        _close(ip)
+    (call,) = about.await_args_list
+    assert call.args[0] is a and str(call.args[1]).startswith("obs")
+
+
+def test_a_summarized_final_is_judged_for_about_too():
+    from familiar_agent.loop.request import Lookup
+
+    a, ip = _ip()
+    a.config.completion_content_max = 300
+    a.backend.complete = AsyncMock(return_value="傘は要らないと答えた")
+    ip._req.lookups = [
+        Lookup(index=1, action="search_deferred", query="雨", generation=0, result="長い" * 300)
+    ]
+    a._memory.recent_finals = MagicMock(return_value=[])
+    with patch("familiar_agent.loop.rest_about.add_about_now", new=AsyncMock()) as about:
+        _close(ip)
+    assert about.await_count == 1
+
+
+def test_about_checks_run_one_after_another():
+    """その場で聞く about は 1 本ずつ順に回す（窓の書き直しで前の面を引き継ぐとき、前の判定が済んでいるように）。"""
+    _a, ip = _ip()
+    order: list[str] = []
+    gate = asyncio.Event()
+
+    async def fake(agent, obs_id, *, carry_from=""):
+        order.append(f"始め {obs_id}")
+        if obs_id == "f1":
+            await gate.wait()
+        order.append(f"終わり {obs_id}")
+
+    async def go():
+        with patch("familiar_agent.loop.rest_about.add_about_now", new=fake):
+            ip._spawn_about("f1")
+            ip._spawn_about("f2", carry_from="f1")
+            await asyncio.sleep(0)
+            await asyncio.sleep(0)
+            assert order == ["始め f1"]  # f2 は f1 を待つ
+            gate.set()
+            await ip.settle_finals()
+
+    asyncio.run(go())
+    assert order == ["始め f1", "終わり f1", "始め f2", "終わり f2"]

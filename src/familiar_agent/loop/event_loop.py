@@ -66,7 +66,7 @@ from ..store import intents as _intents
 from .intent_ledger import IntentLedger
 from .paju_state import EAR_MUSIC, EAR_OPEN, EAR_TIMER, PajuState
 from .request import Lookup, Request
-from . import finals, widen
+from . import finals, rest_about, widen
 from .actions import (
     _action_family,
     _ALARM_ACTIONS,
@@ -631,7 +631,34 @@ class InformationProcessing:
                 )
             )
             task.add_done_callback(writes.discard)
+            self._spawn_about(final_id)
         return None
+
+    def _spawn_about(self, obs_id: str, *, carry_from: str = "") -> None:
+        """書いたばかりの記録が誰についての話かを、裏で Jev に聞き、about の面を足す（記-ae・2026-11-24 本人の決定）。
+
+        昼に話した「パパについての話」を、その日のうちにパパと話すときに思い出せるように。落ちても夜の REST が拾い直す。
+        仕事は最終版の列（`_final_writes`）に置く：窓の次の最終版を Jev で待たせず、求めの取り消し（`_background_tasks`）にも
+        巻き込まれない。**1 本ずつ順に聞く**（前の仕事を待ってから）。窓の書き直しで前の最終版の面を引き継ぐとき、前の最終版の
+        判定が済んでいるように。同時に投げる Jev も 1 つに抑える。止めるときは待たない（夜の REST が拾い直す）。
+        """
+        before = self.__dict__.get("_about_tail")
+
+        async def _run() -> None:
+            if before is not None and not before.done():
+                await asyncio.wait({before})
+            try:
+                await rest_about.add_about_now(self._agent, obs_id, carry_from=carry_from)
+            except Exception:  # noqa: BLE001
+                logger.warning(
+                    "書いた場で about を聞けなかった（夜の REST が拾い直す）", exc_info=True
+                )
+
+        with contextlib.suppress(RuntimeError):  # 走っている loop が無ければ夜に任せる
+            writes = self.__dict__.setdefault("_final_writes", set())
+            writes.add(task := asyncio.get_running_loop().create_task(_run()))
+            task.add_done_callback(writes.discard)
+            self._about_tail = task
 
     def _spawn_final(self, pending: "_PendingFinal", exchange_id: "int | None") -> None:
         """最終版を背景で書く。長すぎれば主LLM に要約させる。時刻の頭は機械が付け、閉じた時刻で書く。
@@ -674,6 +701,7 @@ class InformationProcessing:
                     agent._oif.extend(exchange_id, [(final_id, "版", None)])
             if not final_id:
                 return
+            self._spawn_about(final_id, carry_from=fold)
             if talk is None:
                 await finals.link_succession(agent, final_id, content, p.start)
                 return
@@ -697,9 +725,9 @@ class InformationProcessing:
             )
 
     async def settle_finals(self) -> None:
-        """背景で書いている最終版が書き終わるのを待つ（試験と終了時）。"""
-        writes = self.__dict__.get("_final_writes") or set()
-        if writes:
+        """背景で書いている最終版（と、その場で聞く about）が書き終わるのを待つ（試験と終了時）。"""
+        # 書き終わった最終版が、その場で聞く about の仕事を足すので、空になるまで待つ。
+        while writes := self.__dict__.get("_final_writes") or set():
             await asyncio.gather(*list(writes), return_exceptions=True)
 
     def _write_version_later(self) -> None:
@@ -6049,8 +6077,8 @@ class InformationProcessing:
     async def _record_heard(self, text: str, voice: Any) -> None:
         """声で家族の誰かと分かり、ほかの家族の呼び名が出た言葉だけを、話した人の記録で残す。パジュは何もしない。
 
-        夜の REST が「誰について話したか」を調べ、その人の about の面を立てる（`loop/rest_about`）。畳み込みには入れない
-        （`core/heard`）。
+        書いたその場で「誰について話したか」を Jev に聞き、その人の about の面を立てる（`_spawn_about`・夜の REST は控え）。
+        夜に畳むのは about を見直す 2 日を過ぎてから（`loop/rest_fold`）。
         """
         from ..core import voice_speaker
 
@@ -6069,13 +6097,16 @@ class InformationProcessing:
             ):
                 return
             kept = text[:_ORIGIN_MAX]
-            await self._agent._oif.write(
+            obs_id = await self._agent._oif.write(
                 MI(id="", content=kept, timestamp=None, direction=HEARD_DIRECTION),
                 writer_id=pid,
             )
             logger.info("窓の外の声を記録した（記-ae・%d 字）", len(kept))
         except Exception:  # noqa: BLE001
             logger.warning("窓の外の声を記録できなかった", exc_info=True)
+            return
+        if obs_id:
+            self._spawn_about(obs_id)
 
     def _other_family_named(self, text: str, speaker_pid: "str | None") -> bool:
         """`text` に、話した人（`speaker_pid`）以外の家族の呼び名が出るか（記-ae）。2 字に満たない呼び名は見ない。"""

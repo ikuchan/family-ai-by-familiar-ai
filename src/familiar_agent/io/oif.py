@@ -404,11 +404,18 @@ class OIF:
         logger.debug("OIF write_fact_keys %d 種 → %s 行", len(sources), n)
         return n
 
-    def about_pending(self, limit: int, *, since, until=None) -> "list[dict]":
-        """about の面を足すか調べる発話（記-ae 段 2）。`obs_id`・`content`・`actor`・`done`（面の立った人）の辞書。"""
-        got = self._memory.about_pending(limit, since=since, until=until)
+    def about_pending(self, limit: int, *, since, until=None, obs_id=None) -> "list[dict]":
+        """about の面を足すか調べる発話（記-ae 段 2）。`obs_id`・`content`・`actor`・`done`（面の立った人）の辞書。
+
+        `obs_id` を渡すと、その記録だけ（書いたその場で聞く）。
+        """
+        got = self._memory.about_pending(limit, since=since, until=until, obs_id=obs_id)
         logger.debug("OIF about_pending ← %d → %d件", limit, len(got))
         return got
+
+    def about_persons(self, obs_id: str) -> "list[str]":
+        """その記録に about の面が立っている人（窓の最終版を書き直すとき、前から引き継ぐ・記-ae）。"""
+        return list(self._memory.about_persons(obs_id))
 
     def add_about(self, obs_id: str, person_id: str) -> bool:
         """その記録に、話題にされた人の about の面を立てる（記-ae 段 2）。"""

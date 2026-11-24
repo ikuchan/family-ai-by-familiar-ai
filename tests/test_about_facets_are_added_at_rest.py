@@ -47,6 +47,7 @@ class _Oif:
         self.writes = writes
         self.read_cap: list[int] = []
         self.added: list[tuple[str, str]] = []
+        self.carried: dict[str, list[str]] = {}
 
     def person_names(self, ids):
         return {k: v for k, v in {"p-papa": "パパ", "p-mama": "ママ"}.items() if k in ids}
@@ -57,9 +58,14 @@ class _Oif:
     def persons(self):
         return [PAPA, MAMA, {"id": AGENT_SELF_ID, "name": "__self__", "display_name": "Agent self"}]
 
-    def about_pending(self, limit, *, since, until=None):
+    def about_pending(self, limit, *, since, until=None, obs_id=None):
         self.read_cap.append(limit)
-        return self.rows[:limit]
+        self.asked_for = obs_id
+        rows = [r for r in self.rows if obs_id is None or r["obs_id"] == obs_id]
+        return rows[:limit]
+
+    def about_persons(self, obs_id):
+        return list(self.carried.get(obs_id, []))
 
     def add_about(self, obs_id, person_id):
         if not self.writes:
@@ -326,3 +332,53 @@ def test_the_store_offers_heard_records_with_their_own_words(tmp_path):
     assert [(r["obs_id"], r["content"], r["actor"], r["heard"]) for r in rows] == [
         (heard, "パパは明日から出張なんだって", mama, True)
     ]
+
+
+# ── 話した場で付ける（記-ae・2026-11-24 本人の決定「話した場で付ける」）──────────────
+
+
+def test_a_record_just_written_is_judged_at_once():
+    """書いたばかりの 1 件だけを聞き、その場で面を足す（夜を待たない）。"""
+    oif = _Oif(
+        [
+            {"obs_id": "o1", "content": "パパ、最近忙しそうなんだよね", "actor": "p-mama"},
+            {"obs_id": "o2", "content": "ママは買い物", "actor": "p-papa"},
+        ]
+    )
+    agent = SimpleNamespace(_oif=oif, _jev=_Jev(0.9))
+    got = asyncio.run(rest_about.add_about_now(agent, "o1"))
+    assert oif.asked_for == "o1"
+    assert oif.added == [("o1", "p-papa")] and got.asked == 1
+
+
+def test_without_jev_the_record_waits_for_the_night():
+    """**反証の側**：Jev が使えなければ何もしない（夜の REST が拾い直す）。"""
+    oif = _Oif([{"obs_id": "o1", "content": "パパは出張", "actor": "p-mama"}])
+    agent = SimpleNamespace(_oif=oif, _jev=SimpleNamespace(available=False))
+    got = asyncio.run(rest_about.add_about_now(agent, "o1"))
+    assert got.skipped and oif.added == []
+
+
+def test_a_rewritten_window_final_keeps_the_facets_of_the_one_it_folded():
+    """窓の最終版を書き直すと前は隠れる。新しい最終版は窓の最後の言葉でしか判定しないので、前の about の面を引き継ぐ。"""
+    oif = _Oif([{"obs_id": "f2", "content": "ごはん何？", "actor": "p-mama"}])
+    oif.carried = {"f1": ["p-papa"]}
+    jev = _Jev(0.9)
+    asyncio.run(
+        rest_about.add_about_now(SimpleNamespace(_oif=oif, _jev=jev), "f2", carry_from="f1")
+    )
+    assert (
+        oif.added == [("f2", "p-papa")] and jev.states == []
+    )  # 引き継いだだけで、名前の無い言葉は聞かない
+
+
+def test_the_store_offers_only_the_given_record():
+    from datetime import datetime, timedelta, timezone
+
+    mama = str(uuid.uuid4())
+    _o1, first = _plant("パパは明日から出張", actor=mama)
+    _o2, second = _plant("パパ、ごはんだよ", actor=mama)
+    since = datetime.now(timezone.utc) - timedelta(days=2)
+    store = _store()
+    assert {r["obs_id"] for r in store.about_pending(10, since=since)} >= {first, second}
+    assert [r["obs_id"] for r in store.about_pending(10, since=since, obs_id=second)] == [second]

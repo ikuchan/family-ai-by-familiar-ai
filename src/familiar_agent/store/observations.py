@@ -1166,7 +1166,12 @@ class ObservationStore:
                 return [dict(r) for r in cur.fetchall()]
 
     def about_pending(
-        self, limit: int, *, since: datetime, until: "datetime | None" = None
+        self,
+        limit: int,
+        *,
+        since: datetime,
+        until: "datetime | None" = None,
+        obs_id: "str | None" = None,
     ) -> "list[dict]":
         """about の面を足すか調べる記録（記-ae 段 2・段 4）。`since` より後（`until` があればそれより前）を新しい順に `limit` 件。
 
@@ -1178,6 +1183,7 @@ class ObservationStore:
         `obs_id` は面を立てる記録、`content` は判定する言葉、`actor` は話した人（解決できなければ自分の印）、`done` は
         about の面がもう立っている人（その人には聞き直さない）、`heard` は聞こえた話か（パジュ宛てではない）。
         会話を先に並べる（1 晩の問いの上限を、名前の出やすい聞こえた話が先に使い切らないように）。
+        `obs_id` を渡すと、その記録だけ（書いたその場で聞く・`loop/rest_about.add_about_now`）。
         """
         live_f = not_hidden("f")
         done = (
@@ -1196,23 +1202,47 @@ class ObservationStore:
                         JOIN observations p ON p.id = f.parent_id AND p.direction = '発話'
                         LEFT JOIN situated_memories a ON a.obs_id = p.id AND a.relation_key = 'actor'
                         WHERE {live_f} AND f.direction = '最終版'
+                          AND (%s::text IS NULL OR f.id = %s)
                         UNION ALL
                         SELECT f.id, f.content, a.person_id, {done}, true, f.timestamp
                         FROM observations f
                         LEFT JOIN situated_memories a ON a.obs_id = f.id AND a.relation_key = 'actor'
                         WHERE {live_f} AND f.direction = %s
+                          AND (%s::text IS NULL OR f.id = %s)
                     ) x
                     WHERE x.at > %s AND (%s::timestamptz IS NULL OR x.at < %s)
                     ORDER BY x.heard, x.at DESC
                     LIMIT %s
                     """,
-                    (HEARD_DIRECTION, since, until, until, int(limit)),
+                    (
+                        obs_id,
+                        obs_id,
+                        HEARD_DIRECTION,
+                        obs_id,
+                        obs_id,
+                        since,
+                        until,
+                        until,
+                        int(limit),
+                    ),
                 )
                 return [
                     {k: v for k, v in dict(r).items() if k != "at"}
                     | {"done": list(r["done"] or [])}
                     for r in cur.fetchall()
                 ]
+
+    def about_persons(self, obs_id: str) -> "list[str]":
+        """その記録に about の面が立っている人（窓の最終版を書き直すとき、前の最終版から引き継ぐ）。"""
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT person_id FROM situated_memories "
+                    "WHERE obs_id = %s AND relation_key = 'about' ORDER BY person_id",
+                    (obs_id,),
+                )
+                return [str(r["person_id"]) for r in cur.fetchall()]
 
     def add_about(self, obs_id: str, person_id: str, *, tag: str) -> bool:
         """その記録に、`person_id` の about の面を立てる（記-ae 段 2）。言葉は `tag` ＋本文、ベクトルは記録の埋め込み。

@@ -9,6 +9,10 @@
 新しい最終版を新しい順に見る（調べた印は持たない）。候補はコードで出す：起点の言葉に呼び名が出る登録の人から、話した本人と
 パジュを除く。
 決めるのは Jev（候補ごとに 1 問・`core/jev_judges.judge_about`）。今ある記録にさかのぼって足すのは埋める道具（段 3）。
+
+**書いたその場でも聞く**（2026-11-24 本人の決定「話した場で付ける」）。最終版と聞こえた記録を書いたら、その 1 件だけを
+裏で聞く（`add_about_now`）。昼に話した「パパについての話」を、その日のうちにパパと話すときに思い出せるように。夜の REST は
+控えとして残す（Jev が落ちた回を拾い直す。昼に「いいえ」と出た記録も聞き直すが、呼び名の出る記録は少ない）。
 """
 
 from __future__ import annotations
@@ -61,11 +65,21 @@ def candidates(content: str, actor: "str | None", persons: "list[dict]", done=()
 
 
 async def add_about(
-    oif, jev, *, limit: int, min_p: float, since, until=None, rows: "int | None" = None
+    oif,
+    jev,
+    *,
+    limit: int,
+    min_p: float,
+    since,
+    until=None,
+    rows: "int | None" = None,
+    obs_id: "str | None" = None,
+    when: str = "rest",
 ) -> AboutResult:
     """`since` より後（`until` より前）の最終版を新しい順に見て、`limit` 問まで聞き、about の面を足す。
 
     読む発話は `rows` 件まで（無ければ `about_rows_max`）。問いの上限 `limit` とは別にする（名前の出ない発話を数えない）。
+    `obs_id` を渡すとその記録だけを見る。`when` はログの頭（夜の REST か、書いたその場か）。
     """
     if jev is None or not getattr(jev, "available", False):
         return AboutResult(0, 0, 0, 0, skipped="Jev が使えない")
@@ -74,7 +88,9 @@ async def add_about(
     ]
     names = await asyncio.to_thread(oif.person_names, [str(p["id"]) for p in persons])
     cap = rows if rows is not None else MemoryConfig().about_rows_max
-    pending = await asyncio.to_thread(oif.about_pending, cap, since=since, until=until)
+    pending = await asyncio.to_thread(
+        oif.about_pending, cap, since=since, until=until, obs_id=obs_id
+    )
     examined = asked = added = unanswered = unwritten = 0
     for row in pending:
         if asked >= limit:
@@ -106,8 +122,10 @@ async def add_about(
                     added += 1
                 else:
                     unwritten += 1  # 埋め込みの無い記録
-    logger.info(
-        "rest about の面：発話 %d 件・問い %d・足した %d・答えなし %d・書けなかった %d",
+    logger.log(
+        logging.INFO if when == "rest" or asked else logging.DEBUG,
+        "%s about の面：発話 %d 件・問い %d・足した %d・答えなし %d・書けなかった %d",
+        when,
         examined,
         asked,
         added,
@@ -127,4 +145,25 @@ async def add_about_tonight(agent) -> AboutResult:
         limit=cfg.about_per_night,
         min_p=cfg.about_min_p,
         since=since,
+    )
+
+
+async def add_about_now(agent, obs_id: str, *, carry_from: str = "") -> AboutResult:
+    """書いたばかりの記録 1 件を、その場で聞く（最終版・聞こえた記録を書いた直後に裏で呼ぶ）。
+
+    `carry_from` は、書き直して畳んだ窓の最終版。新しい最終版は窓の最後の言葉でしか判定しないので、前に立っていた about の面を
+    先に引き継ぐ（引き継いだ人には聞き直さない）。
+    """
+    cfg = MemoryConfig()
+    if carry_from:
+        for pid in await asyncio.to_thread(agent._oif.about_persons, carry_from):
+            await asyncio.to_thread(agent._oif.add_about, obs_id, pid)
+    return await add_about(
+        agent._oif,
+        getattr(agent, "_jev", None),
+        limit=cfg.about_per_night,
+        min_p=cfg.about_min_p,
+        since=clock.now_utc() - timedelta(days=cfg.about_lookback_days),
+        obs_id=obs_id,
+        when="書いた場の",
     )
