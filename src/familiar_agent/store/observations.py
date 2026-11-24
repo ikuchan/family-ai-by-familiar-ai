@@ -28,7 +28,7 @@ from ..person_memory_manager import AGENT_SELF_ID
 from ..store import clock
 from .context import StoreContext, viewpoint_of
 from ..core.heard import HEARD_DIRECTION
-from .relations import KIND_UNCLASSIFIED, RelationStore, not_hidden
+from .relations import KIND_UNCLASSIFIED, RelationStore, drop_replacements, not_hidden
 from .embedding import _decode_vector, _encode_vector
 
 logger = logging.getLogger(__name__)
@@ -1381,6 +1381,7 @@ class ObservationStore:
                 cur.execute("UPDATE observations SET content = %s WHERE id = %s", (content, obs_id))
                 self._write_ruri(cur, obs_id, ruri_sql, drop_stale=True)
                 # 古い本文から抜いた鍵の文と抜き済みの印を消す（記-ad）。次の REST が足した本文ごと抜き直す。
+                drop_replacements(cur, obs_id)  # 消す鍵を指す置き換えも消す（記-ah）
                 cur.execute("DELETE FROM obs_fact_keys WHERE obs_id = %s", (obs_id,))
                 cur.execute("DELETE FROM obs_fact_runs WHERE obs_id = %s", (obs_id,))
                 cur.execute(

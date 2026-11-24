@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import logging
+from dataclasses import dataclass
 from datetime import datetime
 
 from .context import StoreContext
@@ -25,6 +26,32 @@ logger = logging.getLogger(__name__)
 
 # 項の並び。`(観測 id, 役割, 位置)`。位置は順序を持たない関係で None を取る。
 Member = tuple[str, str, "int | None"]
+
+
+def drop_replacements(cur, obs_id: str) -> None:
+    """その記録が入っている置き換えの関係を消す（記-ah）。記録の鍵の文を消して書き直す口が、同じ取引の中で呼ぶ。
+
+    置き換えは鍵の文の行の番号を指すので、鍵を書き直すと指す先が無くなる。消しておき、次の判定で付け直す
+    （畳んだら要約の事実で判定し直す・`設計方針_事実の移り変わり` §3 の e と同じ考え）。
+    """
+    cur.execute(
+        "DELETE FROM relations r USING relation_members m "
+        "WHERE m.relation_id = r.id AND r.kind = %s AND m.obs_id = %s",
+        (KIND_REPLACE, obs_id),
+    )
+
+
+@dataclass(frozen=True)
+class Replacement:
+    """置き換えられた事実 1 つ（記-ah）。`valid_at` は置き換えた事実が成り立った時（古い事実はこの時まで）。"""
+
+    old_key: int
+    old_sentence: str
+    new_obs: str
+    new_key: int
+    new_sentence: str
+    valid_at: "datetime | None"
+
 
 # 「もう現行ではない」を表す役割。改訂も畳み込みも解決も前進も、理由は違うが帰結は同じ
 # なので、帰結をこの役割に担わせ、種類は理由だけを言う（`設計方針_MI間の関係` v0.3）。
@@ -45,6 +72,7 @@ KIND_EXCHANGE = "やりとり"  # 一つのターンの記録（起点・版・�
 KIND_SUCCESSION = "継起"  # ターンどうしの前後
 KIND_COOCCURRENCE = "共起"  # 求めの起点と、その答えに使った記憶の集まり（順序を持たない・記-s）
 KIND_UNCLASSIFIED = "未分類"  # 059 が移した既存の辺。どの書き手が作ったか判別できない
+KIND_REPLACE = "置き換え"  # 新しい記録の事実が、古い記録の事実を置き換えた。古い側は誤りでも隠れもしない（記-ah）
 KIND_EXPERIENCE = "経験繋がり"  # 1 日の会話の塊で、意味の似ていない飛び 3 件（REST が書く・出-bq）
 ROLE_TERM = "項"  # 経験繋がりの項。3 つとも同じ役割で、位置は記録の時刻の古い順
 
@@ -106,11 +134,17 @@ class RelationStore:
         self._ctx = ctx
 
     def add(
-        self, kind: str, members: "list[Member]", *, at: "datetime | None" = None
+        self,
+        kind: str,
+        members: "list[Member]",
+        *,
+        at: "datetime | None" = None,
+        valid_at: "datetime | None" = None,
     ) -> "int | None":
         """関係を1つ書き、その id を返す。項が空なら書かず None を返す。
 
         `at` を渡すと関係の時刻にする（経験繋がりは持ち主の塊の日・出-bq）。渡さなければ書いた時刻。
+        `valid_at` は関係が成り立った時（置き換えの「いつから」・記-ah・082）。書いた時刻とは別に持つ。
 
         ヘッダと項は同じトランザクションで書く。途中で落ちたときにヘッダだけが残ると、
         項の無い関係が溜まり、関係の数が実際のつながりの数と合わなくなる。
@@ -123,9 +157,9 @@ class RelationStore:
             try:
                 with conn.cursor() as cur:
                     cur.execute(
-                        "INSERT INTO relations (kind, created_at) "
-                        "VALUES (%s, COALESCE(%s, now())) RETURNING id",
-                        (kind, at),
+                        "INSERT INTO relations (kind, created_at, valid_at) "
+                        "VALUES (%s, COALESCE(%s, now()), %s) RETURNING id",
+                        (kind, at, valid_at),
                     )
                     rid = int(cur.fetchone()["id"])
                     cur.executemany(
@@ -138,6 +172,89 @@ class RelationStore:
                 conn.rollback()
                 raise
         return rid
+
+    def record_replacement(
+        self, old_obs: str, old_key: int, new_obs: str, new_key: int, *, valid_at: datetime
+    ) -> "int | None":
+        """新しい記録の事実（鍵の文の行 `new_key`）が、古い記録の事実（`old_key`）を置き換えた、を書く（記-ah）。
+
+        古い記録は隠さない。どの事実かは項の番号の欄に鍵の文の行の番号を入れて持つ。`valid_at` は置き換えた事実が
+        成り立った時（古い事実はこの時まで）で、タイムゾーンが無ければ家の暦の時刻とみなす。
+
+        書かない（None を返す）のは、記録の id が空のとき、鍵の文がその記録のものでないとき。同じ組がもう書いて
+        あれば、書き足さずにその id を返す（判定し直しても二重にしない）。
+        """
+        if not old_obs or not new_obs:
+            return None
+        if valid_at.tzinfo is None:
+            from .clock import local_tz
+
+            valid_at = valid_at.replace(tzinfo=local_tz())
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    "SELECT count(*) AS n FROM obs_fact_keys WHERE (id = %s AND obs_id = %s) "
+                    "OR (id = %s AND obs_id = %s)",
+                    (int(old_key), old_obs, int(new_key), new_obs),
+                )
+                if int(cur.fetchone()["n"]) != 2:
+                    logger.warning("置き換えの鍵の文が記録のものでないので書かない")
+                    return None
+                cur.execute(
+                    "SELECT r.id FROM relations r "
+                    "JOIN relation_members a ON a.relation_id = r.id AND a.role = '前' "
+                    "JOIN relation_members b ON b.relation_id = r.id AND b.role = '後' "
+                    "WHERE r.kind = %s AND a.obs_id = %s AND a.position = %s "
+                    "AND b.obs_id = %s AND b.position = %s LIMIT 1",
+                    (KIND_REPLACE, old_obs, int(old_key), new_obs, int(new_key)),
+                )
+                same = cur.fetchone()
+            conn.commit()
+        if same is not None:
+            return int(same["id"])
+        return self.add(
+            KIND_REPLACE,
+            [(old_obs, "前", int(old_key)), (new_obs, "後", int(new_key))],
+            valid_at=valid_at,
+        )
+
+    def replacements_of(self, obs_ids: "list[str]") -> "dict[str, list[Replacement]]":
+        """記録ごとに、その記録の事実のうち置き換えられたもの（古い鍵の文、新しい鍵の文、いつから）。無ければ出さない。"""
+        if not obs_ids:
+            return {}
+        with self._ctx.lock:
+            conn = self._ctx.conn()
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT a.obs_id AS old_obs, a.position AS old_key, ok.sentence AS old_sentence,
+                           b.obs_id AS new_obs, b.position AS new_key, nk.sentence AS new_sentence,
+                           r.valid_at
+                    FROM relations r
+                    JOIN relation_members a ON a.relation_id = r.id AND a.role = '前'
+                    JOIN relation_members b ON b.relation_id = r.id AND b.role = '後'
+                    JOIN obs_fact_keys ok ON ok.id = a.position AND ok.obs_id = a.obs_id
+                    JOIN obs_fact_keys nk ON nk.id = b.position AND nk.obs_id = b.obs_id
+                    WHERE r.kind = %s AND a.obs_id = ANY(%s)
+                    ORDER BY r.valid_at NULLS LAST, r.id
+                    """,
+                    (KIND_REPLACE, list(obs_ids)),
+                )
+                rows = cur.fetchall()
+        out: "dict[str, list[Replacement]]" = {}
+        for r in rows:
+            out.setdefault(str(r["old_obs"]), []).append(
+                Replacement(
+                    old_key=int(r["old_key"]),
+                    old_sentence=str(r["old_sentence"]),
+                    new_obs=str(r["new_obs"]),
+                    new_key=int(r["new_key"]),
+                    new_sentence=str(r["new_sentence"]),
+                    valid_at=r["valid_at"],
+                )
+            )
+        return out
 
     def extend(self, relation_id: int, members: "list[Member]") -> int:
         """既にある関係の末尾へ項を足す。足した数を返す。

@@ -15,7 +15,7 @@ from typing import NamedTuple
 from psycopg2.extras import execute_values
 
 from ..db import vec_to_sql
-from .relations import not_hidden
+from .relations import drop_replacements, not_hidden
 
 logger = logging.getLogger(__name__)
 
@@ -90,6 +90,8 @@ def write(ctx, rows: "list[KeyRow]", model: str) -> "tuple[set[str], int]":
                     if now_content.get(row.obs_id) != row.content:
                         logger.debug("本文が変わったので鍵の文を書かない：%.8s", row.obs_id)
                         continue
+                    # 置き換えの関係（記-ah）は鍵の文の行の番号を指すので、書き直す鍵を指す置き換えも消す
+                    drop_replacements(cur, row.obs_id)
                     cur.execute("DELETE FROM obs_fact_keys WHERE obs_id = %s", (row.obs_id,))
                     if row.keys:
                         execute_values(

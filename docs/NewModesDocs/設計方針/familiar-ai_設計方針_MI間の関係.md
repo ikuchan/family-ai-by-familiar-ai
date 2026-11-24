@@ -113,6 +113,7 @@ CREATE INDEX idx_relations_kind        ON relations(kind);
 | やりとり | 起点、版、見た、答え、要約 | あり（多項） | `_note_record` と `_finish`（閉じるときに `link`）・要約は背景で `extend` |
 | 共起 | 項（求めの起点と、Jev が答えに使ったと申告した記憶・記憶 2 件以上のときだけ・記-s） | 無し（多項） | `workspace.apply_memory_verdicts` → `oif.link`（060 で `wr_records` から移した。記-s で W の全要素から改めた） |
 | 経験繋がり | 項（3 つ） | あり（記録の時刻の古い順） | `loop/rest_links.link_experiences`（REST 層 1 の④・出-bq）。直近 7 日の日ごとの会話の塊から、いちばん近い対がいちばん遠い 3 件を、1 つの塊に 1 本で書く。関係の時刻は持ち主の塊の日（日本時間の正午）。よりよい 3 件が現れたら同じ関係の項を入れ替え（`RelationStore.replace_members`）、1 つの塊に 2 本あればよいほうを残して外す（`RelationStore.remove`）。この 2 つの口は種類を受け取り、種類が違う関係には何もしない。使う想起は無い（`設計方針_REST内省_出来事を畳む` §3e） |
+| 置き換え | 前（置き換えられた記録）・後（置き換えた記録） | 項の番号の欄に事実の鍵の文の行の番号（`obs_fact_keys.id`） | 記-ah 段 1（2026-11-25・`RelationStore.record_replacement`・`replacements_of`）。新しい記録の事実が、古い記録の事実を置き換えた。古い側は隠さない（誤りでも畳み込みでもない）。置き換えた事実が成り立った時を `relations.valid_at`（082）に持つ。書き手（REST の判定）と W での期間の書き方は段 2・段 3（`設計方針_事実の移り変わり`） |
 
 やりとりが多項であることが、二項の列では表せなかったものにあたる。問いと答えを別々の辺で
 つなぐのではなく、一つの関係の項として順序つきで並べる。
