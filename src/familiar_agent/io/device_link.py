@@ -12,7 +12,7 @@
   終わるまで返らないので、読む輪では待たずにタスクで流す。
 - 返事は受け手（`send`・`InformationProcessing.set_device_listener` に登録する）が受け、その端末へ渡った順に送る。種類は
   say（`text` は声にする字、`display` は画面の字）・cue・closed・refused（`event_loop.set_device_listener`）。
-- 読めない字・知らない種類・長すぎる字はログに残して捨て、つながりは切らない。同じ名前の 2 本目がつながれば、古いほうを
+- 読めない字・知らない種類はログに残して捨て、つながりは切らない。空か長すぎる言葉は断ったと返す（端末が待ち続けない）。同じ名前の 2 本目がつながれば、古いほうを
   閉じる（仮）。入口を待つ言葉は 1 台につき 3 つまでで、それより多ければ断ったと返す（仮）。
 - Origin を付けたつなぎ（ブラウザのページ）は断る（仮）。家族の端末かどうかを確かめる鍵は、外から入れる道（端-d）と一緒に考える。
 
@@ -214,7 +214,9 @@ class DeviceLink:
         text = text.strip() if isinstance(text, str) else ""
         speaker = speaker.strip() if isinstance(speaker, str) else ""
         if not text or len(text) > self._max_chars or len(speaker) > _NAME_MAX:
-            logger.info("device-link 空か長すぎる言葉を捨てた（%s）", chars(text))
+            # 言葉として捨てたら断ったと返す。返さないと、端末は返事を待ち続ける（端-c c1）。
+            logger.info("device-link 空か長すぎる言葉を断った（%s）", chars(text))
+            link.send({"type": "refused"})
             return
         if self._pending.get(device, 0) >= _PENDING_MAX:
             logger.info("device-link 端末（%s）の待っている言葉が多いので断った", tag(device))

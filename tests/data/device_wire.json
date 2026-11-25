@@ -1,0 +1,78 @@
+{
+ "_": "端末の口の形の見本（課題9 §6.6）。機体の試験（tests/test_device_wire_is_shared.py）とアプリの試験（android/core）が同じものを読む。",
+ "from_machine": [
+  "{\"type\": \"hello\", \"voice\": {\"model\": \"m\", \"voice\": \"v\"}, \"busy\": false}",
+  "{\"type\": \"hello\", \"voice\": {\"model\": \"m\", \"voice\": \"v\"}, \"busy\": true}",
+  "{\"type\": \"say\", \"text\": \"[cheerful] \\u304a\\u306f\\u3088\\u3046\\uff01\", \"display\": \"\\u304a\\u306f\\u3088\\u3046\\uff01\"}",
+  "{\"type\": \"cue\", \"kind\": \"recalling\"}",
+  "{\"type\": \"closed\"}",
+  "{\"type\": \"refused\"}",
+  "{\"type\": \"window\", \"busy\": true}",
+  "{\"type\": \"window\", \"busy\": false}"
+ ],
+ "to_machine": [
+  {
+   "typed": "パジュ、おはよう",
+   "text": "パジュ、おはよう",
+   "speaker": "ママ",
+   "wire": "{\"type\":\"say\",\"text\":\"パジュ、おはよう\",\"speaker\":\"ママ\"}"
+  },
+  {
+   "typed": "改行\nと\"引用\"",
+   "text": "改行\nと\"引用\"",
+   "speaker": "",
+   "wire": "{\"type\":\"say\",\"text\":\"改行\\nと\\\"引用\\\"\",\"speaker\":\"\"}"
+  },
+  {
+   "typed": "　 おはよう \u001f",
+   "text": "おはよう",
+   "speaker": "パパ",
+   "wire": "{\"type\":\"say\",\"text\":\"おはよう\",\"speaker\":\"パパ\"}"
+  }
+ ],
+ "names": [
+  "パジュ"
+ ],
+ "wake": [
+  {
+   "text": "パジュ、おはよう",
+   "heard": "named"
+  },
+  {
+   "text": "ぱじゅー、明日の天気は？",
+   "heard": "named"
+  },
+  {
+   "text": "、パジュ 傘いる？",
+   "heard": "named"
+  },
+  {
+   "text": "パジュ",
+   "heard": "name_only"
+  },
+  {
+   "text": "パジュー。",
+   "heard": "name_only"
+  },
+  {
+   "text": "おはよう",
+   "heard": "none"
+  },
+  {
+   "text": "ねえパジュ",
+   "heard": "none"
+  },
+  {
+   "text": "パジョ、おはよう",
+   "heard": "none"
+  },
+  {
+   "text": "パジュ、パジュー",
+   "heard": "none"
+  },
+  {
+   "text": "パジュパジュ",
+   "heard": "none"
+  }
+ ]
+}

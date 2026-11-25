@@ -316,6 +316,13 @@
 | 出力と基盤 | — | fast mode | — | Anthropic の速い出し方。同じモデルを、出力の速さ最大 2.5 倍、ふつうの 2 倍の単価で動かす。Opus 5.5 などだけにあり、上限はふつうと別。主LLM の会話の 1 回だけで使う（2026-11-14）。 |
 | 出力と基盤 | — | Software Development Kit | SDK | 外のサービスを呼ぶための、提供元が出す部品。ここでは Anthropic の Python の部品（`anthropic`）を指す。 |
 | 出力と基盤 | — | JavaScript Object Notation | JSON | 値を `{"名前": 値}` の形で書く文字の書式。軽量LLM に答えをこの形で返させる。保存には使わない（保存は PostgreSQL だけ）。 |
+| 端末のアプリ | — | Android | — | 家族の端末（スマホとタブレット）の基本ソフト。パジュの端末のアプリ（課題9 端-c）はこの上で動く。 |
+| 端末のアプリ | — | Kotlin | — | 端末のアプリを書く言葉。アプリは `android/` に置く（課題9 §8）。 |
+| 端末のアプリ | — | Gradle | — | 端末のアプリを組み立て、試験を回す道具（`android/` で `gradle :core:test`）。 |
+| 端末のアプリ | — | Java Development Kit | JDK | Kotlin を組み立てて動かす土台の道具一式。機体の `~/dev-tools/jdk`。 |
+| 端末のアプリ | — | Java Virtual Machine | JVM | Kotlin を動かす土台。アプリの中の決まり（`android/core`）は Android を読まず、機体の JVM で試験が回る。 |
+| 端末のアプリ | — | WebSocket | — | つないだまま字を行き来させる通信の決まり。端末は機体の端末の口（`io/device_link.py`）にこれでつなぐ（課題9 §6.6）。 |
+| 端末のアプリ | — | Android Debug Bridge | adb | 機体から USB などで端末へアプリを入れ、通信をつなぐ道具。`adb reverse` は、端末の番地への通信を機体へ回す。 |
 | 知覚 | — | WirePlumber | — | 家の音の仕組み（PipeWire）で、機器の使い方の設定と既定の出口を決める部品。設定を覚えたファイルは `~/.local/state/wireplumber/`。 |
 | 知覚 | — | pro-audio | — | WirePlumber での機器の使い方の設定の一つ。機器の口をそのまま出す。YAMAHA YVC-300 では、2026-11-14 の再起動のあと、選べるのが `off` とこれだけだった（知-bv）。 |
 | 知覚 | fp16 | float16 | — | 16 ビットの浮動小数。数の幅が狭く、Ruri では一部の記録が数にならない値（nan）になったので使わない（記-y・`根拠台帳` §68）。 |

@@ -145,6 +145,23 @@ def test_unreadable_or_unknown_or_too_long_words_are_dropped_and_the_link_stays(
     assert push.calls == [("tab", "残る", "")]
 
 
+def test_a_dropped_say_is_answered_refused_so_the_device_does_not_wait():
+    """捨てた言葉（空・長すぎる・字でない）には refused を返す（端-c c1 の見直し）。返さないと、端末は返事を待ち続ける。
+    言葉でない字（読めない・知らない種類）には返さない。"""
+
+    async def body(link, session, url):
+        ws = await session.ws_connect(f"{url}/device?name=tab")
+        await _recv(ws)
+        await ws.send_str("{壊れた")
+        await ws.send_json({"type": "dance"})
+        await ws.send_json({"type": "say", "text": "あ" * 21})
+        await ws.send_json({"type": "say", "text": "   "})
+        await ws.send_json({"type": "say", "text": 3})
+        return [await _recv(ws) for _ in range(3)]
+
+    assert _run(body) == [{"type": "refused"}] * 3
+
+
 def test_a_second_link_with_the_same_name_replaces_the_first():
     async def body(link, session, url):
         old = await session.ws_connect(f"{url}/device?name=tab")
