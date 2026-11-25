@@ -180,6 +180,9 @@ class EmbodiedAgent:
 
     def __init__(self, config: AgentConfig):
         self.config = config
+        # 端末の口の設定（端-b 段 1-ろ-4）。口そのものは起動（`start_autonomy`）で立てる。ここは別スレッドで組まれるので。
+        link = getattr(config, "device_link", None)
+        self._device_link_config = link if getattr(link, "enabled", False) else None
         self.backend = create_backend(config)
         self._utility_backend = create_utility_backend(config) or self.backend
         # 判定は Jev（出-au 段 5）。鍵（`JEV_API_KEY`）が無ければ呼ばず、判定ごとの倒し先へ倒す。
@@ -1303,12 +1306,50 @@ class EmbodiedAgent:
             with contextlib.suppress(Exception):
                 await camera._ensure_connected()
         self._ensure_event_loop()
+        await self._open_device_link()
         for watcher in (
             getattr(self, "_occupancy_sensor", None),
             getattr(self, "_motion_events", None),
         ):
             if watcher is not None:
                 await watcher.start()
+
+    async def _open_device_link(self) -> None:
+        """端末の口を立て、返事の受け手に登録する（端-b 段 1-ろ-4）。何度呼んでも二重には立たない。開けなくても起動は続ける。"""
+        cfg = getattr(self, "_device_link_config", None)
+        if cfg is None or getattr(self, "_device_link", None) is not None:
+            return
+        from .io.device_link import DeviceLink
+
+        tts = self.config.tts
+        link = DeviceLink(
+            self.push_device_utterance,
+            {"model": tts.gemini_model, "voice": tts.gemini_voice},  # 鍵は渡さない
+            host=cfg.host,
+            port=cfg.port,
+            max_chars=cfg.max_chars,
+        )
+        try:
+            opened = await link.start()
+        except Exception:  # noqa: BLE001
+            logger.warning("端末の口を開けなかった", exc_info=True)  # 在席の見張りは続けて立てる
+            opened = False
+        if opened:
+            self._device_link: "DeviceLink | None" = link
+            self._info_processing.set_device_listener(link.send)
+
+    async def _close_device_link(self) -> None:
+        link = getattr(self, "_device_link", None)
+        self._device_link = None
+        if link is not None:
+            await link.close()
+
+    async def push_device_utterance(self, device: str, text: str, speaker: str) -> str:
+        """端末の言葉を入口へ流す（端-b 段 1-ろ-4）。家の命令（`/speaker`・`[名前]`）は読まない（端末の話者は押した話者・b3）。"""
+        self._ensure_event_loop()
+        return await self._info_processing.push_utterance(
+            text, source="device", device=device, speaker=speaker
+        )
 
     async def interrupt(self, *, reason: str = "停止ボタン") -> None:
         """いま開いている求めを打ち切る（GUI の停止ボタン・環-j）。ループが無ければ何もしない。"""
@@ -1488,6 +1529,8 @@ class EmbodiedAgent:
         ip = getattr(self, "_info_processing", None)
         if ip is not None:
             await ip.close()
+        # 端末の口は I のあとに閉じる（止まる求めの最後の返事と「閉じた」を端末へ届けてから・端-b 段 1-ろ-4）。
+        await self._close_device_link()
 
         await self._drain_background_tasks()
 

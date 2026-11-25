@@ -53,6 +53,25 @@ capabilities:
       with "話していいよ" in one utterance, or when the time is up. Implemented in
       `core/wake_window.py` and `loop/event_loop.py`.
     enabled: true
+  - id: device_link
+    summary: Talk with a family member through their phone or tablet app, replying only to that device
+    detail: >
+      A family device app connects to the agent over a WebSocket and sends typed or
+      transcribed words with the speaker chosen on the device. The device has already
+      heard the name, so its words are taken as called by name. While someone talks
+      through a device, the window belongs to that device: words from the house and
+      from other devices are refused, and a device whose words were refused is told so.
+      The reply goes only to that device as text (with the voice settings for the device
+      to synthesise), never to the home speaker or screen, and the waiting cue is sent as
+      its kind for the device to play. The speaker chosen on the device is who the agent
+      is talking with for that request (their memories, name and manner), but they are
+      not counted as being near the agent at home. Tools that make sound at home (timer,
+      alarm, stopwatch, music, printing) and the person's own tools (vault, journal) are
+      not offered to a device request. A home "be quiet" does not stop device replies and
+      is not lifted from a device. For now the agent listens only on this machine
+      (127.0.0.1:8765); the private route for family devices from outside comes later.
+      Implemented in `io/device_link.py` and `loop/event_loop.py`.
+    enabled: true
   - id: camera_vision
     summary: Capture and interpret images from a camera (RTSP or USB webcam)
     detail: >

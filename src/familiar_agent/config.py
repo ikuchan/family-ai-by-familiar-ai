@@ -594,6 +594,18 @@ class MemoryConfig:
 
 
 @dataclass(frozen=True)
+class DeviceLinkConfig:
+    """端末の口（端-b 段 1-ろ-4・`io/device_link`・課題9 §6.6）。家族の端末の言葉を受け、返事を送り返す待ち受け。"""
+
+    enabled: bool = True
+    # 既定は機体の中だけで待ち受ける（仮・2026-11-25）。家族の端末から入る道（Tailscale）は端-d で作り、そのとき番地を変える。
+    host: str = "127.0.0.1"
+    port: int = 8765  # 仮・2026-11-25
+    # 端末から 1 回に受ける言葉の字数の上限（仮・2026-11-25）。打った字でも話した字でも、ふつうはずっと短い。
+    max_chars: int = 2000
+
+
+@dataclass(frozen=True)
 class DeviceWatchConfig:
     """機器の見張り（知-bv・`設計方針_機器の見張り`）。スピーカー、マイク、カメラを間をおいて確かめ、使えなければ直す。"""
 
@@ -993,6 +1005,7 @@ class AgentConfig:
     )
     camera: CameraConfig = field(default_factory=CameraConfig)
     tts: TTSConfig = field(default_factory=TTSConfig)
+    device_link: DeviceLinkConfig = field(default_factory=DeviceLinkConfig)
     stt: STTConfig = field(default_factory=STTConfig)
     memory: MemoryConfig = field(default_factory=MemoryConfig)
     recognition: RecognitionConfig = field(default_factory=RecognitionConfig)

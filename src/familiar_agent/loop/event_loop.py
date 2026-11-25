@@ -3154,8 +3154,9 @@ class InformationProcessing:
     def set_device_listener(self, listener) -> None:
         """端末の求めの返事の送り先を登録する（端-b 段 1-ろ-2）。
 
-        受け手は `listener(端末の名前, 種類, 中身)` を受ける。種類は `say`（返事の字・`{"text": …}`）、`cue`（考え中の合図の
-        種類・`{"kind": …}`・b1）、`closed`（求めが閉じた・`{}`。返事の無いまま閉じても端末が待ち続けない）。
+        受け手は `listener(端末の名前, 種類, 中身)` を受ける。種類は `say`（返事・`{"text": 声にする字, "display": 画面の字}`）、`cue`（考え中の合図の
+        種類・`{"kind": …}`・b1）、`closed`（求めが閉じた・`{}`。返事の無いまま閉じても端末が待ち続けない）、`refused`（届いた言葉を
+        断った・`{}`。窓が別の口のものなど・1-ろ-4）。
         """
         self._on_device = listener
 
@@ -3580,6 +3581,10 @@ class InformationProcessing:
                 # ③ 同時に届いた中から 1 つ選ぶ（機器 ＞ 情動）。選ばれなかったものは保留箱へ。
                 chosen = max(fresh, key=lambda t: _TRIGGER_PRIORITY[t.kind])
                 self._held.extend(t for t in fresh if t is not chosen)
+                if self._owned_by_another(
+                    chosen
+                ):  # ①・② と同じく、取り出すときの窓の持ち主を見る（端-b 段 1-ろ）
+                    continue
                 return chosen
             if self._drained_completions:
                 return None
@@ -5900,10 +5905,12 @@ class InformationProcessing:
         except Exception:  # noqa: BLE001
             return False
 
-    @staticmethod
-    def _swallowed(trigger: "Trigger") -> bool:
+    def _swallowed(self, trigger: "Trigger") -> bool:
         if trigger.future is not None and not trigger.future.done():
             trigger.future.set_result("")  # 呼び手（GUI）は吹き出しだけ出して待たない
+        if trigger.device:
+            # 端末の言葉は、捨てたらその端末へ「断った」を返す。返さないと、端末は返事を待ち続ける（端-b 段 1-ろ-4）。
+            self._to_device("refused", {}, device=trigger.device)
         return True
 
     async def _note_muted(self, trigger: "Trigger", now: float) -> None:

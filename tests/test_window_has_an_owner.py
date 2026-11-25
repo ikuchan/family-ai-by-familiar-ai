@@ -208,3 +208,27 @@ def test_a_fresh_word_is_refused_at_take_time_if_another_mouth_took_the_window()
 
     got = asyncio.run(asyncio.wait_for(go(), timeout=2.0))
     assert got is not home
+
+
+def test_a_refused_device_word_tells_that_device():
+    """断った端末の言葉には、その端末へ「断った」を返す（端-b 段 1-ろ-4・返事が来ないまま待ち続けない）。"""
+    ip = _ip()
+    got: list = []
+    ip.set_device_listener(lambda dev, kind, payload: got.append((dev, kind, payload)))
+    _push(ip, "パジュ、おはよう")  # 家が窓を持つ
+    _push(ip, "明日の天気は？", source="device", device=TAB)
+    assert got == [(TAB, "refused", {})]
+    got.clear()
+    _push(ip, "パジュ、こんにちは")  # 家の言葉は端末へ何も送らない
+    assert got == []
+
+
+def test_a_waited_device_word_refused_at_take_time_tells_that_device():
+    ip = _ip()
+    got: list = []
+    ip.set_device_listener(lambda dev, kind, payload: got.append((dev, kind, payload)))
+    _push(ip, "パジュ、おはよう")
+    tab = Trigger(kind="会話入力", query="傘は？", device=TAB)
+    tab.future = None
+    assert ip._owned_by_another(tab)
+    assert got == [(TAB, "refused", {})]
