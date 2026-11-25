@@ -190,7 +190,7 @@ def _order(*, swallowed: bool) -> list[str]:
     ip._swallow_if_unheard = AsyncMock(return_value=swallowed)  # type: ignore[method-assign]
     ip._match_voice = AsyncMock(side_effect=lambda v: order.append("照らす"))  # type: ignore[method-assign]
     ip._notify_heard = MagicMock(  # type: ignore[method-assign]
-        side_effect=lambda text, heard: order.append("受けた" if heard else "捨てた")
+        side_effect=lambda text, heard, **_: order.append("受けた" if heard else "捨てた")
     )
     ip._ensure_driver = lambda: None  # type: ignore[method-assign]
     ip._triggers = MagicMock()

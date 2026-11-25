@@ -217,7 +217,7 @@ flowchart TD
   CORE -->|2| REST
   CORE -->|3| SS
   CORE -->|1| TIF
-  CORE -->|1| UI
+  CORE -->|2| UI
   CORE -->|8| W
   DIF -->|2| BOOT
   DIF -->|10| C

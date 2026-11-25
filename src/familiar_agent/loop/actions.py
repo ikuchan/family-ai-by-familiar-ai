@@ -96,6 +96,16 @@ _PRINT_ACTIONS = ("print_document",)
 # 確認待ちへの答え（出-y・2026-09-18）。預かりが生きているあいだだけ候補と道具に載る（`agent.confirm_alive`）。
 # 機械が預かった入力で掛ける／捨てる。返りは道具の帰りと同じ道（想起なし・`workspace.RETURN_WITHOUT_RECALL`）。
 _CONFIRM_ACTIONS = ("confirm", "decline")
+# 端末の求めでは使わない道具（端-b 段 1-ろ-2・仮）。家の音（鳴らす・止める・音量）と印刷を扱うか、家で聞いた確認の答えを読む。
+# 端末で鳴らす作り（b2）ができるまでは、端末の求めには出さず、呼ばれても断る。止める道具も通すかは本人の確認待ち。
+_HOME_ONLY_ACTIONS = (
+    *_TIMER_ACTIONS,
+    *_STOPWATCH_ACTIONS,
+    *_ALARM_ACTIONS,
+    *_PRINT_ACTIONS,
+    *_MUSIC_ACTIONS,
+    *_CONFIRM_ACTIONS,
+)
 # MCP の同期の道具（結果がその場で返る）。動作名（調停が使う）と道具名（主LLM が呼ぶ）の
 # 両方から、(道具名, 求めの見出し) を引く。ここに無い MCP の道具は動作の表に載らない。
 _MCP_LOOKUPS: dict[str, tuple[str, str]] = {

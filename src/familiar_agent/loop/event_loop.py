@@ -83,6 +83,7 @@ from .actions import (
     _looks_like_text_tool_call,
     _LOOKUP_ACTIONS,
     _MCP_LOOKUPS,
+    _HOME_ONLY_ACTIONS,
     _MUSIC_ACTIONS,
     _music_def,
     _ORIGIN_MAX,
@@ -473,6 +474,8 @@ class InformationProcessing:
         self._on_action = None
         # 求めが開いているかの通知先（GUI の停止ボタンが従う・環-j）。
         self._on_request_state = None
+        # 端末の求めの返事の送り先（端-b 段 1-ろ-2）。受け手は（端末の名前, 種類, 中身）を受ける。待ち受けの口は 1-ろ-4。
+        self._on_device = None
         # 投げる前に控える1件（`_start_lookup` が置き、背景タスクが読む）。
         self._pending_lookup: tuple[str, dict, str] = ("", {}, "recall")
         # 状態図は、ループを作った時点で作って `agent.paju_state` に置く。`/timer stop` は門より前に agent が直に
@@ -1270,8 +1273,11 @@ class InformationProcessing:
 
     async def _hear_again(self) -> None:
         """求めが閉じる所に届かずに終わった（例外・中断）。電子音を止め、耳を聞く側へ戻す（環-aw・出-dd）。"""
+        # 端末が待ち続けない（閉じる所に届かなかった求めも、閉じたと知らせる）。閉じたあとの例外では送り直さない。
+        device = self._req_device() if self._req.request_id is not None else ""
         self._stop_beeps()
         await self._to_state("request_closed")
+        self._tell_device_closed(device)
 
     def _on_head_idle(self) -> None:
         """頭が何もしていないに入った。電子音の仕事を片付け、回数を 0 に戻す（求めの閉じ方によらず、状態の移りで片付ける）。"""
@@ -1315,6 +1321,7 @@ class InformationProcessing:
         """
         interval = float(getattr(self._agent.config, "wait_beep_interval_seconds", 1.0))
         loop = asyncio.get_running_loop()
+        sent = ""  # 端末へ送った合図の種類（変わったときだけ送る）
         while gen == self._request_generation:
             started = loop.time()
             try:
@@ -1323,13 +1330,16 @@ class InformationProcessing:
                 # （2026-11-09・本人の決定）。声とキーボードの求めは門が理由を返さないので、いつも鳴らす。
                 # 話しかけない発火（seeking・safety）は人が居ても声にしないので、答えの来ない電子音を鳴らさない
                 # （決定ロ・2026-11-15）。
-                if (
-                    not kind
-                    or self._sounding()
-                    or self._delivery_block_reason()
-                    or self._never_speaks()
-                ):
+                if not kind or self._delivery_block_reason() or self._never_speaks():
                     played: "bool | None" = True
+                elif self._req_device():
+                    # 端末の求めでは家で鳴らさず、何の合図かだけを端末へ送る（b1・端-b 段 1-ろ-2）
+                    if kind != sent:
+                        self._to_device("cue", {"kind": kind})
+                        sent = kind
+                    played = True
+                elif self._sounding():  # 家の声や合図が鳴っているあいだは、家の電子音を重ねない
+                    played = True
                 else:
                     played = await self._dif.beep(kind)
                     if played is False:
@@ -1798,6 +1808,20 @@ class InformationProcessing:
         # **確認待ちのあいだ、掛け直しは機械が落とす**（出-ag-ろ・2026-09-21）。
         # 言葉で頼んでも守られなかった——1 回の「3 分測って」で `set_timer` が 3 回投げられ、
         # 確認待ちを作り直したうえで「セットしました」と言った（実機 17:34・掛かっていない）。
+        if self._home_only(action):
+            # 主LLM が定義に無い名前で呼んでも、家で音が出る道具は端末の求めでは使わない（端-b 段 1-ろ-2）
+            logger.info("event-loop 端末の求めなので %s は使わない", action)
+            self._triggers.put_nowait(
+                Trigger(
+                    kind="完了",
+                    query=query,
+                    result="この道具は家の音や家で聞いた確認を扱うので、端末からの頼みではまだ使えない",
+                    intent_id=intent_id,
+                    index=index,
+                    failed=True,
+                )
+            )
+            return
         if self._confirm_blocks(action):
             pc = self._paju().confirm()
             what = getattr(pc, "what", "") or "掛けること"
@@ -2454,6 +2478,7 @@ class InformationProcessing:
                 )
                 if a not in self._req.failed_actions
                 and a not in exclude
+                and not self._home_only(a)
                 and not (timer_ringing and a in ("set_timer", "start_stopwatch"))
                 and self._gated(self._ACTIONS[a](self))
             )
@@ -2588,8 +2613,9 @@ class InformationProcessing:
             if build is None:
                 logger.debug("event-loop 未接続の動作を要求された（無視する）: %s", name)
                 continue
-            if name in blocked:
+            if name in blocked or self._home_only(name):
                 # この求めで道具が使えなかった・使い切った動作は渡さない（出-o・呼び直しを構造で止める）。
+                # 端末の求めには、家で音が出る道具と確認の答えを渡さない（端-b 段 1-ろ-2）。
                 continue
             with contextlib.suppress(Exception):
                 defs.extend(build(self))
@@ -2750,7 +2776,7 @@ class InformationProcessing:
             # 点数を残し、はっきり分かる声なら話者を付け替える（知-as）。吹き出しの名前は知らせた時点の話者を読むので、
             # 門を通った声と同じく、先に話者を決めてから知らせる。
             await self._listen_swallowed_voice(voice, text=utterance)
-            self._notify_heard(utterance, trigger.quiet_open)
+            self._notify_heard(utterance, trigger.quiet_open, device=trigger.device)
             return ""  # 捨てた・黙っていて控えた。打ち切りも時刻の印も付けない
         shown = utterance
         if trigger.named or trigger.near_name:
@@ -2766,7 +2792,7 @@ class InformationProcessing:
         # 門を通った声で、誰が話しているかを照らす（知-ae）。捨てた声は `_listen_swallowed_voice` が、はっきり分かるときだけ付け替える（知-as）。
         # 吹き出しの名前は知らせた時点の話者を読むので、先に声で話者を決める（10/13 18:56 にももこの名前で出て、返事はパパ宛てだった）。
         await self._match_voice(voice)
-        self._notify_heard(shown, True)
+        self._notify_heard(shown, True, device=trigger.device)
         # 届いたときのことを持たせる（環-aw 第 1 段 項目 9）。答えのあとまで待たせたら、それと鳴り終わった音を W に書く。
         trigger.rang = self._ringing()
         # 人が話しかけた時刻の印。**在席の証拠には使わない**（2026-09-17：マイクはテレビ・物音・
@@ -3023,8 +3049,19 @@ class InformationProcessing:
         self._req.fired_axis = ""
 
     def _emit(self, text: str) -> None:
-        """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。"""
+        """発話を表示先へ渡す。素テキストと say 動作の両方で知らせる。
+
+        端末の求めの返事は、話しかけた端末へだけ送り、家の画面には出さない（課題9 §4 の 3・端-b 段 1-ろ-2）。
+        """
         if not text:
+            return
+        if self._req_device():
+            # 声にする字（ト書きを外し、声のタグは残す）と、画面に出す字（両方外す）を分けて送る。家の声と画面と同じ扱い。
+            from .._ui_helpers import clean_spoken_text, strip_stage_directions
+
+            self._to_device(
+                "say", {"text": strip_stage_directions(text), "display": clean_spoken_text(text)}
+            )
             return
         if self._on_text is None and self._on_action is None:
             # 出口が無いまま話した。起動直後の自発の求め（メモ・タイマー）で起きた（2026-09-15
@@ -3057,14 +3094,44 @@ class InformationProcessing:
         """
         self._on_heard = listener
 
-    def _notify_heard(self, text: str, heard: bool) -> None:
+    def _notify_heard(self, text: str, heard: bool, *, device: str = "") -> None:
         listener = getattr(self, "_on_heard", None)  # 殻だけの器（テスト）でも落ちない
-        if listener is None:
+        if listener is None or device:
+            # 端末の言葉は、家の画面に受けた／捨てたを出さない（返事も端末へだけ返す・端-b 段 1-ろ-2）
             return
         try:
             listener(text, heard)
         except Exception:  # noqa: BLE001
             logger.exception("event-loop 受けた／捨てたを知らせられなかった")
+
+    def set_device_listener(self, listener) -> None:
+        """端末の求めの返事の送り先を登録する（端-b 段 1-ろ-2）。
+
+        受け手は `listener(端末の名前, 種類, 中身)` を受ける。種類は `say`（返事の字・`{"text": …}`）、`cue`（考え中の合図の
+        種類・`{"kind": …}`・b1）、`closed`（求めが閉じた・`{}`。返事の無いまま閉じても端末が待ち続けない）。
+        """
+        self._on_device = listener
+
+    def _tell_device_closed(self, device: "str | None" = None) -> None:
+        """端末の求めが閉じたら、その端末へ知らせる（返事の無いまま閉じても、端末が待ち続けない）。閉じる所だけが呼ぶ。
+
+        `device` を渡さなければ、いまの求めの口。
+        """
+        device = self._req_device() if device is None else device
+        if device:
+            self._to_device("closed", {}, device=device)
+
+    def _to_device(self, kind: str, payload: dict, *, device: "str | None" = None) -> None:
+        """端末へ送る（`device` を渡さなければ、いまの求めの端末）。送り先が無い・落ちたら、ログに残して続ける（家では鳴らさない）。"""
+        device = self._req_device() if device is None else device
+        listener = getattr(self, "_on_device", None)  # 殻だけの器（テスト）でも落ちない
+        if listener is None:
+            logger.warning("event-loop 端末へ返す口が無いまま送ろうとした（%s）", kind)
+            return
+        try:
+            listener(device, kind, payload)
+        except Exception:  # noqa: BLE001
+            logger.exception("event-loop 端末へ送れなかった（%s）", kind)
 
     def _notify_request_state(self, open_: bool) -> None:
         listener = getattr(self, "_on_request_state", None)  # 殻だけの器（テスト）でも落ちない
@@ -3086,7 +3153,10 @@ class InformationProcessing:
         if self._req.request_id is None and not self._background_tasks:
             return
         logger.info("event-loop %s により求めを打ち切る", reason)
+        # 打ち切りは画面の仕事から呼ばれ、待つあいだに次の求めが始まることがある。端末は待つ前に控える。
+        device = self._req_device() if self._req.request_id is not None else ""
         await self._abort_lookups()
+        self._tell_device_closed(device)
         self._notify_request_state(False)
 
     def set_output(self, on_text, on_action=None) -> None:
@@ -3892,7 +3962,13 @@ class InformationProcessing:
         キーボード・情動・機器・道具の返りの反復では鳴らさない。求めに 1 回だけ。
         """
         req = self._req
-        if req.trigger_kind != "発話" or req.source != "voice" or returned_lookups or req.cue_rang:
+        if (
+            req.trigger_kind != "発話"
+            or req.source != "voice"
+            or self._req_device()  # 端末の求めでは家で鳴らさない（b1・端-b 段 1-ろ-2）
+            or returned_lookups
+            or req.cue_rang
+        ):
             return None
         req.cue_rang = True
         try:
@@ -4263,7 +4339,9 @@ class InformationProcessing:
         text = (decision.result.text or "").strip()
         if text and await self._send_back_for_say(decision, text, utterance=utterance):
             return ""
-        if text:
+        if (
+            text and not self._req_device()
+        ):  # 声にしない独り言は、端末へは送らない（端末は届いた字を声にする）
             self._emit(text)
         await self._finish(text, decision.memories, "沈黙", gen=gen)
         return text
@@ -4577,6 +4655,10 @@ class InformationProcessing:
             self._req.block_reason = blocked  # 最終版の「言えなかった（理由）」（記-t）
             return text, "独白"
         self._stop_beeps()  # 答えの声が始まる。待ちの電子音を止める（出-bu）
+        gen, device = (
+            getattr(self, "_request_generation", 0),
+            self._req_device(),
+        )  # 殻だけの器（試験）でも落ちない
         # `recording`＝録音済みの声で言う（時間切れの一言・環-aw 第 1 段 項目 8）。門と電子音と状態図は声と同じに通す。
         if not await self._say_aloud(
             text, careful=self._careful_voice(branch), recording=recording
@@ -4586,6 +4668,11 @@ class InformationProcessing:
         self._note_suggestion_offered(text)
         self._stamp_said()
         await self._extend_window_for_conversation()  # 返事から窓の長さぶん（出-as 段 4）
+        if gen != getattr(self, "_request_generation", 0) and (device or self._req_device()):
+            # 待つあいだに打ち切られた。端末の求めの返事なら、端末へは閉じたと知らせたので送らない。次の求めが端末のものなら、
+            # 古い返事をその端末へも送らない（家の求めの返事は、家の画面に出すいままでのまま）
+            logger.info("event-loop 打ち切られた端末の求めの返事は送らない")
+            return text, "沈黙"
         self._emit(text)
         return text, "発話"
 
@@ -4912,6 +4999,10 @@ class InformationProcessing:
         """その言葉が、いまの求めと同じ口から届いたか（端-b 段 1-ろ）。口の違う言葉は、言い足しにも確認の答えにもしない。"""
         return trigger.device == self._req_device()
 
+    def _home_only(self, action: str) -> bool:
+        """端末の求めで使わない道具か（家で音が出る・家で聞いた確認の答え・`_HOME_ONLY_ACTIONS`・端-b 段 1-ろ-2・仮）。"""
+        return bool(self._req_device()) and action in _HOME_ONLY_ACTIONS
+
     def _req_device(self) -> str:
         """いまの求めの口（家は空）。殻だけの器（試験）でも落ちない。"""
         device = getattr(self.__dict__.get("_req"), "device", "")
@@ -5188,7 +5279,7 @@ class InformationProcessing:
         self._stop_beeps()
         # 主LLM の呼び出しも `lookups` に「主LLM」として積まれる。数えるのは道具だけ（`_main_llm_in_flight` と同じ見分け）。
         used_tool = any(lk.action != "主LLM" for lk in self._req.lookups)
-        if not self._req.cue_played or used_tool:
+        if not self._req.cue_played or used_tool or self._req_device():
             return
         from ..core import reaction_cue as rc
 
@@ -5775,6 +5866,7 @@ class InformationProcessing:
         spent = self._req.spent_actions
         if (
             self._req.trigger_kind != "発話"
+            or self._req_device()  # 問いは求めが閉じたあとに言うので、閉じたと知らせた端末へは問わない（端-b 段 1-ろ-2）
             or "search_deferred" not in spent
             or "deep_research" in spent
             or not self._deep_available()
@@ -5882,7 +5974,10 @@ class InformationProcessing:
         held = False  # 黙っていて dif が止めた（None）
         voiced = False  # 声が出たか（落ちたり録音を鳴らせなかったりしたら偽。話しかける発火の窓はこれで開ける）
         try:
-            if recording is not None:
+            if self._req_device():
+                # 端末の求めの返事は家で声にしない。字は呼び手が `_emit` で端末へ送る（端-b 段 1-ろ-2）。
+                out, played = text, True
+            elif recording is not None:
                 out = await self._dif.say_recorded(
                     recording,
                     gain=self._voice_gain() if gain is None else gain,
@@ -5949,8 +6044,8 @@ class InformationProcessing:
         知-t）——会話中は切れない。
         """
         agent = getattr(self, "_agent", None)
-        if agent is None:
-            return
+        if agent is None or self._req_device():
+            return  # 端末への返事は家で声にしていない。家の話者の持ち時間を延ばさない（端-b 段 1-ろ-2）
         now = time.time()
         req = getattr(self, "_req", None)
         if getattr(req, "trigger_kind", "") == "発話":
@@ -6021,7 +6116,7 @@ class InformationProcessing:
         # 逆だと、付けたばかりの人を否定で消すことになる。
         await self._apply_not_person(getattr(decision, "not_person", ""))
         await self._apply_speaker_claim(decision)
-        return self._with_silence_reply(decision, minutes)
+        return self._with_silence_reply(decision, minutes, utterance=utterance)
 
     async def _apply_seen_people(self, people: "list | None") -> None:
         """調停が写真から見立てた人を、顔ぶれへ入れる（出-ae-は・2026-09-22）。
@@ -6440,12 +6535,24 @@ class InformationProcessing:
             return minutes
         return None
 
-    def _with_silence_reply(self, decision, minutes: "int | None"):
+    def _with_silence_reply(self, decision, minutes: "int | None", *, utterance: str = ""):
         """黙ると受けたら、軽く返す返事を、分数と戻し方を伝える決まった文にする（情-u・2026-11-21 本人の決定「分数と戻し方を
         伝える」）。家族が戻し方を知らず困った（情-u のもと）。軽く返す道（`light`）のときだけ替え、ほかは触らない。"""
+        from dataclasses import replace as _replace
+
+        if self._req_device() and getattr(decision, "branch", "") == "light":
+            # 端末の「黙って」「話していいよ」は、家の黙るのを掛けも解きもしない（b4）。できない約束をしない（端-b 段 1-ろ-2・言い回しは仮）。
+            if getattr(decision, "silence_minutes", None):
+                return _replace(decision, text="この端末からは、家のパジュを静かにできないよ。")
+            from ..core.silence_rules import is_release
+
+            silent = self._paju().silence_request() is not None
+            if silent and (getattr(decision, "lift_silence", False) or is_release(utterance)):
+                return _replace(
+                    decision, text="この端末からは、家のパジュが静かにしているのを解けないよ。"
+                )
         if not minutes or getattr(decision, "branch", "") != "light":
             return decision
-        from dataclasses import replace as _replace
 
         return _replace(
             decision,
@@ -6620,6 +6727,7 @@ class InformationProcessing:
         self._req.fired_axis = ""
         self._req.iterations = 0
         self._req.iterations_capped = False
+        self._tell_device_closed()
         self._notify_request_state(False)
         # やりとりへ渡す区間を取り出してから捨てる（渡す前に消すと空で渡る）。共起はターンの記録を使わない
         # （起点と答えに使った記憶だけ・記-s）。
