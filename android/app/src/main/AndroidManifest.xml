@@ -1,5 +1,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
   <uses-permission android:name="android.permission.INTERNET"/>
+  <!-- 名前を呼ぶ合図と書き起こしを端末の中で聞く（端-c c3）。音は機体へ送らない -->
+  <uses-permission android:name="android.permission.RECORD_AUDIO"/>
+  <!-- 音声認識の働き手を見つけるのに要る（Android 11 から、書かないと見えない） -->
+  <queries><intent><action android:name="android.speech.RecognitionService"/></intent></queries>
   <!-- 機体へは ws:// でつなぐ。家の外からは Tailscale の通り道（端-d）が暗号にする -->
   <application android:label="パジュ" android:theme="@android:style/Theme.Material.Light.NoActionBar" android:usesCleartextTraffic="true">
     <activity android:name=".MainActivity" android:exported="true" android:windowSoftInputMode="adjustResize"

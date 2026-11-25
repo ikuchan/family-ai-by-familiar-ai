@@ -26,7 +26,7 @@ object Wake {
     private val small = "ぁぃぅぇぉゃゅょっゎ".zip("あいうえおやゆよつわ").toMap()
 
     fun hear(text: String, names: List<String>): Heard {
-        val loosed = names.map(::loose).filter { it.isNotEmpty() }.sortedByDescending { it.length }
+        val loosed = loosedNames(names)
         val s = loose(text)
         val head = skipHead(s)
         val name = loosed.firstOrNull { head.startsWith(it) } ?: return Heard.NONE
@@ -34,6 +34,12 @@ object Wake {
         val rest = head.substring(name.length)
         return if (rest.all(::isFiller)) Heard.NAME_ONLY else Heard.NAMED
     }
+
+    /** 名前だけの繰り返し（「パジュパジュ」）。会話が続くあいだでも送らない（c3）。 */
+    fun repeats(text: String, names: List<String>): Boolean = isRepeat(loose(text), loosedNames(names))
+
+    private fun loosedNames(names: List<String>): List<String> =
+        names.map(::loose).filter { it.isNotEmpty() }.sortedByDescending { it.length }
 
     /** ゆるい読み：カタカナはひらがなに、長音と濁点・半濁点は落とし、小書きは大きく。 */
     fun loose(s: String): String {

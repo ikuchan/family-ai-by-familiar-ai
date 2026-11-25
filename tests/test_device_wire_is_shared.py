@@ -6,6 +6,7 @@
   話者のボタンに並べる家族の呼び名（`speakers`）を添える（端-c c2・アプリに家族の名前を書かない）。
 - 端末 → 機体：アプリが作る字（見本）を、端末の口が言葉と話者として受ける。
 - 名前の合図：アプリの聞き分け（見本の `heard`）が、機体の門の文頭の名前の決まりと同じ。
+- 会話が続くあいだ：アプリが名前なしの声を送るあいだ（見本の `window_sec`）が、機体の窓の長さと同じ（端-c c3）。
 """
 
 from __future__ import annotations
@@ -110,3 +111,10 @@ def test_the_app_hears_its_name_by_the_same_rule_as_the_machine_gate():
     names = WIRE["names"]
     for case in WIRE["wake"]:
         assert _machine_heard(case["text"], names) == case["heard"], case["text"]
+
+
+def test_the_app_keeps_the_conversation_as_long_as_the_machine_window():
+    """端-c c3：機体は端末に自分の窓が開いているかを送らない。アプリは同じ長さ（見本の `window_sec`）を自分で数える。"""
+    from familiar_agent.core.wake_window import WAKE_WINDOW_SEC
+
+    assert WIRE["window_sec"] == WAKE_WINDOW_SEC
