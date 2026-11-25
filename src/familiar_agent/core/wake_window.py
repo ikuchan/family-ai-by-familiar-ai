@@ -204,28 +204,44 @@ class WakeWindow:
     #: 窓の会話の番号と、その会話が始まった時刻（環-ar 段 A）。閉じた窓を開けるたびに番号が進む。
     session: int = 0
     started: float = 0.0
+    #: 窓の持ち主（端-b 段 1-ろ・課題9 §7.4）。家は空、端末はその端末の名前。開いている窓の持ち主は変わらず、ほかの口は
+    #: 開け直しも延ばしもできない（排他の仕組みは窓だけ）。閉じた窓は誰のものでもない（`owner_at`）。
+    owner: str = ""
+    #: いまの持ち主が窓を開けた時刻。それより前に話し始めた言葉には、持ち主は居なかった（`owner_at`）。
+    owned_since: float = 0.0
 
     def is_open(self, now: float) -> bool:
         return now < self.until
 
-    def open(self, now: float, *, resume: bool = False) -> None:
-        """名前を聞いた・キーボードで打たれた。そこから `WAKE_WINDOW_SEC`（縮めない）。
+    def owner_at(self, now: float) -> "str | None":
+        """`now` に開いていた窓の持ち主。閉じていたか、いまの持ち主が開けるより前なら None。"""
+        return self.owner if self.is_open(now) and now >= self.owned_since else None
 
-        閉じた窓を開けると、新しい窓の会話になる（環-ar 段 A）。`resume` は、返事の話し終わりに開け直すとき
-        （出-cx・出-cw）で、同じ会話の続きとして番号を変えない。まだ会話が無ければ始める。
+    def open(self, now: float, *, resume: bool = False, owner: str = "") -> None:
+        """名前を聞いた・キーボードで打たれた・端末から届いた。そこから `WAKE_WINDOW_SEC`（縮めない）。
+
+        閉じた窓を開けると、新しい窓の会話になり、開けた口（`owner`）が持ち主になる（環-ar 段 A）。`resume` は、返事の
+        話し終わりに開け直すとき（出-cx・出-cw）で、同じ会話の続きとして番号を変えない。まだ会話が無ければ始める。
+        開いている窓が別の口のものなら、何もしない。
         """
-        if not self.is_open(now) and (not resume or self.session == 0):
-            self.session += 1
-            self.started = now
+        if self.is_open(now) and self.owner != owner:
+            return
+        if not self.is_open(now):
+            # 持ち主の変わる窓は、話し終わりの開け直しでも新しい窓の会話（別の口の会話を続けない）。
+            if not resume or self.session == 0 or owner != self.owner:
+                self.session += 1
+                self.started = now
+            self.owner = owner
+            self.owned_since = now
         self.until = max(self.until, now + WAKE_WINDOW_SEC)
 
-    def extend(self, now: float) -> None:
-        """窓の中の入力・返事・つなぎ。**窓が開いているときだけ**そこから `WAKE_WINDOW_SEC` へ延ばす。
+    def extend(self, now: float, *, owner: str = "") -> None:
+        """窓の中の入力・返事・つなぎ。**窓が開いていて持ち主の口のときだけ**そこから `WAKE_WINDOW_SEC` へ延ばす。
 
         切れた後の返事は話さない（独り言）ので、延ばして開け直さない。
         """
         if self.is_open(now):
-            self.open(now)
+            self.open(now, owner=owner)
 
     def close(self) -> None:
         self.until = 0.0

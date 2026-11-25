@@ -211,6 +211,8 @@ class PajuState(StateChart):
         #: 窓のデータ（第 2 段）。窓の中だったかは、届いた時刻（話し始め）でこのデータから決める（決定 2）。
         #: 状態（閉じている、開いている）は、移りとログのために持ち、時間で切れるのは数える仕事が送る。
         self.wake = WakeWindow()
+        #: いま開いている（最後に開いた）求めの口（家は空・端-b 段 1-ろ）。頭のデータで、変えるのは `open_request` だけ。
+        self.request_mouth = ""
         #: 窓の時間を数える仕事。窓を保っているあいだは上限（`HOLD_CAP_SEC`）まで数え、保つときが終わったら立て直す。
         self._window_task: "asyncio.Task[None] | None" = None
         #: 数える仕事が `window_lapsed` を送っているあいだ真。そのあいだは仕事を止めない（送り終えてから見直す）。
@@ -513,25 +515,29 @@ class PajuState(StateChart):
             if self._limit_task is asyncio.current_task():
                 self._limit_task = None
 
-    async def open_window(self, at: float, *, resume: bool = False) -> None:
-        """名前を聞いた、打たれた、返事を言い終えた。窓を `at` から開け（`WakeWindow.open`）、開いているへ移る。
+    async def open_window(self, at: float, *, resume: bool = False, owner: str = "") -> None:
+        """名前を聞いた、打たれた、端末から届いた、返事を言い終えた。窓を `at` から開け（`WakeWindow.open`）、開いているへ移る。
 
         仮の呼びかけからも 1 回で開いているへ移る。届いた時刻は捨てない（2026-11-12 本人の決定。窓のあいだ門は窓で受けるので、
-        預かりは使われない）。
+        預かりは使われない）。`owner` は開けた口（家は空・端-b 段 1-ろ）で、開いている窓が別の口のものなら何も変えない。
         """
-        self.wake.open(at, resume=resume)
+        self.wake.open(at, resume=resume, owner=owner)
         self._hold_while_speaking()
         await self._to_open()
 
-    async def extend_window(self, at: float) -> None:
-        """窓の中の入力、返事、つなぎ。`at` に窓が開いていたときだけ延ばす（`WakeWindow.extend`）。
+    async def extend_window(self, at: float, *, owner: str = "") -> None:
+        """窓の中の入力、返事、つなぎ。`at` に窓が開いていて、持ち主が `owner` のときだけ延ばす（`WakeWindow.extend`）。
 
         状態がもう閉じていても、`at` がデータの上で窓の中なら延ばして開いているへ戻す（切れる直前に話し始めた声）。
         開いていたかは `WakeWindow.extend` が見る。閉じた窓は延びないので、`_to_open` も移さない。
         """
-        self.wake.extend(at)
+        self.wake.extend(at, owner=owner)
         self._hold_while_speaking()
         await self._to_open()
+
+    def window_owner_at(self, at: float) -> "str | None":
+        """`at` に開いていた窓の持ち主（家は空・端末はその名前）。閉じていれば None（端-b 段 1-ろ）。"""
+        return self.wake.owner_at(at)
 
     # ── 声と窓（第 5 段）、求めと窓（端-b 段 1-い）───────────────────────────────────────
     # 窓が開いているあいだの声は、どれも（答え、録音の声）窓を保ち、話し終えてから 10 秒で閉じる（本人「話し終わって
@@ -548,14 +554,21 @@ class PajuState(StateChart):
         （待ちの電子音を鳴らせないと、考え始めに耳が開く）。答えのあとの書き留め（`noting`）と、そのあとの道具のあいだも
         保たない（答えのあと 10 秒で閉じるのはいまどおり・課題9 §7.4）。
         """
+        if self.wake.owner != self.request_mouth:
+            return False  # 窓の持ち主でない口の求め（端末の窓のあいだの、家の情動の求めなど）は保たない（端-b 段 1-ろ）
         head = self.head_state()
         if head == "answering":
             return True
         return head == "thinking" and not self._in("noting") and not self._in("patrolling")
 
     def _holding(self) -> bool:
-        """窓を保つときか。声が話しているか、求めが保つとき（`_request_holds`）。"""
-        return self._in("speaking") or self._request_holds()
+        """窓を保つときか。声が話しているか、求めが保つとき（`_request_holds`）。
+
+        話しているあいだ保つのは、窓の持ち主の口の声だけ（端末の窓のあいだの家の情動の声では保たない・端-b 段 1-ろ）。
+        """
+        return (
+            self._in("speaking") and self.wake.owner == self.request_mouth
+        ) or self._request_holds()
 
     def _held(self) -> bool:
         """いま窓を保っているか（閉じる時刻が、上限の半分より先にある）。印は持たず、閉じる時刻から読む。
@@ -1295,8 +1308,11 @@ class PajuState(StateChart):
             self.sleepy = False
             return True
 
-    async def open_request(self, event: str) -> None:
+    async def open_request(self, event: str, *, mouth: str = "") -> None:
         """求めを開く（`request_opened` か `quiet_request_opened`）。頭が寝ていれば、起きるまで待ってから開く。
+
+        `mouth` は求めの口（家は空、端末はその名前・端-b 段 1-ろ）。頭のデータとして持ち、窓を保つのは窓の持ち主の求め
+        だけにする（`_request_holds`）。
 
         眠る口（`fall_asleep`）と同じ順番の中で見て送るので、どちらが先でも、寝ていると考えているは同時に成り立たない。
         捨てずに待たせるのは、機器の知らせが積む前に済ませていることがあるから（タイマーは鳴った印を付けてから積む・
@@ -1307,6 +1323,7 @@ class PajuState(StateChart):
         while True:
             async with self._turn():
                 if self.head_state() != "sleeping":
+                    self.request_mouth = mouth
                     await self._fire(event)
                     return
             if not told:

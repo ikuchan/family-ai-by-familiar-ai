@@ -329,8 +329,10 @@ class Trigger:
     passes_gate: bool = False
     # `会話入力` だけが使う。呼び手がここで返事を待っている。
     future: "asyncio.Future[str] | None" = None
-    # `会話入力` だけが使う。声（`voice`）かキーボード（`keyboard`）か（出-as 段 2）。
+    # `会話入力` だけが使う。声（`voice`）かキーボード（`keyboard`）か端末（`device`）か（出-as 段 2・端-b 段 1-ろ）。
     source: str = ""
+    #: `会話入力` だけが使う。届いた口（端-b 段 1-ろ）。家は空、端末はその端末の名前。窓の持ち主と比べる。
+    device: str = ""
     # `会話入力` だけが使う。届いた時刻（`time.monotonic()`・出-au 段 1-1）。窓はこの時刻で判定する。
     arrived: float = 0.0
     # `会話入力` だけが使う。名前で呼ばれたか（出-au 段 1-2）。門が決める。直に作った会話入力（試験）は名前ありとして
@@ -1262,7 +1264,7 @@ class InformationProcessing:
     async def _open_request(self, event: str) -> None:
         """状態図で求めを開く（寝ていれば起きるまで待つ・`PajuState.open_request`）。状態図が落ちても、会話は止めない。"""
         try:
-            await self._paju().open_request(event)
+            await self._paju().open_request(event, mouth=self._req_device())
         except Exception:  # noqa: BLE001
             logger.warning("event-loop 状態図に %s を送れなかった", event, exc_info=True)
 
@@ -1405,7 +1407,7 @@ class InformationProcessing:
                     return  # 打ち切られた求めの見張り
                 if not self._waiting_on():
                     return  # もう結果が来ている（次に飛ばすときに立て直す）
-                await self._paju().extend_window(time.monotonic())
+                await self._paju().extend_window(time.monotonic(), owner=self._req.device)
 
     def _dispatch_main_llm(
         self,
@@ -2620,6 +2622,8 @@ class InformationProcessing:
         self._pending_source = ""
         self._req.named = bool(getattr(self, "_pending_named", False)) if kind == "発話" else False
         self._pending_named = False
+        self._req.device = str(getattr(self, "_pending_device", "")) if kind == "発話" else ""
+        self._pending_device = ""
         self._req.waited = getattr(self, "_pending_waited", "") if kind == "発話" else ""
         self._req.rang = bool(getattr(self, "_pending_rang", False)) if kind == "発話" else False
         self._pending_waited, self._pending_rang = "", False
@@ -2641,8 +2645,11 @@ class InformationProcessing:
         wake = self._wake_window()
         session = getattr(self, "_pending_window_session", 0) if kind == "発話" else 0
         self._pending_window_session = 0
+        # 窓が別の口のもの（端末の窓のあいだの、家の情動や機器の求め）なら、その窓の会話を読まない（端-b 段 1-ろ）。
         self._req.window_session = session or (
-            wake.session if self._paju().window_open_at(time.monotonic()) else 0
+            wake.session
+            if self._paju().window_owner_at(time.monotonic()) == self._req.device
+            else 0
         )
         self._req.request_text = text[:500]
         self._req.live_version_id = None
@@ -2683,6 +2690,7 @@ class InformationProcessing:
         voice: Any = None,
         no_speech: "float | None" = None,
         logprob: "float | None" = None,
+        device: str = "",
     ) -> str:
         """人の言葉を待ち行列へ積み、**その反復の出力**を返す（環-f-い-2）。
 
@@ -2705,10 +2713,16 @@ class InformationProcessing:
         打ち切って答える（決定ジ）。
 
         `on_text` は出力先（駆動体が起こす反復も使う）。`source` は声（`voice`）かキーボード
-        （`keyboard`）か（出-as 段 2）。`arrived` は届いた時刻（`time.monotonic()`・出-au 段 1-1）で、
-        無ければいま。
+        （`keyboard`）か端末（`device`）か（出-as 段 2）。`arrived` は届いた時刻（`time.monotonic()`・出-au 段 1-1）で、
+        無ければいま。`device` は届いた端末の名前（家は空・端-b 段 1-ろ）。
         """
         agent = self._agent
+        if (source == "device") != bool(device):
+            # 出どころと口は対で決まる。食い違えば、どちらの決まりで受けるかが分からない（端-b 段 1-ろ）。
+            logger.warning(
+                "event-loop 端末の出どころと口の名前が食い違うので受けない（%s）", source
+            )
+            return ""
         self._on_text = on_text or self._on_text
         self._ensure_driver()
         # 名前が区切りの直後にあれば、そこから後ろだけを受ける（出-bh・10/11 08:18 に前の会話がくっついた呼びかけを捨てた）。
@@ -2728,6 +2742,7 @@ class InformationProcessing:
             voice=voice,
             no_speech=no_speech,
             logprob=logprob,
+            device=device,
         )
         if await self._swallow_if_unheard(trigger):
             if trigger.ear_dropped:
@@ -3409,18 +3424,28 @@ class InformationProcessing:
             # （添えた言葉に答えが返らないおそれがある・2026-11-10 本人の決定ア）。確認待ち（知-o）の返事は、いままでどおり
             # 取り出して 3 択の求めにする（駆動体の `_confirming` の分かれ）。話しかけない求めのあいだは、いつも取り出す（決定ジ）。
             utterance = None
-            if self._quiet_request_open() or (
+            quiet = self._quiet_request_open()
+            if quiet or (
                 not self._main_llm_in_flight()
-                and (not busy or self._joins_words() or self._confirming())
+                and (not busy or self._joins_words() or self._confirm_answered_here())
             ):
+                # 調べものが飛んでいる求めに添えるのは、同じ口の言葉だけ（端-b 段 1-ろ）。口の違う言葉は、その求めが閉じるまで待たせる。
+                joining = busy and not quiet
                 utterance = next(
-                    (t for t in self._held + fresh if t.kind in _NEVER_HELD_KINDS), None
+                    (
+                        t
+                        for t in self._held + fresh
+                        if t.kind in _NEVER_HELD_KINDS and (not joining or self._same_mouth(t))
+                    ),
+                    None,
                 )
             if utterance is not None:
                 if utterance in self._held:
                     self._held.remove(utterance)
                     utterance.waited = True  # 待たせた（環-aw 第 1 段 項目 9）
                 self._held.extend(t for t in fresh if t is not utterance)
+                if self._owned_by_another(utterance):
+                    continue
                 return utterance
             if busy:
                 # 調査中は新しい求めを待たせる（主LLM が考えている最中の会話入力と、情動・機器の求めのあいだの会話入力も）。
@@ -3431,6 +3456,8 @@ class InformationProcessing:
                 self._held.extend(fresh)
                 taken = self._held.pop(0)
                 taken.waited = True  # 待たせた（環-aw 第 1 段 項目 9）
+                if self._owned_by_another(taken):
+                    continue
                 return taken
             elif fresh:
                 # ③ 同時に届いた中から 1 つ選ぶ（機器 ＞ 情動）。選ばれなかったものは保留箱へ。
@@ -3500,7 +3527,8 @@ class InformationProcessing:
                 elif (
                     trigger.kind == "会話入力"
                     and self._in_flight_count
-                    and not self._confirming()  # 確認待ちのあいだは添えず、3 択の求めにする（知-o）
+                    # 確認待ちのあいだは添えず、3 択の求めにする（知-o）。端末の求めは家の確認を読まないので添える（端-b 段 1-ろ）
+                    and not self._confirm_answered_here()
                 ):
                     # 調べもの中の入力は、名前があってもなくても、新しい求めを始めず前の求めに添える（出-au 段 3、環-aw 決定ホ）。
                     # ここへ来るのは会話の求めのときだけ（情動・機器の求めのあいだは `_take_trigger` が待たせる・決定ア。
@@ -3541,7 +3569,7 @@ class InformationProcessing:
     def _waiting_words(self) -> "list[Trigger]":
         """主LLM が考えているあいだに言い足され、保留箱で待っている言葉（名前があってもなくても・環-aw 決定ホ）。"""
         held = self.__dict__.get("_held", [])  # 殻だけの器（テスト）でも落ちない
-        return [t for t in held if t.kind == "会話入力"]
+        return [t for t in held if t.kind == "会話入力" and self._same_mouth(t)]
 
     async def _rethink_or_speak(self, draft: str) -> str:
         """主LLM の返りが来たとき、考えているあいだに言い足された言葉（名前があっても・環-aw 決定ホ）があれば、**考え直す**か
@@ -3617,6 +3645,7 @@ class InformationProcessing:
             return
         stopped = False
         self._pending_source = trigger.source  # 声かキーボードか（出-bg：合図は声だけ）
+        self._pending_device = trigger.device  # 届いた口（返事の行き先・端-b 段 1-ろ）
         # 名前で呼ばれたか（出-cx：返事の話し終わりから窓を開ける）
         self._pending_named = trigger.named
         self._pending_window_session = (
@@ -3922,7 +3951,8 @@ class InformationProcessing:
             recent_ctx=self._recent_for_judges()
             if self._req.trigger_kind == "発話" and not returned_lookups
             else "",
-            typed=self._req.source == "keyboard",
+            # 端末の言葉も、端末が名前の合図を聞いた話しかけなので、黙るかを判定しない（端-b 段 1-ろ・仮）。
+            typed=self._req.source == "keyboard" or bool(self._req.device),
             self_understanding=load_summary() or getattr(agent, "_me_md", ""),
             family_md=getattr(agent, "_family_md", ""),
             people_md=str(getattr(agent, "_people_md", "") or ""),
@@ -4003,9 +4033,20 @@ class InformationProcessing:
         """確認待ちが生きているか（知-o）。状態図のデータを読む（300 秒で切れたら無い・決定ゼ）。"""
         return self._paju().confirm() is not None
 
+    def _confirm_answered_here(self) -> bool:
+        """いまの求めが、確認待ちの答えを読む求めか。確認を聞くのは家の求めだけなので、端末の求めは読まない（端-b 段 1-ろ）。
+
+        情動を止める・考えているあいだの声を受けるなど、家の決まりは `_confirming` を見たまま（確認待ちは生きている）。
+        """
+        return self._confirming() and not self._req_device()
+
     def _confirm_inputs(self) -> dict:
-        """確認待ちのあいだ調停へ渡す、問いの文・決まった促し・促す間隔が空いたか（知-o・2026-10-13）。"""
-        if not self._confirming():
+        """確認待ちのあいだ調停へ渡す、問いの文・決まった促し・促す間隔が空いたか（知-o・2026-10-13）。
+
+        確認を聞くのは家の求めだけなので（端末の求めでは、確かめて掛ける道具を使わない）、端末の求めには渡さない。端末の言葉を、
+        家で聞いた確認の答えに読まない（端-b 段 1-ろ）。確認待ちそのものは生きたまま（家の言葉で答えられる）。
+        """
+        if not self._confirm_answered_here():
             return {}
         from ..core.confirm_state import prompt_due, prompt_text
 
@@ -4323,7 +4364,7 @@ class InformationProcessing:
         asked: list = []
         # 確認待ちの問いも申し出と読まれる（出-dj の実験 0.94）。確認待ちが答えを読むので、そのあいだは聞かない。
         # 300 秒で切れた確認は無いと見て、申し出を預ける（決定ゼ）。
-        confirming = self._confirming()
+        confirming = self._confirm_answered_here()
         min_conf = float(getattr(agent.config, "jev_confidence_min", 0.6))
         violation, verdicts = await jev_judges.judge_speech_and_verdicts(
             getattr(agent, "_jev", None),
@@ -4656,6 +4697,10 @@ class InformationProcessing:
                 )
                 return self._swallowed(trigger)
         if trigger.kind == "会話入力":
+            # 口と窓の持ち主は、声だけの入口（耳・知らない声・考えているあいだ）のあと、名前と窓を読むどの門よりも先に見る。
+            mouth = await self._mouth_gate(trigger)
+            if mouth is not None:
+                return mouth
             if trigger.source == "voice" and is_name_repeat(trigger.query, names):
                 # 名前だけの繰り返しは想定外（2026-10-07 本人の決定）。窓が開いていても、値に関わらず捨てる。
                 logger.info(
@@ -4815,6 +4860,62 @@ class InformationProcessing:
         if self._muted:
             self._pending_heard = self._take_muted()
         return False
+
+    async def _mouth_gate(self, trigger: "Trigger") -> "bool | None":
+        """口と窓の持ち主の門（端-b 段 1-ろ・課題9 §7.4）。捨てた（真）・通した（偽）・この先の門に任せる（None）を返す。
+
+        排他の仕組みは窓だけである。窓が開いていて持ち主が別の口なら、その口の言葉は名前があっても断る（窓は開け直さず、
+        延ばさず、持ち主も変えない）。家の言葉はこの先の門（耳・知らない声・黙っている・窓）に任せる。
+
+        端末の言葉は、端末の中で名前の合図を聞いてあるので、名前で呼ばれた言葉として受け、窓をその端末のものとして開ける。
+        耳の入口と家の黙っている依頼は家の音と声の決まりなので見ない（b4：黙っているあいだも端末には返事をし、黙るのは
+        解かない）。家で控えた言葉は、家の求めへ渡すものなので取らない。
+        """
+        at = self._arrival(trigger)
+        owner = self._paju().window_owner_at(at)
+        if owner is not None and owner != trigger.device:
+            logger.info(
+                "event-loop 窓が%sのものなので、%sの言葉を断る（%d 字）",
+                "端末" if owner else "家",
+                "端末" if trigger.device else "家",
+                len(trigger.query or ""),
+            )
+            return self._swallowed(trigger)
+        if not trigger.device:
+            return None
+        trigger.named = True
+        await self._paju().open_window(at, owner=trigger.device)
+        trigger.window_session = self._wake_window().session  # 窓で受けた（環-ar 段 B）
+        return False
+
+    def _owned_by_another(self, trigger: "Trigger") -> bool:
+        """言葉を列から取り出すとき、窓がいま別の口のものなら断る（真・端-b 段 1-ろ）。
+
+        門で受けてから取り出すまでに（待たせているあいだ、門の中で Jev を待つあいだ）、窓が閉じて別の口が開け直していることが
+        ある。門で受けたときの持ち主のまま答えると、窓の持ち主でない口と話すことになる。窓が閉じていれば断らない
+        （門で受けた言葉の続き）。
+        """
+        if trigger.kind != "会話入力":
+            return False
+        owner = self._paju().window_owner_at(time.monotonic())
+        if owner is None or owner == trigger.device:
+            return False
+        logger.info(
+            "event-loop 待たせた%sの言葉は、窓がいま%sのものなので断る",
+            "端末" if trigger.device else "家",
+            "端末" if owner else "家",
+        )
+        self._swallowed(trigger)
+        return True
+
+    def _same_mouth(self, trigger: "Trigger") -> bool:
+        """その言葉が、いまの求めと同じ口から届いたか（端-b 段 1-ろ）。口の違う言葉は、言い足しにも確認の答えにもしない。"""
+        return trigger.device == self._req_device()
+
+    def _req_device(self) -> str:
+        """いまの求めの口（家は空）。殻だけの器（試験）でも落ちない。"""
+        device = getattr(self.__dict__.get("_req"), "device", "")
+        return device if isinstance(device, str) else ""
 
     async def _ear(self) -> str:
         """耳の入口のいまの状態（`設計方針_パジュの状態` §3.1）。持ち主はタイマーと音楽で、`agent.mic_gate_reason` が
@@ -5148,8 +5249,9 @@ class InformationProcessing:
         wake = self._wake_window()
         if wake.session == 0:
             return False
+        # 窓が別の口のものなら、その窓の会話の中ではない（端-b 段 1-ろ・家の求めが端末の窓の会話に行を書かない）。
         return (
-            self._paju().window_open_at(time.monotonic())
+            self._paju().window_owner_at(time.monotonic()) == self._req_device()
             or self._req.window_session == wake.session
         )
 
@@ -5166,7 +5268,7 @@ class InformationProcessing:
     async def _extend_window_for_conversation(self) -> None:
         """会話の求めで返事を出したら、そこから窓の長さ（10 秒）へ延ばす（開いているときだけ）。"""
         if self._req.trigger_kind == "発話":
-            await self._paju().extend_window(time.monotonic())
+            await self._paju().extend_window(time.monotonic(), owner=self._req.device)
 
     @staticmethod
     def _arrival(trigger: "Trigger") -> float:
@@ -5676,7 +5778,7 @@ class InformationProcessing:
             or "search_deferred" not in spent
             or "deep_research" in spent
             or not self._deep_available()
-            or self._confirming()
+            or self._confirm_answered_here()
             or not str(self._req.request_text or "").strip()  # 頼みが空なら、何を深く調べるかが無い
             or self._paju().offer_waiting()  # 答えが申し出で終わった（出-dj）。問いを 2 つ続けない
         ):
@@ -5816,7 +5918,9 @@ class InformationProcessing:
                 # 「いま話していい？」への名前の無い「いいよ」を、門で捨てずに受ける。パジュから始めた求めなので、声が出なかった
                 # ときは開けない（何も言っていないのに、家族どうしの会話を受けてしまう）。
                 await self._paju().open_window(
-                    time.monotonic(), resume=self._req.window_session == wake.session
+                    time.monotonic(),
+                    resume=self._req.window_session == wake.session,
+                    owner=self._req.device,
                 )
         return played
 
@@ -5894,7 +5998,12 @@ class InformationProcessing:
         return {**tool_input, "pose": pose}
 
     def _silence_note(self) -> str:
-        """調停へ渡す「いま黙っている」の一行（無ければ空）。黙っている前提が無いと「解かれた」と読めない。"""
+        """調停へ渡す「いま黙っている」の一行（無ければ空）。黙っている前提が無いと「解かれた」と読めない。
+
+        端末の求めには渡さない。「黙って」は家で声を出さない頼みで、端末への返事は妨げない（b4・端-b 段 1-ろ）。
+        """
+        if self._req_device():
+            return ""
         with contextlib.suppress(Exception):
             from ..core.silence_rules import silence_note
 
@@ -6244,6 +6353,11 @@ class InformationProcessing:
         """
         from ..core.silence_rules import is_release
 
+        if self._req_device():
+            # 端末の言葉では、家の「黙って」を掛けも解きもしない（b4・端-b 段 1-ろ）。
+            if decision.silence_minutes or decision.lift_silence:
+                logger.info("event-loop 端末の求めなので、家の黙る依頼は掛けも解きもしない")
+            return None
         if decision.silence_minutes:
             return await self._accept_silence(decision.silence_minutes)
         if decision.lift_silence or is_release(utterance):
